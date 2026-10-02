@@ -486,11 +486,24 @@ static void t20_daynight_work(struct work_struct *work)
 {
 	struct tx_isp_core_device *core =
 		container_of(work, struct tx_isp_core_device, daynight_work);
+
+#if defined(CONFIG_SOC_T10)
+	/*
+	 * The T10 recovery does not provide the IQ calibration object that the
+	 * day/night path dereferences through apical_api_calibration(); running
+	 * it faults at NULL+0x1524 and the resulting work/IRQ storm panics the
+	 * board.  Skip the deferred update until T10 calibration is recovered.
+	 */
+	printk_once(KERN_WARNING "%s: skipped on T10 (no IQ calibration)\n",
+		    __func__);
+	(void)core;
+#else
 	int ret;
 
 	ret = apical_isp_day_or_night_s_ctrl_internal(core);
 	if (ret)
 		printk(KERN_ERR "%s: day/night update failed: %d\n", __func__, ret);
+#endif
 }
 
 static int isp_core_interrupt_service_routine(struct v4l2_subdev *sd, u32 status, bool *handled)
