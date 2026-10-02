@@ -334,9 +334,11 @@ static void regtrace_t23_source_ae_hlil_work_body(struct work_struct *work);
 
 static void regtrace_t23_source_ae_hlil_work(struct work_struct *work)
 {
+    T23H_ENTER(T23H_AE_WORK, 0);
     regtrace_t23_text_check("ae_hlil_work-enter", 0);
     regtrace_t23_source_ae_hlil_work_body(work);
     regtrace_t23_text_check("ae_hlil_work-exit", 0);
+    T23H_EXIT(T23H_AE_WORK);
 }
 
 static void regtrace_t23_source_ae_hlil_work_body(struct work_struct *work)

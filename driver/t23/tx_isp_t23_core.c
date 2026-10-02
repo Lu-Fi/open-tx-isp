@@ -10303,6 +10303,8 @@ static bool regtrace_t23_ivdc_clks_enabled;
 static uint32_t regtrace_t23_msca_ch_en;
 static bool regtrace_t23_core_started;
 
+#include "tx_isp_t23_hangdbg.inc"
+
 #define REGTRACE_T23_CORE_DMA_BUFS 6
 
 struct regtrace_t23_core_dma_buf {
@@ -10767,14 +10769,21 @@ static void regtrace_t23_set_irq_enabled(const char *name,
     if (enable) {
         if (*enabled)
             return;
+        T23H_ENTER(T23H_IRQGATE, (enable ? 0x10000U : 0) | irq);
+        T23H_MARK(T23H_IRQGATE, 2);
         tx_isp_enable_irq((uintptr_t)irq_info);
         *enabled = true;
     } else {
         if (!*enabled)
             return;
+        T23H_ENTER(T23H_IRQGATE, (enable ? 0x10000U : 0) | irq);
+        /* disable_irq() waits for a running handler of this line. */
+        T23H_MARK(T23H_IRQGATE, 3);
         tx_isp_disable_irq((uintptr_t)irq_info);
         *enabled = false;
     }
+    T23H_STAGE(T23H_IRQGATE, 4);
+    T23H_EXIT(T23H_IRQGATE);
 
     printk(KERN_WARNING "tx_isp_t23_recovered: %s irq %s irq=%u sd=%p hw_mask=0x%x channel=%d reason=%s\n",
            name ? name : "subdev", enable ? "enable" : "disable",
@@ -15070,9 +15079,12 @@ static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned 
 {
     long ret;
 
+    T23H_ENTER(T23H_TXISP_IOCTL, cmd);
+    regtrace_t23_hang_event(T23H_TXISP_IOCTL, cmd);
     regtrace_t23_text_check("tx_isp_ioctl-enter", cmd);
     ret = regtrace_tx_isp_ioctl_body(file, cmd, arg);
     regtrace_t23_text_check("tx_isp_ioctl-exit", cmd);
+    T23H_EXIT(T23H_TXISP_IOCTL);
     return ret;
 }
 
@@ -15220,9 +15232,11 @@ static long regtrace_isp_m0_ioctl(struct file *file, unsigned int cmd, unsigned 
 {
     long ret;
 
+    T23H_ENTER(T23H_M0_IOCTL, cmd);
     regtrace_t23_text_check("isp_m0_ioctl-enter", cmd);
     ret = regtrace_isp_m0_ioctl_body(file, cmd, arg);
     regtrace_t23_text_check("isp_m0_ioctl-exit", cmd);
+    T23H_EXIT(T23H_M0_IOCTL);
     return ret;
 }
 
@@ -15864,10 +15878,12 @@ static long regtrace_framechan_repair_dqbuf(int channel, unsigned long arg,
     slot = -1;
     if (regtrace_t23_source_frame_done) {
         if (!nonblock) {
+            T23H_STAGE(T23H_DQBUF, 2);
             ret = wait_event_interruptible(
                 regtrace_framechan_done_wait[channel],
                 regtrace_framechan_done_count[channel] ||
                 !regtrace_framechan_streaming[channel]);
+            T23H_STAGE(T23H_DQBUF, 3);
             if (ret)
                 return ret;
         }
@@ -15976,6 +15992,8 @@ static long regtrace_framechan_wait_frame(int channel, unsigned long arg)
     return 0;
 }
 
+#include "tx_isp_t23_hangdbg_timer.inc"
+
 /*
  * Start the TISP core (IQ banks, statistics DMA rings, run) before any input
  * is switched on.  Called with regtrace_framechan_stream_lock held and the
@@ -16044,29 +16062,44 @@ static int regtrace_framechan_stream_on(struct file *file, int channel)
 {
     int ret;
 
+    T23H_ENTER(T23H_STREAMON, channel);
+    regtrace_t23_hang_event(T23H_STREAMON, 1);
     mutex_lock(&regtrace_framechan_stream_lock);
+    T23H_MARK(T23H_STREAMON, 2);
     regtrace_t23_enable_stream_clks();
+    T23H_MARK(T23H_STREAMON, 3);
     ret = regtrace_t23_tisp_prestart("framechan-streamon");
     if (ret) {
         mutex_unlock(&regtrace_framechan_stream_lock);
+        T23H_EXIT(T23H_STREAMON);
         return ret;
     }
     if (channel >= 0 && channel < REGTRACE_FRAMECHAN_COUNT) {
+        T23H_MARK(T23H_STREAMON, 4);
         if (!regtrace_framechan_streaming[channel])
             regtrace_framechan_drop_stale_done(channel);
         regtrace_framechan_stream_mask |= 1U << channel;
         regtrace_framechan_stream_owner[channel] = file;
     }
+    T23H_MARK(T23H_STREAMON, 5);
     regtrace_framechan_set_streaming(channel, true);
     regtrace_t23_enable_stream_clks();
+    T23H_MARK(T23H_STREAMON, 6);
     if (!regtrace_t23_vic_streaming)
         regtrace_t23_source_input_stream(1, "framechan-streamon");
+    T23H_MARK(T23H_STREAMON, 7);
     regtrace_t23_direct_vic_input_stream(1, "framechan-streamon");
+    T23H_MARK(T23H_STREAMON, 8);
     regtrace_t23_tisp_stream_regs(1, channel, "framechan-streamon");
+    T23H_MARK(T23H_STREAMON, 9);
     regtrace_t23_set_msca_stream(channel, 1, "framechan-streamon");
+    T23H_MARK(T23H_STREAMON, 10);
     regtrace_t23_direct_vic_mdma_stream(channel, 1, "framechan-streamon");
+    T23H_MARK(T23H_STREAMON, 11);
     regtrace_t23_stream_irq_gate(1, "framechan-streamon", channel);
+    T23H_MARK(T23H_STREAMON, 12);
     mutex_unlock(&regtrace_framechan_stream_lock);
+    T23H_EXIT(T23H_STREAMON);
     return 0;
 }
 
@@ -16159,22 +16192,33 @@ static void regtrace_framechan_stream_off_locked(int channel,
 {
     bool last;
 
+    T23H_ENTER(T23H_STREAMOFF, channel);
+    T23H_MARK(T23H_STREAMOFF, 1);
     if (channel >= 0 && channel < REGTRACE_FRAMECHAN_COUNT) {
         regtrace_framechan_stream_mask &= ~(1U << channel);
         regtrace_framechan_stream_owner[channel] = NULL;
     }
     last = !regtrace_framechan_stream_mask;
+    T23H_MARK(T23H_STREAMOFF, 2);
     regtrace_framechan_set_streaming(channel, false);
+    T23H_MARK(T23H_STREAMOFF, 3);
     if (last)
         regtrace_t23_direct_vic_mdma_stream(channel, 0, reason);
+    T23H_MARK(T23H_STREAMOFF, 4);
     regtrace_t23_set_msca_stream(channel, 0, reason);
     if (last) {
+        T23H_MARK(T23H_STREAMOFF, 5);
         regtrace_t23_source_input_stream(0, reason);
+        T23H_MARK(T23H_STREAMOFF, 6);
         regtrace_t23_direct_vic_input_stream(0, reason);
+        T23H_MARK(T23H_STREAMOFF, 7);
         regtrace_t23_tisp_stream_regs(0, -1, reason);
+        T23H_MARK(T23H_STREAMOFF, 8);
         regtrace_t23_stream_irq_gate(0, reason, channel);
         regtrace_t23_txisp_streaming = false;
     }
+    T23H_MARK(T23H_STREAMOFF, 9);
+    T23H_EXIT(T23H_STREAMOFF);
     printk(KERN_INFO "tx_isp_t23_recovered: framechan%d stream off, still streaming mask=0x%x reason=%s\n",
            channel, regtrace_framechan_stream_mask, reason ? reason : "?");
 }
@@ -16247,11 +16291,20 @@ static long regtrace_framechan_ioctl(struct file *file, unsigned int cmd, unsign
                  cmd != REGTRACE_FRAMECHAN_WAIT;
     long ret;
 
-    if (check)
+    unsigned int path = cmd == REGTRACE_FRAMECHAN_QBUF ? T23H_QBUF :
+                        cmd == REGTRACE_FRAMECHAN_DQBUF ? T23H_DQBUF :
+                        cmd == REGTRACE_FRAMECHAN_WAIT ? T23H_WAIT :
+                        T23H_FC_IOCTL;
+
+    T23H_ENTER(path, cmd);
+    if (check) {
+        regtrace_t23_hang_event(T23H_FC_IOCTL, cmd);
         regtrace_t23_text_check("framechan_ioctl-enter", cmd);
+    }
     ret = regtrace_framechan_ioctl_body(file, cmd, arg);
     if (check)
         regtrace_t23_text_check("framechan_ioctl-exit", cmd);
+    T23H_EXIT(path);
     return ret;
 }
 
@@ -33028,12 +33081,20 @@ int32_t isp_irq_handle(int32_t irq, void *dev_id)
         if (!regtrace_t23_valid_ptr((uintptr_t)base))
             return IRQ_NONE;
 
+        T23H_ENTER(T23H_VIC_IRQ, irq);
         status0 = readl(base + 0x1e0);
         status1 = readl(base + 0x1e4);
         mask0 = readl(base + 0x1e8);
         mask1 = readl(base + 0x1ec);
         pending0 = status0 & ~mask0;
         pending1 = status1 & ~mask1;
+        if (T23H_ON()) {
+            T23H_FIELD(vic_status0) = status0;
+            T23H_FIELD(vic_status1) = status1;
+            if (!pending0 && !pending1)
+                T23H_FIELD(vic_empty)++;
+            T23H_STAGE(T23H_VIC_IRQ, 2);
+        }
         if (pending0)
             writel(pending0, base + 0x1f0);
         if (pending1)
@@ -33049,20 +33110,27 @@ int32_t isp_irq_handle(int32_t irq, void *dev_id)
                    "tx_isp_t23_recovered: VIC irq=%d count=%u status=0x%x/0x%x pending=0x%x/0x%x mask=0x%x/0x%x\n",
                    irq, regtrace_t23_vic_irq_count, status0, status1,
                    pending0, pending1, mask0, mask1);
+        T23H_EXIT(T23H_VIC_IRQ);
         return IRQ_HANDLED;
     }
 
     if (sd == regtrace_t23_core_sd) {
         int channel;
+        int drained_total = 0;
 
         base = (void __iomem *)(uintptr_t)*(u32 *)(sd + 0xb8);
         if (!regtrace_t23_valid_ptr((uintptr_t)base))
             return IRQ_NONE;
 
+        T23H_ENTER(T23H_CORE_IRQ, irq);
         status0 = readl(base + 0xb4);
         if (status0) {
             writel(status0, base + 0xb8);
             wmb();
+        }
+        if (T23H_ON()) {
+            T23H_FIELD(core_status) = status0;
+            T23H_STAGE(T23H_CORE_IRQ, 2);
         }
         regtrace_t23_core_irq_count++;
         if (regtrace_t23_log_irq_count(regtrace_t23_core_irq_count))
@@ -33070,10 +33138,13 @@ int32_t isp_irq_handle(int32_t irq, void *dev_id)
                    "tx_isp_t23_recovered: core irq=%d count=%u status=0x%x\n",
                    irq, regtrace_t23_core_irq_count, status0);
 
+        T23H_STAGE(T23H_CORE_IRQ, 3);
         regtrace_t23_source_ae_stats_irq(status0,
                                          regtrace_t23_core_irq_count);
+        T23H_STAGE(T23H_CORE_IRQ, 4);
         regtrace_t23_source_awb_stats_irq(status0,
                                           regtrace_t23_core_irq_count);
+        T23H_STAGE(T23H_CORE_IRQ, 5);
 
         /* OEM: mbus_to_bayer_write() after a sensor Bayer change. */
         if (ACCESS_ONCE(regtrace_t23_bayer_pending) != UINT_MAX) {
@@ -33090,6 +33161,7 @@ int32_t isp_irq_handle(int32_t irq, void *dev_id)
 
                 if (!(regtrace_t23_msca_ch_en & (1U << channel)))
                     continue;
+                T23H_STAGE(T23H_CORE_IRQ, 6 + channel);
                 fifo_base = ((uint32_t)channel + 0xd0U) << 8;
                 fifo_status = readl(base + fifo_base + 0x13cU);
                 while (drained < REGTRACE_FRAMECHAN_QBUF_SLOTS &&
@@ -33104,11 +33176,20 @@ int32_t isp_irq_handle(int32_t irq, void *dev_id)
                     drained++;
                     fifo_status = readl(base + fifo_base + 0x13cU);
                 }
+                drained_total += drained;
+                if (T23H_ON()) {
+                    T23H_FIELD(msca_status) = fifo_status;
+                    T23H_FIELD(msca_popped) += drained;
+                }
                 if (regtrace_t23_log_irq_count(regtrace_t23_core_irq_count))
                     printk(KERN_INFO "tx_isp_t23_recovered: core MSCA fifo ch=%d status=0x%x drained=%d\n",
                            channel, fifo_status, drained);
             }
         }
+        if (T23H_ON() && !status0 && !drained_total)
+            T23H_FIELD(core_empty)++;
+        T23H_STAGE(T23H_CORE_IRQ, 9);
+        T23H_EXIT(T23H_CORE_IRQ);
         return IRQ_HANDLED;
     }
 
@@ -33117,16 +33198,20 @@ int32_t isp_irq_handle(int32_t irq, void *dev_id)
         if (!regtrace_t23_valid_ptr((uintptr_t)base))
             return IRQ_NONE;
 
+        T23H_ENTER(T23H_IVDC_IRQ, irq);
         status0 = readl(base + 0x44);
         if (status0) {
             writel(status0, base + 0x54);
             wmb();
+        } else if (T23H_ON()) {
+            T23H_FIELD(ivdc_empty)++;
         }
         regtrace_t23_ivdc_irq_count++;
         if (regtrace_t23_log_irq_count(regtrace_t23_ivdc_irq_count))
             printk(KERN_INFO
                    "tx_isp_t23_recovered: IVDC irq=%d count=%u status=0x%x\n",
                    irq, regtrace_t23_ivdc_irq_count, status0);
+        T23H_EXIT(T23H_IVDC_IRQ);
         return IRQ_HANDLED;
     }
 
@@ -101253,8 +101338,10 @@ int32_t init_module(void)
         regtrace_t23_vin_proc_exit();
         tx_isp_sinfo_exit();
     }
-    if (!ret)
+    if (!ret) {
         regtrace_t23_text_check("module-init", 0);
+        regtrace_t23_hang_init();
+    }
     return ret;
 #endif
     return tx_isp_init();
@@ -101299,6 +101386,7 @@ void cleanup_module(void)
     regtrace_unregister_tx_isp_miscdev();
     regtrace_t23_vin_proc_exit();
     tx_isp_sinfo_exit();
+    regtrace_t23_hang_exit_module();
     return;
 #endif
     tx_isp_exit();
