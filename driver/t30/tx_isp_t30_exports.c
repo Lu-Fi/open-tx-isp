@@ -33,6 +33,7 @@ extern int private_jzgpio_set_func(int port, int function,
 extern void private_msleep(unsigned int milliseconds);
 extern bool private_capable(int capability);
 extern int private_driver_get_interface(void);
+extern int isp_printf(u32 level, const char *format, ...);
 extern int tx_isp_subdev_init(struct platform_device *device,
 			      struct tx_isp_subdev *subdev,
 			      struct tx_isp_subdev_ops *ops);
@@ -54,5 +55,11 @@ EXPORT_SYMBOL(private_jzgpio_set_func);
 EXPORT_SYMBOL(private_msleep);
 EXPORT_SYMBOL(private_capable);
 EXPORT_SYMBOL(private_driver_get_interface);
+/*
+ * The SDK's tx-isp-debug.c exports isp_printf, and every SDK-built T30 sensor
+ * module reaches it through ISP_ERROR/ISP_WARNING in tx-isp-debug.h; without
+ * the export, sensor_<name>_t30.ko fails to load with "Unknown symbol".
+ */
+EXPORT_SYMBOL(isp_printf);
 EXPORT_SYMBOL(tx_isp_subdev_init);
 EXPORT_SYMBOL(tx_isp_subdev_deinit);
