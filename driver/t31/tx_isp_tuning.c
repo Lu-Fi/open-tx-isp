@@ -29985,12 +29985,17 @@ static void tisp_apply_hvflip(struct isp_tuning_data *tuning)
  * the live sensor.
  *
  * shvflip != 1: the flip is done by the MSCA alone (0x9818).
- * shvflip == 1: the LSC tables follow the flip, the request goes to the
+ * shvflip == 1: the LSC tables follow the vertical flip, the request goes to the
  * sensor as TX_ISP_EVENT_SENSOR_VFLIP with the whole mask (OEM: pending slot
  * 5, core+0x1a8/+0x1ac, sent by ispcore_irq_thread_handle 0x66ae0; the
  * sensor driver takes the bits it implements, sc4336p bit 1 = V via 0x3221),
  * and the MSCA keeps only H (mask & 0xfd).  A sensor whose Bayer order
  * changes reports it through mbus_change, see ispcore_interrupt_service_routine.
+ *
+ * Unlike the OEM, the LSC mesh is turned for V only.  The LSC works on the
+ * raw picture before the MSCA, so it sees exactly the flip the sensor
+ * does, and H stays with the MSCA.  The OEM also mirrors the columns for
+ * H, which shades the wrong side with a lens that is not centred.
  */
 int apical_isp_hvflip_update(void *arg1, int arg2)
 {
@@ -30003,7 +30008,7 @@ int apical_isp_hvflip_update(void *arg1, int arg2)
 
 		tisp_lsc_set_sensor_flip(sensor->video.vi_max_width,
 					 sensor->video.vi_max_height,
-					 (u8)(arg2 & 3));
+					 (u8)(arg2 & LSC_FLIP_UPSIDE));
 		ret = tx_isp_sensor_hvflip_control(arg2);
 		if (ret)
 			pr_warn("hvflip: sensor flip 0x%x failed: %d\n", arg2, ret);
