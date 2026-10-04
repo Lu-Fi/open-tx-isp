@@ -5605,7 +5605,7 @@ int32_t tiziano_af_init(uint32_t a0, uint32_t a1);
 int32_t tisp_af_get_metric(uintptr_t a0);
 int32_t tisp_af_get_attr(uintptr_t a0);
 int32_t tisp_af_set_attr_refresh(void);
-int32_t tisp_af_set_attr(uint32_t a0);
+int32_t tisp_af_set_attr(const void *attr);
 int32_t tiziano_af_dn_params_refresh(void);
 int32_t tisp_af_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2);
 int32_t tisp_af_param_array_set(int32_t param_id, int32_t src, int32_t *out_size);
@@ -31950,65 +31950,42 @@ int32_t tisp_af_get_attr(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002faac origin=model_output original=tisp_af_set_attr_refresh */
 int32_t tisp_af_set_attr_refresh(void)
 {
-    uint16_t *src = (uint16_t *)0xa741e;
-    uint32_t *dst1 = (uint32_t *)((char *)&AFParam_Tilt + 0x8);
-    uint32_t *dst2 = (uint32_t *)&stAFParam_Zone;
+	/*
+	 * Spread af_attr back over the AF tables (inverse of tisp_af_get_attr /
+	 * tiziano_af_init). The recovered body read through the absolute
+	 * address 0xa741e and wrote 4 bytes past the 20-byte AFParam_Tilt.
+	 */
+	uint32_t *tilt = (uint32_t *)AFParam_Tilt;
+	uint32_t *threshold = (uint32_t *)stAFParam_ThresEnable;
+	uint32_t *zone = (uint32_t *)stAFParam_Zone;
 
-    ((void **)dst1)[0] = src[0];
-    ((void **)dst1)[1] = src[1];
-    ((void **)dst1)[2] = src[2];
-    ((void **)dst1)[3] = src[3];
-    ((void **)dst2)[0] = (uint8_t)src[4];
-    ((void **)dst2)[1] = (uint8_t)src[5];
-    ((void **)dst2)[2] = (uint8_t)src[6];
-    ((void **)dst2)[3] = (uint8_t)src[7];
+	tilt[2] = af_attr.tilt_hi;
+	tilt[3] = af_attr.tilt_lo;
+	threshold[4] = af_attr.threshold;
+	tilt[0] = af_attr.tilt_base;
+	zone[2] = af_attr.zone_rows;
+	zone[0] = af_attr.zone_mode;
+	zone[3] = af_attr.zone_cols;
+	zone[1] = af_attr.zone_step;
 
-    return tiziano_af_set_regs();
+	return tiziano_af_set_regs();
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002fb14 origin=fragment_seed original=tisp_af_set_attr */
-int32_t tisp_af_set_attr(uint32_t a0)
+int32_t tisp_af_set_attr(const void *attr)
 {
-    uint32_t local_14 = 0;
-    uint32_t local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    local_18 = a0;
-    local_1c = a1;
-    local_20 = a2;
-    local_24 = a3;
-    v0 = (uintptr_t *)memcpy((void *)(int32_t *)&sinfo_root, (void *)(uintptr_t)&local_18, 24); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tisp_af_set_attr_refresh)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 4: Arithmetic */
-    v0 = (uintptr_t *)&sinfo_root;
-    v1 = 1;
-
-    /* fragment 5: MemoryAccess */
-    *(uint8_t *)((char *)&sinfo_root + -30244) = v1;
-    v0 = 0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	/*
+	 * OEM: the 24-byte attribute arrives by value and is copied into
+	 * af_attr. The recovered body memcpy'd 24 bytes from a 4-byte stack
+	 * slot into the 4-byte sinfo_root (20-byte overflow) and stored the
+	 * update flag at sinfo_root - 30244 (wild write).
+	 */
+	if (!attr)
+		return -EINVAL;
+	memcpy(&af_attr, attr, sizeof(af_attr));
+	tisp_af_set_attr_refresh();
+	tiziano_af_dn_flag = 1;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002fb74 origin=model_output original=tiziano_af_dn_params_refresh */
@@ -33044,8 +33021,8 @@ int32_t tisp_g_af_attr(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000317c0 origin=model_output original=tisp_s_af_attr */
 int32_t tisp_s_af_attr(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4)
 {
-	tisp_af_set_attr(arg1);
-	return 0;
+	/* arg1 is a kernel pointer to the 24-byte AF attribute */
+	return tisp_af_set_attr((const void *)(uintptr_t)arg1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031824 origin=model_output original=tisp_s_module_control */
