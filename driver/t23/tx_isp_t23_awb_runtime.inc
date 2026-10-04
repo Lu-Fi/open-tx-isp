@@ -278,7 +278,7 @@ static int regtrace_t23_awb_hlil_calculate(
         total_mesh_weight += regtrace_t23_awb_hlil_mesh_weight[i];
 
     if (!active_zones || !total_mesh_weight)
-        return -ENODATA;
+        goto no_usable_zone;
 
     for (i = 0; i < total; ++i) {
         uint32_t weight = regtrace_t23_awb_hlil_mul_q(
@@ -292,7 +292,7 @@ static int regtrace_t23_awb_hlil_calculate(
         sum_weight += weight;
     }
     if (!sum_weight)
-        return -ENODATA;
+        goto no_usable_zone;
 
     average_rg_q = regtrace_t23_awb_hlil_div_q(sum_rg, sum_weight);
     average_bg_q = regtrace_t23_awb_hlil_div_q(sum_bg, sum_weight);
@@ -401,6 +401,22 @@ static int regtrace_t23_awb_hlil_calculate(
             5000U;
     }
     return 0;
+
+no_usable_zone:
+    /*
+     * Statistics present but no zone inside the CT weight mesh (dark or
+     * IR-lit scene, saturated or partial first frame).  Stock JZ_Isp_Awb
+     * does not keep the previous gains here: its weighted mean stays 0,
+     * which is unity MF over the static WB gains at the 5000 K default
+     * (emulated: 0x6c0/0x770 on the sc1a4t IQ).  Do the same instead of
+     * failing with -ENODATA and holding stale gains; the caller keeps
+     * this result out of the history.
+     */
+    result->rg = 0;
+    result->bg = 0;
+    result->ct = 5000U;
+    result->active_zones = active_zones;
+    return 0;
 }
 
 static void regtrace_t23_awb_hlil_history_update(uint32_t *rg,
@@ -500,8 +516,12 @@ static void regtrace_t23_source_awb_hlil_work_body(struct work_struct *work)
 
         regtrace_t23_awb_statis[0] = raw_mf_rg ? 0x10000U / raw_mf_rg : 0x100U;
         regtrace_t23_awb_statis[1] = raw_mf_bg ? 0x10000U / raw_mf_bg : 0x100U;
-        regtrace_t23_awb_hlil_history_update(
-            &result.rg, &result.bg, &result.ct);
+        /* a no-zone result (rg = bg = 0) must not enter the ratio
+         * history: with a history window > 1 it would average toward
+         * zero ratios, i.e. huge gains */
+        if (result.rg || result.bg)
+            regtrace_t23_awb_hlil_history_update(
+                &result.rg, &result.bg, &result.ct);
         auto_mf_rg = regtrace_t23_awb_hlil_ratio_to_mf(result.rg);
         auto_mf_bg = regtrace_t23_awb_hlil_ratio_to_mf(result.bg);
         regtrace_t23_source_awb_last_mf_rg = auto_mf_rg;
@@ -629,6 +649,7 @@ static void regtrace_t23_source_awb_hlil_capture(const uint32_t *words,
 {
     unsigned long flags;
     unsigned int zone;
+    unsigned int populated = 0;
 
     if (!regtrace_t23_source_awb_hlil)
         return;
@@ -658,6 +679,20 @@ static void regtrace_t23_source_awb_hlil_capture(const uint32_t *words,
             (w1 & 0x7ffffc00U) >> 10;
         regtrace_t23_awb_hlil_snapshot_data.pixels[zone] =
             ((w3 & 1U) << 12) | (w2 >> 20);
+        if (regtrace_t23_awb_hlil_snapshot_data.pixels[zone])
+            populated++;
+    }
+    /*
+     * The first statistics interrupt after a stream start can come before
+     * a complete statistics frame (seen 17 ms after STREAMON with one of
+     * 225 zones written).  Do not use such a partial bank at once; the
+     * next scheduled snapshot follows a few frames later.
+     */
+    if (snapshot == 1U &&
+        populated < REGTRACE_T23_AWB_HLIL_ZONES / 2U) {
+        regtrace_t23_source_awb_hlil_drops++;
+        spin_unlock_irqrestore(&regtrace_t23_awb_hlil_lock, flags);
+        return;
     }
     regtrace_t23_awb_hlil_snapshot_data.bank = bank;
     regtrace_t23_awb_hlil_snapshot_data.snapshot = snapshot;
