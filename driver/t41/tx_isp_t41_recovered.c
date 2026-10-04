@@ -1854,8 +1854,9 @@ static const char LC19[] = "[ %s:%d ] save vaddr is 0x%x\n";
 static const char LC20[] = "/tmp/savenv12-%d.%s";
 static unsigned char frame_done_cnt_storage[16] __attribute__((aligned(4)));
 #define frame_done_cnt (*(uint32_t *)(void *)frame_done_cnt_storage)
-static uint32_t frame_done_cond;
-static uint32_t frame_done_cond_sec;
+/* Own section: the recovered T41 .bss/.data layout must not change (see __pow2_lut). */
+static uint32_t frame_done_cond __attribute__((section(".data..t41_h1")));
+static uint32_t frame_done_cond_sec __attribute__((section(".data..t41_h1")));
 static unsigned char __attribute__((aligned(4))) frame_done_wq[20] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 
@@ -2217,7 +2218,8 @@ static unsigned char ae_process_comp_storage[16] __attribute__((aligned(4)));
 static unsigned char y_arr_storage[900] __attribute__((aligned(4)));
 #define y_arr (*(uint32_t *)(void *)y_arr_storage)
 static uint32_t fliker_ae_stable;
-static unsigned char ae_api_tmp_storage[1028] __attribute__((aligned(4)));
+/* __used: only api_ae_long_process (disabled) touches it; keep the BSS layout. */
+static unsigned char ae_api_tmp_storage[1028] __attribute__((aligned(4), used));
 #define ae_api_tmp (*(uint32_t *)(void *)ae_api_tmp_storage)
 static unsigned char __attribute__((aligned(4))) tisp_ae_hist_last[2104] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -2694,7 +2696,7 @@ static unsigned char _bss_globals[16384];
 static unsigned char msca_slock_storage[8] __attribute__((aligned(4)));
 #define msca_slock (*(uint32_t *)(void *)msca_slock_storage)
 static uintptr_t (*data_84a60)(void);
-static unsigned char __attribute__((aligned(4))) gsm_hist_para[3080] = {
+static unsigned char __attribute__((aligned(4), used)) gsm_hist_para[3080] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -2889,7 +2891,7 @@ static unsigned char __attribute__((aligned(4))) gsm_hist_para[3080] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x80, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 };
-static unsigned char __attribute__((aligned(4))) gsm_ae_hist[1052] = {
+static unsigned char __attribute__((aligned(4), used)) gsm_ae_hist[1052] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -2957,10 +2959,10 @@ static unsigned char __attribute__((aligned(4))) gsm_ae_hist[1052] = {
     0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x0d, 0x40, 0x90, 0xc0, 0x0f, 0x0f, 0x00, 0x00, 
 };
-static unsigned char __attribute__((aligned(4))) s_gsm_image_area[4] = {
+static unsigned char __attribute__((aligned(4), used)) s_gsm_image_area[4] = {
     0x01, 0x00, 0x00, 0x00, 
 };
-static unsigned char __attribute__((aligned(4))) s_gsm_image_area_div[8] = {
+static unsigned char __attribute__((aligned(4), used)) s_gsm_image_area_div[8] = {
     0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 };
 static inline int32_t sx_d(uint8_t v) {
@@ -2991,6 +2993,27 @@ static bool t41_kernel_data_ptr(const void *ptr)
 
 	return address >= PAGE_OFFSET && address < (unsigned long)-4095;
 }
+
+/*
+ * Review H1: recovered paths whose arguments (lock, buffer, length) could
+ * not be reconstructed from the OEM binary with confidence.  They refuse
+ * instead of guessing; each site warns once.
+ */
+#define T41_UNRECOVERED_RET(ret) do { \
+	pr_warn_once("tx-isp-t41: %s: unrecovered path disabled\n", __func__); \
+	return (ret); \
+} while (0)
+#define T41_UNRECOVERED_COPY() ({ \
+	pr_warn_once("tx-isp-t41: %s:%d: user copy with unrecovered arguments refused\n", \
+		     __func__, __LINE__); \
+	(unsigned long)-EFAULT; \
+})
+
+/* OEM .bss+0x4d18: GSM histogram RAM lock (tisp_gsm_read_ram). */
+static spinlock_t t41_gsm_hist_lock __attribute__((section(".data..t41_h1"))) =
+	__SPIN_LOCK_UNLOCKED(t41_gsm_hist_lock);
+/* OEM frame_vb_measure timestamps; the recovered ISR passed &ivdc_threshold_line. */
+static struct timeval t41_vb_measure_tv[3] __attribute__((section(".data..t41_h1")));
 
 struct t41_safe_sensor_limits {
     t41_sensor_allocator gain, integration;
@@ -3791,29 +3814,29 @@ static int32_t irq_count;
 #define isp_info_show isp_info_show_isra_6
 uint32_t private_math_exp2(uint32_t arg1, uint32_t arg2, uint32_t arg3);
 void private_i2c_set_clientdata(struct i2c_client *client, void *data);
-void *private_i2c_get_clientdata();
-int private_gpio_direction_output();
+void *private_i2c_get_clientdata(const struct i2c_client *client);
+int private_gpio_direction_output(unsigned int gpio, int value);
 int32_t isp_printf(uint32_t level, const char *fmt, ...);
-int32_t private_clk_get(void);
-struct clk *private_devm_clk_get();
+struct clk *private_clk_get(struct device *dev, const char *id);
+struct clk *private_devm_clk_get(struct device *dev, const char *id);
 int32_t private_clk_disable_unprepare(uint32_t a0);
-unsigned long private_clk_get_rate();
-int32_t private_clk_put(void);
-void private_devm_clk_put();
+unsigned long private_clk_get_rate(struct clk *clk);
+int32_t private_clk_put(struct clk *clk);
+void private_devm_clk_put(struct device *dev, struct clk *clk);
 long private_clk_set_rate(struct clk *clk, unsigned long rate);
-int private_i2c_transfer();
+int private_i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num);
 int private_i2c_add_driver(struct i2c_driver *driver);
 void private_i2c_del_driver(struct i2c_driver *driver);
 /* tx_isp_t41_sensor_pin.c */
 int tx_isp_t41_i2c_add_sensor_driver(struct i2c_driver *driver);
 bool tx_isp_t41_sensor_pin(struct module *owner);
 void tx_isp_t41_sensor_unpin_all(void);
-int private_gpio_request();
+int private_gpio_request(unsigned int gpio, const char *label);
 int32_t private_gpio_free(unsigned int gpio);
-int32_t private_jzgpio_set_func();
-void private_msleep();
+int32_t private_jzgpio_set_func(int port, int func, unsigned long pins);
+void private_msleep(unsigned int msecs);
 void private_mdelay(uint32_t a0);
-int private_capable();
+int private_capable(int cap);
 int32_t private_clk_prepare_enable(uint32_t a0);
 const char *get_clk_name(void);
 const char *get_clks_name(void);
@@ -3842,10 +3865,10 @@ int32_t private_platform_get_resource(void *pdev, uint32_t type, uint32_t num);
 int32_t private_dev_set_drvdata(uintptr_t a0, uint32_t a1);
 int32_t private_dev_get_drvdata(uintptr_t a0);
 int32_t private_platform_get_irq(void *pdev, uint32_t num);
-void *private_request_mem_region();
-int32_t private_release_mem_region();
-void __iomem *private_ioremap();
-void private_iounmap();
+void *private_request_mem_region(resource_size_t start, resource_size_t len, const char *name);
+int32_t private_release_mem_region(resource_size_t start, resource_size_t len);
+void __iomem *private_ioremap(phys_addr_t offset, unsigned long size);
+void private_iounmap(void __iomem *addr);
 int private_request_threaded_irq(unsigned int irq, irq_handler_t handler,
                                  irq_handler_t thread_fn, unsigned long flags,
                                  const char *name, void *dev);
@@ -3853,11 +3876,11 @@ void private_enable_irq(unsigned int irq);
 void private_disable_irq(unsigned int irq);
 void private_free_irq(unsigned int irq, void *dev_id);
 int32_t __private_spin_lock_irqsave(uint32_t a0, uintptr_t a1);
-int32_t private_spin_unlock_irqrestore();
+int32_t private_spin_unlock_irqrestore(void *lock, unsigned long flags);
 int32_t private_spin_lock_init(int32_t *arg1);
-int32_t private_mutex_lock();
-int32_t private_mutex_unlock();
-int32_t private_raw_mutex_init();
+int32_t private_mutex_lock(struct mutex *lock);
+int32_t private_mutex_unlock(struct mutex *lock);
+int32_t private_raw_mutex_init(struct mutex *lock, const char *name, void *key);
 struct i2c_adapter *private_i2c_get_adapter(int nr);
 void private_i2c_put_adapter(struct i2c_adapter *adap);
 int private_i2c_register_driver(struct module *owner,
@@ -3878,14 +3901,14 @@ unsigned long private_wait_for_completion_timeout(struct completion *completion,
 int32_t private_wait_event_interruptible(wait_queue_head_t *arg1, int (*arg2)(wait_queue_t *wait, unsigned mode, int flags), int arg3);
 int32_t private_wake_up_all(wait_queue_head_t *queue);
 int32_t private_wake_up(wait_queue_head_t *queue);
-int32_t private_init_waitqueue_head();
-int32_t private_misc_register();
-int32_t private_misc_deregister();
-int32_t private_proc_create_data();
+int32_t private_init_waitqueue_head(wait_queue_head_t *q);
+int32_t private_misc_register(void *misc);
+int32_t private_misc_deregister(void *misc);
+int32_t private_proc_create_data(const char *name, umode_t mode, void *parent, const struct file_operations *fops, void *data);
 void *private_vmalloc(size_t size);
 void private_vfree(const void *addr);
-void *private_kmalloc();
-void private_kfree();
+void *private_kmalloc(size_t size, gfp_t flags);
+void private_kfree(const void *objp);
 int32_t private_copy_from_user(void *to, const void __user *from,
                                unsigned long n);
 int32_t private_copy_to_user(void __user *to, const void *from,
@@ -3895,28 +3918,28 @@ int private_filp_close(struct file *filp, fl_owner_t id);
 ssize_t private_vfs_read(struct file *file, char __user *buf, size_t count,
                          loff_t *pos);
 int32_t private_vfs_write(struct file *file, const char *buf, size_t count, loff_t *pos);
-int32_t private_vfs_llseek(void);
+loff_t private_vfs_llseek(struct file *file, loff_t offset, int whence);
 int64_t private_get_fs(uintptr_t a0);
 int32_t private_set_fs(uint32_t a0);
-int32_t private_dma_cache_sync(void);
+int32_t private_dma_cache_sync(struct device *dev, void *vaddr, size_t size, enum dma_data_direction dir);
 int32_t private_getrawmonotonic(uintptr_t a0);
 int32_t private_kthread_should_stop(void);
-struct task_struct *private_kthread_run();
-int private_kthread_stop();
-int32_t private_seq_read(void);
-int32_t private_seq_lseek(void);
+struct task_struct *private_kthread_run(int (*threadfn)(void *), void *data, const char *name);
+int private_kthread_stop(struct task_struct *task);
+ssize_t private_seq_read(struct file *file, char __user *buf, size_t size, loff_t *ppos);
+loff_t private_seq_lseek(struct file *file, loff_t offset, int whence);
 int32_t private_single_release(struct inode *inode, struct file *file);
 int32_t private_single_open_size(struct file *file, int (*show)(struct seq_file *m, void *v), void *private, size_t size);
-void *private_jz_proc_mkdir();
-int private_proc_remove(struct platform_device *pdev);
-int32_t private_seq_printf(uint32_t a0, uint32_t a1, uint32_t a2);
-int32_t private_simple_strtoull(void);
+void *private_jz_proc_mkdir(const char *name);
+int private_proc_remove(struct proc_dir_entry *de);
+int32_t private_seq_printf(struct seq_file *m, const char *fmt, ...);
+unsigned long long private_simple_strtoull(const char *cp, char **endp, unsigned int base);
 int32_t private_get_isp_priv_mem(uint32_t *arg1, uint32_t *arg2);
 int32_t* private_ktime_set(uintptr_t a0, uint32_t a1, uint32_t a2);
 int32_t* private_set_current_state(uint32_t a0);
-int32_t private_schedule_hrtimeout(void);
-int32_t private_schedule_work(void);
-int32_t private_do_gettimeofday(void);
+int32_t private_schedule_hrtimeout(ktime_t *expires, enum hrtimer_mode mode);
+int32_t private_schedule_work(struct work_struct *work);
+int32_t private_do_gettimeofday(struct timeval *tv);
 int32_t private_atomic_set(int32_t *arg1, int32_t arg2);
 int32_t private_atomic_read(int32_t* arg1);
 long private_wait_event_interruptible_timeout(wait_queue_head_t queue,
@@ -3928,10 +3951,10 @@ int32_t private_phys_to_virt(uint32_t a0);
 int private_remap_pfn_range(struct vm_area_struct *vma, unsigned long addr, unsigned long pfn, unsigned long size, struct vm_fault *vmf);
 struct inode *private_file_inode(struct file *file);
 loff_t private_i_size_read(const struct inode *inode);
-int private_class_create(void);
-int32_t private_class_destroy(void);
-int32_t private_device_create(uint32_t a0);
-int32_t private_device_destroy(void);
+int private_class_create(struct module *owner, const char *name);
+int32_t private_class_destroy(struct class *cls);
+int32_t private_device_create(struct class *cls, struct device *parent, dev_t devt, void *drvdata, const char *fmt, ...);
+int32_t private_device_destroy(struct class *cls, dev_t devt);
 int32_t private_clk_set_parent(struct clk *clk, struct clk *parent);
 int32_t tx_isp_release_device(void);
 int32_t tx_isp_release_ldc_device(void);
@@ -5858,16 +5881,13 @@ void private_i2c_set_clientdata(struct i2c_client *client, void *data)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000000d0 origin=fragment_seed original=private_i2c_get_clientdata */
-void *private_i2c_get_clientdata(client)
-    const struct i2c_client *client;
+void *private_i2c_get_clientdata(const struct i2c_client *client)
 {
     return i2c_get_clientdata(client);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000000d8 origin=fragment_seed original=private_gpio_direction_output */
-int private_gpio_direction_output(gpio, value)
-    unsigned int gpio;
-    int value;
+int private_gpio_direction_output(unsigned int gpio, int value)
 {
     return gpio_direction_output(gpio, value);
 }
@@ -5895,25 +5915,15 @@ int32_t isp_printf(uint32_t level, const char *fmt, ...)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000001b8 origin=fragment_seed original=private_clk_get */
-int32_t private_clk_get(void)
+struct clk *private_clk_get(struct device *dev, const char *id)
 {
-    int32_t *a0 = 0;
-    int32_t a1 = 0;
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: IndirectTailCall */
-    return clk_get((void *)(uintptr_t)a0, (const char *)(uintptr_t)a1);
-
-    return 0;
+    /* Vendor tx-isp-funcs.c: clk_get(dev, id).  The recovered body called
+     * clk_get(NULL, NULL) and dropped both arguments (exported to sensors). */
+    return clk_get(dev, id);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000001c8 origin=fragment_seed original=private_devm_clk_get */
-struct clk *private_devm_clk_get(dev, id)
-    struct device *dev;
-    const char *id;
+struct clk *private_devm_clk_get(struct device *dev, const char *id)
 {
     return devm_clk_get(dev, id);
 }
@@ -5933,31 +5943,21 @@ int32_t private_clk_disable_unprepare(uint32_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000208 origin=fragment_seed original=private_clk_get_rate */
-unsigned long private_clk_get_rate(clk)
-    struct clk *clk;
+unsigned long private_clk_get_rate(struct clk *clk)
 {
     return clk_get_rate(clk);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000218 origin=fragment_seed original=private_clk_put */
-int32_t private_clk_put(void)
+int32_t private_clk_put(struct clk *clk)
 {
-    int32_t *a0 = 0;
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: IndirectTailCall */
-    return ((int32_t (*)())clk_put)((void *)(uintptr_t)a0);
-
+    /* Vendor: clk_put(clk).  The recovered body called clk_put(NULL). */
+    clk_put(clk);
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000228 origin=fragment_seed original=private_devm_clk_put */
-void private_devm_clk_put(dev, clk)
-    struct device *dev;
-    struct clk *clk;
+void private_devm_clk_put(struct device *dev, struct clk *clk)
 {
     devm_clk_put(dev, clk);
 }
@@ -5969,10 +5969,7 @@ long private_clk_set_rate(struct clk *clk, unsigned long rate)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000248 origin=fragment_seed original=private_i2c_transfer */
-int private_i2c_transfer(adap, msgs, num)
-    struct i2c_adapter *adap;
-    struct i2c_msg *msgs;
-    int num;
+int private_i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 {
     return i2c_transfer(adap, msgs, num);
 }
@@ -5991,9 +5988,7 @@ void private_i2c_del_driver(struct i2c_driver *driver)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000280 origin=model_output original=private_gpio_request */
-int private_gpio_request(gpio, label)
-    unsigned int gpio;
-    const char *label;
+int private_gpio_request(unsigned int gpio, const char *label)
 {
     return gpio_request(gpio, label);
 }
@@ -6011,17 +6006,13 @@ int32_t private_gpio_free(unsigned int gpio)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000002a0 origin=fragment_seed original=private_jzgpio_set_func */
-int32_t private_jzgpio_set_func(port, func, pins)
-    int port;
-    int func;
-    unsigned long pins;
+int32_t private_jzgpio_set_func(int port, int func, unsigned long pins)
 {
     return jzgpio_set_func(port, func, pins);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000002b0 origin=model_output original=private_msleep */
-void private_msleep(msecs)
-    unsigned int msecs;
+void private_msleep(unsigned int msecs)
 {
     msleep(msecs);
 }
@@ -6036,8 +6027,7 @@ void private_mdelay(uint32_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000308 origin=fragment_seed original=private_capable */
-int private_capable(cap)
-    int cap;
+int private_capable(int cap)
 {
     return capable(cap);
 }
@@ -6380,34 +6370,26 @@ int32_t private_platform_get_irq(void *pdev, uint32_t num)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000007f4 origin=fragment_seed original=private_request_mem_region */
-void *private_request_mem_region(start, len, name)
-    resource_size_t start;
-    resource_size_t len;
-    const char *name;
+void *private_request_mem_region(resource_size_t start, resource_size_t len, const char *name)
 {
     return __request_region(&iomem_resource, start, len, name, 0);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000082c origin=fragment_seed original=private_release_mem_region */
-int32_t private_release_mem_region(start, len)
-    resource_size_t start;
-    resource_size_t len;
+int32_t private_release_mem_region(resource_size_t start, resource_size_t len)
 {
     __release_region(&iomem_resource, start, len);
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000848 origin=model_output original=private_ioremap */
-void __iomem *private_ioremap(offset, size)
-    phys_addr_t offset;
-    unsigned long size;
+void __iomem *private_ioremap(phys_addr_t offset, unsigned long size)
 {
     return __ioremap(offset, size, 1024);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000858 origin=model_output original=private_iounmap */
-void private_iounmap(addr)
-    void __iomem *addr;
+void private_iounmap(void __iomem *addr)
 {
     __iounmap(addr);
 }
@@ -6472,9 +6454,7 @@ int32_t __private_spin_lock_irqsave(uint32_t a0, uintptr_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000008d4 origin=fragment_seed original=private_spin_unlock_irqrestore */
-int32_t private_spin_unlock_irqrestore(lock, flags)
-	void *lock;
-	unsigned long flags;
+int32_t private_spin_unlock_irqrestore(void *lock, unsigned long flags)
 {
 	regtrace_raw_spin_unlock_irqrestore(lock, flags);
 	return 0;
@@ -6488,26 +6468,21 @@ int32_t private_spin_lock_init(int32_t *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000008ec origin=model_output original=private_mutex_lock */
-int32_t private_mutex_lock(lock)
-	struct mutex *lock;
+int32_t private_mutex_lock(struct mutex *lock)
 {
 	mutex_lock(lock);
 	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000008fc origin=fragment_seed original=private_mutex_unlock */
-int32_t private_mutex_unlock(lock)
-	struct mutex *lock;
+int32_t private_mutex_unlock(struct mutex *lock)
 {
 	mutex_unlock(lock);
 	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000090c origin=model_output original=private_raw_mutex_init */
-int32_t private_raw_mutex_init(lock, name, key)
-    struct mutex *lock;
-    const char *name;
-    void *key;
+int32_t private_raw_mutex_init(struct mutex *lock, const char *name, void *key)
 {
     __mutex_init(lock, name ? name : "private_raw_mutex_init", key);
     return 0;
@@ -6695,35 +6670,27 @@ int32_t private_wake_up(wait_queue_head_t *queue)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000bb8 origin=fragment_seed original=private_init_waitqueue_head */
-int32_t private_init_waitqueue_head(q)
-    wait_queue_head_t *q;
+int32_t private_init_waitqueue_head(wait_queue_head_t *q)
 {
     __init_waitqueue_head(q, "private_init_waitqueue_head", NULL);
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000bd4 origin=model_output original=private_misc_register */
-int32_t private_misc_register(misc)
-    void *misc;
+int32_t private_misc_register(void *misc)
 {
     return misc_register(misc);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000be4 origin=fragment_seed original=private_misc_deregister */
-int32_t private_misc_deregister(misc)
-    void *misc;
+int32_t private_misc_deregister(void *misc)
 {
     misc_deregister(misc);
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000bf4 origin=fragment_seed original=private_proc_create_data */
-int32_t private_proc_create_data(name, mode, parent, fops, data)
-    const char *name;
-    umode_t mode;
-    void *parent;
-    const struct file_operations *fops;
-    void *data;
+int32_t private_proc_create_data(const char *name, umode_t mode, void *parent, const struct file_operations *fops, void *data)
 {
     return (int32_t)proc_create_data(name, mode, parent, fops, data);
 }
@@ -6741,16 +6708,13 @@ void private_vfree(const void *addr)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000c24 origin=fragment_seed original=private_kmalloc */
-void *private_kmalloc(size, flags)
-    size_t size;
-    gfp_t flags;
+void *private_kmalloc(size_t size, gfp_t flags)
 {
     return __kmalloc(size, flags);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000c34 origin=model_output original=private_kfree */
-void private_kfree(objp)
-    const void *objp;
+void private_kfree(const void *objp)
 {
     kfree(objp);
 }
@@ -6795,20 +6759,9 @@ int32_t private_vfs_write(struct file *file, const char *buf, size_t count, loff
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000d34 origin=fragment_seed original=private_vfs_llseek */
-int32_t private_vfs_llseek(void)
+loff_t private_vfs_llseek(struct file *file, loff_t offset, int whence)
 {
-    int32_t *a0 = 0;
-    int32_t a1 = 0;
-    int32_t a2 = 0;
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: IndirectTailCall */
-    return vfs_llseek((void *)(uintptr_t)a0, a1, a2);
-
-    return 0;
+    return vfs_llseek(file, offset, whence);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000d44 origin=fragment_seed original=private_get_fs */
@@ -6836,20 +6789,12 @@ int32_t private_set_fs(uint32_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000d5c origin=fragment_seed original=private_dma_cache_sync */
-int32_t private_dma_cache_sync(void)
+int32_t private_dma_cache_sync(struct device *dev, void *vaddr, size_t size,
+                               enum dma_data_direction dir)
 {
-    int32_t *a0 = 0;
-    int32_t a1 = 0;
-    int32_t a2 = 0;
-    int32_t *a3 = 0;
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: IndirectTailCall */
-    return ((int32_t (*)())dma_cache_sync)((void *)(uintptr_t)a0, (void *)(uintptr_t)a1, a2, a3);
-
+    /* Vendor: dma_cache_sync(dev, vaddr, size, dir).  The recovered body
+     * passed four zero arguments, i.e. never flushed anything. */
+    dma_cache_sync(dev, vaddr, size, dir);
     return 0;
 }
 
@@ -6882,10 +6827,7 @@ int32_t private_kthread_should_stop(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000dbc origin=fragment_seed original=private_kthread_run */
-struct task_struct *private_kthread_run(threadfn, data, name)
-    int (*threadfn)(void *);
-    void *data;
-    const char *name;
+struct task_struct *private_kthread_run(int (*threadfn)(void *), void *data, const char *name)
 {
     struct task_struct *task;
 
@@ -6896,45 +6838,22 @@ struct task_struct *private_kthread_run(threadfn, data, name)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000e0c origin=model_output original=private_kthread_stop */
-int private_kthread_stop(task)
-    struct task_struct *task;
+int private_kthread_stop(struct task_struct *task)
 {
     return kthread_stop(task);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000e1c origin=fragment_seed original=private_seq_read */
-int32_t private_seq_read(void)
+ssize_t private_seq_read(struct file *file, char __user *buf, size_t size,
+                         loff_t *ppos)
 {
-    int32_t *a0 = 0;
-    int32_t a1 = 0;
-    int32_t a2 = 0;
-    int32_t *a3 = 0;
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: IndirectTailCall */
-    return seq_read((void *)(uintptr_t)a0, (const char *)(uintptr_t)a1, a2, (void *)(uintptr_t)a3);
-
-    return 0;
+    return seq_read(file, buf, size, ppos);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000e2c origin=fragment_seed original=private_seq_lseek */
-int32_t private_seq_lseek(void)
+loff_t private_seq_lseek(struct file *file, loff_t offset, int whence)
 {
-    int32_t *a0 = 0;
-    int32_t a1 = 0;
-    int32_t a2 = 0;
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: IndirectTailCall */
-    return seq_lseek((void *)(uintptr_t)a0, a1, a2);
-
-    return 0;
+    return seq_lseek(file, offset, whence);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000e3c origin=model_output original=private_single_release */
@@ -6952,65 +6871,42 @@ int32_t private_single_open_size(struct file *file,
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000e5c origin=fragment_seed original=private_jz_proc_mkdir */
-void *private_jz_proc_mkdir(name)
-    const char *name;
+void *private_jz_proc_mkdir(const char *name)
 {
     return jz_proc_mkdir(name);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000e6c origin=model_output original=private_proc_remove */
-int private_proc_remove(struct platform_device *pdev)
+int private_proc_remove(struct proc_dir_entry *de)
 {
-    struct platform_device *p = pdev;
-
-    proc_remove(p);
+    proc_remove(de);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000e7c origin=fragment_seed original=private_seq_printf */
-int32_t private_seq_printf(uint32_t a0, uint32_t a1, uint32_t a2)
+int32_t private_seq_printf(struct seq_file *m, const char *fmt, ...)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *v0 = 0;
+    va_list args;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    local_10 = a1;
-    local_18 = (uint32_t *)&local_30;
-    local_30 = a2;
-    local_14 = (uintptr_t)&local_18;
-    local_34 = a3;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))seq_printf)((uintptr_t)((void *)(uintptr_t)a0), (uintptr_t)("%s"), (uintptr_t)(({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC0); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); }))); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    /* Vendor: seq_vprintf(m, fmt, args).  The recovered body printed a
+     * fixed rodata string and ignored fmt and all arguments. */
+    if (!m || !fmt || (uintptr_t)fmt < PAGE_OFFSET)
+        return -EINVAL;
+    va_start(args, fmt);
+    seq_vprintf(m, fmt, args);
+    va_end(args);
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000ec4 origin=fragment_seed original=private_simple_strtoull */
-int32_t private_simple_strtoull(void)
+unsigned long long private_simple_strtoull(const char *cp, char **endp,
+                                           unsigned int base)
 {
-    int32_t *a0 = 0;
-    int32_t a1 = 0;
-    int32_t a2 = 0;
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: IndirectTailCall */
-    return simple_strtoull((const char *)(uintptr_t)a0, (void *)(uintptr_t)a1, a2);
-
-    return 0;
+    /* Vendor: simple_strtoull(cp, endp, base).  The recovered body parsed
+     * a NULL string. */
+    if (!cp)
+        return 0;
+    return simple_strtoull(cp, endp, base);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000ed4 origin=fragment_seed original=private_get_isp_priv_mem */
@@ -7092,57 +6988,27 @@ int32_t* private_set_current_state(uint32_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000f30 origin=fragment_seed original=private_schedule_hrtimeout */
-int32_t private_schedule_hrtimeout(void)
+int32_t private_schedule_hrtimeout(ktime_t *expires, enum hrtimer_mode mode)
 {
-    int32_t *a0 = 0;
-    int32_t a1 = 0;
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: IndirectTailCall */
-    return schedule_hrtimeout((void *)(uintptr_t)a0, a1);
-
-    return 0;
+    return schedule_hrtimeout(expires, mode);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000f40 origin=fragment_seed original=private_schedule_work */
-int32_t private_schedule_work(void)
+int32_t private_schedule_work(struct work_struct *work)
 {
-    uint32_t *a0 = 0;
-    uint32_t a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t *t9 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (unsigned int *)&system_wq;
-    t9 = (uint32_t *)&queue_work_on;
-    a2 = a0;
-
-    /* fragment 1: MemoryAccess */
-    a1 = *(uint32_t *)((char *)&system_wq + 0);
-    t9 = t9;
-
-    /* fragment 2: IndirectTailCall */
-    return queue_work((void *)(uintptr_t)a1, (void *)(uintptr_t)a2);  /* Review2 L11 */
-
-    return 0;
+    /* Vendor: schedule_work(work).  The recovered body queued a NULL work. */
+    if (!work)
+        return 0;
+    return schedule_work(work);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000f5c origin=fragment_seed original=private_do_gettimeofday */
-int32_t private_do_gettimeofday(void)
+int32_t private_do_gettimeofday(struct timeval *tv)
 {
-    int32_t *a0 = 0;
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: IndirectTailCall */
-    return ((int32_t (*)())do_gettimeofday)((void *)(uintptr_t)a0);
-
+    /* Vendor: do_gettimeofday(tv).  The recovered body passed NULL. */
+    if (!t41_kernel_data_ptr(tv))
+        return -EINVAL;
+    do_gettimeofday(tv);
     return 0;
 }
 
@@ -7272,37 +7138,16 @@ int32_t private_dma_free_coherent(void *dev, int32_t size, int32_t handle, int32
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000011d4 origin=fragment_seed original=private_virt_to_phys */
 int32_t private_virt_to_phys(uint32_t a0)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = 2147483648;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = a0 + (uintptr_t)v0;
-
-    return 0;
+    /* OEM: addu v0,a0,0x80000000 (kseg0 virt -> phys).  The recovered
+     * body computed this and then returned 0. */
+    return (int32_t)(a0 + 0x80000000u);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000011e0 origin=fragment_seed original=private_phys_to_virt */
 int32_t private_phys_to_virt(uint32_t a0)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = 2147483648;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = a0 + (uintptr_t)v0;
-
-    return 0;
+    /* OEM: addu v0,a0,0x80000000 (phys -> kseg0 virt). */
+    return (int32_t)(a0 + 0x80000000u);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000011ec origin=model_output original=private_remap_pfn_range */
@@ -7326,68 +7171,44 @@ loff_t private_i_size_read(const struct inode *inode)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001240 origin=model_output original=private_class_create */
-int private_class_create(void) {
+int private_class_create(struct module *owner, const char *name)
+{
+    /* Stub kept: no /dev node for the tuning cdev (see
+     * tisp_code_create_tuning_node). */
+    (void)owner;
+    (void)name;
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001254 origin=fragment_seed original=private_class_destroy */
-int32_t private_class_destroy(void)
+int32_t private_class_destroy(struct class *cls)
 {
-    int32_t *a0 = 0;
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: IndirectTailCall */
-    return ((int32_t (*)())class_destroy)((void *)(uintptr_t)a0);
-
+    if (!IS_ERR_OR_NULL(cls))
+        class_destroy(cls);
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001264 origin=fragment_seed original=private_device_create */
-int32_t private_device_create(uint32_t a0)
+int32_t private_device_create(struct class *cls, struct device *parent,
+                              dev_t devt, void *drvdata, const char *fmt, ...)
 {
-    int32_t a1 = 0;
-    int32_t a2 = 0;
-    int32_t *a3 = 0;
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_38 = 0;
-    uint32_t *local_3c = 0;
-    uint32_t ra = 0;
-    uint32_t *v0 = 0;
+    struct device *dev;
+    va_list args;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    local_18 = (uint32_t *)&local_3c;
-    local_14 = (uintptr_t)&local_3c;
-    local_10 = local_38;
-    v0 = (unsigned int *)device_create((void *)(uintptr_t)a0, (void *)(uintptr_t)a0, a0, (void *)(uintptr_t)a0, local_10); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    /* The recovered body passed its first argument as every parameter. */
+    if (IS_ERR_OR_NULL(cls) || !fmt)
+        return 0;
+    va_start(args, fmt);
+    dev = device_create_vargs(cls, parent, devt, drvdata, fmt, args);
+    va_end(args);
+    return (int32_t)(uintptr_t)dev;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000129c origin=fragment_seed original=private_device_destroy */
-int32_t private_device_destroy(void)
+int32_t private_device_destroy(struct class *cls, dev_t devt)
 {
-    int32_t *a0 = 0;
-    int32_t a1 = 0;
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: IndirectTailCall */
-    return ((int32_t (*)())device_destroy)((void *)(uintptr_t)a0, a1);
-
+    if (!IS_ERR_OR_NULL(cls))
+        device_destroy(cls, devt);
     return 0;
 }
 
@@ -9497,7 +9318,7 @@ int tisp_vic_ctrl_release(uint32_t a0, uint32_t a1)
     /* Case 0: v0 == 0 */
     uint32_t vaddr_1 = *(uint32_t *)((char *)s1 + 124);
     if (vaddr_1 != 0) {
-        private_kfree();
+        private_kfree((void *)(uintptr_t)vaddr_1);
         *(uint8_t *)((char *)s0 + 30) = 0;
         *(uint32_t *)((char *)s1 + 124) = 0;
     }
@@ -16081,6 +15902,7 @@ int isp_csi_cmd_set(unsigned int a0, unsigned int a1, unsigned int a2)
     int *result;
     int lock_val;
 
+    T41_UNRECOVERED_RET(-EOPNOTSUPP);
     s0 = *(unsigned int *)((char *)a0 + 0x88);
     v0 = *(unsigned int *)((char *)s0 + 0x4c);
 
@@ -16110,7 +15932,7 @@ int isp_csi_cmd_set(unsigned int a0, unsigned int a1, unsigned int a2)
         goto copy_from_user;
     }
 
-    s5 = (unsigned int)private_kmalloc();
+    s5 = (unsigned int)private_kmalloc(a2 + 1, 0x24000c0);
     s1 = -12;
     if (s5 == 0) {
         goto err_path;
@@ -16161,7 +15983,7 @@ copy_from_user:
             lock_val = 0;
             __private_spin_lock_irqsave((unsigned int)((char *)s2 + 0x188), &lock_val);
             *(int *)((char *)s2 + 0x174) = 3;
-            private_spin_unlock_irqrestore();
+            private_spin_unlock_irqrestore((char *)s2 + 0x188, lock_val);
             csi_phy_start(s2, 0);
             printk("mipi reset end ...\n");
         } else {
@@ -16169,7 +15991,7 @@ copy_from_user:
             if (s4 != 0) {
                 goto err_path;
             }
-            private_kfree();
+            private_kfree((void *)s5);
             goto err_path;
         }
     } else {
@@ -16177,7 +15999,7 @@ copy_from_user:
     }
 
     if (s4 == 0) {
-        private_kfree();
+        private_kfree((void *)s5);
     }
 
     return result;
@@ -16683,9 +16505,9 @@ int32_t aisp_core_debug_show(void *arg1)
 
 	if (s1 != NULL) {
 		s2 = (void *)((char *)s1 + 132);
-		private_mutex_lock();
+		private_mutex_lock(s2);
 		private_seq_printf(s0, "%s\n", *(void **)((char *)s1 + 0xc8));
-		private_mutex_unlock();
+		private_mutex_unlock(s2);
 	}
 
 	return 0;
@@ -18433,18 +18255,17 @@ unsigned int tx_isp_core_ops_s_ctrl(int arg1, int32_t * arg2, int32_t * arg3) {
                                 const char * var_b0_11 = "tx_isp_aisp_proc";
                                 isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", "tx_isp_aisp_proc");
                             } else if (var_a0.d < 0x400) {
-                                private_mutex_lock();
+                                /* OEM: mutex at core+132; the OEM also unlocked twice on a copy error. */
+                                private_mutex_lock((struct mutex *)((char *)arg2 + 132));
                                 unsigned int result_40 = private_copy_from_user(arg2[0x32], var_9c.d, var_a0.d);
                                 result = result_40;
+                                private_mutex_unlock((struct mutex *)((char *)arg2 + 132));
 
                                 if (result_40 != 0) {
-                                    private_mutex_unlock();
                                     int32_t var_ac_35 = 0x6e6;
                                     const char * var_b0_35 = "tx_isp_aisp_proc";
                                     isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", "tx_isp_aisp_proc");
                                 }
-
-                                private_mutex_unlock();
                             }
                         }
                     }
@@ -24774,14 +24595,14 @@ proc_ivdc_writel0x138:
     if (_bc_v0_22) { goto proc_ivdc_writel0xb4; }
 
     /* fragment 23: CallSetup */
-    private_kfree();
+    private_kfree((void *)s0);
 
     /* fragment 24: Branch */
     goto proc_ivdc_writel0xb8;
     if (_bc_v0_22) { goto proc_ivdc_writel0xb4; }
 
     /* fragment 23: CallSetup */
-    private_kfree();
+    private_kfree((void *)s0);
 
     /* fragment 24: Branch */
     goto proc_ivdc_writel0xb8;
@@ -27245,7 +27066,7 @@ int64_t isp_framesource_show(uint32_t a0)
                     s3 = *(uint32_t *)((char *)s3 + 0x60) - 0x60;
                 }
 
-                private_spin_unlock_irqrestore();
+                private_spin_unlock_irqrestore((char *)s0 + 0x2e0, local_38);
                 private_seq_printf(a0, (const char *)&LC25, *(uint32_t *)((char *)s0 + 0x308));
                 private_seq_printf(a0, (const char *)&LC26, *(uint32_t *)((char *)s0 + 0x30c));
 
@@ -70147,12 +69968,13 @@ int64_t api_ae_long_process(uint32_t a0)
     uintptr_t *s6 = s5 + s0_mul;
     uintptr_t s4 = (uintptr_t)&sclk_name + s0_mul;
 
+    T41_UNRECOVERED_RET(-EOPNOTSUPP);
     __private_spin_lock_irqsave((void *)s0, &lock_flags);
 
     uintptr_t src = *(uintptr_t *)((char *)s3 + 4);
     memcpy((void *)&ae_api_tmp, (void *)src, 900);
 
-    private_spin_unlock_irqrestore();
+    private_spin_unlock_irqrestore((void *)s0, lock_flags);
 
     memcpy((void *)s6, (void *)src, 1024);
 
@@ -70160,7 +69982,7 @@ int64_t api_ae_long_process(uint32_t a0)
 
     memcpy((void *)(s5 + s0_mul + 1044), (void *)(s4 + s0_mul + 1044), 16);
 
-    private_spin_unlock_irqrestore();
+    private_spin_unlock_irqrestore((void *)s0, lock_flags);
 
     uint32_t limit0 = *(uint8_t *)((char *)s6 + 1044);
     uintptr_t base_src = *(uintptr_t *)((char *)s3 + 0);
@@ -70288,7 +70110,7 @@ int64_t api_ae_long_process(uint32_t a0)
     *(uint32_t *)((char *)t1 + 0) = w1 * w2 - acc;
     memcpy((void *)(s5 + s0_mul + 1024), (void *)(s6 + s0_mul + 1024), 20);
 
-    private_spin_unlock_irqrestore();
+    private_spin_unlock_irqrestore((void *)s0, lock_flags);
 
     return ((int64_t)(uint32_t)total_sum << 32) | (uint32_t)0;
 }
@@ -70503,6 +70325,7 @@ int32_t api_ae_set_hist_bin(uint32_t a0, uint32_t a1)
     uintptr_t *v0;
     void *lock_ptr;
 
+    T41_UNRECOVERED_RET(-EOPNOTSUPP);
     s2 = a1;
     s1 = a0;
     lock_ptr = (void *)((char *)((char *)&tisp_ae_hist_last + 0x414) + (a0 << 2));
@@ -70512,7 +70335,7 @@ int32_t api_ae_set_hist_bin(uint32_t a0, uint32_t a1)
     s1 = s1 + 0x414;
     v0 = (uintptr_t)memcpy((void *)((char *)&tisp_ae_hist_last + (uintptr_t)s1), (uintptr_t)s2, 4);
 
-    private_spin_unlock_irqrestore();
+    private_spin_unlock_irqrestore(lock_ptr, lock_flags);
 
     return 0;
 }
@@ -88775,9 +88598,9 @@ uint32_t tisp_wdr_get_map(int32_t *arg1, int32_t *arg2, int32_t *arg3, int32_t *
     int32_t *i_8 = private_kmalloc(0x400, 0x2080020);
     int32_t *v0_2 = private_kmalloc(0x400, 0x2080020);
     int32_t *i_9 = private_kmalloc(0x400, 0x2080020);
-    int16_t *v0_3 = private_kmalloc();
-    int16_t *v0_4 = private_kmalloc();
-    int16_t *v0_5 = private_kmalloc();
+    int16_t *v0_3 = private_kmalloc(0x200, 0x2080020);
+    int16_t *v0_4 = private_kmalloc(0x200, 0x2080020);
+    int16_t *v0_5 = private_kmalloc(0x200, 0x2080020);
     memset(v0, 0, 0x400);
     memset(i_7, 0, 0x400);
     memset(v0_1, 0, 0x400);
@@ -89003,15 +88826,15 @@ uint32_t tisp_wdr_get_map(int32_t *arg1, int32_t *arg2, int32_t *arg3, int32_t *
         *(int16_t *)((char *)v0_41 - 2) = *(int16_t *)((char *)a2_4 - 8);
     } while (&v0_3[0x103] != i_6);
 
-    ((uintptr_t (*)(uintptr_t, uintptr_t))private_kfree)((uintptr_t)(v0), (uintptr_t)(i_6));
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
+    private_kfree(v0);
+    private_kfree(i_7);
+    private_kfree(v0_1);
+    private_kfree(i_8);
+    private_kfree(v0_2);
+    private_kfree(i_9);
+    private_kfree(v0_3);
+    private_kfree(v0_4);
+    private_kfree(v0_5);
     return result;
 }
 
@@ -93276,9 +93099,16 @@ int Tiziano_wdr_deghost_fpga(int arg1) {
         int32_t *v0_12 = private_kmalloc(0x400, 0x2080020);
         int32_t *v0_13 = private_kmalloc(0x400, 0x2080020);
         int32_t *v0_14 = private_kmalloc(0x400, 0x2080020);
-        int16_t *v0_15 = private_kmalloc();
-        int16_t *v0_16 = private_kmalloc();
-        int16_t *v0_17 = private_kmalloc();
+        int16_t *v0_15 = private_kmalloc(0x200, 0x2080020);
+        int16_t *v0_16 = private_kmalloc(0x200, 0x2080020);
+        int16_t *v0_17 = private_kmalloc(0x200, 0x2080020);
+        if (!v0_10 || !i_12 || !v0_11 || !v0_12 || !v0_13 || !v0_14 ||
+            !v0_15 || !v0_16 || !v0_17) {
+            private_kfree(v0_10); private_kfree(i_12); private_kfree(v0_11);
+            private_kfree(v0_12); private_kfree(v0_13); private_kfree(v0_14);
+            private_kfree(v0_15); private_kfree(v0_16); private_kfree(v0_17);
+            return -ENOMEM;
+        }
         memset(v0_10, 0, 0x400);
         memset(i_12, 0, 0x400);
         memset(v0_11, 0, 0x400);
@@ -93504,15 +93334,15 @@ int Tiziano_wdr_deghost_fpga(int arg1) {
             *(int16_t *)((uintptr_t)s7 + 0x164 + i_9 * 2) = *(int16_t *)((uintptr_t)s7 + 0x164 + i_9 * 2 + 2);
         }
 
-        private_kfree();
-        private_kfree();
-        private_kfree();
-        private_kfree();
-        private_kfree();
-        private_kfree();
-        private_kfree();
-        private_kfree();
-        private_kfree();
+        private_kfree(v0_10);
+        private_kfree(i_12);
+        private_kfree(v0_11);
+        private_kfree(v0_12);
+        private_kfree(v0_13);
+        private_kfree(v0_14);
+        private_kfree(v0_15);
+        private_kfree(v0_16);
+        private_kfree(v0_17);
     }
 
     return 0;
@@ -104397,9 +104227,10 @@ int32_t lce_std_hist_transform(int32_t arg1, int32_t arg2, int32_t arg3, int32_t
     int32_t sum = 0;
     uint32_t val;
 
+    T41_UNRECOVERED_RET(0);
     lock_val = __private_spin_lock_irqsave(*reg_ptr, 0);
     memcpy(hist, (const void *)arg2, 128);
-    private_spin_unlock_irqrestore();
+    private_spin_unlock_irqrestore((void *)(uintptr_t)*reg_ptr, lock_val);
 
     for (i = 0; i < 32; i++) {
         uint64_t product = (uint64_t)arg3 * hist[(uintptr_t)i];
@@ -109451,6 +109282,7 @@ int64_t defog_count_weight35abc(uint32_t a0, uint32_t a1, uint32_t a2, unsigned 
     int32_t *s0 = lo * lo_1;
     uint32_t v0_13 = ((a0 * a1 + 0x3f4) / 0x7e9 * a2 + 0x40) >> 7;
 
+    T41_UNRECOVERED_RET(-EOPNOTSUPP);
     memcpy(var_a8, (void *)((char *)&static_srgb_gamma + 0x168), 0x30);
     memcpy(var_128, (void *)((char *)&static_srgb_gamma + 0x198), 0x7e);
 
@@ -109511,19 +109343,19 @@ int64_t defog_count_weight35abc(uint32_t a0, uint32_t a1, uint32_t a2, unsigned 
         } while (arg5 != (uintptr_t)v0_19);
     }
 
-    char *v0_20 = (char *)private_kmalloc();
-    char *v0_21 = (char *)private_kmalloc();
-    char *v0_22 = (char *)private_kmalloc();
-    char *v0_23 = (char *)private_kmalloc();
-    char *v0_24 = (char *)private_kmalloc();
+    char *v0_20 = (char *)private_kmalloc(s0, 0x24000c0);
+    char *v0_21 = (char *)private_kmalloc(s0, 0x24000c0);
+    char *v0_22 = (char *)private_kmalloc(s0, 0x24000c0);
+    char *v0_23 = (char *)private_kmalloc(s0, 0x24000c0);
+    char *v0_24 = (char *)private_kmalloc(s0, 0x24000c0);
     void *v0_25 = private_kmalloc(s0, 0x24000c0);
-    char *v0_26 = (char *)private_kmalloc();
+    char *v0_26 = (char *)private_kmalloc(s0, 0x24000c0);
     void *v0_27 = private_kmalloc(s0, 0x24000c0);
-    char *v0_28 = (char *)private_kmalloc();
-    char *v0_29 = (char *)private_kmalloc();
-    char *v0_30 = (char *)private_kmalloc();
-    char *v0_31 = (char *)private_kmalloc();
-    char *v0_32 = (char *)private_kmalloc();
+    char *v0_28 = (char *)private_kmalloc(s0, 0x24000c0);
+    char *v0_29 = (char *)private_kmalloc(s0, 0x24000c0);
+    char *v0_30 = (char *)private_kmalloc(s0, 0x24000c0);
+    char *v0_31 = (char *)private_kmalloc(s0, 0x24000c0);
+    char *v0_32 = (char *)private_kmalloc(s0, 0x24000c0);
     memset(v0_20, 0, s0);
     memset(v0_21, 0, s0);
     memset(v0_22, 0, s0);
@@ -109757,19 +109589,19 @@ int64_t defog_count_weight35abc(uint32_t a0, uint32_t a1, uint32_t a2, unsigned 
     defog_wei_interpcot(s0, v0_30, v0_23, (char *)arg8);
     defog_wei_interpcot(s0, v0_31, v0_22, (char *)arg9);
    defog_wei_interpcot(s0, v0_32, v0_26, (char *)arg9);
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
-    private_kfree();
+    private_kfree(v0_20);
+    private_kfree(v0_21);
+    private_kfree(v0_22);
+    private_kfree(v0_23);
+    private_kfree(v0_24);
+    private_kfree(v0_25);
+    private_kfree(v0_26);
+    private_kfree(v0_27);
+    private_kfree(v0_28);
+    private_kfree(v0_29);
+    private_kfree(v0_30);
+    private_kfree(v0_31);
+    private_kfree(v0_32);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004812c origin=model_output original=tisp_defog_interp_trans_k */
@@ -127367,13 +127199,14 @@ int32_t tisp_mdns_addr_alloc(uint32_t a0, uintptr_t a1, uintptr_t a2)
     uintptr_t *v0;
     uintptr_t *v1;
 
+    T41_UNRECOVERED_RET(-EOPNOTSUPP);
     s5 = a0 << 2;
     s6 = s5 + (uintptr_t)&ivdc_threshold_line;
     s0 = a0;
     s4 = a1;
     s3 = a2;
 
-    v0 = private_mutex_lock();
+    v0 = private_mutex_lock(NULL);
 
     v0 = system_reg_read((((uintptr_t)s0 + 30) << 11) + 64);
     s7 = v0;
@@ -127419,7 +127252,7 @@ success_path:
 
     private_mdelay(a0);
 
-    private_mutex_unlock();
+    private_mutex_unlock(NULL);
 
     s0 = 0;
     goto return_result;
@@ -127429,7 +127262,7 @@ cleanup:
     *(uint32_t *)s3 = 0;
 
     s1 = s6 + s5;
-    private_mutex_unlock();
+    private_mutex_unlock(NULL);
 
 return_result:
     return (int32_t)s0;
@@ -127442,7 +127275,8 @@ int tisp_mdns_addr_free(uint32_t a0)
     uint32_t *s1 = a0;
    uint32_t *base = (uint32_t *)((char *)((char *)&mdns_info) + (uintptr_t)s4);
     uint32_t lock_arg = *base + 32;
-    private_mutex_lock();
+    T41_UNRECOVERED_RET(-EOPNOTSUPP);
+    private_mutex_lock(NULL);
 
     uint32_t reg_val = system_reg_read((((uintptr_t)s1 + 30) << 11) + 64);
     uint32_t *s2 = reg_val + 0x80000000;
@@ -127455,7 +127289,7 @@ int tisp_mdns_addr_free(uint32_t a0)
         isp_printf(1, "[%s %d] Free failed. The MDNS module is not enabled !!!\n", "tisp_mdns_addr_free");
         uint32_t *result = -6;
         uint32_t *s0 = base;
-        private_mutex_unlock();
+        private_mutex_unlock(NULL);
         return result;
     }
 
@@ -127470,7 +127304,7 @@ int tisp_mdns_addr_free(uint32_t a0)
         uint32_t *result = -16;
         uint32_t *s0 = base;
         tisp_s_module_control(s1, a1);
-        private_mutex_unlock();
+        private_mutex_unlock(NULL);
         return result;
     }
 
@@ -127481,7 +127315,7 @@ int tisp_mdns_addr_free(uint32_t a0)
     uint32_t *result = 0;
     uint32_t *s0 = base;
     tisp_s_module_control(s1, a1);
-    private_mutex_unlock();
+    private_mutex_unlock(NULL);
     return result;
 }
 
@@ -142381,7 +142215,7 @@ label_62e98:
     }
 
     /* private_spin_unlock_irqrestore(&msca_slock + (arg1 << 2), var_20) */
-    private_spin_unlock_irqrestore();
+    private_spin_unlock_irqrestore((void *)s0, (unsigned long)var_20);
 
     return 0;
 }
@@ -147994,6 +147828,7 @@ int32_t tisp_gsm_process(void)
     int32_t gsm_stats[5];
 
     /* spin_lock_irqsave */
+    T41_UNRECOVERED_RET(-EOPNOTSUPP);
     __private_spin_lock_irqsave("iled!!!\n", &flags);
 
     /* Read 4 bytes from data_84a60 (sclk_name + 1044) */
@@ -148003,7 +147838,7 @@ int32_t tisp_gsm_process(void)
     i = *(uint8_t *)((char *)((char *)&tx_isp_ivdc_platform_device + 0x77));
 
     /* spin_unlock_irqrestore */
-    private_spin_unlock_irqrestore();
+    private_spin_unlock_irqrestore(NULL, flags);
 
     /* spin_lock_irqsave */
     __private_spin_lock_irqsave("!!!\n", &flags);
@@ -148015,7 +147850,7 @@ int32_t tisp_gsm_process(void)
     memcpy((void *)((char *)&gsm_hist_para + 0x400), &ivdc_threshold_line, 1024);
 
     /* spin_unlock_irqrestore */
-    private_spin_unlock_irqrestore();
+    private_spin_unlock_irqrestore(NULL, flags);
 
     /* memset(0x85268, 0, 1024) */
     memset((void *)((char *)&gsm_hist_para + 0x800), 0, 1024);
@@ -148155,7 +147990,7 @@ int32_t tisp_gsm_process(void)
     gsm_stats[3] = var_3c;
     gsm_stats[4] = var_38;
     memcpy((void *)((char *)&gsm_ae_hist + 0x400), gsm_stats, 20);
-    private_spin_unlock_irqrestore();
+    private_spin_unlock_irqrestore(NULL, flags);
 
     return 0;
 }
@@ -148164,6 +147999,7 @@ int32_t tisp_gsm_process(void)
 int32_t tisp_gsm_read_ram(void)
 {
 	int32_t var_30 = 0;
+	unsigned long gsm_flags;
 	uint32_t *buf1;
 	uint32_t *buf2;
 	uint32_t *i;
@@ -148171,7 +148007,9 @@ int32_t tisp_gsm_read_ram(void)
 	system_reg_write(0x501a0, 0x201);
 	system_reg_write(0x501b0, 0x201);
 
-	__private_spin_lock_irqsave((void *)((char *)&s_gsm_hist0), &var_30);
+	/* OEM: lock .bss+0x4d18 around the RAM read; the recovered body used
+	 * the first histogram word as the lock and never released it. */
+	spin_lock_irqsave(&t41_gsm_hist_lock, gsm_flags);
 
 	buf1 = (uint32_t *)((char *)&s_gsm_hist0);
 	buf2 = (uint32_t *)((char *)&s_gsm_hist1);
@@ -148185,7 +148023,7 @@ int32_t tisp_gsm_read_ram(void)
 		i = (void *)(uintptr_t)((uintptr_t)i + (4));
 	} while (i != 0x400);
 
-	private_spin_unlock_irqrestore();
+	spin_unlock_irqrestore(&t41_gsm_hist_lock, gsm_flags);
 
 	system_reg_write(0x501a0, 0xff0202);
 	system_reg_write(0x501b0, 0xff0202);
@@ -148389,11 +148227,12 @@ int32_t tisp_gsm_api_set(uint32_t a0, uint32_t a1)
     uint32_t *s1 = 0;
     uintptr_t ra = 0;
 
+    T41_UNRECOVERED_RET(-EOPNOTSUPP);
     s1 = a1;
     local_10 = 0;
     __private_spin_lock_irqsave("iled!!!\n", &local_10);
     memcpy((void *)&sclk_name, (void *)(s1 + 1044), 4);
-    private_spin_unlock_irqrestore();
+    private_spin_unlock_irqrestore(NULL, (unsigned long)local_10);
     return 0;
 }
 
