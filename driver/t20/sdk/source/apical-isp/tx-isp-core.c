@@ -1511,6 +1511,13 @@ static int isp_core_frame_channel_scaler_capture(struct tx_isp_core_device *core
 	} else {
 		inwidth = attr->output.fmt.pix.width;
 		inheight = attr->output.fmt.pix.height;
+		if (inwidth == 0 || inheight == 0) {
+			/* Crop disabled: output size was never latched, so the
+			 * scaler input is the full frame.  Without this the cap
+			 * collapses to 0 and every SET_SCALER is rejected. */
+			inwidth = mbus->width;
+			inheight = mbus->height;
+		}
 		attr->scalercap.min_width = attr->min_width;
 		attr->scalercap.min_height = attr->min_height;
 	}
