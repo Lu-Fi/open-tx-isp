@@ -12,11 +12,11 @@
 [![license](https://img.shields.io/badge/license-GPLv3-blue)](#license)
 [![SoCs](https://img.shields.io/badge/SoC-T10%20%C2%B7%20T20%20%C2%B7%20T21%20%C2%B7%20T23%20%C2%B7%20T30%20%C2%B7%20T31%20%C2%B7%20T40%20%C2%B7%20T41-3e63dd)](#status)
 [![status](https://img.shields.io/badge/open%20stack-device%20tested-30a46c)](#status)
-[![branch next](https://img.shields.io/badge/branch-next-e5484d)](https://github.com/Lu-Fi/open-tx-isp/tree/next)
+[![branch next](https://img.shields.io/badge/branch-next-e5484d)](https://github.com/opensensor/open-tx-isp/tree/next)
 [![thingino](https://img.shields.io/badge/thingino-integrated-orange)](https://github.com/themactep/thingino-firmware)
 [![platform](https://img.shields.io/badge/platform-MIPS%20%C2%B7%20Linux%203.10%20%26%204.4-lightgrey)](#build)
-[![last commit](https://img.shields.io/github/last-commit/Lu-Fi/open-tx-isp/next)](https://github.com/Lu-Fi/open-tx-isp/commits/next)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/Lu-Fi/open-tx-isp/pulls)
+[![last commit](https://img.shields.io/github/last-commit/opensensor/open-tx-isp/next)](https://github.com/opensensor/open-tx-isp/commits/next)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/opensensor/open-tx-isp/pulls)
 
 </p>
 
@@ -26,9 +26,11 @@ OEM driver: same ioctl and `libimp` ABI, same register sequencing, same image be
 with cleaner unload/reload, checked inputs and less memory.
 
 It works with Ingenic's unmodified `libimp.so` and with the open replacement
-[OpenIMP](https://github.com/Lu-Fi/openimp). Open stack = open-tx-isp + OpenIMP + a streamer
-([timps](https://github.com/Lu-Fi/timps)). This fork tracks
-[opensensor/open-tx-isp](https://github.com/opensensor/open-tx-isp).
+[OpenIMP](https://github.com/opensensor/openimp). Open stack = open-tx-isp + OpenIMP + a streamer
+([timps](https://github.com/Lu-Fi/timps)). open-tx-isp was started by Matt Davis
+([matteius](https://github.com/matteius), opensensor), who remains the original author and owner. The
+`next` branch carries the open-stack work of [Lu-Fi](https://github.com/Lu-Fi) as maintainer and
+contributor: device-test campaign, rate control, memory hardening and documentation.
 
 This is a reverse-engineering and compatibility effort, not a greenfield pipeline: OEM binary
 analysis, `libimp` ABI work and recovery of tuning data.
@@ -49,7 +51,7 @@ State on `next` (2026-10-04). "Fully open" = open driver, OpenIMP and streamer r
 | T41 | Fully open from a flashed image (H.264, H.265); reload verified (10/10); module 80 KB smaller than before. Open: flip, night column noise. |
 
 Per feature and SoC:
-[FEATURE_MATRIX](https://github.com/Lu-Fi/openimp/blob/next/docs/FEATURE_MATRIX.md).
+[FEATURE_MATRIX](https://github.com/opensensor/openimp/blob/next/docs/FEATURE_MATRIX.md).
 History: [CHANGELOG.md](CHANGELOG.md).
 
 ## Better than the vendor driver
@@ -62,7 +64,7 @@ History: [CHANGELOG.md](CHANGELOG.md).
 - Shortfall logging with a concrete parameter value when reserved memory is too small.
 
 Details and streamer integration notes:
-[OPENIMP_BEYOND_VENDOR](https://github.com/Lu-Fi/openimp/blob/next/docs/OPENIMP_BEYOND_VENDOR.md).
+[OPENIMP_BEYOND_VENDOR](https://github.com/opensensor/openimp/blob/next/docs/OPENIMP_BEYOND_VENDOR.md).
 
 ## Build
 
@@ -86,7 +88,7 @@ The packages `open-tx-isp` (this driver) and `openimp` (userspace) are in the up
 [thingino-firmware](https://github.com/themactep/thingino-firmware) branch `aperto`
 ([#1756](https://github.com/themactep/thingino-firmware/pull/1756)), selected with
 `BR2_PACKAGE_THINGINO_ISP_OPEN` (menu "ISP stack") and pinned by commit SHA to the `next` branches
-of the Lu-Fi forks. The module is installed as `tx-isp-<soc>.ko` and replaces the proprietary one;
+(thingino currently pins the Lu-Fi forks and will follow the release tags of this repository). The module is installed as `tx-isp-<soc>.ko` and replaces the proprietary one;
 SDK sensor, audio and AVPU modules stay. The kernel VPU/rmem stability patches
 ([#1748](https://github.com/themactep/thingino-firmware/pull/1748),
 [#1752](https://github.com/themactep/thingino-firmware/pull/1752)) are merged there. The optional
@@ -96,15 +98,15 @@ driver cannot boot-loop the camera. Once release tags exist, thingino will pin a
 
 ## Branches and releases
 
-- `main`: fork default branch, not the tested stack.
-- `next`: tested integration branch; everything on it was flashed and checked on cameras.
+- `main`: original upstream line (matteius); the tested stack is `next`.
+- `next`: tested integration branch of the open stack; everything on it was flashed and checked on cameras.
 - `release`: fast-forward only from `next` after a clean soak (planned, not created yet; the first tag follows after the 24 h soak that started 2026-10-04).
 - Tags `vYYYY.MM.DD` on `release` (planned).
 - Work happens on `claude/<topic>` branches, merged into `next` after device tests.
 
 ## Documentation
 
-- [Wiki](https://github.com/Lu-Fi/openimp/wiki) (one wiki for both repositories): module parameters, memory (rmem, ispmem, MMAP pool), troubleshooting, install and boot guard, release scheme.
+- [Wiki](https://github.com/opensensor/openimp/wiki) (one wiki for both repositories): module parameters, memory (rmem, ispmem, MMAP pool), troubleshooting, install and boot guard, release scheme.
 - [`docs/T31_ISP_ARCHITECTURE.md`](docs/T31_ISP_ARCHITECTURE.md): hardware and driver architecture
 - [`docs/ISP_SOC_ALGORITHM_VARIANCE.md`](docs/ISP_SOC_ALGORITHM_VARIANCE.md): algorithm differences between SoCs
 - [`docs/DRIVER_REUSE_PLAN.md`](docs/DRIVER_REUSE_PLAN.md), [`docs/SHARED_DRIVER_LIBRARY.md`](docs/SHARED_DRIVER_LIBRARY.md): shared code
@@ -121,7 +123,7 @@ interfaces, `docs/` notes, `tests/` host tests and oracle checks, `tools/` on-de
 
 ## Reporting problems
 
-Open an issue at [Lu-Fi/open-tx-isp](https://github.com/Lu-Fi/open-tx-isp/issues) (kernel driver, ISP, memory) or [Lu-Fi/openimp](https://github.com/Lu-Fi/openimp/issues) when unsure. Please include the SoC and sensor, the revisions of open-tx-isp, OpenIMP and the streamer, `dmesg` (including any shortfall line such as `set ispmem >= N KB`), the streamer log, the stream set and the `rmem`/`ispmem` values. Do not post addresses, credentials or location names. Details: [Troubleshooting](https://github.com/Lu-Fi/openimp/wiki/Troubleshooting#reporting-a-problem).
+Open an issue at [opensensor/open-tx-isp](https://github.com/opensensor/open-tx-isp/issues) (kernel driver, ISP, memory) or [opensensor/openimp](https://github.com/opensensor/openimp/issues) when unsure. Please include the SoC and sensor, the revisions of open-tx-isp, OpenIMP and the streamer, `dmesg` (including any shortfall line such as `set ispmem >= N KB`), the streamer log, the stream set and the `rmem`/`ispmem` values. Do not post addresses, credentials or location names. Details: [Troubleshooting](https://github.com/opensensor/openimp/wiki/Troubleshooting#reporting-a-problem).
 
 ## Contributing
 
@@ -134,8 +136,8 @@ evidence, the files changed, how it was validated and what remains uncertain.
 Prior art from the Ingenic / Thingino reverse-engineering community, especially
 [thingino-firmware](https://github.com/themactep/thingino-firmware),
 [ingenic-sdk](https://github.com/themactep/ingenic-sdk) and
-[OpenIMP](https://github.com/opensensor/openimp), and the upstream
-[opensensor/open-tx-isp](https://github.com/opensensor/open-tx-isp).
+[OpenIMP](https://github.com/opensensor/openimp), and above all the original work of
+Matt Davis ([matteius](https://github.com/matteius), opensensor) on open-tx-isp.
 
 ## License
 
