@@ -16517,6 +16517,70 @@ static unsigned int regtrace_framechan_drop_stale_done(int channel)
     return dropped;
 }
 
+/*
+ * Reset a stopped channel's MSCA address FIFOs and queue the channel's
+ * buffers again, before its MSCA bit is set. The OEM frame channel does
+ * the same in two steps: STREAMOFF and REQBUFS clear the FIFOs (vb2 queue
+ * cancel -> pad event 0x3000007 -> tisp_channel_*fifo_clear), and buffers
+ * queued before STREAMON reach the FIFOs only at STREAMON
+ * (__enqueue_in_driver). This driver writes a QBUF's addresses at once and
+ * never cleared the FIFOs, and neither a core restart nor a module reload
+ * resets them: a channel started again first wrote into the addresses its
+ * previous stream (or module instance) had queued but the MSCA had not
+ * consumed ("unmatched MSCA completion"), and sometimes never reached the
+ * buffers of the new stream, so the channel delivered no frame until it
+ * was restarted.
+ */
+static int32_t tisp_channel_main_fifo_clear(int32_t arg1);
+static bool regtrace_t23_msca_fifo_rearm = true;
+module_param_named(msca_fifo_rearm, regtrace_t23_msca_fifo_rearm, bool, 0644);
+
+static unsigned int regtrace_framechan_rearm_fifo(int channel)
+{
+    struct tx_isp_nv12_buffer buffer;
+    unsigned long flags;
+    unsigned int pushed = 0;
+    int i;
+
+    if (!regtrace_t23_msca_fifo_rearm || !regtrace_t23_direct_msca_qbuf ||
+        channel < 0 || channel >= 3 ||
+        !regtrace_t23_core_sd || !regtrace_t23_core_clks_enabled)
+        return 0;
+    if (regtrace_t23_msca_ch_en & (1U << channel))
+        return 0;
+
+    /*
+     * Same lock as QBUF, so no Y/UV pair is written between clear and
+     * refill. Only clear when there is a buffer to write again: with an
+     * empty address FIFO the MSCA writes a frame to the last address it
+     * used, which a clear would leave at zero.
+     */
+    spin_lock_irqsave(&regtrace_framechan_done_lock, flags);
+    for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++)
+        if (regtrace_framechan_qbuf_queued[channel][i])
+            break;
+    if (i == REGTRACE_FRAMECHAN_QBUF_SLOTS) {
+        spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+        return 0;
+    }
+    tisp_channel_main_fifo_clear(channel);
+    for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++) {
+        if (!regtrace_framechan_qbuf_queued[channel][i])
+            continue;
+        if (regtrace_t23_build_msca_qbuf(channel,
+                regtrace_framechan_qbuf_userptr[channel][i],
+                regtrace_framechan_qbuf_len[channel][i], &buffer) ||
+            tisp_msca_addr_fifo_write((char)channel, buffer.y_dma,
+                                      buffer.uv_dma)) {
+            regtrace_framechan_qbuf_queued[channel][i] = false;
+            continue;
+        }
+        pushed++;
+    }
+    spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+    return pushed;
+}
+
 static int regtrace_framechan_stream_on(struct file *file, int channel)
 {
     int ret;
@@ -16529,8 +16593,10 @@ static int regtrace_framechan_stream_on(struct file *file, int channel)
         return ret;
     }
     if (channel >= 0 && channel < REGTRACE_FRAMECHAN_COUNT) {
-        if (!regtrace_framechan_streaming[channel])
+        if (!regtrace_framechan_streaming[channel]) {
             regtrace_framechan_drop_stale_done(channel);
+            regtrace_framechan_rearm_fifo(channel);
+        }
         regtrace_framechan_stream_mask |= 1U << channel;
         regtrace_framechan_stream_owner[channel] = file;
     }

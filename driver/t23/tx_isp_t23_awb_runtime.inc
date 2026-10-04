@@ -611,6 +611,19 @@ static void regtrace_t23_source_awb_hlil_work_body(struct work_struct *work)
                    result.rg, result.bg, result.ct, wb_mode,
                    mf_rg, mf_bg, gain_rg, gain_bg,
                    regtrace_t23_source_awb_hlil_updates);
+    } else if (ret == -ENODATA) {
+        /*
+         * No zone inside the CT weight mesh: expected while the AE is
+         * still converging after a stream start, and under IR (night)
+         * light. Not an error; note it only if it lasts.
+         */
+        if (regtrace_t23_source_awb_hlil_runs >= 64U &&
+            !(regtrace_t23_source_awb_hlil_runs &
+              (regtrace_t23_source_awb_hlil_runs - 1U)))
+            printk(KERN_INFO
+                   "tx_isp_t23_recovered: source AWB HLIL run=%u snapshot=%u: no usable zone yet, gains held\n",
+                   regtrace_t23_source_awb_hlil_runs,
+                   regtrace_t23_awb_hlil_snapshot_data.snapshot);
     } else if (regtrace_t23_source_awb_hlil_runs <= 8U) {
         printk(KERN_WARNING
                "tx_isp_t23_recovered: source AWB HLIL run=%u snapshot=%u failed ret=%d\n",
