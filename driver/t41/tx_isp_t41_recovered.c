@@ -7598,9 +7598,14 @@ vic_frame_channel_streamoff0x54:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001400 origin=model_output original=vic_frame_channel_freebufs */
 int vic_frame_channel_freebufs(void *arg1) {
     uint32_t dump_vsd_1 = dump_vsd;
-    uint32_t v0 = *(uint8_t *)(dump_vsd_1 + 0x340);
+    uint32_t v0;
     uint32_t var_18 = 0;
     void *s0_1;
+
+    /* The validity check below came after the first dereference. */
+    if (dump_vsd_1 == 0 || dump_vsd_1 >= 0xfffff001)
+        return -22;
+    v0 = *(uint8_t *)(dump_vsd_1 + 0x340);
 
     if (v0 != 0) {
         s0_1 = (void *)(dump_vsd_1 + 0x334);
@@ -7634,10 +7639,11 @@ int vic_frame_channel_freebufs(void *arg1) {
                 ((void **)v0_2)[1] = 0x200;
             }
 
-            int32_t a1_3 = var_18;
             *(int32_t *)(s0_1 + 0x30) = 0;
             *(int32_t *)(s0_1 + 0x2c) = 0;
-            private_spin_unlock_irqrestore();
+            /* Was argument-less (lock and flags taken from stale a0/a1). */
+            private_spin_unlock_irqrestore((char *)s0_1 + 0x10,
+                                           (unsigned long)var_18);
             return 0;
         }
     }
@@ -26303,8 +26309,6 @@ int32_t ivdc_enable_irq(void *arg1)
     __private_spin_lock_irqsave(s2 + 0x1bc, &var_18);
     
     int32_t v0 = *(int32_t *)(arg1 + 0xac);
-    int32_t *a1_1 = var_18;
-    
     if (v0 != 0) {
         if (*(int32_t *)(arg1 + 0x9c) == 0) {
             /* function pointer call through v0 */
@@ -26314,10 +26318,10 @@ int32_t ivdc_enable_irq(void *arg1)
             void *v1 = (void *)(*(void **)((uintptr_t)s2 + 0x110));
             *(int32_t *)(v1 + 0x40) = 0x244fc0ff;
         }
-        a1_1 = var_18;
     }
     
-    private_spin_unlock_irqrestore();
+    /* Was argument-less: the callback above clobbered a0/a1. */
+    private_spin_unlock_irqrestore((char *)s2 + 0x1bc, (unsigned long)var_18);
     
     return 0;
 }
@@ -26334,7 +26338,9 @@ int32_t ivdc_disable_irq(void *arg1) {
         *(int32_t *)(arg1 + 0x9c) = 0;
     }
     
-    return private_spin_unlock_irqrestore();
+    /* Was argument-less (stale a0/a1). */
+    return private_spin_unlock_irqrestore((void *)(uintptr_t)s1,
+                                          (unsigned long)var_18);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000f21c origin=model_output original=ivdc_pad_event_handle */
@@ -51881,7 +51887,11 @@ int32_t tisp_top_update_pos(void)
     if (v1 != v0) { goto tisp_top_update_pos0x88; }
 
     /* fragment 4: CallSetup */
-    v0 = (unsigned int *)printk((const char *)(uintptr_t)&LC0, &__pow2_lut, 301, *(uint32_t *)((char *)((char *)&pos_value))); /* jalr target resolved by relocation */
+    /* Stock debug print; the recovered call paired an unrelated format
+     * (four conversions, "%s" fed with pos_value) with the wrong
+     * arguments, from IRQ context. */
+    printk_ratelimited(KERN_DEBUG "tx_isp_t41_recovered: top update pos=0x%x\n",
+                       *(uint32_t *)((char *)((char *)&pos_value)));
 
     /* fragment 5: CallSetup */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(108, *(uint32_t *)((char *)((char *)&pos_value))); /* jalr target resolved by relocation */
@@ -152905,6 +152915,9 @@ int32_t tisp_raw_rdma_fd_interrupt(void)
     v0 = *(uint32_t *)((char *)((char *)&rpars));
     local_1c = ra;
     local_18 = s1;
+    /* IRQ callback: rpars was dereferenced before its NULL check. */
+    if (!v0)
+        return 0;
     a0 = *(uint32_t *)((char *)v0 + 8);
     v1 = 1;
 
@@ -152970,7 +152983,9 @@ tisp_raw_rdma_fd_interrupt0xb8:
 
 tisp_raw_rdma_fd_interrupt0xdc:
     /* fragment 16: CallSetup */
-    v0 = (unsigned int *)printk((const char *)(uintptr_t)&LC1, &__pow2_lut, 50); /* jalr target resolved by relocation */
+    /* The recovered call fed a six-conversion format two arguments
+     * ("%s" then read an undefined vararg) from IRQ context. */
+    printk_ratelimited(KERN_WARNING "tx_isp_t41_recovered: raw rdma fd: unexpected state\n");
 
     /* fragment 17: Branch */
     a0 = *(uint32_t *)((char *)((char *)&rpars));
@@ -153328,7 +153343,9 @@ tisp_ddr_to_isp_raw0xf4:
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
 
     /* fragment 18: CallSetup */
-    v0 = (unsigned int *)printk((const char *)(uintptr_t)&LC1, &__pow2_lut, 136); /* jalr target resolved by relocation */
+    /* Was LC1 (six conversions) with two arguments: "%s" read an
+     * undefined vararg. */
+    printk_ratelimited(KERN_WARNING "tx_isp_t41_recovered: ddr to isp raw: invalid state\n");
 
     /* fragment 19: Epilogue */
     /* function epilogue: restore registers and return */
@@ -159820,9 +159837,11 @@ int32_t ispcore_frame_channel_reqbufs(void* arg1, int32_t* arg2)
 
         if (s0) {
             __private_spin_lock_irqsave((int32_t*)((char*)s0 + 0xa8), &lock_var);
-            int32_t a1 = lock_var;
             *(char*)((char*)s0 + 0xd3) = (char)arg2[0];
-            private_spin_unlock_irqrestore();
+            /* Was an argument-less call: unlocked whatever a0 held and
+             * restored a1 (&lock_var) as flags, leaving IRQs disabled. */
+            private_spin_unlock_irqrestore((char*)s0 + 0xa8,
+                                           (unsigned long)lock_var);
         }
     }
 
@@ -161120,7 +161139,8 @@ label_70468:
     a0 = *(uint32_t *)((char *)s0 + 8);
     *(uint32_t *)((uintptr_t)s0 - 0x18) += 1;
     tisp_msca_addr_ir_fifo_write(a0);
-    private_spin_unlock_irqrestore();
+    /* Was argument-less: a0 no longer held the lock here. */
+    private_spin_unlock_irqrestore(s1, (unsigned long)var_18);
     v0 = 0;
     goto label_704e4;
 
