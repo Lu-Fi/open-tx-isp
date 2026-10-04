@@ -31880,6 +31880,17 @@ sensor_early_init0x1c:
     return 0;
 }
 
+/*
+ * Review M2: /dev/tx-isp open count (miscdev + 0x114).  The OEM open only
+ * incremented a non-zero count and never set it to 1 (same in the T30
+ * SDK), so every close ran the full teardown and released the sensor pins
+ * while another opener (streamer, V4L2 adapter) still used the pipeline.
+ * Like T21/T23/T31: the first open sets 1, only the last close tears down.
+ * Own section: the recovered .bss/.data layout must not change.
+ */
+static struct mutex t41_isp_open_mutex __attribute__((section(".data..t41_h1"))) =
+	__MUTEX_INITIALIZER(t41_isp_open_mutex);
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012e30 origin=manual original=tx_isp_open */
 int32_t tx_isp_open(int32_t arg1, void *arg2)
 {
@@ -31895,12 +31906,16 @@ int32_t tx_isp_open(int32_t arg1, void *arg2)
 	miscdev = *(char **)((char *)arg2 + 0x88);
 	if (!miscdev)
 		return -ENODEV;
+	/* Waits for a last-close teardown that is still running. */
+	if (mutex_lock_interruptible(&t41_isp_open_mutex))
+		return -ERESTARTSYS;
 	printk(KERN_WARNING
 	       "tx_isp_t41_recovered: tx-isp open misc=%p refs=%u\n",
 	       miscdev, *(uint32_t *)(miscdev + 0x114));
 
-	if (*(int32_t *)(miscdev + 0x114) != 0) {
+	if (*(int32_t *)(miscdev + 0x114) > 0) {
 		++*(int32_t *)(miscdev + 0x114);
+		mutex_unlock(&t41_isp_open_mutex);
 		return 0;
 	}
 
@@ -31927,7 +31942,7 @@ int32_t tx_isp_open(int32_t arg1, void *arg2)
 		       (unsigned int)((slot - (miscdev + 0x30)) / sizeof(void *)),
 		       subdev, ops, internal_ops, open, result);
 		if (result && result != -ENOIOCTLCMD)
-			return result;
+			goto out;
 	}
 	/* The stock open path reaches VIN through the aggregate subdevice slots.
 	 * During direct module reloads those links can be populated after the
@@ -31940,10 +31955,17 @@ int32_t tx_isp_open(int32_t arg1, void *arg2)
 		       "tx_isp_t41_recovered: tx-isp open VIN fallback vin=%p ret=%d\n",
 		       (void *)vin, result);
 		if (result)
-			return result;
+			goto out;
 	}
 
-	return result == -ENOIOCTLCMD ? 0 : result;
+	if (result == -ENOIOCTLCMD)
+		result = 0;
+out:
+	/* A failed first open leaves the count at 0 (no release follows). */
+	if (!result)
+		*(int32_t *)(miscdev + 0x114) = 1;
+	mutex_unlock(&t41_isp_open_mutex);
+	return result;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012f00 origin=fragment_seed original=tx_isp_notify */
@@ -34294,10 +34316,20 @@ int32_t tx_isp_release(uint32_t a0, uintptr_t a1)
 	if (!miscdev)
 		return -ENODEV;
 
-	if (*(int32_t *)(miscdev + 0x114) != 0) {
+	mutex_lock(&t41_isp_open_mutex);
+	if (*(int32_t *)(miscdev + 0x114) > 1) {
 		--*(int32_t *)(miscdev + 0x114);
+		mutex_unlock(&t41_isp_open_mutex);
 		return 0;
 	}
+	if (*(int32_t *)(miscdev + 0x114) <= 0) {
+		/* No counted open (e.g. a failed first open): nothing to undo. */
+		mutex_unlock(&t41_isp_open_mutex);
+		return 0;
+	}
+	/* Last close.  Reset first: an early error below must not leave a
+	 * count that makes the next open skip the subdevice opens. */
+	*(int32_t *)(miscdev + 0x114) = 0;
 
 	end = miscdev + 0x70;
 	for (slot = miscdev + 0x30; slot != end; slot += sizeof(void *)) {
@@ -34314,16 +34346,19 @@ int32_t tx_isp_release(uint32_t a0, uintptr_t a1)
 			*(int (**)(void *))(internal_ops + sizeof(void *)) : NULL;
 		result = release ? release(subdev) : -ENOIOCTLCMD;
 		if (result && result != -ENOIOCTLCMD)
-			return result;
+			goto out;
 	}
 
 	for (i = 0; i < 5; ++i)
 		if (*(uint32_t *)(miscdev + 0x118 + i * sizeof(uint32_t)))
 			tx_isp_video_link_destroy_isra_3((uintptr_t)(miscdev - 0x0c), i);
 
-	/* After the teardown: the sensor is no longer in use. */
+	/* After the teardown of the last close: the sensor is no longer in use. */
 	tx_isp_t41_sensor_unpin_all();
-	return 0;
+	result = 0;
+out:
+	mutex_unlock(&t41_isp_open_mutex);
+	return result;
 }
 
 /*
