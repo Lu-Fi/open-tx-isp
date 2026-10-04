@@ -64,16 +64,139 @@
 #endif
 #include <asm/uaccess.h>
 
-#ifdef TX_ISP_T23_NO_TRACE
 /*
- * Kbuild TX_ISP_T23_TRACE=n (default): KERN_INFO bring-up traces are
- * compiled out together with their format strings. The arguments are
- * still evaluated (some read hardware registers). KERN_WARNING and
- * KERN_ERR messages are untouched.
+ * Informational output switch. Module parameter t23_runtime_trace
+ * (default 0 = quiet, writable at runtime:
+ * /sys/module/tx_isp_t23/parameters/t23_runtime_trace) gates
+ *   - all KERN_INFO printk (probe/ioctl/bring-up trace, plain info prints;
+ *     compiled out entirely with Kbuild TX_ISP_T23_TRACE=n, the default), and
+ *   - the KERN_WARNING "tx_isp_t23_recovered:" messages on the explicit
+ *     allow-list t23_progress[] below: pure progress notes of a normal boot /
+ *     stream start that carry no result code.
+ * Everything else stays visible: all KERN_ERR, unprefixed printk, the
+ * isp_printf() level mechanism (print_level), and every KERN_WARNING that is
+ * not on the allow-list (new messages are visible by default; messages that
+ * report a ret= result are deliberately not listed).
+ * Arguments are still evaluated (some read hardware registers).
+ * Parameter name and idea from Paul Philippov's thingino aperto patch
+ * open-tx-isp/0009.
  */
+static int t23_runtime_trace;
+/* pure progress notes, no result code; format-string prefixes (after "tx_isp_t23_recovered: ") */
+static const char * const t23_progress[] = {
+	"GIB tuning loaded", "source GIB loaded-tuning startup committed",
+	"source Gamma profile startup committed",
+	"source LSC profile CT", "source CCM profile CT",
+	"source DPC tuning committed", "source DMSC loaded-tuning",
+	"source BCSH loaded-tuning", "source HLDC tuning startup committed",
+	"source CLM CT", "CLM tuning loaded", "source CSCCR mode-",
+	"source AWB HLIL reset", "source AWB %s startup requested gains",
+	"source AWB statistics grid committed", "source AE0 statistics grid committed",
+	"source AE HLIL reset", "MDNS tuning loaded", "SDNS tuning loaded",
+	"SDNS initialized", "MDNS DMA restored", "sharpen initialized",
+	"stock defog (lifted) active", "stock dynamic ADR (lifted) active",
+	"stock AE0 resumed", "tuning bypass path=",
+	"source core DMA phys=", "source core started", "source core stopped",
+	"CSI core on", "direct TISP stream regs", "direct MSCA %s ch=",
+	"%s irq %s irq=", "T23 MSCA format", "T23 MSCA curves",
+	"T23 MSCA curve load path=", "T23 MSCA cfg-load",
+	"CCM profile loaded", "AWB profile loaded",
+	"LSC profile loaded", "IQ banks loaded", "sensor config name=",
+	"MDNS DMA mode=", "sensor g_chip_ident start", "sensor init start", NULL,
+};
+/*
+ * Progress notes that also report a result: gated only while the rendered
+ * message shows success (ret=0 or no ret=, no "fail", not "empty"); a
+ * non-zero ret= or a failure stays visible.
+ */
+static const char * const t23_progress_ret[] = {
+	"sensor g_chip_ident ret=", "sensor init ret=", "sensor exposure packed=",
+	"sensor stream %s ret=", "VIC source start ret=", "VIC stream on ret=",
+	"source input stream %s ret=", "stock AE0 (lifted) %s ret=",
+	"source YDNS initialized ret=", "source total-gain ",
+	"source AWB HLIL run=", "source AWB stats snapshot=",
+	"direct clk enable ", NULL,
+};
+static int t23_fmt_in(const char * const *l, const char *fmt)
+{
+	int i;
+
+	for (i = 0; l[i]; i++)
+		if (!strncmp(fmt, l[i], strlen(l[i])))
+			return 1;
+	return 0;
+}
+static int t23_msg_is_ok(const char *buf)
+{
+	const char *r = strstr(buf, "ret=");
+
+	if (strstr(buf, "fail") || strstr(buf, " empty"))
+		return 0;
+	return !r || (r[4] == '0' && (r[5] < '0' || r[5] > '9'));
+}
+static inline int t23_fmt_is_info(const char *fmt)
+{
+	if (fmt[0] != KERN_SOH_ASCII)
+		return 0;
+	if (fmt[1] == '6')
+		return 1;
+	return fmt[1] == '4' &&
+	       !strncmp(fmt + 2, "tx_isp_t23_recovered: ", 22) &&
+	       t23_fmt_in(t23_progress, fmt + 24);
+}
+
+/*
+ * Rendering helper kept out of line so t23_printk itself needs only a tiny
+ * stack frame: it is also called from hard-IRQ context (MIPS 3.10 has no
+ * separate IRQ stacks). Returns 1 when the message reports plain success.
+ */
+static noinline int t23_ret_msg_ok(const char *fmt, va_list args)
+{
+	char buf[256];
+	int r = vsnprintf(buf, sizeof(buf), fmt + 2, args);
+
+	return r < (int)sizeof(buf) && t23_msg_is_ok(buf);
+}
+
+/* one out-of-line gate: no per-call-site code (module size) */
+static noinline int t23_printk(const char *fmt, ...)
+{
+	va_list args;
+	int r;
+
+	va_start(args, fmt);
+	if (!t23_runtime_trace) {
+		if (t23_fmt_is_info(fmt)) {
+			va_end(args);
+			return 0;
+		}
+		/* never render in IRQ context; ret-gated notes stay visible there */
+		if (!in_interrupt() && !irqs_disabled() &&
+		    fmt[0] == KERN_SOH_ASCII && fmt[1] == '4' &&
+		    !strncmp(fmt + 2, "tx_isp_t23_recovered: ", 22) &&
+		    t23_fmt_in(t23_progress_ret, fmt + 24)) {
+			va_list a2;
+			int ok;
+
+			va_copy(a2, args);
+			ok = t23_ret_msg_ok(fmt, a2);
+			va_end(a2);
+			if (ok) {
+				va_end(args);
+				return 0;
+			}
+		}
+	}
+	r = vprintk(fmt, args);
+	va_end(args);
+	return r;
+}
+#ifdef TX_ISP_T23_NO_TRACE
 #define t23_is_info_fmt(fmt) ((fmt)[0] == KERN_SOH_ASCII && (fmt)[1] == '6')
 #define printk(fmt, ...) (t23_is_info_fmt(fmt) ? \
-	((void)(0, ##__VA_ARGS__), 0) : (printk)(fmt, ##__VA_ARGS__))
+	((void)(0, ##__VA_ARGS__), 0) : t23_printk(fmt, ##__VA_ARGS__))
+#else
+#define printk(fmt, ...) t23_printk(fmt, ##__VA_ARGS__)
 #endif
 
 /*
@@ -678,6 +801,9 @@ MODULE_PARM_DESC(clka_name, "select the axi bus parent clock");
 static char * clk_name;
 module_param(clk_name, charp, 0);
 MODULE_PARM_DESC(clk_name, "select the isp parent clock");
+
+module_param(t23_runtime_trace, int, 0644);
+MODULE_PARM_DESC(t23_runtime_trace, "enable T23 informational driver logging (KERN_INFO and allow-listed progress notes), default 0");
 
 static int print_level = 1;
 module_param(print_level, int, 0);
@@ -22301,7 +22427,7 @@ tisp_vic_ctrl_ioctl0xe0:
     if (a2 != 0) { goto tisp_vic_ctrl_ioctl0xe0; }
 
     /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)printk((const char *)(uintptr_t)&LC63, *(uint8_t *)((char *)((char *)&gpio_info + 0xa)), *(uint32_t *)((char *)((char *)&gpio_info + 0x14))); /* jalr target resolved by relocation */
+    if (t23_runtime_trace) v0 = (uintptr_t *)printk((const char *)(uintptr_t)&LC63, *(uint8_t *)((char *)((char *)&gpio_info + 0xa)), *(uint32_t *)((char *)((char *)&gpio_info + 0x14))); /* jalr target resolved by relocation */
 
     /* fragment 32: MemoryAccess */
     v0 = *(uint32_t *)((char *)s3 + 36);
@@ -22328,7 +22454,7 @@ tisp_vic_ctrl_ioctl0xe0:
     if (_bc_v0_37) { goto tisp_vic_ctrl_ioctl0x268; }
 
     /* fragment 38: CallSetup */
-    v0 = (uintptr_t *)printk((const char *)(uint32_t *)&LC64, *(uint32_t *)((char *)((char *)&st_vic_save_par)), 0); /* jalr target resolved by relocation */
+    if (t23_runtime_trace) v0 = (uintptr_t *)printk((const char *)(uint32_t *)&LC64, *(uint32_t *)((char *)((char *)&st_vic_save_par)), 0); /* jalr target resolved by relocation */
 
     /* fragment 39: CallSetup */
     local_10 = *(uint32_t *)((char *)((char *)&st_vic_save_par));
@@ -96023,7 +96149,7 @@ static int32_t tisp_g_hldc_attr(int32_t a0, int32_t a1)
 	v1 = ((int16_t *)a1)[1];
 	v0 = ((int16_t *)a1)[0];
 
-	printk("[%s %d] %d %d %d %d %d\n", "tisp_g_hldc_attr", 0xa52, v0, v1, v2, v3, v4);
+	printk(KERN_INFO "[%s %d] %d %d %d %d %d\n", "tisp_g_hldc_attr", 0xa52, v0, v1, v2, v3, v4);
 
 	return ret;
 }
