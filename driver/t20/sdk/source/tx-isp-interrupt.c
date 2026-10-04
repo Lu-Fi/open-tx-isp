@@ -115,9 +115,9 @@ int tx_isp_request_irq(struct platform_device *pdev, tx_isp_device_t *ispdev)
 	}
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	irq = platform_get_irq(pdev, 0);
-	if (!res || !irq) {
+	if (!res || irq <= 0) {
 		v4l2_err(v4l2_dev, "%s[%d] Not enough platform resources",__func__,__LINE__);
-		ret = -ENODEV;
+		ret = irq < 0 ? irq : -ENODEV;
 		goto err_resource;
 	}
 
