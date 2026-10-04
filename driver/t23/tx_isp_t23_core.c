@@ -145,29 +145,48 @@ static inline int t23_fmt_is_info(const char *fmt)
 	       t23_fmt_in(t23_progress, fmt + 24);
 }
 
+/*
+ * Rendering helper kept out of line so t23_printk itself needs only a tiny
+ * stack frame: it is also called from hard-IRQ context (MIPS 3.10 has no
+ * separate IRQ stacks). Returns 1 when the message reports plain success.
+ */
+static noinline int t23_ret_msg_ok(const char *fmt, va_list args)
+{
+	char buf[256];
+	int r = vsnprintf(buf, sizeof(buf), fmt + 2, args);
+
+	return r < (int)sizeof(buf) && t23_msg_is_ok(buf);
+}
+
 /* one out-of-line gate: no per-call-site code (module size) */
 static noinline int t23_printk(const char *fmt, ...)
 {
 	va_list args;
 	int r;
 
+	va_start(args, fmt);
 	if (!t23_runtime_trace) {
-		if (t23_fmt_is_info(fmt))
+		if (t23_fmt_is_info(fmt)) {
+			va_end(args);
 			return 0;
-		if (fmt[0] == KERN_SOH_ASCII && fmt[1] == '4' &&
+		}
+		/* never render in IRQ context; ret-gated notes stay visible there */
+		if (!in_interrupt() && !irqs_disabled() &&
+		    fmt[0] == KERN_SOH_ASCII && fmt[1] == '4' &&
 		    !strncmp(fmt + 2, "tx_isp_t23_recovered: ", 22) &&
 		    t23_fmt_in(t23_progress_ret, fmt + 24)) {
-			char buf[512];
 			va_list a2;
+			int ok;
 
-			va_start(a2, fmt);
-			r = vsnprintf(buf, sizeof(buf), fmt + 2, a2);
+			va_copy(a2, args);
+			ok = t23_ret_msg_ok(fmt, a2);
 			va_end(a2);
-			if (r < (int)sizeof(buf) && t23_msg_is_ok(buf))
+			if (ok) {
+				va_end(args);
 				return 0;
+			}
 		}
 	}
-	va_start(args, fmt);
 	r = vprintk(fmt, args);
 	va_end(args);
 	return r;
