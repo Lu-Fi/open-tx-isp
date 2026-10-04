@@ -21348,6 +21348,19 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         return 0;
     }
 
+    /*
+     * Stack-overflow gate for the recovered isp-m0 tuning dispatcher.
+     *
+     * The supported tuning envelope (0xc0105435) and the 8-byte control pair
+     * (0xc0085433/0xc0085434) are served by the typed handlers above.  The
+     * recovered fall-through below copied 8 bytes from userspace into the
+     * 4-byte scalar local &local_10, overflowing the kernel stack.  Refuse any
+     * other command instead of running it.
+     */
+    pr_warn_once("tx-isp-t41: %s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
+                 __func__, a1, _IOC_SIZE(a1));
+    return -ENOTTY;
+
     /* fragment 0: MemoryAccess */
     v0 = *(uint32_t *)((char *)a0 + 136);
     v0 = *(uint32_t *)((char *)v0 + 256);
@@ -29118,6 +29131,20 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
             *(uint32_t *)(void *)isp_nv12_hbit = 8U << align[1];
         return 0;
     }
+
+    /*
+     * Stack-overflow gate for the recovered frame-channel dispatcher.
+     *
+     * All eleven T41 frame ioctls (0xc0745451..0xc008545b) are handled by the
+     * typed helpers above.  The recovered dispatch below copied 8..68 bytes
+     * from userspace into the 4-byte scalar local &local_20 with hard-coded
+     * lengths, overflowing the kernel stack for any unhandled command.  Refuse
+     * it instead of running that path.
+     */
+    pr_warn_once("tx-isp-t41: %s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
+                 __func__, a1, _IOC_SIZE(a1));
+    return -ENOTTY;
+
     v0 = 3222536192;
     s2 = a2;
 
@@ -35503,6 +35530,22 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
                a1, regtrace_ret);
         return regtrace_ret;
     }
+
+    /*
+     * Stack-overflow gate for the recovered /dev/tx-isp dispatcher.
+     *
+     * Every command libimp/OpenIMP issues on this node (TISP_VIDIOC_*,
+     * 0x80045401..0x800c5412) is fully served by the typed, bounds-checked
+     * handlers above.  The decompiler-recovered dispatch that follows copied
+     * 8..80 bytes from userspace into 4-byte scalar locals (&local_20,
+     * &local_70, ...) with hard-coded lengths, smashing the kernel stack from
+     * userspace for any command that reaches it.  Refuse anything the clean
+     * handlers did not claim rather than run that path; _IOC_SIZE(a1) is only
+     * logged for diagnostics since the recovered copies ignored it entirely.
+     */
+    pr_warn_once("tx-isp-t41: %s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
+                 __func__, a1, _IOC_SIZE(a1));
+    return -ENOTTY;
 
     /* fragment 0: Prologue */
     /* function prologue: stack frame and callee-saved register setup */
