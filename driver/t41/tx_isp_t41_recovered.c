@@ -8733,7 +8733,7 @@ vic_frame_channel_qbuf0x15c:
 
 vic_frame_channel_qbuf0x190:
     /* fragment 28: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s3); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)((uintptr_t)s3, (uintptr_t)local_10); /* jalr target resolved by relocation */
 
     /* fragment 29: Arithmetic */
     v0 = 0;
@@ -12585,7 +12585,7 @@ isp_vic_interrupt_service_routine0x124:
     if (a0 == s6) { goto isp_vic_interrupt_service_routine0x184; }
 
     /* fragment 22: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_gpio_direction_output)(a0); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_gpio_direction_output)(a0, *(uint16_t *)((char *)s3 + 20)); /* jalr target resolved by relocation */
 
     /* fragment 23: Branch */
     s2 = s2 + 1;
@@ -15252,7 +15252,7 @@ int tx_isp_csi_probe(struct platform_device *pdev)
         if (req != 0) {
             uintptr_t base = *(uintptr_t *)req;
             uintptr_t size = (*(uintptr_t *)(req + 4) + 1) - base;
-            void *mapped = private_ioremap((void *)base, size);
+            void *mapped = private_ioremap((phys_addr_t)base, size);
             *(void **)((char *)v0 + 0x190) = mapped;
             *(void **)((char *)v0 + 0x38) = &isp_csi_fops;
             *(void **)((char *)v0 + 0x18c) = req;
@@ -15526,7 +15526,7 @@ csi_core_ops_init0xac:
 
 csi_core_ops_init0xb0:
     /* fragment 12: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s2); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)((uintptr_t)s2, (uintptr_t)local_10); /* jalr target resolved by relocation */
 
     /* fragment 13: Branch */
     v0 = 0;
@@ -17870,6 +17870,32 @@ int32_t isp_frame_done_wait(uint32_t a0, uint32_t a1, uintptr_t a2)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: Arithmetic */
+    /*
+     * OEM: atomic_set(cond, 0); private_wait_event_interruptible_timeout()
+     * on frame_done_wq{,_sec} (timeout a1 jiffies); copy the 64-bit
+     * frame_done_cnt[ch] to *a2; -ERESTARTSYS passes through, 0 -> -145.
+     * The recovered body called the wrapper with one argument and read
+     * the counter from address ch * 8.  The OEM wrapper took the queue
+     * head by value; this waits on the real queue so a wakeup is seen.
+     */
+    {
+        wait_queue_head_t *wq;
+        uint32_t *cond;
+        long left;
+
+        if (a0 > 1)
+            return -EINVAL;
+        wq = (wait_queue_head_t *)(a0 ? (void *)frame_done_wq_sec : (void *)frame_done_wq);
+        cond = a0 ? &frame_done_cond_sec : &frame_done_cond;
+        WRITE_ONCE(*cond, 0);
+        left = wait_event_interruptible_timeout(*wq, READ_ONCE(*cond) == 1, (long)a1);
+        if (t41_kernel_data_ptr((void *)a2))
+            memcpy((void *)a2, frame_done_cnt_storage + a0 * 8, 8);
+        if (left == -ERESTARTSYS)
+            return left;
+        return left ? 0 : -145;
+    }
+
     v0 = (unsigned int *)&private_atomic_set;
 
     /* fragment 2: StackAccess */
@@ -19036,7 +19062,7 @@ tx_isp_core_ops_g_ctrl0x5ec:
     v0 = v0;
 
     /* fragment 166: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_to_user)(a0); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)T41_UNRECOVERED_COPY(); /* jalr target resolved by relocation */
 
     /* fragment 167: Branch */
     s0 = v0;
@@ -19358,7 +19384,7 @@ tx_isp_core_ops_g_ctrl0x9e4:
     v0 = v0;
 
     /* fragment 236: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_to_user)(a0); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)T41_UNRECOVERED_COPY(); /* jalr target resolved by relocation */
 
     /* fragment 237: Branch */
     s0 = v0;
@@ -19934,7 +19960,7 @@ tx_isp_core_ops_g_ctrl0x10c8:
 
 tx_isp_core_ops_g_ctrl0x10cc:
     /* fragment 376: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_to_user)(a0); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)T41_UNRECOVERED_COPY(); /* jalr target resolved by relocation */
 
     /* fragment 377: Branch */
     s0 = v0;
@@ -20329,9 +20355,10 @@ uint32_t isp_core_tunning_default_ioctl_isra_80(uintptr_t a0, uint32_t a1)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
+    T41_UNRECOVERED_RET(-EOPNOTSUPP);
     s2 = a0;
     s1 = a1;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_10); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)T41_UNRECOVERED_COPY(); /* jalr target resolved by relocation */
 
     /* fragment 2: Branch */
     a2 = local_18;
@@ -21528,6 +21555,32 @@ int32_t isp_frame_done_wakeup(uint32_t a0)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
+    /*
+     * OEM: ch = ((u32 *)a0)[1]; frame_done_cnt[ch]++ (64-bit);
+     * atomic_set(cond, 1); wake_up(wq).  The recovered body passed no
+     * value to atomic_set and did not bound ch (16-byte counter array).
+     */
+    {
+        uint32_t ch;
+        uint64_t *cnt;
+
+        if (!t41_kernel_data_ptr((void *)(uintptr_t)a0))
+            return -EINVAL;
+        ch = ((uint32_t *)(uintptr_t)a0)[1];
+        if (ch > 1)
+            return -EINVAL;
+        cnt = (uint64_t *)(frame_done_cnt_storage + ch * 8);
+        (*cnt)++;
+        if (ch == 0) {
+            WRITE_ONCE(frame_done_cond, 1);
+            wake_up((wait_queue_head_t *)(void *)frame_done_wq);
+        } else {
+            WRITE_ONCE(frame_done_cond_sec, 1);
+            wake_up((wait_queue_head_t *)(void *)frame_done_wq_sec);
+        }
+        return 0;
+    }
+
     v0 = (unsigned int *)memcpy((void *)(uintptr_t)&local_10, (void *)(uintptr_t)a0, 8); /* jalr target resolved by relocation */
 
     /* fragment 2: StackAccess */
@@ -27005,20 +27058,20 @@ int64_t isp_framesource_show(uint32_t a0)
         }
 
         for (; i < *(uint32_t *)((char *)s5 + 0x118); i++) {
-            private_seq_printf(a0, (const char *)&LC8, i);
+            private_seq_printf((struct seq_file *)a0, (const char *)&LC8, i);
             s0 = (uintptr_t)i * 0x334 + *(uint32_t *)((char *)s5 + 0x114);
 
             const char *a2_2 = "running";
             if (*(uint32_t *)((char *)s0 + 0x2f4) != 4) {
                 a2_2 = "stop";
             }
-            private_seq_printf(a0, (const char *)&LC9, (uint32_t)a2_2);
+            private_seq_printf((struct seq_file *)a0, (const char *)&LC9, (uint32_t)a2_2);
 
             if (*(uint32_t *)((char *)s0 + 0x2f4) == 4) {
                 local_44 = *(uint8_t *)((char *)s0 + 0x263);
                 local_48 = *(uint8_t *)((char *)s0 + 0x262);
-                private_seq_printf(a0, (const char *)&LC10, *(uint8_t *)((char *)s0 + 0x260));
-                private_seq_printf(a0, (const char *)&LC11, *(uint32_t *)((char *)s0 + 0x258));
+                private_seq_printf((struct seq_file *)a0, (const char *)&LC10, *(uint8_t *)((char *)s0 + 0x260));
+                private_seq_printf((struct seq_file *)a0, (const char *)&LC11, *(uint32_t *)((char *)s0 + 0x258));
 
                 const char *a2_5;
                 if (*(uint8_t *)((char *)s0 + 0x29c) != 0) {
@@ -27026,11 +27079,11 @@ int64_t isp_framesource_show(uint32_t a0)
                 } else {
                     a2_5 = "disable";
                 }
-                private_seq_printf(a0, (const char *)&LC12, (uint32_t)a2_5);
+                private_seq_printf((struct seq_file *)a0, (const char *)&LC12, (uint32_t)a2_5);
 
                 if (*(uint8_t *)((char *)s0 + 0x29c) != 0) {
-                    private_seq_printf(a0, (const char *)&LC13, *(uint32_t *)((char *)s0 + 0x2a0));
-                    private_seq_printf(a0, (const char *)&LC14, *(uint32_t *)((char *)s0 + 0x2a4));
+                    private_seq_printf((struct seq_file *)a0, (const char *)&LC13, *(uint32_t *)((char *)s0 + 0x2a0));
+                    private_seq_printf((struct seq_file *)a0, (const char *)&LC14, *(uint32_t *)((char *)s0 + 0x2a4));
                 }
 
                 const char *a2_8;
@@ -27039,36 +27092,36 @@ int64_t isp_framesource_show(uint32_t a0)
                 } else {
                     a2_8 = "disable";
                 }
-                int32_t a2_9 = private_seq_printf(a0, (const char *)&LC15, (uint32_t)a2_8);
+                int32_t a2_9 = private_seq_printf((struct seq_file *)a0, (const char *)&LC15, (uint32_t)a2_8);
 
                 if (*(uint8_t *)((char *)s0 + 0x288) != 0) {
-                    private_seq_printf(a0, (const char *)&LC16, *(uint32_t *)((char *)s0 + 0x28c));
-                    private_seq_printf(a0, (const char *)&LC17, *(uint32_t *)((char *)s0 + 0x290));
-                    private_seq_printf(a0, (const char *)&LC18, *(uint32_t *)((char *)s0 + 0x294));
-                    a2_9 = private_seq_printf(a0, (const char *)&LC19, *(uint32_t *)((char *)s0 + 0x298));
+                    private_seq_printf((struct seq_file *)a0, (const char *)&LC16, *(uint32_t *)((char *)s0 + 0x28c));
+                    private_seq_printf((struct seq_file *)a0, (const char *)&LC17, *(uint32_t *)((char *)s0 + 0x290));
+                    private_seq_printf((struct seq_file *)a0, (const char *)&LC18, *(uint32_t *)((char *)s0 + 0x294));
+                    a2_9 = private_seq_printf((struct seq_file *)a0, (const char *)&LC19, *(uint32_t *)((char *)s0 + 0x298));
                 }
 
-                private_seq_printf(a0, (const char *)&LC20, 0);
+                private_seq_printf((struct seq_file *)a0, (const char *)&LC20, 0);
                 __private_spin_lock_irqsave((char *)s0 + 0x2e0, &local_38);
-                private_seq_printf(a0, (const char *)&LC21, *(uint32_t *)((char *)s0 + 0x224));
+                private_seq_printf((struct seq_file *)a0, (const char *)&LC21, *(uint32_t *)((char *)s0 + 0x224));
                 s3 = *(uint32_t *)((char *)s0 + 0x21c) - 0x58;
 
                 while (s3 + 0x58 != (uint32_t)((char *)s0 + 0x21c)) {
-                    private_seq_printf(a0, (const char *)&LC22, *(uint32_t *)((char *)s3 + 0x34));
+                    private_seq_printf((struct seq_file *)a0, (const char *)&LC22, *(uint32_t *)((char *)s3 + 0x34));
                     s3 = *(uint32_t *)((char *)s3 + 0x58) - 0x58;
                 }
 
-                private_seq_printf(a0, (const char *)&LC23, *(uint32_t *)((char *)s0 + 0x234));
+                private_seq_printf((struct seq_file *)a0, (const char *)&LC23, *(uint32_t *)((char *)s0 + 0x234));
                 s3 = *(uint32_t *)((char *)s0 + 0x228) - 0x60;
 
                 while (s3 + 0x60 != (uint32_t)((char *)s0 + 0x228)) {
-                    private_seq_printf(a0, (const char *)&LC24, *(uint32_t *)((char *)s3 + 0x34));
+                    private_seq_printf((struct seq_file *)a0, (const char *)&LC24, *(uint32_t *)((char *)s3 + 0x34));
                     s3 = *(uint32_t *)((char *)s3 + 0x60) - 0x60;
                 }
 
                 private_spin_unlock_irqrestore((char *)s0 + 0x2e0, local_38);
-                private_seq_printf(a0, (const char *)&LC25, *(uint32_t *)((char *)s0 + 0x308));
-                private_seq_printf(a0, (const char *)&LC26, *(uint32_t *)((char *)s0 + 0x30c));
+                private_seq_printf((struct seq_file *)a0, (const char *)&LC25, *(uint32_t *)((char *)s0 + 0x308));
+                private_seq_printf((struct seq_file *)a0, (const char *)&LC26, *(uint32_t *)((char *)s0 + 0x30c));
 
                 s0 = s0 + 0x118;
                 uint32_t j = 0;
@@ -27080,7 +27133,7 @@ int64_t isp_framesource_show(uint32_t a0)
                         local_40 = *(uint32_t *)((char *)v0_14 + 0x54);
                         local_44 = *(uint32_t *)((char *)v0_14 + 0x50);
                         local_48 = *(uint8_t *)((char *)v0_14 + 0x4c);
-                        private_seq_printf(a0, (const char *)&LC27, j);
+                        private_seq_printf((struct seq_file *)a0, (const char *)&LC27, j);
                     }
                     s8 = s8 + 4;
                 }
@@ -29913,7 +29966,7 @@ frame_channel_unlocked_ioctl0x82c:
 
 frame_channel_unlocked_ioctl0x878:
     /* fragment 193: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_dma_sync_single_for_device)(0, s4); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_dma_sync_single_for_device)(0, (uintptr_t)s4, local_58, 2); /* jalr target resolved by relocation */
 
     /* fragment 194: CallSetup */
     v0 = s3 + 104;
@@ -37206,7 +37259,7 @@ tx_isp_unlocked_ioctl0x10d8:
     s3 = *(uint32_t *)((char *)(s2) + 48);
     s4 = local_20;
     s2 = *(uint32_t *)((char *)(s3) + 268);
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_20); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)T41_UNRECOVERED_COPY(); /* jalr target resolved by relocation */
 
     /* fragment 405: Branch */
     int _bc_v0_405 = v0 == 0;
@@ -77476,7 +77529,9 @@ int32_t tisp_awb_main_interrupt_static(uint32_t a0)
     /* fragment 4: CallSetup */
     s0 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s2) + 0)) + 20);
     s0 = (((uintptr_t)s0 << 12) * (uintptr_t)v0) + (uintptr_t)s0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_dma_cache_sync)(0, (uintptr_t)s0, (uintptr_t)s0 << 12, 0); /* jalr target resolved by relocation */
+    /* Review H1: arguments unrecovered (size = address << 12); the old
+     * private_dma_cache_sync() ignored them, so keep the no-op. */
+    v0 = 0; /* jalr target resolved by relocation */
 
     /* fragment 5: CallSetup */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_get_statistics)(s0, s4); /* jalr target resolved by relocation */
@@ -89571,7 +89626,8 @@ int64_t Tiziano_wdr_fusion_fpga(uint32_t a0)
     local_264 = v1;
     local_268 = v0;
     local_22c = (uint32_t *)&private_kmalloc;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_kmalloc)(a0); /* jalr target resolved by relocation */
+    /* OEM: kmalloc(450, 0x2080020), then memset(.., 0, 510): allocate 512. */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(512, 0x2080020); /* jalr target resolved by relocation */
 
     /* fragment 5: CallSetup */
     s6 = v0;
@@ -109343,19 +109399,19 @@ int64_t defog_count_weight35abc(uint32_t a0, uint32_t a1, uint32_t a2, unsigned 
         } while (arg5 != (uintptr_t)v0_19);
     }
 
-    char *v0_20 = (char *)private_kmalloc(s0, 0x24000c0);
-    char *v0_21 = (char *)private_kmalloc(s0, 0x24000c0);
-    char *v0_22 = (char *)private_kmalloc(s0, 0x24000c0);
-    char *v0_23 = (char *)private_kmalloc(s0, 0x24000c0);
-    char *v0_24 = (char *)private_kmalloc(s0, 0x24000c0);
-    void *v0_25 = private_kmalloc(s0, 0x24000c0);
-    char *v0_26 = (char *)private_kmalloc(s0, 0x24000c0);
-    void *v0_27 = private_kmalloc(s0, 0x24000c0);
-    char *v0_28 = (char *)private_kmalloc(s0, 0x24000c0);
-    char *v0_29 = (char *)private_kmalloc(s0, 0x24000c0);
-    char *v0_30 = (char *)private_kmalloc(s0, 0x24000c0);
-    char *v0_31 = (char *)private_kmalloc(s0, 0x24000c0);
-    char *v0_32 = (char *)private_kmalloc(s0, 0x24000c0);
+    char *v0_20 = (char *)private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
+    char *v0_21 = (char *)private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
+    char *v0_22 = (char *)private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
+    char *v0_23 = (char *)private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
+    char *v0_24 = (char *)private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
+    void *v0_25 = private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
+    char *v0_26 = (char *)private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
+    void *v0_27 = private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
+    char *v0_28 = (char *)private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
+    char *v0_29 = (char *)private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
+    char *v0_30 = (char *)private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
+    char *v0_31 = (char *)private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
+    char *v0_32 = (char *)private_kmalloc((size_t)(uintptr_t)s0, 0x24000c0);
     memset(v0_20, 0, s0);
     memset(v0_21, 0, s0);
     memset(v0_22, 0, s0);
@@ -159842,7 +159898,7 @@ ispcore_frame_channel1_debug_qbuf0x70:
 
 ispcore_frame_channel1_debug_qbuf0x130:
     /* fragment 30: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s1); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)((uintptr_t)s1, (uintptr_t)local_2c); /* jalr target resolved by relocation */
 
     /* fragment 31: Branch */
     v0 = 0;
@@ -168052,7 +168108,7 @@ ispcore_interrupt_service_routine0x17c:
     if (_bc_v1_25) { goto ispcore_interrupt_service_routine0x1b8; }
 
     /* fragment 26: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&ivdc_threshold_line); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&t41_vb_measure_tv[0]); /* jalr target resolved by relocation */
 
     /* fragment 27: Arithmetic */
     v0 = 2;
@@ -168069,7 +168125,7 @@ ispcore_interrupt_service_routine0x1b8:
     if (_bc_v1_29) { goto ispcore_interrupt_service_routine0x1e0; }
 
     /* fragment 30: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&ivdc_threshold_line); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&t41_vb_measure_tv[1]); /* jalr target resolved by relocation */
 
     /* fragment 31: Arithmetic */
     v0 = 4;
@@ -168126,7 +168182,7 @@ ispcore_interrupt_service_routine0x238:
     if (v1 != v0) { goto ispcore_interrupt_service_routine0x284; }
 
     /* fragment 43: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&ivdc_threshold_line); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&t41_vb_measure_tv[2]); /* jalr target resolved by relocation */
 
     /* fragment 44: Arithmetic */
     v0 = 3;
