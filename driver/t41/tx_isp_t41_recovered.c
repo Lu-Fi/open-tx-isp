@@ -1852,9 +1852,6 @@ static struct file_operations ivdc_misc_fops;
 static struct file_operations ivdc_proc_fops;
 static uint32_t vb_time;
 static uint32_t ivdc_vb_type;
-static unsigned char data_10000[16384];
-static unsigned char data_3288[16384];
-static unsigned char data_48000[16384];
 static uint32_t ivdc_mem_paddr;
 static uint32_t isp_err3;
 static struct file_operations isp_framesource_fops;
@@ -2085,7 +2082,6 @@ static unsigned char top_info_storage[8] __attribute__((aligned(4)));
 /* CCM's recovered scalar was absent; channel-1 gamma storage is unavailable. */
 #define ccm_info (gamma_info[1])
 static struct file_operations tisp_fops;
-static unsigned char data_1388[16384];
 static uint32_t ev_last;
 static unsigned char __attribute__((aligned(4))) tgain_last[16] = {
     0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -2113,7 +2109,6 @@ static unsigned char mscaler_storage[2656] __attribute__((aligned(4)));
 #define mscaler (*(uint32_t *)(void *)mscaler_storage)
 static unsigned char data_1ee40[16384];
 static unsigned char data_74b0[16384];
-static unsigned char data_80000[16384];
 static unsigned char day_night_storage[8] __attribute__((aligned(4)));
 #define day_night (*(uint32_t *)(void *)day_night_storage)
 static unsigned char deir_en_storage[8] __attribute__((aligned(4)));
@@ -25941,13 +25936,13 @@ int ivdc_pad_event_handle(int32_t * arg1, int arg2, void * arg3) {
             *(int32_t *)((char *)*(void **)((uintptr_t)s0_1 + 0x110) + 0x20) = (s1_1 + 0xff) >> 8 << 0x10 | ((s1_1 + 0xff) & 0xffffff00);
             void * v1_10 = *(void **)((char *)s0_1 + 0x110);
             if ((*(int32_t *)((uintptr_t)v1_10 + 0x24) & 0x700) == 0) {
-                *(int32_t *)((char *)v1_10 + 0x24) = (int32_t)&data_3288;
+                *(int32_t *)((char *)v1_10 + 0x24) = 0x3288;
                 v1_10 = *(void **)((char *)s0_1 + 0x110);
             }
             *(int32_t *)((char *)v1_10 + 0x60) = 0x100702;
             *(int32_t *)((char *)*(void **)((char *)s0_1 + 0x110) + 0x64) = 7;
             *(int32_t *)((char *)*(void **)((char *)s0_1 + 0x110) + 0x84) = 1;
-            *(int32_t *)((char *)*(void **)((char *)s0_1 + 0x110) + 0x68) = (int32_t)&data_10000;
+            *(int32_t *)((char *)*(void **)((char *)s0_1 + 0x110) + 0x68) = 0x10000;
             *(int32_t *)((char *)*(void **)((char *)s0_1 + 0x110) + 0x6c) = TX_ISP_FRAME_EVENT_GET_FORMAT;
             if (ivdc_threshold_line == 0)
                 ivdc_threshold_line = a3_1;
@@ -26058,19 +26053,19 @@ int ivdc_pad_event_handle(int32_t * arg1, int arg2, void * arg3) {
         uint32_t v0_55;
         if (s5_3 >= 0xc01) {
             direct_mode = 2;
-            v0_55 = (uint32_t)&data_48000 / s1_5;
+            v0_55 = 0x48000U / s1_5;
             *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x2c) = 0;
             ivdc_mem_line_2 = ivdc_mem_line;
         } else {
             uint32_t direct_mode_1 = direct_mode;
             if (direct_mode_1 == 2) {
-                v0_55 = (uint32_t)&data_48000 / s1_5;
+                v0_55 = 0x48000U / s1_5;
                 *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x28) = v0_55;
                 *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x2c) = 0;
                ivdc_mem_line_2 = ivdc_mem_line;
             } else if ((int32_t)direct_mode_1 >= 3) {
                 if (direct_mode_1 == 3) {
-                    v0_55 = ((uint32_t)&data_48000 / s1_5) << 0x10;
+                    v0_55 = (0x48000U / s1_5) << 0x10;
                     *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x28) = v0_55;
                     *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x2c) = 0;
                     ivdc_mem_line_2 = ivdc_mem_line;
@@ -26085,12 +26080,12 @@ int ivdc_pad_event_handle(int32_t * arg1, int arg2, void * arg3) {
                 }
             } else {
                 if (direct_mode_1 == 0) {
-                    v0_55 = (uint32_t)&data_48000 / s1_5;
+                    v0_55 = 0x48000U / s1_5;
                     *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x28) = v0_55;
                     *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x2c) = 0;
                     ivdc_mem_line_2 = ivdc_mem_line;
                 } else if (direct_mode_1 == 1) {
-                    v0_55 = ((uint32_t)&data_48000 / s1_5) << 0x10;
+                    v0_55 = (0x48000U / s1_5) << 0x10;
                     *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x28) = v0_55;
                     *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x2c) = 0;
                     ivdc_mem_line_2 = ivdc_mem_line;
@@ -26115,7 +26110,7 @@ int ivdc_pad_event_handle(int32_t * arg1, int arg2, void * arg3) {
         *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x5c) = 0;
         *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x60) = 0x100702;
         *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x64) = 7;
-        *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x68) = (int32_t)&data_10000;
+        *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x68) = 0x10000;
         *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x6c) = TX_ISP_FRAME_EVENT_GET_FORMAT;
         *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x70) = 0;
         *(int32_t *)((char *)*(void **)((char *)s0_3 + 0x110) + 0x74) = 0;
@@ -26198,20 +26193,20 @@ int ivdc_pad_event_handle(int32_t * arg1, int arg2, void * arg3) {
         uint32_t v0_56;
         if (s5_4 >= 0xc01) {
             direct_mode = 2;
-            v0_56 = (uint32_t)&data_48000 / s1_6;
+            v0_56 = 0x48000U / s1_6;
             *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x28) = v0_56;
             *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x2c) = 0;
             ivdc_mem_line_4 = ivdc_mem_line;
         } else {
             uint32_t direct_mode_2 = direct_mode;
             if (direct_mode_2 == 2) {
-                v0_56 = (uint32_t)&data_48000 / s1_6;
+                v0_56 = 0x48000U / s1_6;
                 *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x28) = v0_56;
                 *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x2c) = 0;
                 ivdc_mem_line_4 = ivdc_mem_line;
             } else if ((int32_t)direct_mode_2 >= 3) {
                 if (direct_mode_2 == 3) {
-                    v0_56 = ((uint32_t)&data_48000 / s1_6) << 0x10;
+                    v0_56 = (0x48000U / s1_6) << 0x10;
                     *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x28) = v0_56;
                     *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x2c) = 0;
                     ivdc_mem_line_4 = ivdc_mem_line;
@@ -26226,12 +26221,12 @@ int ivdc_pad_event_handle(int32_t * arg1, int arg2, void * arg3) {
                 }
             } else {
                 if (direct_mode_2 == 0) {
-                    v0_56 = (uint32_t)&data_48000 / s1_6;
+                    v0_56 = 0x48000U / s1_6;
                     *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x28) = v0_56;
                     *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x2c) = 0;
                     ivdc_mem_line_4 = ivdc_mem_line;
                 } else if (direct_mode_2 == 1) {
-                    v0_56 = ((uint32_t)&data_48000 / s1_6) << 0x10;
+                    v0_56 = (0x48000U / s1_6) << 0x10;
                     *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x28) = v0_56;
                     *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x2c) = 0;
                     ivdc_mem_line_4 = ivdc_mem_line;
@@ -26246,7 +26241,7 @@ int ivdc_pad_event_handle(int32_t * arg1, int arg2, void * arg3) {
         *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x5c) = 0;
         *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x60) = 0x100702;
         *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x64) = 7;
-        *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x68) = (int32_t)&data_10000;
+        *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x68) = 0x10000;
         *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x6c) = TX_ISP_FRAME_EVENT_GET_FORMAT;
         *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x70) = 0;
         *(int32_t *)((char *)*(void **)((char *)s0_4 + 0x110) + 0x74) = 0;
@@ -43624,7 +43619,7 @@ int32_t Tiziano_Awb_Ct_Detect_GrayWorld_mode(void *arg1, int32_t arg2, void *arg
                 result = 1;
                 *arg5 = 1;
                 int32_t s0_1 = 1 << (s0 & 0x1f);
-                *v0_1 = &data_1388;
+                *(int32_t *)v0_1 = 5000;
                 *arg4 = s0_1;
                 ((void **)arg4)[1] = s0_1;
             } else {
@@ -43748,7 +43743,7 @@ int32_t Tiziano_Awb_Ct_Detect_GrayWorld_mode(void *arg1, int32_t arg2, void *arg
                     label_1a534:
                     *v1_7 = 1;
                     int32_t s0_2 = 1 << (s0 & 0x1f);
-                    *v0_1 = &data_1388;
+                    *(int32_t *)v0_1 = 5000;
                     *arg4 = s0_2;
                     ((void **)arg4)[1] = s0_2;
                 }
@@ -52484,6 +52479,7 @@ void* tiziano_reserve_reg_write(uint32_t a0, uintptr_t a1, uint32_t a2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fe90 origin=fragment_seed original=tiziano_load_parameters */
+/* NOTE: dead decompiler candidate (#if 0). data_80000/data_1ee40/data_74b0 below are constants/offsets mis-read as bss addresses; arrays removed. */
 #if 0
 uint32_t tiziano_load_parameters(uint32_t a0, uintptr_t a1, uintptr_t a2)
 {
@@ -85206,7 +85202,7 @@ int tisp_lsc_init(uint32_t arg1, uint32_t *arg2)
     *(uint8_t *)((uintptr_t)v0_2 + 0x6c28) = tmp ^ 1;
     *(uint8_t *)((char *)v0_2 + 0x6c29) = 0xff;
     *(uint8_t *)((char *)v0_2 + 0x6c2a) = 0xff;
-    ((void **)v0_2)[3] = (uint32_t)&data_1388;
+    ((void **)v0_2)[3] = (void *)(uintptr_t)5000;
     ((void **)v0_2)[4] = 5;
     ((void **)v0_2)[5] = 0x10;
     ((void **)v0_2)[7] = 0x100;
@@ -119244,7 +119240,7 @@ int32_t subsection(int32_t *arg1, int32_t arg2, int16_t *arg3, int16_t *arg4, in
     int32_t v0 = 2 << (arg7 & 0x1f);
     ((void **)arg1)[8] = 0xfff;
     *arg1 = 0;
-    int32_t v0_3 = subsection_map(&data_1388, (fix_point_div_32(arg7, 0xfff << (arg7 & 0x1f), v0) + 0x200) >> (arg7 & 0x1f), arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+    int32_t v0_3 = subsection_map(5000, (fix_point_div_32(arg7, 0xfff << (arg7 & 0x1f), v0) + 0x200) >> (arg7 & 0x1f), arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
         int16_t * var_38 = arg4;
     int16_t *a0_1 = arg4;
     int32_t *v0_4 = 0;
@@ -137699,8 +137695,8 @@ int32_t tisp_hldc_calc_para(uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_
             local_14 = v0_5;
         }
 
-        /* Call fix_point_div_64(0, fix_point_div_64, 0, &data_80000, local_10, local_14) */
-        v0 = fix_point_div_64(0, (uintptr_t)&fix_point_div_64, 0, (uint32_t*)&data_80000, local_10, local_14) - 5;
+        /* Call fix_point_div_64(0, fix_point_div_64, 0, 0x80000, local_10, local_14) */
+        v0 = fix_point_div_64(0, (uintptr_t)&fix_point_div_64, 0, 0x80000, local_10, local_14) - 5;
 
         if ((int32_t)v0 <= 0) {
             v0 = 1;
