@@ -17464,7 +17464,6 @@ static uint32_t tisp_set_sensor_digital_gain(int32_t arg1);
 static int32_t JZ_Isp_Ae_Reg2par(int32_t *arg1, int32_t *arg2);
 static int32_t JZ_Isp_Ae_Dg2reg(int32_t arg1, int32_t *arg2, int32_t arg3, int32_t *arg4);
 static int32_t printf_func0(uint32_t a0, uint32_t a1);
-int printf_func1(uint32_t arg1, uint32_t arg2);
 static int tisp_ae0_get_statistics(void *buffer, uint32_t flags);
 int32_t ae0_interrupt_static(void);
 static int32_t tisp_ae1_get_statistics(int32_t *arg1, int32_t arg2);
@@ -72673,108 +72672,6 @@ printf_func00x1fc:
     /* function epilogue: restore registers and return */
 
     return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000044634 origin=model_output original=printf_func1 */
-int printf_func1(uint32_t arg1, uint32_t arg2)
-{
-
-    uint32_t saved_a1;
-    uint32_t i_2_val;
-    uint32_t *result;
-    uint32_t *v0;
-    uint32_t *a3;
-    uint32_t s1_reg;
-    uint32_t s2_reg;
-    uint32_t s3_reg;
-    uint32_t s4_reg;
-    uint32_t s5_reg;
-    uint32_t s6_reg;
-    uint32_t s7_reg;
-    uint32_t s8_reg;
-
-    v0 = *(uint32_t *)((char *)&IntNum - 3512);
-    *(uint32_t *)((char *)&IntNum - 3512) = v0 + 1;
-    result = v0 < 0x88b8 ? 1 : 0;
-
-    if (result == 0)
-        return result;
-
-    s1_reg = arg1;
-    ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(1), (uintptr_t)(&LC11), (uintptr_t)(v0 + 1));
-
-    i_2_val = (uint32_t)((char *)&IspAeStatic + 0x1d18);
-    *(uint32_t *)((char *)&printf_func1 - 88) = (uint32_t)&printf_func1 + 5920;
-
-    while (saved_a1 < s1_reg)
-        return result;
-
-    for (;;) {
-        uint32_t case_val = s1_reg - 1;
-        if (!(arg2 < s1_reg))
-            break;
-
-        a3 = case_val < 6 ? 1 : 0;
-        if (a3 == 0)
-            goto process_data;
-
-        v0 = *(uint32_t *)((char *)&printf_func1 + 5920 + (case_val << 2));
-
-        switch (case_val) {
-        case 0:
-            ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(1), (uintptr_t)(&LC1), (uintptr_t)(arg2));
-            i_2_val = (uint32_t)((char *)&IspAeStatic + 0x1d18);
-            break;
-        case 1:
-            ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(1), (uintptr_t)(&LC2), (uintptr_t)(arg2));
-            i_2_val = (uint32_t)((char *)&IspAeStatic + 0x209c);
-            break;
-        case 2:
-            ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(1), (uintptr_t)(&LC3), (uintptr_t)(arg2));
-            i_2_val = (uint32_t)((char *)&IspAeStatic + 0x2420);
-            break;
-        case 3:
-            ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(1), (uintptr_t)(&LC4), (uintptr_t)(arg2));
-            i_2_val = (uint32_t)((char *)&IspAeStatic + 0x27a4);
-            break;
-        case 4:
-            ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(1), (uintptr_t)(&LC5), (uintptr_t)(arg2));
-            i_2_val = (uint32_t)((char *)&IspAeStatic + 0x2b28);
-            break;
-        case 5:
-            ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(1), (uintptr_t)("hist\n"), (uintptr_t)(arg2));
-            i_2_val = (uint32_t)((char *)&IspAeStatic + 0x2eac);
-            break;
-        }
-
-    process_data:
-        s2_reg = (uint32_t)&LC10;
-        s3_reg = i_2_val;
-        s7_reg = i_2_val + 900;
-        s8_reg = 60;
-        a3 = 0;
-
-        while (a3 != s8_reg) {
-            *(uint32_t *)((char *)&printf_func1 - 76) = a3;
-            ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(1), (uintptr_t)(&LC9), (uintptr_t)(*(uint32_t *)(s3_reg + (uintptr_t)a3)));
-            a3 = *(uint32_t *)((char *)&printf_func1 - 76);
-            a3 = (void *)(uintptr_t)((uintptr_t)a3 + (4));
-        }
-
-        ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(1), (uintptr_t)(&LC10), (uintptr_t)(arg2));
-        s3_reg += 60;
-        a3 = 0;
-
-        if (s3_reg != s7_reg)
-            continue;
-
-        break;
-    }
-
-    ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(1), (uintptr_t)(&LC10), (uintptr_t)(arg2));
-    s1_reg += 1;
-
-    return result;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000044828 origin=fragment_seed original=tisp_ae0_get_statistics */

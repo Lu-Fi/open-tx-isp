@@ -36257,6 +36257,9 @@ int tx_isp_get_ae_algo_handle(void __user *arg)
             return -ERESTARTSYS;
         if (wret == 0) {
             pr_warn_ratelimited("tx_isp_get_ae_algo_handle: no AE frame within 2 s\n");
+            /* drop completions that piled up meanwhile so the next call does
+             * not return stale data immediately */
+            INIT_COMPLETION(ae_algo_comp);
             return -ETIMEDOUT;
         }
     }
