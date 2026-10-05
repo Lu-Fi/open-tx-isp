@@ -16129,6 +16129,50 @@ tisp_ev_update0x84:
 /* true once the ISP was reset after the last tisp_init(): no stats DMA. */
 static bool t21_tisp_stats_quiesced = true;
 
+/*
+ * Beyond vendor (diagnostic): bayer_override. -1 (default) keeps the
+ * Bayer pattern tisp_init derives from the sensor's mbus code.  0..0x17 is
+ * written to TOP register 0x8 instead, at tisp_init and at once when set
+ * through sysfs while the ISP runs (the T31 OEM ISR writes 0x8 at run time
+ * as well).  Raw register values, as tisp_init writes them: 0 RGGB,
+ * 1 BGGR, 2 GRBG, 3 GBRG (8.. RGBIR variants).  Reading the parameter
+ * also shows the live register, so a sensor-side flip (shvflip) whose
+ * declared mbus code does not match the delivered CFA phase can be found
+ * on the device without a sensor driver change:
+ *   echo 2 > /sys/module/tx_isp_t21/parameters/bayer_override
+ */
+static int t21_bayer_override = -1;
+
+static int t21_bayer_override_set(const char *val, const struct kernel_param *kp)
+{
+	int ret = param_set_int(val, kp);
+
+	if (ret)
+		return ret;
+	if (t21_bayer_override >= 0 && t21_bayer_override <= 0x17 &&
+	    !t21_tisp_stats_quiesced) {
+		system_reg_write(8, (uint32_t)t21_bayer_override);
+		printk(KERN_INFO "tx-isp-t21: bayer_override: TOP 0x8 = %u\n",
+		       system_reg_read(8));
+	}
+	return 0;
+}
+
+static int t21_bayer_override_get(char *buf, const struct kernel_param *kp)
+{
+	if (t21_tisp_stats_quiesced)
+		return sprintf(buf, "%d (isp not running)", t21_bayer_override);
+	return sprintf(buf, "%d reg8=%u", t21_bayer_override,
+		       system_reg_read(8));
+}
+
+static const struct kernel_param_ops t21_bayer_override_ops = {
+	.set = t21_bayer_override_set,
+	.get = t21_bayer_override_get,
+};
+module_param_cb(bayer_override, &t21_bayer_override_ops, &t21_bayer_override, 0644);
+MODULE_PARM_DESC(bayer_override, "T21: write this raw value to TOP reg 0x8 (CFA phase: 0 RGGB, 1 BGGR, 2 GRBG, 3 GBRG) instead of the mbus-derived one; -1 = off (default)");
+
 int32_t tisp_deinit(void)
 {
 	int32_t ret;
@@ -16660,6 +16704,13 @@ int32_t tisp_init(int32_t *arg1)
 			deir_en = 1;
 			break;
 		}
+	}
+
+	/* diagnostic override of the CFA phase (bayer_override, see above) */
+	if (t21_bayer_override >= 0 && t21_bayer_override <= 0x17) {
+		system_reg_write(8, (uint32_t)t21_bayer_override);
+		printk(KERN_INFO "tx-isp-t21: bayer_override: TOP 0x8 = %u (mbus-derived bayer=%u)\n",
+		       (unsigned)t21_bayer_override, bayer);
 	}
 
 	if (deir_en == 1)
