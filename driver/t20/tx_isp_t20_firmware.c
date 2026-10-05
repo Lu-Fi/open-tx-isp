@@ -6084,16 +6084,19 @@ int32_t test_pattern(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
 		if (mode != 1)
 			return 2;
 
-		*arg4 = (uint32_t)APICAL_READ_32(0x9c4);
+		/* OEM 0x19da8: only the pattern byte */
+		*arg4 = (uint32_t)APICAL_READ_32(0x9c4) & 0xff;
 		return 0;
 	}
 
-	if ((uint32_t)arg1 >= 4) {
+	/* OEM 0x19d38/0x19d60: the value (a1) selects the pattern, arg1 is
+	 * the API context */
+	if ((uint32_t)arg2 >= 4) {
 		*arg4 = 1;
 		return 5;
 	}
 
-	APICAL_WRITE_32(0x9c4, (APICAL_READ_32(0x9c4) & 0xffffff00) | arg1);
+	APICAL_WRITE_32(0x9c4, (APICAL_READ_32(0x9c4) & 0xffffff00) | (uint32_t)arg2);
 	return 0;
 }
 
