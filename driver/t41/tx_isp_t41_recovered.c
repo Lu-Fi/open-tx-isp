@@ -21010,6 +21010,50 @@ static int t41_tuning_ae_weight(unsigned int channel, unsigned int is_get,
 }
 
 /*
+ * IMPISPCoefftWb { u16 r, g, b } (stock tisp_s/g_coefft_wb ->
+ * tisp_bcsh_api_set/get_offset_rgb, 0x08000098, 6 bytes): stored at
+ * bcsh_info+304 and in the BCSH params +0x118..0x11c, the RGB bias the
+ * BCSH matrix build reads; the register image is rebuilt with the last
+ * CT/EV.  Before this route the request was acknowledged unchanged.
+ */
+static int t41_tuning_coefft_wb(unsigned int channel, unsigned int is_get,
+                                uintptr_t user_ptr)
+{
+    uint8_t *info, *params;
+    uint16_t rgb[3];
+    uint32_t ct, ev;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (!is_get && private_copy_from_user(rgb, (void __user *)user_ptr,
+                                          sizeof(rgb)))
+        return -EFAULT;
+    if (!is_get && !t41_bcsh_offset_rgb_ok(rgb))
+        return -EINVAL;
+    mutex_lock(&t41_bcsh_lock);
+    info = (uint8_t *)(uintptr_t)bcsh_info;
+    params = t41_kernel_data_ptr(info) ?
+        (uint8_t *)(uintptr_t)*(uint32_t *)(void *)info : NULL;
+    if (!t41_kernel_data_ptr(params)) {
+        mutex_unlock(&t41_bcsh_lock);
+        return -EAGAIN;
+    }
+    if (is_get) {
+        memcpy(rgb, info + 304, sizeof(rgb));
+        mutex_unlock(&t41_bcsh_lock);
+        return private_copy_to_user((void __user *)user_ptr, rgb,
+                                    sizeof(rgb)) ? -EFAULT : 0;
+    }
+    memcpy(info + 304, rgb, sizeof(rgb));
+    memcpy(params + T41_BCSH_RGB_OFFSET, rgb, sizeof(rgb));
+    info[334] = 1;
+    ct = *(uint32_t *)(void *)(info + 312);
+    ev = *(uint32_t *)(void *)(info + 320);
+    mutex_unlock(&t41_bcsh_lock);
+    return t41_bcsh_update(ct, ev, 1);
+}
+
+/*
  * Review2 M1: stock serialises the tuning node with core_dev->mlock; two
  * tuning threads (day/night, BCSH, flip) must not interleave on the same
  * IQ state. Serialise the whole isp-m0 ioctl.
@@ -21064,6 +21108,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_INLINE },
             { TX_ISP_TUNING_CMD_T41_AE_WEIGHT, T41_AE_WEIGHT_ATTR_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AWB_RGB_COEFFT, 6,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_SENSOR_ATTR, 4 * T41_SENSOR_ATTR_WORDS,
@@ -21274,6 +21321,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             return t41_tuning_hvflip(&request);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AE_WEIGHT)
             return t41_tuning_ae_weight(request.channel, request.is_get,
+                                        request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_AWB_RGB_COEFFT)
+            return t41_tuning_coefft_wb(request.channel, request.is_get,
                                         request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_SENSOR_ATTR)
             return t41_tuning_sensor_attr(request.channel,

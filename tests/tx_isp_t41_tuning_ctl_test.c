@@ -98,8 +98,22 @@ static void ae_weight(void)
 	assert(t41_ae_weight_set(params, 0x82e, state, sizeof(state), enables, attr) == -1);
 }
 
+static void coefft_wb(void)
+{
+	const unsigned short neutral[3] = {1024, 1024, 1024};
+	const unsigned short edge[3] = {0, 2047, 1};
+	const unsigned short wide[3] = {1024, 2048, 1024};
+
+	assert(t41_bcsh_offset_rgb_ok(neutral));
+	assert(t41_bcsh_offset_rgb_ok(edge));
+	assert(!t41_bcsh_offset_rgb_ok(wide));
+	assert(!t41_bcsh_offset_rgb_ok(NULL));
+	assert(T41_BCSH_RGB_OFFSET == 280);  /* stock params+280/282/284 */
+}
+
 int main(void)
 {
+	coefft_wb();
 	ae_weight();
 	sensor_attr();
 	sensor_fps();

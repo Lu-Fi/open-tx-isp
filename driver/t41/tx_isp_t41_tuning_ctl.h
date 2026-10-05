@@ -137,4 +137,17 @@ static inline int t41_ae_weight_get(const unsigned char *params,
 	return 0;
 }
 
+/*
+ * IMPISPCoefftWb { u16 r, g, b } (stock tisp_bcsh_api_set_offset_rgb):
+ * kept at bcsh_info+304 and written to the BCSH params +0x118..0x11c, the
+ * RGB bias (value - 1024) of the BCSH matrix.  The hardware field is 11
+ * bits, so larger values would wrap.
+ */
+#define T41_BCSH_RGB_OFFSET 0x118U
+
+static inline int t41_bcsh_offset_rgb_ok(const unsigned short *rgb)
+{
+	return rgb && rgb[0] <= 2047 && rgb[1] <= 2047 && rgb[2] <= 2047;
+}
+
 #endif
