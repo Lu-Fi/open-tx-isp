@@ -534,3 +534,44 @@ node, and `/dev/isp-m0`:
 - Repeat each case a few thousand times during live capture and confirm the
   stream, encoder and `dmesg` stay clean (watch for the one-shot
   "recovered dispatch disabled" warning only).
+
+## Output restart hang (MSCA output restart with live input)
+
+Symptom (Vanhua T55A / gc5603, streamer idle-stop): one output stopped while
+the other kept streaming (or both idle-stopped, input still running), then
+started again: the SoC hard-hangs within a few frames of the restart. Both
+CPUs stop, no oops or panic, the busybox watchdog resets ~60 s later.
+Repro: ch0 client 2 s, pause 1.8 s, ch1 client 2 s, pause ~4 s, repeat -
+hang within 1-6 cycles; a 30-60 min two-client mix hung in 10-15 min.
+
+Evidence: a diagnostic build wrote step markers, a per-CPU register history
+and IRQ/lock state uncached into the last page of rmem; after the watchdog
+reset the tripped boot guard kept timps (which clears rmem) from starting,
+so the markers were read back with `devmem`. Every hang came right after an
+output was enabled/reprogrammed by `tisp_msca_chx_cfg_load()` while the
+input ran; no CPU was inside the ISR or waiting on a lock. Most hangs were
+bracketed by `0xf0010 = 1` (MSCA register update request) from
+`tisp_msca_set_mirr_flip()` with unchanged flip bits (frame-channel SET_FMT
+before the enable, the streamer's HVFLIP after it).
+
+What the driver does now (each step was bisected on the device):
+- `tisp_msca_set_mirr_flip()` requests the MSCA update only when the flip
+  bits change (`t41_msca_flip_skip_noop=1`). This alone took the targeted
+  repro from 1-6 cycles to 0 hangs in 90+ cycles (also with hflip=1), but
+  the client-mix soak still hung after 10-15 min.
+- STREAMOFF leaves the MSCA output enabled, as stock
+  `tisp_channel_main_stop()`/`tisp_msca_chx_cfg_load()` do (enable bits are
+  only ORed in); the address FIFO is cleared at REQBUFS 0 as before. A
+  restart with unchanged geometry does not touch the output's MSCA registers
+  (`t41_msca_stop_disable=0`; 1 restores clear-and-reprogram).
+- QBUF no longer writes the FIFO control words back with bit 31
+  (`t41_msca_fifo_ctrl_after_live_qbuf` now defaults to off). Stock writes
+  only the Y/UV address registers; both outputs still run at 25 fps.
+
+Experiments that did not help on their own: loading the staged MSCA
+configuration (0xf0010 handshake) before the enable, delaying the
+post-enable update request by a few frames, keeping the output enabled
+without skipping the redundant update requests.
+
+Residual risk: a real HVFLIP change still issues an update request; done
+within a frame of an output start it may hit the same hazard.
