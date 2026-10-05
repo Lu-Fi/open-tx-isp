@@ -21,6 +21,7 @@
 #include "tx_isp_t41_bcsh.h"
 #include "tx_isp_t41_hvflip.h"
 #include "tx_isp_t41_ae.h"
+#include "tx_isp_t41_tuning_ctl.h"
 #include "tx_isp_t41_gib.h"
 #include "../include/tx_isp/tx_isp_top.h"
 #include "tx_isp_t41_awb.h"
@@ -20945,6 +20946,199 @@ static int t41_tuning_hvflip(const struct tx_isp_tuning_t41_control *request)
 }
 
 /*
+ * IMPISPSENSORAttr (stock g_ctrl 0x08000033): the active sensor's
+ * total_width/total_height, the packed frame rate and the output size of
+ * core->video[channel] (core+308+96*channel; attr at +52).  Before this
+ * route the request was acknowledged without filling the structure.
+ */
+static int t41_tuning_sensor_attr(unsigned int channel, uintptr_t user_ptr)
+{
+    unsigned char *core, *video, *attr;
+    unsigned int words[T41_SENSOR_ATTR_WORDS];
+
+    if (channel >= 2 || !user_ptr)
+        return -EINVAL;
+    core = (unsigned char *)(uintptr_t)*(uint32_t *)(void *)g_ispcore;
+    if (!t41_kernel_data_ptr(core))
+        return -ENODEV;
+    video = core + 308 + channel * 96;
+    attr = (unsigned char *)(uintptr_t)*(uint32_t *)(void *)(video + 52);
+    if (!t41_kernel_data_ptr(attr))
+        return -ENODEV;
+    if (t41_sensor_attr_fill(video, attr, words))
+        return -EINVAL;
+    return private_copy_to_user((void __user *)user_ptr, words,
+                                sizeof(words)) ? -EFAULT : 0;
+}
+
+/*
+ * Stock tx_isp_core_ops_s_ctrl 0x08000070: the packed num<<16|den rate
+ * arrives inline; an unchanged rate is acknowledged, otherwise
+ * tisp_ae_api_set_fps hands it to the sensor (TX_ISP_EVENT_SENSOR_FPS,
+ * 0x0200000a) and the core video slot and tisp_par_info+48 take the new
+ * rate.  The sensor module reprograms its frame length and updates the
+ * shared attribute (total_height, max integration), which the open AE
+ * re-reads every frame.
+ *
+ * Open deviations, both for a coherent state: the event is sent here,
+ * synchronously and serialised with the AE sensor writes, so its result is
+ * returned; and a sensor module that acknowledges the event without
+ * changing total_height (e.g. the stock T41 gc5603 module only logs it) is
+ * reported as -EOPNOTSUPP instead of recording a rate the sensor does not
+ * run.  A rate above the stream's starting mode rate is refused (-EINVAL).
+ */
+static uint32_t t41_sensor_mode_fps;
+
+static int t41_tuning_sensor_fps_set(unsigned int channel, uint32_t fps)
+{
+    unsigned char *core, *video, *attr;
+    uint32_t event_arg[2], current_fps;
+    uint16_t old_vts;
+    int ret;
+
+    if (channel != 0)
+        return -EINVAL;
+    core = (unsigned char *)(uintptr_t)*(uint32_t *)(void *)g_ispcore;
+    if (!t41_kernel_data_ptr(core) || !t41_kernel_data_ptr((void *)(uintptr_t)ispcore_sd))
+        return -ENODEV;
+    video = core + 308;
+    attr = (unsigned char *)(uintptr_t)*(uint32_t *)(void *)(video + 52);
+    if (!t41_kernel_data_ptr(attr))
+        return -ENODEV;
+    current_fps = *(uint32_t *)(void *)(video + 68);
+    if (!t41_sensor_mode_fps)
+        t41_sensor_mode_fps = current_fps;
+    if (t41_sensor_fps_check(fps, t41_sensor_mode_fps))
+        return -EINVAL;
+    if (fps == current_fps ||
+        (!t41_sensor_fps_check(current_fps, 0) &&
+         (fps >> 16) * (current_fps & 0xffffU) ==
+         (current_fps >> 16) * (fps & 0xffffU)))
+        return 0;
+
+    old_vts = *(uint16_t *)(void *)(attr + 182);
+    event_arg[0] = 0;
+    event_arg[1] = fps;
+    ret = ispcore_sensor_ops_ioctl((uintptr_t)ispcore_sd, 0x0200000aU,
+                                   (uintptr_t)event_arg);
+    if (ret)
+        return ret;
+    if (*(uint16_t *)(void *)(attr + 182) == old_vts) {
+        pr_warn_ratelimited("tx-isp-t41: sensor ignored fps %u/%u (vts %u unchanged)\n",
+                            fps >> 16, fps & 0xffffU, old_vts);
+        return -EOPNOTSUPP;
+    }
+    *(uint32_t *)(void *)(video + 68) = fps;
+    *(uint32_t *)(void *)(tisp_par_info_storage + 48) = fps;
+    printk(KERN_INFO "tx-isp-t41: sensor fps %u/%u vts %u->%u\n",
+           fps >> 16, fps & 0xffffU, old_vts,
+           *(uint16_t *)(void *)(attr + 182));
+    return 0;
+}
+
+/*
+ * IMPISPAEWeightAttr (stock tx_isp_ae_weight_s_attr/g_attr, 0x08000021,
+ * 460 bytes; api_ae_set_weight/api_ae_get_weight): the zone weight and
+ * ROI tables live in the AE params (ae_info[ch][0] +0x82e/+0x4ee) that the
+ * open zone meter reads, with 8 - roi in the AE state (+0x2528).  Updated
+ * under the histogram lock the meter holds.  Before this route the
+ * request was acknowledged and the tables never changed.
+ */
+static unsigned char t41_ae_weight_enable[2][2];
+
+static int t41_tuning_ae_weight(unsigned int channel, unsigned int is_get,
+                                uintptr_t user_ptr)
+{
+    unsigned char *payload, *params, *state;
+    uint32_t *info;
+    spinlock_t *lock;
+    unsigned long flags;
+    int ret = 0;
+
+    if (channel >= ARRAY_SIZE(t41_ae_weight_enable) ||
+        channel >= ARRAY_SIZE(ae_info) || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (!smp_load_acquire(&t41_ae_ready[channel]))
+        return -EAGAIN;
+    info = (uint32_t *)(uintptr_t)ae_info[channel];
+    if (!t41_kernel_data_ptr(info))
+        return -ENODEV;
+    params = (unsigned char *)(uintptr_t)info[0];
+    state = (unsigned char *)(uintptr_t)info[1];
+    if (!t41_kernel_data_ptr(params) || !t41_kernel_data_ptr(state))
+        return -ENODEV;
+    payload = private_kmalloc(T41_AE_WEIGHT_ATTR_BYTES, GFP_KERNEL);
+    if (!payload)
+        return -ENOMEM;
+    lock = (spinlock_t *)(void *)(slock_hist_storage +
+                                  channel * sizeof(uint32_t));
+    if (is_get) {
+        spin_lock_irqsave(lock, flags);
+        ret = t41_ae_weight_get(params, T41_AE_PARAM_BYTES,
+                                t41_ae_weight_enable[channel], payload);
+        spin_unlock_irqrestore(lock, flags);
+        if (!ret && private_copy_to_user((void __user *)user_ptr, payload,
+                                         T41_AE_WEIGHT_ATTR_BYTES))
+            ret = -EFAULT;
+    } else if (private_copy_from_user(payload, (void __user *)user_ptr,
+                                      T41_AE_WEIGHT_ATTR_BYTES)) {
+        ret = -EFAULT;
+    } else {
+        spin_lock_irqsave(lock, flags);
+        ret = t41_ae_weight_set(params, T41_AE_PARAM_BYTES, state,
+                                T41_AE_STATE_BYTES,
+                                t41_ae_weight_enable[channel], payload);
+        spin_unlock_irqrestore(lock, flags);
+    }
+    private_kfree(payload);
+    return ret ? (ret == -EFAULT ? ret : -EINVAL) : 0;
+}
+
+/*
+ * IMPISPCoefftWb { u16 r, g, b } (stock tisp_s/g_coefft_wb ->
+ * tisp_bcsh_api_set/get_offset_rgb, 0x08000098, 6 bytes): stored at
+ * bcsh_info+304 and in the BCSH params +0x118..0x11c, the RGB bias the
+ * BCSH matrix build reads; the register image is rebuilt with the last
+ * CT/EV.  Before this route the request was acknowledged unchanged.
+ */
+static int t41_tuning_coefft_wb(unsigned int channel, unsigned int is_get,
+                                uintptr_t user_ptr)
+{
+    uint8_t *info, *params;
+    uint16_t rgb[3];
+    uint32_t ct, ev;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (!is_get && private_copy_from_user(rgb, (void __user *)user_ptr,
+                                          sizeof(rgb)))
+        return -EFAULT;
+    if (!is_get && !t41_bcsh_offset_rgb_ok(rgb))
+        return -EINVAL;
+    mutex_lock(&t41_bcsh_lock);
+    info = (uint8_t *)(uintptr_t)bcsh_info;
+    params = t41_kernel_data_ptr(info) ?
+        (uint8_t *)(uintptr_t)*(uint32_t *)(void *)info : NULL;
+    if (!t41_kernel_data_ptr(params)) {
+        mutex_unlock(&t41_bcsh_lock);
+        return -EAGAIN;
+    }
+    if (is_get) {
+        memcpy(rgb, info + 304, sizeof(rgb));
+        mutex_unlock(&t41_bcsh_lock);
+        return private_copy_to_user((void __user *)user_ptr, rgb,
+                                    sizeof(rgb)) ? -EFAULT : 0;
+    }
+    memcpy(info + 304, rgb, sizeof(rgb));
+    memcpy(params + T41_BCSH_RGB_OFFSET, rgb, sizeof(rgb));
+    info[334] = 1;
+    ct = *(uint32_t *)(void *)(info + 312);
+    ev = *(uint32_t *)(void *)(info + 320);
+    mutex_unlock(&t41_bcsh_lock);
+    return t41_bcsh_update(ct, ev, 1);
+}
+
+/*
  * Review2 M1: stock serialises the tuning node with core_dev->mlock; two
  * tuning threads (day/night, BCSH, flip) must not interleave on the same
  * IQ state. Serialise the whole isp-m0 ioctl.
@@ -20996,7 +21190,16 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_SENSOR_FPS, 4,
-              TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_INLINE },
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_INLINE },
+            { TX_ISP_TUNING_CMD_T41_AE_WEIGHT, T41_AE_WEIGHT_ATTR_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AWB_RGB_COEFFT, 6,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_SENSOR_ATTR, 4 * T41_SENSOR_ATTR_WORDS,
+              TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_HVFLIP, 16,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -21201,6 +21404,15 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
          */
         if (route && route->id == TX_ISP_TUNING_CMD_T41_HVFLIP)
             return t41_tuning_hvflip(&request);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_AE_WEIGHT)
+            return t41_tuning_ae_weight(request.channel, request.is_get,
+                                        request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_AWB_RGB_COEFFT)
+            return t41_tuning_coefft_wb(request.channel, request.is_get,
+                                        request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_SENSOR_ATTR)
+            return t41_tuning_sensor_attr(request.channel,
+                                          request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AE_EXPR_INFO)
             return request.is_get ?
                 t41_tuning_copy_ae_expr(request.channel,
@@ -21224,6 +21436,10 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         case TX_ISP_TUNING_CMD_T41_AUTOZOOM:
         case TX_ISP_TUNING_CMD_T41_CCM:
         case TX_ISP_TUNING_CMD_T41_CSC:
+        /* MSCA mask/scaler coefficients: owned by the MSCA path, which
+         * has no open runtime update yet. */
+        case TX_ISP_TUNING_CMD_T41_MASK_BLOCK:
+        case TX_ISP_TUNING_CMD_T41_SCALER_LV:
             return -EOPNOTSUPP;
         default:
             break;
@@ -21408,6 +21624,10 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
          * caller's placeholder (observed as 6) here makes its direct-mode
          * setup wait forever even though the ioctl itself succeeds.
          */
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_SENSOR_FPS &&
+            !request.is_get)
+            return t41_tuning_sensor_fps_set(request.channel,
+                                             request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_SENSOR_FPS) {
             ret = tisp_ae_get_fps(request.channel,
                                   (uintptr_t)&request.value_or_ptr);
@@ -21416,8 +21636,18 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             if (private_copy_to_user((void __user *)(uintptr_t)a2,
                                      &request, sizeof(request)))
                 return -EFAULT;
+            return 0;
         }
-        return 0;
+        /*
+         * No open implementation for this control.  Stock
+         * tx_isp_core_ops_s_ctrl/g_ctrl answer an unknown ID with -1
+         * (-EPERM); acknowledging it with 0 told callers that a control
+         * had been applied (or a structure filled) when nothing happened.
+         */
+        if (t41_runtime_trace || !route)
+            pr_warn_ratelimited("tx-isp-t41: tuning control 0x%x %s not implemented\n",
+                                request.id, request.is_get ? "get" : "set");
+        return -EPERM;
     }
     if (a1 == 0xc0085433U || a1 == 0xc0085434U) {
         uint32_t request[2];
