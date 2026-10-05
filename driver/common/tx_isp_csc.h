@@ -287,15 +287,17 @@ static inline void tx_isp_fcrop_t21_axis(uint32_t full, uint32_t start,
 {
 	uint32_t s, p;
 
-	if (!win || win >= full || !out) {
+	/* 32-bit only (no __udivdi3 in the 3.10 kernels): sizes beyond
+	 * 0xffff are no image dimension, keep such a channel as configured */
+	if (!win || win >= full || !out || full > 0xffff || out > 0xffff) {
 		*scaled = out;
 		*pos = cpos;
 		return;
 	}
-	s = (uint32_t)(((uint64_t)full * out / win) & ~1ULL);
+	s = (full * out / win) & ~1U;
 	if (s < out)
 		s = out;
-	p = (uint32_t)(((uint64_t)start * out / win + cpos) & ~1ULL);
+	p = (start * out / win + cpos) & ~1U;
 	if (p + csize > s)
 		p = csize <= s ? (s - csize) & ~1U : 0;
 	*scaled = s;
