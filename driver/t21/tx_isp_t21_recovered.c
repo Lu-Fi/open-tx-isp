@@ -16548,7 +16548,9 @@ int32_t tisp_init(int32_t *arg1)
 	if (ret != 0)
 		isp_printf(2, "no bin file on the system!!!\n", ret);
 
-	memcpy(tparams, tparams_day, 0x15380);
+	/* Streamer restart in night mode: day_night stays 1 across tiziano_init,
+	 * so bank, TOP bypass and 0x1730 must follow it (else day bank on night HW). */
+	memcpy(tparams, day_night ? tparams_night : tparams_day, 0x15380);
 	memset(custom_eff, 0x80, 0x1e8);
 	memcpy(custom_eff + 4, tparams_day + 0x67d0, 0x28);
 	memcpy(custom_eff + 0x2c, tparams_day + 0x6790, 0x28);
@@ -16688,6 +16690,8 @@ int32_t tisp_init(int32_t *arg1)
 	system_reg_write(0x1730, 0xff00ff00);
 	t21_csc_reset();	/* CSC state = the preset 0 just written */
 	t21_fcrop_reset();
+	if (day_night)		/* streamer restart at night: mono clip, CSC state follows */
+		t21_csc_isr_mode(1);
 	system_reg_write(0x2010, 1);
 	system_reg_write(0x2080, 1);
 
