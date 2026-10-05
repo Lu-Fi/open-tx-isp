@@ -87,8 +87,25 @@ static void test_blocks_and_curves(void)
 	assert(t31_wdr_fusion_curve(curve, points) == -EINVAL);
 }
 
+static void test_output_mode(void)
+{
+	u32 w = 0x55, m = 0x55;
+
+	assert(t31_wdr_output_mode_to_tool(0, &w) == 0 && w == 8);
+	assert(t31_wdr_output_mode_to_tool(1, &w) == 0 && w == 1);
+	assert(t31_wdr_output_mode_to_tool(2, &w) == 0 && w == 2);
+	w = 0x55;
+	assert(t31_wdr_output_mode_to_tool(3, &w) == -EINVAL && w == 0x55);
+	assert(t31_wdr_output_mode_from_tool(8, &m) == 0 && m == 0);
+	assert(t31_wdr_output_mode_from_tool(2, &m) == 0 && m == 2);
+	assert(t31_wdr_output_mode_from_tool(1, &m) == 0 && m == 1);
+	m = 0x55;
+	assert(t31_wdr_output_mode_from_tool(0, &m) == -EINVAL && m == 0x55);
+}
+
 int main(void)
 {
+	test_output_mode();
 	test_stats();
 	test_ae_blocks();
 	test_blocks_and_curves();
