@@ -361,6 +361,7 @@ extern void system_reg_write_gb(u32 arg1, u32 arg2, u32 arg3);
 extern uint32_t deir_en;
 extern uint32_t msca_dmaout_arb;
 extern uint32_t msca_ch_en;
+int tisp_s_autozoom_control(const uint32_t *req);
 
 /* CLM (Color Luminance Mapping) constants and data — declared early for param_array_set/get */
 #define CLM_H_LUT_SIZE      0x41A   /* 1050 bytes */
@@ -9204,7 +9205,16 @@ static int apical_isp_core_ops_g_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
         }
 
         case 0x80000ea: { /* OEM: tisp_get_wdr_output_mode (4 bytes) */
+            uint32_t tool[14];
             uint32_t wdr_mode = 0;
+            int size = sizeof(tool);
+
+            /* word 0 of the WDR tool control block (parameter 0x431) */
+            ret = t31_wdr_param_get(0x431, tool, &size);
+            if (!ret)
+                ret = t31_wdr_output_mode_from_tool(tool[0], &wdr_mode);
+            if (ret)
+                break;
             if (copy_to_user((void __user *)(unsigned long)ctrl->value, &wdr_mode, 4))
                 ret = -EFAULT;
             break;
@@ -9933,7 +9943,8 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
                 ret = -EFAULT;
                 goto out;
             }
-            ret = 0;
+            /* channel + scaler/crop words of the channel attribute */
+            ret = tisp_s_autozoom_control(zoom);
             break;
         }
 
@@ -9949,12 +9960,23 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
         }
 
         case 0x80000ea: { /* OEM: tisp_set_wdr_output_mode (4 bytes) */
+            uint32_t tool[14];
             uint32_t wdr_mode;
+            int size = sizeof(tool);
+
             if (copy_from_user(&wdr_mode, (void __user *)(unsigned long)ctrl->value, 4)) {
                 ret = -EFAULT;
                 goto out;
             }
-            ret = 0;
+            /* OEM: word 0 of the WDR tool control block (0x431) = 8 for
+             * mode 0, else the mode; written back through the WDR
+             * parameter set (reloads the WDR parameters when running).
+             * The OEM only logs an unknown mode; it is rejected here. */
+            ret = t31_wdr_param_get(0x431, tool, &size);
+            if (!ret)
+                ret = t31_wdr_output_mode_to_tool(wdr_mode, &tool[0]);
+            if (!ret)
+                ret = t31_wdr_param_set(0x431, tool, &size);
             break;
         }
 

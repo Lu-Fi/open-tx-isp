@@ -13,6 +13,7 @@
 #include <linux/math64.h>
 #include "include/tx_isp.h"
 #include "include/tx_isp_core.h"
+#include "tx_isp_t31_autozoom.h"
 #include "include/tx_isp_core_device.h"
 #include "include/tx_isp_debug.h"
 #include "include/tx_isp_sysfs.h"
@@ -3431,6 +3432,51 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
             system_reg_read(s1_2 + 0x80),
             system_reg_read(s1_2 + 0x98));
 
+    return 0;
+}
+
+/*
+ * OEM tisp_s_autozoom_control (0x641f0), tuning 0x80000e8: request word 0
+ * is the channel, words 1..8 replace words 0..7 (scaler and crop) of its
+ * attribute, then tisp_channel_attr_set and the MSCA enable write.  A
+ * channel that is not enabled is refused (the OEM logs it and does
+ * nothing).  Beyond the OEM: a request that would change the size the
+ * channel writes, or a crop window outside the scaler output, is rejected
+ * before any register is touched (frame buffers are sized for the
+ * current output; tisp_channel_attr_set would only notice a bad crop after
+ * programming the scaler).
+ */
+int tisp_s_autozoom_control(const uint32_t *req)
+{
+    uint32_t cur[13], next[13];
+    const uint8_t *store;
+    uint32_t in_w, in_h;
+    uint32_t chn = req[0];
+    int ret;
+
+    store = tisp_channel_attr_store((int)chn);
+    if (!store || chn > 2U || msca_ch_en == ~0U ||
+        !(msca_ch_en & (1U << chn))) {
+        isp_printf(2, "Chan%d is not Enable!!!\n", chn);
+        return -EINVAL;
+    }
+    memcpy(cur, store, sizeof(cur));
+    if (tisp_channel_attr_word(ds0_attr, 8)) {
+        in_w = tisp_channel_attr_word(ds0_attr, 11);
+        in_h = tisp_channel_attr_word(ds0_attr, 12);
+    } else {
+        memcpy(&in_w, tispinfo, sizeof(in_w));
+        in_h = data_b2f34;
+    }
+    if (t31_autozoom_attr(cur, req, in_w, in_h, next))
+        return -EINVAL;
+    ret = tisp_channel_attr_set(chn, next);
+    if (ret)
+        return -EINVAL;
+    /* stock: the attribute store is the normalised array itself */
+    memcpy((void *)store, next, sizeof(next));
+    msca_ch_en |= 0xf0000;
+    system_reg_write(0x9804, msca_ch_en);
     return 0;
 }
 

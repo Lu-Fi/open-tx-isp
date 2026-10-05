@@ -220,4 +220,33 @@ static inline int t31_wdr_fusion_curve(u32 out[T31_WDR_CURVE_POINTS],
 	return 0;
 }
 
+/*
+ * WDR output mode (OEM tisp_set/get_wdr_output_mode, 0x661b4/0x66258):
+ * word 0 of the 56-byte tool control block (parameter 0x431).  Mode 0 is
+ * stored as 8, modes 1 and 2 as themselves; other modes are rejected (the
+ * OEM only logs them).  Reading maps 8 back to 0; an unknown word leaves
+ * the mode alone and fails.
+ */
+static inline int t31_wdr_output_mode_to_tool(u32 mode, u32 *word)
+{
+	if (mode == 0)
+		*word = 8;
+	else if (mode == 1 || mode == 2)
+		*word = mode;
+	else
+		return -EINVAL;
+	return 0;
+}
+
+static inline int t31_wdr_output_mode_from_tool(u32 word, u32 *mode)
+{
+	if (word == 8)
+		*mode = 0;
+	else if (word == 1 || word == 2)
+		*mode = word;
+	else
+		return -EINVAL;
+	return 0;
+}
+
 #endif

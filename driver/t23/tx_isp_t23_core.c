@@ -15304,6 +15304,11 @@ static bool regtrace_isp_m0_is_image_control(u32 id)
 
 static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value);
 
+#include "tx_isp_t23_tuning_ext.h"
+/* tx_isp_t23_tuning_ext.inc */
+static long t23x_wait_frame(uint32_t uptr);
+static void t23x_frame_done_wakeup(void);
+
 static long regtrace_isp_m0_control_unlocked(unsigned int cmd, unsigned long arg)
 {
     struct tx_isp_tuning_control ctrl;
@@ -15786,7 +15791,19 @@ static long regtrace_isp_m0_control(unsigned int cmd, unsigned long arg)
 
 static long regtrace_isp_m0_ext_control(unsigned long arg)
 {
+    struct tx_isp_tuning_t23_ext_control peek;
     long ret;
+
+    /*
+     * WaitFrame sleeps up to its timeout; it touches no tuning state, so
+     * it waits without the tuning mutex (a stream stop or another tuning
+     * call is not held up behind it).
+     */
+    if (arg && !copy_from_user(&peek, (const void __user *)arg,
+                               sizeof(peek)) &&
+        peek.id == T23X_CID_WAIT_FRAME && peek.count == 1U &&
+        peek.sensor == 0U)
+        return t23x_wait_frame(peek.value_or_ptr);
 
     mutex_lock(&regtrace_t23_tuning_mutex);
     ret = regtrace_isp_m0_ext_control_unlocked(arg);
@@ -33772,6 +33789,9 @@ int32_t isp_irq_handle(int32_t irq, void *dev_id)
                    "tx_isp_t23_recovered: core irq=%d count=%u status=0x%x\n",
                    irq, regtrace_t23_core_irq_count, status0);
 
+        /* stock: frame done (bit 0) -> isp_frame_done_wakeup */
+        if (status0 & 1U)
+            t23x_frame_done_wakeup();
         regtrace_t23_source_ae_stats_irq(status0,
                                          regtrace_t23_core_irq_count);
         regtrace_t23_source_awb_stats_irq(status0,
@@ -102247,6 +102267,8 @@ static long regtrace_t23_colorfx_set(uint32_t fx)
     return 0;
 }
 
+#include "tx_isp_t23_tuning_ext.inc"
+
 static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
 {
     uint32_t v = *value;
@@ -102557,6 +102579,6 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
             &regtrace_t23_source_defog_internal_enable,
             regtrace_t23_source_defog_tuning_init, BIT(11), v);
     default:
-        return -ENOIOCTLCMD;
+        return regtrace_t23_tuning_ext(get, id, value);
     }
 }
