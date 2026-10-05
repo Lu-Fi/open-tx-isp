@@ -16415,10 +16415,12 @@ int32_t crop_request_interrupt(int32_t *arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002904c origin=model_output original=crop_fsm_switch_state */
 int32_t crop_fsm_switch_state(int32_t *arg1, int32_t arg2)
 {
+	/* OEM 0x286ec: the new state is stored (bne delay slot) before
+	 * entering state 4 runs crop_initialize() */
 	if (arg2 != arg1[1]) {
+		((void **)arg1)[1] = arg2;
 		if (arg2 == 4)
 			return crop_initialize(arg1);
-		((void **)arg1)[1] = arg2;
 	}
 	return 4;
 }
