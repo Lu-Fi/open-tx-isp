@@ -16314,9 +16314,18 @@ int32_t tisp_channel_stop_save(void)
 int32_t tisp_channel_attr_set_crop_scaler(uint32_t channel, void *attr)
 {
     uint32_t *p = (uint32_t *)attr;
+    uint32_t *sensor = (uint32_t *)&tispinfo;
     uint32_t base = (channel + 0x23) << 8;
-    uint32_t div1 = (tispinfo[0] << 9) / p[1];
-    uint32_t div2 = (tispinfo[1] << 9) / p[2];
+    uint32_t div1;
+    uint32_t div2;
+
+    /* tispinfo is the byte image of the runtime info: the sensor width
+     * and height are its first two words (as in tisp_channel_attr_set);
+     * indexing the byte array gave the low bytes of the width instead. */
+    if (!p[1] || !p[2])
+        return -EINVAL;
+    div1 = (sensor[0] << 9) / p[1];
+    div2 = (sensor[1] << 9) / p[2];
 
     system_reg_write((channel + 0x24) << 8, (p[1] << 16) | p[2]);
     system_reg_write(base + 0x104, (div1 << 16) | (div2 & 0xffff));
