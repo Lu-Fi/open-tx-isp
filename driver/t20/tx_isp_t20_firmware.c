@@ -18839,11 +18839,16 @@ int32_t ae_calculate_exposure(int32_t *arg1)
 			((uint32_t *)arg1)[7] = 0;
 		}
 
+		/* OEM 0x2b434..0x2b460: div64_s64(a1:a0, a3:a2) with the 64-bit
+		 * sum target + accumulator in a0/a1 and the sign-extended
+		 * tbl146[0] (s2/s5) as divisor.  The recovery divided the low
+		 * word by the high word (0 -> division by zero, exposure 0:
+		 * OEM AE stuck at minimum exposure). */
 		int32_t v0_9 = arg1[4];
 		int32_t a0_7 = v0_9 + arg1[6];
-		int32_t denom = ((uint32_t)a0_7 < (uint32_t)v0_9 ? 1 : 0) + (v0_9 >> 31) + arg1[7];
-		int64_t num = (int64_t)a0_7;
-		int64_t den = (int64_t)denom;
+		int32_t hi_7 = ((uint32_t)a0_7 < (uint32_t)v0_9 ? 1 : 0) + (v0_9 >> 31) + arg1[7];
+		int64_t num = (int64_t)(((uint64_t)(uint32_t)hi_7 << 32) | (uint32_t)a0_7);
+		int64_t den = (int64_t)s2;
 		int32_t v0_11 = (int32_t)div64_s64(num, den);
 
 		if (v0_11 < 0)
