@@ -449,7 +449,9 @@ the sensor-generic contract above; they are retained as recovery history.
   of the T23 AWB algorithm: calibrated zone ratios, tuning-mesh weighting,
   indoor light-source distance-LUT weighting, distance refinement, history,
   live-EV RGBG-weight selection, inverse-temperature interpolation, and OEM
-  gain conversion. The T23 HLIL call frame supplies `_rgbg_weight[_ot]` as the
+  gain conversion. The default path is bit-identical to the stock module
+  (weights, distance refinement, pixel threshold, history, gain ramp and
+  tolerance; `audit/awb_stock_emu.py`, `tx_isp_t23_awb_stock.h`). The T23 HLIL call frame supplies `_rgbg_weight[_ot]` as the
   zone-selection mesh and `_color_temp_mesh` as the final CT mesh; keeping
   those roles distinct corrected the collapsed port's roughly 61,000 K output
   to a stable 4,400 K result in the same 256-frame no-argument run.

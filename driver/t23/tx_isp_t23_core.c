@@ -10171,7 +10171,10 @@ static uint regtrace_t23_source_awb_grayworld_bbias = 1024;
 static uint regtrace_t23_source_awb_profile_rbias = 1024;
 static uint regtrace_t23_source_awb_profile_bbias = 1024;
 static uint regtrace_t23_source_awb_hlil_interval = 4;
-static uint regtrace_t23_source_awb_hlil_min_pixels = 1;
+/* 0: stock (zones with at most the IQ pixel threshold are dropped) */
+static uint regtrace_t23_source_awb_hlil_min_pixels;
+/* beyond stock, 0 = off: no gain write for changes up to this many LSB */
+static uint regtrace_t23_source_awb_hlil_deadband;
 static uint regtrace_t23_source_awb_bootstrap_rgain = 0x400;
 static uint regtrace_t23_source_awb_bootstrap_bgain = 0x400;
 static uint regtrace_t23_source_awb_stats_irqs;
@@ -10540,6 +10543,8 @@ module_param_named(source_awb_hlil_interval,
                    regtrace_t23_source_awb_hlil_interval, uint, 0644);
 module_param_named(source_awb_hlil_min_pixels,
                    regtrace_t23_source_awb_hlil_min_pixels, uint, 0644);
+module_param_named(source_awb_hlil_deadband,
+                   regtrace_t23_source_awb_hlil_deadband, uint, 0644);
 module_param_named(source_awb_bootstrap_rgain,
                    regtrace_t23_source_awb_bootstrap_rgain, uint, 0644);
 module_param_named(source_awb_bootstrap_bgain,
@@ -12853,6 +12858,16 @@ static int regtrace_t23_source_awb_hlil_load_tuning(void)
     regtrace_t23_awb_hlil_pixel_threshold = pixel_threshold;
     regtrace_t23_awb_hlil_point_position = point_position[0];
     regtrace_t23_awb_hlil_history_window = history[0];
+    regtrace_t23_awb_hlil_tolerance_default = history[1];
+    /* stock tiziano_awb_params_refresh: the ramp state _awb_mf_para from
+     * the IQ block ("PYAW" in word 0 is the open bias marker, not a ramp
+     * flag) */
+    memcpy(_awb_mf_para, regtrace_t23_awb_hlil_mf_parameters, 24U);
+    if (((uint32_t *)(void *)_awb_mf_para)[0] ==
+        REGTRACE_T23_AWB_PROFILE_BIAS_MAGIC) {
+        ((uint32_t *)(void *)_awb_mf_para)[0] = 0;
+        ((uint32_t *)(void *)_awb_mf_para)[1] = 0;
+    }
     regtrace_t23_awb_hlil_outdoor_ev = mode[0];
     regtrace_t23_awb_hlil_indoor_ev = mode[1];
     regtrace_t23_awb_hlil_startup_ev = mode[2] << point_position[0];

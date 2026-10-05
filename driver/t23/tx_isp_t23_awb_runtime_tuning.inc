@@ -9,6 +9,8 @@
 static uint32_t regtrace_t23_awb_hlil_pixel_threshold;
 static uint32_t regtrace_t23_awb_hlil_point_position;
 static uint32_t regtrace_t23_awb_hlil_history_window;
+/* IQ _awb_cof[1]: the gain tolerance without ToleranceEn */
+static uint32_t regtrace_t23_awb_hlil_tolerance_default;
 static uint32_t regtrace_t23_awb_hlil_startup_ev;
 static uint32_t regtrace_t23_awb_hlil_startup_ct;
 static uint32_t regtrace_t23_awb_hlil_outdoor_ev;

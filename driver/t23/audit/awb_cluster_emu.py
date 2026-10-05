@@ -161,8 +161,7 @@ def rand_scene(rnd, sparse=True):
         rg, bg = rnd.choice(centres)
         rg *= rnd.uniform(0.97, 1.03) if rnd.random() < 0.8 else rnd.uniform(0.7, 1.4)
         bg *= rnd.uniform(0.97, 1.03) if rnd.random() < 0.8 else rnd.uniform(0.7, 1.4)
-        # the open runtime keeps zones of 1..threshold pixels (module
-        # parameter source_awb_hlil_min_pixels = 1), stock drops them
+        # zones of at most the IQ threshold (25) pixels are dropped (both)
         pix = rnd.choice([0, 3, 20, 26, 400, 2000, 2000, 6000, 8000] if sparse else
                          [0, 26, 400, 2000, 2000, 6000, 8000])
         g = int(pix * rnd.uniform(5, 90))
@@ -293,6 +292,7 @@ class Ours:
         sc = {'regtrace_t23_awb_hlil_pixel_threshold': W(0x10dc)[0],
               'regtrace_t23_awb_hlil_point_position': W(0x10e8)[0],
               'regtrace_t23_awb_hlil_history_window': W(0x10f0)[0],
+              'regtrace_t23_awb_hlil_tolerance_default': W(0x10f4)[0],
               'regtrace_t23_awb_hlil_outdoor_ev': W(0x1110)[0],
               'regtrace_t23_awb_hlil_indoor_ev': W(0x1114)[0],
               'regtrace_t23_awb_hlil_startup_ev': W(0x1118)[0] << 10,
@@ -309,6 +309,8 @@ class Ours:
             else:
                 c.w32(m.addr(k), v)
         self.snap = m.addr('regtrace_t23_awb_hlil_snapshot_data')
+        # regtrace_t23_source_awb_hlil_load_tuning: the ramp state from the IQ
+        c.wrbytes(m.addr('_awb_mf_para'), iq[0x10f8:0x10f8 + 24])
 
     def arr(self, name, n):
         return list(struct.unpack('<%dI' % n, self.c.rdbytes(self.m.addr(name), 4 * n)))
