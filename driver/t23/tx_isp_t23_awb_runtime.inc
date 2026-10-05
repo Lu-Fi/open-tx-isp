@@ -1,10 +1,76 @@
 /* Active T23 Tiziano AWB path reconstructed from tx-isp-t23-hlil.txt. */
 
 #include "tx_isp_t23_tuning_ext.h"
+#include "tx_isp_t23_awb_cluster.h"
 
 /* SetAwbCt: the colour temperature used in the manual WB mode (stock .bss
  * +31488), see t23x_awb_ct_select */
 static uint32_t regtrace_t23_awb_custom_ct;
+
+/*
+ * Set/GetAwbClust and Set/GetAwbCtTrend objects (see t23x_awb_cluster_set):
+ * the AWB run reads them under this mutex, the controls and the IQ bank
+ * load write them under it.
+ */
+static DEFINE_MUTEX(t23x_awb_api_mutex);
+/* the stock .bss of the cluster stage (never cleared, as in stock) */
+static struct t23x_awb_cluster_state regtrace_t23_awb_cluster_state;
+/* zone ratios as stock Tiziano_awb_fpga leaves them: raw rg / bg, 0 where
+ * the zone has no green; per run, written by regtrace_t23_awb_hlil_calculate */
+static uint32_t regtrace_t23_awb_raw_rg[T23X_CL_ZONES];
+static uint32_t regtrace_t23_awb_raw_bg[T23X_CL_ZONES];
+/* the cluster object of this run (picked like stock JZ_Isp_Awb) */
+static uint32_t regtrace_t23_awb_cl_run[T23X_AWB_CLUSTER_WORDS];
+/* ToleranceEn: the automatic Q8 gains the AWB follows (see the work) */
+static uint32_t regtrace_t23_awb_tol_rg;
+static uint32_t regtrace_t23_awb_tol_bg;
+static bool regtrace_t23_awb_tol_valid;
+
+static uint32_t regtrace_t23_awb_absdiff(uint32_t a, uint32_t b)
+{
+    return a < b ? b - a : a - b;
+}
+
+/*
+ * The cluster and trend objects from the active IQ bank, as stock
+ * tiziano_awb_params_refresh (stream start, day/night switch): the IQ
+ * status word and block become *_api_status[0] and *_api_para, the pending
+ * user mark (status[1]) is cleared, and the live object follows the IQ block
+ * unless its IQ status word is 2.  A SetAwbClust / SetAwbCtTrend before the
+ * refresh is dropped, as in stock.  An unreadable bank leaves them as they
+ * are.
+ */
+static void regtrace_t23_awb_api_load_bank(void)
+{
+    uint32_t cl_status, tr_status;
+    uint32_t cl[T23X_AWB_CLUSTER_WORDS];
+    uint32_t tr[T23X_AWB_TREND_WORDS];
+    uint32_t *st;
+
+    if (regtrace_t23_read_tuning_data(REGTRACE_T23_AWB_CLUSTER_STATUS_OFFSET,
+                                      &cl_status, sizeof(cl_status)) ||
+        regtrace_t23_read_tuning_data(REGTRACE_T23_AWB_CLUSTER_OFFSET, cl,
+                                      sizeof(cl)) ||
+        regtrace_t23_read_tuning_data(REGTRACE_T23_AWB_TREND_STATUS_OFFSET,
+                                      &tr_status, sizeof(tr_status)) ||
+        regtrace_t23_read_tuning_data(REGTRACE_T23_AWB_TREND_OFFSET, tr,
+                                      sizeof(tr)))
+        return;
+    mutex_lock(&t23x_awb_api_mutex);
+    st = (uint32_t *)(void *)awb_cluster_api_status;
+    st[0] = cl_status;
+    st[1] = 0;
+    memcpy(awb_cluster_api_para, cl, sizeof(cl));
+    if (cl_status != 2U)
+        memcpy(_awb_cluster, cl, sizeof(cl));
+    st = (uint32_t *)(void *)&awb_trend_api_status;
+    st[0] = tr_status;
+    st[1] = 0;
+    memcpy(awb_trend_api_para, tr, sizeof(tr));
+    if (tr_status != 2U)
+        memcpy((void *)&_awb_trend, tr, sizeof(tr));
+    mutex_unlock(&t23x_awb_api_mutex);
+}
 
 #define REGTRACE_T23_AWB_HLIL_COLS 15U
 #define REGTRACE_T23_AWB_HLIL_ROWS 15U
@@ -189,6 +255,58 @@ static uint32_t regtrace_t23_awb_hlil_light_source_weight_q(uint32_t rg_q,
     return best_weight_q;
 }
 
+/*
+ * The cluster part of stock Tiziano_Awb_Ct_Detect.  Every run fills the
+ * rg/bg histogram of the 225 zones as stock does (it is state of the next
+ * cluster run); with the cluster object enabled (ClusterEn == 1) the zone
+ * weights are then replaced by the cluster weights (0x14e8c..0x15628).
+ * Stock handles every zone, also the ones below the pixel threshold (their
+ * ratios read 0 and are clamped to the first position): the arrays here are
+ * built that way, and only the zones this run uses get a new weight.
+ */
+static void regtrace_t23_awb_cluster_stage(
+    const struct regtrace_t23_awb_hlil_snapshot *snapshot, bool indoor,
+    const uint32_t *mesh, bool use_result)
+{
+    static uint32_t zr[T23X_CL_ZONES], zb[T23X_CL_ZONES], zw[T23X_CL_ZONES];
+    const uint32_t q = REGTRACE_T23_AWB_HLIL_POINT_POSITION;
+    uint32_t i;
+
+    for (i = 0; i < T23X_CL_ZONES; ++i) {
+        uint32_t r = regtrace_t23_awb_raw_rg[i];
+        uint32_t b = regtrace_t23_awb_raw_bg[i];
+
+        if (snapshot->pixels[i] <= REGTRACE_T23_AWB_HLIL_PIXEL_THRESHOLD) {
+            r = 0;
+            b = 0;
+        }
+        r = max(r, regtrace_t23_awb_hlil_rg_positions[0] << q);
+        r = min(r, regtrace_t23_awb_hlil_rg_positions[14] << q);
+        b = max(b, regtrace_t23_awb_hlil_bg_positions[0] << q);
+        b = min(b, regtrace_t23_awb_hlil_bg_positions[14] << q);
+        zr[i] = r;
+        zb[i] = b;
+        zw[i] = regtrace_t23_awb_hlil_mesh_q(mesh, r, b);
+        if (indoor)
+            zw[i] = max(zw[i],
+                        regtrace_t23_awb_hlil_light_source_weight_q(r, b));
+    }
+    t23x_awb_cluster_count(&regtrace_t23_awb_cluster_state, zr, zb,
+                           regtrace_t23_awb_hlil_rg_positions,
+                           regtrace_t23_awb_hlil_bg_positions, q);
+    if (regtrace_t23_awb_cl_run[0] != 1U)
+        return;
+    if (!t23x_awb_cluster_weights(&regtrace_t23_awb_cluster_state,
+                                  regtrace_t23_awb_cl_run, zr, zb, zw,
+                                  regtrace_t23_awb_hlil_rg_positions,
+                                  regtrace_t23_awb_hlil_bg_positions, q) ||
+        !use_result)
+        return;
+    for (i = 0; i < T23X_CL_ZONES; ++i)
+        if (regtrace_t23_awb_hlil_pixel_weight[i])
+            regtrace_t23_awb_hlil_mesh_weight[i] = zw[i];
+}
+
 static int regtrace_t23_awb_hlil_calculate(
     const struct regtrace_t23_awb_hlil_snapshot *snapshot,
     struct regtrace_t23_awb_hlil_result *result)
@@ -221,8 +339,12 @@ static int regtrace_t23_awb_hlil_calculate(
 
     for (i = 0; i < total; ++i)
         max_pixels = max(max_pixels, snapshot->pixels[i]);
-    if (!max_pixels)
+    if (!max_pixels) {
+        /* stock still runs the histogram and the cluster stage */
+        regtrace_t23_awb_cluster_stage(snapshot, indoor, rgbg_weight_mesh,
+                                       false);
         return -ENODATA;
+    }
 
     for (i = 0; i < total; ++i) {
         uint32_t green = snapshot->g[i];
@@ -239,6 +361,8 @@ static int regtrace_t23_awb_hlil_calculate(
             rg_q = regtrace_t23_awb_hlil_mul_q(raw_rg_q, coefficient_rg_q);
             bg_q = regtrace_t23_awb_hlil_mul_q(raw_bg_q, coefficient_bg_q);
         }
+        regtrace_t23_awb_raw_rg[i] = rg_q;
+        regtrace_t23_awb_raw_bg[i] = bg_q;
 
         if (pixels < regtrace_t23_source_awb_hlil_min_pixels ||
             !rg_q || !bg_q) {
@@ -280,6 +404,7 @@ static int regtrace_t23_awb_hlil_calculate(
             }
         }
     }
+    regtrace_t23_awb_cluster_stage(snapshot, indoor, rgbg_weight_mesh, true);
     for (i = 0; i < total; ++i)
         total_mesh_weight += regtrace_t23_awb_hlil_mesh_weight[i];
 
@@ -507,9 +632,30 @@ static void regtrace_t23_source_awb_hlil_work_body(struct work_struct *work)
     uint32_t wb_mode;
     uint32_t gain_rg;
     uint32_t gain_bg;
+    uint32_t trend_ct;
+    uint32_t trend[T23X_AWB_TREND_WORDS];
+    uint32_t tolerance_en;
+    uint32_t tolerance_th;
     int ret;
 
     (void)work;
+    /* the cluster / trend objects of this run, picked like stock
+     * (JZ_Isp_Awb, JZ_Isp_Awb_Awbg2reg); the update tolerance reads the
+     * live cluster object (Tiziano_awb_fpga gets &_awb_cluster) */
+    mutex_lock(&t23x_awb_api_mutex);
+    memcpy(regtrace_t23_awb_cl_run,
+           t23x_awb_obj_pick((const uint32_t *)(const void *)_awb_cluster,
+                             (const uint32_t *)(const void *)awb_cluster_api_para,
+                             (const uint32_t *)(const void *)awb_cluster_api_status),
+           sizeof(regtrace_t23_awb_cl_run));
+    tolerance_en = ((const uint32_t *)(const void *)_awb_cluster)[8];
+    tolerance_th = ((const uint32_t *)(const void *)_awb_cluster)[9];
+    memcpy(trend,
+           t23x_awb_obj_pick((const uint32_t *)(const void *)&_awb_trend,
+                             (const uint32_t *)(const void *)awb_trend_api_para,
+                             (const uint32_t *)(const void *)&awb_trend_api_status),
+           sizeof(trend));
+    mutex_unlock(&t23x_awb_api_mutex);
     memset(&result, 0, sizeof(result));
     ret = regtrace_t23_awb_hlil_calculate(
         &regtrace_t23_awb_hlil_snapshot_data, &result);
@@ -530,6 +676,27 @@ static void regtrace_t23_source_awb_hlil_work_body(struct work_struct *work)
                 &result.rg, &result.bg, &result.ct);
         auto_mf_rg = regtrace_t23_awb_hlil_ratio_to_mf(result.rg);
         auto_mf_bg = regtrace_t23_awb_hlil_ratio_to_mf(result.bg);
+        /*
+         * ToleranceEn (SetAwbClust): the automatic gains only follow a
+         * change of the summed Q8 gains above tolerance_th (stock
+         * Tiziano_awb_fpga, the part that decides a new target; stock then
+         * also ramps to it over the history length, here it is taken at
+         * once).  Off: the update rule stays as it is.
+         */
+        if (tolerance_en) {
+            if (!regtrace_t23_awb_tol_valid ||
+                regtrace_t23_awb_absdiff(auto_mf_rg, regtrace_t23_awb_tol_rg) +
+                regtrace_t23_awb_absdiff(auto_mf_bg, regtrace_t23_awb_tol_bg) >
+                tolerance_th) {
+                regtrace_t23_awb_tol_rg = auto_mf_rg;
+                regtrace_t23_awb_tol_bg = auto_mf_bg;
+                regtrace_t23_awb_tol_valid = true;
+            }
+            auto_mf_rg = regtrace_t23_awb_tol_rg;
+            auto_mf_bg = regtrace_t23_awb_tol_bg;
+        } else {
+            regtrace_t23_awb_tol_valid = false;
+        }
         regtrace_t23_source_awb_last_mf_rg = auto_mf_rg;
         regtrace_t23_source_awb_last_mf_bg = auto_mf_bg;
         regtrace_t23_awb_statis[2] = auto_mf_rg ? 0x10000U / auto_mf_rg : 0x100U;
@@ -538,6 +705,9 @@ static void regtrace_t23_source_awb_hlil_work_body(struct work_struct *work)
         ((uint32_t *)(void *)_awb_mf_para)[5] = auto_mf_bg;
 
         wb_mode = ACCESS_ONCE(regtrace_t23_source_wb_mode);
+        /* the colour temperature the gains are written at (stock sets
+         * the custom SetAwbCt value only after Tiziano_awb_fpga) */
+        trend_ct = result.ct;
         result.ct = t23x_awb_ct_select(wb_mode, result.ct,
                                        &regtrace_t23_awb_custom_ct);
         mf_rg = auto_mf_rg;
@@ -557,8 +727,9 @@ static void regtrace_t23_source_awb_hlil_work_body(struct work_struct *work)
         gain_bg = (mf_bg * regtrace_t23_awb_hlil_wb_static[1] +
                    (1U << (REGTRACE_T23_AWB_HLIL_POINT_POSITION - 1U))) >>
                   REGTRACE_T23_AWB_HLIL_POINT_POSITION;
-        gain_rg = min(gain_rg << 2, 0x3fffU);
-        gain_bg = min(gain_bg << 2, 0x3fffU);
+        /* Awbg2reg: Q2 gain, the colour temperature trend, the limit */
+        gain_rg = t23x_awb_gain_trend(trend, trend_ct, gain_rg, 0);
+        gain_bg = t23x_awb_gain_trend(trend, trend_ct, gain_bg, 1);
         gain_rg = min((gain_rg *
                        ACCESS_ONCE(regtrace_t23_source_awb_profile_rbias) +
                        (REGTRACE_T23_AWB_PROFILE_BIAS_UNITY >> 1)) >> 10,
@@ -734,6 +905,7 @@ static void regtrace_t23_source_awb_hlil_reset(void)
     if (!regtrace_t23_source_awb_kept)
         regtrace_t23_awb_hlil_history_count = 0;
     spin_unlock_irqrestore(&regtrace_t23_awb_hlil_lock, flags);
+    regtrace_t23_awb_tol_valid = false;
     regtrace_t23_source_awb_hlil_runs = 0;
     regtrace_t23_source_awb_hlil_updates = 0;
     regtrace_t23_source_awb_hlil_drops = 0;

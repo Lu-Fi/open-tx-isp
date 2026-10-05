@@ -21,6 +21,7 @@ TESTS += tx_isp_t41_ysp_test
 TESTS += tx_isp_t31_wdr_test tx_isp_t31_wdr_runtime_test
 TESTS += tx_isp_t21_open_test
 TESTS += tx_isp_t23_tuning_ext_test
+TESTS += tx_isp_t23_awb_cluster_test
 TESTS += tx_isp_t31_autozoom_test
 TESTS += tx_isp_t31_af_test
 TESTS += tx_isp_t23_af_test
@@ -35,6 +36,9 @@ tx_isp_t31_autozoom_test: tx_isp_t31_autozoom_test.c ../driver/t31/tx_isp_t31_au
 	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t23_tuning_ext_test: tx_isp_t23_tuning_ext_test.c ../driver/t23/tx_isp_t23_tuning_ext.h
+	$(CC) $(CFLAGS) -o $@ $<
+
+tx_isp_t23_awb_cluster_test: tx_isp_t23_awb_cluster_test.c ../driver/t23/tx_isp_t23_awb_cluster.h
 	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t21_open_test: tx_isp_t21_open_test.c ../driver/t21/tx_isp_t21_open.h

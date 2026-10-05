@@ -2830,7 +2830,7 @@ static unsigned char __attribute__((aligned(4))) awb_cluster_api_para[40] = {
     0x02, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 
 };
-static unsigned char awb_cluster_api_status[8];
+static unsigned char __attribute__((aligned(4))) awb_cluster_api_status[8];
 static unsigned char zone_pix_cnt[900];
 static unsigned char zone_rgbg[1800];
 static unsigned char zone_rgbg_last[1800];
@@ -10273,6 +10273,12 @@ static const unsigned char *regtrace_t23_source_active_bank;
 #define REGTRACE_T23_AWB_ZONE_MESH_OFFSET       0x194cU
 #define REGTRACE_T23_AWB_OUTDOOR_MESH_OFFSET    0x1cd0U
 #define REGTRACE_T23_AWB_LIGHT_LUT_OFFSET       0x2054U
+/* cluster / trend objects of the IQ bank (stock tparams + 0x15944 ..):
+ * status word, then the object block (cluster 40 bytes, trend 28 bytes) */
+#define REGTRACE_T23_AWB_CLUSTER_STATUS_OFFSET  0x285cU
+#define REGTRACE_T23_AWB_CLUSTER_OFFSET         0x2864U
+#define REGTRACE_T23_AWB_TREND_STATUS_OFFSET    0x288cU
+#define REGTRACE_T23_AWB_TREND_OFFSET           0x2894U
 #define REGTRACE_T23_GIB_TUNING_OFFSET 0x2ab4U
 #define REGTRACE_T23_GIB_TUNING_SIZE   0x698U
 #define REGTRACE_T23_DMSC_TUNING_OFFSET 0x91b0U
@@ -14058,8 +14064,11 @@ static int regtrace_t23_source_ccm_select_bank(const void *bank)
         ret = regtrace_t23_source_ccm_commit(
             regtrace_t23_source_ccm_runtime_ct,
             regtrace_t23_ae_ev_q10());
-    if (!ret)
+    if (!ret) {
+        /* stock tiziano_awb_dn_params_refresh: cluster / trend objects */
+        regtrace_t23_awb_api_load_bank();
         return 0;
+    }
 
 restore:
     regtrace_t23_source_active_bank = previous;
@@ -14894,6 +14903,8 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
                    ret);
             return ret;
         }
+        /* stock tiziano_awb_init: cluster / trend objects from the IQ */
+        regtrace_t23_awb_api_load_bank();
     }
     bypass = regtrace_t23_source_bypass_overrides(bypass);
     /* Recovered T23 tisp_init order and parameter-derived top bypass. */
@@ -17425,7 +17436,7 @@ int32_t tisp_awb_set_cluster_awb_params(int32_t arg1,
                                         uint32_t arg8, uint32_t arg9,
                                         uint32_t arg10, uint32_t arg11);
 int32_t tisp_awb_get_cluster_awb_params(uint32_t a0, uintptr_t a1);
-int32_t tisp_awb_set_ct_trend(uint32_t a0, uint32_t a1);
+int32_t tisp_awb_set_ct_trend(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5, uint32_t a6);
 int32_t tisp_awb_get_ct_trend(uint32_t a0, uintptr_t a1);
 static int32_t tisp_awb_param_array_get(int32_t arg1, void *arg2, int32_t *arg3);
 static int32_t tisp_awb_param_array_set(uint32_t a0, uint32_t a1);
@@ -17892,7 +17903,7 @@ int32_t tisp_s_awb_cluster(int32_t arg1,
                            uint32_t arg8, uint32_t arg9, uint32_t arg10,
                            uint32_t arg11);
 static int32_t tisp_g_awb_cluster(uint32_t a0, uintptr_t a1);
-static int32_t tisp_s_awb_ct_trend(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5);
+static int32_t tisp_s_awb_ct_trend(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6, int32_t arg7);
 static int32_t tisp_g_awb_ct_trend(uint32_t a0, uintptr_t a1);
 int tisp_g_ccm_attr(uint32_t a0, void *a1);
 static int tisp_s_ccm_attr(uintptr_t context, const void *in);
@@ -52309,6 +52320,15 @@ static int32_t tisp_awb_get_zone(uint32_t a0, uint32_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000020904 origin=model_output original=tisp_awb_set_cluster_awb_params */
+/*
+ * tisp_awb_set_cluster_awb_params / tisp_awb_get_cluster_awb_params /
+ * tisp_awb_set_ct_trend: the stock objects are not in the user order
+ * (_awb_cluster: [0] ClusterEn, [1..7] awb_cluster[0..6], [8] ToleranceEn,
+ * [9] tolerance_th), see t23x_awb_cluster_set in tx_isp_t23_tuning_ext.h.
+ * The arguments are the user struct by value, in its order (stock:
+ * a1, a2, a3 and the stack words).  Not reached by the open driver (the
+ * controls go through t23x_awb_control); kept stock-exact.
+ */
 int32_t tisp_awb_set_cluster_awb_params(int32_t arg1,
                                         uint32_t arg2, uint32_t arg3,
                                         uint32_t arg4, uint32_t arg5,
@@ -52316,53 +52336,47 @@ int32_t tisp_awb_set_cluster_awb_params(int32_t arg1,
                                         uint32_t arg8, uint32_t arg9,
                                         uint32_t arg10, uint32_t arg11)
 {
-    uint32_t cluster[10] = {
-        arg2, arg3, arg4, arg5, arg6,
-        arg7, arg8, arg9, arg10, arg11,
+    uint32_t user[T23X_AWB_CLUSTER_WORDS] = {
+        arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11,
     };
 
     (void)arg1;
-    memcpy(_awb_cluster, cluster, sizeof(cluster));
-    ((uint32_t *)awb_cluster_api_status)[1] = 2;
-    if (((uint32_t *)awb_cluster_api_status)[0] != 1)
-        memcpy(awb_cluster_api_para, _awb_cluster, sizeof(_awb_cluster));
+    mutex_lock(&t23x_awb_api_mutex);
+    t23x_awb_cluster_set((uint32_t *)(void *)_awb_cluster,
+                         (uint32_t *)(void *)awb_cluster_api_status,
+                         (uint32_t *)(void *)awb_cluster_api_para, user);
+    mutex_unlock(&t23x_awb_api_mutex);
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002099c origin=fragment_seed original=tisp_awb_get_cluster_awb_params */
 int32_t tisp_awb_get_cluster_awb_params(uint32_t a0, uintptr_t a1)
 {
+    uint32_t user[T23X_AWB_CLUSTER_WORDS];
+
     (void)a0;
     if (!a1)
         return -EINVAL;
-    memcpy((void *)a1, _awb_cluster, sizeof(_awb_cluster));
+    mutex_lock(&t23x_awb_api_mutex);
+    t23x_awb_cluster_get((const uint32_t *)(const void *)_awb_cluster, user);
+    mutex_unlock(&t23x_awb_api_mutex);
+    memcpy((void *)a1, user, sizeof(user));
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000209e8 origin=fragment_seed original=tisp_awb_set_ct_trend */
-int32_t tisp_awb_set_ct_trend(uint32_t a0, uint32_t a1)
+int32_t tisp_awb_set_ct_trend(uint32_t a0, uint32_t a1, uint32_t a2,
+                              uint32_t a3, uint32_t a4, uint32_t a5,
+                              uint32_t a6)
 {
-    uint32_t local_1c = a1;
-    uint32_t *src = &local_1c;
-    uint32_t *dst = &_awb_trend;
-    uint32_t old_status;
+    uint32_t user[T23X_AWB_TREND_WORDS - 1U] = { a1, a2, a3, a4, a5, a6 };
 
-    do {
-        uint32_t val = *src;
-        src++;
-        *(dst + 1) = val;
-        dst++;
-    } while (src != &local_1c);
-
-    _awb_trend = 1;
-
-    old_status = awb_trend_api_status;
-    awb_trend_api_status = 2;
-
-    if (old_status != 1) {
-        memcpy(&awb_trend_api_para, &_awb_trend, 28);
-    }
-
+    (void)a0;
+    mutex_lock(&t23x_awb_api_mutex);
+    t23x_awb_trend_set((uint32_t *)(void *)&_awb_trend,
+                       (uint32_t *)(void *)&awb_trend_api_status,
+                       (uint32_t *)(void *)awb_trend_api_para, user);
+    mutex_unlock(&t23x_awb_api_mutex);
     return 0;
 }
 
@@ -93757,7 +93771,7 @@ static int32_t tisp_g_awb_cluster(uint32_t a0, uintptr_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006655c origin=model_output original=tisp_s_awb_ct_trend */
-static int32_t tisp_s_awb_ct_trend(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5)
+static int32_t tisp_s_awb_ct_trend(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6, int32_t arg7)
 {
 	/*
 	 * Assembly analysis:
@@ -93768,14 +93782,12 @@ static int32_t tisp_s_awb_ct_trend(int32_t arg1, int32_t arg2, int32_t arg3, int
 	 *   - Loads arg1 from sp+56 into v0, stores at sp+16
 	 *   - Loads arg2 from sp+60 into v0, stores at sp+20
 	 *   - Loads arg3 from sp+64 into v0, stores at sp+24
-	 *   - Calls tisp_awb_set_ct_trend(arg1, arg2) via jalr v0
+	 *   - Calls tisp_awb_set_ct_trend with the 7 words via jalr v0
 	 *   - After call: stores a3 (arg3) at sp+52
 	 *   - Restores ra, sets v0=0, returns
 	 */
-	tisp_awb_set_ct_trend(arg1, arg2);
-	(void)arg3;
-	(void)arg4;
-	(void)arg5;
+	/* arg1 is the device, arg2..arg7 the six trend words */
+	tisp_awb_set_ct_trend(arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 	return 0;
 }
 

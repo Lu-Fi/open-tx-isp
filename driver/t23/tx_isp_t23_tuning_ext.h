@@ -387,4 +387,114 @@ static inline void t23x_awb_trend_get(const uint32_t *tr, uint32_t *out)
 		out[i] = tr[1U + i];
 }
 
+/* ---- Mask blocks (SetMaskBlock / GetMaskBlock) ----------------------------- */
+
+/*
+ * SetMaskBlock / GetMaskBlock (0x08000183): stock apical_isp_core_ops_s_ctrl
+ * copies exactly sizeof(IMPISPMaskBlockAttr) = 20 bytes (T23 1.3.0 imp_isp.h:
+ * u8 chx @0, u8 pinum @1, u8 mask_en @2, u16 mask_pos_top @4, mask_pos_left
+ * @6, mask_width @8, mask_height @10, IMPISP_MASK_TYPE (int) mask_type @12,
+ * 3 colour bytes @16) and calls tisp_s_mscaler_mask_block_attr; g_ctrl calls
+ * tisp_g_mscaler_mask_block_attr on a local and copies the same 20 bytes
+ * out.
+ *
+ * The stock table lives in the mscaler object (stock .bss, 2316 bytes): one
+ * 16 byte entry per block at 1836 + 16 * (chx * 4 + pinum):
+ *   +0 u8 enable, +2 u16 left, +4 u16 top, +6 u16 width, +8 u16 height,
+ *   +12 u32 colour (c0 << 16 | c1 << 8 | c2, the three user bytes)
+ * and the dirty bit mask (1 << (chx * 4 + pinum)) is or-ed into the word at
+ * 2308, which the mscaler update (tisp_msca_Shd_ctrl -> tisp_msca_set_omi_api
+ * -> tisp_msca_api_set_mask) consumes.  Set takes the geometry and colour
+ * only for mask_en == 1, else just clears the entry's enable; the type is
+ * not stored.  Stock checks neither chx nor pinum (an index beyond the 12
+ * entries writes past the table), here a block outside chx 0..2, pinum 0..3
+ * is refused (-EINVAL), nothing written.
+ *
+ * Stock quirks kept: Get always reports mask_en = 0 (it clears the byte and
+ * never sets it), and for a disabled entry zeroes the geometry and colour.
+ * Beyond stock: stock Get passes an uninitialised local, so it neither
+ * knows chx / pinum nor defines the bytes it leaves (kernel stack); here the
+ * user's block is read first (chx, pinum), and the bytes stock leaves out
+ * (mask_type, padding) are 0.
+ */
+#define T23X_MASK_BLOCK_BYTES 20U       /* sizeof(IMPISPMaskBlockAttr) */
+#define T23X_MASK_CHANNELS 3U
+#define T23X_MASK_PER_CHANNEL 4U
+#define T23X_MSCA_BYTES 2316U           /* sizeof(mscaler) */
+#define T23X_MSCA_MASK_OFF 1836U
+#define T23X_MSCA_MASK_STRIDE 16U
+#define T23X_MSCA_MASK_DIRTY_OFF 2308U
+
+static inline uint16_t t23x_le16_get(const uint8_t *p)
+{
+	return (uint16_t)(p[0] | (p[1] << 8));
+}
+
+static inline void t23x_le16_put(uint8_t *p, uint16_t v)
+{
+	p[0] = (uint8_t)v;
+	p[1] = (uint8_t)(v >> 8);
+}
+
+static inline int t23x_mask_block_index(const uint8_t *blk)
+{
+	if (blk[0] >= T23X_MASK_CHANNELS || blk[1] >= T23X_MASK_PER_CHANNEL)
+		return -EINVAL;
+	return blk[0] * (int)T23X_MASK_PER_CHANNEL + blk[1];
+}
+
+/* tisp_s_mscaler_mask_block_attr on the mscaler object msca */
+static inline int t23x_mask_block_set(uint8_t *msca, const uint8_t *in)
+{
+	int idx = t23x_mask_block_index(in);
+	uint8_t *e;
+	uint32_t dirty;
+
+	if (idx < 0)
+		return idx;
+	e = msca + T23X_MSCA_MASK_OFF + T23X_MSCA_MASK_STRIDE * (unsigned int)idx;
+	if (in[2] == 1U) {
+		e[0] = 1;
+		t23x_le16_put(e + 4, t23x_le16_get(in + 4));    /* top */
+		t23x_le16_put(e + 2, t23x_le16_get(in + 6));    /* left */
+		t23x_le16_put(e + 6, t23x_le16_get(in + 8));    /* width */
+		t23x_le16_put(e + 8, t23x_le16_get(in + 10));   /* height */
+		e[12] = in[18];
+		e[13] = in[17];
+		e[14] = in[16];
+		e[15] = 0;
+	} else {
+		e[0] = 0;
+	}
+	memcpy(&dirty, msca + T23X_MSCA_MASK_DIRTY_OFF, sizeof(dirty));
+	dirty |= 1U << (unsigned int)idx;
+	memcpy(msca + T23X_MSCA_MASK_DIRTY_OFF, &dirty, sizeof(dirty));
+	return 0;
+}
+
+/* tisp_g_mscaler_mask_block_attr: the block for in's chx / pinum */
+static inline int t23x_mask_block_get(const uint8_t *msca, const uint8_t *in,
+				      uint8_t *out)
+{
+	int idx = t23x_mask_block_index(in);
+	const uint8_t *e;
+
+	if (idx < 0)
+		return idx;
+	e = msca + T23X_MSCA_MASK_OFF + T23X_MSCA_MASK_STRIDE * (unsigned int)idx;
+	memset(out, 0, T23X_MASK_BLOCK_BYTES);
+	out[0] = in[0];
+	out[1] = in[1];
+	if (e[0] == 1U) {
+		t23x_le16_put(out + 4, t23x_le16_get(e + 4));
+		t23x_le16_put(out + 6, t23x_le16_get(e + 2));
+		t23x_le16_put(out + 8, t23x_le16_get(e + 6));
+		t23x_le16_put(out + 10, t23x_le16_get(e + 8));
+		out[16] = e[14];
+		out[17] = e[13];
+		out[18] = e[12];
+	}
+	return 0;
+}
+
 #endif /* TX_ISP_T23_TUNING_EXT_H */
