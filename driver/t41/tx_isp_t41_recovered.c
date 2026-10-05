@@ -42,6 +42,19 @@
 #include "tx_isp_t41_v4l2.h"
 #include <linux/ratelimit.h>
 #include "../include/tx_isp/tx_isp_guard.h"
+/*
+ * Bring-up trace notes (VIC/VIN state, flicker profile, TMO bypass) were
+ * KERN_WARNING progress lines.  Release builds (TX_ISP_T41_TRACE unset/n in
+ * Kbuild) compile them and their strings out; errors and real warnings stay.
+ */
+#ifdef TX_ISP_T41_TRACE
+#define t41_trace_printk(...) printk(__VA_ARGS__)
+#define t41_trace_printk_ratelimited(...) printk_ratelimited(__VA_ARGS__)
+#else
+#define t41_trace_printk(...) ((void)0)
+#define t41_trace_printk_ratelimited(...) ((void)0)
+#endif
+
 #ifdef REGTRACE_KERNEL_TREE_BUILD
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -582,18 +595,6 @@ extern void *memcpy(void *dest, const void *src, size_t n);
 extern char *strstr(const char *haystack, const char *needle);
 extern int printk(const char *fmt, ...);
 
-/*
- * Bring-up trace notes (VIC/VIN state, flicker profile, TMO bypass) were
- * KERN_WARNING progress lines.  Release builds (TX_ISP_T41_TRACE unset/n in
- * Kbuild) compile them and their strings out; errors and real warnings stay.
- */
-#ifdef TX_ISP_T41_TRACE
-#define t41_trace_printk(...) printk(__VA_ARGS__)
-#define t41_trace_printk_ratelimited(...) printk_ratelimited(__VA_ARGS__)
-#else
-#define t41_trace_printk(...) ((void)0)
-#define t41_trace_printk_ratelimited(...) ((void)0)
-#endif
 extern void dev_err(const void *dev, const char *fmt, ...);
 extern void _dev_info(const void *dev, const char *fmt, ...);
 extern int __copy_user(void *to, const void *from, unsigned long n, ...);

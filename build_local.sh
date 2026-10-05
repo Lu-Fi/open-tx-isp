@@ -69,3 +69,15 @@ make -C "$KDIR" M="$HERE/driver/${SOC:-t31}" DIR=. \
 # Shared SoC-agnostic diagnostics (driver/) -> tx_isp_trace.ko
 make -C "$KDIR" M="$HERE/driver" DIR=. \
      ARCH="$ARCH" CROSS_COMPILE="$CROSS" KCFLAGS="$KCFLAGS" "$GOAL"
+
+# Load check (no camera needed): undefined symbols of the built modules must
+# resolve against the kernel's Module.symvers / sibling modules. Fails the build.
+if [ "$GOAL" = modules ]; then
+	rc=0
+	for ko in "$HERE/driver/${SOC:-t31}"/*.ko "$HERE/driver"/*.ko; do
+		[ -f "$ko" ] || continue
+		CROSS_COMPILE="$CROSS" "$HERE/tests/check_ko_symbols.sh" "$KDIR/Module.symvers" "$ko" \
+			"$HERE/driver/${SOC:-t31}"/*.ko "$HERE/driver"/*.ko || rc=1
+	done
+	[ $rc = 0 ] || { echo "ko symbol check FAILED"; exit 1; }
+fi
