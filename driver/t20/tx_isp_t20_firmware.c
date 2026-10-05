@@ -15404,41 +15404,43 @@ int32_t cmos_request_interrupt(int32_t *arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002785c origin=model_output original=cmos_fsm_switch_state */
 int cmos_fsm_switch_state(int32_t *arg1, int32_t arg2)
 {
+	/* OEM 0x26efc.  Leaving state 1 updates the WDR mode; leaving the
+	 * gain states 3..5 raises event 19; leaving the exposure states 6..8
+	 * (for a state outside 6..8) runs the long-exposure update; the
+	 * target state then selects the update to run -- independent of the
+	 * old state, except that cmos_calc_target_gain() only runs when
+	 * entering 3..5 from outside.  The recovery inverted the 6..8 test,
+	 * nested the target dispatch under it and lost the WDR update. */
 	int32_t old_state = arg1[1];
 
-	if (arg2 != old_state) {
-		((void **)arg1)[1] = arg2;
+	if (arg2 == old_state)
+		return 0;
+	((void **)arg1)[1] = arg2;
 
-		if (old_state != 1) {
-			if ((uint32_t)(old_state - 3) < 3) {
-				if ((uint32_t)(arg2 - 3) >= 3) {
-					apical_isp_raise_event(*arg1, 19);
-				}
-			}
-		}
+	if (old_state == 1)
+		cmos_update_wdr_mode();
+	else if ((uint32_t)(old_state - 3) < 3 && (uint32_t)(arg2 - 3) >= 3)
+		apical_isp_raise_event(*arg1, 19);
 
-		if ((uint32_t)(old_state - 6) >= 3) {
-			if ((uint32_t)(arg2 - 6) >= 3) {
-				cmos_long_exposure_update(arg1);
-			}
-			if (arg2 == 2)
-				return cmos_init(arg1);
-			if ((uint32_t)(arg2 - 3) >= 3) {
-				if (arg2 == 7)
-					return cmos_inttime_update(arg1);
-				if (arg2 == 8)
-					return cmos_antiflicker_update(arg1);
-			} else {
-				if ((uint32_t)(old_state - 3) >= 3) {
-					cmos_calc_target_gain(arg1);
-				}
-				if (arg2 == 4)
-					return cmos_analog_gain_update(arg1);
-				if (arg2 == 5)
-					return cmos_digital_gain_update(arg1);
-			}
-		}
+	if ((uint32_t)(old_state - 6) < 3 && (uint32_t)(arg2 - 6) >= 3)
+		cmos_long_exposure_update(arg1);
+
+	if (arg2 == 2)
+		return cmos_init(arg1);
+	if ((uint32_t)(arg2 - 3) < 3) {
+		if ((uint32_t)(old_state - 3) >= 3)
+			cmos_calc_target_gain(arg1);
+		if (arg2 == 4)
+			return cmos_analog_gain_update(arg1);
+		if (arg2 == 5)
+			return cmos_digital_gain_update(arg1);
+		return 0;
 	}
+	if (arg2 == 7)
+		return cmos_inttime_update(arg1);
+	if (arg2 == 8)
+		return cmos_antiflicker_update(arg1);
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000279e0 origin=model_output original=cmos_fsm_process_state */
