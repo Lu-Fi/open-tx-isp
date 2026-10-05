@@ -7,8 +7,8 @@
  * STREAMON, STREAMOFF, close + pool free; a timps process restart; a
  * second channel streaming on) with the driver's default parameters and
  * checks the invariants:
- *  - no DMA into a freed buffer (enabled output with frames flowing never
- *    holds a freed address, and nothing is enabled after its buffers went);
+ *  - no DMA into a freed buffer (the input never starts under an enabled
+ *    output whose FIFO still holds addresses of a freed pool);
  *  - the FIFO of an enabled output is never cleared while frames flow;
  *  - an unchanged restart issues no cfg load and no 0xd010 request;
  *  - 0xd040 changes while frames flow happen only at a frame boundary.
@@ -30,12 +30,13 @@ static int failures;
 /* ---- model ------------------------------------------------------------ */
 
 #define POOL 4
+#define FIFO_MAX 32
 
 struct model {
 	/* hardware */
 	u32 d040;
 	u32 d050;
-	int fifo[8];		/* buffer ids, -1 none */
+	int fifo[FIFO_MAX];	/* buffer ids (generation * POOL + index) */
 	int fifo_n;
 	int last;		/* last address written, -1 = zero (cleared) */
 	int flowing;		/* input running, frame-done IRQs */
@@ -45,12 +46,13 @@ struct model {
 	/* driver state */
 	struct t23_msca_pend pend;
 	int ch_en;
-	int kept;
 	int live_valid;
 	int cfg_equal;
-	int buf_owned;
+	int queued;		/* buffers of the current pool queued */
+	int deferred;		/* start waits for the first QBUF */
 	/* userspace */
-	int pool_valid[POOL];
+	int gen;		/* pool generation */
+	int pool_alive;
 	unsigned int bad_dma;
 };
 
@@ -59,6 +61,11 @@ static void m_reset(struct model *m)
 	memset(m, 0, sizeof(*m));
 	m->cfg_equal = 1;
 	m->last = -1;
+}
+
+static int m_valid(const struct model *m, int buf)
+{
+	return buf >= 0 && m->pool_alive && buf / POOL == m->gen;
 }
 
 static void m_write_d040(struct model *m, u32 v, int at_boundary)
@@ -80,6 +87,12 @@ static void m_apply_pending(struct model *m, int at_boundary)
 	}
 }
 
+static void m_push(struct model *m, int buf)
+{
+	if (m->fifo_n < FIFO_MAX)
+		m->fifo[m->fifo_n++] = buf;
+}
+
 /* one frame: the MSCA writes into the FIFO head (or its last address) */
 static void m_frame(struct model *m)
 {
@@ -97,11 +110,10 @@ static void m_frame(struct model *m)
 			buf = m->last;	/* empty FIFO: the last address again */
 		else
 			m->last = buf;
-		if (buf < 0 || !m->pool_valid[buf])
+		if (!m_valid(m, buf))
 			m->bad_dma++;
-		/* userspace DQBUF + QBUF while the channel streams */
-		else if (m->ch_en && m->fifo_n < 8)
-			m->fifo[m->fifo_n++] = buf;
+		else if (m->ch_en)	/* DQBUF + QBUF while streaming */
+			m_push(m, buf);
 	}
 	/* frame-done ISR */
 	if (t23_msca_pend_any(&m->pend))
@@ -124,6 +136,7 @@ static void m_fifo_clear(struct model *m)
 	m->last = -1;
 }
 
+/* regtrace_t23_msca_release() */
 static void m_release(struct model *m)
 {
 	if (m->ch_en)
@@ -132,93 +145,116 @@ static void m_release(struct model *m)
 		m_d040_sync(m, 0, 1U);
 		m_frame(m);
 	}
-	m->kept = 0;
 	m_fifo_clear(m);
+}
+
+static void m_input_on(struct model *m)
+{
+	CHECK(!(m->d040 & 1U) || m->fifo_n == 0 || m_valid(m, m->fifo[0]));
+	m->flowing = 1;
+}
+
+static void m_input_off(struct model *m)
+{
+	m_frame(m);	/* drain the frame in flight */
+	m->flowing = 0;
+	m_apply_pending(m, 0);
+}
+
+/* tx-isp STREAMON of a new session */
+static void m_session_start(struct model *m)
+{
+	if (!m->flowing) {
+		if (m->d040 & 1U)
+			m_release(m);
+		m_input_on(m);
+	}
 }
 
 static void m_reqbufs(struct model *m)
 {
-	int i;
-
-	m_release(m);
-	for (i = 0; i < POOL; i++)
-		m->pool_valid[i] = 1;
-	m->buf_owned = 1;
+	if (m->flowing)
+		m_release(m);
+	m->gen++;
+	m->pool_alive = 1;
+	m->queued = 0;
 }
+
+static void m_msca_on(struct model *m);
 
 static void m_qbuf_all(struct model *m)
 {
 	int i;
 
 	for (i = 0; i < POOL; i++)
-		m->fifo[m->fifo_n++] = i;
+		m_push(m, m->gen * POOL + i);
+	m->queued = POOL;
+	if (m->deferred)
+		m_msca_on(m);
 }
 
-static void m_input(struct model *m, int on)
+/* regtrace_t23_set_msca_stream(enable) */
+static void m_msca_on(struct model *m)
 {
-	m->flowing = on;
-	if (!on)
-		m_apply_pending(m, 0);
+	m->deferred = 0;
+	if (!(m->d040 & 1U) && m->fifo_n == 0 && m->last < 0) {
+		m->deferred = 1;	/* empty FIFO: wait for QBUF */
+		return;
+	}
+	if ((m->d040 & 1U) &&
+	    t23_msca_restart_mode(1, m->live_valid, m->cfg_equal) ==
+	    T23_MSCA_REUSE)
+		return;		/* nothing written */
+	if (m->d040 & 1U)
+		m_d040_sync(m, 0, 1U);
+	m->cfg_loads++;
+	m->d010++;
+	m->d040 |= 1U;		/* stock-exact start */
+	m->live_valid = 1;
+	m->cfg_equal = 1;
 }
 
 static void m_streamon(struct model *m)
 {
-	int input_was_off = !m->flowing;
-	int reuse = t23_msca_restart_mode(1, m->live_valid, m->cfg_equal) ==
-		    T23_MSCA_REUSE;
+	unsigned int pushed = 0;
+	int i;
 
-	if (t23_msca_fifo_clear_allowed(!!(m->d040 & 1U), m->flowing)) {
-		/* rearm: clear and push the queued buffers again */
+	/* rearm */
+	if (m->queued &&
+	    t23_msca_fifo_clear_allowed(!!(m->d040 & 1U), m->flowing)) {
 		m->fifo_n = 0;
-		m_qbuf_all(m);
+		for (i = 0; i < m->queued; i++)
+			m_push(m, m->gen * POOL + i);
+		pushed = (unsigned int)m->queued;
 	}
-	if (input_was_off && reuse)
-		m_d040_sync(m, 1U, 0);
-	if (input_was_off)
-		m_input(m, 1);
-	if (!(input_was_off && reuse)) {
-		if (reuse) {
-			if (!(m->d040 & 1U))
-				m_d040_sync(m, 1U, 0);
-		} else {
-			if (m->flowing)
-				m_frame(m);	/* boundary before the load */
-			m->cfg_loads++;
-			m->d010++;
-			m_write_d040(m, m->d040 | 1U, 1);
-			m->live_valid = 1;
-			m->cfg_equal = 1;
-		}
+	if (!m->flowing) {
+		/* release_before_input */
+		if ((m->d040 & 1U) && !pushed)
+			m_release(m);
+		m_input_on(m);
 	}
 	m->ch_en = 1;
-	m->kept = 0;
+	m_msca_on(m);
 }
 
 /* last == the input stops with this STREAMOFF */
 static void m_streamoff(struct model *m, int last, int keep_param)
 {
 	m->ch_en = 0;
-	if (t23_msca_stop_keeps_bit(keep_param, last)) {
-		m->kept = !!(m->d040 & 1U);
-	} else if (m->d040 & 1U) {
+	if (!t23_msca_stop_keeps_bit(keep_param, last) && (m->d040 & 1U)) {
 		m_d040_sync(m, 0, 1U);
 		m_frame(m);
 	}
-	if (last) {
-		m_frame(m);	/* drain the frame in flight */
-		m_input(m, 0);
-	}
+	if (last)
+		m_input_off(m);
 }
 
 static void m_close_and_free(struct model *m)
 {
-	int i;
-
-	if (m->buf_owned)
+	if (m->flowing)
 		m_release(m);
-	m->buf_owned = 0;
-	for (i = 0; i < POOL; i++)
-		m->pool_valid[i] = 0;
+	m->pool_alive = 0;
+	m->queued = 0;
 }
 
 static void m_flip(struct model *m, u32 word)
@@ -277,8 +313,7 @@ static void test_wakes(void)
 	int i, f;
 
 	m_reset(&m);
-	/* session start: tx-isp STREAMON runs the input, first channel start */
-	m_input(&m, 1);
+	m_session_start(&m);
 	m_reqbufs(&m);
 	m_qbuf_all(&m);
 	m_streamon(&m);
@@ -292,12 +327,9 @@ static void test_wakes(void)
 	for (i = 0; i < 30; i++) {
 		m_streamoff(&m, 1, 1);
 		m_close_and_free(&m);
-		CHECK(!(m.d040 & 1U));
-		CHECK(m.fifo_n == 0);
-		/* idle phase: the input is stopped */
+		CHECK(m.d040 & 1U);	/* kept, input stopped */
 		for (f = 0; f < 5; f++)
 			m_frame(&m);
-		/* next wake */
 		m_reqbufs(&m);
 		m_qbuf_all(&m);
 		m_streamon(&m);
@@ -311,6 +343,32 @@ static void test_wakes(void)
 	CHECK(m.live_d040_writes == 0);
 }
 
+/* STREAMON without queued buffers after a kept stop: released, reloaded */
+static void test_wake_without_buffers(void)
+{
+	struct model m;
+	int f;
+
+	m_reset(&m);
+	m_session_start(&m);
+	m_reqbufs(&m);
+	m_qbuf_all(&m);
+	m_streamon(&m);
+	m_streamoff(&m, 1, 1);
+	m_close_and_free(&m);
+	m_reqbufs(&m);
+	m_streamon(&m);		/* nothing queued yet: deferred */
+	CHECK(m.deferred && !(m.d040 & 1U));
+	for (f = 0; f < 3; f++)
+		m_frame(&m);
+	m_qbuf_all(&m);		/* first QBUF starts the output */
+	CHECK(!m.deferred && (m.d040 & 1U));
+	for (f = 0; f < 6; f++)
+		m_frame(&m);
+	CHECK(m.bad_dma == 0);
+	CHECK(m.cfg_loads == 2);
+}
+
 /* process restart: the old pool goes away, the new session starts */
 static void test_process_restart(void)
 {
@@ -318,23 +376,25 @@ static void test_process_restart(void)
 	int f;
 
 	m_reset(&m);
-	m_input(&m, 1);
+	m_session_start(&m);
 	m_reqbufs(&m);
 	m_qbuf_all(&m);
 	m_streamon(&m);
 	for (f = 0; f < 6; f++)
 		m_frame(&m);
-	/* timps killed: close without STREAMOFF -> stream off, release */
+	/* timps killed: close -> stream off (input stops), pool freed */
 	m_streamoff(&m, 1, 1);
 	m_close_and_free(&m);
-	CHECK(!(m.d040 & 1U) && !m.kept);
+	CHECK(m.d040 & 1U);
 	/* new process: tx-isp STREAMON before the channel has buffers */
-	m_input(&m, 1);
+	m_session_start(&m);
+	CHECK(!(m.d040 & 1U));
 	for (f = 0; f < 6; f++)
 		m_frame(&m);
 	m_reqbufs(&m);
 	m_qbuf_all(&m);
-	m_streamon(&m);
+	m_streamon(&m);		/* stock-exact load */
+	CHECK(m.cfg_loads == 2);
 	for (f = 0; f < 6; f++)
 		m_frame(&m);
 	CHECK(m.bad_dma == 0);
@@ -348,7 +408,7 @@ static void test_live_restart(void)
 	int i, f;
 
 	m_reset(&m);
-	m_input(&m, 1);
+	m_session_start(&m);
 	m_reqbufs(&m);
 	m_qbuf_all(&m);
 	m_streamon(&m);
@@ -370,24 +430,22 @@ static void test_live_restart(void)
 	CHECK(!m.pend.flip && m.d050 == 0x00070000U);
 	CHECK(m.bad_dma == 0);
 	CHECK(m.live_d040_writes == 0);
-	CHECK(m.cfg_loads == 1);
 }
 
-/* msca_keep_enabled=2 (stock) without release would write freed memory */
+/* d28a0177: kept output, new session input start without release */
 static void test_keep_without_release_is_unsafe(void)
 {
 	struct model m;
 	int f;
 
 	m_reset(&m);
-	m_input(&m, 1);
+	m_session_start(&m);
 	m_reqbufs(&m);
 	m_qbuf_all(&m);
 	m_streamon(&m);
-	m_streamoff(&m, 0, 2);
-	CHECK(m.d040 & 1U);
-	/* pool freed without the release (what d28a0177 did on close) */
-	memset(m.pool_valid, 0, sizeof(m.pool_valid));
+	m_streamoff(&m, 1, 1);
+	m_close_and_free(&m);
+	m.flowing = 1;		/* input started, output not released */
 	for (f = 0; f < 8; f++)
 		m_frame(&m);
 	CHECK(m.bad_dma > 0);
@@ -397,6 +455,7 @@ int main(void)
 {
 	test_helpers();
 	test_wakes();
+	test_wake_without_buffers();
 	test_process_restart();
 	test_live_restart();
 	test_keep_without_release_is_unsafe();

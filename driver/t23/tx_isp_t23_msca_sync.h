@@ -6,10 +6,15 @@
  * hang"), as pure decisions shared with the host test
  * (tests/tx_isp_t23_msca_sync_test.c):
  *
- *  1. An output may only be enabled (0xd040 bit) while the buffers whose
- *     addresses sit in its FIFO belong to an open frame-channel file.  Close,
- *     REQBUFS and a new tx-isp session release it: bit cleared, completions
- *     dropped, address FIFO cleared.
+ *  1. Frames never reach an enabled output whose FIFO may hold addresses of
+ *     a freed pool.  With the input stopped nothing is written at close or
+ *     REQBUFS (stock); before the input starts again every enabled output
+ *     that is not streaming is released (bit cleared, completions dropped,
+ *     address FIFO cleared), except the starting channel when its FIFO was
+ *     just rearmed with its current buffers.  A new tx-isp session releases
+ *     all of them.  While frames flow, close and REQBUFS release at a frame
+ *     boundary.  An output is never enabled with an empty (cleared) FIFO:
+ *     the start waits for the first QBUF.
  *  2. 0xd040 / 0xd050 (+ 0xd010 update request) only change while no frame
  *     flows (input stopped) or at a frame boundary: the core ISR applies the
  *     pending change at frame-done; the caller waits for that with a bounded
@@ -17,9 +22,10 @@
  *     then either).
  *  3. The address FIFO of an enabled output is never cleared while frames
  *     flow (the MSCA would write the next frame to address 0).
- *  4. An output restarted with the configuration it still holds is not
- *     reloaded (no tisp_msca_chx_cfg_load(), no 0xd010); only its enable
- *     bit is set again.
+ *  4. An output kept enabled across the input stop and restarted with the
+ *     configuration it holds is not reloaded (no tisp_msca_chx_cfg_load(),
+ *     no 0xd010, no register write).  Every other start is stock-exact:
+ *     tisp_channel_start() at STREAMON, no frame wait.
  *  5. A mirror/flip write with unchanged bits issues no update request.
  */
 
