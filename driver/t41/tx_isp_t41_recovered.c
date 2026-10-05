@@ -21151,6 +21151,164 @@ static int t41_tuning_coefft_wb(unsigned int channel, unsigned int is_get,
     return t41_bcsh_update(ct, ev, 1);
 }
 
+
+/*
+ * Gamma, CCM and CSC (stock tx_isp_core_ops_s_ctrl/g_ctrl 0x08000025,
+ * 0x08000080, 0x08000096; the payload helpers are in
+ * tx_isp_t41_tuning_ctl.h).  They run under the lock the frame worker
+ * holds while it updates CCM, BCSH and gamma.
+ */
+static int t41_tuning_gamma(unsigned int channel, unsigned int is_get,
+                            uintptr_t user_ptr)
+{
+    u8 attr[T41_GAMMA_ATTR_BYTES];
+    u8 *info, *params;
+    int ret, install;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (!is_get && private_copy_from_user(attr, (void __user *)user_ptr,
+                                          sizeof(attr)))
+        return -EFAULT;
+    mutex_lock(&t41_tmo_map_lock);
+    info = (u8 *)(uintptr_t)gamma_info[0];
+    params = t41_kernel_data_ptr(info) ?
+        (u8 *)(uintptr_t)*(u32 *)(void *)info : NULL;
+    if (!t41_kernel_data_ptr(params)) {
+        mutex_unlock(&t41_tmo_map_lock);
+        return -ENODEV;
+    }
+    if (is_get) {
+        ret = t41_gamma_attr_get(info, T41_GAMMA_INFO_BYTES, attr);
+        mutex_unlock(&t41_tmo_map_lock);
+        if (ret)
+            return -EINVAL;
+        return private_copy_to_user((void __user *)user_ptr, attr,
+                                    sizeof(attr)) ? -EFAULT : 0;
+    }
+    install = t41_gamma_attr_set(info, T41_GAMMA_INFO_BYTES, params,
+                                 T41_GAMMA_PARAM_BYTES, attr,
+                                 static_srgb_gamma, static_rec709_gamma,
+                                 static_hdr_gamma);
+    if (install < 0) {
+        mutex_unlock(&t41_tmo_map_lock);
+        return -EINVAL;
+    }
+    ret = 0;
+    if (!install) {
+        /* curve type 0: the calibrated curve for the last EV, forced */
+        ret = (int)tisp_gamma_interp_by_ev(
+            0, 0, *(u32 *)(void *)(info + 532), 0, 1);
+        if (ret >= 0)
+            ret = tisp_gamma_strength_transform(0);
+    }
+    if (ret >= 0)
+        ret = tisp_gamma_write_lut_rgb(0);
+    mutex_unlock(&t41_tmo_map_lock);
+    return ret < 0 ? ret : 0;
+}
+
+static int t41_tuning_ccm(unsigned int channel, unsigned int is_get,
+                          uintptr_t user_ptr)
+{
+    u8 block[T41_CCM_BLOCK_BYTES];
+    u8 *info;
+    u32 ct = 0, ev = 0;
+    int route, ret = 0;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (!is_get && private_copy_from_user(block, (void __user *)user_ptr,
+                                          sizeof(block)))
+        return -EFAULT;
+    /* The stock driver picks the CCM block or the BCSH colour matrix from
+     * the TOP bypass bits; the open BCSH has no colour matrix. */
+    route = t41_ccm_route(((u32 *)(void *)top_bypass_global)[0]);
+    if (route > 0)
+        return -EOPNOTSUPP;
+    mutex_lock(&t41_tmo_map_lock);
+    mutex_lock(&t41_ccm_lock);
+    info = (u8 *)(uintptr_t)ccm_info;
+    if (!t41_kernel_data_ptr(info))
+        ret = -ENODEV;
+    else if (is_get)
+        ret = t41_ccm_block_get(info, T41_CCM_INFO_BYTES, block);
+    else if (!(ret = t41_ccm_block_set(info, T41_CCM_INFO_BYTES, block))) {
+        ct = *(u32 *)(void *)(info + 144);
+        ev = *(u32 *)(void *)(info + 136);
+    }
+    mutex_unlock(&t41_ccm_lock);
+    if (!is_get && !ret)
+        ret = t41_ccm_update(ct, ev, 1);
+    mutex_unlock(&t41_tmo_map_lock);
+    if (ret)
+        return ret;
+    if (is_get)
+        /* the stock g_ctrl ignores tisp_g_ccm_attr's -1 */
+        return private_copy_to_user((void __user *)user_ptr, block,
+                                    sizeof(block)) ? -EFAULT : 0;
+    /* tisp_s_ccm_attr answers -1 although it applied the matrix when the
+     * CCM block ran with the BCSH active (or while both are bypassed). */
+    return route < 0 ? -EPERM : 0;
+}
+
+static int t41_tuning_csc(unsigned int channel, unsigned int is_get,
+                          uintptr_t user_ptr)
+{
+    u8 block[T41_CSC_BYTES];
+    u32 mode, ct, ev;
+    int ret;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (is_get) {
+        ret = tisp_csc_api_get(0, (uint32_t)(uintptr_t)block);
+        if (ret)
+            return ret;
+        return private_copy_to_user((void __user *)user_ptr, block,
+                                    sizeof(block)) ? -EFAULT : 0;
+    }
+    if (private_copy_from_user(block, (void __user *)user_ptr, sizeof(block)))
+        return -EFAULT;
+    mode = le32_to_cpup((const __le32 *)block);
+    /* tisp_csc_api_set answers mode 7 with -1 and applies nothing; the
+     * stock driver would take any larger mode as "invalid, BT601". */
+    if (mode == T41_CSC_USER + 1)
+        return -EPERM;
+    if (mode > T41_CSC_USER)
+        return -EINVAL;
+    mutex_lock(&t41_tmo_map_lock);
+    if (mode == T41_CSC_USER)
+        memcpy(CSC_USER, block, sizeof(block));
+    ret = (int)tisp_set_csc_version(mode);
+    /* tisp_set_csc_attr then re-derives the CCM and BCSH from the new
+     * matrix (tisp_{ccm,bcsh}_refresh_by_csc; the CLM stays neutral). */
+    if (!ret) {
+        uint8_t *info = (uint8_t *)(uintptr_t)ccm_info;
+        int refresh;
+
+        if (t41_kernel_data_ptr(info)) {
+            ct = *(uint32_t *)(void *)(info + 144);
+            ev = *(uint32_t *)(void *)(info + 136);
+            refresh = t41_ccm_update(ct, ev, 1);
+            if (refresh)
+                pr_warn_ratelimited("tx-isp-t41: CSC mode %u: CCM refresh %d\n",
+                                    mode, refresh);
+        }
+        info = (uint8_t *)(uintptr_t)bcsh_info;
+        if (t41_kernel_data_ptr(info)) {
+            ct = *(uint32_t *)(void *)(info + 312);
+            ev = *(uint32_t *)(void *)(info + 320);
+            refresh = t41_bcsh_update(ct, ev, 1);
+            if (refresh)
+                pr_warn_ratelimited("tx-isp-t41: CSC mode %u: BCSH refresh %d\n",
+                                    mode, refresh);
+        }
+    }
+    mutex_unlock(&t41_tmo_map_lock);
+    return ret;
+}
+
 /*
  * Review2 M1: stock serialises the tuning node with core_dev->mlock; two
  * tuning threads (day/night, BCSH, flip) must not interleave on the same
@@ -21231,6 +21389,15 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             { TX_ISP_TUNING_CMD_T41_AE_STATS,
               TX_ISP_TUNING_T41_AE_STATS_BYTES,
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_GAMMA, T41_GAMMA_ATTR_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_CCM, T41_CCM_BLOCK_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_CSC, T41_CSC_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_BCSH_HUE, 1,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -21438,17 +21605,25 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_MODULE_RATIO)
             return t41_tuning_module_ratio(request.channel, request.is_get,
                                            request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_GAMMA)
+            return t41_tuning_gamma(request.channel, request.is_get,
+                                    request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_CCM)
+            return t41_tuning_ccm(request.channel, request.is_get,
+                                  request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_CSC)
+            return t41_tuning_csc(request.channel, request.is_get,
+                                  request.value_or_ptr);
         /*
          * Public tuning IDs with no open implementation yet: report it
-         * instead of acknowledging the request unchanged.
+         * instead of acknowledging the request unchanged.  The stock
+         * driver has no handler for the WDR output mode (0x08000054) and
+         * auto zoom lives in the MSCA path.
          */
         switch (request.id) {
-        case TX_ISP_TUNING_CMD_T41_GAMMA:
         case TX_ISP_TUNING_CMD_T41_WDR_OUTPUT:
         case TX_ISP_TUNING_CMD_T41_MODULE_CONTROL:
         case TX_ISP_TUNING_CMD_T41_AUTOZOOM:
-        case TX_ISP_TUNING_CMD_T41_CCM:
-        case TX_ISP_TUNING_CMD_T41_CSC:
         /* MSCA mask/scaler coefficients: owned by the MSCA path, which
          * has no open runtime update yet. */
         case TX_ISP_TUNING_CMD_T41_MASK_BLOCK:
@@ -35478,6 +35653,44 @@ static int t41_ioctl_set_sensor_input(uintptr_t file, uint32_t user_arg)
                                 sizeof(input)) ? -EFAULT : 0;
 }
 
+/*
+ * IMP_ISP_SetSensorRegister / IMP_ISP_GetSensorRegister (libimp 1.2.6):
+ * a 64-byte request { sensor name[32], vinum, cbus type, pad[2], reg u64,
+ * value u64 } with 0xc040540d (set) / 0x8040540e (get).  The stock handler
+ * sends it as sensor event 0x02000011 / 0x02000012 to every subdev; the
+ * VIN's sensor_ops hands it to the sensor's core s_register / g_register
+ * (the sensor drivers check the chip name and CAP_SYS_ADMIN themselves).
+ * The name is forced to end in a NUL for them.
+ */
+static int t41_ioctl_sensor_register(uint32_t command, uint32_t user_arg)
+{
+    u8 request[64];
+    uintptr_t vin;
+    int ret;
+
+    if (!user_arg)
+        return -EINVAL;
+    if (private_copy_from_user(request,
+            (const void __user *)(uintptr_t)user_arg, sizeof(request)))
+        return -EFAULT;
+    vin = (uint32_t)private_platform_get_drvdata(
+            (uintptr_t)&tx_isp_vin_platform_device);
+    if (!vin)
+        return -ENODEV;
+    request[31] = 0;
+    ret = subdev_sensor_ops_ioctl(vin, command == 0xc040540dU ?
+                                  T41_EVENT_SENSOR_S_REGISTER :
+                                  T41_EVENT_SENSOR_G_REGISTER,
+                                  (uintptr_t)request);
+    if (ret)
+        return ret;
+    if (command == 0x8040540eU &&
+        private_copy_to_user(user_arg, (uint32_t)(uintptr_t)request,
+                             sizeof(request)))
+        return -EFAULT;
+    return 0;
+}
+
 static int t41_ioctl_buf_info(uint32_t command, uint32_t user_arg)
 {
     struct t41_isp_buf_info info;
@@ -35866,6 +36079,14 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
                a1, regtrace_ret);
         return regtrace_ret;
     }
+    if (a1 == 0xc040540dU || a1 == 0x8040540eU) {
+        regtrace_ret = t41_ioctl_sensor_register(a1, a2);
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
+               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               a1, regtrace_ret);
+        return regtrace_ret;
+    }
     if (a1 == 0x800c540fU || a1 == 0x800c5410U ||
         a1 == 0x800c5411U || a1 == 0x800c5412U) {
         regtrace_ret = t41_ioctl_buf_info(a1, a2);
@@ -35880,7 +36101,8 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
      * Stack-overflow gate for the recovered /dev/tx-isp dispatcher.
      *
      * Every command libimp/OpenIMP issues on this node (TISP_VIDIOC_*,
-     * 0x80045401..0x800c5412) is fully served by the typed, bounds-checked
+     * 0x80045401..0x800c5412, the sensor register pair 0xc040540d /
+     * 0x8040540e) is fully served by the typed, bounds-checked
      * handlers above.  The decompiler-recovered dispatch that follows copied
      * 8..80 bytes from userspace into 4-byte scalar locals (&local_20,
      * &local_70, ...) with hard-coded lengths, smashing the kernel stack from
@@ -146440,7 +146662,15 @@ static int t41_ccm_update(uint32_t ct, uint32_t ev, int force)
         goto done;
     ret = t41_ccm_select(params, T41_CCM_PARAM_BYTES, ct, ev,
                          selected, &saturation);
-    if (!ret)
+    /* Manual attribute (IMP_ISP_Tuning_SetCCMAttr): the matrix is the
+     * caller's, the saturation still follows the EV; saturation enable
+     * off (block byte 1) keeps the matrix as given. */
+    if (!ret && info[T41_CCM_INFO_MANUAL] == 1)
+        t41_ccm_manual_matrix(info, selected);
+    if (!ret && info[T41_CCM_INFO_MANUAL] == 1 &&
+        !info[T41_CCM_INFO_BLOCK + 1])
+        memcpy(transformed, selected, sizeof(transformed));
+    else if (!ret)
         ret = t41_ccm_saturate(selected, saturation,
             *(uint32_t *)(void *)(info + 4), (int *)(void *)(info + 8), transformed);
     if (!ret)
