@@ -11121,7 +11121,7 @@ int32_t cmos_analog_gain_update(int32_t *arg1)
 {
 	int32_t s2 = arg1[0x1d8 / 4];
 	int32_t v0 = cmos_get_manual_again_log2(arg1);
-	int32_t *s1 = v0;
+	int32_t s1 = v0;
 
 	if (v0 < 0) {
 		s1 = s2 - 0x1000;
@@ -11131,11 +11131,15 @@ int32_t cmos_analog_gain_update(int32_t *arg1)
 
 	int32_t result = cmos_alloc_sensor_analog_gain(arg1, s1);
 
+	/* OEM 0x1f144..0x1f178: hysteresis -- a new gain within +-0xfff of
+	 * the previous one re-allocates the previous gain (a1 = s0[460]);
+	 * signed compares.  The recovery allocated gain 0 and compared as
+	 * pointers (unsigned). */
 	if (stab[4] == 0) {
 		int32_t a1_1 = arg1[0x1cc / 4];
 
 		if (result != a1_1 && s1 >= a1_1 - 0xfff && a1_1 + 0xfff >= s1)
-			result = cmos_alloc_sensor_analog_gain(arg1, 0);
+			result = cmos_alloc_sensor_analog_gain(arg1, a1_1);
 	}
 
 	((uint32_t *)arg1)[0x1cc / 4] = result;
