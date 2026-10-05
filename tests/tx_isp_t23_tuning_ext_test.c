@@ -186,8 +186,48 @@ static void test_gamma(void)
 	assert(t23x_gamma_valid(lut) == -EINVAL);
 }
 
+static void test_awb_cluster_trend(void)
+{
+	uint32_t cl[10], st[2] = { 0, 0 }, api[10] = { 0 }, in[10], out[10];
+	uint32_t tr[7] = { 1, 1024, 1024, 1024, 1024, 1024, 1024 };
+	uint32_t tst[2] = { 1, 0 }, tapi[7] = { 0 }, tin[6], tout[6];
+	unsigned int i;
+
+	assert(T23X_AWB_CLUSTER_USER_BYTES == 40 && T23X_AWB_TREND_USER_BYTES == 24);
+	for (i = 0; i < 10; i++) {
+		cl[i] = 0xdead0000U + i;
+		in[i] = 100 + i;        /* en, tol_en, tol_th, array[7] */
+	}
+	t23x_awb_cluster_set(cl, st, api, in);
+	/* stock order: [0] en, [1..7] array, [8] tolerance en, [9] threshold */
+	assert(cl[0] == 100 && cl[8] == 101 && cl[9] == 102);
+	for (i = 0; i < 7; i++)
+		assert(cl[1 + i] == 103 + i);
+	assert(st[0] == 0 && st[1] == 2);
+	assert(!memcmp(api, cl, sizeof(cl)));   /* mirrored, status[0] != 1 */
+	t23x_awb_cluster_get(cl, out);
+	assert(!memcmp(out, in, sizeof(in)));
+	/* status[0] == 1: the mirror is left alone */
+	st[0] = 1;
+	memset(api, 0, sizeof(api));
+	t23x_awb_cluster_set(cl, st, api, in);
+	assert(api[0] == 0 && api[9] == 0 && st[1] == 2);
+
+	for (i = 0; i < 6; i++)
+		tin[i] = 500 + i;
+	t23x_awb_trend_set(tr, tst, tapi, tin);
+	assert(tr[0] == 1 && tr[1] == 500 && tr[6] == 505);
+	assert(tst[1] == 2 && tapi[1] == 0);    /* status[0] == 1: no mirror */
+	tst[0] = 0;
+	t23x_awb_trend_set(tr, tst, tapi, tin);
+	assert(!memcmp(tapi, tr, sizeof(tr)));
+	t23x_awb_trend_get(tr, tout);
+	assert(!memcmp(tout, tin, sizeof(tin)));
+}
+
 int main(void)
 {
+	test_awb_cluster_trend();
 	test_gamma();
 	test_wait_frame();
 	test_awb();
