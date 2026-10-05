@@ -3601,15 +3601,17 @@ int32_t sqrt32(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000171d0 origin=model_output original=sqrt16 */
 static int32_t sqrt16(int16_t arg1)
 {
-	int32_t *i = 0;
+	/* OEM 0x16870: bitwise integer sqrt of the u16 value; a candidate bit
+	 * is kept while candidate^2 <= value (slt + movz) */
+	int32_t v = (uint16_t)arg1;
 	int32_t result = 0;
+	int i;
 
-	do {
-		int32_t candidate = result + (128 >> (uintptr_t)i);
-		i = (void *)(uintptr_t)((uintptr_t)i + (1));
-		if ((uint32_t)arg1 < (uint32_t)(candidate * candidate))
+	for (i = 0; i < 8; i++) {
+		int32_t candidate = result + (128 >> i);
+		if (!(v < candidate * candidate))
 			result = candidate & 0xff;
-	} while (i != 8);
+	}
 
 	return result;
 }
