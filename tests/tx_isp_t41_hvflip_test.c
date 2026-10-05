@@ -91,6 +91,26 @@ int main(void)
 	prev = -1;
 	apply(&gc, &prev, 1);
 
+	/* re-apply after a sensor re-init (beyond vendor): never set = no
+	 * write; otherwise the init table state (0x022c 0, OTP 0x60) or any
+	 * leftover state ends exactly on the requested mode */
+	assert(t41_hvflip_reinit_plan(-1, seq) == 0);
+	assert(t41_hvflip_reinit_plan(4, seq) == 0);
+	for (to = 0; to < 4; ++to) {
+		for (from = 0; from < 4; ++from) {
+			unsigned int n, k;
+
+			gc.reg_022c = (unsigned char)from;  /* table or leftover */
+			gc.otp_0a73 = (unsigned char)(0x60 | (3 - from));
+			n = t41_hvflip_reinit_plan((int)to, seq);
+			assert(n >= 2 && seq[0] == 0 && seq[n - 1] == to);
+			for (k = 0; k < n; ++k)
+				gc5603_set_hvflip(&gc, seq[k]);
+			assert(gc.reg_022c == to);
+			assert(gc.otp_0a73 == (0x60 | to));
+		}
+	}
+
 	puts("t41 hvflip: passed");
 	return 0;
 }

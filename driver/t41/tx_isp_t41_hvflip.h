@@ -82,4 +82,20 @@ static inline unsigned int t41_hvflip_sensor_plan(int prev, unsigned int mode,
 	return n;
 }
 
+/*
+ * Beyond the vendor driver: after a sensor (re)start the sensor registers
+ * come from its init table, so the flip the application asked for is
+ * gone until the application sets it again.  desired is the last
+ * accepted sensor mode (-1 = never set: leave the sensor alone); the
+ * sensor state counts as unknown, so the full NORMAL-then-target
+ * sequence runs.  Returns the number of entries filled in seq.
+ */
+static inline unsigned int t41_hvflip_reinit_plan(int desired,
+		unsigned int seq[T41_HVFLIP_MAX_SENSOR_WRITES])
+{
+	if (desired < 0 || desired > 3)
+		return 0;
+	return t41_hvflip_sensor_plan(-1, (unsigned int)desired, seq);
+}
+
 #endif /* TX_ISP_T41_HVFLIP_H */
