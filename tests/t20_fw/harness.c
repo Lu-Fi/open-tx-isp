@@ -734,8 +734,7 @@ int main(int argc, char **argv)
 		uint32_t type, id, v;
 		for (type = 0; type <= 6; type++)
 			for (id = 0; id < 0x100; id++)
-				if (type || id)	/* selftest_sensor_id: open finding, calls into data */
-					cmd(type, id, 0, 1);
+				cmd(type, id, 0, 1);	/* incl. 0/0 selftest_sensor_id */
 		checkpoint("api-get-sweep");
 		for (type = 1; type <= 4; type++)
 			for (id = 0; id < 0x80; id++) {

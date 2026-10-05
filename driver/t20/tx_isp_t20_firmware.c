@@ -5317,10 +5317,27 @@ int32_t get_apical_api_buffer(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001963c origin=model_output original=selftest_sensor_id */
 int32_t selftest_sensor_id(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 {
+	int32_t (*get_id)(void *);
+	static bool warned;
+
 	*arg4 = 0;
 	if ((arg3 & 0xff) != 1)
 		return 2;
-	*arg4 = (*(int32_t (*)(void *))(((char *)arg1) + 0xd0))(((char *)arg1) + 0x34);
+	/*
+	 * OEM 0x18cf4: lw v0,208(a0); jalr v0 with a0 + 52 -- the callback
+	 * pointer is loaded from +0xd0.  The recovery called the address of
+	 * the field itself (a jump into __fw data).  Refuse an unset callback
+	 * instead of calling NULL.
+	 */
+	get_id = *(int32_t (**)(void *))(((char *)arg1) + 0xd0);
+	if (!get_id) {
+		if (!warned) {
+			warned = true;
+			printk(KERN_ERR "T20FW selftest_sensor_id: no sensor get_id callback\n");
+		}
+		return 2;
+	}
+	*arg4 = get_id(((char *)arg1) + 0x34);
 	return 0;
 }
 
