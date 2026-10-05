@@ -21553,8 +21553,10 @@ int32_t flash_initialize(void *arg1)
     flash_clear_bits(0x202c, 0xfffeffff);
     flash_clear_bits(0x2030, 0xffff0000);
     flash_clear_bits(0x2030, 0xfffeffff);
-    flash_clear_bits(((char *)&LC62), 0xffff0000);
-    flash_clear_bits(((char *)&LC62), 0xfffeffff);
+    /* OEM 0x2f6b8: register 0x2034 (the recovery used the address of a
+     * format string here) */
+    flash_clear_bits(0x2034, 0xffff0000);
+    flash_clear_bits(0x2034, 0xfffeffff);
     flash_clear_bits(0x2038, 0xffff0000);
     flash_clear_bits(0x2038, 0xfffeffff);
     flash_clear_bits(0x203c, 0xffff0000);
