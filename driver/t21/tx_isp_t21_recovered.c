@@ -31863,88 +31863,66 @@ int32_t tiziano_af_init(uint32_t a0, uint32_t a1)
     return 0;
 }
 
+/*
+ * OEM AF focus value: AFParam_Fv word 2 (.bss AFParam_Fv + 8) shifted by
+ * af_attr.shift.  The recovered body read it at sinfo_root - 30272/-30259
+ * (addresses of the recovery's .bss layout, i.e. unrelated statics).
+ */
+static uint32_t t21_af_fv(void)
+{
+	uint32_t fv;
+
+	BUILD_BUG_ON(sizeof(AFParam_Fv) < 12);
+	memcpy(&fv, AFParam_Fv + 8, sizeof(fv));
+	return fv >> (af_attr.shift & 31);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f9f0 origin=fragment_seed original=tisp_af_get_metric */
 int32_t tisp_af_get_metric(uintptr_t a0)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&sinfo_root;
-    v1 = (uintptr_t)&sinfo_root;
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint8_t *)((char *)&sinfo_root + -30259);
-    v1 = *(uint32_t *)((char *)&sinfo_root + -30272);
-    v0 = v1 >> (uintptr_t)v0;
-    *(uint32_t *)((char *)a0 + 0) = v0;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    v0 = 0;
-
-    return 0;
+	if (!a0)
+		return -EINVAL;
+	*(uint32_t *)a0 = t21_af_fv();
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002fa10 origin=fragment_seed original=tisp_af_get_attr */
 int32_t tisp_af_get_attr(uintptr_t a0)
 {
-    uintptr_t a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
+	/*
+	 * OEM (0x2f130): the 24-byte attribute is gathered from the AF tables,
+	 * the same fields tiziano_af_init() copies into af_attr and
+	 * tisp_af_set_attr_refresh() spreads back.  The recovered body read
+	 * them from sinfo_root - 30272/-30284, isp_clk + 81408 bytes and
+	 * tparams + 0x40d0/0x4520/0x454c (wild reads past the statics).
+	 * Word 1 is the OEM AFParam_Fv_Alt, written only by Tiziano_af_fpga,
+	 * which this driver does not run (no AF statistics parser): 0, as in
+	 * the OEM module before its first AF frame.
+	 */
+	struct t21_af_attr_view *out = (struct t21_af_attr_view *)a0;
+	const uint32_t *tilt = (const uint32_t *)AFParam_Tilt;
+	const uint32_t *threshold = (const uint32_t *)stAFParam_ThresEnable;
+	const uint32_t *zone = (const uint32_t *)stAFParam_Zone;
 
-    /* fragment 0: ConstantLoad */
-    v0 = ((char *)&af_attr);
-
-    /* fragment 1: MemoryAccess */
-    a1 = *(uint32_t *)((char *)&sinfo_root + -30272);
-    v1 = *(uint8_t *)((char *)v0 + 9);
-    v1 = a1 >> v1;
-    *(uint32_t *)((char *)a0 + 0) = v1;
-    a1 = (uintptr_t)&sinfo_root;
-    v1 = *(uint8_t *)((char *)v0 + 9);
-    a1 = *(uint32_t *)((char *)&sinfo_root + -30284);
-    v1 = a1 >> v1;
-    *(uint32_t *)((char *)a0 + 4) = v1;
-    v1 = *(uint8_t *)((char *)v0 + 8);
-    *(uint8_t *)((char *)a0 + 8) = v1;
-    v0 = *(uint8_t *)((char *)v0 + 9);
-    *(uint8_t *)((char *)a0 + 9) = v0;
-    v0 = (uintptr_t *)&isp_clk;
-    v1 = v0 + 20352;
-    a1 = *(uint32_t *)((char *)v1 + 8);
-    *(uint16_t *)((char *)a0 + 10) = a1;
-    v1 = *(uint32_t *)((char *)v1 + 12);
-    *(uint16_t *)((char *)a0 + 12) = v1;
-    v1 = (uintptr_t)&isp_clk;
-    v1 = *(uint32_t *)((char *)((char *)&tparams + 0x454c));
-    *(uint16_t *)((char *)a0 + 14) = v1;
-    v0 = *(uint32_t *)((char *)((char *)&tparams + 0x4520));
-    v1 = (uintptr_t)&isp_clk;
-    *(uint16_t *)((char *)a0 + 16) = v0;
-    v0 = v1 + 19248;
-    a1 = *(uint32_t *)((char *)v0 + 8);
-    *(uint8_t *)((char *)a0 + 18) = a1;
-    v1 = *(uint32_t *)((char *)((char *)&tparams + 0x40d0));
-    *(uint8_t *)((char *)a0 + 19) = v1;
-
-    /* fragment 2: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v0 + 12);
-    *(uint8_t *)((char *)a0 + 20) = v1;
-    v0 = *(uint32_t *)((char *)v0 + 4);
-    *(uint8_t *)((char *)a0 + 21) = v0;
-
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 4: Arithmetic */
-    v0 = 0;
-
-    return 0;
+	BUILD_BUG_ON(offsetof(struct t21_af_attr_view, enable) != 8);
+	BUILD_BUG_ON(offsetof(struct t21_af_attr_view, tilt_hi) != 10);
+	BUILD_BUG_ON(offsetof(struct t21_af_attr_view, zone_rows) != 18);
+	BUILD_BUG_ON(offsetof(struct t21_af_attr_view, zone_step) != 21);
+	if (!out)
+		return -EINVAL;
+	out->metric = t21_af_fv();
+	out->metric_alt = 0;
+	out->enable = af_attr.enable;
+	out->shift = af_attr.shift;
+	out->tilt_hi = tilt[2];
+	out->tilt_lo = tilt[3];
+	out->threshold = threshold[4];
+	out->tilt_base = tilt[0];
+	out->zone_rows = zone[2];
+	out->zone_mode = zone[0];
+	out->zone_cols = zone[3];
+	out->zone_step = zone[1];
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002faac origin=model_output original=tisp_af_set_attr_refresh */
