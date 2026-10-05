@@ -40,9 +40,14 @@ ccflags-y += -I$(src)/../../external/ingenic-sdk/3.10.14/isp/t20
 ccflags-y += -I$(src)/../../external/ingenic-sdk/3.10.14/isp/t20/apical-isp
 ccflags-y += -I$(src)/../../external/ingenic-sdk/3.10.14/isp/t20/include
 ccflags-y += -I$(src)/../../external/ingenic-sdk/3.10.14/sensor-src/include
-# memory: SDK units build at the kernel default (-Os); only the recovered
-# firmware unit keeps -O0 (its decompiled code relies on it)
+# memory: all units build at the kernel default (-Os).  The recovered
+# firmware unit (driver/t20/tx_isp_t20_firmware.c) used to need -O0; the
+# spots that relied on it are fixed and tests/t20_fw checks -O0 vs -Os
+# equivalence on the host.  TX_ISP_FW_O0=1 restores the old -O0 build
+# (A/B device tests).
+ifeq ($(TX_ISP_FW_O0),1)
 CFLAGS_tx_isp_t20_firmware.o += -O0 -fno-tree-dce -fno-ipa-pure-const -fno-ipa-reference
+endif
 ccflags-y += -std=gnu99 -fpermissive -w
 ccflags-y += -Wno-error=strict-prototypes
 ccflags-y += -Wno-error=implicit-function-declaration

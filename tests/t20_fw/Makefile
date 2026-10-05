@@ -35,13 +35,15 @@ HOST_OBJS := $(OUT)/harness.o $(OUT)/calib.o $(OUT)/rt.o \
 	$(OUT)/sdk_static.o $(OUT)/sdk_dynamic.o $(OUT)/sdk_calibrations.o $(OUT)/sdk_calinit.o \
 	$(OUT)/t20_math.o
 
-.PHONY: all check clean probe coverage
+.PHONY: all check clean coverage skip
 .SECONDARY:
-all: probe $(foreach v,$(VARIANTS),$(OUT)/t20fw-$(v) $(OUT)/t20fw-$(v).sym)
-
-probe:
-	@echo 'int x;' | $(CC) -m32 -x c -c -o /dev/null - 2>/dev/null || \
-		{ echo "t20_fw: $(CC) cannot build i386 code, skipping"; exit 0; }
+M32_OK := $(shell echo 'int x;' | $(CC) -m32 -x c -c -o /dev/null - 2>/dev/null && echo y)
+ifneq ($(M32_OK),y)
+all check coverage: skip
+skip:
+	@echo "t20_fw: $(CC) cannot build i386 code, skipping"
+else
+all: $(foreach v,$(VARIANTS),$(OUT)/t20fw-$(v) $(OUT)/t20fw-$(v).sym)
 
 $(OUT):
 	mkdir -p $@
@@ -83,6 +85,8 @@ coverage: $(OUT)/t20fw-cov $(OUT)/t20fw-cov.sym
 	setarch -R $(OUT)/t20fw-cov $(OUT)/t20fw-cov.sym "$(or $(CALIB),-)" cov oem > $(OUT)/cov-oem.txt
 	cat $(OUT)/cov-simple.txt $(OUT)/cov-oem.txt | awk '/^COV hit/ {h[$$3]=1} /^COV miss/ {m[$$3]=1} END {for (f in m) if (!(f in h)) n++; for (f in h) k++; printf "functions executed: %d, never executed: %d\n", k, n}'
 	cat $(OUT)/cov-simple.txt $(OUT)/cov-oem.txt | awk '/^COV hit/ {h[$$3]=1} /^COV miss/ {m[$$3]=1} END {for (f in m) if (!(f in h)) print f}' | sort > $(OUT)/cov-missed.txt
+
+endif
 
 clean:
 	rm -rf $(OUT)

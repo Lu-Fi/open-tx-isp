@@ -360,7 +360,14 @@ check: tx_isp_math_test tx_isp_modulation_test tx_isp_daynight_test tx_isp_awb_m
 t30_storage_audit:
 	../driver/t30/check_storage.sh
 
+# T20/T10 recovered firmware: -O0 vs -Os differential harness
+check: t20_fw_check
+.PHONY: t20_fw_check
+t20_fw_check:
+	$(MAKE) -C t20_fw check
+
 clean:
+	$(MAKE) -C t20_fw clean
 	$(RM) tx_isp_t31_wdr_test tx_isp_t31_wdr_runtime_test
 	$(RM) tx_isp_t41_awb_frame_test
 	$(RM) tx_isp_t41_awb_control_test
