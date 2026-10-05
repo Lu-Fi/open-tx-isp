@@ -27,6 +27,11 @@
 #define T23X_CID_AE_ATTR        0x08000035U
 #define T23X_CID_AE_STATE       0x08000036U
 #define T23X_CID_AE_TARGET_LIST 0x08000038U
+/* AF (source_af=1): stock apical_isp_af_*; ids from the stock g/s_ctrl in the emulator */
+#define T23X_CID_AF_HIST        0x08000042U
+#define T23X_CID_AF_METRIC      0x08000043U
+#define T23X_CID_AF_WEIGHT      0x08000044U
+#define T23X_CID_AF_ZONE        0x08000046U
 
 /*
  * tisp_ae_trig on the lifted copies: reload flags, then the AE hardware
@@ -534,6 +539,18 @@ static long regtrace_t23_tuning_ext(bool get, uint32_t id, uint32_t *value)
 	ret = t23x_awb_control(get, id, value);
 	if (ret != -ENOIOCTLCMD)
 		return ret;
+	if (regtrace_t23_source_af) {
+		switch (id) {
+		case T23X_CID_AF_HIST:
+			return get ? t23_af_hist_get(*value) : t23_af_hist_set(*value);
+		case T23X_CID_AF_METRIC:
+			return get ? t23_af_metric_get(*value) : -EINVAL;
+		case T23X_CID_AF_WEIGHT:
+			return get ? t23_af_weight_get(*value) : t23_af_weight_set(*value);
+		case T23X_CID_AF_ZONE:
+			return get ? t23_af_zone_get(*value) : -EINVAL;
+		}
+	}
 	switch (id) {
 	case T23X_CID_GAMMA:
 		return t23x_gamma(get, *value);
