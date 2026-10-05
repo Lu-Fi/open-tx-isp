@@ -20887,6 +20887,71 @@ static int t41_tuning_sensor_attr(unsigned int channel, uintptr_t user_ptr)
 }
 
 /*
+ * Stock tx_isp_core_ops_s_ctrl 0x08000070: the packed num<<16|den rate
+ * arrives inline; an unchanged rate is acknowledged, otherwise
+ * tisp_ae_api_set_fps hands it to the sensor (TX_ISP_EVENT_SENSOR_FPS,
+ * 0x0200000a) and the core video slot and tisp_par_info+48 take the new
+ * rate.  The sensor module reprograms its frame length and updates the
+ * shared attribute (total_height, max integration), which the open AE
+ * re-reads every frame.
+ *
+ * Open deviations, both for a coherent state: the event is sent here,
+ * synchronously and serialised with the AE sensor writes, so its result is
+ * returned; and a sensor module that acknowledges the event without
+ * changing total_height (e.g. the stock T41 gc5603 module only logs it) is
+ * reported as -EOPNOTSUPP instead of recording a rate the sensor does not
+ * run.  A rate above the stream's starting mode rate is refused (-EINVAL).
+ */
+static uint32_t t41_sensor_mode_fps;
+
+static int t41_tuning_sensor_fps_set(unsigned int channel, uint32_t fps)
+{
+    unsigned char *core, *video, *attr;
+    uint32_t event_arg[2], current_fps;
+    uint16_t old_vts;
+    int ret;
+
+    if (channel != 0)
+        return -EINVAL;
+    core = (unsigned char *)(uintptr_t)*(uint32_t *)(void *)g_ispcore;
+    if (!t41_kernel_data_ptr(core) || !t41_kernel_data_ptr((void *)(uintptr_t)ispcore_sd))
+        return -ENODEV;
+    video = core + 308;
+    attr = (unsigned char *)(uintptr_t)*(uint32_t *)(void *)(video + 52);
+    if (!t41_kernel_data_ptr(attr))
+        return -ENODEV;
+    current_fps = *(uint32_t *)(void *)(video + 68);
+    if (!t41_sensor_mode_fps)
+        t41_sensor_mode_fps = current_fps;
+    if (t41_sensor_fps_check(fps, t41_sensor_mode_fps))
+        return -EINVAL;
+    if (fps == current_fps ||
+        (!t41_sensor_fps_check(current_fps, 0) &&
+         (fps >> 16) * (current_fps & 0xffffU) ==
+         (current_fps >> 16) * (fps & 0xffffU)))
+        return 0;
+
+    old_vts = *(uint16_t *)(void *)(attr + 182);
+    event_arg[0] = 0;
+    event_arg[1] = fps;
+    ret = ispcore_sensor_ops_ioctl((uintptr_t)ispcore_sd, 0x0200000aU,
+                                   (uintptr_t)event_arg);
+    if (ret)
+        return ret;
+    if (*(uint16_t *)(void *)(attr + 182) == old_vts) {
+        pr_warn_ratelimited("tx-isp-t41: sensor ignored fps %u/%u (vts %u unchanged)\n",
+                            fps >> 16, fps & 0xffffU, old_vts);
+        return -EOPNOTSUPP;
+    }
+    *(uint32_t *)(void *)(video + 68) = fps;
+    *(uint32_t *)(void *)(tisp_par_info_storage + 48) = fps;
+    printk(KERN_INFO "tx-isp-t41: sensor fps %u/%u vts %u->%u\n",
+           fps >> 16, fps & 0xffffU, old_vts,
+           *(uint16_t *)(void *)(attr + 182));
+    return 0;
+}
+
+/*
  * Review2 M1: stock serialises the tuning node with core_dev->mlock; two
  * tuning threads (day/night, BCSH, flip) must not interleave on the same
  * IQ state. Serialise the whole isp-m0 ioctl.
@@ -20938,7 +21003,8 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_SENSOR_FPS, 4,
-              TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_INLINE },
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_INLINE },
             { TX_ISP_TUNING_CMD_T41_SENSOR_ATTR, 4 * T41_SENSOR_ATTR_WORDS,
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_HVFLIP, 16,
@@ -21355,6 +21421,10 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
          * caller's placeholder (observed as 6) here makes its direct-mode
          * setup wait forever even though the ioctl itself succeeds.
          */
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_SENSOR_FPS &&
+            !request.is_get)
+            return t41_tuning_sensor_fps_set(request.channel,
+                                             request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_SENSOR_FPS) {
             ret = tisp_ae_get_fps(request.channel,
                                   (uintptr_t)&request.value_or_ptr);

@@ -29,4 +29,24 @@ static inline int t41_sensor_attr_fill(const unsigned char *video,
 	return 0;
 }
 
+/*
+ * Packed sensor frame rate num<<16|den (stock s_ctrl 0x08000070 passes it
+ * inline).  0: valid; -1: zero numerator/denominator; -2: faster than the
+ * reference mode rate (the sensor mode cannot shorten its frame below the
+ * mode's VTS, so such a request can only be refused by the sensor).
+ * ref == 0 disables the upper bound.  num, den <= 0xffff, so the cross
+ * products fit 32 bits and need no 64-bit helper.
+ */
+static inline int t41_sensor_fps_check(unsigned int fps, unsigned int ref)
+{
+	unsigned int num = fps >> 16, den = fps & 0xffffU;
+	unsigned int ref_num = ref >> 16, ref_den = ref & 0xffffU;
+
+	if (!num || !den)
+		return -1;
+	if (ref_num && ref_den && num * ref_den > ref_num * den)
+		return -2;
+	return 0;
+}
+
 #endif

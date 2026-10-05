@@ -30,9 +30,27 @@ static void sensor_attr(void)
 	assert(sizeof(out) == 20);         /* IMPISPSENSORAttr, 5 x u32 */
 }
 
+static void sensor_fps(void)
+{
+	const unsigned int mode = (25U << 16) | 1;
+
+	assert(t41_sensor_fps_check((15U << 16) | 1, mode) == 0);
+	assert(t41_sensor_fps_check((25U << 16) | 1, mode) == 0);
+	assert(t41_sensor_fps_check((50U << 16) | 2, mode) == 0);
+	assert(t41_sensor_fps_check((30U << 16) | 1, mode) == -2);
+	assert(t41_sensor_fps_check((51U << 16) | 2, mode) == -2);
+	assert(t41_sensor_fps_check(25U << 16, mode) == -1);
+	assert(t41_sensor_fps_check(1, mode) == -1);
+	/* no reference: any non-zero rate, extreme fields without overflow */
+	assert(t41_sensor_fps_check((60U << 16) | 1, 0) == 0);
+	assert(t41_sensor_fps_check(0xffffffffU, 0xffffffffU) == 0);
+	assert(t41_sensor_fps_check(0xffff0001U, 0x0001ffffU) == -2);
+}
+
 int main(void)
 {
 	sensor_attr();
+	sensor_fps();
 	puts("t41 tuning ctl tests passed");
 	return 0;
 }
