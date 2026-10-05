@@ -3810,20 +3810,14 @@ static uint32_t data_a2f80 = 0;  /* AF statistics buffer base (virt) */
 static uint32_t data_a2f84 = 0;  /* AF statistics buffer phys */
 static uint32_t data_a2f7c = 0;  /* AF DMA page count */
 
-/* AF stat output arrays — 15 zones per row, max 15 rows = 225 zones */
-#define AF_STATS_ZONES 225
-static uint32_t af_array_fird0[AF_STATS_ZONES];
-static uint32_t af_array_fird1[AF_STATS_ZONES];
-static uint32_t af_array_iird0[AF_STATS_ZONES];
-static uint32_t af_array_iird1[AF_STATS_ZONES];
-static uint32_t af_array_y_sum[AF_STATS_ZONES];
-static uint32_t af_array_high_luma_cnt[AF_STATS_ZONES];
-static uint8_t frame_num;
-
-/* OEM: data_c6530 = AF metric sum, data_c6c5d = AF shift.
- * Both computed by Tiziano_af_fpga; init to 0. */
-static uint32_t af_metric_sum;    /* OEM data_c6530 */
-static uint8_t  af_metric_shift;  /* OEM data_c6c5d */
+#include "tx_isp_t31_af.h"
+/* tx_isp_t31_af.inc */
+static int t31_af_hist_set(const uint8_t *pub);
+static void t31_af_hist_get(uint8_t *g);
+static int t31_af_weight_set(const uint8_t *u);
+static void t31_af_weight_get(uint8_t *out);
+static void t31_af_zone_get(uint32_t *out);
+static int tiziano_af_params_refresh(void);
 
 /* OEM: data_ba47c / data_ba480 — mscaler mask attribute storage.
  * Allocated on first tisp_s_mscaler_mask_attr call. */
@@ -9113,25 +9107,34 @@ static int apical_isp_core_ops_g_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
             break;
         }
 
-        case 0x8000042: { /* OEM: apical_isp_af_hist_g_attr — get AF attributes (0x58 bytes) */
-            uint8_t af_buf[0x58];
-            memset(af_buf, 0, sizeof(af_buf));
-            if (copy_to_user((void __user *)(unsigned long)ctrl->value, af_buf, 0x58))
+        case 0x8000042: { /* OEM: apical_isp_af_hist_g_attr — 24-byte IMPISPAFHist */
+            /* The stock kernel copies its 88-byte internal attribute into
+             * the caller's 24-byte struct (64-byte overrun); only the
+             * public struct crosses the boundary here. */
+            uint8_t af_buf[T31_AF_ATTR_BYTES];
+            uint8_t pub[T31_AF_HIST_PUB_BYTES];
+
+            t31_af_hist_get(af_buf);
+            t31_af_hist_to_pub(af_buf, pub);
+            if (copy_to_user((void __user *)(unsigned long)ctrl->value, pub, sizeof(pub)))
                 ret = -EFAULT;
             break;
         }
 
-        case 0x8000043: { /* OEM: tisp_g_af_metric (4 bytes) */
-            uint32_t af_met;
+        case 0x8000043: { /* OEM: tisp_g_af_metric, copied to the user pointer (4 bytes) */
+            uint32_t af_met = 0;
+
             tisp_af_get_metric(&af_met);
-            ctrl->value = af_met;
+            if (copy_to_user((void __user *)(unsigned long)ctrl->value, &af_met, sizeof(af_met)))
+                ret = -EFAULT;
             break;
         }
 
         case 0x8000044: { /* OEM: apical_isp_af_weight_g_attr — get AF weights (0xe1 bytes) */
-            uint8_t wt_buf[0xe1];
-            memset(wt_buf, 0, sizeof(wt_buf));
-            if (copy_to_user((void __user *)(unsigned long)ctrl->value, wt_buf, 0xe1))
+            uint8_t wt_buf[T31_AF_ZONES];
+
+            t31_af_weight_get(wt_buf);
+            if (copy_to_user((void __user *)(unsigned long)ctrl->value, wt_buf, sizeof(wt_buf)))
                 ret = -EFAULT;
             break;
         }
@@ -9833,13 +9836,16 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
             break;
         }
 
-        case 0x8000042: { /* OEM: apical_isp_af_hist_s_attr — set AF attributes (0x58 bytes) */
-            uint8_t af_buf[0x58];
-            if (copy_from_user(af_buf, (void __user *)(unsigned long)ctrl->value, 0x58)) {
+        case 0x8000042: { /* OEM: apical_isp_af_hist_s_attr — 24-byte IMPISPAFHist */
+            uint8_t pub[T31_AF_HIST_PUB_BYTES];
+
+            /* the stock kernel read 88 bytes from the 24-byte struct */
+            if (copy_from_user(pub, (void __user *)(unsigned long)ctrl->value, sizeof(pub))) {
                 ret = -EFAULT;
                 goto out;
             }
-            /* OEM validates and calls tisp_s_af_attr — AF not active on this sensor */
+            /* OEM apical_isp_af_hist_s_attr -> tisp_s_af_attr */
+            ret = t31_af_hist_set(pub);
             break;
         }
 
@@ -9849,7 +9855,8 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
                 ret = -EFAULT;
                 goto out;
             }
-            /* OEM validates (<9) and calls tisp_s_af_weight — AF not active */
+            /* OEM validates (<9) and calls tisp_s_af_weight */
+            ret = t31_af_weight_set(wt_buf);
             break;
         }
 
@@ -10973,25 +10980,15 @@ int apical_isp_ae_zone_g_ctrl(struct tx_isp_dev *dev, struct isp_core_ctrl *ctrl
     return 0;
 }
 
-/* apical_isp_af_zone_g_ctrl.isra.85
- *
- * Stock hands its 900-byte stack buffer to tisp_af_get_zone(), which fills it
- * from the AF zone statistics store before the copy to userspace.  This
- * driver does not collect AF zone statistics yet, so report an all-zero zone
- * table.  The buffer must be cleared: copying it uninitialised would leak
- * 900 bytes of kernel stack to any process that can open /dev/isp-m0.
- */
+/* apical_isp_af_zone_g_ctrl.isra.85: stock tisp_af_get_zone, the 900-byte
+ * table of zone focus values of the last AF frame (fv_value_last). */
 int apical_isp_af_zone_g_ctrl(struct tx_isp_dev *dev, struct isp_core_ctrl *ctrl)
 {
-    char var_390[0x384];
+    uint32_t zone[T31_AF_ZONES];
 
-    pr_debug("apical_isp_af_zone_g_ctrl: entry\n");
-
-    memset(var_390, 0, sizeof(var_390));
-    tisp_g_af_zone();
-
+    t31_af_zone_get(zone);
     if (copy_to_user((void __user *)(unsigned long)(uint32_t)ctrl->value,
-                     var_390, sizeof(var_390)))
+                     zone, sizeof(zone)))
         return -EFAULT;
 
     return 0;
@@ -13981,84 +13978,7 @@ static int tisp_sdns_param_array_set(int param_id, void *in_buf, int *size_buf)
     return 0;
 }
 
-/* AF parameter storage — OEM exact from tisp_af_param_array_set decompilation */
-static uint8_t stAFParam_Zone[0x90];
-static uint8_t stAFParam_ThresEnable[0x34];
-static uint8_t stAFParam_FIR0_V[0x14];
-static uint8_t stAFParam_FIR0_Ldg[0x20];
-static uint8_t stAFParam_FIR0_Coring[0x10];
-static uint8_t stAFParam_FIR1_V[0x14];
-static uint8_t stAFParam_FIR1_Ldg[0x20];
-static uint8_t stAFParam_FIR1_Coring[0x10];
-static uint8_t stAFParam_IIR0_H[0x28];
-static uint8_t stAFParam_IIR0_Ldg[0x20];
-static uint8_t stAFParam_IIR0_Coring[0x10];
-static uint8_t stAFParam_IIR1_H[0x28];
-static uint8_t stAFParam_IIR1_Ldg[0x20];
-static uint8_t stAFParam_IIR1_Coring[0x10];
-static uint8_t AFParam_PointPos[0x8];
-static uint8_t AFParam_Tilt[0x14];
-static uint8_t AFParam_FvWmean[0x3c];
-static uint8_t AFParam_Fv[0xc];
-static uint8_t AFWeight_Param[0x384];
-
-struct af_param_entry { int id; void *buf; int size; };
-static const struct af_param_entry af_params[] = {
-    { 0x3ad, stAFParam_Zone,         0x90 },
-    { 0x3ae, stAFParam_ThresEnable,  0x34 },
-    { 0x3af, stAFParam_FIR0_V,       0x14 },
-    { 0x3b0, stAFParam_FIR0_Ldg,     0x20 },
-    { 0x3b1, stAFParam_FIR0_Coring,  0x10 },
-    { 0x3b2, stAFParam_FIR1_V,       0x14 },
-    { 0x3b3, stAFParam_FIR1_Ldg,     0x20 },
-    { 0x3b4, stAFParam_FIR1_Coring,  0x10 },
-    { 0x3b5, stAFParam_IIR0_H,       0x28 },
-    { 0x3b6, stAFParam_IIR0_Ldg,     0x20 },
-    { 0x3b7, stAFParam_IIR0_Coring,  0x10 },
-    { 0x3b8, stAFParam_IIR1_H,       0x28 },
-    { 0x3b9, stAFParam_IIR1_Ldg,     0x20 },
-    { 0x3ba, stAFParam_IIR1_Coring,  0x10 },
-    { 0x3bb, AFParam_PointPos,        0x08 },
-    { 0x3bc, AFParam_Tilt,            0x14 },
-    { 0x3bd, AFParam_FvWmean,         0x3c },
-    { 0x3be, AFParam_Fv,              0x0c },
-    { 0x3bf, AFWeight_Param,          0x384 },
-};
-
-int tisp_af_param_array_get(int param_id, void *out_buf, int *size_buf)
-{
-    int i;
-    for (i = 0; i < ARRAY_SIZE(af_params); i++) {
-        if (af_params[i].id == param_id) {
-            if (out_buf)
-                memcpy(out_buf, af_params[i].buf, af_params[i].size);
-            if (size_buf)
-                *size_buf = af_params[i].size;
-            return 0;
-        }
-    }
-    pr_err("tisp_af_param_array_get: unsupported param id 0x%x\n", param_id);
-    if (size_buf) *size_buf = 0;
-    return -1;
-}
-
-/* OEM EXACT: tisp_af_param_array_set — copies data into AF param buffers,
- * then calls tiziano_af_set_hardware_param() to program hardware. */
-int tisp_af_param_array_set(int param_id, void *in_buf, int *size_buf)
-{
-    int i;
-    for (i = 0; i < ARRAY_SIZE(af_params); i++) {
-        if (af_params[i].id == param_id) {
-            memcpy(af_params[i].buf, in_buf, af_params[i].size);
-            if (size_buf)
-                *size_buf = af_params[i].size;
-            tiziano_af_set_hardware_param();
-            return 0;
-        }
-    }
-    pr_err("tisp_af_param_array_set: unsupported param id 0x%x\n", param_id);
-    return -1;
-}
+#include "tx_isp_t31_af.inc"
 
 int tisp_hldc_param_array_get(int param_id, void *out_buf, int *size_buf)
 {
@@ -17034,11 +16954,10 @@ int tisp_get_antiflicker_step(uint32_t *lut, uint32_t *count) { return tisp_ae_g
 int tisp_g_adr_str_internal(uint32_t *v) { if (v) { *v = adr_ratio; return 0; } return -EINVAL; }
 /* OEM EXACT: tisp_g_defog_str_internal (0x4735c) — return defog_strength_attr */
 int tisp_g_defog_str_internal(uint32_t *v) { if (v) { *v = defog_strength_attr; return 0; } return -EINVAL; }
-int tisp_g_af_attr(void *buf) { if (buf) memset(buf, 0, 64); return 0; }
+int tisp_g_af_attr(void *buf) { if (buf) t31_af_hist_get(buf); return 0; }
 int tisp_af_get_attr(void *buf) { return tisp_g_af_attr(buf); }
-/* OEM EXACT: tisp_af_get_metric (0x5784c) — return af_metric_sum >> af_metric_shift */
-int tisp_af_get_metric(uint32_t *v) { if (v) { *v = af_metric_sum >> (af_metric_shift & 0x1f); return 0; } return -EINVAL; }
-int tisp_g_af_weight(void *buf) { if (buf) memset(buf, 0, 0xe4); return 0; }
+/* tisp_af_get_metric: tx_isp_t31_af.inc */
+int tisp_g_af_weight(void *buf) { if (buf) t31_af_weight_get(buf); return 0; }
 /* OEM: tisp_g_autozoom_control (0x64318) is __pure with empty body — return 0 is correct */
 int tisp_g_autozoom_control(uint32_t *v) { if (v) { *v = 0; return 0; } return -EINVAL; }
 /*
@@ -20337,72 +20256,7 @@ int awb_interrupt_static(void)
 	return 1;
 }
 
-/* OEM EXACT: tisp_af_get_statistics — unpack AF DMA buffer into stat arrays.
- * Decompiled from OEM at 0x56240. Extracts fird0/fird1/iird0/iird1/y_sum/high_luma_cnt
- * from packed 16-byte-per-zone DMA format. */
-static void tisp_af_get_statistics(void *buf, uint32_t rows, uint32_t cols)
-{
-    uint32_t *src = (uint32_t *)buf;
-    uint32_t row, col;
-    uint32_t dst_idx = 0;
-
-    for (row = 0; row < rows; row++) {
-        for (col = 0; col < cols; col++) {
-            uint32_t w0 = src[0], w1 = src[1], w2 = src[2], w3 = src[3];
-            af_array_fird0[dst_idx] = w0 & 0x3fffff;
-            af_array_fird1[dst_idx] = ((w1 & 0xfff) << 10) | (w0 >> 22);
-            af_array_iird0[dst_idx] = ((w2 & 3) << 20) | (w1 >> 12);
-            af_array_iird1[dst_idx] = (w2 >> 2) & 0xfffff;
-            af_array_y_sum[dst_idx] = ((w3 & 0x7fff) << 8) | ((w2 >> 24) & 0xff);
-            af_array_high_luma_cnt[dst_idx] = (w3 >> 15) & 0x7ffe;
-            dst_idx++;
-            src += 4;
-        }
-    }
-    frame_num = ((((uint8_t *)buf)[0x3f] & 0xc0)) |
-                ((((uint32_t *)buf)[0xb] >> 30) << 4) |
-                ((((uint32_t *)buf)[3] >> 30)) |
-                ((((uint32_t *)buf)[7] >> 30) << 2);
-}
-
-/* OEM EXACT: tisp_af_process_impl — process AF statistics.
- * Decompiled from OEM at 0x5676c. Sets up pointers and calls Tiziano_af_fpga. */
-static int tisp_af_process_impl(void)
-{
-    /* AF processing requires Tiziano_af_fpga which is a complex algorithm.
-     * For non-AF sensors (GC2053), this is effectively a no-op since AF
-     * zones produce no meaningful data. The stat collection still runs
-     * for libimp compatibility. */
-    return 0;
-}
-
-/* OEM EXACT: af_interrupt_static — AF stats DMA handler.
- * Decompiled from OEM at 0x56864. Reads AF bank, syncs DMA, unpacks stats. */
-int af_interrupt_static(void)
-{
-    uint32_t status;
-    void *buffer_addr;
-
-    if (data_a2f80 == 0)
-        return 0;
-
-    status = system_reg_read(0xb8b8);
-    buffer_addr = (void *)(unsigned long)(data_a2f80 + (status << 12));
-
-    private_dma_cache_sync(NULL, buffer_addr, 0x1000, 0);
-    /* OEM passes data_a136c (rows) and data_a1374 (cols) from AF zone config.
-     * Default 15x15 zone grid. */
-    tisp_af_get_statistics(buffer_addr, 15, 15);
-    tisp_af_process_impl();
-    return 1;
-}
-
-static irqreturn_t af_interrupt_static_wrapper(int irq, void *dev_id)
-{
-    (void)irq;
-    (void)dev_id;
-    return af_interrupt_static() ? IRQ_HANDLED : IRQ_NONE;
-}
+/* AF statistics, Tiziano_af_fpga, af_interrupt_static: tx_isp_t31_af.inc */
 
 /* OEM EXACT: tiziano_wdr_interrupt_static — WDR stats handler.
  * Decompiled from OEM at 0x5d2a0. Only relevant in WDR mode. */
@@ -29354,109 +29208,8 @@ int tiziano_adr_init(uint32_t width, uint32_t height)
     return 0;
 }
 
-/* tiziano_af_init - Auto Focus initialization */
-int tiziano_af_init(uint32_t height, uint32_t width)
-{
-    pr_info("tiziano_af_init: Initializing Auto Focus (%dx%d)\n", width, height);
-    /* OEM registers AF interrupt handler at IRQ index 0x1f */
-    system_irq_func_set(0x1f, af_interrupt_static_wrapper);
-    return 0;
-}
-
-/* OEM EXACT: tisp_af_set_attr_refresh — copy AF attributes to working state
- * and program hardware. OEM copies ~50 fields from user-space AF attr struct
- * to internal globals, then tail-calls tiziano_af_set_hardware_param(). */
-int tisp_af_set_attr_refresh(void)
-{
-    tiziano_af_set_hardware_param();
-    return 0;
-}
-
-/* OEM EXACT: tiziano_af_set_hardware_param — writes AF filter/zone params to hardware.
- * Packs AF parameter arrays into registers 0xb804-0xb8a4.
- * Called after tisp_af_param_array_set updates the param buffers. */
-static int af_first;
-
-void tiziano_af_set_hardware_param(void)
-{
-    uint32_t *zone = (uint32_t *)stAFParam_Zone;
-    uint32_t *thres = (uint32_t *)stAFParam_ThresEnable;
-    uint32_t *fir0_v = (uint32_t *)stAFParam_FIR0_V;
-    uint32_t *fir0_ldg = (uint32_t *)stAFParam_FIR0_Ldg;
-    uint32_t *fir0_cor = (uint32_t *)stAFParam_FIR0_Coring;
-    uint32_t *fir1_v = (uint32_t *)stAFParam_FIR1_V;
-    uint32_t *fir1_ldg = (uint32_t *)stAFParam_FIR1_Ldg;
-    uint32_t *fir1_cor = (uint32_t *)stAFParam_FIR1_Coring;
-    uint32_t *iir0_h = (uint32_t *)stAFParam_IIR0_H;
-    uint32_t *iir0_ldg = (uint32_t *)stAFParam_IIR0_Ldg;
-    uint32_t *iir0_cor = (uint32_t *)stAFParam_IIR0_Coring;
-    uint32_t *iir1_h = (uint32_t *)stAFParam_IIR1_H;
-    uint32_t *iir1_ldg = (uint32_t *)stAFParam_IIR1_Ldg;
-    uint32_t *iir1_cor = (uint32_t *)stAFParam_IIR1_Coring;
-
-    /* One-shot zone config — only written on first call */
-    if (!af_first) {
-        af_first = 1;
-        /* 0xb804-0xb824: AF zone/grid configuration */
-        system_reg_write(0xb804, zone[0]);
-        system_reg_write(0xb808, zone[1]);
-        system_reg_write(0xb80c, zone[2]);
-        system_reg_write(0xb810, zone[3]);
-        system_reg_write(0xb814, zone[4]);
-        system_reg_write(0xb818, zone[5]);
-        system_reg_write(0xb81c, zone[6]);
-        system_reg_write(0xb820, zone[7]);
-        system_reg_write(0xb824, zone[8]);
-    }
-
-    /* 0xb828: AF control + threshold enable (written every call via system_reg_write_af gate) */
-    system_reg_write(0xb828, thres[0]);
-
-    /* 0xb82c: AF threshold params */
-    system_reg_write(0xb82c, thres[1]);
-
-    /* 0xb830-0xb838: FIR0 vertical filter coefficients */
-    system_reg_write(0xb830, fir0_v[0]);
-    system_reg_write(0xb834, fir0_v[1]);
-    system_reg_write(0xb838, fir0_v[2]);
-
-    /* 0xb83c-0xb844: FIR1 vertical filter coefficients */
-    system_reg_write(0xb83c, fir1_v[0]);
-    system_reg_write(0xb840, fir1_v[1]);
-    system_reg_write(0xb844, fir1_v[2]);
-
-    /* 0xb848-0xb864: IIR0/IIR1 horizontal filter coefficients */
-    system_reg_write(0xb848, iir0_h[0]);
-    system_reg_write(0xb84c, iir0_h[1]);
-    system_reg_write(0xb850, iir0_h[2]);
-    system_reg_write(0xb854, iir0_h[3]);
-    system_reg_write(0xb858, iir1_h[0]);
-    system_reg_write(0xb85c, iir1_h[1]);
-    system_reg_write(0xb860, iir1_h[2]);
-    system_reg_write(0xb864, iir1_h[3]);
-
-    /* 0xb868-0xb874: FIR0/FIR1 Ldg parameters */
-    system_reg_write(0xb868, fir0_ldg[0]);
-    system_reg_write(0xb86c, fir0_ldg[1]);
-    system_reg_write(0xb870, fir1_ldg[0]);
-    system_reg_write(0xb874, fir1_ldg[1]);
-
-    /* 0xb878-0xb884: IIR0/IIR1 Ldg parameters */
-    system_reg_write(0xb878, iir0_ldg[0]);
-    system_reg_write(0xb87c, iir0_ldg[1]);
-    system_reg_write(0xb880, iir1_ldg[0]);
-    system_reg_write(0xb884, iir1_ldg[1]);
-
-    /* 0xb888-0xb8a4: FIR0/FIR1/IIR0/IIR1 Coring parameters */
-    system_reg_write(0xb888, fir0_cor[0]);
-    system_reg_write(0xb88c, fir0_cor[1]);
-    system_reg_write(0xb890, fir1_cor[0]);
-    system_reg_write(0xb894, fir1_cor[1]);
-    system_reg_write(0xb898, iir0_cor[0]);
-    system_reg_write(0xb89c, iir0_cor[1]);
-    system_reg_write(0xb8a0, iir1_cor[0]);
-    system_reg_write(0xb8a4, iir1_cor[1]);
-}
+/* tiziano_af_init, tisp_af_set_attr_refresh, tiziano_af_set_hardware_param:
+ * tx_isp_t31_af.inc */
 
 /* OEM BCSH tuning blob offsets (tparams base 0x84B10 in OEM binary). */
 #define BCSH_TPARAMS_CCM_D_OFF          0x12220
@@ -32256,12 +32009,6 @@ void tiziano_adr_dn_params_refresh(void)
     tiziano_adr_params_init();
 }
 
-/* OEM: tiziano_af_dn_params_refresh — AF DN switch refresh.
- * Reloads AF params from tuning binary for current day/night mode. */
-void tiziano_af_dn_params_refresh(void)
-{
-    /* AF params don't change between day/night on non-AF sensors */
-}
 
 /* OEM EXACT: tiziano_bcsh_dn_params_refresh
  * Decompiled at 0x2b010: params_refresh + force update + apply. */
@@ -32382,14 +32129,6 @@ static int tiziano_af_dump(void)
     return 0;
 }
 
-/* OEM: tiziano_af_params_refresh — load AF params from tuning binary.
- * OEM at 0x568fc. GC2053 has no AF, but libimp expects the params. */
-static int tiziano_af_params_refresh(void)
-{
-    /* AF param arrays loaded from tuning binary offsets.
-     * Non-AF sensors don't use these, but the memcpy targets must exist. */
-    return 0;
-}
 
 /* OEM: tiziano_bcsh_reg2para — convert 9-element register array to signed.
  * OEM at 0x286e8. Alias for our tiziano_bcsh_reg2para_array. */
@@ -32825,13 +32564,6 @@ int Tiziano_ae1_fpga(void)
     return 0;
 }
 
-/* OEM: Tiziano_af_fpga — AF processing algorithm.
- * OEM at 0x563d8. Computes focus value from AF stat arrays.
- * GC2053 has no AF motor, so this is a no-op. */
-int Tiziano_af_fpga(void)
-{
-    return 0;
-}
 
 /* OEM: tiziano_adr_5x5_param_distance — ADR spatial distance calculation.
  * OEM at 0x4ac44. Computes distance index from center coordinates. */
