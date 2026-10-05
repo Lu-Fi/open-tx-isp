@@ -101,28 +101,50 @@ caller, `tisp_msca_chx_cfg_load()` only ORs the enable bit into 0xd040, and
 `tisp_msca_addr_fifo_write()` writes only the Y/UV FIFO addresses (this
 driver's QBUF already does the same; T23 has no FIFO control write-back).
 
-What the driver does now (module parameters, 0644):
-- `msca_flip_skip_noop=1` (default): mirror/flip writes request the MSCA
-  update only when the 0xd050 flip word changes (ISP HFLIP/VFLIP/HV_FLIP
-  controls and `tisp_msca_api_set_mirr_flip()`). 0 = stock.
-- `msca_stop_disable=0` (default): STREAMOFF leaves the output's 0xd040
-  bit set like stock; a STREAMON with the bit still set and the same
-  channel configuration (msca cfg bytes) does not reload the output. The
-  core ISR drains the completion FIFOs of kept outputs too (stock drains
-  every channel); their completions are dropped. 1 = previous behaviour.
-- `chan_stop_keep_input=0` (default, unchanged behaviour): 1 keeps the
-  input running after the last frame channel STREAMOFF while a tx-isp
-  STREAMON is active, as stock does; a wake then restarts no hardware.
-- `crumbs=1` (default, insmod only): GET_BUF asks libimp for one more page
-  and the driver keeps step markers there (uncached, behind the MDNS
-  buffer in rmem). kmsg shows `tx-isp-t23 crumbs at 0x...`; after a hang
-  read it with `devmem` before libimp starts again, or start timps once:
-  the next SET_BUF prints the previous record (`previous record ...`, last
-  16 steps) to kmsg. Word layout and step codes: `tx_isp_t23_crumbs.h`
-  (word 3 = last step | arg << 16, word 5 = irq + 1 while in the hard ISR).
+Switches (module parameters, all 0644, all off by default = behaviour
+before the port; change them at run time under
+`/sys/module/tx_isp_t23/parameters/` to bisect on the device):
+- `msca_flip_skip_noop=1`: mirror/flip writes request the MSCA update
+  only when the 0xd050 flip word changes (ISP HFLIP/VFLIP/HV_FLIP controls
+  and `tisp_msca_api_set_mirr_flip()`).
+- `msca_keep_enabled`: STREAMOFF and the output's 0xd040 bit. 0 clears it
+  (before), 1 keeps it only when the input stops with this STREAMOFF (last
+  channel, no frame can reach the output), 2 always keeps it (stock/T41;
+  with the input running the stopped output keeps writing to the
+  addresses left in its FIFO, the core ISR drains and drops them).
+- `msca_restart_skip=1`: a STREAMON that finds the bit still set with the
+  same channel configuration does not reload the output (no
+  `tisp_msca_chx_cfg_load()`, no 0xd010). Needs `msca_keep_enabled`.
+- `chan_stop_keep_input=1`: the input keeps running after the last frame
+  channel STREAMOFF while a tx-isp STREAMON is active (stock); a wake then
+  restarts no hardware.
+- `crumbs` (attached at the next libimp start / SET_BUF): 0 off, 1 one
+  rmem page behind the MDNS buffer (GET_BUF asks for 4 KiB more), 2 the
+  page at `crumb_addr`. A valid record found at attach time is printed to
+  kmsg (`previous record ...`, last 16 steps); `crumb_phys` shows the page
+  in use. Layout and step codes: `tx_isp_t23_crumbs.h` (word 3 = last step
+  | arg << 16, word 5 = irq + 1 while in the hard ISR).
+
+Crumbs and reboots: the T23 U-Boot (2013.07, 64 MiB) relocates to the top
+of RAM and `mem_malloc_init()` zeroes its 32 MiB malloc area below that,
+which covers all of rmem (0x2a00000-0x3ffffff). rmem crumbs therefore
+survive a timps restart or module reload but not a watchdog reset (cam-B:
+all zero after the reset). A record that survives a reset needs a page
+below ~0x1e00000 that the kernel does not manage, i.e. a hole in the
+`mem=` boot arguments (e.g. `osmem=16M@0x0 mem=26560K@0x1010000` leaves
+0x1000000-0x100ffff free; then `crumbs=2 crumb_addr=0x1000000`).
+
+First device run (b1a4a975, flip skip + keep-enabled + restart skip +
+rmem crumbs on by default): hang within ~0.6 s of the first tx-isp
+STREAMON after a module reload; cause not isolated yet (bisect with the
+switches above). Leading suspect: with the output kept enabled and the
+input running, the STREAMON FIFO rearm (`tisp_channel_main_fifo_clear()`)
+cleared the address FIFO of an enabled output, which per the rearm notes
+makes the MSCA write the next frame to address 0. The rearm now disables
+such an output before the clear (it is then reloaded as before).
 
 Status: the trigger analysis is by analogy with the T41 bisection plus the
-stock disassembly; the T23 fix is not yet device-verified.
+stock disassembly; no T23 fix is device-verified yet.
 
 ## Historical recovery log
 
