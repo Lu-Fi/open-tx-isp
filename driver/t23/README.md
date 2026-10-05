@@ -77,6 +77,53 @@ The subdevice adapter supplies T23's graph table and legacy pad-slot offsets
 to the shared name/type/index resolver. Its recovered graph descriptor reads
 also use the common 8-byte endpoint wire positions.
 
+## Output restart hang (on-demand channel wakes)
+
+Symptom (cam-B, Galayou Y4 / sc2336, timps, `isp_memopt=1 direct_mode=0`):
+silent hard hang ~60 s after timps start, then the watchdog reset. timps
+enables frame channel 0 on demand about every 8 s for ~1 s; the ISP and VIC
+interrupt counters only move during those bursts (the driver stops the
+input with the last frame channel), helix stays idle. The last kmsg line
+before the hang is the wake's `EnsureLinkStreamOn already-started`; the
+camera died within a second of that wake (the 8th in the recorded run), no
+oops. Cameras whose streamer keeps the channels running do not hang.
+
+Every wake restarted the output the way the T41 output-restart hang did
+(driver/t41/README.md): `tisp_msca_chx_cfg_load()` reloaded the channel
+(scaler parameters, 0xd010 update request, 0xd040 enable) right after the
+input was started, and timps re-sent HVFLIP on the channel 0 enable edge,
+which wrote 0xd050 and requested another MSCA update (0xd010 = 1) with
+unchanged bits.
+
+Stock comparison (`tx-isp-t23.ko`): `ispcore_frame_channel_streamoff()`
+writes no register (queue state only), `tisp_channel_main_stop()` has no
+caller, `tisp_msca_chx_cfg_load()` only ORs the enable bit into 0xd040, and
+`tisp_msca_addr_fifo_write()` writes only the Y/UV FIFO addresses (this
+driver's QBUF already does the same; T23 has no FIFO control write-back).
+
+What the driver does now (module parameters, 0644):
+- `msca_flip_skip_noop=1` (default): mirror/flip writes request the MSCA
+  update only when the 0xd050 flip word changes (ISP HFLIP/VFLIP/HV_FLIP
+  controls and `tisp_msca_api_set_mirr_flip()`). 0 = stock.
+- `msca_stop_disable=0` (default): STREAMOFF leaves the output's 0xd040
+  bit set like stock; a STREAMON with the bit still set and the same
+  channel configuration (msca cfg bytes) does not reload the output. The
+  core ISR drains the completion FIFOs of kept outputs too (stock drains
+  every channel); their completions are dropped. 1 = previous behaviour.
+- `chan_stop_keep_input=0` (default, unchanged behaviour): 1 keeps the
+  input running after the last frame channel STREAMOFF while a tx-isp
+  STREAMON is active, as stock does; a wake then restarts no hardware.
+- `crumbs=1` (default, insmod only): GET_BUF asks libimp for one more page
+  and the driver keeps step markers there (uncached, behind the MDNS
+  buffer in rmem). kmsg shows `tx-isp-t23 crumbs at 0x...`; after a hang
+  read it with `devmem` before libimp starts again, or start timps once:
+  the next SET_BUF prints the previous record (`previous record ...`, last
+  16 steps) to kmsg. Word layout and step codes: `tx_isp_t23_crumbs.h`
+  (word 3 = last step | arg << 16, word 5 = irq + 1 while in the hard ISR).
+
+Status: the trigger analysis is by analogy with the T41 bisection plus the
+stock disassembly; the T23 fix is not yet device-verified.
+
 ## Historical recovery log
 
 The entries below are chronological bring-up evidence. Earlier SC2336
