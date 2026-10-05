@@ -504,3 +504,33 @@ and `3` enables the recovered core/tuning path. The legacy harness refuses to
 run if any `tx_isp*` module is already loaded and reboots the camera after
 every experiment; use the one-shot init hook when the stock boot sequence
 cannot safely unload its active module.
+
+## ioctl stack-overflow hardening and device test plan
+
+The recovered `tx_isp_unlocked_ioctl`, `frame_channel_unlocked_ioctl` and the
+isp-m0 `isp_core_tunning_unlocked_ioctl` dispatchers reached decompiler-emitted
+tails that copied 8..80 bytes from userspace into 4-byte scalar locals
+(`&local_20`, `&local_70`, `&local_10`) with hard-coded lengths, overflowing
+the kernel stack for any command the typed handlers above did not already
+serve. The full libimp/OpenIMP command surface (the `TISP_VIDIOC_*` set on
+`/dev/tx-isp`, the eleven T41 frame ioctls `0xc0745451..0xc008545b`, and the
+tuning envelopes `0xc0105435`/`0xc0085433`/`0xc0085434`) is handled by those
+typed, bounds-checked paths; each dispatcher now refuses anything else with
+`-ENOTTY` (logging `cmd`/`_IOC_SIZE` once) instead of running the overflowing
+recovered tail. The vendor ABI (command numbers and struct layouts) is
+unchanged. T21 (`int32_t buf[0x14]`), T23 (stub) and T31 (`sizeof()`-bounded
+typed locals) do not carry this pattern.
+
+When the camera leaves soak, extend the on-device check with ioctl fuzz-style
+cases (no oops, correct errno) against `/dev/tx-isp`, each `/dev/isp-fsN` frame
+node, and `/dev/isp-m0`:
+
+- Every supported command with `_IOC_SIZE` mismatched (too small and too large)
+  and with a NULL / unmapped / short user buffer must return `-EFAULT` or
+  `-EINVAL`, never corrupt state.
+- A sweep of unsupported/legacy command numbers (e.g. `0x80045413`,
+  `0xc004541c`, `0xc004542a`, the legacy frame `0xc07056c3` group, and random
+  `_IOC` encodings) must return `-ENOTTY` with no log flood and no crash.
+- Repeat each case a few thousand times during live capture and confirm the
+  stream, encoder and `dmesg` stay clean (watch for the one-shot
+  "recovered dispatch disabled" warning only).
