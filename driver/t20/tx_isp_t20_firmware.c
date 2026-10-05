@@ -22786,8 +22786,10 @@ int32_t apical_wdr_fs_isp_setup(int32_t arg1)
     v = APICAL_READ_32(0x264);
     APICAL_WRITE_32(0x264, (v & 0xfffff000) | lo);
 
-    v268 = APICAL_READ_32(0x268);
-    v = APICAL_READ_32(0x113);
+    /* OEM 0x31194..0x311b8: low half of 0x268 = first u16 of
+     * calibration table 275 (the recovery read ISP register 0x113) */
+    v268 = *(uint16_t *)(uintptr_t)_GET_UINT_PTR(275);
+    v = APICAL_READ_32(0x268);
     APICAL_WRITE_32(0x268, (v & 0xffff0000) | (v268 & 0xffff));
 
     v1e4 = APICAL_READ_32(0x1e4);
