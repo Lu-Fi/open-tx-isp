@@ -102247,6 +102247,8 @@ static long regtrace_t23_colorfx_set(uint32_t fx)
     return 0;
 }
 
+#include "tx_isp_t23_tuning_ext.inc"
+
 static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
 {
     uint32_t v = *value;
@@ -102557,6 +102559,6 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
             &regtrace_t23_source_defog_internal_enable,
             regtrace_t23_source_defog_tuning_init, BIT(11), v);
     default:
-        return -ENOIOCTLCMD;
+        return regtrace_t23_tuning_ext(get, id, value);
     }
 }
