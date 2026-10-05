@@ -5,6 +5,7 @@
 #include <apical-isp/apical_math.h>
 #include "tx-isp-core-tuning.h"
 #include "../tx-isp-debug.h"
+#include <tx_isp/tx_isp_t2x_awb_zone.h>
 
 /** the kernel command line whether the mem of WDR and Temper exist. **/
 extern unsigned long ispmem_base;
@@ -3784,7 +3785,11 @@ static int apical_isp_wait_frame_done(struct tx_isp_core_device *core, struct v4
 	if (timeout < 0)
 		return -EINVAL;
 
-	ret = isp_frame_done_wait(timeout, &cnt);
+	/* IMPISPWaitFrameAttr.timeout is in ms (T20 3.12.0 / T21 headers);
+	 * the wait takes jiffies (HZ=100: 1000 would have been 10 s) */
+	ret = isp_frame_done_wait((int)min_t(unsigned long,
+					     msecs_to_jiffies(timeout),
+					     INT_MAX), &cnt);
 	info.cnt = cnt;
 
 	if (copy_to_user((void __user*)control->value, &info, sizeof(info)))
@@ -3904,6 +3909,31 @@ err_get_gain_log2:
 #define T2X_CID_DEFOG_STRENGTH	(V4L2_CID_PRIVATE_BASE + 0x39)
 #define T2X_CID_DPC_RATIO	(V4L2_CID_PRIVATE_BASE + 0x62)
 #define T2X_CID_DRC_RATIO	(V4L2_CID_PRIVATE_BASE + 0xa2)
+/* T20 3.12.0 IMP_ISP_Tuning_GetAwbZone(IMPISPAWBZone *): the id after
+ * IMAGE_TUNING_CID_AWB_RGB_COEFFT_WB_ATTR, not in the 3.10.14 SDK enum */
+#define T2X_CID_AWB_ZONE	(V4L2_CID_PRIVATE_BASE + 0x09)
+
+/* the 15x15 AWB zone statistics of the last frame from the metering memory */
+static int t2x_awb_zone_g_ctrl(struct v4l2_control *ctrl)
+{
+	struct tx_isp_t2x_awb_zone *zones;
+	u32 i;
+	int ret = 0;
+
+	zones = kmalloc(sizeof(*zones) * TX_ISP_T2X_AWB_ZONES, GFP_KERNEL);
+	if (!zones)
+		return -ENOMEM;
+	for (i = 0; i < TX_ISP_T2X_AWB_ZONES; i++)
+		tx_isp_t2x_awb_zone_unpack(
+			APICAL_READ_32(tx_isp_t2x_awb_zone_reg(i, 0)),
+			APICAL_READ_32(tx_isp_t2x_awb_zone_reg(i, 1)),
+			&zones[i]);
+	if (copy_to_user((void __user *)ctrl->value, zones,
+			 sizeof(*zones) * TX_ISP_T2X_AWB_ZONES))
+		ret = -EFAULT;
+	kfree(zones);
+	return ret;
+}
 
 extern uint32_t t20_dpc_ratio;
 extern uint32_t t20_drc_ratio;
@@ -3959,6 +3989,9 @@ static int t2x_beyond_g_ctrl(struct v4l2_control *ctrl, int *ret)
 	uint8_t b = t2x_defog_strength;
 
 	switch (ctrl->id) {
+	case T2X_CID_AWB_ZONE:
+		*ret = t2x_awb_zone_g_ctrl(ctrl);
+		return 1;
 	case T2X_CID_DPC_RATIO:
 		ctrl->value = t20_dpc_ratio;
 		break;
