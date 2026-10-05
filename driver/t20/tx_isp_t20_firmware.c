@@ -21261,9 +21261,17 @@ uint32_t sharpening_initialize(int32_t *arg1)
 
 	result = *(uint8_t *)((char *)base + 0x1524);
 
-	if (result == 1) {
-		mod_idx = 0x43;
-		mod_idx2 = 0x48;
+	/* OEM 0x2ecec..0x2eefc: per mode the first/last value of the
+	 * modulation table 0x42+mode go to stab[0x23]/[0x24] and the
+	 * first/last value of table 0x47+mode to stab[0x26]/[0x27]; the
+	 * recovery lost the stab[0x27] store (0 instead of the table's last
+	 * strength). */
+	if (result <= 3) {
+		static const uint8_t mod_tab[4][2] = {
+			{ 0x42, 0x47 }, { 0x43, 0x48 }, { 0x44, 0x49 }, { 0x45, 0x4a },
+		};
+		mod_idx = mod_tab[result][0];
+		mod_idx2 = mod_tab[result][1];
 		entry = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx);
 		*(uint8_t *)(stab_base + 0x23) = (uint8_t)(*(uint16_t *)((char *)entry + 2));
 		rows = _GET_ROWS(mod_idx);
@@ -21271,40 +21279,9 @@ uint32_t sharpening_initialize(int32_t *arg1)
 		*(uint8_t *)((uintptr_t)stab_base + 0x24) = (uint8_t)(*(uint16_t *)((uintptr_t)entry2 + ((rows - 1) << 2) + 2));
 		entry = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx2);
 		*(uint8_t *)(stab_base + 0x26) = (uint8_t)(*(uint16_t *)((char *)entry + 2));
-		result = (uint32_t)(*(uint16_t *)((char *)entry + 2));
-	} else if (result == 0) {
-		mod_idx = 0x42;
-		mod_idx2 = 0x47;
-		entry = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx);
-		*(uint8_t *)(stab_base + 0x23) = (uint8_t)(*(uint16_t *)((char *)entry + 2));
-		rows = _GET_ROWS(mod_idx);
-		entry2 = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx);
-		*(uint8_t *)((uintptr_t)stab_base + 0x24) = (uint8_t)(*(uint16_t *)((uintptr_t)entry2 + ((rows - 1) << 2) + 2));
-		entry = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx2);
-		*(uint8_t *)(stab_base + 0x26) = (uint8_t)(*(uint16_t *)((char *)entry + 2));
-		result = (uint32_t)(*(uint16_t *)((char *)entry + 2));
-	} else if (result == 2) {
-		mod_idx = 0x44;
-		mod_idx2 = 0x49;
-		entry = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx);
-		*(uint8_t *)(stab_base + 0x23) = (uint8_t)(*(uint16_t *)((char *)entry + 2));
-		rows = _GET_ROWS(mod_idx);
-		entry2 = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx);
-		*(uint8_t *)((uintptr_t)stab_base + 0x24) = (uint8_t)(*(uint16_t *)((uintptr_t)entry2 + ((rows - 1) << 2) + 2));
-		entry = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx2);
-		*(uint8_t *)(stab_base + 0x26) = (uint8_t)(*(uint16_t *)((char *)entry + 2));
-		result = (uint32_t)(*(uint16_t *)((char *)entry + 2));
-	} else if (result == 3) {
-		mod_idx = 0x45;
-		mod_idx2 = 0x4a;
-		entry = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx);
-		*(uint8_t *)(stab_base + 0x23) = (uint8_t)(*(uint16_t *)((char *)entry + 2));
-		rows = _GET_ROWS(mod_idx);
-		entry2 = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx);
-		*(uint8_t *)((uintptr_t)stab_base + 0x24) = (uint8_t)(*(uint16_t *)((uintptr_t)entry2 + ((rows - 1) << 2) + 2));
-		entry = (int32_t *)_GET_MOD_ENTRY16_PTR(mod_idx2);
-		*(uint8_t *)(stab_base + 0x26) = (uint8_t)(*(uint16_t *)((char *)entry + 2));
-		result = (uint32_t)(*(uint16_t *)((char *)entry + 2));
+		rows = _GET_ROWS(mod_idx2);
+		result = (uint32_t)(*(uint16_t *)((uintptr_t)entry + ((rows - 1) << 2) + 2));
+		*(uint8_t *)(stab_base + 0x27) = (uint8_t)result;
 	}
 
 	return result;
