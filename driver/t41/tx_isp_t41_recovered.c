@@ -25147,38 +25147,23 @@ proc_ivdc_writel0x464:
     goto proc_ivdc_writel0x314;
 
 proc_ivdc_writel0x4b0:
-    /* fragment 115: MemoryAccess */
-    s7 = *(uint32_t *)((char *)s5 + 4);
+    /*
+     * Vendor 1.2.6-720-4494 proc_ivdc_writel+0x4b0..0x5a0 (0xd2e8..0xd3a0;
+     * 1.2.0-720-4494 identical) is an inlined
+     * dma_alloc_coherent(dev, size, &handle, GFP_KERNEL = 0x24000c0) on
+     * dev = *(s5 + 4).  The recovery lost the ops->alloc target and called
+     * the private_math_exp2 placeholder, whose garbage return was then
+     * memset and handed to the IVDC DMA registers.  Use the kernel API.
+     */
+    {
+        dma_addr_t ivdc_dma_handle = 0;
 
-    /* fragment 116: Branch */
-    v0 = (unsigned int *)&mips_dma_map_ops;
-    if (s7 == 0) { goto proc_ivdc_writel0x4cc; }
-
-    /* fragment 117: MemoryAccess */
-    s2 = *(uint32_t *)((char *)s7 + 292);
-
-    /* fragment 118: Branch */
-    v0 = s2 < 1;
-    if (s2 != 0) { goto proc_ivdc_writel0x4d4; }
-
-    /* fragment 119: CallSetup */
-    v0 = (unsigned int *)&mips_dma_map_ops;
-
-proc_ivdc_writel0x4cc:
-    /* fragment 120: CallSetup */
-    s2 = *(uint32_t *)((char *)&mips_dma_map_ops + 0);
-    v0 = s2 < 1;
-
-proc_ivdc_writel0x4d4:
-    /* fragment 121: CallSetup */
-    v0 = (unsigned int *)dma_alloc_from_coherent((void *)(uintptr_t)s7, s1, (void *)(uintptr_t)&local_40, (void *)(uintptr_t)&local_20); /* jalr target resolved by relocation */
-
-    /* fragment 122: Branch */
-    if (v0 == 0) { goto proc_ivdc_writel0x53c; }
-
-    /* fragment 123: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
+        s7 = *(uint32_t *)((char *)s5 + 4);
+        s2 = (uintptr_t)dma_alloc_coherent((struct device *)(uintptr_t)s7,
+                                           s1, &ivdc_dma_handle, GFP_KERNEL);
+        local_40 = s2 ? (uint32_t)ivdc_dma_handle : 0;
+    }
+    goto proc_ivdc_writel0x500;
 
 proc_ivdc_writel0x500:
     /* fragment 124: CallSetup */
@@ -25199,22 +25184,6 @@ proc_ivdc_writel0x508:
     /* fragment 128: Branch */
     v0 = local_4c;
     goto proc_ivdc_writel0x138;
-
-proc_ivdc_writel0x53c:
-    /* fragment 129: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s2 + 0);
-
-    /* fragment 130: Branch */
-    s2 = 0;
-    if (v0 == 0) { goto proc_ivdc_writel0x500; }
-
-    /* fragment 131: CallSetup */
-    local_10 = 0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(s7, s1, &local_40, 37748736 + 192); /* jalr target resolved by relocation */
-
-    /* fragment 132: Branch */
-    s2 = v0;
-    goto proc_ivdc_writel0x500;
 
 proc_ivdc_writel0x56c:
     /* fragment 133: CallSetup */
@@ -25286,136 +25255,17 @@ proc_ivdc_writel0x640:
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC59); /* jalr target resolved by relocation */
 
 proc_ivdc_writel0x67c:
-    /* fragment 144: MemoryAccess */
+    /*
+     * Vendor 1.2.6-720-4494 proc_ivdc_writel+0x67c..0x784 (0xd4b4..0xd5bc)
+     * is an inlined dma_free_coherent(dev = *(s5 + 4), size, cpu, handle)
+     * (dma_release_from_coherent, then ops->free(dev, size, cpu, handle, 0)).
+     * The ops->free call was a placeholder, so every successful write
+     * leaked the coherent buffer.
+     */
     s5 = *(uint32_t *)((char *)s5 + 4);
-
-    /* fragment 145: Branch */
-    s4 = local_40;
-    if (s5 == 0) { goto proc_ivdc_writel0x694; }
-
-    /* fragment 146: MemoryAccess */
-    s7 = *(uint32_t *)((char *)s5 + 292);
-
-    /* fragment 147: Branch */
-    v0 = s7 < 1;
-    if (s7 != 0) { goto proc_ivdc_writel0x6a0; }
-
-proc_ivdc_writel0x694:
-    /* fragment 148: Arithmetic */
-    v0 = (unsigned int *)&mips_dma_map_ops;
-
-    /* fragment 149: MemoryAccess */
-    s7 = *(uint32_t *)((char *)&mips_dma_map_ops + 0);
-    v0 = s7 < 1;
-
-proc_ivdc_writel0x6a0:
-    /* fragment 150: Arithmetic */
-    /* trap/BUG_ON check */
-    v0 = read_c0_status();
-    v0 = (uintptr_t)v0 & 1;
-
-    /* fragment 151: Branch */
-    int _bc_v0_151 = v0 != 0;
-    v0 = s1 - 1;
-    if (_bc_v0_151) { goto proc_ivdc_writel0x6d0; }
-
-    /* fragment 152: CallSetup */
-    warn_slowpath_null((const char *)(uintptr_t)&LC58, 274); /* jalr target resolved by relocation */
-
-    /* fragment 153: Arithmetic */
-    v0 = s1 - 1;
-
-proc_ivdc_writel0x6d0:
-    /* fragment 154: Arithmetic */
-    v0 = (uintptr_t)v0 >> 12;
-
-    /* fragment 155: Branch */
-    a0 = 4294901760;
-    if (v0 == 0) { goto proc_ivdc_writel0x73c; }
-
-    /* fragment 156: Arithmetic */
-    a0 = (uintptr_t)v0 & a0;
-
-    /* fragment 157: Branch */
-    s8 = 32;
-    if (a0 != 0) { goto proc_ivdc_writel0x6f0; }
-
-    /* fragment 158: Arithmetic */
-    v0 = (uintptr_t)v0 << 16;
-    s8 = 16;
-
-proc_ivdc_writel0x6f0:
-    /* fragment 159: Arithmetic */
-    a0 = 4278190080;
-    a0 = (uintptr_t)v0 & a0;
-
-    /* fragment 160: Branch */
-    int _bc_a0_160 = a0 != 0;
-    a0 = 4026531840;
-    if (_bc_a0_160) { goto proc_ivdc_writel0x708; }
-
-    /* fragment 161: Arithmetic */
-    v0 = (uintptr_t)v0 << 8;
-    s8 = s8 - 8;
-
-proc_ivdc_writel0x708:
-    /* fragment 162: Arithmetic */
-    a0 = (uintptr_t)v0 & a0;
-
-    /* fragment 163: Branch */
-    int _bc_a0_163 = a0 != 0;
-    a0 = 3221225472;
-    if (_bc_a0_163) { goto proc_ivdc_writel0x71c; }
-
-    /* fragment 164: Arithmetic */
-    v0 = (uintptr_t)v0 << 4;
-    s8 = s8 - 4;
-
-proc_ivdc_writel0x71c:
-    /* fragment 165: Arithmetic */
-    a0 = (uintptr_t)v0 & a0;
-
-    /* fragment 166: Branch */
-    if (a0 != 0) { goto proc_ivdc_writel0x730; }
-
-    /* fragment 167: Arithmetic */
-    v0 = (uintptr_t)v0 << 2;
-    s8 = s8 - 2;
-
-proc_ivdc_writel0x730:
-    /* fragment 168: Branch */
-    int _bc_v0_168 = v0 < 0;
-    v0 = (unsigned int *)&dma_release_from_coherent;
-    if (_bc_v0_168) { goto proc_ivdc_writel0x740; }
-
-    /* fragment 169: CallSetup */
-    s8 = s8 - 1;
-
-proc_ivdc_writel0x73c:
-    /* fragment 170: CallSetup */
-    v0 = (unsigned int *)&dma_release_from_coherent;
-
-proc_ivdc_writel0x740:
-    /* fragment 171: CallSetup */
-    v0 = (unsigned int *)dma_release_from_coherent((void *)(uintptr_t)s5, s8, (void *)(uintptr_t)s2); /* jalr target resolved by relocation */
-
-    /* fragment 172: Branch */
-    int _bc_v0_172 = v0 != 0;
-    v0 = local_4c;
-    if (_bc_v0_172) { goto proc_ivdc_writel0x138; }
-
-    /* fragment 173: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s7 + 4);
-
-    /* fragment 174: Branch */
-    a3 = s4;
-    if (v0 == 0) { goto proc_ivdc_writel0x134; }
-
-    /* fragment 175: CallSetup */
-    local_10 = 0;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(s5, s1, s2); /* jalr target resolved by relocation */
-
-    /* fragment 176: Branch */
+    if (s2 != 0)
+        dma_free_coherent((struct device *)(uintptr_t)s5, s1,
+                          (void *)(uintptr_t)s2, (dma_addr_t)local_40);
     v0 = local_4c;
     goto proc_ivdc_writel0x138;
 
