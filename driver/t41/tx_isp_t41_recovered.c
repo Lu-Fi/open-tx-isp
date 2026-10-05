@@ -25354,6 +25354,31 @@ int32_t ivdc_activate_module(void* arg1)
 	return 0;
 }
 
+/*
+ * Vendor 1.2.6-720-4494 ivdc_core_interrupt_service_routine 0xd814/0xd870/
+ * 0xd908 (1.2.0-720-4494 0xb53c/...): on an IVDC stream-state change the
+ * ISR sends TX_ISP event 0x01000007 through the subdev event callback at
+ * sd + 0x80 (tx_isp_module_init stores tx_isp_notify there), with
+ * arg = { 0, &ivdc_stream_state }.  ispcore_core_ops_ioctl turns that into
+ * tisp_sync_ivdc_state(); every other core ioctl ignores it.  Runs in hard
+ * IRQ context: the callee chain only stores a word, never sleeps.
+ */
+static void t41_ivdc_irq_notify_state(uintptr_t sd)
+{
+	uint32_t arg[2];
+	uintptr_t event;
+
+	if (!t41_kernel_data_ptr((void *)sd))
+		return;
+	event = *(uint32_t *)(sd + 0x80);
+	if (!t41_kernel_data_ptr((void *)event))
+		return;
+	arg[0] = 0;
+	arg[1] = (uint32_t)(uintptr_t)&ivdc_stream_state;
+	((int (*)(uintptr_t, uint32_t, uintptr_t))event)(sd, 0x01000007,
+							 (uintptr_t)arg);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000ea68 origin=fragment_seed original=ivdc_core_interrupt_service_routine */
 int32_t ivdc_core_interrupt_service_routine(uintptr_t a0)
 {
@@ -25419,7 +25444,7 @@ int32_t ivdc_core_interrupt_service_routine(uintptr_t a0)
     if (v0 == 0) { goto ivdc_core_interrupt_service_routine0x84; }
 
     /* fragment 10: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
+    t41_ivdc_irq_notify_state(a0); /* event 0x01000007, vendor 0xd824 */
 
 ivdc_core_interrupt_service_routine0x84:
     /* fragment 11: Arithmetic */
@@ -25462,7 +25487,7 @@ ivdc_core_interrupt_service_routine0x88:
     if (v0 == 0) { goto ivdc_core_interrupt_service_routine0xe4; }
 
     /* fragment 20: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(s1, a1 + 7, &local_10); /* jalr target resolved by relocation */
+    t41_ivdc_irq_notify_state(s1); /* event 0x01000007, vendor 0xd884/0xd91c */
 
 ivdc_core_interrupt_service_routine0xe4:
     /* fragment 21: Arithmetic */
@@ -25532,7 +25557,7 @@ ivdc_core_interrupt_service_routine0x120:
     if (v0 == 0) { goto ivdc_core_interrupt_service_routine0x17c; }
 
     /* fragment 36: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(s1, a1 + 7, &local_10); /* jalr target resolved by relocation */
+    t41_ivdc_irq_notify_state(s1); /* event 0x01000007, vendor 0xd884/0xd91c */
 
 ivdc_core_interrupt_service_routine0x17c:
     /* fragment 37: Arithmetic */
@@ -31960,13 +31985,17 @@ int32_t tx_isp_notify(uint32_t a0, uint32_t a1, uint32_t a2)
             continue;
         }
 
-        printk(KERN_WARNING
-               "tx_isp_t41_recovered: notify enter event=0x%x slot=%u subdev=%p ops=%p cb=%p\n",
-               a1, slot_index, subdev, ops, event);
+        /* The IVDC ISR (event 0x01000007) also lands here: no console
+         * tracing from hard IRQ context. */
+        if (!in_interrupt())
+            printk(KERN_WARNING
+                   "tx_isp_t41_recovered: notify enter event=0x%x slot=%u subdev=%p ops=%p cb=%p\n",
+                   a1, slot_index, subdev, ops, event);
         ret = event ? event((uintptr_t)subdev, a1, a2) : -ENOIOCTLCMD;
-        printk(KERN_WARNING
-               "tx_isp_t41_recovered: notify exit event=0x%x slot=%u ret=%d\n",
-               a1, slot_index, ret);
+        if (!in_interrupt())
+            printk(KERN_WARNING
+                   "tx_isp_t41_recovered: notify exit event=0x%x slot=%u ret=%d\n",
+                   a1, slot_index, ret);
         if (ret && ret != -ENOIOCTLCMD)
             return ret;
     }
