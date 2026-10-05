@@ -25040,38 +25040,23 @@ proc_ivdc_writel0x464:
     goto proc_ivdc_writel0x314;
 
 proc_ivdc_writel0x4b0:
-    /* fragment 115: MemoryAccess */
-    s7 = *(uint32_t *)((char *)s5 + 4);
+    /*
+     * Vendor 1.2.6-720-4494 proc_ivdc_writel+0x4b0..0x5a0 (0xd2e8..0xd3a0;
+     * 1.2.0-720-4494 identical) is an inlined
+     * dma_alloc_coherent(dev, size, &handle, GFP_KERNEL = 0x24000c0) on
+     * dev = *(s5 + 4).  The recovery lost the ops->alloc target and called
+     * the private_math_exp2 placeholder, whose garbage return was then
+     * memset and handed to the IVDC DMA registers.  Use the kernel API.
+     */
+    {
+        dma_addr_t ivdc_dma_handle = 0;
 
-    /* fragment 116: Branch */
-    v0 = (unsigned int *)&mips_dma_map_ops;
-    if (s7 == 0) { goto proc_ivdc_writel0x4cc; }
-
-    /* fragment 117: MemoryAccess */
-    s2 = *(uint32_t *)((char *)s7 + 292);
-
-    /* fragment 118: Branch */
-    v0 = s2 < 1;
-    if (s2 != 0) { goto proc_ivdc_writel0x4d4; }
-
-    /* fragment 119: CallSetup */
-    v0 = (unsigned int *)&mips_dma_map_ops;
-
-proc_ivdc_writel0x4cc:
-    /* fragment 120: CallSetup */
-    s2 = *(uint32_t *)((char *)&mips_dma_map_ops + 0);
-    v0 = s2 < 1;
-
-proc_ivdc_writel0x4d4:
-    /* fragment 121: CallSetup */
-    v0 = (unsigned int *)dma_alloc_from_coherent((void *)(uintptr_t)s7, s1, (void *)(uintptr_t)&local_40, (void *)(uintptr_t)&local_20); /* jalr target resolved by relocation */
-
-    /* fragment 122: Branch */
-    if (v0 == 0) { goto proc_ivdc_writel0x53c; }
-
-    /* fragment 123: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
+        s7 = *(uint32_t *)((char *)s5 + 4);
+        s2 = (uintptr_t)dma_alloc_coherent((struct device *)(uintptr_t)s7,
+                                           s1, &ivdc_dma_handle, GFP_KERNEL);
+        local_40 = s2 ? (uint32_t)ivdc_dma_handle : 0;
+    }
+    goto proc_ivdc_writel0x500;
 
 proc_ivdc_writel0x500:
     /* fragment 124: CallSetup */
@@ -25092,22 +25077,6 @@ proc_ivdc_writel0x508:
     /* fragment 128: Branch */
     v0 = local_4c;
     goto proc_ivdc_writel0x138;
-
-proc_ivdc_writel0x53c:
-    /* fragment 129: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s2 + 0);
-
-    /* fragment 130: Branch */
-    s2 = 0;
-    if (v0 == 0) { goto proc_ivdc_writel0x500; }
-
-    /* fragment 131: CallSetup */
-    local_10 = 0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(s7, s1, &local_40, 37748736 + 192); /* jalr target resolved by relocation */
-
-    /* fragment 132: Branch */
-    s2 = v0;
-    goto proc_ivdc_writel0x500;
 
 proc_ivdc_writel0x56c:
     /* fragment 133: CallSetup */
@@ -25179,136 +25148,17 @@ proc_ivdc_writel0x640:
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC59); /* jalr target resolved by relocation */
 
 proc_ivdc_writel0x67c:
-    /* fragment 144: MemoryAccess */
+    /*
+     * Vendor 1.2.6-720-4494 proc_ivdc_writel+0x67c..0x784 (0xd4b4..0xd5bc)
+     * is an inlined dma_free_coherent(dev = *(s5 + 4), size, cpu, handle)
+     * (dma_release_from_coherent, then ops->free(dev, size, cpu, handle, 0)).
+     * The ops->free call was a placeholder, so every successful write
+     * leaked the coherent buffer.
+     */
     s5 = *(uint32_t *)((char *)s5 + 4);
-
-    /* fragment 145: Branch */
-    s4 = local_40;
-    if (s5 == 0) { goto proc_ivdc_writel0x694; }
-
-    /* fragment 146: MemoryAccess */
-    s7 = *(uint32_t *)((char *)s5 + 292);
-
-    /* fragment 147: Branch */
-    v0 = s7 < 1;
-    if (s7 != 0) { goto proc_ivdc_writel0x6a0; }
-
-proc_ivdc_writel0x694:
-    /* fragment 148: Arithmetic */
-    v0 = (unsigned int *)&mips_dma_map_ops;
-
-    /* fragment 149: MemoryAccess */
-    s7 = *(uint32_t *)((char *)&mips_dma_map_ops + 0);
-    v0 = s7 < 1;
-
-proc_ivdc_writel0x6a0:
-    /* fragment 150: Arithmetic */
-    /* trap/BUG_ON check */
-    v0 = read_c0_status();
-    v0 = (uintptr_t)v0 & 1;
-
-    /* fragment 151: Branch */
-    int _bc_v0_151 = v0 != 0;
-    v0 = s1 - 1;
-    if (_bc_v0_151) { goto proc_ivdc_writel0x6d0; }
-
-    /* fragment 152: CallSetup */
-    warn_slowpath_null((const char *)(uintptr_t)&LC58, 274); /* jalr target resolved by relocation */
-
-    /* fragment 153: Arithmetic */
-    v0 = s1 - 1;
-
-proc_ivdc_writel0x6d0:
-    /* fragment 154: Arithmetic */
-    v0 = (uintptr_t)v0 >> 12;
-
-    /* fragment 155: Branch */
-    a0 = 4294901760;
-    if (v0 == 0) { goto proc_ivdc_writel0x73c; }
-
-    /* fragment 156: Arithmetic */
-    a0 = (uintptr_t)v0 & a0;
-
-    /* fragment 157: Branch */
-    s8 = 32;
-    if (a0 != 0) { goto proc_ivdc_writel0x6f0; }
-
-    /* fragment 158: Arithmetic */
-    v0 = (uintptr_t)v0 << 16;
-    s8 = 16;
-
-proc_ivdc_writel0x6f0:
-    /* fragment 159: Arithmetic */
-    a0 = 4278190080;
-    a0 = (uintptr_t)v0 & a0;
-
-    /* fragment 160: Branch */
-    int _bc_a0_160 = a0 != 0;
-    a0 = 4026531840;
-    if (_bc_a0_160) { goto proc_ivdc_writel0x708; }
-
-    /* fragment 161: Arithmetic */
-    v0 = (uintptr_t)v0 << 8;
-    s8 = s8 - 8;
-
-proc_ivdc_writel0x708:
-    /* fragment 162: Arithmetic */
-    a0 = (uintptr_t)v0 & a0;
-
-    /* fragment 163: Branch */
-    int _bc_a0_163 = a0 != 0;
-    a0 = 3221225472;
-    if (_bc_a0_163) { goto proc_ivdc_writel0x71c; }
-
-    /* fragment 164: Arithmetic */
-    v0 = (uintptr_t)v0 << 4;
-    s8 = s8 - 4;
-
-proc_ivdc_writel0x71c:
-    /* fragment 165: Arithmetic */
-    a0 = (uintptr_t)v0 & a0;
-
-    /* fragment 166: Branch */
-    if (a0 != 0) { goto proc_ivdc_writel0x730; }
-
-    /* fragment 167: Arithmetic */
-    v0 = (uintptr_t)v0 << 2;
-    s8 = s8 - 2;
-
-proc_ivdc_writel0x730:
-    /* fragment 168: Branch */
-    int _bc_v0_168 = v0 < 0;
-    v0 = (unsigned int *)&dma_release_from_coherent;
-    if (_bc_v0_168) { goto proc_ivdc_writel0x740; }
-
-    /* fragment 169: CallSetup */
-    s8 = s8 - 1;
-
-proc_ivdc_writel0x73c:
-    /* fragment 170: CallSetup */
-    v0 = (unsigned int *)&dma_release_from_coherent;
-
-proc_ivdc_writel0x740:
-    /* fragment 171: CallSetup */
-    v0 = (unsigned int *)dma_release_from_coherent((void *)(uintptr_t)s5, s8, (void *)(uintptr_t)s2); /* jalr target resolved by relocation */
-
-    /* fragment 172: Branch */
-    int _bc_v0_172 = v0 != 0;
-    v0 = local_4c;
-    if (_bc_v0_172) { goto proc_ivdc_writel0x138; }
-
-    /* fragment 173: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s7 + 4);
-
-    /* fragment 174: Branch */
-    a3 = s4;
-    if (v0 == 0) { goto proc_ivdc_writel0x134; }
-
-    /* fragment 175: CallSetup */
-    local_10 = 0;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(s5, s1, s2); /* jalr target resolved by relocation */
-
-    /* fragment 176: Branch */
+    if (s2 != 0)
+        dma_free_coherent((struct device *)(uintptr_t)s5, s1,
+                          (void *)(uintptr_t)s2, (dma_addr_t)local_40);
     v0 = local_4c;
     goto proc_ivdc_writel0x138;
 
@@ -25397,6 +25247,31 @@ int32_t ivdc_activate_module(void* arg1)
 	return 0;
 }
 
+/*
+ * Vendor 1.2.6-720-4494 ivdc_core_interrupt_service_routine 0xd814/0xd870/
+ * 0xd908 (1.2.0-720-4494 0xb53c/...): on an IVDC stream-state change the
+ * ISR sends TX_ISP event 0x01000007 through the subdev event callback at
+ * sd + 0x80 (tx_isp_module_init stores tx_isp_notify there), with
+ * arg = { 0, &ivdc_stream_state }.  ispcore_core_ops_ioctl turns that into
+ * tisp_sync_ivdc_state(); every other core ioctl ignores it.  Runs in hard
+ * IRQ context: the callee chain only stores a word, never sleeps.
+ */
+static void t41_ivdc_irq_notify_state(uintptr_t sd)
+{
+	uint32_t arg[2];
+	uintptr_t event;
+
+	if (!t41_kernel_data_ptr((void *)sd))
+		return;
+	event = *(uint32_t *)(sd + 0x80);
+	if (!t41_kernel_data_ptr((void *)event))
+		return;
+	arg[0] = 0;
+	arg[1] = (uint32_t)(uintptr_t)&ivdc_stream_state;
+	((int (*)(uintptr_t, uint32_t, uintptr_t))event)(sd, 0x01000007,
+							 (uintptr_t)arg);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000ea68 origin=fragment_seed original=ivdc_core_interrupt_service_routine */
 int32_t ivdc_core_interrupt_service_routine(uintptr_t a0)
 {
@@ -25462,7 +25337,7 @@ int32_t ivdc_core_interrupt_service_routine(uintptr_t a0)
     if (v0 == 0) { goto ivdc_core_interrupt_service_routine0x84; }
 
     /* fragment 10: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
+    t41_ivdc_irq_notify_state(a0); /* event 0x01000007, vendor 0xd824 */
 
 ivdc_core_interrupt_service_routine0x84:
     /* fragment 11: Arithmetic */
@@ -25505,7 +25380,7 @@ ivdc_core_interrupt_service_routine0x88:
     if (v0 == 0) { goto ivdc_core_interrupt_service_routine0xe4; }
 
     /* fragment 20: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(s1, a1 + 7, &local_10); /* jalr target resolved by relocation */
+    t41_ivdc_irq_notify_state(s1); /* event 0x01000007, vendor 0xd884/0xd91c */
 
 ivdc_core_interrupt_service_routine0xe4:
     /* fragment 21: Arithmetic */
@@ -25575,7 +25450,7 @@ ivdc_core_interrupt_service_routine0x120:
     if (v0 == 0) { goto ivdc_core_interrupt_service_routine0x17c; }
 
     /* fragment 36: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(s1, a1 + 7, &local_10); /* jalr target resolved by relocation */
+    t41_ivdc_irq_notify_state(s1); /* event 0x01000007, vendor 0xd884/0xd91c */
 
 ivdc_core_interrupt_service_routine0x17c:
     /* fragment 37: Arithmetic */
@@ -30864,6 +30739,17 @@ int32_t sensor_alloc_analog_gain(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s0 = a1;
     local_10 = 0;
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_analog_gain:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_again (attr + 196)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 4) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 2: StackAccess */
@@ -30896,6 +30782,17 @@ int32_t sensor_alloc_analog_gain_short(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s0 = a1;
     local_10 = 0;
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_analog_gain_short:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_again_short (attr + 200)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 18) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 2: StackAccess */
@@ -30928,6 +30825,17 @@ int32_t sensor_alloc_digital_gain(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s0 = a1;
     local_10 = 0;
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_digital_gain:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_dgain (attr + 204)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 6) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 2: StackAccess */
@@ -30945,6 +30853,13 @@ int32_t sensor_alloc_digital_gain(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000125d0 origin=fragment_seed original=sensor_alloc_digital_gain_short */
 int32_t sensor_alloc_digital_gain_short(int32_t arg1, int32_t *arg2)
 {
+	/*
+	 * TODO(t41-unresolved-calls): this hand-written body does not match the
+	 * vendor.  1.2.6-720-4494 0x11310: attr = *(*g_ispcore + *arg2 * 96 +
+	 * 360), fn = attr + 208, *(uint16_t *)(arg2 + 24 bytes) = code.  Here
+	 * g_ispcore (a 16-byte object) is indexed at +0x168, i.e. outside it.
+	 * Same dead-by-default vendor AE path as the other sensor_alloc_*.
+	 */
 	uint32_t var_10 = 0;
 	uint32_t tmp;
 	int32_t (*func)(int32_t, int32_t, void *);
@@ -31008,6 +30923,17 @@ sensor_alloc_integration_time0x44:
 
 sensor_alloc_integration_time0x54:
     /* fragment 7: CallSetup */
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_integration_time:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_integration_time (attr + 212)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 20) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 8: StackAccess */
@@ -31069,6 +30995,17 @@ sensor_alloc_integration_time_short0x44:
 
 sensor_alloc_integration_time_short0x54:
     /* fragment 7: CallSetup */
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_integration_time_short:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_integration_time_short (attr + 216)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 22) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 8: StackAccess */
@@ -31713,7 +31650,21 @@ sensor_set_mode0x68:
     s0 = a1;
     s2 = ((uintptr_t)s2 * (uintptr_t)v1) + a0;
     s1 = *(uint32_t *)((char *)(s2) + 360);
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
+    /*
+     * Vendor 1.2.6-720-4494 sensor_set_mode+0x68..0x94 (0x118dc..0x11908;
+     * 1.2.0-720-4494 same shape): event = *(core + 0x80), then
+     * event(core, 0x0200000d, &mode_flag) with the byte flag = 1 at sp+16.
+     * core is the global g_ispcore subdev, not the incoming argument.
+     * A non-zero return takes the vendor error print below.
+     */
+    if (!t41_kernel_data_ptr((void *)a0) ||
+        !t41_kernel_data_ptr((void *)(uintptr_t)v0)) {
+        v0 = -ENODEV;
+        a2 = local_10;
+        goto sensor_set_mode0x34;
+    }
+    v0 = (uintptr_t)((int (*)(uintptr_t, uint32_t, uintptr_t))(uintptr_t)v0)(
+        a0, 0x0200000d, (uintptr_t)&local_10);
 
     /* fragment 10: Branch */
     a2 = local_10;
@@ -32039,13 +31990,17 @@ int32_t tx_isp_notify(uint32_t a0, uint32_t a1, uint32_t a2)
             continue;
         }
 
-        printk(KERN_WARNING
-               "tx_isp_t41_recovered: notify enter event=0x%x slot=%u subdev=%p ops=%p cb=%p\n",
-               a1, slot_index, subdev, ops, event);
+        /* The IVDC ISR (event 0x01000007) also lands here: no console
+         * tracing from hard IRQ context. */
+        if (!in_interrupt())
+            printk(KERN_WARNING
+                   "tx_isp_t41_recovered: notify enter event=0x%x slot=%u subdev=%p ops=%p cb=%p\n",
+                   a1, slot_index, subdev, ops, event);
         ret = event ? event((uintptr_t)subdev, a1, a2) : -ENOIOCTLCMD;
-        printk(KERN_WARNING
-               "tx_isp_t41_recovered: notify exit event=0x%x slot=%u ret=%d\n",
-               a1, slot_index, ret);
+        if (!in_interrupt())
+            printk(KERN_WARNING
+                   "tx_isp_t41_recovered: notify exit event=0x%x slot=%u ret=%d\n",
+                   a1, slot_index, ret);
         if (ret && ret != -ENOIOCTLCMD)
             return ret;
     }
@@ -32236,6 +32191,20 @@ int64_t find_subdev_link_pad(uintptr_t a0, uintptr_t a1)
 #endif
 }
 
+/*
+ * Call a subdev internal_ops PM callback (sd->ops->internal->suspend_module
+ * at +0x08 / resume_module at +0x0c) exactly as the vendor does: one
+ * argument, the subdev.  An implausible pointer reports -ENOIOCTLCMD
+ * (-515), which every caller already treats as "no callback".
+ */
+static int t41_call_subdev_pm(uintptr_t callback, uintptr_t sd)
+{
+	if (!t41_kernel_data_ptr((void *)callback) ||
+	    !t41_kernel_data_ptr((void *)sd))
+		return -ENOIOCTLCMD;
+	return ((int (*)(uintptr_t))callback)(sd);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000013128 origin=fragment_seed original=tx_isp_resume */
 int32_t tx_isp_resume(uintptr_t a0)
 {
@@ -32305,7 +32274,8 @@ tx_isp_resume0x90:
     if (v0 == 0) { goto tx_isp_resume0x78; }
 
     /* fragment 14: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
+    /* vendor 1.2.6-720-4494 tx_isp_resume 0x11f04: internal->resume_module(sd) */
+    v0 = t41_call_subdev_pm((uintptr_t)v0, a0);
 
     /* fragment 15: Branch */
     if (v0 == 0) { goto tx_isp_resume0x7c; }
@@ -32393,7 +32363,8 @@ tx_isp_suspend0x90:
     if (v0 == 0) { goto tx_isp_suspend0x78; }
 
     /* fragment 14: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
+    /* vendor 1.2.6-720-4494 tx_isp_suspend 0x11fcc: internal->suspend_module(sd) */
+    v0 = t41_call_subdev_pm((uintptr_t)v0, a0);
 
     /* fragment 15: Branch */
     if (v0 == 0) { goto tx_isp_suspend0x7c; }
@@ -65526,6 +65497,20 @@ uint32_t tisp_set_sensor_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
+    /*
+     * TODO(t41-unresolved-calls): vendor 1.2.6-720-4494 tisp_set_sensor_analog_gain
+     * (0x262f8) receives the tisp sensor-info struct BY VALUE and calls two of
+     * its callbacks, read from the stack at struct offsets 340 and 380
+     * (most likely alloc_again and set_analog_gain, cf. sensor_init's
+     * table at +332/+372 with an unproven 8-byte base shift).  The recovery
+     * lost the by-value struct (callers pass only a0), so neither the
+     * callback nor its argument block exists here.  This is only reached by
+     * the recovered vendor AE (tisp_ae_calc_process -> tisp_ae_long/short
+     * _ev_alloc), which t41_safe_ae_controller=1 (default) replaces.  Fail
+     * cleanly instead of returning a gain computed from the placeholder.
+     */
+    pr_warn_once("tx_isp_t41_recovered: tisp_set_sensor_analog_gain: sensor gain callback not recovered, gain not applied\n");
+    return 0;
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
@@ -65692,6 +65677,20 @@ uint32_t tisp_set_sensor_short_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
+    /*
+     * TODO(t41-unresolved-calls): vendor 1.2.6-720-4494 tisp_set_sensor_short_analog_gain
+     * (0x264a4) receives the tisp sensor-info struct BY VALUE and calls two of
+     * its callbacks, read from the stack at struct offsets 344 and 384
+     * (most likely alloc_again_short and set_analog_gain_short, cf. sensor_init's
+     * table at +336/+376 with an unproven 8-byte base shift).  The recovery
+     * lost the by-value struct (callers pass only a0), so neither the
+     * callback nor its argument block exists here.  This is only reached by
+     * the recovered vendor AE (tisp_ae_calc_process -> tisp_ae_long/short
+     * _ev_alloc), which t41_safe_ae_controller=1 (default) replaces.  Fail
+     * cleanly instead of returning a gain computed from the placeholder.
+     */
+    pr_warn_once("tx_isp_t41_recovered: tisp_set_sensor_short_analog_gain: sensor gain callback not recovered, gain not applied\n");
+    return 0;
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
@@ -165026,7 +165025,8 @@ ispcore_resume_module0xe4:
     if (v0 == 0) { goto ispcore_resume_module0x1a8; }
 
     /* fragment 23: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(s2); /* jalr target resolved by relocation */
+    /* vendor 1.2.6-720-4494 ispcore_resume_module 0x71674: child internal->resume_module(sd) */
+    v0 = t41_call_subdev_pm((uintptr_t)v0, (uintptr_t)s2);
 
     /* fragment 24: Branch */
     if (v0 == 0) { goto ispcore_resume_module0x1a8; }
@@ -165247,7 +165247,8 @@ ispcore_suspend_module0x90:
     if (v0 == 0) { goto ispcore_suspend_module0x198; }
 
     /* fragment 18: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(s3); /* jalr target resolved by relocation */
+    /* vendor 1.2.6-720-4494 ispcore_suspend_module 0x718e4: child internal->suspend_module(sd) */
+    v0 = t41_call_subdev_pm((uintptr_t)v0, (uintptr_t)s3);
 
     /* fragment 19: Branch */
     if (v0 == 0) { goto ispcore_suspend_module0x198; }
