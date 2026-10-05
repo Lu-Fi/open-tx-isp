@@ -3571,7 +3571,11 @@ static int apical_isp_wait_frame_done(struct tx_isp_core_device *core, struct v4
 	if (timeout < 0)
 		return -EINVAL;
 
-	ret = isp_frame_done_wait(timeout, &cnt);
+	/* IMPISPWaitFrameAttr.timeout is in ms (T20 3.12.0 / T21 headers);
+	 * the wait takes jiffies (HZ=100: 1000 would have been 10 s) */
+	ret = isp_frame_done_wait((int)min_t(unsigned long,
+					     msecs_to_jiffies(timeout),
+					     INT_MAX), &cnt);
 	info.cnt = cnt;
 
 	if (copy_to_user((void __user*)control->value, &info, sizeof(info)))
