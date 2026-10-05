@@ -18815,7 +18815,12 @@ ae_calculate_target0x1b8:
     if (_bc_v0_20) { goto ae_calculate_target0x144; }
 
     /* fragment 21: CallSetup */
-    v0 = (uintptr_t)div64_u64(a0, a1); /* jalr target resolved by relocation */
+    /* OEM 0x2afc8: div64_u64(a1:a0, a2) -- 64-bit sum in the a0/a1
+     * register pair, divisor = histogram population (a2, s0+1072, checked
+     * non-zero on entry), a3 = 0.  The recovery passed (lo, hi), i.e.
+     * divided by the high word, which is 0 for normal sums (division by
+     * zero, OEM AE stuck at minimum exposure). */
+    v0 = (uintptr_t)div64_u64(((uint64_t)a1 << 32) | a0, a2); /* jalr target resolved by relocation */
 
     /* fragment 22: CallSetup */
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)sqrt32)(v0); /* jalr target resolved by relocation */
@@ -18895,7 +18900,8 @@ ae_calculate_target0x2b4:
     if (_bc_v0_34) { goto ae_calculate_target0x258; }
 
     /* fragment 35: CallSetup */
-    v0 = (uintptr_t)div64_u64(a0, a1); /* jalr target resolved by relocation */
+    /* OEM 0x2b0c0..0x2b0c8: as above with divisor a2 << 1 */
+    v0 = (uintptr_t)div64_u64(((uint64_t)a1 << 32) | a0, (uint64_t)a2 << 1); /* jalr target resolved by relocation */
 
     /* fragment 36: CallSetup */
     s5 = v0;

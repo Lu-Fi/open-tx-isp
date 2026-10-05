@@ -58,4 +58,9 @@ for scen in "" "oem"; do
 	done
 done
 grep -h '^END\|^ABORT\|^BUG\|^exit=' "$out"/run-*.txt | sort | uniq -c
+# ae_calculate_target used to divide by the high word of a 64-bit sum (0):
+# the OEM AE scenario starts at minimum exposure and must not divide by zero
+if grep -l 'div64-by-zero=[1-9]' "$out"/run-*.txt; then
+	echo "FAIL: div64 by zero"; fail=1
+fi
 exit $fail
