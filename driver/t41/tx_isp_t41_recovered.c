@@ -21351,6 +21351,10 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         case TX_ISP_TUNING_CMD_T41_AUTOZOOM:
         case TX_ISP_TUNING_CMD_T41_CCM:
         case TX_ISP_TUNING_CMD_T41_CSC:
+        /* MSCA mask/scaler coefficients: owned by the MSCA path, which
+         * has no open runtime update yet. */
+        case TX_ISP_TUNING_CMD_T41_MASK_BLOCK:
+        case TX_ISP_TUNING_CMD_T41_SCALER_LV:
             return -EOPNOTSUPP;
         default:
             break;
@@ -21547,8 +21551,18 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             if (private_copy_to_user((void __user *)(uintptr_t)a2,
                                      &request, sizeof(request)))
                 return -EFAULT;
+            return 0;
         }
-        return 0;
+        /*
+         * No open implementation for this control.  Stock
+         * tx_isp_core_ops_s_ctrl/g_ctrl answer an unknown ID with -1
+         * (-EPERM); acknowledging it with 0 told callers that a control
+         * had been applied (or a structure filled) when nothing happened.
+         */
+        if (t41_runtime_trace || !route)
+            pr_warn_ratelimited("tx-isp-t41: tuning control 0x%x %s not implemented\n",
+                                request.id, request.is_get ? "get" : "set");
+        return -EPERM;
     }
     if (a1 == 0xc0085433U || a1 == 0xc0085434U) {
         uint32_t request[2];
