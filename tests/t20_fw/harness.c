@@ -9,11 +9,10 @@
  * callbacks, sbus/I2C traffic, printk text, return values of API calls and,
  * at checkpoints, a hash of every data/bss object of the firmware unit with
  * pointers normalised to symbol+offset (so a different code layout does not
- * count as a difference).  Every object is hashed twice, once with pointer
- * normalisation and once with every word inside the image window replaced by a
- * marker; the comparison accepts the object when either of the two hashes
- * matches, because a *constant* that merely looks like an in-image address is
- * normalised to a symbol in one build and not in the other (see compare.sh).
+ * count as a difference).  A firmware constant that merely lies inside the
+ * image is normalised too, to a different symbol per build; compare.sh then
+ * re-runs both builds with dump=<object> and accepts a word only when its
+ * normalised form or its raw value is identical (see there).
  *
  * Usage: t20fw-<variant> <symfile> [calib.bin] [opts]
  *   opts: v      verbose (every register access on its own line)
@@ -123,12 +122,7 @@ static const struct sym *sym_of(uint32_t a)
 	return 0;
 }
 
-/* Hash one 32-bit word, replacing in-image pointers by symbol+offset.
- * A word that only *looks* like an address (a firmware constant such as a
- * fixed register-file base) is normalised too, and whether it resolves to a
- * symbol depends on the code layout of the build.  checkpoint() therefore
- * hashes every object a second time with hash_word_win(); the comparison
- * accepts an object when either of the two hashes matches. */
+/* Hash one 32-bit word, replacing in-image pointers by symbol+offset. */
 static void hash_word(uint64_t *h, uint32_t w)
 {
 	if ((w >= text_lo && w < text_hi) || (w >= data_lo && w < data_hi)) {
@@ -143,26 +137,6 @@ static void hash_word(uint64_t *h, uint32_t w)
 	}
 	if (w >= (uint32_t)(uintptr_t)harness_stack_lo() && w < (uint32_t)(uintptr_t)harness_stack_hi()) {
 		hash_bytes(h, "S", 1);	/* stack address: value not comparable */
-		return;
-	}
-	hash_bytes(h, &w, 4);
-}
-
-/* Same, but with no symbol lookup: every word that lies in the image window of
- * the static binary (or in the stack) is replaced by a single marker, all other
- * words are hashed as they are.  This is a pure function of the object bytes
- * and of a fixed address window, so it is identical for two builds whenever the
- * *contents* agree and only the placement of code, data or a hard-coded
- * in-image address constant differs.  What it cannot see is *which* symbol a
- * pointer field points at; the trace lines cover that (a pointer to a different
- * function means a different call sequence). */
-#define IMG_LO 0x08000000u	/* 0x08048000 + headers/... up to the stack */
-#define IMG_HI 0x10000000u
-static void hash_word_win(uint64_t *h, uint32_t w)
-{
-	if (w >= IMG_LO && w < IMG_HI) { hash_bytes(h, "A", 1); return; }
-	if (w >= (uint32_t)(uintptr_t)harness_stack_lo() && w < (uint32_t)(uintptr_t)harness_stack_hi()) {
-		hash_bytes(h, "S", 1);
 		return;
 	}
 	hash_bytes(h, &w, 4);
@@ -199,26 +173,20 @@ static void checkpoint(const char *tag)
 	for (i = 0; i < nsyms; i++) {
 		const struct sym *s = &syms[i];
 		uint64_t h = 0xcbf29ce484222325ULL;
-		uint64_t hr = 0xcbf29ce484222325ULL;
 		uint32_t a;
 		if (!is_fw_object(s) || !s->size)
 			continue;
-		for (a = 0; a + 4 <= s->size; a += 4) {
-			uint32_t w = *(const uint32_t *)(uintptr_t)(s->addr + a);
-			hash_word(&h, w);
-			hash_word_win(&hr, w);
-		}
-		if (a < s->size) {
+		for (a = 0; a + 4 <= s->size; a += 4)
+			hash_word(&h, *(const uint32_t *)(uintptr_t)(s->addr + a));
+		if (a < s->size)
 			hash_bytes(&h, (const void *)(uintptr_t)(s->addr + a), s->size - a);
-			hash_bytes(&hr, (const void *)(uintptr_t)(s->addr + a), s->size - a);
-		}
-		rt_printf("STATE %s %s#%d %08x%08x %08x%08x\n", tag, s->name, dup_index(i), (unsigned)(h >> 32), (unsigned)h, (unsigned)(hr >> 32), (unsigned)hr);
+		rt_printf("STATE %s %s#%d %08x%08x\n", tag, s->name, dup_index(i), (unsigned)(h >> 32), (unsigned)h);
 		if (dump_obj && !strcmp(dump_obj, s->name)) {
 			for (a = 0; a + 4 <= s->size; a += 4) {
 				uint32_t w = *(const uint32_t *)(uintptr_t)(s->addr + a);
 				uint64_t wh = 0;
 				hash_word(&wh, w);
-				rt_printf("DUMP %s %s+%04x %08x %08x%08x\n", tag, s->name, a, w, (unsigned)(wh >> 32), (unsigned)wh);
+				rt_printf("DUMP %s %s#%d+%04x %08x %08x%08x\n", tag, s->name, dup_index(i), a, w, (unsigned)(wh >> 32), (unsigned)wh);
 			}
 		}
 		hash_bytes(&all, s->name, strlen(s->name));
