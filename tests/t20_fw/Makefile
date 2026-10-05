@@ -25,6 +25,8 @@ FLAGS_O0 := -O0 -fno-tree-dce -fno-ipa-pure-const -fno-ipa-reference
 FLAGS_Os := -Os
 FLAGS_O2 := -O2
 FLAGS_O1 := -O1
+# function coverage of the scenario (-O0 + -finstrument-functions)
+FLAGS_cov := $(FLAGS_O0) -finstrument-functions
 SDKINC := -nostdinc -Iinclude -isystem $(shell $(CC) -print-file-name=include) \
 	-I$(SDK) -I$(SDK)/apical-isp -I$(SDK)/include -I$(ROOT)/external/ingenic-sdk/include
 HFLAGS := $(ARCH) -O1 -std=gnu99 -fno-builtin -Wall -Wno-unused-function
@@ -33,7 +35,8 @@ HOST_OBJS := $(OUT)/harness.o $(OUT)/calib.o $(OUT)/rt.o \
 	$(OUT)/sdk_static.o $(OUT)/sdk_dynamic.o $(OUT)/sdk_calibrations.o $(OUT)/sdk_calinit.o \
 	$(OUT)/t20_math.o
 
-.PHONY: all check clean probe
+.PHONY: all check clean probe coverage
+.SECONDARY:
 all: probe $(foreach v,$(VARIANTS),$(OUT)/t20fw-$(v) $(OUT)/t20fw-$(v).sym)
 
 probe:
@@ -68,11 +71,18 @@ $(OUT)/t20fw-%: $(OUT)/fw-%.o $(HOST_OBJS)
 
 # symbol table with firmware-unit data objects flagged "F"
 $(OUT)/t20fw-%.sym: $(OUT)/t20fw-% $(OUT)/fw-%.o
-	nm --defined-only $(OUT)/fw-$*.o | awk '$$2 ~ /^[dDbB]$$/ {print $$3}' | sort -u > $@.fw
-	nm -S -n --defined-only $< | awk 'NR==FNR {fw[$$1]=1; next} NF==4 {print $$0 ((($$3 ~ /^[dDbB]$$/) && ($$4 in fw)) ? " F" : "")}' $@.fw - > $@
+	nm --defined-only $(OUT)/fw-$*.o | awk '$$2 ~ /^[dDbBtT]$$/ {print $$3}' | sort -u > $@.fw
+	nm -S -n --defined-only $< | awk 'NR==FNR {fw[$$1]=1; next} NF==4 {print $$0 ((($$3 ~ /^[dDbBtT]$$/) && ($$4 in fw)) ? " F" : "")}' $@.fw - > $@
 
 check: all
 	./compare.sh $(OUT) "$(CALIB)" $(REF) $(filter-out $(REF),$(VARIANTS))
+
+# which firmware functions the scenarios execute (coverage limit of check)
+coverage: $(OUT)/t20fw-cov $(OUT)/t20fw-cov.sym
+	setarch -R $(OUT)/t20fw-cov $(OUT)/t20fw-cov.sym "$(or $(CALIB),-)" cov > $(OUT)/cov-simple.txt
+	setarch -R $(OUT)/t20fw-cov $(OUT)/t20fw-cov.sym "$(or $(CALIB),-)" cov oem > $(OUT)/cov-oem.txt
+	cat $(OUT)/cov-simple.txt $(OUT)/cov-oem.txt | awk '/^COV hit/ {h[$$3]=1} /^COV miss/ {m[$$3]=1} END {for (f in m) if (!(f in h)) n++; for (f in h) k++; printf "functions executed: %d, never executed: %d\n", k, n}'
+	cat $(OUT)/cov-simple.txt $(OUT)/cov-oem.txt | awk '/^COV hit/ {h[$$3]=1} /^COV miss/ {m[$$3]=1} END {for (f in m) if (!(f in h)) print f}' | sort > $(OUT)/cov-missed.txt
 
 clean:
 	rm -rf $(OUT)

@@ -3982,7 +3982,10 @@ int32_t i2c_io_read_sample(int32_t *arg1, uint32_t arg2, char arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017b60 origin=fragment_seed original=i2c_io_write_sample */
 int32_t i2c_io_write_sample(uintptr_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
-    uint32_t *local_10 = 0;
+    /* OEM 0x17200: 8-byte address+data buffer at sp+16 (written
+     * through &local_10 below; a single word overflowed into the
+     * neighbouring stack slots, which only stayed harmless at -O0) */
+    uint32_t local_10[2] = { 0, 0 };
     uint32_t local_18 = 0;
     uint32_t local_1c = 0;
     uint32_t local_20 = 0;

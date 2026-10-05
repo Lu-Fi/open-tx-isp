@@ -50,7 +50,7 @@ static void ev(const char *s)
 /* ------------------------------------------------------------------ */
 /* symbol table of this binary (from nm), for pointer normalisation      */
 
-struct sym { uint32_t addr, size; char type, fw; char name[64]; };
+struct sym { uint32_t addr, size; char type, fw, hit; char name[64]; };
 #define MAXSYM 8192
 static struct sym syms[MAXSYM];
 static int nsyms;
@@ -143,8 +143,7 @@ static int is_fw_object(const struct sym *s)
 {
 	/* data/bss objects of the firmware unit: harness/rt/calib objects are
 	 * prefixed or listed in harness_own_object() */
-	if (s->type != 'd' && s->type != 'D' && s->type != 'b' && s->type != 'B' &&
-	    s->type != 'r' && s->type != 'R')
+	if (s->type != 'd' && s->type != 'D' && s->type != 'b' && s->type != 'B')
 		return 0;
 	return s->fw;
 }
@@ -193,6 +192,29 @@ static void checkpoint(const char *tag)
 	rt_printf("CP %-24s events=%lu trace=%08x%08x state=%08x%08x\n", tag, tev,
 		  (unsigned)(th >> 32), (unsigned)th, (unsigned)(all >> 32), (unsigned)all);
 	tev = 0;
+}
+
+/* function coverage (variant "cov", -finstrument-functions) */
+static int cov_on;
+__attribute__((no_instrument_function)) void __cyg_profile_func_enter(void *fn, void *site)
+{
+	int lo = 0, hi = nsyms - 1;
+	uint32_t a = (uint32_t)(uintptr_t)fn;
+	(void)site;
+	while (lo <= hi) {
+		int m = (lo + hi) / 2;
+		if (syms[m].addr == a) { syms[m].hit = 1; return; }
+		if (syms[m].addr < a) lo = m + 1; else hi = m - 1;
+	}
+}
+__attribute__((no_instrument_function)) void __cyg_profile_func_exit(void *fn, void *site) { (void)fn; (void)site; }
+
+static void cov_report(void)
+{
+	int i;
+	for (i = 0; i < nsyms; i++)
+		if (syms[i].fw && (syms[i].type == 't' || syms[i].type == 'T'))
+			rt_printf("COV %s %s %d %x\n", syms[i].hit ? "hit" : "miss", syms[i].name, i, syms[i].addr);
 }
 
 /* ------------------------------------------------------------------ */
@@ -598,6 +620,9 @@ static void frame(void)
 	irq(7);		/* frame start */
 	irq(3);		/* AE statistics */
 	irq(4);		/* AWB statistics */
+	irq(5);		/* FR / DS1 / DS2 frame buffer */
+	irq(6);
+	irq(12);
 	irq(0);		/* frame end */
 	/* isp_fw_process(): apical_process(); apical_cmd_process(); */
 	process();
@@ -626,6 +651,7 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "trace")) trace = 1;
 		else if (argv[i][0] == 'p' && argv[i][1]) poison = hexarg(argv[i] + 1);
 		else if (!strncmp(argv[i], "dump=", 5)) dump_obj = argv[i] + 5;
+		else if (!strcmp(argv[i], "cov")) cov_on = 1;
 		else if (i == 2) calib = argv[i];
 	}
 	t20fw_set_knobs(oem, trace);
@@ -675,6 +701,59 @@ int main(int argc, char **argv)
 	cmd(TALGORITHMS_H, ANTIFLICKER_MODE_ID_H, 0, 0);
 	for (f = 0; f < 30; f++) frame();
 	checkpoint("day-again");
+
+	/* AE modes / manual exposure, each followed by frames */
+	{
+		static const uint32_t ae_modes[] = { 0x26, 0x27, 0x28, 0x2a, 0x29, 0x25 };
+		unsigned m;
+		cmd(TSYSTEM_H, 0x0d, 1, 0);	/* SYSTEM_MANUAL_EXPOSURE */
+		cmd(TSYSTEM_H, 0x22, 300, 0);	/* SYSTEM_INTEGRATION_TIME */
+		cmd(TSYSTEM_H, 0x24, 40, 0);	/* SYSTEM_SENSOR_ANALOG_GAIN */
+		for (f = 0; f < 5; f++) frame();
+		cmd(TSYSTEM_H, 0x0d, 0, 0);
+		for (m = 0; m < sizeof(ae_modes) / sizeof(ae_modes[0]); m++) {
+			cmd(TALGORITHMS_H, AE_MODE_ID_H, ae_modes[m], 0);
+			cmd(TALGORITHMS_H, 0x58, 64, 0);	/* AE_GAIN */
+			cmd(TALGORITHMS_H, 0x59, 2000, 0);	/* AE_EXPOSURE */
+			for (f = 0; f < 4; f++) frame();
+			cmd(TALGORITHMS_H, 0x58, 0, 1);
+			cmd(TALGORITHMS_H, 0x59, 0, 1);
+		}
+		cmd(TALGORITHMS_H, 0x5c, 1, 0);	/* AE_FREEZE */
+		for (f = 0; f < 3; f++) frame();
+		cmd(TALGORITHMS_H, 0x5c, 0, 0);
+		cmd(TALGORITHMS_H, ANTIFLICKER_MODE_ID_H, 60, 0);
+		for (f = 0; f < 6; f++) frame();
+	}
+	checkpoint("ae-modes");
+
+	/* API sweep: every GET, then SETs with a few values (coverage of the
+	 * API dispatch and its getters/setters) */
+	{
+		static const uint32_t vals[] = { 0, 1, 2, 0x32, 0x80, 0xff };
+		uint32_t type, id, v;
+		for (type = 0; type <= 6; type++)
+			for (id = 0; id < 0x100; id++)
+				if (type || id)	/* selftest_sensor_id: open finding, calls into data */
+					cmd(type, id, 0, 1);
+		checkpoint("api-get-sweep");
+		for (type = 1; type <= 4; type++)
+			for (id = 0; id < 0x80; id++) {
+				if (type == TSYSTEM_H && (id == 0x0c || id == 0x0a || id == 0x0b))
+					continue;	/* freeze firmware / test pattern */
+				if (type == 2 && id >= 0x3f && id <= 0x4d)
+					continue;	/* resolution / fps / wdr / crop: re-init */
+				for (v = 0; v < sizeof(vals) / sizeof(vals[0]); v++)
+					cmd(type, id, vals[v], 0);
+				if ((id & 15) == 15)
+					frame();
+			}
+		for (f = 0; f < 10; f++) frame();
+	}
+	checkpoint("api-set-sweep");
+
+	if (cov_on)
+		cov_report();
 
 	rt_printf("END frames=%u reads=%lu writes=%lu div64-by-zero=%lu\n", frame_no, reads, writes, rt_div0_count);
 	return 0;
