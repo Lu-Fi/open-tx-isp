@@ -1092,6 +1092,8 @@ static unsigned char __attribute__((aligned(4))) cos_table[180] = {
 static int32_t flock;
 static unsigned char apical_ext_sytem_mem[248];
 static unsigned char __attribute__((aligned(4))) dis_global_static[0x12c];
+int32_t APICAL_READ_32(int32_t addr);
+int32_t APICAL_WRITE_32(int32_t arg1, uint32_t arg2);
 static inline int32_t write_data_tail(uint32_t addr, uint32_t val)
 {
 	return APICAL_WRITE_32(addr, val);
@@ -1124,7 +1126,15 @@ static inline uint16_t cmos_get_fps_u16_field(const void *p)
 	const uint16_t *f = (const uint16_t *)((const uint8_t *)p + 0x50);
 	return *f;
 }
-static unsigned char exp_lut[48];
+/*
+ * 0x28 bytes of partition LUT + owner accumulators.  The recovered
+ * cmos_update_exposure_partitioning_lut() walks its accumulator pointer up to
+ * exp_lut + 0x3b; in the -O0 module that spilled into the (unused, zeroed)
+ * frame_channel_v4l2_ioctl_ops that follows in .bss.  Reserve those bytes
+ * here so the result no longer depends on the data layout (-Os reorders
+ * .bss).  The walk itself is left as recovered (see docs: open finding).
+ */
+static unsigned char exp_lut[64];
 struct long_integration_time {
     int32_t pad[27];
     int32_t max_value; /* offset 0x6c */
@@ -3639,6 +3649,7 @@ static int32_t solving_lin_equation_a(int32_t arg1, int32_t arg2, int32_t arg3, 
     int32_t denom = arg3 - arg4;
     int32_t numer = (arg1 - arg2) << (arg5 & 0x1f);
     int32_t result;
+#if defined(__mips__)
     __asm__ __volatile__(
         "div %0, %1, %2\n"
         "teq %2, $zero, 7\n"
@@ -3646,6 +3657,10 @@ static int32_t solving_lin_equation_a(int32_t arg1, int32_t arg2, int32_t arg3, 
         : "=r"(result)
         : "r"(numer), "r"(denom)
     );
+#else
+    /* host harness (tests/t20_fw): MIPS div truncates toward zero */
+    result = numer / denom;
+#endif
     return result;
 }
 
@@ -4951,13 +4966,18 @@ int32_t write_data(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000018d08 origin=model_output original=apical_cmd_process */
 int32_t apical_cmd_process(void)
 {
+	/*
+	 * OEM 0x183a8 keeps these in .bss (fields at +0..+0xb, the 4 KiB
+	 * buffer at +0xc) because the command protocol spans several calls.
+	 * As stack locals they only survived by stack-slot reuse at -O0.
+	 */
+	static uint32_t cmd_buf[1024];
+	static uint8_t field_0;
+	static uint8_t field_1;
+	static uint8_t field_2;
+	static uint32_t field_4;
+	static uint32_t field_8;
 	uint32_t cmd;
-	uint32_t buf[1024];
-	uint8_t field_0;
-	uint8_t field_1;
-	uint8_t field_2;
-	uint32_t field_4;
-	uint32_t field_8;
 	uint32_t ret_val;
 	uint32_t idx;
 	uint32_t limit;
@@ -4971,7 +4991,7 @@ int32_t apical_cmd_process(void)
 	cmd = APICAL_READ_32(0x2048) & 0xff;
 
 	if (cmd >= 14) {
-		if (apical_api_read_buffer(buf) != 0)
+		if (apical_api_read_buffer(cmd_buf) != 0)
 			apical_api_buffer_data_size_value = 0;
 		return 0x50000;
 	}
@@ -4983,7 +5003,7 @@ int32_t apical_cmd_process(void)
 		field_2 = 0;
 		field_4 = 0;
 		field_8 = 0;
-		memset(buf, 0, 0x1000);
+		memset(cmd_buf, 0, 0x1000);
 		reg_val = APICAL_READ_32(0x2048);
 		write_val = reg_val | 0xff00;
 		write_addr = 0x2048;
@@ -5040,7 +5060,7 @@ int32_t apical_cmd_process(void)
 			reg_val = APICAL_READ_32(0x2048);
 			APICAL_WRITE_32(0x2048, (reg_val & 0xffffff00) | 8);
 		} else {
-			((uint32_t *)buf)[idx] = read_data();
+			((uint32_t *)cmd_buf)[idx] = read_data();
 			reg_val = APICAL_READ_32(0x2048);
 			APICAL_WRITE_32(0x2048, (reg_val & 0xffffff00) | 6);
 		}
@@ -5053,14 +5073,14 @@ int32_t apical_cmd_process(void)
 			reg_val = APICAL_READ_32(0x2048);
 			APICAL_WRITE_32(0x2048, (reg_val & 0xffffff00) | 8);
 		} else {
-			write_data(buf[idx]);
+			write_data(cmd_buf[idx]);
 			reg_val = APICAL_READ_32(0x2048);
 			APICAL_WRITE_32(0x2048, (reg_val & 0xffffff00) | 6);
 		}
 		break;
 	case 0xb:
 		cmd_fn = apical_api_calibration;
-		out_val = cmd_fn(field_0, field_2, (uint32_t)buf, field_8, &out_val);
+		out_val = cmd_fn(field_0, field_2, (uint32_t)cmd_buf, field_8, &out_val);
 		write_data(out_val);
 		reg_val = APICAL_READ_32(0x204c);
 		write_val = (out_val << 8) | (reg_val & 0xffff00ff);
@@ -5085,7 +5105,7 @@ int32_t apical_cmd_process(void)
 		break;
 	}
 
-	if (apical_api_read_buffer(buf) != 0)
+	if (apical_api_read_buffer(cmd_buf) != 0)
 		apical_api_buffer_data_size_value = 0;
 
 	return 0x50000;
@@ -14732,6 +14752,9 @@ int32_t apical_command(uint32_t cmd, uint32_t sub, uint32_t val, uint32_t type, 
 	default:
 		return 4;
 	}
+	/* OEM 0x2605c: unmatched sub-commands fall through to "return 4".
+	 * Without this the status was whatever was left in v0 (-O0 only). */
+	return 4;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000269d0 origin=fragment_seed original=apical_isp_init */
@@ -15300,7 +15323,10 @@ void* cmos_fsm_clear(uintptr_t a0)
     v0 = v0;
 
     /* fragment 3: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)log2_fixed_to_fixed)(a0); /* jalr target resolved by relocation */
+    /* OEM 0x26e48-0x26e58: a1 = 12 and a2 = 16 (jalr delay slot); the
+     * recovery passed only a0, so a1/a2 were whatever the caller left in
+     * the registers (-O0) or on the stack. */
+    v0 = (uintptr_t)log2_fixed_to_fixed(a0, a1, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: Epilogue */
     /* function epilogue: restore registers and return */
@@ -16302,21 +16328,16 @@ void flash_fsm_switch_state(int32_t *arg1, int32_t arg2)
 
 	((void **)arg1)[1] = arg2;
 
-	if (arg2 == 0) {
-		asm volatile("lui %0, %%hi(flash_initialize)\n\t"
-			     "addiu %0, %0, %%lo(flash_initialize)"
-			     : "=&r"(arg1));
-	} else if (arg2 == 2) {
-		asm volatile("lui %0, %%hi(flash_processing)\n\t"
-			     "addiu %0, %0, %%lo(flash_processing)"
-			     : "=&r"(arg1));
-	} else {
-		return;
-	}
-
-	asm volatile("jr %0\n\t"
-		     "nop"
-		     : : "r"(arg1));
+	/*
+	 * OEM 0x28e5c tail-jumps to the state handler with a0 (= arg1)
+	 * unchanged.  This used to be an inline "jr" that only worked at -O0
+	 * (a leaf without frame, a0 still holding arg1); at -Os the asm output
+	 * may be allocated to a0 and the handler would get its own address.
+	 */
+	if (arg2 == 0)
+		flash_initialize(arg1);
+	else if (arg2 == 2)
+		flash_processing(arg1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028e9c origin=model_output original=flash_fsm_process_state */
@@ -20856,7 +20877,9 @@ static int32_t sinter_strength_calculate_recovered(uintptr_t a0)
     /* fragment 7: CallSetup */
     s4 = s4 & 65535;
     local_10 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)calc_adjust_modulation_u16)(s4 & 65535, local_1c, s7, (uintptr_t)s1); /* jalr target resolved by relocation */
+    /* OEM 0x2e208 stores the _GET_ROWS result to sp+16: the fifth
+     * (stack-passed) argument.  The recovery dropped it. */
+    v0 = (uintptr_t)calc_adjust_modulation_u16(s4 & 65535, local_1c, s7, (uintptr_t)s1, (uint32_t)(uintptr_t)local_10); /* jalr target resolved by relocation */
 
     /* fragment 8: CallSetup */
     s1 = 255;
