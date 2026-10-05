@@ -11228,47 +11228,45 @@ int32_t cmos_antiflicker_update(int32_t *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fc94 origin=model_output original=cmos_long_exposure_update */
 uint32_t cmos_long_exposure_update(uint32_t *arg1)
 {
-	uint32_t *dev = *(uint32_t **)arg1;
-	uint8_t mode = *(uint8_t *)((char *)dev + 0x1524);
-	uint32_t (*func_ptr)(int32_t, int32_t);
-	uint32_t val;
-	uint16_t hw_val;
-	uint32_t max_int;
-	uint32_t quantised;
-	uint32_t result;
+	/* OEM 0x1f334.  The sensor alloc_integration_time callback (dev+0xa4)
+	 * gets &arg1[0x71] (byte offset 0x1c4, the u16 integration time) and
+	 * dev+0x56; the recovery passed arg1 + 0x71 *bytes*, so the sensor
+	 * clamped a random halfword instead of the exposure.  The long
+	 * integration time at 0x1c8 is a u16. */
+	uint8_t *ctx = (uint8_t *)arg1;
+	uint8_t *dev = *(uint8_t **)arg1;
+	uint8_t mode = dev[0x1524];
+	void (*alloc_it)(void *, void *) = *(void (**)(void *, void *))(dev + 0xa4);
+	uint32_t val, max_int, quantised;
+	uint16_t it;
 
 	if (mode != 1 && mode != 3) {
-		func_ptr = *(void (**)(int32_t, int32_t))((char *)dev + 0xa4);
-		*(uint16_t *)((char *)arg1 + 0x1ca) = 0x40;
-		uint32_t r = func_ptr((int)(uintptr_t)arg1 + 0x71, (int)(uintptr_t)dev + 0x56);
-		return r;
+		*(uint16_t *)(ctx + 0x1ca) = 0x40;
+		alloc_it(ctx + 0x1c4, dev + 0x56);
+		return 0;
 	}
 
 	val = arg1[0x6f];
 	if (val < 0x40)
 		val = 0x40;
-	max_int = *(uint32_t *)((char *)dev + 0x74);
-	max_int = *(void **)((char *)dev + 0x74);
-	hw_val = *(uint16_t *)((char *)arg1 + 0x1c4);
-	quantised = (val * hw_val) >> 6;
+	max_int = *(uint32_t *)(dev + 0x74);
+	quantised = (val * *(uint16_t *)(ctx + 0x1c4)) >> 6;
 	if (quantised >= 0x10000)
 		quantised = 0xffff;
 
 	quantised = get_quantised_long_integration_time(arg1, quantised, max_int);
-	dev = *(uint32_t **)arg1;
-	if (max_int >= quantised)
+	if (!(max_int < quantised))
 		max_int = quantised;
-	func_ptr = *(void (**)(int32_t, int32_t))((char *)dev + 0xa4);
-	func_ptr = *(void (**)(int32_t, int32_t))((char *)dev + 0xa4);
-	((uint32_t *)arg1)[0x72] = max_int;
-	func_ptr((int)(uintptr_t)arg1 + 0x71, (int)(uintptr_t)dev + 0x56);
+	dev = *(uint8_t **)arg1;
+	*(uint16_t *)(ctx + 0x1c8) = (uint16_t)max_int;
+	(*(void (**)(void *, void *))(dev + 0xa4))(ctx + 0x1c4, dev + 0x56);
 
-	result = *(uint16_t *)((char *)arg1 + 0x1c4);
-	if (result == 0)
+	it = *(uint16_t *)(ctx + 0x1c4);
+	if (it == 0)
 		BUG();
 
-	*(uint16_t *)((char *)arg1 + 0x1ca) = ((uint32_t)(*(uint16_t *)((char *)arg1 + 0x1c8)) << 6) / result;
-	return result;
+	*(uint16_t *)(ctx + 0x1ca) = ((uint32_t)*(uint16_t *)(ctx + 0x1c8) << 6) / it;
+	return it;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fd80 origin=model_output original=cmos_calc_target_gain */
