@@ -318,11 +318,125 @@ static long t23x_ae_control(bool get, uint32_t id, uint32_t *value)
 	}
 }
 
+
+/* ---- AWB --------------------------------------------------------------- */
+
+#define T23X_CID_AWB_RGB_COEFFT 0x08000008U
+#define T23X_CID_AWB_ZONE       0x0800000bU
+#define T23X_CID_AWB_CT         0x0800000dU
+#define T23X_CID_AWB_ZONE_WEIGHT 0x08000010U
+
+/* GetAwbZone from the last statistics snapshot of the HLIL AWB */
+static long t23x_awb_zone_get(uint32_t uptr)
+{
+	struct regtrace_t23_awb_hlil_snapshot *snap;
+	unsigned long flags;
+	uint8_t *out;
+	long ret;
+
+	snap = kmalloc(sizeof(*snap) + T23X_AWB_ZONE_BYTES, GFP_KERNEL);
+	if (!snap)
+		return -ENOMEM;
+	out = (uint8_t *)(snap + 1);
+	spin_lock_irqsave(&regtrace_t23_awb_hlil_lock, flags);
+	memcpy(snap, &regtrace_t23_awb_hlil_snapshot_data, sizeof(*snap));
+	spin_unlock_irqrestore(&regtrace_t23_awb_hlil_lock, flags);
+	t23x_awb_zone_pack(snap->r, snap->g, snap->b, snap->pixels, out);
+	ret = regtrace_t23_copy_out(uptr, out, T23X_AWB_ZONE_BYTES);
+	kfree(snap);
+	return ret;
+}
+
+/* SetAwbZoneWeight (stock isp_tlib_api_s_awb_zone_weight): 225 words to
+ * the active, day and night banks and the AWB's zone weight table
+ * (_awb_wght, here the HLIL zone weight mesh) */
+static long t23x_awb_zone_weight(bool get, uint32_t uptr)
+{
+	uint32_t *w;
+	long ret;
+
+	w = kmalloc(900, GFP_KERNEL);
+	if (!w)
+		return -ENOMEM;
+	if (get) {
+		memcpy(w, regtrace_t23_awb_hlil_zone_weight_mesh, 900);
+		ret = regtrace_t23_copy_out(uptr, w, 900);
+	} else {
+		ret = regtrace_t23_copy_in(w, uptr, 900);
+		if (!ret) {
+			t23x_tparams_put(T23X_TP_AWB_ZONE_WEIGHT, w, 900);
+			memcpy(regtrace_t23_awb_hlil_zone_weight_mesh, w, 900);
+		}
+	}
+	kfree(w);
+	return ret;
+}
+
+/* Awb_Set/GetRgbCoefft (stock tisp_bcsh_s/g_rgb_coefft): three u16 into
+ * the BCSH RGB offsets in use, then the BCSH update */
+static long t23x_awb_rgb_coefft(bool get, uint32_t uptr)
+{
+	uint32_t *now = (uint32_t *)(uintptr_t)tisp_BCSH_au32OffsetRGB_now;
+	uint16_t c[3];
+	long ret;
+
+	if (!regtrace_t23_valid_ptr((uintptr_t)now))
+		now = (uint32_t *)(void *)tisp_BCSH_au32OffsetRGB;
+	if (get) {
+		c[0] = (uint16_t)now[0];
+		c[1] = (uint16_t)now[1];
+		c[2] = (uint16_t)now[2];
+		return regtrace_t23_copy_out(uptr, c, sizeof(c));
+	}
+	ret = regtrace_t23_copy_in(c, uptr, sizeof(c));
+	if (ret)
+		return ret;
+	now[0] = c[0];
+	now[1] = c[1];
+	now[2] = c[2];
+	if (regtrace_t23_source_bcsh_runtime)
+		tiziano_bcsh_update();
+	return 0;
+}
+
+static long t23x_awb_control(bool get, uint32_t id, uint32_t *value)
+{
+	uint32_t v = *value;
+
+	switch (id) {
+	case T23X_CID_AWB_ZONE:
+		return get ? t23x_awb_zone_get(v) : -EINVAL;
+	case T23X_CID_AWB_ZONE_WEIGHT:
+		return t23x_awb_zone_weight(get, v);
+	case T23X_CID_AWB_RGB_COEFFT:
+		return t23x_awb_rgb_coefft(get, v);
+	case T23X_CID_AWB_CT: {
+		uint32_t ct;
+		long ret;
+
+		if (get) {
+			ct = ACCESS_ONCE(regtrace_t23_source_awb_hlil_ct);
+			return regtrace_t23_copy_out(v, &ct, sizeof(ct));
+		}
+		ret = regtrace_t23_copy_in(&ct, v, sizeof(ct));
+		if (ret)
+			return ret;
+		ACCESS_ONCE(regtrace_t23_awb_custom_ct) = ct;
+		return 0;
+	}
+	default:
+		return -ENOIOCTLCMD;
+	}
+}
+
 static long regtrace_t23_tuning_ext(bool get, uint32_t id, uint32_t *value)
 {
 	long ret;
 
 	ret = t23x_ae_control(get, id, value);
+	if (ret != -ENOIOCTLCMD)
+		return ret;
+	ret = t23x_awb_control(get, id, value);
 	if (ret != -ENOIOCTLCMD)
 		return ret;
 	return -ENOIOCTLCMD;

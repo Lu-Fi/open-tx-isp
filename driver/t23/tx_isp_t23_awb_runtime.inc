@@ -1,5 +1,11 @@
 /* Active T23 Tiziano AWB path reconstructed from tx-isp-t23-hlil.txt. */
 
+#include "tx_isp_t23_tuning_ext.h"
+
+/* SetAwbCt: the colour temperature used in the manual WB mode (stock .bss
+ * +31488), see t23x_awb_ct_select */
+static uint32_t regtrace_t23_awb_custom_ct;
+
 #define REGTRACE_T23_AWB_HLIL_COLS 15U
 #define REGTRACE_T23_AWB_HLIL_ROWS 15U
 #define REGTRACE_T23_AWB_HLIL_ZONES \
@@ -532,6 +538,8 @@ static void regtrace_t23_source_awb_hlil_work_body(struct work_struct *work)
         ((uint32_t *)(void *)_awb_mf_para)[5] = auto_mf_bg;
 
         wb_mode = ACCESS_ONCE(regtrace_t23_source_wb_mode);
+        result.ct = t23x_awb_ct_select(wb_mode, result.ct,
+                                       &regtrace_t23_awb_custom_ct);
         mf_rg = auto_mf_rg;
         mf_bg = auto_mf_bg;
         if (wb_mode == 9U) {

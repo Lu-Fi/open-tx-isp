@@ -135,8 +135,36 @@ static void test_hist_state_min(void)
 	assert(t23x_ae_min_set(th, wdr, 1001, 0x445d) == 0U);
 }
 
+static void test_awb(void)
+{
+	static uint32_t r[T23X_ZONES], g[T23X_ZONES], b[T23X_ZONES],
+		pix[T23X_ZONES];
+	uint8_t out[T23X_AWB_ZONE_BYTES];
+	uint32_t custom = 0;
+
+	r[0] = 1000; g[0] = 2000; b[0] = 300; pix[0] = 10;
+	r[1] = 100000; g[1] = 0; b[1] = 0; pix[1] = 10;  /* 10000: byte wraps */
+	r[224] = 5; pix[224] = 0;                        /* empty zone */
+	t23x_awb_zone_pack(r, g, b, pix, out);
+	assert(out[0] == 100 && out[225] == 200 && out[450] == 30);
+	assert(out[1] == (uint8_t)10000);
+	assert(out[224] == 0 && out[449] == 0 && out[674] == 0);
+
+	/* auto: follows the measurement */
+	assert(t23x_awb_ct_select(0, 4800, &custom) == 4800 && custom == 4800);
+	/* manual: the set value wins, 0 keeps the measured one */
+	custom = 6500;
+	assert(t23x_awb_ct_select(1, 4800, &custom) == 6500 && custom == 6500);
+	custom = 0;
+	assert(t23x_awb_ct_select(1, 4800, &custom) == 4800 && custom == 0);
+	/* presets: untouched */
+	custom = 3000;
+	assert(t23x_awb_ct_select(3, 4800, &custom) == 4800 && custom == 3000);
+}
+
 int main(void)
 {
+	test_awb();
 	test_weights();
 	test_ae_manual();
 	test_freeze_expr();
