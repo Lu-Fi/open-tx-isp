@@ -35528,18 +35528,25 @@ int32_t ispcore_slake_module(void *arg1)
 		*(u32 *)(channels + i * 0xa0 + 0x50) = 1;
 
 	tuning = *(void **)(core + 0x19c);
-	T21_STOP_TRACE("core slake: tuning %p event fn=%p", tuning,
-		       *(void **)((u8 *)tuning + 0x40cc));
-	/* The slot is only ever isp_core_tuning_event (isp_core_tuning_init);
-	 * a corrupted slot must not become an indirect jump. */
-	if (*(void **)((u8 *)tuning + 0x40cc) != (void *)isp_core_tuning_event) {
-		pr_err("tx-isp-t21: tuning event slot corrupted (%p), restoring\n",
-		       *(void **)((u8 *)tuning + 0x40cc));
-		*(void **)((u8 *)tuning + 0x40cc) = (void *)isp_core_tuning_event;
+	/* NULL when the core probe failed to allocate it (its error path
+	 * slakes too): nothing to notify then. */
+	if (t21_isp_valid_ptr(tuning)) {
+		T21_STOP_TRACE("core slake: tuning %p event fn=%p", tuning,
+			       *(void **)((u8 *)tuning + 0x40cc));
+		/* The slot is only ever isp_core_tuning_event
+		 * (isp_core_tuning_init); a corrupted slot must not become an
+		 * indirect jump. */
+		if (*(void **)((u8 *)tuning + 0x40cc) !=
+		    (void *)isp_core_tuning_event) {
+			pr_err("tx-isp-t21: tuning event slot corrupted (%p), restoring\n",
+			       *(void **)((u8 *)tuning + 0x40cc));
+			*(void **)((u8 *)tuning + 0x40cc) =
+				(void *)isp_core_tuning_event;
+		}
+		((void (*)(void *, u32, u32))
+		 *(void **)((u8 *)tuning + 0x40cc))(tuning, 0x4000001, 0);
+		T21_STOP_TRACE("core slake: tuning event done");
 	}
-	((void (*)(void *, u32, u32))
-	 *(void **)((u8 *)tuning + 0x40cc))(tuning, 0x4000001, 0);
-	T21_STOP_TRACE("core slake: tuning event done");
 	*(u32 *)(core + 0xe8) = 1;
 
 	for (i = 0; i < 16; i++) {
@@ -36122,15 +36129,21 @@ int tx_isp_core_remove(struct platform_device *pdev)
 		tx_isp_subdev_deinit((uintptr_t)subdev);
 		return 0;
 	}
-	tuning = *(void **)(core + 0x19c);
+	/*
+	 * Stock frees the tuning state first and then slakes a core that is
+	 * still active (state >= 2: an open whose activate loop failed part
+	 * way, or a release that stopped at a failing child).  The slake
+	 * sends the 0x4000001 event through tuning + 0x40cc, i.e. a NULL
+	 * dereference in rmmod.  Slake while the tuning state still exists.
+	 */
+	if (*(u32 *)(core + 0xe8) >= 2)
+		ispcore_slake_module(core);
 
+	tuning = *(void **)(core + 0x19c);
 	if (tuning) {
 		isp_core_tuning_deinit((int32_t)(uintptr_t)tuning);
 		*(void **)(core + 0x19c) = NULL;
 	}
-
-	if (*(u32 *)(core + 0xe8) >= 2)
-		ispcore_slake_module(core);
 
 	private_kfree(*(void **)(core + 0x14c));
 	*(u32 *)(core + 0x154) = 1;
