@@ -16143,18 +16143,48 @@ static bool t21_tisp_stats_quiesced = true;
  */
 static int t21_bayer_override = -1;
 
+/*
+ * Beyond vendor: flip_bayer_follow (default 1).  The T21 ISP mirror/flip
+ * (0x2318, tisp_mirror_enable/tisp_flip_enable) acts before the demosaic:
+ * on an even-sized frame a mirror moves the CFA one column (RGGB<->GRBG,
+ * BGGR<->GBRG: reg 0x8 ^ 2), a flip one row (RGGB<->GBRG, BGGR<->GRBG:
+ * ^ 3), both together swap R/B (^ 1).  The lifted driver left reg 0x8 as
+ * tisp_init wrote it, so every ISP flip turned the picture magenta
+ * (imgfx 2026-10-05).  With the follow the pattern register is rewritten
+ * whenever the ISR applies a flip request, from the base tisp_init
+ * derived (or bayer_override) and the current flip state.  0 = stock.
+ */
+static uint flip_bayer_follow = 1;
+module_param(flip_bayer_follow, uint, 0644);
+MODULE_PARM_DESC(flip_bayer_follow, "T21: rewrite TOP 0x8 (CFA phase) when the ISP mirror/flip changes (default 1, 0 = stock: pattern stays, flipped picture turns magenta)");
+static uint32_t t21_bayer_base;		/* reg 0x8 as tisp_init derived it */
+static uint32_t t21_flip_state;		/* bit0 mirror, bit1 flip (ISR) */
+
+static void t21_bayer_apply(const char *why)
+{
+	uint32_t v = t21_bayer_override >= 0 && t21_bayer_override <= 0x17 ?
+		     (uint32_t)t21_bayer_override : t21_bayer_base;
+
+	if (flip_bayer_follow && v < 4) {
+		if (t21_flip_state & 1)
+			v ^= 2;
+		if (t21_flip_state & 2)
+			v ^= 3;
+	}
+	system_reg_write(8, v);
+	printk(KERN_INFO "tx-isp-t21: bayer %s: TOP 0x8 = %u (base %u, override %d, flip %u)\n",
+	       why, system_reg_read(8), t21_bayer_base, t21_bayer_override,
+	       t21_flip_state);
+}
+
 static int t21_bayer_override_set(const char *val, const struct kernel_param *kp)
 {
 	int ret = param_set_int(val, kp);
 
 	if (ret)
 		return ret;
-	if (t21_bayer_override >= 0 && t21_bayer_override <= 0x17 &&
-	    !t21_tisp_stats_quiesced) {
-		system_reg_write(8, (uint32_t)t21_bayer_override);
-		printk(KERN_INFO "tx-isp-t21: bayer_override: TOP 0x8 = %u\n",
-		       system_reg_read(8));
-	}
+	if (!t21_tisp_stats_quiesced)
+		t21_bayer_apply("override");
 	return 0;
 }
 
@@ -16706,12 +16736,10 @@ int32_t tisp_init(int32_t *arg1)
 		}
 	}
 
-	/* diagnostic override of the CFA phase (bayer_override, see above) */
-	if (t21_bayer_override >= 0 && t21_bayer_override <= 0x17) {
-		system_reg_write(8, (uint32_t)t21_bayer_override);
-		printk(KERN_INFO "tx-isp-t21: bayer_override: TOP 0x8 = %u (mbus-derived bayer=%u)\n",
-		       (unsigned)t21_bayer_override, bayer);
-	}
+	/* bayer_override / flip_bayer_follow (see t21_bayer_apply) */
+	t21_bayer_base = system_reg_read(8);
+	if (t21_bayer_override >= 0 || (flip_bayer_follow && t21_flip_state))
+		t21_bayer_apply("init");
 
 	if (deir_en == 1)
 		topreg_val |= 0x10000000;
@@ -17054,6 +17082,50 @@ static u8 awb_hy_valid, awb_hy_above0, awb_hy_above1, awb_hy_low;
 static u32 awb_day_gain[2];
 static bool awb_day_gain_valid;
 
+/* A/B knobs for the day colour cast hunt (all live, 0644):
+ * awb_day_restore=0: with awb_ir_freeze keep the freeze but skip the
+ *   0x604/0x608 restore and the first_frame clearing at night->day (the
+ *   stock re-seed from the first day frame's statistics runs instead).
+ * wb_auto_moa=0: tisp_s_wb_mode(AUTO) (SetWB mode 0, timps config apply)
+ *   does not raise awb_moa (stock does; imgfx: SetWB(auto) -> magenta). */
+static uint awb_day_restore = 1;
+module_param(awb_day_restore, uint, 0644);
+MODULE_PARM_DESC(awb_day_restore, "T21: with awb_ir_freeze, restore the day AWB gains at night->day and skip the first-frame re-seed (default 1, 0 = re-seed from statistics)");
+static uint wb_auto_moa = 1;
+module_param(wb_auto_moa, uint, 0644);
+MODULE_PARM_DESC(wb_auto_moa, "T21: SetWB(auto) raises awb_moa like stock (default 1, 0 = leave the AWB state machine alone)");
+
+/* awb_state (read-only): the live AWB/day-night state in one line. */
+static int t21_awb_state_get(char *buf, const struct kernel_param *kp)
+{
+	uint32_t rg = 0, bg = 0, ll = 0, top = 0, csc = 0, bay = 0;
+
+	if (!t21_tisp_stats_quiesced) {
+		rg = system_reg_read(0x604); bg = system_reg_read(0x608);
+		ll = system_reg_read(0x828); top = system_reg_read(0xc);
+		csc = system_reg_read(0x1730); bay = system_reg_read(8);
+	}
+	return sprintf(buf,
+		"day_night=%u running=%d reg604=0x%x reg608=0x%x reg828=0x%x "
+		"awb_ev=%u ct=%u wb_mode=%u manual_r=%u manual_b=%u awb_frz=%lu "
+		"awb_moa=%lu first_frame=%lu day_gain=0x%x/0x%x valid=%d "
+		"hyst=%u/%u/%u/%u top=0x%x csc1730=0x%x bayer=%u flip=%u\n",
+		day_night, !t21_tisp_stats_quiesced, rg, bg, ll, awb_ev,
+		*(uint32_t *)_awb_ct, (unsigned)ACCESS_ONCE(tisp_wb_attr.mode),
+		(unsigned)ACCESS_ONCE(tisp_wb_attr.manual_rgain),
+		(unsigned)ACCESS_ONCE(tisp_wb_attr.manual_bgain),
+		(unsigned long)awb_frz, (unsigned long)awb_moa,
+		(unsigned long)first_frame, awb_day_gain[0], awb_day_gain[1],
+		awb_day_gain_valid, awb_hy_valid, awb_hy_above0, awb_hy_above1,
+		awb_hy_low, top, csc, bay, t21_flip_state);
+}
+
+static const struct kernel_param_ops t21_awb_state_ops = {
+	.get = t21_awb_state_get,
+};
+module_param_cb(awb_state, &t21_awb_state_ops, NULL, 0444);
+MODULE_PARM_DESC(awb_state, "T21: live AWB / day-night state (read-only)");
+
 static u32 t21_awb_band(u32 th)
 {
 	return (u32)div_u64((u64)th * min(awb_lux_hyst, 100u), 100);
@@ -17131,8 +17203,8 @@ static bool t21_awb_user_wb(void)
 
 static void t21_awb_dn_post(uint32_t mode, uint32_t prev)
 {
-	if (mode == 0 && prev == 1 && awb_ir_freeze && awb_day_gain_valid &&
-	    !t21_awb_user_wb()) {
+	if (mode == 0 && prev == 1 && awb_ir_freeze && awb_day_restore &&
+	    awb_day_gain_valid && !t21_awb_user_wb()) {
 		system_reg_write(0x604, awb_day_gain[0]);
 		system_reg_write(0x608, awb_day_gain[1]);
 		/* tiziano_awb_dn_params_refresh set first_frame: the first day
@@ -17454,7 +17526,8 @@ int32_t tisp_s_wb_mode(int32_t mode, int32_t val1, int32_t val2)
 	ACCESS_ONCE(tisp_wb_attr.manual_bgain) = preset_gain[mode - 2][1];
     }
 out:
-    awb_moa = 1;
+    if (mode != 0 || wb_auto_moa)
+	awb_moa = 1;
     t21_ct_ev_force_next();
     return 0;
 }
@@ -34140,13 +34213,24 @@ int32_t ispcore_interrupt_service_routine(uintptr_t a0)
 	}
 
 	/* OEM ISR @0x32a74-0x32ac0: apply pending mirror/flip requests. */
-	if (runtime->hflip_pending == 1) {
-		runtime->hflip_pending = 0;
-		tisp_mirror_enable(runtime->hflip != 0);
-	}
-	if (runtime->vflip_pending == 1) {
-		runtime->vflip_pending = 0;
-		tisp_flip_enable(runtime->vflip != 0);
+	if (runtime->hflip_pending == 1 || runtime->vflip_pending == 1) {
+		uint32_t fs = t21_flip_state;
+
+		if (runtime->hflip_pending == 1) {
+			runtime->hflip_pending = 0;
+			tisp_mirror_enable(runtime->hflip != 0);
+			fs = (fs & ~1u) | (runtime->hflip != 0 ? 1u : 0u);
+		}
+		if (runtime->vflip_pending == 1) {
+			runtime->vflip_pending = 0;
+			tisp_flip_enable(runtime->vflip != 0);
+			fs = (fs & ~2u) | (runtime->vflip != 0 ? 2u : 0u);
+		}
+		if (fs != t21_flip_state) {
+			t21_flip_state = fs;
+			if (flip_bayer_follow && !t21_tisp_stats_quiesced)
+				t21_bayer_apply("flip");
+		}
 	}
 
 	/* Match the OEM interrupt fan-out: every asserted slot gets its callback,

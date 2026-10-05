@@ -20,17 +20,22 @@ int main(int argc, char **argv)
 	if (fread(s, 1, n, f) != (size_t)n) { puts("FAIL (read)"); return 1; }
 	bad += !strstr(s, "static int t21_bayer_override = -1;");
 	bad += !strstr(s, "module_param_cb(bayer_override, &t21_bayer_override_ops, &t21_bayer_override, 0644);");
-	/* sysfs set path: range check, only while the ISP runs */
-	bad += !strstr(s, "if (t21_bayer_override >= 0 && t21_bayer_override <= 0x17 &&\n"
-			  "\t    !t21_tisp_stats_quiesced) {\n"
-			  "\t\tsystem_reg_write(8, (uint32_t)t21_bayer_override);");
+	/* sysfs set path: only while the ISP runs, through the one apply helper */
+	bad += !strstr(s, "if (!t21_tisp_stats_quiesced)\n\t\tt21_bayer_apply(\"override\");");
+	/* flip follow: mirror ^2, flip ^3, only for the four plain patterns */
+	bad += !strstr(s, "if (flip_bayer_follow && v < 4) {\n\t\tif (t21_flip_state & 1)\n\t\t\tv ^= 2;\n\t\tif (t21_flip_state & 2)\n\t\t\tv ^= 3;");
+	bad += !strstr(s, "static uint awb_day_restore = 1;");
+	bad += !strstr(s, "awb_ir_freeze && awb_day_restore &&");
+	bad += !strstr(s, "if (mode != 0 || wb_auto_moa)\n\tawb_moa = 1;");
+	bad += !strstr(s, "module_param_cb(awb_state, &t21_awb_state_ops, NULL, 0444);");
 	/* init path: after the mbus-derived switch, before the TOP 0x10 write */
 	init = strstr(s, "int32_t tisp_init(int32_t *arg1)");
 	sw = init ? strstr(init, "switch (bayer) {") : NULL;
 	bad += !sw;
 	if (sw) {
-		char *ovr = strstr(sw, "if (t21_bayer_override >= 0 && t21_bayer_override <= 0x17) {\n"
-				       "\t\tsystem_reg_write(8, (uint32_t)t21_bayer_override);");
+		char *ovr = strstr(sw, "t21_bayer_base = system_reg_read(8);\n"
+				       "\tif (t21_bayer_override >= 0 || (flip_bayer_follow && t21_flip_state))\n"
+				       "\t\tt21_bayer_apply(\"init\");");
 		char *top = strstr(sw, "system_reg_write(0x10, topreg_val);");
 		bad += !ovr || !top || ovr > top;
 	}
