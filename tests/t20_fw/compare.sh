@@ -1,7 +1,7 @@
 #!/bin/sh
 # compare.sh OUT CALIB REF VARIANT...
 # Runs each scenario (compact "simple" AE/AWB default, OEM paths, and the
-# extended scenario when it is selected) on REF and on each
+# extended / register-poke scenarios when they are selected) on REF and on each
 # VARIANT and requires identical output: trace hash per checkpoint, every
 # printed line, and the hash of every firmware data object present in both
 # builds.  Each object carries two hashes (pointers normalised to symbol+offset,
@@ -57,6 +57,8 @@ scenario_args() {
 	simple) echo "";;
 	ext) echo "ext";;
 	ext-oem) echo "ext oem";;
+	poke) echo "poke";;
+	poke-oem) echo "poke oem";;
 	*) echo "$1";;
 	esac
 }

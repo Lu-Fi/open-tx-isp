@@ -775,6 +775,41 @@ static void frame(void)
 static int hexarg(const char *s) { int v = 0; for (; *s; s++) v = v * 16 + (*s <= '9' ? *s - '0' : (*s | 32) - 'a' + 10); return v; }
 
 /*
+ * Register poke: the type 5 ids 0x7c..0x7f are the debug access the vendor
+ * tool uses (address, size, source, value) and type 6 adds exposure_log2 /
+ * gain_log2.  The default and extended runs never touch them.  This is a
+ * separate invocation because the value/size/source triple selects an interior
+ * pointer of the firmware context to read or write through, which cannot be
+ * checked from the harness.
+ */
+static void poke_scenario(void)
+{
+	static const uint32_t sizes[] = { 8, 0x10, 0x20 };
+	static const uint32_t sources[] = { 0x5b, 0x5d, 0x5e, 0 };
+	static const uint32_t addrs[] = { 0x400, 0x300, 0x200, 0x0 };
+	unsigned a, s, z;
+
+	for (s = 0; s < sizeof(sources) / sizeof(sources[0]); s++) {
+		cmd(5, 0x7e, sources[s], 0);	/* register_source */
+		cmd(5, 0x7e, 0, 1);
+		for (z = 0; z < sizeof(sizes) / sizeof(sizes[0]); z++) {
+			cmd(5, 0x7d, sizes[z], 0);	/* register_size */
+			cmd(5, 0x7d, 0, 1);
+			for (a = 0; a < sizeof(addrs) / sizeof(addrs[0]); a++) {
+				cmd(5, 0x7c, addrs[a], 0);	/* register_address */
+				cmd(5, 0x7c, 0, 1);
+				cmd(5, 0x7f, 0x5a, 0);		/* value -> write */
+				cmd(5, 0x7f, 0, 1);		/* value -> read back */
+				frame();
+			}
+		}
+	}
+	cmd(6, 0x80, 0, 1);		/* exposure_log2 */
+	cmd(6, 0x81, 0, 1);		/* gain_log2 */
+	checkpoint("poke-register");
+}
+
+/*
  * Extended scenario: the parts of the API the default run deliberately leaves
  * alone because they re-initialise blocks of the pipeline, plus read-back of
  * values the default run only writes.  Run as its own invocation so the default
@@ -891,7 +926,7 @@ int main(int argc, char **argv)
 	char top;
 	const char *calib = 0;
 	int oem = 0, trace = 0, i, f;
-	int ext = 0;
+	int ext = 0, poke = 0;
 
 	stack_hi_mark = &top + 4096;
 	stack_lo_mark = &top - (1 << 20);
@@ -902,6 +937,7 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "oem")) oem = 1;
 		else if (!strcmp(argv[i], "trace")) trace = 1;
 		else if (!strcmp(argv[i], "ext")) ext = 1;
+		else if (!strcmp(argv[i], "poke")) ext = poke = 1;
 		else if (argv[i][0] == 'p' && argv[i][1]) poison = hexarg(argv[i] + 1);
 		else if (!strncmp(argv[i], "dump=", 5)) dump_obj = argv[i] + 5;
 		else if (!strcmp(argv[i], "cov")) cov_on = 1;
@@ -1032,7 +1068,9 @@ int main(int argc, char **argv)
 	}
 	checkpoint("api-set-sweep");
 
-	if (ext)
+	if (poke)
+		poke_scenario();
+	else if (ext)
 		ext_scenario();
 
 	if (cov_on)

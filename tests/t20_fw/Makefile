@@ -3,6 +3,7 @@
 #   make -C tests/t20_fw check          -O0 vs -Os, all scenarios, stack poison
 #   make -C tests/t20_fw VARIANTS="O0 Os O2" check
 #   make -C tests/t20_fw CALIB=/path/jxf23.bin check
+#   make -C tests/t20_fw check-poke     also the vendor register-poke scenario
 #   make -C tests/t20_fw SCENARIOS="simple" check
 #   make -C tests/t20_fw vdiff          function-level diff against the vendor
 #                                       module (see vdiff/vdiff.py; needs
@@ -40,7 +41,7 @@ HOST_OBJS := $(OUT)/harness.o $(OUT)/calib.o $(OUT)/rt.o \
 	$(OUT)/sdk_static.o $(OUT)/sdk_dynamic.o $(OUT)/sdk_calibrations.o $(OUT)/sdk_calinit.o \
 	$(OUT)/t20_math.o
 
-.PHONY: all check clean coverage skip vdiff
+.PHONY: all check check-poke clean coverage skip vdiff
 .SECONDARY:
 M32_OK := $(shell echo 'int x;' | $(CC) -m32 -x c -c -o /dev/null - 2>/dev/null && echo y)
 ifneq ($(M32_OK),y)
@@ -85,6 +86,11 @@ SCENARIOS ?= simple oem ext ext-oem
 
 check: all
 	SCENARIOS="$(SCENARIOS)" ./compare.sh $(OUT) "$(CALIB)" $(REF) $(filter-out $(REF),$(VARIANTS))
+
+# the register-poke scenario drives the vendor debug API (type 5 ids 0x7c..0x7f);
+# it is not part of "check" because that path cannot be validated from the host
+check-poke: SCENARIOS += poke poke-oem
+check-poke: check
 
 # which firmware functions the scenarios execute (coverage limit of check)
 coverage: $(OUT)/t20fw-cov $(OUT)/t20fw-cov.sym
