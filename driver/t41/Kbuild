@@ -28,3 +28,36 @@ ccflags-y += -Wno-error=implicit-function-declaration
 ccflags-y += -Wno-error=implicit-int
 ccflags-y += -Wno-error=int-conversion
 ccflags-y += -Wno-error=incompatible-pointer-types
+
+# Rootfs size: no .pdr (procedure descriptors, never loaded by the kernel).
+ccflags-y += $(call cc-option,-Wa$(comma)-mno-pdr)
+
+# Rootfs size: address static data through section anchors (one lui/addiu
+# per block instead of a HI16/LO16 pair per object); halves .rel.text.
+ccflags-y += -fsection-anchors
+
+# Rootfs size: drop local (static) symbols from the module image. The kernel
+# resolves exports through __ksymtab, so .symtab/.strtab bulk is dead weight.
+LDFLAGS_MODULE += -x
+
+# TX_ISP_T41_TRACE=y keeps the VIC/VIN/flicker bring-up notes (KERN_WARNING
+# progress lines) in the module; the default n compiles them and their strings
+# out.  Errors and real warnings always stay.
+TX_ISP_T41_TRACE ?= n
+ifeq ($(TX_ISP_T41_TRACE),y)
+ccflags-y += -DTX_ISP_T41_TRACE
+endif
+
+# Rootfs size: per-function sections + --gc-sections drop code (no -fdata-sections:
+# it disables -fsection-anchors and doubles .rel.text) that
+# nothing references (recovered-but-unused helpers).  driver/tx_isp_merge.lds
+# KEEPs the module-loader-only sections (__ksymtab*, .modinfo, __param, ...) and
+# folds the sections back into .text/.data/.bss/.rodata.str1.N afterwards, so
+# the .ko does not grow thousands of section headers.  Codegen is unchanged
+# (section placement only).  TX_ISP_GC=n builds the old layout.
+TX_ISP_GC ?= y
+ifneq ($(TX_ISP_GC),n)
+ccflags-y += -ffunction-sections
+LDFLAGS_MODULE += --gc-sections --undefined=init_module --undefined=cleanup_module \
+	-T $(abspath $(src)/../tx_isp_merge.lds)
+endif

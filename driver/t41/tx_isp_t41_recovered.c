@@ -581,6 +581,19 @@ extern void *memset(void *s, int c, size_t n);
 extern void *memcpy(void *dest, const void *src, size_t n);
 extern char *strstr(const char *haystack, const char *needle);
 extern int printk(const char *fmt, ...);
+
+/*
+ * Bring-up trace notes (VIC/VIN state, flicker profile, TMO bypass) were
+ * KERN_WARNING progress lines.  Release builds (TX_ISP_T41_TRACE unset/n in
+ * Kbuild) compile them and their strings out; errors and real warnings stay.
+ */
+#ifdef TX_ISP_T41_TRACE
+#define t41_trace_printk(...) printk(__VA_ARGS__)
+#define t41_trace_printk_ratelimited(...) printk_ratelimited(__VA_ARGS__)
+#else
+#define t41_trace_printk(...) ((void)0)
+#define t41_trace_printk_ratelimited(...) ((void)0)
+#endif
 extern void dev_err(const void *dev, const char *fmt, ...);
 extern void _dev_info(const void *dev, const char *fmt, ...);
 extern int __copy_user(void *to, const void *from, unsigned long n, ...);
@@ -1450,7 +1463,7 @@ static int t41_tmo_replay_set(const char *value,
     if (!ret && t41_tmo_replay_trigger == 0) {
         atomic_set(&t41_tmo_frame_replay_pending, -1);
         t41_hold_tmo_bypass();
-        printk(KERN_WARNING
+        t41_trace_printk(KERN_WARNING
                "tx_isp_t41_recovered: TMO held in fail-safe bypass\n");
     } else if (!ret && t41_tmo_replay_trigger > 0) {
         /* The sysfs callback is process context.  Use the same fail-safe
@@ -2081,7 +2094,7 @@ static int t41_apply_flicker_profile(bool enable)
 		0, enable, t41_ae_flicker_gib_gain_q10,
 		t41_color_green_correction_q10,
 		t41_color_blue_correction_q10, params[4 + 9], bypass);
-	printk(KERN_WARNING
+	t41_trace_printk(KERN_WARNING
 	       "tx_isp_t41_recovered: flicker image profile %s "
 	       "gib=%#x correction=%#x/%#x bypass=%#x ret=%d\n",
 	       enable ? "enabled" : "disabled",
@@ -3062,7 +3075,7 @@ static void t41_log_ispcore_children(const char *stage)
 
 	if (!t41_kernel_data_ptr(subdev))
 		return;
-	printk(KERN_WARNING
+	t41_trace_printk(KERN_WARNING
 	       "tx_isp_t41_recovered: core-children %s sd=%p slots=%p/%p/%p expected=%p/%p/%p\n",
 	       stage, subdev,
 	       *(void **)(subdev + 0x3c), *(void **)(subdev + 0x40),
@@ -7515,7 +7528,7 @@ static int regtrace_t41_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
     dbus = *(uint32_t *)(attr + 20);
     width = *(uint32_t *)(ch + 276);
     height = *(uint32_t *)(ch + 280);
-    printk(KERN_WARNING
+    t41_trace_printk(KERN_WARNING
            "tx_isp_t41_recovered: VIC start ch=%u vic=%p attr=%p dbus=%u %ux%u mode=%u frame=%u sensor=%u expo_fs=%u\n",
            channel, (void *)vic_dev, (void *)attr, dbus, width, height,
            *(uint32_t *)(attr + 24), *(uint32_t *)(attr + 120),
@@ -7616,7 +7629,7 @@ static int regtrace_t41_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
     writel(1, regs + 0x00);
     wmb();
 
-    printk(KERN_WARNING
+    t41_trace_printk(KERN_WARNING
            "tx_isp_t41_recovered: VIC MIPI programmed ch=%u reg0=0x%x size=0x%x fmt=0x%x reg100=0x%x reg10c=0x%x reg1a0=0x%x ctrl=0x%x\n",
            channel, readl(regs + 0x00), readl(regs + 0x04),
            readl(regs + 0x14), readl(regs + 0x100),
@@ -10116,7 +10129,7 @@ void tx_vic_enable_irq(int32_t arg1)
             *(uint32_t *)(vic + 0x9c + arg1 * 4) = 1;
     }
     private_spin_unlock_irqrestore(vic + 0x84 + arg1 * 4, flags);
-    printk(KERN_WARNING
+    t41_trace_printk(KERN_WARNING
            "tx_isp_t41_recovered: VIC irq enable ch=%d vic=%p irq=%u callback=%p ret=%d state=%u\n",
            arg1, vic, *(uint32_t *)(vic + 0x90 + arg1 * 4),
            enable_cb, ret, *(uint32_t *)(vic + 0x9c + arg1 * 4));
@@ -10144,7 +10157,7 @@ void *tx_vic_disable_irq(int32_t arg1)
             *(uint32_t *)(vic + 0x9c + arg1 * 4) = 0;
     }
     private_spin_unlock_irqrestore(vic + 0x84 + arg1 * 4, flags);
-    printk(KERN_WARNING
+    t41_trace_printk(KERN_WARNING
            "tx_isp_t41_recovered: VIC irq disable ch=%d vic=%p irq=%u callback=%p ret=%d state=%u\n",
            arg1, vic, *(uint32_t *)(vic + 0x90 + arg1 * 4),
            disable_cb, ret, *(uint32_t *)(vic + 0x9c + arg1 * 4));
@@ -10175,7 +10188,7 @@ int64_t vic_core_s_stream(uintptr_t a0, uintptr_t a1)
 
     /* OEM T41: vic_dev + ((channel + 0x60) << 2) + 4. */
     state = (uint32_t *)(vic_dev + ((channel + 0x60U) << 2) + 4U);
-    printk(KERN_WARNING
+    t41_trace_printk(KERN_WARNING
            "tx_isp_t41_recovered: VIC stream enable=%u ch=%u state=%u vic=%p\n",
            enable, channel, *state, (void *)vic_dev);
 
@@ -10195,11 +10208,11 @@ int64_t vic_core_s_stream(uintptr_t a0, uintptr_t a1)
     if (!t41_defer_vic_irq)
         tx_vic_enable_irq(0);
     else
-        printk(KERN_WARNING
+        t41_trace_printk(KERN_WARNING
                "tx_isp_t41_recovered: VIC irq deferred until frame buffers "
                "are active ch=%u\n", channel);
     if (t41_defer_vic_start) {
-        printk(KERN_WARNING
+        t41_trace_printk(KERN_WARNING
                "tx_isp_t41_recovered: VIC start deferred until frame "
                "buffers are active ch=%u\n", channel);
         return 0;
@@ -10208,7 +10221,7 @@ int64_t vic_core_s_stream(uintptr_t a0, uintptr_t a1)
     }
     if (!ret)
         *state = 4;
-    printk(KERN_WARNING
+    t41_trace_printk(KERN_WARNING
            "tx_isp_t41_recovered: VIC stream start ret=%d ch=%u state=%u\n",
            ret, channel, *state);
     return ret;
@@ -12425,7 +12438,7 @@ int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1, uint32_t a2
                                     (struct work_struct *)(void *)main_fs_work);
 
             if (fs_trace_count < 8)
-                printk(KERN_WARNING
+                t41_trace_printk(KERN_WARNING
                        "tx_isp_t41_recovered: VIC frame-sync work irq=%u queued=%d\n",
                        a1, queued);
             fs_trace_count++;
@@ -12433,7 +12446,7 @@ int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1, uint32_t a2
         if (active0 & 0x01) {
             ++*(uint32_t *)(vic + 0x1d0);
             if (frame_trace_count < 8)
-                printk(KERN_WARNING
+                t41_trace_printk(KERN_WARNING
                        "tx_isp_t41_recovered: VIC frame done irq=%u active=%#x/%#x count=%u\n",
                        a1, active0, active1,
                        *(uint32_t *)(vic + 0x1d0));
@@ -12453,14 +12466,14 @@ int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1, uint32_t a2
          */
         if (active0 & 0xfffffe00U) {
             ++t41_vic_err_restarts;
-            printk_ratelimited(KERN_WARNING
+            t41_trace_printk_ratelimited(KERN_WARNING
                                "tx_isp_t41_recovered: VIC error %#x, reset start (n=%u)\n",
                                active0, t41_vic_err_restarts);
             writel(5, regs + 0x0);
             wmb();
         }
         if (trace_count < 8)
-            printk(KERN_WARNING
+            t41_trace_printk(KERN_WARNING
                    "tx_isp_t41_recovered: VIC safe irq irq=%u active=%#x/%#x raw=%#x/%#x frames=%u/%u/%u/%u\n",
                    a1, active0, active1, raw0, raw1,
                    *(uint32_t *)(vic + 0x1d0),
@@ -13281,7 +13294,7 @@ int64_t vin_s_stream(uintptr_t a0, uintptr_t a1)
             return -ENOIOCTLCMD;
         ret = ((int (*)(uintptr_t, int32_t *))(uintptr_t)stream_cb)(
                 sensor, stream);
-        printk(KERN_WARNING
+        t41_trace_printk(KERN_WARNING
                "tx_isp_t41_recovered: VIN sensor stream sensor=%p callback=%p enable=%d vinum=%u ret=%d\n",
                (void *)sensor, (void *)stream_cb, stream[0], vinum, ret);
         if (ret)
@@ -13311,7 +13324,7 @@ int32_t tx_isp_vin_activate_subdev(uintptr_t a0)
 		*(uint32_t *)(vin + 0x130) = 2;
 	private_mutex_unlock(lock);
 	++*(uint32_t *)(vin + 0x134);
-	printk(KERN_WARNING
+	t41_trace_printk(KERN_WARNING
 	       "tx_isp_t41_recovered: VIN activate vin=%p state=%u->%u refs=%u\n",
 	       vin, before, *(uint32_t *)(vin + 0x130),
 	       *(uint32_t *)(vin + 0x134));
@@ -13347,7 +13360,7 @@ int64_t tx_isp_vin_init(uintptr_t a0, uintptr_t a1)
         if (init) {
             ret = ((int (*)(uintptr_t, const uint32_t *))init)(sensor,
                                                                input);
-            printk(KERN_WARNING
+            t41_trace_printk(KERN_WARNING
                    "tx_isp_t41_recovered: VIN sensor init sensor=%p callback=%p enable=%u vinum=%u ret=%d\n",
                    (void *)sensor, (void *)init, input[0], input[1], ret);
             if (ret == -515)

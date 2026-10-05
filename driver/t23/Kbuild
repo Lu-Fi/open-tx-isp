@@ -36,3 +36,17 @@ ccflags-y += -fsection-anchors
 # Rootfs size: drop local (static) symbols from the module image. The kernel
 # resolves exports through __ksymtab, so .symtab/.strtab bulk is dead weight.
 LDFLAGS_MODULE += -x
+
+# Rootfs size: per-function sections + --gc-sections drop code (no -fdata-sections:
+# it disables -fsection-anchors and doubles .rel.text) that
+# nothing references (recovered-but-unused helpers).  driver/tx_isp_merge.lds
+# KEEPs the module-loader-only sections (__ksymtab*, .modinfo, __param, ...) and
+# folds the sections back into .text/.data/.bss/.rodata.str1.N afterwards, so
+# the .ko does not grow thousands of section headers.  Codegen is unchanged
+# (section placement only).  TX_ISP_GC=n builds the old layout.
+TX_ISP_GC ?= y
+ifneq ($(TX_ISP_GC),n)
+ccflags-y += -ffunction-sections
+LDFLAGS_MODULE += --gc-sections --undefined=init_module --undefined=cleanup_module \
+	-T $(abspath $(src)/../tx_isp_merge.lds)
+endif
