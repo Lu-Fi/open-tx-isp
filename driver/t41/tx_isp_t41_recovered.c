@@ -19,6 +19,7 @@
 #include "tx_isp_t41_tmo_map.h"
 #include "tx_isp_t41_ccm.h"
 #include "tx_isp_t41_bcsh.h"
+#include "tx_isp_t41_hvflip.h"
 #include "tx_isp_t41_ae.h"
 #include "tx_isp_t41_gib.h"
 #include "../include/tx_isp/tx_isp_top.h"
@@ -3997,6 +3998,7 @@ int vic_core_ops_ioctl_1(void *arg1, int arg2, void *arg3) __asm__("vic_core_ops
 #endif
 int vic_core_ops_ioctl_1(void *arg1, int arg2, void *arg3);
 int64_t vin_s_stream(uintptr_t a0, uintptr_t a1);
+static void t41_hvflip_reapply(void);
 int32_t tx_isp_vin_activate_subdev(uintptr_t a0);
 int64_t tx_isp_vin_init(uintptr_t a0, uintptr_t a1);
 int32_t subdev_sensor_ops_set_input(void* arg1, int32_t* arg2, int32_t arg3);
@@ -13286,6 +13288,9 @@ int64_t vin_s_stream(uintptr_t a0, uintptr_t a1)
     }
 
     *state = stream[0] ? 4 : 3;
+    /* the sensor (re)started from its init table: restore the flip */
+    if (stream[0] && t41_kernel_data_ptr((void *)sensor))
+        t41_hvflip_reapply();
     return 0;
 }
 
@@ -20801,23 +20806,88 @@ static int t41_tuning_copy_awb_global_stats(unsigned int channel,
 
 /* Last requested sensor flip mode (.data; -1 = never set). */
 static int t41_sensor_flip_mode = -1;
+/* Orientation the LSC mesh was last flipped to (-1 = never). */
+static int t41_lsc_flip_mode = -1;
+/* Sensor mode last accepted from the application (-1 = never); applied
+ * again after every sensor stream start (t41_hvflip_reapply). */
+static int t41_hvflip_desired = -1;
+static bool t41_hvflip_reapply_failed;
+/* Sensor flip writes: the tuning ioctl and the stream start. */
+static DEFINE_MUTEX(t41_hvflip_mutex);
+
+/* Write a planned sequence; returns the first error, *done the writes. */
+static int t41_hvflip_sensor_write(char *core_sd, const unsigned int *seq,
+                                   unsigned int writes, unsigned int *done)
+{
+    unsigned int i;
+    int ret = 0;
+
+    for (i = 0; i < writes; ++i) {
+        uint32_t event_arg[2] = { 0, seq[i] };
+
+        ret = ispcore_sensor_ops_ioctl((uintptr_t)core_sd, 0x02000010,
+                                       (uintptr_t)event_arg);
+        if (ret)
+            break;
+    }
+    *done = i;
+    return ret;
+}
+
+/*
+ * Beyond the vendor driver (stock only applies the flip when the
+ * application calls SetHVFLIP): a sensor stream start after a re-init
+ * (stream restart, sensor reset, mode change) loads the sensor init table
+ * and drops the flip.  Write the last requested mode once, NORMAL first;
+ * a failure is logged once and not retried.
+ */
+static void t41_hvflip_reapply(void)
+{
+    unsigned int seq[T41_HVFLIP_MAX_SENSOR_WRITES];
+    char *core_sd = (char *)(uintptr_t)ispcore_sd;
+    unsigned int writes, done = 0;
+    int ret;
+
+    mutex_lock(&t41_hvflip_mutex);
+    writes = t41_hvflip_reinit_plan(t41_hvflip_desired, seq);
+    if (!writes || !t41_kernel_data_ptr(core_sd)) {
+        mutex_unlock(&t41_hvflip_mutex);
+        return;
+    }
+    ret = t41_hvflip_sensor_write(core_sd, seq, writes, &done);
+    t41_sensor_flip_mode = ret ? -1 : t41_hvflip_desired;
+    if (ret && !t41_hvflip_reapply_failed)
+        printk(KERN_WARNING
+               "tx_isp_t41_recovered: hvflip re-apply after sensor start "
+               "mode=%d failed (%u/%u writes) ret=%d; not retried\n",
+               t41_hvflip_desired, done, writes, ret);
+    else if (!ret)
+        printk(KERN_INFO
+               "tx_isp_t41_recovered: hvflip re-applied after sensor "
+               "start mode=%d\n", t41_hvflip_desired);
+    t41_hvflip_reapply_failed = ret != 0;
+    mutex_unlock(&t41_hvflip_mutex);
+}
 
 static int t41_tuning_hvflip(const struct tx_isp_tuning_t41_control *request)
 {
     uint32_t attr[4];
+    unsigned int seq[T41_HVFLIP_MAX_SENSOR_WRITES];
+    unsigned int flip, mirror, writes;
     uint8_t *attrs = (uint8_t *)(uintptr_t)tisp_tattr;
     uint8_t *channel;
     char *core_sd = (char *)(uintptr_t)ispcore_sd;
     char *core;
     unsigned int i;
     uint8_t bits;
+    int ret = 0;
 
     if (request->channel != 0 || !request->value_or_ptr ||
         !t41_kernel_data_ptr(attrs))
         return -EINVAL;
     if (request->is_get) {
         attr[0] = t41_sensor_flip_mode < 0 ? 0 : t41_sensor_flip_mode;
-        for (i = 0; i < 3; ++i) {
+        for (i = 0; i < T41_HVFLIP_ISP_CHANNELS; ++i) {
             channel = mscaler_storage + i * 0x264;
             attr[1 + i] = (channel[0x0a] ? 1U : 0U) |
                           (channel[0x0c] ? 2U : 0U);
@@ -20829,47 +20899,49 @@ static int t41_tuning_hvflip(const struct tx_isp_tuning_t41_control *request)
     if (private_copy_from_user(attr,
             (void __user *)(uintptr_t)request->value_or_ptr, sizeof(attr)))
         return -EFAULT;
-    if (attr[0] > 3 || attr[1] > 3 || attr[2] > 3 || attr[3] > 3)
+    if (!t41_hvflip_valid(attr))
         return -EINVAL;
-    if ((attr[1] | attr[2] | attr[3]) & attr[0])
-        return -EINVAL;
-    for (i = 0; i < 3; ++i) {
-        channel = mscaler_storage + i * 0x264;
-        /* g_hv_flip: keep the bits 6/7 state, bits 0-1 = channel. */
-        bits = i | (channel[0x0e] ? 0x40 : 0) | (channel[0x0f] ? 0x80 : 0);
-        bits |= (attr[1 + i] & 1) ? 0x0c : 0;
-        bits |= (attr[1 + i] & 2) ? 0x30 : 0;
-        tisp_s_hv_flip(request->channel, (uintptr_t)&bits);
-    }
     if (!t41_kernel_data_ptr(core_sd))
         return -ENODEV;
     core = *(char **)(core_sd + 268);
     if (!t41_kernel_data_ptr(core))
         return -ENODEV;
+    for (i = 0; i < T41_HVFLIP_ISP_CHANNELS; ++i) {
+        channel = mscaler_storage + i * 0x264;
+        /* g_hv_flip: keep the bits 6/7 state, bits 0-1 = channel. */
+        bits = t41_hvflip_msca_byte(i,
+                (channel[0x0e] ? 0x40 : 0) | (channel[0x0f] ? 0x80 : 0),
+                attr[1 + i]);
+        tisp_s_hv_flip(request->channel, (uintptr_t)&bits);
+    }
     /*
      * Apply the sensor flip synchronously (process context, I2C).  The
      * frame-done slot-5 staging of stock was never consumed on this
      * driver (no sensor event seen on cam-F), so do not depend on it.
-     * Always write: timps re-asserts the flip after a chn0 restart.
+     * Always write: timps re-asserts the flip after a chn0 restart.  A
+     * mode change goes through NORMAL first (t41_hvflip_sensor_plan).
      */
-    if (t41_sensor_flip_mode != (int)attr[0])
+    if (t41_lsc_flip_mode != (int)attr[0]) {
+        t41_hvflip_lsc_args(attr[0], &flip, &mirror);
         tisp_lsc_hvflip(*(uint32_t *)(void *)(core + 368),
-                        *(uint32_t *)(void *)(core + 372),
-                        (attr[0] >> 1) & 1, attr[0] & 1);
-    {
-        uint32_t event_arg[2] = { 0, attr[0] };
-        int ret = ispcore_sensor_ops_ioctl((uintptr_t)core_sd, 0x02000010,
-                                           (uintptr_t)event_arg);
-
-        t41_sensor_flip_mode = attr[0];
-        /* timps re-asserts the flip after every chn0 restart */
-        printk_ratelimited(KERN_INFO
-               "tx_isp_t41_recovered: hvflip sensor=%u isp=%u/%u/%u ret=%d "
-               "pid=%d tid-comm=%s\n", attr[0], attr[1], attr[2], attr[3],
-               ret, task_tgid_nr(current), current->comm);
-        return ret;
+                        *(uint32_t *)(void *)(core + 372), flip, mirror);
+        t41_lsc_flip_mode = attr[0];
     }
-    return 0;
+    mutex_lock(&t41_hvflip_mutex);
+    t41_hvflip_desired = attr[0];
+    t41_hvflip_reapply_failed = false;
+    writes = t41_hvflip_sensor_plan(t41_sensor_flip_mode, attr[0], seq);
+    ret = t41_hvflip_sensor_write(core_sd, seq, writes, &i);
+    /* after a failed write the sensor state is unknown: the next request
+     * runs the full sequence again */
+    t41_sensor_flip_mode = ret ? -1 : (int)attr[0];
+    mutex_unlock(&t41_hvflip_mutex);
+    /* timps re-asserts the flip after every chn0 restart */
+    printk_ratelimited(KERN_INFO
+           "tx_isp_t41_recovered: hvflip sensor=%u isp=%u/%u/%u writes=%u/%u "
+           "ret=%d pid=%d tid-comm=%s\n", attr[0], attr[1], attr[2], attr[3],
+           i, writes, ret, task_tgid_nr(current), current->comm);
+    return ret;
 }
 
 /*
