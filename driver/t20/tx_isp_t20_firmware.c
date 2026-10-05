@@ -3709,8 +3709,10 @@ static int32_t div_fixed(int32_t arg1, int32_t arg2, int32_t arg3)
     if (arg2 == 0)
         return arg1 << (shift & 0x1f);
 
-    uint64_t val = (uint64_t)arg1 << shift;
-    return div64_u64(val, arg2);
+    /* OEM 0x16a34: __ashldi3(arg1, 0, shift), div64_u64 by the
+     * zero-extended divisor */
+    uint64_t val = (uint64_t)(uint32_t)arg1 << shift;
+    return div64_u64(val, (uint32_t)arg2);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017434 origin=model_output original=apical_cosine */
