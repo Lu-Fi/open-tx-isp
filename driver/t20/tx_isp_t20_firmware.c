@@ -15652,10 +15652,11 @@ int32_t AE_fsm_switch_state(int32_t *arg1, int32_t arg2)
 
 	((void **)arg1)[1] = arg2;
 
-	if (old_state < 3) {
-		if (arg2 < 3)
-			apical_isp_raise_event(*arg1, 8);
-	}
+	/* OEM 0x27514: event 8 is raised when leaving the busy states 3..5
+	 * for a state outside them ((u32)(s - 3) < 3), not for any two
+	 * states below 3 */
+	if ((uint32_t)(old_state - 3) < 3 && (uint32_t)(arg2 - 3) >= 3)
+		apical_isp_raise_event(*arg1, 8);
 
 	if (arg2 == 0)
 		return ae_initialize(arg1);
