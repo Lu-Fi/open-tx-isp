@@ -60,6 +60,10 @@ done
 grep -h '^END\|^ABORT\|^BUG\|^exit=' "$out"/run-*.txt | sort | uniq -c
 # ae_calculate_target used to divide by the high word of a 64-bit sum (0):
 # the OEM AE scenario starts at minimum exposure and must not divide by zero
+# behavioural checks inside the scenarios (e.g. AWB MANUAL -> AUTO)
+if grep -l '^FAIL' "$out"/run-*.txt; then
+	grep -h '^FAIL' "$out"/run-*.txt | sort | uniq -c; fail=1
+fi
 if grep -l 'div64-by-zero=[1-9]' "$out"/run-*.txt; then
 	echo "FAIL: div64 by zero"; fail=1
 fi

@@ -727,6 +727,32 @@ int main(int argc, char **argv)
 	}
 	checkpoint("ae-modes");
 
+	/* manual white balance, then back to AUTO.  The scene has no usable
+	 * AWB zones (as night/IR), so AUTO must bring back the AWB result it
+	 * had before MANUAL at once instead of holding the manual gains. */
+	{
+		uint32_t g0[4], g1[4], g2[4];
+		for (f = 0; f < 3; f++) frame();
+		t20fw_awb_gains(g0);
+		cmd(TALGORITHMS_H, AWB_MODE_ID_H, AWB_MANUAL_H, 0);
+		cmd(TSYSTEM_H, SYSTEM_AWB_RED_GAIN_H, 200, 0);
+		cmd(TSYSTEM_H, SYSTEM_AWB_BLUE_GAIN_H, 44, 0);
+		for (f = 0; f < 3; f++) frame();
+		t20fw_awb_gains(g1);
+		cmd(TALGORITHMS_H, AWB_MODE_ID_H, AWB_AUTO_H, 0);
+		frame();
+		t20fw_awb_gains(g2);
+		cmd(TSYSTEM_H, SYSTEM_AWB_RED_GAIN_H, 0, 1);
+		cmd(TSYSTEM_H, SYSTEM_AWB_BLUE_GAIN_H, 0, 1);
+		rt_printf("AWB auto %u/%u/%u/%u manual %u/%u/%u/%u auto-again %u/%u/%u/%u\n",
+			  g0[0], g0[1], g0[2], g0[3], g1[0], g1[1], g1[2], g1[3],
+			  g2[0], g2[1], g2[2], g2[3]);
+		if (!oem && (!memcmp(g0, g1, sizeof(g0)) || memcmp(g0, g2, sizeof(g0))))
+			rt_printf("FAIL: simple AWB did not return from MANUAL to the AUTO gains\n");
+		for (f = 0; f < 5; f++) frame();
+	}
+	checkpoint("awb-manual-auto");
+
 	/* API sweep: every GET, then SETs with a few values (coverage of the
 	 * API dispatch and its getters/setters) */
 	{

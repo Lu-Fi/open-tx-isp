@@ -11,6 +11,7 @@ int32_t apical_command(uint32_t cmd, uint32_t sub, uint32_t val, uint32_t type, 
 int32_t apical_api_calibration(uint32_t id, uint32_t dir, void *buf, uint32_t size, int32_t *ret);
 int32_t apical_sbus_i2c_init(void *sbus);
 void t20fw_set_knobs(int oem, int trace);
+void t20fw_awb_gains(uint32_t *g);
 extern unsigned char stab[60];
 
 /* harness */
@@ -40,5 +41,9 @@ void calib_switch_set(int night);
 #define AE_MODE_ID_H 0x56
 #define AE_COMPENSATION_ID_H 0x5b
 #define AWB_MODE_ID_H 0x60
+#define AWB_AUTO_H 0x32
+#define AWB_MANUAL_H 0x33
+#define SYSTEM_AWB_RED_GAIN_H 0x39
+#define SYSTEM_AWB_BLUE_GAIN_H 0x3a
 #define ANTIFLICKER_MODE_ID_H 0x68
 #endif

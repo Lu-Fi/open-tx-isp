@@ -808,6 +808,8 @@ static u32 t20_simple_awb_red_target_sum;
 static u32 t20_simple_awb_blue_target_sum;
 static u16 t20_simple_awb_color_temperature = 5000;
 static bool t20_simple_awb_initialized;
+/* the last update applied the manual/preset gains, not the AWB result */
+static bool t20_simple_awb_manual_applied;
 static unsigned int t20_simple_awb_updates;
 static unsigned int t20_awb_stable_ae_frames;
 module_param(t20_awb_stable_ae_frames, uint, 0444);
@@ -15027,6 +15029,7 @@ int32_t AWB_fsm_clear(uintptr_t a0)
 	t20_simple_awb_blue_target_sum = 0;
 	t20_simple_awb_color_temperature = 5000;
 	t20_simple_awb_initialized = false;
+	t20_simple_awb_manual_applied = false;
 	t20_simple_awb_updates = 0;
 	t20_awb_stable_ae_frames = 0;
 	t20_awb_feedback_ready = false;
@@ -18781,6 +18784,8 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 	u32 coefficient;
 	u32 desired_red_scale;
 	u32 desired_blue_scale;
+	u32 red_scale;
+	u32 blue_scale;
 	u32 gains[4];
 	u32 minimum_gain;
 	u32 zone;
@@ -18795,18 +18800,37 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 	 * BLUE_GAIN: stab.global_manual_awb and global_awb_red/blue_gain).
 	 * As OEM awb_normalise, the manual R/B gains (Q7, 128 = 1.0) replace
 	 * the AWB result on top of the static gains, without statistics.
+	 * The AWB result itself (red/blue_q8 and the filter sums) is kept
+	 * apart, as OEM keeps its AWB gains at fsm+0x18/0x1a: it used to be
+	 * overwritten with the manual gains, so back in AUTO a scene without
+	 * usable zones (night/IR) held the manual gains until a module reload.
 	 */
 	if (stab[12] != 0) {
 		static_wb = tx_isp_t20_awb_u16_table(T20_CAL_STATIC_WB, 1, 4);
 		if (!static_wb)
 			return;
-		t20_simple_awb_red_q8 = clamp_t(u32, (u32)stab[49] << 1,
-						0x40, 0x400);
-		t20_simple_awb_blue_q8 = clamp_t(u32, (u32)stab[50] << 1,
-						 0x40, 0x400);
-		/* AUTO restarts from the current gains, not the manual ones */
-		t20_simple_awb_red_target_sum = 0;
-		t20_simple_awb_blue_target_sum = 0;
+		red_scale = clamp_t(u32, (u32)stab[49] << 1, 0x40, 0x400);
+		blue_scale = clamp_t(u32, (u32)stab[50] << 1, 0x40, 0x400);
+		t20_simple_awb_manual_applied = true;
+		accepted_population = 0;
+		average_rg = 0;
+		average_bg = 0;
+		goto apply_gains;
+	}
+	if (t20_simple_awb_manual_applied) {
+		/*
+		 * Back in AUTO: as OEM awb_normalise, the AWB result applies and
+		 * is reported again at once, statistics or not.  This frame's
+		 * statistics were taken with the manual gains, so skip them.
+		 */
+		static_wb = tx_isp_t20_awb_u16_table(T20_CAL_STATIC_WB, 1, 4);
+		if (!static_wb)
+			return;
+		t20_simple_awb_manual_applied = false;
+		red_scale = t20_simple_awb_red_q8;
+		blue_scale = t20_simple_awb_blue_q8;
+		stab[49] = (uint8_t)min_t(u32, red_scale >> 1, 0xff);
+		stab[50] = (uint8_t)min_t(u32, blue_scale >> 1, 0xff);
 		accepted_population = 0;
 		average_rg = 0;
 		average_bg = 0;
@@ -18957,12 +18981,14 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 	 * SYSTEM_AWB_RED/BLUE_GAIN and GetWB read them. */
 	stab[49] = (uint8_t)min_t(u32, t20_simple_awb_red_q8 >> 1, 0xff);
 	stab[50] = (uint8_t)min_t(u32, t20_simple_awb_blue_q8 >> 1, 0xff);
+	red_scale = t20_simple_awb_red_q8;
+	blue_scale = t20_simple_awb_blue_q8;
 
 apply_gains:
-	gains[0] = ((u32)static_wb[0] * t20_simple_awb_red_q8 + 0x80) >> 8;
+	gains[0] = ((u32)static_wb[0] * red_scale + 0x80) >> 8;
 	gains[1] = static_wb[1];
 	gains[2] = static_wb[2];
-	gains[3] = ((u32)static_wb[3] * t20_simple_awb_blue_q8 + 0x80) >> 8;
+	gains[3] = ((u32)static_wb[3] * blue_scale + 0x80) >> 8;
 	minimum_gain = min(min(gains[0], gains[1]), min(gains[2], gains[3]));
 	if (!minimum_gain)
 		return;
@@ -18985,8 +19011,8 @@ apply_gains:
 	t20_awb_last_population = accepted_population;
 	t20_awb_last_rg = average_rg;
 	t20_awb_last_bg = average_bg;
-	t20_awb_last_red_q8 = t20_simple_awb_red_q8;
-	t20_awb_last_blue_q8 = t20_simple_awb_blue_q8;
+	t20_awb_last_red_q8 = red_scale;
+	t20_awb_last_blue_q8 = blue_scale;
 	t20_awb_last_gain_00 = gains[0];
 	t20_awb_last_gain_01 = gains[1];
 	t20_awb_last_gain_10 = gains[2];
@@ -19006,7 +19032,7 @@ apply_gains:
 		       "T20AWB calibrated zones=%u population=%u mesh=%u/%u ct=%u scale=%u/%u gain=%u/%u/%u/%u update=%u\n",
 		       active_zones, accepted_population, average_rg, average_bg,
 		       t20_simple_awb_color_temperature,
-		       t20_simple_awb_red_q8, t20_simple_awb_blue_q8,
+		       red_scale, blue_scale,
 		       gains[0], gains[1], gains[2], gains[3],
 		       t20_simple_awb_updates);
 }
