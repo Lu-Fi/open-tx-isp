@@ -3543,12 +3543,42 @@ static int32_t log2_int_to_fixed(uint32_t arg1, char arg2, char arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000170b4 origin=model_output original=math_exp2 */
 uint32_t math_exp2(int32_t arg1, char arg2, char arg3)
 {
-	/* The OEM table is 33 little-endian Q30 words stored as raw bytes.
-	 * The recovered body indexed those bytes as scalars, so even exp2(2.0)
-	 * evaluated to zero and the AE loop could never allocate exposure.  Use
-	 * the shared implementation already exercised by T21/T30/T31. */
-	return tx_isp_exp2_u32((uint32_t)arg1, (uint8_t)arg2,
-			       (uint8_t)arg3);
+	/*
+	 * OEM 0x16754: 2^x from the 33-entry Q30 _pow2_lut with MIPS shift
+	 * semantics (sllv/srlv use the low five bits).  The final right shift
+	 * (30 - integer part - out) & 31 makes small negative inputs work:
+	 * integer part 0xffff (-1) shifts by one more bit, so 2^-0.1 in Q8 is
+	 * 238.  The shared tx_isp_exp2_u32() rejects these inputs and returns
+	 * 0; iridix_fsm_process_interrupt() feeds it the (negative) exposure
+	 * change of the frame and wrote a gain of 0 to 0x3dc whenever the
+	 * exposure went down.
+	 */
+	static const uint32_t pow2_lut[33] = {
+		0x40000000U, 0x4166c34cU, 0x42d561b4U, 0x444c0740U,
+		0x45cae0f2U, 0x47521cc6U, 0x48e1e9baU, 0x4a7a77d4U,
+		0x4c1bf829U, 0x4dc69cddU, 0x4f7a9930U, 0x51382182U,
+		0x52ff6b55U, 0x54d0ad5aU, 0x56ac1f75U, 0x5891fac1U,
+		0x5a82799aU, 0x5c7dd7a4U, 0x5e8451d0U, 0x60962665U,
+		0x62b39509U, 0x64dcdec3U, 0x6712460bU, 0x69540ec9U,
+		0x6ba27e65U, 0x6dfddbccU, 0x70666f76U, 0x72dc8374U,
+		0x75606374U, 0x77f25cceU, 0x7a92be8bU, 0x7d41d96eU,
+		0x80000000U,
+	};
+	uint32_t v = (uint32_t)arg1;
+	uint32_t in = (uint8_t)arg2;
+	uint32_t out = (uint8_t)arg3;
+	uint32_t frac = v & ((1U << (in & 31)) - 1);
+	uint32_t shift = (30 - (v >> (in & 31)) - out) & 31;
+	uint32_t ib, idx, lo, hi;
+
+	if (in < 6)
+		return pow2_lut[(frac << ((5 - in) & 31)) & 31] >> shift;
+
+	ib = (in - 5) & 31;
+	idx = (frac >> ib) & 31;
+	lo = pow2_lut[idx];
+	hi = pow2_lut[idx + 1];
+	return (lo + (uint32_t)(((uint64_t)(hi - lo) * (frac & ((1U << ib) - 1))) >> ib)) >> shift;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017198 origin=model_output original=sqrt32 */
