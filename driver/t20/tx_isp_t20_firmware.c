@@ -5864,19 +5864,10 @@ int32_t system_calibrate_bad_pixels(int32_t arg1, char arg2, char arg3, int32_t 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a35c origin=fragment_seed original=selftest_lens_interface */
 int32_t selftest_lens_interface(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-
-    /* fragment 0: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = 0;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = 2;
-
-    return 0;
+	/* OEM 0x199fc: *ret = 0, status 2 (not supported); the recovery lost
+	 * the delay-slot "li v0,2" and reported success */
+	*(uint32_t *)a3 = 0;
+	return 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a368 origin=model_output original=selftest_isp_revision */
@@ -6336,16 +6327,8 @@ int set_sensor_fps(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001acac origin=fragment_seed original=dvi_output */
 int32_t dvi_output(void)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-
-    /* fragment 0: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 1: Arithmetic */
-    v0 = 2;
-
-    return 0;
+	/* OEM 0x1a34c: status 2 (not supported), not 0 */
+	return 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001acb4 origin=model_output original=image_resize_enable */
@@ -6699,31 +6682,15 @@ int32_t image_crop_yoffset(void *arg1, int32_t arg2, char arg3, uint32_t *arg4)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b270 origin=fragment_seed original=sd_capture_frames */
 int32_t sd_capture_frames(void)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-
-    /* fragment 0: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 1: Arithmetic */
-    v0 = 2;
-
-    return 0;
+	/* OEM 0x1a910: status 2 (not supported), not 0 */
+	return 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b278 origin=fragment_seed original=sd_capture_run */
 int32_t sd_capture_run(void)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-
-    /* fragment 0: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 1: Arithmetic */
-    v0 = 2;
-
-    return 0;
+	/* OEM 0x1a918: status 2 (not supported), not 0 */
+	return 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b280 origin=model_output original=wdr_mode */
@@ -6780,201 +6747,74 @@ int32_t wdr_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b308 origin=fragment_seed original=histogram_lum */
 int32_t histogram_lum(uintptr_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
 {
-    uint32_t local_14 = 0;
-    uint32_t local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t v0 = 0;
-    uint32_t v1 = 0;
+	/* OEM 0x1a9a8: only GET (1) is valid (else status 1); it requests a
+	 * histogram dump (byte +1856 = 1, buffer size 0) with interrupts off
+	 * unless fw[4] is set, *ret = 0, status 0 */
+	uint32_t *fw = *(uint32_t **)(a0 + 4);
 
-    /* fragment 0: Arithmetic */
-    a2 = a2 & 255;
-    v1 = 1;
-
-    /* fragment 1: Branch */
-    v0 = 1;
-    if (a2 != v1) { goto histogram_lum0x8c; }
-
-    /* fragment 2: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 4);
-    v0 = *(uint32_t *)((char *)v0 + 4);
-    local_18 = s1;
-    local_14 = s0;
-    local_1c = ra;
-    s0 = a0;
-
-    /* fragment 3: Branch */
-    s1 = a3;
-    if (v0 != 0) { goto histogram_lum0x44; }
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_hw_interrupts_disable)(a0); /* jalr target resolved by relocation */
-
-histogram_lum0x44:
-    /* fragment 5: CallSetup */
-    *(uint32_t *)((char *)((char *)&apical_api_buffer_data_size)) = 0;
-    *(uint8_t *)((char *)s0 + 1856) = 1;
-    *(uint32_t *)((char *)s1 + 0) = 0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_hw_interrupts_enable)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 6: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 0) = 0;
-    ra = local_1c;
-    s1 = local_18;
-    s0 = local_14;
-    v0 = 0;
-
-histogram_lum0x8c:
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 8: Unknown */
-    /* unmatched fragment 8 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 1b398:	00000000 	nop */
-
-    return 0;
+	if ((a2 & 0xff) != 1)
+		return 1;
+	if (fw[1] == 0)
+		system_hw_interrupts_disable();
+	apical_api_buffer_data_size = 0;
+	*(uint8_t *)(a0 + 1856) = 1;
+	if ((*(uint32_t **)(a0 + 4))[1] == 0)
+		system_hw_interrupts_enable();
+	*(uint32_t *)a3 = 0;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b39c origin=fragment_seed original=af_mode */
 int32_t af_mode(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-
-    /* fragment 0: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = 0;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = 2;
-
-    return 0;
+	/* OEM 0x1aa3c: *ret = 0, status 2 (not supported); the recovery lost
+	 * the delay-slot "li v0,2" and reported success */
+	*(uint32_t *)a3 = 0;
+	return 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b3a8 origin=fragment_seed original=af_range_low */
 int32_t af_range_low(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-
-    /* fragment 0: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = 0;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = 2;
-
-    return 0;
+	/* OEM 0x1aa48: *ret = 0, status 2 (not supported); the recovery lost
+	 * the delay-slot "li v0,2" and reported success */
+	*(uint32_t *)a3 = 0;
+	return 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b3b4 origin=fragment_seed original=af_range_high */
 int32_t af_range_high(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-
-    /* fragment 0: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = 0;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = 2;
-
-    return 0;
+	/* OEM 0x1aa54: *ret = 0, status 2 (not supported); the recovery lost
+	 * the delay-slot "li v0,2" and reported success */
+	*(uint32_t *)a3 = 0;
+	return 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b3c0 origin=fragment_seed original=af_roi */
 int64_t af_roi(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-    uint32_t v1 = 0;
+	/* OEM 0x1aa60: GET (1) -> 0, other directions -> 2; SET accepts the
+	 * ROI only when x1 >= x2 byte order holds ((a1 >> 24) < ((a1 >> 8) &
+	 * 0xff) and ((a1 >> 16) & 0xff) < (a1 & 0xff)), else *ret = 1 and
+	 * status 5.  The recovery fell through all three exits (status 0). */
+	uint32_t dir = a2 & 0xff;
 
-    /* fragment 0: Arithmetic */
-    a2 = a2 & 255;
-
-    /* fragment 1: Branch */
-    v0 = a2 ^ 1;
-    if (a2 != 0) { goto af_roi0x54; }
-
-    /* fragment 2: Arithmetic */
-    v0 = a1 >> 8;
-    v0 = v0 & 255;
-    v1 = a1 >> 24;
-    v0 = v1 < v0;
-
-    /* fragment 3: Branch */
-    int _bc_v0_3 = v0 == 0;
-    v0 = 1;
-    if (_bc_v0_3) { goto af_roi0x40; }
-
-    /* fragment 4: Arithmetic */
-    v0 = a1 >> 16;
-    v0 = v0 & 255;
-    a1 = a1 & 255;
-    a1 = v0 < a1;
-
-    /* fragment 5: Branch */
-    if (a1 != 0) { goto af_roi0x4c; }
-
-    /* fragment 6: Arithmetic */
-    v0 = 1;
-
-af_roi0x40:
-    /* fragment 7: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = v0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 9: Arithmetic */
-    v0 = 5;
-
-af_roi0x4c:
-    /* fragment 10: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 11: Arithmetic */
-    v0 = 0;
-
-af_roi0x54:
-    /* fragment 12: Arithmetic */
-    v1 = 2;
-    if (v0 == 0) { v1 = 0; }
-
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 14: Arithmetic */
-    v0 = v1;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+	if (dir != 0)
+		return dir == 1 ? 0 : 2;
+	if ((a1 >> 24) < ((a1 >> 8) & 0xff) && ((a1 >> 16) & 0xff) < (a1 & 0xff))
+		return 0;
+	*(uint32_t *)a3 = 1;
+	return 5;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b424 origin=fragment_seed original=af_status */
 int32_t af_status(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
 {
-    uint32_t ra = 0;
-    uintptr_t v0 = 0;
-
-    /* fragment 0: MemoryAccess */
-    *(uint32_t *)((char *)a3 + 0) = 0;
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    v0 = 2;
-
-    return 0;
+	/* OEM 0x1aac4: *ret = 0, status 2 (not supported); the recovery lost
+	 * the delay-slot "li v0,2" and reported success */
+	*(uint32_t *)a3 = 0;
+	return 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b430 origin=model_output original=ae_mode */
