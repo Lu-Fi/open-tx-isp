@@ -20,6 +20,7 @@
 #include "tx_isp_t41_ccm.h"
 #include "tx_isp_t41_bcsh.h"
 #include "tx_isp_t41_ae.h"
+#include "tx_isp_t41_tuning_ctl.h"
 #include "tx_isp_t41_gib.h"
 #include "../include/tx_isp/tx_isp_top.h"
 #include "tx_isp_t41_awb.h"
@@ -20860,6 +20861,32 @@ static int t41_tuning_hvflip(const struct tx_isp_tuning_t41_control *request)
 }
 
 /*
+ * IMPISPSENSORAttr (stock g_ctrl 0x08000033): the active sensor's
+ * total_width/total_height, the packed frame rate and the output size of
+ * core->video[channel] (core+308+96*channel; attr at +52).  Before this
+ * route the request was acknowledged without filling the structure.
+ */
+static int t41_tuning_sensor_attr(unsigned int channel, uintptr_t user_ptr)
+{
+    unsigned char *core, *video, *attr;
+    unsigned int words[T41_SENSOR_ATTR_WORDS];
+
+    if (channel >= 2 || !user_ptr)
+        return -EINVAL;
+    core = (unsigned char *)(uintptr_t)*(uint32_t *)(void *)g_ispcore;
+    if (!t41_kernel_data_ptr(core))
+        return -ENODEV;
+    video = core + 308 + channel * 96;
+    attr = (unsigned char *)(uintptr_t)*(uint32_t *)(void *)(video + 52);
+    if (!t41_kernel_data_ptr(attr))
+        return -ENODEV;
+    if (t41_sensor_attr_fill(video, attr, words))
+        return -EINVAL;
+    return private_copy_to_user((void __user *)user_ptr, words,
+                                sizeof(words)) ? -EFAULT : 0;
+}
+
+/*
  * Review2 M1: stock serialises the tuning node with core_dev->mlock; two
  * tuning threads (day/night, BCSH, flip) must not interleave on the same
  * IQ state. Serialise the whole isp-m0 ioctl.
@@ -20912,6 +20939,8 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_SENSOR_FPS, 4,
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_INLINE },
+            { TX_ISP_TUNING_CMD_T41_SENSOR_ATTR, 4 * T41_SENSOR_ATTR_WORDS,
+              TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_HVFLIP, 16,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -21116,6 +21145,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
          */
         if (route && route->id == TX_ISP_TUNING_CMD_T41_HVFLIP)
             return t41_tuning_hvflip(&request);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_SENSOR_ATTR)
+            return t41_tuning_sensor_attr(request.channel,
+                                          request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AE_EXPR_INFO)
             return request.is_get ?
                 t41_tuning_copy_ae_expr(request.channel,

@@ -18,6 +18,10 @@ TARGET_TESTS := $(basename $(wildcard t41_v4l2_*_test.c)) t41_antiflicker_ioctl_
 TEST_TIMEOUT ?= 600
 
 TESTS += tx_isp_t41_ysp_test
+TESTS += tx_isp_t41_tuning_ctl_test
+
+tx_isp_t41_tuning_ctl_test: tx_isp_t41_tuning_ctl_test.c ../driver/t41/tx_isp_t41_tuning_ctl.h ../driver/t41/tx_isp_t41_tmo.h
+	$(CC) $(CFLAGS) -o $@ $<
 TESTS += tx_isp_t31_wdr_test tx_isp_t31_wdr_runtime_test
 TESTS += tx_isp_t21_open_test
 
@@ -368,6 +372,7 @@ clean:
 	$(RM) tx_isp_t41_awb_runtime_test
 	$(RM) tx_isp_t41_awb_detect_test
 	$(RM) tx_isp_t41_awb_long_test
+	$(RM) tx_isp_t41_tuning_ctl_test
 	$(RM) tx_isp_t41_awb_stats_test
 	$(RM) tx_isp_math_test tx_isp_modulation_test \
 		tx_isp_awb_mesh_test \
