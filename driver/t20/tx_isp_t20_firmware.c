@@ -3481,10 +3481,13 @@ int32_t leading_one_position(uint32_t arg1)
 		result = 16;
 	}
 
+	/* OEM 0x165d0: four independent halving steps (16/8/4/2/1); an
+	 * else-if here skipped the 4-bit step after the 8-bit one */
 	if (arg1 >= 0x100) {
 		arg1 >>= 8;
 		result += 8;
-	} else if (arg1 >= 16) {
+	}
+	if (arg1 >= 16) {
 		arg1 >>= 4;
 		result += 4;
 	}
