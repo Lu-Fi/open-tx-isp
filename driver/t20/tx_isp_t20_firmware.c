@@ -10042,7 +10042,6 @@ int32_t cmos_update_exposure_partitioning_lut(int32_t *arg1)
 	int32_t s6;
 	int32_t *i;
 	int32_t *lut_end;
-	int32_t *acc;
 	int32_t s4;
 	int32_t a1;
 	int32_t v0;
@@ -10056,43 +10055,39 @@ int32_t cmos_update_exposure_partitioning_lut(int32_t *arg1)
 
 	s6 = s2[0x64/4] + s2[0x68/4] + arg1[0x1e4/4];
 
-	i = (int32_t *)((char *)&exp_lut);
-	lut_end = (int32_t *)((char *)&exp_lut + 0x28);
-	acc = (int32_t *)((char *)&exp_lut);
+	/* OEM 0x1e1fc: one accumulator per partition type (0 integration
+	 * time, 1 gain) in two stack words sp+16/sp+20, zeroed per call; the
+	 * slot gets the part of the type's log2 limit not yet covered by
+	 * earlier slots of the same type.  Slots of other types are left
+	 * unchanged.  The recovery used one accumulator pointer that walked
+	 * along exp_lut with the slot index. */
+	int32_t accs[2] = { 0, 0 };
 
-	while (i != lut_end) {
+	for (i = (int32_t *)((char *)&exp_lut), lut_end = (int32_t *)((char *)&exp_lut + 0x28);
+	     i != lut_end; i++, s1 = (int32_t *)((char *)s1 + 2)) {
 		s4 = (uint32_t)(*(unsigned char *)s1);
-		if (s4 >= 2) {
-			s1 = (int32_t *)((char *)s1 + 2);
+		if (s4 >= 2)
+			continue;
+		a1 = (uint32_t)(*((unsigned char *)s1 + 1));
+		if (s4 == 1) {
+			v0 = s6;
+			if (a1 != 0)
+				v0 = log2_fixed_to_fixed(a1, 0, 0x10);
+		} else if (a1 != 0) {
+			int32_t v0_3 = cmos_convert_integration_time_ms2lines(arg1, a1);
+			int32_t a1_1 = s2[0x6c/4];
+			if ((uint32_t)v0_3 >= (uint32_t)a1_1)
+				a1_1 = v0_3;
+			v0 = log2_fixed_to_fixed(a1_1, 0, 0x10);
 		} else {
-			a1 = (uint32_t)(*(unsigned char *)(s1 + 1));
-			if (s4 == 1) {
-				v0 = s6;
-				if (a1 != 0) {
-					v0 = log2_fixed_to_fixed(a1, 0, 0x10);
-				}
-			} else {
-				if (a1 != 0) {
-					int32_t v0_3 = cmos_convert_integration_time_ms2lines(arg1, a1);
-					int32_t a1_1 = s2[0x6c/4];
-					if ((uint32_t)v0_3 >= (uint32_t)a1_1)
-						a1_1 = v0_3;
-					v0 = log2_fixed_to_fixed(a1_1, 0, 0x10);
-				} else {
-					v0 = log2_fixed_to_fixed(s2[0x78/4], 0, 0x10);
-				}
-			}
-			acc = (int32_t *)((uintptr_t)acc + s4 * 4);
-			a0_4 = *acc;
-			v0_5 = v0 - a0_4;
-			if (v0_5 < 0)
-				v0_5 = 0;
-			*i = v0_5;
-			*acc = a0_4 + v0_5;
-			s1 = (int32_t *)((char *)s1 + 2);
+			v0 = log2_fixed_to_fixed(s2[0x78/4], 0, 0x10);
 		}
-		i = (int32_t *)((char *)i + 4);
-		acc = (int32_t *)((char *)acc + 4);
+		a0_4 = accs[s4];
+		v0_5 = v0 - a0_4;
+		if (v0_5 < 0)
+			v0_5 = 0;
+		*i = v0_5;
+		accs[s4] = a0_4 + v0_5;
 	}
 
 	return 0;
