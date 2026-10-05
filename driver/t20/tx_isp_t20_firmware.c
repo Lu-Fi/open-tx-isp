@@ -11651,14 +11651,19 @@ unsigned int iridix_control_strength_calculate(int32_t * arg1) {
 
     void *v0_6;
 
-    if (*(int32_t *)((char *)s1 + 0x1524) != 1) {
+    /* OEM 0x215c0/0x215ec/0x216e0 read the WDR mode at +0x1524 as a byte
+     * (lbu); wdr_mode() keeps the requested mode in byte 0x1527, so a
+     * 32-bit read sees 0x01000001 in FS-HDR mode, takes the linear branch
+     * and asks for HDR table 0x24 + 0x1000001: _GET_LUT_PTR() finds no
+     * such table and never returns. */
+    if (*(uint8_t *)((char *)s1 + 0x1524) != 1) {
         v0_6 = *(void **)arg1;
     } else {
         s0_2 = (int32_t)(*(uint16_t *)_GET_USHORT_PTR(0xd1)) << 2;
         v0_6 = *(void **)arg1;
     }
 
-    uint32_t v0_8 = (uint32_t)(*(int32_t *)((char *)v0_6 + 0x1524));
+    uint32_t v0_8 = (uint32_t)(*(uint8_t *)((char *)v0_6 + 0x1524));
     uint16_t v0_13;
 
     if (v0_8 != 1) {
@@ -11677,7 +11682,7 @@ unsigned int iridix_control_strength_calculate(int32_t * arg1) {
             v0_21 = 1;
 
         int32_t lo_3 = (s0_2 - 1) * 0x64 / v0_21;
-        int32_t fp_1 = *(int32_t *)_GET_UINT_PTR(_GET_HDR_TABLE_INDEX(0x24, (int32_t)(*(int32_t *)((char *)s1 + 0x1524))));
+        int32_t fp_1 = *(int32_t *)_GET_UINT_PTR(_GET_HDR_TABLE_INDEX(0x24, (int32_t)(*(uint8_t *)((char *)s1 + 0x1524))));
         /* OEM 0x22028-0x22038 clamps the signed percentile to zero. */
         int32_t s4_4 = max_t(int32_t, (int16_t)lo_3, 0);
         int32_t s0_8 = 0x64;
