@@ -15062,15 +15062,17 @@ int32_t apical_isp_process_events(void *arg1, int32_t arg2)
 		}
 		if (trace) printk(KERN_INFO "T20EV event=%d done acc=%d\n", event, acc);
 
-		if (acc == 0)
+		/* OEM 0x2679c..0x26964: the handler results are or-ed as a
+		 * byte (andi 0xff); a handled event counts towards arg2, and
+		 * arg2 <= 0 drains the whole queue (blez -> loop).  The
+		 * recovery kept all 32 bits and returned after the first
+		 * handled event when arg2 <= 0. */
+		if ((acc & 0xff) == 0)
 			continue;
 
 		count++;
 
-		if (arg2 <= 0)
-			return result;
-
-		if (count < arg2)
+		if (arg2 <= 0 || count < arg2)
 			continue;
 
 		return result;
