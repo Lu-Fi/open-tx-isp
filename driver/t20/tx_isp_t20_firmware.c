@@ -6298,6 +6298,8 @@ int set_sensor_fps(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 		op = *(void (**)(void *, int32_t, void *))((char *)arg1 + 0xcc);
 		ret = op((char *)arg1 + 0x34, fps, (char *)arg1 + 0x4c);
 		cmos_update_exposure_partitioning_lut((char *)arg1 + 0x100);
+		/* OEM 0x1a288: SET status from the fps_control result */
+		return ret == 0 ? 2 : 0;
 	} else if (arg3 != 1) {
 		return 2;
 	} else {
