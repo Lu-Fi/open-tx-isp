@@ -67,12 +67,7 @@ enum t23_crumb_step {
 	T23C_SENSOR_FLIP_DONE,
 	T23C_FIFO_CLEAR,	/* MSCA address FIFO clear, arg channel */
 	T23C_LAST_CLOSE,	/* tx-isp last close */
-	T23C_RELEASE,		/* output released (close/REQBUFS/session), arg channel */
-	T23C_SYNC,		/* 0xd040 change queued for a frame boundary, arg set | clr << 4 */
-	T23C_SYNC_TIMEOUT,	/* no frame boundary in time, applied directly */
-	T23C_INPUT_DRAIN,	/* last frame drained before the core stop, arg 1 = timed out */
-	T23C_REARM_SKIP,	/* FIFO of a live enabled output left alone, arg channel */
-	T23C_CFG_REUSE,		/* restart with the loaded cfg: bit only, arg channel */
+	T23C_RELEASE,		/* kept output released at session start, arg channel */
 };
 
 static inline void t23_crumb_reset(volatile u32 *w, u32 session)

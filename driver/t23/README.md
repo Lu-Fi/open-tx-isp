@@ -79,9 +79,8 @@ also use the common 8-byte endpoint wire positions.
 
 ## Output/channel restart hang
 
-Status: fix in branch `claude/t23-chan-restart-hang`, host-tested and
-built; **device test pending** (cam-B). Rules in `tx_isp_t23_msca_sync.h`,
-host model `tests/tx_isp_t23_msca_sync_test.c`. Same hazard class as the
+Status: fix in branch `claude/t23-chan-restart-hang`, built; **device
+test pending** (cam-B). Same hazard class as the
 T41 output restart hang (`driver/t41/README.md`, "Output restart hang",
 branch `claude/t41-chan-restart-hang`): MSCA output reprogramming and
 update requests while frames flow.
@@ -112,6 +111,7 @@ do not hang.
 | `2139-control` | same instance, switches set back to 0 at run time | 8 min / 34 wakes alive: inconclusive, the dangerous phase is the minutes right after a timps start |
 | `2227-fixon` | as `2128-step3c`, loop of `S95timps restart`, 180 s each | run 1 alive; run 2: DisableSensor 4237.497 (old process), new SET_BUF 4237.612, **"framechan0 unmatched MSCA completion y=0x3047000 uv=0x3245000 count=5" 4237.759**, tx-isp STREAMON 4237.765, first wake 4238.342, dead |
 | `2245-final` | a325b523 defaults (release on close, restart reuse = bit set again at a frame boundary) | guard start ok; first `S95timps restart`: tx-isp STREAMON 764.910, **"no frame boundary within 200 ms (framechan-streamon), applied directly" 765.101**, wake 765.850, dead. The released output of the old process was re-enabled without reload while the new input was starting (no frame-done yet) |
+| `4ea284c9` | stock-exact immediate channel start, release before every input start, start deferred to the first QBUF on an empty FIFO, flips and stop clears via the frame-done ISR | fresh insmod, first timps start: dead within seconds (no kmsg captured). Abandoned: the first-start path must stay the d28a0177 one |
 
 ### Root cause
 
@@ -127,6 +127,11 @@ statistically proven):
   later.
 - Re-enabling a released output without reloading it, with the input of a
   new session already started, is fatal too (`2245-final`).
+- Any change to the first-start path of d28a0177 so far made things worse
+  (`2118-fix`, `4ea284c9`). Which of the `4ea284c9` additions killed the
+  first start is open (candidates: flips applied from the hard ISR at
+  frame-done, the start deferred to a QBUF while the input runs, the
+  frame-boundary waits on stop).
 
 Inferred (consistent with the evidence, not isolated on the device):
 - `2227`: the MSCA wrote into memory the new process (or the kernel)
@@ -174,59 +179,50 @@ unchanged output" and adds the lifetime and frame-boundary rules.
 
 ### The fix (defaults)
 
-Stock-exact where stock is safe; deviations only where a run above or the
-code shows stock's assumption (buffers outlive the output) breaks.
+The device-tested path of d28a0177 (`2128-step3c`, first start plus 25
+wakes) with its switches as defaults, plus one addition for the process
+restart. Nothing else differs from that path.
 
-1. Session start (tx-isp STREAMON, e.g. after a timps restart): with the
-   input still stopped every enabled output is released (bit off,
-   completions dropped, FIFO cleared, channel state bytes cleared); every
-   channel then starts stock-exact. No waits, no frame flows.
-2. Channel STREAMON: stock-exact `tisp_channel_start()` (cfg load incl.
-   0xd010, enable) at once, no frame wait - except the device-tested reuse
-   case: output kept enabled across the input stop of the same session,
-   same configuration, FIFO rearmed with the input stopped: nothing is
-   written (counter `msca_reuses`). An output is never enabled with an
-   empty (cleared) address FIFO: the start then waits for the first QBUF.
-3. Before the input starts on a wake, every other enabled output that is
-   not streaming is released (no frame flows yet).
-4. Close / REQBUFS: with the input stopped nothing is written (stock; rule
-   3 / 1 runs before the next input start). While frames flow (another
-   channel streams) the output is released at a frame boundary.
-5. Frame boundary: while frames flow, 0xd040 clears and 0xd050 + 0xd010
-   flip writes are applied by the core ISR at frame-done; callers wait
-   uninterruptibly at most `msca_sync_timeout_ms`, then apply directly
-   (`msca_sync_timeouts`). Flip writes do not wait (stock defers its HV
-   flip to the IRQ thread too). Unchanged flip words issue no request.
-6. The FIFO of an enabled output is never cleared while frames flow.
-7. Input stop lets the frame in flight finish (bounded wait for one more
-   frame-done after the sensor/VIC stop) before the core is switched off.
+1. `msca_flip_skip_noop=1`: a mirror/flip write with an unchanged 0xd050
+   word issues no 0xd010 update request (timps re-sends HVFLIP on every
+   chn0 enable edge).
+2. `msca_keep_enabled=1`: the last STREAMOFF (input stops with it) leaves
+   the output's 0xd040 bit set; a non-last STREAMOFF clears it as before.
+3. `msca_restart_skip=1`: a STREAMON that finds the bit set and the same
+   channel configuration does not reload the output (no
+   `tisp_msca_chx_cfg_load()`, no 0xd010). Its FIFO is rearmed (cleared and
+   refilled with the queued buffers) while the input is still stopped.
+   Every other start does `tisp_channel_start()` as before / as stock.
+4. New, `msca_session_release=1`: tx-isp STREAMON with the input still
+   stopped (a new session, e.g. after a timps restart) switches off every
+   output left enabled that no channel streams, drops its completions,
+   clears its address FIFO and forgets its loaded configuration, so its
+   next STREAMON loads it like a first start. No frame flows at that point.
+   This closes the `2227-fixon` run 2 path (input started under an output
+   still holding the old process's freed buffers). Counter `msca_releases`.
 
-Per in-process wake on cam-B this is the `2128-step3c` path: STREAMOFF
-(bit kept, input stopped after the last frame), close (nothing written),
-REQBUFS/QBUF, STREAMON (FIFO rearmed with the input stopped, input start,
-no MSCA write). Per timps restart: release at tx-isp STREAMON with the
-input stopped, then stock-exact channel starts.
+Per in-process wake on cam-B: STREAMOFF (bit kept, input stops), close,
+REQBUFS/QBUF, STREAMON (FIFO rearm with the input stopped, input start,
+no MSCA write). Per timps restart: release at tx-isp STREAMON, then the
+first-start path.
 
-The input still stops with the last frame channel (unlike stock): with
-openimp freeing the pool on every DisableChn a running input would force
-a live output stop/start on every wake. `chan_stop_keep_input=1` restores
-the stock behaviour for experiments.
+Not done (tried in a325b523/4ea284c9, worse on the device): release on
+close/REQBUFS, frame-boundary application of 0xd040/flip changes from the
+core ISR, deferred starts, waits on the input stop, the stock-like input
+that keeps running (`chan_stop_keep_input=1`, never device-tested here).
 
-### Parameters (`/sys/module/tx_isp_t23/parameters/`, all 0644 unless noted)
+### Parameters (`/sys/module/tx_isp_t23/parameters/`, 0644 unless noted)
 
 The defaults are the fix; the switches are debug escape hatches.
 
 | parameter | default | meaning |
 |---|---|---|
 | `msca_flip_skip_noop` | 1 | 0: update request for every flip write (stock) |
-| `msca_keep_enabled` | 1 | STREAMOFF: 0 bit off, 1 keep when the input stops too, 2 always keep (stock; still released on close/REQBUFS) |
-| `msca_restart_skip` | 1 | 0: reload a kept output on every STREAMON too (stock) |
-| `chan_stop_keep_input` | 0 | 1: input keeps running between channel stops while tx-isp streams (stock) |
-| `msca_frame_sync` | 1 | 0: MSCA enable/flip changes written at once |
-| `msca_sync_timeout_ms` | 200 | bound of each frame-boundary wait |
-| `msca_sync_timeouts` | (0444) | waits that timed out |
-| `msca_releases` | (0444) | outputs released |
-| `msca_reuses` | (0444) | restarts without reload |
+| `msca_keep_enabled` | 1 | STREAMOFF: 0 bit off, 1 keep when the input stops too, 2 always keep (stock) |
+| `msca_restart_skip` | 1 | 0: reload on every STREAMON (stock) |
+| `msca_session_release` | 1 | 0: no release of left-enabled outputs at tx-isp STREAMON (d28a0177) |
+| `msca_releases` | (0444) | outputs released at a session start |
+| `chan_stop_keep_input` | 0 | 1: input keeps running between channel stops while tx-isp streams (stock, untested) |
 | `crumbs` | 0 | step markers: 1 rmem page behind the MDNS buffer, 2 page at `crumb_addr` |
 | `crumb_addr` / `crumb_phys` | 0 / (0444) | crumbs=2 page / page in use |
 
@@ -249,21 +245,18 @@ kernel RAM.
 
 ### Device test (cam-B)
 
-1. Load the module with default parameters (no overrides); `cat
-   /sys/module/tx_isp_t23/parameters/{msca_*,chan_stop_keep_input}`.
-2. Ten fresh `S95timps restart`, each watched >= 180 s (the full daynight
-   boot phase with its wakes), then 30 min of normal operation.
-3. Per run collect kmsg and the counters `msca_releases`, `msca_reuses`,
-   `msca_sync_timeouts`. Expected: no "unmatched MSCA completion",
-   `msca_releases` about one per timps (re)start, `msca_reuses` = number
-   of in-process wakes,
-   `msca_sync_timeouts` 0 or small (only waits whose frames stopped).
-4. Negative control: `msca_keep_enabled=0 msca_restart_skip=0
-   msca_flip_skip_noop=0 msca_frame_sync=0` (written before the timps
-   start) gives the agg-24 per-wake path (reload + update requests on
-   every wake); expect the `2100` hang within minutes. The release before
-   an input start has no switch, so the `2227-fixon` run 2 path cannot
-   be re-enabled.
+1. Fresh insmod with default parameters; check
+   `/sys/module/tx_isp_t23/parameters/{msca_*,chan_stop_keep_input,crumbs}`
+   = Y, 1, Y, Y, 0, N, 0. Stream kmsg to the host.
+2. Guard start of timps, >= 180 s (first-start path = d28a0177 step3c).
+3. Ten `S95timps restart`, each >= 180 s; per run kmsg and
+   `msca_releases` (expected +1 per restart, "released at session start"
+   in kmsg, no "unmatched MSCA completion").
+4. 30 min normal operation, then the overnight soak.
+5. Negative control: `msca_session_release=0` plus `S95timps restart`
+   loop should reproduce the `2227-fixon` run 2 hang; the agg-24 hang
+   (`2100`) with `msca_flip_skip_noop=0 msca_keep_enabled=0
+   msca_restart_skip=0`.
 
 Results: pending.
 
