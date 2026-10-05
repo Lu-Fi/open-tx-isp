@@ -9,7 +9,10 @@
  * callbacks, sbus/I2C traffic, printk text, return values of API calls and,
  * at checkpoints, a hash of every data/bss object of the firmware unit with
  * pointers normalised to symbol+offset (so a different code layout does not
- * count as a difference).
+ * count as a difference).  A firmware constant that merely lies inside the
+ * image is normalised too, to a different symbol per build; compare.sh then
+ * re-runs both builds with dump=<object> and accepts a word only when its
+ * normalised form or its raw value is identical (see there).
  *
  * Usage: t20fw-<variant> <symfile> [calib.bin] [opts]
  *   opts: v      verbose (every register access on its own line)
@@ -183,7 +186,7 @@ static void checkpoint(const char *tag)
 				uint32_t w = *(const uint32_t *)(uintptr_t)(s->addr + a);
 				uint64_t wh = 0;
 				hash_word(&wh, w);
-				rt_printf("DUMP %s %s+%04x %08x %08x%08x\n", tag, s->name, a, w, (unsigned)(wh >> 32), (unsigned)wh);
+				rt_printf("DUMP %s %s#%d+%04x %08x %08x%08x\n", tag, s->name, dup_index(i), a, w, (unsigned)(wh >> 32), (unsigned)wh);
 			}
 		}
 		hash_bytes(&all, s->name, strlen(s->name));
@@ -515,7 +518,111 @@ int32_t spi_init_access(void) { ev("SPI init"); return 0; }
 void init_sensor_interface(void) { ev("SIF init"); }
 int32_t reset_sensor_interface(void) { ev("SIF reset"); return 0; }
 int32_t load_sensor_interface(void) { ev("SIF load"); return 0; }
-int32_t apical_custom_sequence(void) { ev("custom_sequence"); return 0; }
+/*
+ * Sensor register sequence
+ *
+ * load_isp_sequence() asks the driver for the sensor's register table through
+ * apical_custom_sequence(); the stock driver answers with the table of the
+ * detected sensor out of the tuning data.  Returning nothing keeps the whole
+ * sequence interpreter plus the sbus layer dark, so the harness answers with a
+ * small table made of the opcodes sensor_load_binary_sequence() understands:
+ *
+ *   after a 4-entry u16 offset table:
+ *     0x00           end of this sequence
+ *     0x01 lo hi     offset = 16-bit value
+ *     0x02 b0..b3    offset = 32-bit value
+ *     0x10 n         offset += n
+ *     0x11 n         offset -= n
+ *     0xe0/e1/e2     sleep (8/16/32 bit argument)
+ *     0x2n d0..dn    write n+1 bytes at offset+reg
+ *     0x3n r d..d m..m  read-modify-write n+1 bytes (n+1 data, n+1 mask bytes)
+ *     0xfn           run sequence n, then carry on
+ *
+ * Unused bytes stay 0, so a lookup past the end ends instead of walking out of
+ * the buffer.  The two-byte and four-byte read-modify-write forms are the ones
+ * that exercise the sbus read path, the rest the write path.  Register
+ * addresses are kept small so they land in the harness register file.
+ */
+#define SEQ_SIZE 192
+static uint8_t sensor_seq[SEQ_SIZE];
+static int sensor_seq_on;
+
+static uint8_t *sensor_seq_put(uint8_t *p, uint8_t b) { *p++ = b; return p; }
+
+static void sensor_seq_build(void)
+{
+	uint8_t *w;
+	uint8_t *s1;
+	uint8_t *s2;
+	uint8_t *s3;
+	uint16_t off[4];
+
+	memset(sensor_seq, 0, sizeof(sensor_seq));
+	w = sensor_seq + 8;	/* room for the four offsets */
+
+	/* sequence 0: WDR sensor table, the one load_isp_sequence(0) asks for */
+	w = sensor_seq_put(w, 0x01); w = sensor_seq_put(w, 0x00); w = sensor_seq_put(w, 0x03);	/* offset 0x0300 */
+	w = sensor_seq_put(w, 0x20); w = sensor_seq_put(w, 0x00); w = sensor_seq_put(w, 0x01);	/* 1 byte  @0x300 */
+	w = sensor_seq_put(w, 0x21); w = sensor_seq_put(w, 0x02);				/* 2 bytes @0x302 */
+	w = sensor_seq_put(w, 0x11); w = sensor_seq_put(w, 0x22);
+	w = sensor_seq_put(w, 0x23); w = sensor_seq_put(w, 0x04);				/* 4 bytes @0x304 */
+	w = sensor_seq_put(w, 0xaa); w = sensor_seq_put(w, 0xbb); w = sensor_seq_put(w, 0xcc); w = sensor_seq_put(w, 0xdd);
+	w = sensor_seq_put(w, 0xe0); w = sensor_seq_put(w, 0x01);				/* sleep 1 ms */
+	w = sensor_seq_put(w, 0x31); w = sensor_seq_put(w, 0x08);				/* rmw 2 bytes @0x308 */
+	w = sensor_seq_put(w, 0x5a); w = sensor_seq_put(w, 0x0f);
+	w = sensor_seq_put(w, 0x33); w = sensor_seq_put(w, 0x0c);				/* rmw 4 bytes @0x30c */
+	w = sensor_seq_put(w, 0x01); w = sensor_seq_put(w, 0x02); w = sensor_seq_put(w, 0x03); w = sensor_seq_put(w, 0x04);
+	w = sensor_seq_put(w, 0xff); w = sensor_seq_put(w, 0x00); w = sensor_seq_put(w, 0xff); w = sensor_seq_put(w, 0x00);
+	w = sensor_seq_put(w, 0x30); w = sensor_seq_put(w, 0x10);				/* rmw 1 byte @0x310 */
+	w = sensor_seq_put(w, 0x0f); w = sensor_seq_put(w, 0xf0);
+	w = sensor_seq_put(w, 0x10); w = sensor_seq_put(w, 0x10);				/* offset += 0x10 */
+	w = sensor_seq_put(w, 0x20); w = sensor_seq_put(w, 0x00); w = sensor_seq_put(w, 0x02);	/* 1 byte  @0x320 */
+	w = sensor_seq_put(w, 0x11); w = sensor_seq_put(w, 0x08);				/* offset -= 8 */
+	w = sensor_seq_put(w, 0x20); w = sensor_seq_put(w, 0x00); w = sensor_seq_put(w, 0x03);	/* 1 byte  @0x318 */
+	w = sensor_seq_put(w, 0x02);								/* offset = 0x400 */
+	w = sensor_seq_put(w, 0x00); w = sensor_seq_put(w, 0x04); w = sensor_seq_put(w, 0x00); w = sensor_seq_put(w, 0x00);
+	w = sensor_seq_put(w, 0xe1); w = sensor_seq_put(w, 0x02); w = sensor_seq_put(w, 0x00);	/* sleep 2 ms */
+	w = sensor_seq_put(w, 0x20); w = sensor_seq_put(w, 0x01); w = sensor_seq_put(w, 0x07);	/* 1 byte  @0x401 */
+	w = sensor_seq_put(w, 0xf1);								/* run sequence 1 */
+	w = sensor_seq_put(w, 0x00);
+	s1 = w;
+
+	/* sequence 1: WDR-off table, also used as a sub-sequence from entry 0 */
+	w = sensor_seq_put(w, 0x01); w = sensor_seq_put(w, 0x00); w = sensor_seq_put(w, 0x05);	/* offset 0x0500 */
+	w = sensor_seq_put(w, 0x21); w = sensor_seq_put(w, 0x00);				/* 2 bytes @0x500 */
+	w = sensor_seq_put(w, 0x34); w = sensor_seq_put(w, 0x12);
+	w = sensor_seq_put(w, 0xe2);								/* sleep 3 ms */
+	w = sensor_seq_put(w, 0x03); w = sensor_seq_put(w, 0x00); w = sensor_seq_put(w, 0x00); w = sensor_seq_put(w, 0x00);
+	w = sensor_seq_put(w, 0x32); w = sensor_seq_put(w, 0x10);				/* rmw 2 bytes @0x510 */
+	w = sensor_seq_put(w, 0x34); w = sensor_seq_put(w, 0x12); w = sensor_seq_put(w, 0xff); w = sensor_seq_put(w, 0x0f);
+	w = sensor_seq_put(w, 0x20); w = sensor_seq_put(w, 0x20); w = sensor_seq_put(w, 0x00);	/* 1 byte  @0x520 */
+	w = sensor_seq_put(w, 0x00);
+	s2 = w;
+
+	/* sequence 2: the table apical_init() asks for at start-up */
+	w = sensor_seq_put(w, 0x01); w = sensor_seq_put(w, 0x00); w = sensor_seq_put(w, 0x06);	/* offset 0x0600 */
+	w = sensor_seq_put(w, 0x23); w = sensor_seq_put(w, 0x00);				/* 4 bytes @0x600 */
+	w = sensor_seq_put(w, 0x11); w = sensor_seq_put(w, 0x22); w = sensor_seq_put(w, 0x33); w = sensor_seq_put(w, 0x44);
+	w = sensor_seq_put(w, 0x31); w = sensor_seq_put(w, 0x40);				/* rmw 2 bytes @0x640 */
+	w = sensor_seq_put(w, 0x00); w = sensor_seq_put(w, 0x80);
+	w = sensor_seq_put(w, 0x00);
+	s3 = w;
+
+	off[0] = 8;						/* sequence 0 starts right after the table */
+	off[1] = (uint16_t)(s1 - sensor_seq);
+	off[2] = (uint16_t)(s2 - sensor_seq);
+	off[3] = (uint16_t)(s3 - sensor_seq);
+	memcpy(sensor_seq, off, sizeof(off));
+}
+
+int32_t apical_custom_sequence(void)
+{
+	ev("custom_sequence");
+	if (!sensor_seq_on)
+		return 0;
+	sensor_seq_build();
+	return (int32_t)(uintptr_t)sensor_seq;
+}
 uint32_t apical_custom_initialization(void) { ev("custom_initialization"); return 0; }
 bool tx_isp_t20_fw_parked(void) { return 0; }
 unsigned char stab[60] __attribute__((aligned(4)));
@@ -635,11 +742,159 @@ static void frame(void)
 
 static int hexarg(const char *s) { int v = 0; for (; *s; s++) v = v * 16 + (*s <= '9' ? *s - '0' : (*s | 32) - 'a' + 10); return v; }
 
+/*
+ * Register poke: the type 5 ids 0x7c..0x7f are the debug access the vendor
+ * tool uses (address, size, source, value) and type 6 adds exposure_log2 /
+ * gain_log2.  The default and extended runs never touch them.  This is a
+ * separate invocation because the value/size/source triple selects an interior
+ * pointer of the firmware context to read or write through, which cannot be
+ * checked from the harness.
+ */
+static void poke_scenario(void)
+{
+	static const uint32_t sizes[] = { 8, 0x10, 0x20 };
+	static const uint32_t sources[] = { 0x5b, 0x5d, 0x5e, 0 };
+	static const uint32_t addrs[] = { 0x400, 0x300, 0x200, 0x0 };
+	unsigned a, s, z;
+
+	for (s = 0; s < sizeof(sources) / sizeof(sources[0]); s++) {
+		cmd(5, 0x7e, sources[s], 0);	/* register_source */
+		cmd(5, 0x7e, 0, 1);
+		for (z = 0; z < sizeof(sizes) / sizeof(sizes[0]); z++) {
+			cmd(5, 0x7d, sizes[z], 0);	/* register_size */
+			cmd(5, 0x7d, 0, 1);
+			for (a = 0; a < sizeof(addrs) / sizeof(addrs[0]); a++) {
+				cmd(5, 0x7c, addrs[a], 0);	/* register_address */
+				cmd(5, 0x7c, 0, 1);
+				cmd(5, 0x7f, 0x5a, 0);		/* value -> write */
+				cmd(5, 0x7f, 0, 1);		/* value -> read back */
+				frame();
+			}
+		}
+	}
+	cmd(6, 0x80, 0, 1);		/* exposure_log2 */
+	cmd(6, 0x81, 0, 1);		/* gain_log2 */
+	checkpoint("poke-register");
+}
+
+/*
+ * Extended scenario: the parts of the API the default run deliberately leaves
+ * alone because they re-initialise blocks of the pipeline, plus read-back of
+ * values the default run only writes.  Run as its own invocation so the default
+ * run keeps its frozen trace.
+ */
+static void ext_scenario(void)
+{
+	static const uint32_t wdr_modes[] = { 1, 0, 2, 0 };
+	static const uint32_t vals[] = { 0, 1, 2, 0x32, 0x80, 0xff };
+	static const uint32_t ae_modes[] = { 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a };
+	static const uint32_t api_knobs[] = {
+		AE_MODE_ID_H, AWB_MODE_ID_H, AE_COMPENSATION_ID_H, ANTIFLICKER_MODE_ID_H,
+		SYSTEM_MAX_SENSOR_ANALOG_GAIN_H, SYSTEM_EXPOSURE_DARK_TARGET_H,
+	};
+	unsigned i, v, f, g;
+
+	/* 1. active image switch.  resolution_active_image() only does work for a
+	 *    value of 4 or 5: it stages the new pipe, raises a general FSM event
+	 *    and calls apical_init_calibrations(), which loads the sensor isp
+	 *    sequence again.  The default run never gets past the early return. */
+	cmd(2, 0x3f, 4, 0);
+	for (f = 0; f < 4; f++) frame();
+	cmd(2, 0x3f, 5, 0);
+	for (f = 0; f < 4; f++) frame();
+	cmd(2, 0x3f, 1, 1);
+	checkpoint("ext-resolution");
+
+	/* 2. sensor frame rate: set_sensor_fps() indexes fps_table[] for 6..11 and
+	 *    calls the sensor op, which the default run never reaches. */
+	for (i = 6; i <= 11; i++) {
+		cmd(2, 0x40, i, 0);
+		frame();
+		cmd(2, 0x40, 0, 1);
+	}
+	checkpoint("ext-fps");
+
+	/* 3. WDR on / off / HDR on / off: general_set_wdr_mode() loads the isp
+	 *    sequences 0 and 1 back to back and switches the shading mesh. */
+	for (i = 0; i < sizeof(wdr_modes) / sizeof(wdr_modes[0]); i++) {
+		cmd(2, 0x45, wdr_modes[i], 0);
+		for (f = 0; f < 4; f++) frame();
+		cmd(2, 0x45, 0, 1);
+	}
+	checkpoint("ext-wdr");
+
+	/* 3b. the WDR statistics interrupt (IRQ 10, apical_interrupt_fpga_frame_wdr):
+	 *     frame() raises IRQ 7/3/4/5/6/12/0 but never 10, so the handler and the
+	 *     interrupt dispatch it feeds stay cold in every other run.  It only
+	 *     does work when the global stab[0] is zero, which init_stab() sets. */
+	cmd(2, 0x45, 1, 0);		/* back to WDR mode 1 */
+	for (f = 0; f < 4; f++) {
+		frame();
+		irq(10);
+	}
+	irq(10);
+	irq(10);
+	checkpoint("ext-wdr-irq");
+	cmd(2, 0x45, 0, 0);
+
+	/* 4. remaining type 2 setup block: pipe status, dvi output, orientation,
+	 *    resize and crop.  Each one re-initialises part of the pipeline, which
+	 *    is why the default sweep skips 0x3f..0x4d. */
+	for (i = 0x41; i <= 0x4d; i++) {
+		if (i == 0x45)
+			continue;
+		for (v = 0; v < sizeof(vals) / sizeof(vals[0]); v++) {
+			cmd(2, i, vals[v], 0);
+			cmd(2, i, 0, 1);
+		}
+		frame();
+	}
+	checkpoint("ext-setup");
+
+	/* 5. ae_mode needs a frame after the switch before the next mode is set,
+	 *    and the read-back path computes from the running AE state. */
+	for (i = 0; i < sizeof(ae_modes) / sizeof(ae_modes[0]); i++) {
+		cmd(TALGORITHMS_H, AE_MODE_ID_H, ae_modes[i], 0);
+		for (f = 0; f < 3; f++) frame();
+		cmd(TALGORITHMS_H, AE_MODE_ID_H, 0, 1);
+		cmd(TALGORITHMS_H, AWB_MODE_ID_H, 0, 1);
+	}
+	checkpoint("ext-ae-modes");
+
+	/* 6. read back every knob the default run writes, and write every id the
+	 *    default sweep only reads */
+	for (g = 0; g < sizeof(api_knobs) / sizeof(api_knobs[0]); g++) {
+		cmd(TALGORITHMS_H, api_knobs[g], 0, 1);
+		cmd(TSYSTEM_H, api_knobs[g], 0, 1);
+	}
+	for (i = 0x51; i <= 0x70; i++) {	/* type 3: af / ae / awb / iridix / ... */
+		for (v = 0; v < sizeof(vals) / sizeof(vals[0]); v++)
+			cmd(TALGORITHMS_H, i, vals[v], 0);
+		cmd(TALGORITHMS_H, i, 0, 1);
+		frame();
+	}
+	for (i = 0x71; i <= 0x7b; i++) {	/* type 4: scene / colour / output / ... */
+		for (v = 0; v < sizeof(vals) / sizeof(vals[0]); v++)
+			cmd(4, i, vals[v], 0);
+		cmd(4, i, 0, 1);
+		frame();
+	}
+	for (i = 0xa0; i < 0x100; i += 0x11) {	/* ids past the tables */
+		cmd(1, i, 0, 1);
+		cmd(2, i, 0, 1);
+		cmd(3, i, 0, 1);
+		cmd(4, i, 0, 1);
+	}
+	for (f = 0; f < 5; f++) frame();
+	checkpoint("ext-readback");
+}
+
 int main(int argc, char **argv)
 {
 	char top;
 	const char *calib = 0;
 	int oem = 0, trace = 0, i, f;
+	int ext = 0, poke = 0;
 
 	stack_hi_mark = &top + 4096;
 	stack_lo_mark = &top - (1 << 20);
@@ -649,11 +904,15 @@ int main(int argc, char **argv)
 		if (!strcmp(argv[i], "v")) verbose = 1;
 		else if (!strcmp(argv[i], "oem")) oem = 1;
 		else if (!strcmp(argv[i], "trace")) trace = 1;
+		else if (!strcmp(argv[i], "ext")) ext = 1;
+		else if (!strcmp(argv[i], "poke")) ext = poke = 1;
 		else if (argv[i][0] == 'p' && argv[i][1]) poison = hexarg(argv[i] + 1);
 		else if (!strncmp(argv[i], "dump=", 5)) dump_obj = argv[i] + 5;
 		else if (!strcmp(argv[i], "cov")) cov_on = 1;
 		else if (i == 2) calib = argv[i];
 	}
+	/* the extended runs feed the firmware a sensor register sequence */
+	sensor_seq_on = ext;
 	t20fw_set_knobs(oem, trace);
 	rt_printf("T20FW harness: calib=%s oem=%d poison=%d syms=%d\n",
 		  calib ? calib : "-", oem, poison, nsyms);
@@ -776,6 +1035,11 @@ int main(int argc, char **argv)
 		for (f = 0; f < 10; f++) frame();
 	}
 	checkpoint("api-set-sweep");
+
+	if (poke)
+		poke_scenario();
+	else if (ext)
+		ext_scenario();
 
 	if (cov_on)
 		cov_report();

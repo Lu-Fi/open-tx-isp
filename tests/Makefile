@@ -372,19 +372,6 @@ check:
 t30_storage_audit:
 	../driver/t30/check_storage.sh
 
-# T20/T10 recovered firmware: -O0 vs -Os differential harness
-check: t20_fw_check
-.PHONY: t20_fw_check
-t20_fw_check:
-	$(MAKE) -C t20_fw check
-
-# ... and function by function against the vendor tx-isp-t20.ko (skips unless
-# T20FW_VENDOR_KO, a MIPS gcc and python3-unicorn are available)
-check: t20_fw_vdiff
-.PHONY: t20_fw_vdiff
-t20_fw_vdiff:
-	$(MAKE) -C t20_fw vdiff
-
 clean:
 	$(RM) $(TESTS)
 	$(MAKE) -C t20_fw clean

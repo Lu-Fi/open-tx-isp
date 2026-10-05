@@ -87,12 +87,16 @@ class Diff:
     def __init__(self, vendor, ours, calib, verbose=False, sdk=None):
         self.vendor, self.ours, self.calib, self.verbose = vendor, ours, calib, verbose
         self.sdk = sdk
+        self.seq = True
         self.void = void_functions()
+        self.stack_args = stack_arg_counts()
 
     def machine(self, oem=True):
         m = emu.Machine(self.vendor, self.ours)
         scenario.setup_calibrations(m, self.calib)
         m.bank_ids = scenario.bank_ids(self.sdk) if self.sdk else []
+        if self.seq:
+            scenario.setup_sequence(m, self.sdk)
         for n in ('t20_simple_ae', 't20_simple_awb', 't20_simple_nr', 't20_trace_events'):
             if n in m.O.sym:
                 m.w32(m.O.sym[n][0], 0)
@@ -240,8 +244,11 @@ class Diff:
                     b[lo - a:hi - a] = bytes(hi - lo)
             mem['vdata@%x' % a] = bytes(b)
         mem['heap'] = bytes(m.uc.mem_read(HEAP, m.env.heapp - HEAP)) if m.env.heapp > HEAP else b''
-        # sp+0..15: argument home area (an -O0 callee spills a0-a3 there)
-        mem['stack'] = bytes(16) + bytes(m.uc.mem_read(s.sp + 16, TOP - s.sp - 16))
+        # sp+0..15: argument home area (an -O0 callee spills a0-a3 there);
+        # the stack-passed arguments after it belong to the callee as well
+        # (o32), the vendor build reuses them as scratch
+        home = 16 + 4 * self.stack_args.get(s.fn, 0)
+        mem['stack'] = bytes(home) + bytes(m.uc.mem_read(s.sp + home, TOP - s.sp - home))
         cu = getattr(m, 'calib_used', CALIB)
         mem['calib'] = bytes(m.uc.mem_read(CALIB, cu - CALIB)) if cu > CALIB else b''
         return mem
@@ -314,6 +321,20 @@ def void_functions():
         set(re.findall(r'^(?:static\s+)?(?:inline\s+)?void\s*\*\s*(\w+)\s*\(', txt, re.M))
 
 
+def stack_arg_counts():
+    """number of stack-passed argument words (arguments past a0-a3) of the
+    functions our source defines with more than four arguments"""
+    import re
+    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../driver/t20/tx_isp_t20_firmware.c')
+    out = {}
+    for m in re.finditer(r'^(?:static\s+)?(?:inline\s+)?[\w\s\*]+?\b(\w+)\s*\(([^;{)]*)\)\s*\{',
+                         open(src).read(), re.M):
+        args = [a for a in m.group(2).split(',') if a.strip() and a.strip() != 'void']
+        if len(args) > 4:
+            out[m.group(1)] = len(args) - 4
+    return out
+
+
 def fmt(v):
     return ('0x%x' % v) if isinstance(v, int) else str(v)
 
@@ -329,9 +350,12 @@ def main():
     ap.add_argument('--sys', action='store_true', help='(default, kept for compatibility)')
     ap.add_argument('--fuzz', type=int, default=3000, help='random calls per pure helper (0: off)')
     ap.add_argument('--no-scenario', action='store_true')
+    ap.add_argument('--no-seq', action='store_true',
+                    help='apical_custom_sequence() returns NULL (no ISP init sequence)')
     ap.add_argument('-v', action='store_true')
     a = ap.parse_args()
     D = Diff(a.vendor, a.ours, a.calib, a.v, a.sdk)
+    D.seq = not a.no_seq
     nfz = 0
     if a.fuzz:
         import fuzz

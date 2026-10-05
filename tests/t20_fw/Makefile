@@ -1,8 +1,10 @@
 # T20/T10 firmware optimisation-safety harness (see README in harness.c).
 #
-#   make -C tests/t20_fw check          -O0 vs -Os, both scenarios, stack poison
+#   make -C tests/t20_fw check          -O0 vs -Os, all scenarios, stack poison
 #   make -C tests/t20_fw VARIANTS="O0 Os O2" check
 #   make -C tests/t20_fw CALIB=/path/jxf23.bin check
+#   make -C tests/t20_fw check-poke     also the vendor register-poke scenario
+#   make -C tests/t20_fw SCENARIOS="simple" check
 #   make -C tests/t20_fw vdiff          function-level diff against the vendor
 #                                       module (see vdiff/vdiff.py; needs
 #                                       T20FW_VENDOR_KO, a mipsel gcc and the
@@ -39,7 +41,7 @@ HOST_OBJS := $(OUT)/harness.o $(OUT)/calib.o $(OUT)/rt.o \
 	$(OUT)/sdk_static.o $(OUT)/sdk_dynamic.o $(OUT)/sdk_calibrations.o $(OUT)/sdk_calinit.o \
 	$(OUT)/t20_math.o
 
-.PHONY: all check clean coverage skip vdiff
+.PHONY: all check check-poke clean coverage skip vdiff
 .SECONDARY:
 M32_OK := $(shell echo 'int x;' | $(CC) -m32 -x c -c -o /dev/null - 2>/dev/null && echo y)
 ifneq ($(M32_OK),y)
@@ -80,15 +82,23 @@ $(OUT)/t20fw-%.sym: $(OUT)/t20fw-% $(OUT)/fw-%.o
 	nm --defined-only $(OUT)/fw-$*.o | awk '$$2 ~ /^[dDbBtT]$$/ {print $$3}' | sort -u > $@.fw
 	nm -S -n --defined-only $< | awk 'NR==FNR {fw[$$1]=1; next} NF==4 {print $$0 ((($$3 ~ /^[dDbBtT]$$/) && ($$4 in fw)) ? " F" : "")}' $@.fw - > $@
 
+SCENARIOS ?= simple oem ext ext-oem
+
 check: all
-	./compare.sh $(OUT) "$(CALIB)" $(REF) $(filter-out $(REF),$(VARIANTS))
+	SCENARIOS="$(SCENARIOS)" ./compare.sh $(OUT) "$(CALIB)" $(REF) $(filter-out $(REF),$(VARIANTS))
+
+# the register-poke scenario drives the vendor debug API (type 5 ids 0x7c..0x7f);
+# it is not part of "check" because that path cannot be validated from the host
+check-poke: SCENARIOS += poke poke-oem
+check-poke: check
 
 # which firmware functions the scenarios execute (coverage limit of check)
 coverage: $(OUT)/t20fw-cov $(OUT)/t20fw-cov.sym
 	setarch -R $(OUT)/t20fw-cov $(OUT)/t20fw-cov.sym "$(or $(CALIB),-)" cov > $(OUT)/cov-simple.txt
 	setarch -R $(OUT)/t20fw-cov $(OUT)/t20fw-cov.sym "$(or $(CALIB),-)" cov oem > $(OUT)/cov-oem.txt
-	cat $(OUT)/cov-simple.txt $(OUT)/cov-oem.txt | awk '/^COV hit/ {h[$$3]=1} /^COV miss/ {m[$$3]=1} END {for (f in m) if (!(f in h)) n++; for (f in h) k++; printf "functions executed: %d, never executed: %d\n", k, n}'
-	cat $(OUT)/cov-simple.txt $(OUT)/cov-oem.txt | awk '/^COV hit/ {h[$$3]=1} /^COV miss/ {m[$$3]=1} END {for (f in m) if (!(f in h)) print f}' | sort > $(OUT)/cov-missed.txt
+	setarch -R $(OUT)/t20fw-cov $(OUT)/t20fw-cov.sym "$(or $(CALIB),-)" cov ext > $(OUT)/cov-ext.txt
+	cat $(OUT)/cov-simple.txt $(OUT)/cov-oem.txt $(OUT)/cov-ext.txt | awk '/^COV hit/ {h[$$3]=1} /^COV miss/ {m[$$3]=1} END {for (f in m) if (!(f in h)) n++; for (f in h) k++; printf "functions executed: %d, never executed: %d\n", k, n}'
+	cat $(OUT)/cov-simple.txt $(OUT)/cov-oem.txt $(OUT)/cov-ext.txt | awk '/^COV hit/ {h[$$3]=1} /^COV miss/ {m[$$3]=1} END {for (f in m) if (!(f in h)) print f}' | sort > $(OUT)/cov-missed.txt
 
 endif
 

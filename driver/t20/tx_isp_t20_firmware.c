@@ -972,7 +972,10 @@ static int32_t iir_coeff0;
 static int32_t iir_coeff1;
 static int32_t iir_err0;
 static int32_t iir_err1;
-static const uint32_t fps_table[6] = { 5, 10, 15, 20, 25, 30 };
+/* set_sensor_fps(): FPS5..FPS60 (6..11) -> sensor fps, the jump table at
+ * OEM .rodata+0x1a10 (0x1a230.. li a1, 5/15/25/30/50/60), the inverse of
+ * the GET mapping below it. */
+static const uint32_t fps_table[6] = { 5, 15, 25, 30, 50, 60 };
 /* firmware .rodata+204 (get_awb_idx 0x2828): AWB_CLOUDY (0x35) .. AWB_WARM_
  * FLOURESCENT (0x3a) -> preset rows 1..6; DAY_LIGHT (0x34) and anything
  * else -> row 0. The recovered table started at 0, giving each preset the
@@ -6081,16 +6084,19 @@ int32_t test_pattern(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
 		if (mode != 1)
 			return 2;
 
-		*arg4 = (uint32_t)APICAL_READ_32(0x9c4);
+		/* OEM 0x19da8: only the pattern byte */
+		*arg4 = (uint32_t)APICAL_READ_32(0x9c4) & 0xff;
 		return 0;
 	}
 
-	if ((uint32_t)arg1 >= 4) {
+	/* OEM 0x19d38/0x19d60: the value (a1) selects the pattern, arg1 is
+	 * the API context */
+	if ((uint32_t)arg2 >= 4) {
 		*arg4 = 1;
 		return 5;
 	}
 
-	APICAL_WRITE_32(0x9c4, (APICAL_READ_32(0x9c4) & 0xffffff00) | arg1);
+	APICAL_WRITE_32(0x9c4, (APICAL_READ_32(0x9c4) & 0xffffff00) | (uint32_t)arg2);
 	return 0;
 }
 
@@ -6292,6 +6298,8 @@ int set_sensor_fps(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 		op = *(void (**)(void *, int32_t, void *))((char *)arg1 + 0xcc);
 		ret = op((char *)arg1 + 0x34, fps, (char *)arg1 + 0x4c);
 		cmos_update_exposure_partitioning_lut((char *)arg1 + 0x100);
+		/* OEM 0x1a288: SET status from the fps_control result */
+		return ret == 0 ? 2 : 0;
 	} else if (arg3 != 1) {
 		return 2;
 	} else {
@@ -11651,14 +11659,19 @@ unsigned int iridix_control_strength_calculate(int32_t * arg1) {
 
     void *v0_6;
 
-    if (*(int32_t *)((char *)s1 + 0x1524) != 1) {
+    /* OEM 0x215c0/0x215ec/0x216e0 read the WDR mode at +0x1524 as a byte
+     * (lbu); wdr_mode() keeps the requested mode in byte 0x1527, so a
+     * 32-bit read sees 0x01000001 in FS-HDR mode, takes the linear branch
+     * and asks for HDR table 0x24 + 0x1000001: _GET_LUT_PTR() finds no
+     * such table and never returns. */
+    if (*(uint8_t *)((char *)s1 + 0x1524) != 1) {
         v0_6 = *(void **)arg1;
     } else {
         s0_2 = (int32_t)(*(uint16_t *)_GET_USHORT_PTR(0xd1)) << 2;
         v0_6 = *(void **)arg1;
     }
 
-    uint32_t v0_8 = (uint32_t)(*(int32_t *)((char *)v0_6 + 0x1524));
+    uint32_t v0_8 = (uint32_t)(*(uint8_t *)((char *)v0_6 + 0x1524));
     uint16_t v0_13;
 
     if (v0_8 != 1) {
@@ -11677,7 +11690,7 @@ unsigned int iridix_control_strength_calculate(int32_t * arg1) {
             v0_21 = 1;
 
         int32_t lo_3 = (s0_2 - 1) * 0x64 / v0_21;
-        int32_t fp_1 = *(int32_t *)_GET_UINT_PTR(_GET_HDR_TABLE_INDEX(0x24, (int32_t)(*(int32_t *)((char *)s1 + 0x1524))));
+        int32_t fp_1 = *(int32_t *)_GET_UINT_PTR(_GET_HDR_TABLE_INDEX(0x24, (int32_t)(*(uint8_t *)((char *)s1 + 0x1524))));
         /* OEM 0x22028-0x22038 clamps the signed percentile to zero. */
         int32_t s4_4 = max_t(int32_t, (int16_t)lo_3, 0);
         int32_t s0_8 = 0x64;
@@ -12326,9 +12339,11 @@ int32_t apical_switch_wdr_mode(uint32_t arg1)
 	}
 	printk(KERN_INFO "T20FW switch_wdr table1 done mesh begin\n");
 
+	/* OEM 0x22dcc..0x22df4: lui 0x4 | 0x100, the ext_system word at
+	 * 0x40100 (APICAL_READ/WRITE_32 shadow block), not ISP register 0x4100 */
 	if (mode != 0) {
-		uint32_t reg = APICAL_READ_32(0x4100);
-		APICAL_WRITE_32(0x4100, reg & 0xffffdfff);
+		uint32_t reg = APICAL_READ_32(0x40100);
+		APICAL_WRITE_32(0x40100, reg & 0xffffdfff);
 	}
 
 	return shading_mesh_load(mode);
