@@ -17,6 +17,8 @@ OBASE = 0x11000000
 STUB = 0x1f000000
 RET = 0x1fff0000
 CALIB = 0x58000000
+SEQ = 0x5c000000        # sensor/ISP init sequence (apical_custom_sequence)
+SEQ_SIZE = 0x10000
 HEAP = 0x60000000
 STACK = 0x7f000000
 STACK_SIZE = 0x400000
@@ -206,6 +208,7 @@ class Env:
         self.cur_exp_log2 = 0
         self.heapp = HEAP
         self.traps = 0
+        self.seq_ptr = 0        # apical_custom_sequence() result
 
     def clone_state(self):
         return (bytes(self.regs), dict(self.irq), self.frame_no, self.scene_ev, self.ct_bias,
@@ -327,6 +330,7 @@ class Machine:
         uc.mem_write(STUB, bytes(self.stubmem))
         uc.mem_map(RET, 0x1000)
         uc.mem_map(CALIB, CALIB_SIZE)
+        uc.mem_map(SEQ, SEQ_SIZE)
         uc.mem_map(HEAP, HEAP_SIZE)
         uc.mem_map(STACK, STACK_SIZE)
         uc.hook_add(UC_HOOK_CODE, self._hook_stub, begin=STUB, end=STUB + 0xffff)
@@ -414,6 +418,10 @@ class Machine:
         if n.startswith('system_isp_read_'):
             w = int(n[16:]) // 8
             v = int.from_bytes(env.regs[a0:a0 + w], 'little') if a0 + w <= len(env.regs) else 0
+            if a0 <= 0x134 < a0 + w:
+                # frame stitch buffer status: busy bits 0..2 read as idle
+                # (apical_wdr_fs_isp_setup() polls them after the reset)
+                v &= ~(7 << (8 * (0x134 - a0)))
             self.ret(v)
         elif n.startswith('system_isp_write_'):
             w = int(n[17:]) // 8
@@ -490,6 +498,9 @@ class Machine:
             self.ret(v & 0xffffffff, v >> 32)
         elif n in ('arch_local_irq_save',):
             self.ret(1)
+        elif n == 'apical_custom_sequence':
+            L.append(('CALL', n))
+            self.ret(env.seq_ptr)
         elif n == 'preview_set_supported':
             self.ret(0)
         elif n == 'init_isp_set':

@@ -87,12 +87,15 @@ class Diff:
     def __init__(self, vendor, ours, calib, verbose=False, sdk=None):
         self.vendor, self.ours, self.calib, self.verbose = vendor, ours, calib, verbose
         self.sdk = sdk
+        self.seq = True
         self.void = void_functions()
 
     def machine(self, oem=True):
         m = emu.Machine(self.vendor, self.ours)
         scenario.setup_calibrations(m, self.calib)
         m.bank_ids = scenario.bank_ids(self.sdk) if self.sdk else []
+        if self.seq:
+            scenario.setup_sequence(m, self.sdk)
         for n in ('t20_simple_ae', 't20_simple_awb', 't20_simple_nr', 't20_trace_events'):
             if n in m.O.sym:
                 m.w32(m.O.sym[n][0], 0)
@@ -329,9 +332,12 @@ def main():
     ap.add_argument('--sys', action='store_true', help='(default, kept for compatibility)')
     ap.add_argument('--fuzz', type=int, default=3000, help='random calls per pure helper (0: off)')
     ap.add_argument('--no-scenario', action='store_true')
+    ap.add_argument('--no-seq', action='store_true',
+                    help='apical_custom_sequence() returns NULL (no ISP init sequence)')
     ap.add_argument('-v', action='store_true')
     a = ap.parse_args()
     D = Diff(a.vendor, a.ours, a.calib, a.v, a.sdk)
+    D.seq = not a.no_seq
     nfz = 0
     if a.fuzz:
         import fuzz
