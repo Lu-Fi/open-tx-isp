@@ -8465,33 +8465,31 @@ static int32_t sharpening_mode(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001d6c4 origin=model_output original=sharpening_strength */
 int32_t sharpening_strength(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 {
-    uint8_t *p8 = (uint8_t *)arg1;
-    int32_t result;
+	/* OEM 0x1cd64: *ret = 0 first (delay slot); GET returns the byte at
+	 * +0x1036; SET takes values < 256 (unsigned) and, like the OEM,
+	 * reports status 2 even when it stored them */
+	uint8_t *p8 = (uint8_t *)arg1;
+	uint32_t value = (uint32_t)arg2;
 
-    if (arg3 & 0xff) {
-        result = 2;
-        if (arg3 == 1) {
-            *arg4 = p8[0x1036];
-            return 0;
-        }
-        return result;
-    }
-
-    result = 2;
-    if (arg2 < 256) {
-		uint32_t value = (uint32_t)arg2;
-
-		p8[0x1036] = (uint8_t)value;
-        if (arg2 < 129) {
-			*(uint16_t *)(p8 + 0x1034) = (uint16_t)value;
-            return 2;
-        }
-		value *= value;
-		value *= value;
-		*(uint16_t *)(p8 + 0x1034) = (uint16_t)(value >> 21);
-        return 2;
-    }
-    return result;
+	*arg4 = 0;
+	if (arg3 & 0xff) {
+		if ((uint8_t)arg3 == 1) {
+			*arg4 = p8[0x1036];
+			return 0;
+		}
+		return 2;
+	}
+	if (value >= 256)
+		return 2;
+	p8[0x1036] = (uint8_t)value;
+	if (value < 129) {
+		*(uint16_t *)(p8 + 0x1034) = (uint16_t)value;
+		return 2;
+	}
+	value *= value;
+	value *= value;
+	*(uint16_t *)(p8 + 0x1034) = (uint16_t)(value >> 21);
+	return 2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001d724 origin=model_output original=fr_output_mode */
