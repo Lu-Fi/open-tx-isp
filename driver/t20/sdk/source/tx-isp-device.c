@@ -22,6 +22,19 @@
  * notify trace runs for every frame-channel event, ~5 lines a second while
  * streaming). The vendor module prints none of it: off unless t20_trace=1. */
 int t20_trace;
+/* Hot-path progress prints (T20IRQ/T20I2C/T20TOPIRQ/T20IRQGUARD/T20FW write):
+ * off by default so the dmesg ring keeps the real warnings/oopses. Errors and
+ * warnings are never gated. Plain int read in IRQ context, no locking.
+ * Enable at runtime: echo 1 > /sys/module/tx_isp_t20/parameters/t20_runtime_trace
+ * (t10_runtime_trace on the T10 build, same sources). */
+int isp_runtime_trace;
+#ifdef TX_ISP_T10
+module_param_named(t10_runtime_trace, isp_runtime_trace, int, 0644);
+MODULE_PARM_DESC(t10_runtime_trace, "1: log T10 IRQ/I2C/top-IRQ progress traces");
+#else
+module_param_named(t20_runtime_trace, isp_runtime_trace, int, 0644);
+MODULE_PARM_DESC(t20_runtime_trace, "1: log T20 IRQ/I2C/top-IRQ progress traces");
+#endif
 module_param(t20_trace, int, 0644);
 MODULE_PARM_DESC(t20_trace, "1: log the T20TRACE bring-up trace lines");
 #define T20_TRACE(fmt, ...) do {                                        \
