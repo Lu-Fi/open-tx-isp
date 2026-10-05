@@ -1411,6 +1411,218 @@ static inline int apical_isp_day_or_night_g_ctrl(struct tx_isp_core_device *core
 }
 
 
+/*
+ * Beyond vendor (T10/T20): CSC presets and front crop on the T31 control
+ * IDs (see ../../../../common/tx_isp_csc.h for the ABI and the reasons).
+ *
+ * CSC: the firmware builds the YUV matrix from BCSH and calibration table
+ * RGB2YUV_CONVERSION.  A preset is written into that table with the
+ * vendor calibration API, the matrix is recomputed by re-setting the
+ * current saturation (saturation_strength() -> matrix_yuv_update()), and
+ * the cs_conv clip registers of every channel get the preset's range.
+ * The UV clip is left alone at night (the day/night switch pins it to 512
+ * for mono).  A day/night switch reloads the table from the IQ bank and
+ * resets the UV clip; t2x_csc_reapply() puts the preset back afterwards.
+ * Until CSC_ATTR is set nothing differs from stock.
+ */
+#include "../../../../common/tx_isp_csc.h"
+
+extern int t20_fw_context_ready(void);
+
+static DEFINE_MUTEX(t2x_csc_mutex);
+static int t2x_csc_active;
+static uint32_t t2x_csc_mode;
+static uint16_t t2x_csc_lut[12];
+static uint16_t t2x_csc_clip[4];	/* Y min, Y max, UV min, UV max */
+
+static int t2x_csc_is_night(struct tx_isp_core_device *core)
+{
+	image_tuning_vdrv_t *tuning = video_get_drvdata(core->tun);
+
+	return tuning->ctrls.daynight != ISP_CORE_RUNING_MODE_DAY_MODE;
+}
+
+static void t2x_csc_write_clip(const uint16_t *clip, int night)
+{
+#if TX_ISP_EXIST_FR_CHANNEL
+	apical_isp_fr_cs_conv_clip_min_y_write(clip[0]);
+	apical_isp_fr_cs_conv_clip_max_y_write(clip[1]);
+#endif
+	apical_isp_ds1_cs_conv_clip_min_y_write(clip[0]);
+	apical_isp_ds1_cs_conv_clip_max_y_write(clip[1]);
+#if TX_ISP_EXIST_DS2_CHANNEL
+	apical_isp_ds2_cs_conv_clip_min_y_write(clip[0]);
+	apical_isp_ds2_cs_conv_clip_max_y_write(clip[1]);
+#endif
+	if (night)
+		return;
+#if TX_ISP_EXIST_FR_CHANNEL
+	apical_isp_fr_cs_conv_clip_min_uv_write(clip[2]);
+	apical_isp_fr_cs_conv_clip_max_uv_write(clip[3]);
+#endif
+	apical_isp_ds1_cs_conv_clip_min_uv_write(clip[2]);
+	apical_isp_ds1_cs_conv_clip_max_uv_write(clip[3]);
+#if TX_ISP_EXIST_DS2_CHANNEL
+	apical_isp_ds2_cs_conv_clip_min_uv_write(clip[2]);
+	apical_isp_ds2_cs_conv_clip_max_uv_write(clip[3]);
+#endif
+}
+
+/* Recompute the YUV matrix from the table: re-set the current saturation. */
+static void t2x_csc_refresh_matrix(void)
+{
+	int sat = 0, reason = 0;
+
+	if (apical_command(TSCENE_MODES, SATURATION_STRENGTH_ID, 0,
+			   COMMAND_GET, &sat) != ISP_SUCCESS)
+		return;
+	apical_command(TSCENE_MODES, SATURATION_STRENGTH_ID, sat & 0xff,
+		       COMMAND_SET, &reason);
+}
+
+/* caller holds t2x_csc_mutex */
+static int t2x_csc_program(struct tx_isp_core_device *core)
+{
+	int ret = 0;
+
+	apical_api_calibration(CALIBRATION_RGB2YUV_CONVERSION, COMMAND_SET,
+			       t2x_csc_lut, sizeof(t2x_csc_lut), &ret);
+	if (ret)
+		return -EIO;
+	t2x_csc_write_clip(t2x_csc_clip, t2x_csc_is_night(core));
+	t2x_csc_refresh_matrix();
+	return 0;
+}
+
+/* After a day/night (IQ bank) reload. */
+static void t2x_csc_reapply(struct tx_isp_core_device *core)
+{
+	mutex_lock(&t2x_csc_mutex);
+	if (t2x_csc_active && t2x_csc_program(core))
+		printk(KERN_WARNING "%s: CSC preset %u not re-applied\n",
+		       __func__, t2x_csc_mode);
+	mutex_unlock(&t2x_csc_mutex);
+}
+
+static int t2x_csc_ready(struct tx_isp_core_device *core)
+{
+	if (core->vin.mbus.code == V4L2_MBUS_FMT_YUYV8_1X16)
+		return -EPERM;	/* YUV sensor: cs_conv is not in the path */
+	if (!core->tun || !t20_fw_context_ready())
+		return -EBUSY;
+	return 0;
+}
+
+static int t2x_csc_s_ctrl(struct tx_isp_core_device *core,
+			  struct v4l2_control *ctrl)
+{
+	uint32_t attr[TX_ISP_CSC_ATTR_WORDS];
+	int32_t p[TX_ISP_CSC_WORDS];
+	uint16_t lut[12], clip[4], old_lut[12], old_clip[4];
+	int old_active, ret;
+
+	if (copy_from_user(attr, (const void __user *)ctrl->value, sizeof(attr)))
+		return -EFAULT;
+	ret = tx_isp_csc_check(attr);
+	if (ret)
+		return ret;
+	ret = t2x_csc_ready(core);
+	if (ret)
+		return ret;
+	tx_isp_csc_params(attr, p);
+	tx_isp_csc_to_apical(p, lut, clip);
+
+	mutex_lock(&t2x_csc_mutex);
+	old_active = t2x_csc_active;
+	memcpy(old_lut, t2x_csc_lut, sizeof(old_lut));
+	memcpy(old_clip, t2x_csc_clip, sizeof(old_clip));
+	memcpy(t2x_csc_lut, lut, sizeof(lut));
+	memcpy(t2x_csc_clip, clip, sizeof(clip));
+	t2x_csc_active = 1;
+	ret = t2x_csc_program(core);
+	if (ret) {
+		/* table rejected: nothing was written, keep the old state */
+		t2x_csc_active = old_active;
+		memcpy(t2x_csc_lut, old_lut, sizeof(old_lut));
+		memcpy(t2x_csc_clip, old_clip, sizeof(old_clip));
+	} else {
+		t2x_csc_mode = attr[0];
+	}
+	mutex_unlock(&t2x_csc_mutex);
+	return ret;
+}
+
+static int t2x_csc_g_ctrl(struct tx_isp_core_device *core,
+			  struct v4l2_control *ctrl)
+{
+	uint32_t attr[TX_ISP_CSC_ATTR_WORDS];
+	uint16_t lut[12], clip[4];
+	int ret = 0;
+
+	ret = t2x_csc_ready(core);
+	if (ret)
+		return ret;
+	mutex_lock(&t2x_csc_mutex);
+	/* what is in effect: the firmware table and the day clip */
+	apical_api_calibration(CALIBRATION_RGB2YUV_CONVERSION, COMMAND_GET,
+			       lut, sizeof(lut), &ret);
+	if (t2x_csc_active) {
+		memcpy(clip, t2x_csc_clip, sizeof(clip));
+	} else {
+		clip[0] = apical_isp_ds1_cs_conv_clip_min_y_read();
+		clip[1] = apical_isp_ds1_cs_conv_clip_max_y_read();
+		clip[2] = 0;		/* stock day UV range */
+		clip[3] = 1023;
+	}
+	mutex_unlock(&t2x_csc_mutex);
+	if (ret)
+		return -EIO;
+	tx_isp_csc_from_apical(lut, clip, attr);
+	if (copy_to_user((void __user *)ctrl->value, attr, sizeof(attr)))
+		return -EFAULT;
+	return ISP_SUCCESS;
+}
+
+/* front crop lives in tx-isp-core.c next to the channel crop code */
+int t2x_fcrop_set(struct tx_isp_core_device *core, const uint32_t *f);
+void t2x_fcrop_get(struct tx_isp_core_device *core, uint32_t *f);
+
+static int t2x_fcrop_s_ctrl(struct tx_isp_core_device *core,
+			    struct v4l2_control *ctrl)
+{
+	uint32_t f[TX_ISP_FCROP_WORDS];
+
+	if (copy_from_user(f, (const void __user *)ctrl->value, sizeof(f)))
+		return -EFAULT;
+	return t2x_fcrop_set(core, f);
+}
+
+static int t2x_fcrop_g_ctrl(struct tx_isp_core_device *core,
+			    struct v4l2_control *ctrl)
+{
+	uint32_t f[TX_ISP_FCROP_WORDS];
+
+	t2x_fcrop_get(core, f);
+	if (copy_to_user((void __user *)ctrl->value, f, sizeof(f)))
+		return -EFAULT;
+	return ISP_SUCCESS;
+}
+
+/* 1 = handled (*ret set), 0 = not one of these controls */
+static int t2x_csc_fcrop_ctrl(struct tx_isp_core_device *core,
+			      struct v4l2_control *ctrl, int set, int *ret)
+{
+	switch (ctrl->id) {
+	case TX_ISP_CID_CSC_ATTR:
+		*ret = set ? t2x_csc_s_ctrl(core, ctrl) : t2x_csc_g_ctrl(core, ctrl);
+		return 1;
+	case TX_ISP_CID_FRONT_CROP:
+		*ret = set ? t2x_fcrop_s_ctrl(core, ctrl) : t2x_fcrop_g_ctrl(core, ctrl);
+		return 1;
+	}
+	return 0;
+}
+
 int apical_isp_day_or_night_s_ctrl_internal(struct tx_isp_core_device *core)
 {
 	struct video_device *video = core->tun;
@@ -1910,6 +2122,7 @@ int apical_isp_day_or_night_s_ctrl_internal(struct tx_isp_core_device *core)
 				apical_isp_ds1_sharpen_enable_write(0);
 		}
 		ctrls->daynight = dn;
+		t2x_csc_reapply(core);
 	}
 	return ret;
 }
@@ -3772,6 +3985,8 @@ static int apical_isp_core_ops_g_ctrl(struct tx_isp_core_device *core, struct v4
 
 	if (t2x_beyond_g_ctrl(ctrl, &ret))
 		return ret;
+	if (t2x_csc_fcrop_ctrl(core, ctrl, 0, &ret))
+		return ret;
 	/* printk("%s[%d] ctrl->id = 0x%08x\n", __func__, __LINE__, ctrl->id); */
 	switch(ctrl->id){
 	case V4L2_CID_AUTO_N_PRESET_WHITE_BALANCE:
@@ -3897,6 +4112,8 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_core_device *core, struct v4
 	int ret = ISP_SUCCESS;
 
 	if (t2x_beyond_s_ctrl(ctrl, &ret))
+		return ret;
+	if (t2x_csc_fcrop_ctrl(core, ctrl, 1, &ret))
 		return ret;
 	switch (ctrl->id) {
 	case V4L2_CID_AUTO_N_PRESET_WHITE_BALANCE:

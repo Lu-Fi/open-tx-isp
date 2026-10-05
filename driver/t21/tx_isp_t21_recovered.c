@@ -16300,9 +16300,18 @@ int32_t tisp_channel_stop_save(void)
 int32_t tisp_channel_attr_set_crop_scaler(uint32_t channel, void *attr)
 {
     uint32_t *p = (uint32_t *)attr;
+    uint32_t *sensor = (uint32_t *)&tispinfo;
     uint32_t base = (channel + 0x23) << 8;
-    uint32_t div1 = (tispinfo[0] << 9) / p[1];
-    uint32_t div2 = (tispinfo[1] << 9) / p[2];
+    uint32_t div1;
+    uint32_t div2;
+
+    /* tispinfo is the byte image of the runtime info: the sensor width
+     * and height are its first two words (as in tisp_channel_attr_set);
+     * indexing the byte array gave the low bytes of the width instead. */
+    if (!p[1] || !p[2])
+        return -EINVAL;
+    div1 = (sensor[0] << 9) / p[1];
+    div2 = (sensor[1] << 9) / p[2];
 
     system_reg_write((channel + 0x24) << 8, (p[1] << 16) | p[2]);
     system_reg_write(base + 0x104, (div1 << 16) | (div2 & 0xffff));
@@ -16677,6 +16686,8 @@ int32_t tisp_init(int32_t *arg1)
 	system_reg_write(0x1718, 0x536b600);
 	system_reg_write(0x1720, 0x8000);
 	system_reg_write(0x1730, 0xff00ff00);
+	t21_csc_reset();	/* CSC state = the preset 0 just written */
+	t21_fcrop_reset();
 	system_reg_write(0x2010, 1);
 	system_reg_write(0x2080, 1);
 
@@ -33789,6 +33800,7 @@ int32_t ispcore_pad_event_handle(int32_t *arg1, int32_t arg2, void *arg3)
 		if (result)
 			return result;
 		memcpy(&channel->format, format, sizeof(*format));
+		t21_fcrop_s_fmt(pad->index);	/* front crop window, if set */
 		return 0;
 	}
 	case 0x3000003: {
@@ -34062,12 +34074,13 @@ int32_t ispcore_interrupt_service_routine(uintptr_t a0)
 	 * acknowledged but unapplied. */
 	/* OEM ISR @0x329d8: one IRQ after any mode switch, if the mode is day,
 	 * restore the CSC/chroma register 0x1730 to colour (0xff00ff00, same as
-	 * tisp_init).  Flag is OEM .bss+0x18814. */
+	 * tisp_init).  Flag is OEM .bss+0x18814.  Here: the clip of the CSC
+	 * preset in use (0xff00ff00 unless CSC_ATTR was set). */
 	if (csc_day_pending == 1) {
 		struct t21_tuning_state_view *tuning = runtime->tuning;
 
 		if (t21_isp_valid_ptr(tuning) && tuning->running_mode == 0)
-			system_reg_write(0x1730, 0xff00ff00);
+			t21_csc_isr_mode(0);
 		csc_day_pending = 0;
 	}
 
@@ -34076,9 +34089,10 @@ int32_t ispcore_interrupt_service_routine(uintptr_t a0)
 
 		if (t21_isp_valid_ptr(tuning)) {
 			/* OEM @0x32a24: night mode zeroes the chroma
-			 * (0x1730 = 0xff008080, mono) before the table swap. */
+			 * (0x1730 = 0xff008080, mono) before the table swap.
+			 * Same word unless a CSC preset changed the Y clip. */
 			if (tuning->running_mode == 1)
-				system_reg_write(0x1730, 0xff008080);
+				t21_csc_isr_mode(1);
 			if (tuning->event)
 				tuning->event(tuning, 0x4000003, 0);
 		}
