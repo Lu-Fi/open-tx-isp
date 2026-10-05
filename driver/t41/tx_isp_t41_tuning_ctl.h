@@ -49,4 +49,92 @@ static inline int t41_sensor_fps_check(unsigned int fps, unsigned int ref)
 	return 0;
 }
 
+/*
+ * IMPISPAEWeightAttr { u32 roi_enable; u32 weight_enable; u8 ae_roi[225];
+ * u8 ae_weight[225]; } - stock copies 460 bytes.  api_ae_set_weight: an
+ * enabled ROI goes to AE params+0x4ee and 8 - roi to state+0x2528; an
+ * enabled weight table goes to params+0x82e.  api_ae_get_weight returns the
+ * stored enables and both tables from the params.
+ *
+ * The open zone meter (t41_ae_weight_mean) needs at least one non-zero
+ * weight, and a ROI with at least one zone below and one above zero (it
+ * divides by the foreground and the background area).  Values are the
+ * documented 0..8.  Such input is refused instead of stalling the meter.
+ */
+#define T41_AE_WEIGHT_ATTR_BYTES 460U
+#define T41_AE_WEIGHT_ROI 8U
+#define T41_AE_WEIGHT_TABLE 233U
+#define T41_AE_PARAM_ROI 0x4eeU
+#define T41_AE_PARAM_WEIGHT 0x82eU
+#define T41_AE_STATE_ROI_INV 0x2528U
+#define T41_AE_WEIGHT_ZONES 225U
+
+static inline int t41_ae_weight_table_ok(const unsigned char *t, int roi)
+{
+	unsigned int i, low = 0, high = 0;
+
+	for (i = 0; i < T41_AE_WEIGHT_ZONES; ++i) {
+		if (t[i] > 8)
+			return 0;
+		low |= t[i] < 8;
+		high |= t[i] > 0;
+	}
+	return roi ? low && high : high;
+}
+
+static inline int t41_ae_weight_set(unsigned char *params,
+		unsigned int param_bytes, unsigned char *state,
+		unsigned int state_bytes, unsigned char *enables,
+		const unsigned char *attr)
+{
+	unsigned int roi, weight, i;
+
+	if (!params || !state || !enables || !attr ||
+	    param_bytes < T41_AE_PARAM_WEIGHT + T41_AE_WEIGHT_ZONES ||
+	    state_bytes < T41_AE_STATE_ROI_INV + T41_AE_WEIGHT_ZONES)
+		return -1;
+	roi = t41_tmo_le32(attr);
+	weight = t41_tmo_le32(attr + 4);
+	if (roi > 1 || weight > 1)
+		return -1;
+	if (roi && !t41_ae_weight_table_ok(attr + T41_AE_WEIGHT_ROI, 1))
+		return -1;
+	if (weight && !t41_ae_weight_table_ok(attr + T41_AE_WEIGHT_TABLE, 0))
+		return -1;
+	enables[0] = roi;
+	enables[1] = weight;
+	if (roi) {
+		for (i = 0; i < T41_AE_WEIGHT_ZONES; ++i) {
+			params[T41_AE_PARAM_ROI + i] = attr[T41_AE_WEIGHT_ROI + i];
+			state[T41_AE_STATE_ROI_INV + i] =
+				8 - attr[T41_AE_WEIGHT_ROI + i];
+		}
+	}
+	if (weight)
+		for (i = 0; i < T41_AE_WEIGHT_ZONES; ++i)
+			params[T41_AE_PARAM_WEIGHT + i] =
+				attr[T41_AE_WEIGHT_TABLE + i];
+	return 0;
+}
+
+static inline int t41_ae_weight_get(const unsigned char *params,
+		unsigned int param_bytes, const unsigned char *enables,
+		unsigned char *attr)
+{
+	unsigned int i;
+
+	if (!params || !enables || !attr ||
+	    param_bytes < T41_AE_PARAM_WEIGHT + T41_AE_WEIGHT_ZONES)
+		return -1;
+	for (i = 0; i < T41_AE_WEIGHT_ATTR_BYTES; ++i)
+		attr[i] = 0;
+	attr[0] = enables[0];
+	attr[4] = enables[1];
+	for (i = 0; i < T41_AE_WEIGHT_ZONES; ++i) {
+		attr[T41_AE_WEIGHT_ROI + i] = params[T41_AE_PARAM_ROI + i];
+		attr[T41_AE_WEIGHT_TABLE + i] = params[T41_AE_PARAM_WEIGHT + i];
+	}
+	return 0;
+}
+
 #endif

@@ -20952,6 +20952,64 @@ static int t41_tuning_sensor_fps_set(unsigned int channel, uint32_t fps)
 }
 
 /*
+ * IMPISPAEWeightAttr (stock tx_isp_ae_weight_s_attr/g_attr, 0x08000021,
+ * 460 bytes; api_ae_set_weight/api_ae_get_weight): the zone weight and
+ * ROI tables live in the AE params (ae_info[ch][0] +0x82e/+0x4ee) that the
+ * open zone meter reads, with 8 - roi in the AE state (+0x2528).  Updated
+ * under the histogram lock the meter holds.  Before this route the
+ * request was acknowledged and the tables never changed.
+ */
+static unsigned char t41_ae_weight_enable[2][2];
+
+static int t41_tuning_ae_weight(unsigned int channel, unsigned int is_get,
+                                uintptr_t user_ptr)
+{
+    unsigned char *payload, *params, *state;
+    uint32_t *info;
+    spinlock_t *lock;
+    unsigned long flags;
+    int ret = 0;
+
+    if (channel >= ARRAY_SIZE(t41_ae_weight_enable) ||
+        channel >= ARRAY_SIZE(ae_info) || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (!smp_load_acquire(&t41_ae_ready[channel]))
+        return -EAGAIN;
+    info = (uint32_t *)(uintptr_t)ae_info[channel];
+    if (!t41_kernel_data_ptr(info))
+        return -ENODEV;
+    params = (unsigned char *)(uintptr_t)info[0];
+    state = (unsigned char *)(uintptr_t)info[1];
+    if (!t41_kernel_data_ptr(params) || !t41_kernel_data_ptr(state))
+        return -ENODEV;
+    payload = private_kmalloc(T41_AE_WEIGHT_ATTR_BYTES, GFP_KERNEL);
+    if (!payload)
+        return -ENOMEM;
+    lock = (spinlock_t *)(void *)(slock_hist_storage +
+                                  channel * sizeof(uint32_t));
+    if (is_get) {
+        spin_lock_irqsave(lock, flags);
+        ret = t41_ae_weight_get(params, T41_AE_PARAM_BYTES,
+                                t41_ae_weight_enable[channel], payload);
+        spin_unlock_irqrestore(lock, flags);
+        if (!ret && private_copy_to_user((void __user *)user_ptr, payload,
+                                         T41_AE_WEIGHT_ATTR_BYTES))
+            ret = -EFAULT;
+    } else if (private_copy_from_user(payload, (void __user *)user_ptr,
+                                      T41_AE_WEIGHT_ATTR_BYTES)) {
+        ret = -EFAULT;
+    } else {
+        spin_lock_irqsave(lock, flags);
+        ret = t41_ae_weight_set(params, T41_AE_PARAM_BYTES, state,
+                                T41_AE_STATE_BYTES,
+                                t41_ae_weight_enable[channel], payload);
+        spin_unlock_irqrestore(lock, flags);
+    }
+    private_kfree(payload);
+    return ret ? (ret == -EFAULT ? ret : -EINVAL) : 0;
+}
+
+/*
  * Review2 M1: stock serialises the tuning node with core_dev->mlock; two
  * tuning threads (day/night, BCSH, flip) must not interleave on the same
  * IQ state. Serialise the whole isp-m0 ioctl.
@@ -21005,6 +21063,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             { TX_ISP_TUNING_CMD_T41_SENSOR_FPS, 4,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_INLINE },
+            { TX_ISP_TUNING_CMD_T41_AE_WEIGHT, T41_AE_WEIGHT_ATTR_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_SENSOR_ATTR, 4 * T41_SENSOR_ATTR_WORDS,
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_HVFLIP, 16,
@@ -21211,6 +21272,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
          */
         if (route && route->id == TX_ISP_TUNING_CMD_T41_HVFLIP)
             return t41_tuning_hvflip(&request);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_AE_WEIGHT)
+            return t41_tuning_ae_weight(request.channel, request.is_get,
+                                        request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_SENSOR_ATTR)
             return t41_tuning_sensor_attr(request.channel,
                                           request.value_or_ptr);
