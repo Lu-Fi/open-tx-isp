@@ -3441,9 +3441,10 @@ static uint32_t calc_inv_equidistant_modulation_u32(uint32_t arg1, uint32_t *arg
 	if (arg3 == 1)
 		return 0;
 
+	/* OEM 0x164dc: first node above the value (sltu a0, t[i]) */
 	i = 1;
 	while (i < arg3) {
-		if (arg1 >= arg2[(uintptr_t)i])
+		if (arg1 < arg2[(uintptr_t)i])
 			break;
 		i++;
 	}
