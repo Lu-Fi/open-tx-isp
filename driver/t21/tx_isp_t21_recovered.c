@@ -5605,7 +5605,7 @@ int32_t tiziano_af_init(uint32_t a0, uint32_t a1);
 int32_t tisp_af_get_metric(uintptr_t a0);
 int32_t tisp_af_get_attr(uintptr_t a0);
 int32_t tisp_af_set_attr_refresh(void);
-int32_t tisp_af_set_attr(uint32_t a0);
+int32_t tisp_af_set_attr(const void *attr);
 int32_t tiziano_af_dn_params_refresh(void);
 int32_t tisp_af_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2);
 int32_t tisp_af_param_array_set(int32_t param_id, int32_t src, int32_t *out_size);
@@ -5692,6 +5692,7 @@ int tx_isp_remove(struct platform_device *pdev);
 int tx_isp_core_remove(struct platform_device *pdev);
 
 #include "tx_isp_t21_tuning_ctl.h"
+#include "tx_isp_t21_open.h"
 
 /* WHOLE_DRIVER_RELOCATED_DATA_PATCHES */
 static void __init regtrace_patch_relocated_data(void)
@@ -12473,58 +12474,43 @@ int32_t tx_isp_open(int32_t arg1, void *arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009e08 origin=model_output original=tx_isp_open */
+/* obj->ops->internal->{activate_module, slake_module} (internal + 0 / + 4).
+ * The model recovery collapsed these three loads into obj + 0xd4, producing
+ * an indirect jump into structure data on the first /dev/isp open. */
+static t21_open_module_fn t21_open_module_lookup(void *obj, unsigned int which)
+{
+	void *ops = *(void **)((char *)obj + 0xc4);
+	void *internal = ops ? *(void **)((char *)ops + 0x10) : NULL;
+
+	return internal ? ((t21_open_module_fn *)internal)[which] : NULL;
+}
+
 static int32_t tx_isp_open_unlocked(int32_t arg1, void *arg2)
 {
 	/* file->private_data is the ISP device; the recovered body had
 	 * accidentally used the address of the field itself. */
 	void *dev = *(void **)((char *)arg2 + 0x70);
 	int32_t *ref = (int32_t *)((char *)dev + 0x108);
-	int32_t i;
-	int32_t result = 0;
+	int32_t *link = (int32_t *)((char *)dev + 0x10c);
+	int32_t old_link;
+	int32_t result;
 
 	if (*ref != 0) {
 		*ref = *ref + 1;
 		return 0;
 	}
 
-	*(int32_t *)((char *)dev + 0x10c) = -1;
+	old_link = *link;
+	*link = -1;
 
-	for (i = 0; i < 16; i++) {
-		void *obj = *(void **)((char *)dev + 0x2c + i * 4);
-		void *ops;
-		void *internal;
-		int32_t (*open_fn)(void *);
-
-		if (obj == 0)
-			continue;
-
-		/* obj->ops->internal->activate_module.  The model recovery
-		 * collapsed these three loads into obj + 0xd4, producing an
-		 * indirect jump into structure data on the first /dev/isp open. */
-		ops = *(void **)((char *)obj + 0xc4);
-		internal = ops ? *(void **)((char *)ops + 0x10) : NULL;
-		open_fn = internal ? *(int32_t (**)(void *))internal : NULL;
-
-		if (open_fn == 0) {
-			result = -515;
-			continue;
-		}
-
-		result = open_fn(obj);
-
-		if (result == 0)
-			continue;
-
-		if (result != -515)
-			break;
-
-		result = -515;
-	}
-
-	if (i == 16 && result == -515)
-		result = 0;
+	/* Stock activate walk; on failure the modules activated so far are
+	 * slaked again (beyond vendor, see tx_isp_t21_open.h). */
+	result = t21_open_activate_modules((void *const *)((char *)dev + 0x2c),
+					   16, t21_open_module_lookup);
 	if (result == 0)
 		*ref = 1;
+	else
+		*link = old_link;
 
 	return result;
 }
@@ -31863,152 +31849,107 @@ int32_t tiziano_af_init(uint32_t a0, uint32_t a1)
     return 0;
 }
 
+/*
+ * OEM AF focus value: AFParam_Fv word 2 (.bss AFParam_Fv + 8) shifted by
+ * af_attr.shift.  The recovered body read it at sinfo_root - 30272/-30259
+ * (addresses of the recovery's .bss layout, i.e. unrelated statics).
+ */
+static uint32_t t21_af_fv(void)
+{
+	uint32_t fv;
+
+	BUILD_BUG_ON(sizeof(AFParam_Fv) < 12);
+	memcpy(&fv, AFParam_Fv + 8, sizeof(fv));
+	return fv >> (af_attr.shift & 31);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f9f0 origin=fragment_seed original=tisp_af_get_metric */
 int32_t tisp_af_get_metric(uintptr_t a0)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&sinfo_root;
-    v1 = (uintptr_t)&sinfo_root;
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint8_t *)((char *)&sinfo_root + -30259);
-    v1 = *(uint32_t *)((char *)&sinfo_root + -30272);
-    v0 = v1 >> (uintptr_t)v0;
-    *(uint32_t *)((char *)a0 + 0) = v0;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    v0 = 0;
-
-    return 0;
+	if (!a0)
+		return -EINVAL;
+	*(uint32_t *)a0 = t21_af_fv();
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002fa10 origin=fragment_seed original=tisp_af_get_attr */
 int32_t tisp_af_get_attr(uintptr_t a0)
 {
-    uintptr_t a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t v1 = 0;
+	/*
+	 * OEM (0x2f130): the 24-byte attribute is gathered from the AF tables,
+	 * the same fields tiziano_af_init() copies into af_attr and
+	 * tisp_af_set_attr_refresh() spreads back.  The recovered body read
+	 * them from sinfo_root - 30272/-30284, isp_clk + 81408 bytes and
+	 * tparams + 0x40d0/0x4520/0x454c (wild reads past the statics).
+	 * Word 1 is the OEM AFParam_Fv_Alt, written only by Tiziano_af_fpga,
+	 * which this driver does not run (no AF statistics parser): 0, as in
+	 * the OEM module before its first AF frame.
+	 */
+	struct t21_af_attr_view *out = (struct t21_af_attr_view *)a0;
+	const uint32_t *tilt = (const uint32_t *)AFParam_Tilt;
+	const uint32_t *threshold = (const uint32_t *)stAFParam_ThresEnable;
+	const uint32_t *zone = (const uint32_t *)stAFParam_Zone;
 
-    /* fragment 0: ConstantLoad */
-    v0 = ((char *)&af_attr);
-
-    /* fragment 1: MemoryAccess */
-    a1 = *(uint32_t *)((char *)&sinfo_root + -30272);
-    v1 = *(uint8_t *)((char *)v0 + 9);
-    v1 = a1 >> v1;
-    *(uint32_t *)((char *)a0 + 0) = v1;
-    a1 = (uintptr_t)&sinfo_root;
-    v1 = *(uint8_t *)((char *)v0 + 9);
-    a1 = *(uint32_t *)((char *)&sinfo_root + -30284);
-    v1 = a1 >> v1;
-    *(uint32_t *)((char *)a0 + 4) = v1;
-    v1 = *(uint8_t *)((char *)v0 + 8);
-    *(uint8_t *)((char *)a0 + 8) = v1;
-    v0 = *(uint8_t *)((char *)v0 + 9);
-    *(uint8_t *)((char *)a0 + 9) = v0;
-    v0 = (uintptr_t *)&isp_clk;
-    v1 = v0 + 20352;
-    a1 = *(uint32_t *)((char *)v1 + 8);
-    *(uint16_t *)((char *)a0 + 10) = a1;
-    v1 = *(uint32_t *)((char *)v1 + 12);
-    *(uint16_t *)((char *)a0 + 12) = v1;
-    v1 = (uintptr_t)&isp_clk;
-    v1 = *(uint32_t *)((char *)((char *)&tparams + 0x454c));
-    *(uint16_t *)((char *)a0 + 14) = v1;
-    v0 = *(uint32_t *)((char *)((char *)&tparams + 0x4520));
-    v1 = (uintptr_t)&isp_clk;
-    *(uint16_t *)((char *)a0 + 16) = v0;
-    v0 = v1 + 19248;
-    a1 = *(uint32_t *)((char *)v0 + 8);
-    *(uint8_t *)((char *)a0 + 18) = a1;
-    v1 = *(uint32_t *)((char *)((char *)&tparams + 0x40d0));
-    *(uint8_t *)((char *)a0 + 19) = v1;
-
-    /* fragment 2: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v0 + 12);
-    *(uint8_t *)((char *)a0 + 20) = v1;
-    v0 = *(uint32_t *)((char *)v0 + 4);
-    *(uint8_t *)((char *)a0 + 21) = v0;
-
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 4: Arithmetic */
-    v0 = 0;
-
-    return 0;
+	BUILD_BUG_ON(offsetof(struct t21_af_attr_view, enable) != 8);
+	BUILD_BUG_ON(offsetof(struct t21_af_attr_view, tilt_hi) != 10);
+	BUILD_BUG_ON(offsetof(struct t21_af_attr_view, zone_rows) != 18);
+	BUILD_BUG_ON(offsetof(struct t21_af_attr_view, zone_step) != 21);
+	if (!out)
+		return -EINVAL;
+	out->metric = t21_af_fv();
+	out->metric_alt = 0;
+	out->enable = af_attr.enable;
+	out->shift = af_attr.shift;
+	out->tilt_hi = tilt[2];
+	out->tilt_lo = tilt[3];
+	out->threshold = threshold[4];
+	out->tilt_base = tilt[0];
+	out->zone_rows = zone[2];
+	out->zone_mode = zone[0];
+	out->zone_cols = zone[3];
+	out->zone_step = zone[1];
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002faac origin=model_output original=tisp_af_set_attr_refresh */
 int32_t tisp_af_set_attr_refresh(void)
 {
-    uint16_t *src = (uint16_t *)0xa741e;
-    uint32_t *dst1 = (uint32_t *)((char *)&AFParam_Tilt + 0x8);
-    uint32_t *dst2 = (uint32_t *)&stAFParam_Zone;
+	/*
+	 * Spread af_attr back over the AF tables (inverse of tisp_af_get_attr /
+	 * tiziano_af_init). The recovered body read through the absolute
+	 * address 0xa741e and wrote 4 bytes past the 20-byte AFParam_Tilt.
+	 */
+	uint32_t *tilt = (uint32_t *)AFParam_Tilt;
+	uint32_t *threshold = (uint32_t *)stAFParam_ThresEnable;
+	uint32_t *zone = (uint32_t *)stAFParam_Zone;
 
-    ((void **)dst1)[0] = src[0];
-    ((void **)dst1)[1] = src[1];
-    ((void **)dst1)[2] = src[2];
-    ((void **)dst1)[3] = src[3];
-    ((void **)dst2)[0] = (uint8_t)src[4];
-    ((void **)dst2)[1] = (uint8_t)src[5];
-    ((void **)dst2)[2] = (uint8_t)src[6];
-    ((void **)dst2)[3] = (uint8_t)src[7];
+	tilt[2] = af_attr.tilt_hi;
+	tilt[3] = af_attr.tilt_lo;
+	threshold[4] = af_attr.threshold;
+	tilt[0] = af_attr.tilt_base;
+	zone[2] = af_attr.zone_rows;
+	zone[0] = af_attr.zone_mode;
+	zone[3] = af_attr.zone_cols;
+	zone[1] = af_attr.zone_step;
 
-    return tiziano_af_set_regs();
+	return tiziano_af_set_regs();
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002fb14 origin=fragment_seed original=tisp_af_set_attr */
-int32_t tisp_af_set_attr(uint32_t a0)
+int32_t tisp_af_set_attr(const void *attr)
 {
-    uint32_t local_14 = 0;
-    uint32_t local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    local_18 = a0;
-    local_1c = a1;
-    local_20 = a2;
-    local_24 = a3;
-    v0 = (uintptr_t *)memcpy((void *)(int32_t *)&sinfo_root, (void *)(uintptr_t)&local_18, 24); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)tisp_af_set_attr_refresh)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 4: Arithmetic */
-    v0 = (uintptr_t *)&sinfo_root;
-    v1 = 1;
-
-    /* fragment 5: MemoryAccess */
-    *(uint8_t *)((char *)&sinfo_root + -30244) = v1;
-    v0 = 0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	/*
+	 * OEM: the 24-byte attribute arrives by value and is copied into
+	 * af_attr. The recovered body memcpy'd 24 bytes from a 4-byte stack
+	 * slot into the 4-byte sinfo_root (20-byte overflow) and stored the
+	 * update flag at sinfo_root - 30244 (wild write).
+	 */
+	if (!attr)
+		return -EINVAL;
+	memcpy(&af_attr, attr, sizeof(af_attr));
+	tisp_af_set_attr_refresh();
+	tiziano_af_dn_flag = 1;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002fb74 origin=model_output original=tiziano_af_dn_params_refresh */
@@ -33044,8 +32985,8 @@ int32_t tisp_g_af_attr(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000317c0 origin=model_output original=tisp_s_af_attr */
 int32_t tisp_s_af_attr(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4)
 {
-	tisp_af_set_attr(arg1);
-	return 0;
+	/* arg1 is a kernel pointer to the 24-byte AF attribute */
+	return tisp_af_set_attr((const void *)(uintptr_t)arg1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031824 origin=model_output original=tisp_s_module_control */
@@ -35551,18 +35492,25 @@ int32_t ispcore_slake_module(void *arg1)
 		*(u32 *)(channels + i * 0xa0 + 0x50) = 1;
 
 	tuning = *(void **)(core + 0x19c);
-	T21_STOP_TRACE("core slake: tuning %p event fn=%p", tuning,
-		       *(void **)((u8 *)tuning + 0x40cc));
-	/* The slot is only ever isp_core_tuning_event (isp_core_tuning_init);
-	 * a corrupted slot must not become an indirect jump. */
-	if (*(void **)((u8 *)tuning + 0x40cc) != (void *)isp_core_tuning_event) {
-		pr_err("tx-isp-t21: tuning event slot corrupted (%p), restoring\n",
-		       *(void **)((u8 *)tuning + 0x40cc));
-		*(void **)((u8 *)tuning + 0x40cc) = (void *)isp_core_tuning_event;
+	/* NULL when the core probe failed to allocate it (its error path
+	 * slakes too): nothing to notify then. */
+	if (t21_isp_valid_ptr(tuning)) {
+		T21_STOP_TRACE("core slake: tuning %p event fn=%p", tuning,
+			       *(void **)((u8 *)tuning + 0x40cc));
+		/* The slot is only ever isp_core_tuning_event
+		 * (isp_core_tuning_init); a corrupted slot must not become an
+		 * indirect jump. */
+		if (*(void **)((u8 *)tuning + 0x40cc) !=
+		    (void *)isp_core_tuning_event) {
+			pr_err("tx-isp-t21: tuning event slot corrupted (%p), restoring\n",
+			       *(void **)((u8 *)tuning + 0x40cc));
+			*(void **)((u8 *)tuning + 0x40cc) =
+				(void *)isp_core_tuning_event;
+		}
+		((void (*)(void *, u32, u32))
+		 *(void **)((u8 *)tuning + 0x40cc))(tuning, 0x4000001, 0);
+		T21_STOP_TRACE("core slake: tuning event done");
 	}
-	((void (*)(void *, u32, u32))
-	 *(void **)((u8 *)tuning + 0x40cc))(tuning, 0x4000001, 0);
-	T21_STOP_TRACE("core slake: tuning event done");
 	*(u32 *)(core + 0xe8) = 1;
 
 	for (i = 0; i < 16; i++) {
@@ -36145,15 +36093,21 @@ int tx_isp_core_remove(struct platform_device *pdev)
 		tx_isp_subdev_deinit((uintptr_t)subdev);
 		return 0;
 	}
-	tuning = *(void **)(core + 0x19c);
+	/*
+	 * Stock frees the tuning state first and then slakes a core that is
+	 * still active (state >= 2: an open whose activate loop failed part
+	 * way, or a release that stopped at a failing child).  The slake
+	 * sends the 0x4000001 event through tuning + 0x40cc, i.e. a NULL
+	 * dereference in rmmod.  Slake while the tuning state still exists.
+	 */
+	if (*(u32 *)(core + 0xe8) >= 2)
+		ispcore_slake_module(core);
 
+	tuning = *(void **)(core + 0x19c);
 	if (tuning) {
 		isp_core_tuning_deinit((int32_t)(uintptr_t)tuning);
 		*(void **)(core + 0x19c) = NULL;
 	}
-
-	if (*(u32 *)(core + 0xe8) >= 2)
-		ispcore_slake_module(core);
 
 	private_kfree(*(void **)(core + 0x14c));
 	*(u32 *)(core + 0x154) = 1;
