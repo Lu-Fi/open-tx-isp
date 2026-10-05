@@ -2,6 +2,7 @@
 #include "tx-isp-interrupt.h"
 
 static unsigned int refcnt = 0;
+extern int isp_runtime_trace;
 static unsigned int t20_top_irq_trace_count;
 static void tx_isp_enable_irq(struct tx_isp_irq_device *irq_dev, int enable)
 {
@@ -72,7 +73,7 @@ static irqreturn_t isp_irq_handle(int this_irq, void *dev)
 	mask = tx_isp_readl(irqdev->base, TX_ISP_TOP_IRQ_MASK);
 	state = tx_isp_readl(irqdev->base, TX_ISP_TOP_IRQ_STA);
 	pending = state & (~mask);
-	if (t20_top_irq_trace_count < 32)
+	if (isp_runtime_trace && t20_top_irq_trace_count < 32)
 		printk(KERN_INFO "T20TOPIRQ n=%u irq=%d enable=0x%x mask=0x%x state=0x%x pending=0x%x\n",
 			t20_top_irq_trace_count, this_irq,
 			tx_isp_readl(irqdev->base, TX_ISP_TOP_IRQ_ENABLE),

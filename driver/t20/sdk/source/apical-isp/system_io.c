@@ -26,9 +26,11 @@ uint8_t  system_isp_read_8(uint32_t addr)
 	return tx_isp_readb(apical_io_base, addr);
 }
 
+extern int isp_runtime_trace;
+
 void system_isp_write_32(uint32_t addr, uint32_t data)
 {
-	if (addr == 0x2108)
+	if (isp_runtime_trace && addr == 0x2108)
 		printk(KERN_INFO "T20FW system_write32 enter base=%p addr=0x%x val=0x%x\n",
 		       apical_io_base, addr, data);
 	/* if(addr >= 0x540 && addr <= 0x590 && addr != 0x570) */

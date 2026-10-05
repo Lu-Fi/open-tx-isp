@@ -101,6 +101,7 @@ static void inline cleanup_buffer_fifo(struct list_head *fifo)
  */
 static system_interrupt_handler_t isr_func[APICAL_IRQ_COUNT] = {NULL};
 static void* isr_param[APICAL_IRQ_COUNT] = {NULL};
+extern int isp_runtime_trace;
 static unsigned int t20_irq_trace_count;
 static unsigned int t20_irq_context_guard_count;
 static unsigned int t20_irq_allow_mask = 0xffff;
@@ -179,7 +180,7 @@ void system_hw_interrupts_enable(void)
 	 * source without changing Linux IRQ depth.
 	 */
 	if (in_interrupt()) {
-		if (t20_irq_context_guard_count < 32)
+		if (isp_runtime_trace && t20_irq_context_guard_count < 32)
 			printk(KERN_INFO "T20IRQGUARD enable skipped in interrupt context\n");
 		t20_irq_context_guard_count++;
 		return;
@@ -197,7 +198,7 @@ void system_hw_interrupts_disable(void)
 
 	/* disable_irq() waits for the threaded handler; only mask ISP hardware. */
 	if (in_interrupt()) {
-		if (t20_irq_context_guard_count < 32)
+		if (isp_runtime_trace && t20_irq_context_guard_count < 32)
 			printk(KERN_INFO "T20IRQGUARD disable skipped in interrupt context\n");
 		t20_irq_context_guard_count++;
 		return;
@@ -551,7 +552,7 @@ static int isp_core_interrupt_service_routine(struct v4l2_subdev *sd, u32 status
 		/* printk("0xb00 = 0x%0x state = 0x%x\n", APICAL_READ_32(0xb00), isp_irq_status); */
 		for (i = 0; i < APICAL_IRQ_COUNT; i++) {
 			if (isp_irq_status & (1 << i)) {
-				if (t20_irq_trace_count < 64)
+				if (isp_runtime_trace && t20_irq_trace_count < 64)
 					printk(KERN_INFO "T20IRQ enter n=%u status=0x%x bit=%u handler=%p param=%p\n",
 						t20_irq_trace_count, isp_irq_status, i,
 						isr_func[i], isr_param[i]);
@@ -661,7 +662,7 @@ static int isp_core_interrupt_service_routine(struct v4l2_subdev *sd, u32 status
 					default:
 						break;
 				}
-				if (t20_irq_trace_count < 64)
+				if (isp_runtime_trace && t20_irq_trace_count < 64)
 					printk(KERN_INFO "T20IRQ exit n=%u bit=%u\n",
 						t20_irq_trace_count, i);
 				t20_irq_trace_count++;
@@ -686,7 +687,7 @@ irqreturn_t isp_irq_thread_handle(int this_irq, void *dev)
 	sd = p->subdevs[TX_ISP_CORE_GRP_IDX];
 	core = v4l2_get_subdevdata(sd);
 	if (core) {
-		if (t20_i2c_thread_trace_count < 24 &&
+		if (isp_runtime_trace && t20_i2c_thread_trace_count < 24 &&
 		    (core->i2c_msgs[0].flag || core->i2c_msgs[1].flag ||
 		     core->i2c_msgs[2].flag))
 			printk(KERN_INFO
@@ -716,7 +717,7 @@ irqreturn_t isp_irq_thread_handle(int this_irq, void *dev)
 			ioctl.value = core->i2c_msgs[i].value;
 			arg.value = (int)&ioctl;
 			tx_isp_sd_notify(sd, TX_ISP_NOTIFY_PRIVATE_IOCTL, &arg);
-			if (t20_i2c_thread_trace_count < 24)
+			if (isp_runtime_trace && t20_i2c_thread_trace_count < 24)
 				printk(KERN_INFO
 				       "T20I2C apply n=%u slot=%d cmd=%u value=%d ret=%d\n",
 				       t20_i2c_thread_trace_count, i, ioctl.cmd,
