@@ -306,6 +306,11 @@ TESTS += scene_colorfx_host_test
 scene_colorfx_host_test: scene_colorfx_host_test.c ../driver/common/tx_isp_scene_colorfx.h
 	$(CC) $(CFLAGS) -I../driver/common -o $@ $<
 
+TESTS += t21_night_reinit_host_test
+
+t21_night_reinit_host_test: t21_night_reinit_host_test.c ../driver/t21/tx_isp_t21_recovered.c
+	$(CC) $(CFLAGS) -o $@ $<
+
 all: $(TESTS)
 
 # "all check: foo_test" (old style, e.g. on older branches) still works:
