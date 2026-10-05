@@ -102,6 +102,17 @@ static inline int tx_isp_csc_check(const uint32_t *attr)
 	return 0;
 }
 
+/*
+ * Matrix signs are fixed.  The T31/T21 CSC block takes magnitudes only (the
+ * signs come from the fixed mode word 0x1f), so a caller written against
+ * those never had to care about the sign of a user coefficient and may pass
+ * any.  The Apical table (T10/T20) honours signs, which turned a caller's
+ * "wrong" signs into inverted chroma (green picture).  User matrices are
+ * therefore normalised to the sign pattern of the OEM presets, on every SoC:
+ * row 0 (Y) +++, row 1 (U) --+, row 2 (V) +--.
+ */
+static const int8_t tx_isp_csc_sign[9] = { 1, 1, 1, -1, -1, 1, 1, -1, -1 };
+
 /* The 15 parameter words a checked attribute selects. */
 static inline void tx_isp_csc_params(const uint32_t *attr, int32_t *out)
 {
@@ -110,6 +121,12 @@ static inline void tx_isp_csc_params(const uint32_t *attr, int32_t *out)
 	for (i = 0; i < TX_ISP_CSC_WORDS; i++)
 		out[i] = attr[0] == TX_ISP_CSC_MODE_USER ?
 			(int32_t)attr[1 + i] : tx_isp_csc_presets[attr[0]][i];
+	if (attr[0] == TX_ISP_CSC_MODE_USER)
+		for (i = 0; i < 9; i++) {
+			int32_t m = out[i] < 0 ? -out[i] : out[i];
+
+			out[i] = tx_isp_csc_sign[i] < 0 ? -m : m;
+		}
 }
 
 /* ---- tiziano (T21 0x1700, T31 0x6000) ------------------------------ */

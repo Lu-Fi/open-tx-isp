@@ -87,8 +87,9 @@ static void test_apical_default_is_preset3(void)
 
 static void test_user_matrix(void)
 {
+	/* signs follow the OEM pattern (+++ --+ +--) */
 	static const int32_t user[TX_ISP_CSC_WORDS] = {
-		0x3ff, -0x3ff, 1, -1, 0, -2, 3, -5, 0x200,
+		0x3ff, 0x3ff, 1, -1, 0, 2, 3, -5, -0x200,
 		0x20, 0x80, 0x00, 0xff, 0x40, 0xc0,
 	};
 	uint32_t attr[TX_ISP_CSC_ATTR_WORDS], back[TX_ISP_CSC_ATTR_WORDS];
@@ -101,9 +102,10 @@ static void test_user_matrix(void)
 	tx_isp_csc_params(attr, p);
 	CHECK(memcmp(p, user, sizeof(user)) == 0);
 	tx_isp_csc_to_apical(p, lut, clip);
-	CHECK(lut[0] == 256 && lut[1] == (0x8000 | 256));
+	CHECK(lut[0] == 256 && lut[1] == 256);
 	CHECK(lut[2] == 0 && lut[3] == 0);	/* |1|, |-1| round to 0, no -0 */
-	CHECK(lut[5] == (0x8000 | 1) && lut[6] == 1 && lut[7] == (0x8000 | 1));
+	CHECK(lut[5] == 1 && lut[6] == 1 && lut[7] == (0x8000 | 1));
+	CHECK(lut[8] == (0x8000 | 128));
 	tx_isp_csc_from_apical(lut, clip, back);
 	CHECK(back[0] == 4);
 	for (i = 0; i < 9; i++) {
@@ -113,6 +115,38 @@ static void test_user_matrix(void)
 	}
 	CHECK(back[10] == 0x20 && back[11] == 0x80);
 	CHECK(back[12] == 0x00 && back[13] == 0xff && back[14] == 0x40 && back[15] == 0xc0);
+}
+
+/*
+ * Device bug (T10/T20 green picture): mode 4 with preset-0 magnitudes but
+ * inverted U/V signs, as read back "4 308 600 116 172 340 -512 -512 428 84
+ * 0 128 0 255 0 255".  T21/T31 ignore coefficient signs; the Apical table
+ * must give the same table as the correctly signed preset-0 matrix.
+ */
+static void test_user_signs_ignored(void)
+{
+	static const int32_t bad[TX_ISP_CSC_WORDS] = {
+		308, 600, 116, 172, 340, -512, -512, 428, 84,
+		0, 128, 0, 255, 0, 255,
+	};
+	static const int32_t good[TX_ISP_CSC_WORDS] = {
+		308, 600, 116, -172, -340, 512, 512, -428, -84,
+		0, 128, 0, 255, 0, 255,
+	};
+	uint32_t a1[TX_ISP_CSC_ATTR_WORDS], a2[TX_ISP_CSC_ATTR_WORDS];
+	int32_t p1[TX_ISP_CSC_WORDS], p2[TX_ISP_CSC_WORDS];
+	uint16_t l1[12], l2[12], c1[4], c2[4];
+
+	attr_for(a1, 4, bad);
+	attr_for(a2, 4, good);
+	tx_isp_csc_params(a1, p1);
+	tx_isp_csc_params(a2, p2);
+	CHECK(memcmp(p1, p2, sizeof(p1)) == 0);
+	tx_isp_csc_to_apical(p1, l1, c1);
+	tx_isp_csc_to_apical(p2, l2, c2);
+	CHECK(memcmp(l1, l2, sizeof(l1)) == 0 && memcmp(c1, c2, sizeof(c1)) == 0);
+	CHECK((l1[3] & 0x8000) && (l1[4] & 0x8000) && !(l1[5] & 0x8000));
+	CHECK(!(l1[6] & 0x8000) && (l1[7] & 0x8000) && (l1[8] & 0x8000));
 }
 
 static void test_check(void)
@@ -240,6 +274,7 @@ int main(void)
 	test_t21_init_words();
 	test_apical_default_is_preset3();
 	test_user_matrix();
+	test_user_signs_ignored();
 	test_check();
 	test_fcrop();
 	test_t21_axis();
