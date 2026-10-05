@@ -32,14 +32,19 @@
  *    keep working on top of it.  The SDK default table is T31 preset 3
  *    converted exactly (checked by the host test).
  *
- * Front crop: T10/T20/T21 have no crop stage in front of the scalers (T31
- * has one in its mscaler, 0x9860).  The per-channel crop sits behind the
- * scaler (T21) or replaces the output size (T20 FR), and neither scaler
- * enlarges, so a T31-style zoom cannot be built from them without
- * changing what the channels deliver.  The control is therefore answered
- * honestly: disabling and the full frame are accepted, any smaller window
- * is refused with -EOPNOTSUPP (OpenIMP returns -1) instead of the
- * silent success the cache-only OpenIMP path gave before.
+ * Front crop (ePTZ): T10/T20/T21 have no crop stage in front of all
+ * scalers like the T31 mscaler (0x9860), and their scalers only shrink.
+ * The window is built per channel from what each pipeline has:
+ *  - T21: every channel scales the full frame, then crops.  Scaling the
+ *    full frame by out/window and cropping the window's image gives the
+ *    T31 result for every channel whose output fits into the window.
+ *  - T10/T20: the DS channels crop before their scaler (Apical ds crop,
+ *    0x600..0x610), so the window becomes their crop.  The FR channel has
+ *    no scaler behind its crop (the crop would change its output size),
+ *    it always shows the full frame.
+ * A channel whose output is larger than the window (it would need
+ * enlarging), or that has a channel crop of its own (T20), keeps the full
+ * frame.  A window no channel can show is refused with -EOPNOTSUPP.
  *
  * Nothing changes until CSC_ATTR is set: the default state is the stock
  * register / calibration content.
@@ -228,31 +233,88 @@ static inline void tx_isp_csc_from_apical(const uint16_t *lut,
 
 /* ---- front crop ----------------------------------------------------- */
 
+/* f = {enable, top, left, width, height}; enable in the low byte. */
+static inline int tx_isp_fcrop_enabled(const uint32_t *f)
+{
+	return (f[0] & 0xff) != 0;
+}
+
 /*
- * f = {enable, top, left, width, height} (enable: low byte, like the OEM
- * T31 kernel).  0 = accepted (disable or full frame), -EINVAL = malformed
- * or outside the frame, -EOPNOTSUPP = a real sub-window (no hardware
- * stage for it on T10/T20/T21).
+ * 0 = a window inside the w x h frame (or disable), -EINVAL otherwise.
+ * Odd positions/sizes are refused: the NV12 chroma is subsampled 2x2.
  */
 static inline int tx_isp_fcrop_check(const uint32_t *f, uint32_t w,
 				     uint32_t h)
 {
-	if ((f[0] & 0xff) == 0)
+	if (!tx_isp_fcrop_enabled(f))
 		return 0;
 	if (!w || !h || !f[3] || !f[4])
 		return -EINVAL;
 	if ((uint64_t)f[2] + f[3] > w || (uint64_t)f[1] + f[4] > h)
 		return -EINVAL;
-	if (f[1] || f[2] || f[3] != w || f[4] != h)
-		return -EOPNOTSUPP;
+	if ((f[1] | f[2] | f[3] | f[4]) & 1)
+		return -EINVAL;
 	return 0;
 }
 
-/* Getter: the (always full-frame) window in the set layout. */
-static inline void tx_isp_fcrop_get(uint32_t enabled, uint32_t w, uint32_t h,
-				    uint32_t *f)
+/* The window covers the whole frame (nothing to crop). */
+static inline int tx_isp_fcrop_is_full(const uint32_t *f, uint32_t w,
+				       uint32_t h)
 {
-	f[0] = enabled ? 1 : 0;
+	return !tx_isp_fcrop_enabled(f) ||
+	       (!f[1] && !f[2] && f[3] == w && f[4] == h);
+}
+
+/* A channel with this (scaler) output can show the window: shrink only. */
+static inline int tx_isp_fcrop_fits(const uint32_t *f, uint32_t out_w,
+				    uint32_t out_h)
+{
+	return out_w && out_h && out_w <= f[3] && out_h <= f[4];
+}
+
+/*
+ * T21, one axis.  The channel scales the full axis (full) to *scaled and
+ * crops csize at *pos.  Without a window: scaled = out (its configured
+ * scaler output), pos = cpos (its own crop).  With a window [start,
+ * start + win): the full axis is scaled by out/win, so the window maps
+ * onto out pixels, and the channel crop moves along.  Even values; the
+ * crop stays inside the scaled image.
+ */
+static inline void tx_isp_fcrop_t21_axis(uint32_t full, uint32_t start,
+					 uint32_t win, uint32_t out,
+					 uint32_t cpos, uint32_t csize,
+					 uint32_t *scaled, uint32_t *pos)
+{
+	uint32_t s, p;
+
+	if (!win || win >= full || !out) {
+		*scaled = out;
+		*pos = cpos;
+		return;
+	}
+	s = (uint32_t)(((uint64_t)full * out / win) & ~1ULL);
+	if (s < out)
+		s = out;
+	p = (uint32_t)(((uint64_t)start * out / win + cpos) & ~1ULL);
+	if (p + csize > s)
+		p = csize <= s ? (s - csize) & ~1U : 0;
+	*scaled = s;
+	*pos = p;
+}
+
+/* Getter: the accepted window, or disabled with the full frame. */
+static inline void tx_isp_fcrop_get(const uint32_t *win, uint32_t w,
+				    uint32_t h, uint32_t *f)
+{
+	if (win && tx_isp_fcrop_enabled(win)) {
+		f[0] = 1;
+		f[1] = win[1];
+		f[2] = win[2];
+		f[3] = win[3];
+		f[4] = win[4];
+		return;
+	}
+	f[0] = 0;
 	f[1] = 0;
 	f[2] = 0;
 	f[3] = w;

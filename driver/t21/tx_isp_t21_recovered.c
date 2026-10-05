@@ -16701,6 +16701,7 @@ int32_t tisp_init(int32_t *arg1)
 	system_reg_write(0x1720, 0x8000);
 	system_reg_write(0x1730, 0xff00ff00);
 	t21_csc_reset();	/* CSC state = the preset 0 just written */
+	t21_fcrop_reset();
 	system_reg_write(0x2010, 1);
 	system_reg_write(0x2080, 1);
 
@@ -33858,6 +33859,7 @@ int32_t ispcore_pad_event_handle(int32_t *arg1, int32_t arg2, void *arg3)
 		if (result)
 			return result;
 		memcpy(&channel->format, format, sizeof(*format));
+		t21_fcrop_s_fmt(pad->index);	/* front crop window, if set */
 		return 0;
 	}
 	case 0x3000003: {

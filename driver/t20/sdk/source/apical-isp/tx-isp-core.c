@@ -1604,6 +1604,151 @@ static int isp_core_frame_channel_set_scaler(struct tx_isp_core_device *core, in
 	return ret;
 }
 
+/*
+ * Beyond vendor: front crop / ePTZ on the DS channels (FRONT_CROP
+ * 0x80000e3, see ../../../../common/tx_isp_csc.h).  The DS pipes crop
+ * before their scaler (firmware _update_ds: crop 0x604..0x610, scaler
+ * input = crop size), so the window becomes the DS crop and the scaler
+ * keeps the configured output.  Only DS channels with the scaler on, no
+ * channel crop of their own and an output that fits into the window are
+ * zoomed; the FR channel has no scaler behind its crop and always shows
+ * the full frame.  The commands are the ones isp_core_frame_channel_set_crop
+ * issues; the firmware applies them through crop_resolution_changed().
+ */
+#include "../../../../common/tx_isp_csc.h"
+
+static DEFINE_MUTEX(t2x_fcrop_mutex);
+static uint32_t t2x_fcrop_win[TX_ISP_FCROP_WORDS];	/* [0] = 0: off */
+
+static frame_chan_vdev_t *t2x_fcrop_ds(struct tx_isp_core_device *core,
+				       int index, unsigned int *crop)
+{
+	if (!core || !core->chans)
+		return NULL;
+	switch (index) {
+	case ISP_DS1_VIDEO_CHANNEL:
+		*crop = CROP_DS;
+		break;
+#if TX_ISP_EXIST_DS2_CHANNEL
+	case ISP_DS2_VIDEO_CHANNEL:
+		*crop = CROP_DS2;
+		break;
+#endif
+	default:
+		return NULL;
+	}
+	return &core->chans[index].video;
+}
+
+static void t2x_fcrop_bypass(int index, int bypass)
+{
+	if (index == ISP_DS1_VIDEO_CHANNEL)
+		apical_isp_top_bypass_ds1_crop_write(bypass);
+#if TX_ISP_EXIST_DS2_CHANNEL
+	else
+		apical_isp_top_bypass_ds2_crop_write(bypass);
+#endif
+}
+
+static int t2x_fcrop_zoomable(frame_chan_vdev_t *vdev, const uint32_t *win)
+{
+	struct frame_channel_attribute *attr = &vdev->attr;
+
+	return atomic_read(&vdev->state) != TX_ISP_STATE_STOP &&
+	       attr->scaler_enable && !attr->crop_enable &&
+	       tx_isp_fcrop_fits(win, attr->scaler.out_width,
+				 attr->scaler.out_height);
+}
+
+/* 1 = window applied, 0 = channel left as configured. */
+static int t2x_fcrop_program(struct tx_isp_core_device *core, int index,
+			     const uint32_t *win)
+{
+	unsigned int crop;
+	frame_chan_vdev_t *vdev = t2x_fcrop_ds(core, index, &crop);
+	int zoom, ret = 0;
+
+	if (!vdev || atomic_read(&vdev->state) == TX_ISP_STATE_STOP)
+		return 0;
+	if (vdev->attr.crop_enable)
+		return 0;	/* its own crop stays (set_crop programmed it) */
+	zoom = win && t2x_fcrop_zoomable(vdev, win);
+	if (zoom) {
+		t2x_fcrop_bypass(index, 0);
+		apical_command(TIMAGE, IMAGE_RESIZE_WIDTH_ID, (crop << 16) + win[3], COMMAND_SET, &ret);
+		apical_command(TIMAGE, IMAGE_RESIZE_HEIGHT_ID, (crop << 16) + win[4], COMMAND_SET, &ret);
+		apical_command(TIMAGE, IMAGE_CROP_XOFFSET_ID, (crop << 16) + win[2], COMMAND_SET, &ret);
+		apical_command(TIMAGE, IMAGE_CROP_YOFFSET_ID, (crop << 16) + win[1], COMMAND_SET, &ret);
+		apical_command(TIMAGE, IMAGE_RESIZE_ENABLE_ID, (crop << 16) + ENABLE, COMMAND_SET, &ret);
+	} else {
+		/* as set_crop with crop_enable = 0 */
+		t2x_fcrop_bypass(index, 1);
+		apical_command(TIMAGE, IMAGE_RESIZE_ENABLE_ID, (crop << 16) + DISABLE, COMMAND_SET, &ret);
+	}
+	return zoom;
+}
+
+/* A DS channel's crop/scaler was just (re)programmed: add the window. */
+static void t2x_fcrop_chan_changed(struct tx_isp_core_device *core, int index)
+{
+	mutex_lock(&t2x_fcrop_mutex);
+	if (tx_isp_fcrop_enabled(t2x_fcrop_win))
+		t2x_fcrop_program(core, index, t2x_fcrop_win);
+	mutex_unlock(&t2x_fcrop_mutex);
+}
+
+int t2x_fcrop_set(struct tx_isp_core_device *core, const uint32_t *f)
+{
+	uint32_t W = core->contrl.inwidth, H = core->contrl.inheight;
+	int full, fits = 0, ret, i;
+	static const int ds[] = {
+		ISP_DS1_VIDEO_CHANNEL,
+#if TX_ISP_EXIST_DS2_CHANNEL
+		ISP_DS2_VIDEO_CHANNEL,
+#endif
+	};
+
+	if (core->bypass == TX_ISP_FRAME_CHANNEL_BYPASS_ISP_ENABLE)
+		return -EPERM;
+	ret = tx_isp_fcrop_check(f, W, H);
+	if (ret)
+		return ret;
+	full = tx_isp_fcrop_is_full(f, W, H);
+
+	mutex_lock(&t2x_fcrop_mutex);
+	if (!full) {
+		for (i = 0; i < ARRAY_SIZE(ds); i++) {
+			unsigned int crop;
+			frame_chan_vdev_t *vdev = t2x_fcrop_ds(core, ds[i], &crop);
+
+			if (vdev && t2x_fcrop_zoomable(vdev, f))
+				fits = 1;
+		}
+		if (!fits) {
+			ret = -EOPNOTSUPP;	/* no DS channel can show it */
+			goto out;
+		}
+	}
+	for (i = 0; i < ARRAY_SIZE(ds); i++)
+		t2x_fcrop_program(core, ds[i], full ? NULL : f);
+	if (full)
+		memset(t2x_fcrop_win, 0, sizeof(t2x_fcrop_win));
+	else
+		memcpy(t2x_fcrop_win, f, sizeof(t2x_fcrop_win));
+	t2x_fcrop_win[0] = full ? 0 : 1;
+out:
+	mutex_unlock(&t2x_fcrop_mutex);
+	return ret;
+}
+
+void t2x_fcrop_get(struct tx_isp_core_device *core, uint32_t *f)
+{
+	mutex_lock(&t2x_fcrop_mutex);
+	tx_isp_fcrop_get(t2x_fcrop_win, core->contrl.inwidth,
+			 core->contrl.inheight, f);
+	mutex_unlock(&t2x_fcrop_mutex);
+}
+
 static int isp_core_frame_channel_streamon(struct tx_isp_core_device *core, int value)
 {
 	frame_chan_vdev_t *vdev = (frame_chan_vdev_t *)value;
@@ -1803,12 +1948,16 @@ static long isp_core_ops_private_ioctl(struct tx_isp_core_device *core, struct i
 			break;
 		case TX_ISP_PRIVATE_IOCTL_FRAME_CHAN_SET_CROP:
 			ret = isp_core_frame_channel_set_crop(core, ctl->value);
+			if (!ret)
+				t2x_fcrop_chan_changed(core, ((frame_chan_vdev_t *)ctl->value)->index);
 			break;
 		case TX_ISP_PRIVATE_IOCTL_FRAME_CHAN_SCALER_CAP:
 			ret = isp_core_frame_channel_scaler_capture(core, ctl->value);
 			break;
 		case TX_ISP_PRIVATE_IOCTL_FRAME_CHAN_SET_SCALER:
 			ret = isp_core_frame_channel_set_scaler(core, ctl->value);
+			if (!ret)
+				t2x_fcrop_chan_changed(core, ((frame_chan_vdev_t *)ctl->value)->index);
 			break;
 		case TX_ISP_PRIVATE_IOCTL_FRAME_CHAN_STREAM_ON:
 			ret = isp_core_frame_channel_streamon(core, ctl->value);

@@ -149,32 +149,88 @@ static void test_check(void)
 
 static void test_fcrop(void)
 {
-	uint32_t f[TX_ISP_FCROP_WORDS];
 	uint32_t g[TX_ISP_FCROP_WORDS];
 
 	/* {enable, top, left, width, height} */
 	uint32_t off[5] = { 0, 7, 7, 7, 7 };
 	uint32_t off_hi[5] = { 0x100, 1, 1, 1, 1 };	/* only the low byte counts */
 	uint32_t full[5] = { 1, 0, 0, 1920, 1080 };
-	uint32_t sub[5] = { 1, 100, 200, 960, 540 };
+	uint32_t mid[5] = { 1, 270, 480, 960, 540 };
 	uint32_t out[5] = { 1, 0, 1000, 1000, 1080 };
 	uint32_t zero[5] = { 1, 0, 0, 0, 1080 };
 	uint32_t wrap[5] = { 1, 0, 0xffffff00u, 0x200, 1080 };
+	uint32_t odd[5] = { 1, 1, 0, 960, 540 };
 
 	CHECK(tx_isp_fcrop_check(off, 1920, 1080) == 0);
 	CHECK(tx_isp_fcrop_check(off_hi, 1920, 1080) == 0);
+	CHECK(!tx_isp_fcrop_enabled(off_hi));
 	CHECK(tx_isp_fcrop_check(full, 1920, 1080) == 0);
 	CHECK(tx_isp_fcrop_check(full, 0, 0) == -EINVAL);
-	CHECK(tx_isp_fcrop_check(sub, 1920, 1080) == -EOPNOTSUPP);
+	CHECK(tx_isp_fcrop_check(mid, 1920, 1080) == 0);
 	CHECK(tx_isp_fcrop_check(out, 1920, 1080) == -EINVAL);
 	CHECK(tx_isp_fcrop_check(zero, 1920, 1080) == -EINVAL);
 	CHECK(tx_isp_fcrop_check(wrap, 1920, 1080) == -EINVAL);
+	CHECK(tx_isp_fcrop_check(odd, 1920, 1080) == -EINVAL);
 
-	memcpy(f, full, sizeof(f));
-	tx_isp_fcrop_get(1, 1920, 1080, g);
-	CHECK(memcmp(f, g, sizeof(f)) == 0);
-	tx_isp_fcrop_get(0, 1280, 720, g);
+	CHECK(tx_isp_fcrop_is_full(off, 1920, 1080));
+	CHECK(tx_isp_fcrop_is_full(full, 1920, 1080));
+	CHECK(!tx_isp_fcrop_is_full(mid, 1920, 1080));
+
+	/* shrink only: 640x360 sub stream fits, the 1920x1080 main does not */
+	CHECK(tx_isp_fcrop_fits(mid, 640, 360));
+	CHECK(tx_isp_fcrop_fits(mid, 960, 540));
+	CHECK(!tx_isp_fcrop_fits(mid, 1920, 1080));
+	CHECK(!tx_isp_fcrop_fits(mid, 962, 540));
+	CHECK(!tx_isp_fcrop_fits(mid, 0, 0));
+
+	tx_isp_fcrop_get(mid, 1920, 1080, g);
+	CHECK(g[0] == 1 && g[1] == 270 && g[2] == 480 && g[3] == 960 && g[4] == 540);
+	tx_isp_fcrop_get(off, 1280, 720, g);
 	CHECK(g[0] == 0 && g[1] == 0 && g[2] == 0 && g[3] == 1280 && g[4] == 720);
+	tx_isp_fcrop_get(NULL, 1280, 720, g);
+	CHECK(g[0] == 0 && g[3] == 1280 && g[4] == 720);
+}
+
+/* T21 axis mapping: full frame scaled by out/window, crop = window image. */
+static void test_t21_axis(void)
+{
+	uint32_t s, p;
+
+	/* no window: the channel's own configuration, bit for bit */
+	tx_isp_fcrop_t21_axis(1920, 0, 1920, 640, 0, 640, &s, &p);
+	CHECK(s == 640 && p == 0);
+	tx_isp_fcrop_t21_axis(1920, 0, 0, 640, 8, 600, &s, &p);
+	CHECK(s == 640 && p == 8);
+
+	/* centre 50 %: 1920 -> window 960 at 480, out 640 */
+	tx_isp_fcrop_t21_axis(1920, 480, 960, 640, 0, 640, &s, &p);
+	CHECK(s == 1280 && p == 320);
+	/* vertical: 1080 -> window 540 at 270, out 360 */
+	tx_isp_fcrop_t21_axis(1080, 270, 540, 360, 0, 360, &s, &p);
+	CHECK(s == 720 && p == 180);
+	/* bottom-right corner window */
+	tx_isp_fcrop_t21_axis(1920, 960, 960, 640, 0, 640, &s, &p);
+	CHECK(s == 1280 && p == 640 && p + 640 <= s);
+	/* window == output: 1:1 crop, no scaling of the window */
+	tx_isp_fcrop_t21_axis(1920, 100, 640, 640, 0, 640, &s, &p);
+	CHECK(s == 1920 && p == 100);
+
+	/* odd ratios: even values, crop stays inside the scaled image */
+	{
+		uint32_t start, win;
+
+		for (win = 642; win <= 1920; win += 26)
+			for (start = 0; start + win <= 1920; start += 98) {
+				tx_isp_fcrop_t21_axis(1920, start, win, 640, 0,
+						      640, &s, &p);
+				CHECK(s >= 640 && s <= 1920);
+				CHECK(!(s & 1) && !(p & 1));
+				CHECK(p + 640 <= s);
+			}
+	}
+	/* a channel crop inside the output moves along with the window */
+	tx_isp_fcrop_t21_axis(1920, 480, 960, 640, 64, 512, &s, &p);
+	CHECK(s == 1280 && p == 384);
 }
 
 int main(void)
@@ -186,6 +242,7 @@ int main(void)
 	test_user_matrix();
 	test_check();
 	test_fcrop();
+	test_t21_axis();
 	if (failures) {
 		fprintf(stderr, "tx_isp_csc_test: %d failure(s)\n", failures);
 		return 1;

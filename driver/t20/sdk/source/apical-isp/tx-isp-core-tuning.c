@@ -1434,7 +1434,6 @@ static int t2x_csc_active;
 static uint32_t t2x_csc_mode;
 static uint16_t t2x_csc_lut[12];
 static uint16_t t2x_csc_clip[4];	/* Y min, Y max, UV min, UV max */
-static uint32_t t2x_fcrop_enabled;
 
 static int t2x_csc_is_night(struct tx_isp_core_device *core)
 {
@@ -1584,19 +1583,18 @@ static int t2x_csc_g_ctrl(struct tx_isp_core_device *core,
 	return ISP_SUCCESS;
 }
 
+/* front crop lives in tx-isp-core.c next to the channel crop code */
+int t2x_fcrop_set(struct tx_isp_core_device *core, const uint32_t *f);
+void t2x_fcrop_get(struct tx_isp_core_device *core, uint32_t *f);
+
 static int t2x_fcrop_s_ctrl(struct tx_isp_core_device *core,
 			    struct v4l2_control *ctrl)
 {
 	uint32_t f[TX_ISP_FCROP_WORDS];
-	int ret;
 
 	if (copy_from_user(f, (const void __user *)ctrl->value, sizeof(f)))
 		return -EFAULT;
-	ret = tx_isp_fcrop_check(f, core->contrl.inwidth, core->contrl.inheight);
-	if (ret)
-		return ret;
-	t2x_fcrop_enabled = (f[0] & 0xff) ? 1 : 0;
-	return ISP_SUCCESS;
+	return t2x_fcrop_set(core, f);
 }
 
 static int t2x_fcrop_g_ctrl(struct tx_isp_core_device *core,
@@ -1604,8 +1602,7 @@ static int t2x_fcrop_g_ctrl(struct tx_isp_core_device *core,
 {
 	uint32_t f[TX_ISP_FCROP_WORDS];
 
-	tx_isp_fcrop_get(t2x_fcrop_enabled, core->contrl.inwidth,
-			 core->contrl.inheight, f);
+	t2x_fcrop_get(core, f);
 	if (copy_to_user((void __user *)ctrl->value, f, sizeof(f)))
 		return -EFAULT;
 	return ISP_SUCCESS;
