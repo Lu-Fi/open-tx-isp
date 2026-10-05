@@ -1033,6 +1033,14 @@ MODULE_PARM_DESC(t41_safe_tisp_teardown,
  * during bring-up.  Positive values explicitly restore the defer gate. */
 static int t41_safe_msca_start = -1;
 module_param(t41_safe_msca_start, int, 0);
+/*
+ * Skip MSCA update requests for unchanged HVFLIP state (see
+ * tisp_msca_set_mirr_flip()).  0 restores the stock request on every call.
+ */
+static int t41_msca_flip_skip_noop = 1;
+module_param(t41_msca_flip_skip_noop, int, 0644);
+MODULE_PARM_DESC(t41_msca_flip_skip_noop,
+                 "1 (default) skips the MSCA update request when HVFLIP bits are unchanged");
 MODULE_PARM_DESC(t41_safe_msca_start,
 		 "defer MSCA channel programming while its packed state is neutral");
 
@@ -140882,6 +140890,21 @@ int32_t tisp_msca_set_mirr_flip(uint32_t a0, uintptr_t a1)
            ((uint32_t)settings[0x00f] << 11) |
            ((uint32_t)settings[0x00e] << 10);
     value = system_reg_read(0x0f002c);
+    /*
+     * 0xf0010 = 1 requests an MSCA register update; the bit reads back 0
+     * once the next input frame applied it.  Stock requests it on every
+     * call.  Every output start calls this twice with unchanged bits: from
+     * frame-channel SET_FMT before the output is enabled, and from the
+     * streamer's HVFLIP right after.  With the input live (another output
+     * streaming, or after an idle stop) those update requests around the
+     * enable hard-hang the T41 within a few frames: both CPUs stop, no
+     * oops, the watchdog resets.  Skipping the redundant requests ran the
+     * same restart pattern clean (default and hflip=1 configurations).
+     * A real flip change still requests the update as stock does.
+     */
+    if (t41_msca_flip_skip_noop > 0 &&
+        ((value & 0xc00001ff) | bits) == value)
+        return 0;
     system_reg_write(0x0f002c, (value & 0xc00001ff) | bits);
     system_reg_write(0x0f0010, 1);
     return 0;

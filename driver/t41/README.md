@@ -534,3 +534,35 @@ node, and `/dev/isp-m0`:
 - Repeat each case a few thousand times during live capture and confirm the
   stream, encoder and `dmesg` stay clean (watch for the one-shot
   "recovered dispatch disabled" warning only).
+
+## Output restart hang (MSCA update request around channel start)
+
+Symptom (Vanhua T55A / gc5603, streamer idle-stop): one output stopped while
+the other kept streaming (or after both idle-stopped, input still running),
+then started again: the SoC hard-hangs within a few frames of the enable.
+Both CPUs stop, no oops or panic, the busybox watchdog resets ~60 s later.
+Repro: ch0 client 2 s, pause 1.8 s, ch1 client 2 s, pause ~4 s, repeat -
+hang within 1-6 cycles.
+
+Evidence: a diagnostic build wrote step markers, per-CPU register history and
+IRQ/lock state uncached into the last page of rmem; after the watchdog reset
+the boot guard kept timps (which clears rmem) from starting, so the markers
+could be read with `devmem`. Every hang came after `tisp_msca_chx_cfg_load()`
+enabled the restarted output, with `0xf0010 = 1` (MSCA register update
+request) written by `tisp_msca_set_mirr_flip()` right before (frame-channel
+SET_FMT) and right after (the streamer's HVFLIP) the enable, both with
+unchanged flip bits. No CPU was inside a spinlock or the ISR.
+
+Bisect on device (stock requests the update on every call):
+- skip the update request when the flip bits are unchanged: 30/30, 30/30
+  and, with `image.hflip = 1`, 30/30 restart cycles clean;
+- keep the output enabled across STREAMOFF (stock behaviour) and/or skip
+  reprogramming an unchanged output, load the staged configuration before
+  the enable, or delay the post-enable request by a few frames: each still
+  hung within 4-6 cycles;
+- disabling the live FIFO rearm after QBUF did not help either.
+
+Fix: `tisp_msca_set_mirr_flip()` only requests the MSCA update when the flip
+bits change (`t41_msca_flip_skip_noop=1`, default; 0 restores stock).
+Residual risk: a real flip change at runtime, a frame away from an output
+start, still issues the request as stock does.
