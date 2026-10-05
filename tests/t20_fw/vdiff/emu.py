@@ -260,6 +260,15 @@ class Env:
             rr = u32(mean * 4 + self.ct_bias + (prand() & 15))
             b = u32(mean * 4 - self.ct_bias + (prand() & 15))
             struct.pack_into('<I', r, i, (rr & 0xfff) | ((b & 0xfff) << 16) | (prand() & 0xf000))
+        # AWB zones (awb_read_statistics: 225 x {R/G | B/G << 16, population}
+        # at 0x8740): a spread of colour ratios around the scene colour
+        # temperature, a few zones under the population threshold
+        for z in range(225):
+            sp = (prand() % 97) - 48
+            rg = max(1, min(0xfff, 0x100 + self.ct_bias * 2 + sp + (z % 15) * 6 - 42))
+            bg = max(1, min(0xfff, 0x100 - self.ct_bias * 2 - sp + (z // 15) * 6 - 42))
+            pop = 64 + (prand() % 3000) if z % 11 else prand() & 0xff
+            struct.pack_into('<II', r, 0x8740 + z * 8, rg | (bg << 16), pop)
 
 
 class Machine:

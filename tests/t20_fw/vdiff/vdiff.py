@@ -89,6 +89,7 @@ class Diff:
         self.sdk = sdk
         self.seq = True
         self.void = void_functions()
+        self.stack_args = stack_arg_counts()
 
     def machine(self, oem=True):
         m = emu.Machine(self.vendor, self.ours)
@@ -243,8 +244,11 @@ class Diff:
                     b[lo - a:hi - a] = bytes(hi - lo)
             mem['vdata@%x' % a] = bytes(b)
         mem['heap'] = bytes(m.uc.mem_read(HEAP, m.env.heapp - HEAP)) if m.env.heapp > HEAP else b''
-        # sp+0..15: argument home area (an -O0 callee spills a0-a3 there)
-        mem['stack'] = bytes(16) + bytes(m.uc.mem_read(s.sp + 16, TOP - s.sp - 16))
+        # sp+0..15: argument home area (an -O0 callee spills a0-a3 there);
+        # the stack-passed arguments after it belong to the callee as well
+        # (o32), the vendor build reuses them as scratch
+        home = 16 + 4 * self.stack_args.get(s.fn, 0)
+        mem['stack'] = bytes(home) + bytes(m.uc.mem_read(s.sp + home, TOP - s.sp - home))
         cu = getattr(m, 'calib_used', CALIB)
         mem['calib'] = bytes(m.uc.mem_read(CALIB, cu - CALIB)) if cu > CALIB else b''
         return mem
@@ -315,6 +319,20 @@ def void_functions():
     txt = open(src).read()
     return set(re.findall(r'^(?:static\s+)?(?:inline\s+)?void\s+\**\s*(\w+)\s*\(', txt, re.M)) - \
         set(re.findall(r'^(?:static\s+)?(?:inline\s+)?void\s*\*\s*(\w+)\s*\(', txt, re.M))
+
+
+def stack_arg_counts():
+    """number of stack-passed argument words (arguments past a0-a3) of the
+    functions our source defines with more than four arguments"""
+    import re
+    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../driver/t20/tx_isp_t20_firmware.c')
+    out = {}
+    for m in re.finditer(r'^(?:static\s+)?(?:inline\s+)?[\w\s\*]+?\b(\w+)\s*\(([^;{)]*)\)\s*\{',
+                         open(src).read(), re.M):
+        args = [a for a in m.group(2).split(',') if a.strip() and a.strip() != 'void']
+        if len(args) > 4:
+            out[m.group(1)] = len(args) - 4
+    return out
 
 
 def fmt(v):
