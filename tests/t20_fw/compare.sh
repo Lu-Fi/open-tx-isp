@@ -1,10 +1,17 @@
 #!/bin/sh
 # compare.sh OUT CALIB REF VARIANT...
-# Runs both scenarios (compact "simple" AE/AWB default, OEM paths) on REF and
-# on each VARIANT and requires identical output: trace hash per checkpoint,
-# every printed line, and the hash of every firmware data object present in
-# both builds.  REF is also run with two stack-poison bytes; a difference
-# there means the firmware reads uninitialised stack memory.
+# Runs each scenario (compact "simple" AE/AWB default, OEM paths, and the
+# extended scenario when it is selected) on REF and on each
+# VARIANT and requires identical output: trace hash per checkpoint, every
+# printed line, and the hash of every firmware data object present in both
+# builds.  Each object carries two hashes (pointers normalised to symbol+offset,
+# and the same with every image-window word replaced by a marker) and counts as
+# identical when either matches, so that a constant which merely looks like an
+# in-image address does not show up as a difference.  REF is also run with two
+# stack-poison bytes; a difference there means the firmware reads uninitialised
+# stack memory.
+#
+# SCENARIOS selects the scenario list, default "simple oem ext ext-oem".
 set -u
 LC_ALL=C; export LC_ALL
 out=$1; calib=${2:--}; ref=$3; shift 3
@@ -19,7 +26,7 @@ cmp_files() { # a b label
 	awk '
 	FNR == 1 { f++ }
 	/^T20FW harness:/ { next }
-	/^STATE / { st[f, $2 " " $3] = $4; names[$2 " " $3] = names[$2 " " $3] + f; next }
+		/^STATE / { st[f, $2 " " $3] = $4 " " $5; names[$2 " " $3] = names[$2 " " $3] + f; next }
 	/^CP / { sub(/ state=.*/, ""); }
 	{ line[f, ++n[f]] = $0 }
 	END {
@@ -31,8 +38,10 @@ cmp_files() { # a b label
 				rc = 1
 			}
 		for (k in names)
-			if (names[k] == 3 && st[1, k] != st[2, k]) { if (shown++ < 30) print "  state differs: " k; rc = 1 }
-			else if (names[k] != 3) only[substr(k, index(k, " ") + 1)] = 1
+			if (names[k] == 3) {
+				split(st[1, k], a, " "); split(st[2, k], b, " ")
+				if (a[1] != b[1] && a[2] != b[2]) { if (shown++ < 30) print "  state differs: " k; rc = 1 }
+			} else only[substr(k, index(k, " ") + 1)] = 1
 		for (k in only) o = o " " k
 		if (o != "") print "  objects in one build only:" o
 		exit rc
@@ -42,8 +51,18 @@ cmp_files() { # a b label
 	sort "$1.cmp" | head -40
 	return $rc
 }
-for scen in "" "oem"; do
-	tag=${scen:-simple}
+# scenario name -> harness arguments (SCENARIOS is a plain word list)
+scenario_args() {
+	case $1 in
+	simple) echo "";;
+	ext) echo "ext";;
+	ext-oem) echo "ext oem";;
+	*) echo "$1";;
+	esac
+}
+
+for s in ${SCENARIOS:-simple oem ext ext-oem}; do
+	scen=$(scenario_args "$s"); tag=$s
 	run "$ref" "p5a $scen" "$out/run-$ref-$tag-p5a.txt"
 	run "$ref" "pa5 $scen" "$out/run-$ref-$tag-pa5.txt"
 	echo "[$tag] $ref, stack poison 0x5a vs 0xa5 (uninitialised stack reads)"
