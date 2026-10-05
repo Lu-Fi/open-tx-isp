@@ -361,6 +361,7 @@ extern void system_reg_write_gb(u32 arg1, u32 arg2, u32 arg3);
 extern uint32_t deir_en;
 extern uint32_t msca_dmaout_arb;
 extern uint32_t msca_ch_en;
+int tisp_s_autozoom_control(const uint32_t *req);
 
 /* CLM (Color Luminance Mapping) constants and data — declared early for param_array_set/get */
 #define CLM_H_LUT_SIZE      0x41A   /* 1050 bytes */
@@ -9942,7 +9943,8 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
                 ret = -EFAULT;
                 goto out;
             }
-            ret = 0;
+            /* channel + scaler/crop words of the channel attribute */
+            ret = tisp_s_autozoom_control(zoom);
             break;
         }
 
