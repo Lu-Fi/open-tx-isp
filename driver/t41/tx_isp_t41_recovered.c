@@ -30832,6 +30832,17 @@ int32_t sensor_alloc_analog_gain(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s0 = a1;
     local_10 = 0;
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_analog_gain:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_again (attr + 196)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 4) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 2: StackAccess */
@@ -30864,6 +30875,17 @@ int32_t sensor_alloc_analog_gain_short(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s0 = a1;
     local_10 = 0;
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_analog_gain_short:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_again_short (attr + 200)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 18) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 2: StackAccess */
@@ -30896,6 +30918,17 @@ int32_t sensor_alloc_digital_gain(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s0 = a1;
     local_10 = 0;
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_digital_gain:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_dgain (attr + 204)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 6) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 2: StackAccess */
@@ -30913,6 +30946,13 @@ int32_t sensor_alloc_digital_gain(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000125d0 origin=fragment_seed original=sensor_alloc_digital_gain_short */
 int32_t sensor_alloc_digital_gain_short(int32_t arg1, int32_t *arg2)
 {
+	/*
+	 * TODO(t41-unresolved-calls): this hand-written body does not match the
+	 * vendor.  1.2.6-720-4494 0x11310: attr = *(*g_ispcore + *arg2 * 96 +
+	 * 360), fn = attr + 208, *(uint16_t *)(arg2 + 24 bytes) = code.  Here
+	 * g_ispcore (a 16-byte object) is indexed at +0x168, i.e. outside it.
+	 * Same dead-by-default vendor AE path as the other sensor_alloc_*.
+	 */
 	uint32_t var_10 = 0;
 	uint32_t tmp;
 	int32_t (*func)(int32_t, int32_t, void *);
@@ -30976,6 +31016,17 @@ sensor_alloc_integration_time0x44:
 
 sensor_alloc_integration_time0x54:
     /* fragment 7: CallSetup */
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_integration_time:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_integration_time (attr + 212)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 20) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 8: StackAccess */
@@ -31037,6 +31088,17 @@ sensor_alloc_integration_time_short0x44:
 
 sensor_alloc_integration_time_short0x54:
     /* fragment 7: CallSetup */
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_integration_time_short:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_integration_time_short (attr + 216)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 22) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 8: StackAccess */
@@ -65457,6 +65519,20 @@ uint32_t tisp_set_sensor_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
+    /*
+     * TODO(t41-unresolved-calls): vendor 1.2.6-720-4494 tisp_set_sensor_analog_gain
+     * (0x262f8) receives the tisp sensor-info struct BY VALUE and calls two of
+     * its callbacks, read from the stack at struct offsets 340 and 380
+     * (most likely alloc_again and set_analog_gain, cf. sensor_init's
+     * table at +332/+372 with an unproven 8-byte base shift).  The recovery
+     * lost the by-value struct (callers pass only a0), so neither the
+     * callback nor its argument block exists here.  This is only reached by
+     * the recovered vendor AE (tisp_ae_calc_process -> tisp_ae_long/short
+     * _ev_alloc), which t41_safe_ae_controller=1 (default) replaces.  Fail
+     * cleanly instead of returning a gain computed from the placeholder.
+     */
+    pr_warn_once("tx_isp_t41_recovered: tisp_set_sensor_analog_gain: sensor gain callback not recovered, gain not applied\n");
+    return 0;
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
@@ -65623,6 +65699,20 @@ uint32_t tisp_set_sensor_short_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
+    /*
+     * TODO(t41-unresolved-calls): vendor 1.2.6-720-4494 tisp_set_sensor_short_analog_gain
+     * (0x264a4) receives the tisp sensor-info struct BY VALUE and calls two of
+     * its callbacks, read from the stack at struct offsets 344 and 384
+     * (most likely alloc_again_short and set_analog_gain_short, cf. sensor_init's
+     * table at +336/+376 with an unproven 8-byte base shift).  The recovery
+     * lost the by-value struct (callers pass only a0), so neither the
+     * callback nor its argument block exists here.  This is only reached by
+     * the recovered vendor AE (tisp_ae_calc_process -> tisp_ae_long/short
+     * _ev_alloc), which t41_safe_ae_controller=1 (default) replaces.  Fail
+     * cleanly instead of returning a gain computed from the placeholder.
+     */
+    pr_warn_once("tx_isp_t41_recovered: tisp_set_sensor_short_analog_gain: sensor gain callback not recovered, gain not applied\n");
+    return 0;
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
