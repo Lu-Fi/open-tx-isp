@@ -429,6 +429,90 @@ static long t23x_awb_control(bool get, uint32_t id, uint32_t *value)
 	}
 }
 
+/* ---- Gamma ------------------------------------------------------------- */
+
+#define T23X_CID_GAMMA 0x0800002bU
+
+/*
+ * SetGamma (stock tisp_s_Gamma): the 129-point curve goes to the active,
+ * day and night banks and tiziano_gamma_lut.  The stock module does not
+ * rewrite the LUT registers here; the curve is programmed by the next
+ * gamma refresh (day/night or custom-mode switch, stream start).
+ */
+static long t23x_gamma(bool get, uint32_t uptr)
+{
+	uint16_t lut[T23X_GAMMA_BYTES / 2U];
+	long ret;
+
+	if (get) {
+		memcpy(lut, tiziano_gamma_lut, sizeof(lut));
+		return regtrace_t23_copy_out(uptr, lut, sizeof(lut));
+	}
+	ret = regtrace_t23_copy_in(lut, uptr, sizeof(lut));
+	if (ret)
+		return ret;
+	t23x_tparams_put(T23X_TP_GAMMA, lut, sizeof(lut));
+	memcpy(tiziano_gamma_lut, lut, sizeof(lut));
+	return 0;
+}
+
+/* ---- WaitFrame --------------------------------------------------------- */
+
+/*
+ * Stock isp_frame_done_wait / isp_frame_done_wakeup: the core frame-done
+ * interrupt (status bit 0) counts frames and wakes the waiters; a waiter
+ * clears the condition and waits for the next frame-done, the timeout is
+ * passed to the scheduler as is (jiffies).
+ */
+static DECLARE_WAIT_QUEUE_HEAD(t23x_frame_wq);
+static DEFINE_SPINLOCK(t23x_frame_lock);
+static uint64_t t23x_frame_cnt;
+static int t23x_frame_cond;
+
+static void t23x_frame_done_wakeup(void)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&t23x_frame_lock, flags);
+	t23x_frame_cnt++;
+	t23x_frame_cond = 1;
+	spin_unlock_irqrestore(&t23x_frame_lock, flags);
+	wake_up_interruptible(&t23x_frame_wq);
+}
+
+static long t23x_wait_frame(uint32_t uptr)
+{
+	uint32_t blk[T23X_WAIT_FRAME_BYTES / 4U];
+	unsigned long flags;
+	uint64_t cnt;
+	long wret;
+	long ret;
+	int cond;
+
+	ret = regtrace_t23_copy_in(blk, uptr, sizeof(blk));
+	if (ret)
+		return ret;
+	spin_lock_irqsave(&t23x_frame_lock, flags);
+	t23x_frame_cond = 0;
+	spin_unlock_irqrestore(&t23x_frame_lock, flags);
+	/* a value beyond LONG_MAX (negative as long) would make the
+	 * scheduler complain; it waits without a limit instead */
+	wret = wait_event_interruptible_timeout(t23x_frame_wq,
+						ACCESS_ONCE(t23x_frame_cond),
+						blk[0] > (uint32_t)LONG_MAX ?
+						MAX_SCHEDULE_TIMEOUT :
+						(long)blk[0]);
+	spin_lock_irqsave(&t23x_frame_lock, flags);
+	cnt = t23x_frame_cnt;
+	cond = t23x_frame_cond;
+	spin_unlock_irqrestore(&t23x_frame_lock, flags);
+	ret = t23x_wait_frame_result(wret, cond);
+	memcpy(&blk[2], &cnt, sizeof(cnt));
+	if (regtrace_t23_copy_out(uptr, blk, sizeof(blk)))
+		return -EFAULT;
+	return ret;
+}
+
 static long regtrace_t23_tuning_ext(bool get, uint32_t id, uint32_t *value)
 {
 	long ret;
@@ -439,5 +523,12 @@ static long regtrace_t23_tuning_ext(bool get, uint32_t id, uint32_t *value)
 	ret = t23x_awb_control(get, id, value);
 	if (ret != -ENOIOCTLCMD)
 		return ret;
-	return -ENOIOCTLCMD;
+	switch (id) {
+	case T23X_CID_GAMMA:
+		return t23x_gamma(get, *value);
+	case T23X_CID_WAIT_FRAME:
+		return get ? t23x_wait_frame(*value) : -EINVAL;
+	default:
+		return -ENOIOCTLCMD;
+	}
 }

@@ -162,8 +162,17 @@ static void test_awb(void)
 	assert(t23x_awb_ct_select(3, 4800, &custom) == 4800 && custom == 3000);
 }
 
+static void test_wait_frame(void)
+{
+	assert(t23x_wait_frame_result(5, 1) == 0);      /* woken early */
+	assert(t23x_wait_frame_result(0, 1) == 0);      /* frame at the end */
+	assert(t23x_wait_frame_result(0, 0) == -ETIMEDOUT);
+	assert(t23x_wait_frame_result(-512, 0) == -512);
+}
+
 int main(void)
 {
+	test_wait_frame();
 	test_awb();
 	test_weights();
 	test_ae_manual();

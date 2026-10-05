@@ -286,4 +286,23 @@ static inline uint32_t t23x_awb_ct_select(uint32_t wb_mode, uint32_t ct,
 	return ct;
 }
 
+/* ---- Gamma, frame wait ------------------------------------------------ */
+
+#define T23X_GAMMA_BYTES 258U           /* 129 x u16 */
+#define T23X_TP_GAMMA 0x15998U          /* bank +0x2898 */
+#define T23X_WAIT_FRAME_BYTES 24U       /* stock libimp/kernel block */
+#define T23X_CID_WAIT_FRAME 0x08000162U
+
+/*
+ * isp_frame_done_wait result: 0 when a frame-done came, -ERESTARTSYS when
+ * interrupted, else -ETIMEDOUT.  wait_ret is the wait_event_*_timeout
+ * return value (remaining jiffies, 0 on timeout, or -ERESTARTSYS).
+ */
+static inline long t23x_wait_frame_result(long wait_ret, int cond)
+{
+	if (wait_ret < 0)
+		return wait_ret;
+	return cond ? 0 : -ETIMEDOUT;
+}
+
 #endif /* TX_ISP_T23_TUNING_EXT_H */
