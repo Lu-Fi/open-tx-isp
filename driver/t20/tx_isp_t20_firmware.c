@@ -11811,128 +11811,102 @@ int32_t color_matrix_write(void *arg1)
     return APICAL_WRITE_32(0x4a0, (val & 0xffff0000) | field);
 }
 
+static int16_t *color_matrix_source(uint8_t *base, uint8_t sel)
+{
+	/* OEM 0x205dc..0x20638: 1 -> +98, 2 -> +116, 3 -> +134, else +152 */
+	if (sel == 2)
+		return (int16_t *)(base + 116);
+	if (sel == 3)
+		return (int16_t *)(base + 134);
+	if (sel == 1)
+		return (int16_t *)(base + 98);
+	return (int16_t *)(base + 152);
+}
+
+static void color_matrix_cm_mode(uint32_t sel)
+{
+	/* three 3-bit fields of 0x394 (bits 0, 8, 16) set to sel */
+	APICAL_WRITE_32(0x394, (APICAL_READ_32(0x394) & 0xfffffff8) | sel);
+	APICAL_WRITE_32(0x394, (APICAL_READ_32(0x394) & 0xfffff8ff) | (sel << 8));
+	APICAL_WRITE_32(0x394, (APICAL_READ_32(0x394) & 0xfff8ffff) | (sel << 16));
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000020eec origin=model_output original=color_matrix_update */
 int32_t color_matrix_update(int32_t *arg1)
 {
+	/*
+	 * OEM 0x2058c, rewritten from the vendor code.  During a CCM
+	 * transition (cnt = +97) the 9 coefficients at +56 are interpolated
+	 * between the matrices selected by +95 (from) and +94 (to).  The
+	 * exposure-dependent matrix mode in 0x394 and the blend byte at +170
+	 * (written to the three bytes of 0x398) follow the thresholds at
+	 * +196..+224 against dev+3776.  The recovery mapped two source
+	 * matrices to the wrong offsets and mixed up the threshold chain.
+	 */
 	uint8_t *base = (uint8_t *)arg1;
-	uint8_t cnt = base[0x61];
-	uint8_t mode_r, mode_g, strength;
-	int16_t *src_r, *src_g;
-	uint8_t *dev = (uint8_t *)*arg1;
-	int32_t cur_val;
-	int32_t lo, hi;
-	uint32_t i;
-	int32_t ret;
+	uint8_t *dev;
+	uint8_t cnt = base[97];
+	int32_t cur, lo = 0, hi = 0;
+	int interp = 0;
+	uint32_t i, blend;
 
 	if (cnt != 0) {
-		mode_r = base[0x5f];
-		if (mode_r == 2)
-			src_r = (int16_t *)(base + 0x26);
-		else if (mode_r == 3)
-			src_r = (int16_t *)(base + 0x86);
-		else if (mode_r == 1)
-			src_r = (int16_t *)(base + 0x62);
-		else
-			src_r = (int16_t *)(base + 0x74);
+		int16_t *from = color_matrix_source(base, base[95]);
+		int16_t *to = color_matrix_source(base, base[94]);
+		uint32_t strength = base[96];
 
-		mode_g = base[0x5e];
-		if (mode_g == 2)
-			src_g = (int16_t *)(base + 0x26);
-		else if (mode_g == 3)
-			src_g = (int16_t *)(base + 0x86);
-		else if (mode_g == 1)
-			src_g = (int16_t *)(base + 0x62);
-		else
-			src_g = (int16_t *)(base + 0x74);
-
-		strength = base[0x60];
-		for (i = 0; i < 0x12; i += 2) {
-			if (strength >= 2) {
-				int16_t vr = *(int16_t *)((uint8_t *)src_r + i);
-				int16_t vg = *(int16_t *)((uint8_t *)src_g + i);
-				int32_t diff = (int32_t)vg - (int32_t)vr;
-				int32_t num = diff * (strength - cnt);
-				int32_t den = strength - 1;
-				int32_t q = num / den;
-				*(int16_t *)(base + 0x38 + i) = (int16_t)(q + vr);
-			}
-		}
+		for (i = 0; i < 9; i++)
+			if (strength >= 2)
+				*(int16_t *)(base + 56 + 2 * i) = (int16_t)(
+					((int32_t)to[i] - from[i]) * (int32_t)(strength - cnt) /
+					(int32_t)(strength - 1) + from[i]);
 	}
 
-	cur_val = *(int32_t *)(dev + 0xec0);
-	lo = arg1[0xc4 / 4];
-	hi = arg1[0xc8 / 4];
-
-	if (cur_val < lo) {
-		APICAL_WRITE_32(0x394, APICAL_READ_32(0x394) & 0xfffffff8);
-		APICAL_WRITE_32(0x394, APICAL_READ_32(0x394) & 0xfffff8ff);
-		APICAL_WRITE_32(0x394, APICAL_READ_32(0x394) & 0xfff8ffff);
-		*(uint16_t *)(base + 0xaa) = 0;
-		base[0xad] = 1;
-	} else {
-		int32_t mid = arg1[0xcc / 4];
-		int32_t val1 = arg1[0xd0 / 4];
-		int32_t val2 = arg1[0xd4 / 4];
-		int32_t val3 = arg1[0xd8 / 4];
-		int32_t val4 = arg1[0xdc / 4];
-		int32_t val5 = arg1[0xe0 / 4];
-		int32_t mode;
-
-		if (hi >= cur_val) {
-			val1 = arg1[0xd0 / 4];
-		}
-
-		if (val1 < cur_val) {
-			APICAL_WRITE_32(0x394, (APICAL_READ_32(0x394) & 0xfffffff8) | 2);
-			APICAL_WRITE_32(0x394, (APICAL_READ_32(0x394) & 0xfffff8ff) | 0x200);
-			APICAL_WRITE_32(0x394, (APICAL_READ_32(0x394) & 0xfff8ffff) | 0x20000);
-			base[0xac] = 0;
-			*(uint16_t *)(base + 0xaa) = 0;
-			base[0xad] = 3;
-		} else {
-			if (val3 >= cur_val) {
-				val2 = arg1[0xd8 / 4];
-			}
-
-			if (val2 < cur_val && cur_val < val4) {
-				APICAL_WRITE_32(0x394, (APICAL_READ_32(0x394) & 0xfffffff8) | 1);
-				APICAL_WRITE_32(0x394, (APICAL_READ_32(0x394) & 0xfffff8ff) | 0x100);
-				APICAL_WRITE_32(0x394, (APICAL_READ_32(0x394) & 0xfff8ffff) | 0x10000);
-				hi = val4;
-				lo = val3;
-			} else {
-				if (cur_val >= val5) {
-					val2 = arg1[0xd8 / 4];
-				} else {
-					APICAL_WRITE_32(0x394, APICAL_READ_32(0x394) & 0xfffffff8);
-					APICAL_WRITE_32(0x394, APICAL_READ_32(0x394) & 0xfffff8ff);
-					APICAL_WRITE_32(0x394, APICAL_READ_32(0x394) & 0xfff8ffff);
-					hi = val5;
-					lo = val2;
-				}
-			}
-
-			if (hi != lo) {
-				int32_t range = hi - lo;
-				int32_t num = (*(int32_t *)((uintptr_t)dev + 0xec0) - lo) * 0xff;
-				*(uint16_t *)((uintptr_t)base + 0xaa) = (uint16_t)(num / range);
-			}
-		}
+	dev = *(uint8_t **)arg1;
+	cur = *(int32_t *)(dev + 3776);
+	if (cur < arg1[196 / 4]) {
+		color_matrix_cm_mode(0);
+		*(uint16_t *)(base + 170) = 0;
+		base[173] = 1;
+	} else if (arg1[200 / 4] < cur && cur < arg1[204 / 4]) {
+		color_matrix_cm_mode(1);
+		base[172] = 1;
+		*(uint16_t *)(base + 170) = 0;
+		base[173] = 2;
+	} else if (arg1[208 / 4] < cur) {
+		color_matrix_cm_mode(2);
+		base[172] = 0;
+		*(uint16_t *)(base + 170) = 0;
+		base[173] = 3;
+	} else if (arg1[212 / 4] < cur && cur < arg1[216 / 4]) {
+		color_matrix_cm_mode(0);
+		lo = arg1[212 / 4];
+		hi = arg1[216 / 4];
+		interp = 1;
+	} else if (arg1[220 / 4] < cur && cur < arg1[224 / 4]) {
+		color_matrix_cm_mode(1);
+		lo = arg1[220 / 4];
+		hi = arg1[224 / 4];
+		interp = 1;
 	}
+	if (interp && hi != lo)
+		*(uint16_t *)(base + 170) = (uint16_t)(
+			(*(int32_t *)(dev + 3776) - lo) * 255 / (hi - lo));
 
-	APICAL_WRITE_32(0x398, (APICAL_READ_32(0x398) & 0xffffff00) | (uint8_t)*(uint16_t *)((uintptr_t)base + 0xaa));
-	APICAL_WRITE_32(0x398, (APICAL_READ_32(0x398) & 0xffff00ff) | ((uint8_t)*(uint16_t *)((uintptr_t)base + 0xaa) << 8));
-	APICAL_WRITE_32(0x398, (APICAL_READ_32(0x398) & 0xff00ffff) | ((uint8_t)*(uint16_t *)((uintptr_t)base + 0xaa) << 16));
+	blend = base[170];
+	APICAL_WRITE_32(0x398, (APICAL_READ_32(0x398) & 0xffffff00) | blend);
+	blend = base[170];
+	APICAL_WRITE_32(0x398, (APICAL_READ_32(0x398) & 0xffff00ff) | (blend << 8));
+	blend = base[170];
+	APICAL_WRITE_32(0x398, (APICAL_READ_32(0x398) & 0xff00ffff) | (blend << 16));
 
 	color_matrix_recalculate(arg1);
 	color_matrix_write(arg1);
 	mesh_shading_modulate_strength(arg1);
 
-	ret = base[0x61];
-	if (ret != 0)
-		base[0x61] = ret - 1;
-
-	return ret - 1;
+	if (base[97] != 0)
+		base[97]--;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002137c origin=model_output original=color_matrix_change_CCMs */
