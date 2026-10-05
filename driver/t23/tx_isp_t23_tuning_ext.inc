@@ -432,6 +432,7 @@ static long t23x_awb_control(bool get, uint32_t id, uint32_t *value)
 /* ---- Gamma ------------------------------------------------------------- */
 
 #define T23X_CID_GAMMA 0x0800002bU
+#define T23X_CID_FIXED_CONTRAST 0x08000102U
 
 /*
  * SetGamma (stock tisp_s_Gamma): the 129-point curve goes to the active,
@@ -526,6 +527,20 @@ static long regtrace_t23_tuning_ext(bool get, uint32_t id, uint32_t *value)
 	switch (id) {
 	case T23X_CID_GAMMA:
 		return t23x_gamma(get, *value);
+	case T23X_CID_FIXED_CONTRAST: {
+		/* stock tisp_set_bcsh_fixed_contrast: 3 bytes {mode, y low,
+		 * y high} -> tisp_bcsh_set_mjpeg_contrast + BCSH update */
+		uint8_t fc[3];
+		long ret2;
+
+		if (get)
+			return -EINVAL;
+		ret2 = regtrace_t23_copy_in(fc, *value, sizeof(fc));
+		if (ret2)
+			return ret2;
+		tisp_bcsh_set_mjpeg_contrast(0, fc[0], fc[1], fc[2]);
+		return 0;
+	}
 	case T23X_CID_WAIT_FRAME:
 		return get ? t23x_wait_frame(*value) : -EINVAL;
 	default:
