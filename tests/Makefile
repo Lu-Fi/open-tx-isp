@@ -366,6 +366,13 @@ check: t20_fw_check
 t20_fw_check:
 	$(MAKE) -C t20_fw check
 
+# ... and function by function against the vendor tx-isp-t20.ko (skips unless
+# T20FW_VENDOR_KO, a MIPS gcc and python3-unicorn are available)
+check: t20_fw_vdiff
+.PHONY: t20_fw_vdiff
+t20_fw_vdiff:
+	$(MAKE) -C t20_fw vdiff
+
 clean:
 	$(MAKE) -C t20_fw clean
 	$(RM) tx_isp_t31_wdr_test tx_isp_t31_wdr_runtime_test

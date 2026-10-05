@@ -3,6 +3,10 @@
 #   make -C tests/t20_fw check          -O0 vs -Os, both scenarios, stack poison
 #   make -C tests/t20_fw VARIANTS="O0 Os O2" check
 #   make -C tests/t20_fw CALIB=/path/jxf23.bin check
+#   make -C tests/t20_fw vdiff          function-level diff against the vendor
+#                                       module (see vdiff/vdiff.py; needs
+#                                       T20FW_VENDOR_KO, a mipsel gcc and the
+#                                       python "unicorn" module, else skips)
 #
 # Needs only "gcc -m32" code generation (no 32-bit libc).  Skips with a
 # message when the compiler cannot produce i386 code.
@@ -35,7 +39,7 @@ HOST_OBJS := $(OUT)/harness.o $(OUT)/calib.o $(OUT)/rt.o \
 	$(OUT)/sdk_static.o $(OUT)/sdk_dynamic.o $(OUT)/sdk_calibrations.o $(OUT)/sdk_calinit.o \
 	$(OUT)/t20_math.o
 
-.PHONY: all check clean coverage skip
+.PHONY: all check clean coverage skip vdiff
 .SECONDARY:
 M32_OK := $(shell echo 'int x;' | $(CC) -m32 -x c -c -o /dev/null - 2>/dev/null && echo y)
 ifneq ($(M32_OK),y)
@@ -86,6 +90,43 @@ coverage: $(OUT)/t20fw-cov $(OUT)/t20fw-cov.sym
 	cat $(OUT)/cov-simple.txt $(OUT)/cov-oem.txt | awk '/^COV hit/ {h[$$3]=1} /^COV miss/ {m[$$3]=1} END {for (f in m) if (!(f in h)) n++; for (f in h) k++; printf "functions executed: %d, never executed: %d\n", k, n}'
 	cat $(OUT)/cov-simple.txt $(OUT)/cov-oem.txt | awk '/^COV hit/ {h[$$3]=1} /^COV miss/ {m[$$3]=1} END {for (f in m) if (!(f in h)) print f}' | sort > $(OUT)/cov-missed.txt
 
+endif
+
+# ------------------------------------------------------------------------
+# vendor differential test: our firmware unit built for MIPS (same shims as
+# the host build) next to the vendor tx-isp-t20.ko in a unicorn emulator.
+# The vendor binary is never part of the tree: pass its path.
+VENDOR_KO ?= $(T20FW_VENDOR_KO)
+MIPS_CC ?= $(or $(T20FW_MIPS_CC),$(CROSS_COMPILE)gcc)
+MIPS_LD ?= $(patsubst %gcc,%ld,$(MIPS_CC))
+PYTHON ?= python3
+VDIFF_VARIANT ?= O0
+VDIFF_ARGS ?=
+MIPS_FLAGS := -march=mips32 -mabi=32 -msoft-float -G 0 -mno-abicalls -fno-pic \
+	-mno-check-zero-division -ffreestanding $(KFLAGS) -std=gnu99 -w
+MIPS_OK := $(shell echo 'int x;' | $(MIPS_CC) $(MIPS_FLAGS) -x c -c -o /dev/null - 2>/dev/null && echo y)
+UNICORN_OK := $(shell $(PYTHON) -c 'import unicorn' 2>/dev/null && echo y)
+MIPS_INC = -nostdinc -Iinclude -isystem $(shell $(MIPS_CC) -print-file-name=include) \
+	-I$(SDK) -I$(SDK)/apical-isp -I$(SDK)/include -I$(ROOT)/external/ingenic-sdk/include
+
+$(OUT)/mips-fw-%.o: fw_unit.c pre.h $(ROOT)/driver/t20/tx_isp_t20_firmware.c | $(OUT)
+	$(MIPS_CC) $(MIPS_FLAGS) $(MIPS_INC) -fpermissive -include pre.h $(FLAGS_$*) -c -o $@ fw_unit.c
+$(OUT)/mips-math.o: $(ROOT)/driver/t20/tx_isp_t20_math.c | $(OUT)
+	$(MIPS_CC) $(MIPS_FLAGS) $(MIPS_INC) -Os -include include/kshim.h -c -o $@ $<
+$(OUT)/mips-ours-%.o: $(OUT)/mips-fw-%.o $(OUT)/mips-math.o
+	$(MIPS_LD) -r -o $@ $^
+
+vdiff:
+ifeq ($(and $(VENDOR_KO),$(wildcard $(VENDOR_KO))),)
+	@echo "t20_fw vdiff: set T20FW_VENDOR_KO=/path/to/vendor/tx-isp-t20.ko, skipping"
+else ifneq ($(MIPS_OK),y)
+	@echo "t20_fw vdiff: no MIPS compiler (T20FW_MIPS_CC / CROSS_COMPILE), skipping"
+else ifneq ($(UNICORN_OK),y)
+	@echo "t20_fw vdiff: $(PYTHON) lacks the unicorn module (pip install unicorn), skipping"
+else
+	$(MAKE) $(OUT)/mips-ours-$(VDIFF_VARIANT).o
+	$(PYTHON) vdiff/vdiff.py $(VENDOR_KO) $(OUT)/mips-ours-$(VDIFF_VARIANT).o \
+		$(if $(CALIB),--calib $(CALIB)) --sdk $(SDK) $(VDIFF_ARGS)
 endif
 
 clean:
