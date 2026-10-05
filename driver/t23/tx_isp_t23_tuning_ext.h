@@ -319,4 +319,72 @@ static inline long t23x_wait_frame_result(long wait_ret, int cond)
 	return cond ? 0 : -ETIMEDOUT;
 }
 
+/* ---- AWB cluster / colour-temperature trend ------------------------------ */
+
+/*
+ * SetAwbClust / GetAwbClust (0x0800000e), SetAwbCtTrend / GetAwbCtTrend
+ * (0x0800000f); stock apical_isp_core_ops_s_ctrl / g_ctrl copy exactly
+ * IMPISPAWBCluster (40 bytes) and IMPISPAWBCtTrend (24 bytes) and call
+ * tisp_awb_set/get_cluster_awb_params and tisp_awb_set/get_ct_trend.
+ *
+ * The stock objects are not in the user order:
+ *   _awb_cluster[10]: [0] ClusterEn, [1..7] awb_cluster[0..6],
+ *                     [8] ToleranceEn, [9] tolerance_th
+ *   _awb_trend[7]:    [0] enable (set to 1 by every set), [1..6] trend_array
+ * The set marks the *_api_status[1] word with 2 (a user value is pending)
+ * and, unless status[0] is 1, mirrors the object into *_api_para (what the
+ * IQ refresh reads).
+ */
+#define T23X_AWB_CLUSTER_USER_BYTES 40U /* sizeof(IMPISPAWBCluster) */
+#define T23X_AWB_CLUSTER_WORDS 10U
+#define T23X_AWB_TREND_USER_BYTES 24U   /* sizeof(IMPISPAWBCtTrend) */
+#define T23X_AWB_TREND_WORDS 7U
+
+static inline void t23x_awb_cluster_set(uint32_t *cl, uint32_t *status,
+					uint32_t *api_para, const uint32_t *in)
+{
+	unsigned int i;
+
+	for (i = 0; i < 7U; i++)
+		cl[1U + i] = in[3U + i];
+	cl[0] = in[0];
+	cl[8] = in[1];
+	cl[9] = in[2];
+	status[1] = 2;
+	if (status[0] != 1)
+		memcpy(api_para, cl, T23X_AWB_CLUSTER_WORDS * sizeof(uint32_t));
+}
+
+static inline void t23x_awb_cluster_get(const uint32_t *cl, uint32_t *out)
+{
+	unsigned int i;
+
+	out[0] = cl[0];
+	out[1] = cl[8];
+	out[2] = cl[9];
+	for (i = 0; i < 7U; i++)
+		out[3U + i] = cl[1U + i];
+}
+
+static inline void t23x_awb_trend_set(uint32_t *tr, uint32_t *status,
+				      uint32_t *api_para, const uint32_t *in)
+{
+	unsigned int i;
+
+	for (i = 0; i < 6U; i++)
+		tr[1U + i] = in[i];
+	tr[0] = 1;
+	status[1] = 2;
+	if (status[0] != 1)
+		memcpy(api_para, tr, T23X_AWB_TREND_WORDS * sizeof(uint32_t));
+}
+
+static inline void t23x_awb_trend_get(const uint32_t *tr, uint32_t *out)
+{
+	unsigned int i;
+
+	for (i = 0; i < 6U; i++)
+		out[i] = tr[1U + i];
+}
+
 #endif /* TX_ISP_T23_TUNING_EXT_H */

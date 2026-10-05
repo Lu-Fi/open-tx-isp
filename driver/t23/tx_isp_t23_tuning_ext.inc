@@ -32,6 +32,8 @@
 #define T23X_CID_AF_METRIC      0x08000043U
 #define T23X_CID_AF_WEIGHT      0x08000044U
 #define T23X_CID_AF_ZONE        0x08000046U
+#define T23X_CID_AWB_CLUSTER    0x0800000eU
+#define T23X_CID_AWB_CT_TREND   0x0800000fU
 
 /*
  * tisp_ae_trig on the lifted copies: reload flags, then the AE hardware
@@ -404,6 +406,61 @@ static long t23x_awb_rgb_coefft(bool get, uint32_t uptr)
 	return 0;
 }
 
+/*
+ * Set/GetAwbClust, Set/GetAwbCtTrend on the stock objects (_awb_cluster,
+ * _awb_trend and their api_para / api_status), see tx_isp_t23_tuning_ext.h.
+ * The user block is exactly the public struct (40 / 24 bytes).  Beyond
+ * stock: a failing copy-out is reported (stock ignores it).  The open AWB
+ * runtime does not read these objects, so they are stored and read back
+ * (and reloaded by tiziano_awb_params_refresh as in stock) only.
+ */
+static DEFINE_MUTEX(t23x_awb_api_mutex);
+
+static long t23x_awb_cluster(bool get, uint32_t uptr)
+{
+	uint32_t blk[T23X_AWB_CLUSTER_USER_BYTES / 4U];
+	long ret;
+
+	if (get) {
+		mutex_lock(&t23x_awb_api_mutex);
+		t23x_awb_cluster_get((const uint32_t *)(void *)_awb_cluster,
+				     blk);
+		mutex_unlock(&t23x_awb_api_mutex);
+		return regtrace_t23_copy_out(uptr, blk, sizeof(blk));
+	}
+	ret = regtrace_t23_copy_in(blk, uptr, sizeof(blk));
+	if (ret)
+		return ret;
+	mutex_lock(&t23x_awb_api_mutex);
+	t23x_awb_cluster_set((uint32_t *)(void *)_awb_cluster,
+			     (uint32_t *)(void *)awb_cluster_api_status,
+			     (uint32_t *)(void *)awb_cluster_api_para, blk);
+	mutex_unlock(&t23x_awb_api_mutex);
+	return 0;
+}
+
+static long t23x_awb_ct_trend(bool get, uint32_t uptr)
+{
+	uint32_t blk[T23X_AWB_TREND_USER_BYTES / 4U];
+	long ret;
+
+	if (get) {
+		mutex_lock(&t23x_awb_api_mutex);
+		t23x_awb_trend_get((const uint32_t *)(void *)&_awb_trend, blk);
+		mutex_unlock(&t23x_awb_api_mutex);
+		return regtrace_t23_copy_out(uptr, blk, sizeof(blk));
+	}
+	ret = regtrace_t23_copy_in(blk, uptr, sizeof(blk));
+	if (ret)
+		return ret;
+	mutex_lock(&t23x_awb_api_mutex);
+	t23x_awb_trend_set((uint32_t *)(void *)&_awb_trend,
+			   (uint32_t *)(void *)&awb_trend_api_status,
+			   (uint32_t *)(void *)awb_trend_api_para, blk);
+	mutex_unlock(&t23x_awb_api_mutex);
+	return 0;
+}
+
 static long t23x_awb_control(bool get, uint32_t id, uint32_t *value)
 {
 	uint32_t v = *value;
@@ -415,6 +472,10 @@ static long t23x_awb_control(bool get, uint32_t id, uint32_t *value)
 		return t23x_awb_zone_weight(get, v);
 	case T23X_CID_AWB_RGB_COEFFT:
 		return t23x_awb_rgb_coefft(get, v);
+	case T23X_CID_AWB_CLUSTER:
+		return t23x_awb_cluster(get, v);
+	case T23X_CID_AWB_CT_TREND:
+		return t23x_awb_ct_trend(get, v);
 	case T23X_CID_AWB_CT: {
 		uint32_t ct;
 		long ret;
