@@ -3240,19 +3240,20 @@ uint32_t calc_equidistant_modulation_u16(uint16_t pos, uint16_t *table, uint16_t
     if (l == 1)
         return (uint32_t)table[0];
 
-    uint32_t step = 0x10000 / (l - 1);
+    /* OEM 0x16230: the step is used as a u16 (len 2 gives 0x10000 -> 0
+     * -> table[0]) and the upper node gets the fractional weight */
+    uint32_t step = (0x10000 / (l - 1)) & 0xffff;
     if (step == 0)
         return (uint32_t)table[0];
 
-    uint32_t idx = (uintptr_t)p / step;
-    uint32_t rem = ((uintptr_t)p - idx * step) << 8;
-    uint32_t frac = rem / step;
-    uint32_t f = frac & 0xffff;
+    uint32_t idx = ((uintptr_t)p / step) & 0xffff;
+    int32_t rem = (int32_t)(((uintptr_t)p - idx * step) << 8);
+    uint32_t f = (uint32_t)(rem / (int32_t)step) & 0xffff;
 
     uint32_t lo = (uint32_t)table[idx];
     uint32_t hi = (uint32_t)table[idx + 1];
 
-    int32_t result = (int32_t)(lo * f + hi * (256 - f));
+    int32_t result = (int32_t)(hi * f + lo * (256 - f));
     if (result < 0)
         result += 255;
 
