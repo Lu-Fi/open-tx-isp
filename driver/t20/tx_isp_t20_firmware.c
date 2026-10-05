@@ -972,7 +972,10 @@ static int32_t iir_coeff0;
 static int32_t iir_coeff1;
 static int32_t iir_err0;
 static int32_t iir_err1;
-static const uint32_t fps_table[6] = { 5, 10, 15, 20, 25, 30 };
+/* set_sensor_fps(): FPS5..FPS60 (6..11) -> sensor fps, the jump table at
+ * OEM .rodata+0x1a10 (0x1a230.. li a1, 5/15/25/30/50/60), the inverse of
+ * the GET mapping below it. */
+static const uint32_t fps_table[6] = { 5, 15, 25, 30, 50, 60 };
 /* firmware .rodata+204 (get_awb_idx 0x2828): AWB_CLOUDY (0x35) .. AWB_WARM_
  * FLOURESCENT (0x3a) -> preset rows 1..6; DAY_LIGHT (0x34) and anything
  * else -> row 0. The recovered table started at 0, giving each preset the
