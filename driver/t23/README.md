@@ -211,6 +211,64 @@ close/REQBUFS, frame-boundary application of 0xd040/flip changes from the
 core ISR, deferred starts, waits on the input stop, the stock-like input
 that keeps running (`chan_stop_keep_input=1`, never device-tested here).
 
+### Second look (2026-10-05, branch `claude/fable-chan-restart`)
+
+Read from the hang logs and the stock module (`tx-isp-t23.ko`, unstripped,
+galayou build), not from the device:
+
+- **Trigger pattern in every T23 death:** a frame-channel STREAMON while the
+  input is live, 0.5-1 s after a tx-isp STREAMON (`EnsureLinkStreamOn
+  already-started`), death < 1 s later. With timps before `dac1200`
+  (2026-10-05 22:34, kick reference held through the idle debounce) the
+  wake was an input restart (`2100`: dead after 8 wakes); with the held
+  reference the second EnableChn (chn1 or the JPEG channel) starts on the
+  live input, and since `2245` every run died at that first one, the
+  agg-24 module included (`2258-ch0only`), which had survived 8 wakes at
+  `2100`. Which timps binary cam-B ran in each run is not recorded; check
+  before the next bisect. This is the T41 pattern (channel start with the
+  input live), so one mechanism is plausible for both.
+- **Stock keeps the pipeline up between channel starts** (verified):
+  `vic_core_s_stream(0)` only sets state 4 -> 3, `tx_isp_video_link_stream`
+  walks the modules forward on both edges (core, VIC, CSI, VIN/sensor;
+  the stop order is core first, sensor last), and
+  `ispcore_frame_channel_streamoff()` writes no register. This driver
+  (`chan_stop_keep_input=0`) stops sensor -> CSI -> core on the last
+  channel off and starts CSI -> sensor (inside the VIC start, before the
+  VIC unlock) -> VIC -> core on the next; the core is switched on after
+  data already flows and off while it still flows.
+- **`tisp_channel_main_fifo_clear()` has no caller in stock** (no
+  relocation against it): the STREAMON FIFO rearm (`msca_fifo_rearm`,
+  1911bb83) and the session release are the only run-time writers of the
+  0xd?44/0xd?48/0xd?64/0xd?68 clear bits. The T41 fix (6dbe3f62) dropped
+  the live-input rearm as part of what made its repro pass 35/35.
+- **`isp_clk=` / `isp_clka=` never reached the hardware** (fixed here):
+  `ispcore_activate_module()` set cgu_isp to `*(clk + 0x84)` and cgu_vpu
+  (the ISP AXI clock) to `*(clk + 0x90)`, the flags / init_state words of
+  the clk table entry three slots on, instead of `get_isp_clk()` /
+  `get_isp_clka()` as stock does (0x6a4c0..0x6a518). The kmsg of every run
+  shows only the insmod-time table rate (`cgu_isp can not set to
+  153000000` = 1188 MHz / 8 = 148.5 MHz); cam-B's `isp_clk=200000000`
+  was never in effect. With this fix 200 MHz becomes 198 MHz (1188 / 6),
+  so set `isp_clk=153000000` in `modules.d` for an A/B against the old
+  behaviour. `cat /proc/jz/clock` on the device shows the rate in use.
+- The driver's own stream/MSCA/VIC lines are gated (`t23_runtime_trace`,
+  default off); none of the hang logs has a single driver line between
+  the second EnableChn and the reset. Next device run: `t23_runtime_trace=1`
+  and `crumbs=2 crumb_addr=<hole>` (see Crumbs).
+
+Device experiments, cheapest first (no build needed except the last):
+
+1. Same binaries as `2128-step3c` (d28a0177, switches on, the timps of
+   21:28) now. Dies -> environment or timps binary, not the driver state.
+2. Stock-like input: `chan_stop_keep_input=1 msca_keep_enabled=2
+   msca_fifo_rearm=0 msca_restart_skip=0 msca_flip_skip_noop=0` on the
+   d28a0177/baf4ce2e module, or the `fs_keepalive` timps. Survives ->
+   the per-start MSCA/FIFO path is the trigger; then bisect with
+   `msca_fifo_rearm=0` alone.
+3. `find /overlay` loop (10 min) with the ISP stack not loaded; reboot ->
+   image/flash/PSU, stop driver bisecting. PSU swap for the same reason.
+4. This branch's module with `isp_clk=153000000` vs `200000000`.
+
 ### Parameters (`/sys/module/tx_isp_t23/parameters/`, 0644 unless noted)
 
 The defaults are the fix; the switches are debug escape hatches.

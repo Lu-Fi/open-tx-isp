@@ -99886,14 +99886,24 @@ int ispcore_activate_module(void *arg1) {
                         int rate = private_clk_get_rate(*s1);
                         int a0_3;
 
+                        /*
+                         * Stock (0x6a4c0..0x6a518): clks[0] = cgu_isp gets
+                         * the isp_clk module parameter, clks[1] = cgu_vpu
+                         * (the ISP AXI clock) isp_clka.  The decompiled
+                         * copy read *(clk + 0x84) / *(clk + 0x90) instead,
+                         * i.e. the flags / init_state words of the clk
+                         * table entry three slots further on (struct clk
+                         * is 40 bytes), so isp_clk= / isp_clka= on the
+                         * command line never reached the hardware.
+                         */
                         if (i == 0) {
                             a0_3 = *s1;
                             var_2c = a0_3;
-                            private_clk_set_rate(var_2c, *(int *)((char *)a0_3 + 0x84));
+                            private_clk_set_rate(var_2c, get_isp_clk());
                         } else if (i == 1) {
                             a0_3 = *s1;
                             var_2c = a0_3;
-                            private_clk_set_rate(var_2c, *(int *)((char *)a0_3 + 0x90));
+                            private_clk_set_rate(var_2c, get_isp_clka());
                         }
 
                         if (rate != 0xffff)
