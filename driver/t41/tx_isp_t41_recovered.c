@@ -27388,7 +27388,7 @@ int frame_channel_vidioc_set_fmt(void *arg1, struct v4l2_format *arg2)
     if (private_copy_from_user(&format, arg2, sizeof(format)) != 0) {
         isp_printf(2, "[%s %d] Failed to copy from user\n",
                    "frame_channel_vidioc_set_fmt", __LINE__);
-        result = -ENOMEM;
+        result = -EFAULT;
         goto epilogue;
     }
 
@@ -27460,7 +27460,7 @@ int frame_channel_vidioc_set_fmt(void *arg1, struct v4l2_format *arg2)
         if (result != 0) {
             isp_printf(2, "[%s %d] Failed to copy to user\n",
                        "frame_channel_vidioc_set_fmt", __LINE__);
-            result = -ENOMEM;
+            result = -EFAULT;
             goto epilogue;
         }
         memcpy((char *)arg1 + 0x254, &format, sizeof(format));
@@ -27489,7 +27489,7 @@ int frame_channel_vidioc_get_fmt(void *arg1, struct v4l2_format *arg2)
     if (private_copy_from_user(&format, arg2, sizeof(format)) != 0) {
         isp_printf(2, "[%s %d] Failed to copy from user\n",
                    "frame_channel_vidioc_get_fmt", __LINE__);
-        result = -ENOMEM;
+        result = -EFAULT;
         goto epilogue;
     }
 
@@ -27504,7 +27504,7 @@ int frame_channel_vidioc_get_fmt(void *arg1, struct v4l2_format *arg2)
         if (private_copy_to_user(arg2, &format, sizeof(format)) != 0) {
             isp_printf(2, "[%s %d] Failed to copy to user\n",
                        "frame_channel_vidioc_get_fmt", __LINE__);
-            result = -ENOMEM;
+            result = -EFAULT;
             goto epilogue;
         }
         memcpy((char *)arg1 + 0x254, &format, sizeof(format));
