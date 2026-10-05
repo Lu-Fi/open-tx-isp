@@ -29,8 +29,12 @@ TESTS += tx_isp_t31_autozoom_test
 TESTS += tx_isp_t31_af_test
 TESTS += tx_isp_t23_af_test
 TESTS += tx_isp_t23_crumbs_test
+TESTS += tx_isp_t23_msca_sync_test
 
 tx_isp_t23_crumbs_test: tx_isp_t23_crumbs_test.c ../driver/t23/tx_isp_t23_crumbs.h
+	$(CC) $(CFLAGS) -o $@ $<
+
+tx_isp_t23_msca_sync_test: tx_isp_t23_msca_sync_test.c ../driver/t23/tx_isp_t23_msca_sync.h
 	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t23_af_test: tx_isp_t23_af_test.c ../driver/t23/tx_isp_t23_af.h ../driver/t31/tx_isp_t31_af.h

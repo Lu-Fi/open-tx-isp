@@ -4,12 +4,14 @@
 /*
  * Persistent step markers ("crumbs") for silent hard hangs.
  *
- * The driver keeps one uncached 4 KiB page at the end of the MDNS buffer
- * that libimp allocates in rmem (GET_BUF is padded by one page for it).  A
- * watchdog reset does not clear DRAM and the kernel never maps rmem, so
- * after the reboot the last steps are still there: read them with devmem
- * (address in the kmsg line "crumbs at 0x...") before the next libimp
- * start, or let the next SET_BUF print the previous record to kmsg.
+ * Debug only, off by default (module parameter crumbs).  crumbs=1 keeps one
+ * uncached 4 KiB page at the end of the MDNS buffer that libimp allocates
+ * in rmem (GET_BUF is padded by one page for it); crumbs=2 uses the page at
+ * crumb_addr.  The record survives a timps restart or a module reload and
+ * the next SET_BUF prints it to kmsg (or read it with devmem, address in
+ * the kmsg line "crumbs at 0x...").  It does NOT survive a reboot in rmem:
+ * the T23 U-Boot zeroes its malloc area, which covers all of rmem.  Only a
+ * page in a mem= hole (crumbs=2) survives a watchdog reset.
  *
  * Pure layout and helpers on a word array, shared with the host test.
  */
@@ -65,6 +67,12 @@ enum t23_crumb_step {
 	T23C_SENSOR_FLIP_DONE,
 	T23C_FIFO_CLEAR,	/* MSCA address FIFO clear, arg channel */
 	T23C_LAST_CLOSE,	/* tx-isp last close */
+	T23C_RELEASE,		/* output released (close/REQBUFS/session), arg channel */
+	T23C_SYNC,		/* 0xd040 change queued for a frame boundary, arg set | clr << 4 */
+	T23C_SYNC_TIMEOUT,	/* no frame boundary in time, applied directly */
+	T23C_INPUT_DRAIN,	/* last frame drained before the core stop, arg 1 = timed out */
+	T23C_REARM_SKIP,	/* FIFO of a live enabled output left alone, arg channel */
+	T23C_CFG_REUSE,		/* restart with the loaded cfg: bit only, arg channel */
 };
 
 static inline void t23_crumb_reset(volatile u32 *w, u32 session)

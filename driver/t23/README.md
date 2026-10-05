@@ -77,74 +77,189 @@ The subdevice adapter supplies T23's graph table and legacy pad-slot offsets
 to the shared name/type/index resolver. Its recovered graph descriptor reads
 also use the common 8-byte endpoint wire positions.
 
-## Output restart hang (on-demand channel wakes)
+## Output/channel restart hang
 
-Symptom (cam-B, Galayou Y4 / sc2336, timps, `isp_memopt=1 direct_mode=0`):
-silent hard hang ~60 s after timps start, then the watchdog reset. timps
-enables frame channel 0 on demand about every 8 s for ~1 s; the ISP and VIC
-interrupt counters only move during those bursts (the driver stops the
-input with the last frame channel), helix stays idle. The last kmsg line
-before the hang is the wake's `EnsureLinkStreamOn already-started`; the
-camera died within a second of that wake (the 8th in the recorded run), no
-oops. Cameras whose streamer keeps the channels running do not hang.
+Status: fix in branch `claude/t23-chan-restart-hang`, host-tested and
+built; **device test pending** (cam-B). Rules in `tx_isp_t23_msca_sync.h`,
+host model `tests/tx_isp_t23_msca_sync_test.c`. Same hazard class as the
+T41 output restart hang (`driver/t41/README.md`, "Output restart hang",
+branch `claude/t41-chan-restart-hang`): MSCA output reprogramming and
+update requests while frames flow.
 
-Every wake restarted the output the way the T41 output-restart hang did
-(driver/t41/README.md): `tisp_msca_chx_cfg_load()` reloaded the channel
-(scaler parameters, 0xd010 update request, 0xd040 enable) right after the
-input was started, and timps re-sent HVFLIP on the channel 0 enable edge,
-which wrote 0xd050 and requested another MSCA update (0xd010 = 1) with
-unchanged bits.
+### Symptom
 
-Stock comparison (`tx-isp-t23.ko`): `ispcore_frame_channel_streamoff()`
-writes no register (queue state only), `tisp_channel_main_stop()` has no
-caller, `tisp_msca_chx_cfg_load()` only ORs the enable bit into 0xd040, and
-`tisp_msca_addr_fifo_write()` writes only the Y/UV FIFO addresses (this
-driver's QBUF already does the same; T23 has no FIFO control write-back).
+cam-B (Galayou Y4, T23N + sc2336, `isp_clk=200 MHz`, `direct_mode=0`,
+`isp_memopt=1`, `shvflip=1`), streamer timps: silent hard hang, no oops,
+both ping and the console die, the watchdog resets ~60 s later. timps
+wakes frame channel 0 on demand (daynight boot measure, switch and two
+re-asserts per switch, `DN_REASSERT_MS` 8000: `fs_kick_chn0` = EnableChn,
+500 ms, DisableChn) and re-sends HFLIP/VFLIP/running_mode on every chn0
+enable edge (`fs_edge_relatch`). openimp's DisableChn is STREAMOFF, close
+of the frame-channel fd and `VBMDestroyPool()` (the buffers go back to the
+rmem allocator); EnableChn opens, SET_FMT, REQBUFS, QBUF, STREAMON. With
+all channels idle the driver stopped the whole input with the last
+STREAMOFF (CSI, sensor, VIC, TISP core `0x800 = 0`, IRQs) and started it
+again on the next wake. Cameras whose streamer keeps the channels running
+do not hang.
 
-Switches (module parameters, all 0644, all off by default = behaviour
-before the port; change them at run time under
-`/sys/module/tx_isp_t23/parameters/` to bisect on the device):
-- `msca_flip_skip_noop=1`: mirror/flip writes request the MSCA update
-  only when the 0xd050 flip word changes (ISP HFLIP/VFLIP/HV_FLIP controls
-  and `tisp_msca_api_set_mirr_flip()`).
-- `msca_keep_enabled`: STREAMOFF and the output's 0xd040 bit. 0 clears it
-  (before), 1 keeps it only when the input stops with this STREAMOFF (last
-  channel, no frame can reach the output), 2 always keeps it (stock/T41;
-  with the input running the stopped output keeps writing to the
-  addresses left in its FIFO, the core ISR drains and drops them).
-- `msca_restart_skip=1`: a STREAMON that finds the bit still set with the
-  same channel configuration does not reload the output (no
-  `tisp_msca_chx_cfg_load()`, no 0xd010). Needs `msca_keep_enabled`.
-- `chan_stop_keep_input=1`: the input keeps running after the last frame
-  channel STREAMOFF while a tx-isp STREAMON is active (stock); a wake then
-  restarts no hardware.
-- `crumbs` (attached at the next libimp start / SET_BUF): 0 off, 1 one
-  rmem page behind the MDNS buffer (GET_BUF asks for 4 KiB more), 2 the
-  page at `crumb_addr`. A valid record found at attach time is printed to
-  kmsg (`previous record ...`, last 16 steps); `crumb_phys` shows the page
-  in use. Layout and step codes: `tx_isp_t23_crumbs.h` (word 3 = last step
-  | arg << 16, word 5 = irq + 1 while in the hard ISR).
+### Evidence (kmsg timestamps in s, logs in the session's `t23reboot-repro/`)
 
-Crumbs and reboots: the T23 U-Boot (2013.07, 64 MiB) relocates to the top
-of RAM and `mem_malloc_init()` zeroes its 32 MiB malloc area below that,
-which covers all of rmem (0x2a00000-0x3ffffff). rmem crumbs therefore
-survive a timps restart or module reload but not a watchdog reset (cam-B:
-all zero after the reset). A record that survives a reset needs a page
-below ~0x1e00000 that the kernel does not manage, i.e. a hole in the
-`mem=` boot arguments (e.g. `osmem=16M@0x0 mem=26560K@0x1010000` leaves
-0x1000000-0x100ffff free; then `crumbs=2 crumb_addr=0x1000000`).
+| run | module / parameters | what happened |
+|---|---|---|
+| `2100` | agg-24 module (every wake: input restart, `tisp_msca_chx_cfg_load()` incl. 0xd010, noop HVFLIP 0xd010) | tx-isp STREAMON 3170.962; wakes ("EnsureLinkStreamOn already-started") at 3171.546, 3177.966, 3186.147, 3194.318, 3202.955, 3214.217, 3222.202, 3230.847; dead after the 8th wake (ping timeout) |
+| `2118-fix` | b1a4a975 (flip skip, output always kept enabled, restart skip, rmem crumbs, no FIFO guard) | module reload, STREAMON 1012.344, dead before the first wake (+0.57 s expected); IRQ counters frozen (isp-m0 903); rmem crumbs read back zero after the reset |
+| `2128-step3c` | d28a0177, `msca_flip_skip_noop=1 msca_keep_enabled=1 msca_restart_skip=1` | STREAMON 543.037, 25 wakes up to 1143.646 (10 min), alive |
+| `2139-control` | same instance, switches set back to 0 at run time | 8 min / 34 wakes alive: inconclusive, the dangerous phase is the minutes right after a timps start |
+| `2227-fixon` | as `2128-step3c`, loop of `S95timps restart`, 180 s each | run 1 alive; run 2: DisableSensor 4237.497 (old process), new SET_BUF 4237.612, **"framechan0 unmatched MSCA completion y=0x3047000 uv=0x3245000 count=5" 4237.759**, tx-isp STREAMON 4237.765, first wake 4238.342, dead |
 
-First device run (b1a4a975, flip skip + keep-enabled + restart skip +
-rmem crumbs on by default): hang within ~0.6 s of the first tx-isp
-STREAMON after a module reload; cause not isolated yet (bisect with the
-switches above). Leading suspect: with the output kept enabled and the
-input running, the STREAMON FIFO rearm (`tisp_channel_main_fifo_clear()`)
-cleared the address FIFO of an enabled output, which per the rearm notes
-makes the MSCA write the next frame to address 0. The rearm now disables
-such an output before the clear (it is then reloaded as before).
+### Root cause
 
-Status: the trigger analysis is by analogy with the T41 bisection plus the
-stock disassembly; no T23 fix is device-verified yet.
+Proven by the device runs above (each a single run, so "observed" rather
+than statistically proven):
+- The per-wake path of the agg-24 module hangs within ~60 s of a timps
+  start (`2100`); skipping the MSCA reload and the redundant update
+  requests while the output keeps its enable bit across the input stop
+  survived 25 wakes (`2128-step3c`).
+- Keeping the output enabled after its buffers are gone is fatal: in
+  `2227-fixon` run 2 the output kept from the old timps process completed a
+  frame into an old FIFO address (the "unmatched MSCA completion", logged
+  before the new session's STREAMON) and the SoC died 0.6 s later.
+
+Inferred (consistent with the evidence, not isolated on the device):
+- The MSCA wrote into memory that the new process (or the kernel) owned
+  by then: openimp frees the pool right after the close, d28a0177 left the
+  output enabled with those addresses in its FIFO, and the new session
+  started the input under it.
+- `2118-fix`: with the output always kept enabled and the input running,
+  the STREAMON FIFO rearm (`tisp_channel_main_fifo_clear()`) cleared the
+  address FIFO of a live enabled output; the MSCA then writes the next
+  frame to address 0 (physical 0 = kernel exception vectors/text). This is
+  why rule 3 below exists.
+- `2100`: the T41 mechanism (`tisp_msca_chx_cfg_load()` reprogramming plus
+  0xd010 update requests right around an output/input (re)start). On T41
+  this was bisected on the device; on T23 only the combination is shown.
+
+### Stock comparison (`tx-isp-t23.ko`, unstripped, disassembled)
+
+- `ispcore_frame_channel_streamoff()` (0x687fc) writes no register: state
+  4 -> 3, queue memset, counters cleared. Stock never clears a 0xd040 bit
+  at run time; `tisp_channel_main_stop()` (0x16804, clears the mscaler
+  state byte) and `tisp_channel_main_fifo_clear()` (0x16824) have no caller
+  (exported only). The address FIFO is never cleared.
+- Channel STREAMON (`ispcore_pad_event_handle()`, state 3) calls
+  `tisp_channel_start()` (0x167a4) -> `tisp_msca_chx_cfg_load()` (0x19e48):
+  `tisp_msca_para_calc`, curves, `tisp_msca_init_chx_cfg`,
+  `tisp_msca_write_reg` (0xd090/0xd094 window, **0xd010 = 1**), 0xd140/
+  0xd160, then 0xd040 |= bit. Stock reloads on every channel STREAMON,
+  with the input running (the input runs from tx-isp STREAMON to tx-isp
+  STREAMOFF).
+- Flip: the HFLIP/VFLIP controls (0x980914/0x980915) call
+  `tisp_s_mscaler_hvflip_mask()` + `tisp_hv_flip_enable()` at once, which
+  always writes 0xd050 and 0xd010 = 1 (`tisp_msca_api_set_mirr_flip()`,
+  0x1b22c, no no-op check). The combined HV flip control while streaming
+  only marks the change pending and `ispcore_irq_thread_handle()` applies
+  it from the frame interrupt, i.e. stock itself moves that flip to a frame
+  boundary.
+
+Stock is safe only as long as an output's buffers live as long as the
+output; with openimp's free-on-DisableChn and the per-wake input restart
+of this driver that does not hold, so the fix keeps stock's "no work for an
+unchanged output" and adds the lifetime and frame-boundary rules.
+
+### The fix (defaults)
+
+1. Lifetime: an output is released before its buffers can go away: on
+   close of the frame-channel file that owns its buffers, on REQBUFS, and
+   for outputs no open file owns on tx-isp STREAMON (e.g. left by an earlier
+   module instance; neither a core restart nor a module reload resets
+   0xd040 or the FIFOs). Release = enable bit off (at a frame boundary
+   while frames flow, then one more boundary), completions dropped,
+   address FIFO cleared, channel state bytes cleared (so a later
+   `tisp_msca_chx_cfg_load()` from the front-crop or scaler APIs cannot OR
+   the bit back in with an empty FIFO). Counter `msca_releases`.
+2. Frame boundary: while frames flow, 0xd040 changes and 0xd050 +
+   0xd010 flip writes are applied by the core ISR at frame-done (status
+   bit 0). Callers wait (uninterruptible, so a dying process's close works)
+   at most `msca_sync_timeout_ms`; without a frame-done the change is
+   applied directly (no frame flows then) and `msca_sync_timeouts` counts
+   it. Flip writes do not wait (like stock's HV flip deferral).
+3. The FIFO of an enabled output is never cleared while frames flow (the
+   STREAMON rearm leaves it alone; QBUF already wrote the addresses).
+4. A restart whose channel configuration equals the one the registers
+   hold (the 56-byte msca cfg) is not reloaded: no
+   `tisp_msca_chx_cfg_load()`, no 0xd010; only the enable bit is set, and
+   on a wake with the input stopped before the input starts (counter
+   `msca_reuses`). A first start or a new geometry loads after a frame
+   boundary when frames flow (best effort; stock loads at any time).
+5. Mirror/flip writes with an unchanged word issue no update request.
+6. Input stop lets the frame in flight finish: after the sensor/VIC stop
+   it waits (bounded) for one more frame-done before the core is switched
+   off; pending changes are flushed after that.
+
+Per wake on cam-B this leaves: STREAMOFF (bit kept, input stopped after
+the last frame), close (bit off, FIFO cleared, no frame flowing),
+REQBUFS/QBUF (new addresses), STREAMON (bit on before the input starts).
+No cfg load, no 0xd010, no register write under a running frame.
+
+The input still stops with the last frame channel (unlike stock): with
+openimp freeing the pool on every DisableChn a running input would force
+a live output stop/start on every wake. `chan_stop_keep_input=1` restores
+the stock behaviour for experiments.
+
+### Parameters (`/sys/module/tx_isp_t23/parameters/`, all 0644 unless noted)
+
+The defaults are the fix; the switches are debug escape hatches.
+
+| parameter | default | meaning |
+|---|---|---|
+| `msca_flip_skip_noop` | 1 | 0: update request for every flip write (stock) |
+| `msca_keep_enabled` | 1 | STREAMOFF: 0 bit off, 1 keep when the input stops too, 2 always keep (stock; still released on close/REQBUFS) |
+| `msca_restart_skip` | 1 | 0: reload on every STREAMON (stock) |
+| `chan_stop_keep_input` | 0 | 1: input keeps running between channel stops while tx-isp streams (stock) |
+| `msca_frame_sync` | 1 | 0: MSCA enable/flip changes written at once |
+| `msca_sync_timeout_ms` | 200 | bound of each frame-boundary wait |
+| `msca_sync_timeouts` | (0444) | waits that timed out |
+| `msca_releases` | (0444) | outputs released |
+| `msca_reuses` | (0444) | restarts without reload |
+| `crumbs` | 0 | step markers: 1 rmem page behind the MDNS buffer, 2 page at `crumb_addr` |
+| `crumb_addr` / `crumb_phys` | 0 / (0444) | crumbs=2 page / page in use |
+
+### Crumbs (debug only)
+
+`crumbs=1|2` (attached at the next SET_BUF) records the last steps in one
+uncached page: layout and step codes in `tx_isp_t23_crumbs.h` (word 3 =
+last step | arg << 16, word 5 = irq + 1 while in the hard ISR, ring of 64
+steps). The next SET_BUF prints a valid record to kmsg (`previous record
+...`, last 16 steps); devmem reads it directly. In rmem (crumbs=1) it
+survives a timps restart or a module reload, **not a reboot**: the T23
+U-Boot (2013.07, 64 MiB) relocates to the top of RAM and
+`mem_malloc_init()` zeroes its 32 MiB malloc area below it, which covers
+all of rmem (0x2a00000-0x3ffffff); cam-B read all zero after a reset. A
+record that survives a watchdog reset needs a page below ~0x1e00000 the
+kernel does not manage, i.e. a hole in the `mem=` boot arguments (e.g.
+`osmem=16M@0x0 mem=26560K@0x1010000` leaves 0x1000000-0x100ffff free;
+then `crumbs=2 crumb_addr=0x1000000`). The driver refuses a crumb_addr in
+kernel RAM.
+
+### Device test (cam-B)
+
+1. Load the module with default parameters (no overrides); `cat
+   /sys/module/tx_isp_t23/parameters/{msca_*,chan_stop_keep_input}`.
+2. Ten fresh `S95timps restart`, each watched >= 180 s (the full daynight
+   boot phase with its wakes), then 30 min of normal operation.
+3. Per run collect kmsg and the counters `msca_releases`, `msca_reuses`,
+   `msca_sync_timeouts`. Expected: no "unmatched MSCA completion",
+   `msca_releases` about two per wake (REQBUFS and close), `msca_reuses`
+   = number of wakes,
+   `msca_sync_timeouts` 0 or small (only waits whose frames stopped).
+4. Negative control: `msca_keep_enabled=0 msca_restart_skip=0
+   msca_flip_skip_noop=0 msca_frame_sync=0` (written before the timps
+   start) gives the agg-24 per-wake path (reload + update requests on
+   every wake); expect the `2100` hang within minutes. The release on
+   close/REQBUFS has no switch, so the `2227-fixon` run 2 path cannot
+   be re-enabled.
+
+Results: pending.
 
 ## Historical recovery log
 
