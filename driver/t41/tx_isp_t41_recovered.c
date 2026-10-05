@@ -32262,6 +32262,20 @@ int64_t find_subdev_link_pad(uintptr_t a0, uintptr_t a1)
 #endif
 }
 
+/*
+ * Call a subdev internal_ops PM callback (sd->ops->internal->suspend_module
+ * at +0x08 / resume_module at +0x0c) exactly as the vendor does: one
+ * argument, the subdev.  An implausible pointer reports -ENOIOCTLCMD
+ * (-515), which every caller already treats as "no callback".
+ */
+static int t41_call_subdev_pm(uintptr_t callback, uintptr_t sd)
+{
+	if (!t41_kernel_data_ptr((void *)callback) ||
+	    !t41_kernel_data_ptr((void *)sd))
+		return -ENOIOCTLCMD;
+	return ((int (*)(uintptr_t))callback)(sd);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000013128 origin=fragment_seed original=tx_isp_resume */
 int32_t tx_isp_resume(uintptr_t a0)
 {
@@ -32331,7 +32345,8 @@ tx_isp_resume0x90:
     if (v0 == 0) { goto tx_isp_resume0x78; }
 
     /* fragment 14: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
+    /* vendor 1.2.6-720-4494 tx_isp_resume 0x11f04: internal->resume_module(sd) */
+    v0 = t41_call_subdev_pm((uintptr_t)v0, a0);
 
     /* fragment 15: Branch */
     if (v0 == 0) { goto tx_isp_resume0x7c; }
@@ -32419,7 +32434,8 @@ tx_isp_suspend0x90:
     if (v0 == 0) { goto tx_isp_suspend0x78; }
 
     /* fragment 14: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
+    /* vendor 1.2.6-720-4494 tx_isp_suspend 0x11fcc: internal->suspend_module(sd) */
+    v0 = t41_call_subdev_pm((uintptr_t)v0, a0);
 
     /* fragment 15: Branch */
     if (v0 == 0) { goto tx_isp_suspend0x7c; }
@@ -165016,7 +165032,8 @@ ispcore_resume_module0xe4:
     if (v0 == 0) { goto ispcore_resume_module0x1a8; }
 
     /* fragment 23: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(s2); /* jalr target resolved by relocation */
+    /* vendor 1.2.6-720-4494 ispcore_resume_module 0x71674: child internal->resume_module(sd) */
+    v0 = t41_call_subdev_pm((uintptr_t)v0, (uintptr_t)s2);
 
     /* fragment 24: Branch */
     if (v0 == 0) { goto ispcore_resume_module0x1a8; }
@@ -165237,7 +165254,8 @@ ispcore_suspend_module0x90:
     if (v0 == 0) { goto ispcore_suspend_module0x198; }
 
     /* fragment 18: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(s3); /* jalr target resolved by relocation */
+    /* vendor 1.2.6-720-4494 ispcore_suspend_module 0x718e4: child internal->suspend_module(sd) */
+    v0 = t41_call_subdev_pm((uintptr_t)v0, (uintptr_t)s3);
 
     /* fragment 19: Branch */
     if (v0 == 0) { goto ispcore_suspend_module0x198; }
