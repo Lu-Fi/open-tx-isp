@@ -1075,7 +1075,7 @@ struct stab_t {
     unsigned short h58;
 };
 static uintptr_t __key_0;
-static unsigned char __attribute__((aligned(4))) cos_table[180] = {
+static unsigned char __attribute__((aligned(4))) cos_table[182] = {	/* + OEM index 90: 0 */
     0x00, 0x40, 0xfd, 0x3f, 0xf6, 0x3f, 0xe9, 0x3f, 0xd8, 0x3f, 0xc1, 0x3f, 0xa6, 0x3f, 0x85, 0x3f,
     0x60, 0x3f, 0x36, 0x3f, 0x07, 0x3f, 0xd2, 0x3e, 0x99, 0x3e, 0x5c, 0x3e, 0x19, 0x3e, 0xd1, 0x3d,
     0x85, 0x3d, 0x34, 0x3d, 0xde, 0x3c, 0x83, 0x3c, 0x23, 0x3c, 0xbf, 0x3b, 0x56, 0x3b, 0xe9, 0x3a,
@@ -3713,56 +3713,42 @@ static int32_t div_fixed(int32_t arg1, int32_t arg2, int32_t arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017434 origin=model_output original=apical_cosine */
 static int32_t apical_cosine(int32_t arg1)
 {
-    uint32_t q = (uint32_t)arg1 / 0x6488;
-    int32_t r = arg1 - (int32_t)((q & 0xffff) * 0x6488);
+	/* OEM 0x16ad4: cos_table holds 90 little-endian s16 entries (Q14,
+	 * 0..89 degrees, 71 units per degree) read with lh/lhu; index 90 reads
+	 * the next rodata halfword, which is 0 (cos 90).  The recovered body
+	 * indexed the bytes and nested the quadrant tests. */
+	const int16_t *t = (const int16_t *)cos_table;
+	uint32_t a = (uint32_t)arg1;
+	uint32_t r = a - (a / 25736 & 0xffff) * 25736;
 
-    if ((uint32_t)r < 0x1922) {
-        if ((uint32_t)r < 0x3244) {
-            uint32_t idx = (uint32_t)r / 0x47;
-            return (int32_t)cos_table[idx];
-        }
-        if ((uint32_t)r < 0x4b66) {
-            uint32_t idx = ((uint32_t)r - 0x1922) / 0x47;
-            uint32_t off = (0x5a - idx) << 1;
-            return (int32_t)(-(uint16_t)cos_table[off]);
-        }
-        if ((uint32_t)r >= 0x6488)
-            return 0;
-        uint32_t idx = ((uint32_t)r - 0x4b66) / 0x47;
-        uint32_t off = (0x5a - idx) << 1;
-        return (int32_t)(-(uint16_t)cos_table[off]);
-    }
-    uint32_t idx = (uint32_t)r / 0x47;
-    return (int32_t)cos_table[idx];
+	if (r < 6434)
+		return t[r / 71];
+	if (r < 12868)
+		return (int16_t)-(uint16_t)t[(90 - (r - 6434) / 71) & 0xffff];
+	if (r < 19302)
+		return (int16_t)-(uint16_t)t[(r - 12868) / 71];
+	if (r < 25736)
+		return t[(90 - (r - 19302) / 71) & 0xffff];
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017544 origin=model_output original=apical_sine */
 static int32_t apical_sine(int32_t arg1)
 {
-    int32_t *q = arg1 / 25736;
-    int32_t r = arg1 - ((uintptr_t)q & 0xffff) * 25736;
-    int32_t idx;
-    int32_t val;
+	/* OEM 0x16be4, same table and quadrant split as apical_cosine() */
+	const int16_t *t = (const int16_t *)cos_table;
+	uint32_t a = (uint32_t)arg1;
+	uint32_t r = a - (a / 25736 & 0xffff) * 25736;
 
-    if (r < 6434) {
-        idx = (90 - (r / 71)) & 0xffff;
-        val = cos_table[idx << 1];
-        return val;
-    } else if (r < 12868) {
-        idx = (r - 6434) / 71;
-        val = cos_table[idx << 1];
-        return val;
-    } else if (r < 19302) {
-        idx = (90 - ((r - 12868) / 71)) & 0xffff;
-        val = -cos_table[idx << 1];
-        return (int32_t)((uint32_t)val << 16) >> 16;
-    } else if (r < 25736) {
-        idx = (r - 19302) / 71;
-        val = -cos_table[idx << 1];
-        return (int32_t)((uint32_t)val << 16) >> 16;
-    } else {
-        return 0;
-    }
+	if (r < 6434)
+		return t[(90 - r / 71) & 0xffff];
+	if (r < 12868)
+		return t[(r - 6434) / 71];
+	if (r < 19302)
+		return (int16_t)-(uint16_t)t[(90 - (r - 12868) / 71) & 0xffff];
+	if (r < 25736)
+		return (int16_t)-(uint16_t)t[(r - 19302) / 71];
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017660 origin=model_output original=apical_event_queue_push */
