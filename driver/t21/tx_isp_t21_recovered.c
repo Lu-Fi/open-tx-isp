@@ -5692,6 +5692,7 @@ int tx_isp_remove(struct platform_device *pdev);
 int tx_isp_core_remove(struct platform_device *pdev);
 
 #include "tx_isp_t21_tuning_ctl.h"
+#include "tx_isp_t21_open.h"
 
 /* WHOLE_DRIVER_RELOCATED_DATA_PATCHES */
 static void __init regtrace_patch_relocated_data(void)
@@ -12473,58 +12474,43 @@ int32_t tx_isp_open(int32_t arg1, void *arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009e08 origin=model_output original=tx_isp_open */
+/* obj->ops->internal->{activate_module, slake_module} (internal + 0 / + 4).
+ * The model recovery collapsed these three loads into obj + 0xd4, producing
+ * an indirect jump into structure data on the first /dev/isp open. */
+static t21_open_module_fn t21_open_module_lookup(void *obj, unsigned int which)
+{
+	void *ops = *(void **)((char *)obj + 0xc4);
+	void *internal = ops ? *(void **)((char *)ops + 0x10) : NULL;
+
+	return internal ? ((t21_open_module_fn *)internal)[which] : NULL;
+}
+
 static int32_t tx_isp_open_unlocked(int32_t arg1, void *arg2)
 {
 	/* file->private_data is the ISP device; the recovered body had
 	 * accidentally used the address of the field itself. */
 	void *dev = *(void **)((char *)arg2 + 0x70);
 	int32_t *ref = (int32_t *)((char *)dev + 0x108);
-	int32_t i;
-	int32_t result = 0;
+	int32_t *link = (int32_t *)((char *)dev + 0x10c);
+	int32_t old_link;
+	int32_t result;
 
 	if (*ref != 0) {
 		*ref = *ref + 1;
 		return 0;
 	}
 
-	*(int32_t *)((char *)dev + 0x10c) = -1;
+	old_link = *link;
+	*link = -1;
 
-	for (i = 0; i < 16; i++) {
-		void *obj = *(void **)((char *)dev + 0x2c + i * 4);
-		void *ops;
-		void *internal;
-		int32_t (*open_fn)(void *);
-
-		if (obj == 0)
-			continue;
-
-		/* obj->ops->internal->activate_module.  The model recovery
-		 * collapsed these three loads into obj + 0xd4, producing an
-		 * indirect jump into structure data on the first /dev/isp open. */
-		ops = *(void **)((char *)obj + 0xc4);
-		internal = ops ? *(void **)((char *)ops + 0x10) : NULL;
-		open_fn = internal ? *(int32_t (**)(void *))internal : NULL;
-
-		if (open_fn == 0) {
-			result = -515;
-			continue;
-		}
-
-		result = open_fn(obj);
-
-		if (result == 0)
-			continue;
-
-		if (result != -515)
-			break;
-
-		result = -515;
-	}
-
-	if (i == 16 && result == -515)
-		result = 0;
+	/* Stock activate walk; on failure the modules activated so far are
+	 * slaked again (beyond vendor, see tx_isp_t21_open.h). */
+	result = t21_open_activate_modules((void *const *)((char *)dev + 0x2c),
+					   16, t21_open_module_lookup);
 	if (result == 0)
 		*ref = 1;
+	else
+		*link = old_link;
 
 	return result;
 }

@@ -7,6 +7,10 @@ CFLAGS += -std=c99 -Wall -Wextra -Werror
 
 all check: tx_isp_t41_ysp_test
 all check: tx_isp_t31_wdr_test tx_isp_t31_wdr_runtime_test
+all check: tx_isp_t21_open_test
+
+tx_isp_t21_open_test: tx_isp_t21_open_test.c ../driver/t21/tx_isp_t21_open.h
+	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t31_wdr_test: tx_isp_t31_wdr_test.c ../driver/t31/tx_isp_t31_wdr.h
 	$(CC) $(CFLAGS) -o $@ $<
@@ -301,6 +305,7 @@ check: tx_isp_math_test tx_isp_modulation_test tx_isp_daynight_test tx_isp_awb_m
 		tx_isp_exposure_test tx_isp_t31_adr_test tx_isp_scaler_test \
 		tx_isp_t31_mdns_test tx_isp_t31_sensor_policy_test tx_isp_t41_capture_gate_test
 	./tx_isp_math_test
+	./tx_isp_t21_open_test
 	./tx_isp_awb_mesh_test
 	./tx_isp_t41_tmo_test
 	./tx_isp_t41_tmo_map_test
