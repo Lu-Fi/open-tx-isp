@@ -20462,6 +20462,19 @@ uint32_t aisp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2
     uintptr_t *v0 = 0;
     uint32_t *v1 = 0;
 
+    /*
+     * ENOTTY gate for /dev/aisp.  The recovered fall-through calls
+     * isp_core_tunning_default_ioctl(), whose decompiled body runs
+     * copy_from_user()/copy_to_user() against 4-byte scalar locals
+     * (&local_10 with 16-byte copies) with arguments the recovered call
+     * does not pass.  libimp/OpenIMP only use /dev/isp-m0 for tuning (typed,
+     * bounds-checked handler), so refuse everything here like d18773d4 does
+     * for the other dispatchers.
+     */
+    pr_warn_once("tx-isp-t41: %s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
+                 __func__, a1, _IOC_SIZE(a1));
+    return (uint32_t)-ENOTTY;
+
     /* fragment 0: MemoryAccess */
     v0 = *(uint32_t *)((char *)a0 + 136);
     v1 = 3;
@@ -24115,7 +24128,8 @@ long ivdc_misc_unlocked_ioctl(struct file *filp, unsigned int cmd,
     uintptr_t *v0 = 0;
     uint32_t *v1 = 0;
 
-    printk(KERN_WARNING
+    if (t41_runtime_trace)
+        printk(KERN_WARNING
            "tx_isp_t41_recovered: misc-ivdc ioctl enter cmd=0x%x arg=0x%x pid=%d comm=%s\n",
            a1, a2, current->pid, current->comm);
 
@@ -27281,7 +27295,7 @@ int frame_channel_vidioc_set_fmt(void *arg1, struct v4l2_format *arg2)
     if (private_copy_from_user(&format, arg2, sizeof(format)) != 0) {
         isp_printf(2, "[%s %d] Failed to copy from user\n",
                    "frame_channel_vidioc_set_fmt", __LINE__);
-        result = -ENOMEM;
+        result = -EFAULT;
         goto epilogue;
     }
 
@@ -27337,7 +27351,8 @@ int frame_channel_vidioc_set_fmt(void *arg1, struct v4l2_format *arg2)
                format.words[TX_ISP_FRAME_FORMAT_WORD_BYTESPERLINE], format.words[TX_ISP_FRAME_FORMAT_WORD_SIZEIMAGE], width_align, height_align);
     }
 
-    printk(KERN_WARNING
+    if (t41_runtime_trace)
+        printk(KERN_WARNING
            "tx_isp_t41_recovered: set-fmt dispatch channel=%p pad=%p "
            "type=%u %ux%u pix=%u field=%u colorspace=%u data=%p\n",
            arg1, *(void **)((char *)arg1 + 0x2d8), format.words[TX_ISP_FRAME_FORMAT_WORD_TYPE],
@@ -27345,7 +27360,8 @@ int frame_channel_vidioc_set_fmt(void *arg1, struct v4l2_format *arg2)
            format.words[TX_ISP_FRAME_FORMAT_WORD_FIELD], format.words[TX_ISP_FRAME_FORMAT_WORD_COLORSPACE], &format);
     result = tx_isp_send_event_to_remote(
         *(void **)((char *)arg1 + 0x2d8), TX_ISP_FRAME_EVENT_SET_FORMAT, &format);
-    printk(KERN_WARNING
+    if (t41_runtime_trace)
+        printk(KERN_WARNING
            "tx_isp_t41_recovered: set-fmt dispatch returned %d\n",
            result);
     if (result == 0 || result == -ENOIOCTLCMD) {
@@ -27353,7 +27369,7 @@ int frame_channel_vidioc_set_fmt(void *arg1, struct v4l2_format *arg2)
         if (result != 0) {
             isp_printf(2, "[%s %d] Failed to copy to user\n",
                        "frame_channel_vidioc_set_fmt", __LINE__);
-            result = -ENOMEM;
+            result = -EFAULT;
             goto epilogue;
         }
         memcpy((char *)arg1 + 0x254, &format, sizeof(format));
@@ -27382,7 +27398,7 @@ int frame_channel_vidioc_get_fmt(void *arg1, struct v4l2_format *arg2)
     if (private_copy_from_user(&format, arg2, sizeof(format)) != 0) {
         isp_printf(2, "[%s %d] Failed to copy from user\n",
                    "frame_channel_vidioc_get_fmt", __LINE__);
-        result = -ENOMEM;
+        result = -EFAULT;
         goto epilogue;
     }
 
@@ -27397,7 +27413,7 @@ int frame_channel_vidioc_get_fmt(void *arg1, struct v4l2_format *arg2)
         if (private_copy_to_user(arg2, &format, sizeof(format)) != 0) {
             isp_printf(2, "[%s %d] Failed to copy to user\n",
                        "frame_channel_vidioc_get_fmt", __LINE__);
-            result = -ENOMEM;
+            result = -EFAULT;
             goto epilogue;
         }
         memcpy((char *)arg1 + 0x254, &format, sizeof(format));
@@ -29023,7 +29039,8 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         int ret = frame_channel_vidioc_set_fmt(
             s0, (struct v4l2_format __user *)(uintptr_t)a2);
 
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: framechan ioctl set-fmt channel=%p ret=%d\n",
                s0, ret);
         return ret;
@@ -29032,7 +29049,8 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         int ret = frame_channel_vidioc_get_fmt(
             s0, (struct v4l2_format __user *)(uintptr_t)a2);
 
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: framechan ioctl get-fmt channel=%p ret=%d\n",
                s0, ret);
         return ret;
@@ -35434,7 +35452,8 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     uintptr_t *v1 = 0;
     int regtrace_ret;
 
-    printk(KERN_WARNING
+    if (t41_runtime_trace)
+        printk(KERN_WARNING
            "tx_isp_t41_recovered: tx-isp ioctl enter cmd=0x%x arg=0x%x file=%p pid=%d comm=%s\n",
            a1, a2, (void *)a0, current->pid, current->comm);
 
@@ -35442,7 +35461,8 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
      * generated dispatch below so userspace can identify the recovered ISP. */
     if (a1 == 0x80045401U) {
         regtrace_ret = tx_isp_driver_version_isra_12(a2);
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
@@ -35452,7 +35472,8 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 
         regtrace_ret = isp ? tx_isp_sensor_register_sensor(isp - 12, a2) :
                      -ENODEV;
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
@@ -35462,21 +35483,24 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 
         regtrace_ret = isp ? tx_isp_sensor_release_sensor(isp - 12, a2) :
                      -ENODEV;
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
     if (a1 == 0xc0045402U) {
         regtrace_ret = t41_ioctl_enum_sensor_input(a0, a2);
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
     if (a1 == 0x80085403U) {
         regtrace_ret = t41_ioctl_get_sensor_input(a0, a2);
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
@@ -35486,21 +35510,24 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 
         regtrace_ret = isp ? tx_isp_video_s_stream(isp - 12, a2) :
                      -ENODEV;
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
     if (a1 == 0x80085409U) {
         regtrace_ret = t41_ioctl_video_link_setup(a0, a2);
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
     if (a1 == 0x8008540aU) {
         regtrace_ret = t41_ioctl_video_link_destroy(a0, a2);
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
@@ -35510,14 +35537,16 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 
         regtrace_ret = isp ? tx_isp_video_link_stream(isp - 12, a2) :
                      -ENODEV;
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
     if (a1 == 0xc0085404U) {
         regtrace_ret = t41_ioctl_set_sensor_input(a0, a2);
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
@@ -35525,7 +35554,8 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     if (a1 == 0x800c540fU || a1 == 0x800c5410U ||
         a1 == 0x800c5411U || a1 == 0x800c5412U) {
         regtrace_ret = t41_ioctl_buf_info(a1, a2);
-        printk(KERN_WARNING
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
                "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
