@@ -6,6 +6,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 
 ## 2026-10-05
 
+- Pending (branch `claude/t23-af`, host- and emulator-tested only, no device test yet): T23 AF statistics chain from the stock module, off by default (`source_af=1`): AF block + core interrupt bit 31, focus values, GetAfHist/SetAfHist, Get/SetAfWeight, GetAFMetrices, GetAfZone (controls 0x8000042/43/44/46). Shares the data handling of the T31 chain; verified identical to the stock `tx-isp-t23.ko` in the MIPS emulator (`driver/t23/audit/af_emu.py`).
 - Pending (branch `claude/t20-fw-optimize`, host-tested only, device test open): the recovered T20/T10 firmware unit builds at `-Os` like the rest of the module (T20 module text 399 to 245 KB, `.ko` 589 to 409 KB; T10 the same). Spots that only worked at `-O0` fixed against the OEM disassembly (dropped call arguments, a partition-LUT walk past its object, command-interface state on the stack, a stack buffer one word short, an inline-asm tail jump, a missing return). New host harness `tests/t20_fw` runs the firmware at `-O0`/`-Os`/`-O2` through init, 239 frames, API sweeps and day/night tuning switches and requires identical register traces and state. `TX_ISP_FW_O0=1` restores the `-O0` build for A/B tests.
 
 ## 2026-10-04

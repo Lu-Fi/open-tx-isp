@@ -10113,6 +10113,18 @@ static uint32_t t23_aelift_stream_packed(void);  /* ditto */
 static bool regtrace_t23_source_adr_oem = true; /* tx_isp_t23_adr_oem_glue.inc */
 static void t23_adrlift_halt(void);
 static void t23_adrlift_irq(uint32_t status);
+/* tx_isp_t23_af.inc: stock AF statistics chain (source_af=1) */
+static bool regtrace_t23_source_af;
+static void t23_af_irq(uint32_t status);
+static int t23_af_start(uint32_t width, uint32_t height);
+static void t23_af_halt(void);
+static void t23_af_dn_refresh(void);
+static long t23_af_hist_set(uint32_t uptr);
+static long t23_af_hist_get(uint32_t uptr);
+static long t23_af_metric_get(uint32_t uptr);
+static long t23_af_weight_set(uint32_t uptr);
+static long t23_af_weight_get(uint32_t uptr);
+static long t23_af_zone_get(uint32_t uptr);
 static uint regtrace_t23_source_ae_hlil_interval = 32;
 /*
  * While the picture is over-exposed (luma above the deadband) the AE runs
@@ -12367,6 +12379,7 @@ static void regtrace_t23_core_dma_free(void)
      */
     t23_aelift_sync();
     t23_adrlift_sync();
+    t23_af_halt();
 
     for (i = 0; i < REGTRACE_T23_CORE_DMA_BUFS; i++) {
         kfree(regtrace_t23_core_dma_bufs[i].virt);
@@ -14841,6 +14854,7 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
         regtrace_t23_core_started = false;
         t23_aelift_halt();
         t23_adrlift_halt();
+        t23_af_halt();
         regtrace_t23_source_mdns_initialized = false;
         regtrace_t23_source_sdns_initialized = false;
         regtrace_t23_source_adr_initialized = false;
@@ -14954,6 +14968,11 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
     }
     if (regtrace_t23_source_adr_tuning_init && regtrace_t23_adr_ratio != 0x80U)
         regtrace_t23_adr_strength_apply();
+    /* stock tisp_init: tiziano_af_init(height, width) (source_af=1) */
+    ret = t23_af_start(regtrace_t23_source_sensor_width,
+                       regtrace_t23_source_sensor_height);
+    if (ret)
+        return ret;
     if (regtrace_t23_source_sharpen_tuning_init)
         regtrace_t23_source_sharpen_write_tuning_startup();
     ret = regtrace_t23_source_apply_total_gain();
@@ -33797,6 +33816,7 @@ int32_t isp_irq_handle(int32_t irq, void *dev_id)
         regtrace_t23_source_awb_stats_irq(status0,
                                           regtrace_t23_core_irq_count);
         t23_adrlift_irq(status0);
+        t23_af_irq(status0);
 
         /* OEM: mbus_to_bayer_write() after a sensor Bayer change. */
         if (ACCESS_ONCE(regtrace_t23_bayer_pending) != UINT_MAX) {
@@ -92328,6 +92348,8 @@ static void regtrace_t23_source_dn_params_refresh(const char *reason)
         else
             failed |= BIT(11);
     }
+    /* OEM: tiziano_af_dn_params_refresh (source_af=1) */
+    t23_af_dn_refresh();
     /* OEM order: tiziano_ae_dn_params_refresh after defog.  The lifted
      * stock AE0 reloads its parameters from the new bank like stock; the
      * HLIL substitute keeps its state. */
@@ -102268,6 +102290,7 @@ static long regtrace_t23_colorfx_set(uint32_t fx)
 }
 
 #include "tx_isp_t23_tuning_ext.inc"
+#include "tx_isp_t23_af.inc"
 
 static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
 {
