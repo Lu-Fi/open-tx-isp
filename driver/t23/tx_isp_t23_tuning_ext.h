@@ -294,6 +294,20 @@ static inline uint32_t t23x_awb_ct_select(uint32_t wb_mode, uint32_t ct,
 #define T23X_CID_WAIT_FRAME 0x08000162U
 
 /*
+ * A gamma curve the LUT writer takes: 129 points, 12 bit, not falling (the
+ * check tiziano_gamma_params_refresh applies to an IQ bank's curve).
+ */
+static inline int t23x_gamma_valid(const uint16_t *lut)
+{
+	unsigned int i;
+
+	for (i = 0; i < T23X_GAMMA_BYTES / 2U; i++)
+		if (lut[i] > 0xfffU || (i && lut[i] < lut[i - 1U]))
+			return -EINVAL;
+	return 0;
+}
+
+/*
  * isp_frame_done_wait result: 0 when a frame-done came, -ERESTARTSYS when
  * interrupted, else -ETIMEDOUT.  wait_ret is the wait_event_*_timeout
  * return value (remaining jiffies, 0 on timeout, or -ERESTARTSYS).

@@ -436,9 +436,15 @@ static long t23x_awb_control(bool get, uint32_t id, uint32_t *value)
 
 /*
  * SetGamma (stock tisp_s_Gamma): the 129-point curve goes to the active,
- * day and night banks and tiziano_gamma_lut.  The stock module does not
- * rewrite the LUT registers here; the curve is programmed by the next
- * gamma refresh (day/night or custom-mode switch, stream start).
+ * day and night banks and tiziano_gamma_lut.
+ *
+ * Beyond stock: the stock module leaves the LUT registers to the next
+ * gamma refresh (day/night or custom-mode switch, stream start); here a
+ * running core gets the curve at once, written by the same LUT writer the
+ * refresh uses (tiziano_gamma_lut_parameter), under the tuning mutex that
+ * also serialises the day/night refresh and stream start/stop, so a refresh
+ * and this write never interleave.  A curve the refresh would refuse
+ * (above 12 bit or falling) is rejected instead of stored.
  */
 static long t23x_gamma(bool get, uint32_t uptr)
 {
@@ -452,8 +458,12 @@ static long t23x_gamma(bool get, uint32_t uptr)
 	ret = regtrace_t23_copy_in(lut, uptr, sizeof(lut));
 	if (ret)
 		return ret;
+	if (t23x_gamma_valid(lut))
+		return -EINVAL;
 	t23x_tparams_put(T23X_TP_GAMMA, lut, sizeof(lut));
 	memcpy(tiziano_gamma_lut, lut, sizeof(lut));
+	if (regtrace_t23_source_gamma_tuning_init && regtrace_t23_core_started)
+		tiziano_gamma_lut_parameter();
 	return 0;
 }
 

@@ -170,8 +170,25 @@ static void test_wait_frame(void)
 	assert(t23x_wait_frame_result(-512, 0) == -512);
 }
 
+static void test_gamma(void)
+{
+	uint16_t lut[129];
+	unsigned int i;
+
+	for (i = 0; i < 129; i++)
+		lut[i] = (uint16_t)(i * 32 > 0xfff ? 0xfff : i * 32);
+	assert(t23x_gamma_valid(lut) == 0);
+	lut[64] = lut[63] - 1;                  /* falling */
+	assert(t23x_gamma_valid(lut) == -EINVAL);
+	lut[64] = lut[63];
+	assert(t23x_gamma_valid(lut) == 0);     /* flat is fine */
+	lut[128] = 0x1000;                      /* above 12 bit */
+	assert(t23x_gamma_valid(lut) == -EINVAL);
+}
+
 int main(void)
 {
+	test_gamma();
 	test_wait_frame();
 	test_awb();
 	test_weights();
