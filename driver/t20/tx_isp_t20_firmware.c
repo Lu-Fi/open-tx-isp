@@ -18684,404 +18684,93 @@ uint32_t ae_calculate_exposure_ratio(int32_t *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002b75c origin=fragment_seed original=ae_calculate_target */
 uint16_t* ae_calculate_target(uintptr_t a0)
 {
-    uint32_t local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t a1 = 0;
-    uint32_t a2 = 0;
-    uintptr_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uintptr_t t0 = 0;
-    uint32_t t1 = 0;
-    uint32_t t2 = 0;
-    uint32_t t3 = 0;
-    uint32_t t4 = 0;
-    uint32_t t5 = 0;
-    uint32_t t6 = 0;
-    uint32_t t7 = 0;
-    uintptr_t v0 = 0;
-    uintptr_t v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s3 = (uint32_t *)&_GET_HDR_TABLE_INDEX;
-    s0 = a0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)_GET_HDR_TABLE_INDEX)(146, *(uint8_t *)((char *)(*(uint32_t *)((char *)(a0) + 0)) + 5412)); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    s1 = (uintptr_t *)&_GET_UINT_PTR;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_UINT_PTR)(v0); /* jalr target resolved by relocation */
-
-    /* fragment 3: MemoryAccess */
-    a2 = *(uint32_t *)((char *)s0 + 1072);
-    s2 = v0;
-    v0 = (uintptr_t)&stab;
-
-    /* fragment 4: Branch */
-    s4 = *(uint8_t *)((char *)((char *)&stab + 0x35));
-    if (a2 == 0) { goto ae_calculate_target0x474; }
-
-    /* fragment 5: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 0);
-    v0 = *(uint8_t *)((char *)v0 + 5412);
-    v0 = v0 - 1;
-    v0 = v0 < 2;
-
-    /* fragment 6: Branch */
-    t4 = *(uint32_t *)((char *)(s2) + 8);
-    if (v0 != 0) { goto ae_calculate_target0x110; }
-
-    /* fragment 7: Arithmetic */
-    t3 = 256;
-    v0 = 1;
-    v1 = 0;
-    a0 = 0;
-    a1 = 0;
-    t2 = 0;
-
-    /* fragment 8: Branch */
-    t3 = t3 - t4;
-    goto ae_calculate_target0x240;
-
-ae_calculate_target0xa8:
-    /* fragment 9: Arithmetic */
-    a3 = v1 * v0;
-    a3 = (uintptr_t)a3 << 1;
-    t3 = a3 + t3;
-    a3 = v0 << 1;
-    a3 = (uintptr_t)s0 + (uintptr_t)a3;
-
-    /* fragment 10: MemoryAccess */
-    a3 = *(uint32_t *)((char *)a3 + 46);
-    t5 = t5 + 1;
-    t7 = (uintptr_t)a3 * t3;
-    a3 = a0 + t0;
-    t1 = t7 + t1;
-    t2 = a3 < a0;
-    t0 = a1 + t1;
-    a0 = a3;
-    a3 = v0 + 2;
-    a1 = t2 + t0;
-    t0 = a3 < v0;
-    t0 = t0 + v1;
-    v0 = a3;
-
-    /* fragment 11: Branch */
-    v1 = t0;
-    goto ae_calculate_target0x12c;
-
-ae_calculate_target0x110:
-    /* fragment 12: Arithmetic */
-    t6 = 256;
-    v0 = 1;
-    v1 = 0;
-    a0 = 0;
-    a1 = 0;
-    t5 = 0;
-    t6 = t6 - t4;
-
-ae_calculate_target0x12c:
-    /* fragment 13: Arithmetic */
-    t0 = t5 < t6;
-
-    /* fragment 14: Branch */
-    a3 = t6;
-    if (t0 != 0) { goto ae_calculate_target0xa8; }
-
-    /* fragment 15: Arithmetic */
-    t2 = t6 << 1;
-
-    /* fragment 16: Branch */
-    t4 = t4 - 254;
-    goto ae_calculate_target0x1b8;
-
-ae_calculate_target0x144:
-    /* fragment 17: Arithmetic */
-    t0 = v0 < t2;
-    t0 = t0 * v0;
-    t0 = t0 << 1;
-    v1 = t0 + v1;
-    t0 = (uintptr_t)a3 << 2;
-    t0 = s0 + t0;
-
-    /* fragment 18: MemoryAccess */
-    t3 = *(uint32_t *)((char *)t0 + 48);
-    t2 = t2 + 2;
-    t5 = t3 * v1;
-    t3 = t4 + (uintptr_t)a3;
-    t3 = t3 >> 1;
-    t1 = t5 + t1;
-    t5 = t3 * t1;
-    v0 = a0 + v0;
-    v1 = t5 + v1;
-    t0 = v0 < a0;
-    v1 = a1 + v1;
-    a0 = v0;
-    a1 = t0 + v1;
-    a3 = a3 + 1;
-
-ae_calculate_target0x1b8:
-    /* fragment 19: Arithmetic */
-    v0 = a3 < 256;
-
-    /* fragment 20: Branch */
-    int _bc_v0_20 = v0 != 0;
-    v0 = t2 + 1;
-    if (_bc_v0_20) { goto ae_calculate_target0x144; }
-
-    /* fragment 21: CallSetup */
-    /* OEM 0x2afc8: div64_u64(a1:a0, a2) -- 64-bit sum in the a0/a1
-     * register pair, divisor = histogram population (a2, s0+1072, checked
-     * non-zero on entry), a3 = 0.  The recovery passed (lo, hi), i.e.
-     * divided by the high word, which is 0 for normal sums (division by
-     * zero, OEM AE stuck at minimum exposure). */
-    v0 = (uintptr_t)div64_u64(((uint64_t)a1 << 32) | a0, a2); /* jalr target resolved by relocation */
-
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)sqrt32)(v0); /* jalr target resolved by relocation */
-
-    /* fragment 23: Arithmetic */
-    v0 = v0 >> 1;
-
-    /* fragment 24: Branch */
-    s5 = v0 & 65535;
-    goto ae_calculate_target0x2d8;
-
-ae_calculate_target0x1f4:
-    /* fragment 25: Arithmetic */
-    a3 = v0 << 1;
-    a3 = (uintptr_t)s0 + (uintptr_t)a3;
-
-    /* fragment 26: MemoryAccess */
-    a3 = *(uint32_t *)((char *)a3 + 46);
-    t2 = t2 + 1;
-    t5 = (uintptr_t)a3 * v1;
-    a3 = a0 + t0;
-    t1 = t5 + t1;
-    t0 = a1 + t1;
-    t5 = a3 < a0;
-    a0 = a3;
-    a3 = v0 + 2;
-    a1 = t5 + t0;
-    t0 = a3 < v0;
-    t0 = t0 + v1;
-    v0 = a3;
-    v1 = t0;
-
-ae_calculate_target0x240:
-    /* fragment 27: Arithmetic */
-    t0 = t2 < t3;
-
-    /* fragment 28: Branch */
-    a3 = t3;
-    if (t0 != 0) { goto ae_calculate_target0x1f4; }
-
-    /* fragment 29: Arithmetic */
-    t2 = t3 << 1;
-
-    /* fragment 30: Branch */
-    t4 = t4 - 254;
-    goto ae_calculate_target0x2b4;
-
-ae_calculate_target0x258:
-    /* fragment 31: Arithmetic */
-    v0 = s0 + v0;
-
-    /* fragment 32: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 48);
-    t0 = t2 + 1;
-    v1 = t0 < t2;
-    t3 = v1 * v0;
-    t2 = t2 + 2;
-    t1 = t3 + t1;
-    t3 = t4 + (uintptr_t)a3;
-    t3 = t3 >> 1;
-    a3 = a3 + 1;
-    t5 = t3 * t1;
-    v0 = a0 + v0;
-    v1 = t5 + v1;
-    t0 = v0 < a0;
-    v1 = a1 + v1;
-    a0 = v0;
-    a1 = t0 + v1;
-
-ae_calculate_target0x2b4:
-    /* fragment 33: Arithmetic */
-    v0 = a3 < 256;
-
-    /* fragment 34: Branch */
-    int _bc_v0_34 = v0 != 0;
-    v0 = (uintptr_t)a3 << 2;
-    if (_bc_v0_34) { goto ae_calculate_target0x258; }
-
-    /* fragment 35: CallSetup */
-    /* OEM 0x2b0c0..0x2b0c8: as above with divisor a2 << 1 */
-    v0 = (uintptr_t)div64_u64(((uint64_t)a1 << 32) | a0, (uint64_t)a2 << 1); /* jalr target resolved by relocation */
-
-    /* fragment 36: CallSetup */
-    s5 = v0;
-
-ae_calculate_target0x2d8:
-    /* fragment 37: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)log2_fixed_to_fixed)(*(uint32_t *)((char *)(s2) + 4), 0, 16); /* jalr target resolved by relocation */
-
-    /* fragment 38: CallSetup */
-    s6 = v0;
-    s4 = s4 - 128;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)log2_fixed_to_fixed)(s5, 0, 16); /* jalr target resolved by relocation */
-
-    /* fragment 39: CallSetup */
-    s4 = s4 << 11;
-    s4 = (s6 - v0) + s4;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)math_exp2)(*(uint32_t *)((char *)(s0) + 20), 16, 6); /* jalr target resolved by relocation */
-
-    /* fragment 40: CallSetup */
-    s5 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)_GET_HDR_TABLE_INDEX)(41, *(uint8_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 5412)); /* jalr target resolved by relocation */
-
-    /* fragment 41: CallSetup */
-    s2 = (uint32_t *)&_GET_UINT_PTR;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_UCHAR_PTR)(v0); /* jalr target resolved by relocation */
-
-    /* fragment 42: CallSetup */
-    s3 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_UINT_PTR)(206); /* jalr target resolved by relocation */
-
-    /* fragment 43: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-    v0 = v0 < s5;
-
-    /* fragment 44: Unknown */
-    /* unmatched fragment 44 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2bac8:	54400003 	bnezl	v0,2bad8 <ae_calculate_target+0x37c> */
-
-    /* fragment 45: Arithmetic */
-    a0 = 206;
-
-    /* fragment 46: Branch */
-    s1 = *(uint8_t *)((char *)(s3) + 0);
-    goto ae_calculate_target0x464;
-
-    /* fragment 47: CallSetup */
-    s6 = (uintptr_t)&_GET_LEN;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_UINT_PTR)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 48: CallSetup */
-    s2 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_LEN)(206); /* jalr target resolved by relocation */
-
-    /* fragment 49: Arithmetic */
-    v0 = v0 - 1;
-    v0 = v0 << 2;
-    s2 = s2 + v0;
-
-    /* fragment 50: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s2 + 0);
-    v0 = s5 < v0;
-
-    /* fragment 51: Branch */
-    s2 = 1;
-    if (v0 != 0) { goto ae_calculate_target0x448; }
-
-    /* fragment 52: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_LEN)(206); /* jalr target resolved by relocation */
-
-    /* fragment 53: Arithmetic */
-    v0 = s3 + v0;
-
-    /* fragment 54: Branch */
-    s1 = *(uint8_t *)((char *)(v0) + -1);
-    goto ae_calculate_target0x464;
-
-ae_calculate_target0x3c4:
-    /* fragment 55: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_LEN)(206); /* jalr target resolved by relocation */
-
-    /* fragment 56: CallSetup */
-    s8 = (uintptr_t)s2 << 2;
-    s2 = s2 + 1;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_LEN)(206); /* jalr target resolved by relocation */
-
-    /* fragment 57: CallSetup */
-    s1 = *(uint8_t *)((uintptr_t)s3 + (uintptr_t)s2 - 1);
-    s6 = *(uint32_t *)((char *)(v0 + (((uintptr_t)s2 - 1) << 2)) + 0);
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_LEN)(206); /* jalr target resolved by relocation */
-
-    /* fragment 58: Arithmetic */
-    v0 = v0 + s8;
-
-    /* fragment 59: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-    s2 = (uintptr_t)s3 + (uintptr_t)s2;
-
-    /* fragment 60: Branch */
-    v1 = *(uint8_t *)((char *)(s2) + 0);
-    if (v0 == s6) { goto ae_calculate_target0x464; }
-
-    /* fragment 61: Arithmetic */
-    v1 = v1 - (uintptr_t)s1;
-    s5 = s5 - s6;
-    s5 = v1 * s5;
-    s6 = v0 - s6;
-
-    /* fragment 62: Unknown */
-    /* unmatched fragment 62 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2bb8c:	02b6001a 	div	zero,s5,s6 */
-
-    /* fragment 63: Arithmetic */
-    /* trap/BUG_ON check */
-    s1 = v0 + (uintptr_t)s1;
-
-    /* fragment 64: Branch */
-    s1 = (uintptr_t)s1 & 255;
-    goto ae_calculate_target0x464;
-
-ae_calculate_target0x448:
-    /* fragment 65: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)_GET_LEN)(206); /* jalr target resolved by relocation */
-
-    /* fragment 66: Arithmetic */
-    v0 = s2 < v0;
-
-    /* fragment 67: Branch */
-    s7 = (uintptr_t)&_GET_UINT_PTR;
-    if (v0 != 0) { goto ae_calculate_target0x3c4; }
-
-    /* fragment 68: Arithmetic */
-    s1 = 0;
-
-ae_calculate_target0x464:
-    /* fragment 69: Arithmetic */
-    s1 = s1 - 128;
-    s1 = (uintptr_t)s1 << 11;
-    s4 = s4 + (uintptr_t)s1;
-
-    /* fragment 70: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 16) = s4;
-
-ae_calculate_target0x474:
-    /* fragment 71: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return (uint16_t*)v0;
+	/*
+	 * OEM 0x2adfc, rewritten from the vendor code (the fragment recovery
+	 * dropped the histogram products and the correction-table search):
+	 *
+	 *   s0 = AE context, hist[i] = u32 at s0+48+4i, population at s0+1072
+	 *   tbl146 = _GET_UINT_PTR(_GET_HDR_TABLE_INDEX(146, mode)),
+	 *   knee = tbl146[2], level = tbl146[1]
+	 *   linear (mode != 1,2):
+	 *     mean = sum hist[i]*(2i+1)*w(i) / (2*population)
+	 *   mode 1/2:
+	 *     mean = sqrt32(sum hist[i]*(2i+1)^2*w(i) / population) >> 1
+	 *   w(i) = 1 below bin 256-knee, (i + knee - 254) >> 1 from there
+	 *   target = log2(level) - log2(mean) + (stab[0x35]-128)*2048
+	 *            + (corr(exp2(s0[20])) - 128)*2048
+	 *   corr = u8 table _GET_HDR_TABLE_INDEX(41, mode) interpolated over
+	 *   the u32 nodes of table 206.
+	 *   Stored at s0+16; nothing is written for an empty histogram.
+	 */
+	uint8_t *ctx = (uint8_t *)a0;
+	uint32_t mode = *(uint8_t *)(uintptr_t)(*(uint32_t *)ctx + 5412);
+	uint32_t *tbl = (uint32_t *)_GET_UINT_PTR(_GET_HDR_TABLE_INDEX(146, mode));
+	uint32_t pop = *(uint32_t *)(ctx + 1072);
+	uint32_t comp = *(uint8_t *)((char *)&stab + 0x35);
+	uint32_t knee, start, i, mean, exp_lin, n, corr;
+	uint32_t *nodes;
+	uint8_t *ctab;
+	uint64_t sum = 0;
+	int32_t target;
+
+	if (pop == 0)
+		return 0;
+
+	knee = tbl[2];
+	start = 256 - knee;
+	if (mode - 1 < 2) {
+		for (i = 0; i < start && i < 256; i++) {
+			uint64_t w = 2 * (uint64_t)i + 1;
+			sum += w * w * *(uint32_t *)(ctx + 48 + 4 * i);
+		}
+		for (i = start; i < 256; i++) {
+			uint64_t w = 2 * (uint64_t)i + 1;
+			sum += w * w * *(uint32_t *)(ctx + 48 + 4 * i) *
+			       (uint32_t)((knee - 254 + i) >> 1);
+		}
+		mean = ((uint32_t)sqrt32((int32_t)div64_u64(sum, pop)) >> 1) & 0xffff;
+	} else {
+		for (i = 0; i < start && i < 256; i++)
+			sum += (2 * (uint64_t)i + 1) * *(uint32_t *)(ctx + 48 + 4 * i);
+		for (i = start; i < 256; i++)
+			sum += (2 * (uint64_t)i + 1) * *(uint32_t *)(ctx + 48 + 4 * i) *
+			       (uint32_t)((knee - 254 + i) >> 1);
+		mean = (uint32_t)div64_u64(sum, (uint32_t)(pop << 1));
+	}
+
+	target = (int32_t)(log2_fixed_to_fixed(tbl[1], 0, 16) -
+			   log2_fixed_to_fixed(mean, 0, 16)) +
+		 (int32_t)((comp - 128) << 11);
+
+	exp_lin = math_exp2(*(uint32_t *)(ctx + 20), 16, 6);
+	ctab = (uint8_t *)_GET_UCHAR_PTR(_GET_HDR_TABLE_INDEX(41, mode));
+	nodes = (uint32_t *)_GET_UINT_PTR(206);
+	if (!(nodes[0] < exp_lin)) {
+		corr = ctab[0];
+	} else {
+		n = _GET_LEN(206);
+		if (!(exp_lin < nodes[n - 1])) {
+			corr = ctab[n - 1];
+		} else {
+			corr = 0;
+			for (i = 1; i < (uint32_t)_GET_LEN(206); i++) {
+				uint32_t x0, x1;
+				if (!(exp_lin < nodes[i]))
+					continue;
+				x0 = nodes[i - 1];
+				x1 = nodes[i];
+				corr = ctab[i - 1];
+				if (x1 != x0)
+					corr = (uint8_t)((int32_t)((ctab[i] - corr) * (exp_lin - x0)) /
+							 (int32_t)(x1 - x0) + corr);
+				break;
+			}
+		}
+	}
+
+	target += (int32_t)((corr - 128) << 11);
+	*(int32_t *)(ctx + 16) = target;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002bc00 origin=model_output original=set_integrator_ae */
