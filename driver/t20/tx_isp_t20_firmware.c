@@ -12339,9 +12339,11 @@ int32_t apical_switch_wdr_mode(uint32_t arg1)
 	}
 	printk(KERN_INFO "T20FW switch_wdr table1 done mesh begin\n");
 
+	/* OEM 0x22dcc..0x22df4: lui 0x4 | 0x100, the ext_system word at
+	 * 0x40100 (APICAL_READ/WRITE_32 shadow block), not ISP register 0x4100 */
 	if (mode != 0) {
-		uint32_t reg = APICAL_READ_32(0x4100);
-		APICAL_WRITE_32(0x4100, reg & 0xffffdfff);
+		uint32_t reg = APICAL_READ_32(0x40100);
+		APICAL_WRITE_32(0x40100, reg & 0xffffdfff);
 	}
 
 	return shading_mesh_load(mode);
