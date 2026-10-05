@@ -16,6 +16,8 @@
  *   0x08000082 Temper strength      TemperDnsCtl (tuning ioctl, value)
  *   0x08000025 Expr (get)           IMPISPExpr, 12 bytes (tuning ioctl, pointer)
  *   0x08000062 DPC strength         SetDPC_Strength (tuning ioctl, value)
+ *   0x080000a6 CSC attribute        SetCsc_Attr, 64 bytes (tuning ioctl, pointer)
+ *   0x080000e3 Front crop           SetFrontCrop, 20 bytes (tuning ioctl, pointer)
  *
  * Here they act on existing T21 mechanisms:
  *
@@ -37,6 +39,8 @@
  *  - Temper (3D NR): MANUAL applies the strength through the stock
  *    0x8000085 path, tisp_s_3dns_ratio (128 = tuning file), AUTO puts the
  *    ratio last set through 0x8000085 back (128 if none), DISABLE applies 0.
+ *  - CSC and front crop: see ../common/tx_isp_csc.h (T31 presets on the
+ *    0x1700 block; front crop accepts only disable / full frame).
  *
  * Nothing changes until one of these controls is set: every hook is a
  * no-op in the default state (colorfx AUTO, sinter ratio 128, temper
@@ -44,6 +48,8 @@
  */
 #ifndef TX_ISP_T21_TUNING_CTL_H
 #define TX_ISP_T21_TUNING_CTL_H
+
+#include "../common/tx_isp_csc.h"
 
 #define T21_CID_SCENE_MODE	0x009a091a
 #define T21_CID_COLORFX		0x0098091f
@@ -293,12 +299,132 @@ static void t21_dpc_set_ratio(uint32_t ratio)
 		tisp_dpc_intp_reg_refresh(dpc_gain_old);
 }
 
+/*
+ * CSC presets (0x80000a6, tx_isp_csc.h).  The block at 0x1700 is the T31
+ * 0x6000 one; tisp_init programs preset 0 and calls t21_csc_reset().
+ * 0x1730 (clip) is shared with the day/night switch in the ISR, which
+ * zeroes the chroma range for night and restores it for day: the ISR now
+ * restores t21_csc_clip instead of the fixed preset 0 word, and a CSC set
+ * at night leaves the mono clip alone (applied on the next day restore).
+ * 0x1704 and the low byte of 0x1720 also carry the contrast
+ * (tisp_set_contrast); a non-neutral contrast is put back on top.
+ */
+static DEFINE_SPINLOCK(t21_csc_lock);
+static uint32_t t21_csc_attr[TX_ISP_CSC_ATTR_WORDS];
+static uint32_t t21_csc_clip = 0xff00ff00;	/* day clip word, 0x1730 */
+static int t21_csc_night;
+static uint32_t t21_fcrop_enabled;
+
+static void t21_csc_reset(void)
+{
+	unsigned long flags;
+	int i;
+
+	spin_lock_irqsave(&t21_csc_lock, flags);
+	t21_csc_attr[0] = 0;
+	for (i = 0; i < TX_ISP_CSC_WORDS; i++)
+		t21_csc_attr[1 + i] = (uint32_t)tx_isp_csc_presets[0][i];
+	t21_csc_clip = 0xff00ff00;
+	t21_csc_night = 0;
+	spin_unlock_irqrestore(&t21_csc_lock, flags);
+}
+
+/* ISR: running-mode switch.  night: 1 = going to night (mono clip). */
+static void t21_csc_isr_mode(int night)
+{
+	spin_lock(&t21_csc_lock);
+	t21_csc_night = night;
+	system_reg_write(0x1730, night ? tx_isp_csc_tiziano_mono_clip(t21_csc_clip)
+				       : t21_csc_clip);
+	spin_unlock(&t21_csc_lock);
+}
+
+static int t21_csc_set(const void __user *uptr)
+{
+	uint32_t attr[TX_ISP_CSC_ATTR_WORDS];
+	int32_t p[TX_ISP_CSC_WORDS];
+	uint32_t reg[5];
+	unsigned long flags;
+	int ret, i;
+
+	if (private_copy_from_user(attr, uptr, sizeof(attr)))
+		return -EFAULT;
+	ret = tx_isp_csc_check(attr);
+	if (ret)
+		return ret;
+	/* tisp_init has not run yet (it sets the sensor width): no core */
+	if (!((uint32_t *)tispinfo)[0])
+		return -EBUSY;
+	tx_isp_csc_params(attr, p);
+	tx_isp_csc_tiziano_regs(p, reg);
+
+	spin_lock_irqsave(&t21_csc_lock, flags);
+	system_reg_write(0x1700, 0x1f);
+	system_reg_write(0x1704, 0);
+	system_reg_write(0x1710, reg[0]);
+	system_reg_write(0x1714, reg[1]);
+	system_reg_write(0x1718, reg[2]);
+	system_reg_write(0x1720, reg[3]);
+	t21_csc_clip = reg[4];
+	if (!t21_csc_night)
+		system_reg_write(0x1730, reg[4]);
+	t21_csc_attr[0] = attr[0];
+	for (i = 0; i < TX_ISP_CSC_WORDS; i++)
+		t21_csc_attr[1 + i] = (uint32_t)p[i];
+	spin_unlock_irqrestore(&t21_csc_lock, flags);
+
+	if (custom_eff[2] != 0x80)
+		tisp_set_contrast(custom_eff[2]);
+	return 0;
+}
+
+static int t21_csc_get(void __user *uptr)
+{
+	uint32_t attr[TX_ISP_CSC_ATTR_WORDS];
+	unsigned long flags;
+
+	spin_lock_irqsave(&t21_csc_lock, flags);
+	memcpy(attr, t21_csc_attr, sizeof(attr));
+	spin_unlock_irqrestore(&t21_csc_lock, flags);
+	return private_copy_to_user(uptr, attr, sizeof(attr)) ? -EFAULT : 0;
+}
+
+static int t21_fcrop_set(const void __user *uptr)
+{
+	uint32_t f[TX_ISP_FCROP_WORDS];
+	int ret;
+
+	if (private_copy_from_user(f, uptr, sizeof(f)))
+		return -EFAULT;
+	ret = tx_isp_fcrop_check(f, ((uint32_t *)tispinfo)[0],
+				 ((uint32_t *)tispinfo)[1]);
+	if (ret)
+		return ret;
+	t21_fcrop_enabled = (f[0] & 0xff) ? 1 : 0;
+	return 0;
+}
+
+static int t21_fcrop_get(void __user *uptr)
+{
+	uint32_t f[TX_ISP_FCROP_WORDS];
+
+	tx_isp_fcrop_get(t21_fcrop_enabled, ((uint32_t *)tispinfo)[0],
+			 ((uint32_t *)tispinfo)[1], f);
+	return private_copy_to_user(uptr, f, sizeof(f)) ? -EFAULT : 0;
+}
+
 static int t21_tuning_ctl_s(int32_t *ctl, int32_t *ret)
 {
 	uint8_t blk[T21_SINTER_BLOCK];
 	uint32_t v = (uint32_t)ctl[1];
 
 	switch ((uint32_t)ctl[0]) {
+	case TX_ISP_CID_CSC_ATTR:
+		*ret = t21_csc_set((const void __user *)(uintptr_t)v);
+		return 1;
+	case TX_ISP_CID_FRONT_CROP:
+		*ret = t21_fcrop_set((const void __user *)(uintptr_t)v);
+		return 1;
 	case T21_CID_SCENE_MODE:
 		if (v > 14) {
 			*ret = -1;
@@ -382,6 +508,12 @@ static int t21_tuning_ctl_g(int32_t *ctl, int32_t *ret)
 	uint32_t v = (uint32_t)ctl[1];
 
 	switch ((uint32_t)ctl[0]) {
+	case TX_ISP_CID_CSC_ATTR:
+		*ret = t21_csc_get((void __user *)(uintptr_t)v);
+		return 1;
+	case TX_ISP_CID_FRONT_CROP:
+		*ret = t21_fcrop_get((void __user *)(uintptr_t)v);
+		return 1;
 	case T21_CID_SCENE_MODE:
 		ctl[1] = (int32_t)t21_scene_mode;
 		break;
