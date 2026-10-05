@@ -34,12 +34,44 @@ SKIP = set(emu.ENV_FUNCS) | {
 
 
 def capture_points(n):
-    """call numbers (1-based) recorded per function"""
-    return n <= 3 or n in (5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181)
+    """call numbers (1-based) recorded per function: the first 8, then
+    every 10th up to 100 and every 50th after that (per-frame functions get
+    ~30 samples spread over the whole scenario)"""
+    return n <= 8 or (n <= 100 and n % 10 == 0) or n % 50 == 0
+
+
+# Boundary replays: recorded calls re-run with inputs moved onto the
+# decision thresholds the scenario does not hit by itself.  Each patch
+# function gets the machine and the vendor-side a0 and edits vendor memory
+# before the state is translated for our side.
+def _ccm_edges():
+    out = []
+    for k in range(8):                  # thresholds at +196..+224
+        for d in (-1, 0, 1):
+            def p(m, a0, k=k, d=d):
+                m.w32(m.r32(a0) + 3776, m.r32(a0 + 196 + 4 * k) + d)
+            out.append(('thr%d%+d' % (k, d), p))
+    return out
+
+
+def _gain_edges():
+    out = []
+    for prev in (0, 0x8000, 0x30000):
+        for d in (-0x1000, -0xfff, -1, 0, 1, 0xfff, 0x1000, 0x3000):
+            def p(m, a0, prev=prev, d=d):
+                m.w32(a0 + 460, prev)                   # previous gain
+                m.w32(a0 + 472, max(0, prev + 0x1000 + d))  # target (-0x1000)
+            out.append(('prev%x%+d' % (prev, d), p))
+    return out
+
+
+EDGES = {'color_matrix_update': _ccm_edges, 'cmos_analog_gain_update': _gain_edges}
+EDGE_SNAPS = 3      # recorded calls per function used as edge-replay base
 
 
 class Snap:
-    __slots__ = ('fn', 'step', 'callno', 'args', 'sp', 'vw', 'heap', 'stack', 'calib', 'env', 'ow')
+    __slots__ = ('fn', 'step', 'callno', 'args', 'sp', 'vw', 'heap', 'stack', 'calib', 'env', 'ow',
+                 'patch', 'label')
 
 
 def take(m, img_writable):
@@ -84,6 +116,7 @@ class Diff:
             if not capture_points(c):
                 return
             s = Snap()
+            s.patch = s.label = None
             s.fn, s.step, s.callno = fn, cur['step'], c
             s.args = [uc.reg_read(r) for r in A]
             s.sp = sp = uc.reg_read(UC_MIPS_REG_SP)
@@ -169,6 +202,8 @@ class Diff:
     def run_side(self, m, s, side):
         self.restore_common(m, s, side)
         put(m, m.O.writable, s.ow)
+        if getattr(s, 'patch', None):
+            s.patch(m, s.args[0])
         if side == 'O':
             for n, va, oa, size in m.common:
                 b = bytes(m.uc.mem_read(va, size))
@@ -246,14 +281,27 @@ class Diff:
                     '+%x V=%s O=%s' % (o, fmt(p), fmt(q)) for o, p, q in offs[:6])))
         return d
 
+    def edge_snaps(self, snaps):
+        out = []
+        for fn, gen in EDGES.items():
+            base = [s for s in snaps if s.fn == fn][:EDGE_SNAPS]
+            for s in base:
+                for label, p in gen():
+                    e = Snap()
+                    for k in Snap.__slots__:
+                        setattr(e, k, getattr(s, k, None))
+                    e.fn, e.patch, e.label = fn, p, label
+                    out.append(e)
+        return out
+
     def replay(self, snaps):
         m = self.machine()
         res = {}
-        for s in snaps:
+        for s in snaps + self.edge_snaps(snaps):
             a = self.run_side(m, s, 'V')
             b = self.run_side(m, s, 'O')
             d = self.compare(m, a, b, s.fn)
-            res.setdefault(s.fn, []).append((s, d))
+            res.setdefault(s.fn + ('[edges]' if s.label else ''), []).append((s, d))
         return res
 
 
@@ -278,7 +326,7 @@ def main():
     ap.add_argument('--sdk', help='external/ingenic-sdk/3.10.14/isp/t20 (night calibration bank ids)')
     ap.add_argument('--only')
     ap.add_argument('--short', action='store_true')
-    ap.add_argument('--sys', action='store_true', help='print whole-scenario divergence')
+    ap.add_argument('--sys', action='store_true', help='(default, kept for compatibility)')
     ap.add_argument('--fuzz', type=int, default=3000, help='random calls per pure helper (0: off)')
     ap.add_argument('--no-scenario', action='store_true')
     ap.add_argument('-v', action='store_true')
@@ -307,13 +355,12 @@ def main():
             return 1 if nfz else 0
     only = set(a.only.split(',')) if a.only else None
     snaps = D.record(scenario.scenario(not a.short), only)
-    if a.sys:
-        for i, st, lv, lo in D.sys_log[:(400 if a.v else 8)]:
-            k = 0
-            while k < min(len(lv), len(lo)) and lv[k] == lo[k]:
-                k += 1
-            print('SYS step %d %s: first diff at event %d/%d: V=%s O=%s' % (i, st, k, len(lv), lv[k:k + 4], lo[k:k + 4]))
-        print('SYS steps with divergent register/sensor traffic: %d' % len(D.sys_log))
+    for i, st, lv, lo in D.sys_log[:(400 if a.v else 8)]:
+        k = 0
+        while k < min(len(lv), len(lo)) and lv[k] == lo[k]:
+            k += 1
+        print('SYS step %d %s: first diff at event %d/%d: V=%s O=%s' % (i, st, k, len(lv), lv[k:k + 4], lo[k:k + 4]))
+    print('SYS steps with divergent register/sensor traffic: %d' % len(D.sys_log))
     res = D.replay(snaps)
     ndiff = 0
     for fn in sorted(res):
@@ -328,14 +375,17 @@ def main():
         if bad or (soft and a.v):
             ndiff += bool(bad)
             for s, d in (bad or soft)[: (99 if a.v else 2)]:
-                print('    step %d call #%d args=%s' % (s.step, s.callno, [hex(x) for x in s.args]))
+                print('    step %d call #%d%s args=%s' % (s.step, s.callno, ' edge ' + s.label if s.label else '',
+                                                  [hex(x) for x in s.args]))
                 for line in d[:8]:
                     print('      ' + line)
     never = [n for n in D.names if n not in res]
     print('functions compared: %d, differing: %d, never called by the scenario: %d' % (len(res), ndiff, len(never)))
     if a.v:
         print('never called: ' + ' '.join(never))
-    return 1 if ndiff or nfz else 0
+    print('SUMMARY scenario steps diverging: %d, replayed functions differing: %d, fuzzed helpers differing: %d'
+          % (len(D.sys_log), ndiff, nfz))
+    return 1 if ndiff or nfz or D.sys_log else 0
 
 
 if __name__ == '__main__':
