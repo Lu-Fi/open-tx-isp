@@ -169,8 +169,62 @@ static void test_unpack_and_fv(void)
 	assert(p.fv[2] == 0 && res.fv_value[0] == 250u << 10);
 }
 
+/* the T31 1.1.6 public IMPISPAFHist, as the stock libimp passes it */
+struct pub_af_hist {
+	uint32_t af_metrics, af_metrics_alt;
+	uint8_t af_enable, af_metrics_shift;
+	uint16_t af_delta, af_theta, af_hilight_th, af_alpha_alt;
+	uint8_t af_hstart, af_vstart, af_stat_nodeh, af_stat_nodev;
+	uint8_t af_frame_num;
+};
+typedef char pub_size_check[sizeof(struct pub_af_hist) == T31_AF_HIST_PUB_BYTES ? 1 : -1];
+
+static void test_pub_hist(void)
+{
+	static struct t31_af_params p;
+	uint8_t arena[4096], g[T31_AF_ATTR_BYTES], full[T31_AF_ATTR_BYTES];
+	uint8_t a[T31_AF_ATTR_BYTES], g2[T31_AF_ATTR_BYTES];
+	struct pub_af_hist h;
+	unsigned int i;
+
+	memset(&p, 0, sizeof(p));
+	p.zone[0] = 3; p.zone[1] = 8; p.zone[2] = 1; p.zone[3] = 8;
+	p.tilt[0] = 0x13; p.tilt[1] = 0x3a; p.tilt[2] = 0x2a; p.tilt[3] = 0x16;
+	p.thres[4] = 200; p.thres[5] = 1; p.fir0_ldg[2] = 0x123;
+	p.fv[2] = 0x42c40; p.fv[0] = 1; p.fv[1] = 2;
+	t31_af_attr_read(&p, 0xd0ae, 1, 0, 9, g);
+
+	/* the get writes exactly 24 bytes into a 0xA5 arena */
+	memset(arena, 0xa5, sizeof(arena));
+	t31_af_hist_to_pub(g, arena + 100);
+	for (i = 0; i < sizeof(arena); i++)
+		if (i < 100 || i >= 100 + T31_AF_HIST_PUB_BYTES)
+			assert(arena[i] == 0xa5);
+	memcpy(&h, arena + 100, sizeof(h));
+	assert(h.af_metrics == 0x42c40 && h.af_metrics_alt == 0xd0ae);
+	assert(h.af_enable == 1 && h.af_metrics_shift == 0);
+	assert(h.af_delta == 0x2a && h.af_theta == 0x16 &&
+	       h.af_hilight_th == 200 && h.af_alpha_alt == 0x13);
+	assert(h.af_hstart == 1 && h.af_vstart == 3 && h.af_stat_nodeh == 8 &&
+	       h.af_stat_nodev == 8 && h.af_frame_num == 9);
+
+	/* Get -> Set round trip: accepted, nothing changes */
+	t31_af_hist_from_pub(arena + 100, g, full);
+	assert(t31_af_hist_from_user(full, a) == 0);
+	assert(t31_af_attr_apply(a, &p) == 1);
+	t31_af_attr_read(&p, 0xd0ae, 1, 0, 9, g2);
+	assert(memcmp(g + 16, g2 + 16, T31_AF_ATTR_BYTES - 16) == 0);
+	assert(p.tilt[1] == 0x3a && p.thres[5] == 1 && p.fir0_ldg[2] == 0x123);
+
+	/* nodeh 16 is rejected */
+	arena[100 + 20] = 16;
+	t31_af_hist_from_pub(arena + 100, g, full);
+	assert(t31_af_hist_from_user(full, a) == -EINVAL);
+}
+
 int main(void)
 {
+	test_pub_hist();
 	test_mult();
 	test_layout_and_regs();
 	test_attr();

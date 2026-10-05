@@ -3812,7 +3812,7 @@ static uint32_t data_a2f7c = 0;  /* AF DMA page count */
 
 #include "tx_isp_t31_af.h"
 /* tx_isp_t31_af.inc */
-static int t31_af_hist_set(const uint8_t *user_attr);
+static int t31_af_hist_set(const uint8_t *pub);
 static void t31_af_hist_get(uint8_t *g);
 static int t31_af_weight_set(const uint8_t *u);
 static void t31_af_weight_get(uint8_t *out);
@@ -9107,11 +9107,16 @@ static int apical_isp_core_ops_g_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
             break;
         }
 
-        case 0x8000042: { /* OEM: apical_isp_af_hist_g_attr — get AF attributes (0x58 bytes) */
+        case 0x8000042: { /* OEM: apical_isp_af_hist_g_attr — 24-byte IMPISPAFHist */
+            /* The stock kernel copies its 88-byte internal attribute into
+             * the caller's 24-byte struct (64-byte overrun); only the
+             * public struct crosses the boundary here. */
             uint8_t af_buf[T31_AF_ATTR_BYTES];
+            uint8_t pub[T31_AF_HIST_PUB_BYTES];
 
             t31_af_hist_get(af_buf);
-            if (copy_to_user((void __user *)(unsigned long)ctrl->value, af_buf, sizeof(af_buf)))
+            t31_af_hist_to_pub(af_buf, pub);
+            if (copy_to_user((void __user *)(unsigned long)ctrl->value, pub, sizeof(pub)))
                 ret = -EFAULT;
             break;
         }
@@ -9831,14 +9836,16 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
             break;
         }
 
-        case 0x8000042: { /* OEM: apical_isp_af_hist_s_attr — set AF attributes (0x58 bytes) */
-            uint8_t af_buf[0x58];
-            if (copy_from_user(af_buf, (void __user *)(unsigned long)ctrl->value, 0x58)) {
+        case 0x8000042: { /* OEM: apical_isp_af_hist_s_attr — 24-byte IMPISPAFHist */
+            uint8_t pub[T31_AF_HIST_PUB_BYTES];
+
+            /* the stock kernel read 88 bytes from the 24-byte struct */
+            if (copy_from_user(pub, (void __user *)(unsigned long)ctrl->value, sizeof(pub))) {
                 ret = -EFAULT;
                 goto out;
             }
             /* OEM apical_isp_af_hist_s_attr -> tisp_s_af_attr */
-            ret = t31_af_hist_set(af_buf);
+            ret = t31_af_hist_set(pub);
             break;
         }
 

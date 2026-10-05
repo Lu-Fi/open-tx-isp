@@ -437,4 +437,51 @@ static inline void t31_af_attr_init(const struct t31_af_params *p,
 	a[31] = (uint8_t)p->zone[1];
 }
 
+/*
+ * The user-visible IMPISPAFHist of the T31 1.1.6 libimp is 24 bytes
+ * (af_stat{metrics, metrics_alt}, enable, shift, delta, theta, hilight_th,
+ * alpha_alt, hstart, vstart, nodeh, nodev, frame_num); the stock libimp
+ * hands that struct to the driver as it is.  The stock T31 1.1.6 kernel
+ * copies its 88-byte internal attribute (the T23 1.3.0 layout with
+ * af_wl/af_wh, belta_alt, ldg_en and the four ldg blocks) to and from it,
+ * overrunning the caller's struct by 64 bytes.  Here the driver boundary
+ * is the 24-byte struct; the fields it does not carry keep their current
+ * values on a set.
+ */
+#define T31_AF_HIST_PUB_BYTES 24U
+
+static const uint8_t t31_af_pub_map[][2] = {
+	/* public offset, attribute offset (bytes) */
+	{ 8, 16 }, { 9, 17 },                       /* enable, shift */
+	{ 10, 18 }, { 11, 19 }, { 12, 20 }, { 13, 21 }, /* delta, theta */
+	{ 14, 22 }, { 15, 23 }, { 16, 24 }, { 17, 25 }, /* hilight, alpha */
+	{ 18, 28 }, { 19, 29 }, { 20, 30 }, { 21, 31 }, /* hstart..nodev */
+	{ 22, 32 },                                 /* frame_num */
+};
+
+/* GetAfHist: the 88-byte attribute read back -> the 24-byte struct */
+static inline void t31_af_hist_to_pub(const uint8_t *g, uint8_t *u)
+{
+	unsigned int i;
+
+	memset(u, 0, T31_AF_HIST_PUB_BYTES);
+	memcpy(u, g, 8);                            /* af_metrics, _alt */
+	for (i = 0; i < sizeof(t31_af_pub_map) / sizeof(t31_af_pub_map[0]); i++)
+		u[t31_af_pub_map[i][0]] = g[t31_af_pub_map[i][1]];
+}
+
+/*
+ * SetAfHist: the 24-byte struct over the current attribute -> the 88-byte
+ * form apical_isp_af_hist_s_attr takes (then t31_af_hist_from_user).
+ */
+static inline void t31_af_hist_from_pub(const uint8_t *u, const uint8_t *cur,
+					uint8_t *full)
+{
+	unsigned int i;
+
+	memcpy(full, cur, T31_AF_ATTR_BYTES);
+	for (i = 0; i < sizeof(t31_af_pub_map) / sizeof(t31_af_pub_map[0]); i++)
+		full[t31_af_pub_map[i][1]] = u[t31_af_pub_map[i][0]];
+}
+
 #endif

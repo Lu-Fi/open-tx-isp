@@ -213,13 +213,23 @@ int tisp_af_param_array_set(int param_id, void *in_buf, int *size_buf)
 	return -1;
 }
 
-/* SetAfHist (apical_isp_af_hist_s_attr + tisp_af_set_attr) */
-static int t31_af_hist_set(const uint8_t *user_attr)
+/*
+ * SetAfHist (apical_isp_af_hist_s_attr + tisp_af_set_attr) from the
+ * 24-byte IMPISPAFHist; the attribute fields it does not carry keep their
+ * current values (the stock kernel read 88 bytes from the 24-byte struct).
+ */
+static int t31_af_hist_set(const uint8_t *pub)
 {
+	uint8_t cur[T31_AF_ATTR_BYTES], full[T31_AF_ATTR_BYTES];
 	uint8_t a[T31_AF_ATTR_BYTES];
 	unsigned long flags;
 
-	if (t31_af_hist_from_user(user_attr, a))
+	spin_lock_irqsave(&t31_af_lock, flags);
+	t31_af_attr_read(&t31_af, t31_af_res.fv_alt, t31_af_enable,
+			 t31_af_attr[17], t31_af_st.frame_num, cur);
+	spin_unlock_irqrestore(&t31_af_lock, flags);
+	t31_af_hist_from_pub(pub, cur, full);
+	if (t31_af_hist_from_user(full, a))
 		return -EINVAL;
 	spin_lock_irqsave(&t31_af_lock, flags);
 	t31_af_first = 0;
@@ -230,7 +240,7 @@ static int t31_af_hist_set(const uint8_t *user_attr)
 	return 0;
 }
 
-/* GetAfHist (tisp_af_get_attr + apical_isp_af_hist_g_attr) */
+/* GetAfHist (tisp_af_get_attr + apical_isp_af_hist_g_attr), 88-byte form */
 static void t31_af_hist_get(uint8_t *g)
 {
 	unsigned long flags;
