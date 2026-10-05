@@ -5910,15 +5910,14 @@ int32_t selftest_fw_revision(int32_t a1, int32_t a2, char arg3, int32_t *arg4)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001a3e4 origin=model_output original=selftest_api_revision */
 int32_t selftest_api_revision(int32_t arg1, int32_t arg2, char arg3, int32_t *arg4)
 {
-	int32_t v;
-
-	arg3 = (arg3 & 0xff) ^ 1;
-	v = 100;
-	if (arg3 == 0)
-		v = 0;
-	*arg4 = v;
-	if (arg3 == 0)
+	/* OEM 0x19a84: GET (1) reports API revision 100 with status 0, any
+	 * other direction *ret = 0 and status 2 (movn/movz on dir ^ 1; the
+	 * recovery swapped the two values) */
+	if ((uint8_t)arg3 == 1) {
+		*arg4 = 100;
 		return 0;
+	}
+	*arg4 = 0;
 	return 2;
 }
 
