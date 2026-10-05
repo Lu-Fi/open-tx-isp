@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the 24 h soak that started 2026-10-04); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-05
+
+- Pending (branch `claude/t20-fw-optimize`, host-tested only, device test open): the recovered T20/T10 firmware unit builds at `-Os` like the rest of the module (T20 module text 399 to 245 KB, `.ko` 589 to 409 KB; T10 the same). Spots that only worked at `-O0` fixed against the OEM disassembly (dropped call arguments, a partition-LUT walk past its object, command-interface state on the stack, a stack buffer one word short, an inline-asm tail jump, a missing return). New host harness `tests/t20_fw` runs the firmware at `-O0`/`-Os`/`-O2` through init, 239 frames, API sweeps and day/night tuning switches and requires identical register traces and state. `TX_ISP_FW_O0=1` restores the `-O0` build for A/B tests.
+
 ## 2026-10-04
 
 - thingino: `open-tx-isp` is part of upstream `aperto` ([#1756](https://github.com/themactep/thingino-firmware/pull/1756)), pinned to this fork's `next`; the kernel VPU/rmem patches (#1748, #1752) and the optional boot guard (#1749) are merged there. All test cameras run `aperto` images (30/30 snapshots, 0 oops, 0 VPU errors).
