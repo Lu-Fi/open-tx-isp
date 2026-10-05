@@ -4976,6 +4976,15 @@ static unsigned char AFParam_Fv[12];
 #define apical_isp_af_weight_g_attr apical_isp_af_weight_g_attr_isra_74
 #define tx_isp_video_link_destroy tx_isp_video_link_destroy_isra_1
 int32_t isp_printf(uint32_t level, const char *fmt, ...);
+/*
+ * Level-0 (info) isp_printf notes are never printed at the default
+ * print_level; release builds (TX_ISP_T21_TRACE unset) compile them and
+ * their strings out.  Warnings (>=1) and errors (2) stay.
+ */
+#ifndef TX_ISP_T21_TRACE
+#define isp_printf(level, ...) \
+	((__builtin_constant_p(level) && (level) == 0) ? 0 : (isp_printf)(level, __VA_ARGS__))
+#endif
 static bool t21_isp_valid_ptr(const void *ptr);
 uint32_t get_isp_clk(void);
 struct resource *private_request_mem_region(resource_size_t start, resource_size_t n, const char *name);
@@ -6859,6 +6868,9 @@ static uint32_t awb_ev = 0x64000;
 })
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000000 origin=model_output original=isp_printf */
+#ifndef TX_ISP_T21_TRACE
+#undef isp_printf
+#endif
 int32_t isp_printf(uint32_t level, const char *fmt, ...)
 {
 	struct va_format vaf;
@@ -6879,6 +6891,10 @@ int32_t isp_printf(uint32_t level, const char *fmt, ...)
 
 	return result;
 }
+#ifndef TX_ISP_T21_TRACE
+#define isp_printf(level, ...) \
+	((__builtin_constant_p(level) && (level) == 0) ? 0 : (isp_printf)(level, __VA_ARGS__))
+#endif
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000084 origin=fragment_seed original=get_isp_clk */
 uint32_t get_isp_clk(void)
