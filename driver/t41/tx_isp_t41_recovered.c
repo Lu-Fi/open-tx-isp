@@ -20608,6 +20608,19 @@ uint32_t aisp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2
     uintptr_t *v0 = 0;
     uint32_t *v1 = 0;
 
+    /*
+     * ENOTTY gate for /dev/aisp.  The recovered fall-through calls
+     * isp_core_tunning_default_ioctl(), whose decompiled body runs
+     * copy_from_user()/copy_to_user() against 4-byte scalar locals
+     * (&local_10 with 16-byte copies) with arguments the recovered call
+     * does not pass.  libimp/OpenIMP only use /dev/isp-m0 for tuning (typed,
+     * bounds-checked handler), so refuse everything here like d18773d4 does
+     * for the other dispatchers.
+     */
+    pr_warn_once("tx-isp-t41: %s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
+                 __func__, a1, _IOC_SIZE(a1));
+    return (uint32_t)-ENOTTY;
+
     /* fragment 0: MemoryAccess */
     v0 = *(uint32_t *)((char *)a0 + 136);
     v1 = 3;
