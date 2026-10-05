@@ -31681,7 +31681,21 @@ sensor_set_mode0x68:
     s0 = a1;
     s2 = ((uintptr_t)s2 * (uintptr_t)v1) + a0;
     s1 = *(uint32_t *)((char *)(s2) + 360);
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
+    /*
+     * Vendor 1.2.6-720-4494 sensor_set_mode+0x68..0x94 (0x118dc..0x11908;
+     * 1.2.0-720-4494 same shape): event = *(core + 0x80), then
+     * event(core, 0x0200000d, &mode_flag) with the byte flag = 1 at sp+16.
+     * core is the global g_ispcore subdev, not the incoming argument.
+     * A non-zero return takes the vendor error print below.
+     */
+    if (!t41_kernel_data_ptr((void *)a0) ||
+        !t41_kernel_data_ptr((void *)(uintptr_t)v0)) {
+        v0 = -ENODEV;
+        a2 = local_10;
+        goto sensor_set_mode0x34;
+    }
+    v0 = (uintptr_t)((int (*)(uintptr_t, uint32_t, uintptr_t))(uintptr_t)v0)(
+        a0, 0x0200000d, (uintptr_t)&local_10);
 
     /* fragment 10: Branch */
     a2 = local_10;
