@@ -33991,6 +33991,39 @@ noinline int32_t system_reg_write(uint32_t offset,
 /* OEM .bss+0x18814: set after a running-mode switch, consumed next IRQ. */
 static int csc_day_pending;
 
+/*
+ * Idle-AWB diagnostics (/sys/module/tx_isp_t21/parameters/):
+ *   isp_irq_total  ISP core IRQs handled
+ *   isp_irq_fd     frame-done IRQs of channels 0..2 (status bits 0..2)
+ *   isp_irq_awb    AWB statistics IRQs (status bit 0x12) - starts event 9
+ *   isp_irq_ae     AE statistics IRQs (status bit 16)
+ *   awb_gain_r/b   live AWB gain registers 0x604 / 0x608 (read-only)
+ * If, with every framesource channel disabled, isp_irq_awb stops counting
+ * while isp_irq_fd is also flat, the ISP stalls without a consumer; if
+ * isp_irq_awb keeps counting but awb_gain_* stay put, the AWB worker is
+ * what idles.
+ */
+static uint isp_irq_total, isp_irq_fd, isp_irq_awb, isp_irq_ae;
+module_param(isp_irq_total, uint, 0444);
+module_param(isp_irq_fd, uint, 0444);
+module_param(isp_irq_awb, uint, 0444);
+module_param(isp_irq_ae, uint, 0444);
+
+static int t21_awb_gain_get(char *buf, const struct kernel_param *kp)
+{
+	u32 reg = (uintptr_t)kp->arg;
+	u32 v = 0;
+
+	if (!ACCESS_ONCE(t21_isp_clocks_off) && ispcore_sd)
+		v = system_reg_read(reg);
+	return scnprintf(buf, PAGE_SIZE, "%u\n", v);
+}
+static const struct kernel_param_ops t21_awb_gain_ops = {
+	.get = t21_awb_gain_get,
+};
+module_param_cb(awb_gain_r, &t21_awb_gain_ops, (void *)0x604, 0444);
+module_param_cb(awb_gain_b, &t21_awb_gain_ops, (void *)0x608, 0444);
+
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000330fc origin=fragment_seed original=ispcore_interrupt_service_routine */
 int32_t ispcore_interrupt_service_routine(uintptr_t a0)
 {
@@ -34020,6 +34053,13 @@ int32_t ispcore_interrupt_service_routine(uintptr_t a0)
 	registers = core->registers;
 	runtime = core->runtime;
 	status = readl(registers + 0x84);
+	isp_irq_total++;
+	if (status & 7)
+		isp_irq_fd++;
+	if (status & BIT(0x12))
+		isp_irq_awb++;
+	if (status & BIT(16))
+		isp_irq_ae++;
 	writel(status, registers + 0x88);
 	mask = readl(registers + 0x80);
 	writel(mask & ~status, registers + 0x80);
