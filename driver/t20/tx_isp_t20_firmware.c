@@ -14230,13 +14230,14 @@ int32_t apical_command(uint32_t cmd, uint32_t sub, uint32_t val, uint32_t type, 
 		}
 		break;
 	case 5:
-		if (sub_idx == 0x7d)
+		/* OEM 0x25efc: ids 124..127 (the recovery had 125..128) */
+		if (sub_idx == 0x7c)
 			return register_address(api_base, val, type_b, data);
-		if (sub_idx == 0x7e)
+		if (sub_idx == 0x7d)
 			return register_size(api_base, val, type_b, data);
-		if (sub_idx == 0x7f)
+		if (sub_idx == 0x7e)
 			return register_source(api_base, val, type_b, data);
-		if (sub_idx == 0x80)
+		if (sub_idx == 0x7f)
 			return register_value(api_base, val, type_b, data);
 		break;
 	case 6:
