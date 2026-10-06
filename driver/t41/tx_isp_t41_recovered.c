@@ -42,6 +42,19 @@
 #include "tx_isp_t41_v4l2.h"
 #include <linux/ratelimit.h>
 #include "../include/tx_isp/tx_isp_guard.h"
+/*
+ * Bring-up trace notes (VIC/VIN state, flicker profile, TMO bypass) were
+ * KERN_WARNING progress lines.  Release builds (TX_ISP_T41_TRACE unset/n in
+ * Kbuild) compile them and their strings out; errors and real warnings stay.
+ */
+#ifdef TX_ISP_T41_TRACE
+#define t41_trace_printk(...) printk(__VA_ARGS__)
+#define t41_trace_printk_ratelimited(...) printk_ratelimited(__VA_ARGS__)
+#else
+#define t41_trace_printk(...) ((void)0)
+#define t41_trace_printk_ratelimited(...) ((void)0)
+#endif
+
 #ifdef REGTRACE_KERNEL_TREE_BUILD
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -582,18 +595,6 @@ extern void *memcpy(void *dest, const void *src, size_t n);
 extern char *strstr(const char *haystack, const char *needle);
 extern int printk(const char *fmt, ...);
 
-/*
- * Bring-up trace notes (VIC/VIN state, flicker profile, TMO bypass) were
- * KERN_WARNING progress lines.  Release builds (TX_ISP_T41_TRACE unset/n in
- * Kbuild) compile them and their strings out; errors and real warnings stay.
- */
-#ifdef TX_ISP_T41_TRACE
-#define t41_trace_printk(...) printk(__VA_ARGS__)
-#define t41_trace_printk_ratelimited(...) printk_ratelimited(__VA_ARGS__)
-#else
-#define t41_trace_printk(...) ((void)0)
-#define t41_trace_printk_ratelimited(...) ((void)0)
-#endif
 extern void dev_err(const void *dev, const char *fmt, ...);
 extern void _dev_info(const void *dev, const char *fmt, ...);
 extern int __copy_user(void *to, const void *from, unsigned long n, ...);
@@ -1051,6 +1052,37 @@ module_param(t41_safe_msca_start, int, 0);
 MODULE_PARM_DESC(t41_safe_msca_start,
 		 "defer MSCA channel programming while its packed state is neutral");
 
+/*
+ * Skip MSCA update requests for unchanged HVFLIP state (see
+ * tisp_msca_set_mirr_flip()).  0 restores the stock request on every call.
+ */
+static int t41_msca_flip_skip_noop = 1;
+module_param(t41_msca_flip_skip_noop, int, 0644);
+MODULE_PARM_DESC(t41_msca_flip_skip_noop,
+                 "1 (default) skips the MSCA update request when HVFLIP bits are unchanged");
+/*
+ * Stock single-output STREAMOFF leaves the MSCA output enabled: its
+ * tisp_channel_main_stop() reloads the channel with the enable flag clear,
+ * and tisp_msca_chx_cfg_load() only ever ORs enable bits into 0xf0008.  The
+ * output idles once its address FIFO is cleared (REQBUFS 0).
+ *
+ * Clearing the bit while the input keeps running (another output streams,
+ * or a streamer idle-stops one output) and enabling/reprogramming it again
+ * on the next STREAMON hard-hangs the T41 within a few frames: both CPUs
+ * stop, no oops, the watchdog resets.  So keep the output enabled, and on a
+ * restart with unchanged geometry do not touch its MSCA registers at all.
+ * 1 restores the previous clear-and-reprogram behaviour.
+ */
+static int t41_msca_stop_disable;
+module_param(t41_msca_stop_disable, int, 0644);
+struct t41_msca_live_cfg {
+	uint32_t width, height, source_width, source_height;
+	uint32_t crop_x, crop_y, crop_width, crop_height, aux, align;
+};
+/* Geometry last programmed into each MSCA output (see above). */
+static struct t41_msca_live_cfg t41_msca_live[3];
+static bool t41_msca_live_valid[3];
+
 static int t41_defer_vic_irq = 1;
 module_param(t41_defer_vic_irq, int, 0);
 MODULE_PARM_DESC(t41_defer_vic_irq,
@@ -1146,10 +1178,17 @@ static unsigned int t41_isp_irq_trace_epoch = 0x80000000U;
  * but exact T41 tisp_msca_addr_fifo_write() only writes the Y and UV FIFO
  * addresses.  Keep T41's channel-start-owned control state by default; a
  * negative module parameter retains the T40-style diagnostic A/B path. */
-static int t41_msca_fifo_ctrl_after_live_qbuf = -1;
+/*
+ * Off by default: stock tisp_msca_addr_fifo_write() writes only the Y/UV
+ * address registers.  Writing the FIFO control words back (live counters
+ * plus bit 31) on every QBUF is a T40 import; with outputs kept enabled
+ * across STREAMOFF (t41_msca_stop_disable) it hit an idle output's FIFO
+ * on every restart.  Both outputs run at full rate without it.
+ */
+static int t41_msca_fifo_ctrl_after_live_qbuf = 1;
 module_param(t41_msca_fifo_ctrl_after_live_qbuf, int, 0);
 MODULE_PARM_DESC(t41_msca_fifo_ctrl_after_live_qbuf,
-                 "negative enables T40-style control after live MSCA QBUF");
+                 "negative enables T40-style control after live MSCA QBUF (default off)");
 
 /*
  * Exact T41 ispcore_irq_main_fd_work() calls tisp_msca_Shd_ctrl(0) after
@@ -53086,8 +53125,13 @@ int32_t tisp_channel_main_stop(uint32_t a0)
                                 (uintptr_t)&flags);
     *(uint8_t *)((char *)&mscaler + a0 * 612 + 4) = 0;
     *(uint8_t *)((char *)&msca + a0 * 26) = 0;
-    system_reg_write(0x0f0008U, system_reg_read(0x0f0008U) & ~mask);
+    if (t41_msca_stop_disable > 0) {
+        system_reg_write(0x0f0008U, system_reg_read(0x0f0008U) & ~mask);
+        t41_msca_live_valid[a0] = false;
+    }
     private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    if (t41_msca_stop_disable <= 0)
+        return 0;
 
     /* FIFO reset and VB2 buffer return/free must follow DMA quiescence.
      * This process-context path holds no spinlock. A stuck engine must
@@ -141227,6 +141271,20 @@ int32_t tisp_msca_set_mirr_flip(uint32_t a0, uintptr_t a1)
            ((uint32_t)settings[0x00f] << 11) |
            ((uint32_t)settings[0x00e] << 10);
     value = system_reg_read(0x0f002c);
+    /*
+     * 0xf0010 = 1 requests an MSCA register update; the bit reads back 0
+     * once the next input frame applied it.  Stock requests it on every
+     * call.  Every output start calls this twice with unchanged bits: from
+     * frame-channel SET_FMT before the output is enabled, and from the
+     * streamer's HVFLIP right after.  With the input live (another output
+     * streaming, or after an idle stop) those update requests around the
+     * enable were the most frequent trigger of the T41 output-restart hard
+     * hang (both CPUs stop, no oops, watchdog reset; driver/t41/README.md).
+     * A real flip change still requests the update as stock does.
+     */
+    if (t41_msca_flip_skip_noop > 0 &&
+        ((value & 0xc00001ff) | bits) == value)
+        return 0;
     system_reg_write(0x0f002c, (value & 0xc00001ff) | bits);
     system_reg_write(0x0f0010, 1);
     return 0;
@@ -142837,6 +142895,33 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
         return -EINVAL;
     channel_params = params + a1 * 0x20U;
 
+    {
+        struct t41_msca_live_cfg cfg = {
+            .width = channel_width, .height = channel_height,
+            .source_width = source_width, .source_height = source_height,
+            .crop_x = crop_x, .crop_y = crop_y,
+            .crop_width = crop_width, .crop_height = crop_height,
+            .aux = ((uint32_t)*(uint16_t *)(desc + 0x0a) << 16) |
+                   *(uint16_t *)(desc + 0x0c),
+            .align = *(uint32_t *)(void *)isp_nv12_wbit,
+        };
+
+        if (desc[0] & 1U) {
+            /* Restart of an output that stock-style STREAMOFF left
+             * enabled: same geometry means nothing to reprogram. */
+            if (t41_msca_stop_disable <= 0 && t41_msca_live_valid[a1] &&
+                (system_reg_read(0x0f0008U) & (1U << a1)) &&
+                !memcmp(&cfg, &t41_msca_live[a1], sizeof(cfg))) {
+                printk(KERN_WARNING
+                       "tx_isp_t41_recovered: MSCA channel %u still enabled with unchanged geometry; not reprogrammed\n",
+                       a1);
+                return 0;
+            }
+            t41_msca_live[a1] = cfg;
+            t41_msca_live_valid[a1] = true;
+        }
+    }
+
     /*
      * This is the stock H20250310a tisp_msca_para_calc(),
      * tisp_msca_scaling_algorithm(), and tisp_msca_init_chx_cfg() register
@@ -142937,6 +143022,10 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
            system_reg_read(base + 0x80), system_reg_read(base + 0x98),
            system_reg_read(0x0f0030), system_reg_read(0x0f0084),
            system_reg_read(0x0f00e0));
+    /* Stock ORs this output's bit in and never clears another's here. */
+    if (t41_msca_stop_disable <= 0)
+        active_mask = system_reg_read(0x0f0008) |
+                      ((uint32_t)(desc[0] & 1U) << a1);
     system_reg_write(0x0f0008, active_mask);
     private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock,
                                    enable_flags);
@@ -161600,6 +161689,8 @@ int32_t ispcore_frame_channel_streamon(void *arg1)
              * Drop the lock only while rebuilding from the saved userspace
              * format, then restore its original state before programming. */
             msca_desc[8] = 0;
+            /* The late start rewrote this output's MSCA geometry. */
+            t41_msca_live_valid[tisp_channel] = false;
             ret = (int)ispcore_frame_channel_set_fmt(
                 (uintptr_t)pad, (uintptr_t)channel);
             msca_desc[8] = source_lock;
