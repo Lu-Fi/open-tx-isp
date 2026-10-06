@@ -64,4 +64,53 @@ static inline int t41_msca_flip_word(const struct t41_msca_staged *s,
 	return next != base;
 }
 
+/*
+ * Output start with the geometry latched while the output is OFF (driver
+ * README "Output restart hang").  Stock never requests an MSCA update right
+ * after enabling an output: its STREAMOFF switches the output off
+ * (tisp_msca_scaling_algorithm rewrites 0xf0008 from the descriptor enable
+ * bytes), the next SET_FMT requests the update through tisp_s_hv_flip()
+ * while the output is still off, and STREAMON only sets the enable bit.
+ *
+ * t41_msca_words_active() says whether the active (read-back) values of the
+ * staged words already equal what was written.  Only then may an output be
+ * enabled at once; otherwise the caller requests the update with the output
+ * off and enables it after the read-back shows the new values.
+ */
+struct t41_msca_word {
+	unsigned int reg;
+	unsigned int value;
+	unsigned int mask;
+};
+
+static inline int t41_msca_words_active(const struct t41_msca_word *w,
+					unsigned int n,
+					const unsigned int *readback)
+{
+	unsigned int i;
+
+	for (i = 0; i < n; ++i)
+		if ((readback[i] ^ w[i].value) & w[i].mask)
+			return 0;
+	return 1;
+}
+
+enum t41_msca_start_step {
+	T41_MSCA_START_ENABLE = 0,	/* staged == active: enable now */
+	T41_MSCA_START_LATCH = 1,	/* off, request update, enable later */
+};
+
+/*
+ * The caller switches the output off before it writes the staged words and
+ * keeps it off while this returns LATCH: an update request must not reach an
+ * enabled output whose staged geometry differs from the active one.
+ */
+static inline enum t41_msca_start_step
+t41_msca_start_plan(const struct t41_msca_word *w, unsigned int n,
+		    const unsigned int *readback)
+{
+	return t41_msca_words_active(w, n, readback) ?
+		T41_MSCA_START_ENABLE : T41_MSCA_START_LATCH;
+}
+
 #endif /* TX_ISP_T41_MSCA_SHADOW_H */

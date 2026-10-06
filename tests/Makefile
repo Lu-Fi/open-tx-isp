@@ -20,8 +20,12 @@ TEST_TIMEOUT ?= 600
 TESTS += tx_isp_t41_ysp_test
 TESTS += tx_isp_t41_tuning_ctl_test
 TESTS += tx_isp_t41_msca_shadow_test
+TESTS += tx_isp_t41_msca_start_test
 
 tx_isp_t41_msca_shadow_test: tx_isp_t41_msca_shadow_test.c ../driver/t41/tx_isp_t41_msca_shadow.h
+	$(CC) $(CFLAGS) -o $@ $<
+
+tx_isp_t41_msca_start_test: tx_isp_t41_msca_start_test.c ../driver/t41/tx_isp_t41_msca_shadow.h
 	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t41_tuning_ctl_test: tx_isp_t41_tuning_ctl_test.c ../driver/t41/tx_isp_t41_tuning_ctl.h ../driver/t41/tx_isp_t41_tmo.h

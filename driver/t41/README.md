@@ -588,4 +588,22 @@ geometry (correct pictures), and then the targeted repro hangs again after
 with unchanged geometry are not reprogrammed). The hang is therefore tied to
 an output being idle-stopped and restarted while the MSCA really scales the
 full 2880x1620 input, not to the update requests themselves. Default stays 0
-until that is solved.
+until that is solved (superseded below).
+
+Update 2026-10-10: `t41_msca_cfg_update=2` (new default) requests the update
+with the output OFF and enables it once the read-back shows the new words,
+as stock does (STREAMOFF switches the output off, `t41_msca_stop_disable=1`
+is the default again; a restart with unchanged words requests nothing).
+Targeted repro (ch0 2 s, ch1 after 1.8/2.5/4.0 s, `general.fs_keepalive =
+off`), ch1 sizes: 320x180, 640x360 (2x), 704x400 21/21 cycles each, 768x432
+9/9, pictures match ch0, no band on either buffer; `cfg_update=1` at 640x360
+hung in cycle 2. Still open: ch1 960x540 and 1280x720 hang at the first
+start while the input runs (960x540: 3/3 runs; also with a 120 ms wait after
+the latch and with the ch1 latch skipped), while the flashed build that
+never latches ran 960x540 21/21 (wrong picture). Separately, `rmmod
+tx_isp_t41` sometimes oopses in `module_param_sysfs_remove()` (the param
+attribute array holds the value 2), also with the flashed build loaded at
+boot: a heap overwrite somewhere in the driver, maybe the same fault as the
+hang. At 1280x720 the encoder also fails an order-9 DMA allocation (`avpu:
+Can't alloc DMA buffer`, ch1 RTSP 503) when ch0 started first.
+

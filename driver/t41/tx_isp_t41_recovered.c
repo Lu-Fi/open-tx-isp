@@ -1062,41 +1062,77 @@ module_param(t41_msca_flip_skip_noop, int, 0644);
 MODULE_PARM_DESC(t41_msca_flip_skip_noop,
                  "1 (default) skips the MSCA update request when HVFLIP bits are unchanged");
 /*
- * Stock single-output STREAMOFF leaves the MSCA output enabled: its
- * tisp_channel_main_stop() reloads the channel with the enable flag clear,
- * and tisp_msca_chx_cfg_load() only ever ORs enable bits into 0xf0008.  The
- * output idles once its address FIFO is cleared (REQBUFS 0).
+ * STREAMOFF and the MSCA output enable (driver/t41/README.md "Output restart
+ * hang").  Stock tisp_channel_main_stop() reloads the channel with its
+ * descriptor enable byte clear, and tisp_msca_scaling_algorithm() inside
+ * tisp_msca_chx_cfg_load() rewrites 0xf0008 from the three descriptor enable
+ * bytes: the stopped output is switched OFF (the final OR of the channel's
+ * own bit adds nothing).  1 (default) does the same and then waits until the
+ * output has finished its frame (0xf00e0) before the FIFO is cleared.
  *
- * Clearing the bit while the input keeps running (another output streams,
- * or a streamer idle-stops one output) and enabling/reprogramming it again
- * on the next STREAMON hard-hangs the T41 within a few frames: both CPUs
- * stop, no oops, the watchdog resets.  So keep the output enabled, and on a
- * restart with unchanged geometry do not touch its MSCA registers at all.
- * 1 restores the previous clear-and-reprogram behaviour.
+ * 0 keeps the output enabled with an empty address FIFO and skips the
+ * register reload on a restart with unchanged geometry.  That only looked
+ * stable while the outputs never latched their geometry (see
+ * t41_msca_cfg_update); with real scaling it hangs the T41 within a few
+ * restart cycles.
  */
-static int t41_msca_stop_disable;
+static int t41_msca_stop_disable = 1;
 module_param(t41_msca_stop_disable, int, 0644);
 /*
  * MSCA output geometry, ratios, the global input size and 0xf002c are
  * staged registers (tx_isp_t41_msca_shadow.h): they only take effect at the
- * next input frame after 0xf0010 = 1.  Stock relies on the update requests
- * of the HVFLIP path around SET_FMT; with no-op flip requests skipped
- * (t41_msca_flip_skip_noop) nothing latches a newly programmed output, so
- * every output keeps its reset geometry (ch0 1920x1080, ch1 1280x720, ratio
- * 1:1, input 1920x1080): ch0 shows a 1920x1080 crop of the 2880x1620
- * sensor, ch1 at 640x360 writes 1280x720 lines into 640x360 buffers
- * (garbage chroma, a band of other data at the top of the next buffer).
+ * next input frame after 0xf0010 = 1.  With no-op flip update requests
+ * skipped (t41_msca_flip_skip_noop) nothing latched a newly programmed
+ * output, so every output kept its reset geometry (ch0 1920x1080, ch1
+ * 1280x720, ratio 1:1, input 1920x1080): ch1 at 640x360 wrote 1280x720
+ * lines into 640x360 buffers (garbage chroma, a band of other data at the
+ * top of the next buffer, brightness unrelated to ch0).
  *
- * 1 requests the update after a (re)programmed output: every ch1 size from
- * 640x360 to 1440x810 is then correct, 20 timps restarts pass.  It stays
- * OFF by default because with correct geometry the output-restart hang
- * (README "Output restart hang") comes back: t41crash/targeted.py hung the
- * T41 after 4-13 cycles with 1, none in 30 cycles with 0 (2026-10-06).
+ * 2 (default): the update is requested with the output OFF and the output
+ * is enabled by t41_msca_finish_enable() once the read-back shows the new
+ * words, as stock does in its steady state (STREAMOFF switches the output
+ * off, SET_FMT requests the update through tisp_s_hv_flip(), STREAMON only
+ * sets the enable bit).  A restart whose words are already active requests
+ * no update at all.
+ * 1: request the update right after enabling the output (correct pictures,
+ * but the output-restart hang comes back after 4-13 restart cycles).
+ * 0: never request it (reset geometry, see above).
  */
-static int t41_msca_cfg_update;
+static int t41_msca_cfg_update = 2;
 module_param(t41_msca_cfg_update, int, 0644);
 MODULE_PARM_DESC(t41_msca_cfg_update,
-                 "1 latches MSCA output geometry (correct scaling; output-restart hang risk, default 0)");
+                 "2 (default) latches MSCA output geometry with the output off; 1 latches after enable; 0 never");
+/* Outputs whose update request is pending; enabled by
+ * t41_msca_finish_enable() once the read-back shows the new words. */
+static unsigned int t41_msca_enable_pending __attribute__((section(".data")));
+static unsigned int t41_msca_start_latches __attribute__((section(".data")));
+static unsigned int t41_msca_latch_timeouts __attribute__((section(".data")));
+static unsigned int t41_msca_live_disables __attribute__((section(".data")));
+static unsigned int t41_msca_latch_wait_max_us __attribute__((section(".data")));
+module_param_named(msca_start_latches, t41_msca_start_latches, uint, 0444);
+module_param_named(msca_latch_timeouts, t41_msca_latch_timeouts, uint, 0444);
+module_param_named(msca_live_disables, t41_msca_live_disables, uint, 0444);
+module_param_named(msca_latch_wait_max_us, t41_msca_latch_wait_max_us, uint, 0444);
+static int t41_msca_latch_timeout_ms = 300;
+module_param(t41_msca_latch_timeout_ms, int, 0644);
+#define T41_MSCA_START_WORDS 6
+static struct t41_msca_word t41_msca_start_set[3][T41_MSCA_START_WORDS]
+    __attribute__((section(".data")));
+
+static void t41_msca_start_words(unsigned int ch, struct t41_msca_word *w,
+                                 uint32_t size, uint32_t crop_pos,
+                                 uint32_t crop_size, uint32_t hratio,
+                                 uint32_t vratio, uint32_t algorithm)
+{
+    uint32_t base = 0x0f0100U + ch * 0x100U;
+
+    w[0] = (struct t41_msca_word){ base, size, 0xffffffffU };
+    w[1] = (struct t41_msca_word){ base + 0x28, crop_pos, 0xffffffffU };
+    w[2] = (struct t41_msca_word){ base + 0x2c, crop_size, 0xffffffffU };
+    w[3] = (struct t41_msca_word){ 0x0f0728U + ch * 4U, hratio, 0x7ffffU };
+    w[4] = (struct t41_msca_word){ 0x0f071cU + ch * 4U, vratio, 0x7ffffU };
+    w[5] = (struct t41_msca_word){ 0x0f002cU, algorithm, 0xffffffffU };
+}
 /* Last word written to the staged 0xf002c (flip/mirror/algorithm). */
 static struct t41_msca_staged t41_msca_algo_staged
     __attribute__((section(".data")));
@@ -53150,6 +53186,7 @@ int32_t tisp_channel_main_stop(uint32_t a0)
                                 (uintptr_t)&flags);
     *(uint8_t *)((char *)&mscaler + a0 * 612 + 4) = 0;
     *(uint8_t *)((char *)&msca + a0 * 26) = 0;
+    t41_msca_enable_pending &= ~mask;
     if (t41_msca_stop_disable > 0) {
         system_reg_write(0x0f0008U, system_reg_read(0x0f0008U) & ~mask);
         t41_msca_live_valid[a0] = false;
@@ -142937,8 +142974,8 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
         };
 
         if (desc[0] & 1U) {
-            /* Restart of an output that stock-style STREAMOFF left
-             * enabled: same geometry means nothing to reprogram. */
+            /* t41_msca_stop_disable=0 left the output enabled across
+             * STREAMOFF: same geometry means nothing to reprogram. */
             if (t41_msca_stop_disable <= 0 && t41_msca_live_valid[a1] &&
                 (system_reg_read(0x0f0008U) & (1U << a1)) &&
                 !memcmp(&cfg, &t41_msca_live[a1], sizeof(cfg))) {
@@ -142950,6 +142987,23 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
             t41_msca_live[a1] = cfg;
             t41_msca_live_valid[a1] = true;
         }
+    }
+
+    /* Latch-before-enable: an output that is reprogrammed while enabled
+     * is switched off first, as stock STREAMOFF leaves it.  Strides are
+     * immediate and the update request below must not reach an enabled
+     * output whose staged geometry differs from the active one. */
+    if (t41_msca_cfg_update >= 2) {
+        __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                    (uintptr_t)&enable_flags);
+        t41_msca_enable_pending &= ~(1U << a1);
+        if (system_reg_read(0x0f0008U) & (1U << a1)) {
+            system_reg_write(0x0f0008U,
+                             system_reg_read(0x0f0008U) & ~(1U << a1));
+            t41_msca_live_disables++;
+        }
+        private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock,
+                                       enable_flags);
     }
 
     /*
@@ -143054,15 +143108,45 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
            system_reg_read(base + 0x80), system_reg_read(base + 0x98),
            system_reg_read(0x0f0030), system_reg_read(0x0f0084),
            system_reg_read(0x0f00e0));
-    /* Stock ORs this output's bit in and never clears another's here. */
+    /* stop_disable=0 only ORs this output's bit in; otherwise the mask
+     * follows the descriptor enable bytes, as stock
+     * tisp_msca_scaling_algorithm() does. */
     if (t41_msca_stop_disable <= 0)
         active_mask = system_reg_read(0x0f0008) |
                       ((uint32_t)(desc[0] & 1U) << a1);
-    system_reg_write(0x0f0008, active_mask);
-    /* Latch the staged geometry/ratio words at the next input frame
-     * (see t41_msca_cfg_update). */
-    if (t41_msca_cfg_update > 0)
-        system_reg_write(0x0f0010, 1);
+    if (t41_msca_cfg_update >= 2)
+        /* Another output still waiting for its latch stays off. */
+        active_mask &= ~(t41_msca_enable_pending & ~(1U << a1));
+    if (t41_msca_cfg_update >= 2 && (desc[0] & 1U)) {
+        /* Enable only once the staged words are active; otherwise
+         * request the update with the output off and let
+         * t41_msca_finish_enable() switch it on after the latch. */
+        const struct t41_msca_word *words = t41_msca_start_set[a1];
+        unsigned int readback[T41_MSCA_START_WORDS];
+
+        t41_msca_start_words(a1, t41_msca_start_set[a1], packed_size,
+                             (crop_x << 16) | crop_y,
+                             (crop_width << 16) | crop_height,
+                             horizontal_ratio, vertical_ratio, algorithm);
+        for (i = 0; i < T41_MSCA_START_WORDS; ++i)
+            readback[i] = system_reg_read(words[i].reg);
+        if (t41_msca_start_plan(words, T41_MSCA_START_WORDS, readback) ==
+            T41_MSCA_START_LATCH) {
+            active_mask &= ~(1U << a1);
+            system_reg_write(0x0f0008, active_mask);
+            system_reg_write(0x0f0010, 1);
+            t41_msca_enable_pending |= 1U << a1;
+            t41_msca_start_latches++;
+        } else {
+            system_reg_write(0x0f0008, active_mask);
+        }
+    } else {
+        system_reg_write(0x0f0008, active_mask);
+        /* Latch the staged geometry/ratio words at the next input frame
+         * (see t41_msca_cfg_update). */
+        if (t41_msca_cfg_update == 1)
+            system_reg_write(0x0f0010, 1);
+    }
     private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock,
                                    enable_flags);
     printk(KERN_WARNING
@@ -161632,6 +161716,108 @@ int ispcore_frame_channel_freebufs(void *arg1) {
     return 0;
 }
 
+/*
+ * Second half of a latch-before-enable output start (t41_msca_cfg_update=2,
+ * see tisp_msca_chx_cfg_load()).  Process context, no locks held: waits
+ * until the read-back of the staged words shows the requested values (the
+ * update request applies at the next input frame), then sets the enable bit
+ * if the output is still wanted.  Without a running input there is no frame
+ * to latch at; the output is enabled at once and the pending request applies
+ * at the first frame, as on a stock first start.
+ */
+static void t41_msca_finish_enable(uint32_t ch)
+{
+    unsigned long flags = 0;
+    unsigned long deadline;
+    unsigned int readback[T41_MSCA_START_WORDS];
+    ktime_t start;
+    unsigned int i;
+    uint32_t bit;
+    int latched = 0;
+
+    if (ch >= 3 || t41_msca_cfg_update < 2)
+        return;
+    bit = 1U << ch;
+    if (!(READ_ONCE(t41_msca_enable_pending) & bit))
+        return;
+    start = ktime_get();
+    if (t41_isp_stream_started == 1) {
+        deadline = jiffies + msecs_to_jiffies(t41_msca_latch_timeout_ms);
+        for (;;) {
+            for (i = 0; i < T41_MSCA_START_WORDS; ++i)
+                readback[i] =
+                    system_reg_read(t41_msca_start_set[ch][i].reg);
+            if (t41_msca_words_active(t41_msca_start_set[ch],
+                                      T41_MSCA_START_WORDS, readback)) {
+                latched = 1;
+                break;
+            }
+            if (time_after(jiffies, deadline))
+                break;
+            usleep_range(2000, 3000);
+        }
+    }
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    if (t41_msca_enable_pending & bit) {
+        uint8_t *desc = ((uint8_t **)(void *)mscaHardPar_storage)[ch];
+
+        t41_msca_enable_pending &= ~bit;
+        if (t41_kernel_data_ptr(desc) && (desc[0] & 1U))
+            system_reg_write(0x0f0008U, system_reg_read(0x0f0008U) | bit);
+    }
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    {
+        unsigned int us = (unsigned int)ktime_us_delta(ktime_get(), start);
+
+        if (us > t41_msca_latch_wait_max_us)
+            t41_msca_latch_wait_max_us = us;
+        if (t41_isp_stream_started == 1 && !latched) {
+            t41_msca_latch_timeouts++;
+            printk(KERN_WARNING
+                   "tx_isp_t41_recovered: MSCA channel %u latch not seen after %u us; enabled anyway\n",
+                   ch, us);
+            for (i = 0; i < T41_MSCA_START_WORDS; ++i)
+                printk(KERN_WARNING
+                       "tx_isp_t41_recovered: MSCA channel %u word %05x want %08x/%08x read %08x\n",
+                       ch, t41_msca_start_set[ch][i].reg,
+                       t41_msca_start_set[ch][i].value,
+                       t41_msca_start_set[ch][i].mask, readback[i]);
+        }
+    }
+}
+
+/* Read-only diagnostic: cat /sys/module/tx_isp_t41/parameters/t41_msca_regs
+ * (MSCA globals, the three output banks and the ratio words; reads return
+ * the active values of the staged registers). */
+static int t41_msca_regs_get(char *buf, const struct kernel_param *kp)
+{
+    static const struct { u32 start, end; } ranges[] = {
+        { 0x0f0000, 0x0f00f0 }, { 0x0f0100, 0x0f01b0 },
+        { 0x0f0200, 0x0f02b0 }, { 0x0f0300, 0x0f03b0 },
+        { 0x0f0700, 0x0f0740 },
+    };
+    int len = 0;
+    unsigned int r;
+    u32 reg;
+
+    (void)kp;
+    if (t41_isp_stream_started != 1)
+        return scnprintf(buf, PAGE_SIZE, "input stopped\n");
+    for (r = 0; r < ARRAY_SIZE(ranges); ++r)
+        for (reg = ranges[r].start; reg < ranges[r].end; reg += 16)
+            len += scnprintf(buf + len, PAGE_SIZE - len,
+                             "%05x: %08x %08x %08x %08x\n", reg,
+                             system_reg_read(reg), system_reg_read(reg + 4),
+                             system_reg_read(reg + 8),
+                             system_reg_read(reg + 12));
+    return len;
+}
+static const struct kernel_param_ops t41_msca_regs_ops = {
+    .get = t41_msca_regs_get,
+};
+module_param_cb(t41_msca_regs, &t41_msca_regs_ops, NULL, 0444);
+
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000705c4 origin=model_output original=ispcore_frame_channel_streamon */
 int32_t ispcore_frame_channel_streamon(void *arg1)
 {
@@ -161685,6 +161871,9 @@ int32_t ispcore_frame_channel_streamon(void *arg1)
     }
 
     private_spin_unlock_irqrestore(channel + 0xa8, flags);
+    if (start_late && channel_index < 3 && t41_safe_msca_start <= 0)
+        t41_msca_finish_enable(
+            (uint32_t)(uintptr_t)*(void **)(channel + 0x78));
     if (start_late) {
         /* Starting an output must not reset a live shared CSI receiver or
          * reseed the input's tuning history. The first output owns deferred
@@ -161734,6 +161923,8 @@ int32_t ispcore_frame_channel_streamon(void *arg1)
             msca_desc[8] = source_lock;
             if (!ret)
                 ret = tisp_channel_main_start(tisp_channel);
+            if (!ret)
+                t41_msca_finish_enable(tisp_channel);
             printk(KERN_WARNING
                    "tx_isp_t41_recovered: post-video MSCA reapply channel=%u saved=%ux%u lock=%u ret=%d input=%#x geom=%#x enable=%#x\n",
                    tisp_channel,
