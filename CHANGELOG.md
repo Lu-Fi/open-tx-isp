@@ -14,6 +14,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
     - 44 drains (at most 70 ms), 0 drain timeouts.
     - An ISP day/night switch: OK.
     - 0 oopses.
+- T21: `SetColorfxMode(SEPIA)` works (it returned -1 before): the CCM saturation list goes to 0 like B/W and the CSC U/V row sums get a tint (U below, V above neutral for a grey input, luma unchanged). A CSC attribute set during sepia keeps the tint; leaving sepia puts the stored matrix back. Device-tested on PC420 (jxf23): dU 17 / dV 19 against the plain picture.
 
 ## 2026-10-05
 
