@@ -29,6 +29,10 @@ TESTS += tx_isp_t31_autozoom_test
 TESTS += tx_isp_t31_af_test
 TESTS += tx_isp_t23_af_test
 TESTS += tx_isp_t23_crumbs_test
+TESTS += tx_isp_t23_scratch_test
+
+tx_isp_t23_scratch_test: tx_isp_t23_scratch_test.c ../driver/t23/tx_isp_t23_scratch.h
+	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t23_crumbs_test: tx_isp_t23_crumbs_test.c ../driver/t23/tx_isp_t23_crumbs.h
 	$(CC) $(CFLAGS) -o $@ $<

@@ -79,6 +79,7 @@ Release defaults (all 0644, debug escape hatches):
 | `crumbs` | 0 | off |
 | `chan_stop_drain` | 21 | STREAMOFF drain wait, N x 10 ms; 0 = no wait |
 | `qbuf_cache_inv` | 1 | cache invalidate at QBUF |
+| `msca_scratch` | 1 | park a kept output on a scratch area at STREAMOFF (`MSCA_SCRATCH.md`) |
 
 Read-only counters:
 
@@ -105,6 +106,11 @@ the channel until one of two things happens:
 With raptor, prudynt and timps, `DestroyChn` comes only at process exit,
 after the last close. The input stops with the tx-isp STREAMOFF of that
 exit.
+
+Since branch `claude/release-t23-af-scratch`, the driver closes this gap
+itself. STREAMOFF queues a scratch address behind the stream's buffers, so
+the kept output writes into a scratch area at the end of the ISP buffer
+instead of the stream's last buffer (`msca_scratch`, see `MSCA_SCRATCH.md`).
 
 ## Device test (Jooan A6M .30, T23N + sc1a4t, raptor)
 

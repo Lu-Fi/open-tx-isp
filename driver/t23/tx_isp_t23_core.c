@@ -14,6 +14,7 @@
 #include "tx_isp_t23_scaler.h"
 #include "tx_isp_t23_subdev.h"
 #include "tx_isp_t23_crumbs.h"
+#include "tx_isp_t23_scratch.h"
 #ifdef REGTRACE_KERNEL_TREE_BUILD
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -10110,6 +10111,45 @@ module_param_named(crumb_addr, regtrace_t23_crumb_addr, uint, 0644);
 MODULE_PARM_DESC(crumb_addr, "crumbs=2: physical address of the crumb page (outside kernel RAM)");
 static unsigned int regtrace_t23_crumb_phys;
 module_param_named(crumb_phys, regtrace_t23_crumb_phys, uint, 0444);
+/*
+ * msca_scratch=1: park the output of a stopped channel that stays enabled
+ * with the input running on a scratch area instead of its stream's last
+ * buffer (tx_isp_t23_scratch.h, docs/MSCA_SCRATCH.md).  The area is the
+ * tail of the SET_BUF ISP buffer; GET_BUF asks for it while this is 1.
+ * 0: no scratch area, no parking (behaviour before, debug).
+ */
+static bool regtrace_t23_msca_scratch = true;
+module_param_named(msca_scratch, regtrace_t23_msca_scratch, bool, 0644);
+MODULE_PARM_DESC(msca_scratch,
+                 "1 (default): STREAMOFF parks a kept MSCA output on a scratch area in the ISP buffer; 0 off (debug)");
+static unsigned int regtrace_t23_scratch_phys;
+module_param_named(msca_scratch_phys, regtrace_t23_scratch_phys, uint, 0444);
+MODULE_PARM_DESC(msca_scratch_phys, "physical address of the MSCA scratch area (read only, 0 = none)");
+static unsigned int regtrace_t23_scratch_bytes;
+module_param_named(msca_scratch_bytes, regtrace_t23_scratch_bytes, uint, 0444);
+MODULE_PARM_DESC(msca_scratch_bytes, "size of the MSCA scratch area (read only)");
+static unsigned int regtrace_t23_scratch_parks;
+module_param_named(msca_scratch_parks, regtrace_t23_scratch_parks, uint, 0444);
+MODULE_PARM_DESC(msca_scratch_parks, "STREAMOFFs that parked the output on the scratch area (read only)");
+static unsigned int regtrace_t23_scratch_frames;
+module_param_named(msca_scratch_frames, regtrace_t23_scratch_frames, uint, 0444);
+MODULE_PARM_DESC(msca_scratch_frames, "MSCA completions into the scratch area (read only)");
+static unsigned int regtrace_t23_scratch_deferred;
+module_param_named(msca_scratch_deferred, regtrace_t23_scratch_deferred, uint, 0444);
+MODULE_PARM_DESC(msca_scratch_deferred, "QBUFs of a parked channel held back until its STREAMON (read only)");
+static unsigned int regtrace_t23_scratch_skips;
+module_param_named(msca_scratch_skips, regtrace_t23_scratch_skips, uint, 0444);
+MODULE_PARM_DESC(msca_scratch_skips, "STREAMOFFs that wanted to park but had no (large enough) scratch area (read only)");
+/* channels parked on the scratch area; regtrace_framechan_done_lock */
+static unsigned int regtrace_t23_msca_parked;
+/* parked channels whose scratch address has not completed yet */
+static unsigned int regtrace_t23_scratch_pending;
+static unsigned int regtrace_t23_scratch_settle_timeouts;
+module_param_named(msca_scratch_settle_timeouts, regtrace_t23_scratch_settle_timeouts, uint, 0444);
+MODULE_PARM_DESC(msca_scratch_settle_timeouts, "input stops that found a scratch address still in an address FIFO after the wait (read only)");
+static unsigned int regtrace_t23_scratch_settle_ticks_max;
+module_param_named(msca_scratch_settle_ticks_max, regtrace_t23_scratch_settle_ticks_max, uint, 0444);
+MODULE_PARM_DESC(msca_scratch_settle_ticks_max, "longest wait for parked scratch addresses before an input stop, 10 ms steps (read only)");
 MODULE_PARM_DESC(crumb_phys, "physical address of the attached crumb page (read only, 0 = none)");
 static volatile u32 *regtrace_t23_crumb_page;
 
@@ -15354,6 +15394,10 @@ static long regtrace_tx_isp_getbuf(unsigned long arg)
     /* one more page for the hang crumbs (regtrace_t23_crumb_attach()) */
     if (info.size && regtrace_t23_crumbs == 1)
         info.size += T23_CRUMB_PAGE_BYTES;
+    /* the MSCA scratch area at the end (regtrace_tx_isp_setbuf()) */
+    if (info.size && regtrace_t23_msca_scratch)
+        info.size += t23_scratch_bytes(regtrace_t23_source_sensor_width,
+                                       regtrace_t23_source_sensor_height);
 
     if (copy_to_user((void __user *)arg, &info, sizeof(info)))
         return -EFAULT;
@@ -15425,6 +15469,41 @@ static void regtrace_t23_crumb_attach(u32 paddr, u32 size, u32 mdns_size)
     t23_crumb(T23C_SETBUF, 0);
 }
 
+/*
+ * The MSCA scratch area: the last t23_scratch_bytes() of the ISP buffer,
+ * behind the MDNS area and the crumb page.  Never moved while an output is
+ * parked with the input running (cannot happen: SET_BUF comes from
+ * AddSensor, before the tx-isp STREAMON).
+ */
+static void regtrace_t23_scratch_attach(u32 paddr, u32 size, u32 used,
+                                        u32 mdns_size)
+{
+    u32 bytes = 0;
+    u32 phys = 0;
+
+    if (regtrace_t23_msca_parked && regtrace_t23_vic_streaming) {
+        printk(KERN_WARNING "tx_isp_t23_recovered: MSCA scratch kept at 0x%x (outputs 0x%x parked, input running)\n",
+               regtrace_t23_scratch_phys, regtrace_t23_msca_parked);
+        return;
+    }
+    if (regtrace_t23_msca_scratch && used <= mdns_size &&
+        !tx_isp_qbuf_phys_check(paddr, size)) {
+        bytes = t23_scratch_bytes(regtrace_t23_source_sensor_width,
+                                  regtrace_t23_source_sensor_height);
+        phys = t23_scratch_place(paddr, size, mdns_size,
+                                 regtrace_t23_crumbs == 1 ?
+                                 T23_CRUMB_PAGE_BYTES : 0U, bytes);
+    }
+    regtrace_t23_scratch_phys = phys;
+    regtrace_t23_scratch_bytes = phys ? bytes : 0U;
+    if (phys)
+        printk(KERN_INFO "tx_isp_t23_recovered: MSCA scratch area 0x%x+0x%x\n",
+               phys, bytes);
+    else if (regtrace_t23_msca_scratch)
+        printk(KERN_WARNING "tx_isp_t23_recovered: no MSCA scratch area in the ISP buffer 0x%x+0x%x (need 0x%x behind 0x%x)\n",
+               paddr, size, bytes, mdns_size);
+}
+
 static long regtrace_tx_isp_setbuf(unsigned long arg)
 {
     struct regtrace_isp_buf_info info;
@@ -15474,6 +15553,7 @@ static long regtrace_tx_isp_setbuf(unsigned long arg)
     /* the engine must not reach into the crumb page */
     if (used <= mdns_size)
         regtrace_t23_crumb_attach(info.paddr, info.size, mdns_size);
+    regtrace_t23_scratch_attach(info.paddr, info.size, used, mdns_size);
     printk(KERN_WARNING
            "tx_isp_t23_recovered: MDNS DMA mode=%u paddr=0x%x size=0x%x used=0x%x ctrl=0x%x/%x bases=%x/%x/%x/%x/%x/%x/%x/%x/%x\n",
            info.mode & 0xffU, info.paddr, info.size, used,
@@ -16261,6 +16341,8 @@ static uint32_t regtrace_framechan_qbuf_count[REGTRACE_FRAMECHAN_COUNT];
  * buffer can complete, so each QBUF yields at most one DQBUF.
  */
 static bool regtrace_framechan_qbuf_queued[REGTRACE_FRAMECHAN_COUNT][REGTRACE_FRAMECHAN_QBUF_SLOTS];
+/* queued while the channel was parked: not in the MSCA FIFO until STREAMON */
+static bool regtrace_framechan_qbuf_deferred[REGTRACE_FRAMECHAN_COUNT][REGTRACE_FRAMECHAN_QBUF_SLOTS];
 static int regtrace_framechan_qbuf_last[REGTRACE_FRAMECHAN_COUNT];
 static uint32_t regtrace_framechan_dq_sequence[REGTRACE_FRAMECHAN_COUNT];
 static uint32_t regtrace_framechan_log_count[REGTRACE_FRAMECHAN_COUNT];
@@ -16499,8 +16581,10 @@ static void regtrace_framechan_forget_qbufs_locked(int channel)
 {
     int i;
 
-    for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++)
+    for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++) {
         regtrace_framechan_qbuf_queued[channel][i] = false;
+        regtrace_framechan_qbuf_deferred[channel][i] = false;
+    }
 }
 
 /*
@@ -16600,9 +16684,20 @@ static int regtrace_framechan_record_qbuf(int channel, const uint32_t *words)
     regtrace_framechan_qbuf_len[channel][slot] =
         words[TX_ISP_FRAME_WORD_LENGTH];
     regtrace_framechan_qbuf_queued[channel][slot] = true;
+    regtrace_framechan_qbuf_deferred[channel][slot] = false;
     regtrace_framechan_qbuf_last[channel] = slot;
     regtrace_framechan_qbuf_count[channel]++;
-    if (program) {
+    if (program && channel < 3 &&
+        (regtrace_t23_msca_parked & (1U << channel))) {
+        /*
+         * Parked output (msca_scratch): its FIFO must keep ending in the
+         * scratch address, or the MSCA would consume this buffer before
+         * STREAMON and stay on it.  Stock likewise enqueues buffers queued
+         * before STREAMON only at STREAMON (__enqueue_in_driver).
+         */
+        regtrace_framechan_qbuf_deferred[channel][slot] = true;
+        regtrace_t23_scratch_deferred++;
+    } else if (program) {
         ret = tisp_msca_addr_fifo_write((char)channel, buffer.y_dma,
                                         buffer.uv_dma);
         if (ret)
@@ -16673,6 +16768,13 @@ static void regtrace_framechan_complete_fifo(int channel,
 
     y_phys &= ~7U;
     uv_phys &= ~7U;
+    /* a frame of a parked output (msca_scratch): nobody's buffer */
+    if (t23_scratch_is(regtrace_t23_scratch_phys, y_phys)) {
+        regtrace_t23_scratch_frames++;
+        if (channel < 3)
+            regtrace_t23_scratch_pending &= ~(1U << channel);
+        return;
+    }
     spin_lock_irqsave(&regtrace_framechan_done_lock, flags);
     /*
      * Only a buffer queued in the current stream may complete. An address
@@ -17016,6 +17118,7 @@ static unsigned int regtrace_framechan_rearm_fifo(int channel)
     t23_crumb(T23C_FIFO_CLEAR, (u32)channel);
     tisp_channel_main_fifo_clear(channel);
     for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++) {
+        regtrace_framechan_qbuf_deferred[channel][i] = false;
         if (!regtrace_framechan_qbuf_queued[channel][i])
             continue;
         if (regtrace_t23_build_msca_qbuf(channel,
@@ -17029,6 +17132,47 @@ static unsigned int regtrace_framechan_rearm_fifo(int channel)
         pushed++;
     }
     spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+    return pushed;
+}
+
+/*
+ * STREAMON of a parked channel (msca_scratch): queue the buffers held back
+ * since its STREAMOFF.  The MSCA pops them after the scratch address it is
+ * on; the first completes at the earliest one frame later, after the
+ * channel is marked streaming.  Also queues buffers a session release left
+ * deferred.  Stream lock held.
+ */
+static unsigned int regtrace_framechan_unpark(int channel)
+{
+    struct tx_isp_nv12_buffer buffer;
+    unsigned long flags;
+    unsigned int pushed = 0;
+    int i;
+
+    if (channel < 0 || channel >= 3)
+        return 0;
+    spin_lock_irqsave(&regtrace_framechan_done_lock, flags);
+    regtrace_t23_msca_parked &= ~(1U << channel);
+    for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++) {
+        if (!regtrace_framechan_qbuf_deferred[channel][i])
+            continue;
+        regtrace_framechan_qbuf_deferred[channel][i] = false;
+        if (!regtrace_framechan_qbuf_queued[channel][i])
+            continue;
+        if (regtrace_t23_build_msca_qbuf(channel,
+                regtrace_framechan_qbuf_userptr[channel][i],
+                regtrace_framechan_qbuf_len[channel][i], &buffer) ||
+            tisp_msca_addr_fifo_write((char)channel, buffer.y_dma,
+                                      buffer.uv_dma)) {
+            regtrace_framechan_qbuf_queued[channel][i] = false;
+            continue;
+        }
+        pushed++;
+    }
+    spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+    if (pushed)
+        printk(KERN_INFO "tx_isp_t23_recovered: framechan%d unparked, %u held buffers queued\n",
+               channel, pushed);
     return pushed;
 }
 
@@ -17057,6 +17201,7 @@ static int regtrace_framechan_stream_on(struct file *file, int channel)
     }
     t23_crumb_set(T23_CRUMB_W_MASK, regtrace_framechan_stream_mask);
     regtrace_framechan_set_streaming(channel, true);
+    regtrace_framechan_unpark(channel);
     regtrace_t23_enable_stream_clks();
     if (!regtrace_t23_vic_streaming) {
         regtrace_t23_source_input_stream(1, "framechan-streamon");
@@ -17139,6 +17284,8 @@ static void regtrace_t23_msca_release_stale(const char *reason)
         system_reg_write(0xd040U, system_reg_read(0xd040U) & ~bit);
         regtrace_t23_msca_kept &= ~bit;
         regtrace_t23_msca_live_valid[channel] = false;
+        regtrace_t23_msca_parked &= ~bit;
+        regtrace_t23_scratch_pending &= ~bit;
         while (dropped < REGTRACE_FRAMECHAN_DONE_SLOTS &&
                !(system_reg_read(fifo_base + 0x13cU) & 1U)) {
             (void)system_reg_read(fifo_base + 0x138U);
@@ -17152,6 +17299,37 @@ static void regtrace_t23_msca_release_stale(const char *reason)
         printk(KERN_INFO "tx_isp_t23_recovered: MSCA ch=%d left enabled, released at session start (%s) dropped=%u d040=0x%x\n",
                channel, reason ? reason : "?", dropped,
                system_reg_read(0xd040U));
+    }
+}
+
+/*
+ * Before the input stops: let the MSCA consume the scratch address of every
+ * parked channel (one or two frames), so that no address FIFO keeps an
+ * entry across the input stop.  A non-empty FIFO at the next session is
+ * what a parked output otherwise left behind (the drain wait empties the
+ * stream's own entries); the session release then clears a non-empty FIFO,
+ * and the device hung at that session start (Jooan A6M, 3 of ~35 cold
+ * starts).  At most chan_stop_drain x 10 ms, only while frames arrive.
+ * Stream lock held.
+ */
+static uint regtrace_t23_chan_stop_drain;
+
+static void regtrace_t23_scratch_settle(const char *reason)
+{
+    unsigned int i;
+
+    if (!regtrace_t23_scratch_pending)
+        return;
+    for (i = 0; ACCESS_ONCE(regtrace_t23_scratch_pending) &&
+                regtrace_t23_vic_streaming &&
+                i < regtrace_t23_chan_stop_drain; i++)
+        private_msleep(10);
+    if (i > regtrace_t23_scratch_settle_ticks_max)
+        regtrace_t23_scratch_settle_ticks_max = i;
+    if (ACCESS_ONCE(regtrace_t23_scratch_pending)) {
+        regtrace_t23_scratch_settle_timeouts++;
+        printk(KERN_WARNING "tx_isp_t23_recovered: input stop (%s): scratch address of channels 0x%x not consumed after %u x 10 ms\n",
+               reason ? reason : "?", regtrace_t23_scratch_pending, i);
     }
 }
 
@@ -17172,6 +17350,7 @@ static int regtrace_t23_txisp_stream_locked(int enable, const char *reason)
         regtrace_t23_tisp_stream_regs(1, -1, reason);
         regtrace_t23_stream_irq_gate(1, reason, -1);
     } else {
+        regtrace_t23_scratch_settle(reason);
         regtrace_t23_source_input_stream(0, reason);
         regtrace_t23_direct_vic_input_stream(0, reason);
         regtrace_t23_tisp_stream_regs(0, -1, reason);
@@ -17244,7 +17423,8 @@ static unsigned int regtrace_framechan_hw_queued(int channel)
 
     spin_lock_irqsave(&regtrace_framechan_done_lock, flags);
     for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++)
-        if (regtrace_framechan_qbuf_queued[channel][i])
+        if (regtrace_framechan_qbuf_queued[channel][i] &&
+            !regtrace_framechan_qbuf_deferred[channel][i])
             n++;
     spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
     return n;
@@ -17283,12 +17463,68 @@ static void regtrace_framechan_drain_wait(int channel)
     }
 }
 
+/*
+ * STREAMOFF of a channel whose output stays enabled with the input running
+ * (msca_keep_enabled=2, chan_stop_keep_input=1): queue the scratch address
+ * behind the stream's buffers, before the drain wait.  The MSCA completes
+ * the stream's buffers, then writes every further frame into the scratch
+ * area instead of the stream's last buffer, which user space frees after
+ * the close.  QBUFs from now on are held back until STREAMON
+ * (regtrace_framechan_unpark()).  Stream lock held.
+ */
+static void regtrace_framechan_park(int channel)
+{
+    unsigned long flags;
+    uint32_t bit;
+    bool input_stops;
+    int ret;
+
+    if (!regtrace_t23_msca_scratch || channel < 0 || channel >= 3 ||
+        !regtrace_t23_direct_msca_start || !regtrace_t23_direct_msca_qbuf ||
+        !regtrace_framechan_streaming[channel])
+        return;
+    bit = 1U << channel;
+    input_stops = !(regtrace_framechan_stream_mask & ~bit) &&
+                  !(regtrace_t23_chan_stop_keep_input &&
+                    regtrace_t23_txisp_streaming);
+    if (!t23_scratch_park_wanted(regtrace_t23_msca_keep_enabled, input_stops,
+                                 regtrace_t23_vic_streaming,
+                                 (regtrace_t23_msca_ch_en & bit) != 0))
+        return;
+    if (!t23_scratch_fits(regtrace_t23_frame_width(channel),
+                          regtrace_t23_frame_height(channel),
+                          regtrace_t23_scratch_bytes) ||
+        !regtrace_t23_scratch_phys) {
+        regtrace_t23_scratch_skips++;
+        printk_ratelimited(KERN_WARNING "tx_isp_t23_recovered: framechan%d stream off: no MSCA scratch area for %ux%u (0x%x+0x%x)\n",
+                           channel, regtrace_t23_frame_width(channel),
+                           regtrace_t23_frame_height(channel),
+                           regtrace_t23_scratch_phys,
+                           regtrace_t23_scratch_bytes);
+        return;
+    }
+    spin_lock_irqsave(&regtrace_framechan_done_lock, flags);
+    ret = tisp_msca_addr_fifo_write((char)channel, regtrace_t23_scratch_phys,
+                                    regtrace_t23_scratch_phys);
+    if (!ret) {
+        regtrace_t23_msca_parked |= bit;
+        regtrace_t23_scratch_pending |= bit;
+    }
+    spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+    if (ret)
+        return;
+    regtrace_t23_scratch_parks++;
+    printk(KERN_INFO "tx_isp_t23_recovered: framechan%d stream off: output parked on scratch 0x%x\n",
+           channel, regtrace_t23_scratch_phys);
+}
+
 static void regtrace_framechan_stream_off_locked(int channel,
                                                  const char *reason)
 {
     bool last;
 
     t23_crumb(T23C_CHAN_OFF, (u32)channel);
+    regtrace_framechan_park(channel);
     regtrace_framechan_drain_wait(channel);
     if (channel >= 0 && channel < REGTRACE_FRAMECHAN_COUNT) {
         regtrace_framechan_stream_mask &= ~(1U << channel);
@@ -17308,6 +17544,7 @@ static void regtrace_framechan_stream_off_locked(int channel,
         regtrace_t23_direct_vic_mdma_stream(channel, 0, reason);
     regtrace_t23_set_msca_stream(channel, 0, reason, last);
     if (last) {
+        regtrace_t23_scratch_settle(reason);
         regtrace_t23_source_input_stream(0, reason);
         regtrace_t23_direct_vic_input_stream(0, reason);
         regtrace_t23_tisp_stream_regs(0, -1, reason);

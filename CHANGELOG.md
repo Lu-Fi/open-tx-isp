@@ -6,6 +6,23 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 
 ## 2026-10-06
 
+- T23 AF statistics on by default (`source_af=1`, as in stock: `tisp_init` always runs `tiziano_af_init` and registers the AF interrupt). Tested on the Jooan A6M (sc1a4t 720p15, raptor, module loaded in RAM):
+  - No measurable cost. CPU busy was 47.8 % with `source_af=0` and 48.1 % with `source_af=1` (3 x 60 s each, both within noise). The core IRQ rate was 88.7/s in both cases: the AF interrupt is a status bit of the core interrupt.
+  - apitest GetAfHist (8x8), GetAFMetrices, GetAfWeight and GetAfZone: PASS, with live values.
+  - 20 `rvd` restarts and an ISP day/night switch: every snapshot OK, 0 oopses.
+- T23 MSCA scratch area (`msca_scratch`, default 1; docs in `driver/t23/docs/MSCA_SCRATCH.md`).
+  - Before, a channel stopped with its output kept enabled and the input running made the MSCA write every further frame into the stream's last buffer, which user space frees after the close.
+  - Now STREAMOFF queues a scratch address behind the stream's buffers. The scratch area is the tail of the ISP buffer in rmem (GET_BUF asks for one Y plane at sensor size, 900 KiB for 720p). The kernel heap has no contiguous block of that size: the largest free block is 256 KiB, even after compaction.
+  - QBUFs of a parked channel are held back until STREAMON, as stock does.
+  - The input waits until each parked channel's scratch address has been consumed before it stops. A first build without this wait hung the camera at the next session start (3 of about 35 cold starts).
+  - Counters `msca_scratch_parks/frames/deferred/skips/settle_timeouts/settle_ticks_max`; host test `tests/tx_isp_t23_scratch_test.c`.
+  - Tested on the Jooan A6M:
+    - 20 cold starts and 20 `rvd` restarts: all snapshots OK.
+    - An ISP day/night switch: OK.
+    - 80 parks, 81 scratch completions, 0 settle or drain timeouts, longest settle 30 ms.
+    - The apitest FrameSource disable/enable cycle: PASS.
+    - No `unmatched MSCA completion` at STREAMOFF.
+    - 0 oopses.
 - Release candidate (branch `claude/release-t23-driver`). The T23 defaults are now the stock-like set that ran 7 h overnight plus many restarts: `chan_stop_keep_input=1`, `msca_keep_enabled=2`, `msca_fifo_rearm=0`, `msca_flip_skip_noop=1`, `msca_restart_skip=1`, `msca_session_release=1`, `crumbs=0`. The hang needed `chan_stop_keep_input=0` together with `msca_fifo_rearm=1`.
   - The cold-start snapshot 503 is now prevented as stock does it, without the FIFO rearm: STREAMOFF waits up to 21 x 10 ms until the channel's buffers have left the hardware, and QBUF invalidates the buffer's cache lines (`chan_stop_drain`, `qbuf_cache_inv`, docs in `driver/t23/docs/STREAMOFF_DRAIN_WAIT.md`).
   - Tested on the Jooan A6M (sc1a4t, raptor, module loaded in RAM, openimp `claude/release-t23-vbm`):
@@ -18,7 +35,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 ## 2026-10-05
 
 - Pending (branch `claude/t23-chan-restart-hang`, built, **device test pending**): T23 hard hang after timps start/restart on cam-B (on-demand channel 0 wakes). Default now = the device-tested d28a0177 set (`msca_flip_skip_noop=1`: no update request for unchanged flip bits; `msca_keep_enabled=1`: the last STREAMOFF keeps the MSCA output enabled; `msca_restart_skip=1`: an unchanged restart is not reloaded, its FIFO is rearmed with the input stopped) plus `msca_session_release=1`: tx-isp STREAMON with the input stopped switches off outputs left enabled and clears their FIFOs, so a restarted timps never starts the input under the old process's freed buffers (2227 hang). a325b523/4ea284c9 (release on close, frame-done ISR application, deferred starts) hung earlier on the device and were dropped. `crumbs` off by default (rmem crumbs do not survive a reboot, U-Boot zeroes rmem; a `mem=` hole does). Evidence, stock comparison and test in `driver/t23/README.md` "Output/channel restart hang"; same class as the T41 output restart hang.
-- Pending (branch `claude/t23-af`, host- and emulator-tested only, no device test yet): T23 AF statistics chain from the stock module, off by default (`source_af=1`): AF block + core interrupt bit 31, focus values, GetAfHist/SetAfHist, Get/SetAfWeight, GetAFMetrices, GetAfZone (controls 0x8000042/43/44/46). Shares the data handling of the T31 chain; verified identical to the stock `tx-isp-t23.ko` in the MIPS emulator (`driver/t23/audit/af_emu.py`).
+- Pending (branch `claude/t23-af`, host- and emulator-tested only, no device test yet): T23 AF statistics chain from the stock module, off by default at the time (`source_af=1`; on by default since 2026-10-06): AF block + core interrupt bit 31, focus values, GetAfHist/SetAfHist, Get/SetAfWeight, GetAFMetrices, GetAfZone (controls 0x8000042/43/44/46). Shares the data handling of the T31 chain; verified identical to the stock `tx-isp-t23.ko` in the MIPS emulator (`driver/t23/audit/af_emu.py`).
 - Pending (branch `claude/t23-cids`, host- and emulator-tested only, no device test yet): T23 SetAwbClust/GetAwbClust (0x0800000e, 40-byte IMPISPAWBCluster) and SetAwbCtTrend/GetAwbCtTrend (0x0800000f, 24-byte IMPISPAWBCtTrend) on the stock objects (_awb_cluster/_awb_trend, api_para/api_status) with the stock word order; identical to the stock `tx-isp-t23.ko` in the MIPS emulator (`driver/t23/audit/awb_api_emu.py`). The open AWB does not read these objects yet (stored and read back only). SetMask/GetMask (0x080000e5) are not handled by the stock module either (it returns -1 for both), so they stay unrouted.
 - Pending (branch `claude/t20-fw-optimize`, host-tested only, device test open): the recovered T20/T10 firmware unit builds at `-Os` like the rest of the module (T20 module text 399 to 245 KB, `.ko` 589 to 409 KB; T10 the same). Spots that only worked at `-O0` fixed against the OEM disassembly (dropped call arguments, a partition-LUT walk past its object, command-interface state on the stack, a stack buffer one word short, an inline-asm tail jump, a missing return). New host harness `tests/t20_fw` runs the firmware at `-O0`/`-Os`/`-O2` through init, 239 frames, API sweeps and day/night tuning switches and requires identical register traces and state. `TX_ISP_FW_O0=1` restores the `-O0` build for A/B tests.
 
