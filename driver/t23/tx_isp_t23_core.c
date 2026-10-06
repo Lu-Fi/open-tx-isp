@@ -10015,11 +10015,14 @@ int32_t tiziano_set_parameter_clm(void);
  * Output restart hang (cam-B, timps on-demand channel wakes): see
  * driver/t23/README.md "Output restart hang".  Same hazard class as the T41
  * MSCA output restart hang (driver/t41/README.md).  Defaults = the
- * device-tested set (msca_flip_skip_noop=1 msca_keep_enabled=1
- * msca_restart_skip=1 chan_stop_keep_input=0) plus the release of kept
- * outputs at a new tx-isp session (regtrace_t23_msca_release_stale()).  The
- * switches stay 0644 under /sys/module/tx_isp_t23/parameters/ as debug
- * escape hatches.
+ * stock-like set that ran 7 h overnight plus many streamer restarts
+ * (chan_stop_keep_input=1 msca_keep_enabled=2 msca_fifo_rearm=0
+ * msca_flip_skip_noop=1 msca_restart_skip=1 msca_session_release=1), plus
+ * the release of kept outputs at a new tx-isp session
+ * (regtrace_t23_msca_release_stale()) and the stock STREAMOFF drain wait
+ * (chan_stop_drain).  The hang needs chan_stop_keep_input=0 together with
+ * msca_fifo_rearm=1 (the old defaults).  The switches stay 0644 under
+ * /sys/module/tx_isp_t23/parameters/ as debug escape hatches.
  *
  * msca_flip_skip_noop=1: request the MSCA register update (0xd010 = 1) for
  * a mirror/flip write only when the 0xd050 flip word changes.  timps
@@ -10034,18 +10037,20 @@ MODULE_PARM_DESC(msca_flip_skip_noop,
  * msca_keep_enabled: what STREAMOFF does with the output's 0xd040 bit.
  * Stock ispcore_frame_channel_streamoff() writes no register.
  *  0 clear it (behaviour before the port, debug).
- *  1 (default) keep it only when the input stops with this STREAMOFF (last
+ *  1 keep it only when the input stops with this STREAMOFF (last
  *    channel): no frame can reach the output until the next STREAMON (FIFO
  *    rearm with the input stopped) or the next tx-isp session (release).
- *  2 always keep it (stock/T41 style); with the input still running the
- *    stopped output keeps writing to the addresses left in its FIFO and
- *    the core ISR drains (drops) its completions.
+ *  2 (default) always keep it (stock/T41 style); with the input still
+ *    running the stopped output keeps writing to the addresses left in its
+ *    FIFO and the core ISR drains (drops) its completions.  The STREAMOFF
+ *    drain wait (chan_stop_drain) empties the FIFO of the stream's buffers
+ *    before STREAMOFF returns, as stock does.
  */
-static int regtrace_t23_msca_keep_enabled = 1;
+static int regtrace_t23_msca_keep_enabled = 2;
 module_param_named(msca_keep_enabled, regtrace_t23_msca_keep_enabled,
                    int, 0644);
 MODULE_PARM_DESC(msca_keep_enabled,
-                 "STREAMOFF: 0 clear MSCA enable bit, 1 keep when the input stops too (default), 2 always keep (debug)");
+                 "STREAMOFF: 0 clear MSCA enable bit, 1 keep when the input stops too, 2 always keep (default, stock)");
 /*
  * msca_restart_skip=1: a STREAMON finding the output's 0xd040 bit still set
  * (msca_keep_enabled) with the same channel configuration does not reload
@@ -10061,14 +10066,15 @@ MODULE_PARM_DESC(msca_restart_skip,
  * chan_stop_keep_input=1 keeps the input (CSI/sensor/VIC/TISP) running
  * after the last frame channel STREAMOFF while a tx-isp STREAMON is active,
  * as stock does (stock stops the input only on tx-isp STREAMOFF).  An
- * on-demand wake then restarts no hardware.  0 (default) = before; not
- * device-tested with the other switches, debug only.
+ * on-demand wake then restarts no hardware.  Default 1 (device-tested 7 h
+ * overnight); 0 = stop the input with the last channel (before; hangs
+ * together with msca_fifo_rearm=1, debug only).
  */
-static bool regtrace_t23_chan_stop_keep_input;
+static bool regtrace_t23_chan_stop_keep_input = true;
 module_param_named(chan_stop_keep_input, regtrace_t23_chan_stop_keep_input,
                    bool, 0644);
 MODULE_PARM_DESC(chan_stop_keep_input,
-                 "1: keep the input running after the last frame channel STREAMOFF while tx-isp is streaming (default 0, debug)");
+                 "1 (default, stock): keep the input running after the last frame channel STREAMOFF while tx-isp is streaming; 0 stop it (debug)");
 static bool regtrace_t23_msca_session_release = true;
 module_param_named(msca_session_release, regtrace_t23_msca_session_release,
                    bool, 0644);
@@ -16497,6 +16503,17 @@ static void regtrace_framechan_forget_qbufs_locked(int channel)
         regtrace_framechan_qbuf_queued[channel][i] = false;
 }
 
+/*
+ * Stock frame-channel QBUF (frame_channel_unlocked_ioctl, non-direct mode)
+ * invalidates the whole buffer, dma_sync_single_for_device(NULL, phys, len,
+ * DMA_FROM_DEVICE), before its addresses can reach the MSCA FIFO, so that
+ * no dirty cache line is evicted over the frame the MSCA writes.  Same here
+ * via the kseg0 alias (no struct page needed for rmem).  0: off (debug).
+ */
+static bool regtrace_t23_qbuf_cache_inv = true;
+module_param_named(qbuf_cache_inv, regtrace_t23_qbuf_cache_inv, bool, 0644);
+MODULE_PARM_DESC(qbuf_cache_inv, "1 (default, stock): invalidate the buffer's cache lines at QBUF; 0 off (debug)");
+
 /* 0: log QBUF buffers outside rmem but accept them (pre-guard behaviour). */
 static bool regtrace_t23_qbuf_guard = true;
 module_param_named(qbuf_guard, regtrace_t23_qbuf_guard, bool, 0644);
@@ -16531,6 +16548,14 @@ static int regtrace_framechan_record_qbuf(int channel, const uint32_t *words)
             channel, userptr, words[TX_ISP_FRAME_WORD_LENGTH], &buffer);
         if (ret)
             return ret;
+        /* rmem lies below 512 MiB (checked above): kseg0 alias is valid */
+        if (regtrace_t23_qbuf_cache_inv && userptr &&
+            words[TX_ISP_FRAME_WORD_LENGTH])
+            private_dma_cache_sync(NULL,
+                                   (void *)(uintptr_t)(0x80000000U |
+                                                       (userptr & ~7U)),
+                                   words[TX_ISP_FRAME_WORD_LENGTH],
+                                   DMA_FROM_DEVICE);
     }
 
     /*
@@ -16933,8 +16958,19 @@ static unsigned int regtrace_framechan_drop_stale_done(int channel)
  * was restarted.
  */
 static int32_t tisp_channel_main_fifo_clear(int32_t arg1);
-static bool regtrace_t23_msca_fifo_rearm = true;
+/*
+ * Default 0: stock never clears an address FIFO (tisp_channel_main_fifo_clear
+ * has no caller there).  The cold-start snapshot 503 this used to prevent
+ * (stale FIFO entries left by a stopped stream) is now prevented the stock
+ * way: the STREAMOFF drain wait (chan_stop_drain) lets the MSCA consume the
+ * stream's addresses before STREAMOFF returns, with the input kept running
+ * (chan_stop_keep_input=1).  1 together with chan_stop_keep_input=0 is the
+ * cam-B hang combination; debug only.
+ */
+static bool regtrace_t23_msca_fifo_rearm;
 module_param_named(msca_fifo_rearm, regtrace_t23_msca_fifo_rearm, bool, 0644);
+MODULE_PARM_DESC(msca_fifo_rearm,
+                 "1: clear and refill a stopped channel's MSCA address FIFO at STREAMON (default 0 = stock, debug)");
 
 static unsigned int regtrace_framechan_rearm_fifo(int channel)
 {
@@ -17173,12 +17209,87 @@ static void regtrace_t23_txisp_last_close(void)
     mutex_unlock(&regtrace_framechan_stream_lock);
 }
 
+/*
+ * Stock __frame_channel_vb2_streamoff() waits before it cancels the queue:
+ * while (done_count < num_buffers && n < 21) msleep(10), with the input,
+ * the output and the core ISR still running, so the MSCA consumes the
+ * addresses still in its FIFO and they complete as normal frames.  Only
+ * then may user space free the buffers (openimp destroys the pool right
+ * after the close), and no address of the stopped stream is left in the
+ * FIFO for the next stream (cold-start snapshot 503, see msca_fifo_rearm).
+ * Here: wait until no buffer of the channel is queued in the hardware any
+ * more, at most chan_stop_drain x 10 ms, only when frames can arrive (input
+ * streaming, output enabled).  The stream lock stays held as in the other
+ * stop paths; the ISR needs neither it nor the caller.  0: no wait (debug).
+ */
+static uint regtrace_t23_chan_stop_drain = 21;
+module_param_named(chan_stop_drain, regtrace_t23_chan_stop_drain, uint, 0644);
+MODULE_PARM_DESC(chan_stop_drain,
+                 "STREAMOFF: wait up to N x 10 ms for the channel's queued buffers to complete (default 21 = stock, 0 off)");
+static uint regtrace_t23_chan_drain_timeouts;
+module_param_named(chan_drain_timeouts, regtrace_t23_chan_drain_timeouts, uint, 0444);
+MODULE_PARM_DESC(chan_drain_timeouts, "STREAMOFF drain waits that ended with buffers still queued (read only)");
+static uint regtrace_t23_chan_drain_waits;
+module_param_named(chan_drain_waits, regtrace_t23_chan_drain_waits, uint, 0444);
+MODULE_PARM_DESC(chan_drain_waits, "STREAMOFF drain waits that found buffers queued in the hardware (read only)");
+static uint regtrace_t23_chan_drain_ticks_max;
+module_param_named(chan_drain_ticks_max, regtrace_t23_chan_drain_ticks_max, uint, 0444);
+MODULE_PARM_DESC(chan_drain_ticks_max, "longest STREAMOFF drain wait in 10 ms steps (read only)");
+
+static unsigned int regtrace_framechan_hw_queued(int channel)
+{
+    unsigned long flags;
+    unsigned int n = 0;
+    int i;
+
+    spin_lock_irqsave(&regtrace_framechan_done_lock, flags);
+    for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++)
+        if (regtrace_framechan_qbuf_queued[channel][i])
+            n++;
+    spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+    return n;
+}
+
+static void regtrace_framechan_drain_wait(int channel)
+{
+    unsigned int n;
+    unsigned int left;
+    unsigned int i;
+
+    if (!regtrace_t23_chan_stop_drain || channel < 0 || channel >= 3 ||
+        !regtrace_framechan_streaming[channel] ||
+        !regtrace_t23_vic_streaming ||
+        !(regtrace_t23_msca_ch_en & (1U << channel)))
+        return;
+    n = regtrace_framechan_hw_queued(channel);
+    left = n;
+    for (i = 0; left && i < regtrace_t23_chan_stop_drain; i++) {
+        private_msleep(10);
+        left = regtrace_framechan_hw_queued(channel);
+    }
+    if (n) {
+        regtrace_t23_chan_drain_waits++;
+        if (i > regtrace_t23_chan_drain_ticks_max)
+            regtrace_t23_chan_drain_ticks_max = i;
+    }
+    if (left) {
+        regtrace_t23_chan_drain_timeouts++;
+        printk_ratelimited(KERN_WARNING
+                           "tx_isp_t23_recovered: framechan%d stream off: %u of %u buffers still queued after %u x 10 ms\n",
+                           channel, left, n, i);
+    } else if (n) {
+        printk(KERN_INFO "tx_isp_t23_recovered: framechan%d stream off: %u buffers drained in %u x 10 ms\n",
+               channel, n, i);
+    }
+}
+
 static void regtrace_framechan_stream_off_locked(int channel,
                                                  const char *reason)
 {
     bool last;
 
     t23_crumb(T23C_CHAN_OFF, (u32)channel);
+    regtrace_framechan_drain_wait(channel);
     if (channel >= 0 && channel < REGTRACE_FRAMECHAN_COUNT) {
         regtrace_framechan_stream_mask &= ~(1U << channel);
         regtrace_framechan_stream_owner[channel] = NULL;

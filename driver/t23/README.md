@@ -177,7 +177,27 @@ output; with openimp's free-on-DisableChn and the per-wake input restart
 of this driver that does not hold, so the fix keeps stock's "no work for an
 unchanged output" and adds the lifetime and frame-boundary rules.
 
-### The fix (defaults)
+### Release defaults (2026-10-06, branch `claude/release-t23-driver`)
+
+The defaults are the stock-like set that ran 7 h overnight plus many
+streamer restarts: `chan_stop_keep_input=1 msca_keep_enabled=2
+msca_fifo_rearm=0 msca_flip_skip_noop=1 msca_restart_skip=1
+msca_session_release=1 crumbs=0`. The hang needs `chan_stop_keep_input=0`
+together with `msca_fifo_rearm=1` (the earlier defaults below).
+
+Without the FIFO rearm, the cold-start snapshot 503 (stale FIFO entries,
+1911bb83) is now prevented the stock way:
+
+- STREAMOFF waits up to `chan_stop_drain` x 10 ms (21, as stock) until the
+  channel has no buffer left in the hardware.
+- QBUF invalidates the buffer's cache lines, as stock does
+  (`qbuf_cache_inv`).
+
+Details, counters and the remaining exposure:
+`docs/STREAMOFF_DRAIN_WAIT.md`. The section below describes the earlier
+default set (history).
+
+### The fix (defaults until 2026-10-05)
 
 The device-tested path of d28a0177 (`2128-step3c`, first start plus 25
 wakes) with its switches as defaults, plus one addition for the process
@@ -271,16 +291,20 @@ Device experiments, cheapest first (no build needed except the last):
 
 ### Parameters (`/sys/module/tx_isp_t23/parameters/`, 0644 unless noted)
 
-The defaults are the fix; the switches are debug escape hatches.
+The defaults are the release set; the switches are debug escape hatches.
 
 | parameter | default | meaning |
 |---|---|---|
 | `msca_flip_skip_noop` | 1 | 0: update request for every flip write (stock) |
-| `msca_keep_enabled` | 1 | STREAMOFF: 0 bit off, 1 keep when the input stops too, 2 always keep (stock) |
+| `msca_keep_enabled` | 2 | STREAMOFF: 0 bit off, 1 keep when the input stops too, 2 always keep (stock) |
 | `msca_restart_skip` | 1 | 0: reload on every STREAMON (stock) |
 | `msca_session_release` | 1 | 0: no release of left-enabled outputs at tx-isp STREAMON (d28a0177) |
 | `msca_releases` | (0444) | outputs released at a session start |
-| `chan_stop_keep_input` | 0 | 1: input keeps running between channel stops while tx-isp streams (stock, untested) |
+| `chan_stop_keep_input` | 1 | 0: input stops with the last channel (before; hangs with `msca_fifo_rearm=1`) |
+| `msca_fifo_rearm` | 0 | 1: clear and refill the FIFO at STREAMON (1911bb83, debug) |
+| `chan_stop_drain` | 21 | STREAMOFF drain wait in 10 ms steps (stock), 0 off |
+| `chan_drain_waits` / `chan_drain_timeouts` / `chan_drain_ticks_max` | (0444) | drain statistics |
+| `qbuf_cache_inv` | 1 | cache invalidate at QBUF (stock), 0 off |
 | `crumbs` | 0 | step markers: 1 rmem page behind the MDNS buffer, 2 page at `crumb_addr` |
 | `crumb_addr` / `crumb_phys` | 0 / (0444) | crumbs=2 page / page in use |
 
