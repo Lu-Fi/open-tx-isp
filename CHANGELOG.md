@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the 24 h soak that started 2026-10-04); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-06
+
+- T21: `SetColorfxMode(SEPIA)` works (it returned -1 before): the CCM saturation list goes to 0 like B/W and the CSC U/V row sums get a tint (U below, V above neutral for a grey input, luma unchanged). A CSC attribute set during sepia keeps the tint; leaving sepia puts the stored matrix back. Device-tested on PC420 (jxf23): dU 17 / dV 19 against the plain picture.
+
 ## 2026-10-05
 
 - Pending (branch `claude/t23-af`, host- and emulator-tested only, no device test yet): T23 AF statistics chain from the stock module, off by default (`source_af=1`): AF block + core interrupt bit 31, focus values, GetAfHist/SetAfHist, Get/SetAfWeight, GetAFMetrices, GetAfZone (controls 0x8000042/43/44/46). Shares the data handling of the T31 chain; verified identical to the stock `tx-isp-t23.ko` in the MIPS emulator (`driver/t23/audit/af_emu.py`).
