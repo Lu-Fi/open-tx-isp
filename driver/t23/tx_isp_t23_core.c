@@ -13,6 +13,7 @@
 #include "include/tx_isp_t23_mode.h"
 #include "tx_isp_t23_scaler.h"
 #include "tx_isp_t23_subdev.h"
+#include "tx_isp_t23_crumbs.h"
 #ifdef REGTRACE_KERNEL_TREE_BUILD
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -10010,6 +10011,129 @@ int32_t tisp_clm_interp_by_ct(int32_t ignored, uint32_t ct, uint8_t force);
 int32_t tisp_clm_ct_update(int32_t ignored, uint32_t ct);
 int32_t tiziano_set_parameter_clm(void);
 
+/*
+ * Output restart hang (cam-B, timps on-demand channel wakes): see
+ * driver/t23/README.md "Output restart hang".  Same hazard class as the T41
+ * MSCA output restart hang (driver/t41/README.md).  Defaults = the
+ * stock-like set that ran 7 h overnight plus many streamer restarts
+ * (chan_stop_keep_input=1 msca_keep_enabled=2 msca_fifo_rearm=0
+ * msca_flip_skip_noop=1 msca_restart_skip=1 msca_session_release=1), plus
+ * the release of kept outputs at a new tx-isp session
+ * (regtrace_t23_msca_release_stale()) and the stock STREAMOFF drain wait
+ * (chan_stop_drain).  The hang needs chan_stop_keep_input=0 together with
+ * msca_fifo_rearm=1 (the old defaults).  The switches stay 0644 under
+ * /sys/module/tx_isp_t23/parameters/ as debug escape hatches.
+ *
+ * msca_flip_skip_noop=1: request the MSCA register update (0xd010 = 1) for
+ * a mirror/flip write only when the 0xd050 flip word changes.  timps
+ * re-sends HVFLIP on every channel 0 enable edge.
+ */
+static bool regtrace_t23_msca_flip_skip_noop = true;
+module_param_named(msca_flip_skip_noop, regtrace_t23_msca_flip_skip_noop,
+                   bool, 0644);
+MODULE_PARM_DESC(msca_flip_skip_noop,
+                 "1 (default): no MSCA update request for unchanged mirror/flip bits; 0 always (debug)");
+/*
+ * msca_keep_enabled: what STREAMOFF does with the output's 0xd040 bit.
+ * Stock ispcore_frame_channel_streamoff() writes no register.
+ *  0 clear it (behaviour before the port, debug).
+ *  1 keep it only when the input stops with this STREAMOFF (last
+ *    channel): no frame can reach the output until the next STREAMON (FIFO
+ *    rearm with the input stopped) or the next tx-isp session (release).
+ *  2 (default) always keep it (stock/T41 style); with the input still
+ *    running the stopped output keeps writing to the addresses left in its
+ *    FIFO and the core ISR drains (drops) its completions.  The STREAMOFF
+ *    drain wait (chan_stop_drain) empties the FIFO of the stream's buffers
+ *    before STREAMOFF returns, as stock does.
+ */
+static int regtrace_t23_msca_keep_enabled = 2;
+module_param_named(msca_keep_enabled, regtrace_t23_msca_keep_enabled,
+                   int, 0644);
+MODULE_PARM_DESC(msca_keep_enabled,
+                 "STREAMOFF: 0 clear MSCA enable bit, 1 keep when the input stops too, 2 always keep (default, stock)");
+/*
+ * msca_restart_skip=1: a STREAMON finding the output's 0xd040 bit still set
+ * (msca_keep_enabled) with the same channel configuration does not reload
+ * it (no tisp_msca_chx_cfg_load(), no 0xd010 request).  Default 1; 0
+ * reloads as before (stock also reloads; debug).
+ */
+static bool regtrace_t23_msca_restart_skip = true;
+module_param_named(msca_restart_skip, regtrace_t23_msca_restart_skip,
+                   bool, 0644);
+MODULE_PARM_DESC(msca_restart_skip,
+                 "1 (default): no MSCA reload on STREAMON of a still-enabled output with unchanged geometry; 0 reload (debug)");
+/*
+ * chan_stop_keep_input=1 keeps the input (CSI/sensor/VIC/TISP) running
+ * after the last frame channel STREAMOFF while a tx-isp STREAMON is active,
+ * as stock does (stock stops the input only on tx-isp STREAMOFF).  An
+ * on-demand wake then restarts no hardware.  Default 1 (device-tested 7 h
+ * overnight); 0 = stop the input with the last channel (before; hangs
+ * together with msca_fifo_rearm=1, debug only).
+ */
+static bool regtrace_t23_chan_stop_keep_input = true;
+module_param_named(chan_stop_keep_input, regtrace_t23_chan_stop_keep_input,
+                   bool, 0644);
+MODULE_PARM_DESC(chan_stop_keep_input,
+                 "1 (default, stock): keep the input running after the last frame channel STREAMOFF while tx-isp is streaming; 0 stop it (debug)");
+static bool regtrace_t23_msca_session_release = true;
+module_param_named(msca_session_release, regtrace_t23_msca_session_release,
+                   bool, 0644);
+MODULE_PARM_DESC(msca_session_release,
+                 "1 (default): tx-isp STREAMON with the input stopped switches off MSCA outputs left enabled and clears their FIFOs; 0 off (debug)");
+static uint regtrace_t23_msca_releases;
+module_param_named(msca_releases, regtrace_t23_msca_releases, uint, 0444);
+MODULE_PARM_DESC(msca_releases, "MSCA outputs released at a tx-isp session start (read only)");
+
+/* Channel configuration last loaded into each MSCA output. */
+#define REGTRACE_T23_MSCA_CFG_BYTES 56U
+static unsigned char regtrace_t23_msca_live_cfg[3][REGTRACE_T23_MSCA_CFG_BYTES];
+static bool regtrace_t23_msca_live_valid[3];
+
+/*
+ * Step markers, see tx_isp_t23_crumbs.h.  Attached at the next SET_BUF
+ * (libimp start):
+ *  0 (default) off.
+ *  1 one rmem page behind the MDNS buffer (GET_BUF asks for 4 KiB more).
+ *    Survives a timps restart or module reload, NOT a reboot: U-Boot
+ *    zeroes its 32 MiB malloc area just below its relocation at the top of
+ *    the 64 MiB, which covers all of rmem.
+ *  2 the page at crumb_addr, which must not be kernel-managed RAM (a hole
+ *    left by the mem= boot arguments below ~0x1e00000 survives a reboot).
+ * A valid record found at attach time is printed to kmsg first.
+ */
+static int regtrace_t23_crumbs;
+module_param_named(crumbs, regtrace_t23_crumbs, int, 0644);
+MODULE_PARM_DESC(crumbs,
+                 "hang step markers: 0 off (default), 1 rmem page after the MDNS buffer, 2 page at crumb_addr");
+static unsigned int regtrace_t23_crumb_addr;
+module_param_named(crumb_addr, regtrace_t23_crumb_addr, uint, 0644);
+MODULE_PARM_DESC(crumb_addr, "crumbs=2: physical address of the crumb page (outside kernel RAM)");
+static unsigned int regtrace_t23_crumb_phys;
+module_param_named(crumb_phys, regtrace_t23_crumb_phys, uint, 0444);
+MODULE_PARM_DESC(crumb_phys, "physical address of the attached crumb page (read only, 0 = none)");
+static volatile u32 *regtrace_t23_crumb_page;
+
+static inline void t23_crumb(u32 step, u32 arg)
+{
+    volatile u32 *w = ACCESS_ONCE(regtrace_t23_crumb_page);
+    unsigned long flags;
+
+    if (!w || !regtrace_t23_crumbs)
+        return;
+    local_irq_save(flags);
+    t23_crumb_mark(w, step, arg, (u32)jiffies);
+    local_irq_restore(flags);
+    wmb();
+}
+
+static inline void t23_crumb_set(unsigned int word, u32 value)
+{
+    volatile u32 *w = ACCESS_ONCE(regtrace_t23_crumb_page);
+
+    if (w && regtrace_t23_crumbs)
+        w[word] = value;
+}
+
 static bool regtrace_t23_enable_irqs_on_streamon = true;
 static bool regtrace_t23_log_framechan_payloads;
 static bool regtrace_t23_direct_msca_qbuf = true;
@@ -10663,6 +10787,12 @@ static bool regtrace_t23_csi_clks_enabled;
 static bool regtrace_t23_vic_clks_enabled;
 static bool regtrace_t23_ivdc_clks_enabled;
 static uint32_t regtrace_t23_msca_ch_en;
+/*
+ * Outputs a stock-style STREAMOFF left enabled in 0xd040 (msca_stop_disable
+ * = 0).  The core ISR drains their completion FIFOs like stock does for
+ * every channel; the completions of a stopped channel are dropped.
+ */
+static uint32_t regtrace_t23_msca_kept;
 static bool regtrace_t23_core_started;
 
 #define REGTRACE_T23_CORE_DMA_BUFS 6
@@ -15221,16 +15351,85 @@ static long regtrace_tx_isp_getbuf(unsigned long arg)
     info.size = regtrace_mdns_malloc_size(info.mode & 0xffU,
                                           regtrace_t23_source_sensor_width,
                                           regtrace_t23_source_sensor_height);
+    /* one more page for the hang crumbs (regtrace_t23_crumb_attach()) */
+    if (info.size && regtrace_t23_crumbs == 1)
+        info.size += T23_CRUMB_PAGE_BYTES;
 
     if (copy_to_user((void __user *)arg, &info, sizeof(info)))
         return -EFAULT;
     return 0;
 }
 
+/*
+ * Map the crumb page (crumbs=1: behind the MDNS buffer, crumbs=2: at
+ * crumb_addr).  A record left by an earlier run is printed first.
+ */
+static void regtrace_t23_crumb_attach(u32 paddr, u32 size, u32 mdns_size)
+{
+    volatile u32 *w;
+    volatile u32 *old;
+    unsigned long pfn;
+    u32 phys;
+    u32 word;
+    u32 when;
+    u32 last;
+    u32 i;
+
+    if (regtrace_t23_crumbs == 1) {
+        if (!mdns_size || size < mdns_size + T23_CRUMB_PAGE_BYTES ||
+            tx_isp_qbuf_phys_check(paddr, size))
+            return;
+        phys = paddr + mdns_size;
+    } else if (regtrace_t23_crumbs == 2 && regtrace_t23_crumb_addr) {
+        phys = regtrace_t23_crumb_addr & ~(T23_CRUMB_PAGE_BYTES - 1U);
+        pfn = phys >> PAGE_SHIFT;
+        /* never a page the kernel allocates (a mem= hole is reserved) */
+        if (pfn_valid(pfn) && !PageReserved(pfn_to_page(pfn))) {
+            printk(KERN_ERR "tx-isp-t23 crumbs: 0x%x is kernel RAM, refused\n",
+                   phys);
+            return;
+        }
+    } else {
+        return;
+    }
+    if (regtrace_t23_crumb_page && regtrace_t23_crumb_phys == phys)
+        return;
+    w = (volatile u32 *)ioremap_nocache(phys, T23_CRUMB_PAGE_BYTES);
+    if (!w)
+        return;
+    if (t23_crumb_valid(w)) {
+        last = w[T23_CRUMB_W_JIFFIES];
+        printk(KERN_NOTICE
+               "tx-isp-t23 crumbs: previous record at 0x%x: session=%u seq=%u last=0x%08x@%u irq_in=%u irqs=%u last_irq@%u qbufs=%u d040=0x%x d050=0x%x mask=0x%x\n",
+               phys, w[T23_CRUMB_W_SESSION], w[T23_CRUMB_W_SEQ],
+               w[T23_CRUMB_W_STEP], last, w[T23_CRUMB_W_IRQ_IN],
+               w[T23_CRUMB_W_IRQ_COUNT], w[T23_CRUMB_W_IRQ_JIFFIES],
+               w[T23_CRUMB_W_QBUF], w[T23_CRUMB_W_D040],
+               w[T23_CRUMB_W_D050], w[T23_CRUMB_W_MASK]);
+        for (i = 16; i-- > 0;) {
+            if (t23_crumb_entry(w, i, &word, &when))
+                continue;
+            printk(KERN_NOTICE
+                   "tx-isp-t23 crumbs:  -%u step=%u arg=0x%x t=%d\n",
+                   i, word & 0xffffU, word >> 16, (int)(when - last));
+        }
+    }
+    t23_crumb_reset(w, (u32)jiffies);
+    wmb();
+    old = regtrace_t23_crumb_page;
+    regtrace_t23_crumb_phys = phys;
+    ACCESS_ONCE(regtrace_t23_crumb_page) = w;
+    if (old)
+        iounmap((void __iomem *)old);
+    printk(KERN_NOTICE "tx-isp-t23 crumbs at 0x%x\n", phys);
+    t23_crumb(T23C_SETBUF, 0);
+}
+
 static long regtrace_tx_isp_setbuf(unsigned long arg)
 {
     struct regtrace_isp_buf_info info;
     u32 used;
+    u32 mdns_size;
 
     if (!arg)
         return -EINVAL;
@@ -15245,6 +15444,7 @@ static long regtrace_tx_isp_setbuf(unsigned long arg)
     used = regtrace_mdns_malloc_size(info.mode & 0xffU,
                                      regtrace_t23_source_sensor_width,
                                      regtrace_t23_source_sensor_height);
+    mdns_size = used;
     if (tx_isp_qbuf_phys_check(info.paddr, used ? used : info.size)) {
         printk_ratelimited(KERN_WARNING
                            "tx_isp_t23_recovered: MDNS SET_BUF paddr=0x%x need=0x%x outside rmem%s\n",
@@ -15271,6 +15471,9 @@ static long regtrace_tx_isp_setbuf(unsigned long arg)
     regtrace_t23_source_mdns_size = info.size;
     regtrace_t23_source_mdns_used = used;
     regtrace_t23_source_mdns_set_count++;
+    /* the engine must not reach into the crumb page */
+    if (used <= mdns_size)
+        regtrace_t23_crumb_attach(info.paddr, info.size, mdns_size);
     printk(KERN_WARNING
            "tx_isp_t23_recovered: MDNS DMA mode=%u paddr=0x%x size=0x%x used=0x%x ctrl=0x%x/%x bases=%x/%x/%x/%x/%x/%x/%x/%x/%x\n",
            info.mode & 0xffU, info.paddr, info.size, used,
@@ -16212,8 +16415,10 @@ static int regtrace_t23_build_msca_qbuf(int channel,
 
 static void regtrace_t23_set_msca_stream(int channel,
                                          int enable,
-                                         const char *reason)
+                                         const char *reason,
+                                         bool input_stops)
 {
+    bool keep;
     int ret;
     uint32_t bit;
     uint32_t before;
@@ -16225,26 +16430,64 @@ static void regtrace_t23_set_msca_stream(int channel,
     if (channel < 0 || channel >= 3)
         return;
 
+    bit = 1U << channel;
     if (enable) {
-        ret = tisp_channel_start(channel);
-        if (ret) {
-            printk(KERN_ERR "tx_isp_t23_recovered: T23 MSCA channel start failed ch=%d ret=%d reason=%s\n",
-                   channel, ret, reason ? reason : "?");
-            return;
+        unsigned char *cfg = msca + channel * REGTRACE_T23_MSCA_CFG_BYTES;
+
+        /*
+         * Restart of an output that STREAMOFF left enabled (stock): with
+         * unchanged geometry there is nothing to reload, and reloading or
+         * requesting an MSCA update around the restart is the hang
+         * trigger (README "Output restart hang").  Set the channel state
+         * bytes as tisp_channel_start() does, leave the registers alone.
+         */
+        if (regtrace_t23_msca_restart_skip &&
+            regtrace_t23_msca_live_valid[channel] &&
+            (system_reg_read(0xd040U) & bit) &&
+            !memcmp(cfg + 1, regtrace_t23_msca_live_cfg[channel] + 1,
+                    REGTRACE_T23_MSCA_CFG_BYTES - 1U)) {
+            *(uint8_t *)(mscaler + channel * 608 + 12) = 1;
+            cfg[0] = 1;
+            t23_crumb(T23C_CFG_SKIP, (u32)channel);
+            printk(KERN_INFO "tx_isp_t23_recovered: MSCA ch=%d still enabled with unchanged geometry, not reloaded\n",
+                   channel);
+        } else {
+            ret = tisp_channel_start(channel);
+            if (ret) {
+                printk(KERN_ERR "tx_isp_t23_recovered: T23 MSCA channel start failed ch=%d ret=%d reason=%s\n",
+                       channel, ret, reason ? reason : "?");
+                return;
+            }
         }
     }
 
-    bit = 1U << channel;
-    if (enable)
+    if (enable) {
         regtrace_t23_msca_ch_en |= bit;
-    else
+        regtrace_t23_msca_kept &= ~bit;
+    } else {
         regtrace_t23_msca_ch_en &= ~bit;
+    }
 
+    keep = !enable && (regtrace_t23_msca_keep_enabled >= 2 ||
+                       (regtrace_t23_msca_keep_enabled == 1 && input_stops));
     before = system_reg_read(0xd040U);
-    value = enable ? (before | regtrace_t23_msca_ch_en) :
-        (before & ~bit);
-    system_reg_write(0xd040U, value);
+    if (enable) {
+        value = before | regtrace_t23_msca_ch_en;
+    } else if (keep) {
+        /* stock: STREAMOFF leaves the output enabled */
+        value = before;
+        if (before & bit)
+            regtrace_t23_msca_kept |= bit;
+    } else {
+        value = before & ~bit;
+        regtrace_t23_msca_kept &= ~bit;
+    }
+    if (!keep)
+        system_reg_write(0xd040U, value);
     readback = system_reg_read(0xd040U);
+    t23_crumb_set(T23_CRUMB_W_D040, readback);
+    t23_crumb(enable ? T23C_CHAN_MSCA_ON : T23C_CHAN_MSCA_OFF,
+              (u32)channel | ((value != before) ? 0x100U : 0U));
     printk(KERN_WARNING "tx_isp_t23_recovered: direct MSCA %s ch=%d d040 0x%x->0x%x readback=0x%x mask=0x%x reason=%s\n",
            enable ? "start" : "stop", channel, before, value, readback,
            regtrace_t23_msca_ch_en,
@@ -16259,6 +16502,17 @@ static void regtrace_framechan_forget_qbufs_locked(int channel)
     for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++)
         regtrace_framechan_qbuf_queued[channel][i] = false;
 }
+
+/*
+ * Stock frame-channel QBUF (frame_channel_unlocked_ioctl, non-direct mode)
+ * invalidates the whole buffer, dma_sync_single_for_device(NULL, phys, len,
+ * DMA_FROM_DEVICE), before its addresses can reach the MSCA FIFO, so that
+ * no dirty cache line is evicted over the frame the MSCA writes.  Same here
+ * via the kseg0 alias (no struct page needed for rmem).  0: off (debug).
+ */
+static bool regtrace_t23_qbuf_cache_inv = true;
+module_param_named(qbuf_cache_inv, regtrace_t23_qbuf_cache_inv, bool, 0644);
+MODULE_PARM_DESC(qbuf_cache_inv, "1 (default, stock): invalidate the buffer's cache lines at QBUF; 0 off (debug)");
 
 /* 0: log QBUF buffers outside rmem but accept them (pre-guard behaviour). */
 static bool regtrace_t23_qbuf_guard = true;
@@ -16294,6 +16548,14 @@ static int regtrace_framechan_record_qbuf(int channel, const uint32_t *words)
             channel, userptr, words[TX_ISP_FRAME_WORD_LENGTH], &buffer);
         if (ret)
             return ret;
+        /* rmem lies below 512 MiB (checked above): kseg0 alias is valid */
+        if (regtrace_t23_qbuf_cache_inv && userptr &&
+            words[TX_ISP_FRAME_WORD_LENGTH])
+            private_dma_cache_sync(NULL,
+                                   (void *)(uintptr_t)(0x80000000U |
+                                                       (userptr & ~7U)),
+                                   words[TX_ISP_FRAME_WORD_LENGTH],
+                                   DMA_FROM_DEVICE);
     }
 
     /*
@@ -16346,6 +16608,8 @@ static int regtrace_framechan_record_qbuf(int channel, const uint32_t *words)
         if (ret)
             regtrace_framechan_qbuf_queued[channel][slot] = false;
     }
+    if (regtrace_t23_crumb_page && regtrace_t23_crumbs)
+        regtrace_t23_crumb_page[T23_CRUMB_W_QBUF]++;
     spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
 
     if (program && regtrace_t23_log_framechan_payloads)
@@ -16694,8 +16958,19 @@ static unsigned int regtrace_framechan_drop_stale_done(int channel)
  * was restarted.
  */
 static int32_t tisp_channel_main_fifo_clear(int32_t arg1);
-static bool regtrace_t23_msca_fifo_rearm = true;
+/*
+ * Default 0: stock never clears an address FIFO (tisp_channel_main_fifo_clear
+ * has no caller there).  The cold-start snapshot 503 this used to prevent
+ * (stale FIFO entries left by a stopped stream) is now prevented the stock
+ * way: the STREAMOFF drain wait (chan_stop_drain) lets the MSCA consume the
+ * stream's addresses before STREAMOFF returns, with the input kept running
+ * (chan_stop_keep_input=1).  1 together with chan_stop_keep_input=0 is the
+ * cam-B hang combination; debug only.
+ */
+static bool regtrace_t23_msca_fifo_rearm;
 module_param_named(msca_fifo_rearm, regtrace_t23_msca_fifo_rearm, bool, 0644);
+MODULE_PARM_DESC(msca_fifo_rearm,
+                 "1: clear and refill a stopped channel's MSCA address FIFO at STREAMON (default 0 = stock, debug)");
 
 static unsigned int regtrace_framechan_rearm_fifo(int channel)
 {
@@ -16725,6 +17000,20 @@ static unsigned int regtrace_framechan_rearm_fifo(int channel)
         spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
         return 0;
     }
+    /*
+     * Never clear the FIFO of an output that is still enabled while the
+     * input runs (msca_keep_enabled=2): the MSCA would write the next frame
+     * to the cleared (zero) address.  Disable it first, as before the port;
+     * the STREAMON then reloads and enables it again.
+     */
+    if ((regtrace_t23_msca_kept & (1U << channel)) &&
+        regtrace_t23_vic_streaming) {
+        system_reg_write(0xd040U,
+                         system_reg_read(0xd040U) & ~(1U << channel));
+        regtrace_t23_msca_kept &= ~(1U << channel);
+        t23_crumb(T23C_FIFO_CLEAR, (u32)channel | 0x100U);
+    }
+    t23_crumb(T23C_FIFO_CLEAR, (u32)channel);
     tisp_channel_main_fifo_clear(channel);
     for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++) {
         if (!regtrace_framechan_qbuf_queued[channel][i])
@@ -16754,23 +17043,32 @@ static int regtrace_framechan_stream_on(struct file *file, int channel)
         mutex_unlock(&regtrace_framechan_stream_lock);
         return ret;
     }
+    t23_crumb(T23C_CHAN_ON, (u32)channel | ((u32)regtrace_t23_vic_streaming << 8));
     if (channel >= 0 && channel < REGTRACE_FRAMECHAN_COUNT) {
         if (!regtrace_framechan_streaming[channel]) {
+            unsigned int pushed;
+
             regtrace_framechan_drop_stale_done(channel);
-            regtrace_framechan_rearm_fifo(channel);
+            pushed = regtrace_framechan_rearm_fifo(channel);
+            t23_crumb(T23C_CHAN_REARM, pushed);
         }
         regtrace_framechan_stream_mask |= 1U << channel;
         regtrace_framechan_stream_owner[channel] = file;
     }
+    t23_crumb_set(T23_CRUMB_W_MASK, regtrace_framechan_stream_mask);
     regtrace_framechan_set_streaming(channel, true);
     regtrace_t23_enable_stream_clks();
-    if (!regtrace_t23_vic_streaming)
+    if (!regtrace_t23_vic_streaming) {
         regtrace_t23_source_input_stream(1, "framechan-streamon");
+        t23_crumb(T23C_CHAN_INPUT_ON, (u32)channel);
+    }
     regtrace_t23_direct_vic_input_stream(1, "framechan-streamon");
     regtrace_t23_tisp_stream_regs(1, channel, "framechan-streamon");
-    regtrace_t23_set_msca_stream(channel, 1, "framechan-streamon");
+    t23_crumb(T23C_CHAN_TISP_ON, (u32)channel);
+    regtrace_t23_set_msca_stream(channel, 1, "framechan-streamon", false);
     regtrace_t23_direct_vic_mdma_stream(channel, 1, "framechan-streamon");
     regtrace_t23_stream_irq_gate(1, "framechan-streamon", channel);
+    t23_crumb(T23C_CHAN_IRQ_ON, (u32)channel);
     mutex_unlock(&regtrace_framechan_stream_lock);
     return 0;
 }
@@ -16808,9 +17106,59 @@ static void regtrace_framechan_stream_off_owned(struct file *file,
     mutex_unlock(&regtrace_framechan_stream_lock);
 }
 
+/*
+ * New tx-isp session (e.g. timps restart) with the input still stopped: an
+ * output kept enabled by msca_keep_enabled (or left by an earlier module
+ * instance; neither a core restart nor a module reload resets 0xd040 or the
+ * FIFOs) still holds the old process's buffer addresses, which openimp has
+ * freed by now.  Starting the input under it made the MSCA write into that
+ * memory (2227-fixon run 2: "unmatched MSCA completion", dead 0.6 s later).
+ * Switch it off, drop its completions and clear its address FIFO now, while
+ * no frame flows; its next STREAMON then loads it as on a first start.
+ * Nothing else differs from the device-tested path.  Stream lock held.
+ */
+static void regtrace_t23_msca_release_stale(const char *reason)
+{
+    uint32_t d040;
+    int channel;
+
+    if (!regtrace_t23_msca_session_release || !regtrace_t23_direct_msca_start ||
+        regtrace_t23_vic_streaming || !regtrace_t23_core_sd ||
+        !regtrace_t23_core_clks_enabled)
+        return;
+    d040 = system_reg_read(0xd040U);
+    for (channel = 0; channel < 3; channel++) {
+        uint32_t bit = 1U << channel;
+        uint32_t fifo_base = ((uint32_t)channel + 0xd0U) << 8;
+        unsigned long flags;
+        unsigned int dropped = 0;
+
+        if (!(d040 & bit) || (regtrace_t23_msca_ch_en & bit))
+            continue;
+        spin_lock_irqsave(&regtrace_t23_msca_lock, flags);
+        system_reg_write(0xd040U, system_reg_read(0xd040U) & ~bit);
+        regtrace_t23_msca_kept &= ~bit;
+        regtrace_t23_msca_live_valid[channel] = false;
+        while (dropped < REGTRACE_FRAMECHAN_DONE_SLOTS &&
+               !(system_reg_read(fifo_base + 0x13cU) & 1U)) {
+            (void)system_reg_read(fifo_base + 0x138U);
+            (void)system_reg_read(fifo_base + 0x158U);
+            dropped++;
+        }
+        tisp_channel_main_fifo_clear(channel);
+        spin_unlock_irqrestore(&regtrace_t23_msca_lock, flags);
+        regtrace_t23_msca_releases++;
+        t23_crumb(T23C_RELEASE, (u32)channel);
+        printk(KERN_INFO "tx_isp_t23_recovered: MSCA ch=%d left enabled, released at session start (%s) dropped=%u d040=0x%x\n",
+               channel, reason ? reason : "?", dropped,
+               system_reg_read(0xd040U));
+    }
+}
+
 /* tx-isp STREAMON/STREAMOFF; caller holds regtrace_framechan_stream_lock. */
 static int regtrace_t23_txisp_stream_locked(int enable, const char *reason)
 {
+    t23_crumb(enable ? T23C_TXISP_ON : T23C_TXISP_OFF, 0);
     if (enable) {
         int ret;
 
@@ -16818,6 +17166,7 @@ static int regtrace_t23_txisp_stream_locked(int enable, const char *reason)
         ret = regtrace_t23_tisp_prestart(reason);
         if (ret)
             return ret;
+        regtrace_t23_msca_release_stale(reason);
         regtrace_t23_source_input_stream(1, reason);
         regtrace_t23_direct_vic_input_stream(1, reason);
         regtrace_t23_tisp_stream_regs(1, -1, reason);
@@ -16854,9 +17203,84 @@ static int regtrace_t23_txisp_stream(int enable, const char *reason)
 static void regtrace_t23_txisp_last_close(void)
 {
     mutex_lock(&regtrace_framechan_stream_lock);
+    t23_crumb(T23C_LAST_CLOSE, regtrace_framechan_stream_mask);
     if (regtrace_t23_txisp_streaming && !regtrace_framechan_stream_mask)
         regtrace_t23_txisp_stream_locked(0, "tx-isp-last-close");
     mutex_unlock(&regtrace_framechan_stream_lock);
+}
+
+/*
+ * Stock __frame_channel_vb2_streamoff() waits before it cancels the queue:
+ * while (done_count < num_buffers && n < 21) msleep(10), with the input,
+ * the output and the core ISR still running, so the MSCA consumes the
+ * addresses still in its FIFO and they complete as normal frames.  Only
+ * then may user space free the buffers (openimp destroys the pool right
+ * after the close), and no address of the stopped stream is left in the
+ * FIFO for the next stream (cold-start snapshot 503, see msca_fifo_rearm).
+ * Here: wait until no buffer of the channel is queued in the hardware any
+ * more, at most chan_stop_drain x 10 ms, only when frames can arrive (input
+ * streaming, output enabled).  The stream lock stays held as in the other
+ * stop paths; the ISR needs neither it nor the caller.  0: no wait (debug).
+ */
+static uint regtrace_t23_chan_stop_drain = 21;
+module_param_named(chan_stop_drain, regtrace_t23_chan_stop_drain, uint, 0644);
+MODULE_PARM_DESC(chan_stop_drain,
+                 "STREAMOFF: wait up to N x 10 ms for the channel's queued buffers to complete (default 21 = stock, 0 off)");
+static uint regtrace_t23_chan_drain_timeouts;
+module_param_named(chan_drain_timeouts, regtrace_t23_chan_drain_timeouts, uint, 0444);
+MODULE_PARM_DESC(chan_drain_timeouts, "STREAMOFF drain waits that ended with buffers still queued (read only)");
+static uint regtrace_t23_chan_drain_waits;
+module_param_named(chan_drain_waits, regtrace_t23_chan_drain_waits, uint, 0444);
+MODULE_PARM_DESC(chan_drain_waits, "STREAMOFF drain waits that found buffers queued in the hardware (read only)");
+static uint regtrace_t23_chan_drain_ticks_max;
+module_param_named(chan_drain_ticks_max, regtrace_t23_chan_drain_ticks_max, uint, 0444);
+MODULE_PARM_DESC(chan_drain_ticks_max, "longest STREAMOFF drain wait in 10 ms steps (read only)");
+
+static unsigned int regtrace_framechan_hw_queued(int channel)
+{
+    unsigned long flags;
+    unsigned int n = 0;
+    int i;
+
+    spin_lock_irqsave(&regtrace_framechan_done_lock, flags);
+    for (i = 0; i < REGTRACE_FRAMECHAN_QBUF_SLOTS; i++)
+        if (regtrace_framechan_qbuf_queued[channel][i])
+            n++;
+    spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
+    return n;
+}
+
+static void regtrace_framechan_drain_wait(int channel)
+{
+    unsigned int n;
+    unsigned int left;
+    unsigned int i;
+
+    if (!regtrace_t23_chan_stop_drain || channel < 0 || channel >= 3 ||
+        !regtrace_framechan_streaming[channel] ||
+        !regtrace_t23_vic_streaming ||
+        !(regtrace_t23_msca_ch_en & (1U << channel)))
+        return;
+    n = regtrace_framechan_hw_queued(channel);
+    left = n;
+    for (i = 0; left && i < regtrace_t23_chan_stop_drain; i++) {
+        private_msleep(10);
+        left = regtrace_framechan_hw_queued(channel);
+    }
+    if (n) {
+        regtrace_t23_chan_drain_waits++;
+        if (i > regtrace_t23_chan_drain_ticks_max)
+            regtrace_t23_chan_drain_ticks_max = i;
+    }
+    if (left) {
+        regtrace_t23_chan_drain_timeouts++;
+        printk_ratelimited(KERN_WARNING
+                           "tx_isp_t23_recovered: framechan%d stream off: %u of %u buffers still queued after %u x 10 ms\n",
+                           channel, left, n, i);
+    } else if (n) {
+        printk(KERN_INFO "tx_isp_t23_recovered: framechan%d stream off: %u buffers drained in %u x 10 ms\n",
+               channel, n, i);
+    }
 }
 
 static void regtrace_framechan_stream_off_locked(int channel,
@@ -16864,22 +17288,34 @@ static void regtrace_framechan_stream_off_locked(int channel,
 {
     bool last;
 
+    t23_crumb(T23C_CHAN_OFF, (u32)channel);
+    regtrace_framechan_drain_wait(channel);
     if (channel >= 0 && channel < REGTRACE_FRAMECHAN_COUNT) {
         regtrace_framechan_stream_mask &= ~(1U << channel);
         regtrace_framechan_stream_owner[channel] = NULL;
     }
+    t23_crumb_set(T23_CRUMB_W_MASK, regtrace_framechan_stream_mask);
     last = !regtrace_framechan_stream_mask;
+    /*
+     * chan_stop_keep_input: like stock, the input started by a tx-isp
+     * STREAMON keeps running until tx-isp STREAMOFF / last close.
+     */
+    if (last && regtrace_t23_chan_stop_keep_input &&
+        regtrace_t23_txisp_streaming)
+        last = false;
     regtrace_framechan_set_streaming(channel, false);
     if (last)
         regtrace_t23_direct_vic_mdma_stream(channel, 0, reason);
-    regtrace_t23_set_msca_stream(channel, 0, reason);
+    regtrace_t23_set_msca_stream(channel, 0, reason, last);
     if (last) {
         regtrace_t23_source_input_stream(0, reason);
         regtrace_t23_direct_vic_input_stream(0, reason);
         regtrace_t23_tisp_stream_regs(0, -1, reason);
         regtrace_t23_stream_irq_gate(0, reason, channel);
         regtrace_t23_txisp_streaming = false;
+        t23_crumb(T23C_CHAN_INPUT_OFF, (u32)channel);
     }
+    t23_crumb(T23C_CHAN_OFF_DONE, (u32)channel);
     printk(KERN_INFO "tx_isp_t23_recovered: framechan%d stream off, still streaming mask=0x%x reason=%s\n",
            channel, regtrace_framechan_stream_mask, reason ? reason : "?");
 }
@@ -33712,7 +34148,25 @@ static int32_t regtrace_t23_irq_none(const char *name, int32_t irq)
 
 static unsigned int regtrace_t23_vic_err_restarts;
 
+static int32_t isp_irq_handle_body(int32_t irq, void *dev_id);
+
+/* Hard ISR with crumbs: irq_in stays set if the CPU stops inside. */
 int32_t isp_irq_handle(int32_t irq, void *dev_id)
+{
+    volatile u32 *w = ACCESS_ONCE(regtrace_t23_crumb_page);
+    int32_t ret;
+
+    if (!w || !regtrace_t23_crumbs)
+        return isp_irq_handle_body(irq, dev_id);
+    w[T23_CRUMB_W_IRQ_IN] = (u32)irq + 1U;
+    w[T23_CRUMB_W_IRQ_COUNT]++;
+    w[T23_CRUMB_W_IRQ_JIFFIES] = (u32)jiffies;
+    ret = isp_irq_handle_body(irq, dev_id);
+    w[T23_CRUMB_W_IRQ_IN] = 0;
+    return ret;
+}
+
+static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
 {
     unsigned char *sd;
     void __iomem *base;
@@ -33832,7 +34286,8 @@ int32_t isp_irq_handle(int32_t irq, void *dev_id)
                 uint32_t fifo_status;
                 int drained = 0;
 
-                if (!(regtrace_t23_msca_ch_en & (1U << channel)))
+                if (!((regtrace_t23_msca_ch_en | regtrace_t23_msca_kept) &
+                      (1U << channel)))
                     continue;
                 fifo_base = ((uint32_t)channel + 0xd0U) << 8;
                 fifo_status = readl(base + fifo_base + 0x13cU);
@@ -44937,6 +45392,7 @@ static void regtrace_t23_msca_commit_global_window(void)
                      ((max_bottom - min_top) & 0x0fffU));
     system_reg_write(0xd050U, system_reg_read(0xd050U) | 0x7U);
     system_reg_write(0xd04cU, 0);
+    t23_crumb(T23C_CFG_COMMIT, 0);
     system_reg_write(0xd010U, 1);
 }
 
@@ -44955,6 +45411,9 @@ int32_t tisp_msca_chx_cfg_load(uint32_t unused, uint32_t channel,
     if (!cfg || channel >= 3)
         return -EINVAL;
 
+    t23_crumb(T23C_CFG_LOAD, channel);
+    /* reloaded below: valid again only once the load completed */
+    regtrace_t23_msca_live_valid[channel] = false;
     ret = tisp_msca_para_calc(0, channel, cfg_ptr);
     if (ret)
         return ret;
@@ -44978,6 +45437,13 @@ int32_t tisp_msca_chx_cfg_load(uint32_t unused, uint32_t channel,
     system_reg_write(base + 0x160U, cfg_word);
     work = system_reg_read(0xd040U) | ((uint32_t)cfg[0] << channel);
     system_reg_write(0xd040U, work);
+    t23_crumb_set(T23_CRUMB_W_D040, work);
+    t23_crumb(T23C_CFG_ENABLE, channel);
+    if (cfg[0]) {
+        memcpy(regtrace_t23_msca_live_cfg[channel], cfg,
+               REGTRACE_T23_MSCA_CFG_BYTES);
+        regtrace_t23_msca_live_valid[channel] = true;
+    }
     printk(KERN_WARNING "tx_isp_t23_recovered: T23 MSCA cfg-load ch=%u source=%ux%u target=%ux%u crop=%ux%u load=0x%x work=0x%x\n",
            channel,
            regtrace_t23_get_le32(cfg + 0x18),
@@ -45868,7 +46334,15 @@ int32_t tisp_msca_api_set_mirr_flip(int32_t arg1, void *arg2)
 	if (dpc_s_con_par_array != 1)
 		a1 = s0;
 
-	/* Write back */
+	/* Write back; no update request for unchanged bits (see
+	 * msca_flip_skip_noop) */
+	if (regtrace_t23_msca_flip_skip_noop &&
+	    (uint32_t)(uintptr_t)a1 == reg_val) {
+		t23_crumb(T23C_FLIP_SKIP, 1);
+		return 0;
+	}
+	t23_crumb_set(T23_CRUMB_W_D050, (u32)(uintptr_t)a1);
+	t23_crumb(T23C_FLIP_WRITE, 1);
 	system_reg_write(0xd050, a1);
 	system_reg_write(0xd010, 1);
 
@@ -99523,14 +99997,24 @@ int ispcore_activate_module(void *arg1) {
                         int rate = private_clk_get_rate(*s1);
                         int a0_3;
 
+                        /*
+                         * Stock (0x6a4c0..0x6a518): clks[0] = cgu_isp gets
+                         * the isp_clk module parameter, clks[1] = cgu_vpu
+                         * (the ISP AXI clock) isp_clka.  The decompiled
+                         * copy read *(clk + 0x84) / *(clk + 0x90) instead,
+                         * i.e. the flags / init_state words of the clk
+                         * table entry three slots further on (struct clk
+                         * is 40 bytes), so isp_clk= / isp_clka= on the
+                         * command line never reached the hardware.
+                         */
                         if (i == 0) {
                             a0_3 = *s1;
                             var_2c = a0_3;
-                            private_clk_set_rate(var_2c, *(int *)((char *)a0_3 + 0x84));
+                            private_clk_set_rate(var_2c, get_isp_clk());
                         } else if (i == 1) {
                             a0_3 = *s1;
                             var_2c = a0_3;
-                            private_clk_set_rate(var_2c, *(int *)((char *)a0_3 + 0x90));
+                            private_clk_set_rate(var_2c, get_isp_clka());
                         }
 
                         if (rate != 0xffff)
@@ -102175,6 +102659,18 @@ static void regtrace_t23_isp_flip_apply(uint32_t mode)
     if (regtrace_t23_get_le32(dpc_s_con_par_array) == 1U)
         value |= 0x11U;
     regtrace_t23_isp_flip_mode = mode & 3U;
+    /*
+     * timps re-sends HVFLIP on every channel 0 enable edge: an update
+     * request right after an output (re)start with unchanged bits is the
+     * T41 restart-hang trigger and does nothing here.
+     */
+    if (regtrace_t23_msca_flip_skip_noop &&
+        value == system_reg_read(0xd050U)) {
+        t23_crumb(T23C_FLIP_SKIP, mode & 3U);
+        return;
+    }
+    t23_crumb_set(T23_CRUMB_W_D050, value);
+    t23_crumb(T23C_FLIP_WRITE, mode & 3U);
     system_reg_write(0xd050U, value);
     system_reg_write(0xd010U, 1U);
 }
@@ -102186,8 +102682,10 @@ static int regtrace_t23_sensor_flip_set(uint32_t mode)
     uint32_t value = mode & 3U;
     int ret;
 
+    t23_crumb(T23C_SENSOR_FLIP, value);
     ret = regtrace_t23_call_sensor_ioctl(REGTRACE_TX_ISP_EVENT_SENSOR_VFLIP,
                                          &value);
+    t23_crumb(T23C_SENSOR_FLIP_DONE, (u32)ret & 0xffffU);
     if (ret)
         return ret;
     regtrace_t23_sensor_flip_mode = (int)(mode & 3U);
