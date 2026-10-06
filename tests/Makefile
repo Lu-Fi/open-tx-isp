@@ -27,6 +27,10 @@ TESTS += tx_isp_t21_open_test
 TESTS += tx_isp_t23_tuning_ext_test
 TESTS += tx_isp_t31_autozoom_test
 TESTS += tx_isp_t31_af_test
+TESTS += tx_isp_t31_framedrop_test
+
+tx_isp_t31_framedrop_test: tx_isp_t31_framedrop_test.c ../driver/t31/tx_isp_t31_framedrop.h
+	$(CC) $(CFLAGS) -o $@ $<
 TESTS += tx_isp_t23_af_test
 
 tx_isp_t23_af_test: tx_isp_t23_af_test.c ../driver/t23/tx_isp_t23_af.h ../driver/t31/tx_isp_t31_af.h

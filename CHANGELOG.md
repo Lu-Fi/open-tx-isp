@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the 24 h soak that started 2026-10-04); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-06
+
+- Pending (branch `claude/release-t31-framedrop`): T31 `IMP_ISP_SetFrameDrop`/`GetFrameDrop` (ioctl 0xc00456e6/0xc00456e7, three 12-byte records) with the stock semantics: lsize (window of lsize+1 frames, 0..31, larger is refused) at ISP register +0x130 and fmark (bit set = output) at +0x134 of ((ch+0x98)<<8); disabled writes lsize 0 / fmark 1; get reports the registers and enable = 1 like the stock module. The ISP drops the frames itself (device-checked); the old driver helper had the two registers swapped and the DQBUF software drop dropped a second time, so it is removed. Host test `tests/tx_isp_t31_framedrop_test.c`.
+
 ## 2026-10-05
 
 - Pending (branch `claude/t23-af`, host- and emulator-tested only, no device test yet): T23 AF statistics chain from the stock module, off by default (`source_af=1`): AF block + core interrupt bit 31, focus values, GetAfHist/SetAfHist, Get/SetAfWeight, GetAFMetrices, GetAfZone (controls 0x8000042/43/44/46). Shares the data handling of the T31 chain; verified identical to the stock `tx-isp-t23.ko` in the MIPS emulator (`driver/t23/audit/af_emu.py`).
