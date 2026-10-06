@@ -15,6 +15,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
     - An ISP day/night switch: OK.
     - 0 oopses.
 - T21: `SetColorfxMode(SEPIA)` works (it returned -1 before): the CCM saturation list goes to 0 like B/W and the CSC U/V row sums get a tint (U below, V above neutral for a grey input, luma unchanged). A CSC attribute set during sepia keeps the tint; leaving sepia puts the stored matrix back. Device-tested on PC420 (jxf23): dU 17 / dV 19 against the plain picture.
+- Pending (branch `claude/release-t31-framedrop`): T31 `IMP_ISP_SetFrameDrop`/`GetFrameDrop` (ioctl 0xc00456e6/0xc00456e7, three 12-byte records) with the stock semantics: lsize (window of lsize+1 frames, 0..31, larger is refused) at ISP register +0x130 and fmark (bit set = output) at +0x134 of ((ch+0x98)<<8); disabled writes lsize 0 / fmark 1; get reports the registers and enable = 1 like the stock module. The ISP drops the frames itself (device-checked); the old driver helper had the two registers swapped and the DQBUF software drop dropped a second time, so it is removed. Host test `tests/tx_isp_t31_framedrop_test.c`.
 
 ## 2026-10-05
 

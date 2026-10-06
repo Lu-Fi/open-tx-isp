@@ -44,6 +44,7 @@
 #include "include/tx_isp_sysfs.h"
 #include "include/tx_isp_vic.h"
 #include "include/tx_isp_csi.h"
+#include "tx_isp_t31_framedrop.h"
 #include "include/tx_isp_vin.h"
 #include "include/tx_isp_tuning.h"
 #include "include/tx_isp_device.h"
@@ -1712,31 +1713,27 @@ u32 system_reg_read(u32 reg)
 }
 EXPORT_SYMBOL_GPL(system_reg_read);
 
-/* tisp_set_frame_drop - Program frame drop parameters for a channel (OEM-compatible) */
-int tisp_set_frame_drop(u32 channel_id, u32 enable, u32 period, u32 mask)
+/* Stock frame drop (IMP_ISP_Set/GetFrameDrop, ioctl 0xc00456e6/0xc00456e7).
+ * Per channel the ISP keeps two registers at ((ch + 0x98) << 8):
+ *   +0x130  lsize  - drop window is lsize + 1 frames (0..31)
+ *   +0x134  fmark  - bit n set: frame n of the window is output, clear: drop
+ * Reset state lsize=0 fmark=1 outputs every frame; "disabled" writes that
+ * state.  Stock rejects lsize >= 32 and never range-checks the channel
+ * (the ioctl loops over channels 0..2). */
+int tisp_set_frame_drop(u32 channel_id, u32 enable, u32 lsize, u32 fmark)
 {
-    u32 base;
+    u32 base, r130, r134;
+    int ret;
 
     if (channel_id > 3)
         return -EINVAL;
+    ret = tisp_frame_drop_regs(enable, lsize, fmark, &r130, &r134);
+    if (ret)
+        return ret;
 
-    /* OEM constraint: mask and period are 5-bit values */
-    mask &= 0x1f;
-    period &= 0x1f;
-
-    base = ((channel_id + 0x98) << 8);
-
-    /* Program mask register first */
-    system_reg_write(base + 0x130, mask);
-
-    /* Enable/disable with period. Reference reads period from +0x134. */
-    if (enable)
-        system_reg_write(base + 0x134, period);
-    else
-        system_reg_write(base + 0x134, 0);
-
-    pr_info("tisp_set_frame_drop: ch=%u enable=%u period=%u mask=0x%x (base=0x%x)\n",
-            channel_id, enable, period, mask, base);
+    base = tisp_frame_drop_base(channel_id);
+    system_reg_write(base + TISP_FRAME_DROP_REG_LSIZE, r130);
+    system_reg_write(base + TISP_FRAME_DROP_REG_FMARK, r134);
     return 0;
 }
 EXPORT_SYMBOL_GPL(tisp_set_frame_drop);
@@ -1847,31 +1844,58 @@ static inline void fill_timeval_mono(struct timeval *tv)
 #endif
 }
 
-int tisp_get_frame_drop(u32 channel_id, u32 *enable, u32 *period, u32 *mask)
+int tisp_get_frame_drop(u32 channel_id, u32 *enable, u32 *lsize, u32 *fmark)
 {
-    u32 base, m, p;
+    u32 base;
 
-    if (channel_id > 3 || !enable || !period || !mask)
+    if (channel_id > 3 || !enable || !lsize || !fmark)
         return -EINVAL;
 
-    base = ((channel_id + 0x98) << 8);
-    m = system_reg_read(base + 0x130);
-    p = system_reg_read(base + 0x134);
-
-    *mask = (m & 0x1f);
-    if (p) {
-        *enable = 1;
-        *period = (p & 0x1f);
-    } else {
-        *enable = 0;
-        *period = 0;
-    }
-
-    pr_debug("tisp_get_frame_drop: ch=%u -> enable=%u period=%u mask=0x%x (base=0x%x)\n",
-             channel_id, *enable, *period, *mask, base);
+    base = tisp_frame_drop_base(channel_id);
+    /* Stock reports the registers verbatim and always enable = 1; lsize is
+     * a byte in the user structure. */
+    *lsize = system_reg_read(base + TISP_FRAME_DROP_REG_LSIZE) & 0xff;
+    *fmark = system_reg_read(base + TISP_FRAME_DROP_REG_FMARK);
+    *enable = 1;
     return 0;
 }
 EXPORT_SYMBOL_GPL(tisp_get_frame_drop);
+
+/* 0xc00456e6 / 0xc00456e7: three IMPISPFrameDrop records (36 bytes). */
+static long tx_isp_frame_drop_ioctl(unsigned int cmd, void __user *argp)
+{
+    struct tisp_frame_drop_user fd[TISP_FRAME_DROP_CHANNELS];
+    u32 enable, lsize, fmark;
+    int ch, ret = 0;
+
+    if (cmd == TX_ISP_SET_FRAME_DROP_CMD) {
+        if (copy_from_user(fd, argp, sizeof(fd)))
+            return -EFAULT;
+        /* Validate all channels first so a bad entry leaves the
+         * hardware untouched (stock applies in order). */
+        for (ch = 0; ch < 3; ch++)
+            if (fd[ch].lsize >= TISP_FRAME_DROP_LSIZE_MAX)
+                return -EINVAL;
+        for (ch = 0; ch < 3; ch++) {
+            ret = tisp_set_frame_drop(ch, fd[ch].enable, fd[ch].lsize,
+                                      fd[ch].fmark);
+            if (ret)
+                return ret;
+        }
+        return 0;
+    }
+
+    memset(fd, 0, sizeof(fd));
+    for (ch = 0; ch < 3; ch++) {
+        ret = tisp_get_frame_drop(ch, &enable, &lsize, &fmark);
+        if (ret)
+            return ret;
+        fd[ch].enable = enable;
+        fd[ch].lsize = lsize;
+        fd[ch].fmark = fmark;
+    }
+    return copy_to_user(argp, fd, sizeof(fd)) ? -EFAULT : 0;
+}
 
 /* frame_chan_event - Handle frame events (DQBUF path, OEM-aligned semantics) */
 int frame_chan_event(void *priv, int event, void *data)
@@ -1885,10 +1909,8 @@ int frame_chan_event(void *priv, int event, void *data)
     switch (event) {
     case TX_ISP_EVENT_FRAME_DQBUF: { /* 0x3000006 */
         struct tx_isp_channel_state *state = &fcd->state;
-        u32 enable = 0, period = 0, mask = 0;
         u32 y_done;
         bool matched = false;
-        bool drop = false;
         int ch = fcd->channel_num;
 
         /* A real completion carries the MSCA Y FIFO value at +8.  A wake
@@ -1912,16 +1934,9 @@ int frame_chan_event(void *priv, int event, void *data)
             return 0;
         }
 
-        /* Frame-drop window check using current HW settings */
-        tisp_get_frame_drop((u32)fcd->channel_num, &enable, &period, &mask);
-        if (enable && period) {
-            u32 pos = state->drop_counter++ % period;
-            drop = ((mask >> pos) & 0x1) != 0;
-        }
-        if (drop) {
-            __submit_buffer_to_msca(ch, y_done);
-            return 0;
-        }
+        /* Frame drop (lsize/fmark) is done by the ISP itself from the
+         * channel registers: dropped frames never reach this event.  A
+         * software window on top dropped a second time (1/2 became 1/4). */
         state->last_done_phys = y_done;
 
         /*
@@ -6247,6 +6262,9 @@ static long tx_isp_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned 
         pr_info("Sensor info request: returning success (1)\n");
         return 0;
     }
+    case TX_ISP_SET_FRAME_DROP_CMD:
+    case TX_ISP_GET_FRAME_DROP_CMD:
+        return tx_isp_frame_drop_ioctl(cmd, argp);
     case 0x800456d8: { // TX_ISP_WDR_ENABLE - Enable WDR mode
         int wdr_enable = 1;
 
