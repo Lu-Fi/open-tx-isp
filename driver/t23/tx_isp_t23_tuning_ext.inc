@@ -33,6 +33,7 @@
 #define T23X_CID_AF_WEIGHT      0x08000044U
 #define T23X_CID_AF_ZONE        0x08000046U
 #define T23X_CID_MASK_BLOCK     0x08000183U
+#define T23X_CID_AUTO_ZOOM      0x080000e8U
 #define T23X_CID_AWB_CLUSTER    0x0800000eU
 #define T23X_CID_AWB_CT_TREND   0x0800000fU
 
@@ -529,6 +530,50 @@ static long t23x_mask_block(bool get, uint32_t uptr)
 	return get ? regtrace_t23_copy_out(uptr, out, sizeof(out)) : 0;
 }
 
+/* ---- AutoZoom ---------------------------------------------------------- */
+
+/*
+ * SetAutoZoom (stock apical_isp_autozoom_s_attr -> tisp_s_autozoom_control):
+ * the channel record of the MSCA takes the crop window and the scaler
+ * output (data handling in tx_isp_t23_tuning_ext.h), then the channel is
+ * recomputed.  A channel that is running is reloaded the way the front
+ * crop does it (same lock, same channel load, then the shadow latch); a
+ * channel that is not running keeps the values for its next start.  The
+ * channel start/stop paths are not touched.
+ */
+static long t23x_autozoom_set(uint32_t uptr)
+{
+	uint8_t blk[T23X_AUTOZOOM_BYTES];
+	struct t23x_autozoom_req r;
+	uint8_t next[56];
+	unsigned long flags;
+	uint8_t *cfg;
+	long ret;
+	int err;
+
+	ret = regtrace_t23_copy_in(blk, uptr, sizeof(blk));
+	if (ret)
+		return ret;
+	memcpy(&r, blk, sizeof(r));
+	if (r.chan > 2U)
+		return -EINVAL;
+	cfg = msca + r.chan * 56U;
+	spin_lock_irqsave(&regtrace_t23_msca_lock, flags);
+	err = t23x_autozoom_apply(next, cfg,
+				  t23x_le16_get(mscaler + r.chan * 2U),
+				  t23x_le16_get(mscaler + (r.chan + 3U) * 2U),
+				  &r, regtrace_t23_source_sensor_width,
+				  regtrace_t23_source_sensor_height);
+	if (!err) {
+		memcpy(cfg, next, sizeof(next));
+		if (cfg[0] && regtrace_t23_core_started)
+			err = tisp_msca_chx_cfg_load(0, r.chan, (uintptr_t)cfg);
+		system_reg_write(0xd010U, 1);
+	}
+	spin_unlock_irqrestore(&regtrace_t23_msca_lock, flags);
+	return err;
+}
+
 /* ---- Gamma ------------------------------------------------------------- */
 
 #define T23X_CID_GAMMA 0x0800002bU
@@ -647,6 +692,8 @@ static long regtrace_t23_tuning_ext(bool get, uint32_t id, uint32_t *value)
 		}
 	}
 	switch (id) {
+	case T23X_CID_AUTO_ZOOM:
+		return get ? -EINVAL : t23x_autozoom_set(*value);
 	case T23X_CID_MASK_BLOCK:
 		return t23x_mask_block(get, *value);
 	case T23X_CID_GAMMA:

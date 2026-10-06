@@ -497,4 +497,102 @@ static inline int t23x_mask_block_get(const uint8_t *msca, const uint8_t *in,
 	return 0;
 }
 
+/* ---- AutoZoom (0x80000e8) ------------------------------------------- */
+
+/*
+ * Stock apical_isp_autozoom_s_attr + tisp_s_autozoom_control: the 36-byte
+ * IMPISPAutoZoom { chan, scaler_enable, scaler_outwidth, scaler_outheight,
+ * crop_enable, crop_left, crop_top, crop_width, crop_height } is applied to
+ * the 56-byte channel record of the MSCA ("cfg"):
+ *   crop enabled      cfg[3] = 1 (locks the crop against the channel
+ *                     attributes), +0x10 left, +0x14 top, +0x18 width,
+ *                     +0x1c height;
+ *   crop not enabled  window (0, 0, full_width, full_height), the lock byte
+ *                     is left as it was;
+ *   scaler enabled    cfg[4] = 1 (lock), +0x20 out width, +0x24 out height;
+ *   scaler not enabled only +0x24 = +0x1c (the stock code leaves +0x20).
+ * full_width/height are the 16-bit words the stock code reads at
+ * mscaler + 2 * chan and + 2 * (chan + 3).  The stock code then runs
+ * tisp_msca_crop_api for the channel.
+ *
+ * Beyond stock (the stock code takes anything and can stall the MSCA, as
+ * the front crop does): a channel above 2, a window outside the sensor
+ * picture or below 64x64 or odd, and a scaler output that is odd, below
+ * 64 or larger than the window (also the stale width the stock code
+ * leaves with the scaler off) are refused with -EINVAL and nothing is
+ * written.  The stock code takes a channel above 2 as channel 0 with every
+ * switch off.
+ */
+#define T23X_AUTOZOOM_BYTES 36U
+#define T23X_AUTOZOOM_MIN 64U
+
+struct t23x_autozoom_req {
+	uint32_t chan, scaler_en, scaler_w, scaler_h;
+	uint32_t crop_en, crop_left, crop_top, crop_w, crop_h;
+};
+
+static inline uint32_t t23x_u32_get(const uint8_t *p)
+{
+	uint32_t v;
+
+	memcpy(&v, p, sizeof(v));
+	return v;
+}
+
+static inline void t23x_u32_put(uint8_t *p, uint32_t v)
+{
+	memcpy(p, &v, sizeof(v));
+}
+
+/* returns 0 and the new record in out (56 bytes), or -EINVAL */
+static inline int t23x_autozoom_apply(uint8_t *out, const uint8_t *cfg,
+				      uint32_t full_w, uint32_t full_h,
+				      const struct t23x_autozoom_req *r,
+				      uint32_t sensor_w, uint32_t sensor_h)
+{
+	uint32_t crop_w, crop_h;
+
+	if (r->chan > 2U)
+		return -EINVAL;
+	memcpy(out, cfg, 56);
+	if (r->crop_en == 1U) {
+		crop_w = r->crop_w;
+		crop_h = r->crop_h;
+		if (crop_w < T23X_AUTOZOOM_MIN || crop_h < T23X_AUTOZOOM_MIN ||
+		    (crop_w & 1U) || (crop_h & 1U) ||
+		    r->crop_left > sensor_w || crop_w > sensor_w - r->crop_left ||
+		    r->crop_top > sensor_h || crop_h > sensor_h - r->crop_top)
+			return -EINVAL;
+		out[3] = 1;
+		t23x_u32_put(out + 0x10, r->crop_left);
+		t23x_u32_put(out + 0x14, r->crop_top);
+		t23x_u32_put(out + 0x18, crop_w);
+		t23x_u32_put(out + 0x1c, crop_h);
+	} else {
+		crop_w = full_w;
+		crop_h = full_h;
+		t23x_u32_put(out + 0x10, 0);
+		t23x_u32_put(out + 0x14, 0);
+		t23x_u32_put(out + 0x18, crop_w);
+		t23x_u32_put(out + 0x1c, crop_h);
+	}
+	if (r->scaler_en == 1U) {
+		if (r->scaler_w < T23X_AUTOZOOM_MIN ||
+		    r->scaler_h < T23X_AUTOZOOM_MIN ||
+		    (r->scaler_w & 1U) || (r->scaler_h & 1U) ||
+		    r->scaler_w > crop_w || r->scaler_h > crop_h)
+			return -EINVAL;
+		out[4] = 1;
+		t23x_u32_put(out + 0x20, r->scaler_w);
+		t23x_u32_put(out + 0x24, r->scaler_h);
+	} else {
+		t23x_u32_put(out + 0x24, t23x_u32_get(out + 0x1c));
+	}
+	/* the width the stock code leaves must not end up above the window */
+	if (t23x_u32_get(out + 0x20) > crop_w ||
+	    t23x_u32_get(out + 0x24) > crop_h)
+		return -EINVAL;
+	return 0;
+}
+
 #endif /* TX_ISP_T23_TUNING_EXT_H */

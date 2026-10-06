@@ -293,8 +293,60 @@ static void test_mask_block(void)
 	assert(!memcmp(ref, msca, sizeof(ref)));
 }
 
+static void test_autozoom(void)
+{
+	uint8_t cfg[56], out[56];
+	struct t23x_autozoom_req r;
+	uint32_t blk[9] = { 1, 1, 640, 360, 1, 100, 50, 1280, 720 };
+
+	assert(sizeof(r) == T23X_AUTOZOOM_BYTES);
+	memset(cfg, 0, sizeof(cfg));
+	cfg[0] = 1;
+	t23x_u32_put(cfg + 0x18, 1920);
+	t23x_u32_put(cfg + 0x1c, 1080);
+	t23x_u32_put(cfg + 0x20, 1920);
+	t23x_u32_put(cfg + 0x24, 1080);
+	memcpy(&r, blk, sizeof(r));
+	/* crop and scaler on: both locks, window and output stored */
+	assert(t23x_autozoom_apply(out, cfg, 1920, 1080, &r, 1920, 1080) == 0);
+	assert(out[0] == 1 && out[3] == 1 && out[4] == 1);
+	assert(t23x_u32_get(out + 0x10) == 100 && t23x_u32_get(out + 0x14) == 50);
+	assert(t23x_u32_get(out + 0x18) == 1280 && t23x_u32_get(out + 0x1c) == 720);
+	assert(t23x_u32_get(out + 0x20) == 640 && t23x_u32_get(out + 0x24) == 360);
+	/* the input record is untouched */
+	assert(cfg[3] == 0 && t23x_u32_get(cfg + 0x18) == 1920);
+	/* crop off: full window from the mscaler words, lock byte as it was;
+	 * scaler off: only the height follows (the width is stock-stale) */
+	cfg[3] = 1;
+	blk[1] = 0; blk[4] = 0;
+	memcpy(&r, blk, sizeof(r));
+	t23x_u32_put(cfg + 0x20, 1280);
+	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == 0);
+	assert(out[3] == 1 && out[4] == 0);
+	assert(t23x_u32_get(out + 0x10) == 0 && t23x_u32_get(out + 0x14) == 0);
+	assert(t23x_u32_get(out + 0x18) == 1280 && t23x_u32_get(out + 0x1c) == 720);
+	assert(t23x_u32_get(out + 0x20) == 1280 && t23x_u32_get(out + 0x24) == 720);
+	/* refused: nothing written */
+	blk[0] = 3;
+	memcpy(&r, blk, sizeof(r));
+	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == -EINVAL);
+	blk[0] = 1; blk[4] = 1; blk[5] = 700;          /* 700 + 1280 > 1920 */
+	memcpy(&r, blk, sizeof(r));
+	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == -EINVAL);
+	blk[5] = 0; blk[7] = 63;                        /* below 64 */
+	memcpy(&r, blk, sizeof(r));
+	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == -EINVAL);
+	blk[7] = 1280; blk[1] = 1; blk[2] = 1400;       /* scaler above window */
+	memcpy(&r, blk, sizeof(r));
+	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == -EINVAL);
+	blk[1] = 0; blk[7] = 960; blk[8] = 540;         /* stale width 1280 > 960 */
+	memcpy(&r, blk, sizeof(r));
+	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == -EINVAL);
+}
+
 int main(void)
 {
+	test_autozoom();
 	test_mask_block();
 	test_awb_cluster_trend();
 	test_gamma();
