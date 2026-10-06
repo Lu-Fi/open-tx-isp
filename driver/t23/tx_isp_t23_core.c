@@ -10237,8 +10237,8 @@ static uint32_t t23_aelift_stream_packed(void);  /* ditto */
 static bool regtrace_t23_source_adr_oem = true; /* tx_isp_t23_adr_oem_glue.inc */
 static void t23_adrlift_halt(void);
 static void t23_adrlift_irq(uint32_t status);
-/* tx_isp_t23_af.inc: stock AF statistics chain (source_af=1) */
-static bool regtrace_t23_source_af;
+/* tx_isp_t23_af.inc: stock AF statistics chain (source_af, default 1 = stock) */
+static bool regtrace_t23_source_af = true;
 static void t23_af_irq(uint32_t status);
 static int t23_af_start(uint32_t width, uint32_t height);
 static void t23_af_halt(void);
