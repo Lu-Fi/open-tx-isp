@@ -22,6 +22,7 @@
 #include "tx_isp_t41_hvflip.h"
 #include "tx_isp_t41_ae.h"
 #include "tx_isp_t41_tuning_ctl.h"
+#include "tx_isp_t41_msca_shadow.h"
 #include "tx_isp_t41_gib.h"
 #include "../include/tx_isp/tx_isp_top.h"
 #include "tx_isp_t41_awb.h"
@@ -1075,6 +1076,30 @@ MODULE_PARM_DESC(t41_msca_flip_skip_noop,
  */
 static int t41_msca_stop_disable;
 module_param(t41_msca_stop_disable, int, 0644);
+/*
+ * MSCA output geometry, ratios, the global input size and 0xf002c are
+ * staged registers (tx_isp_t41_msca_shadow.h): they only take effect at the
+ * next input frame after 0xf0010 = 1.  Stock relies on the update requests
+ * of the HVFLIP path around SET_FMT; with no-op flip requests skipped
+ * (t41_msca_flip_skip_noop) nothing latches a newly programmed output, so
+ * every output keeps its reset geometry (ch0 1920x1080, ch1 1280x720, ratio
+ * 1:1, input 1920x1080): ch0 shows a 1920x1080 crop of the 2880x1620
+ * sensor, ch1 at 640x360 writes 1280x720 lines into 640x360 buffers
+ * (garbage chroma, a band of other data at the top of the next buffer).
+ *
+ * 1 requests the update after a (re)programmed output: every ch1 size from
+ * 640x360 to 1440x810 is then correct, 20 timps restarts pass.  It stays
+ * OFF by default because with correct geometry the output-restart hang
+ * (README "Output restart hang") comes back: t41crash/targeted.py hung the
+ * T41 after 4-13 cycles with 1, none in 30 cycles with 0 (2026-10-06).
+ */
+static int t41_msca_cfg_update;
+module_param(t41_msca_cfg_update, int, 0644);
+MODULE_PARM_DESC(t41_msca_cfg_update,
+                 "1 latches MSCA output geometry (correct scaling; output-restart hang risk, default 0)");
+/* Last word written to the staged 0xf002c (flip/mirror/algorithm). */
+static struct t41_msca_staged t41_msca_algo_staged
+    __attribute__((section(".data")));
 struct t41_msca_live_cfg {
 	uint32_t width, height, source_width, source_height;
 	uint32_t crop_x, crop_y, crop_width, crop_height, aux, align;
@@ -141282,10 +141307,15 @@ int32_t tisp_msca_set_mirr_flip(uint32_t a0, uintptr_t a1)
      * hang (both CPUs stop, no oops, watchdog reset; driver/t41/README.md).
      * A real flip change still requests the update as stock does.
      */
-    if (t41_msca_flip_skip_noop > 0 &&
-        ((value & 0xc00001ff) | bits) == value)
+    /* 0xf002c reads back the active word; a change written within the
+     * last frame is still pending.  Compare and merge against the staged
+     * word (tx_isp_t41_msca_shadow.h), or a set+restore inside one frame
+     * skips the restore and leaves the picture flipped. */
+    if (!t41_msca_flip_word(&t41_msca_algo_staged, value, bits, &value) &&
+        t41_msca_flip_skip_noop > 0)
         return 0;
-    system_reg_write(0x0f002c, (value & 0xc00001ff) | bits);
+    system_reg_write(0x0f002c, value);
+    t41_msca_staged_store(&t41_msca_algo_staged, value);
     system_reg_write(0x0f0010, 1);
     return 0;
 }
@@ -142961,7 +142991,8 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
     system_reg_write(0x0f071cU + a1 * 4U,
                      vertical_ratio & 0x7ffffU);
 
-    algorithm = system_reg_read(0x0f002cU) | 7U |
+    algorithm = t41_msca_staged_base(&t41_msca_algo_staged,
+                                     system_reg_read(0x0f002cU)) | 7U |
                 ((uint32_t)(params[0xe5] & 1U) << 12) |
                 ((uint32_t)(params[0xe6] & 1U) << 13) |
                 ((uint32_t)(params[0xe7] & 1U) << 14);
@@ -142972,6 +143003,7 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
                  ((uint32_t)(params[0xe2] & 1U) << 5) |
                  ((uint32_t)(params[0xe4] & 1U) << 6);
     system_reg_write(0x0f002cU, algorithm);
+    t41_msca_staged_store(&t41_msca_algo_staged, algorithm);
     system_reg_write(0x0f0028U, scale_mode);
 
     /*
@@ -143027,6 +143059,10 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
         active_mask = system_reg_read(0x0f0008) |
                       ((uint32_t)(desc[0] & 1U) << a1);
     system_reg_write(0x0f0008, active_mask);
+    /* Latch the staged geometry/ratio words at the next input frame
+     * (see t41_msca_cfg_update). */
+    if (t41_msca_cfg_update > 0)
+        system_reg_write(0x0f0010, 1);
     private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock,
                                    enable_flags);
     printk(KERN_WARNING
@@ -143677,6 +143713,8 @@ int32_t tisp_msca_init(uint32_t a0, uint32_t a1, uint32_t a2)
     system_reg_write(0x0f0080, 0);
     system_reg_write(0x0f0084,
                      ((a1 & 0x1fffU) << 16) | (a2 & 0x0fffU));
+    /* Fresh ISP: the staged 0xf002c word is the read-back again. */
+    t41_msca_algo_staged.valid = 0;
     system_reg_write(0x033c, 0x20220702);
     private_spin_lock_init((int32_t *)(void *)msca_slock_storage);
 

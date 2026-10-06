@@ -575,3 +575,17 @@ without skipping the redundant update requests.
 
 Residual risk: a real HVFLIP change still issues an update request; done
 within a frame of an output start it may hit the same hazard.
+
+Update 2026-10-06: the MSCA geometry, ratio, global input and flip words are
+staged registers (written value applies at the next input frame after
+`0xf0010 = 1`, reads return the active value; see
+`tx_isp_t41_msca_shadow.h`). With the no-op flip requests skipped, the
+outputs never latched their geometry and ran with the reset defaults
+(1920x1080 / 1280x720, ratio 1:1, input 1920x1080), probably why the repro
+above stopped hanging. `t41_msca_cfg_update=1` latches the programmed
+geometry (correct pictures), and then the targeted repro hangs again after
+4-13 cycles, also without any register write during the cycles (restarts
+with unchanged geometry are not reprogrammed). The hang is therefore tied to
+an output being idle-stopped and restarted while the MSCA really scales the
+full 2880x1620 input, not to the update requests themselves. Default stays 0
+until that is solved.
