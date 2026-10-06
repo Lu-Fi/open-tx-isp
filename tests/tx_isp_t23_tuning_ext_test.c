@@ -225,8 +225,77 @@ static void test_awb_cluster_trend(void)
 	assert(!memcmp(tout, tin, sizeof(tin)));
 }
 
+static void test_mask_block(void)
+{
+	uint8_t msca[T23X_MSCA_BYTES], blk[T23X_MASK_BLOCK_BYTES];
+	uint8_t out[T23X_MASK_BLOCK_BYTES], ref[T23X_MSCA_BYTES];
+	uint32_t dirty;
+	uint8_t *e;
+
+	memset(msca, 0, sizeof(msca));
+	/* chx 1, pinum 2: entry 6 at 1836 + 16 * 6 */
+	memset(blk, 0xee, sizeof(blk));
+	blk[0] = 1; blk[1] = 2; blk[2] = 1;
+	t23x_le16_put(blk + 4, 10);     /* top */
+	t23x_le16_put(blk + 6, 100);    /* left */
+	t23x_le16_put(blk + 8, 200);    /* width */
+	t23x_le16_put(blk + 10, 300);   /* height */
+	blk[16] = 0x11; blk[17] = 0x22; blk[18] = 0x33;
+	assert(t23x_mask_block_set(msca, blk) == 0);
+	e = msca + 1836 + 16 * 6;
+	assert(e[0] == 1);
+	assert(t23x_le16_get(e + 2) == 100 && t23x_le16_get(e + 4) == 10);
+	assert(t23x_le16_get(e + 6) == 200 && t23x_le16_get(e + 8) == 300);
+	/* the colour word is c0 << 16 | c1 << 8 | c2 */
+	assert(e[12] == 0x33 && e[13] == 0x22 && e[14] == 0x11 && e[15] == 0);
+	memcpy(&dirty, msca + 2308, 4);
+	assert(dirty == (1U << 6));
+	/* nothing but the entry and the dirty word changed */
+	memset(ref, 0, sizeof(ref));
+	memcpy(ref + 1836 + 16 * 6, e, 16);
+	memcpy(ref + 2308, &dirty, 4);
+	assert(!memcmp(ref, msca, sizeof(ref)));
+
+	/* get: mask_en reads 0 (stock), mask_type and padding 0, chx / pinum
+	 * echoed, the rest as set */
+	memset(out, 0xaa, sizeof(out));
+	assert(t23x_mask_block_get(msca, blk, out) == 0);
+	assert(out[0] == 1 && out[1] == 2 && out[2] == 0 && out[3] == 0);
+	assert(t23x_le16_get(out + 4) == 10 && t23x_le16_get(out + 6) == 100);
+	assert(t23x_le16_get(out + 8) == 200 && t23x_le16_get(out + 10) == 300);
+	assert(!out[12] && !out[13] && !out[14] && !out[15] && !out[19]);
+	assert(out[16] == 0x11 && out[17] == 0x22 && out[18] == 0x33);
+
+	/* mask_en other than 1: only the enable is cleared, geometry stays,
+	 * another bit is or-ed into the dirty word; get then reports zeros */
+	blk[0] = 0; blk[1] = 3; blk[2] = 0;
+	assert(t23x_mask_block_set(msca, blk) == 0);
+	memcpy(&dirty, msca + 2308, 4);
+	assert(dirty == ((1U << 6) | (1U << 3)));
+	t23x_le16_put(msca + 1836 + 16 * 3 + 4, 77);
+	assert(t23x_mask_block_get(msca, blk, out) == 0);
+	assert(t23x_le16_get(out + 4) == 0 && !out[16]);
+	blk[2] = 2;                     /* 2 is not 1: disabled */
+	e = msca + 1836 + 16 * 3;
+	e[0] = 1;
+	assert(t23x_mask_block_set(msca, blk) == 0 && e[0] == 0);
+
+	/* outside chx 0..2 / pinum 0..3: refused, nothing written */
+	memset(msca, 0x5a, sizeof(msca));
+	memcpy(ref, msca, sizeof(ref));
+	blk[0] = 3; blk[1] = 0; blk[2] = 1;
+	assert(t23x_mask_block_set(msca, blk) == -EINVAL);
+	blk[0] = 0; blk[1] = 4;
+	assert(t23x_mask_block_set(msca, blk) == -EINVAL);
+	blk[0] = 255; blk[1] = 255;
+	assert(t23x_mask_block_set(msca, blk) == -EINVAL);
+	assert(t23x_mask_block_get(msca, blk, out) == -EINVAL);
+	assert(!memcmp(ref, msca, sizeof(ref)));
+}
+
 int main(void)
 {
+	test_mask_block();
 	test_awb_cluster_trend();
 	test_gamma();
 	test_wait_frame();
