@@ -23,10 +23,10 @@
  *
  *  - Scene: stored and reported, nothing applied (the T20 3.12.0 driver
  *    returns before applying its scene mode too).
- *  - Colorfx: AUTO, BW (CCM saturation list 0), VIVID (saturation list
- *    x1.5) and NEGATIVE (inverted gamma LUT).  SEPIA and the other V4L2
- *    effects need a chroma offset T21 has no known control for; they are
- *    refused (-1) and the effect in use stays.
+ *  - Colorfx: AUTO, BW (CCM saturation list 0), SEPIA (BW plus a tinted
+ *    CSC matrix, see t21_sepia_params), VIVID (saturation list x1.5) and
+ *    NEGATIVE (inverted gamma LUT).  The other V4L2 effects are refused
+ *    (-1) and the effect in use stays.
  *  - Sinter (2D NR): every SDNS noise-profile field (npv * stren, as
  *    tisp_sdns_y/c_param_cfg write them) is scaled by strength/128
  *    (MANUAL; AUTO = 128), at most up to the 8-bit field limit.  The
@@ -63,6 +63,7 @@
 
 #define T21_COLORFX_AUTO	0
 #define T21_COLORFX_BW		1
+#define T21_COLORFX_SEPIA	2
 #define T21_COLORFX_NEGATIVE	3
 #define T21_COLORFX_VIVID	9
 
@@ -98,7 +99,39 @@ static uint32_t t21_3dns_applied = 128;		/* ratio in the mdns banks */
 
 static inline int t21_colorfx_scales_sat(uint32_t fx)
 {
-	return fx == T21_COLORFX_BW || fx == T21_COLORFX_VIVID;
+	return fx == T21_COLORFX_BW || fx == T21_COLORFX_SEPIA ||
+	       fx == T21_COLORFX_VIVID;
+}
+
+/*
+ * SEPIA = BW (CCM saturation 0, so the CSC sees R = G = B = g) plus a
+ * tinted CSC matrix.  The block takes magnitudes only, the signs are fixed
+ * (U row --+, V row +--, see tx_isp_csc.h), so the offset of a grey input
+ * is set by the row sums: U row = 512 - T (U = 128 - g*T/1024) and V row
+ * = 512 + T (V = 128 + g*T/1024).  The Y row stays the active preset's
+ * (BT601 full: 1024 in total, luma unchanged).  T = 80 gives U about 20
+ * below and V about 20 above neutral at white, 10 at mid grey.
+ */
+#define T21_SEPIA_TINT		80
+
+/* The CSC parameter words with the sepia tint on U and V (p: 15 words as
+ * tx_isp_csc_params, in preset 0 form: rows 3/4/5 = U -a -b +c, 6/7/8 =
+ * V +d -e -f).  The tint comes from the third U and the first V entry. */
+static inline void t21_sepia_params(const int32_t *in, int32_t *out)
+{
+	int i;
+
+	for (i = 0; i < 15; i++)
+		out[i] = in[i];
+	/* U: c = a + b - T, V: d = e + f + T (magnitudes, clamped to 10 bit) */
+	out[5] = (in[3] < 0 ? -in[3] : in[3]) + (in[4] < 0 ? -in[4] : in[4]) -
+		 T21_SEPIA_TINT;
+	out[6] = (in[7] < 0 ? -in[7] : in[7]) + (in[8] < 0 ? -in[8] : in[8]) +
+		 T21_SEPIA_TINT;
+	if (out[5] < 0)
+		out[5] = 0;
+	if (out[6] > 0x3ff)
+		out[6] = 0x3ff;
 }
 
 /* The CCM saturation list (per EV, 256 = 1.0 in cm_control) for an effect. */
@@ -108,7 +141,7 @@ static inline void t21_colorfx_sat(uint32_t fx, const uint32_t *in,
 	int i;
 
 	for (i = 0; i < 9; i++) {
-		if (fx == T21_COLORFX_BW)
+		if (fx == T21_COLORFX_BW || fx == T21_COLORFX_SEPIA)
 			out[i] = 0;
 		else if (fx == T21_COLORFX_VIVID)
 			out[i] = in[i] + (in[i] >> 1);
@@ -170,6 +203,8 @@ static const void *t21_colorfx_saturation(const int32_t *eff,
 	return scratch;
 }
 
+static void t21_csc_apply_matrix(void);
+
 static int t21_colorfx_set(uint32_t fx)
 {
 	uint32_t old = t21_colorfx;
@@ -177,7 +212,8 @@ static int t21_colorfx_set(uint32_t fx)
 	int32_t size = sizeof(list);
 
 	if (fx != T21_COLORFX_AUTO && fx != T21_COLORFX_BW &&
-	    fx != T21_COLORFX_NEGATIVE && fx != T21_COLORFX_VIVID)
+	    fx != T21_COLORFX_SEPIA && fx != T21_COLORFX_NEGATIVE &&
+	    fx != T21_COLORFX_VIVID)
 		return -1;
 	if (fx == old)
 		return 0;
@@ -192,6 +228,8 @@ static int t21_colorfx_set(uint32_t fx)
 	}
 	if (fx == T21_COLORFX_NEGATIVE || old == T21_COLORFX_NEGATIVE)
 		tiziano_gamma_lut_parameter();
+	if (fx == T21_COLORFX_SEPIA || old == T21_COLORFX_SEPIA)
+		t21_csc_apply_matrix();	/* tinted matrix on / user matrix back */
 	return 0;
 }
 
@@ -326,6 +364,8 @@ static void t21_csc_reset(void)
 	t21_csc_clip = 0xff00ff00;
 	t21_csc_night = 0;
 	spin_unlock_irqrestore(&t21_csc_lock, flags);
+	if (t21_colorfx == T21_COLORFX_SEPIA)
+		t21_csc_apply_matrix();	/* tisp_init wrote the plain preset 0 */
 }
 
 /* ISR: running-mode switch.  night: 1 = going to night (mono clip). */
@@ -336,6 +376,33 @@ static void t21_csc_isr_mode(int night)
 	system_reg_write(0x1730, night ? tx_isp_csc_tiziano_mono_clip(t21_csc_clip)
 				       : t21_csc_clip);
 	spin_unlock(&t21_csc_lock);
+}
+
+/* Matrix registers 0x1710..0x1718 from the stored CSC attribute, with the
+ * sepia tint while that effect is on.  Takes the lock itself. */
+static void t21_csc_apply_matrix(void)
+{
+	int32_t p[TX_ISP_CSC_WORDS], q[TX_ISP_CSC_WORDS];
+	uint32_t reg[5];
+	unsigned long flags;
+	int i;
+
+	/* tisp_init has not run yet: tisp_init writes preset 0 itself */
+	if (!((uint32_t *)tispinfo)[0])
+		return;
+	spin_lock_irqsave(&t21_csc_lock, flags);
+	for (i = 0; i < TX_ISP_CSC_WORDS; i++)
+		p[i] = (int32_t)t21_csc_attr[1 + i];
+	if (t21_colorfx == T21_COLORFX_SEPIA) {
+		t21_sepia_params(p, q);
+		tx_isp_csc_tiziano_regs(q, reg);
+	} else {
+		tx_isp_csc_tiziano_regs(p, reg);
+	}
+	system_reg_write(0x1710, reg[0]);
+	system_reg_write(0x1714, reg[1]);
+	system_reg_write(0x1718, reg[2]);
+	spin_unlock_irqrestore(&t21_csc_lock, flags);
 }
 
 static int t21_csc_set(const void __user *uptr)
@@ -371,6 +438,9 @@ static int t21_csc_set(const void __user *uptr)
 	for (i = 0; i < TX_ISP_CSC_WORDS; i++)
 		t21_csc_attr[1 + i] = (uint32_t)p[i];
 	spin_unlock_irqrestore(&t21_csc_lock, flags);
+
+	if (t21_colorfx == T21_COLORFX_SEPIA)
+		t21_csc_apply_matrix();	/* the tint stays on top of the new matrix */
 
 	if (custom_eff[2] != 0x80)
 		tisp_set_contrast(custom_eff[2]);
