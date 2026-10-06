@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the 24 h soak that started 2026-10-04); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-06
+
+- T21 `IMP_ISP_Tuning_SetBrightness` acts (beyond vendor, branch `claude/release-t21-brightness`; the vendor T21 kernel only stores the value and the OEM AE never reads it): the AE luma target is scaled by value/128 (clamp 1..255, floor 16/128), a converged AE re-derives its cached target at once. 128 is the vendor path unchanged. Device-tested on the PC420 (jxf23): brightness 30/128/225 gives mean Y 28.8/117.7/193.0 (imgfx), timps `image.brightness` live 44.5/130.8/223.9 (snapshot), 0 oops. Host test `tests/t21_ae_comp_host_test.c`.
+
 ## 2026-10-05
 
 - Pending (branch `claude/t23-af`, host- and emulator-tested only, no device test yet): T23 AF statistics chain from the stock module, off by default (`source_af=1`): AF block + core interrupt bit 31, focus values, GetAfHist/SetAfHist, Get/SetAfWeight, GetAFMetrices, GetAfZone (controls 0x8000042/43/44/46). Shares the data handling of the T31 chain; verified identical to the stock `tx-isp-t23.ko` in the MIPS emulator (`driver/t23/audit/af_emu.py`).
