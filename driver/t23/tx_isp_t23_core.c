@@ -44488,6 +44488,37 @@ tisp_msca_para_calc0x150:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001894c origin=fragment_seed original=tisp_msca_init_chx_cfg */
+/*
+ * Origin of the global MSCA input window (0xd090): the union of the windows
+ * of all active channels.  Experiment msca_rel_origin: the per-channel window
+ * origin (base + 0x00) is relative to it.
+ */
+static bool regtrace_t23_msca_rel_origin = true;
+module_param_named(msca_rel_origin, regtrace_t23_msca_rel_origin, bool, 0644);
+MODULE_PARM_DESC(msca_rel_origin, "write the channel window origin relative to the global MSCA window");
+
+static void regtrace_t23_msca_global_origin(uint32_t *left, uint32_t *top)
+{
+    uint32_t min_left = 0xffffU, min_top = 0xffffU;
+    int channel;
+
+    for (channel = 0; channel < 3; channel++) {
+        const unsigned char *c = msca + channel * 56U;
+        uint32_t l, t;
+
+        if (!c[0])
+            continue;
+        l = regtrace_t23_get_le32(c + 0x10);
+        t = regtrace_t23_get_le32(c + 0x14);
+        if (l < min_left)
+            min_left = l;
+        if (t < min_top)
+            min_top = t;
+    }
+    *left = min_left == 0xffffU ? 0 : min_left;
+    *top = min_top == 0xffffU ? 0 : min_top;
+}
+
 int32_t tisp_msca_init_chx_cfg(uint32_t unused, uint32_t channel,
                                uintptr_t cfg_ptr)
 {
@@ -44516,8 +44547,14 @@ int32_t tisp_msca_init_chx_cfg(uint32_t unused, uint32_t channel,
         params = msca_ch2_scale_paras;
 
     base = (channel + 0xd1U) << 8;
-    value = (regtrace_t23_get_le32(cfg + 0x10) << 16) |
-        regtrace_t23_get_le32(cfg + 0x14);
+    {
+        uint32_t origin_left = 0, origin_top = 0;
+
+        if (regtrace_t23_msca_rel_origin)
+            regtrace_t23_msca_global_origin(&origin_left, &origin_top);
+        value = ((regtrace_t23_get_le32(cfg + 0x10) - origin_left) << 16) |
+            (regtrace_t23_get_le32(cfg + 0x14) - origin_top);
+    }
     system_reg_write(base + 0x00, value);
     target_width = regtrace_t23_get_le32(cfg + 0x20);
     target_height = regtrace_t23_get_le32(cfg + 0x24);
@@ -46773,6 +46810,11 @@ int32_t tisp_msca_api_set_fcrop(uint32_t a0, uint32_t a1, uint32_t a2,
         regtrace_t23_put_le32(cfg + 0x18, arg4);    /* width */
         regtrace_t23_put_le32(cfg + 0x1c, arg5);    /* height */
         cfg[3] = 1;
+    }
+    /* all windows first: the channel origins are relative to their union */
+    for (channel = 0; channel < 3U; channel++) {
+        unsigned char *cfg = msca + channel * 56U;
+
         if (cfg[0] && regtrace_t23_core_started)
             tisp_msca_chx_cfg_load(0, channel, (uintptr_t)cfg);
     }
