@@ -346,7 +346,7 @@ scene_colorfx_host_test: scene_colorfx_host_test.c ../driver/common/tx_isp_scene
 TESTS += t21_sepia_host_test
 
 t21_sepia_host_test: t21_sepia_host_test.c ../driver/t21/tx_isp_t21_tuning_ctl.h ../driver/common/tx_isp_csc.h
-	$(CC) $(CFLAGS) -I../driver/common -o $@ $<
+	$(CC) $(CFLAGS) -Wno-unused-variable -I../driver/common -o $@ $<
 
 TESTS += t21_night_reinit_host_test
 
