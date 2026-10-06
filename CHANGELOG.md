@@ -4,6 +4,17 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the 24 h soak that started 2026-10-04); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-06
+
+- Release candidate (branch `claude/release-t23-driver`). The T23 defaults are now the stock-like set that ran 7 h overnight plus many restarts: `chan_stop_keep_input=1`, `msca_keep_enabled=2`, `msca_fifo_rearm=0`, `msca_flip_skip_noop=1`, `msca_restart_skip=1`, `msca_session_release=1`, `crumbs=0`. The hang needed `chan_stop_keep_input=0` together with `msca_fifo_rearm=1`.
+  - The cold-start snapshot 503 is now prevented as stock does it, without the FIFO rearm: STREAMOFF waits up to 21 x 10 ms until the channel's buffers have left the hardware, and QBUF invalidates the buffer's cache lines (`chan_stop_drain`, `qbuf_cache_inv`, docs in `driver/t23/docs/STREAMOFF_DRAIN_WAIT.md`).
+  - Tested on the Jooan A6M (sc1a4t, raptor, module loaded in RAM, openimp `claude/release-t23-vbm`):
+    - 20 cold starts (20 s idle): every snapshot OK (ch0 1.8-2.1 s, ch1 2.8-3.2 s after start).
+    - 20 `rvd` restarts: every snapshot OK.
+    - 44 drains (at most 70 ms), 0 drain timeouts.
+    - An ISP day/night switch: OK.
+    - 0 oopses.
+
 ## 2026-10-05
 
 - Pending (branch `claude/t23-chan-restart-hang`, built, **device test pending**): T23 hard hang after timps start/restart on cam-B (on-demand channel 0 wakes). Default now = the device-tested d28a0177 set (`msca_flip_skip_noop=1`: no update request for unchanged flip bits; `msca_keep_enabled=1`: the last STREAMOFF keeps the MSCA output enabled; `msca_restart_skip=1`: an unchanged restart is not reloaded, its FIFO is rearmed with the input stopped) plus `msca_session_release=1`: tx-isp STREAMON with the input stopped switches off outputs left enabled and clears their FIFOs, so a restarted timps never starts the input under the old process's freed buffers (2227 hang). a325b523/4ea284c9 (release on close, frame-done ISR application, deferred starts) hung earlier on the device and were dropped. `crumbs` off by default (rmem crumbs do not survive a reboot, U-Boot zeroes rmem; a `mem=` hole does). Evidence, stock comparison and test in `driver/t23/README.md` "Output/channel restart hang"; same class as the T41 output restart hang.
