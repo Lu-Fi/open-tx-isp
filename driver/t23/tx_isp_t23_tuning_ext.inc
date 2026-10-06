@@ -32,6 +32,8 @@
 #define T23X_CID_AF_METRIC      0x08000043U
 #define T23X_CID_AF_WEIGHT      0x08000044U
 #define T23X_CID_AF_ZONE        0x08000046U
+#define T23X_CID_MASK_BLOCK     0x08000183U
+#define T23X_CID_AUTO_ZOOM      0x080000e8U
 #define T23X_CID_AWB_CLUSTER    0x0800000eU
 #define T23X_CID_AWB_CT_TREND   0x0800000fU
 
@@ -410,11 +412,12 @@ static long t23x_awb_rgb_coefft(bool get, uint32_t uptr)
  * Set/GetAwbClust, Set/GetAwbCtTrend on the stock objects (_awb_cluster,
  * _awb_trend and their api_para / api_status), see tx_isp_t23_tuning_ext.h.
  * The user block is exactly the public struct (40 / 24 bytes).  Beyond
- * stock: a failing copy-out is reported (stock ignores it).  The open AWB
- * runtime does not read these objects, so they are stored and read back
- * (and reloaded by tiziano_awb_params_refresh as in stock) only.
+ * stock: a failing copy-out is reported (stock ignores it).  The AWB run
+ * reads the objects (tx_isp_t23_awb_runtime.inc, tx_isp_t23_awb_cluster.h),
+ * and the IQ bank reload (stream start, day/night) replaces them as in
+ * stock tiziano_awb_params_refresh.  The mutex t23x_awb_api_mutex is defined
+ * in tx_isp_t23_awb_runtime.inc.
  */
-static DEFINE_MUTEX(t23x_awb_api_mutex);
 
 static long t23x_awb_cluster(bool get, uint32_t uptr)
 {
@@ -493,6 +496,82 @@ static long t23x_awb_control(bool get, uint32_t id, uint32_t *value)
 	default:
 		return -ENOIOCTLCMD;
 	}
+}
+
+/* ---- Mask blocks --------------------------------------------------------- */
+
+/*
+ * Set/GetMaskBlock (0x08000183) on the stock mscaler table, see
+ * tx_isp_t23_tuning_ext.h.  The user block is exactly the public struct (20
+ * bytes).  Set stores the block and marks it for the mscaler update; this
+ * driver does not run that update (tisp_msca_Shd_ctrl of the stock IRQ
+ * thread), so a stored mask has no image effect yet.
+ */
+static DEFINE_MUTEX(t23x_mask_mutex);
+
+static long t23x_mask_block(bool get, uint32_t uptr)
+{
+	uint8_t blk[T23X_MASK_BLOCK_BYTES];
+	uint8_t out[T23X_MASK_BLOCK_BYTES];
+	long ret;
+
+	BUILD_BUG_ON(sizeof(mscaler) < T23X_MSCA_BYTES);
+	ret = regtrace_t23_copy_in(blk, uptr, sizeof(blk));
+	if (ret)
+		return ret;
+	mutex_lock(&t23x_mask_mutex);
+	if (get)
+		ret = t23x_mask_block_get(mscaler, blk, out);
+	else
+		ret = t23x_mask_block_set(mscaler, blk);
+	mutex_unlock(&t23x_mask_mutex);
+	if (ret)
+		return ret;
+	return get ? regtrace_t23_copy_out(uptr, out, sizeof(out)) : 0;
+}
+
+/* ---- AutoZoom ---------------------------------------------------------- */
+
+/*
+ * SetAutoZoom (stock apical_isp_autozoom_s_attr -> tisp_s_autozoom_control):
+ * the channel record of the MSCA takes the crop window and the scaler
+ * output (data handling in tx_isp_t23_tuning_ext.h), then the channel is
+ * recomputed.  A channel that is running is reloaded the way the front
+ * crop does it (same lock, same channel load, then the shadow latch); a
+ * channel that is not running keeps the values for its next start.  The
+ * channel start/stop paths are not touched.
+ */
+static long t23x_autozoom_set(uint32_t uptr)
+{
+	uint8_t blk[T23X_AUTOZOOM_BYTES];
+	struct t23x_autozoom_req r;
+	uint8_t next[56];
+	unsigned long flags;
+	uint8_t *cfg;
+	long ret;
+	int err;
+
+	ret = regtrace_t23_copy_in(blk, uptr, sizeof(blk));
+	if (ret)
+		return ret;
+	memcpy(&r, blk, sizeof(r));
+	if (r.chan > 2U)
+		return -EINVAL;
+	cfg = msca + r.chan * 56U;
+	spin_lock_irqsave(&regtrace_t23_msca_lock, flags);
+	err = t23x_autozoom_apply(next, cfg,
+				  t23x_le16_get(mscaler + r.chan * 2U),
+				  t23x_le16_get(mscaler + (r.chan + 3U) * 2U),
+				  &r, regtrace_t23_source_sensor_width,
+				  regtrace_t23_source_sensor_height);
+	if (!err) {
+		memcpy(cfg, next, sizeof(next));
+		if (cfg[0] && regtrace_t23_core_started)
+			err = tisp_msca_chx_cfg_load(0, r.chan, (uintptr_t)cfg);
+		system_reg_write(0xd010U, 1);
+	}
+	spin_unlock_irqrestore(&regtrace_t23_msca_lock, flags);
+	return err;
 }
 
 /* ---- Gamma ------------------------------------------------------------- */
@@ -613,6 +692,10 @@ static long regtrace_t23_tuning_ext(bool get, uint32_t id, uint32_t *value)
 		}
 	}
 	switch (id) {
+	case T23X_CID_AUTO_ZOOM:
+		return get ? -EINVAL : t23x_autozoom_set(*value);
+	case T23X_CID_MASK_BLOCK:
+		return t23x_mask_block(get, *value);
 	case T23X_CID_GAMMA:
 		return t23x_gamma(get, *value);
 	case T23X_CID_FIXED_CONTRAST: {

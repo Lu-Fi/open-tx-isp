@@ -225,8 +225,129 @@ static void test_awb_cluster_trend(void)
 	assert(!memcmp(tout, tin, sizeof(tin)));
 }
 
+static void test_mask_block(void)
+{
+	uint8_t msca[T23X_MSCA_BYTES], blk[T23X_MASK_BLOCK_BYTES];
+	uint8_t out[T23X_MASK_BLOCK_BYTES], ref[T23X_MSCA_BYTES];
+	uint32_t dirty;
+	uint8_t *e;
+
+	memset(msca, 0, sizeof(msca));
+	/* chx 1, pinum 2: entry 6 at 1836 + 16 * 6 */
+	memset(blk, 0xee, sizeof(blk));
+	blk[0] = 1; blk[1] = 2; blk[2] = 1;
+	t23x_le16_put(blk + 4, 10);     /* top */
+	t23x_le16_put(blk + 6, 100);    /* left */
+	t23x_le16_put(blk + 8, 200);    /* width */
+	t23x_le16_put(blk + 10, 300);   /* height */
+	blk[16] = 0x11; blk[17] = 0x22; blk[18] = 0x33;
+	assert(t23x_mask_block_set(msca, blk) == 0);
+	e = msca + 1836 + 16 * 6;
+	assert(e[0] == 1);
+	assert(t23x_le16_get(e + 2) == 100 && t23x_le16_get(e + 4) == 10);
+	assert(t23x_le16_get(e + 6) == 200 && t23x_le16_get(e + 8) == 300);
+	/* the colour word is c0 << 16 | c1 << 8 | c2 */
+	assert(e[12] == 0x33 && e[13] == 0x22 && e[14] == 0x11 && e[15] == 0);
+	memcpy(&dirty, msca + 2308, 4);
+	assert(dirty == (1U << 6));
+	/* nothing but the entry and the dirty word changed */
+	memset(ref, 0, sizeof(ref));
+	memcpy(ref + 1836 + 16 * 6, e, 16);
+	memcpy(ref + 2308, &dirty, 4);
+	assert(!memcmp(ref, msca, sizeof(ref)));
+
+	/* get: mask_en reads 0 (stock), mask_type and padding 0, chx / pinum
+	 * echoed, the rest as set */
+	memset(out, 0xaa, sizeof(out));
+	assert(t23x_mask_block_get(msca, blk, out) == 0);
+	assert(out[0] == 1 && out[1] == 2 && out[2] == 0 && out[3] == 0);
+	assert(t23x_le16_get(out + 4) == 10 && t23x_le16_get(out + 6) == 100);
+	assert(t23x_le16_get(out + 8) == 200 && t23x_le16_get(out + 10) == 300);
+	assert(!out[12] && !out[13] && !out[14] && !out[15] && !out[19]);
+	assert(out[16] == 0x11 && out[17] == 0x22 && out[18] == 0x33);
+
+	/* mask_en other than 1: only the enable is cleared, geometry stays,
+	 * another bit is or-ed into the dirty word; get then reports zeros */
+	blk[0] = 0; blk[1] = 3; blk[2] = 0;
+	assert(t23x_mask_block_set(msca, blk) == 0);
+	memcpy(&dirty, msca + 2308, 4);
+	assert(dirty == ((1U << 6) | (1U << 3)));
+	t23x_le16_put(msca + 1836 + 16 * 3 + 4, 77);
+	assert(t23x_mask_block_get(msca, blk, out) == 0);
+	assert(t23x_le16_get(out + 4) == 0 && !out[16]);
+	blk[2] = 2;                     /* 2 is not 1: disabled */
+	e = msca + 1836 + 16 * 3;
+	e[0] = 1;
+	assert(t23x_mask_block_set(msca, blk) == 0 && e[0] == 0);
+
+	/* outside chx 0..2 / pinum 0..3: refused, nothing written */
+	memset(msca, 0x5a, sizeof(msca));
+	memcpy(ref, msca, sizeof(ref));
+	blk[0] = 3; blk[1] = 0; blk[2] = 1;
+	assert(t23x_mask_block_set(msca, blk) == -EINVAL);
+	blk[0] = 0; blk[1] = 4;
+	assert(t23x_mask_block_set(msca, blk) == -EINVAL);
+	blk[0] = 255; blk[1] = 255;
+	assert(t23x_mask_block_set(msca, blk) == -EINVAL);
+	assert(t23x_mask_block_get(msca, blk, out) == -EINVAL);
+	assert(!memcmp(ref, msca, sizeof(ref)));
+}
+
+static void test_autozoom(void)
+{
+	uint8_t cfg[56], out[56];
+	struct t23x_autozoom_req r;
+	uint32_t blk[9] = { 1, 1, 640, 360, 1, 100, 50, 1280, 720 };
+
+	assert(sizeof(r) == T23X_AUTOZOOM_BYTES);
+	memset(cfg, 0, sizeof(cfg));
+	cfg[0] = 1;
+	t23x_u32_put(cfg + 0x18, 1920);
+	t23x_u32_put(cfg + 0x1c, 1080);
+	t23x_u32_put(cfg + 0x20, 1920);
+	t23x_u32_put(cfg + 0x24, 1080);
+	memcpy(&r, blk, sizeof(r));
+	/* crop and scaler on: both locks, window and output stored */
+	assert(t23x_autozoom_apply(out, cfg, 1920, 1080, &r, 1920, 1080) == 0);
+	assert(out[0] == 1 && out[3] == 1 && out[4] == 1);
+	assert(t23x_u32_get(out + 0x10) == 100 && t23x_u32_get(out + 0x14) == 50);
+	assert(t23x_u32_get(out + 0x18) == 1280 && t23x_u32_get(out + 0x1c) == 720);
+	assert(t23x_u32_get(out + 0x20) == 640 && t23x_u32_get(out + 0x24) == 360);
+	/* the input record is untouched */
+	assert(cfg[3] == 0 && t23x_u32_get(cfg + 0x18) == 1920);
+	/* crop off: full window from the mscaler words, lock byte as it was;
+	 * scaler off: only the height follows (the width is stock-stale) */
+	cfg[3] = 1;
+	blk[1] = 0; blk[4] = 0;
+	memcpy(&r, blk, sizeof(r));
+	t23x_u32_put(cfg + 0x20, 1280);
+	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == 0);
+	assert(out[3] == 1 && out[4] == 0);
+	assert(t23x_u32_get(out + 0x10) == 0 && t23x_u32_get(out + 0x14) == 0);
+	assert(t23x_u32_get(out + 0x18) == 1280 && t23x_u32_get(out + 0x1c) == 720);
+	assert(t23x_u32_get(out + 0x20) == 1280 && t23x_u32_get(out + 0x24) == 720);
+	/* refused: nothing written */
+	blk[0] = 3;
+	memcpy(&r, blk, sizeof(r));
+	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == -EINVAL);
+	blk[0] = 1; blk[4] = 1; blk[5] = 700;          /* 700 + 1280 > 1920 */
+	memcpy(&r, blk, sizeof(r));
+	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == -EINVAL);
+	blk[5] = 0; blk[7] = 63;                        /* below 64 */
+	memcpy(&r, blk, sizeof(r));
+	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == -EINVAL);
+	blk[7] = 1280; blk[1] = 1; blk[2] = 1400;       /* scaler above window */
+	memcpy(&r, blk, sizeof(r));
+	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == -EINVAL);
+	blk[1] = 0; blk[7] = 960; blk[8] = 540;         /* stale width 1280 > 960 */
+	memcpy(&r, blk, sizeof(r));
+	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == -EINVAL);
+}
+
 int main(void)
 {
+	test_autozoom();
+	test_mask_block();
 	test_awb_cluster_trend();
 	test_gamma();
 	test_wait_frame();
