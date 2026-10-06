@@ -6858,6 +6858,18 @@ static struct miscdevice misc_ret = {
  * aliased by audit/dolift.py; the CCM has its own "_ev").
  */
 static uint32_t awb_ev = 0x64000;
+#include "tx_isp_t21_ae_comp.h"
+/* The AE caches its target (ctx[0] of the tune state) and only asks
+ * tisp_ae_target again when the luma leaves the tolerance band; the stock
+ * compensation_set raises trig/force_trig, which a converged AE ignores.
+ * After a brightness change ae_tune2 therefore re-derives the cached target
+ * from the last stock target (t21_ae_comp_pending). */
+static uint32_t t21_ae_raw_target;
+static uint32_t t21_ae_comp_pending;
+static void t21_ae_comp_refresh(void)
+{
+	ACCESS_ONCE(t21_ae_comp_pending) = 1;
+}
 #include "tx_isp_t21_adr_oem.inc"
 
 /* Lifted functions may spill a0..a3 into their caller's 16-byte home area

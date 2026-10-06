@@ -176,6 +176,7 @@ static uint64_t L_jz_isp_ccm_reg2par(uint32_t, uint32_t, uint32_t, uint32_t, uin
 static uint64_t L_subsection_map(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 static uint64_t L_AePweightCalculate(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 static uint64_t L_tisp_ae_target(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+static uint64_t L_tisp_ae_target_stock(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 static uint64_t L_tisp_ae_tune(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 static uint64_t L_fix_point_mult2_64(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 static uint64_t L_fix_point_mult3_64(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
@@ -1862,6 +1863,7 @@ static uint64_t L_tiziano_ae_compensation_set(uint32_t r_a0, uint32_t r_a1, uint
 	*(uint32_t *)(uintptr_t)((uint32_t)((uintptr_t)((uintptr_t)(((uint32_t)(uintptr_t)&trig + 0))) + 0u)) = r_v0;
 	r_v1 = (uint32_t)(0x19010000u);
 	*(uint32_t *)(uintptr_t)((uint32_t)((uintptr_t)((uintptr_t)(((uint32_t)(uintptr_t)&force_trig + 0))) + 0u)) = r_v0;
+	t21_ae_comp_refresh();
 	r_v0 = (uint32_t)(0u + 0u);
 	return ((uint64_t)r_v1 << 32) | r_v0;
 	return ((uint64_t)r_v1 << 32) | r_v0;
@@ -17205,6 +17207,15 @@ static uint64_t L_ae_tune2(uint32_t r_a0, uint32_t r_a1, uint32_t r_a2, uint32_t
 	r_t0 = (uint32_t)(*(uint32_t *)(uintptr_t)(sp_base + 168));
 	*(uint32_t *)(uintptr_t)(sp_base + 228) = r_a0;
 	r_s3 = (uint32_t)(*(uint32_t *)(uintptr_t)(r_t0 + (uint32_t)0));
+	if (ACCESS_ONCE(t21_ae_comp_pending)) {		/* beyond vendor: brightness */
+		uint32_t raw = ACCESS_ONCE(t21_ae_raw_target);
+
+		ACCESS_ONCE(t21_ae_comp_pending) = 0;
+		if (raw) {
+			r_s3 = t21_ae_comp_scale(raw, (uint32_t)ACCESS_ONCE(ae_compensation));
+			*(uint32_t *)(uintptr_t)(r_t0 + (uint32_t)0) = r_s3;
+		}
+	}
 	r_t0 = (uint32_t)(*(uint32_t *)(uintptr_t)(r_t0 + (uint32_t)4));
 	r_a1 = (uint32_t)(*(uint32_t *)(uintptr_t)(sp_base + 220));
 	*(uint32_t *)(uintptr_t)(sp_base + 196) = r_t0;
@@ -19380,7 +19391,7 @@ L_2a15c:
 	return ((uint64_t)r_v1 << 32) | r_v0;
 }
 
-static uint64_t L_tisp_ae_target(uint32_t r_a0, uint32_t r_a1, uint32_t r_a2, uint32_t r_a3, uint32_t csp)
+static uint64_t L_tisp_ae_target_stock(uint32_t r_a0, uint32_t r_a1, uint32_t r_a2, uint32_t r_a3, uint32_t csp)
 {
 	uint32_t frame[2] __aligned(8);
 	uint32_t sp_base = (uint32_t)(uintptr_t)frame;
@@ -19474,6 +19485,19 @@ L_2a838:
 L_2a878:
 	return ((uint64_t)r_v1 << 32) | r_v0;
 	return ((uint64_t)r_v1 << 32) | r_v0;
+}
+
+/* Beyond vendor: SetBrightness scales the AE target (tx_isp_t21_ae_comp.h);
+ * ae_compensation == 128 returns the stock value untouched. */
+static uint64_t L_tisp_ae_target(uint32_t r_a0, uint32_t r_a1, uint32_t r_a2, uint32_t r_a3, uint32_t csp)
+{
+	uint64_t q = L_tisp_ae_target_stock(r_a0, r_a1, r_a2, r_a3, csp);
+	uint32_t comp = (uint32_t)ACCESS_ONCE(ae_compensation);
+
+	ACCESS_ONCE(t21_ae_raw_target) = (uint32_t)q;
+	if (comp == T21_AE_COMP_NEUTRAL)
+		return q;
+	return (q & ~0xffffffffull) | t21_ae_comp_scale((uint32_t)q, comp);
 }
 
 static uint64_t L_tisp_ae_tune(uint32_t r_a0, uint32_t r_a1, uint32_t r_a2, uint32_t r_a3, uint32_t csp)

@@ -357,6 +357,11 @@ TESTS += t21_night_reinit_host_test
 t21_night_reinit_host_test: t21_night_reinit_host_test.c ../driver/t21/tx_isp_t21_recovered.c
 	$(CC) $(CFLAGS) -o $@ $<
 
+TESTS += t21_ae_comp_host_test
+
+t21_ae_comp_host_test: t21_ae_comp_host_test.c ../driver/t21/tx_isp_t21_ae_comp.h
+	$(CC) $(CFLAGS) -o $@ $<
+
 all: $(TESTS)
 
 # "all check: foo_test" (old style, e.g. on older branches) still works:
