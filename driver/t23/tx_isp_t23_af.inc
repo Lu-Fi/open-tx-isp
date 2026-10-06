@@ -1,8 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
  * T23 auto-focus statistics chain of the stock tx-isp-t23.ko, on the shared
- * data handling of tx_isp_t23_af.h.  Off by default (source_af=0): the AF
- * block is only enabled, and the AF controls only routed, with source_af=1.
+ * data handling of tx_isp_t23_af.h.  On by default (source_af=1), as in
+ * the stock module, whose tisp_init always runs tiziano_af_init and
+ * registers the AF interrupt (core status bit 31).  source_af=0 leaves the
+ * AF block off and the AF controls unrouted.  Device cost on the Jooan A6M
+ * (T23N, sc1a4t 720p15, raptor): no measurable CPU or interrupt-rate change.
  *
  * One spinlock (irqsave) covers the parameters, the attribute and the
  * results: the AF interrupt reads them, the tuning calls and the day/night
@@ -13,7 +16,7 @@
 
 module_param_named(source_af, regtrace_t23_source_af, bool, 0444);
 MODULE_PARM_DESC(source_af,
-		 "T23 AF statistics chain of the stock module: AF block, interrupt and the GetAfHist/SetAfHist/GetAfWeight/SetAfWeight/GetAFMetrices/GetAfZone controls (default 0)");
+		 "T23 AF statistics chain of the stock module: AF block, interrupt and the GetAfHist/SetAfHist/GetAfWeight/SetAfWeight/GetAFMetrices/GetAfZone controls (default 1 = stock, 0 off)");
 
 static struct t31_af_params t23_af;
 static struct t31_af_stats t23_af_st;
