@@ -15,6 +15,7 @@
 #include "tx_isp_t23_subdev.h"
 #include "tx_isp_t23_crumbs.h"
 #include "tx_isp_t23_scratch.h"
+#include "tx_isp_t23_msca_geom.h"
 #ifdef REGTRACE_KERNEL_TREE_BUILD
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -16406,6 +16407,124 @@ static uint32_t regtrace_t23_frame_height(int channel)
     return channel == 1 ? 360U : regtrace_t23_source_sensor_height;
 }
 
+/*
+ * The geometry tisp_channel_main_attr_set() would build from attr (same
+ * lock bytes and defaults), checked before anything is written: a scaler
+ * output above the input window, a crop outside the scaler output or a
+ * crop larger than the frame buffer stalls the MSCA for good
+ * (tx_isp_t23_msca_geom.h, docs/MSCA_GEOMETRY.md).  Beyond stock.
+ */
+static unsigned int regtrace_t23_msca_geom_rejects;
+module_param_named(msca_geom_rejects, regtrace_t23_msca_geom_rejects, uint, 0444);
+MODULE_PARM_DESC(msca_geom_rejects,
+                 "set-format / front crop requests refused for an MSCA geometry that stalls the output (read only)");
+
+static int regtrace_t23_msca_geom_verdict(int channel, const char *what,
+                                          const struct t23_msca_geom *g,
+                                          uint32_t buf_width,
+                                          uint32_t buf_height)
+{
+    int r = t23_msca_geom_check(g, regtrace_t23_source_sensor_width,
+                                regtrace_t23_source_sensor_height,
+                                buf_width, buf_height);
+
+    if (r == T23_MSCA_GEOM_OK)
+        return 0;
+    regtrace_t23_msca_geom_rejects++;
+    printk(KERN_WARNING "tx_isp_t23_recovered: %s ch=%d refused (%s): window %u,%u %ux%u scaler %ux%u crop %u,%u %ux%u buffer %ux%u\n",
+           what, channel, t23_msca_geom_reason(r),
+           g->win_left, g->win_top, g->win_width, g->win_height,
+           g->scl_width, g->scl_height, g->crop_left, g->crop_top,
+           g->crop_width, g->crop_height, buf_width, buf_height);
+    return -EINVAL;
+}
+
+static int regtrace_t23_msca_attr_check(int channel, const uint32_t *attr,
+                                        uint32_t buf_width,
+                                        uint32_t buf_height)
+{
+    const unsigned char *cfg = msca + channel * 56U;
+    struct t23_msca_geom g;
+
+    if (cfg[3]) {
+        g.win_left = regtrace_t23_get_le32(cfg + 0x10);
+        g.win_top = regtrace_t23_get_le32(cfg + 0x14);
+        g.win_width = regtrace_t23_get_le32(cfg + 0x18);
+        g.win_height = regtrace_t23_get_le32(cfg + 0x1c);
+    } else if (attr[8] == 1U) {
+        g.win_left = attr[9];
+        g.win_top = attr[10];
+        g.win_width = attr[11];
+        g.win_height = attr[12];
+    } else {
+        g.win_left = 0;
+        g.win_top = 0;
+        g.win_width = regtrace_t23_source_sensor_width;
+        g.win_height = regtrace_t23_source_sensor_height;
+    }
+    if (cfg[4]) {
+        g.scl_width = regtrace_t23_get_le32(cfg + 0x20);
+        g.scl_height = regtrace_t23_get_le32(cfg + 0x24);
+    } else if (attr[0]) {
+        g.scl_width = attr[1];
+        g.scl_height = attr[2];
+    } else {
+        g.scl_width = g.win_width;
+        g.scl_height = g.win_height;
+    }
+    if (cfg[5]) {
+        g.crop_left = regtrace_t23_get_le32(cfg + 0x28);
+        g.crop_top = regtrace_t23_get_le32(cfg + 0x2c);
+        g.crop_width = regtrace_t23_get_le32(cfg + 0x30);
+        g.crop_height = regtrace_t23_get_le32(cfg + 0x34);
+    } else if (attr[3]) {
+        g.crop_left = attr[4];
+        g.crop_top = attr[5];
+        g.crop_width = attr[6];
+        g.crop_height = attr[7];
+    } else {
+        g.crop_left = 0;
+        g.crop_top = 0;
+        g.crop_width = g.scl_width;
+        g.crop_height = g.scl_height;
+    }
+    return regtrace_t23_msca_geom_verdict(channel, "set-format", &g,
+                                          buf_width, buf_height);
+}
+
+/*
+ * Front crop: every channel that has a configuration (cfg[0]) takes the
+ * window as its input; its scaler output and crop stay.  A running
+ * channel is reloaded at once, a stopped one at its next start, so all of
+ * them must fit.  Caller: before tisp_msca_api_set_fcrop().
+ */
+static int regtrace_t23_msca_fcrop_check(uint32_t top, uint32_t left,
+                                         uint32_t width, uint32_t height)
+{
+    int channel;
+
+    for (channel = 0; channel < 3; channel++) {
+        const unsigned char *cfg = msca + channel * 56U;
+        struct t23_msca_geom g;
+
+        if (!cfg[0])
+            continue;
+        g.win_left = left;
+        g.win_top = top;
+        g.win_width = width;
+        g.win_height = height;
+        g.scl_width = regtrace_t23_get_le32(cfg + 0x20);
+        g.scl_height = regtrace_t23_get_le32(cfg + 0x24);
+        g.crop_left = regtrace_t23_get_le32(cfg + 0x28);
+        g.crop_top = regtrace_t23_get_le32(cfg + 0x2c);
+        g.crop_width = regtrace_t23_get_le32(cfg + 0x30);
+        g.crop_height = regtrace_t23_get_le32(cfg + 0x34);
+        if (regtrace_t23_msca_geom_verdict(channel, "front crop", &g, 0, 0))
+            return -EINVAL;
+    }
+    return 0;
+}
+
 static int regtrace_t23_program_msca_format(
     int channel, struct regtrace_t23_frame_image_format *format)
 {
@@ -16465,6 +16584,10 @@ static int regtrace_t23_program_msca_format(
     attr[11] = format->fcrop_width;
     attr[12] = format->fcrop_height;
 
+    ret = regtrace_t23_msca_attr_check(channel, attr, target_width,
+                                       target_height);
+    if (ret)
+        return ret;
     regtrace_t23_put_le32(tisp_par_info + 0, full_width);
     regtrace_t23_put_le32(tisp_par_info + 4, full_height);
     ret = (int)tisp_channel_main_attr_set((uint32_t)channel,
@@ -103068,6 +103191,15 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value)
              fc[3] > regtrace_t23_source_sensor_width - fc[2] ||
              fc[1] > regtrace_t23_source_sensor_height ||
              fc[4] > regtrace_t23_source_sensor_height - fc[1]))
+            return -EINVAL;
+        /*
+         * A window smaller than a channel's scaler output would make that
+         * channel upscale, which the MSCA cannot: no channel completes a
+         * frame any more and the locked window outlives the session
+         * (vorne imgfx crop batch hang, docs/MSCA_GEOMETRY.md).
+         */
+        if ((fc[0] & 0xffU) &&
+            regtrace_t23_msca_fcrop_check(fc[1], fc[2], fc[3], fc[4]))
             return -EINVAL;
         return tisp_msca_api_set_fcrop(0, fc[0], fc[1], fc[2], fc[3], fc[4]);
     }

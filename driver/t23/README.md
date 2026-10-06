@@ -77,6 +77,16 @@ The subdevice adapter supplies T23's graph table and legacy pad-slot offsets
 to the shared name/type/index resolver. Its recovered graph descriptor reads
 also use the common 8-byte endpoint wire positions.
 
+## MSCA geometry check (crop hang)
+
+A front crop window smaller than a channel output (the MSCA cannot
+upscale), or a frame-channel crop outside the scaler output or larger than
+the frame buffer, stalled every MSCA output for good. Since the front crop
+window stays locked in the channel records, the stall outlived the session
+and only a reboot helped (imgfx crop batch on vorne). Such geometries are
+now refused with -EINVAL (beyond stock). Counter: `msca_geom_rejects`.
+Details: `docs/MSCA_GEOMETRY.md`.
+
 ## Output/channel restart hang
 
 Status: fix in branch `claude/t23-chan-restart-hang`, built; **device

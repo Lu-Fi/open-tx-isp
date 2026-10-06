@@ -6,6 +6,15 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 
 ## 2026-10-06
 
+- T23 MSCA geometry check (release blocker, branch `claude/release-t23-crop`; docs in `driver/t23/docs/MSCA_GEOMETRY.md`, host test `tests/tx_isp_t23_msca_geom_test.c`).
+  - Before, the imgfx crop batch hung every frame channel for good (vorne sc2336, Jooan A6M sc1a4t; also with `msca_scratch=0` and with the agg-26 module). `IMP_ISP_Tuning_SetFrontCrop` with a 50 % window under the full-size main channel asked the MSCA to upscale, which it cannot do. After that, no channel completed a frame, and every STREAMOFF timed out with "2 of 2 buffers still queued". The window stays locked in the channel records, as in stock, so every later session hung too, until a reboot. A frame-channel crop outside the scaler output, or larger than the 640x360 buffer, is the same class of fault (imgfx `fs1-crop-*`; on vorne it also overruns the buffer).
+  - Now set-format and front crop refuse such a geometry with -EINVAL before anything is written (beyond stock). The rules: scaler output <= input window, crop inside the scaler output, crop <= frame buffer. The driver logs one line and counts it in `msca_geom_rejects`.
+  - Tested on the Jooan A6M (module loaded in RAM, raptor):
+    - Crop batch 10x: `fcrop-mid50`, `fcrop-topleft50` and `fs1-crop-mid50` were refused, `fs1-crop-topleft50` (crop = scaler output) ran. No hang, the base-end picture was OK each time.
+    - Full imgfx run: 33/33 batches, no hang.
+    - 20 `rvd` restarts: all snapshots OK, no "still queued".
+    - 0 oopses.
+  - Tested on vorne (sc2336 1080p, timps, module loaded in RAM): crop batch 3x, no hang (`fs1-crop-*` 960x540 into a 640x360 buffer refused), 0 oopses.
 - T23 AF statistics on by default (`source_af=1`, as in stock: `tisp_init` always runs `tiziano_af_init` and registers the AF interrupt). Tested on the Jooan A6M (sc1a4t 720p15, raptor, module loaded in RAM):
   - No measurable cost. CPU busy was 47.8 % with `source_af=0` and 48.1 % with `source_af=1` (3 x 60 s each, both within noise). The core IRQ rate was 88.7/s in both cases: the AF interrupt is a status bit of the core interrupt.
   - apitest GetAfHist (8x8), GetAFMetrices, GetAfWeight and GetAfZone: PASS, with live values.

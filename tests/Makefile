@@ -35,6 +35,10 @@ tx_isp_t31_framedrop_test: tx_isp_t31_framedrop_test.c ../driver/t31/tx_isp_t31_
 TESTS += tx_isp_t23_af_test
 TESTS += tx_isp_t23_crumbs_test
 TESTS += tx_isp_t23_scratch_test
+TESTS += tx_isp_t23_msca_geom_test
+
+tx_isp_t23_msca_geom_test: tx_isp_t23_msca_geom_test.c ../driver/t23/tx_isp_t23_msca_geom.h
+	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t23_scratch_test: tx_isp_t23_scratch_test.c ../driver/t23/tx_isp_t23_scratch.h
 	$(CC) $(CFLAGS) -o $@ $<
