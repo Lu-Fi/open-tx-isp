@@ -267,19 +267,61 @@ static void test_t41_controls(void)
 	store_u32(expr, 92, 1000);
 	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == -EINVAL);
 	store_u32(expr, 92, 4096);
-	store_u32(expr, 0, 1);	/* microseconds */
-	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == -EOPNOTSUPP);
+	store_u32(expr, 0, 1);	/* microseconds: carried to the driver */
+	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == 0);
+	assert(limits.unit == 1 && limits.max_integration == 1000);
 	store_u32(expr, 0, 0);
-	store_u32(expr, 4, 1);	/* manual AE */
-	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == -EOPNOTSUPP);
+	/* AE freeze, manual integration time and manual analog gain */
+	store_u32(expr, 4, 1);
+	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == 0);
+	assert(limits.freeze == 1 && !limits.it_manual && !limits.again_manual);
+	store_u32(expr, 8, 1);
+	store_u32(expr, 24, 300);
+	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == 0);
+	assert(limits.it_manual == 1 && limits.it_value == 300);
+	store_u32(expr, 24, 0);
+	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == -EINVAL);
+	store_u32(expr, 24, 300);
+	store_u32(expr, 12, 1);
+	store_u32(expr, 28, 512);
+	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == -EINVAL);
+	store_u32(expr, 28, 16384);
+	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == 0);
+	assert(limits.again_manual == 1 && limits.again_value == 16384);
+	/* the manual state is reported back and survives a GET -> SET round trip */
+	values.freeze = 1; values.it_manual = 1; values.again_manual = 1; values.unit = 1;
+	values.manual_integration = 300; values.manual_again_x1024 = 16384;
+	assert(tx_isp_tuning_t41_ae_expr_pack(expr, sizeof(expr), &values) == 0);
+	memcpy(&value, expr + 4, 4); assert(value == 1);
+	memcpy(&value, expr + 8, 4); assert(value == 1);
+	memcpy(&value, expr + 24, 4); assert(value == 300);
+	memcpy(&value, expr + 28, 4); assert(value == 16384);
+	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == 0);
+	assert(limits.unit == 1 && limits.freeze && limits.it_value == 300);
+	values.freeze = values.it_manual = values.again_manual = values.unit = 0;
+	store_u32(expr, 4, 0); store_u32(expr, 8, 0); store_u32(expr, 12, 0);
 	store_u32(expr, 4, 2);
 	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == -EINVAL);
 	store_u32(expr, 4, 0);
-	store_u32(expr, 64, 1);	/* sensor dgain cap */
+	store_u32(expr, 16, 1);	/* manual sensor dgain */
 	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == -EOPNOTSUPP);
+	store_u32(expr, 16, 0);
+	store_u32(expr, 20, 1);	/* manual ISP dgain */
+	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == -EOPNOTSUPP);
+	store_u32(expr, 20, 0);
+	store_u32(expr, 64, 1);	/* sensor dgain cap: accepted, reported */
+	store_u32(expr, 96, 1024);
+	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == 0);
+	assert(limits.max_dgain_manual == 1 && limits.max_dgain == 1024);
+	store_u32(expr, 96, 512);
+	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == -EINVAL);
 	store_u32(expr, 64, 0);
 	store_u32(expr, 100, 512);	/* ISP dgain below unity */
 	assert(tx_isp_tuning_t41_ae_expr_parse(expr, sizeof(expr), &limits) == -EOPNOTSUPP);
+	values.max_dgain_manual = 1; values.max_dgain = 2048;
+	assert(tx_isp_tuning_t41_ae_expr_pack(expr, sizeof(expr), &values) == 0);
+	memcpy(&value, expr + 64, 4); assert(value == 1);
+	memcpy(&value, expr + 96, 4); assert(value == 2048);
 	assert(tx_isp_tuning_t41_ae_expr_parse(expr, 100, &limits) == -EINVAL);
 
 	/* AE scene: comp honoured for ROI/GLOBAL, neutral for AUTO/DISABLE. */

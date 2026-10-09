@@ -848,6 +848,9 @@ static unsigned int t41_ae_cap_integration __attribute__((section(".data")));
 module_param(t41_ae_cap_integration, uint, 0444);
 MODULE_PARM_DESC(t41_ae_cap_integration,
 		 "caller max integration lines, 0 = sensor limit (read-only)");
+/* IMPISPAEExprInfo manual exposure (lines / x1024); 0 = automatic. */
+static unsigned int t41_ae_man_freeze, t41_ae_man_it, t41_ae_man_again;
+static unsigned int t41_ae_man_dgain_cap;
 static unsigned int t41_ae_cap_again __attribute__((section(".data")));
 module_param(t41_ae_cap_again, uint, 0444);
 MODULE_PARM_DESC(t41_ae_cap_again,
@@ -20620,6 +20623,15 @@ static int t41_tuning_copy_ae_expr(unsigned int channel, uintptr_t user_ptr)
             READ_ONCE(t41_ae_cap_again));
         values.max_analog_gain_manual = 1;
     }
+    if (channel == 0) {
+        values.freeze = READ_ONCE(t41_ae_man_freeze) ? 1 : 0;
+        values.it_manual = READ_ONCE(t41_ae_man_it) ? 1 : 0;
+        values.again_manual = READ_ONCE(t41_ae_man_again) ? 1 : 0;
+        values.manual_integration = control->integration;
+        values.manual_again_x1024 = control->again;
+        values.max_dgain_manual = READ_ONCE(t41_ae_man_dgain_cap) ? 1 : 0;
+        values.max_dgain = READ_ONCE(t41_ae_man_dgain_cap);
+    }
     values.total_gain_db = t41_safe_ae_sensor[channel].log2_q16;
     values.exposure_value = exposure;
     values.ev_log2 = exposure ?
@@ -20631,6 +20643,24 @@ static int t41_tuning_copy_ae_expr(unsigned int channel, uintptr_t user_ptr)
         return ret;
     return private_copy_to_user((void __user *)user_ptr, response,
                                 sizeof(response)) ? -EFAULT : 0;
+}
+
+/* microseconds -> sensor lines with the current mode timing */
+static int t41_ae_us_to_lines(uint32_t us, uint32_t *lines)
+{
+    struct t41_safe_sensor_limits sensor;
+    u64 rate, value;
+    int ret = t41_safe_sensor_limits_get(0, &sensor);
+
+    if (ret)
+        return ret;
+    if (!sensor.height || !(sensor.fps >> 16) || !(sensor.fps & 65535))
+        return -ERANGE;
+    rate = div64_u64((u64)sensor.height * (sensor.fps >> 16),
+                     sensor.fps & 65535);
+    value = div64_u64((u64)us * rate + 500000U, 1000000U);
+    *lines = value ? (value > UINT_MAX ? UINT_MAX : (uint32_t)value) : 1;
+    return 0;
 }
 
 static int t41_tuning_ae_expr_set(unsigned int channel, uintptr_t user_ptr)
@@ -20647,11 +20677,29 @@ static int t41_tuning_ae_expr_set(unsigned int channel, uintptr_t user_ptr)
     ret = tx_isp_tuning_t41_ae_expr_parse(request, sizeof(request), &limits);
     if (ret)
         return ret;
+    if (limits.unit) {
+        if (limits.max_integration) {
+            ret = t41_ae_us_to_lines(limits.max_integration,
+                                     &limits.max_integration);
+            if (ret)
+                return ret;
+        }
+        if (limits.it_manual) {
+            ret = t41_ae_us_to_lines(limits.it_value, &limits.it_value);
+            if (ret)
+                return ret;
+        }
+    }
     WRITE_ONCE(t41_ae_cap_integration, limits.max_integration);
     WRITE_ONCE(t41_ae_cap_again, limits.max_again_x1024);
+    WRITE_ONCE(t41_ae_man_it, limits.it_manual ? limits.it_value : 0);
+    WRITE_ONCE(t41_ae_man_again, limits.again_manual ? limits.again_value : 0);
+    WRITE_ONCE(t41_ae_man_dgain_cap, limits.max_dgain_manual ? limits.max_dgain : 0);
+    WRITE_ONCE(t41_ae_man_freeze, limits.freeze);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: AE caps integration=%u again=%u (0=sensor)\n",
-           limits.max_integration, limits.max_again_x1024);
+           "tx_isp_t41_recovered: AE caps integration=%u again=%u manual freeze=%u it=%u again=%u dgaincap=%u (0=auto)\n",
+           limits.max_integration, limits.max_again_x1024, limits.freeze,
+           t41_ae_man_it, t41_ae_man_again, t41_ae_man_dgain_cap);
     return 0;
 }
 
@@ -57584,6 +57632,8 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 	unsigned short target_values[15];
 	unsigned int calibrated_target = 0;
 	unsigned char *ae_params;
+	uint32_t plan_min_int, plan_max_int, plan_min_gain, plan_max_gain;
+	uint32_t man_freeze, man_it, man_ag;
 
 	if (channel >= ARRAY_SIZE(ae_info) || t41_safe_ae_controller <= 0)
 		return 0;
@@ -57743,6 +57793,35 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 			return ret;
 	}
 
+	/* IMPISPAEExprInfo manual exposure.  AeMode (freeze) or both values
+	 * manual fix the exposure; a single manual value pins that half of
+	 * the plan and lets the AE solve the other for the target. */
+	plan_min_int = control->min_integration;
+	plan_max_int = max_integration;
+	plan_min_gain = 1024U;
+	plan_max_gain = max_gain_q10;
+	man_freeze = READ_ONCE(t41_ae_man_freeze);
+	man_it = READ_ONCE(t41_ae_man_it);
+	man_ag = READ_ONCE(t41_ae_man_again);
+	if (man_freeze || man_it || man_ag) {
+		if (man_it)
+			man_it = clamp(man_it, sensor.minimum, sensor.maximum);
+		if (man_ag)
+			man_ag = clamp(man_ag, 1024U,
+				       tx_isp_exp2_u32(sensor.max_gain_q16, 16, 10));
+		if (man_freeze || (man_it && man_ag)) {
+			integration = man_it ? man_it : control->integration;
+			again = man_ag ? man_ag : control->again;
+			goto allocate_sensor;
+		}
+		if (man_it) {
+			plan_min_int = plan_max_int = man_it;
+			flicker_floor = 0;
+			flicker_line_count = 0;
+		} else {
+			plan_min_gain = plan_max_gain = man_ag;
+		}
+	}
 	/*
 	 * Keep a stock-sized dead band around the measured target.  A newly
 	 * requested flicker floor must still take effect while luma is already
@@ -57750,8 +57829,10 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 	 */
 	if ((!flicker_floor ||
 	     control->integration >= flicker_floor) &&
-	    control->integration <= max_integration &&
-	    control->again <= max_gain_q10 &&
+	    control->integration >= plan_min_int &&
+	    control->integration <= plan_max_int &&
+	    control->again >= plan_min_gain &&
+	    control->again <= plan_max_gain &&
 	    mean_q8 >= target_q8 - target_q8 / 24 &&
 	    mean_q8 <= target_q8 + target_q8 / 24)
 		return 0;
@@ -57771,8 +57852,8 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 	if (desired_total < current_total - div64_u64(current_total, 5))
 		desired_total = current_total - div64_u64(current_total, 5);
 	ret = tx_isp_exposure_plan_build(
-		desired_total, control->min_integration,
-		max_integration, 1024U, max_gain_q10,
+		desired_total, plan_min_int, plan_max_int,
+		plan_min_gain, plan_max_gain,
 		flicker_lines, flicker_line_count,
 		flicker_floor, &exposure);
 	if (ret)

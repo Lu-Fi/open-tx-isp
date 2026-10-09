@@ -222,20 +222,37 @@ struct tx_isp_tuning_t41_ae_expr_values {
 	/* Nonzero: the max limit is a caller cap (reported as MANUAL). */
 	u32 max_integration_manual;
 	u32 max_analog_gain_manual;
+	/* user state reported back */
+	u32 unit;
+	u32 freeze;
+	u32 it_manual;
+	u32 again_manual;
+	u32 max_dgain_manual;
+	u32 max_dgain;
+	u32 manual_integration;	/* in 'unit' */
+	u32 manual_again_x1024;
 };
 
 /*
- * IMPISPAEExprInfo SET, linear mode.  Only the AE maximum caps are
- * honoured: max integration time (lines) and max sensor analog gain
- * (x1024).  Zero means "no cap" (the sensor limit).  Manual exposure,
- * minimum caps and sensor digital gain caps are rejected with
- * -EOPNOTSUPP; an ISP digital gain cap >= unity is a no-op because the
- * open AE never applies ISP digital gain.  Short-frame (WDR) fields are
- * ignored in linear mode.
+ * IMPISPAEExprInfo SET, linear mode.  Honoured: the AE maximum caps (max
+ * integration time and max sensor analog gain, x1024), the AE freeze
+ * (AeMode), manual integration time (lines or microseconds) and manual
+ * sensor analog gain (x1024).  A sensor digital gain cap (AeMaxDgain, >= 1.0)
+ * is accepted and reported back; the open AE allocates the sensor analog
+ * gain only, so the cap is always met.  Zero means "no cap" (the sensor
+ * limit).  Manual sensor/ISP digital gain, minimum caps and an ISP digital
+ * gain cap below unity are rejected with -EOPNOTSUPP; an ISP digital gain cap
+ * >= unity is a no-op because the open AE never applies ISP digital gain.
+ * Short-frame (WDR) fields are ignored in linear mode.
  */
 struct tx_isp_tuning_t41_ae_limits {
-	u32 max_integration;
+	u32 max_integration;	/* in 'unit' */
 	u32 max_again_x1024;
+	u32 unit;		/* 0 lines, 1 microseconds */
+	u32 freeze;		/* AeMode manual */
+	u32 it_manual, it_value;	/* in 'unit' */
+	u32 again_manual, again_value;	/* x1024 */
+	u32 max_dgain_manual, max_dgain;
 };
 
 /* IMPISPAEScenceAttr: enum, u8, enum, u8, enum, u32, enum, u32, then the
