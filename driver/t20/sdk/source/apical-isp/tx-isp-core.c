@@ -1749,6 +1749,33 @@ out:
 	return ret;
 }
 
+/*
+ * The tuning session ended (the streamer closed the tuning device, e.g. on
+ * restart): drop the window and give the DS channels their own geometry
+ * back.  The window would otherwise outlive the streamer that set it and be
+ * applied again to the next streamer's channels, whose idea of the crop
+ * state starts at "off".
+ */
+void t2x_fcrop_release(struct tx_isp_core_device *core)
+{
+	static const int ds[] = {
+		ISP_DS1_VIDEO_CHANNEL,
+#if TX_ISP_EXIST_DS2_CHANNEL
+		ISP_DS2_VIDEO_CHANNEL,
+#endif
+	};
+	int i;
+
+	mutex_lock(&t2x_fcrop_mutex);
+	if (tx_isp_fcrop_enabled(t2x_fcrop_win)) {
+		for (i = 0; i < ARRAY_SIZE(ds); i++)
+			t2x_fcrop_program(core, ds[i], NULL);
+		memset(t2x_fcrop_win, 0, sizeof(t2x_fcrop_win));
+		printk(KERN_WARNING "tx-isp: front crop released with the tuning session: full sensor window restored\n");
+	}
+	mutex_unlock(&t2x_fcrop_mutex);
+}
+
 void t2x_fcrop_get(struct tx_isp_core_device *core, uint32_t *f)
 {
 	mutex_lock(&t2x_fcrop_mutex);

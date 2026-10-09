@@ -1587,6 +1587,7 @@ static int t2x_csc_g_ctrl(struct tx_isp_core_device *core,
 /* front crop lives in tx-isp-core.c next to the channel crop code */
 int t2x_fcrop_set(struct tx_isp_core_device *core, const uint32_t *f);
 void t2x_fcrop_get(struct tx_isp_core_device *core, uint32_t *f);
+void t2x_fcrop_release(struct tx_isp_core_device *core);
 
 static int t2x_fcrop_s_ctrl(struct tx_isp_core_device *core,
 			    struct v4l2_control *ctrl)
@@ -4883,6 +4884,7 @@ static int image_tuning_v4l2_close(struct file *file)
 		return 0;
 	}
 
+	t2x_fcrop_release(sd_to_tx_isp_core_device(tuning->parent));
 	atomic_set(&tuning->state, TX_ISP_STATE_STOP);
 	//	v4l2_prio_close(&camdev->prio, tuning->fh.prio);
 	return 0;
