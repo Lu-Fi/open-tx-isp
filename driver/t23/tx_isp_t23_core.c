@@ -15919,6 +15919,8 @@ static int regtrace_tx_isp_open(struct inode *inode, struct file *file)
     return 0;
 }
 
+static void regtrace_t23_fcrop_unlock(const char *why);
+
 static int regtrace_tx_isp_release(struct inode *inode, struct file *file)
 {
     (void)inode;
@@ -15926,6 +15928,11 @@ static int regtrace_tx_isp_release(struct inode *inode, struct file *file)
         file->private_data = NULL;
     if (atomic_dec_and_test(&regtrace_tx_isp_open_count)) {
         regtrace_t23_txisp_last_close();
+        /* The front crop belongs to the ISP session.  timps (start-only on
+         * T23) never sends "crop off" when the next session runs without a
+         * crop, so a window locked in the channel records would outlive the
+         * session until the module is reloaded (beyond stock). */
+        regtrace_t23_fcrop_unlock("released with the ISP session");
         /* After the teardown: the sensor is no longer in use. */
         tx_isp_sensor_unpin_all(&regtrace_t23_sensor_pins);
     }
