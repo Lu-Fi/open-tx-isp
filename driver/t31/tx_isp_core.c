@@ -3270,6 +3270,19 @@ int ispcore_frame_channel_dqbuf(void* arg1, void* arg2)
  * stock).
  */
 static struct { u32 en, top, left, width, height; } t31_fcrop;
+
+/* How far a front crop may make the MSCA upscale, in percent (0 = never).
+ * Only for measuring the hardware limit; the default refuses any upscale.
+ * Writable at run time: /sys/module/tx_isp_t31/parameters/fcrop_upscale_pct */
+static unsigned int fcrop_upscale_pct;
+module_param(fcrop_upscale_pct, uint, 0644);
+MODULE_PARM_DESC(fcrop_upscale_pct, "front crop: allowed MSCA upscale in percent (0 = none)");
+
+/* window may feed an output of out pixels on one axis */
+static inline bool t31_fcrop_axis_ok(u32 window, u32 out)
+{
+    return (u64)window * (100U + fcrop_upscale_pct) >= (u64)out * 100U;
+}
 int tisp_s_fcrop_control(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5);
 
 int tisp_channel_attr_set(uint32_t channel_id, void* attr)
@@ -3382,9 +3395,11 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
          * is dropped so the stream still starts; a frame-source crop the
          * caller asked for in this very attribute is refused.  Beyond
          * stock. */
-        if (*arg2 == 0 ||
-            (uint32_t)arg2[1] > (uint32_t)tispinfo_2 ||
-            (uint32_t)arg2[2] > (uint32_t)s2) {
+        if (*arg2 == 0 ?
+            ((uint32_t)tispinfo_1 > (uint32_t)tispinfo_2 ||
+             data_b2f34 > (uint32_t)s2) :
+            (!t31_fcrop_axis_ok(tispinfo_2, arg2[1]) ||
+             !t31_fcrop_axis_ok(s2, arg2[2]))) {
             bool isp_crop = t31_fcrop.en &&
                 (uint32_t)tispinfo_2 == t31_fcrop.width &&
                 (uint32_t)s2 == t31_fcrop.height;
@@ -3821,7 +3836,8 @@ static int tisp_fcrop_fits_channels(u32 width, u32 height)
 
         if (!out_w || !out_h)
             continue;
-        if (width < out_w || height < out_h) {
+        if (!t31_fcrop_axis_ok(width, out_w) ||
+            !t31_fcrop_axis_ok(height, out_h)) {
             pr_warn("tx-isp T31: front crop %ux%u refused: smaller than the ch%d output %ux%u (the MSCA cannot upscale)\n",
                     width, height, ch, out_w, out_h);
             return -EINVAL;
