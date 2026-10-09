@@ -3823,17 +3823,25 @@ static int tisp_fcrop_fits_channels(u32 width, u32 height)
 {
     u32 cache_w[3] = { data_b2de8, data_b2db4, data_b2d80 };
     u32 cache_h[3] = { data_b2dec, data_b2db8, data_b2d84 };
+    u32 running = system_reg_read(0x9804);
     int ch;
 
-    /* msca_ch_en does not track the running channels on this driver (it
-     * reads 0xf0000 while ch0..ch2 stream), so take the scaler output each
-     * channel is programmed with (0x9900 + ch * 0x100: width << 16 | height)
-     * and the cached set-format size, whichever is larger. */
+    /* Only channels the MSCA is running right now (0x9804 bit n) can stall
+     * at once.  A stopped channel keeps the output size of its last
+     * session in 0x9900 + ch * 0x100 (e.g. 2560x1440 after timps went back
+     * to 1920x1080), so it must not veto the window; tisp_channel_attr_set
+     * checks it against the window when it starts and drops the crop if it
+     * does not fit.  msca_ch_en is no help: it reads 0xf0000 while ch0..ch2
+     * stream on this driver.  The size is the programmed scaler output or
+     * the cached set-format size, whichever is larger. */
     for (ch = 0; ch < 3; ch++) {
-        u32 reg = system_reg_read(0x9900 + ch * 0x100);
-        u32 out_w = max(reg >> 16, cache_w[ch]);
-        u32 out_h = max(reg & 0xffff, cache_h[ch]);
+        u32 reg, out_w, out_h;
 
+        if (!(running & (1U << ch)))
+            continue;
+        reg = system_reg_read(0x9900 + ch * 0x100);
+        out_w = max(reg >> 16, cache_w[ch]);
+        out_h = max(reg & 0xffff, cache_h[ch]);
         if (!out_w || !out_h)
             continue;
         if (!t31_fcrop_axis_ok(width, out_w) ||
