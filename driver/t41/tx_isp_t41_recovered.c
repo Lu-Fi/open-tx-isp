@@ -19,6 +19,7 @@
 #include "tx_isp_t41_tmo_map.h"
 #include "tx_isp_t41_ccm.h"
 #include "tx_isp_t41_modctl.h"
+#include "tx_isp_t41_gamma_ctl.h"
 #include "tx_isp_t41_bcsh.h"
 #include "tx_isp_t41_hvflip.h"
 #include "tx_isp_t41_ae.h"
@@ -20693,6 +20694,65 @@ static int t41_tuning_ae_scence(unsigned int channel, unsigned int is_get,
 }
 
 /*
+ * IMPISPGammaAttr (0x08000025), see tx_isp_t41_gamma_ctl.h.  Serialised
+ * with the tone worker, which owns the exposure-driven gamma updates.
+ */
+static int t41_tuning_gamma(unsigned int channel, unsigned int is_get,
+                            uintptr_t user_ptr)
+{
+    const unsigned char *tables[3] = { static_srgb_gamma,
+                                       static_rec709_gamma,
+                                       static_hdr_gamma };
+    unsigned char *buf, *info, *params;
+    int ret;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    buf = private_kmalloc(T41_GAMMA_ATTR_BYTES, GFP_KERNEL);
+    if (!buf)
+        return -ENOMEM;
+    mutex_lock(&t41_tmo_map_lock);
+    info = (unsigned char *)(uintptr_t)gamma_info[0];
+    params = t41_kernel_data_ptr(info) ?
+        (unsigned char *)(uintptr_t)*(uint32_t *)(void *)info : NULL;
+    if (!t41_kernel_data_ptr(params)) {
+        ret = -EAGAIN;
+        goto out;
+    }
+    if (is_get) {
+        t41_gamma_ctl_load(info, buf);
+        ret = private_copy_to_user((void __user *)user_ptr, buf,
+                                   T41_GAMMA_ATTR_BYTES) ? -EFAULT : 0;
+        goto out;
+    }
+    if (private_copy_from_user(buf, (void __user *)user_ptr,
+                               T41_GAMMA_ATTR_BYTES)) {
+        ret = -EFAULT;
+        goto out;
+    }
+    if (t41_gamma_ctl_check(buf)) {
+        ret = -EINVAL;
+        goto out;
+    }
+    if (!t41_gamma_ctl_store(info, params, buf, tables)) {
+        /* exposure-driven curve again: force a strength recompute */
+        ret = (int)tisp_gamma_interp_by_ev(0, 0,
+                *(uint32_t *)(void *)(info + 532), 0, 1);
+        if (ret < 0)
+            goto out;
+    }
+    ret = tisp_gamma_strength_transform(0);
+    if (!ret)
+        ret = tisp_gamma_write_lut_rgb(0);
+    printk(KERN_WARNING "tx_isp_t41_recovered: gamma attr type=%u fixed=%u ret=%d\n",
+           *(uint32_t *)(void *)buf, info[T41_GAMMA_INFO_FIXED], ret);
+out:
+    mutex_unlock(&t41_tmo_map_lock);
+    private_kfree(buf);
+    return ret < 0 ? ret : 0;
+}
+
+/*
  * IMPISPModuleCtl (0x08000072): TOP bypass word, see tx_isp_t41_modctl.h.
  * Stock additionally restarts MDNS when its bit changes and re-runs the
  * LCE top state for the ADR/LCE bits.
@@ -21332,6 +21392,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             { TX_ISP_TUNING_CMD_T41_MODULE_CONTROL, 4,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_GAMMA, T41_GAMMA_ATTR_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_AE_STATS,
               TX_ISP_TUNING_T41_AE_STATS_BYTES,
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -21539,6 +21602,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AE_SCENCE)
             return t41_tuning_ae_scence(request.channel, request.is_get,
                                         request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_GAMMA)
+            return t41_tuning_gamma(request.channel, request.is_get,
+                                    request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_MODULE_CONTROL)
             return t41_tuning_module_control(request.channel, request.is_get,
                                              request.value_or_ptr);
@@ -21550,7 +21616,6 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
          * instead of acknowledging the request unchanged.
          */
         switch (request.id) {
-        case TX_ISP_TUNING_CMD_T41_GAMMA:
         case TX_ISP_TUNING_CMD_T41_WDR_OUTPUT:
         case TX_ISP_TUNING_CMD_T41_AUTOZOOM:
         case TX_ISP_TUNING_CMD_T41_CCM:
