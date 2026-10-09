@@ -3261,6 +3261,17 @@ int ispcore_frame_channel_dqbuf(void* arg1, void* arg2)
  * tisp_channel_attr_set - EXACT Binary Ninja implementation
  * Set channel attributes with validation and register configuration
  */
+/*
+ * ISP front crop (IMP_ISP_Tuning_SetFrontCrop, tuning 0x80000e3) kept apart
+ * from ds0_attr: a channel-0 set-format copies the caller's frame-source
+ * attribute (frame crop off) over ds0_attr words 8..12, which silently reset
+ * the window to the full sensor every time timps re-enabled its idle frame
+ * source.  The window is re-applied from here on every set-format (beyond
+ * stock).
+ */
+static struct { u32 en, top, left, width, height; } t31_fcrop;
+int tisp_s_fcrop_control(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5);
+
 int tisp_channel_attr_set(uint32_t channel_id, void* attr)
 {
     int32_t* arg2 = (int32_t*)attr;
@@ -3331,6 +3342,15 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
     tispinfo_2 = tispinfo_1;
     s2 = data_b2f34;
 
+    if (channel_id == 0 && t31_fcrop.en &&
+        tisp_channel_attr_word(ds0_attr, 8) == 0) {
+        tisp_channel_attr_word_set(ds0_attr, 8, 1);
+        tisp_channel_attr_word_set(ds0_attr, 9, t31_fcrop.left);
+        tisp_channel_attr_word_set(ds0_attr, 10, t31_fcrop.top);
+        tisp_channel_attr_word_set(ds0_attr, 11, t31_fcrop.width);
+        tisp_channel_attr_word_set(ds0_attr, 12, t31_fcrop.height);
+    }
+
     /* In the stock object, the globals originally reconstructed as
      * data_b2e04..data_b2e14 are ds0_attr words 8..12.  All channels use
      * that channel-0 cache for the global frame-crop/MSCA input geometry. */
@@ -3356,15 +3376,37 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
         s2 = a0_1;
         a1_2 = (v1_1 << 0x10) | a1_1;
 
-        /* Front crop active: a scaler output larger than the window would
-         * need upscaling, which stalls the MSCA (see
-         * tisp_fcrop_fits_channels).  Beyond stock. */
-        if (*arg2 != 0 &&
-            ((uint32_t)arg2[1] > (uint32_t)tispinfo_2 ||
-             (uint32_t)arg2[2] > (uint32_t)s2)) {
-            pr_warn("tx-isp T31: ch%u output %dx%d refused: larger than the front crop window %dx%d (the MSCA cannot upscale)\n",
-                    channel_id, arg2[1], arg2[2], tispinfo_2, s2);
-            return -EINVAL;
+        /* Front crop active: a scaler output larger than the window (or
+         * no scaler, i.e. the sensor size) would need upscaling, which
+         * stalls the MSCA (see tisp_fcrop_fits_channels).  An ISP front crop
+         * is dropped so the stream still starts; a frame-source crop the
+         * caller asked for in this very attribute is refused.  Beyond
+         * stock. */
+        if (*arg2 == 0 ||
+            (uint32_t)arg2[1] > (uint32_t)tispinfo_2 ||
+            (uint32_t)arg2[2] > (uint32_t)s2) {
+            bool isp_crop = t31_fcrop.en &&
+                (uint32_t)tispinfo_2 == t31_fcrop.width &&
+                (uint32_t)s2 == t31_fcrop.height;
+
+            if (!isp_crop && *arg2 != 0) {
+                pr_warn("tx-isp T31: ch%u output %dx%d refused: larger than the frame crop window %dx%d (the MSCA cannot upscale)\n",
+                        channel_id, arg2[1], arg2[2], tispinfo_2, s2);
+                return -EINVAL;
+            }
+            if (isp_crop) {
+                pr_warn("tx-isp T31: ch%u output %dx%d does not fit the front crop %ux%u: front crop dropped (the MSCA cannot upscale)\n",
+                        channel_id, *arg2 ? arg2[1] : tispinfo_1,
+                        *arg2 ? arg2[2] : (int32_t)data_b2f34,
+                        t31_fcrop.width, t31_fcrop.height);
+                t31_fcrop.en = 0;
+                /* full window for the channels already running */
+                tisp_s_fcrop_control(1, 0, 0, tispinfo_1, data_b2f34);
+                tisp_channel_attr_word_set(ds0_attr, 8, 0);
+                tispinfo_2 = tispinfo_1;
+                s2 = data_b2f34;
+                a1_2 = 0;
+            }
         }
     }
 
@@ -3792,13 +3834,25 @@ int tisp_s_fcrop_control_user(const u32 *f)
 {
     u32 isp_w, isp_h;
 
-    if ((f[0] & 0xff) == 0) {
-        tisp_s_fcrop_control(f[0], f[1], f[2], f[3], f[4]);
-        return 0;
-    }
-
     memcpy(&isp_w, tispinfo, sizeof(isp_w));
     isp_h = data_b2f34;
+
+    if ((f[0] & 0xff) == 0) {
+        /* Stock only logs and re-latches, so the window stayed in effect
+         * until the next set-format.  Restore the full sensor window for
+         * the running channels and forget the crop (beyond stock). */
+        bool was = t31_fcrop.en || tisp_channel_attr_word(ds0_attr, 8);
+
+        t31_fcrop.en = 0;
+        if (was && isp_w && isp_h) {
+            tisp_s_fcrop_control(1, 0, 0, isp_w, isp_h);
+            tisp_channel_attr_word_set(ds0_attr, 8, 0);
+            data_b2e04 = 0;
+        } else {
+            tisp_s_fcrop_control(f[0], f[1], f[2], f[3], f[4]);
+        }
+        return 0;
+    }
 
     if (!isp_w || !isp_h)
         return -EINVAL;
@@ -3809,6 +3863,11 @@ int tisp_s_fcrop_control_user(const u32 *f)
     if (tisp_fcrop_fits_channels(f[3], f[4]))
         return -EINVAL;
 
+    t31_fcrop.en = 1;
+    t31_fcrop.top = f[1];
+    t31_fcrop.left = f[2];
+    t31_fcrop.width = f[3];
+    t31_fcrop.height = f[4];
     return tisp_s_fcrop_control(f[0], f[1], f[2], f[3], f[4]);
 }
 
