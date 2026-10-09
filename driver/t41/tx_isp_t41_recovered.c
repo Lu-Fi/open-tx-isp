@@ -22,6 +22,7 @@
 #include "tx_isp_t41_gamma_ctl.h"
 #include "tx_isp_t41_ccm_manual.h"
 #include "tx_isp_t41_csc_ctl.h"
+#include "tx_isp_t41_dpc_ratio.h"
 #include "tx_isp_t41_bcsh.h"
 #include "tx_isp_t41_hvflip.h"
 #include "tx_isp_t41_ae.h"
@@ -20963,6 +20964,54 @@ static int t41_tuning_module_control(unsigned int channel, unsigned int is_get,
     return ret < 0 ? ret : 0;
 }
 
+/*
+ * DPC strength (stock tisp_s_dpc_ratio): scales the long-bank threshold
+ * fields of the DPC calibration from a pristine copy, then the next tone
+ * worker pass re-interpolates the gain-dependent thresholds.
+ */
+static DEFINE_MUTEX(t41_dpc_ratio_lock);
+static u8 t41_dpc_base[0x5a2];
+static bool t41_dpc_base_valid;
+
+static u8 *t41_dpc_ratio_params(void)
+{
+    u8 *info = (u8 *)(uintptr_t)dpc_info[0], *params;
+
+    if (!t41_kernel_data_ptr(info))
+        return NULL;
+    params = (u8 *)(uintptr_t)*(uint32_t *)(void *)info;
+    return t41_kernel_data_ptr(params) ? params : NULL;
+}
+
+static bool t41_dpc_ratio_ready(void)
+{
+    return t41_dpc_ratio_params() && t41_stock_dpc_profile <= 0;
+}
+
+static int t41_dpc_ratio_apply(unsigned int ratio)
+{
+    u8 *params = t41_dpc_ratio_params();
+    int ret;
+
+    if (!params)
+        return -ENODEV;
+    mutex_lock(&t41_dpc_ratio_lock);
+    if (!t41_dpc_base_valid) {
+        if (ratio == T41_DPC_RATIO_NEUTRAL) {
+            mutex_unlock(&t41_dpc_ratio_lock);
+            return 0;
+        }
+        memcpy(t41_dpc_base, params, sizeof(t41_dpc_base));
+        t41_dpc_base_valid = true;
+    }
+    ret = t41_dpc_ratio_scale(params, t41_dpc_base, sizeof(t41_dpc_base), ratio);
+    if (!ret)
+        WRITE_ONCE(t41_dpc_gain, ~0U);	/* tone worker re-interpolates */
+    mutex_unlock(&t41_dpc_ratio_lock);
+    printk(KERN_WARNING "tx_isp_t41_recovered: DPC ratio %u ret=%d\n", ratio, ret);
+    return ret ? -EINVAL : 0;
+}
+
 static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
                                    uintptr_t user_ptr)
 {
@@ -20970,6 +21019,8 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
     u8 buffer[TX_ISP_TUNING_T41_MODULE_RATIO_BYTES];
     u8 *tuning = (u8 *)(uintptr_t)tisp_tattr;
     unsigned int i, pending = 0;
+    u8 dpc_ratio;
+    bool dpc_changed;
     int ret;
 
     if (channel != 0 || !user_ptr)
@@ -20995,11 +21046,19 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
                                                units, ARRAY_SIZE(units));
     if (ret)
         return ret;
-    /* DRC, DPC and defog have no checked strength path yet: refuse a
+    /* DRC and defog have no checked strength path yet: refuse a
      * non-neutral request instead of acknowledging it unchanged. */
     for (i = TX_ISP_TUNING_T41_RATIO_DRC; i < ARRAY_SIZE(units); i++)
-        if (units[i].en && units[i].ratio != 128)
+        if (i != TX_ISP_TUNING_T41_RATIO_DPC &&
+            units[i].en && units[i].ratio != 128)
             return -EOPNOTSUPP;
+    dpc_ratio = units[TX_ISP_TUNING_T41_RATIO_DPC].en ?
+        (u8)units[TX_ISP_TUNING_T41_RATIO_DPC].ratio : 128;
+    dpc_changed = !(*(u32 *)(void *)(tuning + 184 + TX_ISP_TUNING_T41_RATIO_DPC * 8) ==
+                    units[TX_ISP_TUNING_T41_RATIO_DPC].en &&
+                    tuning[188 + TX_ISP_TUNING_T41_RATIO_DPC * 8] == dpc_ratio);
+    if (dpc_changed && !t41_dpc_ratio_ready())
+        return -EOPNOTSUPP;
     for (i = 0; i <= TX_ISP_TUNING_T41_RATIO_TEMPER; i++) {
         u32 *en = (u32 *)(void *)(tuning + 184 + i * 8);
         u8 ratio = units[i].en ? (u8)units[i].ratio : 128;
@@ -21021,6 +21080,14 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
         *en = units[i].en;
         tuning[188 + i * 8] = ratio;
         pending |= BIT(i);
+    }
+    if (dpc_changed) {
+        *(u32 *)(void *)(tuning + 184 + TX_ISP_TUNING_T41_RATIO_DPC * 8) =
+            units[TX_ISP_TUNING_T41_RATIO_DPC].en;
+        tuning[188 + TX_ISP_TUNING_T41_RATIO_DPC * 8] = dpc_ratio;
+        ret = t41_dpc_ratio_apply(dpc_ratio);
+        if (ret < 0)
+            return ret;
     }
     if (!pending)
         return 0;
