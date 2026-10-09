@@ -20,6 +20,7 @@
 #include "tx_isp_t41_ccm.h"
 #include "tx_isp_t41_modctl.h"
 #include "tx_isp_t41_gamma_ctl.h"
+#include "tx_isp_t41_ccm_manual.h"
 #include "tx_isp_t41_bcsh.h"
 #include "tx_isp_t41_hvflip.h"
 #include "tx_isp_t41_ae.h"
@@ -1429,6 +1430,10 @@ static void t41_tmo_exposure(uint32_t integration, uint32_t gain);
 static int t41_tmo_refresh(uint32_t channel, const uint8_t *replacement);
 static DEFINE_MUTEX(t41_ccm_lock);
 static unsigned int t41_ccm_ct = 5000;
+/* User CCM (SetCCMAttr); guarded by t41_ccm_lock. */
+static struct t41_ccm_manual t41_ccm_man;
+static unsigned char t41_ccm_attr_raw[T41_CCM_ATTR_BYTES];
+static short t41_ccm_man_q10[9];
 static int t41_ccm_error = -ENODEV;
 module_param(t41_ccm_ct, uint, 0444);
 module_param(t41_ccm_error, int, 0444);
@@ -20694,6 +20699,59 @@ static int t41_tuning_ae_scence(unsigned int channel, unsigned int is_get,
 }
 
 /*
+ * IMPISPCCMAttr (0x08000080), kernel wire in tx_isp_t41_ccm_manual.h.  The
+ * user matrix feeds the CCM block (SatEn controls the saturation transform)
+ * and, because the shipped calibrations may carry the colour correction in
+ * BCSH instead, the BCSH matrix as well.
+ */
+static int t41_tuning_ccm(unsigned int channel, unsigned int is_get,
+                          uintptr_t user_ptr)
+{
+    unsigned char buf[T41_CCM_ATTR_BYTES];
+    struct t41_ccm_manual man;
+    uint8_t *cinfo, *binfo;
+    uint32_t ct, ev, i;
+    int ret, ret2;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (is_get) {
+        mutex_lock(&t41_ccm_lock);
+        memcpy(buf, t41_ccm_attr_raw, sizeof(buf));
+        mutex_unlock(&t41_ccm_lock);
+        if (!t41_ccm_man.manual && !(buf[0] | buf[1] | buf[4] | buf[5] | buf[6] | buf[7])) {
+            /* never set: stock holds the identity matrix, Q16 */
+            for (i = 0; i < 9; ++i)
+                *(uint32_t *)(void *)(buf + 4 + i * 4) = i % 4 == 0 ? 65536 : 0;
+        }
+        return private_copy_to_user((void __user *)user_ptr, buf,
+                                    sizeof(buf)) ? -EFAULT : 0;
+    }
+    if (private_copy_from_user(buf, (void __user *)user_ptr, sizeof(buf)))
+        return -EFAULT;
+    if (t41_ccm_manual_parse(buf, &man))
+        return -EINVAL;
+    cinfo = (uint8_t *)(uintptr_t)ccm_info;
+    binfo = (uint8_t *)(uintptr_t)bcsh_info;
+    if (!t41_kernel_data_ptr(cinfo) || !t41_kernel_data_ptr(binfo))
+        return -EAGAIN;
+    mutex_lock(&t41_ccm_lock);
+    memcpy(t41_ccm_attr_raw, buf, sizeof(buf));
+    t41_ccm_manual_matrix(&man, t41_ccm_man_q10);
+    smp_wmb();
+    t41_ccm_man = man;
+    ct = *(uint32_t *)(void *)(cinfo + 144);
+    ev = *(uint32_t *)(void *)(cinfo + 136);
+    mutex_unlock(&t41_ccm_lock);
+    ret = t41_ccm_update(ct, ev, 1);
+    ret2 = t41_bcsh_update(*(uint32_t *)(void *)(binfo + 312),
+                           *(uint32_t *)(void *)(binfo + 320), 1);
+    printk(KERN_WARNING "tx_isp_t41_recovered: ccm attr manual=%u sat=%u ccm=%d bcsh=%d\n",
+           man.manual, man.sat, ret, ret2);
+    return ret ? ret : ret2;
+}
+
+/*
  * IMPISPGammaAttr (0x08000025), see tx_isp_t41_gamma_ctl.h.  Serialised
  * with the tone worker, which owns the exposure-driven gamma updates.
  */
@@ -21395,6 +21453,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             { TX_ISP_TUNING_CMD_T41_GAMMA, T41_GAMMA_ATTR_BYTES,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_CCM, T41_CCM_ATTR_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_AE_STATS,
               TX_ISP_TUNING_T41_AE_STATS_BYTES,
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -21602,6 +21663,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AE_SCENCE)
             return t41_tuning_ae_scence(request.channel, request.is_get,
                                         request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_CCM)
+            return t41_tuning_ccm(request.channel, request.is_get,
+                                  request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_GAMMA)
             return t41_tuning_gamma(request.channel, request.is_get,
                                     request.value_or_ptr);
@@ -21618,7 +21682,6 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         switch (request.id) {
         case TX_ISP_TUNING_CMD_T41_WDR_OUTPUT:
         case TX_ISP_TUNING_CMD_T41_AUTOZOOM:
-        case TX_ISP_TUNING_CMD_T41_CCM:
         case TX_ISP_TUNING_CMD_T41_CSC:
         /* MSCA mask/scaler coefficients: owned by the MSCA path, which
          * has no open runtime update yet. */
@@ -137160,7 +137223,9 @@ static int t41_bcsh_update(uint32_t ct, uint32_t ev, int force)
     ret = tisp_csc_api_get(0, (uint32_t)(uintptr_t)(info + 212));
     if (!ret)
         ret = t41_bcsh_compute_api(params, T41_BCSH_PARAM_BYTES, ct, ev,
-                                   info + 212, 92, t41_bcsh_api, words);
+                                   info + 212, 92, t41_bcsh_api,
+                                   READ_ONCE(t41_ccm_man.manual) ?
+                                   t41_ccm_man_q10 : NULL, words);
     if (ret)
         goto done;
     if (force || memcmp(words, t41_bcsh_last, sizeof(words))) {
@@ -146661,9 +146726,19 @@ static int t41_ccm_update(uint32_t ct, uint32_t ev, int force)
         goto done;
     ret = t41_ccm_select(params, T41_CCM_PARAM_BYTES, ct, ev,
                          selected, &saturation);
+    if (!ret && t41_ccm_man.manual) {
+        /* stock interp_by_ct: the user matrix replaces the selection;
+         * trans_by_sat copies it unchanged unless SatEn is set */
+        memcpy(selected, t41_ccm_man_q10, sizeof(selected));
+        if (!t41_ccm_man.sat) {
+            memcpy(transformed, selected, sizeof(transformed));
+            goto transformed_ready;
+        }
+    }
     if (!ret)
         ret = t41_ccm_saturate(selected, saturation,
             *(uint32_t *)(void *)(info + 4), (int *)(void *)(info + 8), transformed);
+transformed_ready:
     if (!ret)
         ret = t41_ccm_pack(params, T41_CCM_PARAM_BYTES, transformed, words);
     if (ret)

@@ -47,7 +47,8 @@ static inline int t41_bcsh_sin_q16(unsigned int step)
  */
 static inline int t41_bcsh_compute_api(const unsigned char *p, unsigned int bytes,
 		unsigned int ct, unsigned int ev, const unsigned char *csc,
-		unsigned int csc_bytes, const unsigned char *ctl, unsigned int *words)
+		unsigned int csc_bytes, const unsigned char *ctl, const short *manual,
+		unsigned int *words)
 {
 	unsigned int bri = ctl ? ctl[0] : 128, con = ctl ? ctl[1] : 128;
 	unsigned int sat = ctl ? ctl[2] : 128, hue = ctl ? ctl[3] : 128;
@@ -92,6 +93,10 @@ static inline int t41_bcsh_compute_api(const unsigned char *p, unsigned int byte
 			matrix[i] = (value + (value > 0 ? d/2 : -d/2)) / d;
 		}
 		if (!p[0x166]) matrix[i] = i%4 == 0 ? 1024 : 0;
+		/* User matrix (SetCCMAttr, ManualEn): Q10, replaces the
+		 * calibration choice; applied here when BCSH carries the
+		 * colour correction. */
+		if (manual) matrix[i] = manual[i];
 	}
 	t41_bcsh_multiply(tmp, forward, matrix, 10);
 	t41_bcsh_multiply(result, tmp, inverse, 16);
@@ -203,6 +208,6 @@ static inline int t41_bcsh_compute(const unsigned char *p, unsigned int bytes,
 		unsigned int ct, unsigned int ev, const unsigned char *csc,
 		unsigned int csc_bytes, unsigned int *words)
 {
-	return t41_bcsh_compute_api(p, bytes, ct, ev, csc, csc_bytes, NULL, words);
+	return t41_bcsh_compute_api(p, bytes, ct, ev, csc, csc_bytes, NULL, NULL, words);
 }
 #endif
