@@ -21,6 +21,7 @@
 #include "tx_isp_t41_modctl.h"
 #include "tx_isp_t41_gamma_ctl.h"
 #include "tx_isp_t41_ccm_manual.h"
+#include "tx_isp_t41_csc_ctl.h"
 #include "tx_isp_t41_bcsh.h"
 #include "tx_isp_t41_hvflip.h"
 #include "tx_isp_t41_ae.h"
@@ -20699,6 +20700,55 @@ static int t41_tuning_ae_scence(unsigned int channel, unsigned int is_get,
 }
 
 /*
+ * IMPISPCSCAttr (0x08000096), kernel wire in tx_isp_t41_csc_ctl.h.  Stock
+ * tisp_set_csc_attr: tisp_csc_api_set (reprograms the CSC registers), then
+ * the CCM, BCSH and CLM refresh-by-CSC.
+ */
+static DEFINE_MUTEX(t41_csc_lock);
+static int t41_tuning_csc(unsigned int channel, unsigned int is_get,
+                          uintptr_t user_ptr)
+{
+    unsigned char buf[T41_CSC_ATTR_BYTES];
+    uint8_t *cinfo, *binfo;
+    int version, ret, ret2;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (is_get) {
+        mutex_lock(&t41_csc_lock);
+        ret = tisp_csc_api_get(0, (uint32_t)(uintptr_t)buf);
+        mutex_unlock(&t41_csc_lock);
+        if (ret)
+            return ret;
+        return private_copy_to_user((void __user *)user_ptr, buf,
+                                    sizeof(buf)) ? -EFAULT : 0;
+    }
+    if (private_copy_from_user(buf, (void __user *)user_ptr, sizeof(buf)))
+        return -EFAULT;
+    version = t41_csc_ctl_check(buf);
+    if (version < 0)
+        return -EINVAL;
+    cinfo = (uint8_t *)(uintptr_t)ccm_info;
+    binfo = (uint8_t *)(uintptr_t)bcsh_info;
+    if (!t41_kernel_data_ptr(cinfo) || !t41_kernel_data_ptr(binfo))
+        return -EAGAIN;
+    mutex_lock(&t41_csc_lock);
+    if (version == T41_CSC_VERSION_USER)
+        memcpy(CSC_USER, buf, sizeof(buf));
+    ret = (int)tisp_set_csc_version(version);
+    mutex_unlock(&t41_csc_lock);
+    if (ret)
+        return ret;
+    ret = t41_ccm_update(*(uint32_t *)(void *)(cinfo + 144),
+                         *(uint32_t *)(void *)(cinfo + 136), 1);
+    ret2 = t41_bcsh_update(*(uint32_t *)(void *)(binfo + 312),
+                           *(uint32_t *)(void *)(binfo + 320), 1);
+    printk(KERN_WARNING "tx_isp_t41_recovered: csc version %d ccm=%d bcsh=%d\n",
+           version, ret, ret2);
+    return ret ? ret : ret2;
+}
+
+/*
  * IMPISPCCMAttr (0x08000080), kernel wire in tx_isp_t41_ccm_manual.h.  The
  * user matrix feeds the CCM block (SatEn controls the saturation transform)
  * and, because the shipped calibrations may carry the colour correction in
@@ -21456,6 +21506,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             { TX_ISP_TUNING_CMD_T41_CCM, T41_CCM_ATTR_BYTES,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_CSC, T41_CSC_ATTR_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_AE_STATS,
               TX_ISP_TUNING_T41_AE_STATS_BYTES,
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -21663,6 +21716,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AE_SCENCE)
             return t41_tuning_ae_scence(request.channel, request.is_get,
                                         request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_CSC)
+            return t41_tuning_csc(request.channel, request.is_get,
+                                  request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_CCM)
             return t41_tuning_ccm(request.channel, request.is_get,
                                   request.value_or_ptr);
@@ -21682,7 +21738,6 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         switch (request.id) {
         case TX_ISP_TUNING_CMD_T41_WDR_OUTPUT:
         case TX_ISP_TUNING_CMD_T41_AUTOZOOM:
-        case TX_ISP_TUNING_CMD_T41_CSC:
         /* MSCA mask/scaler coefficients: owned by the MSCA path, which
          * has no open runtime update yet. */
         case TX_ISP_TUNING_CMD_T41_MASK_BLOCK:
