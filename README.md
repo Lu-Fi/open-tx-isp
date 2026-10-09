@@ -39,12 +39,12 @@ State of the release candidate (`claude/agg-28` on top of `next`, 2026-10-06 eve
 
 | SoC | Status |
 |---|---|
-| T10 | Fully open; day/night, reload (5 cycles) and boot guard verified. Image controls partly documented. Module 731 KB. **Not re-tested** on 2026-10-06 (shares the T20 firmware base). |
-| T20 | Fully open; 1 h 44 min soak without errors, 10x stop/start and reload without an oops, `rmmod` during streaming refused. Module 736 KB. apitest of the release candidate: 212 PASS / 0 FAIL on two cameras. |
+| T10 | Fully open; day/night, reload (5 cycles) and boot guard verified. Image controls partly documented. Module 731 KB. **Not re-tested** on 2026-10-06 (shares the T20 firmware base). Front crop window kept while no downscaled channel is open and released with the tuning session (agg-34, device-tested). |
+| T20 | Fully open; 1 h 44 min soak without errors, 10x stop/start and reload without an oops, `rmmod` during streaming refused. Module 736 KB. apitest of the release candidate: 212 PASS / 0 FAIL on two cameras. Same front-crop fix as T10 (agg-34); `isp-m0` reports the reachable analog gain cap (smaller of the sensor maximum and the `SetMaxAgain` ceiling), which the streamer needs for day/night (agg-34, host-tested). |
 | T21 | First open bring-up, now fully open; AE/ADR/defog/AWB lifted from the vendor module. Module 452 KB (vendor 616). `SetBrightness` acts and sepia works (beyond vendor). apitest of the release candidate: 228 PASS / 0 FAIL on two cameras. |
-| T23 | Fully open (native encoder in OpenIMP); module 622 KB (vendor 857); vendor AE default. Frequent Helix frame drops fixed (residual interrupt, kernel patch merged upstream); stock-like release defaults, MSCA scratch buffer, AF statistics on by default (see "T23 module parameters"). Open: **a FrameSource crop change stops the pipeline (under investigation, release blocker)**, a rare single Helix encode error (errno 5), no real WDR. |
+| T23 | Fully open (native encoder in OpenIMP); module 622 KB (vendor 857); vendor AE default. Frequent Helix frame drops fixed (residual interrupt, kernel patch merged upstream); stock-like release defaults, MSCA scratch buffer, AF statistics on by default (see "T23 module parameters"). Open: **a FrameSource crop change stops the pipeline (under investigation, release blocker)**, a rare single Helix encode error (errno 5), no real WDR. Front crop (agg-34, device-tested): crop off unlocks the window, a window that does not fit is dropped instead of hanging the MSCA (the 2026-10-06 crop hang), the lock is released with the ISP session, module parameter `fcrop_upscale_pct`. |
 | T30 | Builds against a real T30 kernel; earlier bring-up on hardware. Not exercised in the latest campaign. |
-| T31 | Reference SoC; SC2336, GC2053, SC301IOT; 2 h 53 min soak without errors; module 711 KB (vendor 829). `SetFrameDrop` with the stock semantics. Open: **H.264 stalls after the JPEG channel is torn down (under investigation, release blocker)**. |
+| T31 | Reference SoC; SC2336, GC2053, SC301IOT; 2 h 53 min soak without errors; module 711 KB (vendor 829). `SetFrameDrop` with the stock semantics. H.264 stall after JPEG teardown fixed (OpenIMP agg-29). **Front crop (agg-34):** the crash from a window the MSCA would have to upscale is fixed (the kernel refuses it with -EINVAL, module parameter `fcrop_upscale_pct`, default 0); the picture effect of a valid window is **experimental, not proven**. |
 | T40 | Device-tested earlier (T40XP/GC4653); statistics restart stability is a known limitation. Not in the latest campaign. |
 | T41 | **Not part of the first release (experimental).** Fully open from a flashed image (H.264, H.265); reload verified (10/10); module 80 KB smaller than before. Open: MSCA channel 1 scaling registers are staged (fix in branch `claude/t41-ch1-fix`, not merged), an output restart can hang the SoC, 38 tuning IDs missing, flip, night column noise. |
 
@@ -71,6 +71,7 @@ Defaults of `tx-isp-t23.ko` in the release candidate. The switches are `0644` mo
 | `source_ae_oem` | 1 (read-only) | Lifted vendor AE (default since 2026-10-03) |
 | `crumbs` | 0 | Hang step markers in a reserved page (1 = rmem page after the MDNS buffer, 2 = page at `crumb_addr`); only for hang analysis |
 | `t23_runtime_trace` | 0 | 1 enables informational driver logging |
+| `fcrop_upscale_pct` | 0 | Percentage by which the front-crop geometry check tolerates an MSCA upscale (0 = no upscaling allowed). Measured on T23: upscaling up to 2.0 works, at 2.2 the MSCA stalled briefly and the crop was dropped without a reboot. The same parameter exists in `tx-isp-t31.ko` (writable under `/sys/module/tx_isp_t31/parameters/`); the T31 limit was not established, leave it at 0 |
 | `isp_clk`, `isp_clka` | 153000000, 416000000 (load time only) | ISP core and AXI clocks in Hz; since the candidate they really reach the hardware (before, the activation path read the wrong clock-table slot) |
 
 ## Better than the vendor driver
