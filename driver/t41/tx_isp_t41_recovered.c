@@ -23,6 +23,7 @@
 #include "tx_isp_t41_ccm_manual.h"
 #include "tx_isp_t41_csc_ctl.h"
 #include "tx_isp_t41_dpc_ratio.h"
+#include "tx_isp_t41_drc_ratio.h"
 #include "tx_isp_t41_bcsh.h"
 #include "tx_isp_t41_hvflip.h"
 #include "tx_isp_t41_ae.h"
@@ -860,6 +861,8 @@ MODULE_PARM_DESC(t41_ae_cap_again,
 static unsigned int t41_ratio_pending __attribute__((section(".data")));
 static unsigned int t41_ratio_sinter __attribute__((section(".data"))) = 128;
 static int t41_module_ratio_apply(uint32_t channel, unsigned int pending);
+static bool t41_drc_ratio_ready(void);
+static int t41_drc_ratio_apply(unsigned int ratio);
 static uint32_t *t41_sdns_info_checked(uint32_t channel);
 static uint32_t *t41_mdns_info_checked(uint32_t channel);
 static int t41_sdns_refresh_checked(uint32_t channel, uint32_t gain, unsigned int all);
@@ -21019,8 +21022,8 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
     u8 buffer[TX_ISP_TUNING_T41_MODULE_RATIO_BYTES];
     u8 *tuning = (u8 *)(uintptr_t)tisp_tattr;
     unsigned int i, pending = 0;
-    u8 dpc_ratio;
-    bool dpc_changed;
+    u8 dpc_ratio, drc_ratio;
+    bool dpc_changed, drc_changed;
     int ret;
 
     if (channel != 0 || !user_ptr)
@@ -21049,9 +21052,16 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
     /* DRC and defog have no checked strength path yet: refuse a
      * non-neutral request instead of acknowledging it unchanged. */
     for (i = TX_ISP_TUNING_T41_RATIO_DRC; i < ARRAY_SIZE(units); i++)
-        if (i != TX_ISP_TUNING_T41_RATIO_DPC &&
+        if (i != TX_ISP_TUNING_T41_RATIO_DPC && i != TX_ISP_TUNING_T41_RATIO_DRC &&
             units[i].en && units[i].ratio != 128)
             return -EOPNOTSUPP;
+    drc_ratio = units[TX_ISP_TUNING_T41_RATIO_DRC].en ?
+        (u8)units[TX_ISP_TUNING_T41_RATIO_DRC].ratio : 128;
+    drc_changed = !(*(u32 *)(void *)(tuning + 184 + TX_ISP_TUNING_T41_RATIO_DRC * 8) ==
+                    units[TX_ISP_TUNING_T41_RATIO_DRC].en &&
+                    tuning[188 + TX_ISP_TUNING_T41_RATIO_DRC * 8] == drc_ratio);
+    if (drc_changed && !t41_drc_ratio_ready())
+        return -EOPNOTSUPP;
     dpc_ratio = units[TX_ISP_TUNING_T41_RATIO_DPC].en ?
         (u8)units[TX_ISP_TUNING_T41_RATIO_DPC].ratio : 128;
     dpc_changed = !(*(u32 *)(void *)(tuning + 184 + TX_ISP_TUNING_T41_RATIO_DPC * 8) ==
@@ -21080,6 +21090,14 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
         *en = units[i].en;
         tuning[188 + i * 8] = ratio;
         pending |= BIT(i);
+    }
+    if (drc_changed) {
+        *(u32 *)(void *)(tuning + 184 + TX_ISP_TUNING_T41_RATIO_DRC * 8) =
+            units[TX_ISP_TUNING_T41_RATIO_DRC].en;
+        tuning[188 + TX_ISP_TUNING_T41_RATIO_DRC * 8] = drc_ratio;
+        ret = t41_drc_ratio_apply(drc_ratio);
+        if (ret < 0)
+            return ret;
     }
     if (dpc_changed) {
         *(u32 *)(void *)(tuning + 184 + TX_ISP_TUNING_T41_RATIO_DPC * 8) =
