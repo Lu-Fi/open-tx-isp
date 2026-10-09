@@ -3355,6 +3355,17 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
         tispinfo_2 = tispinfo_3;
         s2 = a0_1;
         a1_2 = (v1_1 << 0x10) | a1_1;
+
+        /* Front crop active: a scaler output larger than the window would
+         * need upscaling, which stalls the MSCA (see
+         * tisp_fcrop_fits_channels).  Beyond stock. */
+        if (*arg2 != 0 &&
+            ((uint32_t)arg2[1] > (uint32_t)tispinfo_2 ||
+             (uint32_t)arg2[2] > (uint32_t)s2)) {
+            pr_warn("tx-isp T31: ch%u output %dx%d refused: larger than the front crop window %dx%d (the MSCA cannot upscale)\n",
+                    channel_id, arg2[1], arg2[2], tispinfo_2, s2);
+            return -EINVAL;
+        }
     }
 
     /* Keep the compatibility exports coherent with their stock storage. */
@@ -3744,6 +3755,39 @@ EXPORT_SYMBOL(tisp_g_fcrop_control);
  * the ISP input frame (same test as tisp_channel_attr_set), otherwise
  * -EINVAL is returned before any register or state is touched.
  */
+/*
+ * The MSCA cannot upscale: a front crop window smaller than a running
+ * channel's scaler output stalls every MSCA output until reboot (T31
+ * Garage, 320x180 window under the 2560x1440 main stream: timps froze and the
+ * camera rebooted; same class as the T23 crop hang, open-tx-isp 59ba2ec6).
+ * Refuse such a window before anything is written (beyond stock).
+ */
+static int tisp_fcrop_fits_channels(u32 width, u32 height)
+{
+    u32 cache_w[3] = { data_b2de8, data_b2db4, data_b2d80 };
+    u32 cache_h[3] = { data_b2dec, data_b2db8, data_b2d84 };
+    int ch;
+
+    /* msca_ch_en does not track the running channels on this driver (it
+     * reads 0xf0000 while ch0..ch2 stream), so take the scaler output each
+     * channel is programmed with (0x9900 + ch * 0x100: width << 16 | height)
+     * and the cached set-format size, whichever is larger. */
+    for (ch = 0; ch < 3; ch++) {
+        u32 reg = system_reg_read(0x9900 + ch * 0x100);
+        u32 out_w = max(reg >> 16, cache_w[ch]);
+        u32 out_h = max(reg & 0xffff, cache_h[ch]);
+
+        if (!out_w || !out_h)
+            continue;
+        if (width < out_w || height < out_h) {
+            pr_warn("tx-isp T31: front crop %ux%u refused: smaller than the ch%d output %ux%u (the MSCA cannot upscale)\n",
+                    width, height, ch, out_w, out_h);
+            return -EINVAL;
+        }
+    }
+    return 0;
+}
+
 int tisp_s_fcrop_control_user(const u32 *f)
 {
     u32 isp_w, isp_h;
@@ -3761,6 +3805,8 @@ int tisp_s_fcrop_control_user(const u32 *f)
     if (!f[3] || !f[4])
         return -EINVAL;
     if ((u64)f[2] + f[3] > isp_w || (u64)f[1] + f[4] > isp_h)
+        return -EINVAL;
+    if (tisp_fcrop_fits_channels(f[3], f[4]))
         return -EINVAL;
 
     return tisp_s_fcrop_control(f[0], f[1], f[2], f[3], f[4]);
