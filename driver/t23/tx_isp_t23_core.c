@@ -16419,6 +16419,14 @@ module_param_named(msca_geom_rejects, regtrace_t23_msca_geom_rejects, uint, 0444
 MODULE_PARM_DESC(msca_geom_rejects,
                  "set-format / front crop requests refused for an MSCA geometry that stalls the output (read only)");
 
+/* How far the MSCA may upscale a window, in percent (0 = never, the
+ * default).  Only for measuring the hardware limit (beyond stock).
+ * /sys/module/tx_isp_t23/parameters/fcrop_upscale_pct */
+static unsigned int fcrop_upscale_pct;
+module_param(fcrop_upscale_pct, uint, 0644);
+MODULE_PARM_DESC(fcrop_upscale_pct, "front crop: allowed MSCA upscale in percent (0 = none)");
+static void regtrace_t23_fcrop_unlock(const char *why);
+
 static int regtrace_t23_msca_geom_verdict(int channel, const char *what,
                                           const struct t23_msca_geom *g,
                                           uint32_t buf_width,
@@ -16427,6 +16435,26 @@ static int regtrace_t23_msca_geom_verdict(int channel, const char *what,
     int r = t23_msca_geom_check(g, regtrace_t23_source_sensor_width,
                                 regtrace_t23_source_sensor_height,
                                 buf_width, buf_height);
+
+    if (r == T23_MSCA_GEOM_UPSCALE && fcrop_upscale_pct &&
+        (u64)g->scl_width * 100U <=
+            (u64)g->win_width * (100U + fcrop_upscale_pct) &&
+        (u64)g->scl_height * 100U <=
+            (u64)g->win_height * (100U + fcrop_upscale_pct)) {
+        /* tolerated upscale: run the remaining rules on a window as large
+         * as the scaler output (the real window passed rule 1 already) */
+        struct t23_msca_geom g2 = *g;
+
+        g2.win_left = 0;
+        g2.win_top = 0;
+        g2.win_width = max(g->win_width, g->scl_width);
+        g2.win_height = max(g->win_height, g->scl_height);
+        r = t23_msca_geom_check(&g2, max(regtrace_t23_source_sensor_width,
+                                         g2.win_width),
+                                max(regtrace_t23_source_sensor_height,
+                                    g2.win_height),
+                                buf_width, buf_height);
+    }
 
     if (r == T23_MSCA_GEOM_OK)
         return 0;
@@ -16586,6 +16614,14 @@ static int regtrace_t23_program_msca_format(
 
     ret = regtrace_t23_msca_attr_check(channel, attr, target_width,
                                        target_height);
+    if (ret && (msca + channel * 56U)[3]) {
+        /* The locked front crop window does not fit this output (e.g. the
+         * stream went back to the sensor size): drop the crop instead of
+         * stalling the MSCA, then check the geometry again (beyond stock). */
+        regtrace_t23_fcrop_unlock("dropped (does not fit the new channel output)");
+        ret = regtrace_t23_msca_attr_check(channel, attr, target_width,
+                                           target_height);
+    }
     if (ret)
         return ret;
     regtrace_t23_put_le32(tisp_par_info + 0, full_width);
@@ -46776,6 +46812,42 @@ int32_t tisp_msca_api_get_fcrop(uint32_t a0, uintptr_t a1)
     return 0;
 }
 
+/* Unlock the front crop: every channel record gets the full sensor window
+ * and loses the lock byte, running channels are reloaded and latched. */
+static void regtrace_t23_fcrop_unlock(const char *why)
+{
+    unsigned long flags;
+    uint32_t channel;
+    bool was = fcrop_en != 0;
+
+    spin_lock_irqsave(&regtrace_t23_msca_lock, flags);
+    for (channel = 0; channel < 3U; channel++) {
+        unsigned char *cfg = msca + channel * 56U;
+
+        if (cfg[3])
+            was = true;
+        regtrace_t23_put_le32(cfg + 0x10, 0);
+        regtrace_t23_put_le32(cfg + 0x14, 0);
+        regtrace_t23_put_le32(cfg + 0x18, regtrace_t23_source_sensor_width);
+        regtrace_t23_put_le32(cfg + 0x1c, regtrace_t23_source_sensor_height);
+        cfg[3] = 0;
+    }
+    if (was) {
+        for (channel = 0; channel < 3U; channel++) {
+            unsigned char *cfg = msca + channel * 56U;
+
+            if (cfg[0] && regtrace_t23_core_started)
+                tisp_msca_chx_cfg_load(0, channel, (uintptr_t)cfg);
+        }
+        system_reg_write(0xd010U, 1);
+    }
+    fcrop_en = 0;
+    spin_unlock_irqrestore(&regtrace_t23_msca_lock, flags);
+    if (was)
+        printk(KERN_WARNING "tx_isp_t23_recovered: front crop %s: full sensor window restored\n",
+               why);
+}
+
 /*
  * Stock tisp_msca_api_set_fcrop (0x1b34c), reached from the 0x80000e3 control
  * as (0, enable, top, left, width, height).  With enable set every channel
@@ -46796,8 +46868,12 @@ int32_t tisp_msca_api_set_fcrop(uint32_t a0, uint32_t a1, uint32_t a2,
 
     (void)a0;
     if (!enable) {
-        isp_printf(2, "tisp_msca_api_set_fcrop: front crop disabled, window kept (as stock)\n");
-        fcrop_en = 0;
+        /* Stock only clears fcrop_en and keeps the window locked in the
+         * channel records until the module is reloaded: the picture stayed
+         * cropped, and a later larger channel output stalled the MSCA
+         * (vorne, 10-09).  Unlock and give the channels the full sensor
+         * window again (beyond stock). */
+        regtrace_t23_fcrop_unlock("disabled");
         return 0;
     }
     /* not while the core ISR drains/reprograms the same MSCA channels */
