@@ -35,6 +35,7 @@
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
 #include <dt-bindings/clock/ingenic,t31-cgu.h>
 #endif
+#include "tx_isp_t31_fcrop.h"
 
 
 static int print_level = ISP_WARN_LEVEL;
@@ -3278,11 +3279,6 @@ static unsigned int fcrop_upscale_pct;
 module_param(fcrop_upscale_pct, uint, 0644);
 MODULE_PARM_DESC(fcrop_upscale_pct, "front crop: allowed MSCA upscale in percent (0 = none)");
 
-/* window may feed an output of out pixels on one axis */
-static inline bool t31_fcrop_axis_ok(u32 window, u32 out)
-{
-    return (u64)window * (100U + fcrop_upscale_pct) >= (u64)out * 100U;
-}
 int tisp_s_fcrop_control(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5);
 
 int tisp_channel_attr_set(uint32_t channel_id, void* attr)
@@ -3389,17 +3385,17 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
         s2 = a0_1;
         a1_2 = (v1_1 << 0x10) | a1_1;
 
-        /* Front crop active: a scaler output larger than the window (or
-         * no scaler, i.e. the sensor size) would need upscaling, which
-         * stalls the MSCA (see tisp_fcrop_fits_channels).  An ISP front crop
-         * is dropped so the stream still starts; a frame-source crop the
-         * caller asked for in this very attribute is refused.  Beyond
-         * stock. */
-        if (*arg2 == 0 ?
-            ((uint32_t)tispinfo_1 > (uint32_t)tispinfo_2 ||
-             data_b2f34 > (uint32_t)s2) :
-            (!t31_fcrop_axis_ok(tispinfo_2, arg2[1]) ||
-             !t31_fcrop_axis_ok(s2, arg2[2]))) {
+        /* Front crop active.  With a scaler (*arg2 != 0) an output larger
+         * than the window would need upscaling, which stalls the MSCA (see
+         * tisp_fcrop_fits_channels).  Without a scaler the output is the
+         * window at 1:1 and upscaling is not the issue; what does not fit
+         * is the buffer, which the caller sized for the full sensor
+         * frame.  An ISP front crop is dropped so the stream still starts;
+         * a frame-source crop the caller asked for in this very attribute
+         * is refused.  Beyond stock. */
+        if (t31_fcrop_format_misfit(*arg2, tispinfo_2, s2, tispinfo_1,
+                                    data_b2f34, arg2[1], arg2[2],
+                                    fcrop_upscale_pct)) {
             bool isp_crop = t31_fcrop.en &&
                 (uint32_t)tispinfo_2 == t31_fcrop.width &&
                 (uint32_t)s2 == t31_fcrop.height;
@@ -3835,23 +3831,38 @@ static int tisp_fcrop_fits_channels(u32 width, u32 height)
      * stream on this driver.  The size is the programmed scaler output or
      * the cached set-format size, whichever is larger. */
     for (ch = 0; ch < 3; ch++) {
-        u32 reg, out_w, out_h;
+        u32 out_w, out_h;
 
-        if (!(running & (1U << ch)))
-            continue;
-        reg = system_reg_read(0x9900 + ch * 0x100);
-        out_w = max(reg >> 16, cache_w[ch]);
-        out_h = max(reg & 0xffff, cache_h[ch]);
-        if (!out_w || !out_h)
-            continue;
-        if (!t31_fcrop_axis_ok(width, out_w) ||
-            !t31_fcrop_axis_ok(height, out_h)) {
+        if (!t31_fcrop_chan_fits(running, ch,
+                                 system_reg_read(0x9900 + ch * 0x100),
+                                 cache_w[ch], cache_h[ch], width, height,
+                                 fcrop_upscale_pct, &out_w, &out_h)) {
             pr_warn("tx-isp T31: front crop %ux%u refused: smaller than the ch%d output %ux%u (the MSCA cannot upscale)\n",
                     width, height, ch, out_w, out_h);
             return -EINVAL;
         }
     }
     return 0;
+}
+
+/**
+ * tisp_fcrop_release - drop the front crop window at the last ISP close.
+ * timps applies the crop only at start and never sends "off" when the next
+ * session runs without one, so the window would survive the streamer
+ * restart (like T20 b9381941 / T23 164225e5).  Beyond stock.
+ */
+void tisp_fcrop_release(void)
+{
+    if (!t31_fcrop_release_needed(t31_fcrop.en,
+                                  tisp_channel_attr_word(ds0_attr, 8),
+                                  data_b2e04))
+        return;
+    /* State only, no register access: the core is stopped here, and the
+     * next set-format programs the full window (0x9860/0x9864) from
+     * ds0_attr word 8 = 0. */
+    t31_fcrop.en = 0;
+    tisp_channel_attr_word_set(ds0_attr, 8, 0);
+    data_b2e04 = 0;
 }
 
 int tisp_s_fcrop_control_user(const u32 *f)

@@ -6,6 +6,11 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 
 ## 2026-10-09
 
+- T31 front crop (branch `claude/review34-fixes`, review of agg-34).
+  - The crop window survived the ISP session (the next streamer got the old zoom back at its first set-format, and timps sends no "crop off" when the crop is disabled in its config). The last close of the ISP now drops the window (`tisp_fcrop_release`, like T20 b9381941 and T23 164225e5; state only, no register access with the core stopped).
+  - Behaviour change since agg-34, now documented: T31 digital zoom works only when every running channel has a scaler output <= the window. With an unscaled main stream (sensor size, `scaler.enable = 0`) `SetFrontCrop` is refused with -EINVAL (timps logs "SetFrontCrop failed"); before, the window was accepted and the sub streams were upscaled, which hung the MSCA. A window set earlier is dropped at the next set-format of such a channel. The comment in `tisp_channel_attr_set` was wrong: without a scaler the output is the window at 1:1, the problem is the buffer size.
+  - The decision logic is in `driver/t31/tx_isp_t31_fcrop.h` with host test `tests/tx_isp_t31_fcrop_test.c`.
+
 - T20/T10 `/proc/jz/isp/isp-m0` reported an analog gain cap the AE never reaches (branch `claude/t20-maxgain-report`, on `claude/t31-fcrop-guard`; release blocker for the T20 day/night switch).
   - Cause: the compact AE clamps the analog gain to the sensor maximum and to the SetMaxAgain ceiling `stab.global_max_sensor_analog_gain` (sensor_drv.c), but the compact dump printed only the sensor maximum (`attr->max_again >> 11`). On jxf22/jxf23 that is 158 (index cap 7838), while the AE stops at the ceiling 128 (16x = 4096), which `isp_info` already shows. timps therefore took night_gain 4096 as reachable, and its plateau rule for an unreachable night threshold never armed; in the dark the index sat at 4096 x 0.876 (IT 1967 of 2246, 60 Hz anti-flicker steps) and the camera stayed in Day.
   - Fix: "MAX SENSOR analog gain" in the compact path is now min(sensor max, ceiling) (`driver/t20/tx_isp_t20_ae_max.h`, shared with T10, which builds the T20 sources). Non-compact path unchanged.

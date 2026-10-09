@@ -5610,6 +5610,8 @@ static void tx_isp_last_close_stream_off(struct tx_isp_dev *isp)
  * known to come up again. The ISP is not slaked back to state 1 (as stock's
  * release does): the open driver's clean teardown does not do that either.
  */
+extern void tisp_fcrop_release(void);
+
 static void tx_isp_last_close_teardown(struct tx_isp_dev *isp)
 {
     struct tx_isp_vin_device *vin;
@@ -6406,6 +6408,7 @@ static int tx_isp_release(struct inode *inode, struct file *file)
             isp->is_open = false;
             tx_isp_teardown_in_progress = true;
             tx_isp_last_close_teardown(isp);
+            tisp_fcrop_release();
             tx_isp_teardown_in_progress = false;
             /* After the teardown: the sensor is no longer in use. */
             tx_isp_sensor_unpin_all(&tx_isp_t31_sensor_pins);
