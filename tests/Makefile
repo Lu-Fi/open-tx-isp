@@ -370,6 +370,11 @@ TESTS += t21_ae_comp_host_test
 t21_ae_comp_host_test: t21_ae_comp_host_test.c ../driver/t21/tx_isp_t21_ae_comp.h
 	$(CC) $(CFLAGS) -o $@ $<
 
+TESTS += t20_ae_max_host_test
+
+t20_ae_max_host_test: t20_ae_max_host_test.c ../driver/t20/tx_isp_t20_ae_max.h
+	$(CC) $(CFLAGS) -o $@ $<
+
 all: $(TESTS)
 
 # "all check: foo_test" (old style, e.g. on older branches) still works:

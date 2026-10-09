@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the 24 h soak that started 2026-10-04); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-09
+
+- T20/T10 `/proc/jz/isp/isp-m0` reported an analog gain cap the AE never reaches (branch `claude/t20-maxgain-report`, on `claude/t31-fcrop-guard`; release blocker for the T20 day/night switch).
+  - Cause: the compact AE clamps the analog gain to the sensor maximum and to the SetMaxAgain ceiling `stab.global_max_sensor_analog_gain` (sensor_drv.c), but the compact dump printed only the sensor maximum (`attr->max_again >> 11`). On jxf22/jxf23 that is 158 (index cap 7838), while the AE stops at the ceiling 128 (16x = 4096), which `isp_info` already shows. timps therefore took night_gain 4096 as reachable, and its plateau rule for an unreachable night threshold never armed; in the dark the index sat at 4096 x 0.876 (IT 1967 of 2246, 60 Hz anti-flicker steps) and the camera stayed in Day.
+  - Fix: "MAX SENSOR analog gain" in the compact path is now min(sensor max, ceiling) (`driver/t20/tx_isp_t20_ae_max.h`, shared with T10, which builds the T20 sources). Non-compact path unchanged.
+  - Host test `tests/t20_ae_max_host_test.c`; T20 and T10 modules build without warnings, check_ko_symbols OK. Device check pending (Wyze Cam2 .107, insmod in RAM).
+
 ## 2026-10-06
 
 - T23 front crop with an offset window stalled the MSCA (branch `claude/t23-roi-crop-test`, on top of `claude/release-t23-crop`).

@@ -2691,10 +2691,13 @@ static const struct file_operations isp_info_proc_fops ={
  * The maxima are the limits the running AE actually clamps to.  The
  * compact AE (t20_simple_ae, default) partitions exposure between
  * integration time and sensor analog gain only, up to the sensor
- * attribute limits, and never applies sensor or ISP digital gain, so
+ * attribute limits and the SetMaxAgain ceiling (stab
+ * global_max_sensor_analog_gain), and never applies sensor or ISP
+ * digital gain, so
  * those maxima read 0 there; otherwise they are the stab limits the OEM
  * cmos allocators clamp to.
  */
+#include "../../../tx_isp_t20_ae_max.h"
 extern bool tx_isp_t20_compact_ae_enabled(void);
 extern uint32_t tx_isp_t20_ae_max_integration_time(void);
 
@@ -2803,7 +2806,10 @@ static int isp_m0_show(struct seq_file *m, void *v)
 	isp_dgain = isp_m0_get(TSYSTEM, SYSTEM_ISP_DIGITAL_GAIN);
 	if (compact) {
 		max_it = tx_isp_t20_ae_max_integration_time();
-		max_again = attr->max_again >> 11;
+		/* the lower of sensor max and SetMaxAgain ceiling, as the
+		 * compact AE clamps in sensor_drv.c */
+		max_again = t20_ae_max_again_log2_5(attr->max_again,
+				stab.global_max_sensor_analog_gain);
 		max_dgain = 0;
 		max_isp_dgain = 0;
 	} else {
