@@ -18,6 +18,7 @@
 #include "tx_isp_t41_tmo.h"
 #include "tx_isp_t41_tmo_map.h"
 #include "tx_isp_t41_ccm.h"
+#include "tx_isp_t41_modctl.h"
 #include "tx_isp_t41_bcsh.h"
 #include "tx_isp_t41_hvflip.h"
 #include "tx_isp_t41_ae.h"
@@ -2107,6 +2108,9 @@ static uint32_t pos_en;
 static uint32_t pos_value;
 static unsigned char top_bypass_global[8];
 
+/* User module-control overrides (bit set in mask = value is forced). */
+static uint32_t t41_modctl_mask, t41_modctl_value;
+
 static int t41_top_restore_bypass(uint32_t mask)
 {
 	uint32_t *bypass = &((uint32_t *)(void *)top_bypass_global)[0];
@@ -2114,6 +2118,9 @@ static int t41_top_restore_bypass(uint32_t mask)
 		((uint32_t *)(void *)tparamsP_storage)[0];
 	if (!params || tx_isp_top_restore(params + 4, 32, mask, bypass))
 		return -EINVAL;
+	/* IMP_ISP_Tuning_SetModuleControl overrides outlive the calibration
+	 * restore of the module's own refresh path. */
+	*bypass = (*bypass & ~t41_modctl_mask) | (t41_modctl_value & t41_modctl_mask);
 	system_reg_write(0x40, *bypass);
 	return 0;
 }
@@ -20685,6 +20692,61 @@ static int t41_tuning_ae_scence(unsigned int channel, unsigned int is_get,
                                 sizeof(buffer)) ? -EFAULT : 0;
 }
 
+/*
+ * IMPISPModuleCtl (0x08000072): TOP bypass word, see tx_isp_t41_modctl.h.
+ * Stock additionally restarts MDNS when its bit changes and re-runs the
+ * LCE top state for the ADR/LCE bits.
+ */
+static DEFINE_MUTEX(t41_modctl_lock);
+static int t41_tuning_module_control(unsigned int channel, unsigned int is_get,
+                                     uintptr_t user_ptr)
+{
+    uint32_t *bypass = &((uint32_t *)(void *)top_bypass_global)[0];
+    const uint8_t *params = (const uint8_t *)(uintptr_t)
+        ((uint32_t *)(void *)tparamsP_storage)[0];
+    uint32_t key, top, mask, value, old;
+    int ret;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (!(*bypass & 0xfc000000U))
+        return -EAGAIN;		/* TOP word not owned yet */
+    if (is_get) {
+        key = READ_ONCE(*bypass) & T41_MODCTL_KEY_MASK;
+        return private_copy_to_user((void __user *)user_ptr, &key,
+                                    sizeof(key)) ? -EFAULT : 0;
+    }
+    if (private_copy_from_user(&key, (void __user *)user_ptr, sizeof(key)))
+        return -EFAULT;
+    mutex_lock(&t41_modctl_lock);
+    old = *bypass;
+    if (t41_modctl_plan(old, key, params ? params + 4 : NULL,
+                        t41_modctl_mask, t41_modctl_value,
+                        &top, &mask, &value)) {
+        mutex_unlock(&t41_modctl_lock);
+        return -EOPNOTSUPP;
+    }
+    /* MDNS leaves bypass only when its buffers exist. */
+    if ((old & BIT(13)) && !(top & BIT(13)) &&
+        (!t41_mdns_info_checked(0) || !t41_mdns_buf_info[0].paddr)) {
+        mutex_unlock(&t41_modctl_lock);
+        return -EOPNOTSUPP;
+    }
+    t41_modctl_mask = mask;
+    t41_modctl_value = value;
+    *bypass = top;
+    system_reg_write(0x40, top);
+    ret = 0;
+    if ((old ^ top) & BIT(13))
+        ret = tisp_mdns_reg_trig(0);
+    if (!ret && ((old ^ top) & (BIT(7) | BIT(21))))
+        ret = (int)tisp_lce_top_change_state(0);
+    mutex_unlock(&t41_modctl_lock);
+    printk(KERN_WARNING "tx_isp_t41_recovered: module control %#x -> %#x ret=%d\n",
+           old & T41_MODCTL_KEY_MASK, top & T41_MODCTL_KEY_MASK, ret);
+    return ret < 0 ? ret : 0;
+}
+
 static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
                                    uintptr_t user_ptr)
 {
@@ -21267,6 +21329,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
               TX_ISP_TUNING_T41_MODULE_RATIO_BYTES,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_MODULE_CONTROL, 4,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_AE_STATS,
               TX_ISP_TUNING_T41_AE_STATS_BYTES,
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -21474,6 +21539,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AE_SCENCE)
             return t41_tuning_ae_scence(request.channel, request.is_get,
                                         request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_MODULE_CONTROL)
+            return t41_tuning_module_control(request.channel, request.is_get,
+                                             request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_MODULE_RATIO)
             return t41_tuning_module_ratio(request.channel, request.is_get,
                                            request.value_or_ptr);
@@ -21484,7 +21552,6 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         switch (request.id) {
         case TX_ISP_TUNING_CMD_T41_GAMMA:
         case TX_ISP_TUNING_CMD_T41_WDR_OUTPUT:
-        case TX_ISP_TUNING_CMD_T41_MODULE_CONTROL:
         case TX_ISP_TUNING_CMD_T41_AUTOZOOM:
         case TX_ISP_TUNING_CMD_T41_CCM:
         case TX_ISP_TUNING_CMD_T41_CSC:
