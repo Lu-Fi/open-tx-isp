@@ -1708,7 +1708,7 @@ static void t2x_fcrop_chan_changed(struct tx_isp_core_device *core, int index)
 int t2x_fcrop_set(struct tx_isp_core_device *core, const uint32_t *f)
 {
 	uint32_t W = core->contrl.inwidth, H = core->contrl.inheight;
-	int full, fits = 0, ret, i;
+	int full, fits = 0, open = 0, ret, i;
 	static const int ds[] = {
 		ISP_DS1_VIDEO_CHANNEL,
 #if TX_ISP_EXIST_DS2_CHANNEL
@@ -1729,10 +1729,19 @@ int t2x_fcrop_set(struct tx_isp_core_device *core, const uint32_t *f)
 			unsigned int crop;
 			frame_chan_vdev_t *vdev = t2x_fcrop_ds(core, ds[i], &crop);
 
-			if (vdev && t2x_fcrop_zoomable(vdev, f))
+			if (!vdev || atomic_read(&vdev->state) == TX_ISP_STATE_STOP)
+				continue;
+			open = 1;
+			if (t2x_fcrop_zoomable(vdev, f))
 				fits = 1;
 		}
-		if (!fits) {
+		/*
+		 * No DS channel open (streamer starting up, or its sub stream
+		 * idle and closed): keep the window, a channel picks it up
+		 * when it is configured or started.  Refuse only when open
+		 * channels exist and none of them can show it.
+		 */
+		if (open && !fits) {
 			ret = -EOPNOTSUPP;	/* no DS channel can show it */
 			goto out;
 		}
@@ -1996,6 +2005,8 @@ static long isp_core_ops_private_ioctl(struct tx_isp_core_device *core, struct i
 			break;
 		case TX_ISP_PRIVATE_IOCTL_FRAME_CHAN_STREAM_ON:
 			ret = isp_core_frame_channel_streamon(core, ctl->value);
+			if (!ret)
+				t2x_fcrop_chan_changed(core, ((frame_chan_vdev_t *)ctl->value)->index);
 			break;
 		case TX_ISP_PRIVATE_IOCTL_FRAME_CHAN_STREAM_OFF:
 			ret = isp_core_frame_channel_streamoff(core, ctl->value);
