@@ -137,7 +137,7 @@ tx_isp_t41_cdns_test: tx_isp_t41_cdns_test.c ../driver/t41/tx_isp_t41_cdns.h ../
 tx_isp_t41_ysp_test: tx_isp_t41_ysp_test.c ../driver/t41/tx_isp_t41_ysp.h ../driver/t41/tx_isp_t41_dpc.h ../driver/t41/tx_isp_t41_tmo.h ../driver/include/tx_isp/tx_isp_math.h
 	$(CC) $(CFLAGS) -o $@ $<
 
-TESTS += tx_isp_t41_gib_test tx_isp_t41_awb_gain_test tx_isp_t41_sensor_gain_test tx_isp_t41_gamma_test tx_isp_t41_dpc_test tx_isp_t41_dmsc_test tx_isp_t41_sdns_test tx_isp_t41_ydns_test
+TESTS += tx_isp_t41_modctl_test tx_isp_t41_drc_ratio_test tx_isp_t41_dpc_ratio_test tx_isp_t41_csc_ctl_test tx_isp_t41_ccm_manual_test tx_isp_t41_gamma_ctl_test tx_isp_t41_gib_test tx_isp_t41_awb_gain_test tx_isp_t41_sensor_gain_test tx_isp_t41_gamma_test tx_isp_t41_dpc_test tx_isp_t41_dmsc_test tx_isp_t41_sdns_test tx_isp_t41_ydns_test
 
 tx_isp_t41_ydns_test: tx_isp_t41_ydns_test.c ../driver/t41/tx_isp_t41_ydns.h ../driver/t41/tx_isp_t41_dpc.h ../driver/t41/tx_isp_t41_tmo.h ../driver/include/tx_isp/tx_isp_math.h
 	$(CC) $(CFLAGS) -o $@ $<
@@ -205,6 +205,24 @@ tx_isp_math_test: tx_isp_math_test.c ../driver/include/tx_isp/tx_isp_math.h
 	$(CC) $(CFLAGS) -I../driver/include -o $@ $<
 
 tx_isp_t41_tmo_test: tx_isp_t41_tmo_test.c ../driver/t41/tx_isp_t41_tmo.h
+	$(CC) $(CFLAGS) -o $@ $<
+
+tx_isp_t41_gamma_ctl_test: tx_isp_t41_gamma_ctl_test.c ../driver/t41/tx_isp_t41_gamma_ctl.h
+	$(CC) $(CFLAGS) -o $@ $<
+
+tx_isp_t41_csc_ctl_test: tx_isp_t41_csc_ctl_test.c ../driver/t41/tx_isp_t41_csc_ctl.h ../driver/t41/tx_isp_t41_ccm.h ../driver/t41/tx_isp_t41_tmo.h
+	$(CC) $(CFLAGS) -o $@ $<
+
+tx_isp_t41_ccm_manual_test: tx_isp_t41_ccm_manual_test.c ../driver/t41/tx_isp_t41_ccm_manual.h ../driver/t41/tx_isp_t41_ccm.h ../driver/t41/tx_isp_t41_tmo.h
+	$(CC) $(CFLAGS) -o $@ $<
+
+tx_isp_t41_dpc_ratio_test: tx_isp_t41_dpc_ratio_test.c ../driver/t41/tx_isp_t41_dpc_ratio.h
+	$(CC) $(CFLAGS) -o $@ $<
+
+tx_isp_t41_drc_ratio_test: tx_isp_t41_drc_ratio_test.c ../driver/t41/tx_isp_t41_drc_ratio.h
+	$(CC) $(CFLAGS) -o $@ $<
+
+tx_isp_t41_modctl_test: tx_isp_t41_modctl_test.c ../driver/t41/tx_isp_t41_modctl.h
 	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t41_ccm_test: tx_isp_t41_ccm_test.c ../driver/t41/tx_isp_t41_ccm.h ../driver/t41/tx_isp_t41_tmo.h
@@ -443,7 +461,7 @@ clean:
 		tx_isp_t41_tmo_test \
 		tx_isp_t41_tmo_map_test \
 		tx_isp_t41_awb_test \
-		tx_isp_t41_ccm_test tx_isp_t41_bcsh_test tx_isp_t41_hvflip_test tx_isp_t41_ae_test tx_isp_t41_gib_test tx_isp_t41_awb_gain_test tx_isp_t41_sensor_gain_test \
+		tx_isp_t41_modctl_test tx_isp_t41_drc_ratio_test tx_isp_t41_dpc_ratio_test tx_isp_t41_csc_ctl_test tx_isp_t41_ccm_manual_test tx_isp_t41_gamma_ctl_test tx_isp_t41_ccm_test tx_isp_t41_bcsh_test tx_isp_t41_hvflip_test tx_isp_t41_ae_test tx_isp_t41_gib_test tx_isp_t41_awb_gain_test tx_isp_t41_sensor_gain_test \
 		tx_isp_t41_color_route_test \
 		tx_isp_daynight_test \
 		tx_isp_subdev_abi_test tx_isp_subdev_test \

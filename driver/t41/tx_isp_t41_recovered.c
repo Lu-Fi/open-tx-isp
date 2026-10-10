@@ -18,6 +18,12 @@
 #include "tx_isp_t41_tmo.h"
 #include "tx_isp_t41_tmo_map.h"
 #include "tx_isp_t41_ccm.h"
+#include "tx_isp_t41_modctl.h"
+#include "tx_isp_t41_gamma_ctl.h"
+#include "tx_isp_t41_ccm_manual.h"
+#include "tx_isp_t41_csc_ctl.h"
+#include "tx_isp_t41_dpc_ratio.h"
+#include "tx_isp_t41_drc_ratio.h"
 #include "tx_isp_t41_bcsh.h"
 #include "tx_isp_t41_hvflip.h"
 #include "tx_isp_t41_ae.h"
@@ -845,6 +851,9 @@ static unsigned int t41_ae_cap_integration __attribute__((section(".data")));
 module_param(t41_ae_cap_integration, uint, 0444);
 MODULE_PARM_DESC(t41_ae_cap_integration,
 		 "caller max integration lines, 0 = sensor limit (read-only)");
+/* IMPISPAEExprInfo manual exposure (lines / x1024); 0 = automatic. */
+static unsigned int t41_ae_man_freeze, t41_ae_man_it, t41_ae_man_again;
+static unsigned int t41_ae_man_dgain_cap;
 static unsigned int t41_ae_cap_again __attribute__((section(".data")));
 module_param(t41_ae_cap_again, uint, 0444);
 MODULE_PARM_DESC(t41_ae_cap_again,
@@ -853,6 +862,8 @@ MODULE_PARM_DESC(t41_ae_cap_again,
 static unsigned int t41_ratio_pending __attribute__((section(".data")));
 static unsigned int t41_ratio_sinter __attribute__((section(".data"))) = 128;
 static int t41_module_ratio_apply(uint32_t channel, unsigned int pending);
+static bool t41_drc_ratio_ready(void);
+static int t41_drc_ratio_apply(unsigned int ratio);
 static uint32_t *t41_sdns_info_checked(uint32_t channel);
 static uint32_t *t41_mdns_info_checked(uint32_t channel);
 static int t41_sdns_refresh_checked(uint32_t channel, uint32_t gain, unsigned int all);
@@ -1496,6 +1507,10 @@ static void t41_tmo_exposure(uint32_t integration, uint32_t gain);
 static int t41_tmo_refresh(uint32_t channel, const uint8_t *replacement);
 static DEFINE_MUTEX(t41_ccm_lock);
 static unsigned int t41_ccm_ct = 5000;
+/* User CCM (SetCCMAttr); guarded by t41_ccm_lock. */
+static struct t41_ccm_manual t41_ccm_man;
+static unsigned char t41_ccm_attr_raw[T41_CCM_ATTR_BYTES];
+static short t41_ccm_man_q10[9];
 static int t41_ccm_error = -ENODEV;
 module_param(t41_ccm_ct, uint, 0444);
 module_param(t41_ccm_error, int, 0444);
@@ -2133,6 +2148,10 @@ static uint32_t cdns_info, chx_shd_flags, clk_cnt_39069;
 static uint32_t cls, csc_switch, csc_version_now, ctl_table, defog_info, deghost_en, diffLast2Later;
 static uint32_t diff_thr_maxvalue, dmsc_debug_flags, dpc_info[2], dmsc_info[2], dump_csd, ev_last_switch, ev_wdr_l, ev_wdr_s;
 static uint32_t find_new_buffer_fn, fix_y_tmp, fliker_info, fliker_para, force_triger, frameSum, frame_vb_measure;
+/* gamma calibration kept across a fixed curve (t41_tuning_gamma): dropped
+ * whenever the parameter set behind it is (re)loaded or switched */
+static bool t41_gamma_base_valid;
+static uintptr_t t41_gamma_base_params;
 static uint32_t gamma_info[2], gib_info[2], globe_ispdev, height_adr, hist_short, i2c_driver, isp_breakfrm;
 static uint32_t isp_ch0_frm_done, isp_core_debug_type, isp_err, isp_frm_done, isp_frm_err, isp_frm_start;
 static uint32_t isp_ir_frm_done, isp_overflow, isp_rst, ivdc_ddr_c_overflow, ivdc_ddr_y_overflow, ivdc_dma_done;
@@ -2176,6 +2195,9 @@ static uint32_t pos_en;
 static uint32_t pos_value;
 static unsigned char top_bypass_global[8];
 
+/* User module-control overrides (bit set in mask = value is forced). */
+static uint32_t t41_modctl_mask, t41_modctl_value;
+
 static int t41_top_restore_bypass(uint32_t mask)
 {
 	uint32_t *bypass = &((uint32_t *)(void *)top_bypass_global)[0];
@@ -2183,6 +2205,9 @@ static int t41_top_restore_bypass(uint32_t mask)
 		((uint32_t *)(void *)tparamsP_storage)[0];
 	if (!params || tx_isp_top_restore(params + 4, 32, mask, bypass))
 		return -EINVAL;
+	/* IMP_ISP_Tuning_SetModuleControl overrides outlive the calibration
+	 * restore of the module's own refresh path. */
+	*bypass = (*bypass & ~t41_modctl_mask) | (t41_modctl_value & t41_modctl_mask);
 	system_reg_write(0x40, *bypass);
 	return 0;
 }
@@ -20675,6 +20700,30 @@ static int t41_tuning_copy_ae_expr(unsigned int channel, uintptr_t user_ptr)
             READ_ONCE(t41_ae_cap_again));
         values.max_analog_gain_manual = 1;
     }
+    if (channel == 0) {
+        values.freeze = READ_ONCE(t41_ae_man_freeze) ? 1 : 0;
+        values.it_manual = READ_ONCE(t41_ae_man_it) ? 1 : 0;
+        values.again_manual = READ_ONCE(t41_ae_man_again) ? 1 : 0;
+        values.manual_integration = control->integration;
+        values.manual_again_x1024 = control->again;
+        /* the AE worker applies a manual request on the next frame; report
+         * the request so an immediate Get reads back what was set */
+        if (READ_ONCE(t41_ae_man_it)) {
+            /* the AE worker clamps to the sensor limits; report what it
+             * will apply, not the raw request */
+            values.integration_time = clamp(READ_ONCE(t41_ae_man_it),
+                control->min_integration, control->max_integration);
+            values.manual_integration = values.integration_time;
+        }
+        if (READ_ONCE(t41_ae_man_again)) {
+            values.analog_gain_x1024 = clamp(READ_ONCE(t41_ae_man_again),
+                1024U, tx_isp_exp2_u32(
+                    t41_safe_ae_sensor[channel].max_log2_q16, 16, 10));
+            values.manual_again_x1024 = values.analog_gain_x1024;
+        }
+        values.max_dgain_manual = READ_ONCE(t41_ae_man_dgain_cap) ? 1 : 0;
+        values.max_dgain = READ_ONCE(t41_ae_man_dgain_cap);
+    }
     values.total_gain_db = t41_safe_ae_sensor[channel].log2_q16;
     values.exposure_value = exposure;
     values.ev_log2 = exposure ?
@@ -20686,6 +20735,24 @@ static int t41_tuning_copy_ae_expr(unsigned int channel, uintptr_t user_ptr)
         return ret;
     return private_copy_to_user((void __user *)user_ptr, response,
                                 sizeof(response)) ? -EFAULT : 0;
+}
+
+/* microseconds -> sensor lines with the current mode timing */
+static int t41_ae_us_to_lines(uint32_t us, uint32_t *lines)
+{
+    struct t41_safe_sensor_limits sensor;
+    u64 rate, value;
+    int ret = t41_safe_sensor_limits_get(0, &sensor);
+
+    if (ret)
+        return ret;
+    if (!sensor.height || !(sensor.fps >> 16) || !(sensor.fps & 65535))
+        return -ERANGE;
+    rate = div64_u64((u64)sensor.height * (sensor.fps >> 16),
+                     sensor.fps & 65535);
+    value = div64_u64((u64)us * rate + 500000U, 1000000U);
+    *lines = value ? (value > UINT_MAX ? UINT_MAX : (uint32_t)value) : 1;
+    return 0;
 }
 
 static int t41_tuning_ae_expr_set(unsigned int channel, uintptr_t user_ptr)
@@ -20702,11 +20769,29 @@ static int t41_tuning_ae_expr_set(unsigned int channel, uintptr_t user_ptr)
     ret = tx_isp_tuning_t41_ae_expr_parse(request, sizeof(request), &limits);
     if (ret)
         return ret;
+    if (limits.unit) {
+        if (limits.max_integration) {
+            ret = t41_ae_us_to_lines(limits.max_integration,
+                                     &limits.max_integration);
+            if (ret)
+                return ret;
+        }
+        if (limits.it_manual) {
+            ret = t41_ae_us_to_lines(limits.it_value, &limits.it_value);
+            if (ret)
+                return ret;
+        }
+    }
     WRITE_ONCE(t41_ae_cap_integration, limits.max_integration);
     WRITE_ONCE(t41_ae_cap_again, limits.max_again_x1024);
+    WRITE_ONCE(t41_ae_man_it, limits.it_manual ? limits.it_value : 0);
+    WRITE_ONCE(t41_ae_man_again, limits.again_manual ? limits.again_value : 0);
+    WRITE_ONCE(t41_ae_man_dgain_cap, limits.max_dgain_manual ? limits.max_dgain : 0);
+    WRITE_ONCE(t41_ae_man_freeze, limits.freeze);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: AE caps integration=%u again=%u (0=sensor)\n",
-           limits.max_integration, limits.max_again_x1024);
+           "tx_isp_t41_recovered: AE caps integration=%u again=%u manual freeze=%u it=%u again=%u dgaincap=%u (0=auto)\n",
+           limits.max_integration, limits.max_again_x1024, limits.freeze,
+           t41_ae_man_it, t41_ae_man_again, t41_ae_man_dgain_cap);
     return 0;
 }
 
@@ -20754,6 +20839,283 @@ static int t41_tuning_ae_scence(unsigned int channel, unsigned int is_get,
                                 sizeof(buffer)) ? -EFAULT : 0;
 }
 
+/*
+ * IMPISPCSCAttr (0x08000096), kernel wire in tx_isp_t41_csc_ctl.h.  Stock
+ * tisp_set_csc_attr: tisp_csc_api_set (reprograms the CSC registers), then
+ * the CCM, BCSH and CLM refresh-by-CSC.
+ */
+static DEFINE_MUTEX(t41_csc_lock);
+static int t41_tuning_csc(unsigned int channel, unsigned int is_get,
+                          uintptr_t user_ptr)
+{
+    unsigned char buf[T41_CSC_ATTR_BYTES];
+    uint8_t *cinfo, *binfo;
+    int version, ret, ret2;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (is_get) {
+        mutex_lock(&t41_csc_lock);
+        ret = tisp_csc_api_get(0, (uint32_t)(uintptr_t)buf);
+        mutex_unlock(&t41_csc_lock);
+        if (ret)
+            return ret;
+        return private_copy_to_user((void __user *)user_ptr, buf,
+                                    sizeof(buf)) ? -EFAULT : 0;
+    }
+    if (private_copy_from_user(buf, (void __user *)user_ptr, sizeof(buf)))
+        return -EFAULT;
+    version = t41_csc_ctl_check(buf);
+    if (version < 0)
+        return -EINVAL;
+    cinfo = (uint8_t *)(uintptr_t)ccm_info;
+    binfo = (uint8_t *)(uintptr_t)bcsh_info;
+    if (!t41_kernel_data_ptr(cinfo) || !t41_kernel_data_ptr(binfo))
+        return -EAGAIN;
+    mutex_lock(&t41_csc_lock);
+    if (version == T41_CSC_VERSION_USER)
+        memcpy(CSC_USER, buf, sizeof(buf));
+    ret = (int)tisp_set_csc_version(version);
+    mutex_unlock(&t41_csc_lock);
+    if (ret)
+        return ret;
+    ret = t41_ccm_update(*(uint32_t *)(void *)(cinfo + 144),
+                         *(uint32_t *)(void *)(cinfo + 136), 1);
+    ret2 = t41_bcsh_update(*(uint32_t *)(void *)(binfo + 312),
+                           *(uint32_t *)(void *)(binfo + 320), 1);
+    printk(KERN_WARNING "tx_isp_t41_recovered: csc version %d ccm=%d bcsh=%d\n",
+           version, ret, ret2);
+    return ret ? ret : ret2;
+}
+
+/*
+ * IMPISPCCMAttr (0x08000080), kernel wire in tx_isp_t41_ccm_manual.h.  The
+ * user matrix feeds the CCM block (SatEn controls the saturation transform)
+ * and, because the shipped calibrations may carry the colour correction in
+ * BCSH instead, the BCSH matrix as well.
+ */
+static int t41_tuning_ccm(unsigned int channel, unsigned int is_get,
+                          uintptr_t user_ptr)
+{
+    unsigned char buf[T41_CCM_ATTR_BYTES];
+    struct t41_ccm_manual man;
+    uint8_t *cinfo, *binfo;
+    uint32_t ct, ev, i;
+    int ret, ret2;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (is_get) {
+        mutex_lock(&t41_ccm_lock);
+        memcpy(buf, t41_ccm_attr_raw, sizeof(buf));
+        mutex_unlock(&t41_ccm_lock);
+        if (!t41_ccm_man.manual && !(buf[0] | buf[1] | buf[4] | buf[5] | buf[6] | buf[7])) {
+            /* never set: stock holds the identity matrix, Q16 */
+            for (i = 0; i < 9; ++i)
+                *(uint32_t *)(void *)(buf + 4 + i * 4) = i % 4 == 0 ? 65536 : 0;
+        }
+        return private_copy_to_user((void __user *)user_ptr, buf,
+                                    sizeof(buf)) ? -EFAULT : 0;
+    }
+    if (private_copy_from_user(buf, (void __user *)user_ptr, sizeof(buf)))
+        return -EFAULT;
+    if (t41_ccm_manual_parse(buf, &man))
+        return -EINVAL;
+    cinfo = (uint8_t *)(uintptr_t)ccm_info;
+    binfo = (uint8_t *)(uintptr_t)bcsh_info;
+    if (!t41_kernel_data_ptr(cinfo) || !t41_kernel_data_ptr(binfo))
+        return -EAGAIN;
+    mutex_lock(&t41_ccm_lock);
+    memcpy(t41_ccm_attr_raw, buf, sizeof(buf));
+    t41_ccm_manual_matrix(&man, t41_ccm_man_q10);
+    smp_wmb();
+    t41_ccm_man = man;
+    ct = *(uint32_t *)(void *)(cinfo + 144);
+    ev = *(uint32_t *)(void *)(cinfo + 136);
+    mutex_unlock(&t41_ccm_lock);
+    ret = t41_ccm_update(ct, ev, 1);
+    ret2 = t41_bcsh_update(*(uint32_t *)(void *)(binfo + 312),
+                           *(uint32_t *)(void *)(binfo + 320), 1);
+    printk(KERN_WARNING "tx_isp_t41_recovered: ccm attr manual=%u sat=%u ccm=%d bcsh=%d\n",
+           man.manual, man.sat, ret, ret2);
+    return ret ? ret : ret2;
+}
+
+/*
+ * IMPISPGammaAttr (0x08000025), see tx_isp_t41_gamma_ctl.h.  Serialised
+ * with the tone worker, which owns the exposure-driven gamma updates.
+ */
+/* calibration RGB curve (258 B) + ten strengths, params+0x12c */
+static unsigned char t41_gamma_base[268];
+static int t41_tuning_gamma(unsigned int channel, unsigned int is_get,
+                            uintptr_t user_ptr)
+{
+    const unsigned char *tables[3] = { static_srgb_gamma,
+                                       static_rec709_gamma,
+                                       static_hdr_gamma };
+    unsigned char *buf, *info, *params;
+    int ret;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    buf = private_kmalloc(T41_GAMMA_ATTR_BYTES, GFP_KERNEL);
+    if (!buf)
+        return -ENOMEM;
+    mutex_lock(&t41_tmo_map_lock);
+    info = (unsigned char *)(uintptr_t)gamma_info[0];
+    params = t41_kernel_data_ptr(info) ?
+        (unsigned char *)(uintptr_t)*(uint32_t *)(void *)info : NULL;
+    if (!t41_kernel_data_ptr(params)) {
+        ret = -EAGAIN;
+        goto out;
+    }
+    if (is_get) {
+        t41_gamma_ctl_load(info, buf);
+        ret = private_copy_to_user((void __user *)user_ptr, buf,
+                                   T41_GAMMA_ATTR_BYTES) ? -EFAULT : 0;
+        goto out;
+    }
+    if (private_copy_from_user(buf, (void __user *)user_ptr,
+                               T41_GAMMA_ATTR_BYTES)) {
+        ret = -EFAULT;
+        goto out;
+    }
+    if (t41_gamma_ctl_check(buf)) {
+        ret = -EINVAL;
+        goto out;
+    }
+    /* A fixed curve overwrites the calibration RGB curve and strengths;
+     * keep them so the default type can bring the calibration back. */
+    if (t41_gamma_base_valid && t41_gamma_base_params != (uintptr_t)params)
+        t41_gamma_base_valid = false;	/* another parameter block */
+    if (buf[0] && !t41_gamma_base_valid) {
+        memcpy(t41_gamma_base, params + T41_GAMMA_PARAM_CURVE, sizeof(t41_gamma_base));
+        t41_gamma_base_params = (uintptr_t)params;
+        t41_gamma_base_valid = true;
+    } else if (!buf[0] && !buf[1] && !buf[2] && !buf[3] && t41_gamma_base_valid) {
+        memcpy(params + T41_GAMMA_PARAM_CURVE, t41_gamma_base, sizeof(t41_gamma_base));
+    }
+    if (!t41_gamma_ctl_store(info, params, buf, tables)) {
+        /* exposure-driven curve again: force a strength recompute */
+        ret = (int)tisp_gamma_interp_by_ev(0, 0,
+                *(uint32_t *)(void *)(info + 532), 0, 1);
+        if (ret < 0)
+            goto out;
+    }
+    ret = tisp_gamma_strength_transform(0);
+    if (!ret)
+        ret = tisp_gamma_write_lut_rgb(0);
+    printk(KERN_WARNING "tx_isp_t41_recovered: gamma attr type=%u fixed=%u ret=%d\n",
+           *(uint32_t *)(void *)buf, info[T41_GAMMA_INFO_FIXED], ret);
+out:
+    mutex_unlock(&t41_tmo_map_lock);
+    private_kfree(buf);
+    return ret < 0 ? ret : 0;
+}
+
+/*
+ * IMPISPModuleCtl (0x08000072): TOP bypass word, see tx_isp_t41_modctl.h.
+ * Stock additionally restarts MDNS when its bit changes and re-runs the
+ * LCE top state for the ADR/LCE bits.
+ */
+static DEFINE_MUTEX(t41_modctl_lock);
+static int t41_tuning_module_control(unsigned int channel, unsigned int is_get,
+                                     uintptr_t user_ptr)
+{
+    uint32_t *bypass = &((uint32_t *)(void *)top_bypass_global)[0];
+    const uint8_t *params = (const uint8_t *)(uintptr_t)
+        ((uint32_t *)(void *)tparamsP_storage)[0];
+    uint32_t key, top, mask, value, old;
+    int ret;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (!(*bypass & 0xfc000000U))
+        return -EAGAIN;		/* TOP word not owned yet */
+    if (is_get) {
+        key = READ_ONCE(*bypass) & T41_MODCTL_KEY_MASK;
+        return private_copy_to_user((void __user *)user_ptr, &key,
+                                    sizeof(key)) ? -EFAULT : 0;
+    }
+    if (private_copy_from_user(&key, (void __user *)user_ptr, sizeof(key)))
+        return -EFAULT;
+    mutex_lock(&t41_modctl_lock);
+    old = *bypass;
+    if (t41_modctl_plan(old, key, params ? params + 4 : NULL,
+                        t41_modctl_mask, t41_modctl_value,
+                        &top, &mask, &value)) {
+        mutex_unlock(&t41_modctl_lock);
+        return -EOPNOTSUPP;
+    }
+    /* MDNS leaves bypass only when its buffers exist. */
+    if ((old & BIT(13)) && !(top & BIT(13)) &&
+        (!t41_mdns_info_checked(0) || !t41_mdns_buf_info[0].paddr)) {
+        mutex_unlock(&t41_modctl_lock);
+        return -EOPNOTSUPP;
+    }
+    t41_modctl_mask = mask;
+    t41_modctl_value = value;
+    *bypass = top;
+    system_reg_write(0x40, top);
+    ret = 0;
+    if ((old ^ top) & BIT(13))
+        ret = tisp_mdns_reg_trig(0);
+    if (!ret && ((old ^ top) & (BIT(7) | BIT(21))))
+        ret = (int)tisp_lce_top_change_state(0);
+    mutex_unlock(&t41_modctl_lock);
+    printk(KERN_WARNING "tx_isp_t41_recovered: module control %#x -> %#x ret=%d\n",
+           old & T41_MODCTL_KEY_MASK, top & T41_MODCTL_KEY_MASK, ret);
+    return ret < 0 ? ret : 0;
+}
+
+/*
+ * DPC strength (stock tisp_s_dpc_ratio): scales the long-bank threshold
+ * fields of the DPC calibration from a pristine copy, then the next tone
+ * worker pass re-interpolates the gain-dependent thresholds.
+ */
+static DEFINE_MUTEX(t41_dpc_ratio_lock);
+static u8 t41_dpc_base[0x5a2];
+static bool t41_dpc_base_valid;
+
+static u8 *t41_dpc_ratio_params(void)
+{
+    u8 *info = (u8 *)(uintptr_t)dpc_info[0], *params;
+
+    if (!t41_kernel_data_ptr(info))
+        return NULL;
+    params = (u8 *)(uintptr_t)*(uint32_t *)(void *)info;
+    return t41_kernel_data_ptr(params) ? params : NULL;
+}
+
+static bool t41_dpc_ratio_ready(void)
+{
+    return t41_dpc_ratio_params() && t41_stock_dpc_profile <= 0;
+}
+
+static int t41_dpc_ratio_apply(unsigned int ratio)
+{
+    u8 *params = t41_dpc_ratio_params();
+    int ret;
+
+    if (!params)
+        return -ENODEV;
+    mutex_lock(&t41_dpc_ratio_lock);
+    if (!t41_dpc_base_valid) {
+        if (ratio == T41_DPC_RATIO_NEUTRAL) {
+            mutex_unlock(&t41_dpc_ratio_lock);
+            return 0;
+        }
+        memcpy(t41_dpc_base, params, sizeof(t41_dpc_base));
+        t41_dpc_base_valid = true;
+    }
+    ret = t41_dpc_ratio_scale(params, t41_dpc_base, sizeof(t41_dpc_base), ratio);
+    if (!ret)
+        WRITE_ONCE(t41_dpc_gain, ~0U);	/* tone worker re-interpolates */
+    mutex_unlock(&t41_dpc_ratio_lock);
+    printk(KERN_WARNING "tx_isp_t41_recovered: DPC ratio %u ret=%d\n", ratio, ret);
+    return ret ? -EINVAL : 0;
+}
+
 static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
                                    uintptr_t user_ptr)
 {
@@ -20761,6 +21123,8 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
     u8 buffer[TX_ISP_TUNING_T41_MODULE_RATIO_BYTES];
     u8 *tuning = (u8 *)(uintptr_t)tisp_tattr;
     unsigned int i, pending = 0;
+    u8 dpc_ratio, drc_ratio;
+    bool dpc_changed, drc_changed;
     int ret;
 
     if (channel != 0 || !user_ptr)
@@ -20786,11 +21150,26 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
                                                units, ARRAY_SIZE(units));
     if (ret)
         return ret;
-    /* DRC, DPC and defog have no checked strength path yet: refuse a
+    /* DRC and defog have no checked strength path yet: refuse a
      * non-neutral request instead of acknowledging it unchanged. */
     for (i = TX_ISP_TUNING_T41_RATIO_DRC; i < ARRAY_SIZE(units); i++)
-        if (units[i].en && units[i].ratio != 128)
+        if (i != TX_ISP_TUNING_T41_RATIO_DPC && i != TX_ISP_TUNING_T41_RATIO_DRC &&
+            units[i].en && units[i].ratio != 128)
             return -EOPNOTSUPP;
+    drc_ratio = units[TX_ISP_TUNING_T41_RATIO_DRC].en ?
+        (u8)units[TX_ISP_TUNING_T41_RATIO_DRC].ratio : 128;
+    drc_changed = !(*(u32 *)(void *)(tuning + 184 + TX_ISP_TUNING_T41_RATIO_DRC * 8) ==
+                    units[TX_ISP_TUNING_T41_RATIO_DRC].en &&
+                    tuning[188 + TX_ISP_TUNING_T41_RATIO_DRC * 8] == drc_ratio);
+    if (drc_changed && !t41_drc_ratio_ready())
+        return -EOPNOTSUPP;
+    dpc_ratio = units[TX_ISP_TUNING_T41_RATIO_DPC].en ?
+        (u8)units[TX_ISP_TUNING_T41_RATIO_DPC].ratio : 128;
+    dpc_changed = !(*(u32 *)(void *)(tuning + 184 + TX_ISP_TUNING_T41_RATIO_DPC * 8) ==
+                    units[TX_ISP_TUNING_T41_RATIO_DPC].en &&
+                    tuning[188 + TX_ISP_TUNING_T41_RATIO_DPC * 8] == dpc_ratio);
+    if (dpc_changed && !t41_dpc_ratio_ready())
+        return -EOPNOTSUPP;
     for (i = 0; i <= TX_ISP_TUNING_T41_RATIO_TEMPER; i++) {
         u32 *en = (u32 *)(void *)(tuning + 184 + i * 8);
         u8 ratio = units[i].en ? (u8)units[i].ratio : 128;
@@ -20812,6 +21191,22 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
         *en = units[i].en;
         tuning[188 + i * 8] = ratio;
         pending |= BIT(i);
+    }
+    if (drc_changed) {
+        *(u32 *)(void *)(tuning + 184 + TX_ISP_TUNING_T41_RATIO_DRC * 8) =
+            units[TX_ISP_TUNING_T41_RATIO_DRC].en;
+        tuning[188 + TX_ISP_TUNING_T41_RATIO_DRC * 8] = drc_ratio;
+        ret = t41_drc_ratio_apply(drc_ratio);
+        if (ret < 0)
+            return ret;
+    }
+    if (dpc_changed) {
+        *(u32 *)(void *)(tuning + 184 + TX_ISP_TUNING_T41_RATIO_DPC * 8) =
+            units[TX_ISP_TUNING_T41_RATIO_DPC].en;
+        tuning[188 + TX_ISP_TUNING_T41_RATIO_DPC * 8] = dpc_ratio;
+        ret = t41_dpc_ratio_apply(dpc_ratio);
+        if (ret < 0)
+            return ret;
     }
     if (!pending)
         return 0;
@@ -21336,6 +21731,18 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
               TX_ISP_TUNING_T41_MODULE_RATIO_BYTES,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_MODULE_CONTROL, 4,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_GAMMA, T41_GAMMA_ATTR_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_CCM, T41_CCM_ATTR_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_CSC, T41_CSC_ATTR_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_AE_STATS,
               TX_ISP_TUNING_T41_AE_STATS_BYTES,
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -21543,6 +21950,18 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AE_SCENCE)
             return t41_tuning_ae_scence(request.channel, request.is_get,
                                         request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_CSC)
+            return t41_tuning_csc(request.channel, request.is_get,
+                                  request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_CCM)
+            return t41_tuning_ccm(request.channel, request.is_get,
+                                  request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_GAMMA)
+            return t41_tuning_gamma(request.channel, request.is_get,
+                                    request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_MODULE_CONTROL)
+            return t41_tuning_module_control(request.channel, request.is_get,
+                                             request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_MODULE_RATIO)
             return t41_tuning_module_ratio(request.channel, request.is_get,
                                            request.value_or_ptr);
@@ -21551,12 +21970,8 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
          * instead of acknowledging the request unchanged.
          */
         switch (request.id) {
-        case TX_ISP_TUNING_CMD_T41_GAMMA:
         case TX_ISP_TUNING_CMD_T41_WDR_OUTPUT:
-        case TX_ISP_TUNING_CMD_T41_MODULE_CONTROL:
         case TX_ISP_TUNING_CMD_T41_AUTOZOOM:
-        case TX_ISP_TUNING_CMD_T41_CCM:
-        case TX_ISP_TUNING_CMD_T41_CSC:
         /* MSCA mask/scaler coefficients: owned by the MSCA path, which
          * has no open runtime update yet. */
         case TX_ISP_TUNING_CMD_T41_MASK_BLOCK:
@@ -53059,6 +53474,7 @@ int tisp_deinit(int channel)
         channel >= ARRAY_SIZE(tparams_day_storage) / sizeof(uint32_t))
         return -EINVAL;
     slot = (unsigned int)channel * sizeof(uint32_t);
+    t41_gamma_base_valid = false;
 
     t41_tmo_stream_stop();
 
@@ -54646,6 +55062,7 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
 
     if (channel >= 2 || !cfg)
         return -EINVAL;
+    t41_gamma_base_valid = false;	/* new bin/param load */
 
     printk(KERN_WARNING
            "tx_isp_t41_recovered: tisp-core enter channel=%u cfg=%p path=%p\n",
@@ -54977,6 +55394,7 @@ free_channel_allocations:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000021010 origin=fragment_seed original=tisp_core_switch_bin */
 int64_t tisp_core_switch_bin(uint32_t a0, uint32_t a1)
 {
+    t41_gamma_base_valid = false;	/* day/night parameter set */
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t local_1c = 0;
@@ -57414,6 +57832,8 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 	unsigned short target_values[15];
 	unsigned int calibrated_target = 0;
 	unsigned char *ae_params;
+	uint32_t plan_min_int, plan_max_int, plan_min_gain, plan_max_gain;
+	uint32_t man_freeze, man_it, man_ag;
 
 	if (channel >= ARRAY_SIZE(ae_info) || t41_safe_ae_controller <= 0)
 		return 0;
@@ -57573,6 +57993,35 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 			return ret;
 	}
 
+	/* IMPISPAEExprInfo manual exposure.  AeMode (freeze) or both values
+	 * manual fix the exposure; a single manual value pins that half of
+	 * the plan and lets the AE solve the other for the target. */
+	plan_min_int = control->min_integration;
+	plan_max_int = max_integration;
+	plan_min_gain = 1024U;
+	plan_max_gain = max_gain_q10;
+	man_freeze = READ_ONCE(t41_ae_man_freeze);
+	man_it = READ_ONCE(t41_ae_man_it);
+	man_ag = READ_ONCE(t41_ae_man_again);
+	if (man_freeze || man_it || man_ag) {
+		if (man_it)
+			man_it = clamp(man_it, sensor.minimum, sensor.maximum);
+		if (man_ag)
+			man_ag = clamp(man_ag, 1024U,
+				       tx_isp_exp2_u32(sensor.max_gain_q16, 16, 10));
+		if (man_freeze || (man_it && man_ag)) {
+			integration = man_it ? man_it : control->integration;
+			again = man_ag ? man_ag : control->again;
+			goto allocate_sensor;
+		}
+		if (man_it) {
+			plan_min_int = plan_max_int = man_it;
+			flicker_floor = 0;
+			flicker_line_count = 0;
+		} else {
+			plan_min_gain = plan_max_gain = man_ag;
+		}
+	}
 	/*
 	 * Keep a stock-sized dead band around the measured target.  A newly
 	 * requested flicker floor must still take effect while luma is already
@@ -57580,8 +58029,10 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 	 */
 	if ((!flicker_floor ||
 	     control->integration >= flicker_floor) &&
-	    control->integration <= max_integration &&
-	    control->again <= max_gain_q10 &&
+	    control->integration >= plan_min_int &&
+	    control->integration <= plan_max_int &&
+	    control->again >= plan_min_gain &&
+	    control->again <= plan_max_gain &&
 	    mean_q8 >= target_q8 - target_q8 / 24 &&
 	    mean_q8 <= target_q8 + target_q8 / 24)
 		return 0;
@@ -57601,8 +58052,8 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 	if (desired_total < current_total - div64_u64(current_total, 5))
 		desired_total = current_total - div64_u64(current_total, 5);
 	ret = tx_isp_exposure_plan_build(
-		desired_total, control->min_integration,
-		max_integration, 1024U, max_gain_q10,
+		desired_total, plan_min_int, plan_max_int,
+		plan_min_gain, plan_max_gain,
 		flicker_lines, flicker_line_count,
 		flicker_floor, &exposure);
 	if (ret)
@@ -137129,7 +137580,9 @@ static int t41_bcsh_update(uint32_t ct, uint32_t ev, int force)
     ret = tisp_csc_api_get(0, (uint32_t)(uintptr_t)(info + 212));
     if (!ret)
         ret = t41_bcsh_compute_api(params, T41_BCSH_PARAM_BYTES, ct, ev,
-                                   info + 212, 92, t41_bcsh_api, words);
+                                   info + 212, 92, t41_bcsh_api,
+                                   READ_ONCE(t41_ccm_man.manual) ?
+                                   t41_ccm_man_q10 : NULL, words);
     if (ret)
         goto done;
     if (force || memcmp(words, t41_bcsh_last, sizeof(words))) {
@@ -146696,9 +147149,19 @@ static int t41_ccm_update(uint32_t ct, uint32_t ev, int force)
         goto done;
     ret = t41_ccm_select(params, T41_CCM_PARAM_BYTES, ct, ev,
                          selected, &saturation);
+    if (!ret && t41_ccm_man.manual) {
+        /* stock interp_by_ct: the user matrix replaces the selection;
+         * trans_by_sat copies it unchanged unless SatEn is set */
+        memcpy(selected, t41_ccm_man_q10, sizeof(selected));
+        if (!t41_ccm_man.sat) {
+            memcpy(transformed, selected, sizeof(transformed));
+            goto transformed_ready;
+        }
+    }
     if (!ret)
         ret = t41_ccm_saturate(selected, saturation,
             *(uint32_t *)(void *)(info + 4), (int *)(void *)(info + 8), transformed);
+transformed_ready:
     if (!ret)
         ret = t41_ccm_pack(params, T41_CCM_PARAM_BYTES, transformed, words);
     if (ret)

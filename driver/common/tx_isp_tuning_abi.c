@@ -186,8 +186,26 @@ int tx_isp_tuning_t41_ae_expr_pack(
 		tx_isp_tuning_store_u32(bytes, 56, 1);
 	if (values->max_analog_gain_manual)
 		tx_isp_tuning_store_u32(bytes, 60, 1);
-	tx_isp_tuning_store_u32(bytes, 96, 1024);
+	tx_isp_tuning_store_u32(bytes, 96, values->max_dgain_manual && values->max_dgain ?
+		values->max_dgain : 1024);
+	if (values->max_dgain_manual)
+		tx_isp_tuning_store_u32(bytes, 64, 1);
 	tx_isp_tuning_store_u32(bytes, 100, 32767);
+	/* User manual state: AeMode (freeze), integration time and gain manual. */
+	tx_isp_tuning_store_u32(bytes, 0, values->unit ? 1 : 0);
+	if (values->freeze)
+		tx_isp_tuning_store_u32(bytes, 4, 1);
+	if (values->it_manual)
+		tx_isp_tuning_store_u32(bytes, 8, 1);
+	if (values->again_manual)
+		tx_isp_tuning_store_u32(bytes, 12, 1);
+	if (values->it_manual)
+		tx_isp_tuning_store_u32(bytes,
+			TX_ISP_TUNING_T41_AE_EXPR_INTEGRATION,
+			values->manual_integration);
+	if (values->again_manual)
+		tx_isp_tuning_store_u32(bytes, TX_ISP_TUNING_T41_AE_EXPR_AGAIN,
+			values->manual_again_x1024);
 	/* Retain the stock linear-mode short-frame defaults. */
 	tx_isp_tuning_store_u32(bytes, 168, 1);
 	tx_isp_tuning_store_u32(bytes, 172, 3);
@@ -269,6 +287,9 @@ int tx_isp_tuning_t41_ae_stats_pack(void *out, unsigned int out_bytes,
 #define T41_EXPR_MAX_AGAIN_MODE		60U
 #define T41_EXPR_MAX_DGAIN_MODE		64U
 #define T41_EXPR_MAX_ISPDGAIN_MODE	68U
+#define T41_EXPR_IT			24U
+#define T41_EXPR_AGAIN			28U
+#define T41_EXPR_MAX_DGAIN		96U
 #define T41_EXPR_MAX_IT			88U
 #define T41_EXPR_MAX_AGAIN		92U
 #define T41_EXPR_MAX_ISPDGAIN		100U
@@ -293,24 +314,41 @@ int tx_isp_tuning_t41_ae_expr_parse(const void *in, unsigned int in_bytes,
 	}
 	if (tx_isp_tuning_load_u32(bytes, T41_EXPR_UNIT) > 1)
 		return -EINVAL;
-	for (i = 0; i < 5; i++)
+	/* AeMode (freeze), IntegrationTimeMode, AGainManualMode are honoured;
+	 * manual sensor / ISP digital gain are not. */
+	for (i = 3; i < 5; i++)
 		if (tx_isp_tuning_load_u32(bytes, T41_EXPR_MODE + i * 4))
-			return -EOPNOTSUPP;	/* manual exposure */
+			return -EOPNOTSUPP;
 	for (i = 0; i < 4; i++)
 		if (tx_isp_tuning_load_u32(bytes, T41_EXPR_MIN_MODES + i * 4))
 			return -EOPNOTSUPP;	/* minimum caps */
-	if (tx_isp_tuning_load_u32(bytes, T41_EXPR_MAX_DGAIN_MODE))
-		return -EOPNOTSUPP;		/* no separate sensor dgain */
 	if (tx_isp_tuning_load_u32(bytes, T41_EXPR_MAX_ISPDGAIN_MODE) &&
 	    tx_isp_tuning_load_u32(bytes, T41_EXPR_MAX_ISPDGAIN) < 1024)
 		return -EOPNOTSUPP;		/* ISP dgain stays unity */
 
-	out->max_integration = 0;
-	out->max_again_x1024 = 0;
+	memset(out, 0, sizeof(*out));
+	out->unit = tx_isp_tuning_load_u32(bytes, T41_EXPR_UNIT);
+	out->freeze = tx_isp_tuning_load_u32(bytes, T41_EXPR_MODE);
+	out->it_manual = tx_isp_tuning_load_u32(bytes, T41_EXPR_MODE + 4);
+	out->again_manual = tx_isp_tuning_load_u32(bytes, T41_EXPR_MODE + 8);
+	if (out->it_manual) {
+		out->it_value = tx_isp_tuning_load_u32(bytes, T41_EXPR_IT);
+		if (!out->it_value)
+			return -EINVAL;
+	}
+	if (out->again_manual) {
+		out->again_value = tx_isp_tuning_load_u32(bytes, T41_EXPR_AGAIN);
+		if (out->again_value < 1024)
+			return -EINVAL;
+	}
+	if (tx_isp_tuning_load_u32(bytes, T41_EXPR_MAX_DGAIN_MODE)) {
+		out->max_dgain_manual = 1;
+		out->max_dgain = tx_isp_tuning_load_u32(bytes, T41_EXPR_MAX_DGAIN);
+		if (out->max_dgain < 1024)
+			return -EINVAL;
+	}
 	mode = tx_isp_tuning_load_u32(bytes, T41_EXPR_MAX_IT_MODE);
 	if (mode == T41_OPS_MANUAL) {
-		if (tx_isp_tuning_load_u32(bytes, T41_EXPR_UNIT))
-			return -EOPNOTSUPP;	/* microsecond caps */
 		out->max_integration =
 			tx_isp_tuning_load_u32(bytes, T41_EXPR_MAX_IT);
 		if (!out->max_integration)

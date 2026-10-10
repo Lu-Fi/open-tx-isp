@@ -407,6 +407,62 @@ done:
     mutex_unlock(&t41_adr_lock);
     return ret;
 }
+/*
+ * DRC strength (IMP_ISP_Tuning_SetModule_Ratio, stock tisp_s_drc_ratio): the
+ * ADR calibration fields are rebuilt from the pristine copy taken at the
+ * first non-neutral request, then installed like a parameter replacement.
+ */
+static uint8_t t41_drc_base[T41_DRC_RATIO_BLOCK_BYTES];
+static bool t41_drc_base_valid;
+
+static bool t41_drc_ratio_ready(void)
+{
+    return t41_adr_object() != NULL;
+}
+
+static int t41_drc_ratio_apply(unsigned int ratio)
+{
+    struct t41_adr_runtime *s;
+    uint8_t *modified;
+    int ret = 0;
+
+    modified = kmalloc(T41_DRC_RATIO_BLOCK_BYTES, GFP_KERNEL);
+    if (!modified)
+        return -ENOMEM;
+    mutex_lock(&t41_adr_lock);
+    s = t41_adr_object();
+    if (!s) {
+        ret = -ENODEV;
+    } else if (!t41_drc_base_valid && ratio == T41_DPC_RATIO_NEUTRAL) {
+        ret = 1;			/* nothing was ever changed */
+    } else {
+        if (!t41_drc_base_valid) {
+            memcpy(t41_drc_base, s->saved.params, sizeof(t41_drc_base));
+            t41_drc_base_valid = true;
+        }
+        memcpy(modified, s->saved.params, T41_DRC_RATIO_BLOCK_BYTES);
+        if (ratio == T41_DPC_RATIO_NEUTRAL)	/* exact restore, not the lossy formula */
+            memcpy(modified + T41_DRC_RATIO_LIMIT, t41_drc_base + T41_DRC_RATIO_LIMIT, 22);
+        if (ratio == T41_DPC_RATIO_NEUTRAL) {
+            memcpy(modified + T41_DRC_RATIO_STRENGTH,
+                   t41_drc_base + T41_DRC_RATIO_STRENGTH,
+                   T41_DRC_RATIO_FIELDS * 22);
+        } else if (t41_drc_ratio_scale(modified, t41_drc_base,
+                                       T41_DRC_RATIO_BLOCK_BYTES, ratio)) {
+            ret = -EINVAL;
+        }
+    }
+    mutex_unlock(&t41_adr_lock);
+    if (ret == 1)
+        ret = 0;
+    else if (!ret)
+        ret = t41_native_adr_set(0, modified);
+    kfree(modified);
+    printk(KERN_WARNING "tx_isp_t41_recovered: DRC ratio %u ret=%d\n", ratio, ret);
+    return ret ? (ret < 0 ? ret : -EINVAL) : 0;
+}
 #else
 static void t41_apply_stock_adr_profile(void) { }
+static bool t41_drc_ratio_ready(void) { return false; }
+static int t41_drc_ratio_apply(unsigned int ratio) { return -EOPNOTSUPP; }
 #endif
