@@ -1101,6 +1101,10 @@ module_param(t41_msca_stop_disable, int, 0644);
  * but the output-restart hang comes back after 4-13 restart cycles).
  * 0 (default): never request it (reset geometry, see above).
  */
+void t41_heapwatch_mark(const char *step);
+void t41_heapwatch_step(const char *where);
+void t41_heapwatch_start(void);
+void t41_heapwatch_stop(void);
 static int t41_msca_cfg_update;
 module_param(t41_msca_cfg_update, int, 0644);
 MODULE_PARM_DESC(t41_msca_cfg_update,
@@ -53171,6 +53175,7 @@ int32_t tisp_channel_main_start(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fc14 origin=fragment_seed original=tisp_channel_main_stop */
 int32_t tisp_channel_main_stop(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_channel_main_stop");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     unsigned long flags = 0;
     unsigned long deadline = jiffies + HZ;
@@ -142907,6 +142912,7 @@ out:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000062ec8 origin=fragment_seed original=tisp_msca_chx_cfg_load */
 int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
+    t41_heapwatch_mark("tisp_msca_chx_cfg_load");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *desc = (uint8_t *)a2;
     uint8_t *params;
@@ -161692,6 +161698,7 @@ label_704e8:
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000070538 origin=model_output original=ispcore_frame_channel_freebufs */
 int ispcore_frame_channel_freebufs(void *arg1) {
+    t41_heapwatch_mark("ispcore_frame_channel_freebufs");
     uint32_t flag;
     unsigned long flags = 0;
 
@@ -161824,6 +161831,7 @@ module_param_cb(t41_msca_regs, &t41_msca_regs_ops, NULL, 0444);
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000705c4 origin=model_output original=ispcore_frame_channel_streamon */
 int32_t ispcore_frame_channel_streamon(void *arg1)
 {
+    t41_heapwatch_mark("ispcore_frame_channel_streamon");
     char *pad = arg1;
     char *channel;
     unsigned long flags = 0;
@@ -169510,7 +169518,9 @@ int32_t init_module(void)
 	if (ret) {
 		tx_isp_sinfo_exit();
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
+		return ret;
 	}
+	t41_heapwatch_start();
 	return ret;
 }
 
@@ -169519,9 +169529,13 @@ void cleanup_module(void)
 {
     uintptr_t t9 = (uintptr_t)&tx_isp_exit;
 
+	t41_heapwatch_step("exit:begin");
 	tx_isp_t41_v4l2_exit();
+	t41_heapwatch_step("exit:v4l2");
 	tx_isp_sinfo_exit();
+	t41_heapwatch_step("exit:sinfo");
     ((void (*)(void))(uintptr_t)t9)();
+	t41_heapwatch_step("exit:tx_isp_exit");
 
 	/*
 	 * The ISP/VIC IRQs are freed by now, so nothing queues these static
@@ -169532,6 +169546,8 @@ void cleanup_module(void)
 	cancel_work_sync(&main_fd_work);
 	cancel_work_sync(&t41_safe_awb_work);
 	cancel_work_sync(&t41_tmo_work);
+	t41_heapwatch_step("exit:works");
+	t41_heapwatch_stop();
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074ce0 origin=fragment_seed original=tx_isp_vic_remove */
