@@ -17,6 +17,7 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/jiffies.h>
+#include <linux/spinlock.h>
 
 struct t41_hw_param_attribute {
 	struct module_attribute mattr;
@@ -43,10 +44,46 @@ static unsigned int t41_hw_n;
 static const char *t41_hw_last_step = "init";
 static unsigned long t41_hw_last_step_j;
 
+#define T41_HW_RING 32
+static struct { const char *tag; unsigned long j; u32 n; } t41_hw_ring[T41_HW_RING];
+static unsigned int t41_hw_ring_pos;
+static DEFINE_SPINLOCK(t41_hw_ring_lock);
+
 void t41_heapwatch_mark(const char *step)
 {
+	unsigned long flags;
+	unsigned int p;
+
+	if (t41_heap_watch <= 0)
+		return;
 	t41_hw_last_step = step;
 	t41_hw_last_step_j = jiffies;
+	spin_lock_irqsave(&t41_hw_ring_lock, flags);
+	p = t41_hw_ring_pos % T41_HW_RING;
+	if (t41_hw_ring[p].tag == step) {
+		t41_hw_ring[p].n++;
+		t41_hw_ring[p].j = jiffies;
+	} else {
+		p = ++t41_hw_ring_pos % T41_HW_RING;
+		t41_hw_ring[p].tag = step;
+		t41_hw_ring[p].j = jiffies;
+		t41_hw_ring[p].n = 1;
+	}
+	spin_unlock_irqrestore(&t41_hw_ring_lock, flags);
+}
+
+static void t41_hw_print_ring(void)
+{
+	unsigned int i;
+
+	for (i = 1; i <= T41_HW_RING; ++i) {
+		unsigned int p = (t41_hw_ring_pos + i) % T41_HW_RING;
+
+		if (t41_hw_ring[p].tag)
+			printk(KERN_ERR "t41-heapwatch: trail %s x%u, %ld jiffies ago\n",
+			       t41_hw_ring[p].tag, t41_hw_ring[p].n,
+			       (long)(jiffies - t41_hw_ring[p].j));
+	}
 }
 
 int32_t system_reg_read(int32_t arg1);
@@ -84,6 +121,44 @@ static void t41_hw_scan_regs(const void *hit)
 	printk(KERN_ERR "t41-heapwatch: register scan done, %u candidates\n", found);
 }
 
+/* Every register in the driver's pages that holds a kernel-RAM address:
+ * DMA engines aimed at kmalloc memory. */
+static void t41_hw_dma_census(const char *where)
+{
+	static const u32 pages[] = {
+		0x0, 0x1000, 0x2000, 0x3000, 0x4000, 0x5000, 0x6000, 0x7000,
+		0x8000, 0xa000, 0xb000, 0xd000, 0xe000, 0x11000, 0x13000,
+		0x18000, 0x19000, 0x1a000, 0x1b000, 0x1e000, 0x40000, 0x50000,
+		0x60000, 0xf0000, 0xf1000, 0xf8000,
+	};
+	unsigned int pg, n = 0;
+	u32 r;
+
+	for (pg = 0; pg < ARRAY_SIZE(pages); ++pg)
+		for (r = pages[pg]; r < pages[pg] + 0x1000; r += 4) {
+			u32 v, pv;
+
+			if (r >= 0xf0100 && r < 0xf0400 &&
+			    ((r & 0xff) == 0x74 || (r & 0xff) == 0x8c))
+				continue;
+			v = (u32)system_reg_read((int32_t)r);
+			pv = v & 0x1fffffffU;
+			if (pv >= 0x00400000U && pv < 0x02600000U &&
+			    ((v & 0xe0000000U) == 0 || (v & 0xe0000000U) == 0x80000000U)) {
+				printk(KERN_ERR "t41-heapwatch: dma %s reg %05x = %08x\n",
+				       where, r, v);
+				n++;
+			}
+		}
+	printk(KERN_ERR "t41-heapwatch: dma %s census %u\n", where, n);
+}
+
+void t41_heapwatch_census(const char *where)
+{
+	if (t41_heap_watch > 0)
+		t41_hw_dma_census(where);
+}
+
 static void t41_hw_dump(const char *what, const u32 *base, int from, int to)
 {
 	int i;
@@ -117,6 +192,7 @@ static void t41_hw_check(const char *where)
 	if (bad) {
 		for (i = 0; i <= t41_hw_n; ++i)
 			if (attrs[i] != t41_hw_attrs_snap[i]) {
+				t41_hw_print_ring();
 				t41_hw_scan_regs(&attrs[i]);
 				break;
 			}
@@ -226,3 +302,15 @@ void t41_heapwatch_stop(void)
 	printk(KERN_WARNING "t41-heapwatch: stopped hits=%u attrs=%p\n", t41_heap_watch_hits,
 	       ((struct t41_hw_mp *)THIS_MODULE->mkobj.mp)->grp.attrs);
 }
+
+static int t41_hw_census_get(char *buf, const struct kernel_param *kp)
+{
+	(void)kp;
+	t41_hw_dma_census("read");
+	return scnprintf(buf, PAGE_SIZE, "see dmesg\n");
+}
+static const struct kernel_param_ops t41_hw_census_ops = {
+	.get = t41_hw_census_get,
+};
+module_param_cb(t41_heap_census, &t41_hw_census_ops, NULL, 0444);
+

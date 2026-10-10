@@ -609,3 +609,29 @@ boot: a heap overwrite somewhere in the driver, maybe the same fault as the
 hang. At 1280x720 the encoder also fails an order-9 DMA allocation (`avpu:
 Can't alloc DMA buffer`, ch1 RTSP 503) when ch0 started first.
 
+
+## Known issues (2026-10-10)
+
+- **Heap overwrite across module reloads.** `rmmod tx_isp_t41` sometimes
+  oopses in `module_param_sysfs_remove()`: one entry of the module's
+  kmalloc'd param attribute array (always index 113, offset 0x1c4 of a
+  kmalloc-1024 object) holds a small value (2, later 3). `t41_heap_watch=1`
+  showed the value already present at load time and changed one jiffy after
+  `tx_isp_release`, so the writer stores small state values through a stale
+  pointer that survives a module reload. Suspects are the sensor module and
+  the i2c client. It is not statistics DMA: switching AE/AF/AWB/WDR/TMO DMA
+  off before their buffers are freed did not change it, and no ISP register
+  points near the hit. Not seen in 30 timps stop/start cycles without a
+  reload; it shows up in about every 5th to 12th load/stop/unload cycle.
+  Diagnostics: `t41_heap_watch=1` (checks and repairs the array every jiffy,
+  prints a step trail), reading `t41_heap_census` lists ISP registers that
+  point into kernel RAM. Both are off/inert by default.
+- **ch1 >= 960x540 started mid-stream can hang the SoC** with
+  `t41_msca_cfg_update=2` (no oops, watchdog reset), also on a fresh boot
+  without any earlier reload (960x540: one run 21/21 cycles, one hung in
+  cycle 14). ch1 at <= 768x432 is stable (320x180, 640x360, 704x400,
+  768x432); ch1 started as the first output while the input is stopped ran
+  960x540 21/21. At 1280x720 the encoder additionally fails an order-9 DMA
+  allocation when ch0 runs first. Default stays `t41_msca_cfg_update=0`.
+- **Recommendation for streamers:** keep the T41 sub-stream (ch1) at
+  <= 768x432.

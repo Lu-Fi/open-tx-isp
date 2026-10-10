@@ -1105,6 +1105,7 @@ void t41_heapwatch_mark(const char *step);
 void t41_heapwatch_step(const char *where);
 void t41_heapwatch_start(void);
 void t41_heapwatch_stop(void);
+void t41_heapwatch_census(const char *where);
 static int t41_msca_cfg_update;
 module_param(t41_msca_cfg_update, int, 0644);
 MODULE_PARM_DESC(t41_msca_cfg_update,
@@ -28812,6 +28813,7 @@ int tx_isp_t41_frame_channel_streamoff(void *channel)
 
 int tx_isp_t41_frame_channel_release(void *channel)
 {
+    t41_heapwatch_mark("tx_isp_t41_frame_channel_release");
 	struct mutex *lock;
 	u32 state;
 
@@ -33511,6 +33513,7 @@ rearm:
 
 static void t41_safe_awb_workfn(struct work_struct *work)
 {
+    t41_heapwatch_mark("t41_safe_awb_workfn");
     (void)work;
     t41_safe_awb_interrupt(0);
 }
@@ -34772,6 +34775,7 @@ tx_isp_video_link_destroy_isra_30xf4:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000013c24 origin=manual original=tx_isp_release */
 int32_t tx_isp_release(uint32_t a0, uintptr_t a1)
 {
+    t41_heapwatch_mark("tx_isp_release");
 	char *miscdev;
 	char *slot;
 	char *end;
@@ -34877,6 +34881,7 @@ long tx_isp_t41_legacy_ioctl(struct file *file, unsigned int command,
 
 int tx_isp_t41_legacy_release(struct file *file)
 {
+    t41_heapwatch_mark("tx_isp_t41_legacy_release");
 	int ret;
 
 	if (!file || !file->private_data)
@@ -41676,6 +41681,7 @@ uint32_t tisp_ratio(int32_t ratio, int32_t strength, int32_t maximum)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000018600 origin=fragment_seed original=tisp_code_tuning_release */
 int32_t tisp_code_tuning_release(void)
 {
+    t41_heapwatch_mark("tisp_code_tuning_release");
     uint32_t local_14 = 0;
     uint32_t *a0 = 0;
     uint32_t a1 = 0;
@@ -52576,6 +52582,7 @@ tisp_process_init0x58:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001f4a8 origin=fragment_seed original=tisp_process_deinit */
 int32_t tisp_process_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_process_deinit");
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -53042,6 +53049,7 @@ int32_t tisp_function_clear(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001f8e8 origin=fragment_seed original=tisp_deinit */
 int tisp_deinit(int channel)
 {
+    t41_heapwatch_mark("tisp_deinit");
     unsigned int slot;
     void *bin;
     void **params;
@@ -53244,6 +53252,7 @@ int32_t tisp_channel_main_stop(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fc70 origin=fragment_seed original=tisp_channel_main_fifo_clear */
 int32_t tisp_channel_main_fifo_clear(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_channel_main_fifo_clear");
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -55994,6 +56003,7 @@ int32_t tisp_top_par_reg_cfg(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000021aa8 origin=fragment_seed original=tisp_top_deinit */
 int32_t tisp_top_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_top_deinit");
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t ra = 0;
@@ -68865,6 +68875,7 @@ free_ae_info:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002917c origin=fragment_seed original=tisp_ae_deinit */
 int32_t tisp_ae_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_ae_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
     uint32_t *info;
@@ -76244,6 +76255,7 @@ int32_t tisp_af_init(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e3ac origin=fragment_seed original=tisp_af_deinit */
 int32_t tisp_af_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_af_deinit");
     uint32_t *buf_cfg;
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -76822,6 +76834,7 @@ int32_t tisp_awb_show_para_update(uint32_t a0)
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ea8c origin=model_output original=tisp_awb_deinit */
 int tisp_awb_deinit(int arg1) {
+    t41_heapwatch_mark("tisp_awb_deinit");
     if (t41_native_awb) return t41_native_awb_deinit(arg1);
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -83422,6 +83435,7 @@ int32_t tisp_gib_init(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000033788 origin=fragment_seed original=tisp_gib_deinit */
 int32_t tisp_gib_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_gib_deinit");
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
 
@@ -86300,6 +86314,7 @@ free_info:
 #if 0
 int32_t tisp_lsc_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_lsc_deinit");
     uint32_t *ptr;
     uint32_t val;
 
@@ -86332,6 +86347,7 @@ int32_t tisp_lsc_deinit(uint32_t a0)
 
 int32_t tisp_lsc_deinit(uint32_t channel)
 {
+    t41_heapwatch_mark("tisp_lsc_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     return t41_native_lsc_deinit(channel);
 #else
@@ -87827,6 +87843,7 @@ int32_t tisp_blc_init(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000368c4 origin=fragment_seed original=tisp_blc_deinit */
 int32_t tisp_blc_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_blc_deinit");
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t ra = 0;
@@ -88125,6 +88142,7 @@ int32_t tisp_blc_init(uint32_t channel, uintptr_t par)
 
 int32_t tisp_blc_deinit(uint32_t channel)
 {
+    t41_heapwatch_mark("tisp_blc_deinit");
 	uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
 
 	if (channel >= ARRAY_SIZE(blc_info))
@@ -95669,6 +95687,7 @@ int32_t tisp_wdr_dn_params_refresh(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003c624 origin=fragment_seed original=tisp_wdr_deinit */
 int32_t tisp_wdr_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_wdr_deinit");
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
     uint32_t *histograms[] = {
@@ -95927,6 +95946,7 @@ fail:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003cef8 origin=fragment_seed original=tisp_wdr_process_deinit */
 int32_t tisp_wdr_process_deinit(void)
 {
+    t41_heapwatch_mark("tisp_wdr_process_deinit");
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *a0 = 0;
@@ -97861,6 +97881,7 @@ tisp_dpc_init0x80:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003eb14 origin=model_output original=tisp_dpc_deinit */
 int tisp_dpc_deinit(int arg1)
 {
+    t41_heapwatch_mark("tisp_dpc_deinit");
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
     uint8_t *info;
     void *runtime;
@@ -101064,6 +101085,7 @@ tisp_dmsc_init0x80:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000042438 origin=model_output original=tisp_dmsc_deinit */
 int32_t tisp_dmsc_deinit(int32_t arg1)
 {
+    t41_heapwatch_mark("tisp_dmsc_deinit");
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
     uint8_t *info;
     void *runtime;
@@ -101995,6 +102017,7 @@ int32_t tisp_gamma_init(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000042e80 origin=fragment_seed original=tisp_gamma_deinit */
 int32_t tisp_gamma_deinit(uint32_t arg1)
 {
+    t41_heapwatch_mark("tisp_gamma_deinit");
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
 
     if (arg1 >= ARRAY_SIZE(gamma_info))
@@ -108833,6 +108856,7 @@ tisp_lce_init0x63c:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000047120 origin=fragment_seed original=tisp_lce_deinit */
 int32_t tisp_lce_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_lce_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *s;
     unsigned long flags;
@@ -113160,6 +113184,7 @@ tisp_defog_init0x5f4:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004bbc8 origin=fragment_seed original=tisp_defog_deinit */
 int32_t tisp_defog_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_defog_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -114636,6 +114661,7 @@ int tiziano_adr_hardpars_ctl(int arg1) {
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004cd74 origin=fragment_seed original=tisp_adr_deinit */
 int32_t tisp_adr_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_adr_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     return t41_native_adr_deinit(a0);
 #else
@@ -127044,6 +127070,7 @@ tisp_mdns_init0x94:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000005681c origin=model_output original=tisp_mdns_deinit */
 int32_t tisp_mdns_deinit(int32_t arg1)
 {
+    t41_heapwatch_mark("tisp_mdns_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -128734,6 +128761,7 @@ tisp_ydns_init0x80:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000578cc origin=fragment_seed original=tisp_ydns_deinit */
 int32_t tisp_ydns_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_ydns_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -129780,6 +129808,7 @@ tisp_cdns_init0x80:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000058368 origin=fragment_seed original=tisp_cdns_deinit */
 int32_t tisp_cdns_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_cdns_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -131271,6 +131300,7 @@ tisp_sdns_init0x7c:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000059718 origin=fragment_seed original=tisp_sdns_deinit */
 int32_t tisp_sdns_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_sdns_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -133910,6 +133940,7 @@ tisp_ysp_init0x84:
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000005bde0 origin=model_output original=tisp_ysp_deinit */
 int tisp_ysp_deinit(int arg1) {
+    t41_heapwatch_mark("tisp_ysp_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -137305,6 +137336,7 @@ int32_t tisp_bcsh_init(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000005e2f0 origin=fragment_seed original=tisp_bcsh_deinit */
 int32_t tisp_bcsh_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_bcsh_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
 
@@ -138203,6 +138235,7 @@ int32_t tisp_hldc_init(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000005ec4c origin=fragment_seed original=tisp_hldc_deinit */
 int32_t tisp_hldc_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_hldc_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint32_t *tpm = (uint32_t *)(void *)tpm_cb_storage;
 
@@ -141771,6 +141804,7 @@ tisp_msca_curve_calc0x264:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000062270 origin=model_output original=tisp_msca_deinit */
 int32_t tisp_msca_deinit(int32_t arg1)
 {
+    t41_heapwatch_mark("tisp_msca_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint32_t *tpm = (uint32_t *)(void *)tpm_cb_storage;
     void **temporary = (void **)(void *)mscaHardParTmp_storage;
@@ -145146,6 +145180,7 @@ int32_t tisp_tstp_init(void)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000644d0 origin=fragment_seed original=tisp_tstp_deinit */
 int32_t tisp_tstp_deinit(void)
 {
+    t41_heapwatch_mark("tisp_tstp_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint32_t *tpm = (uint32_t *)(void *)tpm_cb_storage;
 
@@ -146344,6 +146379,7 @@ int32_t tisp_clm_init(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006513c origin=fragment_seed original=tisp_clm_deinit */
 int32_t tisp_clm_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_clm_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
 
@@ -148074,6 +148110,7 @@ int32_t tisp_ccm_init(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000661b4 origin=fragment_seed original=tisp_ccm_deinit */
 int32_t tisp_ccm_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_ccm_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
 
@@ -151913,6 +151950,7 @@ done:
 
 static void t41_tmo_workfn(struct work_struct *work)
 {
+    t41_heapwatch_mark("t41_tmo_workfn");
     uint32_t integration, gain, sequence, linear, ev;
     unsigned long flags;
     uint64_t exposure;
@@ -152857,6 +152895,7 @@ int32_t tisp_tmo_init(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006a9c8 origin=fragment_seed original=tisp_tmo_deinit */
 int32_t tisp_tmo_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_tmo_deinit");
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
     uint8_t *info;
     uint32_t *global_objects[] = {
@@ -153756,6 +153795,7 @@ int32_t tisp_raw_init(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006b280 origin=fragment_seed original=tisp_raw_deinit */
 int32_t tisp_raw_deinit(void)
 {
+    t41_heapwatch_mark("tisp_raw_deinit");
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *a0 = 0;
@@ -158269,6 +158309,7 @@ int32_t tisp_get_ae_tgain(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006e128 origin=fragment_seed original=tisp_ae_algo_deinit */
 int32_t tisp_ae_algo_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_ae_algo_deinit");
     uint32_t *t9 = 0;
 
     /* fragment 0: ConstantLoad */
@@ -158288,6 +158329,7 @@ int32_t tisp_ae_algo_deinit(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006e138 origin=fragment_seed original=tisp_awb_algo_deinit */
 int32_t tisp_awb_algo_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_awb_algo_deinit");
     uint32_t *t9 = 0;
 
     /* fragment 0: ConstantLoad */
@@ -160296,6 +160338,7 @@ static int t41_msca_commit_frame_shadow(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f380 origin=fragment_seed original=ispcore_irq_main_fd_work */
 static void ispcore_irq_main_fd_work(struct work_struct *work)
 {
+    t41_heapwatch_mark("ispcore_irq_main_fd_work");
 	/* Stock jump table (.rodata 0x3a80): slot 5 is the sensor flip. */
 	static const int32_t sensor_event[10] = {
 		0x02000007, 0x02000008, 0x02000009, 0x02000005,
@@ -160641,6 +160684,7 @@ isp_fw_process0x44:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f820 origin=model_output original=ispcore_frame_channel_streamoff */
 int32_t ispcore_frame_channel_streamoff(void *arg1)
 {
+    t41_heapwatch_mark("ispcore_frame_channel_streamoff");
     char *pad = arg1;
     char *channel;
     unsigned long flags = 0;
@@ -168546,6 +168590,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
          * through the address FIFO behind its back.
          */
         if (status0 & 0x1) {
+            t41_heapwatch_mark("isr:frame0");
             uint32_t event_data[8] = { 0 };
             uint32_t frame_done_arg[2] = { 0, 0 };
             uint32_t y_dma = 0;
@@ -168625,6 +168670,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
          * the matching frame channel, as in H20250310a.
          */
         if (status0 & (BIT(1) | BIT(2))) {
+            t41_heapwatch_mark("isr:frame12");
             unsigned int channel_index;
 
             core = *(char **)(subdev + 0x10c);
@@ -168671,6 +168717,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
          * callback.  Other recovered statistic handlers remain gated.
          */
         if ((status0 & BIT(3)) && t41_native_awb) {
+            t41_heapwatch_mark("isr:awb");
             t41_native_awb_queue();
         } else if ((status0 & BIT(3)) && t41_safe_awb_controller < 0) {
             /* DMA cache maintenance and the 32 KiB packed-stat scan are not
@@ -168684,6 +168731,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                 READ_ONCE(t41_ae_zones[0].sequence) + 1);
 
         if ((status0 & BIT(5)) && t41_safe_ae_controller > 0) {
+            t41_heapwatch_mark("isr:aehist");
             int32_t callback = READ_ONCE(irq_func_cb[5]);
             int64_t callback_ret = -ENODEV;
 
@@ -169534,6 +169582,7 @@ void cleanup_module(void)
 	t41_heapwatch_step("exit:v4l2");
 	tx_isp_sinfo_exit();
 	t41_heapwatch_step("exit:sinfo");
+	t41_heapwatch_census("exit");
     ((void (*)(void))(uintptr_t)t9)();
 	t41_heapwatch_step("exit:tx_isp_exit");
 
