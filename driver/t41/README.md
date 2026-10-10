@@ -575,3 +575,63 @@ without skipping the redundant update requests.
 
 Residual risk: a real HVFLIP change still issues an update request; done
 within a frame of an output start it may hit the same hazard.
+
+Update 2026-10-06: the MSCA geometry, ratio, global input and flip words are
+staged registers (written value applies at the next input frame after
+`0xf0010 = 1`, reads return the active value; see
+`tx_isp_t41_msca_shadow.h`). With the no-op flip requests skipped, the
+outputs never latched their geometry and ran with the reset defaults
+(1920x1080 / 1280x720, ratio 1:1, input 1920x1080), probably why the repro
+above stopped hanging. `t41_msca_cfg_update=1` latches the programmed
+geometry (correct pictures), and then the targeted repro hangs again after
+4-13 cycles, also without any register write during the cycles (restarts
+with unchanged geometry are not reprogrammed). The hang is therefore tied to
+an output being idle-stopped and restarted while the MSCA really scales the
+full 2880x1620 input, not to the update requests themselves. Default stays 0
+until that is solved (superseded below).
+
+Update 2026-10-10: `t41_msca_cfg_update=2` (opt-in, together with
+`t41_msca_stop_disable=1`) requests the update with the output OFF and
+enables it once the read-back shows the new words, as stock does (STREAMOFF
+switches the output off; a restart with unchanged words requests nothing).
+Defaults stay `cfg_update=0`, `stop_disable=0` (flashed behaviour) until the
+960x540/1280x720 hang below is solved.
+Targeted repro (ch0 2 s, ch1 after 1.8/2.5/4.0 s, `general.fs_keepalive =
+off`), ch1 sizes: 320x180, 640x360 (2x), 704x400 21/21 cycles each, 768x432
+9/9, pictures match ch0, no band on either buffer; `cfg_update=1` at 640x360
+hung in cycle 2. Still open: ch1 960x540 and 1280x720 hang at the first
+start while the input runs (960x540: 3/3 runs; also with a 120 ms wait after
+the latch and with the ch1 latch skipped), while the flashed build that
+never latches ran 960x540 21/21 (wrong picture). Separately, `rmmod
+tx_isp_t41` sometimes oopses in `module_param_sysfs_remove()` (the param
+attribute array holds the value 2), also with the flashed build loaded at
+boot: a heap overwrite somewhere in the driver, maybe the same fault as the
+hang. At 1280x720 the encoder also fails an order-9 DMA allocation (`avpu:
+Can't alloc DMA buffer`, ch1 RTSP 503) when ch0 started first.
+
+
+## Known issues (2026-10-10)
+
+- **Heap overwrite across module reloads.** `rmmod tx_isp_t41` sometimes
+  oopses in `module_param_sysfs_remove()`: one entry of the module's
+  kmalloc'd param attribute array (always index 113, offset 0x1c4 of a
+  kmalloc-1024 object) holds a small value (2, later 3). `t41_heap_watch=1`
+  showed the value already present at load time and changed one jiffy after
+  `tx_isp_release`, so the writer stores small state values through a stale
+  pointer that survives a module reload. Suspects are the sensor module and
+  the i2c client. It is not statistics DMA: switching AE/AF/AWB/WDR/TMO DMA
+  off before their buffers are freed did not change it, and no ISP register
+  points near the hit. Not seen in 30 timps stop/start cycles without a
+  reload; it shows up in about every 5th to 12th load/stop/unload cycle.
+  Diagnostics: `t41_heap_watch=1` (checks and repairs the array every jiffy,
+  prints a step trail), reading `t41_heap_census` lists ISP registers that
+  point into kernel RAM. Both are off/inert by default.
+- **ch1 >= 960x540 started mid-stream can hang the SoC** with
+  `t41_msca_cfg_update=2` (no oops, watchdog reset), also on a fresh boot
+  without any earlier reload (960x540: one run 21/21 cycles, one hung in
+  cycle 14). ch1 at <= 768x432 is stable (320x180, 640x360, 704x400,
+  768x432); ch1 started as the first output while the input is stopped ran
+  960x540 21/21. At 1280x720 the encoder additionally fails an order-9 DMA
+  allocation when ch0 runs first. Default stays `t41_msca_cfg_update=0`.
+- **Recommendation for streamers:** keep the T41 sub-stream (ch1) at
+  <= 768x432.

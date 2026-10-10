@@ -22,6 +22,7 @@
 #include "tx_isp_t41_hvflip.h"
 #include "tx_isp_t41_ae.h"
 #include "tx_isp_t41_tuning_ctl.h"
+#include "tx_isp_t41_msca_shadow.h"
 #include "tx_isp_t41_gib.h"
 #include "../include/tx_isp/tx_isp_top.h"
 #include "tx_isp_t41_awb.h"
@@ -1061,20 +1062,88 @@ module_param(t41_msca_flip_skip_noop, int, 0644);
 MODULE_PARM_DESC(t41_msca_flip_skip_noop,
                  "1 (default) skips the MSCA update request when HVFLIP bits are unchanged");
 /*
- * Stock single-output STREAMOFF leaves the MSCA output enabled: its
- * tisp_channel_main_stop() reloads the channel with the enable flag clear,
- * and tisp_msca_chx_cfg_load() only ever ORs enable bits into 0xf0008.  The
- * output idles once its address FIFO is cleared (REQBUFS 0).
+ * STREAMOFF and the MSCA output enable (driver/t41/README.md "Output restart
+ * hang").  Stock tisp_channel_main_stop() reloads the channel with its
+ * descriptor enable byte clear, and tisp_msca_scaling_algorithm() inside
+ * tisp_msca_chx_cfg_load() rewrites 0xf0008 from the three descriptor enable
+ * bytes: the stopped output is switched OFF (the final OR of the channel's
+ * own bit adds nothing).  1 does the same and then waits until the output
+ * has finished its frame (0xf00e0) before the FIFO is cleared; use it with
+ * t41_msca_cfg_update=2.
  *
- * Clearing the bit while the input keeps running (another output streams,
- * or a streamer idle-stops one output) and enabling/reprogramming it again
- * on the next STREAMON hard-hangs the T41 within a few frames: both CPUs
- * stop, no oops, the watchdog resets.  So keep the output enabled, and on a
- * restart with unchanged geometry do not touch its MSCA registers at all.
- * 1 restores the previous clear-and-reprogram behaviour.
+ * 0 (default, flashed behaviour) keeps the output enabled with an empty address FIFO and skips the
+ * register reload on a restart with unchanged geometry.  That only looked
+ * stable while the outputs never latched their geometry (see
+ * t41_msca_cfg_update); with real scaling it hangs the T41 within a few
+ * restart cycles.
  */
 static int t41_msca_stop_disable;
 module_param(t41_msca_stop_disable, int, 0644);
+/*
+ * MSCA output geometry, ratios, the global input size and 0xf002c are
+ * staged registers (tx_isp_t41_msca_shadow.h): they only take effect at the
+ * next input frame after 0xf0010 = 1.  With no-op flip update requests
+ * skipped (t41_msca_flip_skip_noop) nothing latched a newly programmed
+ * output, so every output kept its reset geometry (ch0 1920x1080, ch1
+ * 1280x720, ratio 1:1, input 1920x1080): ch1 at 640x360 wrote 1280x720
+ * lines into 640x360 buffers (garbage chroma, a band of other data at the
+ * top of the next buffer, brightness unrelated to ch0).
+ *
+ * 2 (opt-in, with t41_msca_stop_disable=1): the update is requested with the output OFF and the output
+ * is enabled by t41_msca_finish_enable() once the read-back shows the new
+ * words, as stock does in its steady state (STREAMOFF switches the output
+ * off, SET_FMT requests the update through tisp_s_hv_flip(), STREAMON only
+ * sets the enable bit).  A restart whose words are already active requests
+ * no update at all.  Correct pictures and stable up to ch1 768x432, but
+ * ch1 960x540/1280x720 still hang the T41 (README "Output restart hang"),
+ * so it stays off by default until that is solved.
+ * 1: request the update right after enabling the output (correct pictures,
+ * but the output-restart hang comes back after 4-13 restart cycles).
+ * 0 (default): never request it (reset geometry, see above).
+ */
+void t41_heapwatch_mark(const char *step);
+void t41_heapwatch_step(const char *where);
+void t41_heapwatch_start(void);
+void t41_heapwatch_stop(void);
+void t41_heapwatch_census(const char *where);
+static int t41_msca_cfg_update;
+module_param(t41_msca_cfg_update, int, 0644);
+MODULE_PARM_DESC(t41_msca_cfg_update,
+                 "0 (default) never latches MSCA output geometry; 2 latches with the output off (set t41_msca_stop_disable=1); 1 latches after enable");
+/* Outputs whose update request is pending; enabled by
+ * t41_msca_finish_enable() once the read-back shows the new words. */
+static unsigned int t41_msca_enable_pending __attribute__((section(".data")));
+static unsigned int t41_msca_start_latches __attribute__((section(".data")));
+static unsigned int t41_msca_latch_timeouts __attribute__((section(".data")));
+static unsigned int t41_msca_live_disables __attribute__((section(".data")));
+static unsigned int t41_msca_latch_wait_max_us __attribute__((section(".data")));
+module_param_named(msca_start_latches, t41_msca_start_latches, uint, 0444);
+module_param_named(msca_latch_timeouts, t41_msca_latch_timeouts, uint, 0444);
+module_param_named(msca_live_disables, t41_msca_live_disables, uint, 0444);
+module_param_named(msca_latch_wait_max_us, t41_msca_latch_wait_max_us, uint, 0444);
+static int t41_msca_latch_timeout_ms = 300;
+module_param(t41_msca_latch_timeout_ms, int, 0644);
+#define T41_MSCA_START_WORDS 6
+static struct t41_msca_word t41_msca_start_set[3][T41_MSCA_START_WORDS]
+    __attribute__((section(".data")));
+
+static void t41_msca_start_words(unsigned int ch, struct t41_msca_word *w,
+                                 uint32_t size, uint32_t crop_pos,
+                                 uint32_t crop_size, uint32_t hratio,
+                                 uint32_t vratio, uint32_t algorithm)
+{
+    uint32_t base = 0x0f0100U + ch * 0x100U;
+
+    w[0] = (struct t41_msca_word){ base, size, 0xffffffffU };
+    w[1] = (struct t41_msca_word){ base + 0x28, crop_pos, 0xffffffffU };
+    w[2] = (struct t41_msca_word){ base + 0x2c, crop_size, 0xffffffffU };
+    w[3] = (struct t41_msca_word){ 0x0f0728U + ch * 4U, hratio, 0x7ffffU };
+    w[4] = (struct t41_msca_word){ 0x0f071cU + ch * 4U, vratio, 0x7ffffU };
+    w[5] = (struct t41_msca_word){ 0x0f002cU, algorithm, 0xffffffffU };
+}
+/* Last word written to the staged 0xf002c (flip/mirror/algorithm). */
+static struct t41_msca_staged t41_msca_algo_staged
+    __attribute__((section(".data")));
 struct t41_msca_live_cfg {
 	uint32_t width, height, source_width, source_height;
 	uint32_t crop_x, crop_y, crop_width, crop_height, aux, align;
@@ -28744,6 +28813,7 @@ int tx_isp_t41_frame_channel_streamoff(void *channel)
 
 int tx_isp_t41_frame_channel_release(void *channel)
 {
+    t41_heapwatch_mark("tx_isp_t41_frame_channel_release");
 	struct mutex *lock;
 	u32 state;
 
@@ -33443,6 +33513,7 @@ rearm:
 
 static void t41_safe_awb_workfn(struct work_struct *work)
 {
+    t41_heapwatch_mark("t41_safe_awb_workfn");
     (void)work;
     t41_safe_awb_interrupt(0);
 }
@@ -34704,6 +34775,7 @@ tx_isp_video_link_destroy_isra_30xf4:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000013c24 origin=manual original=tx_isp_release */
 int32_t tx_isp_release(uint32_t a0, uintptr_t a1)
 {
+    t41_heapwatch_mark("tx_isp_release");
 	char *miscdev;
 	char *slot;
 	char *end;
@@ -34809,6 +34881,7 @@ long tx_isp_t41_legacy_ioctl(struct file *file, unsigned int command,
 
 int tx_isp_t41_legacy_release(struct file *file)
 {
+    t41_heapwatch_mark("tx_isp_t41_legacy_release");
 	int ret;
 
 	if (!file || !file->private_data)
@@ -41608,6 +41681,7 @@ uint32_t tisp_ratio(int32_t ratio, int32_t strength, int32_t maximum)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000018600 origin=fragment_seed original=tisp_code_tuning_release */
 int32_t tisp_code_tuning_release(void)
 {
+    t41_heapwatch_mark("tisp_code_tuning_release");
     uint32_t local_14 = 0;
     uint32_t *a0 = 0;
     uint32_t a1 = 0;
@@ -52508,6 +52582,7 @@ tisp_process_init0x58:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001f4a8 origin=fragment_seed original=tisp_process_deinit */
 int32_t tisp_process_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_process_deinit");
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -52974,6 +53049,7 @@ int32_t tisp_function_clear(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001f8e8 origin=fragment_seed original=tisp_deinit */
 int tisp_deinit(int channel)
 {
+    t41_heapwatch_mark("tisp_deinit");
     unsigned int slot;
     void *bin;
     void **params;
@@ -53107,6 +53183,7 @@ int32_t tisp_channel_main_start(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fc14 origin=fragment_seed original=tisp_channel_main_stop */
 int32_t tisp_channel_main_stop(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_channel_main_stop");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     unsigned long flags = 0;
     unsigned long deadline = jiffies + HZ;
@@ -53125,6 +53202,7 @@ int32_t tisp_channel_main_stop(uint32_t a0)
                                 (uintptr_t)&flags);
     *(uint8_t *)((char *)&mscaler + a0 * 612 + 4) = 0;
     *(uint8_t *)((char *)&msca + a0 * 26) = 0;
+    t41_msca_enable_pending &= ~mask;
     if (t41_msca_stop_disable > 0) {
         system_reg_write(0x0f0008U, system_reg_read(0x0f0008U) & ~mask);
         t41_msca_live_valid[a0] = false;
@@ -53174,6 +53252,7 @@ int32_t tisp_channel_main_stop(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fc70 origin=fragment_seed original=tisp_channel_main_fifo_clear */
 int32_t tisp_channel_main_fifo_clear(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_channel_main_fifo_clear");
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -55924,6 +56003,7 @@ int32_t tisp_top_par_reg_cfg(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000021aa8 origin=fragment_seed original=tisp_top_deinit */
 int32_t tisp_top_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_top_deinit");
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t ra = 0;
@@ -68795,6 +68875,7 @@ free_ae_info:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002917c origin=fragment_seed original=tisp_ae_deinit */
 int32_t tisp_ae_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_ae_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
     uint32_t *info;
@@ -76174,6 +76255,7 @@ int32_t tisp_af_init(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e3ac origin=fragment_seed original=tisp_af_deinit */
 int32_t tisp_af_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_af_deinit");
     uint32_t *buf_cfg;
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -76752,6 +76834,7 @@ int32_t tisp_awb_show_para_update(uint32_t a0)
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ea8c origin=model_output original=tisp_awb_deinit */
 int tisp_awb_deinit(int arg1) {
+    t41_heapwatch_mark("tisp_awb_deinit");
     if (t41_native_awb) return t41_native_awb_deinit(arg1);
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -83352,6 +83435,7 @@ int32_t tisp_gib_init(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000033788 origin=fragment_seed original=tisp_gib_deinit */
 int32_t tisp_gib_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_gib_deinit");
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
 
@@ -86230,6 +86314,7 @@ free_info:
 #if 0
 int32_t tisp_lsc_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_lsc_deinit");
     uint32_t *ptr;
     uint32_t val;
 
@@ -86262,6 +86347,7 @@ int32_t tisp_lsc_deinit(uint32_t a0)
 
 int32_t tisp_lsc_deinit(uint32_t channel)
 {
+    t41_heapwatch_mark("tisp_lsc_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     return t41_native_lsc_deinit(channel);
 #else
@@ -87757,6 +87843,7 @@ int32_t tisp_blc_init(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000368c4 origin=fragment_seed original=tisp_blc_deinit */
 int32_t tisp_blc_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_blc_deinit");
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t ra = 0;
@@ -88055,6 +88142,7 @@ int32_t tisp_blc_init(uint32_t channel, uintptr_t par)
 
 int32_t tisp_blc_deinit(uint32_t channel)
 {
+    t41_heapwatch_mark("tisp_blc_deinit");
 	uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
 
 	if (channel >= ARRAY_SIZE(blc_info))
@@ -95599,6 +95687,7 @@ int32_t tisp_wdr_dn_params_refresh(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003c624 origin=fragment_seed original=tisp_wdr_deinit */
 int32_t tisp_wdr_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_wdr_deinit");
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
     uint32_t *histograms[] = {
@@ -95857,6 +95946,7 @@ fail:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003cef8 origin=fragment_seed original=tisp_wdr_process_deinit */
 int32_t tisp_wdr_process_deinit(void)
 {
+    t41_heapwatch_mark("tisp_wdr_process_deinit");
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *a0 = 0;
@@ -97791,6 +97881,7 @@ tisp_dpc_init0x80:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003eb14 origin=model_output original=tisp_dpc_deinit */
 int tisp_dpc_deinit(int arg1)
 {
+    t41_heapwatch_mark("tisp_dpc_deinit");
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
     uint8_t *info;
     void *runtime;
@@ -100994,6 +101085,7 @@ tisp_dmsc_init0x80:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000042438 origin=model_output original=tisp_dmsc_deinit */
 int32_t tisp_dmsc_deinit(int32_t arg1)
 {
+    t41_heapwatch_mark("tisp_dmsc_deinit");
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
     uint8_t *info;
     void *runtime;
@@ -101925,6 +102017,7 @@ int32_t tisp_gamma_init(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000042e80 origin=fragment_seed original=tisp_gamma_deinit */
 int32_t tisp_gamma_deinit(uint32_t arg1)
 {
+    t41_heapwatch_mark("tisp_gamma_deinit");
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
 
     if (arg1 >= ARRAY_SIZE(gamma_info))
@@ -108763,6 +108856,7 @@ tisp_lce_init0x63c:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000047120 origin=fragment_seed original=tisp_lce_deinit */
 int32_t tisp_lce_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_lce_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *s;
     unsigned long flags;
@@ -113090,6 +113184,7 @@ tisp_defog_init0x5f4:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004bbc8 origin=fragment_seed original=tisp_defog_deinit */
 int32_t tisp_defog_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_defog_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -114566,6 +114661,7 @@ int tiziano_adr_hardpars_ctl(int arg1) {
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004cd74 origin=fragment_seed original=tisp_adr_deinit */
 int32_t tisp_adr_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_adr_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     return t41_native_adr_deinit(a0);
 #else
@@ -126974,6 +127070,7 @@ tisp_mdns_init0x94:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000005681c origin=model_output original=tisp_mdns_deinit */
 int32_t tisp_mdns_deinit(int32_t arg1)
 {
+    t41_heapwatch_mark("tisp_mdns_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -128664,6 +128761,7 @@ tisp_ydns_init0x80:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000578cc origin=fragment_seed original=tisp_ydns_deinit */
 int32_t tisp_ydns_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_ydns_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -129710,6 +129808,7 @@ tisp_cdns_init0x80:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000058368 origin=fragment_seed original=tisp_cdns_deinit */
 int32_t tisp_cdns_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_cdns_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -131201,6 +131300,7 @@ tisp_sdns_init0x7c:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000059718 origin=fragment_seed original=tisp_sdns_deinit */
 int32_t tisp_sdns_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_sdns_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -133840,6 +133940,7 @@ tisp_ysp_init0x84:
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000005bde0 origin=model_output original=tisp_ysp_deinit */
 int tisp_ysp_deinit(int arg1) {
+    t41_heapwatch_mark("tisp_ysp_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
@@ -137235,6 +137336,7 @@ int32_t tisp_bcsh_init(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000005e2f0 origin=fragment_seed original=tisp_bcsh_deinit */
 int32_t tisp_bcsh_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_bcsh_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
 
@@ -138133,6 +138235,7 @@ int32_t tisp_hldc_init(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000005ec4c origin=fragment_seed original=tisp_hldc_deinit */
 int32_t tisp_hldc_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_hldc_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint32_t *tpm = (uint32_t *)(void *)tpm_cb_storage;
 
@@ -141282,10 +141385,15 @@ int32_t tisp_msca_set_mirr_flip(uint32_t a0, uintptr_t a1)
      * hang (both CPUs stop, no oops, watchdog reset; driver/t41/README.md).
      * A real flip change still requests the update as stock does.
      */
-    if (t41_msca_flip_skip_noop > 0 &&
-        ((value & 0xc00001ff) | bits) == value)
+    /* 0xf002c reads back the active word; a change written within the
+     * last frame is still pending.  Compare and merge against the staged
+     * word (tx_isp_t41_msca_shadow.h), or a set+restore inside one frame
+     * skips the restore and leaves the picture flipped. */
+    if (!t41_msca_flip_word(&t41_msca_algo_staged, value, bits, &value) &&
+        t41_msca_flip_skip_noop > 0)
         return 0;
-    system_reg_write(0x0f002c, (value & 0xc00001ff) | bits);
+    system_reg_write(0x0f002c, value);
+    t41_msca_staged_store(&t41_msca_algo_staged, value);
     system_reg_write(0x0f0010, 1);
     return 0;
 }
@@ -141696,6 +141804,7 @@ tisp_msca_curve_calc0x264:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000062270 origin=model_output original=tisp_msca_deinit */
 int32_t tisp_msca_deinit(int32_t arg1)
 {
+    t41_heapwatch_mark("tisp_msca_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint32_t *tpm = (uint32_t *)(void *)tpm_cb_storage;
     void **temporary = (void **)(void *)mscaHardParTmp_storage;
@@ -142837,6 +142946,7 @@ out:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000062ec8 origin=fragment_seed original=tisp_msca_chx_cfg_load */
 int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
+    t41_heapwatch_mark("tisp_msca_chx_cfg_load");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *desc = (uint8_t *)a2;
     uint8_t *params;
@@ -142907,8 +143017,8 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
         };
 
         if (desc[0] & 1U) {
-            /* Restart of an output that stock-style STREAMOFF left
-             * enabled: same geometry means nothing to reprogram. */
+            /* t41_msca_stop_disable=0 left the output enabled across
+             * STREAMOFF: same geometry means nothing to reprogram. */
             if (t41_msca_stop_disable <= 0 && t41_msca_live_valid[a1] &&
                 (system_reg_read(0x0f0008U) & (1U << a1)) &&
                 !memcmp(&cfg, &t41_msca_live[a1], sizeof(cfg))) {
@@ -142920,6 +143030,23 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
             t41_msca_live[a1] = cfg;
             t41_msca_live_valid[a1] = true;
         }
+    }
+
+    /* Latch-before-enable: an output that is reprogrammed while enabled
+     * is switched off first, as stock STREAMOFF leaves it.  Strides are
+     * immediate and the update request below must not reach an enabled
+     * output whose staged geometry differs from the active one. */
+    if (t41_msca_cfg_update >= 2) {
+        __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                    (uintptr_t)&enable_flags);
+        t41_msca_enable_pending &= ~(1U << a1);
+        if (system_reg_read(0x0f0008U) & (1U << a1)) {
+            system_reg_write(0x0f0008U,
+                             system_reg_read(0x0f0008U) & ~(1U << a1));
+            t41_msca_live_disables++;
+        }
+        private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock,
+                                       enable_flags);
     }
 
     /*
@@ -142961,7 +143088,8 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
     system_reg_write(0x0f071cU + a1 * 4U,
                      vertical_ratio & 0x7ffffU);
 
-    algorithm = system_reg_read(0x0f002cU) | 7U |
+    algorithm = t41_msca_staged_base(&t41_msca_algo_staged,
+                                     system_reg_read(0x0f002cU)) | 7U |
                 ((uint32_t)(params[0xe5] & 1U) << 12) |
                 ((uint32_t)(params[0xe6] & 1U) << 13) |
                 ((uint32_t)(params[0xe7] & 1U) << 14);
@@ -142972,6 +143100,7 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
                  ((uint32_t)(params[0xe2] & 1U) << 5) |
                  ((uint32_t)(params[0xe4] & 1U) << 6);
     system_reg_write(0x0f002cU, algorithm);
+    t41_msca_staged_store(&t41_msca_algo_staged, algorithm);
     system_reg_write(0x0f0028U, scale_mode);
 
     /*
@@ -143022,11 +143151,45 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
            system_reg_read(base + 0x80), system_reg_read(base + 0x98),
            system_reg_read(0x0f0030), system_reg_read(0x0f0084),
            system_reg_read(0x0f00e0));
-    /* Stock ORs this output's bit in and never clears another's here. */
+    /* stop_disable=0 only ORs this output's bit in; otherwise the mask
+     * follows the descriptor enable bytes, as stock
+     * tisp_msca_scaling_algorithm() does. */
     if (t41_msca_stop_disable <= 0)
         active_mask = system_reg_read(0x0f0008) |
                       ((uint32_t)(desc[0] & 1U) << a1);
-    system_reg_write(0x0f0008, active_mask);
+    if (t41_msca_cfg_update >= 2)
+        /* Another output still waiting for its latch stays off. */
+        active_mask &= ~(t41_msca_enable_pending & ~(1U << a1));
+    if (t41_msca_cfg_update >= 2 && (desc[0] & 1U)) {
+        /* Enable only once the staged words are active; otherwise
+         * request the update with the output off and let
+         * t41_msca_finish_enable() switch it on after the latch. */
+        const struct t41_msca_word *words = t41_msca_start_set[a1];
+        unsigned int readback[T41_MSCA_START_WORDS];
+
+        t41_msca_start_words(a1, t41_msca_start_set[a1], packed_size,
+                             (crop_x << 16) | crop_y,
+                             (crop_width << 16) | crop_height,
+                             horizontal_ratio, vertical_ratio, algorithm);
+        for (i = 0; i < T41_MSCA_START_WORDS; ++i)
+            readback[i] = system_reg_read(words[i].reg);
+        if (t41_msca_start_plan(words, T41_MSCA_START_WORDS, readback) ==
+            T41_MSCA_START_LATCH) {
+            active_mask &= ~(1U << a1);
+            system_reg_write(0x0f0008, active_mask);
+            system_reg_write(0x0f0010, 1);
+            t41_msca_enable_pending |= 1U << a1;
+            t41_msca_start_latches++;
+        } else {
+            system_reg_write(0x0f0008, active_mask);
+        }
+    } else {
+        system_reg_write(0x0f0008, active_mask);
+        /* Latch the staged geometry/ratio words at the next input frame
+         * (see t41_msca_cfg_update). */
+        if (t41_msca_cfg_update == 1)
+            system_reg_write(0x0f0010, 1);
+    }
     private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock,
                                    enable_flags);
     printk(KERN_WARNING
@@ -143677,6 +143840,8 @@ int32_t tisp_msca_init(uint32_t a0, uint32_t a1, uint32_t a2)
     system_reg_write(0x0f0080, 0);
     system_reg_write(0x0f0084,
                      ((a1 & 0x1fffU) << 16) | (a2 & 0x0fffU));
+    /* Fresh ISP: the staged 0xf002c word is the read-back again. */
+    t41_msca_algo_staged.valid = 0;
     system_reg_write(0x033c, 0x20220702);
     private_spin_lock_init((int32_t *)(void *)msca_slock_storage);
 
@@ -145015,6 +145180,7 @@ int32_t tisp_tstp_init(void)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000644d0 origin=fragment_seed original=tisp_tstp_deinit */
 int32_t tisp_tstp_deinit(void)
 {
+    t41_heapwatch_mark("tisp_tstp_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint32_t *tpm = (uint32_t *)(void *)tpm_cb_storage;
 
@@ -146213,6 +146379,7 @@ int32_t tisp_clm_init(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006513c origin=fragment_seed original=tisp_clm_deinit */
 int32_t tisp_clm_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_clm_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
 
@@ -147943,6 +148110,7 @@ int32_t tisp_ccm_init(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000661b4 origin=fragment_seed original=tisp_ccm_deinit */
 int32_t tisp_ccm_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_ccm_deinit");
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     uint8_t *info;
 
@@ -151782,6 +151950,7 @@ done:
 
 static void t41_tmo_workfn(struct work_struct *work)
 {
+    t41_heapwatch_mark("t41_tmo_workfn");
     uint32_t integration, gain, sequence, linear, ev;
     unsigned long flags;
     uint64_t exposure;
@@ -152726,6 +152895,7 @@ int32_t tisp_tmo_init(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006a9c8 origin=fragment_seed original=tisp_tmo_deinit */
 int32_t tisp_tmo_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_tmo_deinit");
     uint32_t *callbacks = (uint32_t *)(void *)tpm_cb_storage;
     uint8_t *info;
     uint32_t *global_objects[] = {
@@ -153625,6 +153795,7 @@ int32_t tisp_raw_init(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006b280 origin=fragment_seed original=tisp_raw_deinit */
 int32_t tisp_raw_deinit(void)
 {
+    t41_heapwatch_mark("tisp_raw_deinit");
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *a0 = 0;
@@ -158138,6 +158309,7 @@ int32_t tisp_get_ae_tgain(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006e128 origin=fragment_seed original=tisp_ae_algo_deinit */
 int32_t tisp_ae_algo_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_ae_algo_deinit");
     uint32_t *t9 = 0;
 
     /* fragment 0: ConstantLoad */
@@ -158157,6 +158329,7 @@ int32_t tisp_ae_algo_deinit(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006e138 origin=fragment_seed original=tisp_awb_algo_deinit */
 int32_t tisp_awb_algo_deinit(uint32_t a0)
 {
+    t41_heapwatch_mark("tisp_awb_algo_deinit");
     uint32_t *t9 = 0;
 
     /* fragment 0: ConstantLoad */
@@ -160165,6 +160338,7 @@ static int t41_msca_commit_frame_shadow(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f380 origin=fragment_seed original=ispcore_irq_main_fd_work */
 static void ispcore_irq_main_fd_work(struct work_struct *work)
 {
+    t41_heapwatch_mark("ispcore_irq_main_fd_work");
 	/* Stock jump table (.rodata 0x3a80): slot 5 is the sensor flip. */
 	static const int32_t sensor_event[10] = {
 		0x02000007, 0x02000008, 0x02000009, 0x02000005,
@@ -160510,6 +160684,7 @@ isp_fw_process0x44:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f820 origin=model_output original=ispcore_frame_channel_streamoff */
 int32_t ispcore_frame_channel_streamoff(void *arg1)
 {
+    t41_heapwatch_mark("ispcore_frame_channel_streamoff");
     char *pad = arg1;
     char *channel;
     unsigned long flags = 0;
@@ -161567,6 +161742,7 @@ label_704e8:
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000070538 origin=model_output original=ispcore_frame_channel_freebufs */
 int ispcore_frame_channel_freebufs(void *arg1) {
+    t41_heapwatch_mark("ispcore_frame_channel_freebufs");
     uint32_t flag;
     unsigned long flags = 0;
 
@@ -161594,9 +161770,112 @@ int ispcore_frame_channel_freebufs(void *arg1) {
     return 0;
 }
 
+/*
+ * Second half of a latch-before-enable output start (t41_msca_cfg_update=2,
+ * see tisp_msca_chx_cfg_load()).  Process context, no locks held: waits
+ * until the read-back of the staged words shows the requested values (the
+ * update request applies at the next input frame), then sets the enable bit
+ * if the output is still wanted.  Without a running input there is no frame
+ * to latch at; the output is enabled at once and the pending request applies
+ * at the first frame, as on a stock first start.
+ */
+static void t41_msca_finish_enable(uint32_t ch)
+{
+    unsigned long flags = 0;
+    unsigned long deadline;
+    unsigned int readback[T41_MSCA_START_WORDS];
+    ktime_t start;
+    unsigned int i;
+    uint32_t bit;
+    int latched = 0;
+
+    if (ch >= 3 || t41_msca_cfg_update < 2)
+        return;
+    bit = 1U << ch;
+    if (!(READ_ONCE(t41_msca_enable_pending) & bit))
+        return;
+    start = ktime_get();
+    if (t41_isp_stream_started == 1) {
+        deadline = jiffies + msecs_to_jiffies(t41_msca_latch_timeout_ms);
+        for (;;) {
+            for (i = 0; i < T41_MSCA_START_WORDS; ++i)
+                readback[i] =
+                    system_reg_read(t41_msca_start_set[ch][i].reg);
+            if (t41_msca_words_active(t41_msca_start_set[ch],
+                                      T41_MSCA_START_WORDS, readback)) {
+                latched = 1;
+                break;
+            }
+            if (time_after(jiffies, deadline))
+                break;
+            usleep_range(2000, 3000);
+        }
+    }
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    if (t41_msca_enable_pending & bit) {
+        uint8_t *desc = ((uint8_t **)(void *)mscaHardPar_storage)[ch];
+
+        t41_msca_enable_pending &= ~bit;
+        if (t41_kernel_data_ptr(desc) && (desc[0] & 1U))
+            system_reg_write(0x0f0008U, system_reg_read(0x0f0008U) | bit);
+    }
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    {
+        unsigned int us = (unsigned int)ktime_us_delta(ktime_get(), start);
+
+        if (us > t41_msca_latch_wait_max_us)
+            t41_msca_latch_wait_max_us = us;
+        if (t41_isp_stream_started == 1 && !latched) {
+            t41_msca_latch_timeouts++;
+            printk(KERN_WARNING
+                   "tx_isp_t41_recovered: MSCA channel %u latch not seen after %u us; enabled anyway\n",
+                   ch, us);
+            for (i = 0; i < T41_MSCA_START_WORDS; ++i)
+                printk(KERN_WARNING
+                       "tx_isp_t41_recovered: MSCA channel %u word %05x want %08x/%08x read %08x\n",
+                       ch, t41_msca_start_set[ch][i].reg,
+                       t41_msca_start_set[ch][i].value,
+                       t41_msca_start_set[ch][i].mask, readback[i]);
+        }
+    }
+}
+
+/* Read-only diagnostic: cat /sys/module/tx_isp_t41/parameters/t41_msca_regs
+ * (MSCA globals, the three output banks and the ratio words; reads return
+ * the active values of the staged registers). */
+static int t41_msca_regs_get(char *buf, const struct kernel_param *kp)
+{
+    static const struct { u32 start, end; } ranges[] = {
+        { 0x0f0000, 0x0f00f0 }, { 0x0f0100, 0x0f01b0 },
+        { 0x0f0200, 0x0f02b0 }, { 0x0f0300, 0x0f03b0 },
+        { 0x0f0700, 0x0f0740 },
+    };
+    int len = 0;
+    unsigned int r;
+    u32 reg;
+
+    (void)kp;
+    if (t41_isp_stream_started != 1)
+        return scnprintf(buf, PAGE_SIZE, "input stopped\n");
+    for (r = 0; r < ARRAY_SIZE(ranges); ++r)
+        for (reg = ranges[r].start; reg < ranges[r].end; reg += 16)
+            len += scnprintf(buf + len, PAGE_SIZE - len,
+                             "%05x: %08x %08x %08x %08x\n", reg,
+                             system_reg_read(reg), system_reg_read(reg + 4),
+                             system_reg_read(reg + 8),
+                             system_reg_read(reg + 12));
+    return len;
+}
+static const struct kernel_param_ops t41_msca_regs_ops = {
+    .get = t41_msca_regs_get,
+};
+module_param_cb(t41_msca_regs, &t41_msca_regs_ops, NULL, 0444);
+
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000705c4 origin=model_output original=ispcore_frame_channel_streamon */
 int32_t ispcore_frame_channel_streamon(void *arg1)
 {
+    t41_heapwatch_mark("ispcore_frame_channel_streamon");
     char *pad = arg1;
     char *channel;
     unsigned long flags = 0;
@@ -161647,6 +161926,9 @@ int32_t ispcore_frame_channel_streamon(void *arg1)
     }
 
     private_spin_unlock_irqrestore(channel + 0xa8, flags);
+    if (start_late && channel_index < 3 && t41_safe_msca_start <= 0)
+        t41_msca_finish_enable(
+            (uint32_t)(uintptr_t)*(void **)(channel + 0x78));
     if (start_late) {
         /* Starting an output must not reset a live shared CSI receiver or
          * reseed the input's tuning history. The first output owns deferred
@@ -161696,6 +161978,8 @@ int32_t ispcore_frame_channel_streamon(void *arg1)
             msca_desc[8] = source_lock;
             if (!ret)
                 ret = tisp_channel_main_start(tisp_channel);
+            if (!ret)
+                t41_msca_finish_enable(tisp_channel);
             printk(KERN_WARNING
                    "tx_isp_t41_recovered: post-video MSCA reapply channel=%u saved=%ux%u lock=%u ret=%d input=%#x geom=%#x enable=%#x\n",
                    tisp_channel,
@@ -168306,6 +168590,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
          * through the address FIFO behind its back.
          */
         if (status0 & 0x1) {
+            t41_heapwatch_mark("isr:frame0");
             uint32_t event_data[8] = { 0 };
             uint32_t frame_done_arg[2] = { 0, 0 };
             uint32_t y_dma = 0;
@@ -168385,6 +168670,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
          * the matching frame channel, as in H20250310a.
          */
         if (status0 & (BIT(1) | BIT(2))) {
+            t41_heapwatch_mark("isr:frame12");
             unsigned int channel_index;
 
             core = *(char **)(subdev + 0x10c);
@@ -168431,6 +168717,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
          * callback.  Other recovered statistic handlers remain gated.
          */
         if ((status0 & BIT(3)) && t41_native_awb) {
+            t41_heapwatch_mark("isr:awb");
             t41_native_awb_queue();
         } else if ((status0 & BIT(3)) && t41_safe_awb_controller < 0) {
             /* DMA cache maintenance and the 32 KiB packed-stat scan are not
@@ -168444,6 +168731,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                 READ_ONCE(t41_ae_zones[0].sequence) + 1);
 
         if ((status0 & BIT(5)) && t41_safe_ae_controller > 0) {
+            t41_heapwatch_mark("isr:aehist");
             int32_t callback = READ_ONCE(irq_func_cb[5]);
             int64_t callback_ret = -ENODEV;
 
@@ -169278,7 +169566,9 @@ int32_t init_module(void)
 	if (ret) {
 		tx_isp_sinfo_exit();
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
+		return ret;
 	}
+	t41_heapwatch_start();
 	return ret;
 }
 
@@ -169287,9 +169577,14 @@ void cleanup_module(void)
 {
     uintptr_t t9 = (uintptr_t)&tx_isp_exit;
 
+	t41_heapwatch_step("exit:begin");
 	tx_isp_t41_v4l2_exit();
+	t41_heapwatch_step("exit:v4l2");
 	tx_isp_sinfo_exit();
+	t41_heapwatch_step("exit:sinfo");
+	t41_heapwatch_census("exit");
     ((void (*)(void))(uintptr_t)t9)();
+	t41_heapwatch_step("exit:tx_isp_exit");
 
 	/*
 	 * The ISP/VIC IRQs are freed by now, so nothing queues these static
@@ -169300,6 +169595,8 @@ void cleanup_module(void)
 	cancel_work_sync(&main_fd_work);
 	cancel_work_sync(&t41_safe_awb_work);
 	cancel_work_sync(&t41_tmo_work);
+	t41_heapwatch_step("exit:works");
+	t41_heapwatch_stop();
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074ce0 origin=fragment_seed original=tx_isp_vic_remove */
