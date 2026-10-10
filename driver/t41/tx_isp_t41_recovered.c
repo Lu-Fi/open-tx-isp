@@ -2079,6 +2079,10 @@ static uint32_t cdns_info, chx_shd_flags, clk_cnt_39069;
 static uint32_t cls, csc_switch, csc_version_now, ctl_table, defog_info, deghost_en, diffLast2Later;
 static uint32_t diff_thr_maxvalue, dmsc_debug_flags, dpc_info[2], dmsc_info[2], dump_csd, ev_last_switch, ev_wdr_l, ev_wdr_s;
 static uint32_t find_new_buffer_fn, fix_y_tmp, fliker_info, fliker_para, force_triger, frameSum, frame_vb_measure;
+/* gamma calibration kept across a fixed curve (t41_tuning_gamma): dropped
+ * whenever the parameter set behind it is (re)loaded or switched */
+static bool t41_gamma_base_valid;
+static uintptr_t t41_gamma_base_params;
 static uint32_t gamma_info[2], gib_info[2], globe_ispdev, height_adr, hist_short, i2c_driver, isp_breakfrm;
 static uint32_t isp_ch0_frm_done, isp_core_debug_type, isp_err, isp_frm_done, isp_frm_err, isp_frm_start;
 static uint32_t isp_ir_frm_done, isp_overflow, isp_rst, ivdc_ddr_c_overflow, ivdc_ddr_y_overflow, ivdc_dma_done;
@@ -20636,11 +20640,16 @@ static int t41_tuning_copy_ae_expr(unsigned int channel, uintptr_t user_ptr)
         /* the AE worker applies a manual request on the next frame; report
          * the request so an immediate Get reads back what was set */
         if (READ_ONCE(t41_ae_man_it)) {
-            values.integration_time = READ_ONCE(t41_ae_man_it);
+            /* the AE worker clamps to the sensor limits; report what it
+             * will apply, not the raw request */
+            values.integration_time = clamp(READ_ONCE(t41_ae_man_it),
+                control->min_integration, control->max_integration);
             values.manual_integration = values.integration_time;
         }
         if (READ_ONCE(t41_ae_man_again)) {
-            values.analog_gain_x1024 = READ_ONCE(t41_ae_man_again);
+            values.analog_gain_x1024 = clamp(READ_ONCE(t41_ae_man_again),
+                1024U, tx_isp_exp2_u32(
+                    t41_safe_ae_sensor[channel].max_log2_q16, 16, 10));
             values.manual_again_x1024 = values.analog_gain_x1024;
         }
         values.max_dgain_manual = READ_ONCE(t41_ae_man_dgain_cap) ? 1 : 0;
@@ -20869,7 +20878,6 @@ static int t41_tuning_ccm(unsigned int channel, unsigned int is_get,
  */
 /* calibration RGB curve (258 B) + ten strengths, params+0x12c */
 static unsigned char t41_gamma_base[268];
-static bool t41_gamma_base_valid;
 static int t41_tuning_gamma(unsigned int channel, unsigned int is_get,
                             uintptr_t user_ptr)
 {
@@ -20909,8 +20917,11 @@ static int t41_tuning_gamma(unsigned int channel, unsigned int is_get,
     }
     /* A fixed curve overwrites the calibration RGB curve and strengths;
      * keep them so the default type can bring the calibration back. */
+    if (t41_gamma_base_valid && t41_gamma_base_params != (uintptr_t)params)
+        t41_gamma_base_valid = false;	/* another parameter block */
     if (buf[0] && !t41_gamma_base_valid) {
         memcpy(t41_gamma_base, params + T41_GAMMA_PARAM_CURVE, sizeof(t41_gamma_base));
+        t41_gamma_base_params = (uintptr_t)params;
         t41_gamma_base_valid = true;
     } else if (!buf[0] && !buf[1] && !buf[2] && !buf[3] && t41_gamma_base_valid) {
         memcpy(params + T41_GAMMA_PARAM_CURVE, t41_gamma_base, sizeof(t41_gamma_base));
@@ -53387,6 +53398,7 @@ int tisp_deinit(int channel)
         channel >= ARRAY_SIZE(tparams_day_storage) / sizeof(uint32_t))
         return -EINVAL;
     slot = (unsigned int)channel * sizeof(uint32_t);
+    t41_gamma_base_valid = false;
 
     t41_tmo_stream_stop();
 
@@ -54971,6 +54983,7 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
 
     if (channel >= 2 || !cfg)
         return -EINVAL;
+    t41_gamma_base_valid = false;	/* new bin/param load */
 
     printk(KERN_WARNING
            "tx_isp_t41_recovered: tisp-core enter channel=%u cfg=%p path=%p\n",
@@ -55302,6 +55315,7 @@ free_channel_allocations:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000021010 origin=fragment_seed original=tisp_core_switch_bin */
 int64_t tisp_core_switch_bin(uint32_t a0, uint32_t a1)
 {
+    t41_gamma_base_valid = false;	/* day/night parameter set */
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t local_1c = 0;
