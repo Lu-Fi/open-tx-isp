@@ -75,6 +75,8 @@ typedef uint64_t u64;
 #define TX_ISP_TUNING_CMD_T41_CCM		0x08000080U
 #define TX_ISP_TUNING_CMD_T41_CSC		0x08000096U
 #define TX_ISP_TUNING_CMD_T41_MODULE_RATIO	0x080000a4U
+/* T41 libimp: AF weight table (15x15 bytes); other SoCs use this ID for AE_IT_MAX. */
+#define TX_ISP_TUNING_CMD_T41_AF_WEIGHT		0x08000032U
 
 /* Open implementation extension.  Keep policy names in userspace: the
  * driver only owns the atomic auto/manual AWB transition and gain replay. */

@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the 24 h soak that started 2026-10-04); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-10
+
+- T41 driver controls the streamers (raptor) call that the driver refused (branch `claude/t41-driver-gaps`, on `claude/t41-tuning`). Device-tested on the Vanhua T55A / gc5603 (module loaded in RAM, timps restored afterwards).
+  - Frame drop, ioctl `0xc004542c` (set) / `0xc004542d` (get): 40-byte request {channel, 3 x {enable, lsize, fmark}} as the stock libimp sends it; entry i programs the register pair 0xf0130 + i*0x100 / 0xf0134 + i*0x100. The recovered `tisp_set_frame_drop` called `system_reg_write()` without the value argument (the registers received stale data); rewritten from the stock disassembly. Beyond stock: all three lsize values are checked before anything is written (stock left earlier entries applied), channel must be 0.
+  - Sensor register, ioctl `0xc040540d` (write) / `0x8040540e` (read): 64-byte request {name[32], vinum, bus type, ..., reg at 48, value at 56}; forwarded as sensor event 0x2000011 / 0x2000012 to the VIN subdev. Read of gc5603 0x03f0/0x03f1 returns the chip id 0x5603.
+  - WDR enable/disable, ioctl `0x80045413` / `0x80045414`: 4-byte channel; the channel is range checked (stock indexes core memory with it) and a flag recorded. No WDR event is sent: a linear sensor (gc5603) has no WDR mode, so there is nothing to switch.
+  - AF weight, tuning control `0x8000032` (get/set, 225 bytes): copied to/from the AF parameter block at +531 like stock; the AF statistics stay off on this fixed-focus build, so the table is a stored value. Refused with -ENODEV when the AF block does not exist (stock dereferences it unchecked).
+  - Not changed: `0x8000054` (WdrOutputMode) still fails; the stock dispatcher has no handler for it either (unknown ID -> -EPERM). Defog ratio (module ratio unit 4) still refuses a non-neutral value: the stock path rewrites three defog parameter arrays and is not recovered yet.
+
 ## 2026-10-09
 
 - T31 front crop (branch `claude/review34-fixes`, review of agg-34).
