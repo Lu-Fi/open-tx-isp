@@ -7638,6 +7638,9 @@ int tisp_init(void *sensor_info_arg, char *param_name)
         wdr_dma_buffer = kzalloc(0x8000, GFP_KERNEL);
         if (wdr_dma_buffer)
             wdr_dma_phys = virt_to_phys(wdr_dma_buffer);
+    } else {
+        /* reused ring: same contents as the fresh kzalloc */
+        memset(wdr_dma_buffer, 0, 0x8000);
     }
     if (wdr_enable && !wdr_dma_buffer)
         return -ENOMEM;
@@ -36845,6 +36848,21 @@ static bool tisp_core_clock_on(void)
 /* Module exit only: stop the engines, then free the rings. */
 static void tisp_free_stats_pages(void)
 {
+    void *wdr_free;
+
+    /*
+     * Unpublish the WDR ring first: the statistics IRQ reads wdr_ready and
+     * wdr_dma_buffer without a lock, so both must be cleared before
+     * synchronize_irq() (in detach) or an IRQ between the sync and the
+     * kfree would touch freed memory.
+     */
+    mutex_lock(&wdr_control_lock);
+    wdr_ready = 0;
+    wdr_free = wdr_dma_buffer;
+    wdr_dma_buffer = NULL;
+    wdr_dma_phys = 0;
+    mutex_unlock(&wdr_control_lock);
+    wmb();
     tisp_detach_stats_pages();
     /*
      * The core may still run (exit happens in whatever state the last
@@ -36863,11 +36881,7 @@ static void tisp_free_stats_pages(void)
         wmb();
         udelay(100);    /* let an in-flight burst finish */
     }
-    mutex_lock(&wdr_control_lock);
-    kfree(wdr_dma_buffer);
-    wdr_dma_buffer = NULL;
-    wdr_dma_phys = 0;
-    mutex_unlock(&wdr_control_lock);
+    kfree(wdr_free);
 
     if (tisp_stats_ae0)
         free_pages(tisp_stats_ae0, 3);
