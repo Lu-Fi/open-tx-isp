@@ -2810,6 +2810,17 @@ static int isp_m0_show(struct seq_file *m, void *v)
 		 * compact AE clamps in sensor_drv.c */
 		max_again = t20_ae_max_again_log2_5(attr->max_again,
 				stab.global_max_sensor_analog_gain);
+		/* the sensor table is stepped: the AE sits on the step the
+		 * sensor allocator rounds the cap down to */
+		if (attr->sensor_ctrl.alloc_again) {
+			unsigned int code = 0;
+
+			max_again = t20_ae_plateau_log2_5(max_again,
+				attr->sensor_ctrl.alloc_again(
+					t20_ae_request_log2_16(attr->max_again,
+						stab.global_max_sensor_analog_gain),
+					16, &code));
+		}
 		max_dgain = 0;
 		max_isp_dgain = 0;
 	} else {

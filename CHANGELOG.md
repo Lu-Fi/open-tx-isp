@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the 24 h soak that started 2026-10-04); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-10
+
+- T10/T20 `isp-m0` "MAX SENSOR analog gain" now reports the step the AE really plateaus on (branch `claude/t10-gaincap`, on agg-34).
+  - Cause: jxh42 (T10) boots with the SetMaxAgain ceiling 144 (customer calibration), which `da9baf1e` reports correctly, but the sensor gain table is stepped and `alloc_again()` rounds the request down: 144 (log2 x32) falls between the table entries 142.7 and 144.7, so the AE sat at 142 in the dark while the cap read 144. A streamer that waits for gain >= cap never saw "maxed".
+  - Fix: the compact dump runs the same request (sensor max, then ceiling) through the sensor's `alloc_again()` and reports the applied step (`t20_ae_request_log2_16`, `t20_ae_plateau_log2_5` in `tx_isp_t20_ae_max.h`). Exact steps (ceiling 128) and the sensor maximum are unchanged. Host test `tests/t20_ae_max_host_test.c` extended.
+
 ## 2026-10-09
 
 - T31 front crop (branch `claude/review34-fixes`, review of agg-34).

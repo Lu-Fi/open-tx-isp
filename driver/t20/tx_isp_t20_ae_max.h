@@ -26,4 +26,27 @@ static inline uint32_t t20_ae_max_again_log2_5(uint32_t sensor_max_log2_16,
 	return (user_max && user_max < m) ? user_max : m;
 }
 
+/* The gain the compact AE hands to the sensor allocator at its limit, in
+ * log2 <<16 (same clamp order as sensor_drv.c: sensor max, then ceiling). */
+static inline uint32_t t20_ae_request_log2_16(uint32_t sensor_max_log2_16,
+					      uint32_t user_max)
+{
+	uint32_t u = user_max << 11;
+
+	return (user_max && u < sensor_max_log2_16) ? u : sensor_max_log2_16;
+}
+
+/* The sensor gain tables are stepped: alloc_again() rounds the request
+ * DOWN to the last table entry, so the AE plateaus on that step, not on
+ * the ceiling (jxh42: ceiling 144 -> 142.7 -> plateau 142).
+ * applied_log2_16: what alloc_again(request) returned, 0 = unknown.
+ * Returns the cap in log2 <<5 units the AE really sits at. */
+static inline uint32_t t20_ae_plateau_log2_5(uint32_t cap_log2_5,
+					     uint32_t applied_log2_16)
+{
+	uint32_t a = applied_log2_16 >> 11;
+
+	return (applied_log2_16 && a < cap_log2_5) ? a : cap_log2_5;
+}
+
 #endif
