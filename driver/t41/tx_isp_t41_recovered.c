@@ -20857,6 +20857,9 @@ static int t41_tuning_ccm(unsigned int channel, unsigned int is_get,
  * IMPISPGammaAttr (0x08000025), see tx_isp_t41_gamma_ctl.h.  Serialised
  * with the tone worker, which owns the exposure-driven gamma updates.
  */
+/* calibration RGB curve (258 B) + ten strengths, params+0x12c */
+static unsigned char t41_gamma_base[268];
+static bool t41_gamma_base_valid;
 static int t41_tuning_gamma(unsigned int channel, unsigned int is_get,
                             uintptr_t user_ptr)
 {
@@ -20893,6 +20896,14 @@ static int t41_tuning_gamma(unsigned int channel, unsigned int is_get,
     if (t41_gamma_ctl_check(buf)) {
         ret = -EINVAL;
         goto out;
+    }
+    /* A fixed curve overwrites the calibration RGB curve and strengths;
+     * keep them so the default type can bring the calibration back. */
+    if (buf[0] && !t41_gamma_base_valid) {
+        memcpy(t41_gamma_base, params + T41_GAMMA_PARAM_CURVE, sizeof(t41_gamma_base));
+        t41_gamma_base_valid = true;
+    } else if (!buf[0] && !buf[1] && !buf[2] && !buf[3] && t41_gamma_base_valid) {
+        memcpy(params + T41_GAMMA_PARAM_CURVE, t41_gamma_base, sizeof(t41_gamma_base));
     }
     if (!t41_gamma_ctl_store(info, params, buf, tables)) {
         /* exposure-driven curve again: force a strength recompute */
