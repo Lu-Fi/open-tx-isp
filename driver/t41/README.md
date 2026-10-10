@@ -590,10 +590,12 @@ an output being idle-stopped and restarted while the MSCA really scales the
 full 2880x1620 input, not to the update requests themselves. Default stays 0
 until that is solved (superseded below).
 
-Update 2026-10-10: `t41_msca_cfg_update=2` (new default) requests the update
-with the output OFF and enables it once the read-back shows the new words,
-as stock does (STREAMOFF switches the output off, `t41_msca_stop_disable=1`
-is the default again; a restart with unchanged words requests nothing).
+Update 2026-10-10: `t41_msca_cfg_update=2` (opt-in, together with
+`t41_msca_stop_disable=1`) requests the update with the output OFF and
+enables it once the read-back shows the new words, as stock does (STREAMOFF
+switches the output off; a restart with unchanged words requests nothing).
+Defaults stay `cfg_update=0`, `stop_disable=0` (flashed behaviour) until the
+960x540/1280x720 hang below is solved.
 Targeted repro (ch0 2 s, ch1 after 1.8/2.5/4.0 s, `general.fs_keepalive =
 off`), ch1 sizes: 320x180, 640x360 (2x), 704x400 21/21 cycles each, 768x432
 9/9, pictures match ch0, no band on either buffer; `cfg_update=1` at 640x360

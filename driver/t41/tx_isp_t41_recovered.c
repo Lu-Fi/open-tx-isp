@@ -1067,16 +1067,17 @@ MODULE_PARM_DESC(t41_msca_flip_skip_noop,
  * descriptor enable byte clear, and tisp_msca_scaling_algorithm() inside
  * tisp_msca_chx_cfg_load() rewrites 0xf0008 from the three descriptor enable
  * bytes: the stopped output is switched OFF (the final OR of the channel's
- * own bit adds nothing).  1 (default) does the same and then waits until the
- * output has finished its frame (0xf00e0) before the FIFO is cleared.
+ * own bit adds nothing).  1 does the same and then waits until the output
+ * has finished its frame (0xf00e0) before the FIFO is cleared; use it with
+ * t41_msca_cfg_update=2.
  *
- * 0 keeps the output enabled with an empty address FIFO and skips the
+ * 0 (default, flashed behaviour) keeps the output enabled with an empty address FIFO and skips the
  * register reload on a restart with unchanged geometry.  That only looked
  * stable while the outputs never latched their geometry (see
  * t41_msca_cfg_update); with real scaling it hangs the T41 within a few
  * restart cycles.
  */
-static int t41_msca_stop_disable = 1;
+static int t41_msca_stop_disable;
 module_param(t41_msca_stop_disable, int, 0644);
 /*
  * MSCA output geometry, ratios, the global input size and 0xf002c are
@@ -1088,20 +1089,22 @@ module_param(t41_msca_stop_disable, int, 0644);
  * lines into 640x360 buffers (garbage chroma, a band of other data at the
  * top of the next buffer, brightness unrelated to ch0).
  *
- * 2 (default): the update is requested with the output OFF and the output
+ * 2 (opt-in, with t41_msca_stop_disable=1): the update is requested with the output OFF and the output
  * is enabled by t41_msca_finish_enable() once the read-back shows the new
  * words, as stock does in its steady state (STREAMOFF switches the output
  * off, SET_FMT requests the update through tisp_s_hv_flip(), STREAMON only
  * sets the enable bit).  A restart whose words are already active requests
- * no update at all.
+ * no update at all.  Correct pictures and stable up to ch1 768x432, but
+ * ch1 960x540/1280x720 still hang the T41 (README "Output restart hang"),
+ * so it stays off by default until that is solved.
  * 1: request the update right after enabling the output (correct pictures,
  * but the output-restart hang comes back after 4-13 restart cycles).
- * 0: never request it (reset geometry, see above).
+ * 0 (default): never request it (reset geometry, see above).
  */
-static int t41_msca_cfg_update = 2;
+static int t41_msca_cfg_update;
 module_param(t41_msca_cfg_update, int, 0644);
 MODULE_PARM_DESC(t41_msca_cfg_update,
-                 "2 (default) latches MSCA output geometry with the output off; 1 latches after enable; 0 never");
+                 "0 (default) never latches MSCA output geometry; 2 latches with the output off (set t41_msca_stop_disable=1); 1 latches after enable");
 /* Outputs whose update request is pending; enabled by
  * t41_msca_finish_enable() once the read-back shows the new words. */
 static unsigned int t41_msca_enable_pending __attribute__((section(".data")));
