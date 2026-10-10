@@ -29,6 +29,7 @@
 #include "tx_isp_t41_ae.h"
 #include "tx_isp_t41_tuning_ctl.h"
 #include "tx_isp_t41_msca_shadow.h"
+#include "tx_isp_t41_switchbin.h"
 #include "tx_isp_t41_gib.h"
 #include "../include/tx_isp/tx_isp_top.h"
 #include "tx_isp_t41_awb.h"
@@ -21499,6 +21500,190 @@ static int t41_tuning_hvflip(const struct tx_isp_tuning_t41_control *request)
 }
 
 /*
+ * IMP_ISP_Tuning_SwitchBin (control 0x080000a5; stock tx_isp_switch_bin,
+ * tisp_switch_bin, tisp_core_switch_bin).  Stock reads the new bin over the
+ * live bank buffer and then asks the next frame to re-apply the running
+ * mode (core+468 = 1) and waits one frame.  Here:
+ *   1. the request and the whole new file are checked first (t41_bin_read +
+ *      t41_bin_validate on a private buffer); any failure returns before a
+ *      single live pointer or register was touched;
+ *   2. the new banks are published by pointer, never copied over the live
+ *      ones: a reader (AE/AWB/event thread, ISR) sees the old or the new
+ *      bank completely.  The previous buffer is kept one generation longer
+ *      (t41_bin_retired) so a reader that still holds it cannot touch freed
+ *      memory;
+ *   3. the apply is the stock one, the day/night event on the next frame
+ *      (core+468 = 1 -> tisp_day_or_night_event re-copies the bank of the
+ *      running mode on the ISP event thread).
+ * Not reproduced: the stock tisp_tstp_init/deinit pair (a neutral stub here).
+ * Stock answers 0 for a stream that is not running; this returns -EBUSY.
+ */
+#define T41_SWITCH_BIN_MAX_FILE (1U << 20)
+static DEFINE_MUTEX(t41_switch_bin_lock);
+static void *t41_bin_retired;
+
+static int t41_bin_read(const char *path, unsigned char **out, size_t *out_size)
+{
+    struct file *filp;
+    unsigned char *buf;
+    loff_t size;
+    loff_t pos = 0;
+
+    filp = private_filp_open(path, O_RDONLY, 0);
+    if (IS_ERR(filp))
+        return PTR_ERR(filp);
+    size = private_i_size_read(private_file_inode(filp));
+    if (size < T41_BIN_HEADER_BYTES || size > T41_SWITCH_BIN_MAX_FILE) {
+        private_filp_close(filp, NULL);
+        return -EINVAL;
+    }
+    buf = private_vmalloc((size_t)size);
+    if (!buf) {
+        private_filp_close(filp, NULL);
+        return -ENOMEM;
+    }
+    while (pos < size) {
+        unsigned long chunk = min_t(loff_t, size - pos, PAGE_SIZE);
+        int got = kernel_read(filp, pos, (char *)buf + pos, chunk);
+
+        if (got <= 0) {
+            private_vfree(buf);
+            private_filp_close(filp, NULL);
+            return got < 0 ? got : -EIO;
+        }
+        pos += got;
+        cond_resched();
+    }
+    private_filp_close(filp, NULL);
+    *out = buf;
+    *out_size = (size_t)size;
+    return 0;
+}
+
+static int t41_tuning_switch_bin(unsigned int channel, unsigned int is_get,
+                                 uintptr_t user_ptr)
+{
+    struct t41_switch_bin_req req;
+    struct t41_bin_info info;
+    unsigned char sinfo[148];
+    char path[T41_SWITCH_BIN_PATH_BYTES];
+    const char *chosen;
+    unsigned char *core, *manager, *blob = NULL, *day, *night, *old;
+    unsigned char *attr;
+    uint32_t *state, *pending;
+    size_t size = 0;
+    unsigned int i;
+    int ret;
+
+    if (is_get || channel >= 2 || !user_ptr)
+        return -EINVAL;
+    if (private_copy_from_user(&req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+
+    core = (unsigned char *)(uintptr_t)ispcore_sd;
+    if (!t41_kernel_data_ptr(core))
+        return -ENODEV;
+    state = (uint32_t *)(void *)(core + 296 + channel * sizeof(uint32_t));
+    if (READ_ONCE(*state) != 4)
+        return -EBUSY;
+    pending = (uint32_t *)(void *)(core + 468 + channel * sizeof(uint32_t));
+
+    ret = t41_switch_bin_req_check(&req, (const char *)(core + 740 + channel * 132),
+                                   132, &chosen);
+    if (ret)
+        return ret;
+    strlcpy(path, chosen, sizeof(path));
+
+    mutex_lock(&t41_switch_bin_lock);
+    manager = (unsigned char *)(uintptr_t)m_bin;
+    if (!manager || !t41_kernel_data_ptr(manager) ||
+        !*(uint32_t *)((char *)&tparams_day + channel * sizeof(uint32_t)) ||
+        !*(uint32_t *)((char *)&tsbin + channel * sizeof(uint32_t))) {
+        ret = -ENODEV;
+        goto out;
+    }
+    /* One bin buffer serves the driver (manager+64); with a second sensor
+     * loaded it cannot be swapped for one channel alone. */
+    if (*(uint32_t *)((char *)&tparams_day + (channel ^ 1) * sizeof(uint32_t))) {
+        ret = -EOPNOTSUPP;
+        goto out;
+    }
+
+    ret = t41_bin_read(path, &blob, &size);
+    if (ret) {
+        isp_printf(2, "SwitchBin: reading %s failed (%d)\n", path, ret);
+        goto out;
+    }
+    ret = t41_bin_validate(blob, size, manager, init_load_bin ? bin_version : NULL,
+                           manager + 8, &info);
+    if (ret) {
+        isp_printf(2, "SwitchBin: %s rejected (%d)\n", path, ret);
+        private_vfree(blob);
+        goto out;
+    }
+
+    /* ---- commit: nothing below can fail ---- */
+    day = blob + T41_BIN_HEADER_BYTES;
+    night = day + info.night_off;
+    old = *(unsigned char **)(manager + 64);
+
+    memcpy(sinfo, (void *)(uintptr_t)*(uint32_t *)((char *)&tsbin + channel * sizeof(uint32_t)),
+           sizeof(sinfo));
+    snprintf((char *)sinfo, 8, "%s", (char *)manager);
+    snprintf((char *)sinfo + 8, 72, "%s", path);
+    memset(sinfo + 80, 0, 68);
+    if (night[0x1efc0])
+        memcpy(sinfo + 80, night + 0x1efc0, strnlen((char *)night + 0x1efc0, 67));
+
+    smp_wmb();                  /* the new buffer is complete before it is visible */
+    WRITE_ONCE(*(uint32_t *)(manager + 68), (uint32_t)size);
+    WRITE_ONCE(*(uint32_t *)(manager + 72), (uint32_t)(uintptr_t)day);
+    WRITE_ONCE(*(uint32_t *)(manager + 64), (uint32_t)(uintptr_t)blob);
+    WRITE_ONCE(*(uint32_t *)((char *)&tparams_day + channel * sizeof(uint32_t)),
+               (uint32_t)(uintptr_t)day);
+    WRITE_ONCE(*(uint32_t *)((char *)&tparams_night + channel * sizeof(uint32_t)),
+               (uint32_t)(uintptr_t)night);
+    WRITE_ONCE(dnw, info.dnw);
+    memcpy(bin_version, blob, 8);
+    memcpy((void *)(uintptr_t)*(uint32_t *)((char *)&tsbin + channel * sizeof(uint32_t)),
+           sinfo, sizeof(sinfo));
+    attr = (unsigned char *)(uintptr_t)tisp_tattr;
+    if (t41_kernel_data_ptr(attr))
+        memcpy(attr + 2476 + channel * 148, sinfo, sizeof(sinfo));
+    t41_gamma_base_valid = false;
+    if (t41_bin_retired)
+        private_vfree(t41_bin_retired);
+    t41_bin_retired = old;
+
+    /* The day/night reserve registers of the new bin, as the stock loader. */
+    if (day + 0x1ee40 + 452 <= blob + size)
+        tiziano_reserve_reg_write((int8_t)((unsigned char *)&dnw)[0],
+                                  (uintptr_t)(day + 0x1ee40), (uintptr_t)night);
+    if (night + 0x1ee40 + 452 <= blob + size)
+        tiziano_reserve_reg_write((int8_t)((unsigned char *)&dnw)[2],
+                                  (uintptr_t)(night + 0x1ee40), (uintptr_t)night);
+
+    /* Let a pending fill/custom transition finish, then ask for the re-apply. */
+    for (i = 0; i < 200 && READ_ONCE(*pending) > TX_ISP_DAYNIGHT_SWITCH; i++)
+        msleep(5);
+    wmb();
+    WRITE_ONCE(*pending, TX_ISP_DAYNIGHT_SWITCH);
+    printk(KERN_WARNING
+           "tx_isp_t41_recovered: switch-bin channel=%u path=%s size=%zu night=%u dnw=%#x\n",
+           channel, path, size, info.night_off, info.dnw);
+    mutex_unlock(&t41_switch_bin_lock);
+
+    /* Like stock, return after the next frame took the request. */
+    for (i = 0; i < 200 && READ_ONCE(*pending) != TX_ISP_DAYNIGHT_IDLE; i++)
+        msleep(5);
+    return i == 200 ? -ETIMEDOUT : 0;
+
+out:
+    mutex_unlock(&t41_switch_bin_lock);
+    return ret;
+}
+
+/*
  * IMPISPSENSORAttr (stock g_ctrl 0x08000033): the active sensor's
  * total_width/total_height, the packed frame rate and the output size of
  * core->video[channel] (core+308+96*channel; attr at +52).  Before this
@@ -21774,6 +21959,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             { TX_ISP_TUNING_CMD_T41_AF_WEIGHT, T41_AF_WEIGHT_BYTES,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_SWITCH_BIN,
+              TX_ISP_TUNING_T41_SWITCH_BIN_BYTES,
+              TX_ISP_TUNING_DIR_SET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_GAMMA, T41_GAMMA_ATTR_BYTES,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -21978,6 +22166,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AWB_RGB_COEFFT)
             return t41_tuning_coefft_wb(request.channel, request.is_get,
                                         request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_SWITCH_BIN)
+            return t41_tuning_switch_bin(request.channel, request.is_get,
+                                         request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_SENSOR_ATTR)
             return t41_tuning_sensor_attr(request.channel,
                                           request.value_or_ptr);
@@ -53698,6 +53889,11 @@ int tisp_deinit(int channel)
     tisp_msca_deinit(channel);
     ((int (*)(uint32_t))(uintptr_t)tisp_raw_deinit)(channel);
 
+    mutex_lock(&t41_switch_bin_lock);
+    if (t41_bin_retired) {
+        private_vfree(t41_bin_retired);
+        t41_bin_retired = NULL;
+    }
     bin = (void *)(uintptr_t)m_bin;
     if (bin) {
         void *payload = *(void **)((char *)bin + 64);
@@ -53711,6 +53907,7 @@ int tisp_deinit(int channel)
         private_kfree(bin);
         m_bin = 0;
     }
+    mutex_unlock(&t41_switch_bin_lock);
 
     params = (void **)((char *)&tparamsP + slot);
     if (*params) {
