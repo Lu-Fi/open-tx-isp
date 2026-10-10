@@ -21240,6 +21240,43 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
     return 0;
 }
 
+/*
+ * AF weight table (control 0x8000032, stock tx_isp_af_weight_s/g_attr ->
+ * tisp_af_api_set/get_weight): 225 bytes (15x15) copied to/from the AF
+ * parameter block at +531.  The stock code dereferences af_info without a
+ * check; refuse when the AF block was not set up.  The weights only reach
+ * the AF statistics, which stay off on this fixed-focus build, so the
+ * table is a stored value like in the stock driver.
+ */
+#define T41_AF_WEIGHT_BYTES 225U
+#define T41_AF_WEIGHT_OFFSET 531U
+
+static int t41_tuning_af_weight(unsigned int channel, unsigned int is_get,
+                                uintptr_t user_ptr)
+{
+    u8 weight[T41_AF_WEIGHT_BYTES];
+    u8 *info, *params;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    info = (u8 *)(uintptr_t)af_info[0];
+    if (!t41_kernel_data_ptr(info))
+        return -ENODEV;
+    params = (u8 *)(uintptr_t)*(uint32_t *)(void *)info;
+    if (!t41_kernel_data_ptr(params))
+        return -ENODEV;
+    if (is_get) {
+        memcpy(weight, params + T41_AF_WEIGHT_OFFSET, sizeof(weight));
+        return private_copy_to_user((void __user *)user_ptr, weight,
+                                    sizeof(weight)) ? -EFAULT : 0;
+    }
+    if (private_copy_from_user(weight, (void __user *)user_ptr,
+                               sizeof(weight)))
+        return -EFAULT;
+    memcpy(params + T41_AF_WEIGHT_OFFSET, weight, sizeof(weight));
+    return 0;
+}
+
 static int t41_tuning_copy_ae_stats(unsigned int channel, uintptr_t user_ptr)
 {
     const unsigned int histogram_bytes =
@@ -21734,6 +21771,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             { TX_ISP_TUNING_CMD_T41_MODULE_CONTROL, 4,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AF_WEIGHT, T41_AF_WEIGHT_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_GAMMA, T41_GAMMA_ATTR_BYTES,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -21965,6 +22005,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_MODULE_RATIO)
             return t41_tuning_module_ratio(request.channel, request.is_get,
                                            request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_AF_WEIGHT)
+            return t41_tuning_af_weight(request.channel, request.is_get,
+                                        request.value_or_ptr);
         /*
          * Public tuning IDs with no open implementation yet: report it
          * instead of acknowledging the request unchanged.
@@ -36240,6 +36283,110 @@ static int t41_setup_video_link_graph(uintptr_t graph, unsigned int link)
     return 0;
 }
 
+/*
+ * Frame drop (0xc004542c set / 0xc004542d get).  The request is 40 bytes:
+ * the channel word followed by three {enable, lsize, fmark} entries, one
+ * per output channel.  Stock hands entry i to tisp_set/get_frame_drop(ch, i)
+ * which programs/reads the drop registers; the channel word is not used for
+ * the register address.  Stock validates lsize while it writes, so an entry
+ * with lsize >= 32 left the earlier entries applied; check all three first.
+ */
+#define T41_FRAME_DROP_ENTRIES 3U
+#define T41_FRAME_DROP_WORDS (1U + 3U * T41_FRAME_DROP_ENTRIES)
+
+static int t41_ioctl_frame_drop(uintptr_t file, unsigned int command,
+                                uint32_t user_arg)
+{
+    uint32_t req[T41_FRAME_DROP_WORDS];
+    unsigned int i;
+    int ret = 0;
+
+    if (!file || !user_arg || !t41_load_ptr(file, 136))
+        return -EINVAL;
+    if (private_copy_from_user(req, (const void __user *)(uintptr_t)user_arg,
+                               sizeof(req)))
+        return -EFAULT;
+    if (req[0] != 0)
+        return -EINVAL;
+    if (command == 0xc004542cU) {
+        for (i = 0; i < T41_FRAME_DROP_ENTRIES; i++) {
+            uint32_t *e = &req[1 + i * 3];
+
+            if (e[0] == 1 && (e[1] & 0xff) >= 32)
+                return -EINVAL;
+        }
+        for (i = 0; i < T41_FRAME_DROP_ENTRIES && !ret; i++)
+            ret = tisp_set_frame_drop(req[0], i, (uintptr_t)&req[1 + i * 3]);
+        return ret;
+    }
+    for (i = 0; i < T41_FRAME_DROP_ENTRIES && !ret; i++)
+        ret = tisp_get_frame_drop(req[0], i, (uintptr_t)&req[1 + i * 3]);
+    if (ret)
+        return ret;
+    return private_copy_to_user((void __user *)(uintptr_t)user_arg, req,
+                                sizeof(req)) ? -EFAULT : 0;
+}
+
+/*
+ * WDR enable/disable (0x80045413 / 0x80045414): a 4-byte channel word.
+ * Stock flips a per-channel flag in the core and, when the core runs, sends
+ * the WDR stop/switch events to the sensor and core.  Those events only
+ * matter for a WDR sensor mode; a linear sensor (gc5603) has none, so the
+ * flag is recorded and no event is sent.  Stock answers 0 once the flag
+ * already has the requested value.  The channel is range checked here
+ * (stock indexes core memory with it unchecked).
+ */
+static u32 t41_wdr_flag[3];
+
+static int t41_ioctl_wdr_switch(uintptr_t file, bool enable, uint32_t user_arg)
+{
+    uint32_t ch;
+
+    if (!file || !user_arg || !t41_load_ptr(file, 136))
+        return -EINVAL;
+    if (private_copy_from_user(&ch, (const void __user *)(uintptr_t)user_arg,
+                               sizeof(ch)))
+        return -EFAULT;
+    if (ch >= ARRAY_SIZE(t41_wdr_flag))
+        return -EINVAL;
+    WRITE_ONCE(t41_wdr_flag[ch], enable ? 1U : 0U);
+    return 0;
+}
+
+/*
+ * Sensor register access (0xc040540d set / 0x8040540e get): a 64-byte
+ * request {name[32], vinum, bus type, ..., reg (u64 at 48), value (u64 at
+ * 56)}.  Stock sends it as event 0x2000011/0x2000012 to the subdevs; the VIN
+ * subdev resolves the active sensor from the word at +32 and calls the
+ * sensor core register callback.  The get result is copied back.
+ */
+static int t41_ioctl_sensor_register(uintptr_t file, bool write,
+                                     uint32_t user_arg)
+{
+    unsigned char req[64];
+    uintptr_t vin;
+    int ret;
+
+    if (!file || !user_arg || !t41_load_ptr(file, 136))
+        return -EINVAL;
+    if (private_copy_from_user(req, (const void __user *)(uintptr_t)user_arg,
+                               sizeof(req)))
+        return -EFAULT;
+    vin = (uint32_t)private_platform_get_drvdata(
+            (uintptr_t)&tx_isp_vin_platform_device);
+    if (!vin)
+        return -ENODEV;
+    ret = subdev_sensor_ops_ioctl(vin, write ? T41_EVENT_SENSOR_S_REGISTER :
+                                  T41_EVENT_SENSOR_G_REGISTER, (uintptr_t)req);
+    if (ret)
+        return ret;
+    if (!write &&
+        private_copy_to_user((void __user *)(uintptr_t)user_arg, req,
+                             sizeof(req)))
+        return -EFAULT;
+    return 0;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000014474 origin=fragment_seed original=tx_isp_unlocked_ioctl */
 int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
@@ -36387,6 +36534,30 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     }
     if (a1 == 0xc0085404U) {
         regtrace_ret = t41_ioctl_set_sensor_input(a0, a2);
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
+               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               a1, regtrace_ret);
+        return regtrace_ret;
+    }
+    if (a1 == 0xc004542cU || a1 == 0xc004542dU) {
+        regtrace_ret = t41_ioctl_frame_drop(a0, a1, a2);
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
+               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               a1, regtrace_ret);
+        return regtrace_ret;
+    }
+    if (a1 == 0x80045413U || a1 == 0x80045414U) {
+        regtrace_ret = t41_ioctl_wdr_switch(a0, a1 == 0x80045413U, a2);
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
+               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               a1, regtrace_ret);
+        return regtrace_ret;
+    }
+    if (a1 == 0xc040540dU || a1 == 0x8040540eU) {
+        regtrace_ret = t41_ioctl_sensor_register(a0, a1 == 0xc040540dU, a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
                "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
@@ -158839,126 +159010,43 @@ int32_t tisp_get_wdr_output_mode(void)
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000006e158 origin=fragment_seed original=tisp_set_frame_drop */
+/*
+ * Stock tisp_set_frame_drop (0x6e198): entry a1 owns the register pair
+ * 0xf0130 + a1*0x100 (lsize) and 0xf0134 + a1*0x100 (fmark).  The first
+ * word of the attribute is the enable flag: 1 writes lsize (< 32, else -1
+ * before anything is written) and fmark, anything else writes 0 and
+ * 0xffffffff.  The generated version called system_reg_write() with the
+ * value argument dropped, so the registers received stale data.
+ */
 int32_t tisp_set_frame_drop(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    const uint32_t *attr = (const uint32_t *)a2;
+    uint32_t lsize_reg = 0xf0130U + (a1 << 8);
+    uint32_t fmark_reg = 0xf0134U + (a1 << 8);
 
-    /* fragment 0: Arithmetic */
-    v0 = 983040;
+    if (attr[0] == 1) {
+        uint32_t lsize = *(const uint8_t *)(a2 + 4);
 
-    /* fragment 1: MemoryAccess */
-    v1 = *(uint32_t *)((char *)a2 + 0);
-    a1 = a1 << 8;
-    a0 = v0 + 304;
-    v0 = v0 + 308;
-    local_10 = s0;
-    s0 = a1 + (uintptr_t)v0;
-    v0 = 1;
-    local_1c = ra;
-    local_18 = s2;
-    local_14 = s1;
-
-    /* fragment 2: Branch */
-    a0 = a1 + a0;
-    if (v1 != v0) { goto tisp_set_frame_drop0xa0; }
-
-    /* fragment 3: MemoryAccess */
-    a1 = *(uint8_t *)((char *)a2 + 4);
-    v0 = a1 < 32;
-
-    /* fragment 4: Branch */
-    s2 = a2;
-    if (v0 != 0) { goto tisp_set_frame_drop0x7c; }
-
-    /* fragment 5: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC9); /* jalr target resolved by relocation */
-
-    /* fragment 6: Arithmetic */
-    v0 = -1;
-
-tisp_set_frame_drop0x64:
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_set_frame_drop0x7c:
-    /* fragment 8: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    a1 = *(uint32_t *)((char *)s2 + 8);
-
-tisp_set_frame_drop0x90:
-    /* fragment 10: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 11: Branch */
-    v0 = 0;
-    goto tisp_set_frame_drop0x64;
-
-tisp_set_frame_drop0xa0:
-    /* fragment 12: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 13: Branch */
-    a1 = -1;
-    goto tisp_set_frame_drop0x90;
-
+        if (lsize >= 32)
+            return -1;
+        system_reg_write(lsize_reg, lsize);
+        system_reg_write(fmark_reg, attr[2]);
+    } else {
+        system_reg_write(lsize_reg, 0);
+        system_reg_write(fmark_reg, 0xffffffffU);
+    }
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000006e210 origin=fragment_seed original=tisp_get_frame_drop */
+/* Stock tisp_get_frame_drop (0x6e250): reads the pair back (lsize is the
+ * low byte at +4), enable reads as 1. */
 int32_t tisp_get_frame_drop(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t s3 = 0;
-    uint32_t *v0 = 0;
+    uint32_t *attr = (uint32_t *)a2;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = 983040;
-    s3 = a1 << 8;
-    s2 = a2;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)((a1 << 8) + (983040 + 304)); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    *(uint8_t *)((char *)s2 + 4) = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(s3 + (s1 + 308)); /* jalr target resolved by relocation */
-
-    /* fragment 3: MemoryAccess */
-    *(uint32_t *)((char *)s2 + 8) = v0;
-    v0 = 1;
-    *(uint32_t *)((char *)s2 + 0) = v0;
-    ra = local_24;
-    s3 = local_20;
-    s2 = local_1c;
-    s1 = local_18;
-    s0 = local_14;
-    v0 = 0;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    *(uint8_t *)(a2 + 4) = (uint8_t)system_reg_read(0xf0130U + (a1 << 8));
+    attr[2] = (uint32_t)system_reg_read(0xf0134U + (a1 << 8));
+    attr[0] = 1;
     return 0;
 }
 
