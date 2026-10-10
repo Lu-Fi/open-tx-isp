@@ -19,6 +19,15 @@ int main(void)
 	bad += t20_ae_max_again_log2_5(jxf, 1) != 1;
 	bad += t20_ae_max_again_log2_5((158u << 11) | 0x7ff, 200) != 158; /* fraction cut */
 	bad += t20_ae_max_again_log2_5(0, 128) != 0;
+	/* stepped sensor tables: the AE plateaus on the step below the cap */
+	bad += t20_ae_plateau_log2_5(144, 292253) != 142; /* jxh42 0x46 */
+	bad += t20_ae_plateau_log2_5(128, 262144) != 128; /* exact step */
+	bad += t20_ae_plateau_log2_5(128, 0) != 128;      /* unknown */
+	bad += t20_ae_plateau_log2_5(128, 324678) != 128; /* never above cap */
+	bad += t20_ae_request_log2_16(324678, 144) != (144u << 11);
+	bad += t20_ae_request_log2_16(324678, 200) != 324678; /* sensor max exact */
+	bad += t20_ae_request_log2_16(324678, 0) != 324678;
+	bad += t20_ae_plateau_log2_5(158, 324678) != 158; /* top step, not 157 */
 	printf("t20_ae_max_host_test: %s (%d bad)\n", bad ? "FAIL" : "PASS", bad);
 	return bad != 0;
 }
