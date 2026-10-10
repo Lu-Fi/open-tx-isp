@@ -33,6 +33,12 @@
 #define T23X_CID_AF_WEIGHT      0x08000044U
 #define T23X_CID_AF_ZONE        0x08000046U
 #define T23X_CID_MASK_BLOCK     0x08000183U
+#define T23X_CID_DRAW_BLOCK     0x08000180U
+#define T23X_CID_OSD_ATTR       0x08000181U
+#define T23X_CID_OSD_BLOCK      0x08000182U
+#define T23X_CID_SWITCH_BIN     0x08000185U
+#define T23X_CID_WB_ALGO        0x0800000cU
+#define T23X_SWITCH_BIN_BYTES   68U     /* IMPISPBinAttr: u32 enable, char bname[64] */
 #define T23X_CID_AUTO_ZOOM      0x080000e8U
 #define T23X_CID_AWB_CLUSTER    0x0800000eU
 #define T23X_CID_AWB_CT_TREND   0x0800000fU
@@ -530,6 +536,125 @@ static long t23x_mask_block(bool get, uint32_t uptr)
 	return get ? regtrace_t23_copy_out(uptr, out, sizeof(out)) : 0;
 }
 
+/* ---- ISP OSD attribute / OSD block / draw block -------------------------- */
+
+/*
+ * Set/Get OSDAttr (0x08000181, 12 bytes), OSDBlock (0x08000182, 20 bytes)
+ * and DrawBlock (0x08000180, 32 bytes) on the stock mscaler object, see
+ * tx_isp_t23_tuning_ext.h (emulator audit: audit/osd_draw_emu.py).  Like
+ * the mask blocks, a stored block has no image effect yet: the MSCA update
+ * that programs it (tisp_msca_Shd_ctrl -> tisp_msca_api_set_osd / _set_line)
+ * is not run by this driver.  Host build only, device test pending.
+ * Shares the mask mutex: the three controls and the mask blocks work on
+ * the same object.
+ */
+static long t23x_osd_draw(bool get, uint32_t id, uint32_t uptr)
+{
+	uint8_t blk[T23X_DRAW_BLOCK_BYTES];
+	uint8_t out[T23X_DRAW_BLOCK_BYTES];
+	size_t n = id == T23X_CID_OSD_ATTR ? T23X_OSD_ATTR_BYTES :
+		   id == T23X_CID_OSD_BLOCK ? T23X_OSD_BLOCK_BYTES :
+					      T23X_DRAW_BLOCK_BYTES;
+	long ret = 0;
+	int quirk = 0;
+
+	BUILD_BUG_ON(sizeof(mscaler) < T23X_MSCA_BYTES);
+	BUILD_BUG_ON(sizeof(msca) <= T23X_MSCA_LIMIT_H_OFF + 4U);
+	memset(blk, 0, sizeof(blk));
+	memset(out, 0, sizeof(out));
+	/* the getters read the user's block first (the index), the attribute getter has none */
+	if (!get || id != T23X_CID_OSD_ATTR) {
+		ret = regtrace_t23_copy_in(blk, uptr, n);
+		if (ret)
+			return ret;
+	}
+	mutex_lock(&t23x_mask_mutex);
+	switch (id) {
+	case T23X_CID_OSD_ATTR:
+		if (get)
+			t23x_osd_attr_get(mscaler, out);
+		else
+			t23x_osd_attr_set(mscaler, blk);
+		break;
+	case T23X_CID_OSD_BLOCK:
+		ret = get ? t23x_osd_block_get(mscaler, blk, out) :
+			    t23x_osd_block_set(mscaler, msca, blk, &quirk);
+		break;
+	default:
+		ret = get ? t23x_draw_block_get(mscaler, blk, out) :
+			    t23x_draw_block_set(mscaler, blk);
+		break;
+	}
+	mutex_unlock(&t23x_mask_mutex);
+	if (quirk)
+		printk(KERN_WARNING
+		       "tx_isp_t23_recovered: SetOSDBlock %u: stored size above the channel limits, request ignored (stock)\n",
+		       blk[0]);
+	if (ret == -ERANGE) {
+		/* stock: logged, nothing stored, and s_ctrl returns 0 */
+		printk(KERN_WARNING
+		       "tx_isp_t23_recovered: SetOSDBlock %u: block beyond the channel limits, request ignored (stock)\n",
+		       blk[0]);
+		return 0;
+	}
+	if (ret)
+		return ret;
+	return get ? regtrace_t23_copy_out(uptr, out, n) : 0;
+}
+
+/* ---- SwitchBin ----------------------------------------------------------- */
+
+/*
+ * SwitchBin (0x08000185): stock s_ctrl copies the 68 byte IMPISPBinAttr
+ * { u32 enable, char bname[64] }, a zero enable logs and fails (-1), else
+ * tisp_switch_bin loads the IQ bin (see tisp_switch_bin in the core).  The
+ * name is terminated here (stock does not).  Host build only, device test
+ * pending.
+ */
+static long t23x_switch_bin(uint32_t uptr)
+{
+	uint8_t blk[T23X_SWITCH_BIN_BYTES];
+	long ret;
+
+	ret = regtrace_t23_copy_in(blk, uptr, sizeof(blk));
+	if (ret)
+		return ret;
+	if (!t23x_le32_get(blk)) {
+		printk(KERN_ERR "tx_isp_t23_recovered: SwitchBin: enable is 0\n");
+		return -EINVAL;
+	}
+	blk[sizeof(blk) - 1U] = 0;
+	return (int32_t)tisp_switch_bin((uint32_t)(uintptr_t)blk);
+}
+
+/* ---- SetWB_ALGO ---------------------------------------------------------- */
+
+/*
+ * SetWB_ALGO (0x0800000c, inline mode): stock tisp_s_awb_algo ->
+ * tiziano_s_wb_algo stores the mode in the AWB light-source object
+ * (_light_src + 76: 1 for mode 1, 0 for modes 0 and 2), logs "Can not
+ * support this awb algo mode" for any other mode, and reprograms the four
+ * AWB threshold registers (0xb028..0xb034).  The control always returns 0.
+ * The flag is stored the same way here.  The registers are not rewritten:
+ * the AWB this driver runs sets the wide thresholds that stock mode 1
+ * writes at every start and has no IQ-threshold window to switch to, so
+ * the setting has no effect on it (the control is accepted, as stock does,
+ * instead of failing).  There is no getter in stock (-1).
+ */
+static long t23x_wb_algo_set(uint32_t mode)
+{
+	uint32_t flag = mode == 1U;
+
+	if (mode > 2U) {
+		printk(KERN_WARNING
+		       "tx_isp_t23_recovered: SetWB_ALGO: Can not support this awb algo mode!!! (%u)\n",
+		       mode);
+		return 0;
+	}
+	memcpy(_light_src + 76, &flag, sizeof(flag));
+	return 0;
+}
+
 /* ---- AutoZoom ---------------------------------------------------------- */
 
 /*
@@ -696,6 +821,14 @@ static long regtrace_t23_tuning_ext(bool get, uint32_t id, uint32_t *value)
 		return get ? -EINVAL : t23x_autozoom_set(*value);
 	case T23X_CID_MASK_BLOCK:
 		return t23x_mask_block(get, *value);
+	case T23X_CID_DRAW_BLOCK:
+	case T23X_CID_OSD_ATTR:
+	case T23X_CID_OSD_BLOCK:
+		return t23x_osd_draw(get, id, *value);
+	case T23X_CID_SWITCH_BIN:
+		return get ? -EINVAL : t23x_switch_bin(*value);
+	case T23X_CID_WB_ALGO:
+		return get ? -EINVAL : t23x_wb_algo_set(*value);
 	case T23X_CID_GAMMA:
 		return t23x_gamma(get, *value);
 	case T23X_CID_FIXED_CONTRAST: {

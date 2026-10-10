@@ -497,6 +497,260 @@ static inline int t23x_mask_block_get(const uint8_t *msca, const uint8_t *in,
 	return 0;
 }
 
+/* ---- ISP OSD attribute / OSD block / draw block (0x08000181 / 182 / 180) ---- */
+
+/*
+ * The stock handlers of SetOSDAttr / SetOSDBlock / SetDrawBlock (and the
+ * getters) keep their state in the same mscaler object as the mask blocks
+ * (stock .bss, 2316 bytes); tisp_msca_Shd_ctrl -> tisp_msca_set_omi_api ->
+ * tisp_msca_api_set_osd / _set_line then program it into the MSCA.
+ *
+ *   OSD attribute (3 x u32 in the user block, kept as 3 bytes @2300..2302):
+ *     Set: when the first word differs from the stored byte, the 8 block
+ *     enables (@2186 + 16 * n) are cleared and the OSD dirty word (@2304) is
+ *     set to 255 (an assignment, not an or); then the three bytes are stored.
+ *     Get: the three bytes as u32.
+ *   OSD block (20 bytes: u8 chx @0, u8 enable @1, u16 x @2, y @4, w @6, h @8,
+ *     u32 picture address @12, u16 stride @16): the geometry of block n is
+ *     the u16 x/y/w/h at 1836 + 16 * (21 + n) + 0/2/4/6, the picture address
+ *     (u32) and stride (u16) at 16 * (136 + n) + 4 / + 8 and the enable byte
+ *     at 16 * (136 + n) + 10.  Set with enable == 1 first compares the
+ *     STORED width / height of the block with the channel 0 limits
+ *     (msca +48 / +52: stale values, stock quirk; a violation logs and
+ *     returns 0 without storing), then ignores a block with x + w or y + h
+ *     beyond the limits (logs; the helper's -1 is dropped by s_ctrl, the
+ *     user call returns 0), stores the block, trims w / h to the limits and sets the
+ *     block's bit in the dirty word @2304.  Set with enable != 1 zeroes the
+ *     block's geometry, address, stride and enable.  Get clears the 20 bytes
+ *     and, for an enabled block, reports enable = 1, x, y, w, h, the address
+ *     plus 0x80000000 and the stride.
+ *   Draw block (32 bytes: u8 pinum @0, u32 type @4, u8 @12, u16 @14/16/18/20,
+ *     colour bytes @22..24, u8 @25 / @26, u16 @28): entry n at 2028 + 24 * n
+ *     (+0 type byte, +4 u8, +6/+8/+10/+12 u16, +16 u32 colour (@22 << 16 |
+ *     @23 << 8 | @24), +20 u8, +21 u8, +22 u16).  Types 0 and 2 store all but
+ *     +22, type 1 stores +22 too, any other type only the type byte; the
+ *     block's bit is set in the draw dirty word @2312.  Get writes the same
+ *     fields back and the colour: byte 22 = colour byte 2, byte 23 = colour
+ *     byte 1 and then (stock slip) byte 23 again = colour byte 0; byte 24
+ *     is never written.
+ *
+ * Stock checks no block / entry index; here an OSD block above 7 and a draw
+ * block above 5 (the 8 and 6 entries the MSCA update walks) are refused with
+ * -EINVAL, nothing written.  Stock Get passes an uninitialised stack local,
+ * so it neither knows the index nor defines the bytes it leaves; here the
+ * user's block is read first (index) and the bytes stock leaves out are 0 /
+ * the user's.  Like the mask blocks, a stored OSD or draw block has no image
+ * effect yet in this driver (the MSCA update that consumes it is not run).
+ */
+#define T23X_OSD_ATTR_BYTES 12U
+#define T23X_OSD_BLOCK_BYTES 20U
+#define T23X_DRAW_BLOCK_BYTES 32U
+#define T23X_OSD_BLOCKS 8U
+#define T23X_DRAW_BLOCKS 6U
+#define T23X_MSCA_OSD_ATTR_OFF 2300U
+#define T23X_MSCA_OSD_DIRTY_OFF 2304U
+#define T23X_MSCA_DRAW_DIRTY_OFF 2312U
+#define T23X_MSCA_OSD_EN_OFF 2186U     /* 16 * 136 + 10 */
+#define T23X_MSCA_DRAW_OFF 2028U
+#define T23X_MSCA_DRAW_STRIDE 24U
+#define T23X_MSCA_LIMIT_W_OFF 48U      /* channel 0 record of msca */
+#define T23X_MSCA_LIMIT_H_OFF 52U
+
+static inline uint32_t t23x_le32_get(const uint8_t *p)
+{
+	return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 |
+	       (uint32_t)p[3] << 24;
+}
+
+static inline void t23x_le32_put(uint8_t *p, uint32_t v)
+{
+	p[0] = (uint8_t)v;
+	p[1] = (uint8_t)(v >> 8);
+	p[2] = (uint8_t)(v >> 16);
+	p[3] = (uint8_t)(v >> 24);
+}
+
+/* tisp_s_osd_attr on the mscaler object m; in = 3 x u32 */
+static inline void t23x_osd_attr_set(uint8_t *m, const uint8_t *in)
+{
+	unsigned int i;
+
+	if ((uint32_t)m[T23X_MSCA_OSD_ATTR_OFF] != t23x_le32_get(in)) {
+		for (i = 0; i < T23X_OSD_BLOCKS; i++)
+			m[T23X_MSCA_OSD_EN_OFF + 16U * i] = 0;
+		t23x_le32_put(m + T23X_MSCA_OSD_DIRTY_OFF, 255U);
+	}
+	m[T23X_MSCA_OSD_ATTR_OFF] = (uint8_t)t23x_le32_get(in);
+	m[T23X_MSCA_OSD_ATTR_OFF + 1U] = (uint8_t)t23x_le32_get(in + 4);
+	m[T23X_MSCA_OSD_ATTR_OFF + 2U] = (uint8_t)t23x_le32_get(in + 8);
+}
+
+/* tisp_g_osd_attr: out = 3 x u32 */
+static inline void t23x_osd_attr_get(const uint8_t *m, uint8_t *out)
+{
+	t23x_le32_put(out, m[T23X_MSCA_OSD_ATTR_OFF]);
+	t23x_le32_put(out + 4, m[T23X_MSCA_OSD_ATTR_OFF + 1U]);
+	t23x_le32_put(out + 8, m[T23X_MSCA_OSD_ATTR_OFF + 2U]);
+}
+
+/* geometry entry (x y w h as u16) and data entry (addr, stride, enable) of block n */
+static inline uint8_t *t23x_osd_geo(uint8_t *m, unsigned int n)
+{
+	return m + T23X_MSCA_MASK_OFF + 16U * (21U + n);
+}
+
+static inline uint8_t *t23x_osd_dat(uint8_t *m, unsigned int n)
+{
+	return m + 16U * (136U + n);
+}
+
+/*
+ * tisp_s_osd_block_attr.  msca: the stock msca object (channel 0 limits).
+ * Returns 0, -EINVAL (index refused, beyond stock) or -ERANGE (x + w or
+ * y + h beyond the limits: the stock helper logs and returns -1, but the
+ * stock s_ctrl discards that result, so the user call still returns 0 and
+ * nothing is stored).  *quirk is set to 1 when the stock code logged the
+ * stale-size violation and returned 0 without storing (the caller may log
+ * it), else 0.
+ */
+static inline int t23x_osd_block_set(uint8_t *m, const uint8_t *msca,
+				     const uint8_t *in, int *quirk)
+{
+	unsigned int n = in[0];
+	uint8_t *g, *d;
+	uint32_t lim_w, lim_h, dirty;
+
+	if (quirk)
+		*quirk = 0;
+	if (n >= T23X_OSD_BLOCKS)
+		return -EINVAL;
+	g = t23x_osd_geo(m, n);
+	d = t23x_osd_dat(m, n);
+	lim_w = t23x_le32_get(msca + T23X_MSCA_LIMIT_W_OFF);
+	lim_h = t23x_le32_get(msca + T23X_MSCA_LIMIT_H_OFF);
+	if (in[1] == 1U) {
+		if (lim_w < t23x_le16_get(g + 4) || lim_h < t23x_le16_get(g + 6)) {
+			if (quirk)
+				*quirk = 1;
+			return 0;
+		}
+		if (lim_w < (uint32_t)t23x_le16_get(in + 2) + t23x_le16_get(in + 6) ||
+		    lim_h < (uint32_t)t23x_le16_get(in + 4) + t23x_le16_get(in + 8))
+			return -ERANGE;
+		d[10] = 1;
+		t23x_le16_put(g, t23x_le16_get(in + 2));
+		t23x_le16_put(g + 2, t23x_le16_get(in + 4));
+		t23x_le16_put(g + 4, t23x_le16_get(in + 6));
+		t23x_le16_put(g + 6, t23x_le16_get(in + 8));
+		t23x_le32_put(d + 4, t23x_le32_get(in + 12));
+		t23x_le16_put(d + 8, t23x_le16_get(in + 16));
+		if (lim_w < (uint32_t)t23x_le16_get(g + 4) + t23x_le16_get(g))
+			t23x_le16_put(g + 4, (uint16_t)(lim_w - t23x_le16_get(g)));
+		if (lim_h < (uint32_t)t23x_le16_get(g + 6) + t23x_le16_get(g + 2))
+			t23x_le16_put(g + 6, (uint16_t)(lim_h - t23x_le16_get(g + 2)));
+	} else {
+		d[10] = 0;
+		t23x_le16_put(g, 0);
+		t23x_le16_put(g + 2, 0);
+		t23x_le16_put(g + 4, 0);
+		t23x_le16_put(g + 6, 0);
+		t23x_le32_put(d + 4, 0);
+		t23x_le16_put(d + 8, 0);
+	}
+	dirty = t23x_le32_get(m + T23X_MSCA_OSD_DIRTY_OFF) | (1U << n);
+	t23x_le32_put(m + T23X_MSCA_OSD_DIRTY_OFF, dirty);
+	return 0;
+}
+
+/* tisp_g_osd_block_attr for the block in[0]; out = 20 bytes */
+static inline int t23x_osd_block_get(uint8_t *m, const uint8_t *in, uint8_t *out)
+{
+	unsigned int n = in[0];
+	const uint8_t *g, *d;
+
+	if (n >= T23X_OSD_BLOCKS)
+		return -EINVAL;
+	g = t23x_osd_geo(m, n);
+	d = t23x_osd_dat(m, n);
+	memset(out, 0, T23X_OSD_BLOCK_BYTES);
+	out[0] = (uint8_t)n;
+	if (d[10] == 1U) {
+		out[1] = 1;
+		t23x_le16_put(out + 2, t23x_le16_get(g));
+		t23x_le16_put(out + 4, t23x_le16_get(g + 2));
+		t23x_le16_put(out + 6, t23x_le16_get(g + 4));
+		t23x_le16_put(out + 8, t23x_le16_get(g + 6));
+		t23x_le32_put(out + 12, t23x_le32_get(d + 4) + 0x80000000U);
+		t23x_le16_put(out + 16, t23x_le16_get(d + 8));
+	}
+	return 0;
+}
+
+static inline uint8_t *t23x_draw_entry(uint8_t *m, unsigned int n)
+{
+	return m + T23X_MSCA_DRAW_OFF + T23X_MSCA_DRAW_STRIDE * n;
+}
+
+/* tisp_s_draw_block_attr; in = 32 bytes */
+static inline int t23x_draw_block_set(uint8_t *m, const uint8_t *in)
+{
+	unsigned int n = in[0];
+	uint32_t type = t23x_le32_get(in + 4);
+	uint8_t *e;
+	uint32_t dirty;
+
+	if (n >= T23X_DRAW_BLOCKS)
+		return -EINVAL;
+	e = t23x_draw_entry(m, n);
+	e[0] = (uint8_t)type;
+	if (type <= 2U) {
+		e[4] = in[12];
+		t23x_le16_put(e + 6, t23x_le16_get(in + 14));
+		t23x_le16_put(e + 8, t23x_le16_get(in + 16));
+		t23x_le16_put(e + 10, t23x_le16_get(in + 18));
+		t23x_le16_put(e + 12, t23x_le16_get(in + 20));
+		t23x_le32_put(e + 16, (uint32_t)in[22] << 16 |
+				      (uint32_t)in[23] << 8 | in[24]);
+		e[20] = in[25];
+		e[21] = in[26];
+		if (type == 1U)
+			t23x_le16_put(e + 22, t23x_le16_get(in + 28));
+	}
+	dirty = t23x_le32_get(m + T23X_MSCA_DRAW_DIRTY_OFF) | (1U << n);
+	t23x_le32_put(m + T23X_MSCA_DRAW_DIRTY_OFF, dirty);
+	return 0;
+}
+
+/* tisp_g_draw_block_attr for the block in[0]; out = 32 bytes, starts as in */
+static inline int t23x_draw_block_get(uint8_t *m, const uint8_t *in, uint8_t *out)
+{
+	unsigned int n = in[0];
+	const uint8_t *e;
+	uint32_t type;
+
+	if (n >= T23X_DRAW_BLOCKS)
+		return -EINVAL;
+	e = t23x_draw_entry(m, n);
+	memcpy(out, in, T23X_DRAW_BLOCK_BYTES);
+	type = e[0];
+	t23x_le32_put(out + 4, type);
+	if (type <= 2U) {
+		out[12] = e[4];
+		t23x_le16_put(out + 14, t23x_le16_get(e + 6));
+		t23x_le16_put(out + 16, t23x_le16_get(e + 8));
+		t23x_le16_put(out + 18, t23x_le16_get(e + 10));
+		t23x_le16_put(out + 20, t23x_le16_get(e + 12));
+		out[25] = e[20];
+		out[26] = e[21];
+		if (type == 1U)
+			t23x_le16_put(out + 28, t23x_le16_get(e + 22));
+		out[22] = e[18];
+		out[23] = e[17];
+		out[23] = e[16];        /* stock slip: overwrites byte 23 */
+	}
+	return 0;
+}
+
 /* ---- AutoZoom (0x80000e8) ------------------------------------------- */
 
 /*

@@ -310,6 +310,7 @@ int tisp_s_2dns_ratio(int ratio);
 int tisp_s_3dns_ratio(int ratio);
 static int tiziano_s_wb_algo(uint32_t mode);
 int tisp_s_awb_algo(uint32_t mode);
+int tisp_set_bcsh_fixed_contrast(const uint8_t *cfg);
 int tisp_s_wb_frz(void *in_buf);
 int tisp_g_wb_frz(void *out_buf);
 static int tisp_s_wb_mode(uint32_t mode, uint32_t gain_gr, uint32_t gain_gb);
@@ -10006,7 +10007,9 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
                 ret = -EFAULT;
                 goto out;
             }
-            /* OEM: tisp_set_bcsh_fixed_contrast(fc_buf) */
+            /* OEM: tisp_set_bcsh_fixed_contrast(fc_buf) -> tisp_bcsh_set_mjpeg_contrast
+             * (mode, y_low, fixed) -> tiziano_bcsh_update; the stock handler returns 0 */
+            tisp_set_bcsh_fixed_contrast(fc_buf);
             ret = 0;
             break;
         }
