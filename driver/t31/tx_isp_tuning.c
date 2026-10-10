@@ -29685,14 +29685,19 @@ void tx_isp_t31_wdr_stop(void)
     cancel_work_sync(&wdr_work);
 }
 
-/* Call after ISP DMA has stopped. */
+/*
+ * Stream-off and module exit.  The WDR statistics ring (0x2010..0x201c,
+ * engine 0x2024) stays allocated like the other statistics rings: nothing
+ * on this path stops the core (0x800) or the engine, so a kfree here freed
+ * a page the ISP kept writing WDR statistics into while the input ran
+ * (same fault class as the T21 "statistics DMA into freed buffers").
+ * tisp_init() reuses the ring; tisp_free_stats_pages() disables the engine
+ * and frees it at module exit.
+ */
 void tisp_deinit_free(void)
 {
     tx_isp_t31_wdr_stop();
     mutex_lock(&wdr_control_lock);
-    kfree(wdr_dma_buffer);
-    wdr_dma_buffer = NULL;
-    wdr_dma_phys = 0;
     wdr_stats_pending = false;
     t31_wdr_buffers_free();
     mutex_unlock(&wdr_control_lock);
@@ -36854,9 +36859,15 @@ static void tisp_free_stats_pages(void)
         system_reg_write(0x4490, 0);
         system_reg_write(0x5b80, 0);
         system_reg_write(0xb8b8, 0);
+        system_reg_write(0x2024, 0);    /* WDR statistics ring */
         wmb();
         udelay(100);    /* let an in-flight burst finish */
     }
+    mutex_lock(&wdr_control_lock);
+    kfree(wdr_dma_buffer);
+    wdr_dma_buffer = NULL;
+    wdr_dma_phys = 0;
+    mutex_unlock(&wdr_control_lock);
 
     if (tisp_stats_ae0)
         free_pages(tisp_stats_ae0, 3);
