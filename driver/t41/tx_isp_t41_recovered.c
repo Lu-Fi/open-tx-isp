@@ -20633,6 +20633,16 @@ static int t41_tuning_copy_ae_expr(unsigned int channel, uintptr_t user_ptr)
         values.again_manual = READ_ONCE(t41_ae_man_again) ? 1 : 0;
         values.manual_integration = control->integration;
         values.manual_again_x1024 = control->again;
+        /* the AE worker applies a manual request on the next frame; report
+         * the request so an immediate Get reads back what was set */
+        if (READ_ONCE(t41_ae_man_it)) {
+            values.integration_time = READ_ONCE(t41_ae_man_it);
+            values.manual_integration = values.integration_time;
+        }
+        if (READ_ONCE(t41_ae_man_again)) {
+            values.analog_gain_x1024 = READ_ONCE(t41_ae_man_again);
+            values.manual_again_x1024 = values.analog_gain_x1024;
+        }
         values.max_dgain_manual = READ_ONCE(t41_ae_man_dgain_cap) ? 1 : 0;
         values.max_dgain = READ_ONCE(t41_ae_man_dgain_cap);
     }
