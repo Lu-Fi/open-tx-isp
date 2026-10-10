@@ -6,6 +6,8 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 
 ## 2026-10-10
 
+- Pending (branch `claude/t41-zoom-mask`, host- and build-tested only, no device test yet): T41 AutoZoom (0x08000077), MaskBlock (0x08000074) and ScalerLv (0x080000a6) from the stock libt41-firmware 1.2.6 routines instead of -EOPNOTSUPP. A streaming output is only reprogrammed with the latch-while-off sequence (`t41_msca_cfg_update=2`, `t41_msca_stop_disable=1`) and output <= 768x432 (`t41_msca_live_max_w/h`); otherwise the request is stored and applied at the output's next start. Beyond stock: AutoZoom windows outside the sensor and mask chx/pinum out of range are -EINVAL, the ScalerLv level survives output reloads. The MSCA start words now include the input crop position (`0xf00a0 + ch * 8`). Details and device test plan: `driver/t41/README.md` "MSCA zoom, mask and scaler level".
+
 - T10/T20 `isp-m0` "MAX SENSOR analog gain" now reports the step the AE really plateaus on (branch `claude/t10-gaincap`, on agg-34).
   - Cause: jxh42 (T10) boots with the SetMaxAgain ceiling 144 (customer calibration), which `da9baf1e` reports correctly, but the sensor gain table is stepped and `alloc_again()` rounds the request down: 144 (log2 x32) falls between the table entries 142.7 and 144.7, so the AE sat at 142 in the dark while the cap read 144. A streamer that waits for gain >= cap never saw "maxed".
   - Fix: the compact dump runs the same request (sensor max, then ceiling) through the sensor's `alloc_again()` and reports the applied step (`t20_ae_request_log2_16`, `t20_ae_plateau_log2_5` in `tx_isp_t20_ae_max.h`). Exact steps (ceiling 128) and the sensor maximum are unchanged. Host test `tests/t20_ae_max_host_test.c` extended.

@@ -29,6 +29,7 @@
 #include "tx_isp_t41_ae.h"
 #include "tx_isp_t41_tuning_ctl.h"
 #include "tx_isp_t41_msca_shadow.h"
+#include "tx_isp_t41_msca_ctl.h"
 #include "tx_isp_t41_gib.h"
 #include "../include/tx_isp/tx_isp_top.h"
 #include "tx_isp_t41_awb.h"
@@ -1134,14 +1135,18 @@ module_param_named(msca_live_disables, t41_msca_live_disables, uint, 0444);
 module_param_named(msca_latch_wait_max_us, t41_msca_latch_wait_max_us, uint, 0444);
 static int t41_msca_latch_timeout_ms = 300;
 module_param(t41_msca_latch_timeout_ms, int, 0644);
-#define T41_MSCA_START_WORDS 6
+/* Word 6, the input crop position (AutoZoom / front crop window), may or
+ * may not be staged (not measured); comparing it makes a pure pan latch
+ * like a size change and costs nothing if the register is immediate. */
+#define T41_MSCA_START_WORDS 7
 static struct t41_msca_word t41_msca_start_set[3][T41_MSCA_START_WORDS]
     __attribute__((section(".data")));
 
 static void t41_msca_start_words(unsigned int ch, struct t41_msca_word *w,
                                  uint32_t size, uint32_t crop_pos,
                                  uint32_t crop_size, uint32_t hratio,
-                                 uint32_t vratio, uint32_t algorithm)
+                                 uint32_t vratio, uint32_t algorithm,
+                                 uint32_t input_pos)
 {
     uint32_t base = 0x0f0100U + ch * 0x100U;
 
@@ -1151,7 +1156,39 @@ static void t41_msca_start_words(unsigned int ch, struct t41_msca_word *w,
     w[3] = (struct t41_msca_word){ 0x0f0728U + ch * 4U, hratio, 0x7ffffU };
     w[4] = (struct t41_msca_word){ 0x0f071cU + ch * 4U, vratio, 0x7ffffU };
     w[5] = (struct t41_msca_word){ 0x0f002cU, algorithm, 0xffffffffU };
+    w[6] = (struct t41_msca_word){ 0x0f00a0U + ch * 8U, input_pos,
+                                   T41_MSCA_CROP_POS_MASK };
 }
+
+/*
+ * AutoZoom / MaskBlock / ScalerLv state (tx_isp_t41_msca_ctl.h, README
+ * "MSCA zoom, mask and scaler level").  A streaming output is only
+ * reprogrammed inside the proven envelope below; otherwise the request is
+ * stored and applied at the output's next start.
+ */
+static unsigned int t41_msca_live_max_w = 768;
+module_param(t41_msca_live_max_w, uint, 0644);
+MODULE_PARM_DESC(t41_msca_live_max_w,
+                 "largest output width AutoZoom/Mask/ScalerLv reprogram while streaming (needs t41_msca_cfg_update=2)");
+static unsigned int t41_msca_live_max_h = 432;
+module_param(t41_msca_live_max_h, uint, 0644);
+MODULE_PARM_DESC(t41_msca_live_max_h,
+                 "largest output height AutoZoom/Mask/ScalerLv reprogram while streaming");
+static unsigned int t41_msca_ctl_live __attribute__((section(".data")));
+static unsigned int t41_msca_ctl_deferred __attribute__((section(".data")));
+static unsigned int t41_msca_ctl_failed __attribute__((section(".data")));
+module_param_named(msca_ctl_live, t41_msca_ctl_live, uint, 0444);
+module_param_named(msca_ctl_deferred, t41_msca_ctl_deferred, uint, 0444);
+module_param_named(msca_ctl_failed, t41_msca_ctl_failed, uint, 0444);
+/* last accepted AutoZoom request (re-imposed after the late-start SET_FMT) */
+static unsigned char t41_msca_zoom_req[T41_MSCA_ZOOM_BYTES]
+    __attribute__((section(".data")));
+static struct t41_msca_mask_state t41_msca_mask
+    __attribute__((section(".data")));
+static struct t41_msca_scaler_lv t41_msca_lv[3]
+    __attribute__((section(".data")));
+static int t41_msca_mask_flush(unsigned int chan_mask, int restart);
+static void t41_msca_zoom_impose(unsigned int ch);
 /* Last word written to the staged 0xf002c (flip/mirror/algorithm). */
 static struct t41_msca_staged t41_msca_algo_staged
     __attribute__((section(".data")));
@@ -21698,6 +21735,12 @@ static int t41_tuning_coefft_wb(unsigned int channel, unsigned int is_get,
  */
 static DEFINE_MUTEX(t41_tuning_mutex);
 static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, uint32_t a2);
+static int t41_tuning_autozoom(unsigned int vinum, unsigned int is_get,
+                               uintptr_t user_ptr);
+static int t41_tuning_mask_block(unsigned int vinum, unsigned int is_get,
+                                 uintptr_t user_ptr);
+static int t41_tuning_scaler_lv(unsigned int vinum, unsigned int is_get,
+                                uintptr_t user_ptr);
 
 int64_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
@@ -21774,6 +21817,14 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             { TX_ISP_TUNING_CMD_T41_AF_WEIGHT, T41_AF_WEIGHT_BYTES,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AUTOZOOM, T41_MSCA_ZOOM_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_MASK_BLOCK, T41_MSCA_MASK_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_SCALER_LV, T41_MSCA_SCALER_LV_BYTES,
+              TX_ISP_TUNING_DIR_SET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_GAMMA, T41_GAMMA_ATTR_BYTES,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -22008,16 +22059,25 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AF_WEIGHT)
             return t41_tuning_af_weight(request.channel, request.is_get,
                                         request.value_or_ptr);
+        /* MSCA controls: live only inside the proven envelope, otherwise
+         * stored for the next output start (README "MSCA zoom, mask and
+         * scaler level"). */
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_AUTOZOOM)
+            return t41_tuning_autozoom(request.channel, request.is_get,
+                                       request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_MASK_BLOCK)
+            return t41_tuning_mask_block(request.channel, request.is_get,
+                                         request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_SCALER_LV)
+            return t41_tuning_scaler_lv(request.channel, request.is_get,
+                                        request.value_or_ptr);
         /*
          * Public tuning IDs with no open implementation yet: report it
          * instead of acknowledging the request unchanged.
          */
         switch (request.id) {
         case TX_ISP_TUNING_CMD_T41_WDR_OUTPUT:
-        case TX_ISP_TUNING_CMD_T41_AUTOZOOM:
-        /* MSCA mask/scaler coefficients: owned by the MSCA path, which
-         * has no open runtime update yet. */
-        case TX_ISP_TUNING_CMD_T41_MASK_BLOCK:
+        /* ScalerLv has no stock GET (route above is SET only) */
         case TX_ISP_TUNING_CMD_T41_SCALER_LV:
             return -EOPNOTSUPP;
         default:
@@ -53772,6 +53832,10 @@ int32_t tisp_channel_main_start(uint32_t a0)
     *(uint8_t *)((char *)((a0 * 612) + (uintptr_t)&mscaler) + 4) = 1;
     *(uint8_t *)((char *)((a0 * 26) + (uintptr_t)&msca) + 0) = 1;
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_msca_chx_cfg_load)(0, a0 & 255, (a0 * 26) + (uintptr_t)&msca); /* jalr target resolved by relocation */
+    /* Mask blocks stored while this output was stopped (or streaming
+     * outside the live envelope) go out with its start. */
+    if (a0 < 3)
+        t41_msca_mask_flush(1U << a0, 1);
 
     /* fragment 1: Epilogue */
     /* function epilogue: restore registers and return */
@@ -143734,6 +143798,10 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
                      0x0000ffffU) |
                     ((*(uint32_t *)(channel_params + 0x10) << 16) &
                      0x01ff0000U);
+    /* A stored ScalerLv FITTING_CURVE level (stock writes it only into
+     * this register, so a reload would drop it). */
+    curve_control = t41_msca_scaler_lv_curve(curve_control,
+                                             &t41_msca_lv[a1]);
     system_reg_write(0x0f0704U + a1 * 8U, curve_bounds);
     system_reg_write(0x0f0708U + a1 * 8U, curve_control);
     system_reg_write(0x0f0728U + a1 * 4U,
@@ -143771,9 +143839,11 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
      */
     base = 0x0f0100U + a1 * 0x100U;
     packed_size = (channel_width << 16) | channel_height;
+    /* Input crop position (AutoZoom / front crop), masked as stock
+     * tisp_msca_init_chx_cfg() does. */
     system_reg_write(0x0f00a0U + a1 * 8U,
-                     ((uint32_t)*(uint16_t *)(desc + 0x0a) << 16) |
-                     *(uint16_t *)(desc + 0x0c));
+                     (((uint32_t)*(uint16_t *)(desc + 0x0a) << 16) |
+                      *(uint16_t *)(desc + 0x0c)) & T41_MSCA_CROP_POS_MASK);
     system_reg_write(base, packed_size);
     system_reg_write(base + 0x28, (crop_x << 16) | crop_y);
     system_reg_write(base + 0x2c, (crop_width << 16) | crop_height);
@@ -143823,7 +143893,10 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
         t41_msca_start_words(a1, t41_msca_start_set[a1], packed_size,
                              (crop_x << 16) | crop_y,
                              (crop_width << 16) | crop_height,
-                             horizontal_ratio, vertical_ratio, algorithm);
+                             horizontal_ratio, vertical_ratio, algorithm,
+                             (((uint32_t)*(uint16_t *)(desc + 0x0a) << 16) |
+                              *(uint16_t *)(desc + 0x0c)) &
+                             T41_MSCA_CROP_POS_MASK);
         for (i = 0; i < T41_MSCA_START_WORDS; ++i)
             readback[i] = system_reg_read(words[i].reg);
         if (t41_msca_start_plan(words, T41_MSCA_START_WORDS, readback) ==
@@ -162425,6 +162498,250 @@ static void t41_msca_finish_enable(uint32_t ch)
     }
 }
 
+/* ---- AutoZoom / MaskBlock / ScalerLv (README "MSCA zoom, mask and scaler
+ * level", tx_isp_t41_msca_ctl.h) ---- */
+
+static int t41_msca_mask_pair(void *ctx, unsigned int value, unsigned int reg)
+{
+    int ret;
+
+    (void)ctx;
+    ret = system_reg_write(0x0f8004U, value);
+    return ret ? ret : system_reg_write(0x0f8004U, reg);
+}
+
+/*
+ * Write the dirty mask blocks of the outputs in chan_mask through the MSCA
+ * shadow port, bracketed like stock tisp_msca_cfg_shd_ram(); restart (output
+ * start) also rewrites their enabled blocks.  No sleeping:
+ * called from tisp_channel_main_start() under the frame-channel lock.  A
+ * busy shadow DMA leaves the blocks dirty (written at the next start or the
+ * next MaskBlock call).
+ */
+static int t41_msca_mask_flush(unsigned int chan_mask, int restart)
+{
+    unsigned long flags = 0;
+    unsigned int bits = 0;
+    unsigned int ch;
+    int pairs;
+    int ret;
+
+    for (ch = 0; ch < 3; ++ch)
+        if (chan_mask & (1U << ch))
+            bits |= 0xfU << (ch * T41_MSCA_MASK_BLOCKS);
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    if (restart)
+        t41_msca_mask_mark_enabled(&t41_msca_mask, chan_mask);
+    if (!(t41_msca_mask.dirty & bits)) {
+        ret = 0;
+        goto unlock;
+    }
+    if (system_reg_read(0x0f8100U) & 2U) {
+        ret = -EBUSY;
+        goto unlock;
+    }
+    ret = system_reg_write(0x0f8000U, 0x00000101U);
+    pairs = ret ? ret : t41_msca_mask_emit(&t41_msca_mask, chan_mask,
+                                           t41_msca_mask_pair, NULL);
+    if (pairs < 0)
+        ret = pairs;
+    if (!ret)
+        ret = system_reg_write(0x0f8000U, 0x01010102U);
+    if (!ret && pairs >= 2)
+        ret = system_reg_write(0x0f8100U, ((pairs - 1) << 4) | 1U);
+unlock:
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    if (ret)
+        printk(KERN_WARNING
+               "tx_isp_t41_recovered: MSCA mask write ch-mask=%#x ret=%d (kept for the next start)\n",
+               chan_mask, ret);
+    return ret;
+}
+
+/* Re-impose the stored AutoZoom window of one output on its descriptor. */
+static void t41_msca_zoom_impose(unsigned int ch)
+{
+    unsigned char *desc = (unsigned char *)(void *)&msca +
+                          ch * T41_MSCA_DESC_STRIDE;
+    unsigned long flags = 0;
+    unsigned int f;
+
+    if (ch >= 3 || t41_msca_zoom_field(t41_msca_zoom_req, 0, ch) != 1)
+        return;
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    t41_msca_wr16(desc + 8, 1);
+    for (f = 1; f <= 4; ++f)
+        t41_msca_wr16(desc + 8 + f * 2U,
+                      (unsigned int)t41_msca_zoom_field(t41_msca_zoom_req,
+                                                        f, ch));
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+}
+
+/* Live/deferred decision for one output (tx_isp_t41_msca_ctl.h). */
+static enum t41_msca_live_step t41_msca_ctl_plan(unsigned int ch)
+{
+    const unsigned char *desc = (const unsigned char *)(const void *)&msca +
+                                ch * T41_MSCA_DESC_STRIDE;
+
+    return t41_msca_live_plan(desc[0] & 1U, t41_msca_cfg_update,
+                              t41_msca_stop_disable,
+                              t41_msca_rd16(desc + 4), t41_msca_rd16(desc + 6),
+                              t41_msca_live_max_w, t41_msca_live_max_h);
+}
+
+/*
+ * Reprogram a streaming output with the latch-while-off sequence of
+ * t41_msca_cfg_update=2: tisp_msca_chx_cfg_load() switches it off, writes
+ * the staged words and requests the update; t41_msca_finish_enable()
+ * switches it on once the read-back shows them.  Process context only.
+ */
+static int t41_msca_reload_live(unsigned int ch)
+{
+    unsigned char *desc = (unsigned char *)(void *)&msca +
+                          ch * T41_MSCA_DESC_STRIDE;
+    unsigned long flags = 0;
+    int ret;
+
+    ret = (int)tisp_msca_chx_cfg_load(0, ch, (uintptr_t)desc);
+    if (ret) {
+        /* It may have switched the output off before failing (busy shadow
+         * port); the old words are still active, so switch it back on. */
+        __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                    (uintptr_t)&flags);
+        if ((desc[0] & 1U) && !(t41_msca_enable_pending & (1U << ch)))
+            system_reg_write(0x0f0008U,
+                             system_reg_read(0x0f0008U) | (1U << ch));
+        private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock,
+                                       flags);
+        t41_msca_ctl_failed++;
+        printk(KERN_WARNING
+               "tx_isp_t41_recovered: MSCA live reload ch=%u failed %d; applied at the next start\n",
+               ch, ret);
+        return ret;
+    }
+    t41_msca_finish_enable(ch);
+    t41_msca_ctl_live++;
+    return 0;
+}
+
+static void t41_msca_ctl_apply(unsigned int ch, const char *what, int mask_only)
+{
+    enum t41_msca_live_step step = t41_msca_ctl_plan(ch);
+
+    if (step == T41_MSCA_LIVE) {
+        if (mask_only) {
+            int tries = 3;
+
+            while (t41_msca_mask_flush(1U << ch, 0) == -EBUSY && --tries)
+                usleep_range(2000, 3000);
+            t41_msca_ctl_live++;
+        } else {
+            t41_msca_reload_live(ch);
+        }
+    } else if (step == T41_MSCA_DEFER) {
+        t41_msca_ctl_deferred++;
+        printk(KERN_INFO
+               "tx_isp_t41_recovered: %s ch=%u stored, applied at the next start (live update needs t41_msca_cfg_update=2, t41_msca_stop_disable=1, output <= %ux%u)\n",
+               what, ch, t41_msca_live_max_w, t41_msca_live_max_h);
+    }
+}
+
+/* 0x08000077, IMPISPAutoZoom (60 bytes); stock tisp_s/g_autozoom_control */
+static int t41_tuning_autozoom(unsigned int vinum, unsigned int is_get,
+                               uintptr_t user_ptr)
+{
+    unsigned char req[T41_MSCA_ZOOM_BYTES];
+    unsigned char *desc = (unsigned char *)(void *)&msca;
+    const uint32_t *par = (const uint32_t *)(const void *)tisp_par_info_storage;
+    unsigned long flags = 0;
+    unsigned int changed;
+    unsigned int ch;
+    int ret;
+
+    if (vinum != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (private_copy_from_user(req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+    if (is_get) {
+        __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                    (uintptr_t)&flags);
+        t41_msca_zoom_get(desc, req);
+        private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+        return private_copy_to_user((void __user *)user_ptr, req,
+                                    sizeof(req)) ? -EFAULT : 0;
+    }
+    ret = t41_msca_zoom_check(req, par[0], par[1]);
+    if (ret)
+        return -EINVAL;
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    changed = t41_msca_zoom_store(desc, req, par[0], par[1]);
+    memcpy(t41_msca_zoom_req, req, sizeof(req));
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    for (ch = 0; ch < 3; ++ch)
+        if (changed & (1U << ch))
+            t41_msca_ctl_apply(ch, "AutoZoom", 0);
+    return 0;
+}
+
+/* 0x08000074, IMPISPMaskBlockAttr (24 bytes) */
+static int t41_tuning_mask_block(unsigned int vinum, unsigned int is_get,
+                                 uintptr_t user_ptr)
+{
+    unsigned char req[T41_MSCA_MASK_BYTES];
+    unsigned long flags = 0;
+    int ret;
+
+    if (vinum != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (private_copy_from_user(req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    ret = is_get ? t41_msca_mask_get(&t41_msca_mask, req) :
+                   t41_msca_mask_set(&t41_msca_mask, req);
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    if (ret)
+        return -EINVAL;
+    if (is_get)
+        return private_copy_to_user((void __user *)user_ptr, req,
+                                    sizeof(req)) ? -EFAULT : 0;
+    t41_msca_ctl_apply(req[0], "MaskBlock", 1);
+    return 0;
+}
+
+/* 0x080000a6, IMPISPScalerLvAttr (12 bytes, set only) */
+static int t41_tuning_scaler_lv(unsigned int vinum, unsigned int is_get,
+                                uintptr_t user_ptr)
+{
+    unsigned char req[T41_MSCA_SCALER_LV_BYTES];
+    void *workspace;
+    unsigned char *params;
+    unsigned long flags = 0;
+    int ch;
+
+    if (vinum != 0 || is_get || !user_ptr)
+        return -EINVAL;
+    if (private_copy_from_user(req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+    workspace = *(void **)(void *)&msca_info;
+    if (!t41_kernel_data_ptr(workspace))
+        return -EAGAIN;
+    params = *(unsigned char **)workspace;
+    if (!t41_kernel_data_ptr(params))
+        return -EAGAIN;
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    ch = t41_msca_scaler_lv_set(params, t41_msca_lv, req);
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    if (ch < 0)
+        return -EINVAL;
+    t41_msca_ctl_apply((unsigned int)ch, "ScalerLv", 0);
+    return 0;
+}
+
 /* Read-only diagnostic: cat /sys/module/tx_isp_t41/parameters/t41_msca_regs
  * (MSCA globals, the three output banks and the ratio words; reads return
  * the active values of the staged registers). */
@@ -162560,6 +162877,9 @@ int32_t ispcore_frame_channel_streamon(void *arg1)
             ret = (int)ispcore_frame_channel_set_fmt(
                 (uintptr_t)pad, (uintptr_t)channel);
             msca_desc[8] = source_lock;
+            /* An AutoZoom window stored before the first start must
+             * survive this rebuild (it overwrote +10..+16). */
+            t41_msca_zoom_impose(tisp_channel);
             if (!ret)
                 ret = tisp_channel_main_start(tisp_channel);
             if (!ret)

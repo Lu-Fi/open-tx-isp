@@ -17,6 +17,8 @@ kernel, not the library.
 | 0x080000a4 | Set/GetModule_Ratio | 16 x {u32 en, u8 ratio} | SINTER, TEMPER as before; DRC (scales the ADR strength fields from the pristine copy), DPC (long-bank thresholds). DEFOG is still -EOPNOTSUPP for a non-neutral request. |
 | 0x08000023 | Set/GetAeExprInfo | 232 B | additionally: AeMode (freeze), manual integration time (lines or microseconds, unit field) and manual analog gain (x1024), sensor digital gain cap (accepted and reported; the open AE only allocates the sensor analog gain). Manual sensor/ISP digital gain and minimum caps stay -EOPNOTSUPP. |
 
-Not routed yet (-EOPNOTSUPP): AutoZoom (0x08000077), MaskBlock (0x08000074),
-ScalerLv (0x080000a6), WdrOutputMode (0x08000054). The first three need the
-MSCA latch path.
+| 0x08000077 | Set/GetAutoZoom | s32 en[3], left[3], top[3], width[3], height[3] (60 B) | input crop window per output (stock `tisp_s_autozoom_control`); enabled windows outside the sensor are -EINVAL. Streaming outputs are only reprogrammed with `t41_msca_cfg_update=2` + `stop_disable=1` and output <= 768x432, otherwise stored for the next start. Branch `claude/t41-zoom-mask`, see `driver/t41/README.md` "MSCA zoom, mask and scaler level". |
+| 0x08000074 | Set/GetMaskBlock | u8 chx, pinum, en, pad, u16 top, left, w, h, s32 type, rgb, yuv (24 B) | 3 x 4 blocks, written through the MSCA shadow port like stock `tisp_msca_set_mask`; same live/stored rule. GET reports en 0 (stock). |
+| 0x080000a6 | SetScalerLv | u8 chx, s32 mode, u8 level (12 B) | FIXED_WEIGHT / FITTING_CURVE level 0..128 (`0xf0708 + ch * 8`); the level is kept across reloads (stock drops it). Same live/stored rule. |
+
+Not routed yet (-EOPNOTSUPP): WdrOutputMode (0x08000054).
