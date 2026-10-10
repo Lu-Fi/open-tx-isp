@@ -53653,6 +53653,24 @@ int tisp_deinit(int channel)
            "tx_isp_t41_recovered: tisp-deinit enter channel=%d\n",
            channel);
 
+    /*
+     * The statistics engines (AE 0x1904c, AF 0x1a0dc, AWB 0x1804c, WDR
+     * 0x6030, TMO 0x1e020) DMA into kmalloc'd buffers.  Only the AWB
+     * deinit ever switched its engine off; the others freed the buffer
+     * with the DMA still armed, so the ISP kept writing statistics into
+     * pages the allocator had already handed out again (rmmod oops in
+     * module_param_sysfs_remove(): stray small integers in the module's
+     * kmalloc'd param attribute array).  Disable them all here, then give
+     * a frame already in flight time to finish before anything is freed.
+     */
+    system_reg_write(0x1904c, 0);
+    system_reg_write(0x1a0dc, 0);
+    system_reg_write(0x1804c, 0);
+    system_reg_write(24624, 0);
+    system_reg_write(0x1e020, 0);
+    if (t41_isp_stream_started == 1)
+        usleep_range(40000, 60000);
+
     tisp_ae_deinit(channel);
     tisp_awb_deinit(channel);
     tisp_gib_deinit(channel);
@@ -69520,6 +69538,11 @@ int32_t tisp_ae_deinit(uint32_t a0)
 
     dma_info = (uint32_t *)(uintptr_t)ae_buf_info[a0];
     if (dma_info) {
+        /* The AE statistics DMA (0x1902c..0x19048, enabled by 0x1904c in
+         * tisp_ae_malloc_cfg()) targets this kmalloc'd buffer and keeps
+         * writing every frame while the ISP runs: switch it off before the
+         * pages go back to the allocator (heap corruption otherwise). */
+        system_reg_write(0x1904c, 0);
         if (dma_info[1])
             private_kfree((void *)(uintptr_t)dma_info[1]);
         private_kfree(dma_info);
@@ -76887,6 +76910,9 @@ int32_t tisp_af_deinit(uint32_t a0)
 
     buf_cfg = (uint32_t *)(uintptr_t)af_buf_info[a0];
     if (buf_cfg) {
+        /* AF statistics DMA enable (tisp_af_malloc_cfg: 0x1a0dc = 0x10103)
+         * off before its kmalloc'd target is freed. */
+        system_reg_write(0x1a0dc, 0);
         if (buf_cfg[1]) {
             private_kfree((void *)(uintptr_t)buf_cfg[1]);
             buf_cfg[1] = 0;
@@ -96324,6 +96350,9 @@ int32_t tisp_wdr_deinit(uint32_t a0)
 
     info = (uint8_t *)(uintptr_t)wdr_info[a0];
     if (info) {
+        /* WDR statistics DMA enable (tisp_wdr_init: 0x6030 = 3) off before
+         * its kmalloc'd target (info + 4) is freed. */
+        system_reg_write(24624, 0);
         for (i = 0; i < ARRAY_SIZE(owned_offsets); ++i) {
             uint32_t *slot =
                 (uint32_t *)(void *)(info + owned_offsets[i]);
@@ -153554,6 +153583,10 @@ int32_t tisp_tmo_deinit(uint32_t a0)
     info = (uint8_t *)(uintptr_t)tmo_info[a0];
     if (info) {
         static const unsigned int owned_offsets[] = { 8, 4, 12, 20 };
+
+        /* TMO statistics DMA (0x1e010/0x1e014, enabled by 0x1e020 = 1 in
+         * tisp_tmo_init()) off before its kmalloc'd target is freed. */
+        system_reg_write(0x1e020, 0);
 
         for (i = 0; i < ARRAY_SIZE(owned_offsets); ++i) {
             uint32_t object = *(uint32_t *)(void *)(info + owned_offsets[i]);

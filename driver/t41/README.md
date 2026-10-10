@@ -606,7 +606,14 @@ never latches ran 960x540 21/21 (wrong picture). Separately, `rmmod
 tx_isp_t41` sometimes oopses in `module_param_sysfs_remove()` (the param
 attribute array holds the value 2), also with the flashed build loaded at
 boot: a heap overwrite somewhere in the driver, maybe the same fault as the
-hang. At 1280x720 the encoder also fails an order-9 DMA allocation (`avpu:
+hang. Static review (branch `claude/t41-heap-review`): the AE, AF, WDR and
+TMO statistics engines DMA into `kmalloc`'d buffers (`tisp_ae_malloc_cfg`
+0x1904c, `tisp_af_malloc_cfg` 0x1a0dc, `tisp_wdr_init` 0x6030,
+`tisp_tmo_init` 0x1e020) and their deinit freed the buffer without switching
+the engine off (only `tisp_awb_deinit` clears 0x1804c), so the ISP kept
+writing statistics into freed pages every frame; `tisp_deinit()` now
+disables all five engines and waits one frame before freeing. Untested on
+the device at the time of writing. At 1280x720 the encoder also fails an order-9 DMA allocation (`avpu:
 Can't alloc DMA buffer`, ch1 RTSP 503) when ch0 started first.
 
 
