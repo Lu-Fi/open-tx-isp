@@ -344,8 +344,96 @@ static void test_autozoom(void)
 	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == -EINVAL);
 }
 
+static void test_osd_draw(void)
+{
+	uint8_t m[T23X_MSCA_BYTES], msca[168], in[32], out[32];
+	uint8_t *d;
+	int quirk;
+
+	memset(m, 0, sizeof(m));
+	memset(msca, 0, sizeof(msca));
+	t23x_le32_put(msca + T23X_MSCA_LIMIT_W_OFF, 1920);
+	t23x_le32_put(msca + T23X_MSCA_LIMIT_H_OFF, 1080);
+
+	/* OSD attribute: a changed first word clears the block enables and sets dirty = 255 */
+	m[T23X_MSCA_OSD_EN_OFF + 16 * 3] = 1;
+	memset(in, 0, sizeof(in));
+	t23x_le32_put(in, 1); t23x_le32_put(in + 4, 2); t23x_le32_put(in + 8, 0x1ff);
+	t23x_osd_attr_set(m, in);
+	assert(m[T23X_MSCA_OSD_EN_OFF + 16 * 3] == 0);
+	assert(t23x_le32_get(m + T23X_MSCA_OSD_DIRTY_OFF) == 255);
+	t23x_osd_attr_get(m, out);
+	assert(t23x_le32_get(out) == 1 && t23x_le32_get(out + 4) == 2 &&
+	       t23x_le32_get(out + 8) == 0xff);        /* stored as a byte */
+	m[T23X_MSCA_OSD_EN_OFF] = 1;                    /* unchanged word: kept */
+	t23x_le32_put(m + T23X_MSCA_OSD_DIRTY_OFF, 0);
+	t23x_osd_attr_set(m, in);
+	assert(m[T23X_MSCA_OSD_EN_OFF] == 1 && t23x_le32_get(m + T23X_MSCA_OSD_DIRTY_OFF) == 0);
+
+	/* OSD block: store, report, disable */
+	memset(in, 0, sizeof(in));
+	in[0] = 2; in[1] = 1;
+	t23x_le16_put(in + 2, 100); t23x_le16_put(in + 4, 50);
+	t23x_le16_put(in + 6, 640); t23x_le16_put(in + 8, 360);
+	t23x_le32_put(in + 12, 0x01234000); t23x_le16_put(in + 16, 640);
+	assert(t23x_osd_block_set(m, msca, in, &quirk) == 0 && !quirk);
+	assert(t23x_le32_get(m + T23X_MSCA_OSD_DIRTY_OFF) == 4);
+	t23x_osd_block_get(m, in, out);
+	assert(out[0] == 2 && out[1] == 1 && t23x_le16_get(out + 2) == 100 &&
+	       t23x_le16_get(out + 4) == 50 && t23x_le16_get(out + 6) == 640 &&
+	       t23x_le16_get(out + 8) == 360 &&
+	       t23x_le32_get(out + 12) == 0x81234000U && t23x_le16_get(out + 16) == 640);
+	/* beyond the channel limits: refused, nothing written */
+	t23x_le16_put(in + 6, 1900);
+	assert(t23x_osd_block_set(m, msca, in, &quirk) == -ERANGE);
+	assert(t23x_le16_get(t23x_osd_geo(m, 2) + 4) == 640);
+	/* stock quirk: the stored width above the limits ignores the request with 0 */
+	t23x_le16_put(in + 6, 100);
+	t23x_le16_put(t23x_osd_geo(m, 2) + 4, 2000);
+	assert(t23x_osd_block_set(m, msca, in, &quirk) == 0 && quirk == 1);
+	assert(t23x_le16_get(t23x_osd_geo(m, 2) + 4) == 2000);
+	t23x_le16_put(t23x_osd_geo(m, 2) + 4, 640);
+	in[1] = 0;                                      /* disable */
+	assert(t23x_osd_block_set(m, msca, in, &quirk) == 0);
+	d = t23x_osd_dat(m, 2);
+	assert(d[10] == 0 && t23x_le32_get(d + 4) == 0);
+	t23x_osd_block_get(m, in, out);
+	assert(out[1] == 0 && t23x_le16_get(out + 6) == 0);
+	in[0] = 8;                                      /* out of range */
+	assert(t23x_osd_block_set(m, msca, in, &quirk) == -EINVAL);
+	assert(t23x_osd_block_get(m, in, out) == -EINVAL);
+
+	/* draw block: type 1 keeps the u16 at 28, type 0 / 2 do not, other types only the type */
+	memset(in, 0, sizeof(in));
+	in[0] = 5; t23x_le32_put(in + 4, 1); in[12] = 3;
+	t23x_le16_put(in + 14, 10); t23x_le16_put(in + 16, 20);
+	t23x_le16_put(in + 18, 30); t23x_le16_put(in + 20, 40);
+	in[22] = 0x11; in[23] = 0x22; in[24] = 0x33; in[25] = 7; in[26] = 8;
+	t23x_le16_put(in + 28, 0x4455);
+	assert(t23x_draw_block_set(m, in) == 0);
+	assert(t23x_le32_get(m + T23X_MSCA_DRAW_DIRTY_OFF) == 1U << 5);
+	d = t23x_draw_entry(m, 5);
+	assert(d[0] == 1 && d[4] == 3 && t23x_le16_get(d + 12) == 40 &&
+	       t23x_le32_get(d + 16) == 0x112233 && d[20] == 7 && d[21] == 8 &&
+	       t23x_le16_get(d + 22) == 0x4455);
+	assert(t23x_draw_block_get(m, in, out) == 0);
+	assert(t23x_le32_get(out + 4) == 1 && out[12] == 3 && t23x_le16_get(out + 20) == 40 &&
+	       out[22] == 0x11 && out[23] == 0x33 /* stock slip */ && out[24] == 0x33 /* untouched */ &&
+	       out[25] == 7 && t23x_le16_get(out + 28) == 0x4455);
+	t23x_le32_put(in + 4, 2); t23x_le16_put(in + 28, 0x9999);
+	assert(t23x_draw_block_set(m, in) == 0);
+	assert(d[0] == 2 && t23x_le16_get(d + 22) == 0x4455);
+	t23x_le32_put(in + 4, 9); in[12] = 99;
+	assert(t23x_draw_block_set(m, in) == 0);
+	assert(d[0] == 9 && d[4] == 3);
+	in[0] = 6;
+	assert(t23x_draw_block_set(m, in) == -EINVAL);
+	assert(t23x_draw_block_get(m, in, out) == -EINVAL);
+}
+
 int main(void)
 {
+	test_osd_draw();
 	test_autozoom();
 	test_mask_block();
 	test_awb_cluster_trend();

@@ -93495,21 +93495,61 @@ static int32_t tisp_day_or_night_g_ctrl(uint32_t a0)
     return *(uint32_t *)(void *)(tisp_par_info + a0 * 156U + 124U);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000651d8 origin=fragment_seed original=tisp_switch_bin */
+/*
+ * tisp_switch_bin / tisp_core_switch_bin (stock 0x651d8 / 0x17b0c), SwitchBin
+ * (control 0x8000185).  a0 is a KERNEL pointer to the 68 byte user block
+ * { u32 enable, char path[64] } (the caller has checked enable and
+ * terminated the path).  Stock core_switch_bin reads the file, checks the
+ * header ("2.20", "header0", size, CRC) and copies the day and night banks
+ * into tparams_day / tparams_night; tisp_switch_bin then reloads the block
+ * parameters of the running mode.  The lifted core_switch_bin of this driver
+ * is not usable (its file read lost its arguments), so the file is read by
+ * the IQ loader of this driver (same checks, exact size) and the banks are
+ * swapped while the AE/AWB work is paused.  The result of the stock
+ * function is the stock core_switch_bin result (0 or -1); here the errno of
+ * the failing step, with the banks untouched (stock reloads regardless).
+ * The stock post-step that stores a day/night state word of the lifted
+ * sensor object (2 or 3) is not reproduced: this driver keeps no such word.
+ * Host build only, device test pending.
+ */
 uint32_t tisp_switch_bin(uint32_t a0)
 {
+    const char *path = (const char *)(uintptr_t)a0 + 4;
     uint32_t *active = (uint32_t *)(void *)(tparams + T23_TPARAMS_ACTIVE_OFFSET);
-    uint32_t mode = *(uint32_t *)(void *)(tisp_par_info + 124U);
+    uint32_t mode;
     const void *selected = NULL;
+    unsigned char *blob;
     int32_t result;
 
-    (void)system_reg_read(12);
-    result = tisp_core_switch_bin(a0);
+    if (!tparams_day || !tparams_night)
+        return (uint32_t)-ENODEV;
+    blob = private_vmalloc(T23_IQ_STANDARD_SIZE);
+    if (!blob)
+        return (uint32_t)-ENOMEM;
+    result = regtrace_t23_read_file_exact(path, blob, T23_IQ_STANDARD_SIZE);
+    if (!result)
+        result = regtrace_t23_validate_iq(blob, T23_IQ_STANDARD_SIZE,
+                                          2U * T23_TPARAMS_BANK_SIZE);
+    if (result) {
+        printk(KERN_ERR "tx_isp_t23_recovered: SwitchBin %s rejected ret=%d\n",
+               path, result);
+        private_vfree(blob);
+        return (uint32_t)result;
+    }
+
+    regtrace_t23_source_algo_pause();
+    memcpy((void *)tparams_day, blob + T23_IQ_HEADER_SIZE,
+           T23_TPARAMS_BANK_SIZE);
+    memcpy((void *)tparams_night,
+           blob + T23_IQ_HEADER_SIZE + T23_TPARAMS_BANK_SIZE,
+           T23_TPARAMS_BANK_SIZE);
+    private_vfree(blob);
+
+    mode = *(uint32_t *)(void *)(tisp_par_info + 124U);
     if (mode == 0)
         selected = (const void *)tparams_day;
     else if (mode == 1)
         selected = (const void *)tparams_night;
-    regtrace_t23_source_algo_pause();
     if (selected) {
         result = regtrace_t23_source_ccm_select_bank(selected);
         if (result) {
@@ -93532,7 +93572,7 @@ uint32_t tisp_switch_bin(uint32_t a0)
     *((uint8_t *)(void *)&tispPollValue + 3) = 1;
     wake_up_interruptible(&dumpQueue);
 
-    return (uint32_t)result;
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000654b4 origin=model_output original=tisp_mirror_enable */
