@@ -1136,6 +1136,20 @@ module_param_named(msca_live_disables, t41_msca_live_disables, uint, 0444);
 module_param_named(msca_latch_wait_max_us, t41_msca_latch_wait_max_us, uint, 0444);
 static int t41_msca_latch_timeout_ms = 300;
 module_param(t41_msca_latch_timeout_ms, int, 0644);
+/*
+ * Where t41_msca_finish_enable() switches a latched output on.
+ * 0: at once, in process context (anywhere inside an input frame).
+ * 1: from the next main frame-done interrupt (ISP status bit 0), i.e. in
+ *    the blanking before the next input frame, so the output starts at a
+ *    frame boundary.  Falls back to an immediate enable when no frame-done
+ *    interrupt arrives within t41_msca_latch_timeout_ms.
+ */
+static int t41_msca_enable_at_frame;
+module_param(t41_msca_enable_at_frame, int, 0644);
+/* Outputs armed for the frame-done enable (subset of enable_pending). */
+static unsigned int t41_msca_enable_armed __attribute__((section(".data")));
+static unsigned int t41_msca_frame_enables __attribute__((section(".data")));
+module_param_named(msca_frame_enables, t41_msca_frame_enables, uint, 0444);
 /* Word 6, the input crop position (AutoZoom / front crop window), may or
  * may not be staged (not measured); comparing it makes a pure pan latch
  * like a size change and costs nothing if the register is immediate. */
@@ -54133,6 +54147,7 @@ int32_t tisp_channel_main_stop(uint32_t a0)
     *(uint8_t *)((char *)&mscaler + a0 * 612 + 4) = 0;
     *(uint8_t *)((char *)&msca + a0 * 26) = 0;
     t41_msca_enable_pending &= ~mask;
+    t41_msca_enable_armed &= ~mask;
     if (t41_msca_stop_disable > 0) {
         system_reg_write(0x0f0008U, system_reg_read(0x0f0008U) & ~mask);
         t41_msca_live_valid[a0] = false;
@@ -144018,6 +144033,7 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
         __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
                                     (uintptr_t)&enable_flags);
         t41_msca_enable_pending &= ~(1U << a1);
+        t41_msca_enable_armed &= ~(1U << a1);
         if (system_reg_read(0x0f0008U) & (1U << a1)) {
             system_reg_write(0x0f0008U,
                              system_reg_read(0x0f0008U) & ~(1U << a1));
@@ -162688,6 +162704,35 @@ int ispcore_frame_channel_freebufs(void *arg1) {
     return 0;
 }
 
+/* Hard-IRQ half of t41_msca_enable_at_frame: switch the armed outputs on
+ * right after a main frame completed. */
+static void t41_msca_frame_enable(void)
+{
+    unsigned long flags = 0;
+    unsigned int armed, ch;
+
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    armed = t41_msca_enable_armed & t41_msca_enable_pending;
+    if (armed) {
+        uint32_t on = 0;
+
+        for (ch = 0; ch < 3; ++ch) {
+            uint8_t *desc = ((uint8_t **)(void *)mscaHardPar_storage)[ch];
+
+            if ((armed & (1U << ch)) && t41_kernel_data_ptr(desc) &&
+                (desc[0] & 1U))
+                on |= 1U << ch;
+        }
+        if (on)
+            system_reg_write(0x0f0008U, system_reg_read(0x0f0008U) | on);
+        t41_msca_enable_pending &= ~armed;
+        t41_msca_frame_enables++;
+    }
+    t41_msca_enable_armed = 0;
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+}
+
 /*
  * Second half of a latch-before-enable output start (t41_msca_cfg_update=2,
  * see tisp_msca_chx_cfg_load()).  Process context, no locks held: waits
@@ -162729,8 +162774,21 @@ static void t41_msca_finish_enable(uint32_t ch)
             usleep_range(2000, 3000);
         }
     }
+    if (latched && t41_msca_enable_at_frame > 0) {
+        /* Let the next main frame-done interrupt switch it on. */
+        __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                    (uintptr_t)&flags);
+        if (t41_msca_enable_pending & bit)
+            t41_msca_enable_armed |= bit;
+        private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+        deadline = jiffies + msecs_to_jiffies(t41_msca_latch_timeout_ms);
+        while ((READ_ONCE(t41_msca_enable_armed) & bit) &&
+               !time_after(jiffies, deadline))
+            usleep_range(2000, 3000);
+    }
     __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
                                 (uintptr_t)&flags);
+    t41_msca_enable_armed &= ~bit;
     if (t41_msca_enable_pending & bit) {
         uint8_t *desc = ((uint8_t **)(void *)mscaHardPar_storage)[ch];
 
@@ -169754,6 +169812,8 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
          * so userspace sees its zero-filled seed buffer while MSCA cycles
          * through the address FIFO behind its back.
          */
+        if ((status0 & 0x1) && READ_ONCE(t41_msca_enable_armed))
+            t41_msca_frame_enable();
         if (status0 & 0x1) {
             t41_heapwatch_mark("isr:frame0");
             uint32_t event_data[8] = { 0 };
