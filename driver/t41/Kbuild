@@ -62,3 +62,13 @@ ccflags-y += -ffunction-sections
 LDFLAGS_MODULE += --gc-sections --undefined=init_module --undefined=cleanup_module \
 	-T $(abspath $(src)/../tx_isp_merge.lds)
 endif
+
+# Bring-up-only module parameters (experiment switches and diagnostic
+# counters nothing reads; list in docs/SIZE.md): n leaves them out.  Default
+# y: the open rmmod heap overwrite (README "Known issues") lands in the
+# kmalloc'd param attribute array, and fewer parameters would move that
+# array to another slab size class; prune only after that is fixed.
+TX_ISP_T41_BRINGUP_PARAMS ?= y
+ifeq ($(TX_ISP_T41_BRINGUP_PARAMS),y)
+ccflags-y += -DTX_ISP_T41_BRINGUP_PARAMS
+endif

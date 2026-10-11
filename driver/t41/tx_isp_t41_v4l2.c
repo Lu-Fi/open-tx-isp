@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Linux-4.4 V4L2 MMAP adapter for the three T41 scaler outputs. */
 
+#define pr_fmt(fmt) "t41: " fmt
 #include <linux/kernel.h>
 #include <linux/dma-mapping.h>
 #include <linux/kthread.h>
@@ -235,7 +236,7 @@ static void tx_isp_t41_v4l2_lifecycle_put(struct tx_isp_t41_v4l2 *video)
 		video->mdns_dma = 0;
 		video->mdns_size = 0;
 		tx_isp_t41_legacy_release(&video->legacy_file);
-		pr_info("tx_isp_t41: V4L2 released standalone ISP lifecycle\n");
+		pr_info("V4L2 released standalone ISP lifecycle\n");
 	}
 	video->lifecycle_owned = false;
 	video->lifecycle_acquired = false;
@@ -318,7 +319,7 @@ static int tx_isp_t41_v4l2_lifecycle_get(struct tx_isp_t41_v4l2 *video)
 		goto fail_stop;
 	video->lifecycle_owned = true;
 	video->lifecycle_acquired = true;
-	pr_info("tx_isp_t41: V4L2 started standalone sensor %s at i2c-%d/%#x\n",
+	pr_info("V4L2 started standalone sensor %s at i2c-%d/%#x\n",
 		video->sensor.name, video->sensor.i2c.adapter,
 		video->sensor.i2c.address);
 	return 0;
@@ -1074,7 +1075,7 @@ static int tx_isp_t41_v4l2_register(struct device *parent, unsigned int channel)
 	if (ret)
 		goto fail_v4l2;
 	video->registered = true;
-	pr_info("tx_isp_t41: V4L2 MMAP node registered as /dev/video%d (channel %u)\n",
+	pr_info("V4L2 MMAP node registered as /dev/video%d (channel %u)\n",
 		video->video_dev.num, channel);
 	return 0;
 
