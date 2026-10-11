@@ -2247,10 +2247,10 @@ static uint32_t tv_frame_start, tv_frame_start_next, vaddr, vic_cmd_buf, vic_err
  * Overrun targets.  The recovered core addresses vic_cmd_buf + 4/8/0xc and
  * tgain_wdr_s + 4; the vendor objects are 32 and 16 bytes (1.2.6-720-4494
  * .bss 0x14 / 0x3ec8), ours are 4, so those accesses hit ysp_paramsP,
- * bcsh_info, _bss_anchor and vic_subdev_internal_ops.  The upper words live
- * in their own section and the overrunning sites use them; the 4-byte
- * originals stay where they are (the recovered .bss layout is
- * position-dependent, see __pow2_lut).
+ * bcsh_info, _bss_anchor and vic_subdev_internal_ops in the agg-36 build
+ * (GCC reorders these statics after most code changes, so the victim
+ * differs per build).  The upper words live in their own section and the
+ * overrunning sites use them; the 4-byte originals are unchanged.
  */
 static uint32_t t41_vic_cmd_buf_hi[3] __attribute__((section(".data..t41_h1")));
 static uint32_t t41_tgain_wdr_s_hi[3] __attribute__((section(".data..t41_h1")));
