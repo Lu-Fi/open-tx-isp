@@ -32083,24 +32083,39 @@ int32_t sensor_alloc_digital_gain(uint32_t a0, uintptr_t a1)
 int32_t sensor_alloc_digital_gain_short(int32_t arg1, int32_t *arg2)
 {
 	/*
-	 * TODO(t41-unresolved-calls): this hand-written body does not match the
-	 * vendor.  1.2.6-720-4494 0x11310: attr = *(*g_ispcore + *arg2 * 96 +
-	 * 360), fn = attr + 208, *(uint16_t *)(arg2 + 24 bytes) = code.  Here
-	 * g_ispcore (a 16-byte object) is indexed at +0x168, i.e. outside it.
-	 * Same dead-by-default vendor AE path as the other sensor_alloc_*.
+	 * Vendor 1.2.6-720-4494 sensor_alloc_digital_gain_short 0x11310:
+	 *   core = *g_ispcore (pointer, .bss+0x400)
+	 *   attr = *(core + *arg2 * 96 + 360)
+	 *   fn   = *(attr + 208)              (sensor_ctrl.alloc_dgain_short)
+	 *   if (!fn) { *(u16 *)(arg2 + 24 bytes) = 0; return 0; }
+	 *   ret = fn(arg1, 16, &code); *(u16 *)(arg2 + 24 bytes) = code;
+	 * The old hand-written body read the callee from g_ispcore + 0x168,
+	 * i.e. outside the 16-byte g_ispcore object, called whatever it found
+	 * and stored a 32-bit word.  Same core/attr walk as
+	 * t41_safe_sensor_limits_get (core + 308 + ch * 96 + 52); every
+	 * pointer is checked, a missing callee reports code 0 like the vendor.
 	 */
-	uint32_t var_10 = 0;
-	uint32_t tmp;
+	uintptr_t core = *(uint32_t *)(void *)g_ispcore;
+	uint32_t channel, code = 0;
+	unsigned char *attr;
 	int32_t (*func)(int32_t, int32_t, void *);
+	int32_t ret = 0;
 
-	func = *(void (**)(int32_t, int32_t, void *))((char *)g_ispcore + 0x168);
-	if (func != 0) {
-		tmp = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))func)((uintptr_t)(arg1), (uintptr_t)(0x10), (uintptr_t)(&var_10));
-		((void **)arg2)[6] = var_10;
-		return tmp;
+	if (!t41_kernel_data_ptr(arg2))
+		return -EINVAL;
+	channel = *(uint32_t *)(void *)arg2;
+	if (channel < 2 && t41_kernel_data_ptr((void *)core)) {
+		attr = (unsigned char *)(uintptr_t)
+			*(uint32_t *)(void *)(core + 360 + channel * 96);
+		if (t41_kernel_data_ptr(attr)) {
+			func = *(void **)(void *)(attr + 208);
+			if (func && t41_kernel_data_ptr((void *)func) &&
+			    !((uintptr_t)func & 3))
+				ret = func(arg1, 16, &code);
+		}
 	}
-	((void **)arg2)[6] = 0;
-	return 0;
+	*(uint16_t *)(void *)((char *)arg2 + 24) = (uint16_t)code;
+	return ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012634 origin=fragment_seed original=sensor_alloc_integration_time */
