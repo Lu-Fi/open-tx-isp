@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-12: branch `claude/sensor-proc-compat` (not merged)
+
+- **Vendor-compatible `/proc/jz/sensor` files (all SoCs, host build and host test only, not run on a camera):** besides the existing `sensorN/`, `count` and `events` entries the registry now publishes the vendor layout: the files `boot chip_id height i2c_adapter i2c_addr max_fps mclk min_fps name pwdn_gpio rst_gpio version video_interface width` directly in `/proc/jz/sensor` (first sensor) and again in `/proc/jz/sensor/<sensor name>/`. One value per file with a trailing newline (`chip_id`/`i2c_addr` as `0x%x`, `name`/`version` strings, the rest decimal), read-only. The values (native size, `min_fps`/`max_fps`, `version`, wiring) are those of the sensor module's own `sensor_info`, found by a strict structural match inside the module image (no new state, nothing written); without a match the registry values are used and unknown ones stay empty. The extra open-driver information stays in `sensorN/` (`fps`, `status`), `count` and `events`. Host test `tests/sinfo_vendor_host_test`.
+
 ## 2026-10-11: aggregate agg-37 (not released)
 
 `claude/agg-37` = agg-36 (a1c28797) + `claude/agg-37-size`, `claude/agg37-drv`, `claude/agg37-t23-quiet`, `claude/agg37-t40-quiet`, `claude/agg37-t41`, `claude/t41-procwatch-report`, `claude/agg37-smallfix`, `claude/agg37-t41-stab` (6330d6fb). Host tests and module builds only; no soak, every item below needs a device test unless it says otherwise.

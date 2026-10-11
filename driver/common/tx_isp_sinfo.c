@@ -10,6 +10,7 @@
 #include <linux/version.h>
 
 #include "../include/tx_isp/tx_isp_sinfo.h"
+#include "tx_isp_sinfo_vendor.h"
 
 /*
  * The shared registry is included by recovered T23/T40/T41 adapters as well
@@ -98,6 +99,18 @@ struct tx_isp_sinfo_slot {
 	struct tx_isp_sinfo_file files[TX_ISP_SINFO_NKEYS];
 };
 
+/*
+ * State of the vendor-compatible view (see tx_isp_sinfo_vendor_publish()).
+ * It lives in the heap block that holds the slots, directly behind them, so
+ * neither the slot layout nor the BSS footprint of any adapter changes.
+ */
+struct tx_isp_sinfo_vendor_state {
+	/* 1 + index of the slot the flat /proc/jz/sensor/<file> set shows. */
+	unsigned char flat_owner;
+	/* Name of the <sensor name>/ alias directory per slot ("" = none). */
+	char alias[TX_ISP_SINFO_MAX_SENSORS][16];
+};
+
 struct tx_isp_sinfo_stats {
 	unsigned int magic;
 	unsigned int driver_add_calls;
@@ -146,6 +159,7 @@ static struct {
 struct tx_isp_sinfo_heap_state {
 	struct proc_dir_entry *root;
 	struct tx_isp_sinfo_slot slots[TX_ISP_SINFO_MAX_SENSORS];
+	struct tx_isp_sinfo_vendor_state vendor;
 };
 #define tx_isp_sinfo_heap_state_ptr \
 	((struct tx_isp_sinfo_heap_state *)((unsigned char *) \
@@ -175,6 +189,10 @@ extern struct proc_dir_entry *tx_isp_get_jz_proc_root(void);
 #ifndef TX_ISP_SINFO_CONFIG_FLAGS
 #define TX_ISP_SINFO_CONFIG_FLAGS tx_isp_sinfo_config.flags
 #endif
+/* The vendor view state sits directly behind the slot array (heap). */
+#define tx_isp_sinfo_vendor_state_ptr \
+	((struct tx_isp_sinfo_vendor_state *) \
+	 (tx_isp_sinfo_heap_slots + TX_ISP_SINFO_MAX_SENSORS))
 
 static bool tx_isp_sinfo_key_supported(enum tx_isp_sinfo_key key)
 {
@@ -230,11 +248,16 @@ static int tx_isp_sinfo_s32_at(const void *base, unsigned int offset)
 	return *(const int *)((const unsigned char *)base + offset);
 }
 
-static int tx_isp_sinfo_show(struct seq_file *m, void *unused)
+/*
+ * Print one registry value; tx_isp_sinfo_lock is held.  With @vendor set the
+ * placeholders printed for unknown wiring (1, 0, -1) are suppressed so the
+ * vendor view can fall back to the sensor module's own sensor_info instead.
+ */
+static void tx_isp_sinfo_show_key(struct seq_file *m,
+				  struct tx_isp_sinfo_slot *slot,
+				  enum tx_isp_sinfo_key selected_key,
+				  bool vendor)
 {
-	struct tx_isp_sinfo_file *file = m->private;
-	struct tx_isp_sinfo_slot *slot = file->slot;
-	enum tx_isp_sinfo_key selected_key = file->key;
 	struct i2c_client *client;
 	const void *attr;
 	const void *info;
@@ -250,12 +273,8 @@ static int tx_isp_sinfo_show(struct seq_file *m, void *unused)
 	unsigned int wiring_pwdn_gpio_offset;
 	int gpio;
 
-	(void)unused;
-	mutex_lock(&tx_isp_sinfo_lock);
-	if (!slot->used) {
-		mutex_unlock(&tx_isp_sinfo_lock);
-		return 0;
-	}
+	if (!slot->used)
+		return;
 
 	client = NULL;
 	attr = NULL;
@@ -388,7 +407,7 @@ static int tx_isp_sinfo_show(struct seq_file *m, void *unused)
 			seq_printf(m, "%u\n",
 				   tx_isp_sinfo_u32_at(
 					   wiring, wiring_mclk_offset));
-		else
+		else if (!vendor)
 			seq_printf(m, "1\n");
 		break;
 	case TX_ISP_SINFO_VIDEO_INTERFACE:
@@ -400,7 +419,7 @@ static int tx_isp_sinfo_show(struct seq_file *m, void *unused)
 			seq_printf(m, "%u\n",
 				   tx_isp_sinfo_u32_at(
 					   wiring, wiring_interface_offset));
-		else
+		else if (!vendor)
 			seq_printf(m, "0\n");
 		break;
 	case TX_ISP_SINFO_BOOT:
@@ -412,7 +431,7 @@ static int tx_isp_sinfo_show(struct seq_file *m, void *unused)
 			seq_printf(m, "%u\n",
 				   tx_isp_sinfo_u32_at(
 					   wiring, wiring_boot_offset));
-		else
+		else if (!vendor)
 			seq_printf(m, "0\n");
 		break;
 	case TX_ISP_SINFO_RST_GPIO:
@@ -425,7 +444,7 @@ static int tx_isp_sinfo_show(struct seq_file *m, void *unused)
 			 !tx_isp_sinfo_config.read_module_param_int(
 				 slot->owner, "reset_gpio", &gpio))
 			seq_printf(m, "%d\n", gpio);
-		else
+		else if (!vendor)
 			seq_printf(m, "-1\n");
 		break;
 	case TX_ISP_SINFO_PWDN_GPIO:
@@ -438,7 +457,7 @@ static int tx_isp_sinfo_show(struct seq_file *m, void *unused)
 			 !tx_isp_sinfo_config.read_module_param_int(
 				 slot->owner, "pwdn_gpio", &gpio))
 			seq_printf(m, "%d\n", gpio);
-		else
+		else if (!vendor)
 			seq_printf(m, "-1\n");
 		break;
 	case TX_ISP_SINFO_MIN_FPS:
@@ -473,6 +492,15 @@ static int tx_isp_sinfo_show(struct seq_file *m, void *unused)
 		/* This field is not present in the selected SoC ABI. */
 		break;
 	}
+}
+
+static int tx_isp_sinfo_show(struct seq_file *m, void *unused)
+{
+	struct tx_isp_sinfo_file *file = m->private;
+
+	(void)unused;
+	mutex_lock(&tx_isp_sinfo_lock);
+	tx_isp_sinfo_show_key(m, file->slot, file->key, false);
 	mutex_unlock(&tx_isp_sinfo_lock);
 	return 0;
 }
@@ -588,6 +616,289 @@ static const TX_ISP_PROC_OPS tx_isp_sinfo_events_fops = {
 	TX_ISP_PROC_RELEASE = single_release,
 };
 
+
+/*
+ * Vendor-compatible view.
+ *
+ * The vendor stack publishes, per loaded sensor module, one flat set of
+ * read-only files directly in /proc/jz/sensor (first sensor only) and the
+ * same set again in /proc/jz/sensor/<sensor name>/.  Each file holds one
+ * value and a trailing newline:
+ *
+ *   boot chip_id height i2c_adapter i2c_addr max_fps mclk min_fps name
+ *   pwdn_gpio rst_gpio version video_interface width
+ *
+ * chip_id and i2c_addr are "0x%x", name and version are strings, everything
+ * else is a decimal integer.  The values are those of the sensor module's
+ * own sensor_info (native size, fps range), which the open registry cannot
+ * see through the opaque subdev, so they are taken from the module image
+ * (see tx_isp_sinfo_vendor.h) and fall back to the registry values.  Open
+ * driver extras (sensorN/, count, events, fps, status) stay in their own
+ * entries so these files keep the exact vendor content.
+ */
+static const struct {
+	const char *name;
+	int key;	/* enum tx_isp_sinfo_key, or NKEYS for "version" */
+} tx_isp_sinfo_vendor_files[] = {
+	{ "boot", TX_ISP_SINFO_BOOT },
+	{ "chip_id", TX_ISP_SINFO_CHIP_ID },
+	{ "height", TX_ISP_SINFO_HEIGHT },
+	{ "i2c_adapter", TX_ISP_SINFO_I2C_ADAPTER },
+	{ "i2c_addr", TX_ISP_SINFO_I2C_ADDR },
+	{ "max_fps", TX_ISP_SINFO_MAX_FPS },
+	{ "mclk", TX_ISP_SINFO_MCLK },
+	{ "min_fps", TX_ISP_SINFO_MIN_FPS },
+	{ "name", TX_ISP_SINFO_NAME },
+	{ "pwdn_gpio", TX_ISP_SINFO_PWDN_GPIO },
+	{ "rst_gpio", TX_ISP_SINFO_RST_GPIO },
+	{ "version", TX_ISP_SINFO_NKEYS },
+	{ "video_interface", TX_ISP_SINFO_VIDEO_INTERFACE },
+	{ "width", TX_ISP_SINFO_WIDTH },
+};
+#define TX_ISP_SINFO_VENDOR_NFILES \
+	(sizeof(tx_isp_sinfo_vendor_files) / sizeof(tx_isp_sinfo_vendor_files[0]))
+
+static bool tx_isp_sinfo_module_image(struct module *mod, const void **base,
+				      unsigned long *size)
+{
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0)
+	*base = mod->module_core;
+	*size = mod->core_size;
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 4, 0)
+	*base = mod->core_layout.base;
+	*size = mod->core_layout.size;
+#else
+	(void)mod;
+	*base = NULL;
+	*size = 0;
+#endif
+	return *base && *size;
+}
+
+/* Locate the sensor module's sensor_info; tx_isp_sinfo_lock is held. */
+static bool tx_isp_sinfo_vendor_lookup(const struct tx_isp_sinfo_slot *slot,
+				       struct tx_isp_sinfo_vinfo *vi)
+{
+	struct module *mod;
+	const void *base;
+	unsigned long size;
+
+	if (!slot->drv || !slot->drv->driver.name)
+		return false;
+	mod = slot->owner ? slot->owner : slot->drv->driver.owner;
+	if (!mod || !tx_isp_sinfo_module_image(mod, &base, &size))
+		return false;
+	return tx_isp_sinfo_vendor_scan(base, size, slot->drv->driver.name,
+					slot->default_i2c_addr, vi);
+}
+
+/* Registry values the vendor view prefers the module's sensor_info for. */
+static bool tx_isp_sinfo_vendor_info_first(int key)
+{
+	switch (key) {
+	case TX_ISP_SINFO_NAME:
+	case TX_ISP_SINFO_CHIP_ID:
+	case TX_ISP_SINFO_WIDTH:
+	case TX_ISP_SINFO_HEIGHT:
+	case TX_ISP_SINFO_MIN_FPS:
+	case TX_ISP_SINFO_MAX_FPS:
+	case TX_ISP_SINFO_NKEYS:	/* version */
+		return true;
+	default:
+		return false;
+	}
+}
+
+static void tx_isp_sinfo_vendor_value(struct seq_file *m,
+				      struct tx_isp_sinfo_slot *slot, int key)
+{
+	struct tx_isp_sinfo_vinfo vi;
+	bool have;
+	size_t start = m->count;
+
+	if (!slot->used)
+		return;
+	have = tx_isp_sinfo_vendor_lookup(slot, &vi);
+	if (!have || !tx_isp_sinfo_vendor_info_first(key)) {
+		if (key != TX_ISP_SINFO_NKEYS) {
+			tx_isp_sinfo_show_key(m, slot, key, true);
+			if (m->count != start)
+				return;
+		}
+	}
+	if (!have) {
+		switch (key) {
+		case TX_ISP_SINFO_NKEYS:
+			seq_printf(m, "unknown\n");
+			break;
+		case TX_ISP_SINFO_BOOT:
+		case TX_ISP_SINFO_MCLK:
+		case TX_ISP_SINFO_VIDEO_INTERFACE:
+		case TX_ISP_SINFO_RST_GPIO:
+		case TX_ISP_SINFO_PWDN_GPIO:
+		case TX_ISP_SINFO_I2C_ADAPTER:
+			seq_printf(m, "0\n");
+			break;
+		default:
+			/* Not known without the sensor module's data. */
+			break;
+		}
+		return;
+	}
+
+	switch (key) {
+	case TX_ISP_SINFO_NAME:
+		seq_printf(m, "%s\n", vi.name);
+		break;
+	case TX_ISP_SINFO_NKEYS:
+		seq_printf(m, "%s\n", vi.version);
+		break;
+	case TX_ISP_SINFO_CHIP_ID:
+		seq_printf(m, "0x%x\n", vi.chip_id);
+		break;
+	case TX_ISP_SINFO_I2C_ADDR:
+		seq_printf(m, "0x%x\n", vi.i2c_addr);
+		break;
+	case TX_ISP_SINFO_WIDTH:
+		seq_printf(m, "%d\n", vi.width);
+		break;
+	case TX_ISP_SINFO_HEIGHT:
+		seq_printf(m, "%d\n", vi.height);
+		break;
+	case TX_ISP_SINFO_MIN_FPS:
+		seq_printf(m, "%d\n", vi.min_fps);
+		break;
+	case TX_ISP_SINFO_MAX_FPS:
+		seq_printf(m, "%d\n", vi.max_fps);
+		break;
+	case TX_ISP_SINFO_BOOT:
+		seq_printf(m, "%d\n", vi.boot);
+		break;
+	case TX_ISP_SINFO_MCLK:
+		seq_printf(m, "%d\n", vi.mclk);
+		break;
+	case TX_ISP_SINFO_VIDEO_INTERFACE:
+		seq_printf(m, "%d\n", vi.video_interface);
+		break;
+	case TX_ISP_SINFO_RST_GPIO:
+		seq_printf(m, "%d\n", vi.rst_gpio);
+		break;
+	case TX_ISP_SINFO_PWDN_GPIO:
+		seq_printf(m, "%d\n", vi.pwdn_gpio);
+		break;
+	case TX_ISP_SINFO_I2C_ADAPTER:
+		seq_printf(m, "%d\n", vi.i2c_adapter);
+		break;
+	default:
+		break;
+	}
+}
+
+static int tx_isp_sinfo_vendor_show(struct seq_file *m, void *unused)
+{
+	struct tx_isp_sinfo_file *file = m->private;
+
+	(void)unused;
+	mutex_lock(&tx_isp_sinfo_lock);
+	tx_isp_sinfo_vendor_value(m, file->slot, file->key);
+	mutex_unlock(&tx_isp_sinfo_lock);
+	return 0;
+}
+
+static int tx_isp_sinfo_vendor_version_show(struct seq_file *m, void *unused)
+{
+	struct tx_isp_sinfo_file *file = m->private;
+
+	(void)unused;
+	mutex_lock(&tx_isp_sinfo_lock);
+	tx_isp_sinfo_vendor_value(m, file->slot, TX_ISP_SINFO_NKEYS);
+	mutex_unlock(&tx_isp_sinfo_lock);
+	return 0;
+}
+
+static int tx_isp_sinfo_vendor_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, tx_isp_sinfo_vendor_show, PDE_DATA(inode));
+}
+
+static int tx_isp_sinfo_vendor_version_open(struct inode *inode,
+					    struct file *file)
+{
+	return single_open(file, tx_isp_sinfo_vendor_version_show,
+			   PDE_DATA(inode));
+}
+
+static const TX_ISP_PROC_OPS tx_isp_sinfo_vendor_fops = {
+	TX_ISP_PROC_OWNER
+	TX_ISP_PROC_OPEN = tx_isp_sinfo_vendor_open,
+	TX_ISP_PROC_READ = seq_read,
+	TX_ISP_PROC_LSEEK = seq_lseek,
+	TX_ISP_PROC_RELEASE = single_release,
+};
+
+static const TX_ISP_PROC_OPS tx_isp_sinfo_vendor_version_fops = {
+	TX_ISP_PROC_OWNER
+	TX_ISP_PROC_OPEN = tx_isp_sinfo_vendor_version_open,
+	TX_ISP_PROC_READ = seq_read,
+	TX_ISP_PROC_LSEEK = seq_lseek,
+	TX_ISP_PROC_RELEASE = single_release,
+};
+
+static void tx_isp_sinfo_vendor_files_create(struct proc_dir_entry *dir,
+					     struct tx_isp_sinfo_slot *slot,
+					     int index)
+{
+	unsigned int n;
+
+	for (n = 0; n < TX_ISP_SINFO_VENDOR_NFILES; ++n) {
+		int key = tx_isp_sinfo_vendor_files[n].key;
+		bool version = key == TX_ISP_SINFO_NKEYS;
+		void *ctx;
+
+		if (version)
+			key = TX_ISP_SINFO_NAME;
+#ifdef TX_ISP_SINFO_STABLE_PROC_SNAPSHOT
+		ctx = &tx_isp_sinfo_heap_slots[index].files[key];
+#else
+		ctx = &slot->files[key];
+#endif
+		proc_create_data(tx_isp_sinfo_vendor_files[n].name, 0444, dir,
+				 version ? &tx_isp_sinfo_vendor_version_fops :
+					   &tx_isp_sinfo_vendor_fops, ctx);
+	}
+}
+
+/*
+ * Publish the vendor view for a published slot: the flat files for the first
+ * sensor and the <sensor name>/ directory.  Idempotent; tx_isp_sinfo_lock and
+ * the publish lock are held.
+ */
+static void tx_isp_sinfo_vendor_publish(struct tx_isp_sinfo_slot *slot,
+					int index)
+{
+	struct tx_isp_sinfo_vendor_state *vs = tx_isp_sinfo_vendor_state_ptr;
+	const char *name;
+
+	if (!slot->used || !slot->dir || !tx_isp_sinfo_root)
+		return;
+	if (!vs->flat_owner) {
+		vs->flat_owner = index + 1;
+		tx_isp_sinfo_vendor_files_create(tx_isp_sinfo_root, slot,
+						 index);
+	}
+	name = slot->drv ? slot->drv->driver.name : NULL;
+	if (name && name[0] && !vs->alias[index][0]) {
+		struct proc_dir_entry *dir;
+
+		strlcpy(vs->alias[index], name, sizeof(vs->alias[index]));
+		dir = proc_mkdir(vs->alias[index], tx_isp_sinfo_root);
+		if (dir)
+			tx_isp_sinfo_vendor_files_create(dir, slot, index);
+		else
+			vs->alias[index][0] = '\0';
+	}
+}
+
 static void tx_isp_sinfo_slot_sync_compat(int index);
 
 #ifdef TX_ISP_SINFO_STABLE_PROC_SNAPSHOT
@@ -620,14 +931,15 @@ tx_isp_sinfo_slot_publish(struct tx_isp_sinfo_slot *slot, int index)
 	proc_slot = &tx_isp_sinfo_heap_slots[index];
 #endif
 	for (key = 0; key < TX_ISP_SINFO_NKEYS; ++key) {
-		if (!tx_isp_sinfo_key_supported(key))
-			continue;
+		/* The vendor view needs every key's context, supported or not. */
 		slot->files[key].slot = slot;
 		slot->files[key].key = key;
 #ifdef TX_ISP_SINFO_STABLE_PROC_SNAPSHOT
 		proc_slot->files[key].slot = proc_slot;
 		proc_slot->files[key].key = key;
 #endif
+		if (!tx_isp_sinfo_key_supported(key))
+			continue;
 		proc_create_data(tx_isp_sinfo_key_name[key], 0444, slot->dir,
 				 &tx_isp_sinfo_fops,
 #ifdef TX_ISP_SINFO_STABLE_PROC_SNAPSHOT
@@ -732,6 +1044,7 @@ int tx_isp_sinfo_driver_add(struct i2c_driver *drv, int default_i2c_addr,
 	}
 	if (i != TX_ISP_SINFO_MAX_SENSORS) {
 		tx_isp_sinfo_slot_sync_compat(i);
+		tx_isp_sinfo_vendor_publish(&tx_isp_sinfo_slots[i], i);
 		tx_isp_sinfo_stats.driver_add_successes++;
 	}
 	mutex_unlock(&tx_isp_sinfo_lock);
@@ -799,7 +1112,10 @@ static int tx_isp_sinfo_del_slots(struct i2c_driver *drv, struct module *mod)
 	int removed = 0;
 	struct proc_dir_entry *root = NULL;
 	char dirnames[TX_ISP_SINFO_MAX_SENSORS][16];
+	char aliases[TX_ISP_SINFO_MAX_SENSORS][16];
 	bool had_dir[TX_ISP_SINFO_MAX_SENSORS];
+	bool had_flat[TX_ISP_SINFO_MAX_SENSORS];
+	struct tx_isp_sinfo_vendor_state *vs;
 
 	mutex_lock(&tx_isp_sinfo_publish_lock);
 	mutex_lock(&tx_isp_sinfo_lock);
@@ -811,11 +1127,14 @@ static int tx_isp_sinfo_del_slots(struct i2c_driver *drv, struct module *mod)
 	if (drv)
 		tx_isp_sinfo_stats.driver_del_calls++;
 	root = tx_isp_sinfo_root;
+	vs = tx_isp_sinfo_vendor_state_ptr;
 	for (i = 0; i < TX_ISP_SINFO_MAX_SENSORS; ++i) {
 		struct tx_isp_sinfo_slot *slot = &tx_isp_sinfo_slots[i];
 		bool match;
 
 		had_dir[i] = false;
+		had_flat[i] = false;
+		aliases[i][0] = '\0';
 		if (!slot->used)
 			continue;
 		if (drv)
@@ -833,15 +1152,31 @@ static int tx_isp_sinfo_del_slots(struct i2c_driver *drv, struct module *mod)
 			       sizeof(dirnames[i]));
 			had_dir[i] = true;
 		}
+		memcpy(aliases[i], vs->alias[i], sizeof(aliases[i]));
+		vs->alias[i][0] = '\0';
+		if (vs->flat_owner == i + 1) {
+			vs->flat_owner = 0;
+			had_flat[i] = true;
+		}
 		memset(slot, 0, sizeof(*slot));
 		tx_isp_sinfo_slot_sync_compat(i);
 		removed++;
 		tx_isp_sinfo_stats.driver_del_slots++;
 	}
 	mutex_unlock(&tx_isp_sinfo_lock);
-	for (i = 0; i < TX_ISP_SINFO_MAX_SENSORS; ++i)
+	for (i = 0; i < TX_ISP_SINFO_MAX_SENSORS; ++i) {
+		unsigned int n;
+
 		if (had_dir[i] && root)
 			remove_proc_subtree(dirnames[i], root);
+		if (aliases[i][0] && root)
+			remove_proc_subtree(aliases[i], root);
+		if (had_flat[i] && root)
+			for (n = 0; n < TX_ISP_SINFO_VENDOR_NFILES; ++n)
+				remove_proc_entry(
+					tx_isp_sinfo_vendor_files[n].name,
+					root);
+	}
 	mutex_unlock(&tx_isp_sinfo_publish_lock);
 	return removed;
 }
@@ -972,6 +1307,7 @@ int tx_isp_sinfo_sensor_bind(void *subdev, struct module *owner)
 	}
 	if (i != TX_ISP_SINFO_MAX_SENSORS) {
 		tx_isp_sinfo_slot_sync_compat(i);
+		tx_isp_sinfo_vendor_publish(&tx_isp_sinfo_slots[i], i);
 		tx_isp_sinfo_stats.sensor_bind_successes++;
 	}
 	mutex_unlock(&tx_isp_sinfo_lock);
@@ -1039,13 +1375,16 @@ int tx_isp_sinfo_init(void)
 	}
 
 #ifdef TX_ISP_SINFO_STABLE_PROC_SNAPSHOT
+	BUILD_BUG_ON(offsetof(struct tx_isp_sinfo_heap_state, vendor) !=
+		     offsetof(struct tx_isp_sinfo_heap_state, slots) +
+		     sizeof(heap_state->slots));
 	heap_state = kzalloc(sizeof(*heap_state), GFP_KERNEL);
 	if (heap_state)
 		tx_isp_sinfo_heap_slots = heap_state->slots;
 #else
 	tx_isp_sinfo_heap_slots = kzalloc(
-		sizeof(*tx_isp_sinfo_heap_slots) * TX_ISP_SINFO_MAX_SENSORS,
-		GFP_KERNEL);
+		sizeof(*tx_isp_sinfo_heap_slots) * TX_ISP_SINFO_MAX_SENSORS +
+		sizeof(struct tx_isp_sinfo_vendor_state), GFP_KERNEL);
 #endif
 	if (!tx_isp_sinfo_heap_slots)
 		return -ENOMEM;

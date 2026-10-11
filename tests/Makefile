@@ -412,6 +412,11 @@ TESTS += t21_ae_comp_host_test
 t21_ae_comp_host_test: t21_ae_comp_host_test.c ../driver/t21/tx_isp_t21_ae_comp.h
 	$(CC) $(CFLAGS) -o $@ $<
 
+TESTS += sinfo_vendor_host_test
+
+sinfo_vendor_host_test: sinfo_vendor_host_test.c ../driver/common/tx_isp_sinfo_vendor.h
+	$(CC) $(CFLAGS) -o $@ $<
+
 TESTS += t20_ae_max_host_test
 
 t20_ae_max_host_test: t20_ae_max_host_test.c ../driver/t20/tx_isp_t20_ae_max.h
@@ -466,7 +471,7 @@ clean:
 	$(RM) tx_isp_t41_awb_runtime_test
 	$(RM) tx_isp_t41_awb_detect_test
 	$(RM) tx_isp_t41_awb_long_test
-	$(RM) tx_isp_t41_tuning_ctl_test t21_sepia_host_test
+	$(RM) tx_isp_t41_tuning_ctl_test t21_sepia_host_test sinfo_vendor_host_test
 	$(RM) tx_isp_t41_awb_stats_test
 	$(RM) tx_isp_math_test tx_isp_modulation_test \
 		tx_isp_awb_mesh_test \
