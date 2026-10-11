@@ -18,6 +18,10 @@ TARGET_TESTS := $(basename $(wildcard t41_v4l2_*_test.c)) t41_antiflicker_ioctl_
 TEST_TIMEOUT ?= 600
 
 TESTS += tx_isp_t41_ysp_test
+TESTS += tx_isp_t41_switchbin_test
+
+tx_isp_t41_switchbin_test: tx_isp_t41_switchbin_test.c ../driver/t41/tx_isp_t41_switchbin.h
+	$(CC) $(CFLAGS) -o $@ $<
 TESTS += tx_isp_t41_tuning_ctl_test
 TESTS += tx_isp_t41_msca_shadow_test
 TESTS += tx_isp_t41_msca_start_test
