@@ -1510,12 +1510,14 @@ static int isp_core_frame_channel_scaler_capture(struct tx_isp_core_device *core
 //				__func__, __LINE__, vdev->index, vdev->bypass);
 		ret = -EPERM;
 	} else {
-		inwidth = attr->output.fmt.pix.width;
-		inheight = attr->output.fmt.pix.height;
-		if (inwidth == 0 || inheight == 0) {
-			/* Crop disabled: output size was never latched, so the
-			 * scaler input is the full frame.  Without this the cap
-			 * collapses to 0 and every SET_SCALER is rejected. */
+		/* The scaler input is the DS crop window, or the full frame
+		 * without a crop.  output.fmt.pix is not usable here: SET_SCALER
+		 * overwrites it with the scaled size, which would shrink the cap
+		 * and reject a later, larger resolution. */
+		if (attr->crop_enable && attr->crop.width && attr->crop.height) {
+			inwidth = attr->crop.width;
+			inheight = attr->crop.height;
+		} else {
 			inwidth = mbus->width;
 			inheight = mbus->height;
 		}

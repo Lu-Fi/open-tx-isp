@@ -6,6 +6,8 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 
 ## 2026-10-11
 
+- **T20/T10 scaler capability no longer shrinks after `SET_SCALER` (host build only, not run on a camera):** the maximum scaler size was derived from the channel's output size, which `SET_SCALER` overwrites with the scaled size; a later, larger resolution was then rejected with EINVAL until the next crop. The scaler input is now the DS crop window, or the full sensor frame without a crop.
+
 - **T23 kernel log quiet in normal operation (host build only, not run on a camera):** the day/night "bank switch block refresh" line is logged at warning level only when a block failed or returned an error (`failed=`/`ret=` non-zero); a clean refresh is an info note and, like the other T23 progress notes, silent unless `t23_runtime_trace=1`. The rate-limited T23 messages (source total-gain, LSC runtime, ...) now pass the same quiet gate before the rate limit, so the kernel's "N callbacks suppressed" lines no longer appear in quiet mode. The messages of the lifted AE/ADR/defog/AF/AWB code carried the old `tx_isp_t23_recovered:` prefix and therefore missed the quiet gate; they now use `t23:`. Module 972 bytes smaller.
 
 ## 2026-10-09
