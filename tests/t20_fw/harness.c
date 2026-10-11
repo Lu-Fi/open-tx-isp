@@ -1012,6 +1012,136 @@ int main(int argc, char **argv)
 	}
 	checkpoint("awb-manual-auto");
 
+	/* Safe anti-fog preset (t20_antifog_request): validated, applied by the AE
+	 * path between frames.  Manual Iridix at the preset strength, the upper
+	 * clamp raised and restored, "off" undoes only what the preset did, the
+	 * variance word 0x3c8 (opt-in) is written at frame start and put back,
+	 * and a request with the Iridix block off changes nothing. */
+	{
+		static const uint32_t lvl_strength[4] = { 0, 0xff, 0xc0, 0x80 };
+		static const uint32_t lvl_var[4] = { 0, 0x00, 0x44, 0x77 };
+		uint32_t l, saved41, saved9, reg3c0, reg3c8;
+		unsigned ign;
+
+		memcpy(&reg3c0, regs + 0x3c0, 4);
+		if (!(reg3c0 & 1)) {
+			rt_printf("antifog: Iridix block off in the scene, enabling it for the test\n");
+			reg3c0 |= 1;
+			memcpy(regs + 0x3c0, &reg3c0, 4);
+		}
+		for (f = 0; f < 3; f++) frame();
+		saved41 = stab[41];
+		saved9 = stab[9];
+		if (t20fw_antifog(4) != -22 || t20fw_antifog(0xffffffffu) != -22)
+			rt_printf("FAIL: antifog accepted a level above 3\n");
+		for (f = 0; f < 3; f++) frame();
+		if (stab[9] != saved9 || stab[41] != saved41)
+			rt_printf("FAIL: antifog rejected level changed the Iridix state\n");
+		for (l = 1; l <= 3; l++) {
+			if (t20fw_antifog(l))
+				rt_printf("FAIL: antifog level %u refused\n", l);
+			if (l == 1 && stab[9] != saved9)
+				rt_printf("FAIL: antifog level %u applied outside the AE path\n", l);
+			for (f = 0; f < 3; f++) frame();
+			if (stab[9] != 1 || stab[40] != lvl_strength[l] || stab[41] != 0xff)
+				rt_printf("FAIL: antifog level %u: manual=%u strength=0x%x max=0x%x\n",
+					  l, stab[9], stab[40], stab[41]);
+		}
+		if (t20fw_antifog(0))
+			rt_printf("FAIL: antifog off refused\n");
+		for (f = 0; f < 3; f++) frame();
+		if (stab[9] != saved9 || stab[41] != saved41)
+			rt_printf("FAIL: antifog off: manual=%u (was %u) max=0x%x (was 0x%x)\n",
+				  stab[9], saved9, stab[41], saved41);
+		/* off without a preset is a no-op */
+		t20fw_antifog(0);
+		for (f = 0; f < 3; f++) frame();
+		if (stab[9] != saved9 || stab[41] != saved41)
+			rt_printf("FAIL: antifog off without preset changed the Iridix state\n");
+		/* a manual Iridix chosen by the application stays manual */
+		cmd(TALGORITHMS_H, 0x69, 0x3b, 0);	/* IRIDIX manual */
+		saved9 = stab[9];
+		t20fw_antifog(2);
+		for (f = 0; f < 3; f++) frame();
+		t20fw_antifog(0);
+		for (f = 0; f < 3; f++) frame();
+		if (stab[9] != saved9)
+			rt_printf("FAIL: antifog off dropped the application's manual Iridix\n");
+		cmd(TALGORITHMS_H, 0x69, 0x3d, 0);	/* IRIDIX auto preset (block on, manual off) */
+		for (f = 0; f < 3; f++) frame();
+		saved9 = stab[9];
+		/* variance nibbles, opt-in */
+		memcpy(&reg3c8, regs + 0x3c8, 4);
+		t20fw_antifog(2);
+		for (f = 0; f < 3; f++) frame();
+		if (memcmp(&reg3c8, regs + 0x3c8, 4))
+			rt_printf("FAIL: antifog wrote 0x3c8 with the variance option off\n");
+		t20fw_antifog(0);
+		for (f = 0; f < 3; f++) frame();
+		t20fw_antifog_variance(1);
+		for (l = 1; l <= 3; l++) {
+			uint32_t v;
+
+			t20fw_antifog(l);
+			for (f = 0; f < 3; f++) frame();
+			memcpy(&v, regs + 0x3c8, 4);
+			if ((v & 0xff) != lvl_var[l] || (v & ~0xffu) != (reg3c8 & ~0xffu))
+				rt_printf("FAIL: antifog level %u variance word 0x%08x (original 0x%08x)\n", l, v, reg3c8);
+		}
+		t20fw_antifog(0);
+		for (f = 0; f < 3; f++) frame();
+		memcpy(&l, regs + 0x3c8, 4);
+		if (l != reg3c8)
+			rt_printf("FAIL: antifog off did not restore 0x3c8 (0x%08x, original 0x%08x)\n", l, reg3c8);
+		t20fw_antifog_variance(0);
+		/* Iridix block off: kept and counted, nothing written */
+		ign = t20fw_antifog_ignored();
+		reg3c0 &= ~1u;
+		memcpy(regs + 0x3c0, &reg3c0, 4);
+		t20fw_antifog(1);
+		for (f = 0; f < 3; f++) frame();
+		if (t20fw_antifog_ignored() != ign + 1 || stab[9] != saved9)
+			rt_printf("FAIL: antifog with the Iridix block off: ignored=%u manual=%u\n",
+				  t20fw_antifog_ignored() - ign, stab[9]);
+		t20fw_antifog(0);
+		reg3c0 |= 1;
+		memcpy(regs + 0x3c0, &reg3c0, 4);
+		for (f = 0; f < 3; f++) frame();
+	}
+	checkpoint("antifog");
+
+	/* Lens-shading scale (t20_mesh_scale_request): validated, written to
+	 * bits 2..4 of register 0x380 at the frame-end interrupt, other bits kept. */
+	{
+		uint32_t l, r380, keep;
+
+		memcpy(&r380, regs + 0x380, 4);
+		keep = r380 & ~0x1cu;
+		if (t20fw_mesh_scale(8) != -22 || t20fw_mesh_scale(0xffffffffu) != -22)
+			rt_printf("FAIL: mesh scale accepted a value above 7\n");
+		for (f = 0; f < 3; f++) frame();
+		memcpy(&l, regs + 0x380, 4);
+		if (l != r380)
+			rt_printf("FAIL: mesh scale: a refused value changed 0x380 (0x%08x -> 0x%08x)\n", r380, l);
+		for (l = 0; l <= 7; l++) {
+			uint32_t v;
+
+			if (t20fw_mesh_scale(l))
+				rt_printf("FAIL: mesh scale %u refused\n", l);
+			memcpy(&v, regs + 0x380, 4);
+			if (v != r380 && l != ((r380 >> 2) & 7))
+				rt_printf("FAIL: mesh scale %u written in the caller's context\n", l);
+			for (f = 0; f < 2; f++) frame();
+			memcpy(&v, regs + 0x380, 4);
+			if (((v >> 2) & 7) != l || (v & ~0x1cu) != keep)
+				rt_printf("FAIL: mesh scale %u: 0x380 = 0x%08x (other bits 0x%08x)\n", l, v, keep);
+			r380 = v;
+		}
+		t20fw_mesh_scale(1);
+		for (f = 0; f < 2; f++) frame();
+	}
+	checkpoint("mesh-scale");
+
 	/* API sweep: every GET, then SETs with a few values (coverage of the
 	 * API dispatch and its getters/setters) */
 	{

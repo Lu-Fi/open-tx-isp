@@ -93635,8 +93635,8 @@ static int regtrace_t23_switch_bin_commit(unsigned char *day,
     old_day = tparams_day;
     old_night = tparams_night;
     smp_wmb();                  /* the new buffers are complete before they are visible */
-    WRITE_ONCE(tparams_day, (uintptr_t)day);
-    WRITE_ONCE(tparams_night, (uintptr_t)night);
+    ACCESS_ONCE(tparams_day) = (uintptr_t)day;
+    ACCESS_ONCE(tparams_night) = (uintptr_t)night;
     if (regtrace_t23_bank_retired_night)
         private_vfree((void *)regtrace_t23_bank_retired_night);
     if (regtrace_t23_bank_retired_day)
@@ -103348,6 +103348,32 @@ static uint32_t regtrace_t23_sensor_flip_get(void)
     return (regtrace_t23_source_lsc_initial_mirror ? 1U : 0U) |
            (regtrace_t23_source_lsc_initial_flip ? 2U : 0U);
 }
+
+/*
+ * Read-only module parameter msca_flip_state: who flips each axis.  Bits:
+ * 0 sensor_h, 1 sensor_v (the sensor accepted the flip event, e.g. sc2336p
+ * reg 0x3221), 2 isp_h, 3 isp_v (MSCA mirror/flip word 0xd050 asked for by
+ * HVFLIP).  With image hflip/vflip both stages flip on T23; a streamer that
+ * mirrors a crop window must account for both.  shvflip=1 (LSC mesh only)
+ * sets no bit.  Values are the last accepted requests (cached, no register
+ * read, so reading the parameter never touches the hardware).
+ */
+static int regtrace_t23_msca_flip_state_get(char *buffer,
+                                            const struct kernel_param *kp)
+{
+    uint32_t sensor = regtrace_t23_sensor_flip_get() & 3U;
+    uint32_t isp = ACCESS_ONCE(regtrace_t23_isp_flip_mode) & 3U;
+
+    (void)kp;
+    return scnprintf(buffer, PAGE_SIZE, "%u\n", sensor | isp << 2);
+}
+
+static struct kernel_param_ops regtrace_t23_msca_flip_state_ops = {
+    .get = regtrace_t23_msca_flip_state_get,
+};
+module_param_cb(msca_flip_state, &regtrace_t23_msca_flip_state_ops, NULL, 0444);
+MODULE_PARM_DESC(msca_flip_state,
+                 "read-only: flip done by sensor/ISP, bits 0 sensor_h, 1 sensor_v, 2 isp_h, 3 isp_v");
 
 static long regtrace_t23_copy_in(void *dst, uint32_t uptr, size_t size)
 {
