@@ -62,3 +62,23 @@ ccflags-y += $(call cc-option,-Wa$(comma)-mno-pdr)
 # Rootfs size: drop local (static) symbols from the module image. The kernel
 # resolves exports through __ksymtab, so .symtab/.strtab bulk is dead weight.
 LDFLAGS_MODULE += -x
+
+# Rootfs size: address static data through section anchors (one lui/addiu
+# per block instead of a HI16/LO16 pair per object).  Anchors also reorder
+# the static data of a unit, so the recovered firmware unit keeps the plain
+# layout it was verified with (tests/t20_fw); TX_ISP_FW_ANCHORS=y includes it.
+ccflags-y += -fsection-anchors
+ifneq ($(TX_ISP_FW_ANCHORS),y)
+CFLAGS_REMOVE_tx_isp_t10_firmware.o += -fsection-anchors
+endif
+
+# Rootfs size: per-function sections + --gc-sections drop code nothing
+# references; driver/tx_isp_merge.lds KEEPs the module-loader sections and
+# folds the per-function sections back into .text (as on T21/T23/T31/T41).
+# TX_ISP_GC=n builds the old layout.
+TX_ISP_GC ?= y
+ifneq ($(TX_ISP_GC),n)
+ccflags-y += -ffunction-sections
+LDFLAGS_MODULE += --gc-sections --undefined=init_module --undefined=cleanup_module \
+	-T $(abspath $(src)/../tx_isp_merge.lds)
+endif
