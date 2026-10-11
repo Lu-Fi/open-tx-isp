@@ -1974,7 +1974,7 @@ static int32_t regtrace_sdns_main_init_lit(void)
         return -ENOENT;
     (void)tisp_sdns_wdr_en_lit(0, sdns_wdr_en_flags[0]);
     (void)tisp_sdns_all_reg_refresh_lit(0, 0x10000U);
-    printk(KERN_WARNING "tx_isp_t40_recovered: sdns-main-init-lit done par=%p comb[0]=%p comb[124]=%p\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: sdns-main-init-lit done par=%p comb[0]=%p comb[124]=%p\n",
            (void *)(uintptr_t)main_sdns,
            (void *)(uintptr_t)((uint32_t *)(uintptr_t)main_sdns_comb)[0],
            (void *)(uintptr_t)((uint32_t *)(uintptr_t)main_sdns_comb)[124]);

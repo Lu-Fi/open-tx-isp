@@ -3739,7 +3739,7 @@ static int32_t regtrace_bcsh_main_init_lit(uint32_t mode)
     flag = (uint8_t *)(uintptr_t)pstMainBcshOri_lit[6];
     if (flag)
         *flag = 0;
-    printk(KERN_WARNING "tx_isp_t40_recovered: bcsh-main-init-lit done outer=%p mode=%u ev=%u ct=%u regs4c=%08x regs50=%08x regs64=%08x regs6c=%08x regs70=%08x\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: bcsh-main-init-lit done outer=%p mode=%u ev=%u ct=%u regs4c=%08x regs50=%08x regs64=%08x regs6c=%08x regs70=%08x\n",
            (void *)(uintptr_t)stMainBcshOuter_lit, mode,
            regtrace_bcsh_ev, regtrace_bcsh_ct,
            system_reg_read(0x1104c), system_reg_read(0x11050),

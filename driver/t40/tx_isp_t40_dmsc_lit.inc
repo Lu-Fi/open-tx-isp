@@ -3510,7 +3510,7 @@ static int32_t regtrace_dmsc_main_init_lit(void)
     (void)tisp_dmsc_wdr_en_lit(0, regtrace_dmsc_wdr_flags_lit[0]);
     (void)tisp_dmsc_all_reg_refresh_lit(0, regtrace_dmsc_lit_gain);
     regtrace_dmsc_lit_gain_now = regtrace_dmsc_lit_gain;
-    printk(KERN_WARNING
+    printk(KERN_INFO
            "tx_isp_t40_recovered: dmsc-main-init-lit gain=%u par=%p comb=%p intp=%p\n",
            regtrace_dmsc_lit_gain,
            (void *)(uintptr_t)regtrace_main_dmsc_lit,
