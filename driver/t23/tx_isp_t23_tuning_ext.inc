@@ -36,9 +36,7 @@
 #define T23X_CID_DRAW_BLOCK     0x08000180U
 #define T23X_CID_OSD_ATTR       0x08000181U
 #define T23X_CID_OSD_BLOCK      0x08000182U
-#define T23X_CID_SWITCH_BIN     0x08000185U
 #define T23X_CID_WB_ALGO        0x0800000cU
-#define T23X_SWITCH_BIN_BYTES   68U     /* IMPISPBinAttr: u32 enable, char bname[64] */
 #define T23X_CID_AUTO_ZOOM      0x080000e8U
 #define T23X_CID_AWB_CLUSTER    0x0800000eU
 #define T23X_CID_AWB_CT_TREND   0x0800000fU
@@ -611,20 +609,51 @@ static long t23x_osd_draw(bool get, uint32_t id, uint32_t uptr)
  * name is terminated here (stock does not).  Host build only, device test
  * pending.
  */
-static long t23x_switch_bin(uint32_t uptr)
+static long t23x_switch_bin_request(uint32_t uptr, uint8_t *blk)
 {
-	uint8_t blk[T23X_SWITCH_BIN_BYTES];
 	long ret;
 
-	ret = regtrace_t23_copy_in(blk, uptr, sizeof(blk));
+	ret = regtrace_t23_copy_in(blk, uptr, T23X_SWITCH_BIN_BYTES);
 	if (ret)
 		return ret;
 	if (!t23x_le32_get(blk)) {
 		printk(KERN_ERR "tx_isp_t23_recovered: SwitchBin: enable is 0\n");
 		return -EINVAL;
 	}
-	blk[sizeof(blk) - 1U] = 0;
+	blk[T23X_SWITCH_BIN_BYTES - 1U] = 0;
+	return 0;
+}
+
+/* inside the tuning mutex (the generic route) */
+static long t23x_switch_bin(uint32_t uptr)
+{
+	uint8_t blk[T23X_SWITCH_BIN_BYTES];
+	long ret;
+
+	ret = t23x_switch_bin_request(uptr, blk);
+	if (ret)
+		return ret;
 	return (int32_t)tisp_switch_bin((uint32_t)(uintptr_t)blk);
+}
+
+/* from regtrace_isp_m0_ext_control: the file is read before the tuning mutex */
+static long t23x_switch_bin_prelock(uint32_t uptr)
+{
+	uint8_t blk[T23X_SWITCH_BIN_BYTES];
+	unsigned char *day, *night;
+	long ret;
+
+	ret = t23x_switch_bin_request(uptr, blk);
+	if (ret)
+		return ret;
+	ret = regtrace_t23_switch_bin_prepare((const char *)blk + 4, &day,
+					      &night);
+	if (ret)
+		return ret;
+	mutex_lock(&regtrace_t23_tuning_mutex);
+	ret = regtrace_t23_switch_bin_commit(day, night);
+	mutex_unlock(&regtrace_t23_tuning_mutex);
+	return ret;
 }
 
 /* ---- SetWB_ALGO ---------------------------------------------------------- */

@@ -12790,9 +12790,28 @@ static int regtrace_t23_validate_iq(const unsigned char *data, size_t size,
     return 0;
 }
 
+/*
+ * SwitchBin publishes new day/night banks by pointer.  The mutex is shared
+ * by the publish and by the bank free (deinit, reload), so a publish never
+ * runs into freed banks.  The previous pair stays allocated one generation
+ * longer (a reader that still holds it never touches freed memory).
+ */
+static DEFINE_MUTEX(regtrace_t23_bank_mutex);
+static uintptr_t regtrace_t23_bank_retired_day;
+static uintptr_t regtrace_t23_bank_retired_night;
+
 static void regtrace_t23_source_parameter_banks_free(void)
 {
+    mutex_lock(&regtrace_t23_bank_mutex);
     regtrace_t23_source_active_bank = NULL;
+    if (regtrace_t23_bank_retired_night) {
+        private_vfree((void *)regtrace_t23_bank_retired_night);
+        regtrace_t23_bank_retired_night = 0;
+    }
+    if (regtrace_t23_bank_retired_day) {
+        private_vfree((void *)regtrace_t23_bank_retired_day);
+        regtrace_t23_bank_retired_day = 0;
+    }
     if (tparams_cust) {
         private_vfree((void *)tparams_cust);
         tparams_cust = 0;
@@ -12805,6 +12824,7 @@ static void regtrace_t23_source_parameter_banks_free(void)
         private_vfree((void *)tparams_day);
         tparams_day = 0;
     }
+    mutex_unlock(&regtrace_t23_bank_mutex);
 }
 
 static int regtrace_t23_source_parameter_banks_load(const char *sensor_name)
@@ -15620,6 +15640,13 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value);
 
 #include "tx_isp_t23_tuning_ext.h"
 /* tx_isp_t23_tuning_ext.inc */
+static long t23x_switch_bin_prelock(uint32_t uptr);
+static int regtrace_t23_switch_bin_prepare(const char *path,
+                                           unsigned char **day_out,
+                                           unsigned char **night_out);
+static int regtrace_t23_switch_bin_commit(unsigned char *day,
+                                          unsigned char *night);
+
 static long t23x_wait_frame(uint32_t uptr);
 static void t23x_frame_done_wakeup(void);
 
@@ -16125,6 +16152,16 @@ static long regtrace_isp_m0_ext_control(unsigned long arg)
         peek.id == T23X_CID_WAIT_FRAME && peek.count == 1U &&
         peek.sensor == 0U)
         return t23x_wait_frame(peek.value_or_ptr);
+
+    /*
+     * SwitchBin reads and checks its file before the tuning mutex is taken;
+     * only the publish runs under it.
+     */
+    if (arg && !copy_from_user(&peek, (const void __user *)arg,
+                               sizeof(peek)) &&
+        peek.id == T23X_CID_SWITCH_BIN && peek.count == 0U &&
+        peek.sensor == 0U)
+        return t23x_switch_bin_prelock(peek.value_or_ptr);
 
     mutex_lock(&regtrace_t23_tuning_mutex);
     ret = regtrace_isp_m0_ext_control_unlocked(arg);
@@ -93392,19 +93429,22 @@ int64_t tisp_day_or_night_s_ctrl(uintptr_t a0, uint32_t a1)
 
     if (a0 >= sizeof(day_night) / sizeof(uint32_t))
         return -EINVAL;
-    if (a1 == 0)
-        selected = (const void *)tparams_day;
-    else if (a1 == 1)
-        selected = (const void *)tparams_night;
-    else
+    if (a1 > 1)
         return -EINVAL;
-    if (!selected)
+
+    /* bank mutex: a SwitchBin publish never runs between the pick and the use */
+    mutex_lock(&regtrace_t23_bank_mutex);
+    selected = (const void *)(a1 == 0 ? tparams_day : tparams_night);
+    if (!selected) {
+        mutex_unlock(&regtrace_t23_bank_mutex);
         return -ENODEV;
+    }
 
     regtrace_t23_source_algo_pause();
     ret = regtrace_t23_source_ccm_select_bank(selected);
     if (ret) {
         regtrace_t23_source_algo_resume();
+        mutex_unlock(&regtrace_t23_bank_mutex);
         return ret;
     }
 
@@ -93423,6 +93463,7 @@ int64_t tisp_day_or_night_s_ctrl(uintptr_t a0, uint32_t a1)
         tx_isp_t23_mode_profile_apply(active);
     }
     regtrace_t23_source_algo_resume();
+    mutex_unlock(&regtrace_t23_bank_mutex);
 
     cust_mode = 0;
     *(uint8_t *)(void *)&tispPollValue = 1;
@@ -93441,14 +93482,19 @@ int32_t tisp_cust_mode_s_ctrl(uint32_t arg1, uint32_t arg2)
     uint32_t dn;
     int ret;
 
-    if (!tparams_cust)
+    mutex_lock(&regtrace_t23_bank_mutex);
+    if (!tparams_cust) {
+        mutex_unlock(&regtrace_t23_bank_mutex);
         return -1;
+    }
 
     if (arg2 == 1) {
         selected = (const void *)tparams_cust;
     } else if (arg2 == 0) {
-        if (arg1 >= sizeof(day_night) / sizeof(uint32_t))
+        if (arg1 >= sizeof(day_night) / sizeof(uint32_t)) {
+            mutex_unlock(&regtrace_t23_bank_mutex);
             return -EINVAL;
+        }
         dn = *(uint32_t *)(void *)(day_night + arg1 * sizeof(uint32_t));
         if (dn == 0)
             selected = (const void *)tparams_day;
@@ -93456,15 +93502,16 @@ int32_t tisp_cust_mode_s_ctrl(uint32_t arg1, uint32_t arg2)
             selected = (const void *)tparams_night;
     }
 
-    if ((arg2 == 0 || arg2 == 1) && !selected)
-        return -ENODEV;
-    if (!selected)
-        return 0;
+    if (!selected) {
+        mutex_unlock(&regtrace_t23_bank_mutex);
+        return (arg2 == 0 || arg2 == 1) ? -ENODEV : 0;
+    }
 
     regtrace_t23_source_algo_pause();
     ret = regtrace_t23_source_ccm_select_bank(selected);
     if (ret) {
         regtrace_t23_source_algo_resume();
+        mutex_unlock(&regtrace_t23_bank_mutex);
         return ret;
     }
     memcpy(active, selected, T23_TPARAMS_BANK_SIZE);
@@ -93478,6 +93525,7 @@ int32_t tisp_cust_mode_s_ctrl(uint32_t arg1, uint32_t arg2)
         tx_isp_t23_mode_profile_apply(active);
     }
     regtrace_t23_source_algo_resume();
+    mutex_unlock(&regtrace_t23_bank_mutex);
     return 0;
 }
 
@@ -93497,69 +93545,107 @@ static int32_t tisp_day_or_night_g_ctrl(uint32_t a0)
 
 /*
  * tisp_switch_bin / tisp_core_switch_bin (stock 0x651d8 / 0x17b0c), SwitchBin
- * (control 0x8000185).  a0 is a KERNEL pointer to the 68 byte user block
- * { u32 enable, char path[64] } (the caller has checked enable and
- * terminated the path).  Stock core_switch_bin reads the file, checks the
- * header ("2.20", "header0", size, CRC) and copies the day and night banks
- * into tparams_day / tparams_night; tisp_switch_bin then reloads the block
- * parameters of the running mode.  The lifted core_switch_bin of this driver
- * is not usable (its file read lost its arguments), so the file is read by
- * the IQ loader of this driver (same checks, exact size) and the banks are
- * swapped while the AE/AWB work is paused.  The result of the stock
- * function is the stock core_switch_bin result (0 or -1); here the errno of
- * the failing step, with the banks untouched (stock reloads regardless).
- * The stock post-step that stores a day/night state word of the lifted
- * sensor object (2 or 3) is not reproduced: this driver keeps no such word.
+ * (control 0x8000185).  Stock reads the file over the live day/night banks
+ * and checks it afterwards.  Here (as T41 SwitchBin) in two steps:
+ *   prepare  the file is read and checked (size, "2.20"/"header0", CRC) into
+ *            a private pair of bank buffers; no live pointer, bank or
+ *            register is touched, any failure returns before the commit.
+ *            Runs without the tuning mutex (file I/O may block).
+ *   commit   under the tuning and the bank mutex, with AE/AWB paused: the
+ *            bank of the running mode is selected from the NEW buffer first
+ *            (regtrace_t23_source_ccm_select_bank restores the old state
+ *            itself on failure, then the new buffers are simply freed), and
+ *            only after it succeeded the new pair is published by pointer.
+ *            The old banks are never overwritten: they are retired one
+ *            generation (freed with the next SwitchBin or at deinit).
+ * A running custom mode keeps its bank; the new day/night banks apply when
+ * it is left.  Not reproduced: the stock post-step that stores a day/night
+ * state word of the lifted sensor object.
  * Host build only, device test pending.
  */
-uint32_t tisp_switch_bin(uint32_t a0)
+static int regtrace_t23_switch_bin_prepare(const char *path,
+                                           unsigned char **day_out,
+                                           unsigned char **night_out)
 {
-    const char *path = (const char *)(uintptr_t)a0 + 4;
-    uint32_t *active = (uint32_t *)(void *)(tparams + T23_TPARAMS_ACTIVE_OFFSET);
-    uint32_t mode;
-    const void *selected = NULL;
-    unsigned char *blob;
-    int32_t result;
+    unsigned char *blob, *day, *night;
+    int ret;
 
-    if (!tparams_day || !tparams_night)
-        return (uint32_t)-ENODEV;
     blob = private_vmalloc(T23_IQ_STANDARD_SIZE);
     if (!blob)
-        return (uint32_t)-ENOMEM;
-    result = regtrace_t23_read_file_exact(path, blob, T23_IQ_STANDARD_SIZE);
-    if (!result)
-        result = regtrace_t23_validate_iq(blob, T23_IQ_STANDARD_SIZE,
-                                          2U * T23_TPARAMS_BANK_SIZE);
-    if (result) {
+        return -ENOMEM;
+    ret = regtrace_t23_read_file_exact(path, blob, T23_IQ_STANDARD_SIZE);
+    if (!ret)
+        ret = regtrace_t23_validate_iq(blob, T23_IQ_STANDARD_SIZE,
+                                       2U * T23_TPARAMS_BANK_SIZE);
+    if (ret) {
         printk(KERN_ERR "tx_isp_t23_recovered: SwitchBin %s rejected ret=%d\n",
-               path, result);
+               path, ret);
         private_vfree(blob);
-        return (uint32_t)result;
+        return ret;
     }
-
-    regtrace_t23_source_algo_pause();
-    memcpy((void *)tparams_day, blob + T23_IQ_HEADER_SIZE,
-           T23_TPARAMS_BANK_SIZE);
-    memcpy((void *)tparams_night,
-           blob + T23_IQ_HEADER_SIZE + T23_TPARAMS_BANK_SIZE,
+    day = private_vmalloc(T23_TPARAMS_BANK_SIZE);
+    night = private_vmalloc(T23_TPARAMS_BANK_SIZE);
+    if (!day || !night) {
+        if (day)
+            private_vfree(day);
+        if (night)
+            private_vfree(night);
+        private_vfree(blob);
+        return -ENOMEM;
+    }
+    memcpy(day, blob + T23_IQ_HEADER_SIZE, T23_TPARAMS_BANK_SIZE);
+    memcpy(night, blob + T23_IQ_HEADER_SIZE + T23_TPARAMS_BANK_SIZE,
            T23_TPARAMS_BANK_SIZE);
     private_vfree(blob);
+    *day_out = day;
+    *night_out = night;
+    return 0;
+}
 
-    mode = *(uint32_t *)(void *)(tisp_par_info + 124U);
-    if (mode == 0)
-        selected = (const void *)tparams_day;
-    else if (mode == 1)
-        selected = (const void *)tparams_night;
+/* Takes over day and night (published or freed).  Caller holds the tuning mutex. */
+static int regtrace_t23_switch_bin_commit(unsigned char *day,
+                                          unsigned char *night)
+{
+    uint32_t *active = (uint32_t *)(void *)(tparams + T23_TPARAMS_ACTIVE_OFFSET);
+    const unsigned char *running;
+    const void *selected = NULL;
+    uintptr_t old_day, old_night;
+    int ret = 0;
+
+    mutex_lock(&regtrace_t23_bank_mutex);
+    if (!tparams_day || !tparams_night) {
+        ret = -ENODEV;
+        goto fail;
+    }
+    regtrace_t23_source_algo_pause();
+    running = regtrace_t23_source_active_bank;
+    if (running == (const unsigned char *)tparams_day)
+        selected = day;
+    else if (running == (const unsigned char *)tparams_night)
+        selected = night;
     if (selected) {
-        result = regtrace_t23_source_ccm_select_bank(selected);
-        if (result) {
+        ret = regtrace_t23_source_ccm_select_bank(selected);
+        if (ret) {
             regtrace_t23_source_algo_resume();
-            return (uint32_t)result;
+            goto fail;
         }
-        memcpy(active, selected, T23_TPARAMS_BANK_SIZE);
-        *(uint32_t *)(void *)(tisp_par_info + 124U) = mode;
     }
 
+    /* nothing below can fail */
+    old_day = tparams_day;
+    old_night = tparams_night;
+    smp_wmb();                  /* the new buffers are complete before they are visible */
+    WRITE_ONCE(tparams_day, (uintptr_t)day);
+    WRITE_ONCE(tparams_night, (uintptr_t)night);
+    if (regtrace_t23_bank_retired_night)
+        private_vfree((void *)regtrace_t23_bank_retired_night);
+    if (regtrace_t23_bank_retired_day)
+        private_vfree((void *)regtrace_t23_bank_retired_day);
+    regtrace_t23_bank_retired_day = old_day;
+    regtrace_t23_bank_retired_night = old_night;
+
+    if (selected)
+        memcpy(active, selected, T23_TPARAMS_BANK_SIZE);
     if (regtrace_t23_source_core_start) {
         regtrace_t23_source_mode_flags_apply(active);
         regtrace_t23_source_dn_params_refresh("switch-bin");
@@ -93567,12 +93653,36 @@ uint32_t tisp_switch_bin(uint32_t a0)
         tx_isp_t23_mode_profile_apply(active);
     }
     regtrace_t23_source_algo_resume();
+    mutex_unlock(&regtrace_t23_bank_mutex);
 
     *(uint8_t *)(void *)&tispPollValue = 1;
     *((uint8_t *)(void *)&tispPollValue + 3) = 1;
     wake_up_interruptible(&dumpQueue);
-
     return 0;
+
+fail:
+    mutex_unlock(&regtrace_t23_bank_mutex);
+    private_vfree(day);
+    private_vfree(night);
+    return ret;
+}
+
+/*
+ * a0 is a KERNEL pointer to the 68 byte block { u32 enable, char path[64] }
+ * (enable checked and path terminated by the caller).  Caller holds the
+ * tuning mutex; the isp-m0 ext dispatcher uses prepare/commit directly so
+ * the file is read before it takes the mutex.
+ */
+uint32_t tisp_switch_bin(uint32_t a0)
+{
+    unsigned char *day, *night;
+    int ret;
+
+    ret = regtrace_t23_switch_bin_prepare((const char *)(uintptr_t)a0 + 4,
+                                          &day, &night);
+    if (!ret)
+        ret = regtrace_t23_switch_bin_commit(day, night);
+    return (uint32_t)ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000654b4 origin=model_output original=tisp_mirror_enable */

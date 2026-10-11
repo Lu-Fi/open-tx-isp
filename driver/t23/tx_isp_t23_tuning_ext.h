@@ -292,6 +292,8 @@ static inline uint32_t t23x_awb_ct_select(uint32_t wb_mode, uint32_t ct,
 #define T23X_TP_GAMMA 0x15998U          /* bank +0x2898 */
 #define T23X_WAIT_FRAME_BYTES 24U       /* stock libimp/kernel block */
 #define T23X_CID_WAIT_FRAME 0x08000162U
+#define T23X_CID_SWITCH_BIN 0x08000185U
+#define T23X_SWITCH_BIN_BYTES 68U	/* IMPISPBinAttr: u32 enable, char bname[64] */
 
 /*
  * A gamma curve the LUT writer takes: 129 points, 12 bit, not falling (the
