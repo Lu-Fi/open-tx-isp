@@ -36,6 +36,8 @@ analysis, `libimp` ABI work and recovery of tuning data.
 
 **State: RC1 v2026.10.11-rc1: openimp fe9307c (agg-35 687a68e4 + docs), open-tx-isp 191be6c5 (agg-35 6e464ac7 + docs).** Release SoCs: T10, T20, T21, T23, T31; T30, T40 and T41 are experimental. The agg-35 soak of 2026-10-10/11 on 10 cameras was clean (0 oopses, 0 unexplained reboots, 0 application restarts). Release notes and known issues: [CHANGELOG.md](CHANGELOG.md). The per-SoC table below dates from 2026-10-04. "Fully open" = open driver, OpenIMP and the camera application run from a flashed image.
 
+**After RC1: aggregate agg-37 (`claude/agg-37`, not released; host tests and module builds only, device tests pending):** smaller modules (T31 export whitelist checked by `tests/check_isp_exports.sh`, T10/T20 `--gc-sections`, T23 bring-up parameters only with `TX_ISP_T23_BRINGUP_PARAMS=y`; numbers in `docs/SIZE.md`), T23 `SwitchBin` rework, T23/T31 `msca_flip_state`, T10/T20 safe anti-fog preset and lens-shading scale, quiet T23/T40 kernel logs (`t23_runtime_trace=1` / `t40_runtime_trace=1` bring the notes back), T41 `t41_msca_enable_at_frame` (diagnostic, default 0) and the report-only `/proc/jz/isp` watcher `t41_proc_watch`. Details: [CHANGELOG.md](CHANGELOG.md).
+
 Earlier state: the release candidate (`claude/agg-28` on top of `next`, 2026-10-06 evening). "Fully open" = open driver, OpenIMP and the camera application run from a flashed image. Release plan: `next` goes to `aperto` (fast-forward) after the long soak and is tagged `vYYYY.MM.DD`; the first release covers T10 (not re-tested on the open stack today), T20, T21, T23 and T31; T41 is not part of it.
 
 | SoC | Status |
