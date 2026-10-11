@@ -801,7 +801,7 @@ static void regtrace_t23_source_awb_hlil_work_body(struct work_struct *work)
             !(regtrace_t23_source_awb_hlil_runs &
               (regtrace_t23_source_awb_hlil_runs - 1U)))
             printk(KERN_INFO
-                   "tx_isp_t23_recovered: source AWB HLIL run=%u snapshot=%u bank=%u zones=%u lights=%u ev=%u target=%u/%u ct=%u mode=%u mf=%u/%u gain=0x%x/0x%x updates=%u\n",
+                   "t23: source AWB HLIL run=%u snapshot=%u bank=%u zones=%u lights=%u ev=%u target=%u/%u ct=%u mode=%u mf=%u/%u gain=0x%x/0x%x updates=%u\n",
                    regtrace_t23_source_awb_hlil_runs,
                    regtrace_t23_awb_hlil_snapshot_data.snapshot,
                    regtrace_t23_awb_hlil_snapshot_data.bank,
@@ -820,12 +820,12 @@ static void regtrace_t23_source_awb_hlil_work_body(struct work_struct *work)
             !(regtrace_t23_source_awb_hlil_runs &
               (regtrace_t23_source_awb_hlil_runs - 1U)))
             printk(KERN_INFO
-                   "tx_isp_t23_recovered: source AWB HLIL run=%u snapshot=%u: no usable zone yet, gains held\n",
+                   "t23: source AWB HLIL run=%u snapshot=%u: no usable zone yet, gains held\n",
                    regtrace_t23_source_awb_hlil_runs,
                    regtrace_t23_awb_hlil_snapshot_data.snapshot);
     } else if (regtrace_t23_source_awb_hlil_runs <= 8U) {
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: source AWB HLIL run=%u snapshot=%u failed ret=%d\n",
+               "t23: source AWB HLIL run=%u snapshot=%u failed ret=%d\n",
                regtrace_t23_source_awb_hlil_runs,
                regtrace_t23_awb_hlil_snapshot_data.snapshot, ret);
     }
@@ -923,7 +923,7 @@ static void regtrace_t23_source_awb_hlil_reset(void)
     regtrace_t23_source_bcsh_ct_events = 0;
     regtrace_t23_source_bcsh_last_ct = 3187U;
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: source AWB HLIL reset ev=%u ct=%u q=%u mf=%u/%u interval=%u enabled=%u\n",
+           "t23: source AWB HLIL reset ev=%u ct=%u q=%u mf=%u/%u interval=%u enabled=%u\n",
            REGTRACE_T23_AWB_HLIL_STARTUP_EV,
            REGTRACE_T23_AWB_HLIL_STARTUP_CT,
            REGTRACE_T23_AWB_HLIL_POINT_POSITION,

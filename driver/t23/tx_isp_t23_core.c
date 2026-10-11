@@ -99,6 +99,7 @@ static const char * const t23_progress[] = {
 	"source AE HLIL reset", "MDNS tuning loaded", "SDNS tuning loaded",
 	"SDNS initialized", "MDNS DMA restored", "sharpen initialized",
 	"stock defog (lifted) active", "stock dynamic ADR (lifted) active",
+	"source AF off", "source AF statistics", "ADR initialized",
 	"stock AE0 resumed", "tuning bypass path=",
 	"source core DMA phys=", "source core started", "source core stopped",
 	"CSI core on", "direct TISP stream regs", "direct MSCA %s ch=",
@@ -162,36 +163,70 @@ static noinline int t23_ret_msg_ok(const char *fmt, va_list args)
 	return r < (int)sizeof(buf) && t23_msg_is_ok(buf);
 }
 
+/* 1 = the message is a quiet-mode note and is dropped (gate shared by the
+ * plain and the rate-limited printk) */
+static noinline int t23_quiet_drop(const char *fmt, va_list args)
+{
+	if (t23_runtime_trace)
+		return 0;
+	if (t23_fmt_is_info(fmt))
+		return 1;
+	/* never render in IRQ context; ret-gated notes stay visible there */
+	if (!in_interrupt() && !irqs_disabled() &&
+	    fmt[0] == KERN_SOH_ASCII && fmt[1] == '4' &&
+	    !strncmp(fmt + 2, "t23: ", 5) &&
+	    t23_fmt_in(t23_progress_ret, fmt + 7)) {
+		va_list a2;
+		int ok;
+
+		va_copy(a2, args);
+		ok = t23_ret_msg_ok(fmt, a2);
+		va_end(a2);
+		return ok;
+	}
+	return 0;
+}
+
 /* one out-of-line gate: no per-call-site code (module size) */
 static noinline int t23_printk(const char *fmt, ...)
 {
 	va_list args;
-	int r;
+	int r = 0;
 
 	va_start(args, fmt);
-	if (!t23_runtime_trace) {
-		if (t23_fmt_is_info(fmt)) {
-			va_end(args);
-			return 0;
-		}
-		/* never render in IRQ context; ret-gated notes stay visible there */
-		if (!in_interrupt() && !irqs_disabled() &&
-		    fmt[0] == KERN_SOH_ASCII && fmt[1] == '4' &&
-		    !strncmp(fmt + 2, "t23: ", 5) &&
-		    t23_fmt_in(t23_progress_ret, fmt + 7)) {
-			va_list a2;
-			int ok;
+	if (!t23_quiet_drop(fmt, args))
+		r = vprintk(fmt, args);
+	va_end(args);
+	return r;
+}
 
-			va_copy(a2, args);
-			ok = t23_ret_msg_ok(fmt, a2);
-			va_end(a2);
-			if (ok) {
-				va_end(args);
-				return 0;
-			}
+/*
+ * Rate-limited variant. The limit is applied after the quiet-mode gate, so
+ * dropped notes neither use up the budget nor make the kernel's own
+ * "<function>: N callbacks suppressed" line (printed by __ratelimit() with
+ * the name of the calling function) appear in the log; messages over the
+ * limit are dropped without that line.
+ */
+struct t23_ratelimit {
+	unsigned long begin;
+	unsigned int printed;
+};
+static noinline int t23_printk_rl(struct t23_ratelimit *rl, const char *fmt, ...)
+{
+	va_list args;
+	int r = 0;
+
+	va_start(args, fmt);
+	if (!t23_quiet_drop(fmt, args)) {
+		if (!rl->begin || time_after(jiffies, rl->begin + 5 * HZ)) {
+			rl->begin = jiffies | 1;
+			rl->printed = 0;
+		}
+		if (rl->printed < 10) {
+			rl->printed++;
+			r = vprintk(fmt, args);
 		}
 	}
-	r = vprintk(fmt, args);
 	va_end(args);
 	return r;
 }
@@ -201,6 +236,15 @@ static noinline int t23_printk(const char *fmt, ...)
 	((void)(0, ##__VA_ARGS__), 0) : t23_printk(fmt, ##__VA_ARGS__))
 #else
 #define printk(fmt, ...) t23_printk(fmt, ##__VA_ARGS__)
+#endif
+#undef printk_ratelimited
+#ifdef TX_ISP_T23_NO_TRACE
+#define printk_ratelimited(fmt, ...) ({ static struct t23_ratelimit rl_; \
+	t23_is_info_fmt(fmt) ? ((void)(0, ##__VA_ARGS__), 0) : \
+	t23_printk_rl(&rl_, fmt, ##__VA_ARGS__); })
+#else
+#define printk_ratelimited(fmt, ...) ({ static struct t23_ratelimit rl_; \
+	t23_printk_rl(&rl_, fmt, ##__VA_ARGS__); })
 #endif
 
 /*
@@ -93398,10 +93442,17 @@ static void regtrace_t23_source_dn_params_refresh(const char *reason)
             system_reg_write(0x0cU, system_reg_read(0x0cU) | bypass);
     }
 
-    printk(KERN_WARNING
-           "t23: bank switch block refresh reason=%s gain=0x%x tgain_log2=0x%x failed=0x%x ret=%d r0c=0x%08x\n",
-           reason ? reason : "?", gain, regtrace_t23_tgain_log2, failed, ret,
-           system_reg_read(0x0cU));
+    /* a clean refresh is a progress note (quiet unless t23_runtime_trace) */
+    if (failed || ret)
+        printk(KERN_WARNING
+               "t23: bank switch block refresh reason=%s gain=0x%x tgain_log2=0x%x failed=0x%x ret=%d r0c=0x%08x\n",
+               reason ? reason : "?", gain, regtrace_t23_tgain_log2, failed,
+               ret, system_reg_read(0x0cU));
+    else
+        printk(KERN_INFO
+               "t23: bank switch block refresh reason=%s gain=0x%x tgain_log2=0x%x r0c=0x%08x\n",
+               reason ? reason : "?", gain, regtrace_t23_tgain_log2,
+               system_reg_read(0x0cU));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000064c48 origin=fragment_seed original=tisp_day_or_night_s_ctrl */

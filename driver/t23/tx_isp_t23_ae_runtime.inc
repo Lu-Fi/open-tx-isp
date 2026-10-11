@@ -316,7 +316,7 @@ static int regtrace_t23_ae_hlil_build_ladder(void)
     }
 
     printk(KERN_INFO
-           "tx_isp_t23_recovered: generic AE ladder states=%u it=%u..%u flicker=%u lines max_again_log2=0x%x max_isp_dgain_log2=0x%x initial=0x%08x\n",
+           "t23: generic AE ladder states=%u it=%u..%u flicker=%u lines max_again_log2=0x%x max_isp_dgain_log2=0x%x initial=0x%08x\n",
            regtrace_t23_ae_hlil_state_count,
            regtrace_t23_source_sensor_min_it,
            regtrace_t23_source_sensor_max_it,
@@ -487,14 +487,14 @@ static void regtrace_t23_source_ae_hlil_work_body(struct work_struct *work)
           (regtrace_t23_source_ae_hlil_runs - 1U))) {
         if (ret)
             printk(KERN_WARNING
-                   "tx_isp_t23_recovered: source AE HLIL run=%u snapshot=%u luma=%u bright=%u/1000 target=%u+-%u state=%u->%u updates=%u ret=%d\n",
+                   "t23: source AE HLIL run=%u snapshot=%u luma=%u bright=%u/1000 target=%u+-%u state=%u->%u updates=%u ret=%d\n",
                    regtrace_t23_source_ae_hlil_runs, snapshot, luma, bright,
                    regtrace_t23_source_ae_hlil_target,
                    regtrace_t23_source_ae_hlil_deadband, state, next_state,
                    regtrace_t23_source_ae_hlil_updates, ret);
         else
             printk(KERN_INFO
-                   "tx_isp_t23_recovered: source AE HLIL run=%u snapshot=%u luma=%u bright=%u/1000 target=%u+-%u state=%u->%u updates=%u ret=%d\n",
+                   "t23: source AE HLIL run=%u snapshot=%u luma=%u bright=%u/1000 target=%u+-%u state=%u->%u updates=%u ret=%d\n",
                    regtrace_t23_source_ae_hlil_runs, snapshot, luma, bright,
                    regtrace_t23_source_ae_hlil_target,
                    regtrace_t23_source_ae_hlil_deadband, state, next_state,
@@ -589,7 +589,7 @@ static uint32_t regtrace_t23_ae_hlil_resume_state(void)
         return state;
     state = regtrace_t23_ae_hlil_nearest_state(ev >> 10);
     printk(KERN_INFO
-           "tx_isp_t23_recovered: AE resume re-resolved ev=%u -> state=%u ev=%u\n",
+           "t23: AE resume re-resolved ev=%u -> state=%u ev=%u\n",
            ev, state, regtrace_t23_ae_hlil_rungs[state].ev_q10);
     regtrace_t23_source_ae_hlil_state = state;
     regtrace_t23_source_ae_hlil_ev = regtrace_t23_ae_hlil_rungs[state].ev_q10;
@@ -682,7 +682,7 @@ static void regtrace_t23_source_ae_hlil_reset(void)
     regtrace_t23_source_bcsh_ev_events = 0;
 
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: source AE HLIL reset target=%u+-%u interval=%u state=%u ev=%u resume=%u enabled=%u\n",
+           "t23: source AE HLIL reset target=%u+-%u interval=%u state=%u ev=%u resume=%u enabled=%u\n",
            regtrace_t23_source_ae_hlil_target,
            regtrace_t23_source_ae_hlil_deadband,
            regtrace_t23_source_ae_hlil_interval,
@@ -768,7 +768,7 @@ static int regtrace_t23_ae_hlil_retime_force(uint32_t max_it,
     spin_unlock_irqrestore(&regtrace_t23_ae_hlil_lock, flags);
 
     printk(KERN_INFO
-           "tx_isp_t23_recovered: AE retime max_it=%u->%u states=%u state=%u ev=%u ret=%d reason=%s\n",
+           "t23: AE retime max_it=%u->%u states=%u state=%u ev=%u ret=%d reason=%s\n",
            saved_max_it, regtrace_t23_source_sensor_max_it,
            regtrace_t23_ae_hlil_state_count,
            regtrace_t23_source_ae_hlil_state,

@@ -266,7 +266,7 @@ static long t23x_ae_control(bool get, uint32_t id, uint32_t *value)
 				    (uint32_t *)(void *)oem_ae_extra_at_list_wdr,
 				    m[0], m[1]) != 3U)
 			printk(KERN_WARNING
-			       "tx_isp_t23_recovered: AE min it=%u again=%u partly out of range (kept)\n",
+			       "t23: AE min it=%u again=%u partly out of range (kept)\n",
 			       m[0], m[1]);
 		t23x_ae_ctrls_done_locked();
 		mutex_unlock(&t23_aelift_mutex);

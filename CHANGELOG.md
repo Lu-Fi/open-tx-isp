@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-11
+
+- **T23 kernel log quiet in normal operation (host build only, not run on a camera):** the day/night "bank switch block refresh" line is logged at warning level only when a block failed or returned an error (`failed=`/`ret=` non-zero); a clean refresh is an info note and, like the other T23 progress notes, silent unless `t23_runtime_trace=1`. The rate-limited T23 messages (source total-gain, LSC runtime, ...) now pass the same quiet gate before the rate limit, so the kernel's "N callbacks suppressed" lines no longer appear in quiet mode. The messages of the lifted AE/ADR/defog/AF/AWB code carried the old `tx_isp_t23_recovered:` prefix and therefore missed the quiet gate; they now use `t23:`. Module 972 bytes smaller.
+
 ## 2026-10-09
 
 - **Release candidate `agg-34` (da9baf1e, on top of `next`)** = agg-32 (3cf9bdac) + the front-crop fixes below + the T20 `isp-m0` gain cap. OpenIMP `agg-34` (838f8147) is its userspace counterpart. The combination has not run on the cameras as a whole; each fix below was device-tested on the SoC named (agg-32 soak: 43.4 h, 0 unplanned reboots and oopses on the cameras without user interaction).
