@@ -80,7 +80,7 @@ static int t23_af_start(uint32_t width, uint32_t height)
 		return 0;
 	if (!t31_af_rows(&t23_af) || !t31_af_cols(&t23_af) ||
 	    !regtrace_t23_core_dma_bufs[5].virt) {
-		printk(KERN_WARNING "tx_isp_t23_recovered: source AF off (no AF grid in the IQ bank or no ring)\n");
+		printk(KERN_WARNING "t23: source AF off (no AF grid in the IQ bank or no ring)\n");
 		return 0;
 	}
 	spin_lock_irqsave(&t23_af_lock, flags);
@@ -95,7 +95,7 @@ static int t23_af_start(uint32_t width, uint32_t height)
 	memset(t23_af_fv_last, 0, sizeof(t23_af_fv_last));
 	t23_af_ready = true;
 	spin_unlock_irqrestore(&t23_af_lock, flags);
-	printk(KERN_WARNING "tx_isp_t23_recovered: source AF statistics (stock chain) active %ux%u grid %ux%u\n",
+	printk(KERN_WARNING "t23: source AF statistics (stock chain) active %ux%u grid %ux%u\n",
 	       width, height, t31_af_cols(&t23_af), t31_af_rows(&t23_af));
 	return 0;
 }

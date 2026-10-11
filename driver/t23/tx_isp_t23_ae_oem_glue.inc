@@ -62,7 +62,7 @@ static noinline __attribute__((noipa)) void t23_aelift_reg_write(uint32_t reg, u
 		if (i < ARRAY_SIZE(regs) && vals[i] != value) {
 			vals[i] = value;
 			printk_ratelimited(KERN_WARNING
-			       "tx_isp_t23_recovered: ae-oem reg 0x%x=0x%x\n",
+			       "t23: ae-oem reg 0x%x=0x%x\n",
 			       reg, value);
 		}
 	}
@@ -512,7 +512,7 @@ static void t23_aelift_start(void)
 			regtrace_t23_source_apply_total_gain_value(
 				t23_aelift_tgain, 0, false, false);
 		printk(KERN_WARNING
-		       "tx_isp_t23_recovered: stock AE0 resumed it=%u again=%u tgain=0x%x\n",
+		       "t23: stock AE0 resumed it=%u again=%u tgain=0x%x\n",
 		       it, again, t23_aelift_tgain);
 	}
 	/* maximum gains set before the lift ran (fresh start only: a resumed
@@ -536,7 +536,7 @@ static void t23_aelift_start(void)
 				regtrace_t23_source_ae_compensation, 0, 0, 0);
 	mutex_unlock(&t23_aelift_mutex);
 	printk(KERN_WARNING
-	       "tx_isp_t23_recovered: stock AE0 (lifted) %s ret=%d fps=0x%x\n",
+	       "t23: stock AE0 (lifted) %s ret=%d fps=0x%x\n",
 	       ret ? "NOT started" : "active", ret, fps);
 }
 
@@ -632,7 +632,7 @@ static int t23_aelift_s_antiflick_locked(uint32_t hz)
 	T23_AELIFT_CALL(LA_tiziano_ae_set_hardware_param, 0,
 			(uint32_t)(uintptr_t)oem__ae_parameter, 1, 0);
 	printk(KERN_INFO
-	       "tx_isp_t23_recovered: stock AE0 antiflicker %u Hz (enable %u) fps=0x%x vts=%u\n",
+	       "t23: stock AE0 antiflicker %u Hz (enable %u) fps=0x%x vts=%u\n",
 	       t23_aelift_flicker_hz, para[0], fps, vts);
 	return 0;
 }
@@ -690,7 +690,7 @@ static void t23_aelift_work_fn(struct work_struct *work)
 		t23_aelift_expo_dirty = false;
 		if (t23_aelift_debug)
 			printk(KERN_WARNING
-			       "tx_isp_t23_recovered: ae-oem exposure it=%u again=%u\n",
+			       "t23: ae-oem exposure it=%u again=%u\n",
 			       t23_aelift_it, t23_aelift_again);
 		regtrace_t23_call_sensor_exposure(
 			(t23_aelift_again << 16) | t23_aelift_it, "ae-oem");
@@ -741,7 +741,7 @@ static void t23_aelift_work_fn(struct work_struct *work)
 			t23_aelift_tgain = tisp_math_exp2(ev[i].args[0], 16, 16);
 			if (t23_aelift_debug)
 				printk(KERN_WARNING
-				       "tx_isp_t23_recovered: ae-oem total gain 0x%x\n",
+				       "t23: ae-oem total gain 0x%x\n",
 				       t23_aelift_tgain);
 			regtrace_t23_source_apply_total_gain_value(
 				t23_aelift_tgain, 0, false, false);

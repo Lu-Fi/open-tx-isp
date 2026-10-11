@@ -273,7 +273,7 @@ static int t23_adrlift_adr_init(uint32_t a0, uint32_t width, uint32_t height)
 	t23_adrlift_set_ready(&t23_adrlift_adr_ready, true);
 	mutex_unlock(&t23_adrlift_mutex);
 	printk(KERN_WARNING
-	       "tx_isp_t23_recovered: stock dynamic ADR (lifted) active %ux%u\n",
+	       "t23: stock dynamic ADR (lifted) active %ux%u\n",
 	       width, height);
 	return 0;
 }
@@ -292,7 +292,7 @@ static int t23_adrlift_defog_init(uint32_t a0, uint32_t width, uint32_t height)
 	t23_adrlift_set_ready(&t23_adrlift_defog_ready, true);
 	mutex_unlock(&t23_adrlift_mutex);
 	printk(KERN_WARNING
-	       "tx_isp_t23_recovered: stock defog (lifted) active %ux%u\n",
+	       "t23: stock defog (lifted) active %ux%u\n",
 	       width, height);
 	return 0;
 }
