@@ -833,6 +833,16 @@ MODULE_PARM_DESC(t41_safe_tuning_events,
  * arithmetic.  Keep event 1 live with a small controller whose inputs and
  * target come from checked completed-frame statistics and calibration.
  * The bounded sensor allocator is still separate from OEM convergence. */
+/*
+ * Tiziano_wdr_fusion_fpga (WDR sensors only) is a raw decompiler body with
+ * pointer-scaling errors: e.g. (uint32_t *)&ivdc_threshold_line + 16216
+ * addresses 64864 bytes past the anchor (~36 KB beyond the module .bss)
+ * and its 5-element copy loop steps 8 bytes towards an end pointer 10
+ * bytes away, so it never terminates.  Refused by default.
+ */
+static int t41_wdr_fusion_unsafe __attribute__((section(".data..t41_h1")));
+module_param(t41_wdr_fusion_unsafe, int, 0444);
+MODULE_PARM_DESC(t41_wdr_fusion_unsafe, "Run the unrecovered WDR fusion body (unsafe, default 0)");
 static int t41_safe_ae_controller = 1;
 module_param(t41_safe_ae_controller, int, 0644);
 MODULE_PARM_DESC(t41_safe_ae_controller,
@@ -2221,6 +2231,17 @@ static uint32_t stat_en, sum_block_long, sum_block_short, ta_custom_again, ta_cu
 static uint32_t ta_custom_tgain, tawb_custom_en, tgain_wdr_s, thr_maxvalue_tmp, tisp_mdns_wdr_en_table;
 static uint32_t tisp_par_ioctl, tiziano_adr_tgain_table, tmo_info[2], tmp_addr, tmp_addr_uv, tv_frame_end;
 static uint32_t tv_frame_start, tv_frame_start_next, vaddr, vic_cmd_buf, vic_err, video_input_cmd_buf;
+/*
+ * Overrun targets.  The recovered core addresses vic_cmd_buf + 4/8/0xc and
+ * tgain_wdr_s + 4; the vendor objects are 32 and 16 bytes (1.2.6-720-4494
+ * .bss 0x14 / 0x3ec8), ours are 4, so those accesses hit ysp_paramsP,
+ * bcsh_info, _bss_anchor and vic_subdev_internal_ops.  The upper words live
+ * in their own section and the overrunning sites use them; the 4-byte
+ * originals stay where they are (the recovered .bss layout is
+ * position-dependent, see __pow2_lut).
+ */
+static uint32_t t41_vic_cmd_buf_hi[3] __attribute__((section(".data..t41_h1")));
+static uint32_t t41_tgain_wdr_s_hi[3] __attribute__((section(".data..t41_h1")));
 static uint32_t vpu0_end, vpu0_half_end, vpu1_end, vpu1_half_end, vpu_discard_over, vpu_err, vpu_stop_over;
 static uint32_t wdr_en_adr, wdr_ev_changed, wdr_frm_num, wdr_hist_B0, wdr_hist_B1, wdr_hist_G0, wdr_hist_G1;
 static uint32_t wdr_hist_R0, wdr_hist_R1, wdr_info[2], wdr_sum_block, width_adr, ydns_info;
@@ -12876,7 +12897,7 @@ isp_vic_interrupt_service_routine0x214:
     if (_bc_v0_40) { goto isp_vic_interrupt_service_routine0x260; }
 
     /* fragment 41: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0x8)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0x8))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[1])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[1]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC79); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x260:
@@ -12903,7 +12924,7 @@ isp_vic_interrupt_service_routine0x2a0:
     if (_bc_v0_46) { goto isp_vic_interrupt_service_routine0x2d8; }
 
     /* fragment 47: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC81); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x2d8:
@@ -12917,7 +12938,7 @@ isp_vic_interrupt_service_routine0x2d8:
     if (_bc_v0_49) { goto isp_vic_interrupt_service_routine0x310; }
 
     /* fragment 50: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC82); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x310:
@@ -12931,7 +12952,7 @@ isp_vic_interrupt_service_routine0x310:
     if (_bc_v0_52) { goto isp_vic_interrupt_service_routine0x348; }
 
     /* fragment 53: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC83); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x348:
@@ -12959,7 +12980,7 @@ isp_vic_interrupt_service_routine0x380:
     if (_bc_v0_58) { goto isp_vic_interrupt_service_routine0x3b8; }
 
     /* fragment 59: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC85); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x3b8:
@@ -12972,7 +12993,7 @@ isp_vic_interrupt_service_routine0x3b8:
     if (_bc_v0_61) { goto isp_vic_interrupt_service_routine0x3f0; }
 
     /* fragment 62: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC86); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x3f0:
@@ -12985,7 +13006,7 @@ isp_vic_interrupt_service_routine0x3f0:
     if (_bc_v0_64) { goto isp_vic_interrupt_service_routine0x428; }
 
     /* fragment 65: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC87); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x428:
@@ -13011,7 +13032,7 @@ isp_vic_interrupt_service_routine0x460:
     if (_bc_v0_70) { goto isp_vic_interrupt_service_routine0x498; }
 
     /* fragment 71: CallSetup */
-    *(uint32_t *)((char *)((char *)&direct_mode + 0x4)) = ((*(uint32_t *)((char *)((char *)&direct_mode + 0x4))) + 1);
+    *(uint32_t *)((char *)((char *)&ivdc_threshold_line)) = ((*(uint32_t *)((char *)((char *)&ivdc_threshold_line))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC89); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x498:
@@ -13089,7 +13110,7 @@ isp_vic_interrupt_service_routine0x5b0:
     if (_bc_v0_88) { goto isp_vic_interrupt_service_routine0x5e8; }
 
     /* fragment 89: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC95); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x5e8:
@@ -13102,7 +13123,7 @@ isp_vic_interrupt_service_routine0x5e8:
     if (_bc_v0_91) { goto isp_vic_interrupt_service_routine0x620; }
 
     /* fragment 92: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC96); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x620:
@@ -13115,7 +13136,7 @@ isp_vic_interrupt_service_routine0x620:
     if (_bc_v0_94) { goto isp_vic_interrupt_service_routine0x658; }
 
     /* fragment 95: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC97); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x658:
@@ -13141,7 +13162,7 @@ isp_vic_interrupt_service_routine0x690:
     if (_bc_v0_100) { goto isp_vic_interrupt_service_routine0x6c8; }
 
     /* fragment 101: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC99); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x6c8:
@@ -13154,7 +13175,7 @@ isp_vic_interrupt_service_routine0x6c8:
     if (_bc_v0_103) { goto isp_vic_interrupt_service_routine0x700; }
 
     /* fragment 104: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC100); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x700:
@@ -13167,7 +13188,7 @@ isp_vic_interrupt_service_routine0x700:
     if (_bc_v0_106) { goto isp_vic_interrupt_service_routine0x734; }
 
     /* fragment 107: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC101); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x734:
@@ -13235,7 +13256,7 @@ isp_vic_interrupt_service_routine0x7f4:
     if (v0 == 0) { goto isp_vic_interrupt_service_routine0x834; }
 
     /* fragment 123: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0x4)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0x4))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[0])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[0]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC104); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x830:
@@ -89846,7 +89867,7 @@ int32_t tisp_wdr_short_tgain_update(uint32_t a0, uint32_t a1, uint32_t a2, uint3
 
     /* fragment 1: MemoryAccess */
     *(uint32_t *)((char *)((char *)&tgain_wdr_s)) = a2;
-    *(uint32_t *)((char *)((char *)&tgain_wdr_s + 0x4)) = a3;
+    *(uint32_t *)((char *)((char *)&t41_tgain_wdr_s_hi[0])) = a3;
 
     /* fragment 2: Epilogue */
     /* function epilogue: restore registers and return */
@@ -90947,6 +90968,8 @@ tisp_wdr_paixu0x74:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037be0 origin=fragment_seed original=Tiziano_wdr_fusion_fpga */
 int64_t Tiziano_wdr_fusion_fpga(uint32_t a0)
 {
+    if (!t41_wdr_fusion_unsafe)
+        T41_UNRECOVERED_RET(0);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -95930,7 +95953,7 @@ tisp_wdr_process0x104:
     if (a1 == s6) { goto tisp_wdr_process0x168; }
 
     /* fragment 19: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&tgain_wdr_s + 0x4));
+    a0 = *(uint32_t *)((char *)((char *)&t41_tgain_wdr_s_hi[0]));
 
     /* fragment 20: Branch */
     v0 = *(uint32_t *)((char *)((char *)&tgain_wdr_s));
@@ -96047,7 +96070,7 @@ tisp_wdr_process0x298:
     if (_bc_a1_44) { goto tisp_wdr_process0x180; }
 
     /* fragment 45: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&tgain_wdr_s + 0x4));
+    a0 = *(uint32_t *)((char *)((char *)&t41_tgain_wdr_s_hi[0]));
 
     /* fragment 46: Branch */
     v0 = *(uint32_t *)((char *)((char *)&tgain_wdr_s));
@@ -169625,23 +169648,14 @@ int32_t sub_7427c(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074280 origin=fragment_seed original=sub_74280 */
 int32_t sub_74280(uintptr_t a0)
 {
-    uintptr_t a1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&ispmem + 0xc));
-    a1 = *(uint32_t *)((char *)a0 + 444);
-    a0 = 458752;
-    a0 = a0 - 2600;
-    *(uint32_t *)((char *)a1 + 16) = a0;
-    a0 = 1;
-
-    /* fragment 1: Branch */
-    *(uint8_t *)((char *)((char *)&ispmem + 0x1cc)) = a0;
-    goto ispcore_core_ops_ioctl0x204;
-
-ispcore_core_ops_ioctl0x204:
-    ;
+    /*
+     * Mis-split tail of ispcore_core_ops_ioctl; nothing calls it.  The
+     * recovered body wrote a byte to ispmem + 0x1cc (past the 4-byte
+     * ispmem, inside isp_framesource_fops; even the 0x1b0-byte vendor
+     * ispmem ends before it) and dereferenced ispmem + 0xc.  Keep the
+     * symbol, drop the stray accesses.
+     */
+    (void)a0;
     return 0;
 }
 
