@@ -80,6 +80,20 @@ typedef uint64_t u64;
 #define TX_ISP_TUNING_T41_SWITCH_BIN_BYTES	132U
 /* T41 libimp: AF weight table (15x15 bytes); other SoCs use this ID for AE_IT_MAX. */
 #define TX_ISP_TUNING_CMD_T41_AF_WEIGHT		0x08000032U
+/* T41 libimp 1.2.6 (libimp + libt41-firmware 1.2.6 disassembly). */
+#define TX_ISP_TUNING_CMD_T41_STATIS_CONFIG	0x08000000U
+#define TX_ISP_TUNING_T41_STATIS_CONFIG_BYTES	72U
+#define TX_ISP_TUNING_CMD_T41_AWB_CT_TREND	0x08000015U
+#define TX_ISP_TUNING_CMD_T41_AWB_CONVERGE	0x08000016U
+#define TX_ISP_TUNING_CMD_T41_AE_CONVERGE	0x08000028U
+#define TX_ISP_TUNING_CMD_T41_AE_EV_LIST	0x08000038U
+#define TX_ISP_TUNING_CMD_T41_AE_AT_LIST	0x08000039U
+#define TX_ISP_TUNING_T41_AE_LIST_BYTES		128U
+#define TX_ISP_TUNING_CMD_T41_TMO_CURVE		0x08000063U
+#define TX_ISP_TUNING_T41_TMO_CURVE_BYTES	404U
+/* IMPISPWaitFrameAttr {u32 timeout; u64 cnt; u32 irqtype} (24 bytes), get only. */
+#define TX_ISP_TUNING_CMD_T41_WAIT_FRAME_DONE	0x08000091U
+#define TX_ISP_TUNING_T41_WAIT_FRAME_BYTES	24U
 
 /* Open implementation extension.  Keep policy names in userspace: the
  * driver only owns the atomic auto/manual AWB transition and gain replay. */

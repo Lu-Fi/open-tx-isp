@@ -150,4 +150,201 @@ static inline int t41_bcsh_offset_rgb_ok(const unsigned short *rgb)
 	return rgb && rgb[0] <= 2047 && rgb[1] <= 2047 && rgb[2] <= 2047;
 }
 
+/*
+ * IMPISPAeConvergeStep { u16 ae_step[4]; } (stock 0x08000028,
+ * tisp_ae_set/get_converge_step): steps 0/1 are u32 in the AE params at
+ * +0x664/+0x668, steps 2/3 u16 at +0x75c/+0x75e.  Only the recovered stock
+ * AE (t41_safe_ae_controller=0) reads them; the bounded open AE keeps its
+ * own step.  A zero step is refused (stock stores it unchecked).
+ */
+#define T41_AE_CONVERGE_BYTES 8U
+#define T41_AE_PARAM_CONVERGE_A 0x664U
+#define T41_AE_PARAM_CONVERGE_B 0x75cU
+
+static inline int t41_ae_converge_set(unsigned char *params,
+		unsigned int param_bytes, const unsigned short *step)
+{
+	unsigned int i;
+
+	if (!params || !step || param_bytes < T41_AE_PARAM_CONVERGE_B + 4)
+		return -1;
+	for (i = 0; i < 4; ++i)
+		if (!step[i])
+			return -1;
+	for (i = 0; i < 2; ++i) {
+		unsigned char *w = params + T41_AE_PARAM_CONVERGE_A + i * 4;
+		unsigned char *h = params + T41_AE_PARAM_CONVERGE_B + i * 2;
+
+		w[0] = step[i]; w[1] = step[i] >> 8; w[2] = 0; w[3] = 0;
+		h[0] = step[2 + i]; h[1] = step[2 + i] >> 8;
+	}
+	return 0;
+}
+
+static inline int t41_ae_converge_get(const unsigned char *params,
+		unsigned int param_bytes, unsigned short *step)
+{
+	if (!params || !step || param_bytes < T41_AE_PARAM_CONVERGE_B + 4)
+		return -1;
+	step[0] = (unsigned short)t41_tmo_le32(params + T41_AE_PARAM_CONVERGE_A);
+	step[1] = (unsigned short)t41_tmo_le32(params + T41_AE_PARAM_CONVERGE_A + 4);
+	step[2] = t41_tmo_le16(params + T41_AE_PARAM_CONVERGE_B);
+	step[3] = t41_tmo_le16(params + T41_AE_PARAM_CONVERGE_B + 2);
+	return 0;
+}
+
+/*
+ * IMPISPAeEvList / IMPISPAeAtList { u32 enable; u64 v[15]; } (128 bytes,
+ * stock 0x08000038/0x08000039, tisp_ae_get_ev_list/at_list): the EV knots
+ * (u64 at AE params +0x5d0) and the target luma per knot (u16 at +0x76e),
+ * the tables the open AE target interpolation reads.  Stock leaves the
+ * enable word as uninitialised kernel stack; here it is 1 (table in use).
+ */
+#define T41_AE_LIST_BYTES 128U
+#define T41_AE_PARAM_EV_LIST 0x5d0U
+#define T41_AE_PARAM_AT_LIST 0x76eU
+
+static inline int t41_ae_list_get(const unsigned char *params,
+		unsigned int param_bytes, int at_list, unsigned char *out)
+{
+	unsigned int i, j;
+
+	if (!params || !out || param_bytes < T41_AE_PARAM_AT_LIST + 30 ||
+	    param_bytes < T41_AE_PARAM_EV_LIST + 120)
+		return -1;
+	for (i = 0; i < T41_AE_LIST_BYTES; ++i)
+		out[i] = 0;
+	out[0] = 1;
+	for (i = 0; i < 15; ++i) {
+		unsigned char *v = out + 8 + i * 8;
+
+		if (at_list) {
+			v[0] = params[T41_AE_PARAM_AT_LIST + i * 2];
+			v[1] = params[T41_AE_PARAM_AT_LIST + i * 2 + 1];
+		} else {
+			for (j = 0; j < 8; ++j)
+				v[j] = params[T41_AE_PARAM_EV_LIST + i * 8 + j];
+		}
+	}
+	return 0;
+}
+
+/*
+ * IMPISPTmoCurve { u8 transfer_flag; u8 id; u16 value[201]; } (404 bytes,
+ * stock 0x08000063, tisp_tmo_api_get/set_curve): curve id 0..9 is one of
+ * the ten EV curves in the TMO params (the offsets t41_tmo_curve reads);
+ * the per-frame TMO map interpolates them, so a value above 8191 (which
+ * t41_tmo_curve rejects for the whole table) is refused here.  Stock
+ * ignores an id >= 10 silently and reads the GET id from uninitialised
+ * kernel stack; here the caller's id is used and a bad id is -1.
+ */
+#define T41_TMO_CURVE_BYTES 404U
+
+static inline int t41_tmo_curve_offset(unsigned int id)
+{
+	static const unsigned short offsets[10] = {
+		4950, 5416, 1416, 1818, 2220, 2622, 3024, 3426, 3828, 4230,
+	};
+
+	return id < 10 ? (int)offsets[id] : -1;
+}
+
+static inline int t41_tmo_curve_set(unsigned char *params,
+		unsigned int param_bytes, const unsigned char *req)
+{
+	unsigned int i;
+	int off;
+
+	if (!params || !req || param_bytes != T41_TMO_PARAM_BYTES)
+		return -1;
+	off = t41_tmo_curve_offset(req[1]);
+	if (off < 0)
+		return -1;
+	for (i = 0; i < T41_TMO_CURVE_ENTRIES; ++i)
+		if (t41_tmo_le16(req + 2 + i * 2) > 8191)
+			return -1;
+	for (i = 0; i < T41_TMO_CURVE_ENTRIES * 2; ++i)
+		params[off + i] = req[2 + i];
+	return 0;
+}
+
+static inline int t41_tmo_curve_get(const unsigned char *params,
+		unsigned int param_bytes, unsigned char *req)
+{
+	unsigned int i;
+	int off;
+
+	if (!params || !req || param_bytes != T41_TMO_PARAM_BYTES)
+		return -1;
+	off = t41_tmo_curve_offset(req[1]);
+	if (off < 0)
+		return -1;
+	for (i = 0; i < T41_TMO_CURVE_ENTRIES * 2; ++i)
+		req[2 + i] = params[off + i];
+	return 0;
+}
+
+/*
+ * IMPISPStatisConfig (72 bytes, stock 0x08000000, tisp_s/g_statis_config_attr
+ * on tisp_tattr+568): AE {en; start_h, start_v; node_h, node_v; domain;
+ * thresh[4]} at 0, AWB {en; location; mode} at 24, AF {en; location;
+ * shift, delta, theta, hilight, alpha, belta} at 44.  Stock stores an
+ * enabled part whole and only clears the enable of a disabled part.
+ * Returns -1 for an invalid request, else a bit mask of the enabled parts
+ * (1 AE, 2 AWB, 4 AF).  t41_statis_awb_location() builds the 10-byte
+ * T41_AWB_LOCATION request {start_h, start_v, node_h, node_v}.
+ */
+#define T41_STATIS_CONFIG_BYTES 72U
+#define T41_STATIS_AE 0U
+#define T41_STATIS_AWB 24U
+#define T41_STATIS_AF 44U
+
+static inline int t41_statis_config_check(const unsigned char *req)
+{
+	unsigned int en_ae, en_awb, en_af;
+
+	if (!req)
+		return -1;
+	en_ae = t41_tmo_le32(req + T41_STATIS_AE);
+	en_awb = t41_tmo_le32(req + T41_STATIS_AWB);
+	en_af = t41_tmo_le32(req + T41_STATIS_AF);
+	if (en_ae > 1 || en_awb > 1 || en_af > 1)
+		return -1;
+	if (en_ae && t41_tmo_le32(req + T41_STATIS_AE + 16) > 1)
+		return -1;
+	if (en_awb && t41_tmo_le32(req + T41_STATIS_AWB + 16) > 1)
+		return -1;
+	return (int)(en_ae | en_awb << 1 | en_af << 2);
+}
+
+static inline void t41_statis_awb_location(const unsigned char *req,
+		unsigned char *loc)
+{
+	unsigned int i;
+
+	for (i = 0; i < 10; ++i)
+		loc[i] = req[T41_STATIS_AWB + 4 + i];
+}
+
+static inline void t41_statis_config_store(unsigned char *rec,
+		const unsigned char *req)
+{
+	static const unsigned char part[3][2] = {
+		{ T41_STATIS_AE, 24 }, { T41_STATIS_AWB, 20 }, { T41_STATIS_AF, 28 },
+	};
+	unsigned int p, i;
+
+	for (p = 0; p < 3; ++p) {
+		const unsigned char *src = req + part[p][0];
+		unsigned char *dst = rec + part[p][0];
+
+		if (t41_tmo_le32(src) == 1) {
+			for (i = 0; i < part[p][1]; ++i)
+				dst[i] = src[i];
+		} else {
+			dst[0] = dst[1] = dst[2] = dst[3] = 0;
+		}
+	}
+}
+
 #endif
