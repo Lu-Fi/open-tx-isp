@@ -68,3 +68,27 @@ The kernel log lines start with `t23: ` and `t41: ` (`pr_fmt` for the
 `pr_*` calls, the same prefix in the `printk` format strings) instead of
 `tx_isp_t23_recovered: `, `tx_isp_t41_recovered: `, `tx_isp_t41: ` and
 `tx-isp-t41: `. The T23 trace filter matches the new prefix.
+
+## Open (not changed)
+
+- **T21 day/night parameter copies (`tparams_day`, `tparams_night`, 2 x
+  85 KB).** Not reloaded from the tuning file on a switch: after a switch
+  the 256 parameter pointers in `tparams` point into the active
+  `tparams_day`/`tparams_night` array (the switch copies the whole block,
+  pointer table included), so the firmware reads and writes its parameters
+  there, and tuning writes such as the custom-effect gains go straight into
+  `tparams_day`. Reloading from the file would drop those changes at every
+  switch. A smaller, layout-preserving variant (one shared 26 KB prefix
+  instead of three) still touches every `tparams_day + offset` access.
+  Needs a write-path audit and day/night device tests first.
+- **T23 `oem_IspAeStatic` / `IspAeStatic` (2 x 16 KB).** The lifted stock
+  AE0 (`source_ae_oem=1`, default) keeps its own copy; the recovered
+  statistics, histogram and zone readers (`tisp_ae0_get_statistics`,
+  `tisp_ae_get_y_zone`, ...) use the other. Sharing one buffer changes what
+  those readers return unless they are proven idle with the lifted AE.
+- **T30 at -O0.** `-Os` with `--gc-sections` would shrink the module from
+  845 to 342 KB (RAM 677 to 289 KB), but there is no host equivalence
+  harness for the T30 recovered driver (like `tests/t20_fw`) and no T30
+  test camera. The layout-only part (`-ffunction-sections`,
+  `--gc-sections`, `-x`, `-mno-pdr`, still `-O0`) gives 673 KB (RAM 574
+  KB) without changing code generation.
