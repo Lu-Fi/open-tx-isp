@@ -16717,110 +16717,95 @@ int32_t aisp_core_debug_show(void *arg1)
 	return 0;
 }
 
+/*
+ * /dev/isp-m0 handle count.  Vendor 1.2.6-720-4494 isp_core_tunning_open
+ * (0x713c) enables tuning only in core state 2 and returns -1 otherwise;
+ * the recovered open returned 0 for every opener, so a second handle
+ * (a tool next to the streamer) opened fine and its close() ran
+ * tisp_disable_tuning(): tisp_tattr was vfree'd under the running
+ * streamer (BCSH/ratio settings dead, later reads of freed memory).
+ * Count the handles: the first open in state 2 enables tuning, later opens
+ * share it, the last close disables it.  Own section: the recovered
+ * .bss/.data layout must not change.
+ */
+#include "tx_isp_t41_tuning_open.h"
+static struct mutex t41_tuning_open_mutex __attribute__((section(".data..t41_h1"))) =
+	__MUTEX_INITIALIZER(t41_tuning_open_mutex);
+static unsigned int t41_tuning_open_count __attribute__((section(".data..t41_h1")));
+
+static char *t41_tuning_core_state(uintptr_t file)
+{
+	char *priv, *core, *tun;
+
+	if (!t41_kernel_data_ptr((void *)file))
+		return NULL;
+	priv = (char *)(uintptr_t)*(uint32_t *)(void *)(file + 136);
+	if (!t41_kernel_data_ptr(priv))
+		return NULL;
+	core = (char *)(uintptr_t)*(uint32_t *)(void *)(priv + 256);
+	if (!t41_kernel_data_ptr(core))
+		return NULL;
+	tun = (char *)(uintptr_t)*(uint32_t *)(void *)(core + 560);
+	if (!t41_kernel_data_ptr(tun))
+		return NULL;
+	return tun;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000008384 origin=fragment_seed original=isp_core_tunning_release */
 int32_t isp_core_tunning_release(uint32_t a0, uintptr_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
+	char *tun = t41_tuning_core_state(a1);
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(a1) + 136)) + 256)) + 560);
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC1, &__pow2_lut, 2297); /* jalr target resolved by relocation */
-
-    /* fragment 2: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 148);
-    s1 = 2;
-
-    /* fragment 3: Branch */
-    int _bc_v0_3 = v0 == s1;
-    v0 = (unsigned int *)&tisp_disable_tuning;
-    if (_bc_v0_3) { goto isp_core_tunning_release0x60; }
-
-    /* fragment 4: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_disable_tuning)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 148) = s1;
-
-isp_core_tunning_release0x60:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Arithmetic */
-    v0 = 0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	(void)a0;
+	mutex_lock(&t41_tuning_open_mutex);
+	/* vendor 0x8384: state 3 -> tisp_disable_tuning(), state = 2 */
+	if (t41_tuning_release_decide(tun ? *(uint32_t *)(void *)(tun + 148) : 0,
+				      &t41_tuning_open_count) && tun) {
+		tisp_disable_tuning();
+		*(uint32_t *)(void *)(tun + 148) = 2;
+	}
+	mutex_unlock(&t41_tuning_open_mutex);
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000083fc origin=fragment_seed original=isp_core_tunning_open */
 int32_t isp_core_tunning_open(uint32_t a0, uintptr_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+	char *tun = t41_tuning_core_state(a1);
+	char *core;
+	uint32_t state;
+	int ret = 0;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a1 + 136);
-    v1 = 2;
-    s1 = *(uint32_t *)((char *)v0 + 256);
-    s0 = *(uint32_t *)((char *)s1 + 560);
-    a0 = *(uint32_t *)((char *)s0 + 148);
-
-    /* fragment 2: Branch */
-    v0 = -1;
-    if (a0 != v1) { goto isp_core_tunning_open0x78; }
-
-    /* fragment 3: CallSetup */
-    *(uint32_t *)((uintptr_t)s0 + 8) = (2155872256 | 32896);
-    *(uint32_t *)((char *)s0 + 16) = (1638400 + 1);
-    *(uint32_t *)((char *)s0 + 20) = 0;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_enable_tuning)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 4: Arithmetic */
-    v0 = 3;
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 148) = v0;
-    a0 = *(uint32_t *)((char *)s1 + 468);
-    v1 = 10;
-
-    /* fragment 6: Branch */
-    v0 = 0;
-    if (a0 != v1) { goto isp_core_tunning_open0x78; }
-
-    /* fragment 7: Arithmetic */
-    v1 = 1;
-
-    /* fragment 8: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 24) = v1;
-    *(uint32_t *)((char *)s1 + 468) = 0;
-
-isp_core_tunning_open0x78:
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	(void)a0;
+	if (!tun)
+		return -ENODEV;
+	core = (char *)(uintptr_t)*(uint32_t *)(void *)
+		((char *)(uintptr_t)*(uint32_t *)(void *)(a1 + 136) + 256);
+	mutex_lock(&t41_tuning_open_mutex);
+	state = *(uint32_t *)(void *)(tun + 148);
+	ret = t41_tuning_open_decide(state, t41_tuning_open_count);
+	if (ret < 0)
+		goto out;
+	if (ret == T41_TUNING_OPEN_ENABLE) {
+		/* vendor 0x7168..0x71b0 */
+		*(uint32_t *)(void *)(tun + 8) = 0x80808080;
+		*(uint32_t *)(void *)(tun + 16) = 0x190001;
+		*(uint32_t *)(void *)(tun + 20) = 0;
+		if (tisp_enable_tuning() != 0 || !tisp_tattr) {
+			ret = -ENOMEM;
+			goto out;
+		}
+		*(uint32_t *)(void *)(tun + 148) = 3;
+		if (*(uint32_t *)(void *)(core + 468) == 10) {
+			*(uint32_t *)(void *)(tun + 24) = 1;
+			*(uint32_t *)(void *)(core + 468) = 0;
+		}
+	}
+	t41_tuning_open_done(&t41_tuning_open_count);
+	ret = 0;
+out:
+	mutex_unlock(&t41_tuning_open_mutex);
+	return ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000008488 origin=fragment_seed original=tx_isp_gamma_s_attr.isra.9 */

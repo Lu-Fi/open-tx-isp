@@ -19,6 +19,10 @@ TEST_TIMEOUT ?= 600
 
 TESTS += tx_isp_t41_ysp_test
 TESTS += tx_isp_t41_switchbin_test
+TESTS += tx_isp_t41_tuning_open_test
+
+tx_isp_t41_tuning_open_test: tx_isp_t41_tuning_open_test.c ../driver/t41/tx_isp_t41_tuning_open.h
+	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t41_switchbin_test: tx_isp_t41_switchbin_test.c ../driver/t41/tx_isp_t41_switchbin.h
 	$(CC) $(CFLAGS) -o $@ $<
