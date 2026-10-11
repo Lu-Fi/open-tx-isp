@@ -62,6 +62,53 @@
 #include <asm/uaccess.h>
 
 #include "../include/tx_isp/tx_isp_recovered_kernel.h"
+
+/*
+ * Informational output switch. Module parameter t40_runtime_trace (0644,
+ * /sys/module/tx_isp_t40/parameters/t40_runtime_trace; 1 = all notes)
+ * gates the bring-up and progress notes, which are logged at KERN_INFO.
+ * By default they are dropped, so a normal start and run stays silent.
+ * A note whose text reports a non-zero "ret=" or "fail=" value is promoted
+ * to a warning and stays visible. Real errors use KERN_WARNING/KERN_ERR
+ * directly and are never gated.
+ */
+static int t40_runtime_trace;
+
+static noinline int t40_note_is_error(const char *s)
+{
+	const char *p;
+
+	for (p = s; (p = strstr(p, "ret=")) != NULL; p += 4)
+		if (p[4] != '0' || (p[5] >= '0' && p[5] <= '9') || p[5] == 'x')
+			return 1;
+	for (p = s; (p = strstr(p, "fail=")) != NULL; p += 5)
+		if (p[5] != '0' || (p[6] >= '0' && p[6] <= '9'))
+			return 1;
+	return 0;
+}
+
+static noinline int t40_printk(const char *fmt, ...)
+{
+	va_list args;
+	int r = 0;
+
+	va_start(args, fmt);
+	if (t40_runtime_trace || fmt[0] != KERN_SOH_ASCII || fmt[1] != '6') {
+		r = vprintk(fmt, args);
+	} else if (!in_interrupt() && !irqs_disabled()) {
+		char buf[320];
+
+		r = vsnprintf(buf, sizeof(buf), fmt + 2, args);
+		if (r < (int)sizeof(buf) && t40_note_is_error(buf))
+			r = (printk)(KERN_WARNING "%s", buf);
+		else
+			r = 0;
+	}
+	va_end(args);
+	return r;
+}
+#undef printk
+#define printk(fmt, ...) t40_printk(fmt, ##__VA_ARGS__)
 #else
 #define REGTRACE_WHOLE_DRIVER_SEED_SOURCE 1
 #ifndef REGTRACE_CANDIDATE_PRELUDE_H
@@ -576,6 +623,9 @@ MODULE_PARM_DESC(clk_name, "chose parent clk");
 
 static int print_level = 1;
 module_param(print_level, int, 0);
+
+module_param(t40_runtime_trace, int, 0644);
+MODULE_PARM_DESC(t40_runtime_trace, "1 = log bring-up and progress notes (default 0: only warnings and errors)");
 MODULE_PARM_DESC(print_level, "isp print level");
 
 /* WHOLE_DRIVER_PLATFORM_DERIVATION
@@ -918,12 +968,12 @@ static uintptr_t regtrace_irq_table_base(uintptr_t arg, uint32_t idx)
 
 static uintptr_t regtrace_pr_info(uintptr_t fmt, ...)
 {
-    return printk("%s", (const char *)(uintptr_t)fmt);
+    return printk(KERN_INFO "%s", (const char *)(uintptr_t)fmt);
 }
 
 static uintptr_t regtrace_pr_err(uintptr_t fmt, ...)
 {
-    return printk("%s", (const char *)(uintptr_t)fmt);
+    return printk(KERN_INFO "%s", (const char *)(uintptr_t)fmt);
 }
 
 #ifdef pr_info
@@ -9482,7 +9532,7 @@ static void regtrace_bcsh_static_write(void)
 
     for (k = 0; k < sizeof(bcsh_cfg) / sizeof(bcsh_cfg[0]); k++)
         (void)system_reg_write(bcsh_cfg[k][0], bcsh_cfg[k][1]);
-    printk(KERN_WARNING "tx_isp_t40_recovered: bcsh-static %u regs written\n", k);
+    printk(KERN_INFO "tx_isp_t40_recovered: bcsh-static %u regs written\n", k);
 }
 
 /*
@@ -9754,13 +9804,13 @@ static void regtrace_dmsc_static_write(void)
             if (regtrace_dmsc_stock_overlay_mask & group)
                 (void)system_reg_write(off, overlay[j][1]);
         }
-        printk(KERN_WARNING
+        printk(KERN_INFO
                "tx_isp_t40_recovered: dmsc-static stock overlay profile=%s mask=0x%x candidates=%u\n",
                regtrace_dmsc_stock_high_gain_overlay ? "gain13" : "gain10",
                regtrace_dmsc_stock_overlay_mask, j);
     }
     (void)system_reg_write(0x0a19c, 0x00000001);
-    printk(KERN_WARNING "tx_isp_t40_recovered: dmsc-static %u regs written + trig\n", k);
+    printk(KERN_INFO "tx_isp_t40_recovered: dmsc-static %u regs written + trig\n", k);
 }
 
 static void regtrace_soft_gamma_write(void)
@@ -9794,7 +9844,7 @@ static void regtrace_soft_gamma_write(void)
     (void)system_reg_write(0x50040, 0x7f0102);
     (void)system_reg_write(0x50060, 0x7f0102);
     (void)system_reg_write(0x50080, 0x7f0102);
-    printk(KERN_WARNING "tx_isp_t40_recovered: soft-gamma 2.2 LUT written\n");
+    printk(KERN_INFO "tx_isp_t40_recovered: soft-gamma 2.2 LUT written\n");
 }
 
 #include "tx_isp_t40_bcsh_lit.inc"
@@ -11092,7 +11142,7 @@ static int32_t regtrace_ccm_main_init_lit(void)
     flag = (uint8_t *)(uintptr_t)pstMainCcmOri_lit[2];
     if (flag)
         *flag = 0;
-    printk(KERN_WARNING "tx_isp_t40_recovered: ccm-main-init-lit done outer=%p\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: ccm-main-init-lit done outer=%p\n",
            (void *)(uintptr_t)stMainCcmOuter_lit);
     return 0;
 }
@@ -11263,7 +11313,7 @@ static int regtrace_blc_main_gain_update_lit(uint32_t gain, bool init)
     system_reg_write(0x2038U, 0);
     system_reg_write(0x2000U, 1);
     regtrace_blc_lit_gain_now = gain;
-    printk(KERN_WARNING
+    printk(KERN_INFO
            "tx_isp_t40_recovered: blc-lit %s gain=%u bayer=%u values=%u/%u/%u/%u self=0x%x final=0x%x regs=%08x/%08x\n",
            init ? "init" : "again", gain, bayer, chan[0], chan[1],
            chan[2], chan[3], self_gain, final_gain,
@@ -11376,7 +11426,7 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
     else
         regtrace_t40_quality_top40_final |= BIT(13);
 
-    printk(KERN_WARNING
+    printk(KERN_INFO
            "tx_isp_t40_recovered: tuning gates flags=0x%08x BLC=%s LSC=%s GIB=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
            packed, flags[0] ? "bypass" : "active",
            flags[1] ? "bypass" : "active",
@@ -11540,7 +11590,7 @@ static int regtrace_gib_main_gain_update_lit(uint32_t gain, bool init)
     regtrace_gib_lit_dgain23_now =
         ((uint32_t)dgain[3] << 16) | dgain[2];
     regtrace_gib_lit_dgain_shift_now = dgain_shift;
-    printk(KERN_WARNING
+    printk(KERN_INFO
            "tx_isp_t40_recovered: gib-lit %s gain=%u bayer=0x%x map=0x%x values=%u/%u/%u/%u/%u self=0x%x dgain=%08x/%08x shift=%u config=%08x blc=%08x\n",
            init ? "init" : "again", gain, bayer, map, chan[0], chan[1],
            chan[2], chan[3], chan[4], self_gain,
@@ -11799,7 +11849,7 @@ static int regtrace_mdns_buf_setup(uint32_t ch, uint32_t width, uint32_t height)
     system_reg_write(base + 0x64, layout.quarter_stride);
     off += layout.quarter_size;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: mdns-buf ch=%u phys=0x%x used=0x%x of 0x%x %ux%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: mdns-buf ch=%u phys=0x%x used=0x%x of 0x%x %ux%u\n",
            ch, phys, off, available, width, height);
     return 0;
 }
@@ -14866,10 +14916,10 @@ static int32_t regtrace_mdns_main_init_lit(uint32_t width, uint32_t height)
         return -ENOMEM;
     /* returns memcpy()'s dest pointer (OEM tail-call), not an error code */
     (void)tisp_mdns_params_refresh_lit(0);
-    printk(KERN_WARNING "tx_isp_t40_recovered: mdns-init params ok par[0]=0x%02x par[1]=0x%02x\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: mdns-init params ok par[0]=0x%02x par[1]=0x%02x\n",
            *(uint8_t *)(uintptr_t)main_mdns, *(uint8_t *)(uintptr_t)(main_mdns + 1));
     (void)tisp_mdns_wdr_en_lit(0, regtrace_mdns_wdr_flags[0]);
-    printk(KERN_WARNING "tx_isp_t40_recovered: mdns-init comb ok [0]=%p [82]=%p\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: mdns-init comb ok [0]=%p [82]=%p\n",
            (void *)(uintptr_t)((uint32_t *)(uintptr_t)main_mdns_comb)[0],
            (void *)(uintptr_t)((uint32_t *)(uintptr_t)main_mdns_comb)[82]);
     regtrace_mdns_width = width;
@@ -14879,7 +14929,7 @@ static int32_t regtrace_mdns_main_init_lit(uint32_t width, uint32_t height)
     regtrace_mdns_dbg_reg68 =
         (uint32_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(0xf068);
     regtrace_mdns_dbg_init_ret = 0;
-    printk(KERN_WARNING "tx_isp_t40_recovered: mdns-main-init-lit done par=%p w=%u h=%u reg68=0x%x\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: mdns-main-init-lit done par=%p w=%u h=%u reg68=0x%x\n",
            (void *)(uintptr_t)main_mdns, width, height, regtrace_mdns_dbg_reg68);
     return 0;
 }
@@ -14906,7 +14956,7 @@ static int regtrace_isp_block_init_once(const char *where)
     nbuf = *(uint32_t *)((char *)&tparamsN);
     if (!nbuf) {
         if (regtrace_isp_block_init_skip_no_blob++ < 4)
-            printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init skip where=%s no tparamsN blob yet\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init skip where=%s no tparamsN blob yet\n",
                    where ? where : "?");
         return -ENOENT;
     }
@@ -14922,11 +14972,11 @@ static int regtrace_isp_block_init_once(const char *where)
     regtrace_isp_block_init_count++;
     regtrace_isp_block_init_ran = true;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init pre where=%s pi=0x%x nbuf=0x%x blob=0x%x adr=%ux%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init pre where=%s pi=0x%x nbuf=0x%x blob=0x%x adr=%ux%u\n",
            where ? where : "?", pi, nbuf, blob, adr_width, adr_height);
 
     if (regtrace_isp_block_init_stage_limit == 1) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init stage-limit=1 return before AE/ADR where=%s\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init stage-limit=1 return before AE/ADR where=%s\n",
                where ? where : "?");
         return 0;
     }
@@ -14947,7 +14997,7 @@ static int regtrace_isp_block_init_once(const char *where)
         regtrace_isp_block_init_ae_ret =
             (int)tisp_ae_main_init(ae_width, ae_height);
     }
-    printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init after-ae where=%s ae_ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init after-ae where=%s ae_ret=%d\n",
            where ? where : "?", regtrace_isp_block_init_ae_ret);
 
     if (regtrace_enable_isp_block_init_awb) {
@@ -14966,11 +15016,11 @@ static int regtrace_isp_block_init_once(const char *where)
         regtrace_isp_block_init_awb_ret =
             (int)tisp_awb_main_init(awb_width, awb_height);
     }
-    printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init after-awb where=%s awb_ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init after-awb where=%s awb_ret=%d\n",
            where ? where : "?", regtrace_isp_block_init_awb_ret);
 
     if (regtrace_isp_block_init_stage_limit == 2) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init stage-limit=2 return before ADR where=%s\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init stage-limit=2 return before ADR where=%s\n",
                where ? where : "?");
         return regtrace_isp_block_init_ae_ret ? regtrace_isp_block_init_ae_ret :
             regtrace_isp_block_init_awb_ret;
@@ -14978,7 +15028,7 @@ static int regtrace_isp_block_init_once(const char *where)
 
     regtrace_isp_block_init_adr_ret =
         (int)tisp_adr_main_init(adr_width, adr_height);
-    printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init post where=%s adr_ret=%d adr_stat=0x%x\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init post where=%s adr_ret=%d adr_stat=0x%x\n",
            where ? where : "?",
            regtrace_isp_block_init_adr_ret,
            (uint32_t)*(volatile uint32_t *)((char *)&adr_main_stat_info));
@@ -15001,7 +15051,7 @@ static int regtrace_isp_block_init_once(const char *where)
             lsc_height = adr_height;
         lsc_ret = regtrace_lsc_main_init_lit(0, (const uint8_t *)(uintptr_t)nbuf,
                                              lsc_width, lsc_height);
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init lsc-lit ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init lsc-lit ret=%d\n",
                lsc_ret);
         /*
          * WBG gains are not a calibrated colour-temperature measurement.
@@ -15015,7 +15065,7 @@ static int regtrace_isp_block_init_once(const char *where)
     if (regtrace_enable_bcsh) {
         int bcsh_ret = (int)regtrace_bcsh_main_init_lit(regtrace_bcsh_mode);
 
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init bcsh ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init bcsh ret=%d\n",
                bcsh_ret);
     }
 
@@ -15031,35 +15081,35 @@ static int regtrace_isp_block_init_once(const char *where)
         if (!dmsc_ret && regtrace_dmsc_sharpness != 128U)
             dmsc_ret = regtrace_t40_apply_dmsc_sharpness(
                 min_t(uint32_t, regtrace_dmsc_sharpness, 255U));
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init dmsc-lit ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init dmsc-lit ret=%d\n",
                dmsc_ret);
     }
 
     if (regtrace_enable_blc_lit) {
         int blc_ret = regtrace_blc_main_init_lit();
 
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init blc-lit ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init blc-lit ret=%d\n",
                blc_ret);
     }
 
     if (regtrace_enable_gib_lit) {
         int gib_ret = regtrace_gib_main_init_lit();
 
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init gib-lit ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init gib-lit ret=%d\n",
                gib_ret);
     }
 
     if (regtrace_enable_ydns) {
         int ydns_ret = (int)tisp_ydns_main_init();
 
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init ydns ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init ydns ret=%d\n",
                ydns_ret);
     }
 
     if (regtrace_enable_ysp) {
         int ysp_ret = (int)tisp_ysp_main_init();
 
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init ysp ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init ysp ret=%d\n",
                ysp_ret);
     }
 
@@ -15067,7 +15117,7 @@ static int regtrace_isp_block_init_once(const char *where)
         int sdns_ret = (int)regtrace_sdns_main_init_lit();
 
         regtrace_sdns_dbg_init_ret = sdns_ret;
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init sdns ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init sdns ret=%d\n",
                sdns_ret);
     }
 
@@ -15076,7 +15126,7 @@ static int regtrace_isp_block_init_once(const char *where)
 
         if (!ccm_ret)
             regtrace_ccm_main_ct_update_lit(regtrace_ccm_ct, true);
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init ccm ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init ccm ret=%d\n",
                ccm_ret);
     }
 
@@ -15084,14 +15134,14 @@ static int regtrace_isp_block_init_once(const char *where)
         int clm_ret = (int)regtrace_clm_main_init_lit();
 
         regtrace_isp_block_init_clm_ret = clm_ret;
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init clm ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init clm ret=%d\n",
                clm_ret);
     }
 
     if (regtrace_enable_mdns) {
         int mdns_ret = (int)regtrace_mdns_main_init_lit(adr_width, adr_height);
 
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init mdns ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init mdns ret=%d\n",
                mdns_ret);
     }
 
@@ -15105,7 +15155,7 @@ static int regtrace_isp_block_init_once(const char *where)
         (void)system_reg_write(0x1034, regtrace_gib_blc_offset);
         (void)system_reg_write(0x1038, regtrace_gib_blc_offset);
         (void)system_reg_write(0x103c, regtrace_gib_blc_offset);
-        printk(KERN_WARNING "tx_isp_t40_recovered: gib-blc offsets=0x%x\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: gib-blc offsets=0x%x\n",
                regtrace_gib_blc_offset);
     }
 
@@ -15126,7 +15176,7 @@ static int regtrace_isp_block_init_once(const char *where)
             regtrace_tisp_main_init_top40_value =
                 regtrace_t40_quality_top40_final;
         }
-        printk(KERN_WARNING
+        printk(KERN_INFO
                "tx_isp_t40_recovered: isp-block-init top40 commit value=0x%08x ret=%d\n",
                regtrace_t40_quality_top40_final, top_ret);
     }
@@ -15157,7 +15207,7 @@ static void regtrace_isp_block_init_retry(const char *where)
 
     nbuf = *(uint32_t *)((char *)&tparamsN);
     if (log_count < 4) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: isp-block-init precheck where=%s enable=%u ran=%u nbuf=0x%x count=%u\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init precheck where=%s enable=%u ran=%u nbuf=0x%x count=%u\n",
                where ? where : "?",
                regtrace_enable_isp_block_init ? 1U : 0U,
                regtrace_isp_block_init_ran ? 1U : 0U, nbuf, log_count);
@@ -15760,7 +15810,7 @@ static void regtrace_adr_process_workfn(struct work_struct *work)
     regtrace_adr_process_work_last_ret = ret;
     if (regtrace_enable_isp_3a_diag &&
         regtrace_adr_process_work_run_count <= 6)
-        printk(KERN_WARNING "tx_isp_t40_recovered: 3a-diag ADR process work ran #%u ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: 3a-diag ADR process work ran #%u ret=%d\n",
                regtrace_adr_process_work_run_count, ret);
 }
 
@@ -17395,7 +17445,7 @@ static int regtrace_t40_core_activate_direct(uint32_t point)
                 if (ret && !last_ret)
                     last_ret = ret;
                 regtrace_core_activate_clk_enable++;
-                printk(KERN_WARNING "tx_isp_t40_recovered: core direct activate clk[%u]=%p rate=%lu ret=%d\n",
+                printk(KERN_INFO "tx_isp_t40_recovered: core direct activate clk[%u]=%p rate=%lu ret=%d\n",
                        i, (void *)clk,
                        private_clk_get_rate((struct clk *)clk), ret);
             }
@@ -17417,7 +17467,7 @@ static int regtrace_t40_core_activate_direct(uint32_t point)
     activated = 1;
     in_progress = 0;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: core direct activate point=%u request=0x%x clk_mask=0x%x state_write=%u sd=%p dev=%p state %u/%u/%u -> %u/%u/%u ret=%ld\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: core direct activate point=%u request=0x%x clk_mask=0x%x state_write=%u sd=%p dev=%p state %u/%u/%u -> %u/%u/%u ret=%ld\n",
            point, requested, clk_mask, state_write ? 1U : 0U,
            (void *)sd, (void *)core_dev,
            regtrace_core_activate_state_before[0],
@@ -17484,11 +17534,11 @@ static void regtrace_core_top_write_note(uint32_t path, uint32_t reg,
         return;
 
     if (count <= 48 || reg == 0x40 || reg == 0x60 || reg == 0x6c) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: core-watch path=%u reg=0x%x value=0x%x before=0x%x after=0x%x ret=%ld caller=%pS pid=%u comm=%s count=%u\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: core-watch path=%u reg=0x%x value=0x%x before=0x%x after=0x%x ret=%ld caller=%pS pid=%u comm=%s count=%u\n",
                path, reg, value, before, after, ret, caller,
                (unsigned int)current->pid, current->comm, count);
     } else if (count == 49) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: core-watch reg=0x%x noisy logging suppressed\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: core-watch reg=0x%x noisy logging suppressed\n",
                reg);
     }
 }
@@ -17620,7 +17670,7 @@ static int regtrace_core_first_frame_regs(int enable)
     regtrace_core_first_frame_count++;
     regtrace_core_first_frame_last_enable = enable ? 1U : 0U;
     regtrace_core_first_frame_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: core first-frame regs %s bayer=%u reg8=0x%x top_sel=%u reg0c=0x%x start800=%u mode804=0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: core first-frame regs %s bayer=%u reg8=0x%x top_sel=%u reg0c=0x%x start800=%u mode804=0x%x ret=%d\n",
            enable ? "enable" : "disable",
            regtrace_enable_core_bayer_reg8 ? 1U : 0U,
            regtrace_core_first_frame_last_reg8,
@@ -17886,7 +17936,7 @@ static int regtrace_vic_mdma_internal_program(uintptr_t vic_dev,
     regtrace_vic_mdma_internal_last_uv0 = uv[0];
     regtrace_vic_mdma_internal_last_ret = 0;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: VIC internal MDMA on ch=%u idx=%u %ux%u fmt=%u count=%u layout=%u size=0x%x phys=0x%x stride=%u ctrl=0x%x y0=0x%x uv0=0x%x coherent=%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: VIC internal MDMA on ch=%u idx=%u %ux%u fmt=%u count=%u layout=%u size=0x%x phys=0x%x stride=%u ctrl=0x%x y0=0x%x uv0=0x%x coherent=%u\n",
            channel, irq_index, width, height, fmt, count,
            regtrace_vic_mdma_internal_layout, buf->size, buf->phys, stride, ctrl,
            y[0], uv[0], buf->coherent ? 1U : 0U);
@@ -18125,7 +18175,7 @@ static int regtrace_tisp_main_init_dma_regs(void)
 out:
     regtrace_tisp_main_init_dma_reg_count++;
     regtrace_tisp_main_init_dma_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: tisp_main_init dma regs mask=0x%x allocs=%u fail=%u kseg0=%u tispinfo=%u/%u phys=%x/%x/%x/%x/%x hw=%x/%x/%x/%x/%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: tisp_main_init dma regs mask=0x%x allocs=%u fail=%u kseg0=%u tispinfo=%u/%u phys=%x/%x/%x/%x/%x hw=%x/%x/%x/%x/%x ret=%d\n",
            regtrace_tisp_main_init_dma_last_mask,
            regtrace_tisp_main_init_dma_alloc_count,
            regtrace_tisp_main_init_dma_fail_index,
@@ -18196,7 +18246,7 @@ static int regtrace_core_irq_oem_enable(uintptr_t core_sd, uint32_t irq_index)
     regtrace_core_irq_oem_last_lock = (void *)irq_base;
     regtrace_core_irq_oem_last_cb = (void *)enable_cb;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: core IRQ OEM enable sd=%p lock=%p idx=%u cb=%p state=%u->%u ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: core IRQ OEM enable sd=%p lock=%p idx=%u cb=%p state=%u->%u ret=%d\n",
            (void *)core_sd, (void *)irq_base, irq_index,
            (void *)enable_cb, before, after, ret);
     return ret;
@@ -18253,7 +18303,7 @@ static int regtrace_core_irq_oem_disable(uintptr_t core_sd,
     regtrace_core_irq_oem_last_lock = (void *)irq_base;
     regtrace_core_irq_oem_last_cb = (void *)disable_cb;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: core IRQ OEM disable sd=%p lock=%p idx=%u cb=%p state=%u->%u ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: core IRQ OEM disable sd=%p lock=%p idx=%u cb=%p state=%u->%u ret=%d\n",
            (void *)core_sd, (void *)irq_base, irq_index,
            (void *)disable_cb, before, after, ret);
     return ret;
@@ -18324,7 +18374,7 @@ static int regtrace_core_irq_stream(int channel, int enable)
     regtrace_core_irq_last_channel = (uint32_t)channel;
     regtrace_core_irq_last_index = irq_index;
     regtrace_core_irq_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: core IRQ %s ch=%d idx=%u sd=%p masks=0x%x/0x%x values=0x%x/0x%x cfg=0x%x/0x%x ret=%ld\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: core IRQ %s ch=%d idx=%u sd=%p masks=0x%x/0x%x values=0x%x/0x%x cfg=0x%x/0x%x ret=%ld\n",
            enable ? "enable" : "disable", channel, irq_index,
            (void *)core_sd, primary_mask_reg, error_mask_reg,
            primary_mask_value, error_mask_value, cfg_reg, cfg_value, ret);
@@ -18371,7 +18421,7 @@ static int regtrace_tisp_stream_event_setup(void)
     regtrace_tisp_stream_event_setup_count++;
     regtrace_tisp_stream_event_setup_last_mask = mask;
     regtrace_tisp_stream_event_setup_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: TISP stream event setup init=%u cbs=%u before1008=%u mask=0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: TISP stream event setup init=%u cbs=%u before1008=%u mask=0x%x ret=%d\n",
            regtrace_enable_tisp_stream_event_init ? 1U : 0U,
            regtrace_enable_tisp_stream_event_cbs ? 1U : 0U,
            regtrace_enable_tisp_stream_event_cbs_before_1008 ? 1U : 0U,
@@ -18416,7 +18466,7 @@ static bool regtrace_tisp_ipc_oem_gate_allow(int channel, const char *reason)
     else
         regtrace_tisp_ipc_oem_gate_skip_count++;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: TISP IPC OEM gate %s ch=%d reason=%s core=%p s296=%u s300=%u s744=%u s748=%u ch_state=%u allow=%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: TISP IPC OEM gate %s ch=%d reason=%s core=%p s296=%u s300=%u s744=%u s748=%u ch_state=%u allow=%u\n",
            allow ? "allow" : "skip", channel, reason ? reason : "unknown",
            (void *)core_dev, s296, s300, s744, s748, ch_state,
            allow ? 1U : 0U);
@@ -18542,7 +18592,7 @@ static int regtrace_tisp_stream_regs(int enable, int channel)
         if (ipc_trigger_1000) {
             if (regtrace_tisp_ipc_1000_delay_ms) {
                 regtrace_tisp_ipc_trigger_1000_delay_count++;
-                printk(KERN_WARNING "tx_isp_t40_recovered: TISP IPC delaying 0x1000 kick by %u ms after 0x1004\n",
+                printk(KERN_INFO "tx_isp_t40_recovered: TISP IPC delaying 0x1000 kick by %u ms after 0x1004\n",
                        regtrace_tisp_ipc_1000_delay_ms);
                 msleep(regtrace_tisp_ipc_1000_delay_ms);
             }
@@ -18575,7 +18625,7 @@ static int regtrace_tisp_stream_regs(int enable, int channel)
     regtrace_tisp_stream_regs_count++;
     regtrace_tisp_stream_regs_last_enable = enable ? 1U : 0U;
     regtrace_tisp_stream_regs_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: TISP stream regs %s ch=%d setup=%u preamble=%u r1010=%u r1014=%u r1008=%u r1008_off=0x%x r1008_val=0x%x start1060=%u ipc=%u ipc1004=%u ipc1000=%u gate=%u ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: TISP stream regs %s ch=%d setup=%u preamble=%u r1010=%u r1014=%u r1008=%u r1008_off=0x%x r1008_val=0x%x start1060=%u ipc=%u ipc1004=%u ipc1000=%u gate=%u ret=%d\n",
            enable ? "enable" : "disable", channel, setup_regs ? 1U : 0U,
            preamble_regs ? 1U : 0U, write_1010 ? 1U : 0U,
            write_1014 ? 1U : 0U, write_1008 ? 1U : 0U,
@@ -18605,7 +18655,7 @@ static int regtrace_msca_cfg_load_pulse(int channel, const char *reason)
     regtrace_msca_cfg_load_pulse_count++;
     regtrace_msca_cfg_load_last_channel = (uint32_t)channel;
     regtrace_msca_cfg_load_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: MSCA cfg-load pulse ch=%d reason=%s ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: MSCA cfg-load pulse ch=%d reason=%s ret=%d\n",
            channel, reason ? reason : "unknown", ret);
     return ret;
 }
@@ -18681,7 +18731,7 @@ static int regtrace_tisp_main_init_scalar_reapply(int channel,
     regtrace_tisp_main_init_scalar_late_count++;
     regtrace_tisp_main_init_scalar_late_last_channel = (uint32_t)channel;
     regtrace_tisp_main_init_scalar_late_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: TISP scalar late reapply ch=%d reason=%s reg20=0x%x reg88=0x%x reg40=0x%x reg48=0x%x reg6c=0x%x reg60=0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: TISP scalar late reapply ch=%d reason=%s reg20=0x%x reg88=0x%x reg40=0x%x reg48=0x%x reg6c=0x%x reg60=0x%x ret=%d\n",
            channel, reason ? reason : "unknown", reg20, reg88, reg40,
            reg48, reg6c, reg60, ret);
     return ret;
@@ -18719,7 +18769,7 @@ static int regtrace_t40_msca_shadow_kick_write(const char *reason,
     regtrace_t40_msca_shadow_kick_834_last_before = before;
     regtrace_t40_msca_shadow_kick_834_last_after = after;
     regtrace_t40_msca_shadow_kick_834_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: T40 MSCA shadow kick reason=%s reg=0x%x value=0x%x 0x%x->0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: T40 MSCA shadow kick reason=%s reg=0x%x value=0x%x 0x%x->0x%x ret=%d\n",
            reason ? reason : "unknown", reg, value, before, after, ret);
     return ret;
 }
@@ -18805,7 +18855,7 @@ static int regtrace_t40_msca_shadow_commit(const char *reason)
     regtrace_t40_msca_shadow_commit_last_mask = mask;
     regtrace_t40_msca_shadow_commit_last_status = status;
     regtrace_t40_msca_shadow_commit_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: T40 MSCA shadow commit reason=%s mask=0x%x last_cmd=0x%x status=0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: T40 MSCA shadow commit reason=%s mask=0x%x last_cmd=0x%x status=0x%x ret=%d\n",
            reason ? reason : "unknown", mask,
            regtrace_t40_msca_shadow_commit_last_cmd, status, ret);
     return ret;
@@ -18852,11 +18902,11 @@ static int regtrace_t40_msca_write_work_en(uint32_t active_mask,
     regtrace_t40_msca_work_en_write_count++;
 
     if (regtrace_t40_msca_work_en_write_count <= 8) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: T40 MSCA work_en reason=%s active=0x%x hw=0x%x read=0x%x ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: T40 MSCA work_en reason=%s active=0x%x hw=0x%x read=0x%x ret=%d\n",
                reason ? reason : "unknown", active_mask, hw_value, readback,
                ret);
     } else if (regtrace_t40_msca_work_en_write_count == 9) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: T40 MSCA work_en logging suppressed\n");
+        printk(KERN_INFO "tx_isp_t40_recovered: T40 MSCA work_en logging suppressed\n");
     }
 
     return ret;
@@ -19067,7 +19117,7 @@ out:
     regtrace_t40_msca_shadow_fifo_last_status_before = status_before;
     regtrace_t40_msca_shadow_fifo_last_status_after = status_after;
     regtrace_t40_msca_shadow_fifo_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: T40 MSCA shadow FIFO ch=%d reason=%s active=0x%x scale=0x%x pairs=%u status=0x%x->0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: T40 MSCA shadow FIFO ch=%d reason=%s active=0x%x scale=0x%x pairs=%u status=0x%x->0x%x ret=%d\n",
            trigger_channel, reason ? reason : "unknown", active_mask,
            scale_bits, pairs, status_before, status_after, ret);
     return ret;
@@ -19522,7 +19572,7 @@ static int regtrace_t40_msca_state_update_channel(
     regtrace_t40_msca_state_update_last_crop =
         (crop_width << 16) | crop_height;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: MSCA state ch=%d reason=%s target=%ux%u source=%ux%u+%u+%u crop=%ux%u+%u+%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: MSCA state ch=%d reason=%s target=%ux%u source=%ux%u+%u+%u crop=%ux%u+%u+%u\n",
            channel, reason ? reason : "unknown",
            target_width, target_height, source_width, source_height,
            source_left, source_top, crop_width, crop_height,
@@ -19653,7 +19703,7 @@ out:
     regtrace_t40_msca_scaler_level_last_work_cfg = work_cfg;
     regtrace_t40_msca_scaler_level_last_work_en = work_en;
     regtrace_t40_msca_scaler_level_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: T40 MSCA scaler level ch=%u level=%u work_en=0x%x work_cfg=0x%x value0=0x%x value1=0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: T40 MSCA scaler level ch=%u level=%u work_en=0x%x work_cfg=0x%x value0=0x%x value1=0x%x ret=%d\n",
            channel, level, work_en, work_cfg, value0, value1, ret);
     return ret;
 }
@@ -19943,7 +19993,7 @@ static int regtrace_t40_msca_cfg_program(int trigger_channel,
         regtrace_t40_msca_oem_cfg_load_last_channel =
             trigger_channel < 0 ? 0xffffffffU : (uint32_t)trigger_channel;
         regtrace_t40_msca_oem_cfg_load_last_ret = oem_ret;
-        printk(KERN_WARNING "tx_isp_t40_recovered: T40 MSCA OEM cfg_load ch=%d reason=%s ret=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: T40 MSCA OEM cfg_load ch=%d reason=%s ret=%d\n",
                trigger_channel, reason ? reason : "unknown", oem_ret);
         if (oem_ret && !ret)
             ret = oem_ret;
@@ -19983,7 +20033,7 @@ out:
     regtrace_t40_msca_cfg_program_last_work = active_mask;
     regtrace_t40_msca_cfg_program_last_cfg = scale_bits;
     regtrace_t40_msca_cfg_program_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: T40 MSCA cfg program ch=%d reason=%s active=0x%x scale=0x%x r1602c=0x%x clear_load=%u late_full=%u late_coeff=%u ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: T40 MSCA cfg program ch=%d reason=%s active=0x%x scale=0x%x r1602c=0x%x clear_load=%u late_full=%u late_coeff=%u ret=%d\n",
            trigger_channel, reason ? reason : "unknown", active_mask,
            scale_bits, regtrace_t40_msca_cfg_1602c_value,
            regtrace_t40_msca_clear_load_after_program ? 1U : 0U,
@@ -20071,7 +20121,7 @@ static int regtrace_core_program_channel_attr(
 
     if (regtrace_skip_legacy_msca_attr) {
         regtrace_legacy_msca_attr_skip_count++;
-        printk(KERN_WARNING "tx_isp_t40_recovered: legacy MSCA attr skipped ch=%d src=%ux%u+%u+%u target=%ux%u crop=%ux%u+%u+%u scaler=%u implicit=%d base=0x%x\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: legacy MSCA attr skipped ch=%d src=%ux%u+%u+%u target=%ux%u crop=%ux%u+%u+%u scaler=%u implicit=%d base=0x%x\n",
                channel, source_width, source_height, source_left, source_top,
                target_width, target_height, crop_width, crop_height, crop_left,
                crop_top, format->scaler_enable ? 1U : 0U, implicit_scaler,
@@ -20131,7 +20181,7 @@ static int regtrace_core_program_channel_attr(
         return ret;
 
     regtrace_msca_attr_count++;
-    printk(KERN_WARNING "tx_isp_t40_recovered: MSCA attr ch=%d src=%ux%u+%u+%u target=%ux%u crop=%ux%u+%u+%u scaler=%u implicit=%d base=0x%x\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: MSCA attr ch=%d src=%ux%u+%u+%u target=%ux%u crop=%ux%u+%u+%u scaler=%u implicit=%d base=0x%x\n",
            channel, source_width, source_height, source_left, source_top,
            target_width, target_height, crop_width, crop_height, crop_left,
            crop_top, format->scaler_enable ? 1U : 0U, implicit_scaler,
@@ -20184,7 +20234,7 @@ static int regtrace_core_channel_stream(int channel, int enable)
 
     if (regtrace_skip_legacy_msca_attr) {
         regtrace_legacy_msca_attr_skip_count++;
-        printk(KERN_WARNING "tx_isp_t40_recovered: legacy MSCA stream coeff skipped ch=%d target=%ux%u full=%ux%u scaled=%d base=0x%x\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: legacy MSCA stream coeff skipped ch=%d target=%ux%u full=%ux%u scaled=%d base=0x%x\n",
                channel, target_width, target_height, full_width, full_height,
                scaled, channel_base);
     } else {
@@ -20215,7 +20265,7 @@ static int regtrace_core_channel_stream(int channel, int enable)
     if (!ret)
         regtrace_msca_stream_count++;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: MSCA streamon ch=%d target=%ux%u full=%ux%u scaled=%d arb=0x%x work_en=0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: MSCA streamon ch=%d target=%ux%u full=%ux%u scaled=%d arb=0x%x work_en=0x%x ret=%d\n",
            channel, target_width, target_height, full_width, full_height,
            scaled, regtrace_msca_dmaout_arb, regtrace_msca_ch_en, ret);
     return ret;
@@ -20990,7 +21040,7 @@ static int regtrace_vic_frame_mdma_stream(int channel, int enable)
 
     if (regtrace_skip_vic_mdma_writes) {
         regtrace_vic_mdma_count++;
-        printk(KERN_WARNING "tx_isp_t40_recovered: VIC frame MDMA skipped ch=%d idx=%d enable=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: VIC frame MDMA skipped ch=%d idx=%d enable=%d\n",
                channel, irq_index, enable);
         return 0;
     }
@@ -21002,7 +21052,7 @@ static int regtrace_vic_frame_mdma_stream(int channel, int enable)
         regtrace_vic_mdma_qbuf_ring_last_channel = (uint32_t)channel;
         regtrace_vic_mdma_qbuf_ring_last_ctrl = 0;
         regtrace_vic_mdma_qbuf_ring_last_ret = 0;
-        printk(KERN_WARNING "tx_isp_t40_recovered: VIC frame MDMA off ch=%d idx=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: VIC frame MDMA off ch=%d idx=%d\n",
                channel, irq_index);
         return 0;
     }
@@ -21093,11 +21143,11 @@ static int regtrace_vic_frame_mdma_stream(int channel, int enable)
         regtrace_vic_mdma_qbuf_ring_last_uv0 = uv_phys[0];
         regtrace_vic_mdma_qbuf_ring_last_ret = 0;
         if (qbuf_ring_log_count[channel] < 8) {
-            printk(KERN_WARNING "tx_isp_t40_recovered: VIC frame MDMA qbuf ring on ch=%d idx=%d %ux%u stride=%u uv_off=0x%x qbufs=%u ctrl=0x%x y0=0x%x uv0=0x%x\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: VIC frame MDMA qbuf ring on ch=%d idx=%d %ux%u stride=%u uv_off=0x%x qbufs=%u ctrl=0x%x y0=0x%x uv0=0x%x\n",
                    channel, irq_index, width, height, stride, y_size,
                    qbuf_count, ctrl, y_phys[0], uv_phys[0]);
         } else if (qbuf_ring_log_count[channel] == 8) {
-            printk(KERN_WARNING "tx_isp_t40_recovered: VIC frame MDMA qbuf ring logging suppressed\n");
+            printk(KERN_INFO "tx_isp_t40_recovered: VIC frame MDMA qbuf ring logging suppressed\n");
         }
         qbuf_ring_log_count[channel]++;
         return 0;
@@ -21112,7 +21162,7 @@ static int regtrace_vic_frame_mdma_stream(int channel, int enable)
         regtrace_vic_mdma_qbuf_ring_last_y0 = 0;
         regtrace_vic_mdma_qbuf_ring_last_uv0 = 0;
         regtrace_vic_mdma_qbuf_ring_last_ret = 0;
-        printk(KERN_WARNING "tx_isp_t40_recovered: VIC frame MDMA no-ring disabled ch=%d idx=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: VIC frame MDMA no-ring disabled ch=%d idx=%d\n",
                channel, irq_index);
         return 0;
     }
@@ -21135,7 +21185,7 @@ static int regtrace_vic_frame_mdma_stream(int channel, int enable)
     wmb();
 
     regtrace_vic_mdma_count++;
-    printk(KERN_WARNING "tx_isp_t40_recovered: VIC frame MDMA on ch=%d idx=%d %ux%u stride=%u ctrl=0x%x\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: VIC frame MDMA on ch=%d idx=%d %ux%u stride=%u ctrl=0x%x\n",
            channel, irq_index, width, height, stride, ctrl);
     return 0;
 }
@@ -21174,7 +21224,7 @@ static long regtrace_framechan_format_ioctl(int channel, unsigned int cmd, unsig
                                                 REGTRACE_TX_ISP_EVENT_FRAME_SET_FMT,
                                                 &format);
         if (event_ret && event_ret != -ENOIOCTLCMD) {
-            printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d SET_FMT remote ret=%ld remote=%p\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: framechan%d SET_FMT remote ret=%ld remote=%p\n",
                    channel, event_ret, (void *)(uintptr_t)remote);
         }
         if (copy_to_user((void __user *)(uintptr_t)arg, &format, sizeof(format))) {
@@ -21593,7 +21643,7 @@ static bool regtrace_t40_lsc_bank_matches(uint32_t nbuf, uint32_t width,
     if (cols & 1U)
         cols++;
     if (cols != (uint32_t)count * 2U || rows * count >= 1153U) {
-        printk(KERN_WARNING
+        printk(KERN_INFO
                "tx_isp_t40_recovered: day/night keep prior LSC: bank mesh is %ux%u cells=%ux%u count=%u, active=%ux%u\n",
                cols, rows, cell_w, cell_h, count, width, height);
         return false;
@@ -22319,7 +22369,7 @@ static int regtrace_ae_sensor_apply_maybe(int channel, const char *reason)
         regtrace_ae_sensor_apply_skip_clean_count[channel]++;
         if (regtrace_ae_sensor_apply_log_skips &&
             skip_log_count[channel] < 12) {
-            printk(KERN_WARNING "tx_isp_t40_recovered: AE sensor apply skip ch=%d reason=%s dirty=%u/%u/%u packed=0x%08x\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: AE sensor apply skip ch=%d reason=%s dirty=%u/%u/%u packed=0x%08x\n",
                    channel, reason ? reason : "unknown", dirty,
                    again_dirty, int_dirty, packed);
             skip_log_count[channel]++;
@@ -22366,12 +22416,12 @@ static int regtrace_ae_sensor_apply_maybe(int channel, const char *reason)
     }
 
     if (log_count[channel] < 12 || ret) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: AE sensor apply ch=%d reason=%s dirty=%u/%u/%u packed=0x%08x again=%u int=%u force=%u ret=%ld\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: AE sensor apply ch=%d reason=%s dirty=%u/%u/%u packed=0x%08x again=%u int=%u force=%u ret=%ld\n",
                channel, reason ? reason : "unknown", dirty, again_dirty,
                int_dirty, packed, again, packed & 0xffffU,
                forced ? 1U : 0U, ret);
     } else if (log_count[channel] == 12) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: AE sensor apply ch=%d logging suppressed\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: AE sensor apply ch=%d logging suppressed\n",
                channel);
     }
     log_count[channel]++;
@@ -22720,7 +22770,7 @@ static void regtrace_seed_vic_channel(uintptr_t vic_dev, uint32_t channel,
     regtrace_record_sensor_full_dimensions(channel, stored_attr, width, height,
                                            dim_source);
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: seeded VIC attr ch=%u vic=%p attr=%p %ux%u code=0x%x dbus=%u sensor_full=%ux%u source=%s\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: seeded VIC attr ch=%u vic=%p attr=%p %ux%u code=0x%x dbus=%u sensor_full=%ux%u source=%s\n",
            channel, (void *)vic_dev, (void *)stored_attr, width, height, code,
            regtrace_get_u32(stored_attr, 0x14),
            regtrace_sensor_full_width_seen[channel],
@@ -22795,7 +22845,7 @@ static void regtrace_seed_csi_channel(uintptr_t csi_dev, uint32_t channel,
                                            dim_source);
 
     ch = regtrace_csi_channel(csi_dev, channel);
-    printk(KERN_WARNING "tx_isp_t40_recovered: seeded CSI attr ch=%u csi=%p slot=%p attr=%p %ux%u code=0x%x dbus=%u csi_idx=%u lanes=%u sensor_full=%ux%u source=%s state_off=0x%lx\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: seeded CSI attr ch=%u csi=%p slot=%p attr=%p %ux%u code=0x%x dbus=%u csi_idx=%u lanes=%u sensor_full=%ux%u source=%s state_off=0x%lx\n",
            channel, (void *)csi_dev, (void *)ch, (void *)stored_attr,
            width, height, code,
            regtrace_get_u32(stored_attr, 0x14),
@@ -22895,7 +22945,7 @@ static int regtrace_sensor_call_core_init(int enable, int vinum)
 
     if (regtrace_skip_sensor_core_init) {
         regtrace_sensor_core_init_count++;
-        printk(KERN_WARNING "tx_isp_t40_recovered: sensor core init skipped enable=%d vinum=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: sensor core init skipped enable=%d vinum=%d\n",
                enable, vinum);
         return 0;
     }
@@ -22921,7 +22971,7 @@ static int regtrace_sensor_call_core_init(int enable, int vinum)
     regtrace_sensor_core_init_count++;
     ret = ((int (*)(void *, struct regtrace_tx_isp_initarg *))(uintptr_t)init_fn)(
         regtrace_sensor_subdev, &init);
-    printk(KERN_WARNING "tx_isp_t40_recovered: sensor core init enable=%d vinum=%d ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: sensor core init enable=%d vinum=%d ret=%d\n",
            enable, vinum, ret);
     return ret;
 }
@@ -22936,7 +22986,7 @@ static int regtrace_sensor_call_video_stream(int enable, int vinum)
 
     if (regtrace_skip_sensor_video_stream) {
         regtrace_sensor_stream_count++;
-        printk(KERN_WARNING "tx_isp_t40_recovered: sensor video s_stream skipped enable=%d vinum=%d\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: sensor video s_stream skipped enable=%d vinum=%d\n",
                enable, vinum);
         return 0;
     }
@@ -22962,7 +23012,7 @@ static int regtrace_sensor_call_video_stream(int enable, int vinum)
     init.vinum = vinum;
     ret = ((int (*)(void *, struct regtrace_tx_isp_initarg *))(uintptr_t)stream_fn)(
         regtrace_sensor_subdev, &init);
-    printk(KERN_WARNING "tx_isp_t40_recovered: sensor video s_stream enable=%d vinum=%d ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: sensor video s_stream enable=%d vinum=%d ret=%d\n",
            enable, vinum, ret);
     return ret;
 }
@@ -23057,7 +23107,7 @@ static void regtrace_t40_apply_stock_csi_phy_overrides(
          REGTRACE_T40_STOCK_HOST_INIT_MIPI_PHY) &&
         regtrace_is_kernel_ptr((void *)phy)) {
         writel(0x22, phy + 0x1d4);
-        printk(KERN_WARNING "tx_isp_t40_recovered: stock-host override %s mipi phy+1d4=0x22 read=0x%x\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: stock-host override %s mipi phy+1d4=0x22 read=0x%x\n",
                where ? where : "?", readl(phy + 0x1d4));
     }
 
@@ -23065,7 +23115,7 @@ static void regtrace_t40_apply_stock_csi_phy_overrides(
           REGTRACE_T40_STOCK_HOST_INIT_CSI0))
         return;
     if (csi_index != 0 || !regtrace_is_kernel_ptr((void *)regs)) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: stock-host override %s skip CSI0 bank idx=%u regs=%p\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: stock-host override %s skip CSI0 bank idx=%u regs=%p\n",
                where ? where : "?", csi_index, (void *)regs);
         return;
     }
@@ -23076,7 +23126,7 @@ static void regtrace_t40_apply_stock_csi_phy_overrides(
                regs + regtrace_t40_stock_csi0_bank[i].off);
     }
     wmb();
-    printk(KERN_WARNING "tx_isp_t40_recovered: stock-host override %s csi0 bank 0x128..0x1bc first=0x%x last=0x%x\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: stock-host override %s csi0 bank 0x128..0x1bc first=0x%x last=0x%x\n",
            where ? where : "?", readl(regs + 0x128), readl(regs + 0x1bc));
 }
 
@@ -23094,7 +23144,7 @@ static void regtrace_t40_apply_stock_vic_overrides(volatile void __iomem *base,
     writel(0, base + 0x1e8);
     writel(0, base + 0x1ec);
     wmb();
-    printk(KERN_WARNING "tx_isp_t40_recovered: stock-host override %s vic%u +1e0/+1e8/+1ec read=0x%x/0x%x/0x%x\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: stock-host override %s vic%u +1e0/+1e8/+1ec read=0x%x/0x%x/0x%x\n",
            where ? where : "?", mapped_index, readl(base + 0x1e0),
            readl(base + 0x1e8), readl(base + 0x1ec));
 }
@@ -23204,7 +23254,7 @@ static int regtrace_t40_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
     if (regtrace_skip_vic_mipi_start) {
         regtrace_vic_start_diag.ret = 0;
         regtrace_vic_start_diag_readback(base);
-        printk(KERN_WARNING "tx_isp_t40_recovered: VIC MIPI start skipped ch=%u mapped=%u regs=%p\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: VIC MIPI start skipped ch=%u mapped=%u regs=%p\n",
                channel, mapped_index, (void *)base);
         return 0;
     }
@@ -23353,7 +23403,7 @@ static int regtrace_t40_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
     regtrace_t40_apply_stock_vic_overrides(base, mapped_index, "vic-start");
     regtrace_vic_start_diag_readback(base);
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: VIC MIPI start ch=%u mapped=%u regs=%p attr=%p %ux%u twidth=%u csi=%u ctrl=0x%x reg10c=0x%x wait=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: VIC MIPI start ch=%u mapped=%u regs=%p attr=%p %ux%u twidth=%u csi=%u ctrl=0x%x reg10c=0x%x wait=%d\n",
            channel, mapped_index, (void *)base, (void *)attr, width, height,
            image_twidth, csi_fmt, vic_ctrl, reg_10c, i);
     return 0;
@@ -23492,7 +23542,7 @@ static long regtrace_framechan_call_vic_stream(int channel, int enable)
     if (regtrace_skip_vic_stream) {
         if (channel >= 0 && channel < 4)
             regtrace_framechan_diag[channel].last_vic_ret = 0;
-        printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d direct VIC %s skipped\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: framechan%d direct VIC %s skipped\n",
                channel, enable ? "streamon" : "streamoff");
         return 0;
     }
@@ -23517,7 +23567,7 @@ static long regtrace_framechan_call_vic_stream(int channel, int enable)
     ret = vic_core_s_stream((uintptr_t)vic_sd, (uintptr_t)stream_arg);
     if (channel >= 0 && channel < 4)
         regtrace_framechan_diag[channel].last_vic_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d direct VIC %s sd=%p ret=%ld\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: framechan%d direct VIC %s sd=%p ret=%ld\n",
            channel, enable ? "streamon" : "streamoff", vic_sd, ret);
     return ret;
 }
@@ -23602,7 +23652,7 @@ static void regtrace_t40_apply_stock_csi_phy_overrides_for_channel(
                                 REGTRACE_CSI_PHYS_MIPI_PHY);
     if (!regtrace_is_kernel_ptr((void *)regs0) ||
         !regtrace_is_kernel_ptr((void *)phy)) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: stock-host override %s skip CSI regs0=%p phy=%p\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: stock-host override %s skip CSI regs0=%p phy=%p\n",
                where ? where : "?", (void *)regs0, (void *)phy);
         return;
     }
@@ -23671,7 +23721,7 @@ static void regtrace_t40_csi_activate_direct(uintptr_t csi_dev)
                 int ret = private_clk_prepare_enable((int32_t)clk);
 
                 regtrace_csi_clk_enable_count++;
-                printk(KERN_WARNING "tx_isp_t40_recovered: CSI activate clk[%u]=%p ret=%d\n",
+                printk(KERN_INFO "tx_isp_t40_recovered: CSI activate clk[%u]=%p ret=%d\n",
                        i, (void *)clk, ret);
             }
         }
@@ -23679,7 +23729,7 @@ static void regtrace_t40_csi_activate_direct(uintptr_t csi_dev)
 
     activated = 1;
     regtrace_csi_activate_count++;
-    printk(KERN_WARNING "tx_isp_t40_recovered: CSI direct activate csi=%p state0=%u/%u state1=%u/%u clk_ptr=%p clk_num=%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: CSI direct activate csi=%p state0=%u/%u state1=%u/%u clk_ptr=%p clk_num=%u\n",
            (void *)csi_dev, state0, old_state0, state1, old_state1,
            (void *)clk_ptr, clk_num);
 }
@@ -23750,7 +23800,7 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
                              REGTRACE_CSI_DECOMPILER_STREAM_COUNT_OFFSET,
                              stream_count - 1);
         }
-        printk(KERN_WARNING "tx_isp_t40_recovered: CSI direct stop ch=%u csi=%p regs=%p state_off=0x%x\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: CSI direct stop ch=%u csi=%p regs=%p state_off=0x%x\n",
                channel, (void *)csi_dev, (void *)regs, state_off);
         return 0;
     }
@@ -23770,7 +23820,7 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
         regtrace_put_u32(csi_dev,
                          REGTRACE_CSI_DECOMPILER_STREAM_COUNT_OFFSET, 1);
         regtrace_csi_put_state(csi_dev, channel, 4);
-        printk(KERN_WARNING "tx_isp_t40_recovered: CSI direct stage-limit=%u ch=%u bookkeeping only csi=%p attr=%p idx=%u lanes=%u count=%u\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: CSI direct stage-limit=%u ch=%u bookkeeping only csi=%p attr=%p idx=%u lanes=%u count=%u\n",
                stage_limit, channel, (void *)csi_dev, (void *)attr,
                csi_index, lanes, mipi_count);
         return 0;
@@ -23789,7 +23839,7 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
 
     if (stage_limit == 2) {
         regtrace_csi_put_state(csi_dev, channel, 4);
-        printk(KERN_WARNING "tx_isp_t40_recovered: CSI direct stage-limit=%u ch=%u interface only csi=%p attr=%p idx=%u lanes=%u count=%u if=0x%x\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: CSI direct stage-limit=%u ch=%u interface only csi=%p attr=%p idx=%u lanes=%u count=%u if=0x%x\n",
                stage_limit, channel, (void *)csi_dev, (void *)attr,
                csi_index, lanes, mipi_count, readl(regs0 + 0x0c));
         return 0;
@@ -23809,7 +23859,7 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
 
     if (stage_limit == 3) {
         regtrace_csi_put_state(csi_dev, channel, 4);
-        printk(KERN_WARNING "tx_isp_t40_recovered: CSI direct stage-limit=%u ch=%u ctrl only csi=%p attr=%p idx=%u lanes=%u count=%u reg04=0x%x reg10=0x%x stat28=0x%x stat2c=0x%x\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: CSI direct stage-limit=%u ch=%u ctrl only csi=%p attr=%p idx=%u lanes=%u count=%u reg04=0x%x reg10=0x%x stat28=0x%x stat2c=0x%x\n",
                stage_limit, channel, (void *)csi_dev, (void *)attr,
                csi_index, lanes, mipi_count, readl(regs + 0x04),
                readl(regs + 0x10), readl(regs + 0x28),
@@ -23846,7 +23896,7 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
         regtrace_csi_put_state(csi_dev, channel, 4);
         phy_mux_word = readl(phy + 0x80);
         ctrl_word = readl(regs + 0x10);
-        printk(KERN_WARNING "tx_isp_t40_recovered: CSI direct stage-limit=%u ch=%u phy complete csi=%p attr=%p idx=%u lanes=%u count=%u reg04=0x%x reg10=0x%x phy80=0x%x phy128=0x%x settle=0x%x override=0x%x\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: CSI direct stage-limit=%u ch=%u phy complete csi=%p attr=%p idx=%u lanes=%u count=%u reg04=0x%x reg10=0x%x phy80=0x%x phy128=0x%x settle=0x%x override=0x%x\n",
                stage_limit, channel, (void *)csi_dev, (void *)attr,
                csi_index, lanes, mipi_count, readl(regs + 0x04),
                ctrl_word, phy_mux_word, readl(phy + 0x128), settle,
@@ -23857,7 +23907,7 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
     regtrace_csi_put_state(csi_dev, channel, 4);
     phy_mux_word = readl(phy + 0x80);
     ctrl_word = readl(regs + 0x10);
-    printk(KERN_WARNING "tx_isp_t40_recovered: CSI direct start ch=%u csi=%p attr=%p idx=%u lanes=%u count=%u regs=%p phy=%p reg04=0x%x reg10=0x%x phy80=0x%x phy128=0x%x settle=0x%x\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: CSI direct start ch=%u csi=%p attr=%p idx=%u lanes=%u count=%u regs=%p phy=%p reg04=0x%x reg10=0x%x phy80=0x%x phy128=0x%x settle=0x%x\n",
            channel, (void *)csi_dev, (void *)attr, csi_index, lanes,
            mipi_count, (void *)regs, (void *)phy, readl(regs + 0x04),
            ctrl_word, phy_mux_word, readl(phy + 0x128), settle);
@@ -23873,7 +23923,7 @@ static long regtrace_framechan_call_csi_stream(int channel, int enable)
     if (regtrace_skip_csi_stream) {
         if (channel >= 0 && channel < 4)
             regtrace_framechan_diag[channel].last_csi_ret = 0;
-        printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d direct CSI %s skipped\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: framechan%d direct CSI %s skipped\n",
                channel, enable ? "streamon" : "streamoff");
         return 0;
     }
@@ -23902,7 +23952,7 @@ static long regtrace_framechan_call_csi_stream(int channel, int enable)
     ret = regtrace_t40_csi_stream_direct(csi_dev, (uint32_t)channel, enable);
     if (channel >= 0 && channel < 4)
         regtrace_framechan_diag[channel].last_csi_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d direct CSI %s csi=%p state_off=0x%lx ret=%ld\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: framechan%d direct CSI %s csi=%p state_off=0x%lx ret=%ld\n",
            channel, enable ? "streamon" : "streamoff", (void *)csi_dev,
            (unsigned long)state_off, ret);
     return ret;
@@ -24054,7 +24104,7 @@ static int regtrace_tisp_event_thread_start(uint32_t channel)
 
     regtrace_tisp_event_thread_last_channel = channel;
     regtrace_tisp_event_thread_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: tisp event thread start ch=%u ret=%ld task=%p\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: tisp event thread start ch=%u ret=%ld task=%p\n",
            channel, ret, ret ? NULL : task);
     return (int)ret;
 }
@@ -24287,7 +24337,7 @@ static void regtrace_tisp_desc_oem_fill(uint32_t *desc, uint32_t channel,
     if (bayer_word_out)
         *bayer_word_out = bayer_word;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: TISP OEM desc fill ch=%u attr=%p name=%s %ux%u mbus=0x%x bayer=0x%x fps=0x%x total=%ux%u it=%u limits=%u/%u line=%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: TISP OEM desc fill ch=%u attr=%p name=%s %ux%u mbus=0x%x bayer=0x%x fps=0x%x total=%ux%u it=%u limits=%u/%u line=%u\n",
            channel, (void *)attr, name, width, height, mbus_code, bayer_word,
            fps, total_width, total_height, regtrace_get_u32((uintptr_t)raw, 0x40),
            max_it_native, integration_limit, one_line);
@@ -24321,7 +24371,7 @@ static void regtrace_core_event_state4_streaming(int channel,
         regtrace_core_event_state4_before = 0xffffffffU;
         regtrace_core_event_state4_after = 0xffffffffU;
         regtrace_core_event_state4_skip_count++;
-        printk(KERN_WARNING "tx_isp_t40_recovered: core-event state4 skip ch=%d reason=%s core=%p no-state force=%u oemseq=%u\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: core-event state4 skip ch=%d reason=%s core=%p no-state force=%u oemseq=%u\n",
                channel, reason ? reason : "unknown", (void *)core_dev,
                force ? 1U : 0U, oemseq ? 1U : 0U);
         return;
@@ -24337,7 +24387,7 @@ static void regtrace_core_event_state4_streaming(int channel,
     }
     regtrace_core_event_state4_after = *statep;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: core-event state4 ch=%d reason=%s core=%p off=0x%x before=%u after=%u wrote=%u skipped=%u force=%u oemseq=%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: core-event state4 ch=%d reason=%s core=%p off=0x%x before=%u after=%u wrote=%u skipped=%u force=%u oemseq=%u\n",
            channel, reason ? reason : "unknown", (void *)core_dev,
            (unsigned int)(((uint32_t)channel + 74U) * sizeof(uint32_t)),
            regtrace_core_event_state4_before,
@@ -24414,7 +24464,7 @@ static int regtrace_core_event_tisp_bootstrap(int channel, uint32_t tisp_id)
         regtrace_core_event_state2_after = *statep;
         regtrace_core_event_state2_last_channel = (uint32_t)channel;
         regtrace_core_event_state2_count++;
-        printk(KERN_WARNING "tx_isp_t40_recovered: core-event state2 prep ch=%d core=%p off=0x%x before=%u after=%u oemseq=%u\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: core-event state2 prep ch=%d core=%p off=0x%x before=%u after=%u oemseq=%u\n",
                channel, (void *)core_dev,
                (unsigned int)(((uint32_t)channel + 74U) *
                    sizeof(uint32_t)),
@@ -24465,7 +24515,7 @@ static int regtrace_core_event_tisp_bootstrap(int channel, uint32_t tisp_id)
         regtrace_core_event_state3_count++;
         if (regtrace_enable_core_event_oem_state_sequence)
             regtrace_core_event_oem_state_sequence_count++;
-        printk(KERN_WARNING "tx_isp_t40_recovered: core-event state3 ch=%d core=%p off=0x%x before=%u after=%u wrote=%u skipped=%u oemseq=%u\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: core-event state3 ch=%d core=%p off=0x%x before=%u after=%u wrote=%u skipped=%u oemseq=%u\n",
                channel, (void *)core_dev,
                (unsigned int)(((uint32_t)channel + 74U) *
                    sizeof(uint32_t)),
@@ -24493,7 +24543,7 @@ static int regtrace_core_event_tisp_bootstrap(int channel, uint32_t tisp_id)
         regtrace_enable_tisp_desc_oem_fill ? bayer_word : code;
     regtrace_core_event_tisp_boot_last_path = path;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: core-event TISP bootstrap ch=%d tisp_id=%u %ux%u code=0x%x bayer=0x%x desc_oem=%u path=%p init=%u process=%u event_threads=%u state3=%u gate1700c=%u stream_on=%u ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: core-event TISP bootstrap ch=%d tisp_id=%u %ux%u code=0x%x bayer=0x%x desc_oem=%u path=%p init=%u process=%u event_threads=%u state3=%u gate1700c=%u stream_on=%u ret=%d\n",
            channel, tisp_id, width, height, code,
            bayer_word,
            regtrace_enable_tisp_desc_oem_fill ? 1U : 0U,
@@ -24529,7 +24579,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
                                              "streamon-before-children");
 
         if (regtrace_skip_tisp_channel_start) {
-            printk(KERN_WARNING "tx_isp_t40_recovered: tisp channel start skipped ch=%d tisp_index=%d tisp_id=%u\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: tisp channel start skipped ch=%d tisp_index=%d tisp_id=%u\n",
                    channel, tisp_index, tisp_id);
         } else if (tisp_index >= 0 && tisp_index < 3) {
             tisp_channel_main_start(tisp_id);
@@ -24624,7 +24674,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
         regtrace_framechan_call_csi_stream(channel, 0);
 
         if (regtrace_skip_tisp_channel_start) {
-            printk(KERN_WARNING "tx_isp_t40_recovered: tisp channel stop skipped ch=%d tisp_index=%d tisp_id=%u\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: tisp channel stop skipped ch=%d tisp_index=%d tisp_id=%u\n",
                    channel, tisp_index, tisp_id);
         } else if (tisp_index >= 0 && tisp_index < 3) {
             tisp_channel_main_stop(tisp_id);
@@ -24644,7 +24694,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
         regtrace_core_event_stream_last_ret[channel] = ret;
     }
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: core-event %s ch=%d tisp_index=%d tisp_id=%u pad=%p data=%p ret=%ld\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: core-event %s ch=%d tisp_index=%d tisp_id=%u pad=%p data=%p ret=%ld\n",
            enable ? "streamon" : "streamoff", channel, tisp_index, tisp_id,
            pad_arg, channel_data, ret);
     return ret;
@@ -24906,7 +24956,7 @@ static long regtrace_framechan_stream_ioctl(int channel, unsigned int cmd, unsig
         *(uint32_t *)(ctx + REGTRACE_FRAMECHAN_STATE_OFFSET) = REGTRACE_FRAMECHAN_STATE_READY;
     }
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d %s type=%u ctx=%p real=%d remote=%p core=%p vic=%p fs=%p\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: framechan%d %s type=%u ctx=%p real=%d remote=%p core=%p vic=%p fs=%p\n",
            channel, enable ? "streamon" : "streamoff", type, ctx,
            ctx == regtrace_real_framechan_context(channel), (void *)(uintptr_t)remote,
            regtrace_core_subdev, regtrace_vic_subdev, regtrace_fs_subdev);
@@ -24915,7 +24965,7 @@ static long regtrace_framechan_stream_ioctl(int channel, unsigned int cmd, unsig
         long core_ret = regtrace_core_channel_stream(channel, 1);
 
         if (core_ret < 0)
-            printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d MSCA streamon ret=%ld\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: framechan%d MSCA streamon ret=%ld\n",
                    channel, core_ret);
         regtrace_framechan_call_csi_stream(channel, 1);
     } else {
@@ -24930,7 +24980,7 @@ static long regtrace_framechan_stream_ioctl(int channel, unsigned int cmd, unsig
         long mdma_ret = regtrace_vic_frame_mdma_stream(channel, 1);
 
         if (mdma_ret < 0)
-            printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d VIC MDMA streamon ret=%ld\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: framechan%d VIC MDMA streamon ret=%ld\n",
                    channel, mdma_ret);
     }
     return ret;
@@ -25133,7 +25183,7 @@ static void regtrace_framechan_enqueue_queued(int channel, unsigned char *ctx)
             ret = regtrace_core_event_qbuf(channel,
                                            (void *)(uintptr_t)payload);
         if (ret && ret != -ENOIOCTLCMD) {
-            printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d queued qbuf remote=%p buf=%p ret=%ld\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: framechan%d queued qbuf remote=%p buf=%p ret=%ld\n",
                    channel, (void *)(uintptr_t)remote,
                    (void *)(uintptr_t)buf, ret);
         }
@@ -25662,7 +25712,7 @@ static long regtrace_framechan_oem_event_stream_ioctl(int channel,
                     delay_ms = 50;
                 if (delay_ms)
                     private_msleep(delay_ms);
-                printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d OEM event pre-CSI streamon ret=%ld stage_limit=%u delay_ms=%u remote=%p\n",
+                printk(KERN_INFO "tx_isp_t40_recovered: framechan%d OEM event pre-CSI streamon ret=%ld stage_limit=%u delay_ms=%u remote=%p\n",
                        channel, csi_ret, pre_stage_limit, delay_ms,
                        (void *)(uintptr_t)remote);
             }
@@ -25695,7 +25745,7 @@ static long regtrace_framechan_oem_event_stream_ioctl(int channel,
             long vic_ret = regtrace_framechan_call_vic_stream(channel, 0);
             long csi_ret = regtrace_framechan_call_csi_stream(channel, 0);
 
-            printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d force-local streamoff remote=%p remote_ch=%d mdma=%ld core=%ld vic=%ld csi=%ld\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: framechan%d force-local streamoff remote=%p remote_ch=%d mdma=%ld core=%ld vic=%ld csi=%ld\n",
                    channel, (void *)(uintptr_t)remote, remote_channel,
                    mdma_ret, core_ret, vic_ret, csi_ret);
             ret = 0;
@@ -25909,12 +25959,12 @@ static long regtrace_framechan_ioctl(struct file *file, unsigned int cmd, unsign
                 qdiag->last_msca_after = regtrace_msca_qbuf_count;
                 if (qret && qret != -ENOIOCTLCMD && qret != -ENOENT &&
                     qbuf_warn_count[channel] < 8) {
-                    printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d qbuf repair ret=%ld kept ioctl ret=%ld\n",
+                    printk(KERN_INFO "tx_isp_t40_recovered: framechan%d qbuf repair ret=%ld kept ioctl ret=%ld\n",
                            channel, qret, ret);
                     qbuf_warn_count[channel]++;
                 } else if (qret && qret != -ENOIOCTLCMD && qret != -ENOENT &&
                            qbuf_warn_count[channel] == 8) {
-                    printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d qbuf repair warning suppressed\n",
+                    printk(KERN_INFO "tx_isp_t40_recovered: framechan%d qbuf repair warning suppressed\n",
                            channel);
                     qbuf_warn_count[channel]++;
                 }
@@ -25932,7 +25982,7 @@ static long regtrace_framechan_ioctl(struct file *file, unsigned int cmd, unsign
                 used_oem_private ? "oem-dqbuf" : "private-dqbuf");
 
             if (dqret && dqret != -ENODATA) {
-                printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d dqbuf repair ret=%ld kept ioctl ret=%ld\n",
+                printk(KERN_INFO "tx_isp_t40_recovered: framechan%d dqbuf repair ret=%ld kept ioctl ret=%ld\n",
                        channel, dqret, ret);
             }
         }
@@ -32084,7 +32134,7 @@ void tx_vic_enable_irq(int32_t arg1)
     if (regtrace_skip_vic_irq_enable) {
         if (*statep == 0) {
             *statep = 1;
-            printk(KERN_WARNING "tx_isp_t40_recovered: tx_vic_enable_irq skipped idx=%d vsd=%p\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: tx_vic_enable_irq skipped idx=%d vsd=%p\n",
                    arg1, (void *)vsd);
         }
         private_spin_unlock_irqrestore();
@@ -32116,7 +32166,7 @@ void tx_vic_enable_irq(int32_t arg1)
 
         *statep = 1;
         regtrace_vic_irq_enable_count++;
-        printk(KERN_WARNING "tx_isp_t40_recovered: tx_vic_enable_irq idx=%d vsd=%p\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: tx_vic_enable_irq idx=%d vsd=%p\n",
                arg1, (void *)vsd);
     }
 
@@ -32184,7 +32234,7 @@ int64_t vic_core_s_stream(uintptr_t a0, uintptr_t a1)
                           (idx * sizeof(uint32_t)));
     current_state = *statep;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: vic_core_s_stream enable=%u idx=%u state=%u vic=%p\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: vic_core_s_stream enable=%u idx=%u state=%u vic=%p\n",
            enable, idx, current_state, (void *)vic_dev);
 
     if (enable == 0) {
@@ -32205,7 +32255,7 @@ int64_t vic_core_s_stream(uintptr_t a0, uintptr_t a1)
     ret = tx_isp_vic_start(vic_dev, idx);
     *statep = 4;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: vic_core_s_stream start ret=%ld idx=%u irq_index=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: vic_core_s_stream start ret=%ld idx=%u irq_index=%d\n",
            (long)ret, idx, irq_index);
     return ret;
 }
@@ -48413,13 +48463,13 @@ static int32_t regtrace_isp_irq_ack_only_filter(int32_t irq, void *dev_id)
     }
 
     if (log_count < 12) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: ISP irq ack-only irq=%d core=%u fs=%u dev=%p status=0x%x/0x%x fd=0x%x/0x%x/%x err=0x%x/0x%x mask=0x%x/0x%x errmask=0x%x/0x%x sec0=0x%x ack0=0x%x cfg0=0x%x\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: ISP irq ack-only irq=%d core=%u fs=%u dev=%p status=0x%x/0x%x fd=0x%x/0x%x/%x err=0x%x/0x%x mask=0x%x/0x%x errmask=0x%x/0x%x sec0=0x%x ack0=0x%x cfg0=0x%x\n",
                irq, is_core ? 1U : 0U, is_fs ? 1U : 0U, dev_id,
                status0, status1, frame_done_bits0, frame_done_bits1,
                frame_done_sec_bits0, err0, err1, mask0, mask1,
                errmask0, errmask1, sec_status0, sec_ack0, sec_cfg0);
     } else if (log_count == 12) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: ISP irq ack-only logging suppressed\n");
+        printk(KERN_INFO "tx_isp_t40_recovered: ISP irq ack-only logging suppressed\n");
     }
     log_count++;
 
@@ -48474,11 +48524,11 @@ static void regtrace_isp_irq_post_dispatch_ack(int32_t irq, void *dev_id)
             regtrace_3a_isr_count++;
             if (regtrace_3a_isr_count <= 5) {
                 int __i;
-                printk(KERN_WARNING "tx_isp_t40_recovered: 3a-diag core-irq#%u status0=0x%x mask0=0x%x (bits: 3awb 4ae 5aehist 6af 9adr 10defog 11wdr)\n",
+                printk(KERN_INFO "tx_isp_t40_recovered: 3a-diag core-irq#%u status0=0x%x mask0=0x%x (bits: 3awb 4ae 5aehist 6af 9adr 10defog 11wdr)\n",
                        regtrace_3a_isr_count, status0, mask0);
                 for (__i = 0; __i < 16; __i++)
                     if (irq_func_cb[__i])
-                        printk(KERN_WARNING "tx_isp_t40_recovered: 3a-diag   irq_func_cb[%d]=%p\n",
+                        printk(KERN_INFO "tx_isp_t40_recovered: 3a-diag   irq_func_cb[%d]=%p\n",
                                __i, (void *)(uintptr_t)irq_func_cb[__i]);
             }
         }
@@ -48502,7 +48552,7 @@ static void regtrace_isp_irq_post_dispatch_ack(int32_t irq, void *dev_id)
                 regtrace_isp_stats_fanout_adr_forced_count++;
                 if (regtrace_enable_isp_3a_diag &&
                     regtrace_isp_stats_fanout_adr_forced_count <= 6)
-                    printk(KERN_WARNING "tx_isp_t40_recovered: 3a-diag forced ADR fanout #%u status0=0x%x mask=0x%x\n",
+                    printk(KERN_INFO "tx_isp_t40_recovered: 3a-diag forced ADR fanout #%u status0=0x%x mask=0x%x\n",
                            regtrace_isp_stats_fanout_adr_forced_count,
                            status0,
                            regtrace_isp_stats_fanout_adr_status0_mask);
@@ -48577,13 +48627,13 @@ static void regtrace_isp_irq_post_dispatch_ack(int32_t irq, void *dev_id)
     }
 
     if (log_count < 12) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: ISP irq post-dispatch ack irq=%d core=%u dev=%p status=0x%x/0x%x fd=0x%x/0x%x/%x err=0x%x/0x%x mask=0x%x/0x%x errmask=0x%x/0x%x sec0=0x%x ack0=0x%x cfg0=0x%x\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: ISP irq post-dispatch ack irq=%d core=%u dev=%p status=0x%x/0x%x fd=0x%x/0x%x/%x err=0x%x/0x%x mask=0x%x/0x%x errmask=0x%x/0x%x sec0=0x%x ack0=0x%x cfg0=0x%x\n",
                irq, is_core ? 1U : 0U, dev_id, status0, status1,
                frame_done_bits0, frame_done_bits1, frame_done_sec_bits0,
                err0, err1, mask0, mask1, errmask0, errmask1,
                sec_status0, sec_ack0, sec_cfg0);
     } else if (log_count == 12) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: ISP irq post-dispatch ack logging suppressed\n");
+        printk(KERN_INFO "tx_isp_t40_recovered: ISP irq post-dispatch ack logging suppressed\n");
     }
     log_count++;
 }
@@ -70076,7 +70126,7 @@ int32_t tisp_ipc_triger(void)
 
     regtrace_tisp_ipc_trigger_count++;
     regtrace_tisp_ipc_trigger_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: tisp_ipc_triger shim pre=0x%x/0x%x mid=0x%x/0x%x post=0x%x/0x%x raw=0x%x/0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: tisp_ipc_triger shim pre=0x%x/0x%x mid=0x%x/0x%x post=0x%x/0x%x raw=0x%x/0x%x ret=%d\n",
            regtrace_tisp_ipc_pre_1000, regtrace_tisp_ipc_pre_1004,
            regtrace_tisp_ipc_mid_1000, regtrace_tisp_ipc_mid_1004,
            regtrace_tisp_ipc_post_1000, regtrace_tisp_ipc_post_1004,
@@ -70233,7 +70283,7 @@ int32_t tisp_stream_on(uintptr_t a0)
 
     regtrace_tisp_stream_on_last_mask = mask;
     regtrace_tisp_stream_on_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: tisp_stream_on shim ch=%u %ux%u code=0x%x state=%u/%u reg1008=0x%x mask=0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: tisp_stream_on shim ch=%u %ux%u code=0x%x state=%u/%u reg1008=0x%x mask=0x%x ret=%d\n",
            channel, desc[0], desc[1],
            regtrace_tisp_stream_on_last_code,
            regtrace_tisp_stream_on_last_state0,
@@ -72906,7 +72956,7 @@ static int regtrace_tisp_main_init_msca_oem_order(uint32_t width,
     regtrace_tisp_main_init_msca_oem_last_height = height;
     regtrace_tisp_main_init_msca_oem_last_flags = msca_flags;
     regtrace_tisp_main_init_msca_oem_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: tisp_main_init MSCA OEM-order %ux%u flags=0x%x cfg_program=%u ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: tisp_main_init MSCA OEM-order %ux%u flags=0x%x cfg_program=%u ret=%d\n",
            width, height, msca_flags,
            regtrace_enable_t40_msca_cfg_program ? 1U : 0U, ret);
     return ret;
@@ -72961,7 +73011,7 @@ static uintptr_t regtrace_tisp_main_init_seed_core_sensor_attr(uint32_t channel)
     regtrace_put_u32(core, 0x3c + channel * sizeof(uint32_t),
                      (uint32_t)(uintptr_t)regtrace_sensor_subdev);
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: core sensor attr seed ch=%u core=%p sync=0x%x attr=%p sensor=%p %ux%u total=%ux%u it=%u/%u line=%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: core sensor attr seed ch=%u core=%p sync=0x%x attr=%p sensor=%p %ux%u total=%ux%u it=%u/%u line=%u\n",
            channel, (void *)core, sync_base, (void *)attr,
            regtrace_sensor_subdev,
            regtrace_get_u32(attr, 0x30), regtrace_get_u32(attr, 0x34),
@@ -73141,7 +73191,7 @@ out_free:
     vfree(bin);
 out:
     regtrace_tiziano_param_load_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: tiziano param load enable=%u path=%s count=%u ret=%d read=%ld payload=0x%x checksum=0x%x status=0x%x/0x%x day=0x%x/0x%x night=0x%x/0x%x regs=%u/%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: tiziano param load enable=%u path=%s count=%u ret=%d read=%ld payload=0x%x checksum=0x%x status=0x%x/0x%x day=0x%x/0x%x night=0x%x/0x%x regs=%u/%u\n",
            regtrace_enable_tiziano_param_load ? 1U : 0U,
            path ? path : "<null>",
            regtrace_tiziano_param_load_count, ret,
@@ -73256,7 +73306,7 @@ out:
     regtrace_tisp_main_init_param_day = tparams_day;
     regtrace_tisp_main_init_param_night = tparams_night;
     regtrace_tisp_main_init_param_status = tparams_status;
-    printk(KERN_WARNING "tx_isp_t40_recovered: tisp_main_init params alloc mode=%u tsbin=%p N=%p day=%p night=%p status=%p flags=0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: tisp_main_init params alloc mode=%u tsbin=%p N=%p day=%p night=%p status=%p flags=0x%x ret=%d\n",
            mode,
            (void *)(uintptr_t)regtrace_tisp_main_init_param_tsbin,
            (void *)(uintptr_t)regtrace_tisp_main_init_param_n,
@@ -73346,7 +73396,7 @@ out:
     regtrace_tisp_main_init_csc_last_d020 = d020;
     regtrace_tisp_main_init_csc_last_d030 = d030;
     regtrace_tisp_main_init_csc_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: tisp_main_init CSC version ch=%u version=%u d010=0x%x d014=0x%x d018=0x%x d020=0x%x d030=0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: tisp_main_init CSC version ch=%u version=%u d010=0x%x d014=0x%x d018=0x%x d020=0x%x d030=0x%x ret=%d\n",
            channel, version, d010, d014, d018, d020, d030, ret);
     return ret;
 }
@@ -73423,7 +73473,7 @@ static int regtrace_tisp_main_init_yuv_input_csc_version(uint32_t channel,
     regtrace_tisp_main_init_yuv_csc_last_d020 = 0;
     regtrace_tisp_main_init_yuv_csc_last_d030 = d030;
     regtrace_tisp_main_init_yuv_csc_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: tisp_main_init YUV-input CSC ch=%u mode=%u base=0x%x d010=0x%x d014=0x%x d018=0x%x d020=0x0 d030=0x%x d000=0xffffffff ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: tisp_main_init YUV-input CSC ch=%u mode=%u base=0x%x d010=0x%x d014=0x%x d018=0x%x d020=0x0 d030=0x%x d000=0xffffffff ret=%d\n",
            channel, mode, base, d010, d014, d018, d030, ret);
     return ret;
 }
@@ -73483,7 +73533,7 @@ static int regtrace_tisp_main_init_color_inits(uint32_t mask)
     regtrace_tisp_main_init_color_init_count++;
     regtrace_tisp_main_init_color_init_last_mask = mask;
     regtrace_tisp_main_init_color_init_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: tisp_main_init color inits mask=0x%x dmsc=%ld gamma=%ld bcsh=%ld ccm=%ld clm=%ld ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: tisp_main_init color inits mask=0x%x dmsc=%ld gamma=%ld bcsh=%ld ccm=%ld clm=%ld ret=%d\n",
            mask,
            regtrace_tisp_main_init_color_init_dmsc_ret,
            regtrace_tisp_main_init_color_init_gamma_ret,
@@ -73600,7 +73650,7 @@ int64_t tisp_main_init(uintptr_t a0, uint32_t a1)
                 *(uint32_t *)((char *)&sensor_ctrl_main + 0x30);
             regtrace_tisp_main_init_sensor_ctrl144 =
                 *(uint32_t *)((char *)&sensor_ctrl_main + 0x144);
-            printk(KERN_WARNING "tx_isp_t40_recovered: tisp_main_init sensor_init src=%p ret=%d ctrl0=0x%x ctrl28=0x%x ctrl30=0x%x fn144=%pS\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: tisp_main_init sensor_init src=%p ret=%d ctrl0=0x%x ctrl28=0x%x ctrl30=0x%x fn144=%pS\n",
                    (void *)src, subret,
                    regtrace_tisp_main_init_sensor_ctrl0,
                    regtrace_tisp_main_init_sensor_ctrl28,
@@ -73702,7 +73752,7 @@ int64_t tisp_main_init(uintptr_t a0, uint32_t a1)
     }
 
     regtrace_tisp_main_init_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: tisp_main_init shim a0=%p path=%p %ux%u code=0x%x mode=%u wdr=%u daynight=%u msca=0x%x state=%u params=%u size=%u scalar=%u dma=%u tail=%u sensor_init=%u msca_oem=%u event_init=%u tiziano=%u reg20=0x%x reg88=0x%x deir=%u reg40=0x%x reg48=0x%x reg6c=0x%x reg60=0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: tisp_main_init shim a0=%p path=%p %ux%u code=0x%x mode=%u wdr=%u daynight=%u msca=0x%x state=%u params=%u size=%u scalar=%u dma=%u tail=%u sensor_init=%u msca_oem=%u event_init=%u tiziano=%u reg20=0x%x reg88=0x%x deir=%u reg40=0x%x reg48=0x%x reg6c=0x%x reg60=0x%x ret=%d\n",
            (void *)a0, (void *)(uintptr_t)a1, width, height, code, mode,
            wdr, daynight, msca_flags,
            regtrace_enable_tisp_main_init_state ? 1U : 0U,
@@ -78778,15 +78828,15 @@ int32_t tisp_ae_init_par_calc(uint32_t a0, uintptr_t a1)
     a2 = (uintptr_t)a2 << a0;
     v0 = v0;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: AECHK ipcA pre-div\n");
+    printk(KERN_INFO "tx_isp_t40_recovered: AECHK ipcA pre-div\n");
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_div_32)(a0); /* jalr target resolved by relocation */
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: AECHK ipcB pre-fps a1+4=0x%x a1+316=0x%x\n", *(uint32_t *)((char *)s2 + 4), *(uint32_t *)((char *)s2 + 316));
+    printk(KERN_INFO "tx_isp_t40_recovered: AECHK ipcB pre-fps a1+4=0x%x a1+316=0x%x\n", *(uint32_t *)((char *)s2 + 4), *(uint32_t *)((char *)s2 + 316));
     /* fragment 4: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_fps_calc_max_exp)(s3, s2, v0); /* jalr target resolved by relocation */
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: AECHK ipcC post-fps\n");
+    printk(KERN_INFO "tx_isp_t40_recovered: AECHK ipcC post-fps\n");
     /* fragment 5: ConstantLoad
      * OEM 0x21d94-0x21d98: lui/addiu v1,%hi/lo(aeShowPar). The translator
      * zeroed this anchor (v1 = 0x0). */
@@ -81143,7 +81193,7 @@ do_write:
     {
         static uint32_t _ae_trig_trace;
         if (_ae_trig_trace++ < 8)
-            printk(KERN_WARNING "tx_isp_t40_recovered: AETRIG set_ae_trig arg1=%d arg2=%d -> reg=0x%x=1\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: AETRIG set_ae_trig arg1=%d arg2=%d -> reg=0x%x=1\n",
                    arg1, arg2, (uint32_t)(uintptr_t)a0);
     }
     return system_reg_write(a0, 1);
@@ -82620,7 +82670,7 @@ int64_t tisp_ae_main_init(uint32_t a0, uint32_t a1)
     uintptr_t *v0 = 0;
     uintptr_t v1 = 0;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: AECHK entry a0=%u a1=%u\n", a0, a1);
+    printk(KERN_INFO "tx_isp_t40_recovered: AECHK entry a0=%u a1=%u\n", a0, a1);
 
     /* fragment 0: Prologue */
     /* function prologue: stack frame and callee-saved register setup */
@@ -82701,33 +82751,33 @@ tisp_ae_main_init0x17c:
     a3 = (uintptr_t)v1 + (uintptr_t)v0;
     if (a1 != 0) { goto tisp_ae_main_init0x2b8; }
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: AECHK c1 sensor_inform\n");
+    printk(KERN_INFO "tx_isp_t40_recovered: AECHK c1 sensor_inform\n");
     /* fragment 18: CallSetup */
     v0 = (uintptr_t *)(uintptr_t)tisp_ae_sensor_inform(0, (uintptr_t)&pstMainAeOri, (uintptr_t)&tisp_ae_main_ctrls); /* jalr target resolved by relocation */
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: AECHK c2 deflicker_expt\n");
+    printk(KERN_INFO "tx_isp_t40_recovered: AECHK c2 deflicker_expt\n");
     /* fragment 19: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_deflicker_expt)(0, &pstMainAeOri); /* jalr target resolved by relocation */
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: AECHK c3 init_par_calc\n");
+    printk(KERN_INFO "tx_isp_t40_recovered: AECHK c3 init_par_calc\n");
     /* fragment 20: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_init_par_calc)(0, &pstMainAeOri); /* jalr target resolved by relocation */
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: AECHK c4 par_calc\n");
+    printk(KERN_INFO "tx_isp_t40_recovered: AECHK c4 par_calc\n");
     /* fragment 21: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_par_calc)(0, &pstMainAeOri); /* jalr target resolved by relocation */
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: AECHK c5 set_hardware_param\n");
+    printk(KERN_INFO "tx_isp_t40_recovered: AECHK c5 set_hardware_param\n");
     /* fragment 22: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_set_hardware_param)(&pstMainAeOri, 0); /* jalr target resolved by relocation */
-    printk(KERN_WARNING "tx_isp_t40_recovered: AECHK c5done\n");
+    printk(KERN_INFO "tx_isp_t40_recovered: AECHK c5done\n");
 
     /* fragment 23: CallSetup */
     v1 = *(uint32_t *)((char *)&pstMainAeOri + 288);
     v1 = v1 ? ((*(uint8_t *)((char *)v1 + 20)) + 1) : 1;
     *(uint8_t *)((char *)((char *)&tx_isp_core_platform_device + 0x189)) = v1;
     *(uint8_t *)((char *)((char *)&tx_isp_core_platform_device + 0x18a)) = v1;
-    printk(KERN_WARNING "tx_isp_t40_recovered: AECHK pre-register (about to system_irq_func_set 4)\n");
+    printk(KERN_INFO "tx_isp_t40_recovered: AECHK pre-register (about to system_irq_func_set 4)\n");
     v0 = (uintptr_t *)(uintptr_t)system_irq_func_set(5, (int32_t)(uintptr_t)&tisp_ae_main_interrupt_hist); /* jalr target resolved by relocation */
 
     /* fragment 24: CallSetup */
@@ -82735,7 +82785,7 @@ tisp_ae_main_init0x17c:
 
     /* fragment 25: CallSetup */
     v0 = (uintptr_t *)(uintptr_t)tisp_event_set_cb(0, 1, (int32_t)(uintptr_t)&tisp_ae_main_process); /* jalr target resolved by relocation */
-    printk(KERN_WARNING "tx_isp_t40_recovered: AECHK registered irq_func_cb[4]+event1 OK\n");
+    printk(KERN_INFO "tx_isp_t40_recovered: AECHK registered irq_func_cb[4]+event1 OK\n");
 
     /* fragment 26: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_lock_init)(&main_slock); /* jalr target resolved by relocation */
@@ -83112,7 +83162,7 @@ int32_t tisp_ae_main_interrupt_static(void)
     {
         static uint32_t _ae_static_trace;
         if (_ae_static_trace++ < 8)
-            printk(KERN_WARNING "tx_isp_t40_recovered: AEIRQ static-interrupt fired #%u\n", _ae_static_trace);
+            printk(KERN_INFO "tx_isp_t40_recovered: AEIRQ static-interrupt fired #%u\n", _ae_static_trace);
     }
     reg_value = system_reg_read(0x19050);
     tisp_base = tispinfo + 12;
@@ -83287,7 +83337,7 @@ int32_t tisp_ae_main_interrupt_hist(void)
     {
         static uint32_t _ae_hist_trace;
         if (_ae_hist_trace++ < 8)
-            printk(KERN_WARNING "tx_isp_t40_recovered: AEIRQ hist-interrupt fired #%u (will push event 1)\n", _ae_hist_trace);
+            printk(KERN_INFO "tx_isp_t40_recovered: AEIRQ hist-interrupt fired #%u (will push event 1)\n", _ae_hist_trace);
     }
     /* fragment 1: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(65536 | 36944); /* jalr target resolved by relocation */
@@ -98899,7 +98949,7 @@ int64_t tisp_awb_set_lum_th_freq(uintptr_t a0, uint32_t a1)
             (void)tisp_ae_main_mean_update((uintptr_t)&lum_buf[0],
                                            (uintptr_t)&lum_buf[1]);
         else
-            printk(KERN_WARNING "tx_isp_t40_recovered: awb-lum-th-freq skipping ae mean update (AE table uninitialized)\n");
+            printk(KERN_INFO "tx_isp_t40_recovered: awb-lum-th-freq skipping ae mean update (AE table uninitialized)\n");
     }
 
     word = ((uint32_t)o16[45] << 24) | ((uint32_t)o16[44] << 16) |
@@ -99221,7 +99271,7 @@ tisp_awb_set_gain0x210:
     {
         static uint32_t _awbg_trace;
         if (_awbg_trace++ < 8)
-            printk(KERN_WARNING "tx_isp_t40_recovered: AWBGAIN v0=%u s4(shift)=%u p12=%p p12+2=%u a0+20deref=%u base_r=%u -> rgain=%d bgain=%d\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: AWBGAIN v0=%u s4(shift)=%u p12=%p p12+2=%u a0+20deref=%u base_r=%u -> rgain=%d bgain=%d\n",
                    (uint32_t)(uintptr_t)v0, (uint32_t)(uintptr_t)s4,
                    (void *)*(uint32_t *)((char *)a0 + 12),
                    (*(uint32_t *)((char *)a0 + 12)) ? *(uint16_t *)((char *)(uintptr_t)(*(uint32_t *)((char *)a0 + 12)) + 2) : 0xffff,
@@ -99462,7 +99512,7 @@ int32_t tisp_awb_main_init(uint32_t a0, uint32_t a1)
     }
 
     if (regtrace_awb_main_init_stage_limit == 1) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: awb-main-init stage-limit=1 inter=%p outer=%p\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: awb-main-init stage-limit=1 inter=%p outer=%p\n",
                inter, (void *)(uintptr_t)stMainAwbOuter);
         return 0;
     }
@@ -99470,7 +99520,7 @@ int32_t tisp_awb_main_init(uint32_t a0, uint32_t a1)
     (void)tisp_awb_params_transmit((uintptr_t)ctx, 0);
 
     if (regtrace_awb_main_init_stage_limit == 2) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: awb-main-init stage-limit=2 ctx49=0x%x inter=%p outer=%p\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: awb-main-init stage-limit=2 ctx49=0x%x inter=%p outer=%p\n",
                ctx[49], inter, (void *)(uintptr_t)stMainAwbOuter);
         return 0;
     }
@@ -99490,7 +99540,7 @@ int32_t tisp_awb_main_init(uint32_t a0, uint32_t a1)
         return ret;
 
     if (regtrace_awb_main_init_stage_limit == 3) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: awb-main-init stage-limit=3 ctx49=0x%x inter=%p outer=%p\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: awb-main-init stage-limit=3 ctx49=0x%x inter=%p outer=%p\n",
                ctx[49], inter, (void *)(uintptr_t)stMainAwbOuter);
         return 0;
     }
@@ -99502,24 +99552,24 @@ int32_t tisp_awb_main_init(uint32_t a0, uint32_t a1)
     }
 
     if (regtrace_enable_awb_reg_writes && !*skip_hw) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: awb-main-init pre-hw ctx=%p ctx0=0x%x ctx34=0x%x ctx117=0x%x ct=0x%x outer=%p inter=%p\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: awb-main-init pre-hw ctx=%p ctx0=0x%x ctx34=0x%x ctx117=0x%x ct=0x%x outer=%p inter=%p\n",
                ctx, ctx[0], ctx[34], ctx[117],
                ctx[117] ? *(uint32_t *)(uintptr_t)ctx[117] : 0,
                (void *)(uintptr_t)stMainAwbOuter,
                (void *)(uintptr_t)stMainAwbInter);
         (void)tisp_awb_set_hardware_param((uintptr_t)ctx, 0);
-        printk(KERN_WARNING "tx_isp_t40_recovered: awb-main-init hw-param done\n");
+        printk(KERN_INFO "tx_isp_t40_recovered: awb-main-init hw-param done\n");
         private_msleep(30);
         if (regtrace_enable_awb_set_gain) {
             (void)tisp_awb_set_gain((uintptr_t)ctx, 0);
-            printk(KERN_WARNING "tx_isp_t40_recovered: awb-main-init set-gain done\n");
+            printk(KERN_INFO "tx_isp_t40_recovered: awb-main-init set-gain done\n");
         } else {
-            printk(KERN_WARNING "tx_isp_t40_recovered: awb-main-init set-gain skipped by param\n");
+            printk(KERN_INFO "tx_isp_t40_recovered: awb-main-init set-gain skipped by param\n");
         }
     } else if (!regtrace_enable_awb_reg_writes) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: awb-main-init skipping AWB hardware register writes by param\n");
+        printk(KERN_INFO "tx_isp_t40_recovered: awb-main-init skipping AWB hardware register writes by param\n");
     } else {
-        printk(KERN_WARNING "tx_isp_t40_recovered: awb-main-init skipping AWB hardware register writes by ctx flag\n");
+        printk(KERN_INFO "tx_isp_t40_recovered: awb-main-init skipping AWB hardware register writes by ctx flag\n");
     }
 
     if (regtrace_awb_main_init_stage_limit == 4) {
@@ -99535,12 +99585,12 @@ int32_t tisp_awb_main_init(uint32_t a0, uint32_t a1)
             (void)system_irq_func_set(3,
                 (int32_t)(uintptr_t)&tisp_awb_main_interrupt_static);
             (void)system_reg_set_awb_trig(1, 0);
-            printk(KERN_WARNING "tx_isp_t40_recovered: awb-main-init stage-limit=4 grayworld irq registered rgain=0x%x bgain=0x%x\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: awb-main-init stage-limit=4 grayworld irq registered rgain=0x%x bgain=0x%x\n",
                    regtrace_awb_grayworld_last_rgain,
                    regtrace_awb_grayworld_last_bgain);
             return 0;
         }
-        printk(KERN_WARNING "tx_isp_t40_recovered: awb-main-init stage-limit=4 before callback registration\n");
+        printk(KERN_INFO "tx_isp_t40_recovered: awb-main-init stage-limit=4 before callback registration\n");
         return 0;
     }
 
@@ -99549,7 +99599,7 @@ int32_t tisp_awb_main_init(uint32_t a0, uint32_t a1)
     (void)tisp_event_set_cb(0, 14,
                             (int32_t)(uintptr_t)&tisp_awb_main_process);
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: awb-main-init repaired pi=0x%x blob=0x%x inter=%p outer=%p reg_writes=%u ret=0\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: awb-main-init repaired pi=0x%x blob=0x%x inter=%p outer=%p reg_writes=%u ret=0\n",
            a0, a1, inter, (void *)(uintptr_t)stMainAwbOuter,
            regtrace_enable_awb_reg_writes ? 1U : 0U);
     return 0;
@@ -143524,7 +143574,7 @@ int32_t tiziano_adr_main_interrupt_static(void)
     if (regtrace_enable_isp_3a_diag) {
         regtrace_3a_adr_irq_count++;
         if (regtrace_3a_adr_irq_count <= 6)
-            printk(KERN_WARNING "tx_isp_t40_recovered: 3a-diag ADR irq-handler dispatched #%u\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: 3a-diag ADR irq-handler dispatched #%u\n",
                    regtrace_3a_adr_irq_count);
     }
 
@@ -146076,7 +146126,7 @@ static int regtrace_tisp_adr_main_init_direct(uint32_t width, uint32_t height)
     regtrace_adr_main_init_direct_stage = 0;
     regtrace_adr_main_init_direct_ret = 0;
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: ADR main direct init pre %ux%u stage_limit=%u reg_writes=%u linear=%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: ADR main direct init pre %ux%u stage_limit=%u reg_writes=%u linear=%u\n",
            width, height, regtrace_adr_main_init_stage_limit,
            regtrace_enable_adr_reg_writes ? 1U : 0U,
            regtrace_adr_linear_mode[0] ? 1U : 0U);
@@ -146174,7 +146224,7 @@ static int regtrace_tisp_adr_main_init_direct(uint32_t width, uint32_t height)
 
 out:
     regtrace_adr_main_init_direct_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: ADR main direct init post ret=%d stage=%u paras=0x%x hard_base=0x%x stat=0x%x\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: ADR main direct init post ret=%d stage=%u paras=0x%x hard_base=0x%x stat=0x%x\n",
            ret, regtrace_adr_main_init_direct_stage,
            (uint32_t)main_adr_paras,
            (uint32_t)adr_main_hard_base,
@@ -151935,7 +151985,7 @@ int32_t tisp_adr_main_process(void)
     if (regtrace_enable_isp_3a_diag) {
         regtrace_3a_adr_proc_count++;
         if (regtrace_3a_adr_proc_count <= 6)
-            printk(KERN_WARNING "tx_isp_t40_recovered: 3a-diag ADR main_process ran #%u\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: 3a-diag ADR main_process ran #%u\n",
                    regtrace_3a_adr_proc_count);
     }
 
@@ -157129,7 +157179,7 @@ int32_t tisp_ydns_main_init(void)
     regtrace_ydns_gain_old[0] = 0xffffffffU;
     (void)tisp_ydns_refresh(0, 0x10000U);
     (void)tisp_ydns_par_refresh(0, 0x10000U, 0x10000U);
-    printk(KERN_WARNING "tx_isp_t40_recovered: ydns-main-init done par=%p\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: ydns-main-init done par=%p\n",
            (void *)(uintptr_t)main_ydns);
     return 0;
 }
@@ -165112,7 +165162,7 @@ int32_t tisp_ysp_main_init(void)
     regtrace_ysp_gain_old[0] = 0xffffffffU;
     (void)tisp_ysp_refresh(0, 0x10000U);
     (void)tisp_ysp_par_refresh(0, 0x10000U, 0x10000U);
-    printk(KERN_WARNING "tx_isp_t40_recovered: ysp-main-init done par=%p\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: ysp-main-init done par=%p\n",
            (void *)(uintptr_t)main_ysp);
     return 0;
 }
@@ -172788,7 +172838,7 @@ int32_t Tzn_Msca_Work_en(uint32_t a0, uintptr_t a1)
         ret = regtrace_t40_msca_write_work_en(mask, "oem-work-en");
     else
         ret = regtrace_core_write(reg, mask);
-    printk(KERN_WARNING "tx_isp_t40_recovered: Tzn_Msca_Work_en idx=%u reg=0x%x mask=0x%x hw=0x%x ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: Tzn_Msca_Work_en idx=%u reg=0x%x mask=0x%x hw=0x%x ret=%d\n",
            a0, reg, mask,
            a0 == 0 ? regtrace_t40_msca_work_en_last_hw : mask, ret);
     return ret;
@@ -194129,12 +194179,12 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
         regtrace_3a_isr_count++;
         if (regtrace_3a_isr_count <= 4) {
             int __i;
-            printk(KERN_WARNING "tx_isp_t40_recovered: 3a-diag isr#%u status s2=0x%x s5=0x%x\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: 3a-diag isr#%u status s2=0x%x s5=0x%x\n",
                    regtrace_3a_isr_count, (uint32_t)(uintptr_t)s2,
                    (uint32_t)(uintptr_t)s5);
             for (__i = 0; __i < 16; __i++)
                 if (irq_func_cb[__i])
-                    printk(KERN_WARNING "tx_isp_t40_recovered: 3a-diag   irq_func_cb[%d]=%p (3awb 4ae 5aehist 6af 9adr 10defog 11wdr)\n",
+                    printk(KERN_INFO "tx_isp_t40_recovered: 3a-diag   irq_func_cb[%d]=%p (3awb 4ae 5aehist 6af 9adr 10defog 11wdr)\n",
                            __i, (void *)(uintptr_t)irq_func_cb[__i]);
         }
     }
@@ -196526,7 +196576,7 @@ static void regtrace_apply_t40_bringup_profile(void)
             !regtrace_t40_profile_direct_vic_feed;
     }
 
-    printk(KERN_WARNING "tx_isp_t40_recovered: T40 bring-up profile applied (quality=%u top40=0x%08x irq_mode=%s, direct_vic_feed=%u force_vic_ring=%u no_direct_irq_defaults=%u wait_irq=%u msca_poll=%u irq_fd=%u addr_source=%u fifo_addr_tags=%u fifo_addr_tag_mode=%u frame_3a=%u ae_apply=%u); pass t40_bringup_profile=0 for raw recovered defaults\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: T40 bring-up profile applied (quality=%u top40=0x%08x irq_mode=%s, direct_vic_feed=%u force_vic_ring=%u no_direct_irq_defaults=%u wait_irq=%u msca_poll=%u irq_fd=%u addr_source=%u fifo_addr_tags=%u fifo_addr_tag_mode=%u frame_3a=%u ae_apply=%u); pass t40_bringup_profile=0 for raw recovered defaults\n",
            regtrace_t40_quality_profile,
            regtrace_tisp_main_init_top40_value,
            regtrace_t40_profile_isp_irq_passthrough ? "oem-passthrough" : "ack-only",

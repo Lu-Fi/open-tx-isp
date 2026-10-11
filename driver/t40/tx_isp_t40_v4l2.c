@@ -744,7 +744,7 @@ int tx_isp_t40_v4l2_init(struct device *parent)
 	if (ret)
 		goto fail_v4l2;
 	video->registered = true;
-	pr_info("tx_isp_t40: V4L2 MMAP/DMA-BUF node registered as /dev/video%d\n",
+	pr_debug("tx_isp_t40: V4L2 MMAP/DMA-BUF node registered as /dev/video%d\n",
 		video->video_dev.num);
 	return 0;
 
