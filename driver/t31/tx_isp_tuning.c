@@ -310,6 +310,7 @@ int tisp_s_2dns_ratio(int ratio);
 int tisp_s_3dns_ratio(int ratio);
 static int tiziano_s_wb_algo(uint32_t mode);
 int tisp_s_awb_algo(uint32_t mode);
+int tisp_set_bcsh_fixed_contrast(const uint8_t *cfg);
 int tisp_s_wb_frz(void *in_buf);
 int tisp_g_wb_frz(void *out_buf);
 static int tisp_s_wb_mode(uint32_t mode, uint32_t gain_gr, uint32_t gain_gb);
@@ -10006,7 +10007,9 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
                 ret = -EFAULT;
                 goto out;
             }
-            /* OEM: tisp_set_bcsh_fixed_contrast(fc_buf) */
+            /* OEM: tisp_set_bcsh_fixed_contrast(fc_buf) -> tisp_bcsh_set_mjpeg_contrast
+             * (mode, y_low, fixed) -> tiziano_bcsh_update; the stock handler returns 0 */
+            tisp_set_bcsh_fixed_contrast(fc_buf);
             ret = 0;
             break;
         }
@@ -29954,10 +29957,33 @@ static void tisp_apply_hvflip(struct isp_tuning_data *tuning)
  * and the MSCA keeps only H (mask & 0xfd).  A sensor whose Bayer order
  * changes reports it through mbus_change, see ispcore_interrupt_service_routine.
  */
+/*
+ * Read-only module parameter msca_flip_state: who flips each axis.  Bits:
+ * 0 sensor_h, 1 sensor_v (requested of the sensor, which takes the bits it
+ * implements; set only when shvflip == 1 and the sensor accepted), 2 isp_h,
+ * 3 isp_v (MSCA mirror/flip mask).  A streamer that mirrors a crop window
+ * must account for both stages.
+ */
+static u32 t31_flip_state;
+
+static int t31_msca_flip_state_get(char *buffer, const struct kernel_param *kp)
+{
+	(void)kp;
+	return scnprintf(buffer, PAGE_SIZE, "%u\n", ACCESS_ONCE(t31_flip_state));
+}
+
+static struct kernel_param_ops t31_msca_flip_state_ops = {
+	.get = t31_msca_flip_state_get,
+};
+module_param_cb(msca_flip_state, &t31_msca_flip_state_ops, NULL, 0444);
+MODULE_PARM_DESC(msca_flip_state,
+		 "read-only: flip done by sensor/ISP, bits 0 sensor_h, 1 sensor_v, 2 isp_h, 3 isp_v");
+
 int apical_isp_hvflip_update(void *arg1, int arg2)
 {
 	struct tx_isp_sensor *sensor = ourISPdev ? ourISPdev->sensor : NULL;
 	u8 flip_mask = (u8)(arg2 & 0xff);
+	u32 state = 0;
 
 	(void)arg1;
 	if (sensor && sensor->video.shvflip == 1) {
@@ -29969,11 +29995,14 @@ int apical_isp_hvflip_update(void *arg1, int arg2)
 		ret = tx_isp_sensor_hvflip_control(arg2);
 		if (ret)
 			pr_warn("hvflip: sensor flip 0x%x failed: %d\n", arg2, ret);
+		else
+			state = (u32)(arg2 & 3);
 		flip_mask = (u8)(arg2 & 0xfd);
 	}
 
 	tisp_s_mscaler_hvflip_mask(flip_mask);
 	tisp_hv_flip_enable(flip_mask);
+	ACCESS_ONCE(t31_flip_state) = state | ((u32)(flip_mask & 3) << 2);
 	return 0;
 }
 EXPORT_SYMBOL(apical_isp_hvflip_update);

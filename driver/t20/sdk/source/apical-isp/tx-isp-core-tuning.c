@@ -1233,48 +1233,23 @@ static int apical_isp_static_dp_s_attr(struct tx_isp_core_device *core, struct v
 	return ISP_SUCCESS;
 }
 
+/*
+ * CUSTOM_ANTI_FOG (0x98e903): 0 off, 1 strong, 2 medium, 3 weak.  The vendor
+ * firmware command pair (antifog_set_preset / antifog_mode) is not used: it
+ * hung cameras (see t20_antifog_request in the firmware unit).  The level is
+ * validated and handed over; the AE path applies it between frames.
+ */
+extern int t20_antifog_request(uint32_t level);
+
 static int apical_isp_antifog_s_control(struct tx_isp_core_device *core, struct v4l2_control *control)
 {
 	struct video_device *video = core->tun;
 	image_tuning_vdrv_t *tuning = video_get_drvdata(video);
 	struct v4l2_ctrl *fog = tuning->ctrls.fog;
-	apical_api_control_t api;
-	unsigned char status = 0;
-	int reason = 0;
-	int ret = ISP_SUCCESS;
 
-	api.type = TALGORITHMS;
-	api.dir = COMMAND_SET;
-	api.value = ANTIFOG_STRONG;
-	if(fog->val){
-		/* set present mode */
-		api.id = ANTIFOG_PRESET_ID;
-		switch(fog->val){
-		case 3:
-			api.value = ANTIFOG_WEAK;
-			break;
-		case 2:
-			api.value = ANTIFOG_MEDIUM;
-			break;
-		case 1:
-			api.value = ANTIFOG_STRONG;
-			break;
-		default:
-			break;
-		}
-		status = apical_command(api.type, api.id, api.value, api.dir, &reason);
-		/* enable anti fog modules */
-		api.id = ANTIFOG_MODE_ID;
-		api.value = ANTIFOG_ENABLE;
-		status = apical_command(api.type, api.id, api.value, api.dir, &reason);
-	}else{
-		/* disable anti fog modules */
-		api.id = ANTIFOG_MODE_ID;
-		api.value = ANTIFOG_DISABLE;
-		status = apical_command(api.type, api.id, api.value, api.dir, &reason);
-	}
-
-	return ret;
+	if (fog->val < 0 || fog->val > 3)
+		return -EINVAL;
+	return t20_antifog_request((uint32_t)fog->val);
 }
 
 
@@ -3910,6 +3885,8 @@ err_get_gain_log2:
 #define T2X_CID_DEFOG_STRENGTH	(V4L2_CID_PRIVATE_BASE + 0x39)
 #define T2X_CID_DPC_RATIO	(V4L2_CID_PRIVATE_BASE + 0x62)
 #define T2X_CID_DRC_RATIO	(V4L2_CID_PRIVATE_BASE + 0xa2)
+/* IMP_ISP_Tuning_SetMeshShadingScale: value 0..7, the mesh scale field of reg 0x380 */
+#define T2X_CID_MESH_SCALE	(V4L2_CID_PRIVATE_BASE + 0xa3)
 /* T20 3.12.0 IMP_ISP_Tuning_GetAwbZone(IMPISPAWBZone *): the id after
  * IMAGE_TUNING_CID_AWB_RGB_COEFFT_WB_ATTR, not in the 3.10.14 SDK enum */
 #define T2X_CID_AWB_ZONE	(V4L2_CID_PRIVATE_BASE + 0x09)
@@ -3940,6 +3917,7 @@ extern uint32_t t20_dpc_ratio;
 extern uint32_t t20_drc_ratio;
 extern uint32_t t20_defog_floor;
 void t20_dpc_apply_ratio(void);
+extern int t20_mesh_scale_request(uint32_t scale);
 
 static uint32_t t2x_defog_strength = 128;
 
@@ -3970,6 +3948,9 @@ static int t2x_beyond_s_ctrl(struct v4l2_control *ctrl, int *ret)
 		}
 		t20_drc_ratio = ctrl->value;
 		break;
+	case T2X_CID_MESH_SCALE:
+		*ret = t20_mesh_scale_request((uint32_t)ctrl->value);
+		return 1;
 	case T2X_CID_DEFOG_STRENGTH:
 		if (copy_from_user(&b, (const void __user *)ctrl->value, 1)) {
 			*ret = -EFAULT;
@@ -3998,6 +3979,9 @@ static int t2x_beyond_g_ctrl(struct v4l2_control *ctrl, int *ret)
 		break;
 	case T2X_CID_DRC_RATIO:
 		ctrl->value = t20_drc_ratio;
+		break;
+	case T2X_CID_MESH_SCALE:
+		ctrl->value = apical_isp_mesh_shading_mesh_scale_read();
 		break;
 	case T2X_CID_DEFOG_STRENGTH:
 		/* vendor ABI: one byte through the pointer */
