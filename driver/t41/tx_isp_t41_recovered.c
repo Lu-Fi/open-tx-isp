@@ -26497,6 +26497,15 @@ int32_t ivdc_activate_module(void* arg1)
  * arg = { 0, &ivdc_stream_state }.  ispcore_core_ops_ioctl turns that into
  * tisp_sync_ivdc_state(); every other core ioctl ignores it.  Runs in hard
  * IRQ context: the callee chain only stores a word, never sleeps.
+ * Atomic-safety audit (2026-10-11): the vendor does the same in hard IRQ
+ * (0xd814 lw v0,128(a0); jalr v0 with a1 = 0x01000007).  tx_isp_notify
+ * takes no lock and calls core_ops+0x20 of every registered subdev:
+ * vic/vin (vic_core_ops_ioctl: returns 0 for 0x01000007), csi (NULL),
+ * ivdc (only 0x01000000), fs (only 0x01000002), core
+ * (ispcore_core_ops_ioctl: tisp_sync_ivdc_state = one store, then the
+ * same fan-out over its children).  Sensor core_ops have no .ioctl (none
+ * of the 107 T41 SDK sensors sets it).  Any handler added for 0x01000007
+ * must stay atomic: no mutex, GFP_KERNEL, sleep, i2c or user copies.
  */
 static void t41_ivdc_irq_notify_state(uintptr_t sd)
 {
