@@ -797,8 +797,9 @@ step and do not continue with larger sizes.
   reached a foreign entry too. A per-file second pass did not crash.
   `t41_proc_watch=1` (default) snapshots every entry the driver creates under
   /proc/jz/isp (inode, mode, iops, fops, parent, data, name, fops contents),
-  compares them every jiffy, restores them and prints the old/new value with
-  the surrounding memory; it also reports rbtree links of the isp directory
+  compares them every 50 ms and prints the old/new value with the
+  surrounding memory (first 10 reports in full, then counters only). It is
+  report-only: nothing is written back to the kernel structures. It also reports rbtree links of the isp directory
   that point at entries the driver did not create. Counters:
   `proc_watch_hits`, `proc_watch_rb_hits`. It narrows the window but does not
-  remove the writer.
+  remove the writer; it only helps locate it.

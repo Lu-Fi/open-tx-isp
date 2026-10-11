@@ -1,5 +1,5 @@
 /*
- * Guard for the /proc/jz/isp entries.
+ * Report-only watcher for the /proc/jz/isp entries.
  *
  * A soak run oopsed in proc_reg_unlocked_ioctl() (uClibc fopen() issues
  * TCGETS on every file it opens): pde->proc_fops->unlocked_ioctl was
@@ -12,10 +12,12 @@
  * This file snapshots the fields of every entry the driver creates under
  * /proc/jz/isp that never change after creation (inode number, mode, iops,
  * fops, parent, data, name) plus the fops struct contents. A timer compares
- * them every jiffy, reports a change with the surrounding memory, restores
- * the snapshot so a later open/ioctl/read does not jump through the stray
- * value, and checks that the directory's rbtree links only point at entries
- * the driver created.
+ * them every T41_PW_INTERVAL_MS, reports a change with the surrounding memory
+ * (first T41_PW_REPORTS reports in full, afterwards only the counters) and
+ * checks that the directory's rbtree links only point at entries the driver
+ * created.  Nothing is ever written back to the kernel's structures: a
+ * detected change is only accepted into the private snapshot, so one
+ * corruption is counted once.
  *
  * Linked last in the module: its static data must not move the recovered
  * core's .bss/.data, which the core addresses past its named objects.
@@ -36,7 +38,7 @@
 static int t41_proc_watch = 1;
 module_param(t41_proc_watch, int, 0444);
 MODULE_PARM_DESC(t41_proc_watch,
-		 "Check and restore the /proc/jz/isp entries every jiffy (default 1)");
+		 "Watch (report only, no restore) the /proc/jz/isp entries every 50 ms (default 1)");
 static unsigned int t41_proc_watch_hits;
 module_param_named(proc_watch_hits, t41_proc_watch_hits, uint, 0444);
 static unsigned int t41_proc_watch_rb_hits;
@@ -70,7 +72,8 @@ struct t41_pde {
 
 #define T41_PW_MAX	12
 #define T41_PW_NAME	16
-#define T41_PW_REPORTS	8
+#define T41_PW_REPORTS	10
+#define T41_PW_INTERVAL_MS	50
 
 struct t41_pw_entry {
 	struct t41_pde *pde;
@@ -82,6 +85,7 @@ struct t41_pw_entry {
 	void *data;
 	u8 namelen;
 	char name[T41_PW_NAME];
+	bool rb_bad;
 	struct file_operations fops;
 };
 
@@ -123,7 +127,7 @@ static void t41_pw_report(const struct t41_pw_entry *e, const char *field,
 	if (t41_pw_reports >= T41_PW_REPORTS)
 		return;
 	t41_pw_reports++;
-	printk(KERN_ERR "t41-procwatch: /proc/jz/isp entry '%s' (pde %p): %s changed %p -> %p, restored\n",
+	printk(KERN_ERR "t41-procwatch: /proc/jz/isp entry '%s' (pde %p): %s changed %p -> %p (not restored)\n",
 	       e->name, e->pde, field, was, now);
 	t41_pw_dump("pde", e->pde, sizeof(*e->pde) + T41_PW_NAME);
 	if (e->proc_fops)
@@ -138,7 +142,7 @@ static void t41_pw_check_entry(struct t41_pw_entry *e)
 		if (d->f != e->f) {					\
 			t41_pw_report(e, #f, (const void *)(uintptr_t)e->f, \
 				      (const void *)(uintptr_t)d->f);	\
-			d->f = e->f;					\
+			e->f = d->f;					\
 		}							\
 	} while (0)
 	T41_PW_FIELD(low_ino);
@@ -151,7 +155,7 @@ static void t41_pw_check_entry(struct t41_pw_entry *e)
 #undef T41_PW_FIELD
 	if (memcmp(d->name, e->name, min_t(unsigned int, e->namelen, T41_PW_NAME - 1))) {
 		t41_pw_report(e, "name", NULL, NULL);
-		memcpy(d->name, e->name, min_t(unsigned int, e->namelen, T41_PW_NAME - 1));
+		memcpy(e->name, d->name, min_t(unsigned int, e->namelen, T41_PW_NAME - 1));
 	}
 	if (e->proc_fops && memcmp(e->proc_fops, &e->fops, sizeof(e->fops))) {
 		const u32 *now = (const u32 *)e->proc_fops;
@@ -167,7 +171,8 @@ static void t41_pw_check_entry(struct t41_pw_entry *e)
 					printk(KERN_ERR "t41-procwatch: fops %p word +0x%02x\n",
 					       e->proc_fops, i * 4);
 			}
-		memcpy((void *)e->proc_fops, &e->fops, sizeof(e->fops));
+		/* accept as the new snapshot (private copy only) */
+		memcpy(&e->fops, e->proc_fops, sizeof(e->fops));
 	}
 }
 
@@ -188,8 +193,13 @@ static void t41_pw_check_tree(void)
 			      !t41_pw_known_node(n->rb_right) ||
 			      !t41_pw_known_node(rb_parent(n));
 		}
-		if (!bad)
+		if (!bad) {
+			t41_pw[i].rb_bad = false;
 			continue;
+		}
+		if (t41_pw[i].rb_bad)
+			continue;	/* already counted */
+		t41_pw[i].rb_bad = true;
 		t41_proc_watch_rb_hits++;
 		if (t41_pw_reports >= T41_PW_REPORTS)
 			continue;
@@ -215,7 +225,7 @@ static void t41_pw_tick(unsigned long unused)
 	if (!t41_pw_busy)
 		t41_pw_check_tree();
 	spin_unlock_irqrestore(&t41_pw_lock, flags);
-	mod_timer(&t41_pw_timer, jiffies + 1);
+	mod_timer(&t41_pw_timer, jiffies + msecs_to_jiffies(T41_PW_INTERVAL_MS));
 }
 
 /* Bracket proc_create_data()/proc_mkdir() so the rbtree check skips the
@@ -281,7 +291,7 @@ void t41_procwatch_start(void)
 	t41_pw_armed = true;
 	spin_unlock_irqrestore(&t41_pw_lock, flags);
 	setup_timer(&t41_pw_timer, t41_pw_tick, 0);
-	mod_timer(&t41_pw_timer, jiffies + 1);
+	mod_timer(&t41_pw_timer, jiffies + msecs_to_jiffies(T41_PW_INTERVAL_MS));
 }
 
 /* Must run before the isp directory is removed. */
