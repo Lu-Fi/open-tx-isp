@@ -617,6 +617,150 @@ the device at the time of writing. At 1280x720 the encoder also fails an order-9
 Can't alloc DMA buffer`, ch1 RTSP 503) when ch0 started first.
 
 
+## MSCA zoom, mask and scaler level (branch `claude/t41-zoom-mask`)
+
+Host- and build-tested only; not run on a camera yet (test plan below).
+Reference: `tisp_s/g_autozoom_control`, `tisp_msca_crop_api`,
+`tisp_s/g_mscaler_mask_block_attr`, `tisp_msca_set_mask`,
+`tisp_msca_cfg_shd_ram` and `tisp_set_scaler_level_control_set` of
+`libt41-firmware-1.2.6`, and `IMP_ISP_Tuning_Set/GetAutoZoom`,
+`Set/GetMaskBlock`, `SetScalerLv` of the vendor libimp 1.2.6. Pure helpers
+in `tx_isp_t41_msca_ctl.h`, host test `tests/tx_isp_t41_msca_ctl_test.c`.
+
+Stock does all three live: AutoZoom reprograms all three MSCA outputs
+(`para_calc`, `curve_calc`, `init_chx_cfg`) and requests the MSCA update
+(`0xf0010 = 1`) while they run, ScalerLv writes `0xf0708 + ch * 8` /
+`0xf0028` and requests `0xf0010 = 0xffffffff`, MaskBlock marks the block
+dirty for the per-frame shadow-RAM writer. On this driver an update request
+that reaches a running output can hang the SoC (sections above), so:
+
+| state of the output (per output, `msca` descriptor byte 0) | what happens |
+|---|---|
+| not streaming | request stored; programmed at the output's next start |
+| streaming, `t41_msca_cfg_update=2` and `t41_msca_stop_disable=1` and output <= `t41_msca_live_max_w` x `t41_msca_live_max_h` (768x432) | applied now (LIVE) |
+| streaming, anything else (default: `cfg_update=0`) | request stored, applied at the output's next start (DEFER, KERN_INFO line, `msca_ctl_deferred`++) |
+
+LIVE for AutoZoom and ScalerLv = `tisp_msca_chx_cfg_load()` with the
+latch-while-off sequence of `cfg_update=2` (output off, staged words
+written, `0xf0010 = 1`, output on once the read-back shows the words, up
+to `t41_msca_latch_timeout_ms`), so the output loses one or two frames.
+Only outputs whose descriptor changed are reloaded (stock reloads all
+three). If the reload fails (busy shadow port) the output is switched back
+on with its old geometry, `msca_ctl_failed`++, and the request applies at
+the next start. LIVE for MaskBlock = the dirty blocks of that output go
+through the shadow port at once (no `0xf0010` request), up to 3 tries.
+The ioctl returns 0 in all three cases, as stock. Counters (read-only
+module parameters): `msca_ctl_live`, `msca_ctl_deferred`, `msca_ctl_failed`.
+Note that with `cfg_update=0` no MSCA geometry ever latches (section
+above), so AutoZoom has no visible effect in that mode, like every other
+geometry change; with `cfg_update=1` it applies at the output's next start.
+
+AutoZoom (0x08000077, 60 bytes `IMPISPAutoZoom`: s32 en[3], left[3],
+top[3], width[3], height[3], sensor coordinates; libimp passes it 1:1):
+- per output, `en == 1`: descriptor (26-byte stride) +8 = 1 (lock: the
+  FrameSource crop no longer overrides it), +10/+12 = left/top (register
+  `0xf00a0 + ch * 8`, masked `0x0fff1fff` as stock), +14/+16 = width/height
+  (source of the scaling ratio); any other `en`: window = whole sensor
+  (0, 0, sensor w, sensor h) and the lock byte is left as it was (stock;
+  a FrameSource crop set later is then still ignored until the lock is
+  dropped by a restart, which is stock behaviour).
+- beyond stock: the whole request is refused with -EINVAL (nothing stored)
+  if an enabled window is empty, negative, outside the sensor picture,
+  has left > 4095 / top > 8191, or the sensor size is still unknown.
+- GET fills left/top/width/height of all outputs; the en words are
+  returned as the caller passed them (stock returns its stack buffer).
+- the window is re-imposed after the late-start SET_FMT rebuild of the
+  first output start (it used to overwrite +10..+16).
+- the input crop position is now a 7th start word (`0xf00a0 + ch * 8`):
+  a pure pan with unchanged size latches like a size change (whether that
+  register is staged is not measured; if it is immediate the compare is a
+  no-op).
+
+MaskBlock (0x08000074, 24 bytes `IMPISPMaskBlockAttr`: u8 chx, pinum, en,
+pad, u16 top, left, width, height, s32 type, u8 r,g,b, u8 y,u,v): libimp
+converts an enabled RGB block to YUV in place (BT.601 full); the kernel uses
+only window and y,u,v.
+- SET: `en == 1` stores window and colour, other values only disable the
+  block (window and colour keep their values); the block is marked dirty.
+  chx >= 3 or pinum >= 4 -> -EINVAL (stock does not check and writes past
+  its table).
+- written as stock `tisp_msca_set_mask` does, bracketed like
+  `tisp_msca_cfg_shd_ram` (`0xf8000 = 0x101`, pairs on `0xf8004`,
+  `0xf8000 = 0x01010102`, `0xf8100 = (pairs - 1) << 4 | 1`): per dirty
+  block `left << 16 | top -> 0xf0138 + ch * 0x100 + pinum * 12`,
+  `y << 16 | u << 8 | v -> +8`, `en ? width << 16 | height : 0 -> +4`, then
+  the output's "any block on" bit ORed into `0xf0014` (stock never clears
+  that bit). Stored blocks of an output go out from
+  `tisp_channel_main_start()`, which also rewrites the output's enabled
+  blocks (an ISP reset at stream start may have cleared them; stock writes
+  only on change).
+- GET: window and y,u,v of an enabled block, zeros for a disabled one,
+  `en` always 0 (stock); type and r,g,b come from the libimp cache.
+
+ScalerLv (0x080000a6, 12 bytes `IMPISPScalerLvAttr`: u8 chx, s32 mode, u8
+level; SET only, GET -> -EOPNOTSUPP as there is no stock handler):
+- chx >= 3 -> -EINVAL (stock -1); mode 1 (FIXED_WEIGHT): the output's two
+  mode bytes (`params + 0xdf + ch * 2`, `+ 0xe0 + ch * 2`) = 1 (bits of
+  `0xf0028`), stored level dropped; mode 0 (FITTING_CURVE): level > 128 ->
+  -EINVAL, mode bytes = 0, level into the low 16 bits of `0xf0708 + ch * 8`
+  (`level << 8 | level`, bits 16..24 and 28..31 kept); other modes: no
+  change, 0.
+- beyond stock: the level is kept and put back at every reload of the
+  output (stock writes only the register, so its next channel load drops
+  it); this is what "applied at the next start" means for ScalerLv.
+
+### Device test plan (T41, not run yet)
+
+Preconditions: camera on this branch's module and an OpenIMP built from
+`claude/t41-zoom-mask`, nothing else streaming, serial console attached,
+watchdog on (a hang shows as a reset after ~60 s). Record `dmesg` and
+`/sys/module/tx_isp_t41/parameters/{msca_ctl_live,msca_ctl_deferred,
+msca_ctl_failed,msca_latch_timeouts,msca_live_disables}` after every step.
+Daylight scene with straight edges for the zoom/mask pictures; no people;
+pictures stay local.
+
+Abort at once (and note the step) on: SoC hang / watchdog reset, any oops,
+`MSCA channel %u still active`, `latch not seen`, `msca_ctl_failed` > 0,
+VPU/encoder errors, a stream that stops delivering frames for > 2 s, a
+green/garbage band in either buffer. After an abort reboot before the next
+step and do not continue with larger sizes.
+
+1. Default modes (`t41_msca_cfg_update=0`, `stop_disable=0`), ch0
+   1920x1080, ch1 640x360 streaming. SetAutoZoom ch0 window
+   (480, 270, 1920, 1080), ch1 (0, 0, 2880, 1620); expect 0,
+   `msca_ctl_deferred` += 2, no register change (`t41_msca_regs` identical
+   before/after), both streams unaffected. GetAutoZoom returns the windows.
+   Invalid window (left = 2000, width = 1000 on a 2880 sensor) -> -1 from
+   libimp (-EINVAL), nothing stored.
+2. Same with `t41_msca_cfg_update=1`: stop and restart ch0 (prudynt
+   restart); ch0 now shows the zoomed centre. Snapshot before/after
+   (collage). Then en = 0: full picture after the next restart.
+3. `t41_msca_cfg_update=2`, `t41_msca_stop_disable=1` (reload module),
+   ch0 1920x1080 + ch1 640x360 streaming. AutoZoom on ch1 only, windows
+   (0,0,2880,1620) -> (720,405,1440,810) -> (1440,810,1440,810): each call
+   `msca_ctl_live`++, ch1 drops <= 2 frames, picture shows the window,
+   ch0 untouched. 20 calls at 1 s spacing, then 100 calls at 200 ms.
+   Same with ch1 768x432. ch0 change while streaming must be DEFER
+   (1920x1080 > envelope): `msca_ctl_deferred`++, applied at ch0 restart.
+4. Envelope edge: ch1 960x540 streaming, AutoZoom ch1 -> DEFER, no
+   reprogram; restart ch1 only while ch0 stays stopped (the 960x540 start
+   that is known safe: input stopped). Do NOT raise
+   `t41_msca_live_max_w/h` in this run.
+5. MaskBlock: ch0 block 0 YUV (16,128,128) at (100,100,200,100), ch1
+   block 1 RGB red at (50,50,100,60). Default modes: DEFER on both,
+   masks appear after the next start of each output. Mode 3 setup with
+   ch1 640x360: ch1 mask appears within one frame, `msca_ctl_live`++.
+   Disable (en = 0): mask gone. GetMaskBlock: window + yuv, en 0, type and
+   rgb from the library. chx = 3 -> -1.
+6. ScalerLv ch1: mode 0 level 0, 64, 128 (snapshots, sharpness visible),
+   level 129 -> -1, mode 1, mode 2 (no change, 0). Mode-3 setup: LIVE,
+   one-frame blip; default modes: applies at the next ch1 start and stays
+   after further restarts.
+7. Mixed soak 30 min (mode-3 setup, ch1 640x360): prudynt idle-stop
+   cycles plus one AutoZoom/MaskBlock/ScalerLv call every 10 s from a
+   script. Pass: no reset, `msca_ctl_failed` = 0, `msca_latch_timeouts`
+   unchanged, both streams 25 fps at the end.
+
 ## Known issues (2026-10-10)
 
 - **Heap overwrite across module reloads.** `rmmod tx_isp_t41` sometimes
