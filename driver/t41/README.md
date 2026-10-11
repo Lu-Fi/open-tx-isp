@@ -803,3 +803,14 @@ step and do not continue with larger sizes.
   that point at entries the driver did not create. Counters:
   `proc_watch_hits`, `proc_watch_rb_hits`. It narrows the window but does not
   remove the writer; it only helps locate it.
+
+- **Recovered out-of-object accesses (2026-10-11 scan).** `tests/t41_overrun/run.sh`
+  lists every compiled load/store at `&object + N` beyond the object size
+  and whether the function is reachable. In the agg-36 build the named
+  candidates (`vic_cmd_buf + 4/8/0xc`, `direct_mode + 4`, `tgain_wdr_s + 4`,
+  `ispmem + 0xc/0x1cc`) are dead or unreachable code; the only reachable
+  out-of-object stores are in the WDR path (not used with linear sensors),
+  and none targets a `proc_dir_entry` or `file_operations`. The proc oops
+  cause is still open. GCC reorders the recovered statics after most code
+  changes, so anchor-relative recovered accesses hit different neighbours
+  in every build. WDR fusion is refused unless `t41_wdr_fusion_unsafe=1`.

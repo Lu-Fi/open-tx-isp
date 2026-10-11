@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-11
+
+- **T41 stability fixes (branch `claude/agg37-t41-stab`; host build against the agg-36 T41 kernel only, not yet run on a camera):**
+  - **Earlier review fixes now on top of agg-36** (were never merged): `proc_ivdc_writel` uses a real coherent DMA buffer instead of a garbage pointer; the IVDC interrupt delivers its stream-state event; `sensor_set_mode` sends its mode event; the vendor-AE gain setters fail cleanly; suspend/resume call the subdev callbacks.
+  - **`sensor_alloc_digital_gain_short`** read its callee from outside the `g_ispcore` object and called it; it now walks core → sensor attributes like the vendor code, checks every pointer and stores a 16-bit code (vendor-AE path only).
+  - **`/dev/isp-m0`:** closing a second handle freed the tuning attributes under the running streamer (BCSH/ratio settings stopped working, later accesses hit freed memory). Handles are now counted; the last close disables tuning. Host test `tx_isp_t41_tuning_open_test`.
+  - **Out-of-object accesses of the recovered core** (`vic_cmd_buf`, `tgain_wdr_s`, `direct_mode`, `ispmem`): moved to correctly sized objects or removed. A scan of the compiled module (`tests/t41_overrun/`) shows that in the agg-36 build none of them is executed on a linear-mode sensor; they do not explain the `/proc/jz/isp` oops. The only reachable out-of-object stores are in the WDR path: the unrecovered WDR fusion body writes about 36 KB past the module data and its copy loop cannot terminate, so it is now refused unless `t41_wdr_fusion_unsafe=1`.
+  - **Quiet kernel log:** 55 progress lines (subdev notify on every event, format ioctls, frame-channel open, buffer/stream diagnostics, init/deinit steps) were warnings; they are now info notes, logged only with `t41_runtime_trace=1`. A note reporting a non-zero `ret=`/`fail=` is still a warning.
+
 ## 2026-10-09
 
 - **Release candidate `agg-34` (da9baf1e, on top of `next`)** = agg-32 (3cf9bdac) + the front-crop fixes below + the T20 `isp-m0` gain cap. OpenIMP `agg-34` (838f8147) is its userspace counterpart. The combination has not run on the cameras as a whole; each fix below was device-tested on the SoC named (agg-32 soak: 43.4 h, 0 unplanned reboots and oopses on the cameras without user interaction).
