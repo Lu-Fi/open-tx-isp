@@ -80,4 +80,11 @@ if [ "$GOAL" = modules ]; then
 			"$HERE/driver/${SOC:-t31}"/*.ko "$HERE/driver"/*.ko || rc=1
 	done
 	[ $rc = 0 ] || { echo "ko symbol check FAILED"; exit 1; }
+	# Known importers (sensors, avpu, ...): the module must export what they
+	# use (driver/isp_imports.txt).
+	ko="$HERE/driver/${SOC:-t31}/tx-isp-${SOC:-t31}.ko"
+	if [ -f "$ko" ]; then
+		"$HERE/tests/check_isp_exports.sh" "${SOC:-t31}" "$ko" "${CROSS}readelf" ||
+			{ echo "ko export check FAILED"; exit 1; }
+	fi
 fi

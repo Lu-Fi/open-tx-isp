@@ -74,4 +74,18 @@ static inline void getrawmonotonic(struct timespec *ts)
 #define TX_ISP_PROC_RELEASE .release
 #endif
 
+/*
+ * Size: with TX_ISP_T31_EXPORT_WHITELIST (default, Kbuild) the module exports
+ * only the whitelist in tx_isp_t31_exports.h (built by tx_isp_t31_exports.c);
+ * every other EXPORT_SYMBOL becomes a plain declaration, so --gc-sections
+ * drops the functions nothing else references.
+ */
+#if defined(TX_ISP_T31_EXPORT_WHITELIST) && !defined(TX_ISP_T31_EXPORTS_C)
+#include <linux/export.h>
+#undef EXPORT_SYMBOL
+#undef EXPORT_SYMBOL_GPL
+#define EXPORT_SYMBOL(sym) extern int __tx_isp_t31_unexported_##sym
+#define EXPORT_SYMBOL_GPL(sym) extern int __tx_isp_t31_unexported_##sym
+#endif
+
 #endif

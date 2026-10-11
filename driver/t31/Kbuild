@@ -38,6 +38,25 @@ tx-isp-t31-objs := tx_isp_module.o \
                tx_isp_tuning_abi.o \
                tx_isp_vin.o
 tx-isp-t31-$(CONFIG_TX_ISP_T31_V4L2) += tx_isp_v4l2.o
+
+# Size: export only what sensors and other modules import (whitelist in
+# tx_isp_t31_exports.h, from driver/isp_imports.txt); the other exported
+# functions become unreferenced and --gc-sections drops them.  The check
+# fails the build when a known importer needs a symbol the module lacks.
+# TX_ISP_T31_EXPORT_ALL=y builds the old full export table.
+TX_ISP_T31_EXPORT_ALL ?= n
+ifneq ($(TX_ISP_T31_EXPORT_ALL),y)
+ccflags-y += -DTX_ISP_T31_EXPORT_WHITELIST
+tx-isp-t31-objs += tx_isp_t31_exports.o
+CFLAGS_tx_isp_t31_exports.o += -DTX_ISP_T31_EXPORTS_C
+endif
+always += tx_isp_t31_exports.checked
+clean-files += tx_isp_t31_exports.checked
+$(obj)/tx_isp_t31_exports.checked: $(obj)/tx-isp-t31.o $(src)/../isp_imports.txt \
+		$(src)/../../tests/check_isp_exports.sh
+	$(Q)$(CONFIG_SHELL) $(src)/../../tests/check_isp_exports.sh t31 $(obj)/tx-isp-t31.o \
+		$(CROSS_COMPILE)readelf $(src)/../isp_imports.txt
+	$(Q)touch $@
 ccflags-$(CONFIG_TX_ISP_T31_V4L2) += -DCONFIG_TX_ISP_T31_V4L2
 
 # Build both modules - changed tx-isp.o to tx-isp-t31.o
