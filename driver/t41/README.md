@@ -786,3 +786,20 @@ step and do not continue with larger sizes.
   allocation when ch0 runs first. Default stays `t41_msca_cfg_update=0`.
 - **Recommendation for streamers:** keep the T41 sub-stream (ch1) at
   <= 768x432.
+- **Oops reading /proc/jz/isp (2026-10-11, once, agg-36 soak).**
+  `grep -rh ... /proc/jz/isp/` died with "unaligned instruction access" at
+  epc 0x30886b47, ra in `proc_reg_unlocked_ioctl()`: uClibc's `fopen()`
+  issues TCGETS on every file, and `pde->proc_fops->unlocked_ioctl` held
+  garbage. No fops of this driver has an `unlocked_ioctl`, so a
+  `proc_dir_entry` (kmalloc-128) or a fops struct had been overwritten. The
+  same pass printed the audio AIC register dump, which only
+  `/proc/jz/audio/audio_aic_info` produces, so the directory's rbtree likely
+  reached a foreign entry too. A per-file second pass did not crash.
+  `t41_proc_watch=1` (default) snapshots every entry the driver creates under
+  /proc/jz/isp (inode, mode, iops, fops, parent, data, name, fops contents),
+  compares them every 50 ms and prints the old/new value with the
+  surrounding memory (first 10 reports in full, then counters only). It is
+  report-only: nothing is written back to the kernel structures. It also reports rbtree links of the isp directory
+  that point at entries the driver did not create. Counters:
+  `proc_watch_hits`, `proc_watch_rb_hits`. It narrows the window but does not
+  remove the writer; it only helps locate it.

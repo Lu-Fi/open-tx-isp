@@ -1140,6 +1140,10 @@ void t41_heapwatch_step(const char *where);
 void t41_heapwatch_start(void);
 void t41_heapwatch_stop(void);
 void t41_heapwatch_census(const char *where);
+void t41_procwatch_begin(void);
+void t41_procwatch_add(void *pde, const struct file_operations *fops);
+void t41_procwatch_start(void);
+void t41_procwatch_stop(void);
 static int t41_msca_cfg_update;
 module_param(t41_msca_cfg_update, int, 0644);
 MODULE_PARM_DESC(t41_msca_cfg_update,
@@ -6914,7 +6918,12 @@ int32_t private_misc_deregister(void *misc)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000bf4 origin=fragment_seed original=private_proc_create_data */
 int32_t private_proc_create_data(const char *name, umode_t mode, void *parent, const struct file_operations *fops, void *data)
 {
-    return (int32_t)proc_create_data(name, mode, parent, fops, data);
+    void *pde;
+
+    t41_procwatch_begin();
+    pde = proc_create_data(name, mode, parent, fops, data);
+    t41_procwatch_add(pde, fops);
+    return (int32_t)pde;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000c04 origin=model_output original=private_vmalloc */
@@ -7095,7 +7104,12 @@ int32_t private_single_open_size(struct file *file,
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000e5c origin=fragment_seed original=private_jz_proc_mkdir */
 void *private_jz_proc_mkdir(const char *name)
 {
-    return jz_proc_mkdir(name);
+    void *dir;
+
+    t41_procwatch_begin();
+    dir = jz_proc_mkdir(name);
+    t41_procwatch_add(dir, NULL);
+    return dir;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000e6c origin=model_output original=private_proc_remove */
@@ -40485,6 +40499,7 @@ int tx_isp_probe(struct platform_device *pdev)
         result = create_graph((uintptr_t)v0);
 
         if (result != 0) {
+            t41_procwatch_stop();
             private_proc_remove(*(void **)((char *)v0 + 0x138));
             private_misc_deregister((void *)((char *)v0 + 0xc));
             goto deinit_module;
@@ -40495,6 +40510,7 @@ int tx_isp_probe(struct platform_device *pdev)
     if (tx_isp_bringup_level >= 2)
         isp_mem_init();
     *(char **)((char *)v0 + 0x108) = "H20250310a";
+    t41_procwatch_start();
     isp_printf(1, "@@@@ tx-isp-probe ok (version %s) compiler date: %s @@@@\n",
 	       "H20250310a", __DATE__);
     asm volatile("" ::: "memory");
@@ -170971,6 +170987,7 @@ int tx_isp_remove(struct platform_device *pdev)
 		return 0;
 
 	private_misc_deregister((char *)ispdev + 0x0c);
+	t41_procwatch_stop();
 	private_proc_remove(*(void **)((char *)ispdev + 0x138));
 	tx_isp_unregister_platforms((int32_t *)((char *)ispdev + 0x88));
 	private_platform_set_drvdata(pdev, NULL);
