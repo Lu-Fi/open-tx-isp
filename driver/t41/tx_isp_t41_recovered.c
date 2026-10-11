@@ -21597,6 +21597,66 @@ static int t41_bin_read(const char *path, unsigned char **out, size_t *out_size)
     return 0;
 }
 
+/*
+ * What a successful SwitchBin still has to do once the tuning mutex is
+ * released.  Written by t41_tuning_switch_bin() under t41_tuning_mutex and
+ * taken over by isp_core_tunning_unlocked_ioctl() before it unlocks, so no
+ * second tuning thread can see it.
+ */
+struct t41_switch_bin_post {
+    bool armed;
+    unsigned int channel;
+};
+static struct t41_switch_bin_post t41_switch_bin_post;
+
+/* core+468 for the channel while the core is up, else NULL. */
+static uint32_t *t41_switch_pending(unsigned int channel)
+{
+    unsigned char *core = (unsigned char *)(uintptr_t)ispcore_sd;
+
+    if (channel >= 2 || !t41_kernel_data_ptr(core) ||
+        READ_ONCE(*(uint32_t *)(void *)(core + 296 + channel * sizeof(uint32_t))) != 4)
+        return NULL;
+    return (uint32_t *)(void *)(core + 468 + channel * sizeof(uint32_t));
+}
+
+/*
+ * Second half of SwitchBin, run without t41_tuning_mutex: let a pending
+ * fill/custom transition finish, ask for the re-apply and, like stock, return
+ * after the next frame took the request.  The request itself is written under
+ * t41_switch_bin_lock (shared with tisp_deinit) after the core was checked
+ * again, so it never lands in a core that went down in between.
+ */
+static int t41_switch_bin_finish(unsigned int channel)
+{
+    uint32_t *pending;
+    unsigned int i;
+
+    for (i = 0; i < 200; i++) {
+        pending = t41_switch_pending(channel);
+        if (!pending || READ_ONCE(*pending) <= TX_ISP_DAYNIGHT_SWITCH)
+            break;
+        msleep(5);
+    }
+    mutex_lock(&t41_switch_bin_lock);
+    pending = t41_switch_pending(channel);
+    if (!pending || !m_bin) {
+        mutex_unlock(&t41_switch_bin_lock);
+        return -ENODEV;
+    }
+    wmb();
+    WRITE_ONCE(*pending, TX_ISP_DAYNIGHT_SWITCH);
+    mutex_unlock(&t41_switch_bin_lock);
+
+    for (i = 0; i < 200; i++) {
+        pending = t41_switch_pending(channel);
+        if (!pending || READ_ONCE(*pending) == TX_ISP_DAYNIGHT_IDLE)
+            return 0;
+        msleep(5);
+    }
+    return -ETIMEDOUT;
+}
+
 static int t41_tuning_switch_bin(unsigned int channel, unsigned int is_get,
                                  uintptr_t user_ptr)
 {
@@ -21607,9 +21667,8 @@ static int t41_tuning_switch_bin(unsigned int channel, unsigned int is_get,
     const char *chosen;
     unsigned char *core, *manager, *blob = NULL, *day, *night, *old;
     unsigned char *attr;
-    uint32_t *state, *pending;
+    uint32_t *state;
     size_t size = 0;
-    unsigned int i;
     int ret;
 
     if (is_get || channel >= 2 || !user_ptr)
@@ -21623,7 +21682,6 @@ static int t41_tuning_switch_bin(unsigned int channel, unsigned int is_get,
     state = (uint32_t *)(void *)(core + 296 + channel * sizeof(uint32_t));
     if (READ_ONCE(*state) != 4)
         return -EBUSY;
-    pending = (uint32_t *)(void *)(core + 468 + channel * sizeof(uint32_t));
 
     ret = t41_switch_bin_req_check(&req, (const char *)(core + 740 + channel * 132),
                                    132, &chosen);
@@ -21700,20 +21758,16 @@ static int t41_tuning_switch_bin(unsigned int channel, unsigned int is_get,
         tiziano_reserve_reg_write((int8_t)((unsigned char *)&dnw)[2],
                                   (uintptr_t)(night + 0x1ee40), (uintptr_t)night);
 
-    /* Let a pending fill/custom transition finish, then ask for the re-apply. */
-    for (i = 0; i < 200 && READ_ONCE(*pending) > TX_ISP_DAYNIGHT_SWITCH; i++)
-        msleep(5);
-    wmb();
-    WRITE_ONCE(*pending, TX_ISP_DAYNIGHT_SWITCH);
+    /* The re-apply request and both waits follow after the ioctl released
+     * t41_tuning_mutex (t41_switch_bin_finish): up to 2 x 1 s of msleep must
+     * not block every other tuning ioctl of the application. */
     printk(KERN_WARNING
            "tx_isp_t41_recovered: switch-bin channel=%u path=%s size=%zu night=%u dnw=%#x\n",
            channel, path, size, info.night_off, info.dnw);
+    t41_switch_bin_post.armed = true;
+    t41_switch_bin_post.channel = channel;
     mutex_unlock(&t41_switch_bin_lock);
-
-    /* Like stock, return after the next frame took the request. */
-    for (i = 0; i < 200 && READ_ONCE(*pending) != TX_ISP_DAYNIGHT_IDLE; i++)
-        msleep(5);
-    return i == 200 ? -ETIMEDOUT : 0;
+    return 0;
 
 out:
     mutex_unlock(&t41_switch_bin_lock);
@@ -21929,11 +21983,21 @@ static int t41_tuning_scaler_lv(unsigned int vinum, unsigned int is_get,
 
 int64_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
+    struct t41_switch_bin_post post;
     int64_t ret;
 
     mutex_lock(&t41_tuning_mutex);
     ret = isp_core_tunning_unlocked_ioctl_body(a0, a1, a2);
+    post = t41_switch_bin_post;
+    t41_switch_bin_post.armed = false;
     mutex_unlock(&t41_tuning_mutex);
+    /* SwitchBin waits for the ISP thread; do that without the tuning mutex. */
+    if (post.armed) {
+        int err = t41_switch_bin_finish(post.channel);
+
+        if (!ret)
+            ret = err;
+    }
     return ret;
 }
 
