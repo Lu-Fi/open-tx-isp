@@ -8739,6 +8739,14 @@ static bool regtrace_t40_core_fixup_shadow0;
 static bool regtrace_t40_tisp_stream_vendor;
 /* AE: convert the GC4653 gain index to the bound sensor's register value through attr->sensor_ctrl.alloc_again (sc830ai expects its LUT value 0x4080.., not an index) */
 static bool regtrace_t40_ae_sensor_alloc_again = true;
+/*
+ * Vendor 1.3.1 core ISR: on status bit 0x400 it clears the MSCA work-enable
+ * bit of a freshly started channel and sets it again N frame-dones later
+ * (per-channel pending/countdown bytes).  t40_msca_work_handshake=N
+ * reproduces that from the open frame-done path (0 = off).
+ */
+static uint regtrace_t40_msca_work_handshake;
+static int regtrace_t40_msca_work_countdown;
 static bool regtrace_t40_vic_frame_output_msca_e0_clear;
 /* rmmod: the recovered tisp_deinit free loop oopsed four times on the Eufy T40XP; the regtrace layer frees its own tisp buffers. */
 static bool regtrace_skip_tisp_deinit = true;
@@ -9527,6 +9535,7 @@ module_param_named(t40_core_fixup_40, regtrace_t40_core_fixup_40, uint, 0644);
 module_param_named(t40_core_fixup_shadow0, regtrace_t40_core_fixup_shadow0, bool, 0644);
 module_param_named(t40_tisp_stream_vendor, regtrace_t40_tisp_stream_vendor, bool, 0644);
 module_param_named(t40_ae_sensor_alloc_again, regtrace_t40_ae_sensor_alloc_again, bool, 0644);
+module_param_named(t40_msca_work_handshake, regtrace_t40_msca_work_handshake, uint, 0644);
 module_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
 module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
 module_param_named(t40_stock_host_init_mask, regtrace_t40_stock_host_init_mask, uint, 0644);
@@ -24928,6 +24937,12 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
 
         /* vendor fixups again after the final top-register reapply */
         regtrace_t40_msca_vendor_fixups_apply(channel);
+        if (regtrace_t40_msca_work_handshake && channel == 0) {
+            regtrace_core_write(0x16008, 0);
+            regtrace_t40_msca_work_countdown = (int)regtrace_t40_msca_work_handshake;
+            printk(KERN_INFO "tx_isp_t40_recovered: MSCA work handshake armed: work_en cleared, re-enable after %u frame-dones\n",
+                   regtrace_t40_msca_work_handshake);
+        }
         if (regtrace_is_kernel_ptr(channel_data))
             *(uint32_t *)(channel_data + REGTRACE_CORE_CH_STATE_OFFSET) =
                 ret < 0 ? REGTRACE_FRAMECHAN_STATE_READY :
@@ -48722,6 +48737,14 @@ static int32_t regtrace_isp_irq_ack_only_filter(int32_t irq, void *dev_id)
     if (is_core && (frame_done_bits0 || frame_done_bits1 ||
                     frame_done_sec_bits0)) {
         regtrace_isp_irq_ack_only_frame_done_count++;
+        if (regtrace_t40_msca_work_countdown > 0 &&
+            --regtrace_t40_msca_work_countdown == 0) {
+            uint32_t we = 0;
+
+            regtrace_core_read(0x16008, &we);
+            regtrace_core_write(0x16008, we | 1U);
+            printk(KERN_INFO "tx_isp_t40_recovered: MSCA work handshake: work_en 0x%x -> 0x%x\n", we, we | 1U);
+        }
         regtrace_irq_frame_done_event(0, REGTRACE_IRQ_FD_SOURCE_ISP_CORE);
     } else if (is_core && (status0 || status1 || sec_status0)) {
         regtrace_isp_irq_ack_only_frame_done_skip_count++;
@@ -48895,6 +48918,14 @@ static void regtrace_isp_irq_post_dispatch_ack(int32_t irq, void *dev_id)
     if (is_core && (frame_done_bits0 || frame_done_bits1 ||
                     frame_done_sec_bits0)) {
         regtrace_isp_irq_ack_only_frame_done_count++;
+        if (regtrace_t40_msca_work_countdown > 0 &&
+            --regtrace_t40_msca_work_countdown == 0) {
+            uint32_t we = 0;
+
+            regtrace_core_read(0x16008, &we);
+            regtrace_core_write(0x16008, we | 1U);
+            printk(KERN_INFO "tx_isp_t40_recovered: MSCA work handshake: work_en 0x%x -> 0x%x\n", we, we | 1U);
+        }
         regtrace_irq_frame_done_event(0, REGTRACE_IRQ_FD_SOURCE_ISP_CORE);
     } else if (is_core && (status0 || status1 || sec_status0)) {
         regtrace_isp_irq_ack_only_frame_done_skip_count++;
