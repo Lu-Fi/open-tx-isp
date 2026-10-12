@@ -282,8 +282,15 @@ the IR night scene.  Parameters:
 
 With quality profile 5 (MDNS/YDNS/SDNS/YSP/ADR active) the core never
 raised the late status bits 0x100/0x200/0x400 and the output stayed zero;
-with profile 0 (blocks bypassed) the pipeline completes.  Next: bisect the
-blocks for image quality, then 720p/channel 1 and rmmod.
+with profile 0 (blocks bypassed) the pipeline completes.
+
+Block bisect (each run one boot, metrics only, media discarded):
+- r21a profile 0 + `enable_mdns=1`: 20 fps, 2.3 Mbit/s, luma mean 42 -> MDNS
+  is fine at 4K.
+- r23a same: 186 frames / 10 s, consecutive-frame SSIM 0.977..0.997.
+- r22a profile 0 + MDNS + YDNS + SDNS + YSP: immediate kernel panic
+  (self-reboot, no console); one of the Y blocks crashes at 4K.
+Next: YSP, SDNS, YDNS one at a time, then ADR, then 720p / channel 1 / rmmod.
 
 ### Next steps (host side first)
 
