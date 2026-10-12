@@ -159,9 +159,45 @@ Findings:
   sensor attribute is missing, but image quality on sc830ai is GC4653-tuned
   until an sc830ai bank exists.
 
-Open image recipe (firmware tree `claude/t40-prod-fw`): camera config
-`eufy_t8416_t40xp_sc830_aic8800d40_openisp` =
-`BR2_PACKAGE_THINGINO_ISP_OPEN=y` (open-tx-isp + OpenIMP), SDK sensor
-modules unchanged (the stock `sensor_sc830ai_t40.ko` resolves all 35 imports
-against this module, `tests/check_ko_symbols.sh`).  Build with
-`OPEN_TX_ISP_SITE=<this repo> OPEN_TX_ISP_VERSION=<sha>` on the make line.
+Open image recipe (firmware tree `claude/t40-prod-fw`): same camera config
+`eufy_t8416_t40xp_sc830_aic8800d40`, the ISP choice comes from the user
+overlay fragment (`BR2_PACKAGE_THINGINO_ISP_OPEN=y`, proprietary choice
+unset), open-tx-isp + OpenIMP, SDK sensor modules unchanged (the stock
+`sensor_sc830ai_t40.ko` resolves all 35 imports against this module,
+`tests/check_ko_symbols.sh`).  Build with `OPEN_TX_ISP_SITE=<this repo>
+OPEN_TX_ISP_VERSION=<sha>` on the make line.  Keep the camera name: the
+user overlay (U-Boot 2026.07, timps, WiFi) is keyed by it.
+
+### Device runs 2026-10-12 (test boots 1-3, commits 5e94df1e..68ac89d0)
+
+| run | state | result |
+|---|---|---|
+| b1 | vinum fix | `sc830ai stream on`, CSI/VIC/core streamon ret=0, isp-w02/isp-m0 IRQs run, 0 frames: tisp_main_init and MSCA used the synthetic GC4653 2560x1440 attribute; framechan1 events resolved to ch=-22; rmmod oops in `ispcore_slake_module` |
+| b2 | + early attr seed, late pad bind, slake call 1 | geometry 3840x2160, core frame-done IRQ (status0 0x2000) every ~106 ms, channel 0: `GetFrame` OK but 1 frame per 2 s (channel frame-done only every 1.65 s, buffer content all zero); pad 1 resolved to channel 0; rmmod oops at a second mis-resolved call |
+| b3 | + slake call 2, pad ids | ch0 native 3840x2160 (no scaler): same 1 frame / 1.65 s; ch0 1920x1080 run ended in a kernel panic (`panic=2` reboot, log lost: the kmsg drain wrote to tmpfs); extra run ch0 1280x720 with `irq_frame_done_require_content=0`: unchanged, so the content gate is not the limiter |
+
+Current state: sensor, CSI, VIC and the ISP core run; the MSCA output
+completes a frame only every ~1.65 s and writes no data (the sampler reads
+the buffer uncached, the zeros are real).  The deferred frame-done work
+(`regtrace_irq_frame_done_workfn`) finds a done address in the MSCA address
+FIFO (`Tzn_Msca_addr_fifo_read`) only at that cadence.
+
+### Next test plan (one boot, kmsg streamed to the host, never to /tmp)
+
+1. Baseline ch0 1280x720 with `t40_profile_direct_vic_feed=1` (VIC frame
+   MDMA to DDR, bypassing core/MSCA): proves CSI/VIC/sensor data flow and
+   gives a raw picture to check the MIPI setup (2 lanes, 1080 Mbps, boot 4).
+2. Same without the profile, read the bounded diag (`proc_live_reads=1`,
+   `head -c` on the frame-done/MSCA sections) right after `StartRecvPic`:
+   MSCA status/FIFO counters (0x16008, 0x1616c/0x16184 banks), core
+   status0/err bits (0x1000 + err 0x20 appear once per frame), tisp event
+   thread counters, `regtrace_irq_frame_done_*` counters.
+3. Vendor reference on the same boot image is not possible (vendor rmmod
+   oopses); take the vendor MSCA/core register values from a separate
+   vendor boot (`/proc/jz/isp` or the ISP register dump tool) and diff them
+   against the open driver's `regtrace_core_write` trace for 3840x2160.
+4. Reproduce the 1920x1080 panic with the console log captured (serial or
+   `netconsole`), it is the only kernel-fatal signature seen on this device.
+5. rmmod after a run: the two mis-resolved calls in `ispcore_slake_module`
+   are fixed on paper (68ac89d0) but untested; check with
+   `dmesg | grep -c "Unable to handle"`.
