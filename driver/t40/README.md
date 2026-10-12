@@ -303,8 +303,26 @@ Block bisect (each run one boot, metrics only, media discarded):
   10 s, luma mean 53).  rmmod afterwards oopsed in the `isp_core_tuning_clear`
   model stub (bad pointer); guarded in 6b70a5e5.  r33a: rmmod still takes
   the camera down (no console); reload is not usable yet.
+- t1 timps (OpenIMP backend, 4K main + sub stream) on the open module:
+  timpsd oopsed the kernel in the recovered `tisp_s_antiflick` (bad AE
+  parameter pointer) right after `SetISPRunningMode(night)` returned -1;
+  antiflicker is now a no-op unless `t40_allow_antiflick=1`.
+- WLAN failure of the agg38-fw/hybrid image (host-side diff): the user
+  overlay `thingino-user/common/overlay/etc/wpa_supplicant.conf` bakes
+  ssid FB_IOT_1 while the Eufy lives on FB_IOT_0 (its runtime overlay had
+  FB_IOT_0 and the flash replaced it); S38wpa_supplicant in agg38-fw adds a
+  preset/portal fallback on top.  Fix for the recipe: a per-camera
+  `wpa_supplicant.conf` in the eufy user-overlay dir, or keep the overlay.
 Next: rmmod retest, channel 1 next to channel 0 (a streamer config), the
 second-stream-start panic, the 1080p panic, YSP at 4K.
+
+### Daylight plan (image quality)
+1. Extract the sc830ai tuning from `/etc/sensor/sc830ai-t40.bin` (vendor IQ
+   bin, same layout the vendor module parses) and feed BLC/LSC/CCM/gamma
+   from it instead of the GC4653 literals; compare against the vendor
+   stream with the A/B method (same scene, metrics only).
+2. Find the profile >= 1 black (top40 bit 2 and the GC4653 literal tables).
+3. Daylight colour check: ircut on, AWB/CCM, then YSP at 4K.
 
 ### Next steps (host side first)
 

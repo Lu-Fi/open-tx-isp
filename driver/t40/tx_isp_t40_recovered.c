@@ -8748,6 +8748,8 @@ static bool regtrace_disable_dmsc_lit;
  * black image.  t40_generic_profile=1 selects that combination.
  */
 static bool regtrace_t40_generic_profile;
+/* timps on the Eufy oopsed in the recovered tisp_s_antiflick (bad AE param pointer); antiflicker stays a no-op unless enabled */
+static bool regtrace_t40_allow_antiflick;
 /*
  * Vendor 1.3.1 core ISR: on status bit 0x400 it clears the MSCA work-enable
  * bit of a freshly started channel and sets it again N frame-dones later
@@ -9546,6 +9548,7 @@ module_param_named(t40_tisp_stream_vendor, regtrace_t40_tisp_stream_vendor, bool
 module_param_named(t40_ae_sensor_alloc_again, regtrace_t40_ae_sensor_alloc_again, bool, 0644);
 module_param_named(disable_dmsc_lit, regtrace_disable_dmsc_lit, bool, 0644);
 module_param_named(t40_generic_profile, regtrace_t40_generic_profile, bool, 0644);
+module_param_named(t40_allow_antiflick, regtrace_t40_allow_antiflick, bool, 0644);
 module_param_named(t40_msca_work_handshake, regtrace_t40_msca_work_handshake, uint, 0644);
 module_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
 module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
@@ -181364,6 +181367,12 @@ tisp_enable_tuning0x2c8:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000072ed8 origin=fragment_seed original=tisp_s_antiflick */
 int64_t tisp_s_antiflick(uint32_t a0, uintptr_t a1, uint32_t a2)
 {
+    if (!regtrace_t40_allow_antiflick) {
+        static unsigned int af_log;
+        if (af_log++ < 4)
+            printk(KERN_INFO "tx_isp_t40_recovered: tisp_s_antiflick ignored (t40_allow_antiflick=0)\n");
+        return 0;
+    }
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
