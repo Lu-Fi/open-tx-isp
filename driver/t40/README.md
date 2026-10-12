@@ -324,7 +324,15 @@ Block bisect (each run one boot, metrics only, media discarded):
   buffers out as width*ALIGN(height,16); OpenIMP and the vendor use
   width*height*3/2, so 1080p frames overran their buffers by 8 lines.
   989e7424 makes the vendor layout the default (`t40_nv12_height_align=1`).
-Next: timps soak with the layout fix, rmmod/reload, YSP at 4K.
+- t7 timps with the layout fix still died with SIGBUS right after
+  "framesource 0 enabled".  kmsg showed the real cause: the second frame
+  channel (video1 640x360) enabled the core IRQ with irq index 1 (= the
+  second ISP core instance) -> `core IRQ OEM enable idx=1 ret=-22` ->
+  `core-event streamon ch=1 ret=-22`, OpenIMP then crashed timps.
+  f03d0700 maps the core IRQ to the vinum (channel/3, same as VIC/CSI)
+  and reference-counts the streaming channels so the shared IRQ is
+  enabled once and only disabled by the last channel.
+Next: timps soak (t8) with f03d0700, rmmod/reload, YSP at 4K.
 
 ### Daylight plan (image quality)
 1. Extract the sc830ai tuning from `/etc/sensor/sc830ai-t40.bin` (vendor IQ
