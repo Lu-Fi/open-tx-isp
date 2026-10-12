@@ -169465,6 +169465,8 @@ int32_t ispcore_core_ops_ioctl(uintptr_t a0, uint32_t a1, uintptr_t a2)
 			int32_t (*volatile get_fps)(uint32_t, uintptr_t) =
 				tisp_ae_get_fps;
 
+			static const uint32_t frame_done_arg[2] = { 0, 0 };
+
 			event_data[2] = *(uint32_t *)arg;
 			event_data[3] = *(uint32_t *)((char *)arg + 4);
 			++isp_ch0_frm_done;
@@ -169472,6 +169474,12 @@ int32_t ispcore_core_ops_ioctl(uintptr_t a0, uint32_t a1, uintptr_t a2)
 			ret = tx_isp_send_event_to_remote(
 				*(void **)(channels + 0x16c),
 				TX_ISP_FRAME_EVENT_BUFFER_DONE, event_data);
+			/* Steady-state channel-0 frames arrive here, not through
+			 * the ISR status-bit-0 branch, so this is where stock's
+			 * CORE_FRAME_DONE (0x04000002) belongs: advance
+			 * frame_done_cnt[0] and wake IMP_ISP_WaitFrameDone().
+			 * wake_up() is IRQ-safe; no sleeping call here. */
+			isp_frame_done_wakeup((uint32_t)(uintptr_t)frame_done_arg);
 		}
 		break;
 	default:
