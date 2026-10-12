@@ -8732,6 +8732,8 @@ static bool regtrace_t40_msca_vendor_fixups_2c;
 static uint regtrace_t40_core_fixup_88;
 static uint regtrace_t40_core_fixup_40;
 static bool regtrace_t40_core_fixup_shadow0;
+/* vendor 1.3.1 tisp_stream_on: 0x1010=0, 0x1014=0x11e, 0x1060=1, ..., 0x1010=1, 0x1014=1 */
+static bool regtrace_t40_tisp_stream_vendor;
 static bool regtrace_t40_vic_frame_output_msca_e0_clear;
 /* rmmod: the recovered tisp_deinit free loop oopsed four times on the Eufy T40XP; the regtrace layer frees its own tisp buffers. */
 static bool regtrace_skip_tisp_deinit = true;
@@ -9518,6 +9520,7 @@ module_param_named(t40_msca_vendor_fixups_2c, regtrace_t40_msca_vendor_fixups_2c
 module_param_named(t40_core_fixup_88, regtrace_t40_core_fixup_88, uint, 0644);
 module_param_named(t40_core_fixup_40, regtrace_t40_core_fixup_40, uint, 0644);
 module_param_named(t40_core_fixup_shadow0, regtrace_t40_core_fixup_shadow0, bool, 0644);
+module_param_named(t40_tisp_stream_vendor, regtrace_t40_tisp_stream_vendor, bool, 0644);
 module_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
 module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
 module_param_named(t40_stock_host_init_mask, regtrace_t40_stock_host_init_mask, uint, 0644);
@@ -24782,6 +24785,14 @@ static int regtrace_t40_msca_vendor_fixups_apply(int channel)
         regtrace_core_write(0x40, regtrace_t40_core_fixup_40);
     if (regtrace_t40_core_fixup_shadow0)
         regtrace_core_write(0x50420, 0);
+    if (regtrace_t40_tisp_stream_vendor && channel == 0) {
+        regtrace_core_write(0x1010, 0);
+        regtrace_core_write(0x1014, 0x11e);
+        regtrace_core_write(0x1060, 1);
+        regtrace_core_write(0x1010, 1);
+        regtrace_core_write(0x1014, 1);
+        printk(KERN_INFO "tx_isp_t40_recovered: tisp stream-on vendor sequence written (0x1010/0x1014/0x1060)\n");
+    }
     printk(KERN_INFO "tx_isp_t40_recovered: MSCA vendor fixups ch=%d unscaled=%d (%ux%u of %ux%u)\n",
            channel, unscaled, format.pix.width, format.pix.height, full_width, full_height);
     return 0;
@@ -24892,6 +24903,8 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
                 (uint32_t)channel, "core-final-streamon");
         }
 
+        /* vendor fixups again after the final top-register reapply */
+        regtrace_t40_msca_vendor_fixups_apply(channel);
         if (regtrace_is_kernel_ptr(channel_data))
             *(uint32_t *)(channel_data + REGTRACE_CORE_CH_STATE_OFFSET) =
                 ret < 0 ? REGTRACE_FRAMECHAN_STATE_READY :
