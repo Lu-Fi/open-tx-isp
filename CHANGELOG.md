@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-12: T41 device run of `claude/t41-isp-handlers` (72e92520, T41 .32 gc5603)
+
+- **Verified on the device:** the `/dev/isp-m0` handle counting (stability branch): a second open/close from another process while timps streams leaves brightness/contrast working (Y 33 -> 170 at brightness 200, 3 of 3 rounds), no oops. Reading every `/proc/jz/isp` entry 10 times: clean errors (EIO/EOPNOTSUPP) on the non-text entries, no oops, `proc_watch_hits`/`proc_watch_rb_hits` 0. 20 timps stop/start cycles without reload: snapshot and RTSP every time, no kernel errors. The IVDC interrupt does not fire with `direct_mode=0` (0 in 60 s).
+- **Not fixed:** the heap overwrite across module reloads (see `driver/t41/README.md`, known issues) oopsed in the 17th load/unload cycle, now in `__vunmap` -> `__free_pages(2)` instead of `module_param_sysfs_remove()`. The new ISP controls were not run because of it.
+
 ## 2026-10-11: T41 tuning controls (branch `claude/t41-isp-handlers`, not in an aggregate)
 
 Host tests and a module build against the agg-36 T41 kernel only; not run on a camera. Details and wire layouts: `docs/T41_TUNING_CONTROLS.md`.

@@ -777,6 +777,15 @@ step and do not continue with larger sizes.
   Diagnostics: `t41_heap_watch=1` (checks and repairs the array every jiffy,
   prints a step trail), reading `t41_heap_census` lists ISP registers that
   point into kernel RAM. Both are off/inert by default.
+  Device run 2026-10-12 (T41 .32, `claude/t41-isp-handlers` 72e92520, with
+  `t41_heap_watch=1`): 16 load/stop/unload cycles clean, the 17th oopsed
+  after heapwatch had reported `stopped hits=0`: "Unhandled kernel unaligned
+  access" in `rmmod`, epc `__free_pages+0x8` (page pointer = 2, BadVA 0x12),
+  ra `__vunmap+0xc4` from `sys_delete_module`. With the param array guarded,
+  the same small value now lands in the module area's vmalloc `pages[]`
+  array (also kmalloc-1024 for a ~600 KB module), so the writer hits
+  whatever kmalloc-1024 object reuses the address, not the param array
+  specifically. Still open; reload cycles stay unsafe on T41.
 - **ch1 >= 960x540 started mid-stream can hang the SoC** with
   `t41_msca_cfg_update=2` (no oops, watchdog reset), also on a fresh boot
   without any earlier reload (960x540: one run 21/21 cycles, one hung in
