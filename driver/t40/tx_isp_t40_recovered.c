@@ -71137,6 +71137,8 @@ tisp_deinit0x260:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_function_clear)(s1); /* jalr target resolved by relocation */
 
     /* fragment 60: MemoryAccess */
+    /* rmmod oops (Eufy 2026-10-12, BadVA 0xc): the 0x5cc error path arrives here with s0 == 0. */
+    if (!regtrace_is_kernel_ptr((void *)s0)) { s0 = (uintptr_t *)&tispinfo; }
     a0 = *(uint32_t *)((char *)s0 + 12);
 
     /* fragment 61: Branch */
