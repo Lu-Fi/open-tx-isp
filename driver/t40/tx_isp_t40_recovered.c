@@ -45015,7 +45015,7 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
                     int32_t a0_val = arg3[1];
                     void *s2_ptr = (void *)((uint32_t)arg1 * 0x60 + *(uint32_t*)((char*)arg2 + 0x10c));
                     void *v0_ptr = *(void**)((char*)s2_ptr + 0x170);
-                    uint32_t var_7c; int32_t var_78, var_74, var_70;
+                    uint32_t attr_out[5];
                     if (!regtrace_is_kernel_ptr(v0_ptr)) {
                         /* Eufy/timps: the core sensor slot is not filled by the regtrace sensor path (oops at +0xb4);
                          * answer tx_isp_sensor_g_attr from the bound sensor's own attribute and video state. */
@@ -45023,19 +45023,20 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
                         uintptr_t attr = regtrace_is_kernel_ptr((void *)sd) ? regtrace_get_u32(sd, 0x304) : 0;
                         if (!regtrace_is_kernel_ptr((void *)attr))
                             return -ENODEV;
-                        var_80 = regtrace_get_u16(attr, 0xb4);
-                        var_7c = regtrace_get_u16(attr, 0xb6);
-                        var_74 = (int32_t)regtrace_get_u32(sd, 0x2d0);
-                        var_70 = (int32_t)regtrace_get_u32(sd, 0x2d4);
-                        var_78 = (int32_t)regtrace_get_u32(sd, 0x314);
+                        attr_out[0] = regtrace_get_u16(attr, 0xb4);
+                        attr_out[1] = regtrace_get_u16(attr, 0xb6);
+                        attr_out[2] = regtrace_get_u32(sd, 0x314);
+                        attr_out[3] = regtrace_get_u32(sd, 0x2d0);
+                        attr_out[4] = regtrace_get_u32(sd, 0x2d4);
                     } else {
-                    var_80 = (uint32_t)*(uint16_t*)((char*)v0_ptr + 0xb4);
-                    var_7c = (uint32_t)*(uint16_t*)((char*)v0_ptr + 0xb6);
-                    var_78 = *(int32_t*)((char*)s2_ptr + 0x180);
-                    var_74 = *(int32_t*)((char*)s2_ptr + 0x178);
-                    var_70 = *(int32_t*)((char*)s2_ptr + 0x17c);
+                        attr_out[0] = *(uint16_t*)((char*)v0_ptr + 0xb4);
+                        attr_out[1] = *(uint16_t*)((char*)v0_ptr + 0xb6);
+                        attr_out[2] = *(uint32_t*)((char*)s2_ptr + 0x180);
+                        attr_out[3] = *(uint32_t*)((char*)s2_ptr + 0x178);
+                        attr_out[4] = *(uint32_t*)((char*)s2_ptr + 0x17c);
                     }
-                    result = private_copy_to_user(a0_val, &var_80, 0x14);
+                    var_80 = attr_out[0];
+                    result = private_copy_to_user(a0_val, attr_out, 0x14);
                     if (result == 0) {
                         return result;
                     }
