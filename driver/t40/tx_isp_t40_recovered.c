@@ -24040,6 +24040,10 @@ static unsigned char *regtrace_core_event_channel_data(void *pad_arg)
         if (!regtrace_is_kernel_ptr((void *)channels))
             return NULL;
         data = channels + index * 216U;
+        /* same semantics the resolver below expects: frame index, tisp id */
+        *(uint32_t *)(data + REGTRACE_CORE_CH_TISP_INDEX_OFFSET) = index;
+        *(uint32_t *)(data + REGTRACE_CORE_CH_TISP_ID_OFFSET) = index % 3U;
+        *(uint32_t *)(data + REGTRACE_CORE_CH_FRAME_INDEX_OFFSET) = index;
         *(uint32_t *)(pad + REGTRACE_CORE_PAD_CHANNEL_OFFSET) = (uint32_t)data;
         if (log_count < 8)
             printk(KERN_INFO "tx_isp_t40_recovered: core pad %u bound late to channel data %p (core=%p)\n",
@@ -193581,7 +193585,13 @@ ispcore_slake_module0xac:
     if (v1 != 0) { goto ispcore_slake_module0x9c; }
 
     /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s0) + 992), s4, 0); /* jalr target resolved by relocation */
+    /* OEM: tuning->ops[0x80](tuning, s4, 0); the seed bound this to private_i2c_set_clientdata (rmmod oops, BadVA 0x70). */
+    {
+        uintptr_t tuning = *(uint32_t *)((char *)(s0) + 992);
+        uintptr_t fn = regtrace_is_kernel_ptr((void *)tuning) ? *(uint32_t *)((char *)tuning + 128) : 0;
+        v0 = regtrace_is_kernel_ptr((void *)fn) ?
+            (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))fn)(tuning, s4, 0) : 0;
+    }
 
     /* fragment 19: Arithmetic */
     v0 = 1;
