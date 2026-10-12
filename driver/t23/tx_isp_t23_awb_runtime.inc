@@ -84,6 +84,7 @@ struct regtrace_t23_awb_hlil_snapshot {
     uint32_t pixels[REGTRACE_T23_AWB_HLIL_ZONES];
     uint32_t bank;
     uint32_t snapshot;
+    unsigned long stamp;    /* jiffies of the capture, 0 = none (GetAwbZone) */
 };
 
 struct regtrace_t23_awb_hlil_result {
@@ -888,6 +889,7 @@ static void regtrace_t23_source_awb_hlil_capture(const uint32_t *words,
     }
     regtrace_t23_awb_hlil_snapshot_data.bank = bank;
     regtrace_t23_awb_hlil_snapshot_data.snapshot = snapshot;
+    regtrace_t23_awb_hlil_snapshot_data.stamp = jiffies | 1UL;
     regtrace_t23_awb_hlil_pending = true;
     spin_unlock_irqrestore(&regtrace_t23_awb_hlil_lock, flags);
     schedule_work(&regtrace_t23_source_awb_hlil_work_item);

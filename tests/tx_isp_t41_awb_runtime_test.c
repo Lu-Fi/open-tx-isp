@@ -11,6 +11,7 @@
 #define DEFINE_SPINLOCK(n) int n
 #define READ_ONCE(v) (v)
 #define WRITE_ONCE(v,x) ((v)=(x))
+static unsigned long jiffies = 1000;	/* host tick: 1 ms (tx_isp_awb_zone.h) */
 #define smp_store_release(p,v) (*(p)=(v))
 #define module_param(...)
 #define DMA_FROM_DEVICE 1
@@ -113,10 +114,26 @@ int main(void)
     assert(s && allocations==2 && t41_awb_ready[0] && t41_native_awb_init(0,config)==-EBUSY);
     assert(s->info[0]==(uint32_t)(uintptr_t)s->saved.p && s->info[1]==(uint32_t)(uintptr_t)s->saved.s);
     assert(!memcmp(saved_calibration,calibration,sizeof(calibration)));
+    /* GetAwbStatistics planes (T41_AWB_ZONE, 2700 bytes): -EAGAIN before the
+     * stream runs, 0 with a frame of the last second, -EAGAIN when older or
+     * after a stop (tx_isp_t41_awb_zone_report.h). */
+    { static unsigned char zone[2700]; assert(t41_native_awb_control(0,T41_AWB_ZONE,zone,sizeof(zone),1)==-EAGAIN); }
     populate(s); t41_native_awb_start(); assert(t41_native_awb_live);
+    { static unsigned char zone[2700]; assert(t41_native_awb_control(0,T41_AWB_ZONE,zone,sizeof(zone),1)==-EAGAIN); }
     assert(t41_native_awb_deinit(0)==-EBUSY && allocations==2);
     for (i=0;i<100;++i) { registers[0x18050/4]=i&3; t41_native_awb_queue(); pump(); assert(!t41_native_awb_error); }
     assert(t41_native_awb_frames==100 && !t41_native_awb_dropped);
+    {
+        static unsigned char zone[2700]; unsigned int z;
+        assert(!t41_native_awb_control(0,T41_AWB_ZONE,zone,sizeof(zone),1));
+        for (z=0;z<2700;++z) assert(zone[z]==s->saved.s[0xeac0+z]);
+        jiffies+=1001; assert(t41_native_awb_control(0,T41_AWB_ZONE,zone,sizeof(zone),1)==-EAGAIN);
+        registers[0x18050/4]=0; t41_native_awb_queue(); pump(); assert(!t41_native_awb_error);
+        assert(!t41_native_awb_control(0,T41_AWB_ZONE,zone,sizeof(zone),1));
+        t41_native_awb_stop(); assert(t41_native_awb_control(0,T41_AWB_ZONE,zone,sizeof(zone),1)==-EAGAIN);
+        t41_native_awb_start(); assert(t41_native_awb_control(0,T41_AWB_ZONE,zone,sizeof(zone),1)==-EAGAIN);
+        t41_native_awb_queue(); pump(); assert(!t41_native_awb_control(0,T41_AWB_ZONE,zone,sizeof(zone),1));
+    }
     before=s->saved; n=writes;
     assert(!t41_native_awb_observe(0,values) && values[0]==1365 && values[1]==819);
     assert(!t41_native_awb_observe(1,values));
