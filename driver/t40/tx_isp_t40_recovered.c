@@ -45013,8 +45013,9 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
 
                 {
                     int32_t a0_val = arg3[1];
-                    void *s2_ptr = (void *)((uint32_t)arg1 * 0x60 + *(uint32_t*)((char*)arg2 + 0x10c));
-                    void *v0_ptr = *(void**)((char*)s2_ptr + 0x170);
+                    uint32_t slots = *(uint32_t*)((char*)arg2 + 0x10c);
+                    void *s2_ptr = (void *)((uint32_t)arg1 * 0x60 + slots);
+                    void *v0_ptr = regtrace_is_kernel_ptr((void *)(uintptr_t)slots) ? *(void**)((char*)s2_ptr + 0x170) : NULL;
                     uint32_t attr_out[5];
                     if (!regtrace_is_kernel_ptr(v0_ptr)) {
                         /* Eufy/timps: the core sensor slot is not filled by the regtrace sensor path (oops at +0xb4);
