@@ -8726,6 +8726,12 @@ static uint regtrace_t40_vic_frame_output_msca_word74 = 0x05ce3607U;
 static uint regtrace_t40_vic_frame_output_msca_word8c = 0x05ee1607U;
 static bool regtrace_t40_vic_frame_output_msca_words = true;
 static bool regtrace_t40_vic_frame_output_msca_work28;
+/* Eufy vendor 1.3.1 A/B (2026-10-12): unscaled channel coefficients 0x200/0/0x200/0, FIFO words 0x1617c=1, 0x16194=0x11001, 0x1602c=0x7600 */
+static bool regtrace_t40_msca_vendor_fixups;
+static bool regtrace_t40_msca_vendor_fixups_2c;
+static uint regtrace_t40_core_fixup_88;
+static uint regtrace_t40_core_fixup_40;
+static bool regtrace_t40_core_fixup_shadow0;
 static bool regtrace_t40_vic_frame_output_msca_e0_clear;
 /* rmmod: the recovered tisp_deinit free loop oopsed four times on the Eufy T40XP; the regtrace layer frees its own tisp buffers. */
 static bool regtrace_skip_tisp_deinit = true;
@@ -9507,6 +9513,11 @@ module_param_named(t40_vic_frame_output_msca_word74, regtrace_t40_vic_frame_outp
 module_param_named(t40_vic_frame_output_msca_word8c, regtrace_t40_vic_frame_output_msca_word8c, uint, 0644);
 module_param_named(t40_vic_frame_output_msca_words, regtrace_t40_vic_frame_output_msca_words, bool, 0644);
 module_param_named(t40_vic_frame_output_msca_work28, regtrace_t40_vic_frame_output_msca_work28, bool, 0644);
+module_param_named(t40_msca_vendor_fixups, regtrace_t40_msca_vendor_fixups, bool, 0644);
+module_param_named(t40_msca_vendor_fixups_2c, regtrace_t40_msca_vendor_fixups_2c, bool, 0644);
+module_param_named(t40_core_fixup_88, regtrace_t40_core_fixup_88, uint, 0644);
+module_param_named(t40_core_fixup_40, regtrace_t40_core_fixup_40, uint, 0644);
+module_param_named(t40_core_fixup_shadow0, regtrace_t40_core_fixup_shadow0, bool, 0644);
 module_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
 module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
 module_param_named(t40_stock_host_init_mask, regtrace_t40_stock_host_init_mask, uint, 0644);
@@ -20360,6 +20371,10 @@ static void regtrace_t40_msca_fifo_apply_addr_tags(uint32_t channel,
             *y = (*y & ~7U) | 7U;
             *uv = (*uv & ~7U) | 7U;
         }
+    } else if (regtrace_t40_msca_fifo_addr_tag_mode == 4U) {
+        /* vendor 1.3.1 (Eufy T40XP, devtest 4K ch0): 0x16174 = y|6, 0x1618c = uv|7 */
+        *y = (*y & ~7U) | 6U;
+        *uv = (*uv & ~7U) | 7U;
     } else if (channel == 0) {
         *y = (*y & ~7U) | 4U;
         *uv = (*uv & ~7U) | 5U;
@@ -24739,6 +24754,39 @@ static int regtrace_t40_vic_frame_output_enable(int channel, int enable)
     return 0;
 }
 
+static int regtrace_t40_msca_vendor_fixups_apply(int channel)
+{
+    struct regtrace_frame_image_format format;
+    uint32_t full_width = 0, full_height = 0, bank;
+    int unscaled;
+
+    if (!regtrace_t40_msca_vendor_fixups || channel < 0 || channel >= 3)
+        return 0;
+    regtrace_get_framechan_format(channel, &format);
+    regtrace_sensor_dimensions((uint32_t)channel, &full_width, &full_height);
+    unscaled = format.pix.width == full_width && format.pix.height == full_height;
+    bank = (uint32_t)channel * REGTRACE_T40_MSCA_CH_BANK_STRIDE;
+    if (unscaled) {
+        regtrace_core_write(0x161c0 + bank, 0x200);
+        regtrace_core_write(0x161c4 + bank, 0);
+        regtrace_core_write(0x161c8 + bank, 0x200);
+        regtrace_core_write(0x161cc + bank, 0);
+    }
+    regtrace_core_write(0x1617c + bank, 1);
+    regtrace_core_write(0x16194 + bank, 0x11001);
+    if (regtrace_t40_msca_vendor_fixups_2c)
+        regtrace_core_write(0x1602c, 0x7600);
+    if (regtrace_t40_core_fixup_88)
+        regtrace_core_write(0x88, regtrace_t40_core_fixup_88);
+    if (regtrace_t40_core_fixup_40)
+        regtrace_core_write(0x40, regtrace_t40_core_fixup_40);
+    if (regtrace_t40_core_fixup_shadow0)
+        regtrace_core_write(0x50420, 0);
+    printk(KERN_INFO "tx_isp_t40_recovered: MSCA vendor fixups ch=%d unscaled=%d (%ux%u of %ux%u)\n",
+           channel, unscaled, format.pix.width, format.pix.height, full_width, full_height);
+    return 0;
+}
+
 static int regtrace_core_event_stream(void *pad_arg, int enable)
 {
     unsigned char *pad = pad_arg;
@@ -24804,6 +24852,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
         subret = regtrace_t40_vic_frame_output_enable(channel, 1);
         if (subret < 0 && !ret)
             ret = subret;
+        regtrace_t40_msca_vendor_fixups_apply(channel);
 
         if (regtrace_enable_t40_msca_cfg_after_video) {
             subret = regtrace_t40_msca_cfg_program(channel, "after-video");
@@ -173427,6 +173476,12 @@ int32_t Tzn_Msca_Shd_line_chx(int32_t arg1, int32_t arg2, int32_t arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006d50c origin=fragment_seed original=Tzn_Msca_addr_fifo_write */
 int64_t Tzn_Msca_addr_fifo_write(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
+    if (regtrace_t40_vic_frame_output && a1 == 0) {
+        static unsigned int skip_log;
+        if (skip_log++ < 2)
+            printk(KERN_INFO "tx_isp_t40_recovered: MSCA addr FIFO write skipped (VIC frame output owns ch0 addresses) y=0x%x uv=0x%x\n", a2, a3);
+        return 0;
+    }
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     unsigned char *state;
     uint32_t group;
