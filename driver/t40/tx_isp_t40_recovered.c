@@ -6772,7 +6772,7 @@ void private_clk_disable(struct clk *clk);
 int32_t private_clk_disable_unprepare(uint32_t a0);
 unsigned long private_clk_get_rate(struct clk *clk);
 void private_clk_put(struct clk *clk);
-int32_t private_devm_clk_put(void);
+void private_devm_clk_put(struct device *dev, struct clk *clk);
 int32_t private_clk_set_rate(struct clk *clk, unsigned long rate);
 int private_i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num);
 int private_i2c_add_driver(struct i2c_driver *driver);
@@ -28314,11 +28314,12 @@ void private_clk_put(struct clk *clk)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000124 origin=model_output original=private_devm_clk_put */
-int32_t private_devm_clk_put(void)
+/* The OEM wrapper forwards (dev, clk) to devm_clk_put; the vendor T40
+ * sensor modules (sc830ai, sc3338) import it and call it on remove.  The
+ * recovered body passed NULL for both. */
+void private_devm_clk_put(struct device *dev, struct clk *clk)
 {
-    void (*fp)(struct device *, struct clk *) = devm_clk_put;
-    fp(NULL, NULL);
-    return 0;
+    devm_clk_put(dev, clk);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000134 origin=model_output original=private_clk_set_rate */
@@ -54182,7 +54183,8 @@ int32_t isp_subdev_release_clks(void *arg1)
             int32_t a0_val = *s1;
             s1 = s1 - 1;
             private_clk_disable_unprepare(a0_val);
-            private_devm_clk_put();
+            /* devm clocks are released with the device; the recovered
+             * argument-less put would have dereferenced a NULL device */
         }
 
         private_kfree(NULL);
@@ -197086,6 +197088,7 @@ EXPORT_SYMBOL(private_clk_get_rate);
 EXPORT_SYMBOL(private_clk_disable_unprepare);
 EXPORT_SYMBOL(private_clk_prepare_enable);
 EXPORT_SYMBOL(private_devm_clk_get);
+EXPORT_SYMBOL(private_devm_clk_put);
 EXPORT_SYMBOL(private_i2c_add_driver);
 EXPORT_SYMBOL(private_i2c_del_driver);
 EXPORT_SYMBOL(private_i2c_get_clientdata);
