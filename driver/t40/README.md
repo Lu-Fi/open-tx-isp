@@ -211,6 +211,44 @@ FIFO (`Tzn_Msca_addr_fifo_read`) only at that cadence.
 - timpsd did not start on one vendor restore boot (no log line); manual
   `S95timps start` worked.  Keep S95timps at mode 0755 when restoring.
 
+### Round 3, 2026-10-12 night (A/B register oracle, commits f25ce716..0855c953)
+
+Method: the same `t40_devtest` + OpenIMP `libimp.so` run on the vendor
+1.3.1 module (39 fps at 4K) and on the open module (1 empty frame per
+1.65 s), registers read with `devmem` mid-stream and diffed
+(`t40prod/out/pv/v2/regs.txt` vs `out/p4/r11a/*-regs.txt`, full core
+0x13300000-0x13320000, VIC, CSI, PHY).
+
+- The vendor does not use the VIC DMA bank (0x13380300 stays idle); the
+  frame-output path in f25ce716 is therefore off and only kept as an
+  experiment.
+- The vendor keeps the MSCA address FIFO like the open driver but with
+  other words: Y 0x80021100 / UV 0x80022001, addresses tagged y|6 uv|7,
+  1:1 coefficients 0x200/0/0x200/0, 0x1617c = 1, 0x16194 = 0x11001,
+  0x1602c = 0x7600, shadow 0x50420 = 0, top 0x88 = 0x101, 0x40 =
+  0x7fd0000d, `tisp_stream_on` writes 0x1010=0, 0x1014=0x11e, 0x1060=1,
+  then 0x1010=1, 0x1014=1.  All of this is now reproducible through
+  parameters (`t40_msca_fifo_ch0_*`, `t40_msca_fifo_addr_tag_mode=4`,
+  `t40_msca_vendor_fixups`, `t40_quality_top40_override`,
+  `tisp_main_init_reg88_override`, `t40_core_fixup_shadow0`,
+  `t40_tisp_stream_vendor`, `sensor_full_*_override`) and was verified in
+  the dump; the result did not change: the ISP core raises its frame-done
+  (status0 0x2000) per frame, the MSCA FIFO keeps its two tagged entries
+  (0x1617c/0x16194 = 0x22001) and never consumes them.
+- What still differs after that: the tuning blocks the open driver never
+  configures (DPC 0x3000, 0x4000/0x5000, AE/AWB statistics 0x7000/0x8000,
+  0xb000, 0xe000, 0x10000/0x11000 and the LUTs) and the group
+  0x13301104/0x1120/0x1134/0x1138/0x1160 (vendor 0x58f/0/0x333/0x100010/
+  0xc700, open 0xde70716/0x20000/0/0x10002/0xa000; 0xa000 = 2560*16 again
+  looks GC4653-sized).  Their writers are the tisp parameter tables, not
+  direct register writes.
+- Every second stream start after a 4K run panics (five of five), the
+  first run never does; one run per boot until the cause is known.
+  The kernel has no netconsole, so the panic text is lost.
+- The sc3338 counter-check (sensor module loaded before the first
+  AddSensor, CSI1, 2304x1296) detects and streams the sensor but oopses in
+  `tx_isp_send_event_to_remote+0x3c0` at `FS_EnableChn`; not analysed.
+
 ### Next steps (host side first)
 
 1. Implement VIC frame mode for the normal path: allocate the raw ring
