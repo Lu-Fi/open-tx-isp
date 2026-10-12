@@ -4,6 +4,17 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-12
+
+- **T31/T23 `fcrop_upscale_pct` capped at 100 (2.0x):**
+  - **Measured on the T31 Garage (T31X, sc4336p),** main 1920x1080 + sub 640x360 together:
+    - Steps 10/20/33/50/75/100 % with windows down to 960x540, each held 60 s: clean, with no frame loss and no decode errors.
+    - Crop off/on and idle frame-source off/on with the crop active also ran clean.
+  - **At 150 % (768x432, 2.5x)** the window was accepted and the SoC hard-hung at once. The hardware watchdog reset it after about 60 s, without an oops, so no recovery is possible.
+  - **Driver change:** it now clamps the parameter to 100 on T31 and T23, whatever value is written. The default stays 0, which never allows an upscale.
+  - The T31L uses the same driver and MSCA path; the same limit is expected but has not been measured.
+  - Host test `tests/tx_isp_t31_fcrop_test`. The modules build against the agg-37 kernels; the cap itself is not yet device-tested as a module.
+
 ## 2026-10-09
 
 - **Release candidate `agg-34` (da9baf1e, on top of `next`)** = agg-32 (3cf9bdac) + the front-crop fixes below + the T20 `isp-m0` gain cap. OpenIMP `agg-34` (838f8147) is its userspace counterpart. The combination has not run on the cameras as a whole; each fix below was device-tested on the SoC named (agg-32 soak: 43.4 h, 0 unplanned reboots and oopses on the cameras without user interaction).

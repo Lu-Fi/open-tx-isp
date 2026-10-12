@@ -3277,7 +3277,7 @@ static struct { u32 en, top, left, width, height; } t31_fcrop;
  * Writable at run time: /sys/module/tx_isp_t31/parameters/fcrop_upscale_pct */
 static unsigned int fcrop_upscale_pct;
 module_param(fcrop_upscale_pct, uint, 0644);
-MODULE_PARM_DESC(fcrop_upscale_pct, "front crop: allowed MSCA upscale in percent (0 = none)");
+MODULE_PARM_DESC(fcrop_upscale_pct, "front crop: allowed MSCA upscale in percent (0 = none, capped at 100)");
 
 int tisp_s_fcrop_control(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5);
 
