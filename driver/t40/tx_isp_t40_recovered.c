@@ -48364,6 +48364,15 @@ static void regtrace_irq_frame_done_work_init(void)
 
 static long regtrace_irq_frame_done_event(int channel, uint32_t source)
 {
+    if (source == REGTRACE_IRQ_FD_SOURCE_ISP_CORE &&
+        regtrace_t40_msca_work_countdown > 0 &&
+        --regtrace_t40_msca_work_countdown == 0) {
+        uint32_t we = 0;
+
+        regtrace_core_read(0x16008, &we);
+        regtrace_core_write(0x16008, we | 1U);
+        printk(KERN_INFO "tx_isp_t40_recovered: MSCA work handshake (fd event): work_en 0x%x -> 0x%x\n", we, we | 1U);
+    }
     /* OEM ISR port owns delivery when enabled -- the shim must not also
      * pop the done FIFOs or double-deliver. */
     if (regtrace_enable_oem_isr_lit)
