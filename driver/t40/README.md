@@ -299,7 +299,11 @@ Block bisect (each run one boot, metrics only, media discarded):
 - Recommended for the Eufy: `t40_quality_profile=0 t40_generic_profile=1`
   (607695b7) = profile 0 plus MDNS, SDNS, YDNS, ADR, CCM, gamma, BLC, LSC,
   GIB; YSP and DMSC-lit off.
-Next: 720p scaled channel 0, channel 1, rmmod.
+- r32a generic profile, channel 0 scaled to 1280x720: fine (201 frames /
+  10 s, luma mean 53).  rmmod afterwards oopsed in the `isp_core_tuning_clear`
+  model stub (bad pointer); guarded in 6b70a5e5, retest pending.
+Next: rmmod retest, channel 1 next to channel 0 (a streamer config), the
+second-stream-start panic, the 1080p panic, YSP at 4K.
 
 ### Next steps (host side first)
 
