@@ -8737,6 +8737,8 @@ static uint regtrace_t40_core_fixup_40;
 static bool regtrace_t40_core_fixup_shadow0;
 /* vendor 1.3.1 tisp_stream_on: 0x1010=0, 0x1014=0x11e, 0x1060=1, ..., 0x1010=1, 0x1014=1 */
 static bool regtrace_t40_tisp_stream_vendor;
+/* AE: convert the GC4653 gain index to the bound sensor's register value through attr->sensor_ctrl.alloc_again (sc830ai expects its LUT value 0x4080.., not an index) */
+static bool regtrace_t40_ae_sensor_alloc_again = true;
 static bool regtrace_t40_vic_frame_output_msca_e0_clear;
 /* rmmod: the recovered tisp_deinit free loop oopsed four times on the Eufy T40XP; the regtrace layer frees its own tisp buffers. */
 static bool regtrace_skip_tisp_deinit = true;
@@ -9524,6 +9526,7 @@ module_param_named(t40_core_fixup_88, regtrace_t40_core_fixup_88, uint, 0644);
 module_param_named(t40_core_fixup_40, regtrace_t40_core_fixup_40, uint, 0644);
 module_param_named(t40_core_fixup_shadow0, regtrace_t40_core_fixup_shadow0, bool, 0644);
 module_param_named(t40_tisp_stream_vendor, regtrace_t40_tisp_stream_vendor, bool, 0644);
+module_param_named(t40_ae_sensor_alloc_again, regtrace_t40_ae_sensor_alloc_again, bool, 0644);
 module_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
 module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
 module_param_named(t40_stock_host_init_mask, regtrace_t40_stock_host_init_mask, uint, 0644);
@@ -22437,6 +22440,23 @@ static int regtrace_ae_sensor_apply_maybe(int channel, const char *reason)
         packed = (max_again << 16) | (packed & 0xffffU);
         again = max_again;
         regtrace_ae_sensor_apply_clamp_count[channel]++;
+    }
+    if (regtrace_t40_ae_sensor_alloc_again &&
+        regtrace_is_kernel_ptr(regtrace_sensor_subdev)) {
+        uintptr_t attr = regtrace_get_u32((uintptr_t)regtrace_sensor_subdev, 0x304);
+        uintptr_t fn = regtrace_is_kernel_ptr((void *)attr) ? regtrace_get_u32(attr, 0xc4) : 0;
+
+        if (regtrace_is_kernel_ptr((void *)fn)) {
+            uint32_t log2 = regtrace_gc4653_again_log2_gain(again);
+            unsigned int sensor_again = 0;
+            static unsigned int alloc_log;
+
+            ((unsigned int (*)(unsigned int, unsigned char, unsigned int *))fn)(log2, 16, &sensor_again);
+            if (alloc_log++ < 8)
+                printk(KERN_INFO "tx_isp_t40_recovered: AE alloc_again idx=%u log2=%u -> sensor_again=0x%x\n",
+                       again, log2, sensor_again);
+            packed = (sensor_again << 16) | (packed & 0xffffU);
+        }
     }
 
     regtrace_ae_sensor_apply_last_dirty[channel] = dirty;
