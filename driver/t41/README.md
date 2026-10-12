@@ -842,7 +842,8 @@ step and do not continue with larger sizes.
   and none targets a `proc_dir_entry` or `file_operations`. The proc oops
   cause is still open. GCC reorders the recovered statics after most code
   changes, so anchor-relative recovered accesses hit different neighbours
-  in every build. WDR fusion is refused unless `t41_wdr_fusion_unsafe=1`.- **Device run 2026-10-12 (reload-fix module, 50 reload cycles, heap_watch=1
+  in every build. WDR fusion is refused unless `t41_wdr_fusion_unsafe=1`.
+- **Device run 2026-10-12 (reload-fix module, 50 reload cycles, heap_watch=1
   heap_decoys=32).** No oops, no open framechan fds before any rmmod, snapshot
   200 after every cycle, `proc_watch_hits` and `heap_watch_hits` stayed 0. In 10
   of 50 cycles a decoy fired: always a kmalloc-512 decoy (slot number varies),
