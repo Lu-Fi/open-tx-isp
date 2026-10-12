@@ -274,7 +274,7 @@ Run r20a: open module (clock fix a16b94f3, AE alloc_again b0611287), 4K
 channel 0, 39 frames per 2 s (20 fps), 2.4 Mbit/s H.264, decoded frame is
 the IR night scene.  Parameters:
 
-    insmod tx-isp-t40.ko isp_clk=300000000 t40_quality_profile=0 \
+    insmod tx-isp-t40.ko isp_clk=300000000 t40_quality_profile=0 t40_generic_profile=1 \
         enable_mdns=0 enable_adr_reg_writes=0 enable_ydns=0 enable_sdns=0 \
         enable_ysp=0 sensor_full_width_override=3840 \
         sensor_full_height_override=2160 skip_tisp_deinit=1
