@@ -8739,6 +8739,15 @@ static bool regtrace_t40_core_fixup_shadow0;
 static bool regtrace_t40_tisp_stream_vendor;
 /* AE: convert the GC4653 gain index to the bound sensor's register value through attr->sensor_ctrl.alloc_again (sc830ai expects its LUT value 0x4080.., not an index) */
 static bool regtrace_t40_ae_sensor_alloc_again = true;
+/* bisect aid: keep the quality profile but leave the literal DMSC path off */
+static bool regtrace_disable_dmsc_lit;
+/*
+ * Eufy T40XP/sc830ai 2026-10-13: quality profile 0 plus the individually
+ * verified blocks (MDNS, SDNS, YDNS, ADR, CCM, gamma, BLC, LSC, GIB) streams
+ * 4K at 20 fps; YSP panics and profiles >= 1 (GC4653 literal tables) give a
+ * black image.  t40_generic_profile=1 selects that combination.
+ */
+static bool regtrace_t40_generic_profile;
 /*
  * Vendor 1.3.1 core ISR: on status bit 0x400 it clears the MSCA work-enable
  * bit of a freshly started channel and sets it again N frame-dones later
@@ -9535,6 +9544,8 @@ module_param_named(t40_core_fixup_40, regtrace_t40_core_fixup_40, uint, 0644);
 module_param_named(t40_core_fixup_shadow0, regtrace_t40_core_fixup_shadow0, bool, 0644);
 module_param_named(t40_tisp_stream_vendor, regtrace_t40_tisp_stream_vendor, bool, 0644);
 module_param_named(t40_ae_sensor_alloc_again, regtrace_t40_ae_sensor_alloc_again, bool, 0644);
+module_param_named(disable_dmsc_lit, regtrace_disable_dmsc_lit, bool, 0644);
+module_param_named(t40_generic_profile, regtrace_t40_generic_profile, bool, 0644);
 module_param_named(t40_msca_work_handshake, regtrace_t40_msca_work_handshake, uint, 0644);
 module_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
 module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
@@ -196840,7 +196851,7 @@ static void regtrace_apply_t40_bringup_profile(void)
         /* DMSC(13). */
         regtrace_tisp_main_init_top40_value = 0x7ffd88fb;
         regtrace_t40_quality_top40_final = 0x7ffd88fbU;
-        regtrace_enable_dmsc_lit = true;
+        regtrace_enable_dmsc_lit = !regtrace_disable_dmsc_lit;
     }
     if (regtrace_t40_quality_profile == 3U) {
         /* BLC(0) only. */
@@ -196862,6 +196873,20 @@ static void regtrace_apply_t40_bringup_profile(void)
         /* LSC(1). */
         regtrace_t40_quality_top40_final = 0x7ffd88d8U;
         regtrace_enable_lsc_lit = true;
+    }
+    if (regtrace_t40_generic_profile) {
+        regtrace_enable_mdns = true;
+        regtrace_enable_sdns = true;
+        regtrace_enable_ydns = true;
+        regtrace_enable_adr_reg_writes = true;
+        regtrace_enable_ccm = true;
+        regtrace_enable_soft_gamma = true;
+        regtrace_enable_blc_lit = true;
+        regtrace_enable_lsc_lit = true;
+        regtrace_enable_gib_lit = true;
+        regtrace_enable_ysp = false;
+        regtrace_enable_dmsc_lit = false;
+        printk(KERN_INFO "tx_isp_t40_recovered: T40 generic profile: denoise/ADR/CCM/gamma/BLC/LSC/GIB on, YSP and DMSC-lit off\n");
     }
     if (regtrace_t40_quality_top40_override) {
         regtrace_tisp_main_init_top40_value =
