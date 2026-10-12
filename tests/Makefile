@@ -501,6 +501,16 @@ clean: clean-awb-zone
 clean-awb-zone:
 	$(RM) tx_isp_awb_zone_test
 
+# T41 GetAwbStatistics planes: freshness contract (tx_isp_t41_awb_zone_report.h)
+TESTS += tx_isp_t41_awb_zone_report_test
+tx_isp_t41_awb_zone_report_test: tx_isp_t41_awb_zone_report_test.c \
+		../driver/t41/tx_isp_t41_awb_zone_report.h ../driver/include/tx_isp/tx_isp_awb_zone.h
+	$(CC) $(CFLAGS) -I../driver/include -o $@ $<
+clean: clean-t41-awb-zone-report
+.PHONY: clean-t41-awb-zone-report
+clean-t41-awb-zone-report:
+	$(RM) tx_isp_t41_awb_zone_report_test
+
 # T10/T20 GetAwbZone (driver/t20 tuning, T2X_CID_AWB_ZONE)
 TESTS += tx_isp_t2x_awb_zone_test
 tx_isp_t2x_awb_zone_test: tx_isp_t2x_awb_zone_test.c \
