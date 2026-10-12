@@ -8713,6 +8713,18 @@ static bool regtrace_proc_live_reads;
 static uint regtrace_t40_quality_profile = 5;
 static uint regtrace_t40_quality_top40_override;
 static bool regtrace_t40_profile_direct_vic_feed;
+/*
+ * Eufy T40XP/sc830ai 2026-10-12: the vendor 1.3.1 module routes the channel-0
+ * output through the VIC DMA engine (VIC+0x300 bank holds the framechan NV12
+ * buffers) and programs the MSCA DMA control words 0x44001; the MSCA address
+ * FIFO mode (0x80004100) of the GC4653 bring-up writes nothing on this device.
+ */
+static bool regtrace_t40_vic_frame_output;
+static uint regtrace_t40_vic_frame_output_msca_ctrl = 0x00044001U;
+static uint regtrace_t40_vic_frame_output_msca_ctrl2 = 0x00044001U;
+static uint regtrace_t40_vic_frame_output_msca_word74 = 0x05ce3607U;
+static uint regtrace_t40_vic_frame_output_msca_word8c = 0x05ee1607U;
+static bool regtrace_t40_vic_frame_output_msca_words = true;
 /* rmmod: the recovered tisp_deinit free loop oopsed four times on the Eufy T40XP; the regtrace layer frees its own tisp buffers. */
 static bool regtrace_skip_tisp_deinit = true;
 static bool regtrace_t40_profile_no_direct_irq_defaults = true;
@@ -9486,6 +9498,12 @@ module_param_named(sensor_full_height_override, regtrace_sensor_full_height_over
 module_param_named(t40_msca_scaler_level, regtrace_t40_msca_scaler_level, uint, 0644);
 module_param_named(csi_direct_stage_limit, regtrace_csi_direct_stage_limit, uint, 0644);
 module_param_named(csi_settle_override, regtrace_csi_settle_override, uint, 0644);
+module_param_named(t40_vic_frame_output, regtrace_t40_vic_frame_output, bool, 0644);
+module_param_named(t40_vic_frame_output_msca_ctrl, regtrace_t40_vic_frame_output_msca_ctrl, uint, 0644);
+module_param_named(t40_vic_frame_output_msca_ctrl2, regtrace_t40_vic_frame_output_msca_ctrl2, uint, 0644);
+module_param_named(t40_vic_frame_output_msca_word74, regtrace_t40_vic_frame_output_msca_word74, uint, 0644);
+module_param_named(t40_vic_frame_output_msca_word8c, regtrace_t40_vic_frame_output_msca_word8c, uint, 0644);
+module_param_named(t40_vic_frame_output_msca_words, regtrace_t40_vic_frame_output_msca_words, bool, 0644);
 module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
 module_param_named(t40_stock_host_init_mask, regtrace_t40_stock_host_init_mask, uint, 0644);
 module_param_named(oem_event_pre_csi_stream, regtrace_oem_event_pre_csi_stream, bool, 0644);
@@ -24641,6 +24659,77 @@ static int regtrace_core_event_tisp_bootstrap(int channel, uint32_t tisp_id)
     return ret;
 }
 
+static int regtrace_t40_vic_frame_output_enable(int channel, int enable)
+{
+    uintptr_t vic_dev;
+    uintptr_t regs_addr;
+    volatile void __iomem *base;
+    struct regtrace_frame_image_format format;
+    uint32_t width, height, stride, ysize, count, ctrl, bank, i;
+    uint32_t y[REGTRACE_VIC_MDMA_RING_SLOTS], uv[REGTRACE_VIC_MDMA_RING_SLOTS];
+    int irq_index;
+
+    if (!regtrace_t40_vic_frame_output || channel != 0)
+        return 0;
+    vic_dev = regtrace_resolve_vic_dev();
+    if (!regtrace_is_kernel_ptr((void *)vic_dev))
+        return -ENODEV;
+    regs_addr = regtrace_get_u32(vic_dev, REGTRACE_VIC_BASE_OFFSET);
+    if (!regtrace_is_kernel_ptr((void *)regs_addr))
+        return -ENODEV;
+    irq_index = (int)tx_isp_vic_index_cal(vic_dev, (uint32_t)regtrace_channel_vinum(channel));
+    if (irq_index < 0 || irq_index >= REGTRACE_MAX_IRQS_PER_DEVICE)
+        irq_index = regtrace_channel_vinum(channel);
+    base = (volatile void __iomem *)(regs_addr + ((uintptr_t)irq_index << 16));
+    bank = (uint32_t)channel * REGTRACE_T40_MSCA_CH_BANK_STRIDE;
+    if (!enable) {
+        writel(0, base + 0x300);
+        writel(0, base + 0x308);
+        printk(KERN_INFO "tx_isp_t40_recovered: VIC frame output off ch=%d\n", channel);
+        return 0;
+    }
+    regtrace_get_framechan_format(channel, &format);
+    width = format.pix.width ? format.pix.width : regtrace_framechan_default_width(channel);
+    height = format.pix.height ? format.pix.height : regtrace_framechan_default_height(channel);
+    count = regtrace_framechan_qbuf_count[channel];
+    if (!width || !height || !count || count > REGTRACE_FRAMECHAN_QBUF_SHADOW_MAX)
+        return -EINVAL;
+    stride = width;
+    ysize = width * height;
+    for (i = 0; i < REGTRACE_VIC_MDMA_RING_SLOTS; i++) {
+        uint32_t src = i % count;
+        y[i] = regtrace_framechan_qbuf_phys[channel][src];
+        uv[i] = regtrace_framechan_qbuf_uv[channel][src] ?
+            regtrace_framechan_qbuf_uv[channel][src] : y[i] + ysize;
+        if (!y[i])
+            return -EINVAL;
+    }
+    writel(1, base + 0x308);
+    writel((width << 16) | height, base + 0x304);
+    writel(stride, base + 0x310);
+    writel(stride, base + 0x314);
+    for (i = 0; i < REGTRACE_VIC_MDMA_RING_SLOTS; i++) {
+        writel(y[i], base + 0x318 + i * 4);
+        writel(uv[i], base + 0x32c + i * 4);
+        writel(uv[i], base + 0x340 + i * 4);
+    }
+    ctrl = (count << 16) | 0x80000020U | 7U;
+    wmb();
+    writel(ctrl, base + 0x300);
+    if (regtrace_t40_vic_frame_output_msca_words) {
+        regtrace_core_write(0x16170 + bank, regtrace_t40_vic_frame_output_msca_ctrl);
+        regtrace_core_write(0x16188 + bank, regtrace_t40_vic_frame_output_msca_ctrl);
+        regtrace_core_write(0x1617c + bank, regtrace_t40_vic_frame_output_msca_ctrl2);
+        regtrace_core_write(0x16194 + bank, regtrace_t40_vic_frame_output_msca_ctrl2);
+        regtrace_core_write(0x16174 + bank, regtrace_t40_vic_frame_output_msca_word74);
+        regtrace_core_write(0x1618c + bank, regtrace_t40_vic_frame_output_msca_word8c);
+    }
+    printk(KERN_INFO "tx_isp_t40_recovered: VIC frame output on ch=%d idx=%d %ux%u stride=%u count=%u ctrl=0x%x y0=0x%x uv0=0x%x msca_words=%u\n",
+           channel, irq_index, width, height, stride, count, ctrl, y[0], uv[0],
+           regtrace_t40_vic_frame_output_msca_words ? 1U : 0U);
+    return 0;
+}
+
 static int regtrace_core_event_stream(void *pad_arg, int enable)
 {
     unsigned char *pad = pad_arg;
@@ -24703,6 +24792,9 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
         subret = regtrace_vic_frame_mdma_stream(channel, 1);
         if (subret < 0 && !ret)
             ret = subret;
+        subret = regtrace_t40_vic_frame_output_enable(channel, 1);
+        if (subret < 0 && !ret)
+            ret = subret;
 
         if (regtrace_enable_t40_msca_cfg_after_video) {
             subret = regtrace_t40_msca_cfg_program(channel, "after-video");
@@ -24754,6 +24846,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
         regtrace_core_first_frame_regs(0);
         regtrace_tisp_stream_regs(0, channel);
         regtrace_vic_frame_mdma_stream(channel, 0);
+        regtrace_t40_vic_frame_output_enable(channel, 0);
         regtrace_core_channel_stream(channel, 0);
         regtrace_framechan_call_vic_stream(channel, 0);
         regtrace_framechan_call_csi_stream(channel, 0);
@@ -25055,6 +25148,7 @@ static long regtrace_framechan_stream_ioctl(int channel, unsigned int cmd, unsig
         regtrace_framechan_call_csi_stream(channel, 1);
     } else {
         regtrace_vic_frame_mdma_stream(channel, 0);
+        regtrace_t40_vic_frame_output_enable(channel, 0);
         regtrace_core_channel_stream(channel, 0);
     }
 
