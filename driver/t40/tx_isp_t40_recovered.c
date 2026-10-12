@@ -8538,6 +8538,9 @@ static void regtrace_patch_relocated_data(void)
     *(const void **)((char *)isp_core_clk_info + 0x0) = (const void *)"gate_ahb0";
     *(const void **)((char *)isp_core_clk_info + 0x8) = (const void *)"gate_isp";
     *(const void **)((char *)isp_core_clk_info + 0x10) = (const void *)"div_isp";
+    /* OEM tx_isp_core_probe takes the div_isp rate from the isp_clk parameter (Eufy: 300 MHz); the seed table said 200 MHz and the ISP core overflowed on every 4K frame (status err 0x20 "isp overflow"). */
+    if (isp_clk > 0)
+        *(uint32_t *)((char *)isp_core_clk_info + 0x14) = (uint32_t)isp_clk;
     *(const void **)((char *)tx_isp_core_resource + 0x8) = (const void *)"isp-device";
     *(const void **)((char *)tx_isp_core_resource + 0x24) = (const void *)"isp-irq-id";
     *(const void **)((char *)tx_isp_fs_resource + 0x8) = (const void *)"isp-device";
