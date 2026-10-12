@@ -16546,7 +16546,7 @@ static int regtrace_t23_msca_geom_verdict(int channel, const char *what,
                                 buf_width, buf_height);
     /* 2.0x measured clean on T23; the T31 MSCA hard-hangs at 2.5x, so
      * never trust a larger value here either */
-    unsigned int up = min(READ_ONCE(fcrop_upscale_pct), 100U);
+    unsigned int up = min(TX_ISP_READ_ONCE(fcrop_upscale_pct), 100U);
 
     if (r == T23_MSCA_GEOM_UPSCALE && up &&
         (u64)g->scl_width * 100U <=
