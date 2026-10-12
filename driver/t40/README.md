@@ -268,6 +268,23 @@ index into the EXPO event while sc830ai's `set_expo` expects the LUT
 register value (0x4080 = 1x).  b0611287 converts the index through the
 sensor's `alloc_again`.
 
+### 2026-10-13 00:28 – first real frames on the Eufy T40XP / sc830ai
+
+Run r20a: open module (clock fix a16b94f3, AE alloc_again b0611287), 4K
+channel 0, 39 frames per 2 s (20 fps), 2.4 Mbit/s H.264, decoded frame is
+the IR night scene.  Parameters:
+
+    insmod tx-isp-t40.ko isp_clk=300000000 t40_quality_profile=0 \
+        enable_mdns=0 enable_adr_reg_writes=0 enable_ydns=0 enable_sdns=0 \
+        enable_ysp=0 sensor_full_width_override=3840 \
+        sensor_full_height_override=2160 skip_tisp_deinit=1
+    insmod sensor_sc830ai_t40.ko
+
+With quality profile 5 (MDNS/YDNS/SDNS/YSP/ADR active) the core never
+raised the late status bits 0x100/0x200/0x400 and the output stayed zero;
+with profile 0 (blocks bypassed) the pipeline completes.  Next: bisect the
+blocks for image quality, then 720p/channel 1 and rmmod.
+
 ### Next steps (host side first)
 
 1. Implement VIC frame mode for the normal path: allocate the raw ring
