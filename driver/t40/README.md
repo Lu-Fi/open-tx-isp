@@ -261,6 +261,13 @@ re-set after N frames); bit 0x400 never fired on the open driver while the
 core overflowed.  Vendor counters are readable in `/proc/jz/isp/isp-m0`
 (`debug0`), the sensor IQ bin is loaded from `/etc/sensor/sc830ai-t40.bin`.
 
+After the clock fix the pipeline runs at 20 fps with 24/24 devtest passes
+but all-zero output; the direct VIC feed dump (r15a) now contains pixel
+data, so the black came from the sensor: the AE packed its GC4653 gain
+index into the EXPO event while sc830ai's `set_expo` expects the LUT
+register value (0x4080 = 1x).  b0611287 converts the index through the
+sensor's `alloc_again`.
+
 ### Next steps (host side first)
 
 1. Implement VIC frame mode for the normal path: allocate the raw ring
