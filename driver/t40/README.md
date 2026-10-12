@@ -332,7 +332,20 @@ Block bisect (each run one boot, metrics only, media discarded):
   f03d0700 maps the core IRQ to the vinum (channel/3, same as VIC/CSI)
   and reference-counts the streaming channels so the shared IRQ is
   enabled once and only disabled by the last channel.
-Next: timps soak (t8) with f03d0700, rmmod/reload, YSP at 4K.
+- t8 (f03d0700): no -22 chain any more, but timps died again right after
+  "framesource 0 enabled", now SIGSEGV pc=libimp VBMGetFrame+0xd4.
+  Resolved via the crash maps + LD_TRACE: the crashing libimp is
+  `/lib/libimp.so` = the **Ingenic vendor** library of the hybrid image
+  (strings "IMP-ISP", "Ingenic High Pass Filter"), not OpenIMP.  All timps
+  runs t1-t8 therefore ran vendor libimp against the open driver; its
+  VBMGetFrame builds the frame pointer from an index the open DQBUF does
+  not fill the vendor way -> wild pointer (t7 si_addr=0, t8 0x62dbef84).
+  devtest always used OpenIMP (`LD_LIBRARY_PATH=/tmp/otx/lib`), which is
+  why it streams.  p5-timps.sh now uploads lib2/libimp.so (OpenIMP
+  t40-prod, frame gate) and starts timpsd with LD_LIBRARY_PATH=/tmp/otx/lib.
+  For the open image: libimp must be OpenIMP (thingino-isp-open), the
+  vendor ingenic-lib libimp cannot sit on the open driver.
+Next: timps soak (t9) with OpenIMP libimp, rmmod/reload, YSP at 4K.
 
 ### Daylight plan (image quality)
 1. Extract the sc830ai tuning from `/etc/sensor/sc830ai-t40.bin` (vendor IQ
