@@ -397,6 +397,11 @@ TESTS += scene_colorfx_host_test
 scene_colorfx_host_test: scene_colorfx_host_test.c ../driver/common/tx_isp_scene_colorfx.h
 	$(CC) $(CFLAGS) -I../driver/common -o $@ $<
 
+TESTS += t31_sharpness_host_test
+
+t31_sharpness_host_test: t31_sharpness_host_test.c ../driver/t31/tx_isp_t31_sharpness.h
+	$(CC) $(CFLAGS) -o $@ $<
+
 TESTS += t21_sepia_host_test
 
 t21_sepia_host_test: t21_sepia_host_test.c ../driver/t21/tx_isp_t21_tuning_ctl.h ../driver/common/tx_isp_csc.h
@@ -466,7 +471,7 @@ clean:
 	$(RM) tx_isp_t41_awb_runtime_test
 	$(RM) tx_isp_t41_awb_detect_test
 	$(RM) tx_isp_t41_awb_long_test
-	$(RM) tx_isp_t41_tuning_ctl_test t21_sepia_host_test
+	$(RM) tx_isp_t41_tuning_ctl_test t21_sepia_host_test t31_sharpness_host_test
 	$(RM) tx_isp_t41_awb_stats_test
 	$(RM) tx_isp_math_test tx_isp_modulation_test \
 		tx_isp_awb_mesh_test \
