@@ -170,6 +170,86 @@ static void t41_hw_dump(const char *what, const u32 *base, int from, int to)
 		       base[i + 7]);
 }
 
+
+/*
+ * Decoys (t41_heap_decoys=N, needs t41_heap_watch=1): N objects each of
+ * kmalloc-256/-512/-1024, allocated first thing in init_module() and filled
+ * with a pattern.  SLUB hands out the most recently freed objects first, so
+ * the decoys sit in the slots the previous module lifetime (and the sensor
+ * module) just freed.  A stale pointer into one of those objects then hits a
+ * decoy instead of a live kernel object; the report names the size class
+ * and the offset, i.e. the type of the freed object, and the driver step.
+ * Device evidence so far: the stray word always lands at 0x1c4 modulo 0x200.
+ */
+#define T41_HW_DECOY_MAX 64
+#define T41_HW_DECOY_PATTERN 0x6b6b6b6bU
+static int t41_heap_decoys;
+module_param(t41_heap_decoys, int, 0444);
+static unsigned int t41_heap_decoy_hits;
+module_param_named(heap_decoy_hits, t41_heap_decoy_hits, uint, 0444);
+static const size_t t41_hw_decoy_size[3] = { 256, 512, 1024 };
+static u32 *t41_hw_decoy[3][T41_HW_DECOY_MAX];
+static unsigned int t41_hw_decoy_n;
+
+void t41_heapwatch_decoys_arm(void)
+{
+	unsigned int c, i, w;
+
+	if (t41_heap_watch <= 0 || t41_heap_decoys <= 0)
+		return;
+	t41_hw_decoy_n = min_t(unsigned int, t41_heap_decoys, T41_HW_DECOY_MAX);
+	for (c = 0; c < 3; ++c)
+		for (i = 0; i < t41_hw_decoy_n; ++i) {
+			u32 *d = kmalloc(t41_hw_decoy_size[c], GFP_KERNEL);
+
+			t41_hw_decoy[c][i] = d;
+			if (!d)
+				continue;
+			for (w = 0; w < t41_hw_decoy_size[c] / 4; ++w)
+				d[w] = T41_HW_DECOY_PATTERN;
+		}
+	printk(KERN_WARNING "t41-heapwatch: %u decoys per class (256/512/1024) armed, first 512 %p\n",
+	       t41_hw_decoy_n, t41_hw_decoy[1][0]);
+}
+
+static void t41_hw_check_decoys(const char *where)
+{
+	unsigned int c, i, w;
+
+	for (c = 0; c < 3; ++c)
+		for (i = 0; i < t41_hw_decoy_n; ++i) {
+			u32 *d = t41_hw_decoy[c][i];
+
+			if (!d)
+				continue;
+			for (w = 0; w < t41_hw_decoy_size[c] / 4; ++w) {
+				if (d[w] == T41_HW_DECOY_PATTERN)
+					continue;
+				if (t41_heap_decoy_hits++ < 16) {
+					printk(KERN_ERR "t41-heapwatch: %s: decoy kmalloc-%zu #%u @%p +%#x = %08x (last step %s %lu jiffies ago)\n",
+					       where, t41_hw_decoy_size[c], i, &d[w], w * 4, d[w],
+					       t41_hw_last_step, jiffies - t41_hw_last_step_j);
+					if (t41_heap_decoy_hits == 1)
+						t41_hw_print_ring();
+				}
+				d[w] = T41_HW_DECOY_PATTERN;
+			}
+		}
+}
+
+static void t41_hw_free_decoys(void)
+{
+	unsigned int c, i;
+
+	t41_hw_check_decoys("free");
+	for (c = 0; c < 3; ++c)
+		for (i = 0; i < T41_HW_DECOY_MAX; ++i) {
+			kfree(t41_hw_decoy[c][i]);
+			t41_hw_decoy[c][i] = NULL;
+		}
+	t41_hw_decoy_n = 0;
+}
+
 static void t41_hw_check(const char *where)
 {
 	struct t41_hw_mp *mp;
@@ -177,6 +257,7 @@ static void t41_hw_check(const char *where)
 	unsigned int i;
 	int bad = 0;
 
+	t41_hw_check_decoys(where);
 	if (!t41_hw_armed)
 		return;
 	mp = (struct t41_hw_mp *)THIS_MODULE->mkobj.mp;
@@ -282,8 +363,10 @@ void t41_heapwatch_step(const char *where)
 
 void t41_heapwatch_stop(void)
 {
-	if (!t41_hw_armed)
+	if (!t41_hw_armed) {
+		t41_hw_free_decoys();
 		return;
+	}
 	del_timer_sync(&t41_hw_timer);
 	t41_hw_check("stop");
 	{
@@ -297,6 +380,7 @@ void t41_heapwatch_stop(void)
 				       i, &a[i], a[i], &mp->attrs[i].mattr.attr);
 	}
 	t41_hw_armed = false;
+	t41_hw_free_decoys();
 	kfree(t41_hw_attrs_snap);
 	kfree(t41_hw_mp_snap);
 	printk(KERN_WARNING "t41-heapwatch: stopped hits=%u attrs=%p\n", t41_heap_watch_hits,

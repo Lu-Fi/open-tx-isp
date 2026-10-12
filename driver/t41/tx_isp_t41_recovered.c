@@ -1148,6 +1148,7 @@ module_param(t41_msca_stop_disable, int, 0644);
 void t41_heapwatch_mark(const char *step);
 void t41_heapwatch_step(const char *where);
 void t41_heapwatch_start(void);
+void t41_heapwatch_decoys_arm(void);
 void t41_heapwatch_stop(void);
 void t41_heapwatch_census(const char *where);
 void t41_procwatch_begin(void);
@@ -5937,6 +5938,12 @@ static void regtrace_patch_relocated_data(void)
     *(const void **)((char *)fs_internal_ops + 0x8) = (const void *)&fs_suspend_module;
     *(const void **)((char *)fs_internal_ops + 0xc) = (const void *)&fs_resume_module;
     *(const void **)((char *)fs_core_ops + 0x20) = (const void *)&fs_core_ops_ioctl;
+    /* Without an owner an open /dev/framechanN does not pin the module:
+     * rmmod succeeds, and the file keeps private_data into the freed channel
+     * array and f_op into the freed module image (the next load usually sits
+     * at the same address, so release then runs and writes channel states
+     * 3/2 into memory that is no longer the driver's). */
+    *(const void **)((char *)fs_channel_ops + 0x0) = (const void *)THIS_MODULE;
     *(const void **)((char *)fs_channel_ops + 0x20) = (const void *)&frame_channel_unlocked_ioctl;
     *(const void **)((char *)fs_channel_ops + 0x2c) = (const void *)&frame_channel_open;
     *(const void **)((char *)fs_channel_ops + 0x34) = (const void *)&frame_channel_release;
@@ -25466,12 +25473,14 @@ void tx_isp_free_irq(uintptr_t a0)
         count = T41_MAX_IRQS_PER_DEVICE;
 
     for (idx = 0; idx < count; idx++) {
-        uintptr_t slot = a0 + (idx * sizeof(uint32_t));
         unsigned int irq = *(uint32_t *)(a0 + T41_IRQ_SLOT_IRQ_OFF +
                                          (idx * sizeof(uint32_t)));
 
+        /* dev_id must match tx_isp_request_irq(), which passes the
+         * slot base for every index; with a second IRQ the per-index
+         * pointer made free_irq() miss and left the handler installed. */
         if (irq)
-            private_free_irq(irq, (void *)slot);
+            private_free_irq(irq, (void *)a0);
         *(uint32_t *)(a0 + T41_IRQ_SLOT_IRQ_OFF +
                       (idx * sizeof(uint32_t))) = 0;
         *(uint32_t *)(a0 + T41_IRQ_SLOT_STATE_OFF +
@@ -171075,19 +171084,24 @@ int32_t init_module(void)
 {
 	int ret;
 
+    t41_heapwatch_decoys_arm();
     regtrace_patch_relocated_data();
 	ret = tx_isp_init();
-	if (ret)
+	if (ret) {
+		t41_heapwatch_stop();
 		return ret;
+	}
 	ret = tx_isp_sinfo_init();
 	if (ret) {
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
+		t41_heapwatch_stop();
 		return ret;
 	}
 	ret = tx_isp_t41_v4l2_init(&tx_isp_platform_device.dev);
 	if (ret) {
 		tx_isp_sinfo_exit();
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
+		t41_heapwatch_stop();
 		return ret;
 	}
 	t41_heapwatch_start();
