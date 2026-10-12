@@ -786,6 +786,33 @@ step and do not continue with larger sizes.
   array (also kmalloc-1024 for a ~600 KB module), so the writer hits
   whatever kmalloc-1024 object reuses the address, not the param array
   specifically. Still open; reload cycles stay unsafe on T41.
+  Branch `claude/t41-reload-fix` (host/build-tested only): the hit lands at
+  0x1c4 modulo 0x200 in every report (param array in kmalloc-512 builds,
+  vmalloc `pages[]` in kmalloc-512 now), so the stale object is most likely
+  a freed kmalloc-512 (or -256) object. Fixed there: `fs_channel_ops` had no
+  `owner`, so an open `/dev/framechanN` did not pin the module and its
+  release/streamoff could run after a reload against the freed channel
+  array (they store channel states 3 and 2); `tx_isp_free_irq()` freed IRQs
+  with a different `dev_id` than requested for index > 0. New diagnostic
+  `t41_heap_decoys=N` (with `t41_heap_watch=1`) parks N pattern-filled
+  kmalloc-256/512/1024 objects in the slots the previous lifetime freed and
+  reports class, offset and driver step of any stray write.
+  Device run 2026-10-12 (T41 .32, 397409ac, decoys=32 + heap_watch): 50
+  load/stop/unload cycles, no oops, decoy/heap/proc watch hits 0 in every
+  cycle (the earlier build hit a decoy in cycle 5). The "csi init ignored
+  bad vinum" log line never appeared, so the bad csi caller was not seen
+  in this run. Separately `IMP_ISP_WaitFrameDone` still fails on the device:
+  the counter stays at 13 and every wait times out, so the frame-channel
+  signal in 397409ac is not reached per frame.
+- **TMO does not run (2026-10-12).** `t41_tmo_frames=0`, `t41_tmo_error=-11`
+  is the value set at stream start, not a returned error: the TMO worker is
+  only queued from ISR status bit 17, and no bit-17 IRQ was logged in the
+  whole run although bit 17 is enabled in 0x40020. Stream start holds the
+  TMO top bypass (bit 22) until the first map is built from TMO statistics,
+  and with the block bypassed its statistics engine apparently produces no
+  bank, so the map is never built. Not changed: releasing the bypass before
+  a map exists shows the calibration curve unvalidated; needs a device A/B
+  first. SetTmoCurve has no visible effect until then.
 - **ch1 >= 960x540 started mid-stream can hang the SoC** with
   `t41_msca_cfg_update=2` (no oops, watchdog reset), also on a fresh boot
   without any earlier reload (960x540: one run 21/21 cycles, one hung in
@@ -823,3 +850,14 @@ step and do not continue with larger sizes.
   cause is still open. GCC reorders the recovered statics after most code
   changes, so anchor-relative recovered accesses hit different neighbours
   in every build. WDR fusion is refused unless `t41_wdr_fusion_unsafe=1`.
+- **Device run 2026-10-12 (reload-fix module, 50 reload cycles, heap_watch=1
+  heap_decoys=32).** No oops, no open framechan fds before any rmmod, snapshot
+  200 after every cycle, `proc_watch_hits` and `heap_watch_hits` stayed 0. In 10
+  of 50 cycles a decoy fired: always a kmalloc-512 decoy (slot number varies),
+  always offset +0x1c4, value 3 shortly after arming, then 2 one jiffy after
+  `tx_isp_release` at the next rmmod. Same signature as the param-attribute
+  hit above, so the stale writer is still there, but now it lands in a decoy
+  instead of the param array and no longer oopses. **WaitFrameDone still not
+  fixed:** the counter stays constant (13) and every call returns after its full
+  timeout with ret 0; the `isp_frame_done_wakeup()` call in the core 0x0100000b
+  path is not reached (or does not advance the counter) in steady state.
