@@ -28410,10 +28410,37 @@ static int regtrace_debug_proc_open(struct inode *inode, struct file *file)
     return single_open(file, regtrace_debug_proc_show, NULL);
 }
 
+static int regtrace_core_exit_steps(int upto, int from_proc);
+
+/*
+ * "echo exit N > /proc/tx_isp_t40_recovered" runs the first N steps of the
+ * module exit sequence with kmsg still streaming, so an rmmod that takes
+ * the camera down without any console output can be bisected step by
+ * step.  Steps already run are skipped by the real cleanup_module.
+ */
+static ssize_t regtrace_debug_proc_write(struct file *file,
+                                         const char __user *ubuf,
+                                         size_t count, loff_t *ppos)
+{
+    char buf[32];
+    int upto = 0;
+
+    if (count >= sizeof(buf))
+        count = sizeof(buf) - 1;
+    if (copy_from_user(buf, ubuf, count))
+        return -EFAULT;
+    buf[count] = 0;
+    if (sscanf(buf, "exit %d", &upto) != 1)
+        return -EINVAL;
+    regtrace_core_exit_steps(upto, 1);
+    return count;
+}
+
 static const struct file_operations regtrace_debug_proc_fops = {
     .owner = THIS_MODULE,
     .open = regtrace_debug_proc_open,
     .read = seq_read,
+    .write = regtrace_debug_proc_write,
     .llseek = seq_lseek,
     .release = single_release,
 };
@@ -28526,7 +28553,7 @@ static int regtrace_register_bootstrap_devices(void)
     }
 
     if (!regtrace_debug_proc) {
-        regtrace_debug_proc = proc_create("tx_isp_t40_recovered", 0444, NULL,
+        regtrace_debug_proc = proc_create("tx_isp_t40_recovered", 0644, NULL,
                                           &regtrace_debug_proc_fops);
         if (regtrace_debug_proc) {
             printk(KERN_INFO "tx_isp_t40_recovered: created /proc/tx_isp_t40_recovered\n");
@@ -197217,23 +197244,53 @@ tx_isp_module_init0x84:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c710 origin=fragment_seed original=cleanup_module */
+static unsigned int regtrace_core_exit_done_mask;
+
+#define REGTRACE_EXIT_STEPS 10
+
+static int regtrace_core_exit_steps(int upto, int from_proc)
+{
+    int step;
+
+    if (upto > REGTRACE_EXIT_STEPS)
+        upto = REGTRACE_EXIT_STEPS;
+    for (step = 1; step <= upto; step++) {
+        if (regtrace_core_exit_done_mask & (1U << step))
+            continue;
+        /* removing the proc entry from inside its own write handler deadlocks */
+        if (step == 9 && from_proc) {
+            printk(KERN_INFO "tx_isp_t40_recovered: exit step 9 (misc devices) deferred to rmmod\n");
+            continue;
+        }
+        printk(KERN_INFO "tx_isp_t40_recovered: exit step %d begin\n", step);
+        switch (step) {
+        case 1: tx_isp_t40_v4l2_exit(); break;
+        case 2:
+            cancel_work_sync(&regtrace_irq_frame_done_work[0].work);
+            cancel_work_sync(&regtrace_irq_frame_done_work[1].work);
+            cancel_work_sync(&regtrace_irq_frame_done_work[2].work);
+            cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
+            cancel_work_sync(&regtrace_isp_block_init_work);
+            break;
+        case 3: regtrace_tisp_event_threads_stop(); break;
+        case 4: regtrace_dmsc_lit_cleanup(); break;
+        case 5: regtrace_lsc_lit_cleanup(); break;
+        case 6: regtrace_tisp_main_init_param_free(); break;
+        case 7: regtrace_tisp_dma_free(); break;
+        case 8: regtrace_vic_mdma_internal_free(); break;
+        case 9: regtrace_unregister_bootstrap_devices(); break;
+        case 10: regtrace_unregister_real_platforms(); break;
+        }
+        regtrace_core_exit_done_mask |= 1U << step;
+        printk(KERN_INFO "tx_isp_t40_recovered: exit step %d done\n", step);
+    }
+    return 0;
+}
+
 void tx_isp_t40_core_exit(void)
 {
 #ifdef REGTRACE_KERNEL_TREE_BUILD
-    tx_isp_t40_v4l2_exit();
-    cancel_work_sync(&regtrace_irq_frame_done_work[0].work);
-    cancel_work_sync(&regtrace_irq_frame_done_work[1].work);
-    cancel_work_sync(&regtrace_irq_frame_done_work[2].work);
-    cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
-    cancel_work_sync(&regtrace_isp_block_init_work);
-    regtrace_tisp_event_threads_stop();
-    regtrace_dmsc_lit_cleanup();
-    regtrace_lsc_lit_cleanup();
-    regtrace_tisp_main_init_param_free();
-    regtrace_tisp_dma_free();
-    regtrace_vic_mdma_internal_free();
-    regtrace_unregister_bootstrap_devices();
-    regtrace_unregister_real_platforms();
+    regtrace_core_exit_steps(REGTRACE_EXIT_STEPS, 0);
     return;
 #endif
     tx_isp_exit();
