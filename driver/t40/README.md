@@ -182,7 +182,50 @@ the buffer uncached, the zeros are real).  The deferred frame-done work
 (`regtrace_irq_frame_done_workfn`) finds a done address in the MSCA address
 FIFO (`Tzn_Msca_addr_fifo_read`) only at that cadence.
 
-### Next test plan (one boot, kmsg streamed to the host, never to /tmp)
+### Round 2, 2026-10-12 evening (boots r1-r3, commits 9fe90a6f, 64692b1d)
+
+- r1/r2a `t40_profile_direct_vic_feed=1`, ch0 native 3840x2160: 41 frames
+  per 2 s (20 fps) through the VIC MDMA qbuf ring, but the dumped frame is
+  all zeros; 720p under direct feed panics (VIC writes full-width lines
+  into the small buffer).
+- r3a normal path, registers read with devmem while streaming and diffed
+  against the vendor stack streaming the same sensor
+  (`t40prod/out/oracle/vendor-regs.txt` vs `out/p4/r3a/*-regs.txt`): MIPI
+  PHY and CSI identical (settle 0x1b, lanes 2, VIC 0x04 = 0x0f000870,
+  0x0c = 2); the vendor programs the VIC output DMA block 0x300..0x350
+  (0x304 = 3840x2160, four raw buffers at 0x318..0x350) plus 0x8c/0x90/
+  0xa0/0xb0 and 0x3a4/0x3b0/0x3c0/0x3e0/0x3e4 (0x32/0x44000/0x37b/0x204);
+  the open driver leaves 0x304 at the probe default 1920x1080, the bases
+  at 0 and the latter group at 0x6f/0x4402b/0x499/0x81.  T40 runs 4K in
+  VIC frame mode (VIC -> DDR -> ISP core); the open driver only brings up
+  the direct (streaming) input that worked for GC4653 2560x1440, so the
+  core and MSCA produce empty frames.
+- Sensor swap inside one boot (sc3338 counter-check) is refused by the
+  regtrace sensor capture ("sensor client exists but no tx_isp_subdev_init
+  capture occurred"), so that check needs its own boot with the sc3338
+  module loaded first.
+- rmmod oopsed four times in the recovered tisp_deinit path; the loop is
+  now skipped by default (`skip_tisp_deinit=1`), untested.
+- The kernel has no netconsole (CONFIG_NETCONSOLE/NETPOLL unset); panic
+  logs need the serial console.
+- timpsd did not start on one vendor restore boot (no log line); manual
+  `S95timps start` worked.  Keep S95timps at mode 0755 when restoring.
+
+### Next steps (host side first)
+
+1. Implement VIC frame mode for the normal path: allocate the raw ring
+   (vendor: four buffers), program VIC 0x300..0x350 and the 0x3a4..0x3e4
+   group from the vendor values, feed the core's frame-mode input (regs
+   0x1a8/0x1ac/0x1b0 already exist in `regtrace_t40_vic_start_mipi`), and
+   wire `ispvic_frame_channel_qbuf` (vendor export used by the core) to
+   the ring.  Reference: vendor `vic_core_s_stream`, `tx_isp_vic_start`,
+   `ispvic_frame_channel_qbuf`, `vic_mdma_enable`.
+2. Explain the direct-feed zeros with the same register group (0x3e0/0x3e4
+   = 0x204, 0x3b0 bit pattern) before trusting the VIC MDMA path.
+3. Then one boot: normal path 4K + 720p, register diff again, frame dump,
+   rmmod with `skip_tisp_deinit=1`.
+
+### Previous test plan (superseded)
 
 1. Baseline ch0 1280x720 with `t40_profile_direct_vic_feed=1` (VIC frame
    MDMA to DDR, bypassing core/MSCA): proves CSI/VIC/sensor data flow and
