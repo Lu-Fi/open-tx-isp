@@ -2091,6 +2091,12 @@ unsigned int iridix_control_strength_calculate(int32_t * arg1);
 int32_t iridix_update(int32_t *arg1);
 extern uint32_t t20_drc_ratio;
 extern uint32_t t20_defog_floor;
+extern volatile uint32_t t20_antifog_level;
+extern volatile uint32_t t20_antifog_gen;
+extern volatile uint32_t t20_antifog_hw_want;
+static void t20_antifog_apply(void);
+static void t20_antifog_hw_apply(void);
+static void t20_mesh_scale_hw_apply(void);
 uint32_t _update_ds(uint32_t *arg1);
 int32_t _update_ds2(uint32_t *arg1);
 int32_t _update_fr(uint32_t *arg1);
@@ -11752,6 +11758,8 @@ int32_t iridix_update(int32_t *arg1)
     int32_t result;
     uint32_t val;
 
+    /* Beyond vendor: pending safe anti-fog request (see t20_antifog_apply). */
+    t20_antifog_apply();
     if (stab[9]) {
         val = (uint32_t)stab[40] << 8;
     } else {
@@ -14225,6 +14233,14 @@ int32_t apical_isp_process_interrupt(void *arg1, char arg2)
 		       *(uint32_t *)(base + 0x750), *(uint32_t *)(base + 0xef0),
 		       *(uint32_t *)(base + 0xfdc), *(uint32_t *)(base + 0x14a8),
 		       *(uint32_t *)(base + 0x14f0), *(uint32_t *)(base + 0x1534));
+
+	/* Beyond vendor: the Iridix variance word of a safe anti-fog preset is
+	 * written at the frame-start interrupt (bit 0), independent of the
+	 * Iridix state machine's interrupt mask. */
+	if (bit == 0) {
+		t20_antifog_hw_apply();
+		t20_mesh_scale_hw_apply();
+	}
 
 	/* cmos: status 0x108, pending 0x10c, handler arg 0x100 */
 	v = *(int32_t *)((uintptr_t)base + 0x108) & mask;
@@ -19733,6 +19749,187 @@ int32_t *awb_normalise(int32_t *arg1)
 			       *(int32_t *)(fsm + 0x768), *(int32_t *)(fsm + 0x76c));
 	}
 	return (int32_t *)(fsm + 0x760);
+}
+
+/*
+ * Beyond vendor (T10/T20): safe anti-fog preset (V4L2 CUSTOM_ANTI_FOG
+ * 0x98e903, IMP_ISP_Tuning_SetAntiFogAttr).
+ *
+ * Why the vendor path is not used.  The stock firmware command pair
+ * (antifog_set_preset + antifog_mode, TALGORITHMS ids 0xe / 0xd) runs in the
+ * ioctl thread and, in one go,
+ *   - writes global_manual_iridix (stab[9]) and the strength (stab[40])
+ *     while the frame processing reads them,
+ *   - rewrites the Iridix variance word 0x3c8 (two nibbles) with the block
+ *     running, mid-frame,
+ *   - on "off" restores the upper strength clamp (stab[41]) from the
+ *     calibration table 0x5b through the table lookup (a lookup that does not
+ *     find its table never returns, see iridix_control_strength_calculate),
+ *     and never restores 0x3c8.
+ * Bisected on the cameras: going back from manual to auto Iridix, and
+ * restoring 0x3c8 with Iridix active, each hung a camera.  The lifted
+ * preset also wrote into its own stack frame (fixed above).
+ *
+ * This path instead:
+ *   - validates the level (0 off, 1 strong, 2 medium, 3 weak, else -EINVAL)
+ *     and only stores it (two 32-bit words, no register or table access in
+ *     the caller's context);
+ *   - applies it in iridix_update(), the one owner of stab[9]/stab[40],
+ *     between two AE statistics runs: strength 0xff / 0xc0 / 0x80 as manual
+ *     Iridix, the upper clamp raised to 0xff and remembered (restored from
+ *     the remembered value, never from a table);
+ *   - leaves the hardware alone when the Iridix block is off (the request
+ *     is kept and counted, no effect);
+ *   - "off" only undoes what this path did (manual Iridix back to the auto
+ *     strength), and a manual Iridix the application chose itself is left
+ *     as it was;
+ *   - writes the variance nibbles (opt-in, module parameter
+ *     t20_antifog_variance, default 0) from the frame-start commit of
+ *     Iridix, the point that already writes the Iridix strength register,
+ *     and puts the original value back on "off".
+ * Device test pending (the host harness cannot reproduce the hangs).
+ */
+volatile uint32_t t20_antifog_level;
+volatile uint32_t t20_antifog_gen;
+volatile uint32_t t20_antifog_hw_want;	/* bit 8 pending, bit 9 enable, bits 0..7 value */
+static uint32_t t20_antifog_seen_gen;
+static uint32_t t20_antifog_on;		/* level applied by this path, 0 = none */
+static uint8_t t20_antifog_saved_max;	/* stab[41] before the preset */
+static uint8_t t20_antifog_prev_manual;	/* stab[9] before the preset */
+static uint8_t t20_antifog_var_saved;
+static uint8_t t20_antifog_var_valid;
+uint32_t t20_antifog_variance;
+uint32_t t20_antifog_ignored;		/* requests with the Iridix block off */
+module_param(t20_antifog_variance, uint, 0644);
+MODULE_PARM_DESC(t20_antifog_variance,
+	"1: the anti-fog presets also write the Iridix variance nibbles (0x3c8) at the frame-start commit; 0 (default): strength only");
+module_param(t20_antifog_ignored, uint, 0444);
+MODULE_PARM_DESC(t20_antifog_ignored,
+	"anti-fog requests that found the Iridix block disabled");
+module_param_named(t20_antifog_level, t20_antifog_level, uint, 0444);
+MODULE_PARM_DESC(t20_antifog_level,
+	"last accepted anti-fog level (0 off, 1 strong, 2 medium, 3 weak)");
+
+/* 0 on success, -EINVAL for a level above 3; the value is applied by the AE path */
+int t20_antifog_request(uint32_t level)
+{
+	if (level > 3)
+		return -EINVAL;
+	t20_antifog_level = level;
+	t20_antifog_gen++;
+	return 0;
+}
+
+static void t20_antifog_apply(void)
+{
+	static const uint8_t strength[4] = { 0, 0xff, 0xc0, 0x80 };
+	static const uint8_t variance[4] = { 0, 0x00, 0x44, 0x77 };
+	uint32_t gen = t20_antifog_gen;
+	uint32_t level;
+
+	if (gen == t20_antifog_seen_gen)
+		return;
+	level = t20_antifog_level;
+	t20_antifog_seen_gen = gen;
+	if (level > 3)
+		level = 0;
+
+	if (level == 0) {
+		if (!t20_antifog_on)
+			return;
+		/* manual Iridix only if this path switched it on */
+		if (!t20_antifog_prev_manual)
+			stab[9] = 0;
+		if (stab[41] == 0xff)
+			stab[41] = t20_antifog_saved_max;
+		t20_antifog_on = 0;
+		if (t20_antifog_variance)
+			t20_antifog_hw_want = 0x100 | 0x00;
+		return;
+	}
+
+	if (!(APICAL_READ_32(0x3c0) & 1)) {
+		t20_antifog_ignored++;
+		return;
+	}
+	if (!t20_antifog_on) {
+		t20_antifog_prev_manual = stab[9];
+		t20_antifog_saved_max = stab[41];
+	}
+	stab[40] = strength[level];
+	stab[41] = 0xff;
+	stab[9] = 1;
+	t20_antifog_on = level;
+	if (t20_antifog_variance)
+		t20_antifog_hw_want = 0x300 | variance[level];
+}
+
+/* frame-start IRQ 0 (apical_isp_process_interrupt) */
+static void t20_antifog_hw_apply(void)
+{
+	uint32_t want = t20_antifog_hw_want;
+	uint32_t cur;
+
+	if (!(want & 0x100))
+		return;
+	t20_antifog_hw_want = 0;
+	if (!(APICAL_READ_32(0x3c0) & 1))
+		return;
+	cur = APICAL_READ_32(0x3c8);
+	if (want & 0x200) {
+		if (!t20_antifog_var_valid) {
+			t20_antifog_var_saved = (uint8_t)cur;
+			t20_antifog_var_valid = 1;
+		}
+		APICAL_WRITE_32(0x3c8, (cur & 0xffffff00) | (want & 0xff));
+	} else if (t20_antifog_var_valid) {
+		APICAL_WRITE_32(0x3c8, (cur & 0xffffff00) | t20_antifog_var_saved);
+		t20_antifog_var_valid = 0;
+	}
+}
+
+/*
+ * Beyond vendor (T10/T20): lens-shading scale (IMP_ISP_Tuning_
+ * SetMeshShadingScale, vendor libimp 3.12.0 0x62930).  The vendor function
+ * writes the 3-bit "mesh scale" field of the mesh-shading register 0x380
+ * (bits 2..4: reg = (reg & ~0x1c) | ((scale << 2) & 0x1c)) straight through
+ * its userspace register mapping, returns 0, and -1 when tuning is not
+ * enabled.  The public enum is 0..3 (L, M, H, U); the hardware field takes
+ * 0..7 (default 1), larger values are refused here instead of being masked.
+ *
+ * The control validates the value and stores it; the write itself is done
+ * at the frame-end interrupt (apical_isp_process_interrupt, bit 0), i.e.
+ * between two frames, and only the 3-bit field is touched.  Like the vendor
+ * register write it is lost when the firmware reloads its register sequence
+ * (resolution or WDR switch): the application sends it again.
+ * Device test pending (host harness: tests/t20_fw "lens-shading scale").
+ */
+volatile uint32_t t20_mesh_scale_req;	/* bit 8 pending, bits 0..2 value */
+uint32_t t20_mesh_scale_cur = 0xff;	/* last value written, 0xff = none */
+module_param(t20_mesh_scale_cur, uint, 0444);
+MODULE_PARM_DESC(t20_mesh_scale_cur,
+	"lens-shading scale last written by SetMeshShadingScale (255 = none)");
+
+/* 0 on success, -EINVAL above 7 */
+int t20_mesh_scale_request(uint32_t scale)
+{
+	if (scale > 7)
+		return -EINVAL;
+	t20_mesh_scale_req = 0x100 | scale;
+	return 0;
+}
+
+static void t20_mesh_scale_hw_apply(void)
+{
+	uint32_t req = t20_mesh_scale_req;
+	uint32_t cur;
+
+	if (!(req & 0x100))
+		return;
+	t20_mesh_scale_req = 0;
+	cur = APICAL_READ_32(0x380);
+	APICAL_WRITE_32(0x380, (cur & 0xffffffe3) | ((req & 7) << 2));
+	t20_mesh_scale_cur = req & 7;
 }
 
 /*

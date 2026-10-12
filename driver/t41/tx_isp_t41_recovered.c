@@ -4,6 +4,7 @@
 /* Target kernel version: 4.4.94 */
 /* Target kernel arch/ABI: mips32r2 32bit */
 /* Module vermagic: 4.4.94 SMP preempt mod_unload MIPS32_R2 32BIT  */
+#define pr_fmt(fmt) "t41: " fmt
 #include "../include/tx_isp/tx_isp_subdev_abi.h"
 #include "../include/tx_isp/tx_isp_sinfo.h"
 #include "../include/tx_isp/tx_isp_daynight.h"
@@ -29,6 +30,8 @@
 #include "tx_isp_t41_ae.h"
 #include "tx_isp_t41_tuning_ctl.h"
 #include "tx_isp_t41_msca_shadow.h"
+#include "tx_isp_t41_msca_ctl.h"
+#include "tx_isp_t41_switchbin.h"
 #include "tx_isp_t41_gib.h"
 #include "../include/tx_isp/tx_isp_top.h"
 #include "tx_isp_t41_awb.h"
@@ -769,6 +772,26 @@ extern struct module __this_module;
 #define module_exit(fn)
 #endif
 #endif
+/*
+ * Bring-up-only parameters (experiment switches, diagnostic counters, no
+ * user or tool reads them): the variables keep their defaults, but the
+ * parameters are built in only with TX_ISP_T41_BRINGUP_PARAMS=y (Kbuild).
+ */
+#ifdef TX_ISP_T41_BRINGUP_PARAMS
+#define t41_bringup_param(name, type, perm) module_param(name, type, perm)
+#define t41_bringup_param_named(name, value, type, perm) \
+	module_param_named(name, value, type, perm)
+#define t41_bringup_param_call(name, set, get, arg, perm) \
+	module_param_call(name, set, get, arg, perm)
+#define t41_bringup_param_desc(name, desc) MODULE_PARM_DESC(name, desc)
+#else
+#define t41_bringup_param(name, type, perm) struct t41_bringup_unused_##name
+#define t41_bringup_param_named(name, value, type, perm) \
+	struct t41_bringup_unused_##name
+#define t41_bringup_param_call(name, set, get, arg, perm) \
+	struct t41_bringup_unused_##name
+#define t41_bringup_param_desc(name, desc) struct t41_bringup_unused_desc_##name
+#endif
 
 #ifndef _IOC
 #define _IOC(dir,type,nr,size) (((dir)<<30)|((size)<<16)|((type)<<8)|(nr))
@@ -823,40 +846,50 @@ module_param(t41_checkpoint_start, uint, 0);
  * tisp_stream_on().
  */
 static int t41_safe_tuning_events = 1;
-module_param(t41_safe_tuning_events, int, 0);
-MODULE_PARM_DESC(t41_safe_tuning_events,
+t41_bringup_param(t41_safe_tuning_events, int, 0);
+t41_bringup_param_desc(t41_safe_tuning_events,
 		 "suppress recovered AE/AWB/AF/WDR/GSM/TMO/day-night callbacks");
 
 /* The recovered vendor AE algorithm still contains unresolved legacy-BSS
  * arithmetic.  Keep event 1 live with a small controller whose inputs and
  * target come from checked completed-frame statistics and calibration.
  * The bounded sensor allocator is still separate from OEM convergence. */
+/*
+ * Tiziano_wdr_fusion_fpga (WDR sensors only) is a raw decompiler body with
+ * pointer-scaling errors: e.g. (uint32_t *)&ivdc_threshold_line + 16216
+ * addresses 64864 bytes past the anchor (~36 KB beyond the module .bss)
+ * and its 5-element copy loop steps 8 bytes towards an end pointer 10
+ * bytes away, so it never terminates.  Refused by default.
+ */
+static int t41_wdr_fusion_unsafe __attribute__((section(".data..t41_h1")));
+module_param(t41_wdr_fusion_unsafe, int, 0444);
+MODULE_PARM_DESC(t41_wdr_fusion_unsafe, "Run the unrecovered WDR fusion body (unsafe, default 0)");
 static int t41_safe_ae_controller = 1;
-module_param(t41_safe_ae_controller, int, 0644);
-MODULE_PARM_DESC(t41_safe_ae_controller,
+t41_bringup_param(t41_safe_ae_controller, int, 0644);
+t41_bringup_param_desc(t41_safe_ae_controller,
 		 "use the bounded histogram AE controller instead of recovered vendor AE");
 static unsigned int t41_ae_target_q8 = 128U << 8;
-module_param(t41_ae_target_q8, uint, 0644);
-MODULE_PARM_DESC(t41_ae_target_q8,
+t41_bringup_param(t41_ae_target_q8, uint, 0644);
+t41_bringup_param_desc(t41_ae_target_q8,
 		 "safe AE target histogram mean in Q8 units");
 /* Public IMPISPAEScenceAttr.AeTargetComp (128 neutral) and the
  * IMPISPAEExprInfo maximum caps (0 = sensor limit).  Owned data, outside
  * the recovered BSS; read once per AE update. */
 static unsigned int t41_ae_comp __attribute__((section(".data"))) =
 	TX_ISP_TUNING_T41_AE_COMP_NEUTRAL;
-module_param(t41_ae_comp, uint, 0444);
-MODULE_PARM_DESC(t41_ae_comp, "AE target compensation, 128 neutral (read-only)");
+t41_bringup_param(t41_ae_comp, uint, 0444);
+t41_bringup_param_desc(t41_ae_comp, "AE target compensation, 128 neutral (read-only)");
 static unsigned int t41_ae_comp_en __attribute__((section(".data")));
 static unsigned int t41_ae_cap_integration __attribute__((section(".data")));
-module_param(t41_ae_cap_integration, uint, 0444);
-MODULE_PARM_DESC(t41_ae_cap_integration,
+t41_bringup_param(t41_ae_cap_integration, uint, 0444);
+t41_bringup_param_desc(t41_ae_cap_integration,
 		 "caller max integration lines, 0 = sensor limit (read-only)");
 /* IMPISPAEExprInfo manual exposure (lines / x1024); 0 = automatic. */
 static unsigned int t41_ae_man_freeze, t41_ae_man_it, t41_ae_man_again;
 static unsigned int t41_ae_man_dgain_cap;
 static unsigned int t41_ae_cap_again __attribute__((section(".data")));
-module_param(t41_ae_cap_again, uint, 0444);
-MODULE_PARM_DESC(t41_ae_cap_again,
+t41_bringup_param(t41_ae_cap_again, uint, 0444);
+t41_bringup_param_desc(t41_ae_cap_again,
 		 "caller max sensor gain x1024, 0 = sensor limit (read-only)");
 /* Staged IMPISPModuleRatioAttr units (bit = unit), see t41_module_ratio_apply. */
 static unsigned int t41_ratio_pending __attribute__((section(".data")));
@@ -868,14 +901,14 @@ static uint32_t *t41_sdns_info_checked(uint32_t channel);
 static uint32_t *t41_mdns_info_checked(uint32_t channel);
 static int t41_sdns_refresh_checked(uint32_t channel, uint32_t gain, unsigned int all);
 static unsigned int t41_ae_update_frames = 3;
-module_param(t41_ae_update_frames, uint, 0644);
-MODULE_PARM_DESC(t41_ae_update_frames,
+t41_bringup_param(t41_ae_update_frames, uint, 0644);
+t41_bringup_param_desc(t41_ae_update_frames,
 		 "histogram frames between safe AE sensor updates");
 /* Nonzero OPEN_AE_TARGET explicitly selects the manual histogram target;
  * zero returns to calibration-driven metering. No scene-derived defaults. */
 static int t41_ae_calibrated_metering = 1;
-module_param(t41_ae_calibrated_metering, int, 0644);
-MODULE_PARM_DESC(t41_ae_calibrated_metering,
+t41_bringup_param(t41_ae_calibrated_metering, int, 0644);
+t41_bringup_param_desc(t41_ae_calibrated_metering,
 		 "use calibrated zone mean and EV target instead of histogram target");
 static unsigned int t41_ae_zone_mean = 0x80000000U;
 static unsigned int t41_ae_calibrated_target = 0x80000000U;
@@ -883,7 +916,7 @@ static int t41_ae_meter_error = -EAGAIN;
 static int t41_sensor_limits_error = -EAGAIN;
 static int t41_ae_ready[2] __attribute__((section(".data"))) = { 0, 0 };
 static int t41_awb_ready[2] __attribute__((section(".data"))) = { 0, 0 };
-module_param(t41_sensor_limits_error, int, 0444);
+t41_bringup_param(t41_sensor_limits_error, int, 0444);
 module_param(t41_ae_zone_mean, uint, 0444);
 module_param(t41_ae_calibrated_target, uint, 0444);
 module_param(t41_ae_meter_error, int, 0444);
@@ -902,40 +935,40 @@ static struct {
  * gain because integration cannot fall far enough.
  */
 static unsigned int t41_ae_flicker_floor_lines;
-module_param(t41_ae_flicker_floor_lines, uint, 0644);
-MODULE_PARM_DESC(t41_ae_flicker_floor_lines,
+t41_bringup_param(t41_ae_flicker_floor_lines, uint, 0644);
+t41_bringup_param_desc(t41_ae_flicker_floor_lines,
 		 "minimum anti-flicker integration lines (0 disables the floor)");
 /* Keep the zero default in owned data, outside legacy recovered BSS aliases.
  * A measured mains period is not a sensor exposure maximum. */
 static unsigned int t41_ae_flicker_ceiling_lines __attribute__((section(".data")));
-module_param(t41_ae_flicker_ceiling_lines, uint, 0644);
-MODULE_PARM_DESC(t41_ae_flicker_ceiling_lines,
+t41_bringup_param(t41_ae_flicker_ceiling_lines, uint, 0644);
+t41_bringup_param_desc(t41_ae_flicker_ceiling_lines,
 		 "maximum anti-flicker integration lines (0 uses the sensor maximum)");
 static unsigned int t41_ae_flicker_frequency_hz = 60U;
-module_param(t41_ae_flicker_frequency_hz, uint, 0644);
-MODULE_PARM_DESC(t41_ae_flicker_frequency_hz,
+t41_bringup_param(t41_ae_flicker_frequency_hz, uint, 0644);
+t41_bringup_param_desc(t41_ae_flicker_frequency_hz,
 		 "anti-flicker mains frequency in Hz (0 disables snapping)");
 /* One atomic public request, outside the recovered BSS. Until a caller
  * selects a policy, retain the existing diagnostic module parameters. */
 static unsigned int t41_ae_antiflicker_request = ~0U;
 static unsigned int t41_ae_flicker_gib_gain_q10 = 0x200U;
-module_param(t41_ae_flicker_gib_gain_q10, uint, 0644);
-MODULE_PARM_DESC(t41_ae_flicker_gib_gain_q10,
+t41_bringup_param(t41_ae_flicker_gib_gain_q10, uint, 0644);
+t41_bringup_param_desc(t41_ae_flicker_gib_gain_q10,
 		 "pre-tone-map GIB gain used by the anti-flicker image profile");
 static unsigned int t41_color_green_correction_q10 = 0x200U;
-module_param(t41_color_green_correction_q10, uint, 0644);
-MODULE_PARM_DESC(t41_color_green_correction_q10,
+t41_bringup_param(t41_color_green_correction_q10, uint, 0644);
+t41_bringup_param_desc(t41_color_green_correction_q10,
 		 "neutral-preserving red/green correction used with anti-flicker");
 static unsigned int t41_color_blue_correction_q10 = 0x500U;
-module_param(t41_color_blue_correction_q10, uint, 0644);
-MODULE_PARM_DESC(t41_color_blue_correction_q10,
+t41_bringup_param(t41_color_blue_correction_q10, uint, 0644);
+t41_bringup_param_desc(t41_color_blue_correction_q10,
 		 "neutral-preserving red/blue correction used with anti-flicker");
 static int t41_flicker_profile_set(const char *value,
 				   const struct kernel_param *kp);
 static int t41_ae_flicker_profile = 1;
-module_param_call(t41_ae_flicker_profile, t41_flicker_profile_set,
+t41_bringup_param_call(t41_ae_flicker_profile, t41_flicker_profile_set,
 		  param_get_int, &t41_ae_flicker_profile, 0644);
-MODULE_PARM_DESC(t41_ae_flicker_profile,
+t41_bringup_param_desc(t41_ae_flicker_profile,
 		 "negative enables legacy half-GIB/custom-CCM experiment; positive retains OEM CCM");
 
 /*
@@ -957,24 +990,24 @@ MODULE_PARM_DESC(t41_ae_flicker_profile,
  * the low six bits are functional; the initialized high bit is a storage
  * sentinel and deliberately selects no block. */
 static unsigned int t41_safe_gain_fanout_mask = 0x80000032U;
-module_param(t41_safe_gain_fanout_mask, uint, 0644);
-MODULE_PARM_DESC(t41_safe_gain_fanout_mask,
+t41_bringup_param(t41_safe_gain_fanout_mask, uint, 0644);
+t41_bringup_param_desc(t41_safe_gain_fanout_mask,
 		 "safe total-gain fanout mask: GIB=1 DMSC=2 LSC=4 TMO=8 YDNS=16 SDNS=32");
 static unsigned int t41_safe_ae_integration = ~0U;
-module_param(t41_safe_ae_integration, uint, 0444);
-MODULE_PARM_DESC(t41_safe_ae_integration,
+t41_bringup_param(t41_safe_ae_integration, uint, 0444);
+t41_bringup_param_desc(t41_safe_ae_integration,
 		 "current safe-AE sensor integration lines");
 static unsigned int t41_safe_ae_again = ~0U;
-module_param(t41_safe_ae_again, uint, 0444);
-MODULE_PARM_DESC(t41_safe_ae_again,
+t41_bringup_param(t41_safe_ae_again, uint, 0444);
+t41_bringup_param_desc(t41_safe_ae_again,
 		 "current safe-AE opaque sensor analog gain code");
 static unsigned int t41_safe_ae_gain_q16 = ~0U;
-module_param(t41_safe_ae_gain_q16, uint, 0444);
-MODULE_PARM_DESC(t41_safe_ae_gain_q16,
+t41_bringup_param(t41_safe_ae_gain_q16, uint, 0444);
+t41_bringup_param_desc(t41_safe_ae_gain_q16,
 		 "current safe-AE log2 total gain in Q16 format");
 static unsigned int t41_safe_ae_last_mean_q8 = ~0U;
-module_param(t41_safe_ae_last_mean_q8, uint, 0444);
-MODULE_PARM_DESC(t41_safe_ae_last_mean_q8,
+t41_bringup_param(t41_safe_ae_last_mean_q8, uint, 0444);
+t41_bringup_param_desc(t41_safe_ae_last_mean_q8,
 		 "latest safe-AE histogram mean in Q8 units");
 static unsigned int t41_safe_ae_effective_target_q8 = ~0U;
 module_param(t41_safe_ae_effective_target_q8, uint, 0444);
@@ -996,15 +1029,15 @@ static int t41_gain_fanout_set(const char *value,
 			t41_safe_gain_fanout_mask & 0x3fU);
 	return ret;
 }
-module_param_call(t41_gain_fanout_trigger, t41_gain_fanout_set,
+t41_bringup_param_call(t41_gain_fanout_trigger, t41_gain_fanout_set,
 		  param_get_uint, &t41_gain_fanout_trigger, 0644);
-MODULE_PARM_DESC(t41_gain_fanout_trigger,
+t41_bringup_param_desc(t41_gain_fanout_trigger,
 		 "apply a log2 Q16 gain immediately through the selected safe fanout blocks");
 static int t41_apply_safe_ev_fanout(uint32_t channel, uint32_t ev,
 				    uint32_t mask);
 static unsigned int t41_safe_ev_fanout_mask = 0x80000000U;
-module_param(t41_safe_ev_fanout_mask, uint, 0644);
-MODULE_PARM_DESC(t41_safe_ev_fanout_mask,
+t41_bringup_param(t41_safe_ev_fanout_mask, uint, 0644);
+t41_bringup_param_desc(t41_safe_ev_fanout_mask,
 		 "safe exposure-value fanout mask: Gamma=1 TMO=2");
 static unsigned int t41_ev_fanout_trigger = ~0U;
 static int t41_ev_fanout_set(const char *value, const struct kernel_param *kp)
@@ -1017,17 +1050,17 @@ static int t41_ev_fanout_set(const char *value, const struct kernel_param *kp)
 					       t41_safe_ev_fanout_mask & 0x3U);
 	return ret;
 }
-module_param_call(t41_ev_fanout_trigger, t41_ev_fanout_set,
+t41_bringup_param_call(t41_ev_fanout_trigger, t41_ev_fanout_set,
 		  param_get_uint, &t41_ev_fanout_trigger, 0644);
-MODULE_PARM_DESC(t41_ev_fanout_trigger,
+t41_bringup_param_desc(t41_ev_fanout_trigger,
 		 "apply an EV immediately through the selected safe tone blocks");
 
 /* Drain the exact T41 TMO statistics DMA bank from status0 bit 17.  The
  * unsafe recovered tisp_tmo_fpga() process remains suppressed; this switch
  * covers only the IRQ-side cache invalidation and statYSum/statYNum copy. */
 static int t41_safe_tmo_irq_stats = -1;
-module_param(t41_safe_tmo_irq_stats, int, 0644);
-MODULE_PARM_DESC(t41_safe_tmo_irq_stats,
+t41_bringup_param(t41_safe_tmo_irq_stats, int, 0644);
+t41_bringup_param_desc(t41_safe_tmo_irq_stats,
 		 "negative drains exact TMO DMA statistics on IRQ bit 17");
 
 /*
@@ -1045,8 +1078,8 @@ MODULE_PARM_DESC(t41_safe_tmo_irq_stats,
  * but use the complete lifecycle by default.
  */
 static int t41_safe_tisp_teardown = -1;
-module_param(t41_safe_tisp_teardown, int, 0);
-MODULE_PARM_DESC(t41_safe_tisp_teardown,
+t41_bringup_param(t41_safe_tisp_teardown, int, 0);
+t41_bringup_param_desc(t41_safe_tisp_teardown,
 		 "positive values retain TISP allocations on close for emergency diagnostics");
 
 /*
@@ -1060,8 +1093,8 @@ MODULE_PARM_DESC(t41_safe_tisp_teardown,
  * raw legacy-BSS offsets, so a zero-valued control in .bss is not trustworthy
  * during bring-up.  Positive values explicitly restore the defer gate. */
 static int t41_safe_msca_start = -1;
-module_param(t41_safe_msca_start, int, 0);
-MODULE_PARM_DESC(t41_safe_msca_start,
+t41_bringup_param(t41_safe_msca_start, int, 0);
+t41_bringup_param_desc(t41_safe_msca_start,
 		 "defer MSCA channel programming while its packed state is neutral");
 
 /*
@@ -1117,6 +1150,10 @@ void t41_heapwatch_step(const char *where);
 void t41_heapwatch_start(void);
 void t41_heapwatch_stop(void);
 void t41_heapwatch_census(const char *where);
+void t41_procwatch_begin(void);
+void t41_procwatch_add(void *pde, const struct file_operations *fops);
+void t41_procwatch_start(void);
+void t41_procwatch_stop(void);
 static int t41_msca_cfg_update;
 module_param(t41_msca_cfg_update, int, 0644);
 MODULE_PARM_DESC(t41_msca_cfg_update,
@@ -1134,14 +1171,32 @@ module_param_named(msca_live_disables, t41_msca_live_disables, uint, 0444);
 module_param_named(msca_latch_wait_max_us, t41_msca_latch_wait_max_us, uint, 0444);
 static int t41_msca_latch_timeout_ms = 300;
 module_param(t41_msca_latch_timeout_ms, int, 0644);
-#define T41_MSCA_START_WORDS 6
+/*
+ * Where t41_msca_finish_enable() switches a latched output on.
+ * 0: at once, in process context (anywhere inside an input frame).
+ * 1: from the next main frame-done interrupt (ISP status bit 0), i.e. in
+ *    the blanking before the next input frame, so the output starts at a
+ *    frame boundary.  Falls back to an immediate enable when no frame-done
+ *    interrupt arrives within t41_msca_latch_timeout_ms.
+ */
+static int t41_msca_enable_at_frame;
+module_param(t41_msca_enable_at_frame, int, 0644);
+/* Outputs armed for the frame-done enable (subset of enable_pending). */
+static unsigned int t41_msca_enable_armed __attribute__((section(".data")));
+static unsigned int t41_msca_frame_enables __attribute__((section(".data")));
+module_param_named(msca_frame_enables, t41_msca_frame_enables, uint, 0444);
+/* Word 6, the input crop position (AutoZoom / front crop window), may or
+ * may not be staged (not measured); comparing it makes a pure pan latch
+ * like a size change and costs nothing if the register is immediate. */
+#define T41_MSCA_START_WORDS 7
 static struct t41_msca_word t41_msca_start_set[3][T41_MSCA_START_WORDS]
     __attribute__((section(".data")));
 
 static void t41_msca_start_words(unsigned int ch, struct t41_msca_word *w,
                                  uint32_t size, uint32_t crop_pos,
                                  uint32_t crop_size, uint32_t hratio,
-                                 uint32_t vratio, uint32_t algorithm)
+                                 uint32_t vratio, uint32_t algorithm,
+                                 uint32_t input_pos)
 {
     uint32_t base = 0x0f0100U + ch * 0x100U;
 
@@ -1151,7 +1206,39 @@ static void t41_msca_start_words(unsigned int ch, struct t41_msca_word *w,
     w[3] = (struct t41_msca_word){ 0x0f0728U + ch * 4U, hratio, 0x7ffffU };
     w[4] = (struct t41_msca_word){ 0x0f071cU + ch * 4U, vratio, 0x7ffffU };
     w[5] = (struct t41_msca_word){ 0x0f002cU, algorithm, 0xffffffffU };
+    w[6] = (struct t41_msca_word){ 0x0f00a0U + ch * 8U, input_pos,
+                                   T41_MSCA_CROP_POS_MASK };
 }
+
+/*
+ * AutoZoom / MaskBlock / ScalerLv state (tx_isp_t41_msca_ctl.h, README
+ * "MSCA zoom, mask and scaler level").  A streaming output is only
+ * reprogrammed inside the proven envelope below; otherwise the request is
+ * stored and applied at the output's next start.
+ */
+static unsigned int t41_msca_live_max_w = 768;
+module_param(t41_msca_live_max_w, uint, 0644);
+MODULE_PARM_DESC(t41_msca_live_max_w,
+                 "largest output width AutoZoom/Mask/ScalerLv reprogram while streaming (needs t41_msca_cfg_update=2)");
+static unsigned int t41_msca_live_max_h = 432;
+module_param(t41_msca_live_max_h, uint, 0644);
+MODULE_PARM_DESC(t41_msca_live_max_h,
+                 "largest output height AutoZoom/Mask/ScalerLv reprogram while streaming");
+static unsigned int t41_msca_ctl_live __attribute__((section(".data")));
+static unsigned int t41_msca_ctl_deferred __attribute__((section(".data")));
+static unsigned int t41_msca_ctl_failed __attribute__((section(".data")));
+module_param_named(msca_ctl_live, t41_msca_ctl_live, uint, 0444);
+module_param_named(msca_ctl_deferred, t41_msca_ctl_deferred, uint, 0444);
+module_param_named(msca_ctl_failed, t41_msca_ctl_failed, uint, 0444);
+/* last accepted AutoZoom request (re-imposed after the late-start SET_FMT) */
+static unsigned char t41_msca_zoom_req[T41_MSCA_ZOOM_BYTES]
+    __attribute__((section(".data")));
+static struct t41_msca_mask_state t41_msca_mask
+    __attribute__((section(".data")));
+static struct t41_msca_scaler_lv t41_msca_lv[3]
+    __attribute__((section(".data")));
+static int t41_msca_mask_flush(unsigned int chan_mask, int restart);
+static void t41_msca_zoom_impose(unsigned int ch);
 /* Last word written to the staged 0xf002c (flip/mirror/algorithm). */
 static struct t41_msca_staged t41_msca_algo_staged
     __attribute__((section(".data")));
@@ -1164,8 +1251,8 @@ static struct t41_msca_live_cfg t41_msca_live[3];
 static bool t41_msca_live_valid[3];
 
 static int t41_defer_vic_irq = 1;
-module_param(t41_defer_vic_irq, int, 0);
-MODULE_PARM_DESC(t41_defer_vic_irq,
+t41_bringup_param(t41_defer_vic_irq, int, 0);
+t41_bringup_param_desc(t41_defer_vic_irq,
 		 "defer VIC IRQ enable while isolating pre-buffer capture locks");
 
 /*
@@ -1177,18 +1264,18 @@ MODULE_PARM_DESC(t41_defer_vic_irq,
  * offsets directly.
  */
 static int t41_vic_frame_sync_work = 1;
-module_param(t41_vic_frame_sync_work, int, 0);
-MODULE_PARM_DESC(t41_vic_frame_sync_work,
+t41_bringup_param(t41_vic_frame_sync_work, int, 0);
+t41_bringup_param_desc(t41_vic_frame_sync_work,
 		 "schedule recovered sensor frame-sync work from VIC interrupt bit 0x10");
 
 static int t41_defer_vic_start = 1;
-module_param(t41_defer_vic_start, int, 0);
-MODULE_PARM_DESC(t41_defer_vic_start,
+t41_bringup_param(t41_defer_vic_start, int, 0);
+t41_bringup_param_desc(t41_defer_vic_start,
 		 "defer VIC capture programming until frame-channel stream-on");
 
 static int t41_defer_isp_start = -1;
-module_param(t41_defer_isp_start, int, 0);
-MODULE_PARM_DESC(t41_defer_isp_start,
+t41_bringup_param(t41_defer_isp_start, int, 0);
+t41_bringup_param_desc(t41_defer_isp_start,
 		 "defer ISP interrupt and IPC trigger until buffers are active");
 
 /* H20250310a starts isp_fw_process from ispcore_core_ops_init(), immediately
@@ -1199,18 +1286,18 @@ MODULE_PARM_DESC(t41_defer_isp_start,
  * programmed 2560x1440 MSCA state.  Positive values remain an isolation
  * gate for the smoke harness. */
 static int t41_defer_isp_fw_thread = -1;
-module_param(t41_defer_isp_fw_thread, int, 0);
-MODULE_PARM_DESC(t41_defer_isp_fw_thread,
+t41_bringup_param(t41_defer_isp_fw_thread, int, 0);
+t41_bringup_param_desc(t41_defer_isp_fw_thread,
 		 "defer the ISP firmware event worker until capture is active");
 
 static int t41_defer_sensor_start = 1;
-module_param(t41_defer_sensor_start, int, 0);
-MODULE_PARM_DESC(t41_defer_sensor_start,
+t41_bringup_param(t41_defer_sensor_start, int, 0);
+t41_bringup_param_desc(t41_defer_sensor_start,
 		 "defer sensor video stream until frame-channel stream-on");
 
 static int t41_defer_csi_start = 1;
-module_param(t41_defer_csi_start, int, 0);
-MODULE_PARM_DESC(t41_defer_csi_start,
+t41_bringup_param(t41_defer_csi_start, int, 0);
+t41_bringup_param_desc(t41_defer_csi_start,
 		 "defer CSI receiver programming until frame-channel stream-on");
 
 /* Keep production defaults out of the recovered BSS image.  A negative value
@@ -1281,8 +1368,8 @@ MODULE_PARM_DESC(t41_msca_fifo_ctrl_after_live_qbuf,
  * as always set and can overwrite live channel state.
  */
 static int t41_msca_frame_shadow_commit = -1;
-module_param(t41_msca_frame_shadow_commit, int, 0644);
-MODULE_PARM_DESC(t41_msca_frame_shadow_commit,
+t41_bringup_param(t41_msca_frame_shadow_commit, int, 0644);
+t41_bringup_param_desc(t41_msca_frame_shadow_commit,
 		 "negative emits exact-stock empty MSCA shadow commit per frame");
 static unsigned int t41_msca_frame_shadow_trace = 0x80000000U;
 
@@ -1312,12 +1399,12 @@ static int t41_safe_awb_measure_target(struct tx_isp_tuning_awb_target *target);
 /* Compatibility manual overrides. Zero/zero preserves the calibrated gain
  * writer; normal startup no longer injects a captured daylight pair. */
 static unsigned int t41_stock_awb_gain_a __attribute__((section(".data"))) = 0;
-module_param(t41_stock_awb_gain_a, uint, 0644);
-MODULE_PARM_DESC(t41_stock_awb_gain_a,
+t41_bringup_param(t41_stock_awb_gain_a, uint, 0644);
+t41_bringup_param_desc(t41_stock_awb_gain_a,
 		 "manual AWB gain A Q10 override (zero pair uses calibration)");
 static unsigned int t41_stock_awb_gain_b __attribute__((section(".data"))) = 0;
-module_param(t41_stock_awb_gain_b, uint, 0644);
-MODULE_PARM_DESC(t41_stock_awb_gain_b,
+t41_bringup_param(t41_stock_awb_gain_b, uint, 0644);
+t41_bringup_param_desc(t41_stock_awb_gain_b,
 		 "manual AWB gain B Q10 override (zero pair uses calibration)");
 static unsigned int t41_awb_gain_trigger = 0x80000000U;
 static int t41_awb_gain_trigger_set(const char *value,
@@ -1329,9 +1416,9 @@ static int t41_awb_gain_trigger_set(const char *value,
 		t41_apply_stock_awb_gains();
 	return ret;
 }
-module_param_call(t41_awb_gain_trigger, t41_awb_gain_trigger_set,
+t41_bringup_param_call(t41_awb_gain_trigger, t41_awb_gain_trigger_set,
 		  param_get_uint, &t41_awb_gain_trigger, 0644);
-MODULE_PARM_DESC(t41_awb_gain_trigger,
+t41_bringup_param_desc(t41_awb_gain_trigger,
 		 "Apply the diagnostic AWB gain A/B parameters through both shadow banks");
 
 /* T40 and T23 both recover color first by closing a bounded gray-world loop
@@ -1344,8 +1431,8 @@ static int t41_safe_awb_controller_set(const char *value,
 				       const struct kernel_param *kp);
 static int t41_safe_awb_controller = 1;
 static int t41_native_awb = 1;
-module_param(t41_native_awb, int, 0444);
-MODULE_PARM_DESC(t41_native_awb, "Use privately owned, frame-driven calibrated AWB");
+t41_bringup_param(t41_native_awb, int, 0444);
+t41_bringup_param_desc(t41_native_awb, "Use privately owned, frame-driven calibrated AWB");
 static void t41_native_awb_stop(void);
 static void t41_native_awb_start(void);
 static void t41_native_awb_queue(void);
@@ -1360,28 +1447,28 @@ module_param_call(t41_safe_awb_controller, t41_safe_awb_controller_set,
 MODULE_PARM_DESC(t41_safe_awb_controller,
 		 "negative enables and rearms the workqueue-backed T41 AWB DMA controller");
 static unsigned int t41_awb_rbias_q10 = 1040U;
-module_param(t41_awb_rbias_q10, uint, 0644);
-MODULE_PARM_DESC(t41_awb_rbias_q10,
+t41_bringup_param(t41_awb_rbias_q10, uint, 0644);
+t41_bringup_param_desc(t41_awb_rbias_q10,
 		 "safe AWB red calibration bias in Q10");
 static unsigned int t41_awb_bbias_q10 = 1086U;
-module_param(t41_awb_bbias_q10, uint, 0644);
-MODULE_PARM_DESC(t41_awb_bbias_q10,
+t41_bringup_param(t41_awb_bbias_q10, uint, 0644);
+t41_bringup_param_desc(t41_awb_bbias_q10,
 		 "safe AWB blue calibration bias in Q10");
 static unsigned int t41_awb_update_irqs = 2U;
-module_param(t41_awb_update_irqs, uint, 0644);
-MODULE_PARM_DESC(t41_awb_update_irqs,
+t41_bringup_param(t41_awb_update_irqs, uint, 0644);
+t41_bringup_param_desc(t41_awb_update_irqs,
 		 "AWB statistics interrupts between safe gain updates");
 static unsigned int t41_awb_warmup_irqs = 128U;
-module_param(t41_awb_warmup_irqs, uint, 0644);
-MODULE_PARM_DESC(t41_awb_warmup_irqs,
+t41_bringup_param(t41_awb_warmup_irqs, uint, 0644);
+t41_bringup_param_desc(t41_awb_warmup_irqs,
 		 "valid AWB interrupts ignored before closed-loop gain updates");
 static unsigned int t41_awb_min_zones = 32U;
-module_param(t41_awb_min_zones, uint, 0644);
-MODULE_PARM_DESC(t41_awb_min_zones,
+t41_bringup_param(t41_awb_min_zones, uint, 0644);
+t41_bringup_param_desc(t41_awb_min_zones,
 		 "minimum populated AWB zones accepted by the safe controller");
 static unsigned int t41_awb_min_pixels = 15000U;
-module_param(t41_awb_min_pixels, uint, 0644);
-MODULE_PARM_DESC(t41_awb_min_pixels,
+t41_bringup_param(t41_awb_min_pixels, uint, 0644);
+t41_bringup_param_desc(t41_awb_min_pixels,
 		 "minimum AWB statistic pixels accepted by the safe controller");
 static uint32_t t41_awb_last_rgain = 1024U;
 static uint32_t t41_awb_last_bgain = 1024U;
@@ -1397,33 +1484,33 @@ static uint32_t t41_awb_last_bank = 0x80000000U;
 static uint32_t t41_awb_outlier_r_q10 = 0x400U;
 static uint32_t t41_awb_outlier_b_q10 = 0x400U;
 static uint32_t t41_awb_outlier_count = 0x80000000U;
-module_param_named(t41_safe_awb_rgain, t41_awb_last_rgain, uint, 0444);
-MODULE_PARM_DESC(t41_safe_awb_rgain,
+t41_bringup_param_named(t41_safe_awb_rgain, t41_awb_last_rgain, uint, 0444);
+t41_bringup_param_desc(t41_safe_awb_rgain,
 		 "last red gain applied by the T41 safe AWB path");
-module_param_named(t41_safe_awb_bgain, t41_awb_last_bgain, uint, 0444);
-MODULE_PARM_DESC(t41_safe_awb_bgain,
+t41_bringup_param_named(t41_safe_awb_bgain, t41_awb_last_bgain, uint, 0444);
+t41_bringup_param_desc(t41_safe_awb_bgain,
 		 "last blue gain applied by the T41 safe AWB path");
-module_param_named(t41_safe_awb_raw_r_q10, t41_awb_last_raw_r_q10, uint,
+t41_bringup_param_named(t41_safe_awb_raw_r_q10, t41_awb_last_raw_r_q10, uint,
 		   0444);
-MODULE_PARM_DESC(t41_safe_awb_raw_r_q10,
+t41_bringup_param_desc(t41_safe_awb_raw_r_q10,
 		 "last aggregate T41 AWB G/R ratio before calibration");
-module_param_named(t41_safe_awb_raw_b_q10, t41_awb_last_raw_b_q10, uint,
+t41_bringup_param_named(t41_safe_awb_raw_b_q10, t41_awb_last_raw_b_q10, uint,
 		   0444);
-MODULE_PARM_DESC(t41_safe_awb_raw_b_q10,
+t41_bringup_param_desc(t41_safe_awb_raw_b_q10,
 		 "last aggregate T41 AWB G/B ratio before calibration");
-module_param_named(t41_safe_awb_irq_count, t41_awb_irq_count, uint, 0444);
-MODULE_PARM_DESC(t41_safe_awb_irq_count,
+t41_bringup_param_named(t41_safe_awb_irq_count, t41_awb_irq_count, uint, 0444);
+t41_bringup_param_desc(t41_safe_awb_irq_count,
 		 "valid T41 AWB DMA completions since the last rearm");
-module_param_named(t41_safe_awb_update_count, t41_awb_update_count, uint,
+t41_bringup_param_named(t41_safe_awb_update_count, t41_awb_update_count, uint,
 		   0444);
-MODULE_PARM_DESC(t41_safe_awb_update_count,
+t41_bringup_param_desc(t41_safe_awb_update_count,
 		 "T41 safe AWB gain updates since the last rearm");
-module_param_named(t41_safe_awb_reject_count, t41_awb_reject_count, uint,
+t41_bringup_param_named(t41_safe_awb_reject_count, t41_awb_reject_count, uint,
 		   0444);
-MODULE_PARM_DESC(t41_safe_awb_reject_count,
+t41_bringup_param_desc(t41_safe_awb_reject_count,
 		 "transient T41 AWB ratio outliers rejected since rearm");
-module_param_named(t41_safe_awb_bank, t41_awb_last_bank, uint, 0444);
-MODULE_PARM_DESC(t41_safe_awb_bank,
+t41_bringup_param_named(t41_safe_awb_bank, t41_awb_last_bank, uint, 0444);
+t41_bringup_param_desc(t41_safe_awb_bank,
 		 "last T41 AWB DMA bank sampled by the safe controller");
 static void t41_safe_awb_workfn(struct work_struct *work);
 static DECLARE_WORK(t41_safe_awb_work, t41_safe_awb_workfn);
@@ -1433,24 +1520,24 @@ module_param(t41_stock_awb_stats_profile, int, 0644);
 MODULE_PARM_DESC(t41_stock_awb_stats_profile,
 		 "nonpositive reapplies calibration-driven AWB setup after stream reset (legacy name)");
 static int t41_stock_dmsc_profile = -1;
-module_param(t41_stock_dmsc_profile, int, 0644);
-MODULE_PARM_DESC(t41_stock_dmsc_profile,
+t41_bringup_param(t41_stock_dmsc_profile, int, 0644);
+t41_bringup_param_desc(t41_stock_dmsc_profile,
 		 "nonpositive reapplies calibration-driven DMSC after stream reset (legacy name)");
 static int t41_stock_dpc_profile = -1;
 module_param(t41_stock_dpc_profile, int, 0644);
 MODULE_PARM_DESC(t41_stock_dpc_profile,
 		 "nonpositive reapplies calibration-driven DPC after stream reset (legacy name)");
 static int t41_stock_ysp_profile = -1;
-module_param(t41_stock_ysp_profile, int, 0644);
-MODULE_PARM_DESC(t41_stock_ysp_profile,
+t41_bringup_param(t41_stock_ysp_profile, int, 0644);
+t41_bringup_param_desc(t41_stock_ysp_profile,
 		 "nonpositive reapplies calibration-driven YSP after stream reset (legacy name)");
 static int t41_stock_ysp_unbypass = 1;
-module_param(t41_stock_ysp_unbypass, int, 0644);
-MODULE_PARM_DESC(t41_stock_ysp_unbypass,
+t41_bringup_param(t41_stock_ysp_unbypass, int, 0644);
+t41_bringup_param_desc(t41_stock_ysp_unbypass,
 		 "Deprecated compatibility parameter; YSP TOP bypass follows calibration");
 static int t41_stock_spatial_profile = -1;
-module_param(t41_stock_spatial_profile, int, 0644);
-MODULE_PARM_DESC(t41_stock_spatial_profile,
+t41_bringup_param(t41_stock_spatial_profile, int, 0644);
+t41_bringup_param_desc(t41_stock_spatial_profile,
 		 "nonpositive restores calibrated spatial blocks after stream reset (legacy name)");
 static int t41_stock_lce_ram_profile = -1;
 module_param(t41_stock_lce_ram_profile, int, 0644);
@@ -1468,20 +1555,20 @@ module_param(t41_lce_frames, uint, 0444);
 module_param(t41_lce_gain, uint, 0444);
 static int t41_lce_frame(uint32_t gain);
 static int t41_stock_cdns_profile = -1;
-module_param(t41_stock_cdns_profile, int, 0644);
-MODULE_PARM_DESC(t41_stock_cdns_profile,
+t41_bringup_param(t41_stock_cdns_profile, int, 0644);
+t41_bringup_param_desc(t41_stock_cdns_profile,
 		 "nonpositive reapplies calibration-driven CDNS after stream reset (legacy name)");
 static int t41_stock_mdns_profile = -1;
-module_param(t41_stock_mdns_profile, int, 0644);
-MODULE_PARM_DESC(t41_stock_mdns_profile,
+t41_bringup_param(t41_stock_mdns_profile, int, 0644);
+t41_bringup_param_desc(t41_stock_mdns_profile,
 		 "Enable checked MDNS rmem layout and calibrated tuning (nonpositive=enabled, legacy name)");
 static int t41_stock_adr_profile = -1;
-module_param(t41_stock_adr_profile, int, 0644);
-MODULE_PARM_DESC(t41_stock_adr_profile,
+t41_bringup_param(t41_stock_adr_profile, int, 0644);
+t41_bringup_param_desc(t41_stock_adr_profile,
 		 "Nonpositive enables calibrated histogram-driven ADR (legacy name)");
 static int t41_stock_tmo_profile = 1;
-module_param(t41_stock_tmo_profile, int, 0644);
-MODULE_PARM_DESC(t41_stock_tmo_profile,
+t41_bringup_param(t41_stock_tmo_profile, int, 0644);
+t41_bringup_param_desc(t41_stock_tmo_profile,
 		 "Replay a matched stock T41 TMO runtime curve (negative=enabled, diagnostic)");
 static void t41_apply_stock_tmo_profile(void);
 static void t41_hold_tmo_bypass(void);
@@ -1496,9 +1583,9 @@ static struct {
 static unsigned int t41_tmo_frames = ~0U;
 static unsigned int t41_tmo_dropped = ~0U;
 static int t41_tmo_error = -ENODEV;
-module_param(t41_tmo_frames, uint, 0444);
-module_param(t41_tmo_dropped, uint, 0444);
-module_param(t41_tmo_error, int, 0444);
+t41_bringup_param(t41_tmo_frames, uint, 0444);
+t41_bringup_param(t41_tmo_dropped, uint, 0444);
+t41_bringup_param(t41_tmo_error, int, 0444);
 static void t41_tmo_workfn(struct work_struct *work);
 static DECLARE_WORK(t41_tmo_work, t41_tmo_workfn);
 static void t41_tmo_stream_start(void);
@@ -1513,12 +1600,12 @@ static unsigned char t41_ccm_attr_raw[T41_CCM_ATTR_BYTES];
 static short t41_ccm_man_q10[9];
 static int t41_ccm_error = -ENODEV;
 module_param(t41_ccm_ct, uint, 0444);
-module_param(t41_ccm_error, int, 0444);
+t41_bringup_param(t41_ccm_error, int, 0444);
 static int t41_ccm_update(uint32_t ct, uint32_t ev, int force);
 static DEFINE_MUTEX(t41_bcsh_lock);
 static int t41_bcsh_error = -ENODEV;
 static uint32_t t41_bcsh_last[T41_BCSH_WORDS] = { UINT_MAX };
-module_param(t41_bcsh_error, int, 0444);
+t41_bringup_param(t41_bcsh_error, int, 0444);
 static int t41_bcsh_update(uint32_t ct, uint32_t ev, int force);
 /* User B/C/S/H controls (stock bcsh_info+329..332), 128 = neutral. */
 static unsigned char t41_bcsh_api[4] = { 128, 128, 128, 128 };
@@ -1526,24 +1613,24 @@ static int t41_bcsh_api_set(unsigned int index, uint32_t value);
 static int t41_gamma_error = -ENODEV;
 static int t41_ydns_error = -ENODEV;
 static unsigned int t41_ydns_gain = ~0U;
-module_param(t41_ydns_error, int, 0444);
-module_param(t41_ydns_gain, uint, 0444);
+t41_bringup_param(t41_ydns_error, int, 0444);
+t41_bringup_param(t41_ydns_gain, uint, 0444);
 static int t41_ysp_error = -ENODEV;
 static unsigned int t41_ysp_gain = ~0U;
-module_param(t41_ysp_error, int, 0444);
-module_param(t41_ysp_gain, uint, 0444);
+t41_bringup_param(t41_ysp_error, int, 0444);
+t41_bringup_param(t41_ysp_gain, uint, 0444);
 static int t41_cdns_error = -ENODEV;
 static unsigned int t41_cdns_gain = ~0U;
-module_param(t41_cdns_error, int, 0444);
-module_param(t41_cdns_gain, uint, 0444);
+t41_bringup_param(t41_cdns_error, int, 0444);
+t41_bringup_param(t41_cdns_gain, uint, 0444);
 static int t41_mdns_error = -ENODEV;
 static unsigned int t41_mdns_gain = ~0U;
-module_param(t41_mdns_error, int, 0444);
-module_param(t41_mdns_gain, uint, 0444);
+t41_bringup_param(t41_mdns_error, int, 0444);
+t41_bringup_param(t41_mdns_gain, uint, 0444);
 static int t41_sdns_error = -ENODEV;
 static unsigned int t41_sdns_gain = ~0U;
-module_param(t41_sdns_error, int, 0444);
-module_param(t41_sdns_gain, uint, 0444);
+t41_bringup_param(t41_sdns_error, int, 0444);
+t41_bringup_param(t41_sdns_gain, uint, 0444);
 static int t41_dmsc_error = -ENODEV;
 static unsigned int t41_dmsc_gain = ~0U;
 module_param(t41_dmsc_error, int, 0444);
@@ -1555,10 +1642,10 @@ module_param(t41_dpc_gain, uint, 0444);
 static unsigned int t41_gamma_ev = ~0U;
 static unsigned int t41_gamma_strength_value = ~0U;
 static unsigned int t41_gamma_updates __attribute__((section(".data"))) = 0;
-module_param(t41_gamma_error, int, 0444);
-module_param(t41_gamma_ev, uint, 0444);
-module_param(t41_gamma_strength_value, uint, 0444);
-module_param(t41_gamma_updates, uint, 0444);
+t41_bringup_param(t41_gamma_error, int, 0444);
+t41_bringup_param(t41_gamma_ev, uint, 0444);
+t41_bringup_param(t41_gamma_strength_value, uint, 0444);
+t41_bringup_param(t41_gamma_updates, uint, 0444);
 static int t41_tmo_map_trigger = -1;
 static int t41_tmo_map_set(const char *value, const struct kernel_param *kp);
 module_param_call(t41_tmo_map_trigger, t41_tmo_map_set, param_get_int,
@@ -1587,7 +1674,7 @@ static int t41_tmo_replay_set(const char *value,
         atomic_set(&t41_tmo_frame_replay_pending, -1);
         t41_hold_tmo_bypass();
         t41_trace_printk(KERN_WARNING
-               "tx_isp_t41_recovered: TMO held in fail-safe bypass\n");
+               "t41: TMO held in fail-safe bypass\n");
     } else if (!ret && t41_tmo_replay_trigger > 0) {
         /* The sysfs callback is process context.  Use the same fail-safe
          * ordering as stream start and never upload the cold, initially-zero
@@ -1598,13 +1685,13 @@ static int t41_tmo_replay_set(const char *value,
     }
     return ret;
 }
-module_param_call(t41_tmo_replay_trigger, t41_tmo_replay_set,
+t41_bringup_param_call(t41_tmo_replay_trigger, t41_tmo_replay_set,
                   param_get_int, &t41_tmo_replay_trigger, 0644);
-MODULE_PARM_DESC(t41_tmo_replay_trigger,
+t41_bringup_param_desc(t41_tmo_replay_trigger,
 		 "TMO lifecycle control: zero bypasses; positive reinstalls the stock profile");
 static unsigned int t41_bcsh_color_model = ~0U;
-module_param(t41_bcsh_color_model, uint, 0444);
-MODULE_PARM_DESC(t41_bcsh_color_model,
+t41_bringup_param(t41_bcsh_color_model, uint, 0444);
+t41_bringup_param_desc(t41_bcsh_color_model,
 		 "active stock-derived BCSH color model (0=day, 1=low-light)");
 MODULE_PARM_DESC(t41_checkpoint_start, "first zero-based TISP init checkpoint to delay");
 
@@ -1674,6 +1761,18 @@ static int t41_runtime_trace;
 module_param(t41_runtime_trace, int, 0644);
 MODULE_PARM_DESC(t41_runtime_trace,
 		 "enable verbose T41 frame/remote-event/IRQ recovery tracing");
+
+/*
+ * Progress notes (bring-up enter/exit, per-ioctl and per-event lines) were
+ * KERN_WARNING and flooded dmesg on every stream start, format ioctl and
+ * notify event.  Like t23_runtime_trace/t40_runtime_trace: notes are
+ * KERN_INFO and only logged with t41_runtime_trace=1; a note whose text
+ * reports a non-zero "ret=" or "fail=" value is still logged as a warning.
+ * Real errors keep using printk(KERN_WARNING/KERN_ERR) directly.
+ */
+static __printf(1, 2) void t41_note(const char *fmt, ...);
+/* defined at the end of the file: its use of t41_runtime_trace must not
+ * change the order in which GCC lays out the recovered .bss */
 
 /* WHOLE_DRIVER_PLATFORM_DERIVATION
  * platform: linux_kernel_module
@@ -2172,13 +2271,24 @@ static unsigned char s_gsm_hist0_storage[1024] __attribute__((aligned(4)));
 static unsigned char s_gsm_hist1_storage[1024] __attribute__((aligned(4)));
 #define s_gsm_hist1 (*(uint32_t *)(void *)s_gsm_hist1_storage)
 static uint32_t saveflag, savenum, snapyuv_mode, st_vic_save_par, statYNum, statYNumLast, statYOut, statYSum;
-module_param_named(t41_stat_y_out, statYOut, uint, 0444);
-MODULE_PARM_DESC(t41_stat_y_out,
+t41_bringup_param_named(t41_stat_y_out, statYOut, uint, 0444);
+t41_bringup_param_desc(t41_stat_y_out,
 		 "Diagnostic virtual address of the TMO statYOut workspace");
 static uint32_t stat_en, sum_block_long, sum_block_short, ta_custom_again, ta_custom_en, ta_custom_ev, ta_custom_ev_short;
 static uint32_t ta_custom_tgain, tawb_custom_en, tgain_wdr_s, thr_maxvalue_tmp, tisp_mdns_wdr_en_table;
 static uint32_t tisp_par_ioctl, tiziano_adr_tgain_table, tmo_info[2], tmp_addr, tmp_addr_uv, tv_frame_end;
 static uint32_t tv_frame_start, tv_frame_start_next, vaddr, vic_cmd_buf, vic_err, video_input_cmd_buf;
+/*
+ * Overrun targets.  The recovered core addresses vic_cmd_buf + 4/8/0xc and
+ * tgain_wdr_s + 4; the vendor objects are 32 and 16 bytes (1.2.6-720-4494
+ * .bss 0x14 / 0x3ec8), ours are 4, so those accesses hit ysp_paramsP,
+ * bcsh_info, _bss_anchor and vic_subdev_internal_ops in the agg-36 build
+ * (GCC reorders these statics after most code changes, so the victim
+ * differs per build).  The upper words live in their own section and the
+ * overrunning sites use them; the 4-byte originals are unchanged.
+ */
+static uint32_t t41_vic_cmd_buf_hi[3] __attribute__((section(".data..t41_h1")));
+static uint32_t t41_tgain_wdr_s_hi[3] __attribute__((section(".data..t41_h1")));
 static uint32_t vpu0_end, vpu0_half_end, vpu1_end, vpu1_half_end, vpu_discard_over, vpu_err, vpu_stop_over;
 static uint32_t wdr_en_adr, wdr_ev_changed, wdr_frm_num, wdr_hist_B0, wdr_hist_B1, wdr_hist_G0, wdr_hist_G1;
 static uint32_t wdr_hist_R0, wdr_hist_R1, wdr_info[2], wdr_sum_block, width_adr, ydns_info;
@@ -2228,7 +2338,7 @@ static int t41_apply_flicker_profile(bool enable)
 		t41_color_green_correction_q10,
 		t41_color_blue_correction_q10, params[4 + 9], bypass);
 	t41_trace_printk(KERN_WARNING
-	       "tx_isp_t41_recovered: flicker image profile %s "
+	       "t41: flicker image profile %s "
 	       "gib=%#x correction=%#x/%#x bypass=%#x ret=%d\n",
 	       enable ? "enabled" : "disabled",
 	       t41_ae_flicker_gib_gain_q10,
@@ -3148,11 +3258,11 @@ static bool t41_kernel_data_ptr(const void *ptr)
  * instead of guessing; each site warns once.
  */
 #define T41_UNRECOVERED_RET(ret) do { \
-	pr_warn_once("tx-isp-t41: %s: unrecovered path disabled\n", __func__); \
+	pr_warn_once("%s: unrecovered path disabled\n", __func__); \
 	return (ret); \
 } while (0)
 #define T41_UNRECOVERED_COPY() ({ \
-	pr_warn_once("tx-isp-t41: %s:%d: user copy with unrecovered arguments refused\n", \
+	pr_warn_once("%s:%d: user copy with unrecovered arguments refused\n", \
 		     __func__, __LINE__); \
 	(unsigned long)-EFAULT; \
 })
@@ -3209,7 +3319,7 @@ static void t41_log_ispcore_children(const char *stage)
 	if (!t41_kernel_data_ptr(subdev))
 		return;
 	t41_trace_printk(KERN_WARNING
-	       "tx_isp_t41_recovered: core-children %s sd=%p slots=%p/%p/%p expected=%p/%p/%p\n",
+	       "t41: core-children %s sd=%p slots=%p/%p/%p expected=%p/%p/%p\n",
 	       stage, subdev,
 	       *(void **)(subdev + 0x3c), *(void **)(subdev + 0x40),
 	       *(void **)(subdev + 0x44),
@@ -6841,7 +6951,12 @@ int32_t private_misc_deregister(void *misc)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000bf4 origin=fragment_seed original=private_proc_create_data */
 int32_t private_proc_create_data(const char *name, umode_t mode, void *parent, const struct file_operations *fops, void *data)
 {
-    return (int32_t)proc_create_data(name, mode, parent, fops, data);
+    void *pde;
+
+    t41_procwatch_begin();
+    pde = proc_create_data(name, mode, parent, fops, data);
+    t41_procwatch_add(pde, fops);
+    return (int32_t)pde;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000c04 origin=model_output original=private_vmalloc */
@@ -7022,7 +7137,12 @@ int32_t private_single_open_size(struct file *file,
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000e5c origin=fragment_seed original=private_jz_proc_mkdir */
 void *private_jz_proc_mkdir(const char *name)
 {
-    return jz_proc_mkdir(name);
+    void *dir;
+
+    t41_procwatch_begin();
+    dir = jz_proc_mkdir(name);
+    t41_procwatch_add(dir, NULL);
+    return dir;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000e6c origin=model_output original=private_proc_remove */
@@ -7662,7 +7782,7 @@ static int regtrace_t41_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
     width = *(uint32_t *)(ch + 276);
     height = *(uint32_t *)(ch + 280);
     t41_trace_printk(KERN_WARNING
-           "tx_isp_t41_recovered: VIC start ch=%u vic=%p attr=%p dbus=%u %ux%u mode=%u frame=%u sensor=%u expo_fs=%u\n",
+           "t41: VIC start ch=%u vic=%p attr=%p dbus=%u %ux%u mode=%u frame=%u sensor=%u expo_fs=%u\n",
            channel, (void *)vic_dev, (void *)attr, dbus, width, height,
            *(uint32_t *)(attr + 24), *(uint32_t *)(attr + 120),
            *(uint32_t *)(attr + 124), *(uint32_t *)(attr + 148));
@@ -7763,7 +7883,7 @@ static int regtrace_t41_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
     wmb();
 
     t41_trace_printk(KERN_WARNING
-           "tx_isp_t41_recovered: VIC MIPI programmed ch=%u reg0=0x%x size=0x%x fmt=0x%x reg100=0x%x reg10c=0x%x reg1a0=0x%x ctrl=0x%x\n",
+           "t41: VIC MIPI programmed ch=%u reg0=0x%x size=0x%x fmt=0x%x reg100=0x%x reg10c=0x%x reg1a0=0x%x ctrl=0x%x\n",
            channel, readl(regs + 0x00), readl(regs + 0x04),
            readl(regs + 0x14), readl(regs + 0x100),
            readl(regs + 0x10c), readl(regs + 0x1a0),
@@ -10263,7 +10383,7 @@ void tx_vic_enable_irq(int32_t arg1)
     }
     private_spin_unlock_irqrestore(vic + 0x84 + arg1 * 4, flags);
     t41_trace_printk(KERN_WARNING
-           "tx_isp_t41_recovered: VIC irq enable ch=%d vic=%p irq=%u callback=%p ret=%d state=%u\n",
+           "t41: VIC irq enable ch=%d vic=%p irq=%u callback=%p ret=%d state=%u\n",
            arg1, vic, *(uint32_t *)(vic + 0x90 + arg1 * 4),
            enable_cb, ret, *(uint32_t *)(vic + 0x9c + arg1 * 4));
 }
@@ -10291,7 +10411,7 @@ void *tx_vic_disable_irq(int32_t arg1)
     }
     private_spin_unlock_irqrestore(vic + 0x84 + arg1 * 4, flags);
     t41_trace_printk(KERN_WARNING
-           "tx_isp_t41_recovered: VIC irq disable ch=%d vic=%p irq=%u callback=%p ret=%d state=%u\n",
+           "t41: VIC irq disable ch=%d vic=%p irq=%u callback=%p ret=%d state=%u\n",
            arg1, vic, *(uint32_t *)(vic + 0x90 + arg1 * 4),
            disable_cb, ret, *(uint32_t *)(vic + 0x9c + arg1 * 4));
     return vic + 0x84 + arg1 * 4;
@@ -10322,7 +10442,7 @@ int64_t vic_core_s_stream(uintptr_t a0, uintptr_t a1)
     /* OEM T41: vic_dev + ((channel + 0x60) << 2) + 4. */
     state = (uint32_t *)(vic_dev + ((channel + 0x60U) << 2) + 4U);
     t41_trace_printk(KERN_WARNING
-           "tx_isp_t41_recovered: VIC stream enable=%u ch=%u state=%u vic=%p\n",
+           "t41: VIC stream enable=%u ch=%u state=%u vic=%p\n",
            enable, channel, *state, (void *)vic_dev);
 
     if (!enable) {
@@ -10342,11 +10462,11 @@ int64_t vic_core_s_stream(uintptr_t a0, uintptr_t a1)
         tx_vic_enable_irq(0);
     else
         t41_trace_printk(KERN_WARNING
-               "tx_isp_t41_recovered: VIC irq deferred until frame buffers "
+               "t41: VIC irq deferred until frame buffers "
                "are active ch=%u\n", channel);
     if (t41_defer_vic_start) {
         t41_trace_printk(KERN_WARNING
-               "tx_isp_t41_recovered: VIC start deferred until frame "
+               "t41: VIC start deferred until frame "
                "buffers are active ch=%u\n", channel);
         return 0;
     } else {
@@ -10355,7 +10475,7 @@ int64_t vic_core_s_stream(uintptr_t a0, uintptr_t a1)
     if (!ret)
         *state = 4;
     t41_trace_printk(KERN_WARNING
-           "tx_isp_t41_recovered: VIC stream start ret=%d ch=%u state=%u\n",
+           "t41: VIC stream start ret=%d ch=%u state=%u\n",
            ret, channel, *state);
     return ret;
 }
@@ -12572,7 +12692,7 @@ int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1, uint32_t a2
 
             if (fs_trace_count < 8)
                 t41_trace_printk(KERN_WARNING
-                       "tx_isp_t41_recovered: VIC frame-sync work irq=%u queued=%d\n",
+                       "t41: VIC frame-sync work irq=%u queued=%d\n",
                        a1, queued);
             fs_trace_count++;
         }
@@ -12580,7 +12700,7 @@ int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1, uint32_t a2
             ++*(uint32_t *)(vic + 0x1d0);
             if (frame_trace_count < 8)
                 t41_trace_printk(KERN_WARNING
-                       "tx_isp_t41_recovered: VIC frame done irq=%u active=%#x/%#x count=%u\n",
+                       "t41: VIC frame done irq=%u active=%#x/%#x count=%u\n",
                        a1, active0, active1,
                        *(uint32_t *)(vic + 0x1d0));
             frame_trace_count++;
@@ -12600,14 +12720,14 @@ int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1, uint32_t a2
         if (active0 & 0xfffffe00U) {
             ++t41_vic_err_restarts;
             t41_trace_printk_ratelimited(KERN_WARNING
-                               "tx_isp_t41_recovered: VIC error %#x, reset start (n=%u)\n",
+                               "t41: VIC error %#x, reset start (n=%u)\n",
                                active0, t41_vic_err_restarts);
             writel(5, regs + 0x0);
             wmb();
         }
         if (trace_count < 8)
             t41_trace_printk(KERN_WARNING
-                   "tx_isp_t41_recovered: VIC safe irq irq=%u active=%#x/%#x raw=%#x/%#x frames=%u/%u/%u/%u\n",
+                   "t41: VIC safe irq irq=%u active=%#x/%#x raw=%#x/%#x frames=%u/%u/%u/%u\n",
                    a1, active0, active1, raw0, raw1,
                    *(uint32_t *)(vic + 0x1d0),
                    *(uint32_t *)(vic + 0x1d4),
@@ -12824,7 +12944,7 @@ isp_vic_interrupt_service_routine0x214:
     if (_bc_v0_40) { goto isp_vic_interrupt_service_routine0x260; }
 
     /* fragment 41: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0x8)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0x8))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[1])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[1]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC79); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x260:
@@ -12851,7 +12971,7 @@ isp_vic_interrupt_service_routine0x2a0:
     if (_bc_v0_46) { goto isp_vic_interrupt_service_routine0x2d8; }
 
     /* fragment 47: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC81); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x2d8:
@@ -12865,7 +12985,7 @@ isp_vic_interrupt_service_routine0x2d8:
     if (_bc_v0_49) { goto isp_vic_interrupt_service_routine0x310; }
 
     /* fragment 50: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC82); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x310:
@@ -12879,7 +12999,7 @@ isp_vic_interrupt_service_routine0x310:
     if (_bc_v0_52) { goto isp_vic_interrupt_service_routine0x348; }
 
     /* fragment 53: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC83); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x348:
@@ -12907,7 +13027,7 @@ isp_vic_interrupt_service_routine0x380:
     if (_bc_v0_58) { goto isp_vic_interrupt_service_routine0x3b8; }
 
     /* fragment 59: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC85); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x3b8:
@@ -12920,7 +13040,7 @@ isp_vic_interrupt_service_routine0x3b8:
     if (_bc_v0_61) { goto isp_vic_interrupt_service_routine0x3f0; }
 
     /* fragment 62: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC86); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x3f0:
@@ -12933,7 +13053,7 @@ isp_vic_interrupt_service_routine0x3f0:
     if (_bc_v0_64) { goto isp_vic_interrupt_service_routine0x428; }
 
     /* fragment 65: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC87); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x428:
@@ -12959,7 +13079,7 @@ isp_vic_interrupt_service_routine0x460:
     if (_bc_v0_70) { goto isp_vic_interrupt_service_routine0x498; }
 
     /* fragment 71: CallSetup */
-    *(uint32_t *)((char *)((char *)&direct_mode + 0x4)) = ((*(uint32_t *)((char *)((char *)&direct_mode + 0x4))) + 1);
+    *(uint32_t *)((char *)((char *)&ivdc_threshold_line)) = ((*(uint32_t *)((char *)((char *)&ivdc_threshold_line))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC89); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x498:
@@ -13037,7 +13157,7 @@ isp_vic_interrupt_service_routine0x5b0:
     if (_bc_v0_88) { goto isp_vic_interrupt_service_routine0x5e8; }
 
     /* fragment 89: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC95); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x5e8:
@@ -13050,7 +13170,7 @@ isp_vic_interrupt_service_routine0x5e8:
     if (_bc_v0_91) { goto isp_vic_interrupt_service_routine0x620; }
 
     /* fragment 92: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC96); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x620:
@@ -13063,7 +13183,7 @@ isp_vic_interrupt_service_routine0x620:
     if (_bc_v0_94) { goto isp_vic_interrupt_service_routine0x658; }
 
     /* fragment 95: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC97); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x658:
@@ -13089,7 +13209,7 @@ isp_vic_interrupt_service_routine0x690:
     if (_bc_v0_100) { goto isp_vic_interrupt_service_routine0x6c8; }
 
     /* fragment 101: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC99); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x6c8:
@@ -13102,7 +13222,7 @@ isp_vic_interrupt_service_routine0x6c8:
     if (_bc_v0_103) { goto isp_vic_interrupt_service_routine0x700; }
 
     /* fragment 104: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC100); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x700:
@@ -13115,7 +13235,7 @@ isp_vic_interrupt_service_routine0x700:
     if (_bc_v0_106) { goto isp_vic_interrupt_service_routine0x734; }
 
     /* fragment 107: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0xc))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[2]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC101); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x734:
@@ -13183,7 +13303,7 @@ isp_vic_interrupt_service_routine0x7f4:
     if (v0 == 0) { goto isp_vic_interrupt_service_routine0x834; }
 
     /* fragment 123: CallSetup */
-    *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0x4)) = ((*(uint32_t *)((char *)((char *)&vic_cmd_buf + 0x4))) + 1);
+    *(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[0])) = ((*(uint32_t *)((char *)((char *)&t41_vic_cmd_buf_hi[0]))) + 1);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC104); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x830:
@@ -13428,7 +13548,7 @@ int64_t vin_s_stream(uintptr_t a0, uintptr_t a1)
         ret = ((int (*)(uintptr_t, int32_t *))(uintptr_t)stream_cb)(
                 sensor, stream);
         t41_trace_printk(KERN_WARNING
-               "tx_isp_t41_recovered: VIN sensor stream sensor=%p callback=%p enable=%d vinum=%u ret=%d\n",
+               "t41: VIN sensor stream sensor=%p callback=%p enable=%d vinum=%u ret=%d\n",
                (void *)sensor, (void *)stream_cb, stream[0], vinum, ret);
         if (ret)
             return ret;
@@ -13458,7 +13578,7 @@ int32_t tx_isp_vin_activate_subdev(uintptr_t a0)
 	private_mutex_unlock(lock);
 	++*(uint32_t *)(vin + 0x134);
 	t41_trace_printk(KERN_WARNING
-	       "tx_isp_t41_recovered: VIN activate vin=%p state=%u->%u refs=%u\n",
+	       "t41: VIN activate vin=%p state=%u->%u refs=%u\n",
 	       vin, before, *(uint32_t *)(vin + 0x130),
 	       *(uint32_t *)(vin + 0x134));
 	return 0;
@@ -13494,7 +13614,7 @@ int64_t tx_isp_vin_init(uintptr_t a0, uintptr_t a1)
             ret = ((int (*)(uintptr_t, const uint32_t *))init)(sensor,
                                                                input);
             t41_trace_printk(KERN_WARNING
-                   "tx_isp_t41_recovered: VIN sensor init sensor=%p callback=%p enable=%u vinum=%u ret=%d\n",
+                   "t41: VIN sensor init sensor=%p callback=%p enable=%u vinum=%u ret=%d\n",
                    (void *)sensor, (void *)init, input[0], input[1], ret);
             if (ret == -515)
                 ret = 0;
@@ -13525,8 +13645,8 @@ int32_t subdev_sensor_ops_set_input(void* arg1, int32_t* arg2, int32_t arg3)
 
     enable = (unsigned int)arg2[0];
     vinum = (unsigned int)arg2[1];
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: set-input enter vin=%p enable=%u vinum=%u\n",
+	t41_note(
+	       "t41: set-input enter vin=%p enable=%u vinum=%u\n",
 	       (void *)vin, enable, vinum);
     if (vinum >= 3)
         return -EINVAL;
@@ -13587,13 +13707,13 @@ int32_t subdev_sensor_ops_set_input(void* arg1, int32_t* arg2, int32_t arg3)
     event = *(uintptr_t *)(sensor + 128);
     if (!event)
         return -515;
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: set-input sync-attr enter sensor=%p interface=%u event=%p video=%p\n",
+	t41_note(
+	       "t41: set-input sync-attr enter sensor=%p interface=%u event=%p video=%p\n",
 	       (void *)sensor, interface, (void *)event, (void *)(sensor + 724));
     ret = ((int (*)(uintptr_t, unsigned int, uintptr_t))event)
         (sensor, 0x01000001U, sensor + 724);
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: set-input sync-attr exit ret=%d\n", ret);
+	t41_note(
+	       "t41: set-input sync-attr exit ret=%d\n", ret);
     if (ret)
         return ret;
     WRITE_ONCE(t41_mdns_input_width[vinum],
@@ -13601,24 +13721,24 @@ int32_t subdev_sensor_ops_set_input(void* arg1, int32_t* arg2, int32_t arg3)
     WRITE_ONCE(t41_mdns_input_height[vinum],
                *(uint32_t *)(sensor + 788));
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: set-input MDNS layout vinum=%u %ux%u\n",
+           "t41: set-input MDNS layout vinum=%u %ux%u\n",
            vinum, READ_ONCE(t41_mdns_input_width[vinum]),
            READ_ONCE(t41_mdns_input_height[vinum]));
 
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: set-input init enter sensor=%p enable=%u vinum=%u\n",
+	t41_note(
+	       "t41: set-input init enter sensor=%p enable=%u vinum=%u\n",
 	       (void *)sensor, enable, vinum);
     ret = ((int (*)(uintptr_t, unsigned int, uintptr_t))event)
         (sensor, 0x01000000U, (uintptr_t)arg2);
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: set-input init exit ret=%d\n", ret);
+	t41_note(
+	       "t41: set-input init exit ret=%d\n", ret);
     if (ret)
         return ret;
 
     arg2[1] = ((*(uint32_t *)(sensor + 784) << 16) & 0x7fff0000U) |
               *(uint16_t *)(sensor + 788);
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: set-input exit packed=0x%x\n", arg2[1]);
+	t41_note(
+	       "t41: set-input exit packed=0x%x\n", arg2[1]);
     return 0;
 }
 
@@ -15031,7 +15151,7 @@ static void t41_unsync_stale_sensor(uintptr_t sensor)
 		if (t41_load_ptr(blk, 56) != info)
 			continue;
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: stale sensor still synced to core/VIC slot %u, unsyncing\n",
+		       "t41: stale sensor still synced to core/VIC slot %u, unsyncing\n",
 		       id);
 		if (id)
 			memset((void *)blk, 0, 96);
@@ -15077,7 +15197,7 @@ static void t41_reclaim_stale_sensor(uintptr_t vin, uintptr_t arg,
 		*(uintptr_t *)slot = 0;
 	private_mutex_unlock((void *)(vin + T41_VIN_SENSOR_LOCK_OFF));
 	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: reclaiming stale sensor %.32s on vin %u\n",
+	       "t41: reclaiming stale sensor %.32s on vin %u\n",
 	       (char *)arg, sensor_id);
 	t41_unsync_stale_sensor(sensor);
 	if (*(uint32_t *)(sensor + T41_SENSOR_INFO_OFF + 32) == 1)
@@ -15183,13 +15303,13 @@ static int t41_register_sensor(uintptr_t vin, uintptr_t arg)
 		isp_printf(2, "VIN has no event callback for sensor %u\n", sensor_id);
 		return -1;
 	}
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: sensor-register create-frame enter sensor=%u interface=%u vin=%p notify=%p\n",
+	t41_note(
+	       "t41: sensor-register create-frame enter sensor=%u interface=%u vin=%p notify=%p\n",
 	       sensor_id, interface, (void *)vin, (void *)notify);
 	ret = ((int (*)(uintptr_t, unsigned int, uintptr_t))notify)
 		(vin, T41_EVENT_CREATE_FRAME_CHAN, (uintptr_t)&interface);
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: sensor-register create-frame exit ret=%d\n",
+	t41_note(
+	       "t41: sensor-register create-frame exit ret=%d\n",
 	       ret);
 	return ret ? -1 : 0;
 }
@@ -15775,7 +15895,7 @@ int64_t csi_sensor_ops_sync_sensor_attr(uint32_t a0, uint32_t a1)
     destination = (void *)(csi + 276 + sensor_id * 96);
     memcpy(destination, (void *)video, 96);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: csi-sync video=%p attr=%p info=%p sensor=%u dst=%p copied-attr=%p\n",
+           "t41: csi-sync video=%p attr=%p info=%p sensor=%u dst=%p copied-attr=%p\n",
            (void *)video, (void *)attr, (void *)info, sensor_id,
            destination, *(void **)((char *)destination + 52));
     return 0;
@@ -15816,7 +15936,7 @@ int32_t mipi_phy_stream_on(const void *arg1, int32_t *arg2)
 
     if (t41_defer_csi_start) {
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: CSI receiver start deferred until "
+               "t41: CSI receiver start deferred until "
                "frame buffers are active vinum=%u state=%u\n",
                vinum, state);
         return 0;
@@ -15826,7 +15946,7 @@ int32_t mipi_phy_stream_on(const void *arg1, int32_t *arg2)
     csi_regs = *(char **)(csi + 0xe8);
     phy_regs = *(char **)(csi + 0x190);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: mipi-on csi=%p vinum=%u state=%u attr=%p csi-regs=%p phy-regs=%p\n",
+           "t41: mipi-on csi=%p vinum=%u state=%u attr=%p csi-regs=%p phy-regs=%p\n",
            csi, vinum, state, attr, csi_regs, phy_regs);
     if (!t41_kernel_data_ptr(attr) || !t41_kernel_data_ptr(csi_regs) ||
         !t41_kernel_data_ptr(phy_regs))
@@ -15834,7 +15954,7 @@ int32_t mipi_phy_stream_on(const void *arg1, int32_t *arg2)
 
     dbus_type = *(uint32_t *)(attr + 0x14);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: mipi-on attr dbus=%u lanes=%u clock=%u settle-control=%u active=%u\n",
+           "t41: mipi-on attr dbus=%u lanes=%u clock=%u settle-control=%u active=%u\n",
            dbus_type, (uint32_t)*(uint8_t *)(attr + 0x29),
            *(uint32_t *)(attr + 0x1c), *(uint32_t *)(attr + 0x40),
            *(uint32_t *)(csi + 0x19c));
@@ -15892,16 +16012,16 @@ int32_t mipi_phy_stream_on(const void *arg1, int32_t *arg2)
     writel(0xffffffff, csi_regs + 0x0c);
     writel(0xffffffff, csi_regs + 0x10);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: mipi-on csi reset writes complete\n");
+           "t41: mipi-on csi reset writes complete\n");
     private_mdelay(1);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: mipi-on initial delay complete\n");
+           "t41: mipi-on initial delay complete\n");
 
     if (*(uint32_t *)(csi + 0x19c) == 0) {
         writel(0, csi_regs + 0x0c);
         private_msleep(1);
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: mipi-on receiver disabled\n");
+               "t41: mipi-on receiver disabled\n");
         writel((uint32_t)*(uint8_t *)(attr + 0x29) - 1,
                csi_regs + 0x04);
         writel(3, csi_regs + 0x100);
@@ -15909,25 +16029,25 @@ int32_t mipi_phy_stream_on(const void *arg1, int32_t *arg2)
         writel(0xffffffff, csi_regs + 0x2c);
         writel(dbus_type, csi_regs + 0x0c);
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: mipi-on receiver configured\n");
+               "t41: mipi-on receiver configured\n");
         __private_spin_lock_irqsave(
             (uint32_t)(uintptr_t)(csi + 0x188),
             (uintptr_t)&flags);
         ++*(uint32_t *)(csi + 0x19c);
         private_spin_unlock_irqrestore(csi + 0x188, flags);
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: mipi-on active count incremented\n");
+               "t41: mipi-on active count incremented\n");
     }
 
     private_mdelay(1);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: mipi-on receiver delay complete\n");
+           "t41: mipi-on receiver delay complete\n");
     writel(0x7d, phy_regs + 0x400);
     writel(0x3f, phy_regs + 0x528);
     writel(0x3f, phy_regs + 0x5a8);
     writel(0x3f, phy_regs + 0x628);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: mipi-on phy timing writes complete\n");
+           "t41: mipi-on phy timing writes complete\n");
 
     if (*(uint32_t *)(attr + 0x40) == 0) {
         settle = (0x73 * *(uint32_t *)(attr + 0x1c)) / 0x7d0 + 4;
@@ -15938,7 +16058,7 @@ int32_t mipi_phy_stream_on(const void *arg1, int32_t *arg2)
         writel(settle, phy_regs + 0x5e0);
         writel(settle, phy_regs + 0x660);
     }
-    printk(KERN_WARNING "tx_isp_t41_recovered: mipi-on exit\n");
+    t41_note( "t41: mipi-on exit\n");
     return 0;
 }
 
@@ -16665,110 +16785,95 @@ int32_t aisp_core_debug_show(void *arg1)
 	return 0;
 }
 
+/*
+ * /dev/isp-m0 handle count.  Vendor 1.2.6-720-4494 isp_core_tunning_open
+ * (0x713c) enables tuning only in core state 2 and returns -1 otherwise;
+ * the recovered open returned 0 for every opener, so a second handle
+ * (a tool next to the streamer) opened fine and its close() ran
+ * tisp_disable_tuning(): tisp_tattr was vfree'd under the running
+ * streamer (BCSH/ratio settings dead, later reads of freed memory).
+ * Count the handles: the first open in state 2 enables tuning, later opens
+ * share it, the last close disables it.  Own section: the recovered
+ * .bss/.data layout must not change.
+ */
+#include "tx_isp_t41_tuning_open.h"
+static struct mutex t41_tuning_open_mutex __attribute__((section(".data..t41_h1"))) =
+	__MUTEX_INITIALIZER(t41_tuning_open_mutex);
+static unsigned int t41_tuning_open_count __attribute__((section(".data..t41_h1")));
+
+static char *t41_tuning_core_state(uintptr_t file)
+{
+	char *priv, *core, *tun;
+
+	if (!t41_kernel_data_ptr((void *)file))
+		return NULL;
+	priv = (char *)(uintptr_t)*(uint32_t *)(void *)(file + 136);
+	if (!t41_kernel_data_ptr(priv))
+		return NULL;
+	core = (char *)(uintptr_t)*(uint32_t *)(void *)(priv + 256);
+	if (!t41_kernel_data_ptr(core))
+		return NULL;
+	tun = (char *)(uintptr_t)*(uint32_t *)(void *)(core + 560);
+	if (!t41_kernel_data_ptr(tun))
+		return NULL;
+	return tun;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000008384 origin=fragment_seed original=isp_core_tunning_release */
 int32_t isp_core_tunning_release(uint32_t a0, uintptr_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
+	char *tun = t41_tuning_core_state(a1);
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(a1) + 136)) + 256)) + 560);
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC1, &__pow2_lut, 2297); /* jalr target resolved by relocation */
-
-    /* fragment 2: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 148);
-    s1 = 2;
-
-    /* fragment 3: Branch */
-    int _bc_v0_3 = v0 == s1;
-    v0 = (unsigned int *)&tisp_disable_tuning;
-    if (_bc_v0_3) { goto isp_core_tunning_release0x60; }
-
-    /* fragment 4: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_disable_tuning)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 148) = s1;
-
-isp_core_tunning_release0x60:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Arithmetic */
-    v0 = 0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	(void)a0;
+	mutex_lock(&t41_tuning_open_mutex);
+	/* vendor 0x8384: state 3 -> tisp_disable_tuning(), state = 2 */
+	if (t41_tuning_release_decide(tun ? *(uint32_t *)(void *)(tun + 148) : 0,
+				      &t41_tuning_open_count) && tun) {
+		tisp_disable_tuning();
+		*(uint32_t *)(void *)(tun + 148) = 2;
+	}
+	mutex_unlock(&t41_tuning_open_mutex);
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000083fc origin=fragment_seed original=isp_core_tunning_open */
 int32_t isp_core_tunning_open(uint32_t a0, uintptr_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+	char *tun = t41_tuning_core_state(a1);
+	char *core;
+	uint32_t state;
+	int ret = 0;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a1 + 136);
-    v1 = 2;
-    s1 = *(uint32_t *)((char *)v0 + 256);
-    s0 = *(uint32_t *)((char *)s1 + 560);
-    a0 = *(uint32_t *)((char *)s0 + 148);
-
-    /* fragment 2: Branch */
-    v0 = -1;
-    if (a0 != v1) { goto isp_core_tunning_open0x78; }
-
-    /* fragment 3: CallSetup */
-    *(uint32_t *)((uintptr_t)s0 + 8) = (2155872256 | 32896);
-    *(uint32_t *)((char *)s0 + 16) = (1638400 + 1);
-    *(uint32_t *)((char *)s0 + 20) = 0;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_enable_tuning)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 4: Arithmetic */
-    v0 = 3;
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 148) = v0;
-    a0 = *(uint32_t *)((char *)s1 + 468);
-    v1 = 10;
-
-    /* fragment 6: Branch */
-    v0 = 0;
-    if (a0 != v1) { goto isp_core_tunning_open0x78; }
-
-    /* fragment 7: Arithmetic */
-    v1 = 1;
-
-    /* fragment 8: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 24) = v1;
-    *(uint32_t *)((char *)s1 + 468) = 0;
-
-isp_core_tunning_open0x78:
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	(void)a0;
+	if (!tun)
+		return -ENODEV;
+	core = (char *)(uintptr_t)*(uint32_t *)(void *)
+		((char *)(uintptr_t)*(uint32_t *)(void *)(a1 + 136) + 256);
+	mutex_lock(&t41_tuning_open_mutex);
+	state = *(uint32_t *)(void *)(tun + 148);
+	ret = t41_tuning_open_decide(state, t41_tuning_open_count);
+	if (ret < 0)
+		goto out;
+	if (ret == T41_TUNING_OPEN_ENABLE) {
+		/* vendor 0x7168..0x71b0 */
+		*(uint32_t *)(void *)(tun + 8) = 0x80808080;
+		*(uint32_t *)(void *)(tun + 16) = 0x190001;
+		*(uint32_t *)(void *)(tun + 20) = 0;
+		if (tisp_enable_tuning() != 0 || !tisp_tattr) {
+			ret = -ENOMEM;
+			goto out;
+		}
+		*(uint32_t *)(void *)(tun + 148) = 3;
+		if (*(uint32_t *)(void *)(core + 468) == 10) {
+			*(uint32_t *)(void *)(tun + 24) = 1;
+			*(uint32_t *)(void *)(core + 468) = 0;
+		}
+	}
+	t41_tuning_open_done(&t41_tuning_open_count);
+	ret = 0;
+out:
+	mutex_unlock(&t41_tuning_open_mutex);
+	return ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000008488 origin=fragment_seed original=tx_isp_gamma_s_attr.isra.9 */
@@ -20623,7 +20728,7 @@ uint32_t aisp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2
      * bounds-checked handler), so refuse everything here like d18773d4 does
      * for the other dispatchers.
      */
-    pr_warn_once("tx-isp-t41: %s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
+    pr_warn_once("%s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
                  __func__, a1, _IOC_SIZE(a1));
     return (uint32_t)-ENOTTY;
 
@@ -20789,7 +20894,7 @@ static int t41_tuning_ae_expr_set(unsigned int channel, uintptr_t user_ptr)
     WRITE_ONCE(t41_ae_man_dgain_cap, limits.max_dgain_manual ? limits.max_dgain : 0);
     WRITE_ONCE(t41_ae_man_freeze, limits.freeze);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: AE caps integration=%u again=%u manual freeze=%u it=%u again=%u dgaincap=%u (0=auto)\n",
+           "t41: AE caps integration=%u again=%u manual freeze=%u it=%u again=%u dgaincap=%u (0=auto)\n",
            limits.max_integration, limits.max_again_x1024, limits.freeze,
            t41_ae_man_it, t41_ae_man_again, t41_ae_man_dgain_cap);
     return 0;
@@ -20816,7 +20921,7 @@ static int t41_tuning_ae_scence(unsigned int channel, unsigned int is_get,
         WRITE_ONCE(t41_ae_comp_en, comp_en);
         WRITE_ONCE(t41_ae_comp, comp);
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: AE target comp=%u en=%u\n",
+               "t41: AE target comp=%u en=%u\n",
                comp, comp_en);
         return 0;
     }
@@ -20883,7 +20988,7 @@ static int t41_tuning_csc(unsigned int channel, unsigned int is_get,
                          *(uint32_t *)(void *)(cinfo + 136), 1);
     ret2 = t41_bcsh_update(*(uint32_t *)(void *)(binfo + 312),
                            *(uint32_t *)(void *)(binfo + 320), 1);
-    printk(KERN_WARNING "tx_isp_t41_recovered: csc version %d ccm=%d bcsh=%d\n",
+    printk(KERN_WARNING "t41: csc version %d ccm=%d bcsh=%d\n",
            version, ret, ret2);
     return ret ? ret : ret2;
 }
@@ -20936,7 +21041,7 @@ static int t41_tuning_ccm(unsigned int channel, unsigned int is_get,
     ret = t41_ccm_update(ct, ev, 1);
     ret2 = t41_bcsh_update(*(uint32_t *)(void *)(binfo + 312),
                            *(uint32_t *)(void *)(binfo + 320), 1);
-    printk(KERN_WARNING "tx_isp_t41_recovered: ccm attr manual=%u sat=%u ccm=%d bcsh=%d\n",
+    printk(KERN_WARNING "t41: ccm attr manual=%u sat=%u ccm=%d bcsh=%d\n",
            man.manual, man.sat, ret, ret2);
     return ret ? ret : ret2;
 }
@@ -21005,7 +21110,7 @@ static int t41_tuning_gamma(unsigned int channel, unsigned int is_get,
     ret = tisp_gamma_strength_transform(0);
     if (!ret)
         ret = tisp_gamma_write_lut_rgb(0);
-    printk(KERN_WARNING "tx_isp_t41_recovered: gamma attr type=%u fixed=%u ret=%d\n",
+    printk(KERN_WARNING "t41: gamma attr type=%u fixed=%u ret=%d\n",
            *(uint32_t *)(void *)buf, info[T41_GAMMA_INFO_FIXED], ret);
 out:
     mutex_unlock(&t41_tmo_map_lock);
@@ -21063,7 +21168,7 @@ static int t41_tuning_module_control(unsigned int channel, unsigned int is_get,
     if (!ret && ((old ^ top) & (BIT(7) | BIT(21))))
         ret = (int)tisp_lce_top_change_state(0);
     mutex_unlock(&t41_modctl_lock);
-    printk(KERN_WARNING "tx_isp_t41_recovered: module control %#x -> %#x ret=%d\n",
+    printk(KERN_WARNING "t41: module control %#x -> %#x ret=%d\n",
            old & T41_MODCTL_KEY_MASK, top & T41_MODCTL_KEY_MASK, ret);
     return ret < 0 ? ret : 0;
 }
@@ -21112,7 +21217,7 @@ static int t41_dpc_ratio_apply(unsigned int ratio)
     if (!ret)
         WRITE_ONCE(t41_dpc_gain, ~0U);	/* tone worker re-interpolates */
     mutex_unlock(&t41_dpc_ratio_lock);
-    printk(KERN_WARNING "tx_isp_t41_recovered: DPC ratio %u ret=%d\n", ratio, ret);
+    printk(KERN_WARNING "t41: DPC ratio %u ret=%d\n", ratio, ret);
     return ret ? -EINVAL : 0;
 }
 
@@ -21211,7 +21316,7 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
     if (!pending)
         return 0;
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: module ratio sinter=%u/%u temper=%u/%u\n",
+           "t41: module ratio sinter=%u/%u temper=%u/%u\n",
            units[0].en, units[0].ratio, units[1].en, units[1].ratio);
     /* MDNS is outside the gain fanout: apply TEMPER here (stock
      * tisp_s_mdns_ratio reads the strength from tuning+192/196). */
@@ -21412,12 +21517,12 @@ static void t41_hvflip_reapply(void)
     t41_sensor_flip_mode = ret ? -1 : t41_hvflip_desired;
     if (ret && !t41_hvflip_reapply_failed)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: hvflip re-apply after sensor start "
+               "t41: hvflip re-apply after sensor start "
                "mode=%d failed (%u/%u writes) ret=%d; not retried\n",
                t41_hvflip_desired, done, writes, ret);
     else if (!ret)
         printk(KERN_INFO
-               "tx_isp_t41_recovered: hvflip re-applied after sensor "
+               "t41: hvflip re-applied after sensor "
                "start mode=%d\n", t41_hvflip_desired);
     t41_hvflip_reapply_failed = ret != 0;
     mutex_unlock(&t41_hvflip_mutex);
@@ -21492,9 +21597,247 @@ static int t41_tuning_hvflip(const struct tx_isp_tuning_t41_control *request)
     mutex_unlock(&t41_hvflip_mutex);
     /* timps re-asserts the flip after every chn0 restart */
     printk_ratelimited(KERN_INFO
-           "tx_isp_t41_recovered: hvflip sensor=%u isp=%u/%u/%u writes=%u/%u "
+           "t41: hvflip sensor=%u isp=%u/%u/%u writes=%u/%u "
            "ret=%d pid=%d tid-comm=%s\n", attr[0], attr[1], attr[2], attr[3],
            i, writes, ret, task_tgid_nr(current), current->comm);
+    return ret;
+}
+
+/*
+ * IMP_ISP_Tuning_SwitchBin (control 0x080000a5; stock tx_isp_switch_bin,
+ * tisp_switch_bin, tisp_core_switch_bin).  Stock reads the new bin over the
+ * live bank buffer and then asks the next frame to re-apply the running
+ * mode (core+468 = 1) and waits one frame.  Here:
+ *   1. the request and the whole new file are checked first (t41_bin_read +
+ *      t41_bin_validate on a private buffer); any failure returns before a
+ *      single live pointer or register was touched;
+ *   2. the new banks are published by pointer, never copied over the live
+ *      ones: a reader (AE/AWB/event thread, ISR) sees the old or the new
+ *      bank completely.  The previous buffer is kept one generation longer
+ *      (t41_bin_retired) so a reader that still holds it cannot touch freed
+ *      memory;
+ *   3. the apply is the stock one, the day/night event on the next frame
+ *      (core+468 = 1 -> tisp_day_or_night_event re-copies the bank of the
+ *      running mode on the ISP event thread).
+ * Not reproduced: the stock tisp_tstp_init/deinit pair (a neutral stub here).
+ * Stock answers 0 for a stream that is not running; this returns -EBUSY.
+ */
+#define T41_SWITCH_BIN_MAX_FILE (1U << 20)
+static DEFINE_MUTEX(t41_switch_bin_lock);
+static void *t41_bin_retired;
+
+static int t41_bin_read(const char *path, unsigned char **out, size_t *out_size)
+{
+    struct file *filp;
+    unsigned char *buf;
+    loff_t size;
+    loff_t pos = 0;
+
+    filp = private_filp_open(path, O_RDONLY, 0);
+    if (IS_ERR(filp))
+        return PTR_ERR(filp);
+    size = private_i_size_read(private_file_inode(filp));
+    if (size < T41_BIN_HEADER_BYTES || size > T41_SWITCH_BIN_MAX_FILE) {
+        private_filp_close(filp, NULL);
+        return -EINVAL;
+    }
+    buf = private_vmalloc((size_t)size);
+    if (!buf) {
+        private_filp_close(filp, NULL);
+        return -ENOMEM;
+    }
+    while (pos < size) {
+        unsigned long chunk = min_t(loff_t, size - pos, PAGE_SIZE);
+        int got = kernel_read(filp, pos, (char *)buf + pos, chunk);
+
+        if (got <= 0) {
+            private_vfree(buf);
+            private_filp_close(filp, NULL);
+            return got < 0 ? got : -EIO;
+        }
+        pos += got;
+        cond_resched();
+    }
+    private_filp_close(filp, NULL);
+    *out = buf;
+    *out_size = (size_t)size;
+    return 0;
+}
+
+/*
+ * What a successful SwitchBin still has to do once the tuning mutex is
+ * released.  Written by t41_tuning_switch_bin() under t41_tuning_mutex and
+ * taken over by isp_core_tunning_unlocked_ioctl() before it unlocks, so no
+ * second tuning thread can see it.
+ */
+struct t41_switch_bin_post {
+    bool armed;
+    unsigned int channel;
+};
+static struct t41_switch_bin_post t41_switch_bin_post;
+
+/* core+468 for the channel while the core is up, else NULL. */
+static uint32_t *t41_switch_pending(unsigned int channel)
+{
+    unsigned char *core = (unsigned char *)(uintptr_t)ispcore_sd;
+
+    if (channel >= 2 || !t41_kernel_data_ptr(core) ||
+        READ_ONCE(*(uint32_t *)(void *)(core + 296 + channel * sizeof(uint32_t))) != 4)
+        return NULL;
+    return (uint32_t *)(void *)(core + 468 + channel * sizeof(uint32_t));
+}
+
+/*
+ * Second half of SwitchBin, run without t41_tuning_mutex: let a pending
+ * fill/custom transition finish, ask for the re-apply and, like stock, return
+ * after the next frame took the request.  The request itself is written under
+ * t41_switch_bin_lock (shared with tisp_deinit) after the core was checked
+ * again, so it never lands in a core that went down in between.
+ */
+static int t41_switch_bin_finish(unsigned int channel)
+{
+    uint32_t *pending;
+    unsigned int i;
+
+    for (i = 0; i < 200; i++) {
+        pending = t41_switch_pending(channel);
+        if (!pending || READ_ONCE(*pending) <= TX_ISP_DAYNIGHT_SWITCH)
+            break;
+        msleep(5);
+    }
+    mutex_lock(&t41_switch_bin_lock);
+    pending = t41_switch_pending(channel);
+    if (!pending || !m_bin) {
+        mutex_unlock(&t41_switch_bin_lock);
+        return -ENODEV;
+    }
+    wmb();
+    WRITE_ONCE(*pending, TX_ISP_DAYNIGHT_SWITCH);
+    mutex_unlock(&t41_switch_bin_lock);
+
+    for (i = 0; i < 200; i++) {
+        pending = t41_switch_pending(channel);
+        if (!pending || READ_ONCE(*pending) == TX_ISP_DAYNIGHT_IDLE)
+            return 0;
+        msleep(5);
+    }
+    return -ETIMEDOUT;
+}
+
+static int t41_tuning_switch_bin(unsigned int channel, unsigned int is_get,
+                                 uintptr_t user_ptr)
+{
+    struct t41_switch_bin_req req;
+    struct t41_bin_info info;
+    unsigned char sinfo[148];
+    char path[T41_SWITCH_BIN_PATH_BYTES];
+    const char *chosen;
+    unsigned char *core, *manager, *blob = NULL, *day, *night, *old;
+    unsigned char *attr;
+    uint32_t *state;
+    size_t size = 0;
+    int ret;
+
+    if (is_get || channel >= 2 || !user_ptr)
+        return -EINVAL;
+    if (private_copy_from_user(&req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+
+    core = (unsigned char *)(uintptr_t)ispcore_sd;
+    if (!t41_kernel_data_ptr(core))
+        return -ENODEV;
+    state = (uint32_t *)(void *)(core + 296 + channel * sizeof(uint32_t));
+    if (READ_ONCE(*state) != 4)
+        return -EBUSY;
+
+    ret = t41_switch_bin_req_check(&req, (const char *)(core + 740 + channel * 132),
+                                   132, &chosen);
+    if (ret)
+        return ret;
+    strlcpy(path, chosen, sizeof(path));
+
+    mutex_lock(&t41_switch_bin_lock);
+    manager = (unsigned char *)(uintptr_t)m_bin;
+    if (!manager || !t41_kernel_data_ptr(manager) ||
+        !*(uint32_t *)((char *)&tparams_day + channel * sizeof(uint32_t)) ||
+        !*(uint32_t *)((char *)&tsbin + channel * sizeof(uint32_t))) {
+        ret = -ENODEV;
+        goto out;
+    }
+    /* One bin buffer serves the driver (manager+64); with a second sensor
+     * loaded it cannot be swapped for one channel alone. */
+    if (*(uint32_t *)((char *)&tparams_day + (channel ^ 1) * sizeof(uint32_t))) {
+        ret = -EOPNOTSUPP;
+        goto out;
+    }
+
+    ret = t41_bin_read(path, &blob, &size);
+    if (ret) {
+        isp_printf(2, "SwitchBin: reading %s failed (%d)\n", path, ret);
+        goto out;
+    }
+    ret = t41_bin_validate(blob, size, manager, init_load_bin ? bin_version : NULL,
+                           manager + 8, &info);
+    if (ret) {
+        isp_printf(2, "SwitchBin: %s rejected (%d)\n", path, ret);
+        private_vfree(blob);
+        goto out;
+    }
+
+    /* ---- commit: nothing below can fail ---- */
+    day = blob + T41_BIN_HEADER_BYTES;
+    night = day + info.night_off;
+    old = *(unsigned char **)(manager + 64);
+
+    memcpy(sinfo, (void *)(uintptr_t)*(uint32_t *)((char *)&tsbin + channel * sizeof(uint32_t)),
+           sizeof(sinfo));
+    snprintf((char *)sinfo, 8, "%s", (char *)manager);
+    snprintf((char *)sinfo + 8, 72, "%s", path);
+    memset(sinfo + 80, 0, 68);
+    if (night[0x1efc0])
+        memcpy(sinfo + 80, night + 0x1efc0, strnlen((char *)night + 0x1efc0, 67));
+
+    smp_wmb();                  /* the new buffer is complete before it is visible */
+    WRITE_ONCE(*(uint32_t *)(manager + 68), (uint32_t)size);
+    WRITE_ONCE(*(uint32_t *)(manager + 72), (uint32_t)(uintptr_t)day);
+    WRITE_ONCE(*(uint32_t *)(manager + 64), (uint32_t)(uintptr_t)blob);
+    WRITE_ONCE(*(uint32_t *)((char *)&tparams_day + channel * sizeof(uint32_t)),
+               (uint32_t)(uintptr_t)day);
+    WRITE_ONCE(*(uint32_t *)((char *)&tparams_night + channel * sizeof(uint32_t)),
+               (uint32_t)(uintptr_t)night);
+    WRITE_ONCE(dnw, info.dnw);
+    memcpy(bin_version, blob, 8);
+    memcpy((void *)(uintptr_t)*(uint32_t *)((char *)&tsbin + channel * sizeof(uint32_t)),
+           sinfo, sizeof(sinfo));
+    attr = (unsigned char *)(uintptr_t)tisp_tattr;
+    if (t41_kernel_data_ptr(attr))
+        memcpy(attr + 2476 + channel * 148, sinfo, sizeof(sinfo));
+    t41_gamma_base_valid = false;
+    if (t41_bin_retired)
+        private_vfree(t41_bin_retired);
+    t41_bin_retired = old;
+
+    /* The day/night reserve registers of the new bin, as the stock loader. */
+    if (day + 0x1ee40 + 452 <= blob + size)
+        tiziano_reserve_reg_write((int8_t)((unsigned char *)&dnw)[0],
+                                  (uintptr_t)(day + 0x1ee40), (uintptr_t)night);
+    if (night + 0x1ee40 + 452 <= blob + size)
+        tiziano_reserve_reg_write((int8_t)((unsigned char *)&dnw)[2],
+                                  (uintptr_t)(night + 0x1ee40), (uintptr_t)night);
+
+    /* The re-apply request and both waits follow after the ioctl released
+     * t41_tuning_mutex (t41_switch_bin_finish): up to 2 x 1 s of msleep must
+     * not block every other tuning ioctl of the application. */
+    printk(KERN_WARNING
+           "t41: switch-bin channel=%u path=%s size=%zu night=%u dnw=%#x\n",
+           channel, path, size, info.night_off, info.dnw);
+    t41_switch_bin_post.armed = true;
+    t41_switch_bin_post.channel = channel;
+    mutex_unlock(&t41_switch_bin_lock);
+    return 0;
+
+out:
+    mutex_unlock(&t41_switch_bin_lock);
     return ret;
 }
 
@@ -21577,13 +21920,13 @@ static int t41_tuning_sensor_fps_set(unsigned int channel, uint32_t fps)
     if (ret)
         return ret;
     if (*(uint16_t *)(void *)(attr + 182) == old_vts) {
-        pr_warn_ratelimited("tx-isp-t41: sensor ignored fps %u/%u (vts %u unchanged)\n",
+        pr_warn_ratelimited("sensor ignored fps %u/%u (vts %u unchanged)\n",
                             fps >> 16, fps & 0xffffU, old_vts);
         return -EOPNOTSUPP;
     }
     *(uint32_t *)(void *)(video + 68) = fps;
     *(uint32_t *)(void *)(tisp_par_info_storage + 48) = fps;
-    printk(KERN_INFO "tx-isp-t41: sensor fps %u/%u vts %u->%u\n",
+    printk(KERN_INFO "t41: sensor fps %u/%u vts %u->%u\n",
            fps >> 16, fps & 0xffffU, old_vts,
            *(uint16_t *)(void *)(attr + 182));
     return 0;
@@ -21698,14 +22041,30 @@ static int t41_tuning_coefft_wb(unsigned int channel, unsigned int is_get,
  */
 static DEFINE_MUTEX(t41_tuning_mutex);
 static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, uint32_t a2);
+static int t41_tuning_autozoom(unsigned int vinum, unsigned int is_get,
+                               uintptr_t user_ptr);
+static int t41_tuning_mask_block(unsigned int vinum, unsigned int is_get,
+                                 uintptr_t user_ptr);
+static int t41_tuning_scaler_lv(unsigned int vinum, unsigned int is_get,
+                                uintptr_t user_ptr);
 
 int64_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
+    struct t41_switch_bin_post post;
     int64_t ret;
 
     mutex_lock(&t41_tuning_mutex);
     ret = isp_core_tunning_unlocked_ioctl_body(a0, a1, a2);
+    post = t41_switch_bin_post;
+    t41_switch_bin_post.armed = false;
     mutex_unlock(&t41_tuning_mutex);
+    /* SwitchBin waits for the ISP thread; do that without the tuning mutex. */
+    if (post.armed) {
+        int err = t41_switch_bin_finish(post.channel);
+
+        if (!ret)
+            ret = err;
+    }
     return ret;
 }
 
@@ -21723,7 +22082,7 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
 
     if (t41_runtime_trace)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: isp-m0 ioctl enter cmd=0x%x arg=0x%x pid=%d comm=%s\n",
+               "t41: isp-m0 ioctl enter cmd=0x%x arg=0x%x pid=%d comm=%s\n",
                a1, a2, current->pid, current->comm);
 
     /*
@@ -21774,6 +22133,17 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             { TX_ISP_TUNING_CMD_T41_AF_WEIGHT, T41_AF_WEIGHT_BYTES,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AUTOZOOM, T41_MSCA_ZOOM_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_MASK_BLOCK, T41_MSCA_MASK_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_SCALER_LV, T41_MSCA_SCALER_LV_BYTES,
+              TX_ISP_TUNING_DIR_SET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_SWITCH_BIN,
+              TX_ISP_TUNING_T41_SWITCH_BIN_BYTES,
+              TX_ISP_TUNING_DIR_SET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_GAMMA, T41_GAMMA_ATTR_BYTES,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -21845,7 +22215,7 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             return -EFAULT;
         if (t41_runtime_trace && trace_count++ < 32)
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: isp-m0 control value=0x%x "
+                   "t41: isp-m0 control value=0x%x "
                    "get=%u id=0x%x aux=0x%x\n",
                    request.channel, request.is_get, request.id,
                    request.value_or_ptr);
@@ -21949,7 +22319,7 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
                 return ret;
 
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: stage running-mode %u->%u "
+                   "t41: stage running-mode %u->%u "
                    "channel=%u\n",
                    previous_mode, mode, request.channel);
             if (request.channel < 2) {
@@ -21978,6 +22348,9 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AWB_RGB_COEFFT)
             return t41_tuning_coefft_wb(request.channel, request.is_get,
                                         request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_SWITCH_BIN)
+            return t41_tuning_switch_bin(request.channel, request.is_get,
+                                         request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_SENSOR_ATTR)
             return t41_tuning_sensor_attr(request.channel,
                                           request.value_or_ptr);
@@ -22008,16 +22381,25 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AF_WEIGHT)
             return t41_tuning_af_weight(request.channel, request.is_get,
                                         request.value_or_ptr);
+        /* MSCA controls: live only inside the proven envelope, otherwise
+         * stored for the next output start (README "MSCA zoom, mask and
+         * scaler level"). */
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_AUTOZOOM)
+            return t41_tuning_autozoom(request.channel, request.is_get,
+                                       request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_MASK_BLOCK)
+            return t41_tuning_mask_block(request.channel, request.is_get,
+                                         request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_SCALER_LV)
+            return t41_tuning_scaler_lv(request.channel, request.is_get,
+                                        request.value_or_ptr);
         /*
          * Public tuning IDs with no open implementation yet: report it
          * instead of acknowledging the request unchanged.
          */
         switch (request.id) {
         case TX_ISP_TUNING_CMD_T41_WDR_OUTPUT:
-        case TX_ISP_TUNING_CMD_T41_AUTOZOOM:
-        /* MSCA mask/scaler coefficients: owned by the MSCA path, which
-         * has no open runtime update yet. */
-        case TX_ISP_TUNING_CMD_T41_MASK_BLOCK:
+        /* ScalerLv has no stock GET (route above is SET only) */
         case TX_ISP_TUNING_CMD_T41_SCALER_LV:
             return -EOPNOTSUPP;
         default:
@@ -22090,7 +22472,7 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
                 WRITE_ONCE(t41_ae_target_q8, target);
             WRITE_ONCE(t41_ae_calibrated_metering, target == 0);
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: live AE target=%u Q8 (0=calibrated)\n",
+                   "t41: live AE target=%u Q8 (0=calibrated)\n",
                    target);
             return 0;
         }
@@ -22224,7 +22606,7 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
          * had been applied (or a structure filled) when nothing happened.
          */
         if (t41_runtime_trace || !route)
-            pr_warn_ratelimited("tx-isp-t41: tuning control 0x%x %s not implemented\n",
+            pr_warn_ratelimited("tuning control 0x%x %s not implemented\n",
                                 request.id, request.is_get ? "get" : "set");
         return -EPERM;
     }
@@ -22251,7 +22633,7 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
      * 4-byte scalar local &local_10, overflowing the kernel stack.  Refuse any
      * other command instead of running it.
      */
-    pr_warn_once("tx-isp-t41: %s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
+    pr_warn_once("%s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
                  __func__, a1, _IOC_SIZE(a1));
     return -ENOTTY;
 
@@ -22431,14 +22813,14 @@ static void t41_apply_pending_day_night(char *core)
     ret = tx_isp_daynight_apply(&runtime);
     if (ret == TX_ISP_DAYNIGHT_SWITCH)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: applied running-mode=%u csc=%#x "
+               "t41: applied running-mode=%u csc=%#x "
                "notify-ret=%d\n",
                mode, mode ? t41_daynight_registers.night_fill :
                             t41_daynight_registers.day_fill,
                notify_ret);
     else if (ret < 0)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: day-night apply failed ret=%d "
+               "t41: day-night apply failed ret=%d "
                "mode=%u pending=%u\n",
                ret, mode, *(uint32_t *)(core + 468));
 }
@@ -24664,7 +25046,7 @@ int32_t isp_irq_handle(int32_t arg1, void *arg2)
 
     if (trace_count < 16)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: irq enter irq=%d info=%p owner=%p\n",
+               "t41: irq enter irq=%d info=%p owner=%p\n",
                arg1, irq_info, owner);
 
     for (slot = owner; slot < owner + 0x7c; slot += 4) {
@@ -24692,7 +25074,7 @@ int32_t isp_irq_handle(int32_t arg1, void *arg2)
             continue;
         if (trace_count < 16)
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: irq call slot=0x%x subdev=%p "
+                   "t41: irq call slot=0x%x subdev=%p "
                    "ops=%p core_ops=%p handler=%p\n",
                    (unsigned int)(slot - owner), subdev, ops, core_ops,
                    handler);
@@ -24700,7 +25082,7 @@ int32_t isp_irq_handle(int32_t arg1, void *arg2)
             result = IRQ_WAKE_THREAD;
         if (trace_count < 16)
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: irq return slot=0x%x result=%d\n",
+                   "t41: irq return slot=0x%x result=%d\n",
                    (unsigned int)(slot - owner), result);
     }
     trace_count++;
@@ -24724,7 +25106,7 @@ int32_t isp_irq_thread_handle(int32_t arg1, void *arg2)
 
     if (trace_count < 16)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: irq thread enter info=%p owner=%p\n",
+               "t41: irq thread enter info=%p owner=%p\n",
                irq_info, owner);
 
     for (slot = owner; slot < owner + 0x7c; slot += 4) {
@@ -24751,13 +25133,13 @@ int32_t isp_irq_thread_handle(int32_t arg1, void *arg2)
         if (t41_kernel_data_ptr((void *)handler)) {
             if (trace_count < 16)
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: irq thread call slot=0x%x "
+                       "t41: irq thread call slot=0x%x "
                        "subdev=%p handler=%p\n",
                        (unsigned int)(slot - owner), subdev, handler);
             handler(subdev, 0);
             if (trace_count < 16)
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: irq thread return slot=0x%x\n",
+                       "t41: irq thread return slot=0x%x\n",
                        (unsigned int)(slot - owner));
         }
     }
@@ -25011,7 +25393,7 @@ long ivdc_misc_unlocked_ioctl(struct file *filp, unsigned int cmd,
 
     if (t41_runtime_trace)
         printk(KERN_WARNING
-           "tx_isp_t41_recovered: misc-ivdc ioctl enter cmd=0x%x arg=0x%x pid=%d comm=%s\n",
+           "t41: misc-ivdc ioctl enter cmd=0x%x arg=0x%x pid=%d comm=%s\n",
            a1, a2, current->pid, current->comm);
 
     /* Exact OEM misc-ivdc ABI.  The recovered branch tree confused the
@@ -25022,8 +25404,8 @@ long ivdc_misc_unlocked_ioctl(struct file *filp, unsigned int cmd,
                                        &direct_mode,
                                        sizeof(direct_mode));
 
-        printk(KERN_WARNING
-               "tx_isp_t41_recovered: misc-ivdc get-direct exit "
+        t41_note(
+               "t41: misc-ivdc get-direct exit "
                "value=%d ret=%d\n", direct_mode, ret);
         return ret ? -EFAULT : 0;
     }
@@ -25935,38 +26317,23 @@ proc_ivdc_writel0x464:
     goto proc_ivdc_writel0x314;
 
 proc_ivdc_writel0x4b0:
-    /* fragment 115: MemoryAccess */
-    s7 = *(uint32_t *)((char *)s5 + 4);
+    /*
+     * Vendor 1.2.6-720-4494 proc_ivdc_writel+0x4b0..0x5a0 (0xd2e8..0xd3a0;
+     * 1.2.0-720-4494 identical) is an inlined
+     * dma_alloc_coherent(dev, size, &handle, GFP_KERNEL = 0x24000c0) on
+     * dev = *(s5 + 4).  The recovery lost the ops->alloc target and called
+     * the private_math_exp2 placeholder, whose garbage return was then
+     * memset and handed to the IVDC DMA registers.  Use the kernel API.
+     */
+    {
+        dma_addr_t ivdc_dma_handle = 0;
 
-    /* fragment 116: Branch */
-    v0 = (unsigned int *)&mips_dma_map_ops;
-    if (s7 == 0) { goto proc_ivdc_writel0x4cc; }
-
-    /* fragment 117: MemoryAccess */
-    s2 = *(uint32_t *)((char *)s7 + 292);
-
-    /* fragment 118: Branch */
-    v0 = s2 < 1;
-    if (s2 != 0) { goto proc_ivdc_writel0x4d4; }
-
-    /* fragment 119: CallSetup */
-    v0 = (unsigned int *)&mips_dma_map_ops;
-
-proc_ivdc_writel0x4cc:
-    /* fragment 120: CallSetup */
-    s2 = *(uint32_t *)((char *)&mips_dma_map_ops + 0);
-    v0 = s2 < 1;
-
-proc_ivdc_writel0x4d4:
-    /* fragment 121: CallSetup */
-    v0 = (unsigned int *)dma_alloc_from_coherent((void *)(uintptr_t)s7, s1, (void *)(uintptr_t)&local_40, (void *)(uintptr_t)&local_20); /* jalr target resolved by relocation */
-
-    /* fragment 122: Branch */
-    if (v0 == 0) { goto proc_ivdc_writel0x53c; }
-
-    /* fragment 123: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
+        s7 = *(uint32_t *)((char *)s5 + 4);
+        s2 = (uintptr_t)dma_alloc_coherent((struct device *)(uintptr_t)s7,
+                                           s1, &ivdc_dma_handle, GFP_KERNEL);
+        local_40 = s2 ? (uint32_t)ivdc_dma_handle : 0;
+    }
+    goto proc_ivdc_writel0x500;
 
 proc_ivdc_writel0x500:
     /* fragment 124: CallSetup */
@@ -25987,22 +26354,6 @@ proc_ivdc_writel0x508:
     /* fragment 128: Branch */
     v0 = local_4c;
     goto proc_ivdc_writel0x138;
-
-proc_ivdc_writel0x53c:
-    /* fragment 129: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s2 + 0);
-
-    /* fragment 130: Branch */
-    s2 = 0;
-    if (v0 == 0) { goto proc_ivdc_writel0x500; }
-
-    /* fragment 131: CallSetup */
-    local_10 = 0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(s7, s1, &local_40, 37748736 + 192); /* jalr target resolved by relocation */
-
-    /* fragment 132: Branch */
-    s2 = v0;
-    goto proc_ivdc_writel0x500;
 
 proc_ivdc_writel0x56c:
     /* fragment 133: CallSetup */
@@ -26074,136 +26425,17 @@ proc_ivdc_writel0x640:
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC59); /* jalr target resolved by relocation */
 
 proc_ivdc_writel0x67c:
-    /* fragment 144: MemoryAccess */
+    /*
+     * Vendor 1.2.6-720-4494 proc_ivdc_writel+0x67c..0x784 (0xd4b4..0xd5bc)
+     * is an inlined dma_free_coherent(dev = *(s5 + 4), size, cpu, handle)
+     * (dma_release_from_coherent, then ops->free(dev, size, cpu, handle, 0)).
+     * The ops->free call was a placeholder, so every successful write
+     * leaked the coherent buffer.
+     */
     s5 = *(uint32_t *)((char *)s5 + 4);
-
-    /* fragment 145: Branch */
-    s4 = local_40;
-    if (s5 == 0) { goto proc_ivdc_writel0x694; }
-
-    /* fragment 146: MemoryAccess */
-    s7 = *(uint32_t *)((char *)s5 + 292);
-
-    /* fragment 147: Branch */
-    v0 = s7 < 1;
-    if (s7 != 0) { goto proc_ivdc_writel0x6a0; }
-
-proc_ivdc_writel0x694:
-    /* fragment 148: Arithmetic */
-    v0 = (unsigned int *)&mips_dma_map_ops;
-
-    /* fragment 149: MemoryAccess */
-    s7 = *(uint32_t *)((char *)&mips_dma_map_ops + 0);
-    v0 = s7 < 1;
-
-proc_ivdc_writel0x6a0:
-    /* fragment 150: Arithmetic */
-    /* trap/BUG_ON check */
-    v0 = read_c0_status();
-    v0 = (uintptr_t)v0 & 1;
-
-    /* fragment 151: Branch */
-    int _bc_v0_151 = v0 != 0;
-    v0 = s1 - 1;
-    if (_bc_v0_151) { goto proc_ivdc_writel0x6d0; }
-
-    /* fragment 152: CallSetup */
-    warn_slowpath_null((const char *)(uintptr_t)&LC58, 274); /* jalr target resolved by relocation */
-
-    /* fragment 153: Arithmetic */
-    v0 = s1 - 1;
-
-proc_ivdc_writel0x6d0:
-    /* fragment 154: Arithmetic */
-    v0 = (uintptr_t)v0 >> 12;
-
-    /* fragment 155: Branch */
-    a0 = 4294901760;
-    if (v0 == 0) { goto proc_ivdc_writel0x73c; }
-
-    /* fragment 156: Arithmetic */
-    a0 = (uintptr_t)v0 & a0;
-
-    /* fragment 157: Branch */
-    s8 = 32;
-    if (a0 != 0) { goto proc_ivdc_writel0x6f0; }
-
-    /* fragment 158: Arithmetic */
-    v0 = (uintptr_t)v0 << 16;
-    s8 = 16;
-
-proc_ivdc_writel0x6f0:
-    /* fragment 159: Arithmetic */
-    a0 = 4278190080;
-    a0 = (uintptr_t)v0 & a0;
-
-    /* fragment 160: Branch */
-    int _bc_a0_160 = a0 != 0;
-    a0 = 4026531840;
-    if (_bc_a0_160) { goto proc_ivdc_writel0x708; }
-
-    /* fragment 161: Arithmetic */
-    v0 = (uintptr_t)v0 << 8;
-    s8 = s8 - 8;
-
-proc_ivdc_writel0x708:
-    /* fragment 162: Arithmetic */
-    a0 = (uintptr_t)v0 & a0;
-
-    /* fragment 163: Branch */
-    int _bc_a0_163 = a0 != 0;
-    a0 = 3221225472;
-    if (_bc_a0_163) { goto proc_ivdc_writel0x71c; }
-
-    /* fragment 164: Arithmetic */
-    v0 = (uintptr_t)v0 << 4;
-    s8 = s8 - 4;
-
-proc_ivdc_writel0x71c:
-    /* fragment 165: Arithmetic */
-    a0 = (uintptr_t)v0 & a0;
-
-    /* fragment 166: Branch */
-    if (a0 != 0) { goto proc_ivdc_writel0x730; }
-
-    /* fragment 167: Arithmetic */
-    v0 = (uintptr_t)v0 << 2;
-    s8 = s8 - 2;
-
-proc_ivdc_writel0x730:
-    /* fragment 168: Branch */
-    int _bc_v0_168 = v0 < 0;
-    v0 = (unsigned int *)&dma_release_from_coherent;
-    if (_bc_v0_168) { goto proc_ivdc_writel0x740; }
-
-    /* fragment 169: CallSetup */
-    s8 = s8 - 1;
-
-proc_ivdc_writel0x73c:
-    /* fragment 170: CallSetup */
-    v0 = (unsigned int *)&dma_release_from_coherent;
-
-proc_ivdc_writel0x740:
-    /* fragment 171: CallSetup */
-    v0 = (unsigned int *)dma_release_from_coherent((void *)(uintptr_t)s5, s8, (void *)(uintptr_t)s2); /* jalr target resolved by relocation */
-
-    /* fragment 172: Branch */
-    int _bc_v0_172 = v0 != 0;
-    v0 = local_4c;
-    if (_bc_v0_172) { goto proc_ivdc_writel0x138; }
-
-    /* fragment 173: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s7 + 4);
-
-    /* fragment 174: Branch */
-    a3 = s4;
-    if (v0 == 0) { goto proc_ivdc_writel0x134; }
-
-    /* fragment 175: CallSetup */
-    local_10 = 0;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(s5, s1, s2); /* jalr target resolved by relocation */
-
-    /* fragment 176: Branch */
+    if (s2 != 0)
+        dma_free_coherent((struct device *)(uintptr_t)s5, s1,
+                          (void *)(uintptr_t)s2, (dma_addr_t)local_40);
     v0 = local_4c;
     goto proc_ivdc_writel0x138;
 
@@ -26292,6 +26524,40 @@ int32_t ivdc_activate_module(void* arg1)
 	return 0;
 }
 
+/*
+ * Vendor 1.2.6-720-4494 ivdc_core_interrupt_service_routine 0xd814/0xd870/
+ * 0xd908 (1.2.0-720-4494 0xb53c/...): on an IVDC stream-state change the
+ * ISR sends TX_ISP event 0x01000007 through the subdev event callback at
+ * sd + 0x80 (tx_isp_module_init stores tx_isp_notify there), with
+ * arg = { 0, &ivdc_stream_state }.  ispcore_core_ops_ioctl turns that into
+ * tisp_sync_ivdc_state(); every other core ioctl ignores it.  Runs in hard
+ * IRQ context: the callee chain only stores a word, never sleeps.
+ * Atomic-safety audit (2026-10-11): the vendor does the same in hard IRQ
+ * (0xd814 lw v0,128(a0); jalr v0 with a1 = 0x01000007).  tx_isp_notify
+ * takes no lock and calls core_ops+0x20 of every registered subdev:
+ * vic/vin (vic_core_ops_ioctl: returns 0 for 0x01000007), csi (NULL),
+ * ivdc (only 0x01000000), fs (only 0x01000002), core
+ * (ispcore_core_ops_ioctl: tisp_sync_ivdc_state = one store, then the
+ * same fan-out over its children).  Sensor core_ops have no .ioctl (none
+ * of the 107 T41 SDK sensors sets it).  Any handler added for 0x01000007
+ * must stay atomic: no mutex, GFP_KERNEL, sleep, i2c or user copies.
+ */
+static void t41_ivdc_irq_notify_state(uintptr_t sd)
+{
+	uint32_t arg[2];
+	uintptr_t event;
+
+	if (!t41_kernel_data_ptr((void *)sd))
+		return;
+	event = *(uint32_t *)(sd + 0x80);
+	if (!t41_kernel_data_ptr((void *)event))
+		return;
+	arg[0] = 0;
+	arg[1] = (uint32_t)(uintptr_t)&ivdc_stream_state;
+	((int (*)(uintptr_t, uint32_t, uintptr_t))event)(sd, 0x01000007,
+							 (uintptr_t)arg);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000ea68 origin=fragment_seed original=ivdc_core_interrupt_service_routine */
 int32_t ivdc_core_interrupt_service_routine(uintptr_t a0)
 {
@@ -26357,7 +26623,7 @@ int32_t ivdc_core_interrupt_service_routine(uintptr_t a0)
     if (v0 == 0) { goto ivdc_core_interrupt_service_routine0x84; }
 
     /* fragment 10: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
+    t41_ivdc_irq_notify_state(a0); /* event 0x01000007, vendor 0xd824 */
 
 ivdc_core_interrupt_service_routine0x84:
     /* fragment 11: Arithmetic */
@@ -26400,7 +26666,7 @@ ivdc_core_interrupt_service_routine0x88:
     if (v0 == 0) { goto ivdc_core_interrupt_service_routine0xe4; }
 
     /* fragment 20: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(s1, a1 + 7, &local_10); /* jalr target resolved by relocation */
+    t41_ivdc_irq_notify_state(s1); /* event 0x01000007, vendor 0xd884/0xd91c */
 
 ivdc_core_interrupt_service_routine0xe4:
     /* fragment 21: Arithmetic */
@@ -26470,7 +26736,7 @@ ivdc_core_interrupt_service_routine0x120:
     if (v0 == 0) { goto ivdc_core_interrupt_service_routine0x17c; }
 
     /* fragment 36: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(s1, a1 + 7, &local_10); /* jalr target resolved by relocation */
+    t41_ivdc_irq_notify_state(s1); /* event 0x01000007, vendor 0xd884/0xd91c */
 
 ivdc_core_interrupt_service_routine0x17c:
     /* fragment 37: Arithmetic */
@@ -27130,7 +27396,7 @@ int ivdc_pad_event_handle(int32_t * arg1, int arg2, void * arg3) {
     if (arg2 == TX_ISP_FRAME_EVENT_GET_FORMAT || arg2 == TX_ISP_FRAME_EVENT_SET_FORMAT ||
         arg2 == TX_ISP_FRAME_EVENT_STREAM_ON || arg2 == TX_ISP_FRAME_EVENT_QUEUE_BUFFER)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: ivdc pad event=%08x pad=%p "
+               "t41: ivdc pad event=%08x pad=%p "
                "enabled=%d owner=%p data=%p\n",
                arg2, arg1, arg1 ? *(int32_t *)(arg1 + 5) : -1,
                arg1 ? (void *)(uintptr_t)*arg1 : NULL, arg3);
@@ -27531,8 +27797,8 @@ int32_t fs_activate_module(uintptr_t a0)
 		return 0;
 	channels = *(char **)(fs + 0x114);
 	count = *(uint32_t *)(fs + 0x118);
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: fs-activate enter fs=%p state=%u channels=%p count=%u\n",
+	t41_note(
+	       "t41: fs-activate enter fs=%p state=%u channels=%p count=%u\n",
 	       fs, *(uint32_t *)(fs + 0x11c), channels, count);
 	if (count && (!channels || IS_ERR(channels)))
 		return -EINVAL;
@@ -27546,12 +27812,12 @@ int32_t fs_activate_module(uintptr_t a0)
 		}
 		*(uint32_t *)(channel + 0x2f4) = 2;
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: fs-activate channel=%u state=2 ptr=%p\n",
+		       "t41: fs-activate channel=%u state=2 ptr=%p\n",
 		       i, channel);
 	}
 	*(uint32_t *)(fs + 0x11c) = 2;
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: fs-activate exit state=2\n");
+	t41_note(
+	       "t41: fs-activate exit state=2\n");
 	return 0;
 }
 
@@ -27574,7 +27840,7 @@ int32_t __enqueue_in_driver(uintptr_t a0)
     remote_pad = *(void **)(queue + 0x2ac);
     if (t41_runtime_trace)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: enqueue begin buffer=%p queue=%p "
+               "t41: enqueue begin buffer=%p queue=%p "
                "channel=%u remote=%p payload=%p dma=%08x len=%u\n",
                buffer, queue, *(uint32_t *)(queue + 0x2b0), remote_pad,
                buffer + 0x68, *(uint32_t *)(buffer + 0x70),
@@ -27583,7 +27849,7 @@ int32_t __enqueue_in_driver(uintptr_t a0)
         remote_pad, TX_ISP_FRAME_EVENT_QUEUE_BUFFER, buffer + 0x68);
     if (t41_runtime_trace)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: enqueue event returned buffer=%p ret=%d\n",
+               "t41: enqueue event returned buffer=%p ret=%d\n",
                buffer, ret);
     if (ret == -ENOIOCTLCMD)
         ret = 0;
@@ -28140,8 +28406,8 @@ int frame_channel_open(struct inode *inode, struct file *file)
     if (ptr == 0 || (uint32_t)ptr >= 0xfffff001)
         return -22;
 
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: framechan open enter channel=%u state=%u ptr=%p inode=%p file=%p\n",
+	t41_note(
+	       "t41: framechan open enter channel=%u state=%u ptr=%p inode=%p file=%p\n",
 	       *(uint32_t *)((char *)ptr + 0x2dc),
 	       *(uint32_t *)((char *)ptr + 0x2f4), ptr, inode, file);
 	val = tx_isp_t41_frame_channel_claim(ptr);
@@ -28151,12 +28417,12 @@ int frame_channel_open(struct inode *inode, struct file *file)
 		val = *(uint32_t *)((char *)ptr + 0x2dc);
 		isp_printf(2, "[%s %d] Frame channel%d is unavailable!\n", "frame_channel_open");
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: framechan open rejected channel=%u state=%u\n",
+		       "t41: framechan open rejected channel=%u state=%u\n",
 		       val, *(uint32_t *)((char *)ptr + 0x2f4));
 		return ret;
     }
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: framechan open exit channel=%u state=3\n",
+	t41_note(
+	       "t41: framechan open exit channel=%u state=3\n",
 	       *(uint32_t *)((char *)ptr + 0x2dc));
     return 0;
 }
@@ -28227,14 +28493,14 @@ int frame_channel_vidioc_set_fmt(void *arg1, struct v4l2_format *arg2)
         }
         format.words[TX_ISP_FRAME_FORMAT_WORD_BYTESPERLINE] = layout.stride;
         format.words[TX_ISP_FRAME_FORMAT_WORD_SIZEIMAGE] = layout.sizeimage;
-        printk(KERN_WARNING
-               "tx_isp_t41_recovered: set-fmt NV12 fallback stride=%u size=%u align=%u/%u\n",
+        t41_note(
+               "t41: set-fmt NV12 fallback stride=%u size=%u align=%u/%u\n",
                format.words[TX_ISP_FRAME_FORMAT_WORD_BYTESPERLINE], format.words[TX_ISP_FRAME_FORMAT_WORD_SIZEIMAGE], width_align, height_align);
     }
 
     if (t41_runtime_trace)
         printk(KERN_WARNING
-           "tx_isp_t41_recovered: set-fmt dispatch channel=%p pad=%p "
+           "t41: set-fmt dispatch channel=%p pad=%p "
            "type=%u %ux%u pix=%u field=%u colorspace=%u data=%p\n",
            arg1, *(void **)((char *)arg1 + 0x2d8), format.words[TX_ISP_FRAME_FORMAT_WORD_TYPE],
            format.words[TX_ISP_FRAME_FORMAT_WORD_WIDTH], format.words[TX_ISP_FRAME_FORMAT_WORD_HEIGHT], format.words[TX_ISP_FRAME_FORMAT_WORD_PIXELFORMAT],
@@ -28243,7 +28509,7 @@ int frame_channel_vidioc_set_fmt(void *arg1, struct v4l2_format *arg2)
         *(void **)((char *)arg1 + 0x2d8), TX_ISP_FRAME_EVENT_SET_FORMAT, &format);
     if (t41_runtime_trace)
         printk(KERN_WARNING
-           "tx_isp_t41_recovered: set-fmt dispatch returned %d\n",
+           "t41: set-fmt dispatch returned %d\n",
            result);
     if (result == 0 || result == -ENOIOCTLCMD) {
         result = private_copy_to_user(arg2, &format, sizeof(format));
@@ -29448,7 +29714,7 @@ int t41_frame_channel_reqbufs_clean(void *channel, void __user *user_req)
         *(uint32_t *)((char *)channel + 0x254);
     memcpy((char *)channel + 0x50, (char *)channel + 0x258, 0x30);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: reqbufs clean channel=%u count=%u "
+           "t41: reqbufs clean channel=%u count=%u "
            "type=%u memory=%u buffer_size=%u\n",
            *(uint32_t *)((char *)channel + 0x2dc), allocated,
            req[TX_ISP_FRAME_REQUEST_WORD_TYPE], req[TX_ISP_FRAME_REQUEST_WORD_MEMORY], buffer_size);
@@ -29475,7 +29741,7 @@ int t41_frame_channel_qbuf_clean(void *channel, void __user *user_buf)
     index = vbuf[TX_ISP_FRAME_WORD_INDEX];
     if (t41_runtime_trace)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: qbuf inspect channel=%u index=%u/%u "
+               "t41: qbuf inspect channel=%u index=%u/%u "
                "type=%u/%u flags=%#x memory=%u/%u dma=0x%x "
                "length=0x%x/0x%x state=%u\n",
                *(uint32_t *)((char *)channel + 0x2dc), index,
@@ -29553,7 +29819,7 @@ int t41_frame_channel_qbuf_clean(void *channel, void __user *user_buf)
         if ((!ret || ret == -ENOIOCTLCMD) && channel_bit)
             t41_late_link_replay_mask |= channel_bit;
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: qbuf late-link replay channel=%u "
+               "t41: qbuf late-link replay channel=%u "
                "index=%u buffers=%u ret=%d mask=%#x\n",
                channel_index, index, replayed, ret,
                t41_late_link_replay_mask);
@@ -29654,7 +29920,7 @@ int t41_frame_channel_qbuf_clean(void *channel, void __user *user_buf)
 
     if (t41_runtime_trace)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: qbuf clean channel=%u index=%u "
+               "t41: qbuf clean channel=%u index=%u "
                "dma=0x%x length=%u flags=%#x pending=%u\n",
                *(uint32_t *)((char *)channel + 0x2dc), index,
                vbuf[TX_ISP_FRAME_WORD_DMA], vbuf[TX_ISP_FRAME_WORD_LENGTH],
@@ -29791,7 +30057,7 @@ int t41_frame_channel_streamon_clean(void *channel, void __user *user_type)
 
     node = *(char **)((char *)channel + 0x21c);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: streamon begin channel=%p id=%u "
+           "t41: streamon begin channel=%p id=%u "
            "head=%p first=%p queued=%u allocated=%u remote=%p\n",
            channel, *(uint32_t *)((char *)channel + 0x2dc),
            (char *)channel + 0x21c, node,
@@ -29802,7 +30068,7 @@ int t41_frame_channel_streamon_clean(void *channel, void __user *user_type)
         char *buffer = node - 0x58;
 
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: streamon enqueue iteration=%u "
+               "t41: streamon enqueue iteration=%u "
                "node=%p buffer=%p next=%p state=%u\n",
                iteration, node, buffer, *(void **)(buffer + 0x58),
                *(uint32_t *)(buffer + 0x48));
@@ -29813,15 +30079,15 @@ int t41_frame_channel_streamon_clean(void *channel, void __user *user_type)
         iteration++;
     }
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: streamon buffers handed off count=%u\n",
+           "t41: streamon buffers handed off count=%u\n",
            iteration);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: streamon remote event begin remote=%p\n",
+           "t41: streamon remote event begin remote=%p\n",
            *(void **)((char *)channel + 0x2d8));
     ret = tx_isp_send_event_to_remote(
         *(void **)((char *)channel + 0x2d8), TX_ISP_FRAME_EVENT_STREAM_ON, NULL);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: streamon remote event returned ret=%d\n",
+           "t41: streamon remote event returned ret=%d\n",
            ret);
     if (ret && ret != -ENOIOCTLCMD) {
         __vb2_queue_cancel((char *)channel + 0x2c);
@@ -29834,7 +30100,7 @@ int t41_frame_channel_streamon_clean(void *channel, void __user *user_type)
         t41_late_link_replay_mask |=
             1U << *(uint32_t *)((char *)channel + 0x2dc);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: streamon clean channel=%u buffers=%u replay-mask=%#x\n",
+           "t41: streamon clean channel=%u buffers=%u replay-mask=%#x\n",
            *(uint32_t *)((char *)channel + 0x2dc),
            *(uint32_t *)((char *)channel + 0x218),
            t41_late_link_replay_mask);
@@ -29854,7 +30120,7 @@ int t41_frame_channel_streamon_clean(void *channel, void __user *user_type)
             (unsigned int)t41_deferred_video_link);
 
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: streamon deferred video-link=%d ret=%d graph=%p\n",
+               "t41: streamon deferred video-link=%d ret=%d graph=%p\n",
                t41_deferred_video_link, link_ret,
                (void *)t41_video_stream_owner);
         if (link_ret)
@@ -29908,7 +30174,7 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     if (t41_runtime_trace && a1 != TX_ISP_FRAME_IOCTL_T41_DQBUF &&
         a1 != TX_ISP_FRAME_IOCTL_T41_GET_COUNT)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: framechan ioctl enter cmd=0x%x "
+               "t41: framechan ioctl enter cmd=0x%x "
                "arg=0x%x file=%p pid=%d comm=%s\n",
                a1, a2, (void *)a0, current->pid, current->comm);
 
@@ -29923,7 +30189,7 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: framechan ioctl set-fmt channel=%p ret=%d\n",
+               "t41: framechan ioctl set-fmt channel=%p ret=%d\n",
                s0, ret);
         return ret;
     }
@@ -29933,7 +30199,7 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: framechan ioctl get-fmt channel=%p ret=%d\n",
+               "t41: framechan ioctl get-fmt channel=%p ret=%d\n",
                s0, ret);
         return ret;
     }
@@ -29957,7 +30223,7 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 
             if (t41_runtime_trace)
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: framechan ioctl qbuf exit channel=%p ret=%d\n",
+                       "t41: framechan ioctl qbuf exit channel=%p ret=%d\n",
                        s0, ret);
             return ret;
         }
@@ -29966,8 +30232,8 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
             private_copy_from_user(buf, (void __user *)(uintptr_t)a2,
                                    sizeof(buf)))
             return -EFAULT;
-        printk(KERN_WARNING
-               "tx_isp_t41_recovered: %s diagnostic channel=%u index=%u "
+        t41_note(
+               "t41: %s diagnostic channel=%u index=%u "
                "type=%u memory=%u userptr=0x%x length=%u\n",
                "querybuf",
                *(uint32_t *)((char *)s0 + 0x2dc), buf[TX_ISP_FRAME_WORD_INDEX], buf[TX_ISP_FRAME_WORD_TYPE],
@@ -29994,8 +30260,8 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
                 s0, (void __user *)(uintptr_t)a2);
         else
 			ret = tx_isp_t41_frame_channel_streamoff(s0);
-        printk(KERN_WARNING
-               "tx_isp_t41_recovered: stream diagnostic channel=%u "
+        t41_note(
+               "t41: stream diagnostic channel=%u "
 		       "enable=%u ret=%d\n",
                *(uint32_t *)((char *)s0 + 0x2dc),
 		       a1 == TX_ISP_FRAME_IOCTL_T41_STREAM_ON, ret);
@@ -30007,8 +30273,8 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         if (private_copy_from_user(&banks, (void __user *)(uintptr_t)a2,
                                    sizeof(banks)))
             return -EFAULT;
-        printk(KERN_WARNING
-               "tx_isp_t41_recovered: banks diagnostic channel=%u banks=%u\n",
+        t41_note(
+               "t41: banks diagnostic channel=%u banks=%u\n",
                t41_kernel_data_ptr(s0) ?
                *(uint32_t *)((char *)s0 + 0x2dc) : ~0U, banks);
         return 0;
@@ -30041,7 +30307,7 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
      * lengths, overflowing the kernel stack for any unhandled command.  Refuse
      * it instead of running that path.
      */
-    pr_warn_once("tx-isp-t41: %s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
+    pr_warn_once("%s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
                  __func__, a1, _IOC_SIZE(a1));
     return -ENOTTY;
 
@@ -31764,6 +32030,17 @@ int32_t sensor_alloc_analog_gain(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s0 = a1;
     local_10 = 0;
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_analog_gain:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_again (attr + 196)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 4) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 2: StackAccess */
@@ -31796,6 +32073,17 @@ int32_t sensor_alloc_analog_gain_short(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s0 = a1;
     local_10 = 0;
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_analog_gain_short:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_again_short (attr + 200)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 18) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 2: StackAccess */
@@ -31828,6 +32116,17 @@ int32_t sensor_alloc_digital_gain(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s0 = a1;
     local_10 = 0;
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_digital_gain:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_dgain (attr + 204)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 6) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 2: StackAccess */
@@ -31845,18 +32144,40 @@ int32_t sensor_alloc_digital_gain(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000125d0 origin=fragment_seed original=sensor_alloc_digital_gain_short */
 int32_t sensor_alloc_digital_gain_short(int32_t arg1, int32_t *arg2)
 {
-	uint32_t var_10 = 0;
-	uint32_t tmp;
+	/*
+	 * Vendor 1.2.6-720-4494 sensor_alloc_digital_gain_short 0x11310:
+	 *   core = *g_ispcore (pointer, .bss+0x400)
+	 *   attr = *(core + *arg2 * 96 + 360)
+	 *   fn   = *(attr + 208)              (sensor_ctrl.alloc_dgain_short)
+	 *   if (!fn) { *(u16 *)(arg2 + 24 bytes) = 0; return 0; }
+	 *   ret = fn(arg1, 16, &code); *(u16 *)(arg2 + 24 bytes) = code;
+	 * The old hand-written body read the callee from g_ispcore + 0x168,
+	 * i.e. outside the 16-byte g_ispcore object, called whatever it found
+	 * and stored a 32-bit word.  Same core/attr walk as
+	 * t41_safe_sensor_limits_get (core + 308 + ch * 96 + 52); every
+	 * pointer is checked, a missing callee reports code 0 like the vendor.
+	 */
+	uintptr_t core = *(uint32_t *)(void *)g_ispcore;
+	uint32_t channel, code = 0;
+	unsigned char *attr;
 	int32_t (*func)(int32_t, int32_t, void *);
+	int32_t ret = 0;
 
-	func = *(void (**)(int32_t, int32_t, void *))((char *)g_ispcore + 0x168);
-	if (func != 0) {
-		tmp = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))func)((uintptr_t)(arg1), (uintptr_t)(0x10), (uintptr_t)(&var_10));
-		((void **)arg2)[6] = var_10;
-		return tmp;
+	if (!t41_kernel_data_ptr(arg2))
+		return -EINVAL;
+	channel = *(uint32_t *)(void *)arg2;
+	if (channel < 2 && t41_kernel_data_ptr((void *)core)) {
+		attr = (unsigned char *)(uintptr_t)
+			*(uint32_t *)(void *)(core + 360 + channel * 96);
+		if (t41_kernel_data_ptr(attr)) {
+			func = *(void **)(void *)(attr + 208);
+			if (func && t41_kernel_data_ptr((void *)func) &&
+			    !((uintptr_t)func & 3))
+				ret = func(arg1, 16, &code);
+		}
 	}
-	((void **)arg2)[6] = 0;
-	return 0;
+	*(uint16_t *)(void *)((char *)arg2 + 24) = (uint16_t)code;
+	return ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012634 origin=fragment_seed original=sensor_alloc_integration_time */
@@ -31908,6 +32229,17 @@ sensor_alloc_integration_time0x44:
 
 sensor_alloc_integration_time0x54:
     /* fragment 7: CallSetup */
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_integration_time:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_integration_time (attr + 212)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 20) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 8: StackAccess */
@@ -31969,6 +32301,17 @@ sensor_alloc_integration_time_short0x44:
 
 sensor_alloc_integration_time_short0x54:
     /* fragment 7: CallSetup */
+    /*
+     * TODO(t41-unresolved-calls): target proven, path not live.  Vendor
+     * 1.2.6-720-4494 / 1.2.0-720-4494 sensor_alloc_integration_time_short:
+     *   attr = *(core + *(uint32_t *)a1 * 96 + 360), core = *g_ispcore;
+     *   ret = attr->sensor_ctrl.alloc_integration_time_short (attr + 216)(a0, 16, &code);
+     *   *(uint16_t *)(a1 + 22) = code; return ret;
+     * (same ABI as t41_safe_sensor_limits: core + 308 + ch * 96 + 52.)
+     * Only the recovered vendor AE (tisp_ae_algo_handle via sensor_init's
+     * table) calls this; t41_safe_ae_controller=1 (default) does not.
+     * Restore together with that path, not in isolation.
+     */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
 
     /* fragment 8: StackAccess */
@@ -32613,7 +32956,21 @@ sensor_set_mode0x68:
     s0 = a1;
     s2 = ((uintptr_t)s2 * (uintptr_t)v1) + a0;
     s1 = *(uint32_t *)((char *)(s2) + 360);
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
+    /*
+     * Vendor 1.2.6-720-4494 sensor_set_mode+0x68..0x94 (0x118dc..0x11908;
+     * 1.2.0-720-4494 same shape): event = *(core + 0x80), then
+     * event(core, 0x0200000d, &mode_flag) with the byte flag = 1 at sp+16.
+     * core is the global g_ispcore subdev, not the incoming argument.
+     * A non-zero return takes the vendor error print below.
+     */
+    if (!t41_kernel_data_ptr((void *)a0) ||
+        !t41_kernel_data_ptr((void *)(uintptr_t)v0)) {
+        v0 = -ENODEV;
+        a2 = local_10;
+        goto sensor_set_mode0x34;
+    }
+    v0 = (uintptr_t)((int (*)(uintptr_t, uint32_t, uintptr_t))(uintptr_t)v0)(
+        a0, 0x0200000d, (uintptr_t)&local_10);
 
     /* fragment 10: Branch */
     a2 = local_10;
@@ -32837,7 +33194,7 @@ int32_t tx_isp_open(int32_t arg1, void *arg2)
 	if (mutex_lock_interruptible(&t41_isp_open_mutex))
 		return -ERESTARTSYS;
 	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: tx-isp open misc=%p refs=%u\n",
+	       "t41: tx-isp open misc=%p refs=%u\n",
 	       miscdev, *(uint32_t *)(miscdev + 0x114));
 
 	if (*(int32_t *)(miscdev + 0x114) > 0) {
@@ -32865,7 +33222,7 @@ int32_t tx_isp_open(int32_t arg1, void *arg2)
 		open = internal_ops ? *(int (**)(void *))(internal_ops + 0) : NULL;
 		result = open ? open(subdev) : -ENOIOCTLCMD;
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: tx-isp open slot=%u subdev=%p ops=%p internal=%p callback=%p ret=%d\n",
+		       "t41: tx-isp open slot=%u subdev=%p ops=%p internal=%p callback=%p ret=%d\n",
 		       (unsigned int)((slot - (miscdev + 0x30)) / sizeof(void *)),
 		       subdev, ops, internal_ops, open, result);
 		if (result && result != -ENOIOCTLCMD)
@@ -32879,7 +33236,7 @@ int32_t tx_isp_open(int32_t arg1, void *arg2)
 	if (vin && !vin_seen) {
 		result = tx_isp_vin_activate_subdev(vin);
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: tx-isp open VIN fallback vin=%p ret=%d\n",
+		       "t41: tx-isp open VIN fallback vin=%p ret=%d\n",
 		       (void *)vin, result);
 		if (result)
 			goto out;
@@ -32939,13 +33296,17 @@ int32_t tx_isp_notify(uint32_t a0, uint32_t a1, uint32_t a2)
             continue;
         }
 
-        printk(KERN_WARNING
-               "tx_isp_t41_recovered: notify enter event=0x%x slot=%u subdev=%p ops=%p cb=%p\n",
-               a1, slot_index, subdev, ops, event);
+        /* The IVDC ISR (event 0x01000007) also lands here: no console
+         * tracing from hard IRQ context. */
+        if (!in_interrupt())
+            t41_note(
+                   "t41: notify enter event=0x%x slot=%u subdev=%p ops=%p cb=%p\n",
+                   a1, slot_index, subdev, ops, event);
         ret = event ? event((uintptr_t)subdev, a1, a2) : -ENOIOCTLCMD;
-        printk(KERN_WARNING
-               "tx_isp_t41_recovered: notify exit event=0x%x slot=%u ret=%d\n",
-               a1, slot_index, ret);
+        if (!in_interrupt())
+            t41_note(
+                   "t41: notify exit event=0x%x slot=%u ret=%d\n",
+                   a1, slot_index, ret);
         if (ret && ret != -ENOIOCTLCMD)
             return ret;
     }
@@ -33123,7 +33484,7 @@ int64_t find_subdev_link_pad(uintptr_t a0, uintptr_t a1)
 
         if (pad_index >= count || !pads || pads >= (uintptr_t)-4095) {
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: link pad invalid dev=%s type=%u index=%u count=%u pads=%p\n",
+                   "t41: link pad invalid dev=%s type=%u index=%u count=%u pads=%p\n",
                    name, endpoint_type, pad_index, count, (void *)pads);
             return 0;
         }
@@ -33131,9 +33492,23 @@ int64_t find_subdev_link_pad(uintptr_t a0, uintptr_t a1)
     }
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: link subdev not found name=%s type=%u index=%u\n",
+           "t41: link subdev not found name=%s type=%u index=%u\n",
            wanted_name, endpoint_type, pad_index);
 #endif
+}
+
+/*
+ * Call a subdev internal_ops PM callback (sd->ops->internal->suspend_module
+ * at +0x08 / resume_module at +0x0c) exactly as the vendor does: one
+ * argument, the subdev.  An implausible pointer reports -ENOIOCTLCMD
+ * (-515), which every caller already treats as "no callback".
+ */
+static int t41_call_subdev_pm(uintptr_t callback, uintptr_t sd)
+{
+	if (!t41_kernel_data_ptr((void *)callback) ||
+	    !t41_kernel_data_ptr((void *)sd))
+		return -ENOIOCTLCMD;
+	return ((int (*)(uintptr_t))callback)(sd);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000013128 origin=fragment_seed original=tx_isp_resume */
@@ -33205,7 +33580,8 @@ tx_isp_resume0x90:
     if (v0 == 0) { goto tx_isp_resume0x78; }
 
     /* fragment 14: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
+    /* vendor 1.2.6-720-4494 tx_isp_resume 0x11f04: internal->resume_module(sd) */
+    v0 = t41_call_subdev_pm((uintptr_t)v0, a0);
 
     /* fragment 15: Branch */
     if (v0 == 0) { goto tx_isp_resume0x7c; }
@@ -33293,7 +33669,8 @@ tx_isp_suspend0x90:
     if (v0 == 0) { goto tx_isp_suspend0x78; }
 
     /* fragment 14: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(a0); /* jalr target resolved by relocation */
+    /* vendor 1.2.6-720-4494 tx_isp_suspend 0x11fcc: internal->suspend_module(sd) */
+    v0 = t41_call_subdev_pm((uintptr_t)v0, a0);
 
     /* fragment 15: Branch */
     if (v0 == 0) { goto tx_isp_suspend0x7c; }
@@ -33439,8 +33816,8 @@ int32_t tx_isp_sensor_register_sensor(uintptr_t a0, uint32_t a1)
 
     if (!a0 || !a1)
         return -EINVAL;
-	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: sensor-register ioctl enter isp=%p user=0x%x\n",
+	t41_note(
+	       "t41: sensor-register ioctl enter isp=%p user=0x%x\n",
 	       (void *)a0, a1);
     if (private_copy_from_user(sensor_info,
             (const void __user *)(uintptr_t)a1, sizeof(sensor_info)))
@@ -33452,7 +33829,7 @@ int32_t tx_isp_sensor_register_sensor(uintptr_t a0, uint32_t a1)
         ret = subdev_sensor_ops_ioctl(vin, T41_EVENT_SENSOR_REGISTER,
                                       (uintptr_t)sensor_info);
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: sensor-register VIN returned %d vin=%p\n",
+		       "t41: sensor-register VIN returned %d vin=%p\n",
 		       ret, (void *)vin);
         if (ret != -ENOIOCTLCMD)
             return ret;
@@ -33491,7 +33868,7 @@ int32_t tx_isp_sensor_release_sensor(uintptr_t a0, uint32_t a1)
     ret = subdev_sensor_ops_ioctl(vin, T41_EVENT_SENSOR_RELEASE,
                                   (uintptr_t)sensor_info);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: sensor-release VIN returned %d vin=%p\n",
+           "t41: sensor-release VIN returned %d vin=%p\n",
            ret, (void *)vin);
     return ret == -ENOIOCTLCMD ? 0 : ret;
 }
@@ -33506,7 +33883,7 @@ static void t41_apply_stock_awb_gains(void)
     if (!gains[0] && !gains[1]) {
         int ret = (int)tisp_awb_set_gain(0);
         if (ret < 0)
-            printk(KERN_WARNING "tx_isp_t41_recovered: calibrated WB seed unavailable: %d\n", ret);
+            printk(KERN_WARNING "t41: calibrated WB seed unavailable: %d\n", ret);
         return;
     }
     if (!gains[0] || !gains[1])
@@ -33530,7 +33907,7 @@ static void t41_apply_stock_awb_gains(void)
     system_reg_set_awb_trig(3, 0);
     t41_awb_last_rgain = t41_stock_awb_gain_a;
     t41_awb_last_bgain = t41_stock_awb_gain_b;
-    pr_debug("tx_isp_t41_recovered: calibrated AWB gains a=%#x b=%#x read=%#x/%#x/%#x/%#x\n",
+    pr_debug("calibrated AWB gains a=%#x b=%#x read=%#x/%#x/%#x/%#x\n",
            t41_stock_awb_gain_a, t41_stock_awb_gain_b,
            system_reg_read(0x04004), system_reg_read(0x04008),
            system_reg_read(0x05004), system_reg_read(0x05008));
@@ -33562,7 +33939,7 @@ static void t41_apply_stock_awb_stats_profile(void)
     tisp_awb_set_lum_th_freq(0);
     system_reg_set_awb_trig(1, 0);
     printk(KERN_INFO
-           "tx_isp_t41_recovered: calibration-driven AWB setup=%#x thresholds=%#x/%#x/%#x/%#x/%#x\n",
+           "t41: calibration-driven AWB setup=%#x thresholds=%#x/%#x/%#x/%#x/%#x\n",
            words[0], system_reg_read(0x18028), system_reg_read(0x1802c),
            system_reg_read(0x18030), system_reg_read(0x18034),
            system_reg_read(0x18038));
@@ -33956,7 +34333,7 @@ trace:
     if (t41_awb_irq_count <= 12U ||
         !(t41_awb_irq_count & (t41_awb_irq_count - 1U)))
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: safe AWB irq=%u update=%u reject=%u bank=%u zones=%u pixels=%llu rgb=%llu/%llu/%llu gains=%#x/%#x\n",
+               "t41: safe AWB irq=%u update=%u reject=%u bank=%u zones=%u pixels=%llu rgb=%llu/%llu/%llu gains=%#x/%#x\n",
                t41_awb_irq_count, t41_awb_update_count,
                t41_awb_reject_count, bank, zones,
                (unsigned long long)pixels, (unsigned long long)red,
@@ -34055,7 +34432,7 @@ static int t41_safe_awb_configure(uint32_t mode, uint16_t rgain,
         t41_apply_stock_awb_stats_profile();
     }
 
-    pr_debug("tx_isp_t41_recovered: live AWB profile mode=%s gains=%#x/%#x\n",
+    pr_debug("live AWB profile mode=%s gains=%#x/%#x\n",
            mode == TX_ISP_TUNING_AWB_AUTO ? "auto" : "manual",
            rgain, bgain);
     return 0;
@@ -34402,7 +34779,7 @@ static void t41_apply_stock_tmo_profile(void)
     *bypass &= ~BIT(22);
     system_reg_write(0x40, *bypass);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: stock TMO runtime profile applied "
+           "t41: stock TMO runtime profile applied "
            "curve=%u ev=%#x gain=%#x statYOut=%#x controls=%#x/%#x/%#x shadow=%s\n",
            (unsigned int)ARRAY_SIZE(stock_curve_settled),
            shadow_valid ? *(uint32_t *)(void *)(info + 32) : 0x000028b2,
@@ -34475,7 +34852,7 @@ static int t41_mdns_build_layout(uint32_t vinum,
         if (!width || !height)
             return -ENODEV;
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: pre-init MDNS layout vinum=%u %ux%u\n",
+               "t41: pre-init MDNS layout vinum=%u %ux%u\n",
                vinum, width, height);
     }
     if (!width || !height)
@@ -34594,7 +34971,7 @@ static int t41_mdns_program_buffer(uint32_t vinum, uint32_t paddr,
     }
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: MDNS rmem programmed vinum=%u "
+           "t41: MDNS rmem programmed vinum=%u "
            "phys=%#x bytes=%#x required=%#x used=%#x memopt=%u "
            "strides=%u/%u/%u/%u/%u\n",
            vinum, paddr, bytes, layout.required, offset, layout.memopt,
@@ -34656,7 +35033,7 @@ static int t41_video_s_stream_late(void)
         ret = ((int (*)(uintptr_t, int32_t *))(uintptr_t)stream_cb)(
                 subdev, stream);
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: late video-s-stream slot=%u subdev=%p vinum=%d ret=%d\n",
+               "t41: late video-s-stream slot=%u subdev=%p vinum=%d ret=%d\n",
                i, (void *)subdev, stream[1], ret);
         if (ret && ret != -ENOIOCTLCMD)
             return ret;
@@ -34685,7 +35062,7 @@ static int t41_start_isp_fw_thread_late(void)
     *(struct task_struct **)(core + 556) = thread;
     t41_defer_isp_fw_thread = 0;
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: ISP firmware event thread started late task=%p\n",
+           "t41: ISP firmware event thread started late task=%p\n",
            thread);
     return 0;
 }
@@ -34715,7 +35092,7 @@ static void t41_capture_register_snapshot(void)
         return;
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: capture snapshot CSI ctl=%#x lanes=%#x "
+           "t41: capture snapshot CSI ctl=%#x lanes=%#x "
            "dtype=%#x err=%#x/%#x mask=%#x/%#x phy=%#x settle=%#x\n",
            readl(csi_regs + 0x0c), readl(csi_regs + 0x04),
            readl(csi_regs + 0x14), readl(csi_regs + 0x20),
@@ -34723,7 +35100,7 @@ static void t41_capture_register_snapshot(void)
            readl(csi_regs + 0x2c), readl(phy_regs + 0x94c),
            readl(phy_regs + 0x560));
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: capture snapshot VIC ctl=%#x size=%#x "
+           "t41: capture snapshot VIC ctl=%#x size=%#x "
            "raw=%#x/%#x mask=%#x/%#x ack=%#x/%#x "
            "frames=%u/%u/%u/%u irq-state=%u\n",
            readl(vic_regs + 0x00), readl(vic_regs + 0x04),
@@ -34735,7 +35112,7 @@ static void t41_capture_register_snapshot(void)
            *(uint32_t *)(vic + 0x9c));
     if (t41_kernel_data_ptr(core_regs)) {
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: capture snapshot ISP top=%#x/%#x input=%#x/%#x stream=%#x/%#x/%#x/%#x/%#x/%#x irq=%#x/%#x/%#x/%#x/%#x/%#x/%#x/%#x\n",
+               "t41: capture snapshot ISP top=%#x/%#x input=%#x/%#x stream=%#x/%#x/%#x/%#x/%#x/%#x irq=%#x/%#x/%#x/%#x/%#x/%#x/%#x/%#x\n",
                readl(core_regs + 0x00), readl(core_regs + 0x04),
                readl(core_regs + 0x80), readl(core_regs + 0x88),
                readl(core_regs + 0x1000), readl(core_regs + 0x1004),
@@ -34746,7 +35123,7 @@ static void t41_capture_register_snapshot(void)
                readl(core_regs + 0x400a4), readl(core_regs + 0x400a8),
                readl(core_regs + 0x400b4), readl(core_regs + 0x400b8));
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: capture snapshot MSCA enable=%#x trigger=%#x mode=%#x algorithm=%#x input=%#x geom=%#x crop=%#x/%#x ratio=%#x/%#x curve=%#x/%#x aux=%#x ctrl=%#x/%#x stride=%#x/%#x fifo-in=%#x/%#x fifo-out=%#x/%#x\n",
+               "t41: capture snapshot MSCA enable=%#x trigger=%#x mode=%#x algorithm=%#x input=%#x geom=%#x crop=%#x/%#x ratio=%#x/%#x curve=%#x/%#x aux=%#x ctrl=%#x/%#x stride=%#x/%#x fifo-in=%#x/%#x fifo-out=%#x/%#x\n",
                readl(core_regs + 0x0f0008), readl(core_regs + 0x0f0010),
                readl(core_regs + 0x0f0028), readl(core_regs + 0x0f002c),
                readl(core_regs + 0x0f0084), readl(core_regs + 0x0f0100),
@@ -34798,7 +35175,7 @@ int32_t tx_isp_video_s_stream(uintptr_t a0, uint32_t a1)
 
         if (t41_defer_sensor_start && stream[0] && i > 0) {
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: sensor video stream deferred "
+                   "t41: sensor video stream deferred "
                    "slot=%u subdev=%p vinum=%d\n",
                    i, (void *)subdev, stream[1]);
             continue;
@@ -34807,7 +35184,7 @@ int32_t tx_isp_video_s_stream(uintptr_t a0, uint32_t a1)
         ret = ((int (*)(uintptr_t, int32_t *))(uintptr_t)stream_cb)(
                 subdev, stream);
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: video-s-stream slot=%u subdev=%p enable=%d vinum=%d ret=%d\n",
+               "t41: video-s-stream slot=%u subdev=%p enable=%d vinum=%d ret=%d\n",
                i, (void *)subdev, stream[0], stream[1], ret);
         if (ret && ret != -ENOIOCTLCMD) {
             int32_t stop[2] = { 0, stream[1] };
@@ -35009,7 +35386,7 @@ int32_t tx_isp_video_link_stream(uintptr_t a0, uint32_t a1)
         ret = ((int (*)(uintptr_t, uintptr_t))callback)
                     (subdev, (uintptr_t)stream);
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: video-link-stream slot=%u subdev=%p enable=%d vinum=%d ret=%d\n",
+               "t41: video-link-stream slot=%u subdev=%p enable=%d vinum=%d ret=%d\n",
                i, (void *)subdev, stream[0], stream[1], ret);
         if (ret && ret != -ENOIOCTLCMD) {
             int32_t rollback[2] = { !stream[0], stream[1] };
@@ -36018,7 +36395,7 @@ static int t41_ioctl_get_sensor_input(uintptr_t file, uint32_t user_arg)
         return -EFAULT;
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: get input requested index=%d vinum=%d returned index=%d vinum=%d\n",
+           "t41: get input requested index=%d vinum=%d returned index=%d vinum=%d\n",
            requested[0], requested[1], input[0], input[1]);
     return 0;
 }
@@ -36113,7 +36490,7 @@ static int t41_ioctl_buf_info(uint32_t command, uint32_t user_arg)
                      sizeof(info)))
         return -EFAULT;
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: %s %s-buf vinum=%u paddr=0x%x size=0x%x\n",
+           "t41: %s %s-buf vinum=%u paddr=0x%x size=0x%x\n",
            get ? "get" : "set",
            slots == t41_mdns_buf_info ? "mdns" : "wdr",
            info.vinum, info.paddr, info.size);
@@ -36139,7 +36516,7 @@ static int t41_ioctl_video_link_setup(uintptr_t file, uint32_t user_arg)
     if (t41_defer_video_link_setup > 0) {
         t41_deferred_video_link = (int)link;
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: video-link setup deferred "
+               "t41: video-link setup deferred "
                "requested=%d/%d saved-link=%u\n",
                input[0], input[1], link);
         return 0;
@@ -36193,7 +36570,7 @@ static int t41_setup_video_link_graph(uintptr_t graph, unsigned int link)
         return -EINVAL;
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: video-link setup link=%u count=%u graph=%p records=%p dry=%d\n",
+           "t41: video-link setup link=%u count=%u graph=%p records=%p dry=%d\n",
            link, count, (void *)graph, (void *)records,
            t41_video_link_dry_run);
     for (i = 0; i < count; i++) {
@@ -36205,7 +36582,7 @@ static int t41_setup_video_link_graph(uintptr_t graph, unsigned int link)
         int ret;
 
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: video-link resolve link=%u item=%u record=%p src=%s/%u/%u sink=%s/%u/%u flags=%#x\n",
+               "t41: video-link resolve link=%u item=%u record=%p src=%s/%u/%u sink=%s/%u/%u flags=%#x\n",
                link, i, (void *)record,
                (char *)(uintptr_t)*(uint32_t *)(record + TX_ISP_SUBDEV_LINK_SOURCE_OFFSET + TX_ISP_SUBDEV_DESC_NAME_OFFSET),
                *(uint8_t *)(record + TX_ISP_SUBDEV_LINK_SOURCE_OFFSET + TX_ISP_SUBDEV_DESC_TYPE_OFFSET), *(uint8_t *)(record + TX_ISP_SUBDEV_LINK_SOURCE_OFFSET + TX_ISP_SUBDEV_DESC_INDEX_OFFSET),
@@ -36217,12 +36594,12 @@ static int t41_setup_video_link_graph(uintptr_t graph, unsigned int link)
 
         if (!source || !sink) {
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: video-link skip link=%u item=%u source=%p sink=%p\n",
+                   "t41: video-link skip link=%u item=%u source=%p sink=%p\n",
                    link, i, (void *)source, (void *)sink);
             continue;
         }
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: video-link pads link=%u item=%u source=%p state=%u self=%p remote=%p rlink=%p oldflags=%#x sink=%p state=%u self=%p remote=%p rlink=%p oldflags=%#x\n",
+               "t41: video-link pads link=%u item=%u source=%p state=%u self=%p remote=%p rlink=%p oldflags=%#x sink=%p state=%u self=%p remote=%p rlink=%p oldflags=%#x\n",
                link, i, (void *)source, *(uint8_t *)(source + 7),
                (void *)(uintptr_t)*(uint32_t *)(source + 8),
                (void *)(uintptr_t)*(uint32_t *)(source + 12),
@@ -36241,7 +36618,7 @@ static int t41_setup_video_link_graph(uintptr_t graph, unsigned int link)
             flags, &enabled_flags);
         if (link_status == TX_ISP_SUBDEV_LINK_TYPE_MISMATCH) {
             printk(KERN_ERR
-                   "tx_isp_t41_recovered: video-link type mismatch link=%u item=%u source=%#x sink=%#x flags=%#x\n",
+                   "t41: video-link type mismatch link=%u item=%u source=%#x sink=%#x flags=%#x\n",
                    link, i, *(uint8_t *)(source + TX_ISP_ABI_PAD_LINKS_TYPE_OFFSET), *(uint8_t *)(sink + TX_ISP_ABI_PAD_LINKS_TYPE_OFFSET), flags);
             return -EINVAL;
         }
@@ -36270,7 +36647,7 @@ static int t41_setup_video_link_graph(uintptr_t graph, unsigned int link)
         flags = enabled_flags;
         tx_isp_subdev_connect_link_pair((void *)source, (void *)sink, flags);
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: video-link connected link=%u item=%u source=%p sink=%p flags=%#x source-remote=%p source-event=%p sink-remote=%p sink-event=%p\n",
+               "t41: video-link connected link=%u item=%u source=%p sink=%p flags=%#x source-remote=%p source-event=%p sink-remote=%p sink-event=%p\n",
                link, i, (void *)source, (void *)sink, flags,
                (void *)(uintptr_t)*(uint32_t *)(source + 12),
                (void *)(uintptr_t)*(uint32_t *)(source + 28),
@@ -36443,7 +36820,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 
     if (t41_runtime_trace)
         printk(KERN_WARNING
-           "tx_isp_t41_recovered: tx-isp ioctl enter cmd=0x%x arg=0x%x file=%p pid=%d comm=%s\n",
+           "t41: tx-isp ioctl enter cmd=0x%x arg=0x%x file=%p pid=%d comm=%s\n",
            a1, a2, (void *)a0, current->pid, current->comm);
 
     /* libimp probes this command first.  Keep it independent of the damaged
@@ -36452,7 +36829,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         regtrace_ret = tx_isp_driver_version_isra_12(a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36463,7 +36840,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
                      -ENODEV;
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36474,7 +36851,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
                      -ENODEV;
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36482,7 +36859,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         regtrace_ret = t41_ioctl_enum_sensor_input(a0, a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36490,7 +36867,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         regtrace_ret = t41_ioctl_get_sensor_input(a0, a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36501,7 +36878,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
                      -ENODEV;
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36509,7 +36886,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         regtrace_ret = t41_ioctl_video_link_setup(a0, a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36517,7 +36894,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         regtrace_ret = t41_ioctl_video_link_destroy(a0, a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36528,7 +36905,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
                      -ENODEV;
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36536,7 +36913,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         regtrace_ret = t41_ioctl_set_sensor_input(a0, a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36544,7 +36921,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         regtrace_ret = t41_ioctl_frame_drop(a0, a1, a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36552,7 +36929,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         regtrace_ret = t41_ioctl_wdr_switch(a0, a1 == 0x80045413U, a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36560,7 +36937,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         regtrace_ret = t41_ioctl_sensor_register(a0, a1 == 0xc040540dU, a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36569,7 +36946,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         regtrace_ret = t41_ioctl_buf_info(a1, a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
-               "tx_isp_t41_recovered: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
                a1, regtrace_ret);
         return regtrace_ret;
     }
@@ -36586,7 +36963,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
      * handlers did not claim rather than run that path; _IOC_SIZE(a1) is only
      * logged for diagnostics since the recovered copies ignored it entirely.
      */
-    pr_warn_once("tx-isp-t41: %s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
+    pr_warn_once("%s: unhandled cmd=0x%x size=%u refused (recovered dispatch disabled)\n",
                  __func__, a1, _IOC_SIZE(a1));
     return -ENOTTY;
 
@@ -39620,7 +39997,7 @@ int32_t tx_isp_send_event_to_remote(void *arg1, uint32_t event, void *data)
 	     event == TX_ISP_FRAME_EVENT_STREAM_ON ||
 	     event == TX_ISP_FRAME_EVENT_QUEUE_BUFFER))
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: remote event=%08x arg=%p remote=%p "
+		       "t41: remote event=%08x arg=%p remote=%p "
 		       "handle=%p data=%p\n",
 		       event, arg1, remote, handle, data);
 	{
@@ -39631,7 +40008,7 @@ int32_t tx_isp_send_event_to_remote(void *arg1, uint32_t event, void *data)
 		     event == TX_ISP_FRAME_EVENT_STREAM_ON ||
 		     event == TX_ISP_FRAME_EVENT_QUEUE_BUFFER))
 			printk(KERN_WARNING
-			       "tx_isp_t41_recovered: remote event=%08x returned %d\n",
+			       "t41: remote event=%08x returned %d\n",
 			       event, result);
 		return result;
 	}
@@ -40135,6 +40512,7 @@ int tx_isp_probe(struct platform_device *pdev)
         result = create_graph((uintptr_t)v0);
 
         if (result != 0) {
+            t41_procwatch_stop();
             private_proc_remove(*(void **)((char *)v0 + 0x138));
             private_misc_deregister((void *)((char *)v0 + 0xc));
             goto deinit_module;
@@ -40145,6 +40523,7 @@ int tx_isp_probe(struct platform_device *pdev)
     if (tx_isp_bringup_level >= 2)
         isp_mem_init();
     *(char **)((char *)v0 + 0x108) = "H20250310a";
+    t41_procwatch_start();
     isp_printf(1, "@@@@ tx-isp-probe ok (version %s) compiler date: %s @@@@\n",
 	       "H20250310a", __DATE__);
     asm volatile("" ::: "memory");
@@ -42463,7 +42842,7 @@ int32_t tisp_comn_param_array_set(uint32_t a0, uint32_t a1)
     system_reg_write(0xd000, 0xffffffff);
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: day-night mode %u->%u channel=%u "
+           "t41: day-night mode %u->%u channel=%u "
            "csc=%#x event-ret=%d\n",
            previous_mode, mode, a0,
            mode ? 0xff008080 : 0xff00ff00, ret);
@@ -52808,7 +53187,7 @@ int32_t tisp_ipc_triger(void)
         return ret;
     ret = system_reg_write(0x1000, 1);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: ISP IPC trigger cmd/start ret=%d\n",
+           "t41: ISP IPC trigger cmd/start ret=%d\n",
            ret);
     return ret;
 #else
@@ -52886,7 +53265,7 @@ int32_t tisp_top_update_pos(void)
     /* Stock debug print; the recovered call paired an unrelated format
      * (four conversions, "%s" fed with pos_value) with the wrong
      * arguments, from IRQ context. */
-    printk_ratelimited(KERN_DEBUG "tx_isp_t41_recovered: top update pos=0x%x\n",
+    printk_ratelimited(KERN_DEBUG "t41: top update pos=0x%x\n",
                        *(uint32_t *)((char *)((char *)&pos_value)));
 
     /* fragment 5: CallSetup */
@@ -52980,7 +53359,7 @@ int32_t tisp_stream_on(uintptr_t a0)
                             (int32_t)(uintptr_t)tisp_ae_ir_update);
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-stream-on safe channel=%u %ux%u common=%u/%u ret=%d\n",
+           "t41: tisp-stream-on safe channel=%u %ux%u common=%u/%u ret=%d\n",
            channel,
            *(uint32_t *)(void *)(config + 0),
            *(uint32_t *)(void *)(config + 4), common0, common1, ret);
@@ -53649,8 +54028,8 @@ int tisp_deinit(int channel)
 
     t41_tmo_stream_stop();
 
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-deinit enter channel=%d\n",
+    t41_note(
+           "t41: tisp-deinit enter channel=%d\n",
            channel);
 
     /*
@@ -53698,6 +54077,11 @@ int tisp_deinit(int channel)
     tisp_msca_deinit(channel);
     ((int (*)(uint32_t))(uintptr_t)tisp_raw_deinit)(channel);
 
+    mutex_lock(&t41_switch_bin_lock);
+    if (t41_bin_retired) {
+        private_vfree(t41_bin_retired);
+        t41_bin_retired = NULL;
+    }
     bin = (void *)(uintptr_t)m_bin;
     if (bin) {
         void *payload = *(void **)((char *)bin + 64);
@@ -53711,6 +54095,7 @@ int tisp_deinit(int channel)
         private_kfree(bin);
         m_bin = 0;
     }
+    mutex_unlock(&t41_switch_bin_lock);
 
     params = (void **)((char *)&tparamsP + slot);
     if (*params) {
@@ -53728,8 +54113,8 @@ int tisp_deinit(int channel)
         tisp_code_destroy_tuning_node();
 
     init_load_bin = 0;
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-deinit exit channel=%d\n",
+    t41_note(
+           "t41: tisp-deinit exit channel=%d\n",
            channel);
     return 0;
 }
@@ -53772,6 +54157,10 @@ int32_t tisp_channel_main_start(uint32_t a0)
     *(uint8_t *)((char *)((a0 * 612) + (uintptr_t)&mscaler) + 4) = 1;
     *(uint8_t *)((char *)((a0 * 26) + (uintptr_t)&msca) + 0) = 1;
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_msca_chx_cfg_load)(0, a0 & 255, (a0 * 26) + (uintptr_t)&msca); /* jalr target resolved by relocation */
+    /* Mask blocks stored while this output was stopped (or streaming
+     * outside the live envelope) go out with its start. */
+    if (a0 < 3)
+        t41_msca_mask_flush(1U << a0, 1);
 
     /* fragment 1: Epilogue */
     /* function epilogue: restore registers and return */
@@ -53808,6 +54197,7 @@ int32_t tisp_channel_main_stop(uint32_t a0)
     *(uint8_t *)((char *)&mscaler + a0 * 612 + 4) = 0;
     *(uint8_t *)((char *)&msca + a0 * 26) = 0;
     t41_msca_enable_pending &= ~mask;
+    t41_msca_enable_armed &= ~mask;
     if (t41_msca_stop_disable > 0) {
         system_reg_write(0x0f0008U, system_reg_read(0x0f0008U) & ~mask);
         t41_msca_live_valid[a0] = false;
@@ -53821,7 +54211,7 @@ int32_t tisp_channel_main_stop(uint32_t a0)
      * retain its buffers, not time out into freeing live DMA destinations. */
     while ((active = system_reg_read(0x0f00e0U)) & mask) {
         if (time_after_eq(jiffies, deadline)) {
-            printk(KERN_ERR "tx_isp_t41_recovered: MSCA channel %u still active=%#x; retaining capture buffers\n",
+            printk(KERN_ERR "t41: MSCA channel %u still active=%#x; retaining capture buffers\n",
                    a0, active);
             deadline = jiffies + HZ;
         }
@@ -54243,8 +54633,8 @@ int tiziano_load_parameters(uint32_t channel, uintptr_t load_request)
         return -EINVAL;
 
     requested_path = (const char *)(load_request + sizeof(uint32_t));
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-load enter channel=%u path=%s\n",
+    t41_note(
+           "t41: tisp-load enter channel=%u path=%s\n",
            channel, requested_path);
     if (!requested_path[0] || strnlen(requested_path, sizeof(path)) >= sizeof(path))
         return -ENAMETOOLONG;
@@ -54258,7 +54648,7 @@ int tiziano_load_parameters(uint32_t channel, uintptr_t load_request)
         m_bin = (uint32_t)(uintptr_t)manager;
     }
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-load manager ready=%p\n", manager);
+           "t41: tisp-load manager ready=%p\n", manager);
 
     snprintf(manager, 8, "%s", "1.00");
     snprintf(bin_version, sizeof(bin_version), "%s", "2.00");
@@ -54275,7 +54665,7 @@ int tiziano_load_parameters(uint32_t channel, uintptr_t load_request)
 
     file_size = private_i_size_read(private_file_inode(filp));
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-load opened size=%lld\n",
+           "t41: tisp-load opened size=%lld\n",
            (long long)file_size);
     if (file_size < 64 || file_size > INT_MAX) {
         ret = -EINVAL;
@@ -54292,7 +54682,7 @@ int tiziano_load_parameters(uint32_t channel, uintptr_t load_request)
         *(uint32_t *)(manager + 64) = (uint32_t)(uintptr_t)payload;
     }
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-load payload ready=%p\n", payload);
+           "t41: tisp-load payload ready=%p\n", payload);
 
     *(uint32_t *)(manager + 68) = (uint32_t)file_size;
     while (bytes_read < file_size) {
@@ -54307,7 +54697,7 @@ int tiziano_load_parameters(uint32_t channel, uintptr_t load_request)
 
         if (!bytes_read || bytes_read + chunk_read >= file_size)
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: tisp-load read offset=%lld "
+                   "t41: tisp-load read offset=%lld "
                    "requested=%lu returned=%d\n",
                    (long long)read_offset, chunk, chunk_read);
         if (chunk_read <= 0) {
@@ -54324,11 +54714,11 @@ int tiziano_load_parameters(uint32_t channel, uintptr_t load_request)
     }
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-load close begin\n");
+           "t41: tisp-load close begin\n");
     private_filp_close(filp, NULL);
     filp = NULL;
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-load read complete bytes=%lld\n",
+           "t41: tisp-load read complete bytes=%lld\n",
            (long long)bytes_read);
 
     if (memcmp(manager, payload, 8) != 0 &&
@@ -54368,7 +54758,7 @@ int tiziano_load_parameters(uint32_t channel, uintptr_t load_request)
         goto free_binary;
     }
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-load header valid declared=%u night=%u\n",
+           "t41: tisp-load header valid declared=%u night=%u\n",
            declared_size, night_offset);
 
     sensor_info = *(unsigned char **)((char *)&tsbin + channel * sizeof(uint32_t));
@@ -54398,13 +54788,13 @@ int tiziano_load_parameters(uint32_t channel, uintptr_t load_request)
                                   (uintptr_t)(day_params + 0x1ee40),
                                   (uintptr_t)night_params);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-load day reserve complete\n");
+           "t41: tisp-load day reserve complete\n");
     if (night_params + 0x1ee40 + 452 <= payload_end)
         tiziano_reserve_reg_write((int8_t)((unsigned char *)&dnw)[2],
                                   (uintptr_t)(night_params + 0x1ee40),
                                   (uintptr_t)night_params);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-load night reserve complete\n");
+           "t41: tisp-load night reserve complete\n");
 
     if (night_params + 0x1efc0 < payload_end && night_params[0x1efc0]) {
         size_t available = payload_end - (night_params + 0x1efc0);
@@ -54417,8 +54807,8 @@ int tiziano_load_parameters(uint32_t channel, uintptr_t load_request)
     }
 
     init_load_bin = 1;
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-load exit ret=0\n");
+    t41_note(
+           "t41: tisp-load exit ret=0\n");
     return 0;
 
 close_file:
@@ -55253,8 +55643,8 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
         return -EINVAL;
     t41_gamma_base_valid = false;	/* new bin/param load */
 
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-core enter channel=%u cfg=%p path=%p\n",
+    t41_note(
+           "t41: tisp-core enter channel=%u cfg=%p path=%p\n",
            channel, cfg, (void *)param_path);
 
     par = (unsigned char *)&tisp_par_info + channel * 160;
@@ -55268,7 +55658,7 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
     memset(par, 0, 160);
     memcpy(par, cfg, 160);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-core config copied %ux%u code=%#x\n",
+           "t41: tisp-core config copied %ux%u code=%#x\n",
            *(uint32_t *)(cfg + 0), *(uint32_t *)(cfg + 4),
            *(uint32_t *)(cfg + 8));
 
@@ -55288,7 +55678,7 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
     }
     memset(*params_slot, 0, 98696);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-core allocations ready sensor=%p params=%p\n",
+           "t41: tisp-core allocations ready sensor=%p params=%p\n",
            *sensor_info_slot, *params_slot);
 
     memset(load_request, 0, sizeof(load_request));
@@ -55303,7 +55693,7 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
     }
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-core load begin path=%s\n", path);
+           "t41: tisp-core load begin path=%s\n", path);
     ret = tiziano_load_parameters(channel, (uintptr_t)load_request);
     if (param_path)
         snprintf((char *)param_path, 132, "%s", path);
@@ -55311,12 +55701,12 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
         isp_printf(2, "tisp_init: failed to load %s (%d)\n", path, ret);
         goto free_channel_allocations;
     }
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-core load exit ret=0\n");
+    t41_note(
+           "t41: tisp-core load exit ret=0\n");
 
     params = *params_slot;
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-core params-copy begin source=%p\n",
+           "t41: tisp-core params-copy begin source=%p\n",
            (void *)(uintptr_t)*(uint32_t *)((char *)&tparams_day + slot));
     ret = tisp_params_copy(channel,
                            *(uint32_t *)((char *)&tparams_day + slot),
@@ -55324,8 +55714,8 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
                            ((unsigned char *)&dnw)[1]);
     if (ret < 0)
         isp_printf(2, "tisp_init: initial parameter copy failed (%d)\n", ret);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-core params-copy exit ret=%d\n", ret);
+    t41_note(
+           "t41: tisp-core params-copy exit ret=%d\n", ret);
 
     if (*(uint16_t *)(cfg + 10) == 3)
         params[16] = 1;
@@ -55357,10 +55747,10 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
     system_reg_write(0x88, reg88);
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-core sensor-init begin\n");
+           "t41: tisp-core sensor-init begin\n");
     sensor_init((uintptr_t)&sensor_ctrl_main, 0);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-core sensor-init exit\n");
+    t41_note(
+           "t41: tisp-core sensor-init exit\n");
 
     if (!params[35]) {
         if (params[34])
@@ -55399,7 +55789,7 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
         processing_en |= BIT(2);
     system_reg_write(0x60, processing_en);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-core pre-init regs "
+           "t41: tisp-core pre-init regs "
            "want[40=%08x 48=ffffffff 60=%08x 6c=%08x "
            "80=%08x 88=%08x] "
            "read[40=%08x 48=%08x 60=%08x 6c=%08x "
@@ -55412,14 +55802,14 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
 
 #define T41_INIT2(fn) do { \
     int regtrace_init_ret; \
-    printk(KERN_WARNING \
-           "tx_isp_t41_recovered: tisp-init enter %s channel=%u\n", \
+    t41_note( \
+           "t41: tisp-init enter %s channel=%u\n", \
            #fn, channel); \
     regtrace_init_ret = \
         ((int (*)(uint32_t, uintptr_t))(uintptr_t)(fn)) \
             (channel, (uintptr_t)par); \
-    printk(KERN_WARNING \
-           "tx_isp_t41_recovered: tisp-init exit %s ret=%d\n", \
+    t41_note( \
+           "t41: tisp-init exit %s ret=%d\n", \
            #fn, regtrace_init_ret); \
     if (t41_checkpoint_ms && checkpoint_index >= t41_checkpoint_start) \
         msleep(t41_checkpoint_ms); \
@@ -55483,7 +55873,7 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
 
         if (profile_ret)
             printk(KERN_ERR
-                   "tx_isp_t41_recovered: initial flicker image profile failed ret=%d\n",
+                   "t41: initial flicker image profile failed ret=%d\n",
                    profile_ret);
     }
 
@@ -55522,34 +55912,34 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
         *wdr_slot = 0;
     }
 
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-init enter tisp_msca_init channel=%u\n",
+    t41_note(
+           "t41: tisp-init enter tisp_msca_init channel=%u\n",
            channel);
     ret = tisp_msca_init(channel, width & 0xffff, height & 0xffff);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-init exit tisp_msca_init ret=%d\n",
+    t41_note(
+           "t41: tisp-init exit tisp_msca_init ret=%d\n",
            ret);
     if (t41_checkpoint_ms && checkpoint_index >= t41_checkpoint_start)
         msleep(t41_checkpoint_ms);
     checkpoint_index++;
 
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-init enter tisp_msca_ir_init channel=%u\n",
+    t41_note(
+           "t41: tisp-init enter tisp_msca_ir_init channel=%u\n",
            channel);
     ret = tisp_msca_ir_init(162, 0, (width + 7) & 0xfff8);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-init exit tisp_msca_ir_init ret=%d\n",
+    t41_note(
+           "t41: tisp-init exit tisp_msca_ir_init ret=%d\n",
            ret);
     if (t41_checkpoint_ms && checkpoint_index >= t41_checkpoint_start)
         msleep(t41_checkpoint_ms);
     checkpoint_index++;
 
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-init enter tisp_event_init channel=%u\n",
+    t41_note(
+           "t41: tisp-init enter tisp_event_init channel=%u\n",
            channel);
     ret = tisp_event_init(0);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tisp-init exit tisp_event_init ret=%d\n",
+    t41_note(
+           "t41: tisp-init exit tisp_event_init ret=%d\n",
            ret);
     if (t41_checkpoint_ms && checkpoint_index >= t41_checkpoint_start)
         msleep(t41_checkpoint_ms);
@@ -55862,7 +56252,7 @@ int32_t tisp_event_init(uint32_t a0)
     }
     channel->initialized = true;
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: event-init safe channel=%u nodes=%u\n",
+           "t41: event-init safe channel=%u nodes=%u\n",
            a0, T41_TISP_EVENT_NODES);
     return 0;
 #else
@@ -55973,7 +56363,7 @@ int32_t tisp_event_set_cb(int32_t arg1, int32_t arg2, int32_t arg3)
         (arg2 == 12 || arg2 == 13 || arg2 == 15 ||
          arg2 == 16 || arg2 == 17 || arg2 == 18)) {
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: tuning-event callback suppressed "
+               "t41: tuning-event callback suppressed "
                "channel=%d event=%d callback=%p\n",
                arg1, arg2, (void *)(uintptr_t)arg3);
         arg3 = 0;
@@ -57779,7 +58169,7 @@ int64_t tisp_ae_interrupt_hist(uint32_t a0)
 	ret = tisp_ae_get_hist(a0, (int32_t *)hist);
 	if (trace_count < 12) {
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: AE histogram irq=%u ring=%u enable=%#x copy-ret=%d\n",
+		       "t41: AE histogram irq=%u ring=%u enable=%#x copy-ret=%d\n",
 		       trace_count + 1, ring, system_reg_read(0x60), ret);
 		trace_count++;
 	}
@@ -57853,7 +58243,7 @@ static int t41_apply_safe_gain_fanout(uint32_t channel, uint32_t gain_q16,
 	 * Keep explicit tracing and rate-limited failures observable. */
 	if (t41_runtime_trace || (ret && printk_ratelimit()))
 	    printk(KERN_WARNING
-	       "tx_isp_t41_recovered: safe gain fanout gain=%#x mask=%#x ret=%d/%d/%d/%d/%d/%d regs=%#x/%#x dmsc-last=%#x\n",
+	       "t41: safe gain fanout gain=%#x mask=%#x ret=%d/%d/%d/%d/%d/%d regs=%#x/%#x dmsc-last=%#x\n",
 	       gain_q16, mask, gib_ret, dmsc_ret, lsc_ret, tmo_ret,
 	       ydns_ret, sdns_ret,
 	       system_reg_read(0x08010U), system_reg_read(0x08014U),
@@ -57936,7 +58326,7 @@ static int t41_apply_safe_ev_fanout(uint32_t channel, uint32_t ev,
 			ret = tmo_ret;
 	}
 	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: safe EV fanout ev=%#x mask=%#x ret=%d/%d gamma=%#x/%#x tmo=%#x/%#x\n",
+	       "t41: safe EV fanout ev=%#x mask=%#x ret=%d/%d gamma=%#x/%#x tmo=%#x/%#x\n",
 	       ev, mask, gamma_ret, tmo_ret,
 	       gamma_info[channel] ?
 	       *(uint32_t *)(uintptr_t)(gamma_info[channel] + 532U) : 0U,
@@ -57976,7 +58366,7 @@ static int t41_module_ratio_apply(uint32_t channel, unsigned int pending)
 	}
 	if (ret && printk_ratelimit())
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: sinter strength apply ret=%d\n", ret);
+		       "t41: sinter strength apply ret=%d\n", ret);
 	return ret;
 }
 
@@ -58294,7 +58684,7 @@ allocate_sensor:
 	}
 	if (control->updates < 24 || ret)
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: safe AE exposure=%u/%u Q10 -> %u/%u Q10 code=%#x log2=%u ret=%d\n",
+		       "t41: safe AE exposure=%u/%u Q10 -> %u/%u Q10 code=%#x log2=%u ret=%d\n",
 		       old_integration, old_again,
 		       actual_integration, allocated_gain.linear_q10,
 		       allocated_gain.code, allocated_gain.log2_q16, ret);
@@ -66635,6 +67025,20 @@ uint32_t tisp_set_sensor_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
+    /*
+     * TODO(t41-unresolved-calls): vendor 1.2.6-720-4494 tisp_set_sensor_analog_gain
+     * (0x262f8) receives the tisp sensor-info struct BY VALUE and calls two of
+     * its callbacks, read from the stack at struct offsets 340 and 380
+     * (most likely alloc_again and set_analog_gain, cf. sensor_init's
+     * table at +332/+372 with an unproven 8-byte base shift).  The recovery
+     * lost the by-value struct (callers pass only a0), so neither the
+     * callback nor its argument block exists here.  This is only reached by
+     * the recovered vendor AE (tisp_ae_calc_process -> tisp_ae_long/short
+     * _ev_alloc), which t41_safe_ae_controller=1 (default) replaces.  Fail
+     * cleanly instead of returning a gain computed from the placeholder.
+     */
+    pr_warn_once("tisp_set_sensor_analog_gain: sensor gain callback not recovered, gain not applied\n");
+    return 0;
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
@@ -66801,6 +67205,20 @@ uint32_t tisp_set_sensor_short_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
+    /*
+     * TODO(t41-unresolved-calls): vendor 1.2.6-720-4494 tisp_set_sensor_short_analog_gain
+     * (0x264a4) receives the tisp sensor-info struct BY VALUE and calls two of
+     * its callbacks, read from the stack at struct offsets 344 and 384
+     * (most likely alloc_again_short and set_analog_gain_short, cf. sensor_init's
+     * table at +336/+376 with an unproven 8-byte base shift).  The recovery
+     * lost the by-value struct (callers pass only a0), so neither the
+     * callback nor its argument block exists here.  This is only reached by
+     * the recovered vendor AE (tisp_ae_calc_process -> tisp_ae_long/short
+     * _ev_alloc), which t41_safe_ae_controller=1 (default) replaces.  Fail
+     * cleanly instead of returning a gain computed from the placeholder.
+     */
+    pr_warn_once("tisp_set_sensor_short_analog_gain: sensor gain callback not recovered, gain not applied\n");
+    return 0;
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_math_exp2)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
@@ -69422,7 +69840,7 @@ int64_t tisp_ae_init(uint32_t channel, uintptr_t par)
     ret = t41_safe_sensor_limits_get(channel, &sensor);
     t41_sensor_limits_error = ret;
     if (ret) {
-        printk(KERN_WARNING "tx_isp_t41_recovered: AE sensor limits unavailable=%d core=%p\n",
+        printk(KERN_WARNING "t41: AE sensor limits unavailable=%d core=%p\n",
                ret, (void *)(uintptr_t)*(uint32_t *)(void *)g_ispcore);
         goto free_ae_info;
     }
@@ -69442,7 +69860,7 @@ int64_t tisp_ae_init(uint32_t channel, uintptr_t par)
         t41_safe_ae[channel].min_integration,
         t41_safe_ae[channel].max_integration);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: safe AE init exposure=%u/%u Q10 range=%u-%u target-q8=%u\n",
+           "t41: safe AE init exposure=%u/%u Q10 range=%u-%u target-q8=%u\n",
            t41_safe_ae[channel].integration, t41_safe_ae[channel].again,
            t41_safe_ae[channel].min_integration,
            t41_safe_ae[channel].max_integration, t41_ae_target_q8);
@@ -76880,7 +77298,7 @@ int32_t tisp_af_init(uint32_t a0, uintptr_t a1)
      */
     system_reg_write(0x1a000, 0);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: af-init safe disabled channel=%u %ux%u\n",
+           "t41: af-init safe disabled channel=%u %ux%u\n",
            a0, *(uint16_t *)(void *)(info + 12),
            *(uint16_t *)(void *)(info + 14));
 #else
@@ -89506,7 +89924,7 @@ int32_t tisp_wdr_short_tgain_update(uint32_t a0, uint32_t a1, uint32_t a2, uint3
 
     /* fragment 1: MemoryAccess */
     *(uint32_t *)((char *)((char *)&tgain_wdr_s)) = a2;
-    *(uint32_t *)((char *)((char *)&tgain_wdr_s + 0x4)) = a3;
+    *(uint32_t *)((char *)((char *)&t41_tgain_wdr_s_hi[0])) = a3;
 
     /* fragment 2: Epilogue */
     /* function epilogue: restore registers and return */
@@ -90607,6 +91025,8 @@ tisp_wdr_paixu0x74:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037be0 origin=fragment_seed original=Tiziano_wdr_fusion_fpga */
 int64_t Tiziano_wdr_fusion_fpga(uint32_t a0)
 {
+    if (!t41_wdr_fusion_unsafe)
+        T41_UNRECOVERED_RET(0);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -95590,7 +96010,7 @@ tisp_wdr_process0x104:
     if (a1 == s6) { goto tisp_wdr_process0x168; }
 
     /* fragment 19: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&tgain_wdr_s + 0x4));
+    a0 = *(uint32_t *)((char *)((char *)&t41_tgain_wdr_s_hi[0]));
 
     /* fragment 20: Branch */
     v0 = *(uint32_t *)((char *)((char *)&tgain_wdr_s));
@@ -95707,7 +96127,7 @@ tisp_wdr_process0x298:
     if (_bc_a1_44) { goto tisp_wdr_process0x180; }
 
     /* fragment 45: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&tgain_wdr_s + 0x4));
+    a0 = *(uint32_t *)((char *)((char *)&t41_tgain_wdr_s_hi[0]));
 
     /* fragment 46: Branch */
     v0 = *(uint32_t *)((char *)((char *)&tgain_wdr_s));
@@ -113399,7 +113819,7 @@ int64_t tisp_defog_init(uint32_t a0, uintptr_t a1)
     *bypass |= BIT(11);
     system_reg_write((a0 + 16) << 2, *bypass);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: defog-init safe bypass channel=%u %ux%u\n",
+           "t41: defog-init safe bypass channel=%u %ux%u\n",
            a0, width, height);
     return 0;
 
@@ -137862,7 +138282,7 @@ int32_t tisp_bcsh_init(uint32_t a0)
     *(uint32_t *)(void *)(info + 332) = 128;
 
     t41_bcsh_update(5000, 0, 1);
-    printk(KERN_INFO "tx_isp_t41_recovered: calibration BCSH init ret=%d\n", t41_bcsh_error);
+    printk(KERN_INFO "t41: calibration BCSH init ret=%d\n", t41_bcsh_error);
     return t41_bcsh_error;
 #else
     uint32_t *local_10 = 0;
@@ -138794,7 +139214,7 @@ int32_t tisp_hldc_init(uint32_t a0, uintptr_t a1)
     tpm[272 / sizeof(uint32_t)] = 0;
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: hldc-init safe disabled channel=%u\n", a0);
+           "t41: hldc-init safe disabled channel=%u\n", a0);
     return 0;
 #else
     uint32_t local_14 = 0;
@@ -138899,7 +139319,7 @@ int32_t tisp_hldc_deinit(uint32_t a0)
     tpm[268 / sizeof(uint32_t)] = 0;
     tpm[272 / sizeof(uint32_t)] = 0;
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: hldc-deinit safe channel=%u\n", a0);
+           "t41: hldc-deinit safe channel=%u\n", a0);
     return 0;
 #else
     uint32_t *local_10 = 0;
@@ -143588,7 +144008,7 @@ unlock:
 	private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
 
 	printk(KERN_WARNING
-	       "tx_isp_t41_recovered: MSCA generated curves ch=%u %ux%u->%ux%u pairs=%d ret=%d\n",
+	       "t41: MSCA generated curves ch=%u %ux%u->%ux%u pairs=%d ret=%d\n",
 	       channel, source_width, source_height, target_width, target_height,
 	       pairs, ret);
 out:
@@ -143676,7 +144096,7 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
                 (system_reg_read(0x0f0008U) & (1U << a1)) &&
                 !memcmp(&cfg, &t41_msca_live[a1], sizeof(cfg))) {
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: MSCA channel %u still enabled with unchanged geometry; not reprogrammed\n",
+                       "t41: MSCA channel %u still enabled with unchanged geometry; not reprogrammed\n",
                        a1);
                 return 0;
             }
@@ -143693,6 +144113,7 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
         __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
                                     (uintptr_t)&enable_flags);
         t41_msca_enable_pending &= ~(1U << a1);
+        t41_msca_enable_armed &= ~(1U << a1);
         if (system_reg_read(0x0f0008U) & (1U << a1)) {
             system_reg_write(0x0f0008U,
                              system_reg_read(0x0f0008U) & ~(1U << a1));
@@ -143734,6 +144155,10 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
                      0x0000ffffU) |
                     ((*(uint32_t *)(channel_params + 0x10) << 16) &
                      0x01ff0000U);
+    /* A stored ScalerLv FITTING_CURVE level (stock writes it only into
+     * this register, so a reload would drop it). */
+    curve_control = t41_msca_scaler_lv_curve(curve_control,
+                                             &t41_msca_lv[a1]);
     system_reg_write(0x0f0704U + a1 * 8U, curve_bounds);
     system_reg_write(0x0f0708U + a1 * 8U, curve_control);
     system_reg_write(0x0f0728U + a1 * 4U,
@@ -143771,9 +144196,11 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
      */
     base = 0x0f0100U + a1 * 0x100U;
     packed_size = (channel_width << 16) | channel_height;
+    /* Input crop position (AutoZoom / front crop), masked as stock
+     * tisp_msca_init_chx_cfg() does. */
     system_reg_write(0x0f00a0U + a1 * 8U,
-                     ((uint32_t)*(uint16_t *)(desc + 0x0a) << 16) |
-                     *(uint16_t *)(desc + 0x0c));
+                     (((uint32_t)*(uint16_t *)(desc + 0x0a) << 16) |
+                      *(uint16_t *)(desc + 0x0c)) & T41_MSCA_CROP_POS_MASK);
     system_reg_write(base, packed_size);
     system_reg_write(base + 0x28, (crop_x << 16) | crop_y);
     system_reg_write(base + 0x2c, (crop_width << 16) | crop_height);
@@ -143798,7 +144225,7 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
             active_mask |= (uint32_t)(channel_desc[0] & 1U) << i;
     }
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: MSCA pre-enable readback channel=%u enable=%#x ctrl=%#x/%#x stride=%#x/%#x globals=%#x/%#x/%#x\n",
+           "t41: MSCA pre-enable readback channel=%u enable=%#x ctrl=%#x/%#x stride=%#x/%#x globals=%#x/%#x/%#x\n",
            a1, system_reg_read(0x0f0008),
            system_reg_read(base + 0x70), system_reg_read(base + 0x88),
            system_reg_read(base + 0x80), system_reg_read(base + 0x98),
@@ -143823,7 +144250,10 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
         t41_msca_start_words(a1, t41_msca_start_set[a1], packed_size,
                              (crop_x << 16) | crop_y,
                              (crop_width << 16) | crop_height,
-                             horizontal_ratio, vertical_ratio, algorithm);
+                             horizontal_ratio, vertical_ratio, algorithm,
+                             (((uint32_t)*(uint16_t *)(desc + 0x0a) << 16) |
+                              *(uint16_t *)(desc + 0x0c)) &
+                             T41_MSCA_CROP_POS_MASK);
         for (i = 0; i < T41_MSCA_START_WORDS; ++i)
             readback[i] = system_reg_read(words[i].reg);
         if (t41_msca_start_plan(words, T41_MSCA_START_WORDS, readback) ==
@@ -143846,13 +144276,13 @@ int32_t tisp_msca_chx_cfg_load(uint32_t a0, uint32_t a1, uintptr_t a2)
     private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock,
                                    enable_flags);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: MSCA post-enable readback channel=%u enable=%#x ctrl=%#x/%#x stride=%#x/%#x\n",
+           "t41: MSCA post-enable readback channel=%u enable=%#x ctrl=%#x/%#x stride=%#x/%#x\n",
            a1, system_reg_read(0x0f0008),
            system_reg_read(base + 0x70), system_reg_read(base + 0x88),
            system_reg_read(base + 0x80), system_reg_read(base + 0x98));
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: MSCA stock cfg channel=%u active=%#x source=%ux%u output=%ux%u crop=%u,%u %ux%u ratio=%#x/%#x curve=%#x/%#x mode=%#x algorithm=%#x stride=%u\n",
+           "t41: MSCA stock cfg channel=%u active=%#x source=%ux%u output=%ux%u crop=%u,%u %ux%u ratio=%#x/%#x curve=%#x/%#x mode=%#x algorithm=%#x stride=%u\n",
            a1, active_mask, source_width, source_height,
            channel_width, channel_height, crop_x, crop_y,
            crop_width, crop_height,
@@ -144016,7 +144446,7 @@ int32_t tisp_msca_addr_fifo_write(uint32_t a0, uint32_t a1, uint32_t a2)
     }
     if (trace_count < 8)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: MSCA FIFO write channel=%u "
+               "t41: MSCA FIFO write channel=%u "
                "y=%#x uv=%#x enabled=%#x live-rearm=%u ret=%d\n",
                a0, a1, a2, global_enable, live_rearm ? 1U : 0U, ret);
     trace_count++;
@@ -144110,7 +144540,7 @@ int32_t tisp_msca_addr_fifo_read(uint32_t a0, uintptr_t a1, uintptr_t a2)
     uv_ctrl_after = system_reg_read(channel_base + 0x0f0188U);
     if (trace_count < 40)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: MSCA FIFO read channel=%u "
+               "t41: MSCA FIFO read channel=%u "
                "ctrl=%#x/%#x raw=%#x/%#x after=%#x/%#x\n",
                a0, y_ctrl_before, uv_ctrl_before, y_raw, uv_raw,
                y_ctrl_after, uv_ctrl_after);
@@ -144507,7 +144937,7 @@ int32_t tisp_msca_init(uint32_t a0, uint32_t a1, uint32_t a2)
         (uint32_t)(uintptr_t)tisp_msca_pm_resume;
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: msca-init safe workspace channel=%u %ux%u workspace=%p params=%p descriptors=%p/%p/%p\n",
+           "t41: msca-init safe workspace channel=%u %ux%u workspace=%p params=%p descriptors=%p/%p/%p\n",
            a0, a1, a2, workspace, params, hard[0], hard[1], hard[2]);
     return 0;
 #else
@@ -145782,7 +146212,7 @@ int32_t tisp_tstp_init(void)
         (uint32_t)(uintptr_t)tisp_tstp_pm_resume;
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tstp-init safe neutral\n");
+           "t41: tstp-init safe neutral\n");
     return 0;
 #else
     uint32_t local_14 = 0;
@@ -145844,7 +146274,7 @@ int32_t tisp_tstp_deinit(void)
     tpm[276 / sizeof(uint32_t)] = 0;
     tpm[280 / sizeof(uint32_t)] = 0;
     tpm[284 / sizeof(uint32_t)] = 0;
-    printk(KERN_WARNING "tx_isp_t41_recovered: tstp-deinit safe\n");
+    printk(KERN_WARNING "t41: tstp-deinit safe\n");
     return 0;
 #else
     uint32_t *local_10 = 0;
@@ -146953,7 +147383,7 @@ int32_t tisp_clm_init(uint32_t a0)
     *(uint8_t *)(void *)(info + 3252) = 5;
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: clm-init safe neutral channel=%u\n", a0);
+           "t41: clm-init safe neutral channel=%u\n", a0);
     return 0;
 #else
     uint32_t *local_10 = 0;
@@ -148674,7 +149104,7 @@ int32_t tisp_ccm_init(uint32_t a0)
 
     t41_ccm_update(5000, 0, 1);
 
-    printk(KERN_INFO "tx_isp_t41_recovered: calibration CCM init ret=%d\n", t41_ccm_error);
+    printk(KERN_INFO "t41: calibration CCM init ret=%d\n", t41_ccm_error);
     return t41_ccm_error;
 #else
     uint32_t *local_10 = 0;
@@ -149546,7 +149976,7 @@ int32_t tisp_gsm_init(uint32_t a0, uintptr_t a1)
         (uint32_t)(uintptr_t)tisp_gsm_pm_resume;
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: gsm-init safe neutral channel=%u\n", a0);
+           "t41: gsm-init safe neutral channel=%u\n", a0);
     return 0;
 #else
     uint32_t local_14 = 0;
@@ -152663,7 +153093,7 @@ static void t41_tmo_workfn(struct work_struct *work)
         }
     } else {
         if (!t41_tmo_frames)
-            printk(KERN_INFO "tx_isp_t41_recovered: frame TMO enabled ev=%u gain=%u\n", ev, gain);
+            printk(KERN_INFO "t41: frame TMO enabled ev=%u gain=%u\n", ev, gain);
         ++t41_tmo_frames;
     }
 done:
@@ -153225,7 +153655,7 @@ int32_t tisp_tmo_interrupt_static(uint32_t a0)
 
     if (trace_count < 8U)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: TMO IRQ stats bank=%#x source=%p sum0=%u num0=%u\n",
+               "t41: TMO IRQ stats bank=%#x source=%p sum0=%u num0=%u\n",
                bank, source, sum[0], num[0]);
     trace_count++;
     return 1;
@@ -153425,7 +153855,7 @@ int32_t tisp_tmo_init(uint32_t a0, uintptr_t a1)
     t41_tmo_stream_stop();
     t41_tmo_state.ready = -1;
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init begin channel=%u par=%p\n",
+           "t41: tmo-init begin channel=%u par=%p\n",
            a0, (void *)a1);
     params = (uint8_t *)(uintptr_t)((uint32_t *)(void *)tparamsP_storage)[a0];
     if (!params)
@@ -153446,7 +153876,7 @@ int32_t tisp_tmo_init(uint32_t a0, uintptr_t a1)
     memset(info, 0, 48);
     tmo_info[a0] = (uint32_t)(uintptr_t)info;
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init info=%p params=%p\n",
+           "t41: tmo-init info=%p params=%p\n",
            info, params);
 
     dma_buffer = private_kmalloc(32768, 0x024000c0);
@@ -153462,7 +153892,7 @@ int32_t tisp_tmo_init(uint32_t a0, uintptr_t a1)
     *(uint32_t *)(void *)(info + 20) = (uint32_t)(uintptr_t)dma_buffer;
     *(uint32_t *)(void *)(info + 24) = dma_addr;
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init dma=%p bus=0x%x\n",
+           "t41: tmo-init dma=%p bus=0x%x\n",
            dma_buffer, dma_addr);
 
     runtime = private_kmalloc(790, 0x024000c0);
@@ -153473,7 +153903,7 @@ int32_t tisp_tmo_init(uint32_t a0, uintptr_t a1)
     memset(runtime, 0, 790);
     *(uint32_t *)(void *)(info + 8) = (uint32_t)(uintptr_t)runtime;
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init runtime=%p\n", runtime);
+           "t41: tmo-init runtime=%p\n", runtime);
 
     *(uint32_t *)(void *)(info + 4) =
         (uint32_t)(uintptr_t)private_kmalloc(402, 0x024000c0);
@@ -153483,7 +153913,7 @@ int32_t tisp_tmo_init(uint32_t a0, uintptr_t a1)
     }
     memset((void *)(uintptr_t)*(uint32_t *)(void *)(info + 4), 0, 402);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init shadow=%p\n",
+           "t41: tmo-init shadow=%p\n",
            (void *)(uintptr_t)*(uint32_t *)(void *)(info + 4));
 
     *(uint32_t *)(void *)info = (uint32_t)(uintptr_t)params;
@@ -153494,11 +153924,11 @@ int32_t tisp_tmo_init(uint32_t a0, uintptr_t a1)
         return -ENOMEM;
     }
     memset((void *)(uintptr_t)*(uint32_t *)(void *)(info + 12), 0, 24);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init size-update enter\n");
+    t41_note(
+           "t41: tmo-init size-update enter\n");
     tisp_tmo_size_update(a0, a1);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init size-update exit\n");
+    t41_note(
+           "t41: tmo-init size-update exit\n");
 
     statYOut = (uint32_t)(uintptr_t)private_kmalloc(15000, 0x024000c0);
     statYNum = (uint32_t)(uintptr_t)private_kmalloc(15000, 0x024000c0);
@@ -153515,36 +153945,36 @@ int32_t tisp_tmo_init(uint32_t a0, uintptr_t a1)
     memset((void *)(uintptr_t)statYNumLast, 0, 15000);
     memset((void *)(uintptr_t)diffLast2Later, 0, 1500);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init stats ready\n");
+           "t41: tmo-init stats ready\n");
 
     memcpy(runtime + 766, params + 5824, 2);
     memcpy(runtime + 48, params + 4680, 6);
     if (*(uint16_t *)(void *)(params + 480) >= 2)
         *(uint16_t *)(void *)(params + 480) = 0;
 
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init hard-refresh enter\n");
+    t41_note(
+           "t41: tmo-init hard-refresh enter\n");
     tisp_tmo_params_hard_refresh(a0);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init hard-refresh exit\n");
+    t41_note(
+           "t41: tmo-init hard-refresh exit\n");
     tisp_tmo_gain_interp(a0);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init gain-interp exit\n");
+    t41_note(
+           "t41: tmo-init gain-interp exit\n");
     tisp_tmo_ev_interp(a0);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init ev-interp exit\n");
+    t41_note(
+           "t41: tmo-init ev-interp exit\n");
     memcpy(runtime + 318, (void *)(uintptr_t)*(uint32_t *)(void *)(info + 4), 402);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init ram-refresh enter\n");
+    t41_note(
+           "t41: tmo-init ram-refresh enter\n");
     tisp_tmo_ram_reg_refresh(a0);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init ram-refresh exit\n");
+    t41_note(
+           "t41: tmo-init ram-refresh exit\n");
     tisp_tmo_default_reg_refresh(a0);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init default-refresh exit\n");
+    t41_note(
+           "t41: tmo-init default-refresh exit\n");
     tisp_tmo_params_fristframe_reg_refresh();
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: tmo-init first-frame exit\n");
+    t41_note(
+           "t41: tmo-init first-frame exit\n");
 
     system_irq_func_set(a0, a0 * 42 + 17, tisp_tmo_interrupt_static);
     tisp_event_set_cb(a0, 17, tisp_tmo_process);
@@ -154229,7 +154659,7 @@ tisp_raw_rdma_fd_interrupt0xdc:
     /* fragment 16: CallSetup */
     /* The recovered call fed a six-conversion format two arguments
      * ("%s" then read an undefined vararg) from IRQ context. */
-    printk_ratelimited(KERN_WARNING "tx_isp_t41_recovered: raw rdma fd: unexpected state\n");
+    printk_ratelimited(KERN_WARNING "t41: raw rdma fd: unexpected state\n");
 
     /* fragment 17: Branch */
     a0 = *(uint32_t *)((char *)((char *)&rpars));
@@ -154385,7 +154815,7 @@ int32_t tisp_raw_init(uint32_t a0)
         (uint32_t)(uintptr_t)tisp_raw_pm_resume;
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: raw-init safe neutral channel=%u\n", a0);
+           "t41: raw-init safe neutral channel=%u\n", a0);
     return 0;
 #else
     uint32_t *local_10 = 0;
@@ -154590,7 +155020,7 @@ tisp_ddr_to_isp_raw0xf4:
     /* fragment 18: CallSetup */
     /* Was LC1 (six conversions) with two arguments: "%s" read an
      * undefined vararg. */
-    printk_ratelimited(KERN_WARNING "tx_isp_t41_recovered: ddr to isp raw: invalid state\n");
+    printk_ratelimited(KERN_WARNING "t41: ddr to isp raw: invalid state\n");
 
     /* fragment 19: Epilogue */
     /* function epilogue: restore registers and return */
@@ -160598,8 +161028,8 @@ int32_t ispcore_frame_channel_get_fmt(uintptr_t a0, uintptr_t a1)
     uintptr_t *v0 = 0;
     uintptr_t *v1 = 0;
 
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: core get-fmt enter pad=%p data=%p "
+    t41_note(
+           "t41: core get-fmt enter pad=%p data=%p "
            "channel=%p\n", (void *)a0, (void *)a1,
            a0 ? *(void **)((char *)a0 + 32) : NULL);
 
@@ -160651,8 +161081,8 @@ ispcore_frame_channel_get_fmt0x50:
     s0 = local_10;
     v0 = 0;
 
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: core get-fmt exit data=%p width=%u "
+    t41_note(
+           "t41: core get-fmt exit data=%p width=%u "
            "height=%u size=%u\n", (void *)a1,
            a1 ? *(uint32_t *)((char *)a1 + 4) : 0,
            a1 ? *(uint32_t *)((char *)a1 + 8) : 0,
@@ -160843,7 +161273,7 @@ int32_t ispcore_pad_event_handle(uintptr_t pad, uint32_t event,
 	     event == TX_ISP_FRAME_EVENT_STREAM_ON ||
 	     event == TX_ISP_FRAME_EVENT_QUEUE_BUFFER))
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: core pad event=%08x pad=%p owner=%p "
+		       "t41: core pad event=%08x pad=%p owner=%p "
 		       "ops=%p index=%u data=%p\n",
 		       event, (void *)pad, owner, ops, callback_index[index],
 		       (void *)data);
@@ -160855,7 +161285,7 @@ int32_t ispcore_pad_event_handle(uintptr_t pad, uint32_t event,
 	     event == TX_ISP_FRAME_EVENT_STREAM_ON ||
 	     event == TX_ISP_FRAME_EVENT_QUEUE_BUFFER))
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: core pad event=%08x callback=%p\n",
+		       "t41: core pad event=%08x callback=%p\n",
 		       event, callback);
 	if (!callback)
 		return -1;
@@ -160868,7 +161298,7 @@ int32_t ispcore_pad_event_handle(uintptr_t pad, uint32_t event,
 		     event == TX_ISP_FRAME_EVENT_STREAM_ON ||
 		     event == TX_ISP_FRAME_EVENT_QUEUE_BUFFER))
 			printk(KERN_WARNING
-			       "tx_isp_t41_recovered: core pad event=%08x "
+			       "t41: core pad event=%08x "
 			       "callback returned %d\n",
 			       event, result);
 		return result;
@@ -160914,7 +161344,7 @@ static int t41_msca_commit_frame_shadow(void)
 	trace = t41_msca_frame_shadow_trace++ & 0x7fffffffU;
 	if (trace < 8U || ret)
 		printk(KERN_WARNING
-		       "tx_isp_t41_recovered: MSCA frame shadow commit status=%08x ret=%d\n",
+		       "t41: MSCA frame shadow commit status=%08x ret=%d\n",
 		       status, ret);
 	return ret;
 }
@@ -160975,7 +161405,7 @@ static void ispcore_irq_main_fd_work(struct work_struct *work)
 			flip_ret = ispcore_sensor_ops_ioctl(core_sd, 0x02000010,
 						 (uintptr_t)&event_arg[0]);
 			printk(KERN_WARNING
-			       "tx_isp_t41_recovered: hvflip sensor event mode=%u ret=%d\n",
+			       "t41: hvflip sensor event mode=%u ret=%d\n",
 			       event_arg[1], flip_ret);
 			*(volatile uint32_t *)(core + 516) = 0;
 			*pending = 0;
@@ -161297,7 +161727,7 @@ int32_t ispcore_frame_channel_streamoff(void *arg1)
     *(uint32_t *)(channel + 0x80) = 3;
     *(uint8_t *)(pad + 7) = 3;
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: frame-channel streamoff channel=%u msca_deferred=%u\n",
+           "t41: frame-channel streamoff channel=%u msca_deferred=%u\n",
            channel_index, t41_safe_msca_start > 0 ? 1U : 0U);
     return 0;
 }
@@ -161371,7 +161801,7 @@ int32_t ispcore_frame_channel_qbuf(uintptr_t a0, uintptr_t a1)
     private_spin_unlock_irqrestore(channel + 0xa8, flags);
     if (t41_runtime_trace)
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: core qbuf clean channel=%u dma=%#x/%#x aligned=%ux%u\n",
+               "t41: core qbuf clean channel=%u dma=%#x/%#x aligned=%ux%u\n",
                channel_index, buffer.y_dma, buffer.uv_dma,
                buffer.layout.stride, buffer.layout.aligned_height);
     return 0;
@@ -162201,7 +162631,7 @@ int64_t ispcore_sync_sensor_attr(uintptr_t a0, uint32_t a1)
         t41_mdns_input_height[sensor_id] = *(uint32_t *)(video + 4);
     }
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: sensor-sync MDNS layout vinum=%u %ux%u\n",
+           "t41: sensor-sync MDNS layout vinum=%u %ux%u\n",
            sensor_id, t41_mdns_input_width[sensor_id],
            t41_mdns_input_height[sensor_id]);
 
@@ -162354,6 +162784,35 @@ int ispcore_frame_channel_freebufs(void *arg1) {
     return 0;
 }
 
+/* Hard-IRQ half of t41_msca_enable_at_frame: switch the armed outputs on
+ * right after a main frame completed. */
+static void t41_msca_frame_enable(void)
+{
+    unsigned long flags = 0;
+    unsigned int armed, ch;
+
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    armed = t41_msca_enable_armed & t41_msca_enable_pending;
+    if (armed) {
+        uint32_t on = 0;
+
+        for (ch = 0; ch < 3; ++ch) {
+            uint8_t *desc = ((uint8_t **)(void *)mscaHardPar_storage)[ch];
+
+            if ((armed & (1U << ch)) && t41_kernel_data_ptr(desc) &&
+                (desc[0] & 1U))
+                on |= 1U << ch;
+        }
+        if (on)
+            system_reg_write(0x0f0008U, system_reg_read(0x0f0008U) | on);
+        t41_msca_enable_pending &= ~armed;
+        t41_msca_frame_enables++;
+    }
+    t41_msca_enable_armed = 0;
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+}
+
 /*
  * Second half of a latch-before-enable output start (t41_msca_cfg_update=2,
  * see tisp_msca_chx_cfg_load()).  Process context, no locks held: waits
@@ -162395,8 +162854,21 @@ static void t41_msca_finish_enable(uint32_t ch)
             usleep_range(2000, 3000);
         }
     }
+    if (latched && t41_msca_enable_at_frame > 0) {
+        /* Let the next main frame-done interrupt switch it on. */
+        __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                    (uintptr_t)&flags);
+        if (t41_msca_enable_pending & bit)
+            t41_msca_enable_armed |= bit;
+        private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+        deadline = jiffies + msecs_to_jiffies(t41_msca_latch_timeout_ms);
+        while ((READ_ONCE(t41_msca_enable_armed) & bit) &&
+               !time_after(jiffies, deadline))
+            usleep_range(2000, 3000);
+    }
     __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
                                 (uintptr_t)&flags);
+    t41_msca_enable_armed &= ~bit;
     if (t41_msca_enable_pending & bit) {
         uint8_t *desc = ((uint8_t **)(void *)mscaHardPar_storage)[ch];
 
@@ -162413,16 +162885,260 @@ static void t41_msca_finish_enable(uint32_t ch)
         if (t41_isp_stream_started == 1 && !latched) {
             t41_msca_latch_timeouts++;
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: MSCA channel %u latch not seen after %u us; enabled anyway\n",
+                   "t41: MSCA channel %u latch not seen after %u us; enabled anyway\n",
                    ch, us);
             for (i = 0; i < T41_MSCA_START_WORDS; ++i)
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: MSCA channel %u word %05x want %08x/%08x read %08x\n",
+                       "t41: MSCA channel %u word %05x want %08x/%08x read %08x\n",
                        ch, t41_msca_start_set[ch][i].reg,
                        t41_msca_start_set[ch][i].value,
                        t41_msca_start_set[ch][i].mask, readback[i]);
         }
     }
+}
+
+/* ---- AutoZoom / MaskBlock / ScalerLv (README "MSCA zoom, mask and scaler
+ * level", tx_isp_t41_msca_ctl.h) ---- */
+
+static int t41_msca_mask_pair(void *ctx, unsigned int value, unsigned int reg)
+{
+    int ret;
+
+    (void)ctx;
+    ret = system_reg_write(0x0f8004U, value);
+    return ret ? ret : system_reg_write(0x0f8004U, reg);
+}
+
+/*
+ * Write the dirty mask blocks of the outputs in chan_mask through the MSCA
+ * shadow port, bracketed like stock tisp_msca_cfg_shd_ram(); restart (output
+ * start) also rewrites their enabled blocks.  No sleeping:
+ * called from tisp_channel_main_start() under the frame-channel lock.  A
+ * busy shadow DMA leaves the blocks dirty (written at the next start or the
+ * next MaskBlock call).
+ */
+static int t41_msca_mask_flush(unsigned int chan_mask, int restart)
+{
+    unsigned long flags = 0;
+    unsigned int bits = 0;
+    unsigned int ch;
+    int pairs;
+    int ret;
+
+    for (ch = 0; ch < 3; ++ch)
+        if (chan_mask & (1U << ch))
+            bits |= 0xfU << (ch * T41_MSCA_MASK_BLOCKS);
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    if (restart)
+        t41_msca_mask_mark_enabled(&t41_msca_mask, chan_mask);
+    if (!(t41_msca_mask.dirty & bits)) {
+        ret = 0;
+        goto unlock;
+    }
+    if (system_reg_read(0x0f8100U) & 2U) {
+        ret = -EBUSY;
+        goto unlock;
+    }
+    ret = system_reg_write(0x0f8000U, 0x00000101U);
+    pairs = ret ? ret : t41_msca_mask_emit(&t41_msca_mask, chan_mask,
+                                           t41_msca_mask_pair, NULL);
+    if (pairs < 0)
+        ret = pairs;
+    if (!ret)
+        ret = system_reg_write(0x0f8000U, 0x01010102U);
+    if (!ret && pairs >= 2)
+        ret = system_reg_write(0x0f8100U, ((pairs - 1) << 4) | 1U);
+unlock:
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    if (ret)
+        printk(KERN_WARNING
+               "t41: MSCA mask write ch-mask=%#x ret=%d (kept for the next start)\n",
+               chan_mask, ret);
+    return ret;
+}
+
+/* Re-impose the stored AutoZoom window of one output on its descriptor. */
+static void t41_msca_zoom_impose(unsigned int ch)
+{
+    unsigned char *desc = (unsigned char *)(void *)&msca +
+                          ch * T41_MSCA_DESC_STRIDE;
+    unsigned long flags = 0;
+    unsigned int f;
+
+    if (ch >= 3 || t41_msca_zoom_field(t41_msca_zoom_req, 0, ch) != 1)
+        return;
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    t41_msca_wr16(desc + 8, 1);
+    for (f = 1; f <= 4; ++f)
+        t41_msca_wr16(desc + 8 + f * 2U,
+                      (unsigned int)t41_msca_zoom_field(t41_msca_zoom_req,
+                                                        f, ch));
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+}
+
+/* Live/deferred decision for one output (tx_isp_t41_msca_ctl.h). */
+static enum t41_msca_live_step t41_msca_ctl_plan(unsigned int ch)
+{
+    const unsigned char *desc = (const unsigned char *)(const void *)&msca +
+                                ch * T41_MSCA_DESC_STRIDE;
+
+    return t41_msca_live_plan(desc[0] & 1U, t41_msca_cfg_update,
+                              t41_msca_stop_disable,
+                              t41_msca_rd16(desc + 4), t41_msca_rd16(desc + 6),
+                              t41_msca_live_max_w, t41_msca_live_max_h);
+}
+
+/*
+ * Reprogram a streaming output with the latch-while-off sequence of
+ * t41_msca_cfg_update=2: tisp_msca_chx_cfg_load() switches it off, writes
+ * the staged words and requests the update; t41_msca_finish_enable()
+ * switches it on once the read-back shows them.  Process context only.
+ */
+static int t41_msca_reload_live(unsigned int ch)
+{
+    unsigned char *desc = (unsigned char *)(void *)&msca +
+                          ch * T41_MSCA_DESC_STRIDE;
+    unsigned long flags = 0;
+    int ret;
+
+    ret = (int)tisp_msca_chx_cfg_load(0, ch, (uintptr_t)desc);
+    if (ret) {
+        /* It may have switched the output off before failing (busy shadow
+         * port); the old words are still active, so switch it back on. */
+        __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                    (uintptr_t)&flags);
+        if ((desc[0] & 1U) && !(t41_msca_enable_pending & (1U << ch)))
+            system_reg_write(0x0f0008U,
+                             system_reg_read(0x0f0008U) | (1U << ch));
+        private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock,
+                                       flags);
+        t41_msca_ctl_failed++;
+        printk(KERN_WARNING
+               "t41: MSCA live reload ch=%u failed %d; applied at the next start\n",
+               ch, ret);
+        return ret;
+    }
+    t41_msca_finish_enable(ch);
+    t41_msca_ctl_live++;
+    return 0;
+}
+
+static void t41_msca_ctl_apply(unsigned int ch, const char *what, int mask_only)
+{
+    enum t41_msca_live_step step = t41_msca_ctl_plan(ch);
+
+    if (step == T41_MSCA_LIVE) {
+        if (mask_only) {
+            int tries = 3;
+
+            while (t41_msca_mask_flush(1U << ch, 0) == -EBUSY && --tries)
+                usleep_range(2000, 3000);
+            t41_msca_ctl_live++;
+        } else {
+            t41_msca_reload_live(ch);
+        }
+    } else if (step == T41_MSCA_DEFER) {
+        t41_msca_ctl_deferred++;
+        printk(KERN_INFO
+               "t41: %s ch=%u stored, applied at the next start (live update needs t41_msca_cfg_update=2, t41_msca_stop_disable=1, output <= %ux%u)\n",
+               what, ch, t41_msca_live_max_w, t41_msca_live_max_h);
+    }
+}
+
+/* 0x08000077, IMPISPAutoZoom (60 bytes); stock tisp_s/g_autozoom_control */
+static int t41_tuning_autozoom(unsigned int vinum, unsigned int is_get,
+                               uintptr_t user_ptr)
+{
+    unsigned char req[T41_MSCA_ZOOM_BYTES];
+    unsigned char *desc = (unsigned char *)(void *)&msca;
+    const uint32_t *par = (const uint32_t *)(const void *)tisp_par_info_storage;
+    unsigned long flags = 0;
+    unsigned int changed;
+    unsigned int ch;
+    int ret;
+
+    if (vinum != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (private_copy_from_user(req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+    if (is_get) {
+        __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                    (uintptr_t)&flags);
+        t41_msca_zoom_get(desc, req);
+        private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+        return private_copy_to_user((void __user *)user_ptr, req,
+                                    sizeof(req)) ? -EFAULT : 0;
+    }
+    ret = t41_msca_zoom_check(req, par[0], par[1]);
+    if (ret)
+        return -EINVAL;
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    changed = t41_msca_zoom_store(desc, req, par[0], par[1]);
+    memcpy(t41_msca_zoom_req, req, sizeof(req));
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    for (ch = 0; ch < 3; ++ch)
+        if (changed & (1U << ch))
+            t41_msca_ctl_apply(ch, "AutoZoom", 0);
+    return 0;
+}
+
+/* 0x08000074, IMPISPMaskBlockAttr (24 bytes) */
+static int t41_tuning_mask_block(unsigned int vinum, unsigned int is_get,
+                                 uintptr_t user_ptr)
+{
+    unsigned char req[T41_MSCA_MASK_BYTES];
+    unsigned long flags = 0;
+    int ret;
+
+    if (vinum != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (private_copy_from_user(req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    ret = is_get ? t41_msca_mask_get(&t41_msca_mask, req) :
+                   t41_msca_mask_set(&t41_msca_mask, req);
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    if (ret)
+        return -EINVAL;
+    if (is_get)
+        return private_copy_to_user((void __user *)user_ptr, req,
+                                    sizeof(req)) ? -EFAULT : 0;
+    t41_msca_ctl_apply(req[0], "MaskBlock", 1);
+    return 0;
+}
+
+/* 0x080000a6, IMPISPScalerLvAttr (12 bytes, set only) */
+static int t41_tuning_scaler_lv(unsigned int vinum, unsigned int is_get,
+                                uintptr_t user_ptr)
+{
+    unsigned char req[T41_MSCA_SCALER_LV_BYTES];
+    void *workspace;
+    unsigned char *params;
+    unsigned long flags = 0;
+    int ch;
+
+    if (vinum != 0 || is_get || !user_ptr)
+        return -EINVAL;
+    if (private_copy_from_user(req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+    workspace = *(void **)(void *)&msca_info;
+    if (!t41_kernel_data_ptr(workspace))
+        return -EAGAIN;
+    params = *(unsigned char **)workspace;
+    if (!t41_kernel_data_ptr(params))
+        return -EAGAIN;
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    ch = t41_msca_scaler_lv_set(params, t41_msca_lv, req);
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    if (ch < 0)
+        return -EINVAL;
+    t41_msca_ctl_apply((unsigned int)ch, "ScalerLv", 0);
+    return 0;
 }
 
 /* Read-only diagnostic: cat /sys/module/tx_isp_t41/parameters/t41_msca_regs
@@ -162485,7 +163201,7 @@ int32_t ispcore_frame_channel_streamon(void *arg1)
         if (channel_index < 3) {
             if (t41_safe_msca_start > 0) {
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: frame-channel streamon deferring neutral MSCA channel=%u\n",
+                       "t41: frame-channel streamon deferring neutral MSCA channel=%u\n",
                        channel_index);
             } else {
                 tisp_channel_main_start(
@@ -162560,12 +163276,15 @@ int32_t ispcore_frame_channel_streamon(void *arg1)
             ret = (int)ispcore_frame_channel_set_fmt(
                 (uintptr_t)pad, (uintptr_t)channel);
             msca_desc[8] = source_lock;
+            /* An AutoZoom window stored before the first start must
+             * survive this rebuild (it overwrote +10..+16). */
+            t41_msca_zoom_impose(tisp_channel);
             if (!ret)
                 ret = tisp_channel_main_start(tisp_channel);
             if (!ret)
                 t41_msca_finish_enable(tisp_channel);
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: post-video MSCA reapply channel=%u saved=%ux%u lock=%u ret=%d input=%#x geom=%#x enable=%#x\n",
+                   "t41: post-video MSCA reapply channel=%u saved=%ux%u lock=%u ret=%d input=%#x geom=%#x enable=%#x\n",
                    tisp_channel,
                    *(uint32_t *)(channel + 4),
                    *(uint32_t *)(channel + 8), source_lock, ret,
@@ -162600,7 +163319,7 @@ int32_t ispcore_frame_channel_streamon(void *arg1)
         if (!ret && (t41_late_start_mask & 0x10))
             t41_capture_register_snapshot();
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: late capture start mask=%#x ret=%d csi=%d vic=%d irq=%d isp=%d sensor=%d\n",
+               "t41: late capture start mask=%#x ret=%d csi=%d vic=%d irq=%d isp=%d sensor=%d\n",
                t41_late_start_mask, ret,
                !t41_defer_csi_start, !t41_defer_vic_start,
                !t41_defer_vic_irq, !t41_defer_isp_start,
@@ -163336,7 +164055,7 @@ int64_t ispcore_frame_channel_set_fmt(uintptr_t pad_addr,
     }
 
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: core set-fmt clean pad=%p channel=%p "
+           "t41: core set-fmt clean pad=%p channel=%p "
            "number=%u group=%u flip=0x%x data=%p\n",
            pad, channel, channel_number, group, flip, format);
     ret = tisp_s_hv_flip(group, (uintptr_t)&flip);
@@ -163394,8 +164113,8 @@ int64_t ispcore_frame_channel_set_fmt(uintptr_t pad_addr,
         memcpy(channel, format, 0x74);
     }
 
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: core set-fmt clean exit stride=%u "
+    t41_note(
+           "t41: core set-fmt clean exit stride=%u "
            "size=%u limits=%ux%u\n",
            *(uint32_t *)(format + 0x14),
            *(uint32_t *)(format + 0x18), limit_width, limit_height);
@@ -163439,8 +164158,8 @@ static __maybe_unused int64_t ispcore_frame_channel_set_fmt_legacy(uintptr_t a0,
     uintptr_t *v0 = 0;
     uint32_t *v1 = 0;
 
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: core set-fmt enter pad=%p data=%p\n",
+    t41_note(
+           "t41: core set-fmt enter pad=%p data=%p\n",
            (void *)a0, (void *)a1);
 
     /* fragment 0: Prologue */
@@ -163514,11 +164233,11 @@ static __maybe_unused int64_t ispcore_frame_channel_set_fmt_legacy(uintptr_t a0,
 ispcore_frame_channel_set_fmt0xb4:
     /* fragment 18: CallSetup */
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: core set-fmt hv-flip channel=%lu bits=0x%x\n",
+           "t41: core set-fmt hv-flip channel=%lu bits=0x%x\n",
            (unsigned long)s1, local_4c);
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_hv_flip)(s1, &local_4c); /* jalr target resolved by relocation */
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: core set-fmt hv-flip done ret=%ld\n",
+           "t41: core set-fmt hv-flip done ret=%ld\n",
            (long)(uintptr_t)v0);
 
     /* fragment 19: CallSetup */
@@ -163526,13 +164245,13 @@ ispcore_frame_channel_set_fmt0xb4:
     s4 = *(uint32_t *)((char *)(s1) + 368);
     s1 = *(uint32_t *)((char *)(s1) + 372);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: core set-fmt format channel=%p "
+           "t41: core set-fmt format channel=%p "
            "limit=%ux%u dst=%p\n",
            (void *)s3, (unsigned int)(uintptr_t)s4,
            (unsigned int)(uintptr_t)s1, (void *)(s3 + 204));
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)ispcore_frame_channel_s_fmt_isra_2)(s3 + 204, s0); /* jalr target resolved by relocation */
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: core set-fmt format done ret=%ld "
+           "t41: core set-fmt format done ret=%ld "
            "stride=%u size=%u\n",
            (long)(uintptr_t)v0, *(uint32_t *)((char *)s0 + 0x14),
            *(uint32_t *)((char *)s0 + 0x18));
@@ -163603,11 +164322,11 @@ ispcore_frame_channel_set_fmt0x170:
 
     /* fragment 32: CallSetup */
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: core set-fmt attr channel=%u attr=%p\n",
+           "t41: core set-fmt attr channel=%u attr=%p\n",
            *(uint32_t *)((char *)(s3) + 120), &local_18);
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_channel_main_attr_set)(*(uint32_t *)((char *)(s3) + 120), &local_18); /* jalr target resolved by relocation */
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: core set-fmt attr done ret=%ld\n",
+           "t41: core set-fmt attr done ret=%ld\n",
            (long)(uintptr_t)v0);
 
     /* fragment 33: Branch */
@@ -163616,11 +164335,11 @@ ispcore_frame_channel_set_fmt0x170:
 
     /* fragment 34: CallSetup */
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: core set-fmt copy channel=%p data=%p\n",
+           "t41: core set-fmt copy channel=%p data=%p\n",
            (void *)s3, (void *)s0);
     v0 = (unsigned int *)memcpy((void *)(uintptr_t)s3, (void *)(uintptr_t)s0, 116); /* jalr target resolved by relocation */
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: core set-fmt copy done\n");
+           "t41: core set-fmt copy done\n");
 
 ispcore_frame_channel_set_fmt0x1b8:
     /* fragment 35: Epilogue */
@@ -163631,8 +164350,8 @@ ispcore_frame_channel_set_fmt0x1b8:
 
     /* fragment 37: Epilogue */
     /* function epilogue: restore registers and return */
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: core set-fmt exit ret=%ld\n",
+    t41_note(
+           "t41: core set-fmt exit ret=%ld\n",
            (long)(uintptr_t)v0);
     return (int64_t)v0;
 
@@ -166219,7 +166938,7 @@ int32_t isp_interrupts_enable(uintptr_t a0)
     }
     private_spin_unlock_irqrestore(subdev + 0x84, flags);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: ISP interrupts enabled subdev=%p callback=%p state=%u\n",
+           "t41: ISP interrupts enabled subdev=%p callback=%p state=%u\n",
            subdev, enable_cb, *(uint32_t *)(subdev + 0x9c));
     return 0;
 }
@@ -166330,7 +167049,8 @@ ispcore_resume_module0xe4:
     if (v0 == 0) { goto ispcore_resume_module0x1a8; }
 
     /* fragment 23: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(s2); /* jalr target resolved by relocation */
+    /* vendor 1.2.6-720-4494 ispcore_resume_module 0x71674: child internal->resume_module(sd) */
+    v0 = t41_call_subdev_pm((uintptr_t)v0, (uintptr_t)s2);
 
     /* fragment 24: Branch */
     if (v0 == 0) { goto ispcore_resume_module0x1a8; }
@@ -166453,7 +167173,7 @@ int32_t isp_interrupts_disable(uintptr_t a0, uint32_t a1)
     }
     private_spin_unlock_irqrestore(subdev + 0x84, flags);
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: ISP interrupts disabled subdev=%p vinum=%u callback=%p state=%u\n",
+           "t41: ISP interrupts disabled subdev=%p vinum=%u callback=%p state=%u\n",
            subdev, a1, disable_cb, *(uint32_t *)(subdev + 0x9c));
     return 0;
 }
@@ -166551,7 +167271,8 @@ ispcore_suspend_module0x90:
     if (v0 == 0) { goto ispcore_suspend_module0x198; }
 
     /* fragment 18: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_math_exp2)(s3); /* jalr target resolved by relocation */
+    /* vendor 1.2.6-720-4494 ispcore_suspend_module 0x718e4: child internal->suspend_module(sd) */
+    v0 = t41_call_subdev_pm((uintptr_t)v0, (uintptr_t)s3);
 
     /* fragment 19: Branch */
     if (v0 == 0) { goto ispcore_suspend_module0x198; }
@@ -166655,7 +167376,7 @@ int ispcore_video_s_stream(void *arg1, int32_t *arg2)
 
     if (*state < 3) {
         printk(KERN_ERR
-               "tx_isp_t41_recovered: ispcore stream before init vinum=%d state=%u\n",
+               "t41: ispcore stream before init vinum=%d state=%u\n",
                arg2[1], *state);
         return -EINVAL;
     }
@@ -166701,24 +167422,24 @@ int ispcore_video_s_stream(void *arg1, int32_t *arg2)
             continue;
         if (!t41_kernel_data_ptr((void *)subdev)) {
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: ispcore stream skip slot=%u "
+                   "t41: ispcore stream skip slot=%u "
                    "invalid subdev=%p\n", i, (void *)subdev);
             continue;
         }
         ops = t41_load_ptr(subdev, 0xfc);
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: ispcore stream inspect slot=%u "
+               "t41: ispcore stream inspect slot=%u "
                "subdev=%p ops=%p\n", i, (void *)subdev, (void *)ops);
         if (!t41_kernel_data_ptr((void *)ops)) {
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: ispcore stream skip slot=%u "
+                   "t41: ispcore stream skip slot=%u "
                    "invalid ops=%p\n", i, (void *)ops);
             continue;
         }
         video_ops = ops ? t41_load_ptr(ops, 4) : 0;
         if (!t41_kernel_data_ptr((void *)video_ops)) {
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: ispcore stream skip slot=%u "
+                   "t41: ispcore stream skip slot=%u "
                    "invalid video_ops=%p\n", i, (void *)video_ops);
             continue;
         }
@@ -166740,19 +167461,19 @@ int ispcore_video_s_stream(void *arg1, int32_t *arg2)
          */
         if (arg2[0] && t41_defer_sensor_start && i == 2) {
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: ispcore sensor stream deferred "
+                   "t41: ispcore sensor stream deferred "
                    "slot=%u subdev=%p vinum=%d\n",
                    i, (void *)subdev, arg2[1]);
             continue;
         }
 
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: ispcore stream call slot=%u subdev=%p cb=%p enable=%d\n",
+               "t41: ispcore stream call slot=%u subdev=%p cb=%p enable=%d\n",
                i, (void *)subdev, (void *)stream_cb, arg2[0]);
         ret = ((int (*)(void *, int32_t *))(uintptr_t)stream_cb)(
                 (void *)subdev, arg2);
         printk(KERN_WARNING
-               "tx_isp_t41_recovered: ispcore stream return slot=%u ret=%d\n",
+               "t41: ispcore stream return slot=%u ret=%d\n",
                i, ret);
         if (ret && ret != -ENOIOCTLCMD)
             break;
@@ -166762,10 +167483,10 @@ int ispcore_video_s_stream(void *arg1, int32_t *arg2)
         if (arg2[0]) {
             if (t41_isp_stream_started > 0) {
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: keeping early ISP/IPC bank active during late producer start\n");
+                       "t41: keeping early ISP/IPC bank active during late producer start\n");
             } else if (t41_defer_isp_start > 0) {
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: ISP interrupt/IPC start "
+                       "t41: ISP interrupt/IPC start "
                        "deferred until frame buffers are active vinum=%d\n",
                        arg2[1]);
             } else {
@@ -166780,7 +167501,7 @@ int ispcore_video_s_stream(void *arg1, int32_t *arg2)
                                      (par[0] << 16) | (par[1] & 0xffff));
                 isp_interrupts_enable((uintptr_t)arg1);
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: pre-IPC live input=%#x irq=%#x/%#x/%#x/%#x msca=%#x status=%#x/%#x\n",
+                       "t41: pre-IPC live input=%#x irq=%#x/%#x/%#x/%#x msca=%#x status=%#x/%#x\n",
                        system_reg_read(0x80),
                        system_reg_read(0x40020),
                        system_reg_read(0x40060),
@@ -166791,7 +167512,7 @@ int ispcore_video_s_stream(void *arg1, int32_t *arg2)
                        system_reg_read(0x0f00e0));
                 tisp_ipc_triger();
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: post-IPC live input=%#x irq=%#x/%#x/%#x/%#x msca=%#x status=%#x/%#x stream=%#x/%#x\n",
+                       "t41: post-IPC live input=%#x irq=%#x/%#x/%#x/%#x msca=%#x status=%#x/%#x stream=%#x/%#x\n",
                        system_reg_read(0x80),
                        system_reg_read(0x40020),
                        system_reg_read(0x40060),
@@ -166807,7 +167528,7 @@ int ispcore_video_s_stream(void *arg1, int32_t *arg2)
         } else {
             if (t41_defer_isp_start > 0) {
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: ISP interrupt/IPC stop "
+                       "t41: ISP interrupt/IPC stop "
                        "skipped because start was deferred vinum=%d\n",
                        arg2[1]);
             } else {
@@ -166822,7 +167543,7 @@ int ispcore_video_s_stream(void *arg1, int32_t *arg2)
                 }
                 if (spins == 100000)
                     printk(KERN_WARNING
-                           "tx_isp_t41_recovered: ispcore stop idle timeout\n");
+                           "t41: ispcore stop idle timeout\n");
                 t41_isp_stream_started = -1;
             }
             /* Per-output STREAMOFF leaves the input running. Only this
@@ -167525,8 +168246,8 @@ int64_t ispcore_core_ops_init(uintptr_t subdev_ptr, uintptr_t init_ptr)
     if (vinum >= 3)
         return -EINVAL;
 
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: ispcore-init enter enable=%u vinum=%u core=%p\n",
+    t41_note(
+           "t41: ispcore-init enter enable=%u vinum=%u core=%p\n",
            enable, vinum, core);
     t41_log_ispcore_children("init-enter");
 
@@ -167566,7 +168287,7 @@ int64_t ispcore_core_ops_init(uintptr_t subdev_ptr, uintptr_t init_ptr)
 
         if (t41_safe_tisp_teardown > 0) {
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: safe TISP teardown deferred vinum=%u\n",
+                   "t41: safe TISP teardown deferred vinum=%u\n",
                    vinum);
         } else {
             tisp_process_deinit(vinum);
@@ -167593,11 +168314,11 @@ int64_t ispcore_core_ops_init(uintptr_t subdev_ptr, uintptr_t init_ptr)
     }
 
     memset(config, 0, sizeof(config));
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: ispcore-init CPM reset enter\n");
+    t41_note(
+           "t41: ispcore-init CPM reset enter\n");
     ret = private_reset_tx_isp_module(0);
-    printk(KERN_WARNING
-           "tx_isp_t41_recovered: ispcore-init CPM reset exit ret=%d\n",
+    t41_note(
+           "t41: ispcore-init CPM reset exit ret=%d\n",
            ret);
     if (ret)
         return -EINVAL;
@@ -167610,7 +168331,7 @@ int64_t ispcore_core_ops_init(uintptr_t subdev_ptr, uintptr_t init_ptr)
         return -1;
     }
     printk(KERN_WARNING
-           "tx_isp_t41_recovered: ispcore-init state ready=%u\n", *state);
+           "t41: ispcore-init state ready=%u\n", *state);
 
     width = *(uint32_t *)(video + 0);
     height = *(uint32_t *)(video + 4);
@@ -167718,7 +168439,7 @@ int64_t ispcore_core_ops_init(uintptr_t subdev_ptr, uintptr_t init_ptr)
         if (t41_defer_isp_fw_thread > 0) {
             *(uint32_t *)(core + 556) = 0;
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: ISP firmware event thread deferred "
+                   "t41: ISP firmware event thread deferred "
                    "until capture is active\n");
         } else {
             thread = *(struct task_struct **)(core + 556);
@@ -167812,7 +168533,7 @@ int32_t ispcore_slake_module(uintptr_t a0)
 		ops = *(char **)(widget + 0xfc);
 		if (!t41_kernel_data_ptr(ops)) {
 			printk(KERN_WARNING
-			       "tx_isp_t41_recovered: slake skip bad child slot=%u widget=%p ops=%p\n",
+			       "t41: slake skip bad child slot=%u widget=%p ops=%p\n",
 			       (unsigned int)((slot - (core + 0x3c)) /
 					      sizeof(void *)), widget, ops);
 			continue;
@@ -168546,7 +169267,7 @@ int32_t ispcore_core_ops_ioctl(uintptr_t a0, uint32_t a1, uintptr_t a2)
 		ops = *(char **)(widget + 0xfc);
 		if (!t41_kernel_data_ptr(ops)) {
 			printk(KERN_WARNING
-			       "tx_isp_t41_recovered: core-event skip bad child event=0x%x slot=%u widget=%p ops=%p\n",
+			       "t41: core-event skip bad child event=0x%x slot=%u widget=%p ops=%p\n",
 			       a1, (unsigned int)((slot - (subdev + 0x3c)) /
 					      sizeof(void *)), widget, ops);
 			continue;
@@ -169027,23 +169748,14 @@ int32_t sub_7427c(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074280 origin=fragment_seed original=sub_74280 */
 int32_t sub_74280(uintptr_t a0)
 {
-    uintptr_t a1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&ispmem + 0xc));
-    a1 = *(uint32_t *)((char *)a0 + 444);
-    a0 = 458752;
-    a0 = a0 - 2600;
-    *(uint32_t *)((char *)a1 + 16) = a0;
-    a0 = 1;
-
-    /* fragment 1: Branch */
-    *(uint8_t *)((char *)((char *)&ispmem + 0x1cc)) = a0;
-    goto ispcore_core_ops_ioctl0x204;
-
-ispcore_core_ops_ioctl0x204:
-    ;
+    /*
+     * Mis-split tail of ispcore_core_ops_ioctl; nothing calls it.  The
+     * recovered body wrote a byte to ispmem + 0x1cc (past the 4-byte
+     * ispmem, inside isp_framesource_fops; even the 0x1b0-byte vendor
+     * ispmem ends before it) and dereferenced ispmem + 0xc.  Keep the
+     * symbol, drop the stray accesses.
+     */
+    (void)a0;
     return 0;
 }
 
@@ -169173,6 +169885,8 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
          * so userspace sees its zero-filled seed buffer while MSCA cycles
          * through the address FIFO behind its back.
          */
+        if ((status0 & 0x1) && READ_ONCE(t41_msca_enable_armed))
+            t41_msca_frame_enable();
         if (status0 & 0x1) {
             t41_heapwatch_mark("isr:frame0");
             uint32_t event_data[8] = { 0 };
@@ -169225,7 +169939,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
 
             if (completion_trace_count < 12 || event_ret)
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: ISP frame complete y=%#x uv=%#x remote=%p seq=%u event-ret=%d tuning-ret=%d\n",
+                       "t41: ISP frame complete y=%#x uv=%#x remote=%p seq=%u event-ret=%d tuning-ret=%d\n",
                        y_dma, uv_dma, remote, event_data[7], event_ret,
                        tuning_ret);
 
@@ -169237,7 +169951,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             work_queued = queue_work(system_wq, &main_fd_work);  /* Review2 L11 */
             if (completion_trace_count < 12)
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: ISP frame-done work queued=%d\n",
+                       "t41: ISP frame-done work queued=%d\n",
                        work_queued);
             completion_trace_count++;
         }
@@ -169287,7 +170001,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                         remote, TX_ISP_FRAME_EVENT_BUFFER_DONE, event_data);
                 if (trace_count < 32)
                     printk(KERN_WARNING
-                           "tx_isp_t41_recovered: ISP secondary frame complete channel=%u y=%#x uv=%#x remote=%p seq=%u event-ret=%d\n",
+                           "t41: ISP secondary frame complete channel=%u y=%#x uv=%#x remote=%p seq=%u event-ret=%d\n",
                            channel_index, y_dma, uv_dma, remote,
                            event_data[7], event_ret);
             }
@@ -169325,7 +170039,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
 
             if (ae_hist_dispatch_trace_count < 12)
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: ISP AE histogram irq callback=%#x ret=%lld\n",
+                       "t41: ISP AE histogram irq callback=%#x ret=%lld\n",
                        (uint32_t)callback, (long long)callback_ret);
             ae_hist_dispatch_trace_count++;
         }
@@ -169340,7 +170054,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                      (uint32_t)callback)(0);
             if (trace_count < 32)
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: ISP TMO stats irq callback=%#x ret=%d\n",
+                       "t41: ISP TMO stats irq callback=%#x ret=%d\n",
                        (uint32_t)callback, callback_ret);
         }
 
@@ -169354,7 +170068,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                      (uint32_t)callback)(0);
             if (trace_count < 32)
                 printk(KERN_WARNING
-                       "tx_isp_t41_recovered: ISP LCE stats irq callback=%#x ret=%lld\n",
+                       "t41: ISP LCE stats irq callback=%#x ret=%lld\n",
                        (uint32_t)callback, (long long)callback_ret);
         }
 
@@ -169365,7 +170079,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
 
         if (t41_runtime_trace && (trace_count < 32 || (status0 & 0x1)))
             printk(KERN_WARNING
-                   "tx_isp_t41_recovered: ISP safe irq epoch=%#x status=%#x error=%#x aux=%#x/%#x\n",
+                   "t41: ISP safe irq epoch=%#x status=%#x error=%#x aux=%#x/%#x\n",
                    trace_epoch, status0, error, status2, status3);
 
         trace_count++;
@@ -170309,6 +171023,7 @@ int tx_isp_remove(struct platform_device *pdev)
 		return 0;
 
 	private_misc_deregister((char *)ispdev + 0x0c);
+	t41_procwatch_stop();
 	private_proc_remove(*(void **)((char *)ispdev + 0x138));
 	tx_isp_unregister_platforms((int32_t *)((char *)ispdev + 0x88));
 	private_platform_set_drvdata(pdev, NULL);
@@ -170386,3 +171101,38 @@ EXPORT_SYMBOL(private_capable);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("tx isp driver");
 MODULE_AUTHOR("Ingenic xhshen");
+
+/* Quiet gate for progress notes, see the t41_runtime_trace comment. */
+static noinline int t41_note_is_error(const char *s)
+{
+	const char *p;
+
+	for (p = s; (p = strstr(p, "ret=")) != NULL; p += 4)
+		if (p[4] != '0' || (p[5] >= '0' && p[5] <= '9') || p[5] == 'x')
+			return 1;
+	for (p = s; (p = strstr(p, "fail=")) != NULL; p += 5)
+		if (p[5] != '0' || (p[6] >= '0' && p[6] <= '9'))
+			return 1;
+	return 0;
+}
+
+static noinline void t41_note(const char *fmt, ...)
+{
+	va_list args;
+	char buf[320];
+	int n;
+
+	if (!t41_runtime_trace && !strstr(fmt, "ret=") && !strstr(fmt, "fail="))
+		return;
+	if (!t41_runtime_trace && (in_interrupt() || irqs_disabled()))
+		return;
+	va_start(args, fmt);
+	n = vsnprintf(buf, sizeof(buf), fmt, args);
+	va_end(args);
+	if (n < 0)
+		return;
+	if (t41_runtime_trace)
+		printk(KERN_INFO "%s", buf);
+	else if (t41_note_is_error(buf))
+		printk(KERN_WARNING "%s", buf);
+}

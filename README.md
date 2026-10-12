@@ -36,6 +36,8 @@ analysis, `libimp` ABI work and recovery of tuning data.
 
 **State: RC1 v2026.10.11-rc1: openimp fe9307c (agg-35 687a68e4 + docs), open-tx-isp 191be6c5 (agg-35 6e464ac7 + docs).** Release SoCs: T10, T20, T21, T23, T31; T30, T40 and T41 are experimental. The agg-35 soak of 2026-10-10/11 on 10 cameras was clean (0 oopses, 0 unexplained reboots, 0 application restarts). Release notes and known issues: [CHANGELOG.md](CHANGELOG.md). The per-SoC table below dates from 2026-10-04. "Fully open" = open driver, OpenIMP and the camera application run from a flashed image.
 
+**After RC1: aggregate agg-37 (`claude/agg-37`, not released; host tests and module builds only, device tests pending):** smaller modules (T31 export whitelist checked by `tests/check_isp_exports.sh`, T10/T20 `--gc-sections`, T23 bring-up parameters only with `TX_ISP_T23_BRINGUP_PARAMS=y`; numbers in `docs/SIZE.md`), T23 `SwitchBin` rework, T23/T31 `msca_flip_state`, T10/T20 safe anti-fog preset and lens-shading scale, T10/T20 scaler size fix after `SET_SCALER`, quiet T23/T40 kernel logs (`t23_runtime_trace=1` / `t40_runtime_trace=1` bring the notes back), T41 `t41_msca_enable_at_frame` (diagnostic, default 0) the report-only `/proc/jz/isp` watcher `t41_proc_watch` and the T41 stability fixes (`/dev/isp-m0` handle count, out-of-object accesses, quiet log with `t41_runtime_trace=1`). Details: [CHANGELOG.md](CHANGELOG.md).
+
 Earlier state: the release candidate (`claude/agg-28` on top of `next`, 2026-10-06 evening). "Fully open" = open driver, OpenIMP and the camera application run from a flashed image. Release plan: `next` goes to `aperto` (fast-forward) after the long soak and is tagged `vYYYY.MM.DD`; the first release covers T10 (not re-tested on the open stack today), T20, T21, T23 and T31; T41 is not part of it.
 
 | SoC | Status |
@@ -75,7 +77,19 @@ Defaults of `tx-isp-t23.ko` in the release candidate. The switches are `0644` mo
 | `crumbs` | 0 | Hang step markers in a reserved page (1 = rmem page after the MDNS buffer, 2 = page at `crumb_addr`); only for hang analysis |
 | `t23_runtime_trace` | 0 | 1 enables informational driver logging |
 | `fcrop_upscale_pct` | 0 | Percentage by which the front-crop geometry check tolerates an MSCA upscale (0 = no upscaling allowed). Measured on T23: upscaling up to 2.0 works, at 2.2 the MSCA stalled briefly and the crop was dropped without a reboot. The same parameter exists in `tx-isp-t31.ko` (writable under `/sys/module/tx_isp_t31/parameters/`); the T31 limit was not established, leave it at 0 |
+| `msca_flip_state` | read-only | Who flips each axis, as a bit mask: 1 sensor_h, 2 sensor_v, 4 isp_h, 8 isp_v. The sensor bits are set when the sensor accepted the flip event (sc2336p: register 0x3221), the ISP bits follow the MSCA mirror/flip word (0xd050). With image hflip and vflip both stages flip on T23 (`shvflip=1` only flips the lens-shading mesh), so an application that mirrors a crop window must apply both. Same parameter in `tx-isp-t31.ko` (bits for the sensor flip request of `apical_isp_hvflip_update` and the MSCA mask) |
 | `isp_clk`, `isp_clka` | 153000000, 416000000 (load time only) | ISP core and AXI clocks in Hz; since the candidate they really reach the hardware (before, the activation path read the wrong clock-table slot) |
+
+## T10/T20 module parameters
+
+`tx-isp-t10.ko` and `tx-isp-t20.ko` share one firmware unit. Parameters added with the safe anti-fog preset and the lens-shading scale (host-tested; device test pending):
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `t20_antifog_variance` | 0 (`0644`) | 1: the anti-fog presets also write the Iridix variance nibbles (register 0x3c8) at the frame-end interrupt and restore the original value on "off"; 0: strength only. Leave it at 0 until the strength-only path has run on the camera |
+| `t20_antifog_level` | read-only | Last accepted anti-fog level: 0 off, 1 strong, 2 medium, 3 weak |
+| `t20_antifog_ignored` | read-only | Anti-fog requests that found the Iridix block disabled (nothing is written then) |
+| `t20_mesh_scale_cur` | read-only | Lens-shading scale last written by the `SetMeshShadingScale` control (255 = none yet) |
 
 ## Better than the vendor driver
 

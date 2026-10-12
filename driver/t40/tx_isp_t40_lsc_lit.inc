@@ -428,7 +428,7 @@ static int regtrace_lsc_main_init_lit(uint32_t bank, const uint8_t *nblob,
 	lsc_lit_real_write_lut(bank);
 	regtrace_lsc_lit_ct_now = regtrace_lsc_lit_ct;
 
-	printk(KERN_WARNING "tx_isp_t40_recovered: lsc-lit init bank=%u %ux%u words=%u nodes=%u ct=%u zone=%u bp=[%u %u %u %u]\n",
+	printk(KERN_INFO "tx_isp_t40_recovered: lsc-lit init bank=%u %ux%u words=%u nodes=%u ct=%u zone=%u bp=[%u %u %u %u]\n",
 	       bank, width, height, words,
 	       *(uint16_t *)(b->real + LSC_LIT_R_NODES),
 	       regtrace_lsc_lit_ct, b->zone,

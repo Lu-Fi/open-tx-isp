@@ -1654,7 +1654,7 @@ static int32_t tisp_clm_set_params_lit(uint32_t a0_in, uint32_t a1_in)
     regtrace_clm_stage_reached = 4;
     regtrace_clm_last_ret = (int32_t)r_v0;
     if (regtrace_clm_stage_limit == 4) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: clm-set-params stage4 after interpolation ret=%u\n", r_v0);
+        printk(KERN_INFO "tx_isp_t40_recovered: clm-set-params stage4 after interpolation ret=%u\n", r_v0);
         goto fn_exit;
     }
     mips_cond = (r_s4 == 0) ? 1U : 0U;
@@ -1670,7 +1670,7 @@ L_685b0:
     regtrace_clm_stage_reached = 5;
     regtrace_clm_last_ret = (int32_t)r_v0;
     if (regtrace_clm_stage_limit == 5) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: clm-set-params stage5 after mode write addr=0x%x value=0x%x ret=%u\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: clm-set-params stage5 after mode write addr=0x%x value=0x%x ret=%u\n",
                r_a0, r_a1, r_v0);
         goto fn_exit;
     }
@@ -1686,7 +1686,7 @@ L_685b0:
     regtrace_clm_stage_reached = 6;
     regtrace_clm_last_ret = (int32_t)r_v0;
     if (regtrace_clm_stage_limit == 6) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: clm-set-params stage6 after trig stream=%u ret=%u deferred=%u\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: clm-set-params stage6 after trig stream=%u ret=%u deferred=%u\n",
                r_s4, r_v0, regtrace_clm_defer_trig);
         goto fn_exit;
     }
@@ -1699,7 +1699,7 @@ L_685b0:
     regtrace_clm_stage_reached = 7;
     regtrace_clm_last_ret = (int32_t)r_v0;
     if (regtrace_clm_stage_limit == 7) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: clm-set-params stage7 after lut2reg ret=%u\n", r_v0);
+        printk(KERN_INFO "tx_isp_t40_recovered: clm-set-params stage7 after lut2reg ret=%u\n", r_v0);
         goto fn_exit;
     }
     mips_cond = (r_s4 == 0) ? 1U : 0U;
@@ -1731,7 +1731,7 @@ L_68620:
     regtrace_clm_stage_reached = 8;
     regtrace_clm_last_ret = (int32_t)r_v0;
     if (regtrace_clm_stage_limit == 8) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: clm-set-params stage8 after LUT pre-enable ret=%u\n", r_v0);
+        printk(KERN_INFO "tx_isp_t40_recovered: clm-set-params stage8 after LUT pre-enable ret=%u\n", r_v0);
         goto fn_exit;
     }
     r_a2 = r_s1 + 0x690U;
@@ -1758,7 +1758,7 @@ L_68654:
     regtrace_clm_stage_reached = 9;
     regtrace_clm_last_ret = (int32_t)r_v0;
     if (regtrace_clm_stage_limit == 9) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: clm-set-params stage9 after LUT data writes ret=%u\n", r_v0);
+        printk(KERN_INFO "tx_isp_t40_recovered: clm-set-params stage9 after LUT data writes ret=%u\n", r_v0);
         goto fn_exit;
     }
     r_s1 = 0x1a30000U;
@@ -1768,7 +1768,7 @@ L_68654:
     regtrace_clm_stage_reached = 10;
     regtrace_clm_last_ret = (int32_t)r_v0;
     if (regtrace_clm_stage_limit == 10) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: clm-set-params stage10 after final commit 1 addr=0x%x ret=%u\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: clm-set-params stage10 after final commit 1 addr=0x%x ret=%u\n",
                r_a0, r_v0);
         goto fn_exit;
     }
@@ -1778,7 +1778,7 @@ L_68654:
     regtrace_clm_stage_reached = 11;
     regtrace_clm_last_ret = (int32_t)r_v0;
     if (regtrace_clm_stage_limit == 11) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: clm-set-params stage11 after final commit 2 addr=0x%x ret=%u\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: clm-set-params stage11 after final commit 2 addr=0x%x ret=%u\n",
                r_a0, r_v0);
         goto fn_exit;
     }
@@ -1788,7 +1788,7 @@ L_68654:
     regtrace_clm_stage_reached = 12;
     regtrace_clm_last_ret = (int32_t)r_v0;
     if (regtrace_clm_stage_limit == 12) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: clm-set-params stage12 after final commit 3 addr=0x%x ret=%u\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: clm-set-params stage12 after final commit 3 addr=0x%x ret=%u\n",
                r_a0, r_v0);
         goto fn_exit;
     }
@@ -1810,7 +1810,7 @@ L_68654:
     regtrace_clm_stage_reached = 13;
     regtrace_clm_last_ret = (int32_t)r_v0;
     if (regtrace_clm_stage_limit == 13) {
-        printk(KERN_WARNING "tx_isp_t40_recovered: clm-set-params stage13 after final commit 4 addr=0x%x ret=%u\n",
+        printk(KERN_INFO "tx_isp_t40_recovered: clm-set-params stage13 after final commit 4 addr=0x%x ret=%u\n",
                r_a0, r_v0);
         goto fn_exit;
     }
@@ -1819,7 +1819,7 @@ L_68654:
         regtrace_clm_stage_reached = 14;
         regtrace_clm_last_ret = (int32_t)r_v0;
         if (regtrace_clm_stage_limit == 14) {
-            printk(KERN_WARNING "tx_isp_t40_recovered: clm-set-params stage14 deferred trig stream=%u ret=%u\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: clm-set-params stage14 deferred trig stream=%u ret=%u\n",
                    regtrace_clm_stream, r_v0);
         }
     }
@@ -2130,7 +2130,7 @@ static int32_t regtrace_clm_main_init_lit(void)
 
     ret = tisp_clm_set_params_lit((uint32_t)(uintptr_t)pstMainClmOri_lit, 0);
     regtrace_clm_last_ret = ret;
-    printk(KERN_WARNING "tx_isp_t40_recovered: clm-main-init-lit done outer=%p stage=%u ret=%d\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: clm-main-init-lit done outer=%p stage=%u ret=%d\n",
            (void *)(uintptr_t)stMainClmOuter_lit, regtrace_clm_stage_limit,
            ret);
     return ret;
@@ -2331,7 +2331,7 @@ static int32_t regtrace_clm_oem_init_lit(const uint8_t *nbuf, uint32_t stream)
                            0x7ffU);
     regtrace_clm_last_ret = system_reg_write(ctrl_trig, 1U);
     regtrace_clm_stage_reached = 18;
-    printk(KERN_WARNING
+    printk(KERN_INFO
            "tx_isp_t40_recovered: clm-oem-init stream=%u ct=%u region=%u anchors=%u/%u/%u mode=0x%x stage=%u ret=%d\n",
            stream, ct, regtrace_clm_ct_region,
            (uint32_t)ct_list[0], (uint32_t)ct_list[1],

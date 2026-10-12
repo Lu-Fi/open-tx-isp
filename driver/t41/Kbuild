@@ -10,7 +10,8 @@ tx-isp-t41-objs := tx_isp_t41_recovered.o \
 		   tx_isp_t41_scaler.o \
 		   tx_isp_t41_capture_gate.o \
 		   tx_isp_t41_tuning_abi.o \
-		   tx_isp_t41_sensor_pin.o
+		   tx_isp_t41_sensor_pin.o \
+		   tx_isp_t41_procwatch.o
 ifneq ($(filter y m,$(CONFIG_VIDEOBUF2_DMA_CONTIG)),)
 tx-isp-t41-$(CONFIG_TX_ISP_T41_V4L2) += \
 					tx_isp_t41_video_queue.o \
@@ -61,4 +62,14 @@ ifneq ($(TX_ISP_GC),n)
 ccflags-y += -ffunction-sections
 LDFLAGS_MODULE += --gc-sections --undefined=init_module --undefined=cleanup_module \
 	-T $(abspath $(src)/../tx_isp_merge.lds)
+endif
+
+# Bring-up-only module parameters (experiment switches and diagnostic
+# counters nothing reads; list in docs/SIZE.md): n leaves them out.  Default
+# y: the open rmmod heap overwrite (README "Known issues") lands in the
+# kmalloc'd param attribute array, and fewer parameters would move that
+# array to another slab size class; prune only after that is fixed.
+TX_ISP_T41_BRINGUP_PARAMS ?= y
+ifeq ($(TX_ISP_T41_BRINGUP_PARAMS),y)
+ccflags-y += -DTX_ISP_T41_BRINGUP_PARAMS
 endif

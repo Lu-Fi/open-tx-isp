@@ -5,6 +5,7 @@
 /* Target kernel arch/ABI: mips32 32bit */
 /* Module vermagic: 3.10.14__isvp_pike_1.0__ preempt mod_unload MIPS32_R1 32BIT  */
 
+#define pr_fmt(fmt) "t23: " fmt
 #include "../include/tx_isp/tx_isp_subdev_abi.h"
 #include "../include/tx_isp/tx_isp_tuning_abi.h"
 #include "../include/tx_isp/tx_isp_frame_layout.h"
@@ -73,7 +74,7 @@
  * /sys/module/tx_isp_t23/parameters/t23_runtime_trace) gates
  *   - all KERN_INFO printk (probe/ioctl/bring-up trace, plain info prints;
  *     compiled out entirely with Kbuild TX_ISP_T23_TRACE=n, the default), and
- *   - the KERN_WARNING "tx_isp_t23_recovered:" messages on the explicit
+ *   - the KERN_WARNING "t23:" messages on the explicit
  *     allow-list t23_progress[] below: pure progress notes of a normal boot /
  *     stream start that carry no result code.
  * Everything else stays visible: all KERN_ERR, unprefixed printk, the
@@ -85,7 +86,7 @@
  * open-tx-isp/0009.
  */
 static int t23_runtime_trace;
-/* pure progress notes, no result code; format-string prefixes (after "tx_isp_t23_recovered: ") */
+/* pure progress notes, no result code; format-string prefixes (after "t23: ") */
 static const char * const t23_progress[] = {
 	"GIB tuning loaded", "source GIB loaded-tuning startup committed",
 	"source Gamma profile startup committed",
@@ -98,6 +99,7 @@ static const char * const t23_progress[] = {
 	"source AE HLIL reset", "MDNS tuning loaded", "SDNS tuning loaded",
 	"SDNS initialized", "MDNS DMA restored", "sharpen initialized",
 	"stock defog (lifted) active", "stock dynamic ADR (lifted) active",
+	"source AF off", "source AF statistics", "ADR initialized",
 	"stock AE0 resumed", "tuning bypass path=",
 	"source core DMA phys=", "source core started", "source core stopped",
 	"CSI core on", "direct TISP stream regs", "direct MSCA %s ch=",
@@ -144,8 +146,8 @@ static inline int t23_fmt_is_info(const char *fmt)
 	if (fmt[1] == '6')
 		return 1;
 	return fmt[1] == '4' &&
-	       !strncmp(fmt + 2, "tx_isp_t23_recovered: ", 22) &&
-	       t23_fmt_in(t23_progress, fmt + 24);
+	       !strncmp(fmt + 2, "t23: ", 5) &&
+	       t23_fmt_in(t23_progress, fmt + 7);
 }
 
 /*
@@ -161,36 +163,70 @@ static noinline int t23_ret_msg_ok(const char *fmt, va_list args)
 	return r < (int)sizeof(buf) && t23_msg_is_ok(buf);
 }
 
+/* 1 = the message is a quiet-mode note and is dropped (gate shared by the
+ * plain and the rate-limited printk) */
+static noinline int t23_quiet_drop(const char *fmt, va_list args)
+{
+	if (t23_runtime_trace)
+		return 0;
+	if (t23_fmt_is_info(fmt))
+		return 1;
+	/* never render in IRQ context; ret-gated notes stay visible there */
+	if (!in_interrupt() && !irqs_disabled() &&
+	    fmt[0] == KERN_SOH_ASCII && fmt[1] == '4' &&
+	    !strncmp(fmt + 2, "t23: ", 5) &&
+	    t23_fmt_in(t23_progress_ret, fmt + 7)) {
+		va_list a2;
+		int ok;
+
+		va_copy(a2, args);
+		ok = t23_ret_msg_ok(fmt, a2);
+		va_end(a2);
+		return ok;
+	}
+	return 0;
+}
+
 /* one out-of-line gate: no per-call-site code (module size) */
 static noinline int t23_printk(const char *fmt, ...)
 {
 	va_list args;
-	int r;
+	int r = 0;
 
 	va_start(args, fmt);
-	if (!t23_runtime_trace) {
-		if (t23_fmt_is_info(fmt)) {
-			va_end(args);
-			return 0;
-		}
-		/* never render in IRQ context; ret-gated notes stay visible there */
-		if (!in_interrupt() && !irqs_disabled() &&
-		    fmt[0] == KERN_SOH_ASCII && fmt[1] == '4' &&
-		    !strncmp(fmt + 2, "tx_isp_t23_recovered: ", 22) &&
-		    t23_fmt_in(t23_progress_ret, fmt + 24)) {
-			va_list a2;
-			int ok;
+	if (!t23_quiet_drop(fmt, args))
+		r = vprintk(fmt, args);
+	va_end(args);
+	return r;
+}
 
-			va_copy(a2, args);
-			ok = t23_ret_msg_ok(fmt, a2);
-			va_end(a2);
-			if (ok) {
-				va_end(args);
-				return 0;
-			}
+/*
+ * Rate-limited variant. The limit is applied after the quiet-mode gate, so
+ * dropped notes neither use up the budget nor make the kernel's own
+ * "<function>: N callbacks suppressed" line (printed by __ratelimit() with
+ * the name of the calling function) appear in the log; messages over the
+ * limit are dropped without that line.
+ */
+struct t23_ratelimit {
+	unsigned long begin;
+	unsigned int printed;
+};
+static noinline int t23_printk_rl(struct t23_ratelimit *rl, const char *fmt, ...)
+{
+	va_list args;
+	int r = 0;
+
+	va_start(args, fmt);
+	if (!t23_quiet_drop(fmt, args)) {
+		if (!rl->begin || time_after(jiffies, rl->begin + 5 * HZ)) {
+			rl->begin = jiffies | 1;
+			rl->printed = 0;
+		}
+		if (rl->printed < 10) {
+			rl->printed++;
+			r = vprintk(fmt, args);
 		}
 	}
-	r = vprintk(fmt, args);
 	va_end(args);
 	return r;
 }
@@ -200,6 +236,15 @@ static noinline int t23_printk(const char *fmt, ...)
 	((void)(0, ##__VA_ARGS__), 0) : t23_printk(fmt, ##__VA_ARGS__))
 #else
 #define printk(fmt, ...) t23_printk(fmt, ##__VA_ARGS__)
+#endif
+#undef printk_ratelimited
+#ifdef TX_ISP_T23_NO_TRACE
+#define printk_ratelimited(fmt, ...) ({ static struct t23_ratelimit rl_; \
+	t23_is_info_fmt(fmt) ? ((void)(0, ##__VA_ARGS__), 0) : \
+	t23_printk_rl(&rl_, fmt, ##__VA_ARGS__); })
+#else
+#define printk_ratelimited(fmt, ...) ({ static struct t23_ratelimit rl_; \
+	t23_printk_rl(&rl_, fmt, ##__VA_ARGS__); })
 #endif
 
 /*
@@ -733,6 +778,26 @@ extern struct module __this_module;
 #ifndef module_exit
 #define module_exit(fn)
 #endif
+#endif
+/*
+ * Bring-up-only parameters (experiment switches, diagnostic counters, no
+ * user or tool reads them): the variables keep their defaults, but the
+ * parameters are built in only with TX_ISP_T23_BRINGUP_PARAMS=y (Kbuild).
+ */
+#ifdef TX_ISP_T23_BRINGUP_PARAMS
+#define t23_bringup_param(name, type, perm) module_param(name, type, perm)
+#define t23_bringup_param_named(name, value, type, perm) \
+	module_param_named(name, value, type, perm)
+#define t23_bringup_param_call(name, set, get, arg, perm) \
+	module_param_call(name, set, get, arg, perm)
+#define t23_bringup_param_desc(name, desc) MODULE_PARM_DESC(name, desc)
+#else
+#define t23_bringup_param(name, type, perm) struct t23_bringup_unused_##name
+#define t23_bringup_param_named(name, value, type, perm) \
+	struct t23_bringup_unused_##name
+#define t23_bringup_param_call(name, set, get, arg, perm) \
+	struct t23_bringup_unused_##name
+#define t23_bringup_param_desc(name, desc) struct t23_bringup_unused_desc_##name
 #endif
 #ifndef _IOC
 #define _IOC(dir,type,nr,size) (((dir)<<30)|((size)<<16)|((type)<<8)|(nr))
@@ -9343,14 +9408,14 @@ struct resource *private_platform_get_resource(struct platform_device *pdev, uns
     struct resource *res = platform_get_resource(pdev, type, num);
 
     if (res) {
-        printk(KERN_INFO "tx_isp_t23_recovered: platform_get_resource dev=%s type=0x%x num=%u name=%s start=0x%08llx end=0x%08llx flags=0x%lx\n",
+        printk(KERN_INFO "t23: platform_get_resource dev=%s type=0x%x num=%u name=%s start=0x%08llx end=0x%08llx flags=0x%lx\n",
                pdev ? pdev->name : "(null)", type, num,
                res->name ? res->name : "(null)",
                (unsigned long long)res->start,
                (unsigned long long)res->end,
                res->flags);
     } else {
-        printk(KERN_INFO "tx_isp_t23_recovered: platform_get_resource dev=%s type=0x%x num=%u -> NULL\n",
+        printk(KERN_INFO "t23: platform_get_resource dev=%s type=0x%x num=%u -> NULL\n",
                pdev ? pdev->name : "(null)", type, num);
     }
     return res;
@@ -9359,7 +9424,7 @@ int private_platform_get_irq(struct platform_device *pdev, unsigned int num)
 {
     int irq = platform_get_irq(pdev, num);
 
-    printk(KERN_INFO "tx_isp_t23_recovered: platform_get_irq dev=%s num=%u irq=%d\n",
+    printk(KERN_INFO "t23: platform_get_irq dev=%s num=%u irq=%d\n",
            pdev ? pdev->name : "(null)", num, irq);
     return irq;
 }
@@ -9370,7 +9435,7 @@ struct resource *private_request_mem_region(resource_size_t start, resource_size
     if (!name)
         name = "tx-isp";
     res = request_mem_region(start, n, name);
-    printk(KERN_INFO "tx_isp_t23_recovered: request_mem_region %s 0x%08llx+0x%08llx -> %p\n",
+    printk(KERN_INFO "t23: request_mem_region %s 0x%08llx+0x%08llx -> %p\n",
            name, (unsigned long long)start, (unsigned long long)n, res);
     return res;
 }
@@ -9386,7 +9451,7 @@ void __iomem *private_ioremap(phys_addr_t offset, unsigned long size)
     if (!offset || !size)
         return NULL;
     addr = __ioremap(offset, size, REGTRACE_IOREMAP_UNCACHED);
-    printk(KERN_INFO "tx_isp_t23_recovered: ioremap 0x%08llx+0x%08lx -> %p\n",
+    printk(KERN_INFO "t23: ioremap 0x%08llx+0x%08lx -> %p\n",
            (unsigned long long)offset, size, addr);
     return addr;
 }
@@ -9399,7 +9464,7 @@ int private_request_threaded_irq(unsigned int irq, irq_handler_t handler, irq_ha
 {
     int ret = request_threaded_irq(irq, handler, thread_fn, flags, name, dev);
 
-    printk(KERN_INFO "tx_isp_t23_recovered: request_threaded_irq irq=%u name=%s flags=0x%lx dev=%p ret=%d\n",
+    printk(KERN_INFO "t23: request_threaded_irq irq=%u name=%s flags=0x%lx dev=%p ret=%d\n",
            irq, name ? name : "(null)", flags, dev, ret);
     return ret;
 }
@@ -9466,7 +9531,7 @@ static void get_isp_priv_mem(unsigned int *phyaddr, unsigned int *size)
         *(uint32_t *)(interfaces + REGTRACE_T23_COMMON_IFACE_FLAGS1_OFFSET) !=
             (uint32_t)(uintptr_t)&printk) {
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: incompatible T23 common interface; ispmem unavailable\n");
+               "t23: incompatible T23 common interface; ispmem unavailable\n");
         return;
     }
 
@@ -9636,7 +9701,7 @@ static int regtrace_t23_capture_sensor_subdev(uintptr_t pdev,
     regtrace_t23_sensor_fps_request = 0;
     regtrace_t23_install_sensor_notify(sd);
     regtrace_t23_seed_sensor_caches("sensor-subdev-init");
-    printk(KERN_INFO "tx_isp_t23_recovered: captured external sensor subdev name=%s sd=%p ops=%p\n",
+    printk(KERN_INFO "t23: captured external sensor subdev name=%s sd=%p ops=%p\n",
            name, (void *)sd, (void *)ops);
     return 1;
 }
@@ -9713,7 +9778,7 @@ static int regtrace_t23_subdev_init_pads(unsigned char *sd, const unsigned char 
     *(uint32_t *)(sd + REGTRACE_TX_ISP_MODULE_OUTPADS_OFFSET) = (uint32_t)(uintptr_t)outpads;
     *(uint32_t *)(sd + REGTRACE_TX_ISP_MODULE_INPADS_OFFSET) = (uint32_t)(uintptr_t)inpads;
 
-    printk(KERN_INFO "tx_isp_t23_recovered: subdev pads sd=%p out=%u in=%u outpads=%p inpads=%p\n",
+    printk(KERN_INFO "t23: subdev pads sd=%p out=%u in=%u outpads=%p inpads=%p\n",
            sd, out_count, in_count, outpads, inpads);
     return 0;
 }
@@ -9747,7 +9812,7 @@ int32_t tx_isp_subdev_init(uintptr_t a0, uintptr_t a1, uint32_t a2)
         }
     }
     private_platform_set_drvdata(pdev, (void *)a1);
-    printk(KERN_INFO "tx_isp_t23_recovered: subdev init dev=%s sd=%p ops=%p pdata=%p\n",
+    printk(KERN_INFO "t23: subdev init dev=%s sd=%p ops=%p pdata=%p\n",
            pdev->name, sd, (void *)(uintptr_t)a2, pdata);
     return 0;
 }
@@ -9767,7 +9832,7 @@ void tx_isp_t23_sinfo_driver_added(struct i2c_driver *drv,
                                    int default_i2c_addr,
                                    struct module *owner)
 {
-    printk(KERN_INFO "tx_isp_t23_recovered: sensor-info driver add %s addr=0x%x\n",
+    printk(KERN_INFO "t23: sensor-info driver add %s addr=0x%x\n",
            drv && drv->driver.name ? drv->driver.name : "unknown",
            default_i2c_addr);
     regtrace_t23_sensor_driver = drv;
@@ -9796,7 +9861,7 @@ void tx_isp_t23_sinfo_sensor_bound(void *subdev, struct module *owner)
     regtrace_t23_sensor_streaming = false;
     regtrace_t23_install_sensor_notify((uintptr_t)sd);
     regtrace_t23_seed_sensor_caches("sensor-bind");
-    printk(KERN_INFO "tx_isp_t23_recovered: sensor bind sd=%p owner=%p\n",
+    printk(KERN_INFO "t23: sensor bind sd=%p owner=%p\n",
            sd, owner);
 }
 
@@ -10474,8 +10539,8 @@ static uint regtrace_t23_csi_rate_override;
 static int regtrace_t23_sensor_i2c_adapter = 0;
 static uint regtrace_t23_snapraw_buffer_bytes = 4U * 1024U * 1024U;
 static uint regtrace_t23_snapraw_phys_addr;
-module_param_named(enable_irqs_on_streamon, regtrace_t23_enable_irqs_on_streamon, bool, 0644);
-module_param_named(log_framechan_payloads, regtrace_t23_log_framechan_payloads, bool, 0644);
+t23_bringup_param_named(enable_irqs_on_streamon, regtrace_t23_enable_irqs_on_streamon, bool, 0644);
+t23_bringup_param_named(log_framechan_payloads, regtrace_t23_log_framechan_payloads, bool, 0644);
 
 /*
  * Debug aid: text_watch=1 keeps a copy of this module's core text and
@@ -10487,7 +10552,7 @@ module_param_named(log_framechan_payloads, regtrace_t23_log_framechan_payloads, 
  * damaged instruction. Costs a ~450 KiB compare per check; off by default.
  */
 static bool regtrace_t23_text_watch;
-module_param_named(text_watch, regtrace_t23_text_watch, bool, 0644);
+t23_bringup_param_named(text_watch, regtrace_t23_text_watch, bool, 0644);
 static u32 *regtrace_t23_text_snap;
 static size_t regtrace_t23_text_words;
 static DEFINE_SPINLOCK(regtrace_t23_text_lock);
@@ -10520,7 +10585,7 @@ static void regtrace_t23_text_check(const char *where, unsigned int cmd)
         if (snap)
             vfree(snap);
         else
-            printk(KERN_WARNING "tx_isp_t23_recovered: text watch armed text=%p size=0x%zx at %s\n",
+            printk(KERN_WARNING "t23: text watch armed text=%p size=0x%zx at %s\n",
                    text, words * sizeof(u32), where);
         return;
     }
@@ -10533,117 +10598,117 @@ static void regtrace_t23_text_check(const char *where, unsigned int cmd)
             if (snap[i] == text[i])
                 continue;
             if (shown++ < 16)
-                printk(KERN_ERR "tx_isp_t23_recovered: TEXT CHANGED at %p (text+0x%zx) 0x%08x -> 0x%08x seen at %s cmd=0x%x pid=%d comm=%s\n",
+                printk(KERN_ERR "t23: TEXT CHANGED at %p (text+0x%zx) 0x%08x -> 0x%08x seen at %s cmd=0x%x pid=%d comm=%s\n",
                        &text[i], i * sizeof(u32), snap[i], text[i],
                        where, cmd, current->pid, current->comm);
             snap[i] = text[i];
         }
-        printk(KERN_ERR "tx_isp_t23_recovered: TEXT CHANGED %u words, seen at %s cmd=0x%x\n",
+        printk(KERN_ERR "t23: TEXT CHANGED %u words, seen at %s cmd=0x%x\n",
                shown, where, cmd);
     }
     spin_unlock_irqrestore(&regtrace_t23_text_lock, flags);
 }
-module_param_named(direct_msca_qbuf, regtrace_t23_direct_msca_qbuf, bool, 0644);
-module_param_named(direct_msca_start, regtrace_t23_direct_msca_start, bool, 0644);
-module_param_named(direct_msca_cfg_load, regtrace_t23_direct_msca_cfg_load, bool, 0644);
-module_param_named(direct_tisp_stream_regs, regtrace_t23_direct_tisp_stream_regs, bool, 0644);
-module_param_named(source_core_start, regtrace_t23_source_core_start, bool, 0644);
-module_param_named(source_frame_done, regtrace_t23_source_frame_done, bool, 0644);
-module_param_named(source_msca_curves, regtrace_t23_source_msca_curves, bool, 0644);
-module_param_named(source_msca_init, regtrace_t23_source_msca_init, bool, 0644);
-module_param_named(source_core_bypass, regtrace_t23_source_core_bypass, uint, 0644);
-module_param_named(source_core_bypass_from_tuning,
+t23_bringup_param_named(direct_msca_qbuf, regtrace_t23_direct_msca_qbuf, bool, 0644);
+t23_bringup_param_named(direct_msca_start, regtrace_t23_direct_msca_start, bool, 0644);
+t23_bringup_param_named(direct_msca_cfg_load, regtrace_t23_direct_msca_cfg_load, bool, 0644);
+t23_bringup_param_named(direct_tisp_stream_regs, regtrace_t23_direct_tisp_stream_regs, bool, 0644);
+t23_bringup_param_named(source_core_start, regtrace_t23_source_core_start, bool, 0644);
+t23_bringup_param_named(source_frame_done, regtrace_t23_source_frame_done, bool, 0644);
+t23_bringup_param_named(source_msca_curves, regtrace_t23_source_msca_curves, bool, 0644);
+t23_bringup_param_named(source_msca_init, regtrace_t23_source_msca_init, bool, 0644);
+t23_bringup_param_named(source_core_bypass, regtrace_t23_source_core_bypass, uint, 0644);
+t23_bringup_param_named(source_core_bypass_from_tuning,
                    regtrace_t23_source_core_bypass_from_tuning, bool, 0644);
 module_param_named(source_park_uninitialized_mdns,
                    regtrace_t23_source_park_uninitialized_mdns, bool, 0644);
-module_param_named(source_mdns_tuning_init,
+t23_bringup_param_named(source_mdns_tuning_init,
                    regtrace_t23_source_mdns_tuning_init, bool, 0644);
-module_param_named(source_mdns_internal_enable,
+t23_bringup_param_named(source_mdns_internal_enable,
                    regtrace_t23_source_mdns_internal_enable, bool, 0644);
-module_param_named(source_mdns_uv,
+t23_bringup_param_named(source_mdns_uv,
                    regtrace_t23_source_mdns_uv, bool, 0644);
-module_param_named(source_mdns_gain_old,
+t23_bringup_param_named(source_mdns_gain_old,
                    regtrace_t23_source_mdns_gain_old, uint, 0444);
-module_param_named(source_mdns_top_control,
+t23_bringup_param_named(source_mdns_top_control,
                    regtrace_t23_source_mdns_top_control, uint, 0444);
-module_param_named(source_mdns_top_override,
+t23_bringup_param_named(source_mdns_top_override,
                    regtrace_t23_source_mdns_top_override, uint, 0644);
-module_param_named(source_mdns_mode,
+t23_bringup_param_named(source_mdns_mode,
                    regtrace_t23_source_mdns_mode, uint, 0444);
-module_param_named(source_mdns_paddr,
+t23_bringup_param_named(source_mdns_paddr,
                    regtrace_t23_source_mdns_paddr, uint, 0444);
-module_param_named(source_mdns_size,
+t23_bringup_param_named(source_mdns_size,
                    regtrace_t23_source_mdns_size, uint, 0444);
-module_param_named(source_mdns_used,
+t23_bringup_param_named(source_mdns_used,
                    regtrace_t23_source_mdns_used, uint, 0444);
-module_param_named(source_mdns_set_count,
+t23_bringup_param_named(source_mdns_set_count,
                    regtrace_t23_source_mdns_set_count, uint, 0444);
-module_param_named(source_mdns_restore_count,
+t23_bringup_param_named(source_mdns_restore_count,
                    regtrace_t23_source_mdns_restore_count, uint, 0444);
-module_param_named(source_sdns_tuning_init,
+t23_bringup_param_named(source_sdns_tuning_init,
                    regtrace_t23_source_sdns_tuning_init, bool, 0644);
 module_param_named(source_sdns_internal_enable,
                    regtrace_t23_source_sdns_internal_enable, bool, 0644);
 module_param_named(source_sdns_wdr,
                    regtrace_t23_source_sdns_wdr, bool, 0644);
-module_param_named(source_sdns_gain_old,
+t23_bringup_param_named(source_sdns_gain_old,
                    regtrace_t23_source_sdns_gain_old, uint, 0444);
-module_param_named(source_adr_tuning_init,
+t23_bringup_param_named(source_adr_tuning_init,
                    regtrace_t23_source_adr_tuning_init, bool, 0644);
 module_param_named(source_adr_internal_enable,
                    regtrace_t23_source_adr_internal_enable, bool, 0644);
 module_param_named(source_adr_dynamic,
                    regtrace_t23_source_adr_dynamic, bool, 0644);
-module_param_named(source_adr_initialized,
+t23_bringup_param_named(source_adr_initialized,
                    regtrace_t23_source_adr_initialized, bool, 0444);
-module_param_named(source_adr_width,
+t23_bringup_param_named(source_adr_width,
                    regtrace_t23_source_adr_width, uint, 0444);
-module_param_named(source_adr_height,
+t23_bringup_param_named(source_adr_height,
                    regtrace_t23_source_adr_height, uint, 0444);
-module_param_named(source_gib_tuning_init,
+t23_bringup_param_named(source_gib_tuning_init,
                    regtrace_t23_source_gib_tuning_init, bool, 0644);
 module_param_named(source_gib_ir_value,
                    regtrace_t23_source_gib_ir_value, uint, 0644);
-module_param_named(source_gamma_tuning_init,
+t23_bringup_param_named(source_gamma_tuning_init,
                    regtrace_t23_source_gamma_tuning_init, bool, 0644);
-module_param_named(source_lsc_tuning_init,
+t23_bringup_param_named(source_lsc_tuning_init,
                    regtrace_t23_source_lsc_tuning_init, bool, 0644);
-module_param_named(source_lsc_events,
+t23_bringup_param_named(source_lsc_events,
                    regtrace_t23_source_lsc_events, bool, 0644);
 module_param_named(source_lsc_initial_flip,
                    regtrace_t23_source_lsc_initial_flip, bool, 0644);
 module_param_named(source_lsc_initial_mirror,
                    regtrace_t23_source_lsc_initial_mirror, bool, 0644);
-module_param_named(source_dpc_tuning_init,
+t23_bringup_param_named(source_dpc_tuning_init,
                    regtrace_t23_source_dpc_tuning_init, bool, 0644);
-module_param_named(source_ydns_tuning_init,
+t23_bringup_param_named(source_ydns_tuning_init,
                    regtrace_t23_source_ydns_tuning_init, bool, 0644);
-module_param_named(source_defog_tuning_init,
+t23_bringup_param_named(source_defog_tuning_init,
                    regtrace_t23_source_defog_tuning_init, bool, 0644);
 module_param_named(source_defog_internal_enable,
                    regtrace_t23_source_defog_internal_enable, bool, 0644);
-module_param_named(source_defog_geometry_init,
+t23_bringup_param_named(source_defog_geometry_init,
                    regtrace_t23_source_defog_geometry_init, bool, 0644);
-module_param_named(source_defog_initialized,
+t23_bringup_param_named(source_defog_initialized,
                    regtrace_t23_source_defog_initialized, bool, 0444);
-module_param_named(source_defog_width,
+t23_bringup_param_named(source_defog_width,
                    regtrace_t23_source_defog_width, uint, 0444);
-module_param_named(source_defog_height,
+t23_bringup_param_named(source_defog_height,
                    regtrace_t23_source_defog_height, uint, 0444);
-module_param_named(source_defog_geometry_runs,
+t23_bringup_param_named(source_defog_geometry_runs,
                    regtrace_t23_source_defog_geometry_runs, uint, 0444);
 module_param_named(source_lsc_ct, regtrace_t23_source_lsc_ct, uint, 0644);
-module_param_named(source_lsc_runtime_ct,
+t23_bringup_param_named(source_lsc_runtime_ct,
                    regtrace_t23_source_lsc_runtime_ct, uint, 0444);
-module_param_named(source_lsc_event_count,
+t23_bringup_param_named(source_lsc_event_count,
                    regtrace_t23_source_lsc_event_count, uint, 0444);
-module_param_named(source_lsc_gain_events,
+t23_bringup_param_named(source_lsc_gain_events,
                    regtrace_t23_source_lsc_gain_events, uint, 0444);
 module_param_named(source_ae_stats_init,
                    regtrace_t23_source_ae_stats_init, bool, 0644);
-module_param_named(source_ae_stats_irqs,
+t23_bringup_param_named(source_ae_stats_irqs,
                    regtrace_t23_source_ae_stats_irqs, uint, 0444);
-module_param_named(source_ae_stats_snapshots,
+t23_bringup_param_named(source_ae_stats_snapshots,
                    regtrace_t23_source_ae_stats_snapshots, uint, 0444);
 module_param_named(source_ae_force_packed,
                    regtrace_t23_source_ae_force_packed, uint, 0644);
@@ -10653,135 +10718,135 @@ module_param_named(source_ae_hlil,
                    regtrace_t23_source_ae_hlil, bool, 0644);
 module_param_named(source_ae_hlil_interval,
                    regtrace_t23_source_ae_hlil_interval, uint, 0644);
-module_param_named(source_stock_stream_regs,
+t23_bringup_param_named(source_stock_stream_regs,
                    regtrace_t23_source_stock_stream_regs, bool, 0644);
-module_param_named(source_ae_hlil_fast_interval,
+t23_bringup_param_named(source_ae_hlil_fast_interval,
                    regtrace_t23_source_ae_hlil_fast_interval, uint, 0644);
-module_param_named(source_ae_hlil_sat_permille,
+t23_bringup_param_named(source_ae_hlil_sat_permille,
                    regtrace_t23_source_ae_hlil_sat_permille, uint, 0644);
 module_param_named(source_ae_hlil_target,
                    regtrace_t23_source_ae_hlil_target, uint, 0644);
-module_param_named(source_ae_hlil_deadband,
+t23_bringup_param_named(source_ae_hlil_deadband,
                    regtrace_t23_source_ae_hlil_deadband, uint, 0644);
-module_param_named(source_ae_hlil_runs,
+t23_bringup_param_named(source_ae_hlil_runs,
                    regtrace_t23_source_ae_hlil_runs, uint, 0444);
-module_param_named(source_ae_hlil_updates,
+t23_bringup_param_named(source_ae_hlil_updates,
                    regtrace_t23_source_ae_hlil_updates, uint, 0444);
-module_param_named(source_ae_hlil_drops,
+t23_bringup_param_named(source_ae_hlil_drops,
                    regtrace_t23_source_ae_hlil_drops, uint, 0444);
 module_param_named(source_ae_hlil_luma,
                    regtrace_t23_source_ae_hlil_luma, uint, 0444);
-module_param_named(source_ae_hlil_state,
+t23_bringup_param_named(source_ae_hlil_state,
                    regtrace_t23_source_ae_hlil_state, uint, 0444);
-module_param_named(source_ae_hlil_ev,
+t23_bringup_param_named(source_ae_hlil_ev,
                    regtrace_t23_source_ae_hlil_ev, uint, 0444);
-module_param_named(source_ae_hlil_status,
+t23_bringup_param_named(source_ae_hlil_status,
                    regtrace_t23_source_ae_hlil_status, uint, 0444);
 module_param_named(source_ae_compensation,
                    regtrace_t23_source_ae_compensation, uint, 0444);
-module_param_named(source_awb_static_init,
+t23_bringup_param_named(source_awb_static_init,
                    regtrace_t23_source_awb_static_init, bool, 0644);
-module_param_named(source_awb_stats_init,
+t23_bringup_param_named(source_awb_stats_init,
                    regtrace_t23_source_awb_stats_init, bool, 0644);
-module_param_named(source_awb_stats_processed_tap,
+t23_bringup_param_named(source_awb_stats_processed_tap,
                    regtrace_t23_source_awb_stats_processed_tap, bool, 0644);
-module_param_named(source_awb_stats_wide_thresholds,
+t23_bringup_param_named(source_awb_stats_wide_thresholds,
                    regtrace_t23_source_awb_stats_wide_thresholds, bool, 0644);
-module_param_named(source_awb_grayworld,
+t23_bringup_param_named(source_awb_grayworld,
                    regtrace_t23_source_awb_grayworld, bool, 0644);
 module_param_named(source_awb_hlil,
                    regtrace_t23_source_awb_hlil, bool, 0644);
-module_param_named(source_awb_grayworld_interval,
+t23_bringup_param_named(source_awb_grayworld_interval,
                    regtrace_t23_source_awb_grayworld_interval, uint, 0644);
-module_param_named(source_awb_grayworld_rbias,
+t23_bringup_param_named(source_awb_grayworld_rbias,
                    regtrace_t23_source_awb_grayworld_rbias, uint, 0644);
-module_param_named(source_awb_grayworld_bbias,
+t23_bringup_param_named(source_awb_grayworld_bbias,
                    regtrace_t23_source_awb_grayworld_bbias, uint, 0644);
-module_param_named(source_awb_profile_rbias,
+t23_bringup_param_named(source_awb_profile_rbias,
                    regtrace_t23_source_awb_profile_rbias, uint, 0444);
-module_param_named(source_awb_profile_bbias,
+t23_bringup_param_named(source_awb_profile_bbias,
                    regtrace_t23_source_awb_profile_bbias, uint, 0444);
-module_param_named(source_awb_hlil_interval,
+t23_bringup_param_named(source_awb_hlil_interval,
                    regtrace_t23_source_awb_hlil_interval, uint, 0644);
-module_param_named(source_awb_hlil_min_pixels,
+t23_bringup_param_named(source_awb_hlil_min_pixels,
                    regtrace_t23_source_awb_hlil_min_pixels, uint, 0644);
-module_param_named(source_awb_bootstrap_rgain,
+t23_bringup_param_named(source_awb_bootstrap_rgain,
                    regtrace_t23_source_awb_bootstrap_rgain, uint, 0644);
-module_param_named(source_awb_bootstrap_bgain,
+t23_bringup_param_named(source_awb_bootstrap_bgain,
                    regtrace_t23_source_awb_bootstrap_bgain, uint, 0644);
-module_param_named(source_awb_stats_irqs,
+t23_bringup_param_named(source_awb_stats_irqs,
                    regtrace_t23_source_awb_stats_irqs, uint, 0444);
-module_param_named(source_awb_stats_snapshots,
+t23_bringup_param_named(source_awb_stats_snapshots,
                    regtrace_t23_source_awb_stats_snapshots, uint, 0444);
-module_param_named(source_awb_grayworld_updates,
+t23_bringup_param_named(source_awb_grayworld_updates,
                    regtrace_t23_source_awb_grayworld_updates, uint, 0444);
 module_param_named(source_awb_hlil_runs,
                    regtrace_t23_source_awb_hlil_runs, uint, 0444);
 module_param_named(source_awb_hlil_updates,
                    regtrace_t23_source_awb_hlil_updates, uint, 0444);
-module_param_named(source_awb_hlil_drops,
+t23_bringup_param_named(source_awb_hlil_drops,
                    regtrace_t23_source_awb_hlil_drops, uint, 0444);
 module_param_named(source_awb_hlil_status,
                    regtrace_t23_source_awb_hlil_status, uint, 0444);
-module_param_named(source_awb_hlil_rg,
+t23_bringup_param_named(source_awb_hlil_rg,
                    regtrace_t23_source_awb_hlil_rg, uint, 0444);
-module_param_named(source_awb_hlil_bg,
+t23_bringup_param_named(source_awb_hlil_bg,
                    regtrace_t23_source_awb_hlil_bg, uint, 0444);
-module_param_named(source_awb_hlil_ct,
+t23_bringup_param_named(source_awb_hlil_ct,
                    regtrace_t23_source_awb_hlil_ct, uint, 0444);
 module_param_named(source_awb_last_rgain,
                    regtrace_t23_source_awb_last_rgain, uint, 0444);
 module_param_named(source_awb_last_bgain,
                    regtrace_t23_source_awb_last_bgain, uint, 0444);
-module_param_named(source_awb_last_mf_rg,
+t23_bringup_param_named(source_awb_last_mf_rg,
                    regtrace_t23_source_awb_last_mf_rg, uint, 0444);
-module_param_named(source_awb_last_mf_bg,
+t23_bringup_param_named(source_awb_last_mf_bg,
                    regtrace_t23_source_awb_last_mf_bg, uint, 0444);
-module_param_named(source_wb_mode,
+t23_bringup_param_named(source_wb_mode,
                    regtrace_t23_source_wb_mode, uint, 0444);
-module_param_named(source_bcsh_events,
+t23_bringup_param_named(source_bcsh_events,
                    regtrace_t23_source_bcsh_events, bool, 0644);
-module_param_named(source_bcsh_ev_events,
+t23_bringup_param_named(source_bcsh_ev_events,
                    regtrace_t23_source_bcsh_ev_events, uint, 0444);
-module_param_named(source_bcsh_ct_events,
+t23_bringup_param_named(source_bcsh_ct_events,
                    regtrace_t23_source_bcsh_ct_events, uint, 0444);
-module_param_named(source_bcsh_ct_region,
+t23_bringup_param_named(source_bcsh_ct_region,
                    bcsh_ct_part_now, uint, 0444);
 module_param_named(source_ccm_tuning_init,
                    regtrace_t23_source_ccm_tuning_init, bool, 0644);
-module_param_named(source_ccm_events,
+t23_bringup_param_named(source_ccm_events,
                    regtrace_t23_source_ccm_events, bool, 0644);
-module_param_named(source_ccm_runtime_ct,
+t23_bringup_param_named(source_ccm_runtime_ct,
                    regtrace_t23_source_ccm_runtime_ct, uint, 0444);
-module_param_named(source_ccm_event_count,
+t23_bringup_param_named(source_ccm_event_count,
                    regtrace_t23_source_ccm_event_count, uint, 0444);
-module_param_named(source_dmsc_tuning_init,
+t23_bringup_param_named(source_dmsc_tuning_init,
                    regtrace_t23_source_dmsc_tuning_init, bool, 0644);
 module_param_named(source_sharpen_tuning_init,
                    regtrace_t23_source_sharpen_tuning_init, bool, 0644);
-module_param_named(source_dmsc_sharpness,
+t23_bringup_param_named(source_dmsc_sharpness,
                    regtrace_t23_source_dmsc_sharpness, uint, 0644);
-module_param_named(source_bcsh_tuning_init,
+t23_bringup_param_named(source_bcsh_tuning_init,
                    regtrace_t23_source_bcsh_tuning_init, bool, 0644);
-module_param_named(source_bcsh_runtime,
+t23_bringup_param_named(source_bcsh_runtime,
                    regtrace_t23_source_bcsh_runtime, bool, 0644);
 module_param_named(source_bcsh_trace,
                    regtrace_t23_source_bcsh_trace, bool, 0644);
-module_param_named(source_clm_tuning_init,
+t23_bringup_param_named(source_clm_tuning_init,
                    regtrace_t23_source_clm_tuning_init, bool, 0644);
-module_param_named(source_clm_events,
+t23_bringup_param_named(source_clm_events,
                    regtrace_t23_source_clm_events, bool, 0644);
-module_param_named(source_clm_startup_ct,
+t23_bringup_param_named(source_clm_startup_ct,
                    regtrace_t23_source_clm_startup_ct, uint, 0644);
-module_param_named(source_clm_runtime_ct,
+t23_bringup_param_named(source_clm_runtime_ct,
                    regtrace_t23_source_clm_runtime_ct, uint, 0444);
-module_param_named(source_clm_event_count,
+t23_bringup_param_named(source_clm_event_count,
                    regtrace_t23_source_clm_event_count, uint, 0444);
-module_param_named(source_clm_region,
+t23_bringup_param_named(source_clm_region,
                    regtrace_t23_source_clm_region, uint, 0444);
-module_param_named(source_bcsh_neutral,
+t23_bringup_param_named(source_bcsh_neutral,
                    regtrace_t23_source_bcsh_neutral, bool, 0644);
-module_param_named(source_csccr_init,
+t23_bringup_param_named(source_csccr_init,
                    regtrace_t23_source_csccr_init, bool, 0644);
 module_param_named(source_core_tuning_path,
                    regtrace_t23_source_core_tuning_path, charp, 0644);
@@ -10790,18 +10855,18 @@ MODULE_PARM_DESC(source_core_tuning_path,
 module_param_named(source_core_bayer, regtrace_t23_source_core_bayer, uint, 0644);
 MODULE_PARM_DESC(source_core_bayer,
                  "T23 Bayer index override; 0xffffffff uses the media-bus code");
-module_param_named(source_core_mode, regtrace_t23_source_core_mode, uint, 0644);
-module_param_named(direct_csi_start, regtrace_t23_direct_csi_start, bool, 0644);
-module_param_named(direct_vic_start, regtrace_t23_direct_vic_start, bool, 0644);
-module_param_named(vic_irq_unmask_all, regtrace_t23_vic_irq_unmask_all, bool, 0644);
-module_param_named(direct_sensor_stream, regtrace_t23_direct_sensor_stream, bool, 0644);
-module_param_named(source_csi_stream, regtrace_t23_source_csi_stream, bool, 0644);
-module_param_named(source_sensor_stream, regtrace_t23_source_sensor_stream, bool, 0644);
-module_param_named(source_vic_stream, regtrace_t23_source_vic_stream, bool, 0644);
-module_param_named(direct_enable_clks, regtrace_t23_direct_enable_clks, bool, 0644);
+t23_bringup_param_named(source_core_mode, regtrace_t23_source_core_mode, uint, 0644);
+t23_bringup_param_named(direct_csi_start, regtrace_t23_direct_csi_start, bool, 0644);
+t23_bringup_param_named(direct_vic_start, regtrace_t23_direct_vic_start, bool, 0644);
+t23_bringup_param_named(vic_irq_unmask_all, regtrace_t23_vic_irq_unmask_all, bool, 0644);
+t23_bringup_param_named(direct_sensor_stream, regtrace_t23_direct_sensor_stream, bool, 0644);
+t23_bringup_param_named(source_csi_stream, regtrace_t23_source_csi_stream, bool, 0644);
+t23_bringup_param_named(source_sensor_stream, regtrace_t23_source_sensor_stream, bool, 0644);
+t23_bringup_param_named(source_vic_stream, regtrace_t23_source_vic_stream, bool, 0644);
+t23_bringup_param_named(direct_enable_clks, regtrace_t23_direct_enable_clks, bool, 0644);
 module_param_named(source_sensor_fps, regtrace_t23_source_sensor_fps, uint, 0644);
-module_param_named(csi_rate_override, regtrace_t23_csi_rate_override, uint, 0644);
-module_param_named(sensor_i2c_adapter, regtrace_t23_sensor_i2c_adapter, int, 0644);
+t23_bringup_param_named(csi_rate_override, regtrace_t23_csi_rate_override, uint, 0644);
+t23_bringup_param_named(sensor_i2c_adapter, regtrace_t23_sensor_i2c_adapter, int, 0644);
 module_param_named(snapraw_buffer_bytes,
                    regtrace_t23_snapraw_buffer_bytes, uint, 0444);
 MODULE_PARM_DESC(snapraw_buffer_bytes,
@@ -10888,7 +10953,7 @@ static int regtrace_t23_snapraw_buffer_alloc(void)
             phys = private_phys;
             if (size > private_size) {
                 printk(KERN_ERR
-                       "tx_isp_t23_recovered: snapraw buffer needs %u bytes but ispmem has %u\n",
+                       "t23: snapraw buffer needs %u bytes but ispmem has %u\n",
                        (unsigned int)size, private_size);
                 return -ENOSPC;
             }
@@ -10899,14 +10964,14 @@ static int regtrace_t23_snapraw_buffer_alloc(void)
         if (!IS_ALIGNED(phys, PAGE_SIZE) ||
             phys + size < (size_t)phys || phys + size > UINT_MAX) {
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: invalid snapraw physical region 0x%x+%u\n",
+                   "t23: invalid snapraw physical region 0x%x+%u\n",
                    phys, (unsigned int)size);
             return -EINVAL;
         }
         regtrace_t23_snapraw_buffer = ioremap(phys, size);
         if (!regtrace_t23_snapraw_buffer) {
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: cannot map snapraw physical region 0x%x+%u\n",
+                   "t23: cannot map snapraw physical region 0x%x+%u\n",
                    phys, (unsigned int)size);
             return -ENOMEM;
         }
@@ -10914,7 +10979,7 @@ static int regtrace_t23_snapraw_buffer_alloc(void)
         regtrace_t23_snapraw_buffer_size = size;
         regtrace_t23_snapraw_buffer_is_iomem = true;
         printk(KERN_INFO
-               "tx_isp_t23_recovered: mapped reserved snapraw buffer bytes=%u dma=0x%x source=%s\n",
+               "t23: mapped reserved snapraw buffer bytes=%u dma=0x%x source=%s\n",
                (unsigned int)size, phys,
                regtrace_t23_snapraw_phys_addr ? "module-param" : "ispmem");
         return 0;
@@ -10924,7 +10989,7 @@ static int regtrace_t23_snapraw_buffer_alloc(void)
         device, size, &regtrace_t23_snapraw_dma, GFP_KERNEL | GFP_DMA);
     if (!regtrace_t23_snapraw_buffer) {
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: no %u-byte snapraw DMA buffer; reserve ispmem or set snapraw_phys_addr\n",
+               "t23: no %u-byte snapraw DMA buffer; reserve ispmem or set snapraw_phys_addr\n",
                regtrace_t23_snapraw_buffer_bytes);
         return 0;
     }
@@ -10938,7 +11003,7 @@ static int regtrace_t23_snapraw_buffer_alloc(void)
 
     regtrace_t23_snapraw_buffer_size = size;
     printk(KERN_INFO
-           "tx_isp_t23_recovered: reserved snapraw DMA buffer bytes=%u dma=0x%x\n",
+           "t23: reserved snapraw DMA buffer bytes=%u dma=0x%x\n",
            (unsigned int)size, (uint32_t)regtrace_t23_snapraw_dma);
     return 0;
 }
@@ -11147,7 +11212,7 @@ static int regtrace_t23_snapraw_one(unsigned int index)
     }
     if (!completed)
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: snapraw completion timeout status=0x%x/0x%x control=0x%x enable=0x%x banks=0x%x/0x%x ch1=0x%x changed=%u first=%u last=%u\n",
+               "t23: snapraw completion timeout status=0x%x/0x%x control=0x%x enable=0x%x banks=0x%x/0x%x ch1=0x%x changed=%u first=%u last=%u\n",
                capture_status0, capture_status1, capture_control,
                capture_enable, capture_bank0, capture_bank1,
                capture_ch1_bank0, changed, first_changed, last_changed);
@@ -11158,7 +11223,7 @@ static int regtrace_t23_snapraw_one(unsigned int index)
 
     ret = regtrace_t23_snapraw_write_file(buffer, frame_size, index);
     printk(KERN_INFO
-           "tx_isp_t23_recovered: snapraw index=%u %ux%u stride=%u bytes=%u dma=0x%x changed=%u first=%u last=%u ret=%d\n",
+           "t23: snapraw index=%u %ux%u stride=%u bytes=%u dma=0x%x changed=%u first=%u last=%u ret=%d\n",
            index, width, height, stride, frame_size, (uint32_t)dma,
            changed, first_changed, last_changed, ret);
 
@@ -11205,7 +11270,7 @@ static ssize_t regtrace_t23_vic_proc_write(struct file *file,
 
     if (!strcmp(command, "help")) {
         printk(KERN_INFO
-               "tx_isp_t23_recovered: isp-w02 command: snapraw [1]\n");
+               "t23: isp-w02 command: snapraw [1]\n");
         return input_count;
     }
     if (strncmp(command, "snapraw", 7) ||
@@ -11258,7 +11323,7 @@ static void regtrace_t23_enable_subdev_clks(const char *name,
         if (!clk || IS_ERR(clk))
             continue;
         ret = private_clk_enable(clk);
-        printk(KERN_WARNING "tx_isp_t23_recovered: direct clk enable %s[%u]=%p rate=%lu ret=%d\n",
+        printk(KERN_WARNING "t23: direct clk enable %s[%u]=%p rate=%lu ret=%d\n",
                name ? name : "subdev", i, clk,
                private_clk_get_rate(clk), ret);
     }
@@ -11317,7 +11382,7 @@ static void regtrace_t23_set_irq_enabled(const char *name,
         *enabled = false;
     }
 
-    printk(KERN_WARNING "tx_isp_t23_recovered: %s irq %s irq=%u sd=%p hw_mask=0x%x channel=%d reason=%s\n",
+    printk(KERN_WARNING "t23: %s irq %s irq=%u sd=%p hw_mask=0x%x channel=%d reason=%s\n",
            name ? name : "subdev", enable ? "enable" : "disable",
            irq, sd, hw_mask, channel, reason ? reason : "?");
 }
@@ -11395,7 +11460,7 @@ static int regtrace_t23_ensure_sensor_client(struct i2c_driver *drv,
         return -EINVAL;
     if (!addr || addr > 0x7fU) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: sensor %s registered invalid i2c address 0x%x reason=%s\n",
+               "t23: sensor %s registered invalid i2c address 0x%x reason=%s\n",
                name, addr, reason ? reason : "?");
         return -EINVAL;
     }
@@ -11408,7 +11473,7 @@ static int regtrace_t23_ensure_sensor_client(struct i2c_driver *drv,
 
     adapter = i2c_get_adapter(regtrace_t23_sensor_i2c_adapter);
     if (!adapter) {
-        printk(KERN_WARNING "tx_isp_t23_recovered: no i2c adapter %d for sensor %s reason=%s\n",
+        printk(KERN_WARNING "t23: no i2c adapter %d for sensor %s reason=%s\n",
                regtrace_t23_sensor_i2c_adapter, name, reason ? reason : "?");
         return -ENODEV;
     }
@@ -11416,14 +11481,14 @@ static int regtrace_t23_ensure_sensor_client(struct i2c_driver *drv,
     regtrace_t23_sensor_client = i2c_new_device(adapter, &info);
     i2c_put_adapter(adapter);
     if (!regtrace_t23_sensor_client) {
-        printk(KERN_WARNING "tx_isp_t23_recovered: failed to create i2c sensor client %s addr=0x%x adapter=%d reason=%s\n",
+        printk(KERN_WARNING "t23: failed to create i2c sensor client %s addr=0x%x adapter=%d reason=%s\n",
                name, info.addr, regtrace_t23_sensor_i2c_adapter,
                reason ? reason : "?");
         return -ENODEV;
     }
 
     regtrace_t23_sensor_driver = drv;
-    printk(KERN_INFO "tx_isp_t23_recovered: created i2c sensor client %s addr=0x%x adapter=%d client=%p reason=%s\n",
+    printk(KERN_INFO "t23: created i2c sensor client %s addr=0x%x adapter=%d client=%p reason=%s\n",
            name, info.addr, regtrace_t23_sensor_i2c_adapter,
            regtrace_t23_sensor_client, reason ? reason : "?");
     return regtrace_t23_call_sensor_chip_ident("sensor-client-created");
@@ -11437,7 +11502,7 @@ static void regtrace_t23_release_sensor_client(struct i2c_driver *drv,
     if (drv && regtrace_t23_sensor_driver && drv != regtrace_t23_sensor_driver)
         return;
 
-    printk(KERN_INFO "tx_isp_t23_recovered: unregister i2c sensor client %p reason=%s\n",
+    printk(KERN_INFO "t23: unregister i2c sensor client %p reason=%s\n",
            regtrace_t23_sensor_client, reason ? reason : "?");
     i2c_unregister_device(regtrace_t23_sensor_client);
     regtrace_t23_sensor_client = NULL;
@@ -11501,7 +11566,7 @@ static void regtrace_t23_seed_sensor_caches(const char *reason)
     attr = regtrace_t23_sensor_owned_attr();
     if (!attr || regtrace_t23_sensor_mbus(&width, &height, &code)) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: bound sensor metadata unavailable reason=%s\n",
+               "t23: bound sensor metadata unavailable reason=%s\n",
                reason ? reason : "?");
         return;
     }
@@ -11537,7 +11602,7 @@ static void regtrace_t23_seed_sensor_caches(const char *reason)
         *(uint32_t *)(regtrace_t23_core_sd + 0x128) = height;
     }
 
-    printk(KERN_INFO "tx_isp_t23_recovered: seeded bound sensor attrs attr=%p mbus=0x%x %ux%u csi=%p vic=%p core=%p sensor=%p reason=%s\n",
+    printk(KERN_INFO "t23: seeded bound sensor attrs attr=%p mbus=0x%x %ux%u csi=%p vic=%p core=%p sensor=%p reason=%s\n",
            attr, code, width, height,
            regtrace_t23_csi_sd, regtrace_t23_vic_sd, regtrace_t23_core_sd,
 	   regtrace_t23_sensor_sd, reason ? reason : "?");
@@ -11568,13 +11633,13 @@ static int regtrace_t23_call_sensor_chip_ident(const char *reason)
         return 0;
     }
 
-    printk(KERN_WARNING "tx_isp_t23_recovered: sensor g_chip_ident start sd=%p fn=%p reason=%s\n",
+    printk(KERN_WARNING "t23: sensor g_chip_ident start sd=%p fn=%p reason=%s\n",
            (void *)sd, (void *)ident_fn, reason ? reason : "?");
     ret = ((int (*)(void *, void *))(uintptr_t)ident_fn)((void *)sd, NULL);
     if (!ret)
         regtrace_t23_sensor_identified = true;
     regtrace_t23_seed_sensor_caches("sensor-g-chip-ident");
-    printk(KERN_WARNING "tx_isp_t23_recovered: sensor g_chip_ident ret=%d reason=%s\n",
+    printk(KERN_WARNING "t23: sensor g_chip_ident ret=%d reason=%s\n",
            ret, reason ? reason : "?");
     return ret;
 }
@@ -11599,12 +11664,12 @@ static int regtrace_t23_map_csi_phy(unsigned char *csi)
                                REGTRACE_T23_CSI_PHY_SIZE);
         if (!base)
             return -EBUSY;
-        printk(KERN_WARNING "tx_isp_t23_recovered: CSI phy mem-region busy, ioremap fallback phys=0x%x base=%p\n",
+        printk(KERN_WARNING "t23: CSI phy mem-region busy, ioremap fallback phys=0x%x base=%p\n",
                REGTRACE_T23_CSI_PHY_PHYS, base);
     }
 
     *(uint32_t *)(csi + 320) = (uint32_t)(uintptr_t)base;
-    printk(KERN_INFO "tx_isp_t23_recovered: mapped CSI phy phys=0x%x base=%p res=%p\n",
+    printk(KERN_INFO "t23: mapped CSI phy phys=0x%x base=%p res=%p\n",
            REGTRACE_T23_CSI_PHY_PHYS, base,
            (void *)(uintptr_t)*(uint32_t *)(csi + 316));
     return 0;
@@ -11636,7 +11701,7 @@ static int regtrace_t23_call_sensor_core_init(const char *reason)
     if (!regtrace_t23_valid_ptr(init_fn))
         return -ENODEV;
 
-    printk(KERN_WARNING "tx_isp_t23_recovered: sensor init start sd=%p fn=%p reason=%s\n",
+    printk(KERN_WARNING "t23: sensor init start sd=%p fn=%p reason=%s\n",
            (void *)sd, (void *)init_fn, reason ? reason : "?");
     ret = ((int (*)(void *, int))(uintptr_t)init_fn)((void *)sd, 1);
     /*
@@ -11652,7 +11717,7 @@ static int regtrace_t23_call_sensor_core_init(const char *reason)
     if (!ret)
         regtrace_t23_sensor_initialized = true;
     regtrace_t23_seed_sensor_caches("sensor-core-init");
-    printk(KERN_WARNING "tx_isp_t23_recovered: sensor init ret=%d reason=%s\n",
+    printk(KERN_WARNING "t23: sensor init ret=%d reason=%s\n",
            ret, reason ? reason : "?");
     return ret;
 }
@@ -11706,7 +11771,7 @@ static int regtrace_t23_call_sensor_exposure(uint32_t packed,
     if (!ret)
         regtrace_t23_expo_note(requested);
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: sensor exposure packed=0x%08x again=0x%x int=%u ret=%d reason=%s\n",
+           "t23: sensor exposure packed=0x%08x again=0x%x int=%u ret=%d reason=%s\n",
            packed, packed >> 16, packed & 0xffffU, ret,
            reason ? reason : "?");
     return ret;
@@ -11853,7 +11918,7 @@ static int regtrace_t23_call_sensor_stream(int enable, const char *reason)
                 "source-ae-resume-after-stream" :
                 "source-ae-bootstrap-after-stream");
     }
-    printk(KERN_WARNING "tx_isp_t23_recovered: sensor stream %s ret=%d reason=%s\n",
+    printk(KERN_WARNING "t23: sensor stream %s ret=%d reason=%s\n",
            enable ? "on" : "off", ret, reason ? reason : "?");
     return ret;
 }
@@ -11871,7 +11936,7 @@ static int regtrace_t23_wait_vic_idle(void __iomem *base, const char *reason)
     }
 
     reg0 = readl(base + 0x0);
-    printk(KERN_WARNING "tx_isp_t23_recovered: VIC wait idle timed out reg0=0x%x reason=%s\n",
+    printk(KERN_WARNING "t23: VIC wait idle timed out reg0=0x%x reason=%s\n",
            reg0, reason ? reason : "?");
     return -ETIMEDOUT;
 }
@@ -11930,7 +11995,7 @@ static int regtrace_t23_direct_csi_stream(int enable, const char *reason)
         writel(readl(base + 0x10) & ~1U, base + 0x10);
         wmb();
         *(uint32_t *)(regtrace_t23_csi_sd + 0x12c) = 3;
-        printk(KERN_WARNING "tx_isp_t23_recovered: direct CSI off base=%p reg04=0x%x reg0c=0x%x reg10=0x%x reason=%s\n",
+        printk(KERN_WARNING "t23: direct CSI off base=%p reg04=0x%x reg0c=0x%x reg10=0x%x reason=%s\n",
                base, readl(base + 0x04), readl(base + 0x0c),
                readl(base + 0x10), reason ? reason : "?");
         return 0;
@@ -11980,7 +12045,7 @@ static int regtrace_t23_direct_csi_stream(int enable, const char *reason)
     private_msleep(10);
 
     *(uint32_t *)(regtrace_t23_csi_sd + 0x12c) = 4;
-    printk(KERN_WARNING "tx_isp_t23_recovered: direct CSI on base=%p wrap=%p lanes=%u rate=0x%x reg04=0x%x reg08=0x%x reg0c=0x%x reg10=0x%x reg100=0x%x wrap00=0x%x wrap128=0x%x r160=0x%x r1e0=0x%x r260=0x%x reason=%s\n",
+    printk(KERN_WARNING "t23: direct CSI on base=%p wrap=%p lanes=%u rate=0x%x reg04=0x%x reg08=0x%x reg0c=0x%x reg10=0x%x reg100=0x%x wrap00=0x%x wrap128=0x%x r160=0x%x r1e0=0x%x r260=0x%x reason=%s\n",
            base, wrap, lanes, rate, readl(base + 0x04), readl(base + 0x08),
            readl(base + 0x0c), readl(base + 0x10), readl(base + 0x100),
            readl(wrap + 0x00), readl(wrap + 0x128), readl(wrap + 0x160),
@@ -12003,7 +12068,7 @@ static void regtrace_t23_program_vic_irq_regs(void __iomem *base,
         writel(0xfffffffcU, base + 0x1ec);
     }
     wmb();
-    printk(KERN_INFO "tx_isp_t23_recovered: VIC IRQ regs status=0x%x/0x%x mask=0x%x/0x%x reason=%s\n",
+    printk(KERN_INFO "t23: VIC IRQ regs status=0x%x/0x%x mask=0x%x/0x%x reason=%s\n",
            readl(base + 0x1e0), readl(base + 0x1e4),
            readl(base + 0x1e8), readl(base + 0x1ec),
            reason ? reason : "?");
@@ -12080,7 +12145,7 @@ static int regtrace_t23_csi_core_ops_init_repaired(struct tx_isp_subdev *sd,
         wmb();
         regtrace_t23_csi_initialized = false;
         *(uint32_t *)(csi + 0x12c) = 2;
-        printk(KERN_INFO "tx_isp_t23_recovered: CSI core off base=%p wrap=%p reason=%s\n",
+        printk(KERN_INFO "t23: CSI core off base=%p wrap=%p reason=%s\n",
                base, wrap, reason ? reason : "?");
         return 0;
     }
@@ -12095,7 +12160,7 @@ static int regtrace_t23_csi_core_ops_init_repaired(struct tx_isp_subdev *sd,
     *(uint32_t *)(csi + 0x14) = dbus;
     *(uint32_t *)(csi + 0x110) = (uint32_t)(uintptr_t)attr;
     if (dbus != REGTRACE_TX_SENSOR_DATA_INTERFACE_MIPI) {
-        printk(KERN_WARNING "tx_isp_t23_recovered: CSI core unsupported dbus=%u reason=%s\n",
+        printk(KERN_WARNING "t23: CSI core unsupported dbus=%u reason=%s\n",
                dbus, reason ? reason : "?");
         *(uint32_t *)(csi + 0x12c) = 3;
         return 0;
@@ -12151,7 +12216,7 @@ static int regtrace_t23_csi_core_ops_init_repaired(struct tx_isp_subdev *sd,
 
     regtrace_t23_csi_initialized = true;
     *(uint32_t *)(csi + 0x12c) = 3;
-    printk(KERN_WARNING "tx_isp_t23_recovered: CSI core on base=%p wrap=%p lanes=%u rate=0x%x reg04=0x%x reg0c=0x%x reg10=0x%x wrap00=0x%x wrap128=0x%x r160=0x%x reason=%s\n",
+    printk(KERN_WARNING "t23: CSI core on base=%p wrap=%p lanes=%u rate=0x%x reg04=0x%x reg0c=0x%x reg10=0x%x wrap00=0x%x wrap128=0x%x r160=0x%x reason=%s\n",
            base, wrap, lanes, rate, readl(base + 0x04), readl(base + 0x0c),
            readl(base + 0x10), readl(wrap + 0x00), readl(wrap + 0x128),
            readl(wrap + 0x160), reason ? reason : "?");
@@ -12178,7 +12243,7 @@ static int regtrace_t23_csi_video_s_stream_repaired(void *sd,
         return 0;
 
     *(uint32_t *)(csi + 0x12c) = enable ? 4 : 3;
-    printk(KERN_INFO "tx_isp_t23_recovered: CSI video stream %s state=%u csi=%p reason=%s\n",
+    printk(KERN_INFO "t23: CSI video stream %s state=%u csi=%p reason=%s\n",
            enable ? "on" : "off", *(uint32_t *)(csi + 0x12c), csi,
            reason ? reason : "?");
     return 0;
@@ -12254,7 +12319,7 @@ static int regtrace_t23_vic_start_repaired(unsigned char *vic,
         return -ENODEV;
     dbus = regtrace_t23_get_le32(attr + REGTRACE_T23_ATTR_DBUS_TYPE);
     if (dbus != REGTRACE_TX_SENSOR_DATA_INTERFACE_MIPI) {
-        printk(KERN_WARNING "tx_isp_t23_recovered: VIC start unsupported dbus=%u reason=%s\n",
+        printk(KERN_WARNING "t23: VIC start unsupported dbus=%u reason=%s\n",
                dbus, reason ? reason : "?");
         return -EINVAL;
     }
@@ -12279,7 +12344,7 @@ static int regtrace_t23_vic_start_repaired(unsigned char *vic,
     bits_per_pixel = tx_isp_sensor_csi_bits_per_pixel(csi_fmt);
     if (!bits_per_pixel) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: VIC start unsupported CSI format=%u reason=%s\n",
+               "t23: VIC start unsupported CSI format=%u reason=%s\n",
                csi_fmt, reason ? reason : "?");
         return -EINVAL;
     }
@@ -12337,7 +12402,7 @@ static int regtrace_t23_vic_start_repaired(unsigned char *vic,
     if (regtrace_t23_source_sensor_stream) {
         ret = regtrace_t23_call_sensor_stream(1, reason);
         if (ret < 0 && ret != -ENOIOCTLCMD)
-            printk(KERN_WARNING "tx_isp_t23_recovered: sensor stream before VIC unlock ret=%d reason=%s\n",
+            printk(KERN_WARNING "t23: sensor stream before VIC unlock ret=%d reason=%s\n",
                    ret, reason ? reason : "?");
     }
 
@@ -12361,7 +12426,7 @@ static int regtrace_t23_vic_start_repaired(unsigned char *vic,
     *(uint32_t *)(vic + 0x12c) = 4;
     vic_start_ok = 1;
     regtrace_t23_vic_streaming = true;
-    printk(KERN_WARNING "tx_isp_t23_recovered: VIC source start ret=%d reg0=0x%x size=0x%x fmt=0x%x reg100=0x%x reg10c=0x%x reg110=0x%x reg1a4=0x%x reason=%s\n",
+    printk(KERN_WARNING "t23: VIC source start ret=%d reg0=0x%x size=0x%x fmt=0x%x reg100=0x%x reg10c=0x%x reg110=0x%x reg1a4=0x%x reason=%s\n",
            ret, readl(base + 0x0), readl(base + 0x04), readl(base + 0x14),
            readl(base + 0x100), readl(base + 0x10c), readl(base + 0x110),
            readl(base + 0x1a4), reason ? reason : "?");
@@ -12385,7 +12450,7 @@ static int regtrace_t23_vic_core_s_stream_repaired(void *sd,
             *(uint32_t *)(vic + 0x12c) = 3;
         regtrace_t23_call_sensor_stream(0, reason);
         regtrace_t23_vic_streaming = false;
-        printk(KERN_INFO "tx_isp_t23_recovered: VIC stream off state=%u vic=%p reason=%s\n",
+        printk(KERN_INFO "t23: VIC stream off state=%u vic=%p reason=%s\n",
                *(uint32_t *)(vic + 0x12c), vic, reason ? reason : "?");
         return 0;
     }
@@ -12398,7 +12463,7 @@ static int regtrace_t23_vic_core_s_stream_repaired(void *sd,
         tx_vic_enable_irq();
     }
 
-    printk(KERN_WARNING "tx_isp_t23_recovered: VIC stream on ret=%d state=%u vic=%p reason=%s\n",
+    printk(KERN_WARNING "t23: VIC stream on ret=%d state=%u vic=%p reason=%s\n",
            ret, *(uint32_t *)(vic + 0x12c), vic, reason ? reason : "?");
     return ret;
 }
@@ -12441,7 +12506,7 @@ static int regtrace_t23_source_input_stream(int enable, const char *reason)
         }
     }
 
-    printk(KERN_WARNING "tx_isp_t23_recovered: source input stream %s ret=%d csi=%p vic=%p reason=%s\n",
+    printk(KERN_WARNING "t23: source input stream %s ret=%d csi=%p vic=%p reason=%s\n",
            enable ? "on" : "off", ret, regtrace_t23_csi_sd,
            regtrace_t23_vic_sd, reason ? reason : "?");
     return ret;
@@ -12482,7 +12547,7 @@ static void regtrace_t23_direct_vic_mdma_stream(int channel,
     if (!enable) {
         writel(0, base + 0x300);
         *(uint32_t *)(regtrace_t23_vic_sd + 532) = 0;
-        printk(KERN_WARNING "tx_isp_t23_recovered: direct VIC MDMA off ch=%d ctrl=0x%x reason=%s\n",
+        printk(KERN_WARNING "t23: direct VIC MDMA off ch=%d ctrl=0x%x reason=%s\n",
                channel, readl(base + 0x300), reason ? reason : "?");
         return;
     }
@@ -12501,7 +12566,7 @@ static void regtrace_t23_direct_vic_mdma_stream(int channel,
     writel(ctrl, base + 0x300);
     wmb();
     *(uint32_t *)(regtrace_t23_vic_sd + 532) = 1;
-    printk(KERN_WARNING "tx_isp_t23_recovered: direct VIC MDMA on ch=%d %ux%u stride=%u qbufs=%u ctrl=0x%x rb_ctrl=0x%x size=0x%x en=0x%x reason=%s\n",
+    printk(KERN_WARNING "t23: direct VIC MDMA on ch=%d %ux%u stride=%u qbufs=%u ctrl=0x%x rb_ctrl=0x%x size=0x%x en=0x%x reason=%s\n",
            channel, width, height, stride, count, ctrl, readl(base + 0x300),
            readl(base + 0x304), readl(base + 0x308), reason ? reason : "?");
 }
@@ -12538,7 +12603,7 @@ static void regtrace_t23_core_dma_disable(const char *reason)
     system_reg_write(0xb8b8U, 0);
     wmb();
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: core statistics DMA disabled reason=%s\n",
+           "t23: core statistics DMA disabled reason=%s\n",
            reason ? reason : "?");
 }
 
@@ -12652,7 +12717,7 @@ static int regtrace_t23_program_core_dma(void)
     system_reg_write(0xb8b4U, p + 0x3000U);
     system_reg_write(0xb8b8U, 3U);
 
-    printk(KERN_WARNING "tx_isp_t23_recovered: source core DMA phys=%x/%x/%x/%x/%x/%x\n",
+    printk(KERN_WARNING "t23: source core DMA phys=%x/%x/%x/%x/%x/%x\n",
            regtrace_t23_core_dma_bufs[0].phys,
            regtrace_t23_core_dma_bufs[1].phys,
            regtrace_t23_core_dma_bufs[2].phys,
@@ -12685,7 +12750,7 @@ static int regtrace_t23_source_core_bypass_value(uint32_t *value)
     file = private_filp_open(regtrace_t23_source_core_tuning_path, O_RDONLY, 0);
     if (IS_ERR(file)) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: tuning bypass open failed path=%s ret=%ld\n",
+               "t23: tuning bypass open failed path=%s ret=%ld\n",
                regtrace_t23_source_core_tuning_path, PTR_ERR(file));
         return PTR_ERR(file);
     }
@@ -12698,7 +12763,7 @@ static int regtrace_t23_source_core_bypass_value(uint32_t *value)
 
     if (got != sizeof(params)) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: tuning bypass read failed path=%s got=%ld\n",
+               "t23: tuning bypass read failed path=%s got=%ld\n",
                regtrace_t23_source_core_tuning_path, (long)got);
         return got < 0 ? (int)got : -EIO;
     }
@@ -12710,7 +12775,7 @@ static int regtrace_t23_source_core_bypass_value(uint32_t *value)
     /* Exact non-WDR T23 tisp_init mask after loading the day parameters. */
     bypass = (mask & 0xb577fffdU) | 0x34000001U;
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: tuning bypass path=%s param_mask=0x%x bypass=0x%x\n",
+           "t23: tuning bypass path=%s param_mask=0x%x bypass=0x%x\n",
            regtrace_t23_source_core_tuning_path, mask, bypass);
     *value = bypass;
     return 0;
@@ -12790,9 +12855,28 @@ static int regtrace_t23_validate_iq(const unsigned char *data, size_t size,
     return 0;
 }
 
+/*
+ * SwitchBin publishes new day/night banks by pointer.  The mutex is shared
+ * by the publish and by the bank free (deinit, reload), so a publish never
+ * runs into freed banks.  The previous pair stays allocated one generation
+ * longer (a reader that still holds it never touches freed memory).
+ */
+static DEFINE_MUTEX(regtrace_t23_bank_mutex);
+static uintptr_t regtrace_t23_bank_retired_day;
+static uintptr_t regtrace_t23_bank_retired_night;
+
 static void regtrace_t23_source_parameter_banks_free(void)
 {
+    mutex_lock(&regtrace_t23_bank_mutex);
     regtrace_t23_source_active_bank = NULL;
+    if (regtrace_t23_bank_retired_night) {
+        private_vfree((void *)regtrace_t23_bank_retired_night);
+        regtrace_t23_bank_retired_night = 0;
+    }
+    if (regtrace_t23_bank_retired_day) {
+        private_vfree((void *)regtrace_t23_bank_retired_day);
+        regtrace_t23_bank_retired_day = 0;
+    }
     if (tparams_cust) {
         private_vfree((void *)tparams_cust);
         tparams_cust = 0;
@@ -12805,6 +12889,7 @@ static void regtrace_t23_source_parameter_banks_free(void)
         private_vfree((void *)tparams_day);
         tparams_day = 0;
     }
+    mutex_unlock(&regtrace_t23_bank_mutex);
 }
 
 static int regtrace_t23_source_parameter_banks_load(const char *sensor_name)
@@ -12884,7 +12969,7 @@ static int regtrace_t23_source_parameter_banks_load(const char *sensor_name)
     memcpy(tparams + T23_TPARAMS_ACTIVE_OFFSET, day,
            T23_TPARAMS_BANK_SIZE);
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: IQ banks loaded stock=%s custom=%s\n",
+           "t23: IQ banks loaded stock=%s custom=%s\n",
            regtrace_t23_source_core_tuning_path,
            custom ? regtrace_t23_source_core_custom_path : "none");
     return 0;
@@ -13031,7 +13116,7 @@ static int regtrace_t23_source_awb_hlil_load_tuning(void)
     regtrace_t23_awb_hlil_light_source_count = light_count;
     regtrace_t23_source_awb_hlil_tuning_loaded = true;
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: AWB profile loaded q=%u history=%u mode=%u/%u/%u ct=%u lights=%u wb=%u/%u bias=%u/%u\n",
+           "t23: AWB profile loaded q=%u history=%u mode=%u/%u/%u ct=%u lights=%u wb=%u/%u bias=%u/%u\n",
            point_position[0], history[0], mode[0], mode[1], mode[2], ct,
            light_count, regtrace_t23_awb_hlil_wb_static[0],
            regtrace_t23_awb_hlil_wb_static[1],
@@ -13085,7 +13170,7 @@ static int regtrace_t23_source_gib_load_tuning(void)
         return ret;
     points = (const uint32_t *)gib_ir_point;
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: GIB tuning loaded IR points=%u/%u/%u/%u\n",
+           "t23: GIB tuning loaded IR points=%u/%u/%u/%u\n",
            points[0], points[1], points[2], points[3]);
     return 0;
 }
@@ -13127,7 +13212,7 @@ static int regtrace_t23_source_lsc_initialize_tables(void)
         ct_points[1] > ct_points[2] || ct_points[2] >= ct_points[3] ||
         mean_enable > 1U) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: invalid LSC profile lut=%u scale=%u stride=%u mesh=%ux%u ct=%u/%u/%u/%u mean=%u\n",
+               "t23: invalid LSC profile lut=%u scale=%u stride=%u mesh=%ux%u ct=%u/%u/%u/%u mean=%u\n",
                lut_num, mesh_scale, lut_stride, mesh_size[0], mesh_size[1],
                ct_points[0], ct_points[1], ct_points[2], ct_points[3],
                mean_enable);
@@ -13163,7 +13248,7 @@ static int regtrace_t23_source_lsc_initialize_tables(void)
     last_status_mirror_en = 0;
     regtrace_t23_source_lsc_tables_initialized = true;
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: LSC profile loaded lut=%u scale=%u stride=%u mesh=%ux%u ct=%u/%u/%u/%u mean=%u\n",
+           "t23: LSC profile loaded lut=%u scale=%u stride=%u mesh=%ux%u ct=%u/%u/%u/%u mean=%u\n",
            lut_num, mesh_scale, lut_stride, mesh_size[0], mesh_size[1],
            ct_points[0], ct_points[1], ct_points[2], ct_points[3],
            mean_enable);
@@ -13257,7 +13342,7 @@ static int regtrace_t23_source_mdns_load_tuning(void)
                                         REGTRACE_T23_MDNS_TUNING_SIZE);
     if (ret) {
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: MDNS tuning refresh failed path=%s ret=%d\n",
+               "t23: MDNS tuning refresh failed path=%s ret=%d\n",
                regtrace_t23_source_core_tuning_path, ret);
         private_vfree(params);
         return ret;
@@ -13272,7 +13357,7 @@ static int regtrace_t23_source_mdns_load_tuning(void)
     if (regtrace_t23_mdns_ratio != 0x80U)
         (void)regtrace_t23_mdns_ratio_scale();
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: MDNS tuning loaded ctrl=%x/%x/%x uv=%x/%x/%x memopt=%u\n",
+           "t23: MDNS tuning loaded ctrl=%x/%x/%x uv=%x/%x/%x memopt=%u\n",
            (uint32_t)mdns_y_filter_en_array,
            (uint32_t)mdns_y_sf_cur_en_array,
            (uint32_t)mdns_y_sf_ref_en_array,
@@ -13297,7 +13382,7 @@ static int regtrace_t23_source_sdns_load_tuning(void)
                                         REGTRACE_T23_SDNS_TUNING_SIZE);
     if (ret) {
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: SDNS tuning refresh failed path=%s ret=%d\n",
+               "t23: SDNS tuning refresh failed path=%s ret=%d\n",
                regtrace_t23_source_core_tuning_path, ret);
         private_vfree(params);
         return ret;
@@ -13314,7 +13399,7 @@ static int regtrace_t23_source_sdns_load_tuning(void)
     if (ratio != 0x80U)
         tisp_s_sdns_ratio(ratio);
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: SDNS tuning loaded ratio=0x%x first=%x/%x/%x\n",
+           "t23: SDNS tuning loaded ratio=0x%x first=%x/%x/%x\n",
            ratio,
            *(const uint32_t *)(const void *)&sdns_aa_mv_det_opt[0],
            *(const uint32_t *)(const void *)&sdns_aa_mv_det_opt[4],
@@ -13336,7 +13421,7 @@ static int regtrace_t23_source_adr_load_tuning(void)
                                         REGTRACE_T23_ADR_TUNING_SIZE);
     if (ret) {
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: ADR tuning refresh failed path=%s ret=%d\n",
+               "t23: ADR tuning refresh failed path=%s ret=%d\n",
                regtrace_t23_source_core_tuning_path, ret);
         private_vfree(params);
         return ret;
@@ -13351,7 +13436,7 @@ static int regtrace_t23_source_adr_load_tuning(void)
 
     private_vfree(params);
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: ADR tuning loaded ctl=%u para=%x/%x/%x map=%x/%x\n",
+           "t23: ADR tuning loaded ctl=%u para=%x/%x/%x map=%x/%x\n",
            regtrace_t23_get_le32(param_adr_tool_control_array),
            regtrace_t23_get_le32(param_adr_para_array),
            regtrace_t23_get_le32(param_adr_para_array + 4U),
@@ -13374,7 +13459,7 @@ static int regtrace_t23_source_defog_load_tuning(void)
                                         REGTRACE_T23_DEFOG_TUNING_SIZE);
     if (ret) {
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: defog tuning refresh failed path=%s ret=%d\n",
+               "t23: defog tuning refresh failed path=%s ret=%d\n",
                regtrace_t23_source_core_tuning_path, ret);
         private_vfree(params);
         return ret;
@@ -13387,7 +13472,7 @@ static int regtrace_t23_source_defog_load_tuning(void)
 
     private_vfree(params);
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: defog tuning loaded main=%x/%x/%x rgbra=%x fpga=%x/%x/%x\n",
+           "t23: defog tuning loaded main=%x/%x/%x rgbra=%x fpga=%x/%x/%x\n",
            regtrace_t23_get_le32(param_defog_main_para_array),
            regtrace_t23_get_le32(param_defog_main_para_array + 4U),
            regtrace_t23_get_le32(param_defog_main_para_array + 8U),
@@ -13413,7 +13498,7 @@ static __always_inline int regtrace_t23_source_clm_load_tuning(void)
                                         REGTRACE_T23_CLM_TUNING_SIZE);
     if (ret) {
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: CLM tuning refresh failed path=%s ret=%d\n",
+               "t23: CLM tuning refresh failed path=%s ret=%d\n",
                regtrace_t23_source_core_tuning_path, ret);
         private_vfree(params);
         return ret;
@@ -13432,7 +13517,7 @@ static __always_inline int regtrace_t23_source_clm_load_tuning(void)
         nonzero += params[i] != 0;
     private_vfree(params);
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: CLM tuning loaded anchors=%u/%u/%u shift=%u nonzero=%u\n",
+           "t23: CLM tuning loaded anchors=%u/%u/%u shift=%u nonzero=%u\n",
            regtrace_t23_get_le32(tiziano_clm_ct_list),
            regtrace_t23_get_le32(tiziano_clm_ct_list + 4U),
            regtrace_t23_get_le32(tiziano_clm_ct_list + 8U),
@@ -13476,7 +13561,7 @@ static int regtrace_t23_source_gib_write_tuning_startup(void)
     tuning_ret = regtrace_t23_source_gib_load_tuning();
     if (tuning_ret) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: GIB tuning load failed ret=%d\n",
+               "t23: GIB tuning load failed ret=%d\n",
                tuning_ret);
         return tuning_ret;
     }
@@ -13487,18 +13572,18 @@ static int regtrace_t23_source_gib_write_tuning_startup(void)
         tiziano_gib_config_line[3] = 1;
         tisp_gib_deir_ir_update(regtrace_t23_source_gib_ir_value);
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: source GIB de-IR value=%u region=%u committed\n",
+               "t23: source GIB de-IR value=%u region=%u committed\n",
                regtrace_t23_source_gib_ir_value,
                (unsigned int)deir_flag_35749);
     }
 
     if (tuning_ret)
         printk(KERN_ERR
-               "tx_isp_t23_recovered: source GIB loaded-tuning startup ret=%d\n",
+               "t23: source GIB loaded-tuning startup ret=%d\n",
                tuning_ret);
     else
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: source GIB loaded-tuning startup committed\n");
+               "t23: source GIB loaded-tuning startup committed\n");
     return tuning_ret;
 }
 
@@ -13508,11 +13593,11 @@ static int regtrace_t23_source_gamma_write_tuning_startup(void)
 
     if (ret)
         printk(KERN_ERR
-               "tx_isp_t23_recovered: source Gamma profile startup failed ret=%d\n",
+               "t23: source Gamma profile startup failed ret=%d\n",
                ret);
     else
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: source Gamma profile startup committed\n");
+               "t23: source Gamma profile startup committed\n");
     return ret;
 }
 
@@ -13524,7 +13609,7 @@ static int regtrace_t23_source_lsc_write_tuning_startup(void)
                            regtrace_t23_source_sensor_height);
     if (ret) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: source LSC profile startup failed ret=%d\n",
+               "t23: source LSC profile startup failed ret=%d\n",
                ret);
         return ret;
     }
@@ -13540,11 +13625,11 @@ static int regtrace_t23_source_lsc_write_tuning_startup(void)
             regtrace_t23_source_lsc_initial_mirror);
         if (ret)
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: initial LSC transform failed ret=%d\n",
+                   "t23: initial LSC transform failed ret=%d\n",
                    ret);
     }
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: source LSC profile CT%u startup committed\n",
+           "t23: source LSC profile CT%u startup committed\n",
            regtrace_t23_source_lsc_runtime_ct);
     return ret;
 }
@@ -13597,7 +13682,7 @@ static void regtrace_t23_source_ae_write_stats_startup(void)
     if (ret) {
         regtrace_t23_source_ae_hlil_status = -ret;
         printk(KERN_ERR
-               "tx_isp_t23_recovered: AE statistics grid unsupported %ux%u ret=%d\n",
+               "t23: AE statistics grid unsupported %ux%u ret=%d\n",
                regtrace_t23_source_sensor_width,
                regtrace_t23_source_sensor_height, ret);
         return;
@@ -13611,7 +13696,7 @@ static void regtrace_t23_source_ae_write_stats_startup(void)
     regtrace_t23_source_ae_hlil_reset();
     t23_aelift_start();
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: source AE0 statistics grid committed for %ux%u\n",
+           "t23: source AE0 statistics grid committed for %ux%u\n",
            regtrace_t23_source_sensor_width,
            regtrace_t23_source_sensor_height);
 }
@@ -13649,7 +13734,7 @@ static void regtrace_t23_source_awb_write_static_startup(void)
     system_reg_write(0x1810U, bvalue);
 
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: source AWB %s startup requested gains=0x%x/0x%x\n",
+           "t23: source AWB %s startup requested gains=0x%x/0x%x\n",
            regtrace_t23_source_awb_kept ? "kept" : "neutral", rvalue, bvalue);
 }
 
@@ -13669,7 +13754,7 @@ static void regtrace_t23_source_awb_write_stats_startup(void)
     if (ret) {
         regtrace_t23_source_awb_hlil_status = -ret;
         printk(KERN_ERR
-               "tx_isp_t23_recovered: AWB statistics grid unsupported %ux%u ret=%d\n",
+               "t23: AWB statistics grid unsupported %ux%u ret=%d\n",
                regtrace_t23_source_sensor_width,
                regtrace_t23_source_sensor_height, ret);
         return;
@@ -13697,7 +13782,7 @@ static void regtrace_t23_source_awb_write_stats_startup(void)
     }
     regtrace_t23_source_awb_hlil_reset();
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: source AWB statistics grid committed for %ux%u tap=%s thresholds=wide\n",
+           "t23: source AWB statistics grid committed for %ux%u tap=%s thresholds=wide\n",
            regtrace_t23_source_sensor_width,
            regtrace_t23_source_sensor_height,
            processed_tap ? "t23-selector-1" : "selector-0");
@@ -13788,7 +13873,7 @@ static void regtrace_t23_source_ae_stats_snapshot(uint32_t status)
         !(regtrace_t23_source_ae_stats_snapshots &
           (regtrace_t23_source_ae_stats_snapshots - 1U)))
         printk(KERN_INFO
-               "tx_isp_t23_recovered: source AE0 stats snapshot=%u irq=%u bank=%u bankreg=0x%x area=%llu dark=%llu bright=%llu rgb=%llu/%llu/%llu luma=%llu raw=%08x/%08x/%08x/%08x status=0x%x\n",
+               "t23: source AE0 stats snapshot=%u irq=%u bank=%u bankreg=0x%x area=%llu dark=%llu bright=%llu rgb=%llu/%llu/%llu luma=%llu raw=%08x/%08x/%08x/%08x status=0x%x\n",
                regtrace_t23_source_ae_stats_snapshots,
                regtrace_t23_source_ae_stats_irqs, bank, bank_reg,
                (unsigned long long)zone_pixels,
@@ -13864,7 +13949,7 @@ static void regtrace_t23_source_awb_stats_snapshot(uint32_t status)
     if (!zones || !red || !green || !blue) {
         if (regtrace_t23_source_awb_stats_snapshots <= 8U)
             printk(KERN_WARNING
-                   "tx_isp_t23_recovered: source AWB stats snapshot=%u bank=%u status=0x%x empty raw=%08x/%08x/%08x/%08x\n",
+                   "t23: source AWB stats snapshot=%u bank=%u status=0x%x empty raw=%08x/%08x/%08x/%08x\n",
                    regtrace_t23_source_awb_stats_snapshots, bank, status,
                    raw[0], raw[1], raw[2], raw[3]);
         return;
@@ -13909,7 +13994,7 @@ static void regtrace_t23_source_awb_stats_snapshot(uint32_t status)
         !(regtrace_t23_source_awb_stats_snapshots &
           (regtrace_t23_source_awb_stats_snapshots - 1U)))
         printk(KERN_INFO
-               "tx_isp_t23_recovered: source AWB stats snapshot=%u irq=%u bank=%u zones=%u rgb=%llu/%llu/%llu ratio=0x%x/0x%x applied=0x%x/0x%x updates=%u status=0x%x\n",
+               "t23: source AWB stats snapshot=%u irq=%u bank=%u zones=%u rgb=%llu/%llu/%llu ratio=0x%x/0x%x applied=0x%x/0x%x updates=%u status=0x%x\n",
                regtrace_t23_source_awb_stats_snapshots,
                regtrace_t23_source_awb_stats_irqs, bank, zones,
                (unsigned long long)red, (unsigned long long)green,
@@ -13992,7 +14077,7 @@ static int regtrace_t23_source_ccm_load_tuning(void)
     }
     regtrace_t23_ccm_profile_loaded = true;
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: CCM profile loaded anchors=%u/%u/%u/%u\n",
+           "t23: CCM profile loaded anchors=%u/%u/%u/%u\n",
            regtrace_t23_ccm_profile_ct[0],
            regtrace_t23_ccm_profile_ct[1],
            regtrace_t23_ccm_profile_ct[2],
@@ -14129,7 +14214,7 @@ static int regtrace_t23_source_ccm_commit(uint32_t ct, uint32_t ev_q10)
     regtrace_t23_source_ccm_last_saturation = saturation;
     regtrace_t23_source_ccm_event_count++;
     printk(KERN_INFO
-           "tx_isp_t23_recovered: source CCM runtime CT%u region=%u EV=%u saturation=%u committed\n",
+           "t23: source CCM runtime CT%u region=%u EV=%u saturation=%u committed\n",
            ct, region, ev_q10 >> 10, saturation);
     return 0;
 }
@@ -14170,7 +14255,7 @@ static int regtrace_t23_source_ccm_write_tuning_startup(void)
         regtrace_t23_ccm_profile_dp[3]);
 
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: source CCM profile CT%u startup committed\n",
+           "t23: source CCM profile CT%u startup committed\n",
            regtrace_t23_source_ccm_runtime_ct);
     regtrace_t23_source_ccm_event_count = 0;
     return 0;
@@ -14378,13 +14463,13 @@ static void regtrace_t23_source_sharpen_write_tuning_startup(void)
     if (ret) {
         system_reg_write(0xcU, system_reg_read(0xcU) | BIT(14));
         printk(KERN_ERR
-               "tx_isp_t23_recovered: sharpen init failed ret=%d, block bypassed r0c=0x%08x\n",
+               "t23: sharpen init failed ret=%d, block bypassed r0c=0x%08x\n",
                ret, system_reg_read(0xcU));
         return;
     }
     regtrace_t23_source_sharpen_initialized = true;
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: sharpen initialized wdr=%u r7000=0x%08x r7010=0x%08x r7068=0x%08x r707c=0x%08x bypass=%u\n",
+           "t23: sharpen initialized wdr=%u r7000=0x%08x r7010=0x%08x r7068=0x%08x r707c=0x%08x bypass=%u\n",
            sharpen_wdr_en ? 1U : 0U,
            system_reg_read(0x7000U), system_reg_read(0x7010U),
            system_reg_read(0x7068U), system_reg_read(0x707cU),
@@ -14398,11 +14483,11 @@ static int regtrace_t23_source_dmsc_write_tuning_startup(void)
     ret = tiziano_dmsc_init();
     if (ret)
         printk(KERN_ERR
-               "tx_isp_t23_recovered: source DMSC loaded-tuning startup ret=%d\n",
+               "t23: source DMSC loaded-tuning startup ret=%d\n",
                ret);
     else
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: source DMSC loaded-tuning startup committed\n");
+               "t23: source DMSC loaded-tuning startup committed\n");
     return ret;
 }
 
@@ -14450,7 +14535,7 @@ int32_t tisp_gib_gain_interpolation(uint32_t gain_q16)
     case 0x17: ch0 = blc_ir; ch1 = blc_gr; ch2 = blc_gb; ch3 = blc_b;  ch4 = blc_r;  break;
     default:
         printk(KERN_ERR
-               "tx_isp_t23_recovered: unsupported GIB Bayer layout 0x%x\n",
+               "t23: unsupported GIB Bayer layout 0x%x\n",
                bayer);
         return -EINVAL;
     }
@@ -14533,7 +14618,7 @@ static int regtrace_t23_source_apply_total_gain_value(uint32_t gain_q16,
     /* curve position: entry index + fraction/65536, clamped at entry 8 */
     index = min(tgain >> 16, 8U);
     printk_ratelimited(KERN_WARNING
-           "tx_isp_t23_recovered: source total-gain 0x%x tgain_log2=0x%x curve=%u+0x%04x/0x10000 last dmsc=0x%x dpc=0x%x ydns=0x%x mdns=0x%x sdns=0x%x sharpen=0x%x sensor_again=0x%x sharpness=0x%x explicit=%u restore=%u ret=%d\n",
+           "t23: source total-gain 0x%x tgain_log2=0x%x curve=%u+0x%04x/0x10000 last dmsc=0x%x dpc=0x%x ydns=0x%x mdns=0x%x sdns=0x%x sharpen=0x%x sensor_again=0x%x sharpness=0x%x explicit=%u restore=%u ret=%d\n",
            gain_q16, tgain, index, index < 8U ? tgain & 0xffffU : 0U,
            regtrace_t23_dmsc_gain_old, regtrace_t23_dpc_gain_old,
            ydns_gain_old, regtrace_t23_source_mdns_gain_old,
@@ -14571,12 +14656,12 @@ static int regtrace_t23_source_bcsh_write_tuning_startup(void)
     ret = tiziano_bcsh_init();
     if (ret)
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: source BCSH runtime initialization failed ret=%d\n",
+               "t23: source BCSH runtime initialization failed ret=%d\n",
                ret);
 
     else
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: source BCSH loaded-tuning startup committed\n");
+               "t23: source BCSH loaded-tuning startup committed\n");
     return ret;
 }
 
@@ -14587,7 +14672,7 @@ static int regtrace_t23_source_clm_write_tuning_startup(void)
 
     if (startup_ct < 1000U || startup_ct > 10000U) {
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: invalid source_clm_startup_ct=%u\n",
+               "t23: invalid source_clm_startup_ct=%u\n",
                startup_ct);
         return -EINVAL;
     }
@@ -14604,12 +14689,12 @@ static int regtrace_t23_source_clm_write_tuning_startup(void)
             regtrace_t23_source_clm_region = clm_ct_part_now;
             regtrace_t23_source_clm_event_count = 0;
             printk(KERN_WARNING
-                   "tx_isp_t23_recovered: source CLM CT%u initialized region=%u\n",
+                   "t23: source CLM CT%u initialized region=%u\n",
                    startup_ct, regtrace_t23_source_clm_region);
             return 0;
         }
         printk(KERN_ERR
-               "tx_isp_t23_recovered: source CLM functional startup failed ret=%d\n",
+               "t23: source CLM functional startup failed ret=%d\n",
                ret);
     }
     return ret;
@@ -14711,7 +14796,7 @@ static int regtrace_t23_source_defog_prepare(uint32_t width, uint32_t height)
     regtrace_t23_source_defog_height = height;
     regtrace_t23_source_defog_initialized = true;
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: source defog initialized %ux%u bypass=%u geometry=%u cent=%x/%x-%x/%x lut=%x/%x-%x/%x\n",
+           "t23: source defog initialized %ux%u bypass=%u geometry=%u cent=%x/%x-%x/%x lut=%x/%x-%x/%x\n",
            width, height,
            regtrace_t23_source_defog_internal_enable ? 0U : 1U,
            regtrace_t23_source_defog_geometry_init ? 1U : 0U,
@@ -14751,7 +14836,7 @@ static void regtrace_t23_source_bcsh_write_neutral(void)
         system_reg_write(bcsh_cfg[i][0], bcsh_cfg[i][1]);
 
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: source BCSH neutral parameters written\n");
+           "t23: source BCSH neutral parameters written\n");
 }
 
 static void regtrace_t23_source_csccr_write_init(void)
@@ -14764,7 +14849,7 @@ static void regtrace_t23_source_csccr_write_init(void)
     system_reg_write(0xc010U, 0xffffffffU);
     system_reg_write(0xc000U, 0x20230115U);
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: source CSCCR mode-0 parameters committed\n");
+           "t23: source CSCCR mode-0 parameters committed\n");
 }
 
 static uint32_t regtrace_t23_csc_abs10(int32_t value)
@@ -14825,7 +14910,7 @@ static int regtrace_t23_source_hldc_write_tuning_startup(void)
                                         sizeof(hldc_con_par_array));
     if (ret) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: HLDC tuning load failed ret=%d\n",
+               "t23: HLDC tuning load failed ret=%d\n",
                ret);
         return ret;
     }
@@ -14833,7 +14918,7 @@ static int regtrace_t23_source_hldc_write_tuning_startup(void)
     tisp_hldc_par_refresh_part_1();
 
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: source HLDC tuning startup committed params=%x/%x/%x/%x\n",
+           "t23: source HLDC tuning startup committed params=%x/%x/%x/%x\n",
            hldc_con_par_array[0] | (hldc_con_par_array[1] << 16),
            hldc_con_par_array[2] | (hldc_con_par_array[3] << 16),
            hldc_con_par_array[4] | (hldc_con_par_array[5] << 16),
@@ -14914,7 +14999,7 @@ static int regtrace_t23_source_resolve_sensor_config(void)
     if (!min_it || min_it > max_it ||
         !regtrace_t23_valid_ptr(alloc_again)) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: incomplete sensor AE metadata min_it=%u max_it=%u max_again=0x%x alloc_again=%p\n",
+               "t23: incomplete sensor AE metadata min_it=%u max_it=%u max_again=0x%x alloc_again=%p\n",
                min_it, max_it, max_again, (void *)alloc_again);
         return -EINVAL;
     }
@@ -14927,7 +15012,7 @@ static int regtrace_t23_source_resolve_sensor_config(void)
             regtrace_t23_source_sensor_mbus_code, &bayer);
         if (ret) {
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: unsupported sensor media-bus code 0x%x\n",
+                   "t23: unsupported sensor media-bus code 0x%x\n",
                    regtrace_t23_source_sensor_mbus_code);
             return ret;
         }
@@ -14940,7 +15025,7 @@ static int regtrace_t23_source_resolve_sensor_config(void)
     ret = tx_isp_sinfo_get_driver(0, sensor_name, sizeof(sensor_name), NULL);
     if (ret) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: cannot resolve sensor profile: registry ret=%d\n",
+               "t23: cannot resolve sensor profile: registry ret=%d\n",
                ret);
         return ret;
     }
@@ -14949,7 +15034,7 @@ static int regtrace_t23_source_resolve_sensor_config(void)
         if (!isalnum(sensor_name[i]) && sensor_name[i] != '_' &&
             sensor_name[i] != '-') {
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: unsafe sensor name %s\n",
+                   "t23: unsafe sensor name %s\n",
                    sensor_name);
             return -EINVAL;
         }
@@ -14970,7 +15055,7 @@ static int regtrace_t23_source_resolve_sensor_config(void)
     ret = regtrace_t23_source_parameter_banks_load(sensor_name);
     if (ret) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: cannot load sensor IQ banks stock=%s custom=%s ret=%d\n",
+               "t23: cannot load sensor IQ banks stock=%s custom=%s ret=%d\n",
                regtrace_t23_source_core_tuning_path,
                regtrace_t23_source_core_custom_path, ret);
         return ret;
@@ -14984,7 +15069,7 @@ static int regtrace_t23_source_resolve_sensor_config(void)
                 sizeof(regtrace_t23_ae_hlil_resume_sensor))) {
         if (regtrace_t23_ae_hlil_resume)
             printk(KERN_INFO
-                   "tx_isp_t23_recovered: AE resume dropped, sensor %s -> %s\n",
+                   "t23: AE resume dropped, sensor %s -> %s\n",
                    regtrace_t23_ae_hlil_resume_sensor, sensor_name);
         regtrace_t23_ae_hlil_resume = false;
         strlcpy(regtrace_t23_ae_hlil_resume_sensor, sensor_name,
@@ -14993,7 +15078,7 @@ static int regtrace_t23_source_resolve_sensor_config(void)
     regtrace_t23_source_sensor_configured = true;
 
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: sensor config name=%s mbus=0x%x %ux%u tuning=%s bayer=%u it=%u..%u max_again_log2=0x%x initial=0x%08x\n",
+           "t23: sensor config name=%s mbus=0x%x %ux%u tuning=%s bayer=%u it=%u..%u max_again_log2=0x%x initial=0x%08x\n",
            sensor_name, regtrace_t23_source_sensor_mbus_code,
            regtrace_t23_source_sensor_width,
            regtrace_t23_source_sensor_height,
@@ -15040,7 +15125,7 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
         regtrace_t23_source_adr_initialized = false;
         regtrace_t23_source_defog_initialized = false;
         regtrace_t23_source_sharpen_initialized = false;
-        printk(KERN_WARNING "tx_isp_t23_recovered: source core stopped r800=0x%x reason=%s\n",
+        printk(KERN_WARNING "t23: source core stopped r800=0x%x reason=%s\n",
                system_reg_read(0x800U), reason ? reason : "?");
         return 0;
     }
@@ -15054,7 +15139,7 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
 
     ret = regtrace_t23_program_core_dma();
     if (ret) {
-        printk(KERN_ERR "tx_isp_t23_recovered: source core DMA setup failed ret=%d reason=%s\n",
+        printk(KERN_ERR "t23: source core DMA setup failed ret=%d reason=%s\n",
                ret, reason ? reason : "?");
         return ret;
     }
@@ -15062,7 +15147,7 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
     ret = regtrace_t23_source_core_bypass_value(&bypass);
     if (ret) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: no usable tuning profile ret=%d reason=%s\n",
+               "t23: no usable tuning profile ret=%d reason=%s\n",
                ret, reason ? reason : "?");
         return ret;
     }
@@ -15070,7 +15155,7 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
         ret = regtrace_t23_source_awb_hlil_load_tuning();
         if (ret) {
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: AWB profile load failed ret=%d\n",
+                   "t23: AWB profile load failed ret=%d\n",
                    ret);
             return ret;
         }
@@ -15121,7 +15206,7 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
                                                 regtrace_t23_source_sensor_height);
         if (ret) {
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: defog source init failed ret=%d\n",
+                   "t23: defog source init failed ret=%d\n",
                    ret);
             return ret;
         }
@@ -15143,7 +15228,7 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
                                regtrace_t23_source_sensor_height);
         if (ret) {
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: ADR source init failed ret=%d\n",
+                   "t23: ADR source init failed ret=%d\n",
                    ret);
             return ret;
         }
@@ -15193,7 +15278,7 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
         ret = tiziano_sdns_init();
         if (ret) {
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: SDNS source init failed ret=%d\n",
+                   "t23: SDNS source init failed ret=%d\n",
                    ret);
             return ret;
         }
@@ -15206,14 +15291,14 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
 
         if (used > regtrace_t23_source_mdns_size) {
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: MDNS DMA restore needs 0x%x > 0x%x\n",
+                   "t23: MDNS DMA restore needs 0x%x > 0x%x\n",
                    used, regtrace_t23_source_mdns_size);
             return -ENOMEM;
         }
         regtrace_t23_source_mdns_used = used;
         regtrace_t23_source_mdns_restore_count++;
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: MDNS DMA restored after core reset mode=%u paddr=0x%x size=0x%x used=0x%x count=%u\n",
+               "t23: MDNS DMA restored after core reset mode=%u paddr=0x%x size=0x%x used=0x%x count=%u\n",
                regtrace_t23_source_mdns_mode,
                regtrace_t23_source_mdns_paddr,
                regtrace_t23_source_mdns_size, used,
@@ -15230,7 +15315,7 @@ static int regtrace_t23_source_core_set_stream_unlocked(int enable,
         system_reg_write(0xb000U, 1U);
     regtrace_t23_core_started = true;
 
-    printk(KERN_WARNING "tx_isp_t23_recovered: source core started size=0x%x bayer=0x%x bypass=0x%x main=0x%x irq=0x%x msca_init=0x%x mode=0x%x run=0x%x reason=%s\n",
+    printk(KERN_WARNING "t23: source core started size=0x%x bayer=0x%x bypass=0x%x main=0x%x irq=0x%x msca_init=0x%x mode=0x%x run=0x%x reason=%s\n",
            system_reg_read(0x4U), system_reg_read(0x8U),
            system_reg_read(0xcU), system_reg_read(0x10U),
            system_reg_read(0x30U), system_reg_read(0x33cU),
@@ -15254,7 +15339,7 @@ static void regtrace_t23_tisp_stream_regs(int enable,
         ret = regtrace_t23_source_core_set_stream(1, reason);
         if (ret) {
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: refusing TISP stream start ret=%d reason=%s\n",
+                   "t23: refusing TISP stream start ret=%d reason=%s\n",
                    ret, reason ? reason : "?");
             return;
         }
@@ -15287,7 +15372,7 @@ static void regtrace_t23_tisp_stream_regs(int enable,
 
     r1008 = system_reg_read(0x1008U);
     r1060 = system_reg_read(0x1060U);
-    printk(KERN_WARNING "tx_isp_t23_recovered: direct TISP stream regs %s ch=%d r1008=0x%x r1060=0x%x reason=%s\n",
+    printk(KERN_WARNING "t23: direct TISP stream regs %s ch=%d r1008=0x%x r1060=0x%x reason=%s\n",
            enable ? "start" : "stop", channel, r1008, r1060,
            reason ? reason : "?");
 }
@@ -15321,7 +15406,7 @@ static int regtrace_t23_msca_cfg_load(int channel, const char *reason)
     system_reg_write(0xd040U, before | (1U << (channel & 0x1f)));
     after = system_reg_read(0xd040U);
 
-    printk(KERN_WARNING "tx_isp_t23_recovered: direct MSCA cfg-load ch=%d base=0x%x cfg=0x%x d040 0x%x->0x%x reason=%s\n",
+    printk(KERN_WARNING "t23: direct MSCA cfg-load ch=%d base=0x%x cfg=0x%x d040 0x%x->0x%x reason=%s\n",
            channel, base, cfg_word, before, after, reason ? reason : "?");
     return 0;
 }
@@ -15494,7 +15579,7 @@ static void regtrace_t23_scratch_attach(u32 paddr, u32 size, u32 used,
     u32 phys = 0;
 
     if (regtrace_t23_msca_parked && regtrace_t23_vic_streaming) {
-        printk(KERN_WARNING "tx_isp_t23_recovered: MSCA scratch kept at 0x%x (outputs 0x%x parked, input running)\n",
+        printk(KERN_WARNING "t23: MSCA scratch kept at 0x%x (outputs 0x%x parked, input running)\n",
                regtrace_t23_scratch_phys, regtrace_t23_msca_parked);
         return;
     }
@@ -15509,10 +15594,10 @@ static void regtrace_t23_scratch_attach(u32 paddr, u32 size, u32 used,
     regtrace_t23_scratch_phys = phys;
     regtrace_t23_scratch_bytes = phys ? bytes : 0U;
     if (phys)
-        printk(KERN_INFO "tx_isp_t23_recovered: MSCA scratch area 0x%x+0x%x\n",
+        printk(KERN_INFO "t23: MSCA scratch area 0x%x+0x%x\n",
                phys, bytes);
     else if (regtrace_t23_msca_scratch)
-        printk(KERN_WARNING "tx_isp_t23_recovered: no MSCA scratch area in the ISP buffer 0x%x+0x%x (need 0x%x behind 0x%x)\n",
+        printk(KERN_WARNING "t23: no MSCA scratch area in the ISP buffer 0x%x+0x%x (need 0x%x behind 0x%x)\n",
                paddr, size, bytes, mdns_size);
 }
 
@@ -15538,7 +15623,7 @@ static long regtrace_tx_isp_setbuf(unsigned long arg)
     mdns_size = used;
     if (tx_isp_qbuf_phys_check(info.paddr, used ? used : info.size)) {
         printk_ratelimited(KERN_WARNING
-                           "tx_isp_t23_recovered: MDNS SET_BUF paddr=0x%x need=0x%x outside rmem%s\n",
+                           "t23: MDNS SET_BUF paddr=0x%x need=0x%x outside rmem%s\n",
                            info.paddr, used,
                            regtrace_t23_qbuf_guard ? ", rejected" : " (qbuf_guard=0, accepted)");
         if (regtrace_t23_qbuf_guard)
@@ -15552,7 +15637,7 @@ static long regtrace_tx_isp_setbuf(unsigned long arg)
     if (used > info.size) {
         tisp_mdns_malloc_reflash();
         printk(KERN_ERR
-               "tx_isp_t23_recovered: MDNS buffer too small paddr=0x%x size=0x%x need=0x%x\n",
+               "t23: MDNS buffer too small paddr=0x%x size=0x%x need=0x%x\n",
                info.paddr, info.size, used);
         return -EINVAL;
     }
@@ -15567,7 +15652,7 @@ static long regtrace_tx_isp_setbuf(unsigned long arg)
         regtrace_t23_crumb_attach(info.paddr, info.size, mdns_size);
     regtrace_t23_scratch_attach(info.paddr, info.size, used, mdns_size);
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: MDNS DMA mode=%u paddr=0x%x size=0x%x used=0x%x ctrl=0x%x/%x bases=%x/%x/%x/%x/%x/%x/%x/%x/%x\n",
+           "t23: MDNS DMA mode=%u paddr=0x%x size=0x%x used=0x%x ctrl=0x%x/%x bases=%x/%x/%x/%x/%x/%x/%x/%x/%x\n",
            info.mode & 0xffU, info.paddr, info.size, used,
            system_reg_read(0x7810U), system_reg_read(0x7814U),
            system_reg_read(0x7820U), system_reg_read(0x7828U),
@@ -15620,6 +15705,13 @@ static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value);
 
 #include "tx_isp_t23_tuning_ext.h"
 /* tx_isp_t23_tuning_ext.inc */
+static long t23x_switch_bin_prelock(uint32_t uptr);
+static int regtrace_t23_switch_bin_prepare(const char *path,
+                                           unsigned char **day_out,
+                                           unsigned char **night_out);
+static int regtrace_t23_switch_bin_commit(unsigned char *day,
+                                          unsigned char *night);
+
 static long t23x_wait_frame(uint32_t uptr);
 static void t23x_frame_done_wakeup(void);
 
@@ -15914,7 +16006,7 @@ static int regtrace_tx_isp_open(struct inode *inode, struct file *file)
     regtrace_t23_pin_sensor_owner();
     if (file)
         file->private_data = regtrace_tx_isp_private;
-    printk(KERN_INFO "tx_isp_t23_recovered: open /dev/tx-isp pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: open /dev/tx-isp pid=%d comm=%s\n",
            current->pid, current->comm);
     return 0;
 }
@@ -15936,7 +16028,7 @@ static int regtrace_tx_isp_release(struct inode *inode, struct file *file)
         /* After the teardown: the sensor is no longer in use. */
         tx_isp_sensor_unpin_all(&regtrace_t23_sensor_pins);
     }
-    printk(KERN_INFO "tx_isp_t23_recovered: release /dev/tx-isp pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: release /dev/tx-isp pid=%d comm=%s\n",
            current->pid, current->comm);
     return 0;
 }
@@ -15964,28 +16056,28 @@ static long regtrace_tx_isp_ioctl_body(struct file *file, unsigned int cmd,
 
     if (cmd == REGTRACE_VIDIOC_ENUMINPUT) {
         ret = regtrace_tx_isp_enuminput(arg);
-        printk(KERN_INFO "tx_isp_t23_recovered: tx-isp enuminput arg=0x%lx ret=%ld pid=%d comm=%s\n",
+        printk(KERN_INFO "t23: tx-isp enuminput arg=0x%lx ret=%ld pid=%d comm=%s\n",
                arg, ret, current->pid, current->comm);
         return ret;
     }
 
     if (cmd == REGTRACE_VIDIOC_GET_SENSOR_INPUT) {
         ret = regtrace_tx_isp_get_sensor_input(arg);
-        printk(KERN_INFO "tx_isp_t23_recovered: tx-isp get_sensor_input arg=0x%lx ret=%ld pid=%d comm=%s\n",
+        printk(KERN_INFO "t23: tx-isp get_sensor_input arg=0x%lx ret=%ld pid=%d comm=%s\n",
                arg, ret, current->pid, current->comm);
         return ret;
     }
 
     if (cmd == REGTRACE_TX_ISP_GET_BUF) {
         ret = regtrace_tx_isp_getbuf(arg);
-        printk(KERN_INFO "tx_isp_t23_recovered: tx-isp getbuf arg=0x%lx ret=%ld pid=%d comm=%s\n",
+        printk(KERN_INFO "t23: tx-isp getbuf arg=0x%lx ret=%ld pid=%d comm=%s\n",
                arg, ret, current->pid, current->comm);
         return ret;
     }
 
     if (cmd == REGTRACE_TX_ISP_SET_BUF) {
         ret = regtrace_tx_isp_setbuf(arg);
-        printk(KERN_INFO "tx_isp_t23_recovered: tx-isp setbuf arg=0x%lx ret=%ld pid=%d comm=%s\n",
+        printk(KERN_INFO "t23: tx-isp setbuf arg=0x%lx ret=%ld pid=%d comm=%s\n",
                arg, ret, current->pid, current->comm);
         return ret;
     }
@@ -15993,7 +16085,7 @@ static long regtrace_tx_isp_ioctl_body(struct file *file, unsigned int cmd,
     if (cmd == REGTRACE_T23_SENSOR_IOCTL_561B ||
         cmd == REGTRACE_T23_SENSOR_IOCTL_561C) {
         ret = regtrace_tx_isp_sensor_geometry(arg);
-        printk(KERN_INFO "tx_isp_t23_recovered: tx-isp sensor geometry cmd=0x%x arg=0x%lx ret=%ld %ux%u pid=%d comm=%s\n",
+        printk(KERN_INFO "t23: tx-isp sensor geometry cmd=0x%x arg=0x%lx ret=%ld %ux%u pid=%d comm=%s\n",
                cmd, arg, ret, regtrace_t23_source_sensor_width, regtrace_t23_source_sensor_height,
                current->pid, current->comm);
         return ret;
@@ -16019,7 +16111,7 @@ static long regtrace_tx_isp_ioctl_body(struct file *file, unsigned int cmd,
     }
 
     ret = tx_isp_unlocked_ioctl(file, cmd, arg);
-    printk(KERN_INFO "tx_isp_t23_recovered: tx-isp ioctl cmd=0x%x arg=0x%lx ret=%ld pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: tx-isp ioctl cmd=0x%x arg=0x%lx ret=%ld pid=%d comm=%s\n",
            cmd, arg, ret, current->pid, current->comm);
     return ret;
 }
@@ -16046,16 +16138,16 @@ static int regtrace_register_tx_isp_miscdev(void)
 
     ret = misc_register(&regtrace_tx_isp_miscdev);
     if (ret == -EBUSY || ret == -EEXIST) {
-        printk(KERN_INFO "tx_isp_t23_recovered: /dev/tx-isp already exists\n");
+        printk(KERN_INFO "t23: /dev/tx-isp already exists\n");
         return 0;
     }
     if (ret) {
-        printk(KERN_ERR "tx_isp_t23_recovered: failed to create /dev/tx-isp: %d\n", ret);
+        printk(KERN_ERR "t23: failed to create /dev/tx-isp: %d\n", ret);
         return ret;
     }
 
     regtrace_tx_isp_misc_registered = 1;
-    printk(KERN_INFO "tx_isp_t23_recovered: created /dev/tx-isp\n");
+    printk(KERN_INFO "t23: created /dev/tx-isp\n");
     return 0;
 }
 
@@ -16076,7 +16168,7 @@ static int regtrace_isp_m0_open(struct inode *inode, struct file *file)
     memset(regtrace_isp_m0_private, 0, sizeof(regtrace_isp_m0_private));
     if (file)
         file->private_data = regtrace_isp_m0_private;
-    printk(KERN_INFO "tx_isp_t23_recovered: open /dev/isp-m0 pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: open /dev/isp-m0 pid=%d comm=%s\n",
            current->pid, current->comm);
     return 0;
 }
@@ -16086,7 +16178,7 @@ static int regtrace_isp_m0_release(struct inode *inode, struct file *file)
     (void)inode;
     if (file)
         file->private_data = NULL;
-    printk(KERN_INFO "tx_isp_t23_recovered: release /dev/isp-m0 pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: release /dev/isp-m0 pid=%d comm=%s\n",
            current->pid, current->comm);
     return 0;
 }
@@ -16126,6 +16218,16 @@ static long regtrace_isp_m0_ext_control(unsigned long arg)
         peek.sensor == 0U)
         return t23x_wait_frame(peek.value_or_ptr);
 
+    /*
+     * SwitchBin reads and checks its file before the tuning mutex is taken;
+     * only the publish runs under it.
+     */
+    if (arg && !copy_from_user(&peek, (const void __user *)arg,
+                               sizeof(peek)) &&
+        peek.id == T23X_CID_SWITCH_BIN && peek.count == 0U &&
+        peek.sensor == 0U)
+        return t23x_switch_bin_prelock(peek.value_or_ptr);
+
     mutex_lock(&regtrace_t23_tuning_mutex);
     ret = regtrace_isp_m0_ext_control_unlocked(arg);
     mutex_unlock(&regtrace_t23_tuning_mutex);
@@ -16159,7 +16261,7 @@ static long regtrace_isp_m0_ioctl_body(struct file *file, unsigned int cmd,
         return regtrace_isp_m0_ext_control(arg);
 
     ret = 0;
-    printk(KERN_INFO "tx_isp_t23_recovered: isp-m0 ioctl cmd=0x%x arg=0x%lx ret=%ld pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: isp-m0 ioctl cmd=0x%x arg=0x%lx ret=%ld pid=%d comm=%s\n",
            cmd, arg, ret, current->pid, current->comm);
     return ret;
 }
@@ -16186,16 +16288,16 @@ static int regtrace_register_isp_m0_miscdev(void)
 
     ret = misc_register(&regtrace_isp_m0_miscdev);
     if (ret == -EBUSY || ret == -EEXIST) {
-        printk(KERN_INFO "tx_isp_t23_recovered: /dev/isp-m0 already exists\n");
+        printk(KERN_INFO "t23: /dev/isp-m0 already exists\n");
         return 0;
     }
     if (ret) {
-        printk(KERN_ERR "tx_isp_t23_recovered: failed to create /dev/isp-m0: %d\n", ret);
+        printk(KERN_ERR "t23: failed to create /dev/isp-m0: %d\n", ret);
         return ret;
     }
 
     regtrace_isp_m0_misc_registered = 1;
-    printk(KERN_INFO "tx_isp_t23_recovered: created /dev/isp-m0\n");
+    printk(KERN_INFO "t23: created /dev/isp-m0\n");
     return 0;
 }
 
@@ -16216,7 +16318,7 @@ static int regtrace_misc_ivdc_open(struct inode *inode, struct file *file)
     memset(regtrace_misc_ivdc_private, 0, sizeof(regtrace_misc_ivdc_private));
     if (file)
         file->private_data = regtrace_misc_ivdc_private;
-    printk(KERN_INFO "tx_isp_t23_recovered: open /dev/misc-ivdc pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: open /dev/misc-ivdc pid=%d comm=%s\n",
            current->pid, current->comm);
     return 0;
 }
@@ -16226,7 +16328,7 @@ static int regtrace_misc_ivdc_release(struct inode *inode, struct file *file)
     (void)inode;
     if (file)
         file->private_data = NULL;
-    printk(KERN_INFO "tx_isp_t23_recovered: release /dev/misc-ivdc pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: release /dev/misc-ivdc pid=%d comm=%s\n",
            current->pid, current->comm);
     return 0;
 }
@@ -16235,7 +16337,7 @@ static long regtrace_misc_ivdc_ioctl(struct file *file, unsigned int cmd, unsign
 {
     if (file && !file->private_data)
         file->private_data = regtrace_misc_ivdc_private;
-    printk(KERN_INFO "tx_isp_t23_recovered: misc-ivdc ioctl cmd=0x%x arg=0x%lx ret=0 pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: misc-ivdc ioctl cmd=0x%x arg=0x%lx ret=0 pid=%d comm=%s\n",
            cmd, arg, current->pid, current->comm);
     return 0;
 }
@@ -16262,16 +16364,16 @@ static int regtrace_register_misc_ivdc(void)
 
     ret = misc_register(&regtrace_misc_ivdc_dev);
     if (ret == -EBUSY || ret == -EEXIST) {
-        printk(KERN_INFO "tx_isp_t23_recovered: /dev/misc-ivdc already exists\n");
+        printk(KERN_INFO "t23: /dev/misc-ivdc already exists\n");
         return 0;
     }
     if (ret) {
-        printk(KERN_ERR "tx_isp_t23_recovered: failed to create /dev/misc-ivdc: %d\n", ret);
+        printk(KERN_ERR "t23: failed to create /dev/misc-ivdc: %d\n", ret);
         return ret;
     }
 
     regtrace_misc_ivdc_registered = 1;
-    printk(KERN_INFO "tx_isp_t23_recovered: created /dev/misc-ivdc\n");
+    printk(KERN_INFO "t23: created /dev/misc-ivdc\n");
     return 0;
 }
 
@@ -16466,7 +16568,7 @@ static int regtrace_t23_msca_geom_verdict(int channel, const char *what,
     if (r == T23_MSCA_GEOM_OK)
         return 0;
     regtrace_t23_msca_geom_rejects++;
-    printk(KERN_WARNING "tx_isp_t23_recovered: %s ch=%d refused (%s): window %u,%u %ux%u scaler %ux%u crop %u,%u %ux%u buffer %ux%u\n",
+    printk(KERN_WARNING "t23: %s ch=%d refused (%s): window %u,%u %ux%u scaler %ux%u crop %u,%u %ux%u buffer %ux%u\n",
            what, channel, t23_msca_geom_reason(r),
            g->win_left, g->win_top, g->win_width, g->win_height,
            g->scl_width, g->scl_height, g->crop_left, g->crop_top,
@@ -16640,7 +16742,7 @@ static int regtrace_t23_program_msca_format(
 
     regtrace_t23_framechan_formats[channel] = *format;
     regtrace_t23_framechan_format_ready[channel] = true;
-    printk(KERN_WARNING "tx_isp_t23_recovered: T23 MSCA format ch=%d source=%ux%u target=%ux%u scaler=%u crop=%u fcrop=%u cfg=%ux%u load=0x%x\n",
+    printk(KERN_WARNING "t23: T23 MSCA format ch=%d source=%ux%u target=%ux%u scaler=%u crop=%u fcrop=%u cfg=%ux%u load=0x%x\n",
            channel, full_width, full_height, target_width, target_height,
            attr[0], attr[3], attr[8],
            regtrace_t23_get_le32(msca + channel * 56 + 0x20),
@@ -16667,7 +16769,7 @@ static int regtrace_t23_build_msca_qbuf(int channel,
                                    regtrace_t23_frame_height(channel),
                                    1, 16, phys, length, buffer);
     if (ret)
-        printk(KERN_ERR "tx_isp_t23_recovered: reject MSCA qbuf ch=%d y=0x%x len=0x%x ret=%d\n",
+        printk(KERN_ERR "t23: reject MSCA qbuf ch=%d y=0x%x len=0x%x ret=%d\n",
                channel, phys, length, ret);
     return ret;
 }
@@ -16708,12 +16810,12 @@ static void regtrace_t23_set_msca_stream(int channel,
             *(uint8_t *)(mscaler + channel * 608 + 12) = 1;
             cfg[0] = 1;
             t23_crumb(T23C_CFG_SKIP, (u32)channel);
-            printk(KERN_INFO "tx_isp_t23_recovered: MSCA ch=%d still enabled with unchanged geometry, not reloaded\n",
+            printk(KERN_INFO "t23: MSCA ch=%d still enabled with unchanged geometry, not reloaded\n",
                    channel);
         } else {
             ret = tisp_channel_start(channel);
             if (ret) {
-                printk(KERN_ERR "tx_isp_t23_recovered: T23 MSCA channel start failed ch=%d ret=%d reason=%s\n",
+                printk(KERN_ERR "t23: T23 MSCA channel start failed ch=%d ret=%d reason=%s\n",
                        channel, ret, reason ? reason : "?");
                 return;
             }
@@ -16747,7 +16849,7 @@ static void regtrace_t23_set_msca_stream(int channel,
     t23_crumb_set(T23_CRUMB_W_D040, readback);
     t23_crumb(enable ? T23C_CHAN_MSCA_ON : T23C_CHAN_MSCA_OFF,
               (u32)channel | ((value != before) ? 0x100U : 0U));
-    printk(KERN_WARNING "tx_isp_t23_recovered: direct MSCA %s ch=%d d040 0x%x->0x%x readback=0x%x mask=0x%x reason=%s\n",
+    printk(KERN_WARNING "t23: direct MSCA %s ch=%d d040 0x%x->0x%x readback=0x%x mask=0x%x reason=%s\n",
            enable ? "start" : "stop", channel, before, value, readback,
            regtrace_t23_msca_ch_en,
            reason ? reason : "?");
@@ -16851,7 +16953,7 @@ static int regtrace_framechan_record_qbuf(int channel, const uint32_t *words)
          */
         spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
         printk_ratelimited(KERN_WARNING
-                           "tx_isp_t23_recovered: framechan%d QBUF: all %d slots queued, -EBUSY\n",
+                           "t23: framechan%d QBUF: all %d slots queued, -EBUSY\n",
                            channel, REGTRACE_FRAMECHAN_QBUF_SLOTS);
         return -EBUSY;
     }
@@ -16885,7 +16987,7 @@ static int regtrace_framechan_record_qbuf(int channel, const uint32_t *words)
     spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
 
     if (program && regtrace_t23_log_framechan_payloads)
-        printk(KERN_WARNING "tx_isp_t23_recovered: direct MSCA qbuf ch=%d y=0x%x uv=0x%x len=0x%x ret=%d\n",
+        printk(KERN_WARNING "t23: direct MSCA qbuf ch=%d y=0x%x uv=0x%x len=0x%x ret=%d\n",
                channel, buffer.y_dma, buffer.uv_dma,
                words[TX_ISP_FRAME_WORD_LENGTH], ret);
     return ret;
@@ -16972,7 +17074,7 @@ static void regtrace_framechan_complete_fifo(int channel,
         count = ++regtrace_framechan_done_unmatched[channel];
         spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
         if (regtrace_t23_log_irq_count(count))
-            printk(KERN_WARNING "tx_isp_t23_recovered: framechan%d unmatched MSCA completion y=0x%x uv=0x%x count=%u\n",
+            printk(KERN_WARNING "t23: framechan%d unmatched MSCA completion y=0x%x uv=0x%x count=%u\n",
                    channel, y_phys, uv_phys, count);
         return;
     }
@@ -16999,7 +17101,7 @@ static void regtrace_framechan_complete_fifo(int channel,
 
     wake_up_interruptible(&regtrace_framechan_done_wait[channel]);
     if (regtrace_t23_log_irq_count(count))
-        printk(KERN_INFO "tx_isp_t23_recovered: framechan%d MSCA completion idx=%u y=0x%x uv=0x%x count=%u\n",
+        printk(KERN_INFO "t23: framechan%d MSCA completion idx=%u y=0x%x uv=0x%x count=%u\n",
                channel, done->index, done->userptr, done->uv_phys, count);
 }
 
@@ -17096,7 +17198,7 @@ static long regtrace_framechan_repair_dqbuf(int channel, unsigned long arg,
 
     if (regtrace_t23_log_framechan_payloads &&
         regtrace_framechan_log_count[channel] < 16) {
-        printk(KERN_INFO "tx_isp_t23_recovered: framechan%d dqbuf idx=%u seq=%u userptr=0x%x len=0x%x slot=%d\n",
+        printk(KERN_INFO "t23: framechan%d dqbuf idx=%u seq=%u userptr=0x%x len=0x%x slot=%d\n",
                channel, words[TX_ISP_FRAME_WORD_INDEX],
                words[TX_ISP_FRAME_WORD_SEQUENCE],
                words[TX_ISP_FRAME_WORD_DMA],
@@ -17175,7 +17277,7 @@ static int regtrace_t23_tisp_prestart(const char *reason)
     ret = regtrace_t23_source_core_set_stream(1, reason);
     if (ret) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: refusing TISP stream start ret=%d reason=%s\n",
+               "t23: refusing TISP stream start ret=%d reason=%s\n",
                ret, reason ? reason : "?");
         /* A start that failed after programming the rings. */
         if (!regtrace_t23_core_started)
@@ -17217,7 +17319,7 @@ static unsigned int regtrace_framechan_drop_stale_done(int channel)
     }
     local_irq_restore(flags);
     if (dropped)
-        printk(KERN_INFO "tx_isp_t23_recovered: framechan%d dropped %u stale MSCA completions before stream on\n",
+        printk(KERN_INFO "t23: framechan%d dropped %u stale MSCA completions before stream on\n",
                channel, dropped);
     return dropped;
 }
@@ -17348,7 +17450,7 @@ static unsigned int regtrace_framechan_unpark(int channel)
     }
     spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
     if (pushed)
-        printk(KERN_INFO "tx_isp_t23_recovered: framechan%d unparked, %u held buffers queued\n",
+        printk(KERN_INFO "t23: framechan%d unparked, %u held buffers queued\n",
                channel, pushed);
     return pushed;
 }
@@ -17473,7 +17575,7 @@ static void regtrace_t23_msca_release_stale(const char *reason)
         spin_unlock_irqrestore(&regtrace_t23_msca_lock, flags);
         regtrace_t23_msca_releases++;
         t23_crumb(T23C_RELEASE, (u32)channel);
-        printk(KERN_INFO "tx_isp_t23_recovered: MSCA ch=%d left enabled, released at session start (%s) dropped=%u d040=0x%x\n",
+        printk(KERN_INFO "t23: MSCA ch=%d left enabled, released at session start (%s) dropped=%u d040=0x%x\n",
                channel, reason ? reason : "?", dropped,
                system_reg_read(0xd040U));
     }
@@ -17505,7 +17607,7 @@ static void regtrace_t23_scratch_settle(const char *reason)
         regtrace_t23_scratch_settle_ticks_max = i;
     if (ACCESS_ONCE(regtrace_t23_scratch_pending)) {
         regtrace_t23_scratch_settle_timeouts++;
-        printk(KERN_WARNING "tx_isp_t23_recovered: input stop (%s): scratch address of channels 0x%x not consumed after %u x 10 ms\n",
+        printk(KERN_WARNING "t23: input stop (%s): scratch address of channels 0x%x not consumed after %u x 10 ms\n",
                reason ? reason : "?", regtrace_t23_scratch_pending, i);
     }
 }
@@ -17632,10 +17734,10 @@ static void regtrace_framechan_drain_wait(int channel)
     if (left) {
         regtrace_t23_chan_drain_timeouts++;
         printk_ratelimited(KERN_WARNING
-                           "tx_isp_t23_recovered: framechan%d stream off: %u of %u buffers still queued after %u x 10 ms\n",
+                           "t23: framechan%d stream off: %u of %u buffers still queued after %u x 10 ms\n",
                            channel, left, n, i);
     } else if (n) {
-        printk(KERN_INFO "tx_isp_t23_recovered: framechan%d stream off: %u buffers drained in %u x 10 ms\n",
+        printk(KERN_INFO "t23: framechan%d stream off: %u buffers drained in %u x 10 ms\n",
                channel, n, i);
     }
 }
@@ -17673,7 +17775,7 @@ static void regtrace_framechan_park(int channel)
                           regtrace_t23_scratch_bytes) ||
         !regtrace_t23_scratch_phys) {
         regtrace_t23_scratch_skips++;
-        printk_ratelimited(KERN_WARNING "tx_isp_t23_recovered: framechan%d stream off: no MSCA scratch area for %ux%u (0x%x+0x%x)\n",
+        printk_ratelimited(KERN_WARNING "t23: framechan%d stream off: no MSCA scratch area for %ux%u (0x%x+0x%x)\n",
                            channel, regtrace_t23_frame_width(channel),
                            regtrace_t23_frame_height(channel),
                            regtrace_t23_scratch_phys,
@@ -17691,7 +17793,7 @@ static void regtrace_framechan_park(int channel)
     if (ret)
         return;
     regtrace_t23_scratch_parks++;
-    printk(KERN_INFO "tx_isp_t23_recovered: framechan%d stream off: output parked on scratch 0x%x\n",
+    printk(KERN_INFO "t23: framechan%d stream off: output parked on scratch 0x%x\n",
            channel, regtrace_t23_scratch_phys);
 }
 
@@ -17730,7 +17832,7 @@ static void regtrace_framechan_stream_off_locked(int channel,
         t23_crumb(T23C_CHAN_INPUT_OFF, (u32)channel);
     }
     t23_crumb(T23C_CHAN_OFF_DONE, (u32)channel);
-    printk(KERN_INFO "tx_isp_t23_recovered: framechan%d stream off, still streaming mask=0x%x reason=%s\n",
+    printk(KERN_INFO "t23: framechan%d stream off, still streaming mask=0x%x reason=%s\n",
            channel, regtrace_framechan_stream_mask, reason ? reason : "?");
 }
 
@@ -17760,7 +17862,7 @@ static int regtrace_framechan_open(struct inode *inode, struct file *file)
     regtrace_framechan_contexts[channel].channel = channel;
     if (file)
         file->private_data = &regtrace_framechan_contexts[channel];
-    printk(KERN_INFO "tx_isp_t23_recovered: open /dev/framechan%d pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: open /dev/framechan%d pid=%d comm=%s\n",
            channel, current->pid, current->comm);
     regtrace_t23_text_check("framechan-open", (unsigned int)channel);
     return 0;
@@ -17785,7 +17887,7 @@ static int regtrace_framechan_release(struct inode *inode, struct file *file)
                                             "framechan-release");
     if (file)
         file->private_data = NULL;
-    printk(KERN_INFO "tx_isp_t23_recovered: release /dev/framechan%d pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: release /dev/framechan%d pid=%d comm=%s\n",
            channel, current->pid, current->comm);
     regtrace_t23_text_check("framechan-release", (unsigned int)channel);
     return 0;
@@ -17841,7 +17943,7 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
             break;
         }
         if (regtrace_t23_log_framechan_payloads)
-            printk(KERN_INFO "tx_isp_t23_recovered: framechan%d set_fmt w=%u h=%u pix=0x%x field=%u size=0x%x ret=0\n",
+            printk(KERN_INFO "t23: framechan%d set_fmt w=%u h=%u pix=0x%x field=%u size=0x%x ret=0\n",
                    channel, format.pix.width, format.pix.height,
                    format.pix.pixelformat, format.pix.field,
                    format.pix.sizeimage);
@@ -17869,7 +17971,7 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
             spin_unlock_irqrestore(&regtrace_framechan_done_lock, flags);
         }
         if (regtrace_t23_log_framechan_payloads)
-            printk(KERN_INFO "tx_isp_t23_recovered: framechan%d reqbufs count=%u type=%u memory=%u ret=0\n",
+            printk(KERN_INFO "t23: framechan%d reqbufs count=%u type=%u memory=%u ret=0\n",
                    channel, words[TX_ISP_FRAME_REQUEST_WORD_COUNT],
                    words[TX_ISP_FRAME_REQUEST_WORD_TYPE],
                    words[TX_ISP_FRAME_REQUEST_WORD_MEMORY]);
@@ -17887,7 +17989,7 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
         if (regtrace_t23_log_framechan_payloads &&
             channel >= 0 && channel < REGTRACE_FRAMECHAN_COUNT &&
             regtrace_framechan_log_count[channel] < 16) {
-            printk(KERN_INFO "tx_isp_t23_recovered: framechan%d qbuf idx=%u type=%u memory=%u userptr=0x%x len=0x%x flags=0x%x count=%u\n",
+            printk(KERN_INFO "t23: framechan%d qbuf idx=%u type=%u memory=%u userptr=0x%x len=0x%x flags=0x%x count=%u\n",
                    channel, words[TX_ISP_FRAME_WORD_INDEX],
                    words[TX_ISP_FRAME_WORD_TYPE],
                    words[TX_ISP_FRAME_WORD_TIMECODE_USERBITS],
@@ -17900,7 +18002,7 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
     }
     case REGTRACE_FRAMECHAN_QUERYBUF:
         if (regtrace_t23_log_framechan_payloads)
-            printk(KERN_INFO "tx_isp_t23_recovered: framechan%d querybuf arg=0x%lx ret=0\n",
+            printk(KERN_INFO "t23: framechan%d querybuf arg=0x%lx ret=0\n",
                    channel, arg);
         break;
     case REGTRACE_FRAMECHAN_DQBUF:
@@ -17910,14 +18012,14 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
     case REGTRACE_T23_VIDIOC_STREAMON:
         ret = regtrace_framechan_stream_on(file, channel);
         if (regtrace_t23_log_framechan_payloads)
-            printk(KERN_WARNING "tx_isp_t23_recovered: framechan%d streamon arg=0x%lx ret=%ld core=%p vic=%p csi=%p fs=%p\n",
+            printk(KERN_WARNING "t23: framechan%d streamon arg=0x%lx ret=%ld core=%p vic=%p csi=%p fs=%p\n",
                    channel, arg, (long)ret, regtrace_t23_core_sd, regtrace_t23_vic_sd,
                    regtrace_t23_csi_sd, regtrace_t23_fs_sd);
         break;
     case REGTRACE_T23_VIDIOC_STREAMOFF:
         regtrace_framechan_stream_off(channel, "framechan-streamoff");
         if (regtrace_t23_log_framechan_payloads)
-            printk(KERN_WARNING "tx_isp_t23_recovered: framechan%d streamoff arg=0x%lx ret=0\n",
+            printk(KERN_WARNING "t23: framechan%d streamoff arg=0x%lx ret=0\n",
                    channel, arg);
         break;
     case REGTRACE_FRAMECHAN_WAIT:
@@ -17927,7 +18029,7 @@ static long regtrace_framechan_ioctl_body(struct file *file, unsigned int cmd,
         ret = regtrace_framechan_wait_frame(channel, arg);
         break;
     default:
-        printk(KERN_INFO "tx_isp_t23_recovered: framechan%d ioctl cmd=0x%x arg=0x%lx ret=0 pid=%d comm=%s\n",
+        printk(KERN_INFO "t23: framechan%d ioctl cmd=0x%x arg=0x%lx ret=0 pid=%d comm=%s\n",
                channel, cmd, arg, current->pid, current->comm);
         break;
     }
@@ -17949,7 +18051,7 @@ static ssize_t regtrace_framechan_read(struct file *file, char __user *buf, size
     ctx = file ? file->private_data : NULL;
     if (ctx)
         channel = ctx->channel;
-    printk(KERN_INFO "tx_isp_t23_recovered: framechan%d read ret=0 pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: framechan%d read ret=0 pid=%d comm=%s\n",
            channel, current->pid, current->comm);
     return 0;
 }
@@ -17971,7 +18073,7 @@ static unsigned int regtrace_framechan_poll(struct file *file, poll_table *wait)
             mask |= POLLIN | POLLRDNORM;
         return mask;
     }
-    printk(KERN_INFO "tx_isp_t23_recovered: framechan%d poll ret=0x%x pid=%d comm=%s\n",
+    printk(KERN_INFO "t23: framechan%d poll ret=0x%x pid=%d comm=%s\n",
            channel, POLLIN | POLLRDNORM | POLLOUT | POLLWRNORM, current->pid, current->comm);
     return POLLIN | POLLRDNORM | POLLOUT | POLLWRNORM;
 }
@@ -18002,16 +18104,16 @@ static int regtrace_register_framechans(void)
             continue;
         ret = misc_register(&regtrace_framechan_devs[i]);
         if (ret == -EBUSY || ret == -EEXIST) {
-            printk(KERN_INFO "tx_isp_t23_recovered: /dev/framechan%d already exists\n", i);
+            printk(KERN_INFO "t23: /dev/framechan%d already exists\n", i);
             continue;
         }
         if (ret) {
-            printk(KERN_ERR "tx_isp_t23_recovered: failed to create /dev/framechan%d: %d\n",
+            printk(KERN_ERR "t23: failed to create /dev/framechan%d: %d\n",
                    i, ret);
             return ret;
         }
         regtrace_framechan_registered[i] = 1;
-        printk(KERN_INFO "tx_isp_t23_recovered: created /dev/framechan%d\n", i);
+        printk(KERN_INFO "t23: created /dev/framechan%d\n", i);
     }
     return 0;
 }
@@ -18909,9 +19011,9 @@ static int regtrace_child_device_registered[6];
 static bool regtrace_enable_real_platforms = true;
 static bool regtrace_enable_child_platforms = true;
 static bool regtrace_use_recovered_child_probes = true;
-module_param_named(real_platforms, regtrace_enable_real_platforms, bool, 0644);
-module_param_named(child_platforms, regtrace_enable_child_platforms, bool, 0644);
-module_param_named(recovered_child_probes, regtrace_use_recovered_child_probes, bool, 0644);
+t23_bringup_param_named(real_platforms, regtrace_enable_real_platforms, bool, 0644);
+t23_bringup_param_named(child_platforms, regtrace_enable_child_platforms, bool, 0644);
+t23_bringup_param_named(recovered_child_probes, regtrace_use_recovered_child_probes, bool, 0644);
 
 static void regtrace_init_platform_device(struct platform_device *pdev,
                                           const char *name,
@@ -18972,7 +19074,7 @@ static struct platform_driver *regtrace_child_platform_driver(unsigned int slot)
 
 static int regtrace_child_probe_stub(struct platform_device *pdev)
 {
-    printk(KERN_INFO "tx_isp_t23_recovered: child probe stub %s\n",
+    printk(KERN_INFO "t23: child probe stub %s\n",
            dev_name(&pdev->dev));
     platform_set_drvdata(pdev, NULL);
     return 0;
@@ -18980,7 +19082,7 @@ static int regtrace_child_probe_stub(struct platform_device *pdev)
 
 static int regtrace_child_remove_stub(struct platform_device *pdev)
 {
-    printk(KERN_INFO "tx_isp_t23_recovered: child remove stub %s\n",
+    printk(KERN_INFO "t23: child remove stub %s\n",
            dev_name(&pdev->dev));
     platform_set_drvdata(pdev, NULL);
     return 0;
@@ -19054,7 +19156,7 @@ static int regtrace_t23_probe_vin_safe(struct platform_device *pdev)
     *(uint32_t *)(vin + 244) = 1;
     *(uint32_t *)(vin + 52) = (uint32_t)(uintptr_t)&video_input_cmd_fops;
     regtrace_t23_vin_sd = vin;
-    printk(KERN_INFO "tx_isp_t23_recovered: safe probe vin sd=%p\n", vin);
+    printk(KERN_INFO "t23: safe probe vin sd=%p\n", vin);
     return 0;
 }
 
@@ -19083,7 +19185,7 @@ static int regtrace_t23_probe_csi_safe(struct platform_device *pdev)
     private_raw_mutex_init((struct mutex *)(csi + 304), "csi->mlock", 0);
     *(uint32_t *)((char *)&dump_csd) = (uint32_t)(uintptr_t)csi;
     regtrace_t23_csi_sd = csi;
-    printk(KERN_INFO "tx_isp_t23_recovered: safe probe csi sd=%p ctrl=%p phy=%p\n",
+    printk(KERN_INFO "t23: safe probe csi sd=%p ctrl=%p phy=%p\n",
            csi, (void *)(uintptr_t)*(uint32_t *)(csi + 184),
            (void *)(uintptr_t)*(uint32_t *)(csi + 320));
     return 0;
@@ -19122,7 +19224,7 @@ static int regtrace_t23_probe_vic_safe(struct platform_device *pdev)
     test_addr = (uintptr_t)(vic + 128);
     regtrace_t23_vic_sd = vic;
     regtrace_t23_vic_dma_device = &pdev->dev;
-    printk(KERN_INFO "tx_isp_t23_recovered: safe probe vic sd=%p base=%p\n",
+    printk(KERN_INFO "t23: safe probe vic sd=%p base=%p\n",
            vic, (void *)(uintptr_t)*(uint32_t *)(vic + 184));
     return 0;
 
@@ -19199,7 +19301,7 @@ static int regtrace_t23_probe_core_safe(struct platform_device *pdev)
     ispcore_sd = (uintptr_t)core;
     regtrace_t23_core_sd = core;
     sensor_early_init((uint32_t)(uintptr_t)core);
-    printk(KERN_INFO "tx_isp_t23_recovered: safe probe core sd=%p base=%p channels=%u\n",
+    printk(KERN_INFO "t23: safe probe core sd=%p base=%p channels=%u\n",
            core, (void *)(uintptr_t)*(uint32_t *)(core + 184), num_channels);
     return 0;
 
@@ -19229,7 +19331,7 @@ static int regtrace_t23_probe_fs_safe(struct platform_device *pdev)
     *(uint32_t *)(fs + 228) = 1;
     *(uint32_t *)(fs + 52) = (uint32_t)(uintptr_t)&isp_framesource_fops;
     regtrace_t23_fs_sd = fs;
-    printk(KERN_INFO "tx_isp_t23_recovered: safe probe fs sd=%p channels=%u\n",
+    printk(KERN_INFO "t23: safe probe fs sd=%p channels=%u\n",
            fs, *(uint32_t *)(fs + 224));
     return 0;
 }
@@ -19259,7 +19361,7 @@ static int regtrace_t23_probe_ivdc_safe(struct platform_device *pdev)
     *(uint32_t *)(ivdc + 376) = (uint32_t)(uintptr_t)pdev->dev.platform_data;
     g_ivdc = (uintptr_t)ivdc;
     regtrace_t23_ivdc_sd = sd;
-    printk(KERN_INFO "tx_isp_t23_recovered: safe probe ivdc dev=%p sd=%p base=%p\n",
+    printk(KERN_INFO "t23: safe probe ivdc dev=%p sd=%p base=%p\n",
            ivdc, sd, (void *)(uintptr_t)*(uint32_t *)(sd + 184));
     return 0;
 
@@ -19366,7 +19468,7 @@ static int regtrace_t23_remove_vin_safe(struct platform_device *pdev)
     regtrace_t23_release_subdev_safe(pdev, vin, false, false, NULL);
     private_kfree(vin);
     regtrace_t23_vin_sd = NULL;
-    printk(KERN_INFO "tx_isp_t23_recovered: safe remove vin\n");
+    printk(KERN_INFO "t23: safe remove vin\n");
     return 0;
 }
 
@@ -19392,7 +19494,7 @@ static int regtrace_t23_remove_csi_safe(struct platform_device *pdev)
     private_kfree(csi);
     regtrace_t23_csi_sd = NULL;
     *(uint32_t *)((char *)&dump_csd) = 0;
-    printk(KERN_INFO "tx_isp_t23_recovered: safe remove csi\n");
+    printk(KERN_INFO "t23: safe remove csi\n");
     return 0;
 }
 
@@ -19408,7 +19510,7 @@ static int regtrace_t23_remove_vic_safe(struct platform_device *pdev)
     regtrace_t23_vic_irq_enabled = false;
     dump_vsd = 0;
     test_addr = 0;
-    printk(KERN_INFO "tx_isp_t23_recovered: safe remove vic\n");
+    printk(KERN_INFO "t23: safe remove vic\n");
     return 0;
 }
 
@@ -19429,7 +19531,7 @@ static int regtrace_t23_remove_core_safe(struct platform_device *pdev)
     regtrace_t23_core_sd = NULL;
     regtrace_t23_core_irq_enabled = false;
     ispcore_sd = 0;
-    printk(KERN_INFO "tx_isp_t23_recovered: safe remove core\n");
+    printk(KERN_INFO "t23: safe remove core\n");
     return 0;
 }
 
@@ -19440,7 +19542,7 @@ static int regtrace_t23_remove_fs_safe(struct platform_device *pdev)
     regtrace_t23_release_subdev_safe(pdev, fs, false, false, NULL);
     private_kfree(fs);
     regtrace_t23_fs_sd = NULL;
-    printk(KERN_INFO "tx_isp_t23_recovered: safe remove fs\n");
+    printk(KERN_INFO "t23: safe remove fs\n");
     return 0;
 }
 
@@ -19458,7 +19560,7 @@ static int regtrace_t23_remove_ivdc_safe(struct platform_device *pdev)
     regtrace_t23_ivdc_sd = NULL;
     regtrace_t23_ivdc_irq_enabled = false;
     g_ivdc = 0;
-    printk(KERN_INFO "tx_isp_t23_recovered: safe remove ivdc\n");
+    printk(KERN_INFO "t23: safe remove ivdc\n");
     return 0;
 }
 
@@ -19579,14 +19681,14 @@ static int regtrace_register_child_platform_devices(void)
 
         ret = platform_device_register(pdev);
         if (ret) {
-            printk(KERN_ERR "tx_isp_t23_recovered: child platform device %s failed: %d\n",
+            printk(KERN_ERR "t23: child platform device %s failed: %d\n",
                    pdev->name, ret);
             regtrace_unregister_child_platform_devices();
             return ret;
         }
 
         regtrace_child_device_registered[i] = 1;
-        printk(KERN_INFO "tx_isp_t23_recovered: registered child platform device %s\n",
+        printk(KERN_INFO "t23: registered child platform device %s\n",
                dev_name(&pdev->dev));
     }
 
@@ -19595,14 +19697,14 @@ static int regtrace_register_child_platform_devices(void)
 
 static int regtrace_tx_isp_parent_probe(struct platform_device *pdev)
 {
-    printk(KERN_INFO "tx_isp_t23_recovered: parent probe %s\n", dev_name(&pdev->dev));
+    printk(KERN_INFO "t23: parent probe %s\n", dev_name(&pdev->dev));
     platform_set_drvdata(pdev, &regtrace_tx_isp_pdata);
     return regtrace_register_child_platform_devices();
 }
 
 static int regtrace_tx_isp_parent_remove(struct platform_device *pdev)
 {
-    printk(KERN_INFO "tx_isp_t23_recovered: parent remove %s\n", dev_name(&pdev->dev));
+    printk(KERN_INFO "t23: parent remove %s\n", dev_name(&pdev->dev));
     regtrace_unregister_child_platform_devices();
     platform_set_drvdata(pdev, NULL);
     return 0;
@@ -19631,10 +19733,10 @@ static int regtrace_register_platform_driver_slot(unsigned int slot,
     ret = platform_driver_register(drv);
     if (!ret) {
         regtrace_child_driver_registered[slot] = 1;
-        printk(KERN_INFO "tx_isp_t23_recovered: registered child driver %s\n",
+        printk(KERN_INFO "t23: registered child driver %s\n",
                drv->driver.name);
     } else {
-        printk(KERN_ERR "tx_isp_t23_recovered: child driver %s failed: %d\n",
+        printk(KERN_ERR "t23: child driver %s failed: %d\n",
                drv->driver.name, ret);
     }
     return ret;
@@ -19749,7 +19851,7 @@ static int regtrace_register_real_platforms(void)
     if (ret)
         goto fail;
     regtrace_parent_driver_registered = 1;
-    printk(KERN_INFO "tx_isp_t23_recovered: registered parent driver %s\n",
+    printk(KERN_INFO "t23: registered parent driver %s\n",
            tx_isp_driver.driver.name);
 
     ret = platform_device_register(&tx_isp_platform_device);
@@ -19757,11 +19859,11 @@ static int regtrace_register_real_platforms(void)
         goto fail;
     regtrace_parent_device_registered = 1;
 
-    printk(KERN_INFO "tx_isp_t23_recovered: registered real tx-isp platform path\n");
+    printk(KERN_INFO "t23: registered real tx-isp platform path\n");
     return 0;
 
 fail:
-    printk(KERN_ERR "tx_isp_t23_recovered: real platform registration failed: %d\n", ret);
+    printk(KERN_ERR "t23: real platform registration failed: %d\n", ret);
     regtrace_unregister_real_platforms();
     return ret;
 }
@@ -21796,7 +21898,7 @@ int vic_sensor_ops_sync_sensor_attr(void *arg1, void *arg2, void *arg3)
 	*(uint32_t *)(vic + 0xdc) = regtrace_t23_source_sensor_width;
 	*(uint32_t *)(vic + 0xe0) = regtrace_t23_source_sensor_height;
 	regtrace_t23_seed_sensor_caches("vic-sync");
-	printk(KERN_INFO "tx_isp_t23_recovered: VIC sensor attr sync attr=%p vic=%p %ux%u\n",
+	printk(KERN_INFO "t23: VIC sensor attr sync attr=%p vic=%p %ux%u\n",
 	       arg2, vic, regtrace_t23_source_sensor_width, regtrace_t23_source_sensor_height);
 	return 0;
 }
@@ -25842,7 +25944,7 @@ int64_t csi_sensor_ops_sync_sensor_attr(uint32_t a0, uint32_t a1)
 	if (*(uint32_t *)(csi + 0x12c) < 3)
 		*(uint32_t *)(csi + 0x12c) = 3;
 	regtrace_t23_seed_sensor_caches("csi-sync");
-	printk(KERN_INFO "tx_isp_t23_recovered: CSI sensor attr sync attr=%p csi=%p %ux%u\n",
+	printk(KERN_INFO "t23: CSI sensor attr sync attr=%p csi=%p %ux%u\n",
 	       attr, csi, regtrace_t23_source_sensor_width, regtrace_t23_source_sensor_height);
 	return 0;
 }
@@ -27338,7 +27440,7 @@ int32_t apical_isp_core_ops_s_ctrl(uintptr_t a0, uintptr_t a1, uint32_t a2)
     value = *(uint32_t *)(uintptr_t)(a1 + sizeof(uint32_t));
     if (regtrace_t23_source_bcsh_trace)
         printk(KERN_INFO
-               "tx_isp_t23_recovered: BCSH s_ctrl cmd=0x%x value=%u\n",
+               "t23: BCSH s_ctrl cmd=0x%x value=%u\n",
                control, value);
     /*
      * The BCSH controls take 0..255 and the OEM keeps only the low byte:
@@ -30668,7 +30770,7 @@ int32_t apical_isp_core_ops_g_ctrl(uintptr_t a0, uintptr_t a1, uint32_t a2)
         return -EINVAL;
     control = *(uint32_t *)(uintptr_t)a1;
     if (regtrace_t23_source_bcsh_trace)
-        printk(KERN_INFO "tx_isp_t23_recovered: BCSH g_ctrl cmd=0x%x\n",
+        printk(KERN_INFO "t23: BCSH g_ctrl cmd=0x%x\n",
                control);
     switch (control) {
     case 0x980900:
@@ -34555,7 +34657,7 @@ static int32_t regtrace_t23_irq_none(const char *name, int32_t irq)
     regtrace_t23_irq_none_count++;
     if (regtrace_t23_log_irq_count(regtrace_t23_irq_none_count))
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: %s irq=%d nothing pending (unhandled count=%u)\n",
+               "t23: %s irq=%d nothing pending (unhandled count=%u)\n",
                name, irq, regtrace_t23_irq_none_count);
     return IRQ_NONE;
 }
@@ -34620,7 +34722,7 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
         regtrace_t23_vic_irq_count++;
         if (regtrace_t23_log_irq_count(regtrace_t23_vic_irq_count))
             printk(KERN_INFO
-                   "tx_isp_t23_recovered: VIC irq=%d count=%u status=0x%x/0x%x pending=0x%x/0x%x mask=0x%x/0x%x\n",
+                   "t23: VIC irq=%d count=%u status=0x%x/0x%x pending=0x%x/0x%x mask=0x%x/0x%x\n",
                    irq, regtrace_t23_vic_irq_count, status0, status1,
                    pending0, pending1, mask0, mask1);
         /*
@@ -34636,7 +34738,7 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
 
             regtrace_t23_vic_err_restarts++;
             printk_ratelimited(KERN_WARNING
-                               "tx_isp_t23_recovered: VIC error 0x%x, restarting VIC (n=%u)\n",
+                               "t23: VIC error 0x%x, restarting VIC (n=%u)\n",
                                pending0, regtrace_t23_vic_err_restarts);
             writel(4, base + 0x0);
             wmb();
@@ -34647,7 +34749,7 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
             }
             if (ctl != 0)
                 printk_ratelimited(KERN_WARNING
-                                   "tx_isp_t23_recovered: VIC did not stop, addr ctl is 0x%x\n",
+                                   "t23: VIC did not stop, addr ctl is 0x%x\n",
                                    ctl);
             writel(readl(base + 0x104), base + 0x104);
             writel(readl(base + 0x108), base + 0x108);
@@ -34673,7 +34775,7 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
         regtrace_t23_core_irq_count++;
         if (regtrace_t23_log_irq_count(regtrace_t23_core_irq_count))
             printk(KERN_INFO
-                   "tx_isp_t23_recovered: core irq=%d count=%u status=0x%x\n",
+                   "t23: core irq=%d count=%u status=0x%x\n",
                    irq, regtrace_t23_core_irq_count, status0);
 
         /* stock: frame done (bit 0) -> isp_frame_done_wakeup */
@@ -34719,7 +34821,7 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
                 }
                 drained_total += drained;
                 if (regtrace_t23_log_irq_count(regtrace_t23_core_irq_count))
-                    printk(KERN_INFO "tx_isp_t23_recovered: core MSCA fifo ch=%d status=0x%x drained=%d\n",
+                    printk(KERN_INFO "t23: core MSCA fifo ch=%d status=0x%x drained=%d\n",
                            channel, fifo_status, drained);
             }
             spin_unlock(&regtrace_t23_msca_lock);
@@ -34745,13 +34847,13 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
         regtrace_t23_ivdc_irq_count++;
         if (regtrace_t23_log_irq_count(regtrace_t23_ivdc_irq_count))
             printk(KERN_INFO
-                   "tx_isp_t23_recovered: IVDC irq=%d count=%u status=0x%x\n",
+                   "t23: IVDC irq=%d count=%u status=0x%x\n",
                    irq, regtrace_t23_ivdc_irq_count, status0);
         return IRQ_HANDLED;
     }
 
     printk_ratelimited(KERN_WARNING
-                       "tx_isp_t23_recovered: unowned irq=%d dev_id=%p sd=%p\n",
+                       "t23: unowned irq=%d dev_id=%p sd=%p\n",
                        irq, dev_id, sd);
     return IRQ_NONE;
 }
@@ -40190,7 +40292,7 @@ static void regtrace_t23_bayer_follow_sensor(void)
         bayer == regtrace_t23_source_core_bayer)
         return;
     printk(KERN_INFO
-           "tx_isp_t23_recovered: sensor Bayer %u -> %u (mbus=0x%x)%s\n",
+           "t23: sensor Bayer %u -> %u (mbus=0x%x)%s\n",
            regtrace_t23_source_core_bayer, bayer,
            regtrace_t23_source_sensor_mbus_code,
            regtrace_t23_core_started ? ", reg 0x8 at next frame" : "");
@@ -45366,7 +45468,7 @@ int32_t tisp_msca_ch_curve_write_ctrl(uint32_t path)
     busy = ((system_reg_read(0xe100U) >> 1) & 1U) |
            ((system_reg_read(0xe00cU) >> 1) & 1U);
     if (busy) {
-        printk(KERN_WARNING "tx_isp_t23_recovered: T23 MSCA curve loader busy path=%u status=0x%x\n",
+        printk(KERN_WARNING "t23: T23 MSCA curve loader busy path=%u status=0x%x\n",
                path, busy);
         return -EBUSY;
     }
@@ -45379,7 +45481,7 @@ int32_t tisp_msca_ch_curve_write_ctrl(uint32_t path)
         return -EINVAL;
     system_reg_write(0xe000U, 0x1010102U);
     system_reg_write(0xe100U, (((uint32_t)count - 1U) << 4) | 1U);
-    printk(KERN_WARNING "tx_isp_t23_recovered: T23 MSCA curve load path=%u entries=%u ctrl=0x%x\n",
+    printk(KERN_WARNING "t23: T23 MSCA curve load path=%u entries=%u ctrl=0x%x\n",
            path, count, (((uint32_t)count - 1U) << 4) | 1U);
     return 0;
 }
@@ -45653,7 +45755,7 @@ int32_t tisp_msca_curve_calc(uint32_t path, uint32_t channel)
     if (ret)
         return ret;
 
-    printk(KERN_WARNING "tx_isp_t23_recovered: T23 MSCA curves ch=%u ratio=%u/%u sums=%d/%d\n",
+    printk(KERN_WARNING "t23: T23 MSCA curves ch=%u ratio=%u/%u sums=%d/%d\n",
            channel, ratio_w, ratio_h,
            curve_w[0] + curve_w[8] + curve_w[16],
            curve_h[0] + curve_h[8] + curve_h[16]);
@@ -45895,7 +45997,7 @@ int32_t tisp_msca_chx_cfg_load(uint32_t unused, uint32_t channel,
                REGTRACE_T23_MSCA_CFG_BYTES);
         regtrace_t23_msca_live_valid[channel] = true;
     }
-    printk(KERN_WARNING "tx_isp_t23_recovered: T23 MSCA cfg-load ch=%u source=%ux%u target=%ux%u crop=%ux%u load=0x%x work=0x%x\n",
+    printk(KERN_WARNING "t23: T23 MSCA cfg-load ch=%u source=%ux%u target=%ux%u crop=%ux%u load=0x%x work=0x%x\n",
            channel,
            regtrace_t23_get_le32(cfg + 0x18),
            regtrace_t23_get_le32(cfg + 0x1c),
@@ -46851,7 +46953,7 @@ static void regtrace_t23_fcrop_unlock(const char *why)
     fcrop_en = 0;
     spin_unlock_irqrestore(&regtrace_t23_msca_lock, flags);
     if (was)
-        printk(KERN_WARNING "tx_isp_t23_recovered: front crop %s: full sensor window restored\n",
+        printk(KERN_WARNING "t23: front crop %s: full sensor window restored\n",
                why);
 }
 
@@ -46904,7 +47006,7 @@ int32_t tisp_msca_api_set_fcrop(uint32_t a0, uint32_t a1, uint32_t a2,
     system_reg_write(0xd010U, 1);
     fcrop_en = enable;
     spin_unlock_irqrestore(&regtrace_t23_msca_lock, flags);
-    printk(KERN_INFO "tx_isp_t23_recovered: front crop top=%u left=%u %ux%u\n",
+    printk(KERN_INFO "t23: front crop top=%u left=%u %ux%u\n",
            a2, a3, arg4, arg5);
     return 0;
 }
@@ -47034,7 +47136,7 @@ int32_t tiziano_gamma_params_refresh(void)
     for (i = 0; i < ARRAY_SIZE(profile); ++i) {
         if (profile[i] > 0xfffU || (i && profile[i] < profile[i - 1U])) {
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: invalid Gamma profile point=%u value=%u previous=%u\n",
+                   "t23: invalid Gamma profile point=%u value=%u previous=%u\n",
                    i, profile[i], i ? profile[i - 1U] : 0U);
             return -EINVAL;
         }
@@ -54242,7 +54344,7 @@ int32_t tisp_lsc_write_lut_datas(void)
         regtrace_t23_source_lsc_gain_events++;
     spin_unlock_irqrestore(&regtrace_t23_lsc_lut_lock, flags);
     printk_ratelimited(KERN_INFO
-           "tx_isp_t23_recovered: source LSC runtime CT%u tgain_log2=0x%x strength=%u by=%s gain_events=%u committed (%u nodes)\n",
+           "t23: source LSC runtime CT%u tgain_log2=0x%x strength=%u by=%s gain_events=%u committed (%u nodes)\n",
            ct, tgain, strength, by_gain ? "gain" : "ct",
            regtrace_t23_source_lsc_gain_events,
            regtrace_t23_source_lsc_lut_num / 3U);
@@ -58346,13 +58448,13 @@ int32_t tiziano_bcsh_update(void)
         uint32_t *offset1 = (uint32_t *)(void *)tisp_BCSH_au32Offset1;
 
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: BCSH trace ev=%u ct=%u region=%u H=%04x/%04x/%04x/%04x/%04x/%04x/%04x/%04x/%04x\n",
+               "t23: BCSH trace ev=%u ct=%u region=%u H=%04x/%04x/%04x/%04x/%04x/%04x/%04x/%04x/%04x\n",
                ev, regtrace_t23_bcsh_ct, bcsh_ct_part_now,
                hmatrix[0], hmatrix[1], hmatrix[2], hmatrix[3],
                hmatrix[4], hmatrix[5], hmatrix[6], hmatrix[7],
                hmatrix[8]);
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: BCSH trace O0=%04x/%04x/%04x O1=%04x/%04x/%04x C=%04x/%04x/%04x/%04x/%04x S=%04x/%04x/%04x/%04x\n",
+               "t23: BCSH trace O0=%04x/%04x/%04x O1=%04x/%04x/%04x C=%04x/%04x/%04x/%04x/%04x S=%04x/%04x/%04x/%04x\n",
                offset0[0], offset0[1], offset0[2], offset1[0],
                offset1[1], offset1[2], tisp_BCSH_ai32C[0],
                tisp_BCSH_ai32C[1], tisp_BCSH_ai32C[2],
@@ -58622,7 +58724,7 @@ void tiziano_bcsh_params_refresh(void)
                                         REGTRACE_T23_BCSH_TUNING_SIZE);
     if (ret) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: BCSH tuning refresh failed path=%s ret=%d\n",
+               "t23: BCSH tuning refresh failed path=%s ret=%d\n",
                regtrace_t23_source_core_tuning_path, ret);
         regtrace_t23_source_bcsh_tuning_status = ret;
         private_vfree(params);
@@ -60029,7 +60131,7 @@ int tiziano_dpc_init(void)
 	if (regtrace_t23_source_dpc_tuning_init) {
 		tisp_dpc_par_refresh(0x10000U, 0x10000U, 1);
 		printk(KERN_WARNING
-		       "tx_isp_t23_recovered: source DPC tuning committed irq=0x%x cfg=0x%x thresholds=0x%x/0x%x\n",
+		       "t23: source DPC tuning committed irq=0x%x cfg=0x%x thresholds=0x%x/0x%x\n",
 		       system_reg_read(0x30U), system_reg_read(0x2800U),
 		       system_reg_read(0x2838U), system_reg_read(0x2850U));
 	}
@@ -60158,7 +60260,7 @@ int32_t tiziano_ydns_params_refresh(void)
         REGTRACE_T23_YDNS_TUNING_FILE_OFFSET, &tuning, sizeof(tuning));
     if (ret) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: source YDNS tuning read failed ret=%d\n",
+               "t23: source YDNS tuning read failed ret=%d\n",
                ret);
         return ret;
     }
@@ -60214,7 +60316,7 @@ int32_t tiziano_ydns_init(void)
         return ret;
     ret = tisp_ydns_par_refresh(0x10000U);
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: source YDNS initialized ret=%d regs=%08x/%08x/%08x/%08x\n",
+           "t23: source YDNS initialized ret=%d regs=%08x/%08x/%08x/%08x\n",
            ret, system_reg_read(0x7af0U), system_reg_read(0x7af4U),
            system_reg_read(0x7af8U), system_reg_read(0x7afcU));
     return ret;
@@ -63585,7 +63687,7 @@ int32_t tiziano_adr_params_refresh(void)
                sizeof(param_adr_weight_21_lut_array));
     } else if (tool_control != 1U) {
         printk(KERN_ERR
-               "tx_isp_t23_recovered: ADR tool control overflow value=%u\n",
+               "t23: ADR tool control overflow value=%u\n",
                tool_control);
         return -EINVAL;
     }
@@ -64936,7 +65038,7 @@ int32_t tiziano_adr_init(uint32_t arg0, uint32_t width, uint32_t height)
     }
     regtrace_t23_source_adr_initialized = true;
     printk(KERN_WARNING
-           "tx_isp_t23_recovered: ADR initialized %ux%u active=%u dynamic=%u ctl=%u radius=%u cwd=%u/%u\n",
+           "t23: ADR initialized %ux%u active=%u dynamic=%u ctl=%u radius=%u cwd=%u/%u\n",
            width, height,
            regtrace_t23_source_adr_internal_enable ? 1U : 0U,
            regtrace_t23_source_adr_dynamic ? 1U : 0U,
@@ -65968,7 +66070,7 @@ void tiziano_defog_params_refresh(void)
 
     if (ret)
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: retaining compiled defog defaults ret=%d\n",
+               "t23: retaining compiled defog defaults ret=%d\n",
                ret);
 }
 
@@ -72210,7 +72312,7 @@ int tiziano_sdns_init(void) {
     if (!ret) {
         regtrace_t23_source_sdns_initialized = true;
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: SDNS initialized tgain_log2=0x%x active=%u r8b4c=0x%x\n",
+               "t23: SDNS initialized tgain_log2=0x%x active=%u r8b4c=0x%x\n",
                regtrace_t23_tgain_log2,
                regtrace_t23_source_sdns_internal_enable ? 1U : 0U,
                system_reg_read(0x8b4cU));
@@ -72577,7 +72679,7 @@ int32_t tiziano_sharpen_params_refresh(void)
                                         REGTRACE_T23_SHARPEN_TUNING_SIZE);
     if (ret) {
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: sharpen tuning refresh failed path=%s ret=%d\n",
+               "t23: sharpen tuning refresh failed path=%s ret=%d\n",
                regtrace_t23_source_core_tuning_path, ret);
         private_vfree(params);
         return ret;
@@ -80557,7 +80659,7 @@ int32_t tiziano_ae_init_exp_th(void)
             integration > regtrace_t23_source_sensor_max_it) {
             regtrace_t23_source_ae_hlil_status = ERANGE;
             printk(KERN_ERR
-                   "tx_isp_t23_recovered: source AE rung %u integration %u outside sensor limits %u..%u\n",
+                   "t23: source AE rung %u integration %u outside sensor limits %u..%u\n",
                    i, integration, regtrace_t23_source_sensor_min_it,
                    regtrace_t23_source_sensor_max_it);
             return -ERANGE;
@@ -80623,7 +80725,7 @@ int32_t tiziano_ae_init(uint32_t arg1, uint32_t arg2, uint32_t arg3)
         return ret;
     regtrace_t23_source_ae_hlil_reset();
     printk(KERN_INFO
-           "tx_isp_t23_recovered: source AE runtime initialized context=0x%x info=0x%x mode=0x%x states=%u\n",
+           "t23: source AE runtime initialized context=0x%x info=0x%x mode=0x%x states=%u\n",
            arg1, arg2, arg3, REGTRACE_T23_AE_HLIL_STATE_COUNT);
     return 0;
 }
@@ -86712,7 +86814,7 @@ int32_t tiziano_dmsc_params_refresh(void)
                                         REGTRACE_T23_DMSC_TUNING_SIZE);
     if (ret) {
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: DMSC tuning refresh failed path=%s ret=%d\n",
+               "t23: DMSC tuning refresh failed path=%s ret=%d\n",
                regtrace_t23_source_core_tuning_path, ret);
         private_vfree(params);
         return ret;
@@ -93377,10 +93479,17 @@ static void regtrace_t23_source_dn_params_refresh(const char *reason)
             system_reg_write(0x0cU, system_reg_read(0x0cU) | bypass);
     }
 
-    printk(KERN_WARNING
-           "tx_isp_t23_recovered: bank switch block refresh reason=%s gain=0x%x tgain_log2=0x%x failed=0x%x ret=%d r0c=0x%08x\n",
-           reason ? reason : "?", gain, regtrace_t23_tgain_log2, failed, ret,
-           system_reg_read(0x0cU));
+    /* a clean refresh is a progress note (quiet unless t23_runtime_trace) */
+    if (failed || ret)
+        printk(KERN_WARNING
+               "t23: bank switch block refresh reason=%s gain=0x%x tgain_log2=0x%x failed=0x%x ret=%d r0c=0x%08x\n",
+               reason ? reason : "?", gain, regtrace_t23_tgain_log2, failed,
+               ret, system_reg_read(0x0cU));
+    else
+        printk(KERN_INFO
+               "t23: bank switch block refresh reason=%s gain=0x%x tgain_log2=0x%x r0c=0x%08x\n",
+               reason ? reason : "?", gain, regtrace_t23_tgain_log2,
+               system_reg_read(0x0cU));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000064c48 origin=fragment_seed original=tisp_day_or_night_s_ctrl */
@@ -93392,19 +93501,22 @@ int64_t tisp_day_or_night_s_ctrl(uintptr_t a0, uint32_t a1)
 
     if (a0 >= sizeof(day_night) / sizeof(uint32_t))
         return -EINVAL;
-    if (a1 == 0)
-        selected = (const void *)tparams_day;
-    else if (a1 == 1)
-        selected = (const void *)tparams_night;
-    else
+    if (a1 > 1)
         return -EINVAL;
-    if (!selected)
+
+    /* bank mutex: a SwitchBin publish never runs between the pick and the use */
+    mutex_lock(&regtrace_t23_bank_mutex);
+    selected = (const void *)(a1 == 0 ? tparams_day : tparams_night);
+    if (!selected) {
+        mutex_unlock(&regtrace_t23_bank_mutex);
         return -ENODEV;
+    }
 
     regtrace_t23_source_algo_pause();
     ret = regtrace_t23_source_ccm_select_bank(selected);
     if (ret) {
         regtrace_t23_source_algo_resume();
+        mutex_unlock(&regtrace_t23_bank_mutex);
         return ret;
     }
 
@@ -93423,6 +93535,7 @@ int64_t tisp_day_or_night_s_ctrl(uintptr_t a0, uint32_t a1)
         tx_isp_t23_mode_profile_apply(active);
     }
     regtrace_t23_source_algo_resume();
+    mutex_unlock(&regtrace_t23_bank_mutex);
 
     cust_mode = 0;
     *(uint8_t *)(void *)&tispPollValue = 1;
@@ -93441,14 +93554,19 @@ int32_t tisp_cust_mode_s_ctrl(uint32_t arg1, uint32_t arg2)
     uint32_t dn;
     int ret;
 
-    if (!tparams_cust)
+    mutex_lock(&regtrace_t23_bank_mutex);
+    if (!tparams_cust) {
+        mutex_unlock(&regtrace_t23_bank_mutex);
         return -1;
+    }
 
     if (arg2 == 1) {
         selected = (const void *)tparams_cust;
     } else if (arg2 == 0) {
-        if (arg1 >= sizeof(day_night) / sizeof(uint32_t))
+        if (arg1 >= sizeof(day_night) / sizeof(uint32_t)) {
+            mutex_unlock(&regtrace_t23_bank_mutex);
             return -EINVAL;
+        }
         dn = *(uint32_t *)(void *)(day_night + arg1 * sizeof(uint32_t));
         if (dn == 0)
             selected = (const void *)tparams_day;
@@ -93456,15 +93574,16 @@ int32_t tisp_cust_mode_s_ctrl(uint32_t arg1, uint32_t arg2)
             selected = (const void *)tparams_night;
     }
 
-    if ((arg2 == 0 || arg2 == 1) && !selected)
-        return -ENODEV;
-    if (!selected)
-        return 0;
+    if (!selected) {
+        mutex_unlock(&regtrace_t23_bank_mutex);
+        return (arg2 == 0 || arg2 == 1) ? -ENODEV : 0;
+    }
 
     regtrace_t23_source_algo_pause();
     ret = regtrace_t23_source_ccm_select_bank(selected);
     if (ret) {
         regtrace_t23_source_algo_resume();
+        mutex_unlock(&regtrace_t23_bank_mutex);
         return ret;
     }
     memcpy(active, selected, T23_TPARAMS_BANK_SIZE);
@@ -93478,6 +93597,7 @@ int32_t tisp_cust_mode_s_ctrl(uint32_t arg1, uint32_t arg2)
         tx_isp_t23_mode_profile_apply(active);
     }
     regtrace_t23_source_algo_resume();
+    mutex_unlock(&regtrace_t23_bank_mutex);
     return 0;
 }
 
@@ -93495,31 +93615,109 @@ static int32_t tisp_day_or_night_g_ctrl(uint32_t a0)
     return *(uint32_t *)(void *)(tisp_par_info + a0 * 156U + 124U);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000651d8 origin=fragment_seed original=tisp_switch_bin */
-uint32_t tisp_switch_bin(uint32_t a0)
+/*
+ * tisp_switch_bin / tisp_core_switch_bin (stock 0x651d8 / 0x17b0c), SwitchBin
+ * (control 0x8000185).  Stock reads the file over the live day/night banks
+ * and checks it afterwards.  Here (as T41 SwitchBin) in two steps:
+ *   prepare  the file is read and checked (size, "2.20"/"header0", CRC) into
+ *            a private pair of bank buffers; no live pointer, bank or
+ *            register is touched, any failure returns before the commit.
+ *            Runs without the tuning mutex (file I/O may block).
+ *   commit   under the tuning and the bank mutex, with AE/AWB paused: the
+ *            bank of the running mode is selected from the NEW buffer first
+ *            (regtrace_t23_source_ccm_select_bank restores the old state
+ *            itself on failure, then the new buffers are simply freed), and
+ *            only after it succeeded the new pair is published by pointer.
+ *            The old banks are never overwritten: they are retired one
+ *            generation (freed with the next SwitchBin or at deinit).
+ * A running custom mode keeps its bank; the new day/night banks apply when
+ * it is left.  Not reproduced: the stock post-step that stores a day/night
+ * state word of the lifted sensor object.
+ * Host build only, device test pending.
+ */
+static int regtrace_t23_switch_bin_prepare(const char *path,
+                                           unsigned char **day_out,
+                                           unsigned char **night_out)
+{
+    unsigned char *blob, *day, *night;
+    int ret;
+
+    blob = private_vmalloc(T23_IQ_STANDARD_SIZE);
+    if (!blob)
+        return -ENOMEM;
+    ret = regtrace_t23_read_file_exact(path, blob, T23_IQ_STANDARD_SIZE);
+    if (!ret)
+        ret = regtrace_t23_validate_iq(blob, T23_IQ_STANDARD_SIZE,
+                                       2U * T23_TPARAMS_BANK_SIZE);
+    if (ret) {
+        printk(KERN_ERR "tx_isp_t23_recovered: SwitchBin %s rejected ret=%d\n",
+               path, ret);
+        private_vfree(blob);
+        return ret;
+    }
+    day = private_vmalloc(T23_TPARAMS_BANK_SIZE);
+    night = private_vmalloc(T23_TPARAMS_BANK_SIZE);
+    if (!day || !night) {
+        if (day)
+            private_vfree(day);
+        if (night)
+            private_vfree(night);
+        private_vfree(blob);
+        return -ENOMEM;
+    }
+    memcpy(day, blob + T23_IQ_HEADER_SIZE, T23_TPARAMS_BANK_SIZE);
+    memcpy(night, blob + T23_IQ_HEADER_SIZE + T23_TPARAMS_BANK_SIZE,
+           T23_TPARAMS_BANK_SIZE);
+    private_vfree(blob);
+    *day_out = day;
+    *night_out = night;
+    return 0;
+}
+
+/* Takes over day and night (published or freed).  Caller holds the tuning mutex. */
+static int regtrace_t23_switch_bin_commit(unsigned char *day,
+                                          unsigned char *night)
 {
     uint32_t *active = (uint32_t *)(void *)(tparams + T23_TPARAMS_ACTIVE_OFFSET);
-    uint32_t mode = *(uint32_t *)(void *)(tisp_par_info + 124U);
+    const unsigned char *running;
     const void *selected = NULL;
-    int32_t result;
+    uintptr_t old_day, old_night;
+    int ret = 0;
 
-    (void)system_reg_read(12);
-    result = tisp_core_switch_bin(a0);
-    if (mode == 0)
-        selected = (const void *)tparams_day;
-    else if (mode == 1)
-        selected = (const void *)tparams_night;
+    mutex_lock(&regtrace_t23_bank_mutex);
+    if (!tparams_day || !tparams_night) {
+        ret = -ENODEV;
+        goto fail;
+    }
     regtrace_t23_source_algo_pause();
+    running = regtrace_t23_source_active_bank;
+    if (running == (const unsigned char *)tparams_day)
+        selected = day;
+    else if (running == (const unsigned char *)tparams_night)
+        selected = night;
     if (selected) {
-        result = regtrace_t23_source_ccm_select_bank(selected);
-        if (result) {
+        ret = regtrace_t23_source_ccm_select_bank(selected);
+        if (ret) {
             regtrace_t23_source_algo_resume();
-            return (uint32_t)result;
+            goto fail;
         }
-        memcpy(active, selected, T23_TPARAMS_BANK_SIZE);
-        *(uint32_t *)(void *)(tisp_par_info + 124U) = mode;
     }
 
+    /* nothing below can fail */
+    old_day = tparams_day;
+    old_night = tparams_night;
+    smp_wmb();                  /* the new buffers are complete before they are visible */
+    ACCESS_ONCE(tparams_day) = (uintptr_t)day;
+    ACCESS_ONCE(tparams_night) = (uintptr_t)night;
+    if (regtrace_t23_bank_retired_night)
+        private_vfree((void *)regtrace_t23_bank_retired_night);
+    if (regtrace_t23_bank_retired_day)
+        private_vfree((void *)regtrace_t23_bank_retired_day);
+    regtrace_t23_bank_retired_day = old_day;
+    regtrace_t23_bank_retired_night = old_night;
+
+    if (selected)
+        memcpy(active, selected, T23_TPARAMS_BANK_SIZE);
     if (regtrace_t23_source_core_start) {
         regtrace_t23_source_mode_flags_apply(active);
         regtrace_t23_source_dn_params_refresh("switch-bin");
@@ -93527,12 +93725,36 @@ uint32_t tisp_switch_bin(uint32_t a0)
         tx_isp_t23_mode_profile_apply(active);
     }
     regtrace_t23_source_algo_resume();
+    mutex_unlock(&regtrace_t23_bank_mutex);
 
     *(uint8_t *)(void *)&tispPollValue = 1;
     *((uint8_t *)(void *)&tispPollValue + 3) = 1;
     wake_up_interruptible(&dumpQueue);
+    return 0;
 
-    return (uint32_t)result;
+fail:
+    mutex_unlock(&regtrace_t23_bank_mutex);
+    private_vfree(day);
+    private_vfree(night);
+    return ret;
+}
+
+/*
+ * a0 is a KERNEL pointer to the 68 byte block { u32 enable, char path[64] }
+ * (enable checked and path terminated by the caller).  Caller holds the
+ * tuning mutex; the isp-m0 ext dispatcher uses prepare/commit directly so
+ * the file is read before it takes the mutex.
+ */
+uint32_t tisp_switch_bin(uint32_t a0)
+{
+    unsigned char *day, *night;
+    int ret;
+
+    ret = regtrace_t23_switch_bin_prepare((const char *)(uintptr_t)a0 + 4,
+                                          &day, &night);
+    if (!ret)
+        ret = regtrace_t23_switch_bin_commit(day, night);
+    return (uint32_t)ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000654b4 origin=model_output original=tisp_mirror_enable */
@@ -93661,7 +93883,7 @@ static int regtrace_t23_sensor_fps_apply(uint32_t packed, const char *reason)
                                          &value);
     if (ret) {
         printk(KERN_WARNING
-               "tx_isp_t23_recovered: sensor rejected fps=%u/%u ret=%d reason=%s\n",
+               "t23: sensor rejected fps=%u/%u ret=%d reason=%s\n",
                packed >> 16, packed & 0xffffU, ret, reason ? reason : "?");
         return ret;
     }
@@ -93679,7 +93901,7 @@ static int regtrace_t23_sensor_fps_apply(uint32_t packed, const char *reason)
         regtrace_t23_ae_hlil_retime(max_it, reason);
 
     printk(KERN_INFO
-           "tx_isp_t23_recovered: sensor fps=%u/%u held=0x%08x vts=%u max_it=%u ae_max_it=%u reason=%s\n",
+           "t23: sensor fps=%u/%u held=0x%08x vts=%u max_it=%u ae_max_it=%u reason=%s\n",
            packed >> 16, packed & 0xffffU, regtrace_t23_sensor_held_fps(),
            vts, max_it, regtrace_t23_source_sensor_max_it,
            reason ? reason : "?");
@@ -93992,7 +94214,7 @@ uint32_t tisp_set_fps(uint32_t a0, uint32_t a1)
             regtrace_t23_sensor_fps_request = previous;
     } else {
         printk(KERN_INFO
-               "tx_isp_t23_recovered: sensor fps=%u/%u held until sensor stream-on\n",
+               "t23: sensor fps=%u/%u held until sensor stream-on\n",
                a1 >> 16, a1 & 0xffffU);
     }
     mutex_unlock(&regtrace_t23_sensor_fps_lock);
@@ -103198,6 +103420,32 @@ static uint32_t regtrace_t23_sensor_flip_get(void)
     return (regtrace_t23_source_lsc_initial_mirror ? 1U : 0U) |
            (regtrace_t23_source_lsc_initial_flip ? 2U : 0U);
 }
+
+/*
+ * Read-only module parameter msca_flip_state: who flips each axis.  Bits:
+ * 0 sensor_h, 1 sensor_v (the sensor accepted the flip event, e.g. sc2336p
+ * reg 0x3221), 2 isp_h, 3 isp_v (MSCA mirror/flip word 0xd050 asked for by
+ * HVFLIP).  With image hflip/vflip both stages flip on T23; a streamer that
+ * mirrors a crop window must account for both.  shvflip=1 (LSC mesh only)
+ * sets no bit.  Values are the last accepted requests (cached, no register
+ * read, so reading the parameter never touches the hardware).
+ */
+static int regtrace_t23_msca_flip_state_get(char *buffer,
+                                            const struct kernel_param *kp)
+{
+    uint32_t sensor = regtrace_t23_sensor_flip_get() & 3U;
+    uint32_t isp = ACCESS_ONCE(regtrace_t23_isp_flip_mode) & 3U;
+
+    (void)kp;
+    return scnprintf(buffer, PAGE_SIZE, "%u\n", sensor | isp << 2);
+}
+
+static struct kernel_param_ops regtrace_t23_msca_flip_state_ops = {
+    .get = regtrace_t23_msca_flip_state_get,
+};
+module_param_cb(msca_flip_state, &regtrace_t23_msca_flip_state_ops, NULL, 0444);
+MODULE_PARM_DESC(msca_flip_state,
+                 "read-only: flip done by sensor/ISP, bits 0 sensor_h, 1 sensor_v, 2 isp_h, 3 isp_v");
 
 static long regtrace_t23_copy_in(void *dst, uint32_t uptr, size_t size)
 {

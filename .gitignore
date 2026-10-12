@@ -13,6 +13,7 @@ __pycache__/
 *.mod.o
 *.order
 *.symvers
+*.checked
 *.mipsel
 built-in.o
 .tmp_versions/
