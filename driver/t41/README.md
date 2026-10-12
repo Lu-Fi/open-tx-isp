@@ -842,4 +842,14 @@ step and do not continue with larger sizes.
   and none targets a `proc_dir_entry` or `file_operations`. The proc oops
   cause is still open. GCC reorders the recovered statics after most code
   changes, so anchor-relative recovered accesses hit different neighbours
-  in every build. WDR fusion is refused unless `t41_wdr_fusion_unsafe=1`.
+  in every build. WDR fusion is refused unless `t41_wdr_fusion_unsafe=1`.- **Device run 2026-10-12 (reload-fix module, 50 reload cycles, heap_watch=1
+  heap_decoys=32).** No oops, no open framechan fds before any rmmod, snapshot
+  200 after every cycle, `proc_watch_hits` and `heap_watch_hits` stayed 0. In 10
+  of 50 cycles a decoy fired: always a kmalloc-512 decoy (slot number varies),
+  always offset +0x1c4, value 3 shortly after arming, then 2 one jiffy after
+  `tx_isp_release` at the next rmmod. Same signature as the param-attribute
+  hit above, so the stale writer is still there, but now it lands in a decoy
+  instead of the param array and no longer oopses. **WaitFrameDone still not
+  fixed:** the counter stays constant (13) and every call returns after its full
+  timeout with ret 0; the `isp_frame_done_wakeup()` call in the core 0x0100000b
+  path is not reached (or does not advance the counter) in steady state.
