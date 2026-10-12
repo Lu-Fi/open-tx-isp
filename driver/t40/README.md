@@ -301,7 +301,8 @@ Block bisect (each run one boot, metrics only, media discarded):
   GIB; YSP and DMSC-lit off.
 - r32a generic profile, channel 0 scaled to 1280x720: fine (201 frames /
   10 s, luma mean 53).  rmmod afterwards oopsed in the `isp_core_tuning_clear`
-  model stub (bad pointer); guarded in 6b70a5e5, retest pending.
+  model stub (bad pointer); guarded in 6b70a5e5.  r33a: rmmod still takes
+  the camera down (no console); reload is not usable yet.
 Next: rmmod retest, channel 1 next to channel 0 (a streamer config), the
 second-stream-start panic, the 1080p panic, YSP at 4K.
 
