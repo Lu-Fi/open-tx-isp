@@ -23006,6 +23006,36 @@ static void t41_apply_pending_day_night(char *core)
 }
 #endif
 
+/*
+ * Channel-0 frame-done signal for IMP_ISP_WaitFrameDone.  The ISR status-bit-0
+ * branch (via CORE_FRAME_DONE 0x04000002) only covered the first frames of a
+ * stream on the device (count stuck at 13, every wait timed out), so the
+ * completion of a channel-0 buffer in the frame-channel done handler is the
+ * per-frame source.  Once that path has signalled, the other two callers stop
+ * counting channel 0, so a frame is never counted twice.  IRQ-safe.
+ */
+static bool t41_fd_from_fs;
+
+static void t41_frame_done_count(uint32_t ch)
+{
+    uint64_t *cnt = (uint64_t *)(frame_done_cnt_storage + ch * 8);
+
+    (*cnt)++;
+    if (ch == 0) {
+        WRITE_ONCE(frame_done_cond, 1);
+        wake_up((wait_queue_head_t *)(void *)frame_done_wq);
+    } else {
+        WRITE_ONCE(frame_done_cond_sec, 1);
+        wake_up((wait_queue_head_t *)(void *)frame_done_wq_sec);
+    }
+}
+
+static void t41_fs_frame_done_signal(void)
+{
+    WRITE_ONCE(t41_fd_from_fs, true);
+    t41_frame_done_count(0);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000c878 origin=fragment_seed original=isp_frame_done_wakeup */
 int32_t isp_frame_done_wakeup(uint32_t a0)
 {
@@ -23031,22 +23061,15 @@ int32_t isp_frame_done_wakeup(uint32_t a0)
      */
     {
         uint32_t ch;
-        uint64_t *cnt;
 
         if (!t41_kernel_data_ptr((void *)(uintptr_t)a0))
             return -EINVAL;
         ch = ((uint32_t *)(uintptr_t)a0)[1];
         if (ch > 1)
             return -EINVAL;
-        cnt = (uint64_t *)(frame_done_cnt_storage + ch * 8);
-        (*cnt)++;
-        if (ch == 0) {
-            WRITE_ONCE(frame_done_cond, 1);
-            wake_up((wait_queue_head_t *)(void *)frame_done_wq);
-        } else {
-            WRITE_ONCE(frame_done_cond_sec, 1);
-            wake_up((wait_queue_head_t *)(void *)frame_done_wq_sec);
-        }
+        if (ch == 0 && READ_ONCE(t41_fd_from_fs))
+            return 0;
+        t41_frame_done_count(ch);
         return 0;
     }
 
@@ -29030,6 +29053,8 @@ int32_t frame_chan_event(uintptr_t a0, uint32_t a1, uintptr_t a2)
     }
 
     private_spin_unlock_irqrestore(channel + 0x2e0, flags);
+    if (completed && *(uint32_t *)(channel + 0x2dc) == 0)
+        t41_fs_frame_done_signal();
     return 0;
 }
 
