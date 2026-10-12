@@ -8751,6 +8751,13 @@ static bool regtrace_t40_generic_profile;
 /* timps on the Eufy oopsed in the recovered tisp_s_antiflick (bad AE param pointer); antiflicker stays a no-op unless enabled */
 static bool regtrace_t40_allow_antiflick;
 /*
+ * NV12 output layout: the vendor T40 module and OpenIMP use width*height
+ * (no 16-line alignment) for the UV offset and the buffer size.  The seed's
+ * ALIGN(height, 16) overran the 1920x1080 buffers by 8 lines (OpenIMP SIGBUS,
+ * kernel panics on the second start, devtest 1080p panics).  1 = vendor.
+ */
+static uint regtrace_t40_nv12_height_align = 1;
+/*
  * Vendor 1.3.1 core ISR: on status bit 0x400 it clears the MSCA work-enable
  * bit of a freshly started channel and sets it again N frame-dones later
  * (per-channel pending/countdown bytes).  t40_msca_work_handshake=N
@@ -9549,6 +9556,7 @@ module_param_named(t40_ae_sensor_alloc_again, regtrace_t40_ae_sensor_alloc_again
 module_param_named(disable_dmsc_lit, regtrace_disable_dmsc_lit, bool, 0644);
 module_param_named(t40_generic_profile, regtrace_t40_generic_profile, bool, 0644);
 module_param_named(t40_allow_antiflick, regtrace_t40_allow_antiflick, bool, 0644);
+module_param_named(t40_nv12_height_align, regtrace_t40_nv12_height_align, uint, 0644);
 module_param_named(t40_msca_work_handshake, regtrace_t40_msca_work_handshake, uint, 0644);
 module_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
 module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
@@ -20480,7 +20488,7 @@ static uint32_t regtrace_framechan_uv_offset(int channel)
     if (!width || !height)
         return 0;
 
-    return width * ALIGN(height, 16);
+    return width * ALIGN(height, regtrace_t40_nv12_height_align ? regtrace_t40_nv12_height_align : 16U);
 }
 
 static uint32_t regtrace_untag_phys(uint32_t phys)
@@ -20944,10 +20952,11 @@ static int regtrace_core_program_qbuf(int channel, uint32_t phys,
     sync_len = (index < REGTRACE_FRAMECHAN_QBUF_SHADOW_MAX &&
                 regtrace_framechan_qbuf_len[channel][index]) ?
         regtrace_framechan_qbuf_len[channel][index] :
-        (width * ALIGN(height, 16) * 3U / 2U);
+        (width * ALIGN(height, regtrace_t40_nv12_height_align ? regtrace_t40_nv12_height_align : 16U) * 3U / 2U);
 
-    ret = tx_isp_nv12_buffer_build(width, height, 1, 16, phys, sync_len,
-                                   &dma_buffer);
+    ret = tx_isp_nv12_buffer_build(width, height, 1,
+                                   regtrace_t40_nv12_height_align ? regtrace_t40_nv12_height_align : 16U,
+                                   phys, sync_len, &dma_buffer);
     if (ret)
         return ret;
     ret = tx_isp_dma_range_validate(dma_buffer.y_dma,
@@ -21183,7 +21192,7 @@ static int regtrace_vic_frame_mdma_stream(int channel, int enable)
         if (qbuf_count > REGTRACE_VIC_MDMA_RING_SLOTS)
             qbuf_count = REGTRACE_VIC_MDMA_RING_SLOTS;
 
-        aligned_height = ALIGN(height, 16);
+        aligned_height = ALIGN(height, regtrace_t40_nv12_height_align ? regtrace_t40_nv12_height_align : 16U);
         y_size = regtrace_vic_mdma_qbuf_ring_uv_offset_override ?
             regtrace_vic_mdma_qbuf_ring_uv_offset_override :
             width * aligned_height;
