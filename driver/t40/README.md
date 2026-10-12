@@ -292,7 +292,7 @@ Block bisect (each run one boot, metrics only, media discarded):
   (self-reboot, no console); one of the Y blocks crashes at 4K.
 - r24a profile 0 + MDNS + YSP: kernel panic -> YSP is the crashing block
   (recovered `tisp_ysp_*` path at 4K); keep `enable_ysp=0`.
-- r25a + SDNS, r26a + SDNS + YDNS, r27a + ADR, r28a + CCM + gamma: fine (200 frames / 10 s, 0 decode errors).
+- r25a + SDNS, r26a + SDNS + YDNS, r27a + ADR, r28a + CCM + gamma, r29a + BLC + LSC + GIB: fine (200 frames / 10 s, 0 decode errors).
 Next: ADR, then CCM/gamma and BLC/LSC/GIB, then 720p / channel 1 / rmmod.
 
 ### Next steps (host side first)
