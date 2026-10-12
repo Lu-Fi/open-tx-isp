@@ -249,6 +249,18 @@ Method: the same `t40_devtest` + OpenIMP `libimp.so` run on the vendor
   AddSensor, CSI1, 2304x1296) detects and streams the sensor but oopses in
   `tx_isp_send_event_to_remote+0x3c0` at `FS_EnableChn`; not analysed.
 
+### Night of 2026-10-13: ISP overflow
+
+The vendor core ISR names error-status bit 0x20 "ispcore: isp overflow!!!"
+(string `$LC183`); the open driver logged `err=0x20` on every frame.  The
+seed's clock table pins `div_isp` to 200 MHz (168 MHz effective), the
+vendor runs `isp_clk=300000000` (CPM ISPCDR 0x40000003 = MPLL/4).  Fixed by
+taking the rate from the `isp_clk` parameter.  The vendor ISR also uses
+status bit 0x400 for an MSCA work-enable countdown handshake (clear bit,
+re-set after N frames); bit 0x400 never fired on the open driver while the
+core overflowed.  Vendor counters are readable in `/proc/jz/isp/isp-m0`
+(`debug0`), the sensor IQ bin is loaded from `/etc/sensor/sc830ai-t40.bin`.
+
 ### Next steps (host side first)
 
 1. Implement VIC frame mode for the normal path: allocate the raw ring
