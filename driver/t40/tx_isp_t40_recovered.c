@@ -45742,6 +45742,9 @@ void isp_core_tuning_deinit(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000ce8c origin=model_output original=isp_core_tuning_clear */
 int32_t isp_core_tuning_clear(int32_t arg1, void* arg2)
 {
+    /* model stub; the Eufy rmmod path reached it with a bad pointer (oops #5) */
+    if (!regtrace_is_kernel_ptr(arg2) || arg1 < 0 || arg1 > 64)
+        return 0;
     *(uint32_t*)((char*)arg2 + (arg1 << 5) + 32) = 0;
     return 0;
 }
