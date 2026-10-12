@@ -491,6 +491,16 @@ clean:
 		tx_isp_exposure_test tx_isp_t31_adr_test tx_isp_scaler_test \
 		tx_isp_t31_mdns_test tx_isp_t31_sensor_policy_test tx_isp_t41_capture_gate_test
 
+# T23/T31 GetAwbZone block: stock scaling and freshness (tx_isp_awb_zone.h)
+TESTS += tx_isp_awb_zone_test
+tx_isp_awb_zone_test: tx_isp_awb_zone_test.c \
+		../driver/include/tx_isp/tx_isp_awb_zone.h
+	$(CC) $(CFLAGS) -I../driver/include -o $@ $<
+clean: clean-awb-zone
+.PHONY: clean-awb-zone
+clean-awb-zone:
+	$(RM) tx_isp_awb_zone_test
+
 # T10/T20 GetAwbZone (driver/t20 tuning, T2X_CID_AWB_ZONE)
 TESTS += tx_isp_t2x_awb_zone_test
 tx_isp_t2x_awb_zone_test: tx_isp_t2x_awb_zone_test.c \

@@ -22,6 +22,8 @@
 #include <string.h>
 #endif
 
+#include "../include/tx_isp/tx_isp_awb_zone.h"
+
 /* ---- AE ------------------------------------------------------------- */
 
 #define T23X_ZONES 225U                 /* 15 x 15 */
@@ -253,21 +255,14 @@ static inline unsigned int t23x_ae_min_set(uint32_t *th, uint32_t *wdr,
 /*
  * GetAwbZone (stock Tiziano_awb_fpga): per zone the channel sum divided by
  * the zone's pixel count, stored as a byte (truncated, not saturated); an
- * empty zone reads 0.  r at 0, g at 225, b at 450.
+ * empty zone reads 0.  r at 0, g at 225, b at 450.  Shared with T31 in
+ * tx_isp_awb_zone.h.
  */
 static inline void t23x_awb_zone_pack(const uint32_t *r, const uint32_t *g,
 				      const uint32_t *b, const uint32_t *pix,
 				      uint8_t *out)
 {
-	unsigned int i;
-
-	for (i = 0; i < T23X_ZONES; i++) {
-		uint32_t n = pix[i];
-
-		out[i] = n ? (uint8_t)(r[i] / n) : 0U;
-		out[T23X_ZONES + i] = n ? (uint8_t)(g[i] / n) : 0U;
-		out[2U * T23X_ZONES + i] = n ? (uint8_t)(b[i] / n) : 0U;
-	}
+	tx_isp_awb_zone_pack(r, g, b, pix, out);
 }
 
 /*
