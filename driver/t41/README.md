@@ -797,6 +797,13 @@ step and do not continue with larger sizes.
   `t41_heap_decoys=N` (with `t41_heap_watch=1`) parks N pattern-filled
   kmalloc-256/512/1024 objects in the slots the previous lifetime freed and
   reports class, offset and driver step of any stray write.
+  Device run 2026-10-12 (T41 .32, 397409ac, decoys=32 + heap_watch): 50
+  load/stop/unload cycles, no oops, decoy/heap/proc watch hits 0 in every
+  cycle (the earlier build hit a decoy in cycle 5). The "csi init ignored
+  bad vinum" log line never appeared, so the bad csi caller was not seen
+  in this run. Separately `IMP_ISP_WaitFrameDone` still fails on the device:
+  the counter stays at 13 and every wait times out, so the frame-channel
+  signal in 397409ac is not reached per frame.
 - **TMO does not run (2026-10-12).** `t41_tmo_frames=0`, `t41_tmo_error=-11`
   is the value set at stream start, not a returned error: the TMO worker is
   only queued from ISR status bit 17, and no bit-17 IRQ was logged in the
