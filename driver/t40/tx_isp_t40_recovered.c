@@ -8725,6 +8725,8 @@ static uint regtrace_t40_vic_frame_output_msca_ctrl2 = 0x00044001U;
 static uint regtrace_t40_vic_frame_output_msca_word74 = 0x05ce3607U;
 static uint regtrace_t40_vic_frame_output_msca_word8c = 0x05ee1607U;
 static bool regtrace_t40_vic_frame_output_msca_words = true;
+static bool regtrace_t40_vic_frame_output_msca_work28;
+static bool regtrace_t40_vic_frame_output_msca_e0_clear;
 /* rmmod: the recovered tisp_deinit free loop oopsed four times on the Eufy T40XP; the regtrace layer frees its own tisp buffers. */
 static bool regtrace_skip_tisp_deinit = true;
 static bool regtrace_t40_profile_no_direct_irq_defaults = true;
@@ -9504,6 +9506,8 @@ module_param_named(t40_vic_frame_output_msca_ctrl2, regtrace_t40_vic_frame_outpu
 module_param_named(t40_vic_frame_output_msca_word74, regtrace_t40_vic_frame_output_msca_word74, uint, 0644);
 module_param_named(t40_vic_frame_output_msca_word8c, regtrace_t40_vic_frame_output_msca_word8c, uint, 0644);
 module_param_named(t40_vic_frame_output_msca_words, regtrace_t40_vic_frame_output_msca_words, bool, 0644);
+module_param_named(t40_vic_frame_output_msca_work28, regtrace_t40_vic_frame_output_msca_work28, bool, 0644);
+module_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
 module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
 module_param_named(t40_stock_host_init_mask, regtrace_t40_stock_host_init_mask, uint, 0644);
 module_param_named(oem_event_pre_csi_stream, regtrace_oem_event_pre_csi_stream, bool, 0644);
@@ -24724,6 +24728,11 @@ static int regtrace_t40_vic_frame_output_enable(int channel, int enable)
         regtrace_core_write(0x16174 + bank, regtrace_t40_vic_frame_output_msca_word74);
         regtrace_core_write(0x1618c + bank, regtrace_t40_vic_frame_output_msca_word8c);
     }
+    /* vendor streaming state: 0x16028 = 1, 0x160e0 = 0 (open: 0 / 1) */
+    if (regtrace_t40_vic_frame_output_msca_work28)
+        regtrace_core_write(0x16028, 1);
+    if (regtrace_t40_vic_frame_output_msca_e0_clear)
+        regtrace_core_write(0x160e0, 0);
     printk(KERN_INFO "tx_isp_t40_recovered: VIC frame output on ch=%d idx=%d %ux%u stride=%u count=%u ctrl=0x%x y0=0x%x uv0=0x%x msca_words=%u\n",
            channel, irq_index, width, height, stride, count, ctrl, y[0], uv[0],
            regtrace_t40_vic_frame_output_msca_words ? 1U : 0U);
