@@ -22035,6 +22035,184 @@ static int t41_tuning_coefft_wb(unsigned int channel, unsigned int is_get,
 }
 
 /*
+ * IMPISPAeConvergeStep (stock 0x08000028, 8 bytes) and the read-only
+ * IMPISPAeEvList / IMPISPAeAtList (0x08000038 / 0x08000039, 128 bytes):
+ * the AE params of ae_info[0], under the histogram lock like the zone
+ * weights.  See tx_isp_t41_tuning_ctl.h for the layouts.
+ */
+static int t41_tuning_ae_params(unsigned int channel, uint32_t id,
+                                unsigned int is_get, uintptr_t user_ptr)
+{
+    unsigned char payload[T41_AE_LIST_BYTES];
+    unsigned short step[4];
+    unsigned char *params;
+    uint32_t *info;
+    spinlock_t *lock;
+    unsigned long flags;
+    int ret;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (id != TX_ISP_TUNING_CMD_T41_AE_CONVERGE && !is_get)
+        return -EINVAL;
+    if (!smp_load_acquire(&t41_ae_ready[channel]))
+        return -EAGAIN;
+    info = (uint32_t *)(uintptr_t)ae_info[channel];
+    if (!t41_kernel_data_ptr(info))
+        return -ENODEV;
+    params = (unsigned char *)(uintptr_t)info[0];
+    if (!t41_kernel_data_ptr(params))
+        return -ENODEV;
+    lock = (spinlock_t *)(void *)(slock_hist_storage +
+                                  channel * sizeof(uint32_t));
+    if (id == TX_ISP_TUNING_CMD_T41_AE_CONVERGE && !is_get) {
+        if (private_copy_from_user(step, (void __user *)user_ptr,
+                                   sizeof(step)))
+            return -EFAULT;
+        spin_lock_irqsave(lock, flags);
+        ret = t41_ae_converge_set(params, T41_AE_PARAM_BYTES, step);
+        spin_unlock_irqrestore(lock, flags);
+        return ret ? -EINVAL : 0;
+    }
+    spin_lock_irqsave(lock, flags);
+    if (id == TX_ISP_TUNING_CMD_T41_AE_CONVERGE)
+        ret = t41_ae_converge_get(params, T41_AE_PARAM_BYTES, step);
+    else
+        ret = t41_ae_list_get(params, T41_AE_PARAM_BYTES,
+                              id == TX_ISP_TUNING_CMD_T41_AE_AT_LIST, payload);
+    spin_unlock_irqrestore(lock, flags);
+    if (ret)
+        return -EINVAL;
+    if (id == TX_ISP_TUNING_CMD_T41_AE_CONVERGE)
+        return private_copy_to_user((void __user *)user_ptr, step,
+                                    sizeof(step)) ? -EFAULT : 0;
+    return private_copy_to_user((void __user *)user_ptr, payload,
+                                sizeof(payload)) ? -EFAULT : 0;
+}
+
+/*
+ * IMPISPTmoCurve (stock 0x08000063, 404 bytes): one of the ten EV curves
+ * in the TMO params, under the TMO map lock; the per-frame TMO map
+ * (t41_tmo_frame) interpolates the stored curves, so a set curve is used
+ * from the next mapped frame.  Stock instead rebuilt the TMO registers at
+ * once (tisp_tmo_params_hard_refresh and the RAM refresh).
+ */
+static int t41_tuning_tmo_curve(unsigned int channel, unsigned int is_get,
+                                uintptr_t user_ptr)
+{
+    unsigned char *req, *info, *params;
+    int ret = -EAGAIN;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    req = private_kmalloc(T41_TMO_CURVE_BYTES, GFP_KERNEL);
+    if (!req)
+        return -ENOMEM;
+    if (private_copy_from_user(req, (void __user *)user_ptr,
+                               T41_TMO_CURVE_BYTES)) {
+        ret = -EFAULT;
+        goto out;
+    }
+    mutex_lock(&t41_tmo_map_lock);
+    info = (unsigned char *)(uintptr_t)tmo_info[channel];
+    params = t41_kernel_data_ptr(info) ?
+        (unsigned char *)(uintptr_t)*(uint32_t *)(void *)info : NULL;
+    if (t41_kernel_data_ptr(params))
+        ret = (is_get ? t41_tmo_curve_get(params, T41_TMO_PARAM_BYTES, req) :
+                        t41_tmo_curve_set(params, T41_TMO_PARAM_BYTES, req)) ?
+            -EINVAL : 0;
+    mutex_unlock(&t41_tmo_map_lock);
+    if (!ret && is_get &&
+        private_copy_to_user((void __user *)user_ptr, req,
+                             T41_TMO_CURVE_BYTES))
+        ret = -EFAULT;
+out:
+    private_kfree(req);
+    return ret;
+}
+
+/*
+ * IMPISPStatisConfig (stock 0x08000000, 72 bytes, tisp_s/g_statis_config_attr
+ * on tisp_tattr+568).  GET returns the stored record.  SET: an enabled AWB
+ * part moves the AWB zone grid (native AWB T41_AWB_LOCATION, refused with
+ * -EBUSY while the stream runs and the geometry changes); the AE histogram
+ * thresholds and the AF part are stored only (stock reprogrammed the global
+ * statistics block from an uninitialised buffer, and this build has no AF).
+ */
+static int t41_tuning_statis_config(unsigned int channel, unsigned int is_get,
+                                    uintptr_t user_ptr)
+{
+    unsigned char req[T41_STATIS_CONFIG_BYTES];
+    unsigned char loc[10];
+    uint8_t *attrs = (uint8_t *)(uintptr_t)tisp_tattr;
+    int parts, ret;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (!t41_kernel_data_ptr(attrs))
+        return -ENODEV;
+    if (is_get) {
+        memcpy(req, attrs + 568, sizeof(req));
+        return private_copy_to_user((void __user *)user_ptr, req,
+                                    sizeof(req)) ? -EFAULT : 0;
+    }
+    if (private_copy_from_user(req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+    parts = t41_statis_config_check(req);
+    if (parts < 0)
+        return -EINVAL;
+    if (parts & 2) {
+        if (!t41_native_awb)
+            return -EOPNOTSUPP;
+        if (!smp_load_acquire(&t41_awb_ready[0]))
+            return -EAGAIN;
+        t41_statis_awb_location(req, loc);
+        ret = t41_native_awb_control(0, T41_AWB_LOCATION, loc, sizeof(loc), 0);
+        if (ret)
+            return ret;
+    }
+    t41_statis_config_store(attrs + 568, req);
+    return 0;
+}
+
+/*
+ * IMPISPWaitFrameAttr (stock 0x08000091, get, 24 bytes): wait for the next
+ * channel-0 frame done (isp_frame_done_wait, woken from the frame IRQ) and
+ * report the frame counter.  As stock: the timeout word is in jiffies, a
+ * timeout or a signal still returns 0 with the counter, irqtype is 0.  The
+ * wait is capped at T41_WAIT_FRAME_MAX_JIFFIES and runs without the tuning
+ * mutex, so other tuning calls are not held up by a waiter.
+ */
+#define T41_WAIT_FRAME_MAX_JIFFIES (60 * HZ)
+
+static int t41_tuning_wait_frame_done(const struct tx_isp_tuning_t41_control *request)
+{
+    struct {
+        u32 timeout;
+        u32 pad;
+        u64 cnt;
+        u32 irqtype;
+        u32 pad2;
+    } attr;
+    u64 cnt = 0;
+    u32 timeout;
+
+    BUILD_BUG_ON(sizeof(attr) != TX_ISP_TUNING_T41_WAIT_FRAME_BYTES);
+    if (request->channel != 0 || request->is_get != 1 ||
+        !request->value_or_ptr)
+        return -EINVAL;
+    if (private_copy_from_user(&attr,
+            (void __user *)(uintptr_t)request->value_or_ptr, sizeof(attr)))
+        return -EFAULT;
+    timeout = min_t(u32, attr.timeout, T41_WAIT_FRAME_MAX_JIFFIES);
+    isp_frame_done_wait(request->channel, timeout, (uintptr_t)&cnt);
+    attr.cnt = cnt;
+    attr.irqtype = 0;
+    return private_copy_to_user((void __user *)(uintptr_t)request->value_or_ptr,
+                                &attr, sizeof(attr)) ? -EFAULT : 0;
+}
+
+/*
  * Review2 M1: stock serialises the tuning node with core_dev->mlock; two
  * tuning threads (day/night, BCSH, flip) must not interleave on the same
  * IQ state. Serialise the whole isp-m0 ioctl.
@@ -22051,7 +22229,15 @@ static int t41_tuning_scaler_lv(unsigned int vinum, unsigned int is_get,
 int64_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
     struct t41_switch_bin_post post;
+    struct tx_isp_tuning_t41_control request;
     int64_t ret;
+
+    /* WaitFrameDone sleeps up to its timeout: never under the tuning mutex. */
+    if (a1 == 0xc0105435U &&
+        !private_copy_from_user(&request, (void __user *)(uintptr_t)a2,
+                                sizeof(request)) &&
+        request.id == TX_ISP_TUNING_CMD_T41_WAIT_FRAME_DONE)
+        return t41_tuning_wait_frame_done(&request);
 
     mutex_lock(&t41_tuning_mutex);
     ret = isp_core_tunning_unlocked_ioctl_body(a0, a1, a2);
@@ -22181,6 +22367,26 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_AWB_STATS, 2700,
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AWB_CT_TREND, 28,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AWB_CONVERGE, 20,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AE_CONVERGE, T41_AE_CONVERGE_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AE_EV_LIST, T41_AE_LIST_BYTES,
+              TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AE_AT_LIST, T41_AE_LIST_BYTES,
+              TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_TMO_CURVE, T41_TMO_CURVE_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_STATIS_CONFIG,
+              T41_STATIS_CONFIG_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_OPEN_AWB_CONTROL,
               sizeof(struct tx_isp_tuning_awb_control),
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
@@ -22251,14 +22457,21 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
 
         if (request.id == TX_ISP_TUNING_CMD_T41_AWB_ATTR ||
             request.id == TX_ISP_TUNING_CMD_T41_AWB_WEIGHT ||
-            request.id == TX_ISP_TUNING_CMD_T41_AWB_STATS) {
+            request.id == TX_ISP_TUNING_CMD_T41_AWB_STATS ||
+            request.id == TX_ISP_TUNING_CMD_T41_AWB_CT_TREND ||
+            request.id == TX_ISP_TUNING_CMD_T41_AWB_CONVERGE) {
             unsigned char *payload;
             enum t41_awb_control_op op;
             if (!route || !t41_native_awb) return -EOPNOTSUPP;
             if (request.channel || request.is_get > 1 || !request.value_or_ptr) return -EINVAL;
             if (!smp_load_acquire(&t41_awb_ready[0])) return -EAGAIN;
+            /* CtTrendOffset (28 bytes) and ConvergeStep (20 bytes): stock
+             * tisp_awb_api_set/get_ct_trend_offset, tisp_awb_set/get_converge_step
+             * on the same params the native AWB owns. */
             op=request.id == TX_ISP_TUNING_CMD_T41_AWB_ATTR ? T41_AWB_PUBLIC :
-                request.id == TX_ISP_TUNING_CMD_T41_AWB_WEIGHT ? T41_AWB_WEIGHT : T41_AWB_ZONE;
+                request.id == TX_ISP_TUNING_CMD_T41_AWB_WEIGHT ? T41_AWB_WEIGHT :
+                request.id == TX_ISP_TUNING_CMD_T41_AWB_CT_TREND ? T41_AWB_TREND :
+                request.id == TX_ISP_TUNING_CMD_T41_AWB_CONVERGE ? T41_AWB_CONVERGE : T41_AWB_ZONE;
             /* The zone report is 2700 bytes: never put it on a kernel stack. */
             payload=private_kmalloc(route->payload_size,GFP_KERNEL);
             if (!payload) return -ENOMEM;
@@ -22381,6 +22594,17 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AF_WEIGHT)
             return t41_tuning_af_weight(request.channel, request.is_get,
                                         request.value_or_ptr);
+        if (route && (route->id == TX_ISP_TUNING_CMD_T41_AE_CONVERGE ||
+                      route->id == TX_ISP_TUNING_CMD_T41_AE_EV_LIST ||
+                      route->id == TX_ISP_TUNING_CMD_T41_AE_AT_LIST))
+            return t41_tuning_ae_params(request.channel, route->id,
+                                        request.is_get, request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_TMO_CURVE)
+            return t41_tuning_tmo_curve(request.channel, request.is_get,
+                                        request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_STATIS_CONFIG)
+            return t41_tuning_statis_config(request.channel, request.is_get,
+                                            request.value_or_ptr);
         /* MSCA controls: live only inside the proven envelope, otherwise
          * stored for the next output start (README "MSCA zoom, mask and
          * scaler level"). */

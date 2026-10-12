@@ -4,6 +4,17 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-12: T41 device run of `claude/t41-isp-handlers` (72e92520, T41 .32 gc5603)
+
+- **Verified on the device:** the `/dev/isp-m0` handle counting (stability branch): a second open/close from another process while timps streams leaves brightness/contrast working (Y 33 -> 170 at brightness 200, 3 of 3 rounds), no oops. Reading every `/proc/jz/isp` entry 10 times: clean errors (EIO/EOPNOTSUPP) on the non-text entries, no oops, `proc_watch_hits`/`proc_watch_rb_hits` 0. 20 timps stop/start cycles without reload: snapshot and RTSP every time, no kernel errors. The IVDC interrupt does not fire with `direct_mode=0` (0 in 60 s).
+- **Not fixed:** the heap overwrite across module reloads (see `driver/t41/README.md`, known issues) oopsed in the 17th load/unload cycle, now in `__vunmap` -> `__free_pages(2)` instead of `module_param_sysfs_remove()`. The new ISP controls were not run because of it.
+
+## 2026-10-11: T41 tuning controls (branch `claude/t41-isp-handlers`, not in an aggregate)
+
+Host tests and a module build against the agg-36 T41 kernel only; not run on a camera. Details and wire layouts: `docs/T41_TUNING_CONTROLS.md`.
+
+- **T41 `/dev/isp-m0` controls that answered "not implemented" are now routed** (stock `libt41-firmware` 1.2.6 semantics, every request size-checked, copied with `copy_from_user`/`copy_to_user`, under the same locks as the neighbouring controls): `Set/GetAwbConvergeStep` and `Set/GetAwbCtTrendOffset` (native AWB parameters, used by the open AWB), `Set/GetTmoCurve` (one of the ten TMO EV curves; the per-frame TMO map uses it from the next frame; values above 8191 and ids >= 10 are refused), `GetAeEvList` / `GetAeAtList` (the EV knots and target luma the open AE interpolates), `Set/GetAeConvergeStep` (stored in the AE parameters like stock; only the recovered stock AE reads them, the default bounded AE keeps its own step), `Set/GetStatisConfig` (the stored record; an enabled AWB part moves the AWB zone grid, refused with -EBUSY while streaming if the geometry changes; AE histogram thresholds and the AF part are stored only), `WaitFrameDone` (waits for the next frame done and returns the frame counter; timeout in jiffies as stock, capped at 60 s; does not hold the tuning mutex while it waits). Fixed against stock: the EV/AT list enable word and the `GetTmoCurve` curve id no longer come from uninitialised kernel stack. Not implemented: `GetAeBv`, `GetAEFlickerFlag` (vendor-AE internal state that the open AE does not keep). Module text +2.6 KB.
+
 ## 2026-10-11: aggregate agg-37 (not released)
 
 `claude/agg-37` = agg-36 (a1c28797) + `claude/agg-37-size`, `claude/agg37-drv`, `claude/agg37-t23-quiet`, `claude/agg37-t40-quiet`, `claude/agg37-t41`, `claude/t41-procwatch-report`, `claude/agg37-smallfix`, `claude/agg37-t41-stab` (6330d6fb). Host tests and module builds only; no soak, every item below needs a device test unless it says otherwise.
