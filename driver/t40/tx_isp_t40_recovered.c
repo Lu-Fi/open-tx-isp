@@ -17335,6 +17335,7 @@ static inline uint16_t regtrace_get_u16(uintptr_t base, uint32_t off);
 static inline void regtrace_put_u32(uintptr_t base, uint32_t off, uint32_t value);
 static uintptr_t regtrace_vic_channel(uintptr_t vic_dev, uint32_t channel);
 static int regtrace_vic_channel_valid(uint32_t channel);
+static int regtrace_channel_vinum(int channel);
 static uintptr_t regtrace_resolve_vic_dev(void);
 static int regtrace_ispcore_pad_event_handle(void *pad_arg, uint32_t event,
                                              void *data);
@@ -19350,6 +19351,7 @@ static void regtrace_sensor_dimensions(uint32_t channel, uint32_t *width,
     uint32_t attr_width;
     uint32_t attr_height;
 
+    channel = (uint32_t)regtrace_channel_vinum((int)channel);
     if (width)
         *width = 0;
     if (height)
@@ -21032,9 +21034,10 @@ static int regtrace_vic_frame_mdma_stream(int channel, int enable)
     if (!regtrace_is_kernel_ptr((void *)regs_addr))
         return -ENODEV;
 
-    irq_index = (int)tx_isp_vic_index_cal(vic_dev, (uint32_t)channel);
+    irq_index = (int)tx_isp_vic_index_cal(vic_dev,
+                                          (uint32_t)regtrace_channel_vinum(channel));
     if (irq_index < 0 || irq_index >= REGTRACE_MAX_IRQS_PER_DEVICE)
-        irq_index = channel;
+        irq_index = regtrace_channel_vinum(channel);
 
     base = (volatile void __iomem *)(regs_addr + ((uintptr_t)irq_index << 16));
 
@@ -22620,6 +22623,20 @@ static int regtrace_vic_channel_valid(uint32_t channel)
     return channel < REGTRACE_MAX_IRQS_PER_DEVICE;
 }
 
+/*
+ * T40 frame channels 0..2 belong to the main sensor (vinum 0), 3..5 to the
+ * secondary sensor (vinum 1): the OEM core probe stores index/3 as the
+ * sensor id.  VIC, CSI and sensor calls take the vinum, not the frame
+ * channel; the old code passed the frame channel, so only channel 0
+ * ever reached the bound sensor.
+ */
+static int regtrace_channel_vinum(int channel)
+{
+    if (channel < 0)
+        return 0;
+    return channel / 3;
+}
+
 static void regtrace_seed_synthetic_gc4653_attr(uint32_t channel)
 {
     unsigned char *attr;
@@ -23559,10 +23576,10 @@ static long regtrace_framechan_call_vic_stream(int channel, int enable)
     }
 
     if (enable)
-        regtrace_sync_sensor_video_to_vic(NULL, channel);
+        regtrace_sync_sensor_video_to_vic(NULL, regtrace_channel_vinum(channel));
 
     stream_arg[0] = enable ? 1U : 0U;
-    stream_arg[1] = (uint32_t)channel;
+    stream_arg[1] = (uint32_t)regtrace_channel_vinum(channel);
     regtrace_vic_stream_call_count++;
     ret = vic_core_s_stream((uintptr_t)vic_sd, (uintptr_t)stream_arg);
     if (channel >= 0 && channel < 4)
@@ -23918,6 +23935,7 @@ static long regtrace_framechan_call_csi_stream(int channel, int enable)
 {
     uintptr_t csi_dev;
     uintptr_t state_off;
+    int vinum;
     long ret = 0;
 
     if (regtrace_skip_csi_stream) {
@@ -23939,17 +23957,18 @@ static long regtrace_framechan_call_csi_stream(int channel, int enable)
     if (channel < 0 || channel >= REGTRACE_MAX_IRQS_PER_DEVICE)
         return -EINVAL;
 
-    state_off = regtrace_csi_state_offset((uint32_t)channel);
+    vinum = regtrace_channel_vinum(channel);
+    state_off = regtrace_csi_state_offset((uint32_t)vinum);
     if (enable) {
         regtrace_t40_csi_activate_direct(csi_dev);
-        regtrace_sync_sensor_video_to_csi(NULL, channel);
-        regtrace_csi_put_state(csi_dev, (uint32_t)channel, 3);
+        regtrace_sync_sensor_video_to_csi(NULL, vinum);
+        regtrace_csi_put_state(csi_dev, (uint32_t)vinum, 3);
         regtrace_csi_stream_call_count++;
     } else {
-        regtrace_csi_put_state(csi_dev, (uint32_t)channel, 3);
+        regtrace_csi_put_state(csi_dev, (uint32_t)vinum, 3);
     }
 
-    ret = regtrace_t40_csi_stream_direct(csi_dev, (uint32_t)channel, enable);
+    ret = regtrace_t40_csi_stream_direct(csi_dev, (uint32_t)vinum, enable);
     if (channel >= 0 && channel < 4)
         regtrace_framechan_diag[channel].last_csi_ret = ret;
     printk(KERN_INFO "tx_isp_t40_recovered: framechan%d direct CSI %s csi=%p state_off=0x%lx ret=%ld\n",
