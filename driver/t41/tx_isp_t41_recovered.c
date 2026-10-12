@@ -15738,107 +15738,56 @@ isp_csi_show0x108:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000073f4 origin=fragment_seed original=csi_core_ops_init */
 int32_t csi_core_ops_init(uintptr_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    char *csi = (char *)a0;
+    const uint32_t *init = (const uint32_t *)a1;
+    unsigned long flags = 0;
+    uint32_t vinum;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
+    if (!csi || a0 >= (uintptr_t)-4095 || !t41_kernel_data_ptr(init)) {
+        isp_printf(2, "[%s %d] the parameters are invalid!\n",
+                   "csi_core_ops_init", 356);
+        return -EINVAL;
+    }
 
-    /* fragment 1: Branch */
-    if (a0 == 0) { goto csi_core_ops_init0x24; }
+    /*
+     * Reload heap overwrite (decoy run 2026-10-12): the per-VIN state is
+     * csi + 0x178 + vinum * 4 in a 424-byte kmalloc-512 object, and the
+     * recovered body indexed it with init[1] unchecked.  One caller passes
+     * an argument whose word 1 is 276, so "state = 3" at stream start and
+     * "state = 2" at release landed at csi + 0x5c4, inside the kmalloc-512
+     * object two slots further (param attr array, vmalloc pages[] ...).
+     * Every other user of this array bounds vinum to < 3.  Skip the store
+     * (the run showed the real slot unaffected, so behaviour is unchanged)
+     * and name the caller once.
+     */
+    vinum = init[1];
+    if (vinum >= 3) {
+        static bool warned;
 
-    /* fragment 2: Arithmetic */
-    v0 = a0 < -4095;
+        if (!warned) {
+            warned = true;
+            printk(KERN_WARNING
+                   "t41: csi init ignored bad vinum=%u enable=%u arg=%p caller=%pS\n",
+                   vinum, init[0], (void *)init,
+                   __builtin_return_address(0));
+        }
+        return 0;
+    }
 
-    /* fragment 3: Branch */
-    s0 = a0;
-    if (v0 != 0) { goto csi_core_ops_init0x68; }
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)(csi + 392),
+                                (uintptr_t)&flags);
+    if (init[0]) {
+        *(uint32_t *)(csi + ((vinum + 92) << 2) + 4) = 3;
+    } else if (*(uint32_t *)(csi + 412)) {
+        char *regs = *(char **)(csi + 232);
 
-csi_core_ops_init0x24:
-    /* fragment 4: CallSetup */
-    local_10 = 0;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC6, &__pow2_lut, 356); /* jalr target resolved by relocation */
-
-    /* fragment 5: Arithmetic */
-    v0 = -22;
-
-csi_core_ops_init0x50:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-csi_core_ops_init0x68:
-    /* fragment 7: CallSetup */
-    s2 = a0 + 392;
-    s1 = a1;
-    local_10 = 0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(a0 + 392, &local_10); /* jalr target resolved by relocation */
-
-    /* fragment 8: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 0);
-
-    /* fragment 9: Branch */
-    if (v0 == 0) { goto csi_core_ops_init0xc8; }
-
-    /* fragment 10: CallSetup */
-    v0 = *(uint32_t *)((char *)s1 + 4);
-    v0 = v0 + 92;
-    v0 = (uintptr_t)v0 << 2;
-    s0 = (uintptr_t)s0 + (uintptr_t)v0;
-    v0 = 3;
-    *(uint32_t *)((char *)s0 + 4) = v0;
-
-csi_core_ops_init0xac:
-    /* fragment 11: CallSetup */
-    a1 = local_10;
-
-csi_core_ops_init0xb0:
-    /* fragment 12: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)((uintptr_t)s2, (uintptr_t)local_10); /* jalr target resolved by relocation */
-
-    /* fragment 13: Branch */
-    v0 = 0;
-    goto csi_core_ops_init0x50;
-
-csi_core_ops_init0xc8:
-    /* fragment 14: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 412);
-
-    /* fragment 15: Branch */
-    a1 = local_10;
-    if (v0 == 0) { goto csi_core_ops_init0xb0; }
-
-    /* fragment 16: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 232);
-    v1 = 2;
-    *(uint32_t *)((char *)v0 + 8) = 0;
-    v0 = *(uint32_t *)((char *)s0 + 232);
-    *(uint32_t *)((char *)v0 + 12) = 0;
-    v0 = *(uint32_t *)((char *)s0 + 232);
-    *(uint32_t *)((char *)v0 + 16) = 0;
-    v0 = *(uint32_t *)((char *)s1 + 4);
-    v0 = v0 + 92;
-    v0 = (uintptr_t)v0 << 2;
-    v0 = (uintptr_t)s0 + (uintptr_t)v0;
-    *(uint32_t *)((char *)v0 + 4) = v1;
-    v0 = *(uint32_t *)((char *)s0 + 412);
-    v0 = v0 - 1;
-
-    /* fragment 17: Branch */
-    *(uint32_t *)((char *)s0 + 412) = v0;
-    goto csi_core_ops_init0xac;
-
+        *(uint32_t *)(regs + 8) = 0;
+        *(uint32_t *)(regs + 12) = 0;
+        *(uint32_t *)(regs + 16) = 0;
+        *(uint32_t *)(csi + ((vinum + 92) << 2) + 4) = 2;
+        *(uint32_t *)(csi + 412) -= 1;
+    }
+    private_spin_unlock_irqrestore(csi + 392, flags);
     return 0;
 }
 
