@@ -18387,6 +18387,8 @@ static int regtrace_core_irq_oem_disable(uintptr_t core_sd,
     return ret;
 }
 
+static int regtrace_core_irq_stream_refcnt[2];
+
 static int regtrace_core_irq_stream(int channel, int enable)
 {
     uintptr_t core_sd = (uintptr_t)regtrace_core_subdev;
@@ -18400,10 +18402,36 @@ static int regtrace_core_irq_stream(int channel, int enable)
     uint32_t cfg_value;
     long ret;
 
+    int vinum;
+
     if (!regtrace_enable_core_irq_on_stream)
         return 0;
-    if (channel < 0 || channel > 1)
+    if (channel < 0 || channel >= 6)
         return 0;
+    /*
+     * The core IRQ (and its mask/cfg register bank) belongs to the ISP
+     * core instance (vinum), not to the frame channel.  Frame channels
+     * 0..2 share vinum 0, 3..5 share vinum 1.  Reference-count the
+     * channels per vinum so the second channel (timps video1) does not
+     * re-enable (idx=1 -> -EINVAL) or prematurely disable the IRQ.
+     */
+    vinum = regtrace_channel_vinum(channel);
+    if (enable) {
+        if (regtrace_core_irq_stream_refcnt[vinum]++ != 0) {
+            printk(KERN_INFO "tx_isp_t40_recovered: core IRQ enable ch=%d vinum=%d shared (refcnt=%d)\n",
+                   channel, vinum, regtrace_core_irq_stream_refcnt[vinum]);
+            return 0;
+        }
+    } else {
+        if (regtrace_core_irq_stream_refcnt[vinum] > 1) {
+            regtrace_core_irq_stream_refcnt[vinum]--;
+            printk(KERN_INFO "tx_isp_t40_recovered: core IRQ disable ch=%d vinum=%d deferred (refcnt=%d)\n",
+                   channel, vinum, regtrace_core_irq_stream_refcnt[vinum]);
+            return 0;
+        }
+        regtrace_core_irq_stream_refcnt[vinum] = 0;
+    }
+    channel = vinum;
 
     if (!regtrace_is_kernel_ptr((void *)core_sd)) {
         core_sd = (uintptr_t)platform_get_drvdata(&tx_isp_core_platform_device);
