@@ -293,7 +293,13 @@ Block bisect (each run one boot, metrics only, media discarded):
 - r24a profile 0 + MDNS + YSP: kernel panic -> YSP is the crashing block
   (recovered `tisp_ysp_*` path at 4K); keep `enable_ysp=0`.
 - r25a + SDNS, r26a + SDNS + YDNS, r27a + ADR, r28a + CCM + gamma, r29a + BLC + LSC + GIB: fine (200 frames / 10 s, 0 decode errors).
-Next: ADR, then CCM/gamma and BLC/LSC/GIB, then 720p / channel 1 / rmmod.
+- r30a/r31a quality profile 5 with YSP off (and DMSC-lit off): black
+  again; the profile >= 1 extras (GC4653 literal tables, top40 bit 2) are
+  not usable on this sensor.
+- Recommended for the Eufy: `t40_quality_profile=0 t40_generic_profile=1`
+  (607695b7) = profile 0 plus MDNS, SDNS, YDNS, ADR, CCM, gamma, BLC, LSC,
+  GIB; YSP and DMSC-lit off.
+Next: 720p scaled channel 0, channel 1, rmmod.
 
 ### Next steps (host side first)
 
