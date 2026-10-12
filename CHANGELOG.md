@@ -4,17 +4,26 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-12: aggregate agg-38 (not released)
+
+`claude/agg-38` = agg-37 (e40d7313) + `claude/awbstats` (with `claude/awbzone`), `claude/fcrop-upscale-cap`, `claude/t31-sharpness-fix`, `claude/t41-isp-handlers`, `claude/t41-reload-fix`, `claude/sensor-proc-compat`. Host tests (`make -C tests check`, `tests/t20_fw`) and module builds with the load check (`check_ko_symbols.sh`) for T10/T20/T21/T23/T31/T41; no soak of the aggregate yet.
+
+- **AWB statistics only from a current frame:** T23/T31 `GetAwbZone` with the stock scaling, T41 `GetAwbStatistics` planes; both answer `-EAGAIN` unless the data comes from a statistics frame of the running stream within the last second (device-tested on cam-A, cam-B and cam-F on their branches).
+- **T41 reload fixes (`claude/t41-reload-fix`):** VIN index bounded in `csi_core_ops_init` (heap overwrite on reload), the module is pinned while frame-channel files are open, IRQs are freed with their dev_id, `WaitFrameDone` woken from the steady-state frame-done event; 50 load/unload cycles clean on cam-F. Known: `WaitFrameDone` still reports a constant frame counter.
+- **Build fix in the aggregate:** the T23 `fcrop_upscale_pct` cap used `READ_ONCE`, which the 3.10 kernel does not have (modpost left it undefined, the module would not load); it now reads through `TX_ISP_READ_ONCE`. The T23 part of the cap had not been built before.
+- Further items of this aggregate are listed below under their branches (T41 tuning controls, `/proc/jz/sensor`, T31 sharpness, `fcrop_upscale_pct`).
+
 ## 2026-10-12: T41 device run of `claude/t41-isp-handlers` (72e92520, T41 .32 gc5603)
 
 - **Verified on the device:** the `/dev/isp-m0` handle counting (stability branch): a second open/close from another process while timps streams leaves brightness/contrast working (Y 33 -> 170 at brightness 200, 3 of 3 rounds), no oops. Reading every `/proc/jz/isp` entry 10 times: clean errors (EIO/EOPNOTSUPP) on the non-text entries, no oops, `proc_watch_hits`/`proc_watch_rb_hits` 0. 20 timps stop/start cycles without reload: snapshot and RTSP every time, no kernel errors. The IVDC interrupt does not fire with `direct_mode=0` (0 in 60 s).
 - **Not fixed:** the heap overwrite across module reloads (see `driver/t41/README.md`, known issues) oopsed in the 17th load/unload cycle, now in `__vunmap` -> `__free_pages(2)` instead of `module_param_sysfs_remove()`. The new ISP controls were not run because of it.
 
-## 2026-10-11: T41 tuning controls (branch `claude/t41-isp-handlers`, not in an aggregate)
+## 2026-10-11: T41 tuning controls (branch `claude/t41-isp-handlers`, in agg-38)
 
 Host tests and a module build against the agg-36 T41 kernel only; not run on a camera. Details and wire layouts: `docs/T41_TUNING_CONTROLS.md`.
 
 - **T41 `/dev/isp-m0` controls that answered "not implemented" are now routed** (stock `libt41-firmware` 1.2.6 semantics, every request size-checked, copied with `copy_from_user`/`copy_to_user`, under the same locks as the neighbouring controls): `Set/GetAwbConvergeStep` and `Set/GetAwbCtTrendOffset` (native AWB parameters, used by the open AWB), `Set/GetTmoCurve` (one of the ten TMO EV curves; the per-frame TMO map uses it from the next frame; values above 8191 and ids >= 10 are refused), `GetAeEvList` / `GetAeAtList` (the EV knots and target luma the open AE interpolates), `Set/GetAeConvergeStep` (stored in the AE parameters like stock; only the recovered stock AE reads them, the default bounded AE keeps its own step), `Set/GetStatisConfig` (the stored record; an enabled AWB part moves the AWB zone grid, refused with -EBUSY while streaming if the geometry changes; AE histogram thresholds and the AF part are stored only), `WaitFrameDone` (waits for the next frame done and returns the frame counter; timeout in jiffies as stock, capped at 60 s; does not hold the tuning mutex while it waits). Fixed against stock: the EV/AT list enable word and the `GetTmoCurve` curve id no longer come from uninitialised kernel stack. Not implemented: `GetAeBv`, `GetAEFlickerFlag` (vendor-AE internal state that the open AE does not keep). Module text +2.6 KB.
-## 2026-10-12: branch `claude/sensor-proc-compat` (not merged)
+## 2026-10-12: branch `claude/sensor-proc-compat` (in agg-38)
 
 - **Vendor-compatible `/proc/jz/sensor` files (all SoCs, host build and host test only, not run on a camera):** besides the existing `sensorN/`, `count` and `events` entries the registry now publishes the vendor layout: the files `boot chip_id height i2c_adapter i2c_addr max_fps mclk min_fps name pwdn_gpio rst_gpio version video_interface width` directly in `/proc/jz/sensor` (first sensor) and again in `/proc/jz/sensor/<sensor name>/`. One value per file with a trailing newline (`chip_id`/`i2c_addr` as `0x%x`, `name`/`version` strings, the rest decimal), read-only. The values (native size, `min_fps`/`max_fps`, `version`, wiring) are those of the sensor module's own `sensor_info`, found by a strict structural match inside the module image (no new state, nothing written); without a match the registry values are used and unknown ones stay empty. The extra open-driver information stays in `sensorN/` (`fps`, `status`), `count` and `events`. Host test `tests/sinfo_vendor_host_test`.
 
