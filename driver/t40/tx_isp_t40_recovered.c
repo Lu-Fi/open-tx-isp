@@ -8713,6 +8713,8 @@ static bool regtrace_proc_live_reads;
 static uint regtrace_t40_quality_profile = 5;
 static uint regtrace_t40_quality_top40_override;
 static bool regtrace_t40_profile_direct_vic_feed;
+/* rmmod: the recovered tisp_deinit free loop oopsed four times on the Eufy T40XP; the regtrace layer frees its own tisp buffers. */
+static bool regtrace_skip_tisp_deinit = true;
 static bool regtrace_t40_profile_no_direct_irq_defaults = true;
 static bool regtrace_t40_profile_isp_irq_passthrough = true;
 static bool regtrace_enable_core_irq_on_stream;
@@ -9484,6 +9486,7 @@ module_param_named(sensor_full_height_override, regtrace_sensor_full_height_over
 module_param_named(t40_msca_scaler_level, regtrace_t40_msca_scaler_level, uint, 0644);
 module_param_named(csi_direct_stage_limit, regtrace_csi_direct_stage_limit, uint, 0644);
 module_param_named(csi_settle_override, regtrace_csi_settle_override, uint, 0644);
+module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
 module_param_named(t40_stock_host_init_mask, regtrace_t40_stock_host_init_mask, uint, 0644);
 module_param_named(oem_event_pre_csi_stream, regtrace_oem_event_pre_csi_stream, bool, 0644);
 module_param_named(oem_event_pre_csi_stage_limit, regtrace_oem_event_pre_csi_stage_limit, uint, 0644);
@@ -70922,6 +70925,10 @@ int32_t tisp_function_clear(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001cb38 origin=fragment_seed original=tisp_deinit */
 int64_t tisp_deinit(uint32_t a0)
 {
+    if (regtrace_skip_tisp_deinit) {
+        printk(KERN_INFO "tx_isp_t40_recovered: tisp_deinit skipped (regtrace frees its own tisp resources)\n");
+        return 0;
+    }
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
