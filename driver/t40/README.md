@@ -306,7 +306,11 @@ Block bisect (each run one boot, metrics only, media discarded):
 - t1 timps (OpenIMP backend, 4K main + sub stream) on the open module:
   timpsd oopsed the kernel in the recovered `tisp_s_antiflick` (bad AE
   parameter pointer) right after `SetISPRunningMode(night)` returned -1;
-  antiflicker is now a no-op unless `t40_allow_antiflick=1`.
+  antiflicker is now a no-op unless `t40_allow_antiflick=1` (open item: no
+  50 Hz antiflicker on T40 until the recovered `tisp_s_antiflick` is fixed).
+- t2: the next timps call, `tx_isp_sensor_g_attr` (IMP_ISP_Tuning_GetSensorAttr),
+  oopsed on the empty core sensor slot; d3544601 answers it from the bound
+  sensor's attribute and video state.
 - WLAN failure of the agg38-fw/hybrid image (host-side diff): the user
   overlay `thingino-user/common/overlay/etc/wpa_supplicant.conf` bakes
   ssid FB_IOT_1 while the Eufy lives on FB_IOT_0 (its runtime overlay had
