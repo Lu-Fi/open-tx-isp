@@ -17336,6 +17336,7 @@ static inline void regtrace_put_u32(uintptr_t base, uint32_t off, uint32_t value
 static uintptr_t regtrace_vic_channel(uintptr_t vic_dev, uint32_t channel);
 static int regtrace_vic_channel_valid(uint32_t channel);
 static int regtrace_channel_vinum(int channel);
+static void regtrace_seed_sensor_attr_from_subdev(int vinum);
 static uintptr_t regtrace_resolve_vic_dev(void);
 static int regtrace_ispcore_pad_event_handle(void *pad_arg, uint32_t event,
                                              void *data);
@@ -19352,6 +19353,10 @@ static void regtrace_sensor_dimensions(uint32_t channel, uint32_t *width,
     uint32_t attr_height;
 
     channel = (uint32_t)regtrace_channel_vinum((int)channel);
+    if (regtrace_vic_channel_valid(channel) &&
+        regtrace_sensor_full_source_seen[channel] !=
+            REGTRACE_SENSOR_DIM_SOURCE_EXTERNAL_ATTR)
+        regtrace_seed_sensor_attr_from_subdev((int)channel);
     if (width)
         *width = 0;
     if (height)
@@ -22952,6 +22957,37 @@ static int regtrace_sync_sensor_video_to_csi(void *video, int forced_channel)
     return 0;
 }
 
+/*
+ * Seed the VIC/CSI attribute caches from the bound sensor's own
+ * tx_isp_sensor.video (attr pointer at +0x304, mbus at +0x2d0) as soon as a
+ * stream starts.  The external attribute otherwise arrives only through the
+ * sensor's core init during VIC start, after tisp_main_init and the MSCA
+ * geometry were already programmed from the synthetic GC4653 2560x1440
+ * attribute (Eufy T40XP/sc830ai 3840x2160: 0 frames, 2026-10-12).
+ */
+static void regtrace_seed_sensor_attr_from_subdev(int vinum)
+{
+    uintptr_t sd = (uintptr_t)regtrace_sensor_subdev;
+    uintptr_t attr;
+    static unsigned int log_count;
+
+    if (!regtrace_is_kernel_ptr((void *)sd) || vinum < 0 ||
+        !regtrace_vic_channel_valid((uint32_t)vinum))
+        return;
+    attr = regtrace_get_u32(sd, 0x304);
+    if (!regtrace_is_kernel_ptr((void *)attr))
+        return;
+    if (!regtrace_get_u32(attr, 0x30) || !regtrace_get_u32(attr, 0x34))
+        return;
+    regtrace_sync_sensor_video_to_vic((void *)(sd + 0x2d0), vinum);
+    regtrace_sync_sensor_video_to_csi((void *)(sd + 0x2d0), vinum);
+    if (log_count < 8)
+        printk(KERN_INFO "tx_isp_t40_recovered: early sensor attr seed vinum=%d sd=%p attr=%p %ux%u\n",
+               vinum, (void *)sd, (void *)attr, regtrace_get_u32(attr, 0x30),
+               regtrace_get_u32(attr, 0x34));
+    log_count++;
+}
+
 static int regtrace_sensor_call_core_init(int enable, int vinum)
 {
     struct regtrace_tx_isp_initarg init;
@@ -23986,8 +24022,30 @@ static unsigned char *regtrace_core_event_channel_data(void *pad_arg)
         return NULL;
 
     data = *(uint32_t *)(pad + REGTRACE_CORE_PAD_CHANNEL_OFFSET);
-    if (!regtrace_is_kernel_ptr((void *)data))
-        return NULL;
+    if (!regtrace_is_kernel_ptr((void *)data)) {
+        /*
+         * The core probe only binds channel data to pads whose type byte is
+         * set; on the Eufy T40XP only pad 0 was bound, so framechan1 events
+         * resolved to channel -EINVAL.  The channel array (core+628, stride
+         * 216) is initialised for every pad, so bind it from the pad index.
+         */
+        uintptr_t core_dev = regtrace_resolve_core_dev();
+        uintptr_t channels;
+        unsigned int index = pad[4];
+        static unsigned int log_count;
+
+        if (!regtrace_is_kernel_ptr((void *)core_dev) || index >= 7)
+            return NULL;
+        channels = regtrace_get_u32(core_dev, 628);
+        if (!regtrace_is_kernel_ptr((void *)channels))
+            return NULL;
+        data = channels + index * 216U;
+        *(uint32_t *)(pad + REGTRACE_CORE_PAD_CHANNEL_OFFSET) = (uint32_t)data;
+        if (log_count < 8)
+            printk(KERN_INFO "tx_isp_t40_recovered: core pad %u bound late to channel data %p (core=%p)\n",
+                   index, (void *)data, (void *)core_dev);
+        log_count++;
+    }
 
     return (unsigned char *)data;
 }
@@ -24590,6 +24648,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
         return -EINVAL;
 
     if (enable) {
+        regtrace_seed_sensor_attr_from_subdev(regtrace_channel_vinum(channel));
         subret = regtrace_core_event_tisp_bootstrap(channel, tisp_id);
         if (subret < 0 && !ret)
             ret = subret;
@@ -193611,7 +193670,13 @@ ispcore_slake_module0x150:
     if (v0 == 0) { goto ispcore_slake_module0x2b4; }
 
     /* fragment 41: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s2); /* jalr target resolved by relocation */
+    /*
+     * OEM: sd->ops->internal->slake_module(sd).  The recovered seed bound
+     * this indirect call to private_i2c_set_clientdata(), which wrote through
+     * a NULL client on rmmod (Eufy T40XP 2026-10-12, BadVA 0x70).
+     */
+    if (!regtrace_is_kernel_ptr((void *)v0)) { goto ispcore_slake_module0x2b4; }
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)v0)(s2);
 
     /* fragment 42: Branch */
     if (v0 == 0) { goto ispcore_slake_module0x2b4; }
