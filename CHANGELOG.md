@@ -27,6 +27,16 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
   - **`/dev/isp-m0`:** closing a second handle freed the tuning attributes under the running streamer (BCSH/ratio settings stopped working, later accesses hit freed memory). Handles are now counted; the last close disables tuning. Host test `tx_isp_t41_tuning_open_test`.
   - **Out-of-object accesses of the recovered core** (`vic_cmd_buf`, `tgain_wdr_s`, `direct_mode`, `ispmem`): moved to correctly sized objects or removed. A scan of the compiled module (`tests/t41_overrun/`) shows that in the agg-36 build none of them is executed on a linear-mode sensor; they do not explain the `/proc/jz/isp` oops. The only reachable out-of-object stores are in the WDR path: the unrecovered WDR fusion body writes about 36 KB past the module data and its copy loop cannot terminate, so it is now refused unless `t41_wdr_fusion_unsafe=1`.
   - **Quiet kernel log:** 55 progress lines (subdev notify on every event, format ioctls, frame-channel open, buffer/stream diagnostics, init/deinit steps) were warnings; they are now info notes, logged only with `t41_runtime_trace=1`. A note reporting a non-zero `ret=`/`fail=` is still a warning.
+## 2026-10-12
+
+- **T31/T23 `fcrop_upscale_pct` capped at 100 (2.0x):**
+  - **Measured on the T31 Garage (T31X, sc4336p),** main 1920x1080 + sub 640x360 together:
+    - Steps 10/20/33/50/75/100 % with windows down to 960x540, each held 60 s: clean, with no frame loss and no decode errors.
+    - Crop off/on and idle frame-source off/on with the crop active also ran clean.
+  - **At 150 % (768x432, 2.5x)** the window was accepted and the SoC hard-hung at once. The hardware watchdog reset it after about 60 s, without an oops, so no recovery is possible.
+  - **Driver change:** it now clamps the parameter to 100 on T31 and T23, whatever value is written. The default stays 0, which never allows an upscale.
+  - The T31L uses the same driver and MSCA path; the same limit is expected but has not been measured.
+  - Host test `tests/tx_isp_t31_fcrop_test`. The modules build against the agg-37 kernels; the cap itself is not yet device-tested as a module.
 
 ## 2026-10-09
 

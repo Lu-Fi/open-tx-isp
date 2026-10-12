@@ -16533,7 +16533,7 @@ MODULE_PARM_DESC(msca_geom_rejects,
  * /sys/module/tx_isp_t23/parameters/fcrop_upscale_pct */
 static unsigned int fcrop_upscale_pct;
 module_param(fcrop_upscale_pct, uint, 0644);
-MODULE_PARM_DESC(fcrop_upscale_pct, "front crop: allowed MSCA upscale in percent (0 = none)");
+MODULE_PARM_DESC(fcrop_upscale_pct, "front crop: allowed MSCA upscale in percent (0 = none, capped at 100)");
 static void regtrace_t23_fcrop_unlock(const char *why);
 
 static int regtrace_t23_msca_geom_verdict(int channel, const char *what,
@@ -16544,12 +16544,15 @@ static int regtrace_t23_msca_geom_verdict(int channel, const char *what,
     int r = t23_msca_geom_check(g, regtrace_t23_source_sensor_width,
                                 regtrace_t23_source_sensor_height,
                                 buf_width, buf_height);
+    /* 2.0x measured clean on T23; the T31 MSCA hard-hangs at 2.5x, so
+     * never trust a larger value here either */
+    unsigned int up = min(READ_ONCE(fcrop_upscale_pct), 100U);
 
-    if (r == T23_MSCA_GEOM_UPSCALE && fcrop_upscale_pct &&
+    if (r == T23_MSCA_GEOM_UPSCALE && up &&
         (u64)g->scl_width * 100U <=
-            (u64)g->win_width * (100U + fcrop_upscale_pct) &&
+            (u64)g->win_width * (100U + up) &&
         (u64)g->scl_height * 100U <=
-            (u64)g->win_height * (100U + fcrop_upscale_pct)) {
+            (u64)g->win_height * (100U + up)) {
         /* tolerated upscale: run the remaining rules on a window as large
          * as the scaler output (the real window passed rule 1 already) */
         struct t23_msca_geom g2 = *g;
