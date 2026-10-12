@@ -114,3 +114,54 @@ The date/time OSD in the upper-left corner is outside the ISP comparison.  It
 is rendered by the userspace overlay using the camera's system clock, so any
 remaining offset or formatting issue should be fixed in the Thingino
 time/NTP/timezone and OSD configuration without changing this driver profile.
+
+## Eufy T40XP / sc830ai bring-up (2026-10-12, branch `claude/t40-sc830ai`)
+
+Second T40 device: Eufy T8416 (T40XP, sc830ai 3840x2160@20 on CSI0/i2c1
+0x30, boot mode 4; the second sensor sc3338 is unused).  Linux 4.4.94
+(`thingino-out/eufy_t8416_master/build/linux-3143636237cf5…`), vendor SDK
+d30c0af with ISP firmware 1.3.1.
+
+First open-driver boot (2026-10-12 19:20, commit 3bd3087b): insmod, sensor
+detect, `IMP_ISP_Open/AddSensor/EnableSensor`, `FS_EnableChn` and
+`StartRecvPic` all returned 0, but 0 frames, ISP IRQs 36-39 stayed at 0 and
+the sensor never logged "stream on".  dmesg showed
+`send_event … event=0x3000002 ret=-22` (SET_FMT), `0x3000005 ret=-22`
+(QBUF) and `0x3000008 ret=-515` (SET_BANKS, expected) on framechan1.
+
+Findings:
+
+- `t40_devtest` streams frame channel 1 (1280x720 scaled).  The regtrace
+  stream path handed the frame-channel index to `vic_core_s_stream`, the CSI
+  state/stream helpers, `tx_isp_vic_index_cal` and the cached sensor
+  attribute lookup.  On T40 those take the sensor number (vinum): frame
+  channels 0..2 belong to vinum 0, 3..5 to vinum 1 (the OEM `tx_isp_core_probe`
+  stores `index / 3`; the Eufy 1.3.1 module writes `index % 3` to +0x74 and
+  `index / 3` to +0x78 of each core channel).  Channel 1 therefore addressed
+  the unbound second sensor.  Fixed by `regtrace_channel_vinum()`.
+- `AeIntegrationTimeUnit : -1064949056` plus a stack dump is not a sensor
+  attribute problem: `frame_channel_unlocked_ioctl` prints a mis-resolved
+  rodata literal (`LC79`) with `&__param_str_isp_dual_buf` for an
+  unsupported ioctl; the value is that pointer.
+- The rmmod oops recorded on the Eufy (`Kernel unaligned instruction access`,
+  epc 0x6ef, module size 763904) was the vendor `tx_isp_t40`, not the open
+  module.  The open module's unload path (`tx_isp_t40_core_exit`) frees IRQs
+  with the same dev_id it requested them with and pins itself through the
+  misc fops owners; it has not been rmmod-tested on the Eufy yet.
+- `KERN_INFO` notes are suppressed unless `t40_runtime_trace=1` (only lines
+  with `ret=-…`/`fail=…` pass), so the first boot's dmesg hid the whole
+  core-event / VIC / CSI trace.  Test boots use `t40_runtime_trace=1` with a
+  `dmesg -c` drain loop.
+- `regtrace_core_event_tisp_bootstrap` only runs for frame channel 0, so a
+  stream must start on channel 0 before channel 1 can be used.
+- The driver still carries GC4653 fallbacks (synthetic attribute 2560x1440,
+  literal LSC/CLM/DMSC tables, IQ bank names).  They are only used when the
+  sensor attribute is missing, but image quality on sc830ai is GC4653-tuned
+  until an sc830ai bank exists.
+
+Open image recipe (firmware tree `claude/t40-prod-fw`): camera config
+`eufy_t8416_t40xp_sc830_aic8800d40_openisp` =
+`BR2_PACKAGE_THINGINO_ISP_OPEN=y` (open-tx-isp + OpenIMP), SDK sensor
+modules unchanged (the stock `sensor_sc830ai_t40.ko` resolves all 35 imports
+against this module, `tests/check_ko_symbols.sh`).  Build with
+`OPEN_TX_ISP_SITE=<this repo> OPEN_TX_ISP_VERSION=<sha>` on the make line.
