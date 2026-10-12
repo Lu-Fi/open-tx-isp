@@ -317,8 +317,14 @@ Block bisect (each run one boot, metrics only, media discarded):
   FB_IOT_0 and the flash replaced it); S38wpa_supplicant in agg38-fw adds a
   preset/portal fallback on top.  Fix for the recipe: a per-camera
   `wpa_supplicant.conf` in the eufy user-overlay dir, or keep the overlay.
-Next: rmmod retest, channel 1 next to channel 0 (a streamer config), the
-second-stream-start panic, the 1080p panic, YSP at 4K.
+- t3-t6 timps (video0 1920x1080 scaled + video1 640x360): after the
+  tuning fixes timpsd streamed, then died with SIGBUS on the first 1080p
+  frames; devtest 1080p runs had panicked the kernel three times and every
+  second stream start after a 4K run panicked.  Cause: the seed laid NV12
+  buffers out as width*ALIGN(height,16); OpenIMP and the vendor use
+  width*height*3/2, so 1080p frames overran their buffers by 8 lines.
+  989e7424 makes the vendor layout the default (`t40_nv12_height_align=1`).
+Next: timps soak with the layout fix, rmmod/reload, YSP at 4K.
 
 ### Daylight plan (image quality)
 1. Extract the sc830ai tuning from `/etc/sensor/sc830ai-t40.bin` (vendor IQ
