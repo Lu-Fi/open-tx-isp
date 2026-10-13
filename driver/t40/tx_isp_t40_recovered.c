@@ -8891,6 +8891,7 @@ static uint32_t regtrace_ae_soft_last_mean;
  */
 static bool regtrace_enable_frame_3a;
 static bool regtrace_enable_soft_gamma;
+static bool regtrace_t40_gamma_from_bin;
 static bool regtrace_enable_ydns;
 static bool regtrace_enable_gib_blc;
 /*
@@ -9297,6 +9298,7 @@ module_param_named(enable_isp_block_init_awb, regtrace_enable_isp_block_init_awb
 module_param_named(enable_awb_reg_writes, regtrace_enable_awb_reg_writes, bool, 0644);
 module_param_named(enable_awb_set_gain, regtrace_enable_awb_set_gain, bool, 0644);
 module_param_named(enable_soft_gamma, regtrace_enable_soft_gamma, bool, 0644);
+module_param_named(t40_gamma_from_bin, regtrace_t40_gamma_from_bin, bool, 0644);
 module_param_named(enable_ydns, regtrace_enable_ydns, bool, 0644);
 module_param_named(enable_gib_blc, regtrace_enable_gib_blc, bool, 0644);
 module_param_named(enable_blc_lit, regtrace_enable_blc_lit, bool, 0644);
@@ -10058,14 +10060,39 @@ static void regtrace_soft_gamma_write(void)
         3581, 3599, 3617, 3636, 3654, 3672, 3690, 3708, 3725, 3743, 3761, 3778,
         3795, 3813, 3830, 3847, 3864, 3881, 3898, 3915, 3932
     };
+    uint16_t bin_lut[129];
+    const uint16_t *active_lut = lut;
     unsigned int i;
+
+    /* Linear bank gamma hw[2..130]: little-endian 12-bit monotone nodes. */
+    if (regtrace_t40_gamma_from_bin && tparamsN[0]) {
+        const uint8_t *source =
+            (const uint8_t *)(uintptr_t)tparamsN[0] + 0x106ecU;
+        bool valid = true;
+
+        for (i = 0; i < 129U; i++) {
+            bin_lut[i] = (uint16_t)source[2U * i] |
+                         ((uint16_t)source[2U * i + 1U] << 8);
+            if (bin_lut[i] > 4095U ||
+                (i && bin_lut[i] < bin_lut[i - 1U]))
+                valid = false;
+        }
+        if (bin_lut[0] != 0U || bin_lut[128] != 4095U)
+            valid = false;
+        if (valid)
+            active_lut = bin_lut;
+    }
+    printk(KERN_INFO "tx_isp_t40_recovered: gamma source=%s nodes=%u/%u/%u/%u/%u\n",
+           active_lut == bin_lut ? "active-bin" : "fallback",
+           active_lut[0], active_lut[1], active_lut[11],
+           active_lut[64], active_lut[128]);
 
     (void)system_reg_write(0x50040, 0x101);
     (void)system_reg_write(0x50060, 0x101);
     (void)system_reg_write(0x50080, 0x101);
     for (i = 0; i < 128; i++) {
-        uint32_t w = ((uint32_t)(lut[i + 1] & 0xfffU) << 12) |
-                     (lut[i] & 0xfffU);
+        uint32_t w = ((uint32_t)(active_lut[i + 1] & 0xfffU) << 12) |
+                     (active_lut[i] & 0xfffU);
 
         (void)system_reg_write(0x50044, w);
         (void)system_reg_write(0x50064, w);
