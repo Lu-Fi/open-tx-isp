@@ -339,7 +339,8 @@ static long t23x_ae_control(bool get, uint32_t id, uint32_t *value)
 #define T23X_CID_AWB_CT         0x0800000dU
 #define T23X_CID_AWB_ZONE_WEIGHT 0x08000010U
 
-/* GetAwbZone from the last statistics snapshot of the HLIL AWB */
+/* GetAwbZone from the last statistics snapshot of the HLIL AWB (every
+ * source_awb_hlil_interval-th statistics frame, default 4) */
 static long t23x_awb_zone_get(uint32_t uptr)
 {
 	struct regtrace_t23_awb_hlil_snapshot *snap;
@@ -354,6 +355,13 @@ static long t23x_awb_zone_get(uint32_t uptr)
 	spin_lock_irqsave(&regtrace_t23_awb_hlil_lock, flags);
 	memcpy(snap, &regtrace_t23_awb_hlil_snapshot_data, sizeof(*snap));
 	spin_unlock_irqrestore(&regtrace_t23_awb_hlil_lock, flags);
+	/* only a snapshot of the running stream taken within the last
+	 * TX_ISP_AWB_ZONE_MAX_AGE_MS (the stock copies the static block) */
+	if (!tx_isp_awb_zone_fresh(snap->stamp, jiffies,
+				   TX_ISP_AWB_ZONE_MAX_AGE_MS)) {
+		kfree(snap);
+		return -EAGAIN;
+	}
 	t23x_awb_zone_pack(snap->r, snap->g, snap->b, snap->pixels, out);
 	ret = regtrace_t23_copy_out(uptr, out, T23X_AWB_ZONE_BYTES);
 	kfree(snap);

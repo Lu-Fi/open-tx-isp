@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #ifdef REGTRACE_KERNEL_TREE_BUILD
 #include "tx_isp_t41_awb_frame.h"
+#include "tx_isp_t41_awb_zone_report.h"
 struct t41_awb_runtime {
     struct t41_awb_owned saved, candidate;
     uint32_t info[7];
@@ -13,6 +14,10 @@ static DEFINE_SPINLOCK(t41_native_awb_irq_lock);
 static unsigned int t41_native_awb_live, t41_native_awb_pending, t41_native_awb_bank;
 static unsigned int t41_native_awb_frames = ~0U, t41_native_awb_dropped = ~0U;
 static int t41_native_awb_error = -ENODEV;
+/* jiffies of the last frame that filled the GetAwbStatistics planes (0: none
+ * since the stream started); written under t41_native_awb_lock, .data like
+ * the other diagnostic state of this file */
+static unsigned long t41_native_awb_zone_stamp __attribute__((section(".data"))) = 0;
 module_param(t41_native_awb_frames, uint, 0444);
 module_param(t41_native_awb_dropped, uint, 0444);
 module_param(t41_native_awb_error, int, 0444);
@@ -45,6 +50,7 @@ static void t41_native_awb_stop(void)
     t41_native_awb_live=0; t41_native_awb_pending=0;
     spin_unlock_irqrestore(&t41_native_awb_irq_lock,flags);
     cancel_work_sync(&t41_native_awb_work);
+    WRITE_ONCE(t41_native_awb_zone_stamp,0);
 }
 static void t41_native_awb_start(void)
 {
@@ -100,6 +106,7 @@ static void t41_native_awb_workfn(struct work_struct *work)
         t41_native_awb_emit(words,n);
         t41_native_awb_save(s);
         ++t41_native_awb_frames;
+        WRITE_ONCE(t41_native_awb_zone_stamp,t41_awb_zone_report_stamp(jiffies));
     }
 failed:
     if (ret) ++t41_native_awb_dropped;
@@ -146,6 +153,7 @@ static int t41_native_awb_init(unsigned int channel, const uint32_t *config)
     ((uint32_t *)(void *)tpm_cb_storage)[4]=(uintptr_t)tisp_awb_pm_suspend;
     ((uint32_t *)(void *)tpm_cb_storage)[5]=(uintptr_t)tisp_awb_pm_resume;
     t41_native_awb_frames=t41_native_awb_dropped=0;
+    WRITE_ONCE(t41_native_awb_zone_stamp,0);
     smp_store_release(&t41_awb_ready[0],1);
     ret=0; goto done;
 free_state:
@@ -166,6 +174,7 @@ static int t41_native_awb_deinit(unsigned int channel)
     mutex_lock(&t41_native_awb_lock);
     s=t41_native_awb_object(0);
     smp_store_release(&t41_awb_ready[0],0);
+    WRITE_ONCE(t41_native_awb_zone_stamp,0);
     system_irq_func_set(0,3,0); tisp_event_set_cb(0,12,0);
     awb_info[0]=0; t41_awb_runtime=(void *)1;
     ((uint32_t *)(void *)tpm_cb_storage)[3]=0;
@@ -198,6 +207,11 @@ static int t41_native_awb_control(unsigned int channel,enum t41_awb_control_op o
     s=t41_native_awb_object(channel);
     if (!s) goto done;
     if (get) {
+        /* GetAwbStatistics: only the planes of a frame of the running
+         * stream within the last second (tx_isp_t41_awb_zone_report.h);
+         * the stock copies its state regardless. */
+        if (op==T41_AWB_ZONE && !t41_awb_zone_report_fresh(READ_ONCE(t41_native_awb_live),
+                READ_ONCE(t41_native_awb_zone_stamp),jiffies)) { ret=-EAGAIN; goto done; }
         ret=(op==T41_AWB_PUBLIC ? t41_awb_public_get(&s->saved,data,bytes) :
             t41_awb_control_get(&s->saved,op,data,bytes)) ? -EINVAL : 0;
         goto done;

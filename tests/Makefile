@@ -397,6 +397,11 @@ TESTS += scene_colorfx_host_test
 scene_colorfx_host_test: scene_colorfx_host_test.c ../driver/common/tx_isp_scene_colorfx.h
 	$(CC) $(CFLAGS) -I../driver/common -o $@ $<
 
+TESTS += t31_sharpness_host_test
+
+t31_sharpness_host_test: t31_sharpness_host_test.c ../driver/t31/tx_isp_t31_sharpness.h
+	$(CC) $(CFLAGS) -o $@ $<
+
 TESTS += t21_sepia_host_test
 
 t21_sepia_host_test: t21_sepia_host_test.c ../driver/t21/tx_isp_t21_tuning_ctl.h ../driver/common/tx_isp_csc.h
@@ -410,6 +415,11 @@ t21_night_reinit_host_test: t21_night_reinit_host_test.c ../driver/t21/tx_isp_t2
 TESTS += t21_ae_comp_host_test
 
 t21_ae_comp_host_test: t21_ae_comp_host_test.c ../driver/t21/tx_isp_t21_ae_comp.h
+	$(CC) $(CFLAGS) -o $@ $<
+
+TESTS += sinfo_vendor_host_test
+
+sinfo_vendor_host_test: sinfo_vendor_host_test.c ../driver/common/tx_isp_sinfo_vendor.h
 	$(CC) $(CFLAGS) -o $@ $<
 
 TESTS += t20_ae_max_host_test
@@ -466,7 +476,7 @@ clean:
 	$(RM) tx_isp_t41_awb_runtime_test
 	$(RM) tx_isp_t41_awb_detect_test
 	$(RM) tx_isp_t41_awb_long_test
-	$(RM) tx_isp_t41_tuning_ctl_test t21_sepia_host_test
+	$(RM) tx_isp_t41_tuning_ctl_test t21_sepia_host_test t31_sharpness_host_test sinfo_vendor_host_test
 	$(RM) tx_isp_t41_awb_stats_test
 	$(RM) tx_isp_math_test tx_isp_modulation_test \
 		tx_isp_awb_mesh_test \
@@ -490,6 +500,26 @@ clean:
 		tx_isp_region_allocator_test \
 		tx_isp_exposure_test tx_isp_t31_adr_test tx_isp_scaler_test \
 		tx_isp_t31_mdns_test tx_isp_t31_sensor_policy_test tx_isp_t41_capture_gate_test
+
+# T23/T31 GetAwbZone block: stock scaling and freshness (tx_isp_awb_zone.h)
+TESTS += tx_isp_awb_zone_test
+tx_isp_awb_zone_test: tx_isp_awb_zone_test.c \
+		../driver/include/tx_isp/tx_isp_awb_zone.h
+	$(CC) $(CFLAGS) -I../driver/include -o $@ $<
+clean: clean-awb-zone
+.PHONY: clean-awb-zone
+clean-awb-zone:
+	$(RM) tx_isp_awb_zone_test
+
+# T41 GetAwbStatistics planes: freshness contract (tx_isp_t41_awb_zone_report.h)
+TESTS += tx_isp_t41_awb_zone_report_test
+tx_isp_t41_awb_zone_report_test: tx_isp_t41_awb_zone_report_test.c \
+		../driver/t41/tx_isp_t41_awb_zone_report.h ../driver/include/tx_isp/tx_isp_awb_zone.h
+	$(CC) $(CFLAGS) -I../driver/include -o $@ $<
+clean: clean-t41-awb-zone-report
+.PHONY: clean-t41-awb-zone-report
+clean-t41-awb-zone-report:
+	$(RM) tx_isp_t41_awb_zone_report_test
 
 # T10/T20 GetAwbZone (driver/t20 tuning, T2X_CID_AWB_ZONE)
 TESTS += tx_isp_t2x_awb_zone_test

@@ -31,6 +31,7 @@
 #include <linux/string.h>
 #include <linux/seq_file.h>
 #include <linux/math64.h>  /* For div64_s64() and do_div() */
+#include "../include/tx_isp/tx_isp_awb_zone.h"
 #include <linux/io.h>
 #include <linux/ioport.h>
 #include <linux/dma-mapping.h>
@@ -52,6 +53,7 @@
 #include "include/tx_isp_vin.h"
 #include "include/tx_isp_fixpt.h"
 #include "../include/tx_isp/tx_isp_callback_plan.h"
+#include "tx_isp_t31_sharpness.h"
 #include "../include/tx_isp/tx_isp_math.h"
 #include "../include/tx_isp/tx_isp_daynight.h"
 #include "../include/tx_isp/tx_isp_tuning_abi.h"
@@ -14142,6 +14144,7 @@ static uint32_t _awb_cluster_tail[7];  /* 0x1c bytes tail */
 static uint32_t _awb_cluster_ext1;     /* data_a9e4c */
 static uint32_t _awb_cluster_ext2;     /* data_a9e50 */
 static uint8_t  tisp_wb_zone_attr[0x2a3]; /* AWB zone attribute blob */
+static unsigned long awb_zone_attr_stamp; /* jiffies of its statistics frame, 0 = none */
 static uint32_t awb_ev_data;           /* data_983b0 equivalent */
 static int      awb_first;             /* OEM awb_first gate for one-time HW param pack */
 static uint32_t awb_zero_zone_count;
@@ -15818,6 +15821,14 @@ int tisp_ae_state_get(uint32_t *out)
 int apical_isp_awb_zone_statis_g_attr(void __user *uptr)
 {
     uint8_t buf[0x2a3];
+
+    /* Open addition: only a block computed from a statistics frame of the
+     * running stream within TX_ISP_AWB_ZONE_MAX_AGE_MS is handed out; the
+     * stock copies whatever the static buffer holds (zeros before the first
+     * frame, the last frame after a stop). */
+    if (!tx_isp_awb_zone_fresh(awb_zone_attr_stamp, jiffies,
+                               TX_ISP_AWB_ZONE_MAX_AGE_MS))
+        return -EAGAIN;
     tisp_awb_get_zone(buf);
     if (copy_to_user(uptr, buf, 0x2a3))
         return -EFAULT;
@@ -18135,18 +18146,12 @@ static uint32_t __maybe_unused awb_ratio_u8(uint32_t numer, uint32_t denom)
 	return (uint32_t)div_u64((uint64_t)numer * 0x100 + (denom >> 1), denom);
 }
 
+/* GetAwbZone block byte, the stock way (tx_isp_awb_zone.h): truncated
+ * sum / pixels, 0 for an empty zone.  (Rounding and saturating here made
+ * the open block differ from the stock one by one LSB.) */
 static uint8_t awb_zone_mean_u8(uint32_t numer, uint32_t denom)
 {
-	uint32_t mean;
-
-	if (denom == 0)
-		return 0;
-
-	mean = (uint32_t)div_u64((uint64_t)numer + (denom >> 1), denom);
-	if (mean > 0xff)
-		mean = 0xff;
-
-	return (uint8_t)mean;
+	return tx_isp_awb_zone_mean(numer, denom);
 }
 
 static uint32_t awb_clamp_u32(uint32_t value, uint32_t lo, uint32_t hi)
@@ -19661,6 +19666,9 @@ static int Tiziano_awb_fpga(const uint32_t *stats_r,
 		}
 	}
 
+	/* the zone block above is from this statistics frame (GetAwbZone) */
+	awb_zone_attr_stamp = jiffies | 1UL;
+
 	fpga_diag_count++;
 
 	if (rg_pix_cnt == 0 && bg_pix_cnt == 0) {
@@ -20298,6 +20306,7 @@ int tiziano_awb_init(uint32_t height, uint32_t width)
     /* OEM EXACT: reset state */
     awb_first = 0;
     awb_zone_cache_valid = 0;
+    awb_zone_attr_stamp = 0;
 	awb_history_count = 0;
 	awb_history_reset = 1;
 	awb_zero_zone_count = 0;
@@ -22806,21 +22815,16 @@ static int tisp_dmsc_sharpness_set(u32 value)
 		u32 src_sp_ud_b = dmsc_param_word(0x84, i);
 		u32 src_uu = dmsc_param_word(0x71, i);
 
-		if (sharp >= 0x81) {
-			u32 scale = sharp - 0x80;
-
-			dmsc_sp_d_w_stren_curve[i] = (((0x258 - src_sp_d_w) * scale) >> 7) + src_sp_d_w;
-			dmsc_sp_d_b_stren_curve[i] = (((0x258 - src_sp_d_b) * scale) >> 7) + src_sp_d_b;
-			dmsc_sp_ud_w_stren_curve[i] = (((0x258 - src_sp_ud_w) * scale) >> 7) + src_sp_ud_w;
-			dmsc_sp_ud_b_stren_curve[i] = (((0x258 - src_sp_ud_b) * scale) >> 7) + src_sp_ud_b;
-			dmsc_uu_stren_curve[i] = (((0x320 - src_uu) * scale) >> 7) + src_uu;
-		} else {
-			dmsc_sp_d_w_stren_curve[i] = (sharp * src_sp_d_w) >> 7;
-			dmsc_sp_d_b_stren_curve[i] = (sharp * src_sp_d_b) >> 7;
-			dmsc_sp_ud_w_stren_curve[i] = (sharp * src_sp_ud_w) >> 7;
-			dmsc_sp_ud_b_stren_curve[i] = (sharp * src_sp_ud_b) >> 7;
-			dmsc_uu_stren_curve[i] = (sharp * src_uu) >> 7;
-		}
+		dmsc_sp_d_w_stren_curve[i] =
+			t31_dmsc_sharpness_scale(sharp, src_sp_d_w, T31_DMSC_SHARP_SP_MAX);
+		dmsc_sp_d_b_stren_curve[i] =
+			t31_dmsc_sharpness_scale(sharp, src_sp_d_b, T31_DMSC_SHARP_SP_MAX);
+		dmsc_sp_ud_w_stren_curve[i] =
+			t31_dmsc_sharpness_scale(sharp, src_sp_ud_w, T31_DMSC_SHARP_SP_MAX);
+		dmsc_sp_ud_b_stren_curve[i] =
+			t31_dmsc_sharpness_scale(sharp, src_sp_ud_b, T31_DMSC_SHARP_SP_MAX);
+		dmsc_uu_stren_curve[i] =
+			t31_dmsc_sharpness_scale(sharp, src_uu, T31_DMSC_SHARP_UU_MAX);
 	}
 
 	if (dmsc_gain_last != 0xffffffff)
@@ -22934,7 +22938,10 @@ static int tiziano_dmsc_params_refresh(void)
 #undef DMSC_COPY_SCALAR
 #undef DMSC_COPY_BLOB
 
-	if (dmsc_sharpness != 0x80 && dmsc_gain_last != 0xffffffff)
+	/* OEM 0x26c1c: re-apply any non-neutral sharpness to the fresh bank
+	 * curves; tisp_dmsc_sharpness_set() programs the registers only once a
+	 * gain is known. */
+	if (dmsc_sharpness != T31_DMSC_SHARP_NEUTRAL)
 		tisp_dmsc_sharpness_set(dmsc_sharpness);
 
 	return 0;

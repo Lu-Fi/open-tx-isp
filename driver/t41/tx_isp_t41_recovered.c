@@ -1148,6 +1148,7 @@ module_param(t41_msca_stop_disable, int, 0644);
 void t41_heapwatch_mark(const char *step);
 void t41_heapwatch_step(const char *where);
 void t41_heapwatch_start(void);
+void t41_heapwatch_decoys_arm(void);
 void t41_heapwatch_stop(void);
 void t41_heapwatch_census(const char *where);
 void t41_procwatch_begin(void);
@@ -5937,6 +5938,12 @@ static void regtrace_patch_relocated_data(void)
     *(const void **)((char *)fs_internal_ops + 0x8) = (const void *)&fs_suspend_module;
     *(const void **)((char *)fs_internal_ops + 0xc) = (const void *)&fs_resume_module;
     *(const void **)((char *)fs_core_ops + 0x20) = (const void *)&fs_core_ops_ioctl;
+    /* Without an owner an open /dev/framechanN does not pin the module:
+     * rmmod succeeds, and the file keeps private_data into the freed channel
+     * array and f_op into the freed module image (the next load usually sits
+     * at the same address, so release then runs and writes channel states
+     * 3/2 into memory that is no longer the driver's). */
+    *(const void **)((char *)fs_channel_ops + 0x0) = (const void *)THIS_MODULE;
     *(const void **)((char *)fs_channel_ops + 0x20) = (const void *)&frame_channel_unlocked_ioctl;
     *(const void **)((char *)fs_channel_ops + 0x2c) = (const void *)&frame_channel_open;
     *(const void **)((char *)fs_channel_ops + 0x34) = (const void *)&frame_channel_release;
@@ -15731,107 +15738,56 @@ isp_csi_show0x108:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000073f4 origin=fragment_seed original=csi_core_ops_init */
 int32_t csi_core_ops_init(uintptr_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    char *csi = (char *)a0;
+    const uint32_t *init = (const uint32_t *)a1;
+    unsigned long flags = 0;
+    uint32_t vinum;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
+    if (!csi || a0 >= (uintptr_t)-4095 || !t41_kernel_data_ptr(init)) {
+        isp_printf(2, "[%s %d] the parameters are invalid!\n",
+                   "csi_core_ops_init", 356);
+        return -EINVAL;
+    }
 
-    /* fragment 1: Branch */
-    if (a0 == 0) { goto csi_core_ops_init0x24; }
+    /*
+     * Reload heap overwrite (decoy run 2026-10-12): the per-VIN state is
+     * csi + 0x178 + vinum * 4 in a 424-byte kmalloc-512 object, and the
+     * recovered body indexed it with init[1] unchecked.  One caller passes
+     * an argument whose word 1 is 276, so "state = 3" at stream start and
+     * "state = 2" at release landed at csi + 0x5c4, inside the kmalloc-512
+     * object two slots further (param attr array, vmalloc pages[] ...).
+     * Every other user of this array bounds vinum to < 3.  Skip the store
+     * (the run showed the real slot unaffected, so behaviour is unchanged)
+     * and name the caller once.
+     */
+    vinum = init[1];
+    if (vinum >= 3) {
+        static bool warned;
 
-    /* fragment 2: Arithmetic */
-    v0 = a0 < -4095;
+        if (!warned) {
+            warned = true;
+            printk(KERN_WARNING
+                   "t41: csi init ignored bad vinum=%u enable=%u arg=%p caller=%pS\n",
+                   vinum, init[0], (void *)init,
+                   __builtin_return_address(0));
+        }
+        return 0;
+    }
 
-    /* fragment 3: Branch */
-    s0 = a0;
-    if (v0 != 0) { goto csi_core_ops_init0x68; }
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)(csi + 392),
+                                (uintptr_t)&flags);
+    if (init[0]) {
+        *(uint32_t *)(csi + ((vinum + 92) << 2) + 4) = 3;
+    } else if (*(uint32_t *)(csi + 412)) {
+        char *regs = *(char **)(csi + 232);
 
-csi_core_ops_init0x24:
-    /* fragment 4: CallSetup */
-    local_10 = 0;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC6, &__pow2_lut, 356); /* jalr target resolved by relocation */
-
-    /* fragment 5: Arithmetic */
-    v0 = -22;
-
-csi_core_ops_init0x50:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-csi_core_ops_init0x68:
-    /* fragment 7: CallSetup */
-    s2 = a0 + 392;
-    s1 = a1;
-    local_10 = 0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(a0 + 392, &local_10); /* jalr target resolved by relocation */
-
-    /* fragment 8: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 0);
-
-    /* fragment 9: Branch */
-    if (v0 == 0) { goto csi_core_ops_init0xc8; }
-
-    /* fragment 10: CallSetup */
-    v0 = *(uint32_t *)((char *)s1 + 4);
-    v0 = v0 + 92;
-    v0 = (uintptr_t)v0 << 2;
-    s0 = (uintptr_t)s0 + (uintptr_t)v0;
-    v0 = 3;
-    *(uint32_t *)((char *)s0 + 4) = v0;
-
-csi_core_ops_init0xac:
-    /* fragment 11: CallSetup */
-    a1 = local_10;
-
-csi_core_ops_init0xb0:
-    /* fragment 12: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)((uintptr_t)s2, (uintptr_t)local_10); /* jalr target resolved by relocation */
-
-    /* fragment 13: Branch */
-    v0 = 0;
-    goto csi_core_ops_init0x50;
-
-csi_core_ops_init0xc8:
-    /* fragment 14: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 412);
-
-    /* fragment 15: Branch */
-    a1 = local_10;
-    if (v0 == 0) { goto csi_core_ops_init0xb0; }
-
-    /* fragment 16: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 232);
-    v1 = 2;
-    *(uint32_t *)((char *)v0 + 8) = 0;
-    v0 = *(uint32_t *)((char *)s0 + 232);
-    *(uint32_t *)((char *)v0 + 12) = 0;
-    v0 = *(uint32_t *)((char *)s0 + 232);
-    *(uint32_t *)((char *)v0 + 16) = 0;
-    v0 = *(uint32_t *)((char *)s1 + 4);
-    v0 = v0 + 92;
-    v0 = (uintptr_t)v0 << 2;
-    v0 = (uintptr_t)s0 + (uintptr_t)v0;
-    *(uint32_t *)((char *)v0 + 4) = v1;
-    v0 = *(uint32_t *)((char *)s0 + 412);
-    v0 = v0 - 1;
-
-    /* fragment 17: Branch */
-    *(uint32_t *)((char *)s0 + 412) = v0;
-    goto csi_core_ops_init0xac;
-
+        *(uint32_t *)(regs + 8) = 0;
+        *(uint32_t *)(regs + 12) = 0;
+        *(uint32_t *)(regs + 16) = 0;
+        *(uint32_t *)(csi + ((vinum + 92) << 2) + 4) = 2;
+        *(uint32_t *)(csi + 412) -= 1;
+    }
+    private_spin_unlock_irqrestore(csi + 392, flags);
     return 0;
 }
 
@@ -22035,6 +21991,184 @@ static int t41_tuning_coefft_wb(unsigned int channel, unsigned int is_get,
 }
 
 /*
+ * IMPISPAeConvergeStep (stock 0x08000028, 8 bytes) and the read-only
+ * IMPISPAeEvList / IMPISPAeAtList (0x08000038 / 0x08000039, 128 bytes):
+ * the AE params of ae_info[0], under the histogram lock like the zone
+ * weights.  See tx_isp_t41_tuning_ctl.h for the layouts.
+ */
+static int t41_tuning_ae_params(unsigned int channel, uint32_t id,
+                                unsigned int is_get, uintptr_t user_ptr)
+{
+    unsigned char payload[T41_AE_LIST_BYTES];
+    unsigned short step[4];
+    unsigned char *params;
+    uint32_t *info;
+    spinlock_t *lock;
+    unsigned long flags;
+    int ret;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (id != TX_ISP_TUNING_CMD_T41_AE_CONVERGE && !is_get)
+        return -EINVAL;
+    if (!smp_load_acquire(&t41_ae_ready[channel]))
+        return -EAGAIN;
+    info = (uint32_t *)(uintptr_t)ae_info[channel];
+    if (!t41_kernel_data_ptr(info))
+        return -ENODEV;
+    params = (unsigned char *)(uintptr_t)info[0];
+    if (!t41_kernel_data_ptr(params))
+        return -ENODEV;
+    lock = (spinlock_t *)(void *)(slock_hist_storage +
+                                  channel * sizeof(uint32_t));
+    if (id == TX_ISP_TUNING_CMD_T41_AE_CONVERGE && !is_get) {
+        if (private_copy_from_user(step, (void __user *)user_ptr,
+                                   sizeof(step)))
+            return -EFAULT;
+        spin_lock_irqsave(lock, flags);
+        ret = t41_ae_converge_set(params, T41_AE_PARAM_BYTES, step);
+        spin_unlock_irqrestore(lock, flags);
+        return ret ? -EINVAL : 0;
+    }
+    spin_lock_irqsave(lock, flags);
+    if (id == TX_ISP_TUNING_CMD_T41_AE_CONVERGE)
+        ret = t41_ae_converge_get(params, T41_AE_PARAM_BYTES, step);
+    else
+        ret = t41_ae_list_get(params, T41_AE_PARAM_BYTES,
+                              id == TX_ISP_TUNING_CMD_T41_AE_AT_LIST, payload);
+    spin_unlock_irqrestore(lock, flags);
+    if (ret)
+        return -EINVAL;
+    if (id == TX_ISP_TUNING_CMD_T41_AE_CONVERGE)
+        return private_copy_to_user((void __user *)user_ptr, step,
+                                    sizeof(step)) ? -EFAULT : 0;
+    return private_copy_to_user((void __user *)user_ptr, payload,
+                                sizeof(payload)) ? -EFAULT : 0;
+}
+
+/*
+ * IMPISPTmoCurve (stock 0x08000063, 404 bytes): one of the ten EV curves
+ * in the TMO params, under the TMO map lock; the per-frame TMO map
+ * (t41_tmo_frame) interpolates the stored curves, so a set curve is used
+ * from the next mapped frame.  Stock instead rebuilt the TMO registers at
+ * once (tisp_tmo_params_hard_refresh and the RAM refresh).
+ */
+static int t41_tuning_tmo_curve(unsigned int channel, unsigned int is_get,
+                                uintptr_t user_ptr)
+{
+    unsigned char *req, *info, *params;
+    int ret = -EAGAIN;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    req = private_kmalloc(T41_TMO_CURVE_BYTES, GFP_KERNEL);
+    if (!req)
+        return -ENOMEM;
+    if (private_copy_from_user(req, (void __user *)user_ptr,
+                               T41_TMO_CURVE_BYTES)) {
+        ret = -EFAULT;
+        goto out;
+    }
+    mutex_lock(&t41_tmo_map_lock);
+    info = (unsigned char *)(uintptr_t)tmo_info[channel];
+    params = t41_kernel_data_ptr(info) ?
+        (unsigned char *)(uintptr_t)*(uint32_t *)(void *)info : NULL;
+    if (t41_kernel_data_ptr(params))
+        ret = (is_get ? t41_tmo_curve_get(params, T41_TMO_PARAM_BYTES, req) :
+                        t41_tmo_curve_set(params, T41_TMO_PARAM_BYTES, req)) ?
+            -EINVAL : 0;
+    mutex_unlock(&t41_tmo_map_lock);
+    if (!ret && is_get &&
+        private_copy_to_user((void __user *)user_ptr, req,
+                             T41_TMO_CURVE_BYTES))
+        ret = -EFAULT;
+out:
+    private_kfree(req);
+    return ret;
+}
+
+/*
+ * IMPISPStatisConfig (stock 0x08000000, 72 bytes, tisp_s/g_statis_config_attr
+ * on tisp_tattr+568).  GET returns the stored record.  SET: an enabled AWB
+ * part moves the AWB zone grid (native AWB T41_AWB_LOCATION, refused with
+ * -EBUSY while the stream runs and the geometry changes); the AE histogram
+ * thresholds and the AF part are stored only (stock reprogrammed the global
+ * statistics block from an uninitialised buffer, and this build has no AF).
+ */
+static int t41_tuning_statis_config(unsigned int channel, unsigned int is_get,
+                                    uintptr_t user_ptr)
+{
+    unsigned char req[T41_STATIS_CONFIG_BYTES];
+    unsigned char loc[10];
+    uint8_t *attrs = (uint8_t *)(uintptr_t)tisp_tattr;
+    int parts, ret;
+
+    if (channel != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (!t41_kernel_data_ptr(attrs))
+        return -ENODEV;
+    if (is_get) {
+        memcpy(req, attrs + 568, sizeof(req));
+        return private_copy_to_user((void __user *)user_ptr, req,
+                                    sizeof(req)) ? -EFAULT : 0;
+    }
+    if (private_copy_from_user(req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+    parts = t41_statis_config_check(req);
+    if (parts < 0)
+        return -EINVAL;
+    if (parts & 2) {
+        if (!t41_native_awb)
+            return -EOPNOTSUPP;
+        if (!smp_load_acquire(&t41_awb_ready[0]))
+            return -EAGAIN;
+        t41_statis_awb_location(req, loc);
+        ret = t41_native_awb_control(0, T41_AWB_LOCATION, loc, sizeof(loc), 0);
+        if (ret)
+            return ret;
+    }
+    t41_statis_config_store(attrs + 568, req);
+    return 0;
+}
+
+/*
+ * IMPISPWaitFrameAttr (stock 0x08000091, get, 24 bytes): wait for the next
+ * channel-0 frame done (isp_frame_done_wait, woken from the frame IRQ) and
+ * report the frame counter.  As stock: the timeout word is in jiffies, a
+ * timeout or a signal still returns 0 with the counter, irqtype is 0.  The
+ * wait is capped at T41_WAIT_FRAME_MAX_JIFFIES and runs without the tuning
+ * mutex, so other tuning calls are not held up by a waiter.
+ */
+#define T41_WAIT_FRAME_MAX_JIFFIES (60 * HZ)
+
+static int t41_tuning_wait_frame_done(const struct tx_isp_tuning_t41_control *request)
+{
+    struct {
+        u32 timeout;
+        u32 pad;
+        u64 cnt;
+        u32 irqtype;
+        u32 pad2;
+    } attr;
+    u64 cnt = 0;
+    u32 timeout;
+
+    BUILD_BUG_ON(sizeof(attr) != TX_ISP_TUNING_T41_WAIT_FRAME_BYTES);
+    if (request->channel != 0 || request->is_get != 1 ||
+        !request->value_or_ptr)
+        return -EINVAL;
+    if (private_copy_from_user(&attr,
+            (void __user *)(uintptr_t)request->value_or_ptr, sizeof(attr)))
+        return -EFAULT;
+    timeout = min_t(u32, attr.timeout, T41_WAIT_FRAME_MAX_JIFFIES);
+    isp_frame_done_wait(request->channel, timeout, (uintptr_t)&cnt);
+    attr.cnt = cnt;
+    attr.irqtype = 0;
+    return private_copy_to_user((void __user *)(uintptr_t)request->value_or_ptr,
+                                &attr, sizeof(attr)) ? -EFAULT : 0;
+}
+
+/*
  * Review2 M1: stock serialises the tuning node with core_dev->mlock; two
  * tuning threads (day/night, BCSH, flip) must not interleave on the same
  * IQ state. Serialise the whole isp-m0 ioctl.
@@ -22051,7 +22185,15 @@ static int t41_tuning_scaler_lv(unsigned int vinum, unsigned int is_get,
 int64_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
     struct t41_switch_bin_post post;
+    struct tx_isp_tuning_t41_control request;
     int64_t ret;
+
+    /* WaitFrameDone sleeps up to its timeout: never under the tuning mutex. */
+    if (a1 == 0xc0105435U &&
+        !private_copy_from_user(&request, (void __user *)(uintptr_t)a2,
+                                sizeof(request)) &&
+        request.id == TX_ISP_TUNING_CMD_T41_WAIT_FRAME_DONE)
+        return t41_tuning_wait_frame_done(&request);
 
     mutex_lock(&t41_tuning_mutex);
     ret = isp_core_tunning_unlocked_ioctl_body(a0, a1, a2);
@@ -22181,6 +22323,26 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_AWB_STATS, 2700,
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AWB_CT_TREND, 28,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AWB_CONVERGE, 20,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AE_CONVERGE, T41_AE_CONVERGE_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AE_EV_LIST, T41_AE_LIST_BYTES,
+              TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AE_AT_LIST, T41_AE_LIST_BYTES,
+              TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_TMO_CURVE, T41_TMO_CURVE_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_STATIS_CONFIG,
+              T41_STATIS_CONFIG_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_OPEN_AWB_CONTROL,
               sizeof(struct tx_isp_tuning_awb_control),
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
@@ -22251,14 +22413,21 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
 
         if (request.id == TX_ISP_TUNING_CMD_T41_AWB_ATTR ||
             request.id == TX_ISP_TUNING_CMD_T41_AWB_WEIGHT ||
-            request.id == TX_ISP_TUNING_CMD_T41_AWB_STATS) {
+            request.id == TX_ISP_TUNING_CMD_T41_AWB_STATS ||
+            request.id == TX_ISP_TUNING_CMD_T41_AWB_CT_TREND ||
+            request.id == TX_ISP_TUNING_CMD_T41_AWB_CONVERGE) {
             unsigned char *payload;
             enum t41_awb_control_op op;
             if (!route || !t41_native_awb) return -EOPNOTSUPP;
             if (request.channel || request.is_get > 1 || !request.value_or_ptr) return -EINVAL;
             if (!smp_load_acquire(&t41_awb_ready[0])) return -EAGAIN;
+            /* CtTrendOffset (28 bytes) and ConvergeStep (20 bytes): stock
+             * tisp_awb_api_set/get_ct_trend_offset, tisp_awb_set/get_converge_step
+             * on the same params the native AWB owns. */
             op=request.id == TX_ISP_TUNING_CMD_T41_AWB_ATTR ? T41_AWB_PUBLIC :
-                request.id == TX_ISP_TUNING_CMD_T41_AWB_WEIGHT ? T41_AWB_WEIGHT : T41_AWB_ZONE;
+                request.id == TX_ISP_TUNING_CMD_T41_AWB_WEIGHT ? T41_AWB_WEIGHT :
+                request.id == TX_ISP_TUNING_CMD_T41_AWB_CT_TREND ? T41_AWB_TREND :
+                request.id == TX_ISP_TUNING_CMD_T41_AWB_CONVERGE ? T41_AWB_CONVERGE : T41_AWB_ZONE;
             /* The zone report is 2700 bytes: never put it on a kernel stack. */
             payload=private_kmalloc(route->payload_size,GFP_KERNEL);
             if (!payload) return -ENOMEM;
@@ -22381,6 +22550,17 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
         if (route && route->id == TX_ISP_TUNING_CMD_T41_AF_WEIGHT)
             return t41_tuning_af_weight(request.channel, request.is_get,
                                         request.value_or_ptr);
+        if (route && (route->id == TX_ISP_TUNING_CMD_T41_AE_CONVERGE ||
+                      route->id == TX_ISP_TUNING_CMD_T41_AE_EV_LIST ||
+                      route->id == TX_ISP_TUNING_CMD_T41_AE_AT_LIST))
+            return t41_tuning_ae_params(request.channel, route->id,
+                                        request.is_get, request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_TMO_CURVE)
+            return t41_tuning_tmo_curve(request.channel, request.is_get,
+                                        request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_STATIS_CONFIG)
+            return t41_tuning_statis_config(request.channel, request.is_get,
+                                            request.value_or_ptr);
         /* MSCA controls: live only inside the proven envelope, otherwise
          * stored for the next output start (README "MSCA zoom, mask and
          * scaler level"). */
@@ -22826,6 +23006,36 @@ static void t41_apply_pending_day_night(char *core)
 }
 #endif
 
+/*
+ * Channel-0 frame-done signal for IMP_ISP_WaitFrameDone.  The ISR status-bit-0
+ * branch (via CORE_FRAME_DONE 0x04000002) only covered the first frames of a
+ * stream on the device (count stuck at 13, every wait timed out), so the
+ * completion of a channel-0 buffer in the frame-channel done handler is the
+ * per-frame source.  Once that path has signalled, the other two callers stop
+ * counting channel 0, so a frame is never counted twice.  IRQ-safe.
+ */
+static bool t41_fd_from_fs;
+
+static void t41_frame_done_count(uint32_t ch)
+{
+    uint64_t *cnt = (uint64_t *)(frame_done_cnt_storage + ch * 8);
+
+    (*cnt)++;
+    if (ch == 0) {
+        WRITE_ONCE(frame_done_cond, 1);
+        wake_up((wait_queue_head_t *)(void *)frame_done_wq);
+    } else {
+        WRITE_ONCE(frame_done_cond_sec, 1);
+        wake_up((wait_queue_head_t *)(void *)frame_done_wq_sec);
+    }
+}
+
+static void t41_fs_frame_done_signal(void)
+{
+    WRITE_ONCE(t41_fd_from_fs, true);
+    t41_frame_done_count(0);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000c878 origin=fragment_seed original=isp_frame_done_wakeup */
 int32_t isp_frame_done_wakeup(uint32_t a0)
 {
@@ -22851,22 +23061,15 @@ int32_t isp_frame_done_wakeup(uint32_t a0)
      */
     {
         uint32_t ch;
-        uint64_t *cnt;
 
         if (!t41_kernel_data_ptr((void *)(uintptr_t)a0))
             return -EINVAL;
         ch = ((uint32_t *)(uintptr_t)a0)[1];
         if (ch > 1)
             return -EINVAL;
-        cnt = (uint64_t *)(frame_done_cnt_storage + ch * 8);
-        (*cnt)++;
-        if (ch == 0) {
-            WRITE_ONCE(frame_done_cond, 1);
-            wake_up((wait_queue_head_t *)(void *)frame_done_wq);
-        } else {
-            WRITE_ONCE(frame_done_cond_sec, 1);
-            wake_up((wait_queue_head_t *)(void *)frame_done_wq_sec);
-        }
+        if (ch == 0 && READ_ONCE(t41_fd_from_fs))
+            return 0;
+        t41_frame_done_count(ch);
         return 0;
     }
 
@@ -25242,12 +25445,14 @@ void tx_isp_free_irq(uintptr_t a0)
         count = T41_MAX_IRQS_PER_DEVICE;
 
     for (idx = 0; idx < count; idx++) {
-        uintptr_t slot = a0 + (idx * sizeof(uint32_t));
         unsigned int irq = *(uint32_t *)(a0 + T41_IRQ_SLOT_IRQ_OFF +
                                          (idx * sizeof(uint32_t)));
 
+        /* dev_id must match tx_isp_request_irq(), which passes the
+         * slot base for every index; with a second IRQ the per-index
+         * pointer made free_irq() miss and left the handler installed. */
         if (irq)
-            private_free_irq(irq, (void *)slot);
+            private_free_irq(irq, (void *)a0);
         *(uint32_t *)(a0 + T41_IRQ_SLOT_IRQ_OFF +
                       (idx * sizeof(uint32_t))) = 0;
         *(uint32_t *)(a0 + T41_IRQ_SLOT_STATE_OFF +
@@ -28848,6 +29053,8 @@ int32_t frame_chan_event(uintptr_t a0, uint32_t a1, uintptr_t a2)
     }
 
     private_spin_unlock_irqrestore(channel + 0x2e0, flags);
+    if (completed && *(uint32_t *)(channel + 0x2dc) == 0)
+        t41_fs_frame_done_signal();
     return 0;
 }
 
@@ -169232,6 +169439,8 @@ int32_t ispcore_core_ops_ioctl(uintptr_t a0, uint32_t a1, uintptr_t a2)
 			int32_t (*volatile get_fps)(uint32_t, uintptr_t) =
 				tisp_ae_get_fps;
 
+			static const uint32_t frame_done_arg[2] = { 0, 0 };
+
 			event_data[2] = *(uint32_t *)arg;
 			event_data[3] = *(uint32_t *)((char *)arg + 4);
 			++isp_ch0_frm_done;
@@ -169239,6 +169448,12 @@ int32_t ispcore_core_ops_ioctl(uintptr_t a0, uint32_t a1, uintptr_t a2)
 			ret = tx_isp_send_event_to_remote(
 				*(void **)(channels + 0x16c),
 				TX_ISP_FRAME_EVENT_BUFFER_DONE, event_data);
+			/* Steady-state channel-0 frames arrive here, not through
+			 * the ISR status-bit-0 branch, so this is where stock's
+			 * CORE_FRAME_DONE (0x04000002) belongs: advance
+			 * frame_done_cnt[0] and wake IMP_ISP_WaitFrameDone().
+			 * wake_up() is IRQ-safe; no sleeping call here. */
+			isp_frame_done_wakeup((uint32_t)(uintptr_t)frame_done_arg);
 		}
 		break;
 	default:
@@ -170851,19 +171066,24 @@ int32_t init_module(void)
 {
 	int ret;
 
+    t41_heapwatch_decoys_arm();
     regtrace_patch_relocated_data();
 	ret = tx_isp_init();
-	if (ret)
+	if (ret) {
+		t41_heapwatch_stop();
 		return ret;
+	}
 	ret = tx_isp_sinfo_init();
 	if (ret) {
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
+		t41_heapwatch_stop();
 		return ret;
 	}
 	ret = tx_isp_t41_v4l2_init(&tx_isp_platform_device.dev);
 	if (ret) {
 		tx_isp_sinfo_exit();
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
+		t41_heapwatch_stop();
 		return ret;
 	}
 	t41_heapwatch_start();

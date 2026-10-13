@@ -12,6 +12,11 @@ int main(void)
 	assert(!t31_fcrop_axis_ok(1279, 1280, 0));
 	assert(t31_fcrop_axis_ok(1000, 1100, 10));
 	assert(!t31_fcrop_axis_ok(1000, 1101, 10));
+	/* 2.0x allowed at 100; anything above is clamped to 100 (2.5x hung) */
+	assert(t31_fcrop_axis_ok(960, 1920, 100));
+	assert(!t31_fcrop_axis_ok(768, 1920, 150));
+	assert(!t31_fcrop_axis_ok(959, 1920, 1000));
+	assert(t31_fcrop_axis_ok(960, 1920, 0xffffffffu));
 
 	/* running ch0 main 1920x1080 scaled from 2560x1440 */
 	assert(t31_fcrop_chan_fits(1, 0, (1920u << 16) | 1080, 1920, 1080,

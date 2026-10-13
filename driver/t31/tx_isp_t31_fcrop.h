@@ -17,10 +17,19 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 #endif
 
+/* Hard ceiling for fcrop_upscale_pct.  Garage T31X (10-12): 2.0x (100)
+ * ran clean with main 1920x1080 + sub 640x360; 2.5x (150) was accepted and
+ * hard-hung the SoC at once (hardware watchdog reset, no oops), so a larger
+ * parameter value is clamped here, never trusted. */
+#define T31_FCROP_UPSCALE_MAX_PCT 100U
+
 /* window may feed an output of out pixels on one axis; upscale_pct = 0
- * never allows an upscale */
+ * never allows an upscale, values above T31_FCROP_UPSCALE_MAX_PCT count as
+ * the maximum */
 static inline bool t31_fcrop_axis_ok(u32 window, u32 out, u32 upscale_pct)
 {
+	if (upscale_pct > T31_FCROP_UPSCALE_MAX_PCT)
+		upscale_pct = T31_FCROP_UPSCALE_MAX_PCT;
 	return (u64)window * (100U + upscale_pct) >= (u64)out * 100U;
 }
 
