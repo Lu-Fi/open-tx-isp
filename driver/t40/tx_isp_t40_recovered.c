@@ -22394,10 +22394,15 @@ static long regtrace_isp_m0_default_tuning_ioctl(unsigned int cmd, unsigned long
         } else if (ctrl.id == TX_ISP_TUNING_CMD_T41_RUNNING_MODE) {
             uint32_t mode = READ_ONCE(regtrace_running_mode);
 
-            if (copy_to_user(
+            /* T40 scalar GET returns the value in the control packet.
+             * Keep compatibility with pointer-based clients as well. */
+            if (ctrl.value == 0) {
+                ctrl.value = (int32_t)mode;
+            } else if (copy_to_user(
                     (void __user *)(uintptr_t)(uint32_t)ctrl.value,
-                    &mode, sizeof(mode)))
+                    &mode, sizeof(mode))) {
                 return -EFAULT;
+            }
             ret = 0;
         } else if (ctrl.id == TX_ISP_TUNING_CMD_T41_AWB_ATTR) {
             ret = regtrace_t40_tuning_get_awb_attr(
@@ -101047,6 +101052,9 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
                 rgain = 1060U;
                 bgain = 2640U;
                 seeded = true;
+                printk(KERN_INFO "tx_isp_t40_recovered: BGGR AWB seed sample=%u old=0x%x/0x%x new=0x%x/0x%x bayer=0x%x\n",
+                       regtrace_frame_3a_samples, old_r, old_b, rgain, bgain,
+                       (uint32_t)system_reg_read(0x88U));
             } else {
                 rgain = regtrace_frame_awb_trim(rgain, vmean, target, hyst);
                 bgain = regtrace_frame_awb_trim(bgain, umean, target, hyst);
