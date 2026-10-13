@@ -1225,6 +1225,21 @@ static unsigned int t41_msca_live_max_h = 432;
 module_param(t41_msca_live_max_h, uint, 0644);
 MODULE_PARM_DESC(t41_msca_live_max_h,
                  "largest output height AutoZoom/Mask/ScalerLv reprogram while streaming");
+/*
+ * SET_FMT gate for output 1 with t41_msca_cfg_update >= 2 (README "Output
+ * restart hang"): larger formats hung the SoC, so they are refused with
+ * -EINVAL.  0 in either limit disables the gate.
+ */
+static unsigned int t41_msca_ch1_max_w = 768;
+module_param(t41_msca_ch1_max_w, uint, 0644);
+MODULE_PARM_DESC(t41_msca_ch1_max_w,
+                 "largest ch1 width SET_FMT accepts with t41_msca_cfg_update>=2 (0 = no limit)");
+static unsigned int t41_msca_ch1_max_h = 432;
+module_param(t41_msca_ch1_max_h, uint, 0644);
+MODULE_PARM_DESC(t41_msca_ch1_max_h,
+                 "largest ch1 height SET_FMT accepts with t41_msca_cfg_update>=2 (0 = no limit)");
+static unsigned int t41_msca_fmt_refused __attribute__((section(".data")));
+module_param_named(msca_fmt_refused, t41_msca_fmt_refused, uint, 0444);
 static unsigned int t41_msca_ctl_live __attribute__((section(".data")));
 static unsigned int t41_msca_ctl_deferred __attribute__((section(".data")));
 static unsigned int t41_msca_ctl_failed __attribute__((section(".data")));
@@ -28672,6 +28687,28 @@ int frame_channel_vidioc_set_fmt(void *arg1, struct v4l2_format *arg2)
                    "frame_channel_vidioc_set_fmt", __LINE__);
         result = -EINVAL;
         goto epilogue;
+    }
+
+    {
+        uint32_t ch = *(uint32_t *)((char *)arg1 + 0x2dc);
+
+        if (t41_msca_fmt_gate(ch, t41_msca_cfg_update,
+                              format.words[TX_ISP_FRAME_FORMAT_WORD_WIDTH],
+                              format.words[TX_ISP_FRAME_FORMAT_WORD_HEIGHT],
+                              format.words[TX_ISP_FRAME_FORMAT_WORD_SCALER_ENABLE] & 0xffU,
+                              format.words[TX_ISP_FRAME_FORMAT_WORD_SCALER_WIDTH],
+                              format.words[TX_ISP_FRAME_FORMAT_WORD_SCALER_HEIGHT],
+                              t41_msca_ch1_max_w, t41_msca_ch1_max_h)) {
+            t41_msca_fmt_refused++;
+            printk(KERN_WARNING
+                   "t41: ch%u format %ux%u refused: larger than %ux%u hangs the T41 with t41_msca_cfg_update=%d (t41_msca_ch1_max_w/h)\n",
+                   ch, format.words[TX_ISP_FRAME_FORMAT_WORD_WIDTH],
+                   format.words[TX_ISP_FRAME_FORMAT_WORD_HEIGHT],
+                   t41_msca_ch1_max_w, t41_msca_ch1_max_h,
+                   t41_msca_cfg_update);
+            result = -EINVAL;
+            goto epilogue;
+        }
     }
 
     /* With graph activation deferred until reserved-memory allocation is

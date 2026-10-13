@@ -616,6 +616,25 @@ disables all five engines and waits one frame before freeing. Untested on
 the device at the time of writing. At 1280x720 the encoder also fails an order-9 DMA allocation (`avpu:
 Can't alloc DMA buffer`, ch1 RTSP 503) when ch0 started first.
 
+Update 2026-10-13 (branch `claude/t41-ch1`, host analysis only): the
+open `tisp_msca_chx_cfg_load()` path matches stock 1.2.6 in order
+(para_calc, curve_calc, shadow-RAM curve, scaling_algorithm,
+init_chx_cfg, strides 0xf0180/0xf0198 + ch * 0x100, enable OR), the ch1
+coefficient RAM write (0xf1100/0xf1104, 33 phases x 8 taps) uses the
+stock indices, and the generated ch1 curves for 2880 -> 640..1920 are
+sane (every phase sums to 2048, taps -118..1372). Stock has no size or
+ratio branch around 768/960. The ch1 frame buffers come from one rmem
+block (OpenIMP `VBMCreatePool` -> `DMA_AllocDescriptor`), not from the
+kernel heap, and no driver allocation scales with the output size, so a
+512 KiB / page-order limit is ruled out on the ISP side (the order-9
+failure above is in the encoder driver). Cause still unknown. Until it is
+found, SET_FMT refuses ch1 larger than `t41_msca_ch1_max_w` x
+`t41_msca_ch1_max_h` (768x432) with `-EINVAL` when
+`t41_msca_cfg_update >= 2` (counter `msca_fmt_refused`).
+Next device step: ch1 800x450 / 832x468 / 896x504 / 960x540 (limit set to
+0), ch1 started before and after ch0, recording `msca_latch_timeouts` and
+the "latch not seen" lines, to tell a width, ratio or size limit apart.
+
 
 ## MSCA zoom, mask and scaler level (branch `claude/t41-zoom-mask`)
 

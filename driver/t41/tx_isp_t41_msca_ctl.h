@@ -411,4 +411,27 @@ t41_msca_live_plan(int running, int cfg_update, int stop_disable,
 	return T41_MSCA_LIVE;
 }
 
+/*
+ * SET_FMT size gate for output 1 (driver/t41/README.md "Output restart
+ * hang"): with t41_msca_cfg_update >= 2 the output really latches its
+ * geometry, and ch1 960x540 / 1280x720 then hung the SoC at the first start
+ * with the input running, while <= 768x432 was stable.  Refuse such a format
+ * instead (-EINVAL) until that is solved.  max_w or max_h 0 disables the
+ * gate.  The scaler output size is checked as well when the scaler is on.
+ */
+static inline int t41_msca_fmt_gate(unsigned int ch, int cfg_update,
+				    unsigned int w, unsigned int h,
+				    int scaler_en, unsigned int sw,
+				    unsigned int sh, unsigned int max_w,
+				    unsigned int max_h)
+{
+	if (ch != 1 || cfg_update < 2 || !max_w || !max_h)
+		return 0;
+	if (w > max_w || h > max_h)
+		return -T41_MSCA_CTL_EINVAL;
+	if (scaler_en && (sw > max_w || sh > max_h))
+		return -T41_MSCA_CTL_EINVAL;
+	return 0;
+}
+
 #endif /* TX_ISP_T41_MSCA_CTL_H */
