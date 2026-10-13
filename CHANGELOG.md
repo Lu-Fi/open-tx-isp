@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-13: branch `claude/t41-tone-worker` (not merged)
+
+- **T41 per-frame tone worker never ran:** `t41_tmo_workfn` (CCM/BCSH by EV, gamma, LSC gain, ADR, LCE, YSP, CDNS, MDNS, DPC gain, TMO map) is only scheduled from the TMO statistics interrupt (ISR bit 17). On the T41 test camera that bit never fires (new counter `tmo_irq17` stays 0), so on agg-38 `t41_tmo_frames` stayed 0 after 1.5 million frames and every EV/gain-dependent block kept its init state. New module parameter `t41_tone_trigger` (default 0, writable): 1 also schedules the worker from the AE statistics interrupt (bit 4, every frame). Diagnostics: `tmo_irq17`, `tone_kicks`, `tone_gated`, `tmo_live`, `tmo_ready`.
+  Device run (T41 .32, module loaded at runtime, with `t41_msca_cfg_update=2`): with 1 the worker runs every frame without errors (`tmo/adr/lce` frames counting, `tmo_error` 0), 30 min under timps clean (45 700 worker frames, snapshots 200, no oops). Daylight ch0 numbers change clearly: Y 54 -> 85, detail (mean |dY/dx|) 0.75 -> 1.55, temporal noise 0.4 -> 1.2. Whether that matches the vendor driver is not known yet; stays off by default.
+- **T41 AWB colour temperature diagnostics:** read-only `awb_diag_mode/ct_cal/rgain/bgain/frz/change/frz_th`. On the test camera the native AWB publishes CT 5000 and the same gains (520/548) in every frame, also with a valid picture, while the illuminant detection does run (freeze threshold 0): CCM, BCSH and LSC therefore stay on the 5000 K interpolation. Cause not found yet.
+- **T41 ModuleControl:** a key that takes DEFOG (bit 11) out of bypass gets -EOPNOTSUPP (the per-frame defog algorithm is not recovered).
+
 ## 2026-10-12: aggregate agg-38 (not released)
 
 `claude/agg-38` = agg-37 (e40d7313) + `claude/awbstats` (with `claude/awbzone`), `claude/fcrop-upscale-cap`, `claude/t31-sharpness-fix`, `claude/t41-isp-handlers`, `claude/t41-reload-fix`, `claude/sensor-proc-compat`; `claude/gaps-t23-t31-drv` is recorded as merged without changes (agg-37 has the same patch, with SwitchBin already reworked: validated private copy published by pointer under the bank mutex, no copy over the live banks). Host tests (`make -C tests check`, `tests/t20_fw`) and module builds with the load check (`check_ko_symbols.sh`) for T10/T20/T21/T23/T31/T41; no soak of the aggregate yet.

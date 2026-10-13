@@ -37,10 +37,38 @@ static void t41_native_awb_emit(const struct t41_awb_register *words, unsigned i
         if (words[i].address==0x4008) WRITE_ONCE(t41_awb_last_bgain,words[i].value&0x3fff);
     }
 }
+/* Diagnostics of the published AWB result (read-only): mode (state
+ * +0xeaa2; 1..8 take CT and gains from the manual slot), the calibrated CT
+ * before a manual override (report +0x94) and the published reciprocal
+ * R/B gains (report +0x90/+0x92, Q12). */
+static unsigned int t41_awb_diag_mode __attribute__((section(".data")));
+static unsigned int t41_awb_diag_ct_cal __attribute__((section(".data")));
+static unsigned int t41_awb_diag_rgain __attribute__((section(".data")));
+static unsigned int t41_awb_diag_bgain __attribute__((section(".data")));
+module_param_named(awb_diag_mode, t41_awb_diag_mode, uint, 0444);
+module_param_named(awb_diag_ct_cal, t41_awb_diag_ct_cal, uint, 0444);
+module_param_named(awb_diag_rgain, t41_awb_diag_rgain, uint, 0444);
+module_param_named(awb_diag_bgain, t41_awb_diag_bgain, uint, 0444);
+/* t41_awb_long() skips the illuminant detection while state +0xc5f8 == 1,
+ * +0xc600 == 1 and the statistics change is below params +0xcdc. */
+static unsigned int t41_awb_diag_frz __attribute__((section(".data")));
+static unsigned int t41_awb_diag_change __attribute__((section(".data")));
+static unsigned int t41_awb_diag_frz_th __attribute__((section(".data")));
+module_param_named(awb_diag_frz, t41_awb_diag_frz, uint, 0444);
+module_param_named(awb_diag_change, t41_awb_diag_change, uint, 0444);
+module_param_named(awb_diag_frz_th, t41_awb_diag_frz_th, uint, 0444);
 static void t41_native_awb_save(struct t41_awb_runtime *s)
 {
     memcpy(&s->saved,&s->candidate,sizeof(s->saved));
     WRITE_ONCE(t41_ccm_ct,t41_tmo_le32(s->saved.p+0x28));
+    t41_awb_diag_mode=s->saved.s[0xeaa2];
+    t41_awb_diag_ct_cal=t41_tmo_le16(s->saved.report+0x94);
+    t41_awb_diag_rgain=t41_tmo_le16(s->saved.report+0x90);
+    t41_awb_diag_bgain=t41_tmo_le16(s->saved.report+0x92);
+    t41_awb_diag_frz=(t41_tmo_le16(s->saved.s+0xc5f8)<<8)|s->saved.s[0xc600];
+    t41_awb_diag_change=(t41_awb_absdiff(t41_tmo_le16(s->saved.s+0xeab4),t41_tmo_le16(s->saved.s+0xeaac))+
+        t41_awb_absdiff(t41_tmo_le16(s->saved.s+0xeab6),t41_tmo_le16(s->saved.s+0xeaae)))&0xffff;
+    t41_awb_diag_frz_th=t41_tmo_le16(s->saved.p+0xcdc);
 }
 static void t41_native_awb_stop(void)
 {
