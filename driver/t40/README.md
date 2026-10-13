@@ -367,7 +367,23 @@ Block bisect (each run one boot, metrics only, media discarded):
   YSP register writes while top40 bit 17 still gates the block (no kmsg
   at all in r22a/r24a, which fits a hang, not an oops).  Check the vendor
   order top40 -> ysp regs before enabling again.
-Next: p6 rmmod bisect, second-start test (timps stop/restart), YSP order.
+- Second-start test (t40prod/p7-restart.sh, OpenIMP timpsd, keepalive=1):
+  timps stop/start cycles die at a random cycle (c1: 3rd, c2: 5th, c3:
+  2nd); the panic notifier (7c9f03a2) never fired, the watchdog reset the
+  camera -> a hang, not an oops.  The flight recorder (fd83f4b7, 32 marks
+  in the rmem tail, t40prod/panicdump.sh) shows for c3: stop of ch0/ch1
+  completed (streamoff steps, release, tx-isp ioctls), the new start ran
+  up to the ch1 stream-on, and the last mark is `isp_irq_handle irq=39`
+  (ISP core IRQ) with nothing after it - the handler hangs on a register
+  access right after the restart.  f337ddda marks every
+  system_reg_read/write (offset) and the ISR entries to name the register.
+- Panic/hang forensics on the Eufy: `panic_dump_phys=0xe9f0000` (module
+  param, rmem tail): on panic the printk ring is copied there, every
+  marked step writes into a ring at +0x100; after the reboot
+  `t40prod/panicdump.sh out.txt` (mmap /dev/mem via t40prod/memdump) prints
+  both.  `echo dumplog > /proc/tx_isp_t40_recovered` tests the copy.
+Next: name the hanging register (c4), then fix the restart path; p6 rmmod
+bisect; YSP order.
 
 ### Daylight plan (image quality)
 1. Extract the sc830ai tuning from `/etc/sensor/sc830ai-t40.bin` (vendor IQ
