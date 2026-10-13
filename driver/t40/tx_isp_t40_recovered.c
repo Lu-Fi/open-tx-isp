@@ -14,6 +14,8 @@
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
 #include <linux/module.h>
+#include <linux/notifier.h>
+#include <asm/addrspace.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -9560,6 +9562,94 @@ module_param_named(t40_nv12_height_align, regtrace_t40_nv12_height_align, uint, 
 module_param_named(t40_msca_work_handshake, regtrace_t40_msca_work_handshake, uint, 0644);
 module_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
 module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
+
+/*
+ * Panic log dump: the Eufy has no serial console and no netconsole, and a
+ * panic reboots it (panic=2) with the 16 KB printk ring lost.  On panic,
+ * copy the printk ring into the tail of the ISP rmem (rmem=170M@0x4000000
+ * -> default 0xe9f0000, last 64 KB), which U-Boot and the kernel never
+ * clear; after the reboot read it back with dd from /dev/mem
+ * (t40prod/panicdump.sh).  log_buf/log_buf_len are not exported, so the
+ * System.map addresses of the Eufy 4.4.94 kernel are module params.
+ */
+static int regtrace_is_kernel_ptr(const void *ptr);
+static bool regtrace_panic_dump_enable = true;
+static uint regtrace_panic_dump_phys = 0xe9f0000U;
+static uint regtrace_panic_dump_logbuf_ptr = 0x8044229cU;   /* &log_buf */
+static uint regtrace_panic_dump_logbuf_len = 0x80442298U;   /* &log_buf_len */
+static int regtrace_panic_dump_registered;
+module_param_named(panic_dump_enable, regtrace_panic_dump_enable, bool, 0644);
+module_param_named(panic_dump_phys, regtrace_panic_dump_phys, uint, 0644);
+module_param_named(panic_dump_logbuf_ptr, regtrace_panic_dump_logbuf_ptr, uint, 0644);
+module_param_named(panic_dump_logbuf_len, regtrace_panic_dump_logbuf_len, uint, 0644);
+
+struct regtrace_panic_dump_hdr {
+    char magic[8];          /* "T40PANIC" */
+    uint32_t seq;
+    uint32_t jiffies_lo;
+    uint32_t len;
+    uint32_t reserved;
+};
+
+static void regtrace_panic_dump_now(const char *reason)
+{
+    struct regtrace_panic_dump_hdr *hdr;
+    char *dst;
+    char *src;
+    uint32_t len;
+    static uint32_t seq;
+
+    if (!regtrace_panic_dump_phys ||
+        !regtrace_is_kernel_ptr((void *)(uintptr_t)regtrace_panic_dump_logbuf_ptr) ||
+        !regtrace_is_kernel_ptr((void *)(uintptr_t)regtrace_panic_dump_logbuf_len))
+        return;
+    src = *(char **)(uintptr_t)regtrace_panic_dump_logbuf_ptr;
+    len = *(uint32_t *)(uintptr_t)regtrace_panic_dump_logbuf_len;
+    if (!regtrace_is_kernel_ptr(src) || !len)
+        return;
+    if (len > 0x10000U - sizeof(*hdr))
+        len = 0x10000U - sizeof(*hdr);
+    dst = (char *)KSEG1ADDR(regtrace_panic_dump_phys);
+    hdr = (struct regtrace_panic_dump_hdr *)dst;
+    memcpy(hdr->magic, "T40PANIC", 8);
+    hdr->seq = ++seq;
+    hdr->jiffies_lo = (uint32_t)jiffies;
+    hdr->len = len;
+    hdr->reserved = 0;
+    memcpy(dst + sizeof(*hdr), src, len);
+    wmb();
+    printk(KERN_INFO "tx_isp_t40_recovered: printk ring (%u bytes) copied to 0x%x (%s)\n",
+           len, regtrace_panic_dump_phys, reason);
+}
+
+static int regtrace_panic_notify(struct notifier_block *nb, unsigned long event, void *ptr)
+{
+    regtrace_panic_dump_now("panic");
+    return NOTIFY_OK;
+}
+
+static struct notifier_block regtrace_panic_nb = {
+    .notifier_call = regtrace_panic_notify,
+    .priority = INT_MAX,
+};
+
+static void regtrace_panic_dump_register(void)
+{
+    if (!regtrace_panic_dump_enable || regtrace_panic_dump_registered)
+        return;
+    atomic_notifier_chain_register(&panic_notifier_list, &regtrace_panic_nb);
+    regtrace_panic_dump_registered = 1;
+    printk(KERN_INFO "tx_isp_t40_recovered: panic log dump armed -> phys 0x%x\n",
+           regtrace_panic_dump_phys);
+}
+
+static void regtrace_panic_dump_unregister(void)
+{
+    if (!regtrace_panic_dump_registered)
+        return;
+    atomic_notifier_chain_unregister(&panic_notifier_list, &regtrace_panic_nb);
+    regtrace_panic_dump_registered = 0;
+}
 module_param_named(t40_stock_host_init_mask, regtrace_t40_stock_host_init_mask, uint, 0644);
 module_param_named(oem_event_pre_csi_stream, regtrace_oem_event_pre_csi_stream, bool, 0644);
 module_param_named(oem_event_pre_csi_stage_limit, regtrace_oem_event_pre_csi_stage_limit, uint, 0644);
@@ -28430,6 +28520,10 @@ static ssize_t regtrace_debug_proc_write(struct file *file,
     if (copy_from_user(buf, ubuf, count))
         return -EFAULT;
     buf[count] = 0;
+    if (!strncmp(buf, "dumplog", 7)) {
+        regtrace_panic_dump_now("proc");
+        return count;
+    }
     if (sscanf(buf, "exit %d", &upto) != 1)
         return -EINVAL;
     regtrace_core_exit_steps(upto, 1);
@@ -197145,6 +197239,8 @@ int32_t tx_isp_t40_core_init(void)
         int ret = regtrace_register_real_platforms();
         int bootstrap_ret = regtrace_register_bootstrap_devices();
 
+        regtrace_panic_dump_register();
+
         if (!ret) {
             int v4l2_ret = tx_isp_t40_v4l2_init(
                 &tx_isp_platform_device.dev);
@@ -197264,7 +197360,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
         }
         printk(KERN_INFO "tx_isp_t40_recovered: exit step %d begin\n", step);
         switch (step) {
-        case 1: tx_isp_t40_v4l2_exit(); break;
+        case 1: regtrace_panic_dump_unregister(); tx_isp_t40_v4l2_exit(); break;
         case 2:
             cancel_work_sync(&regtrace_irq_frame_done_work[0].work);
             cancel_work_sync(&regtrace_irq_frame_done_work[1].work);
