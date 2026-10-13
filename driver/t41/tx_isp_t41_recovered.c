@@ -150768,6 +150768,32 @@ int32_t tisp_csc_yuv_dmo(void)
     return 0;
 }
 
+
+/*
+ * Stock tisp_csccr_default_mode(), _range_stretch_mode() and
+ * _range_compress_mode() end with a tail call system_reg_write(0xf0010, 1):
+ * the CSC words 0xf08e0..0xf08ec are MSCA staged registers and only take
+ * effect after that update request.  The lifted bodies lost the tail call,
+ * so the CSC stayed at its reset value (0xf08ec = 0, block off) on every
+ * boot.  The request also latches every other staged MSCA word, so it is
+ * only issued where this driver latches MSCA geometry anyway
+ * (t41_msca_cfg_update >= 2); with the flashed default 0 the words stay
+ * staged and the next latch (output start) applies them.
+ */
+static unsigned int t41_csc_latches __attribute__((section(".data")));
+static unsigned int t41_csc_latch_skipped __attribute__((section(".data")));
+module_param_named(csc_latches, t41_csc_latches, uint, 0444);
+module_param_named(csc_latch_skipped, t41_csc_latch_skipped, uint, 0444);
+
+static void t41_csccr_request_update(void)
+{
+    if (t41_msca_cfg_update >= 2) {
+        system_reg_write(0x0f0010U, 1);
+        t41_csc_latches++;
+    } else {
+        t41_csc_latch_skipped++;
+    }
+}
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000067214 origin=fragment_seed original=tisp_csccr_default_mode */
 int32_t tisp_csccr_default_mode(void)
 {
@@ -150819,6 +150845,8 @@ int32_t tisp_csccr_default_mode(void)
     /* unmatched fragment 10 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 67284:	27bd0020 	addiu	sp,sp,32 */
 
+    /* stock tail call: system_reg_write(0xf0010, 1) */
+    t41_csccr_request_update();
     return 0;
 }
 
@@ -150873,6 +150901,8 @@ int32_t tisp_csccr_range_stretch_mode(void)
     /* unmatched fragment 10 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 672f8:	27bd0020 	addiu	sp,sp,32 */
 
+    /* stock tail call: system_reg_write(0xf0010, 1) */
+    t41_csccr_request_update();
     return 0;
 }
 
@@ -150927,6 +150957,8 @@ int32_t tisp_csccr_range_compress_mode(void)
     /* unmatched fragment 10 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 67370:	27bd0020 	addiu	sp,sp,32 */
 
+    /* stock tail call: system_reg_write(0xf0010, 1) */
+    t41_csccr_request_update();
     return 0;
 }
 

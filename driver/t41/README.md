@@ -813,6 +813,17 @@ step and do not continue with larger sizes.
   bank, so the map is never built. Not changed: releasing the bypass before
   a map exists shows the calibration curve unvalidated; needs a device A/B
   first. SetTmoCurve has no visible effect until then.
+- **No MSCA word latches with the default `t41_msca_cfg_update=0` (2026-10-13,
+  read-only register dump on T41 .32, agg-38).** The active values are the
+  reset defaults: global input 0xf0084 = 1920x1080 (the ISP input is
+  2880x1620), ch0 0xf0100 = 1920x1080, ch1 0xf0200 = 1280x720, both ratios
+  1:1 (0xf0728/0xf072c = 0x4000), CSC off (0xf08ec = 0), while the
+  streamer runs ch1 at 640x360 (stride 0xf0280 = 640). So ch1 writes
+  1280x720 lines into 640x360 buffers, which explains the band in buffers
+  idx >= 1 and colours/brightness that do not follow ch0. The CSC words
+  never latched for a second reason, fixed on `claude/t41-ch1` (CHANGELOG).
+  Making the substream correct needs latching (`t41_msca_cfg_update=2`),
+  which is blocked by the ch1 >= 960x540 hang below.
 - **ch1 >= 960x540 started mid-stream can hang the SoC** with
   `t41_msca_cfg_update=2` (no oops, watchdog reset), also on a fresh boot
   without any earlier reload (960x540: one run 21/21 cycles, one hung in
