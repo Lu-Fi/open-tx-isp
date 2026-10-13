@@ -410,27 +410,72 @@ Block bisect (each run one boot, metrics only, media discarded):
 Next: p6 per-device rmmod bisect (after power cycle); YSP order; sc830ai
 tuning (daylight).
 
+### Status 2026-10-13 04:15 (consolidated, end of the night shift)
+
+Working on the Eufy T40XP (open driver `claude/t40-sc830ai` @ 62a1e4ea+,
+module built against the Eufy 4.4.94 tree, `tests/check_ko_symbols.sh` OK):
+
+    insmod tx-isp-t40.ko isp_clk=300000000 t40_quality_profile=0 \
+        t40_generic_profile=1 sensor_full_width_override=3840 \
+        sensor_full_height_override=2160 skip_tisp_deinit=1
+    insmod sensor_sc830ai_t40.ko
+    # streamer: OpenIMP libimp (lib2/libimp.so) + OpenIMP-flavour timpsd
+    # (USE_OPENIMP=1); the Ingenic vendor libimp cannot sit on this driver.
+
+- 4K and scaled 1080p/720p/360p frames, 20 fps, both frame channels (timps
+  video0 1920x1080 + video1 640x360).
+- timps 30 min soak clean (t9b), 15/15 stop/start cycles + 3/3 framesource
+  idle off/on cycles clean (c10) after 1284cb0e.
+- Forensics: panic log copy and flight recorder in the rmem tail
+  (`panic_dump_phys=0xe9f0000`), reader `t40prod/panicdump.sh`.
+
+Open:
+1. rmmod: the core remove (exit step 10 = `tx_isp_core_remove`, run first
+   because the child devices unregister in reverse order: core, fs, vin,
+   vic, csi) hangs the camera; after p6 x2 the Eufy did not come back by
+   watchdog (power cycle needed).  Core remove = isp_core_tuning_deinit,
+   ispcore_slake_module (ISP clock/power teardown, only when core state
+   >= 2), tx_isp_subdev_deinit (free_irq, iounmap, release mem),
+   tisp_deinit (skipped).  Host-side prepared, untested: a per-device
+   bisect (steps 10-14, recorder marks 0x80/0x81/0x91-0x97) and
+   `t40_rmmod_skip_slake=1` (default on) that skips the slake in the core
+   remove, since the slake tears down clocks the still-registered VIC/CSI
+   removes touch afterwards.  Until tested: do not rmmod on the Eufy,
+   reboot instead.  Also open: `gpio request fail 91` on a sensor
+   restart (reset GPIO not freed on close, harmless).
+2. YSP at 4K (panic in r22a/r24a): the vendor `tisp_main_init` runs every
+   block init (ae, awb, blc, gib, lsc, dpc, adr, dmsc, gamma, defog, lce,
+   mdns, af, ydns, cdns, sdns, ysp, bcsh, ccm, clm, hldc, gsm, tstp) and
+   then writes the top register, all before `tiziano_enable`.  Our block
+   init needs the tuning blob (`tparamsN`); without a bin file
+   (`/usr/share/sensor/gc4653-t40.bin` missing on the Eufy, load ret=-2)
+   it is skipped at tisp_main_init and re-run from the frame-done work,
+   i.e. while the ISP is already processing 4K frames - the likely YSP
+   crash.  Night-safe experiment: `t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin`
+   (the vendor IQ bin is on the camera) so the blob exists and the block
+   init runs pre-stream; then `enable_ysp=1` at 720p first, then 4K.
+3. Daylight (image quality, needs a bright scene, metrics only, collage
+   per the pictures rule): with the sc830ai bin loaded compare BLC/LSC/
+   CCM/gamma against the vendor stream (A/B method, same scene); find the
+   profile >= 1 black (top40 bit 2 and the GC4653 literal tables); ircut
+   on, AWB/CCM check; 50 Hz antiflicker is a no-op on T40 for now.
+4. sc3338 (CSI1) counter-check oops - low priority.
+
 ### Daylight plan (image quality)
-1. Extract the sc830ai tuning from `/etc/sensor/sc830ai-t40.bin` (vendor IQ
-   bin, same layout the vendor module parses) and feed BLC/LSC/CCM/gamma
-   from it instead of the GC4653 literals; compare against the vendor
-   stream with the A/B method (same scene, metrics only).
+1. Load the sc830ai tuning (`t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin`)
+   and compare BLC/LSC/CCM/gamma against the vendor stream with the A/B
+   method (same scene, metrics only).
 2. Find the profile >= 1 black (top40 bit 2 and the GC4653 literal tables).
-3. Daylight colour check: ircut on, AWB/CCM, then YSP at 4K.
+3. Daylight colour check: ircut on, AWB/CCM, then YSP (720p, then 4K).
 
 ### Next steps (host side first)
 
-1. Implement VIC frame mode for the normal path: allocate the raw ring
-   (vendor: four buffers), program VIC 0x300..0x350 and the 0x3a4..0x3e4
-   group from the vendor values, feed the core's frame-mode input (regs
-   0x1a8/0x1ac/0x1b0 already exist in `regtrace_t40_vic_start_mipi`), and
-   wire `ispvic_frame_channel_qbuf` (vendor export used by the core) to
-   the ring.  Reference: vendor `vic_core_s_stream`, `tx_isp_vic_start`,
-   `ispvic_frame_channel_qbuf`, `vic_mdma_enable`.
-2. Explain the direct-feed zeros with the same register group (0x3e0/0x3e4
-   = 0x204, 0x3b0 bit pattern) before trusting the VIC MDMA path.
-3. Then one boot: normal path 4K + 720p, register diff again, frame dump,
-   rmmod with `skip_tisp_deinit=1`.
+1. Morning, after the power cycle: p6 per-device rmmod bisect with
+   `t40_rmmod_skip_slake=1` first, then =0 to confirm the slake.
+2. YSP order experiment (item 2 above), then the daylight plan.
+3. Open image: `t40prod/build-img-open2.sh` already builds timps with
+   USE_OPENIMP=1 (BR2_PACKAGE_OPENIMP=y via BR2_PACKAGE_THINGINO_ISP_OPEN);
+   nothing to change there.
 
 ### Previous test plan (superseded)
 

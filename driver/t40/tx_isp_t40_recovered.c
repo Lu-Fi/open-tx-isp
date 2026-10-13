@@ -9570,6 +9570,11 @@ module_param_named(t40_nv12_height_align, regtrace_t40_nv12_height_align, uint, 
 module_param_named(t40_msca_work_handshake, regtrace_t40_msca_work_handshake, uint, 0644);
 module_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
 module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
+/* rmmod: the core remove runs ispcore_slake_module (clock/power teardown) before
+ * the VIC/CSI/fs removes; the Eufy hangs in that step (p6 x1/x2) and once did
+ * not even come back by watchdog.  Default off (skip) until bisected. */
+static bool regtrace_t40_rmmod_skip_slake = true;
+module_param_named(t40_rmmod_skip_slake, regtrace_t40_rmmod_skip_slake, bool, 0644);
 
 /*
  * Panic log dump: the Eufy has no serial console and no netconsole, and a
@@ -197833,9 +197838,13 @@ int tx_isp_core_remove(struct platform_device *pdev)
     }
 
     tmp = *(uint32_t *)((char *)s0 + 0x128);
-    if ((int32_t)tmp >= 2) {
+    if ((int32_t)tmp >= 2 && !regtrace_t40_rmmod_skip_slake) {
+        regtrace_fr_mark(0x96, tmp);
         ispcore_slake_module((void *)s0);
+    } else if ((int32_t)tmp >= 2) {
+        printk(KERN_INFO "tx_isp_t40_recovered: core remove: slake skipped (t40_rmmod_skip_slake) state=%u\n", tmp);
     }
+    regtrace_fr_mark(0x97, 0);
 
     s2 = v0;
     private_kfree(NULL);
