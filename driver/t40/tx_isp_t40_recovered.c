@@ -1427,6 +1427,7 @@ static int regtrace_parent_driver_registered;
 static int regtrace_parent_device_registered;
 static int regtrace_child_driver_registered[5];
 static int regtrace_child_device_registered[5];
+static int regtrace_fr_mark(uint32_t id, uint32_t aux);
 static struct platform_device tx_isp_platform_device = {
     .name = "tx-isp",
     .id = 0,
