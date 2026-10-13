@@ -25035,49 +25035,60 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
             tisp_channel_sec_start(tisp_id);
         }
 
+        regtrace_fr_mark(0x40, channel);
         subret = regtrace_core_channel_stream(channel, 1);
         if (subret < 0 && !ret)
             ret = subret;
 
         if (!regtrace_enable_core_irq_after_video) {
+            regtrace_fr_mark(0x41, channel);
             subret = regtrace_core_irq_stream(channel, 1);
             if (subret < 0 && !ret)
                 ret = subret;
         }
 
         if (!regtrace_enable_tisp_stream_regs_after_video) {
+            regtrace_fr_mark(0x42, channel);
             subret = regtrace_tisp_stream_regs(1, channel);
             if (subret < 0 && !ret)
                 ret = subret;
         }
 
+        regtrace_fr_mark(0x43, channel);
         subret = regtrace_core_first_frame_regs(1);
         if (subret < 0 && !ret)
             ret = subret;
 
+        regtrace_fr_mark(0x44, channel);
         subret = regtrace_framechan_call_csi_stream(channel, 1);
         if (subret < 0 && !ret)
             ret = subret;
 
+        regtrace_fr_mark(0x45, channel);
         subret = regtrace_framechan_call_vic_stream(channel, 1);
         if (subret < 0 && !ret)
             ret = subret;
 
+        regtrace_fr_mark(0x46, channel);
         subret = regtrace_vic_frame_mdma_stream(channel, 1);
         if (subret < 0 && !ret)
             ret = subret;
+        regtrace_fr_mark(0x47, channel);
         subret = regtrace_t40_vic_frame_output_enable(channel, 1);
         if (subret < 0 && !ret)
             ret = subret;
+        regtrace_fr_mark(0x48, channel);
         regtrace_t40_msca_vendor_fixups_apply(channel);
 
         if (regtrace_enable_t40_msca_cfg_after_video) {
+            regtrace_fr_mark(0x49, channel);
             subret = regtrace_t40_msca_cfg_program(channel, "after-video");
             if (subret < 0 && !ret)
                 ret = subret;
         }
 
         if (regtrace_enable_core_irq_after_video) {
+            regtrace_fr_mark(0x41, channel);
             subret = regtrace_core_irq_stream(channel, 1);
             if (subret < 0 && !ret)
                 ret = subret;
@@ -25088,6 +25099,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
                 "after-video-before-tisp-stream", false);
             if (subret < 0 && !ret)
                 ret = subret;
+            regtrace_fr_mark(0x42, channel);
             subret = regtrace_tisp_stream_regs(1, channel);
             if (subret < 0 && !ret)
                 ret = subret;
@@ -25097,6 +25109,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
                 ret = subret;
         }
 
+        regtrace_fr_mark(0x4a, channel);
         subret = regtrace_tisp_top_regs_final_reapply(channel,
             "final-streamon");
         if (subret < 0 && !ret)
@@ -25110,6 +25123,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
         }
 
         /* vendor fixups again after the final top-register reapply */
+        regtrace_fr_mark(0x48, channel);
         regtrace_t40_msca_vendor_fixups_apply(channel);
         if (regtrace_t40_msca_work_handshake && channel == 0) {
             regtrace_core_write(0x16008, 0);
@@ -25162,6 +25176,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
         regtrace_core_event_stream_last_ret[channel] = ret;
     }
 
+    regtrace_fr_mark(0x4f, (uint32_t)(enable ? 1 : 0) | ((uint32_t)channel << 8));
     printk(KERN_INFO "tx_isp_t40_recovered: core-event %s ch=%d tisp_index=%d tisp_id=%u pad=%p data=%p ret=%ld\n",
            enable ? "streamon" : "streamoff", channel, tisp_index, tisp_id,
            pad_arg, channel_data, ret);
@@ -30470,6 +30485,7 @@ ispvic_frame_channel_clearbuf0xc4:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001068 origin=fragment_seed original=ispvic_frame_channel_s_stream */
 int64_t ispvic_frame_channel_s_stream(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x50, a2);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -32711,6 +32727,7 @@ void *tx_vic_disable_irq(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000002cb0 origin=fragment_seed original=vic_core_s_stream */
 int64_t vic_core_s_stream(uintptr_t a0, uintptr_t a1)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x51, (uint32_t)a1);
     uintptr_t vic_dev;
     uint32_t enable;
     uint32_t idx;
@@ -186413,6 +186430,7 @@ isp_fw_process0x44:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000076170 origin=fragment_seed original=ispcore_frame_channel_streamoff */
 int64_t ispcore_frame_channel_streamoff(uintptr_t a0)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x52, 0);
     uint32_t *local_10 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -192620,6 +192638,7 @@ int32_t tx_isp_disable_irq_1(void *arg1, void *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000079c9c origin=fragment_seed original=ispcore_video_s_stream */
 int64_t ispcore_video_s_stream(uintptr_t a0, uintptr_t a1)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x53, (uint32_t)a1);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
