@@ -8950,6 +8950,12 @@ static uint32_t regtrace_ccm_ev_now;
 static bool regtrace_enable_mdns = true;
 /* userspace 3A: gain EV (log2(total_gain) in 16.16) drives DNS strength */
 static uint regtrace_dns_gain_ev;
+/* 16.16 log2 offset added to the gain EV that picks the MDNS/YDNS/SDNS table position: shifts the denoise strength up for a noisier sensor than the GC4653 the literal tables were tuned for (runtime-tunable) */
+static uint regtrace_dns_ev_boost;
+/* top40 bypass bits forced set after the tuning-bin gates are applied (bit 17 = YSP stays off while it is unsafe; bit 14/18 = YDNS/SDNS); 0 = follow the bin */
+static uint regtrace_t40_force_bypass;
+/* top40 bits forced ACTIVE (bypass cleared) after the bin gates: bit 14 = YDNS, bit 18 = SDNS, bit 9 = CCM, bit 10 = gamma; applied before t40_force_bypass */
+static uint regtrace_t40_force_active;
 /* Invalid sentinels force the first completed frame, and the first frame after
  * every bank refresh, to replace block-init's bootstrap EV with live gain. */
 static uint32_t regtrace_dns_ev_applied = 0xffffffffU;
@@ -9317,6 +9323,9 @@ module_param_named(ccm_ev, regtrace_ccm_ev, uint, 0644);
 module_param_named(ccm_ev_now, regtrace_ccm_ev_now, uint, 0444);
 module_param_named(enable_mdns, regtrace_enable_mdns, bool, 0644);
 module_param_named(dns_gain_ev, regtrace_dns_gain_ev, uint, 0644);
+module_param_named(t40_dns_ev_boost, regtrace_dns_ev_boost, uint, 0644);
+module_param_named(t40_force_bypass, regtrace_t40_force_bypass, uint, 0644);
+module_param_named(t40_force_active, regtrace_t40_force_active, uint, 0644);
 module_param_named(dns_ev_applied, regtrace_dns_ev_applied, uint, 0444);
 module_param_named(ysp_gain_ev, regtrace_ysp_gain_ev, uint, 0644);
 module_param_named(ysp_ev_applied, regtrace_ysp_ev_applied, uint, 0444);
@@ -11633,6 +11642,33 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
         regtrace_t40_quality_top40_final &= ~BIT(13);
     else
         regtrace_t40_quality_top40_final |= BIT(13);
+
+    if (regtrace_t40_force_active) {
+        regtrace_t40_quality_top40_final &= ~regtrace_t40_force_active;
+        if (regtrace_t40_force_active & BIT(10))
+            regtrace_enable_soft_gamma = true;
+        if (regtrace_t40_force_active & BIT(9))
+            regtrace_enable_ccm = true;
+        if (regtrace_t40_force_active & BIT(14))
+            regtrace_enable_ydns = true;
+        if (regtrace_t40_force_active & BIT(18))
+            regtrace_enable_sdns = true;
+    }
+    if (regtrace_t40_force_bypass) {
+        regtrace_t40_quality_top40_final |= regtrace_t40_force_bypass;
+        if (regtrace_t40_force_bypass & BIT(10))
+            regtrace_enable_soft_gamma = false;
+        if (regtrace_t40_force_bypass & BIT(9))
+            regtrace_enable_ccm = false;
+        if (regtrace_t40_force_bypass & BIT(14))
+            regtrace_enable_ydns = false;
+        if (regtrace_t40_force_bypass & BIT(17))
+            regtrace_enable_ysp = false;
+        if (regtrace_t40_force_bypass & BIT(18))
+            regtrace_enable_sdns = false;
+        if (regtrace_t40_force_bypass & BIT(13))
+            regtrace_enable_dmsc_lit = false;
+    }
 
     printk(KERN_INFO
            "tx_isp_t40_recovered: tuning gates flags=0x%08x BLC=%s LSC=%s GIB=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
@@ -48585,24 +48621,25 @@ static void regtrace_irq_frame_done_workfn(struct work_struct *work)
         /* userspace 3A: retune DNS and independently retune YSP sharpening. */
         if (regtrace_enable_ydns || regtrace_enable_ysp || regtrace_enable_mdns ||
             regtrace_enable_sdns) {
+            uint32_t dns_ev = regtrace_dns_gain_ev + regtrace_dns_ev_boost;
             uint32_t ysp_ev = regtrace_ysp_gain_ev ?
                               regtrace_ysp_gain_ev : regtrace_dns_gain_ev;
 
-            if (regtrace_dns_gain_ev !=
+            if (dns_ev !=
                 READ_ONCE(regtrace_dns_ev_applied)) {
                 WRITE_ONCE(regtrace_dns_ev_applied,
-                           regtrace_dns_gain_ev);
+                           dns_ev);
                 if (regtrace_enable_ydns)
                     (void)tisp_ydns_par_refresh(
-                        0, regtrace_dns_gain_ev, 256);
+                        0, dns_ev, 256);
                 if (regtrace_enable_mdns && main_mdns &&
                     !regtrace_mdns_dbg_init_ret)
                     (void)tisp_mdns_par_refresh_lit(
-                        0, regtrace_dns_gain_ev, 256);
+                        0, dns_ev, 256);
                 if (regtrace_enable_sdns && main_sdns &&
                     !regtrace_sdns_dbg_init_ret)
                     (void)tisp_sdns_par_refresh_lit(
-                        0, regtrace_dns_gain_ev, 256);
+                        0, dns_ev, 256);
             }
             if (regtrace_enable_ysp &&
                 ysp_ev != READ_ONCE(regtrace_ysp_ev_applied)) {

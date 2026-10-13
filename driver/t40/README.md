@@ -461,6 +461,56 @@ Open:
    on, AWB/CCM check; 50 Hz antiflicker is a no-op on T40 for now.
 4. sc3338 (CSI1) counter-check oops - low priority.
 
+### 2026-10-13 image quality on the Eufy (noise, bitrate, tuning bin)
+
+Metrics only (1080p JPEG snapshots of timps, static scene, 5 frames, no
+pictures kept; temporal std = median per-pixel std over frames, Y 0..255):
+
+| variant (all `t40_quality_profile=0` unless noted)            | temporal std Y | stream (CBR 3000, max_qp 51) |
+|-----------------------------------------------------------------|---------------:|------------------------------|
+| generic profile, no bin (previous recommendation)               | 30-32          | 10-12 Mbit/s at max_qp 45 (28 Mbit/s while AE dark) |
+| generic profile + `t40_dns_ev_boost` 0.13 .. 8 (x65536)        | 30-32 (no change) | -                          |
+| sc830ai bin, MDNS/YDNS/SDNS only (generic off)                  | 39, chroma 0   | 3.5                          |
+| bin + generic profile (boot with bin1/bin2)                     | 92 % white or bimodal, AE stuck at max gain 22-25 | - |
+| bin + `t40_quality_profile=1 t40_force_bypass=0x20000`          | 36 (picture ok, stable) | 3.0               |
+| same + `t40_force_active=0x44000` (YDNS+SDNS forced on)         | 36-38, boost 0.5..1 worse | 2.9             |
+| generic + `t40_quality_top40_override=0x7ffba8ff` (CCM/gamma/YDNS/SDNS HW on, no bin) | black (Y 0.6) | -   |
+| generic + top40 override `0x7ffbaeff` (YDNS/SDNS on, no bin)     | black (Y 0.6) | -                            |
+
+Findings:
+- Bitrate: timps asked for CBR 3000 but the encoder sat at QP 45 (the
+  `video0.max_qp = 45` default; slice QP read from the stream) and still
+  produced 10-28 Mbit/s because the picture is noise dominated.  With
+  `video0.max_qp = 51` the same stream holds 2.8-3.5 Mbit/s.  OpenIMP CBR
+  itself is fine (devtest 4K at 2000 kbps: 2.15 Mbit/s).  The noise is the root
+  cause; max_qp 51 is the config fix.
+- The generic profile leaves the top40 bypass bits of CCM (9), gamma (10),
+  YDNS (14) and SDNS (18) set (`0x7fffeeff`): those blocks are initialised
+  but bypassed in hardware.  Clearing the bits without tuning data gives a
+  black image, because the block parameter tables are empty without a bin.
+  Only MDNS (bit 8) is active in the generic profile, which is why
+  `dns_gain_ev` changes show no effect.
+- The sc830ai bin loads (`ret=0`, 204800 bytes).  Its gates mark YDNS (14),
+  SDNS (18) and GIB (5) as bypass (check whether the flags are read from the
+  right offset), and with profile 0 + generic the BLC/LSC/GIB tables read from
+  the bin give a mostly white picture (92 % of pixels >= 254, AE walking down
+  one index per ~13 s from gain index 25).  That points to the bin AE/BLC
+  sections being read with the wrong layout; unresolved.
+- Forcing YDNS/SDNS on with the bin parameters did not reduce the temporal
+  noise (36 vs 36).  The remaining noise is therefore probably upstream of
+  the Y denoisers (raw level; compare a GetRaw dump: devtest mask 2000
+  with `T40D_RAW_DIR`).
+- New opt-in module parameters (all default 0, no behaviour change):
+  `t40_dns_ev_boost` (16.16 log2 offset on the DNS gain EV, runtime),
+  `t40_force_bypass` / `t40_force_active` (top40 bits forced after the bin
+  gates; bit 17 keeps YSP off while the bin gates would enable it).
+- Best stable set with a bin (boot 7, 5+ min, picture ok, no oops):
+  `isp_clk=300000000 t40_quality_profile=1 t40_force_bypass=0x20000
+  sensor_full_width_override=3840 sensor_full_height_override=2160
+  skip_tisp_deinit=1 t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin`.
+  Do not use `enable_ysp` or the WDR/ADR-linear/defog/DPC paths on a boot
+  without a valid bin (NULL comb buffers).
+
 ### Daylight plan (image quality)
 1. Load the sc830ai tuning (`t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin`)
    and compare BLC/LSC/CCM/gamma against the vendor stream with the A/B
