@@ -322,6 +322,10 @@ static void test_fmt_gate(void)
 	assert(t41_msca_fmt_gate(2, 2, 1280, 720, 1, 1280, 720, 768, 432) == 0);
 	assert(t41_msca_fmt_gate(1, 2, 1280, 720, 1, 1280, 720, 0, 432) == 0);
 	assert(t41_msca_fmt_gate(1, 3, 960, 540, 0, 0, 0, 768, 432) == E);
+	/* driver default 1280x720 */
+	assert(t41_msca_fmt_gate(1, 2, 1280, 720, 1, 1280, 720, 1280, 720) == 0);
+	assert(t41_msca_fmt_gate(1, 2, 960, 540, 1, 960, 540, 1280, 720) == 0);
+	assert(t41_msca_fmt_gate(1, 2, 1440, 810, 1, 1440, 810, 1280, 720) == E);
 }
 
 int main(void)

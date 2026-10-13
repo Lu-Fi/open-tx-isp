@@ -653,6 +653,24 @@ So the 960x540/1280x720 hang does not reproduce with the frame source
 alone; it needs the full streamer path (encoder running, client-driven
 start), which was not run here.
 
+Streamer run 2026-10-13 (same camera and module, timps with a /tmp copy
+of its configuration, `general.fs_keepalive = 1`, gate off; local
+snapshot status codes, logs and counters only):
+- ch1 960x540: 30 min, every minute both snapshots 200, no oops, no
+  "latch not seen", no encoder errors in the log; then 10 timps
+  stop/start cycles, each start latched and served both snapshots.
+- ch1 1280x720: 10 min the same, then 5 timps stop/start cycles, clean.
+- defaults candidate (`cfg_update=2`, `stop_disable=1`, gate 1280x720,
+  loaded with the boot parameters only, unchanged timps configuration,
+  ch1 640x360): 98 alternating ch0/ch1 snapshot rounds in 10 min, all
+  200, clean. timps kept both channels running during these rounds, so
+  the client-driven idle-stop/restart of the old repro was not exercised
+  (no RTSP client was used); the restarts were covered by the timps
+  stop/start cycles above.
+Defaults since then: `t41_msca_cfg_update=2`, `t41_msca_stop_disable=1`,
+ch1 SET_FMT gate 1280x720 (`t41_msca_ch1_max_w/h`); the old behaviour is
+`t41_msca_cfg_update=0 t41_msca_stop_disable=0`.
+
 
 ## MSCA zoom, mask and scaler level (branch `claude/t41-zoom-mask`)
 

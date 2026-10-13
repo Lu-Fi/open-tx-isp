@@ -1115,13 +1115,14 @@ MODULE_PARM_DESC(t41_msca_flip_skip_noop,
  * has finished its frame (0xf00e0) before the FIFO is cleared; use it with
  * t41_msca_cfg_update=2.
  *
- * 0 (default, flashed behaviour) keeps the output enabled with an empty address FIFO and skips the
+ * 1 is the default since 2026-10-13 (pairs with t41_msca_cfg_update=2).
+ * 0 (the earlier flashed behaviour) keeps the output enabled with an empty address FIFO and skips the
  * register reload on a restart with unchanged geometry.  That only looked
  * stable while the outputs never latched their geometry (see
  * t41_msca_cfg_update); with real scaling it hangs the T41 within a few
  * restart cycles.
  */
-static int t41_msca_stop_disable;
+static int t41_msca_stop_disable = 1;
 module_param(t41_msca_stop_disable, int, 0644);
 /*
  * MSCA output geometry, ratios, the global input size and 0xf002c are
@@ -1133,17 +1134,18 @@ module_param(t41_msca_stop_disable, int, 0644);
  * lines into 640x360 buffers (garbage chroma, a band of other data at the
  * top of the next buffer, brightness unrelated to ch0).
  *
- * 2 (opt-in, with t41_msca_stop_disable=1): the update is requested with the output OFF and the output
+ * 2 (default since 2026-10-13, with t41_msca_stop_disable=1): the update is requested with the output OFF and the output
  * is enabled by t41_msca_finish_enable() once the read-back shows the new
  * words, as stock does in its steady state (STREAMOFF switches the output
  * off, SET_FMT requests the update through tisp_s_hv_flip(), STREAMON only
  * sets the enable bit).  A restart whose words are already active requests
- * no update at all.  Correct pictures and stable up to ch1 768x432, but
- * ch1 960x540/1280x720 still hang the T41 (README "Output restart hang"),
- * so it stays off by default until that is solved.
+ * no update at all.  Device run 2026-10-13 (README "Output restart hang"):
+ * ch1 640x360..1280x720 correct, 30 min streamer run at 960x540 and
+ * streamer restarts clean; ch1 is still limited to 1280x720 by the SET_FMT
+ * gate (t41_msca_ch1_max_w/h).
  * 1: request the update right after enabling the output (correct pictures,
  * but the output-restart hang comes back after 4-13 restart cycles).
- * 0 (default): never request it (reset geometry, see above).
+ * 0: never request it (reset geometry, see above; the earlier default).
  */
 void t41_heapwatch_mark(const char *step);
 void t41_heapwatch_step(const char *where);
@@ -1155,10 +1157,10 @@ void t41_procwatch_begin(void);
 void t41_procwatch_add(void *pde, const struct file_operations *fops);
 void t41_procwatch_start(void);
 void t41_procwatch_stop(void);
-static int t41_msca_cfg_update;
+static int t41_msca_cfg_update = 2;
 module_param(t41_msca_cfg_update, int, 0644);
 MODULE_PARM_DESC(t41_msca_cfg_update,
-                 "0 (default) never latches MSCA output geometry; 2 latches with the output off (set t41_msca_stop_disable=1); 1 latches after enable");
+                 "2 (default) latches MSCA output geometry with the output off (needs t41_msca_stop_disable=1); 1 latches after enable; 0 never latches");
 /* Outputs whose update request is pending; enabled by
  * t41_msca_finish_enable() once the read-back shows the new words. */
 static unsigned int t41_msca_enable_pending __attribute__((section(".data")));
@@ -1227,14 +1229,16 @@ MODULE_PARM_DESC(t41_msca_live_max_h,
                  "largest output height AutoZoom/Mask/ScalerLv reprogram while streaming");
 /*
  * SET_FMT gate for output 1 with t41_msca_cfg_update >= 2 (README "Output
- * restart hang"): larger formats hung the SoC, so they are refused with
- * -EINVAL.  0 in either limit disables the gate.
+ * restart hang"): 960x540 and 1280x720 once hung the SoC; with this branch
+ * up to 1280x720 (the output's reset size) ran clean on the device, larger
+ * is untested and refused with -EINVAL.  0 in either limit disables the
+ * gate.
  */
-static unsigned int t41_msca_ch1_max_w = 768;
+static unsigned int t41_msca_ch1_max_w = 1280;
 module_param(t41_msca_ch1_max_w, uint, 0644);
 MODULE_PARM_DESC(t41_msca_ch1_max_w,
                  "largest ch1 width SET_FMT accepts with t41_msca_cfg_update>=2 (0 = no limit)");
-static unsigned int t41_msca_ch1_max_h = 432;
+static unsigned int t41_msca_ch1_max_h = 720;
 module_param(t41_msca_ch1_max_h, uint, 0644);
 MODULE_PARM_DESC(t41_msca_ch1_max_h,
                  "largest ch1 height SET_FMT accepts with t41_msca_cfg_update>=2 (0 = no limit)");
@@ -150814,7 +150818,7 @@ int32_t tisp_csc_yuv_dmo(void)
  * so the CSC stayed at its reset value (0xf08ec = 0, block off) on every
  * boot.  The request also latches every other staged MSCA word, so it is
  * only issued where this driver latches MSCA geometry anyway
- * (t41_msca_cfg_update >= 2); with the flashed default 0 the words stay
+ * (t41_msca_cfg_update >= 2); with t41_msca_cfg_update=0 the words stay
  * staged and the next latch (output start) applies them.
  */
 static unsigned int t41_csc_latches __attribute__((section(".data")));

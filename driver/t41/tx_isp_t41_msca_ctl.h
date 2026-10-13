@@ -414,10 +414,11 @@ t41_msca_live_plan(int running, int cfg_update, int stop_disable,
 /*
  * SET_FMT size gate for output 1 (driver/t41/README.md "Output restart
  * hang"): with t41_msca_cfg_update >= 2 the output really latches its
- * geometry, and ch1 960x540 / 1280x720 then hung the SoC at the first start
- * with the input running, while <= 768x432 was stable.  Refuse such a format
- * instead (-EINVAL) until that is solved.  max_w or max_h 0 disables the
- * gate.  The scaler output size is checked as well when the scaler is on.
+ * geometry, and ch1 960x540 / 1280x720 once hung the SoC at the first start
+ * with the input running.  Formats above max_w x max_h (driver default
+ * 1280x720, the largest size that ran clean on the device) are refused
+ * with -EINVAL.  max_w or max_h 0 disables the gate.  The scaler output
+ * size is checked as well when the scaler is on.
  */
 static inline int t41_msca_fmt_gate(unsigned int ch, int cfg_update,
 				    unsigned int w, unsigned int h,
