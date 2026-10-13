@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-13
+
+- **Quieter kernel log (no functional change):**
+  - T31: a missing optional tuning file (`/etc/sensor/<sensor>-cust-t31.bin`, ENOENT) is now an info line instead of a warning. The built-in tuning is used as before; other read errors still warn.
+  - T41: the bounded IRQ, MSCA FIFO, running-mode and safe-AE traces are now only logged with `t41_runtime_trace=1`. A trace that reports a non-zero `ret=` still logs as a warning.
+
 ## 2026-10-12: aggregate agg-38 (not released)
 
 `claude/agg-38` = agg-37 (e40d7313) + `claude/awbstats` (with `claude/awbzone`), `claude/fcrop-upscale-cap`, `claude/t31-sharpness-fix`, `claude/t41-isp-handlers`, `claude/t41-reload-fix`, `claude/sensor-proc-compat`; `claude/gaps-t23-t31-drv` is recorded as merged without changes (agg-37 has the same patch, with SwitchBin already reworked: validated private copy published by pointer under the bank mutex, no copy over the live banks). Host tests (`make -C tests check`, `tests/t20_fw`) and module builds with the load check (`check_ko_symbols.sh`) for T10/T20/T21/T23/T31/T41; no soak of the aggregate yet.
