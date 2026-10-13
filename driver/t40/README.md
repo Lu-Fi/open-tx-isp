@@ -382,8 +382,25 @@ Block bisect (each run one boot, metrics only, media discarded):
   marked step writes into a ring at +0x100; after the reboot
   `t40prod/panicdump.sh out.txt` (mmap /dev/mem via t40prod/memdump) prints
   both.  `echo dumplog > /proc/tx_isp_t40_recovered` tests the copy.
-Next: name the hanging register (c4), then fix the restart path; p6 rmmod
-bisect; YSP order.
+- Flight recorder c5-c8c: the restart hung on a CSI or VIC register access
+  at a random point of the CSI/VIC bring-up (CSI reg04/reg28, the first
+  core IRQ after it, vic_core_s_stream).  CPM clock gates are identical
+  while streaming and after a stop (p8-clk.sh), so no gated clock.  Root
+  cause: frame channels 0..2 share vinum 0, but the direct stream path
+  ran the CSI bring-up (reset, PHY) again for channel 1 while the sensor
+  was already streaming, and the sensor was never stopped on streamoff -
+  so a restart re-initialised CSI/VIC against live MIPI data.
+  1284cb0e: CSI/VIC are started by the first channel of a vinum and
+  stopped by the last one, and the sensor video stream is stopped before
+  the last VIC stop (`t40_sensor_stream_off_on_stop=1`).  Result c10:
+  15/15 timps stop/start cycles and 3/3 framesource idle off/on cycles
+  (fs_keepalive=0) clean, snapshot 200 every time.  Second-start panic
+  closed.  (906dacd0, CSI clocks re-armed after a slake, stays in: it is
+  correct, just not the cause.)
+- rmmod (p6 x1 on the same boot): exit steps 1-8 fine, step 10 (platform
+  device unregister -> OEM remove callbacks) hangs the camera.  Split into
+  one step per child device (fs, vin, vic, csi, core) with recorder marks.
+Next: p6 per-device rmmod bisect; YSP order; sc830ai tuning (daylight).
 
 ### Daylight plan (image quality)
 1. Extract the sc830ai tuning from `/etc/sensor/sc830ai-t40.bin` (vendor IQ

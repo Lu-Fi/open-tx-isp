@@ -8286,24 +8286,31 @@ static struct platform_device *regtrace_child_platform_device(unsigned int slot)
     }
 }
 
+static void regtrace_unregister_child_platform_device_one(int i)
+{
+    struct platform_device *pdev;
+
+    if (i < 0 || i >= (int)ARRAY_SIZE(regtrace_child_device_registered))
+        return;
+    if (!regtrace_child_device_registered[i])
+        return;
+    pdev = regtrace_child_platform_device(i);
+    if (pdev) {
+        printk(KERN_INFO "tx_isp_t40_recovered: unregister child platform device %s\n",
+               dev_name(&pdev->dev));
+        regtrace_fr_mark(0x80, (uint32_t)i);
+        platform_device_unregister(pdev);
+        regtrace_fr_mark(0x81, (uint32_t)i);
+    }
+    regtrace_child_device_registered[i] = 0;
+}
+
 static void regtrace_unregister_child_platform_devices(void)
 {
     int i;
 
-    for (i = ARRAY_SIZE(regtrace_child_device_registered) - 1; i >= 0; i--) {
-        struct platform_device *pdev;
-
-        if (!regtrace_child_device_registered[i])
-            continue;
-
-        pdev = regtrace_child_platform_device(i);
-        if (pdev) {
-            printk(KERN_INFO "tx_isp_t40_recovered: unregister child platform device %s\n",
-                   dev_name(&pdev->dev));
-            platform_device_unregister(pdev);
-        }
-        regtrace_child_device_registered[i] = 0;
-    }
+    for (i = ARRAY_SIZE(regtrace_child_device_registered) - 1; i >= 0; i--)
+        regtrace_unregister_child_platform_device_one(i);
 }
 
 static int regtrace_register_child_platform_devices(void)
@@ -197516,7 +197523,7 @@ tx_isp_module_init0x84:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c710 origin=fragment_seed original=cleanup_module */
 static unsigned int regtrace_core_exit_done_mask;
 
-#define REGTRACE_EXIT_STEPS 10
+#define REGTRACE_EXIT_STEPS 15
 
 static int regtrace_core_exit_steps(int upto, int from_proc)
 {
@@ -197549,7 +197556,12 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
         case 7: regtrace_tisp_dma_free(); break;
         case 8: regtrace_vic_mdma_internal_free(); break;
         case 9: regtrace_unregister_bootstrap_devices(); break;
-        case 10: regtrace_unregister_real_platforms(); break;
+        case 10: regtrace_unregister_child_platform_device_one(4); break;
+        case 11: regtrace_unregister_child_platform_device_one(3); break;
+        case 12: regtrace_unregister_child_platform_device_one(2); break;
+        case 13: regtrace_unregister_child_platform_device_one(1); break;
+        case 14: regtrace_unregister_child_platform_device_one(0); break;
+        case 15: regtrace_unregister_real_platforms(); break;
         }
         regtrace_core_exit_done_mask |= 1U << step;
         printk(KERN_INFO "tx_isp_t40_recovered: exit step %d done\n", step);
@@ -197569,6 +197581,7 @@ void tx_isp_t40_core_exit(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c720 origin=fragment_seed original=tx_isp_vic_remove */
 int tx_isp_vic_remove(struct platform_device *pdev)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x91, 0);
     uintptr_t a0 = (uintptr_t)pdev;
 
     uint32_t *local_10 = 0;
@@ -197639,6 +197652,7 @@ tx_isp_vic_remove0x90:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c7bc origin=fragment_seed original=tx_isp_vin_remove */
 int tx_isp_vin_remove(struct platform_device *pdev)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x92, 0);
     uintptr_t a0 = (uintptr_t)pdev;
 
     uintptr_t *s0;
@@ -197663,6 +197677,7 @@ int tx_isp_vin_remove(struct platform_device *pdev)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c838 origin=fragment_seed original=tx_isp_csi_remove */
 int tx_isp_csi_remove(struct platform_device *pdev)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x93, 0);
     uintptr_t a0 = (uintptr_t)pdev;
 
     uint32_t *local_10 = 0;
@@ -197727,6 +197742,7 @@ tx_isp_csi_remove0x34:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c914 origin=fragment_seed original=tx_isp_fs_remove */
 int tx_isp_fs_remove(struct platform_device *pdev)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x94, 0);
     struct platform_device *arg1 = pdev;
 
     void *drv_data;
@@ -197796,6 +197812,7 @@ int tx_isp_remove(struct platform_device *pdev)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007ca60 origin=fragment_seed original=tx_isp_core_remove */
 int tx_isp_core_remove(struct platform_device *pdev)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x95, 0);
     uintptr_t arg1 = (uintptr_t)pdev;
 
     uintptr_t *v0;
