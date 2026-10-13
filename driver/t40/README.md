@@ -575,8 +575,10 @@ Recommended insmod line:
       sensor_full_width_override=3840 sensor_full_height_override=2160 skip_tisp_deinit=1 \
       t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin enable_dmsc_static=1 \
       dmsc_stock_current_overlay=1 frame_3a_interval=3 t40_force_active=0x6020 \
-      frame_awb_bggr_fast=1
+      frame_awb_bggr_fast=1 frame_3a_slide_window=1
 
 The Bayer phase is now taken from the sensor media-bus format (sc830ai SBGGR10 -> `0x13300088` = `0x101`), so no override is needed; `tisp_main_init_reg88_override` / `core_bayer_reg8_value` still work for experiments. Without overrides: full-frame U/V 129.9/128.0, neighbour diff 6.0.
+
+Native 4K (3840x2160, scaler off): the frame-3A sampler mapped a fixed 32 MiB window and silently skipped frames whose planes left it (7 of 7 samples missed, frame Y 77, dark). `frame_3a_slide_window=1` remaps per frame: 0 misses, frame Y 153, midtones neutral (U/V +2.5/+0.6).
 
 Still open: white-balance fine tuning; YSP (sharpness) is still forced off, and day/night has not been checked on this baseline. Analyses and reviews by external helpers are in the session notes.

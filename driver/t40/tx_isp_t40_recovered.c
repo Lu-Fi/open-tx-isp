@@ -8996,6 +8996,8 @@ static uint regtrace_bcsh_saturation = 128U;
 static uint regtrace_bcsh_hue = 128U;
 static uint regtrace_frame_3a_interval = 15;
 static uint regtrace_frame_3a_target = 110;
+static bool regtrace_frame_3a_slide_window;
+static uint regtrace_frame_3a_window_misses;
 /*
  * Neutral chroma target and per-axis deadband for the completed-frame AWB
  * fallback.  The old fixed 120..136 window was wide enough to accept a
@@ -9372,6 +9374,8 @@ module_param_named(bcsh_saturation, regtrace_bcsh_saturation, uint, 0644);
 module_param_named(bcsh_hue, regtrace_bcsh_hue, uint, 0444);
 module_param_named(frame_3a_interval, regtrace_frame_3a_interval, uint, 0644);
 module_param_named(frame_3a_target, regtrace_frame_3a_target, uint, 0644);
+module_param_named(frame_3a_slide_window, regtrace_frame_3a_slide_window, bool, 0644);
+module_param_named(frame_3a_window_misses, regtrace_frame_3a_window_misses, uint, 0444);
 module_param_named(frame_awb_target, regtrace_frame_awb_target, uint, 0644);
 module_param_named(frame_awb_hyst, regtrace_frame_awb_hyst, uint, 0644);
 module_param_named(frame_awb_bggr_fast, regtrace_frame_awb_bggr_fast, bool, 0644);
@@ -101050,6 +101054,28 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
     y_size = (uint64_t)width * height;
     uv_size = (uint64_t)width * uv_height;
 
+    /* Native NV12 may straddle a fixed 32-MiB alignment boundary. */
+    if (regtrace_frame_3a_slide_window &&
+        (!win || y_phys < win_base || uv_phys < win_base ||
+         (uint64_t)(y_phys - win_base) + y_size > 0x02000000ULL ||
+         (uint64_t)(uv_phys - win_base) + uv_size > 0x02000000ULL)) {
+        uint32_t base = min_t(uint32_t, y_phys, uv_phys) & ~0xfffU;
+
+        if ((uint64_t)(y_phys - base) + y_size > 0x02000000ULL ||
+            (uint64_t)(uv_phys - base) + uv_size > 0x02000000ULL) {
+            regtrace_frame_3a_window_misses++;
+            return;
+        }
+        if (win)
+            iounmap(win);
+        win_base = base;
+        win = ioremap(win_base, 0x02000000U);
+        if (!win) {
+            regtrace_frame_3a_window_misses++;
+            return;
+        }
+    }
+
     if (!win) {
         win_base = y_phys & ~0x01ffffffU;
         win = ioremap(win_base, 0x02000000U);
@@ -101058,8 +101084,10 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
     }
     if (y_phys < win_base || uv_phys < win_base ||
         (uint64_t)(y_phys - win_base) + y_size > 0x02000000ULL ||
-        (uint64_t)(uv_phys - win_base) + uv_size > 0x02000000ULL)
+        (uint64_t)(uv_phys - win_base) + uv_size > 0x02000000ULL) {
+        regtrace_frame_3a_window_misses++;
         return;
+    }
 
     yp = (const uint8_t *)win + (y_phys - win_base);
     uvp = (const uint8_t *)win + (uv_phys - win_base);
