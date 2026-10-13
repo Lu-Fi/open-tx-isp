@@ -9573,6 +9573,7 @@ module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
  * System.map addresses of the Eufy 4.4.94 kernel are module params.
  */
 static int regtrace_is_kernel_ptr(const void *ptr);
+static int regtrace_fr_mark(uint32_t id, uint32_t aux);
 static bool regtrace_panic_dump_enable = true;
 static uint regtrace_panic_dump_phys = 0xe9f0000U;
 static uint regtrace_panic_dump_logbuf_ptr = 0x8044229cU;   /* &log_buf */
@@ -9591,6 +9592,34 @@ struct regtrace_panic_dump_hdr {
     uint32_t reserved;
 };
 
+/*
+ * Flight recorder for hangs the panic notifier never sees (watchdog reset):
+ * a 32-entry ring of {id, aux, jiffies, seq} at rmem tail + 0x100, written
+ * uncached, read back by t40prod/panicdump.sh after the reset.
+ */
+struct regtrace_fr_entry { uint32_t id; uint32_t aux; uint32_t jiffies_lo; uint32_t seq; };
+#define REGTRACE_FR_OFF 0x100U
+#define REGTRACE_FR_ENTRIES 32U
+#define REGTRACE_FR_LOG_OFF 0x400U
+static uint32_t regtrace_fr_seq;
+static int regtrace_fr_mark(uint32_t id, uint32_t aux)
+{
+    struct regtrace_fr_entry *e;
+    uint32_t seq;
+
+    if (!regtrace_panic_dump_enable || !regtrace_panic_dump_phys)
+        return 0;
+    seq = ++regtrace_fr_seq;
+    e = (struct regtrace_fr_entry *)KSEG1ADDR(regtrace_panic_dump_phys + REGTRACE_FR_OFF);
+    e += seq % REGTRACE_FR_ENTRIES;
+    e->id = id;
+    e->aux = aux;
+    e->jiffies_lo = (uint32_t)jiffies;
+    e->seq = seq;
+    wmb();
+    return 0;
+}
+
 static void regtrace_panic_dump_now(const char *reason)
 {
     struct regtrace_panic_dump_hdr *hdr;
@@ -9607,8 +9636,8 @@ static void regtrace_panic_dump_now(const char *reason)
     len = *(uint32_t *)(uintptr_t)regtrace_panic_dump_logbuf_len;
     if (!regtrace_is_kernel_ptr(src) || !len)
         return;
-    if (len > 0x10000U - sizeof(*hdr))
-        len = 0x10000U - sizeof(*hdr);
+    if (len > 0x10000U - REGTRACE_FR_LOG_OFF)
+        len = 0x10000U - REGTRACE_FR_LOG_OFF;
     dst = (char *)KSEG1ADDR(regtrace_panic_dump_phys);
     hdr = (struct regtrace_panic_dump_hdr *)dst;
     memcpy(hdr->magic, "T40PANIC", 8);
@@ -9616,7 +9645,7 @@ static void regtrace_panic_dump_now(const char *reason)
     hdr->jiffies_lo = (uint32_t)jiffies;
     hdr->len = len;
     hdr->reserved = 0;
-    memcpy(dst + sizeof(*hdr), src, len);
+    memcpy(dst + REGTRACE_FR_LOG_OFF, src, len);
     wmb();
     printk(KERN_INFO "tx_isp_t40_recovered: printk ring (%u bytes) copied to 0x%x (%s)\n",
            len, regtrace_panic_dump_phys, reason);
@@ -21556,6 +21585,7 @@ static int regtrace_tx_isp_release(struct inode *inode, struct file *file)
 
 static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x02, cmd);
     long ret;
 
     printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x arg=0x%lx delegate=%d pid=%d comm=%s\n",
@@ -21632,6 +21662,7 @@ static int regtrace_bootstrap_release(struct inode *inode, struct file *file)
 
 static long regtrace_isp_m0_ctrl_ioctl(unsigned int cmd, unsigned long arg)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x03, cmd);
     struct regtrace_tisp_control_compat ctrl;
     static unsigned int log_count;
 
@@ -22459,6 +22490,7 @@ static unsigned int regtrace_tisp_poll(struct file *file, poll_table *wait)
 
 static long regtrace_tisp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x04, cmd);
     printk(KERN_INFO "tx_isp_t40_recovered: tisp ioctl cmd=0x%x arg=0x%lx pid=%d comm=%s\n",
            cmd, arg, current->pid, current->comm);
     return tisp_code_tuning_ioctl((int)(uintptr_t)file, (int)cmd, (int)arg);
@@ -24973,6 +25005,7 @@ static int regtrace_t40_msca_vendor_fixups_apply(int channel)
 
 static int regtrace_core_event_stream(void *pad_arg, int enable)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x06, (uint32_t)enable);
     unsigned char *pad = pad_arg;
     unsigned char *channel_data = regtrace_core_event_channel_data(pad_arg);
     int channel = regtrace_core_event_frame_channel(channel_data);
@@ -25093,13 +25126,19 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
                 REGTRACE_FRAMECHAN_STATE_STREAMING;
     } else {
         regtrace_core_irq_stream(channel, 0);
+        regtrace_fr_mark(0x20, channel);
         regtrace_core_first_frame_regs(0);
         regtrace_tisp_stream_regs(0, channel);
+        regtrace_fr_mark(0x21, channel);
         regtrace_vic_frame_mdma_stream(channel, 0);
         regtrace_t40_vic_frame_output_enable(channel, 0);
+        regtrace_fr_mark(0x22, channel);
         regtrace_core_channel_stream(channel, 0);
+        regtrace_fr_mark(0x23, channel);
         regtrace_framechan_call_vic_stream(channel, 0);
+        regtrace_fr_mark(0x24, channel);
         regtrace_framechan_call_csi_stream(channel, 0);
+        regtrace_fr_mark(0x25, channel);
 
         if (regtrace_skip_tisp_channel_start) {
             printk(KERN_INFO "tx_isp_t40_recovered: tisp channel stop skipped ch=%d tisp_index=%d tisp_id=%u\n",
@@ -25109,6 +25148,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
         } else if (tisp_index >= 3 && tisp_index < 6) {
             tisp_channel_sec_stop(tisp_id);
         }
+        regtrace_fr_mark(0x26, channel);
 
         if (regtrace_is_kernel_ptr(channel_data))
             *(uint32_t *)(channel_data + REGTRACE_CORE_CH_STATE_OFFSET) =
@@ -26267,6 +26307,7 @@ static int regtrace_framechan_open(struct inode *inode, struct file *file)
 
 static int regtrace_framechan_release(struct inode *inode, struct file *file)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x05, 0);
     int channel = regtrace_framechan_index(file);
 
     (void)inode;
@@ -26280,6 +26321,7 @@ static int regtrace_framechan_release(struct inode *inode, struct file *file)
 
 static long regtrace_framechan_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x01, cmd);
     int channel = regtrace_framechan_index(file);
     long ret;
     int verbose = !regtrace_framechan_noisy_cmd(cmd);
@@ -32655,6 +32697,7 @@ void *tx_vic_disable_irq(int32_t arg1)
 
     disable_cb = *(uintptr_t *)(irq_base + REGTRACE_IRQ_DISABLE_OFF);
     if (disable_cb && *statep != 0) {
+        regtrace_fr_mark(0x07, (uint32_t)arg1);
         ((void (*)(uintptr_t, int32_t))disable_cb)(irq_base, arg1);
         *statep = 0;
         printk("tx_isp_t40_recovered: tx_vic_disable_irq idx=%d vsd=%p\n",
@@ -38078,6 +38121,7 @@ vic_core_ops_ioctl0x90:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000006454 origin=model_output original=vin_s_stream */
 int32_t vin_s_stream(void *arg1, int32_t *arg2)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x09, (uint32_t)(uintptr_t)arg2);
     int *i = 0;
     int32_t v1 = arg2[1];
     int32_t result = arg2[0];
@@ -41811,6 +41855,7 @@ tx_isp_csi_activate_subdev0x108:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000091e4 origin=fragment_seed original=csi_video_s_stream */
 int32_t csi_video_s_stream(void *arg1, int32_t *arg2)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x08, (uint32_t)(uintptr_t)arg2);
     int32_t *result;
     int32_t var_20 = 0;
     int32_t *s1_1;
@@ -49146,6 +49191,7 @@ static void regtrace_isp_irq_post_dispatch_ack(int32_t irq, void *dev_id)
 
 int32_t isp_irq_handle(int32_t arg1, void* arg2)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x10, (uint32_t)arg1);
     uintptr_t base = (uintptr_t)arg2;
     uintptr_t slot;
     uintptr_t end;
@@ -54887,6 +54933,7 @@ tx_isp_sensor_release_sensor0xb8:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000011674 origin=model_output original=tx_isp_video_s_stream */
 int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x0a, (uint32_t)arg2);
     int32_t *var_28;
     int32_t *s3 = (int32_t *)((char *)arg1 + 0x3c);
     int32_t *result;
@@ -185526,6 +185573,7 @@ int32_t tisp_g_coefft_wb(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000075a50 origin=fragment_seed original=ispcore_irq_thread_handle */
 int32_t ispcore_irq_thread_handle(void)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x12, 0);
     uint32_t ra = 0;
     uintptr_t *v0 = 0;
 
@@ -192140,6 +192188,7 @@ int32_t system_reg_write(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000079834 origin=fragment_seed original=ispcore_irqstatus_func */
 int32_t ispcore_irqstatus_func(uintptr_t a0)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x11, 0);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t local_1c = 0;
