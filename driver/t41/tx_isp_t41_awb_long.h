@@ -8,6 +8,9 @@
  * separates the cluster detector from statistics preparation and temporal
  * policy. Buffers and the estimator view belong to the caller's private
  * working state; a nonzero return must not publish that working state. */
+/* Last detector outcome for diagnostics: [0] failed flags (bit 0/1) and
+ * bit 8 = detection ran, [1]/[2] the R/B ratios it returned. */
+static unsigned int t41_awb_long_diag[3];
 typedef int (*t41_awb_detector)(void *context, void **view,
 		unsigned int ratios[2], unsigned int failed[2]);
 
@@ -183,6 +186,8 @@ static inline int t41_awb_long(unsigned char *p, unsigned int pb,
 	t41_awb_gain_put16(s+0xeab6,t41_tmo_le16(s+0xeaae));
 	ratios[0]=ratios[1]=1U<<precision;
 	if (detect(context,view,ratios,failed)) return -1;
+	t41_awb_long_diag[0]=failed[0]|(failed[1]<<1)|(1U<<8);
+	t41_awb_long_diag[1]=ratios[0]; t41_awb_long_diag[2]=ratios[1];
 	for (i=0; i<6; ++i) {
 		t41_awb_gain_put16(report+0x78+i*2,
 			(t41_tmo_le16((const unsigned char *)view[0x16]+i*2)<<10)/t41_tmo_le32(p+0x30));
