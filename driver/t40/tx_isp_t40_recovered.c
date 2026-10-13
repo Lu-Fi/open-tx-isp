@@ -35598,6 +35598,7 @@ vic_mdma_irq_function20x540:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000004e7c origin=fragment_seed original=isp_vic_interrupt_service_routine */
 int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x15, a1);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -49250,7 +49251,9 @@ int32_t isp_irq_handle(int32_t arg1, void* arg2)
         slot += sizeof(uint32_t);
     }
 
+    regtrace_fr_mark(0x17, (uint32_t)arg1);
     regtrace_isp_irq_post_dispatch_ack(arg1, arg2);
+    regtrace_fr_mark(0x18, (uint32_t)result);
 
     return result;
 }
@@ -192145,6 +192148,7 @@ int32_t system_reg_write(uint32_t a0, uint32_t a1)
     if (!regtrace_is_kernel_ptr(base))
         return -ENODEV;
 
+    regtrace_fr_mark(0x31, a0);
     watched = regtrace_core_top_watch_index(a0) >= 0;
     if (watched)
         before = readl(base + a0);
@@ -192569,6 +192573,7 @@ int32_t system_reg_read(uint32_t a0)
     if (!regtrace_is_kernel_ptr(base))
         return 0;
 
+    regtrace_fr_mark(0x30, a0);
     return readl(base + a0);
 #else
     uint32_t ra = 0;
@@ -194693,6 +194698,7 @@ update_isp_osd0x78:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007b29c origin=fragment_seed original=ispcore_interrupt_service_routine */
 int64_t ispcore_interrupt_service_routine(uintptr_t a0)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x14, 0);
     uint32_t *local_10 = 0;
     if (regtrace_enable_oem_isr_lit)
         return ispcore_interrupt_service_routine_lit(a0);
