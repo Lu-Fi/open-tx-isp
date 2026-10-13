@@ -1602,6 +1602,17 @@ static int t41_tone_trigger;
 module_param(t41_tone_trigger, int, 0644);
 MODULE_PARM_DESC(t41_tone_trigger,
                  "1 also runs the per-frame tone worker from the AE statistics interrupt (default 0: TMO interrupt only)");
+/*
+ * EV handed to the per-frame consumers (AWB Y weights, CCM, BCSH, gamma,
+ * ADR, TMO): stock tisp_ae_long_ev_alloc pushes integration x total gain
+ * in the AE fixed-point precision (AE params +0x6c0) and every stock
+ * *_ev_update undoes only its own <<10, so they all see that value; the
+ * open AE target uses the same product.  The AE path records its precision
+ * here; tone_ev reports the last EV the worker distributed.
+ */
+static unsigned int t41_ae_ev_shift __attribute__((section(".data"))) = 10;
+static unsigned int t41_tone_ev __attribute__((section(".data")));
+module_param_named(tone_ev, t41_tone_ev, uint, 0444);
 static unsigned int t41_tmo_irq17 __attribute__((section(".data")));
 static unsigned int t41_tone_kicks __attribute__((section(".data")));
 static unsigned int t41_tone_gated __attribute__((section(".data")));
@@ -58712,6 +58723,8 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 				target_knots, target_values);
 		if (!meter_ret) {
 			unsigned int shift = t41_tmo_le16(ae_params + 0x6c0);
+			if (shift && shift <= 16)
+				WRITE_ONCE(t41_ae_ev_shift, shift);
 			meter_ret = t41_ae_long_target((u64)control->integration *
 				tisp_math_exp2(gain_q16, 16, shift), target_knots,
 				target_values, shift, &calibrated_target);
@@ -153292,9 +153305,13 @@ static void t41_tmo_workfn(struct work_struct *work)
         t41_tmo_error = -EAGAIN;
         goto done;
     }
-    linear = tisp_math_exp2(gain, 16, 10);
-    exposure = (uint64_t)integration * linear >> 10;
+    /* Stock EV units (see t41_ae_ev_shift); dropping the precision here
+     * made every consumer see a 1024x smaller EV (bright-light tables, AWB
+     * Y weight 0, no AWB zones). */
+    linear = tisp_math_exp2(gain, 16, READ_ONCE(t41_ae_ev_shift));
+    exposure = (uint64_t)integration * linear;
     ev = min_t(uint64_t, exposure, UINT_MAX);
+    t41_tone_ev = ev;
     if (t41_native_awb) t41_native_awb_exposure(gain, ev);
     t41_ccm_update(READ_ONCE(t41_ccm_ct), ev, 0);
     t41_bcsh_update(READ_ONCE(t41_ccm_ct), ev, 0);
