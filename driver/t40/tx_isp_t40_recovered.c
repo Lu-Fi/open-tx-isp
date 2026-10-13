@@ -22033,10 +22033,26 @@ static int regtrace_t40_tuning_set_running_mode(uint32_t mode)
 
     /* T31/T21 both switch the complete calibrated bank before refreshing any
      * ISP block. T40 carries the same two 0x18ff4-byte banks. */
-    memcpy(active, selected, REGTRACE_T40_TUNING_BANK_BYTES);
     WRITE_ONCE(regtrace_running_mode, mode);
     WRITE_ONCE(day_night, mode);
-    ret = regtrace_t40_refresh_daynight_pipeline();
+    if (!memchr_inv(selected, 0, REGTRACE_T40_TUNING_BANK_BYTES)) {
+        /* No calibrated day/night bank is loaded (sc830ai has none yet, the
+         * banks are the vzalloc'ed zero buffers).  Copying a zero bank and
+         * re-running every block initializer from it blacks the picture out
+         * (luma 0) once the stream is live, e.g. timps' running_mode apply.
+         * Keep the live pipeline and only follow the mode where it is
+         * independent of the bank: night = no colour. */
+        ret = 0;
+        if (regtrace_enable_bcsh && stMainBcshOuter_lit && pstMainBcshOri_lit[48])
+            ret = regtrace_isp_m0_apply_saturation(
+                mode ? 0U : min_t(uint32_t, regtrace_bcsh_saturation, 255U));
+        printk(KERN_INFO
+               "tx_isp_t40_recovered: running mode bank empty, pipeline kept (mode=%s)\n",
+               mode ? "night" : "day");
+    } else {
+        memcpy(active, selected, REGTRACE_T40_TUNING_BANK_BYTES);
+        ret = regtrace_t40_refresh_daynight_pipeline();
+    }
 
     if (!mode) {
         uint32_t rgain = regtrace_day_awb_rgain;
