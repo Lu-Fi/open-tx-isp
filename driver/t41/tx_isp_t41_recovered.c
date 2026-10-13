@@ -1613,6 +1613,11 @@ MODULE_PARM_DESC(t41_tone_trigger,
 static unsigned int t41_ae_ev_shift __attribute__((section(".data"))) = 10;
 static unsigned int t41_tone_ev __attribute__((section(".data")));
 module_param_named(tone_ev, t41_tone_ev, uint, 0444);
+/* Why t41_tmo_frame() returned -EAGAIN: [0] empty TMO statistics DMA,
+ * [1] statistics bank changed while copying, [2] sequence changed. */
+static unsigned int t41_tmo_again[3] __attribute__((section(".data")));
+static unsigned int t41_tmo_again_n = 3;
+module_param_array_named(tmo_again, t41_tmo_again, uint, &t41_tmo_again_n, 0444);
 static unsigned int t41_tmo_irq17 __attribute__((section(".data")));
 static unsigned int t41_tone_kicks __attribute__((section(".data")));
 static unsigned int t41_tone_gated __attribute__((section(".data")));
@@ -153222,8 +153227,15 @@ static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
     /* Sequence also catches a double bank wrap during preemption. Once
      * copied, later DMA frames cannot modify these worker-owned inputs. */
     if (!samples || bank != (system_reg_read(0x1e028U) & 1U) ||
-        sequence != READ_ONCE(t41_tmo_state.sequence))
+        sequence != READ_ONCE(t41_tmo_state.sequence)) {
+        if (!samples)
+            t41_tmo_again[0]++;
+        else if (sequence != READ_ONCE(t41_tmo_state.sequence))
+            t41_tmo_again[2]++;
+        else
+            t41_tmo_again[1]++;
         return -EAGAIN;
+    }
     ret = t41_tmo_map(params, T41_TMO_PARAM_BYTES, shift, sums, counts,
                       previous, t41_tmo_state.first, out);
     if (ret)

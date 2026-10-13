@@ -69,6 +69,8 @@ module_param_array_named(awb_diag, t41_awb_diag, uint, &t41_awb_diag_n, 0444);
 static unsigned int t41_awb_diag_cal[42] __attribute__((section(".data")));
 static unsigned int t41_awb_diag_cal_n = 42;
 module_param_array_named(awb_diag_cal, t41_awb_diag_cal, uint, &t41_awb_diag_cal_n, 0444);
+static unsigned int t41_awb_detect_diag_n = 8;
+module_param_array_named(awb_diag_det, t41_awb_detect_diag, uint, &t41_awb_detect_diag_n, 0444);
 /* Raw statistics layout check: words 0..31 of the DMA bank (zone 0) and
  * of the centre zone (offset (7*15+7)*128), AWB registers 0x18000..0x1804c. */
 static unsigned int t41_awb_diag_raw[84] __attribute__((section(".data")));
