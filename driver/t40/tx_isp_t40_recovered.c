@@ -24142,8 +24142,10 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
         return 0;
     }
 
+    regtrace_fr_mark(0x62, (irqs_disabled() ? 1U : 0U) | (in_atomic() ? 2U : 0U) | ((uint32_t)preempt_count() << 8));
     stream_count = regtrace_get_u32(csi_dev, REGTRACE_CSI_STREAM_COUNT_OFFSET);
     if (!stream_count) {
+        regtrace_fr_mark(0x63, 0x0c);
         writel(0, regs0 + 0x0c);
         private_msleep(1);
         writel(interface_type, regs0 + 0x0c);
@@ -24161,14 +24163,17 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
         return 0;
     }
 
+    regtrace_fr_mark(0x64, 0x04);
     writel((lanes - 1) & 0x3, regs + 0x04);
     writel(lanes == 4 ? 0x0f : 0x03, regs + 0x100);
     writel(0, regs + 0x08);
     private_msleep(1);
+    regtrace_fr_mark(0x65, 0x10);
     writel(0, regs + 0x10);
     private_msleep(1);
     writel(1, regs + 0x10);
     private_msleep(1);
+    regtrace_fr_mark(0x66, 0x28);
     writel(0xffffffffU, regs + 0x28);
     writel(0xffffffffU, regs + 0x2c);
     private_msleep(1);
@@ -24183,6 +24188,7 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
         return 0;
     }
 
+    regtrace_fr_mark(0x67, 0x00);
     writel(0x7d, phy + 0x00);
     writel(csi_index == 1 ? 1 : 0, regs + 0x80);
     writel(csi_index == 1 ? 0x5f : 0x1f, phy + 0x80);
@@ -24199,11 +24205,13 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
              (uint32_t)settle_time_cal(regtrace_get_u32(attr, 0x1c));
     if (regtrace_csi_settle_override)
         settle = regtrace_csi_settle_override;
+    regtrace_fr_mark(0x68, 0x160);
     writel(settle, phy + 0x160);
     writel(settle, phy + 0x1e0);
     writel(settle, phy + 0x260);
     writel(settle, phy + 0x2e0);
     writel(settle, phy + 0x360);
+    regtrace_fr_mark(0x69, 0);
     regtrace_t40_apply_stock_csi_phy_overrides(regs, phy, csi_index,
                                                "csi-start");
     private_msleep(10);
@@ -24220,6 +24228,7 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
         return 0;
     }
 
+    regtrace_fr_mark(0x6a, 0);
     regtrace_csi_put_state(csi_dev, channel, 4);
     phy_mux_word = readl(phy + 0x80);
     ctrl_word = readl(regs + 0x10);
@@ -24260,7 +24269,9 @@ static long regtrace_framechan_call_csi_stream(int channel, int enable)
     state_off = regtrace_csi_state_offset((uint32_t)vinum);
     if (enable) {
         regtrace_t40_csi_activate_direct(csi_dev);
+        regtrace_fr_mark(0x6b, (uint32_t)regtrace_csi_clks_enabled);
         regtrace_sync_sensor_video_to_csi(NULL, vinum);
+        regtrace_fr_mark(0x6c, 0);
         regtrace_csi_put_state(csi_dev, (uint32_t)vinum, 3);
         regtrace_csi_stream_call_count++;
     } else {
