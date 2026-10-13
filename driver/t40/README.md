@@ -345,7 +345,29 @@ Block bisect (each run one boot, metrics only, media discarded):
   t40-prod, frame gate) and starts timpsd with LD_LIBRARY_PATH=/tmp/otx/lib.
   For the open image: libimp must be OpenIMP (thingino-isp-open), the
   vendor ingenic-lib libimp cannot sit on the open driver.
-Next: timps soak (t9) with OpenIMP libimp, rmmod/reload, YSP at 4K.
+- t9: the restored master image's /usr/bin/timpsd is the vendor flavour
+  (USE_OPENIMP=0) and refuses the OpenIMP libimp ("libimp mismatch", exit
+  78).  Built an OpenIMP-flavour timpsd from the image's own timps source
+  (buildroot timps-custom copy, same USE_* set, USE_OPENIMP=1, linked
+  against lib2/libimp.so): t40prod/bin-timpsd-oimp-t40; p5-timps.sh
+  uploads it to /tmp/otx/timpsd.  Nothing in timps was changed.
+- t9b (f03d0700, OpenIMP libimp + OpenIMP timpsd, fs_keepalive=1):
+  framesource 0 (1920x1080 scaled) and 1 (640x360) both enabled, RTSP/HTTP
+  up, local snapshot.jpg HTTP 200 (~44 kB), VIC IRQ exactly 20/s, timpsd
+  RSS flat at ~3.4 MB, no kernel messages, 30 min clean (see
+  t40prod/out/p5-t9b.log; timpsd left running afterwards).  Open item: timps reports "sensor fps:
+  requested 20, driver holds 25/1" - sensor_g_attr returns the sensor
+  module's 25/1, the stream runs at 20 fps.
+- rmmod: 587502b1 splits the module exit into ten steps that can be run
+  one by one with `echo exit N > /proc/tx_isp_t40_recovered` while kmsg
+  streams (t40prod/p6-exit.sh); the step that takes the camera down is
+  the one to look at.  Pending the next boot.
+- YSP hypothesis for daylight: tisp_ysp_main_init is size independent
+  (vmalloc 3432/420/146), so the "4K panic" is more likely a bus hang on
+  YSP register writes while top40 bit 17 still gates the block (no kmsg
+  at all in r22a/r24a, which fits a hang, not an oops).  Check the vendor
+  order top40 -> ysp regs before enabling again.
+Next: p6 rmmod bisect, second-start test (timps stop/restart), YSP order.
 
 ### Daylight plan (image quality)
 1. Extract the sc830ai tuning from `/etc/sensor/sc830ai-t40.bin` (vendor IQ
