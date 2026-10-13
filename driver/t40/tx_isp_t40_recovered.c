@@ -23984,6 +23984,19 @@ static uint32_t regtrace_csi_active_mipi_count(uintptr_t csi_dev)
     return count;
 }
 
+/*
+ * CSI clocks: the OEM tx_isp_csi_slake_subdev (internal_ops[1], run by the
+ * core when timps/OpenIMP tears the link down) disables every CSI clock,
+ * and the OEM activate re-enables them only from state 1, which the
+ * direct stream path (states 3/4) does not always reach.  A one-shot
+ * "activated" flag here therefore left the CSI clocks off on a restart:
+ * the next CSI register write hung the bus and the watchdog reset the
+ * camera (second-start hang, p7 c1-c5).  Track the clocks explicitly and
+ * re-enable them after every slake.
+ */
+static int regtrace_csi_clks_enabled;
+static unsigned int regtrace_csi_reactivate_count;
+
 static void regtrace_t40_csi_activate_direct(uintptr_t csi_dev)
 {
     uintptr_t clk_ptr;
@@ -23993,10 +24006,10 @@ static void regtrace_t40_csi_activate_direct(uintptr_t csi_dev)
     uint32_t old_state0;
     uint32_t old_state1;
     uint32_t i;
-    static int activated;
 
-    if (activated)
+    if (regtrace_csi_clks_enabled)
         return;
+    regtrace_fr_mark(0x60, 0);
     if (!regtrace_is_kernel_ptr((void *)csi_dev))
         return;
 
@@ -24028,8 +24041,10 @@ static void regtrace_t40_csi_activate_direct(uintptr_t csi_dev)
         }
     }
 
-    activated = 1;
+    regtrace_csi_clks_enabled = 1;
     regtrace_csi_activate_count++;
+    if (regtrace_csi_activate_count > 1)
+        regtrace_csi_reactivate_count++;
     printk(KERN_INFO "tx_isp_t40_recovered: CSI direct activate csi=%p state0=%u/%u state1=%u/%u clk_ptr=%p clk_num=%u\n",
            (void *)csi_dev, state0, old_state0, state1, old_state1,
            (void *)clk_ptr, clk_num);
@@ -41987,6 +42002,11 @@ int tx_isp_csi_slake_subdev(void *arg1)
             s1_2 = s1_2 - 1;
             private_clk_disable_unprepare(*s0_4);
         }
+    }
+    if (regtrace_csi_clks_enabled) {
+        regtrace_csi_clks_enabled = 0;
+        regtrace_fr_mark(0x61, 0);
+        printk(KERN_INFO "tx_isp_t40_recovered: CSI slake: clocks off, direct activate re-armed\n");
     }
 
     return 0;
