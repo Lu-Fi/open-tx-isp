@@ -99894,6 +99894,14 @@ int32_t tisp_awb_gain_reg(int32_t *arg1, int32_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030dcc origin=fragment_seed original=tisp_awb_set_gain */
 int64_t tisp_awb_set_gain(uintptr_t a0, uint32_t a1)
 {
+    /*
+     * T40-AWB-SEGV: a0 is the AWB context pointer only until fragments
+     * 12/13 reassign it - the OEM used $4 as a scratch register.  The
+     * AWBGAIN trace at label tisp_awb_set_gain0x210 needs the context, so
+     * keep the entry value in its own variable instead of reading the
+     * scratch value as a pointer.
+     */
+    uintptr_t awb_main_ctx_entry = a0;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -100107,13 +100115,29 @@ tisp_awb_set_gain0x210:
     local_18 = (((uintptr_t)v0 << 2) - 1024) + (*(uint32_t *)((char *)((uintptr_t)s3) + 0));
     local_1c = ((local_1c << 2) - 1024) + (*(uint32_t *)((char *)((uintptr_t)s3) + 4));
     {
+        /*
+         * T40-AWB-SEGV: resolve the two context slots from the value a0
+         * held on entry.  By the time this trace runs a0 has been reused
+         * as a scratch register (fragments 12/13), so reading (a0 + 12)
+         * dereferenced a plain data value: on the 2026-10-13 device run it
+         * was 0x1561, the load at 0x156d raised AdEL "Unhandled kernel
+         * unaligned access" inside t40_devtest and killed it with SIGSEGV.
+         * The guards also keep the trace safe if set_gain ever runs before
+         * tisp_awb_params_transmit() filled the pointer table.
+         */
         static uint32_t _awbg_trace;
+        uint32_t _awbg_p12 = awb_main_ctx_entry ?
+            *(uint32_t *)((char *)awb_main_ctx_entry + 12) : 0;
+        uint32_t _awbg_p20 = awb_main_ctx_entry ?
+            *(uint32_t *)((char *)awb_main_ctx_entry + 20) : 0;
         if (_awbg_trace++ < 8)
-            printk(KERN_INFO "tx_isp_t40_recovered: AWBGAIN v0=%u s4(shift)=%u p12=%p p12+2=%u a0+20deref=%u base_r=%u -> rgain=%d bgain=%d\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: AWBGAIN ctx=%p v0=%u s4(shift)=%u p12=0x%08x p12+2=%u p20=0x%08x p20+20=%u base_r=%u -> rgain=%d bgain=%d\n",
+                   (void *)awb_main_ctx_entry,
                    (uint32_t)(uintptr_t)v0, (uint32_t)(uintptr_t)s4,
-                   (void *)*(uint32_t *)((char *)a0 + 12),
-                   (*(uint32_t *)((char *)a0 + 12)) ? *(uint16_t *)((char *)(uintptr_t)(*(uint32_t *)((char *)a0 + 12)) + 2) : 0xffff,
-                   (*(uint32_t *)((char *)a0 + 20)) ? *(uint32_t *)((char *)(uintptr_t)(*(uint32_t *)((char *)a0 + 20)) + 20) : 0xffffffff,
+                   _awbg_p12,
+                   _awbg_p12 ? *(uint16_t *)((char *)(uintptr_t)_awbg_p12 + 2) : 0xffff,
+                   _awbg_p20,
+                   _awbg_p20 ? *(uint32_t *)((char *)(uintptr_t)_awbg_p20 + 20) : 0xffffffff,
                    *(uint32_t *)((char *)((uintptr_t)s3) + 0),
                    (int)(uintptr_t)local_18, (int)local_1c);
     }
