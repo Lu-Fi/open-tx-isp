@@ -635,6 +635,24 @@ Next device step: ch1 800x450 / 832x468 / 896x504 / 960x540 (limit set to
 0), ch1 started before and after ch0, recording `msca_latch_timeouts` and
 the "latch not seen" lines, to tell a width, ratio or size limit apart.
 
+Device run 2026-10-13 (T41 .32, agg-38 kernel, this branch's module loaded
+at runtime, `t41_msca_cfg_update=2 t41_msca_stop_disable=1`, a libimp
+test tool without encoder: ch0 1920x1080 scaled from 2880x1620, ch1
+started 4 s after ch0 or before it; numbers only):
+- default `cfg_update=0`: ch1 640x360 broken as described above (SSIM
+  against downscaled ch0 about 0.6, chroma near zero, `csc_latch_skipped`
+  counts up).
+- `cfg_update=2`: ch1 640x360, 768x432, 800x450, 832x468, 896x504,
+  960x540 and 1280x720 all correct (SSIM 0.993-0.996 full frame and top
+  1/8, so no band; ch1 Y and R/G, B/G within 1 % of ch0); 800..960 also
+  with ch1 started first; 960x540 stopped and restarted 10 times with ch0
+  running; no hang, no oops, no "latch not seen" during the ch1 starts
+  (one timeout at the very first ch0 start), `csc_latches` counts up.
+- the SET_FMT gate refused 960x540 with -EINVAL (`msca_fmt_refused` 1).
+So the 960x540/1280x720 hang does not reproduce with the frame source
+alone; it needs the full streamer path (encoder running, client-driven
+start), which was not run here.
+
 
 ## MSCA zoom, mask and scaler level (branch `claude/t41-zoom-mask`)
 
