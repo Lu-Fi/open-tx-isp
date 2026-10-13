@@ -9119,6 +9119,7 @@ static bool regtrace_enable_core_event_state_2_before_boot;
 static bool regtrace_enable_core_event_oem_state_sequence;
 static bool regtrace_enable_tisp_desc_oem_fill;
 static bool regtrace_force_core_bayer_reg8_value;
+static bool regtrace_t40_bayer_oem_mapper_check;
 static bool regtrace_enable_tisp_process_init;
 static bool regtrace_enable_tisp_main_init_state;
 static bool regtrace_enable_tisp_main_init_size_reg;
@@ -9187,6 +9188,8 @@ static uint regtrace_framechan_dma_sync_dqbuf_dir = DMA_BIDIRECTIONAL;
 static uint regtrace_framechan_neutral_uv_channel_mask = 0x1U;
 static uint regtrace_framechan_neutral_uv_value = 0x80U;
 static uint regtrace_tisp_ipc_1000_delay_ms;
+/* gc4653 / SGRBG10 fallback Bayer word (bits 16..17 = sample depth, low
+ * nibble = phase); only used when the sensor published no Bayer mBus format. */
 static uint regtrace_core_bayer_reg8_value = 0x10002;
 static uint regtrace_core_start_mode_804_value = 0x10;
 static uint regtrace_t40_msca_shadow_cmd_mask = 0x3;
@@ -9212,7 +9215,9 @@ static uint32_t regtrace_tisp_main_init_last_reg40;
 static uint regtrace_tisp_main_init_reg48_value = 0x8fffffff;
 static uint regtrace_tisp_main_init_reg6c_value = 0x00030024;
 static uint regtrace_tisp_main_init_reg60_value = 0;
-static uint regtrace_tisp_main_init_reg88_override = 0x00000102;
+/* 0xffffffff = derive TISP register 0x88 from the sensor's mBus format (the
+ * default); any other value forces that literal register value. */
+static uint regtrace_tisp_main_init_reg88_override = 0xffffffffU;
 static uint regtrace_tisp_main_init_csc_version_value = 2;
 static uint regtrace_tisp_main_init_color_init_mask;
 static char *regtrace_t40_tuning_bin_path = "/usr/share/sensor/gc4653-t40.bin";
@@ -9448,6 +9453,7 @@ module_param_named(enable_core_event_state_2_before_boot, regtrace_enable_core_e
 module_param_named(enable_core_event_oem_state_sequence, regtrace_enable_core_event_oem_state_sequence, bool, 0644);
 module_param_named(enable_tisp_desc_oem_fill, regtrace_enable_tisp_desc_oem_fill, bool, 0644);
 module_param_named(force_core_bayer_reg8_value, regtrace_force_core_bayer_reg8_value, bool, 0644);
+module_param_named(t40_bayer_oem_mapper_check, regtrace_t40_bayer_oem_mapper_check, bool, 0644);
 module_param_named(enable_tisp_process_init, regtrace_enable_tisp_process_init, bool, 0644);
 module_param_named(enable_tisp_main_init_state, regtrace_enable_tisp_main_init_state, bool, 0644);
 module_param_named(enable_tisp_main_init_size_reg, regtrace_enable_tisp_main_init_size_reg, bool, 0644);
@@ -15524,6 +15530,7 @@ static void regtrace_isp_block_init_retry(const char *where)
 #define REGTRACE_TX_ISP_VIDEO_HEIGHT_OFFSET 0x04
 #define REGTRACE_TX_ISP_VIDEO_CODE_OFFSET 0x08
 #define REGTRACE_TX_ISP_VIDEO_ATTR_OFFSET 0x34
+#define REGTRACE_SENSOR_SUBDEV_VIDEO_OFFSET 0x2d0
 #define REGTRACE_TX_ISP_VIDEO_VIC_ID_OFFSET 0x4c
 #define REGTRACE_TX_ISP_EVENT_SENSOR_REGISTER 0x02000000U
 #define REGTRACE_TX_ISP_EVENT_SENSOR_SET_INPUT 0x02000004U
@@ -17587,6 +17594,11 @@ static int regtrace_vic_channel_valid(uint32_t channel);
 static int regtrace_channel_vinum(int channel);
 static void regtrace_seed_sensor_attr_from_subdev(int vinum);
 static uintptr_t regtrace_resolve_vic_dev(void);
+static uint32_t regtrace_t40_mbus_to_bayer_word(uint32_t mbus_code);
+static uint32_t regtrace_t40_bayer_word_from_mbus(uint32_t mbus_code);
+static uint32_t regtrace_t40_sensor_mbus_code(uint32_t channel);
+static uint32_t regtrace_t40_tisp_reg88_value(uint32_t bayer_word,
+                                              uint32_t wdr);
 static int regtrace_ispcore_pad_event_handle(void *pad_arg, uint32_t event,
                                              void *data);
 
@@ -18957,8 +18969,21 @@ static int regtrace_tisp_main_init_scalar_reapply(int channel,
 
     reg20 = regtrace_tisp_main_init_last_reg20 ?
         regtrace_tisp_main_init_last_reg20 : regtrace_tisp_main_init_reg20_value;
-    reg88 = regtrace_tisp_main_init_last_reg88 ?
-        regtrace_tisp_main_init_last_reg88 : regtrace_tisp_main_init_reg88_override;
+    if (regtrace_tisp_main_init_last_reg88) {
+        reg88 = regtrace_tisp_main_init_last_reg88;
+    } else if (regtrace_tisp_main_init_reg88_override != 0xffffffffU) {
+        reg88 = regtrace_tisp_main_init_reg88_override;
+    } else {
+        /* Default path: no literal override, so derive register 0x88 from the
+         * sensor's mBus format exactly like the tisp_main_init shim does. */
+        uint32_t sensor_code = regtrace_t40_sensor_mbus_code(0);
+        uint32_t sensor_word = sensor_code ?
+            regtrace_t40_bayer_word_from_mbus(sensor_code) :
+            regtrace_core_bayer_reg8_value;
+
+        reg88 = regtrace_t40_tisp_reg88_value(
+            sensor_word, regtrace_tisp_main_init_last_wdr);
+    }
     if (regtrace_t40_quality_profile >= 3U)
         reg40 = regtrace_t40_quality_top40_final;
     else
@@ -24637,16 +24662,104 @@ static uint16_t regtrace_attr_u16_or(uintptr_t attr, uint32_t off,
     return value ? value : fallback;
 }
 
+/*
+ * TISP mBus format -> packed Bayer word.
+ *
+ * TISP has to know the Bayer phase of the connected sensor.  If the phase is
+ * wrong the ISP front end de-interleaves a linear stream (the DEIR path) and
+ * the frame comes out flat and chroma-less, with a magenta cast once AWB is
+ * applied.
+ *
+ * input_mbus_fmt (tx-isp-videodev.h) lays the plain Bayer formats out as
+ *   SBGGR8_1X8 = 0x5200, SGBRG8_1X8 = 0x5201,
+ *   SGRBG8_1X8 = 0x5202, SRGGB8_1X8 = 0x5203,
+ *   SBGGR10_1X10 = 0x5204 ... SBGGR16/SRGGB16 = 0x5213
+ * so bits 0..1 select the quartet and bits 2..4 the sample depth (1 = 10 bit,
+ * 2 = 12 bit, 4 = 16 bit); the "S" prefix only names the first pixel and does
+ * not change the quartet.
+ *
+ * The packed word carries the depth in bits 16..17 and the phase in bits 0..2
+ * through { BGGR = 1, GBRG = 3, GRBG = 2, RGGB = 0 } - the same mapping the T41
+ * driver applies in its REGTRACE_KERNEL_TREE_BUILD override of
+ * isp_mbus_to_bayer().  regtrace_t40_tisp_reg88_value() shifts the depth down
+ * into TISP register 0x88 bits 8..9, so sc830ai's SBGGR10 becomes 0x10001 and
+ * register 0x88 = 0x101 (the value validated on device).
+ *
+ * Returns 0 for anything that is not one of the plain Bayer formats.
+ */
+static uint32_t regtrace_t40_mbus_to_bayer_word(uint32_t mbus_code)
+{
+    static const uint8_t bayer_order[4] = { 1, 3, 2, 0 };
+    uint32_t offset;
+
+    if (mbus_code < 0x5200U || mbus_code >= 0x5214U)
+        return 0;
+
+    offset = mbus_code - 0x5200U;
+    return ((offset >> 2) << 16) | (uint32_t)bayer_order[offset & 3U];
+}
+
 static uint32_t regtrace_t40_bayer_word_from_mbus(uint32_t mbus_code)
 {
-    uint32_t word = mbus_code;
-    int64_t mapped;
+    uint32_t word = regtrace_t40_mbus_to_bayer_word(mbus_code);
+    uint32_t in = mbus_code;
+    int64_t mapped = 0;
 
-    mapped = isp_mbus_to_bayer_isra_0((uintptr_t)&word);
-    if ((int32_t)mapped < 0)
-        return regtrace_core_bayer_reg8_value;
+    if (!word || regtrace_t40_bayer_oem_mapper_check) {
+        mapped = isp_mbus_to_bayer_isra_0((uintptr_t)&in);
+        if (regtrace_t40_bayer_oem_mapper_check)
+            printk(KERN_INFO
+                   "tx_isp_t40_recovered: bayer fmt check mbus=0x%x sensor=0x%x generated=0x%x\n",
+                   mbus_code, word, (uint32_t)mapped);
+    }
 
-    return (uint32_t)mapped;
+    if (word)
+        return word;
+
+    /*
+     * Format not published (or not a plain Bayer code): keep the historical
+     * behaviour - the generated mapper result, then the gc4653 fallback word.
+     * The generated translation returns the raw enum offset for the ordinary
+     * Bayer codes (SBGGR10 -> 4, SGRBG10 -> 6/8 instead of 0x10001/0x10002),
+     * which is exactly the DEIR bug this table avoids.
+     */
+    if ((int32_t)mapped >= 0)
+        return (uint32_t)mapped;
+
+    return regtrace_core_bayer_reg8_value;
+}
+
+/*
+ * Bayer phase of the connected sensor.  The sensor driver publishes the mBus
+ * format in tx_isp_sensor.video.mbus.code (video at subdev+0x2d0, mbus.code at
+ * video+0x08); the VIC channel cache holds the format the ISP video node
+ * actually registered and is used as the second source.  Returns 0 when
+ * neither is known, so callers can keep the gc4653/SGRBG10 default.
+ */
+static uint32_t regtrace_t40_sensor_mbus_code(uint32_t channel)
+{
+    uintptr_t sd = (uintptr_t)regtrace_sensor_subdev;
+    uintptr_t vic_dev;
+    uintptr_t ch;
+    uint32_t code;
+
+    if (regtrace_is_kernel_ptr((void *)sd)) {
+        code = regtrace_get_u32(sd + REGTRACE_SENSOR_SUBDEV_VIDEO_OFFSET,
+                                REGTRACE_TX_ISP_VIDEO_CODE_OFFSET);
+        if (regtrace_t40_mbus_to_bayer_word(code))
+            return code;
+    }
+
+    vic_dev = regtrace_resolve_vic_dev();
+    if (regtrace_is_kernel_ptr((void *)vic_dev) &&
+        regtrace_vic_channel_valid(channel)) {
+        ch = regtrace_vic_channel(vic_dev, channel);
+        code = regtrace_get_u32(ch, REGTRACE_VIC_CH_MBUS_CODE_OFFSET);
+        if (regtrace_t40_mbus_to_bayer_word(code))
+            return code;
+    }
+
+    return 0;
 }
 
 static uint32_t regtrace_t40_tisp_reg88_from_bayer(uint32_t bayer_word,
@@ -24724,8 +24837,14 @@ static void regtrace_tisp_desc_oem_fill(uint32_t *desc, uint32_t channel,
     uintptr_t name_ptr;
     uint32_t width = desc[0] ? desc[0] : 2560;
     uint32_t height = desc[1] ? desc[1] : 1440;
-    uint32_t mbus_code = REGTRACE_TISP_VI_FMT_SGRBG10_1X10;
+    /*
+     * Take the Bayer phase from the sensor's own mBus format: the gc4653
+     * SGRBG10 constant is only the last-resort default for the case where the
+     * sensor has not published its format yet.
+     */
+    uint32_t mbus_code = regtrace_t40_sensor_mbus_code(channel);
     uint32_t bayer_word;
+    bool mbus_from_sensor = mbus_code != 0;
     uint32_t fps;
     uint16_t total_width;
     uint16_t total_height;
@@ -24733,6 +24852,9 @@ static void regtrace_tisp_desc_oem_fill(uint32_t *desc, uint32_t channel,
     uint16_t integration_limit;
     uint16_t one_line;
     unsigned char *raw = (unsigned char *)desc;
+
+    if (!mbus_code)
+        mbus_code = REGTRACE_TISP_VI_FMT_SGRBG10_1X10;
 
     if (regtrace_is_kernel_ptr((void *)attr)) {
         width = regtrace_attr_u32_or(attr, 0x30, width);
@@ -24825,10 +24947,11 @@ static void regtrace_tisp_desc_oem_fill(uint32_t *desc, uint32_t channel,
     if (bayer_word_out)
         *bayer_word_out = bayer_word;
 
-    printk(KERN_INFO "tx_isp_t40_recovered: TISP OEM desc fill ch=%u attr=%p name=%s %ux%u mbus=0x%x bayer=0x%x fps=0x%x total=%ux%u it=%u limits=%u/%u line=%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: TISP OEM desc fill ch=%u attr=%p name=%s %ux%u mbus=0x%x bayer=0x%x fps=0x%x total=%ux%u it=%u limits=%u/%u line=%u mbus_src=%s\n",
            channel, (void *)attr, name, width, height, mbus_code, bayer_word,
            fps, total_width, total_height, regtrace_get_u32((uintptr_t)raw, 0x40),
-           max_it_native, integration_limit, one_line);
+           max_it_native, integration_limit, one_line,
+           mbus_from_sensor ? "sensor" : "gc4653_default");
 }
 
 static uint32_t *regtrace_core_event_state_ptr(uintptr_t core_dev, int channel)
@@ -24892,8 +25015,8 @@ static int regtrace_core_event_tisp_bootstrap(int channel, uint32_t tisp_id)
     uintptr_t path = 0;
     uint32_t width = 0;
     uint32_t height = 0;
-    uint32_t code = REGTRACE_TISP_VI_FMT_SGRBG10_1X10;
-    uint32_t bayer_word = code;
+    uint32_t code = 0;
+    uint32_t bayer_word = 0;
     uint32_t *statep = NULL;
     bool do_state2 = regtrace_enable_core_event_state_2_before_boot ||
         regtrace_enable_core_event_oem_state_sequence;
@@ -24922,10 +25045,20 @@ static int regtrace_core_event_tisp_bootstrap(int channel, uint32_t tisp_id)
     if (!height)
         height = 1440;
 
+    /* Seed the descriptor Bayer field from the sensor's own mBus format; the
+     * gc4653 SGRBG10 constant is only the fallback when the sensor has not
+     * published its format yet.  The packed depth|phase word is what
+     * tisp_main_init consumes (code -> TISP register 0x88). */
+    code = regtrace_t40_sensor_mbus_code((uint32_t)channel);
+    if (!code)
+        code = REGTRACE_TISP_VI_FMT_SGRBG10_1X10;
+    bayer_word = regtrace_t40_bayer_word_from_mbus(code);
+
     desc[0] = width;
     desc[1] = height;
     *(uint16_t *)((char *)desc + 8) = (uint16_t)code;
     *(uint16_t *)((char *)desc + 10) = 0;
+    regtrace_put_u32((uintptr_t)desc, 8, bayer_word);
     desc[31] = tisp_id;
     if (regtrace_enable_tisp_desc_oem_fill) {
         regtrace_tisp_desc_oem_fill(desc, (uint32_t)channel, &code,
