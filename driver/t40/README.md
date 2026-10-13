@@ -546,3 +546,28 @@ Findings:
 5. rmmod after a run: the two mis-resolved calls in `ispcore_slake_module`
    are fixed on paper (68ac89d0) but untested; check with
    `dmesg | grep -c "Unable to handle"`.
+
+## Eufy sc830ai: best tested picture (2026-10-13)
+
+Device-tested on the Eufy T40XP (sc830ai, 4K sensor, 1280x720 capture, same-age frames). Each step was measured in one boot, numbers only:
+
+| Step | Y (centre) | neighbour diff | U / V |
+|---|---|---|---|
+| morning baseline (profile 1 + bin) | 32.6 | 22.1 | 157 / 156 |
+| + stale-TOP-replay fix + fixpoint/AE-writer repair (this commit) | 19.8 | 15.9 | 144 / 144 |
+| + `enable_dmsc_static=1 dmsc_stock_current_overlay=1` | 29.7 | 12.3 | 130 / 132 |
+| + `frame_3a_interval=3` | 125 | 23.5 | 131 / 131 |
+| + `t40_force_active=0x4000` (YDNS) | 145 | 23.0 | 131 / 131 |
+
+Rejected:
+- `t40_force_bypass=0x20001` (BLC off): U/V rise to 172.
+- `dmsc_stock_high_gain_overlay=1`: U/V rise to 142.
+
+Recommended insmod line:
+
+    insmod tx-isp-t40.ko isp_clk=300000000 t40_quality_profile=1 t40_force_bypass=0x20000 \
+      sensor_full_width_override=3840 sensor_full_height_override=2160 skip_tisp_deinit=1 \
+      t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin enable_dmsc_static=1 \
+      dmsc_stock_current_overlay=1 frame_3a_interval=3 t40_force_active=0x4000
+
+Still open: YSP (sharpness) is still forced off, and day/night has not been checked on this baseline. Analyses and reviews by external helpers are in the session notes.
