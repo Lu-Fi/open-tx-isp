@@ -49248,10 +49248,12 @@ int32_t isp_irq_handle(int32_t arg1, void* arg2)
     int32_t direct_ret;
 
     direct_ret = regtrace_vic_irq_ack_filter(arg1, arg2);
+    regtrace_fr_mark(0x19, (uint32_t)direct_ret);
     if (direct_ret != IRQ_NONE)
         return direct_ret;
 
     direct_ret = regtrace_isp_irq_ack_only_filter(arg1, arg2);
+    regtrace_fr_mark(0x1a, (uint32_t)direct_ret);
     if (direct_ret != IRQ_NONE)
         return direct_ret;
 
@@ -49267,12 +49269,14 @@ int32_t isp_irq_handle(int32_t arg1, void* arg2)
             ops = regtrace_get_u32(holder, 0);
         if (regtrace_is_kernel_ptr((void *)ops))
             cb = regtrace_get_u32(ops, 0x24);
+        regtrace_fr_mark(0x1b, (uint32_t)cb);
         if (regtrace_is_kernel_ptr((void *)cb)) {
             result = ((int32_t (*)(uintptr_t, int32_t, int32_t))cb)
                 (base - REGTRACE_IRQ_TABLE_SUBDEV_OFF, arg1, 0);
             if (result != IRQ_WAKE_THREAD)
                 result = IRQ_HANDLED;
         }
+        regtrace_fr_mark(0x1c, (uint32_t)result);
     }
 
     slot = base - 0x48;
@@ -49289,11 +49293,13 @@ int32_t isp_irq_handle(int32_t arg1, void* arg2)
                 ops = regtrace_get_u32(holder, 0);
             if (regtrace_is_kernel_ptr((void *)ops))
                 cb = regtrace_get_u32(ops, 0x24);
+            regtrace_fr_mark(0x1d, (uint32_t)cb);
             if (regtrace_is_kernel_ptr((void *)cb) &&
                 ((int32_t (*)(uintptr_t, int32_t, int32_t))cb)
                     (subdev, arg1, 0) == IRQ_WAKE_THREAD) {
                 result = IRQ_WAKE_THREAD;
             }
+            regtrace_fr_mark(0x1e, (uint32_t)subdev);
         }
 
         slot += sizeof(uint32_t);
