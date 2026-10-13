@@ -23838,11 +23838,48 @@ static int regtrace_framechan_private_cmd(unsigned int cmd)
     }
 }
 
+/*
+ * Frame channels 0..2 share vinum 0 (one CSI, one VIC, one sensor).  Only
+ * the first channel of a vinum starts CSI/VIC and only the last one stops
+ * them, and the sensor is stopped with them: without this the second
+ * channel re-initialised the CSI (reset, PHY) while the sensor was already
+ * streaming, and the sensor was never stopped at all, so a restart ran
+ * the CSI/VIC bring-up against live MIPI data and the camera hung on a
+ * CSI/VIC register access (second-start hang, flight recorder c5-c8c).
+ */
+static int regtrace_vinum_csi_refcnt[2];
+static int regtrace_vinum_vic_refcnt[2];
+static bool regtrace_t40_sensor_stream_off_on_stop = true;
+module_param_named(t40_sensor_stream_off_on_stop, regtrace_t40_sensor_stream_off_on_stop, bool, 0644);
+
 static long regtrace_framechan_call_vic_stream(int channel, int enable)
 {
     uint32_t stream_arg[2];
     void *vic_sd;
     long ret;
+    int vinum = regtrace_channel_vinum(channel);
+
+    if (vinum >= 0 && vinum < 2) {
+        if (enable) {
+            if (regtrace_vinum_vic_refcnt[vinum]++ > 0) {
+                printk(KERN_INFO "tx_isp_t40_recovered: framechan%d VIC streamon shared vinum=%d refcnt=%d\n",
+                       channel, vinum, regtrace_vinum_vic_refcnt[vinum]);
+                return 0;
+            }
+        } else {
+            if (regtrace_vinum_vic_refcnt[vinum] > 1) {
+                regtrace_vinum_vic_refcnt[vinum]--;
+                printk(KERN_INFO "tx_isp_t40_recovered: framechan%d VIC streamoff deferred vinum=%d refcnt=%d\n",
+                       channel, vinum, regtrace_vinum_vic_refcnt[vinum]);
+                return 0;
+            }
+            regtrace_vinum_vic_refcnt[vinum] = 0;
+            if (regtrace_t40_sensor_stream_off_on_stop) {
+                regtrace_fr_mark(0x79, (uint32_t)vinum);
+                regtrace_sensor_call_video_stream(0, vinum);
+            }
+        }
+    }
 
     if (regtrace_skip_vic_stream) {
         if (channel >= 0 && channel < 4)
@@ -24271,6 +24308,23 @@ static long regtrace_framechan_call_csi_stream(int channel, int enable)
 
     vinum = regtrace_channel_vinum(channel);
     state_off = regtrace_csi_state_offset((uint32_t)vinum);
+    if (vinum >= 0 && vinum < 2) {
+        if (enable) {
+            if (regtrace_vinum_csi_refcnt[vinum]++ > 0) {
+                printk(KERN_INFO "tx_isp_t40_recovered: framechan%d CSI streamon shared vinum=%d refcnt=%d\n",
+                       channel, vinum, regtrace_vinum_csi_refcnt[vinum]);
+                return 0;
+            }
+        } else {
+            if (regtrace_vinum_csi_refcnt[vinum] > 1) {
+                regtrace_vinum_csi_refcnt[vinum]--;
+                printk(KERN_INFO "tx_isp_t40_recovered: framechan%d CSI streamoff deferred vinum=%d refcnt=%d\n",
+                       channel, vinum, regtrace_vinum_csi_refcnt[vinum]);
+                return 0;
+            }
+            regtrace_vinum_csi_refcnt[vinum] = 0;
+        }
+    }
     if (enable) {
         regtrace_t40_csi_activate_direct(csi_dev);
         regtrace_fr_mark(0x6b, (uint32_t)regtrace_csi_clks_enabled);
