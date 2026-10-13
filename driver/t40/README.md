@@ -400,7 +400,15 @@ Block bisect (each run one boot, metrics only, media discarded):
 - rmmod (p6 x1 on the same boot): exit steps 1-8 fine, step 10 (platform
   device unregister -> OEM remove callbacks) hangs the camera.  Split into
   one step per child device (fs, vin, vic, csi, core) with recorder marks.
-Next: p6 per-device rmmod bisect; YSP order; sc830ai tuning (daylight).
+- p6 x2 (03:57): exit step 10 again took the camera down, and this time it
+  did not come back (no watchdog reset, no ping for >10 min) - the
+  remove path can leave the SoC in a state the watchdog does not recover
+  from; needs a power cycle.  Per-device bisect (steps 10-14 = fs, vin,
+  vic, csi, core; 15 = parent/drivers; marks 0x80/0x81/0x91-0x95) is in
+  62a1e4ea and waits for the next boot.  Until the remove path is
+  understood: do not rmmod tx-isp-t40 on the Eufy; reboot instead.
+Next: p6 per-device rmmod bisect (after power cycle); YSP order; sc830ai
+tuning (daylight).
 
 ### Daylight plan (image quality)
 1. Extract the sc830ai tuning from `/etc/sensor/sc830ai-t40.bin` (vendor IQ
