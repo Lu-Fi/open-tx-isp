@@ -23487,6 +23487,7 @@ static void regtrace_t40_apply_stock_vic_overrides_for_channel(
 
 static int regtrace_t40_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x75, channel);
     uintptr_t ch;
     uintptr_t attr;
     uintptr_t regs_addr;
@@ -23669,8 +23670,10 @@ static int regtrace_t40_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
         printk(KERN_WARNING "tx_isp_t40_recovered: sensor stream start before VIC unlock returned %d\n",
                ret);
 
+    regtrace_fr_mark(0x76, 2);
     writel(2, base + 0x00);
     writel(4, base + 0x00);
+    regtrace_fr_mark(0x77, 4);
     unlock_1a0 = (frame_mode << 4) | sensor_mode;
     regtrace_vic_start_diag.unlock_1a0 = unlock_1a0;
     writel(unlock_1a0, base + 0x1a0);
@@ -23696,6 +23699,7 @@ static int regtrace_t40_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
            base + 0x104);
     writel((regtrace_get_u16(attr, 0x5e) << 16) | regtrace_get_u16(attr, 0x5a),
            base + 0x108);
+    regtrace_fr_mark(0x78, 1);
     writel(1, base + 0x00);
     wmb();
     regtrace_vic_start_diag.wait_loops = i;
@@ -32687,8 +32691,10 @@ void tx_vic_enable_irq(int32_t arg1)
     }
 
     enable_cb = *(uintptr_t *)(irq_base + REGTRACE_IRQ_ENABLE_OFF);
+    regtrace_fr_mark(0x73, (uint32_t)enable_cb | (*statep ? 1U : 0U));
     if (enable_cb && *statep == 0) {
         ((void (*)(uintptr_t, int32_t))enable_cb)(irq_base, arg1);
+        regtrace_fr_mark(0x74, (uint32_t)arg1);
 
         if (*(uintptr_t *)(vsd + 0xe8) &&
             *(uintptr_t *)(vsd + 0xe8) < 0xfffff001UL) {
@@ -32797,9 +32803,12 @@ int64_t vic_core_s_stream(uintptr_t a0, uintptr_t a1)
         return 0;
 
     irq_index = (int32_t)tx_isp_vic_index_cal(vic_dev, idx);
+    regtrace_fr_mark(0x70, (uint32_t)irq_index);
     tx_vic_enable_irq(irq_index);
+    regtrace_fr_mark(0x71, (uint32_t)irq_index);
     regtrace_vic_start_call_count++;
     ret = tx_isp_vic_start(vic_dev, idx);
+    regtrace_fr_mark(0x72, (uint32_t)ret);
     *statep = 4;
 
     printk(KERN_INFO "tx_isp_t40_recovered: vic_core_s_stream start ret=%ld idx=%u irq_index=%d\n",
