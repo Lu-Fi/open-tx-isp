@@ -561,7 +561,7 @@ Device-tested on the Eufy T40XP (sc830ai, 4K sensor, 1280x720 capture, same-age 
 | `t40_force_active=0x6020` (YDNS + DMSC + GIB) instead | 137 | 8.9 | 131 / 131 |
 | + Bayer phase BGGR: `tisp_main_init_reg88_override=0x101 core_bayer_reg8_value=0x10001` | 117 (frame) | 7.0 | 120 / 136 |
 
-The Bayer step is the colour fix. The driver defaulted to the GRBG phase of the GC4653 bring-up, while the sc830ai delivers BGGR (`0x13300088` = `0x101`, as in the vendor stack). With the wrong phase the white-balance gains landed on the wrong colours, giving a grey picture with a magenta cast in shadows and clipped highlights. With BGGR the colours are natural; the white balance is still slightly warm.
+The Bayer step is the colour fix. The driver defaulted to the GRBG phase of the GC4653 bring-up, while the sc830ai delivers BGGR (`0x13300088` = `0x101`, as in the vendor stack). With the wrong phase the white-balance gains landed on the wrong colours, giving a grey picture with a magenta cast in shadows and clipped highlights. With BGGR the colours are natural. The frame white balance then started from GRBG-era gains and converged too slowly (warm picture). `frame_awb_bggr_fast=1` seeds the measured sc830ai daylight gains R 1060 / B 2640 on the first BGGR frame and then trims proportionally inside the existing deadband: full-frame U/V 128.1/130.7, neighbour diff 6.4.
 
 Rejected:
 - `t40_force_bypass=0x20001` (BLC off): U/V rise to 172.
@@ -575,6 +575,6 @@ Recommended insmod line:
       sensor_full_width_override=3840 sensor_full_height_override=2160 skip_tisp_deinit=1 \
       t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin enable_dmsc_static=1 \
       dmsc_stock_current_overlay=1 frame_3a_interval=3 t40_force_active=0x6020 \
-      tisp_main_init_reg88_override=0x101 core_bayer_reg8_value=0x10001
+      tisp_main_init_reg88_override=0x101 core_bayer_reg8_value=0x10001 frame_awb_bggr_fast=1
 
 Still open: the Bayer phase should come from the sensor format instead of an override; white-balance fine tuning; YSP (sharpness) is still forced off, and day/night has not been checked on this baseline. Analyses and reviews by external helpers are in the session notes.

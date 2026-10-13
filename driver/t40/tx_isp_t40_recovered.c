@@ -9004,6 +9004,7 @@ static uint regtrace_frame_3a_target = 110;
  */
 static uint regtrace_frame_awb_target = 128;
 static uint regtrace_frame_awb_hyst = 2;
+static bool regtrace_frame_awb_bggr_fast;
 static uint regtrace_frame_3a_highlight_level = 245;
 /* Lamps and windows covered 3..5 percent of the live GC4653 scene.  Arm the
  * existing mean-gated guard at 3 percent; its target check prevents a local
@@ -9368,6 +9369,7 @@ module_param_named(frame_3a_interval, regtrace_frame_3a_interval, uint, 0644);
 module_param_named(frame_3a_target, regtrace_frame_3a_target, uint, 0644);
 module_param_named(frame_awb_target, regtrace_frame_awb_target, uint, 0644);
 module_param_named(frame_awb_hyst, regtrace_frame_awb_hyst, uint, 0644);
+module_param_named(frame_awb_bggr_fast, regtrace_frame_awb_bggr_fast, bool, 0644);
 module_param_named(frame_3a_highlight_level,
                    regtrace_frame_3a_highlight_level, uint, 0644);
 module_param_named(frame_3a_highlight_limit_permille,
@@ -100866,6 +100868,22 @@ tisp_awb_get_statistics0x5a8:
  * a static 32MB rmem window on first use. Dimensions come from the active
  * frame-channel/sensor format rather than a board-specific override.
  */
+/* Conservative proportional trim: 8 gain units per chroma code, bounded. */
+static uint32_t regtrace_frame_awb_trim(uint32_t gain, uint32_t mean,
+                                        uint32_t target, uint32_t hyst)
+{
+    uint32_t error, step, limit;
+    gain = clamp_t(uint32_t, gain, 0x200U, 0x1800U);
+    error = mean > target ? mean - target : target - mean;
+    if (error <= hyst)
+        return gain;
+    limit = max_t(uint32_t, gain / 8U, 1U);
+    step = min_t(uint32_t, error * 8U, limit);
+    if (mean > target)
+        return gain > 0x200U + step ? gain - step : 0x200U;
+    return min_t(uint32_t, gain + step, 0x1800U);
+}
+
 static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
 {
     static void __iomem *win;
@@ -101019,6 +101037,22 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
         uint32_t high = min_t(uint32_t, target + hyst, 255U);
         bool changed = false;
 
+        /* Opt-in measured sc830ai/BGGR seed; wait for a new sample before trim. */
+        if (regtrace_frame_awb_bggr_fast &&
+            ((uint32_t)system_reg_read(0x88U) & 3U) == 1U) {
+            static bool seeded;
+            uint32_t old_r = rgain, old_b = bgain;
+
+            if (!seeded) {
+                rgain = 1060U;
+                bgain = 2640U;
+                seeded = true;
+            } else {
+                rgain = regtrace_frame_awb_trim(rgain, vmean, target, hyst);
+                bgain = regtrace_frame_awb_trim(bgain, umean, target, hyst);
+            }
+            changed = rgain != old_r || bgain != old_b;
+        } else {
         if (vmean > high && rgain > 0x200U) {
             rgain -= rgain / 32U;
             changed = true;
@@ -101032,6 +101066,7 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
         } else if (umean < low && bgain < 0x1800U) {
             bgain += bgain / 32U;
             changed = true;
+        }
         }
         if (changed) {
             regtrace_awb_grayworld_last_rgain = rgain;
