@@ -616,6 +616,61 @@ disables all five engines and waits one frame before freeing. Untested on
 the device at the time of writing. At 1280x720 the encoder also fails an order-9 DMA allocation (`avpu:
 Can't alloc DMA buffer`, ch1 RTSP 503) when ch0 started first.
 
+Update 2026-10-13 (branch `claude/t41-ch1`, host analysis only): the
+open `tisp_msca_chx_cfg_load()` path matches stock 1.2.6 in order
+(para_calc, curve_calc, shadow-RAM curve, scaling_algorithm,
+init_chx_cfg, strides 0xf0180/0xf0198 + ch * 0x100, enable OR), the ch1
+coefficient RAM write (0xf1100/0xf1104, 33 phases x 8 taps) uses the
+stock indices, and the generated ch1 curves for 2880 -> 640..1920 are
+sane (every phase sums to 2048, taps -118..1372). Stock has no size or
+ratio branch around 768/960. The ch1 frame buffers come from one rmem
+block (OpenIMP `VBMCreatePool` -> `DMA_AllocDescriptor`), not from the
+kernel heap, and no driver allocation scales with the output size, so a
+512 KiB / page-order limit is ruled out on the ISP side (the order-9
+failure above is in the encoder driver). Cause still unknown. Until it is
+found, SET_FMT refuses ch1 larger than `t41_msca_ch1_max_w` x
+`t41_msca_ch1_max_h` (768x432) with `-EINVAL` when
+`t41_msca_cfg_update >= 2` (counter `msca_fmt_refused`).
+Next device step: ch1 800x450 / 832x468 / 896x504 / 960x540 (limit set to
+0), ch1 started before and after ch0, recording `msca_latch_timeouts` and
+the "latch not seen" lines, to tell a width, ratio or size limit apart.
+
+Device run 2026-10-13 (T41 .32, agg-38 kernel, this branch's module loaded
+at runtime, `t41_msca_cfg_update=2 t41_msca_stop_disable=1`, a libimp
+test tool without encoder: ch0 1920x1080 scaled from 2880x1620, ch1
+started 4 s after ch0 or before it; numbers only):
+- default `cfg_update=0`: ch1 640x360 broken as described above (SSIM
+  against downscaled ch0 about 0.6, chroma near zero, `csc_latch_skipped`
+  counts up).
+- `cfg_update=2`: ch1 640x360, 768x432, 800x450, 832x468, 896x504,
+  960x540 and 1280x720 all correct (SSIM 0.993-0.996 full frame and top
+  1/8, so no band; ch1 Y and R/G, B/G within 1 % of ch0); 800..960 also
+  with ch1 started first; 960x540 stopped and restarted 10 times with ch0
+  running; no hang, no oops, no "latch not seen" during the ch1 starts
+  (one timeout at the very first ch0 start), `csc_latches` counts up.
+- the SET_FMT gate refused 960x540 with -EINVAL (`msca_fmt_refused` 1).
+So the 960x540/1280x720 hang does not reproduce with the frame source
+alone; it needs the full streamer path (encoder running, client-driven
+start), which was not run here.
+
+Streamer run 2026-10-13 (same camera and module, timps with a /tmp copy
+of its configuration, `general.fs_keepalive = 1`, gate off; local
+snapshot status codes, logs and counters only):
+- ch1 960x540: 30 min, every minute both snapshots 200, no oops, no
+  "latch not seen", no encoder errors in the log; then 10 timps
+  stop/start cycles, each start latched and served both snapshots.
+- ch1 1280x720: 10 min the same, then 5 timps stop/start cycles, clean.
+- defaults candidate (`cfg_update=2`, `stop_disable=1`, gate 1280x720,
+  loaded with the boot parameters only, unchanged timps configuration,
+  ch1 640x360): 98 alternating ch0/ch1 snapshot rounds in 10 min, all
+  200, clean. timps kept both channels running during these rounds, so
+  the client-driven idle-stop/restart of the old repro was not exercised
+  (no RTSP client was used); the restarts were covered by the timps
+  stop/start cycles above.
+Defaults since then: `t41_msca_cfg_update=2`, `t41_msca_stop_disable=1`,
+ch1 SET_FMT gate 1280x720 (`t41_msca_ch1_max_w/h`); the old behaviour is
+`t41_msca_cfg_update=0 t41_msca_stop_disable=0`.
+
 
 ## MSCA zoom, mask and scaler level (branch `claude/t41-zoom-mask`)
 
@@ -813,6 +868,17 @@ step and do not continue with larger sizes.
   bank, so the map is never built. Not changed: releasing the bypass before
   a map exists shows the calibration curve unvalidated; needs a device A/B
   first. SetTmoCurve has no visible effect until then.
+- **No MSCA word latches with the default `t41_msca_cfg_update=0` (2026-10-13,
+  read-only register dump on T41 .32, agg-38).** The active values are the
+  reset defaults: global input 0xf0084 = 1920x1080 (the ISP input is
+  2880x1620), ch0 0xf0100 = 1920x1080, ch1 0xf0200 = 1280x720, both ratios
+  1:1 (0xf0728/0xf072c = 0x4000), CSC off (0xf08ec = 0), while the
+  streamer runs ch1 at 640x360 (stride 0xf0280 = 640). So ch1 writes
+  1280x720 lines into 640x360 buffers, which explains the band in buffers
+  idx >= 1 and colours/brightness that do not follow ch0. The CSC words
+  never latched for a second reason, fixed on `claude/t41-ch1` (CHANGELOG).
+  Making the substream correct needs latching (`t41_msca_cfg_update=2`),
+  which is blocked by the ch1 >= 960x540 hang below.
 - **ch1 >= 960x540 started mid-stream can hang the SoC** with
   `t41_msca_cfg_update=2` (no oops, watchdog reset), also on a fresh boot
   without any earlier reload (960x540: one run 21/21 cycles, one hung in

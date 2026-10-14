@@ -300,12 +300,41 @@ static void test_plan(void)
 	assert(t41_msca_live_plan(1, 2, 1, 0, 0, 768, 432) == T41_MSCA_DEFER);
 }
 
+static void test_fmt_gate(void)
+{
+	const int E = -T41_MSCA_CTL_EINVAL;
+
+	/* cfg_update < 2: never gated (outputs keep the reset geometry) */
+	assert(t41_msca_fmt_gate(1, 0, 1280, 720, 1, 1280, 720, 768, 432) == 0);
+	assert(t41_msca_fmt_gate(1, 1, 960, 540, 1, 960, 540, 768, 432) == 0);
+	/* cfg_update 2, ch1: the stable envelope passes, larger is refused */
+	assert(t41_msca_fmt_gate(1, 2, 768, 432, 1, 768, 432, 768, 432) == 0);
+	assert(t41_msca_fmt_gate(1, 2, 640, 360, 1, 640, 360, 768, 432) == 0);
+	assert(t41_msca_fmt_gate(1, 2, 960, 540, 1, 960, 540, 768, 432) == E);
+	assert(t41_msca_fmt_gate(1, 2, 1280, 720, 0, 0, 0, 768, 432) == E);
+	assert(t41_msca_fmt_gate(1, 2, 800, 432, 0, 0, 0, 768, 432) == E);
+	assert(t41_msca_fmt_gate(1, 2, 768, 434, 0, 0, 0, 768, 432) == E);
+	/* scaler output checked only when the scaler is on */
+	assert(t41_msca_fmt_gate(1, 2, 640, 360, 1, 960, 540, 768, 432) == E);
+	assert(t41_msca_fmt_gate(1, 2, 640, 360, 0, 960, 540, 768, 432) == 0);
+	/* ch0/ch2 untouched, limit 0 disables the gate */
+	assert(t41_msca_fmt_gate(0, 2, 1920, 1080, 1, 1920, 1080, 768, 432) == 0);
+	assert(t41_msca_fmt_gate(2, 2, 1280, 720, 1, 1280, 720, 768, 432) == 0);
+	assert(t41_msca_fmt_gate(1, 2, 1280, 720, 1, 1280, 720, 0, 432) == 0);
+	assert(t41_msca_fmt_gate(1, 3, 960, 540, 0, 0, 0, 768, 432) == E);
+	/* driver default 1280x720 */
+	assert(t41_msca_fmt_gate(1, 2, 1280, 720, 1, 1280, 720, 1280, 720) == 0);
+	assert(t41_msca_fmt_gate(1, 2, 960, 540, 1, 960, 540, 1280, 720) == 0);
+	assert(t41_msca_fmt_gate(1, 2, 1440, 810, 1, 1440, 810, 1280, 720) == E);
+}
+
 int main(void)
 {
 	test_zoom();
 	test_mask();
 	test_scaler_lv();
 	test_plan();
+	test_fmt_gate();
 	printf("tx_isp_t41_msca_ctl_test: ok\n");
 	return 0;
 }

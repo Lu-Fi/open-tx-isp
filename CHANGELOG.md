@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-13: branch `claude/t41-ch1` (not merged)
+
+Module build against the agg-38 T41 kernel only; not run on a camera (device tests were not possible in this session).
+
+- **T41 CSC update request restored:** stock `tisp_csccr_default_mode()`, `_range_stretch_mode()` and `_range_compress_mode()` end with `0xf0010 = 1`; the lifted bodies lost that tail call, so the CSC words (0xf08e0..0xf08ec, MSCA staged registers) never took effect and the CSC block stayed off (0xf08ec reads 0 on agg-38). The request is issued with `t41_msca_cfg_update >= 2` only (it latches every staged MSCA word); with the default 0 the words stay staged and are counted in `csc_latch_skipped`. Counters: `csc_latches`, `csc_latch_skipped`.
+- **T41 ch1 size gate:** with `t41_msca_cfg_update >= 2`, SET_FMT on frame channel 1 larger than `t41_msca_ch1_max_w` x `t41_msca_ch1_max_h` (default 768x432, 0 = no limit) is refused with `-EINVAL` and a warning line, instead of hanging the SoC at the first start (960x540 and 1280x720 hung, see README "Output restart hang"). The scaler output size is checked too when the scaler is on. Counter `msca_fmt_refused`; host test in `tests/tx_isp_t41_msca_ctl_test.c`. No effect with `cfg_update=0`.
+- **T41 MSCA defaults changed:** `t41_msca_cfg_update=2` and `t41_msca_stop_disable=1` are now the defaults (the MSCA output geometry, ratios and CSC really take effect; ch1 follows ch0 in colour and exposure, no band), and the ch1 gate defaults to 1280x720. Tested on T41 .32 with the module loaded at runtime: ch1 640x360..1280x720 correct (SSIM 0.993-0.996 against ch0); timps with ch1 960x540 for 30 min plus 10 restarts and with 1280x720 for 10 min plus 5 restarts, no hang, no oops. The client-driven idle-stop/restart (RTSP) was not tested. `t41_msca_cfg_update=0 t41_msca_stop_disable=0` restores the old behaviour.
+
 ## 2026-10-12: aggregate agg-38 (not released)
 
 `claude/agg-38` = agg-37 (e40d7313) + `claude/awbstats` (with `claude/awbzone`), `claude/fcrop-upscale-cap`, `claude/t31-sharpness-fix`, `claude/t41-isp-handlers`, `claude/t41-reload-fix`, `claude/sensor-proc-compat`; `claude/gaps-t23-t31-drv` is recorded as merged without changes (agg-37 has the same patch, with SwitchBin already reworked: validated private copy published by pointer under the bank mutex, no copy over the live banks). Host tests (`make -C tests check`, `tests/t20_fw`) and module builds with the load check (`check_ko_symbols.sh`) for T10/T20/T21/T23/T31/T41; no soak of the aggregate yet.
