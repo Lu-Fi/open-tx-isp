@@ -27,7 +27,8 @@ What actually changes against agg-38:
   cameras run the soak as a regression check.
 
 Module md5 of the host build (unstripped, against each camera's agg-38 kernel tree): T10 5c0afb89,
-T20 e6b5c22a, T21 3aab8ec9, T23 7b93af16, T30 30ba084e, T31 ce63d2e3, T40 2321e4af, T41 63061b1d. Image builds
+T20 e6b5c22a, T21 3aab8ec9, T23 7b93af16, T30 30ba084e, T31 ce63d2e3, T40 2baaeac7, T41 a13691df (the T41
+module embeds its build date, so its md5 changes per build day without a code change). Image builds
 produce their own (stripped) modules; record those md5s in the build summary.
 
 ## 2. Cameras
