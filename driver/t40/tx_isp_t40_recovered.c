@@ -38722,7 +38722,7 @@ int64_t tx_isp_vin_init(uintptr_t a0, uintptr_t a1)
     /* fragment 1: MemoryAccess */
     v0 = *(uint32_t *)((char *)a1 + 4);
     s0 = a0;
-    v0 = v0 + 70;
+    v0 = (uintptr_t)v0 + 70;
     v0 = (uintptr_t)v0 << 2;
     v0 = a0 + (uintptr_t)v0;
     a0 = *(uint32_t *)((char *)v0 + 4);
@@ -38750,7 +38750,7 @@ tx_isp_vin_init0x44:
     a0 = a0 << 2;
 
     /* fragment 7: Branch */
-    a0 = s0 + a0;
+    a0 = (uintptr_t)s0 + a0;
     if (v1 == 0) { goto tx_isp_vin_init0xcc; }
 
     /* fragment 8: Arithmetic */
@@ -39502,7 +39502,7 @@ int64_t tx_isp_vin_reset(uintptr_t a0, uintptr_t a1)
 
     /* fragment 1: MemoryAccess */
     v0 = *(uint32_t *)((char *)a1 + 4);
-    v0 = v0 + 70;
+    v0 = (uintptr_t)v0 + 70;
     v0 = (uintptr_t)v0 << 2;
     a0 = a0 + (uintptr_t)v0;
     a0 = *(uint32_t *)((char *)a0 + 4);
@@ -39709,7 +39709,7 @@ int32_t tx_isp_vin_slake_subdev(uintptr_t a0)
     if (v0 == 0) { goto tx_isp_vin_slake_subdev0x34; }
 
     /* fragment 3: Arithmetic */
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1;
 
     /* fragment 4: MemoryAccess */
     *(uint32_t *)((char *)a0 + 324) = v0;
@@ -39724,10 +39724,10 @@ tx_isp_vin_slake_subdev0x34:
 
     /* fragment 7: Arithmetic */
     s4 = 0;
-    s2 = s0 + 312;
+    s2 = (uintptr_t)s0 + 312;
     s1 = 0;
-    s3 = s3 + 25684;
-    s4 = s4 + 26224;
+    s3 = (uintptr_t)s3 + 25684;
+    s4 = (uintptr_t)s4 + 26224;
     s5 = 0;
 
 tx_isp_vin_slake_subdev0x58:
@@ -39769,20 +39769,20 @@ tx_isp_vin_slake_subdev0x90:
 
 tx_isp_vin_slake_subdev0xb0:
     /* fragment 17: Arithmetic */
-    s1 = s1 + 1;
+    s1 = (uintptr_t)s1 + 1;
     v0 = 3;
 
     /* fragment 18: Branch */
-    s2 = s2 + 4;
+    s2 = (uintptr_t)s2 + 4;
     if (s1 != v0) { goto tx_isp_vin_slake_subdev0x58; }
 
     /* fragment 19: CallSetup */
-    s1 = s0 + 296;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_mutex_lock)(s0 + 296); /* jalr target resolved by relocation */
+    s1 = (uintptr_t)s0 + 296;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_mutex_lock)((uintptr_t)s0 + 296); /* jalr target resolved by relocation */
 
     /* fragment 20: MemoryAccess */
     v1 = *(uint32_t *)((char *)s0 + 276);
-    v0 = s0 + 276;
+    v0 = (uintptr_t)s0 + 276;
 
     /* fragment 21: Branch */
     int _bc_v1_21 = v1 == v0;
@@ -41274,14 +41274,14 @@ int64_t csi_sensor_ops_sync_sensor_attr(uint32_t a0, uint32_t a1)
     v0 = (uintptr_t *)memset((void *)(uintptr_t)(a0 + 276), a1, 96); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(s0 + 372), 0, 96); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)((uintptr_t)s0 + 372), 0, 96); /* jalr target resolved by relocation */
 
     /* fragment 7: Arithmetic */
     a2 = 96;
     a1 = 0;
 
     /* fragment 8: Branch */
-    a0 = s0 + 468;
+    a0 = (uintptr_t)s0 + 468;
     goto csi_sensor_ops_sync_sensor_attr0xd4;
 
 csi_sensor_ops_sync_sensor_attr0x60:
@@ -41444,7 +41444,7 @@ int64_t csi_phy_start(uintptr_t a0, uint32_t a1)
     s3 = a1;
     local_24 = 0;
     a0 = a0 + 328;
-    a3 = s2 + 616;
+    a3 = (uintptr_t)s2 + 616;
     v0 = 0;
     v1 = 0;
     a2 = 1;
@@ -41466,11 +41466,11 @@ csi_phy_start0x4c:
     a1 = *(uint8_t *)((char *)a1 + 40);
 
     /* fragment 8: Branch */
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1;
     if (a1 != a2) { goto csi_phy_start0x74; }
 
     /* fragment 9: Arithmetic */
-    v1 = v1 + 1;
+    v1 = (uintptr_t)v1 + 1;
 
 csi_phy_start0x74:
     /* fragment 10: Arithmetic */
@@ -41507,7 +41507,7 @@ csi_phy_start0x98:
 csi_phy_start0xd4:
     /* fragment 18: Arithmetic */
     s4 = (uintptr_t *)&private_spin_unlock_irqrestore;
-    s6 = s3 + 140;
+    s6 = (uintptr_t)s3 + 140;
     s5 = s5;
 
     /* fragment 19: Branch */
@@ -41518,7 +41518,7 @@ csi_phy_start0xd4:
     v0 = s2 < -4095;
 
     /* fragment 21: Branch */
-    s0 = s2 + 592;
+    s0 = (uintptr_t)s2 + 592;
     if (v0 == 0) { goto csi_phy_start0x314; }
 
     /* fragment 22: MemoryAccess */
@@ -41581,8 +41581,8 @@ csi_phy_start0xd4:
 
     /* fragment 37: CallSetup */
     *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 232)) + 12) = s1;
-    s1 = s0 + 592;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s0 + 592, &local_20); /* jalr target resolved by relocation */
+    s1 = (uintptr_t)s0 + 592;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)((uintptr_t)s0 + 592, &local_20); /* jalr target resolved by relocation */
 
     /* fragment 38: CallSetup */
     *(uint32_t *)((char *)s0 + 636) = ((*(uint32_t *)((char *)(s0) + 636)) + 1);
@@ -41600,7 +41600,7 @@ csi_phy_start0x19c:
     v0 = (uintptr_t)v1 + (uintptr_t)s0;
     v1 = *(uint32_t *)((char *)v0 + 328);
     v1 = *(uint8_t *)((char *)v1 + 41);
-    v1 = v1 - 1;
+    v1 = (uintptr_t)v1 - 1;
     *(uint32_t *)((char *)a0 + 4) = v1;
     v0 = *(uint32_t *)((char *)v0 + 328);
     v1 = 4;
@@ -41701,7 +41701,7 @@ csi_phy_start0x2dc:
 
 csi_phy_start0x310:
     /* fragment 57: CallSetup */
-    s0 = s2 + 592;
+    s0 = (uintptr_t)s2 + 592;
 
 csi_phy_start0x314:
     /* fragment 58: CallSetup */
@@ -41709,7 +41709,7 @@ csi_phy_start0x314:
 
     /* fragment 59: CallSetup */
     s6 = s6 << 2;
-    s2 = s2 + s6;
+    s2 = (uintptr_t)s2 + s6;
     *(uint32_t *)((char *)s2 + 4) = 4;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s0, local_24); /* jalr target resolved by relocation */
 
@@ -61245,7 +61245,7 @@ tx_isp_subdev_deinit0x108:
 
 tx_isp_subdev_deinit0x134:
     /* fragment 32: Arithmetic */
-    v0 = s0 + 144;
+    v0 = (uintptr_t)s0 + 144;
 
     /* fragment 33: Branch */
     int _bc_v0_33 = v0 == 0;
@@ -61253,7 +61253,7 @@ tx_isp_subdev_deinit0x134:
     if (_bc_v0_33) { goto tx_isp_subdev_deinit0x14c; }
 
     /* fragment 34: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_free_irq)(s0 + 132); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_free_irq)((uintptr_t)s0 + 132); /* jalr target resolved by relocation */
 
 tx_isp_subdev_deinit0x14c:
     /* fragment 35: CallSetup */
