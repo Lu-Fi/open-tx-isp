@@ -2481,7 +2481,10 @@ static const char LC177[] = "[%s %d] [ %s:%d ] Failed to init isp module(%d.%d)\
 static const char LC178[] = "&core_dev->mlock";
 static const char LC179[] = "[%s %d] [ %s:%d ] Failed to init output channels!\n";
 static const char LC180[] = "[%s %d] [ %s:%d ] Failed to init tuning module!\n";
-static int32_t irq_func_cb[16];
+/* Indexed by status bit (0..31) and by bit + 42 for the secondary bank
+ * (46/47 AE, 0x32 LCE, 0x33 ADR); 16 entries overflowed into .bss. */
+#define T40_IRQ_FUNC_CB_N 80
+static int32_t irq_func_cb[T40_IRQ_FUNC_CB_N];
 static const char LC181[] = "dl = %d y = %d uv = %d\n";
 static const char LC182[] = "[ %s:%d ] ispcore: irq-status unusual 0x%08x, 0x%x, 0x%x\n ";
 static const char LC183[] = "ispcore: isp overflow!!! isp_overflow_count = %d\n";
@@ -194997,7 +195000,11 @@ tx_isp_core_probe0x3f8:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007b1f4 origin=model_output original=system_irq_func_set */
 int32_t system_irq_func_set(int32_t arg1, int32_t arg2)
 {
-    ((void **)irq_func_cb)[arg1] = arg2;
+    if (arg1 < 0 || arg1 >= T40_IRQ_FUNC_CB_N) {
+        printk(KERN_ERR "tx_isp_t40_recovered: system_irq_func_set index %d out of range\n", arg1);
+        return -EINVAL;
+    }
+    irq_func_cb[arg1] = arg2;
     return 0;
 }
 
