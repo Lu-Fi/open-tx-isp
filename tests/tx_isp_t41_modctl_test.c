@@ -23,6 +23,11 @@ int main(void)
 	CHECK(!t41_modctl_plan(0x1, 0x1, calib, 0, 0, &top, &m, &v) && top == 1 && m == 0);
 	/* no calibration: always an override */
 	CHECK(!t41_modctl_plan(0, 1U<<13, NULL, 0, 0, &top, &m, &v) && m == 1U<<13);
+	/* DEFOG (bit 11): leaving bypass is refused, entering/keeping bypass is fine */
+	CHECK(t41_modctl_plan(0x800, 0, calib, 0, 0, &top, &m, &v) == -1);
+	CHECK(t41_modctl_plan(0x800, 0x400, calib, 0, 0, &top, &m, &v) == -1);
+	CHECK(!t41_modctl_plan(0, 0x800, calib, 0, 0, &top, &m, &v) && top == 0x800);
+	CHECK(!t41_modctl_plan(0x800, 0x800 | 0x400, calib, 0, 0, &top, &m, &v) && top == 0xc00);
 	printf(fails ? "modctl FAILED\n" : "modctl ok\n");
 	return fails != 0;
 }

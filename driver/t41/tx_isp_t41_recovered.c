@@ -1608,6 +1608,27 @@ t41_bringup_param(t41_tmo_dropped, uint, 0444);
 t41_bringup_param(t41_tmo_error, int, 0444);
 static void t41_tmo_workfn(struct work_struct *work);
 static DECLARE_WORK(t41_tmo_work, t41_tmo_workfn);
+/*
+ * Per-frame tone worker trigger (t41_tmo_workfn: CCM/BCSH by EV, gamma,
+ * LSC gain, ADR, LCE, YSP, CDNS, MDNS, DPC gain, TMO map).  Stock-like it
+ * is only scheduled from the TMO statistics interrupt (ISR bit 17), but
+ * TMO keeps its bypass until the worker's first good frame, and on the
+ * T41 test camera the worker never ran (t41_tmo_frames 0 after millions
+ * of frames).  1 also schedules it from the AE statistics interrupt
+ * (ISR bit 4, every frame).  Default 0 (unchanged behaviour).
+ */
+static int t41_tone_trigger;
+module_param(t41_tone_trigger, int, 0644);
+MODULE_PARM_DESC(t41_tone_trigger,
+                 "1 also runs the per-frame tone worker from the AE statistics interrupt (default 0: TMO interrupt only)");
+static unsigned int t41_tmo_irq17 __attribute__((section(".data")));
+static unsigned int t41_tone_kicks __attribute__((section(".data")));
+static unsigned int t41_tone_gated __attribute__((section(".data")));
+module_param_named(tmo_irq17, t41_tmo_irq17, uint, 0444);
+module_param_named(tone_kicks, t41_tone_kicks, uint, 0444);
+module_param_named(tone_gated, t41_tone_gated, uint, 0444);
+module_param_named(tmo_live, t41_tmo_state.live, int, 0444);
+module_param_named(tmo_ready, t41_tmo_state.ready, int, 0444);
 static void t41_tmo_stream_start(void);
 static void t41_tmo_stream_stop(void);
 static void t41_tmo_exposure(uint32_t integration, uint32_t gain);
@@ -153331,8 +153352,10 @@ static void t41_tmo_workfn(struct work_struct *work)
     (void)work;
     mutex_lock(&t41_tmo_map_lock);
     if (READ_ONCE(t41_tmo_state.live) != 1 ||
-        t41_tmo_state.ready != 1 || !t41_safe_tuning_events)
+        t41_tmo_state.ready != 1 || !t41_safe_tuning_events) {
+        t41_tone_gated++;
         goto done;
+    }
     spin_lock_irqsave(&t41_tmo_state_lock, flags);
     integration = t41_tmo_state.integration;
     gain = t41_tmo_state.gain;
@@ -170332,6 +170355,16 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             ae_hist_dispatch_trace_count++;
         }
 
+        if (status0 & BIT(17))
+            t41_tmo_irq17++;
+        if ((status0 & BIT(4)) && t41_tone_trigger > 0) {
+            spin_lock(&t41_tmo_state_lock);
+            if (t41_tmo_state.live == 1) {
+                t41_tone_kicks++;
+                schedule_work(&t41_tmo_work);
+            }
+            spin_unlock(&t41_tmo_state_lock);
+        }
         if ((status0 & BIT(17)) && t41_safe_tmo_irq_stats < 0) {
             int32_t callback = READ_ONCE(irq_func_cb[17]);
             int32_t callback_ret = -ENODEV;
