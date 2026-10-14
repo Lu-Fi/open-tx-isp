@@ -15,6 +15,7 @@ static unsigned long jiffies = 1000;	/* host tick: 1 ms (tx_isp_awb_zone.h) */
 #define smp_store_release(p,v) (*(p)=(v))
 #define module_param(...)
 #define module_param_named(...)
+#define module_param_array_named(n,v,t,c,p) static unsigned int *const n##_unused_np __attribute__((unused)) = c
 #define DMA_FROM_DEVICE 1
 #define DMA_BIDIRECTIONAL 2
 struct work_struct { void (*fn)(struct work_struct *); int queued; };
