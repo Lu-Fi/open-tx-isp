@@ -53578,8 +53578,8 @@ int32_t fs_slake_module(uintptr_t a0)
     local_14 = s0;
     s1 = a0;
     s2 = 0;
-    s3 = s3 - 2864;
-    s4 = s4 - 9164;
+    s3 = (uintptr_t)s3 - 2864;
+    s4 = (uintptr_t)s4 - 9164;
     s5 = (uintptr_t)&private_misc_deregister;
 
 fs_slake_module0x60:
@@ -196922,8 +196922,8 @@ uint32_t ispcore_irq_main_fs_work(void)
     s6 = s5 + 768;
     s4 = 0;
     s0 = 0;
-    s2 = s2 + 23280;
-    s3 = s3 + 9364;
+    s2 = (uintptr_t)s2 + 23280;
+    s3 = (uintptr_t)s3 + 9364;
 
 ispcore_irq_main_fs_work0x50:
     /* fragment 5: MemoryAccess */
@@ -196986,7 +196986,7 @@ ispcore_irq_main_fs_work0x7c:
 
 ispcore_irq_main_fs_work0xbc:
     /* fragment 19: Arithmetic */
-    s4 = s4 + 1;
+    s4 = (uintptr_t)s4 + 1;
     v0 = 9;
 
     /* fragment 20: Branch */
@@ -197001,28 +197001,28 @@ ispcore_irq_main_fs_work0xcc:
     s0 = 33554432;
 
     /* fragment 23: Branch */
-    s0 = s0 + 9;
+    s0 = (uintptr_t)s0 + 9;
     goto ispcore_irq_main_fs_work0x7c;
 
     /* fragment 24: Arithmetic */
     s0 = 33554432;
 
     /* fragment 25: Branch */
-    s0 = s0 + 5;
+    s0 = (uintptr_t)s0 + 5;
     goto ispcore_irq_main_fs_work0x7c;
 
     /* fragment 26: Arithmetic */
     s0 = 33554432;
 
     /* fragment 27: Branch */
-    s0 = s0 + 6;
+    s0 = (uintptr_t)s0 + 6;
     goto ispcore_irq_main_fs_work0x7c;
 
     /* fragment 28: Arithmetic */
     s0 = 33554432;
 
     /* fragment 29: Branch */
-    s0 = s0 + 22;
+    s0 = (uintptr_t)s0 + 22;
     goto ispcore_irq_main_fs_work0x7c;
 
     /* fragment 30: CallSetup */
@@ -197038,7 +197038,7 @@ ispcore_irq_main_fs_work0xcc:
     s0 = 33554432;
 
     /* fragment 33: Branch */
-    s0 = s0 + 10;
+    s0 = (uintptr_t)s0 + 10;
     goto ispcore_irq_main_fs_work0x7c;
 
 ispcore_irq_main_fs_work0x158:
@@ -197050,7 +197050,7 @@ ispcore_irq_main_fs_work0x158:
     s0 = 33554432;
 
     /* fragment 36: Branch */
-    s0 = s0 + 7;
+    s0 = (uintptr_t)s0 + 7;
     goto ispcore_irq_main_fs_work0x7c;
 
     return (uint32_t)v0;
@@ -197109,8 +197109,8 @@ uint32_t ispcore_irq_sec_fs_work(void)
     s5 = s6 + 840;
     s4 = 0;
     s0 = 0;
-    s2 = s2 + 23280;
-    s3 = s3 + 9400;
+    s2 = (uintptr_t)s2 + 23280;
+    s3 = (uintptr_t)s3 + 9400;
 
 ispcore_irq_sec_fs_work0x50:
     /* fragment 5: MemoryAccess */
@@ -197173,7 +197173,7 @@ ispcore_irq_sec_fs_work0x7c:
 
 ispcore_irq_sec_fs_work0xbc:
     /* fragment 19: Arithmetic */
-    s4 = s4 + 1;
+    s4 = (uintptr_t)s4 + 1;
     v0 = 9;
 
     /* fragment 20: Branch */
@@ -197188,28 +197188,28 @@ ispcore_irq_sec_fs_work0xcc:
     s0 = 33554432;
 
     /* fragment 23: Branch */
-    s0 = s0 + 9;
+    s0 = (uintptr_t)s0 + 9;
     goto ispcore_irq_sec_fs_work0x7c;
 
     /* fragment 24: Arithmetic */
     s0 = 33554432;
 
     /* fragment 25: Branch */
-    s0 = s0 + 5;
+    s0 = (uintptr_t)s0 + 5;
     goto ispcore_irq_sec_fs_work0x7c;
 
     /* fragment 26: Arithmetic */
     s0 = 33554432;
 
     /* fragment 27: Branch */
-    s0 = s0 + 6;
+    s0 = (uintptr_t)s0 + 6;
     goto ispcore_irq_sec_fs_work0x7c;
 
     /* fragment 28: Arithmetic */
     s0 = 33554432;
 
     /* fragment 29: Branch */
-    s0 = s0 + 22;
+    s0 = (uintptr_t)s0 + 22;
     goto ispcore_irq_sec_fs_work0x7c;
 
     /* fragment 30: CallSetup */
@@ -197225,7 +197225,7 @@ ispcore_irq_sec_fs_work0xcc:
     s0 = 33554432;
 
     /* fragment 33: Branch */
-    s0 = s0 + 10;
+    s0 = (uintptr_t)s0 + 10;
     goto ispcore_irq_sec_fs_work0x7c;
 
 ispcore_irq_sec_fs_work0x15c:
@@ -197237,7 +197237,7 @@ ispcore_irq_sec_fs_work0x15c:
     s0 = 33554432;
 
     /* fragment 36: Branch */
-    s0 = s0 + 7;
+    s0 = (uintptr_t)s0 + 7;
     goto ispcore_irq_sec_fs_work0x7c;
 
     return (uint32_t)v0;
