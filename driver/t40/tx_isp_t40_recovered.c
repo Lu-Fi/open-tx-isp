@@ -29046,6 +29046,22 @@ err_unregister:
     return ret;
 }
 #endif
+
+/*
+ * Unresolved jalr targets: the recovery resolved these indirect calls to the
+ * first symbol (private_i2c_set_clientdata), which then wrote its second
+ * argument into memory at its first argument. Call a counting no-op instead.
+ */
+static uint32_t regtrace_unresolved_jalr_count;
+module_param_named(unresolved_jalr_count, regtrace_unresolved_jalr_count, uint, 0444);
+static uintptr_t regtrace_unresolved_jalr(uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3)
+{
+    if (regtrace_unresolved_jalr_count++ < 4)
+        printk(KERN_WARNING "tx_isp_t40_recovered: unresolved jalr from %pS a0=0x%lx\n",
+               __builtin_return_address(0), (unsigned long)a0);
+    return 0;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000000 origin=reference_derived original=private_i2c_set_clientdata */
 void private_i2c_set_clientdata(struct i2c_client *client, void *data)
 {
@@ -34959,7 +34975,7 @@ vic_mdma_irq_function10xb0:
     *(uint32_t *)((char *)t0 + 1992) = ((*(uint32_t *)((char *)(t0) + 1992)) - 1);
     local_20 = t0;
     s5 = s1 + 1972;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s2) + 20), s0, s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, s3); /* jalr target resolved by relocation */
 
     /* fragment 21: StackAccess */
     t0 = local_20;
@@ -35064,7 +35080,7 @@ vic_mdma_irq_function10x210:
 
     /* fragment 41: CallSetup */
     t1 = local_30;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); /* jalr target resolved by relocation */
 
     /* fragment 42: MemoryAccess */
     v0 = *(uint32_t *)((char *)s3 + 1976);
@@ -35517,7 +35533,7 @@ vic_mdma_irq_function20xb0:
     *(uint32_t *)((char *)t0 + 1992) = ((*(uint32_t *)((char *)(t0) + 1992)) - 1);
     local_20 = t0;
     s5 = s1 + 1972;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s2) + 20), s0, s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, s3); /* jalr target resolved by relocation */
 
     /* fragment 21: StackAccess */
     t0 = local_20;
@@ -35622,7 +35638,7 @@ vic_mdma_irq_function20x210:
 
     /* fragment 41: CallSetup */
     t1 = local_30;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); /* jalr target resolved by relocation */
 
     /* fragment 42: MemoryAccess */
     v0 = *(uint32_t *)((char *)s3 + 1976);
@@ -36048,7 +36064,7 @@ int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1)
     if (v0 == 0) { goto isp_vic_interrupt_service_routine0xdc; }
 
     /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0xdc:
     /* fragment 15: StackAccess */
@@ -36696,7 +36712,7 @@ isp_vic_interrupt_service_routine0x578:
     if (v0 == 0) { goto isp_vic_interrupt_service_routine0x658; }
 
     /* fragment 160: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x658:
     /* fragment 161: StackAccess */
@@ -38332,7 +38348,7 @@ vic_core_ops_ioctl0x58:
     if (v0 == 0) { goto vic_core_ops_ioctl0x80; }
 
     /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 14: Arithmetic */
     v1 = -515;
@@ -38656,7 +38672,7 @@ tx_isp_vin_init0x78:
     if (v0 == 0) { goto tx_isp_vin_init0x40; }
 
     /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 14: Arithmetic */
     v1 = -515;
@@ -39217,7 +39233,7 @@ video_input_cmd_set0x2d0:
     if (v0 == 0) { goto video_input_cmd_set0x240; }
 
     /* fragment 60: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s3, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s3, &local_18); /* jalr target resolved by relocation */
 
     /* fragment 61: Branch */
     s3 = local_50;
@@ -39336,7 +39352,7 @@ video_input_cmd_set0x380:
     if (v0 == 0) { goto video_input_cmd_set0x484; }
 
     /* fragment 88: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s6); /* jalr target resolved by relocation */
 
     /* fragment 89: Branch */
     a1 = (uint32_t *)&LC14;
@@ -39421,7 +39437,7 @@ tx_isp_vin_reset0x44:
     if (v0 == 0) { goto tx_isp_vin_reset0x34; }
 
     /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 11: Arithmetic */
     v1 = -515;
@@ -40248,7 +40264,7 @@ subdev_sensor_ops_ioctl0x360:
     if (v0 == 0) { goto subdev_sensor_ops_ioctl0x30c; }
 
     /* fragment 69: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0); /* jalr target resolved by relocation */
 
     /* fragment 70: Branch */
     s4 = s2 + 296;
@@ -40323,7 +40339,7 @@ subdev_sensor_ops_ioctl0x44c:
 
 subdev_sensor_ops_ioctl0x454:
     /* fragment 86: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s2, a1 + 2, &local_54); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 2, &local_54); /* jalr target resolved by relocation */
 
     /* fragment 87: Branch */
     int _bc_v0_87 = v0 == 0;
@@ -40536,7 +40552,7 @@ subdev_sensor_ops_ioctl0x650:
     if (v0 == 0) { goto subdev_sensor_ops_ioctl0xc4; }
 
     /* fragment 135: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 136: Branch */
     s0 = v0;
@@ -40624,7 +40640,7 @@ subdev_sensor_ops_ioctl0x6c4:
 
 subdev_sensor_ops_ioctl0x72c:
     /* fragment 156: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 157: Branch */
     s0 = v0;
@@ -52267,7 +52283,7 @@ frame_channel_unlocked_ioctl0x2e8:
 
 frame_channel_unlocked_ioctl0x2f8:
     /* fragment 79: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 80: Arithmetic */
     s0 = v0;
@@ -53613,7 +53629,7 @@ sensor_alloc_integration_time0x44:
 
 sensor_alloc_integration_time0x54:
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 8: StackAccess */
     v1 = local_10;
@@ -53674,7 +53690,7 @@ sensor_alloc_integration_time_short0x44:
 
 sensor_alloc_integration_time_short0x54:
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 8: StackAccess */
     v1 = local_10;
@@ -54289,7 +54305,7 @@ sensor_set_mode0x68:
     s0 = a1;
     s2 = ((uintptr_t)s2 * (uintptr_t)v1) + a0;
     s1 = *(uint32_t *)((char *)(s2) + 368);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 10: Branch */
     a2 = local_10;
@@ -55278,7 +55294,7 @@ tx_isp_sensor_release_sensor0xb8:
     if (v0 == 0) { goto tx_isp_sensor_release_sensor0x54; }
 
     /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 18: Branch */
     if (v0 == 0) { goto tx_isp_sensor_release_sensor0x54; }
@@ -55459,7 +55475,7 @@ tx_isp_video_link_stream0xc8:
     if (v0 == 0) { goto tx_isp_video_link_stream0x58; }
 
     /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 19: Branch */
     s1 = v0;
@@ -55502,7 +55518,7 @@ tx_isp_video_link_stream0x10c:
     if (v0 == 0) { goto tx_isp_video_link_stream0x144; }
 
     /* fragment 30: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 tx_isp_video_link_stream0x144:
     /* fragment 31: Branch */
@@ -55836,7 +55852,7 @@ tx_isp_release0xec:
     if (v0 == 0) { goto tx_isp_release0x90; }
 
     /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 28: Branch */
     s0 = v0;
@@ -55865,7 +55881,7 @@ tx_isp_release0x110:
     if (v0 == 0) { goto tx_isp_release0x3c; }
 
     /* fragment 34: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s3, a1 + 23, a2 + 744); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s3, a1 + 23, a2 + 744); /* jalr target resolved by relocation */
 
     /* fragment 35: Branch */
     goto tx_isp_release0x40;
@@ -57231,7 +57247,7 @@ tx_isp_unlocked_ioctl0x8c8:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 187: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s2, a1 + 24, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 24, &local_20); /* jalr target resolved by relocation */
 
     /* fragment 188: Branch */
     goto tx_isp_unlocked_ioctl0x838;
@@ -57262,7 +57278,7 @@ tx_isp_unlocked_ioctl0x940:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x324; }
 
     /* fragment 195: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 196: Branch */
     s0 = v0;
@@ -57301,7 +57317,7 @@ tx_isp_unlocked_ioctl0x9b4:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x100; }
 
     /* fragment 205: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 206: Branch */
     s0 = v0;
@@ -57340,7 +57356,7 @@ tx_isp_unlocked_ioctl0xa28:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x75c; }
 
     /* fragment 215: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 216: Branch */
     s0 = v0;
@@ -57659,7 +57675,7 @@ tx_isp_unlocked_ioctl0xdf0:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x810; }
 
     /* fragment 290: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 291: Branch */
     s0 = v0;
@@ -57698,7 +57714,7 @@ tx_isp_unlocked_ioctl0xe64:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x264; }
 
     /* fragment 300: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 301: Branch */
     s0 = v0;
@@ -58193,7 +58209,7 @@ tx_isp_unlocked_ioctl0x14a8:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x154c; }
 
     /* fragment 393: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s5, a1 + 3, &local_70); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s5, a1 + 3, &local_70); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x154c:
     /* fragment 394: Branch */
@@ -58530,7 +58546,7 @@ tx_isp_unlocked_ioctl0x1884:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1910; }
 
     /* fragment 465: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, a1 + 19, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 19, &local_20); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1910:
     /* fragment 466: MemoryAccess */
@@ -58548,7 +58564,7 @@ tx_isp_unlocked_ioctl0x1910:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x193c; }
 
     /* fragment 470: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, a1 + 3, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 3, &local_20); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x193c:
     /* fragment 471: MemoryAccess */
@@ -58559,7 +58575,7 @@ tx_isp_unlocked_ioctl0x193c:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1958; }
 
     /* fragment 473: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, a1 + 12, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 12, &local_20); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1958:
     /* fragment 474: StackAccess */
@@ -58658,7 +58674,7 @@ tx_isp_unlocked_ioctl0x1a20:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1a80; }
 
     /* fragment 492: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, a1 + 19, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 19, &local_20); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1a80:
     /* fragment 493: MemoryAccess */
@@ -58676,7 +58692,7 @@ tx_isp_unlocked_ioctl0x1a80:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1aac; }
 
     /* fragment 497: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, a1 + 3, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 3, &local_20); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1aac:
     /* fragment 498: MemoryAccess */
@@ -58687,7 +58703,7 @@ tx_isp_unlocked_ioctl0x1aac:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1ac8; }
 
     /* fragment 500: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, a1 + 12, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 12, &local_20); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1ac8:
     /* fragment 501: MemoryAccess */
@@ -58741,7 +58757,7 @@ tx_isp_unlocked_ioctl0x1b58:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 511: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s2, a1 + 23, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 23, &local_20); /* jalr target resolved by relocation */
 
     /* fragment 512: Branch */
     goto tx_isp_unlocked_ioctl0x838;
@@ -59667,7 +59683,7 @@ tx_isp_unlocked_ioctl0x2b08:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 712: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s2, 33554432 + 25, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, 33554432 + 25, &local_20); /* jalr target resolved by relocation */
 
     /* fragment 713: Branch */
     s0 = v0;
@@ -61598,7 +61614,7 @@ tx_isp_probe0x2d0:
     if (v0 == 0) { goto tx_isp_probe0x2e4; }
 
     /* fragment 47: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a1); /* jalr target resolved by relocation */
 
 tx_isp_probe0x2e4:
     /* fragment 48: MemoryAccess */
@@ -65850,7 +65866,7 @@ Tiziano_Awb_Ct_Detect_GrayWorld_mode0x560:
     local_3c8 = t5;
     local_3d8 = v1;
     local_3c4 = t6;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s0, *(uint32_t *)((char *)((uintptr_t)t6) + 0), (*(uint8_t *)((char *)(s7) + 0)) << (uintptr_t)s0, *(uint32_t *)((char *)(0) + 0)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0, *(uint32_t *)((char *)((uintptr_t)t6) + 0), (*(uint8_t *)((char *)(s7) + 0)) << (uintptr_t)s0, *(uint32_t *)((char *)(0) + 0)); /* jalr target resolved by relocation */
 
     /* fragment 86: CallSetup */
     t5 = local_3c8;
@@ -77830,7 +77846,7 @@ tisp_event_process0x140:
     t1 = *(uint32_t *)((char *)(s0) + 36);
     local_10 = t0;
     local_14 = t1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s0) + 16), *(uint32_t *)((char *)(s0) + 20), *(uint32_t *)((char *)(s0) + 24), *(uint32_t *)((char *)(s0) + 28)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s0) + 16), *(uint32_t *)((char *)(s0) + 20), *(uint32_t *)((char *)(s0) + 24), *(uint32_t *)((char *)(s0) + 28)); /* jalr target resolved by relocation */
 
 tisp_event_process0x1c8:
     /* fragment 18: CallSetup */
@@ -87791,14 +87807,14 @@ int32_t tisp_ae_long_set_sensor_integration_time(uint32_t a0, uintptr_t a1, uint
 
 tisp_ae_long_set_sensor_integration_time0x54:
     /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(a2) + 12)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(a2) + 12)); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
     *(uint32_t *)((char *)s0 + 0) = v0;
 
 tisp_ae_long_set_sensor_integration_time0x60:
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_32, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_32, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 8: Epilogue */
     /* function epilogue: restore registers and return */
@@ -87812,7 +87828,7 @@ tisp_ae_long_set_sensor_integration_time0x60:
 
 tisp_ae_long_set_sensor_integration_time0x90:
     /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s3); /* jalr target resolved by relocation */
 
     /* fragment 12: Arithmetic */
     s2 = v0;
@@ -87884,12 +87900,12 @@ int64_t tisp_ae_short_set_sensor_integration_time(uint32_t a0, uintptr_t a1, uin
     if (v1 == 0) { goto tisp_ae_short_set_sensor_integration_time0xa0; }
 
     /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(a2) + 76)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(a2) + 76)); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     *(uint32_t *)((char *)s0 + 12) = v0;
     *(uint32_t *)((char *)s4 + 76) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_34, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_34, &local_10); /* jalr target resolved by relocation */
 
 tisp_ae_short_set_sensor_integration_time0x74:
     /* fragment 5: Epilogue */
@@ -87904,7 +87920,7 @@ tisp_ae_short_set_sensor_integration_time0x74:
 
 tisp_ae_short_set_sensor_integration_time0xa0:
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s3); /* jalr target resolved by relocation */
 
     /* fragment 9: Branch */
     int _bc_s3_9 = s3 == v0;
@@ -87934,7 +87950,7 @@ tisp_ae_short_set_sensor_integration_time0xa0:
 
 tisp_ae_short_set_sensor_integration_time0xf0:
     /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_34, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_34, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 16: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 12);
@@ -87982,14 +87998,14 @@ uint32_t tisp_set_sensor_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_14, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_14, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
@@ -88028,14 +88044,14 @@ uint32_t tisp_set_sensor_analog_gain_short(uint32_t a0, uint32_t a1, uint32_t a2
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_24, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_24, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
@@ -88074,14 +88090,14 @@ uint32_t tisp_set_sensor_digital_gain(uint32_t a0, uint32_t a1, uint32_t a2, uin
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_18, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_18, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
@@ -88120,14 +88136,14 @@ uint32_t tisp_set_sensor_digital_gain_short(uint32_t a0, uint32_t a1, uint32_t a
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_18, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_18, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
@@ -95923,7 +95939,7 @@ tisp_ae_algo_handle0x40:
     local_200 = *(uint32_t *)((char *)(s3) + 40);
     local_1e0 = a2;
     local_204 = *(uint32_t *)((char *)(s3) + 44);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 7: Arithmetic */
     s6 = v0;
@@ -95950,14 +95966,14 @@ tisp_ae_algo_handle0x40:
 
 tisp_ae_algo_handle0x134:
     /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_3a, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_3a, &local_18); /* jalr target resolved by relocation */
 
     /* fragment 14: CallSetup */
     *(uint32_t *)((char *)s0 + 12) = s6;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(s5 << 6, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_1a8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_1a8); /* jalr target resolved by relocation */
 
     /* fragment 16: CallSetup */
     local_1cc = (uintptr_t)&tisp_math_exp2;
@@ -95980,7 +95996,7 @@ tisp_ae_algo_handle0x134:
 
     /* fragment 21: CallSetup */
     local_1c8 = (uintptr_t)v0 >> 6;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_1b0, &local_1a8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_1b0, &local_1a8); /* jalr target resolved by relocation */
 
     /* fragment 22: CallSetup */
     *(uint32_t *)((char *)s0 + 8) = local_1c8;
@@ -96049,7 +96065,7 @@ tisp_ae_algo_handle0x288:
     if (_bc_v1_36) { goto tisp_ae_algo_handle0x750; }
 
     /* fragment 37: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_1d8, &local_24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_1d8, &local_24); /* jalr target resolved by relocation */
 
     /* fragment 38: Arithmetic */
     s8 = v0;
@@ -96074,34 +96090,34 @@ tisp_ae_algo_handle0x288:
 
 tisp_ae_algo_handle0x35c:
     /* fragment 44: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_3c, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_3c, &local_18); /* jalr target resolved by relocation */
 
     /* fragment 45: CallSetup */
     *(uint32_t *)((char *)s0 + 76) = s8;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)((uintptr_t)s4 << 6, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 46: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_1a8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_1a8); /* jalr target resolved by relocation */
 
     /* fragment 47: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 48: CallSetup */
     s4 = (uintptr_t)v0 >> 6;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_1bc, &local_1a8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_1bc, &local_1a8); /* jalr target resolved by relocation */
 
     /* fragment 49: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(local_200 << 6, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 50: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_1a8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_1a8); /* jalr target resolved by relocation */
 
     /* fragment 51: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 52: CallSetup */
     s8 = (uintptr_t)v0 >> 6;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_1c2, &local_1a8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_1c2, &local_1a8); /* jalr target resolved by relocation */
 
     /* fragment 53: CallSetup */
     *(uint32_t *)((char *)s0 + 100) = s8;
@@ -110115,41 +110131,41 @@ tisp_lsc_mirror_flip0x278:
     s6 = t0 + 1;
     s8 = t0 + 2;
     local_20 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s4, (uintptr_t)v0, (t0 << 1) + t0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s4, (uintptr_t)v0, (t0 << 1) + t0); /* jalr target resolved by relocation */
 
     /* fragment 40: CallSetup */
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s4, s7, s8, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s4, s7, s8, t6); /* jalr target resolved by relocation */
 
     /* fragment 41: CallSetup */
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s4, s5, s6, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s4, s5, s6, t6); /* jalr target resolved by relocation */
 
     /* fragment 42: CallSetup */
     t0 = local_20;
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t9, local_1c, local_20, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t9, local_1c, local_20, t6); /* jalr target resolved by relocation */
 
     /* fragment 43: CallSetup */
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t9, s7, s8, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t9, s7, s8, t6); /* jalr target resolved by relocation */
 
     /* fragment 44: CallSetup */
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t9, s5, s6, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t9, s5, s6, t6); /* jalr target resolved by relocation */
 
     /* fragment 45: CallSetup */
     t0 = local_20;
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t8, local_1c, local_20, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t8, local_1c, local_20, t6); /* jalr target resolved by relocation */
 
     /* fragment 46: CallSetup */
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t8, s7, s8, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t8, s7, s8, t6); /* jalr target resolved by relocation */
 
     /* fragment 47: CallSetup */
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t8, s5, s6, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t8, s5, s6, t6); /* jalr target resolved by relocation */
 
     /* fragment 48: StackAccess */
     t1 = local_2c;
@@ -118751,10 +118767,10 @@ Tiziano_wdr_deghost_fpga0x9dc:
 
     /* fragment 180: CallSetup */
     local_160 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t6, s7, 162); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t6, s7, 162); /* jalr target resolved by relocation */
 
     /* fragment 181: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_174, s7, 162); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_174, s7, 162); /* jalr target resolved by relocation */
 
     /* fragment 182: Branch */
     s8 = 0;
@@ -135113,12 +135129,12 @@ int64_t tisp_lce_get_show_data(uintptr_t a0, uintptr_t a1)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_compress_data_part_1)(s0 + 10740, *(uint32_t *)((char *)(s1) + 104), 327680 - 27792); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s0 + ((a0 << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 108)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + ((a0 << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 108)); /* jalr target resolved by relocation */
 
     /* fragment 8: CallSetup */
     s4 = (uintptr_t)s4 & 255;
     s3 = (uintptr_t)s3 ^ 8;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s0 + ((((uintptr_t)local_90 + ((uintptr_t)s4 & 255)) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 112)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + ((((uintptr_t)local_90 + ((uintptr_t)s4 & 255)) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 112)); /* jalr target resolved by relocation */
 
     /* fragment 9: CallSetup */
     s3 = s3 < 1;
@@ -135129,13 +135145,13 @@ int64_t tisp_lce_get_show_data(uintptr_t a0, uintptr_t a1)
     s6 = s2 - s7;
     s6 = s6 << 3;
     s6 = s6 & 255;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s0 + ((((uintptr_t)local_90 + (s8 - ((uintptr_t)s3 < 1) & 255)) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 116)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + ((((uintptr_t)local_90 + (s8 - ((uintptr_t)s3 < 1) & 255)) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 116)); /* jalr target resolved by relocation */
 
     /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s0 + (((s6 + (uintptr_t)s4) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 120)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + (((s6 + (uintptr_t)s4) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 120)); /* jalr target resolved by relocation */
 
     /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s0 + ((((uintptr_t)s3 + s6) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 124)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + ((((uintptr_t)s3 + s6) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 124)); /* jalr target resolved by relocation */
 
     /* fragment 12: MemoryAccess */
     a0 = *(uint32_t *)((char *)s1 + 100);
@@ -167203,12 +167219,12 @@ int64_t tisp_bcsh_ev_update_TransitParam(uintptr_t a0, uintptr_t a1)
     /* fragment 6: CallSetup */
     *(uint32_t *)((char *)s4 + 0) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 4);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t1, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t1, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
     *(uint32_t *)((char *)s4 + 4) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 8);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t1, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t1, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 8: CallSetup */
     *(uint32_t *)((char *)s4 + 8) = v0;
@@ -167220,7 +167236,7 @@ int64_t tisp_bcsh_ev_update_TransitParam(uintptr_t a0, uintptr_t a1)
 
 tisp_bcsh_ev_update_TransitParam0x164:
     /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t1); /* jalr target resolved by relocation */
 
     /* fragment 10: MemoryAccess */
     *(uint32_t *)((char *)s4 + 12) = v0;
@@ -167251,17 +167267,17 @@ tisp_bcsh_ev_update_TransitParam0x170:
     /* fragment 16: CallSetup */
     *(uint32_t *)((char *)s4 + 0) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 4);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t2, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t2, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 17: CallSetup */
     *(uint32_t *)((char *)s4 + 4) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 8);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t2, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t2, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 18: CallSetup */
     *(uint32_t *)((char *)s4 + 8) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 12);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t2, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t2, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 19: CallSetup */
     *(uint32_t *)((char *)s4 + 12) = v0;
@@ -167460,12 +167476,12 @@ tisp_bcsh_ev_update_TransitParam0x404:
     /* fragment 55: CallSetup */
     *(uint32_t *)((char *)s4 + 0) = v0;
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t1, 128, 256, *(uint32_t *)((char *)(s4) + 4)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t1, 128, 256, *(uint32_t *)((char *)(s4) + 4)); /* jalr target resolved by relocation */
 
     /* fragment 56: CallSetup */
     *(uint32_t *)((char *)s4 + 4) = v0;
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t1, 128, 256, *(uint32_t *)((char *)(s4) + 8)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t1, 128, 256, *(uint32_t *)((char *)(s4) + 8)); /* jalr target resolved by relocation */
 
     /* fragment 57: MemoryAccess */
     *(uint32_t *)((char *)s4 + 8) = v0;
@@ -167526,27 +167542,27 @@ tisp_bcsh_ev_update_TransitParam0x4a4:
     /* fragment 69: CallSetup */
     local_10 = t7;
     t4 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, 0, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 70: CallSetup */
     t7 = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 0);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 71: CallSetup */
     *(uint32_t *)((char *)s4 + 0) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 4);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 72: CallSetup */
     *(uint32_t *)((char *)s4 + 4) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 8);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 73: CallSetup */
     *(uint32_t *)((char *)s4 + 8) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 12);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 74: Branch */
     *(uint32_t *)((char *)s4 + 12) = v0;
@@ -167586,7 +167602,7 @@ tisp_bcsh_ev_update_TransitParam0x5c0:
     /* fragment 81: CallSetup */
     t4 = v0;
     local_10 = 1023;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, 128, 255, t7); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, 128, 255, t7); /* jalr target resolved by relocation */
 
     /* fragment 82: Branch */
     t7 = v0;
@@ -186079,7 +186095,7 @@ ispcore_sensor_ops_ioctl0x70:
     if (v0 == 0) { goto ispcore_sensor_ops_ioctl0x50; }
 
     /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 15: Branch */
     if (v0 == 0) { goto ispcore_sensor_ops_ioctl0x54; }
@@ -186189,7 +186205,7 @@ ispcore_irq_sec_fd_work0x8c:
     if (v0 == 0) { goto ispcore_irq_sec_fd_work0xbc; }
 
     /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 ispcore_irq_sec_fd_work0xbc:
     /* fragment 13: Branch */
@@ -186394,7 +186410,7 @@ char* ispcore_irq_main_fd_work(void)
     if (v0 == 0) { goto ispcore_irq_main_fd_work0x80; }
 
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 ispcore_irq_main_fd_work0x80:
     /* fragment 9: Branch */
@@ -186868,7 +186884,7 @@ ispcore_frame_channel_streamoff0x70:
     if (v1 == 0) { goto ispcore_frame_channel_streamoff0xb4; }
 
     /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(v0) + 1012)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(v0) + 1012)); /* jalr target resolved by relocation */
 
     /* fragment 19: CallSetup */
     s2 = v0;
@@ -188332,7 +188348,7 @@ isp_info_show_isra_40x164:
 
 isp_info_show_isra_40x16c:
     /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 22: Arithmetic */
     s8 = v0;
@@ -190165,7 +190181,7 @@ ispcore_pad_event_handle0x598:
     if (v0 == 0) { goto ispcore_pad_event_handle0x4a4; }
 
     /* fragment 153: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 154: Branch */
     if (v0 == 0) { goto ispcore_pad_event_handle0x4a4; }
@@ -190683,7 +190699,7 @@ ispcore_pad_event_handle0x9f4:
 
 ispcore_pad_event_handle0xa30:
     /* fragment 273: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 274: Branch */
     s1 = v0;
@@ -190810,7 +190826,7 @@ ispcore_pad_event_handle0xb18:
     if (v0 == 0) { goto ispcore_pad_event_handle0xb80; }
 
     /* fragment 303: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 304: Branch */
     s1 = v0;
@@ -191905,7 +191921,7 @@ ispcore_pad_event_handle0x1408:
     if (v1 == 0) { goto ispcore_pad_event_handle0x288; }
 
     /* fragment 567: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(v0) + 1012)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(v0) + 1012)); /* jalr target resolved by relocation */
 
     /* fragment 568: Branch */
     s1 = v0;
@@ -192371,7 +192387,7 @@ ispcore_activate_module0x1f0:
     /* fragment 49: CallSetup */
     s2 = s0 + 60;
     s3 = s0 + 124;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s0) + 992), 67108864, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s0) + 992), 67108864, 0); /* jalr target resolved by relocation */
 
     /* fragment 50: Arithmetic */
     s4 = -515;
@@ -192401,7 +192417,7 @@ ispcore_activate_module0x220:
     if (v0 == 0) { goto ispcore_activate_module0x348; }
 
     /* fragment 58: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s1); /* jalr target resolved by relocation */
 
     /* fragment 59: Branch */
     if (v0 == 0) { goto ispcore_activate_module0x348; }
@@ -192637,7 +192653,7 @@ ispcore_irqstatus_func0x90:
     if (a0 == 0) { goto ispcore_irqstatus_func0xb8; }
 
     /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 ispcore_irqstatus_func0xb8:
     /* fragment 18: Arithmetic */
@@ -192739,7 +192755,7 @@ ispcore_irqstatus_func0x174:
     if (a0 == 0) { goto ispcore_irqstatus_func0x18c; }
 
     /* fragment 40: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 ispcore_irqstatus_func0x18c:
     /* fragment 41: CallSetup */
@@ -192857,7 +192873,7 @@ ispcore_irqstatusSec_func0xc4:
     if (a0 == 0) { goto ispcore_irqstatusSec_func0xf8; }
 
     /* fragment 23: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 24: Arithmetic */
     v0 = 1;
@@ -192876,7 +192892,7 @@ ispcore_irqstatusSec_func0x100:
     if (a0 == 0) { goto ispcore_irqstatusSec_func0x11c; }
 
     /* fragment 28: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 ispcore_irqstatusSec_func0x11c:
     /* fragment 29: CallSetup */
@@ -193190,7 +193206,7 @@ ispcore_video_s_stream0x1e8:
     if (v0 == 0) { goto ispcore_video_s_stream0x160; }
 
     /* fragment 40: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 41: Branch */
     s5 = v0;
@@ -196374,7 +196390,7 @@ ispcore_interrupt_service_routine0xc10:
     if (v0 == 0) { goto ispcore_interrupt_service_routine0xc3c; }
 
     /* fragment 271: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 272: Arithmetic */
     v1 = (uintptr_t)v0 ^ 1;
@@ -196394,7 +196410,7 @@ ispcore_interrupt_service_routine0xc3c:
     if (v0 == 0) { goto ispcore_interrupt_service_routine0xc64; }
 
     /* fragment 277: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 278: Arithmetic */
     v1 = (uintptr_t)v0 ^ 1;
@@ -197153,7 +197169,7 @@ ispcore_core_ops_ioctl0x80:
     if (v0 == 0) { goto ispcore_core_ops_ioctl0x148; }
 
     /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s1); /* jalr target resolved by relocation */
 
 ispcore_core_ops_ioctl0x9c:
     /* fragment 18: Branch */
@@ -197194,7 +197210,7 @@ ispcore_core_ops_ioctl0x110:
 
 ispcore_core_ops_ioctl0x12c:
     /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 28: Branch */
     s0 = 0;
@@ -197272,7 +197288,7 @@ ispcore_core_ops_ioctl0x1b4:
     if (v0 == 0) { goto ispcore_core_ops_ioctl0x18c; }
 
     /* fragment 47: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 48: Arithmetic */
     s0 = v0;
