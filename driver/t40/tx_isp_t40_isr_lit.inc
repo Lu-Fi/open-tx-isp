@@ -175,6 +175,7 @@ fn_exit:
 
 static int32_t ispcore_interrupt_service_routine_lit(uintptr_t a0_in)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x16, 0);
     uint32_t r_v0 = 0, r_v1 = 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;

@@ -14,6 +14,8 @@
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
 #include <linux/module.h>
+#include <linux/notifier.h>
+#include <asm/addrspace.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -1248,6 +1250,13 @@ static uintptr_t lsc_seco_awdr_para;
 static uintptr_t lsc_seco_real_para;
 static uintptr_t lsc_seco_tool_para;
 static uintptr_t lsc_wlut_flag;
+/* OEM tisp_hardware_reg_refresh (0x1f64c) passes each of its six
+   xxx_get_wlut_times() calls a per-domain/per-bank shadow slot
+   (.bss+6684/+6688 clm, +6692/+6696 gamma, +6700/+6704 lsc). The
+   reconstruction passed &isp_memopt for all six, so every frame-done wrote the
+   W-LUT times over the `isp_memopt` module parameter (a 4-byte int). Give the
+   six calls real, distinct slots. */
+static uint32_t regtrace_wlut_times_out[6];
 static uintptr_t main_adr_gamma;
 static uintptr_t main_adr_paras;
 static uintptr_t main_cdns;
@@ -1425,6 +1434,7 @@ static int regtrace_parent_driver_registered;
 static int regtrace_parent_device_registered;
 static int regtrace_child_driver_registered[5];
 static int regtrace_child_device_registered[5];
+static int regtrace_fr_mark(uint32_t id, uint32_t aux);
 static struct platform_device tx_isp_platform_device = {
     .name = "tx-isp",
     .id = 0,
@@ -2478,7 +2488,10 @@ static const char LC177[] = "[%s %d] [ %s:%d ] Failed to init isp module(%d.%d)\
 static const char LC178[] = "&core_dev->mlock";
 static const char LC179[] = "[%s %d] [ %s:%d ] Failed to init output channels!\n";
 static const char LC180[] = "[%s %d] [ %s:%d ] Failed to init tuning module!\n";
-static int32_t irq_func_cb[16];
+/* Indexed by status bit (0..31) and by bit + 42 for the secondary bank
+ * (46/47 AE, 0x32 LCE, 0x33 ADR); 16 entries overflowed into .bss. */
+#define T40_IRQ_FUNC_CB_N 80
+static int32_t irq_func_cb[T40_IRQ_FUNC_CB_N];
 static const char LC181[] = "dl = %d y = %d uv = %d\n";
 static const char LC182[] = "[ %s:%d ] ispcore: irq-status unusual 0x%08x, 0x%x, 0x%x\n ";
 static const char LC183[] = "ispcore: isp overflow!!! isp_overflow_count = %d\n";
@@ -6772,7 +6785,7 @@ void private_clk_disable(struct clk *clk);
 int32_t private_clk_disable_unprepare(uint32_t a0);
 unsigned long private_clk_get_rate(struct clk *clk);
 void private_clk_put(struct clk *clk);
-int32_t private_devm_clk_put(void);
+void private_devm_clk_put(struct device *dev, struct clk *clk);
 int32_t private_clk_set_rate(struct clk *clk, unsigned long rate);
 int private_i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num);
 int private_i2c_add_driver(struct i2c_driver *driver);
@@ -7333,7 +7346,7 @@ int32_t fix_point_mult2_32_ptr(int32_t arg1, int32_t arg2, int32_t arg3)
     return fix_point_mult2_32(arg1, arg2, arg3);
 }
 #endif
-int32_t fix_point_mult3_32(uint32_t a0, uint32_t a1, uint32_t a2);
+int32_t fix_point_mult3_32(uint32_t shift, uint32_t x, uint32_t y, uint32_t z);
 int32_t fix_point_intp(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5);
 int32_t table_intp(uint32_t a0, uintptr_t a1, uint32_t a2, uint32_t a3);
 int64_t tisp_simple_intp(uint32_t a0, uint32_t a1, uintptr_t a2);
@@ -8284,24 +8297,31 @@ static struct platform_device *regtrace_child_platform_device(unsigned int slot)
     }
 }
 
+static void regtrace_unregister_child_platform_device_one(int i)
+{
+    struct platform_device *pdev;
+
+    if (i < 0 || i >= (int)ARRAY_SIZE(regtrace_child_device_registered))
+        return;
+    if (!regtrace_child_device_registered[i])
+        return;
+    pdev = regtrace_child_platform_device(i);
+    if (pdev) {
+        printk(KERN_INFO "tx_isp_t40_recovered: unregister child platform device %s\n",
+               dev_name(&pdev->dev));
+        regtrace_fr_mark(0x80, (uint32_t)i);
+        platform_device_unregister(pdev);
+        regtrace_fr_mark(0x81, (uint32_t)i);
+    }
+    regtrace_child_device_registered[i] = 0;
+}
+
 static void regtrace_unregister_child_platform_devices(void)
 {
     int i;
 
-    for (i = ARRAY_SIZE(regtrace_child_device_registered) - 1; i >= 0; i--) {
-        struct platform_device *pdev;
-
-        if (!regtrace_child_device_registered[i])
-            continue;
-
-        pdev = regtrace_child_platform_device(i);
-        if (pdev) {
-            printk(KERN_INFO "tx_isp_t40_recovered: unregister child platform device %s\n",
-                   dev_name(&pdev->dev));
-            platform_device_unregister(pdev);
-        }
-        regtrace_child_device_registered[i] = 0;
-    }
+    for (i = ARRAY_SIZE(regtrace_child_device_registered) - 1; i >= 0; i--)
+        regtrace_unregister_child_platform_device_one(i);
 }
 
 static int regtrace_register_child_platform_devices(void)
@@ -8538,6 +8558,9 @@ static void regtrace_patch_relocated_data(void)
     *(const void **)((char *)isp_core_clk_info + 0x0) = (const void *)"gate_ahb0";
     *(const void **)((char *)isp_core_clk_info + 0x8) = (const void *)"gate_isp";
     *(const void **)((char *)isp_core_clk_info + 0x10) = (const void *)"div_isp";
+    /* OEM tx_isp_core_probe takes the div_isp rate from the isp_clk parameter (Eufy: 300 MHz); the seed table said 200 MHz and the ISP core overflowed on every 4K frame (status err 0x20 "isp overflow"). */
+    if (isp_clk > 0)
+        *(uint32_t *)((char *)isp_core_clk_info + 0x14) = (uint32_t)isp_clk;
     *(const void **)((char *)tx_isp_core_resource + 0x8) = (const void *)"isp-device";
     *(const void **)((char *)tx_isp_core_resource + 0x24) = (const void *)"isp-irq-id";
     *(const void **)((char *)tx_isp_fs_resource + 0x8) = (const void *)"isp-device";
@@ -8710,9 +8733,61 @@ static bool regtrace_proc_live_reads;
  * next boot.  The active tuning blob still decides whether BLC/LSC/GIB/BCSH
  * are enabled; profile 5 only supplies the faithful implementations.
  */
-static uint regtrace_t40_quality_profile = 5;
+static uint regtrace_t40_quality_profile = 1;
 static uint regtrace_t40_quality_top40_override;
 static bool regtrace_t40_profile_direct_vic_feed;
+/*
+ * Eufy T40XP/sc830ai 2026-10-12: the vendor 1.3.1 module routes the channel-0
+ * output through the VIC DMA engine (VIC+0x300 bank holds the framechan NV12
+ * buffers) and programs the MSCA DMA control words 0x44001; the MSCA address
+ * FIFO mode (0x80004100) of the GC4653 bring-up writes nothing on this device.
+ */
+static bool regtrace_t40_vic_frame_output;
+static uint regtrace_t40_vic_frame_output_msca_ctrl = 0x00044001U;
+static uint regtrace_t40_vic_frame_output_msca_ctrl2 = 0x00044001U;
+static uint regtrace_t40_vic_frame_output_msca_word74 = 0x05ce3607U;
+static uint regtrace_t40_vic_frame_output_msca_word8c = 0x05ee1607U;
+static bool regtrace_t40_vic_frame_output_msca_words = true;
+static bool regtrace_t40_vic_frame_output_msca_work28;
+/* Eufy vendor 1.3.1 A/B (2026-10-12): unscaled channel coefficients 0x200/0/0x200/0, FIFO words 0x1617c=1, 0x16194=0x11001, 0x1602c=0x7600 */
+static bool regtrace_t40_msca_vendor_fixups;
+static bool regtrace_t40_msca_vendor_fixups_2c;
+static uint regtrace_t40_core_fixup_88;
+static uint regtrace_t40_core_fixup_40;
+static bool regtrace_t40_core_fixup_shadow0;
+/* vendor 1.3.1 tisp_stream_on: 0x1010=0, 0x1014=0x11e, 0x1060=1, ..., 0x1010=1, 0x1014=1 */
+static bool regtrace_t40_tisp_stream_vendor;
+/* AE: convert the GC4653 gain index to the bound sensor's register value through attr->sensor_ctrl.alloc_again (sc830ai expects its LUT value 0x4080.., not an index) */
+static bool regtrace_t40_ae_sensor_alloc_again = true;
+/* bisect aid: keep the quality profile but leave the literal DMSC path off */
+static bool regtrace_disable_dmsc_lit;
+/*
+ * Eufy T40XP/sc830ai 2026-10-13: quality profile 0 plus the individually
+ * verified blocks (MDNS, SDNS, YDNS, ADR, CCM, gamma, BLC, LSC, GIB) streams
+ * 4K at 20 fps; YSP panics and profiles >= 1 (GC4653 literal tables) give a
+ * black image.  t40_generic_profile=1 selects that combination.
+ */
+static bool regtrace_t40_generic_profile;
+/* timps on the Eufy oopsed in the recovered tisp_s_antiflick (bad AE param pointer); antiflicker stays a no-op unless enabled */
+static bool regtrace_t40_allow_antiflick;
+/*
+ * NV12 output layout: the vendor T40 module and OpenIMP use width*height
+ * (no 16-line alignment) for the UV offset and the buffer size.  The seed's
+ * ALIGN(height, 16) overran the 1920x1080 buffers by 8 lines (OpenIMP SIGBUS,
+ * kernel panics on the second start, devtest 1080p panics).  1 = vendor.
+ */
+static uint regtrace_t40_nv12_height_align = 1;
+/*
+ * Vendor 1.3.1 core ISR: on status bit 0x400 it clears the MSCA work-enable
+ * bit of a freshly started channel and sets it again N frame-dones later
+ * (per-channel pending/countdown bytes).  t40_msca_work_handshake=N
+ * reproduces that from the open frame-done path (0 = off).
+ */
+static uint regtrace_t40_msca_work_handshake;
+static int regtrace_t40_msca_work_countdown;
+static bool regtrace_t40_vic_frame_output_msca_e0_clear;
+/* rmmod: the recovered tisp_deinit free loop oopsed four times on the Eufy T40XP; the regtrace layer frees its own tisp buffers. */
+static bool regtrace_skip_tisp_deinit = true;
 static bool regtrace_t40_profile_no_direct_irq_defaults = true;
 static bool regtrace_t40_profile_isp_irq_passthrough = true;
 static bool regtrace_enable_core_irq_on_stream;
@@ -8826,6 +8901,7 @@ static uint32_t regtrace_ae_soft_last_mean;
  */
 static bool regtrace_enable_frame_3a;
 static bool regtrace_enable_soft_gamma;
+static bool regtrace_t40_gamma_from_bin = true;
 static bool regtrace_enable_ydns;
 static bool regtrace_enable_gib_blc;
 /*
@@ -8885,6 +8961,12 @@ static uint32_t regtrace_ccm_ev_now;
 static bool regtrace_enable_mdns = true;
 /* userspace 3A: gain EV (log2(total_gain) in 16.16) drives DNS strength */
 static uint regtrace_dns_gain_ev;
+/* 16.16 log2 offset added to the gain EV that picks the MDNS/YDNS/SDNS table position: shifts the denoise strength up for a noisier sensor than the GC4653 the literal tables were tuned for (runtime-tunable) */
+static uint regtrace_dns_ev_boost;
+/* top40 bypass bits forced set after the tuning-bin gates are applied (bit 17 = YSP stays off while it is unsafe; bit 14/18 = YDNS/SDNS); 0 = follow the bin */
+static uint regtrace_t40_force_bypass = 0x20000U;
+/* top40 bits forced ACTIVE (bypass cleared) after the bin gates: bit 14 = YDNS, bit 18 = SDNS, bit 9 = CCM, bit 10 = gamma; applied before t40_force_bypass */
+static uint regtrace_t40_force_active = 0x6020U;
 /* Invalid sentinels force the first completed frame, and the first frame after
  * every bank refresh, to replace block-init's bootstrap EV with live gain. */
 static uint32_t regtrace_dns_ev_applied = 0xffffffffU;
@@ -8923,8 +9005,10 @@ static uint regtrace_bcsh_brightness = 128U;
 static uint regtrace_bcsh_contrast = 128U;
 static uint regtrace_bcsh_saturation = 128U;
 static uint regtrace_bcsh_hue = 128U;
-static uint regtrace_frame_3a_interval = 15;
+static uint regtrace_frame_3a_interval = 3;
 static uint regtrace_frame_3a_target = 110;
+static bool regtrace_frame_3a_slide_window = true;
+static uint regtrace_frame_3a_window_misses;
 /*
  * Neutral chroma target and per-axis deadband for the completed-frame AWB
  * fallback.  The old fixed 120..136 window was wide enough to accept a
@@ -8933,6 +9017,7 @@ static uint regtrace_frame_3a_target = 110;
  */
 static uint regtrace_frame_awb_target = 128;
 static uint regtrace_frame_awb_hyst = 2;
+static bool regtrace_frame_awb_bggr_fast = true;
 static uint regtrace_frame_3a_highlight_level = 245;
 /* Lamps and windows covered 3..5 percent of the live GC4653 scene.  Arm the
  * existing mean-gated guard at 3 percent; its target check prevents a local
@@ -9047,6 +9132,7 @@ static bool regtrace_enable_core_event_state_2_before_boot;
 static bool regtrace_enable_core_event_oem_state_sequence;
 static bool regtrace_enable_tisp_desc_oem_fill;
 static bool regtrace_force_core_bayer_reg8_value;
+static bool regtrace_t40_bayer_oem_mapper_check;
 static bool regtrace_enable_tisp_process_init;
 static bool regtrace_enable_tisp_main_init_state;
 static bool regtrace_enable_tisp_main_init_size_reg;
@@ -9115,6 +9201,8 @@ static uint regtrace_framechan_dma_sync_dqbuf_dir = DMA_BIDIRECTIONAL;
 static uint regtrace_framechan_neutral_uv_channel_mask = 0x1U;
 static uint regtrace_framechan_neutral_uv_value = 0x80U;
 static uint regtrace_tisp_ipc_1000_delay_ms;
+/* gc4653 / SGRBG10 fallback Bayer word (bits 16..17 = sample depth, low
+ * nibble = phase); only used when the sensor published no Bayer mBus format. */
 static uint regtrace_core_bayer_reg8_value = 0x10002;
 static uint regtrace_core_start_mode_804_value = 0x10;
 static uint regtrace_t40_msca_shadow_cmd_mask = 0x3;
@@ -9136,10 +9224,13 @@ static bool regtrace_adr_linear_mode[2];
 static uint regtrace_tisp_main_init_reg20_value = 0xc7ff1030;
 static uint regtrace_tisp_main_init_top40_value = 0x7fffeeff;
 static uint32_t regtrace_t40_quality_top40_final = 0x7fffeeffU;
+static uint32_t regtrace_tisp_main_init_last_reg40;
 static uint regtrace_tisp_main_init_reg48_value = 0x8fffffff;
 static uint regtrace_tisp_main_init_reg6c_value = 0x00030024;
 static uint regtrace_tisp_main_init_reg60_value = 0;
-static uint regtrace_tisp_main_init_reg88_override = 0x00000102;
+/* 0xffffffff = derive TISP register 0x88 from the sensor's mBus format (the
+ * default); any other value forces that literal register value. */
+static uint regtrace_tisp_main_init_reg88_override = 0xffffffffU;
 static uint regtrace_tisp_main_init_csc_version_value = 2;
 static uint regtrace_tisp_main_init_color_init_mask;
 static char *regtrace_t40_tuning_bin_path = "/usr/share/sensor/gc4653-t40.bin";
@@ -9155,6 +9246,40 @@ static uint regtrace_vic_mdma_internal_size;
 static uint regtrace_vic_mdma_internal_layout;
 static uint regtrace_sensor_full_width_override;
 static uint regtrace_sensor_full_height_override;
+
+static void regtrace_sensor_preferred_dims(uint32_t *width,
+                                           uint32_t *height);
+
+/*
+ * T40-DEFAULTS-1: the BGGR seed values used by frame_awb_bggr_fast
+ * (rgain 1060 / bgain 2640) were measured on the Eufy T40XP with the
+ * sc830ai at 3840x2160.  The TISP bayer-pattern match alone does not prove
+ * that the bound sensor is that sensor, so the seed is only applied when
+ * the reported frame size matches too.  If the size is not known yet the
+ * seed is skipped rather than applied blind; the sensor itself is still
+ * fully usable, only the one-shot seed is held back.
+ */
+static bool regtrace_t40_bggr_seed_supported(void)
+{
+    static bool warned;
+    uint32_t width = 0;
+    uint32_t height = 0;
+
+    regtrace_sensor_preferred_dims(&width, &height);
+    if (regtrace_sensor_full_width_override)
+        width = regtrace_sensor_full_width_override;
+    if (regtrace_sensor_full_height_override)
+        height = regtrace_sensor_full_height_override;
+    if (width == 3840U && height == 2160U)
+        return true;
+    if (!warned) {
+        warned = true;
+        printk(KERN_INFO
+               "tx_isp_t40_recovered: BGGR AWB seed held back, sensor %ux%u is not the calibrated sc830ai 3840x2160 (the seed is sensor-specific; frame_awb_bggr_fast=0 silences this)\n",
+               width, height);
+    }
+    return false;
+}
 static uint regtrace_t40_msca_scaler_level;
 static uint regtrace_csi_direct_stage_limit;
 static uint regtrace_csi_settle_override;
@@ -9217,6 +9342,7 @@ module_param_named(enable_isp_block_init_awb, regtrace_enable_isp_block_init_awb
 module_param_named(enable_awb_reg_writes, regtrace_enable_awb_reg_writes, bool, 0644);
 module_param_named(enable_awb_set_gain, regtrace_enable_awb_set_gain, bool, 0644);
 module_param_named(enable_soft_gamma, regtrace_enable_soft_gamma, bool, 0644);
+module_param_named(t40_gamma_from_bin, regtrace_t40_gamma_from_bin, bool, 0644);
 module_param_named(enable_ydns, regtrace_enable_ydns, bool, 0644);
 module_param_named(enable_gib_blc, regtrace_enable_gib_blc, bool, 0644);
 module_param_named(enable_blc_lit, regtrace_enable_blc_lit, bool, 0644);
@@ -9252,6 +9378,9 @@ module_param_named(ccm_ev, regtrace_ccm_ev, uint, 0644);
 module_param_named(ccm_ev_now, regtrace_ccm_ev_now, uint, 0444);
 module_param_named(enable_mdns, regtrace_enable_mdns, bool, 0644);
 module_param_named(dns_gain_ev, regtrace_dns_gain_ev, uint, 0644);
+module_param_named(t40_dns_ev_boost, regtrace_dns_ev_boost, uint, 0644);
+module_param_named(t40_force_bypass, regtrace_t40_force_bypass, uint, 0644);
+module_param_named(t40_force_active, regtrace_t40_force_active, uint, 0644);
 module_param_named(dns_ev_applied, regtrace_dns_ev_applied, uint, 0444);
 module_param_named(ysp_gain_ev, regtrace_ysp_gain_ev, uint, 0644);
 module_param_named(ysp_ev_applied, regtrace_ysp_ev_applied, uint, 0444);
@@ -9291,8 +9420,11 @@ module_param_named(bcsh_saturation, regtrace_bcsh_saturation, uint, 0644);
 module_param_named(bcsh_hue, regtrace_bcsh_hue, uint, 0444);
 module_param_named(frame_3a_interval, regtrace_frame_3a_interval, uint, 0644);
 module_param_named(frame_3a_target, regtrace_frame_3a_target, uint, 0644);
+module_param_named(frame_3a_slide_window, regtrace_frame_3a_slide_window, bool, 0644);
+module_param_named(frame_3a_window_misses, regtrace_frame_3a_window_misses, uint, 0444);
 module_param_named(frame_awb_target, regtrace_frame_awb_target, uint, 0644);
 module_param_named(frame_awb_hyst, regtrace_frame_awb_hyst, uint, 0644);
+module_param_named(frame_awb_bggr_fast, regtrace_frame_awb_bggr_fast, bool, 0644);
 module_param_named(frame_3a_highlight_level,
                    regtrace_frame_3a_highlight_level, uint, 0644);
 module_param_named(frame_3a_highlight_limit_permille,
@@ -9371,6 +9503,7 @@ module_param_named(enable_core_event_state_2_before_boot, regtrace_enable_core_e
 module_param_named(enable_core_event_oem_state_sequence, regtrace_enable_core_event_oem_state_sequence, bool, 0644);
 module_param_named(enable_tisp_desc_oem_fill, regtrace_enable_tisp_desc_oem_fill, bool, 0644);
 module_param_named(force_core_bayer_reg8_value, regtrace_force_core_bayer_reg8_value, bool, 0644);
+module_param_named(t40_bayer_oem_mapper_check, regtrace_t40_bayer_oem_mapper_check, bool, 0644);
 module_param_named(enable_tisp_process_init, regtrace_enable_tisp_process_init, bool, 0644);
 module_param_named(enable_tisp_main_init_state, regtrace_enable_tisp_main_init_state, bool, 0644);
 module_param_named(enable_tisp_main_init_size_reg, regtrace_enable_tisp_main_init_size_reg, bool, 0644);
@@ -9484,6 +9617,149 @@ module_param_named(sensor_full_height_override, regtrace_sensor_full_height_over
 module_param_named(t40_msca_scaler_level, regtrace_t40_msca_scaler_level, uint, 0644);
 module_param_named(csi_direct_stage_limit, regtrace_csi_direct_stage_limit, uint, 0644);
 module_param_named(csi_settle_override, regtrace_csi_settle_override, uint, 0644);
+module_param_named(t40_vic_frame_output, regtrace_t40_vic_frame_output, bool, 0644);
+module_param_named(t40_vic_frame_output_msca_ctrl, regtrace_t40_vic_frame_output_msca_ctrl, uint, 0644);
+module_param_named(t40_vic_frame_output_msca_ctrl2, regtrace_t40_vic_frame_output_msca_ctrl2, uint, 0644);
+module_param_named(t40_vic_frame_output_msca_word74, regtrace_t40_vic_frame_output_msca_word74, uint, 0644);
+module_param_named(t40_vic_frame_output_msca_word8c, regtrace_t40_vic_frame_output_msca_word8c, uint, 0644);
+module_param_named(t40_vic_frame_output_msca_words, regtrace_t40_vic_frame_output_msca_words, bool, 0644);
+module_param_named(t40_vic_frame_output_msca_work28, regtrace_t40_vic_frame_output_msca_work28, bool, 0644);
+module_param_named(t40_msca_vendor_fixups, regtrace_t40_msca_vendor_fixups, bool, 0644);
+module_param_named(t40_msca_vendor_fixups_2c, regtrace_t40_msca_vendor_fixups_2c, bool, 0644);
+module_param_named(t40_core_fixup_88, regtrace_t40_core_fixup_88, uint, 0644);
+module_param_named(t40_core_fixup_40, regtrace_t40_core_fixup_40, uint, 0644);
+module_param_named(t40_core_fixup_shadow0, regtrace_t40_core_fixup_shadow0, bool, 0644);
+module_param_named(t40_tisp_stream_vendor, regtrace_t40_tisp_stream_vendor, bool, 0644);
+module_param_named(t40_ae_sensor_alloc_again, regtrace_t40_ae_sensor_alloc_again, bool, 0644);
+module_param_named(disable_dmsc_lit, regtrace_disable_dmsc_lit, bool, 0644);
+module_param_named(t40_generic_profile, regtrace_t40_generic_profile, bool, 0644);
+module_param_named(t40_allow_antiflick, regtrace_t40_allow_antiflick, bool, 0644);
+module_param_named(t40_nv12_height_align, regtrace_t40_nv12_height_align, uint, 0644);
+module_param_named(t40_msca_work_handshake, regtrace_t40_msca_work_handshake, uint, 0644);
+module_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
+module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
+/* rmmod: the core remove runs ispcore_slake_module (clock/power teardown) before
+ * the VIC/CSI/fs removes; the Eufy hangs in that step (p6 x1/x2) and once did
+ * not even come back by watchdog.  Default off (skip) until bisected. */
+static bool regtrace_t40_rmmod_skip_slake = true;
+module_param_named(t40_rmmod_skip_slake, regtrace_t40_rmmod_skip_slake, bool, 0644);
+
+/*
+ * Panic log dump: the Eufy has no serial console and no netconsole, and a
+ * panic reboots it (panic=2) with the 16 KB printk ring lost.  On panic,
+ * copy the printk ring into the tail of the ISP rmem (rmem=170M@0x4000000
+ * -> default 0xe9f0000, last 64 KB), which U-Boot and the kernel never
+ * clear; after the reboot read it back with dd from /dev/mem
+ * (t40prod/panicdump.sh).  log_buf/log_buf_len are not exported, so the
+ * System.map addresses of the Eufy 4.4.94 kernel are module params.
+ */
+static int regtrace_is_kernel_ptr(const void *ptr);
+static int regtrace_fr_mark(uint32_t id, uint32_t aux);
+static bool regtrace_panic_dump_enable = true;
+static uint regtrace_panic_dump_phys = 0xe9f0000U;
+static uint regtrace_panic_dump_logbuf_ptr = 0x8044229cU;   /* &log_buf */
+static uint regtrace_panic_dump_logbuf_len = 0x80442298U;   /* &log_buf_len */
+static int regtrace_panic_dump_registered;
+module_param_named(panic_dump_enable, regtrace_panic_dump_enable, bool, 0644);
+module_param_named(panic_dump_phys, regtrace_panic_dump_phys, uint, 0644);
+module_param_named(panic_dump_logbuf_ptr, regtrace_panic_dump_logbuf_ptr, uint, 0644);
+module_param_named(panic_dump_logbuf_len, regtrace_panic_dump_logbuf_len, uint, 0644);
+
+struct regtrace_panic_dump_hdr {
+    char magic[8];          /* "T40PANIC" */
+    uint32_t seq;
+    uint32_t jiffies_lo;
+    uint32_t len;
+    uint32_t reserved;
+};
+
+/*
+ * Flight recorder for hangs the panic notifier never sees (watchdog reset):
+ * a 32-entry ring of {id, aux, jiffies, seq} at rmem tail + 0x100, written
+ * uncached, read back by t40prod/panicdump.sh after the reset.
+ */
+struct regtrace_fr_entry { uint32_t id; uint32_t aux; uint32_t jiffies_lo; uint32_t seq; };
+#define REGTRACE_FR_OFF 0x100U
+#define REGTRACE_FR_ENTRIES 32U
+#define REGTRACE_FR_LOG_OFF 0x400U
+static uint32_t regtrace_fr_seq;
+static int regtrace_fr_mark(uint32_t id, uint32_t aux)
+{
+    struct regtrace_fr_entry *e;
+    uint32_t seq;
+
+    if (!regtrace_panic_dump_enable || !regtrace_panic_dump_phys)
+        return 0;
+    seq = ++regtrace_fr_seq;
+    e = (struct regtrace_fr_entry *)KSEG1ADDR(regtrace_panic_dump_phys + REGTRACE_FR_OFF);
+    e += seq % REGTRACE_FR_ENTRIES;
+    e->id = id;
+    e->aux = aux;
+    e->jiffies_lo = (uint32_t)jiffies;
+    e->seq = seq;
+    wmb();
+    return 0;
+}
+
+static void regtrace_panic_dump_now(const char *reason)
+{
+    struct regtrace_panic_dump_hdr *hdr;
+    char *dst;
+    char *src;
+    uint32_t len;
+    static uint32_t seq;
+
+    if (!regtrace_panic_dump_phys ||
+        !regtrace_is_kernel_ptr((void *)(uintptr_t)regtrace_panic_dump_logbuf_ptr) ||
+        !regtrace_is_kernel_ptr((void *)(uintptr_t)regtrace_panic_dump_logbuf_len))
+        return;
+    src = *(char **)(uintptr_t)regtrace_panic_dump_logbuf_ptr;
+    len = *(uint32_t *)(uintptr_t)regtrace_panic_dump_logbuf_len;
+    if (!regtrace_is_kernel_ptr(src) || !len)
+        return;
+    if (len > 0x10000U - REGTRACE_FR_LOG_OFF)
+        len = 0x10000U - REGTRACE_FR_LOG_OFF;
+    dst = (char *)KSEG1ADDR(regtrace_panic_dump_phys);
+    hdr = (struct regtrace_panic_dump_hdr *)dst;
+    memcpy(hdr->magic, "T40PANIC", 8);
+    hdr->seq = ++seq;
+    hdr->jiffies_lo = (uint32_t)jiffies;
+    hdr->len = len;
+    hdr->reserved = 0;
+    memcpy(dst + REGTRACE_FR_LOG_OFF, src, len);
+    wmb();
+    printk(KERN_INFO "tx_isp_t40_recovered: printk ring (%u bytes) copied to 0x%x (%s)\n",
+           len, regtrace_panic_dump_phys, reason);
+}
+
+static int regtrace_panic_notify(struct notifier_block *nb, unsigned long event, void *ptr)
+{
+    regtrace_panic_dump_now("panic");
+    return NOTIFY_OK;
+}
+
+static struct notifier_block regtrace_panic_nb = {
+    .notifier_call = regtrace_panic_notify,
+    .priority = INT_MAX,
+};
+
+static void regtrace_panic_dump_register(void)
+{
+    if (!regtrace_panic_dump_enable || regtrace_panic_dump_registered)
+        return;
+    atomic_notifier_chain_register(&panic_notifier_list, &regtrace_panic_nb);
+    regtrace_panic_dump_registered = 1;
+    printk(KERN_INFO "tx_isp_t40_recovered: panic log dump armed -> phys 0x%x\n",
+           regtrace_panic_dump_phys);
+}
+
+static void regtrace_panic_dump_unregister(void)
+{
+    if (!regtrace_panic_dump_registered)
+        return;
+    atomic_notifier_chain_unregister(&panic_notifier_list, &regtrace_panic_nb);
+    regtrace_panic_dump_registered = 0;
+}
 module_param_named(t40_stock_host_init_mask, regtrace_t40_stock_host_init_mask, uint, 0644);
 module_param_named(oem_event_pre_csi_stream, regtrace_oem_event_pre_csi_stream, bool, 0644);
 module_param_named(oem_event_pre_csi_stage_limit, regtrace_oem_event_pre_csi_stage_limit, uint, 0644);
@@ -9542,7 +9818,7 @@ static void regtrace_bcsh_static_write(void)
  * recovered stream toward stock without raising exposure/gain. Keep it
  * opt-in until the faithful tisp_dmsc chain is fully validated.
  */
-static bool regtrace_enable_dmsc_static;
+static bool regtrace_enable_dmsc_static = true;
 module_param_named(enable_dmsc_static, regtrace_enable_dmsc_static, bool, 0644);
 /*
  * Overlay the gain-10 values that were stable across two reads of the
@@ -9550,7 +9826,7 @@ module_param_named(enable_dmsc_static, regtrace_enable_dmsc_static, bool, 0644);
  * image makes the register-forensics A/B reversible while the proper DMSC
  * gain interpolation chain is being recovered.
  */
-static bool regtrace_dmsc_stock_current_overlay;
+static bool regtrace_dmsc_stock_current_overlay = true;
 module_param_named(dmsc_stock_current_overlay,
                    regtrace_dmsc_stock_current_overlay, bool, 0644);
 static bool regtrace_dmsc_stock_high_gain_overlay;
@@ -9828,14 +10104,39 @@ static void regtrace_soft_gamma_write(void)
         3581, 3599, 3617, 3636, 3654, 3672, 3690, 3708, 3725, 3743, 3761, 3778,
         3795, 3813, 3830, 3847, 3864, 3881, 3898, 3915, 3932
     };
+    uint16_t bin_lut[129];
+    const uint16_t *active_lut = lut;
     unsigned int i;
+
+    /* Linear bank gamma hw[2..130]: little-endian 12-bit monotone nodes. */
+    if (regtrace_t40_gamma_from_bin && tparamsN[0]) {
+        const uint8_t *source =
+            (const uint8_t *)(uintptr_t)tparamsN[0] + 0x106ecU;
+        bool valid = true;
+
+        for (i = 0; i < 129U; i++) {
+            bin_lut[i] = (uint16_t)source[2U * i] |
+                         ((uint16_t)source[2U * i + 1U] << 8);
+            if (bin_lut[i] > 4095U ||
+                (i && bin_lut[i] < bin_lut[i - 1U]))
+                valid = false;
+        }
+        if (bin_lut[0] != 0U || bin_lut[128] != 4095U)
+            valid = false;
+        if (valid)
+            active_lut = bin_lut;
+    }
+    printk(KERN_INFO "tx_isp_t40_recovered: gamma source=%s nodes=%u/%u/%u/%u/%u\n",
+           active_lut == bin_lut ? "active-bin" : "fallback",
+           active_lut[0], active_lut[1], active_lut[11],
+           active_lut[64], active_lut[128]);
 
     (void)system_reg_write(0x50040, 0x101);
     (void)system_reg_write(0x50060, 0x101);
     (void)system_reg_write(0x50080, 0x101);
     for (i = 0; i < 128; i++) {
-        uint32_t w = ((uint32_t)(lut[i + 1] & 0xfffU) << 12) |
-                     (lut[i] & 0xfffU);
+        uint32_t w = ((uint32_t)(active_lut[i + 1] & 0xfffU) << 12) |
+                     (active_lut[i] & 0xfffU);
 
         (void)system_reg_write(0x50044, w);
         (void)system_reg_write(0x50064, w);
@@ -11425,6 +11726,33 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
         regtrace_t40_quality_top40_final &= ~BIT(13);
     else
         regtrace_t40_quality_top40_final |= BIT(13);
+
+    if (regtrace_t40_force_active) {
+        regtrace_t40_quality_top40_final &= ~regtrace_t40_force_active;
+        if (regtrace_t40_force_active & BIT(10))
+            regtrace_enable_soft_gamma = true;
+        if (regtrace_t40_force_active & BIT(9))
+            regtrace_enable_ccm = true;
+        if (regtrace_t40_force_active & BIT(14))
+            regtrace_enable_ydns = true;
+        if (regtrace_t40_force_active & BIT(18))
+            regtrace_enable_sdns = true;
+    }
+    if (regtrace_t40_force_bypass) {
+        regtrace_t40_quality_top40_final |= regtrace_t40_force_bypass;
+        if (regtrace_t40_force_bypass & BIT(10))
+            regtrace_enable_soft_gamma = false;
+        if (regtrace_t40_force_bypass & BIT(9))
+            regtrace_enable_ccm = false;
+        if (regtrace_t40_force_bypass & BIT(14))
+            regtrace_enable_ydns = false;
+        if (regtrace_t40_force_bypass & BIT(17))
+            regtrace_enable_ysp = false;
+        if (regtrace_t40_force_bypass & BIT(18))
+            regtrace_enable_sdns = false;
+        if (regtrace_t40_force_bypass & BIT(13))
+            regtrace_enable_dmsc_lit = false;
+    }
 
     printk(KERN_INFO
            "tx_isp_t40_recovered: tuning gates flags=0x%08x BLC=%s LSC=%s GIB=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
@@ -14965,10 +15293,27 @@ static int regtrace_isp_block_init_once(const char *where)
 
     pi = (uint32_t)(uintptr_t)&tisp_par_info;
     blob = nbuf + 0x5940U;
-    adr_width = regtrace_sensor_full_width_override ?
-        regtrace_sensor_full_width_override : 2560U;
-    adr_height = regtrace_sensor_full_height_override ?
-        regtrace_sensor_full_height_override : 1440U;
+    /*
+     * T40-DEFAULTS-1: derive the ADR frame size from the bound sensor
+     * instead of the hard-coded 2560x1440, so the known-good insmod line no
+     * longer needs sensor_full_width/height_override.  Precedence: explicit
+     * override, then the size seen on the capture path, then the cached
+     * sensor attr, then 2560x1440 as before.  Cached reads only.
+     */
+    {
+        uint32_t seen_width = 0;
+        uint32_t seen_height = 0;
+
+        regtrace_sensor_preferred_dims(&seen_width, &seen_height);
+        adr_width = regtrace_sensor_full_width_override ?
+            regtrace_sensor_full_width_override : seen_width;
+        adr_height = regtrace_sensor_full_height_override ?
+            regtrace_sensor_full_height_override : seen_height;
+    }
+    if (!adr_width || !adr_height) {
+        adr_width = adr_width ? adr_width : 2560U;
+        adr_height = adr_height ? adr_height : 1440U;
+    }
     regtrace_isp_block_init_count++;
     regtrace_isp_block_init_ran = true;
 
@@ -15175,6 +15520,9 @@ static int regtrace_isp_block_init_once(const char *where)
         if (!top_ret) {
             regtrace_tisp_main_init_top40_value =
                 regtrace_t40_quality_top40_final;
+            /* Scalar replay must retain the successfully committed mask. */
+            regtrace_tisp_main_init_last_reg40 =
+                regtrace_t40_quality_top40_final;
         }
         printk(KERN_INFO
                "tx_isp_t40_recovered: isp-block-init top40 commit value=0x%08x ret=%d\n",
@@ -15274,6 +15622,7 @@ static void regtrace_isp_block_init_retry(const char *where)
 #define REGTRACE_TX_ISP_VIDEO_HEIGHT_OFFSET 0x04
 #define REGTRACE_TX_ISP_VIDEO_CODE_OFFSET 0x08
 #define REGTRACE_TX_ISP_VIDEO_ATTR_OFFSET 0x34
+#define REGTRACE_SENSOR_SUBDEV_VIDEO_OFFSET 0x2d0
 #define REGTRACE_TX_ISP_VIDEO_VIC_ID_OFFSET 0x4c
 #define REGTRACE_TX_ISP_EVENT_SENSOR_REGISTER 0x02000000U
 #define REGTRACE_TX_ISP_EVENT_SENSOR_SET_INPUT 0x02000004U
@@ -16071,7 +16420,6 @@ static uint32_t regtrace_tisp_main_init_last_daynight;
 static uint32_t regtrace_tisp_main_init_last_msca_flags;
 static uint32_t regtrace_tisp_main_init_last_reg20;
 static uint32_t regtrace_tisp_main_init_last_reg88;
-static uint32_t regtrace_tisp_main_init_last_reg40;
 static uint32_t regtrace_tisp_main_init_last_reg6c;
 static uint32_t regtrace_tisp_main_init_last_reg48;
 static uint32_t regtrace_tisp_main_init_last_reg60;
@@ -17335,7 +17683,14 @@ static inline uint16_t regtrace_get_u16(uintptr_t base, uint32_t off);
 static inline void regtrace_put_u32(uintptr_t base, uint32_t off, uint32_t value);
 static uintptr_t regtrace_vic_channel(uintptr_t vic_dev, uint32_t channel);
 static int regtrace_vic_channel_valid(uint32_t channel);
+static int regtrace_channel_vinum(int channel);
+static void regtrace_seed_sensor_attr_from_subdev(int vinum);
 static uintptr_t regtrace_resolve_vic_dev(void);
+static uint32_t regtrace_t40_mbus_to_bayer_word(uint32_t mbus_code);
+static uint32_t regtrace_t40_bayer_word_from_mbus(uint32_t mbus_code);
+static uint32_t regtrace_t40_sensor_mbus_code(uint32_t channel);
+static uint32_t regtrace_t40_tisp_reg88_value(uint32_t bayer_word,
+                                              uint32_t wdr);
 static int regtrace_ispcore_pad_event_handle(void *pad_arg, uint32_t event,
                                              void *data);
 
@@ -18309,6 +18664,8 @@ static int regtrace_core_irq_oem_disable(uintptr_t core_sd,
     return ret;
 }
 
+static int regtrace_core_irq_stream_refcnt[2];
+
 static int regtrace_core_irq_stream(int channel, int enable)
 {
     uintptr_t core_sd = (uintptr_t)regtrace_core_subdev;
@@ -18322,10 +18679,36 @@ static int regtrace_core_irq_stream(int channel, int enable)
     uint32_t cfg_value;
     long ret;
 
+    int vinum;
+
     if (!regtrace_enable_core_irq_on_stream)
         return 0;
-    if (channel < 0 || channel > 1)
+    if (channel < 0 || channel >= 6)
         return 0;
+    /*
+     * The core IRQ (and its mask/cfg register bank) belongs to the ISP
+     * core instance (vinum), not to the frame channel.  Frame channels
+     * 0..2 share vinum 0, 3..5 share vinum 1.  Reference-count the
+     * channels per vinum so the second channel (timps video1) does not
+     * re-enable (idx=1 -> -EINVAL) or prematurely disable the IRQ.
+     */
+    vinum = regtrace_channel_vinum(channel);
+    if (enable) {
+        if (regtrace_core_irq_stream_refcnt[vinum]++ != 0) {
+            printk(KERN_INFO "tx_isp_t40_recovered: core IRQ enable ch=%d vinum=%d shared (refcnt=%d)\n",
+                   channel, vinum, regtrace_core_irq_stream_refcnt[vinum]);
+            return 0;
+        }
+    } else {
+        if (regtrace_core_irq_stream_refcnt[vinum] > 1) {
+            regtrace_core_irq_stream_refcnt[vinum]--;
+            printk(KERN_INFO "tx_isp_t40_recovered: core IRQ disable ch=%d vinum=%d deferred (refcnt=%d)\n",
+                   channel, vinum, regtrace_core_irq_stream_refcnt[vinum]);
+            return 0;
+        }
+        regtrace_core_irq_stream_refcnt[vinum] = 0;
+    }
+    channel = vinum;
 
     if (!regtrace_is_kernel_ptr((void *)core_sd)) {
         core_sd = (uintptr_t)platform_get_drvdata(&tx_isp_core_platform_device);
@@ -18678,8 +19061,21 @@ static int regtrace_tisp_main_init_scalar_reapply(int channel,
 
     reg20 = regtrace_tisp_main_init_last_reg20 ?
         regtrace_tisp_main_init_last_reg20 : regtrace_tisp_main_init_reg20_value;
-    reg88 = regtrace_tisp_main_init_last_reg88 ?
-        regtrace_tisp_main_init_last_reg88 : regtrace_tisp_main_init_reg88_override;
+    if (regtrace_tisp_main_init_last_reg88) {
+        reg88 = regtrace_tisp_main_init_last_reg88;
+    } else if (regtrace_tisp_main_init_reg88_override != 0xffffffffU) {
+        reg88 = regtrace_tisp_main_init_reg88_override;
+    } else {
+        /* Default path: no literal override, so derive register 0x88 from the
+         * sensor's mBus format exactly like the tisp_main_init shim does. */
+        uint32_t sensor_code = regtrace_t40_sensor_mbus_code(0);
+        uint32_t sensor_word = sensor_code ?
+            regtrace_t40_bayer_word_from_mbus(sensor_code) :
+            regtrace_core_bayer_reg8_value;
+
+        reg88 = regtrace_t40_tisp_reg88_value(
+            sensor_word, regtrace_tisp_main_init_last_wdr);
+    }
     if (regtrace_t40_quality_profile >= 3U)
         reg40 = regtrace_t40_quality_top40_final;
     else
@@ -19338,6 +19734,51 @@ static void regtrace_record_sensor_full_dimensions(uint32_t channel,
     regtrace_sensor_full_source_seen[channel] = source;
 }
 
+/*
+ * T40-DEFAULTS-1: best-known frame size of the bound sensor, from cached
+ * state only.  Precedence mirrors regtrace_sensor_dimensions():
+ *   size seen on the capture path  >  cached VIC sensor attr (0x30/0x34)
+ * Returns 0/0 when nothing is known yet, so callers keep their own
+ * fallback.
+ */
+static void regtrace_sensor_preferred_dims(uint32_t *width,
+                                           uint32_t *height)
+{
+    uint32_t ch;
+
+    if (width)
+        *width = 0;
+    if (height)
+        *height = 0;
+
+    for (ch = 0; ch < REGTRACE_MAX_IRQS_PER_DEVICE; ch++) {
+        uint32_t attr_width;
+        uint32_t attr_height;
+
+        if (!regtrace_vic_channel_valid(ch))
+            continue;
+        if (regtrace_sensor_full_width_seen[ch] &&
+            regtrace_sensor_full_height_seen[ch]) {
+            if (width)
+                *width = regtrace_sensor_full_width_seen[ch];
+            if (height)
+                *height = regtrace_sensor_full_height_seen[ch];
+            return;
+        }
+        attr_width = regtrace_get_u32(
+            (uintptr_t)regtrace_vic_sensor_attr[ch], 0x30);
+        attr_height = regtrace_get_u32(
+            (uintptr_t)regtrace_vic_sensor_attr[ch], 0x34);
+        if (attr_width && attr_height) {
+            if (width)
+                *width = attr_width;
+            if (height)
+                *height = attr_height;
+            return;
+        }
+    }
+}
+
 static void regtrace_sensor_dimensions(uint32_t channel, uint32_t *width,
                                        uint32_t *height)
 {
@@ -19350,6 +19791,11 @@ static void regtrace_sensor_dimensions(uint32_t channel, uint32_t *width,
     uint32_t attr_width;
     uint32_t attr_height;
 
+    channel = (uint32_t)regtrace_channel_vinum((int)channel);
+    if (regtrace_vic_channel_valid(channel) &&
+        regtrace_sensor_full_source_seen[channel] !=
+            REGTRACE_SENSOR_DIM_SOURCE_EXTERNAL_ATTR)
+        regtrace_seed_sensor_attr_from_subdev((int)channel);
     if (width)
         *width = 0;
     if (height)
@@ -20328,6 +20774,10 @@ static void regtrace_t40_msca_fifo_apply_addr_tags(uint32_t channel,
             *y = (*y & ~7U) | 7U;
             *uv = (*uv & ~7U) | 7U;
         }
+    } else if (regtrace_t40_msca_fifo_addr_tag_mode == 4U) {
+        /* vendor 1.3.1 (Eufy T40XP, devtest 4K ch0): 0x16174 = y|6, 0x1618c = uv|7 */
+        *y = (*y & ~7U) | 6U;
+        *uv = (*uv & ~7U) | 7U;
     } else if (channel == 0) {
         *y = (*y & ~7U) | 4U;
         *uv = (*uv & ~7U) | 5U;
@@ -20401,7 +20851,7 @@ static uint32_t regtrace_framechan_uv_offset(int channel)
     if (!width || !height)
         return 0;
 
-    return width * ALIGN(height, 16);
+    return width * ALIGN(height, regtrace_t40_nv12_height_align ? regtrace_t40_nv12_height_align : 16U);
 }
 
 static uint32_t regtrace_untag_phys(uint32_t phys)
@@ -20865,10 +21315,11 @@ static int regtrace_core_program_qbuf(int channel, uint32_t phys,
     sync_len = (index < REGTRACE_FRAMECHAN_QBUF_SHADOW_MAX &&
                 regtrace_framechan_qbuf_len[channel][index]) ?
         regtrace_framechan_qbuf_len[channel][index] :
-        (width * ALIGN(height, 16) * 3U / 2U);
+        (width * ALIGN(height, regtrace_t40_nv12_height_align ? regtrace_t40_nv12_height_align : 16U) * 3U / 2U);
 
-    ret = tx_isp_nv12_buffer_build(width, height, 1, 16, phys, sync_len,
-                                   &dma_buffer);
+    ret = tx_isp_nv12_buffer_build(width, height, 1,
+                                   regtrace_t40_nv12_height_align ? regtrace_t40_nv12_height_align : 16U,
+                                   phys, sync_len, &dma_buffer);
     if (ret)
         return ret;
     ret = tx_isp_dma_range_validate(dma_buffer.y_dma,
@@ -21032,9 +21483,10 @@ static int regtrace_vic_frame_mdma_stream(int channel, int enable)
     if (!regtrace_is_kernel_ptr((void *)regs_addr))
         return -ENODEV;
 
-    irq_index = (int)tx_isp_vic_index_cal(vic_dev, (uint32_t)channel);
+    irq_index = (int)tx_isp_vic_index_cal(vic_dev,
+                                          (uint32_t)regtrace_channel_vinum(channel));
     if (irq_index < 0 || irq_index >= REGTRACE_MAX_IRQS_PER_DEVICE)
-        irq_index = channel;
+        irq_index = regtrace_channel_vinum(channel);
 
     base = (volatile void __iomem *)(regs_addr + ((uintptr_t)irq_index << 16));
 
@@ -21103,7 +21555,7 @@ static int regtrace_vic_frame_mdma_stream(int channel, int enable)
         if (qbuf_count > REGTRACE_VIC_MDMA_RING_SLOTS)
             qbuf_count = REGTRACE_VIC_MDMA_RING_SLOTS;
 
-        aligned_height = ALIGN(height, 16);
+        aligned_height = ALIGN(height, regtrace_t40_nv12_height_align ? regtrace_t40_nv12_height_align : 16U);
         y_size = regtrace_vic_mdma_qbuf_ring_uv_offset_override ?
             regtrace_vic_mdma_qbuf_ring_uv_offset_override :
             width * aligned_height;
@@ -21349,6 +21801,7 @@ static int regtrace_tx_isp_release(struct inode *inode, struct file *file)
 
 static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x02, cmd);
     long ret;
 
     printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x arg=0x%lx delegate=%d pid=%d comm=%s\n",
@@ -21425,6 +21878,7 @@ static int regtrace_bootstrap_release(struct inode *inode, struct file *file)
 
 static long regtrace_isp_m0_ctrl_ioctl(unsigned int cmd, unsigned long arg)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x03, cmd);
     struct regtrace_tisp_control_compat ctrl;
     static unsigned int log_count;
 
@@ -21782,10 +22236,26 @@ static int regtrace_t40_tuning_set_running_mode(uint32_t mode)
 
     /* T31/T21 both switch the complete calibrated bank before refreshing any
      * ISP block. T40 carries the same two 0x18ff4-byte banks. */
-    memcpy(active, selected, REGTRACE_T40_TUNING_BANK_BYTES);
     WRITE_ONCE(regtrace_running_mode, mode);
     WRITE_ONCE(day_night, mode);
-    ret = regtrace_t40_refresh_daynight_pipeline();
+    if (!memchr_inv(selected, 0, REGTRACE_T40_TUNING_BANK_BYTES)) {
+        /* No calibrated day/night bank is loaded (sc830ai has none yet, the
+         * banks are the vzalloc'ed zero buffers).  Copying a zero bank and
+         * re-running every block initializer from it blacks the picture out
+         * (luma 0) once the stream is live, e.g. timps' running_mode apply.
+         * Keep the live pipeline and only follow the mode where it is
+         * independent of the bank: night = no colour. */
+        ret = 0;
+        if (regtrace_enable_bcsh && stMainBcshOuter_lit && pstMainBcshOri_lit[48])
+            ret = regtrace_isp_m0_apply_saturation(
+                mode ? 0U : min_t(uint32_t, regtrace_bcsh_saturation, 255U));
+        printk(KERN_INFO
+               "tx_isp_t40_recovered: running mode bank empty, pipeline kept (mode=%s)\n",
+               mode ? "night" : "day");
+    } else {
+        memcpy(active, selected, REGTRACE_T40_TUNING_BANK_BYTES);
+        ret = regtrace_t40_refresh_daynight_pipeline();
+    }
 
     if (!mode) {
         uint32_t rgain = regtrace_day_awb_rgain;
@@ -22086,10 +22556,15 @@ static long regtrace_isp_m0_default_tuning_ioctl(unsigned int cmd, unsigned long
         } else if (ctrl.id == TX_ISP_TUNING_CMD_T41_RUNNING_MODE) {
             uint32_t mode = READ_ONCE(regtrace_running_mode);
 
-            if (copy_to_user(
+            /* T40 scalar GET returns the value in the control packet.
+             * Keep compatibility with pointer-based clients as well. */
+            if (ctrl.value == 0) {
+                ctrl.value = (int32_t)mode;
+            } else if (copy_to_user(
                     (void __user *)(uintptr_t)(uint32_t)ctrl.value,
-                    &mode, sizeof(mode)))
+                    &mode, sizeof(mode))) {
                 return -EFAULT;
+            }
             ret = 0;
         } else if (ctrl.id == TX_ISP_TUNING_CMD_T41_AWB_ATTR) {
             ret = regtrace_t40_tuning_get_awb_attr(
@@ -22252,6 +22727,7 @@ static unsigned int regtrace_tisp_poll(struct file *file, poll_table *wait)
 
 static long regtrace_tisp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x04, cmd);
     printk(KERN_INFO "tx_isp_t40_recovered: tisp ioctl cmd=0x%x arg=0x%lx pid=%d comm=%s\n",
            cmd, arg, current->pid, current->comm);
     return tisp_code_tuning_ioctl((int)(uintptr_t)file, (int)cmd, (int)arg);
@@ -22383,6 +22859,23 @@ static int regtrace_ae_sensor_apply_maybe(int channel, const char *reason)
         packed = (max_again << 16) | (packed & 0xffffU);
         again = max_again;
         regtrace_ae_sensor_apply_clamp_count[channel]++;
+    }
+    if (regtrace_t40_ae_sensor_alloc_again &&
+        regtrace_is_kernel_ptr(regtrace_sensor_subdev)) {
+        uintptr_t attr = regtrace_get_u32((uintptr_t)regtrace_sensor_subdev, 0x304);
+        uintptr_t fn = regtrace_is_kernel_ptr((void *)attr) ? regtrace_get_u32(attr, 0xc4) : 0;
+
+        if (regtrace_is_kernel_ptr((void *)fn)) {
+            uint32_t log2 = regtrace_gc4653_again_log2_gain(again);
+            unsigned int sensor_again = 0;
+            static unsigned int alloc_log;
+
+            ((unsigned int (*)(unsigned int, unsigned char, unsigned int *))fn)(log2, 16, &sensor_again);
+            if (alloc_log++ < 8)
+                printk(KERN_INFO "tx_isp_t40_recovered: AE alloc_again idx=%u log2=%u -> sensor_again=0x%x\n",
+                       again, log2, sensor_again);
+            packed = (sensor_again << 16) | (packed & 0xffffU);
+        }
     }
 
     regtrace_ae_sensor_apply_last_dirty[channel] = dirty;
@@ -22618,6 +23111,20 @@ static void regtrace_csi_put_state(uintptr_t csi_dev, uint32_t channel,
 static int regtrace_vic_channel_valid(uint32_t channel)
 {
     return channel < REGTRACE_MAX_IRQS_PER_DEVICE;
+}
+
+/*
+ * T40 frame channels 0..2 belong to the main sensor (vinum 0), 3..5 to the
+ * secondary sensor (vinum 1): the OEM core probe stores index/3 as the
+ * sensor id.  VIC, CSI and sensor calls take the vinum, not the frame
+ * channel; the old code passed the frame channel, so only channel 0
+ * ever reached the bound sensor.
+ */
+static int regtrace_channel_vinum(int channel)
+{
+    if (channel < 0)
+        return 0;
+    return channel / 3;
 }
 
 static void regtrace_seed_synthetic_gc4653_attr(uint32_t channel)
@@ -22935,6 +23442,37 @@ static int regtrace_sync_sensor_video_to_csi(void *video, int forced_channel)
     return 0;
 }
 
+/*
+ * Seed the VIC/CSI attribute caches from the bound sensor's own
+ * tx_isp_sensor.video (attr pointer at +0x304, mbus at +0x2d0) as soon as a
+ * stream starts.  The external attribute otherwise arrives only through the
+ * sensor's core init during VIC start, after tisp_main_init and the MSCA
+ * geometry were already programmed from the synthetic GC4653 2560x1440
+ * attribute (Eufy T40XP/sc830ai 3840x2160: 0 frames, 2026-10-12).
+ */
+static void regtrace_seed_sensor_attr_from_subdev(int vinum)
+{
+    uintptr_t sd = (uintptr_t)regtrace_sensor_subdev;
+    uintptr_t attr;
+    static unsigned int log_count;
+
+    if (!regtrace_is_kernel_ptr((void *)sd) || vinum < 0 ||
+        !regtrace_vic_channel_valid((uint32_t)vinum))
+        return;
+    attr = regtrace_get_u32(sd, 0x304);
+    if (!regtrace_is_kernel_ptr((void *)attr))
+        return;
+    if (!regtrace_get_u32(attr, 0x30) || !regtrace_get_u32(attr, 0x34))
+        return;
+    regtrace_sync_sensor_video_to_vic((void *)(sd + 0x2d0), vinum);
+    regtrace_sync_sensor_video_to_csi((void *)(sd + 0x2d0), vinum);
+    if (log_count < 8)
+        printk(KERN_INFO "tx_isp_t40_recovered: early sensor attr seed vinum=%d sd=%p attr=%p %ux%u\n",
+               vinum, (void *)sd, (void *)attr, regtrace_get_u32(attr, 0x30),
+               regtrace_get_u32(attr, 0x34));
+    log_count++;
+}
+
 static int regtrace_sensor_call_core_init(int enable, int vinum)
 {
     struct regtrace_tx_isp_initarg init;
@@ -23186,6 +23724,7 @@ static void regtrace_t40_apply_stock_vic_overrides_for_channel(
 
 static int regtrace_t40_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x75, channel);
     uintptr_t ch;
     uintptr_t attr;
     uintptr_t regs_addr;
@@ -23368,8 +23907,10 @@ static int regtrace_t40_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
         printk(KERN_WARNING "tx_isp_t40_recovered: sensor stream start before VIC unlock returned %d\n",
                ret);
 
+    regtrace_fr_mark(0x76, 2);
     writel(2, base + 0x00);
     writel(4, base + 0x00);
+    regtrace_fr_mark(0x77, 4);
     unlock_1a0 = (frame_mode << 4) | sensor_mode;
     regtrace_vic_start_diag.unlock_1a0 = unlock_1a0;
     writel(unlock_1a0, base + 0x1a0);
@@ -23395,6 +23936,7 @@ static int regtrace_t40_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
            base + 0x104);
     writel((regtrace_get_u16(attr, 0x5e) << 16) | regtrace_get_u16(attr, 0x5a),
            base + 0x108);
+    regtrace_fr_mark(0x78, 1);
     writel(1, base + 0x00);
     wmb();
     regtrace_vic_start_diag.wait_loops = i;
@@ -23533,11 +24075,48 @@ static int regtrace_framechan_private_cmd(unsigned int cmd)
     }
 }
 
+/*
+ * Frame channels 0..2 share vinum 0 (one CSI, one VIC, one sensor).  Only
+ * the first channel of a vinum starts CSI/VIC and only the last one stops
+ * them, and the sensor is stopped with them: without this the second
+ * channel re-initialised the CSI (reset, PHY) while the sensor was already
+ * streaming, and the sensor was never stopped at all, so a restart ran
+ * the CSI/VIC bring-up against live MIPI data and the camera hung on a
+ * CSI/VIC register access (second-start hang, flight recorder c5-c8c).
+ */
+static int regtrace_vinum_csi_refcnt[2];
+static int regtrace_vinum_vic_refcnt[2];
+static bool regtrace_t40_sensor_stream_off_on_stop = true;
+module_param_named(t40_sensor_stream_off_on_stop, regtrace_t40_sensor_stream_off_on_stop, bool, 0644);
+
 static long regtrace_framechan_call_vic_stream(int channel, int enable)
 {
     uint32_t stream_arg[2];
     void *vic_sd;
     long ret;
+    int vinum = regtrace_channel_vinum(channel);
+
+    if (vinum >= 0 && vinum < 2) {
+        if (enable) {
+            if (regtrace_vinum_vic_refcnt[vinum]++ > 0) {
+                printk(KERN_INFO "tx_isp_t40_recovered: framechan%d VIC streamon shared vinum=%d refcnt=%d\n",
+                       channel, vinum, regtrace_vinum_vic_refcnt[vinum]);
+                return 0;
+            }
+        } else {
+            if (regtrace_vinum_vic_refcnt[vinum] > 1) {
+                regtrace_vinum_vic_refcnt[vinum]--;
+                printk(KERN_INFO "tx_isp_t40_recovered: framechan%d VIC streamoff deferred vinum=%d refcnt=%d\n",
+                       channel, vinum, regtrace_vinum_vic_refcnt[vinum]);
+                return 0;
+            }
+            regtrace_vinum_vic_refcnt[vinum] = 0;
+            if (regtrace_t40_sensor_stream_off_on_stop) {
+                regtrace_fr_mark(0x79, (uint32_t)vinum);
+                regtrace_sensor_call_video_stream(0, vinum);
+            }
+        }
+    }
 
     if (regtrace_skip_vic_stream) {
         if (channel >= 0 && channel < 4)
@@ -23559,10 +24138,10 @@ static long regtrace_framechan_call_vic_stream(int channel, int enable)
     }
 
     if (enable)
-        regtrace_sync_sensor_video_to_vic(NULL, channel);
+        regtrace_sync_sensor_video_to_vic(NULL, regtrace_channel_vinum(channel));
 
     stream_arg[0] = enable ? 1U : 0U;
-    stream_arg[1] = (uint32_t)channel;
+    stream_arg[1] = (uint32_t)regtrace_channel_vinum(channel);
     regtrace_vic_stream_call_count++;
     ret = vic_core_s_stream((uintptr_t)vic_sd, (uintptr_t)stream_arg);
     if (channel >= 0 && channel < 4)
@@ -23683,6 +24262,19 @@ static uint32_t regtrace_csi_active_mipi_count(uintptr_t csi_dev)
     return count;
 }
 
+/*
+ * CSI clocks: the OEM tx_isp_csi_slake_subdev (internal_ops[1], run by the
+ * core when timps/OpenIMP tears the link down) disables every CSI clock,
+ * and the OEM activate re-enables them only from state 1, which the
+ * direct stream path (states 3/4) does not always reach.  A one-shot
+ * "activated" flag here therefore left the CSI clocks off on a restart:
+ * the next CSI register write hung the bus and the watchdog reset the
+ * camera (second-start hang, p7 c1-c5).  Track the clocks explicitly and
+ * re-enable them after every slake.
+ */
+static int regtrace_csi_clks_enabled;
+static unsigned int regtrace_csi_reactivate_count;
+
 static void regtrace_t40_csi_activate_direct(uintptr_t csi_dev)
 {
     uintptr_t clk_ptr;
@@ -23692,10 +24284,10 @@ static void regtrace_t40_csi_activate_direct(uintptr_t csi_dev)
     uint32_t old_state0;
     uint32_t old_state1;
     uint32_t i;
-    static int activated;
 
-    if (activated)
+    if (regtrace_csi_clks_enabled)
         return;
+    regtrace_fr_mark(0x60, 0);
     if (!regtrace_is_kernel_ptr((void *)csi_dev))
         return;
 
@@ -23727,8 +24319,10 @@ static void regtrace_t40_csi_activate_direct(uintptr_t csi_dev)
         }
     }
 
-    activated = 1;
+    regtrace_csi_clks_enabled = 1;
     regtrace_csi_activate_count++;
+    if (regtrace_csi_activate_count > 1)
+        regtrace_csi_reactivate_count++;
     printk(KERN_INFO "tx_isp_t40_recovered: CSI direct activate csi=%p state0=%u/%u state1=%u/%u clk_ptr=%p clk_num=%u\n",
            (void *)csi_dev, state0, old_state0, state1, old_state1,
            (void *)clk_ptr, clk_num);
@@ -23826,8 +24420,10 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
         return 0;
     }
 
+    regtrace_fr_mark(0x62, (irqs_disabled() ? 1U : 0U) | (in_atomic() ? 2U : 0U) | ((uint32_t)preempt_count() << 8));
     stream_count = regtrace_get_u32(csi_dev, REGTRACE_CSI_STREAM_COUNT_OFFSET);
     if (!stream_count) {
+        regtrace_fr_mark(0x63, 0x0c);
         writel(0, regs0 + 0x0c);
         private_msleep(1);
         writel(interface_type, regs0 + 0x0c);
@@ -23845,14 +24441,17 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
         return 0;
     }
 
+    regtrace_fr_mark(0x64, 0x04);
     writel((lanes - 1) & 0x3, regs + 0x04);
     writel(lanes == 4 ? 0x0f : 0x03, regs + 0x100);
     writel(0, regs + 0x08);
     private_msleep(1);
+    regtrace_fr_mark(0x65, 0x10);
     writel(0, regs + 0x10);
     private_msleep(1);
     writel(1, regs + 0x10);
     private_msleep(1);
+    regtrace_fr_mark(0x66, 0x28);
     writel(0xffffffffU, regs + 0x28);
     writel(0xffffffffU, regs + 0x2c);
     private_msleep(1);
@@ -23867,6 +24466,7 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
         return 0;
     }
 
+    regtrace_fr_mark(0x67, 0x00);
     writel(0x7d, phy + 0x00);
     writel(csi_index == 1 ? 1 : 0, regs + 0x80);
     writel(csi_index == 1 ? 0x5f : 0x1f, phy + 0x80);
@@ -23883,11 +24483,13 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
              (uint32_t)settle_time_cal(regtrace_get_u32(attr, 0x1c));
     if (regtrace_csi_settle_override)
         settle = regtrace_csi_settle_override;
+    regtrace_fr_mark(0x68, 0x160);
     writel(settle, phy + 0x160);
     writel(settle, phy + 0x1e0);
     writel(settle, phy + 0x260);
     writel(settle, phy + 0x2e0);
     writel(settle, phy + 0x360);
+    regtrace_fr_mark(0x69, 0);
     regtrace_t40_apply_stock_csi_phy_overrides(regs, phy, csi_index,
                                                "csi-start");
     private_msleep(10);
@@ -23904,6 +24506,7 @@ static long regtrace_t40_csi_stream_direct(uintptr_t csi_dev, uint32_t channel,
         return 0;
     }
 
+    regtrace_fr_mark(0x6a, 0);
     regtrace_csi_put_state(csi_dev, channel, 4);
     phy_mux_word = readl(phy + 0x80);
     ctrl_word = readl(regs + 0x10);
@@ -23918,6 +24521,7 @@ static long regtrace_framechan_call_csi_stream(int channel, int enable)
 {
     uintptr_t csi_dev;
     uintptr_t state_off;
+    int vinum;
     long ret = 0;
 
     if (regtrace_skip_csi_stream) {
@@ -23939,17 +24543,37 @@ static long regtrace_framechan_call_csi_stream(int channel, int enable)
     if (channel < 0 || channel >= REGTRACE_MAX_IRQS_PER_DEVICE)
         return -EINVAL;
 
-    state_off = regtrace_csi_state_offset((uint32_t)channel);
+    vinum = regtrace_channel_vinum(channel);
+    state_off = regtrace_csi_state_offset((uint32_t)vinum);
+    if (vinum >= 0 && vinum < 2) {
+        if (enable) {
+            if (regtrace_vinum_csi_refcnt[vinum]++ > 0) {
+                printk(KERN_INFO "tx_isp_t40_recovered: framechan%d CSI streamon shared vinum=%d refcnt=%d\n",
+                       channel, vinum, regtrace_vinum_csi_refcnt[vinum]);
+                return 0;
+            }
+        } else {
+            if (regtrace_vinum_csi_refcnt[vinum] > 1) {
+                regtrace_vinum_csi_refcnt[vinum]--;
+                printk(KERN_INFO "tx_isp_t40_recovered: framechan%d CSI streamoff deferred vinum=%d refcnt=%d\n",
+                       channel, vinum, regtrace_vinum_csi_refcnt[vinum]);
+                return 0;
+            }
+            regtrace_vinum_csi_refcnt[vinum] = 0;
+        }
+    }
     if (enable) {
         regtrace_t40_csi_activate_direct(csi_dev);
-        regtrace_sync_sensor_video_to_csi(NULL, channel);
-        regtrace_csi_put_state(csi_dev, (uint32_t)channel, 3);
+        regtrace_fr_mark(0x6b, (uint32_t)regtrace_csi_clks_enabled);
+        regtrace_sync_sensor_video_to_csi(NULL, vinum);
+        regtrace_fr_mark(0x6c, 0);
+        regtrace_csi_put_state(csi_dev, (uint32_t)vinum, 3);
         regtrace_csi_stream_call_count++;
     } else {
-        regtrace_csi_put_state(csi_dev, (uint32_t)channel, 3);
+        regtrace_csi_put_state(csi_dev, (uint32_t)vinum, 3);
     }
 
-    ret = regtrace_t40_csi_stream_direct(csi_dev, (uint32_t)channel, enable);
+    ret = regtrace_t40_csi_stream_direct(csi_dev, (uint32_t)vinum, enable);
     if (channel >= 0 && channel < 4)
         regtrace_framechan_diag[channel].last_csi_ret = ret;
     printk(KERN_INFO "tx_isp_t40_recovered: framechan%d direct CSI %s csi=%p state_off=0x%lx ret=%ld\n",
@@ -23967,8 +24591,34 @@ static unsigned char *regtrace_core_event_channel_data(void *pad_arg)
         return NULL;
 
     data = *(uint32_t *)(pad + REGTRACE_CORE_PAD_CHANNEL_OFFSET);
-    if (!regtrace_is_kernel_ptr((void *)data))
-        return NULL;
+    if (!regtrace_is_kernel_ptr((void *)data)) {
+        /*
+         * The core probe only binds channel data to pads whose type byte is
+         * set; on the Eufy T40XP only pad 0 was bound, so framechan1 events
+         * resolved to channel -EINVAL.  The channel array (core+628, stride
+         * 216) is initialised for every pad, so bind it from the pad index.
+         */
+        uintptr_t core_dev = regtrace_resolve_core_dev();
+        uintptr_t channels;
+        unsigned int index = pad[4];
+        static unsigned int log_count;
+
+        if (!regtrace_is_kernel_ptr((void *)core_dev) || index >= 7)
+            return NULL;
+        channels = regtrace_get_u32(core_dev, 628);
+        if (!regtrace_is_kernel_ptr((void *)channels))
+            return NULL;
+        data = channels + index * 216U;
+        /* same semantics the resolver below expects: frame index, tisp id */
+        *(uint32_t *)(data + REGTRACE_CORE_CH_TISP_INDEX_OFFSET) = index;
+        *(uint32_t *)(data + REGTRACE_CORE_CH_TISP_ID_OFFSET) = index % 3U;
+        *(uint32_t *)(data + REGTRACE_CORE_CH_FRAME_INDEX_OFFSET) = index;
+        *(uint32_t *)(pad + REGTRACE_CORE_PAD_CHANNEL_OFFSET) = (uint32_t)data;
+        if (log_count < 8)
+            printk(KERN_INFO "tx_isp_t40_recovered: core pad %u bound late to channel data %p (core=%p)\n",
+                   index, (void *)data, (void *)core_dev);
+        log_count++;
+    }
 
     return (unsigned char *)data;
 }
@@ -24149,16 +24799,104 @@ static uint16_t regtrace_attr_u16_or(uintptr_t attr, uint32_t off,
     return value ? value : fallback;
 }
 
+/*
+ * TISP mBus format -> packed Bayer word.
+ *
+ * TISP has to know the Bayer phase of the connected sensor.  If the phase is
+ * wrong the ISP front end de-interleaves a linear stream (the DEIR path) and
+ * the frame comes out flat and chroma-less, with a magenta cast once AWB is
+ * applied.
+ *
+ * input_mbus_fmt (tx-isp-videodev.h) lays the plain Bayer formats out as
+ *   SBGGR8_1X8 = 0x5200, SGBRG8_1X8 = 0x5201,
+ *   SGRBG8_1X8 = 0x5202, SRGGB8_1X8 = 0x5203,
+ *   SBGGR10_1X10 = 0x5204 ... SBGGR16/SRGGB16 = 0x5213
+ * so bits 0..1 select the quartet and bits 2..4 the sample depth (1 = 10 bit,
+ * 2 = 12 bit, 4 = 16 bit); the "S" prefix only names the first pixel and does
+ * not change the quartet.
+ *
+ * The packed word carries the depth in bits 16..17 and the phase in bits 0..2
+ * through { BGGR = 1, GBRG = 3, GRBG = 2, RGGB = 0 } - the same mapping the T41
+ * driver applies in its REGTRACE_KERNEL_TREE_BUILD override of
+ * isp_mbus_to_bayer().  regtrace_t40_tisp_reg88_value() shifts the depth down
+ * into TISP register 0x88 bits 8..9, so sc830ai's SBGGR10 becomes 0x10001 and
+ * register 0x88 = 0x101 (the value validated on device).
+ *
+ * Returns 0 for anything that is not one of the plain Bayer formats.
+ */
+static uint32_t regtrace_t40_mbus_to_bayer_word(uint32_t mbus_code)
+{
+    static const uint8_t bayer_order[4] = { 1, 3, 2, 0 };
+    uint32_t offset;
+
+    if (mbus_code < 0x5200U || mbus_code >= 0x5214U)
+        return 0;
+
+    offset = mbus_code - 0x5200U;
+    return ((offset >> 2) << 16) | (uint32_t)bayer_order[offset & 3U];
+}
+
 static uint32_t regtrace_t40_bayer_word_from_mbus(uint32_t mbus_code)
 {
-    uint32_t word = mbus_code;
-    int64_t mapped;
+    uint32_t word = regtrace_t40_mbus_to_bayer_word(mbus_code);
+    uint32_t in = mbus_code;
+    int64_t mapped = 0;
 
-    mapped = isp_mbus_to_bayer_isra_0((uintptr_t)&word);
-    if ((int32_t)mapped < 0)
-        return regtrace_core_bayer_reg8_value;
+    if (!word || regtrace_t40_bayer_oem_mapper_check) {
+        mapped = isp_mbus_to_bayer_isra_0((uintptr_t)&in);
+        if (regtrace_t40_bayer_oem_mapper_check)
+            printk(KERN_INFO
+                   "tx_isp_t40_recovered: bayer fmt check mbus=0x%x sensor=0x%x generated=0x%x\n",
+                   mbus_code, word, (uint32_t)mapped);
+    }
 
-    return (uint32_t)mapped;
+    if (word)
+        return word;
+
+    /*
+     * Format not published (or not a plain Bayer code): keep the historical
+     * behaviour - the generated mapper result, then the gc4653 fallback word.
+     * The generated translation returns the raw enum offset for the ordinary
+     * Bayer codes (SBGGR10 -> 4, SGRBG10 -> 6/8 instead of 0x10001/0x10002),
+     * which is exactly the DEIR bug this table avoids.
+     */
+    if ((int32_t)mapped >= 0)
+        return (uint32_t)mapped;
+
+    return regtrace_core_bayer_reg8_value;
+}
+
+/*
+ * Bayer phase of the connected sensor.  The sensor driver publishes the mBus
+ * format in tx_isp_sensor.video.mbus.code (video at subdev+0x2d0, mbus.code at
+ * video+0x08); the VIC channel cache holds the format the ISP video node
+ * actually registered and is used as the second source.  Returns 0 when
+ * neither is known, so callers can keep the gc4653/SGRBG10 default.
+ */
+static uint32_t regtrace_t40_sensor_mbus_code(uint32_t channel)
+{
+    uintptr_t sd = (uintptr_t)regtrace_sensor_subdev;
+    uintptr_t vic_dev;
+    uintptr_t ch;
+    uint32_t code;
+
+    if (regtrace_is_kernel_ptr((void *)sd)) {
+        code = regtrace_get_u32(sd + REGTRACE_SENSOR_SUBDEV_VIDEO_OFFSET,
+                                REGTRACE_TX_ISP_VIDEO_CODE_OFFSET);
+        if (regtrace_t40_mbus_to_bayer_word(code))
+            return code;
+    }
+
+    vic_dev = regtrace_resolve_vic_dev();
+    if (regtrace_is_kernel_ptr((void *)vic_dev) &&
+        regtrace_vic_channel_valid(channel)) {
+        ch = regtrace_vic_channel(vic_dev, channel);
+        code = regtrace_get_u32(ch, REGTRACE_VIC_CH_MBUS_CODE_OFFSET);
+        if (regtrace_t40_mbus_to_bayer_word(code))
+            return code;
+    }
+
+    return 0;
 }
 
 static uint32_t regtrace_t40_tisp_reg88_from_bayer(uint32_t bayer_word,
@@ -24236,8 +24974,14 @@ static void regtrace_tisp_desc_oem_fill(uint32_t *desc, uint32_t channel,
     uintptr_t name_ptr;
     uint32_t width = desc[0] ? desc[0] : 2560;
     uint32_t height = desc[1] ? desc[1] : 1440;
-    uint32_t mbus_code = REGTRACE_TISP_VI_FMT_SGRBG10_1X10;
+    /*
+     * Take the Bayer phase from the sensor's own mBus format: the gc4653
+     * SGRBG10 constant is only the last-resort default for the case where the
+     * sensor has not published its format yet.
+     */
+    uint32_t mbus_code = regtrace_t40_sensor_mbus_code(channel);
     uint32_t bayer_word;
+    bool mbus_from_sensor = mbus_code != 0;
     uint32_t fps;
     uint16_t total_width;
     uint16_t total_height;
@@ -24245,6 +24989,9 @@ static void regtrace_tisp_desc_oem_fill(uint32_t *desc, uint32_t channel,
     uint16_t integration_limit;
     uint16_t one_line;
     unsigned char *raw = (unsigned char *)desc;
+
+    if (!mbus_code)
+        mbus_code = REGTRACE_TISP_VI_FMT_SGRBG10_1X10;
 
     if (regtrace_is_kernel_ptr((void *)attr)) {
         width = regtrace_attr_u32_or(attr, 0x30, width);
@@ -24337,10 +25084,11 @@ static void regtrace_tisp_desc_oem_fill(uint32_t *desc, uint32_t channel,
     if (bayer_word_out)
         *bayer_word_out = bayer_word;
 
-    printk(KERN_INFO "tx_isp_t40_recovered: TISP OEM desc fill ch=%u attr=%p name=%s %ux%u mbus=0x%x bayer=0x%x fps=0x%x total=%ux%u it=%u limits=%u/%u line=%u\n",
+    printk(KERN_INFO "tx_isp_t40_recovered: TISP OEM desc fill ch=%u attr=%p name=%s %ux%u mbus=0x%x bayer=0x%x fps=0x%x total=%ux%u it=%u limits=%u/%u line=%u mbus_src=%s\n",
            channel, (void *)attr, name, width, height, mbus_code, bayer_word,
            fps, total_width, total_height, regtrace_get_u32((uintptr_t)raw, 0x40),
-           max_it_native, integration_limit, one_line);
+           max_it_native, integration_limit, one_line,
+           mbus_from_sensor ? "sensor" : "gc4653_default");
 }
 
 static uint32_t *regtrace_core_event_state_ptr(uintptr_t core_dev, int channel)
@@ -24404,8 +25152,8 @@ static int regtrace_core_event_tisp_bootstrap(int channel, uint32_t tisp_id)
     uintptr_t path = 0;
     uint32_t width = 0;
     uint32_t height = 0;
-    uint32_t code = REGTRACE_TISP_VI_FMT_SGRBG10_1X10;
-    uint32_t bayer_word = code;
+    uint32_t code = 0;
+    uint32_t bayer_word = 0;
     uint32_t *statep = NULL;
     bool do_state2 = regtrace_enable_core_event_state_2_before_boot ||
         regtrace_enable_core_event_oem_state_sequence;
@@ -24434,10 +25182,20 @@ static int regtrace_core_event_tisp_bootstrap(int channel, uint32_t tisp_id)
     if (!height)
         height = 1440;
 
+    /* Seed the descriptor Bayer field from the sensor's own mBus format; the
+     * gc4653 SGRBG10 constant is only the fallback when the sensor has not
+     * published its format yet.  The packed depth|phase word is what
+     * tisp_main_init consumes (code -> TISP register 0x88). */
+    code = regtrace_t40_sensor_mbus_code((uint32_t)channel);
+    if (!code)
+        code = REGTRACE_TISP_VI_FMT_SGRBG10_1X10;
+    bayer_word = regtrace_t40_bayer_word_from_mbus(code);
+
     desc[0] = width;
     desc[1] = height;
     *(uint16_t *)((char *)desc + 8) = (uint16_t)code;
     *(uint16_t *)((char *)desc + 10) = 0;
+    regtrace_put_u32((uintptr_t)desc, 8, bayer_word);
     desc[31] = tisp_id;
     if (regtrace_enable_tisp_desc_oem_fill) {
         regtrace_tisp_desc_oem_fill(desc, (uint32_t)channel, &code,
@@ -24557,8 +25315,126 @@ static int regtrace_core_event_tisp_bootstrap(int channel, uint32_t tisp_id)
     return ret;
 }
 
+static int regtrace_t40_vic_frame_output_enable(int channel, int enable)
+{
+    uintptr_t vic_dev;
+    uintptr_t regs_addr;
+    volatile void __iomem *base;
+    struct regtrace_frame_image_format format;
+    uint32_t width, height, stride, ysize, count, ctrl, bank, i;
+    uint32_t y[REGTRACE_VIC_MDMA_RING_SLOTS], uv[REGTRACE_VIC_MDMA_RING_SLOTS];
+    int irq_index;
+
+    if (!regtrace_t40_vic_frame_output || channel != 0)
+        return 0;
+    vic_dev = regtrace_resolve_vic_dev();
+    if (!regtrace_is_kernel_ptr((void *)vic_dev))
+        return -ENODEV;
+    regs_addr = regtrace_get_u32(vic_dev, REGTRACE_VIC_BASE_OFFSET);
+    if (!regtrace_is_kernel_ptr((void *)regs_addr))
+        return -ENODEV;
+    irq_index = (int)tx_isp_vic_index_cal(vic_dev, (uint32_t)regtrace_channel_vinum(channel));
+    if (irq_index < 0 || irq_index >= REGTRACE_MAX_IRQS_PER_DEVICE)
+        irq_index = regtrace_channel_vinum(channel);
+    base = (volatile void __iomem *)(regs_addr + ((uintptr_t)irq_index << 16));
+    bank = (uint32_t)channel * REGTRACE_T40_MSCA_CH_BANK_STRIDE;
+    if (!enable) {
+        writel(0, base + 0x300);
+        writel(0, base + 0x308);
+        printk(KERN_INFO "tx_isp_t40_recovered: VIC frame output off ch=%d\n", channel);
+        return 0;
+    }
+    regtrace_get_framechan_format(channel, &format);
+    width = format.pix.width ? format.pix.width : regtrace_framechan_default_width(channel);
+    height = format.pix.height ? format.pix.height : regtrace_framechan_default_height(channel);
+    count = regtrace_framechan_qbuf_count[channel];
+    if (!width || !height || !count || count > REGTRACE_FRAMECHAN_QBUF_SHADOW_MAX)
+        return -EINVAL;
+    stride = width;
+    ysize = width * height;
+    for (i = 0; i < REGTRACE_VIC_MDMA_RING_SLOTS; i++) {
+        uint32_t src = i % count;
+        y[i] = regtrace_framechan_qbuf_phys[channel][src];
+        uv[i] = regtrace_framechan_qbuf_uv[channel][src] ?
+            regtrace_framechan_qbuf_uv[channel][src] : y[i] + ysize;
+        if (!y[i])
+            return -EINVAL;
+    }
+    writel(1, base + 0x308);
+    writel((width << 16) | height, base + 0x304);
+    writel(stride, base + 0x310);
+    writel(stride, base + 0x314);
+    for (i = 0; i < REGTRACE_VIC_MDMA_RING_SLOTS; i++) {
+        writel(y[i], base + 0x318 + i * 4);
+        writel(uv[i], base + 0x32c + i * 4);
+        writel(uv[i], base + 0x340 + i * 4);
+    }
+    ctrl = (count << 16) | 0x80000020U | 7U;
+    wmb();
+    writel(ctrl, base + 0x300);
+    if (regtrace_t40_vic_frame_output_msca_words) {
+        regtrace_core_write(0x16170 + bank, regtrace_t40_vic_frame_output_msca_ctrl);
+        regtrace_core_write(0x16188 + bank, regtrace_t40_vic_frame_output_msca_ctrl);
+        regtrace_core_write(0x1617c + bank, regtrace_t40_vic_frame_output_msca_ctrl2);
+        regtrace_core_write(0x16194 + bank, regtrace_t40_vic_frame_output_msca_ctrl2);
+        regtrace_core_write(0x16174 + bank, regtrace_t40_vic_frame_output_msca_word74);
+        regtrace_core_write(0x1618c + bank, regtrace_t40_vic_frame_output_msca_word8c);
+    }
+    /* vendor streaming state: 0x16028 = 1, 0x160e0 = 0 (open: 0 / 1) */
+    if (regtrace_t40_vic_frame_output_msca_work28)
+        regtrace_core_write(0x16028, 1);
+    if (regtrace_t40_vic_frame_output_msca_e0_clear)
+        regtrace_core_write(0x160e0, 0);
+    printk(KERN_INFO "tx_isp_t40_recovered: VIC frame output on ch=%d idx=%d %ux%u stride=%u count=%u ctrl=0x%x y0=0x%x uv0=0x%x msca_words=%u\n",
+           channel, irq_index, width, height, stride, count, ctrl, y[0], uv[0],
+           regtrace_t40_vic_frame_output_msca_words ? 1U : 0U);
+    return 0;
+}
+
+static int regtrace_t40_msca_vendor_fixups_apply(int channel)
+{
+    struct regtrace_frame_image_format format;
+    uint32_t full_width = 0, full_height = 0, bank;
+    int unscaled;
+
+    if (!regtrace_t40_msca_vendor_fixups || channel < 0 || channel >= 3)
+        return 0;
+    regtrace_get_framechan_format(channel, &format);
+    regtrace_sensor_dimensions((uint32_t)channel, &full_width, &full_height);
+    unscaled = format.pix.width == full_width && format.pix.height == full_height;
+    bank = (uint32_t)channel * REGTRACE_T40_MSCA_CH_BANK_STRIDE;
+    if (unscaled) {
+        regtrace_core_write(0x161c0 + bank, 0x200);
+        regtrace_core_write(0x161c4 + bank, 0);
+        regtrace_core_write(0x161c8 + bank, 0x200);
+        regtrace_core_write(0x161cc + bank, 0);
+    }
+    regtrace_core_write(0x1617c + bank, 1);
+    regtrace_core_write(0x16194 + bank, 0x11001);
+    if (regtrace_t40_msca_vendor_fixups_2c)
+        regtrace_core_write(0x1602c, 0x7600);
+    if (regtrace_t40_core_fixup_88)
+        regtrace_core_write(0x88, regtrace_t40_core_fixup_88);
+    if (regtrace_t40_core_fixup_40)
+        regtrace_core_write(0x40, regtrace_t40_core_fixup_40);
+    if (regtrace_t40_core_fixup_shadow0)
+        regtrace_core_write(0x50420, 0);
+    if (regtrace_t40_tisp_stream_vendor && channel == 0) {
+        regtrace_core_write(0x1010, 0);
+        regtrace_core_write(0x1014, 0x11e);
+        regtrace_core_write(0x1060, 1);
+        regtrace_core_write(0x1010, 1);
+        regtrace_core_write(0x1014, 1);
+        printk(KERN_INFO "tx_isp_t40_recovered: tisp stream-on vendor sequence written (0x1010/0x1014/0x1060)\n");
+    }
+    printk(KERN_INFO "tx_isp_t40_recovered: MSCA vendor fixups ch=%d unscaled=%d (%ux%u of %ux%u)\n",
+           channel, unscaled, format.pix.width, format.pix.height, full_width, full_height);
+    return 0;
+}
+
 static int regtrace_core_event_stream(void *pad_arg, int enable)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x06, (uint32_t)enable);
     unsigned char *pad = pad_arg;
     unsigned char *channel_data = regtrace_core_event_channel_data(pad_arg);
     int channel = regtrace_core_event_frame_channel(channel_data);
@@ -24571,6 +25447,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
         return -EINVAL;
 
     if (enable) {
+        regtrace_seed_sensor_attr_from_subdev(regtrace_channel_vinum(channel));
         subret = regtrace_core_event_tisp_bootstrap(channel, tisp_id);
         if (subret < 0 && !ret)
             ret = subret;
@@ -24587,45 +25464,60 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
             tisp_channel_sec_start(tisp_id);
         }
 
+        regtrace_fr_mark(0x40, channel);
         subret = regtrace_core_channel_stream(channel, 1);
         if (subret < 0 && !ret)
             ret = subret;
 
         if (!regtrace_enable_core_irq_after_video) {
+            regtrace_fr_mark(0x41, channel);
             subret = regtrace_core_irq_stream(channel, 1);
             if (subret < 0 && !ret)
                 ret = subret;
         }
 
         if (!regtrace_enable_tisp_stream_regs_after_video) {
+            regtrace_fr_mark(0x42, channel);
             subret = regtrace_tisp_stream_regs(1, channel);
             if (subret < 0 && !ret)
                 ret = subret;
         }
 
+        regtrace_fr_mark(0x43, channel);
         subret = regtrace_core_first_frame_regs(1);
         if (subret < 0 && !ret)
             ret = subret;
 
+        regtrace_fr_mark(0x44, channel);
         subret = regtrace_framechan_call_csi_stream(channel, 1);
         if (subret < 0 && !ret)
             ret = subret;
 
+        regtrace_fr_mark(0x45, channel);
         subret = regtrace_framechan_call_vic_stream(channel, 1);
         if (subret < 0 && !ret)
             ret = subret;
 
+        regtrace_fr_mark(0x46, channel);
         subret = regtrace_vic_frame_mdma_stream(channel, 1);
         if (subret < 0 && !ret)
             ret = subret;
+        regtrace_fr_mark(0x47, channel);
+        subret = regtrace_t40_vic_frame_output_enable(channel, 1);
+        if (subret < 0 && !ret)
+            ret = subret;
+        regtrace_fr_mark(0x48, channel);
+        regtrace_t40_msca_vendor_fixups_apply(channel);
 
         if (regtrace_enable_t40_msca_cfg_after_video) {
+            regtrace_fr_mark(0x49, channel);
             subret = regtrace_t40_msca_cfg_program(channel, "after-video");
             if (subret < 0 && !ret)
                 ret = subret;
         }
 
         if (regtrace_enable_core_irq_after_video) {
+            regtrace_fr_mark(0x41, channel);
             subret = regtrace_core_irq_stream(channel, 1);
             if (subret < 0 && !ret)
                 ret = subret;
@@ -24636,6 +25528,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
                 "after-video-before-tisp-stream", false);
             if (subret < 0 && !ret)
                 ret = subret;
+            regtrace_fr_mark(0x42, channel);
             subret = regtrace_tisp_stream_regs(1, channel);
             if (subret < 0 && !ret)
                 ret = subret;
@@ -24645,6 +25538,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
                 ret = subret;
         }
 
+        regtrace_fr_mark(0x4a, channel);
         subret = regtrace_tisp_top_regs_final_reapply(channel,
             "final-streamon");
         if (subret < 0 && !ret)
@@ -24657,6 +25551,15 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
                 (uint32_t)channel, "core-final-streamon");
         }
 
+        /* vendor fixups again after the final top-register reapply */
+        regtrace_fr_mark(0x48, channel);
+        regtrace_t40_msca_vendor_fixups_apply(channel);
+        if (regtrace_t40_msca_work_handshake && channel == 0) {
+            regtrace_core_write(0x16008, 0);
+            regtrace_t40_msca_work_countdown = (int)regtrace_t40_msca_work_handshake;
+            printk(KERN_INFO "tx_isp_t40_recovered: MSCA work handshake armed: work_en cleared, re-enable after %u frame-dones\n",
+                   regtrace_t40_msca_work_handshake);
+        }
         if (regtrace_is_kernel_ptr(channel_data))
             *(uint32_t *)(channel_data + REGTRACE_CORE_CH_STATE_OFFSET) =
                 ret < 0 ? REGTRACE_FRAMECHAN_STATE_READY :
@@ -24666,12 +25569,19 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
                 REGTRACE_FRAMECHAN_STATE_STREAMING;
     } else {
         regtrace_core_irq_stream(channel, 0);
+        regtrace_fr_mark(0x20, channel);
         regtrace_core_first_frame_regs(0);
         regtrace_tisp_stream_regs(0, channel);
+        regtrace_fr_mark(0x21, channel);
         regtrace_vic_frame_mdma_stream(channel, 0);
+        regtrace_t40_vic_frame_output_enable(channel, 0);
+        regtrace_fr_mark(0x22, channel);
         regtrace_core_channel_stream(channel, 0);
+        regtrace_fr_mark(0x23, channel);
         regtrace_framechan_call_vic_stream(channel, 0);
+        regtrace_fr_mark(0x24, channel);
         regtrace_framechan_call_csi_stream(channel, 0);
+        regtrace_fr_mark(0x25, channel);
 
         if (regtrace_skip_tisp_channel_start) {
             printk(KERN_INFO "tx_isp_t40_recovered: tisp channel stop skipped ch=%d tisp_index=%d tisp_id=%u\n",
@@ -24681,6 +25591,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
         } else if (tisp_index >= 3 && tisp_index < 6) {
             tisp_channel_sec_stop(tisp_id);
         }
+        regtrace_fr_mark(0x26, channel);
 
         if (regtrace_is_kernel_ptr(channel_data))
             *(uint32_t *)(channel_data + REGTRACE_CORE_CH_STATE_OFFSET) =
@@ -24694,6 +25605,7 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
         regtrace_core_event_stream_last_ret[channel] = ret;
     }
 
+    regtrace_fr_mark(0x4f, (uint32_t)(enable ? 1 : 0) | ((uint32_t)channel << 8));
     printk(KERN_INFO "tx_isp_t40_recovered: core-event %s ch=%d tisp_index=%d tisp_id=%u pad=%p data=%p ret=%ld\n",
            enable ? "streamon" : "streamoff", channel, tisp_index, tisp_id,
            pad_arg, channel_data, ret);
@@ -24970,6 +25882,7 @@ static long regtrace_framechan_stream_ioctl(int channel, unsigned int cmd, unsig
         regtrace_framechan_call_csi_stream(channel, 1);
     } else {
         regtrace_vic_frame_mdma_stream(channel, 0);
+        regtrace_t40_vic_frame_output_enable(channel, 0);
         regtrace_core_channel_stream(channel, 0);
     }
 
@@ -25838,6 +26751,7 @@ static int regtrace_framechan_open(struct inode *inode, struct file *file)
 
 static int regtrace_framechan_release(struct inode *inode, struct file *file)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x05, 0);
     int channel = regtrace_framechan_index(file);
 
     (void)inode;
@@ -25851,6 +26765,7 @@ static int regtrace_framechan_release(struct inode *inode, struct file *file)
 
 static long regtrace_framechan_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x01, cmd);
     int channel = regtrace_framechan_index(file);
     long ret;
     int verbose = !regtrace_framechan_noisy_cmd(cmd);
@@ -28071,10 +28986,41 @@ static int regtrace_debug_proc_open(struct inode *inode, struct file *file)
     return single_open(file, regtrace_debug_proc_show, NULL);
 }
 
+static int regtrace_core_exit_steps(int upto, int from_proc);
+
+/*
+ * "echo exit N > /proc/tx_isp_t40_recovered" runs the first N steps of the
+ * module exit sequence with kmsg still streaming, so an rmmod that takes
+ * the camera down without any console output can be bisected step by
+ * step.  Steps already run are skipped by the real cleanup_module.
+ */
+static ssize_t regtrace_debug_proc_write(struct file *file,
+                                         const char __user *ubuf,
+                                         size_t count, loff_t *ppos)
+{
+    char buf[32];
+    int upto = 0;
+
+    if (count >= sizeof(buf))
+        count = sizeof(buf) - 1;
+    if (copy_from_user(buf, ubuf, count))
+        return -EFAULT;
+    buf[count] = 0;
+    if (!strncmp(buf, "dumplog", 7)) {
+        regtrace_panic_dump_now("proc");
+        return count;
+    }
+    if (sscanf(buf, "exit %d", &upto) != 1)
+        return -EINVAL;
+    regtrace_core_exit_steps(upto, 1);
+    return count;
+}
+
 static const struct file_operations regtrace_debug_proc_fops = {
     .owner = THIS_MODULE,
     .open = regtrace_debug_proc_open,
     .read = seq_read,
+    .write = regtrace_debug_proc_write,
     .llseek = seq_lseek,
     .release = single_release,
 };
@@ -28187,7 +29133,7 @@ static int regtrace_register_bootstrap_devices(void)
     }
 
     if (!regtrace_debug_proc) {
-        regtrace_debug_proc = proc_create("tx_isp_t40_recovered", 0444, NULL,
+        regtrace_debug_proc = proc_create("tx_isp_t40_recovered", 0644, NULL,
                                           &regtrace_debug_proc_fops);
         if (regtrace_debug_proc) {
             printk(KERN_INFO "tx_isp_t40_recovered: created /proc/tx_isp_t40_recovered\n");
@@ -28203,6 +29149,22 @@ err_unregister:
     return ret;
 }
 #endif
+
+/*
+ * Unresolved jalr targets: the recovery resolved these indirect calls to the
+ * first symbol (private_i2c_set_clientdata), which then wrote its second
+ * argument into memory at its first argument. Call a counting no-op instead.
+ */
+static uint32_t regtrace_unresolved_jalr_count;
+module_param_named(unresolved_jalr_count, regtrace_unresolved_jalr_count, uint, 0444);
+static uintptr_t regtrace_unresolved_jalr(uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3)
+{
+    if (regtrace_unresolved_jalr_count++ < 4)
+        printk(KERN_WARNING "tx_isp_t40_recovered: unresolved jalr from %pS a0=0x%lx\n",
+               __builtin_return_address(0), (unsigned long)a0);
+    return 0;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000000 origin=reference_derived original=private_i2c_set_clientdata */
 void private_i2c_set_clientdata(struct i2c_client *client, void *data)
 {
@@ -28314,11 +29276,12 @@ void private_clk_put(struct clk *clk)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000124 origin=model_output original=private_devm_clk_put */
-int32_t private_devm_clk_put(void)
+/* The OEM wrapper forwards (dev, clk) to devm_clk_put; the vendor T40
+ * sensor modules (sc830ai, sc3338) import it and call it on remove.  The
+ * recovered body passed NULL for both. */
+void private_devm_clk_put(struct device *dev, struct clk *clk)
 {
-    void (*fp)(struct device *, struct clk *) = devm_clk_put;
-    fp(NULL, NULL);
-    return 0;
+    devm_clk_put(dev, clk);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000134 origin=model_output original=private_clk_set_rate */
@@ -29967,6 +30930,7 @@ ispvic_frame_channel_clearbuf0xc4:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001068 origin=fragment_seed original=ispvic_frame_channel_s_stream */
 int64_t ispvic_frame_channel_s_stream(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x50, a2);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -32142,8 +33106,10 @@ void tx_vic_enable_irq(int32_t arg1)
     }
 
     enable_cb = *(uintptr_t *)(irq_base + REGTRACE_IRQ_ENABLE_OFF);
+    regtrace_fr_mark(0x73, (uint32_t)enable_cb | (*statep ? 1U : 0U));
     if (enable_cb && *statep == 0) {
         ((void (*)(uintptr_t, int32_t))enable_cb)(irq_base, arg1);
+        regtrace_fr_mark(0x74, (uint32_t)arg1);
 
         if (*(uintptr_t *)(vsd + 0xe8) &&
             *(uintptr_t *)(vsd + 0xe8) < 0xfffff001UL) {
@@ -32194,6 +33160,7 @@ void *tx_vic_disable_irq(int32_t arg1)
 
     disable_cb = *(uintptr_t *)(irq_base + REGTRACE_IRQ_DISABLE_OFF);
     if (disable_cb && *statep != 0) {
+        regtrace_fr_mark(0x07, (uint32_t)arg1);
         ((void (*)(uintptr_t, int32_t))disable_cb)(irq_base, arg1);
         *statep = 0;
         printk("tx_isp_t40_recovered: tx_vic_disable_irq idx=%d vsd=%p\n",
@@ -32207,6 +33174,7 @@ void *tx_vic_disable_irq(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000002cb0 origin=fragment_seed original=vic_core_s_stream */
 int64_t vic_core_s_stream(uintptr_t a0, uintptr_t a1)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x51, (uint32_t)a1);
     uintptr_t vic_dev;
     uint32_t enable;
     uint32_t idx;
@@ -32250,9 +33218,12 @@ int64_t vic_core_s_stream(uintptr_t a0, uintptr_t a1)
         return 0;
 
     irq_index = (int32_t)tx_isp_vic_index_cal(vic_dev, idx);
+    regtrace_fr_mark(0x70, (uint32_t)irq_index);
     tx_vic_enable_irq(irq_index);
+    regtrace_fr_mark(0x71, (uint32_t)irq_index);
     regtrace_vic_start_call_count++;
     ret = tx_isp_vic_start(vic_dev, idx);
+    regtrace_fr_mark(0x72, (uint32_t)ret);
     *statep = 4;
 
     printk(KERN_INFO "tx_isp_t40_recovered: vic_core_s_stream start ret=%ld idx=%u irq_index=%d\n",
@@ -34107,7 +35078,7 @@ vic_mdma_irq_function10xb0:
     *(uint32_t *)((char *)t0 + 1992) = ((*(uint32_t *)((char *)(t0) + 1992)) - 1);
     local_20 = t0;
     s5 = s1 + 1972;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s2) + 20), s0, s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, s3); /* jalr target resolved by relocation */
 
     /* fragment 21: StackAccess */
     t0 = local_20;
@@ -34212,7 +35183,7 @@ vic_mdma_irq_function10x210:
 
     /* fragment 41: CallSetup */
     t1 = local_30;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); /* jalr target resolved by relocation */
 
     /* fragment 42: MemoryAccess */
     v0 = *(uint32_t *)((char *)s3 + 1976);
@@ -34665,7 +35636,7 @@ vic_mdma_irq_function20xb0:
     *(uint32_t *)((char *)t0 + 1992) = ((*(uint32_t *)((char *)(t0) + 1992)) - 1);
     local_20 = t0;
     s5 = s1 + 1972;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s2) + 20), s0, s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, s3); /* jalr target resolved by relocation */
 
     /* fragment 21: StackAccess */
     t0 = local_20;
@@ -34770,7 +35741,7 @@ vic_mdma_irq_function20x210:
 
     /* fragment 41: CallSetup */
     t1 = local_30;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); /* jalr target resolved by relocation */
 
     /* fragment 42: MemoryAccess */
     v0 = *(uint32_t *)((char *)s3 + 1976);
@@ -35094,6 +36065,7 @@ vic_mdma_irq_function20x540:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000004e7c origin=fragment_seed original=isp_vic_interrupt_service_routine */
 int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x15, a1);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -35195,7 +36167,7 @@ int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1)
     if (v0 == 0) { goto isp_vic_interrupt_service_routine0xdc; }
 
     /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0xdc:
     /* fragment 15: StackAccess */
@@ -35843,7 +36815,7 @@ isp_vic_interrupt_service_routine0x578:
     if (v0 == 0) { goto isp_vic_interrupt_service_routine0x658; }
 
     /* fragment 160: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x658:
     /* fragment 161: StackAccess */
@@ -37479,7 +38451,7 @@ vic_core_ops_ioctl0x58:
     if (v0 == 0) { goto vic_core_ops_ioctl0x80; }
 
     /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 14: Arithmetic */
     v1 = -515;
@@ -37617,6 +38589,7 @@ vic_core_ops_ioctl0x90:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000006454 origin=model_output original=vin_s_stream */
 int32_t vin_s_stream(void *arg1, int32_t *arg2)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x09, (uint32_t)(uintptr_t)arg2);
     int *i = 0;
     int32_t v1 = arg2[1];
     int32_t result = arg2[0];
@@ -37802,7 +38775,7 @@ tx_isp_vin_init0x78:
     if (v0 == 0) { goto tx_isp_vin_init0x40; }
 
     /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 14: Arithmetic */
     v1 = -515;
@@ -38363,7 +39336,7 @@ video_input_cmd_set0x2d0:
     if (v0 == 0) { goto video_input_cmd_set0x240; }
 
     /* fragment 60: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s3, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s3, &local_18); /* jalr target resolved by relocation */
 
     /* fragment 61: Branch */
     s3 = local_50;
@@ -38482,7 +39455,7 @@ video_input_cmd_set0x380:
     if (v0 == 0) { goto video_input_cmd_set0x484; }
 
     /* fragment 88: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s6); /* jalr target resolved by relocation */
 
     /* fragment 89: Branch */
     a1 = (uint32_t *)&LC14;
@@ -38567,7 +39540,7 @@ tx_isp_vin_reset0x44:
     if (v0 == 0) { goto tx_isp_vin_reset0x34; }
 
     /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 11: Arithmetic */
     v1 = -515;
@@ -39394,7 +40367,7 @@ subdev_sensor_ops_ioctl0x360:
     if (v0 == 0) { goto subdev_sensor_ops_ioctl0x30c; }
 
     /* fragment 69: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0); /* jalr target resolved by relocation */
 
     /* fragment 70: Branch */
     s4 = s2 + 296;
@@ -39469,7 +40442,7 @@ subdev_sensor_ops_ioctl0x44c:
 
 subdev_sensor_ops_ioctl0x454:
     /* fragment 86: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s2, a1 + 2, &local_54); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 2, &local_54); /* jalr target resolved by relocation */
 
     /* fragment 87: Branch */
     int _bc_v0_87 = v0 == 0;
@@ -39682,7 +40655,7 @@ subdev_sensor_ops_ioctl0x650:
     if (v0 == 0) { goto subdev_sensor_ops_ioctl0xc4; }
 
     /* fragment 135: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 136: Branch */
     s0 = v0;
@@ -39770,7 +40743,7 @@ subdev_sensor_ops_ioctl0x6c4:
 
 subdev_sensor_ops_ioctl0x72c:
     /* fragment 156: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 157: Branch */
     s0 = v0;
@@ -41350,6 +42323,7 @@ tx_isp_csi_activate_subdev0x108:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000091e4 origin=fragment_seed original=csi_video_s_stream */
 int32_t csi_video_s_stream(void *arg1, int32_t *arg2)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x08, (uint32_t)(uintptr_t)arg2);
     int32_t *result;
     int32_t var_20 = 0;
     int32_t *s1_1;
@@ -41463,6 +42437,11 @@ int tx_isp_csi_slake_subdev(void *arg1)
             s1_2 = s1_2 - 1;
             private_clk_disable_unprepare(*s0_4);
         }
+    }
+    if (regtrace_csi_clks_enabled) {
+        regtrace_csi_clks_enabled = 0;
+        regtrace_fr_mark(0x61, 0);
+        printk(KERN_INFO "tx_isp_t40_recovered: CSI slake: clocks off, direct activate re-armed\n");
     }
 
     return 0;
@@ -44710,14 +45689,31 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
 
                 {
                     int32_t a0_val = arg3[1];
-                    void *s2_ptr = (void *)((uint32_t)arg1 * 0x60 + *(uint32_t*)((char*)arg2 + 0x10c));
-                    void *v0_ptr = *(void**)((char*)s2_ptr + 0x170);
-                    var_80 = (uint32_t)*(uint16_t*)((char*)v0_ptr + 0xb4);
-                    uint32_t var_7c = (uint32_t)*(uint16_t*)((char*)v0_ptr + 0xb6);
-                    int32_t var_78 = *(int32_t*)((char*)s2_ptr + 0x180);
-                    int32_t var_74 = *(int32_t*)((char*)s2_ptr + 0x178);
-                    int32_t var_70 = *(int32_t*)((char*)s2_ptr + 0x17c);
-                    result = private_copy_to_user(a0_val, &var_80, 0x14);
+                    uint32_t slots = *(uint32_t*)((char*)arg2 + 0x10c);
+                    void *s2_ptr = (void *)((uint32_t)arg1 * 0x60 + slots);
+                    void *v0_ptr = regtrace_is_kernel_ptr((void *)(uintptr_t)slots) ? *(void**)((char*)s2_ptr + 0x170) : NULL;
+                    uint32_t attr_out[5];
+                    if (!regtrace_is_kernel_ptr(v0_ptr)) {
+                        /* Eufy/timps: the core sensor slot is not filled by the regtrace sensor path (oops at +0xb4);
+                         * answer tx_isp_sensor_g_attr from the bound sensor's own attribute and video state. */
+                        uintptr_t sd = (uintptr_t)regtrace_sensor_subdev;
+                        uintptr_t attr = regtrace_is_kernel_ptr((void *)sd) ? regtrace_get_u32(sd, 0x304) : 0;
+                        if (!regtrace_is_kernel_ptr((void *)attr))
+                            return -ENODEV;
+                        attr_out[0] = regtrace_get_u16(attr, 0xb4);
+                        attr_out[1] = regtrace_get_u16(attr, 0xb6);
+                        attr_out[2] = regtrace_get_u32(sd, 0x314);
+                        attr_out[3] = regtrace_get_u32(sd, 0x2d0);
+                        attr_out[4] = regtrace_get_u32(sd, 0x2d4);
+                    } else {
+                        attr_out[0] = *(uint16_t*)((char*)v0_ptr + 0xb4);
+                        attr_out[1] = *(uint16_t*)((char*)v0_ptr + 0xb6);
+                        attr_out[2] = *(uint32_t*)((char*)s2_ptr + 0x180);
+                        attr_out[3] = *(uint32_t*)((char*)s2_ptr + 0x178);
+                        attr_out[4] = *(uint32_t*)((char*)s2_ptr + 0x17c);
+                    }
+                    var_80 = attr_out[0];
+                    result = private_copy_to_user(a0_val, attr_out, 0x14);
                     if (result == 0) {
                         return result;
                     }
@@ -45442,6 +46438,9 @@ void isp_core_tuning_deinit(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000ce8c origin=model_output original=isp_core_tuning_clear */
 int32_t isp_core_tuning_clear(int32_t arg1, void* arg2)
 {
+    /* model stub; the Eufy rmmod path reached it with a bad pointer (oops #5) */
+    if (!regtrace_is_kernel_ptr(arg2) || arg1 < 0 || arg1 > 64)
+        return 0;
     *(uint32_t*)((char*)arg2 + (arg1 << 5) + 32) = 0;
     return 0;
 }
@@ -47918,24 +48917,25 @@ static void regtrace_irq_frame_done_workfn(struct work_struct *work)
         /* userspace 3A: retune DNS and independently retune YSP sharpening. */
         if (regtrace_enable_ydns || regtrace_enable_ysp || regtrace_enable_mdns ||
             regtrace_enable_sdns) {
+            uint32_t dns_ev = regtrace_dns_gain_ev + regtrace_dns_ev_boost;
             uint32_t ysp_ev = regtrace_ysp_gain_ev ?
                               regtrace_ysp_gain_ev : regtrace_dns_gain_ev;
 
-            if (regtrace_dns_gain_ev !=
+            if (dns_ev !=
                 READ_ONCE(regtrace_dns_ev_applied)) {
                 WRITE_ONCE(regtrace_dns_ev_applied,
-                           regtrace_dns_gain_ev);
+                           dns_ev);
                 if (regtrace_enable_ydns)
                     (void)tisp_ydns_par_refresh(
-                        0, regtrace_dns_gain_ev, 256);
+                        0, dns_ev, 256);
                 if (regtrace_enable_mdns && main_mdns &&
                     !regtrace_mdns_dbg_init_ret)
                     (void)tisp_mdns_par_refresh_lit(
-                        0, regtrace_dns_gain_ev, 256);
+                        0, dns_ev, 256);
                 if (regtrace_enable_sdns && main_sdns &&
                     !regtrace_sdns_dbg_init_ret)
                     (void)tisp_sdns_par_refresh_lit(
-                        0, regtrace_dns_gain_ev, 256);
+                        0, dns_ev, 256);
             }
             if (regtrace_enable_ysp &&
                 ysp_ev != READ_ONCE(regtrace_ysp_ev_applied)) {
@@ -48075,6 +49075,15 @@ static void regtrace_irq_frame_done_work_init(void)
 
 static long regtrace_irq_frame_done_event(int channel, uint32_t source)
 {
+    if (source == REGTRACE_IRQ_FD_SOURCE_ISP_CORE &&
+        regtrace_t40_msca_work_countdown > 0 &&
+        --regtrace_t40_msca_work_countdown == 0) {
+        uint32_t we = 0;
+
+        regtrace_core_read(0x16008, &we);
+        regtrace_core_write(0x16008, we | 1U);
+        printk(KERN_INFO "tx_isp_t40_recovered: MSCA work handshake (fd event): work_en 0x%x -> 0x%x\n", we, we | 1U);
+    }
     /* OEM ISR port owns delivery when enabled -- the shim must not also
      * pop the done FIFOs or double-deliver. */
     if (regtrace_enable_oem_isr_lit)
@@ -48339,6 +49348,53 @@ static int32_t regtrace_vic_irq_ack_filter(int32_t irq, void *dev_id)
     return IRQ_HANDLED;
 }
 
+/*
+ * T40-VENDOR-3A-ISR (2026-10-14)
+ *
+ * The OEM core ISR ispcore_interrupt_service_routine (0x7acd0..0x7bb30)
+ * calls tisp_hardware_reg_refresh(&local_40) on every ch0 frame-done
+ * (0x7b138 lui/addiu -> 0x7b140 jalr, a0 = sp+64) so that pending tuning
+ * tables (LSC/gamma W-LUT flags) are flushed into hardware each frame.
+ *
+ * The reconstruction calls every other callee of that ISR
+ * (system_reg_read, isp_printf, update_isp_osd, private_do_gettimeofday,
+ * private_schedule_work, tx_isp_send_event_to_remote, irq_func_cb[],
+ * tisp_push_frame_count, pre_frame_dequeue, Tzn_Msca_addr_fifo_read/write,
+ * isp_ch0_pre_dequeue_time, ispcore_sd) but has ZERO call sites for
+ * tisp_hardware_reg_refresh anywhere in the file, and zero references to
+ * ch0_stream_debug.  Both are therefore never executed at run time.
+ *
+ * Default off: enable with isr_oem_hw_refresh=1 and read back the counters.
+ */
+static int regtrace_isr_oem_hw_refresh;
+module_param_named(isr_oem_hw_refresh, regtrace_isr_oem_hw_refresh, int, 0644);
+MODULE_PARM_DESC(isr_oem_hw_refresh,
+    "core IRQ frame-done: call tisp_hardware_reg_refresh() (OEM 0x7b138). default 0");
+static uint32_t regtrace_isr_oem_hw_refresh_count;
+module_param_named(isr_oem_hw_refresh_count, regtrace_isr_oem_hw_refresh_count, uint, 0444);
+static uint32_t regtrace_isr_oem_hw_refresh_out;
+module_param_named(isr_oem_hw_refresh_out, regtrace_isr_oem_hw_refresh_out, uint, 0444);
+static uint32_t regtrace_isr_oem_hw_refresh_ret;
+module_param_named(isr_oem_hw_refresh_ret, regtrace_isr_oem_hw_refresh_ret, uint, 0444);
+
+/*
+ * OEM ISR entry state (0x7ad08 lw v0,744(s1) / 0x7ad0c lw s4,764(s1) with
+ * s1 == *(a0 + 0x10c)): read-only diagnostic, does not alter the
+ * reconstructed dataflow.
+ */
+static int regtrace_isr_oem_state_load;
+module_param_named(isr_oem_state_load, regtrace_isr_oem_state_load, int, 0644);
+MODULE_PARM_DESC(isr_oem_state_load,
+    "record OEM ISR entry loads st+744/st+764 into counters (diagnostic). default 0");
+static uint32_t regtrace_isr_oem_state744;
+module_param_named(isr_oem_state744, regtrace_isr_oem_state744, uint, 0444);
+static uint32_t regtrace_isr_oem_state764;
+module_param_named(isr_oem_state764, regtrace_isr_oem_state764, uint, 0444);
+static uint32_t regtrace_isr_oem_state_load_count;
+module_param_named(isr_oem_state_load_count, regtrace_isr_oem_state_load_count, uint, 0444);
+static uint32_t regtrace_isr_oem_state_load_bad;
+module_param_named(isr_oem_state_load_bad, regtrace_isr_oem_state_load_bad, uint, 0444);
+
 static int32_t regtrace_isp_irq_ack_only_filter(int32_t irq, void *dev_id)
 {
     uintptr_t base = (uintptr_t)dev_id;
@@ -48448,6 +49504,27 @@ static int32_t regtrace_isp_irq_ack_only_filter(int32_t irq, void *dev_id)
     if (is_core && (frame_done_bits0 || frame_done_bits1 ||
                     frame_done_sec_bits0)) {
         regtrace_isp_irq_ack_only_frame_done_count++;
+        /*
+         * T40-VENDOR-3A-ISR: restore the OEM per-frame hardware re-arm that
+         * the reconstruction dropped (OEM ISR 0x7b138/0x7b140, a0 = &local_40).
+         */
+        if (regtrace_isr_oem_hw_refresh) {
+            uint32_t __hw_out = 0;
+            int32_t __hw_ret;
+
+            __hw_ret = tisp_hardware_reg_refresh((uintptr_t)&__hw_out);
+            regtrace_isr_oem_hw_refresh_count++;
+            regtrace_isr_oem_hw_refresh_out = __hw_out;
+            regtrace_isr_oem_hw_refresh_ret = (uint32_t)__hw_ret;
+        }
+        if (regtrace_t40_msca_work_countdown > 0 &&
+            --regtrace_t40_msca_work_countdown == 0) {
+            uint32_t we = 0;
+
+            regtrace_core_read(0x16008, &we);
+            regtrace_core_write(0x16008, we | 1U);
+            printk(KERN_INFO "tx_isp_t40_recovered: MSCA work handshake: work_en 0x%x -> 0x%x\n", we, we | 1U);
+        }
         regtrace_irq_frame_done_event(0, REGTRACE_IRQ_FD_SOURCE_ISP_CORE);
     } else if (is_core && (status0 || status1 || sec_status0)) {
         regtrace_isp_irq_ack_only_frame_done_skip_count++;
@@ -48621,6 +49698,27 @@ static void regtrace_isp_irq_post_dispatch_ack(int32_t irq, void *dev_id)
     if (is_core && (frame_done_bits0 || frame_done_bits1 ||
                     frame_done_sec_bits0)) {
         regtrace_isp_irq_ack_only_frame_done_count++;
+        /*
+         * T40-VENDOR-3A-ISR: restore the OEM per-frame hardware re-arm that
+         * the reconstruction dropped (OEM ISR 0x7b138/0x7b140, a0 = &local_40).
+         */
+        if (regtrace_isr_oem_hw_refresh) {
+            uint32_t __hw_out = 0;
+            int32_t __hw_ret;
+
+            __hw_ret = tisp_hardware_reg_refresh((uintptr_t)&__hw_out);
+            regtrace_isr_oem_hw_refresh_count++;
+            regtrace_isr_oem_hw_refresh_out = __hw_out;
+            regtrace_isr_oem_hw_refresh_ret = (uint32_t)__hw_ret;
+        }
+        if (regtrace_t40_msca_work_countdown > 0 &&
+            --regtrace_t40_msca_work_countdown == 0) {
+            uint32_t we = 0;
+
+            regtrace_core_read(0x16008, &we);
+            regtrace_core_write(0x16008, we | 1U);
+            printk(KERN_INFO "tx_isp_t40_recovered: MSCA work handshake: work_en 0x%x -> 0x%x\n", we, we | 1U);
+        }
         regtrace_irq_frame_done_event(0, REGTRACE_IRQ_FD_SOURCE_ISP_CORE);
     } else if (is_core && (status0 || status1 || sec_status0)) {
         regtrace_isp_irq_ack_only_frame_done_skip_count++;
@@ -48640,6 +49738,7 @@ static void regtrace_isp_irq_post_dispatch_ack(int32_t irq, void *dev_id)
 
 int32_t isp_irq_handle(int32_t arg1, void* arg2)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x10, (uint32_t)arg1);
     uintptr_t base = (uintptr_t)arg2;
     uintptr_t slot;
     uintptr_t end;
@@ -48647,10 +49746,12 @@ int32_t isp_irq_handle(int32_t arg1, void* arg2)
     int32_t direct_ret;
 
     direct_ret = regtrace_vic_irq_ack_filter(arg1, arg2);
+    regtrace_fr_mark(0x19, (uint32_t)direct_ret);
     if (direct_ret != IRQ_NONE)
         return direct_ret;
 
     direct_ret = regtrace_isp_irq_ack_only_filter(arg1, arg2);
+    regtrace_fr_mark(0x1a, (uint32_t)direct_ret);
     if (direct_ret != IRQ_NONE)
         return direct_ret;
 
@@ -48666,12 +49767,14 @@ int32_t isp_irq_handle(int32_t arg1, void* arg2)
             ops = regtrace_get_u32(holder, 0);
         if (regtrace_is_kernel_ptr((void *)ops))
             cb = regtrace_get_u32(ops, 0x24);
+        regtrace_fr_mark(0x1b, (uint32_t)cb);
         if (regtrace_is_kernel_ptr((void *)cb)) {
             result = ((int32_t (*)(uintptr_t, int32_t, int32_t))cb)
                 (base - REGTRACE_IRQ_TABLE_SUBDEV_OFF, arg1, 0);
             if (result != IRQ_WAKE_THREAD)
                 result = IRQ_HANDLED;
         }
+        regtrace_fr_mark(0x1c, (uint32_t)result);
     }
 
     slot = base - 0x48;
@@ -48688,17 +49791,21 @@ int32_t isp_irq_handle(int32_t arg1, void* arg2)
                 ops = regtrace_get_u32(holder, 0);
             if (regtrace_is_kernel_ptr((void *)ops))
                 cb = regtrace_get_u32(ops, 0x24);
+            regtrace_fr_mark(0x1d, (uint32_t)cb);
             if (regtrace_is_kernel_ptr((void *)cb) &&
                 ((int32_t (*)(uintptr_t, int32_t, int32_t))cb)
                     (subdev, arg1, 0) == IRQ_WAKE_THREAD) {
                 result = IRQ_WAKE_THREAD;
             }
+            regtrace_fr_mark(0x1e, (uint32_t)subdev);
         }
 
         slot += sizeof(uint32_t);
     }
 
+    regtrace_fr_mark(0x17, (uint32_t)arg1);
     regtrace_isp_irq_post_dispatch_ack(arg1, arg2);
+    regtrace_fr_mark(0x18, (uint32_t)result);
 
     return result;
 }
@@ -51352,7 +52459,7 @@ frame_channel_unlocked_ioctl0x2e8:
 
 frame_channel_unlocked_ioctl0x2f8:
     /* fragment 79: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 80: Arithmetic */
     s0 = v0;
@@ -52698,7 +53805,7 @@ sensor_alloc_integration_time0x44:
 
 sensor_alloc_integration_time0x54:
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 8: StackAccess */
     v1 = local_10;
@@ -52759,7 +53866,7 @@ sensor_alloc_integration_time_short0x44:
 
 sensor_alloc_integration_time_short0x54:
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 8: StackAccess */
     v1 = local_10;
@@ -53374,7 +54481,7 @@ sensor_set_mode0x68:
     s0 = a1;
     s2 = ((uintptr_t)s2 * (uintptr_t)v1) + a0;
     s1 = *(uint32_t *)((char *)(s2) + 368);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 10: Branch */
     a2 = local_10;
@@ -54182,7 +55289,8 @@ int32_t isp_subdev_release_clks(void *arg1)
             int32_t a0_val = *s1;
             s1 = s1 - 1;
             private_clk_disable_unprepare(a0_val);
-            private_devm_clk_put();
+            /* devm clocks are released with the device; the recovered
+             * argument-less put would have dereferenced a NULL device */
         }
 
         private_kfree(NULL);
@@ -54362,7 +55470,7 @@ tx_isp_sensor_release_sensor0xb8:
     if (v0 == 0) { goto tx_isp_sensor_release_sensor0x54; }
 
     /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 18: Branch */
     if (v0 == 0) { goto tx_isp_sensor_release_sensor0x54; }
@@ -54380,6 +55488,7 @@ tx_isp_sensor_release_sensor0xb8:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000011674 origin=model_output original=tx_isp_video_s_stream */
 int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x0a, (uint32_t)arg2);
     int32_t *var_28;
     int32_t *s3 = (int32_t *)((char *)arg1 + 0x3c);
     int32_t *result;
@@ -54542,7 +55651,7 @@ tx_isp_video_link_stream0xc8:
     if (v0 == 0) { goto tx_isp_video_link_stream0x58; }
 
     /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 19: Branch */
     s1 = v0;
@@ -54585,7 +55694,7 @@ tx_isp_video_link_stream0x10c:
     if (v0 == 0) { goto tx_isp_video_link_stream0x144; }
 
     /* fragment 30: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 tx_isp_video_link_stream0x144:
     /* fragment 31: Branch */
@@ -54919,7 +56028,7 @@ tx_isp_release0xec:
     if (v0 == 0) { goto tx_isp_release0x90; }
 
     /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 28: Branch */
     s0 = v0;
@@ -54948,7 +56057,7 @@ tx_isp_release0x110:
     if (v0 == 0) { goto tx_isp_release0x3c; }
 
     /* fragment 34: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s3, a1 + 23, a2 + 744); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s3, a1 + 23, a2 + 744); /* jalr target resolved by relocation */
 
     /* fragment 35: Branch */
     goto tx_isp_release0x40;
@@ -56314,7 +57423,7 @@ tx_isp_unlocked_ioctl0x8c8:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 187: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s2, a1 + 24, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 24, &local_20); /* jalr target resolved by relocation */
 
     /* fragment 188: Branch */
     goto tx_isp_unlocked_ioctl0x838;
@@ -56345,7 +57454,7 @@ tx_isp_unlocked_ioctl0x940:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x324; }
 
     /* fragment 195: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 196: Branch */
     s0 = v0;
@@ -56384,7 +57493,7 @@ tx_isp_unlocked_ioctl0x9b4:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x100; }
 
     /* fragment 205: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 206: Branch */
     s0 = v0;
@@ -56423,7 +57532,7 @@ tx_isp_unlocked_ioctl0xa28:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x75c; }
 
     /* fragment 215: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 216: Branch */
     s0 = v0;
@@ -56742,7 +57851,7 @@ tx_isp_unlocked_ioctl0xdf0:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x810; }
 
     /* fragment 290: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 291: Branch */
     s0 = v0;
@@ -56781,7 +57890,7 @@ tx_isp_unlocked_ioctl0xe64:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x264; }
 
     /* fragment 300: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 301: Branch */
     s0 = v0;
@@ -57276,7 +58385,7 @@ tx_isp_unlocked_ioctl0x14a8:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x154c; }
 
     /* fragment 393: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s5, a1 + 3, &local_70); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s5, a1 + 3, &local_70); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x154c:
     /* fragment 394: Branch */
@@ -57613,7 +58722,7 @@ tx_isp_unlocked_ioctl0x1884:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1910; }
 
     /* fragment 465: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, a1 + 19, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 19, &local_20); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1910:
     /* fragment 466: MemoryAccess */
@@ -57631,7 +58740,7 @@ tx_isp_unlocked_ioctl0x1910:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x193c; }
 
     /* fragment 470: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, a1 + 3, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 3, &local_20); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x193c:
     /* fragment 471: MemoryAccess */
@@ -57642,7 +58751,7 @@ tx_isp_unlocked_ioctl0x193c:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1958; }
 
     /* fragment 473: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, a1 + 12, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 12, &local_20); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1958:
     /* fragment 474: StackAccess */
@@ -57741,7 +58850,7 @@ tx_isp_unlocked_ioctl0x1a20:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1a80; }
 
     /* fragment 492: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, a1 + 19, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 19, &local_20); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1a80:
     /* fragment 493: MemoryAccess */
@@ -57759,7 +58868,7 @@ tx_isp_unlocked_ioctl0x1a80:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1aac; }
 
     /* fragment 497: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, a1 + 3, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 3, &local_20); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1aac:
     /* fragment 498: MemoryAccess */
@@ -57770,7 +58879,7 @@ tx_isp_unlocked_ioctl0x1aac:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1ac8; }
 
     /* fragment 500: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, a1 + 12, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 12, &local_20); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1ac8:
     /* fragment 501: MemoryAccess */
@@ -57824,7 +58933,7 @@ tx_isp_unlocked_ioctl0x1b58:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 511: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s2, a1 + 23, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 23, &local_20); /* jalr target resolved by relocation */
 
     /* fragment 512: Branch */
     goto tx_isp_unlocked_ioctl0x838;
@@ -58750,7 +59859,7 @@ tx_isp_unlocked_ioctl0x2b08:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 712: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s2, 33554432 + 25, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, 33554432 + 25, &local_20); /* jalr target resolved by relocation */
 
     /* fragment 713: Branch */
     s0 = v0;
@@ -60681,7 +61790,7 @@ tx_isp_probe0x2d0:
     if (v0 == 0) { goto tx_isp_probe0x2e4; }
 
     /* fragment 47: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a1); /* jalr target resolved by relocation */
 
 tx_isp_probe0x2e4:
     /* fragment 48: MemoryAccess */
@@ -62114,132 +63223,49 @@ int32_t fix_point_div_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uin
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016d00 origin=fragment_seed original=fix_point_add_32 */
-int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2)
+int32_t fix_point_add_32(uint32_t shift, uint32_t left, uint32_t right)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 1: Arithmetic */
-    v0 = a1 + a2;
-
-    return 0;
+    (void)shift;
+    return (int32_t)(left + right); /* OEM 0x16274: addu, modulo 2^32. */
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016d08 origin=fragment_seed original=fix_point_sub_32 */
-int32_t fix_point_sub_32(uint32_t a0, uint32_t a1, uint32_t a2)
+int32_t fix_point_sub_32(uint32_t shift, uint32_t left, uint32_t right)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = a1 < a2;
-
-    /* fragment 2: StackAccess */
-    local_18 = s1;
-    local_14 = s0;
-    local_1c = ra;
-    s1 = a1;
-
-    /* fragment 3: Branch */
-    s0 = a2;
-    if (v0 == 0) { goto fix_point_sub_320x44; }
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC0, &__param_str_isp_dual_buf, 185); /* jalr target resolved by relocation */
-
-fix_point_sub_320x44:
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 6: Arithmetic */
-    v0 = (uintptr_t)s1 - (uintptr_t)s0;
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    (void)shift;
+    if (left < right)
+        isp_printf(2, "T40 fixed-point unsigned subtraction underflow\n");
+    return (int32_t)(left - right); /* OEM 0x162c0: subu, not saturation. */
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016d64 origin=model_output original=fix_point_mult2_32 */
-int32_t fix_point_mult2_32(int32_t arg1, int32_t arg2, int32_t arg3)
+int32_t fix_point_mult2_32(int32_t shift, int32_t left, int32_t right)
 {
-    int32_t *v0;
-    int32_t *v1;
-    int32_t *a3;
-    int32_t t0;
-    int32_t *a1;
-    int32_t *a2;
-    int32_t lo;
-    
-    v0 = -arg1;
-    v1 = -1;
-    v1 = (uintptr_t)v1 >> (uint32_t)v0;
-    a3 = (uintptr_t)arg2 >> (uint32_t)arg1;
-    t0 = (uint32_t)arg3 >> (uint32_t)arg1;
-    a1 = (uintptr_t)v1 & arg2;
-    v0 = (uintptr_t)a3 * t0;
-    a2 = (uintptr_t)v1 & arg3;
-    
-    /* mult a1 * t0 produces 64-bit result in HI/LO */
-    /* madd a3 * a2 accumulates to HI/LO */
-    /* mflo gets the LO part */
-    {
-        int64_t temp = (int64_t)(uintptr_t)a1 * (int64_t)t0;
-        temp += (int64_t)(uintptr_t)a3 * (int64_t)(uintptr_t)a2;
-        lo = (int32_t)temp;
-    }
-    
-    v0 = (uintptr_t)v0 << arg1;
-    v0 = lo + (uintptr_t)v0;
-    a1 = (uintptr_t)a1 * (uintptr_t)a2;
-    a1 = (uintptr_t)a1 >> (uint32_t)arg1;
-    v0 = (uintptr_t)v0 + (uintptr_t)a1;
-    
-    return v0;
+    /* OEM 1.3.1 0x162d4: variable shifts use only five low bits.
+     * Preserve each 32-bit product truncation, including before the final
+     * fractional shift; this is not a wide multiply followed by a shift.
+     */
+    uint32_t q = (uint32_t)shift & 31U;
+    uint32_t mask = 0xffffffffU >> ((0U - q) & 31U);
+    uint32_t x = (uint32_t)left, y = (uint32_t)right;
+    uint32_t xi = x >> q, yi = y >> q;
+    uint32_t xf = x & mask, yf = y & mask;
+    uint32_t cross = xf * yi + xi * yf;
+    uint32_t fractional = xf * yf;
+
+    return (int32_t)(((xi * yi) << q) + cross + (fractional >> q));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016da8 origin=fragment_seed original=fix_point_mult3_32 */
-int32_t fix_point_mult3_32(uint32_t a0, uint32_t a1, uint32_t a2)
+int32_t fix_point_mult3_32(uint32_t shift, uint32_t x, uint32_t y,
+                          uint32_t z)
 {
-    uint32_t local_14 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *t2 = 0;
-    uint32_t t9 = 0;
-    uint32_t *v0 = 0;
-
-    /* fragment 0: CallSetup */
-    t2 = a3;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_mult2_32)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    a2 = t2;
-    a1 = v0;
-
-    /* fragment 3: Unknown */
-    /* unmatched fragment 3 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 16dcc:	03200408 	jr.hb	t9 */
-
-    /* fragment 4: Arithmetic */
-    /* unmatched fragment 4 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 16dd0:	27bd0018 	addiu	sp,sp,24 */
-
-    return 0;
+    /* OEM 1.3.1 0x16318: keep the fourth factor across the first call,
+     * then tail-call the same two-factor helper with the intermediate.
+     */
+    uint32_t xy = (uint32_t)fix_point_mult2_32((int32_t)shift,
+                                             (int32_t)x, (int32_t)y);
+    return fix_point_mult2_32((int32_t)shift, (int32_t)xy, (int32_t)z);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016dd4 origin=model_output original=fix_point_intp */
@@ -64709,7 +65735,7 @@ Tiziano_Awb_Ct_Detect_GrayWorld_mode0x224:
     local_3d8 = t4;
     local_3ec = t7;
     local_3d4 = t6;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_mult3_32)(s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(s0, a1, ((uint32_t)*(uint8_t *)(uintptr_t)s5) << ((uint32_t)s0 & 31U), local_3d4); /* jalr target resolved by relocation */
 
     /* fragment 27: CallSetup */
     t4 = local_3d8;
@@ -64720,7 +65746,7 @@ Tiziano_Awb_Ct_Detect_GrayWorld_mode0x224:
     t5 = (((uintptr_t)t4 + (uintptr_t)v0) < (uintptr_t)t4) + (uintptr_t)t5;
     local_3d8 = t5;
     local_3f8 = t5;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)((uintptr_t)s0, *(uint32_t *)((char *)(local_3ec) + 900), (*(uint8_t *)((char *)(s5) + 0)) << (uintptr_t)s0, local_3d4); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)s0, *(uint32_t *)((char *)(local_3ec) + 900), (*(uint8_t *)((char *)(s5) + 0)) << (uintptr_t)s0, local_3d4); /* jalr target resolved by relocation */
 
     /* fragment 28: CallSetup */
     t6 = local_3d4;
@@ -65016,7 +66042,7 @@ Tiziano_Awb_Ct_Detect_GrayWorld_mode0x560:
     local_3c8 = t5;
     local_3d8 = v1;
     local_3c4 = t6;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s0, *(uint32_t *)((char *)((uintptr_t)t6) + 0), (*(uint8_t *)((char *)(s7) + 0)) << (uintptr_t)s0, *(uint32_t *)((char *)(0) + 0)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0, *(uint32_t *)((char *)((uintptr_t)t6) + 0), (*(uint8_t *)((char *)(s7) + 0)) << (uintptr_t)s0, *(uint32_t *)((char *)(0) + 0)); /* jalr target resolved by relocation */
 
     /* fragment 86: CallSetup */
     t5 = local_3c8;
@@ -65025,7 +66051,7 @@ Tiziano_Awb_Ct_Detect_GrayWorld_mode0x560:
     t7 = local_3e0;
     t7 = (((uintptr_t)t5 + (uintptr_t)v0) < (uintptr_t)t5) + t7;
     local_3c8 = t7;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)((uintptr_t)s0, *(uint32_t *)((char *)((local_3c4 + local_3b4) + local_3bc) + 900), (*(uint8_t *)((char *)(s7) + 0)) << (uintptr_t)s0, *(uint32_t *)((char *)(0) + 0)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)s0, *(uint32_t *)((char *)((local_3c4 + local_3b4) + local_3bc) + 900), (*(uint8_t *)((char *)(s7) + 0)) << (uintptr_t)s0, *(uint32_t *)(uintptr_t)s8); /* jalr target resolved by relocation */
 
     /* fragment 87: CallSetup */
     s2 = (uintptr_t)s2 + (uintptr_t)v0;
@@ -67998,7 +69024,7 @@ tisp_awb_ct_detect0x188c:
     local_58 = t0;
     local_50 = t4;
     local_4c = t3;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)((uintptr_t)s0, *(uint32_t *)((char *)((uintptr_t)t4) + 0), *(uint32_t *)((char *)(t0) + 0), (*(uint8_t *)((char *)(t7) + 0)) << (uintptr_t)s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)s0, *(uint32_t *)((char *)((uintptr_t)t4) + 0), *(uint32_t *)((char *)(t0) + 0), (*(uint8_t *)((char *)(t7) + 0)) << (uintptr_t)s0); /* jalr target resolved by relocation */
 
     /* fragment 536: CallSetup */
     local_44 = v0;
@@ -68229,7 +69255,7 @@ tisp_awb_ct_detect0x1acc:
     local_50 = t2;
     local_4c = t6;
     local_48 = t1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_mult3_32)(s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(s0, a1, a2, a3); /* jalr target resolved by relocation */
 
     /* fragment 574: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)s0, (uintptr_t)v0, (*(uint8_t *)((char *)((uintptr_t)s1) + 0)) << (uintptr_t)s0); /* jalr target resolved by relocation */
@@ -68348,7 +69374,7 @@ tisp_awb_ct_detect0x1ca0:
 tisp_awb_ct_detect0x1cc8:
     /* fragment 592: CallSetup */
     s2 = s2 + 4;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)((uintptr_t)s0, *(uint32_t *)((char *)((uintptr_t)s2) + 0), *(uint32_t *)((char *)(local_4c) + 0), (*(uint8_t *)((char *)(local_48) + 0)) << (uintptr_t)s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)s0, *(uint32_t *)((char *)((uintptr_t)s2) + 0), *(uint32_t *)((char *)(local_4c) + 0), (*(uint8_t *)((char *)(local_48) + 0)) << (uintptr_t)s0); /* jalr target resolved by relocation */
 
     /* fragment 593: CallSetup */
     local_84 = v0;
@@ -70838,6 +71864,10 @@ int32_t tisp_function_clear(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001cb38 origin=fragment_seed original=tisp_deinit */
 int64_t tisp_deinit(uint32_t a0)
 {
+    if (regtrace_skip_tisp_deinit) {
+        printk(KERN_INFO "tx_isp_t40_recovered: tisp_deinit skipped (regtrace frees its own tisp resources)\n");
+        return 0;
+    }
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -71053,6 +72083,8 @@ tisp_deinit0x260:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_function_clear)(s1); /* jalr target resolved by relocation */
 
     /* fragment 60: MemoryAccess */
+    /* rmmod oops (Eufy 2026-10-12, BadVA 0xc): the 0x5cc error path arrives here with s0 == 0. */
+    if (!regtrace_is_kernel_ptr((void *)s0)) { s0 = (uintptr_t *)&tispinfo; }
     a0 = *(uint32_t *)((char *)s0 + 12);
 
     /* fragment 61: Branch */
@@ -76293,22 +77325,22 @@ tisp_hardware_reg_refresh0x148:
 
 tisp_hardware_reg_refresh0x14c:
     /* fragment 39: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_get_wlut_times)(0, &isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_get_wlut_times)(0, &regtrace_wlut_times_out[0]); /* jalr target resolved by relocation */
 
     /* fragment 40: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_get_wlut_times)(1, &isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_get_wlut_times)(1, &regtrace_wlut_times_out[1]); /* jalr target resolved by relocation */
 
     /* fragment 41: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gamma_get_wlut_times)(0, &isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gamma_get_wlut_times)(0, &regtrace_wlut_times_out[2]); /* jalr target resolved by relocation */
 
     /* fragment 42: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gamma_get_wlut_times)(1, &isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gamma_get_wlut_times)(1, &regtrace_wlut_times_out[3]); /* jalr target resolved by relocation */
 
     /* fragment 43: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_clm_get_wlut_times)(0, &isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_clm_get_wlut_times)(0, &regtrace_wlut_times_out[4]); /* jalr target resolved by relocation */
 
     /* fragment 44: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_clm_get_wlut_times)(1, &isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_clm_get_wlut_times)(1, &regtrace_wlut_times_out[5]); /* jalr target resolved by relocation */
 
     /* fragment 45: MemoryAccess */
     v1 = *(uint32_t *)((char *)((char *)&lsc_wlut_flag));
@@ -76990,7 +78022,7 @@ tisp_event_process0x140:
     t1 = *(uint32_t *)((char *)(s0) + 36);
     local_10 = t0;
     local_14 = t1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s0) + 16), *(uint32_t *)((char *)(s0) + 20), *(uint32_t *)((char *)(s0) + 24), *(uint32_t *)((char *)(s0) + 28)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s0) + 16), *(uint32_t *)((char *)(s0) + 20), *(uint32_t *)((char *)(s0) + 24), *(uint32_t *)((char *)(s0) + 28)); /* jalr target resolved by relocation */
 
 tisp_event_process0x1c8:
     /* fragment 18: CallSetup */
@@ -78602,7 +79634,7 @@ tisp_ae_par_calc0x188:
 tisp_ae_par_calc0x1d0:
     /* fragment 16: CallSetup */
     local_1c = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)((uintptr_t)s2, (*(uint32_t *)((char *)((uintptr_t)s4) + 0)) << (uintptr_t)s2, *(uint32_t *)((char *)((uintptr_t)s4) + 4), *(uint32_t *)((char *)((uintptr_t)s4) + 8)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)s2, (*(uint32_t *)((char *)((uintptr_t)s4) + 0)) << (uintptr_t)s2, *(uint32_t *)((char *)((uintptr_t)s4) + 4), *(uint32_t *)((char *)((uintptr_t)s4) + 8)); /* jalr target resolved by relocation */
 
     /* fragment 17: StackAccess */
     v1 = local_1c;
@@ -81127,7 +82159,7 @@ tisp_deflicker_expt0x14c:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_div_32)(s0); /* jalr target resolved by relocation */
 
     /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(s0, s8, local_10, v0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(s0, s8, local_10, v0); /* jalr target resolved by relocation */
 
     /* fragment 22: StackAccess */
     t0 = local_20;
@@ -81391,7 +82423,7 @@ tisp_ae_set_hardware_param0xb4:
     if (s8 != 0) { goto tisp_ae_set_hardware_param0x300; }
 
     /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(s6 | 36868); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s6 | 36868, a1); /* jalr target resolved by relocation */
 
     /* fragment 19: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s6 | 36872, s5); /* jalr target resolved by relocation */
@@ -81460,6 +82492,7 @@ tisp_ae_set_hardware_param0x2e0:
     /* fragment 35: Unknown */
     /* unmatched fragment 35 (Unknown): no deterministic matcher for Unknown */
     /* asm: 23a90:	00a7001a 	div	zero,a1,a3 */
+    a1 /= 3U; /* OEM 1.3.1 0x23000/0x23008: div + mflo. */
 
     /* fragment 36: Arithmetic */
     v1 = (uintptr_t)a2 | (uintptr_t)v1;
@@ -81471,7 +82504,7 @@ tisp_ae_set_hardware_param0x2e0:
 
 tisp_ae_set_hardware_param0x300:
     /* fragment 38: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(s6 | 37380); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s6 | 37380, a1); /* jalr target resolved by relocation */
 
     /* fragment 39: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s6 | 37384, s5); /* jalr target resolved by relocation */
@@ -84326,7 +85359,7 @@ tisp_ae_long_tune0x74:
     /* fragment 8: CallSetup */
     s5 = s5 << (uintptr_t)s0;
     s3 = 128;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)((uintptr_t)s0, s5 << (uintptr_t)s0, a3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)s0, s5, a3, a3); /* jalr target resolved by relocation */
 
     /* fragment 9: CallSetup */
     s3 = (uintptr_t)s3 << (uintptr_t)s0;
@@ -84335,7 +85368,7 @@ tisp_ae_long_tune0x74:
     /* fragment 10: CallSetup */
     *(uint16_t *)((char *)s8 + 0) = ((uintptr_t)s1 + (uintptr_t)v0);
     s1 = *(uint16_t *)((char *)(s6) + 0);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(s0, s5, s7, s7); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(s0, s5, s7, s7); /* jalr target resolved by relocation */
 
     /* fragment 11: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, v0, s3); /* jalr target resolved by relocation */
@@ -84606,7 +85639,7 @@ int64_t tisp_ae_long_tune2(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3,
     local_104 = *(uint16_t *)((char *)(local_80) + 6);
     local_108 = *(uint16_t *)((char *)(local_80) + 8);
     local_e8 = (uintptr_t)&fix_point_mult3_32;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)((uintptr_t)s0, local_fc, local_100, local_f8 << (uintptr_t)s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)s0, local_fc, local_100, local_f8 << (uintptr_t)s0); /* jalr target resolved by relocation */
 
     /* fragment 7: StackAccess */
     t7 = local_84;
@@ -86160,7 +87193,7 @@ tisp_ae_long_tune20x111c:
 tisp_ae_long_tune20x1158:
     /* fragment 317: CallSetup */
     local_88 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(s0, t0, s5, s6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(s0, t0, s5, s6); /* jalr target resolved by relocation */
 
     /* fragment 318: StackAccess */
     t0 = local_88;
@@ -86480,7 +87513,7 @@ tisp_ae_long_tune20x1470:
     /* fragment 391: CallSetup */
     local_78 = v0;
     *(uint32_t *)((char *)local_188 + 12) = local_78;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)((uintptr_t)s0, local_78 << (uintptr_t)s0, local_b4, (uintptr_t)local_94); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)s0, local_78 << (uintptr_t)s0, local_b4, (uintptr_t)local_94); /* jalr target resolved by relocation */
 
     /* fragment 392: Arithmetic */
     v0 = v0 < s6;
@@ -86950,14 +87983,14 @@ int32_t tisp_ae_long_set_sensor_integration_time(uint32_t a0, uintptr_t a1, uint
 
 tisp_ae_long_set_sensor_integration_time0x54:
     /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(a2) + 12)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(a2) + 12)); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
     *(uint32_t *)((char *)s0 + 0) = v0;
 
 tisp_ae_long_set_sensor_integration_time0x60:
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_32, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_32, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 8: Epilogue */
     /* function epilogue: restore registers and return */
@@ -86971,7 +88004,7 @@ tisp_ae_long_set_sensor_integration_time0x60:
 
 tisp_ae_long_set_sensor_integration_time0x90:
     /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s3); /* jalr target resolved by relocation */
 
     /* fragment 12: Arithmetic */
     s2 = v0;
@@ -87043,12 +88076,12 @@ int64_t tisp_ae_short_set_sensor_integration_time(uint32_t a0, uintptr_t a1, uin
     if (v1 == 0) { goto tisp_ae_short_set_sensor_integration_time0xa0; }
 
     /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(a2) + 76)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(a2) + 76)); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     *(uint32_t *)((char *)s0 + 12) = v0;
     *(uint32_t *)((char *)s4 + 76) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_34, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_34, &local_10); /* jalr target resolved by relocation */
 
 tisp_ae_short_set_sensor_integration_time0x74:
     /* fragment 5: Epilogue */
@@ -87063,7 +88096,7 @@ tisp_ae_short_set_sensor_integration_time0x74:
 
 tisp_ae_short_set_sensor_integration_time0xa0:
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s3); /* jalr target resolved by relocation */
 
     /* fragment 9: Branch */
     int _bc_s3_9 = s3 == v0;
@@ -87093,7 +88126,7 @@ tisp_ae_short_set_sensor_integration_time0xa0:
 
 tisp_ae_short_set_sensor_integration_time0xf0:
     /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_34, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_34, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 16: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 12);
@@ -87141,14 +88174,14 @@ uint32_t tisp_set_sensor_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_14, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_14, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
@@ -87187,14 +88220,14 @@ uint32_t tisp_set_sensor_analog_gain_short(uint32_t a0, uint32_t a1, uint32_t a2
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_24, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_24, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
@@ -87233,14 +88266,14 @@ uint32_t tisp_set_sensor_digital_gain(uint32_t a0, uint32_t a1, uint32_t a2, uin
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_18, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_18, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
@@ -87279,14 +88312,14 @@ uint32_t tisp_set_sensor_digital_gain_short(uint32_t a0, uint32_t a1, uint32_t a
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_18, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_18, &local_10); /* jalr target resolved by relocation */
 
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
@@ -87725,7 +88758,7 @@ int64_t tisp_ae_short_expt(uintptr_t a0, uintptr_t a1)
     s4 = *(uint32_t *)((char *)(a0) + 36);
     s8 = a0;
     local_10 = (uint32_t *)&fix_point_mult3_32;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(*(uint16_t *)((char *)(*(uint32_t *)((char *)(a0) + 4)) + 0), (*(uint32_t *)((char *)(s6) + 0)) << (*(uint16_t *)((char *)(*(uint32_t *)((char *)(a0) + 4)) + 0)), *(uint32_t *)((char *)(s6) + 4), *(uint32_t *)((char *)(s6) + 8)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(*(uint16_t *)((char *)(*(uint32_t *)((char *)(a0) + 4)) + 0), (*(uint32_t *)((char *)(s6) + 0)) << (*(uint16_t *)((char *)(*(uint32_t *)((char *)(a0) + 4)) + 0)), *(uint32_t *)((char *)(s6) + 4), *(uint32_t *)((char *)(s6) + 8)); /* jalr target resolved by relocation */
 
     /* fragment 2: MemoryAccess */
     a2 = *(uint16_t *)((char *)s7 + 8);
@@ -87816,7 +88849,7 @@ tisp_ae_short_expt0xe8:
 
     /* fragment 19: CallSetup */
     local_18 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_mult3_32)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(a0, a1, a2, a3); /* jalr target resolved by relocation */
 
     /* fragment 20: MemoryAccess */
     a1 = *(uint16_t *)((char *)s7 + 10);
@@ -87878,7 +88911,7 @@ tisp_ae_short_expt0x1a0:
 
     /* fragment 33: CallSetup */
     local_1c = (uintptr_t)s3 << (uintptr_t)s0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)((uintptr_t)s0, (uintptr_t)s3 << (uintptr_t)s0, (uintptr_t)s2, (uintptr_t)s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)s0, (uintptr_t)s3 << (uintptr_t)s0, (uintptr_t)s2, (uintptr_t)s1); /* jalr target resolved by relocation */
 
     /* fragment 34: Arithmetic */
     s7 = v0;
@@ -88180,7 +89213,7 @@ tisp_ae_short_expt0x478:
 tisp_ae_short_expt0x4b8:
     /* fragment 103: CallSetup */
     local_14 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(s0, s4, s5, s8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(s0, s4, s5, s8); /* jalr target resolved by relocation */
 
     /* fragment 104: StackAccess */
     v1 = local_14;
@@ -88224,7 +89257,7 @@ tisp_ae_short_expt0x520:
     /* fragment 113: CallSetup */
     s8 = (uintptr_t)s3 << (uintptr_t)s0;
     *(uint32_t *)((char *)local_54 + 76) = s3;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)((uintptr_t)s0, (uintptr_t)s3 << (uintptr_t)s0, (uintptr_t)s2, (uintptr_t)s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)s0, (uintptr_t)s3 << (uintptr_t)s0, (uintptr_t)s2, (uintptr_t)s1); /* jalr target resolved by relocation */
 
     /* fragment 114: Arithmetic */
     v0 = v0 < s4;
@@ -88472,7 +89505,7 @@ tisp_ae_main_long_ev_alloc0x18c:
 
     /* fragment 25: CallSetup */
     local_204 = t2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(local_1f8, (*(uint32_t *)((char *)(s6) + 0)) << local_1f8, *(uint32_t *)((char *)(s6) + 4), *(uint32_t *)((char *)(s6) + 8)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(local_1f8, (*(uint32_t *)((char *)(s6) + 0)) << local_1f8, *(uint32_t *)((char *)(s6) + 4), *(uint32_t *)((char *)(s6) + 8)); /* jalr target resolved by relocation */
 
     /* fragment 26: CallSetup */
     *(uint32_t *)((char *)s4 + 0) = v0;
@@ -89093,7 +90126,7 @@ tisp_ae_main_short_ev_alloc0x1a0:
 
     /* fragment 27: CallSetup */
     local_204 = t2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(local_1f8, (*(uint32_t *)((char *)(s6) + 12)) << local_1f8, *(uint32_t *)((char *)(s6) + 16), *(uint32_t *)((char *)(s6) + 20)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(local_1f8, (*(uint32_t *)((char *)(s6) + 12)) << local_1f8, *(uint32_t *)((char *)(s6) + 16), *(uint32_t *)((char *)(s6) + 20)); /* jalr target resolved by relocation */
 
     /* fragment 28: CallSetup */
     *(uint32_t *)((char *)s4 + 0) = v0;
@@ -89629,7 +90662,7 @@ tisp_ae_sec_long_ev_alloc0x18c:
 
     /* fragment 25: CallSetup */
     local_204 = t2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(local_1f8, (*(uint32_t *)((char *)(s6) + 0)) << local_1f8, *(uint32_t *)((char *)(s6) + 4), *(uint32_t *)((char *)(s6) + 8)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(local_1f8, (*(uint32_t *)((char *)(s6) + 0)) << local_1f8, *(uint32_t *)((char *)(s6) + 4), *(uint32_t *)((char *)(s6) + 8)); /* jalr target resolved by relocation */
 
     /* fragment 26: CallSetup */
     *(uint32_t *)((char *)s4 + 0) = v0;
@@ -90246,7 +91279,7 @@ tisp_ae_sec_short_ev_alloc0x1a0:
 
     /* fragment 27: CallSetup */
     local_204 = t2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(local_1f8, (*(uint32_t *)((char *)(s5) + 12)) << local_1f8, *(uint32_t *)((char *)(s5) + 16), *(uint32_t *)((char *)(s5) + 20)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(local_1f8, (*(uint32_t *)((char *)(s5) + 12)) << local_1f8, *(uint32_t *)((char *)(s5) + 16), *(uint32_t *)((char *)(s5) + 20)); /* jalr target resolved by relocation */
 
     /* fragment 28: CallSetup */
     *(uint32_t *)((char *)s3 + 0) = v0;
@@ -95082,7 +96115,7 @@ tisp_ae_algo_handle0x40:
     local_200 = *(uint32_t *)((char *)(s3) + 40);
     local_1e0 = a2;
     local_204 = *(uint32_t *)((char *)(s3) + 44);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 7: Arithmetic */
     s6 = v0;
@@ -95109,14 +96142,14 @@ tisp_ae_algo_handle0x40:
 
 tisp_ae_algo_handle0x134:
     /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_3a, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_3a, &local_18); /* jalr target resolved by relocation */
 
     /* fragment 14: CallSetup */
     *(uint32_t *)((char *)s0 + 12) = s6;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(s5 << 6, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_1a8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_1a8); /* jalr target resolved by relocation */
 
     /* fragment 16: CallSetup */
     local_1cc = (uintptr_t)&tisp_math_exp2;
@@ -95126,7 +96159,7 @@ tisp_ae_algo_handle0x134:
     local_1e0 = v0;
     s7 = (uintptr_t)v0 >> 6;
     s6 = (uintptr_t)s1 << 2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))fix_point_mult3_32)((uintptr_t)(local_1ac), (uintptr_t)(&local_1a8), (uintptr_t)(a2), (uintptr_t)(a3)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)(local_1ac), (uintptr_t)(&local_1a8), (uintptr_t)(a2), (uintptr_t)(a3)); /* jalr target resolved by relocation */
 
     /* fragment 18: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(s8 << 6, 16, 16); /* jalr target resolved by relocation */
@@ -95139,7 +96172,7 @@ tisp_ae_algo_handle0x134:
 
     /* fragment 21: CallSetup */
     local_1c8 = (uintptr_t)v0 >> 6;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_1b0, &local_1a8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_1b0, &local_1a8); /* jalr target resolved by relocation */
 
     /* fragment 22: CallSetup */
     *(uint32_t *)((char *)s0 + 8) = local_1c8;
@@ -95186,14 +96219,14 @@ tisp_ae_algo_handle0x288:
     /* fragment 32: CallSetup */
     *(uint32_t *)((char *)s0 + 16) = s8;
     local_1d0 = (uintptr_t)&fix_point_mult3_32;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(10, local_20c, s7, local_1c8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(10, local_20c, s7, local_1c8); /* jalr target resolved by relocation */
 
     /* fragment 33: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(10, v0, s8); /* jalr target resolved by relocation */
 
     /* fragment 34: CallSetup */
     local_1dc = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(10, s7, local_1c8, s8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(10, s7, local_1c8, s8); /* jalr target resolved by relocation */
 
     /* fragment 35: StackAccess */
     local_1c8 = v0;
@@ -95208,7 +96241,7 @@ tisp_ae_algo_handle0x288:
     if (_bc_v1_36) { goto tisp_ae_algo_handle0x750; }
 
     /* fragment 37: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_1d8, &local_24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_1d8, &local_24); /* jalr target resolved by relocation */
 
     /* fragment 38: Arithmetic */
     s8 = v0;
@@ -95233,34 +96266,34 @@ tisp_ae_algo_handle0x288:
 
 tisp_ae_algo_handle0x35c:
     /* fragment 44: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_3c, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_3c, &local_18); /* jalr target resolved by relocation */
 
     /* fragment 45: CallSetup */
     *(uint32_t *)((char *)s0 + 76) = s8;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)((uintptr_t)s4 << 6, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 46: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_1a8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_1a8); /* jalr target resolved by relocation */
 
     /* fragment 47: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 48: CallSetup */
     s4 = (uintptr_t)v0 >> 6;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_1bc, &local_1a8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_1bc, &local_1a8); /* jalr target resolved by relocation */
 
     /* fragment 49: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(local_200 << 6, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 50: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(v0, &local_1a8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_1a8); /* jalr target resolved by relocation */
 
     /* fragment 51: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 52: CallSetup */
     s8 = (uintptr_t)v0 >> 6;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_1c2, &local_1a8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_1c2, &local_1a8); /* jalr target resolved by relocation */
 
     /* fragment 53: CallSetup */
     *(uint32_t *)((char *)s0 + 100) = s8;
@@ -95286,14 +96319,14 @@ tisp_ae_algo_handle0x35c:
 
     /* fragment 59: CallSetup */
     *(uint32_t *)((char *)s0 + 108) = s3;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(10, local_1e4, s4, s8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(10, local_1e4, s4, s8); /* jalr target resolved by relocation */
 
     /* fragment 60: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(10, v0, s3); /* jalr target resolved by relocation */
 
     /* fragment 61: CallSetup */
     s2 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_32)(10, s4, s8, s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(10, s4, s8, s3); /* jalr target resolved by relocation */
 
     /* fragment 62: Arithmetic */
     s3 = v0;
@@ -99056,6 +100089,14 @@ int32_t tisp_awb_gain_reg(int32_t *arg1, int32_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030dcc origin=fragment_seed original=tisp_awb_set_gain */
 int64_t tisp_awb_set_gain(uintptr_t a0, uint32_t a1)
 {
+    /*
+     * T40-AWB-SEGV: a0 is the AWB context pointer only until fragments
+     * 12/13 reassign it - the OEM used $4 as a scratch register.  The
+     * AWBGAIN trace at label tisp_awb_set_gain0x210 needs the context, so
+     * keep the entry value in its own variable instead of reading the
+     * scratch value as a pointer.
+     */
+    uintptr_t awb_main_ctx_entry = a0;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -99269,13 +100310,29 @@ tisp_awb_set_gain0x210:
     local_18 = (((uintptr_t)v0 << 2) - 1024) + (*(uint32_t *)((char *)((uintptr_t)s3) + 0));
     local_1c = ((local_1c << 2) - 1024) + (*(uint32_t *)((char *)((uintptr_t)s3) + 4));
     {
+        /*
+         * T40-AWB-SEGV: resolve the two context slots from the value a0
+         * held on entry.  By the time this trace runs a0 has been reused
+         * as a scratch register (fragments 12/13), so reading (a0 + 12)
+         * dereferenced a plain data value: on the 2026-10-13 device run it
+         * was 0x1561, the load at 0x156d raised AdEL "Unhandled kernel
+         * unaligned access" inside t40_devtest and killed it with SIGSEGV.
+         * The guards also keep the trace safe if set_gain ever runs before
+         * tisp_awb_params_transmit() filled the pointer table.
+         */
         static uint32_t _awbg_trace;
+        uint32_t _awbg_p12 = awb_main_ctx_entry ?
+            *(uint32_t *)((char *)awb_main_ctx_entry + 12) : 0;
+        uint32_t _awbg_p20 = awb_main_ctx_entry ?
+            *(uint32_t *)((char *)awb_main_ctx_entry + 20) : 0;
         if (_awbg_trace++ < 8)
-            printk(KERN_INFO "tx_isp_t40_recovered: AWBGAIN v0=%u s4(shift)=%u p12=%p p12+2=%u a0+20deref=%u base_r=%u -> rgain=%d bgain=%d\n",
+            printk(KERN_INFO "tx_isp_t40_recovered: AWBGAIN ctx=%p v0=%u s4(shift)=%u p12=0x%08x p12+2=%u p20=0x%08x p20+20=%u base_r=%u -> rgain=%d bgain=%d\n",
+                   (void *)awb_main_ctx_entry,
                    (uint32_t)(uintptr_t)v0, (uint32_t)(uintptr_t)s4,
-                   (void *)*(uint32_t *)((char *)a0 + 12),
-                   (*(uint32_t *)((char *)a0 + 12)) ? *(uint16_t *)((char *)(uintptr_t)(*(uint32_t *)((char *)a0 + 12)) + 2) : 0xffff,
-                   (*(uint32_t *)((char *)a0 + 20)) ? *(uint32_t *)((char *)(uintptr_t)(*(uint32_t *)((char *)a0 + 20)) + 20) : 0xffffffff,
+                   _awbg_p12,
+                   _awbg_p12 ? *(uint16_t *)((char *)(uintptr_t)_awbg_p12 + 2) : 0xffff,
+                   _awbg_p20,
+                   _awbg_p20 ? *(uint32_t *)((char *)(uintptr_t)_awbg_p20 + 20) : 0xffffffff,
                    *(uint32_t *)((char *)((uintptr_t)s3) + 0),
                    (int)(uintptr_t)local_18, (int)local_1c);
     }
@@ -100199,6 +101256,22 @@ tisp_awb_get_statistics0x5a8:
  * a static 32MB rmem window on first use. Dimensions come from the active
  * frame-channel/sensor format rather than a board-specific override.
  */
+/* Conservative proportional trim: 8 gain units per chroma code, bounded. */
+static uint32_t regtrace_frame_awb_trim(uint32_t gain, uint32_t mean,
+                                        uint32_t target, uint32_t hyst)
+{
+    uint32_t error, step, limit;
+    gain = clamp_t(uint32_t, gain, 0x200U, 0x1800U);
+    error = mean > target ? mean - target : target - mean;
+    if (error <= hyst)
+        return gain;
+    limit = max_t(uint32_t, gain / 8U, 1U);
+    step = min_t(uint32_t, error * 8U, limit);
+    if (mean > target)
+        return gain > 0x200U + step ? gain - step : 0x200U;
+    return min_t(uint32_t, gain + step, 0x1800U);
+}
+
 static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
 {
     static void __iomem *win;
@@ -100227,6 +101300,28 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
     y_size = (uint64_t)width * height;
     uv_size = (uint64_t)width * uv_height;
 
+    /* Native NV12 may straddle a fixed 32-MiB alignment boundary. */
+    if (regtrace_frame_3a_slide_window &&
+        (!win || y_phys < win_base || uv_phys < win_base ||
+         (uint64_t)(y_phys - win_base) + y_size > 0x02000000ULL ||
+         (uint64_t)(uv_phys - win_base) + uv_size > 0x02000000ULL)) {
+        uint32_t base = min_t(uint32_t, y_phys, uv_phys) & ~0xfffU;
+
+        if ((uint64_t)(y_phys - base) + y_size > 0x02000000ULL ||
+            (uint64_t)(uv_phys - base) + uv_size > 0x02000000ULL) {
+            regtrace_frame_3a_window_misses++;
+            return;
+        }
+        if (win)
+            iounmap(win);
+        win_base = base;
+        win = ioremap(win_base, 0x02000000U);
+        if (!win) {
+            regtrace_frame_3a_window_misses++;
+            return;
+        }
+    }
+
     if (!win) {
         win_base = y_phys & ~0x01ffffffU;
         win = ioremap(win_base, 0x02000000U);
@@ -100235,8 +101330,10 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
     }
     if (y_phys < win_base || uv_phys < win_base ||
         (uint64_t)(y_phys - win_base) + y_size > 0x02000000ULL ||
-        (uint64_t)(uv_phys - win_base) + uv_size > 0x02000000ULL)
+        (uint64_t)(uv_phys - win_base) + uv_size > 0x02000000ULL) {
+        regtrace_frame_3a_window_misses++;
         return;
+    }
 
     yp = (const uint8_t *)win + (y_phys - win_base);
     uvp = (const uint8_t *)win + (uv_phys - win_base);
@@ -100352,6 +101449,26 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
         uint32_t high = min_t(uint32_t, target + hyst, 255U);
         bool changed = false;
 
+        /* Opt-in measured sc830ai/BGGR seed; wait for a new sample before trim. */
+        if (regtrace_frame_awb_bggr_fast &&
+            ((uint32_t)system_reg_read(0x88U) & 3U) == 1U &&
+            regtrace_t40_bggr_seed_supported()) {
+            static bool seeded;
+            uint32_t old_r = rgain, old_b = bgain;
+
+            if (!seeded) {
+                rgain = 1060U;
+                bgain = 2640U;
+                seeded = true;
+                printk(KERN_INFO "tx_isp_t40_recovered: BGGR AWB seed sample=%u old=0x%x/0x%x new=0x%x/0x%x bayer=0x%x\n",
+                       regtrace_frame_3a_samples, old_r, old_b, rgain, bgain,
+                       (uint32_t)system_reg_read(0x88U));
+            } else {
+                rgain = regtrace_frame_awb_trim(rgain, vmean, target, hyst);
+                bgain = regtrace_frame_awb_trim(bgain, umean, target, hyst);
+            }
+            changed = rgain != old_r || bgain != old_b;
+        } else {
         if (vmean > high && rgain > 0x200U) {
             rgain -= rgain / 32U;
             changed = true;
@@ -100365,6 +101482,7 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
         } else if (umean < low && bgain < 0x1800U) {
             bgain += bgain / 32U;
             changed = true;
+        }
         }
         if (changed) {
             regtrace_awb_grayworld_last_rgain = rgain;
@@ -109190,41 +110308,41 @@ tisp_lsc_mirror_flip0x278:
     s6 = t0 + 1;
     s8 = t0 + 2;
     local_20 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s4, (uintptr_t)v0, (t0 << 1) + t0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s4, (uintptr_t)v0, (t0 << 1) + t0); /* jalr target resolved by relocation */
 
     /* fragment 40: CallSetup */
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s4, s7, s8, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s4, s7, s8, t6); /* jalr target resolved by relocation */
 
     /* fragment 41: CallSetup */
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s4, s5, s6, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s4, s5, s6, t6); /* jalr target resolved by relocation */
 
     /* fragment 42: CallSetup */
     t0 = local_20;
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t9, local_1c, local_20, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t9, local_1c, local_20, t6); /* jalr target resolved by relocation */
 
     /* fragment 43: CallSetup */
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t9, s7, s8, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t9, s7, s8, t6); /* jalr target resolved by relocation */
 
     /* fragment 44: CallSetup */
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t9, s5, s6, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t9, s5, s6, t6); /* jalr target resolved by relocation */
 
     /* fragment 45: CallSetup */
     t0 = local_20;
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t8, local_1c, local_20, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t8, local_1c, local_20, t6); /* jalr target resolved by relocation */
 
     /* fragment 46: CallSetup */
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t8, s7, s8, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t8, s7, s8, t6); /* jalr target resolved by relocation */
 
     /* fragment 47: CallSetup */
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t8, s5, s6, t6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t8, s5, s6, t6); /* jalr target resolved by relocation */
 
     /* fragment 48: StackAccess */
     t1 = local_2c;
@@ -117826,10 +118944,10 @@ Tiziano_wdr_deghost_fpga0x9dc:
 
     /* fragment 180: CallSetup */
     local_160 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t6, s7, 162); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t6, s7, 162); /* jalr target resolved by relocation */
 
     /* fragment 181: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(local_174, s7, 162); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_174, s7, 162); /* jalr target resolved by relocation */
 
     /* fragment 182: Branch */
     s8 = 0;
@@ -127303,11 +128421,15 @@ int32_t tisp_gamma_get_wlut_times(uint32_t a0, uintptr_t a1)
 
     /* fragment 3: Branch */
     int _bc_v0_3 = v0 != 0;
-    v0 = (uintptr_t *)&isp_memopt;
+    /* OEM 0x48958: addu s0,s0,%lo(gamma_wlut_times) -- the array base is a
+       relocated symbol. The reconstruction used &isp_memopt + 17192 (0x4328),
+       a valid address holding the WRONG object, while the driver's own writer
+       (tisp_gamma_real_write_lut) materialises &gamma_wlut_times: reader and
+       writer disagreed. Align the reader with the writer and the OEM. */
+    v0 = (uintptr_t *)&gamma_wlut_times;
     if (_bc_v0_3) { goto tisp_gamma_get_wlut_times0x60; }
 
     /* fragment 4: Arithmetic */
-    v0 = v0 + 17192;
     s0 = (uintptr_t)s0 + (uintptr_t)v0;
 
     /* fragment 5: MemoryAccess */
@@ -134188,12 +135310,12 @@ int64_t tisp_lce_get_show_data(uintptr_t a0, uintptr_t a1)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_compress_data_part_1)(s0 + 10740, *(uint32_t *)((char *)(s1) + 104), 327680 - 27792); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s0 + ((a0 << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 108)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + ((a0 << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 108)); /* jalr target resolved by relocation */
 
     /* fragment 8: CallSetup */
     s4 = (uintptr_t)s4 & 255;
     s3 = (uintptr_t)s3 ^ 8;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s0 + ((((uintptr_t)local_90 + ((uintptr_t)s4 & 255)) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 112)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + ((((uintptr_t)local_90 + ((uintptr_t)s4 & 255)) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 112)); /* jalr target resolved by relocation */
 
     /* fragment 9: CallSetup */
     s3 = s3 < 1;
@@ -134204,13 +135326,13 @@ int64_t tisp_lce_get_show_data(uintptr_t a0, uintptr_t a1)
     s6 = s2 - s7;
     s6 = s6 << 3;
     s6 = s6 & 255;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s0 + ((((uintptr_t)local_90 + (s8 - ((uintptr_t)s3 < 1) & 255)) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 116)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + ((((uintptr_t)local_90 + (s8 - ((uintptr_t)s3 < 1) & 255)) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 116)); /* jalr target resolved by relocation */
 
     /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s0 + (((s6 + (uintptr_t)s4) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 120)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + (((s6 + (uintptr_t)s4) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 120)); /* jalr target resolved by relocation */
 
     /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)((uintptr_t)s0 + ((((uintptr_t)s3 + s6) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 124)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + ((((uintptr_t)s3 + s6) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 124)); /* jalr target resolved by relocation */
 
     /* fragment 12: MemoryAccess */
     a0 = *(uint32_t *)((char *)s1 + 100);
@@ -166278,12 +167400,12 @@ int64_t tisp_bcsh_ev_update_TransitParam(uintptr_t a0, uintptr_t a1)
     /* fragment 6: CallSetup */
     *(uint32_t *)((char *)s4 + 0) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 4);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t1, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t1, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
     *(uint32_t *)((char *)s4 + 4) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 8);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t1, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t1, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 8: CallSetup */
     *(uint32_t *)((char *)s4 + 8) = v0;
@@ -166295,7 +167417,7 @@ int64_t tisp_bcsh_ev_update_TransitParam(uintptr_t a0, uintptr_t a1)
 
 tisp_bcsh_ev_update_TransitParam0x164:
     /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t1); /* jalr target resolved by relocation */
 
     /* fragment 10: MemoryAccess */
     *(uint32_t *)((char *)s4 + 12) = v0;
@@ -166326,17 +167448,17 @@ tisp_bcsh_ev_update_TransitParam0x170:
     /* fragment 16: CallSetup */
     *(uint32_t *)((char *)s4 + 0) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 4);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t2, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t2, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 17: CallSetup */
     *(uint32_t *)((char *)s4 + 4) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 8);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t2, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t2, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 18: CallSetup */
     *(uint32_t *)((char *)s4 + 8) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 12);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t2, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t2, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 19: CallSetup */
     *(uint32_t *)((char *)s4 + 12) = v0;
@@ -166535,12 +167657,12 @@ tisp_bcsh_ev_update_TransitParam0x404:
     /* fragment 55: CallSetup */
     *(uint32_t *)((char *)s4 + 0) = v0;
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t1, 128, 256, *(uint32_t *)((char *)(s4) + 4)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t1, 128, 256, *(uint32_t *)((char *)(s4) + 4)); /* jalr target resolved by relocation */
 
     /* fragment 56: CallSetup */
     *(uint32_t *)((char *)s4 + 4) = v0;
     local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(t1, 128, 256, *(uint32_t *)((char *)(s4) + 8)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(t1, 128, 256, *(uint32_t *)((char *)(s4) + 8)); /* jalr target resolved by relocation */
 
     /* fragment 57: MemoryAccess */
     *(uint32_t *)((char *)s4 + 8) = v0;
@@ -166601,27 +167723,27 @@ tisp_bcsh_ev_update_TransitParam0x4a4:
     /* fragment 69: CallSetup */
     local_10 = t7;
     t4 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, 0, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 70: CallSetup */
     t7 = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 0);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 71: CallSetup */
     *(uint32_t *)((char *)s4 + 0) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 4);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 72: CallSetup */
     *(uint32_t *)((char *)s4 + 4) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 8);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 73: CallSetup */
     *(uint32_t *)((char *)s4 + 8) = v0;
     local_10 = *(uint32_t *)((char *)(s4) + 12);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, 0, 128, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, 0, 128, 0); /* jalr target resolved by relocation */
 
     /* fragment 74: Branch */
     *(uint32_t *)((char *)s4 + 12) = v0;
@@ -166661,7 +167783,7 @@ tisp_bcsh_ev_update_TransitParam0x5c0:
     /* fragment 81: CallSetup */
     t4 = v0;
     local_10 = 1023;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s0, 128, 255, t7); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, 128, 255, t7); /* jalr target resolved by relocation */
 
     /* fragment 82: Branch */
     t7 = v0;
@@ -173231,6 +174353,12 @@ int32_t Tzn_Msca_Shd_line_chx(int32_t arg1, int32_t arg2, int32_t arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006d50c origin=fragment_seed original=Tzn_Msca_addr_fifo_write */
 int64_t Tzn_Msca_addr_fifo_write(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
+    if (regtrace_t40_vic_frame_output && a1 == 0) {
+        static unsigned int skip_log;
+        if (skip_log++ < 2)
+            printk(KERN_INFO "tx_isp_t40_recovered: MSCA addr FIFO write skipped (VIC frame output owns ch0 addresses) y=0x%x uv=0x%x\n", a2, a3);
+        return 0;
+    }
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     unsigned char *state;
     uint32_t group;
@@ -175095,8 +176223,13 @@ int32_t tisp_clm_get_wlut_times(void* arg1, uint32_t* arg2)
         /* Backward branch to return path - effectively just return */
         goto return_zero;
     } else {
-        /* Load byte from arg1 + 0xa8d70 and store to *arg2 */
-        *arg2 = *(uint32_t*)((char*)arg1 + 0xa8d70);
+        /* OEM 0x6e668: addu s0,s0,%lo(clm_wlut_times); lbu v0,0(s0); sw v0,0(s1).
+           The array base is a RELOCATED SYMBOL (OEM .bss+0x49e0 == clm_wlut_times),
+           never the absolute address 0xa8d70 that the reconstruction baked in as a
+           literal. With arg1 = 1 that literal produced the wild, odd address
+           0x000a8d71 (the reported BadVA) and the ISR died on the unaligned lw.
+           The access is a byte load, as in the OEM. */
+        *arg2 = *(uint8_t *)((char *)&clm_wlut_times + (uintptr_t)arg1);
     }
     
 return_zero:
@@ -181023,6 +182156,12 @@ tisp_enable_tuning0x2c8:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000072ed8 origin=fragment_seed original=tisp_s_antiflick */
 int64_t tisp_s_antiflick(uint32_t a0, uintptr_t a1, uint32_t a2)
 {
+    if (!regtrace_t40_allow_antiflick) {
+        static unsigned int af_log;
+        if (af_log++ < 4)
+            printk(KERN_INFO "tx_isp_t40_recovered: tisp_s_antiflick ignored (t40_allow_antiflick=0)\n");
+        return 0;
+    }
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -185001,6 +186140,7 @@ int32_t tisp_g_coefft_wb(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000075a50 origin=fragment_seed original=ispcore_irq_thread_handle */
 int32_t ispcore_irq_thread_handle(void)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x12, 0);
     uint32_t ra = 0;
     uintptr_t *v0 = 0;
 
@@ -185141,7 +186281,7 @@ ispcore_sensor_ops_ioctl0x70:
     if (v0 == 0) { goto ispcore_sensor_ops_ioctl0x50; }
 
     /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 15: Branch */
     if (v0 == 0) { goto ispcore_sensor_ops_ioctl0x54; }
@@ -185251,7 +186391,7 @@ ispcore_irq_sec_fd_work0x8c:
     if (v0 == 0) { goto ispcore_irq_sec_fd_work0xbc; }
 
     /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 ispcore_irq_sec_fd_work0xbc:
     /* fragment 13: Branch */
@@ -185456,7 +186596,7 @@ char* ispcore_irq_main_fd_work(void)
     if (v0 == 0) { goto ispcore_irq_main_fd_work0x80; }
 
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 ispcore_irq_main_fd_work0x80:
     /* fragment 9: Branch */
@@ -185837,6 +186977,7 @@ isp_fw_process0x44:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000076170 origin=fragment_seed original=ispcore_frame_channel_streamoff */
 int64_t ispcore_frame_channel_streamoff(uintptr_t a0)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x52, 0);
     uint32_t *local_10 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -185929,7 +187070,7 @@ ispcore_frame_channel_streamoff0x70:
     if (v1 == 0) { goto ispcore_frame_channel_streamoff0xb4; }
 
     /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(v0) + 1012)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(v0) + 1012)); /* jalr target resolved by relocation */
 
     /* fragment 19: CallSetup */
     s2 = v0;
@@ -187393,7 +188534,7 @@ isp_info_show_isra_40x164:
 
 isp_info_show_isra_40x16c:
     /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 22: Arithmetic */
     s8 = v0;
@@ -189226,7 +190367,7 @@ ispcore_pad_event_handle0x598:
     if (v0 == 0) { goto ispcore_pad_event_handle0x4a4; }
 
     /* fragment 153: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 154: Branch */
     if (v0 == 0) { goto ispcore_pad_event_handle0x4a4; }
@@ -189744,7 +190885,7 @@ ispcore_pad_event_handle0x9f4:
 
 ispcore_pad_event_handle0xa30:
     /* fragment 273: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 274: Branch */
     s1 = v0;
@@ -189871,7 +191012,7 @@ ispcore_pad_event_handle0xb18:
     if (v0 == 0) { goto ispcore_pad_event_handle0xb80; }
 
     /* fragment 303: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 304: Branch */
     s1 = v0;
@@ -190966,7 +192107,7 @@ ispcore_pad_event_handle0x1408:
     if (v1 == 0) { goto ispcore_pad_event_handle0x288; }
 
     /* fragment 567: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(v0) + 1012)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(v0) + 1012)); /* jalr target resolved by relocation */
 
     /* fragment 568: Branch */
     s1 = v0;
@@ -191432,7 +192573,7 @@ ispcore_activate_module0x1f0:
     /* fragment 49: CallSetup */
     s2 = s0 + 60;
     s3 = s0 + 124;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s0) + 992), 67108864, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s0) + 992), 67108864, 0); /* jalr target resolved by relocation */
 
     /* fragment 50: Arithmetic */
     s4 = -515;
@@ -191462,7 +192603,7 @@ ispcore_activate_module0x220:
     if (v0 == 0) { goto ispcore_activate_module0x348; }
 
     /* fragment 58: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s1); /* jalr target resolved by relocation */
 
     /* fragment 59: Branch */
     if (v0 == 0) { goto ispcore_activate_module0x348; }
@@ -191572,6 +192713,7 @@ int32_t system_reg_write(uint32_t a0, uint32_t a1)
     if (!regtrace_is_kernel_ptr(base))
         return -ENODEV;
 
+    regtrace_fr_mark(0x31, a0);
     watched = regtrace_core_top_watch_index(a0) >= 0;
     if (watched)
         before = readl(base + a0);
@@ -191615,6 +192757,7 @@ int32_t system_reg_write(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000079834 origin=fragment_seed original=ispcore_irqstatus_func */
 int32_t ispcore_irqstatus_func(uintptr_t a0)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x11, 0);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t local_1c = 0;
@@ -191696,7 +192839,7 @@ ispcore_irqstatus_func0x90:
     if (a0 == 0) { goto ispcore_irqstatus_func0xb8; }
 
     /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 ispcore_irqstatus_func0xb8:
     /* fragment 18: Arithmetic */
@@ -191798,7 +192941,7 @@ ispcore_irqstatus_func0x174:
     if (a0 == 0) { goto ispcore_irqstatus_func0x18c; }
 
     /* fragment 40: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 ispcore_irqstatus_func0x18c:
     /* fragment 41: CallSetup */
@@ -191916,7 +193059,7 @@ ispcore_irqstatusSec_func0xc4:
     if (a0 == 0) { goto ispcore_irqstatusSec_func0xf8; }
 
     /* fragment 23: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 24: Arithmetic */
     v0 = 1;
@@ -191935,7 +193078,7 @@ ispcore_irqstatusSec_func0x100:
     if (a0 == 0) { goto ispcore_irqstatusSec_func0x11c; }
 
     /* fragment 28: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
 ispcore_irqstatusSec_func0x11c:
     /* fragment 29: CallSetup */
@@ -191995,6 +193138,7 @@ int32_t system_reg_read(uint32_t a0)
     if (!regtrace_is_kernel_ptr(base))
         return 0;
 
+    regtrace_fr_mark(0x30, a0);
     return readl(base + a0);
 #else
     uint32_t ra = 0;
@@ -192041,6 +193185,7 @@ int32_t tx_isp_disable_irq_1(void *arg1, void *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000079c9c origin=fragment_seed original=ispcore_video_s_stream */
 int64_t ispcore_video_s_stream(uintptr_t a0, uintptr_t a1)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x53, (uint32_t)a1);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -192247,7 +193392,7 @@ ispcore_video_s_stream0x1e8:
     if (v0 == 0) { goto ispcore_video_s_stream0x160; }
 
     /* fragment 40: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 41: Branch */
     s5 = v0;
@@ -193501,7 +194646,13 @@ ispcore_slake_module0xac:
     if (v1 != 0) { goto ispcore_slake_module0x9c; }
 
     /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_i2c_set_clientdata)(*(uint32_t *)((char *)(s0) + 992), s4, 0); /* jalr target resolved by relocation */
+    /* OEM: tuning->ops[0x80](tuning, s4, 0); the seed bound this to private_i2c_set_clientdata (rmmod oops, BadVA 0x70). */
+    {
+        uintptr_t tuning = *(uint32_t *)((char *)(s0) + 992);
+        uintptr_t fn = regtrace_is_kernel_ptr((void *)tuning) ? *(uint32_t *)((char *)tuning + 128) : 0;
+        v0 = regtrace_is_kernel_ptr((void *)fn) ?
+            (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))fn)(tuning, s4, 0) : 0;
+    }
 
     /* fragment 19: Arithmetic */
     v0 = 1;
@@ -193590,7 +194741,13 @@ ispcore_slake_module0x150:
     if (v0 == 0) { goto ispcore_slake_module0x2b4; }
 
     /* fragment 41: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s2); /* jalr target resolved by relocation */
+    /*
+     * OEM: sd->ops->internal->slake_module(sd).  The recovered seed bound
+     * this indirect call to private_i2c_set_clientdata(), which wrote through
+     * a NULL client on rmmod (Eufy T40XP 2026-10-12, BadVA 0x70).
+     */
+    if (!regtrace_is_kernel_ptr((void *)v0)) { goto ispcore_slake_module0x2b4; }
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)v0)(s2);
 
     /* fragment 42: Branch */
     if (v0 == 0) { goto ispcore_slake_module0x2b4; }
@@ -194045,7 +195202,11 @@ tx_isp_core_probe0x3f8:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007b1f4 origin=model_output original=system_irq_func_set */
 int32_t system_irq_func_set(int32_t arg1, int32_t arg2)
 {
-    ((void **)irq_func_cb)[arg1] = arg2;
+    if (arg1 < 0 || arg1 >= T40_IRQ_FUNC_CB_N) {
+        printk(KERN_ERR "tx_isp_t40_recovered: system_irq_func_set index %d out of range\n", arg1);
+        return -EINVAL;
+    }
+    irq_func_cb[arg1] = arg2;
     return 0;
 }
 
@@ -194107,6 +195268,7 @@ update_isp_osd0x78:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007b29c origin=fragment_seed original=ispcore_interrupt_service_routine */
 int64_t ispcore_interrupt_service_routine(uintptr_t a0)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x14, 0);
     uint32_t *local_10 = 0;
     if (regtrace_enable_oem_isr_lit)
         return ispcore_interrupt_service_routine_lit(a0);
@@ -194162,6 +195324,33 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
     v0 = *(uint32_t *)((char *)a0 + 232);
     v1 = 262144;
     s3 = *(uint32_t *)((char *)a0 + 268);
+
+    /*
+     * T40-VENDOR-3A-ISR: the OEM ISR entry loads the per-mode state the body
+     * branches on:
+     *   0x7ad08 lw v0,744(s1)   ; v0 = *(st + 744)
+     *   0x7ad0c lw s4,764(s1)   ; s4 = *(st + 764)
+     *   0x7ad10 sw v0,72(sp)    ; local_48 = v0
+     * with s1 = *(a0 + 0x10c) == s3 here.  The reconstruction performs
+     * neither load: no 744/764 access and no read of local_48 exists in the
+     * ISR body, so every OEM s4&0xff / s4&0xf / s4&0xff0 / s4&0xf00f /
+     * s4&0xff00 branch is not reproduced.  Recorded here read-only.
+     */
+    if (regtrace_isr_oem_state_load) {
+        uintptr_t __st = (uintptr_t)s3;
+
+        if (regtrace_is_kernel_ptr((const void *)__st)) {
+            regtrace_isr_oem_state744 = regtrace_get_u32(__st, 744);
+            regtrace_isr_oem_state764 = regtrace_get_u32(__st, 764);
+            regtrace_isr_oem_state_load_count++;
+            if (regtrace_isr_oem_state_load_count <= 4)
+                printk(KERN_INFO "tx_isp_t40_recovered: isr-oem-state #%u st=%p st744=0x%x st764=0x%x\n",
+                       regtrace_isr_oem_state_load_count, (void *)__st,
+                       regtrace_isr_oem_state744, regtrace_isr_oem_state764);
+        } else {
+            regtrace_isr_oem_state_load_bad++;
+        }
+    }
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
     s2 = *(uint32_t *)((char *)v0 + 40);
     s0 = a0;
@@ -195414,7 +196603,20 @@ ispcore_interrupt_service_routine0xc10:
     if (v0 == 0) { goto ispcore_interrupt_service_routine0xc3c; }
 
     /* fragment 271: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    /*
+     * T40-JALR-ISR(1/2): the real target is irq_func_cb[status bit] - a
+     * RUNTIME TABLE ENTRY, not a resolvable symbol.  The device ISR status
+     * loop (OEM 0x6d67c) is `lw a1,0(v1)` (v1 = &irq_func_cb + i*4) followed
+     * by `jalr.hb a1`, with `move a0,zero` a few instructions earlier, so the
+     * registered handler is invoked as cb(0) - it takes no argument.
+     * Fragment 269 has already loaded the handler into v0, therefore v0 is
+     * the call target; the previous
+     * regtrace_unresolved_jalr(a0) was wrong in BOTH the callee (a counting
+     * no-op instead of the table entry) and the argument (a0 instead of 0).
+     * The OEM also bumps a per-slot counter at (.bss+18192 + i*4) around the
+     * call; that counter is not modelled in this reconstruction.
+     */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)v0)(0);
 
     /* fragment 272: Arithmetic */
     v1 = (uintptr_t)v0 ^ 1;
@@ -195434,7 +196636,15 @@ ispcore_interrupt_service_routine0xc3c:
     if (v0 == 0) { goto ispcore_interrupt_service_routine0xc64; }
 
     /* fragment 277: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    /*
+     * T40-JALR-ISR(2/2): same runtime-table dispatch for the secondary status
+     * bank.  s0 + 168 == &irq_func_cb[42], i.e. bank 1 slot (42 = the
+     * vendor's stride in system_irq_func_set, and exactly the offset the
+     * registrations at system_irq_func_set(46/47/0x32/0x33, ...) rely on).
+     * OEM 0x6d844 is `jalr.hb v0` with the delay slot `move a0,zero`, so this
+     * handler is called as cb(0) as well; v0 already holds the entry.
+     */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)v0)(0);
 
     /* fragment 278: Arithmetic */
     v1 = (uintptr_t)v0 ^ 1;
@@ -196193,7 +197403,19 @@ ispcore_core_ops_ioctl0x80:
     if (v0 == 0) { goto ispcore_core_ops_ioctl0x148; }
 
     /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(s1); /* jalr target resolved by relocation */
+    /*
+     * T40-JALR-COREOPS(1/2): the real target is the subdev core-init vtable
+     * slot *(subdev->ops->core_ops + 0x4) - a PER-SUBDEV function pointer, so
+     * it cannot be resolved to one symbol by relocation
+     * (ispcore_subdev_core_ops + 0x4 = &ispcore_core_ops_init, but
+     * csi_core_ops + 0x4 = &csi_core_ops_init, vic/fs/ivdc likewise each
+     * install their own core_ops_init at +0x4).  OEM 0x6cd78 is
+     * `lw v0,4(v0)` / `lw v0,12(v0)` / `lw v0,4(v0)` then `jalr v0` with
+     * `move a1,s2` and `move a0,s0` in the delay slots - i.e. cb(subdev, arg2),
+     * matching int64_t ispcore_core_ops_init(uintptr_t a0, uintptr_t a1).
+     * Fragment 15 has already loaded the callback into v0.
+     */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)v0)((uintptr_t)s1, (uintptr_t)s3);
 
 ispcore_core_ops_ioctl0x9c:
     /* fragment 18: Branch */
@@ -196234,7 +197456,16 @@ ispcore_core_ops_ioctl0x110:
 
 ispcore_core_ops_ioctl0x12c:
     /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    /*
+     * T40-JALR-COREOPS-UNRESOLVED: NOT resolvable from this reconstruction.
+     * Unlike fragments 17/47, the .c text does not retain the register that
+     * carried the callee on this path: fragment 60 loads `a0 = *(v1 + 992)`
+     * and only `a0` survives to this jalr, so the OEM counterpart (a
+     * *(ops->core_ops + 0x20) nested-ioctl call, OEM 0x6cf20 region) cannot be
+     * reconstructed with confidence.  Left routed to the counting no-op so the
+     * residual is still observable via /sys/module/.../unresolved_jalr_count.
+     */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 28: Branch */
     s0 = 0;
@@ -196312,7 +197543,15 @@ ispcore_core_ops_ioctl0x1b4:
     if (v0 == 0) { goto ispcore_core_ops_ioctl0x18c; }
 
     /* fragment 47: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_i2c_set_clientdata)(a0); /* jalr target resolved by relocation */
+    /*
+     * T40-JALR-COREOPS(2/2): same vtable slot as fragment 17, reached from the
+     * component-subdev walk (`a0` = the linked subdev from the s1+60 slot
+     * array), so the callee depends on that subdev's ops table and cannot be
+     * resolved to a symbol either.  OEM 0x6cfd4 is `jalr v0` with the delay
+     * slot `move a1,s2`, and `a0` still holds the subdev -
+     * cb(subdev, arg2).  Fragment 45 has already loaded the callback into v0.
+     */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)v0)((uintptr_t)a0, (uintptr_t)s3);
 
     /* fragment 48: Arithmetic */
     s0 = v0;
@@ -196501,7 +197740,7 @@ static void regtrace_apply_t40_bringup_profile(void)
         /* DMSC(13). */
         regtrace_tisp_main_init_top40_value = 0x7ffd88fb;
         regtrace_t40_quality_top40_final = 0x7ffd88fbU;
-        regtrace_enable_dmsc_lit = true;
+        regtrace_enable_dmsc_lit = !regtrace_disable_dmsc_lit;
     }
     if (regtrace_t40_quality_profile == 3U) {
         /* BLC(0) only. */
@@ -196523,6 +197762,20 @@ static void regtrace_apply_t40_bringup_profile(void)
         /* LSC(1). */
         regtrace_t40_quality_top40_final = 0x7ffd88d8U;
         regtrace_enable_lsc_lit = true;
+    }
+    if (regtrace_t40_generic_profile) {
+        regtrace_enable_mdns = true;
+        regtrace_enable_sdns = true;
+        regtrace_enable_ydns = true;
+        regtrace_enable_adr_reg_writes = true;
+        regtrace_enable_ccm = true;
+        regtrace_enable_soft_gamma = true;
+        regtrace_enable_blc_lit = true;
+        regtrace_enable_lsc_lit = true;
+        regtrace_enable_gib_lit = true;
+        regtrace_enable_ysp = false;
+        regtrace_enable_dmsc_lit = false;
+        printk(KERN_INFO "tx_isp_t40_recovered: T40 generic profile: denoise/ADR/CCM/gamma/BLC/LSC/GIB on, YSP and DMSC-lit off\n");
     }
     if (regtrace_t40_quality_top40_override) {
         regtrace_tisp_main_init_top40_value =
@@ -196688,6 +197941,8 @@ int32_t tx_isp_t40_core_init(void)
         int ret = regtrace_register_real_platforms();
         int bootstrap_ret = regtrace_register_bootstrap_devices();
 
+        regtrace_panic_dump_register();
+
         if (!ret) {
             int v4l2_ret = tx_isp_t40_v4l2_init(
                 &tx_isp_platform_device.dev);
@@ -196787,23 +198042,58 @@ tx_isp_module_init0x84:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c710 origin=fragment_seed original=cleanup_module */
+static unsigned int regtrace_core_exit_done_mask;
+
+#define REGTRACE_EXIT_STEPS 15
+
+static int regtrace_core_exit_steps(int upto, int from_proc)
+{
+    int step;
+
+    if (upto > REGTRACE_EXIT_STEPS)
+        upto = REGTRACE_EXIT_STEPS;
+    for (step = 1; step <= upto; step++) {
+        if (regtrace_core_exit_done_mask & (1U << step))
+            continue;
+        /* removing the proc entry from inside its own write handler deadlocks */
+        if (step == 9 && from_proc) {
+            printk(KERN_INFO "tx_isp_t40_recovered: exit step 9 (misc devices) deferred to rmmod\n");
+            continue;
+        }
+        printk(KERN_INFO "tx_isp_t40_recovered: exit step %d begin\n", step);
+        switch (step) {
+        case 1: regtrace_panic_dump_unregister(); tx_isp_t40_v4l2_exit(); break;
+        case 2:
+            cancel_work_sync(&regtrace_irq_frame_done_work[0].work);
+            cancel_work_sync(&regtrace_irq_frame_done_work[1].work);
+            cancel_work_sync(&regtrace_irq_frame_done_work[2].work);
+            cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
+            cancel_work_sync(&regtrace_isp_block_init_work);
+            break;
+        case 3: regtrace_tisp_event_threads_stop(); break;
+        case 4: regtrace_dmsc_lit_cleanup(); break;
+        case 5: regtrace_lsc_lit_cleanup(); break;
+        case 6: regtrace_tisp_main_init_param_free(); break;
+        case 7: regtrace_tisp_dma_free(); break;
+        case 8: regtrace_vic_mdma_internal_free(); break;
+        case 9: regtrace_unregister_bootstrap_devices(); break;
+        case 10: regtrace_unregister_child_platform_device_one(4); break;
+        case 11: regtrace_unregister_child_platform_device_one(3); break;
+        case 12: regtrace_unregister_child_platform_device_one(2); break;
+        case 13: regtrace_unregister_child_platform_device_one(1); break;
+        case 14: regtrace_unregister_child_platform_device_one(0); break;
+        case 15: regtrace_unregister_real_platforms(); break;
+        }
+        regtrace_core_exit_done_mask |= 1U << step;
+        printk(KERN_INFO "tx_isp_t40_recovered: exit step %d done\n", step);
+    }
+    return 0;
+}
+
 void tx_isp_t40_core_exit(void)
 {
 #ifdef REGTRACE_KERNEL_TREE_BUILD
-    tx_isp_t40_v4l2_exit();
-    cancel_work_sync(&regtrace_irq_frame_done_work[0].work);
-    cancel_work_sync(&regtrace_irq_frame_done_work[1].work);
-    cancel_work_sync(&regtrace_irq_frame_done_work[2].work);
-    cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
-    cancel_work_sync(&regtrace_isp_block_init_work);
-    regtrace_tisp_event_threads_stop();
-    regtrace_dmsc_lit_cleanup();
-    regtrace_lsc_lit_cleanup();
-    regtrace_tisp_main_init_param_free();
-    regtrace_tisp_dma_free();
-    regtrace_vic_mdma_internal_free();
-    regtrace_unregister_bootstrap_devices();
-    regtrace_unregister_real_platforms();
+    regtrace_core_exit_steps(REGTRACE_EXIT_STEPS, 0);
     return;
 #endif
     tx_isp_exit();
@@ -196812,6 +198102,7 @@ void tx_isp_t40_core_exit(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c720 origin=fragment_seed original=tx_isp_vic_remove */
 int tx_isp_vic_remove(struct platform_device *pdev)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x91, 0);
     uintptr_t a0 = (uintptr_t)pdev;
 
     uint32_t *local_10 = 0;
@@ -196882,6 +198173,7 @@ tx_isp_vic_remove0x90:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c7bc origin=fragment_seed original=tx_isp_vin_remove */
 int tx_isp_vin_remove(struct platform_device *pdev)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x92, 0);
     uintptr_t a0 = (uintptr_t)pdev;
 
     uintptr_t *s0;
@@ -196906,6 +198198,7 @@ int tx_isp_vin_remove(struct platform_device *pdev)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c838 origin=fragment_seed original=tx_isp_csi_remove */
 int tx_isp_csi_remove(struct platform_device *pdev)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x93, 0);
     uintptr_t a0 = (uintptr_t)pdev;
 
     uint32_t *local_10 = 0;
@@ -196970,6 +198263,7 @@ tx_isp_csi_remove0x34:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c914 origin=fragment_seed original=tx_isp_fs_remove */
 int tx_isp_fs_remove(struct platform_device *pdev)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x94, 0);
     struct platform_device *arg1 = pdev;
 
     void *drv_data;
@@ -197039,6 +198333,7 @@ int tx_isp_remove(struct platform_device *pdev)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007ca60 origin=fragment_seed original=tx_isp_core_remove */
 int tx_isp_core_remove(struct platform_device *pdev)
 {
+    int __maybe_unused __fr = regtrace_fr_mark(0x95, 0);
     uintptr_t arg1 = (uintptr_t)pdev;
 
     uintptr_t *v0;
@@ -197058,9 +198353,13 @@ int tx_isp_core_remove(struct platform_device *pdev)
     }
 
     tmp = *(uint32_t *)((char *)s0 + 0x128);
-    if ((int32_t)tmp >= 2) {
+    if ((int32_t)tmp >= 2 && !regtrace_t40_rmmod_skip_slake) {
+        regtrace_fr_mark(0x96, tmp);
         ispcore_slake_module((void *)s0);
+    } else if ((int32_t)tmp >= 2) {
+        printk(KERN_INFO "tx_isp_t40_recovered: core remove: slake skipped (t40_rmmod_skip_slake) state=%u\n", tmp);
     }
+    regtrace_fr_mark(0x97, 0);
 
     s2 = v0;
     private_kfree(NULL);
@@ -197086,6 +198385,7 @@ EXPORT_SYMBOL(private_clk_get_rate);
 EXPORT_SYMBOL(private_clk_disable_unprepare);
 EXPORT_SYMBOL(private_clk_prepare_enable);
 EXPORT_SYMBOL(private_devm_clk_get);
+EXPORT_SYMBOL(private_devm_clk_put);
 EXPORT_SYMBOL(private_i2c_add_driver);
 EXPORT_SYMBOL(private_i2c_del_driver);
 EXPORT_SYMBOL(private_i2c_get_clientdata);
