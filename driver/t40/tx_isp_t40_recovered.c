@@ -38272,21 +38272,21 @@ tx_isp_subdev_pipo0x38:
     v1 = *(uint32_t *)((char *)s0 + 36);
     a0 = 36;
     s5 = v0;
-    v1 = v1 + 202;
+    v1 = (uintptr_t)v1 + 202;
     v1 = (uintptr_t)v1 << 2;
     v1 = (uintptr_t)s1 + (uintptr_t)v1;
     *(uint32_t *)((char *)v1 + 4) = s0;
     v1 = *(uint32_t *)((char *)s0 + 36);
     v1 = (uintptr_t)v1 * a0;
-    a1 = v1 + 1964;
+    a1 = (uintptr_t)v1 + 1964;
     s2 = (uintptr_t)s1 + (uintptr_t)v1;
-    a1 = s1 + a1;
+    a1 = (uintptr_t)s1 + a1;
     *(uint32_t *)((char *)s2 + 1964) = a1;
     *(uint32_t *)((char *)s2 + 1968) = a1;
-    s4 = v1 + 1972;
-    a1 = v1 + 1980;
-    v1 = v1 + 1960;
-    a1 = s1 + a1;
+    s4 = (uintptr_t)v1 + 1972;
+    a1 = (uintptr_t)v1 + 1980;
+    v1 = (uintptr_t)v1 + 1960;
+    a1 = (uintptr_t)s1 + a1;
     s4 = (uintptr_t)s1 + (uintptr_t)s4;
     a0 = (uintptr_t)s1 + (uintptr_t)v1;
     v1 = (int32_t *)&private_spin_lock_init;
@@ -38312,7 +38312,7 @@ tx_isp_subdev_pipo0x38:
     v0 = s5 << 16;
     *(uint32_t *)((char *)s0 + 12) = v1;
     *(uint32_t *)((char *)s0 + 16) = s3;
-    a1 = v0 + 832;
+    a1 = (uintptr_t)v0 + 832;
     a2 = 0;
     a3 = 5;
 
@@ -38320,14 +38320,14 @@ tx_isp_subdev_pipo0x108:
     /* fragment 13: MemoryAccess */
     a0 = *(uint32_t *)((char *)s0 + 36);
     v1 = a0 << 2;
-    v1 = v1 + a0;
+    v1 = (uintptr_t)v1 + a0;
     v1 = (uintptr_t)v1 + (uintptr_t)a2;
     v1 = (uintptr_t)v1 << 5;
-    a0 = v1 + 840;
+    a0 = (uintptr_t)v1 + 840;
     v1 = (uintptr_t)s1 + (uintptr_t)v1;
     *(uint32_t *)((char *)v1 + 856) = a2;
     v1 = *(uint32_t *)((char *)s2 + 1976);
-    a0 = s1 + a0;
+    a0 = (uintptr_t)s1 + a0;
     *(uint32_t *)((char *)s2 + 1976) = a0;
     *(uint32_t *)((char *)a0 + 0) = s4;
     *(uint32_t *)((char *)a0 + 4) = v1;
@@ -38339,7 +38339,7 @@ tx_isp_subdev_pipo0x108:
     if (a0 == 0) { goto tx_isp_subdev_pipo0x1d4; }
 
     /* fragment 15: Arithmetic */
-    v1 = v1 + a1;
+    v1 = (uintptr_t)v1 + a1;
 
     /* fragment 16: MemoryAccess */
     *(uint32_t *)((char *)v1 + 0) = 0;
@@ -38348,7 +38348,7 @@ tx_isp_subdev_pipo0x108:
 tx_isp_subdev_pipo0x158:
     /* fragment 17: MemoryAccess */
     a0 = *(uint32_t *)((char *)s1 + 232);
-    a2 = a2 + 1;
+    a2 = (uintptr_t)a2 + 1;
     a1 = a1 + 4;
     v1 = a0 + (uintptr_t)v1;
     *(uint32_t *)((char *)v1 + 0) = 0;
@@ -38359,7 +38359,7 @@ tx_isp_subdev_pipo0x158:
     /* fragment 19: MemoryAccess */
     a0 = *(uint32_t *)((char *)s1 + 232);
     v1 = *(uint32_t *)((char *)s0 + 32);
-    v0 = v0 + 428;
+    v0 = (uintptr_t)v0 + 428;
     a0 = a0 + (uintptr_t)v0;
     a1 = (uintptr_t)v1 << 2;
     a2 = *(uint32_t *)((char *)a0 + 0);
@@ -52080,7 +52080,7 @@ int32_t frame_channel_release(uint32_t a0, uintptr_t a1)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__frame_channel_vb2_streamoff)(s0, *(uint32_t *)((char *)(s0) + 44)); /* jalr target resolved by relocation */
 
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__vb2_queue_free)(s0 + 44, *(uint32_t *)((char *)(s0) + 536)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__vb2_queue_free)((uintptr_t)s0 + 44, *(uint32_t *)((char *)(s0) + 536)); /* jalr target resolved by relocation */
 
     /* fragment 9: Arithmetic */
     v0 = 2;
@@ -55587,7 +55587,7 @@ int32_t tx_isp_video_link_stream(uintptr_t a0, uint32_t a1)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
 
     /* fragment 2: Branch */
-    s3 = s2 + 60;
+    s3 = (uintptr_t)s2 + 60;
     if (v0 != 0) { goto tx_isp_video_link_stream0x6c; }
 
     /* fragment 3: Arithmetic */
@@ -55604,10 +55604,10 @@ tx_isp_video_link_stream0x4c:
 
 tx_isp_video_link_stream0x58:
     /* fragment 6: Arithmetic */
-    s0 = s0 + 1;
+    s0 = (uintptr_t)s0 + 1;
 
     /* fragment 7: Branch */
-    s3 = s3 + 4;
+    s3 = (uintptr_t)s3 + 4;
     if (s0 != s5) { goto tx_isp_video_link_stream0x4c; }
 
     /* fragment 8: Branch */
@@ -55822,7 +55822,7 @@ int32_t tx_isp_video_link_destroy_isra_5(uintptr_t a0, uint32_t a1)
     /* fragment 4: Arithmetic */
     v0 = (uintptr_t *)&__param_str_isp_dual_buf;
     v1 = a1 << 3;
-    a1 = v0 + 4680;
+    a1 = (uintptr_t)v0 + 4680;
     a1 = a1 + (uintptr_t)v1;
 
     /* fragment 5: MemoryAccess */
@@ -55832,8 +55832,8 @@ int32_t tx_isp_video_link_destroy_isra_5(uintptr_t a0, uint32_t a1)
     s4 = 65536;
     s0 = a0;
     s5 = 0;
-    s3 = s3 + 4156;
-    s4 = s4 + 6496;
+    s3 = (uintptr_t)s3 + 4156;
+    s4 = (uintptr_t)s4 + 6496;
     s7 = -515;
 
 tx_isp_video_link_destroy_isra_50x74:
@@ -55857,7 +55857,7 @@ tx_isp_video_link_destroy_isra_50x8c:
 
     /* fragment 11: CallSetup */
     s8 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)find_subdev_link_pad)(s0, s2 + 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)find_subdev_link_pad)(s0, (uintptr_t)s2 + 8); /* jalr target resolved by relocation */
 
     /* fragment 12: Branch */
     a2 = v0;
@@ -55869,7 +55869,7 @@ tx_isp_video_link_destroy_isra_50xac:
 
 tx_isp_video_link_destroy_isra_50xb0:
     /* fragment 14: Branch */
-    s2 = s2 + 20;
+    s2 = (uintptr_t)s2 + 20;
     goto tx_isp_video_link_destroy_isra_50x74;
 
 tx_isp_video_link_destroy_isra_50xb8:
@@ -55880,7 +55880,7 @@ tx_isp_video_link_destroy_isra_50xb8:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)subdev_video_destroy_link)(s8 + 8); /* jalr target resolved by relocation */
 
     /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)subdev_video_destroy_link)(a2 + 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)subdev_video_destroy_link)((uintptr_t)a2 + 8); /* jalr target resolved by relocation */
 
     /* fragment 18: Branch */
     if (v0 == 0) { goto tx_isp_video_link_destroy_isra_50xac; }
@@ -187048,7 +187048,7 @@ ispcore_frame_channel_streamoff0x5c:
 ispcore_frame_channel_streamoff0x70:
     /* fragment 13: MemoryAccess */
     a1 = *(uint32_t *)((char *)s0 + 112);
-    v0 = a1 + 332;
+    v0 = (uintptr_t)a1 + 332;
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s1 + (uintptr_t)v0;
     v0 = *(uint8_t *)((char *)v0 + 4);
@@ -193221,15 +193221,15 @@ int64_t ispcore_video_s_stream(uintptr_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s1 = *(uint32_t *)((char *)(a0) + 268);
     s7 = a1;
-    s4 = s1 + 276;
+    s4 = (uintptr_t)s1 + 276;
     s0 = a0;
     local_1c = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s1 + 276, &local_1c); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)((uintptr_t)s1 + 276, &local_1c); /* jalr target resolved by relocation */
 
     /* fragment 2: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 4);
     s2 = (uintptr_t *)&private_spin_unlock_irqrestore;
-    v0 = v0 + 74;
+    v0 = (uintptr_t)v0 + 74;
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s1 + (uintptr_t)v0;
     v0 = *(uint32_t *)((char *)v0 + 0);
