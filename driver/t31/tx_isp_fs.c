@@ -39,10 +39,6 @@ struct fs_platform_data {
 /* Forward declarations */
 static int frame_chan_event(void *priv, u32 event, void *data);
 int fs_slake_module(struct tx_isp_subdev *sd);
-int frame_channel_open(struct inode *inode, struct file *file);
-int frame_channel_release(struct inode *inode, struct file *file);
-long frame_channel_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
-unsigned int frame_channel_poll(struct file *file, struct poll_table_struct *wait);
 
 /* fs_slake_module - EXACT Binary Ninja reference implementation */
 int fs_slake_module(struct tx_isp_subdev *sd)
@@ -203,17 +199,6 @@ static const struct file_operations isp_framesource_fops = {
     .llseek = default_llseek,
 };
 
-/* Frame channel operations structure - fs_channel_ops */
-static const struct file_operations fs_channel_ops = {
-    .owner = THIS_MODULE,
-    .open = frame_channel_open,
-    .release = frame_channel_release,
-    .unlocked_ioctl = frame_channel_unlocked_ioctl,
-    .compat_ioctl = frame_channel_unlocked_ioctl,
-    .poll = frame_channel_poll,
-    .llseek = default_llseek,
-};
-
 /* Frame channel event handler - EXACT Binary Ninja implementation */
 static int frame_chan_event(void *priv, u32 event, void *data)
 {
@@ -254,7 +239,6 @@ int tx_isp_fs_probe(struct platform_device *pdev)
     struct tx_isp_platform_data *pdata;
     struct tx_isp_frame_channel *channels_buffer = NULL;
     struct tx_isp_frame_channel *current_channel;
-    void *channel_config_ptr;
     uint32_t channel_count;
     int ret;
     int i;
@@ -360,26 +344,12 @@ int tx_isp_fs_probe(struct platform_device *pdev)
         /* SAFE: Check channel config using proper struct member access */
         /* Note: Removed unsafe offset access - use proper channel enable logic */
         if (i < 4) {  /* Enable first 4 channels by default */
-            /* Binary Ninja: sprintf(&$s0_2[0xab], "Err [VIC_INT] : mipi fid asfifo ovf!!!\n") */
+            /* The /dev/framechanN misc nodes are owned and registered by
+             * tx_isp_core.c's frame_channels[] (tx_isp_create_framechan_devices).
+             * This buffer only carries the FS subdev's channel state that
+             * fs_activate_module()/fs_slake_module() walk. */
             snprintf(current_channel->name, sizeof(current_channel->name),
-                     "/dev/framechan%d", i);
-
-            /* Binary Ninja: *$s0_2 = 0xff */
-            current_channel->misc.minor = MISC_DYNAMIC_MINOR;
-            /* Binary Ninja: $s0_2[2] = &fs_channel_ops */
-            current_channel->misc.fops = &fs_channel_ops;
-            /* Binary Ninja: $s0_2[1] = &$s0_2[0xab] */
-            current_channel->misc.name = current_channel->name;
-
-            /* Binary Ninja: if (private_misc_register($s0_2) s< 0) */
-            ret = misc_register(&current_channel->misc);
-            if (ret < 0) {
-                /* Binary Ninja: isp_printf(2, "Err [VIC_INT] : mipi ch0 hcomp err !!!\n", $s0_2[0xb0]) */
-                pr_err("Err [VIC_INT] : mipi ch0 hcomp err !!!\n");
-                /* Binary Ninja: result = 0xfffffffe */
-                ret = -2;
-                goto error_cleanup_loop;
-            }
+                     "fs-chan%d", i);
 
             /* Binary Ninja: Initialize completion and synchronization objects */
             /* Binary Ninja: private_init_completion(&$s0_2[0xb5]) */
