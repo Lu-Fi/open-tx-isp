@@ -40849,8 +40849,11 @@ int tx_isp_probe(struct platform_device *pdev)
         isp_mem_init();
     *(char **)((char *)v0 + 0x108) = "H20250310a";
     t41_procwatch_start();
-    isp_printf(1, "@@@@ tx-isp-probe ok (version %s) compiler date: %s @@@@\n",
-	       "H20250310a", __DATE__);
+#ifndef OTX_BUILD_ID
+#define OTX_BUILD_ID "unknown"
+#endif
+    isp_printf(1, "@@@@ tx-isp-probe ok (version %s) build: %s @@@@\n",
+	       "H20250310a", OTX_BUILD_ID);
     asm volatile("" ::: "memory");
     return 0;
 
