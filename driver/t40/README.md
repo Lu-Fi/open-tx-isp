@@ -569,13 +569,11 @@ Rejected:
 - `enable_clm=1`: no change.
 - `t40_quality_top40_override=0x7FD0000D` (vendor TOP word): black frame. Bit 18 (SDNS) is the cause, because its initialiser is not run.
 
-Recommended insmod line:
+Recommended insmod line (since the defaults patch the best settings are the driver defaults):
 
-    insmod tx-isp-t40.ko isp_clk=300000000 t40_quality_profile=1 t40_force_bypass=0x20000 \
-      sensor_full_width_override=3840 sensor_full_height_override=2160 skip_tisp_deinit=1 \
-      t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin enable_dmsc_static=1 \
-      dmsc_stock_current_overlay=1 frame_3a_interval=3 t40_force_active=0x6020 \
-      frame_awb_bggr_fast=1 frame_3a_slide_window=1 t40_gamma_from_bin=1
+    insmod tx-isp-t40.ko isp_clk=300000000 t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin
+
+All former tuning parameters (t40_quality_profile=1, t40_force_bypass=0x20000, t40_force_active=0x6020, enable_dmsc_static, dmsc_stock_current_overlay, frame_3a_interval=3, frame_3a_slide_window, frame_awb_bggr_fast, t40_gamma_from_bin) are now defaults and stay overridable. The BGGR white-balance seed is only applied when the sensor runs 3840x2160 (the calibrated sc830ai); the sensor frame size is taken from the sensor instead of sensor_full_*_override. Device check on the Eufy: same picture as the old long line (frame Y 184, neighbour diff 3.15, TOP 0x7FFF08D8).
 
 The Bayer phase is now taken from the sensor media-bus format (sc830ai SBGGR10 -> `0x13300088` = `0x101`), so no override is needed; `tisp_main_init_reg88_override` / `core_bayer_reg8_value` still work for experiments. Without overrides: full-frame U/V 129.9/128.0, neighbour diff 6.0.
 

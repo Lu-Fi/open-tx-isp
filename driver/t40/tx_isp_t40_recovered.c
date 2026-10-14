@@ -8726,7 +8726,7 @@ static bool regtrace_proc_live_reads;
  * next boot.  The active tuning blob still decides whether BLC/LSC/GIB/BCSH
  * are enabled; profile 5 only supplies the faithful implementations.
  */
-static uint regtrace_t40_quality_profile = 5;
+static uint regtrace_t40_quality_profile = 1;
 static uint regtrace_t40_quality_top40_override;
 static bool regtrace_t40_profile_direct_vic_feed;
 /*
@@ -8894,7 +8894,7 @@ static uint32_t regtrace_ae_soft_last_mean;
  */
 static bool regtrace_enable_frame_3a;
 static bool regtrace_enable_soft_gamma;
-static bool regtrace_t40_gamma_from_bin;
+static bool regtrace_t40_gamma_from_bin = true;
 static bool regtrace_enable_ydns;
 static bool regtrace_enable_gib_blc;
 /*
@@ -8957,9 +8957,9 @@ static uint regtrace_dns_gain_ev;
 /* 16.16 log2 offset added to the gain EV that picks the MDNS/YDNS/SDNS table position: shifts the denoise strength up for a noisier sensor than the GC4653 the literal tables were tuned for (runtime-tunable) */
 static uint regtrace_dns_ev_boost;
 /* top40 bypass bits forced set after the tuning-bin gates are applied (bit 17 = YSP stays off while it is unsafe; bit 14/18 = YDNS/SDNS); 0 = follow the bin */
-static uint regtrace_t40_force_bypass;
+static uint regtrace_t40_force_bypass = 0x20000U;
 /* top40 bits forced ACTIVE (bypass cleared) after the bin gates: bit 14 = YDNS, bit 18 = SDNS, bit 9 = CCM, bit 10 = gamma; applied before t40_force_bypass */
-static uint regtrace_t40_force_active;
+static uint regtrace_t40_force_active = 0x6020U;
 /* Invalid sentinels force the first completed frame, and the first frame after
  * every bank refresh, to replace block-init's bootstrap EV with live gain. */
 static uint32_t regtrace_dns_ev_applied = 0xffffffffU;
@@ -8998,9 +8998,9 @@ static uint regtrace_bcsh_brightness = 128U;
 static uint regtrace_bcsh_contrast = 128U;
 static uint regtrace_bcsh_saturation = 128U;
 static uint regtrace_bcsh_hue = 128U;
-static uint regtrace_frame_3a_interval = 15;
+static uint regtrace_frame_3a_interval = 3;
 static uint regtrace_frame_3a_target = 110;
-static bool regtrace_frame_3a_slide_window;
+static bool regtrace_frame_3a_slide_window = true;
 static uint regtrace_frame_3a_window_misses;
 /*
  * Neutral chroma target and per-axis deadband for the completed-frame AWB
@@ -9010,7 +9010,7 @@ static uint regtrace_frame_3a_window_misses;
  */
 static uint regtrace_frame_awb_target = 128;
 static uint regtrace_frame_awb_hyst = 2;
-static bool regtrace_frame_awb_bggr_fast;
+static bool regtrace_frame_awb_bggr_fast = true;
 static uint regtrace_frame_3a_highlight_level = 245;
 /* Lamps and windows covered 3..5 percent of the live GC4653 scene.  Arm the
  * existing mean-gated guard at 3 percent; its target check prevents a local
@@ -9239,6 +9239,40 @@ static uint regtrace_vic_mdma_internal_size;
 static uint regtrace_vic_mdma_internal_layout;
 static uint regtrace_sensor_full_width_override;
 static uint regtrace_sensor_full_height_override;
+
+static void regtrace_sensor_preferred_dims(uint32_t *width,
+                                           uint32_t *height);
+
+/*
+ * T40-DEFAULTS-1: the BGGR seed values used by frame_awb_bggr_fast
+ * (rgain 1060 / bgain 2640) were measured on the Eufy T40XP with the
+ * sc830ai at 3840x2160.  The TISP bayer-pattern match alone does not prove
+ * that the bound sensor is that sensor, so the seed is only applied when
+ * the reported frame size matches too.  If the size is not known yet the
+ * seed is skipped rather than applied blind; the sensor itself is still
+ * fully usable, only the one-shot seed is held back.
+ */
+static bool regtrace_t40_bggr_seed_supported(void)
+{
+    static bool warned;
+    uint32_t width = 0;
+    uint32_t height = 0;
+
+    regtrace_sensor_preferred_dims(&width, &height);
+    if (regtrace_sensor_full_width_override)
+        width = regtrace_sensor_full_width_override;
+    if (regtrace_sensor_full_height_override)
+        height = regtrace_sensor_full_height_override;
+    if (width == 3840U && height == 2160U)
+        return true;
+    if (!warned) {
+        warned = true;
+        printk(KERN_INFO
+               "tx_isp_t40_recovered: BGGR AWB seed held back, sensor %ux%u is not the calibrated sc830ai 3840x2160 (the seed is sensor-specific; frame_awb_bggr_fast=0 silences this)\n",
+               width, height);
+    }
+    return false;
+}
 static uint regtrace_t40_msca_scaler_level;
 static uint regtrace_csi_direct_stage_limit;
 static uint regtrace_csi_settle_override;
@@ -9777,7 +9811,7 @@ static void regtrace_bcsh_static_write(void)
  * recovered stream toward stock without raising exposure/gain. Keep it
  * opt-in until the faithful tisp_dmsc chain is fully validated.
  */
-static bool regtrace_enable_dmsc_static;
+static bool regtrace_enable_dmsc_static = true;
 module_param_named(enable_dmsc_static, regtrace_enable_dmsc_static, bool, 0644);
 /*
  * Overlay the gain-10 values that were stable across two reads of the
@@ -9785,7 +9819,7 @@ module_param_named(enable_dmsc_static, regtrace_enable_dmsc_static, bool, 0644);
  * image makes the register-forensics A/B reversible while the proper DMSC
  * gain interpolation chain is being recovered.
  */
-static bool regtrace_dmsc_stock_current_overlay;
+static bool regtrace_dmsc_stock_current_overlay = true;
 module_param_named(dmsc_stock_current_overlay,
                    regtrace_dmsc_stock_current_overlay, bool, 0644);
 static bool regtrace_dmsc_stock_high_gain_overlay;
@@ -15252,10 +15286,27 @@ static int regtrace_isp_block_init_once(const char *where)
 
     pi = (uint32_t)(uintptr_t)&tisp_par_info;
     blob = nbuf + 0x5940U;
-    adr_width = regtrace_sensor_full_width_override ?
-        regtrace_sensor_full_width_override : 2560U;
-    adr_height = regtrace_sensor_full_height_override ?
-        regtrace_sensor_full_height_override : 1440U;
+    /*
+     * T40-DEFAULTS-1: derive the ADR frame size from the bound sensor
+     * instead of the hard-coded 2560x1440, so the known-good insmod line no
+     * longer needs sensor_full_width/height_override.  Precedence: explicit
+     * override, then the size seen on the capture path, then the cached
+     * sensor attr, then 2560x1440 as before.  Cached reads only.
+     */
+    {
+        uint32_t seen_width = 0;
+        uint32_t seen_height = 0;
+
+        regtrace_sensor_preferred_dims(&seen_width, &seen_height);
+        adr_width = regtrace_sensor_full_width_override ?
+            regtrace_sensor_full_width_override : seen_width;
+        adr_height = regtrace_sensor_full_height_override ?
+            regtrace_sensor_full_height_override : seen_height;
+    }
+    if (!adr_width || !adr_height) {
+        adr_width = adr_width ? adr_width : 2560U;
+        adr_height = adr_height ? adr_height : 1440U;
+    }
     regtrace_isp_block_init_count++;
     regtrace_isp_block_init_ran = true;
 
@@ -19674,6 +19725,51 @@ static void regtrace_record_sensor_full_dimensions(uint32_t channel,
     regtrace_sensor_full_width_seen[channel] = width;
     regtrace_sensor_full_height_seen[channel] = height;
     regtrace_sensor_full_source_seen[channel] = source;
+}
+
+/*
+ * T40-DEFAULTS-1: best-known frame size of the bound sensor, from cached
+ * state only.  Precedence mirrors regtrace_sensor_dimensions():
+ *   size seen on the capture path  >  cached VIC sensor attr (0x30/0x34)
+ * Returns 0/0 when nothing is known yet, so callers keep their own
+ * fallback.
+ */
+static void regtrace_sensor_preferred_dims(uint32_t *width,
+                                           uint32_t *height)
+{
+    uint32_t ch;
+
+    if (width)
+        *width = 0;
+    if (height)
+        *height = 0;
+
+    for (ch = 0; ch < REGTRACE_MAX_IRQS_PER_DEVICE; ch++) {
+        uint32_t attr_width;
+        uint32_t attr_height;
+
+        if (!regtrace_vic_channel_valid(ch))
+            continue;
+        if (regtrace_sensor_full_width_seen[ch] &&
+            regtrace_sensor_full_height_seen[ch]) {
+            if (width)
+                *width = regtrace_sensor_full_width_seen[ch];
+            if (height)
+                *height = regtrace_sensor_full_height_seen[ch];
+            return;
+        }
+        attr_width = regtrace_get_u32(
+            (uintptr_t)regtrace_vic_sensor_attr[ch], 0x30);
+        attr_height = regtrace_get_u32(
+            (uintptr_t)regtrace_vic_sensor_attr[ch], 0x34);
+        if (attr_width && attr_height) {
+            if (width)
+                *width = attr_width;
+            if (height)
+                *height = attr_height;
+            return;
+        }
+    }
 }
 
 static void regtrace_sensor_dimensions(uint32_t channel, uint32_t *width,
@@ -101275,7 +101371,8 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
 
         /* Opt-in measured sc830ai/BGGR seed; wait for a new sample before trim. */
         if (regtrace_frame_awb_bggr_fast &&
-            ((uint32_t)system_reg_read(0x88U) & 3U) == 1U) {
+            ((uint32_t)system_reg_read(0x88U) & 3U) == 1U &&
+            regtrace_t40_bggr_seed_supported()) {
             static bool seeded;
             uint32_t old_r = rgain, old_b = bgain;
 
