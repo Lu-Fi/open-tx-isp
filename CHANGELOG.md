@@ -6,7 +6,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 
 ## 2026-10-14: aggregate agg-39 (draft, not released)
 
-`claude/agg39` = `next` (agg-38, 17da5c8c) + `claude/t41-ch1`, `claude/t41-tone-worker`, `claude/t41-awb`, `claude/t41-wait-frame-done`, `claude/t41-audit` (via `claude/agg39-t41`) + `claude/t40-sc830ai` + `claude/log-quiet`. The OpenIMP side is `claude/agg39` in openimp (`claude/t41-wfd-timeout`, `claude/t40-poll-timeout`). Host tests (`make -C tests check`, 91/0) and module builds with the load check (`check_ko_symbols.sh`) for T10/T20/T21/T23/T30/T31/T40/T41; T10..T31 are unchanged against agg-38. No soak of the aggregate yet. cam-F is the T41 gc5603 camera, the T40 camera is an sc830ai (3840x2160) board.
+`claude/agg39` = `next` (agg-38, 17da5c8c) + `claude/t41-ch1`, `claude/t41-tone-worker`, `claude/t41-awb`, `claude/t41-wait-frame-done`, `claude/t41-audit` (via `claude/agg39-t41`) + `claude/t40-sc830ai` + `claude/log-quiet` + `claude/t21-i2c-cache`. The OpenIMP side is `claude/agg39` in openimp (`claude/t41-wfd-timeout`, `claude/t40-poll-timeout`, `claude/t21-os-revert`). Host tests (`make -C tests check`, 91/0) and module builds with the load check (`check_ko_symbols.sh`) for T10/T20/T21/T23/T30/T31/T40/T41; T10, T20, T23, T30, T31 are unchanged against agg-38. No soak of the aggregate yet. cam-F is the T41 gc5603 camera, the T40 camera is an sc830ai (3840x2160) board.
 
 T41:
 
@@ -17,6 +17,11 @@ T41:
 - **Audit for the T40 recovery bug classes (`claude/t41-audit`):** `system_irq_func_set` is bounds-checked (`irq_func_cb_rejects`; vinum 0 stays within the stock 96 slots, a second sensor would have overflowed as in the vendor driver); 116 indirect calls that the recovery had resolved to `private_math_exp2` go through a counting wrapper with the old behaviour (`unresolved_jalr_count`, first callers logged); two kernel threads read `current` from address 0 (fixed, the threads are not started); 563 statements in reachable code added byte offsets to pointer-typed register variables and scaled them by 4 (cast to `uintptr_t`, offsets as in the stock code; mostly paths the open driver does not run: WDR, the stock AE behind the safe AE controller, suspend, raw dump). cam-F: 30 min with periodic stream pulls (25 fps, snapshots 200), 0 oops, both counters 0. The 48 sites of the follow-up (567763b4) are host-checked only.
 
 T31/T41 log: missing optional T31 tuning files are an info line, and the bounded T41 IRQ/MSCA/running-mode/safe-AE traces only appear with `t41_runtime_trace=1` (`claude/log-quiet`, no functional change; host build and tests).
+
+T21 (device-tested on the T21 jxf23 camera, night, runtime load, 60 s windows with one client):
+
+- **Sensor exposure/gain written only on change, as stock (`claude/t21-i2c-cache`):** the vendor `sensor_set_integration_time` / `sensor_set_analog_gain` skip an unchanged value; the recovery queued both every frame. i2c IRQs 50-51/s -> 0-2/s, snapshot Y unchanged (96.7 -> 96.8-97.0), streamer restarts keep the picture: the cache is re-armed when the sensor reloads its init table (`t21_sensor_rearm_count`/`_writes`), `t21_sensor_write_always=1` restores the per-frame writes. AE after a light step is checked in the overnight soak (dusk/dawn).
+- **OpenIMP Helix per-frame path back to -Os (openimp `claude/t21-os-revert`):** -O2 for these objects cost 18 KB of `.text` on T21/T23/T30 and bought no measurable CPU (streamer 9.3-10.1 % with -Os against 9.5-10.1 % with -O2).
 
 T40 (`claude/t40-sc830ai`), device-tested on the sc830ai board at 3840x2160 with the T40 devtest (24 or 35 results, 0 failures unless noted) and no oops:
 

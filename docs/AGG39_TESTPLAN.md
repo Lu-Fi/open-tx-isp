@@ -20,11 +20,14 @@ What actually changes against agg-38:
   (counters `unresolved_jalr_count`, `irq_func_cb_rejects`).
 - **T40** (driver and libimp): new defaults (best line), Bayer phase from the sensor, fast AWB seed,
   sliding 3A window, gamma from the bin, recovery fixes, opt-in `isr_oem_hw_refresh` (off).
-- **T10, T20, T21, T23, T30, T31**: driver sources identical to agg-38; the openimp changes are in the
-  T40/T41 library only. These cameras run the soak as a regression check (same code, new build).
+- **T21** (driver and libimp): sensor exposure/gain written only on change (i2c write cache,
+  `t21_sensor_write_always=0`); libimp Helix per-frame path back to -Os (also T23/T30 libimp).
+- **T31, T41**: quieter kernel log (log-quiet, no functional change).
+- **T10, T20, T23, T30**: driver sources identical to agg-38; T23/T30 get the -Os libimp only. These
+  cameras run the soak as a regression check.
 
 Module md5 of the host build (unstripped, against each camera's agg-38 kernel tree): T10 5c0afb89,
-T20 e6b5c22a, T21 78a89e69, T23 7b93af16, T31 67a89b80, T40 2321e4af, T41 1b5116b0. Image builds
+T20 e6b5c22a, T21 3aab8ec9, T23 7b93af16, T30 30ba084e, T31 ce63d2e3, T40 2321e4af, T41 63061b1d. Image builds
 produce their own (stripped) modules; record those md5s in the build summary.
 
 ## 2. Cameras
@@ -42,7 +45,7 @@ without flashing.
 | T31 | .21 .224 | sc4336p | — | image, soak | regression |
 | T23 | .23 .28 .124 | sc2336(p) | — | image, soak | regression |
 | T23 | .30 | sc1a4t 720p | — | image (its own streamer configuration as before), soak | regression |
-| T21 | .24 (open), .27 (vendor reference) | jxf23 | — | image on .24 only; .27 stays vendor | regression, CPU/bitrate against .27 |
+| T21 | .24 (open), .27 (vendor reference) | jxf23 | done 2026-10-14 (i2c cache, -Os libimp) | image on .24 only; .27 stays vendor | i2c write cache over dusk/dawn, CPU/bitrate against .27 |
 | T20 | .107, .163 (pan) | jxf23 / jxf22 | — | image, soak | regression, RSS trend (known slow growth) |
 | T10 | .31 | jxh42 | — | image, soak | regression, day/night flapping (known) |
 
@@ -86,8 +89,12 @@ T40 (.184) in addition:
 - `unresolved_jalr_count` 0, no `system_irq_func_set ... out of range` line;
 - encoder poll with no frames returns within its deadline (openimp T40 poll change).
 
-T21 (.24 vs .27): CPU of the streamer process and the substream bitrate over 10 min with the same
-configuration, as in the agg-38 comparison.
+T21 (.24, i2c write cache): `jz-i2c.0` IRQs/s from `/proc/interrupts` (expected 0-2/s with a converged
+AE, a burst while AE moves), `/sys/module/tx_isp_t21/parameters/t21_sensor_writes_skipped` rising,
+`t21_sensor_rearm_count` +2 and `t21_sensor_rearm_writes` +1 per streamer start; over dusk and dawn the
+snapshot Y follows the light without lagging (no frozen exposure after a day/night switch).
+T21 (.24 vs .27): CPU of the streamer process and the substream bitrate (video track only) over
+10 min with the same configuration, as in the agg-38 comparison.
 
 ## 4. Sequence
 
