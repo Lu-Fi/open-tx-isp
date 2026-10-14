@@ -6,7 +6,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 
 ## 2026-10-14: aggregate agg-39 (draft, not released)
 
-`claude/agg39` = `next` (agg-38, 17da5c8c) + `claude/t41-ch1`, `claude/t41-tone-worker`, `claude/t41-awb`, `claude/t41-wait-frame-done`, `claude/t41-audit` (via `claude/agg39-t41`) + `claude/t40-sc830ai`. The OpenIMP side is `claude/agg39` in openimp (`claude/t41-wfd-timeout`, `claude/t40-poll-timeout`). Host tests (`make -C tests check`, 91/0) and module builds with the load check (`check_ko_symbols.sh`) for T10/T20/T21/T23/T30/T31/T40/T41; T10..T31 are unchanged against agg-38. No soak of the aggregate yet. cam-F is the T41 gc5603 camera, the T40 camera is an sc830ai (3840x2160) board.
+`claude/agg39` = `next` (agg-38, 17da5c8c) + `claude/t41-ch1`, `claude/t41-tone-worker`, `claude/t41-awb`, `claude/t41-wait-frame-done`, `claude/t41-audit` (via `claude/agg39-t41`) + `claude/t40-sc830ai` + `claude/log-quiet`. The OpenIMP side is `claude/agg39` in openimp (`claude/t41-wfd-timeout`, `claude/t40-poll-timeout`). Host tests (`make -C tests check`, 91/0) and module builds with the load check (`check_ko_symbols.sh`) for T10/T20/T21/T23/T30/T31/T40/T41; T10..T31 are unchanged against agg-38. No soak of the aggregate yet. cam-F is the T41 gc5603 camera, the T40 camera is an sc830ai (3840x2160) board.
 
 T41:
 
@@ -15,6 +15,8 @@ T41:
 - **AWB / EV (`claude/t41-awb`):** with the tone worker on, the EV is distributed in the stock units (it was 1024x too small, so every EV-indexed table used its bright-light entry and the AWB got a zero Y weight). cam-F, daylight: the detector runs, CT follows the light (2412 -> 3509 K under a warm lamp), TMO takes every frame; at night under IR the 5000 K gray fallback is the expected result. Read-only diagnostics `awb_diag`, `awb_diag_cal`, `awb_diag_raw`.
 - **WaitFrameDone reports a timeout (`claude/t41-wait-frame-done`, deviation from the vendor driver):** a wait without a frame returns -ETIMEDOUT (a signal -ERESTARTSYS) instead of 0; the 24-byte block with the counter is filled in every case. The constant frame counter noted for agg-38 was not a counter bug: frames are counted while frame source channel 0 runs, and a streamer that stops its main channel without a client makes every wait time out (vendor behaviour too). cam-F: with channel 0 running 20/20 waits return 0 at 40 ms (25 fps), without it -ETIMEDOUT after the timeout. OpenIMP (`claude/t41-wfd-timeout`) returns -1 with errno ETIMEDOUT, runs the wait outside its library lock and logs no syslog line for timeouts; cam-F: a parallel `GetBrightness` takes < 0.1 ms during a wait (was up to 1780 ms of spinning).
 - **Audit for the T40 recovery bug classes (`claude/t41-audit`):** `system_irq_func_set` is bounds-checked (`irq_func_cb_rejects`; vinum 0 stays within the stock 96 slots, a second sensor would have overflowed as in the vendor driver); 116 indirect calls that the recovery had resolved to `private_math_exp2` go through a counting wrapper with the old behaviour (`unresolved_jalr_count`, first callers logged); two kernel threads read `current` from address 0 (fixed, the threads are not started); 563 statements in reachable code added byte offsets to pointer-typed register variables and scaled them by 4 (cast to `uintptr_t`, offsets as in the stock code; mostly paths the open driver does not run: WDR, the stock AE behind the safe AE controller, suspend, raw dump). cam-F: 30 min with periodic stream pulls (25 fps, snapshots 200), 0 oops, both counters 0. The 48 sites of the follow-up (567763b4) are host-checked only.
+
+T31/T41 log: missing optional T31 tuning files are an info line, and the bounded T41 IRQ/MSCA/running-mode/safe-AE traces only appear with `t41_runtime_trace=1` (`claude/log-quiet`, no functional change; host build and tests).
 
 T40 (`claude/t40-sc830ai`), device-tested on the sc830ai board at 3840x2160 with the T40 devtest (24 or 35 results, 0 failures unless noted) and no oops:
 
@@ -49,6 +51,12 @@ Module build against the agg-38 T41 kernel only; not run on a camera (device tes
   Device run (T41 .32, module loaded at runtime, with `t41_msca_cfg_update=2`): with 1 the worker runs every frame without errors (`tmo/adr/lce` frames counting, `tmo_error` 0), 30 min under the streamer clean (45 700 worker frames, snapshots 200, no oops). Daylight ch0 numbers change clearly: Y 54 -> 85, detail (mean |dY/dx|) 0.75 -> 1.55, temporal noise 0.4 -> 1.2. Whether that matches the vendor driver is not known yet; stays off by default.
 - **T41 AWB colour temperature diagnostics:** read-only `awb_diag_mode/ct_cal/rgain/bgain/frz/change/frz_th`. On the test camera the native AWB publishes CT 5000 and the same gains (520/548) in every frame, also with a valid picture, while the illuminant detection does run (freeze threshold 0): CCM, BCSH and LSC therefore stay on the 5000 K interpolation. Cause not found yet.
 - **T41 ModuleControl:** a key that takes DEFOG (bit 11) out of bypass gets -EOPNOTSUPP (the per-frame defog algorithm is not recovered).
+
+## 2026-10-13: branch `claude/log-quiet` (not merged)
+
+- **Quieter kernel log (no functional change):**
+  - T31: a missing optional tuning file (`/etc/sensor/<sensor>-cust-t31.bin`, ENOENT) is now an info line instead of a warning. The built-in tuning is used as before; other read errors still warn.
+  - T41: the bounded IRQ, MSCA FIFO, running-mode and safe-AE traces are now only logged with `t41_runtime_trace=1`. A trace that reports a non-zero `ret=` still logs as a warning.
 
 ## 2026-10-12: aggregate agg-38 (not released)
 

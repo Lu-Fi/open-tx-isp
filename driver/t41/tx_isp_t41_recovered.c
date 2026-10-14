@@ -22583,7 +22583,7 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
             if (ret <= 0)
                 return ret;
 
-            printk(KERN_WARNING
+            t41_note(
                    "t41: stage running-mode %u->%u "
                    "channel=%u\n",
                    previous_mode, mode, request.channel);
@@ -25344,7 +25344,7 @@ int32_t isp_irq_handle(int32_t arg1, void *arg2)
         return IRQ_NONE;
 
     if (trace_count < 16)
-        printk(KERN_WARNING
+        t41_note(
                "t41: irq enter irq=%d info=%p owner=%p\n",
                arg1, irq_info, owner);
 
@@ -25372,7 +25372,7 @@ int32_t isp_irq_handle(int32_t arg1, void *arg2)
         if (!t41_kernel_data_ptr((void *)handler))
             continue;
         if (trace_count < 16)
-            printk(KERN_WARNING
+            t41_note(
                    "t41: irq call slot=0x%x subdev=%p "
                    "ops=%p core_ops=%p handler=%p\n",
                    (unsigned int)(slot - owner), subdev, ops, core_ops,
@@ -25380,7 +25380,7 @@ int32_t isp_irq_handle(int32_t arg1, void *arg2)
         if (handler(subdev, arg1, NULL) == IRQ_WAKE_THREAD)
             result = IRQ_WAKE_THREAD;
         if (trace_count < 16)
-            printk(KERN_WARNING
+            t41_note(
                    "t41: irq return slot=0x%x result=%d\n",
                    (unsigned int)(slot - owner), result);
     }
@@ -59010,7 +59010,7 @@ allocate_sensor:
 				t41_safe_gain_fanout_mask & 0x3fU);
 	}
 	if (control->updates < 24 || ret)
-		printk(KERN_WARNING
+		t41_note(
 		       "t41: safe AE exposure=%u/%u Q10 -> %u/%u Q10 code=%#x log2=%u ret=%d\n",
 		       old_integration, old_again,
 		       actual_integration, allocated_gain.linear_q10,
@@ -144866,7 +144866,7 @@ int32_t tisp_msca_addr_fifo_read(uint32_t a0, uintptr_t a1, uintptr_t a2)
     y_ctrl_after = system_reg_read(channel_base + 0x0f0170U);
     uv_ctrl_after = system_reg_read(channel_base + 0x0f0188U);
     if (trace_count < 40)
-        printk(KERN_WARNING
+        t41_note(
                "t41: MSCA FIFO read channel=%u "
                "ctrl=%#x/%#x raw=%#x/%#x after=%#x/%#x\n",
                a0, y_ctrl_before, uv_ctrl_before, y_raw, uv_raw,

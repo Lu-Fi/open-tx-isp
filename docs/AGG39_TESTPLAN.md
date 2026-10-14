@@ -9,7 +9,7 @@ no credentials in logs, kill processes only by PID, and every run ends with the 
 
 | repo | branch | commit | contents |
 |---|---|---|---|
-| open-tx-isp | `claude/agg39` | head of the branch (release notes a95deef5) | agg-38 + T41 ch1, tone worker, AWB/EV, WaitFrameDone, audit (+ follow-up 567763b4) + T40 sc830ai |
+| open-tx-isp | `claude/agg39` | head of the branch (release notes a95deef5) | agg-38 + T41 ch1, tone worker, AWB/EV, WaitFrameDone, audit (+ follow-up 567763b4) + T40 sc830ai + log-quiet |
 | openimp | `claude/agg39` | e5fff32 | agg-38 + T41 WaitFrameDone outside the lock, T40 encoder poll deadline (+ test stub) |
 | streamer, web UI, firmware tree | as agg-38 | unchanged | (a streamer rebuild is a separate decision, see section 7) |
 
@@ -37,7 +37,7 @@ without flashing.
 | SoC | cameras | sensor | step 1 (no flash) | step 2 (after user OK) | focus |
 |---|---|---|---|---|---|
 | T41 | .32 | gc5603 2880x1620 | RAM: agg-39 module + libimp, 30 min | image, soak | MSCA defaults, ch1, counters, WaitFrameDone |
-| T40 | .184 | sc830ai 3840x2160 | only if reachable; no rmmod on this board (reboot instead) | image, soak | picture metrics, devtest, kernel partition size |
+| T40 | .184 | sc830ai 3840x2160 | runtime load only, if reachable; no rmmod on this board (reboot instead) | not in agg-39 (stays in test state, no image flash) | picture metrics, devtest |
 | T31 | .25 .145 .29 .26 .33 .151 | sc2336 1080p | — | image, soak | regression |
 | T31 | .21 .224 | sc4336p | — | image, soak | regression |
 | T23 | .23 .28 .124 | sc2336(p) | — | image, soak | regression |
@@ -46,10 +46,9 @@ without flashing.
 | T20 | .107, .163 (pan) | jxf23 / jxf22 | — | image, soak | regression, RSS trend (known slow growth) |
 | T10 | .31 | jxh42 | — | image, soak | regression, day/night flapping (known) |
 
-Before any T40 image: the board was lost once to a kernel partition overflow (uImage larger than the
-1600k partition, reported by the build without stopping it) and needs the per-IP WLAN configuration.
-Check the kernel size and the WLAN overlay of the image before the flash; the board recovers only with
-the USB cloner and the backup of 2026-10-12.
+The T40 board gets no agg-39 image (decision 2026-10-14): it stays in test state and only takes the
+agg-39 module/libimp at runtime. Its image topics (kernel partition size, WLAN overlay) are not part of
+agg-39.
 
 ## 3. Checks per camera (every soak sample, and before/after each RAM run)
 
@@ -99,7 +98,7 @@ configuration, as in the agg-38 comparison.
 3. **Images (needs the user's OK):** build per camera, verify each with the `verify39.sh` checks
    (image size, rootfs free space, kernel partition, libimp/ko md5, overlay files, keys present —
    the script prints no credential contents).
-4. **Flash (user decision):** production cameras in two groups so that half of each SoC stays on
+4. **Flash (user decision, not the T40 board):** production cameras in two groups so that half of each SoC stays on
    agg-38 until the first group has run 1 h clean; .27 stays on the vendor stack.
 5. **Overnight soak, 6 hours (our rule):** start in the evening, all flashed cameras together under
    the soak monitor used for agg-38; samples every 5 min for snapshot/RTSP/uptime, hourly for memory
@@ -127,11 +126,8 @@ configuration, as in the agg-38 comparison.
 - **T40 board:** no rmmod (the core remove hangs it); reboot instead. If it does not come back,
   recovery only with the USB cloner and the 2026-10-12 backup.
 
-## 7. Open decisions (user)
+## 7. Decisions
 
-- `t41_tone_trigger` default: stays 0 in this aggregate unless decided otherwise (day results look
-  plausible, no vendor comparison yet).
-- Whether `claude/log-quiet` (9d0d7ad0, quieter logs for T31/T41) joins agg-39; it is listed in the
-  TODO but not merged into `claude/agg39`.
-- Whether the streamer is rebuilt for agg-39 (pending fixes in its own branch) or stays at agg-38.
-- The T40 image (kernel size, WLAN overlay) before the board gets agg-39.
+- Decided 2026-10-14: `claude/log-quiet` (9d0d7ad0) is merged into `claude/agg39`; the T40 board gets no
+  agg-39 image; `t41_tone_trigger` stays 0; the streamer version is decided in the streamer's own
+  project, not here.
