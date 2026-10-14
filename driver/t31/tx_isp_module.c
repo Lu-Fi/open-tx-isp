@@ -1558,6 +1558,12 @@ static int tx_isp_map_mainline_irqs(void)
     unsigned int vic_irq;
 
     intc_np = of_find_compatible_node(NULL, NULL, "ingenic,t31-intc");
+#ifdef TX_ISP_VENDOR_TREE
+    /* The vendor 5.15 T31 tree names its intc node "ingenic,ingenic-intc"
+       (same HW lines: IRQ_ISP=29, IRQ_VIC=30). */
+    if (!intc_np)
+        intc_np = of_find_compatible_node(NULL, NULL, "ingenic,ingenic-intc");
+#endif
     if (!intc_np) {
         pr_err("tx-isp: T31 interrupt controller node not found\n");
         return -ENODEV;

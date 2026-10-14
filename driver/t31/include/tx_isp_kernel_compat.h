@@ -10,6 +10,8 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 #include <media/v4l2-mediabus.h>
+/* __clk_is_enabled() lives in clk-provider.h; tx_isp_tuning.c uses it. */
+#include <linux/clk-provider.h>
 
 /* Types removed from the in-kernel API but retained in the T31 userspace ABI. */
 struct timespec {
@@ -51,8 +53,10 @@ typedef phys_addr_t phys_t;
 #endif
 
 /* set_fs() disappeared once kernel_read()/kernel_write() became universal.
-   The vendor 5.15 tree still provides it (with a struct mm_segment_t), so
-   only shim it on mainline. */
+   The vendor 5.15 tree is built without CONFIG_SET_FS (mm_segment_t is an
+   empty struct and set_fs()/get_fs()/KERNEL_DS do not exist), so turn the
+   pointless set_fs(KERNEL_DS) pair the driver wraps kernel_read()/write() in
+   into no-ops; only shim it on mainline. */
 #ifndef TX_ISP_VENDOR_TREE
 #ifndef KERNEL_DS
 #define KERNEL_DS 0UL

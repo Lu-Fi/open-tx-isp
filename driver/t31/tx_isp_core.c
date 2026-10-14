@@ -35,8 +35,8 @@
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
 #ifdef TX_ISP_VENDOR_TREE
 /* Vendor 5.15 exposes the T31 CGU through clkdev, not a DT provider; the
-   T31_CLK_CIM fallback below is dead code there, so the real binding header
-   (mainline-only) is not needed. */
+   T31_CLK_CIM fallback is dead code there, so the mainline-only binding
+   header is not needed. */
 #define T31_CLK_CIM	0
 #else
 #include <dt-bindings/clock/ingenic,t31-cgu.h>
@@ -3377,10 +3377,10 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
         tisp_channel_attr_word_set(ds0_attr, 12, s2);
         a1_2 = 0;
     } else {
-        int32_t tispinfo_3 = tisp_channel_attr_word(ds0_attr, 11);
-        int32_t v1_1 = tisp_channel_attr_word(ds0_attr, 9);
-        int32_t a0_1 = tisp_channel_attr_word(ds0_attr, 12);
-        int32_t a1_1 = tisp_channel_attr_word(ds0_attr, 10);
+        int32_t tispinfo_3 = data_b2e10;
+        int32_t v1_1 = data_b2e08;
+        int32_t a0_1 = data_b2e14;
+        int32_t a1_1 = data_b2e0c;
 
         if ((uint32_t)tispinfo_2 < (uint32_t)(tispinfo_3 + v1_1) ||
             (uint32_t)s2 < (uint32_t)(a0_1 + a1_1)) {
@@ -3427,13 +3427,6 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
             }
         }
     }
-
-    /* Keep the compatibility exports coherent with their stock storage. */
-    data_b2e04 = tisp_channel_attr_word(ds0_attr, 8);
-    data_b2e08 = tisp_channel_attr_word(ds0_attr, 9);
-    data_b2e0c = tisp_channel_attr_word(ds0_attr, 10);
-    data_b2e10 = tisp_channel_attr_word(ds0_attr, 11);
-    data_b2e14 = tisp_channel_attr_word(ds0_attr, 12);
 
     system_reg_write(0x9860, a1_2);
     system_reg_write(0x9864, (tispinfo_2 << 0x10) | s2);
@@ -4081,13 +4074,11 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
 
             ispcore_frame_format_to_attr_words(format, attr_words);
 
-            if (format->fcrop_enable) {
-                tisp_s_fcrop_control(1,
-                                     format->fcrop_top,
-                                     format->fcrop_left,
-                                     format->fcrop_width,
-                                     format->fcrop_height);
-            }
+            /* OEM does NOT arm the frame crop from SET_FORMAT: the crop is
+             * only set by its dedicated control (0x80000e3 / param path).  The
+             * VIC format payload carries a bogus fcrop (ch0: 38,38 1882x6)
+             * which, applied here, sized the non-scaled ch0 MSCA output to 6
+             * lines.  Leave the fcrop globals to tisp_s_fcrop_control(). */
 
             if (!ispcore_bypass_enabled(isp_dev) &&
                 tisp_channel_attr_set(dispatch->channel_id, attr_words) != 0) {
@@ -4779,6 +4770,24 @@ static const struct {
     { "csi",     "mipi_csi" },
     { "cgu_cim", "cim" },
 };
+
+#ifdef TX_ISP_VENDOR_TREE
+/*
+ * Vendor 5.15 T31 clkdev names (clk-t31.c): the ISP divider/gate are split
+ * into "div_isp"/"gate_isp", the MIPI-CSI gate is "gate_csi", and the camera
+ * interface divider is "div_cim". clk_set_rate() on the gate propagates to the
+ * divider, so one handle per subsystem drives both.
+ */
+static const struct {
+    const char *vendor;
+    const char *name;
+} tx_isp_vendor_clk_aliases[] = {
+    { "cgu_isp", "div_isp"  },
+    { "isp",     "gate_isp" },
+    { "csi",     "gate_csi" },
+    { "cgu_cim", "div_cim"  },
+};
+#endif
 #endif
 
 struct clk * private_clk_get(struct device *dev, const char *id)
@@ -4790,6 +4799,22 @@ struct clk * private_clk_get(struct device *dev, const char *id)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
     if (IS_ERR(clk) && id) {
         int i;
+
+#ifdef TX_ISP_VENDOR_TREE
+        for (i = 0; i < ARRAY_SIZE(tx_isp_vendor_clk_aliases); i++) {
+            struct clk *alias;
+
+            if (strcmp(id, tx_isp_vendor_clk_aliases[i].vendor))
+                continue;
+            alias = clk_get(dev, tx_isp_vendor_clk_aliases[i].name);
+            if (!IS_ERR(alias)) {
+                pr_info("tx-isp: clock '%s' resolved as vendor '%s'\n",
+                        id, tx_isp_vendor_clk_aliases[i].name);
+                return alias;
+            }
+            break;
+        }
+#endif
 
         for (i = 0; i < ARRAY_SIZE(tx_isp_clk_aliases); i++) {
             struct clk *alias;
