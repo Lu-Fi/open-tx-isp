@@ -55548,7 +55548,7 @@ int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
             }
         }
         
-        i = i + 1;
+        i = (uintptr_t)i + 1;
         s3 = (int32_t *)((char *)s3 + 4);
     }
 
@@ -94558,7 +94558,7 @@ int32_t tisp_ae_sec_long_process_api(void *arg1)
     do {
         v1_4 = array_ptr[(uintptr_t)a2_4 + (uintptr_t)a0_4];
         a0_4++;
-        v1_5 = v1_4 + data_90844;
+        v1_5 = (uintptr_t)v1_4 + data_90844;
         data_90844 = (uintptr_t (*)())(uintptr_t)v1_5;
     } while ((unsigned)((uintptr_t)a2_4 + (uintptr_t)a0_4) < 256);
 
@@ -135170,7 +135170,7 @@ int tisp_lce_draw_lines(int arg1)
                 a1_6 = *(short *)(17200 + (((uintptr_t)v0_4 + s4_2) << 1));
                 a2_5 = *(short *)(17200 + (((uintptr_t)v0_4 + s4_2 + 2) << 1));
                 a3 = *(short *)(17200 + (((uintptr_t)v0_4 + s6_2 + 6) << 1));
-                v0_5 = v0_4 + s6_2 + 8;
+                v0_5 = (uintptr_t)v0_4 + s6_2 + 8;
             } else {
                 a0_6 = (int)s3_1;
                 v1_2 = (int)a1_1;
@@ -135179,7 +135179,7 @@ int tisp_lce_draw_lines(int arg1)
                     a2_5 = *(short *)(17200 + (((uintptr_t)v0_4 + v1_2 + 1) << 1));
                     a1_6 = *(short *)(17200 + (((uintptr_t)v0_4 + v1_2) << 1));
                     a3 = *(short *)(17200 + (((uintptr_t)v0_4 + a0_6 + 6) << 1));
-                    v0_5 = v0_4 + a0_6 + 7;
+                    v0_5 = (uintptr_t)v0_4 + a0_6 + 7;
                 } else {
                     a1_2 = 0;
                     if (v1_2 != 0) {
@@ -154427,16 +154427,16 @@ int32_t tisp_mdns_reg_cfg_equation_smp(int32_t arg1, int32_t arg2, int32_t arg3,
         }
     label_5ce50:
         data_a89fc = (uintptr_t (*)())(uintptr_t)a0_1;
-        a0_2 = a0_1 + lo;
+        a0_2 = (uintptr_t)a0_1 + lo;
     label_5ce58:
         data_a89f8 = (uintptr_t (*)())(uintptr_t)a0_2;
-        a0_3 = a0_2 + lo;
+        a0_3 = (uintptr_t)a0_2 + lo;
     label_5ce60:
         data_a89f4 = (uintptr_t (*)())(uintptr_t)a0_3;
         a0_4 = a0_3 + lo;
     label_5ce68:
         data_a89f0 = (uintptr_t (*)())(uintptr_t)a0_4;
-        data_a89ec = a0_4 + lo;
+        data_a89ec = (uintptr_t)a0_4 + lo;
     }
     
     data_a89e8 = (uintptr_t (*)())(uintptr_t)arg4;
@@ -169757,23 +169757,23 @@ label_69bdc:
 
                             if (t0_10 >= a0_12) {
                                 /* Signed comparison preserved: t0_10 >= a0_12 */
-                                int32_t t0_14 = v1_7 - (int32_t)a1_1;
+                                int32_t t0_14 = (uintptr_t)v1_7 - (int32_t)a1_1;
                                 if (t6_2 != 0) {
                                     t0_14 = (int32_t)a1_1 - (uintptr_t)v1_7;
                                 }
                                 int32_t t1_19 = t3_2 - (uintptr_t)v1_7;
                                 if (t4 != 0) {
-                                    t1_19 = v1_7 - t3_2;
+                                    t1_19 = (uintptr_t)v1_7 - t3_2;
                                 }
                                 a0_12 += (t0_14 * (t0_10 - a0_12)) / t1_19;
                             } else {
-                                int32_t t1_16 = v1_7 - (int32_t)a1_1;
+                                int32_t t1_16 = (uintptr_t)v1_7 - (int32_t)a1_1;
                                 if (t6_2 != 0) {
                                     t1_16 = (int32_t)a1_1 - (uintptr_t)v1_7;
                                 }
                                 int32_t t1_17 = t3_2 - (uintptr_t)v1_7;
                                 if (t4 != 0) {
-                                    t1_17 = v1_7 - t3_2;
+                                    t1_17 = (uintptr_t)v1_7 - t3_2;
                                 }
                                 a0_12 -= (t1_16 * (a0_12 - t0_10)) / t1_17;
                             }
@@ -174022,11 +174022,11 @@ int32_t Tzn_Msca_Shd_mask(uint32_t arg1, void *arg2)
     system_reg_write(0x50320, 0x101);
 
     s4_1 = arg1 << 0xc;
-    i = s4_1 + 0x16168;
+    i = (uintptr_t)s4_1 + 0x16168;
     s6_1 = arg2;
 
     do {
-        s2_1 = i - 0x30;
+        s2_1 = (uintptr_t)i - 0x30;
         s3_1 = s6_1;
 
         do {
@@ -174108,7 +174108,7 @@ int32_t Tzn_Msca_Shd_osd(int32_t arg1, void* arg2)
    while (1) {
         i = 0;
         s6_1 = (void*)((uintptr_t)arg2 + s7_1 * 0x268);
-        s4_1 = v0_3 + var_40_1;
+        s4_1 = (uintptr_t)v0_3 + var_40_1;
 
         do {
             v0_6 = *(uint32_t*)((char*)s6_1 + 0x1ec);
