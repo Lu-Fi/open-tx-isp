@@ -57707,11 +57707,11 @@ tisp_ae_lib_bilinear_intp0x44:
 
 tisp_ae_lib_bilinear_intp0x50:
     /* fragment 6: Arithmetic */
-    a3 = v1 - a3;
+    a3 = (uintptr_t)v1 - a3;
     v1 = v0 < a1;
 
     /* fragment 7: Branch */
-    a0 = t1 - t0;
+    a0 = (uintptr_t)t1 - t0;
     if (v1 != 0) { goto tisp_ae_lib_bilinear_intp0x78; }
 
     /* fragment 8: Branch */
@@ -57725,7 +57725,7 @@ tisp_ae_lib_bilinear_intp0x50:
     if (v1 == 0) { goto tisp_ae_lib_bilinear_intp0xe8; }
 
     /* fragment 11: Arithmetic */
-    a0 = t1 - t0;
+    a0 = (uintptr_t)t1 - t0;
 
 tisp_ae_lib_bilinear_intp0x78:
     /* fragment 12: Arithmetic */
@@ -59183,7 +59183,7 @@ int64_t tisp_set_ae_sensor_fps(uint32_t a0)
     /* fragment 0: Arithmetic */
     v0 = (unsigned int *)&ivdc_threshold_line;
     a1 = a0 << 2;
-    v0 = v0 + 15904;
+    v0 = (uintptr_t)v0 + 15904;
     v0 = a1 + (uintptr_t)v0;
 
     /* fragment 1: StackAccess */
@@ -59228,7 +59228,7 @@ tisp_set_ae_sensor_fps0x68:
     v0 = (uintptr_t)v0 << 1;
     v0 = (uintptr_t)v0 >> (uintptr_t)t1;
     v0 = (uintptr_t)v0 << 16;
-    v0 = v0 + 2;
+    v0 = (uintptr_t)v0 + 2;
     a0 = a2 + (uintptr_t)v1;
     v1 = *(uint32_t *)((char *)a0 + 48);
 
@@ -60674,7 +60674,7 @@ tisp_ae_calc_convergence_speed0x58:
     if (v1 == 0) { goto tisp_ae_calc_convergence_speed0x74; }
 
     /* fragment 7: CallSetup */
-    s7 = v0 - a0;
+    s7 = (uintptr_t)v0 - a0;
 
 tisp_ae_calc_convergence_speed0x74:
     /* fragment 8: CallSetup */
@@ -62229,7 +62229,7 @@ int32_t tisp_ae_max_exp_calc_fps(uint32_t a0, uint32_t a1)
     /* fragment 0: Arithmetic */
     v0 = (unsigned int *)&ivdc_threshold_line;
     a0 = a0 << 2;
-    v0 = v0 + 15904;
+    v0 = (uintptr_t)v0 + 15904;
     v0 = a0 + (uintptr_t)v0;
 
     /* fragment 1: CallSetup */
@@ -62455,7 +62455,7 @@ int64_t tisp_ae_ev_list_alloc_calc(uint32_t a0, uint32_t a1, uint32_t a2, uint32
     local_70 = s2;
     local_68 = s0;
     s3 = (uintptr_t)t1 << 2;
-    s1 = s1 + 15904;
+    s1 = (uintptr_t)s1 + 15904;
     local_1c = a3;
     local_5c = t1;
     v0 = a0 + (uintptr_t)v1;
@@ -62469,7 +62469,7 @@ int64_t tisp_ae_ev_list_alloc_calc(uint32_t a0, uint32_t a1, uint32_t a2, uint32
     v0 = (unsigned int *)&__pow2_lut;
     local_30 = v1;
     v1 = *(uint32_t *)((char *)v1 + 8684);
-    v0 = v0 + 7236;
+    v0 = (uintptr_t)v0 + 7236;
     v0 = s3 + (uintptr_t)v0;
     s7 = *(uint32_t *)((char *)v0 + 0);
     local_20 = v1;
@@ -62541,7 +62541,7 @@ int64_t tisp_ae_ev_list_alloc_calc(uint32_t a0, uint32_t a1, uint32_t a2, uint32
     v0 = (uintptr_t)v0 | a0;
     a0 = *(uint8_t *)((char *)s7 + 1272);
     v0 = (uintptr_t)v0 | a0;
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1;
     a0 = v0 < 7;
 
     /* fragment 9: Branch */
@@ -62563,7 +62563,7 @@ int64_t tisp_ae_ev_list_alloc_calc(uint32_t a0, uint32_t a1, uint32_t a2, uint32
 
     /* fragment 13: StackAccess */
     t5 = local_44;
-    a2 = s1 + s3;
+    a2 = (uintptr_t)s1 + s3;
     v0 = *(uint32_t *)((char *)a2 + 0);
     v1 = local_20;
     a0 = *(uint32_t *)((char *)v0 + 4);
@@ -62584,7 +62584,7 @@ int64_t tisp_ae_ev_list_alloc_calc(uint32_t a0, uint32_t a1, uint32_t a2, uint32
 
 tisp_ae_ev_list_alloc_calc0x1fc:
     /* fragment 17: Arithmetic */
-    v0 = s1 + s3;
+    v0 = (uintptr_t)s1 + s3;
 
     /* fragment 18: MemoryAccess */
     v0 = *(uint32_t *)((char *)v0 + 0);
@@ -62598,7 +62598,7 @@ tisp_ae_ev_list_alloc_calc0x210:
 
 tisp_ae_ev_list_alloc_calc0x214:
     /* fragment 20: Arithmetic */
-    s1 = s1 + s3;
+    s1 = (uintptr_t)s1 + s3;
 
     /* fragment 21: StackAccess */
     a0 = local_20;
@@ -62786,7 +62786,7 @@ tisp_ae_ev_list_alloc_calc0x3b0:
     goto tisp_ae_ev_list_alloc_calc0x2a0;
 
     /* fragment 65: Arithmetic */
-    v0 = s1 + s3;
+    v0 = (uintptr_t)s1 + s3;
 
     /* fragment 66: MemoryAccess */
     v0 = *(uint32_t *)((char *)v0 + 0);
@@ -64691,8 +64691,8 @@ int64_t tisp_ae_short_ev_alloc_calc(uint32_t a0, uint32_t a1, uint32_t a2, uint3
     v0 = (unsigned int *)&__pow2_lut;
     t3 = (uint32_t *)&ivdc_threshold_line;
     a0 = a0 << 2;
-    v0 = v0 + 7236;
-    t3 = t3 + 15904;
+    v0 = (uintptr_t)v0 + 7236;
+    t3 = (uintptr_t)t3 + 15904;
     t3 = a0 + (uintptr_t)t3;
 
     /* fragment 1: StackAccess */
@@ -64780,7 +64780,7 @@ tisp_ae_short_ev_alloc_calc0x118:
     v0 = (uintptr_t)v0 | a1;
     a1 = *(uint8_t *)((char *)v1 + 1276);
     v0 = (uintptr_t)v0 | a1;
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1;
     a1 = v0 < 7;
 
     /* fragment 11: Branch */
@@ -67324,7 +67324,7 @@ int64_t tisp_set_ae_long_ag(uint32_t a0)
     /* fragment 0: Arithmetic */
     v0 = (unsigned int *)&ivdc_threshold_line;
     v1 = a0 << 2;
-    v0 = v0 + 15904;
+    v0 = (uintptr_t)v0 + 15904;
     v0 = (uintptr_t)v1 + (uintptr_t)v0;
 
     /* fragment 1: StackAccess */
@@ -67336,7 +67336,7 @@ int64_t tisp_set_ae_long_ag(uint32_t a0)
     local_1b4 = s1;
     a1 = *(uint32_t *)((char *)v0 + 0);
     v0 = (unsigned int *)&__pow2_lut;
-    v0 = v0 + 7236;
+    v0 = (uintptr_t)v0 + 7236;
     v1 = (uintptr_t)v1 + (uintptr_t)v0;
     s0 = *(uint32_t *)((char *)v1 + 0);
     v0 = *(uint32_t *)((char *)a1 + 4);
@@ -67504,7 +67504,7 @@ int64_t tisp_set_ae_short_ag(uint32_t a0)
     /* fragment 0: Arithmetic */
     v0 = (unsigned int *)&ivdc_threshold_line;
     v1 = a0 << 2;
-    v0 = v0 + 15904;
+    v0 = (uintptr_t)v0 + 15904;
     v0 = (uintptr_t)v1 + (uintptr_t)v0;
 
     /* fragment 1: StackAccess */
@@ -67516,7 +67516,7 @@ int64_t tisp_set_ae_short_ag(uint32_t a0)
     local_1b4 = s1;
     a1 = *(uint32_t *)((char *)v0 + 0);
     v0 = (unsigned int *)&__pow2_lut;
-    v0 = v0 + 7236;
+    v0 = (uintptr_t)v0 + 7236;
     v1 = (uintptr_t)v1 + (uintptr_t)v0;
     s0 = *(uint32_t *)((char *)v1 + 0);
     v0 = *(uint32_t *)((char *)a1 + 4);
@@ -67654,7 +67654,7 @@ int64_t tisp_ae_long_ev_alloc(uint32_t a0)
 
     /* fragment 2: StackAccess */
     local_c8 = s4;
-    s2 = s2 + 15904;
+    s2 = (uintptr_t)s2 + 15904;
     s4 = a0 << 2;
     local_dc = ra;
     local_d8 = s8;
@@ -67667,7 +67667,7 @@ int64_t tisp_ae_long_ev_alloc(uint32_t a0)
     v0 = (uintptr_t)s4 + (uintptr_t)s2;
     a2 = *(uint32_t *)((char *)v0 + 0);
     v0 = (unsigned int *)&__pow2_lut;
-    v0 = v0 + 7236;
+    v0 = (uintptr_t)v0 + 7236;
     a1 = *(uint32_t *)((char *)a2 + 0);
     v0 = (uintptr_t)s4 + (uintptr_t)v0;
     s0 = *(uint32_t *)((char *)v0 + 0);
@@ -67687,11 +67687,11 @@ int64_t tisp_ae_long_ev_alloc(uint32_t a0)
 
     /* fragment 5: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 576);
-    s6 = s0 + 328;
-    s3 = s0 + 248;
+    s6 = (uintptr_t)s0 + 328;
+    s3 = (uintptr_t)s0 + 248;
     *(uint32_t *)((char *)s7 + 7616) = v0;
     v0 = *(uint32_t *)((char *)s0 + 580);
-    s8 = s0 + 288;
+    s8 = (uintptr_t)s0 + 288;
     *(uint32_t *)((char *)s7 + 7620) = v0;
     v0 = *(uint32_t *)((char *)s0 + 588);
     *(uint32_t *)((char *)s7 + 7628) = v0;
@@ -67706,7 +67706,7 @@ int64_t tisp_ae_long_ev_alloc(uint32_t a0)
 
 tisp_ae_long_ev_alloc0xb4:
     /* fragment 8: Arithmetic */
-    a0 = v0 + 1;
+    a0 = (uintptr_t)v0 + 1;
 
     /* fragment 9: Branch */
     a1 = 0;
@@ -67768,7 +67768,7 @@ tisp_ae_long_ev_alloc0x12c:
 tisp_ae_long_ev_alloc0x18c:
     /* fragment 20: MemoryAccess */
     v0 = *(uint32_t *)((char *)v0 + 0);
-    s1 = s1 + 1;
+    s1 = (uintptr_t)s1 + 1;
     s1 = (uintptr_t)s1 << 3;
     s1 = (uintptr_t)s0 + (uintptr_t)s1;
     v1 = *(uint32_t *)((char *)v0 + 4);
@@ -67782,7 +67782,7 @@ tisp_ae_long_ev_alloc0x18c:
 
     /* fragment 21: Branch */
     int _bc_v1_21 = v1 == 0;
-    v1 = v1 - 1;
+    v1 = (uintptr_t)v1 - 1;
     if (_bc_v1_21) { goto tisp_ae_long_ev_alloc0x34c; }
 
     /* fragment 22: CallSetup */
@@ -67800,7 +67800,7 @@ tisp_ae_long_ev_alloc0x18c:
 tisp_ae_long_ev_alloc0x1ec:
     /* fragment 23: CallSetup */
     s7 = s7 + 4;
-    s6 = s6 + s7;
+    s6 = (uintptr_t)s6 + s7;
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_event_push)(s5, &local_80); /* jalr target resolved by relocation */
 
     /* fragment 24: CallSetup */
@@ -67953,7 +67953,7 @@ int64_t tisp_ae_short_expt(uint32_t a0)
     /* fragment 1: Arithmetic */
     s2 = (unsigned int *)&ivdc_threshold_line;
     v0 = a0 << 2;
-    s2 = s2 + 15904;
+    s2 = (uintptr_t)s2 + 15904;
 
     /* fragment 2: StackAccess */
     local_5c = ra;
@@ -67970,7 +67970,7 @@ int64_t tisp_ae_short_expt(uint32_t a0)
     local_60 = a0;
    s0 = *(uint32_t *)((char *)v1 + 0);
     v1 = (unsigned int *)&__pow2_lut;
-    v1 = v1 + 7236;
+    v1 = (uintptr_t)v1 + 7236;
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
     s4 = *(uint32_t *)((char *)v0 + 0);
     s1 = *(uint16_t *)((char *)s0 + 1728);
@@ -68005,11 +68005,11 @@ int64_t tisp_ae_short_expt(uint32_t a0)
     if (v0 != 0) { goto tisp_ae_short_expt0x38c; }
 
     /* fragment 8: Arithmetic */
-    s6 = s0 + 240;
+    s6 = (uintptr_t)s0 + 240;
     t0 = 1;
     t1 = 0;
     v0 = s6;
-    t3 = v1 + 120;
+    t3 = (uintptr_t)v1 + 120;
 
 tisp_ae_short_expt0xe8:
     /* fragment 9: MemoryAccess */
@@ -68046,10 +68046,10 @@ tisp_ae_short_expt0x128:
 
 tisp_ae_short_expt0x144:
     /* fragment 15: Arithmetic */
-    v1 = v1 + 8;
+    v1 = (uintptr_t)v1 + 8;
 
     /* fragment 16: Branch */
-    v0 = v0 + 8;
+    v0 = (uintptr_t)v0 + 8;
     if (t3 != v1) { goto tisp_ae_short_expt0xe8; }
 
     /* fragment 17: CallSetup */
@@ -68317,7 +68317,7 @@ int64_t tisp_ae_short_ev_alloc(uint32_t a0)
 
     /* fragment 2: StackAccess */
     local_90 = s4;
-    s2 = s2 + 15904;
+    s2 = (uintptr_t)s2 + 15904;
     s4 = a0 << 2;
     local_94 = s5;
     local_8c = s3;
@@ -68331,7 +68331,7 @@ int64_t tisp_ae_short_ev_alloc(uint32_t a0)
     s3 = a0;
     a0 = *(uint32_t *)((char *)v0 + 0);
     v0 = (unsigned int *)&__pow2_lut;
-    v0 = v0 + 7236;
+    v0 = (uintptr_t)v0 + 7236;
     v1 = *(uint32_t *)((char *)a0 + 0);
     v0 = (uintptr_t)s4 + (uintptr_t)v0;
     s0 = *(uint32_t *)((char *)v0 + 0);
@@ -68402,11 +68402,11 @@ tisp_ae_short_ev_alloc0xac:
 tisp_ae_short_ev_alloc0xf0:
     /* fragment 17: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 592);
-    t0 = s0 + 368;
-    s7 = s0 + 528;
+    t0 = (uintptr_t)s0 + 368;
+    s7 = (uintptr_t)s0 + 528;
     *(uint32_t *)((char *)s8 + 7632) = v0;
     v0 = *(uint32_t *)((char *)s0 + 596);
-    t1 = s0 + 488;
+    t1 = (uintptr_t)s0 + 488;
     *(uint32_t *)((char *)s8 + 7636) = v0;
     v0 = *(uint32_t *)((char *)s0 + 604);
     *(uint32_t *)((char *)s8 + 7644) = v0;
@@ -68417,7 +68417,7 @@ tisp_ae_short_ev_alloc0xf0:
 
 tisp_ae_short_ev_alloc0x118:
     /* fragment 19: Arithmetic */
-    v1 = v0 + 1;
+    v1 = (uintptr_t)v0 + 1;
 
     /* fragment 20: Branch */
     int _bc_v1_20 = v1 > 0;
@@ -68449,7 +68449,7 @@ tisp_ae_short_ev_alloc0x118:
     /* fragment 25: StackAccess */
     t0 = local_78;
     v0 = *(uint32_t *)((char *)v0 + 0);
-    s1 = s1 + 4;
+    s1 = (uintptr_t)s1 + 4;
     t0 = t0 + (uintptr_t)s1;
     v0 = *(uint32_t *)((char *)v0 + 4);
     v1 = *(uint32_t *)((char *)t0 + 0);
@@ -68464,7 +68464,7 @@ tisp_ae_short_ev_alloc0x118:
     if (v0 == 0) { goto tisp_ae_short_ev_alloc0x2c4; }
 
     /* fragment 27: CallSetup */
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1;
     local_58 = s5;
     local_5c = 0;
     *(uint8_t *)((char *)s0 + 1665) = v0;
@@ -89582,7 +89582,7 @@ int32_t tisp_blc_ae_write_dgain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t 
     s2 = 8248;
     v0 = 8236;
     v0 = (unsigned int *)&ivdc_threshold_line;
-    v0 = v0 + 16064;
+    v0 = (uintptr_t)v0 + 16064;
     a0 = a0 << 2;
     local_34 = ra;
     local_2c = s7;
@@ -89595,7 +89595,7 @@ int32_t tisp_blc_ae_write_dgain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t 
     v0 = *(uint32_t *)((char *)a0 + 0);
     a1 = a1 << 5;
     s1 = (uint32_t *)&tisp_round_int64;
-    a1 = v0 + a1;
+    a1 = (uintptr_t)v0 + a1;
     s0 = *(uint32_t *)((char *)a1 + 12);
     s5 = a3;
     s1 = s1;
@@ -90213,7 +90213,7 @@ int32_t tisp_wdr_interplate(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, 
     v1 = local_10;
     a1 = a1 - a0;
     a3 = a3 - a2;
-    a0 = v1 - a0;
+    a0 = (uintptr_t)v1 - a0;
     v1 = a3 * a0;
     v0 = (uintptr_t)a1 >> 1;
     a3 = (uintptr_t)v1 + (uintptr_t)v0;
@@ -90230,7 +90230,7 @@ int32_t tisp_wdr_interplate(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, 
     /* function epilogue: restore registers and return */
 
     /* fragment 4: Arithmetic */
-    v0 = v0 + a2;
+    v0 = (uintptr_t)v0 + a2;
 
     return 0;
 }
