@@ -35,8 +35,8 @@
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
 #ifdef TX_ISP_VENDOR_TREE
 /* Vendor 5.15 exposes the T31 CGU through clkdev, not a DT provider; the
-   T31_CLK_CIM fallback below is dead code there, so the real binding header
-   (mainline-only) is not needed. */
+   T31_CLK_CIM fallback is dead code there, so the mainline-only binding
+   header is not needed. */
 #define T31_CLK_CIM	0
 #else
 #include <dt-bindings/clock/ingenic,t31-cgu.h>
@@ -4779,6 +4779,24 @@ static const struct {
     { "csi",     "mipi_csi" },
     { "cgu_cim", "cim" },
 };
+
+#ifdef TX_ISP_VENDOR_TREE
+/*
+ * Vendor 5.15 T31 clkdev names (clk-t31.c): the ISP divider/gate are split
+ * into "div_isp"/"gate_isp", the MIPI-CSI gate is "gate_csi", and the camera
+ * interface divider is "div_cim". clk_set_rate() on the gate propagates to the
+ * divider, so one handle per subsystem drives both.
+ */
+static const struct {
+    const char *vendor;
+    const char *name;
+} tx_isp_vendor_clk_aliases[] = {
+    { "cgu_isp", "div_isp"  },
+    { "isp",     "gate_isp" },
+    { "csi",     "gate_csi" },
+    { "cgu_cim", "div_cim"  },
+};
+#endif
 #endif
 
 struct clk * private_clk_get(struct device *dev, const char *id)
@@ -4790,6 +4808,22 @@ struct clk * private_clk_get(struct device *dev, const char *id)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
     if (IS_ERR(clk) && id) {
         int i;
+
+#ifdef TX_ISP_VENDOR_TREE
+        for (i = 0; i < ARRAY_SIZE(tx_isp_vendor_clk_aliases); i++) {
+            struct clk *alias;
+
+            if (strcmp(id, tx_isp_vendor_clk_aliases[i].vendor))
+                continue;
+            alias = clk_get(dev, tx_isp_vendor_clk_aliases[i].name);
+            if (!IS_ERR(alias)) {
+                pr_info("tx-isp: clock '%s' resolved as vendor '%s'\n",
+                        id, tx_isp_vendor_clk_aliases[i].name);
+                return alias;
+            }
+            break;
+        }
+#endif
 
         for (i = 0; i < ARRAY_SIZE(tx_isp_clk_aliases); i++) {
             struct clk *alias;
