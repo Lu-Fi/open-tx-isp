@@ -1250,6 +1250,13 @@ static uintptr_t lsc_seco_awdr_para;
 static uintptr_t lsc_seco_real_para;
 static uintptr_t lsc_seco_tool_para;
 static uintptr_t lsc_wlut_flag;
+/* OEM tisp_hardware_reg_refresh (0x1f64c) passes each of its six
+   xxx_get_wlut_times() calls a per-domain/per-bank shadow slot
+   (.bss+6684/+6688 clm, +6692/+6696 gamma, +6700/+6704 lsc). The
+   reconstruction passed &isp_memopt for all six, so every frame-done wrote the
+   W-LUT times over the `isp_memopt` module parameter (a 4-byte int). Give the
+   six calls real, distinct slots. */
+static uint32_t regtrace_wlut_times_out[6];
 static uintptr_t main_adr_gamma;
 static uintptr_t main_adr_paras;
 static uintptr_t main_cdns;
@@ -49341,6 +49348,53 @@ static int32_t regtrace_vic_irq_ack_filter(int32_t irq, void *dev_id)
     return IRQ_HANDLED;
 }
 
+/*
+ * T40-VENDOR-3A-ISR (2026-10-14)
+ *
+ * The OEM core ISR ispcore_interrupt_service_routine (0x7acd0..0x7bb30)
+ * calls tisp_hardware_reg_refresh(&local_40) on every ch0 frame-done
+ * (0x7b138 lui/addiu -> 0x7b140 jalr, a0 = sp+64) so that pending tuning
+ * tables (LSC/gamma W-LUT flags) are flushed into hardware each frame.
+ *
+ * The reconstruction calls every other callee of that ISR
+ * (system_reg_read, isp_printf, update_isp_osd, private_do_gettimeofday,
+ * private_schedule_work, tx_isp_send_event_to_remote, irq_func_cb[],
+ * tisp_push_frame_count, pre_frame_dequeue, Tzn_Msca_addr_fifo_read/write,
+ * isp_ch0_pre_dequeue_time, ispcore_sd) but has ZERO call sites for
+ * tisp_hardware_reg_refresh anywhere in the file, and zero references to
+ * ch0_stream_debug.  Both are therefore never executed at run time.
+ *
+ * Default off: enable with isr_oem_hw_refresh=1 and read back the counters.
+ */
+static int regtrace_isr_oem_hw_refresh;
+module_param_named(isr_oem_hw_refresh, regtrace_isr_oem_hw_refresh, int, 0644);
+MODULE_PARM_DESC(isr_oem_hw_refresh,
+    "core IRQ frame-done: call tisp_hardware_reg_refresh() (OEM 0x7b138). default 0");
+static uint32_t regtrace_isr_oem_hw_refresh_count;
+module_param_named(isr_oem_hw_refresh_count, regtrace_isr_oem_hw_refresh_count, uint, 0444);
+static uint32_t regtrace_isr_oem_hw_refresh_out;
+module_param_named(isr_oem_hw_refresh_out, regtrace_isr_oem_hw_refresh_out, uint, 0444);
+static uint32_t regtrace_isr_oem_hw_refresh_ret;
+module_param_named(isr_oem_hw_refresh_ret, regtrace_isr_oem_hw_refresh_ret, uint, 0444);
+
+/*
+ * OEM ISR entry state (0x7ad08 lw v0,744(s1) / 0x7ad0c lw s4,764(s1) with
+ * s1 == *(a0 + 0x10c)): read-only diagnostic, does not alter the
+ * reconstructed dataflow.
+ */
+static int regtrace_isr_oem_state_load;
+module_param_named(isr_oem_state_load, regtrace_isr_oem_state_load, int, 0644);
+MODULE_PARM_DESC(isr_oem_state_load,
+    "record OEM ISR entry loads st+744/st+764 into counters (diagnostic). default 0");
+static uint32_t regtrace_isr_oem_state744;
+module_param_named(isr_oem_state744, regtrace_isr_oem_state744, uint, 0444);
+static uint32_t regtrace_isr_oem_state764;
+module_param_named(isr_oem_state764, regtrace_isr_oem_state764, uint, 0444);
+static uint32_t regtrace_isr_oem_state_load_count;
+module_param_named(isr_oem_state_load_count, regtrace_isr_oem_state_load_count, uint, 0444);
+static uint32_t regtrace_isr_oem_state_load_bad;
+module_param_named(isr_oem_state_load_bad, regtrace_isr_oem_state_load_bad, uint, 0444);
+
 static int32_t regtrace_isp_irq_ack_only_filter(int32_t irq, void *dev_id)
 {
     uintptr_t base = (uintptr_t)dev_id;
@@ -49450,6 +49504,19 @@ static int32_t regtrace_isp_irq_ack_only_filter(int32_t irq, void *dev_id)
     if (is_core && (frame_done_bits0 || frame_done_bits1 ||
                     frame_done_sec_bits0)) {
         regtrace_isp_irq_ack_only_frame_done_count++;
+        /*
+         * T40-VENDOR-3A-ISR: restore the OEM per-frame hardware re-arm that
+         * the reconstruction dropped (OEM ISR 0x7b138/0x7b140, a0 = &local_40).
+         */
+        if (regtrace_isr_oem_hw_refresh) {
+            uint32_t __hw_out = 0;
+            int32_t __hw_ret;
+
+            __hw_ret = tisp_hardware_reg_refresh((uintptr_t)&__hw_out);
+            regtrace_isr_oem_hw_refresh_count++;
+            regtrace_isr_oem_hw_refresh_out = __hw_out;
+            regtrace_isr_oem_hw_refresh_ret = (uint32_t)__hw_ret;
+        }
         if (regtrace_t40_msca_work_countdown > 0 &&
             --regtrace_t40_msca_work_countdown == 0) {
             uint32_t we = 0;
@@ -49631,6 +49698,19 @@ static void regtrace_isp_irq_post_dispatch_ack(int32_t irq, void *dev_id)
     if (is_core && (frame_done_bits0 || frame_done_bits1 ||
                     frame_done_sec_bits0)) {
         regtrace_isp_irq_ack_only_frame_done_count++;
+        /*
+         * T40-VENDOR-3A-ISR: restore the OEM per-frame hardware re-arm that
+         * the reconstruction dropped (OEM ISR 0x7b138/0x7b140, a0 = &local_40).
+         */
+        if (regtrace_isr_oem_hw_refresh) {
+            uint32_t __hw_out = 0;
+            int32_t __hw_ret;
+
+            __hw_ret = tisp_hardware_reg_refresh((uintptr_t)&__hw_out);
+            regtrace_isr_oem_hw_refresh_count++;
+            regtrace_isr_oem_hw_refresh_out = __hw_out;
+            regtrace_isr_oem_hw_refresh_ret = (uint32_t)__hw_ret;
+        }
         if (regtrace_t40_msca_work_countdown > 0 &&
             --regtrace_t40_msca_work_countdown == 0) {
             uint32_t we = 0;
@@ -77245,22 +77325,22 @@ tisp_hardware_reg_refresh0x148:
 
 tisp_hardware_reg_refresh0x14c:
     /* fragment 39: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_get_wlut_times)(0, &isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_get_wlut_times)(0, &regtrace_wlut_times_out[0]); /* jalr target resolved by relocation */
 
     /* fragment 40: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_get_wlut_times)(1, &isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_get_wlut_times)(1, &regtrace_wlut_times_out[1]); /* jalr target resolved by relocation */
 
     /* fragment 41: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gamma_get_wlut_times)(0, &isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gamma_get_wlut_times)(0, &regtrace_wlut_times_out[2]); /* jalr target resolved by relocation */
 
     /* fragment 42: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gamma_get_wlut_times)(1, &isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gamma_get_wlut_times)(1, &regtrace_wlut_times_out[3]); /* jalr target resolved by relocation */
 
     /* fragment 43: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_clm_get_wlut_times)(0, &isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_clm_get_wlut_times)(0, &regtrace_wlut_times_out[4]); /* jalr target resolved by relocation */
 
     /* fragment 44: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_clm_get_wlut_times)(1, &isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_clm_get_wlut_times)(1, &regtrace_wlut_times_out[5]); /* jalr target resolved by relocation */
 
     /* fragment 45: MemoryAccess */
     v1 = *(uint32_t *)((char *)((char *)&lsc_wlut_flag));
@@ -128341,11 +128421,15 @@ int32_t tisp_gamma_get_wlut_times(uint32_t a0, uintptr_t a1)
 
     /* fragment 3: Branch */
     int _bc_v0_3 = v0 != 0;
-    v0 = (uintptr_t *)&isp_memopt;
+    /* OEM 0x48958: addu s0,s0,%lo(gamma_wlut_times) -- the array base is a
+       relocated symbol. The reconstruction used &isp_memopt + 17192 (0x4328),
+       a valid address holding the WRONG object, while the driver's own writer
+       (tisp_gamma_real_write_lut) materialises &gamma_wlut_times: reader and
+       writer disagreed. Align the reader with the writer and the OEM. */
+    v0 = (uintptr_t *)&gamma_wlut_times;
     if (_bc_v0_3) { goto tisp_gamma_get_wlut_times0x60; }
 
     /* fragment 4: Arithmetic */
-    v0 = v0 + 17192;
     s0 = (uintptr_t)s0 + (uintptr_t)v0;
 
     /* fragment 5: MemoryAccess */
@@ -176139,8 +176223,13 @@ int32_t tisp_clm_get_wlut_times(void* arg1, uint32_t* arg2)
         /* Backward branch to return path - effectively just return */
         goto return_zero;
     } else {
-        /* Load byte from arg1 + 0xa8d70 and store to *arg2 */
-        *arg2 = *(uint32_t*)((char*)arg1 + 0xa8d70);
+        /* OEM 0x6e668: addu s0,s0,%lo(clm_wlut_times); lbu v0,0(s0); sw v0,0(s1).
+           The array base is a RELOCATED SYMBOL (OEM .bss+0x49e0 == clm_wlut_times),
+           never the absolute address 0xa8d70 that the reconstruction baked in as a
+           literal. With arg1 = 1 that literal produced the wild, odd address
+           0x000a8d71 (the reported BadVA) and the ISR died on the unaligned lw.
+           The access is a byte load, as in the OEM. */
+        *arg2 = *(uint8_t *)((char *)&clm_wlut_times + (uintptr_t)arg1);
     }
     
 return_zero:
@@ -195235,6 +195324,33 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
     v0 = *(uint32_t *)((char *)a0 + 232);
     v1 = 262144;
     s3 = *(uint32_t *)((char *)a0 + 268);
+
+    /*
+     * T40-VENDOR-3A-ISR: the OEM ISR entry loads the per-mode state the body
+     * branches on:
+     *   0x7ad08 lw v0,744(s1)   ; v0 = *(st + 744)
+     *   0x7ad0c lw s4,764(s1)   ; s4 = *(st + 764)
+     *   0x7ad10 sw v0,72(sp)    ; local_48 = v0
+     * with s1 = *(a0 + 0x10c) == s3 here.  The reconstruction performs
+     * neither load: no 744/764 access and no read of local_48 exists in the
+     * ISR body, so every OEM s4&0xff / s4&0xf / s4&0xff0 / s4&0xf00f /
+     * s4&0xff00 branch is not reproduced.  Recorded here read-only.
+     */
+    if (regtrace_isr_oem_state_load) {
+        uintptr_t __st = (uintptr_t)s3;
+
+        if (regtrace_is_kernel_ptr((const void *)__st)) {
+            regtrace_isr_oem_state744 = regtrace_get_u32(__st, 744);
+            regtrace_isr_oem_state764 = regtrace_get_u32(__st, 764);
+            regtrace_isr_oem_state_load_count++;
+            if (regtrace_isr_oem_state_load_count <= 4)
+                printk(KERN_INFO "tx_isp_t40_recovered: isr-oem-state #%u st=%p st744=0x%x st764=0x%x\n",
+                       regtrace_isr_oem_state_load_count, (void *)__st,
+                       regtrace_isr_oem_state744, regtrace_isr_oem_state764);
+        } else {
+            regtrace_isr_oem_state_load_bad++;
+        }
+    }
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
     s2 = *(uint32_t *)((char *)v0 + 40);
     s0 = a0;
