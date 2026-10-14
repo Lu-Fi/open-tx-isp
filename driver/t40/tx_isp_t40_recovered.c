@@ -196390,7 +196390,20 @@ ispcore_interrupt_service_routine0xc10:
     if (v0 == 0) { goto ispcore_interrupt_service_routine0xc3c; }
 
     /* fragment 271: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    /*
+     * T40-JALR-ISR(1/2): the real target is irq_func_cb[status bit] - a
+     * RUNTIME TABLE ENTRY, not a resolvable symbol.  The device ISR status
+     * loop (OEM 0x6d67c) is `lw a1,0(v1)` (v1 = &irq_func_cb + i*4) followed
+     * by `jalr.hb a1`, with `move a0,zero` a few instructions earlier, so the
+     * registered handler is invoked as cb(0) - it takes no argument.
+     * Fragment 269 has already loaded the handler into v0, therefore v0 is
+     * the call target; the previous
+     * regtrace_unresolved_jalr(a0) was wrong in BOTH the callee (a counting
+     * no-op instead of the table entry) and the argument (a0 instead of 0).
+     * The OEM also bumps a per-slot counter at (.bss+18192 + i*4) around the
+     * call; that counter is not modelled in this reconstruction.
+     */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)v0)(0);
 
     /* fragment 272: Arithmetic */
     v1 = (uintptr_t)v0 ^ 1;
@@ -196410,7 +196423,15 @@ ispcore_interrupt_service_routine0xc3c:
     if (v0 == 0) { goto ispcore_interrupt_service_routine0xc64; }
 
     /* fragment 277: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    /*
+     * T40-JALR-ISR(2/2): same runtime-table dispatch for the secondary status
+     * bank.  s0 + 168 == &irq_func_cb[42], i.e. bank 1 slot (42 = the
+     * vendor's stride in system_irq_func_set, and exactly the offset the
+     * registrations at system_irq_func_set(46/47/0x32/0x33, ...) rely on).
+     * OEM 0x6d844 is `jalr.hb v0` with the delay slot `move a0,zero`, so this
+     * handler is called as cb(0) as well; v0 already holds the entry.
+     */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)v0)(0);
 
     /* fragment 278: Arithmetic */
     v1 = (uintptr_t)v0 ^ 1;
@@ -197169,7 +197190,19 @@ ispcore_core_ops_ioctl0x80:
     if (v0 == 0) { goto ispcore_core_ops_ioctl0x148; }
 
     /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s1); /* jalr target resolved by relocation */
+    /*
+     * T40-JALR-COREOPS(1/2): the real target is the subdev core-init vtable
+     * slot *(subdev->ops->core_ops + 0x4) - a PER-SUBDEV function pointer, so
+     * it cannot be resolved to one symbol by relocation
+     * (ispcore_subdev_core_ops + 0x4 = &ispcore_core_ops_init, but
+     * csi_core_ops + 0x4 = &csi_core_ops_init, vic/fs/ivdc likewise each
+     * install their own core_ops_init at +0x4).  OEM 0x6cd78 is
+     * `lw v0,4(v0)` / `lw v0,12(v0)` / `lw v0,4(v0)` then `jalr v0` with
+     * `move a1,s2` and `move a0,s0` in the delay slots - i.e. cb(subdev, arg2),
+     * matching int64_t ispcore_core_ops_init(uintptr_t a0, uintptr_t a1).
+     * Fragment 15 has already loaded the callback into v0.
+     */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)v0)((uintptr_t)s1, (uintptr_t)s3);
 
 ispcore_core_ops_ioctl0x9c:
     /* fragment 18: Branch */
@@ -197210,6 +197243,15 @@ ispcore_core_ops_ioctl0x110:
 
 ispcore_core_ops_ioctl0x12c:
     /* fragment 27: CallSetup */
+    /*
+     * T40-JALR-COREOPS-UNRESOLVED: NOT resolvable from this reconstruction.
+     * Unlike fragments 17/47, the .c text does not retain the register that
+     * carried the callee on this path: fragment 60 loads `a0 = *(v1 + 992)`
+     * and only `a0` survives to this jalr, so the OEM counterpart (a
+     * *(ops->core_ops + 0x20) nested-ioctl call, OEM 0x6cf20 region) cannot be
+     * reconstructed with confidence.  Left routed to the counting no-op so the
+     * residual is still observable via /sys/module/.../unresolved_jalr_count.
+     */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 28: Branch */
@@ -197288,7 +197330,15 @@ ispcore_core_ops_ioctl0x1b4:
     if (v0 == 0) { goto ispcore_core_ops_ioctl0x18c; }
 
     /* fragment 47: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    /*
+     * T40-JALR-COREOPS(2/2): same vtable slot as fragment 17, reached from the
+     * component-subdev walk (`a0` = the linked subdev from the s1+60 slot
+     * array), so the callee depends on that subdev's ops table and cannot be
+     * resolved to a symbol either.  OEM 0x6cfd4 is `jalr v0` with the delay
+     * slot `move a1,s2`, and `a0` still holds the subdev -
+     * cb(subdev, arg2).  Fragment 45 has already loaded the callback into v0.
+     */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)v0)((uintptr_t)a0, (uintptr_t)s3);
 
     /* fragment 48: Arithmetic */
     s0 = v0;
