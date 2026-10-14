@@ -22190,10 +22190,12 @@ static int t41_tuning_statis_config(unsigned int channel, unsigned int is_get,
 /*
  * IMPISPWaitFrameAttr (stock 0x08000091, get, 24 bytes): wait for the next
  * channel-0 frame done (isp_frame_done_wait, woken from the frame IRQ) and
- * report the frame counter.  As stock: the timeout word is in jiffies, a
- * timeout or a signal still returns 0 with the counter, irqtype is 0.  The
- * wait is capped at T41_WAIT_FRAME_MAX_JIFFIES and runs without the tuning
- * mutex, so other tuning calls are not held up by a waiter.
+ * report the frame counter.  As stock: the timeout word is in jiffies and
+ * irqtype is 0.  Beyond stock: a timeout returns -ETIMEDOUT and a signal
+ * -ERESTARTSYS (stock returns 0 for both, callers can only compare cnt);
+ * the counter is copied back in every case.  The wait is capped at
+ * T41_WAIT_FRAME_MAX_JIFFIES and runs without the tuning mutex, so other
+ * tuning calls are not held up by a waiter.
  */
 #define T41_WAIT_FRAME_MAX_JIFFIES (60 * HZ)
 
@@ -22208,6 +22210,7 @@ static int t41_tuning_wait_frame_done(const struct tx_isp_tuning_t41_control *re
     } attr;
     u64 cnt = 0;
     u32 timeout;
+    int ret;
 
     BUILD_BUG_ON(sizeof(attr) != TX_ISP_TUNING_T41_WAIT_FRAME_BYTES);
     if (request->channel != 0 || request->is_get != 1 ||
@@ -22217,11 +22220,17 @@ static int t41_tuning_wait_frame_done(const struct tx_isp_tuning_t41_control *re
             (void __user *)(uintptr_t)request->value_or_ptr, sizeof(attr)))
         return -EFAULT;
     timeout = min_t(u32, attr.timeout, T41_WAIT_FRAME_MAX_JIFFIES);
-    isp_frame_done_wait(request->channel, timeout, (uintptr_t)&cnt);
+    /* Stock H20250310a (tx_isp_core_ops_g_ctrl 0xbb04) drops the wait
+     * result and returns 0 on a timeout; we report it. */
+    ret = isp_frame_done_wait(request->channel, timeout, (uintptr_t)&cnt);
     attr.cnt = cnt;
     attr.irqtype = 0;
-    return private_copy_to_user((void __user *)(uintptr_t)request->value_or_ptr,
-                                &attr, sizeof(attr)) ? -EFAULT : 0;
+    if (private_copy_to_user((void __user *)(uintptr_t)request->value_or_ptr,
+                             &attr, sizeof(attr)))
+        return -EFAULT;
+    if (ret == -ERESTARTSYS)
+        return ret;
+    return ret ? -ETIMEDOUT : 0;
 }
 
 /*
