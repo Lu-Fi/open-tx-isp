@@ -38406,7 +38406,7 @@ int64_t vic_core_ops_ioctl(uintptr_t a0, uint32_t a1, uintptr_t a2)
     a3 = 16777216;
     v0 = a1;
     a1 = a2;
-    a2 = a3 + 1;
+    a2 = (uintptr_t)a3 + 1;
 
     /* fragment 1: Branch */
     if (v0 == a2) { goto vic_core_ops_ioctl0x48; }
@@ -40079,7 +40079,7 @@ int64_t subdev_sensor_ops_ioctl(uintptr_t a0, uint32_t a1, uintptr_t a2)
     /* fragment 3: CallSetup */
     v1 = (int32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t)v0 << 2;
-    v1 = v1 + 432;
+    v1 = (uintptr_t)v1 + 432;
     v0 = (uintptr_t)v1 + (uintptr_t)v0;
     v0 = *(uint32_t *)((char *)v0 + 0);
     v0 = (uintptr_t *)&subdev_sensor_ops_enum_input;
@@ -40113,7 +40113,7 @@ subdev_sensor_ops_ioctl0x74:
 
     /* fragment 11: MemoryAccess */
     v0 = *(uint32_t *)((char *)a2 + 4);
-    v0 = v0 + 70;
+    v0 = (uintptr_t)v0 + 70;
     v0 = (uintptr_t)v0 << 2;
     s2 = a0 + (uintptr_t)v0;
     v1 = *(uint32_t *)((char *)s2 + 4);
@@ -40148,7 +40148,7 @@ subdev_sensor_ops_ioctl0xc8:
     a1 = a2;
 
     /* fragment 20: Branch */
-    v0 = v0 + 26436;
+    v0 = (uintptr_t)v0 + 26436;
     goto subdev_sensor_ops_ioctl0x64;
 
     /* fragment 21: Branch */
@@ -40205,7 +40205,7 @@ subdev_sensor_ops_ioctl0x14c:
 
     /* fragment 32: CallSetup */
     v0 = *(uint32_t *)((char *)s1 + 60);
-    a2 = s3 + 660;
+    a2 = (uintptr_t)s3 + 660;
     a1 = (uint32_t *)&LC28;
     local_18 = v0;
     v0 = 95;
@@ -42680,8 +42680,8 @@ int32_t isp_core_tunning_open(uint32_t a0, uintptr_t a1)
 
     /* fragment 3: Arithmetic */
     a0 = 1638400;
-    v0 = s1 + 16;
-    a1 = s1 + 112;
+    v0 = (uintptr_t)s1 + 16;
+    a1 = (uintptr_t)s1 + 112;
     v1 = -128;
     a0 = a0 + 1;
 
@@ -42693,7 +42693,7 @@ isp_core_tunning_open0x40:
     *(uint8_t *)((char *)v0 + 3) = v1;
     *(uint32_t *)((char *)v0 + 8) = a0;
     *(uint32_t *)((char *)v0 + 12) = 0;
-    v0 = v0 + 32;
+    v0 = (uintptr_t)v0 + 32;
 
     /* fragment 5: Branch */
     if (v0 != a1) { goto isp_core_tunning_open0x40; }
@@ -42707,7 +42707,7 @@ isp_core_tunning_open0x40:
     /* fragment 8: MemoryAccess */
     *(uint32_t *)((char *)s1 + 120) = v0;
     v1 = 0;
-    v0 = s0 + 720;
+    v0 = (uintptr_t)s0 + 720;
     a2 = 10;
     a3 = 1;
     a1 = 3;
@@ -42722,7 +42722,7 @@ isp_core_tunning_open0x90:
     if (_bc_a0_10) { goto isp_core_tunning_open0xa8; }
 
     /* fragment 11: Arithmetic */
-    a0 = s1 + a0;
+    a0 = (uintptr_t)s1 + a0;
 
     /* fragment 12: MemoryAccess */
     *(uint32_t *)((char *)a0 + 32) = a3;
@@ -42730,10 +42730,10 @@ isp_core_tunning_open0x90:
 
 isp_core_tunning_open0xa8:
     /* fragment 13: Arithmetic */
-    v1 = v1 + 1;
+    v1 = (uintptr_t)v1 + 1;
 
     /* fragment 14: Branch */
-    v0 = v0 + 4;
+    v0 = (uintptr_t)v0 + 4;
     if (v1 != a1) { goto isp_core_tunning_open0x90; }
 
     /* fragment 15: Arithmetic */
@@ -45985,7 +45985,7 @@ int32_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     /* fragment 3: Arithmetic */
     v1 = 3221749760;
     v0 = (uintptr_t *)&private_copy_from_user;
-    a0 = v1 + 21555;
+    a0 = (uintptr_t)v1 + 21555;
     s1 = a2;
 
     /* fragment 4: Branch */
@@ -45993,7 +45993,7 @@ int32_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     if (a1 == a0) { goto isp_core_tunning_unlocked_ioctl0xa4; }
 
     /* fragment 5: Arithmetic */
-    v1 = v1 + 21556;
+    v1 = (uintptr_t)v1 + 21556;
 
     /* fragment 6: Branch */
     a2 = 8;
@@ -52104,27 +52104,14 @@ frame_channel_release0x64:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000f678 origin=fragment_seed original=frame_channel_unlocked_ioctl */
 int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_50 = 0;
-    uint32_t local_54 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_64 = 0;
-    uint32_t local_68 = 0;
-    uint32_t local_6c = 0;
-    uint32_t local_70 = 0;
-    uint32_t local_74 = 0;
-    uint32_t local_78 = 0;
-    uint32_t local_7c = 0;
-    uint32_t local_80 = 0;
-    uint32_t local_84 = 0;
+    /* OEM sp-relative locals share storage. sp+0x20..0x63 is one
+     * 68-byte buffer ABI; 0x64 is the separate IRQ-flags slot.
+     * Fixed-width words preserve the target MIPS32 layout and alignment. */
+    union {
+        uint32_t words[0x88 / 4];
+        uint8_t bytes[0x88];
+    } oem_frame = { { 0 } };
+
     uint32_t *a3 = 0;
     uint32_t ra = 0;
     uintptr_t *s0 = 0;
@@ -52146,14 +52133,14 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     s2 = a2;
 
     /* fragment 2: Branch */
-    v1 = v0 + 21587;
+    v1 = (uintptr_t)v0 + 21587;
     if (s1 != 0) { goto frame_channel_unlocked_ioctl0x18c; }
 
     /* fragment 3: Branch */
     if (a1 == v1) { goto frame_channel_unlocked_ioctl0x338; }
 
     /* fragment 4: Arithmetic */
-    v0 = v0 + 21588;
+    v0 = (uintptr_t)v0 + 21588;
     v0 = a1 < v0;
 
     /* fragment 5: Branch */
@@ -52169,7 +52156,7 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     if (a1 == v1) { goto frame_channel_unlocked_ioctl0x304; }
 
     /* fragment 8: Arithmetic */
-    v1 = v0 + 21593;
+    v1 = (uintptr_t)v0 + 21593;
     a0 = a1 < v1;
 
     /* fragment 9: Branch */
@@ -52177,7 +52164,7 @@ int64_t frame_channel_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 
 frame_channel_unlocked_ioctl0x70:
     /* fragment 10: Arithmetic */
-    v0 = v0 + 21591;
+    v0 = (uintptr_t)v0 + 21591;
 
     /* fragment 11: Branch */
     if (a1 == v0) { goto frame_channel_unlocked_ioctl0x308; }
@@ -52192,7 +52179,7 @@ frame_channel_unlocked_ioctl0x84:
     if (a1 == v1) { goto frame_channel_unlocked_ioctl0x304; }
 
     /* fragment 14: Arithmetic */
-    v0 = v0 + 21594;
+    v0 = (uintptr_t)v0 + 21594;
 
 frame_channel_unlocked_ioctl0x90:
     /* fragment 15: Branch */
@@ -52201,8 +52188,8 @@ frame_channel_unlocked_ioctl0x90:
     if (_bc_a1_15) { goto frame_channel_unlocked_ioctl0x1d8; }
 
     /* fragment 16: CallSetup */
-    local_20 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_wait_for_completion_interruptible)(s1 + 744); /* jalr target resolved by relocation */
+    oem_frame.words[0x20 / 4] = 0;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_wait_for_completion_interruptible)((uintptr_t)s1 + 744); /* jalr target resolved by relocation */
 
     /* fragment 17: Arithmetic */
     s0 = v0;
@@ -52212,21 +52199,21 @@ frame_channel_unlocked_ioctl0x90:
     a0 = 12;
     v1 = (int32_t *)&isp_memopt;
     a1 = (uintptr_t)v0 * a0;
-    v1 = v1 + 1440;
+    v1 = (uintptr_t)v1 + 1440;
     v0 = a1 + (uintptr_t)v1;
     v1 = *(uint32_t *)((char *)v0 + 4);
-    v1 = v1 + 1;
+    v1 = (uintptr_t)v1 + 1;
 
     /* fragment 19: Branch */
     *(uint32_t *)((char *)v0 + 4) = v1;
     if (s0 >= 0) { goto frame_channel_unlocked_ioctl0xac4; }
 
     /* fragment 20: CallSetup */
-    local_20 = s0;
+    oem_frame.words[0x20 / 4] = s0;
 
 frame_channel_unlocked_ioctl0xd8:
     /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s2, &local_20, 4); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s2, &oem_frame.words[0x20 / 4], 4); /* jalr target resolved by relocation */
 
     /* fragment 22: Branch */
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x308; }
@@ -52241,26 +52228,26 @@ frame_channel_unlocked_ioctl0xd8:
 
 frame_channel_unlocked_ioctl0x108:
     /* fragment 25: Arithmetic */
-    v1 = v0 + 21590;
+    v1 = (uintptr_t)v0 + 21590;
 
     /* fragment 26: Branch */
     s0 = -22;
     if (a1 == v1) { goto frame_channel_unlocked_ioctl0x304; }
 
     /* fragment 27: Arithmetic */
-    v1 = v0 + 21591;
+    v1 = (uintptr_t)v0 + 21591;
     v1 = a1 < v1;
 
     /* fragment 28: Branch */
     int _bc_v1_28 = v1 == 0;
-    v1 = v0 + 21588;
+    v1 = (uintptr_t)v0 + 21588;
     if (_bc_v1_28) { goto frame_channel_unlocked_ioctl0x2d8; }
 
     /* fragment 29: Branch */
     if (a1 == v1) { goto frame_channel_unlocked_ioctl0x308; }
 
     /* fragment 30: Arithmetic */
-    v0 = v0 + 21589;
+    v0 = (uintptr_t)v0 + 21589;
 
 frame_channel_unlocked_ioctl0x130:
     /* fragment 31: Branch */
@@ -52269,7 +52256,7 @@ frame_channel_unlocked_ioctl0x130:
     if (_bc_a1_31) { goto frame_channel_unlocked_ioctl0x1dc; }
 
     /* fragment 32: StackAccess */
-    local_64 = 0;
+    oem_frame.words[0x64 / 4] = 0;
 
     /* fragment 33: Branch */
     s0 = -22;
@@ -52280,7 +52267,7 @@ frame_channel_unlocked_ioctl0x130:
 
     /* fragment 35: Branch */
     int _bc_v0_35 = v0 == 0;
-    v0 = s2 - 1;
+    v0 = (uintptr_t)s2 - 1;
     if (_bc_v0_35) { goto frame_channel_unlocked_ioctl0x304; }
 
     /* fragment 36: Arithmetic */
@@ -52291,7 +52278,7 @@ frame_channel_unlocked_ioctl0x130:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x414; }
 
     /* fragment 38: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s2, 68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s2, 68); /* jalr target resolved by relocation */
 
     /* fragment 39: Branch */
     a0 = 12;
@@ -52316,7 +52303,7 @@ frame_channel_unlocked_ioctl0x18c:
     if (a1 == v1) { goto frame_channel_unlocked_ioctl0x338; }
 
     /* fragment 45: Arithmetic */
-    v0 = v0 + 21588;
+    v0 = (uintptr_t)v0 + 21588;
     v0 = a1 < v0;
 
     /* fragment 46: Branch */
@@ -52329,7 +52316,7 @@ frame_channel_unlocked_ioctl0x18c:
 
     /* fragment 48: Branch */
     int _bc_a1_48 = a1 == v1;
-    v1 = v0 + 21593;
+    v1 = (uintptr_t)v0 + 21593;
     if (_bc_a1_48) { goto frame_channel_unlocked_ioctl0xa04; }
 
     /* fragment 49: Arithmetic */
@@ -52339,7 +52326,7 @@ frame_channel_unlocked_ioctl0x18c:
     if (a0 == 0) { goto frame_channel_unlocked_ioctl0x214; }
 
     /* fragment 51: Arithmetic */
-    v0 = v0 + 21591;
+    v0 = (uintptr_t)v0 + 21591;
 
     /* fragment 52: Branch */
     v1 = 3;
@@ -52351,9 +52338,9 @@ frame_channel_unlocked_ioctl0x1d8:
 
 frame_channel_unlocked_ioctl0x1dc:
     /* fragment 54: CallSetup */
-    local_18 = a1;
-    local_14 = v0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x18 / 4] = a1;
+    oem_frame.words[0x14 / 4] = v0;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC79, &__param_str_isp_dual_buf, 1329); /* jalr target resolved by relocation */
 
     /* fragment 55: Branch */
@@ -52362,7 +52349,7 @@ frame_channel_unlocked_ioctl0x1dc:
 
 frame_channel_unlocked_ioctl0x214:
     /* fragment 56: Branch */
-    v0 = v0 + 21594;
+    v0 = (uintptr_t)v0 + 21594;
     if (a1 != v1) { goto frame_channel_unlocked_ioctl0x90; }
 
     /* fragment 57: Arithmetic */
@@ -52370,11 +52357,11 @@ frame_channel_unlocked_ioctl0x214:
     v0 = v0 < -4096;
 
     /* fragment 58: Branch */
-    local_20 = 0;
+    oem_frame.words[0x20 / 4] = 0;
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0xa60; }
 
     /* fragment 59: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s2, 4); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s2, 4); /* jalr target resolved by relocation */
 
     /* fragment 60: Branch */
     a1 = 50331648;
@@ -52390,11 +52377,11 @@ frame_channel_unlocked_ioctl0x214:
 
 frame_channel_unlocked_ioctl0x25c:
     /* fragment 63: Arithmetic */
-    v1 = v0 + 21590;
+    v1 = (uintptr_t)v0 + 21590;
 
     /* fragment 64: Branch */
     int _bc_a1_64 = a1 == v1;
-    v1 = v0 + 21591;
+    v1 = (uintptr_t)v0 + 21591;
     if (_bc_a1_64) { goto frame_channel_unlocked_ioctl0x6e0; }
 
     /* fragment 65: Arithmetic */
@@ -52402,11 +52389,11 @@ frame_channel_unlocked_ioctl0x25c:
 
     /* fragment 66: Branch */
     int _bc_v1_66 = v1 == 0;
-    v1 = v0 + 21588;
+    v1 = (uintptr_t)v0 + 21588;
     if (_bc_v1_66) { goto frame_channel_unlocked_ioctl0x2d8; }
 
     /* fragment 67: Branch */
-    v0 = v0 + 21589;
+    v0 = (uintptr_t)v0 + 21589;
     if (a1 != v1) { goto frame_channel_unlocked_ioctl0x130; }
 
     /* fragment 68: Arithmetic */
@@ -52418,10 +52405,10 @@ frame_channel_unlocked_ioctl0x25c:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x34c; }
 
     /* fragment 70: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s2, 68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s2, 68); /* jalr target resolved by relocation */
 
     /* fragment 71: Branch */
-    v1 = local_24;
+    v1 = oem_frame.words[0x24 / 4];
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x360; }
 
     /* fragment 72: CallSetup */
@@ -52447,7 +52434,7 @@ frame_channel_unlocked_ioctl0x2d8:
     v0 = 0xc0705451;
 
     /* fragment 77: Branch */
-    v0 = v0 + 21586;
+    v0 = (uintptr_t)v0 + 21586;
     if (a1 != v1) { goto frame_channel_unlocked_ioctl0xbc4; }
 
 frame_channel_unlocked_ioctl0x2e8:
@@ -52455,7 +52442,7 @@ frame_channel_unlocked_ioctl0x2e8:
     v0 = 65536;
     a1 = s2;
     a0 = s1;
-    v0 = v0 - 7308;
+    v0 = (uintptr_t)v0 - 7308;
 
 frame_channel_unlocked_ioctl0x2f8:
     /* fragment 79: CallSetup */
@@ -52511,7 +52498,7 @@ frame_channel_unlocked_ioctl0x360:
 
     /* fragment 91: Branch */
     int _bc_v1_91 = v1 == v0;
-    v0 = local_20;
+    v0 = oem_frame.words[0x20 / 4];
     if (_bc_v1_91) { goto frame_channel_unlocked_ioctl0x398; }
 
     /* fragment 92: CallSetup */
@@ -52539,7 +52526,7 @@ frame_channel_unlocked_ioctl0x398:
     v1 = v0 < v1;
 
     /* fragment 97: Branch */
-    v0 = v0 + 58;
+    v0 = (uintptr_t)v0 + 58; /* OEM addiu: register bytes, not pointer elements. */
     if (v1 != 0) { goto frame_channel_unlocked_ioctl0x3c0; }
 
     /* fragment 98: Arithmetic */
@@ -52555,10 +52542,10 @@ frame_channel_unlocked_ioctl0x398:
 frame_channel_unlocked_ioctl0x3c0:
     /* fragment 100: CallSetup */
     s1 = (uintptr_t)s1 + ((uintptr_t)v0 << 2);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__fill_tisp_buffer)(*(uint32_t *)((char *)(s1) + 48), &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__fill_tisp_buffer)(*(uint32_t *)((char *)(s1) + 48), &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 101: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s2, &local_20, 68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s2, &oem_frame.words[0x20 / 4], 68); /* jalr target resolved by relocation */
 
     /* fragment 102: Branch */
     s0 = v0;
@@ -52596,11 +52583,11 @@ frame_channel_unlocked_ioctl0x420:
     v1 = v1 + 1;
     *(uint32_t *)((char *)v0 + 0) = v1;
     v0 = *(uint32_t *)((char *)s1 + 44);
-    v1 = local_24;
+    v1 = oem_frame.words[0x24 / 4];
 
     /* fragment 109: Branch */
     int _bc_v1_109 = v1 == v0;
-    v0 = local_20;
+    v0 = oem_frame.words[0x20 / 4];
     if (_bc_v1_109) { goto frame_channel_unlocked_ioctl0x468; }
 
     /* fragment 110: Arithmetic */
@@ -52619,15 +52606,15 @@ frame_channel_unlocked_ioctl0x468:
     a0 = v0 < v1;
 
     /* fragment 113: Branch */
-    v0 = v0 + 58;
+    v0 = (uintptr_t)v0 + 58; /* OEM addiu: register bytes, not pointer elements. */
     if (a0 != 0) { goto frame_channel_unlocked_ioctl0x4b0; }
 
     /* fragment 114: CallSetup */
-    v0 = v0 - 58;
+    v0 = (uintptr_t)v0 - 58; /* OEM addiu -58. */
     a2 = (uint32_t *)&__param_str_isp_dual_buf;
     a1 = (uint32_t *)&LC69;
-    local_14 = v1;
-    local_10 = v0;
+    oem_frame.words[0x14 / 4] = v1;
+    oem_frame.words[0x10 / 4] = v0;
     a3 = 691;
     a2 = a2 + 2900;
     a1 = a1;
@@ -52665,12 +52652,12 @@ frame_channel_unlocked_ioctl0x4b0:
 frame_channel_unlocked_ioctl0x4dc:
     /* fragment 122: MemoryAccess */
     *(uint8_t *)((char *)s0 + 76) = v0;
-    v1 = local_50;
+    v1 = oem_frame.words[0x50 / 4];
     v0 = *(uint32_t *)((char *)s1 + 72);
 
     /* fragment 123: Branch */
     int _bc_v1_123 = v1 == v0;
-    v0 = local_58;
+    v0 = oem_frame.words[0x58 / 4];
     if (_bc_v1_123) { goto frame_channel_unlocked_ioctl0x508; }
 
     /* fragment 124: Arithmetic */
@@ -52695,8 +52682,8 @@ frame_channel_unlocked_ioctl0x508:
     a1 = (uint32_t *)&LC72;
 
     /* fragment 129: StackAccess */
-    local_14 = v1;
-    local_10 = v0;
+    oem_frame.words[0x14 / 4] = v1;
+    oem_frame.words[0x10 / 4] = v0;
     a3 = 714;
     a2 = a2 + 2900;
 
@@ -52709,7 +52696,7 @@ frame_channel_unlocked_ioctl0x530:
     v0 = *(uint32_t *)((char *)s0 + 72);
 
     /* fragment 132: Branch */
-    s3 = local_54;
+    s3 = oem_frame.words[0x54 / 4];
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x554; }
 
     /* fragment 133: Arithmetic */
@@ -52727,16 +52714,16 @@ frame_channel_unlocked_ioctl0x554:
     s4 = *(uint32_t *)((char *)s1 + 716);
     v1 = 4294901760;
     *(uint32_t *)((char *)s0 + 52) = s3;
-    a2 = local_58;
+    a2 = oem_frame.words[0x58 / 4];
     v1 = v1 + 7096;
     *(uint32_t *)((char *)s0 + 56) = a2;
-    v0 = local_30;
+    v0 = oem_frame.words[0x30 / 4];
     *(uint32_t *)((char *)s0 + 16) = v0;
-    v0 = local_34;
+    v0 = oem_frame.words[0x34 / 4];
     *(uint32_t *)((char *)s0 + 20) = v0;
-    v0 = local_38;
+    v0 = oem_frame.words[0x38 / 4];
     *(uint32_t *)((char *)s0 + 24) = v0;
-    v0 = local_2c;
+    v0 = oem_frame.words[0x2c / 4];
     v0 = (uintptr_t)v0 & (uintptr_t)v1;
     *(uint32_t *)((char *)s0 + 12) = v0;
     v0 = (uintptr_t *)&mips_dma_map_ops;
@@ -52791,7 +52778,7 @@ frame_channel_unlocked_ioctl0x5dc:
 
     /* fragment 145: CallSetup */
     s4 = s1 + 720;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s1 + 720, &local_64); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s1 + 720, &oem_frame.words[0x64 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 146: CallSetup */
     *(uint32_t *)((char *)s1 + 544) = (s0 + 88);
@@ -52800,7 +52787,7 @@ frame_channel_unlocked_ioctl0x5dc:
     *(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 544)) + 0) = (s0 + 88);
     *(uint32_t *)((char *)s0 + 72) = 1;
     *(uint32_t *)((char *)s1 + 548) = ((*(uint32_t *)((char *)(s1) + 548)) + 1);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s4, local_64); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s4, oem_frame.words[0x64 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 147: MemoryAccess */
     v0 = *(uint8_t *)((char *)s1 + 580);
@@ -52820,13 +52807,13 @@ frame_channel_unlocked_ioctl0x5dc:
 frame_channel_unlocked_ioctl0x688:
     /* fragment 151: CallSetup */
     *(uint8_t *)((char *)s0 + 76) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__fill_tisp_buffer)(s0, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__fill_tisp_buffer)(s0, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 152: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_mutex_unlock)(s3); /* jalr target resolved by relocation */
 
     /* fragment 153: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s2, &local_20, 68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s2, &oem_frame.words[0x20 / 4], 68); /* jalr target resolved by relocation */
 
     /* fragment 154: Branch */
     s0 = v0;
@@ -52858,10 +52845,10 @@ frame_channel_unlocked_ioctl0x6e0:
 
     /* fragment 161: CallSetup */
     *(uint32_t *)((char *)(((*(uint32_t *)((char *)((uintptr_t)s1) + 716)) * 12) + &isp_memopt) + 8) = ((*(uint32_t *)((char *)(((*(uint32_t *)((char *)((uintptr_t)s1) + 716)) * 12) + &isp_memopt) + 8)) + 1);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s2, 68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s2, 68); /* jalr target resolved by relocation */
 
     /* fragment 162: Branch */
-    v1 = local_24;
+    v1 = oem_frame.words[0x24 / 4];
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x760; }
 
     /* fragment 163: Arithmetic */
@@ -52955,11 +52942,11 @@ frame_channel_unlocked_ioctl0x7b4:
 
 frame_channel_unlocked_ioctl0x810:
     /* fragment 184: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__fill_tisp_buffer)(s0, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__fill_tisp_buffer)(s0, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 185: CallSetup */
     *(uint32_t *)((char *)s0 + 72) = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s2, &local_20, 68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s2, &oem_frame.words[0x20 / 4], 68); /* jalr target resolved by relocation */
 
     /* fragment 186: Branch */
     s0 = v0;
@@ -52982,8 +52969,8 @@ frame_channel_unlocked_ioctl0x854:
     if (v0 == v1) { goto frame_channel_unlocked_ioctl0x894; }
 
     /* fragment 191: CallSetup */
-    local_14 = v0;
-    local_10 = *(uint32_t *)((char *)(s1) + 716);
+    oem_frame.words[0x14 / 4] = v0;
+    oem_frame.words[0x10 / 4] = *(uint32_t *)((char *)(s1) + 716);
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC76, &__param_str_isp_dual_buf, 1069); /* jalr target resolved by relocation */
 
     /* fragment 192: Branch */
@@ -53000,11 +52987,11 @@ frame_channel_unlocked_ioctl0x894:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0x8d4; }
 
     /* fragment 195: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s2, 4); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s2, 4); /* jalr target resolved by relocation */
 
     /* fragment 196: Branch */
     int _bc_v0_196 = v0 == 0;
-    v0 = local_20;
+    v0 = oem_frame.words[0x20 / 4];
     if (_bc_v0_196) { goto frame_channel_unlocked_ioctl0x8e0; }
 
     /* fragment 197: Arithmetic */
@@ -53132,7 +53119,7 @@ frame_channel_unlocked_ioctl0xa04:
     if (v0 == 0) { goto frame_channel_unlocked_ioctl0xa44; }
 
     /* fragment 227: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s2, 4); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s2, 4); /* jalr target resolved by relocation */
 
     /* fragment 228: Branch */
     int _bc_v0_228 = v0 == 0;
@@ -53157,7 +53144,7 @@ frame_channel_unlocked_ioctl0xa44:
 
 frame_channel_unlocked_ioctl0xa50:
     /* fragment 233: StackAccess */
-    a1 = local_20;
+    a1 = oem_frame.words[0x20 / 4];
     a0 = s1;
 
     /* fragment 234: Branch */
@@ -53175,7 +53162,7 @@ frame_channel_unlocked_ioctl0xa60:
 
 frame_channel_unlocked_ioctl0xa70:
     /* fragment 237: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s1) + 712), a1 + 8, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s1) + 712), a1 + 8, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 238: Branch */
     s0 = v0;
@@ -53200,13 +53187,13 @@ frame_channel_unlocked_ioctl0xac4:
     v0 = v0 + 1;
 
     /* fragment 244: Branch */
-    local_20 = v0;
+    oem_frame.words[0x20 / 4] = v0;
     goto frame_channel_unlocked_ioctl0xd8;
 
 frame_channel_unlocked_ioctl0xad4:
     /* fragment 245: CallSetup */
     s3 = s1 + 560;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s1 + 560, &local_64); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s1 + 560, &oem_frame.words[0x64 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 246: CallSetup */
     s0 = (*(uint32_t *)((char *)(s1) + 552)) - 96;
@@ -53215,7 +53202,7 @@ frame_channel_unlocked_ioctl0xad4:
     *(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 552)) + 0) = 256;
     *(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 552)) + 4) = 512;
     *(uint32_t *)((char *)s1 + 564) = ((*(uint32_t *)((char *)(s1) + 564)) - 1);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s3, local_64); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(s3, oem_frame.words[0x64 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 247: Branch */
     v0 = 65536;
@@ -56611,42 +56598,20 @@ print_error_and_return:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012308 origin=fragment_seed original=tx_isp_unlocked_ioctl */
 int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
+    /* Recovered OEM sp offsets are one frame, not independent C locals.
+     * sp+0x20..0x6f holds the largest 80-byte ioctl object. Unaligned
+     * byte slots 0x21/22/23/25/29 are OEM lbu accesses, not u32 objects. */
+    union {
+        uint32_t words[0xb0 / 4];
+        uint8_t bytes[0xb0];
+    } oem_frame = { { 0 } };
+
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     if (a1 == 0x80045401) {
         return tx_isp_driver_version_isra_15(a2);
     }
 #endif
 
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t local_21 = 0;
-    uint32_t local_22 = 0;
-    uint32_t local_23 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_25 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_29 = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_70 = 0;
-    uint32_t local_74 = 0;
-    uint32_t local_78 = 0;
-    uint32_t local_7c = 0;
-    uint32_t local_80 = 0;
-    uint32_t local_84 = 0;
-    uint32_t local_88 = 0;
-    uint32_t local_8c = 0;
-    uint32_t *local_90 = 0;
-    uint32_t *local_94 = 0;
-    uint32_t local_98 = 0;
-    uint32_t local_9c = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_a4 = 0;
-    uint32_t local_a8 = 0;
-    uint32_t local_ac = 0;
     uintptr_t *a3 = 0;
     uint32_t ra = 0;
     uintptr_t *s0 = 0;
@@ -56672,16 +56637,16 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     v0 = 0xc004541c;
 
     /* fragment 2: StackAccess */
-    local_8c = s1;
-    local_ac = ra;
-    local_a8 = s8;
-    local_a4 = s7;
-    local_a0 = s6;
-    local_9c = s5;
-    local_98 = s4;
-    local_94 = s3;
-    local_90 = s2;
-    local_88 = s0;
+    oem_frame.words[0x8c / 4] = s1;
+    oem_frame.words[0xac / 4] = ra;
+    oem_frame.words[0xa8 / 4] = s8;
+    oem_frame.words[0xa4 / 4] = s7;
+    oem_frame.words[0xa0 / 4] = s6;
+    oem_frame.words[0x9c / 4] = s5;
+    oem_frame.words[0x98 / 4] = s4;
+    oem_frame.words[0x94 / 4] = s3;
+    oem_frame.words[0x90 / 4] = s2;
+    oem_frame.words[0x88 / 4] = s0;
     s1 = a2;
 
     /* fragment 3: Branch */
@@ -56689,11 +56654,11 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     if (a1 == v1) { goto tx_isp_unlocked_ioctl0x22dc; }
 
     /* fragment 4: Arithmetic */
-    v1 = v0 + 21533;
+    v1 = (uintptr_t)v0 + 21533;
     v1 = a1 < v1;
 
     /* fragment 5: Branch */
-    s3 = s2 - 12;
+    s3 = (uintptr_t)s2 - 12;
     if (v1 == 0) { goto tx_isp_unlocked_ioctl0x3b0; }
 
     /* fragment 6: ConstantLoad */
@@ -56701,7 +56666,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 
     /* fragment 7: Branch */
     int _bc_a1_7 = a1 == a0;
-    a0 = v1 + 21521;
+    a0 = (uintptr_t)v1 + 21521;
     if (_bc_a1_7) { goto tx_isp_unlocked_ioctl0x11f8; }
 
     /* fragment 8: Arithmetic */
@@ -56717,11 +56682,11 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 
     /* fragment 11: Branch */
     int _bc_a0_11 = a0 == 0;
-    a0 = v0 + 21514;
+    a0 = (uintptr_t)v0 + 21514;
     if (_bc_a0_11) { goto tx_isp_unlocked_ioctl0x160; }
 
     /* fragment 12: Arithmetic */
-    v1 = v0 + 21511;
+    v1 = (uintptr_t)v0 + 21511;
     v1 = a1 < v1;
 
     /* fragment 13: Branch */
@@ -56730,18 +56695,18 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     if (_bc_v1_13) { goto tx_isp_unlocked_ioctl0xa9c; }
 
     /* fragment 14: Arithmetic */
-    a0 = v1 + 21523;
+    a0 = (uintptr_t)v1 + 21523;
 
     /* fragment 15: Branch */
     int _bc_a1_15 = a1 == a0;
-    a0 = v1 + 21524;
+    a0 = (uintptr_t)v1 + 21524;
     if (_bc_a1_15) { goto tx_isp_unlocked_ioctl0x17f8; }
 
     /* fragment 16: Arithmetic */
     a2 = a1 < a0;
 
     /* fragment 17: Branch */
-    v1 = v1 + 21505;
+    v1 = (uintptr_t)v1 + 21505;
     if (a2 == 0) { goto tx_isp_unlocked_ioctl0xb8; }
 
     /* fragment 18: Branch */
@@ -56755,7 +56720,7 @@ tx_isp_unlocked_ioctl0xb0:
 
 tx_isp_unlocked_ioctl0xb8:
     /* fragment 20: Branch */
-    v0 = v0 + 21507;
+    v0 = (uintptr_t)v0 + 21507;
     if (a1 == a0) { goto tx_isp_unlocked_ioctl0x199c; }
 
     /* fragment 21: Branch */
@@ -56764,13 +56729,13 @@ tx_isp_unlocked_ioctl0xb8:
     if (_bc_a1_21) { goto tx_isp_unlocked_ioctl0xb0; }
 
     /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 8); /* jalr target resolved by relocation */
 
     /* fragment 23: Arithmetic */
-    s3 = s2 + 48;
+    s3 = (uintptr_t)s2 + 48;
 
     /* fragment 24: Branch */
-    s2 = s2 + 112;
+    s2 = (uintptr_t)s2 + 112;
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0x97c; }
 
     /* fragment 25: ConstantLoad */
@@ -56785,7 +56750,7 @@ tx_isp_unlocked_ioctl0xf4:
 
 tx_isp_unlocked_ioctl0x100:
     /* fragment 28: Arithmetic */
-    s3 = s3 + 4;
+    s3 = (uintptr_t)s3 + 4;
 
 tx_isp_unlocked_ioctl0x104:
     /* fragment 29: Branch */
@@ -56793,15 +56758,15 @@ tx_isp_unlocked_ioctl0x104:
     if (s2 != s3) { goto tx_isp_unlocked_ioctl0xf4; }
 
     /* fragment 30: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &local_20, 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &oem_frame.words[0x20 / 4], 8); /* jalr target resolved by relocation */
 
     /* fragment 31: Branch */
     s0 = 0;
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 32: CallSetup */
-    local_14 = 408;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 408;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC8, &__param_str_isp_dual_buf, 408); /* jalr target resolved by relocation */
 
     /* fragment 33: Branch */
@@ -56815,11 +56780,11 @@ tx_isp_unlocked_ioctl0x160:
     if (_bc_a1_34) { goto tx_isp_unlocked_ioctl0xd2c; }
 
     /* fragment 35: Branch */
-    v0 = v0 + 21528;
+    v0 = (uintptr_t)v0 + 21528;
     if (a0 != 0) { goto tx_isp_unlocked_ioctl0xab8; }
 
     /* fragment 36: Branch */
-    v1 = v1 + 21519;
+    v1 = (uintptr_t)v1 + 21519;
     if (a1 == v0) { goto tx_isp_unlocked_ioctl0x868; }
 
     /* fragment 37: Branch */
@@ -56831,15 +56796,15 @@ tx_isp_unlocked_ioctl0x160:
 
     /* fragment 39: CallSetup */
     s7 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 12); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 12); /* jalr target resolved by relocation */
 
     /* fragment 40: Branch */
-    s4 = local_20;
+    s4 = oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0xea0; }
 
     /* fragment 41: CallSetup */
-    local_14 = 651;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 651;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 651); /* jalr target resolved by relocation */
 
     /* fragment 42: Branch */
@@ -56861,7 +56826,7 @@ tx_isp_unlocked_ioctl0x1e8:
     if (a2 == 0) { goto tx_isp_unlocked_ioctl0x2c4; }
 
     /* fragment 47: Arithmetic */
-    v0 = v1 + 21522;
+    v0 = (uintptr_t)v1 + 21522;
 
     /* fragment 48: Branch */
     int _bc_a1_48 = a1 == v0;
@@ -56869,7 +56834,7 @@ tx_isp_unlocked_ioctl0x1e8:
     if (_bc_a1_48) { goto tx_isp_unlocked_ioctl0x1628; }
 
     /* fragment 49: Branch */
-    v1 = v1 + 21527;
+    v1 = (uintptr_t)v1 + 21527;
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0x13e0; }
 
     /* fragment 50: Branch */
@@ -56877,7 +56842,7 @@ tx_isp_unlocked_ioctl0x1e8:
     if (a1 == v1) { goto tx_isp_unlocked_ioctl0x20b0; }
 
     /* fragment 51: Arithmetic */
-    v0 = v0 + 21518;
+    v0 = (uintptr_t)v0 + 21518;
 
     /* fragment 52: Branch */
     int _bc_a1_52 = a1 != v0;
@@ -56885,13 +56850,13 @@ tx_isp_unlocked_ioctl0x1e8:
     if (_bc_a1_52) { goto tx_isp_unlocked_ioctl0xb0; }
 
     /* fragment 53: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 64); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 64); /* jalr target resolved by relocation */
 
     /* fragment 54: Arithmetic */
-    s3 = s2 + 48;
+    s3 = (uintptr_t)s2 + 48;
 
     /* fragment 55: Branch */
-    s2 = s2 + 112;
+    s2 = (uintptr_t)s2 + 112;
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0xe2c; }
 
     /* fragment 56: ConstantLoad */
@@ -56906,7 +56871,7 @@ tx_isp_unlocked_ioctl0x258:
 
 tx_isp_unlocked_ioctl0x264:
     /* fragment 59: Arithmetic */
-    s3 = s3 + 4;
+    s3 = (uintptr_t)s3 + 4;
 
 tx_isp_unlocked_ioctl0x268:
     /* fragment 60: Branch */
@@ -56914,15 +56879,15 @@ tx_isp_unlocked_ioctl0x268:
     if (s2 != s3) { goto tx_isp_unlocked_ioctl0x258; }
 
     /* fragment 61: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &local_20, 64); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &oem_frame.words[0x20 / 4], 64); /* jalr target resolved by relocation */
 
     /* fragment 62: Branch */
     s0 = 0;
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 63: CallSetup */
-    local_14 = 623;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 623;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 623); /* jalr target resolved by relocation */
 
     /* fragment 64: Branch */
@@ -56931,11 +56896,11 @@ tx_isp_unlocked_ioctl0x268:
 
 tx_isp_unlocked_ioctl0x2c4:
     /* fragment 65: Arithmetic */
-    v1 = v0 + 21525;
+    v1 = (uintptr_t)v0 + 21525;
 
     /* fragment 66: Branch */
     int _bc_a1_66 = a1 == v1;
-    v1 = v0 + 21526;
+    v1 = (uintptr_t)v0 + 21526;
     if (_bc_a1_66) { goto tx_isp_unlocked_ioctl0x1af8; }
 
     /* fragment 67: Arithmetic */
@@ -56945,7 +56910,7 @@ tx_isp_unlocked_ioctl0x2c4:
     if (v1 == 0) { goto tx_isp_unlocked_ioctl0x384; }
 
     /* fragment 69: Branch */
-    v0 = v0 + 21506;
+    v0 = (uintptr_t)v0 + 21506;
     if (a1 == a0) { goto tx_isp_unlocked_ioctl0xa80; }
 
     /* fragment 70: Branch */
@@ -56954,13 +56919,13 @@ tx_isp_unlocked_ioctl0x2c4:
     if (_bc_a1_70) { goto tx_isp_unlocked_ioctl0xb0; }
 
     /* fragment 71: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 80); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 80); /* jalr target resolved by relocation */
 
     /* fragment 72: Arithmetic */
-    s3 = s2 + 48;
+    s3 = (uintptr_t)s2 + 48;
 
     /* fragment 73: Branch */
-    s2 = s2 + 112;
+    s2 = (uintptr_t)s2 + 112;
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0x908; }
 
     /* fragment 74: ConstantLoad */
@@ -56975,7 +56940,7 @@ tx_isp_unlocked_ioctl0x318:
 
 tx_isp_unlocked_ioctl0x324:
     /* fragment 77: Arithmetic */
-    s3 = s3 + 4;
+    s3 = (uintptr_t)s3 + 4;
 
 tx_isp_unlocked_ioctl0x328:
     /* fragment 78: Branch */
@@ -56983,15 +56948,15 @@ tx_isp_unlocked_ioctl0x328:
     if (s2 != s3) { goto tx_isp_unlocked_ioctl0x318; }
 
     /* fragment 79: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &local_20, 80); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &oem_frame.words[0x20 / 4], 80); /* jalr target resolved by relocation */
 
     /* fragment 80: Branch */
     s0 = 0;
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 81: CallSetup */
-    local_14 = 377;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 377;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC8, &__param_str_isp_dual_buf, 377); /* jalr target resolved by relocation */
 
     /* fragment 82: Branch */
@@ -57000,10 +56965,10 @@ tx_isp_unlocked_ioctl0x328:
 
 tx_isp_unlocked_ioctl0x384:
     /* fragment 83: Arithmetic */
-    v1 = v0 + 21529;
+    v1 = (uintptr_t)v0 + 21529;
 
     /* fragment 84: Branch */
-    v0 = v0 + 21531;
+    v0 = (uintptr_t)v0 + 21531;
     if (a1 == v1) { goto tx_isp_unlocked_ioctl0x1b98; }
 
     /* fragment 85: Branch */
@@ -57020,10 +56985,10 @@ tx_isp_unlocked_ioctl0x384:
 
 tx_isp_unlocked_ioctl0x3b0:
     /* fragment 88: Arithmetic */
-    v1 = v0 + 21548;
+    v1 = (uintptr_t)v0 + 21548;
 
     /* fragment 89: Branch */
-    a0 = v0 + 21549;
+    a0 = (uintptr_t)v0 + 21549;
     if (a1 == v1) { goto tx_isp_unlocked_ioctl0x2918; }
 
     /* fragment 90: Arithmetic */
@@ -57031,14 +56996,14 @@ tx_isp_unlocked_ioctl0x3b0:
 
     /* fragment 91: Branch */
     int _bc_v1_91 = v1 == 0;
-    v1 = v0 + 21554;
+    v1 = (uintptr_t)v0 + 21554;
     if (_bc_v1_91) { goto tx_isp_unlocked_ioctl0x5f8; }
 
     /* fragment 92: Arithmetic */
-    v1 = v0 + 21540;
+    v1 = (uintptr_t)v0 + 21540;
 
     /* fragment 93: Branch */
-    a0 = v0 + 21541;
+    a0 = (uintptr_t)v0 + 21541;
     if (a1 == v1) { goto tx_isp_unlocked_ioctl0x253c; }
 
     /* fragment 94: Arithmetic */
@@ -57046,11 +57011,11 @@ tx_isp_unlocked_ioctl0x3b0:
 
     /* fragment 95: Branch */
     int _bc_v1_95 = v1 == 0;
-    v1 = v0 + 21544;
+    v1 = (uintptr_t)v0 + 21544;
     if (_bc_v1_95) { goto tx_isp_unlocked_ioctl0x518; }
 
     /* fragment 96: Arithmetic */
-    v1 = v0 + 21534;
+    v1 = (uintptr_t)v0 + 21534;
 
     /* fragment 97: Branch */
     int _bc_a1_97 = a1 == v1;
@@ -57059,11 +57024,11 @@ tx_isp_unlocked_ioctl0x3b0:
 
     /* fragment 98: Branch */
     int _bc_v1_98 = v1 != 0;
-    v1 = v0 + 21536;
+    v1 = (uintptr_t)v0 + 21536;
     if (_bc_v1_98) { goto tx_isp_unlocked_ioctl0x235c; }
 
     /* fragment 99: Branch */
-    v0 = v0 + 21539;
+    v0 = (uintptr_t)v0 + 21539;
     if (a1 == v1) { goto tx_isp_unlocked_ioctl0x22c0; }
 
     /* fragment 100: Branch */
@@ -57078,10 +57043,10 @@ tx_isp_unlocked_ioctl0x3b0:
     v0 = (uintptr_t *)memset((void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&awb_info_mine))) + 8), 0, 2724); /* jalr target resolved by relocation */
 
     /* fragment 103: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_awb_attr)(0, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_awb_attr)(0, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 104: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_awb_global_statis_attr)(0, &local_70); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_awb_global_statis_attr)(0, &oem_frame.words[0x70 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 105: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_awb_statis_attr)(0, (*(uint32_t *)((char *)((char *)&awb_info_mine))) + 32); /* jalr target resolved by relocation */
@@ -57094,8 +57059,8 @@ tx_isp_unlocked_ioctl0x3b0:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 108: CallSetup */
-    local_14 = 1670;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1670;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC8, &__param_str_isp_dual_buf, 1670); /* jalr target resolved by relocation */
 
     /* fragment 109: Branch */
@@ -57105,7 +57070,7 @@ tx_isp_unlocked_ioctl0x3b0:
 tx_isp_unlocked_ioctl0x518:
     /* fragment 110: Branch */
     int _bc_a1_110 = a1 == v1;
-    v1 = v0 + 21545;
+    v1 = (uintptr_t)v0 + 21545;
     if (_bc_a1_110) { goto tx_isp_unlocked_ioctl0x2420; }
 
     /* fragment 111: Arithmetic */
@@ -57115,7 +57080,7 @@ tx_isp_unlocked_ioctl0x518:
     if (v1 == 0) { goto tx_isp_unlocked_ioctl0x590; }
 
     /* fragment 113: Branch */
-    v0 = v0 + 21542;
+    v0 = (uintptr_t)v0 + 21542;
     if (a1 == a0) { goto tx_isp_unlocked_ioctl0x25bc; }
 
     /* fragment 114: Branch */
@@ -57124,7 +57089,7 @@ tx_isp_unlocked_ioctl0x518:
     if (_bc_a1_114) { goto tx_isp_unlocked_ioctl0xb0; }
 
     /* fragment 115: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 8); /* jalr target resolved by relocation */
 
     /* fragment 116: Branch */
     int _bc_v0_116 = v0 == 0;
@@ -57132,8 +57097,8 @@ tx_isp_unlocked_ioctl0x518:
     if (_bc_v0_116) { goto tx_isp_unlocked_ioctl0x2734; }
 
     /* fragment 117: CallSetup */
-    local_14 = 1769;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1769;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1769); /* jalr target resolved by relocation */
 
     /* fragment 118: Branch */
@@ -57142,10 +57107,10 @@ tx_isp_unlocked_ioctl0x518:
 
 tx_isp_unlocked_ioctl0x590:
     /* fragment 119: Arithmetic */
-    v1 = v0 + 21546;
+    v1 = (uintptr_t)v0 + 21546;
 
     /* fragment 120: Branch */
-    v0 = v0 + 21547;
+    v0 = (uintptr_t)v0 + 21547;
     if (a1 == v1) { goto tx_isp_unlocked_ioctl0x2784; }
 
     /* fragment 121: Branch */
@@ -57154,15 +57119,15 @@ tx_isp_unlocked_ioctl0x590:
     if (_bc_a1_121) { goto tx_isp_unlocked_ioctl0xb0; }
 
     /* fragment 122: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 68); /* jalr target resolved by relocation */
 
     /* fragment 123: Branch */
-    a1 = local_20;
+    a1 = oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x2854; }
 
     /* fragment 124: CallSetup */
-    local_14 = 1833;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1833;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1833); /* jalr target resolved by relocation */
 
     /* fragment 125: Branch */
@@ -57172,7 +57137,7 @@ tx_isp_unlocked_ioctl0x590:
 tx_isp_unlocked_ioctl0x5f8:
     /* fragment 126: Branch */
     int _bc_a1_126 = a1 == v1;
-    v1 = v0 + 21555;
+    v1 = (uintptr_t)v0 + 21555;
     if (_bc_a1_126) { goto tx_isp_unlocked_ioctl0x2df8; }
 
     /* fragment 127: Arithmetic */
@@ -57180,12 +57145,12 @@ tx_isp_unlocked_ioctl0x5f8:
 
     /* fragment 128: Branch */
     int _bc_v1_128 = v1 == 0;
-    v1 = v0 + 21551;
+    v1 = (uintptr_t)v0 + 21551;
     if (_bc_v1_128) { goto tx_isp_unlocked_ioctl0x6fc; }
 
     /* fragment 129: Branch */
     int _bc_a1_129 = a1 == v1;
-    v1 = v0 + 21552;
+    v1 = (uintptr_t)v0 + 21552;
     if (_bc_a1_129) { goto tx_isp_unlocked_ioctl0x2ab0; }
 
     /* fragment 130: Arithmetic */
@@ -57195,7 +57160,7 @@ tx_isp_unlocked_ioctl0x5f8:
     if (a2 == 0) { goto tx_isp_unlocked_ioctl0x690; }
 
     /* fragment 132: Branch */
-    v0 = v0 + 21550;
+    v0 = (uintptr_t)v0 + 21550;
     if (a1 == a0) { goto tx_isp_unlocked_ioctl0x29ac; }
 
     /* fragment 133: Branch */
@@ -57204,17 +57169,17 @@ tx_isp_unlocked_ioctl0x5f8:
 
     /* fragment 134: CallSetup */
     s0 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s2) + 48)) + 268);
-    local_20 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1); /* jalr target resolved by relocation */
+    oem_frame.words[0x20 / 4] = 0;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1); /* jalr target resolved by relocation */
 
     /* fragment 135: Branch */
     int _bc_v0_135 = v0 == 0;
-    v0 = local_20;
+    v0 = oem_frame.words[0x20 / 4];
     if (_bc_v0_135) { goto tx_isp_unlocked_ioctl0x2a94; }
 
     /* fragment 136: CallSetup */
-    local_14 = 1901;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1901;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1901); /* jalr target resolved by relocation */
 
     /* fragment 137: Branch */
@@ -57223,7 +57188,7 @@ tx_isp_unlocked_ioctl0x5f8:
 
 tx_isp_unlocked_ioctl0x690:
     /* fragment 138: Branch */
-    v0 = v0 + 21553;
+    v0 = (uintptr_t)v0 + 21553;
     if (a1 == v1) { goto tx_isp_unlocked_ioctl0x2b38; }
 
     /* fragment 139: Branch */
@@ -57232,16 +57197,16 @@ tx_isp_unlocked_ioctl0x690:
 
     /* fragment 140: CallSetup */
     s2 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s2) + 48)) + 268);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1); /* jalr target resolved by relocation */
 
     /* fragment 141: Branch */
     int _bc_v0_141 = v0 == 0;
-    v0 = local_20;
+    v0 = oem_frame.words[0x20 / 4];
     if (_bc_v0_141) { goto tx_isp_unlocked_ioctl0x2ba4; }
 
     /* fragment 142: CallSetup */
-    local_14 = 1961;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1961;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1961); /* jalr target resolved by relocation */
 
     /* fragment 143: Branch */
@@ -57254,14 +57219,14 @@ tx_isp_unlocked_ioctl0x6fc:
 
     /* fragment 145: Branch */
     int _bc_v1_145 = v1 == 0;
-    v1 = v0 + 21515;
+    v1 = (uintptr_t)v0 + 21515;
     if (_bc_v1_145) { goto tx_isp_unlocked_ioctl0x7bc; }
 
     /* fragment 146: Arithmetic */
     v1 = a1 < v1;
 
     /* fragment 147: Branch */
-    v0 = v0 + 21508;
+    v0 = (uintptr_t)v0 + 21508;
     if (v1 == 0) { goto tx_isp_unlocked_ioctl0xd9c; }
 
     /* fragment 148: Branch */
@@ -57270,13 +57235,13 @@ tx_isp_unlocked_ioctl0x6fc:
     if (_bc_a1_148) { goto tx_isp_unlocked_ioctl0xb0; }
 
     /* fragment 149: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 8); /* jalr target resolved by relocation */
 
     /* fragment 150: Arithmetic */
-    s3 = s2 + 48;
+    s3 = (uintptr_t)s2 + 48;
 
     /* fragment 151: Branch */
-    s2 = s2 + 112;
+    s2 = (uintptr_t)s2 + 112;
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0x9f0; }
 
     /* fragment 152: ConstantLoad */
@@ -57291,7 +57256,7 @@ tx_isp_unlocked_ioctl0x750:
 
 tx_isp_unlocked_ioctl0x75c:
     /* fragment 155: Arithmetic */
-    s3 = s3 + 4;
+    s3 = (uintptr_t)s3 + 4;
 
 tx_isp_unlocked_ioctl0x760:
     /* fragment 156: Branch */
@@ -57299,15 +57264,15 @@ tx_isp_unlocked_ioctl0x760:
     if (s2 != s3) { goto tx_isp_unlocked_ioctl0x750; }
 
     /* fragment 157: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &local_20, 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &oem_frame.words[0x20 / 4], 8); /* jalr target resolved by relocation */
 
     /* fragment 158: Branch */
     s0 = 0;
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 159: CallSetup */
-    local_14 = 439;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 439;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC8, &__param_str_isp_dual_buf, 439); /* jalr target resolved by relocation */
 
     /* fragment 160: Branch */
@@ -57324,7 +57289,7 @@ tx_isp_unlocked_ioctl0x7bc:
     if (_bc_a1_162) { goto tx_isp_unlocked_ioctl0x1c14; }
 
     /* fragment 163: Arithmetic */
-    v0 = v0 + 21517;
+    v0 = (uintptr_t)v0 + 21517;
 
     /* fragment 164: Branch */
     int _bc_a1_164 = a1 != v0;
@@ -57332,13 +57297,13 @@ tx_isp_unlocked_ioctl0x7bc:
     if (_bc_a1_164) { goto tx_isp_unlocked_ioctl0xb0; }
 
     /* fragment 165: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 64); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 64); /* jalr target resolved by relocation */
 
     /* fragment 166: Arithmetic */
-    s1 = s2 + 48;
+    s1 = (uintptr_t)s2 + 48;
 
     /* fragment 167: Branch */
-    s2 = s2 + 112;
+    s2 = (uintptr_t)s2 + 112;
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0xdb8; }
 
     /* fragment 168: ConstantLoad */
@@ -57353,7 +57318,7 @@ tx_isp_unlocked_ioctl0x804:
 
 tx_isp_unlocked_ioctl0x810:
     /* fragment 171: Arithmetic */
-    s1 = s1 + 4;
+    s1 = (uintptr_t)s1 + 4;
 
 tx_isp_unlocked_ioctl0x814:
     /* fragment 172: Branch */
@@ -57387,16 +57352,16 @@ tx_isp_unlocked_ioctl0x868:
     /* fragment 179: CallSetup */
     s2 = *(uint32_t *)((char *)(s2) + 48);
     s0 = *(uint32_t *)((char *)(s2) + 268);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 8); /* jalr target resolved by relocation */
 
     /* fragment 180: Branch */
     int _bc_v0_180 = v0 == 0;
-    v0 = local_24;
+    v0 = oem_frame.words[0x24 / 4];
     if (_bc_v0_180) { goto tx_isp_unlocked_ioctl0x8c8; }
 
     /* fragment 181: CallSetup */
-    local_14 = 1361;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1361;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1361); /* jalr target resolved by relocation */
 
     /* fragment 182: Branch */
@@ -57405,7 +57370,7 @@ tx_isp_unlocked_ioctl0x868:
 
 tx_isp_unlocked_ioctl0x8c8:
     /* fragment 183: StackAccess */
-    v1 = local_20;
+    v1 = oem_frame.words[0x20 / 4];
     v0 = v0 + 160;
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s0 + (uintptr_t)v0;
@@ -57423,15 +57388,15 @@ tx_isp_unlocked_ioctl0x8c8:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 187: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 24, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 24, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 188: Branch */
     goto tx_isp_unlocked_ioctl0x838;
 
 tx_isp_unlocked_ioctl0x908:
     /* fragment 189: CallSetup */
-    local_14 = 363;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 363;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 363); /* jalr target resolved by relocation */
 
     /* fragment 190: Branch */
@@ -57450,7 +57415,7 @@ tx_isp_unlocked_ioctl0x940:
     v0 = *(uint32_t *)((char *)v0 + 8);
 
     /* fragment 194: Branch */
-    a2 = (uint32_t *)&local_20;
+    a2 = (uint32_t *)&oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x324; }
 
     /* fragment 195: CallSetup */
@@ -57469,8 +57434,8 @@ tx_isp_unlocked_ioctl0x940:
 
 tx_isp_unlocked_ioctl0x97c:
     /* fragment 199: CallSetup */
-    local_14 = 394;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 394;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 394); /* jalr target resolved by relocation */
 
     /* fragment 200: Branch */
@@ -57489,7 +57454,7 @@ tx_isp_unlocked_ioctl0x9b4:
     v0 = *(uint32_t *)((char *)v0 + 8);
 
     /* fragment 204: Branch */
-    a2 = (uint32_t *)&local_20;
+    a2 = (uint32_t *)&oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x100; }
 
     /* fragment 205: CallSetup */
@@ -57508,8 +57473,8 @@ tx_isp_unlocked_ioctl0x9b4:
 
 tx_isp_unlocked_ioctl0x9f0:
     /* fragment 209: CallSetup */
-    local_14 = 425;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 425;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 425); /* jalr target resolved by relocation */
 
     /* fragment 210: Branch */
@@ -57528,7 +57493,7 @@ tx_isp_unlocked_ioctl0xa28:
     v0 = *(uint32_t *)((char *)v0 + 8);
 
     /* fragment 214: Branch */
-    a2 = (uint32_t *)&local_20;
+    a2 = (uint32_t *)&oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x75c; }
 
     /* fragment 215: CallSetup */
@@ -57571,15 +57536,15 @@ tx_isp_unlocked_ioctl0xa9c:
 
 tx_isp_unlocked_ioctl0xab8:
     /* fragment 225: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 8); /* jalr target resolved by relocation */
 
     /* fragment 226: Branch */
-    v1 = local_24;
+    v1 = oem_frame.words[0x24 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0xb10; }
 
     /* fragment 227: CallSetup */
-    local_14 = 288;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 288;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 288); /* jalr target resolved by relocation */
 
     /* fragment 228: Branch */
@@ -57596,9 +57561,9 @@ tx_isp_unlocked_ioctl0xb10:
     if (_bc_v0_230) { goto tx_isp_unlocked_ioctl0xb58; }
 
     /* fragment 231: CallSetup */
-    local_14 = 294;
-    local_18 = v1;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 294;
+    oem_frame.words[0x18 / 4] = v1;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC11, &__param_str_isp_dual_buf, 294); /* jalr target resolved by relocation */
 
     /* fragment 232: Branch */
@@ -57627,7 +57592,7 @@ tx_isp_unlocked_ioctl0xb58:
     s1 = *(uint32_t *)((char *)v0 + 0);
     s4 = 65536;
     s5 = 65536;
-    local_80 = v1;
+    oem_frame.words[0x80 / 4] = v1;
     s6 = 0;
     s4 = s4 + 4156;
     s7 = 4;
@@ -57635,7 +57600,7 @@ tx_isp_unlocked_ioctl0xb58:
 
 tx_isp_unlocked_ioctl0xb9c:
     /* fragment 238: StackAccess */
-    v0 = local_80;
+    v0 = oem_frame.words[0x80 / 4];
     v0 = s6 < v0;
 
     /* fragment 239: Branch */
@@ -57680,8 +57645,8 @@ tx_isp_unlocked_ioctl0xbbc:
     if (_bc_v0_248) { goto tx_isp_unlocked_ioctl0xc34; }
 
     /* fragment 249: CallSetup */
-    local_14 = v0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = v0;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC12, &__param_str_isp_dual_buf, 234); /* jalr target resolved by relocation */
 
     /* fragment 250: Branch */
@@ -57703,8 +57668,8 @@ tx_isp_unlocked_ioctl0xc34:
 
 tx_isp_unlocked_ioctl0xc4c:
     /* fragment 255: CallSetup */
-    local_14 = 240;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 240;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC13, &__param_str_isp_dual_buf, 240); /* jalr target resolved by relocation */
 
     /* fragment 256: Branch */
@@ -57794,15 +57759,15 @@ tx_isp_unlocked_ioctl0xd18:
 
 tx_isp_unlocked_ioctl0xd2c:
     /* fragment 276: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 8); /* jalr target resolved by relocation */
 
     /* fragment 277: Branch */
-    a1 = local_24;
+    a1 = oem_frame.words[0x24 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0xd84; }
 
     /* fragment 278: CallSetup */
-    local_14 = 2057;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 2057;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 2057); /* jalr target resolved by relocation */
 
     /* fragment 279: Branch */
@@ -57827,8 +57792,8 @@ tx_isp_unlocked_ioctl0xd9c:
 
 tx_isp_unlocked_ioctl0xdb8:
     /* fragment 284: CallSetup */
-    local_14 = 582;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 582;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 582); /* jalr target resolved by relocation */
 
     /* fragment 285: Branch */
@@ -57847,7 +57812,7 @@ tx_isp_unlocked_ioctl0xdf0:
     v0 = *(uint32_t *)((char *)v0 + 8);
 
     /* fragment 289: Branch */
-    a2 = (uint32_t *)&local_20;
+    a2 = (uint32_t *)&oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x810; }
 
     /* fragment 290: CallSetup */
@@ -57866,8 +57831,8 @@ tx_isp_unlocked_ioctl0xdf0:
 
 tx_isp_unlocked_ioctl0xe2c:
     /* fragment 294: CallSetup */
-    local_14 = 609;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 609;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 609); /* jalr target resolved by relocation */
 
     /* fragment 295: Branch */
@@ -57886,7 +57851,7 @@ tx_isp_unlocked_ioctl0xe64:
     v0 = *(uint32_t *)((char *)v0 + 8);
 
     /* fragment 299: Branch */
-    a2 = (uint32_t *)&local_20;
+    a2 = (uint32_t *)&oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x264; }
 
     /* fragment 300: CallSetup */
@@ -57927,7 +57892,7 @@ tx_isp_unlocked_ioctl0xeb4:
     v0 = *(uint32_t *)((char *)v0 + 268);
     s3 = (uintptr_t)s3 << 11;
     s2 = (uintptr_t *)&system_reg_write;
-    local_80 = v0;
+    oem_frame.words[0x80 / 4] = v0;
     s2 = s2;
     s5 = a0 + (uintptr_t)v0;
     s6 = *(uint32_t *)((char *)s5 + 316);
@@ -57946,13 +57911,13 @@ tx_isp_unlocked_ioctl0xeb4:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
 
     /* fragment 310: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 64, local_24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 64, oem_frame.words[0x24 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 311: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 68, s6); /* jalr target resolved by relocation */
 
     /* fragment 312: StackAccess */
-    v0 = local_28;
+    v0 = oem_frame.words[0x28 / 4];
     v0 = v0 < s0;
 
     /* fragment 313: Branch */
@@ -57971,7 +57936,7 @@ tx_isp_unlocked_ioctl0xf64:
     s1 = *(uint32_t *)((char *)(s5) + 316);
     s1 = s1 + 31;
     s1 = (uintptr_t)s1 & a2;
-    local_84 = a2;
+    oem_frame.words[0x84 / 4] = a2;
     s6 = ((uintptr_t)s1 * (*(uint32_t *)((char *)(s5) + 320))) >> 1;
     s6 = s6 + (((uintptr_t)s1 * (*(uint32_t *)((char *)(s5) + 320))) >> 7);
     s6 = s6 + 1023;
@@ -57979,18 +57944,18 @@ tx_isp_unlocked_ioctl0xf64:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 116, ((s6 + 1023) & s8) >> 8, a2); /* jalr target resolved by relocation */
 
     /* fragment 317: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 72, (uintptr_t)s0 + (uintptr_t)local_24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 72, (uintptr_t)s0 + (uintptr_t)oem_frame.words[0x24 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 318: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 76, s1); /* jalr target resolved by relocation */
 
     /* fragment 319: StackAccess */
-    v0 = local_28;
+    v0 = oem_frame.words[0x28 / 4];
     s1 = s0 + s6;
     v0 = v0 < s1;
 
     /* fragment 320: Branch */
-    a2 = local_84;
+    a2 = oem_frame.words[0x84 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0xff8; }
 
     /* fragment 321: CallSetup */
@@ -58011,14 +57976,14 @@ tx_isp_unlocked_ioctl0xff8:
     s0 = s0 + 7;
     s0 = (uintptr_t)s0 & (-8);
     s6 = (uintptr_t)s0 * s6;
-    local_84 = a2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 80, (uintptr_t)s1 + (uintptr_t)local_24, a2); /* jalr target resolved by relocation */
+    oem_frame.words[0x84 / 4] = a2;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 80, (uintptr_t)s1 + (uintptr_t)oem_frame.words[0x24 / 4], a2); /* jalr target resolved by relocation */
 
     /* fragment 324: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 84, s0); /* jalr target resolved by relocation */
 
     /* fragment 325: StackAccess */
-    v0 = local_28;
+    v0 = oem_frame.words[0x28 / 4];
     s6 = s6 >> 3;
     s6 = s6 + 1023;
     s6 = s6 & s8;
@@ -58026,7 +57991,7 @@ tx_isp_unlocked_ioctl0xff8:
     v0 = v0 < s6;
 
     /* fragment 326: Branch */
-    a2 = local_84;
+    a2 = oem_frame.words[0x84 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x108c; }
 
     /* fragment 327: CallSetup */
@@ -58064,13 +58029,13 @@ tx_isp_unlocked_ioctl0x10ac:
 
 tx_isp_unlocked_ioctl0x10c8:
     /* fragment 333: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 88, s6 + (uintptr_t)local_24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 88, s6 + (uintptr_t)oem_frame.words[0x24 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 334: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 92, s0); /* jalr target resolved by relocation */
 
     /* fragment 335: StackAccess */
-    v0 = local_28;
+    v0 = oem_frame.words[0x28 / 4];
     s0 = s6 + (uintptr_t)s1;
     v0 = v0 < s0;
 
@@ -58103,27 +58068,27 @@ tx_isp_unlocked_ioctl0x1134:
     if (s7 != 0) { goto tx_isp_unlocked_ioctl0xeac; }
 
     /* fragment 343: CallSetup */
-    s4 = ((uintptr_t)s4 * (uintptr_t)v0) + local_80;
+    s4 = ((uintptr_t)s4 * (uintptr_t)v0) + oem_frame.words[0x80 / 4];
     s6 = *(uint32_t *)((char *)(s4) + 316);
     s1 = *(uint32_t *)((char *)(s4) + 320);
     s6 = s6 + 31;
     s6 = s6 >> 5;
     s6 = s6 << 4;
     s1 = s6 * (uintptr_t)s1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 96, (uintptr_t)s0 + (uintptr_t)local_24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 96, (uintptr_t)s0 + (uintptr_t)oem_frame.words[0x24 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 344: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 100, s6); /* jalr target resolved by relocation */
 
     /* fragment 345: CallSetup */
     s0 = (((uintptr_t)s1 >> 2) + 1023) & (-1024) + (uintptr_t)s0;
-    local_18 = local_24;
-    local_10 = s0;
-    local_14 = local_28;
+    oem_frame.words[0x18 / 4] = oem_frame.words[0x24 / 4];
+    oem_frame.words[0x10 / 4] = s0;
+    oem_frame.words[0x14 / 4] = oem_frame.words[0x28 / 4];
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC15, &__param_str_isp_dual_buf, 732); /* jalr target resolved by relocation */
 
     /* fragment 346: StackAccess */
-    v0 = local_28;
+    v0 = oem_frame.words[0x28 / 4];
     s0 = v0 < s0;
 
     /* fragment 347: Branch */
@@ -58143,15 +58108,15 @@ tx_isp_unlocked_ioctl0x11f8:
 
     /* fragment 351: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 12); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 12); /* jalr target resolved by relocation */
 
     /* fragment 352: Branch */
-    a2 = local_20;
+    a2 = oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1264; }
 
     /* fragment 353: CallSetup */
-    local_14 = 760;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 760;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 760); /* jalr target resolved by relocation */
 
     /* fragment 354: Branch */
@@ -58246,20 +58211,20 @@ tx_isp_unlocked_ioctl0x1338:
 
 tx_isp_unlocked_ioctl0x1368:
     /* fragment 364: CallSetup */
-    local_28 = v1;
+    oem_frame.words[0x28 / 4] = v1;
 
 tx_isp_unlocked_ioctl0x136c:
     /* fragment 365: CallSetup */
-    local_24 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &local_20, 12); /* jalr target resolved by relocation */
+    oem_frame.words[0x24 / 4] = 0;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &oem_frame.words[0x20 / 4], 12); /* jalr target resolved by relocation */
 
     /* fragment 366: Branch */
     s0 = 0;
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 367: CallSetup */
-    local_14 = 823;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 823;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 823); /* jalr target resolved by relocation */
 
     /* fragment 368: Branch */
@@ -58277,20 +58242,20 @@ tx_isp_unlocked_ioctl0x13c8:
 
 tx_isp_unlocked_ioctl0x13d8:
     /* fragment 371: Branch */
-    local_28 = 0;
+    oem_frame.words[0x28 / 4] = 0;
     goto tx_isp_unlocked_ioctl0x136c;
 
 tx_isp_unlocked_ioctl0x13e0:
     /* fragment 372: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 12); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 12); /* jalr target resolved by relocation */
 
     /* fragment 373: Branch */
-    s3 = local_20;
+    s3 = oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1438; }
 
     /* fragment 374: CallSetup */
-    local_14 = 844;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 844;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 844); /* jalr target resolved by relocation */
 
     /* fragment 375: Branch */
@@ -58341,17 +58306,17 @@ tx_isp_unlocked_ioctl0x1490:
 tx_isp_unlocked_ioctl0x14a8:
     /* fragment 382: CallSetup */
     s0 = (uintptr_t)v0 + (uintptr_t)s0;
-    local_14 = s0;
-    local_1c = local_24;
-    local_18 = local_28;
+    oem_frame.words[0x14 / 4] = s0;
+    oem_frame.words[0x1c / 4] = oem_frame.words[0x24 / 4];
+    oem_frame.words[0x18 / 4] = oem_frame.words[0x28 / 4];
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC17, &__param_str_isp_dual_buf, 877); /* jalr target resolved by relocation */
 
     /* fragment 383: StackAccess */
-    v0 = local_28;
+    v0 = oem_frame.words[0x28 / 4];
     v0 = v0 < s0;
 
     /* fragment 384: Branch */
-    a1 = local_24;
+    a1 = oem_frame.words[0x24 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x15dc; }
 
     /* fragment 385: CallSetup */
@@ -58364,10 +58329,10 @@ tx_isp_unlocked_ioctl0x14a8:
 
     /* fragment 387: MemoryAccess */
     *(uint32_t *)((char *)v0 + 4) = 0;
-    local_74 = s3;
+    oem_frame.words[0x74 / 4] = s3;
 
     /* fragment 388: Branch */
-    local_70 = 0;
+    oem_frame.words[0x70 / 4] = 0;
     if (s5 == 0) { goto tx_isp_unlocked_ioctl0x154c; }
 
     /* fragment 389: MemoryAccess */
@@ -58385,7 +58350,7 @@ tx_isp_unlocked_ioctl0x14a8:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x154c; }
 
     /* fragment 393: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s5, a1 + 3, &local_70); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s5, a1 + 3, &oem_frame.words[0x70 / 4]); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x154c:
     /* fragment 394: Branch */
@@ -58447,8 +58412,8 @@ tx_isp_unlocked_ioctl0x158c:
 
 tx_isp_unlocked_ioctl0x15b0:
     /* fragment 407: CallSetup */
-    local_14 = 874;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 874;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC16, &__param_str_isp_dual_buf, 874); /* jalr target resolved by relocation */
 
     /* fragment 408: Branch */
@@ -58494,15 +58459,15 @@ tx_isp_unlocked_ioctl0x1614:
 
 tx_isp_unlocked_ioctl0x1628:
     /* fragment 419: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 12); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 12); /* jalr target resolved by relocation */
 
     /* fragment 420: Branch */
-    v1 = local_20;
+    v1 = oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1680; }
 
     /* fragment 421: CallSetup */
-    local_14 = 924;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 924;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 924); /* jalr target resolved by relocation */
 
     /* fragment 422: Branch */
@@ -58515,8 +58480,8 @@ tx_isp_unlocked_ioctl0x1680:
     a0 = *(uint32_t *)((char *)v0 + 268);
     v0 = 96;
     a1 = (uintptr_t)v1 * (uintptr_t)v0;
-    local_24 = 0;
-    local_28 = 0;
+    oem_frame.words[0x24 / 4] = 0;
+    oem_frame.words[0x28 / 4] = 0;
     v0 = a1 + a0;
     a2 = *(uint32_t *)((char *)v0 + 368);
     v0 = *(uint32_t *)((char *)a2 + 148);
@@ -58570,20 +58535,20 @@ tx_isp_unlocked_ioctl0x1700:
 
 tx_isp_unlocked_ioctl0x1714:
     /* fragment 433: CallSetup */
-    local_28 = v0;
+    oem_frame.words[0x28 / 4] = v0;
     v0 = (uintptr_t *)&private_copy_to_user;
 
 tx_isp_unlocked_ioctl0x171c:
     /* fragment 434: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &local_20, 12); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &oem_frame.words[0x20 / 4], 12); /* jalr target resolved by relocation */
 
     /* fragment 435: Branch */
     s0 = 0;
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 436: CallSetup */
-    local_14 = 960;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 960;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 960); /* jalr target resolved by relocation */
 
     /* fragment 437: Branch */
@@ -58648,17 +58613,17 @@ tx_isp_unlocked_ioctl0x17cc:
 
 tx_isp_unlocked_ioctl0x17f8:
     /* fragment 451: CallSetup */
-    local_70 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_70, s1, 4); /* jalr target resolved by relocation */
+    oem_frame.words[0x70 / 4] = 0;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x70 / 4], s1, 4); /* jalr target resolved by relocation */
 
     /* fragment 452: Branch */
-    v1 = local_70;
+    v1 = oem_frame.words[0x70 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1858; }
 
     /* fragment 453: CallSetup */
-    local_14 = 1210;
-    local_18 = v1;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1210;
+    oem_frame.words[0x18 / 4] = v1;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC19, &__param_str_isp_dual_buf, 1210); /* jalr target resolved by relocation */
 
     /* fragment 454: Branch */
@@ -58686,17 +58651,17 @@ tx_isp_unlocked_ioctl0x187c:
 
 tx_isp_unlocked_ioctl0x1884:
     /* fragment 458: CallSetup */
-    local_10 = v1;
+    oem_frame.words[0x10 / 4] = v1;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC20, &__param_str_isp_dual_buf, 1224); /* jalr target resolved by relocation */
 
     /* fragment 459: StackAccess */
-    v0 = local_70;
+    v0 = oem_frame.words[0x70 / 4];
     v1 = v0 + 182;
     v1 = (uintptr_t)v1 << 2;
     v1 = (uintptr_t)s1 + (uintptr_t)v1;
     *(uint32_t *)((char *)v1 + 4) = s2;
-    local_24 = v0;
-    local_20 = s2;
+    oem_frame.words[0x24 / 4] = v0;
+    oem_frame.words[0x20 / 4] = s2;
     v0 = (uintptr_t)s1 + (uintptr_t)v0;
     v0 = *(uint8_t *)((char *)v0 + 1564);
 
@@ -58711,7 +58676,7 @@ tx_isp_unlocked_ioctl0x1884:
     *(uint32_t *)((char *)v0 + 96) = 0;
 
     /* fragment 462: Branch */
-    v0 = local_70;
+    v0 = oem_frame.words[0x70 / 4];
     if (s0 == 0) { goto tx_isp_unlocked_ioctl0x195c; }
 
     /* fragment 463: MemoryAccess */
@@ -58722,7 +58687,7 @@ tx_isp_unlocked_ioctl0x1884:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1910; }
 
     /* fragment 465: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 19, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 19, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1910:
     /* fragment 466: MemoryAccess */
@@ -58740,7 +58705,7 @@ tx_isp_unlocked_ioctl0x1910:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x193c; }
 
     /* fragment 470: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 3, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 3, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x193c:
     /* fragment 471: MemoryAccess */
@@ -58751,11 +58716,11 @@ tx_isp_unlocked_ioctl0x193c:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1958; }
 
     /* fragment 473: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 12, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 12, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1958:
     /* fragment 474: StackAccess */
-    v0 = local_70;
+    v0 = oem_frame.words[0x70 / 4];
 
 tx_isp_unlocked_ioctl0x195c:
     /* fragment 475: Arithmetic */
@@ -58781,17 +58746,17 @@ tx_isp_unlocked_ioctl0x195c:
 
 tx_isp_unlocked_ioctl0x199c:
     /* fragment 478: CallSetup */
-    local_70 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_70, s1, 4); /* jalr target resolved by relocation */
+    oem_frame.words[0x70 / 4] = 0;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x70 / 4], s1, 4); /* jalr target resolved by relocation */
 
     /* fragment 479: Branch */
-    v1 = local_70;
+    v1 = oem_frame.words[0x70 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x19fc; }
 
     /* fragment 480: CallSetup */
-    local_14 = 1263;
-    local_18 = v1;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1263;
+    oem_frame.words[0x18 / 4] = v1;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC19, &__param_str_isp_dual_buf, 1263); /* jalr target resolved by relocation */
 
     /* fragment 481: Branch */
@@ -58825,8 +58790,8 @@ tx_isp_unlocked_ioctl0x1a20:
     s1 = *(uint32_t *)((char *)a1 + 368);
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
     *(uint32_t *)((char *)a0 + 732) = 0;
-    local_20 = 0;
-    local_24 = v1;
+    oem_frame.words[0x20 / 4] = 0;
+    oem_frame.words[0x24 / 4] = v1;
     v0 = *(uint8_t *)((char *)v0 + 1564);
 
     /* fragment 487: Branch */
@@ -58850,7 +58815,7 @@ tx_isp_unlocked_ioctl0x1a20:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1a80; }
 
     /* fragment 492: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 19, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 19, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1a80:
     /* fragment 493: MemoryAccess */
@@ -58868,7 +58833,7 @@ tx_isp_unlocked_ioctl0x1a80:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1aac; }
 
     /* fragment 497: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 3, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 3, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1aac:
     /* fragment 498: MemoryAccess */
@@ -58879,7 +58844,7 @@ tx_isp_unlocked_ioctl0x1aac:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1ac8; }
 
     /* fragment 500: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 12, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 12, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1ac8:
     /* fragment 501: MemoryAccess */
@@ -58901,7 +58866,7 @@ tx_isp_unlocked_ioctl0x1af8:
     /* fragment 503: CallSetup */
     s2 = *(uint32_t *)((char *)(s2) + 48);
     s0 = *(uint32_t *)((char *)(s2) + 268);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 24); /* jalr target resolved by relocation */
 
     /* fragment 504: Branch */
     int _bc_v0_504 = v0 == 0;
@@ -58909,8 +58874,8 @@ tx_isp_unlocked_ioctl0x1af8:
     if (_bc_v0_504) { goto tx_isp_unlocked_ioctl0x1b58; }
 
     /* fragment 505: CallSetup */
-    local_14 = 1316;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1316;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1316); /* jalr target resolved by relocation */
 
     /* fragment 506: Branch */
@@ -58919,7 +58884,7 @@ tx_isp_unlocked_ioctl0x1af8:
 
 tx_isp_unlocked_ioctl0x1b58:
     /* fragment 507: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s0 + 744), (void *)(uintptr_t)&local_20, 24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s0 + 744), (void *)(uintptr_t)&oem_frame.words[0x20 / 4], 24); /* jalr target resolved by relocation */
 
     /* fragment 508: Branch */
     s0 = 0;
@@ -58933,24 +58898,24 @@ tx_isp_unlocked_ioctl0x1b58:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 511: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 23, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 23, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 512: Branch */
     goto tx_isp_unlocked_ioctl0x838;
 
 tx_isp_unlocked_ioctl0x1b98:
     /* fragment 513: CallSetup */
-    local_20 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 4); /* jalr target resolved by relocation */
+    oem_frame.words[0x20 / 4] = 0;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 4); /* jalr target resolved by relocation */
 
     /* fragment 514: Branch */
-    a1 = local_20;
+    a1 = oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1bf8; }
 
     /* fragment 515: CallSetup */
-    local_18 = a1;
-    local_14 = 1339;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x18 / 4] = a1;
+    oem_frame.words[0x14 / 4] = 1339;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC19, &__param_str_isp_dual_buf, 1339); /* jalr target resolved by relocation */
 
     /* fragment 516: Branch */
@@ -58982,8 +58947,8 @@ tx_isp_unlocked_ioctl0x1c14:
 
 tx_isp_unlocked_ioctl0x1c38:
     /* fragment 522: CallSetup */
-    local_10 = v0;
-    local_14 = v1;
+    oem_frame.words[0x10 / 4] = v0;
+    oem_frame.words[0x14 / 4] = v1;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC21, &__param_str_isp_dual_buf, 988); /* jalr target resolved by relocation */
 
     /* fragment 523: CallSetup */
@@ -58993,7 +58958,7 @@ tx_isp_unlocked_ioctl0x1c38:
 
 tx_isp_unlocked_ioctl0x1c70:
     /* fragment 524: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 12); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 12); /* jalr target resolved by relocation */
 
     /* fragment 525: Branch */
     int _bc_v0_525 = v0 == 0;
@@ -59001,8 +58966,8 @@ tx_isp_unlocked_ioctl0x1c70:
     if (_bc_v0_525) { goto tx_isp_unlocked_ioctl0x1cc4; }
 
     /* fragment 526: CallSetup */
-    local_14 = v0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = v0;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 994); /* jalr target resolved by relocation */
 
     /* fragment 527: Branch */
@@ -59034,17 +58999,17 @@ tx_isp_unlocked_ioctl0x1cc4:
     /* asm: 13ff0:	00000000 	nop */
 
     /* fragment 534: StackAccess */
-    v0 = local_28;
+    v0 = oem_frame.words[0x28 / 4];
 
     /* fragment 535: Branch */
     a1 = 0;
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1d38; }
 
     /* fragment 536: CallSetup */
-    local_1c = v0;
-    local_14 = 1007;
-    local_18 = 0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x1c / 4] = v0;
+    oem_frame.words[0x14 / 4] = 1007;
+    oem_frame.words[0x18 / 4] = 0;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC22, &__param_str_isp_dual_buf, 1007); /* jalr target resolved by relocation */
 
     /* fragment 537: Branch */
@@ -59084,16 +59049,16 @@ tx_isp_unlocked_ioctl0x1d38:
     /* asm: 140a4:	0202001b 	divu	zero,s0,v0 */
 
     /* fragment 542: StackAccess */
-    v0 = local_28;
+    v0 = oem_frame.words[0x28 / 4];
 
     /* fragment 543: Branch */
-    a1 = local_24;
+    a1 = oem_frame.words[0x24 / 4];
     if (s0 == v0) { goto tx_isp_unlocked_ioctl0x1df0; }
 
     /* fragment 544: CallSetup */
-    local_1c = v0;
-    local_14 = 1022;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x1c / 4] = v0;
+    oem_frame.words[0x14 / 4] = 1022;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC22, &__param_str_isp_dual_buf, 1022); /* jalr target resolved by relocation */
 
     /* fragment 545: Branch */
@@ -59113,7 +59078,7 @@ tx_isp_unlocked_ioctl0x1df0:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4128, s2); /* jalr target resolved by relocation */
 
     /* fragment 549: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4156, local_24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4156, oem_frame.words[0x24 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 550: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4172, s0); /* jalr target resolved by relocation */
@@ -59148,7 +59113,7 @@ tx_isp_unlocked_ioctl0x1df0:
     s3 = v0;
     v0 = *(uint32_t *)((char *)s6 + 376);
     s7 = -8;
-    a1 = local_24;
+    a1 = oem_frame.words[0x24 / 4];
     v0 = (uintptr_t)v0 * (uintptr_t)v1;
     s2 = (uintptr_t *)&system_reg_write;
     s2 = s2;
@@ -59180,7 +59145,7 @@ tx_isp_unlocked_ioctl0x1df0:
 
     /* fragment 563: CallSetup */
     s1 = *(uint32_t *)((char *)(s6) + 420);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4156, (uintptr_t)s3 + (uintptr_t)local_24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4156, (uintptr_t)s3 + (uintptr_t)oem_frame.words[0x24 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 564: MemoryAccess */
     v0 = *(uint32_t *)((char *)s6 + 472);
@@ -59201,29 +59166,29 @@ tx_isp_unlocked_ioctl0x1df0:
     s0 = (uintptr_t)s0 & s7;
     s0 = (uintptr_t)s0 * a1;
     a1 = *(uint16_t *)((char *)s4 + 2);
-    v0 = local_24;
+    v0 = oem_frame.words[0x24 / 4];
     s4 = (uintptr_t *)&isp_printf;
     s4 = s4;
-    local_18 = v0;
-    v0 = local_28;
-    local_14 = v0;
+    oem_frame.words[0x18 / 4] = v0;
+    v0 = oem_frame.words[0x28 / 4];
+    oem_frame.words[0x14 / 4] = v0;
 
     /* fragment 565: CallSetup */
     s3 = (uintptr_t)s3 + (uintptr_t)s0;
-    local_10 = s3;
+    oem_frame.words[0x10 / 4] = s3;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)isp_printf)(a0); /* jalr target resolved by relocation */
 
     /* fragment 566: StackAccess */
-    v0 = local_28;
+    v0 = oem_frame.words[0x28 / 4];
 
     /* fragment 567: Branch */
     a1 = s0;
     if (s3 == v0) { goto tx_isp_unlocked_ioctl0x2008; }
 
     /* fragment 568: CallSetup */
-    local_1c = v0;
-    local_14 = 1064;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x1c / 4] = v0;
+    oem_frame.words[0x14 / 4] = 1064;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC22, &__param_str_isp_dual_buf, 1064); /* jalr target resolved by relocation */
 
     /* fragment 569: Branch */
@@ -59270,15 +59235,15 @@ tx_isp_unlocked_ioctl0x207c:
 
 tx_isp_unlocked_ioctl0x20b0:
     /* fragment 581: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 12); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 12); /* jalr target resolved by relocation */
 
     /* fragment 582: Branch */
     v1 = 3;
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x2108; }
 
     /* fragment 583: CallSetup */
-    local_14 = 1104;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1104;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1104); /* jalr target resolved by relocation */
 
     /* fragment 584: Branch */
@@ -59289,8 +59254,8 @@ tx_isp_unlocked_ioctl0x2108:
     /* fragment 585: MemoryAccess */
     v0 = *(uint32_t *)((char *)s2 + 48);
     a2 = *(uint32_t *)((char *)v0 + 268);
-    local_24 = 0;
-    local_28 = 0;
+    oem_frame.words[0x24 / 4] = 0;
+    oem_frame.words[0x28 / 4] = 0;
     v0 = *(uint32_t *)((char *)a2 + 748);
 
     /* fragment 586: Branch */
@@ -59344,7 +59309,7 @@ tx_isp_unlocked_ioctl0x2160:
 
 tx_isp_unlocked_ioctl0x21bc:
     /* fragment 593: CallSetup */
-    local_28 = v0;
+    oem_frame.words[0x28 / 4] = v0;
 
 tx_isp_unlocked_ioctl0x21c0:
     /* fragment 594: CallSetup */
@@ -59352,15 +59317,15 @@ tx_isp_unlocked_ioctl0x21c0:
 
 tx_isp_unlocked_ioctl0x21c4:
     /* fragment 595: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &local_20, 12); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &oem_frame.words[0x20 / 4], 12); /* jalr target resolved by relocation */
 
     /* fragment 596: Branch */
     s0 = 0;
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 597: CallSetup */
-    local_14 = 1163;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1163;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1163); /* jalr target resolved by relocation */
 
     /* fragment 598: Branch */
@@ -59432,15 +59397,15 @@ tx_isp_unlocked_ioctl0x22c0:
 
 tx_isp_unlocked_ioctl0x22dc:
     /* fragment 607: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 56); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 56); /* jalr target resolved by relocation */
 
     /* fragment 608: Branch */
-    v1 = local_28;
+    v1 = oem_frame.words[0x28 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x2334; }
 
     /* fragment 609: CallSetup */
-    local_14 = 1513;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1513;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1513); /* jalr target resolved by relocation */
 
     /* fragment 610: Branch */
@@ -59456,7 +59421,7 @@ tx_isp_unlocked_ioctl0x2334:
     if (v1 != v0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 613: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_algo_handle)(local_24, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_algo_handle)(oem_frame.words[0x24 / 4], &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 614: Branch */
     goto tx_isp_unlocked_ioctl0x838;
@@ -59471,7 +59436,7 @@ tx_isp_unlocked_ioctl0x235c:
 
 tx_isp_unlocked_ioctl0x2378:
     /* fragment 617: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 8); /* jalr target resolved by relocation */
 
     /* fragment 618: Branch */
     int _bc_v0_618 = v0 == 0;
@@ -59479,8 +59444,8 @@ tx_isp_unlocked_ioctl0x2378:
     if (_bc_v0_618) { goto tx_isp_unlocked_ioctl0x23d0; }
 
     /* fragment 619: CallSetup */
-    local_14 = 1614;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1614;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1614); /* jalr target resolved by relocation */
 
     /* fragment 620: Branch */
@@ -59514,10 +59479,10 @@ tx_isp_unlocked_ioctl0x2420:
     v0 = (uintptr_t *)memset((void *)(uintptr_t)((*(uint32_t *)((char *)(s0) + 4)) + 8), 0, 2724); /* jalr target resolved by relocation */
 
     /* fragment 628: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_awb_attr)(1, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_awb_attr)(1, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 629: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_awb_global_statis_attr)(1, &local_70); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_awb_global_statis_attr)(1, &oem_frame.words[0x70 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 630: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_awb_statis_attr)(1, (*(uint32_t *)((char *)(s0) + 4)) + 32); /* jalr target resolved by relocation */
@@ -59530,8 +59495,8 @@ tx_isp_unlocked_ioctl0x2420:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 633: CallSetup */
-    local_14 = 1701;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1701;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC8, &__param_str_isp_dual_buf, 1701); /* jalr target resolved by relocation */
 
     /* fragment 634: Branch */
@@ -59540,15 +59505,15 @@ tx_isp_unlocked_ioctl0x2420:
 
 tx_isp_unlocked_ioctl0x253c:
     /* fragment 635: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 24); /* jalr target resolved by relocation */
 
     /* fragment 636: Branch */
-    v1 = local_28;
+    v1 = oem_frame.words[0x28 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x2594; }
 
     /* fragment 637: CallSetup */
-    local_14 = 1714;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1714;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1714); /* jalr target resolved by relocation */
 
     /* fragment 638: Branch */
@@ -59564,22 +59529,22 @@ tx_isp_unlocked_ioctl0x2594:
     if (v1 != v0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 641: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_algo_handle)(local_24, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_algo_handle)(oem_frame.words[0x24 / 4], &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 642: Branch */
     goto tx_isp_unlocked_ioctl0x838;
 
 tx_isp_unlocked_ioctl0x25bc:
     /* fragment 643: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 28); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 28); /* jalr target resolved by relocation */
 
     /* fragment 644: Branch */
-    v1 = local_20;
+    v1 = oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x2614; }
 
     /* fragment 645: CallSetup */
-    local_14 = 1740;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1740;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1740); /* jalr target resolved by relocation */
 
     /* fragment 646: Branch */
@@ -59596,8 +59561,8 @@ tx_isp_unlocked_ioctl0x2614:
     if (_bc_v1_648) { goto tx_isp_unlocked_ioctl0x265c; }
 
     /* fragment 649: CallSetup */
-    local_14 = 1745;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1745;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC25, &__param_str_isp_dual_buf, 1745); /* jalr target resolved by relocation */
 
     /* fragment 650: Branch */
@@ -59609,7 +59574,7 @@ tx_isp_unlocked_ioctl0x265c:
     /* function epilogue: restore registers and return */
 
     /* fragment 652: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_algo_init)(s0, 1, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_algo_init)(s0, 1, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 653: CallSetup */
     v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)(*(uint32_t *)((char *)&kmalloc_caches + 48)), 37748736 + 192); /* jalr target resolved by relocation */
@@ -59622,15 +59587,15 @@ tx_isp_unlocked_ioctl0x265c:
     __init_waitqueue_head((void *)(uintptr_t)(&awb_algo_comp + (((uintptr_t)s0 << 4) + 4)), (const char *)(uintptr_t)&LC10, (void *)(uintptr_t)0); /* jalr target resolved by relocation */
 
     /* fragment 655: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &local_20, 28); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &oem_frame.words[0x20 / 4], 28); /* jalr target resolved by relocation */
 
     /* fragment 656: Branch */
     s0 = 0;
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 657: CallSetup */
-    local_14 = 1756;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1756;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC8, &__param_str_isp_dual_buf, 1756); /* jalr target resolved by relocation */
 
     /* fragment 658: Branch */
@@ -59658,7 +59623,7 @@ tx_isp_unlocked_ioctl0x2734:
 
 tx_isp_unlocked_ioctl0x2784:
     /* fragment 664: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 68); /* jalr target resolved by relocation */
 
     /* fragment 665: Branch */
     int _bc_v0_665 = v0 == 0;
@@ -59666,8 +59631,8 @@ tx_isp_unlocked_ioctl0x2784:
     if (_bc_v0_665) { goto tx_isp_unlocked_ioctl0x27d8; }
 
     /* fragment 666: CallSetup */
-    local_14 = v0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = v0;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1805); /* jalr target resolved by relocation */
 
     /* fragment 667: Branch */
@@ -59676,7 +59641,7 @@ tx_isp_unlocked_ioctl0x2784:
 
 tx_isp_unlocked_ioctl0x27d8:
     /* fragment 668: StackAccess */
-    a0 = local_20;
+    a0 = oem_frame.words[0x20 / 4];
     v0 = a0 < 2;
 
     /* fragment 669: Branch */
@@ -59686,15 +59651,15 @@ tx_isp_unlocked_ioctl0x27d8:
 
     /* fragment 670: CallSetup */
     s0 = 0;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s2) + 48)) + 268)) + ((a0 * 68) + 1360)), (void *)(uintptr_t)(uintptr_t)(uintptr_t)&local_20, 68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s2) + 48)) + 268)) + ((a0 * 68) + 1360)), (void *)(uintptr_t)(uintptr_t)(uintptr_t)&oem_frame.words[0x20 / 4], 68); /* jalr target resolved by relocation */
 
     /* fragment 671: Branch */
     goto tx_isp_unlocked_ioctl0x838;
 
 tx_isp_unlocked_ioctl0x2820:
     /* fragment 672: CallSetup */
-    local_14 = v0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = v0;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC26, &__param_str_isp_dual_buf, 1818); /* jalr target resolved by relocation */
 
     /* fragment 673: Branch */
@@ -59712,17 +59677,17 @@ tx_isp_unlocked_ioctl0x2854:
 
     /* fragment 676: CallSetup */
     s0 = 0;
-    v0 = (uintptr_t *)sprintf((const char *)(uintptr_t)(uintptr_t)(uintptr_t)&local_24, (const char *)(uintptr_t)((*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s2) + 48)) + 268)) + ((a1 * 68) + 1364)), 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)sprintf((const char *)(uintptr_t)(uintptr_t)(uintptr_t)&oem_frame.words[0x24 / 4], (const char *)(uintptr_t)((*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s2) + 48)) + 268)) + ((a1 * 68) + 1364)), 0); /* jalr target resolved by relocation */
 
     /* fragment 677: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &local_20, 68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &oem_frame.words[0x20 / 4], 68); /* jalr target resolved by relocation */
 
     /* fragment 678: Branch */
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x838; }
 
     /* fragment 679: CallSetup */
-    local_14 = 1846;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1846;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC8, &__param_str_isp_dual_buf, 1846); /* jalr target resolved by relocation */
 
     /* fragment 680: Branch */
@@ -59731,8 +59696,8 @@ tx_isp_unlocked_ioctl0x2854:
 
 tx_isp_unlocked_ioctl0x28e4:
     /* fragment 681: CallSetup */
-    local_14 = v0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = v0;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC26, &__param_str_isp_dual_buf, 1851); /* jalr target resolved by relocation */
 
     /* fragment 682: Branch */
@@ -59741,15 +59706,15 @@ tx_isp_unlocked_ioctl0x28e4:
 
 tx_isp_unlocked_ioctl0x2918:
     /* fragment 683: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 40); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 40); /* jalr target resolved by relocation */
 
     /* fragment 684: Branch */
-    a2 = (uint32_t *)&local_24;
+    a2 = (uint32_t *)&oem_frame.words[0x24 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x2970; }
 
     /* fragment 685: CallSetup */
-    local_14 = 1863;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1863;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1863); /* jalr target resolved by relocation */
 
     /* fragment 686: Branch */
@@ -59758,13 +59723,13 @@ tx_isp_unlocked_ioctl0x2918:
 
 tx_isp_unlocked_ioctl0x2970:
     /* fragment 687: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_set_frame_drop)(local_20, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_set_frame_drop)(oem_frame.words[0x20 / 4], 0); /* jalr target resolved by relocation */
 
     /* fragment 688: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_set_frame_drop)(local_20, 1, &local_30); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_set_frame_drop)(oem_frame.words[0x20 / 4], 1, &oem_frame.words[0x30 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 689: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_set_frame_drop)(local_20, 2, &local_3c); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_set_frame_drop)(oem_frame.words[0x20 / 4], 2, &oem_frame.words[0x3c / 4]); /* jalr target resolved by relocation */
 
     /* fragment 690: Branch */
     s0 = v0;
@@ -59772,15 +59737,15 @@ tx_isp_unlocked_ioctl0x2970:
 
 tx_isp_unlocked_ioctl0x29ac:
     /* fragment 691: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 40); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 40); /* jalr target resolved by relocation */
 
     /* fragment 692: Branch */
-    a2 = (uint32_t *)&local_24;
+    a2 = (uint32_t *)&oem_frame.words[0x24 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x2a04; }
 
     /* fragment 693: CallSetup */
-    local_14 = 1880;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1880;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1880); /* jalr target resolved by relocation */
 
     /* fragment 694: Branch */
@@ -59789,24 +59754,24 @@ tx_isp_unlocked_ioctl0x29ac:
 
 tx_isp_unlocked_ioctl0x2a04:
     /* fragment 695: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_get_frame_drop)(local_20, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_get_frame_drop)(oem_frame.words[0x20 / 4], 0); /* jalr target resolved by relocation */
 
     /* fragment 696: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_get_frame_drop)(local_20, 1, &local_30); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_get_frame_drop)(oem_frame.words[0x20 / 4], 1, &oem_frame.words[0x30 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 697: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_get_frame_drop)(local_20, 2, &local_3c); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_get_frame_drop)(oem_frame.words[0x20 / 4], 2, &oem_frame.words[0x3c / 4]); /* jalr target resolved by relocation */
 
     /* fragment 698: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &local_20, 40); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &oem_frame.words[0x20 / 4], 40); /* jalr target resolved by relocation */
 
     /* fragment 699: Branch */
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x838; }
 
     /* fragment 700: CallSetup */
-    local_14 = 1887;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1887;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC8, &__param_str_isp_dual_buf, 1887); /* jalr target resolved by relocation */
 
     /* fragment 701: Branch */
@@ -59830,7 +59795,7 @@ tx_isp_unlocked_ioctl0x2a94:
 tx_isp_unlocked_ioctl0x2ab0:
     /* fragment 705: CallSetup */
     s2 = *(uint32_t *)((char *)(s2) + 48);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 24); /* jalr target resolved by relocation */
 
     /* fragment 706: Branch */
     int _bc_v0_706 = v0 == 0;
@@ -59838,8 +59803,8 @@ tx_isp_unlocked_ioctl0x2ab0:
     if (_bc_v0_706) { goto tx_isp_unlocked_ioctl0x2b08; }
 
     /* fragment 707: CallSetup */
-    local_14 = v0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = v0;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1917); /* jalr target resolved by relocation */
 
     /* fragment 708: Branch */
@@ -59859,7 +59824,7 @@ tx_isp_unlocked_ioctl0x2b08:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 712: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, 33554432 + 25, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, 33554432 + 25, &oem_frame.words[0x20 / 4]); /* jalr target resolved by relocation */
 
     /* fragment 713: Branch */
     s0 = v0;
@@ -59868,16 +59833,16 @@ tx_isp_unlocked_ioctl0x2b08:
 tx_isp_unlocked_ioctl0x2b38:
     /* fragment 714: CallSetup */
     s0 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s2) + 64)) + 268);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 4); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 4); /* jalr target resolved by relocation */
 
     /* fragment 715: Branch */
     int _bc_v0_715 = v0 == 0;
-    v0 = local_20;
+    v0 = oem_frame.words[0x20 / 4];
     if (_bc_v0_715) { goto tx_isp_unlocked_ioctl0x2b98; }
 
     /* fragment 716: CallSetup */
-    local_14 = 1937;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1937;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1937); /* jalr target resolved by relocation */
 
     /* fragment 717: Branch */
@@ -59904,7 +59869,7 @@ tx_isp_unlocked_ioctl0x2ba4:
     /* fragment 722: Arithmetic */
     s3 = (uint32_t *)&__param_str_isp_dual_buf;
     s5 = (uintptr_t)&isp_printf;
-    s0 = (uintptr_t *)&local_20;
+    s0 = (uintptr_t *)&oem_frame.words[0x20 / 4];
     s4 = 0;
     s7 = 0;
     s3 = s3 + 3416;
@@ -59929,7 +59894,7 @@ tx_isp_unlocked_ioctl0x2bd0:
     if (_bc_v0_726) { goto tx_isp_unlocked_ioctl0x2c0c; }
 
     /* fragment 727: CallSetup */
-    local_14 = v0;
+    oem_frame.words[0x14 / 4] = v0;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC27, s3, 1970); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x2c0c:
@@ -59943,7 +59908,7 @@ tx_isp_unlocked_ioctl0x2c0c:
     if (_bc_v0_729) { goto tx_isp_unlocked_ioctl0x2c38; }
 
     /* fragment 730: CallSetup */
-    local_14 = v0;
+    oem_frame.words[0x14 / 4] = v0;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC28, s3, 1973); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x2c38:
@@ -59971,21 +59936,21 @@ tx_isp_unlocked_ioctl0x2c3c:
 
     /* fragment 734: Branch */
     int _bc_v0_734 = v0 != 0;
-    v0 = local_29;
+    v0 = oem_frame.bytes[0x29];
     if (_bc_v0_734) { goto tx_isp_unlocked_ioctl0x2cac; }
 
     /* fragment 735: CallSetup */
-    local_14 = 1982;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1982;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC29, &__param_str_isp_dual_buf, 1982); /* jalr target resolved by relocation */
 
     /* fragment 736: StackAccess */
-    v0 = local_29;
+    v0 = oem_frame.bytes[0x29];
 
 tx_isp_unlocked_ioctl0x2cac:
     /* fragment 737: Branch */
     int _bc_v0_737 = v0 != 0;
-    v0 = local_25;
+    v0 = oem_frame.bytes[0x25];
     if (_bc_v0_737) { goto tx_isp_unlocked_ioctl0x2cd0; }
 
     /* fragment 738: Branch */
@@ -59994,7 +59959,7 @@ tx_isp_unlocked_ioctl0x2cac:
     if (_bc_v0_738) { goto tx_isp_unlocked_ioctl0x2cd4; }
 
     /* fragment 739: StackAccess */
-    v0 = local_21;
+    v0 = oem_frame.bytes[0x21];
 
     /* fragment 740: Branch */
     int _bc_v0_740 = v0 != 0;
@@ -60012,7 +59977,7 @@ tx_isp_unlocked_ioctl0x2cd0:
 
 tx_isp_unlocked_ioctl0x2cd4:
     /* fragment 743: Arithmetic */
-    v1 = (int32_t *)&local_20;
+    v1 = (int32_t *)&oem_frame.words[0x20 / 4];
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)v1 + (uintptr_t)v0;
 
@@ -60035,14 +60000,14 @@ tx_isp_unlocked_ioctl0x2cd4:
 tx_isp_unlocked_ioctl0x2d08:
     /* fragment 747: Branch */
     int _bc_v0_747 = v0 != v1;
-    v1 = local_21;
+    v1 = oem_frame.bytes[0x21];
     if (_bc_v0_747) { goto tx_isp_unlocked_ioctl0x2dc0; }
 
     /* fragment 748: MemoryAccess */
     *(uint8_t *)((char *)s2 + 1356) = v1;
-    v0 = local_22;
+    v0 = oem_frame.bytes[0x22];
     *(uint8_t *)((char *)s2 + 1357) = v0;
-    a0 = local_23;
+    a0 = oem_frame.bytes[0x23];
 
     /* fragment 749: Branch */
     *(uint8_t *)((char *)s2 + 1358) = a0;
@@ -60053,16 +60018,16 @@ tx_isp_unlocked_ioctl0x2d08:
 
     /* fragment 751: Branch */
     int _bc_v0_751 = v0 != 0;
-    v0 = local_23;
+    v0 = oem_frame.bytes[0x23];
     if (_bc_v0_751) { goto tx_isp_unlocked_ioctl0x2d68; }
 
     /* fragment 752: CallSetup */
-    local_14 = 1997;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1997;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC27, &__param_str_isp_dual_buf, 1997); /* jalr target resolved by relocation */
 
     /* fragment 753: StackAccess */
-    v0 = local_23;
+    v0 = oem_frame.bytes[0x23];
 
 tx_isp_unlocked_ioctl0x2d68:
     /* fragment 754: Arithmetic */
@@ -60074,13 +60039,13 @@ tx_isp_unlocked_ioctl0x2d68:
     if (_bc_v0_755) { goto tx_isp_unlocked_ioctl0x2da0; }
 
     /* fragment 756: CallSetup */
-    local_14 = v0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = v0;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC28, &__param_str_isp_dual_buf, 2000); /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x2da0:
     /* fragment 757: StackAccess */
-    v0 = local_20;
+    v0 = oem_frame.words[0x20 / 4];
     v1 = 1;
     s0 = 0;
     v0 = v0 + 332;
@@ -60093,8 +60058,8 @@ tx_isp_unlocked_ioctl0x2da0:
 
 tx_isp_unlocked_ioctl0x2dc0:
     /* fragment 759: CallSetup */
-    local_14 = 2005;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 2005;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC30, &__param_str_isp_dual_buf, 2005); /* jalr target resolved by relocation */
 
     /* fragment 760: Branch */
@@ -60103,16 +60068,16 @@ tx_isp_unlocked_ioctl0x2dc0:
 
 tx_isp_unlocked_ioctl0x2df8:
     /* fragment 761: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_20, s1, 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&oem_frame.words[0x20 / 4], s1, 8); /* jalr target resolved by relocation */
 
     /* fragment 762: Branch */
-    v1 = local_20;
+    v1 = oem_frame.words[0x20 / 4];
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x2e54; }
 
     /* fragment 763: CallSetup */
-    local_14 = 1179;
-    local_18 = v1;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = 1179;
+    oem_frame.words[0x18 / 4] = v1;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC19, &__param_str_isp_dual_buf, 1179); /* jalr target resolved by relocation */
 
     /* fragment 764: Branch */
@@ -60121,16 +60086,16 @@ tx_isp_unlocked_ioctl0x2df8:
 
 tx_isp_unlocked_ioctl0x2e54:
     /* fragment 765: StackAccess */
-    a0 = local_24;
+    a0 = oem_frame.words[0x24 / 4];
 
     /* fragment 766: Branch */
     v0 = 1184;
     if (a0 != 0) { goto tx_isp_unlocked_ioctl0x2e98; }
 
     /* fragment 767: CallSetup */
-    local_14 = v0;
-    local_18 = v1;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    oem_frame.words[0x14 / 4] = v0;
+    oem_frame.words[0x18 / 4] = v1;
+    oem_frame.words[0x10 / 4] = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC19, &__param_str_isp_dual_buf, 1184); /* jalr target resolved by relocation */
 
     /* fragment 768: Branch */
@@ -180330,7 +180295,7 @@ int64_t tisp_day_or_night_s_ctrl(uintptr_t a0, uint32_t a1)
     *(uint32_t *)((char *)v0 + 0) = 0;
     v0 = 152;
     v1 = a0 * (uintptr_t)v0;
-    v0 = v1 + s5;
+    v0 = (uintptr_t)v1 + s5;
     *(uint32_t *)((char *)v0 + 120) = 0;
     v0 = (uintptr_t *)&tparams_day;
     v0 = v0;
@@ -180340,7 +180305,7 @@ tisp_day_or_night_s_ctrl0x68:
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)((uintptr_t)s3 + (uintptr_t)s2) + 0)), (void *)(uintptr_t)(*(uint32_t *)((char *)((uintptr_t)v0 + (uintptr_t)s2) + 0)), 65536 | 36852); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
-    s6 = s1 + 16;
+    s6 = (uintptr_t)s1 + 16;
 
 tisp_day_or_night_s_ctrl0x90:
     /* fragment 7: CallSetup */
@@ -180352,7 +180317,7 @@ tisp_day_or_night_s_ctrl0x90:
     v0 = 152;
     v1 = (uintptr_t)s1 * (uintptr_t)v0;
     s3 = (uintptr_t)s3 + (uintptr_t)s2;
-    v0 = v1 + s5;
+    v0 = (uintptr_t)v1 + s5;
 
     /* fragment 9: MemoryAccess */
     v1 = *(uint32_t *)((char *)v0 + 116);
@@ -180377,7 +180342,7 @@ tisp_day_or_night_s_ctrl0xd4:
     /* fragment 13: MemoryAccess */
     v1 = *(uint8_t *)((char *)v1 + 32);
     v1 = (uintptr_t)v1 << (uintptr_t)v0;
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1;
 
     /* fragment 14: Branch */
     s0 = (uintptr_t)v1 + (uintptr_t)s0;
@@ -186259,7 +186224,7 @@ ispcore_sensor_ops_ioctl0x50:
 
 ispcore_sensor_ops_ioctl0x54:
     /* fragment 8: Arithmetic */
-    s1 = s1 + 4;
+    s1 = (uintptr_t)s1 + 4;
 
     /* fragment 9: Branch */
     v1 = -515;
@@ -197365,7 +197330,7 @@ ispcore_core_ops_ioctl0x48:
 
     /* fragment 7: Branch */
     int _bc_s2_7 = s2 == a0;
-    a0 = v0 + 2;
+    a0 = (uintptr_t)v0 + 2;
     if (_bc_s2_7) { goto ispcore_core_ops_ioctl0x78; }
 
     /* fragment 8: Arithmetic */
