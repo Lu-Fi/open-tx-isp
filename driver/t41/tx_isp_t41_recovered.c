@@ -22161,6 +22161,8 @@ static int t41_tuning_wait_frame_done(const struct tx_isp_tuning_t41_control *re
             (void __user *)(uintptr_t)request->value_or_ptr, sizeof(attr)))
         return -EFAULT;
     timeout = min_t(u32, attr.timeout, T41_WAIT_FRAME_MAX_JIFFIES);
+    /* Stock H20250310a (tx_isp_core_ops_g_ctrl 0xbb04) drops the wait
+     * result too: a timeout (-145) still returns 0, callers compare cnt. */
     isp_frame_done_wait(request->channel, timeout, (uintptr_t)&cnt);
     attr.cnt = cnt;
     attr.irqtype = 0;
@@ -23016,11 +23018,25 @@ static void t41_apply_pending_day_night(char *core)
  */
 static bool t41_fd_from_fs;
 
+/*
+ * WaitFrameDone diagnostics (read-only): [0] frame_chan_event BUFFER_DONE
+ * calls, [1] calls that completed a buffer, [2] channel+0x2dc of the last
+ * completing call, [3] completing calls with channel+0x2dc != 0, [4] fs
+ * signals, [5] isp_frame_done_wakeup calls, [6] channel-0 wakeups skipped
+ * because the fs path had signalled, [7] wakeups that counted, [8] pad index
+ * of the last completing call, [9] frame_done_cnt[0] low word.
+ */
+static unsigned int t41_wfd_diag[10] __attribute__((section(".data")));
+static unsigned int t41_wfd_diag_n __attribute__((section(".data"))) = 10;
+module_param_array_named(wfd_diag, t41_wfd_diag, uint, &t41_wfd_diag_n, 0444);
+
 static void t41_frame_done_count(uint32_t ch)
 {
     uint64_t *cnt = (uint64_t *)(frame_done_cnt_storage + ch * 8);
 
     (*cnt)++;
+    if (ch == 0)
+        WRITE_ONCE(t41_wfd_diag[9], (uint32_t)*cnt);
     if (ch == 0) {
         WRITE_ONCE(frame_done_cond, 1);
         wake_up((wait_queue_head_t *)(void *)frame_done_wq);
@@ -23032,6 +23048,7 @@ static void t41_frame_done_count(uint32_t ch)
 
 static void t41_fs_frame_done_signal(void)
 {
+    t41_wfd_diag[4]++;
     WRITE_ONCE(t41_fd_from_fs, true);
     t41_frame_done_count(0);
 }
@@ -23067,8 +23084,12 @@ int32_t isp_frame_done_wakeup(uint32_t a0)
         ch = ((uint32_t *)(uintptr_t)a0)[1];
         if (ch > 1)
             return -EINVAL;
-        if (ch == 0 && READ_ONCE(t41_fd_from_fs))
+        t41_wfd_diag[5]++;
+        if (ch == 0 && READ_ONCE(t41_fd_from_fs)) {
+            t41_wfd_diag[6]++;
             return 0;
+        }
+        t41_wfd_diag[7]++;
         t41_frame_done_count(ch);
         return 0;
     }
@@ -28952,6 +28973,7 @@ int32_t frame_chan_event(uintptr_t a0, uint32_t a1, uintptr_t a2)
         return -EINVAL;
     if (a1 != TX_ISP_FRAME_EVENT_BUFFER_DONE)
         return 0;
+    t41_wfd_diag[0]++;
     if (!t41_kernel_data_ptr(descriptor))
         return -EINVAL;
 
@@ -29053,6 +29075,13 @@ int32_t frame_chan_event(uintptr_t a0, uint32_t a1, uintptr_t a2)
     }
 
     private_spin_unlock_irqrestore(channel + 0x2e0, flags);
+    if (completed) {
+        t41_wfd_diag[1]++;
+        t41_wfd_diag[2] = *(uint32_t *)(channel + 0x2dc);
+        t41_wfd_diag[8] = *(uint8_t *)(pad + 4);
+        if (t41_wfd_diag[2])
+            t41_wfd_diag[3]++;
+    }
     if (completed && *(uint32_t *)(channel + 0x2dc) == 0)
         t41_fs_frame_done_signal();
     return 0;
