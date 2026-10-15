@@ -57776,6 +57776,18 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 
     /* fragment 13: Branch */
     int _bc_v1_13 = v1 == 0;
+    /* T40-AE-AWB-ALGO-IOCTL (T8 step 3): OpenIMP sends the AE/AWB algo open/close
+     * with these exact TISP_VIDIOC numbers (isp_tseries.c:1091-1101). The OEM
+     * dispatcher handles them by command (inlined: tisp_ae_algo_init OEM 0x138e0,
+     * tisp_awb_algo_init 0x13b20, tisp_ae_algo_deinit 0x13894,
+     * tisp_awb_algo_deinit 0x11acc). Route them explicitly: the reconstructed
+     * ladder uses transposed bases (0x80400000/0xc0400000 below) instead of the
+     * OEM's 0x80040000/0xc0040000, so without this the cases are unreachable and
+     * the AE handles at state+368/+464 stay NULL (the fd/fs workers then fault). */
+    if (a1 == 0x800456ddU) { goto tx_isp_unlocked_ioctl0x235c; }   /* OPEN_AE_ALGO  */
+    if (a1 == 0x800456deU) { goto tx_isp_unlocked_ioctl0x2378; }   /* CLOSE_AE_ALGO */
+    if (a1 == 0xc00456e3U) { goto tx_isp_unlocked_ioctl0x265c; }   /* OPEN_AWB_ALGO  */
+    if (a1 == 0xc00456e4U) { goto tx_isp_unlocked_ioctl0x2734; }   /* CLOSE_AWB_ALGO */
     v1 = 2147745792;
     if (_bc_v1_13) { goto tx_isp_unlocked_ioctl0xa9c; }
 
@@ -57923,7 +57935,8 @@ tx_isp_unlocked_ioctl0x1e8:
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0x13e0; }
 
     /* fragment 50: Branch */
-    v0 = 2151677952;
+    v0 = 0x80040000U;  /* T40-IOCTL-BASE: OEM 0x11604 `lui v1,0x8004`; the
+                       * reconstruction had 0x80400000 here. */
     if (a1 == v1) { goto tx_isp_unlocked_ioctl0x20b0; }
 
     /* fragment 51: Arithmetic */
@@ -58370,7 +58383,8 @@ tx_isp_unlocked_ioctl0x7bc:
 
     /* fragment 162: Branch */
     int _bc_a1_162 = a1 == v0;
-    v0 = 3225419776;
+    v0 = 0xc0040000U;  /* T40-IOCTL-BASE: OEM 0x1157c `lui v0,0xc004`; the
+                       * reconstruction had 0xc0400000 here. */
     if (_bc_a1_162) { goto tx_isp_unlocked_ioctl0x1c14; }
 
     /* fragment 163: Arithmetic */
