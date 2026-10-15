@@ -31570,7 +31570,7 @@ ispvic_frame_channel_s_stream0x140:
     v0 = a0 + (uintptr_t)v0;
     *(uint32_t *)((char *)v0 + 0) = a3;
     v0 = 2147483648;
-    v0 = v0 + 32;
+    v0 = (uintptr_t *)((char *)v0 + 32);
     s2 = (uintptr_t)s2 | (uintptr_t)v0;
     v0 = *(uint32_t *)((char *)s0 + 232);
     v0 = v0 + a2;
@@ -35862,7 +35862,7 @@ vic_mdma_irq_function10x404:
 
     /* fragment 81: MemoryAccess */
     *(uint32_t *)((char *)((char *)&vic_mdma_ch0_set_buff_index)) = v0;
-    v0 = v0 + 16582;
+    v0 = (uintptr_t *)((char *)v0 + 16582);
     v0 = (uintptr_t)v0 << 2;
     v0 = t0 + (uintptr_t)v0;
     *(uint32_t *)((char *)v0 + 0) = a0;
@@ -35966,7 +35966,7 @@ vic_mdma_irq_function10x530:
 
     /* fragment 104: MemoryAccess */
     *(uint32_t *)((char *)((char *)&vic_mdma_ch1_set_buff_index)) = v0;
-    v0 = v0 + 16582;
+    v0 = (uintptr_t *)((char *)v0 + 16582);
     v0 = (uintptr_t)v0 << 2;
     v0 = t0 + (uintptr_t)v0;
     *(uint32_t *)((char *)v0 + 0) = a0;
@@ -40645,7 +40645,7 @@ subdev_sensor_ops_ioctl0x74:
 
     /* fragment 11: MemoryAccess */
     v0 = *(uint32_t *)((char *)a2 + 4);
-    v0 = v0 + 70;
+    v0 = (uintptr_t *)((char *)v0 + 70);
     v0 = (uintptr_t)v0 << 2;
     s2 = a0 + (uintptr_t)v0;
     v1 = *(uint32_t *)((char *)s2 + 4);
@@ -40994,7 +40994,7 @@ subdev_sensor_ops_ioctl0x454:
 
     /* fragment 91: MemoryAccess */
     v0 = *(uint16_t *)((char *)a2 + 84);
-    v0 = v0 + 78;
+    v0 = (uintptr_t *)((char *)v0 + 78);
     v0 = (uintptr_t)v0 << 2;
     v0 = a0 + (uintptr_t)v0;
     v1 = *(uint32_t *)((char *)v0 + 0);
@@ -41089,7 +41089,7 @@ subdev_sensor_ops_ioctl0x558:
 subdev_sensor_ops_ioctl0x564:
     /* fragment 113: MemoryAccess */
     v0 = *(uint16_t *)((char *)s1 + 84);
-    v0 = v0 + 70;
+    v0 = (uintptr_t *)((char *)v0 + 70);
     v0 = (uintptr_t)v0 << 2;
     s2 = (uintptr_t)s2 + (uintptr_t)v0;
     v1 = *(uint32_t *)((char *)s2 + 4);
@@ -41162,7 +41162,7 @@ subdev_sensor_ops_ioctl0x60c:
 
     /* fragment 129: MemoryAccess */
     v0 = *(uint32_t *)((char *)a2 + 32);
-    v0 = v0 + 70;
+    v0 = (uintptr_t *)((char *)v0 + 70);
     v0 = (uintptr_t)v0 << 2;
     s2 = a0 + (uintptr_t)v0;
     a0 = *(uint32_t *)((char *)s2 + 4);
@@ -41208,7 +41208,7 @@ subdev_sensor_ops_ioctl0x670:
 
     /* fragment 140: MemoryAccess */
     v0 = *(uint32_t *)((char *)a2 + 32);
-    v0 = v0 + 70;
+    v0 = (uintptr_t *)((char *)v0 + 70);
     v0 = (uintptr_t)v0 << 2;
     s2 = a0 + (uintptr_t)v0;
     a0 = *(uint32_t *)((char *)s2 + 4);
@@ -41246,7 +41246,7 @@ subdev_sensor_ops_ioctl0x6c4:
 
     /* fragment 149: MemoryAccess */
     v0 = *(uint32_t *)((char *)a2 + 4);
-    v0 = v0 + 70;
+    v0 = (uintptr_t *)((char *)v0 + 70);
     v0 = (uintptr_t)v0 << 2;
     s2 = a0 + (uintptr_t)v0;
     a0 = *(uint32_t *)((char *)s2 + 4);
@@ -41291,7 +41291,7 @@ subdev_sensor_ops_ioctl0x73c:
 
     /* fragment 160: MemoryAccess */
     v0 = *(uint32_t *)((char *)a2 + 4);
-    v0 = v0 + 70;
+    v0 = (uintptr_t *)((char *)v0 + 70);
     v0 = (uintptr_t)v0 << 2;
     s2 = a0 + (uintptr_t)v0;
     a0 = *(uint32_t *)((char *)s2 + 4);
@@ -41472,7 +41472,7 @@ subdev_sensor_ops_ioctl0x908:
 subdev_sensor_ops_ioctl0x944:
     /* fragment 200: MemoryAccess */
     v0 = *(uint32_t *)((char *)s1 + 0);
-    v0 = v0 + 70;
+    v0 = (uintptr_t *)((char *)v0 + 70);
     v0 = (uintptr_t)v0 << 2;
     s2 = (uintptr_t)s2 + (uintptr_t)v0;
     a0 = *(uint32_t *)((char *)s2 + 4);
@@ -52363,7 +52363,7 @@ frame_channel_reqbufs0x28c:
     *(uint32_t *)((char *)s8 + 48) = v0;
     v0 = *(uint32_t *)((char *)s0 + 536);
     v0 = (uintptr_t)s1 + (uintptr_t)v0;
-    v0 = v0 + 58;
+    v0 = (uintptr_t *)((char *)v0 + 58);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s0 + (uintptr_t)v0;
     *(uint32_t *)((char *)v0 + 48) = s8;
@@ -58691,7 +58691,7 @@ tx_isp_unlocked_ioctl0x868:
 tx_isp_unlocked_ioctl0x8c8:
     /* fragment 183: StackAccess */
     v1 = (*__p_20);
-    v0 = v0 + 160;
+    v0 = (uintptr_t *)((char *)v0 + 160);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s0 + (uintptr_t)v0;
     *(uint32_t *)((char *)v0 + 4) = v1;
@@ -60903,7 +60903,7 @@ tx_isp_unlocked_ioctl0x265c:
     s0 = (uintptr_t)s0 << 4;
     *(uint32_t *)((char *)(((uintptr_t)s0 << 2) + &awb_info_mine) + 0) = (uintptr_t)v0;
     *(uint32_t *)((char *)((uintptr_t)s0 + (uintptr_t)&awb_algo_comp) + 0) = 0;
-    s0 = s0 + 4;
+    s0 = (uintptr_t *)((char *)s0 + 4);
     __init_waitqueue_head((void *)(uintptr_t)(&awb_algo_comp + (((uintptr_t)s0 << 4) + 4)), (const char *)(uintptr_t)&LC10, (void *)(uintptr_t)0); /* jalr target resolved by relocation */
 
     /* fragment 655: CallSetup */
@@ -61101,7 +61101,7 @@ tx_isp_unlocked_ioctl0x2a04:
 tx_isp_unlocked_ioctl0x2a94:
     /* fragment 702: Arithmetic */
     v1 = 10;
-    v0 = v0 + 180;
+    v0 = (uintptr_t *)((char *)v0 + 180);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s0 + (uintptr_t)v0;
 
@@ -61243,7 +61243,7 @@ tx_isp_unlocked_ioctl0x2c3c:
     *(uint8_t *)((char *)v0 + 1332) = v1;
     v1 = *(uint8_t *)((char *)s0 + 2);
     s7 = s7 + 1;
-    s0 = s0 + 4;
+    s0 = (uintptr_t *)((char *)s0 + 4);
     *(uint8_t *)((char *)v0 + 1333) = v1;
     v1 = *(uint8_t *)((char *)s0 + -1);
     *(uint8_t *)((char *)v0 + 1334) = v1;
@@ -61305,7 +61305,7 @@ tx_isp_unlocked_ioctl0x2cd4:
     v0 = *(uint8_t *)((char *)v0 + 0);
     v1 = 1;
     s0 = 0;
-    v0 = v0 + 332;
+    v0 = (uintptr_t *)((char *)v0 + 332);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s2 + (uintptr_t)v0;
 
@@ -61368,7 +61368,7 @@ tx_isp_unlocked_ioctl0x2da0:
     v0 = (*__p_20);
     v1 = 1;
     s0 = 0;
-    v0 = v0 + 332;
+    v0 = (uintptr_t *)((char *)v0 + 332);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s2 + (uintptr_t)v0;
 
@@ -70011,8 +70011,8 @@ tisp_awb_ct_detect0x15cc:
     /* fragment 465: Arithmetic */
     t1 = t1 + 1;
     t1 = (uintptr_t)t1 & 65535;
-    t2 = t2 + 4;
-    t6 = t6 + 4;
+    t2 = (uintptr_t *)((char *)t2 + 4);
+    t6 = (uintptr_t *)((char *)t6 + 4);  /* T6: OEM steps t2 and t6 by 4 bytes */
 
     /* fragment 466: MemoryAccess */
     *(uint32_t *)((char *)t2 + -4) = v0;
@@ -81145,7 +81145,7 @@ tisp_ae_par_calc0x130:
 tisp_ae_par_calc0x188:
     /* fragment 13: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 348);
-    v1 = v1 + 16;
+    v1 = (uintptr_t *)((char *)v1 + 16);
     v0 = (uintptr_t)v0 + (uintptr_t)a3;
     v0 = *(uint32_t *)((char *)v0 + 4);
     *(uint32_t *)((char *)v1 + -12) = v0;
@@ -87372,12 +87372,12 @@ tisp_ae_long_tune20x440:
 
 tisp_ae_long_tune20x46c:
     /* fragment 34: Arithmetic */
-    a0 = s3 + 56;
+    a0 = (uintptr_t)s3 + 56;  /* T6: loop end in bytes, OEM `addiu a0,s3,56` */
 
 tisp_ae_long_tune20x470:
     /* fragment 35: MemoryAccess */
     a1 = *(uint32_t *)((char *)v0 + 4);
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((char *)v0 + 4);
 
     /* fragment 36: Branch */
     *(uint32_t *)((char *)v0 + -4) = a1;
@@ -87960,14 +87960,14 @@ tisp_ae_long_tune20x930:
     v1 = *(uint32_t *)((char *)v1 + 0);
     a1 = *(uint8_t *)((char *)v1 + 477);
     v1 = local_ac;
-    a0 = v1 + 560;
-    a2 = v1 + 680;
+    a0 = (uintptr_t)v1 + 560;  /* T6: start/end in bytes like the 4-byte step */
+    a2 = (uintptr_t)v1 + 680;
     v1 = a0;
 
 tisp_ae_long_tune20x994:
     /* fragment 151: MemoryAccess */
     a3 = *(uint32_t *)((char *)v1 + 4);
-    v1 = v1 + 4;
+    v1 = (uintptr_t *)((char *)v1 + 4);
 
     /* fragment 152: Branch */
     *(uint32_t *)((char *)v1 + -4) = a3;
@@ -94836,13 +94836,13 @@ tisp_ae_g_scene_luma0xe0:
 
 tisp_ae_g_scene_luma0x108:
     /* fragment 16: Arithmetic */
-    v0 = s1 + 56;
+    v0 = (uintptr_t *)((char *)s1 + 56);  /* T6: loop end in bytes, OEM 0x29570 `addiu v0,s1,56` */
     v1 = s1;
 
 tisp_ae_g_scene_luma0x110:
     /* fragment 17: MemoryAccess */
     a0 = *(uint32_t *)((char *)v1 + 4);
-    v1 = v1 + 4;
+    v1 = (uintptr_t *)((char *)v1 + 4);
 
     /* fragment 18: Branch */
     *(uint32_t *)((char *)v1 + -4) = a0;
@@ -193662,7 +193662,7 @@ ispcore_pad_event_handle0xc8:
 ispcore_pad_event_handle0x108:
     /* fragment 32: MemoryAccess */
     v0 = *(uint32_t *)((char *)a1 + 112);
-    v0 = v0 + 332;
+    v0 = (uintptr_t *)((char *)v0 + 332);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)v1 + (uintptr_t)v0;
     v0 = *(uint8_t *)((char *)v0 + 4);
@@ -194012,7 +194012,7 @@ ispcore_pad_event_handle0x370:
     v0 = *(uint32_t *)((char *)s2 + 112);
     s6 = -515;
     a0 = (uintptr_t)v0 * (uintptr_t)s1;
-    v0 = v0 + 332;
+    v0 = (uintptr_t *)((char *)v0 + 332);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s4 + (uintptr_t)v0;
     v0 = *(uint8_t *)((char *)v0 + 7);
@@ -194020,7 +194020,7 @@ ispcore_pad_event_handle0x370:
     *(uint32_t *)((char *)v1 + 1020) = v0;
     v0 = *(uint32_t *)((char *)s2 + 112);
     a0 = (uintptr_t)v0 * (uintptr_t)s1;
-    v0 = v0 + 332;
+    v0 = (uintptr_t *)((char *)v0 + 332);
 
     /* fragment 109: Arithmetic */
     v0 = (uintptr_t)v0 << 2;
@@ -194032,7 +194032,7 @@ ispcore_pad_event_handle0x370:
     *(uint32_t *)((char *)v1 + 1024) = v0;
     v0 = *(uint32_t *)((char *)s2 + 112);
     a0 = (uintptr_t)v0 * (uintptr_t)s1;
-    v0 = v0 + 332;
+    v0 = (uintptr_t *)((char *)v0 + 332);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s4 + (uintptr_t)v0;
     v0 = *(uint8_t *)((char *)v0 + 6);
@@ -197091,7 +197091,7 @@ int64_t ispcore_video_s_stream(uintptr_t a0, uintptr_t a1)
     /* fragment 2: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 4);
     s2 = (uintptr_t *)&private_spin_unlock_irqrestore;
-    v0 = v0 + 74;
+    v0 = (uintptr_t *)((char *)v0 + 74);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s1 + (uintptr_t)v0;
     v0 = *(uint32_t *)((char *)v0 + 0);
@@ -197197,7 +197197,7 @@ ispcore_video_s_stream0x164:
 
 ispcore_video_s_stream0x178:
     /* fragment 27: Arithmetic */
-    v0 = v0 + 74;
+    v0 = (uintptr_t *)((char *)v0 + 74);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s1 + (uintptr_t)v0;
 
@@ -197238,7 +197238,7 @@ ispcore_video_s_stream0x1c4:
 
     /* fragment 36: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 4);
-    v0 = v0 + 74;
+    v0 = (uintptr_t *)((char *)v0 + 74);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s1 + (uintptr_t)v0;
 
@@ -197715,7 +197715,7 @@ ispcore_core_ops_init0xb4:
     v0 = *(uint32_t *)((char *)s1 + 4);
     s5 = s5 + 316;
     a1 = (*__p_c0);
-    v0 = v0 + 74;
+    v0 = (uintptr_t *)((char *)v0 + 74);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s0 + (uintptr_t)v0;
     s3 = *(uint32_t *)((char *)v0 + 0);
@@ -198250,7 +198250,7 @@ ispcore_core_ops_init0x79c:
 ispcore_core_ops_init0x7d4:
     /* fragment 124: MemoryAccess */
     v0 = *(uint32_t *)((char *)s1 + 4);
-    v0 = v0 + 74;
+    v0 = (uintptr_t *)((char *)v0 + 74);
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s0 + (uintptr_t)v0;
     v1 = *(uint32_t *)((char *)v0 + 0);
