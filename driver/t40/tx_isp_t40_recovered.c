@@ -183930,12 +183930,17 @@ tisp_day_or_night_s_ctrl0x68:
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)((uintptr_t)s3 + (uintptr_t)s2) + 0)), (void *)(uintptr_t)(*(uint32_t *)((char *)((uintptr_t)v0 + (uintptr_t)s2) + 0)), 65536 | 36852); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
-    s6 = s1 + 16;
+    /* Q5-DN-TOP40: OEM 0x71544 `addiu s6,s1,16` is raw integer arithmetic on the
+     * module index.  s1 is declared `uint32_t *`, so `s1 + 16` scaled by 4 and
+     * produced (index+64) instead of (index+16). */
+    s6 = (uintptr_t)s1 + 16;
 
 tisp_day_or_night_s_ctrl0x90:
     /* fragment 7: CallSetup */
     s6 = s6 << 2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(s6 << 2); /* jalr target resolved by relocation */
+    /* Q5-DN-TOP40: OEM 0x71554/0x71558 `jalr system_reg_read` / `move a0,s6`
+     * passes s6 unshifted.  The extra `<< 2` made this read (index+16)*16. */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(s6); /* jalr target resolved by relocation */
 
     /* fragment 8: Arithmetic */
     s0 = v0;
@@ -184057,7 +184062,9 @@ tisp_day_or_night_s_ctrl0x1d0:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 176); /* jalr target resolved by relocation */
 
     /* fragment 33: Branch */
-    s6 = s1 + 16;
+    /* Q5-DN-TOP40: second copy of the same address computation (night path; OEM
+     * rejoins at 0x71520 and recomputes s6 via 0x71544).  Same cast fix. */
+    s6 = (uintptr_t)s1 + 16;
     goto tisp_day_or_night_s_ctrl0x90;
 
 tisp_day_or_night_s_ctrl0x204:
