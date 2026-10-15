@@ -11850,22 +11850,6 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
     else
         regtrace_t40_quality_top40_final |= BIT(13);
 
-    /*
-     * Stock keeps TOP bit 2 as the bin's linear mask sets it (initial mask
-     * from tisp_main_init, unchanged in day: vendor day word 0x7FD9004D)
-     * and its WB gains in 0x4004.. still act; bit 2 is an AWB-stage bit
-     * (the OEM only skips the AWB ev/tgain refresh when bits 2 and 6 are
-     * both set), not a plain WB-gain bypass.  The quality profile clears
-     * it from an old GC4653 observation.  Under the OEM gate offset follow
-     * the bin like stock; t40_force_active/bypass below still override.
-     */
-    if (gate_off == 0x00U) {
-        if (flags[2])
-            regtrace_t40_quality_top40_final |= BIT(2);
-        else
-            regtrace_t40_quality_top40_final &= ~BIT(2);
-    }
-
     if (regtrace_t40_force_active) {
         regtrace_t40_quality_top40_final &= ~regtrace_t40_force_active;
         if (regtrace_t40_force_active & BIT(10))
