@@ -177569,8 +177569,8 @@ int32_t Tzn_Msca_Shd_mask(uint32_t arg1, void *arg2)
     uint32_t *var_40 = 0;
     int32_t *v0_1;
     int32_t *a2;
-    int32_t *s4_1;
-    int32_t *i;
+    uint32_t s4_1;	/* OEM s4/s8: register addresses, not pointers (host-diff fix) */
+    uint32_t i;
     void *s6_1;
     int32_t s2_1;
     void *s3_1;
@@ -177617,7 +177617,7 @@ int32_t Tzn_Msca_Shd_mask(uint32_t arg1, void *arg2)
             s3_1 = (void *)(uintptr_t)((uintptr_t)s3_1 + (0x10));
         } while (i != s2_1);
 
-        i = (void *)(uintptr_t)((uintptr_t)i + (0x100));
+        i += 0x100;
         s6_1 = (void *)(uintptr_t)((uintptr_t)s6_1 + (0x268));
     } while (s4_1 + 0x16468 != i);
 
