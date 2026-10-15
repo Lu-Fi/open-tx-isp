@@ -201017,6 +201017,25 @@ ispcore_irq_sec_fs_work0x50:
     /* asm: 7c32c:	00000000 	nop */
 
     /* fragment 12: ConstantLoad */
+    /* T40-FDWORK-DISPATCH: the OEM tail-dispatches per slot through the handler
+     * table in .rodata (nine code pointers into this function). The reconstruction
+     * dropped the `jr v0` (the two unmatched fragments above), so the flow fell into
+     * the slot-1 handler and from there back into the body. Slot->code mapping
+     * decoded from the OEM tables (identical in all four workers). */
+    switch (s5) {
+    case 0: goto sfs_h7;   /* +7 */
+    case 1: goto sfs_h8;   /* +8 (falls through into the body in the sec workers) */
+    case 2: goto sfs_h9;   /* +9 */
+    case 3: goto sfs_h5;   /* +5 */
+    case 4: goto sfs_h6;   /* +6 */
+    case 5: goto sfs_h16;  /* special: own call, a1 = 0x2000010 */
+    case 6: goto sfs_h22;   /* +22 */
+    case 7: goto ispcore_irq_sec_fs_work0x15c;   /* -1 */
+    case 8: goto sfs_h10;   /* +10 */
+    default: goto ispcore_irq_sec_fs_work0x15c;  /* out of range -> -1 */
+    }
+
+sfs_h8:
     s0 = 0x2000008;
 
 ispcore_irq_sec_fs_work0x7c:
@@ -201057,9 +201076,12 @@ ispcore_irq_sec_fs_work0xbc:
     if (s4 != v0) { goto ispcore_irq_sec_fs_work0x50; }
 
 ispcore_irq_sec_fs_work0xcc:
-    /* fragment 21: Epilogue */
-    /* function epilogue: restore registers and return */
+    /* T40-FDWORK-EPILOGUE: the OEM epilogue restores the registers and `jr ra`; the
+     * reconstruction emitted only this comment, so control fell through into the
+     * handler blocks below and re-entered the body via `goto ...`. */
+    return (char *)v0;
 
+sfs_h9:
     /* fragment 22: Arithmetic */
     s0 = 33554432;
 
@@ -201067,6 +201089,7 @@ ispcore_irq_sec_fs_work0xcc:
     s0 = s0 + 9;
     goto ispcore_irq_sec_fs_work0x7c;
 
+sfs_h5:
     /* fragment 24: Arithmetic */
     s0 = 33554432;
 
@@ -201074,6 +201097,7 @@ ispcore_irq_sec_fs_work0xcc:
     s0 = s0 + 5;
     goto ispcore_irq_sec_fs_work0x7c;
 
+sfs_h6:
     /* fragment 26: Arithmetic */
     s0 = 33554432;
 
@@ -201081,6 +201105,7 @@ ispcore_irq_sec_fs_work0xcc:
     s0 = s0 + 6;
     goto ispcore_irq_sec_fs_work0x7c;
 
+sfs_h22:
     /* fragment 28: Arithmetic */
     s0 = 33554432;
 
@@ -201088,6 +201113,7 @@ ispcore_irq_sec_fs_work0xcc:
     s0 = s0 + 22;
     goto ispcore_irq_sec_fs_work0x7c;
 
+sfs_h16:
     /* fragment 30: CallSetup */
     local_10 = 1;
     local_14 = *(uint32_t *)((char *)(s6) + 884);
@@ -201097,6 +201123,7 @@ ispcore_irq_sec_fs_work0xcc:
     *(uint32_t *)((char *)s6 + 880) = 0;
     goto ispcore_irq_sec_fs_work0x7c;
 
+sfs_h10:
     /* fragment 32: Arithmetic */
     s0 = 33554432;
 
@@ -201109,6 +201136,7 @@ ispcore_irq_sec_fs_work0x15c:
     s0 = -1;
     goto ispcore_irq_sec_fs_work0x7c;
 
+sfs_h7:
     /* fragment 35: Arithmetic */
     s0 = 33554432;
 
