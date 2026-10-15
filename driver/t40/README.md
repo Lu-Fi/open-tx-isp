@@ -166,7 +166,7 @@ unset), open-tx-isp + OpenIMP, SDK sensor modules unchanged (the stock
 `sensor_sc830ai_t40.ko` resolves all 35 imports against this module,
 `tests/check_ko_symbols.sh`).  Build with `OPEN_TX_ISP_SITE=<this repo>
 OPEN_TX_ISP_VERSION=<sha>` on the make line.  Keep the camera name: the
-user overlay (U-Boot 2026.07, timps, WiFi) is keyed by it.
+user overlay (U-Boot 2026.07, the streamer, WiFi) is keyed by it.
 
 ### Device runs 2026-10-12 (test boots 1-3, commits 5e94df1e..68ac89d0)
 
@@ -208,8 +208,8 @@ FIFO (`Tzn_Msca_addr_fifo_read`) only at that cadence.
   now skipped by default (`skip_tisp_deinit=1`), untested.
 - The kernel has no netconsole (CONFIG_NETCONSOLE/NETPOLL unset); panic
   logs need the serial console.
-- timpsd did not start on one vendor restore boot (no log line); manual
-  `S95timps start` worked.  Keep S95timps at mode 0755 when restoring.
+- the streamer did not start on one vendor restore boot (no log line); manual
+  `start` of the streamer init script worked.  Keep the streamer init script at mode 0755 when restoring.
 
 ### Round 3, 2026-10-12 night (A/B register oracle, commits f25ce716..0855c953)
 
@@ -303,12 +303,12 @@ Block bisect (each run one boot, metrics only, media discarded):
   10 s, luma mean 53).  rmmod afterwards oopsed in the `isp_core_tuning_clear`
   model stub (bad pointer); guarded in 6b70a5e5.  r33a: rmmod still takes
   the camera down (no console); reload is not usable yet.
-- t1 timps (OpenIMP backend, 4K main + sub stream) on the open module:
-  timpsd oopsed the kernel in the recovered `tisp_s_antiflick` (bad AE
+- t1 the streamer (OpenIMP backend, 4K main + sub stream) on the open module:
+  the streamer oopsed the kernel in the recovered `tisp_s_antiflick` (bad AE
   parameter pointer) right after `SetISPRunningMode(night)` returned -1;
   antiflicker is now a no-op unless `t40_allow_antiflick=1` (open item: no
   50 Hz antiflicker on T40 until the recovered `tisp_s_antiflick` is fixed).
-- t2: the next timps call, `tx_isp_sensor_g_attr` (IMP_ISP_Tuning_GetSensorAttr),
+- t2: the next the streamer call, `tx_isp_sensor_g_attr` (IMP_ISP_Tuning_GetSensorAttr),
   oopsed on the empty core sensor slot; d3544601 answers it from the bound
   sensor's attribute and video state.
 - WLAN failure of the agg38-fw/hybrid image (host-side diff): the user
@@ -317,45 +317,45 @@ Block bisect (each run one boot, metrics only, media discarded):
   FB_IOT_0 and the flash replaced it); S38wpa_supplicant in agg38-fw adds a
   preset/portal fallback on top.  Fix for the recipe: a per-camera
   `wpa_supplicant.conf` in the eufy user-overlay dir, or keep the overlay.
-- t3-t6 timps (video0 1920x1080 scaled + video1 640x360): after the
-  tuning fixes timpsd streamed, then died with SIGBUS on the first 1080p
+- t3-t6 the streamer (video0 1920x1080 scaled + video1 640x360): after the
+  tuning fixes the streamer streamed, then died with SIGBUS on the first 1080p
   frames; devtest 1080p runs had panicked the kernel three times and every
   second stream start after a 4K run panicked.  Cause: the seed laid NV12
   buffers out as width*ALIGN(height,16); OpenIMP and the vendor use
   width*height*3/2, so 1080p frames overran their buffers by 8 lines.
   989e7424 makes the vendor layout the default (`t40_nv12_height_align=1`).
-- t7 timps with the layout fix still died with SIGBUS right after
+- t7 the streamer with the layout fix still died with SIGBUS right after
   "framesource 0 enabled".  kmsg showed the real cause: the second frame
   channel (video1 640x360) enabled the core IRQ with irq index 1 (= the
   second ISP core instance) -> `core IRQ OEM enable idx=1 ret=-22` ->
-  `core-event streamon ch=1 ret=-22`, OpenIMP then crashed timps.
+  `core-event streamon ch=1 ret=-22`, OpenIMP then crashed the streamer.
   f03d0700 maps the core IRQ to the vinum (channel/3, same as VIC/CSI)
   and reference-counts the streaming channels so the shared IRQ is
   enabled once and only disabled by the last channel.
-- t8 (f03d0700): no -22 chain any more, but timps died again right after
+- t8 (f03d0700): no -22 chain any more, but the streamer died again right after
   "framesource 0 enabled", now SIGSEGV pc=libimp VBMGetFrame+0xd4.
   Resolved via the crash maps + LD_TRACE: the crashing libimp is
   `/lib/libimp.so` = the **Ingenic vendor** library of the hybrid image
-  (strings "IMP-ISP", "Ingenic High Pass Filter"), not OpenIMP.  All timps
+  (strings "IMP-ISP", "Ingenic High Pass Filter"), not OpenIMP.  All the streamer
   runs t1-t8 therefore ran vendor libimp against the open driver; its
   VBMGetFrame builds the frame pointer from an index the open DQBUF does
   not fill the vendor way -> wild pointer (t7 si_addr=0, t8 0x62dbef84).
   devtest always used OpenIMP (`LD_LIBRARY_PATH=/tmp/otx/lib`), which is
-  why it streams.  p5-timps.sh now uploads lib2/libimp.so (OpenIMP
-  t40-prod, frame gate) and starts timpsd with LD_LIBRARY_PATH=/tmp/otx/lib.
+  why it streams.  p5-the streamer.sh now uploads lib2/libimp.so (OpenIMP
+  t40-prod, frame gate) and starts the streamer with LD_LIBRARY_PATH=/tmp/otx/lib.
   For the open image: libimp must be OpenIMP (thingino-isp-open), the
   vendor ingenic-lib libimp cannot sit on the open driver.
-- t9: the restored master image's /usr/bin/timpsd is the vendor flavour
+- t9: the restored master image's /usr/bin/the streamer is the vendor flavour
   (USE_OPENIMP=0) and refuses the OpenIMP libimp ("libimp mismatch", exit
-  78).  Built an OpenIMP-flavour timpsd from the image's own timps source
-  (buildroot timps-custom copy, same USE_* set, USE_OPENIMP=1, linked
-  against lib2/libimp.so): t40prod/bin-timpsd-oimp-t40; p5-timps.sh
-  uploads it to /tmp/otx/timpsd.  Nothing in timps was changed.
-- t9b (f03d0700, OpenIMP libimp + OpenIMP timpsd, fs_keepalive=1):
+  78).  Built an OpenIMP-flavour the streamer from the image's own the streamer source
+  (buildroot the streamer-custom copy, same USE_* set, USE_OPENIMP=1, linked
+  against lib2/libimp.so): t40prod/bin-the streamer-oimp-t40; p5-the streamer.sh
+  uploads it to /tmp/otx/the streamer.  Nothing in the streamer was changed.
+- t9b (f03d0700, OpenIMP libimp + OpenIMP the streamer, fs_keepalive=1):
   framesource 0 (1920x1080 scaled) and 1 (640x360) both enabled, RTSP/HTTP
-  up, local snapshot.jpg HTTP 200 (~44 kB), VIC IRQ exactly 20/s, timpsd
+  up, local snapshot.jpg HTTP 200 (~44 kB), VIC IRQ exactly 20/s, the streamer
   RSS flat at ~3.4 MB, no kernel messages, 30 min clean (see
-  t40prod/out/p5-t9b.log; timpsd left running afterwards).  Open item: timps reports "sensor fps:
+  t40prod/out/p5-t9b.log; the streamer left running afterwards).  Open item: the streamer reports "sensor fps:
   requested 20, driver holds 25/1" - sensor_g_attr returns the sensor
   module's 25/1, the stream runs at 20 fps.
 - rmmod: 587502b1 splits the module exit into ten steps that can be run
@@ -367,8 +367,8 @@ Block bisect (each run one boot, metrics only, media discarded):
   YSP register writes while top40 bit 17 still gates the block (no kmsg
   at all in r22a/r24a, which fits a hang, not an oops).  Check the vendor
   order top40 -> ysp regs before enabling again.
-- Second-start test (t40prod/p7-restart.sh, OpenIMP timpsd, keepalive=1):
-  timps stop/start cycles die at a random cycle (c1: 3rd, c2: 5th, c3:
+- Second-start test (t40prod/p7-restart.sh, OpenIMP the streamer, keepalive=1):
+  the streamer stop/start cycles die at a random cycle (c1: 3rd, c2: 5th, c3:
   2nd); the panic notifier (7c9f03a2) never fired, the watchdog reset the
   camera -> a hang, not an oops.  The flight recorder (fd83f4b7, 32 marks
   in the rmem tail, t40prod/panicdump.sh) shows for c3: stop of ch0/ch1
@@ -393,7 +393,7 @@ Block bisect (each run one boot, metrics only, media discarded):
   1284cb0e: CSI/VIC are started by the first channel of a vinum and
   stopped by the last one, and the sensor video stream is stopped before
   the last VIC stop (`t40_sensor_stream_off_on_stop=1`).  Result c10:
-  15/15 timps stop/start cycles and 3/3 framesource idle off/on cycles
+  15/15 the streamer stop/start cycles and 3/3 framesource idle off/on cycles
   (fs_keepalive=0) clean, snapshot 200 every time.  Second-start panic
   closed.  (906dacd0, CSI clocks re-armed after a slake, stays in: it is
   correct, just not the cause.)
@@ -419,12 +419,12 @@ module built against the Eufy 4.4.94 tree, `tests/check_ko_symbols.sh` OK):
         t40_generic_profile=1 sensor_full_width_override=3840 \
         sensor_full_height_override=2160 skip_tisp_deinit=1
     insmod sensor_sc830ai_t40.ko
-    # streamer: OpenIMP libimp (lib2/libimp.so) + OpenIMP-flavour timpsd
+    # streamer: OpenIMP libimp (lib2/libimp.so) + OpenIMP-flavour the streamer
     # (USE_OPENIMP=1); the Ingenic vendor libimp cannot sit on this driver.
 
-- 4K and scaled 1080p/720p/360p frames, 20 fps, both frame channels (timps
+- 4K and scaled 1080p/720p/360p frames, 20 fps, both frame channels (the streamer
   video0 1920x1080 + video1 640x360).
-- timps 30 min soak clean (t9b), 15/15 stop/start cycles + 3/3 framesource
+- the streamer 30 min soak clean (t9b), 15/15 stop/start cycles + 3/3 framesource
   idle off/on cycles clean (c10) after 1284cb0e.
 - Forensics: panic log copy and flight recorder in the rmem tail
   (`panic_dump_phys=0xe9f0000`), reader `t40prod/panicdump.sh`.
@@ -463,7 +463,7 @@ Open:
 
 ### 2026-10-13 image quality on the Eufy (noise, bitrate, tuning bin)
 
-Metrics only (1080p JPEG snapshots of timps, static scene, 5 frames, no
+Metrics only (1080p JPEG snapshots of the streamer, static scene, 5 frames, no
 pictures kept; temporal std = median per-pixel std over frames, Y 0..255):
 
 | variant (all `t40_quality_profile=0` unless noted)            | temporal std Y | stream (CBR 3000, max_qp 51) |
@@ -478,7 +478,7 @@ pictures kept; temporal std = median per-pixel std over frames, Y 0..255):
 | generic + top40 override `0x7ffbaeff` (YDNS/SDNS on, no bin)     | black (Y 0.6) | -                            |
 
 Findings:
-- Bitrate: timps asked for CBR 3000 but the encoder sat at QP 45 (the
+- Bitrate: the streamer asked for CBR 3000 but the encoder sat at QP 45 (the
   `video0.max_qp = 45` default; slice QP read from the stream) and still
   produced 10-28 Mbit/s because the picture is noise dominated.  With
   `video0.max_qp = 51` the same stream holds 2.8-3.5 Mbit/s.  OpenIMP CBR
@@ -523,7 +523,7 @@ Findings:
 1. Morning, after the power cycle: p6 per-device rmmod bisect with
    `t40_rmmod_skip_slake=1` first, then =0 to confirm the slake.
 2. YSP order experiment (item 2 above), then the daylight plan.
-3. Open image: `t40prod/build-img-open2.sh` already builds timps with
+3. Open image: `t40prod/build-img-open2.sh` already builds the streamer with
    USE_OPENIMP=1 (BR2_PACKAGE_OPENIMP=y via BR2_PACKAGE_THINGINO_ISP_OPEN);
    nothing to change there.
 
