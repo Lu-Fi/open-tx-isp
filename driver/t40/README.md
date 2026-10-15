@@ -582,3 +582,22 @@ Native 4K (3840x2160, scaler off): the frame-3A sampler mapped a fixed 32 MiB wi
 Gamma: the driver used a hard-coded GC4653 curve whose first 11 nodes are zero, which crushed the shadows. `t40_gamma_from_bin=1` uses the sc830ai bin curve (nodes 0/144/1070/2879/4095): at 4K the shadow share drops from 47 % to 21 % of the samples, frame Y 134 -> 158, neighbour diff 4.8 -> 3.9.
 
 Still open: white-balance fine tuning; YSP (sharpness) is still forced off, and day/night has not been checked on this baseline. Analyses and reviews by external helpers are in the session notes.
+
+## Eufy sc830ai: integration state 2026-10-15 (`claude/t40-integration-1015`)
+
+Device run on the board: test application 24 results / 0 failures with the defaults and with `t40_gates_oem_offset=1 t40_gates_day_blc=1`; 10 minutes of streaming without an oops.
+
+Corrections to the notes above:
+- The "bit 18 (SDNS)" explanation of the black frame with the vendor TOP word is withdrawn. SDNS with the bin runs fine and its registers equal the vendor values; that override also released DPC, ADR, defog, CDNS and LCE without an init.
+- The gate pass read the bin's bypass flags at +0x20 (the WDR set). The OEM uses +0x00 for a linear sensor and +0x20 only in WDR mode (`tisp_main_init`); `t40_gates_oem_offset=1` does the same. In the sc830ai bin the linear set enables YDNS, SDNS, GIB and YSP and bypasses BLC.
+- The "YSP panic" was a NULL dereference: without a tuning bin the YSP init failed before its tables were set up, and the per-frame refresh still ran. An init guard now blocks every refresh until the init succeeded; `t40_ysp_on=1` lets the bin gates enable YSP.
+
+TOP 0x40 bit map (from the OEM update callbacks): 0 BLC, 1 LSC, 2 WBG/AWB stage, 3 WDR, 4 DPC, 5 GIB, 6 AWB stage, 7 ADR, 8 MDNS, 9 CCM, 10 gamma, 11 defog, 13 DMSC, 14 YDNS, 15 BCSH, 16 CLM, 17 YSP, 18 SDNS, 19 CDNS, 21 LCE; bit set = bypass. Vendor stack on the board in daylight: `0x7FD9004D`.
+
+Colour: with the OEM gate offset BLC is bypassed and the black level is left to GIB, which sits behind the white-balance gains, so the pedestal is amplified per channel before it is subtracted (green/yellow cast, violet shadows). `t40_gates_day_blc=1` keeps BLC active in day mode with the GIB black level `t40_gates_day_gib_blc` (default 0); night keeps the bin mask. Colour-saturation index on the board: 7.9 (day_blc) against 20 (offset only) and 8..9 (defaults).
+
+Opt-in vendor blocks: `enable_cdns` (CDNS), `t40_ysp_on` (YSP), `t40_adr_on` (ADR, needs `t40_gates_oem_offset=1`; the per-frame part runs once the core interrupt dispatches IRQ 9 / event 2). Desk notes: `audit/chroma_gap.md`, `audit/ysp_gap.md`, `audit/adr_gap.md`.
+
+Recommended line for colour work on this board:
+
+    insmod tx-isp-t40.ko isp_clk=300000000 t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin t40_gates_oem_offset=1 t40_gates_day_blc=1
