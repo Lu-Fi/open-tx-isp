@@ -51,7 +51,9 @@ static const char adrlit_str[] = "adr";
 static uint8_t adrlit___pow2_lut[132] __attribute__((aligned(8))) = { 0x00, 0x00, 0x00, 0x40, 0x4c, 0xc3, 0x66, 0x41, 0xb4, 0x61, 0xd5, 0x42, 0x40, 0x07, 0x4c, 0x44, 0xf2, 0xe0, 0xca, 0x45, 0xc6, 0x1c, 0x52, 0x47, 0xba, 0xe9, 0xe1, 0x48, 0xd4, 0x77, 0x7a, 0x4a, 0x29, 0xf8, 0x1b, 0x4c, 0xdd, 0x9c, 0xc6, 0x4d, 0x30, 0x99, 0x7a, 0x4f, 0x82, 0x21, 0x38, 0x51, 0x55, 0x6b, 0xff, 0x52, 0x5a, 0xad, 0xd0, 0x54, 0x75, 0x1f, 0xac, 0x56, 0xc1, 0xfa, 0x91, 0x58, 0x9a, 0x79, 0x82, 0x5a, 0xa4, 0xd7, 0x7d, 0x5c, 0xd0, 0x51, 0x84, 0x5e, 0x65, 0x26, 0x96, 0x60, 0x09, 0x95, 0xb3, 0x62, 0xc3, 0xde, 0xdc, 0x64, 0x0b, 0x46, 0x12, 0x67, 0xc9, 0x0e, 0x54, 0x69, 0x65, 0x7e, 0xa2, 0x6b, 0xcc, 0xdb, 0xfd, 0x6d, 0x76, 0x6f, 0x66, 0x70, 0x74, 0x83, 0xdc, 0x72, 0x74, 0x63, 0x60, 0x75, 0xce, 0x5c, 0xf2, 0x77, 0x8b, 0xbe, 0x92, 0x7a, 0x6e, 0xd9, 0x41, 0x7d, 0x00, 0x00, 0x00, 0x80 };
 static uint8_t adrlit_adr_5x5_in2[124] __attribute__((aligned(8))) = { 0x11, 0x84, 0x00, 0x00, 0xea, 0x60, 0x00, 0x00, 0x91, 0x50, 0x00, 0x00, 0xcd, 0x45, 0x00, 0x00, 0xc2, 0x3d, 0x00, 0x00, 0x56, 0x37, 0x00, 0x00, 0xfd, 0x31, 0x00, 0x00, 0x69, 0x2d, 0x00, 0x00, 0x68, 0x29, 0x00, 0x00, 0xd9, 0x25, 0x00, 0x00, 0xa5, 0x22, 0x00, 0x00, 0xbc, 0x1f, 0x00, 0x00, 0x10, 0x1d, 0x00, 0x00, 0x9a, 0x1a, 0x00, 0x00, 0x51, 0x18, 0x00, 0x00, 0x2e, 0x16, 0x00, 0x00, 0x2e, 0x14, 0x00, 0x00, 0x4c, 0x12, 0x00, 0x00, 0x85, 0x10, 0x00, 0x00, 0xd6, 0x0e, 0x00, 0x00, 0x3c, 0x0d, 0x00, 0x00, 0xb6, 0x0b, 0x00, 0x00, 0x41, 0x0a, 0x00, 0x00, 0xdd, 0x08, 0x00, 0x00, 0x88, 0x07, 0x00, 0x00, 0x40, 0x06, 0x00, 0x00, 0x05, 0x05, 0x00, 0x00, 0xd5, 0x03, 0x00, 0x00, 0xb1, 0x02, 0x00, 0x00, 0x96, 0x01, 0x00, 0x00, 0x85, 0x00, 0x00, 0x00 };
 static uint8_t adrlit_adr_block_coord_m_main[4] __attribute__((aligned(8)));
+static uint8_t adrlit_adr_block_coord_m_sec[4] __attribute__((aligned(8)));
 static uint8_t adrlit_adr_block_coord_n_main[4] __attribute__((aligned(8)));
+static uint8_t adrlit_adr_block_coord_n_sec[4] __attribute__((aligned(8)));
 static uint8_t adrlit_adr_ctc1_x[46] __attribute__((aligned(8))) = { 0x00, 0x00, 0x08, 0x00, 0x10, 0x00, 0x20, 0x00, 0x40, 0x00, 0x60, 0x00, 0x80, 0x00, 0x00, 0x01, 0x80, 0x01, 0x00, 0x02, 0x80, 0x02, 0x00, 0x03, 0x80, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08, 0x00, 0x09, 0x00, 0x0a, 0x00, 0x0c, 0x00, 0x0e, 0x00, 0x10 };
 static uint8_t adrlit_adr_ctc1_y_change[4] __attribute__((aligned(8)));
 static uint8_t adrlit_adr_cut_base_up[44] __attribute__((aligned(8)));
@@ -102,11 +104,17 @@ static uint8_t adrlit_adr_tgain_changed[4] __attribute__((aligned(8)));
 static uint8_t adrlit_adr_top_gam_x[258] __attribute__((aligned(8))) = { 0x00, 0x00, 0x20, 0x00, 0x40, 0x00, 0x60, 0x00, 0x80, 0x00, 0xa0, 0x00, 0xc0, 0x00, 0xe0, 0x00, 0x00, 0x01, 0x20, 0x01, 0x40, 0x01, 0x60, 0x01, 0x80, 0x01, 0xa0, 0x01, 0xc0, 0x01, 0xe0, 0x01, 0x00, 0x02, 0x20, 0x02, 0x40, 0x02, 0x60, 0x02, 0x80, 0x02, 0xa0, 0x02, 0xc0, 0x02, 0xe0, 0x02, 0x00, 0x03, 0x20, 0x03, 0x40, 0x03, 0x60, 0x03, 0x80, 0x03, 0xa0, 0x03, 0xc0, 0x03, 0xe0, 0x03, 0x00, 0x04, 0x20, 0x04, 0x40, 0x04, 0x60, 0x04, 0x80, 0x04, 0xa0, 0x04, 0xc0, 0x04, 0xe0, 0x04, 0x00, 0x05, 0x20, 0x05, 0x40, 0x05, 0x60, 0x05, 0x80, 0x05, 0xa0, 0x05, 0xc0, 0x05, 0xe0, 0x05, 0x00, 0x06, 0x20, 0x06, 0x40, 0x06, 0x60, 0x06, 0x80, 0x06, 0xa0, 0x06, 0xc0, 0x06, 0xe0, 0x06, 0x00, 0x07, 0x20, 0x07, 0x40, 0x07, 0x60, 0x07, 0x80, 0x07, 0xa0, 0x07, 0xc0, 0x07, 0xe0, 0x07, 0x00, 0x08, 0x20, 0x08, 0x40, 0x08, 0x60, 0x08, 0x80, 0x08, 0xa0, 0x08, 0xc0, 0x08, 0xe0, 0x08, 0x00, 0x09, 0x20, 0x09, 0x40, 0x09, 0x60, 0x09, 0x80, 0x09, 0xa0, 0x09, 0xc0, 0x09, 0xe0, 0x09, 0x00, 0x0a, 0x20, 0x0a, 0x40, 0x0a, 0x60, 0x0a, 0x80, 0x0a, 0xa0, 0x0a, 0xc0, 0x0a, 0xe0, 0x0a, 0x00, 0x0b, 0x20, 0x0b, 0x40, 0x0b, 0x60, 0x0b, 0x80, 0x0b, 0xa0, 0x0b, 0xc0, 0x0b, 0xe0, 0x0b, 0x00, 0x0c, 0x20, 0x0c, 0x40, 0x0c, 0x60, 0x0c, 0x80, 0x0c, 0xa0, 0x0c, 0xc0, 0x0c, 0xe0, 0x0c, 0x00, 0x0d, 0x20, 0x0d, 0x40, 0x0d, 0x60, 0x0d, 0x80, 0x0d, 0xa0, 0x0d, 0xc0, 0x0d, 0xe0, 0x0d, 0x00, 0x0e, 0x20, 0x0e, 0x40, 0x0e, 0x60, 0x0e, 0x80, 0x0e, 0xa0, 0x0e, 0xc0, 0x0e, 0xe0, 0x0e, 0x00, 0x0f, 0x20, 0x0f, 0x40, 0x0f, 0x60, 0x0f, 0x80, 0x0f, 0xa0, 0x0f, 0xc0, 0x0f, 0xe0, 0x0f, 0xff, 0x0f };
 static uint8_t adrlit_adr_version_num[4] __attribute__((aligned(8))) = { 0x08, 0xb7, 0x6b, 0x7d };
 static uint8_t adrlit_adr_w_02_lut_main[4] __attribute__((aligned(8)));
+static uint8_t adrlit_adr_w_02_lut_sec[4] __attribute__((aligned(8)));
 static uint8_t adrlit_adr_w_12_lut_main[4] __attribute__((aligned(8)));
+static uint8_t adrlit_adr_w_12_lut_sec[4] __attribute__((aligned(8)));
 static uint8_t adrlit_adr_w_20_lut_main[4] __attribute__((aligned(8)));
+static uint8_t adrlit_adr_w_20_lut_sec[4] __attribute__((aligned(8)));
 static uint8_t adrlit_adr_w_21_lut_main[4] __attribute__((aligned(8)));
+static uint8_t adrlit_adr_w_21_lut_sec[4] __attribute__((aligned(8)));
 static uint8_t adrlit_adr_w_22_lut_main[4] __attribute__((aligned(8)));
+static uint8_t adrlit_adr_w_22_lut_sec[4] __attribute__((aligned(8)));
 static uint8_t adrlit_adr_w_5x5_dis_main[4] __attribute__((aligned(8)));
+static uint8_t adrlit_adr_w_5x5_dis_sec[4] __attribute__((aligned(8)));
 static uint8_t adrlit_ai_curve1_y[1024] __attribute__((aligned(8))) = { 0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00, 0x1a, 0x00, 0x00, 0x00, 0x1c, 0x00, 0x00, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x26, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x2e, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x34, 0x00, 0x00, 0x00, 0x36, 0x00, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x3a, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x42, 0x00, 0x00, 0x00, 0x44, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0x48, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x4c, 0x00, 0x00, 0x00, 0x4e, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0x52, 0x00, 0x00, 0x00, 0x54, 0x00, 0x00, 0x00, 0x56, 0x00, 0x00, 0x00, 0x58, 0x00, 0x00, 0x00, 0x5a, 0x00, 0x00, 0x00, 0x5c, 0x00, 0x00, 0x00, 0x5e, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00, 0x62, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0x66, 0x00, 0x00, 0x00, 0x68, 0x00, 0x00, 0x00, 0x6a, 0x00, 0x00, 0x00, 0x6c, 0x00, 0x00, 0x00, 0x6f, 0x00, 0x00, 0x00, 0x71, 0x00, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00, 0x75, 0x00, 0x00, 0x00, 0x77, 0x00, 0x00, 0x00, 0x79, 0x00, 0x00, 0x00, 0x7b, 0x00, 0x00, 0x00, 0x7d, 0x00, 0x00, 0x00, 0x7f, 0x00, 0x00, 0x00, 0x81, 0x00, 0x00, 0x00, 0x83, 0x00, 0x00, 0x00, 0x85, 0x00, 0x00, 0x00, 0x87, 0x00, 0x00, 0x00, 0x89, 0x00, 0x00, 0x00, 0x8b, 0x00, 0x00, 0x00, 0x8e, 0x00, 0x00, 0x00, 0x90, 0x00, 0x00, 0x00, 0x92, 0x00, 0x00, 0x00, 0x94, 0x00, 0x00, 0x00, 0x96, 0x00, 0x00, 0x00, 0x98, 0x00, 0x00, 0x00, 0x9b, 0x00, 0x00, 0x00, 0x9d, 0x00, 0x00, 0x00, 0x9f, 0x00, 0x00, 0x00, 0xa1, 0x00, 0x00, 0x00, 0xa3, 0x00, 0x00, 0x00, 0xa6, 0x00, 0x00, 0x00, 0xa8, 0x00, 0x00, 0x00, 0xaa, 0x00, 0x00, 0x00, 0xad, 0x00, 0x00, 0x00, 0xaf, 0x00, 0x00, 0x00, 0xb2, 0x00, 0x00, 0x00, 0xb4, 0x00, 0x00, 0x00, 0xb7, 0x00, 0x00, 0x00, 0xb9, 0x00, 0x00, 0x00, 0xbc, 0x00, 0x00, 0x00, 0xbf, 0x00, 0x00, 0x00, 0xc2, 0x00, 0x00, 0x00, 0xc5, 0x00, 0x00, 0x00, 0xc8, 0x00, 0x00, 0x00, 0xcb, 0x00, 0x00, 0x00, 0xce, 0x00, 0x00, 0x00, 0xd2, 0x00, 0x00, 0x00, 0xd6, 0x00, 0x00, 0x00, 0xda, 0x00, 0x00, 0x00, 0xde, 0x00, 0x00, 0x00, 0xe2, 0x00, 0x00, 0x00, 0xe7, 0x00, 0x00, 0x00, 0xed, 0x00, 0x00, 0x00, 0xf3, 0x00, 0x00, 0x00, 0xfa, 0x00, 0x00, 0x00, 0x02, 0x01, 0x00, 0x00, 0x0b, 0x01, 0x00, 0x00, 0x15, 0x01, 0x00, 0x00, 0x21, 0x01, 0x00, 0x00, 0x30, 0x01, 0x00, 0x00, 0x41, 0x01, 0x00, 0x00, 0x57, 0x01, 0x00, 0x00, 0x72, 0x01, 0x00, 0x00, 0x94, 0x01, 0x00, 0x00, 0xc0, 0x01, 0x00, 0x00, 0xfb, 0x01, 0x00, 0x00, 0x4c, 0x02, 0x00, 0x00, 0xbe, 0x02, 0x00, 0x00, 0x63, 0x03, 0x00, 0x00, 0x5f, 0x04, 0x00, 0x00, 0xf3, 0x05, 0x00, 0x00, 0xa4, 0x08, 0x00, 0x00, 0xa8, 0x0d, 0x00, 0x00, 0x28, 0x18, 0x00, 0x00, 0x44, 0x32, 0x00, 0x00, 0x3e, 0x88, 0x00, 0x00, 0x38, 0x73, 0x02, 0x00, 0x47, 0x0d, 0x42, 0x00, 0xb9, 0xf2, 0xbd, 0xff, 0xc8, 0x8c, 0xfd, 0xff, 0xc2, 0x77, 0xff, 0xff, 0xbc, 0xcd, 0xff, 0xff, 0xd8, 0xe7, 0xff, 0xff, 0x58, 0xf2, 0xff, 0xff, 0x5c, 0xf7, 0xff, 0xff, 0x0d, 0xfa, 0xff, 0xff, 0xa1, 0xfb, 0xff, 0xff, 0x9d, 0xfc, 0xff, 0xff, 0x42, 0xfd, 0xff, 0xff, 0xb4, 0xfd, 0xff, 0xff, 0x05, 0xfe, 0xff, 0xff, 0x40, 0xfe, 0xff, 0xff, 0x6c, 0xfe, 0xff, 0xff, 0x8e, 0xfe, 0xff, 0xff, 0xa9, 0xfe, 0xff, 0xff, 0xbf, 0xfe, 0xff, 0xff, 0xd0, 0xfe, 0xff, 0xff, 0xdf, 0xfe, 0xff, 0xff, 0xeb, 0xfe, 0xff, 0xff, 0xf5, 0xfe, 0xff, 0xff, 0xfe, 0xfe, 0xff, 0xff, 0x06, 0xff, 0xff, 0xff, 0x0d, 0xff, 0xff, 0xff, 0x13, 0xff, 0xff, 0xff, 0x19, 0xff, 0xff, 0xff, 0x1e, 0xff, 0xff, 0xff, 0x22, 0xff, 0xff, 0xff, 0x26, 0xff, 0xff, 0xff, 0x2a, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff, 0x32, 0xff, 0xff, 0xff, 0x35, 0xff, 0xff, 0xff, 0x38, 0xff, 0xff, 0xff, 0x3b, 0xff, 0xff, 0xff, 0x3e, 0xff, 0xff, 0xff, 0x41, 0xff, 0xff, 0xff, 0x44, 0xff, 0xff, 0xff, 0x47, 0xff, 0xff, 0xff, 0x49, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff, 0x4e, 0xff, 0xff, 0xff, 0x51, 0xff, 0xff, 0xff, 0x53, 0xff, 0xff, 0xff, 0x56, 0xff, 0xff, 0xff, 0x58, 0xff, 0xff, 0xff, 0x5a, 0xff, 0xff, 0xff, 0x5d, 0xff, 0xff, 0xff, 0x5f, 0xff, 0xff, 0xff, 0x61, 0xff, 0xff, 0xff, 0x63, 0xff, 0xff, 0xff, 0x65, 0xff, 0xff, 0xff, 0x68, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x6c, 0xff, 0xff, 0xff, 0x6e, 0xff, 0xff, 0xff, 0x70, 0xff, 0xff, 0xff, 0x72, 0xff, 0xff, 0xff, 0x75, 0xff, 0xff, 0xff, 0x77, 0xff, 0xff, 0xff, 0x79, 0xff, 0xff, 0xff, 0x7b, 0xff, 0xff, 0xff, 0x7d, 0xff, 0xff, 0xff, 0x7f, 0xff, 0xff, 0xff, 0x81, 0xff, 0xff, 0xff, 0x83, 0xff, 0xff, 0xff, 0x85, 0xff, 0xff, 0xff, 0x87, 0xff, 0xff, 0xff, 0x89, 0xff, 0xff, 0xff, 0x8b, 0xff, 0xff, 0xff, 0x8d, 0xff, 0xff, 0xff, 0x8f, 0xff, 0xff, 0xff, 0x91, 0xff, 0xff, 0xff, 0x94, 0xff, 0xff, 0xff, 0x96, 0xff, 0xff, 0xff, 0x98, 0xff, 0xff, 0xff, 0x9a, 0xff, 0xff, 0xff, 0x9c, 0xff, 0xff, 0xff, 0x9e, 0xff, 0xff, 0xff, 0xa0, 0xff, 0xff, 0xff, 0xa2, 0xff, 0xff, 0xff, 0xa4, 0xff, 0xff, 0xff, 0xa6, 0xff, 0xff, 0xff, 0xa8, 0xff, 0xff, 0xff, 0xaa, 0xff, 0xff, 0xff, 0xac, 0xff, 0xff, 0xff, 0xae, 0xff, 0xff, 0xff, 0xb0, 0xff, 0xff, 0xff, 0xb2, 0xff, 0xff, 0xff, 0xb4, 0xff, 0xff, 0xff, 0xb6, 0xff, 0xff, 0xff, 0xb8, 0xff, 0xff, 0xff, 0xba, 0xff, 0xff, 0xff, 0xbc, 0xff, 0xff, 0xff, 0xbe, 0xff, 0xff, 0xff, 0xc0, 0xff, 0xff, 0xff, 0xc2, 0xff, 0xff, 0xff, 0xc4, 0xff, 0xff, 0xff, 0xc6, 0xff, 0xff, 0xff, 0xc8, 0xff, 0xff, 0xff, 0xca, 0xff, 0xff, 0xff, 0xcc, 0xff, 0xff, 0xff, 0xce, 0xff, 0xff, 0xff, 0xd0, 0xff, 0xff, 0xff, 0xd2, 0xff, 0xff, 0xff, 0xd4, 0xff, 0xff, 0xff, 0xd6, 0xff, 0xff, 0xff, 0xd8, 0xff, 0xff, 0xff, 0xda, 0xff, 0xff, 0xff, 0xdc, 0xff, 0xff, 0xff, 0xde, 0xff, 0xff, 0xff, 0xe0, 0xff, 0xff, 0xff, 0xe2, 0xff, 0xff, 0xff, 0xe4, 0xff, 0xff, 0xff, 0xe6, 0xff, 0xff, 0xff, 0xe8, 0xff, 0xff, 0xff, 0xea, 0xff, 0xff, 0xff, 0xec, 0xff, 0xff, 0xff, 0xee, 0xff, 0xff, 0xff, 0xf0, 0xff, 0xff, 0xff, 0xf2, 0xff, 0xff, 0xff, 0xf4, 0xff, 0xff, 0xff, 0xf6, 0xff, 0xff, 0xff, 0xf8, 0xff, 0xff, 0xff, 0xfa, 0xff, 0xff, 0xff, 0xfc, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff };
 static uint8_t adrlit_count_adr_test[8] __attribute__((aligned(8)));
 static uint8_t adrlit_height_adr[8] __attribute__((aligned(8)));
@@ -163,6 +171,8 @@ static int32_t tiziano_adr_stat_calc_lit(uint32_t a0_in, uint32_t a1_in, uint32_
 static int32_t tiziano_adr_tgain_func_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
 static int32_t tiziano_adr_top_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
 static int32_t tiziano_adr_wal_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
+static int32_t tisp_adr_main_deinit_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
+static int32_t tisp_adr_dn_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
 static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t sp, uint32_t *v1);
 #define ADR_DISPATCH(r) adrlit_dispatch((r), r_a0, r_a1, r_a2, r_a3, r_sp, &r_v1)
 
@@ -8710,6 +8720,511 @@ fn_exit:
     return (int32_t)r_v0;
 }
 
+static int32_t tisp_adr_main_deinit_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+{
+    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
+    uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
+    uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
+    uint32_t r_s6 = 0, r_s7 = 0, r_s8 = 0, r_ra = 0, r_at = 0;
+    uint32_t mips_lo = 0, mips_hi = 0, mips_cond = 0;
+    uint32_t r_a0 = a0_in, r_a1 = a1_in, r_a2 = a2_in, r_a3 = a3_in;
+    uint32_t r_sp = sp_in;
+
+    (void)r_at; (void)r_ra; (void)r_t8; (void)r_t9; (void)mips_lo; (void)mips_hi;
+    (void)mips_cond;
+    r_sp = r_sp + -0x20U;
+    r_v0 = (uint32_t)(uintptr_t)&private_mutex_lock; /* HI16 private_mutex_lock */
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_s0;
+    r_s0 = 0; /* HI16 .bss anchor */
+    *(uint32_t *)(uintptr_t)(r_sp + 24) = (uint32_t)r_s1;
+    r_a0 = (uint32_t)(uintptr_t)&adrlit_adr_mlock;
+    *(uint32_t *)(uintptr_t)(r_sp + 28) = (uint32_t)r_ra;
+    r_v0 = (uint32_t)(uintptr_t)&private_mutex_lock;
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_mutex_lock */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_main_adr_paras);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54378;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_main_adr_paras) + 0) = (uint32_t)0;
+L_54378:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_main_adr_gamma);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54398;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_main_adr_gamma) + 0) = (uint32_t)0;
+L_54398:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_wal_para);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_543b8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_wal_para) + 0) = (uint32_t)0;
+L_543b8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_top_para);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_543d8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_top_para) + 0) = (uint32_t)0;
+L_543d8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_soft_para);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_543f8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_soft_para) + 0) = (uint32_t)0;
+L_543f8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_para);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54418;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_hard_para) + 0) = (uint32_t)0;
+L_54418:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54438;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_hard_base) + 0) = (uint32_t)0;
+L_54438:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_stat_info);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54458;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_stat_info) + 0) = (uint32_t)0;
+L_54458:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_fpga_para);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54478;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_fpga_para) + 0) = (uint32_t)0;
+L_54478:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_map_y_old);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54498;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_map_y_old) + 0) = (uint32_t)0;
+L_54498:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_ctc1_y_tmp);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_544b8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_ctc1_y_tmp) + 0) = (uint32_t)0;
+L_544b8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_20_lut_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_544d8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_20_lut_main) + 0) = (uint32_t)0;
+L_544d8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_02_lut_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_544f8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_02_lut_main) + 0) = (uint32_t)0;
+L_544f8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_12_lut_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54518;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_12_lut_main) + 0) = (uint32_t)0;
+L_54518:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_22_lut_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54538;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_22_lut_main) + 0) = (uint32_t)0;
+L_54538:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_21_lut_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54558;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_21_lut_main) + 0) = (uint32_t)0;
+L_54558:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_5x5_dis_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54578;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_5x5_dis_main) + 0) = (uint32_t)0;
+L_54578:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_m_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54598;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_block_coord_m_main) + 0) = (uint32_t)0;
+L_54598:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_n_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_545b8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_block_coord_n_main) + 0) = (uint32_t)0;
+L_545b8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light3_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_545d8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light3_main) + 0) = (uint32_t)0;
+L_545d8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light4_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_545f8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light4_main) + 0) = (uint32_t)0;
+L_545f8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light5_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54618;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light5_main) + 0) = (uint32_t)0;
+L_54618:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light6_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54638;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light6_main) + 0) = (uint32_t)0;
+L_54638:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light7_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54658;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light7_main) + 0) = (uint32_t)0;
+L_54658:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light8_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54678;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light8_main) + 0) = (uint32_t)0;
+L_54678:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light9_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54698;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light9_main) + 0) = (uint32_t)0;
+L_54698:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light10_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_546b8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light10_main) + 0) = (uint32_t)0;
+L_546b8:
+    r_ra = *(uint32_t *)(uintptr_t)(r_sp + 28);
+    r_s1 = *(uint32_t *)(uintptr_t)(r_sp + 24);
+    r_a0 = (uint32_t)(uintptr_t)&adrlit_adr_mlock;
+    r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 20);
+    r_t9 = (uint32_t)(uintptr_t)&private_mutex_unlock; /* HI16 private_mutex_unlock */
+    r_t9 = (uint32_t)(uintptr_t)&private_mutex_unlock;
+    r_sp = r_sp + 0x20U;
+    r_v0 = ADR_DISPATCH(r_t9); goto fn_exit; /* tail private_mutex_unlock */
+
+fn_exit:
+    if (v1_out)
+        *v1_out = r_v1;
+    return (int32_t)r_v0;
+}
+
+static int32_t tisp_adr_dn_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+{
+    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
+    uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
+    uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
+    uint32_t r_s6 = 0, r_s7 = 0, r_s8 = 0, r_ra = 0, r_at = 0;
+    uint32_t mips_lo = 0, mips_hi = 0, mips_cond = 0;
+    uint32_t r_a0 = a0_in, r_a1 = a1_in, r_a2 = a2_in, r_a3 = a3_in;
+    uint32_t r_sp = sp_in;
+
+    (void)r_at; (void)r_ra; (void)r_t8; (void)r_t9; (void)mips_lo; (void)mips_hi;
+    (void)mips_cond;
+    r_sp = r_sp + -0x20U;
+    *(uint32_t *)(uintptr_t)(r_sp + 24) = (uint32_t)r_s2;
+    *(uint32_t *)(uintptr_t)(r_sp + 28) = (uint32_t)r_ra;
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_s1;
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_s0;
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_s2 = r_a0;
+    if (mips_cond) goto L_585c4;
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_s1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_hard_base);
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_s0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_soft_para);
+L_583f8:
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_params_refresh; /* HI16 tiziano_adr_params_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_params_refresh;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_params_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_wal_para_refresh; /* HI16 tiziano_adr_wal_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_wal_para_refresh;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_wal_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_top_para_refresh; /* HI16 tiziano_adr_top_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_top_para_refresh;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_top_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_soft_para_refresh; /* HI16 tiziano_adr_soft_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_soft_para_refresh;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_soft_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_hard_para_refresh; /* HI16 tiziano_adr_hard_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_hard_para_refresh;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_hard_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_hard_base_refresh; /* HI16 tiziano_adr_hard_base_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_hard_base_refresh;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_hard_base_refresh */
+    r_a1 = *(uint32_t *)(uintptr_t)(r_s0 + 52);
+    r_v1 = 0; /* HI16 .bss anchor */
+    r_a0 = r_s2 << 2;
+    r_v1 = (uint32_t)(uintptr_t)adrlit_width_adr;
+    r_v1 = r_a0 + r_v1;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
+    r_v0 = 0; /* HI16 .bss anchor */
+    mips_cond = (r_a2 != r_v1) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)adrlit_height_adr;
+    if (mips_cond) goto L_58494;
+    r_a2 = r_v0 + r_a0;
+    r_a3 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 2);
+    r_a2 = *(uint32_t *)(uintptr_t)(r_a2 + 0);
+    mips_cond = (r_a3 == r_a2) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_58558;
+L_58494:
+    *(uint16_t *)(uintptr_t)(r_a1 + 0) = (uint16_t)r_v1;
+    r_v0 = r_v0 + r_a0;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_s0 + 52);
+    r_v0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
+    r_s0 = (uint32_t)(uintptr_t)&memcpy; /* HI16 memcpy */
+    r_s0 = (uint32_t)(uintptr_t)&memcpy;
+    *(uint16_t *)(uintptr_t)(r_v1 + 2) = (uint16_t)r_v0;
+    r_v0 = 1U;
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 8);
+    mips_cond = (r_s2 != r_v0) ? 1U : 0U;
+    r_a2 = 32U;
+    if (mips_cond) goto L_585d8;
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_20_lut_sec);
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_02_lut_sec);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 12);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_12_lut_sec);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 16);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_22_lut_sec);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 20);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_21_lut_sec);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 24);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_m_sec);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 0);
+    r_a2 = 10U;
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_n_sec);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 4);
+    r_a2 = 14U;
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_5x5_dis_sec);
+    r_a2 = 62U;
+L_58550:
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 28);
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+L_58558:
+    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local; /* HI16 adr_gauss_local */
+    r_v0 = (uint32_t)(uintptr_t)&func_gauss_local; /* HI16 func_gauss_local */
+    r_a1 = r_s2;
+    r_v0 = (uint32_t)(uintptr_t)&func_gauss_local;
+    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local;
+    r_v0 = ADR_DISPATCH(r_v0); /* func_gauss_local */
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_one; /* HI16 func_adr_reg_write_one */
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_one;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_reg_write_one */
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_5x5; /* HI16 func_adr_reg_write_5x5 */
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_5x5;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_reg_write_5x5 */
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_sometimes; /* HI16 func_adr_reg_write_sometimes */
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_sometimes;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_reg_write_sometimes */
+    r_ra = *(uint32_t *)(uintptr_t)(r_sp + 28);
+    r_s1 = *(uint32_t *)(uintptr_t)(r_sp + 20);
+    r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 16);
+    r_a0 = r_s2;
+    r_s2 = *(uint32_t *)(uintptr_t)(r_sp + 24);
+    r_t9 = (uint32_t)(uintptr_t)&func_adr_reg_write_every; /* HI16 func_adr_reg_write_every */
+    r_t9 = (uint32_t)(uintptr_t)&func_adr_reg_write_every;
+    r_sp = r_sp + 0x20U;
+    r_v0 = ADR_DISPATCH(r_t9); goto fn_exit; /* tail func_adr_reg_write_every */
+L_585c4:
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_s1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_s0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_soft_para);
+    goto L_583f8;
+L_585d8:
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_20_lut_main);
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_02_lut_main);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 12);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_12_lut_main);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 16);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_22_lut_main);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 20);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_21_lut_main);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 24);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_m_main);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 0);
+    r_a2 = 10U;
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_n_main);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 4);
+    r_a2 = 14U;
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a2 = 62U;
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_5x5_dis_main);
+    goto L_58550;
+
+fn_exit:
+    if (v1_out)
+        *v1_out = r_v1;
+    return (int32_t)r_v0;
+}
+
 /* one emulated MIPS stack per entry context; OEM frames nest to < 2 KiB */
 #define ADRLIT_STACK 6144
 static uint8_t adrlit_stack_init[ADRLIT_STACK] __attribute__((aligned(8)));
@@ -8805,6 +9320,10 @@ static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t 
         return (uint32_t)tiziano_adr_top_para_refresh_lit(a0, a1, a2, a3, sp, v1);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_wal_para_refresh)
         return (uint32_t)tiziano_adr_wal_para_refresh_lit(a0, a1, a2, a3, sp, v1);
+    if (fn == (uint32_t)(uintptr_t)&tisp_adr_main_deinit)
+        return (uint32_t)tisp_adr_main_deinit_lit(a0, a1, a2, a3, sp, v1);
+    if (fn == (uint32_t)(uintptr_t)&tisp_adr_dn_params_refresh)
+        return (uint32_t)tisp_adr_dn_params_refresh_lit(a0, a1, a2, a3, sp, v1);
     if (fn == (uint32_t)(uintptr_t)&system_reg_write)
         return (uint32_t)system_reg_write(a0, a1);
     if (fn == (uint32_t)(uintptr_t)&system_reg_read)
@@ -8872,6 +9391,33 @@ static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t 
     return 0;
 }
 
+
+static uint8_t adrlit_stack_ctl[ADRLIT_STACK] __attribute__((aligned(8)));
+
+/* OEM tisp_day_or_night_s_ctrl -> tisp_adr_dn_params_refresh(mode) */
+static int regtrace_adr_dn_refresh_lit(uint32_t mode)
+{
+    if (!regtrace_t40_adr_lit_active)
+        return 0;
+    return (int)tisp_adr_dn_params_refresh_lit(mode, 0, 0, 0,
+                                               ADRLIT_SP(adrlit_stack_ctl), NULL);
+}
+
+/*
+ * Module exit: block init (and so the ADR init) runs once per module load,
+ * not per stream start, so the OEM tisp_adr_main_deinit belongs here.
+ * Unhook the ISR and the event first, then free the OEM buffers.
+ */
+static void regtrace_adr_lit_cleanup(void)
+{
+    if (!regtrace_t40_adr_lit_active)
+        return;
+    regtrace_t40_adr_lit_active = false;
+    system_irq_func_set(9, 0);
+    tisp_event_set_cb(0, 2, 0);
+    (void)tisp_adr_main_deinit_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_ctl), NULL);
+    printk(KERN_INFO "tx_isp_t40_recovered: adr-lit deinit done\n");
+}
 
 static int regtrace_adr_main_init_lit(uint32_t width, uint32_t height)
 {

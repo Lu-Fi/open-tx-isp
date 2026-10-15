@@ -52,10 +52,14 @@ Desk check against the OEM sc830ai module (t40prod `tx-isp-t40.ko`). No device r
 
 ## Limits / follow-ups
 
-- Day/night: the OEM `tisp_adr_dn_params_refresh` is not called on a bank switch. ADR keeps its
-  day-bank parameters, and bit 7 keeps its state.
-- Re-init (stream restart) allocates the OEM buffers again without the OEM deinit (leak per restart
-  while `t40_adr_on=1`).
+- Day/night: done. `regtrace_t40_refresh_daynight_pipeline` calls the literal OEM
+  `tisp_adr_dn_params_refresh(mode)` while the lit chain is active, as `tisp_day_or_night_s_ctrl`
+  does.
+- Deinit: in this driver the block init (and so the ADR init) runs once per module load.
+  `isp_block_init_ran` is never reset, so there is no per-restart allocation and nothing leaks on a
+  stream restart. A deinit on stream off would leave the next stream without ADR buffers. The
+  literal OEM `tisp_adr_main_deinit` therefore runs in exit step 3, after the event threads stop:
+  it unhooks IRQ 9 and event 2, then frees the OEM buffers.
 - Unrelated, seen while checking the translator: in the existing lit files, `tisp_clm_wdr_en`,
   `tisp_dmsc_all_reg_refresh` and `ispcore_interrupt_service_routine` call other functions than the
   same functions in the sc830ai production module. Either another vendor version or a hand edit;

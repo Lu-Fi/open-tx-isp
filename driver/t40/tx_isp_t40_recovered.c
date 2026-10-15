@@ -22288,6 +22288,10 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
             regtrace_mdns_main_init_lit(width, height));
     if (regtrace_enable_ydns)
         REGTRACE_T40_DN_STEP(tisp_ydns_main_init());
+    /* OEM tisp_day_or_night_s_ctrl also refreshes ADR from the new bank */
+    if (regtrace_t40_adr_lit_active)
+        REGTRACE_T40_DN_STEP(regtrace_adr_dn_refresh_lit(
+            READ_ONCE(regtrace_running_mode)));
 
     /* Every DNS/YSP initializer installs its bootstrap interpolation state.
      * The next completed frame must replay the live gain even when that gain
@@ -198165,7 +198169,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
             cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
             cancel_work_sync(&regtrace_isp_block_init_work);
             break;
-        case 3: regtrace_tisp_event_threads_stop(); break;
+        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); break;
         case 4: regtrace_dmsc_lit_cleanup(); break;
         case 5: regtrace_lsc_lit_cleanup(); break;
         case 6: regtrace_tisp_main_init_param_free(); break;

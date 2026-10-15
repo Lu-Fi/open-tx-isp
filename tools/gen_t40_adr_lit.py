@@ -242,6 +242,33 @@ static int32_t adrlit_process_cb(uint32_t a0, uint32_t a1, uint32_t a2,
 ''')
 o.append('\n'.join(d))
 o.append('''
+static uint8_t adrlit_stack_ctl[ADRLIT_STACK] __attribute__((aligned(8)));
+
+/* OEM tisp_day_or_night_s_ctrl -> tisp_adr_dn_params_refresh(mode) */
+static int regtrace_adr_dn_refresh_lit(uint32_t mode)
+{
+    if (!regtrace_t40_adr_lit_active)
+        return 0;
+    return (int)tisp_adr_dn_params_refresh_lit(mode, 0, 0, 0,
+                                               ADRLIT_SP(adrlit_stack_ctl), NULL);
+}
+
+/*
+ * Module exit: block init (and so the ADR init) runs once per module load,
+ * not per stream start, so the OEM tisp_adr_main_deinit belongs here.
+ * Unhook the ISR and the event first, then free the OEM buffers.
+ */
+static void regtrace_adr_lit_cleanup(void)
+{
+    if (!regtrace_t40_adr_lit_active)
+        return;
+    regtrace_t40_adr_lit_active = false;
+    system_irq_func_set(9, 0);
+    tisp_event_set_cb(0, 2, 0);
+    (void)tisp_adr_main_deinit_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_ctl), NULL);
+    printk(KERN_INFO "tx_isp_t40_recovered: adr-lit deinit done\\n");
+}
+
 static int regtrace_adr_main_init_lit(uint32_t width, uint32_t height)
 {
     int ret = (int)tisp_adr_main_init_lit(width, height, 0, 0,
