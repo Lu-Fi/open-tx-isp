@@ -11955,6 +11955,17 @@ static void regtrace_t40_gib_calc_dgain(uint16_t self_gain, bool ir_mode,
  * normalized digital gains, config, BLC values and latch.  Analog-gain update
  * mode 3 refreshes only BLC values and the latch.
  */
+/*
+ * A/B aid for the colour cast with t40_gates_oem_offset=1: the OEM GIB black
+ * level from the sc830ai bin is 260 (0x104, BLC bypassed), while the old
+ * pipeline subtracted 270 (BLC) + 60 (GIB) = 330 with clean colours.  A
+ * positive t40_gib_blc_delta raises the GIB black level (and with it the
+ * OEM self gain) on every channel, to test whether the sensor pedestal in
+ * this setup is above the bin value.  Default 0 (OEM values).
+ */
+static int regtrace_t40_gib_blc_delta;
+module_param_named(t40_gib_blc_delta, regtrace_t40_gib_blc_delta, int, 0644);
+
 static int regtrace_gib_main_gain_update_lit(uint32_t gain, bool init)
 {
     uint32_t nbuf = *(uint32_t *)((char *)&tparamsN);
@@ -11974,6 +11985,13 @@ static int regtrace_gib_main_gain_update_lit(uint32_t gain, bool init)
     interp[2] = regtrace_t40_tuning_intp16(gain, tool + 84U);
     interp[3] = regtrace_t40_tuning_intp16(gain, tool + 106U);
     interp[4] = regtrace_t40_tuning_intp16(gain, tool + 128U);
+    if (regtrace_t40_gib_blc_delta) {
+        unsigned int k;
+
+        for (k = 0; k < 5; k++)
+            interp[k] = (uint16_t)clamp_t(int, (int)interp[k] +
+                                          regtrace_t40_gib_blc_delta, 0, 4095);
+    }
     bayer = *(uint32_t *)(tisp_par_info + 8U);
     regtrace_t40_gib_bayer_map(bayer, interp, chan, &map);
     max_blc = max(max(max(interp[0], interp[1]),
