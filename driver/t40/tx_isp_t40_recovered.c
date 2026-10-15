@@ -11681,6 +11681,28 @@ static uint regtrace_t40_gates_offset_now = 0x20U;
  */
 static bool regtrace_t40_gates_keep_blc;
 module_param_named(t40_gates_keep_blc, regtrace_t40_gates_keep_blc, bool, 0644);
+/*
+ * Day/night BLC policy for t40_gates_oem_offset=1.  The bin's linear mask
+ * bypasses BLC and leaves the black level to GIB, but GIB sits behind WBG:
+ * the pedestal is multiplied by the white-balance gains first and then
+ * subtracted equally (violet shadows, green/yellow highlights; Eufy
+ * 2026-10-15: Csat 20 vs 8).  t40_gates_day_blc=1 keeps BLC active in day
+ * mode (running_mode 0) and writes t40_gates_day_gib_blc as the GIB black
+ * level instead of the bin value (default 0: BLC already removed it; the
+ * PO run gave Csat 9.1 without crushing).  Night (mono) keeps the bin mask
+ * and the bin GIB level.  Re-evaluated on every day/night refresh.
+ * Default 0.
+ */
+static bool regtrace_t40_gates_day_blc;
+module_param_named(t40_gates_day_blc, regtrace_t40_gates_day_blc, bool, 0644);
+static uint regtrace_t40_gates_day_gib_blc;
+module_param_named(t40_gates_day_gib_blc, regtrace_t40_gates_day_gib_blc, uint, 0644);
+
+static bool regtrace_t40_gates_day_blc_on(void)
+{
+    return regtrace_t40_gates_day_blc && regtrace_t40_gates_oem_offset &&
+           !READ_ONCE(regtrace_running_mode);
+}
 module_param_named(t40_gates_offset_now, regtrace_t40_gates_offset_now, uint, 0444);
 /*
  * Second OEM word: 0x6c = 24 bits from the bank's bytes at gate offset
@@ -11750,7 +11772,8 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
     regtrace_t40_tuning_gib_bypass_now = flags[5] ? 1U : 0U;
     regtrace_t40_tuning_bcsh_bypass_now = flags[15] ? 1U : 0U;
 
-    if (flags[0] && !(regtrace_t40_gates_keep_blc && gate_off == 0x00U)) {
+    if (flags[0] && !((regtrace_t40_gates_keep_blc ||
+                       regtrace_t40_gates_day_blc_on()) && gate_off == 0x00U)) {
         regtrace_enable_blc_lit = false;
         regtrace_t40_quality_top40_final |= BIT(0);
     } else {
@@ -11985,7 +12008,12 @@ static int regtrace_gib_main_gain_update_lit(uint32_t gain, bool init)
     interp[2] = regtrace_t40_tuning_intp16(gain, tool + 84U);
     interp[3] = regtrace_t40_tuning_intp16(gain, tool + 106U);
     interp[4] = regtrace_t40_tuning_intp16(gain, tool + 128U);
-    if (regtrace_t40_gib_blc_delta) {
+    if (regtrace_t40_gates_day_blc_on() && regtrace_t40_gates_offset_now == 0x00U) {
+        unsigned int k;
+
+        for (k = 0; k < 5; k++)
+            interp[k] = (uint16_t)min_t(uint32_t, regtrace_t40_gates_day_gib_blc, 4095U);
+    } else if (regtrace_t40_gib_blc_delta) {
         unsigned int k;
 
         for (k = 0; k < 5; k++)
