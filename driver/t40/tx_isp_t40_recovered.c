@@ -71282,6 +71282,12 @@ int32_t tisp_stream_on(uintptr_t a0)
            regtrace_tisp_stream_on_last_reg1008, mask, ret);
     return ret;
 #else
+    /*
+     * HLIL reference only, never compiled: every Kbuild defines
+     * REGTRACE_KERNEL_TREE_BUILD.  The body below is the raw lift of
+     * tisp_stream_on and is not shipping code (mis-resolved jalr targets).
+     */
+#error "tisp_stream_on: non-REGTRACE body is an HLIL reference, build with -DREGTRACE_KERNEL_TREE_BUILD"
 
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
@@ -77581,6 +77587,12 @@ int32_t tisp_event_set_cb(int32_t arg1, int32_t arg2, int32_t arg3)
     regtrace_tisp_event_set_last_ret = 0;
     return 0;
 #else
+    /*
+     * HLIL reference only, never compiled: every Kbuild defines
+     * REGTRACE_KERNEL_TREE_BUILD.  The body below is the raw lift of
+     * tisp_event_set_cb and is not shipping code (mis-resolved jalr targets).
+     */
+#error "tisp_event_set_cb: non-REGTRACE body is an HLIL reference, build with -DREGTRACE_KERNEL_TREE_BUILD"
     /* The assembly accesses .bss + 6848 with HI16/LO16 relocations */
     /* We need to preserve the .bss relocation multiset (2 relocations) */
     int32_t offset = ((arg1 << 5) + arg2) << 2;
