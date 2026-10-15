@@ -15289,9 +15289,12 @@ int tx_isp_probe(struct platform_device *pdev)
 
     isp_mem_init();
     *(char **)((char *)dev + 0x104) = "H20200509a";
+#ifndef OTX_BUILD_ID
+#define OTX_BUILD_ID "unknown"
+#endif
     isp_printf(0,
-               "@@@@ tx-isp-probe ok(version %s), compiler date=%s @@@@@\n",
-               "H20200509a", __DATE__);
+               "@@@@ tx-isp-probe ok(version %s), build=%s @@@@@\n",
+               "H20200509a", OTX_BUILD_ID);
     return 0;
 
 out_deregister:
