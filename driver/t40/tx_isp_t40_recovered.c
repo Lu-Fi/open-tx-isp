@@ -177916,7 +177916,8 @@ int32_t Tzn_Msca_Shd_line_chx(int32_t arg1, int32_t arg2, int32_t arg3)
     } while (i != 0x10);
     
     system_reg_write(0x50320, 0x400102);
-    system_reg_write(0x834, 0x3f000001);
+    /* OEM Tzn_Msca_Shd_line_chx @0x6d258: a0 = 0x50000 + 0x420 (shadow kick), not 0x834 */
+    system_reg_write(0x50420, 0x3f000001);
     return private_spin_unlock_irqrestore();
 }
 
