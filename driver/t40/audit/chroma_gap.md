@@ -46,7 +46,7 @@ the pstMain* slot arrays. The pointer-scaling defect is in the dead CDNS lift (s
 ## 3. Fix proposals (one per real function, no register override)
 
 1. **CDNS: source-derived `regtrace_cdns_main_init_lit()` plus `tisp_cdns_par_refresh_lit(ch, tgain, thresh)`**, following the SDNS lit port (`tx_isp_t40_sdns_lit.inc`).
-   - Translate OEM 0x618e4/0x61844/0x617f0/0x61268/0x60fd0 from the disassembly: `main_cdns` 683 B from bank + 73771, comb 120 B, intp 32 B, `wdr_en`, then `all_reg_refresh`.
+   - Translate OEM 0x618e4/0x61844/0x617f0/0x61268/0x60fd0 from the disassembly: `main_cdns` 683 B from bank + 0x11b8b (OEM sc830ai module; the lift's 73771 is wrong), comb 120 B, intp 32 B, `wdr_en`, then `all_reg_refresh`.
    - Call init from `regtrace_isp_block_init_once` and the day/night refresh.
    - Call `par_refresh` next to the SDNS call in the frame-done DNS block with `dns_ev`, which has the same 16.16 tgain unit the OEM tgain callback uses.
    - Clear TOP bit 19 only when init returned 0, as SDNS does with bit 18.
@@ -58,6 +58,8 @@ the pstMain* slot arrays. The pointer-scaling defect is in the dead CDNS lift (s
    - README 570 "SDNS initialiser not run" predates `regtrace_sdns_main_init_lit`, so it is obsolete.
 3. **CCM: feed the AE EV into `regtrace_ccm_ev`** from the same place that calls `regtrace_gc4653_tuning_again_update`. The value is in OEM EV units (the `tisp_main_long_ev_update` argument), not log2 gain. Derive the unit from OEM `tisp_ae_main_process` (the event 8 payload) before wiring it; the default 400 is the bright end.
 4. **BCSH: same EV into `pstMainBcshOri_lit[38]`, then `tisp_bcsh_ev_update_lit`** when the change passes the OEM threshold slot. This is the body of `tisp_bcsh_main_ev_update`; port it as `_lit`, since the lift is empty. The user saturation (slot 48) stays a separate input.
+
+Implemented: 1 -> `claude/t40-cdns` 5215fb6f (enable_cdns, default 0). SDNS: bit 18 stays bypassed on purpose (black frame with SDNS active on 2026-10-13); a desk cause for the difference to the vendor is still open.
 
 Order for device tests: 1 (CDNS), then 2 (SDNS); each should move Csat on its own. 3 and 4 need
 the EV unit first and can share one helper (`regtrace_t40_ev_fanout(ev)`). Once DeepSeek's event
