@@ -31452,9 +31452,26 @@ int32_t isp_vic_frd_show(void *arg1)
 int32_t vic_sensor_ops_sync_sensor_attr(void *arg1, int32_t arg2)
 {
     void *s0;
-    uint16_t var_54;
-    uint32_t *var_70;
-    void *var_38;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x38..0xd0 (208 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   var_54 @0x54 -> uint16_t: L31479 store of a uint16_t expression
+     * These overlap the 4-byte slots in the OEM frame, so they
+     * overlap here too: that sharing is the OEM's own semantics.
+     * the slots were uninitialised and stay so.
+     */
+    uint32_t __frame[0x34];
+    uint16_t *const __p_54 = (uint16_t *)(void *)((char *)__frame + 0x54);
+    uint32_t **const __p_70 = (uint32_t **)(void *)((char *)__frame + 0x70);
+    void **const __p_38 = (void **)(void *)((char *)__frame + 0x38);
     int32_t *result;
 
     if (arg1 == NULL || (uint32_t)arg1 >= 0xfffff001) {
@@ -31475,13 +31492,13 @@ int32_t vic_sensor_ops_sync_sensor_attr(void *arg1, int32_t arg2)
         return 0;
     }
 
-    var_38 = *(void **)((char *)arg1 + 0x48);
-    var_54 = *(uint16_t *)((char *)var_38 + 0x54);
-    var_70[0] = (uint32_t)var_54;
+    (*__p_38) = *(void **)((char *)arg1 + 0x48);
+    (*__p_54) = *(uint16_t *)((char *)(*__p_38) + 0x54);
+    (*__p_70)[0] = (uint32_t)(*__p_54);
     
-    memcpy(&var_70, arg2, 0x60);
-    memcpy((uintptr_t)s0 + 0x114 + (var_70[0] * 0x60), arg2, 0x60);
-    *(int32_t *)((uintptr_t)s0 + ((var_54 + 0x8c) << 2) + 4) = 1;
+    memcpy(__p_70, arg2, 0x60);
+    memcpy((uintptr_t)s0 + 0x114 + ((*__p_70)[0] * 0x60), arg2, 0x60);
+    *(int32_t *)((uintptr_t)s0 + (((*__p_54) + 0x8c) << 2) + 4) = 1;
     
     return 0;
 }
@@ -33632,41 +33649,56 @@ vic_mdma_enable0x2bc:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000031e0 origin=fragment_seed original=isp_vic_cmd_set */
 int64_t isp_vic_cmd_set(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_70 = 0;
-    uint32_t local_74 = 0;
-    uint32_t local_78 = 0;
-    uint32_t local_7c = 0;
-    uint32_t local_80 = 0;
-    uint32_t local_84 = 0;
-    uint32_t local_88 = 0;
-    uint32_t local_8c = 0;
-    uint32_t *local_90 = 0;
-    uint32_t *local_94 = 0;
-    uint32_t local_98 = 0;
-    uint32_t local_9c = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_a4 = 0;
-    uint32_t local_a8 = 0;
-    uint32_t local_ac = 0;
-    uint32_t *local_b0 = 0;
-    uint32_t local_b8 = 0;
-    uint32_t local_bc = 0;
-    uint32_t local_c0 = 0;
-    uint32_t local_c4 = 0;
-    uint32_t local_c8 = 0;
-    uint32_t local_cc = 0;
-    uint32_t local_d0 = 0;
-    uint32_t local_d4 = 0;
-    uint32_t local_d8 = 0;
-    uint32_t local_dc = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x226 (550 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x8a] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_1c = (uint32_t *)(void *)((char *)__frame + 0x1c);
+    uint32_t **const __p_20 = (uint32_t **)(void *)((char *)__frame + 0x20);
+    uint32_t **const __p_24 = (uint32_t **)(void *)((char *)__frame + 0x24);
+    uint32_t *const __p_28 = (uint32_t *)(void *)((char *)__frame + 0x28);
+    uint32_t *const __p_30 = (uint32_t *)(void *)((char *)__frame + 0x30);
+    uint32_t *const __p_70 = (uint32_t *)(void *)((char *)__frame + 0x70);
+    uint32_t *const __p_74 = (uint32_t *)(void *)((char *)__frame + 0x74);
+    uint32_t *const __p_78 = (uint32_t *)(void *)((char *)__frame + 0x78);
+    uint32_t *const __p_7c = (uint32_t *)(void *)((char *)__frame + 0x7c);
+    uint32_t *const __p_80 = (uint32_t *)(void *)((char *)__frame + 0x80);
+    uint32_t *const __p_84 = (uint32_t *)(void *)((char *)__frame + 0x84);
+    uint32_t *const __p_88 = (uint32_t *)(void *)((char *)__frame + 0x88);
+    uint32_t *const __p_8c = (uint32_t *)(void *)((char *)__frame + 0x8c);
+    uint32_t **const __p_90 = (uint32_t **)(void *)((char *)__frame + 0x90);
+    uint32_t **const __p_94 = (uint32_t **)(void *)((char *)__frame + 0x94);
+    uint32_t *const __p_98 = (uint32_t *)(void *)((char *)__frame + 0x98);
+    uint32_t *const __p_9c = (uint32_t *)(void *)((char *)__frame + 0x9c);
+    uint32_t *const __p_a0 = (uint32_t *)(void *)((char *)__frame + 0xa0);
+    uint32_t *const __p_a4 = (uint32_t *)(void *)((char *)__frame + 0xa4);
+    uint32_t *const __p_a8 = (uint32_t *)(void *)((char *)__frame + 0xa8);
+    uint32_t *const __p_ac = (uint32_t *)(void *)((char *)__frame + 0xac);
+    uint32_t **const __p_b0 = (uint32_t **)(void *)((char *)__frame + 0xb0);
+    uint32_t *const __p_b8 = (uint32_t *)(void *)((char *)__frame + 0xb8);
+    uint32_t *const __p_bc = (uint32_t *)(void *)((char *)__frame + 0xbc);
+    uint32_t *const __p_c0 = (uint32_t *)(void *)((char *)__frame + 0xc0);
+    uint32_t *const __p_c4 = (uint32_t *)(void *)((char *)__frame + 0xc4);
+    uint32_t *const __p_c8 = (uint32_t *)(void *)((char *)__frame + 0xc8);
+    uint32_t *const __p_cc = (uint32_t *)(void *)((char *)__frame + 0xcc);
+    uint32_t *const __p_d0 = (uint32_t *)(void *)((char *)__frame + 0xd0);
+    uint32_t *const __p_d4 = (uint32_t *)(void *)((char *)__frame + 0xd4);
+    uint32_t *const __p_d8 = (uint32_t *)(void *)((char *)__frame + 0xd8);
+    uint32_t *const __p_dc = (uint32_t *)(void *)((char *)__frame + 0xdc);
     uint32_t *a3 = 0;
     uint32_t at = 0;
     uint32_t ra = 0;
@@ -33738,7 +33770,7 @@ isp_vic_cmd_set0xa8:
 
     /* fragment 13: Branch */
     int _bc_v0_13 = v0 != 0;
-    local_8c = v0;
+    (*__p_8c) = v0;
     if (_bc_v0_13) { goto isp_vic_cmd_set0x124; }
 
     /* fragment 14: CallSetup */
@@ -33766,7 +33798,7 @@ isp_vic_cmd_set0xdc:
 
 isp_vic_cmd_set0x104:
     /* fragment 20: StackAccess */
-    v0 = local_8c;
+    v0 = (*__p_8c);
 
 isp_vic_cmd_set0x108:
     /* fragment 21: Branch */
@@ -33822,16 +33854,16 @@ isp_vic_cmd_set0x160:
 
     /* fragment 34: Branch */
     int _bc_a1_34 = a1 != 0;
-    local_7c = a1;
+    (*__p_7c) = a1;
     if (_bc_a1_34) { goto isp_vic_cmd_set0x6c4; }
 
     /* fragment 35: CallSetup */
-    local_70 = 0;
-    v0 = (uintptr_t *)simple_strtoull((const char *)(uintptr_t)(s2 + 8), (void *)(uintptr_t)&local_70, 0); /* jalr target resolved by relocation */
+    (*__p_70) = 0;
+    v0 = (uintptr_t *)simple_strtoull((const char *)(uintptr_t)(s2 + 8), (void *)(uintptr_t)__p_70, 0); /* jalr target resolved by relocation */
 
     /* fragment 36: CallSetup */
     s1 = v0;
-    v0 = (uintptr_t *)simple_strtoull((const char *)(uintptr_t)(local_70 + 1), (void *)(uintptr_t)0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)simple_strtoull((const char *)(uintptr_t)((*__p_70) + 1), (void *)(uintptr_t)0, 0); /* jalr target resolved by relocation */
 
     /* fragment 37: Arithmetic */
     s5 = v0;
@@ -33856,8 +33888,8 @@ isp_vic_cmd_set0x1b8:
     if (v0 != 0) { goto isp_vic_cmd_set0x208; }
 
     /* fragment 42: CallSetup */
-    local_14 = 2313;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 2313;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC36, &__param_str_isp_dual_buf, 2313); /* jalr target resolved by relocation */
 
     /* fragment 43: Arithmetic */
@@ -33865,7 +33897,7 @@ isp_vic_cmd_set0x1b8:
 
 isp_vic_cmd_set0x1f8:
     /* fragment 44: Branch */
-    local_7c = v0;
+    (*__p_7c) = v0;
     goto isp_vic_cmd_set0x29c;
 
 isp_vic_cmd_set0x200:
@@ -33895,16 +33927,16 @@ isp_vic_cmd_set0x208:
 
 isp_vic_cmd_set0x234:
     /* fragment 50: CallSetup */
-    local_80 = ((uintptr_t)s1 * 96) + (uintptr_t)s0;
+    (*__p_80) = ((uintptr_t)s1 * 96) + (uintptr_t)s0;
     s3 = (*(uint32_t *)((char *)(((uintptr_t)s1 * 96) + (uintptr_t)s0) + 280)) * (uintptr_t)s3;
-    local_10 = *(uint32_t *)((char *)(((uintptr_t)s1 * 96) + (uintptr_t)s0) + 280);
+    (*__p_10) = *(uint32_t *)((char *)(((uintptr_t)s1 * 96) + (uintptr_t)s0) + 280);
     s8 = s5 * (uintptr_t)s3;
-    local_14 = s3;
-    local_1c = s8;
+    (*__p_14) = s3;
+    (*__p_1c) = s8;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC37, s1); /* jalr target resolved by relocation */
 
     /* fragment 51: StackAccess */
-    v1 = local_80;
+    v1 = (*__p_80);
     a2 = *(uint32_t *)((char *)v1 + 276);
     v0 = a2 < 3841;
 
@@ -33917,7 +33949,7 @@ isp_vic_cmd_set0x234:
 
 isp_vic_cmd_set0x29c:
     /* fragment 54: Branch */
-    s4 = local_7c;
+    s4 = (*__p_7c);
     goto isp_vic_cmd_set0x74;
 
 isp_vic_cmd_set0x2a4:
@@ -33932,7 +33964,7 @@ isp_vic_cmd_set0x2a4:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_seq_printf)(s7, &LC39); /* jalr target resolved by relocation */
 
     /* fragment 58: Branch */
-    s4 = local_7c;
+    s4 = (*__p_7c);
     goto isp_vic_cmd_set0x74;
 
 isp_vic_cmd_set0x2cc:
@@ -33943,7 +33975,7 @@ isp_vic_cmd_set0x2cc:
     v0 = *(uint32_t *)((char *)((char *)&snapraw_mode));
 
     /* fragment 61: Branch */
-    local_98 = a0;
+    (*__p_98) = a0;
     if (v0 != 0) { goto isp_vic_cmd_set0x454; }
 
     /* fragment 62: CallSetup */
@@ -33989,13 +34021,13 @@ isp_vic_cmd_set0x350:
 
     /* fragment 71: MemoryAccess */
     v1 = *(uint32_t *)((char *)s0 + 668);
-    local_88 = v0;
+    (*__p_88) = v0;
     v0 = *(uint32_t *)((char *)s0 + 664);
-    local_28 = v1;
+    (*__p_28) = v1;
     v1 = 96;
     a0 = (uintptr_t)s1 * (uintptr_t)v1;
-    local_24 = v0;
-    local_20 = s8;
+    (*__p_24) = v0;
+    (*__p_20) = s8;
     a2 = (uint32_t *)&__param_str_isp_dual_buf;
     a1 = (uint32_t *)&LC44;
     a3 = 2365;
@@ -34003,12 +34035,12 @@ isp_vic_cmd_set0x350:
     a1 = a1;
     v1 = a0 + (uintptr_t)s0;
     a0 = *(uint32_t *)((char *)v1 + 280);
-    local_7c = v1;
-    local_1c = a0;
+    (*__p_7c) = v1;
+    (*__p_1c) = a0;
     a0 = *(uint32_t *)((char *)v1 + 276);
-    local_14 = s3;
-    local_10 = v0;
-    local_18 = a0;
+    (*__p_14) = s3;
+    (*__p_10) = v0;
+    (*__p_18) = a0;
 
     /* fragment 72: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)isp_printf)(0); /* jalr target resolved by relocation */
@@ -34017,11 +34049,11 @@ isp_vic_cmd_set0x350:
     v0 = *(uint32_t *)((char *)s0 + 664);
 
     /* fragment 74: Branch */
-    v1 = local_7c;
+    v1 = (*__p_7c);
     if (v0 != 0) { goto isp_vic_cmd_set0x57c; }
 
     /* fragment 75: StackAccess */
-    v0 = local_98;
+    v0 = (*__p_98);
     v1 = *(uint32_t *)((char *)((char *)&snapraw_mode));
 
 isp_vic_cmd_set0x3d4:
@@ -34048,7 +34080,7 @@ isp_vic_cmd_set0x3d4:
     if (_bc_v1_80) { goto isp_vic_cmd_set0x41c; }
 
     /* fragment 81: CallSetup */
-    v0 = local_88;
+    v0 = (*__p_88);
     v0 = (uintptr_t)v0 << 16;
     v1 = v0 + 428;
     v0 = *(uint32_t *)((char *)s0 + 232);
@@ -34059,13 +34091,13 @@ isp_vic_cmd_set0x3d4:
 
 isp_vic_cmd_set0x41c:
     /* fragment 82: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_module_control)(s1, &local_74); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_module_control)(s1, __p_74); /* jalr target resolved by relocation */
 
     /* fragment 83: CallSetup */
-    a1 = local_74;
+    a1 = (*__p_74);
     v0 = (uintptr_t *)&tisp_s_module_control;
     a0 = s1;
-    local_74 = a1;
+    (*__p_74) = a1;
     v0 = v0;
 
 isp_vic_cmd_set0x444:
@@ -34106,8 +34138,8 @@ isp_vic_cmd_set0x48c:
     if (v0 != a0) { goto isp_vic_cmd_set0x560; }
 
     /* fragment 93: CallSetup */
-    local_7c = v1;
-    local_80 = a2;
+    (*__p_7c) = v1;
+    (*__p_80) = a2;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)((((uintptr_t)s1 + 30) << 11) + 64); /* jalr target resolved by relocation */
 
     /* fragment 94: CallSetup */
@@ -34116,14 +34148,14 @@ isp_vic_cmd_set0x48c:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC42); /* jalr target resolved by relocation */
 
     /* fragment 95: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_module_control)(s1, &local_74); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_module_control)(s1, __p_74); /* jalr target resolved by relocation */
 
     /* fragment 96: CallSetup */
-    local_74 = local_74;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_s_module_control)(s1, local_74, local_80); /* jalr target resolved by relocation */
+    (*__p_74) = (*__p_74);
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_s_module_control)(s1, (*__p_74), (*__p_80)); /* jalr target resolved by relocation */
 
     /* fragment 97: StackAccess */
-    v1 = local_7c;
+    v1 = (*__p_7c);
     s8 = (uintptr_t)&__udelay;
     s8 = s8;
     v0 = *(uint32_t *)((char *)v1 + 344);
@@ -34157,11 +34189,11 @@ isp_vic_cmd_set0x538:
 
 isp_vic_cmd_set0x550:
     /* fragment 104: CallSetup */
-    local_7c = v0;
+    (*__p_7c) = v0;
     __udelay(a0); /* jalr target resolved by relocation */
 
     /* fragment 105: Branch */
-    v0 = local_7c;
+    v0 = (*__p_7c);
     goto isp_vic_cmd_set0x538;
 
 isp_vic_cmd_set0x560:
@@ -34178,21 +34210,21 @@ isp_vic_cmd_set0x57c:
     a0 = 2;
     s6 = v1;
     s8 = *(uint32_t *)((char *)v0 + 120);
-    v0 = local_88;
+    v0 = (*__p_88);
     s8 = s8 ^ 1;
     v0 = (uintptr_t)v0 << 16;
     v0 = v0 + 428;
-    local_94 = v0;
+    (*__p_94) = v0;
     v0 = 1;
     s8 = v0;
     v0 = 600;
-    local_80 = v0;
+    (*__p_80) = v0;
     v0 = (uintptr_t *)&vic_mdma_enable;
     v0 = v0;
-    local_84 = v0;
+    (*__p_84) = v0;
     v0 = (uintptr_t *)&LC47;
     v0 = v0;
-    local_a0 = v0;
+    (*__p_a0) = v0;
 
 isp_vic_cmd_set0x5cc:
     /* fragment 109: MemoryAccess */
@@ -34201,7 +34233,7 @@ isp_vic_cmd_set0x5cc:
     v0 = 1;
 
     /* fragment 110: Branch */
-    a0 = local_94;
+    a0 = (*__p_94);
     if (v1 != v0) { goto isp_vic_cmd_set0x5f4; }
 
     /* fragment 111: MemoryAccess */
@@ -34229,9 +34261,9 @@ isp_vic_cmd_set0x5f4:
     if (a0 != a1) { goto isp_vic_cmd_set0x624; }
 
     /* fragment 117: StackAccess */
-    local_18 = a0;
-    local_14 = v0;
-    local_10 = s5;
+    (*__p_18) = a0;
+    (*__p_14) = v0;
+    (*__p_10) = s5;
 
 isp_vic_cmd_set0x614:
     /* fragment 118: Branch */
@@ -34247,8 +34279,8 @@ isp_vic_cmd_set0x624:
     /* fragment 120: MemoryAccess */
     v1 = *(uint32_t *)((char *)v1 + 148);
     a3 = 1;
-    local_18 = 0;
-    local_14 = v0;
+    (*__p_18) = 0;
+    (*__p_14) = v0;
 
     /* fragment 121: Branch */
     if (v1 == 0) { goto isp_vic_cmd_set0x614; }
@@ -34264,23 +34296,23 @@ isp_vic_cmd_set0x63c:
 
 isp_vic_cmd_set0x65c:
     /* fragment 124: CallSetup */
-    local_90 = a2;
-    local_7c = v1;
+    (*__p_90) = a2;
+    (*__p_7c) = v1;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_wait_for_completion_timeout)(a2, 20, a2); /* jalr target resolved by relocation */
 
     /* fragment 125: Branch */
     int _bc_v0_125 = v0 >= 0;
-    v0 = local_80;
+    v0 = (*__p_80);
     if (_bc_v0_125) { goto isp_vic_cmd_set0x948; }
 
     /* fragment 126: StackAccess */
-    v1 = local_7c;
-    a2 = local_90;
+    v1 = (*__p_7c);
+    a2 = (*__p_90);
     v0 = v0 - 1;
 
     /* fragment 127: Branch */
     int _bc_v0_127 = v0 != 0;
-    local_80 = v0;
+    (*__p_80) = v0;
     if (_bc_v0_127) { goto isp_vic_cmd_set0x65c; }
 
     /* fragment 128: Arithmetic */
@@ -34295,15 +34327,15 @@ isp_vic_cmd_set0x65c:
 
 isp_vic_cmd_set0x6a4:
     /* fragment 130: StackAccess */
-    v0 = local_a0;
+    v0 = (*__p_a0);
     a0 = (uintptr_t)v1 << 1;
-    local_a4 = v1;
-    local_14 = v0;
+    (*__p_a4) = v1;
+    (*__p_14) = v0;
     v0 = s8 - 1;
     v0 = v0 + a0;
 
     /* fragment 131: Branch */
-    local_10 = v0;
+    (*__p_10) = v0;
     goto isp_vic_cmd_set0x998;
 
 isp_vic_cmd_set0x6c4:
@@ -34346,8 +34378,8 @@ isp_vic_cmd_set0x6fc:
     if (a2 != 0) { goto isp_vic_cmd_set0x7a0; }
 
     /* fragment 141: CallSetup */
-    local_30 = 0;
-    v0 = (uintptr_t *)simple_strtoull((const char *)(uintptr_t)(s2 + 5), (void *)(uintptr_t)&local_30, a2); /* jalr target resolved by relocation */
+    (*__p_30) = 0;
+    v0 = (uintptr_t *)simple_strtoull((const char *)(uintptr_t)(s2 + 5), (void *)(uintptr_t)__p_30, a2); /* jalr target resolved by relocation */
 
     /* fragment 142: Arithmetic */
     v1 = (int32_t *)&sclk_name;
@@ -34378,7 +34410,7 @@ isp_vic_cmd_set0x764:
 
 isp_vic_cmd_set0x768:
     /* fragment 149: Branch */
-    v0 = local_8c;
+    v0 = (*__p_8c);
     if (a0 == 0) { goto isp_vic_cmd_set0x108; }
 
     /* fragment 150: Arithmetic */
@@ -34562,12 +34594,12 @@ isp_vic_cmd_set0x948:
     *(uint32_t *)((char *)((char *)&vic_mdma_bypass_onoff)) = 0;
     v0 = (uintptr_t *)&snprintf;
     v0 = v0;
-    local_90 = v0;
+    (*__p_90) = v0;
     v0 = (uintptr_t *)&LC46;
     v0 = v0;
     v1 = 0;
-    local_7c = 0;
-    local_9c = v0;
+    (*__p_7c) = 0;
+    (*__p_9c) = v0;
 
 isp_vic_cmd_set0x970:
     /* fragment 198: MemoryAccess */
@@ -34581,56 +34613,56 @@ isp_vic_cmd_set0x970:
     if (a0 != v0) { goto isp_vic_cmd_set0x6a4; }
 
     /* fragment 200: CallSetup */
-    v0 = local_9c;
-    local_10 = v1;
-    local_a4 = v1;
-    local_14 = v0;
+    v0 = (*__p_9c);
+    (*__p_10) = v1;
+    (*__p_a4) = v1;
+    (*__p_14) = v0;
 
 isp_vic_cmd_set0x998:
     /* fragment 201: CallSetup */
-    v0 = (uintptr_t *)snprintf((const char *)(uintptr_t)&local_30, 64, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC45); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)snprintf((const char *)(uintptr_t)__p_30, 64, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC45); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
 
     /* fragment 202: CallSetup */
-    local_b0 = local_a4;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_filp_open)(&local_30, 769, 502); /* jalr target resolved by relocation */
+    (*__p_b0) = (*__p_a4);
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_filp_open)(__p_30, 769, 502); /* jalr target resolved by relocation */
 
     /* fragment 203: CallSetup */
-    local_a4 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_get_fs)(&local_78); /* jalr target resolved by relocation */
+    (*__p_a4) = v0;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_get_fs)(__p_78); /* jalr target resolved by relocation */
 
     /* fragment 204: CallSetup */
-    t2 = local_78;
-    local_ac = t2;
-    local_a8 = (uintptr_t)&private_set_fs;
+    t2 = (*__p_78);
+    (*__p_ac) = t2;
+    (*__p_a8) = (uintptr_t)&private_set_fs;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)(0); /* jalr target resolved by relocation */
 
     /* fragment 205: CallSetup */
-    t1 = local_a4;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_vfs_write)(local_a4, (*(uint32_t *)((char *)(s0) + 668)) + local_7c, s3, local_a4 + 56); /* jalr target resolved by relocation */
+    t1 = (*__p_a4);
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_vfs_write)((*__p_a4), (*(uint32_t *)((char *)(s0) + 668)) + (*__p_7c), s3, (*__p_a4) + 56); /* jalr target resolved by relocation */
 
     /* fragment 206: CallSetup */
-    t1 = local_a4;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_filp_close)(local_a4, 0); /* jalr target resolved by relocation */
+    t1 = (*__p_a4);
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_filp_close)((*__p_a4), 0); /* jalr target resolved by relocation */
 
     /* fragment 207: CallSetup */
-    t2 = local_ac;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)(local_ac); /* jalr target resolved by relocation */
+    t2 = (*__p_ac);
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)((*__p_ac)); /* jalr target resolved by relocation */
 
     /* fragment 208: StackAccess */
-    v0 = local_7c;
-    v1 = local_b0;
+    v0 = (*__p_7c);
+    v1 = (*__p_b0);
     v0 = (uintptr_t)v0 + (uintptr_t)s3;
     v1 = v1 + 1;
 
     /* fragment 209: Branch */
-    local_7c = v0;
+    (*__p_7c) = v0;
     if (s5 != v1) { goto isp_vic_cmd_set0x970; }
 
     /* fragment 210: Arithmetic */
     s8 = s8 - 1;
 
     /* fragment 211: Branch */
-    v0 = local_98;
+    v0 = (*__p_98);
     if (s8 != 0) { goto isp_vic_cmd_set0x5cc; }
 
     /* fragment 212: Branch */
@@ -40133,24 +40165,43 @@ int32_t subdev_sensor_ops_enum_input(void *arg1, int32_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000077b0 origin=fragment_seed original=subdev_sensor_ops_ioctl */
 int64_t subdev_sensor_ops_ioctl(uintptr_t a0, uint32_t a1, uintptr_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_29 = 0;
-    uint32_t local_2a = 0;
-    uint32_t local_3e = 0;
-    uint32_t local_54 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_5c = 0;
-    uint32_t local_60 = 0;
-    uint32_t local_64 = 0;
-    uint32_t local_68 = 0;
-    uint32_t local_6c = 0;
-    uint32_t local_70 = 0;
-    uint32_t local_74 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x78 (120 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_29 @0x29 -> uint8_t: alignment only (offset 0x29)
+     *   local_2a @0x2a -> uint16_t: alignment only (offset 0x2a)
+     *   local_3e @0x3e -> uint16_t: alignment only (offset 0x3e)
+     * These overlap the 4-byte slots in the OEM frame, so they
+     * overlap here too: that sharing is the OEM's own semantics.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x1e] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_1c = (uint32_t *)(void *)((char *)__frame + 0x1c);
+    uint32_t **const __p_20 = (uint32_t **)(void *)((char *)__frame + 0x20);
+    uint32_t *const __p_28 = (uint32_t *)(void *)((char *)__frame + 0x28);
+    uint8_t *const __p_29 = (uint8_t *)(void *)((char *)__frame + 0x29);
+    uint16_t *const __p_2a = (uint16_t *)(void *)((char *)__frame + 0x2a);
+    uint16_t *const __p_3e = (uint16_t *)(void *)((char *)__frame + 0x3e);
+    uint32_t *const __p_54 = (uint32_t *)(void *)((char *)__frame + 0x54);
+    uint32_t *const __p_58 = (uint32_t *)(void *)((char *)__frame + 0x58);
+    uint32_t *const __p_5c = (uint32_t *)(void *)((char *)__frame + 0x5c);
+    uint32_t *const __p_60 = (uint32_t *)(void *)((char *)__frame + 0x60);
+    uint32_t *const __p_64 = (uint32_t *)(void *)((char *)__frame + 0x64);
+    uint32_t *const __p_68 = (uint32_t *)(void *)((char *)__frame + 0x68);
+    uint32_t *const __p_6c = (uint32_t *)(void *)((char *)__frame + 0x6c);
+    uint32_t *const __p_70 = (uint32_t *)(void *)((char *)__frame + 0x70);
+    uint32_t *const __p_74 = (uint32_t *)(void *)((char *)__frame + 0x74);
     uint32_t *a3 = 0;
     uint32_t at = 0;
     uint32_t ra = 0;
@@ -40171,14 +40222,14 @@ int64_t subdev_sensor_ops_ioctl(uintptr_t a0, uint32_t a1, uintptr_t a2)
     v1 = v0 < 28;
 
     /* fragment 1: StackAccess */
-    local_60 = s2;
-    local_5c = s1;
-    local_74 = ra;
-    local_70 = s6;
-    local_6c = s5;
-    local_68 = s4;
-    local_64 = s3;
-    local_58 = s0;
+    (*__p_60) = s2;
+    (*__p_5c) = s1;
+    (*__p_74) = ra;
+    (*__p_70) = s6;
+    (*__p_6c) = s5;
+    (*__p_68) = s4;
+    (*__p_64) = s3;
+    (*__p_58) = s0;
     s2 = a0;
 
     /* fragment 2: Branch */
@@ -40265,7 +40316,7 @@ subdev_sensor_ops_ioctl0xc8:
     if (a0 == 0) { goto subdev_sensor_ops_ioctl0x1ac; }
 
     /* fragment 22: Branch */
-    local_54 = 0;
+    (*__p_54) = 0;
     if (a2 == 0) { goto subdev_sensor_ops_ioctl0x1ac; }
 
     /* fragment 23: MemoryAccess */
@@ -40281,10 +40332,10 @@ subdev_sensor_ops_ioctl0xc8:
     if (v0 != v1) { goto subdev_sensor_ops_ioctl0x14c; }
 
     /* fragment 25: CallSetup */
-    local_1c = v0;
-    local_14 = 84;
-    local_18 = a0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_1c) = v0;
+    (*__p_14) = 84;
+    (*__p_18) = a0;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC27, &__param_str_isp_dual_buf, 84); /* jalr target resolved by relocation */
 
     /* fragment 26: Branch */
@@ -40316,10 +40367,10 @@ subdev_sensor_ops_ioctl0x14c:
     v0 = *(uint32_t *)((char *)s1 + 60);
     a2 = s3 + 660;
     a1 = (uint32_t *)&LC28;
-    local_18 = v0;
+    (*__p_18) = v0;
     v0 = 95;
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
     a3 = 95;
     a1 = a1;
 
@@ -40345,19 +40396,19 @@ subdev_sensor_ops_ioctl0x1b0:
 
 subdev_sensor_ops_ioctl0x1d8:
     /* fragment 38: CallSetup */
-    s0 = (uintptr_t *)&local_28;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_28, 0, 44); /* jalr target resolved by relocation */
+    s0 = (uintptr_t *)__p_28;
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_28, 0, 44); /* jalr target resolved by relocation */
 
     /* fragment 39: CallSetup */
     s5 = s1 + 36;
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s0, (void *)(uintptr_t)(s1 + 36), 20); /* jalr target resolved by relocation */
 
     /* fragment 40: CallSetup */
-    local_1c = *(uint32_t *)((char *)(s1) + 56);
-    local_3e = *(uint32_t *)((char *)(s1) + 56);
-    local_20 = *(uint32_t *)((char *)(s1) + 60);
-    local_14 = 20;
-    local_10 = *(uint16_t *)((char *)(s1) + 84);
+    (*__p_1c) = *(uint32_t *)((char *)(s1) + 56);
+    (*__p_3e) = *(uint32_t *)((char *)(s1) + 56);
+    (*__p_20) = *(uint32_t *)((char *)(s1) + 60);
+    (*__p_14) = 20;
+    (*__p_10) = *(uint16_t *)((char *)(s1) + 84);
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC29, &__param_str_isp_dual_buf, 101); /* jalr target resolved by relocation */
 
     /* fragment 41: CallSetup */
@@ -40383,9 +40434,9 @@ subdev_sensor_ops_ioctl0x27c:
     a1 = (uint32_t *)&LC30;
 
     /* fragment 47: StackAccess */
-    local_18 = s5;
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_18) = s5;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
     a3 = 106;
 
     /* fragment 48: Branch */
@@ -40521,14 +40572,14 @@ subdev_sensor_ops_ioctl0x3f4:
     if (v0 != 0) { goto subdev_sensor_ops_ioctl0x454; }
 
     /* fragment 80: CallSetup */
-    v0 = local_54;
+    v0 = (*__p_54);
     a2 = (uint32_t *)&__param_str_isp_dual_buf;
 
 subdev_sensor_ops_ioctl0x408:
     /* fragment 81: CallSetup */
-    local_18 = v0;
-    local_14 = 161;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_18) = v0;
+    (*__p_14) = 161;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC32, &__param_str_isp_dual_buf, 161); /* jalr target resolved by relocation */
 
     /* fragment 82: Branch */
@@ -40537,7 +40588,7 @@ subdev_sensor_ops_ioctl0x408:
 
 subdev_sensor_ops_ioctl0x440:
     /* fragment 83: Branch */
-    local_54 = v1;
+    (*__p_54) = v1;
     goto subdev_sensor_ops_ioctl0x3f4;
 
 subdev_sensor_ops_ioctl0x448:
@@ -40546,16 +40597,16 @@ subdev_sensor_ops_ioctl0x448:
 
 subdev_sensor_ops_ioctl0x44c:
     /* fragment 85: Branch */
-    local_54 = v0;
+    (*__p_54) = v0;
     goto subdev_sensor_ops_ioctl0x3f4;
 
 subdev_sensor_ops_ioctl0x454:
     /* fragment 86: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 2, &local_54); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 2, __p_54); /* jalr target resolved by relocation */
 
     /* fragment 87: Branch */
     int _bc_v0_87 = v0 == 0;
-    v0 = local_54;
+    v0 = (*__p_54);
     if (_bc_v0_87) { goto subdev_sensor_ops_ioctl0xc4; }
 
     /* fragment 88: Branch */
@@ -40582,8 +40633,8 @@ subdev_sensor_ops_ioctl0x454:
     if (v1 != v0) { goto subdev_sensor_ops_ioctl0x4dc; }
 
     /* fragment 93: CallSetup */
-    local_14 = 179;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 179;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC24, &__param_str_isp_dual_buf, 179); /* jalr target resolved by relocation */
 
     /* fragment 94: Branch */
@@ -40898,8 +40949,8 @@ subdev_sensor_ops_ioctl0x73c:
 
     /* fragment 167: MemoryAccess */
     v1 = *(uint32_t *)((char *)a2 + 0);
-    local_28 = 0;
-    local_2a = 0;
+    (*__p_28) = 0;
+    (*__p_2a) = 0;
     v0 = v1 + 70;
     v0 = (uintptr_t)v0 << 2;
     v0 = a0 + (uintptr_t)v0;
@@ -40921,7 +40972,7 @@ subdev_sensor_ops_ioctl0x73c:
     if (_bc_v1_170) { goto subdev_sensor_ops_ioctl0xc4; }
 
     /* fragment 171: Arithmetic */
-    a0 = (uint32_t *)&local_28;
+    a0 = (uint32_t *)__p_28;
     a3 = s2 + 296;
     v0 = 0;
     a2 = 1;
@@ -40977,8 +41028,8 @@ subdev_sensor_ops_ioctl0x808:
     if (v0 == 0) { goto subdev_sensor_ops_ioctl0x70; }
 
     /* fragment 186: CallSetup */
-    local_14 = 501;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 501;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC34, &__param_str_isp_dual_buf, 501); /* jalr target resolved by relocation */
 
     /* fragment 187: Branch */
@@ -40996,7 +41047,7 @@ subdev_sensor_ops_ioctl0x880:
     if (v0 != v1) { goto subdev_sensor_ops_ioctl0xc8; }
 
     /* fragment 190: StackAccess */
-    v1 = local_28;
+    v1 = (*__p_28);
     v0 = (uintptr_t *)&isp_printf;
     a2 = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = v0;
@@ -41006,8 +41057,8 @@ subdev_sensor_ops_ioctl0x880:
     if (v1 == 0) { goto subdev_sensor_ops_ioctl0x8c8; }
 
     /* fragment 192: CallSetup */
-    local_14 = 506;
-    local_10 = a2;
+    (*__p_14) = 506;
+    (*__p_10) = a2;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC35, a2, 506); /* jalr target resolved by relocation */
 
     /* fragment 193: Branch */
@@ -41017,7 +41068,7 @@ subdev_sensor_ops_ioctl0x880:
 subdev_sensor_ops_ioctl0x8c8:
     /* fragment 194: MemoryAccess */
     v1 = *(uint32_t *)((char *)s2 + 284);
-    a0 = local_29;
+    a0 = (*__p_29);
     v1 = *(uint32_t *)((char *)v1 + 772);
 
     /* fragment 195: Branch */
@@ -41025,9 +41076,9 @@ subdev_sensor_ops_ioctl0x8c8:
     if (a0 == 0) { goto subdev_sensor_ops_ioctl0x908; }
 
     /* fragment 196: CallSetup */
-    local_18 = v1;
-    local_14 = 509;
-    local_10 = a2;
+    (*__p_18) = v1;
+    (*__p_14) = 509;
+    (*__p_10) = a2;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC36, a2, 509); /* jalr target resolved by relocation */
 
     /* fragment 197: Branch */
@@ -41036,10 +41087,10 @@ subdev_sensor_ops_ioctl0x8c8:
 
 subdev_sensor_ops_ioctl0x908:
     /* fragment 198: CallSetup */
-    local_18 = v1;
-    local_1c = *(uint32_t *)((char *)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s2) + 288)) + 772)) + 0);
-    local_14 = 512;
-    local_10 = a2;
+    (*__p_18) = v1;
+    (*__p_1c) = *(uint32_t *)((char *)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s2) + 288)) + 772)) + 0);
+    (*__p_14) = 512;
+    (*__p_10) = a2;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC37, a2, 512); /* jalr target resolved by relocation */
 
     /* fragment 199: Branch */
@@ -42993,12 +43044,27 @@ int32_t tx_isp_mask_s_attr_isra_9(uint32_t a0, uintptr_t a1, uint32_t a2) __asm_
 #endif
 int32_t tx_isp_mask_s_attr_isra_9(uint32_t a0, uintptr_t a1, uint32_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_13c = 0;
-    uint32_t local_140 = 0;
-    uint32_t local_144 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x148 (328 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x52] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_13c = (uint32_t *)(void *)((char *)__frame + 0x13c);
+    uint32_t *const __p_140 = (uint32_t *)(void *)((char *)__frame + 0x140);
+    uint32_t *const __p_144 = (uint32_t *)(void *)((char *)__frame + 0x144);
     uint32_t *a3 = 0;
     uint32_t ra = 0;
     uint32_t *s0 = 0;
@@ -43011,7 +43077,7 @@ int32_t tx_isp_mask_s_attr_isra_9(uint32_t a0, uintptr_t a1, uint32_t a2)
     /* fragment 1: CallSetup */
     s0 = *(uint32_t *)((char *)(a1) + 268);
     s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_18, a2, 288); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_18, a2, 288); /* jalr target resolved by relocation */
 
     /* fragment 2: Branch */
     int _bc_v0_2 = v0 == 0;
@@ -43019,8 +43085,8 @@ int32_t tx_isp_mask_s_attr_isra_9(uint32_t a0, uintptr_t a1, uint32_t a2)
     if (_bc_v0_2) { goto tx_isp_mask_s_attr_isra_90x84; }
 
     /* fragment 3: CallSetup */
-    local_14 = 618;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 618;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 618); /* jalr target resolved by relocation */
 
 tx_isp_mask_s_attr_isra_90x6c:
@@ -43036,7 +43102,7 @@ tx_isp_mask_s_attr_isra_90x6c:
 
 tx_isp_mask_s_attr_isra_90x84:
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_mscaler_mask_attr)(s1, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_mscaler_mask_attr)(s1, __p_18); /* jalr target resolved by relocation */
 
     /* fragment 8: Arithmetic */
     a0 = (uintptr_t)s1 << 2;
@@ -43059,13 +43125,28 @@ int32_t tx_isp_osd_s_attr_isra_10(uint32_t a0, uintptr_t a1, uintptr_t a2) __asm
 #endif
 int32_t tx_isp_osd_s_attr_isra_10(uint32_t a0, uintptr_t a1, uintptr_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    char local_18[408];
-    uint32_t local_1b0 = 0;
-    uint32_t local_1b4 = 0;
-    uint32_t local_1b8 = 0;
-    uint32_t local_1bc = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x1c0 (448 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_18 [408] @0x18 -> 408 byte(s): 408 x char = 408 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x70] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    char *const __p_18 = (char *)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_1b0 = (uint32_t *)(void *)((char *)__frame + 0x1b0);
+    uint32_t *const __p_1b4 = (uint32_t *)(void *)((char *)__frame + 0x1b4);
+    uint32_t *const __p_1b8 = (uint32_t *)(void *)((char *)__frame + 0x1b8);
+    uint32_t *const __p_1bc = (uint32_t *)(void *)((char *)__frame + 0x1bc);
     uint32_t *a3 = 0;
     uint32_t ra = 0;
     uint32_t *s0 = 0;
@@ -43080,18 +43161,18 @@ int32_t tx_isp_osd_s_attr_isra_10(uint32_t a0, uintptr_t a1, uintptr_t a2)
     s2 = a2;
     s0 = *(uint32_t *)((char *)(a1) + 268);
     s1 = a0;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_18, 0, 408); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_18, 0, 408); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_18, *(uint32_t *)((char *)(s2) + 0), 408); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_18, *(uint32_t *)((char *)(s2) + 0), 408); /* jalr target resolved by relocation */
 
     /* fragment 3: Branch */
     s2 = v0;
     if (v0 == 0) { goto tx_isp_osd_s_attr_isra_100xa4; }
 
     /* fragment 4: CallSetup */
-    local_14 = 689;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 689;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 689); /* jalr target resolved by relocation */
 
 tx_isp_osd_s_attr_isra_100x88:
@@ -43107,7 +43188,7 @@ tx_isp_osd_s_attr_isra_100x88:
 
 tx_isp_osd_s_attr_isra_100xa4:
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_osd_attr)(s1, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_osd_attr)(s1, __p_18); /* jalr target resolved by relocation */
 
     /* fragment 9: Arithmetic */
     a0 = (uintptr_t)s1 << 2;
@@ -43130,13 +43211,28 @@ int32_t tx_isp_draw_s_attr_isra_12(uint32_t a0, uintptr_t a1, uintptr_t a2) __as
 #endif
 int32_t tx_isp_draw_s_attr_isra_12(uint32_t a0, uintptr_t a1, uintptr_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    char local_18[896];
-    uint32_t local_398 = 0;
-    uint32_t local_39c = 0;
-    uint32_t local_3a0 = 0;
-    uint32_t local_3a4 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x3a8 (936 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_18 [896] @0x18 -> 896 byte(s): 896 x char = 896 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0xea] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    char *const __p_18 = (char *)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_398 = (uint32_t *)(void *)((char *)__frame + 0x398);
+    uint32_t *const __p_39c = (uint32_t *)(void *)((char *)__frame + 0x39c);
+    uint32_t *const __p_3a0 = (uint32_t *)(void *)((char *)__frame + 0x3a0);
+    uint32_t *const __p_3a4 = (uint32_t *)(void *)((char *)__frame + 0x3a4);
     uint32_t *a3 = 0;
     uint32_t ra = 0;
     uint32_t *s0 = 0;
@@ -43151,18 +43247,18 @@ int32_t tx_isp_draw_s_attr_isra_12(uint32_t a0, uintptr_t a1, uintptr_t a2)
     s2 = a2;
     s0 = *(uint32_t *)((char *)(a1) + 268);
     s1 = a0;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_18, 0, 896); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_18, 0, 896); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_18, *(uint32_t *)((char *)(s2) + 0), 896); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_18, *(uint32_t *)((char *)(s2) + 0), 896); /* jalr target resolved by relocation */
 
     /* fragment 3: Branch */
     s2 = v0;
     if (v0 == 0) { goto tx_isp_draw_s_attr_isra_120xa4; }
 
     /* fragment 4: CallSetup */
-    local_14 = 728;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 728;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 728); /* jalr target resolved by relocation */
 
 tx_isp_draw_s_attr_isra_120x88:
@@ -43178,7 +43274,7 @@ tx_isp_draw_s_attr_isra_120x88:
 
 tx_isp_draw_s_attr_isra_120xa4:
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_draw_attr)(s1, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_draw_attr)(s1, __p_18); /* jalr target resolved by relocation */
 
     /* fragment 9: Arithmetic */
     a0 = (uintptr_t)s1 << 2;
@@ -43543,14 +43639,29 @@ uint32_t tx_isp_switch_bin_isra_22(uint32_t a0, uintptr_t a1, uint32_t a2) __asm
 #endif
 uint32_t tx_isp_switch_bin_isra_22(uint32_t a0, uintptr_t a1, uint32_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_60 = 0;
-    uint32_t local_64 = 0;
-    uint32_t local_68 = 0;
-    uint32_t local_6c = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x70 (112 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x1c] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_1c = (uint32_t *)(void *)((char *)__frame + 0x1c);
+    uint32_t *const __p_60 = (uint32_t *)(void *)((char *)__frame + 0x60);
+    uint32_t *const __p_64 = (uint32_t *)(void *)((char *)__frame + 0x64);
+    uint32_t *const __p_68 = (uint32_t *)(void *)((char *)__frame + 0x68);
+    uint32_t *const __p_6c = (uint32_t *)(void *)((char *)__frame + 0x6c);
     uint32_t *a3 = 0;
     uint32_t ra = 0;
     uintptr_t *s0 = 0;
@@ -43565,7 +43676,7 @@ uint32_t tx_isp_switch_bin_isra_22(uint32_t a0, uintptr_t a1, uint32_t a2)
     /* fragment 1: CallSetup */
     s0 = *(uint32_t *)((char *)(a1) + 268);
     s2 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_18, a2, 68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_18, a2, 68); /* jalr target resolved by relocation */
 
     /* fragment 2: Branch */
     s1 = v0;
@@ -43576,8 +43687,8 @@ uint32_t tx_isp_switch_bin_isra_22(uint32_t a0, uintptr_t a1, uint32_t a2)
     v0 = 1183;
     a2 = a2 + 1924;
     a1 = (uint32_t *)&LC1;
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
     a3 = 1183;
     a1 = a1;
 
@@ -43590,7 +43701,7 @@ tx_isp_switch_bin_isra_220x60:
 
 tx_isp_switch_bin_isra_220x78:
     /* fragment 6: StackAccess */
-    v0 = local_18;
+    v0 = (*__p_18);
 
     /* fragment 7: Branch */
     int _bc_v0_7 = v0 != 0;
@@ -43598,7 +43709,7 @@ tx_isp_switch_bin_isra_220x78:
     if (_bc_v0_7) { goto tx_isp_switch_bin_isra_220xa8; }
 
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)sprintf((const char *)(uintptr_t)&local_1c, (const char *)(uintptr_t)((((uintptr_t)s2 * 68) + (uintptr_t)s0) + 1364), 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)sprintf((const char *)(uintptr_t)__p_1c, (const char *)(uintptr_t)((((uintptr_t)s2 * 68) + (uintptr_t)s0) + 1364), 0); /* jalr target resolved by relocation */
 
     /* fragment 9: Arithmetic */
     v0 = (uintptr_t)s2 << 2;
@@ -43616,7 +43727,7 @@ tx_isp_switch_bin_isra_220xa8:
     if (v1 != v0) { goto tx_isp_switch_bin_isra_220xfc; }
 
     /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_switch_bin)(s2, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_switch_bin)(s2, __p_18); /* jalr target resolved by relocation */
 
     /* fragment 14: Arithmetic */
     s1 = v0;
@@ -43645,8 +43756,8 @@ tx_isp_switch_bin_isra_220xfc:
     a1 = (uint32_t *)&LC4;
 
     /* fragment 20: StackAccess */
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
     a3 = 1193;
 
     /* fragment 21: Branch */
@@ -43726,11 +43837,26 @@ int32_t tiziano_isp_ccm_attr_g_ctrl_isra_31(uint32_t a0, uintptr_t a1) __asm__("
 #endif
 int32_t tiziano_isp_ccm_attr_g_ctrl_isra_31(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x48 (72 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x12] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_40 = (uint32_t *)(void *)((char *)__frame + 0x40);
+    uint32_t *const __p_44 = (uint32_t *)(void *)((char *)__frame + 0x44);
     uint32_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -43745,14 +43871,14 @@ int32_t tiziano_isp_ccm_attr_g_ctrl_isra_31(uint32_t a0, uintptr_t a1)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_g_ccm_attr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s0) + 0), &local_18, 40); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s0) + 0), __p_18, 40); /* jalr target resolved by relocation */
 
     /* fragment 3: Branch */
     if (v0 == 0) { goto tiziano_isp_ccm_attr_g_ctrl_isra_310x74; }
 
     /* fragment 4: CallSetup */
-    local_14 = 450;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 450;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 450); /* jalr target resolved by relocation */
 
     /* fragment 5: Epilogue */
@@ -43910,11 +44036,26 @@ int32_t tx_isp_mask_g_attr_isra_35(uint32_t a0, uintptr_t a1) __asm__("tx_isp_ma
 #endif
 int32_t tx_isp_mask_g_attr_isra_35(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_138 = 0;
-    uint32_t local_13c = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x140 (320 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x50] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_138 = (uint32_t *)(void *)((char *)__frame + 0x138);
+    uint32_t *const __p_13c = (uint32_t *)(void *)((char *)__frame + 0x13c);
     uint32_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -43929,15 +44070,15 @@ int32_t tx_isp_mask_g_attr_isra_35(uint32_t a0, uintptr_t a1)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_g_mscaler_mask_attr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s0) + 0), &local_18, 288); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s0) + 0), __p_18, 288); /* jalr target resolved by relocation */
 
     /* fragment 3: Branch */
     s0 = v0;
     if (v0 == 0) { goto tx_isp_mask_g_attr_isra_350x70; }
 
     /* fragment 4: CallSetup */
-    local_14 = 635;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 635;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 635); /* jalr target resolved by relocation */
 
 tx_isp_mask_g_attr_isra_350x70:
@@ -43959,12 +44100,27 @@ int32_t tx_isp_osd_g_attr_isra_36(uint32_t a0, uintptr_t a1) __asm__("tx_isp_osd
 #endif
 int32_t tx_isp_osd_g_attr_isra_36(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    char local_18[408];
-    uint32_t local_1b4 = 0;
-    uint32_t local_1b8 = 0;
-    uint32_t local_1bc = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x1c0 (448 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_18 [408] @0x18 -> 408 byte(s): 408 x char = 408 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x70] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    char *const __p_18 = (char *)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_1b4 = (uint32_t *)(void *)((char *)__frame + 0x1b4);
+    uint32_t *const __p_1b8 = (uint32_t *)(void *)((char *)__frame + 0x1b8);
+    uint32_t *const __p_1bc = (uint32_t *)(void *)((char *)__frame + 0x1bc);
     uint32_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -43978,10 +44134,10 @@ int32_t tx_isp_osd_g_attr_isra_36(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s0 = a0;
     s1 = a1;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_18, 0, 408); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_18, 0, 408); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_osd_attr)(s0, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_osd_attr)(s0, __p_18); /* jalr target resolved by relocation */
 
     /* fragment 3: Branch */
     a2 = 408;
@@ -44006,15 +44162,15 @@ tx_isp_osd_g_attr_isra_360x78:
 
 tx_isp_osd_g_attr_isra_360x8c:
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), __p_18); /* jalr target resolved by relocation */
 
     /* fragment 9: Branch */
     s0 = v0;
     if (v0 == 0) { goto tx_isp_osd_g_attr_isra_360x74; }
 
     /* fragment 10: CallSetup */
-    local_14 = 712;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 712;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 712); /* jalr target resolved by relocation */
 
     /* fragment 11: Branch */
@@ -44029,12 +44185,27 @@ int32_t tx_isp_single_osd_g_attr_isra_37(uint32_t a0, uintptr_t a1) __asm__("tx_
 #endif
 int32_t tx_isp_single_osd_g_attr_isra_37(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    char local_18[44];
-    uint32_t local_4c = 0;
-    uint32_t local_50 = 0;
-    uint32_t local_54 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x58 (88 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_18 [44] @0x18 -> 44 byte(s): 44 x char = 44 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x16] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    char *const __p_18 = (char *)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_4c = (uint32_t *)(void *)((char *)__frame + 0x4c);
+    uint32_t *const __p_50 = (uint32_t *)(void *)((char *)__frame + 0x50);
+    uint32_t *const __p_54 = (uint32_t *)(void *)((char *)__frame + 0x54);
     uint32_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -44048,10 +44219,10 @@ int32_t tx_isp_single_osd_g_attr_isra_37(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s0 = a0;
     s1 = a1;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_18, 0, 44); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_18, 0, 44); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_osd_single_attr)(s0, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_osd_single_attr)(s0, __p_18); /* jalr target resolved by relocation */
 
     /* fragment 3: Branch */
     a2 = 44;
@@ -44076,15 +44247,15 @@ tx_isp_single_osd_g_attr_isra_370x78:
 
 tx_isp_single_osd_g_attr_isra_370x8c:
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), __p_18); /* jalr target resolved by relocation */
 
     /* fragment 9: Branch */
     s0 = v0;
     if (v0 == 0) { goto tx_isp_single_osd_g_attr_isra_370x74; }
 
     /* fragment 10: CallSetup */
-    local_14 = 673;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 673;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 673); /* jalr target resolved by relocation */
 
     /* fragment 11: Branch */
@@ -44099,12 +44270,27 @@ int32_t tx_isp_draw_g_attr_isra_38(uint32_t a0, uintptr_t a1) __asm__("tx_isp_dr
 #endif
 int32_t tx_isp_draw_g_attr_isra_38(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    char local_18[896];
-    uint32_t local_39c = 0;
-    uint32_t local_3a0 = 0;
-    uint32_t local_3a4 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x3a8 (936 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_18 [896] @0x18 -> 896 byte(s): 896 x char = 896 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0xea] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    char *const __p_18 = (char *)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_39c = (uint32_t *)(void *)((char *)__frame + 0x39c);
+    uint32_t *const __p_3a0 = (uint32_t *)(void *)((char *)__frame + 0x3a0);
+    uint32_t *const __p_3a4 = (uint32_t *)(void *)((char *)__frame + 0x3a4);
     uint32_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -44118,10 +44304,10 @@ int32_t tx_isp_draw_g_attr_isra_38(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s0 = a0;
     s1 = a1;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_18, 0, 896); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_18, 0, 896); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_draw_attr)(s0, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_draw_attr)(s0, __p_18); /* jalr target resolved by relocation */
 
     /* fragment 3: Branch */
     a2 = 896;
@@ -44146,15 +44332,15 @@ tx_isp_draw_g_attr_isra_380x78:
 
 tx_isp_draw_g_attr_isra_380x8c:
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), __p_18); /* jalr target resolved by relocation */
 
     /* fragment 9: Branch */
     s0 = v0;
     if (v0 == 0) { goto tx_isp_draw_g_attr_isra_380x74; }
 
     /* fragment 10: CallSetup */
-    local_14 = 750;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 750;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 750); /* jalr target resolved by relocation */
 
     /* fragment 11: Branch */
@@ -44631,11 +44817,26 @@ int32_t tx_isp_module_ratio_g_attr_isra_50(uint32_t a0, uintptr_t a1) __asm__("t
 #endif
 int32_t tx_isp_module_ratio_g_attr_isra_50(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_98 = 0;
-    uint32_t local_9c = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0xa0 (160 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x28] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_98 = (uint32_t *)(void *)((char *)__frame + 0x98);
+    uint32_t *const __p_9c = (uint32_t *)(void *)((char *)__frame + 0x9c);
     uint32_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -44650,15 +44851,15 @@ int32_t tx_isp_module_ratio_g_attr_isra_50(uint32_t a0, uintptr_t a1)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_g_module_ratio_attr)(a0); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s0) + 0), &local_18, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s0) + 0), __p_18, 128); /* jalr target resolved by relocation */
 
     /* fragment 3: Branch */
     s0 = v0;
     if (v0 == 0) { goto tx_isp_module_ratio_g_attr_isra_500x70; }
 
     /* fragment 4: CallSetup */
-    local_14 = 497;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 497;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC8, &__param_str_isp_dual_buf, 497); /* jalr target resolved by relocation */
 
 tx_isp_module_ratio_g_attr_isra_500x70:
@@ -44680,11 +44881,26 @@ int32_t tx_isp_ae_g_explist_isra_56(uint32_t a0, uintptr_t a1) __asm__("tx_isp_a
 #endif
 int32_t tx_isp_ae_g_explist_isra_56(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_160 = 0;
-    uint32_t local_164 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x168 (360 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x5a] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_160 = (uint32_t *)(void *)((char *)__frame + 0x160);
+    uint32_t *const __p_164 = (uint32_t *)(void *)((char *)__frame + 0x164);
     uint32_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -44707,15 +44923,15 @@ int32_t tx_isp_ae_g_explist_isra_56(uint32_t a0, uintptr_t a1)
 
 tx_isp_ae_g_explist_isra_560x48:
     /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s0) + 0), &local_18, 324); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s0) + 0), __p_18, 324); /* jalr target resolved by relocation */
 
     /* fragment 5: Branch */
     s0 = v0;
     if (v0 == 0) { goto tx_isp_ae_g_explist_isra_560x98; }
 
     /* fragment 6: CallSetup */
-    local_14 = 1314;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 1314;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 1314); /* jalr target resolved by relocation */
 
 tx_isp_ae_g_explist_isra_560x98:
@@ -48250,10 +48466,25 @@ int32_t sub_d570(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000d578 origin=fragment_seed original=sub_d578 */
 int32_t* sub_d578(uintptr_t a0)
 {
-    char local_10[8];
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x20 (32 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_10 [8] @0x10 -> 8 byte(s): 8 x char = 8 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x8] = { 0 };
+    char *const __p_10 = (char *)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_1c = (uint32_t *)(void *)((char *)__frame + 0x1c);
     uint32_t *a1 = 0;
     uint32_t *a2 = 0;
     uint32_t ra = 0;
@@ -48266,16 +48497,16 @@ int32_t* sub_d578(uintptr_t a0)
 
     /* fragment 1: CallSetup */
     s0 = a0;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_10, 0, 8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_10, 0, 8); /* jalr target resolved by relocation */
 
     /* fragment 2: StackAccess */
-    v0 = local_10;
-    v1 = local_14;
+    v0 = __p_10;
+    v1 = (*__p_14);
     *(uint32_t *)((char *)s0 + 0) = v0;
     *(uint32_t *)((char *)s0 + 4) = v1;
-    ra = local_1c;
+    ra = (*__p_1c);
     v0 = s0;
-    s0 = local_18;
+    s0 = (*__p_18);
 
     /* fragment 3: Epilogue */
     /* function epilogue: restore registers and return */
@@ -51300,14 +51531,29 @@ int32_t frame_channel_vidioc_set_fmt(void *arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000e548 origin=fragment_seed original=frame_channel_vidioc_get_fmt */
 int32_t frame_channel_vidioc_get_fmt(uintptr_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_88 = 0;
-    uint32_t local_8c = 0;
-    uint32_t *local_90 = 0;
-    uint32_t *local_94 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x98 (152 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x26] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_28 = (uint32_t *)(void *)((char *)__frame + 0x28);
+    uint32_t *const __p_34 = (uint32_t *)(void *)((char *)__frame + 0x34);
+    uint32_t *const __p_88 = (uint32_t *)(void *)((char *)__frame + 0x88);
+    uint32_t *const __p_8c = (uint32_t *)(void *)((char *)__frame + 0x8c);
+    uint32_t **const __p_90 = (uint32_t **)(void *)((char *)__frame + 0x90);
+    uint32_t **const __p_94 = (uint32_t **)(void *)((char *)__frame + 0x94);
     uint32_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -51334,7 +51580,7 @@ int32_t frame_channel_vidioc_get_fmt(uintptr_t a0, uint32_t a1)
     /* fragment 4: CallSetup */
     s1 = a0;
     s2 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(__p_18); /* jalr target resolved by relocation */
 
     /* fragment 5: Branch */
     a1 = 50331648;
@@ -51357,7 +51603,7 @@ frame_channel_vidioc_get_fmt0x5c:
 
 frame_channel_vidioc_get_fmt0x74:
     /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s1) + 712), a1 + 1, &local_18); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s1) + 712), a1 + 1, __p_18); /* jalr target resolved by relocation */
 
     /* fragment 10: Branch */
     s0 = v0;
@@ -51372,7 +51618,7 @@ frame_channel_vidioc_get_fmt0x74:
     if (_bc_s0_12) { goto frame_channel_vidioc_get_fmt0xec; }
 
     /* fragment 13: CallSetup */
-    local_10 = *(uint32_t *)((char *)(s1) + 716);
+    (*__p_10) = *(uint32_t *)((char *)(s1) + 716);
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC37, &__param_str_isp_dual_buf, 336); /* jalr target resolved by relocation */
 
 frame_channel_vidioc_get_fmt0xcc:
@@ -51394,10 +51640,10 @@ frame_channel_vidioc_get_fmt0xe8:
 
 frame_channel_vidioc_get_fmt0xec:
     /* fragment 18: CallSetup */
-    local_34 = v0;
-    local_28 = 4;
-    local_18 = 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s2, &local_18, 112); /* jalr target resolved by relocation */
+    (*__p_34) = v0;
+    (*__p_28) = 4;
+    (*__p_18) = 1;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s2, __p_18, 112); /* jalr target resolved by relocation */
 
     /* fragment 19: Branch */
     s0 = v0;
@@ -51415,7 +51661,7 @@ frame_channel_vidioc_get_fmt0xec:
 
 frame_channel_vidioc_get_fmt0x138:
     /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 584), (void *)(uintptr_t)&local_18, 112); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 584), (void *)(uintptr_t)__p_18, 112); /* jalr target resolved by relocation */
 
     /* fragment 23: Branch */
     goto frame_channel_vidioc_get_fmt0xd0;
@@ -51426,21 +51672,36 @@ frame_channel_vidioc_get_fmt0x138:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000e6a0 origin=fragment_seed original=frame_channel_reqbufs */
 int64_t frame_channel_reqbufs(uintptr_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    char local_18[128];
-    uint32_t local_98 = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_ac = 0;
-    uint32_t *local_b0 = 0;
-    uint32_t local_b4 = 0;
-    uint32_t local_b8 = 0;
-    uint32_t local_bc = 0;
-    uint32_t local_c0 = 0;
-    uint32_t local_c4 = 0;
-    uint32_t local_c8 = 0;
-    uint32_t local_cc = 0;
-    uint32_t local_d0 = 0;
-    uint32_t local_d4 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0xd8 (216 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_18 [128] @0x18 -> 128 byte(s): 128 x char = 128 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x36] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    char *const __p_18 = (char *)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_98 = (uint32_t *)(void *)((char *)__frame + 0x98);
+    uint32_t *const __p_a0 = (uint32_t *)(void *)((char *)__frame + 0xa0);
+    uint32_t *const __p_ac = (uint32_t *)(void *)((char *)__frame + 0xac);
+    uint32_t **const __p_b0 = (uint32_t **)(void *)((char *)__frame + 0xb0);
+    uint32_t *const __p_b4 = (uint32_t *)(void *)((char *)__frame + 0xb4);
+    uint32_t *const __p_b8 = (uint32_t *)(void *)((char *)__frame + 0xb8);
+    uint32_t *const __p_bc = (uint32_t *)(void *)((char *)__frame + 0xbc);
+    uint32_t *const __p_c0 = (uint32_t *)(void *)((char *)__frame + 0xc0);
+    uint32_t *const __p_c4 = (uint32_t *)(void *)((char *)__frame + 0xc4);
+    uint32_t *const __p_c8 = (uint32_t *)(void *)((char *)__frame + 0xc8);
+    uint32_t *const __p_cc = (uint32_t *)(void *)((char *)__frame + 0xcc);
+    uint32_t *const __p_d0 = (uint32_t *)(void *)((char *)__frame + 0xd0);
+    uint32_t *const __p_d4 = (uint32_t *)(void *)((char *)__frame + 0xd4);
     uint32_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -51480,7 +51741,7 @@ int64_t frame_channel_reqbufs(uintptr_t a0, uint32_t a1)
     if (v0 == 0) { goto frame_channel_reqbufs0x94; }
 
     /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_98); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(__p_98); /* jalr target resolved by relocation */
 
     /* fragment 7: Branch */
     a2 = (uint32_t *)&__param_str_isp_dual_buf;
@@ -51539,7 +51800,7 @@ frame_channel_reqbufs0xfc:
 
 frame_channel_reqbufs0x12c:
     /* fragment 20: StackAccess */
-    v0 = local_98;
+    v0 = (*__p_98);
 
     /* fragment 21: Branch */
     a1 = *(uint32_t *)((char *)(s0) + 536);
@@ -51551,7 +51812,7 @@ frame_channel_reqbufs0x12c:
 
     /* fragment 23: MemoryAccess */
     v1 = *(uint32_t *)((char *)s0 + 72);
-    v0 = local_a0;
+    v0 = (*__p_a0);
 
     /* fragment 24: Branch */
     int _bc_v1_24 = v1 != v0;
@@ -51561,11 +51822,11 @@ frame_channel_reqbufs0x12c:
 frame_channel_reqbufs0x150:
     /* fragment 25: MemoryAccess */
     v1 = *(uint32_t *)((char *)s0 + 72);
-    v0 = local_a0;
+    v0 = (*__p_a0);
 
     /* fragment 26: Branch */
     int _bc_v1_26 = v1 == v0;
-    v0 = local_98;
+    v0 = (*__p_98);
     if (_bc_v1_26) { goto frame_channel_reqbufs0x19c; }
 
     /* fragment 27: Arithmetic */
@@ -51587,7 +51848,7 @@ frame_channel_reqbufs0x17c:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)__vb2_queue_free)(s4); /* jalr target resolved by relocation */
 
     /* fragment 31: StackAccess */
-    v0 = local_98;
+    v0 = (*__p_98);
 
     /* fragment 32: Branch */
     if (v0 != 0) { goto frame_channel_reqbufs0x150; }
@@ -51620,10 +51881,10 @@ frame_channel_reqbufs0x19c:
     if (_bc_v0_38) { goto frame_channel_reqbufs0x1f0; }
 
     /* fragment 39: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_18, 0, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_18, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 40: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s0 + 768), (void *)(uintptr_t)&local_18, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s0 + 768), (void *)(uintptr_t)__p_18, 128); /* jalr target resolved by relocation */
 
 frame_channel_reqbufs0x1f0:
     /* fragment 41: Arithmetic */
@@ -51718,7 +51979,7 @@ frame_channel_reqbufs0x2ec:
 frame_channel_reqbufs0x330:
     /* fragment 59: CallSetup */
     *(uint32_t *)((char *)s0 + 536) = s1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s0) + 712), 50331648 + 8, &local_ac); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s0) + 712), 50331648 + 8, __p_ac); /* jalr target resolved by relocation */
 
     /* fragment 60: Branch */
     s1 = v0;
@@ -51744,7 +52005,7 @@ frame_channel_reqbufs0x38c:
 
 frame_channel_reqbufs0x390:
     /* fragment 66: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s3, &local_98, 20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s3, __p_98, 20); /* jalr target resolved by relocation */
 
     /* fragment 67: Branch */
     s1 = v0;
@@ -57109,28 +57370,44 @@ int32_t tx_isp_set_ae_algo_open_isra_28(void* arg1, int32_t arg2) __asm__("tx_is
 int32_t tx_isp_set_ae_algo_open_isra_28(void* arg1, int32_t arg2)
 {
     void* s4 = *(void**)((char*)arg1 + 0x10c);
-    int32_t *var_a0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x9c..0x128 (296 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser of each slot is reproduced as a store, in order.
+     */
+    uint32_t __frame[0x4a];
+    int32_t **const __p_a0 = (int32_t **)(void *)((char *)__frame + 0xa0);
+    int32_t *const __p_9c = (int32_t *)(void *)((char *)__frame + 0x9c);
     char const* a1;
     
-    if (private_copy_from_user(&var_a0, arg2, 0x88) != 0) {
+    if (private_copy_from_user(__p_a0, arg2, 0x88) != 0) {
         int32_t var_a4_1 = 0x604;
         char const* var_a8_1 = "tx_isp_set_ae_algo_open";
         a1 = "[%s %d] [ %s:%d ] copy from user error\n";
         goto print_error_and_return;
     }
     
-    if (var_a0 != (int32_t)&data_336ac) {
+    if ((*__p_a0) != (int32_t)&data_336ac) {
         int32_t var_a4_2 = 0x609;
         char const* var_a8_2 = "tx_isp_set_ae_algo_open";
         isp_printf(2, "[%s %d] [ %s:%d ] Ae Algo Function register version error\n", "tx_isp_set_ae_algo_open");
         return 0xffffffff;
     }
     
-    int32_t var_9c = *(int32_t*)((char*)s4 + 0x10c);
-    void* s1_1 = (void *)((void*)((char*)(uintptr_t)s4 + var_9c * 0x60));
+    (*__p_9c) = (int32_t)(*(int32_t*)((char*)s4 + 0x10c));
+    void* s1_1 = (void *)((void*)((char*)(uintptr_t)s4 + (*__p_9c) * 0x60));
     void* s2_1 = *(void**)((char*)s1_1 + 0x170);
     
-    tisp_ae_algo_init(var_9c, 1, &var_a0);
+    tisp_ae_algo_init((*__p_9c), 1, __p_a0);
     
     int32_t var_34_1 = *(int32_t*)((char*)s1_1 + 0x180);
     int32_t var_94_1 = *(int32_t*)((char*)s2_1 + 0xb0);
@@ -57140,20 +57417,20 @@ int32_t tx_isp_set_ae_algo_open_isra_28(void* arg1, int32_t arg2)
     uint32_t var_60_1 = tisp_math_exp2(*(uint32_t*)((char*)s2_1 + 0x118), 0x10, 0xa);
     uint32_t var_5c_1 = tisp_math_exp2(*(uint32_t*)((char*)s2_1 + 0x130), 0x10, 0xa);
     
-    if (*(int32_t*)((char*)(uintptr_t)s4 + ((var_9c + 0xb6) << 2) + 4) != 0) {
-        int32_t s2_3 = (var_9c + 0x40) << 7;
+    if (*(int32_t*)((char*)(uintptr_t)s4 + (((*__p_9c) + 0xb6) << 2) + 4) != 0) {
+        int32_t s2_3 = ((*__p_9c) + 0x40) << 7;
         uint32_t var_88_2 = (uint32_t)system_reg_read(s2_3 + 0x24);
         uint32_t var_58_1 = (uint32_t)system_reg_read(s2_3 + 0x30);
     } else {
-        uint32_t var_88_1 = (uint32_t)system_reg_read((var_9c + 0x100) << 7);
+        uint32_t var_88_1 = (uint32_t)system_reg_read(((*__p_9c) + 0x100) << 7);
     }
     
-    int32_t s0_2 = var_9c << 4;
-    *(void**)(ae_info_mine + (var_9c << 2)) = kmem_cache_alloc(0, 0x24000c0);
+    int32_t s0_2 = (*__p_9c) << 4;
+    *(void**)(ae_info_mine + ((*__p_9c) << 2)) = kmem_cache_alloc(0, 0x24000c0);
     *(int32_t*)(ae_algo_comp + s0_2) = 0;
-    __init_waitqueue_head(ae_info_mine + (var_9c << 2) + 0xb49d4, "&x->wait", 0);
+    __init_waitqueue_head(ae_info_mine + ((*__p_9c) << 2) + 0xb49d4, "&x->wait", 0);
     
-    if (private_copy_to_user(arg2, &var_a0, 0x88) == 0) {
+    if (private_copy_to_user(arg2, __p_a0, 0x88) == 0) {
         return 0;
     }
     
@@ -64707,11 +64984,26 @@ int32_t tisp_set_ae_info(void *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000179b8 origin=model_output original=tisp_get_awb_info */
 int32_t tisp_get_awb_info(void* arg1)
 {
-    int32_t *var_28;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x28..0x44 (68 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the slots were uninitialised and stay so.
+     */
+    uint32_t __frame[0x11];
+    int32_t **const __p_28 = (int32_t **)(void *)((char *)__frame + 0x28);
     
-    tisp_awb_get_mode(*(int32_t*)((char*)arg1 + 0xc), &var_28);
+    tisp_awb_get_mode(*(int32_t*)((char*)arg1 + 0xc), __p_28);
     *(int32_t*)((char*)arg1 + 4) = 28;
-    memcpy((char*)arg1 + 0x10, &var_28, 28);
+    memcpy((char*)arg1 + 0x10, __p_28, 28);
     
     return 0;
 }
@@ -64754,12 +65046,28 @@ int32_t tisp_set_awb_info(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017a68 origin=model_output original=tisp_set_ae_minmax */
 int32_t tisp_set_ae_minmax(void* arg1)
 {
-    int32_t var_b0;
-    char var_a0[0x98];
-    char var_148[0x98];
-    int32_t var_ac;
-    int32_t var_a8;
-    int32_t var_a4;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0xa0..0x1e0 (480 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   var_a0 [152] @0xa0 -> 152 byte(s): 152 x char = 152 byte(s)
+     *   var_148 [152] @0x148 -> 152 byte(s): 152 x char = 152 byte(s)
+     * the slots were uninitialised and stay so.
+     */
+    uint32_t __frame[0x78];
+    int32_t *const __p_b0 = (int32_t *)(void *)((char *)__frame + 0xb0);
+    char *const __p_a0 = (char *)(void *)((char *)__frame + 0xa0);
+    char *const __p_148 = (char *)(void *)((char *)__frame + 0x148);
+    int32_t *const __p_ac = (int32_t *)(void *)((char *)__frame + 0xac);
+    int32_t *const __p_a8 = (int32_t *)(void *)((char *)__frame + 0xa8);
+    int32_t *const __p_a4 = (int32_t *)(void *)((char *)__frame + 0xa4);
     int32_t *i = 0;
     int32_t (*func_ptr)(int32_t, int32_t, int32_t, int32_t);
     int32_t a0_3;
@@ -64770,36 +65078,36 @@ int32_t tisp_set_ae_minmax(void* arg1)
     /* Write 0xa4 to arg1 + 4 */
     *((uint32_t*)((char*)arg1 + 4)) = 0xa4;
 
-    /* Call memcpy: memcpy(&var_b0, arg1 + 0x10, 0xa4) */
-    memcpy(&var_b0, (char*)arg1 + 0x10, 0xa4);
+    /* Call memcpy: memcpy(__p_b0, arg1 + 0x10, 0xa4) */
+    memcpy(__p_b0, (char*)arg1 + 0x10, 0xa4);
 
     /* Check condition: *(arg1 + 0xc) != 0 */
     if (*((uint32_t*)((char*)arg1 + 0xc)) != 0) {
         /* Branch: true path - loop with break */
         while (1) {
-            a0_3 = var_b0;
+            a0_3 = (*__p_b0);
             if (i >= 0x94) {
                 break;
             }
-            /* Copy byte from var_a0[i] to var_148[i] */
-            ((void **)var_148)[(uintptr_t)i] = var_a0[(uintptr_t)i];
+            /* Copy byte from __p_a0[i] to __p_148[i] */
+            ((void **)__p_148)[(uintptr_t)i] = __p_a0[(uintptr_t)i];
             i = (void *)(uintptr_t)((uintptr_t)i + (1));
         }
-        a1_1 = var_ac;
-        a2 = var_a8;
-        a3 = var_a4;
+        a1_1 = (*__p_ac);
+        a2 = (*__p_a8);
+        a3 = (*__p_a4);
         func_ptr = tisp_ae_sec_min_max_set;
     } else {
         /* Branch: false path - loop with condition */
         while (i < 0x94) {
-            /* Copy byte from var_a0[i] to var_148[i] */
-            ((void **)var_148)[(uintptr_t)i] = var_a0[(uintptr_t)i];
+            /* Copy byte from __p_a0[i] to __p_148[i] */
+            ((void **)__p_148)[(uintptr_t)i] = __p_a0[(uintptr_t)i];
             i = (void *)(uintptr_t)((uintptr_t)i + (1));
         }
-        a0_3 = var_b0;
-        a1_1 = var_ac;
-        a2 = var_a8;
-        a3 = var_a4;
+        a0_3 = (*__p_b0);
+        a1_1 = (*__p_ac);
+        a2 = (*__p_a8);
+        a3 = (*__p_a4);
         func_ptr = tisp_ae_main_min_max_set;
     }
 
@@ -64965,12 +65273,27 @@ tisp_reg_map_set0x12c:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017d10 origin=fragment_seed original=tisp_data_info_get */
 int32_t tisp_data_info_get(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x1528 (5416 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x54a] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_1c = (uint32_t *)(void *)((char *)__frame + 0x1c);
+    uint32_t **const __p_20 = (uint32_t **)(void *)((char *)__frame + 0x20);
+    uint32_t **const __p_24 = (uint32_t **)(void *)((char *)__frame + 0x24);
+    uint32_t *const __p_28 = (uint32_t *)(void *)((char *)__frame + 0x28);
+    uint32_t *const __p_2c = (uint32_t *)(void *)((char *)__frame + 0x2c);
     uint32_t ra = 0;
     uintptr_t *s0 = 0;
     uint32_t *s1 = 0;
@@ -64985,17 +65308,17 @@ int32_t tisp_data_info_get(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
     v0 = 1;
 
     /* fragment 2: StackAccess */
-    local_24 = s2;
-    local_20 = s1;
-    local_1c = s0;
-    local_2c = ra;
-    local_28 = s3;
+    (*__p_24) = s2;
+    (*__p_20) = s1;
+    (*__p_1c) = s0;
+    (*__p_2c) = ra;
+    (*__p_28) = s3;
     s2 = a0;
     s1 = a2;
     s0 = a3;
 
     /* fragment 3: Branch */
-    local_10 = 0;
+    (*__p_10) = 0;
     if (a1 == v0) { goto tisp_data_info_get0xc0; }
 
     /* fragment 4: Arithmetic */
@@ -65066,11 +65389,11 @@ tisp_data_info_get0x108:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(5400); /* jalr target resolved by relocation */
 
     /* fragment 22: CallSetup */
-    local_10 = v0;
+    (*__p_10) = v0;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_af_statis_attr)(s2, v0); /* jalr target resolved by relocation */
 
     /* fragment 23: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s1, (void *)(uintptr_t)&local_10, 5400); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s1, (void *)(uintptr_t)__p_10, 5400); /* jalr target resolved by relocation */
 
     /* fragment 24: Arithmetic */
     v0 = 5400;
@@ -65079,7 +65402,7 @@ tisp_data_info_get0x108:
     *(uint32_t *)((char *)s0 + 0) = v0;
 
     /* fragment 26: Branch */
-    a0 = local_10;
+    a0 = (*__p_10);
     goto tisp_data_info_get0x90;
 
     return 0;
@@ -73988,34 +74311,50 @@ uint32_t tiziano_load_parameters(uint32_t a0, uintptr_t a1, uintptr_t a2)
     return regtrace_tiziano_load_parameters_safe(a0, a1, a2);
 #else
 
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    char local_24[252];
-    uint32_t local_120 = 0;
-    char local_124[60];
-    uint32_t local_160 = 0;
-    uint32_t local_1a0 = 0;
-    uint32_t local_1a8 = 0;
-    uint32_t local_1ac = 0;
-    uint32_t local_1b0 = 0;
-    uint32_t local_1b4 = 0;
-    uint32_t local_1b8 = 0;
-    uint32_t local_1bc = 0;
-    uint32_t local_1c0 = 0;
-    uint32_t local_1c8 = 0;
-    uint32_t local_1cc = 0;
-    uint32_t local_1d0 = 0;
-    uint32_t local_1d4 = 0;
-    uint32_t local_1d8 = 0;
-    uint32_t local_1dc = 0;
-    uint32_t local_1e0 = 0;
-    uint32_t local_1e4 = 0;
-    uint32_t local_1e8 = 0;
-    uint32_t local_1ec = 0;
-    uint32_t local_1f8 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x1fc (508 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_24 [252] @0x24 -> 252 byte(s): 252 x char = 252 byte(s)
+     *   local_124 [60] @0x124 -> 60 byte(s): 60 x char = 60 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x7f] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_1c = (uint32_t *)(void *)((char *)__frame + 0x1c);
+    uint32_t **const __p_20 = (uint32_t **)(void *)((char *)__frame + 0x20);
+    char *const __p_24 = (char *)(void *)((char *)__frame + 0x24);
+    uint32_t *const __p_120 = (uint32_t *)(void *)((char *)__frame + 0x120);
+    char *const __p_124 = (char *)(void *)((char *)__frame + 0x124);
+    uint32_t *const __p_160 = (uint32_t *)(void *)((char *)__frame + 0x160);
+    uint32_t *const __p_1a0 = (uint32_t *)(void *)((char *)__frame + 0x1a0);
+    uint32_t *const __p_1a8 = (uint32_t *)(void *)((char *)__frame + 0x1a8);
+    uint32_t *const __p_1ac = (uint32_t *)(void *)((char *)__frame + 0x1ac);
+    uint32_t *const __p_1b0 = (uint32_t *)(void *)((char *)__frame + 0x1b0);
+    uint32_t *const __p_1b4 = (uint32_t *)(void *)((char *)__frame + 0x1b4);
+    uint32_t *const __p_1b8 = (uint32_t *)(void *)((char *)__frame + 0x1b8);
+    uint32_t *const __p_1bc = (uint32_t *)(void *)((char *)__frame + 0x1bc);
+    uint32_t *const __p_1c0 = (uint32_t *)(void *)((char *)__frame + 0x1c0);
+    uint32_t *const __p_1c8 = (uint32_t *)(void *)((char *)__frame + 0x1c8);
+    uint32_t *const __p_1cc = (uint32_t *)(void *)((char *)__frame + 0x1cc);
+    uint32_t *const __p_1d0 = (uint32_t *)(void *)((char *)__frame + 0x1d0);
+    uint32_t *const __p_1d4 = (uint32_t *)(void *)((char *)__frame + 0x1d4);
+    uint32_t *const __p_1d8 = (uint32_t *)(void *)((char *)__frame + 0x1d8);
+    uint32_t *const __p_1dc = (uint32_t *)(void *)((char *)__frame + 0x1dc);
+    uint32_t *const __p_1e0 = (uint32_t *)(void *)((char *)__frame + 0x1e0);
+    uint32_t *const __p_1e4 = (uint32_t *)(void *)((char *)__frame + 0x1e4);
+    uint32_t *const __p_1e8 = (uint32_t *)(void *)((char *)__frame + 0x1e8);
+    uint32_t *const __p_1ec = (uint32_t *)(void *)((char *)__frame + 0x1ec);
+    uint32_t *const __p_1f8 = (uint32_t *)(void *)((char *)__frame + 0x1f8);
     uintptr_t *a3 = 0;
     uint32_t at = 0;
     uint32_t ra = 0;
@@ -74039,8 +74378,8 @@ uint32_t tiziano_load_parameters(uint32_t a0, uintptr_t a1, uintptr_t a2)
     /* fragment 1: CallSetup */
     s5 = a0;
     s6 = a1;
-    local_1f8 = a2;
-    local_1b4 = (uintptr_t)&private_vmalloc;
+    (*__p_1f8) = a2;
+    (*__p_1b4) = (uintptr_t)&private_vmalloc;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(52); /* jalr target resolved by relocation */
 
     /* fragment 2: Branch */
@@ -74048,8 +74387,8 @@ uint32_t tiziano_load_parameters(uint32_t a0, uintptr_t a1, uintptr_t a2)
     if (v0 != 0) { goto tiziano_load_parameters0x8c; }
 
     /* fragment 3: CallSetup */
-    local_14 = 1742;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 1742;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 1742); /* jalr target resolved by relocation */
 
     /* fragment 4: Branch */
@@ -74065,17 +74404,17 @@ tiziano_load_parameters0x8c:
     v0 = (uintptr_t *)snprintf((const char *)(uintptr_t)s0, 8, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC7); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
-    s1 = (uintptr_t *)&local_1a0;
-    v0 = (uintptr_t *)snprintf((const char *)(uintptr_t)&local_1a0, 8, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC7); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
+    s1 = (uintptr_t *)__p_1a0;
+    v0 = (uintptr_t *)snprintf((const char *)(uintptr_t)__p_1a0, 8, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC7); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
 
     /* fragment 8: CallSetup */
-    local_1ac = s0 + 8;
+    (*__p_1ac) = s0 + 8;
     v0 = (uintptr_t *)snprintf((const char *)(uintptr_t)(s0 + 8), 8, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC9); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
 
     /* fragment 9: CallSetup */
-    s7 = (uintptr_t)&local_160;
-    local_1ac = local_1f8 + 4;
-    v0 = (uintptr_t *)sprintf((const char *)(uintptr_t)&local_160, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)(local_1f8 + 4)); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
+    s7 = (uintptr_t)__p_160;
+    (*__p_1ac) = (*__p_1f8) + 4;
+    v0 = (uintptr_t *)sprintf((const char *)(uintptr_t)__p_160, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)((*__p_1f8) + 4)); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
 
     /* fragment 10: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_filp_open)(s7, 0, 0); /* jalr target resolved by relocation */
@@ -74090,8 +74429,8 @@ tiziano_load_parameters0x8c:
     if (_bc_v0_12) { goto tiziano_load_parameters0x188; }
 
     /* fragment 13: CallSetup */
-    local_14 = v0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = v0;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC10, &__param_str_isp_dual_buf, 1754); /* jalr target resolved by relocation */
 
     /* fragment 14: Branch */
@@ -74101,53 +74440,53 @@ tiziano_load_parameters0x8c:
 tiziano_load_parameters0x188:
     /* fragment 15: CallSetup */
     s8 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s3) + 16)) + 48);
-    local_1bc = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s3) + 16)) + 52);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_get_fs)(&local_1a8); /* jalr target resolved by relocation */
+    (*__p_1bc) = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s3) + 16)) + 52);
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_get_fs)(__p_1a8); /* jalr target resolved by relocation */
 
     /* fragment 16: CallSetup */
-    local_1b0 = local_1a8;
+    (*__p_1b0) = (*__p_1a8);
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)(0); /* jalr target resolved by relocation */
 
     /* fragment 17: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 40);
     a0 = (uint32_t *)&private_filp_close;
     v1 = a0;
-    local_1b8 = v1;
+    (*__p_1b8) = v1;
     a3 = s3 + 56;
 
     /* fragment 18: Branch */
-    v1 = local_1bc;
+    v1 = (*__p_1bc);
     if (v0 != 0) { goto tiziano_load_parameters0x26c; }
 
     /* fragment 19: CallSetup */
-    local_1c0 = v1;
-    local_1bc = a3;
+    (*__p_1c0) = v1;
+    (*__p_1bc) = a3;
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(0); /* jalr target resolved by relocation */
 
     /* fragment 20: MemoryAccess */
     *(uint32_t *)((char *)s0 + 40) = v0;
-    a3 = local_1bc;
+    a3 = (*__p_1bc);
 
     /* fragment 21: Branch */
-    v1 = local_1c0;
+    v1 = (*__p_1c0);
     if (v0 != 0) { goto tiziano_load_parameters0x268; }
 
     /* fragment 22: CallSetup */
-    local_18 = ((uintptr_t)v1 << 22) | (s8 >> 10);
-    local_14 = 1769;
-    local_1c = (int32_t)v1 >> 10;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_18) = ((uintptr_t)v1 << 22) | (s8 >> 10);
+    (*__p_14) = 1769;
+    (*__p_1c) = (int32_t)v1 >> 10;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC11, &__param_str_isp_dual_buf, 1769); /* jalr target resolved by relocation */
 
     /* fragment 23: CallSetup */
-    v0 = local_1b8;
+    v0 = (*__p_1b8);
 
 tiziano_load_parameters0x24c:
     /* fragment 24: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_filp_close)(s3, 0); /* jalr target resolved by relocation */
 
     /* fragment 25: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)(local_1b0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)((*__p_1b0)); /* jalr target resolved by relocation */
 
     /* fragment 26: Branch */
     s1 = (uintptr_t *)&private_kfree;
@@ -74175,8 +74514,8 @@ tiziano_load_parameters0x284:
     v0 = 1776;
     a2 = a2 + 5232;
     a1 = (uint32_t *)&LC12;
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
     a3 = 1776;
     a1 = a1;
 
@@ -74185,7 +74524,7 @@ tiziano_load_parameters0x2a4:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)isp_printf)(2); /* jalr target resolved by relocation */
 
     /* fragment 33: Branch */
-    v0 = local_1b8;
+    v0 = (*__p_1b8);
     goto tiziano_load_parameters0x24c;
 
 tiziano_load_parameters0x2bc:
@@ -74196,7 +74535,7 @@ tiziano_load_parameters0x2bc:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_filp_close)(s3, 0); /* jalr target resolved by relocation */
 
     /* fragment 36: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)(local_1b0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)((*__p_1b0)); /* jalr target resolved by relocation */
 
     /* fragment 37: MemoryAccess */
     s8 = *(uint32_t *)((char *)s0 + 40);
@@ -74271,13 +74610,13 @@ tiziano_load_parameters0x358:
     if (a2 == 0) { goto tiziano_load_parameters0x43c; }
 
     /* fragment 55: CallSetup */
-    local_20 = 0;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_24, 0, 252); /* jalr target resolved by relocation */
+    (*__p_20) = 0;
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_24, 0, 252); /* jalr target resolved by relocation */
 
     /* fragment 56: CallSetup */
-    s3 = (uint32_t *)&local_20;
-    local_120 = 0;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_124, 0, 60); /* jalr target resolved by relocation */
+    s3 = (uint32_t *)__p_20;
+    (*__p_120) = 0;
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_124, 0, 60); /* jalr target resolved by relocation */
 
     /* fragment 57: CallSetup */
     v0 = (uintptr_t *)strcat((const char *)(uintptr_t)s3, (const char *)(uintptr_t)&LC13); /* jalr target resolved by relocation */
@@ -74286,10 +74625,10 @@ tiziano_load_parameters0x358:
     v0 = (uintptr_t *)strcat((const char *)(uintptr_t)s3, (const char *)(uintptr_t)&LC14); /* jalr target resolved by relocation */
 
     /* fragment 59: CallSetup */
-    v0 = (uintptr_t *)sprintf((const char *)(uintptr_t)&local_120, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC15); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)sprintf((const char *)(uintptr_t)__p_120, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)&LC15); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
 
     /* fragment 60: CallSetup */
-    v0 = (uintptr_t *)strcat((const char *)(uintptr_t)s3, (const char *)(uintptr_t)&local_120); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)strcat((const char *)(uintptr_t)s3, (const char *)(uintptr_t)__p_120); /* jalr target resolved by relocation */
 
     /* fragment 61: CallSetup */
     v0 = (uintptr_t *)strcat((const char *)(uintptr_t)s3, (const char *)(uintptr_t)&LC16); /* jalr target resolved by relocation */
@@ -74360,7 +74699,7 @@ tiziano_load_parameters0x468:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC18, &__param_str_isp_dual_buf, 1807); /* jalr target resolved by relocation */
 
     /* fragment 80: Branch */
-    v0 = local_1b8;
+    v0 = (*__p_1b8);
     goto tiziano_load_parameters0x24c;
 
 tiziano_load_parameters0x4cc:
@@ -74391,8 +74730,8 @@ tiziano_load_parameters0x4f8:
     a2 = ((char *)&LC17);
 
     /* fragment 85: StackAccess */
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
     a3 = 1814;
 
     /* fragment 86: Branch */
@@ -74416,12 +74755,12 @@ tiziano_load_parameters0x548:
     /* fragment 89: CallSetup */
     s3 = s5 << 2;
     *(uint32_t *)((char *)s0 + 48) = a2;
-    local_1b4 = a2;
-    local_1b0 = s3 + &tsbin;
+    (*__p_1b4) = a2;
+    (*__p_1b0) = s3 + &tsbin;
     v0 = (uintptr_t *)sprintf((const char *)(uintptr_t)(*(uint32_t *)((char *)((s5 << 2) + &tsbin) + 0)), "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)s8); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
 
     /* fragment 90: CallSetup */
-    v0 = (uintptr_t *)sprintf((const char *)(uintptr_t)((*(uint32_t *)((char *)(local_1b0) + 0)) + 8), "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)local_1ac); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)sprintf((const char *)(uintptr_t)((*(uint32_t *)((char *)((*__p_1b0)) + 0)) + 8), "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)(*__p_1ac)); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
 
     /* fragment 91: Arithmetic */
     v1 = s8;
@@ -74457,7 +74796,7 @@ tiziano_load_parameters0x5b0:
     v0 = v0;
 
     /* fragment 99: StackAccess */
-    a2 = local_1b4;
+    a2 = (*__p_1b4);
     a3 = s6;
 
     /* fragment 100: Branch */
@@ -74472,7 +74811,7 @@ tiziano_load_parameters0x5d0:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tiziano_save_to_local)(s5); /* jalr target resolved by relocation */
 
     /* fragment 103: StackAccess */
-    v0 = local_1f8;
+    v0 = (*__p_1f8);
     v0 = *(uint32_t *)((char *)v0 + 0);
 
     /* fragment 104: Branch */
@@ -81474,29 +81813,47 @@ tisp_ae_sort_H2L0x70:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000224fc origin=fragment_seed original=tisp_ae_fliker_detect */
 int64_t tisp_ae_fliker_detect(uint32_t a0, uint32_t a1)
 {
-    char local_10[540];
-    char local_22c[60];
-    char local_268[60];
-    char local_2a4[60];
-    uint32_t local_2e0 = 0;
-    uint32_t local_308 = 0;
-    uint32_t local_30c = 0;
-    uint32_t local_310 = 0;
-    uint32_t local_318 = 0;
-    uint32_t local_31c = 0;
-    uint32_t local_320 = 0;
-    uint32_t local_324 = 0;
-    uint32_t local_328 = 0;
-    uint32_t local_32c = 0;
-    uint32_t local_330 = 0;
-    uint32_t local_334 = 0;
-    uint32_t local_338 = 0;
-    uint32_t local_33c = 0;
-    uint32_t local_340 = 0;
-    uint32_t local_344 = 0;
-    uint32_t local_348 = 0;
-    uint32_t local_34c = 0;
-    uint32_t local_350 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x354 (852 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_10 [540] @0x10 -> 540 byte(s): 540 x char = 540 byte(s)
+     *   local_22c [60] @0x22c -> 60 byte(s): 60 x char = 60 byte(s)
+     *   local_268 [60] @0x268 -> 60 byte(s): 60 x char = 60 byte(s)
+     *   local_2a4 [60] @0x2a4 -> 60 byte(s): 60 x char = 60 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0xd5] = { 0 };
+    char *const __p_10 = (char *)(void *)((char *)__frame + 0x10);
+    char *const __p_22c = (char *)(void *)((char *)__frame + 0x22c);
+    char *const __p_268 = (char *)(void *)((char *)__frame + 0x268);
+    char *const __p_2a4 = (char *)(void *)((char *)__frame + 0x2a4);
+    uint32_t *const __p_2e0 = (uint32_t *)(void *)((char *)__frame + 0x2e0);
+    uint32_t *const __p_308 = (uint32_t *)(void *)((char *)__frame + 0x308);
+    uint32_t *const __p_30c = (uint32_t *)(void *)((char *)__frame + 0x30c);
+    uint32_t *const __p_310 = (uint32_t *)(void *)((char *)__frame + 0x310);
+    uint32_t *const __p_318 = (uint32_t *)(void *)((char *)__frame + 0x318);
+    uint32_t *const __p_31c = (uint32_t *)(void *)((char *)__frame + 0x31c);
+    uint32_t *const __p_320 = (uint32_t *)(void *)((char *)__frame + 0x320);
+    uint32_t *const __p_324 = (uint32_t *)(void *)((char *)__frame + 0x324);
+    uint32_t *const __p_328 = (uint32_t *)(void *)((char *)__frame + 0x328);
+    uint32_t *const __p_32c = (uint32_t *)(void *)((char *)__frame + 0x32c);
+    uint32_t *const __p_330 = (uint32_t *)(void *)((char *)__frame + 0x330);
+    uint32_t *const __p_334 = (uint32_t *)(void *)((char *)__frame + 0x334);
+    uint32_t *const __p_338 = (uint32_t *)(void *)((char *)__frame + 0x338);
+    uint32_t *const __p_33c = (uint32_t *)(void *)((char *)__frame + 0x33c);
+    uint32_t *const __p_340 = (uint32_t *)(void *)((char *)__frame + 0x340);
+    uint32_t *const __p_344 = (uint32_t *)(void *)((char *)__frame + 0x344);
+    uint32_t *const __p_348 = (uint32_t *)(void *)((char *)__frame + 0x348);
+    uint32_t *const __p_34c = (uint32_t *)(void *)((char *)__frame + 0x34c);
+    uint32_t *const __p_350 = (uint32_t *)(void *)((char *)__frame + 0x350);
     uintptr_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -81522,35 +81879,35 @@ int64_t tisp_ae_fliker_detect(uint32_t a0, uint32_t a1)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
-    local_350 = a0;
+    (*__p_350) = a0;
     s8 = a1;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_2a4, 0, 60); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_2a4, 0, 60); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_268, 0, 60); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_268, 0, 60); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_10, 0, 540); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_10, 0, 540); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_22c, 0, 60); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_22c, 0, 60); /* jalr target resolved by relocation */
 
     /* fragment 5: CallSetup */
     s6 = *(uint32_t *)((char *)((char *)&fliker_info));
-    s3 = (uint32_t *)&local_2e0;
+    s3 = (uint32_t *)__p_2e0;
     s1 = (uintptr_t *)&memcpy;
     s4 = *(uint32_t *)((char *)(s6) + 0);
     s1 = (uintptr_t *)&memcpy;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_2e0, (void *)(uintptr_t)0, 40); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)__p_2e0, (void *)(uintptr_t)0, 40); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
-    local_308 = 0;
-    local_30c = 0;
-    local_310 = 0;
+    (*__p_308) = 0;
+    (*__p_30c) = 0;
+    (*__p_310) = 0;
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s3, (void *)(uintptr_t)(s6 + 10812), 40); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_308, (void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&fliker_info))) + 10852), 12); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)__p_308, (void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&fliker_info))) + 10852), 12); /* jalr target resolved by relocation */
 
     /* fragment 8: Arithmetic */
     v0 = 10;
@@ -81570,11 +81927,11 @@ int64_t tisp_ae_fliker_detect(uint32_t a0, uint32_t a1)
     v0 = (uintptr_t *)memset((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&fliker_info))), 0, 10864); /* jalr target resolved by relocation */
 
     /* fragment 13: CallSetup */
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)(uintptr_t)&fliker_info)) + 10812) + -8) = (*(uint32_t *)((char *)&local_10 + (((*(uint32_t *)((char *)(*(uint32_t *)((char *)(uintptr_t)&fliker_para)) + 12)) - 1) << 2) + 720));
+    *(uint32_t *)((char *)((*(uint32_t *)((char *)(uintptr_t)&fliker_info)) + 10812) + -8) = (*(uint32_t *)((char *)__p_10 + (((*(uint32_t *)((char *)(*(uint32_t *)((char *)(uintptr_t)&fliker_para)) + 12)) - 1) << 2) + 720));
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&fliker_info))) + 10812), (void *)(uintptr_t)s3, 40); /* jalr target resolved by relocation */
 
     /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&fliker_info))) + 10852), (void *)(uintptr_t)&local_308, 12); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&fliker_info))) + 10852), (void *)(uintptr_t)__p_308, 12); /* jalr target resolved by relocation */
 
     /* fragment 15: CallSetup */
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s7, (void *)(uintptr_t)s8, 900); /* jalr target resolved by relocation */
@@ -81588,16 +81945,16 @@ tisp_ae_fliker_detect0x168:
     v0 = *(uint32_t *)((char *)v1 + 0);
     v0 = v0 + 1;
     *(uint32_t *)((char *)v1 + 0) = v0;
-    ra = local_34c;
-    s8 = local_348;
-    s7 = local_344;
-    s6 = local_340;
-    s5 = local_33c;
-    s4 = local_338;
-    s3 = local_334;
-    s2 = local_330;
-    s1 = local_32c;
-    s0 = local_328;
+    ra = (*__p_34c);
+    s8 = (*__p_348);
+    s7 = (*__p_344);
+    s6 = (*__p_340);
+    s5 = (*__p_33c);
+    s4 = (*__p_338);
+    s3 = (*__p_334);
+    s2 = (*__p_330);
+    s1 = (*__p_32c);
+    s0 = (*__p_328);
 
     /* fragment 18: Epilogue */
     /* function epilogue: restore registers and return */
@@ -81664,13 +82021,13 @@ tisp_ae_fliker_detect0x1f8:
 
     /* fragment 31: CallSetup */
     v0 = s6;
-    s4 = (uintptr_t *)&local_10;
-    local_318 = v0;
+    s4 = (uintptr_t *)__p_10;
+    (*__p_318) = v0;
     v0 = (uintptr_t *)&isp_memopt;
     t4 = s4;
     s7 = 0;
-    local_31c = v0;
-    local_320 = v0;
+    (*__p_31c) = v0;
+    (*__p_320) = v0;
 
 tisp_ae_fliker_detect0x268:
     /* fragment 32: CallSetup */
@@ -81680,21 +82037,21 @@ tisp_ae_fliker_detect0x268:
 
 tisp_ae_fliker_detect0x274:
     /* fragment 33: CallSetup */
-    local_324 = t4;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_2a4, 0, 60); /* jalr target resolved by relocation */
+    (*__p_324) = t4;
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_2a4, 0, 60); /* jalr target resolved by relocation */
 
     /* fragment 34: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_268, 0, 60); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_268, 0, 60); /* jalr target resolved by relocation */
 
     /* fragment 35: Arithmetic */
     t5 = s6 << 4;
 
     /* fragment 36: StackAccess */
-    t4 = local_324;
+    t4 = (*__p_324);
     t5 = t5 - s6;
     t5 = t5 + s7;
-    a0 = (uint32_t *)&local_268;
-    v1 = (int32_t *)&local_2a4;
+    a0 = (uint32_t *)__p_268;
+    v1 = (int32_t *)__p_2a4;
     v0 = 0;
 
 tisp_ae_fliker_detect0x2b4:
@@ -81715,12 +82072,12 @@ tisp_ae_fliker_detect0x2b4:
     if (v0 != a1) { goto tisp_ae_fliker_detect0x2b4; }
 
     /* fragment 40: CallSetup */
-    local_324 = t4;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_sort_H2L)(&local_268, &local_2a4); /* jalr target resolved by relocation */
+    (*__p_324) = t4;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_sort_H2L)(__p_268, __p_2a4); /* jalr target resolved by relocation */
 
     /* fragment 41: StackAccess */
-    v0 = local_31c;
-    t4 = local_324;
+    v0 = (*__p_31c);
+    t4 = (*__p_324);
     a2 = 0;
     a1 = *(uint32_t *)((char *)((char *)&fliker_para));
     a0 = 0;
@@ -81779,7 +82136,7 @@ tisp_ae_fliker_detect0x32c:
     if (s7 != v0) { goto tisp_ae_fliker_detect0x268; }
 
     /* fragment 55: Arithmetic */
-    t1 = (uint32_t *)&local_22c;
+    t1 = (uint32_t *)__p_22c;
     a3 = t1;
     a0 = t1;
     t2 = 9;
@@ -81819,8 +82176,8 @@ tisp_ae_fliker_detect0x37c:
     if (a3 != s4) { goto tisp_ae_fliker_detect0x374; }
 
     /* fragment 64: StackAccess */
-    a0 = local_22c;
-    v1 = (int32_t *)&local_268;
+    a0 = __p_22c;
+    v1 = (int32_t *)__p_268;
     v0 = 0;
     a3 = a0;
 
@@ -81876,7 +82233,7 @@ tisp_ae_fliker_detect0x420:
     if (a2 != 0) { goto tisp_ae_fliker_detect0x494; }
 
     /* fragment 77: StackAccess */
-    a0 = local_2e0;
+    a0 = (*__p_2e0);
     a0 = a0 - (uintptr_t)v0;
     t0 = t0 < a0;
 
@@ -81903,7 +82260,7 @@ tisp_ae_fliker_detect0x44c:
 
 tisp_ae_fliker_detect0x460:
     /* fragment 84: Arithmetic */
-    a3 = (uint32_t *)&local_10;
+    a3 = (uint32_t *)__p_10;
     v1 = (uintptr_t)a3 + (uintptr_t)v1;
 
     /* fragment 85: MemoryAccess */
@@ -81926,7 +82283,7 @@ tisp_ae_fliker_detect0x48c:
 
 tisp_ae_fliker_detect0x494:
     /* fragment 88: Arithmetic */
-    t4 = (int32_t *)&local_10;
+    t4 = (int32_t *)__p_10;
     a2 = (uintptr_t)t3 << 2;
     a0 = a0 << 2;
     a2 = (uintptr_t)t4 + (uintptr_t)a2;
@@ -81971,7 +82328,7 @@ tisp_ae_fliker_detect0x4ec:
     a0 = v1 < a0;
 
     /* fragment 98: Branch */
-    a2 = (uint32_t *)&local_10;
+    a2 = (uint32_t *)__p_10;
     if (a0 != 0) { goto tisp_ae_fliker_detect0x4d8; }
 
     /* fragment 99: CallSetup */
@@ -81983,7 +82340,7 @@ tisp_ae_fliker_detect0x504:
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&fliker_info))) + 10812), (void *)(uintptr_t)s3, 40); /* jalr target resolved by relocation */
 
     /* fragment 101: StackAccess */
-    v1 = local_320;
+    v1 = (*__p_320);
     v0 = *(uint32_t *)((char *)((char *)&fliker_info));
     v1 = *(uint32_t *)((char *)((char *)&fliker_para));
     a0 = *(uint32_t *)((char *)v0 + 10804);
@@ -82007,7 +82364,7 @@ tisp_ae_fliker_detect0x504:
 
 tisp_ae_fliker_detect0x554:
     /* fragment 106: StackAccess */
-    v1 = local_350;
+    v1 = (*__p_350);
     v0 = *(uint32_t *)((char *)v0 + 10808);
     v1 = regtrace_ae_cache_for_channel((uint32_t)(uintptr_t)v1);
     if (!regtrace_is_kernel_ptr((void *)v1))
@@ -82028,7 +82385,7 @@ tisp_ae_fliker_detect0x584:
     if (s3 != v1) { goto tisp_ae_fliker_detect0x594; }
 
     /* fragment 110: Branch */
-    local_2e0 = v0;
+    (*__p_2e0) = v0;
     goto tisp_ae_fliker_detect0x504;
 
 tisp_ae_fliker_detect0x594:
@@ -96679,9 +97036,28 @@ int32_t *tisp_ae_algo_init(int32_t arg1, int32_t arg2, void *arg3)
     int32_t *result;
     int32_t *v1_ptr;
     int32_t *ta_custom_en_ptr;
-    int32_t var_14[6];
-    char var_1b;
-    int32_t *var_18 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x14..0x30 (48 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   var_14 [6] @0x14 -> 24 byte(s): 6 x int32_t = 24 byte(s)
+     *   var_1b @0x1b -> uint8_t: alignment only (offset 0x1b)
+     * These overlap the 4-byte slots in the OEM frame, so they
+     * overlap here too: that sharing is the OEM's own semantics.
+     * the initialiser of each slot is reproduced as a store, in order.
+     */
+    uint32_t __frame[0xc];
+    int32_t *const __p_14 = (int32_t *)(void *)((char *)__frame + 0x14);
+    uint8_t *const __p_1b = (uint8_t *)(void *)((char *)__frame + 0x1b);
+    int32_t **const __p_18 = (int32_t **)(void *)((char *)__frame + 0x18);
+    (*__p_18) = (int32_t *)(0);
 
     /* Select based on arg1 */
     if (arg1 == 0) {
@@ -96729,13 +97105,13 @@ int32_t *tisp_ae_algo_init(int32_t arg1, int32_t arg2, void *arg3)
     *(int32_t *)((char *)arg3 + 0x58) = result[0x23];
 
     /* Read byte from v1_ptr */
-    var_1b = *(char *)((char *)v1_ptr + 0x419);
+    (*__p_1b) = *(char *)((char *)v1_ptr + 0x419);
 
     /* First memcpy call */
-    memcpy(var_14, (char *)v1_ptr + 0x105, 4);
+    memcpy(__p_14, (char *)v1_ptr + 0x105, 4);
 
     /* Second memcpy call */
-    memcpy((char *)arg3 + 0x70, &var_18, 0x18);
+    memcpy((char *)arg3 + 0x70, __p_18, 0x18);
 
     return result;
 }
@@ -107053,19 +107429,52 @@ int32_t *tisp_awb_algo_init(int32_t arg1, int32_t arg2, int32_t arg3)
 {
     int32_t *result;
     int16_t *v0;
-    int32_t var_20;
-    uint32_t var_1c;
-    uint32_t *var_18;
-    char *var_14;
-    int32_t var_10;
-    char var_13;
-    int16_t *local_20;
-    int16_t local_1c;
-    int16_t *local_18;
-    char local_14;
-    char local_13;
-    int32_t *local_10;
-    char local_11;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x34 (52 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   var_13 @0x13 -> uint8_t: declared char = 1 byte(s) of the slot shared with its other view
+     *   local_1c @0x1c -> uint16_t: declared int16_t = 2 byte(s) of the slot shared with its other view
+     *   local_14 @0x14 -> uint8_t: declared char = 1 byte(s) of the slot shared with its other view
+     *   local_13 @0x13 -> uint8_t: declared char = 1 byte(s) of the slot shared with its other view
+     *   local_11 @0x11 -> uint8_t: alignment only (offset 0x11)
+     * These overlap the 4-byte slots in the OEM frame, so they
+     * overlap here too: that sharing is the OEM's own semantics.
+     *   0x10 has two names (local_10, var_10): one OEM slot, two views, and
+     *     each name keeps its own alias of its own declared width.
+     *   0x13 has two names (local_13, var_13): one OEM slot, two views, and
+     *     each name keeps its own alias of its own declared width.
+     *   0x14 has two names (local_14, var_14): one OEM slot, two views, and
+     *     each name keeps its own alias of its own declared width.
+     *   0x18 has two names (local_18, var_18): one OEM slot, two views, and
+     *     each name keeps its own alias of its own declared width.
+     *   0x1c has two names (local_1c, var_1c): one OEM slot, two views, and
+     *     each name keeps its own alias of its own declared width.
+     *   0x20 has two names (local_20, var_20): one OEM slot, two views, and
+     *     each name keeps its own alias of its own declared width.
+     * the slots were uninitialised and stay so.
+     */
+    uint32_t __frame[0xd];
+    int32_t *const __p_var_20 = (int32_t *)(void *)((char *)__frame + 0x20);
+    uint32_t *const __p_var_1c = (uint32_t *)(void *)((char *)__frame + 0x1c);
+    uint32_t **const __p_var_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    char **const __p_var_14 = (char **)(void *)((char *)__frame + 0x14);
+    int32_t *const __p_var_10 = (int32_t *)(void *)((char *)__frame + 0x10);
+    uint8_t *const __p_var_13 = (uint8_t *)(void *)((char *)__frame + 0x13);
+    int16_t **const __p_local_20 = (int16_t **)(void *)((char *)__frame + 0x20);
+    uint16_t *const __p_local_1c = (uint16_t *)(void *)((char *)__frame + 0x1c);
+    int16_t **const __p_local_18 = (int16_t **)(void *)((char *)__frame + 0x18);
+    uint8_t *const __p_local_14 = (uint8_t *)(void *)((char *)__frame + 0x14);
+    uint8_t *const __p_local_13 = (uint8_t *)(void *)((char *)__frame + 0x13);
+    int32_t **const __p_local_10 = (int32_t **)(void *)((char *)__frame + 0x10);
+    uint8_t *const __p_11 = (uint8_t *)(void *)((char *)__frame + 0x11);
     
     /* First conditional: if arg1 != 0, jump to 0x34e60 */
     if (arg1 != 0) {
@@ -107085,26 +107494,26 @@ int32_t *tisp_awb_algo_init(int32_t arg1, int32_t arg2, int32_t arg3)
     
     /* arg2 == 1 path: continue */
     v0 = (int16_t *)result;
-    var_20 = arg2;
+    (*__p_var_20) = arg2;
     
     /* Read from v0 and store to stack */
-    var_1c = (uint32_t)v0[2];
-    var_18[0] = (uint32_t)*v0;
-    var_14[0] = ((char *)v0)[3];
-    var_10 = arg2;
-    var_13 = ((char *)v0)[1];
+    (*__p_var_1c) = (uint32_t)v0[2];
+    (*__p_var_18)[0] = (uint32_t)*v0;
+    (*__p_var_14)[0] = ((char *)v0)[3];
+    (*__p_var_10) = arg2;
+    (*__p_var_13) = ((char *)v0)[1];
     
     /* Setup stack frame and save values */
-    local_20 = v0[2];
-    local_1c = *v0;
-    local_18 = v0[1];
-    local_14 = ((char *)v0)[3];
-    local_13 = ((char *)v0)[1];
-    local_10 = arg2;
-    local_11 = ((char *)v0)[2];
+    (*__p_local_20) = v0[2];
+    (*__p_local_1c) = *v0;
+    (*__p_local_18) = v0[1];
+    (*__p_local_14) = ((char *)v0)[3];
+    (*__p_local_13) = ((char *)v0)[1];
+    (*__p_local_10) = arg2;
+    (*__p_11) = ((char *)v0)[2];
     
-    /* Call memcpy(arg3 + 8, &var_20, 0x14) */
-    memcpy((void *)(arg3 + 8), &var_20, 0x14);
+    /* Call memcpy(arg3 + 8, __p_var_20, 0x14) */
+    memcpy((void *)(arg3 + 8), __p_var_20, 0x14);
     
     return result;
     
@@ -114249,100 +114658,133 @@ int32_t tisp_wdr_paixu(int16_t *arg1, int32_t arg2, int32_t arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003a89c origin=fragment_seed original=Tiziano_wdr_fusion_fpga */
 int64_t Tiziano_wdr_fusion_fpga(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_158 = 0;
-    uint32_t local_21c = 0;
-    uint32_t local_230 = 0;
-    uint32_t local_232 = 0;
-    uint32_t local_248 = 0;
-    uint32_t local_24a = 0;
-    uint32_t local_24c = 0;
-    uint32_t local_260 = 0;
-    uint32_t local_264 = 0;
-    uint32_t *local_268 = 0;
-    uint32_t local_26c = 0;
-    uint32_t local_270 = 0;
-    uint32_t local_274 = 0;
-    uint32_t local_278 = 0;
-    uint32_t local_27c = 0;
-    uint32_t local_280 = 0;
-    uint32_t local_284 = 0;
-    uint32_t local_288 = 0;
-    uint32_t local_28c = 0;
-    uint32_t local_290 = 0;
-    uint32_t local_294 = 0;
-    uint32_t local_298 = 0;
-    uint32_t local_29c = 0;
-    uint32_t local_2a0 = 0;
-    uint32_t local_2a2 = 0;
-    uint32_t *local_2a4 = 0;
-    uint32_t local_2a6 = 0;
-    uint32_t local_2a8 = 0;
-    uint32_t local_2ac = 0;
-    uint32_t local_2b0 = 0;
-    uint32_t local_2b4 = 0;
-    uint32_t local_2b8 = 0;
-    uint32_t local_2bc = 0;
-    uint32_t local_2c0 = 0;
-    uint32_t local_2c4 = 0;
-    uint32_t local_2c8 = 0;
-    uint32_t local_2cc = 0;
-    uint32_t local_2d0 = 0;
-    uint32_t local_2d2 = 0;
-    uint32_t local_2d4 = 0;
-    uint32_t local_2d6 = 0;
-    uint32_t local_2d8 = 0;
-    uint32_t local_2dc = 0;
-    uint32_t local_2e0 = 0;
-    uint32_t local_2e4 = 0;
-    uint32_t local_2e8 = 0;
-    uint32_t local_2ea = 0;
-    uint32_t local_2ec = 0;
-    uint32_t local_2f0 = 0;
-    uint32_t local_2f4 = 0;
-    uint32_t local_2f8 = 0;
-    uint32_t local_2fc = 0;
-    uint32_t local_300 = 0;
-    uint32_t local_304 = 0;
-    uint32_t local_308 = 0;
-    uint32_t local_30c = 0;
-    uint32_t local_310 = 0;
-    uint32_t local_314 = 0;
-    uint32_t local_318 = 0;
-    uint32_t local_31c = 0;
-    uint32_t local_320 = 0;
-    uint32_t local_324 = 0;
-    uint32_t local_328 = 0;
-    uint32_t local_32c = 0;
-    uint32_t local_330 = 0;
-    uint32_t local_334 = 0;
-    uint32_t local_338 = 0;
-    uint32_t local_33c = 0;
-    uint32_t local_340 = 0;
-    uint32_t local_344 = 0;
-    uint32_t local_348 = 0;
-    uint32_t local_34c = 0;
-    uint32_t local_350 = 0;
-    uint32_t local_354 = 0;
-    uint32_t local_358 = 0;
-    uint32_t local_35c = 0;
-    uint32_t local_360 = 0;
-    uint32_t local_364 = 0;
-    uint32_t local_368 = 0;
-    uint32_t local_36c = 0;
-    uint32_t local_370 = 0;
-    uint32_t local_374 = 0;
-    uint32_t local_378 = 0;
-    uint32_t local_37c = 0;
-    uint32_t local_380 = 0;
-    uint32_t local_384 = 0;
-    uint32_t local_388 = 0;
-    uint32_t local_38c = 0;
-    uint32_t local_390 = 0;
-    uint32_t local_394 = 0;
-    uint32_t local_398 = 0;
-    uint32_t local_39c = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x3a0 (928 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_232 @0x232 -> uint16_t: alignment only (offset 0x232)
+     *   local_24a @0x24a -> uint16_t: alignment only (offset 0x24a)
+     *   local_2a2 @0x2a2 -> uint16_t: alignment only (offset 0x2a2)
+     *   local_2a6 @0x2a6 -> uint16_t: alignment only (offset 0x2a6)
+     *   local_2d2 @0x2d2 -> uint16_t: alignment only (offset 0x2d2)
+     *   local_2d6 @0x2d6 -> uint16_t: alignment only (offset 0x2d6)
+     *   local_2e0 @0x2e0 -> uint16_t: L114987 read consumed by a uint16_t store at L114988
+     *   local_2e4 @0x2e4 -> uint16_t: L115386 read consumed by a uint16_t store at L115387
+     *   local_2ea @0x2ea -> uint16_t: alignment only (offset 0x2ea)
+     *   local_330 @0x330 -> uint16_t: L114694: v0 loaded as uint16_t at L114693
+     *   local_334 @0x334 -> uint16_t: L114696: v0 loaded as uint16_t at L114695
+     *   local_338 @0x338 -> uint16_t: L114715 store of a uint16_t expression
+     *   local_33c @0x33c -> uint16_t: L114714 store of a uint16_t expression
+     *   local_340 @0x340 -> uint8_t: L114612: v0 loaded as uint8_t at L114609
+     *   local_350 @0x350 -> uint8_t: L114746 store of a uint8_t expression
+     *   local_370 @0x370 -> uint16_t: L114662: v0 loaded as uint16_t at L114659
+     *   local_374 @0x374 -> uint16_t: L114666: v0 loaded as uint16_t at L114663
+     * These overlap the 4-byte slots in the OEM frame, so they
+     * overlap here too: that sharing is the OEM's own semantics.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0xe8] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_158 = (uint32_t *)(void *)((char *)__frame + 0x158);
+    uint32_t *const __p_21c = (uint32_t *)(void *)((char *)__frame + 0x21c);
+    uint32_t *const __p_230 = (uint32_t *)(void *)((char *)__frame + 0x230);
+    uint16_t *const __p_232 = (uint16_t *)(void *)((char *)__frame + 0x232);
+    uint32_t *const __p_248 = (uint32_t *)(void *)((char *)__frame + 0x248);
+    uint16_t *const __p_24a = (uint16_t *)(void *)((char *)__frame + 0x24a);
+    uint32_t *const __p_24c = (uint32_t *)(void *)((char *)__frame + 0x24c);
+    uint32_t *const __p_260 = (uint32_t *)(void *)((char *)__frame + 0x260);
+    uint32_t *const __p_264 = (uint32_t *)(void *)((char *)__frame + 0x264);
+    uint32_t **const __p_268 = (uint32_t **)(void *)((char *)__frame + 0x268);
+    uint32_t *const __p_26c = (uint32_t *)(void *)((char *)__frame + 0x26c);
+    uint32_t *const __p_270 = (uint32_t *)(void *)((char *)__frame + 0x270);
+    uint32_t *const __p_274 = (uint32_t *)(void *)((char *)__frame + 0x274);
+    uint32_t *const __p_278 = (uint32_t *)(void *)((char *)__frame + 0x278);
+    uint32_t *const __p_27c = (uint32_t *)(void *)((char *)__frame + 0x27c);
+    uint32_t *const __p_280 = (uint32_t *)(void *)((char *)__frame + 0x280);
+    uint32_t *const __p_284 = (uint32_t *)(void *)((char *)__frame + 0x284);
+    uint32_t *const __p_288 = (uint32_t *)(void *)((char *)__frame + 0x288);
+    uint32_t *const __p_28c = (uint32_t *)(void *)((char *)__frame + 0x28c);
+    uint32_t *const __p_290 = (uint32_t *)(void *)((char *)__frame + 0x290);
+    uint32_t *const __p_294 = (uint32_t *)(void *)((char *)__frame + 0x294);
+    uint32_t *const __p_298 = (uint32_t *)(void *)((char *)__frame + 0x298);
+    uint32_t *const __p_29c = (uint32_t *)(void *)((char *)__frame + 0x29c);
+    uint32_t *const __p_2a0 = (uint32_t *)(void *)((char *)__frame + 0x2a0);
+    uint16_t *const __p_2a2 = (uint16_t *)(void *)((char *)__frame + 0x2a2);
+    uint32_t **const __p_2a4 = (uint32_t **)(void *)((char *)__frame + 0x2a4);
+    uint16_t *const __p_2a6 = (uint16_t *)(void *)((char *)__frame + 0x2a6);
+    uint32_t *const __p_2a8 = (uint32_t *)(void *)((char *)__frame + 0x2a8);
+    uint32_t *const __p_2ac = (uint32_t *)(void *)((char *)__frame + 0x2ac);
+    uint32_t *const __p_2b0 = (uint32_t *)(void *)((char *)__frame + 0x2b0);
+    uint32_t *const __p_2b4 = (uint32_t *)(void *)((char *)__frame + 0x2b4);
+    uint32_t *const __p_2b8 = (uint32_t *)(void *)((char *)__frame + 0x2b8);
+    uint32_t *const __p_2bc = (uint32_t *)(void *)((char *)__frame + 0x2bc);
+    uint32_t *const __p_2c0 = (uint32_t *)(void *)((char *)__frame + 0x2c0);
+    uint32_t *const __p_2c4 = (uint32_t *)(void *)((char *)__frame + 0x2c4);
+    uint32_t *const __p_2c8 = (uint32_t *)(void *)((char *)__frame + 0x2c8);
+    uint32_t *const __p_2cc = (uint32_t *)(void *)((char *)__frame + 0x2cc);
+    uint32_t *const __p_2d0 = (uint32_t *)(void *)((char *)__frame + 0x2d0);
+    uint16_t *const __p_2d2 = (uint16_t *)(void *)((char *)__frame + 0x2d2);
+    uint32_t *const __p_2d4 = (uint32_t *)(void *)((char *)__frame + 0x2d4);
+    uint16_t *const __p_2d6 = (uint16_t *)(void *)((char *)__frame + 0x2d6);
+    uint32_t *const __p_2d8 = (uint32_t *)(void *)((char *)__frame + 0x2d8);
+    uint32_t *const __p_2dc = (uint32_t *)(void *)((char *)__frame + 0x2dc);
+    uint16_t *const __p_2e0 = (uint16_t *)(void *)((char *)__frame + 0x2e0);
+    uint16_t *const __p_2e4 = (uint16_t *)(void *)((char *)__frame + 0x2e4);
+    uint32_t *const __p_2e8 = (uint32_t *)(void *)((char *)__frame + 0x2e8);
+    uint16_t *const __p_2ea = (uint16_t *)(void *)((char *)__frame + 0x2ea);
+    uint32_t *const __p_2ec = (uint32_t *)(void *)((char *)__frame + 0x2ec);
+    uint32_t *const __p_2f0 = (uint32_t *)(void *)((char *)__frame + 0x2f0);
+    uint32_t *const __p_2f4 = (uint32_t *)(void *)((char *)__frame + 0x2f4);
+    uint32_t *const __p_2f8 = (uint32_t *)(void *)((char *)__frame + 0x2f8);
+    uint32_t *const __p_2fc = (uint32_t *)(void *)((char *)__frame + 0x2fc);
+    uint32_t *const __p_300 = (uint32_t *)(void *)((char *)__frame + 0x300);
+    uint32_t *const __p_304 = (uint32_t *)(void *)((char *)__frame + 0x304);
+    uint32_t *const __p_308 = (uint32_t *)(void *)((char *)__frame + 0x308);
+    uint32_t *const __p_30c = (uint32_t *)(void *)((char *)__frame + 0x30c);
+    uint32_t *const __p_310 = (uint32_t *)(void *)((char *)__frame + 0x310);
+    uint32_t *const __p_314 = (uint32_t *)(void *)((char *)__frame + 0x314);
+    uint32_t *const __p_318 = (uint32_t *)(void *)((char *)__frame + 0x318);
+    uint32_t *const __p_31c = (uint32_t *)(void *)((char *)__frame + 0x31c);
+    uint32_t *const __p_320 = (uint32_t *)(void *)((char *)__frame + 0x320);
+    uint32_t *const __p_324 = (uint32_t *)(void *)((char *)__frame + 0x324);
+    uint32_t *const __p_328 = (uint32_t *)(void *)((char *)__frame + 0x328);
+    uint32_t *const __p_32c = (uint32_t *)(void *)((char *)__frame + 0x32c);
+    uint16_t *const __p_330 = (uint16_t *)(void *)((char *)__frame + 0x330);
+    uint16_t *const __p_334 = (uint16_t *)(void *)((char *)__frame + 0x334);
+    uint16_t *const __p_338 = (uint16_t *)(void *)((char *)__frame + 0x338);
+    uint16_t *const __p_33c = (uint16_t *)(void *)((char *)__frame + 0x33c);
+    uint8_t *const __p_340 = (uint8_t *)(void *)((char *)__frame + 0x340);
+    uint32_t *const __p_344 = (uint32_t *)(void *)((char *)__frame + 0x344);
+    uint32_t *const __p_348 = (uint32_t *)(void *)((char *)__frame + 0x348);
+    uint32_t *const __p_34c = (uint32_t *)(void *)((char *)__frame + 0x34c);
+    uint8_t *const __p_350 = (uint8_t *)(void *)((char *)__frame + 0x350);
+    uint32_t *const __p_354 = (uint32_t *)(void *)((char *)__frame + 0x354);
+    uint32_t *const __p_358 = (uint32_t *)(void *)((char *)__frame + 0x358);
+    uint32_t *const __p_35c = (uint32_t *)(void *)((char *)__frame + 0x35c);
+    uint32_t *const __p_360 = (uint32_t *)(void *)((char *)__frame + 0x360);
+    uint32_t *const __p_364 = (uint32_t *)(void *)((char *)__frame + 0x364);
+    uint32_t *const __p_368 = (uint32_t *)(void *)((char *)__frame + 0x368);
+    uint32_t *const __p_36c = (uint32_t *)(void *)((char *)__frame + 0x36c);
+    uint16_t *const __p_370 = (uint16_t *)(void *)((char *)__frame + 0x370);
+    uint16_t *const __p_374 = (uint16_t *)(void *)((char *)__frame + 0x374);
+    uint32_t *const __p_378 = (uint32_t *)(void *)((char *)__frame + 0x378);
+    uint32_t *const __p_37c = (uint32_t *)(void *)((char *)__frame + 0x37c);
+    uint32_t *const __p_380 = (uint32_t *)(void *)((char *)__frame + 0x380);
+    uint32_t *const __p_384 = (uint32_t *)(void *)((char *)__frame + 0x384);
+    uint32_t *const __p_388 = (uint32_t *)(void *)((char *)__frame + 0x388);
+    uint32_t *const __p_38c = (uint32_t *)(void *)((char *)__frame + 0x38c);
+    uint32_t *const __p_390 = (uint32_t *)(void *)((char *)__frame + 0x390);
+    uint32_t *const __p_394 = (uint32_t *)(void *)((char *)__frame + 0x394);
+    uint32_t *const __p_398 = (uint32_t *)(void *)((char *)__frame + 0x398);
+    uint32_t *const __p_39c = (uint32_t *)(void *)((char *)__frame + 0x39c);
     uintptr_t *a1 = 0;
     uintptr_t *a2 = 0;
     uintptr_t *a3 = 0;
@@ -114376,160 +114818,160 @@ int64_t Tiziano_wdr_fusion_fpga(uintptr_t a0)
     v0 = *(uint8_t *)((char *)a0 + 0);
     s8 = a0;
     s4 = a0 + 12102;
-    local_340 = v0;
+    (*__p_340) = v0;
     v0 = a0 + 9408;
-    local_344 = v0;
+    (*__p_344) = v0;
     v0 = a0 + 10308;
-    local_354 = v0;
+    (*__p_354) = v0;
     v0 = a0 + 11208;
-    local_318 = v0;
+    (*__p_318) = v0;
     v0 = a0 + 11908;
-    local_358 = v0;
+    (*__p_358) = v0;
     v0 = a0 + 12300;
-    local_35c = v0;
+    (*__p_35c) = v0;
     v0 = a0 + 12434;
-    local_360 = v0;
+    (*__p_360) = v0;
     v0 = a0 + 12570;
-    local_364 = v0;
+    (*__p_364) = v0;
     v0 = a0 + 12582;
-    local_368 = v0;
+    (*__p_368) = v0;
     v0 = a0 + 12986;
-    local_348 = v0;
+    (*__p_348) = v0;
     v0 = a0 + 13016;
-    local_31c = v0;
+    (*__p_31c) = v0;
     v0 = a0 + 13024;
-    local_320 = v0;
+    (*__p_320) = v0;
     v0 = a0 + 13028;
-    local_324 = v0;
+    (*__p_324) = v0;
     v0 = a0 + 13064;
-    local_300 = v0;
+    (*__p_300) = v0;
 
     /* fragment 2: Arithmetic */
     v0 = a0 + 13130;
 
     /* fragment 3: StackAccess */
-    local_304 = v0;
+    (*__p_304) = v0;
     v0 = a0 + 13196;
-    local_308 = v0;
+    (*__p_308) = v0;
     v0 = a0 + 13262;
-    local_30c = v0;
+    (*__p_30c) = v0;
     v0 = a0 + 13328;
-    local_310 = v0;
+    (*__p_310) = v0;
     v0 = a0 + 13740;
-    local_36c = v0;
+    (*__p_36c) = v0;
     v0 = a0 + 13752;
-    local_2fc = v0;
+    (*__p_2fc) = v0;
     v0 = *(uint32_t *)((char *)a0 + 12);
     s0 = *(uint32_t *)((char *)a0 + 16);
     s5 = *(uint16_t *)((char *)a0 + 12626);
-    local_34c = v0;
+    (*__p_34c) = v0;
     v0 = *(uint16_t *)((char *)a0 + 12724);
     s2 = *(uint32_t *)((char *)a0 + 9404);
-    local_2c4 = 0;
-    local_370 = v0;
+    (*__p_2c4) = 0;
+    (*__p_370) = v0;
     v0 = *(uint16_t *)((char *)a0 + 12746);
-    local_2c8 = 0;
-    local_2cc = 0;
-    local_374 = v0;
+    (*__p_2c8) = 0;
+    (*__p_2cc) = 0;
+    (*__p_374) = v0;
     v0 = *(uint16_t *)((char *)a0 + 12618);
-    local_2b8 = 0;
-    local_2bc = 0;
-    local_2c0 = 0;
-    local_2ac = 0;
-    local_2b0 = 0;
-    local_2b4 = 0;
+    (*__p_2b8) = 0;
+    (*__p_2bc) = 0;
+    (*__p_2c0) = 0;
+    (*__p_2ac) = 0;
+    (*__p_2b0) = 0;
+    (*__p_2b4) = 0;
 
     /* fragment 4: StackAccess */
-    local_294 = 0;
-    local_298 = 0;
-    local_29c = 0;
-    local_2e8 = 0;
-    local_2ec = 0;
-    local_2e0 = 0;
-    local_2e4 = 0;
-    local_2d8 = 0;
-    local_2dc = 0;
-    local_288 = 0;
-    local_28c = 0;
-    local_290 = 0;
-    local_328 = v0;
+    (*__p_294) = 0;
+    (*__p_298) = 0;
+    (*__p_29c) = 0;
+    (*__p_2e8) = 0;
+    (*__p_2ec) = 0;
+    (*__p_2e0) = 0;
+    (*__p_2e4) = 0;
+    (*__p_2d8) = 0;
+    (*__p_2dc) = 0;
+    (*__p_288) = 0;
+    (*__p_28c) = 0;
+    (*__p_290) = 0;
+    (*__p_328) = v0;
     v0 = *(uint16_t *)((char *)a0 + 12620);
     s1 = 34078720;
     a1 = s1 + 32;
-    local_32c = v0;
+    (*__p_32c) = v0;
     v0 = *(uint16_t *)((char *)a0 + 12622);
-    local_330 = v0;
+    (*__p_330) = v0;
     v0 = *(uint16_t *)((char *)a0 + 12624);
-    local_334 = v0;
+    (*__p_334) = v0;
     v0 = (uintptr_t *)&kmalloc_caches;
     v0 = v0;
     a0 = *(uint32_t *)((char *)v0 + 36);
-    local_2f4 = v0;
+    (*__p_2f4) = v0;
     v0 = (uintptr_t *)&kmem_cache_alloc;
     v0 = v0;
 
     /* fragment 5: CallSetup */
-    local_2f8 = v0;
+    (*__p_2f8) = v0;
     v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)a0, a1); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
     s7 = v0;
-    v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)(*(uint32_t *)((char *)(local_2f4) + 36)), (uintptr_t)s1 | 32); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)(*(uint32_t *)((char *)((*__p_2f4)) + 36)), (uintptr_t)s1 | 32); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
     s6 = v0;
-    local_33c = *(uint16_t *)((char *)(s8) + 12608);
-    local_338 = *(uint16_t *)((char *)(s8) + 12608) & 255;
-    local_314 = (uintptr_t)&memcpy;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_18, (void *)(uintptr_t)&__param_str_isp_dual_buf, 320); /* jalr target resolved by relocation */
+    (*__p_33c) = *(uint16_t *)((char *)(s8) + 12608);
+    (*__p_338) = *(uint16_t *)((char *)(s8) + 12608) & 255;
+    (*__p_314) = (uintptr_t)&memcpy;
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)__p_18, (void *)(uintptr_t)&__param_str_isp_dual_buf, 320); /* jalr target resolved by relocation */
 
     /* fragment 8: CallSetup */
-    local_274 = 0;
-    local_278 = 0;
-    local_27c = 0;
-    local_280 = 0;
-    local_284 = 0;
-    local_260 = 0;
-    local_264 = 0;
-    local_268 = 0;
-    local_26c = 0;
-    local_270 = 0;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_158, (void *)(uintptr_t)&__param_str_isp_dual_buf, 194); /* jalr target resolved by relocation */
+    (*__p_274) = 0;
+    (*__p_278) = 0;
+    (*__p_27c) = 0;
+    (*__p_280) = 0;
+    (*__p_284) = 0;
+    (*__p_260) = 0;
+    (*__p_264) = 0;
+    (*__p_268) = 0;
+    (*__p_26c) = 0;
+    (*__p_270) = 0;
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)__p_158, (void *)(uintptr_t)&__param_str_isp_dual_buf, 194); /* jalr target resolved by relocation */
 
     /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_21c, (void *)(uintptr_t)&__param_str_isp_dual_buf, 66); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)__p_21c, (void *)(uintptr_t)&__param_str_isp_dual_buf, 66); /* jalr target resolved by relocation */
 
     /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)(*(uint32_t *)((char *)(local_2f4) + 28)), (uintptr_t)s1 | 32); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)(*(uint32_t *)((char *)((*__p_2f4)) + 28)), (uintptr_t)s1 | 32); /* jalr target resolved by relocation */
 
     /* fragment 11: CallSetup */
     s3 = v0;
-    v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)(*(uint32_t *)((char *)(local_2f4) + 28)), (uintptr_t)s1 | 32); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)(*(uint32_t *)((char *)((*__p_2f4)) + 28)), (uintptr_t)s1 | 32); /* jalr target resolved by relocation */
 
     /* fragment 12: CallSetup */
     s1 = v0;
-    local_2a0 = 0;
-    local_2a4 = 0;
-    local_350 = (*(uint8_t *)((char *)(s8) + 12556)) << 9 & 65535;
-    local_2a8 = 0;
-    local_2d0 = 0;
-    local_2d4 = 0;
-    v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)(*(uint32_t *)((char *)(local_2f4) + 28)), 34078720 | 32); /* jalr target resolved by relocation */
+    (*__p_2a0) = 0;
+    (*__p_2a4) = 0;
+    (*__p_350) = (*(uint8_t *)((char *)(s8) + 12556)) << 9 & 65535;
+    (*__p_2a8) = 0;
+    (*__p_2d0) = 0;
+    (*__p_2d4) = 0;
+    v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)(*(uint32_t *)((char *)((*__p_2f4)) + 28)), 34078720 | 32); /* jalr target resolved by relocation */
 
     /* fragment 13: CallSetup */
-    local_2f0 = v0;
-    v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)(*(uint32_t *)((char *)(local_2f4) + 28)), 34078720 | 32); /* jalr target resolved by relocation */
+    (*__p_2f0) = v0;
+    v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)(*(uint32_t *)((char *)((*__p_2f4)) + 28)), 34078720 | 32); /* jalr target resolved by relocation */
 
     /* fragment 14: CallSetup */
-    local_2f8 = v0;
-    local_2f4 = (uintptr_t)&memset;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)local_2f0, 0, 66); /* jalr target resolved by relocation */
+    (*__p_2f8) = v0;
+    (*__p_2f4) = (uintptr_t)&memset;
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)(*__p_2f0), 0, 66); /* jalr target resolved by relocation */
 
     /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)local_2f8, 0, 66); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)(*__p_2f8), 0, 66); /* jalr target resolved by relocation */
 
     /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)local_2f8, (void *)(uintptr_t)&local_21c, 66); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*__p_2f8), (void *)(uintptr_t)__p_21c, 66); /* jalr target resolved by relocation */
 
     /* fragment 17: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_wdr_exptime_update)(s8 + 12); /* jalr target resolved by relocation */
@@ -114573,17 +115015,17 @@ Tiziano_wdr_fusion_fpga0x398:
 
     /* fragment 28: MemoryAccess */
     a2 = *(uint16_t *)((char *)a2 + 0);
-    v1 = (int32_t *)&local_2e8;
+    v1 = (int32_t *)__p_2e8;
     a1 = (uintptr_t)v1 + (uintptr_t)v0;
     *(uint16_t *)((char *)a1 + 0) = a2;
     a2 = (uintptr_t)t8 + (uintptr_t)v0;
     a2 = *(uint16_t *)((char *)a2 + 0);
-    v1 = (int32_t *)&local_2e0;
+    v1 = (int32_t *)__p_2e0;
     a1 = (uintptr_t)v1 + (uintptr_t)v0;
     *(uint16_t *)((char *)a1 + 0) = a2;
     a2 = t7 + (uintptr_t)v0;
     a2 = *(uint16_t *)((char *)a2 + 0);
-    v1 = (int32_t *)&local_2d8;
+    v1 = (int32_t *)__p_2d8;
     a1 = (uintptr_t)v1 + (uintptr_t)v0;
     v0 = v0 + 2;
 
@@ -114592,21 +115034,21 @@ Tiziano_wdr_fusion_fpga0x398:
     if (v0 != a0) { goto Tiziano_wdr_fusion_fpga0x398; }
 
     /* fragment 30: StackAccess */
-    a0 = local_2e8;
+    a0 = (*__p_2e8);
 
 Tiziano_wdr_fusion_fpga0x3e0:
     /* fragment 31: StackAccess */
-    a1 = local_2ea;
-    a2 = local_2ec;
+    a1 = (*__p_2ea);
+    a2 = (*__p_2ec);
     a0 = a0 * s5;
     a1 = (uintptr_t)a1 * s5;
-    local_294 = a0;
+    (*__p_294) = a0;
     a0 = a0 < s2;
     a2 = (uintptr_t)a2 * s5;
-    local_298 = a1;
+    (*__p_298) = a1;
 
     /* fragment 32: Branch */
-    local_29c = a2;
+    (*__p_29c) = a2;
     if (a0 != 0) { goto Tiziano_wdr_fusion_fpga0x5b4; }
 
     /* fragment 33: Arithmetic */
@@ -114622,9 +115064,9 @@ Tiziano_wdr_fusion_fpga0x3e0:
     a1 = 2;
     if (a0 != 0) { a1 = v0; }
     a0 = a0 < 1;
-    v0 = (uintptr_t *)&local_18;
+    v0 = (uintptr_t *)__p_18;
     a3 = a0 << 1;
-    v1 = (int32_t *)&local_18;
+    v1 = (int32_t *)__p_18;
     a0 = a0 << 2;
     a1 = (uintptr_t)a1 << 1;
     a3 = (uintptr_t)v0 + (uintptr_t)a3;
@@ -114691,15 +115133,15 @@ Tiziano_wdr_fusion_fpga0x4c8:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)(t2, t3, *(uint16_t *)((char *)(t9 + t0) + 0), *(uint16_t *)((char *)(v0) + 0)); /* jalr target resolved by relocation */
 
     /* fragment 47: CallSetup */
-    *(uint16_t *)((char *)(&local_2e8 + t0) + 0) = v0;
+    *(uint16_t *)((char *)(__p_2e8 + t0) + 0) = v0;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)(t2, t3, *(uint16_t *)((char *)(t8 + t0) + 0), *(uint16_t *)((char *)(t5 + t0) + 0)); /* jalr target resolved by relocation */
 
     /* fragment 48: CallSetup */
-    *(uint16_t *)((char *)(&local_2e0 + t0) + 0) = v0;
+    *(uint16_t *)((char *)(__p_2e0 + t0) + 0) = v0;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)(t2, t3, *(uint16_t *)((char *)(t7 + t0) + 0), *(uint16_t *)((char *)(t4 + t0) + 0)); /* jalr target resolved by relocation */
 
     /* fragment 49: Arithmetic */
-    v1 = (int32_t *)&local_2d8;
+    v1 = (int32_t *)__p_2d8;
     a0 = v1 + t0;
 
     /* fragment 50: MemoryAccess */
@@ -114713,7 +115155,7 @@ Tiziano_wdr_fusion_fpga0x4c8:
     if (_bc_t0_51) { goto Tiziano_wdr_fusion_fpga0x4c8; }
 
     /* fragment 52: Branch */
-    a0 = local_2e8;
+    a0 = (*__p_2e8);
     goto Tiziano_wdr_fusion_fpga0x3e0;
 
 Tiziano_wdr_fusion_fpga0x560:
@@ -114727,17 +115169,17 @@ Tiziano_wdr_fusion_fpga0x568:
 
     /* fragment 55: MemoryAccess */
     a2 = *(uint16_t *)((char *)a2 + 0);
-    v1 = (int32_t *)&local_2e8;
+    v1 = (int32_t *)__p_2e8;
     a1 = (uintptr_t)v1 + (uintptr_t)v0;
     *(uint16_t *)((char *)a1 + 0) = a2;
     a2 = (uintptr_t)t5 + (uintptr_t)v0;
     a2 = *(uint16_t *)((char *)a2 + 0);
-    v1 = (int32_t *)&local_2e0;
+    v1 = (int32_t *)__p_2e0;
     a1 = (uintptr_t)v1 + (uintptr_t)v0;
     *(uint16_t *)((char *)a1 + 0) = a2;
     a2 = (uintptr_t)t4 + (uintptr_t)v0;
     a2 = *(uint16_t *)((char *)a2 + 0);
-    v1 = (int32_t *)&local_2d8;
+    v1 = (int32_t *)__p_2d8;
     a1 = (uintptr_t)v1 + (uintptr_t)v0;
     v0 = v0 + 2;
 
@@ -114746,14 +115188,14 @@ Tiziano_wdr_fusion_fpga0x568:
     if (v0 != a0) { goto Tiziano_wdr_fusion_fpga0x568; }
 
     /* fragment 57: Branch */
-    a0 = local_2e8;
+    a0 = (*__p_2e8);
     goto Tiziano_wdr_fusion_fpga0x3e0;
 
 Tiziano_wdr_fusion_fpga0x5b4:
     /* fragment 58: StackAccess */
-    v0 = local_2e0;
+    v0 = (*__p_2e0);
     *(uint16_t *)((char *)s8 + 12474) = v0;
-    v0 = local_2d8;
+    v0 = (*__p_2d8);
 
 Tiziano_wdr_fusion_fpga0x5c0:
     /* fragment 59: MemoryAccess */
@@ -114765,7 +115207,7 @@ Tiziano_wdr_fusion_fpga0x5c4:
     a0 = 1;
 
     /* fragment 61: Branch */
-    v1 = local_34c;
+    v1 = (*__p_34c);
     if (v0 != a0) { goto Tiziano_wdr_fusion_fpga0x63c; }
 
     /* fragment 62: MemoryAccess */
@@ -114774,13 +115216,13 @@ Tiziano_wdr_fusion_fpga0x5c4:
     a2 = *(uint16_t *)((char *)s8 + 12676);
     v0 = (uintptr_t)v0 * s5;
     a1 = (uintptr_t)a1 * s5;
-    local_288 = v0;
+    (*__p_288) = v0;
     v0 = v0 < s2;
     a2 = (uintptr_t)a2 * s5;
-    local_28c = a1;
+    (*__p_28c) = a1;
 
     /* fragment 63: Branch */
-    local_290 = a2;
+    (*__p_290) = a2;
     if (v0 == 0) { goto Tiziano_wdr_fusion_fpga0x978; }
 
     /* fragment 64: MemoryAccess */
@@ -114809,7 +115251,7 @@ Tiziano_wdr_fusion_fpga0x620:
     /* fragment 69: MemoryAccess */
     *(uint16_t *)((char *)s8 + 12482) = a3;
     *(uint16_t *)((char *)s8 + 12484) = v0;
-    v1 = local_34c;
+    v1 = (*__p_34c);
 
 Tiziano_wdr_fusion_fpga0x63c:
     /* fragment 70: Arithmetic */
@@ -114838,7 +115280,7 @@ Tiziano_wdr_fusion_fpga0x63c:
 
 Tiziano_wdr_fusion_fpga0x66c:
     /* fragment 76: StackAccess */
-    v1 = local_370;
+    v1 = (*__p_370);
     v0 = 1;
 
     /* fragment 77: Branch */
@@ -114861,12 +115303,12 @@ Tiziano_wdr_fusion_fpga0x690:
     v0 = 1;
 
     /* fragment 82: Branch */
-    v1 = local_374;
+    v1 = (*__p_374);
     if (a0 != v0) { goto Tiziano_wdr_fusion_fpga0x700; }
 
     /* fragment 83: CallSetup */
-    local_10 = (uint32_t *)&local_18;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_get_lum_s)(local_318, local_324, local_31c, local_320); /* jalr target resolved by relocation */
+    (*__p_10) = (uint32_t *)__p_18;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_get_lum_s)((*__p_318), (*__p_324), (*__p_31c), (*__p_320)); /* jalr target resolved by relocation */
 
     /* fragment 84: MemoryAccess */
     v0 = *(uint16_t *)((char *)s8 + 12774);
@@ -114900,7 +115342,7 @@ Tiziano_wdr_fusion_fpga0x6dc:
 
 Tiziano_wdr_fusion_fpga0x6fc:
     /* fragment 92: StackAccess */
-    v1 = local_374;
+    v1 = (*__p_374);
 
 Tiziano_wdr_fusion_fpga0x700:
     /* fragment 93: Arithmetic */
@@ -114944,7 +115386,7 @@ Tiziano_wdr_fusion_fpga0x720:
 
 Tiziano_wdr_fusion_fpga0x760:
     /* fragment 101: StackAccess */
-    v0 = local_334;
+    v0 = (*__p_334);
     a1 = 0;
     t0 = 210;
     a3 = (uintptr_t)v0 >> 1;
@@ -114960,7 +115402,7 @@ Tiziano_wdr_fusion_fpga0x778:
 
     /* fragment 104: Branch */
     int _bc_v0_104 = v0 != 0;
-    v0 = local_344;
+    v0 = (*__p_344);
     if (_bc_v0_104) { goto Tiziano_wdr_fusion_fpga0xd28; }
 
     /* fragment 105: Arithmetic */
@@ -114971,11 +115413,11 @@ Tiziano_wdr_fusion_fpga0x778:
     if (a1 != t0) { goto Tiziano_wdr_fusion_fpga0x774; }
 
     /* fragment 107: StackAccess */
-    v0 = local_32c;
+    v0 = (*__p_32c);
     a0 = s8 + 10248;
     a3 = s7 + 420;
     t0 = (uintptr_t)v0 >> 1;
-    v0 = local_344;
+    v0 = (*__p_344);
     a2 = s8 + 11148;
     a1 = s6 + 420;
     t1 = v0 + 896;
@@ -114983,7 +115425,7 @@ Tiziano_wdr_fusion_fpga0x778:
 Tiziano_wdr_fusion_fpga0x7b0:
     /* fragment 108: MemoryAccess */
     v0 = *(uint32_t *)((char *)a0 + 0);
-    v1 = local_32c;
+    v1 = (*__p_32c);
     a0 = a0 + 4;
     v0 = (uintptr_t)v0 << 4;
     v0 = v0 + t0;
@@ -115016,7 +115458,7 @@ Tiziano_wdr_fusion_fpga0x7b0:
     if (t1 != a0) { goto Tiziano_wdr_fusion_fpga0x7b0; }
 
     /* fragment 115: StackAccess */
-    v0 = local_328;
+    v0 = (*__p_328);
     a1 = s8 + 9464;
     t0 = s7 + 28;
     t1 = (uintptr_t)v0 >> 1;
@@ -115026,7 +115468,7 @@ Tiziano_wdr_fusion_fpga0x7b0:
 Tiziano_wdr_fusion_fpga0x810:
     /* fragment 116: MemoryAccess */
     v0 = *(uint32_t *)((char *)a1 + 0);
-    v1 = local_328;
+    v1 = (*__p_328);
     a1 = a1 + 60;
     v0 = (uintptr_t)v0 << 4;
     v0 = (uintptr_t)v0 + (uintptr_t)t1;
@@ -115059,15 +115501,15 @@ Tiziano_wdr_fusion_fpga0x810:
     if (a0 != a1) { goto Tiziano_wdr_fusion_fpga0x810; }
 
     /* fragment 123: CallSetup */
-    *(uint16_t *)((char *)s7 + 448) = (((*(uint32_t *)((char *)(s8) + 10304)) << 4) + (local_330 >> 1));
-    *(uint16_t *)((char *)s6 + 448) = (((*(uint32_t *)((char *)(s8) + 11204)) << 4) + (local_330 >> 1));
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_paixu)(s7, local_338, 1); /* jalr target resolved by relocation */
+    *(uint16_t *)((char *)s7 + 448) = (((*(uint32_t *)((char *)(s8) + 10304)) << 4) + ((*__p_330) >> 1));
+    *(uint16_t *)((char *)s6 + 448) = (((*(uint32_t *)((char *)(s8) + 11204)) << 4) + ((*__p_330) >> 1));
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_paixu)(s7, (*__p_338), 1); /* jalr target resolved by relocation */
 
     /* fragment 124: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_paixu_part_0)(s6, 10); /* jalr target resolved by relocation */
 
     /* fragment 125: StackAccess */
-    v1 = local_33c;
+    v1 = (*__p_33c);
     a1 = s7;
     a0 = 0;
     v0 = 0;
@@ -115082,7 +115524,7 @@ Tiziano_wdr_fusion_fpga0x8d4:
     if (a3 != 0) { goto Tiziano_wdr_fusion_fpga0xd84; }
 
     /* fragment 128: StackAccess */
-    v0 = local_338;
+    v0 = (*__p_338);
     a1 = s6;
     t5 = (uintptr_t)v0 >> 1;
     t5 = t5 + a0;
@@ -115118,7 +115560,7 @@ Tiziano_wdr_fusion_fpga0x908:
     t8 = (uintptr_t)v0 & 65535;
     v0 = (uintptr_t)v0 & 65535;
     t7 = t7 * (uintptr_t)v0;
-    local_2f4 = v0;
+    (*__p_2f4) = v0;
     v0 = 1;
 
     /* fragment 136: Unknown */
@@ -115150,11 +115592,11 @@ Tiziano_wdr_fusion_fpga0x960:
 
 Tiziano_wdr_fusion_fpga0x968:
     /* fragment 143: StackAccess */
-    v0 = local_2e4;
+    v0 = (*__p_2e4);
     *(uint16_t *)((char *)s8 + 12474) = v0;
 
     /* fragment 144: Branch */
-    v0 = local_2dc;
+    v0 = (*__p_2dc);
     goto Tiziano_wdr_fusion_fpga0x5c0;
 
 Tiziano_wdr_fusion_fpga0x978:
@@ -115173,7 +115615,7 @@ Tiziano_wdr_fusion_fpga0x978:
     t2 = (uintptr_t)t2 << 1;
     t0 = s8 + 12678;
     t1 = t2 - 2;
-    v1 = (int32_t *)&local_18;
+    v1 = (int32_t *)__p_18;
     v0 = (uintptr_t)v0 << 2;
     a0 = t0 + (uintptr_t)t1;
     v0 = (uintptr_t)v1 + (uintptr_t)v0;
@@ -115425,7 +115867,7 @@ Tiziano_wdr_fusion_fpga0xbcc:
     if (_bc_a1_197) { goto Tiziano_wdr_fusion_fpga0xc04; }
 
     /* fragment 198: CallSetup */
-    local_10 = t0;
+    (*__p_10) = t0;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_wdr_interplate)(v0); /* jalr target resolved by relocation */
 
     /* fragment 199: Unknown */
@@ -115448,7 +115890,7 @@ Tiziano_wdr_fusion_fpga0xc04:
     /* fragment 203: CallSetup */
     a2 = *(uint16_t *)((char *)s8 + 12772);
     a3 = *(uint16_t *)((char *)s8 + 12774);
-    local_10 = t0;
+    (*__p_10) = t0;
 
 Tiziano_wdr_fusion_fpga0xc28:
     /* fragment 204: CallSetup */
@@ -115471,7 +115913,7 @@ Tiziano_wdr_fusion_fpga0xc40:
     a0 = v0;
 
     /* fragment 209: Branch */
-    local_10 = t0;
+    (*__p_10) = t0;
     goto Tiziano_wdr_fusion_fpga0xc28;
 
 Tiziano_wdr_fusion_fpga0xc64:
@@ -115571,7 +116013,7 @@ Tiziano_wdr_fusion_fpga0xd28:
     t2 = a0 << 2;
 
     /* fragment 231: StackAccess */
-    v1 = local_334;
+    v1 = (*__p_334);
     v0 = (uintptr_t)v0 + (uintptr_t)t2;
     v0 = *(uint32_t *)((char *)v0 + 0);
     a2 = a0 << 1;
@@ -115590,7 +116032,7 @@ Tiziano_wdr_fusion_fpga0xd28:
 
     /* fragment 234: MemoryAccess */
     *(uint16_t *)((char *)t3 + 0) = v0;
-    v0 = local_354;
+    v0 = (*__p_354);
     t2 = (uintptr_t)v0 + (uintptr_t)t2;
     v0 = *(uint32_t *)((char *)t2 + 0);
     v0 = (uintptr_t)v0 << 4;
@@ -115654,12 +116096,12 @@ Tiziano_wdr_fusion_fpga0xdac:
 
 Tiziano_wdr_fusion_fpga0xdf0:
     /* fragment 247: CallSetup */
-    local_10 = t0;
-    local_314 = t5;
+    (*__p_10) = t0;
+    (*__p_314) = t5;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_wdr_interplate)(*(uint16_t *)((char *)(s8 + ((uintptr_t)v0 << 1)) + 13764)); /* jalr target resolved by relocation */
 
     /* fragment 248: StackAccess */
-    t5 = local_314;
+    t5 = (*__p_314);
     *(uint16_t *)((char *)s8 + 13774) = v0;
 
 Tiziano_wdr_fusion_fpga0xe2c:
@@ -115686,7 +116128,7 @@ Tiziano_wdr_fusion_fpga0xe2c:
     *(uint16_t *)((char *)s8 + 13786) = t5;
     *(uint16_t *)((char *)s8 + 13790) = s2;
     v0 = (uintptr_t)v0 & 65535;
-    local_314 = v0;
+    (*__p_314) = v0;
     *(uint16_t *)((char *)s8 + 13788) = v0;
     v0 = 1;
 
@@ -115716,18 +116158,18 @@ Tiziano_wdr_fusion_fpga0xe94:
 
     /* fragment 260: Branch */
     int _bc_v0_260 = v0 != 0;
-    v0 = (uintptr_t *)&local_18;
+    v0 = (uintptr_t *)__p_18;
     if (_bc_v0_260) { goto Tiziano_wdr_fusion_fpga0xee0; }
 
     /* fragment 261: CallSetup */
-    local_10 = v0;
-    local_32c = t4;
-    local_328 = t5;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_get_lum_s)(local_318, local_324, local_31c, local_320); /* jalr target resolved by relocation */
+    (*__p_10) = v0;
+    (*__p_32c) = t4;
+    (*__p_328) = t5;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_get_lum_s)((*__p_318), (*__p_324), (*__p_31c), (*__p_320)); /* jalr target resolved by relocation */
 
     /* fragment 262: StackAccess */
-    t4 = local_32c;
-    t5 = local_328;
+    t4 = (*__p_32c);
+    t5 = (*__p_328);
 
 Tiziano_wdr_fusion_fpga0xee0:
     /* fragment 263: MemoryAccess */
@@ -115788,7 +116230,7 @@ Tiziano_wdr_fusion_fpga0xf40:
     if (_bc_a0_277) { goto Tiziano_wdr_fusion_fpga0x20d4; }
 
     /* fragment 278: Arithmetic */
-    a1 = (uint32_t *)&local_274;
+    a1 = (uint32_t *)__p_274;
     a3 = s8 + 12934;
     a0 = a1;
 
@@ -115804,12 +116246,12 @@ Tiziano_wdr_fusion_fpga0xf5c:
     if (a3 != v0) { goto Tiziano_wdr_fusion_fpga0xf5c; }
 
     /* fragment 281: StackAccess */
-    v0 = local_274;
+    v0 = (*__p_274);
     v0 = v0 < t4;
 
     /* fragment 282: Branch */
     int _bc_v0_282 = v0 == 0;
-    v0 = local_284;
+    v0 = (*__p_284);
     if (_bc_v0_282) { goto Tiziano_wdr_fusion_fpga0x2050; }
 
     /* fragment 283: MemoryAccess */
@@ -115818,15 +116260,15 @@ Tiziano_wdr_fusion_fpga0xf5c:
 Tiziano_wdr_fusion_fpga0xf88:
     /* fragment 284: MemoryAccess */
     v0 = *(uint32_t *)((char *)s8 + 13008);
-    local_328 = v0;
+    (*__p_328) = v0;
     v0 = s0 < v0;
 
     /* fragment 285: Branch */
-    t4 = local_348;
+    t4 = (*__p_348);
     if (v0 == 0) { goto Tiziano_wdr_fusion_fpga0x20dc; }
 
     /* fragment 286: Arithmetic */
-    v0 = (uintptr_t *)&local_260;
+    v0 = (uintptr_t *)__p_260;
     a0 = t4 + 10;
 
 Tiziano_wdr_fusion_fpga0xfa4:
@@ -115840,14 +116282,14 @@ Tiziano_wdr_fusion_fpga0xfa4:
     if (a0 != t4) { goto Tiziano_wdr_fusion_fpga0xfa4; }
 
     /* fragment 289: StackAccess */
-    v0 = local_270;
+    v0 = (*__p_270);
 
 Tiziano_wdr_fusion_fpga0xfbc:
     /* fragment 290: StackAccess */
-    v1 = local_340;
+    v1 = (*__p_340);
     a2 = (uint32_t *)&isp_memopt;
     t9 = t9 * (uintptr_t)v0;
-    v0 = local_260;
+    v0 = (*__p_260);
     t9 = t9 + 8;
 
     /* fragment 291: Unknown */
@@ -115855,7 +116297,7 @@ Tiziano_wdr_fusion_fpga0xfbc:
     /* asm: 3b86c:	03200013 	mtlo	t9 */
 
     /* fragment 292: StackAccess */
-    t9 = local_264;
+    t9 = (*__p_264);
 
     /* fragment 293: Unknown */
     /* unmatched fragment 293 (Unknown): no deterministic matcher for Unknown */
@@ -115866,14 +116308,14 @@ Tiziano_wdr_fusion_fpga0xfbc:
     /* asm: 3b878:	71590000 	madd	t2,t9 */
 
     /* fragment 295: StackAccess */
-    t2 = local_268;
+    t2 = (*__p_268);
 
     /* fragment 296: Unknown */
     /* unmatched fragment 296 (Unknown): no deterministic matcher for Unknown */
     /* asm: 3b880:	712a0000 	madd	t1,t2 */
 
     /* fragment 297: StackAccess */
-    t1 = local_26c;
+    t1 = (*__p_26c);
 
     /* fragment 298: Unknown */
     /* unmatched fragment 298 (Unknown): no deterministic matcher for Unknown */
@@ -115913,7 +116355,7 @@ Tiziano_wdr_fusion_fpga0x1030:
 
     /* fragment 306: Branch */
     int _bc_a0_306 = a0 != v0;
-    v0 = local_314;
+    v0 = (*__p_314);
     if (_bc_a0_306) { goto Tiziano_wdr_fusion_fpga0x1164; }
 
     /* fragment 307: MemoryAccess */
@@ -115929,7 +116371,7 @@ Tiziano_wdr_fusion_fpga0x1030:
     if (v0 != 0) { goto Tiziano_wdr_fusion_fpga0x21e0; }
 
     /* fragment 309: Arithmetic */
-    v0 = (uintptr_t *)&local_2c4;
+    v0 = (uintptr_t *)__p_2c4;
 
 Tiziano_wdr_fusion_fpga0x1064:
     /* fragment 310: MemoryAccess */
@@ -115954,7 +116396,7 @@ Tiziano_wdr_fusion_fpga0x107c:
     if (v0 != 0) { goto Tiziano_wdr_fusion_fpga0x2250; }
 
     /* fragment 315: Arithmetic */
-    v0 = (uintptr_t *)&local_2b8;
+    v0 = (uintptr_t *)__p_2b8;
 
 Tiziano_wdr_fusion_fpga0x1090:
     /* fragment 316: MemoryAccess */
@@ -115980,7 +116422,7 @@ Tiziano_wdr_fusion_fpga0x10a8:
     if (v0 != 0) { goto Tiziano_wdr_fusion_fpga0x22c0; }
 
     /* fragment 321: Arithmetic */
-    v0 = (uintptr_t *)&local_2ac;
+    v0 = (uintptr_t *)__p_2ac;
 
 Tiziano_wdr_fusion_fpga0x10c0:
     /* fragment 322: MemoryAccess */
@@ -115998,7 +116440,7 @@ Tiziano_wdr_fusion_fpga0x10c0:
 Tiziano_wdr_fusion_fpga0x10d8:
     /* fragment 325: Arithmetic */
     t2 = 10;
-    v1 = (int32_t *)&local_2b8;
+    v1 = (int32_t *)__p_2b8;
 
 Tiziano_wdr_fusion_fpga0x10e0:
     /* fragment 326: Arithmetic */
@@ -116007,9 +116449,9 @@ Tiziano_wdr_fusion_fpga0x10e0:
     /* fragment 327: MemoryAccess */
     a2 = *(uint16_t *)((char *)a0 + 0);
     a0 = *(uint16_t *)((char *)s8 + 13832);
-    v0 = local_2fc;
+    v0 = (*__p_2fc);
     t3 = (uintptr_t)v0 + (uintptr_t)a3;
-    v0 = (uintptr_t *)&local_2c4;
+    v0 = (uintptr_t *)__p_2c4;
     v0 = (uintptr_t)v0 + (uintptr_t)a3;
     a1 = *(uint16_t *)((char *)v0 + 0);
     v0 = *(uint16_t *)((char *)s8 + 13830);
@@ -116019,7 +116461,7 @@ Tiziano_wdr_fusion_fpga0x10e0:
     /* asm: 3b9a4:	70a20000 	madd	a1,v0 */
 
     /* fragment 329: Arithmetic */
-    v0 = (uintptr_t *)&local_2ac;
+    v0 = (uintptr_t *)__p_2ac;
     v0 = (uintptr_t)v0 + (uintptr_t)a3;
 
     /* fragment 330: MemoryAccess */
@@ -116039,17 +116481,17 @@ Tiziano_wdr_fusion_fpga0x10e0:
     if (a3 != t2) { goto Tiziano_wdr_fusion_fpga0x10e0; }
 
     /* fragment 334: StackAccess */
-    v1 = local_2fc;
+    v1 = (*__p_2fc);
     v0 = (uintptr_t *)&isp_memopt;
     t4 = v1 + 10;
-    v1 = local_340;
+    v1 = (*__p_340);
 
     /* fragment 335: Branch */
     v0 = (uintptr_t *)((char *)&fix_y_tmp);
     if (v1 != 0) { goto Tiziano_wdr_fusion_fpga0x2330; }
 
     /* fragment 336: StackAccess */
-    a0 = local_2fc;
+    a0 = (*__p_2fc);
 
 Tiziano_wdr_fusion_fpga0x1150:
     /* fragment 337: MemoryAccess */
@@ -116082,7 +116524,7 @@ Tiziano_wdr_fusion_fpga0x1164:
     /* fragment 344: MemoryAccess */
     v0 = *(uint16_t *)((char *)((char *)&ev_change_switch));
     a1 = *(uint32_t *)((char *)s8 + 13964);
-    local_2f4 = a0;
+    (*__p_2f4) = a0;
     a0 = (uint32_t *)&isp_memopt;
     v0 = a1 < v0;
     t9 = *(uint32_t *)((char *)s8 + 16);
@@ -116091,7 +116533,7 @@ Tiziano_wdr_fusion_fpga0x1164:
     t7 = (uintptr_t)&sclk_name;
 
     /* fragment 345: Branch */
-    local_2fc = a0;
+    (*__p_2fc) = a0;
     if (v0 != 0) { goto Tiziano_wdr_fusion_fpga0x11bc; }
 
     /* fragment 346: MemoryAccess */
@@ -116122,7 +116564,7 @@ Tiziano_wdr_fusion_fpga0x11bc:
     if (v0 == 0) { goto Tiziano_wdr_fusion_fpga0x2430; }
 
     /* fragment 352: CallSetup */
-    local_2fc = v1;
+    (*__p_2fc) = v1;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)(t3, t4, 0, 0); /* jalr target resolved by relocation */
 
     /* fragment 353: CallSetup */
@@ -116162,7 +116604,7 @@ Tiziano_wdr_fusion_fpga0x11bc:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)(t3, t4, t1, 4095); /* jalr target resolved by relocation */
 
     /* fragment 361: StackAccess */
-    v1 = local_2fc;
+    v1 = (*__p_2fc);
     *(uint16_t *)((char *)&sclk_name + -16446) = v0;
 
 Tiziano_wdr_fusion_fpga0x1300:
@@ -116187,7 +116629,7 @@ Tiziano_wdr_fusion_fpga0x130c:
 
 Tiziano_wdr_fusion_fpga0x1320:
     /* fragment 367: StackAccess */
-    v0 = local_2f4;
+    v0 = (*__p_2f4);
     t1 = *(uint16_t *)((char *)&sclk_name + -16446);
     *(uint16_t *)((char *)((char *)&ev_change_switch)) = a0;
     v0 = *(uint8_t *)((char *)((char *)&frameSum));
@@ -116242,7 +116684,7 @@ Tiziano_wdr_fusion_fpga0x1398:
     s5 = s5 & 65535;
     *(uint16_t *)((char *)s8 + 12568) = s5;
     *(uint16_t *)((char *)s8 + 12516) = a1;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)local_358, (void *)(uintptr_t)&local_158, 194); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*__p_358), (void *)(uintptr_t)__p_158, 194); /* jalr target resolved by relocation */
 
     /* fragment 377: MemoryAccess */
     a0 = *(uint32_t *)((char *)s8 + 13044);
@@ -116267,9 +116709,9 @@ Tiziano_wdr_fusion_fpga0x1398:
     if (a0 != 0) { goto Tiziano_wdr_fusion_fpga0x25a8; }
 
     /* fragment 383: StackAccess */
-    a1 = local_300;
+    a1 = (*__p_300);
     v0 = (uintptr_t)v0 & 65535;
-    a2 = (uint32_t *)&local_21c;
+    a2 = (uint32_t *)__p_21c;
     t0 = a1 + 66;
 
 Tiziano_wdr_fusion_fpga0x1410:
@@ -116310,12 +116752,12 @@ Tiziano_wdr_fusion_fpga0x1440:
 
     /* fragment 392: Branch */
     int _bc_v0_392 = v0 != 0;
-    v0 = (uintptr_t *)&local_18;
+    v0 = (uintptr_t *)__p_18;
     if (_bc_v0_392) { goto Tiziano_wdr_fusion_fpga0x1488; }
 
     /* fragment 393: CallSetup */
-    local_10 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_get_lum_s)(local_318, local_324, local_31c, local_320); /* jalr target resolved by relocation */
+    (*__p_10) = v0;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_get_lum_s)((*__p_318), (*__p_324), (*__p_31c), (*__p_320)); /* jalr target resolved by relocation */
 
 Tiziano_wdr_fusion_fpga0x1488:
     /* fragment 394: MemoryAccess */
@@ -116339,12 +116781,12 @@ Tiziano_wdr_fusion_fpga0x14ac:
     v0 = a0 < v0;
 
     /* fragment 398: Branch */
-    a0 = (uint32_t *)&local_21c;
+    a0 = (uint32_t *)__p_21c;
     if (v0 != 0) { goto Tiziano_wdr_fusion_fpga0x15b0; }
 
     /* fragment 399: StackAccess */
-    a0 = local_2f8;
-    t0 = local_2f0;
+    a0 = (*__p_2f8);
+    t0 = (*__p_2f0);
     a3 = a0 + 66;
     a1 = t0;
 
@@ -116383,18 +116825,18 @@ Tiziano_wdr_fusion_fpga0x14fc:
 
     /* fragment 407: Branch */
     int _bc_a1_407 = a1 == 0;
-    a1 = local_2f0;
+    a1 = (*__p_2f0);
     if (_bc_a1_407) { goto Tiziano_wdr_fusion_fpga0x15a0; }
 
     /* fragment 408: CallSetup */
-    local_10 = v0;
+    (*__p_10) = v0;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_wdr_interplate)(a0); /* jalr target resolved by relocation */
 
     /* fragment 409: StackAccess */
-    v1 = local_2f0;
+    v1 = (*__p_2f0);
     v0 = (uintptr_t)v0 & 65535;
     a2 = 128;
-    a1 = (uint32_t *)&local_21c;
+    a1 = (uint32_t *)__p_21c;
     t1 = v1 + 66;
     a2 = (uintptr_t)a2 - (uintptr_t)v0;
 
@@ -116432,15 +116874,15 @@ Tiziano_wdr_fusion_fpga0x158c:
     if (t1 != t0) { goto Tiziano_wdr_fusion_fpga0x1558; }
 
     /* fragment 418: CallSetup */
-    a1 = local_2f0;
+    a1 = (*__p_2f0);
 
 Tiziano_wdr_fusion_fpga0x15a0:
     /* fragment 419: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_21c, (void *)(uintptr_t)a1, 66); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)__p_21c, (void *)(uintptr_t)a1, 66); /* jalr target resolved by relocation */
 
 Tiziano_wdr_fusion_fpga0x15ac:
     /* fragment 420: Arithmetic */
-    a0 = (uint32_t *)&local_21c;
+    a0 = (uint32_t *)__p_21c;
 
 Tiziano_wdr_fusion_fpga0x15b0:
     /* fragment 421: Arithmetic */
@@ -116460,8 +116902,8 @@ Tiziano_wdr_fusion_fpga0x15c0:
     if (a3 != v0) { goto Tiziano_wdr_fusion_fpga0x15c0; }
 
     /* fragment 424: StackAccess */
-    a2 = local_232;
-    v0 = local_230;
+    a2 = (*__p_232);
+    v0 = (*__p_230);
     a3 = s8 + 12122;
     t0 = s4 + 36;
     a2 = (uintptr_t)a2 - (uintptr_t)v0;
@@ -116510,8 +116952,8 @@ Tiziano_wdr_fusion_fpga0x161c:
     if (t1 != a3) { goto Tiziano_wdr_fusion_fpga0x161c; }
 
     /* fragment 430: StackAccess */
-    a2 = local_24a;
-    v0 = local_248;
+    a2 = (*__p_24a);
+    v0 = (*__p_248);
     t0 = s4 + 196;
     v0 = (uintptr_t)a2 - (uintptr_t)v0;
     v0 = v0 + 5;
@@ -116538,7 +116980,7 @@ Tiziano_wdr_fusion_fpga0x161c:
     v0 = (uintptr_t)v0 & 65535;
     *(uint16_t *)((char *)s8 + 12216) = v0;
     v0 = (uintptr_t)v0 + (uintptr_t)a3;
-    a3 = local_24c;
+    a3 = (*__p_24c);
 
     /* fragment 431: Arithmetic */
     v0 = (uintptr_t)v0 & 65535;
@@ -116619,9 +117061,9 @@ Tiziano_wdr_fusion_fpga0x17c4:
     if (s4 != a1) { goto Tiziano_wdr_fusion_fpga0x17b0; }
 
     /* fragment 441: StackAccess */
-    a2 = local_36c;
-    t1 = (uint32_t *)&local_2a0;
-    t0 = (uintptr_t)&local_2d0;
+    a2 = (*__p_36c);
+    t1 = (uint32_t *)__p_2a0;
+    t0 = (uintptr_t)__p_2d0;
     a3 = s8 + 13754;
     t3 = a2 + 8;
     t2 = 2;
@@ -116675,14 +117117,14 @@ Tiziano_wdr_fusion_fpga0x1830:
 
     /* fragment 452: MemoryAccess */
     v0 = *(uint16_t *)((char *)s8 + 13752);
-    t0 = local_2a0;
-    t1 = local_2a2;
-    t3 = local_2a4;
-    t5 = local_2a6;
-    t7 = local_2d6;
-    t6 = local_2d4;
-    t4 = local_2d2;
-    t2 = local_2d0;
+    t0 = (*__p_2a0);
+    t1 = (*__p_2a2);
+    t3 = (*__p_2a4);
+    t5 = (*__p_2a6);
+    t7 = (*__p_2d6);
+    t6 = (*__p_2d4);
+    t4 = (*__p_2d2);
+    t2 = (*__p_2d0);
     a2 = s8 + 12302;
     *(uint16_t *)((char *)s8 + 12300) = v0;
     a1 = a2;
@@ -116708,7 +117150,7 @@ Tiziano_wdr_fusion_fpga0x1888:
     if (a0 != a3) { goto Tiziano_wdr_fusion_fpga0x187c; }
 
     /* fragment 457: StackAccess */
-    v0 = local_35c;
+    v0 = (*__p_35c);
     v0 = v0 + 66;
 
 Tiziano_wdr_fusion_fpga0x18a4:
@@ -116921,7 +117363,7 @@ Tiziano_wdr_fusion_fpga0x1a90:
 
 Tiziano_wdr_fusion_fpga0x1aa8:
     /* fragment 496: CallSetup */
-    local_10 = t0;
+    (*__p_10) = t0;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)(*(uint16_t *)((char *)(((uintptr_t)v0 << 1) + &label_line2log) + 0), *(uint16_t *)((char *)((((uintptr_t)v0 + 1) << 1) + &label_line2log) + 0), *(uint16_t *)((char *)(((uintptr_t)v0 << 1) + &value_line2log) + 0), *(uint16_t *)((char *)((((uintptr_t)v0 + 1) << 1) + &value_line2log) + 0)); /* jalr target resolved by relocation */
 
     /* fragment 497: Arithmetic */
@@ -116938,8 +117380,8 @@ Tiziano_wdr_fusion_fpga0x1aa8:
 Tiziano_wdr_fusion_fpga0x1b0c:
     /* fragment 500: CallSetup */
     *(uint32_t *)((char *)s8 + 11888) = (a0 + 1073741824);
-    local_10 = local_350;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)((local_350 >> 6) << 6, ((local_350 >> 6) << 6) + 64, *(uint16_t *)((char *)(((local_350 >> 6) << 1) + &value_log2line) + 0), *(uint16_t *)((char *)((((local_350 >> 6) + 1) << 1) + &value_log2line) + 0)); /* jalr target resolved by relocation */
+    (*__p_10) = (*__p_350);
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)(((*__p_350) >> 6) << 6, (((*__p_350) >> 6) << 6) + 64, *(uint16_t *)((char *)((((*__p_350) >> 6) << 1) + &value_log2line) + 0), *(uint16_t *)((char *)(((((*__p_350) >> 6) + 1) << 1) + &value_log2line) + 0)); /* jalr target resolved by relocation */
 
     /* fragment 501: Arithmetic */
     v0 = (uintptr_t)v0 & 65535;
@@ -116957,12 +117399,12 @@ Tiziano_wdr_fusion_fpga0x1b0c:
 Tiziano_wdr_fusion_fpga0x1b74:
     /* fragment 505: MemoryAccess */
     v0 = *(uint16_t *)((char *)s8 + 12600);
-    a0 = local_360;
+    a0 = (*__p_360);
     *(uint32_t *)((char *)s8 + 11904) = t1;
     *(uint32_t *)((char *)s8 + 11896) = v0;
     v0 = *(uint16_t *)((char *)s8 + 12602);
     *(uint32_t *)((char *)s8 + 11900) = v0;
-    v0 = local_364;
+    v0 = (*__p_364);
     a1 = v0 + 10;
 
 Tiziano_wdr_fusion_fpga0x1b94:
@@ -116984,7 +117426,7 @@ Tiziano_wdr_fusion_fpga0x1b94:
 
     /* fragment 510: MemoryAccess */
     *(uint16_t *)((char *)s8 + 12596) = v0;
-    v0 = local_368;
+    v0 = (*__p_368);
     a0 = s8 + 12448;
     a1 = v0 + 18;
 
@@ -117097,10 +117539,10 @@ Tiziano_wdr_fusion_fpga0x1be4:
     kfree((void *)(uintptr_t)s1); /* jalr target resolved by relocation */
 
     /* fragment 522: CallSetup */
-    kfree((void *)(uintptr_t)local_2f0); /* jalr target resolved by relocation */
+    kfree((void *)(uintptr_t)(*__p_2f0)); /* jalr target resolved by relocation */
 
     /* fragment 523: CallSetup */
-    kfree((void *)(uintptr_t)local_2f8); /* jalr target resolved by relocation */
+    kfree((void *)(uintptr_t)(*__p_2f8)); /* jalr target resolved by relocation */
 
     /* fragment 524: Epilogue */
     /* function epilogue: restore registers and return */
@@ -117143,19 +117585,19 @@ Tiziano_wdr_fusion_fpga0x1df0:
     if (t1 == 0) { goto Tiziano_wdr_fusion_fpga0x1e48; }
 
     /* fragment 533: CallSetup */
-    local_10 = t7;
-    local_32c = t4;
-    local_328 = t5;
+    (*__p_10) = t7;
+    (*__p_32c) = t4;
+    (*__p_328) = t5;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_wdr_interplate)(*(uint16_t *)((char *)(t0 + ((uintptr_t)v0 << 1)) + 0)); /* jalr target resolved by relocation */
 
     /* fragment 534: Arithmetic */
     t9 = (uintptr_t)v0 & 65535;
 
     /* fragment 535: StackAccess */
-    t5 = local_328;
+    t5 = (*__p_328);
 
     /* fragment 536: Branch */
-    t4 = local_32c;
+    t4 = (*__p_32c);
     goto Tiziano_wdr_fusion_fpga0xe94;
 
 Tiziano_wdr_fusion_fpga0x1e48:
@@ -117300,7 +117742,7 @@ Tiziano_wdr_fusion_fpga0x1f28:
     a0 = a0 + t0;
     t1 = *(uint16_t *)((char *)a3 + 0);
     a1 = (uintptr_t)v0 - (uintptr_t)t2;
-    v0 = local_2f4;
+    v0 = (*__p_2f4);
     a0 = *(uint16_t *)((char *)a0 + 0);
     t2 = (uintptr_t)v0 - (uintptr_t)t2;
     v0 = 2;
@@ -117471,7 +117913,7 @@ Tiziano_wdr_fusion_fpga0x2060:
     t0 = t0 - (uintptr_t)a1;
     t4 = t0 * (uintptr_t)t4;
     v0 = (uintptr_t)v0 << 2;
-    v1 = (int32_t *)&local_18;
+    v1 = (int32_t *)__p_18;
     v0 = (uintptr_t)v1 + (uintptr_t)v0;
     v0 = *(uint32_t *)((char *)v0 + 604);
     a2 = (uintptr_t)v0 - (uintptr_t)a2;
@@ -117512,7 +117954,7 @@ Tiziano_wdr_fusion_fpga0x20d4:
 Tiziano_wdr_fusion_fpga0x20dc:
     /* fragment 614: MemoryAccess */
     v0 = *(uint32_t *)((char *)s8 + 13012);
-    local_32c = v0;
+    (*__p_32c) = v0;
     v0 = s0 < v0;
 
     /* fragment 615: Branch */
@@ -117520,36 +117962,36 @@ Tiziano_wdr_fusion_fpga0x20dc:
     if (v0 == 0) { goto Tiziano_wdr_fusion_fpga0x2148; }
 
     /* fragment 616: CallSetup */
-    t4 = local_348;
+    t4 = (*__p_348);
     t5 = (uint32_t *)&tisp_wdr_interplate;
-    v1 = (int32_t *)&local_260;
+    v1 = (int32_t *)__p_260;
     v0 = t4 + 10;
-    local_330 = v0;
+    (*__p_330) = v0;
     t5 = t5;
 
 Tiziano_wdr_fusion_fpga0x2108:
     /* fragment 617: CallSetup */
-    local_334 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)(local_328, local_32c, *(uint16_t *)((char *)(t4) + 0), *(uint16_t *)((char *)(s5) + 0)); /* jalr target resolved by relocation */
+    (*__p_334) = v1;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)((*__p_328), (*__p_32c), *(uint16_t *)((char *)(t4) + 0), *(uint16_t *)((char *)(s5) + 0)); /* jalr target resolved by relocation */
 
     /* fragment 618: StackAccess */
-    v1 = local_334;
+    v1 = (*__p_334);
     t4 = t4 + 2;
     s5 = s5 + 2;
     *(uint32_t *)((char *)v1 + 0) = v0;
-    v0 = local_330;
+    v0 = (*__p_330);
 
     /* fragment 619: Branch */
     v1 = v1 + 4;
     if (v0 != t4) { goto Tiziano_wdr_fusion_fpga0x2108; }
 
     /* fragment 620: Branch */
-    v0 = local_270;
+    v0 = (*__p_270);
     goto Tiziano_wdr_fusion_fpga0xfbc;
 
 Tiziano_wdr_fusion_fpga0x2148:
     /* fragment 621: Arithmetic */
-    v0 = (uintptr_t *)&local_260;
+    v0 = (uintptr_t *)__p_260;
     a0 = s8 + 13006;
 
 Tiziano_wdr_fusion_fpga0x2150:
@@ -117563,7 +118005,7 @@ Tiziano_wdr_fusion_fpga0x2150:
     if (a0 != s5) { goto Tiziano_wdr_fusion_fpga0x2150; }
 
     /* fragment 624: Branch */
-    v0 = local_270;
+    v0 = (*__p_270);
     goto Tiziano_wdr_fusion_fpga0xfbc;
 
 Tiziano_wdr_fusion_fpga0x216c:
@@ -117633,17 +118075,17 @@ Tiziano_wdr_fusion_fpga0x21e0:
     t8 = t9 < t8;
 
     /* fragment 639: Branch */
-    v0 = (uintptr_t *)&local_2c4;
+    v0 = (uintptr_t *)__p_2c4;
     if (t8 != 0) { goto Tiziano_wdr_fusion_fpga0x2230; }
 
     /* fragment 640: CallSetup */
     t5 = (uint32_t *)&tisp_wdr_interplate;
-    t4 = (int32_t *)&local_2c4;
+    t4 = (int32_t *)__p_2c4;
     t5 = t5;
 
 Tiziano_wdr_fusion_fpga0x21fc:
     /* fragment 641: CallSetup */
-    local_10 = local_2f4;
+    (*__p_10) = (*__p_2f4);
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)(s5, t9, *(uint16_t *)((char *)(t2) + 0), *(uint16_t *)((char *)(t2) + 10)); /* jalr target resolved by relocation */
 
     /* fragment 642: Arithmetic */
@@ -117689,12 +118131,12 @@ Tiziano_wdr_fusion_fpga0x2250:
 
     /* fragment 652: CallSetup */
     t9 = (uintptr_t)&tisp_wdr_interplate;
-    t8 = (uint32_t *)&local_2b8;
+    t8 = (uint32_t *)__p_2b8;
     t9 = t9;
 
 Tiziano_wdr_fusion_fpga0x226c:
     /* fragment 653: CallSetup */
-    local_10 = t7;
+    (*__p_10) = t7;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)(t4, t5, *(uint16_t *)((char *)(t2) + 0), *(uint16_t *)((char *)(t2) + 10)); /* jalr target resolved by relocation */
 
     /* fragment 654: Arithmetic */
@@ -117713,7 +118155,7 @@ Tiziano_wdr_fusion_fpga0x226c:
 
 Tiziano_wdr_fusion_fpga0x229c:
     /* fragment 658: Arithmetic */
-    a0 = (uint32_t *)&local_2b8;
+    a0 = (uint32_t *)__p_2b8;
     a1 = s8 + 13864;
 
 Tiziano_wdr_fusion_fpga0x22a4:
@@ -117742,12 +118184,12 @@ Tiziano_wdr_fusion_fpga0x22c0:
 
     /* fragment 664: CallSetup */
     t9 = (uintptr_t)&tisp_wdr_interplate;
-    t4 = (int32_t *)&local_2ac;
+    t4 = (int32_t *)__p_2ac;
     t9 = t9;
 
 Tiziano_wdr_fusion_fpga0x22dc:
     /* fragment 665: CallSetup */
-    local_10 = t5;
+    (*__p_10) = t5;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_interplate)(t7, t8, *(uint16_t *)((char *)(t2) + 0), *(uint16_t *)((char *)(t2) + 10)); /* jalr target resolved by relocation */
 
     /* fragment 666: Arithmetic */
@@ -117766,7 +118208,7 @@ Tiziano_wdr_fusion_fpga0x22dc:
 
 Tiziano_wdr_fusion_fpga0x230c:
     /* fragment 670: Arithmetic */
-    a0 = (uint32_t *)&local_2ac;
+    a0 = (uint32_t *)__p_2ac;
     a1 = s8 + 13904;
 
 Tiziano_wdr_fusion_fpga0x2314:
@@ -117792,11 +118234,11 @@ Tiziano_wdr_fusion_fpga0x2330:
 
     /* fragment 676: Branch */
     int _bc_a0_676 = a0 != 0;
-    a0 = local_2fc;
+    a0 = (*__p_2fc);
     if (_bc_a0_676) { goto Tiziano_wdr_fusion_fpga0x2398; }
 
     /* fragment 677: StackAccess */
-    a2 = local_2fc;
+    a2 = (*__p_2fc);
     a1 = (uint32_t *)&isp_memopt;
     t3 = v0;
     a1 = a1 + 17080;
@@ -117831,7 +118273,7 @@ Tiziano_wdr_fusion_fpga0x2378:
     if (t4 != a2) { goto Tiziano_wdr_fusion_fpga0x2358; }
 
     /* fragment 683: StackAccess */
-    a0 = local_2fc;
+    a0 = (*__p_2fc);
 
 Tiziano_wdr_fusion_fpga0x2398:
     /* fragment 684: MemoryAccess */
@@ -118076,14 +118518,14 @@ Tiziano_wdr_fusion_fpga0x25a8:
     v0 = a0 < s5;
 
     /* fragment 731: Branch */
-    a3 = local_300;
+    a3 = (*__p_300);
     if (v0 != 0) { goto Tiziano_wdr_fusion_fpga0x2604; }
 
     /* fragment 732: StackAccess */
-    a0 = local_304;
+    a0 = (*__p_304);
     a1 = s5 - (uintptr_t)a1;
     a1 = (uintptr_t)a1 & 65535;
-    a2 = (uint32_t *)&local_21c;
+    a2 = (uint32_t *)__p_21c;
     t1 = a0 + 66;
 
 Tiziano_wdr_fusion_fpga0x25cc:
@@ -118114,14 +118556,14 @@ Tiziano_wdr_fusion_fpga0x2604:
 
     /* fragment 737: Branch */
     int _bc_a1_737 = a1 != 0;
-    a1 = local_308;
+    a1 = (*__p_308);
     if (_bc_a1_737) { goto Tiziano_wdr_fusion_fpga0x2660; }
 
     /* fragment 738: StackAccess */
-    a3 = local_304;
+    a3 = (*__p_304);
     a0 = s5 - a0;
     a0 = a0 & 65535;
-    a2 = (uint32_t *)&local_21c;
+    a2 = (uint32_t *)__p_21c;
     t1 = a1 + 66;
 
 Tiziano_wdr_fusion_fpga0x2628:
@@ -118151,14 +118593,14 @@ Tiziano_wdr_fusion_fpga0x2660:
     a0 = a1 < s5;
 
     /* fragment 743: Branch */
-    a3 = local_308;
+    a3 = (*__p_308);
     if (a0 != 0) { goto Tiziano_wdr_fusion_fpga0x26bc; }
 
     /* fragment 744: StackAccess */
-    a1 = local_30c;
+    a1 = (*__p_30c);
     v0 = s5 - (uintptr_t)v0;
     a0 = (uintptr_t)v0 & 65535;
-    a2 = (uint32_t *)&local_21c;
+    a2 = (uint32_t *)__p_21c;
     t1 = a1 + 66;
 
 Tiziano_wdr_fusion_fpga0x2684:
@@ -118196,11 +118638,11 @@ Tiziano_wdr_fusion_fpga0x26bc:
     a0 = a0 - (uintptr_t)a1;
 
     /* fragment 751: StackAccess */
-    a1 = local_310;
-    a3 = local_30c;
+    a1 = (*__p_310);
+    a3 = (*__p_30c);
     t3 = (uintptr_t)v0 & 65535;
     t2 = (uintptr_t)a0 >> 1;
-    a2 = (uint32_t *)&local_21c;
+    a2 = (uint32_t *)__p_21c;
     t1 = a1 + 66;
 
 Tiziano_wdr_fusion_fpga0x26e8:
@@ -118231,12 +118673,12 @@ Tiziano_wdr_fusion_fpga0x26e8:
 
 Tiziano_wdr_fusion_fpga0x2724:
     /* fragment 757: CallSetup */
-    a1 = local_310;
+    a1 = (*__p_310);
     a2 = 66;
 
 Tiziano_wdr_fusion_fpga0x272c:
     /* fragment 758: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_21c, (void *)(uintptr_t)a1, a2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)__p_21c, (void *)(uintptr_t)a1, a2); /* jalr target resolved by relocation */
 
     /* fragment 759: Branch */
     a0 = *(uint16_t *)((char *)(uintptr_t) + 13034);
@@ -118268,9 +118710,9 @@ Tiziano_wdr_fusion_fpga0x273c:
     if (t1 != 0) { goto Tiziano_wdr_fusion_fpga0x285c; }
 
     /* fragment 765: StackAccess */
-    a2 = local_300;
+    a2 = (*__p_300);
     v0 = (uintptr_t)v0 & 65535;
-    a3 = (uint32_t *)&local_21c;
+    a3 = (uint32_t *)__p_21c;
     t1 = s3;
     t0 = s1;
     t2 = a2 + 66;
@@ -118321,7 +118763,7 @@ Tiziano_wdr_fusion_fpga0x27ec:
     s0 = (uintptr_t)s0 & 65535;
     t2 = (uintptr_t)a0 >> 1;
     a3 = s3;
-    a2 = (uint32_t *)&local_21c;
+    a2 = (uint32_t *)__p_21c;
     t1 = s1 + 66;
 
 Tiziano_wdr_fusion_fpga0x2820:
@@ -118366,11 +118808,11 @@ Tiziano_wdr_fusion_fpga0x285c:
 
 Tiziano_wdr_fusion_fpga0x287c:
     /* fragment 780: StackAccess */
-    v0 = local_300;
+    v0 = (*__p_300);
     t2 = (uintptr_t)s3 + (uintptr_t)a1;
     v0 = (uintptr_t)v0 + (uintptr_t)a1;
     t1 = *(uint16_t *)((char *)v0 + 0);
-    v0 = local_304;
+    v0 = (*__p_304);
     v0 = (uintptr_t)v0 + (uintptr_t)a1;
     v0 = *(uint16_t *)((char *)v0 + 0);
     v0 = (uintptr_t)v0 - (uintptr_t)t1;
@@ -118416,11 +118858,11 @@ Tiziano_wdr_fusion_fpga0x28ec:
 
 Tiziano_wdr_fusion_fpga0x2908:
     /* fragment 786: StackAccess */
-    v0 = local_304;
+    v0 = (*__p_304);
     t2 = s3 + a0;
     v0 = v0 + a0;
     t1 = *(uint16_t *)((char *)v0 + 0);
-    v0 = local_308;
+    v0 = (*__p_308);
     v0 = v0 + a0;
     v0 = *(uint16_t *)((char *)v0 + 0);
     v0 = (uintptr_t)v0 - (uintptr_t)t1;
@@ -118466,11 +118908,11 @@ Tiziano_wdr_fusion_fpga0x2978:
 
 Tiziano_wdr_fusion_fpga0x2994:
     /* fragment 792: StackAccess */
-    v0 = local_308;
+    v0 = (*__p_308);
     t2 = s3 + a0;
     v0 = v0 + a0;
     t1 = *(uint16_t *)((char *)v0 + 0);
-    v0 = local_30c;
+    v0 = (*__p_30c);
     v0 = v0 + a0;
     v0 = *(uint16_t *)((char *)v0 + 0);
     v0 = (uintptr_t)v0 - (uintptr_t)t1;
@@ -118517,11 +118959,11 @@ Tiziano_wdr_fusion_fpga0x2a04:
 
 Tiziano_wdr_fusion_fpga0x2a2c:
     /* fragment 798: StackAccess */
-    v0 = local_30c;
+    v0 = (*__p_30c);
     t4 = s3 + a0;
     v0 = v0 + a0;
     t3 = *(uint16_t *)((char *)v0 + 0);
-    v0 = local_310;
+    v0 = (*__p_310);
     v0 = v0 + a0;
     v0 = *(uint16_t *)((char *)v0 + 0);
     v0 = (uintptr_t)v0 - (uintptr_t)t3;
@@ -118564,12 +119006,12 @@ Tiziano_wdr_fusion_fpga0x2a2c:
 
 Tiziano_wdr_fusion_fpga0x2aa4:
     /* fragment 806: CallSetup */
-    local_2f4 = t0;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s3, (void *)(uintptr_t)local_310, 66); /* jalr target resolved by relocation */
+    (*__p_2f4) = t0;
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s3, (void *)(uintptr_t)(*__p_310), 66); /* jalr target resolved by relocation */
 
     /* fragment 807: CallSetup */
-    t0 = local_2f4;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s1, (void *)(uintptr_t)local_2f4, 66); /* jalr target resolved by relocation */
+    t0 = (*__p_2f4);
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s1, (void *)(uintptr_t)(*__p_2f4), 66); /* jalr target resolved by relocation */
 
     /* fragment 808: Branch */
     v0 = *(uint16_t *)((char *)(0) + 13052);
@@ -118589,7 +119031,7 @@ Tiziano_wdr_fusion_fpga0x2ad4:
 
     /* fragment 812: Arithmetic */
     v0 = (uintptr_t)v0 & 65535;
-    a2 = (uint32_t *)&local_21c;
+    a2 = (uint32_t *)__p_21c;
 
 Tiziano_wdr_fusion_fpga0x2af4:
     /* fragment 813: MemoryAccess */
@@ -118622,7 +119064,7 @@ Tiziano_wdr_fusion_fpga0x2b28:
 
     /* fragment 818: Arithmetic */
     t2 = (uintptr_t)t2 & 65535;
-    a2 = (uint32_t *)&local_21c;
+    a2 = (uint32_t *)__p_21c;
 
 Tiziano_wdr_fusion_fpga0x2b40:
     /* fragment 819: MemoryAccess */
@@ -118656,7 +119098,7 @@ Tiziano_wdr_fusion_fpga0x2b78:
 
     /* fragment 824: Arithmetic */
     t1 = (uintptr_t)t1 & 65535;
-    a0 = (uint32_t *)&local_21c;
+    a0 = (uint32_t *)__p_21c;
 
 Tiziano_wdr_fusion_fpga0x2b90:
     /* fragment 825: MemoryAccess */
@@ -118690,7 +119132,7 @@ Tiziano_wdr_fusion_fpga0x2bc8:
 
     /* fragment 830: Arithmetic */
     a0 = (uintptr_t)v0 & 65535;
-    a3 = (uint32_t *)&local_21c;
+    a3 = (uint32_t *)__p_21c;
 
 Tiziano_wdr_fusion_fpga0x2be0:
     /* fragment 831: MemoryAccess */
@@ -118726,7 +119168,7 @@ Tiziano_wdr_fusion_fpga0x2c18:
     t2 = v0 - a0;
     t1 = (uintptr_t)a1 & 65535;
     t3 = (uintptr_t)t2 >> 1;
-    a0 = (uint32_t *)&local_21c;
+    a0 = (uint32_t *)__p_21c;
     a3 = s8 + 13724;
 
 Tiziano_wdr_fusion_fpga0x2c40:
@@ -132179,13 +132621,28 @@ uint32_t get_distance_1dim(int32_t *arg1, int32_t *arg2, int32_t arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000493dc origin=fragment_seed original=lce_hist_filter_and_judge */
 int64_t lce_hist_filter_and_judge(uintptr_t a0, uint32_t a1, uintptr_t a2, uintptr_t a3)
 {
-    char local_10[128];
-    uint32_t *local_90 = 0;
-    uint32_t *local_94 = 0;
-    uint32_t local_98 = 0;
-    uint32_t local_9c = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_a4 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0xa8 (168 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_10 [128] @0x10 -> 128 byte(s): 128 x char = 128 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x2a] = { 0 };
+    char *const __p_10 = (char *)(void *)((char *)__frame + 0x10);
+    uint32_t **const __p_90 = (uint32_t **)(void *)((char *)__frame + 0x90);
+    uint32_t **const __p_94 = (uint32_t **)(void *)((char *)__frame + 0x94);
+    uint32_t *const __p_98 = (uint32_t *)(void *)((char *)__frame + 0x98);
+    uint32_t *const __p_9c = (uint32_t *)(void *)((char *)__frame + 0x9c);
+    uint32_t *const __p_a0 = (uint32_t *)(void *)((char *)__frame + 0xa0);
+    uint32_t *const __p_a4 = (uint32_t *)(void *)((char *)__frame + 0xa4);
     uint32_t ra = 0;
     uintptr_t *s0 = 0;
     uintptr_t *s1 = 0;
@@ -132209,9 +132666,9 @@ int64_t lce_hist_filter_and_judge(uintptr_t a0, uint32_t a1, uintptr_t a2, uintp
     s4 = a0;
     s2 = a1;
     s3 = a2;
-    s1 = (uintptr_t *)&local_10;
+    s1 = (uintptr_t *)__p_10;
     s0 = a3;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_10, 0, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_10, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 2: Arithmetic */
     a3 = s1;
@@ -132307,12 +132764,12 @@ lce_hist_filter_and_judge0xd8:
     v1 = a2 < v1;
 
     /* fragment 22: Branch */
-    a0 = (uint32_t *)&local_10;
+    a0 = (uint32_t *)__p_10;
     if (v1 != 0) { goto lce_hist_filter_and_judge0x2a4; }
 
     /* fragment 23: Arithmetic */
     v0 = a2 - (uintptr_t)v0;
-    a1 = (uint32_t *)&local_10;
+    a1 = (uint32_t *)__p_10;
     v1 = 32;
     a0 = 0;
     a2 = 32;
@@ -132347,11 +132804,11 @@ lce_hist_filter_and_judge0x140:
     v1 = v0 < v1;
 
     /* fragment 32: Branch */
-    a0 = (uint32_t *)&local_10;
+    a0 = (uint32_t *)__p_10;
     if (v1 == 0) { goto lce_hist_filter_and_judge0x250; }
 
     /* fragment 33: Arithmetic */
-    v1 = (int32_t *)&local_10;
+    v1 = (int32_t *)__p_10;
     a1 = 0;
     a2 = 32;
 
@@ -132385,7 +132842,7 @@ lce_hist_filter_and_judge0x180:
 
 lce_hist_filter_and_judge0x184:
     /* fragment 41: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s2, (void *)(uintptr_t)&local_10, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s2, (void *)(uintptr_t)__p_10, 128); /* jalr target resolved by relocation */
 
     /* fragment 42: Arithmetic */
     t0 = 524288;
@@ -132401,7 +132858,7 @@ lce_hist_filter_and_judge0x184:
 lce_hist_filter_and_judge0x1bc:
     /* fragment 43: Arithmetic */
     a0 = a3 << 2;
-    t4 = (int32_t *)&local_10;
+    t4 = (int32_t *)__p_10;
     a0 = t4 + a0;
 
     /* fragment 44: MemoryAccess */
@@ -132452,12 +132909,12 @@ lce_hist_filter_and_judge0x214:
     /* fragment 55: MemoryAccess */
     *(uint32_t *)((char *)s0 + 0) = a3;
     *(uint32_t *)((char *)s0 + 4) = v0;
-    ra = local_a4;
-    s4 = local_a0;
-    s3 = local_9c;
-    s2 = local_98;
-    s1 = local_94;
-    s0 = local_90;
+    ra = (*__p_a4);
+    s4 = (*__p_a0);
+    s3 = (*__p_9c);
+    s2 = (*__p_98);
+    s1 = (*__p_94);
+    s0 = (*__p_90);
 
     /* fragment 56: Epilogue */
     /* function epilogue: restore registers and return */
@@ -132610,23 +133067,40 @@ uint32_t lce_head_tail_search(int32_t *arg1, int32_t arg2, int32_t arg3, uint32_
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000049754 origin=fragment_seed original=lce_hist_method */
 int64_t lce_hist_method(uintptr_t a0, uint32_t a1, uintptr_t a2)
 {
-    char local_10[128];
-    char local_90[128];
-    char local_110[128];
-    uint32_t local_190 = 0;
-    uint32_t local_194 = 0;
-    uint32_t local_198 = 0;
-    uint32_t local_19c = 0;
-    uint32_t local_1a0 = 0;
-    uint32_t local_1a4 = 0;
-    uint32_t local_1a8 = 0;
-    uint32_t local_1ac = 0;
-    uint32_t local_1b0 = 0;
-    uint32_t local_1b4 = 0;
-    uint32_t local_1b8 = 0;
-    uint32_t local_1bc = 0;
-    uint32_t local_1c0 = 0;
-    uint32_t local_1c4 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x1c8 (456 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_10 [128] @0x10 -> 128 byte(s): 128 x char = 128 byte(s)
+     *   local_90 [128] @0x90 -> 128 byte(s): 128 x char = 128 byte(s)
+     *   local_110 [128] @0x110 -> 128 byte(s): 128 x char = 128 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x72] = { 0 };
+    char *const __p_10 = (char *)(void *)((char *)__frame + 0x10);
+    char *const __p_90 = (char *)(void *)((char *)__frame + 0x90);
+    char *const __p_110 = (char *)(void *)((char *)__frame + 0x110);
+    uint32_t *const __p_190 = (uint32_t *)(void *)((char *)__frame + 0x190);
+    uint32_t *const __p_194 = (uint32_t *)(void *)((char *)__frame + 0x194);
+    uint32_t *const __p_198 = (uint32_t *)(void *)((char *)__frame + 0x198);
+    uint32_t *const __p_19c = (uint32_t *)(void *)((char *)__frame + 0x19c);
+    uint32_t *const __p_1a0 = (uint32_t *)(void *)((char *)__frame + 0x1a0);
+    uint32_t *const __p_1a4 = (uint32_t *)(void *)((char *)__frame + 0x1a4);
+    uint32_t *const __p_1a8 = (uint32_t *)(void *)((char *)__frame + 0x1a8);
+    uint32_t *const __p_1ac = (uint32_t *)(void *)((char *)__frame + 0x1ac);
+    uint32_t *const __p_1b0 = (uint32_t *)(void *)((char *)__frame + 0x1b0);
+    uint32_t *const __p_1b4 = (uint32_t *)(void *)((char *)__frame + 0x1b4);
+    uint32_t *const __p_1b8 = (uint32_t *)(void *)((char *)__frame + 0x1b8);
+    uint32_t *const __p_1bc = (uint32_t *)(void *)((char *)__frame + 0x1bc);
+    uint32_t *const __p_1c0 = (uint32_t *)(void *)((char *)__frame + 0x1c0);
+    uint32_t *const __p_1c4 = (uint32_t *)(void *)((char *)__frame + 0x1c4);
     uintptr_t *a3 = 0;
     uint32_t ra = 0;
     uint32_t *s0 = 0;
@@ -132662,26 +133136,26 @@ int64_t lce_hist_method(uintptr_t a0, uint32_t a1, uintptr_t a2)
     s3 = *(uint32_t *)((char *)(a2) + 4);
     s4 = *(uint32_t *)((char *)(a2) + 8);
     s6 = *(uint32_t *)((char *)(a2) + 20);
-    local_198 = a0;
+    (*__p_198) = a0;
     s2 = a1;
-    local_194 = *(uint32_t *)((char *)(a2) + 28);
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_110, 0, 128); /* jalr target resolved by relocation */
+    (*__p_194) = *(uint32_t *)((char *)(a2) + 28);
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_110, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_90, 0, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_90, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_10, 0, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_10, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 4: Arithmetic */
     v0 = s8 + s7;
     v0 = (uintptr_t)v0 << 8;
 
     /* fragment 5: StackAccess */
-    v1 = local_198;
-    local_190 = v0;
+    v1 = (*__p_198);
+    (*__p_190) = v0;
     v0 = s8 << 8;
-    local_198 = v0;
+    (*__p_198) = v0;
 
     /* fragment 6: Unknown */
     /* unmatched fragment 6 (Unknown): no deterministic matcher for Unknown */
@@ -132693,17 +133167,17 @@ int64_t lce_hist_method(uintptr_t a0, uint32_t a1, uintptr_t a2)
     s1 = (uintptr_t)s4 - (uintptr_t)s0;
     t3 = s7 << 8;
     a2 = 7936;
-    s7 = (uintptr_t)&local_10;
+    s7 = (uintptr_t)__p_10;
     t1 = s5 << 5;
     a0 = v1;
 
     /* fragment 8: StackAccess */
-    local_19c = v0;
+    (*__p_19c) = v0;
     a2 = s8 * a2;
     t2 = (uintptr_t)t2 - (uintptr_t)s3;
     s1 = s1 + 1;
-    a3 = (uint32_t *)&local_110;
-    v1 = (int32_t *)&local_90;
+    a3 = (uint32_t *)__p_110;
+    v1 = (int32_t *)__p_90;
     t1 = t1 - s5;
     t8 = s7;
     t5 = 0;
@@ -132761,7 +133235,7 @@ lce_hist_method0x13c:
 lce_hist_method0x148:
     /* fragment 21: MemoryAccess */
     a1 = *(uint32_t *)((char *)a3 + 0);
-    t7 = local_194;
+    t7 = (*__p_194);
     t9 = *(uint32_t *)((char *)v1 + 0);
     t4 = t4 + a1;
     a1 = *(uint32_t *)((char *)a0 + 0);
@@ -132780,9 +133254,9 @@ lce_hist_method0x148:
     t7 = t7 < a1;
     *(uint32_t *)((char *)t8 + -4) = a1;
     v0 = v0 + a1;
-    a1 = local_198;
+    a1 = (*__p_198);
     t6 = t6 + a1;
-    a1 = local_19c;
+    a1 = (*__p_19c);
     a2 = a2 + a1;
     a1 = 32;
 
@@ -132795,7 +133269,7 @@ lce_hist_method0x148:
     a1 = a1 - (uintptr_t)v0;
 
     /* fragment 24: Branch */
-    v1 = (int32_t *)&local_10;
+    v1 = (int32_t *)__p_10;
     if (a1 >= 0) { goto lce_hist_method0x2b8; }
 
     /* fragment 25: Unknown */
@@ -132866,7 +133340,7 @@ lce_hist_method0x224:
 lce_hist_method0x268:
     /* fragment 39: Branch */
     int _bc_a1_39 = a1 == 0;
-    a1 = local_190;
+    a1 = (*__p_190);
     if (_bc_a1_39) { goto lce_hist_method0x294; }
 
     /* fragment 40: Arithmetic */
@@ -132930,7 +133404,7 @@ lce_hist_method0x2c8:
     if (_bc_a0_54) { goto lce_hist_method0x2dc; }
 
     /* fragment 55: Branch */
-    a2 = (uint32_t *)&local_110;
+    a2 = (uint32_t *)__p_110;
     if (a0 == 0) { goto lce_hist_method0x2fc; }
 
 lce_hist_method0x2dc:
@@ -132996,7 +133470,7 @@ lce_hist_method0x34c:
 
     /* fragment 71: Arithmetic */
     v0 = (uintptr_t)s0 << 2;
-    a0 = (uint32_t *)&local_10;
+    a0 = (uint32_t *)__p_10;
     v0 = a0 + (uintptr_t)v0;
     v1 = (uintptr_t)s0 + (uintptr_t)v1;
 
@@ -133059,19 +133533,36 @@ int32_t lce_pdf_to_cdf(int32_t *arg1, uint16_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000049b34 origin=fragment_seed original=lce_self_light_correct */
 int64_t lce_self_light_correct(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t a3, uint32_t arg4)
 {
-    char local_10[132];
-    char local_94[128];
-    char local_114[128];
-    uint32_t local_194 = 0;
-    uint32_t local_1a8 = 0;
-    uint32_t local_1ac = 0;
-    uint32_t local_1b0 = 0;
-    uint32_t local_1b4 = 0;
-    uint32_t local_1b8 = 0;
-    uint32_t local_1bc = 0;
-    uint32_t local_1c0 = 0;
-    uint32_t local_1c4 = 0;
-    uint32_t local_1d8 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x1dc (476 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_10 [132] @0x10 -> 132 byte(s): 132 x char = 132 byte(s)
+     *   local_94 [128] @0x94 -> 128 byte(s): 128 x char = 128 byte(s)
+     *   local_114 [128] @0x114 -> 128 byte(s): 128 x char = 128 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x77] = { 0 };
+    char *const __p_10 = (char *)(void *)((char *)__frame + 0x10);
+    char *const __p_94 = (char *)(void *)((char *)__frame + 0x94);
+    char *const __p_114 = (char *)(void *)((char *)__frame + 0x114);
+    uint32_t *const __p_194 = (uint32_t *)(void *)((char *)__frame + 0x194);
+    uint32_t *const __p_1a8 = (uint32_t *)(void *)((char *)__frame + 0x1a8);
+    uint32_t *const __p_1ac = (uint32_t *)(void *)((char *)__frame + 0x1ac);
+    uint32_t *const __p_1b0 = (uint32_t *)(void *)((char *)__frame + 0x1b0);
+    uint32_t *const __p_1b4 = (uint32_t *)(void *)((char *)__frame + 0x1b4);
+    uint32_t *const __p_1b8 = (uint32_t *)(void *)((char *)__frame + 0x1b8);
+    uint32_t *const __p_1bc = (uint32_t *)(void *)((char *)__frame + 0x1bc);
+    uint32_t *const __p_1c0 = (uint32_t *)(void *)((char *)__frame + 0x1c0);
+    uint32_t *const __p_1c4 = (uint32_t *)(void *)((char *)__frame + 0x1c4);
+    uint32_t *const __p_1d8 = (uint32_t *)(void *)((char *)__frame + 0x1d8);
     uint32_t ra = 0;
     uintptr_t *s0 = 0;
     uint32_t *s1 = 0;
@@ -133101,16 +133592,16 @@ int64_t lce_self_light_correct(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t
     s0 = a0;
     s2 = a1;
     s5 = a3;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_114, 0, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_114, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_10, 0, 132); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_10, 0, 132); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_94, 0, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_94, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_194, (void *)(uintptr_t)&__param_str_isp_dual_buf, 20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)__p_194, (void *)(uintptr_t)&__param_str_isp_dual_buf, 20); /* jalr target resolved by relocation */
 
     /* fragment 5: MemoryAccess */
     a3 = *(uint8_t *)((char *)s6 + 8);
@@ -133124,7 +133615,7 @@ int64_t lce_self_light_correct(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t
     if (v0 == 0) { goto lce_self_light_correct0x440; }
 
     /* fragment 7: Arithmetic */
-    v0 = (uintptr_t *)&local_10;
+    v0 = (uintptr_t *)__p_10;
     a0 = s0;
     v1 = v0;
 
@@ -133141,7 +133632,7 @@ lce_self_light_correct0xb0:
     if (a0 != a2) { goto lce_self_light_correct0xb0; }
 
     /* fragment 10: Arithmetic */
-    a2 = (uint32_t *)&local_114;
+    a2 = (uint32_t *)__p_114;
     a0 = 1;
     t1 = 128;
     t2 = 33;
@@ -133173,7 +133664,7 @@ lce_self_light_correct0xf8:
     if (a0 != t2) { goto lce_self_light_correct0xdc; }
 
     /* fragment 16: Arithmetic */
-    s0 = (uintptr_t *)&local_94;
+    s0 = (uintptr_t *)__p_94;
     t4 = 1073676288;
     t1 = s0;
     t3 = 0;
@@ -133244,7 +133735,7 @@ lce_self_light_correct0x1a0:
     v1 = a2 << 5;
     v0 = (uintptr_t)v0 - (uintptr_t)v1;
     a0 = 0;
-    v1 = (int32_t *)&local_94;
+    v1 = (int32_t *)__p_94;
     a3 = 32;
 
 lce_self_light_correct0x1dc:
@@ -133269,7 +133760,7 @@ lce_self_light_correct0x1f8:
 
     /* fragment 32: Arithmetic */
     v0 = v0 + 1;
-    a0 = (uint32_t *)&local_94;
+    a0 = (uint32_t *)__p_94;
     s5 = 0;
     a1 = 0;
     a2 = 32;
@@ -133341,8 +133832,8 @@ lce_self_light_correct0x28c:
 lce_self_light_correct0x29c:
     /* fragment 48: CallSetup */
     a2 = 128;
-    a1 = (uint32_t *)&local_94;
-    a0 = (uint32_t *)&local_114;
+    a1 = (uint32_t *)__p_94;
+    a0 = (uint32_t *)__p_114;
 
 lce_self_light_correct0x2a8:
     /* fragment 49: CallSetup */
@@ -133352,7 +133843,7 @@ lce_self_light_correct0x2a8:
     v0 = 1;
 
     /* fragment 51: Branch */
-    a0 = (uint32_t *)&local_114;
+    a0 = (uint32_t *)__p_114;
     if (s3 != v0) { goto lce_self_light_correct0x390; }
 
     /* fragment 52: Arithmetic */
@@ -133395,7 +133886,7 @@ lce_self_light_correct0x2d0:
     /* asm: 49e48:	0222001b 	divu	zero,s1,v0 */
 
     /* fragment 59: Arithmetic */
-    v1 = (int32_t *)&local_114;
+    v1 = (int32_t *)__p_114;
     a1 = 0;
     a2 = 0;
     t0 = 32768;
@@ -133446,7 +133937,7 @@ lce_self_light_correct0x380:
 
 lce_self_light_correct0x390:
     /* fragment 68: Arithmetic */
-    v0 = (uintptr_t *)&local_114;
+    v0 = (uintptr_t *)__p_114;
     v1 = s2 + 128;
 
 lce_self_light_correct0x398:
@@ -133465,7 +133956,7 @@ lce_self_light_correct0x398:
 
 lce_self_light_correct0x3d4:
     /* fragment 72: Branch */
-    a1 = local_1d8;
+    a1 = (*__p_1d8);
     if (t0 == 0) { goto lce_self_light_correct0xf8; }
 
     /* fragment 73: Arithmetic */
@@ -133492,7 +133983,7 @@ lce_self_light_correct0x404:
 
     /* fragment 77: MemoryAccess */
     s6 = *(uint32_t *)((char *)t5 + 0);
-    ra = (uintptr_t)&local_114;
+    ra = (uintptr_t)__p_114;
     t5 = a1 + (uintptr_t)t2;
     t5 = ra + (uintptr_t)t5;
     t5 = *(uint32_t *)((char *)t5 + -8);
@@ -133513,7 +134004,7 @@ lce_self_light_correct0x438:
 lce_self_light_correct0x440:
     /* fragment 80: Arithmetic */
     a0 = s0;
-    v0 = (uintptr_t *)&local_114;
+    v0 = (uintptr_t *)__p_114;
 
 lce_self_light_correct0x448:
     /* fragment 81: MemoryAccess */
@@ -133527,10 +134018,10 @@ lce_self_light_correct0x448:
 
     /* fragment 83: Arithmetic */
     a2 = 128;
-    a1 = (uint32_t *)&local_114;
+    a1 = (uint32_t *)__p_114;
 
     /* fragment 84: Branch */
-    a0 = (uint32_t *)&local_94;
+    a0 = (uint32_t *)__p_94;
     goto lce_self_light_correct0x2a8;
 
 lce_self_light_correct0x46c:
@@ -133751,13 +134242,28 @@ int32_t *lce_wdr_light_lock(int32_t arg1, int32_t arg2, int32_t arg3, int32_t *a
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004a2bc origin=fragment_seed original=lce_light_lock_adjust_hist */
 int32_t lce_light_lock_adjust_hist(uintptr_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
-    char local_10[128];
-    uint32_t *local_90 = 0;
-    uint32_t *local_94 = 0;
-    uint32_t local_98 = 0;
-    uint32_t local_9c = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_a4 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0xa8 (168 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_10 [128] @0x10 -> 128 byte(s): 128 x char = 128 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x2a] = { 0 };
+    char *const __p_10 = (char *)(void *)((char *)__frame + 0x10);
+    uint32_t **const __p_90 = (uint32_t **)(void *)((char *)__frame + 0x90);
+    uint32_t **const __p_94 = (uint32_t **)(void *)((char *)__frame + 0x94);
+    uint32_t *const __p_98 = (uint32_t *)(void *)((char *)__frame + 0x98);
+    uint32_t *const __p_9c = (uint32_t *)(void *)((char *)__frame + 0x9c);
+    uint32_t *const __p_a0 = (uint32_t *)(void *)((char *)__frame + 0xa0);
+    uint32_t *const __p_a4 = (uint32_t *)(void *)((char *)__frame + 0xa4);
     uint32_t ra = 0;
     uintptr_t *s0 = 0;
     uint32_t *s1 = 0;
@@ -133779,7 +134285,7 @@ int32_t lce_light_lock_adjust_hist(uintptr_t a0, uint32_t a1, uint32_t a2, uint3
     s3 = a0;
     s0 = a1;
     s1 = a3;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_10, 0, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_10, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 2: Arithmetic */
     v0 = s2 < 31;
@@ -133826,7 +134332,7 @@ lce_light_lock_adjust_hist0x68:
     /* fragment 12: Arithmetic */
     t0 = 1024;
     t0 = t0 - (uintptr_t)s1;
-    a1 = (uint32_t *)&local_10;
+    a1 = (uint32_t *)__p_10;
     s1 = (uintptr_t)s1 << 15;
     s3 = 0;
     a2 = 0;
@@ -133887,7 +134393,7 @@ lce_light_lock_adjust_hist0x100:
 lce_light_lock_adjust_hist0x124:
     /* fragment 25: Arithmetic */
     v0 = (uintptr_t)v0 - (uintptr_t)s3;
-    a2 = (uint32_t *)&local_10;
+    a2 = (uint32_t *)__p_10;
     t0 = (uintptr_t)v0 << 10;
     a0 = a2;
     a1 = 0;
@@ -133911,7 +134417,7 @@ lce_light_lock_adjust_hist0x13c:
 
     /* fragment 30: Arithmetic */
     a0 = 0;
-    v0 = (uintptr_t *)&local_10;
+    v0 = (uintptr_t *)__p_10;
 
 lce_light_lock_adjust_hist0x15c:
     /* fragment 31: Arithmetic */
@@ -133945,7 +134451,7 @@ lce_light_lock_adjust_hist0x1a0:
 lce_light_lock_adjust_hist0x1a8:
     /* fragment 38: Arithmetic */
     s1 = s1 - 1024;
-    a2 = (uint32_t *)&local_10;
+    a2 = (uint32_t *)__p_10;
     s3 = 0;
     a1 = 0;
     t0 = 32768;
@@ -134061,18 +134567,33 @@ lce_light_lock_adjust_hist0x25c:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004a548 origin=fragment_seed original=lce_std_hist_transform */
 int64_t lce_std_hist_transform(uint32_t a0, uint32_t a1, uint32_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_90 = 0;
-    uint32_t local_98 = 0;
-    uint32_t local_9c = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_a4 = 0;
-    uint32_t local_a8 = 0;
-    uint32_t local_ac = 0;
-    uint32_t *local_b0 = 0;
-    uint32_t local_b4 = 0;
-    uint32_t local_b8 = 0;
-    uint32_t local_bc = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0xc0 (192 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x30] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t **const __p_90 = (uint32_t **)(void *)((char *)__frame + 0x90);
+    uint32_t *const __p_98 = (uint32_t *)(void *)((char *)__frame + 0x98);
+    uint32_t *const __p_9c = (uint32_t *)(void *)((char *)__frame + 0x9c);
+    uint32_t *const __p_a0 = (uint32_t *)(void *)((char *)__frame + 0xa0);
+    uint32_t *const __p_a4 = (uint32_t *)(void *)((char *)__frame + 0xa4);
+    uint32_t *const __p_a8 = (uint32_t *)(void *)((char *)__frame + 0xa8);
+    uint32_t *const __p_ac = (uint32_t *)(void *)((char *)__frame + 0xac);
+    uint32_t **const __p_b0 = (uint32_t **)(void *)((char *)__frame + 0xb0);
+    uint32_t *const __p_b4 = (uint32_t *)(void *)((char *)__frame + 0xb4);
+    uint32_t *const __p_b8 = (uint32_t *)(void *)((char *)__frame + 0xb8);
+    uint32_t *const __p_bc = (uint32_t *)(void *)((char *)__frame + 0xbc);
     uint32_t *a3 = 0;
     uint32_t ra = 0;
     uint32_t *s0 = 0;
@@ -134094,10 +134615,10 @@ int64_t lce_std_hist_transform(uint32_t a0, uint32_t a1, uint32_t a2)
     s7 = a1;
     s2 = a0;
     s8 = a2;
-    s3 = (uint32_t *)&local_10;
+    s3 = (uint32_t *)__p_10;
    s6 = 0;
     s4 = s3;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_10, (void *)(uintptr_t)a0, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)__p_10, (void *)(uintptr_t)a0, 128); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
     s0 = 0;
@@ -134107,13 +134628,13 @@ int64_t lce_std_hist_transform(uint32_t a0, uint32_t a1, uint32_t a2)
 
 lce_std_hist_transform0x6c:
     /* fragment 3: CallSetup */
-    local_90 = a3;
+    (*__p_90) = a3;
     s5 = s5 + 1;
     s4 = s4 + 4;
    v0 = __lshrdi3(*(uint32_t *)((char *)(s4) + 0), a1, s8);
 
     /* fragment 4: StackAccess */
-    a3 = local_90;
+    a3 = (*__p_90);
     *(uint32_t *)((char *)s4 + -4) = v0;
 
     /* fragment 5: Branch */
@@ -134156,7 +134677,7 @@ lce_std_hist_transform0xd0:
 
 lce_std_hist_transform0xe0:
     /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s2, (void *)(uintptr_t)&local_10, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s2, (void *)(uintptr_t)__p_10, 128); /* jalr target resolved by relocation */
 
     /* fragment 15: Epilogue */
     /* function epilogue: restore registers and return */
@@ -134189,97 +134710,152 @@ lce_std_hist_transform0x128:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004a694 origin=fragment_seed original=Tisp_lce_soft */
 int64_t Tisp_lce_soft(uintptr_t a0, uintptr_t a1, uint32_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    char local_20[72];
-    uint32_t *local_24 = 0;
-    uint32_t local_68 = 0;
-    uint32_t local_6c = 0;
-    uint32_t local_70 = 0;
-    uint32_t local_74 = 0;
-    uint32_t local_78 = 0;
-    uint32_t local_7c = 0;
-    uint32_t local_80 = 0;
-    uint32_t local_84 = 0;
-    char local_b0[64];
-    uint32_t local_f0 = 0;
-    uint32_t local_130 = 0;
-    uint32_t local_134 = 0;
-    uint32_t local_138 = 0;
-    uint32_t local_13c = 0;
-    uint32_t local_140 = 0;
-    uint32_t local_144 = 0;
-    uint32_t local_148 = 0;
-    uint32_t local_14c = 0;
-    uint32_t local_150 = 0;
-    uint32_t local_154 = 0;
-    uint32_t local_158 = 0;
-    uint32_t local_15c = 0;
-    uint32_t local_160 = 0;
-    uint32_t local_164 = 0;
-    uint32_t local_168 = 0;
-    uint32_t local_16c = 0;
-    uint32_t local_170 = 0;
-    uint32_t local_174 = 0;
-    uint32_t local_178 = 0;
-    uint32_t local_17c = 0;
-    uint32_t local_180 = 0;
-    uint32_t local_184 = 0;
-    uint32_t local_188 = 0;
-    uint32_t local_18c = 0;
-    uint32_t local_190 = 0;
-    uint32_t local_194 = 0;
-    uint32_t local_198 = 0;
-    uint32_t local_19c = 0;
-    uint32_t local_1a0 = 0;
-    uint32_t local_1a4 = 0;
-    uint32_t local_1a8 = 0;
-    uint32_t local_1ac = 0;
-    uint32_t local_1b0 = 0;
-    uint32_t local_1b4 = 0;
-    uint32_t local_1b8 = 0;
-    uint32_t local_1bc = 0;
-    uint32_t local_1c0 = 0;
-    uint32_t local_1c4 = 0;
-    uint32_t local_1c8 = 0;
-    uint32_t local_1cc = 0;
-    uint32_t local_1d0 = 0;
-    uint32_t local_1d4 = 0;
-    uint32_t local_1d8 = 0;
-    uint32_t local_1dc = 0;
-    uint32_t local_1e0 = 0;
-    uint32_t local_1e4 = 0;
-    uint32_t local_1e8 = 0;
-    uint32_t local_1ec = 0;
-    uint32_t local_1f0 = 0;
-    uint32_t local_1f4 = 0;
-    uint32_t local_1f8 = 0;
-    uint32_t *local_1fc = 0;
-    uint32_t local_200 = 0;
-    uint32_t local_204 = 0;
-    uint32_t local_208 = 0;
-    uint32_t local_20c = 0;
-    uint32_t local_210 = 0;
-    uint32_t local_214 = 0;
-    uint32_t local_218 = 0;
-    uint32_t local_21c = 0;
-    uint32_t local_220 = 0;
-    uint32_t local_224 = 0;
-    uint32_t local_228 = 0;
-    uint32_t *local_22c = 0;
-    uint32_t local_230 = 0;
-    uint32_t local_238 = 0;
-    uint32_t local_23c = 0;
-    uint32_t local_240 = 0;
-    uint32_t local_244 = 0;
-    uint32_t local_248 = 0;
-    uint32_t local_24c = 0;
-    uint32_t local_250 = 0;
-    uint32_t local_254 = 0;
-    uint32_t local_258 = 0;
-    uint32_t local_25c = 0;
-    uint32_t *local_268 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x26c (620 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_20 [72] @0x20 -> 72 byte(s): 72 x char = 72 byte(s)
+     *   local_b0 [64] @0xb0 -> 64 byte(s): 64 x char = 64 byte(s)
+     *   local_140 @0x140 -> uint8_t: L134765: v0 loaded as uint8_t at L134764
+     *   local_148 @0x148 -> uint16_t: L134781: v0 loaded as uint16_t at L134780
+     *   local_15c @0x15c -> uint8_t: L134704: v0 loaded as uint8_t at L134703
+     *   local_168 @0x168 -> uint8_t: L134732: v0 loaded as uint8_t at L134731
+     *   local_170 @0x170 -> uint8_t: L134698: v0 loaded as uint8_t at L134695
+     *   local_174 @0x174 -> uint8_t: L134700: v0 loaded as uint8_t at L134699
+     *   local_17c @0x17c -> uint8_t: L134749: v0 loaded as uint8_t at L134748
+     *   local_184 @0x184 -> uint8_t: L134702: v0 loaded as uint8_t at L134701
+     *   local_188 @0x188 -> uint8_t: L134706: v0 loaded as uint8_t at L134705
+     *   local_18c @0x18c -> uint8_t: L134708: v0 loaded as uint8_t at L134707
+     *   local_190 @0x190 -> uint8_t: L134710: v0 loaded as uint8_t at L134709
+     *   local_194 @0x194 -> uint8_t: L134712: v0 loaded as uint8_t at L134711
+     *   local_198 @0x198 -> uint8_t: L134714: v0 loaded as uint8_t at L134713
+     *   local_19c @0x19c -> uint8_t: L134716: v0 loaded as uint8_t at L134715
+     *   local_1a0 @0x1a0 -> uint8_t: L134718: v0 loaded as uint8_t at L134717
+     *   local_1a4 @0x1a4 -> uint8_t: L134720: v0 loaded as uint8_t at L134719
+     *   local_1a8 @0x1a8 -> uint8_t: L134722: v0 loaded as uint8_t at L134721
+     *   local_1ac @0x1ac -> uint8_t: L134724: v0 loaded as uint8_t at L134723
+     *   local_1b0 @0x1b0 -> uint8_t: L134726: v0 loaded as uint8_t at L134725
+     *   local_1b4 @0x1b4 -> uint8_t: L134730: v0 loaded as uint8_t at L134727
+     *   local_1b8 @0x1b8 -> uint8_t: L134734: v0 loaded as uint8_t at L134733
+     *   local_1bc @0x1bc -> uint8_t: L134738: v0 loaded as uint8_t at L134735
+     *   local_1c0 @0x1c0 -> uint8_t: L134741: v0 loaded as uint8_t at L134739
+     *   local_1c4 @0x1c4 -> uint8_t: L134743: v0 loaded as uint8_t at L134742
+     *   local_1c8 @0x1c8 -> uint8_t: L134745: v0 loaded as uint8_t at L134742
+     *   local_1d0 @0x1d0 -> uint8_t: L134751: v0 loaded as uint8_t at L134750
+     *   local_1d4 @0x1d4 -> uint8_t: L134753: v0 loaded as uint8_t at L134752
+     *   local_1d8 @0x1d8 -> uint8_t: L134755: v0 loaded as uint8_t at L134754
+     *   local_1dc @0x1dc -> uint8_t: L134757: v0 loaded as uint8_t at L134756
+     *   local_1e8 @0x1e8 -> uint8_t: L134767: v0 loaded as uint8_t at L134766
+     *   local_1ec @0x1ec -> uint8_t: L134769: v0 loaded as uint8_t at L134768
+     *   local_1f0 @0x1f0 -> uint8_t: L134771: v0 loaded as uint8_t at L134770
+     *   local_1f4 @0x1f4 -> uint8_t: L134773: v0 loaded as uint8_t at L134772
+     *   local_1f8 @0x1f8 -> uint8_t: L134775: v0 loaded as uint8_t at L134774
+     *   local_200 @0x200 -> uint8_t: L134779: v0 loaded as uint8_t at L134778
+     *   local_204 @0x204 -> uint16_t: L134784: v0 loaded as uint16_t at L134782
+     *   local_208 @0x208 -> uint16_t: L134786: v0 loaded as uint16_t at L134782
+     * These overlap the 4-byte slots in the OEM frame, so they
+     * overlap here too: that sharing is the OEM's own semantics.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x9b] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    char *const __p_20 = (char *)(void *)((char *)__frame + 0x20);
+    uint32_t **const __p_24 = (uint32_t **)(void *)((char *)__frame + 0x24);
+    uint32_t *const __p_68 = (uint32_t *)(void *)((char *)__frame + 0x68);
+    uint32_t *const __p_6c = (uint32_t *)(void *)((char *)__frame + 0x6c);
+    uint32_t *const __p_70 = (uint32_t *)(void *)((char *)__frame + 0x70);
+    uint32_t *const __p_74 = (uint32_t *)(void *)((char *)__frame + 0x74);
+    uint32_t *const __p_78 = (uint32_t *)(void *)((char *)__frame + 0x78);
+    uint32_t *const __p_7c = (uint32_t *)(void *)((char *)__frame + 0x7c);
+    uint32_t *const __p_80 = (uint32_t *)(void *)((char *)__frame + 0x80);
+    uint32_t *const __p_84 = (uint32_t *)(void *)((char *)__frame + 0x84);
+    char *const __p_b0 = (char *)(void *)((char *)__frame + 0xb0);
+    uint32_t *const __p_f0 = (uint32_t *)(void *)((char *)__frame + 0xf0);
+    uint32_t *const __p_130 = (uint32_t *)(void *)((char *)__frame + 0x130);
+    uint32_t *const __p_134 = (uint32_t *)(void *)((char *)__frame + 0x134);
+    uint32_t *const __p_138 = (uint32_t *)(void *)((char *)__frame + 0x138);
+    uint32_t *const __p_13c = (uint32_t *)(void *)((char *)__frame + 0x13c);
+    uint8_t *const __p_140 = (uint8_t *)(void *)((char *)__frame + 0x140);
+    uint32_t *const __p_144 = (uint32_t *)(void *)((char *)__frame + 0x144);
+    uint16_t *const __p_148 = (uint16_t *)(void *)((char *)__frame + 0x148);
+    uint32_t *const __p_14c = (uint32_t *)(void *)((char *)__frame + 0x14c);
+    uint32_t *const __p_150 = (uint32_t *)(void *)((char *)__frame + 0x150);
+    uint32_t *const __p_154 = (uint32_t *)(void *)((char *)__frame + 0x154);
+    uint32_t *const __p_158 = (uint32_t *)(void *)((char *)__frame + 0x158);
+    uint8_t *const __p_15c = (uint8_t *)(void *)((char *)__frame + 0x15c);
+    uint32_t *const __p_160 = (uint32_t *)(void *)((char *)__frame + 0x160);
+    uint32_t *const __p_164 = (uint32_t *)(void *)((char *)__frame + 0x164);
+    uint8_t *const __p_168 = (uint8_t *)(void *)((char *)__frame + 0x168);
+    uint32_t *const __p_16c = (uint32_t *)(void *)((char *)__frame + 0x16c);
+    uint8_t *const __p_170 = (uint8_t *)(void *)((char *)__frame + 0x170);
+    uint8_t *const __p_174 = (uint8_t *)(void *)((char *)__frame + 0x174);
+    uint32_t *const __p_178 = (uint32_t *)(void *)((char *)__frame + 0x178);
+    uint8_t *const __p_17c = (uint8_t *)(void *)((char *)__frame + 0x17c);
+    uint32_t *const __p_180 = (uint32_t *)(void *)((char *)__frame + 0x180);
+    uint8_t *const __p_184 = (uint8_t *)(void *)((char *)__frame + 0x184);
+    uint8_t *const __p_188 = (uint8_t *)(void *)((char *)__frame + 0x188);
+    uint8_t *const __p_18c = (uint8_t *)(void *)((char *)__frame + 0x18c);
+    uint8_t *const __p_190 = (uint8_t *)(void *)((char *)__frame + 0x190);
+    uint8_t *const __p_194 = (uint8_t *)(void *)((char *)__frame + 0x194);
+    uint8_t *const __p_198 = (uint8_t *)(void *)((char *)__frame + 0x198);
+    uint8_t *const __p_19c = (uint8_t *)(void *)((char *)__frame + 0x19c);
+    uint8_t *const __p_1a0 = (uint8_t *)(void *)((char *)__frame + 0x1a0);
+    uint8_t *const __p_1a4 = (uint8_t *)(void *)((char *)__frame + 0x1a4);
+    uint8_t *const __p_1a8 = (uint8_t *)(void *)((char *)__frame + 0x1a8);
+    uint8_t *const __p_1ac = (uint8_t *)(void *)((char *)__frame + 0x1ac);
+    uint8_t *const __p_1b0 = (uint8_t *)(void *)((char *)__frame + 0x1b0);
+    uint8_t *const __p_1b4 = (uint8_t *)(void *)((char *)__frame + 0x1b4);
+    uint8_t *const __p_1b8 = (uint8_t *)(void *)((char *)__frame + 0x1b8);
+    uint8_t *const __p_1bc = (uint8_t *)(void *)((char *)__frame + 0x1bc);
+    uint8_t *const __p_1c0 = (uint8_t *)(void *)((char *)__frame + 0x1c0);
+    uint8_t *const __p_1c4 = (uint8_t *)(void *)((char *)__frame + 0x1c4);
+    uint8_t *const __p_1c8 = (uint8_t *)(void *)((char *)__frame + 0x1c8);
+    uint32_t *const __p_1cc = (uint32_t *)(void *)((char *)__frame + 0x1cc);
+    uint8_t *const __p_1d0 = (uint8_t *)(void *)((char *)__frame + 0x1d0);
+    uint8_t *const __p_1d4 = (uint8_t *)(void *)((char *)__frame + 0x1d4);
+    uint8_t *const __p_1d8 = (uint8_t *)(void *)((char *)__frame + 0x1d8);
+    uint8_t *const __p_1dc = (uint8_t *)(void *)((char *)__frame + 0x1dc);
+    uint32_t *const __p_1e0 = (uint32_t *)(void *)((char *)__frame + 0x1e0);
+    uint32_t *const __p_1e4 = (uint32_t *)(void *)((char *)__frame + 0x1e4);
+    uint8_t *const __p_1e8 = (uint8_t *)(void *)((char *)__frame + 0x1e8);
+    uint8_t *const __p_1ec = (uint8_t *)(void *)((char *)__frame + 0x1ec);
+    uint8_t *const __p_1f0 = (uint8_t *)(void *)((char *)__frame + 0x1f0);
+    uint8_t *const __p_1f4 = (uint8_t *)(void *)((char *)__frame + 0x1f4);
+    uint8_t *const __p_1f8 = (uint8_t *)(void *)((char *)__frame + 0x1f8);
+    uint32_t **const __p_1fc = (uint32_t **)(void *)((char *)__frame + 0x1fc);
+    uint8_t *const __p_200 = (uint8_t *)(void *)((char *)__frame + 0x200);
+    uint16_t *const __p_204 = (uint16_t *)(void *)((char *)__frame + 0x204);
+    uint16_t *const __p_208 = (uint16_t *)(void *)((char *)__frame + 0x208);
+    uint32_t *const __p_20c = (uint32_t *)(void *)((char *)__frame + 0x20c);
+    uint32_t *const __p_210 = (uint32_t *)(void *)((char *)__frame + 0x210);
+    uint32_t *const __p_214 = (uint32_t *)(void *)((char *)__frame + 0x214);
+    uint32_t *const __p_218 = (uint32_t *)(void *)((char *)__frame + 0x218);
+    uint32_t *const __p_21c = (uint32_t *)(void *)((char *)__frame + 0x21c);
+    uint32_t *const __p_220 = (uint32_t *)(void *)((char *)__frame + 0x220);
+    uint32_t *const __p_224 = (uint32_t *)(void *)((char *)__frame + 0x224);
+    uint32_t *const __p_228 = (uint32_t *)(void *)((char *)__frame + 0x228);
+    uint32_t **const __p_22c = (uint32_t **)(void *)((char *)__frame + 0x22c);
+    uint32_t *const __p_230 = (uint32_t *)(void *)((char *)__frame + 0x230);
+    uint32_t *const __p_238 = (uint32_t *)(void *)((char *)__frame + 0x238);
+    uint32_t *const __p_23c = (uint32_t *)(void *)((char *)__frame + 0x23c);
+    uint32_t *const __p_240 = (uint32_t *)(void *)((char *)__frame + 0x240);
+    uint32_t *const __p_244 = (uint32_t *)(void *)((char *)__frame + 0x244);
+    uint32_t *const __p_248 = (uint32_t *)(void *)((char *)__frame + 0x248);
+    uint32_t *const __p_24c = (uint32_t *)(void *)((char *)__frame + 0x24c);
+    uint32_t *const __p_250 = (uint32_t *)(void *)((char *)__frame + 0x250);
+    uint32_t *const __p_254 = (uint32_t *)(void *)((char *)__frame + 0x254);
+    uint32_t *const __p_258 = (uint32_t *)(void *)((char *)__frame + 0x258);
+    uint32_t *const __p_25c = (uint32_t *)(void *)((char *)__frame + 0x25c);
+    uint32_t **const __p_268 = (uint32_t **)(void *)((char *)__frame + 0x268);
     uintptr_t *a3 = 0;
     uint32_t ra = 0;
     uint32_t *s0 = 0;
@@ -134304,158 +134880,158 @@ int64_t Tisp_lce_soft(uintptr_t a0, uintptr_t a1, uint32_t a2)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: StackAccess */
-    local_268 = a2;
+    (*__p_268) = a2;
     v0 = *(uint32_t *)((char *)a0 + 0);
     s0 = (uintptr_t *)&memset;
     s6 = a1;
-    local_134 = v0;
+    (*__p_134) = v0;
     v0 = *(uint32_t *)((char *)a0 + 4);
     s0 = s0;
     a2 = 64;
-    local_14c = v0;
+    (*__p_14c) = v0;
     v0 = *(uint32_t *)((char *)a0 + 8);
     s5 = a0;
     s2 = a1 + 5760;
-    local_150 = v0;
+    (*__p_150) = v0;
     v0 = *(uint32_t *)((char *)a0 + 12);
     s7 = s6 + 15768;
     s8 = s6 + 15896;
-    local_154 = v0;
+    (*__p_154) = v0;
     v0 = *(uint32_t *)((char *)a0 + 16);
-    local_158 = v0;
+    (*__p_158) = v0;
     v0 = a0 + 72;
-    local_180 = v0;
+    (*__p_180) = v0;
     v0 = *(uint32_t *)((char *)a0 + 108);
-    local_144 = v0;
-    v1 = local_144;
+    (*__p_144) = v0;
+    v1 = (*__p_144);
     v0 = 128;
     v0 = (uintptr_t)v0 - (uintptr_t)v1;
-    local_160 = v0;
+    (*__p_160) = v0;
     v0 = a0 + 292;
-    local_164 = v0;
+    (*__p_164) = v0;
     v0 = *(uint8_t *)((char *)a0 + 297);
 
     /* fragment 2: StackAccess */
-    local_170 = v0;
+    (*__p_170) = v0;
     v0 = *(uint8_t *)((char *)a0 + 298);
-    local_174 = v0;
+    (*__p_174) = v0;
     v0 = *(uint8_t *)((char *)a0 + 299);
-    local_184 = v0;
+    (*__p_184) = v0;
     v0 = *(uint8_t *)((char *)a0 + 128);
-    local_15c = v0;
+    (*__p_15c) = v0;
     v0 = *(uint8_t *)((char *)a0 + 129);
-    local_188 = v0;
+    (*__p_188) = v0;
     v0 = *(uint8_t *)((char *)a0 + 130);
-    local_18c = v0;
+    (*__p_18c) = v0;
     v0 = *(uint8_t *)((char *)a0 + 131);
-    local_190 = v0;
+    (*__p_190) = v0;
     v0 = *(uint8_t *)((char *)a0 + 132);
-    local_194 = v0;
+    (*__p_194) = v0;
     v0 = *(uint8_t *)((char *)a0 + 133);
-    local_198 = v0;
+    (*__p_198) = v0;
     v0 = *(uint8_t *)((char *)a0 + 134);
-    local_19c = v0;
+    (*__p_19c) = v0;
     v0 = *(uint8_t *)((char *)a0 + 135);
-    local_1a0 = v0;
+    (*__p_1a0) = v0;
     v0 = *(uint8_t *)((char *)a0 + 136);
-    local_1a4 = v0;
+    (*__p_1a4) = v0;
     v0 = *(uint8_t *)((char *)a0 + 137);
-    local_1a8 = v0;
+    (*__p_1a8) = v0;
     v0 = *(uint8_t *)((char *)a0 + 138);
-    local_1ac = v0;
+    (*__p_1ac) = v0;
     v0 = *(uint8_t *)((char *)a0 + 139);
-    local_1b0 = v0;
+    (*__p_1b0) = v0;
     v0 = *(uint8_t *)((char *)a0 + 140);
 
     /* fragment 3: StackAccess */
-    local_1b4 = v0;
+    (*__p_1b4) = v0;
     v0 = *(uint8_t *)((char *)a0 + 141);
-    local_168 = v0;
+    (*__p_168) = v0;
     v0 = *(uint8_t *)((char *)a0 + 142);
-    local_1b8 = v0;
+    (*__p_1b8) = v0;
     v0 = *(uint8_t *)((char *)a0 + 143);
     s4 = *(uint8_t *)((char *)a0 + 210);
     s1 = *(uint8_t *)((char *)a0 + 211);
-    local_1bc = v0;
+    (*__p_1bc) = v0;
     v0 = *(uint8_t *)((char *)a0 + 144);
     s3 = *(uint8_t *)((char *)a0 + 212);
-    local_1c0 = v0;
+    (*__p_1c0) = v0;
     v0 = *(uint8_t *)((char *)a0 + 145);
-    local_1c4 = v0;
+    (*__p_1c4) = v0;
     v0 = a0 + 146;
-    local_1c8 = v0;
+    (*__p_1c8) = v0;
     v0 = a0 + 178;
-    local_1cc = v0;
+    (*__p_1cc) = v0;
     v0 = *(uint8_t *)((char *)a0 + 213);
-    local_17c = v0;
+    (*__p_17c) = v0;
     v0 = *(uint8_t *)((char *)a0 + 214);
-    local_1d0 = v0;
+    (*__p_1d0) = v0;
     v0 = *(uint8_t *)((char *)a0 + 215);
-    local_1d4 = v0;
+    (*__p_1d4) = v0;
     v0 = *(uint8_t *)((char *)a0 + 216);
-    local_1d8 = v0;
+    (*__p_1d8) = v0;
     v0 = *(uint8_t *)((char *)a0 + 217);
-    local_1dc = v0;
+    (*__p_1dc) = v0;
     v0 = *(uint8_t *)((char *)a0 + 218);
-    local_1e0 = v0;
+    (*__p_1e0) = v0;
 
     /* fragment 4: MemoryAccess */
     v0 = *(uint8_t *)((char *)a0 + 219);
-    local_1e4 = v0;
+    (*__p_1e4) = v0;
     v0 = *(uint8_t *)((char *)a0 + 220);
-    local_140 = v0;
+    (*__p_140) = v0;
     v0 = *(uint8_t *)((char *)a0 + 221);
-    local_1e8 = v0;
+    (*__p_1e8) = v0;
     v0 = *(uint8_t *)((char *)a0 + 222);
-    local_1ec = v0;
+    (*__p_1ec) = v0;
     v0 = *(uint8_t *)((char *)a0 + 223);
-    local_1f0 = v0;
+    (*__p_1f0) = v0;
     v0 = *(uint8_t *)((char *)a0 + 224);
-    local_1f4 = v0;
+    (*__p_1f4) = v0;
     v0 = *(uint8_t *)((char *)a0 + 225);
-    local_1f8 = v0;
+    (*__p_1f8) = v0;
     v0 = *(uint8_t *)((char *)a0 + 226);
-    local_1fc = v0;
+    (*__p_1fc) = v0;
     v0 = *(uint8_t *)((char *)a0 + 227);
-    local_200 = v0;
+    (*__p_200) = v0;
     v0 = *(uint16_t *)((char *)a0 + 302);
-    local_148 = v0;
+    (*__p_148) = v0;
     v0 = *(uint16_t *)((char *)a0 + 306);
-    a0 = (uint32_t *)&local_f0;
-    local_204 = v0;
+    a0 = (uint32_t *)__p_f0;
+    (*__p_204) = v0;
     v0 = a1 + 5940;
-    local_208 = v0;
+    (*__p_208) = v0;
     v0 = a1 + 6452;
-    local_20c = v0;
+    (*__p_20c) = v0;
     v0 = a1 + 10676;
-    local_138 = v0;
+    (*__p_138) = v0;
     v0 = a1 + 10740;
 
     /* fragment 5: CallSetup */
-    local_13c = v0;
+    (*__p_13c) = v0;
     v0 = (uintptr_t *)memset((void *)(uintptr_t)a0, 0, a2); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
-    local_210 = s6 + 10804;
-    local_16c = s6 + 12852;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_b0, 0, 64); /* jalr target resolved by relocation */
+    (*__p_210) = s6 + 10804;
+    (*__p_16c) = s6 + 12852;
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_b0, 0, 64); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
-    local_214 = s6 + 14900;
-    local_218 = s6 + 14932;
-    local_21c = s6 + 14964;
-    local_220 = s6 + 15000;
-    local_224 = s6 + 15384;
-    local_228 = s6 + 15512;
-    local_22c = s6 + 15640;
-    local_230 = s6 + 16024;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_68, 0, 72); /* jalr target resolved by relocation */
+    (*__p_214) = s6 + 14900;
+    (*__p_218) = s6 + 14932;
+    (*__p_21c) = s6 + 14964;
+    (*__p_220) = s6 + 15000;
+    (*__p_224) = s6 + 15384;
+    (*__p_228) = s6 + 15512;
+    (*__p_22c) = s6 + 15640;
+    (*__p_230) = s6 + 16024;
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_68, 0, 72); /* jalr target resolved by relocation */
 
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_20, 0, 72); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_20, 0, 72); /* jalr target resolved by relocation */
 
     /* fragment 9: StackAccess */
-    v1 = local_148;
+    v1 = (*__p_148);
     v0 = 1;
 
     /* fragment 10: Branch */
@@ -134463,17 +135039,17 @@ int64_t Tisp_lce_soft(uintptr_t a0, uintptr_t a1, uint32_t a2)
     if (v1 != v0) { goto Tisp_lce_soft0x328; }
 
     /* fragment 11: CallSetup */
-    local_10 = s5 + 302;
-    local_14 = s5 + 324;
-    local_130 = s5 + 324;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_wdr_light_lock)(s6, local_154, local_158, s5 + 20); /* jalr target resolved by relocation */
+    (*__p_10) = s5 + 302;
+    (*__p_14) = s5 + 324;
+    (*__p_130) = s5 + 324;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_wdr_light_lock)(s6, (*__p_154), (*__p_158), s5 + 20); /* jalr target resolved by relocation */
 
     /* fragment 12: StackAccess */
-    a0 = local_268;
+    a0 = (*__p_268);
     v1 = 4;
 
     /* fragment 13: Branch */
-    v0 = local_130;
+    v0 = (*__p_130);
     if (a0 == v1) { goto Tisp_lce_soft0x388; }
 
     /* fragment 14: Arithmetic */
@@ -134519,7 +135095,7 @@ Tisp_lce_soft0x328:
     v0 = (uintptr_t *)memset((void *)(uintptr_t)s8, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 24: StackAccess */
-    local_130 = s2;
+    (*__p_130) = s2;
     a2 = s2;
     a1 = 0;
     s2 = 0;
@@ -134605,21 +135181,21 @@ Tisp_lce_soft0x3f0:
     if (a1 != t2) { goto Tisp_lce_soft0x360; }
 
     /* fragment 42: CallSetup */
-    local_178 = (uintptr_t)&lce_std_hist_transform;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_std_hist_transform)(s7, local_14c, local_150); /* jalr target resolved by relocation */
+    (*__p_178) = (uintptr_t)&lce_std_hist_transform;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_std_hist_transform)(s7, (*__p_14c), (*__p_150)); /* jalr target resolved by relocation */
 
     /* fragment 43: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)local_220, (void *)(uintptr_t)s7, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*__p_220), (void *)(uintptr_t)s7, 128); /* jalr target resolved by relocation */
 
     /* fragment 44: StackAccess */
-    v0 = local_170;
+    v0 = (*__p_170);
 
     /* fragment 45: Branch */
-    a2 = local_164;
+    a2 = (*__p_164);
     if (v0 == 0) { goto Tisp_lce_soft0x45c; }
 
     /* fragment 46: StackAccess */
-    v0 = local_268;
+    v0 = (*__p_268);
 
     /* fragment 47: Branch */
     t3 = s6 + 10548;
@@ -134630,17 +135206,17 @@ Tisp_lce_soft0x448:
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)t3, (void *)(uintptr_t)s7, 128); /* jalr target resolved by relocation */
 
     /* fragment 49: CallSetup */
-    a2 = local_164;
+    a2 = (*__p_164);
 
 Tisp_lce_soft0x45c:
     /* fragment 50: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)lce_hist_filter_and_judge)(s7, s8); /* jalr target resolved by relocation */
 
     /* fragment 51: StackAccess */
-    v1 = local_20;
+    v1 = __p_20;
 
     /* fragment 52: Branch */
-    v0 = local_24;
+    v0 = (*__p_24);
     if (s4 != 0) { goto Tisp_lce_soft0x884; }
 
     /* fragment 53: Arithmetic */
@@ -134648,7 +135224,7 @@ Tisp_lce_soft0x45c:
 
 Tisp_lce_soft0x484:
     /* fragment 54: StackAccess */
-    v0 = local_268;
+    v0 = (*__p_268);
 
 Tisp_lce_soft0x488:
     /* fragment 55: Arithmetic */
@@ -134680,13 +135256,13 @@ Tisp_lce_soft0x4ac:
     if (s3 == 0) { goto Tisp_lce_soft0x540; }
 
     /* fragment 63: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_head_tail_search)(s8, local_17c, local_1d0, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_head_tail_search)(s8, (*__p_17c), (*__p_1d0), __p_20); /* jalr target resolved by relocation */
 
     /* fragment 64: StackAccess */
-    v0 = local_20;
+    v0 = __p_20;
 
     /* fragment 65: Branch */
-    a1 = local_24;
+    a1 = (*__p_24);
     if (t3 == 0) { goto Tisp_lce_soft0x510; }
 
     /* fragment 66: MemoryAccess */
@@ -134758,20 +135334,20 @@ Tisp_lce_soft0x534:
 
 Tisp_lce_soft0x540:
     /* fragment 83: CallSetup */
-    local_74 = local_1d4;
-    local_70 = v1;
-    local_78 = local_1d8;
-    local_7c = local_1dc;
-    local_80 = local_1e0;
-    local_84 = local_1e4;
+    (*__p_74) = (*__p_1d4);
+    (*__p_70) = v1;
+    (*__p_78) = (*__p_1d8);
+    (*__p_7c) = (*__p_1dc);
+    (*__p_80) = (*__p_1e0);
+    (*__p_84) = (*__p_1e4);
     s2 = s6 + 15256;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_hist_method)(s7, s8, &local_68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_hist_method)(s7, s8, __p_68); /* jalr target resolved by relocation */
 
     /* fragment 84: CallSetup */
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s6 + 15128), (void *)(uintptr_t)s8, 128); /* jalr target resolved by relocation */
 
     /* fragment 85: StackAccess */
-    v1 = local_1f0;
+    v1 = (*__p_1f0);
     v0 = 1;
 
     /* fragment 86: Branch */
@@ -134779,12 +135355,12 @@ Tisp_lce_soft0x540:
     if (v1 != v0) { goto Tisp_lce_soft0x8f8; }
 
     /* fragment 87: CallSetup */
-    local_68 = local_1f4;
-    local_6c = local_1f8;
-    local_70 = local_1fc;
-    local_74 = local_200;
-    local_10 = s5 + 260;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_self_light_correct)(s8, s7, &local_68, s5 + 228); /* jalr target resolved by relocation */
+    (*__p_68) = (*__p_1f4);
+    (*__p_6c) = (*__p_1f8);
+    (*__p_70) = (*__p_1fc);
+    (*__p_74) = (*__p_200);
+    (*__p_10) = s5 + 260;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_self_light_correct)(s8, s7, __p_68, s5 + 228); /* jalr target resolved by relocation */
 
     /* fragment 88: CallSetup */
     a2 = 128;
@@ -134795,71 +135371,71 @@ Tisp_lce_soft0x5fc:
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s2, (void *)(uintptr_t)a1, a2); /* jalr target resolved by relocation */
 
     /* fragment 90: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)lce_pdf_to_cdf)(s2, &local_f0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)lce_pdf_to_cdf)(s2, __p_f0); /* jalr target resolved by relocation */
 
     /* fragment 91: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)local_13c, (void *)(uintptr_t)&local_f0, 64); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*__p_13c), (void *)(uintptr_t)__p_f0, 64); /* jalr target resolved by relocation */
 
     /* fragment 92: Arithmetic */
     v1 = 1;
 
     /* fragment 93: StackAccess */
-    local_174 = v1;
-    v1 = local_268;
+    (*__p_174) = v1;
+    v1 = (*__p_268);
     v0 = 4;
 
     /* fragment 94: Branch */
     int _bc_v1_94 = v1 != v0;
-    v0 = (uintptr_t *)&local_f0;
+    v0 = (uintptr_t *)__p_f0;
     if (_bc_v1_94) { goto Tisp_lce_soft0x84c; }
 
     /* fragment 95: CallSetup */
-    a0 = local_138;
+    a0 = (*__p_138);
 
 Tisp_lce_soft0x644:
     /* fragment 96: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)&local_f0, 64); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)__p_f0, 64); /* jalr target resolved by relocation */
 
     /* fragment 97: StackAccess */
-    v0 = local_230;
-    local_14c = 0;
-    local_13c = 0;
-    local_140 = v0;
-    v0 = local_218;
-    local_150 = v0;
+    v0 = (*__p_230);
+    (*__p_14c) = 0;
+    (*__p_13c) = 0;
+    (*__p_140) = v0;
+    v0 = (*__p_218);
+    (*__p_150) = v0;
     v0 = 1;
-    local_138 = v0;
+    (*__p_138) = v0;
     v0 = -1;
-    local_134 = v0;
+    (*__p_134) = v0;
     v0 = (uintptr_t *)&get_distance_1dim;
     v0 = v0;
-    local_1d8 = v0;
+    (*__p_1d8) = v0;
     v0 = (uintptr_t *)&lce_hist_filter_and_judge;
     v0 = v0;
-    local_1dc = v0;
+    (*__p_1dc) = v0;
 
 Tisp_lce_soft0x690:
     /* fragment 98: StackAccess */
-    v0 = local_138;
-    v1 = local_138;
+    v0 = (*__p_138);
+    v1 = (*__p_138);
     a0 = 3;
     v0 = v0 - 1;
-    local_1d0 = v0;
-    v0 = local_14c;
+    (*__p_1d0) = v0;
+    v0 = (*__p_14c);
     s1 = 0;
     s3 = (uintptr_t)v0 << 7;
     v0 = v0 + 9;
-    local_14c = v0;
-    v0 = local_154;
+    (*__p_14c) = v0;
+    v0 = (*__p_154);
     s3 = s6 + (uintptr_t)s3;
     v0 = (uintptr_t)v0 ^ (uintptr_t)v1;
     v1 = 6;
-    local_1d4 = v1;
+    (*__p_1d4) = v1;
 
 Tisp_lce_soft0x6d0:
     /* fragment 99: MemoryAccess */
     v0 = *(uint8_t *)((char *)s5 + 322);
-    v1 = local_1d0;
+    v1 = (*__p_1d0);
 
     /* fragment 100: Branch */
     s4 = 0;
@@ -134872,25 +135448,25 @@ Tisp_lce_soft0x6d0:
 
 Tisp_lce_soft0x6ec:
     /* fragment 102: StackAccess */
-    v0 = local_13c;
-    v1 = local_138;
-    a0 = local_158;
+    v0 = (*__p_13c);
+    v1 = (*__p_138);
+    a0 = (*__p_158);
     s2 = (uintptr_t)v0 + (uintptr_t)s1;
-    v0 = local_154;
+    v0 = (*__p_154);
     v1 = v1 < v0;
     v0 = v1;
-    v1 = local_1d4;
+    v1 = (*__p_1d4);
     v0 = v1;
     v1 = s1 + 1;
     a0 = v1 < a0;
-    local_17c = v1;
+    (*__p_17c) = v1;
 
     /* fragment 103: Branch */
     v1 = 0;
     if (a0 != 0) { goto Tisp_lce_soft0x744; }
 
     /* fragment 104: StackAccess */
-    a0 = local_158;
+    a0 = (*__p_158);
     v1 = s1 + 1;
     a1 = 1;
     v1 = (uintptr_t)v1 ^ a0;
@@ -134926,15 +135502,15 @@ Tisp_lce_soft0x75c:
     if (t0 != s3) { goto Tisp_lce_soft0x75c; }
 
     /* fragment 108: CallSetup */
-    local_170 = *(uint32_t *)((char *)(local_180 + ((uintptr_t)v0 << 2)) + 0);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_std_hist_transform)(s7, *(uint32_t *)((char *)(local_180 + ((uintptr_t)v0 << 2)) + 0), 10); /* jalr target resolved by relocation */
+    (*__p_170) = *(uint32_t *)((char *)((*__p_180) + ((uintptr_t)v0 << 2)) + 0);
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_std_hist_transform)(s7, *(uint32_t *)((char *)((*__p_180) + ((uintptr_t)v0 << 2)) + 0), 10); /* jalr target resolved by relocation */
 
     /* fragment 109: StackAccess */
-    v0 = local_20c;
+    v0 = (*__p_20c);
     t4 = (uintptr_t)s2 << 7;
     t3 = 1;
     t4 = (uintptr_t)v0 + (uintptr_t)t4;
-    v0 = local_174;
+    v0 = (*__p_174);
 
     /* fragment 110: Branch */
     t3 = (uintptr_t)t3 << (uintptr_t)s2;
@@ -134944,7 +135520,7 @@ Tisp_lce_soft0x75c:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)get_distance_1dim)(t4, s7, 32); /* jalr target resolved by relocation */
 
     /* fragment 112: StackAccess */
-    v1 = local_184;
+    v1 = (*__p_184);
     v0 = v1 < v0;
 
     /* fragment 113: Branch */
@@ -134952,11 +135528,11 @@ Tisp_lce_soft0x75c:
 
 Tisp_lce_soft0x7fc:
     /* fragment 114: CallSetup */
-    local_134 = local_134 | (uintptr_t)t3;
+    (*__p_134) = (*__p_134) | (uintptr_t)t3;
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)t4, (void *)(uintptr_t)s7, 128); /* jalr target resolved by relocation */
 
     /* fragment 115: Branch */
-    v0 = local_134;
+    v0 = (*__p_134);
     goto Tisp_lce_soft0x914;
 
 Tisp_lce_soft0x820:
@@ -134964,25 +135540,25 @@ Tisp_lce_soft0x820:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)get_distance_1dim)(t3, s7, 32); /* jalr target resolved by relocation */
 
     /* fragment 117: StackAccess */
-    v1 = local_174;
+    v1 = (*__p_174);
     v0 = v1 < v0;
 
     /* fragment 118: Branch */
-    local_174 = 0;
+    (*__p_174) = 0;
     if (v0 != 0) { goto Tisp_lce_soft0x448; }
 
     /* fragment 119: CallSetup */
-    v0 = (uintptr_t *)&local_f0;
+    v0 = (uintptr_t *)__p_f0;
 
 Tisp_lce_soft0x84c:
     /* fragment 120: CallSetup */
-    local_18 = v0;
-    local_14 = local_13c;
-    local_10 = local_138;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_16bit_data_converge)(local_140, local_1e8, local_1ec, 32); /* jalr target resolved by relocation */
+    (*__p_18) = v0;
+    (*__p_14) = (*__p_13c);
+    (*__p_10) = (*__p_138);
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_16bit_data_converge)((*__p_140), (*__p_1e8), (*__p_1ec), 32); /* jalr target resolved by relocation */
 
     /* fragment 121: Branch */
-    a0 = local_138;
+    a0 = (*__p_138);
     goto Tisp_lce_soft0x644;
 
 Tisp_lce_soft0x884:
@@ -135002,11 +135578,11 @@ Tisp_lce_soft0x898:
 
     /* fragment 126: Branch */
     int _bc_s4_126 = s4 == v0;
-    v0 = local_268;
+    v0 = (*__p_268);
     if (_bc_s4_126) { goto Tisp_lce_soft0x488; }
 
     /* fragment 127: StackAccess */
-    v0 = local_134;
+    v0 = (*__p_134);
     s1 = (uintptr_t *)((uintptr_t)v0 >> 2);
     s2 = (uintptr_t)s1 + (uintptr_t)s2;
     s1 = (uintptr_t *)((uintptr_t)v0 >> 1);
@@ -135057,11 +135633,11 @@ Tisp_lce_soft0x8f8:
 
 Tisp_lce_soft0x900:
     /* fragment 139: StackAccess */
-    v0 = local_134;
+    v0 = (*__p_134);
     t3 = ~(0 | (uintptr_t)t3);
     v0 = (uintptr_t)v0 & (uintptr_t)t3;
-    local_134 = v0;
-    v0 = local_134;
+    (*__p_134) = v0;
+    v0 = (*__p_134);
 
 Tisp_lce_soft0x914:
     /* fragment 140: Arithmetic */
@@ -135070,28 +135646,28 @@ Tisp_lce_soft0x914:
     v0 = (uintptr_t)v0 & 1;
 
     /* fragment 141: Branch */
-    local_1e0 = v1;
+    (*__p_1e0) = v1;
     if (v0 == 0) { goto Tisp_lce_soft0xb54; }
 
     /* fragment 142: CallSetup */
-    local_1ec = *(uint32_t *)((char *)(local_130 + ((uintptr_t)s1 << 2)) + 0);
-    local_1e8 = *(uint32_t *)((char *)(local_130 + ((uintptr_t)s1 << 2)) + 4);
-    t1 = *(uint32_t *)((char *)(local_130 + ((uintptr_t)s1 << 2)) + 36);
-    t0 = *(uint32_t *)((char *)(local_130 + ((uintptr_t)s1 << 2)) + 40);
-    local_1e4 = t1;
-    local_1e0 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_hist_filter_and_judge)(s7, s8, local_164, &local_20); /* jalr target resolved by relocation */
+    (*__p_1ec) = *(uint32_t *)((char *)((*__p_130) + ((uintptr_t)s1 << 2)) + 0);
+    (*__p_1e8) = *(uint32_t *)((char *)((*__p_130) + ((uintptr_t)s1 << 2)) + 4);
+    t1 = *(uint32_t *)((char *)((*__p_130) + ((uintptr_t)s1 << 2)) + 36);
+    t0 = *(uint32_t *)((char *)((*__p_130) + ((uintptr_t)s1 << 2)) + 40);
+    (*__p_1e4) = t1;
+    (*__p_1e0) = t0;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_hist_filter_and_judge)(s7, s8, (*__p_164), __p_20); /* jalr target resolved by relocation */
 
     /* fragment 143: StackAccess */
-    a1 = local_15c;
-    a0 = local_20;
-    t3 = local_24;
-    t0 = local_1e0;
-    t1 = local_1e4;
-    v0 = local_1e8;
+    a1 = (*__p_15c);
+    a0 = __p_20;
+    t3 = (*__p_24);
+    t0 = (*__p_1e0);
+    t1 = (*__p_1e4);
+    v0 = (*__p_1e8);
 
     /* fragment 144: Branch */
-    v1 = local_1ec;
+    v1 = (*__p_1ec);
     if (a1 != 0) { goto Tisp_lce_soft0xce8; }
 
     /* fragment 145: Arithmetic */
@@ -135099,9 +135675,9 @@ Tisp_lce_soft0x914:
 
 Tisp_lce_soft0x9a0:
     /* fragment 146: StackAccess */
-    v0 = local_268;
+    v0 = (*__p_268);
     t4 = v0 < 2;
-    v0 = local_150;
+    v0 = (*__p_150);
 
     /* fragment 147: Branch */
     v1 = (uintptr_t)v0 + (uintptr_t)s1;
@@ -135125,22 +135701,22 @@ Tisp_lce_soft0x9c8:
 
 Tisp_lce_soft0x9cc:
     /* fragment 152: StackAccess */
-    v0 = local_18c;
+    v0 = (*__p_18c);
 
     /* fragment 153: Branch */
     *(uint8_t *)((char *)v1 + 0) = t3;
     if (v0 == 0) { goto Tisp_lce_soft0xd6c; }
 
     /* fragment 154: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_head_tail_search)(s8, local_190, local_194, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_head_tail_search)(s8, (*__p_190), (*__p_194), __p_20); /* jalr target resolved by relocation */
 
     /* fragment 155: StackAccess */
-    v1 = local_214;
-    a0 = local_13c;
-    v0 = local_20;
-    a1 = local_24;
+    v1 = (*__p_214);
+    a0 = (*__p_13c);
+    v0 = __p_20;
+    a1 = (*__p_24);
     a3 = v1 + a0;
-    v1 = local_21c;
+    v1 = (*__p_21c);
 
     /* fragment 156: Branch */
     a2 = v1 + a0;
@@ -135223,46 +135799,46 @@ Tisp_lce_soft0xa74:
 
 Tisp_lce_soft0xa88:
     /* fragment 175: CallSetup */
-    local_68 = v0;
-    local_70 = a0;
-    local_74 = local_198;
-    local_78 = local_19c;
-    local_6c = t3;
-    local_7c = local_1a0;
-    local_80 = local_1a4;
-    local_84 = local_1a8;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_hist_method)(s7, s8, &local_68); /* jalr target resolved by relocation */
+    (*__p_68) = v0;
+    (*__p_70) = a0;
+    (*__p_74) = (*__p_198);
+    (*__p_78) = (*__p_19c);
+    (*__p_6c) = t3;
+    (*__p_7c) = (*__p_1a0);
+    (*__p_80) = (*__p_1a4);
+    (*__p_84) = (*__p_1a8);
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_hist_method)(s7, s8, __p_68); /* jalr target resolved by relocation */
 
     /* fragment 176: Branch */
-    v0 = local_168;
+    v0 = (*__p_168);
     if (s4 == 0) { goto Tisp_lce_soft0xd78; }
 
     /* fragment 177: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)local_224, (void *)(uintptr_t)s8, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*__p_224), (void *)(uintptr_t)s8, 128); /* jalr target resolved by relocation */
 
     /* fragment 178: StackAccess */
-    v0 = local_168;
+    v0 = (*__p_168);
 
     /* fragment 179: Branch */
     int _bc_v0_179 = v0 != 0;
-    v0 = local_1b8;
+    v0 = (*__p_1b8);
     if (_bc_v0_179) { goto Tisp_lce_soft0xd84; }
 
 Tisp_lce_soft0xaf8:
     /* fragment 180: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)local_228, (void *)(uintptr_t)s8, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*__p_228), (void *)(uintptr_t)s8, 128); /* jalr target resolved by relocation */
 
     /* fragment 181: StackAccess */
-    v1 = local_148;
+    v1 = (*__p_148);
     v0 = 1;
 
     /* fragment 182: Branch */
     int _bc_v1_182 = v1 == v0;
-    v1 = local_140;
+    v1 = (*__p_140);
     if (_bc_v1_182) { goto Tisp_lce_soft0xdec; }
 
     /* fragment 183: CallSetup */
-    a0 = local_22c;
+    a0 = (*__p_22c);
 
 Tisp_lce_soft0xb1c:
     /* fragment 184: CallSetup */
@@ -135273,17 +135849,17 @@ Tisp_lce_soft0xb1c:
 
 Tisp_lce_soft0xb2c:
     /* fragment 186: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)lce_pdf_to_cdf)(s8, &local_b0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)lce_pdf_to_cdf)(s8, __p_b0); /* jalr target resolved by relocation */
 
     /* fragment 187: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(local_16c + ((uintptr_t)s2 << 6)), (void *)(uintptr_t)&local_b0, 64); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*__p_16c) + ((uintptr_t)s2 << 6)), (void *)(uintptr_t)__p_b0, 64); /* jalr target resolved by relocation */
 
 Tisp_lce_soft0xb54:
     /* fragment 188: StackAccess */
-    v0 = local_210;
+    v0 = (*__p_210);
     v1 = (uintptr_t)s2 << 6;
     t7 = (uintptr_t)v0 + (uintptr_t)v1;
-    v1 = local_268;
+    v1 = (*__p_268);
     v0 = 4;
 
     /* fragment 189: Branch */
@@ -135291,34 +135867,34 @@ Tisp_lce_soft0xb54:
     if (v1 == v0) { goto Tisp_lce_soft0xbac; }
 
     /* fragment 190: CallSetup */
-    local_18 = (uint32_t *)&local_b0;
-    local_14 = local_16c + ((uintptr_t)s2 << 6);
-    local_10 = t7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_16bit_data_converge)(local_1ac, local_1b0, local_1b4, 32); /* jalr target resolved by relocation */
+    (*__p_18) = (uint32_t *)__p_b0;
+    (*__p_14) = (*__p_16c) + ((uintptr_t)s2 << 6);
+    (*__p_10) = t7;
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_16bit_data_converge)((*__p_1ac), (*__p_1b0), (*__p_1b4), 32); /* jalr target resolved by relocation */
 
     /* fragment 191: CallSetup */
     a2 = 64;
 
 Tisp_lce_soft0xbac:
     /* fragment 192: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)t7, (void *)(uintptr_t)&local_b0, a2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)t7, (void *)(uintptr_t)__p_b0, a2); /* jalr target resolved by relocation */
 
     /* fragment 193: StackAccess */
-    v1 = local_148;
+    v1 = (*__p_148);
     v0 = 1;
 
     /* fragment 194: Branch */
-    a2 = local_160;
+    a2 = (*__p_160);
     if (v1 != v0) { goto Tisp_lce_soft0xe34; }
 
     /* fragment 195: StackAccess */
-    v0 = local_140;
+    v0 = (*__p_140);
     s1 = (uintptr_t)s1 << 1;
     s1 = (uintptr_t)v0 + (uintptr_t)s1;
     v1 = *(uint16_t *)((char *)s1 + 0);
 
     /* fragment 196: Branch */
-    v0 = local_144;
+    v0 = (*__p_144);
     if (v1 <= 0) { goto Tisp_lce_soft0xc04; }
 
     /* fragment 197: Arithmetic */
@@ -135333,14 +135909,14 @@ Tisp_lce_soft0xbac:
     v0 = (uintptr_t)v0 - (uintptr_t)v1;
 
     /* fragment 200: StackAccess */
-    v1 = local_144;
+    v1 = (*__p_144);
     v0 = (uintptr_t)v0 * (uintptr_t)v1;
     v0 = (uintptr_t *)((uintptr_t)v0 >> 10);
     a2 = a2 - (uintptr_t)v0;
 
 Tisp_lce_soft0xc04:
     /* fragment 201: StackAccess */
-    v1 = local_208;
+    v1 = (*__p_208);
     s2 = (uintptr_t)s2 << 4;
     a1 = 0;
     s2 = (uintptr_t)v1 + (uintptr_t)s2;
@@ -135349,12 +135925,12 @@ Tisp_lce_soft0xc04:
 
 Tisp_lce_soft0xc1c:
     /* fragment 202: Arithmetic */
-    a0 = (uint32_t *)&local_b0;
+    a0 = (uint32_t *)__p_b0;
     a0 = a0 + a1;
 
     /* fragment 203: MemoryAccess */
     a0 = *(uint16_t *)((char *)a0 + 0);
-    v1 = (int32_t *)&local_f0;
+    v1 = (int32_t *)__p_f0;
     v1 = v1 + a1;
     v1 = *(uint16_t *)((char *)v1 + 0);
     a1 = a1 + 4;
@@ -135383,27 +135959,27 @@ Tisp_lce_soft0xc1c:
 
     /* fragment 209: Branch */
     int _bc_s1_209 = s1 != v0;
-    v0 = local_138;
+    v0 = (*__p_138);
     if (_bc_s1_209) { goto Tisp_lce_soft0x6d0; }
 
     /* fragment 210: Arithmetic */
     v0 = v0 + 1;
 
     /* fragment 211: StackAccess */
-    local_138 = v0;
-    v0 = local_13c;
-    v1 = local_138;
+    (*__p_138) = v0;
+    v0 = (*__p_13c);
+    v1 = (*__p_138);
     v0 = v0 + 8;
-    local_13c = v0;
-    v0 = local_140;
+    (*__p_13c) = v0;
+    v0 = (*__p_140);
     v0 = v0 + 16;
-    local_140 = v0;
-    v0 = local_150;
+    (*__p_140) = v0;
+    v0 = (*__p_150);
     v0 = v0 + 8;
-    local_150 = v0;
-    v0 = local_130;
+    (*__p_150) = v0;
+    v0 = (*__p_130);
     v0 = v0 + 36;
-    local_130 = v0;
+    (*__p_130) = v0;
     v0 = 5;
 
     /* fragment 212: Branch */
@@ -135422,18 +135998,18 @@ Tisp_lce_soft0xce8:
     if (a1 == a0) { goto Tisp_lce_soft0x9a0; }
 
     /* fragment 216: StackAccess */
-    a0 = local_15c;
+    a0 = (*__p_15c);
     a1 = 3;
 
     /* fragment 217: Branch */
-    t3 = local_188;
+    t3 = (*__p_188);
     if (a0 == a1) { goto Tisp_lce_soft0x9a0; }
 
     /* fragment 218: Arithmetic */
     v0 = (uintptr_t)v1 + (uintptr_t)v0;
 
     /* fragment 219: StackAccess */
-    v1 = local_170;
+    v1 = (*__p_170);
     v0 = (uintptr_t)v0 + (uintptr_t)t1;
     v0 = v0 + t0;
     v0 = a0 >> 30;
@@ -135482,26 +136058,26 @@ Tisp_lce_soft0xd6c:
 
 Tisp_lce_soft0xd78:
     /* fragment 229: Branch */
-    v1 = local_148;
+    v1 = (*__p_148);
     if (v0 == 0) { goto Tisp_lce_soft0xddc; }
 
     /* fragment 230: CallSetup */
-    v0 = local_1b8;
+    v0 = (*__p_1b8);
 
 Tisp_lce_soft0xd84:
     /* fragment 231: CallSetup */
-    local_68 = v0;
-    local_6c = local_1bc;
-    local_70 = local_1c0;
-    local_74 = local_1c4;
-    local_10 = local_1cc;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_self_light_correct)(s8, s7, &local_68, local_1c8); /* jalr target resolved by relocation */
+    (*__p_68) = v0;
+    (*__p_6c) = (*__p_1bc);
+    (*__p_70) = (*__p_1c0);
+    (*__p_74) = (*__p_1c4);
+    (*__p_10) = (*__p_1cc);
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_self_light_correct)(s8, s7, __p_68, (*__p_1c8)); /* jalr target resolved by relocation */
 
     /* fragment 232: CallSetup */
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s8, (void *)(uintptr_t)s7, 128); /* jalr target resolved by relocation */
 
     /* fragment 233: Branch */
-    v1 = local_148;
+    v1 = (*__p_148);
     if (s4 != 0) { goto Tisp_lce_soft0xaf8; }
 
 Tisp_lce_soft0xddc:
@@ -135514,7 +136090,7 @@ Tisp_lce_soft0xddc:
     if (_bc_v1_235) { goto Tisp_lce_soft0xb2c; }
 
     /* fragment 236: StackAccess */
-    v1 = local_140;
+    v1 = (*__p_140);
 
 Tisp_lce_soft0xdec:
     /* fragment 237: Arithmetic */
@@ -135525,7 +136101,7 @@ Tisp_lce_soft0xdec:
     a3 = *(uint16_t *)((char *)v0 + 0);
 
     /* fragment 239: Branch */
-    a2 = local_204;
+    a2 = (*__p_204);
     if (a3 <= 0) { goto Tisp_lce_soft0xe24; }
 
     /* fragment 240: CallSetup */
@@ -135536,7 +136112,7 @@ Tisp_lce_soft0xdec:
 
 Tisp_lce_soft0xe24:
     /* fragment 242: Branch */
-    a0 = local_22c;
+    a0 = (*__p_22c);
     if (s4 != 0) { goto Tisp_lce_soft0xb1c; }
 
     /* fragment 243: Branch */
@@ -135545,7 +136121,7 @@ Tisp_lce_soft0xe24:
 
 Tisp_lce_soft0xe34:
     /* fragment 244: Branch */
-    v0 = local_144;
+    v0 = (*__p_144);
     goto Tisp_lce_soft0xc04;
 
 Tisp_lce_soft0xe3c:
@@ -136787,15 +137363,37 @@ int tisp_lce_init(int arg1, int arg2, int arg3, uint32_t arg4)
     return 0;
 #else
 
-   uint32_t var_48 = arg2 * arg3;
-        void * var_58 = (void *)0xb566;
-    uint32_t var_54 = 0xb3b4;
-    uint32_t *var_50 = 0xb490;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x30..0xc4 (196 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser of each slot is reproduced as a store, in order.
+     */
+    uint32_t __frame[0x31];
+    uint32_t *const __p_48 = (uint32_t *)(void *)((char *)__frame + 0x48);
+    void **const __p_58 = (void **)(void *)((char *)__frame + 0x58);
+    uint32_t *const __p_54 = (uint32_t *)(void *)((char *)__frame + 0x54);
+    uint32_t **const __p_50 = (uint32_t **)(void *)((char *)__frame + 0x50);
+    uint32_t *const __p_7c = (uint32_t *)(void *)((char *)__frame + 0x7c);
+    uint32_t **const __p_a0 = (uint32_t **)(void *)((char *)__frame + 0xa0);
+    int *const __p_30 = (int *)(void *)((char *)__frame + 0x30);
+    int *const __p_38 = (int *)(void *)((char *)__frame + 0x38);
+    int *const __p_34 = (int *)(void *)((char *)__frame + 0x34);
+    (*__p_48) = (uint32_t)(arg2 * arg3);
+    (*__p_58) = (void *)((void *)0xb566);
+    (*__p_54) = (uint32_t)(0xb3b4);
+    (*__p_50) = (uint32_t *)(0xb490);
     void *const var_4c = (void *)0xb2e0;
-    uint32_t var_7c;
-    memcpy(&var_7c, (void *)((char *)&static_srgb_gamma + 0x11c), 0x24);
-    uint32_t *var_a0;
-    memcpy(&var_a0, (void *)((char *)&static_srgb_gamma + 0x140), 0x24);
+    memcpy(__p_7c, (void *)((char *)&static_srgb_gamma + 0x11c), 0x24);
+    memcpy(__p_a0, (void *)((char *)&static_srgb_gamma + 0x140), 0x24);
     uint32_t lo = arg3 / 5;
     lce_sensor_tolal_num = arg4;
     uint32_t v0_1 = ((arg2 >> 1) / 9) << 1;
@@ -136887,7 +137485,7 @@ int tisp_lce_init(int arg1, int arg2, int arg3, uint32_t arg4)
         t1_2 = (void *)((lo + 1) * (v0_19 + 2));
         int t8_1 = (int)(uintptr_t)t1_2 << 1;
         void *t7_1 = (void *)((uint32_t)t1_2 + (uint32_t)t2_1);
-        var_7c = t8_1;
+        (*__p_7c) = t8_1;
         void *var_78_1 = t7_1;
         t0_4 = (void *)((uint32_t)t1_2 - (v0_19 + 2));
         void *a0_11 = (void *)((uint32_t)t1_2 + (uint32_t)t0_4);
@@ -136898,7 +137496,7 @@ int tisp_lce_init(int arg1, int arg2, int arg3, uint32_t arg4)
         void *t5_1 = (void *)((uint32_t)s4_1 + (uint32_t)t0_4);
         int var_64_1 = a1_4;
         void *var_60_1 = t5_1;
-        var_a0[0] = 0x40000000 / t8_1;
+        (*__p_a0)[0] = 0x40000000 / t8_1;
         uint32_t var_9c_1 = 0x40000000 / (uint32_t)t7_1;
         uint32_t var_98_1 = 0x40000000 / t6_1;
         uint32_t var_94_1 = 0x40000000 / (uint32_t)a0_11;
@@ -136930,26 +137528,23 @@ int tisp_lce_init(int arg1, int arg2, int arg3, uint32_t arg4)
 
     void *var_54_1 = t2_1;
     void *var_50_1 = t0_4;
-    var_58[0] = t1_2;
+    (*__p_58)[0] = t1_2;
     void *const var_4c_1 = s4_1;
     ((void **)s5_1)[4] = t3_1;
     ((void **)s5_1)[3] = s6_1;
     *s5_1 = arg2 * arg3;
-    memcpy(&s5_1[5], &var_58, 0x10);
-    memcpy(&s5_1[9], &var_7c, 0x24);
-    memcpy(&s5_1[0x12], &var_a0, 0x24);
+    memcpy(&s5_1[5], __p_58, 0x10);
+    memcpy(&s5_1[9], __p_7c, 0x24);
+    memcpy(&s5_1[0x12], __p_a0, 0x24);
     ((void **)s5_1)[2] = 0xc;
     int var_40_5;
     int a1_12 = (var_40_5 << 0x10 & 0x1ff0000) | (var_48_1 & 0x1ff);
     int var_44_4;
-    int var_30;
-    int s6_4 = (uintptr_t)s6_1 << 8 | var_44_4 | 0x10000 | var_30 << 0x14;
+    int s6_4 = (uintptr_t)s6_1 << 8 | var_44_4 | 0x10000 | (*__p_30) << 0x14;
     ((void **)(uintptr_t)s5_1)[1] = 0x80000000 / ((arg2 * arg3) >> 2);
     int var_3c_2;
-    int var_38;
-    int s5_4 = (var_38 << 0x10 & 0x1fff0000) | (var_3c_2 & 0x1fff);
-    int var_34;
-    int s1_3 = (s1_2 << 0x10 & 0x1fff0000) | (var_34 & 0x1fff);
+    int s5_4 = ((*__p_38) << 0x10 & 0x1fff0000) | (var_3c_2 & 0x1fff);
+    int s1_3 = (s1_2 << 0x10 & 0x1fff0000) | ((*__p_34) & 0x1fff);
     int a0_18;
     int a1_15;
 
@@ -137848,24 +138443,39 @@ int tisp_lce_draw_lines(int arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004d2a0 origin=fragment_seed original=tisp_lce_get_show_data */
 int64_t tisp_lce_get_show_data(uintptr_t a0, uintptr_t a1)
 {
-    char local_10[128];
-    uint32_t *local_90 = 0;
-    uint32_t *local_94 = 0;
-    uint32_t local_98 = 0;
-    uint32_t local_9c = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_a4 = 0;
-    uint32_t local_a8 = 0;
-    uint32_t *local_b0 = 0;
-    uint32_t local_b4 = 0;
-    uint32_t local_b8 = 0;
-    uint32_t local_bc = 0;
-    uint32_t local_c0 = 0;
-    uint32_t local_c4 = 0;
-    uint32_t local_c8 = 0;
-    uint32_t local_cc = 0;
-    uint32_t local_d0 = 0;
-    uint32_t local_d4 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0xd8 (216 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_10 [128] @0x10 -> 128 byte(s): 128 x char = 128 byte(s)
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x36] = { 0 };
+    char *const __p_10 = (char *)(void *)((char *)__frame + 0x10);
+    uint32_t **const __p_90 = (uint32_t **)(void *)((char *)__frame + 0x90);
+    uint32_t **const __p_94 = (uint32_t **)(void *)((char *)__frame + 0x94);
+    uint32_t *const __p_98 = (uint32_t *)(void *)((char *)__frame + 0x98);
+    uint32_t *const __p_9c = (uint32_t *)(void *)((char *)__frame + 0x9c);
+    uint32_t *const __p_a0 = (uint32_t *)(void *)((char *)__frame + 0xa0);
+    uint32_t *const __p_a4 = (uint32_t *)(void *)((char *)__frame + 0xa4);
+    uint32_t *const __p_a8 = (uint32_t *)(void *)((char *)__frame + 0xa8);
+    uint32_t **const __p_b0 = (uint32_t **)(void *)((char *)__frame + 0xb0);
+    uint32_t *const __p_b4 = (uint32_t *)(void *)((char *)__frame + 0xb4);
+    uint32_t *const __p_b8 = (uint32_t *)(void *)((char *)__frame + 0xb8);
+    uint32_t *const __p_bc = (uint32_t *)(void *)((char *)__frame + 0xbc);
+    uint32_t *const __p_c0 = (uint32_t *)(void *)((char *)__frame + 0xc0);
+    uint32_t *const __p_c4 = (uint32_t *)(void *)((char *)__frame + 0xc4);
+    uint32_t *const __p_c8 = (uint32_t *)(void *)((char *)__frame + 0xc8);
+    uint32_t *const __p_cc = (uint32_t *)(void *)((char *)__frame + 0xcc);
+    uint32_t *const __p_d0 = (uint32_t *)(void *)((char *)__frame + 0xd0);
+    uint32_t *const __p_d4 = (uint32_t *)(void *)((char *)__frame + 0xd4);
     uintptr_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -137915,19 +138525,19 @@ int64_t tisp_lce_get_show_data(uintptr_t a0, uintptr_t a1)
 
     /* fragment 5: CallSetup */
     t1 = s3 < 1;
-    local_90 = (uintptr_t)t4 & 255;
+    (*__p_90) = (uintptr_t)t4 & 255;
     t1 = s8 + (uintptr_t)t1;
     t1 = (uintptr_t)t1 & 255;
     s5 = (uintptr_t)t3 << 3;
     s4 = t1 - 1;
     s5 = (*(uint8_t *)((char *)(v0) + 5)) + s5;
-    local_a8 = t2;
-    local_a4 = v1;
-    local_a0 = t4;
-    local_9c = t1;
-    local_98 = t3;
-    local_94 = *(uint8_t *)((char *)(v0) + 5);
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_10, 0, 128); /* jalr target resolved by relocation */
+    (*__p_a8) = t2;
+    (*__p_a4) = v1;
+    (*__p_a0) = t4;
+    (*__p_9c) = t1;
+    (*__p_98) = t3;
+    (*__p_94) = *(uint8_t *)((char *)(v0) + 5);
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_10, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
     s5 = s5 & 255;
@@ -137939,7 +138549,7 @@ int64_t tisp_lce_get_show_data(uintptr_t a0, uintptr_t a1)
     /* fragment 8: CallSetup */
     s4 = (uintptr_t)s4 & 255;
     s3 = (uintptr_t)s3 ^ 8;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + ((((uintptr_t)local_90 + ((uintptr_t)s4 & 255)) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 112)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + ((((uintptr_t)(*__p_90) + ((uintptr_t)s4 & 255)) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 112)); /* jalr target resolved by relocation */
 
     /* fragment 9: CallSetup */
     s3 = s3 < 1;
@@ -137950,7 +138560,7 @@ int64_t tisp_lce_get_show_data(uintptr_t a0, uintptr_t a1)
     s6 = s2 - s7;
     s6 = s6 << 3;
     s6 = s6 & 255;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + ((((uintptr_t)local_90 + (s8 - ((uintptr_t)s3 < 1) & 255)) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 116)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + ((((uintptr_t)(*__p_90) + (s8 - ((uintptr_t)s3 < 1) & 255)) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 116)); /* jalr target resolved by relocation */
 
     /* fragment 10: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)((uintptr_t)s0 + (((s6 + (uintptr_t)s4) << 6) + 12852), *(uint32_t *)((char *)((uintptr_t)s1) + 120)); /* jalr target resolved by relocation */
@@ -137961,15 +138571,15 @@ int64_t tisp_lce_get_show_data(uintptr_t a0, uintptr_t a1)
     /* fragment 12: MemoryAccess */
     a0 = *(uint32_t *)((char *)s1 + 100);
     a2 = *(uint32_t *)((char *)s1 + 128);
-    a3 = local_94;
+    a3 = (*__p_94);
     v0 = *(uint8_t *)((char *)a0 + 0);
-    t3 = local_98;
-    t1 = local_9c;
-    t4 = local_a0;
-    v1 = local_a4;
+    t3 = (*__p_98);
+    t1 = (*__p_9c);
+    t4 = (*__p_a0);
+    v1 = (*__p_a4);
 
     /* fragment 13: Branch */
-    t2 = local_a8;
+    t2 = (*__p_a8);
     if (v0 != 0) { goto tisp_lce_get_show_data0x1f8; }
 
     /* fragment 14: CallSetup */
@@ -138045,7 +138655,7 @@ tisp_lce_get_show_data0x1f8:
 
 tisp_lce_get_show_data0x25c:
     /* fragment 30: Arithmetic */
-    v1 = (int32_t *)&local_10;
+    v1 = (int32_t *)__p_10;
     t5 = (uintptr_t)v1 + (uintptr_t)v0;
     a1 = (uintptr_t)v0 + (uintptr_t)t6;
     v1 = v0 + a0;
@@ -138072,7 +138682,7 @@ tisp_lce_get_show_data0x25c:
     /* fragment 33: CallSetup */
     t5 = s3 + 1;
     t5 = (uintptr_t)t5 & 255;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)lce_compress_data)(1, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)lce_compress_data)(1, __p_10); /* jalr target resolved by relocation */
 
     /* fragment 34: Arithmetic */
     t2 = t2 + 1;
@@ -138095,7 +138705,7 @@ tisp_lce_get_show_data0x25c:
 
 tisp_lce_get_show_data0x2e8:
     /* fragment 38: Arithmetic */
-    v1 = (int32_t *)&local_10;
+    v1 = (int32_t *)__p_10;
     a2 = (uintptr_t)v1 + (uintptr_t)v0;
     a0 = (uintptr_t)v0 + (uintptr_t)t4;
     v1 = (uintptr_t)t6 + (uintptr_t)v0;
@@ -138124,7 +138734,7 @@ tisp_lce_get_show_data0x2e8:
     s2 = s2 - s7;
     s2 = (uintptr_t)s2 + ((uintptr_t)s2 << 3);
     s2 = (uintptr_t)s2 & 255;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_compress_data)(1, &local_10, *(uint32_t *)((char *)(s1) + 132)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_compress_data)(1, __p_10, *(uint32_t *)((char *)(s1) + 132)); /* jalr target resolved by relocation */
 
     /* fragment 42: Arithmetic */
     s4 = (uintptr_t)s2 + (uintptr_t)s4;
@@ -138146,7 +138756,7 @@ tisp_lce_get_show_data0x2e8:
 
 tisp_lce_get_show_data0x378:
     /* fragment 46: Arithmetic */
-    v1 = (int32_t *)&local_10;
+    v1 = (int32_t *)__p_10;
     a2 = (uintptr_t)v1 + (uintptr_t)v0;
     v1 = (uintptr_t)t1 + (uintptr_t)v0;
     a0 = (uintptr_t)a3 + (uintptr_t)v0;
@@ -138171,7 +138781,7 @@ tisp_lce_get_show_data0x378:
     if (v0 != a1) { goto tisp_lce_get_show_data0x378; }
 
     /* fragment 49: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_compress_data)(1, &local_10, *(uint32_t *)((char *)(s1) + 136)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_compress_data)(1, __p_10, *(uint32_t *)((char *)(s1) + 136)); /* jalr target resolved by relocation */
 
     /* fragment 50: Arithmetic */
     s2 = (uintptr_t)s2 + (uintptr_t)t5;
@@ -138187,7 +138797,7 @@ tisp_lce_get_show_data0x378:
 
 tisp_lce_get_show_data0x3e8:
     /* fragment 53: Arithmetic */
-    v1 = (int32_t *)&local_10;
+    v1 = (int32_t *)__p_10;
     a2 = (uintptr_t)v1 + (uintptr_t)v0;
     v1 = (uintptr_t)s3 + (uintptr_t)v0;
     a0 = (uintptr_t)a3 + (uintptr_t)v0;
@@ -138212,7 +138822,7 @@ tisp_lce_get_show_data0x3e8:
     if (v0 != a1) { goto tisp_lce_get_show_data0x3e8; }
 
     /* fragment 56: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_compress_data)(1, &local_10, *(uint32_t *)((char *)(s1) + 140)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_compress_data)(1, __p_10, *(uint32_t *)((char *)(s1) + 140)); /* jalr target resolved by relocation */
 
     /* fragment 57: Epilogue */
     /* function epilogue: restore registers and return */
@@ -138288,7 +138898,7 @@ tisp_lce_get_show_data0x4c8:
 
 tisp_lce_get_show_data0x51c:
     /* fragment 74: Arithmetic */
-    v1 = (int32_t *)&local_10;
+    v1 = (int32_t *)__p_10;
     t2 = (uintptr_t)v1 + (uintptr_t)v0;
     a0 = v0 + s5;
     v1 = v0 + a1;
@@ -138314,7 +138924,7 @@ tisp_lce_get_show_data0x51c:
     if (v0 != t0) { goto tisp_lce_get_show_data0x51c; }
 
     /* fragment 77: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)lce_compress_data)(1, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)lce_compress_data)(1, __p_10); /* jalr target resolved by relocation */
 
     /* fragment 78: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)lce_compress_data)(1, s0 + 15384, *(uint32_t *)((char *)(s1) + 132)); /* jalr target resolved by relocation */
@@ -147751,26 +148361,41 @@ tiziano_adr_5x5_out0x6c:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000055e64 origin=fragment_seed original=tiziano_adr_5x5_init */
 int64_t tiziano_adr_5x5_init(uint32_t a0, uint32_t a1, uintptr_t a2, uint32_t a3)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_78 = 0;
-    uint32_t local_98 = 0;
-    uint32_t local_b8 = 0;
-    uint32_t local_bc = 0;
-    uint32_t local_c0 = 0;
-    uint32_t local_c4 = 0;
-    uint32_t local_c8 = 0;
-    uint32_t local_cc = 0;
-    uint32_t local_d0 = 0;
-    uint32_t local_d4 = 0;
-    uint32_t local_d8 = 0;
-    uint32_t local_dc = 0;
-    uint32_t local_e0 = 0;
-    uint32_t local_e4 = 0;
-    uint32_t local_e8 = 0;
-    uint32_t local_ec = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0xf0 (240 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x3c] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_38 = (uint32_t *)(void *)((char *)__frame + 0x38);
+    uint32_t *const __p_58 = (uint32_t *)(void *)((char *)__frame + 0x58);
+    uint32_t *const __p_78 = (uint32_t *)(void *)((char *)__frame + 0x78);
+    uint32_t *const __p_98 = (uint32_t *)(void *)((char *)__frame + 0x98);
+    uint32_t *const __p_b8 = (uint32_t *)(void *)((char *)__frame + 0xb8);
+    uint32_t *const __p_bc = (uint32_t *)(void *)((char *)__frame + 0xbc);
+    uint32_t *const __p_c0 = (uint32_t *)(void *)((char *)__frame + 0xc0);
+    uint32_t *const __p_c4 = (uint32_t *)(void *)((char *)__frame + 0xc4);
+    uint32_t *const __p_c8 = (uint32_t *)(void *)((char *)__frame + 0xc8);
+    uint32_t *const __p_cc = (uint32_t *)(void *)((char *)__frame + 0xcc);
+    uint32_t *const __p_d0 = (uint32_t *)(void *)((char *)__frame + 0xd0);
+    uint32_t *const __p_d4 = (uint32_t *)(void *)((char *)__frame + 0xd4);
+    uint32_t *const __p_d8 = (uint32_t *)(void *)((char *)__frame + 0xd8);
+    uint32_t *const __p_dc = (uint32_t *)(void *)((char *)__frame + 0xdc);
+    uint32_t *const __p_e0 = (uint32_t *)(void *)((char *)__frame + 0xe0);
+    uint32_t *const __p_e4 = (uint32_t *)(void *)((char *)__frame + 0xe4);
+    uint32_t *const __p_e8 = (uint32_t *)(void *)((char *)__frame + 0xe8);
+    uint32_t *const __p_ec = (uint32_t *)(void *)((char *)__frame + 0xec);
     uint32_t ra = 0;
     uint32_t *s0 = 0;
     uint32_t *s1 = 0;
@@ -147802,16 +148427,16 @@ int64_t tiziano_adr_5x5_init(uint32_t a0, uint32_t a1, uintptr_t a2, uint32_t a3
     t0 = a1;
 
     /* fragment 2: StackAccess */
-    local_cc = s1;
-    local_ec = ra;
-    local_e8 = s8;
-    local_e4 = s7;
-    local_e0 = s6;
-    local_dc = s5;
-    local_d8 = s4;
-    local_d4 = s3;
-    local_d0 = s2;
-    local_c8 = s0;
+    (*__p_cc) = s1;
+    (*__p_ec) = ra;
+    (*__p_e8) = s8;
+    (*__p_e4) = s7;
+    (*__p_e0) = s6;
+    (*__p_dc) = s5;
+    (*__p_d8) = s4;
+    (*__p_d4) = s3;
+    (*__p_d0) = s2;
+    (*__p_c8) = s0;
 
     /* fragment 3: Branch */
     s1 = a2;
@@ -147823,8 +148448,8 @@ int64_t tiziano_adr_5x5_init(uint32_t a0, uint32_t a1, uintptr_t a2, uint32_t a3
 
 tiziano_adr_5x5_init0x44:
     /* fragment 5: CallSetup */
-    local_c4 = t0;
-    local_c0 = t2;
+    (*__p_c4) = t0;
+    (*__p_c0) = t2;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(128); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
@@ -147852,11 +148477,11 @@ tiziano_adr_5x5_init0x44:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(128); /* jalr target resolved by relocation */
 
     /* fragment 12: CallSetup */
-    local_b8 = v0;
+    (*__p_b8) = v0;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(128); /* jalr target resolved by relocation */
 
     /* fragment 13: CallSetup */
-    local_bc = v0;
+    (*__p_bc) = v0;
     v0 = (uintptr_t *)memset((void *)(uintptr_t)s8, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 14: CallSetup */
@@ -147875,14 +148500,14 @@ tiziano_adr_5x5_init0x44:
     v0 = (uintptr_t *)memset((void *)(uintptr_t)s3, 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)local_b8, 0, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)(*__p_b8), 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)local_bc, 0, 128); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)(*__p_bc), 0, 128); /* jalr target resolved by relocation */
 
     /* fragment 21: StackAccess */
-    t2 = local_c0;
-    t0 = local_c4;
+    t2 = (*__p_c0);
+    t0 = (*__p_c4);
     v0 = 4;
     a0 = t2 + 3;
     t2 = 6;
@@ -147924,13 +148549,13 @@ tiziano_adr_5x5_init0x44:
     v0 = t1 + t0;
 
     /* fragment 30: StackAccess */
-    local_c0 = v0;
+    (*__p_c0) = v0;
     t7 = t0 + (uintptr_t)t5;
     t0 = t0 + t7;
 
 tiziano_adr_5x5_init0x1ac:
     /* fragment 31: StackAccess */
-    v0 = local_c0;
+    v0 = (*__p_c0);
     v0 = v0 < t1;
 
     /* fragment 32: Branch */
@@ -147954,9 +148579,9 @@ tiziano_adr_5x5_init0x1d4:
     if (a0 != 0) { goto tiziano_adr_5x5_init0x4d4; }
 
     /* fragment 36: StackAccess */
-    local_58 = 0;
-    local_38 = 0;
-    local_18 = 0;
+    (*__p_58) = 0;
+    (*__p_38) = 0;
+    (*__p_18) = 0;
 
 tiziano_adr_5x5_init0x1f0:
     /* fragment 37: MemoryAccess */
@@ -147967,7 +148592,7 @@ tiziano_adr_5x5_init0x1f0:
     if (a1 != 0) { goto tiziano_adr_5x5_init0x598; }
 
     /* fragment 39: StackAccess */
-    local_78 = 0;
+    (*__p_78) = 0;
 
 tiziano_adr_5x5_init0x204:
     /* fragment 40: MemoryAccess */
@@ -147978,7 +148603,7 @@ tiziano_adr_5x5_init0x204:
     if (a1 != 0) { goto tiziano_adr_5x5_init0x5e0; }
 
     /* fragment 42: StackAccess */
-    local_98 = 0;
+    (*__p_98) = 0;
 
 tiziano_adr_5x5_init0x218:
     /* fragment 43: Arithmetic */
@@ -147991,19 +148616,19 @@ tiziano_adr_5x5_init0x218:
     if (v0 != t1) { goto tiziano_adr_5x5_init0x1d4; }
 
     /* fragment 45: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(s2) + 8)), (void *)(uintptr_t)&local_98, 32); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(s2) + 8)), (void *)(uintptr_t)__p_98, 32); /* jalr target resolved by relocation */
 
     /* fragment 46: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(s2) + 12)), (void *)(uintptr_t)&local_78, 32); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(s2) + 12)), (void *)(uintptr_t)__p_78, 32); /* jalr target resolved by relocation */
 
     /* fragment 47: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(s2) + 16)), (void *)(uintptr_t)&local_58, 32); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(s2) + 16)), (void *)(uintptr_t)__p_58, 32); /* jalr target resolved by relocation */
 
     /* fragment 48: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(s2) + 20)), (void *)(uintptr_t)&local_38, 32); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(s2) + 20)), (void *)(uintptr_t)__p_38, 32); /* jalr target resolved by relocation */
 
     /* fragment 49: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(s2) + 24)), (void *)(uintptr_t)&local_18, 32); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(s2) + 24)), (void *)(uintptr_t)__p_18, 32); /* jalr target resolved by relocation */
 
     /* fragment 50: Branch */
     v0 = (uintptr_t *)&private_vfree;
@@ -148054,7 +148679,7 @@ tiziano_adr_5x5_init0x2e8:
 
 tiziano_adr_5x5_init0x2fc:
     /* fragment 62: StackAccess */
-    v0 = local_b8;
+    v0 = (*__p_b8);
 
     /* fragment 63: Branch */
     a0 = v0;
@@ -148065,7 +148690,7 @@ tiziano_adr_5x5_init0x2fc:
 
 tiziano_adr_5x5_init0x318:
     /* fragment 65: StackAccess */
-    v0 = local_bc;
+    v0 = (*__p_bc);
 
     /* fragment 66: Branch */
     a0 = v0;
@@ -148089,7 +148714,7 @@ tiziano_adr_5x5_init0x364:
 
 tiziano_adr_5x5_init0x370:
     /* fragment 71: CallSetup */
-    local_c4 = v1;
+    (*__p_c4) = v1;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tiziano_adr_5x5_out)(t1, t3, t7); /* jalr target resolved by relocation */
 
     /* fragment 72: CallSetup */
@@ -148106,7 +148731,7 @@ tiziano_adr_5x5_init0x370:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tiziano_adr_5x5_out)(t1, t3, t5, t8); /* jalr target resolved by relocation */
 
     /* fragment 75: CallSetup */
-    t6 = local_b8 + (uintptr_t)t6;
+    t6 = (*__p_b8) + (uintptr_t)t6;
     *(uint32_t *)((char *)(uintptr_t)t6 + 0) = ((*(uint32_t *)((char *)((uintptr_t)t6) + 0)) + (uintptr_t)v0);
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tiziano_adr_5x5_out)(t1, t3, t0); /* jalr target resolved by relocation */
 
@@ -148126,11 +148751,11 @@ tiziano_adr_5x5_init0x370:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tiziano_adr_5x5_out)(t1, t3, t5); /* jalr target resolved by relocation */
 
     /* fragment 79: StackAccess */
-    v1 = local_bc;
+    v1 = (*__p_bc);
     t3 = t3 + 1;
     t6 = (uintptr_t)v1 + (uintptr_t)t6;
     a0 = *(uint32_t *)((char *)t6 + 0);
-    v1 = local_c4;
+    v1 = (*__p_c4);
     v0 = a0 + (uintptr_t)v0;
     *(uint32_t *)((char *)t6 + 0) = v0;
 
@@ -148152,17 +148777,17 @@ tiziano_adr_5x5_init0x4d4:
     if (a1 != 0) { goto tiziano_adr_5x5_init0x510; }
 
     /* fragment 84: Arithmetic */
-    a0 = (uint32_t *)&local_58;
+    a0 = (uint32_t *)__p_58;
     a0 = a0 + (uintptr_t)v0;
 
     /* fragment 85: MemoryAccess */
     a1 = *(uint8_t *)((char *)a0 + -1);
     *(uint8_t *)((char *)a0 + 0) = a1;
-    a0 = (uint32_t *)&local_38;
+    a0 = (uint32_t *)__p_38;
     a0 = a0 + (uintptr_t)v0;
     a1 = *(uint8_t *)((char *)a0 + -1);
     *(uint8_t *)((char *)a0 + 0) = a1;
-    a0 = (uint32_t *)&local_18;
+    a0 = (uint32_t *)__p_18;
     a0 = a0 + (uintptr_t)v0;
     a1 = *(uint8_t *)((char *)a0 + -1);
 
@@ -148188,7 +148813,7 @@ tiziano_adr_5x5_init0x510:
     /* asm: 5638c:	0145001a 	div	zero,t2,a1 */
 
     /* fragment 91: Arithmetic */
-    a1 = (uint32_t *)&local_58;
+    a1 = (uint32_t *)__p_58;
     a1 = a1 + (uintptr_t)v0;
 
     /* fragment 92: MemoryAccess */
@@ -148208,13 +148833,13 @@ tiziano_adr_5x5_init0x510:
     /* asm: 563b4:	00aa001a 	div	zero,a1,t2 */
 
     /* fragment 96: Arithmetic */
-    t2 = (uint32_t *)&local_38;
+    t2 = (uint32_t *)__p_38;
     t2 = (uintptr_t)t2 + (uintptr_t)v0;
 
     /* fragment 97: MemoryAccess */
     *(uint8_t *)((char *)t2 + 0) = a1;
     a1 = *(uint32_t *)((char *)a2 + 0);
-    t2 = local_b8;
+    t2 = (*__p_b8);
 
     /* fragment 98: Unknown */
     /* unmatched fragment 98 (Unknown): no deterministic matcher for Unknown */
@@ -148232,7 +148857,7 @@ tiziano_adr_5x5_init0x510:
     /* asm: 563e4:	0085001a 	div	zero,a0,a1 */
 
     /* fragment 102: Arithmetic */
-    a1 = (uint32_t *)&local_18;
+    a1 = (uint32_t *)__p_18;
     a1 = a1 + (uintptr_t)v0;
 
     /* fragment 103: Branch */
@@ -148244,7 +148869,7 @@ tiziano_adr_5x5_init0x598:
     if (a0 != 0) { goto tiziano_adr_5x5_init0x5b4; }
 
     /* fragment 105: Arithmetic */
-    a0 = (uint32_t *)&local_78;
+    a0 = (uint32_t *)__p_78;
     a0 = a0 + (uintptr_t)v0;
 
     /* fragment 106: MemoryAccess */
@@ -148273,7 +148898,7 @@ tiziano_adr_5x5_init0x5b4:
     /* asm: 56430:	00a4001a 	div	zero,a1,a0 */
 
     /* fragment 112: Arithmetic */
-    a0 = (uint32_t *)&local_78;
+    a0 = (uint32_t *)__p_78;
     a0 = a0 + (uintptr_t)v0;
 
     /* fragment 113: Branch */
@@ -148281,11 +148906,11 @@ tiziano_adr_5x5_init0x5b4:
 
 tiziano_adr_5x5_init0x5e0:
     /* fragment 114: Branch */
-    a1 = local_bc;
+    a1 = (*__p_bc);
     if (a0 != 0) { goto tiziano_adr_5x5_init0x5fc; }
 
     /* fragment 115: Arithmetic */
-    a0 = (uint32_t *)&local_98;
+    a0 = (uint32_t *)__p_98;
     a0 = a0 + (uintptr_t)v0;
 
     /* fragment 116: MemoryAccess */
@@ -148314,7 +148939,7 @@ tiziano_adr_5x5_init0x5fc:
     /* asm: 56478:	00a4001a 	div	zero,a1,a0 */
 
     /* fragment 122: Arithmetic */
-    a0 = (uint32_t *)&local_98;
+    a0 = (uint32_t *)__p_98;
     a0 = a0 + (uintptr_t)v0;
 
     /* fragment 123: Branch */
@@ -148388,27 +149013,48 @@ static int regtrace_tiziano_adr_base_pars(uint32_t width, uint32_t height,
 /* WHOLE_DRIVER_CANDIDATE fn_000000000005648c origin=fragment_seed original=tiziano_adr_base_pars */
 void* tiziano_adr_base_pars(uint32_t a0, uint32_t a1, uint32_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_50 = 0;
-    uint32_t local_52 = 0;
-    uint32_t local_54 = 0;
-    uint32_t local_56 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_5a = 0;
-    uint32_t local_5c = 0;
-    uint32_t local_60 = 0;
-    uint32_t local_62 = 0;
-    uint32_t local_64 = 0;
-    uint32_t local_66 = 0;
-    uint32_t local_68 = 0;
-    uint32_t local_70 = 0;
-    uint32_t local_74 = 0;
-    uint32_t local_78 = 0;
-    uint32_t local_7c = 0;
-    uint32_t local_80 = 0;
-    uint32_t local_84 = 0;
-    uint32_t local_88 = 0;
-    uint32_t local_8c = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x90 (144 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_52 @0x52 -> uint16_t: alignment only (offset 0x52)
+     *   local_56 @0x56 -> uint16_t: alignment only (offset 0x56)
+     *   local_5a @0x5a -> uint16_t: alignment only (offset 0x5a)
+     *   local_62 @0x62 -> uint16_t: alignment only (offset 0x62)
+     *   local_66 @0x66 -> uint16_t: alignment only (offset 0x66)
+     * These overlap the 4-byte slots in the OEM frame, so they
+     * overlap here too: that sharing is the OEM's own semantics.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x24] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_50 = (uint32_t *)(void *)((char *)__frame + 0x50);
+    uint16_t *const __p_52 = (uint16_t *)(void *)((char *)__frame + 0x52);
+    uint32_t *const __p_54 = (uint32_t *)(void *)((char *)__frame + 0x54);
+    uint16_t *const __p_56 = (uint16_t *)(void *)((char *)__frame + 0x56);
+    uint32_t *const __p_58 = (uint32_t *)(void *)((char *)__frame + 0x58);
+    uint16_t *const __p_5a = (uint16_t *)(void *)((char *)__frame + 0x5a);
+    uint32_t *const __p_5c = (uint32_t *)(void *)((char *)__frame + 0x5c);
+    uint32_t *const __p_60 = (uint32_t *)(void *)((char *)__frame + 0x60);
+    uint16_t *const __p_62 = (uint16_t *)(void *)((char *)__frame + 0x62);
+    uint32_t *const __p_64 = (uint32_t *)(void *)((char *)__frame + 0x64);
+    uint16_t *const __p_66 = (uint16_t *)(void *)((char *)__frame + 0x66);
+    uint32_t *const __p_68 = (uint32_t *)(void *)((char *)__frame + 0x68);
+    uint32_t *const __p_70 = (uint32_t *)(void *)((char *)__frame + 0x70);
+    uint32_t *const __p_74 = (uint32_t *)(void *)((char *)__frame + 0x74);
+    uint32_t *const __p_78 = (uint32_t *)(void *)((char *)__frame + 0x78);
+    uint32_t *const __p_7c = (uint32_t *)(void *)((char *)__frame + 0x7c);
+    uint32_t *const __p_80 = (uint32_t *)(void *)((char *)__frame + 0x80);
+    uint32_t *const __p_84 = (uint32_t *)(void *)((char *)__frame + 0x84);
+    uint32_t *const __p_88 = (uint32_t *)(void *)((char *)__frame + 0x88);
+    uint32_t *const __p_8c = (uint32_t *)(void *)((char *)__frame + 0x8c);
     uint32_t *a3 = 0;
     uint32_t ra = 0;
     uint32_t *s0 = 0;
@@ -148486,37 +149132,37 @@ tiziano_adr_base_pars0x74:
     v1 = (uintptr_t)v1 & 65535;
 
     /* fragment 15: StackAccess */
-    local_64 = v1;
+    (*__p_64) = v1;
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
     v1 = (uintptr_t)s1 & 65535;
-    local_66 = v0;
+    (*__p_66) = v0;
     v0 = (uintptr_t)v1 << 1;
     v0 = (uintptr_t)v0 & 65535;
-    local_54 = v0;
+    (*__p_54) = v0;
     v0 = (uintptr_t)v1 + (uintptr_t)v0;
     v0 = (uintptr_t)v0 & 65535;
-    local_56 = v0;
+    (*__p_56) = v0;
     v0 = (uintptr_t)v1 + (uintptr_t)v0;
     v0 = (uintptr_t)v0 & 65535;
-    local_58 = v0;
+    (*__p_58) = v0;
     v0 = (uintptr_t)v1 + (uintptr_t)v0;
-    local_52 = s1;
-    local_60 = 0;
-    local_62 = s5;
-    local_68 = s3;
-    local_50 = 0;
-    local_5a = v0;
-    local_5c = s2;
+    (*__p_52) = s1;
+    (*__p_60) = 0;
+    (*__p_62) = s5;
+    (*__p_68) = s3;
+    (*__p_50) = 0;
+    (*__p_5a) = v0;
+    (*__p_5c) = s2;
     a0 = *(uint32_t *)((char *)s4 + 0);
     s6 = (uintptr_t)&memcpy;
     a2 = 10;
     s6 = s6;
 
     /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)&local_60, a2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)__p_60, a2); /* jalr target resolved by relocation */
 
     /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(s4) + 4)), (void *)(uintptr_t)&local_50, 14); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(s4) + 4)), (void *)(uintptr_t)__p_50, 14); /* jalr target resolved by relocation */
 
     /* fragment 18: Arithmetic */
     s1 = s1 + 1;
@@ -148552,7 +149198,7 @@ tiziano_adr_base_pars0x74:
 tiziano_adr_base_pars0x130:
     /* fragment 26: Arithmetic */
     a2 = (uint32_t *)&adr_5x5_in2;
-    t0 = (uintptr_t)&local_10;
+    t0 = (uintptr_t)__p_10;
     a2 = a2;
     t1 = 0;
     s1 = t0;
@@ -189848,25 +190494,40 @@ int dump_isp_info_open(struct inode *inode, struct file *file)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007639c origin=fragment_seed original=isp_save_cmd_set */
 int64_t isp_save_cmd_set(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_5c = 0;
-    uint32_t local_60 = 0;
-    uint32_t local_64 = 0;
-    uint32_t local_68 = 0;
-    uint32_t local_6c = 0;
-    uint32_t local_70 = 0;
-    uint32_t local_74 = 0;
-    uint32_t local_78 = 0;
-    uint32_t local_7c = 0;
-    uint32_t local_80 = 0;
-    uint32_t local_84 = 0;
-    uint32_t local_88 = 0;
-    uint32_t local_8c = 0;
-    uint32_t *local_90 = 0;
-    uint32_t *local_94 = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x20e (526 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   all slots are 4-byte.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x84] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_58 = (uint32_t *)(void *)((char *)__frame + 0x58);
+    uint32_t *const __p_5c = (uint32_t *)(void *)((char *)__frame + 0x5c);
+    uint32_t *const __p_60 = (uint32_t *)(void *)((char *)__frame + 0x60);
+    uint32_t *const __p_64 = (uint32_t *)(void *)((char *)__frame + 0x64);
+    uint32_t *const __p_68 = (uint32_t *)(void *)((char *)__frame + 0x68);
+    uint32_t *const __p_6c = (uint32_t *)(void *)((char *)__frame + 0x6c);
+    uint32_t *const __p_70 = (uint32_t *)(void *)((char *)__frame + 0x70);
+    uint32_t *const __p_74 = (uint32_t *)(void *)((char *)__frame + 0x74);
+    uint32_t *const __p_78 = (uint32_t *)(void *)((char *)__frame + 0x78);
+    uint32_t *const __p_7c = (uint32_t *)(void *)((char *)__frame + 0x7c);
+    uint32_t *const __p_80 = (uint32_t *)(void *)((char *)__frame + 0x80);
+    uint32_t *const __p_84 = (uint32_t *)(void *)((char *)__frame + 0x84);
+    uint32_t *const __p_88 = (uint32_t *)(void *)((char *)__frame + 0x88);
+    uint32_t *const __p_8c = (uint32_t *)(void *)((char *)__frame + 0x8c);
+    uint32_t **const __p_90 = (uint32_t **)(void *)((char *)__frame + 0x90);
+    uint32_t **const __p_94 = (uint32_t **)(void *)((char *)__frame + 0x94);
     uint32_t *a3 = 0;
     uint32_t at = 0;
     uint32_t ra = 0;
@@ -189959,7 +190620,7 @@ isp_save_cmd_set0xa4:
 
     /* fragment 18: CallSetup */
     *(uint32_t *)((char *)((char *)&savenum)) = v0;
-    local_10 = v0;
+    (*__p_10) = v0;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC1, &__param_str_isp_dual_buf, 3636); /* jalr target resolved by relocation */
 
 isp_save_cmd_set0xfc:
@@ -190001,7 +190662,7 @@ isp_save_cmd_set0x17c:
     v0 = *(uint32_t *)((char *)((char *)&savenum));
     v1 = 1;
     s6 = (uintptr_t)&__param_str_isp_dual_buf;
-    local_5c = v0;
+    (*__p_5c) = v0;
     s7 = (uintptr_t)&LC7;
     v0 = (uintptr_t *)&isp_memopt;
     *(uint32_t *)((char *)((char *)&saveflag)) = v1;
@@ -190019,7 +190680,7 @@ isp_save_cmd_set0x1a8:
     v0 = (uintptr_t *)__ioremap(3221225472, 939982848 + 17152, 1024); /* jalr target resolved by relocation */
 
     /* fragment 28: CallSetup */
-    local_10 = v0;
+    (*__p_10) = v0;
     s7 = v0;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC8, &__param_str_isp_dual_buf, 3670); /* jalr target resolved by relocation */
 
@@ -190033,7 +190694,7 @@ isp_save_cmd_set0x1a8:
 
 isp_save_cmd_set0x204:
     /* fragment 30: StackAccess */
-    v0 = local_5c;
+    v0 = (*__p_5c);
     v0 = s0 < v0;
 
     /* fragment 31: Branch */
@@ -190133,23 +190794,23 @@ isp_save_cmd_set0x2bc:
     if (a1 != 0) { goto isp_save_cmd_set0xfc; }
 
     /* fragment 55: CallSetup */
-    local_18 = 0;
-    v0 = (uintptr_t *)simple_strtoull((const char *)(uintptr_t)&isp_memopt, (void *)(uintptr_t)&local_18, a2); /* jalr target resolved by relocation */
+    (*__p_18) = 0;
+    v0 = (uintptr_t *)simple_strtoull((const char *)(uintptr_t)&isp_memopt, (void *)(uintptr_t)__p_18, a2); /* jalr target resolved by relocation */
 
     /* fragment 56: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)simple_strtoull((const char *)(uintptr_t)(local_18 + 1), (void *)(uintptr_t)&local_18, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)simple_strtoull((const char *)(uintptr_t)((*__p_18) + 1), (void *)(uintptr_t)__p_18, 0); /* jalr target resolved by relocation */
 
     /* fragment 57: CallSetup */
     s3 = v0;
-    v0 = (uintptr_t *)simple_strtoull((const char *)(uintptr_t)(local_18 + 1), (void *)(uintptr_t)0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)simple_strtoull((const char *)(uintptr_t)((*__p_18) + 1), (void *)(uintptr_t)0, 0); /* jalr target resolved by relocation */
 
     /* fragment 58: CallSetup */
     s4 = (uintptr_t)v0 & 255;
     s0 = (uintptr_t)s0 & 255;
     s3 = (uintptr_t)s3 & 255;
-    local_14 = s4;
-    local_10 = s3;
+    (*__p_14) = s4;
+    (*__p_10) = s3;
     v0 = (uintptr_t *)printk((const char *)(uintptr_t)&LC4, &__param_str_isp_dual_buf, 3652, (uintptr_t)s0 & 255); /* jalr target resolved by relocation */
 
     /* fragment 59: Arithmetic */
@@ -190162,7 +190823,7 @@ isp_save_cmd_set0x2bc:
 
     /* fragment 60: MemoryAccess */
     *(uint8_t *)((char *)v0 + 0) = s4;
-    ra = local_94;
+    ra = (*__p_94);
 
 isp_save_cmd_set0x36c:
     /* fragment 61: Arithmetic */
@@ -190182,22 +190843,22 @@ isp_save_cmd_set0x39c:
 
 isp_save_cmd_set0x3b8:
     /* fragment 65: CallSetup */
-    local_10 = v1;
-    local_6c = v1;
-    local_68 = t2;
-    local_64 = t0;
-    v0 = (uintptr_t *)snprintf((const char *)(uintptr_t)&local_18, 64, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)a2); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
+    (*__p_10) = v1;
+    (*__p_6c) = v1;
+    (*__p_68) = t2;
+    (*__p_64) = t0;
+    v0 = (uintptr_t *)snprintf((const char *)(uintptr_t)__p_18, 64, "%s", ({ uintptr_t __regtrace_cstr = (uintptr_t)((const char *)(uintptr_t)a2); (const char *)(__regtrace_cstr ? __regtrace_cstr : (uintptr_t)"<null>"); })); /* jalr target resolved by relocation */
 
     /* fragment 66: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_filp_open)(&local_18, 769, 502); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_filp_open)(__p_18, 769, 502); /* jalr target resolved by relocation */
 
     /* fragment 67: CallSetup */
     s5 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_get_fs)(&local_58); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_get_fs)(__p_58); /* jalr target resolved by relocation */
 
     /* fragment 68: CallSetup */
-    t3 = local_58;
-    local_60 = t3;
+    t3 = (*__p_58);
+    (*__p_60) = t3;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)(0); /* jalr target resolved by relocation */
 
     /* fragment 69: CallSetup */
@@ -190207,9 +190868,9 @@ isp_save_cmd_set0x3b8:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_filp_close)(s5, 0); /* jalr target resolved by relocation */
 
     /* fragment 71: CallSetup */
-    t3 = local_60;
+    t3 = (*__p_60);
     s8 = s8 + (uintptr_t)s1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)(local_60); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)((*__p_60)); /* jalr target resolved by relocation */
 
     /* fragment 72: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC11, &__param_str_isp_dual_buf, 3685); /* jalr target resolved by relocation */
@@ -190218,11 +190879,11 @@ isp_save_cmd_set0x3b8:
     s0 = s0 + 1;
 
     /* fragment 74: StackAccess */
-    v1 = local_6c;
-    t2 = local_68;
+    v1 = (*__p_6c);
+    t2 = (*__p_68);
 
     /* fragment 75: Branch */
-    t0 = local_64;
+    t0 = (*__p_64);
     goto isp_save_cmd_set0x204;
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
@@ -192303,36 +192964,54 @@ int isp_core_debug_show(void *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000077e68 origin=fragment_seed original=ispcore_pad_event_handle */
 int64_t ispcore_pad_event_handle(uintptr_t a0, uint32_t a1, uintptr_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t local_48 = 0;
-    uint32_t local_4c = 0;
-    uint32_t local_50 = 0;
-    uint32_t local_54 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_60 = 0;
-    uint32_t local_68 = 0;
-    uint32_t local_6c = 0;
-    uint32_t local_70 = 0;
-    uint32_t local_74 = 0;
-    uint32_t local_78 = 0;
-    uint32_t local_7c = 0;
-    uint32_t local_80 = 0;
-    uint32_t local_84 = 0;
-    uint32_t local_88 = 0;
-    uint32_t local_8c = 0;
+    /*
+     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
+     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
+     * the OEM code passes a slot as the start of a WHOLE STRUCT
+     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
+     * as separate scalars, such a copy overwrites whatever the compiler placed next
+     * to the scalar - including saved registers and the return address.
+     * Backing 0x10..0x90 (144 bytes) with one buffer and aliasing each slot at its
+     * OEM offset makes every copy land exactly where the OEM's copy landed.
+     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
+     * alias carries the width of its OEM access:
+     *   local_2c @0x2c -> uint8_t: L195460: a0 loaded as uint8_t at L195457
+     *   local_40 @0x40 -> uint8_t: L195427: v0 loaded as uint8_t at L195423
+     * These overlap the 4-byte slots in the OEM frame, so they
+     * overlap here too: that sharing is the OEM's own semantics.
+     * the initialiser reproduces the `= 0` of every slot it replaces.
+     */
+    uint32_t __frame[0x24] = { 0 };
+    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
+    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
+    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
+    uint32_t *const __p_1c = (uint32_t *)(void *)((char *)__frame + 0x1c);
+    uint32_t **const __p_20 = (uint32_t **)(void *)((char *)__frame + 0x20);
+    uint32_t **const __p_24 = (uint32_t **)(void *)((char *)__frame + 0x24);
+    uint32_t *const __p_28 = (uint32_t *)(void *)((char *)__frame + 0x28);
+    uint8_t *const __p_2c = (uint8_t *)(void *)((char *)__frame + 0x2c);
+    uint32_t *const __p_30 = (uint32_t *)(void *)((char *)__frame + 0x30);
+    uint32_t *const __p_34 = (uint32_t *)(void *)((char *)__frame + 0x34);
+    uint32_t *const __p_38 = (uint32_t *)(void *)((char *)__frame + 0x38);
+    uint32_t *const __p_3c = (uint32_t *)(void *)((char *)__frame + 0x3c);
+    uint8_t *const __p_40 = (uint8_t *)(void *)((char *)__frame + 0x40);
+    uint32_t *const __p_44 = (uint32_t *)(void *)((char *)__frame + 0x44);
+    uint32_t *const __p_48 = (uint32_t *)(void *)((char *)__frame + 0x48);
+    uint32_t *const __p_4c = (uint32_t *)(void *)((char *)__frame + 0x4c);
+    uint32_t *const __p_50 = (uint32_t *)(void *)((char *)__frame + 0x50);
+    uint32_t *const __p_54 = (uint32_t *)(void *)((char *)__frame + 0x54);
+    uint32_t *const __p_58 = (uint32_t *)(void *)((char *)__frame + 0x58);
+    uint32_t *const __p_60 = (uint32_t *)(void *)((char *)__frame + 0x60);
+    uint32_t *const __p_68 = (uint32_t *)(void *)((char *)__frame + 0x68);
+    uint32_t *const __p_6c = (uint32_t *)(void *)((char *)__frame + 0x6c);
+    uint32_t *const __p_70 = (uint32_t *)(void *)((char *)__frame + 0x70);
+    uint32_t *const __p_74 = (uint32_t *)(void *)((char *)__frame + 0x74);
+    uint32_t *const __p_78 = (uint32_t *)(void *)((char *)__frame + 0x78);
+    uint32_t *const __p_7c = (uint32_t *)(void *)((char *)__frame + 0x7c);
+    uint32_t *const __p_80 = (uint32_t *)(void *)((char *)__frame + 0x80);
+    uint32_t *const __p_84 = (uint32_t *)(void *)((char *)__frame + 0x84);
+    uint32_t *const __p_88 = (uint32_t *)(void *)((char *)__frame + 0x88);
+    uint32_t *const __p_8c = (uint32_t *)(void *)((char *)__frame + 0x8c);
     uint32_t *a3 = 0;
     uint32_t ra = 0;
     uintptr_t *s0 = 0;
@@ -192539,8 +193218,8 @@ ispcore_pad_event_handle0x198:
     a2 = a2 + 9556;
 
     /* fragment 48: StackAccess */
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
     a3 = 2167;
 
 ispcore_pad_event_handle0x1ac:
@@ -192649,8 +193328,8 @@ ispcore_pad_event_handle0x258:
     /* fragment 73: CallSetup */
     v0 = 2147;
     a2 = a2 + 9556;
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
     a3 = 2147;
 
 ispcore_pad_event_handle0x26c:
@@ -192713,8 +193392,8 @@ ispcore_pad_event_handle0x2fc:
     a2 = a2 + 9556;
 
     /* fragment 86: StackAccess */
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
 
     /* fragment 87: Branch */
     a3 = 2162;
@@ -193045,25 +193724,25 @@ ispcore_pad_event_handle0x5e0:
     s5 = *(uint32_t *)((char *)(s4) + 764);
     s6 = *(uint32_t *)((char *)((s6 * (uintptr_t)v0) + (uintptr_t)s4) + 376);
     s7 = *(uint32_t *)((char *)((s6 * (uintptr_t)v0) + (uintptr_t)s4) + 380);
-    local_18 = *(uint32_t *)((char *)(s2) + 8);
-    local_10 = a0;
-    local_14 = *(uint32_t *)((char *)(s2) + 4);
+    (*__p_18) = *(uint32_t *)((char *)(s2) + 8);
+    (*__p_10) = a0;
+    (*__p_14) = *(uint32_t *)((char *)(s2) + 4);
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC147, &__param_str_isp_dual_buf, 1983); /* jalr target resolved by relocation */
 
     /* fragment 158: CallSetup */
-    local_10 = *(uint32_t *)((char *)(s0) + 80);
+    (*__p_10) = *(uint32_t *)((char *)(s0) + 80);
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC148, *(uint8_t *)((char *)(s0) + 72), *(uint32_t *)((char *)(s0) + 76)); /* jalr target resolved by relocation */
 
     /* fragment 159: CallSetup */
-    local_18 = *(uint32_t *)((char *)(s0) + 68);
-    local_14 = *(uint32_t *)((char *)(s0) + 64);
-    local_10 = *(uint32_t *)((char *)(s0) + 60);
+    (*__p_18) = *(uint32_t *)((char *)(s0) + 68);
+    (*__p_14) = *(uint32_t *)((char *)(s0) + 64);
+    (*__p_10) = *(uint32_t *)((char *)(s0) + 60);
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC149, *(uint8_t *)((char *)(s0) + 52), *(uint32_t *)((char *)(s0) + 56)); /* jalr target resolved by relocation */
 
     /* fragment 160: CallSetup */
-    local_18 = *(uint32_t *)((char *)(s0) + 108);
-    local_14 = *(uint32_t *)((char *)(s0) + 104);
-    local_10 = *(uint32_t *)((char *)(s0) + 100);
+    (*__p_18) = *(uint32_t *)((char *)(s0) + 108);
+    (*__p_14) = *(uint32_t *)((char *)(s0) + 104);
+    (*__p_10) = *(uint32_t *)((char *)(s0) + 100);
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC150, *(uint8_t *)((char *)(s0) + 92), *(uint32_t *)((char *)(s0) + 96)); /* jalr target resolved by relocation */
 
     /* fragment 161: Arithmetic */
@@ -193091,9 +193770,9 @@ ispcore_pad_event_handle0x6c4:
     if (a0 != v1) { goto ispcore_pad_event_handle0x6c4; }
 
     /* fragment 167: CallSetup */
-    local_18 = a1;
-    local_14 = 1729;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_18) = a1;
+    (*__p_14) = 1729;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC155, &__param_str_isp_dual_buf, 1729); /* jalr target resolved by relocation */
 
     /* fragment 168: Branch */
@@ -193102,39 +193781,39 @@ ispcore_pad_event_handle0x6c4:
 
 ispcore_pad_event_handle0x710:
     /* fragment 169: StackAccess */
-    local_44 = 0;
-    local_48 = 0;
-    local_4c = s6;
+    (*__p_44) = 0;
+    (*__p_48) = 0;
+    (*__p_4c) = s6;
 
     /* fragment 170: Branch */
     goto ispcore_pad_event_handle0x1598;
 
 ispcore_pad_event_handle0x724:
     /* fragment 171: StackAccess */
-    v0 = local_4c;
-    local_24 = v0;
+    v0 = (*__p_4c);
+    (*__p_24) = v0;
 
     /* fragment 172: Branch */
-    v0 = local_50;
+    v0 = (*__p_50);
     goto ispcore_pad_event_handle0x15b0;
 
 ispcore_pad_event_handle0x734:
     /* fragment 173: StackAccess */
-    v0 = local_24;
-    local_38 = v0;
+    v0 = (*__p_24);
+    (*__p_38) = v0;
 
     /* fragment 174: Branch */
-    v0 = local_28;
+    v0 = (*__p_28);
     goto ispcore_pad_event_handle0x15dc;
 
 ispcore_pad_event_handle0x744:
     /* fragment 175: CallSetup */
     v0 = *(uint32_t *)((char *)s2 + 112);
     a2 = s1 + 9524;
-    local_10 = a2;
-    local_18 = v0;
+    (*__p_10) = a2;
+    (*__p_18) = v0;
     v0 = 2038;
-    local_14 = v0;
+    (*__p_14) = v0;
     a3 = 2038;
 
 ispcore_pad_event_handle0x760:
@@ -193151,7 +193830,7 @@ ispcore_pad_event_handle0x778:
     if (_bc_v0_178) { goto ispcore_pad_event_handle0x4b0; }
 
     /* fragment 179: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_channel_sec_attr_set)(*(uint32_t *)((char *)(s2) + 116), &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_channel_sec_attr_set)(*(uint32_t *)((char *)(s2) + 116), __p_20); /* jalr target resolved by relocation */
 
     /* fragment 180: Branch */
     int _bc_v0_180 = v0 == 0;
@@ -193161,10 +193840,10 @@ ispcore_pad_event_handle0x778:
     /* fragment 181: MemoryAccess */
     v0 = *(uint32_t *)((char *)s2 + 112);
     a2 = s1 + 9524;
-    local_10 = a2;
-    local_18 = v0;
+    (*__p_10) = a2;
+    (*__p_18) = v0;
     v0 = 2044;
-    local_14 = v0;
+    (*__p_14) = v0;
 
     /* fragment 182: Branch */
     a3 = 2044;
@@ -193493,10 +194172,10 @@ ispcore_pad_event_handle0x9c0:
     /* fragment 260: MemoryAccess */
     s0 = *(uint32_t *)((char *)s3 + 32);
     v0 = *(uint32_t *)((char *)s0 + 120);
-    local_20 = 0;
+    (*__p_20) = 0;
 
     /* fragment 261: Branch */
-    local_60 = v0;
+    (*__p_60) = v0;
     if (s5 == 0) { goto ispcore_pad_event_handle0x9e0; }
 
     /* fragment 262: Arithmetic */
@@ -193563,14 +194242,14 @@ ispcore_pad_event_handle0xa40:
 
     /* fragment 277: CallSetup */
     s4 = s0 + 164;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s0 + 164, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s0 + 164, __p_20); /* jalr target resolved by relocation */
 
     /* fragment 278: MemoryAccess */
     v1 = *(uint32_t *)((char *)s0 + 124);
     v0 = 4;
 
     /* fragment 279: Branch */
-    a1 = local_20;
+    a1 = (*__p_20);
     if (v1 != v0) { goto ispcore_pad_event_handle0xa90; }
 
     /* fragment 280: CallSetup */
@@ -193689,7 +194368,7 @@ ispcore_pad_event_handle0xb18:
     if (_bc_s1_306) { goto ispcore_pad_event_handle0xb80; }
 
     /* fragment 307: CallSetup */
-    local_14 = v0;
+    (*__p_14) = v0;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC152, s6, 1704); /* jalr target resolved by relocation */
 
 ispcore_pad_event_handle0xb80:
@@ -193704,7 +194383,7 @@ ispcore_pad_event_handle0xb80:
     *(uint32_t *)((char *)s0 + 124) = v0;
     *(uint8_t *)((char *)s3 + 7) = v0;
     v0 = (uintptr_t *)&private_spin_unlock_irqrestore;
-    a1 = local_20;
+    a1 = (*__p_20);
     a0 = s4;
 
     /* fragment 311: Branch */
@@ -193790,7 +194469,7 @@ ispcore_pad_event_handle0xc2c:
     s2 = *(uint32_t *)((char *)s3 + 32);
 
     /* fragment 332: Branch */
-    local_20 = 0;
+    (*__p_20) = 0;
     if (s4 == 0) { goto ispcore_pad_event_handle0xc48; }
 
     /* fragment 333: Arithmetic */
@@ -193869,7 +194548,7 @@ ispcore_pad_event_handle0xcac:
     s7 = *(uint32_t *)((char *)(s2) + 8);
     s6 = s2 + 164;
     *(uint8_t *)((char *)s0 + -28) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s2 + 164, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s2 + 164, __p_20); /* jalr target resolved by relocation */
 
     /* fragment 352: MemoryAccess */
     v0 = *(uint32_t *)((char *)s2 + 12);
@@ -194168,8 +194847,8 @@ ispcore_pad_event_handle0xed8:
     a2 = a2 + 9436;
 
     /* fragment 421: StackAccess */
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
 
     /* fragment 422: Branch */
     a3 = 1337;
@@ -194202,7 +194881,7 @@ ispcore_pad_event_handle0xf28:
     v0 = *(uint32_t *)((char *)s2 + 112);
 
     /* fragment 430: Branch */
-    a1 = local_20;
+    a1 = (*__p_20);
     if (v0 != 0) { goto ispcore_pad_event_handle0xf74; }
 
     /* fragment 431: CallSetup */
@@ -194234,7 +194913,7 @@ ispcore_pad_event_handle0xf68:
 
 ispcore_pad_event_handle0xf70:
     /* fragment 438: CallSetup */
-    a1 = local_20;
+    a1 = (*__p_20);
 
 ispcore_pad_event_handle0xf74:
     /* fragment 439: CallSetup */
@@ -194252,7 +194931,7 @@ ispcore_pad_event_handle0xf78:
     v0 = *(uint32_t *)((char *)s2 + 112);
 
     /* fragment 443: Branch */
-    a1 = local_20;
+    a1 = (*__p_20);
     if (v0 != 0) { goto ispcore_pad_event_handle0xf74; }
 
     /* fragment 444: CallSetup */
@@ -194276,7 +194955,7 @@ ispcore_pad_event_handle0xfa0:
     v0 = *(uint32_t *)((char *)s2 + 112);
 
     /* fragment 449: Branch */
-    a1 = local_20;
+    a1 = (*__p_20);
     if (v0 != 0) { goto ispcore_pad_event_handle0xf74; }
 
     /* fragment 450: Arithmetic */
@@ -194295,9 +194974,9 @@ ispcore_pad_event_handle0xfe4:
     a2 = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = 1389;
     a2 = a2 + 9436;
-    local_18 = s5;
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_18) = s5;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
     a3 = 1389;
 
 ispcore_pad_event_handle0x1000:
@@ -194305,7 +194984,7 @@ ispcore_pad_event_handle0x1000:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC153); /* jalr target resolved by relocation */
 
     /* fragment 455: Branch */
-    a1 = local_20;
+    a1 = (*__p_20);
     goto ispcore_pad_event_handle0xf74;
 
 ispcore_pad_event_handle0x1020:
@@ -194359,7 +195038,7 @@ ispcore_pad_event_handle0x1034:
     v0 = 1;
 
     /* fragment 468: Branch */
-    a1 = local_20;
+    a1 = (*__p_20);
     if (v1 != v0) { goto ispcore_pad_event_handle0xf74; }
 
     /* fragment 469: Branch */
@@ -194382,7 +195061,7 @@ ispcore_pad_event_handle0x1034:
     v0 = 1;
 
     /* fragment 474: Branch */
-    a1 = local_20;
+    a1 = (*__p_20);
     if (v1 != v0) { goto ispcore_pad_event_handle0xf74; }
 
     /* fragment 475: Branch */
@@ -194396,9 +195075,9 @@ ispcore_pad_event_handle0x10c4:
     a2 = a2 + 9436;
 
     /* fragment 477: StackAccess */
-    local_18 = s5;
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_18) = s5;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
 
     /* fragment 478: Branch */
     a3 = 1429;
@@ -194416,7 +195095,7 @@ ispcore_pad_event_handle0x10f4:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_write)(a0 & 255, *(uint8_t *)((char *)((uintptr_t)s2) + 116)); /* jalr target resolved by relocation */
 
     /* fragment 481: Branch */
-    a1 = local_20;
+    a1 = (*__p_20);
     goto ispcore_pad_event_handle0xf74;
 
 ispcore_pad_event_handle0x1118:
@@ -194536,9 +195215,9 @@ ispcore_pad_event_handle0x1214:
     a2 = a2 + 9436;
 
     /* fragment 511: StackAccess */
-    local_18 = s5;
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_18) = s5;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
 
     /* fragment 512: Branch */
     a3 = 1475;
@@ -194660,9 +195339,9 @@ ispcore_pad_event_handle0x1334:
     a2 = a2 + 9436;
 
     /* fragment 541: StackAccess */
-    local_18 = s5;
-    local_14 = v0;
-    local_10 = a2;
+    (*__p_18) = s5;
+    (*__p_14) = v0;
+    (*__p_10) = a2;
 
     /* fragment 542: Branch */
     a3 = 1515;
@@ -194688,9 +195367,9 @@ ispcore_pad_event_handle0x1360:
 
 ispcore_pad_event_handle0x1378:
     /* fragment 547: CallSetup */
-    local_14 = 1535;
-    local_1c = 0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
+    (*__p_14) = 1535;
+    (*__p_1c) = 0;
+    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC154, &__param_str_isp_dual_buf, 1535); /* jalr target resolved by relocation */
 
     /* fragment 548: Branch */
@@ -194719,7 +195398,7 @@ ispcore_pad_event_handle0x13d4:
     a1 = *(uint32_t *)((char *)s4 + 120);
 
     /* fragment 555: Branch */
-    local_20 = 0;
+    (*__p_20) = 0;
     if (v0 == 0) { goto ispcore_pad_event_handle0x13f4; }
 
     /* fragment 556: Arithmetic */
@@ -194786,7 +195465,7 @@ ispcore_pad_event_handle0x1448:
 
     /* fragment 571: CallSetup */
     s0 = s4 + 164;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s4 + 164, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s4 + 164, __p_20); /* jalr target resolved by relocation */
 
     /* fragment 572: MemoryAccess */
     v0 = *(uint32_t *)((char *)s4 + 112);
@@ -194818,7 +195497,7 @@ ispcore_pad_event_handle0x1490:
 
 ispcore_pad_event_handle0x149c:
     /* fragment 579: Branch */
-    a1 = local_20;
+    a1 = (*__p_20);
     if (s2 == 0) { goto ispcore_pad_event_handle0x14c0; }
 
     /* fragment 580: Branch */
@@ -194835,7 +195514,7 @@ ispcore_pad_event_handle0x14b4:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_channel_main_fifo_clear)(a0); /* jalr target resolved by relocation */
 
     /* fragment 583: StackAccess */
-    a1 = local_20;
+    a1 = (*__p_20);
 
 ispcore_pad_event_handle0x14c0:
     /* fragment 584: Branch */
@@ -194844,7 +195523,7 @@ ispcore_pad_event_handle0x14c0:
 
 ispcore_pad_event_handle0x14c8:
     /* fragment 585: Branch */
-    a1 = local_20;
+    a1 = (*__p_20);
     if (v1 == 0) { goto ispcore_pad_event_handle0x14c0; }
 
     /* fragment 586: Branch */
@@ -194904,25 +195583,25 @@ ispcore_pad_event_handle0x152c:
 
 ispcore_pad_event_handle0x1558:
     /* fragment 596: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&local_20, 0, 64); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)__p_20, 0, 64); /* jalr target resolved by relocation */
 
     /* fragment 597: MemoryAccess */
     v0 = *(uint8_t *)((char *)s0 + 92);
 
     /* fragment 598: Branch */
     int _bc_v0_598 = v0 == 0;
-    local_40 = v0;
+    (*__p_40) = v0;
     if (_bc_v0_598) { goto ispcore_pad_event_handle0x710; }
 
     /* fragment 599: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 100);
-    local_44 = v0;
+    (*__p_44) = v0;
     v0 = *(uint32_t *)((char *)s0 + 96);
-    local_48 = v0;
+    (*__p_48) = v0;
     v0 = *(uint32_t *)((char *)s0 + 104);
-    local_4c = v0;
+    (*__p_4c) = v0;
     v0 = *(uint32_t *)((char *)s0 + 108);
-    local_50 = v0;
+    (*__p_50) = v0;
 
 ispcore_pad_event_handle0x1598:
     /* fragment 600: MemoryAccess */
@@ -194930,40 +195609,40 @@ ispcore_pad_event_handle0x1598:
 
     /* fragment 601: Branch */
     int _bc_v0_601 = v0 == 0;
-    local_20 = v0;
+    (*__p_20) = v0;
     if (_bc_v0_601) { goto ispcore_pad_event_handle0x724; }
 
     /* fragment 602: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 76);
-    local_24 = v0;
+    (*__p_24) = v0;
     v0 = *(uint32_t *)((char *)s0 + 80);
 
 ispcore_pad_event_handle0x15b0:
     /* fragment 603: StackAccess */
-    local_28 = v0;
+    (*__p_28) = v0;
     a0 = *(uint8_t *)((char *)s0 + 52);
     v1 = *(uint32_t *)((char *)s0 + 60);
     v0 = *(uint32_t *)((char *)s0 + 56);
-    local_2c = a0;
-    local_30 = v1;
+    (*__p_2c) = a0;
+    (*__p_30) = v1;
 
     /* fragment 604: Branch */
-    local_34 = v0;
+    (*__p_34) = v0;
     if (a0 == 0) { goto ispcore_pad_event_handle0x734; }
 
     /* fragment 605: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 64);
-    local_38 = v0;
+    (*__p_38) = v0;
     v0 = *(uint32_t *)((char *)s0 + 68);
 
 ispcore_pad_event_handle0x15dc:
     /* fragment 606: Branch */
-    local_3c = v0;
+    (*__p_3c) = v0;
     if (s5 != 0) { goto ispcore_pad_event_handle0x15fc; }
 
     /* fragment 607: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 4);
-    v1 = local_38;
+    v1 = (*__p_38);
 
     /* fragment 608: Branch */
     int _bc_v1_608 = v1 == v0;
@@ -194971,8 +195650,8 @@ ispcore_pad_event_handle0x15dc:
     if (_bc_v1_608) { goto ispcore_pad_event_handle0x15fc; }
 
     /* fragment 609: StackAccess */
-    local_54 = v1;
-    local_58 = v0;
+    (*__p_54) = v1;
+    (*__p_58) = v0;
 
 ispcore_pad_event_handle0x15fc:
     /* fragment 610: MemoryAccess */
@@ -194984,7 +195663,7 @@ ispcore_pad_event_handle0x15fc:
     if (v1 == 0) { goto ispcore_pad_event_handle0x778; }
 
     /* fragment 612: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_channel_main_attr_set)(*(uint32_t *)((char *)(s2) + 116), &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_channel_main_attr_set)(*(uint32_t *)((char *)(s2) + 116), __p_20); /* jalr target resolved by relocation */
 
     /* fragment 613: Branch */
     int _bc_v0_613 = v0 != 0;
