@@ -190195,6 +190195,24 @@ ispcore_irq_main_fd_work0x9c:
     /* unmatched fragment 17 (Unknown): no deterministic matcher for Unknown */
     /* asm: 75e64:	00000000 	nop */
 
+    /* T40-FDWORK-DISPATCH: OEM 0x75aa0..0x75aac tail-dispatches per slot through the
+     * handler table at .rodata+0x2364 (nine code pointers into this function); the
+     * reconstruction dropped the `jr v0` (the two unmatched fragments above). Mapping
+     * decoded from the OEM table: */
+    switch (s5) {
+    case 0: goto mfdw_h0;   /* 0x75b8c -> a1 = 0x2000007 */
+    case 1: goto mfdw_h1;   /* 0x75b6c -> a1 = 0x2000008 */
+    case 2: goto mfdw_h2;   /* 0x75ab4 -> a1 = 0x2000009, then falls through into the body */
+    case 3: goto mfdw_h3;   /* 0x75b78 -> a1 = 0x2000005 */
+    case 4: goto mfdw_h4;   /* 0x75af0 -> a1 = 0x2000006 */
+    case 5: goto mfdw_h5;   /* 0x75b08 -> own call (a1 = 0x2000010), clears state+808 */
+    case 6: goto mfdw_h6;   /* 0x75afc -> a1 = 0x2000016 */
+    case 7: goto ispcore_irq_main_fd_work0x190;  /* 0x75b84 -> a1 = -1 */
+    case 8: goto mfdw_h8;   /* 0x75b60 -> a1 = 0x200000a */
+    default: goto ispcore_irq_main_fd_work0x190; /* out of range -> -1 */
+    }
+
+mfdw_h2:
     /* fragment 18: ConstantLoad */
     a1 = 0x2000009;
 
@@ -190221,6 +190239,7 @@ ispcore_irq_main_fd_work0xc8:
     *(uint32_t *)((char *)s3 + 0) = 0;
     goto ispcore_irq_main_fd_work0x138;
 
+mfdw_h4:
     /* fragment 24: Arithmetic */
     a1 = 33554432;
 
@@ -190228,6 +190247,7 @@ ispcore_irq_main_fd_work0xc8:
     a1 = a1 + 6;
     goto ispcore_irq_main_fd_work0xc8;
 
+mfdw_h6:
     /* fragment 26: Arithmetic */
     a1 = 33554432;
 
@@ -190235,6 +190255,7 @@ ispcore_irq_main_fd_work0xc8:
     a1 = a1 + 22;
     goto ispcore_irq_main_fd_work0xc8;
 
+mfdw_h5:
     /* fragment 28: CallSetup */
     local_10 = 0;
     local_14 = *(uint32_t *)((char *)(s4) + 812);
@@ -190254,8 +190275,13 @@ ispcore_irq_main_fd_work0x138:
 
 ispcore_irq_main_fd_work0x148:
     /* fragment 32: Epilogue */
-    /* function epilogue: restore registers and return */
+    /* T40-FDWORK-EPILOGUE: OEM 0x75950..0x75974 (sec) / 0x75b3c..0x75b5c (main)
+     * restore the registers and `jr ra`; the reconstruction emitted only this
+     * comment, so control fell through into the handler blocks below and
+     * re-entered the body via `goto ...` (the +464/+368 dereference). */
+    return (char *)v0;
 
+mfdw_h8:
     /* fragment 33: Arithmetic */
     a1 = 33554432;
 
@@ -190263,6 +190289,7 @@ ispcore_irq_main_fd_work0x148:
     a1 = a1 + 10;
     goto ispcore_irq_main_fd_work0xc8;
 
+mfdw_h1:
     /* fragment 35: Arithmetic */
     a1 = 33554432;
 
@@ -190270,6 +190297,7 @@ ispcore_irq_main_fd_work0x148:
     a1 = a1 + 8;
     goto ispcore_irq_main_fd_work0xc8;
 
+mfdw_h3:
     /* fragment 37: Arithmetic */
     a1 = 33554432;
 
@@ -190282,6 +190310,7 @@ ispcore_irq_main_fd_work0x190:
     a1 = -1;
     goto ispcore_irq_main_fd_work0xc8;
 
+mfdw_h0:
     /* fragment 40: Arithmetic */
     a1 = 33554432;
 
