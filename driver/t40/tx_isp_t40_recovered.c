@@ -11652,6 +11652,32 @@ module_param_named(t40_gates_oem_offset, regtrace_t40_gates_oem_offset, bool, 06
 MODULE_PARM_DESC(t40_gates_oem_offset, "1 reads the bin bypass flags at +0x00 for linear sensors like stock (default 0: always +0x20, the WDR set)");
 static uint regtrace_t40_gates_offset_now = 0x20U;
 module_param_named(t40_gates_offset_now, regtrace_t40_gates_offset_now, uint, 0444);
+/*
+ * Second OEM word: 0x6c = 24 bits from the bank's bytes at gate offset
+ * +0x40 (linear +0x40, WDR +0x60).  main_init writes the fixed 0x30024
+ * (sc830ai day linear); the night bank wants 0xd9000f, but a day/night
+ * switch only rewrote 0x40.  t40_gates_reg6c=1 (needs
+ * t40_gates_oem_offset=1) commits the bank's value at block init and on
+ * every day/night refresh.  Default 0.
+ */
+static uint32_t regtrace_tisp_main_init_last_reg6c;
+static bool regtrace_t40_gates_reg6c;
+module_param_named(t40_gates_reg6c, regtrace_t40_gates_reg6c, bool, 0644);
+MODULE_PARM_DESC(t40_gates_reg6c, "1 (with t40_gates_oem_offset=1) writes TOP 0x6c from the active bank like stock (default 0)");
+static uint regtrace_t40_gates_reg6c_value;
+module_param_named(t40_gates_reg6c_value, regtrace_t40_gates_reg6c_value, uint, 0444);
+static unsigned int regtrace_t40_gates_reg6c_writes;
+module_param_named(t40_gates_reg6c_writes, regtrace_t40_gates_reg6c_writes, uint, 0444);
+
+static void regtrace_t40_gates_commit_reg6c(void)
+{
+    if (!regtrace_t40_gates_oem_offset || !regtrace_t40_gates_reg6c)
+        return;
+    if (!system_reg_write(0x6cU, regtrace_t40_gates_reg6c_value)) {
+        regtrace_tisp_main_init_last_reg6c = regtrace_t40_gates_reg6c_value;
+        regtrace_t40_gates_reg6c_writes++;
+    }
+}
 
 static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
 {
@@ -11667,6 +11693,15 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
 
     regtrace_t40_tuning_top_flags_now = packed;
     regtrace_t40_gates_offset_now = gate_off;
+    {
+        const uint8_t *f6c = (const uint8_t *)(uintptr_t)(nbuf + gate_off + 0x40U);
+        uint32_t v6c = 0;
+
+        for (i = 0; i < 24; i++)
+            if (f6c[i])
+                v6c |= BIT(i);
+        regtrace_t40_gates_reg6c_value = v6c;
+    }
     regtrace_t40_tuning_blc_bypass_now = flags[0] ? 1U : 0U;
     regtrace_t40_tuning_lsc_bypass_now = flags[1] ? 1U : 0U;
     regtrace_t40_tuning_gib_bypass_now = flags[5] ? 1U : 0U;
@@ -15550,6 +15585,7 @@ static int regtrace_isp_block_init_once(const char *where)
                "tx_isp_t40_recovered: isp-block-init top40 commit value=0x%08x ret=%d\n",
                regtrace_t40_quality_top40_final, top_ret);
     }
+    regtrace_t40_gates_commit_reg6c();
 
     if (regtrace_isp_block_init_ae_ret)
         return regtrace_isp_block_init_ae_ret;
@@ -22218,6 +22254,7 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
     subret = system_reg_write(0x40U, regtrace_t40_quality_top40_final);
     if (subret && !ret)
         ret = subret;
+    regtrace_t40_gates_commit_reg6c();
 
     printk(KERN_INFO
            "tx_isp_t40_recovered: day/night refresh mode=%s gain=%u size=%ux%u top40=0x%08x ret=%d\n",
