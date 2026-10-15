@@ -32,6 +32,11 @@ tx-isp-t10-objs := \
 	tx_isp_t10_firmware.o
 
 ccflags-y += -DREGTRACE_KERNEL_TREE_BUILD
+
+# Reproducible builds: __FILE__ in the SDK log macros is shortened to a
+# path relative to the repository, so the module does not depend on the
+# directory it is built in.
+ccflags-y += -fmacro-prefix-map=$(abspath $(src)/../..)/=
 ccflags-y += -DTX_ISP_T10
 ccflags-y += -DCONFIG_ISP_MODULE_USE_MMAP
 ccflags-y += -I$(src)/../include
