@@ -187336,125 +187336,35 @@ tisp_g_draw_attr0x120:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074110 origin=fragment_seed original=tisp_msca_Shd_ctrl */
 int32_t tisp_msca_Shd_ctrl(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    /*
+     * Rewritten from the OEM (Eufy tx-isp-t40.ko tisp_msca_Shd_ctrl @0x73d7c,
+     * found with the host oracle diff).  The lift lost both tail calls
+     * (jr.hb t9 @0x73db8 to Tzn_Msca_Shd_osd / Tzn_Msca_Shd_mask), so the
+     * code fell through into the a0 == 0 setup and jumped back forever (the
+     * update_isp_osd endless loop on the device); it also never selected
+     * mscaler_s1 for a0 != 0 (the mode value was passed on as the state
+     * pointer) and called Tzn_Msca_Shd_line_chx with one argument instead
+     * of three.
+     */
+    uintptr_t state = a0 ? (uintptr_t)&mscaler_s1 : (uintptr_t)&mscaler_s0;
+    uint32_t ch = a0 & 0xffU;
+    uint8_t ls;
+    int32_t ret;
 
-    /* fragment 0: Branch */
-    v1 = a1;
-    if (a0 == 0) { goto tisp_msca_Shd_ctrl0x44; }
-
-    /* fragment 1: ConstantLoad */
-    v0 = 0x0;
-
-tisp_msca_Shd_ctrl0x10:
-    /* fragment 2: Arithmetic */
-    v0 = 1;
-
-    /* fragment 3: Branch */
-    t9 = (uintptr_t)&Tzn_Msca_Shd_mask;
-    if (v1 == v0) { goto tisp_msca_Shd_ctrl0x50; }
-
-    /* fragment 4: Arithmetic */
-    v0 = 2;
-
-    /* fragment 5: Branch */
-    if (v1 == v0) { goto tisp_msca_Shd_ctrl0x5c; }
-
-    /* fragment 6: Branch */
-    t9 = (uintptr_t)&isp_printf;
-    if (v1 != 0) { goto tisp_msca_Shd_ctrl0xb0; }
-
-    /* fragment 7: Arithmetic */
-    t9 = (uintptr_t)&Tzn_Msca_Shd_osd;
-    a0 = a0 & 255;
-    t9 = t9;
-
-tisp_msca_Shd_ctrl0x3c:
-    /* fragment 8: Unknown */
-    /* unmatched fragment 8 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 7414c:	03200408 	jr.hb	t9 */
-
-    /* fragment 9: Unknown */
-    /* unmatched fragment 9 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 74150:	00000000 	nop */
-
-tisp_msca_Shd_ctrl0x44:
-    /* fragment 10: Arithmetic */
-    v0 = (uintptr_t *)&mscaler_s0;
-
-    /* fragment 11: Branch */
-    a1 = (uint32_t *)&mscaler_s0;
-    goto tisp_msca_Shd_ctrl0x10;
-
-tisp_msca_Shd_ctrl0x50:
-    /* fragment 12: Arithmetic */
-    a0 = a0 & 255;
-
-    /* fragment 13: Branch */
-    t9 = (uintptr_t)&Tzn_Msca_Shd_mask;
-    goto tisp_msca_Shd_ctrl0x3c;
-
-tisp_msca_Shd_ctrl0x5c:
-    /* fragment 14: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 15: Arithmetic */
-    s0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 16: MemoryAccess */
-    v1 = *(uint8_t *)((char *)((char *)&line_switch));
-    v0 = (uintptr_t *)&Tzn_Msca_Shd_line_chx;
-    local_14 = ra;
-    a0 = a0 & 255;
-    v0 = v0;
-
-    /* fragment 17: Branch */
-    a2 = 0;
-    if (v1 == 0) { goto tisp_msca_Shd_ctrl0x88; }
-
-    /* fragment 18: CallSetup */
-    a2 = 1;
-
-tisp_msca_Shd_ctrl0x88:
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)Tzn_Msca_Shd_line_chx)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 20: MemoryAccess */
-    v1 = *(uint8_t *)((char *)((char *)&line_switch));
-    ra = local_14;
-    v0 = 1;
-    v0 = (uintptr_t)v0 - (uintptr_t)v1;
-    *(uint8_t *)((char *)((char *)&line_switch)) = v0;
-    s0 = local_10;
-
-    /* fragment 21: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_msca_Shd_ctrl0xb0:
-    /* fragment 22: Arithmetic */
-    a2 = (uint32_t *)&__param_str_isp_dual_buf;
-    a1 = (uint32_t *)&LC15;
-    a3 = 1380;
-    a2 = a2 + 8976;
-    a1 = a1;
-    t9 = t9;
-
-    /* fragment 23: Unknown */
-    /* unmatched fragment 23 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 741d8:	03200408 	jr.hb	t9 */
-
-    /* fragment 24: Arithmetic */
-    a0 = 1;
-
-    return 0;
+    switch (a1) {
+    case 0:
+        return Tzn_Msca_Shd_osd((int32_t)ch, (void *)state);
+    case 1:
+        return Tzn_Msca_Shd_mask(ch, (void *)state);
+    case 2:
+        ls = *(uint8_t *)&line_switch;
+        (void)Tzn_Msca_Shd_line_chx((int32_t)ch, (int32_t)state, ls ? 1 : 0);
+        ret = 1 - (int32_t)*(uint8_t *)&line_switch;
+        *(uint8_t *)&line_switch = (uint8_t)ret;
+        return ret;
+    default:
+        return isp_printf(1, "%s,%d: invalid shadow mode %u\n", "tisp_msca_Shd_ctrl", 1376, a1);
+    }
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000741e0 origin=fragment_seed original=tisp_s_af_weight_attr */
