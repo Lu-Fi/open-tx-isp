@@ -2821,6 +2821,18 @@ static unsigned char __attribute__((aligned(4))) tparams[0x15380];
 static uintptr_t first_frame;
 /* OEM .data flag: select the ISP top-level pipeline on the first IRQ. */
 static uint32_t first_into = 1;
+/*
+ * TOP 0xc bit 31 (tisp_top_sel) is set once by the first ISR after load.
+ * tisp_init() rewrites 0xc without it, so after a streamer restart the bit
+ * stays clear (seen on cam .24: 0x0000e24c; stock after boot: 0x8000e24c).
+ * t21_top_sel_rearm=1 re-arms the one-shot in tisp_init() so the next ISR
+ * sets it again.  Default 0 until a device run shows the effect.
+ */
+static int t21_top_sel_rearm;
+module_param(t21_top_sel_rearm, int, 0644);
+MODULE_PARM_DESC(t21_top_sel_rearm, "1 sets TOP 0xc bit 31 again after every tisp_init (default 0)");
+static unsigned int t21_top_sel_count;
+module_param(t21_top_sel_count, uint, 0444);
 static uintptr_t awb_dn_refresh_flag;
 static uintptr_t (*data_837cc)();
 static uintptr_t (*data_837d0)();
@@ -16788,6 +16800,8 @@ int32_t tisp_init(int32_t *arg1)
 		loop_acc = (loop_acc & mask) + val;
 	}
 	system_reg_write(0xc, t21_top_bypass_fix(loop_acc));
+	if (t21_top_sel_rearm)
+		first_into = 1;
 	system_reg_write(0x1c, 0x200000);
 
 	t21_tisp_stats_quiesced = false;
@@ -34122,6 +34136,7 @@ int32_t ispcore_interrupt_service_routine(uintptr_t a0)
 	if (first_into) {
 		tisp_top_sel();
 		first_into = 0;
+		t21_top_sel_count++;
 	}
 
 	for (channel = 0; channel < 3; channel++) {
