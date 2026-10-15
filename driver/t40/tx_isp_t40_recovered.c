@@ -10174,6 +10174,7 @@ static int regtrace_t40_apply_dmsc_sharpness(uint8_t sharpness);
 #include "tx_isp_t40_clm_lit.inc"
 #include "tx_isp_t40_lsc_lit.inc"
 #include "tx_isp_t40_sdns_lit.inc"
+#include "tx_isp_t40_adr_lit.inc"
 #include "tx_isp_t40_isr_lit.inc"
 
 
@@ -15461,8 +15462,19 @@ static int regtrace_isp_block_init_once(const char *where)
             regtrace_isp_block_init_awb_ret;
     }
 
-    regtrace_isp_block_init_adr_ret =
-        (int)tisp_adr_main_init(adr_width, adr_height);
+    if (regtrace_t40_adr_on && regtrace_t40_gates_oem_offset) {
+        regtrace_isp_block_init_adr_ret =
+            regtrace_adr_main_init_lit(adr_width, adr_height);
+        /* TOP bit 7 = ADR bypass: clear only after a successful init */
+        if (!regtrace_isp_block_init_adr_ret &&
+            !(regtrace_t40_force_bypass & BIT(7)))
+            regtrace_t40_quality_top40_final &= ~BIT(7);
+        else
+            regtrace_t40_quality_top40_final |= BIT(7);
+    } else {
+        regtrace_isp_block_init_adr_ret =
+            (int)tisp_adr_main_init(adr_width, adr_height);
+    }
     printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init post where=%s adr_ret=%d adr_stat=0x%x\n",
            where ? where : "?",
            regtrace_isp_block_init_adr_ret,
@@ -49715,7 +49727,12 @@ static void regtrace_isp_irq_post_dispatch_ack(int32_t irq, void *dev_id)
                     regtrace_isp_stats_fanout_bit_count[__b]++;
                 }
             }
-            if (regtrace_isp_stats_fanout_adr_status0_mask &&
+            if (regtrace_t40_adr_lit_active &&
+                regtrace_isp_stats_fanout_adr_status0_mask &&
+                (status0 & regtrace_isp_stats_fanout_adr_status0_mask) &&
+                !(status0 & (1U << 9)))
+                regtrace_adr_lit_forced_blocked++;	/* ADR runs only on its own bit 9 */
+            else if (regtrace_isp_stats_fanout_adr_status0_mask &&
                 (status0 & regtrace_isp_stats_fanout_adr_status0_mask) &&
                 !(status0 & (1U << 9)) && irq_func_cb[9]) {
                 ((int32_t (*)(void))(uintptr_t)irq_func_cb[9])();
