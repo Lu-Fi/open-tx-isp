@@ -8942,6 +8942,20 @@ static bool regtrace_t40_quality_raw_init = true;
  */
 static uint regtrace_gib_lit_final_gain = 1261U;
 static bool regtrace_enable_ysp;
+/*
+ * YSP init state.  tisp_ysp_main_init fails without a tuning bin (params
+ * copy -EFAULT) and then leaves main_ysp_comb without its pointers; the
+ * frame-done ysp_ev refresh still called tisp_ysp_par_refresh -> intp,
+ * which dereferences those NULL pointers (the r22a/r24a "YSP panic", both
+ * boots had no bin).  Every refresh entry now returns while init has not
+ * succeeded.  t40_ysp_on=1 lets the bin gates enable YSP despite the
+ * t40_force_bypass bit 17 default; TOP bit 17 is then cleared only when
+ * init returned 0.  Default 0.
+ */
+static int regtrace_ysp_init_ret = -1;
+static bool regtrace_t40_ysp_on;
+static unsigned int regtrace_ysp_refresh_count;
+static unsigned int regtrace_ysp_refresh_blocked;
 static bool regtrace_enable_ccm;
 /*
  * The literal CCM init starts from the OEM 6000 K bootstrap value.  Stock
@@ -9370,6 +9384,11 @@ module_param_named(t40_tuning_bcsh_bypass_now,
                    regtrace_t40_tuning_bcsh_bypass_now, uint, 0444);
 module_param_named(gib_lit_final_gain, regtrace_gib_lit_final_gain, uint, 0644);
 module_param_named(enable_ysp, regtrace_enable_ysp, bool, 0644);
+module_param_named(ysp_init_ret, regtrace_ysp_init_ret, int, 0444);
+module_param_named(t40_ysp_on, regtrace_t40_ysp_on, bool, 0644);
+MODULE_PARM_DESC(t40_ysp_on, "1 lets the bin gates enable YSP (sharpening) despite t40_force_bypass bit 17; active only after a successful init (default 0)");
+module_param_named(ysp_refresh_count, regtrace_ysp_refresh_count, uint, 0444);
+module_param_named(ysp_refresh_blocked, regtrace_ysp_refresh_blocked, uint, 0444);
 module_param_named(enable_ccm, regtrace_enable_ccm, bool, 0644);
 module_param_named(ccm_ct_track, regtrace_ccm_ct_track, bool, 0644);
 module_param_named(ccm_ct, regtrace_ccm_ct, uint, 0644);
@@ -11679,6 +11698,19 @@ static void regtrace_t40_gates_commit_reg6c(void)
     }
 }
 
+/* TOP bit 17 = YSP bypass: clear only after a successful init. */
+static void regtrace_t40_ysp_top_bit(int init_ret)
+{
+    if (!regtrace_t40_ysp_on)
+        return;
+    if (!init_ret) {
+        regtrace_t40_quality_top40_final &= ~BIT(17);
+    } else {
+        regtrace_t40_quality_top40_final |= BIT(17);
+        regtrace_enable_ysp = false;
+    }
+}
+
 static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
 {
     uint32_t gate_off = (regtrace_t40_gates_oem_offset &&
@@ -11795,15 +11827,16 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
         if (regtrace_t40_force_active & BIT(18))
             regtrace_enable_sdns = true;
     }
-    if (regtrace_t40_force_bypass) {
-        regtrace_t40_quality_top40_final |= regtrace_t40_force_bypass;
+    if (regtrace_t40_force_bypass & ~(regtrace_t40_ysp_on ? BIT(17) : 0U)) {
+        regtrace_t40_quality_top40_final |= regtrace_t40_force_bypass &
+            ~(regtrace_t40_ysp_on ? BIT(17) : 0U);
         if (regtrace_t40_force_bypass & BIT(10))
             regtrace_enable_soft_gamma = false;
         if (regtrace_t40_force_bypass & BIT(9))
             regtrace_enable_ccm = false;
         if (regtrace_t40_force_bypass & BIT(14))
             regtrace_enable_ydns = false;
-        if (regtrace_t40_force_bypass & BIT(17))
+        if ((regtrace_t40_force_bypass & BIT(17)) && !regtrace_t40_ysp_on)
             regtrace_enable_ysp = false;
         if (regtrace_t40_force_bypass & BIT(18))
             regtrace_enable_sdns = false;
@@ -15511,6 +15544,7 @@ static int regtrace_isp_block_init_once(const char *where)
     if (regtrace_enable_ysp) {
         int ysp_ret = (int)tisp_ysp_main_init();
 
+        regtrace_t40_ysp_top_bit(ysp_ret);
         printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init ysp ret=%d\n",
                ysp_ret);
     }
@@ -22231,8 +22265,10 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
                 min_t(uint32_t, regtrace_bcsh_saturation, 255U)));
         }
     }
-    if (regtrace_enable_ysp)
+    if (regtrace_enable_ysp) {
         REGTRACE_T40_DN_STEP(tisp_ysp_main_init());
+        regtrace_t40_ysp_top_bit(subret);
+    }
     if (regtrace_enable_sdns)
         REGTRACE_T40_DN_STEP(regtrace_sdns_main_init_lit());
     if (regtrace_enable_mdns)
@@ -166223,6 +166259,11 @@ fn_exit:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000672c8 origin=fragment_seed original=tisp_ysp_all_reg_refresh */
 int32_t tisp_ysp_all_reg_refresh(uint32_t a0, uint32_t a1)
 {
+    if (a0 != 0 || regtrace_ysp_init_ret) {
+        regtrace_ysp_refresh_blocked++;
+        return 0;
+    }
+    regtrace_ysp_refresh_count++;
     (void)tisp_ysp_intp(a0, a1);
     (void)tisp_ysp_noref_reg_cfg(a0);
     (void)tisp_ysp_ref_reg_cfg(a0);
@@ -166232,7 +166273,15 @@ int32_t tisp_ysp_all_reg_refresh(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000067320 origin=fragment_seed original=tisp_ysp_intp_reg_refresh */
 int32_t tisp_ysp_intp_reg_refresh(uint32_t a0, uint32_t a1)
 {
-    return tisp_ysp_all_reg_refresh(a0, a1);
+    /* OEM 0x673b0: intp -> ref_reg_cfg -> reg_trig (no noref_reg_cfg) */
+    if (a0 != 0 || regtrace_ysp_init_ret) {
+        regtrace_ysp_refresh_blocked++;
+        return 0;
+    }
+    regtrace_ysp_refresh_count++;
+    (void)tisp_ysp_intp(a0, a1);
+    (void)tisp_ysp_ref_reg_cfg(a0);
+    return tisp_ysp_reg_trig((int32_t)a0);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000067368 origin=fragment_seed original=tisp_ysp_par_refresh */
@@ -166251,7 +166300,10 @@ int32_t tisp_ysp_par_refresh(uint32_t a0, uint32_t a1, uint32_t a2)
             return 0;
     }
     regtrace_ysp_gain_old[a0] = a1;
-    return tisp_ysp_all_reg_refresh(a0, a1);
+    /* OEM 0x673f8: first value -> all_reg_refresh, later -> intp_reg_refresh */
+    if (cached == 0xffffffffU)
+        return tisp_ysp_all_reg_refresh(a0, a1);
+    return tisp_ysp_intp_reg_refresh(a0, a1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000673dc origin=model_output original=tisp_ysp_params_refresh */
@@ -166279,6 +166331,7 @@ int32_t tisp_ysp_refresh(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000067480 origin=fragment_seed original=tisp_ysp_main_init */
 int32_t tisp_ysp_main_init(void)
 {
+    regtrace_ysp_init_ret = -1;
     /*
      * OEM 0x67480: params (3432B) + comb (420B) + working (146B) buffers,
      * blob seed, table publish, initial register push at gain 1.0.
@@ -166305,6 +166358,7 @@ int32_t tisp_ysp_main_init(void)
     if (tisp_ysp_params_refresh(0))
         return -EFAULT;
     (void)tisp_ysp_wdr_en(0, regtrace_ysp_wdr_flags[0]);
+    regtrace_ysp_init_ret = 0;	/* comb pointers set: refresh may run */
     regtrace_ysp_gain_old[0] = 0xffffffffU;
     (void)tisp_ysp_refresh(0, 0x10000U);
     (void)tisp_ysp_par_refresh(0, 0x10000U, 0x10000U);
