@@ -113888,10 +113888,10 @@ uint32_t tisp_wdr_getVar(int16_t *arg1)
     int32_t *i_1 = 1;
     int32_t a3_6 = 0;
     int32_t *t3 = 10;
-    int32_t loop_limit = a1 + 1;
+    int32_t loop_limit = (uintptr_t)a1 + 1;
     
     /* Force signed comparison: use explicit signed comparison with volatile to prevent optimization */
-    volatile int32_t cmp_result = i_1 - loop_limit;
+    volatile int32_t cmp_result = (uintptr_t)i_1 - loop_limit;
     while (cmp_result < 0) {
         uint32_t t4_1 = (uint32_t)(uint16_t)arg1[0];
         uint32_t v1_6 = (uint32_t)(uint16_t)arg1[2];
@@ -113900,7 +113900,7 @@ uint32_t tisp_wdr_getVar(int16_t *arg1)
         
         int32_t v1_11 = ((int32_t)((int16_t)v1_6 - (int16_t)t4_1 + 1) / 2 * 10) - (((uintptr_t)a2 * 10 + v0) / (uintptr_t)a1);
         a3_6 += v1_11 * v1_11;
-        cmp_result = i_1 - loop_limit;
+        cmp_result = (uintptr_t)i_1 - loop_limit;
     }
     
     return (v0 + a3_6) / (uintptr_t)a1;
@@ -151865,7 +151865,7 @@ int32_t func_map_y_filter(int16_t *arg1, int32_t *arg2, int32_t arg3, int32_t ar
         lo_2 = (int32_t)(temp / v1_2);
         *(t3 - 4) = lo_2;
         
-        int32_t s0_5 = a2 + lo_2;
+        int32_t s0_5 = (uintptr_t)a2 + lo_2;
         s2 = ((uintptr_t *)(s0_5 - (uintptr_t)a2) < (unsigned int)lo_2 ? 1 : 0) + (uintptr_t)s2 + (lo_2 >> 0x1f);
         a2 = s0_5;
     } while (i != 0x10);
