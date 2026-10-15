@@ -605,28 +605,6 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
             return -ENODEV;
         }
 
-        pr_info("REGISTER: sensor=%p sd=%p video.attr=%p video.mbus.code=0x%x\n",
-                sensor, sensor_sd, sensor->video.attr, sensor->video.mbus.code);
-        pr_info("REGISTER: offsetof(tx_isp_sensor, video.attr)=%zu sizeof(tx_isp_subdev)=%zu sizeof(info)=%zu\n",
-                offsetof(struct tx_isp_sensor, video) + offsetof(struct tx_isp_video_in, attr),
-                sizeof(struct tx_isp_subdev),
-                sizeof(struct tx_isp_sensor_register_info));
-        /* HEXDUMP: Dump 64 bytes around video.attr to see what's actually there */
-        {
-            unsigned char *base = (unsigned char *)sensor;
-            size_t attr_off = offsetof(struct tx_isp_sensor, video) + offsetof(struct tx_isp_video_in, attr);
-            size_t dump_start = (attr_off > 32) ? attr_off - 32 : 0;
-            pr_info("REGISTER: HEXDUMP from offset %zu (attr at %zu):\n", dump_start, attr_off);
-            print_hex_dump(KERN_INFO, "  sensor+: ", DUMP_PREFIX_OFFSET, 16, 4,
-                           base + dump_start, 64, false);
-            pr_info("REGISTER: video starts at offset %zu, mbus at +0, mbus_change at +%zu, attr at +%zu\n",
-                    offsetof(struct tx_isp_sensor, video),
-                    offsetof(struct tx_isp_video_in, mbus_change),
-                    offsetof(struct tx_isp_video_in, attr));
-            pr_info("REGISTER: sizeof(v4l2_mbus_framefmt)=%zu sizeof(tx_isp_video_in)=%zu\n",
-                    sizeof(struct v4l2_mbus_framefmt), sizeof(struct tx_isp_video_in));
-        }
-
         /* Stock: memcpy($s3_2 + info_offset, arg3, 0x50) */
         /* Copy sensor_register_info into sensor->info */
         memcpy(&sensor->info, reg_info, sizeof(struct tx_isp_sensor_register_info));

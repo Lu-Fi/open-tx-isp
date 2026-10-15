@@ -2849,7 +2849,12 @@ static int tisp_load_single_bin_file(const char *path, int is_custom)
 
 	ret = tisp_read_file_into_buffer(path, &file_buf, &file_size);
 	if (ret) {
-		if (ret == -ENOENT)
+		/* The custom tuning blob is optional; only the standard blob is
+		   required. Report a missing custom blob at debug level so a
+		   normal boot stays quiet. */
+		if (is_custom)
+			pr_debug("tisp_load_single_bin_file: no custom bin %s: %d\n", path, ret);
+		else if (ret == -ENOENT)
 			pr_info("tisp_load_single_bin_file: no %s, using built-in tuning\n", path);
 		else
 			pr_warn("tisp_load_single_bin_file: failed to read %s: %d\n", path, ret);
