@@ -199554,10 +199554,23 @@ ispcore_interrupt_service_routine0xc64:
     }
 
     /* fragment 279: Arithmetic */
-    s4 = s4 + 1;
+    /*
+     * T40-OEM-LOOP-STRIDE: the OEM advances the index by 1 and the cursor by
+     * ONE table entry per iteration.  The recovered emitter kept the values
+     * (s4 += 1, s0 += 4) but s4/s0 are declared `uintptr_t *`, so C pointer
+     * scaling made them s4 += 4 entries and s0 += 16 bytes -- four entries.
+     * Index and cursor stayed in lockstep, the loop ran only 8 iterations and
+     * tested bits {0,4,8,12,16,20,24,28} of each status word.  24 of the 32
+     * slots per word (including 3/4/5/6 = per-frame 3A and 9 = ADR) could
+     * never be dispatched, and irq_func_cb_stride_mismatch_count could never
+     * fire.  Do the arithmetic on the raw address to restore OEM behaviour:
+     *   li s7,32 / sllv / lw 0(s1) / lw 168(s1) / jalr /
+     *   addiu s4,s4,1 / bne s4,s7 / addiu s1,s1,4
+     */
+    s4 = (uintptr_t *)((uintptr_t)s4 + 1);
 
     /* fragment 280: Branch */
-    s0 = s0 + 4;
+    s0 = (uintptr_t *)((uintptr_t)s0 + 4);
     if (s4 != s6) { goto ispcore_interrupt_service_routine0xc10; }
 
     /* fragment 281: Epilogue */
