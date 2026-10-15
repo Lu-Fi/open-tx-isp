@@ -189917,7 +189917,11 @@ ispcore_irq_sec_fd_work0xbc:
 
     /* fragment 14: Arithmetic */
     s4 = (uintptr_t *)&__param_str_isp_dual_buf;
-    s6 = s1 + 840;
+    /* T40-FDWORK-S1-SCALE: OEM 0x758bc is `addiu s6,s1,840` = +840 BYTES; s1 is a
+     * uintptr_t* here, so `s1 + 840` was scaled by sizeof(uintptr_t) (4 on the
+     * device: s6 landed 2520 bytes past the slot table). Byte arithmetic restores
+     * the OEM offset. */
+    s6 = (uintptr_t)s1 + 840;
     s5 = 0;
     s0 = 0;
     s3 = s3 + 23280;
