@@ -177639,20 +177639,20 @@ int32_t Tzn_Msca_Shd_osd(int32_t arg1, void* arg2)
     uint32_t var_48 = 0;
     int32_t *v0_1;
     int32_t *a2;
-    int32_t *v0_3;
+    uint32_t v0_3;	/* integer (register address / counter), not a pointer: host-diff fix */
     int32_t var_38_1 = 0x16600;
     const char* var_34_1 = "&vin->mlock";
     int32_t var_40_1 = 0;
     int32_t s7_1 = 0;
     int32_t var_30_1 = 0x10;
     void* s6_1;
-    int32_t *s4_1;
-    int32_t *i;
+    uint32_t s4_1;	/* integer (register address / counter), not a pointer: host-diff fix */
+    uint32_t i;	/* integer (register address / counter), not a pointer: host-diff fix */
     int32_t v0_6;
     int32_t *i_1;
-    int32_t *a0_2;
+    uint32_t a0_2;	/* integer (register address / counter), not a pointer: host-diff fix */
     int32_t v1_2;
-    int32_t *v0_10;
+    uint32_t v0_10;	/* integer (register address / counter), not a pointer: host-diff fix */
     int32_t a1_8;
     uint32_t v0_31;
     uint32_t v0_35;
@@ -177701,7 +177701,7 @@ int32_t Tzn_Msca_Shd_osd(int32_t arg1, void* arg2)
                 }
             }
 
-            i = (void *)(uintptr_t)((uintptr_t)i + (1));
+            i += 1;
             system_reg_write(0x50324, (*(uint16_t*)((char*)(uintptr_t)s6_1 + 0x1e4) << 16) | *(uint16_t*)((char*)(uintptr_t)s6_1 + 0x1e6));
             system_reg_write(0x50324, (uintptr_t)v0_10 - v1_2 + (uintptr_t)s4_1);
             system_reg_write(0x50324, (*(uint16_t*)((char*)(uintptr_t)s6_1 + 0x1e8) << 16) | *(uint16_t*)((char*)(uintptr_t)s6_1 + 0x1ea));
@@ -177712,7 +177712,7 @@ int32_t Tzn_Msca_Shd_osd(int32_t arg1, void* arg2)
             system_reg_write(0x50324, s4_1 + 0x16608);
             system_reg_write(0x50324, *(uint16_t*)((char*)s6_1 + 0x1e0));
             system_reg_write(0x50324, s4_1 + 0x1660c);
-            s4_1 = (void *)(uintptr_t)((uintptr_t)s4_1 + (0x10));
+            s4_1 += 0x10;
         } while (i != 8);
 
         var_38_1 += 0x80;
@@ -177733,7 +177733,8 @@ int32_t Tzn_Msca_Shd_osd(int32_t arg1, void* arg2)
     system_reg_write(0x50324, v0_39 | (*(uint8_t*)((char*)arg2 + 0x4aa) << 13) | (*(uint8_t*)((char*)arg2 + 0x4ba) << 14) | (*(uint8_t*)((char*)arg2 + 0x4ca) << 15));
     system_reg_write(0x50324, v0_3 + 0x16018);
     system_reg_write(0x50320, 0x102);
-    system_reg_write(0x414834, 0x41000001);
+    /* OEM Tzn_Msca_Shd_osd @0x6cf2c: a0 = 0x50000 + 0x420 (shadow kick), not 0x414834 */
+    system_reg_write(0x50420, 0x41000001);
 
     return private_spin_unlock_irqrestore();
 }
