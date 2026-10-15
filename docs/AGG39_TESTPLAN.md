@@ -26,9 +26,13 @@ What actually changes against agg-38:
 - **T10, T20, T23, T30**: driver sources identical to agg-38; T23/T30 get the -Os libimp only. These
   cameras run the soak as a regression check.
 
-Module md5 of the host build (unstripped, against each camera's agg-38 kernel tree): T10 5c0afb89,
-T20 e6b5c22a, T21 3aab8ec9, T23 7b93af16, T30 30ba084e, T31 ce63d2e3, T40 2baaeac7, T41 a13691df (the T41
-module embeds its build date, so its md5 changes per build day without a code change). Image builds
+Module md5 of the host build (unstripped, against each camera's agg-38 kernel tree): T10 5f12dbe7,
+T20 f7e7ed2f, T21 3e034c10, T23 7b93af16, T30 30ba084e, T31 ce63d2e3, T40 2baaeac7. The builds are
+reproducible (no build date, no build directory in the modules, `claude/repro-build`): the same commit
+gives the same md5 on any day and in any directory. T21 and T41 embed the commit (`OTX_BUILD_ID` from
+`git describe`); for T41 it appears in the module and its md5 therefore belongs to one commit: record it
+from the build of the final agg-39 commit (and set `OTX_BUILD_ID` explicitly when building from an
+archive without `.git`, else it reads "unknown"). Image builds
 produce their own (stripped) modules; record those md5s in the build summary.
 
 ## 2. Cameras
