@@ -9394,12 +9394,18 @@ static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t 
 
 static uint8_t adrlit_stack_ctl[ADRLIT_STACK] __attribute__((aligned(8)));
 
-/* OEM tisp_day_or_night_s_ctrl -> tisp_adr_dn_params_refresh(mode) */
+/*
+ * OEM tisp_day_or_night_s_ctrl(sensor) -> tisp_adr_dn_params_refresh(sensor):
+ * the argument is the channel (it indexes tparamsN / main vs sec params),
+ * not the mode; the mode is already in the bank copied to tparamsN[0].
+ * Only channel 0 is initialised here.
+ */
 static int regtrace_adr_dn_refresh_lit(uint32_t mode)
 {
+    (void)mode;
     if (!regtrace_t40_adr_lit_active)
         return 0;
-    return (int)tisp_adr_dn_params_refresh_lit(mode, 0, 0, 0,
+    return (int)tisp_adr_dn_params_refresh_lit(0, 0, 0, 0,
                                                ADRLIT_SP(adrlit_stack_ctl), NULL, 0);
 }
 
