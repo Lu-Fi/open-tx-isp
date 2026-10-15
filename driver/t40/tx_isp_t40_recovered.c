@@ -1528,11 +1528,16 @@ static struct platform_device tx_isp_platform_device = {
 static struct platform_device tx_isp_platform_device;
 #endif
 static unsigned char __data_start[16];
-static uint32_t ae_algo_comp;
-static uint32_t ae_info_mine;
+/* T40-ALGO-COMP: OEM .bss sizes (nm -S): *_info_mine 8 bytes = one
+ * pointer per AE/AWB index, *_algo_comp 0x20 bytes = one 16-byte struct
+ * completion (done + wait queue head) per index.  The open paths address
+ * them as info_mine + idx*4 and algo_comp + idx*16 (+4 for the wait queue). */
+#define T40_ALGO_IDX_COUNT 2
+static uint32_t ae_algo_comp[T40_ALGO_IDX_COUNT * 4];
+static uint32_t ae_info_mine[T40_ALGO_IDX_COUNT];
 static unsigned char data_336ac[16384];
-static uint32_t awb_algo_comp;
-static uint32_t awb_info_mine;
+static uint32_t awb_algo_comp[T40_ALGO_IDX_COUNT * 4];
+static uint32_t awb_info_mine[T40_ALGO_IDX_COUNT];
 static uint8_t tispPollValue;
 static int32_t dumpQueue;
 static unsigned char tisp_par_info[480];
@@ -57840,10 +57845,18 @@ int32_t tx_isp_set_ae_algo_open_isra_28(void* arg1, int32_t arg2)
         uint32_t var_88_1 = (uint32_t)system_reg_read(((*__p_9c) + 0x100) << 7);
     }
     
+    /* T40-ALGO-COMP: OEM 0x114a0..0x11504: ae_info_mine[idx] =
+     * kmem_cache_alloc(kmalloc_caches[11], 0x24000c0), then the completion
+     * at ae_algo_comp + idx*16: done = 0 and its wait queue at +4.  The
+     * reconstruction used the objects' values as addresses and cache 0. */
     int32_t s0_2 = (*__p_9c) << 4;
-    *(void**)(ae_info_mine + ((*__p_9c) << 2)) = kmem_cache_alloc(0, 0x24000c0);
-    *(int32_t*)(ae_algo_comp + s0_2) = 0;
-    __init_waitqueue_head(ae_info_mine + ((*__p_9c) << 2) + 0xb49d4, "&x->wait", 0);
+    BUILD_BUG_ON(sizeof(struct completion) != 16U);
+    if ((uint32_t)(*__p_9c) >= T40_ALGO_IDX_COUNT)
+        return 0xffffffff;
+    ae_info_mine[*__p_9c] = (uint32_t)(uintptr_t)kmem_cache_alloc(
+        (void *)(uintptr_t)(*(uint32_t *)((char *)&kmalloc_caches + 44)), 0x24000c0);
+    *(uint32_t *)((char *)ae_algo_comp + s0_2) = 0;
+    __init_waitqueue_head((void *)((char *)ae_algo_comp + s0_2 + 4), "&x->wait", 0);
     
     if (private_copy_to_user(arg2, __p_a0, 0x88) == 0) {
         return 0;
@@ -60900,11 +60913,17 @@ tx_isp_unlocked_ioctl0x265c:
     v0 = (uintptr_t *)kmem_cache_alloc((void *)(uintptr_t)(*(uint32_t *)((char *)&kmalloc_caches + 48)), 37748736 + 192); /* jalr target resolved by relocation */
 
     /* fragment 654: CallSetup */
+    /* T40-ALGO-COMP: OEM 0x13b94..0x13bd4: awb_info_mine[idx] is stored
+     * with the index BEFORE the shift; s0 = idx*16 is the byte offset of the
+     * completion in awb_algo_comp, its wait queue at +4. */
+    if ((uintptr_t)s0 < T40_ALGO_IDX_COUNT)
+        awb_info_mine[(uintptr_t)s0] = (uint32_t)(uintptr_t)v0;
     s0 = (uintptr_t)s0 << 4;
-    *(uint32_t *)((char *)(((uintptr_t)s0 << 2) + &awb_info_mine) + 0) = (uintptr_t)v0;
-    *(uint32_t *)((char *)((uintptr_t)s0 + (uintptr_t)&awb_algo_comp) + 0) = 0;
-    s0 = (uintptr_t *)((char *)s0 + 4);
-    __init_waitqueue_head((void *)(uintptr_t)(&awb_algo_comp + (((uintptr_t)s0 << 4) + 4)), (const char *)(uintptr_t)&LC10, (void *)(uintptr_t)0); /* jalr target resolved by relocation */
+    if ((uintptr_t)s0 < sizeof(awb_algo_comp)) {
+        *(uint32_t *)((char *)awb_algo_comp + (uintptr_t)s0) = 0;
+        s0 = (uintptr_t *)((char *)s0 + 4);
+        __init_waitqueue_head((void *)((char *)awb_algo_comp + (uintptr_t)s0), (const char *)(uintptr_t)&LC10, (void *)(uintptr_t)0);
+    } /* jalr target resolved by relocation */
 
     /* fragment 655: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, __p_20, 28); /* jalr target resolved by relocation */
