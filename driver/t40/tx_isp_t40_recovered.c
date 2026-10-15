@@ -198922,25 +198922,28 @@ int32_t update_isp_osd(void)
     if (_bc_v0_3) { goto update_isp_osd0x64; }
 
     /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_msca_Shd_ctrl)(0); /* jalr target resolved by relocation */
+    /* OEM 0x7ac94: a1 = *(s1 + 692) was loaded at 0x7ac78 and is the second
+     * argument (tisp_msca_Shd_ctrl(0, idx)); the 1-argument cast dropped it. */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_msca_Shd_ctrl)(0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 5: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 656);
-    v0 = v0 - 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 - 1);	/* OEM 0x7aca0 addiu -1 (not pointer arithmetic) */
     *(uint32_t *)((char *)s0 + 656) = v0;
 
 update_isp_osd0x64:
     /* fragment 6: MemoryAccess */
     v0 = *(uint32_t *)((char *)s1 + 692);
-    v0 = v0 + 1;
-    v1 = v0 < 3;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);	/* OEM 0x7acac addiu +1 */
+    v1 = (uintptr_t)v0 < 3;
+    if (!v1)			/* OEM 0x7acb4 movz v0,zero,v1: wrap at 3 */
+        v0 = 0;
     *(uint32_t *)((char *)s1 + 692) = v0;
 
 update_isp_osd0x78:
     /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    /* OEM 0x7acbc returns v0: the busy value of tisp_msca_state, or the new index */
+    return (int32_t)(uintptr_t)v0;
 }
 
 /*
