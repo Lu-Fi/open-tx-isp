@@ -187188,20 +187188,10 @@ label_73ebc:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000073fd0 origin=fragment_seed original=tisp_msca_state */
 int32_t tisp_msca_state(void)
 {
-    uint32_t t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: Unknown */
-    /* unmatched fragment 1 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 73fd8:	03200408 	jr.hb	t9 */
-
-    /* fragment 2: Unknown */
-    /* unmatched fragment 2 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 73fdc:	00000000 	nop */
-
-    return 0;
+    /* OEM tisp_msca_state @0x73c3c is a tail call to Tzn_Msca_Shd_Sta (jr.hb t9);
+     * the lift lost it and always returned 0, so update_isp_osd never saw a busy
+     * shadow DMA (host oracle diff). */
+    return Tzn_Msca_Shd_Sta();
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000073fe0 origin=fragment_seed original=tisp_g_draw_attr */
