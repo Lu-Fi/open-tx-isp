@@ -101656,12 +101656,27 @@ static void regtrace_awb_grayworld_apply(uint32_t rgain, uint32_t bgain)
  *            count = w3[5:0]<<8 | w2[31:24], frame tag = w3[15:8].
  * All four DMA banks are scanned and only the freshest tag is accumulated.
  */
+/*
+ * With t40_gates_oem_offset=1 BLC is bypassed (as stock) and the black level
+ * is removed later by GIB, so the AWB statistics carry the full pedestal and
+ * gray-world gains are pulled towards 1.0 (violet shadows, green/yellow cast).
+ * t40_awb_stats_ped subtracts a pedestal per pixel from the R/G/B sums before
+ * the gains are computed, in statistics units (12-bit level / 16; the AE
+ * target 140 is in the same units).  0 = off (default), -1 = auto: the GIB
+ * black level (0x8030, 12 bit) / 16 while TOP bit 0 (BLC) is bypassed.
+ * The soft-AE mean keeps using the raw sums.
+ */
+static int regtrace_t40_awb_stats_ped;
+module_param_named(t40_awb_stats_ped, regtrace_t40_awb_stats_ped, int, 0644);
+static uint regtrace_t40_awb_stats_ped_now;
+module_param_named(t40_awb_stats_ped_now, regtrace_t40_awb_stats_ped_now, uint, 0444);
+
 static void regtrace_awb_grayworld_update(void)
 {
     const uint8_t *buf;
     uint32_t off;
     uint32_t bank;
-    uint64_t rs = 0, gs = 0, bs = 0;
+    uint64_t rs = 0, gs = 0, bs = 0, raw_gs;
     uint64_t pixels = 0;
     uint32_t zones = 0;
     uint32_t rgain, bgain;
@@ -101702,6 +101717,25 @@ static void regtrace_awb_grayworld_update(void)
     if (!zones || !rs || !gs || !bs)
         return;
 
+    raw_gs = gs;
+    {
+        uint64_t ped = 0;
+
+        if (regtrace_t40_awb_stats_ped > 0)
+            ped = (uint64_t)regtrace_t40_awb_stats_ped;
+        else if (regtrace_t40_awb_stats_ped < 0 &&
+                 (regtrace_t40_quality_top40_final & BIT(0)))
+            ped = ((uint32_t)system_reg_read(0x8030U) & 0x0fffU) >> 4;
+        regtrace_t40_awb_stats_ped_now = (uint)ped;
+        if (ped) {
+            uint64_t sub = ped * pixels;
+
+            rs = rs > sub ? rs - sub : 1;
+            gs = gs > sub ? gs - sub : 1;
+            bs = bs > sub ? bs - sub : 1;
+        }
+    }
+
     rgain = (uint32_t)div64_u64(gs * 1024ULL, rs);
     bgain = (uint32_t)div64_u64(gs * 1024ULL, bs);
     rgain = (rgain * regtrace_awb_grayworld_rbias) >> 10;
@@ -101721,7 +101755,7 @@ static void regtrace_awb_grayworld_update(void)
     regtrace_awb_grayworld_apply(rgain, bgain);
 
     if (regtrace_enable_ae_soft && pixels) {
-        uint32_t mean = (uint32_t)div64_u64(gs, pixels);
+        uint32_t mean = (uint32_t)div64_u64(raw_gs, pixels);
         uint32_t it = regtrace_ae_soft_cur_it;
         uint32_t again = regtrace_ae_soft_cur_again;
         uint32_t max_again = regtrace_ae_sensor_apply_max_again_index;
