@@ -9795,6 +9795,193 @@ static int regtrace_fr_mark(uint32_t id, uint32_t aux)
     return 0;
 }
 
+/*
+ * T40-FLIGHT-RECORDER-PERSIST (claude 11:05, 2026-10-15)
+ *
+ * A hang inside the core-ops dispatch never reaches panic(), and an interrupt
+ * storm overwrites the 32-entry regtrace_fr_mark() ring within microseconds,
+ * so neither the marks nor the register that hung survive.  This block writes
+ * into the SAME rmem tail (0xe9f0000 - the rmem the kernel and U-Boot never
+ * clear, so it survives the watchdog reset; read back with t40prod/panicdump.sh):
+ *
+ *   0x7000  struct regtrace_fr2_hdr               live window header + counters
+ *   0x8000  256 x struct regtrace_fr2_reg_entry   the register ring
+ *   0xa000  128 x struct regtrace_fr2_ev_entry    the dispatch event ring
+ *
+ * The register ring is opened by the core-ops pre-dispatch trace (the same
+ * funnel as the "FIRE" printk) and RESET on every fire, so when a handler
+ * never returns the ring holds exactly the register accesses of the call that
+ * hung, in order, each with its sequence counter and address.  A read is
+ * recorded BEFORE the load, so the address of a hung read is in the ring even
+ * though the load itself never completes.
+ *
+ * Opt-in: flight_recorder=1 (default 0), and only with the panic dump rmem
+ * configured.  When armed, the write does not depend on core_ops_cb_fire_gate,
+ * core_ops_cb_trace or core_ops_cb_trace_limit, and it costs nothing unless the
+ * core-ops path runs:
+ * the register hook is a single branch on regtrace_fr2_capture, which is only
+ * ever set by regtrace_fr2_window() from that path.
+ *
+ * Offsets are fixed and documented so the reader side can be a dd + od
+ * one-liner; see results/T40_FLIGHT_RECORDER_PERSIST.md.
+ */
+struct regtrace_fr2_hdr {
+    char magic[8];          /* "T40FR2\0\0" */
+    uint32_t open_seq;      /* windows opened (core-ops fires traced) */
+    uint32_t open_jiffies;  /* jiffies of the last window open */
+    uint32_t reg_seq;       /* register entries written in the live window */
+    uint32_t ev_seq;        /* event entries written so far */
+    uint32_t who;           /* 1 = core, 2 = walker, 3 = thread */
+    uint32_t slot;          /* walk slot index (0 for core/thread) */
+    uint32_t irq;           /* irq number */
+    uint32_t dev;           /* dev pointer the handler is called with */
+    uint32_t cb;            /* handler pointer being dispatched */
+    uint32_t status0;       /* ISP core status0 at dispatch */
+    uint32_t flags;         /* bit0: register window open */
+    uint32_t pad[3];
+};
+
+struct regtrace_fr2_reg_entry {
+    uint32_t seq;           /* 1-based, reset by every window open */
+    uint32_t kind;          /* 0x30 read (pre), 0x31 write, 0x32 read done */
+    uint32_t addr;          /* offset passed to system_reg_read/write */
+    uint32_t val;           /* write data, or the value read (after 0x32) */
+};
+
+struct regtrace_fr2_ev_entry {
+    uint32_t seq;           /* 1-based, never reset (never wrapped: see below) */
+    uint32_t id;            /* 0x00 irq-enter, 0x01 fire, 0x02 core-ret,
+                             * 0x03 walk-ret */
+    uint32_t a;
+    uint32_t b;
+    uint32_t c;
+    uint32_t d;
+};
+
+#define REGTRACE_FR2_HDR_OFF      0x7000U
+#define REGTRACE_FR2_REG_OFF      0x8000U
+#define REGTRACE_FR2_REG_ENTRIES  256U
+#define REGTRACE_FR2_EV_OFF       0xa000U
+#define REGTRACE_FR2_EV_ENTRIES   128U
+/* the printk copy must stop below the new rings (0x6c00 > the 16 KB ring) */
+#define REGTRACE_FR2_LOG_CAP      (REGTRACE_FR2_HDR_OFF - REGTRACE_FR_LOG_OFF)
+
+static bool regtrace_fr2_enable;
+static bool regtrace_fr2_capture;
+static uint32_t regtrace_fr2_reg_seq;
+static uint32_t regtrace_fr2_ev_seq;
+static uint32_t regtrace_fr2_open_seq;
+module_param_named(flight_recorder, regtrace_fr2_enable, bool, 0644);
+MODULE_PARM_DESC(flight_recorder,
+    "T40-FLIGHT-RECORDER-PERSIST: write the dispatch + register rings into the rmem tail 0xe9f0000 (default 0; needs the panic dump rmem)");
+module_param_named(fr2_open_seq, regtrace_fr2_open_seq, uint, 0444);
+module_param_named(fr2_reg_seq, regtrace_fr2_reg_seq, uint, 0444);
+module_param_named(fr2_ev_seq, regtrace_fr2_ev_seq, uint, 0444);
+module_param_named(fr2_capture, regtrace_fr2_capture, bool, 0444);
+
+static void *regtrace_fr2_hdr_ptr(void)
+{
+    return (void *)KSEG1ADDR(regtrace_panic_dump_phys + REGTRACE_FR2_HDR_OFF);
+}
+
+static int regtrace_fr2_armed(void)
+{
+    return regtrace_fr2_enable && regtrace_panic_dump_enable &&
+           regtrace_panic_dump_phys;
+}
+
+/* One dispatch event.  Never sleeps, never allocates, hard-irq safe. */
+static void regtrace_fr2_ev(uint32_t id, uint32_t a, uint32_t b, uint32_t c,
+                            uint32_t d)
+{
+    struct regtrace_fr2_ev_entry *e;
+    struct regtrace_fr2_hdr *h;
+    uint32_t seq;
+
+    if (!regtrace_fr2_armed())
+        return;
+    seq = ++regtrace_fr2_ev_seq;
+    e = (struct regtrace_fr2_ev_entry *)KSEG1ADDR(regtrace_panic_dump_phys +
+                                                  REGTRACE_FR2_EV_OFF);
+    e += seq % REGTRACE_FR2_EV_ENTRIES;
+    e->seq = seq;
+    e->id = id;
+    e->a = a;
+    e->b = b;
+    e->c = c;
+    e->d = d;
+    wmb();
+    h = (struct regtrace_fr2_hdr *)regtrace_fr2_hdr_ptr();
+    h->ev_seq = seq;
+}
+
+/*
+ * Open (and reset) the register window.  Called from the pre-dispatch trace
+ * immediately before the handler is called, so the ring describes exactly one
+ * dispatch and the last fire that never returned is the one left in the ring.
+ */
+static void regtrace_fr2_window(uint32_t who, uint32_t slot, int32_t irq,
+                                uintptr_t dev, uintptr_t cb, uint32_t status0)
+{
+    struct regtrace_fr2_hdr *h;
+
+    if (!regtrace_fr2_armed())
+        return;
+    h = (struct regtrace_fr2_hdr *)regtrace_fr2_hdr_ptr();
+    regtrace_fr2_reg_seq = 0;
+    regtrace_fr2_capture = true;
+    memcpy(h->magic, "T40FR2\0\0", 8);
+    h->open_seq = ++regtrace_fr2_open_seq;
+    h->open_jiffies = (uint32_t)jiffies;
+    h->reg_seq = 0;
+    h->ev_seq = regtrace_fr2_ev_seq;
+    h->who = who;
+    h->slot = slot;
+    h->irq = (uint32_t)irq;
+    h->dev = (uint32_t)dev;
+    h->cb = (uint32_t)cb;
+    h->status0 = status0;
+    h->flags = 1;
+    wmb();
+}
+
+/*
+ * Record one register access and return its slot so a read can be completed.
+ * A hung load leaves kind 0x30 with the address - which is the whole point.
+ */
+static void *regtrace_fr2_reg_pre(uint32_t kind, uint32_t addr, uint32_t val)
+{
+    struct regtrace_fr2_reg_entry *e;
+    struct regtrace_fr2_hdr *h;
+    uint32_t seq;
+
+    if (!regtrace_fr2_capture)
+        return 0;
+    seq = ++regtrace_fr2_reg_seq;
+    e = (struct regtrace_fr2_reg_entry *)KSEG1ADDR(regtrace_panic_dump_phys +
+                                                   REGTRACE_FR2_REG_OFF);
+    e += seq % REGTRACE_FR2_REG_ENTRIES;
+    e->seq = seq;
+    e->kind = kind;
+    e->addr = addr;
+    e->val = val;
+    wmb();
+    h = (struct regtrace_fr2_hdr *)regtrace_fr2_hdr_ptr();
+    h->reg_seq = seq;
+    return e;
+}
+
+static void regtrace_fr2_reg_post(void *entry, uint32_t val)
+{
+    struct regtrace_fr2_reg_entry *e = (struct regtrace_fr2_reg_entry *)entry;
+
+    if (!e)
+        return;
+    e->val = val;
+    e->kind = 0x32U;
+    wmb();
+}
+
 static void regtrace_panic_dump_now(const char *reason)
 {
     struct regtrace_panic_dump_hdr *hdr;
@@ -9811,8 +9998,8 @@ static void regtrace_panic_dump_now(const char *reason)
     len = *(uint32_t *)(uintptr_t)regtrace_panic_dump_logbuf_len;
     if (!regtrace_is_kernel_ptr(src) || !len)
         return;
-    if (len > 0x10000U - REGTRACE_FR_LOG_OFF)
-        len = 0x10000U - REGTRACE_FR_LOG_OFF;
+    if (len > REGTRACE_FR2_LOG_CAP)
+        len = REGTRACE_FR2_LOG_CAP;
     dst = (char *)KSEG1ADDR(regtrace_panic_dump_phys);
     hdr = (struct regtrace_panic_dump_hdr *)dst;
     memcpy(hdr->magic, "T40PANIC", 8);
@@ -50615,6 +50802,27 @@ static bool regtrace_core_ops_cb_bisect_ok(const char *who, int32_t irq,
     return true;
 }
 
+/* T40-FLIGHT-RECORDER-PERSIST: opens the register window for the handler call
+ * that follows (the ring then holds exactly that call's accesses) and records
+ * the dispatch event.  Called after the fire was accepted, before the
+ * handler, independent of the trace gate and trace limit. */
+static void regtrace_fr2_fire(const char *who, uint32_t slot, int32_t irq,
+                              uintptr_t dev, uintptr_t cb)
+{
+    volatile void __iomem *regs;
+    uint32_t st0;
+
+    if (!regtrace_fr2_armed())
+        return;
+    regtrace_fr2_window((who && who[0] == 'c') ? 1U
+                        : ((who && who[0] == 'w') ? 2U : 3U),
+                        slot, irq, dev, cb, 0);
+    regs = regtrace_core_regs();
+    st0 = regs ? readl(regs + 0x40028) : 0;
+    ((struct regtrace_fr2_hdr *)regtrace_fr2_hdr_ptr())->status0 = st0;
+    regtrace_fr2_ev(0x01, slot, (uint32_t)dev, (uint32_t)cb, st0);
+}
+
 static bool regtrace_core_ops_fire_ok(const char *who, int32_t irq,
                                       uintptr_t base, uintptr_t cb)
 {
@@ -50695,6 +50903,7 @@ static bool regtrace_core_ops_fire_ok(const char *who, int32_t irq,
 int32_t isp_irq_handle(int32_t arg1, void* arg2)
 {
     int __maybe_unused __fr = regtrace_fr_mark(0x10, (uint32_t)arg1);
+    regtrace_fr2_ev(0x00, (uint32_t)arg1, (uint32_t)arg2, 0, 0);
     uintptr_t base = (uintptr_t)arg2;
     uintptr_t slot;
     uintptr_t end;
@@ -50727,9 +50936,13 @@ int32_t isp_irq_handle(int32_t arg1, void* arg2)
         if (regtrace_is_kernel_ptr((void *)cb) &&
             regtrace_core_ops_fire_ok("core", arg1, base, cb)) {
             regtrace_core_ops_cb_core_path_count++;
+            regtrace_fr2_fire("core", 0xffffffffU, arg1, base, cb);
             result = ((int32_t (*)(uintptr_t, int32_t, int32_t))cb)
                 (base - REGTRACE_IRQ_TABLE_SUBDEV_OFF, arg1, 0);
             regtrace_core_ops_cb_last_ret = (uint32_t)result;
+            regtrace_fr2_ev(0x02, (uint32_t)result,
+                            (uint32_t)(base - REGTRACE_IRQ_TABLE_SUBDEV_OFF),
+                            0, 0);
             if (result != IRQ_WAKE_THREAD)
                 result = IRQ_HANDLED;
         }
@@ -50754,9 +50967,17 @@ int32_t isp_irq_handle(int32_t arg1, void* arg2)
             if (regtrace_is_kernel_ptr((void *)cb) &&
                 regtrace_core_ops_fire_ok("walker", arg1, subdev, cb)) {
                 regtrace_core_ops_cb_walk_path_count++;
-                if (((int32_t (*)(uintptr_t, int32_t, int32_t))cb)
-                        (subdev, arg1, 0) == IRQ_WAKE_THREAD) {
-                    result = IRQ_WAKE_THREAD;
+                regtrace_fr2_fire("walker", regtrace_core_ops_cb_walk_index,
+                                  arg1, subdev, cb);
+                {
+                    int32_t wret =
+                        ((int32_t (*)(uintptr_t, int32_t, int32_t))cb)
+                            (subdev, arg1, 0);
+
+                    regtrace_fr2_ev(0x03, (uint32_t)wret, (uint32_t)subdev, 0,
+                                    0);
+                    if (wret == IRQ_WAKE_THREAD)
+                        result = IRQ_WAKE_THREAD;
                 }
                 regtrace_core_ops_cb_last_ret = (uint32_t)result;
             }
@@ -196358,6 +196579,7 @@ int32_t system_reg_write(uint32_t a0, uint32_t a1)
         regtrace_mdns_wr_bitmap[w >> 5] |= 1u << (w & 31);
     }
 
+    regtrace_fr2_reg_pre(0x31U, a0, a1);
     writel(a1, base + a0);
     wmb();
     if (watched)
@@ -196773,7 +196995,13 @@ int32_t system_reg_read(uint32_t a0)
         return 0;
 
     regtrace_fr_mark(0x30, a0);
-    return readl(base + a0);
+    {
+        void *fr2 = regtrace_fr2_reg_pre(0x30U, a0, 0);
+        uint32_t fr2_val = readl(base + a0);
+
+        regtrace_fr2_reg_post(fr2, fr2_val);
+        return fr2_val;
+    }
 #else
     uint32_t ra = 0;
     uintptr_t *v0 = 0;
