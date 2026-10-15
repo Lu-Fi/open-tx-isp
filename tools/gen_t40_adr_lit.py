@@ -111,9 +111,9 @@ for i, a in enumerate(anon):
     o.append(f"static const uint8_t adrlit_ro_{a:x}[{z}] __attribute__((aligned(8))) = {{ {vals} }};")
 o.append('')
 for f in fns:
-    o.append(f"static int32_t {f}_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);")
-o.append("static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t sp, uint32_t *v1);")
-o.append("#define ADR_DISPATCH(r) adrlit_dispatch((r), r_a0, r_a1, r_a2, r_a3, r_sp, &r_v1)")
+    o.append(f"static int32_t {f}_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);")
+o.append("static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t sp, uint32_t *v1, uint32_t v0);")
+o.append("#define ADR_DISPATCH(r) adrlit_dispatch((r), r_a0, r_a1, r_a2, r_a3, r_sp, &r_v1, r_v0)")
 o.append('')
 def fix(b):
     b = re.sub(r'/\*UNMAPPED \.rodata\+0x([0-9a-f]+)\*/0', lambda m: f'adrlit_ro_{m.group(1)}', b)
@@ -127,9 +127,9 @@ def fix(b):
         return m.group(0)
     return re.sub(r'&([A-Za-z_][A-Za-z_0-9]*)', rp, b)
 for f in fns:
-    o.append(f'''static int32_t {f}_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+    o.append(f'''static int32_t {f}_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {{
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -142,16 +142,16 @@ for f in fns:
     (void)mips_cond;
 {fix(bodies[f])}
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }}
 ''')
 # dispatcher
-d = ['''static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t sp, uint32_t *v1)
+d = ['''static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t sp, uint32_t *v1, uint32_t v0)
 {''']
 for f in fns:
-    d.append(f"    if (fn == (uint32_t)(uintptr_t)&{f})\n        return (uint32_t){f}_lit(a0, a1, a2, a3, sp, v1);")
+    d.append(f"    if (fn == (uint32_t)(uintptr_t)&{f})\n        return (uint32_t){f}_lit(a0, a1, a2, a3, sp, v1, v0);")
 d.append('''    if (fn == (uint32_t)(uintptr_t)&system_reg_write)
         return (uint32_t)system_reg_write(a0, a1);
     if (fn == (uint32_t)(uintptr_t)&system_reg_read)
@@ -229,7 +229,7 @@ static uint8_t adrlit_stack_proc[ADRLIT_STACK] __attribute__((aligned(8)));
 static int32_t adrlit_isr_cb(void)
 {
     regtrace_adr_lit_isr_count++;
-    return tiziano_adr_main_interrupt_static_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_isr), NULL);
+    return tiziano_adr_main_interrupt_static_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_isr), NULL, 0);
 }
 
 static int32_t adrlit_process_cb(uint32_t a0, uint32_t a1, uint32_t a2,
@@ -237,7 +237,7 @@ static int32_t adrlit_process_cb(uint32_t a0, uint32_t a1, uint32_t a2,
 {
     (void)a4;
     regtrace_adr_lit_process_count++;
-    return tisp_adr_main_process_lit(a0, a1, a2, a3, ADRLIT_SP(adrlit_stack_proc), NULL);
+    return tisp_adr_main_process_lit(a0, a1, a2, a3, ADRLIT_SP(adrlit_stack_proc), NULL, 0);
 }
 ''')
 o.append('\n'.join(d))
@@ -250,7 +250,7 @@ static int regtrace_adr_dn_refresh_lit(uint32_t mode)
     if (!regtrace_t40_adr_lit_active)
         return 0;
     return (int)tisp_adr_dn_params_refresh_lit(mode, 0, 0, 0,
-                                               ADRLIT_SP(adrlit_stack_ctl), NULL);
+                                               ADRLIT_SP(adrlit_stack_ctl), NULL, 0);
 }
 
 /*
@@ -265,14 +265,14 @@ static void regtrace_adr_lit_cleanup(void)
     regtrace_t40_adr_lit_active = false;
     system_irq_func_set(9, 0);
     tisp_event_set_cb(0, 2, 0);
-    (void)tisp_adr_main_deinit_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_ctl), NULL);
+    (void)tisp_adr_main_deinit_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_ctl), NULL, 0);
     printk(KERN_INFO "tx_isp_t40_recovered: adr-lit deinit done\\n");
 }
 
 static int regtrace_adr_main_init_lit(uint32_t width, uint32_t height)
 {
     int ret = (int)tisp_adr_main_init_lit(width, height, 0, 0,
-                                          ADRLIT_SP(adrlit_stack_init), NULL);
+                                          ADRLIT_SP(adrlit_stack_init), NULL, 0);
 
     regtrace_adr_lit_init_ret = ret;
     regtrace_t40_adr_lit_active = !ret;

@@ -135,50 +135,50 @@ static const uint8_t adrlit_ro_214c[28] __attribute__((aligned(8))) = { 0x00, 0x
 static const uint8_t adrlit_ro_2168[20] __attribute__((aligned(8))) = { 0x08, 0x00, 0x10, 0x00, 0x20, 0x00, 0x40, 0x00, 0x80, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x00, 0x08, 0x00, 0x00 };
 static const uint8_t adrlit_ro_217c[124] __attribute__((aligned(8))) = { 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x06, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x98, 0x9c, 0x06, 0x00, 0xbc, 0x9c, 0x06, 0x00, 0x64, 0x9d, 0x06, 0x00, 0x84, 0x9d, 0x06, 0x00, 0x2c, 0x9e, 0x06, 0x00, 0x01, 0x04, 0x00, 0x00, 0x04, 0xfe, 0xff, 0xff, 0xf3, 0xfe, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0x05, 0x09, 0x00, 0x00, 0x5f, 0x01, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff, 0xf1, 0x02, 0x00, 0x00, 0x9b, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x82, 0x00, 0x0e, 0x01, 0x68, 0x01, 0xf4, 0x01, 0x00, 0x00, 0xf4, 0x01, 0x7c, 0x01, 0x04, 0x01, 0x7d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1e, 0x00, 0x64, 0x00, 0x00, 0x00 };
 
-static int32_t Tiziano_adr_fpga_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t fix_point_div_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t fix_point_div_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t fix_point_mult2_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t func_adr_map_curve1_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t func_adr_reg_write_5x5_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t func_adr_reg_write_every_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t func_adr_reg_write_one_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t func_adr_reg_write_sometimes_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t func_gauss_local_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t func_interp1_short_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t func_local_info_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t func_map_y_filter_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t func_map_y_filter_sp_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t ispint_adr_16_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t ispint_adr_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t subsection_map_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t subsection_up_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tisp_adr_main_init_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tisp_adr_main_process_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tisp_math_exp2_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_5x5_init_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_5x5_out_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_algorithm_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_base_pars_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_ev_func_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_hard_base_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_hard_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_main_interrupt_static_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_read_data_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_soft_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_stat_calc_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_tgain_func_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_top_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tiziano_adr_wal_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tisp_adr_main_deinit_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static int32_t tisp_adr_dn_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out);
-static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t sp, uint32_t *v1);
-#define ADR_DISPATCH(r) adrlit_dispatch((r), r_a0, r_a1, r_a2, r_a3, r_sp, &r_v1)
+static int32_t Tiziano_adr_fpga_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t fix_point_div_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t fix_point_div_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t fix_point_mult2_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t func_adr_map_curve1_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t func_adr_reg_write_5x5_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t func_adr_reg_write_every_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t func_adr_reg_write_one_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t func_adr_reg_write_sometimes_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t func_gauss_local_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t func_interp1_short_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t func_local_info_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t func_map_y_filter_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t func_map_y_filter_sp_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t ispint_adr_16_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t ispint_adr_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t subsection_map_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t subsection_up_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tisp_adr_main_init_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tisp_adr_main_process_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tisp_math_exp2_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_5x5_init_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_5x5_out_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_algorithm_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_base_pars_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_ev_func_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_hard_base_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_hard_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_main_interrupt_static_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_read_data_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_soft_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_stat_calc_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_tgain_func_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_top_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tiziano_adr_wal_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tisp_adr_main_deinit_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tisp_adr_dn_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t sp, uint32_t *v1, uint32_t v0);
+#define ADR_DISPATCH(r) adrlit_dispatch((r), r_a0, r_a1, r_a2, r_a3, r_sp, &r_v1, r_v0)
 
-static int32_t Tiziano_adr_fpga_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t Tiziano_adr_fpga_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -1846,14 +1846,14 @@ L_5c184:
     goto L_5b9f8;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t fix_point_div_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t fix_point_div_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -1968,14 +1968,14 @@ L_16a84:
     goto fn_exit;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t fix_point_div_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t fix_point_div_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -2029,14 +2029,14 @@ L_165b0:
     goto fn_exit;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t fix_point_mult2_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t fix_point_mult2_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -2066,14 +2066,14 @@ static int32_t fix_point_mult2_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a
     goto fn_exit;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t func_adr_map_curve1_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t func_adr_map_curve1_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -2334,14 +2334,14 @@ L_56ddc:
     goto L_56b1c;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t func_adr_reg_write_5x5_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t func_adr_reg_write_5x5_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -2546,14 +2546,14 @@ L_54e70:
     goto L_54bec;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t func_adr_reg_write_every_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t func_adr_reg_write_every_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -2687,14 +2687,14 @@ L_554dc:
     goto L_5536c;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t func_adr_reg_write_one_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t func_adr_reg_write_one_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -2789,14 +2789,14 @@ L_54bac:
     goto L_54aa0;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t func_adr_reg_write_sometimes_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t func_adr_reg_write_sometimes_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -3127,14 +3127,14 @@ L_5532c:
     goto L_54eac;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t func_gauss_local_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t func_gauss_local_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -3386,14 +3386,14 @@ L_57318:
     goto L_571a8;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t func_interp1_short_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t func_interp1_short_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -3487,14 +3487,14 @@ L_58770:
     goto fn_exit;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t func_local_info_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t func_local_info_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -3631,14 +3631,14 @@ L_56f48:
     goto L_56ef0;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t func_map_y_filter_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t func_map_y_filter_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -3868,14 +3868,14 @@ L_597bc:
     goto L_59778;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t func_map_y_filter_sp_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t func_map_y_filter_sp_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -4108,14 +4108,14 @@ L_59b7c:
     goto L_599a0;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t ispint_adr_16_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t ispint_adr_16_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -4176,14 +4176,14 @@ L_59538:
     goto L_594b8;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t ispint_adr_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t ispint_adr_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -4243,14 +4243,14 @@ L_58870:
     goto L_587f4;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t subsection_map_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t subsection_map_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -4419,14 +4419,14 @@ L_59d58:
     goto fn_exit;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t subsection_up_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t subsection_up_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -5003,14 +5003,14 @@ L_5ab90:
     goto L_5aa9c;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tisp_adr_main_init_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tisp_adr_main_init_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -5474,14 +5474,14 @@ L_57b68:
     goto fn_exit;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tisp_adr_main_process_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tisp_adr_main_process_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -5584,14 +5584,14 @@ L_5c5c8:
     goto fn_exit;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tisp_math_exp2_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tisp_math_exp2_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -5656,14 +5656,14 @@ L_16648:
     goto L_16630;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_5x5_init_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_5x5_init_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -6113,14 +6113,14 @@ L_564f0:
     goto L_564e8;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_5x5_out_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_5x5_out_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -6174,14 +6174,14 @@ L_55ee4:
     goto fn_exit;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_algorithm_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_algorithm_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -6384,14 +6384,14 @@ L_5c47c:
     goto L_5c218;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_base_pars_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_base_pars_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -6552,14 +6552,14 @@ L_56728:
     goto L_5664c;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_ev_func_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_ev_func_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -7389,14 +7389,14 @@ L_5949c:
     goto fn_exit;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_hard_base_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_hard_base_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -7439,14 +7439,14 @@ L_53b70:
     goto L_53b2c;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_hard_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_hard_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -7507,14 +7507,14 @@ L_53afc:
     goto L_53a80;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_main_interrupt_static_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_main_interrupt_static_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -7626,14 +7626,14 @@ L_55914:
     goto fn_exit;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -7700,14 +7700,14 @@ L_53c38:
     goto L_53bb0;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_read_data_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_read_data_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -7917,14 +7917,14 @@ L_557cc:
     goto L_55510;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_soft_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_soft_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -8032,14 +8032,14 @@ L_53a40:
     goto L_53918;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_stat_calc_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_stat_calc_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -8221,14 +8221,14 @@ L_55e44:
     goto L_55bdc;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_tgain_func_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_tgain_func_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -8254,14 +8254,14 @@ L_55e70:
     goto fn_exit;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_top_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_top_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -8388,14 +8388,14 @@ L_538e0:
     goto L_5374c;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tiziano_adr_wal_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tiziano_adr_wal_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -8715,14 +8715,14 @@ L_53500:
     goto L_534e8;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tisp_adr_main_deinit_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tisp_adr_main_deinit_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -9022,14 +9022,14 @@ L_546b8:
     r_v0 = ADR_DISPATCH(r_t9); goto fn_exit; /* tail private_mutex_unlock */
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
-static int32_t tisp_adr_dn_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_out)
+static int32_t tisp_adr_dn_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
-    uint32_t r_v0 = 0, r_v1 = 0;
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
     uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
     uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
@@ -9220,8 +9220,8 @@ L_585d8:
     goto L_58550;
 
 fn_exit:
-    if (v1_out)
-        *v1_out = r_v1;
+    if (v1_io)
+        *v1_io = r_v1;
     return (int32_t)r_v0;
 }
 
@@ -9235,7 +9235,7 @@ static uint8_t adrlit_stack_proc[ADRLIT_STACK] __attribute__((aligned(8)));
 static int32_t adrlit_isr_cb(void)
 {
     regtrace_adr_lit_isr_count++;
-    return tiziano_adr_main_interrupt_static_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_isr), NULL);
+    return tiziano_adr_main_interrupt_static_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_isr), NULL, 0);
 }
 
 static int32_t adrlit_process_cb(uint32_t a0, uint32_t a1, uint32_t a2,
@@ -9243,87 +9243,87 @@ static int32_t adrlit_process_cb(uint32_t a0, uint32_t a1, uint32_t a2,
 {
     (void)a4;
     regtrace_adr_lit_process_count++;
-    return tisp_adr_main_process_lit(a0, a1, a2, a3, ADRLIT_SP(adrlit_stack_proc), NULL);
+    return tisp_adr_main_process_lit(a0, a1, a2, a3, ADRLIT_SP(adrlit_stack_proc), NULL, 0);
 }
 
-static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t sp, uint32_t *v1)
+static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t sp, uint32_t *v1, uint32_t v0)
 {
     if (fn == (uint32_t)(uintptr_t)&Tiziano_adr_fpga)
-        return (uint32_t)Tiziano_adr_fpga_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)Tiziano_adr_fpga_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&fix_point_div)
-        return (uint32_t)fix_point_div_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)fix_point_div_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&fix_point_div_32)
-        return (uint32_t)fix_point_div_32_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)fix_point_div_32_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&fix_point_mult2_32)
-        return (uint32_t)fix_point_mult2_32_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)fix_point_mult2_32_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&func_adr_map_curve1)
-        return (uint32_t)func_adr_map_curve1_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)func_adr_map_curve1_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&func_adr_reg_write_5x5)
-        return (uint32_t)func_adr_reg_write_5x5_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)func_adr_reg_write_5x5_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&func_adr_reg_write_every)
-        return (uint32_t)func_adr_reg_write_every_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)func_adr_reg_write_every_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&func_adr_reg_write_one)
-        return (uint32_t)func_adr_reg_write_one_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)func_adr_reg_write_one_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&func_adr_reg_write_sometimes)
-        return (uint32_t)func_adr_reg_write_sometimes_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)func_adr_reg_write_sometimes_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&func_gauss_local)
-        return (uint32_t)func_gauss_local_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)func_gauss_local_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&func_interp1_short)
-        return (uint32_t)func_interp1_short_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)func_interp1_short_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&func_local_info)
-        return (uint32_t)func_local_info_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)func_local_info_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&func_map_y_filter)
-        return (uint32_t)func_map_y_filter_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)func_map_y_filter_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&func_map_y_filter_sp)
-        return (uint32_t)func_map_y_filter_sp_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)func_map_y_filter_sp_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&ispint_adr_16)
-        return (uint32_t)ispint_adr_16_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)ispint_adr_16_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&ispint_adr_32)
-        return (uint32_t)ispint_adr_32_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)ispint_adr_32_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&subsection_map)
-        return (uint32_t)subsection_map_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)subsection_map_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&subsection_up)
-        return (uint32_t)subsection_up_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)subsection_up_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tisp_adr_main_init)
-        return (uint32_t)tisp_adr_main_init_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tisp_adr_main_init_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tisp_adr_main_process)
-        return (uint32_t)tisp_adr_main_process_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tisp_adr_main_process_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tisp_math_exp2)
-        return (uint32_t)tisp_math_exp2_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tisp_math_exp2_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_5x5_init)
-        return (uint32_t)tiziano_adr_5x5_init_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_5x5_init_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_5x5_out)
-        return (uint32_t)tiziano_adr_5x5_out_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_5x5_out_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_algorithm)
-        return (uint32_t)tiziano_adr_algorithm_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_algorithm_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_base_pars)
-        return (uint32_t)tiziano_adr_base_pars_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_base_pars_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_ev_func)
-        return (uint32_t)tiziano_adr_ev_func_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_ev_func_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_hard_base_refresh)
-        return (uint32_t)tiziano_adr_hard_base_refresh_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_hard_base_refresh_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_hard_para_refresh)
-        return (uint32_t)tiziano_adr_hard_para_refresh_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_hard_para_refresh_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_main_interrupt_static)
-        return (uint32_t)tiziano_adr_main_interrupt_static_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_main_interrupt_static_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_params_refresh)
-        return (uint32_t)tiziano_adr_params_refresh_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_params_refresh_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_read_data)
-        return (uint32_t)tiziano_adr_read_data_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_read_data_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_soft_para_refresh)
-        return (uint32_t)tiziano_adr_soft_para_refresh_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_soft_para_refresh_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_stat_calc)
-        return (uint32_t)tiziano_adr_stat_calc_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_stat_calc_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_tgain_func)
-        return (uint32_t)tiziano_adr_tgain_func_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_tgain_func_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_top_para_refresh)
-        return (uint32_t)tiziano_adr_top_para_refresh_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_top_para_refresh_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_wal_para_refresh)
-        return (uint32_t)tiziano_adr_wal_para_refresh_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tiziano_adr_wal_para_refresh_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tisp_adr_main_deinit)
-        return (uint32_t)tisp_adr_main_deinit_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tisp_adr_main_deinit_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tisp_adr_dn_params_refresh)
-        return (uint32_t)tisp_adr_dn_params_refresh_lit(a0, a1, a2, a3, sp, v1);
+        return (uint32_t)tisp_adr_dn_params_refresh_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&system_reg_write)
         return (uint32_t)system_reg_write(a0, a1);
     if (fn == (uint32_t)(uintptr_t)&system_reg_read)
@@ -9400,7 +9400,7 @@ static int regtrace_adr_dn_refresh_lit(uint32_t mode)
     if (!regtrace_t40_adr_lit_active)
         return 0;
     return (int)tisp_adr_dn_params_refresh_lit(mode, 0, 0, 0,
-                                               ADRLIT_SP(adrlit_stack_ctl), NULL);
+                                               ADRLIT_SP(adrlit_stack_ctl), NULL, 0);
 }
 
 /*
@@ -9415,14 +9415,14 @@ static void regtrace_adr_lit_cleanup(void)
     regtrace_t40_adr_lit_active = false;
     system_irq_func_set(9, 0);
     tisp_event_set_cb(0, 2, 0);
-    (void)tisp_adr_main_deinit_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_ctl), NULL);
+    (void)tisp_adr_main_deinit_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_ctl), NULL, 0);
     printk(KERN_INFO "tx_isp_t40_recovered: adr-lit deinit done\n");
 }
 
 static int regtrace_adr_main_init_lit(uint32_t width, uint32_t height)
 {
     int ret = (int)tisp_adr_main_init_lit(width, height, 0, 0,
-                                          ADRLIT_SP(adrlit_stack_init), NULL);
+                                          ADRLIT_SP(adrlit_stack_init), NULL, 0);
 
     regtrace_adr_lit_init_ret = ret;
     regtrace_t40_adr_lit_active = !ret;
