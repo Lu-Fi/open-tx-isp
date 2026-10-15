@@ -9017,6 +9017,20 @@ static bool regtrace_t40_quality_raw_init = true;
  */
 static uint regtrace_gib_lit_final_gain = 1261U;
 static bool regtrace_enable_ysp;
+/*
+ * YSP init state.  tisp_ysp_main_init fails without a tuning bin (params
+ * copy -EFAULT) and then leaves main_ysp_comb without its pointers; the
+ * frame-done ysp_ev refresh still called tisp_ysp_par_refresh -> intp,
+ * which dereferences those NULL pointers (the r22a/r24a "YSP panic", both
+ * boots had no bin).  Every refresh entry now returns while init has not
+ * succeeded.  t40_ysp_on=1 lets the bin gates enable YSP despite the
+ * t40_force_bypass bit 17 default; TOP bit 17 is then cleared only when
+ * init returned 0.  Default 0.
+ */
+static int regtrace_ysp_init_ret = -1;
+static bool regtrace_t40_ysp_on;
+static unsigned int regtrace_ysp_refresh_count;
+static unsigned int regtrace_ysp_refresh_blocked;
 static bool regtrace_enable_ccm;
 /*
  * The literal CCM init starts from the OEM 6000 K bootstrap value.  Stock
@@ -9445,6 +9459,11 @@ module_param_named(t40_tuning_bcsh_bypass_now,
                    regtrace_t40_tuning_bcsh_bypass_now, uint, 0444);
 module_param_named(gib_lit_final_gain, regtrace_gib_lit_final_gain, uint, 0644);
 module_param_named(enable_ysp, regtrace_enable_ysp, bool, 0644);
+module_param_named(ysp_init_ret, regtrace_ysp_init_ret, int, 0444);
+module_param_named(t40_ysp_on, regtrace_t40_ysp_on, bool, 0644);
+MODULE_PARM_DESC(t40_ysp_on, "1 lets the bin gates enable YSP (sharpening) despite t40_force_bypass bit 17; active only after a successful init (default 0)");
+module_param_named(ysp_refresh_count, regtrace_ysp_refresh_count, uint, 0444);
+module_param_named(ysp_refresh_blocked, regtrace_ysp_refresh_blocked, uint, 0444);
 module_param_named(enable_ccm, regtrace_enable_ccm, bool, 0644);
 module_param_named(ccm_ct_track, regtrace_ccm_ct_track, bool, 0644);
 module_param_named(ccm_ct, regtrace_ccm_ct, uint, 0644);
@@ -10230,6 +10249,8 @@ static int regtrace_t40_apply_dmsc_sharpness(uint8_t sharpness);
 #include "tx_isp_t40_clm_lit.inc"
 #include "tx_isp_t40_lsc_lit.inc"
 #include "tx_isp_t40_sdns_lit.inc"
+#include "tx_isp_t40_cdns_lit.inc"
+#include "tx_isp_t40_adr_lit.inc"
 #include "tx_isp_t40_isr_lit.inc"
 
 
@@ -11709,9 +11730,100 @@ static int regtrace_blc_main_init_lit(void)
  * profile's limited initializer set, but make its faithful BLC, LSC, GIB and
  * BCSH implementations obey the sensor IQ payload in both directions.
  */
+/*
+ * OEM tisp_main_init (sc830ai module 0x1e70c) builds TOP 0x40 from the
+ * bank's bypass bytes at +0x00 for a linear sensor and at +0x20 only when
+ * the descriptor's WDR word (+116) is 1; 0x6c likewise uses +0x40 / +0x60.
+ * This driver always read +0x20 (the WDR set), so a linear sensor got the
+ * WDR bypass mask: with the sc830ai bin that bypasses YDNS, SDNS and GIB and
+ * keeps BLC active, while stock (TOP 0x7FD0000D) runs YDNS/SDNS/GIB and
+ * bypasses BLC.  Our fixed 0x6c default 0x30024 already is the linear
+ * (+0x40) value.  t40_gates_oem_offset=1 selects the offset as stock does.
+ * Default 0 (old +0x20) until a device run; YSP stays held off by
+ * t40_force_bypass.
+ */
+static uint32_t regtrace_tisp_main_init_last_wdr;
+static bool regtrace_t40_gates_oem_offset;
+module_param_named(t40_gates_oem_offset, regtrace_t40_gates_oem_offset, bool, 0644);
+MODULE_PARM_DESC(t40_gates_oem_offset, "1 reads the bin bypass flags at +0x00 for linear sensors like stock (default 0: always +0x20, the WDR set)");
+static uint regtrace_t40_gates_offset_now = 0x20U;
+/*
+ * A/B aid, not stock behaviour: the OEM linear gate set bypasses BLC
+ * (TOP bit 0; stock reads 0x7FD0000D) and stock relies on the GIB black
+ * level.  t40_gates_keep_blc=1 keeps BLC (lit + bit 0) active while
+ * t40_gates_oem_offset=1, to separate a BLC effect from the other blocks
+ * the linear set switches.  Default 0.
+ */
+static bool regtrace_t40_gates_keep_blc;
+module_param_named(t40_gates_keep_blc, regtrace_t40_gates_keep_blc, bool, 0644);
+/*
+ * Day/night BLC policy for t40_gates_oem_offset=1.  The bin's linear mask
+ * bypasses BLC and leaves the black level to GIB, but GIB sits behind WBG:
+ * the pedestal is multiplied by the white-balance gains first and then
+ * subtracted equally (violet shadows, green/yellow highlights; Eufy
+ * 2026-10-15: Csat 20 vs 8).  t40_gates_day_blc=1 keeps BLC active in day
+ * mode (running_mode 0) and writes t40_gates_day_gib_blc as the GIB black
+ * level instead of the bin value (default 0: BLC already removed it; the
+ * PO run gave Csat 9.1 without crushing).  Night (mono) keeps the bin mask
+ * and the bin GIB level.  Re-evaluated on every day/night refresh.
+ * Default 0.
+ */
+static bool regtrace_t40_gates_day_blc;
+module_param_named(t40_gates_day_blc, regtrace_t40_gates_day_blc, bool, 0644);
+static uint regtrace_t40_gates_day_gib_blc;
+module_param_named(t40_gates_day_gib_blc, regtrace_t40_gates_day_gib_blc, uint, 0644);
+
+static bool regtrace_t40_gates_day_blc_on(void)
+{
+    return regtrace_t40_gates_day_blc && regtrace_t40_gates_oem_offset &&
+           !READ_ONCE(regtrace_running_mode);
+}
+module_param_named(t40_gates_offset_now, regtrace_t40_gates_offset_now, uint, 0444);
+/*
+ * Second OEM word: 0x6c = 24 bits from the bank's bytes at gate offset
+ * +0x40 (linear +0x40, WDR +0x60).  main_init writes the fixed 0x30024
+ * (sc830ai day linear); the night bank wants 0xd9000f, but a day/night
+ * switch only rewrote 0x40.  t40_gates_reg6c=1 (needs
+ * t40_gates_oem_offset=1) commits the bank's value at block init and on
+ * every day/night refresh.  Default 0.
+ */
+static uint32_t regtrace_tisp_main_init_last_reg6c;
+static bool regtrace_t40_gates_reg6c;
+module_param_named(t40_gates_reg6c, regtrace_t40_gates_reg6c, bool, 0644);
+MODULE_PARM_DESC(t40_gates_reg6c, "1 (with t40_gates_oem_offset=1) writes TOP 0x6c from the active bank like stock (default 0)");
+static uint regtrace_t40_gates_reg6c_value;
+module_param_named(t40_gates_reg6c_value, regtrace_t40_gates_reg6c_value, uint, 0444);
+static unsigned int regtrace_t40_gates_reg6c_writes;
+module_param_named(t40_gates_reg6c_writes, regtrace_t40_gates_reg6c_writes, uint, 0444);
+
+static void regtrace_t40_gates_commit_reg6c(void)
+{
+    if (!regtrace_t40_gates_oem_offset || !regtrace_t40_gates_reg6c)
+        return;
+    if (!system_reg_write(0x6cU, regtrace_t40_gates_reg6c_value)) {
+        regtrace_tisp_main_init_last_reg6c = regtrace_t40_gates_reg6c_value;
+        regtrace_t40_gates_reg6c_writes++;
+    }
+}
+
+/* TOP bit 17 = YSP bypass: clear only after a successful init. */
+static void regtrace_t40_ysp_top_bit(int init_ret)
+{
+    if (!regtrace_t40_ysp_on)
+        return;
+    if (!init_ret) {
+        regtrace_t40_quality_top40_final &= ~BIT(17);
+    } else {
+        regtrace_t40_quality_top40_final |= BIT(17);
+        regtrace_enable_ysp = false;
+    }
+}
+
 static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
 {
-    const uint8_t *flags = (const uint8_t *)(uintptr_t)(nbuf + 0x20U);
+    uint32_t gate_off = (regtrace_t40_gates_oem_offset &&
+                         regtrace_tisp_main_init_last_wdr != 1U) ? 0x00U : 0x20U;
+    const uint8_t *flags = (const uint8_t *)(uintptr_t)(nbuf + gate_off);
     uint32_t packed = 0;
     unsigned int i;
 
@@ -11720,12 +11832,23 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
             packed |= BIT(i);
 
     regtrace_t40_tuning_top_flags_now = packed;
+    regtrace_t40_gates_offset_now = gate_off;
+    {
+        const uint8_t *f6c = (const uint8_t *)(uintptr_t)(nbuf + gate_off + 0x40U);
+        uint32_t v6c = 0;
+
+        for (i = 0; i < 24; i++)
+            if (f6c[i])
+                v6c |= BIT(i);
+        regtrace_t40_gates_reg6c_value = v6c;
+    }
     regtrace_t40_tuning_blc_bypass_now = flags[0] ? 1U : 0U;
     regtrace_t40_tuning_lsc_bypass_now = flags[1] ? 1U : 0U;
     regtrace_t40_tuning_gib_bypass_now = flags[5] ? 1U : 0U;
     regtrace_t40_tuning_bcsh_bypass_now = flags[15] ? 1U : 0U;
 
-    if (flags[0]) {
+    if (flags[0] && !((regtrace_t40_gates_keep_blc ||
+                       regtrace_t40_gates_day_blc_on()) && gate_off == 0x00U)) {
         regtrace_enable_blc_lit = false;
         regtrace_t40_quality_top40_final |= BIT(0);
     } else {
@@ -11813,15 +11936,16 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
         if (regtrace_t40_force_active & BIT(18))
             regtrace_enable_sdns = true;
     }
-    if (regtrace_t40_force_bypass) {
-        regtrace_t40_quality_top40_final |= regtrace_t40_force_bypass;
+    if (regtrace_t40_force_bypass & ~(regtrace_t40_ysp_on ? BIT(17) : 0U)) {
+        regtrace_t40_quality_top40_final |= regtrace_t40_force_bypass &
+            ~(regtrace_t40_ysp_on ? BIT(17) : 0U);
         if (regtrace_t40_force_bypass & BIT(10))
             regtrace_enable_soft_gamma = false;
         if (regtrace_t40_force_bypass & BIT(9))
             regtrace_enable_ccm = false;
         if (regtrace_t40_force_bypass & BIT(14))
             regtrace_enable_ydns = false;
-        if (regtrace_t40_force_bypass & BIT(17))
+        if ((regtrace_t40_force_bypass & BIT(17)) && !regtrace_t40_ysp_on)
             regtrace_enable_ysp = false;
         if (regtrace_t40_force_bypass & BIT(18))
             regtrace_enable_sdns = false;
@@ -11830,8 +11954,8 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
     }
 
     printk(KERN_INFO
-           "tx_isp_t40_recovered: tuning gates flags=0x%08x BLC=%s LSC=%s GIB=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
-           packed, flags[0] ? "bypass" : "active",
+           "tx_isp_t40_recovered: tuning gates off=0x%x flags=0x%08x BLC=%s LSC=%s GIB=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
+           gate_off, packed, flags[0] ? "bypass" : "active",
            flags[1] ? "bypass" : "active",
            flags[5] ? "bypass" : "active",
            flags[15] ? "bypass" : "active",
@@ -11929,6 +12053,17 @@ static void regtrace_t40_gib_calc_dgain(uint16_t self_gain, bool ir_mode,
  * normalized digital gains, config, BLC values and latch.  Analog-gain update
  * mode 3 refreshes only BLC values and the latch.
  */
+/*
+ * A/B aid for the colour cast with t40_gates_oem_offset=1: the OEM GIB black
+ * level from the sc830ai bin is 260 (0x104, BLC bypassed), while the old
+ * pipeline subtracted 270 (BLC) + 60 (GIB) = 330 with clean colours.  A
+ * positive t40_gib_blc_delta raises the GIB black level (and with it the
+ * OEM self gain) on every channel, to test whether the sensor pedestal in
+ * this setup is above the bin value.  Default 0 (OEM values).
+ */
+static int regtrace_t40_gib_blc_delta;
+module_param_named(t40_gib_blc_delta, regtrace_t40_gib_blc_delta, int, 0644);
+
 static int regtrace_gib_main_gain_update_lit(uint32_t gain, bool init)
 {
     uint32_t nbuf = *(uint32_t *)((char *)&tparamsN);
@@ -11948,6 +12083,18 @@ static int regtrace_gib_main_gain_update_lit(uint32_t gain, bool init)
     interp[2] = regtrace_t40_tuning_intp16(gain, tool + 84U);
     interp[3] = regtrace_t40_tuning_intp16(gain, tool + 106U);
     interp[4] = regtrace_t40_tuning_intp16(gain, tool + 128U);
+    if (regtrace_t40_gates_day_blc_on() && regtrace_t40_gates_offset_now == 0x00U) {
+        unsigned int k;
+
+        for (k = 0; k < 5; k++)
+            interp[k] = (uint16_t)min_t(uint32_t, regtrace_t40_gates_day_gib_blc, 4095U);
+    } else if (regtrace_t40_gib_blc_delta) {
+        unsigned int k;
+
+        for (k = 0; k < 5; k++)
+            interp[k] = (uint16_t)clamp_t(int, (int)interp[k] +
+                                          regtrace_t40_gib_blc_delta, 0, 4095);
+    }
     bayer = *(uint32_t *)(tisp_par_info + 8U);
     regtrace_t40_gib_bayer_map(bayer, interp, chan, &map);
     max_blc = max(max(max(interp[0], interp[1]),
@@ -15446,8 +15593,19 @@ static int regtrace_isp_block_init_once(const char *where)
             regtrace_isp_block_init_awb_ret;
     }
 
-    regtrace_isp_block_init_adr_ret =
-        (int)tisp_adr_main_init(adr_width, adr_height);
+    if (regtrace_t40_adr_on && regtrace_t40_gates_oem_offset) {
+        regtrace_isp_block_init_adr_ret =
+            regtrace_adr_main_init_lit(adr_width, adr_height);
+        /* TOP bit 7 = ADR bypass: clear only after a successful init */
+        if (!regtrace_isp_block_init_adr_ret &&
+            !(regtrace_t40_force_bypass & BIT(7)))
+            regtrace_t40_quality_top40_final &= ~BIT(7);
+        else
+            regtrace_t40_quality_top40_final |= BIT(7);
+    } else {
+        regtrace_isp_block_init_adr_ret =
+            (int)tisp_adr_main_init(adr_width, adr_height);
+    }
     printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init post where=%s adr_ret=%d adr_stat=0x%x\n",
            where ? where : "?",
            regtrace_isp_block_init_adr_ret,
@@ -15529,6 +15687,7 @@ static int regtrace_isp_block_init_once(const char *where)
     if (regtrace_enable_ysp) {
         int ysp_ret = (int)tisp_ysp_main_init();
 
+        regtrace_t40_ysp_top_bit(ysp_ret);
         printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init ysp ret=%d\n",
                ysp_ret);
     }
@@ -15539,6 +15698,14 @@ static int regtrace_isp_block_init_once(const char *where)
         regtrace_sdns_dbg_init_ret = sdns_ret;
         printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init sdns ret=%d\n",
                sdns_ret);
+    }
+
+    if (regtrace_enable_cdns) {
+        int cdns_ret = (int)regtrace_cdns_main_init_lit();
+
+        regtrace_t40_cdns_top_bit(cdns_ret);
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init cdns ret=%d\n",
+               cdns_ret);
     }
 
     if (regtrace_enable_ccm) {
@@ -15603,6 +15770,7 @@ static int regtrace_isp_block_init_once(const char *where)
                "tx_isp_t40_recovered: isp-block-init top40 commit value=0x%08x ret=%d\n",
                regtrace_t40_quality_top40_final, top_ret);
     }
+    regtrace_t40_gates_commit_reg6c();
 
     if (regtrace_isp_block_init_ae_ret)
         return regtrace_isp_block_init_ae_ret;
@@ -22248,15 +22416,25 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
                 min_t(uint32_t, regtrace_bcsh_saturation, 255U)));
         }
     }
-    if (regtrace_enable_ysp)
+    if (regtrace_enable_ysp) {
         REGTRACE_T40_DN_STEP(tisp_ysp_main_init());
+        regtrace_t40_ysp_top_bit(subret);
+    }
     if (regtrace_enable_sdns)
         REGTRACE_T40_DN_STEP(regtrace_sdns_main_init_lit());
+    if (regtrace_enable_cdns) {
+        REGTRACE_T40_DN_STEP(regtrace_cdns_main_init_lit());
+        regtrace_t40_cdns_top_bit(subret);
+    }
     if (regtrace_enable_mdns)
         REGTRACE_T40_DN_STEP(
             regtrace_mdns_main_init_lit(width, height));
     if (regtrace_enable_ydns)
         REGTRACE_T40_DN_STEP(tisp_ydns_main_init());
+    /* OEM tisp_day_or_night_s_ctrl also refreshes ADR from the new bank */
+    if (regtrace_t40_adr_lit_active)
+        REGTRACE_T40_DN_STEP(regtrace_adr_dn_refresh_lit(
+            READ_ONCE(regtrace_running_mode)));
 
     /* Every DNS/YSP initializer installs its bootstrap interpolation state.
      * The next completed frame must replay the live gain even when that gain
@@ -22271,6 +22449,7 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
     subret = system_reg_write(0x40U, regtrace_t40_quality_top40_final);
     if (subret && !ret)
         ret = subret;
+    regtrace_t40_gates_commit_reg6c();
 
     printk(KERN_INFO
            "tx_isp_t40_recovered: day/night refresh mode=%s gain=%u size=%ux%u top40=0x%08x ret=%d\n",
@@ -29053,6 +29232,11 @@ static int regtrace_debug_proc_show(struct seq_file *m, void *v)
                        regtrace_framechan_qbuf_driver_state[i][1]);
         }
     }
+    seq_printf(m, "cdns enable=%u init_ret=%d init=%u refresh=%u skip=%u gain=%u thresh=%u\n",
+               regtrace_enable_cdns ? 1U : 0U, regtrace_cdns_dbg_init_ret,
+               regtrace_cdns_init_count, regtrace_cdns_refresh_count,
+               regtrace_cdns_skip_count, regtrace_cdns_gain_now,
+               regtrace_cdns_thresh);
     return 0;
 }
 
@@ -49271,7 +49455,7 @@ static void regtrace_irq_frame_done_workfn(struct work_struct *work)
 
         /* userspace 3A: retune DNS and independently retune YSP sharpening. */
         if (regtrace_enable_ydns || regtrace_enable_ysp || regtrace_enable_mdns ||
-            regtrace_enable_sdns) {
+            regtrace_enable_sdns || regtrace_enable_cdns) {
             uint32_t dns_ev = regtrace_dns_gain_ev + regtrace_dns_ev_boost;
             uint32_t ysp_ev = regtrace_ysp_gain_ev ?
                               regtrace_ysp_gain_ev : regtrace_dns_gain_ev;
@@ -49291,6 +49475,10 @@ static void regtrace_irq_frame_done_workfn(struct work_struct *work)
                     !regtrace_sdns_dbg_init_ret)
                     (void)tisp_sdns_par_refresh_lit(
                         0, dns_ev, 256);
+                if (regtrace_enable_cdns && main_cdns &&
+                    !regtrace_cdns_dbg_init_ret)
+                    (void)tisp_cdns_par_refresh_lit(
+                        0, dns_ev, regtrace_cdns_thresh);
             }
             if (regtrace_enable_ysp &&
                 ysp_ev != READ_ONCE(regtrace_ysp_ev_applied)) {
@@ -49975,7 +50163,12 @@ static void regtrace_isp_irq_post_dispatch_ack(int32_t irq, void *dev_id)
                     regtrace_isp_stats_fanout_bit_count[__b]++;
                 }
             }
-            if (regtrace_isp_stats_fanout_adr_status0_mask &&
+            if (regtrace_t40_adr_lit_active &&
+                regtrace_isp_stats_fanout_adr_status0_mask &&
+                (status0 & regtrace_isp_stats_fanout_adr_status0_mask) &&
+                !(status0 & (1U << 9)))
+                regtrace_adr_lit_forced_blocked++;	/* ADR runs only on its own bit 9 */
+            else if (regtrace_isp_stats_fanout_adr_status0_mask &&
                 (status0 & regtrace_isp_stats_fanout_adr_status0_mask) &&
                 !(status0 & (1U << 9)) && irq_func_cb[9]) {
                 ((int32_t (*)(void))(uintptr_t)irq_func_cb[9])();
@@ -102650,12 +102843,27 @@ static void regtrace_awb_grayworld_apply(uint32_t rgain, uint32_t bgain)
  *            count = w3[5:0]<<8 | w2[31:24], frame tag = w3[15:8].
  * All four DMA banks are scanned and only the freshest tag is accumulated.
  */
+/*
+ * With t40_gates_oem_offset=1 BLC is bypassed (as stock) and the black level
+ * is removed later by GIB, so the AWB statistics carry the full pedestal and
+ * gray-world gains are pulled towards 1.0 (violet shadows, green/yellow cast).
+ * t40_awb_stats_ped subtracts a pedestal per pixel from the R/G/B sums before
+ * the gains are computed, in statistics units (12-bit level / 16; the AE
+ * target 140 is in the same units).  0 = off (default), -1 = auto: the GIB
+ * black level (0x8030, 12 bit) / 16 while TOP bit 0 (BLC) is bypassed.
+ * The soft-AE mean keeps using the raw sums.
+ */
+static int regtrace_t40_awb_stats_ped;
+module_param_named(t40_awb_stats_ped, regtrace_t40_awb_stats_ped, int, 0644);
+static uint regtrace_t40_awb_stats_ped_now;
+module_param_named(t40_awb_stats_ped_now, regtrace_t40_awb_stats_ped_now, uint, 0444);
+
 static void regtrace_awb_grayworld_update(void)
 {
     const uint8_t *buf;
     uint32_t off;
     uint32_t bank;
-    uint64_t rs = 0, gs = 0, bs = 0;
+    uint64_t rs = 0, gs = 0, bs = 0, raw_gs;
     uint64_t pixels = 0;
     uint32_t zones = 0;
     uint32_t rgain, bgain;
@@ -102696,6 +102904,25 @@ static void regtrace_awb_grayworld_update(void)
     if (!zones || !rs || !gs || !bs)
         return;
 
+    raw_gs = gs;
+    {
+        uint64_t ped = 0;
+
+        if (regtrace_t40_awb_stats_ped > 0)
+            ped = (uint64_t)regtrace_t40_awb_stats_ped;
+        else if (regtrace_t40_awb_stats_ped < 0 &&
+                 (regtrace_t40_quality_top40_final & BIT(0)))
+            ped = ((uint32_t)system_reg_read(0x8030U) & 0x0fffU) >> 4;
+        regtrace_t40_awb_stats_ped_now = (uint)ped;
+        if (ped) {
+            uint64_t sub = ped * pixels;
+
+            rs = rs > sub ? rs - sub : 1;
+            gs = gs > sub ? gs - sub : 1;
+            bs = bs > sub ? bs - sub : 1;
+        }
+    }
+
     rgain = (uint32_t)div64_u64(gs * 1024ULL, rs);
     bgain = (uint32_t)div64_u64(gs * 1024ULL, bs);
     rgain = (rgain * regtrace_awb_grayworld_rbias) >> 10;
@@ -102715,7 +102942,7 @@ static void regtrace_awb_grayworld_update(void)
     regtrace_awb_grayworld_apply(rgain, bgain);
 
     if (regtrace_enable_ae_soft && pixels) {
-        uint32_t mean = (uint32_t)div64_u64(gs, pixels);
+        uint32_t mean = (uint32_t)div64_u64(raw_gs, pixels);
         uint32_t it = regtrace_ae_soft_cur_it;
         uint32_t again = regtrace_ae_soft_cur_again;
         uint32_t max_again = regtrace_ae_sensor_apply_max_again_index;
@@ -162353,6 +162580,13 @@ tisp_cdns_wdr_en0x134:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000061798 origin=fragment_seed original=tisp_cdns_all_reg_refresh */
 int32_t tisp_cdns_all_reg_refresh(uint32_t a0, uint32_t a1)
 {
+    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
+     * scaling); forwards to the source-derived CDNS chain in
+     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
+    if (!(a0 ? sec_cdns : main_cdns))
+        return 0;
+    return tisp_cdns_all_reg_refresh_lit(a0, a1);
+#if 0
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t ra = 0;
@@ -162391,11 +162625,20 @@ int32_t tisp_cdns_all_reg_refresh(uint32_t a0, uint32_t a1)
     /* asm: 617dc:	27bd0018 	addiu	sp,sp,24 */
 
     return 0;
+#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000617e0 origin=fragment_seed original=tisp_cdns_intp_reg_refresh */
 int32_t tisp_cdns_intp_reg_refresh(uint32_t a0, uint32_t a1)
 {
+    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
+     * scaling); forwards to the source-derived CDNS chain in
+     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
+    /* OEM 0x61870 is a plain tail call to all_reg_refresh */
+    if (!(a0 ? sec_cdns : main_cdns))
+        return 0;
+    return tisp_cdns_all_reg_refresh_lit(a0, a1);
+#if 0
     uint32_t t9 = 0;
 
     /* fragment 0: ConstantLoad */
@@ -162410,11 +162653,19 @@ int32_t tisp_cdns_intp_reg_refresh(uint32_t a0, uint32_t a1)
     /* asm: 617ec:	00000000 	nop */
 
     return 0;
+#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000617f0 origin=fragment_seed original=tisp_cdns_par_refresh */
 int32_t tisp_cdns_par_refresh(uint32_t a0, uint32_t a1, uint32_t a2)
 {
+    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
+     * scaling); forwards to the source-derived CDNS chain in
+     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
+    if (!(a0 ? sec_cdns : main_cdns))
+        return 0;
+    return tisp_cdns_par_refresh_lit(a0, a1, a2);
+#if 0
     uint32_t *a3 = 0;
     uint32_t ra = 0;
     uint32_t t0 = 0;
@@ -162476,11 +162727,17 @@ tisp_cdns_par_refresh0x40:
     /* asm: 61840:	00000000 	nop */
 
     return 0;
+#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000061844 origin=model_output original=tisp_cdns_params_refresh */
 int32_t tisp_cdns_params_refresh(int32_t arg1)
 {
+    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
+     * scaling); forwards to the source-derived CDNS chain in
+     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
+    return tisp_cdns_params_refresh_lit((uint32_t)arg1);
+#if 0
     unsigned int *dest;
     unsigned int src_val;
     unsigned int temp;
@@ -162497,11 +162754,22 @@ int32_t tisp_cdns_params_refresh(int32_t arg1)
     src_val += 73771;
     memcpy(dest, &src_val, 683);
     return 0;
+#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000061890 origin=fragment_seed original=tisp_cdns_refresh */
 int32_t tisp_cdns_refresh(uint32_t a0, uint32_t a1)
 {
+    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
+     * scaling); forwards to the source-derived CDNS chain in
+     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
+    /* OEM 0x61920: par_refresh(ch, gain, thresh), then an unconditional
+     * all_reg_refresh at the stored gain. */
+    if (!(a0 ? sec_cdns : main_cdns))
+        return 0;
+    (void)tisp_cdns_par_refresh_lit(a0, a1, regtrace_cdns_thresh);
+    return tisp_cdns_all_reg_refresh_lit(a0, regtrace_cdns_gain_old[a0 & 1U]);
+#if 0
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *a2 = 0;
@@ -162540,11 +162808,23 @@ int32_t tisp_cdns_refresh(uint32_t a0, uint32_t a1)
     /* asm: 618e0:	27bd0018 	addiu	sp,sp,24 */
 
     return 0;
+#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000618e4 origin=fragment_seed original=tisp_cdns_main_init */
 int32_t tisp_cdns_main_init(void)
 {
+    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
+     * scaling); forwards to the source-derived CDNS chain in
+     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
+    int32_t ret;
+
+    if (!regtrace_enable_cdns)
+        return 0;
+    ret = regtrace_cdns_main_init_lit();
+    regtrace_t40_cdns_top_bit(ret);
+    return ret;
+#if 0
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -162608,6 +162888,7 @@ int32_t tisp_cdns_main_init(void)
     /* function epilogue: restore registers and return */
 
     return 0;
+#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000619ec origin=fragment_seed original=tisp_cdns_main_deinit */
@@ -169469,6 +169750,11 @@ fn_exit:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000672c8 origin=fragment_seed original=tisp_ysp_all_reg_refresh */
 int32_t tisp_ysp_all_reg_refresh(uint32_t a0, uint32_t a1)
 {
+    if (a0 != 0 || regtrace_ysp_init_ret) {
+        regtrace_ysp_refresh_blocked++;
+        return 0;
+    }
+    regtrace_ysp_refresh_count++;
     (void)tisp_ysp_intp(a0, a1);
     (void)tisp_ysp_noref_reg_cfg(a0);
     (void)tisp_ysp_ref_reg_cfg(a0);
@@ -169478,7 +169764,15 @@ int32_t tisp_ysp_all_reg_refresh(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000067320 origin=fragment_seed original=tisp_ysp_intp_reg_refresh */
 int32_t tisp_ysp_intp_reg_refresh(uint32_t a0, uint32_t a1)
 {
-    return tisp_ysp_all_reg_refresh(a0, a1);
+    /* OEM 0x673b0: intp -> ref_reg_cfg -> reg_trig (no noref_reg_cfg) */
+    if (a0 != 0 || regtrace_ysp_init_ret) {
+        regtrace_ysp_refresh_blocked++;
+        return 0;
+    }
+    regtrace_ysp_refresh_count++;
+    (void)tisp_ysp_intp(a0, a1);
+    (void)tisp_ysp_ref_reg_cfg(a0);
+    return tisp_ysp_reg_trig((int32_t)a0);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000067368 origin=fragment_seed original=tisp_ysp_par_refresh */
@@ -169497,7 +169791,10 @@ int32_t tisp_ysp_par_refresh(uint32_t a0, uint32_t a1, uint32_t a2)
             return 0;
     }
     regtrace_ysp_gain_old[a0] = a1;
-    return tisp_ysp_all_reg_refresh(a0, a1);
+    /* OEM 0x673f8: first value -> all_reg_refresh, later -> intp_reg_refresh */
+    if (cached == 0xffffffffU)
+        return tisp_ysp_all_reg_refresh(a0, a1);
+    return tisp_ysp_intp_reg_refresh(a0, a1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000673dc origin=model_output original=tisp_ysp_params_refresh */
@@ -169525,6 +169822,7 @@ int32_t tisp_ysp_refresh(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000067480 origin=fragment_seed original=tisp_ysp_main_init */
 int32_t tisp_ysp_main_init(void)
 {
+    regtrace_ysp_init_ret = -1;
     /*
      * OEM 0x67480: params (3432B) + comb (420B) + working (146B) buffers,
      * blob seed, table publish, initial register push at gain 1.0.
@@ -169551,6 +169849,7 @@ int32_t tisp_ysp_main_init(void)
     if (tisp_ysp_params_refresh(0))
         return -EFAULT;
     (void)tisp_ysp_wdr_en(0, regtrace_ysp_wdr_flags[0]);
+    regtrace_ysp_init_ret = 0;	/* comb pointers set: refresh may run */
     regtrace_ysp_gain_old[0] = 0xffffffffU;
     (void)tisp_ysp_refresh(0, 0x10000U);
     (void)tisp_ysp_par_refresh(0, 0x10000U, 0x10000U);
@@ -201664,7 +201963,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
             cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
             cancel_work_sync(&regtrace_isp_block_init_work);
             break;
-        case 3: regtrace_tisp_event_threads_stop(); break;
+        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); break;
         case 4: regtrace_dmsc_lit_cleanup(); break;
         case 5: regtrace_lsc_lit_cleanup(); break;
         case 6: regtrace_tisp_main_init_param_free(); break;
