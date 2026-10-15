@@ -189973,8 +189973,8 @@ ispcore_irq_sec_fd_work0xdc:
     case 2: goto fdw_h2;   /* 0x75978 -> s0 = 0x2000009 */
     case 3: goto fdw_h3;   /* 0x75984 -> s0 = 0x2000005 */
     case 4: goto fdw_h4;   /* 0x75990 -> s0 = 0x2000006 */
-    case 5: goto fdw_h5;   /* 0x7599c -> s0 = 0x2000016 */
-    case 6: goto fdw_h6;   /* 0x759a8 -> own call (a1 = 0x2000010), clears state+880 */
+    case 5: goto fdw_h5;   /* 0x759a8 -> own call (a1 = 0x2000010), clears state+880 */
+    case 6: goto fdw_h6;   /* 0x7599c -> s0 = 0x2000016 */
     case 7: goto ispcore_irq_sec_fd_work0x1ec;  /* 0x759e0 -> s0 = -1 */
     case 8: goto fdw_h8;   /* 0x759d4 -> s0 = 0x200000a */
     default: goto ispcore_irq_sec_fd_work0x1ec; /* out of range -> -1 */
@@ -190055,7 +190055,7 @@ fdw_h4:
     s0 = s0 + 6;
     goto ispcore_irq_sec_fd_work0x108;
 
-fdw_h5:
+fdw_h6:
     /* fragment 39: Arithmetic */
     s0 = 33554432;
 
@@ -190063,7 +190063,7 @@ fdw_h5:
     s0 = s0 + 22;
     goto ispcore_irq_sec_fd_work0x108;
 
-fdw_h6:
+fdw_h5:
     /* fragment 41: CallSetup */
     local_10 = 1;
     local_14 = *(uint32_t *)((char *)(s1) + 884);
