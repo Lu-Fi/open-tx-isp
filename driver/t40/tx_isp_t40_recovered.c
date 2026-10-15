@@ -10155,6 +10155,7 @@ static int regtrace_t40_apply_dmsc_sharpness(uint8_t sharpness);
 #include "tx_isp_t40_clm_lit.inc"
 #include "tx_isp_t40_lsc_lit.inc"
 #include "tx_isp_t40_sdns_lit.inc"
+#include "tx_isp_t40_cdns_lit.inc"
 #include "tx_isp_t40_isr_lit.inc"
 
 
@@ -15464,6 +15465,14 @@ static int regtrace_isp_block_init_once(const char *where)
         regtrace_sdns_dbg_init_ret = sdns_ret;
         printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init sdns ret=%d\n",
                sdns_ret);
+    }
+
+    if (regtrace_enable_cdns) {
+        int cdns_ret = (int)regtrace_cdns_main_init_lit();
+
+        regtrace_t40_cdns_top_bit(cdns_ret);
+        printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init cdns ret=%d\n",
+               cdns_ret);
     }
 
     if (regtrace_enable_ccm) {
@@ -22177,6 +22186,10 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
         REGTRACE_T40_DN_STEP(tisp_ysp_main_init());
     if (regtrace_enable_sdns)
         REGTRACE_T40_DN_STEP(regtrace_sdns_main_init_lit());
+    if (regtrace_enable_cdns) {
+        REGTRACE_T40_DN_STEP(regtrace_cdns_main_init_lit());
+        regtrace_t40_cdns_top_bit(subret);
+    }
     if (regtrace_enable_mdns)
         REGTRACE_T40_DN_STEP(
             regtrace_mdns_main_init_lit(width, height));
@@ -28978,6 +28991,11 @@ static int regtrace_debug_proc_show(struct seq_file *m, void *v)
                        regtrace_framechan_qbuf_driver_state[i][1]);
         }
     }
+    seq_printf(m, "cdns enable=%u init_ret=%d init=%u refresh=%u skip=%u gain=%u thresh=%u\n",
+               regtrace_enable_cdns ? 1U : 0U, regtrace_cdns_dbg_init_ret,
+               regtrace_cdns_init_count, regtrace_cdns_refresh_count,
+               regtrace_cdns_skip_count, regtrace_cdns_gain_now,
+               regtrace_cdns_thresh);
     return 0;
 }
 
@@ -48916,7 +48934,7 @@ static void regtrace_irq_frame_done_workfn(struct work_struct *work)
 
         /* userspace 3A: retune DNS and independently retune YSP sharpening. */
         if (regtrace_enable_ydns || regtrace_enable_ysp || regtrace_enable_mdns ||
-            regtrace_enable_sdns) {
+            regtrace_enable_sdns || regtrace_enable_cdns) {
             uint32_t dns_ev = regtrace_dns_gain_ev + regtrace_dns_ev_boost;
             uint32_t ysp_ev = regtrace_ysp_gain_ev ?
                               regtrace_ysp_gain_ev : regtrace_dns_gain_ev;
@@ -48936,6 +48954,10 @@ static void regtrace_irq_frame_done_workfn(struct work_struct *work)
                     !regtrace_sdns_dbg_init_ret)
                     (void)tisp_sdns_par_refresh_lit(
                         0, dns_ev, 256);
+                if (regtrace_enable_cdns && main_cdns &&
+                    !regtrace_cdns_dbg_init_ret)
+                    (void)tisp_cdns_par_refresh_lit(
+                        0, dns_ev, regtrace_cdns_thresh);
             }
             if (regtrace_enable_ysp &&
                 ysp_ev != READ_ONCE(regtrace_ysp_ev_applied)) {
@@ -159048,6 +159070,13 @@ tisp_cdns_wdr_en0x134:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000061798 origin=fragment_seed original=tisp_cdns_all_reg_refresh */
 int32_t tisp_cdns_all_reg_refresh(uint32_t a0, uint32_t a1)
 {
+    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
+     * scaling); forwards to the source-derived CDNS chain in
+     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
+    if (!(a0 ? sec_cdns : main_cdns))
+        return 0;
+    return tisp_cdns_all_reg_refresh_lit(a0, a1);
+#if 0
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t ra = 0;
@@ -159086,11 +159115,20 @@ int32_t tisp_cdns_all_reg_refresh(uint32_t a0, uint32_t a1)
     /* asm: 617dc:	27bd0018 	addiu	sp,sp,24 */
 
     return 0;
+#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000617e0 origin=fragment_seed original=tisp_cdns_intp_reg_refresh */
 int32_t tisp_cdns_intp_reg_refresh(uint32_t a0, uint32_t a1)
 {
+    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
+     * scaling); forwards to the source-derived CDNS chain in
+     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
+    /* OEM 0x61870 is a plain tail call to all_reg_refresh */
+    if (!(a0 ? sec_cdns : main_cdns))
+        return 0;
+    return tisp_cdns_all_reg_refresh_lit(a0, a1);
+#if 0
     uint32_t t9 = 0;
 
     /* fragment 0: ConstantLoad */
@@ -159105,11 +159143,19 @@ int32_t tisp_cdns_intp_reg_refresh(uint32_t a0, uint32_t a1)
     /* asm: 617ec:	00000000 	nop */
 
     return 0;
+#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000617f0 origin=fragment_seed original=tisp_cdns_par_refresh */
 int32_t tisp_cdns_par_refresh(uint32_t a0, uint32_t a1, uint32_t a2)
 {
+    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
+     * scaling); forwards to the source-derived CDNS chain in
+     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
+    if (!(a0 ? sec_cdns : main_cdns))
+        return 0;
+    return tisp_cdns_par_refresh_lit(a0, a1, a2);
+#if 0
     uint32_t *a3 = 0;
     uint32_t ra = 0;
     uint32_t t0 = 0;
@@ -159171,11 +159217,17 @@ tisp_cdns_par_refresh0x40:
     /* asm: 61840:	00000000 	nop */
 
     return 0;
+#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000061844 origin=model_output original=tisp_cdns_params_refresh */
 int32_t tisp_cdns_params_refresh(int32_t arg1)
 {
+    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
+     * scaling); forwards to the source-derived CDNS chain in
+     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
+    return tisp_cdns_params_refresh_lit((uint32_t)arg1);
+#if 0
     unsigned int *dest;
     unsigned int src_val;
     unsigned int temp;
@@ -159192,11 +159244,22 @@ int32_t tisp_cdns_params_refresh(int32_t arg1)
     src_val += 73771;
     memcpy(dest, &src_val, 683);
     return 0;
+#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000061890 origin=fragment_seed original=tisp_cdns_refresh */
 int32_t tisp_cdns_refresh(uint32_t a0, uint32_t a1)
 {
+    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
+     * scaling); forwards to the source-derived CDNS chain in
+     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
+    /* OEM 0x61920: par_refresh(ch, gain, thresh), then an unconditional
+     * all_reg_refresh at the stored gain. */
+    if (!(a0 ? sec_cdns : main_cdns))
+        return 0;
+    (void)tisp_cdns_par_refresh_lit(a0, a1, regtrace_cdns_thresh);
+    return tisp_cdns_all_reg_refresh_lit(a0, regtrace_cdns_gain_old[a0 & 1U]);
+#if 0
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *a2 = 0;
@@ -159235,11 +159298,23 @@ int32_t tisp_cdns_refresh(uint32_t a0, uint32_t a1)
     /* asm: 618e0:	27bd0018 	addiu	sp,sp,24 */
 
     return 0;
+#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000618e4 origin=fragment_seed original=tisp_cdns_main_init */
 int32_t tisp_cdns_main_init(void)
 {
+    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
+     * scaling); forwards to the source-derived CDNS chain in
+     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
+    int32_t ret;
+
+    if (!regtrace_enable_cdns)
+        return 0;
+    ret = regtrace_cdns_main_init_lit();
+    regtrace_t40_cdns_top_bit(ret);
+    return ret;
+#if 0
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -159303,6 +159378,7 @@ int32_t tisp_cdns_main_init(void)
     /* function epilogue: restore registers and return */
 
     return 0;
+#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000619ec origin=fragment_seed original=tisp_cdns_main_deinit */
