@@ -11634,9 +11634,30 @@ static int regtrace_blc_main_init_lit(void)
  * profile's limited initializer set, but make its faithful BLC, LSC, GIB and
  * BCSH implementations obey the sensor IQ payload in both directions.
  */
+/*
+ * OEM tisp_main_init (sc830ai module 0x1e70c) builds TOP 0x40 from the
+ * bank's bypass bytes at +0x00 for a linear sensor and at +0x20 only when
+ * the descriptor's WDR word (+116) is 1; 0x6c likewise uses +0x40 / +0x60.
+ * This driver always read +0x20 (the WDR set), so a linear sensor got the
+ * WDR bypass mask: with the sc830ai bin that bypasses YDNS, SDNS and GIB and
+ * keeps BLC active, while stock (TOP 0x7FD0000D) runs YDNS/SDNS/GIB and
+ * bypasses BLC.  Our fixed 0x6c default 0x30024 already is the linear
+ * (+0x40) value.  t40_gates_oem_offset=1 selects the offset as stock does.
+ * Default 0 (old +0x20) until a device run; YSP stays held off by
+ * t40_force_bypass.
+ */
+static uint32_t regtrace_tisp_main_init_last_wdr;
+static bool regtrace_t40_gates_oem_offset;
+module_param_named(t40_gates_oem_offset, regtrace_t40_gates_oem_offset, bool, 0644);
+MODULE_PARM_DESC(t40_gates_oem_offset, "1 reads the bin bypass flags at +0x00 for linear sensors like stock (default 0: always +0x20, the WDR set)");
+static uint regtrace_t40_gates_offset_now = 0x20U;
+module_param_named(t40_gates_offset_now, regtrace_t40_gates_offset_now, uint, 0444);
+
 static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
 {
-    const uint8_t *flags = (const uint8_t *)(uintptr_t)(nbuf + 0x20U);
+    uint32_t gate_off = (regtrace_t40_gates_oem_offset &&
+                         regtrace_tisp_main_init_last_wdr != 1U) ? 0x00U : 0x20U;
+    const uint8_t *flags = (const uint8_t *)(uintptr_t)(nbuf + gate_off);
     uint32_t packed = 0;
     unsigned int i;
 
@@ -11645,6 +11666,7 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
             packed |= BIT(i);
 
     regtrace_t40_tuning_top_flags_now = packed;
+    regtrace_t40_gates_offset_now = gate_off;
     regtrace_t40_tuning_blc_bypass_now = flags[0] ? 1U : 0U;
     regtrace_t40_tuning_lsc_bypass_now = flags[1] ? 1U : 0U;
     regtrace_t40_tuning_gib_bypass_now = flags[5] ? 1U : 0U;
@@ -11755,8 +11777,8 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
     }
 
     printk(KERN_INFO
-           "tx_isp_t40_recovered: tuning gates flags=0x%08x BLC=%s LSC=%s GIB=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
-           packed, flags[0] ? "bypass" : "active",
+           "tx_isp_t40_recovered: tuning gates off=0x%x flags=0x%08x BLC=%s LSC=%s GIB=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
+           gate_off, packed, flags[0] ? "bypass" : "active",
            flags[1] ? "bypass" : "active",
            flags[5] ? "bypass" : "active",
            flags[15] ? "bypass" : "active",
