@@ -11671,6 +11671,15 @@ static bool regtrace_t40_gates_oem_offset;
 module_param_named(t40_gates_oem_offset, regtrace_t40_gates_oem_offset, bool, 0644);
 MODULE_PARM_DESC(t40_gates_oem_offset, "1 reads the bin bypass flags at +0x00 for linear sensors like stock (default 0: always +0x20, the WDR set)");
 static uint regtrace_t40_gates_offset_now = 0x20U;
+/*
+ * A/B aid, not stock behaviour: the OEM linear gate set bypasses BLC
+ * (TOP bit 0; stock reads 0x7FD0000D) and stock relies on the GIB black
+ * level.  t40_gates_keep_blc=1 keeps BLC (lit + bit 0) active while
+ * t40_gates_oem_offset=1, to separate a BLC effect from the other blocks
+ * the linear set switches.  Default 0.
+ */
+static bool regtrace_t40_gates_keep_blc;
+module_param_named(t40_gates_keep_blc, regtrace_t40_gates_keep_blc, bool, 0644);
 module_param_named(t40_gates_offset_now, regtrace_t40_gates_offset_now, uint, 0444);
 /*
  * Second OEM word: 0x6c = 24 bits from the bank's bytes at gate offset
@@ -11740,7 +11749,7 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
     regtrace_t40_tuning_gib_bypass_now = flags[5] ? 1U : 0U;
     regtrace_t40_tuning_bcsh_bypass_now = flags[15] ? 1U : 0U;
 
-    if (flags[0]) {
+    if (flags[0] && !(regtrace_t40_gates_keep_blc && gate_off == 0x00U)) {
         regtrace_enable_blc_lit = false;
         regtrace_t40_quality_top40_final |= BIT(0);
     } else {
