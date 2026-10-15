@@ -177174,8 +177174,12 @@ Tzn_Msca_cfg_load0x670:
 
     /* fragment 139: CallSetup */
     local_30 = 65536;
-    s8 = s8 << 12;
-    s8 = ((uintptr_t)v0 << 8) + s8;
+    /* Q7v2-MSCA-CHANNELOFFSET: OEM 0x6c66c sll a3,s4,0x8 - s4 is the loop
+     * counter (init 0 @0x6c448, incr @0x6c850, bound 3 @0x6c854). In st3 s4
+     * maps to s3 (loop-back: if (s3 != v0) goto 0x500). The emitter wrongly
+     * produced s8=(v0<<8)+(s8<<12) with v0=3 (loop bound, not offset) and
+     * a spurious <<12. Restore (loop_index << 8). */
+    s8 = (uintptr_t)s3 << 8;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s8 + (65536 + 24960), s6, 65536); /* jalr target resolved by relocation */
 
     /* fragment 140: CallSetup */
@@ -177251,12 +177255,15 @@ Tzn_Msca_cfg_load0x788:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 44, ((*(uint16_t *)((char *)((uintptr_t)s2) + 22)) << 16) | (*(uint16_t *)((char *)((uintptr_t)s2) + 24))); /* jalr target resolved by relocation */
 
     /* fragment 155: Arithmetic */
-    s3 = s3 + 1;
+    /* Q7v3: OEM 0x6c850 `addiu s4,s4,1` — integer +1, not pointer +8.
+     * s3 is uintptr_t* so `s3 + 1` advances by sizeof(*)=8; cast to
+     * integer first to match the OEM loop counter (0,1,2). */
+    s3 = (uintptr_t *)((uintptr_t)s3 + 1);
     v0 = 3;
-    s2 = s2 + 616;
+    s2 = (uintptr_t *)((uintptr_t)s2 + 616);   /* Q7v4: OEM 0x6c858 addiu s2,s2,608 (Eufy 0x260); ref layout 0x268=616, as BYTES */
 
     /* fragment 156: Branch */
-    s1 = s1 + 256;
+    s1 = (uint32_t *)((uintptr_t)s1 + 256);   /* Q7v4: OEM 0x6c860 addiu s3,s3,256 (delay slot of the bne @0x6c85c); a uint32_t * would scale by 4 */
     if (s3 != v0) { goto Tzn_Msca_cfg_load0x500; }
 
     /* fragment 157: StackAccess */
