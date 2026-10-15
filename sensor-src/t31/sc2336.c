@@ -697,12 +697,12 @@ static int sensor_init(struct tx_isp_subdev *sd, int enable) {
 static int sensor_s_stream(struct tx_isp_subdev *sd, int enable) {
 	int ret = 0;
 
-	ISP_ERROR("sc2336 s_stream(%d): enter, data_interface=%d\n", enable, data_interface);
+	ISP_INFO("sc2336 s_stream(%d): enter, data_interface=%d\n", enable, data_interface);
 
 	if (enable) {
 		if (data_interface == TX_SENSOR_DATA_INTERFACE_MIPI) {
 			ret = sensor_write_array(sd, sensor_stream_on_mipi);
-			ISP_ERROR("sc2336 s_stream: stream_on write_array ret=%d\n", ret);
+			ISP_INFO("sc2336 s_stream: stream_on write_array ret=%d\n", ret);
 		} else {
 			ISP_ERROR("Don't support this Sensor Data interface\n");
 		}
@@ -783,6 +783,7 @@ static int sensor_g_chip_ident(struct tx_isp_subdev *sd, struct tx_isp_chip_iden
 	struct i2c_client *client = tx_isp_get_subdevdata(sd);
 	unsigned int ident = 0;
 	int ret = ISP_SUCCESS;
+	int i;
 	if (reset_gpio != -1) {
 		ret = private_gpio_request(reset_gpio, "sensor_reset");
 		if (!ret) {
@@ -807,7 +808,17 @@ static int sensor_g_chip_ident(struct tx_isp_subdev *sd, struct tx_isp_chip_iden
 			ISP_ERROR("gpio request failed %d\n", pwdn_gpio);
 		}
 	}
-	ret = sensor_detect(sd, &ident);
+	/* The sensor may NACK the first ident read while its supply/PLL settle
+	   (surfaces as an i2c transport error, e.g. ETIMEDOUT). Retry a few
+	   times before rejecting it; a genuine chip-id mismatch (-ENODEV) is
+	   definitive and is not retried. */
+	for (i = 0; i < 5; i++) {
+		ret = sensor_detect(sd, &ident);
+		if (ret == 0 || ret == -ENODEV) {
+			break;
+		}
+		private_msleep(10);
+	}
 	if (ret) {
 		ISP_ERROR("chip found @ 0x%x (%s) is not an " SENSOR_NAME " chip.\n",
 			client->addr,
@@ -1017,8 +1028,12 @@ static int sensor_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 	private_clk_set_rate(sensor->mclk, 24000000);
 	clk_prepare_enable(sensor->mclk);
-	ISP_ERROR("sc2336 probe: mclk cgu_cim rate=%lu Hz, enabled\n",
-		  clk_get_rate(sensor->mclk));
+	ISP_INFO("sc2336 probe: mclk cgu_cim rate=%lu Hz, enabled\n",
+		 clk_get_rate(sensor->mclk));
+	/* Let the sensor's internal PLL lock after mclk comes up before the
+	   first I2C ident read, otherwise that read can NACK and abort the
+	   probe. */
+	private_msleep(10);
 	private_jzgpio_set_func(GPIO_PORT_A, GPIO_FUNC_1, 0x8000);
 
 	/* Convert sensor-gain into isp-gain, */
