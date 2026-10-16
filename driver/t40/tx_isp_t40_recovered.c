@@ -2573,6 +2573,8 @@ static const char LC180[] = "[%s %d] [ %s:%d ] Failed to init tuning module!\n";
 #define T40_IRQ_FUNC_CB_N 80
 static int32_t irq_func_cb[T40_IRQ_FUNC_CB_N];
 static bool regtrace_t40_ae_par_calc = true;
+static bool regtrace_t40_ae_force_auto;   /* test aid: force the AE mode u16 at *(ctx+4)+6 to 1 so tune2 runs the per-frame EV allocation */
+module_param_named(t40_ae_force_auto, regtrace_t40_ae_force_auto, bool, 0644);
 module_param_named(t40_ae_par_calc, regtrace_t40_ae_par_calc, bool, 0644);
 static uint32_t regtrace_t40_ae_par_calc_count;
 module_param_named(t40_ae_par_calc_count, regtrace_t40_ae_par_calc_count, uint, 0444);
@@ -88707,6 +88709,19 @@ tisp_ae_long_tune20xe20:
     v1 = 1;
     *(uint8_t *)((char *)v0 + 0) = 0;
     v0 = *(uint32_t *)((char *)s8 + 4);
+    {   /* T40-AE-MODE-DIAG: OEM tune2 runs tisp_ae_ev_list_alloc_calc only when the u16 at *(ctx+4)+6
+         * (Outer+254, the 22-byte AE control block from the tuning bin, params_refresh memcpy +248) == 1;
+         * otherwise it just pushes the history rings and returns (FBL28: no AEEVOUT, IT stays 0). */
+        static unsigned int n;
+        const uint16_t *blk = (const uint16_t *)v0;
+        if (regtrace_is_kernel_ptr((void *)blk)) {
+            if (n++ < 3)
+                printk(KERN_INFO "tx_isp_t40_recovered: AEMODE ctx+4=%p u16[0..10]= %u %u %u %u %u %u %u %u %u %u %u force_auto=%u\n",
+                       (void *)blk, blk[0], blk[1], blk[2], blk[3], blk[4], blk[5], blk[6], blk[7], blk[8], blk[9], blk[10], regtrace_t40_ae_force_auto ? 1U : 0U);
+            if (regtrace_t40_ae_force_auto)
+                *(uint16_t *)((char *)v0 + 6) = 1;
+        }
+    }
     v0 = *(uint16_t *)((char *)v0 + 6);
 
     /* fragment 248: Branch */
