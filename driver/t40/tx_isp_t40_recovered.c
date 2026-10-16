@@ -98536,7 +98536,8 @@ tisp_ae_api_set_exp_list0x4c:
 
 tisp_ae_api_set_exp_list0x9c:
     /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_par_calc)(a0 & 255); /* jalr target resolved by relocation */
+    /* OEM 0x2d7c4: tisp_ae_par_calc(ch & 0xff, ctx) - the lift dropped a1 (= ctx): par_calc got the mode (1) as ctx pointer -> BadVA 1 (FBL32b). */
+    v0 = (uintptr_t *)(uintptr_t)tisp_ae_par_calc(a0 & 255, (uintptr_t)a1);
 
     /* fragment 10: Epilogue */
     /* function epilogue: restore registers and return */
