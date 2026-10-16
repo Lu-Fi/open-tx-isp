@@ -198846,6 +198846,34 @@ static uint32_t regtrace_isr_diag_isr;
 static bool regtrace_isr_drain_diag = true;
 module_param_named(isr_drain_diag, regtrace_isr_drain_diag, bool, 0644);
 
+/* T40-ISR-FRAME-DELIVER (fable): the lifted frame_chan_event (OEM 0xf598) is unusable - every
+ * list/lock/wait access in it is a pointer-stepped offset (s0+540/556/568/744, s1+8, s2-88 ...)
+ * and the lock/wake helpers are stubs; delivering the real 0x3000006 to it hangs the camera
+ * (FBL3-1928).  Hand the popped frame to the driver's own done queue instead - the queue
+ * DQBUF reads (regtrace_irq_frame_done_send, LOCAL mode, same as the VIC/normal path) - and
+ * keep the OEM event behind core_isr_oem_frame_event (default off). */
+static bool regtrace_core_isr_oem_frame_event;
+module_param_named(core_isr_oem_frame_event, regtrace_core_isr_oem_frame_event, bool, 0644);
+static uint32_t regtrace_core_isr_frame_deliver_count;
+module_param_named(core_isr_frame_deliver_count, regtrace_core_isr_frame_deliver_count, uint, 0444);
+static long regtrace_core_isr_frame_deliver_last_ret;
+module_param_named(core_isr_frame_deliver_last_ret, regtrace_core_isr_frame_deliver_last_ret, long, 0444);
+
+static int32_t regtrace_core_isr_frame_done(uintptr_t pad, uint32_t group, uint32_t channel,
+                                            uint32_t y, uint32_t uv, void *desc)
+{
+    long ret = -ENODATA;
+    uint32_t ch = group * 3U + channel;
+
+    if (y && ch < 4U)
+        ret = regtrace_irq_frame_done_send((int)ch, 0x40U, 0, y, uv, 0xffffffffU, false);
+    regtrace_core_isr_frame_deliver_count++;
+    regtrace_core_isr_frame_deliver_last_ret = ret;
+    if (regtrace_core_isr_oem_frame_event)
+        return tx_isp_send_event_to_remote((void *)pad, 0x3000006U, desc);
+    return (int32_t)ret;
+}
+
 static void regtrace_isr_diag_sample(uintptr_t win, uint32_t it, uint32_t tag,
                                      uint32_t y, uint32_t uv)
 {
@@ -199488,7 +199516,7 @@ ispcore_interrupt_service_routine0x4ec:
         regtrace_isr_diag_dump("doneA", (uintptr_t)s0, (uintptr_t)(*(uint32_t *)((char *)s0 + 232)) + 65536U, __isr_spin, (uintptr_t)s7, (uintptr_t)s4, (uintptr_t)s5, local_44, local_48);
     }
     /* fragment 105: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s5) + 128), (uintptr_t)a1 + 6, &local_20) /* T40-ISR-EVENT-SCALE: 0x3000006, a1 is a pointer type (was 0x3000018) */; /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)regtrace_core_isr_frame_done(*(uint32_t *)((char *)(s5) + 128), local_44, local_48, local_28, local_2c, &local_20); /* OEM 0x7c1c4: event 0x3000006, leg A */ /* jalr target resolved by relocation */
 
     /* fragment 106: MemoryAccess */
     v0 = *(uint8_t *)((char *)s7 + 210);
@@ -199666,7 +199694,7 @@ ispcore_interrupt_service_routine0x690:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)(s7, local_44, &local_28, &local_2c); /* jalr target resolved by relocation */
 
     /* fragment 145: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s6) + 128), 50331648 + 6, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)regtrace_core_isr_frame_done(*(uint32_t *)((char *)(s6) + 128), (uint32_t)s7, local_44, local_28, local_2c, &local_20); /* OEM 0x7c364: (s7, local_44) */ /* jalr target resolved by relocation */
 
     /* fragment 146: MemoryAccess */
     v0 = *(uint8_t *)((char *)s4 + 426);
@@ -199733,7 +199761,7 @@ ispcore_interrupt_service_routine0x73c:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)(0, 2, &local_28, &local_2c); /* jalr target resolved by relocation */
 
     /* fragment 159: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s4) + 560), 50331648 + 6, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)regtrace_core_isr_frame_done(*(uint32_t *)((char *)(s4) + 560), 0, 2, local_28, local_2c, &local_20); /* OEM 0x7c418: (0,2) */ /* jalr target resolved by relocation */
 
     /* fragment 160: Arithmetic */
     v0 = (uintptr_t)s1 & 1;
@@ -199841,7 +199869,7 @@ ispcore_interrupt_service_routine0x840:
     if (v0 == 0) { goto ispcore_interrupt_service_routine0xe30; }
 
     /* fragment 180: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s6) + 128), (uintptr_t)a1 + 6, &local_20) /* T40-ISR-EVENT-SCALE: 0x3000006, a1 is a pointer type (was 0x3000018) */; /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)regtrace_core_isr_frame_done(*(uint32_t *)((char *)(s6) + 128), local_44, local_48, local_28, local_2c, &local_20); /* OEM 0x7c518: leg B */ /* jalr target resolved by relocation */
 
     /* fragment 181: MemoryAccess */
     v0 = *(uint8_t *)((char *)s7 + 858);
@@ -200014,7 +200042,7 @@ ispcore_interrupt_service_routine0x9dc:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)(s7, local_40, &local_28, &local_2c); /* jalr target resolved by relocation */
 
     /* fragment 219: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s6) + 128), 50331648 + 6, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)regtrace_core_isr_frame_done(*(uint32_t *)((char *)(s6) + 128), (uint32_t)s7, local_40, local_28, local_2c, &local_20); /* OEM 0x7c6b0: (s7, local_40) */ /* jalr target resolved by relocation */
 
     /* fragment 220: MemoryAccess */
     v0 = *(uint8_t *)((char *)s4 + 1074);
@@ -200081,7 +200109,7 @@ ispcore_interrupt_service_routine0xa88:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)(1, 2, &local_28, &local_2c); /* jalr target resolved by relocation */
 
     /* fragment 233: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s3) + 1208), 50331648 + 6, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)regtrace_core_isr_frame_done(*(uint32_t *)((char *)(s3) + 1208), 1, 2, local_28, local_2c, &local_20); /* OEM 0x7c764: (1,2) */ /* jalr target resolved by relocation */
 
     /* fragment 234: Arithmetic */
     v0 = (uintptr_t)s1 & 512;
