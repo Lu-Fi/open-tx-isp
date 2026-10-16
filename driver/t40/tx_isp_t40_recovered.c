@@ -18339,6 +18339,12 @@ static const uint32_t regtrace_msca_peek_g5[] = {
 static const uint32_t regtrace_msca_peek_g6[] = {
     0x1617c, 0x16194, 0x1717c, 0x17194,
 };
+/* AE stats block (OEM tisp_ae_set_hardware_param 0x241c8: 0x19004..0x19028, trig 0x19000,
+ * bank 0x19050) and the AWB bank word 0x18050 (OEM tisp_awb_main_interrupt_static). */
+static const uint32_t regtrace_msca_peek_g7[] = {
+    0x19000, 0x19004, 0x19008, 0x1900c, 0x19010, 0x19014, 0x19018, 0x1901c,
+    0x19020, 0x19024, 0x19028, 0x1902c, 0x19050, 0x18000, 0x18050,
+};
 static const struct {
     const uint32_t *regs;
     unsigned int count;
@@ -18350,6 +18356,7 @@ static const struct {
     { regtrace_msca_peek_g4, ARRAY_SIZE(regtrace_msca_peek_g4) },
     { regtrace_msca_peek_g5, ARRAY_SIZE(regtrace_msca_peek_g5) },
     { regtrace_msca_peek_g6, ARRAY_SIZE(regtrace_msca_peek_g6) },
+    { regtrace_msca_peek_g7, ARRAY_SIZE(regtrace_msca_peek_g7) },
 };
 static unsigned int regtrace_msca_peek_group_mask = 0x1;
 module_param_named(msca_peek_groups, regtrace_msca_peek_group_mask, uint, 0644);
@@ -84122,6 +84129,7 @@ do_write:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000237a8 origin=fragment_seed original=tisp_ae_set_hardware_param */
 int64_t tisp_ae_set_hardware_param(uintptr_t a0, uint32_t a1)
 {
+    const uint16_t *v0_hw = NULL;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -84155,6 +84163,7 @@ int64_t tisp_ae_set_hardware_param(uintptr_t a0, uint32_t a1)
 
     /* fragment 1: MemoryAccess */
     v0 = *(uint32_t *)((char *)a0 + 284);
+    v0_hw = (const uint16_t *)v0;
     s8 = a1;
     v1 = *(uint16_t *)((char *)v0 + 74);
     a2 = *(uint16_t *)((char *)v0 + 72);
@@ -84308,6 +84317,9 @@ tisp_ae_set_hardware_param0xb4:
 
     /* fragment 17: Branch */
     local_18 = v1;
+    printk(KERN_INFO "tx_isp_t40_recovered: AEHW sec=%u 19004=0x%x 19008=0x%x 1900c=0x%x 19010=0x%x 19014=0x%x 19018=0x%x 1901c=0x%x 19020=0x%x 19024=0x%x 19028=0x%x (u16 tbl %p: %u %u %u %u | %u %u %u %u | w70=%u h72=%u 74=%u)\n",
+           (unsigned)s8, (unsigned)(uintptr_t)a1, (unsigned)(uintptr_t)s5, (unsigned)(uintptr_t)s4, (unsigned)(uintptr_t)s3, (unsigned)(uintptr_t)s7, (unsigned)(uintptr_t)s2, (unsigned)(uintptr_t)s1, (unsigned)(uintptr_t)local_10, (unsigned)(uintptr_t)local_14, (unsigned)(uintptr_t)local_18,
+           (void *)v0_hw, v0_hw[0], v0_hw[1], v0_hw[2], v0_hw[3], v0_hw[4], v0_hw[5], v0_hw[6], v0_hw[7], v0_hw[35], v0_hw[36], v0_hw[37]);
     if (s8 != 0) { goto tisp_ae_set_hardware_param0x300; }
 
     /* fragment 18: CallSetup */
@@ -86086,8 +86098,12 @@ int32_t tisp_ae_main_interrupt_static(void)
             printk(KERN_INFO "tx_isp_t40_recovered: AEIRQ static-interrupt fired #%u\n", _ae_static_trace);
     }
     reg_value = system_reg_read(0x19050);
-    tisp_base = tispinfo + 12;
+    /* OEM 0x24c70 `lw v0,12(tispinfo)`: the stats buffer POINTER stored at tispinfo+12,
+     * not the address of that field (tispinfo is a byte array here). */
+    tisp_base = *(int32_t *)(tispinfo + 12);
     ptr = (int32_t*)((((reg_value >> 4) & 3) << 12) + tisp_base);
+    if (!regtrace_is_kernel_ptr((void *)ptr))
+        return 1;   /* tispinfo stats DMA not seeded (enable_tisp_main_init_tispinfo_dma) */
 
     private_dma_cache_sync();
     tisp_ae_get_statistics(ptr, (int32_t*)(_bss_start + 14624));
