@@ -89739,6 +89739,13 @@ int32_t tisp_ae_short_alogrithm(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026b50 origin=fragment_seed original=tisp_ae_long_set_sensor_integration_time */
 int32_t tisp_ae_long_set_sensor_integration_time(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3, uint32_t arg4)
 {
+    {   /* T40-AE-CTRLS-DIAG */
+        static unsigned int n;
+        const uint32_t *c = (const uint32_t *)&tisp_ae_main_ctrls;
+        if (n++ < 3)
+            printk(KERN_INFO "tx_isp_t40_recovered: AECTRLS a0=%u a1=%p a2=%p a3=%u | %x %x %x %x | %x %x %x %x | %x %x %x %x | %x %x %x %x\n",
+                   (unsigned)a0, (void *)a1, (void *)a2, (unsigned)a3, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15]);
+    }
     uint8_t t40_sctx[64] = {0};   /* T40-SENSOR-CTX: OEM stack ctx at sp+16: +12 = channel (sw a0,28(sp)); alloc gets ctx+12 and writes the IT u16 at ctx+34 (sensor_alloc_integration_time 0x11144 sh a0,22(s0)); set gets ctx and reads +12 */
     uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
@@ -89962,15 +89969,79 @@ tisp_ae_short_set_sensor_integration_time0x108:
  * copy at fixed frame offsets (0x277ac lw v0,396(sp) = copy+324 = sensor_ctrl_main+0x14c ...).
  * The lift turned those into regtrace_unresolved_jalr(); call the slots of the global directly. */
 #define T40_SENSOR_CB(off) (*(uint32_t *)((char *)&sensor_ctrl_main + (off)))
+/* T40-VENDOR-SENSOR (fable): the sensor_init() REGTRACE block installs no-op stubs at these slots
+ * (set_* = regtrace_sensor_ctrl_set_u32 -> both 0x164 and 0x174 resolve to the same fn), so the
+ * vendor AE chain could never program the sensor.  Mirror the OEM wrappers here instead:
+ *   sensor_alloc_analog_gain  (0x10f98): attr->alloc_again(log2, 16, &out); ctx+4 = out; return log2'
+ *   sensor_alloc_digital_gain (0x11048): ctx+8 u16 = out (no dgain alloc on sc830ai)
+ *   sensor_alloc_integration_time (0x11104): attr->alloc_integration_time ? (it,0,&out) : it; ctx+22 u16 = out
+ *   sensor_set_*: the hand-written apply path's packed EXPO ioctl (again<<16 | it). */
+static uint32_t t40_vendor_again_sensor, t40_vendor_it_sensor, t40_vendor_dgain;
+static uint32_t t40_vendor_expo_count; static long t40_vendor_expo_last_ret;
+module_param_named(t40_vendor_expo_count, t40_vendor_expo_count, uint, 0444);
+module_param_named(t40_vendor_expo_last_ret, t40_vendor_expo_last_ret, long, 0444);
+static uintptr_t t40_sensor_attr_fn(uint32_t off)
+{
+    uintptr_t attr;
+    if (!regtrace_is_kernel_ptr(regtrace_sensor_subdev))
+        return 0;
+    attr = regtrace_get_u32((uintptr_t)regtrace_sensor_subdev, 0x304);
+    return regtrace_is_kernel_ptr((void *)attr) ? regtrace_get_u32(attr, off) : 0;
+}
+static void t40_vendor_send_expo(const char *why)
+{
+    uint32_t payload[2];
+    uint32_t packed = (t40_vendor_again_sensor << 16) | (t40_vendor_it_sensor & 0xffffU);
+    static unsigned int n;
+    if (!(packed & 0xffffU))
+        return;                                   /* no integration time yet */
+    payload[0] = packed; payload[1] = packed;
+    t40_vendor_expo_last_ret = regtrace_sensor_call_sensor_ioctl(REGTRACE_TX_ISP_EVENT_SENSOR_EXPO, payload);
+    t40_vendor_expo_count++;
+    if (n++ < 12)
+        printk(KERN_INFO "tx_isp_t40_recovered: AE vendor expo %s packed=0x%08x again=0x%x it=%u ret=%ld\n",
+               why, packed, t40_vendor_again_sensor, t40_vendor_it_sensor, t40_vendor_expo_last_ret);
+}
 static inline uintptr_t t40_sensor_cb2(uint32_t off, uintptr_t a0, uintptr_t a1)
 {
-    uintptr_t fn = T40_SENSOR_CB(off);
     static unsigned int t40_sensor_cb_trace;
-    if (!regtrace_is_kernel_ptr((void *)fn))
-        return 0;
+    unsigned int out = 0;
+    uintptr_t fn;
     if (t40_sensor_cb_trace++ < 12)
-        printk(KERN_INFO "tx_isp_t40_recovered: AE vendor apply cb+0x%x fn=%p a0=0x%lx a1=%p\n", off, (void *)fn, (unsigned long)a0, (void *)a1);
-    return ((uintptr_t (*)(uintptr_t, uintptr_t))fn)(a0, a1);
+        printk(KERN_INFO "tx_isp_t40_recovered: AE vendor apply cb+0x%x a0=0x%lx ctx=%p\n", off, (unsigned long)a0, (void *)a1);
+    if (!regtrace_is_kernel_ptr((void *)a1))
+        return 0;
+    switch (off) {
+    case 0x14c:   /* alloc analog gain: a0 = log2 gain (16.16) */
+        fn = t40_sensor_attr_fn(0xc4);
+        if (regtrace_is_kernel_ptr((void *)fn))
+            ((unsigned int (*)(unsigned int, unsigned char, unsigned int *))fn)((unsigned int)a0, 16, &out);
+        *(uint32_t *)(a1 + 4) = out;
+        return a0;
+    case 0x154:   /* alloc digital gain */
+        *(uint16_t *)(a1 + 8) = 0; *(uint16_t *)(a1 + 26) = 0;
+        return a0;
+    case 0x15c:   /* alloc integration time */
+        fn = t40_sensor_attr_fn(0xd0);   /* guess: alloc_integration_time slot after alloc_again/_short/dgain */
+        out = (unsigned int)a0;
+        if (regtrace_is_kernel_ptr((void *)fn))
+            ((unsigned int (*)(unsigned int, unsigned char, unsigned int *))fn)((unsigned int)a0, 0, &out);
+        *(uint16_t *)(a1 + 22) = (uint16_t)out;
+        return a0;
+    case 0x164:   /* set integration time (sensor units) */
+        t40_vendor_it_sensor = (uint32_t)a0;
+        t40_vendor_send_expo("it");
+        return 0;
+    case 0x174:   /* set analog gain (sensor units) */
+        t40_vendor_again_sensor = (uint32_t)a0;
+        t40_vendor_send_expo("again");
+        return 0;
+    case 0x17c:   /* set digital gain: ISP-side, recorded only */
+        t40_vendor_dgain = (uint32_t)a0;
+        return 0;
+    default:
+        return 0;
+    }
 }
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026d58 origin=fragment_seed original=tisp_set_sensor_analog_gain */
 uint32_t tisp_set_sensor_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
@@ -91230,6 +91301,7 @@ int64_t tisp_ae_main_long_ev_alloc(uintptr_t a0, uintptr_t a1, uintptr_t a2, uin
     local_1e8 = v0;
     local_1ec = v0;
     s7 = a2;
+    local_224 = (typeof(local_224))(uintptr_t)s7;   /* T40-SPILL: the lift dropped sw s7,548(sp); the later s7 = local_224 restore read 0 */
     local_23c = a3;
     v0 = 0;
     t2 = (uint32_t *)&local_10;
