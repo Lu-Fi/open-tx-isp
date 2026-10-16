@@ -758,6 +758,33 @@ static int t20_ae_last_exposure_log2;
 module_param(t20_ae_last_exposure_log2, int, 0444);
 static int t20_iridix_last_hist_factor;
 module_param(t20_iridix_last_hist_factor, int, 0444);
+
+/*
+ * IMP_ISP_Tuning_GetAeLuma / SetBacklightComp (beyond vendor on T10/T20).
+ * GetAeLuma reports the mean the compact AE meters (0..255); the backlight
+ * level (IMP range 0..10, 0 = off) makes the brightest quarter of the
+ * histogram count less in that mean, so a bright background no longer
+ * darkens the exposure (t20_ae_metered_mean).  Only the compact AE
+ * (t20_simple_ae, the default) meters; with the OEM AE graph the mean
+ * stays 0 and the level has no effect.
+ */
+#define T20_BLC_MAX	10u
+static unsigned int t20_blc_level;
+
+unsigned int tx_isp_t20_ae_last_mean(void)
+{
+	return ACCESS_ONCE(t20_ae_last_mean);
+}
+
+void tx_isp_t20_blc_set(unsigned int level)
+{
+	ACCESS_ONCE(t20_blc_level) = min_t(unsigned int, level, T20_BLC_MAX);
+}
+
+unsigned int tx_isp_t20_blc_get(void)
+{
+	return ACCESS_ONCE(t20_blc_level);
+}
 static int t20_iridix_last_exposure_factor;
 module_param(t20_iridix_last_exposure_factor, int, 0444);
 static unsigned int t20_iridix_last_target;
@@ -17591,6 +17618,9 @@ static u32 t20_ae_metered_mean(int32_t *ae, u32 highlight_tail)
 	u64 weighted = 0;
 	u32 population = 0;
 	u32 tail_start;
+	u32 blc = ACCESS_ONCE(t20_blc_level);
+	/* backlight: weight of the top quarter, 16 = unchanged, 4 at level 10 */
+	u32 top_weight16 = 16 - blc * 12 / T20_BLC_MAX;
 	u32 i;
 
 	highlight_tail = min_t(u32, highlight_tail, 256);
@@ -17606,11 +17636,12 @@ static u32 t20_ae_metered_mean(int32_t *ae, u32 highlight_tail)
 				weight = 1;
 		}
 		population += count;
-		weighted += (u64)count * (2 * i + 1) * weight;
+		weighted += (u64)count * (2 * i + 1) * weight *
+			    (i >= 192 ? top_weight16 : 16);
 	}
 	if (!population)
 		return 0;
-	return (u32)div64_u64(weighted, (u64)population * 2);
+	return (u32)div64_u64(weighted, (u64)population * 2 * 16);
 }
 
 static u8 t20_ae_exposure_correction(u8 wdr_mode, u32 exposure_q6)

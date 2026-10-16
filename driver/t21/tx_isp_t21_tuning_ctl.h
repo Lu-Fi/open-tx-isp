@@ -50,6 +50,7 @@
 #define TX_ISP_T21_TUNING_CTL_H
 
 #include "../common/tx_isp_csc.h"
+#include "tx_isp_t21_ae_comp.h"
 
 #define T21_CID_SCENE_MODE	0x009a091a
 #define T21_CID_COLORFX		0x0098091f
@@ -60,6 +61,8 @@
 #define T21_CID_3DNS_RATIO	0x08000085
 #define T21_CID_EXPR		0x08000025	/* GetExpr, get side only */
 #define T21_CID_DPC_RATIO	0x08000062
+#define T21_CID_AE_IT_MAX	0x08000032	/* SetAe_IT_MAX (beyond vendor) */
+#define T21_CID_BACKLIGHT	0x08000037	/* SetBacklightComp (beyond vendor) */
 
 #define T21_COLORFX_AUTO	0
 #define T21_COLORFX_BW		1
@@ -204,6 +207,7 @@ static const void *t21_colorfx_saturation(const int32_t *eff,
 }
 
 static void t21_csc_apply_matrix(void);
+static void t21_ae_comp_refresh(void);
 
 static int t21_colorfx_set(uint32_t fx)
 {
@@ -661,6 +665,19 @@ static int t21_tuning_ctl_s(int32_t *ctl, int32_t *ret)
 		t21_dpc_set_ratio(v);
 		*ret = 0;
 		return 1;
+	case T21_CID_AE_IT_MAX:
+		t21_ae_set_it_max(v);
+		*ret = 0;
+		return 1;
+	case T21_CID_BACKLIGHT:
+		if (v > T21_BLC_MAX) {
+			*ret = -1;
+			return 1;
+		}
+		ACCESS_ONCE(t21_blc_level) = v;
+		t21_ae_comp_refresh();	/* re-derive the cached target */
+		*ret = 0;
+		return 1;
 	case T21_CID_SINTER_DNS:
 		/* MoveState passes 0/1, not a pointer: the copy fails and the
 		 * stock no-op answers, as before. */
@@ -739,6 +756,13 @@ static int t21_tuning_ctl_g(int32_t *ctl, int32_t *ret)
 		break;
 	case T21_CID_DPC_RATIO:
 		ctl[1] = (int32_t)t21_dpc_ratio;
+		break;
+	case T21_CID_AE_IT_MAX:
+		ctl[1] = (int32_t)ACCESS_ONCE(
+			((struct t21_ae_ctrls_view *)tisp_ae_ctrls)->max_integration_time);
+		break;
+	case T21_CID_BACKLIGHT:
+		ctl[1] = (int32_t)ACCESS_ONCE(t21_blc_level);
 		break;
 	case T21_CID_TEMPER_TYPE:
 		ctl[1] = (int32_t)t21_temper_type;

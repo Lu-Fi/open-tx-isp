@@ -25,6 +25,14 @@ int main(void)
 		bad += t21_ae_comp_scale(at[i], 192) < at[i];
 		bad += t21_ae_comp_scale(at[i], 64) > at[i];
 	}
+	/* backlight comp: level 0 identity (above), +5 % per level on the target */
+	t21_blc_level = 10;
+	bad += t21_ae_comp_scale(100, 128) != 150;
+	bad += t21_ae_comp_scale(200, 128) != 255;
+	bad += t21_ae_comp_scale(0, 128) != 0;
+	t21_blc_level = 4;
+	bad += t21_ae_comp_scale(100, 128) != 120;
+	t21_blc_level = 0;
 	bad += t21_ae_comp_scale(0, 200) != 0;
 	bad += t21_ae_comp_scale(75, 255) != 149;
 	bad += t21_ae_comp_scale(75, 64) != 38;

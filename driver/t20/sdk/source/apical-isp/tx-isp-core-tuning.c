@@ -1456,13 +1456,58 @@ static void t2x_csc_refresh_matrix(void)
 		       COMMAND_SET, &reason);
 }
 
+/*
+ * IMP_ISP_Tuning_SetBcshHue (beyond vendor on T10/T20): 0..255, 128 = no
+ * change, a rotation of the U/V rows of the RGB2YUV table by up to +-30
+ * degrees (full scale).  The rotation is applied when the table is
+ * programmed, on top of the stock table or of a SetCsc_Attr table.
+ */
+#define T2X_HUE_NEUTRAL	128u
+static unsigned int t2x_hue = T2X_HUE_NEUTRAL;
+static int t2x_hue_owns_csc;		/* CSC adopted for the hue only */
+static uint16_t t2x_hue_orig_lut[12], t2x_hue_orig_clip[4];
+static const int16_t t2x_hue_sin[32] = {
+	0, 18, 36, 54, 71, 89, 107, 125, 143, 160, 178, 195, 213, 230, 248,
+	265, 282, 299, 316, 333, 350, 367, 384, 400, 416, 433, 449, 465, 481,
+	496, 512, 527 };
+static const int16_t t2x_hue_cos[32] = {
+	1024, 1024, 1023, 1023, 1022, 1020, 1018, 1016, 1014, 1011, 1008,
+	1005, 1002, 998, 994, 989, 984, 979, 974, 968, 962, 956, 949, 943,
+	935, 928, 920, 912, 904, 896, 887, 878 };
+
+/* out = lut with the chroma rows (U 3..5, V 6..8) rotated by the hue */
+static void t2x_hue_rotate(const uint16_t *lut, uint16_t *out)
+{
+	int d = (int)t2x_hue - (int)T2X_HUE_NEUTRAL;
+	unsigned int a16 = (unsigned int)abs(d) * 15 / 4; /* 1/16 degree */
+	unsigned int i = a16 >> 4, f = a16 & 15;
+	int s = (t2x_hue_sin[i] * (16 - f) + t2x_hue_sin[i + 1] * f) >> 4;
+	int c = (t2x_hue_cos[i] * (16 - f) + t2x_hue_cos[i + 1] * f) >> 4;
+	int k;
+
+	memcpy(out, lut, 12 * sizeof(*out));
+	if (!d)
+		return;
+	if (d < 0)
+		s = -s;
+	for (k = 0; k < 3; k++) {
+		int u = tx_isp_csc_apical_coef_q10(lut[3 + k]);
+		int v = tx_isp_csc_apical_coef_q10(lut[6 + k]);
+
+		out[3 + k] = tx_isp_csc_apical_coef((c * u + s * v) >> 10);
+		out[6 + k] = tx_isp_csc_apical_coef((c * v - s * u) >> 10);
+	}
+}
+
 /* caller holds t2x_csc_mutex */
 static int t2x_csc_program(struct tx_isp_core_device *core)
 {
 	int ret = 0;
+	uint16_t lut[12];
 
+	t2x_hue_rotate(t2x_csc_lut, lut);
 	apical_api_calibration(CALIBRATION_RGB2YUV_CONVERSION, COMMAND_SET,
-			       t2x_csc_lut, sizeof(t2x_csc_lut), &ret);
+			       lut, sizeof(lut), &ret);
 	if (ret)
 		return -EIO;
 	t2x_csc_write_clip(t2x_csc_clip, t2x_csc_is_night(core));
@@ -1523,7 +1568,57 @@ static int t2x_csc_s_ctrl(struct tx_isp_core_device *core,
 		memcpy(t2x_csc_clip, old_clip, sizeof(old_clip));
 	} else {
 		t2x_csc_mode = attr[0];
+		t2x_hue_owns_csc = 0;	/* the caller's table is the base now */
 	}
+	mutex_unlock(&t2x_csc_mutex);
+	return ret;
+}
+
+static int t2x_hue_set(struct tx_isp_core_device *core, unsigned int hue)
+{
+	int ret;
+
+	if (hue > 255)
+		return -EINVAL;
+	ret = t2x_csc_ready(core);
+	if (ret)
+		return ret;
+	mutex_lock(&t2x_csc_mutex);
+	if (!t2x_csc_active) {
+		if (hue == T2X_HUE_NEUTRAL) {
+			t2x_hue = hue;
+			goto out;
+		}
+		/* adopt the table in effect as the base of the rotation */
+		apical_api_calibration(CALIBRATION_RGB2YUV_CONVERSION,
+				       COMMAND_GET, t2x_csc_lut,
+				       sizeof(t2x_csc_lut), &ret);
+		if (ret) {
+			ret = -EIO;
+			goto out;
+		}
+		t2x_csc_clip[0] = apical_isp_ds1_cs_conv_clip_min_y_read();
+		t2x_csc_clip[1] = apical_isp_ds1_cs_conv_clip_max_y_read();
+		t2x_csc_clip[2] = 0;
+		t2x_csc_clip[3] = 1023;
+		memcpy(t2x_hue_orig_lut, t2x_csc_lut, sizeof(t2x_csc_lut));
+		memcpy(t2x_hue_orig_clip, t2x_csc_clip, sizeof(t2x_csc_clip));
+		t2x_csc_active = 1;
+		t2x_hue_owns_csc = 1;
+	}
+	t2x_hue = hue;
+	ret = t2x_csc_program(core);
+	if (ret) {
+		t2x_hue = T2X_HUE_NEUTRAL;
+	} else if (hue == T2X_HUE_NEUTRAL && t2x_hue_owns_csc) {
+		/* back to neutral: the stock table, CSC no longer ours */
+		memcpy(t2x_csc_lut, t2x_hue_orig_lut, sizeof(t2x_csc_lut));
+		memcpy(t2x_csc_clip, t2x_hue_orig_clip, sizeof(t2x_csc_clip));
+		ret = t2x_csc_program(core);
+		t2x_csc_active = 0;
+		t2x_hue_owns_csc = 0;
+	}
+out:
 	mutex_unlock(&t2x_csc_mutex);
 	return ret;
 }
@@ -3890,6 +3985,39 @@ err_get_gain_log2:
 /* T20 3.12.0 IMP_ISP_Tuning_GetAwbZone(IMPISPAWBZone *): the id after
  * IMAGE_TUNING_CID_AWB_RGB_COEFFT_WB_ATTR, not in the 3.10.14 SDK enum */
 #define T2X_CID_AWB_ZONE	(V4L2_CID_PRIVATE_BASE + 0x09)
+/* IMP_ISP_Tuning_SetAe_IT_MAX / SetBacklightComp / SetBcshHue / GetAeLuma
+ * (beyond vendor on T10/T20: the T20 3.12.0 libimp has none of them).  The
+ * first three use the ids the T23/T31 libimp sends; GetAeLuma has its own
+ * id because 0x8000033 is the AeMin id on this SoC. */
+#define T2X_CID_AE_IT_MAX	(V4L2_CID_PRIVATE_BASE + 0x32)
+#define T2X_CID_BACKLIGHT_COMP	(V4L2_CID_PRIVATE_BASE + 0x37)
+#define T2X_CID_BCSH_HUE	(V4L2_CID_PRIVATE_BASE + 0x101)
+#define T2X_CID_AE_LUMA		(V4L2_CID_PRIVATE_BASE + 0x1a0)
+extern unsigned int tx_isp_t20_ae_last_mean(void);
+extern void tx_isp_t20_blc_set(unsigned int level);
+extern unsigned int tx_isp_t20_blc_get(void);
+extern uint32_t tx_isp_t20_ae_max_integration_time(void);
+
+/* SetAe_IT_MAX: the AE exposure ceiling in sensor lines (the compact AE
+ * clamps to stab.global_max_integration_time, as SetIntegrationTime
+ * MODE_RANGE sets it); 0 gives the sensor maximum back */
+static int t2x_ae_it_max_set(struct tx_isp_core_device *core, uint32_t lines)
+{
+	struct tx_isp_sensor_attribute *attr = core->vin.attr;
+	uint32_t lo, hi;
+
+	if (!attr)
+		return -ENODEV;
+	lo = max_t(uint32_t, attr->min_integration_time,
+		   attr->min_integration_time_native);
+	hi = attr->max_integration_time;
+	if (!lines || (hi && lines > hi))
+		lines = hi;
+	if (lines < lo)
+		lines = lo;
+	stab.global_max_integration_time = lines;
+	return 0;
+}
 
 /* the 15x15 AWB zone statistics of the last frame from the metering memory */
 static int t2x_awb_zone_g_ctrl(struct v4l2_control *ctrl)
@@ -3928,11 +4056,26 @@ static void t2x_defog_apply(uint32_t v)
 }
 
 /* 1 = handled (*ret set), 0 = not one of these controls */
-static int t2x_beyond_s_ctrl(struct v4l2_control *ctrl, int *ret)
+static int t2x_beyond_s_ctrl(struct tx_isp_core_device *core,
+			     struct v4l2_control *ctrl, int *ret)
 {
 	uint8_t b;
 
 	switch (ctrl->id) {
+	case T2X_CID_AE_IT_MAX:
+		*ret = t2x_ae_it_max_set(core, (uint32_t)ctrl->value);
+		return 1;
+	case T2X_CID_BACKLIGHT_COMP:
+		/* IMP range 0..10, 0 = off */
+		if ((uint32_t)ctrl->value > 10) {
+			*ret = -EINVAL;
+			return 1;
+		}
+		tx_isp_t20_blc_set(ctrl->value);
+		break;
+	case T2X_CID_BCSH_HUE:
+		*ret = t2x_hue_set(core, (uint32_t)ctrl->value);
+		return 1;
 	case T2X_CID_DPC_RATIO:
 		if ((uint32_t)ctrl->value > 255) {
 			*ret = -EINVAL;
@@ -3971,6 +4114,18 @@ static int t2x_beyond_g_ctrl(struct v4l2_control *ctrl, int *ret)
 	uint8_t b = t2x_defog_strength;
 
 	switch (ctrl->id) {
+	case T2X_CID_AE_IT_MAX:
+		ctrl->value = tx_isp_t20_ae_max_integration_time();
+		break;
+	case T2X_CID_BACKLIGHT_COMP:
+		ctrl->value = tx_isp_t20_blc_get();
+		break;
+	case T2X_CID_BCSH_HUE:
+		ctrl->value = t2x_hue;
+		break;
+	case T2X_CID_AE_LUMA:
+		ctrl->value = tx_isp_t20_ae_last_mean();
+		break;
 	case T2X_CID_AWB_ZONE:
 		*ret = t2x_awb_zone_g_ctrl(ctrl);
 		return 1;
@@ -4129,7 +4284,7 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_core_device *core, struct v4
 {
 	int ret = ISP_SUCCESS;
 
-	if (t2x_beyond_s_ctrl(ctrl, &ret))
+	if (t2x_beyond_s_ctrl(core, ctrl, &ret))
 		return ret;
 	if (t2x_csc_fcrop_ctrl(core, ctrl, 1, &ret))
 		return ret;
