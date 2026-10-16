@@ -199284,6 +199284,9 @@ ispcore_interrupt_service_routine0x474:
     /* fragment 100: Unknown */
     /* unmatched fragment 100 (Unknown): no deterministic matcher for Unknown */
     /* asm: 7b75c:	0044001b 	divu	zero,v0,a0 */
+    /* T40-ISR-FIFO-DIV: divu v0,a0 (testimage 0x7c17c): mfhi -> local_48, mflo -> local_44 */
+    v1 = a0 ? (uintptr_t)v0 / (uintptr_t)a0 : 0;
+    v0 = a0 ? (uintptr_t)v0 % (uintptr_t)a0 : 0;
 
     /* fragment 101: Arithmetic */
     s8 = (uintptr_t)&ispcore_sd;
@@ -199450,6 +199453,9 @@ ispcore_interrupt_service_routine0x62c:
     /* fragment 136: Unknown */
     /* unmatched fragment 136 (Unknown): no deterministic matcher for Unknown */
     /* asm: 7b8d4:	02e4001b 	divu	zero,s7,a0 */
+    /* T40-ISR-FIFO-DIV: divu s7,a0 (testimage 0x7c2f4): mfhi s5 -> local_44, mflo s7 */
+    s5 = a0 ? (uintptr_t)s7 % (uintptr_t)a0 : 0;
+    s7 = a0 ? (uintptr_t)s7 / (uintptr_t)a0 : 0;
 
     /* fragment 137: Arithmetic */
     v1 = v1 < 2;
@@ -199475,7 +199481,9 @@ ispcore_interrupt_service_routine0x62c:
 
 ispcore_interrupt_service_routine0x670:
     /* fragment 143: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)(a0 & 255, (uintptr_t)a1 & 255, &local_28, &local_2c); /* jalr target resolved by relocation */
+    /* T40-ISR-FIFO-DIV: OEM (testimage) 0x7c32c div a1,a0; mflo -> a0, mfhi -> a1: the FIFO read
+     * takes (index / n, index % n), the lift dropped the div and passed (index, n). */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)((a0 ? (uintptr_t)a1 / (uintptr_t)a0 : 0) & 255, (a0 ? (uintptr_t)a1 % (uintptr_t)a0 : 0) & 255, &local_28, &local_2c); /* jalr target resolved by relocation */
 
 ispcore_interrupt_service_routine0x690:
     /* fragment 144: CallSetup */
@@ -199630,6 +199638,9 @@ ispcore_interrupt_service_routine0x80c:
     /* fragment 175: Unknown */
     /* unmatched fragment 175 (Unknown): no deterministic matcher for Unknown */
     /* asm: 7bab4:	0044001b 	divu	zero,v0,a0 */
+    /* T40-ISR-FIFO-DIV: divu v0,a0 (testimage 0x7c4d4): mfhi -> local_48, mflo -> local_44 */
+    v1 = a0 ? (uintptr_t)v0 / (uintptr_t)a0 : 0;
+    v0 = a0 ? (uintptr_t)v0 % (uintptr_t)a0 : 0;
 
     /* fragment 176: Arithmetic */
     s5 = s5;
@@ -199790,6 +199801,9 @@ ispcore_interrupt_service_routine0x978:
     /* fragment 210: Unknown */
     /* unmatched fragment 210 (Unknown): no deterministic matcher for Unknown */
     /* asm: 7bc20:	02e5001b 	divu	zero,s7,a1 */
+    /* T40-ISR-FIFO-DIV: divu s7,a1 (testimage 0x7c640): mfhi s5 -> local_40, mflo s7 */
+    s5 = a1 ? (uintptr_t)s7 % (uintptr_t)a1 : 0;
+    s7 = a1 ? (uintptr_t)s7 / (uintptr_t)a1 : 0;
 
     /* fragment 211: Arithmetic */
     v1 = v1 < 2;
@@ -199815,7 +199829,9 @@ ispcore_interrupt_service_routine0x978:
 
 ispcore_interrupt_service_routine0x9bc:
     /* fragment 217: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)(a0 & 255, (uintptr_t)a1 & 255, &local_28, &local_2c); /* jalr target resolved by relocation */
+    /* T40-ISR-FIFO-DIV: OEM (testimage) div a0,a1; mflo -> a0, mfhi -> a1: the FIFO read
+     * takes (index / n, index % n), the lift dropped the div and passed (index, n). */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)((a1 ? (uintptr_t)a0 / (uintptr_t)a1 : 0) & 255, (a1 ? (uintptr_t)a0 % (uintptr_t)a1 : 0) & 255, &local_28, &local_2c); /* jalr target resolved by relocation */
 
 ispcore_interrupt_service_routine0x9dc:
     /* fragment 218: CallSetup */
@@ -200273,14 +200289,18 @@ ispcore_interrupt_service_routine0xca4:
 
 ispcore_interrupt_service_routine0xcc8:
     /* fragment 289: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)(a0 & 255, (uintptr_t)a1 & 255, &local_28, &local_2c); /* jalr target resolved by relocation */
+    /* T40-ISR-FIFO-DIV: OEM (testimage) 0x7c984 div a0,a1; mflo -> a0, mfhi -> a1: the FIFO read
+     * takes (index / n, index % n), the lift dropped the div and passed (index, n). */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)((a1 ? (uintptr_t)a0 / (uintptr_t)a1 : 0) & 255, (a1 ? (uintptr_t)a0 % (uintptr_t)a1 : 0) & 255, &local_28, &local_2c); /* jalr target resolved by relocation */
 
     /* fragment 290: CallSetup */
     a0 = local_44;
 
 ispcore_interrupt_service_routine0xcec:
     /* fragment 291: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)(a0); /* jalr target resolved by relocation */
+    /* T40-ISR-FIFO-DIV: OEM 0x7c9a4..0x7c9b4 / 0x7cb30..0x7cb40 (testimage): a0 = local_44,
+     * a1 = local_48, a2 = &local_28, a3 = &local_2c - the 1-argument cast dropped three. */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)(local_44, local_48, &local_28, &local_2c); /* jalr target resolved by relocation */
 
     /* fragment 292: StackAccess */
     v0 = local_28;
@@ -200419,14 +200439,18 @@ ispcore_interrupt_service_routine0xe30:
 
 ispcore_interrupt_service_routine0xe54:
     /* fragment 317: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)(a0 & 255, (uintptr_t)a1 & 255, &local_28, &local_2c); /* jalr target resolved by relocation */
+    /* T40-ISR-FIFO-DIV: OEM (testimage) 0x7cb10 div a0,a1; mflo -> a0, mfhi -> a1: the FIFO read
+     * takes (index / n, index % n), the lift dropped the div and passed (index, n). */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)((a1 ? (uintptr_t)a0 / (uintptr_t)a1 : 0) & 255, (a1 ? (uintptr_t)a0 % (uintptr_t)a1 : 0) & 255, &local_28, &local_2c); /* jalr target resolved by relocation */
 
     /* fragment 318: CallSetup */
     a0 = local_44;
 
 ispcore_interrupt_service_routine0xe78:
     /* fragment 319: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)(a0); /* jalr target resolved by relocation */
+    /* T40-ISR-FIFO-DIV: OEM 0x7c9a4..0x7c9b4 / 0x7cb30..0x7cb40 (testimage): a0 = local_44,
+     * a1 = local_48, a2 = &local_28, a3 = &local_2c - the 1-argument cast dropped three. */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_read)(local_44, local_48, &local_28, &local_2c); /* jalr target resolved by relocation */
 
     /* fragment 320: StackAccess */
     v0 = local_28;
