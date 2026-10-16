@@ -19790,6 +19790,13 @@ static int regtrace_t40_msca_shadow_commit(const char *reason)
     return ret;
 }
 
+static bool regtrace_t40_msca_cfg_direct;
+module_param_named(t40_msca_cfg_direct, regtrace_t40_msca_cfg_direct, bool, 0644);
+static uint32_t regtrace_t40_msca_cfg_direct_count;
+module_param_named(msca_cfg_direct_count, regtrace_t40_msca_cfg_direct_count, uint, 0444);
+static int regtrace_t40_msca_cfg_direct_last_ret;
+module_param_named(msca_cfg_direct_last_ret, regtrace_t40_msca_cfg_direct_last_ret, int, 0444);
+
 static int regtrace_t40_msca_shadow_pair(uint32_t value, uint32_t addr,
                                          uint32_t *pairs)
 {
@@ -19801,6 +19808,17 @@ static int regtrace_t40_msca_shadow_pair(uint32_t value, uint32_t addr,
     ret = regtrace_core_write(REGTRACE_T40_MSCA_SHADOW_FIFO_REG, addr);
     if (ret)
         return ret;
+    if (regtrace_t40_msca_cfg_direct) {
+        /* T40-MSCA-CFG-DIRECT: the OEM (Tzn_Msca_cfg_load 0x6c998) does not use a shadow
+         * FIFO at all - it performs system_reg_write(0x16xxx + (group<<12), value) for every
+         * one of the 22 settings (Qwen §6.1/§6.2).  Mirror every queued pair with the same
+         * direct write, so the channel config reaches the MSCA on the core path too. */
+        ret = regtrace_core_write(addr, value);
+        regtrace_t40_msca_cfg_direct_last_ret = ret;
+        regtrace_t40_msca_cfg_direct_count++;
+        if (ret)
+            return ret;
+    }
     if (pairs)
         (*pairs)++;
     return 0;
@@ -19883,6 +19901,14 @@ static int regtrace_t40_msca_shadow_fifo_program(int trigger_channel,
         return 0;
 
     regtrace_core_read(REGTRACE_T40_MSCA_SHADOW_STATUS_REG, &status_before);
+
+    if (regtrace_t40_msca_cfg_direct) {
+        /* OEM write #1: the CFG_LOAD pulse starts with 0x16010 = 0 (testimage 6c9a8/6c9d0). */
+        ret = regtrace_core_write(REGTRACE_T40_MSCA_CFG_LOAD_REG, 0U);
+        regtrace_t40_msca_cfg_direct_last_ret = ret;
+        if (ret)
+            goto out;
+    }
 
     ret = regtrace_core_write(REGTRACE_T40_MSCA_SHADOW_CMD_REG,
                               REGTRACE_T40_MSCA_SHADOW_CMD_BEGIN);
@@ -20065,6 +20091,13 @@ static int regtrace_t40_msca_shadow_fifo_program(int trigger_channel,
         REGTRACE_T40_MSCA_SHADOW_CMD_MASK_COMMIT;
     if (!ret)
         ret = regtrace_t40_msca_shadow_kick_834(reason);
+
+    if (regtrace_t40_msca_cfg_direct) {
+        /* OEM write #22: the CFG_LOAD tail call sets 0x16010 = 1 (testimage 6d164/6d194/
+         * 6d198) - this is what makes the hardware latch the block just written. */
+        ret = regtrace_core_write(REGTRACE_T40_MSCA_CFG_LOAD_REG, 1U);
+        regtrace_t40_msca_cfg_direct_last_ret = ret;
+    }
 
 out:
     regtrace_core_read(REGTRACE_T40_MSCA_SHADOW_STATUS_REG, &status_after);
