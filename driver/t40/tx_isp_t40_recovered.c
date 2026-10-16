@@ -199381,6 +199381,9 @@ ispcore_interrupt_service_routine0x474:
     s5 = *(uint8_t *)((char *)s7 + 208);
     v0 = s7;
     a0 = 3;
+    /* T40-ISR-MOVZ: OEM 0x7c168 movz v0,s4,s5 - the per-channel entry s4 when *(s7+208) == 0 */
+    if (s5 == 0)
+        v0 = s4;
     s5 = v0;
     v0 = *(uint8_t *)((char *)v0 + 209);
     s6 = (uintptr_t)&Tzn_Msca_addr_fifo_read;
