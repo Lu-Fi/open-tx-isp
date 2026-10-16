@@ -18286,6 +18286,80 @@ static volatile void __iomem *regtrace_core_regs(void)
     return (volatile void __iomem *)regs;
 }
 
+/*
+ * msca_peek: minimal on-demand readout for the MSCA path. Reading the
+ * parameter reads only the words listed below, one readl each, without
+ * core activation and without any FIFO data/ctrl register (0x1616c..0x16174,
+ * 0x16184..0x1618c, 0x50324), which pop or stall. msca_peek_groups selects
+ * the groups (bit n = group n) so a hanging block can be isolated.
+ */
+static const uint32_t regtrace_msca_peek_g0[] = {
+    0x16000, 0x16004, 0x16008, 0x1600c, 0x16010, 0x16014, 0x16018, 0x1601c,
+    0x16020, 0x16024, 0x16028, 0x1602c, 0x16064, 0x16080, 0x16084,
+    0x160a0, 0x160a4, 0x160a8, 0x160ac, 0x160b0, 0x160b4,
+};
+static const uint32_t regtrace_msca_peek_g1[] = {
+    0x16100, 0x16104, 0x16128, 0x1612c, 0x16168, 0x16180, 0x16198,
+    0x161c0, 0x161c4, 0x161c8, 0x161cc,
+};
+static const uint32_t regtrace_msca_peek_g2[] = {
+    0x16200, 0x16204, 0x16228, 0x1622c, 0x16268, 0x16280, 0x16298,
+    0x162c0, 0x162c4, 0x162c8, 0x162cc,
+};
+static const uint32_t regtrace_msca_peek_g3[] = {
+    0x834, 0x50320, 0x50420,
+};
+static const uint32_t regtrace_msca_peek_g4[] = {
+    0x17000, 0x17004, 0x17008, 0x1700c, 0x17010, 0x17014, 0x17018, 0x1701c,
+    0x17020, 0x17024, 0x17028, 0x1702c,
+};
+static const uint32_t regtrace_msca_peek_g5[] = {
+    0x40000, 0x40004, 0x40008, 0x4000c, 0x40010, 0x40014, 0x40018, 0x4001c,
+    0x40040, 0x40044, 0x40048, 0x4004c,
+};
+static const struct {
+    const uint32_t *regs;
+    unsigned int count;
+} regtrace_msca_peek_groups[] = {
+    { regtrace_msca_peek_g0, ARRAY_SIZE(regtrace_msca_peek_g0) },
+    { regtrace_msca_peek_g1, ARRAY_SIZE(regtrace_msca_peek_g1) },
+    { regtrace_msca_peek_g2, ARRAY_SIZE(regtrace_msca_peek_g2) },
+    { regtrace_msca_peek_g3, ARRAY_SIZE(regtrace_msca_peek_g3) },
+    { regtrace_msca_peek_g4, ARRAY_SIZE(regtrace_msca_peek_g4) },
+    { regtrace_msca_peek_g5, ARRAY_SIZE(regtrace_msca_peek_g5) },
+};
+static unsigned int regtrace_msca_peek_group_mask = 0x1;
+module_param_named(msca_peek_groups, regtrace_msca_peek_group_mask, uint, 0644);
+
+static int regtrace_msca_peek_get(char *buffer, const struct kernel_param *kp)
+{
+    volatile void __iomem *regs = regtrace_core_regs();
+    unsigned int g, i;
+    int len = 0;
+
+    if (!regs)
+        return scnprintf(buffer, PAGE_SIZE, "no core regs\n");
+
+    for (g = 0; g < ARRAY_SIZE(regtrace_msca_peek_groups); g++) {
+        if (!(regtrace_msca_peek_group_mask & (1U << g)))
+            continue;
+        len += scnprintf(buffer + len, PAGE_SIZE - len, "g%u", g);
+        for (i = 0; i < regtrace_msca_peek_groups[g].count; i++) {
+            uint32_t reg = regtrace_msca_peek_groups[g].regs[i];
+
+            len += scnprintf(buffer + len, PAGE_SIZE - len, " r%x=0x%x",
+                             reg, readl(regs + reg));
+        }
+        len += scnprintf(buffer + len, PAGE_SIZE - len, "\n");
+    }
+    return len;
+}
+
+static const struct kernel_param_ops regtrace_msca_peek_ops = {
+    .get = regtrace_msca_peek_get,
+};
+module_param_cb(msca_peek, &regtrace_msca_peek_ops, NULL, 0444);
+
 #define REGTRACE_CORE_TOP_PATH_CORE 1U
 #define REGTRACE_CORE_TOP_PATH_SYSTEM 2U
 
