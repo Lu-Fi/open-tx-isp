@@ -82105,7 +82105,7 @@ tisp_ae_ev_list_alloc_calc0x2f4:
     s5 = s5 + 12;
     s5 = s6 + s5;
     s8 = s6 + s8;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s0, *(uint32_t *)((char *)(0) + 0), *(uint32_t *)((char *)(s5) + 0)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s0, *(uint32_t *)((char *)(s8) + 0), *(uint32_t *)((char *)(s5) + 0)); /* T40-ZEROBASE: OEM 0x22afc lw a1,0(s8) - the lift dropped the s8 base */ /* jalr target resolved by relocation */
 
     /* fragment 46: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, s3, v0); /* jalr target resolved by relocation */
