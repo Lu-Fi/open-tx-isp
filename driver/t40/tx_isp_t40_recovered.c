@@ -198831,6 +198831,69 @@ module_param_named(isr_tail_poll_count, regtrace_isr_tail_poll_count, uint, 0444
 static uint32_t regtrace_isr_spin_bail_count;
 module_param_named(isr_spin_bail_count, regtrace_isr_spin_bail_count, uint, 0444);
 
+/* T40-ISR-DRAIN-DIAG (fable): sample the MSCA status words around the leg-A
+ * poll/pop so the device tells us what bit 0 of 0x1617C does across a pop.
+ * Raw reads through the ISR's own window (*(sd+232)+0x10000, OEM 0x7c1a8) and
+ * one cross-check through regtrace_core_read().  Printed at the bail and at
+ * the first successful exit after a spin; first 4 ISRs only. */
+#define REGTRACE_ISR_DIAG_N 40
+struct regtrace_isr_diag_s {
+    uint32_t it, tag, st_y, st_uv, wr_y, wr_uv, s7f4, s76c, y, uv, us;
+};
+static struct regtrace_isr_diag_s regtrace_isr_diag[REGTRACE_ISR_DIAG_N];
+static uint32_t regtrace_isr_diag_n;
+static uint32_t regtrace_isr_diag_isr;
+static bool regtrace_isr_drain_diag = true;
+module_param_named(isr_drain_diag, regtrace_isr_drain_diag, bool, 0644);
+
+static void regtrace_isr_diag_sample(uintptr_t win, uint32_t it, uint32_t tag,
+                                     uint32_t y, uint32_t uv)
+{
+    struct regtrace_isr_diag_s *d;
+    bool want = it < 6 || (it & (it - 1)) == 0 ||
+                (regtrace_isr_spin_budget && it + 1 >= regtrace_isr_spin_budget);
+
+    if (!regtrace_isr_drain_diag || !want || regtrace_isr_diag_n >= REGTRACE_ISR_DIAG_N)
+        return;
+    d = &regtrace_isr_diag[regtrace_isr_diag_n++];
+    d->it = it; d->tag = tag; d->y = y; d->uv = uv;
+    d->st_y = *(volatile uint32_t *)(win + 24956U);   /* 0x1617C */
+    d->st_uv = *(volatile uint32_t *)(win + 24980U);  /* 0x16194 */
+    d->wr_y = *(volatile uint32_t *)(win + 24944U);   /* 0x16170 */
+    d->wr_uv = *(volatile uint32_t *)(win + 24968U);  /* 0x16188 */
+    d->s7f4 = *(volatile uint32_t *)(win + 26612U);   /* 0x167F4 */
+    d->s76c = *(volatile uint32_t *)(win + 26460U);   /* 0x1676C */
+    d->us = (uint32_t)(sched_clock() >> 10); /* ~us */
+}
+
+static void regtrace_isr_diag_dump(const char *why, uintptr_t sd, uintptr_t win,
+                                   uint32_t spin, uintptr_t s7, uintptr_t s4,
+                                   uintptr_t s5, uint32_t g, uint32_t c)
+{
+    uint32_t i, xr = 0xdeadbeef;
+    volatile void __iomem *regs = regtrace_core_regs();
+
+    if (!regtrace_isr_drain_diag)
+        return;
+    regtrace_core_read(0x1617cU, &xr);
+    printk(KERN_ERR "isr-diag %s isr#%u spin=%u sd=%p win=%p regs=%p raw1617c=0x%x core1617c=0x%x s7=%p s4=%p s5=%p f208=%u f209=%u f210=%u f211=%u f212=%u e210=%u g=%u c=%u budget=%u\n",
+           why, regtrace_isr_diag_isr, spin, (void *)sd, (void *)win, (void *)regs,
+           *(volatile uint32_t *)(win + 24956U), xr, (void *)s7, (void *)s4, (void *)s5,
+           regtrace_is_kernel_ptr((void *)s7) ? *(uint8_t *)(s7 + 208) : 0xff,
+           regtrace_is_kernel_ptr((void *)s7) ? *(uint8_t *)(s7 + 209) : 0xff,
+           regtrace_is_kernel_ptr((void *)s7) ? *(uint8_t *)(s7 + 210) : 0xff,
+           regtrace_is_kernel_ptr((void *)s7) ? *(uint8_t *)(s7 + 211) : 0xff,
+           regtrace_is_kernel_ptr((void *)s7) ? *(uint8_t *)(s7 + 212) : 0xff,
+           regtrace_is_kernel_ptr((void *)s4) ? *(uint8_t *)(s4 + 210) : 0xff,
+           g, c, regtrace_isr_spin_budget);
+    for (i = 0; i < regtrace_isr_diag_n; i++) {
+        struct regtrace_isr_diag_s *d = &regtrace_isr_diag[i];
+        printk(KERN_ERR "isr-diag  it=%u %c 1617c=0x%05x 16194=0x%05x 16170=0x%05x 16188=0x%05x 167f4=0x%08x 1676c=0x%08x y=0x%x uv=0x%x t=%uus\n",
+               d->it, (char)d->tag, d->st_y, d->st_uv, d->wr_y, d->wr_uv, d->s7f4, d->s76c, d->y, d->uv, d->us);
+    }
+    regtrace_isr_diag_n = 0;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007b29c origin=fragment_seed original=ispcore_interrupt_service_routine */
 int64_t ispcore_interrupt_service_routine(uintptr_t a0)
 {
@@ -199420,6 +199483,10 @@ ispcore_interrupt_service_routine0x4ec:
     a1 = 50331648;
     if (v0 == 0) { goto ispcore_interrupt_service_routine0xca4; }
 
+    if (__isr_spin && regtrace_isr_diag_isr <= 4) {
+        regtrace_isr_diag_sample((uintptr_t)(*(uint32_t *)((char *)s0 + 232)) + 65536U, 0, 'X', local_28, local_2c);
+        regtrace_isr_diag_dump("doneA", (uintptr_t)s0, (uintptr_t)(*(uint32_t *)((char *)s0 + 232)) + 65536U, __isr_spin, (uintptr_t)s7, (uintptr_t)s4, (uintptr_t)s5, local_44, local_48);
+    }
     /* fragment 105: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s5) + 128), (uintptr_t)a1 + 6, &local_20) /* T40-ISR-EVENT-SCALE: 0x3000006, a1 is a pointer type (was 0x3000018) */; /* jalr target resolved by relocation */
 
@@ -200377,6 +200444,11 @@ ispcore_interrupt_service_routine0xc64:
 
 ispcore_interrupt_service_routine0xca4:
     /* fragment 284: MemoryAccess */
+    if (__isr_spin == 0) {
+        regtrace_isr_diag_isr++;
+        regtrace_isr_diag_n = 0;
+        regtrace_isr_diag_sample((uintptr_t)(*(uint32_t *)((char *)s0 + 232)) + 65536U, 0, 'E', 0, 0);
+    }
     v0 = *(uint8_t *)((char *)s7 + 212);
     v0 = v0 < 2;
 
@@ -200449,6 +200521,7 @@ ispcore_interrupt_service_routine0xd2c:
 
     /* fragment 296: Branch */
     local_38 = v0;
+    regtrace_isr_diag_sample((uintptr_t)(*(uint32_t *)((char *)s0 + 232)) + 65536U, __isr_spin + 1, 'P', local_28, local_2c);
     /*
      * T40-ISR-TAIL-POLL.  This is drain leg A: OEM 0x7b7d0..0x7b874, whose
      * back edge (0x7b874 `b 0x7b208`) re-polls win+0x1617C.  Mirror the OEM
@@ -200475,6 +200548,8 @@ ispcore_interrupt_service_routine0xd2c:
 #endif
         pr_err_ratelimited("tx_isp_t40_recovered: ISR drain leg A stuck after %u iterations (win+0x1617C/0x1717C never ready), frame dropped\n",
                            __isr_spin);
+        if (regtrace_isr_diag_isr <= 4)
+            regtrace_isr_diag_dump("bailA", (uintptr_t)s0, (uintptr_t)(*(uint32_t *)((char *)s0 + 232)) + 65536U, __isr_spin, (uintptr_t)s7, (uintptr_t)s4, (uintptr_t)s5, local_44, local_48);
         return (int64_t)v0;
     }
     regtrace_core_leg_a_iter_count++;
