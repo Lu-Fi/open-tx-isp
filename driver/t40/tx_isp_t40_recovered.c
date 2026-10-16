@@ -1571,7 +1571,7 @@ static struct regtrace_sensor_ctrl_main_storage sensor_ctrl_main_storage
     __attribute__((aligned(4)));
 #define sensor_ctrl_main sensor_ctrl_main_storage.first
 static uint32_t event_busy;
-static uint32_t ae_sta_info;
+static uint32_t ae_sta_info[12]; /* OEM .bss 0x3660, 0x30 bytes: 6 words written by tisp_ae_ai_main_interrupt_static (0x21d7c) */
 static unsigned char __attribute__((aligned(4))) ae_cache[12] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 };
@@ -80879,30 +80879,30 @@ int32_t tisp_ae_ai_main_interrupt_static(void)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(65536 | 36960); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    *(uint32_t *)((char *)((char *)&ae_sta_info)) = v0;
+    ae_sta_info[0] = (uint32_t)(uintptr_t)v0;   /* 0x19060 */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)((uintptr_t)s2 | 36964); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
-    *(uint32_t *)((char *)((char *)&ae_sta_info + 0x4)) = v0;
+    ae_sta_info[1] = (uint32_t)(uintptr_t)v0;   /* 0x19064 */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)((uintptr_t)s2 | 36968); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
-    *(uint32_t *)((char *)((char *)&isp_memopt + 0x8)) = v0;
+    ae_sta_info[2] = (uint32_t)(uintptr_t)v0;   /* 0x19068 (lift mis-resolved .bss+8 to isp_memopt) */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)((uintptr_t)s2 | 36972); /* jalr target resolved by relocation */
 
     /* fragment 5: CallSetup */
-    *(uint32_t *)((char *)((char *)&isp_memopt + 0xc)) = v0;
+    ae_sta_info[3] = (uint32_t)(uintptr_t)v0;   /* 0x1906c */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)((uintptr_t)s2 | 36976); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
-    *(uint32_t *)((char *)&vic_mdma_bypass_onoff) = v0;
+    ae_sta_info[4] = (uint32_t)(uintptr_t)v0;   /* 0x19070 (lift mis-resolved to vic_mdma_bypass_onoff!) */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)((uintptr_t)s2 | 36980); /* jalr target resolved by relocation */
 
     /* fragment 7: Epilogue */
     /* function epilogue: restore registers and return */
 
     /* fragment 8: MemoryAccess */
-    *(uint32_t *)((char *)&vic_mdma_ch1_sub_get_num) = v0;
+    ae_sta_info[5] = (uint32_t)(uintptr_t)v0;   /* 0x19074 (lift mis-resolved to vic_mdma_ch1_sub_get_num!) */
     s2 = local_18;
     s1 = local_14;
     s0 = local_10;
@@ -85999,7 +85999,7 @@ int32_t tisp_ae_main_interrupt_static(void)
     if (!regtrace_is_kernel_ptr((void *)ptr))
         return 1;   /* tispinfo stats DMA not seeded (enable_tisp_main_init_tispinfo_dma) */
 
-    private_dma_cache_sync();
+    dma_cache_sync(NULL, (void *)ptr, 4096, DMA_BIDIRECTIONAL);   /* OEM 0x24c90: private_dma_cache_sync(0, ptr, 4096, 0) */
     tisp_ae_get_statistics((uintptr_t)ptr, (uintptr_t)&pstMainAeOri); /* OEM 0x24cac: a1 = .bss+15280 = pstMainAeOri */
 
     return 1;
@@ -86109,7 +86109,12 @@ int32_t tisp_ae_main_interrupt_hist(void)
     /* fragment 2: CallSetup */
     s0 = (uintptr_t)v0 & 3;
     s0 = (uintptr_t)s0 << 11;
-    s0 = s0 + (*(uint32_t *)((char *)((char *)&tispinfo + 0x18)));
+    /* OEM 0x24e28 addu s0,s0,v0 with v0 = *(tispinfo+0x18): a byte add; s0 is a pointer type
+     * here, so the lift stepped it by 4*ptr (FBL9 hang: FR ring stops after this handler's
+     * 0x19050 read, inside dma_cache_sync/get_hist on a bogus address). */
+    s0 = (typeof(s0))((uintptr_t)s0 + (*(uint32_t *)((char *)((char *)&tispinfo + 0x18))));
+    if (!regtrace_is_kernel_ptr((void *)s0))
+        return 0;   /* tispinfo hist DMA buffer not seeded */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_dma_cache_sync)(0, s0, 2048, 0); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
