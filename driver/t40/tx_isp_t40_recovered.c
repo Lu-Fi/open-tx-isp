@@ -87659,6 +87659,7 @@ tisp_ae_long_tune20x52c:
     /* fragment 55: Arithmetic */
     /* unmatched fragment 55 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 25684:	0000a012 	mflo	s4 */
+    s4 = v0 ? (uintptr_t)s4 / (uintptr_t)v0 : 0;   /* T40-AE-DIV: divu s4,v0; mflo s4 (weighted mean = sum(w*x)/sum(w)) */
 
 tisp_ae_long_tune20x550:
     /* fragment 56: Branch */
@@ -88351,10 +88352,12 @@ tisp_ae_long_tune20xb20:
     /* fragment 192: Unknown */
     /* unmatched fragment 192 (Unknown): no deterministic matcher for Unknown */
     /* asm: 25cc4:	00021023 	negu	v0,v0 */
+    v0 = (uintptr_t)(0U - (uint32_t)(uintptr_t)v0);   /* T40-AE-NEGU */
 
     /* fragment 193: Unknown */
     /* unmatched fragment 193 (Unknown): no deterministic matcher for Unknown */
     /* asm: 25cc8:	00031823 	negu	v1,v1 */
+    v1 = (uintptr_t)(0U - (uint32_t)(uintptr_t)v1);   /* T40-AE-NEGU */
 
     /* fragment 194: Arithmetic */
     v0 = v1 < v0;
