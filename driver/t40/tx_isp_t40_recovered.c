@@ -198835,7 +198835,8 @@ module_param_named(isr_spin_bail_count, regtrace_isr_spin_bail_count, uint, 0444
  * poll/pop so the device tells us what bit 0 of 0x1617C does across a pop.
  * Raw reads through the ISR's own window (*(sd+232)+0x10000, OEM 0x7c1a8) and
  * one cross-check through regtrace_core_read().  Printed at the bail and at
- * the first successful exit after a spin; first 4 ISRs only. */
+ * the first successful exit after a spin; first 4 ISRs only.  Default off
+ * (isr_drain_diag=1 to enable). */
 #define REGTRACE_ISR_DIAG_N 40
 struct regtrace_isr_diag_s {
     uint32_t it, tag, st_y, st_uv, wr_y, wr_uv, s7f4, s76c, y, uv, us;
@@ -198843,7 +198844,7 @@ struct regtrace_isr_diag_s {
 static struct regtrace_isr_diag_s regtrace_isr_diag[REGTRACE_ISR_DIAG_N];
 static uint32_t regtrace_isr_diag_n;
 static uint32_t regtrace_isr_diag_isr;
-static bool regtrace_isr_drain_diag = true;
+static bool regtrace_isr_drain_diag;
 module_param_named(isr_drain_diag, regtrace_isr_drain_diag, bool, 0644);
 
 /* T40-ISR-FRAME-DELIVER (fable): the lifted frame_chan_event (OEM 0xf598) is unusable - every
