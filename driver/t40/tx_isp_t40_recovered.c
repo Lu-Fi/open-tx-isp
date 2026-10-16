@@ -20432,6 +20432,15 @@ static int regtrace_t40_msca_state_update_channel(
         crop_height = target_height;
     }
 
+    /*
+     * Tzn_Msca_cfg_load checks every channel's fcrop against the image size at
+     * state+0/+2 (OEM lhu 0(s7)/2(s7)) and clamps fcrop_w/h to img - x/y. OEM
+     * Tzn_Msca_init_cfg (tisp_main_init) sets it from the sensor size, but here
+     * set-fmt can run before that seed, so the header was still 0.
+     */
+    regtrace_t40_msca_state_put16((unsigned char *)mscaler_s0, 0, full_width);
+    regtrace_t40_msca_state_put16((unsigned char *)mscaler_s0, 2, full_height);
+
     state = (unsigned char *)mscaler_s0 + channel * 616U;
     state[8] = 1;
     regtrace_t40_msca_state_put16(state, 10, target_height);
@@ -176839,7 +176848,13 @@ Tzn_Msca_cfg_load0x78:
     local_1c = a2;
     local_18 = a1;
     local_14 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC0, s4); /* jalr target resolved by relocation */
+    /* T40-MSCA-CFGLOAD-PRINTF: OEM 0x6c0a8..0x6c0c4 passes $LC0 of this object
+     * (.rodata.str1.4+0x48a4), the function name (.rodata+0x2174), line 123 and
+     * the channel index plus fcrop_x/fcrop_w/img_width as stack arguments. The
+     * reconstruction passed the file-global LC0 ("savenv12") and dropped them. */
+    v0 = (uintptr_t *)(uintptr_t)isp_printf(2,
+        "[%s %d] [Tzn Msca Err] : set channle[%d] fcrop out range fcrop_x %d fcrop_w %d but img_width %d\n",
+        "Tzn_Msca_cfg_load", 123, (int)s2, (int)local_14, (int)(uintptr_t)local_18, (int)local_1c);
 
     /* fragment 8: MemoryAccess */
     v0 = *(uint16_t *)((char *)s7 + 0);
@@ -176860,7 +176875,13 @@ Tzn_Msca_cfg_load0xd0:
     local_1c = v0;
     local_18 = *(uint16_t *)((char *)(s3) + 6);
     local_14 = *(uint16_t *)((char *)(s3) + 2);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)isp_printf)(a0); /* jalr target resolved by relocation */
+    /* T40-MSCA-CFGLOAD-PRINTF: OEM 0x6c0e8..0x6c110 passes $LC1 (+0x4908), the
+     * function name, line 127, the channel index and fcrop_y/fcrop_h/img_height.
+     * The reconstruction called isp_printf(2) without a format, so printk
+     * dereferenced a NULL format (oops, BadVA 0, in the set-fmt ioctl). */
+    v0 = (uintptr_t *)(uintptr_t)isp_printf(a0,
+        "[%s %d] [Tzn Msca Err] : set channle[%d] fcrop out range fcrop_y %d fcrop_h %d but img_height %d\n",
+        "Tzn_Msca_cfg_load", 127, (int)s2, (int)local_14, (int)(uintptr_t)local_18, (int)local_1c);
 
     /* fragment 12: MemoryAccess */
     v0 = *(uint16_t *)((char *)s7 + 2);
