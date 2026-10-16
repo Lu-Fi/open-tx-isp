@@ -88798,480 +88798,204 @@ tisp_ae_long_tune20xf28:
     return (int64_t)v0;
 
 tisp_ae_long_tune20xf94:
-    /* fragment 274: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 52);
-
-    /* fragment 275: Branch */
-    a2 = local_94;
+    /* T40-NONLIST: hand translation of OEM 0x26aec..0x26fa0 (tisp_ae_long_tune2, the EV
+     * allocation WITHOUT an exposure list = vendor default, mode gate != 1).  The lift of
+     * this block had truncated fix_point call arguments and dropped movn/movz, so it never
+     * produced a usable IT/again.  Register names follow the OEM: s0 = fixed-point shift,
+     * s2 = fix_point_div_32, s3 = fix_point_mult2_32, local_e8 = fix_point_mult3_32.
+     * Outputs: local_78 (IT), local_74 (again), local_70 (dgain), s1 (flag). */
+#define NL_U(x) ((uint32_t)(uintptr_t)(x))
+#define NL_SH ((uint32_t)(uintptr_t)s0)
+#define NL_DIV(a, b)  ((uint32_t)fix_point_div_32((int32_t)NL_SH, (int32_t)(a), (int32_t)(b)))
+#define NL_MUL(a, b)  ((uint32_t)fix_point_mult2_32((int32_t)NL_SH, (int32_t)(a), (int32_t)(b)))
+#define NL_MUL3(a, b, c) ((uint32_t)fix_point_mult3_32(NL_SH, (a), (b), (c)))
+    v0 = (uintptr_t *)(uintptr_t)*(uint32_t *)((char *)(uintptr_t)local_188 + 52);
+    a2 = (typeof(a2))(uintptr_t)local_94;
     if (v0 != 0) { goto tisp_ae_long_tune20x144c; }
-
-    /* fragment 276: CallSetup */
-    local_98 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s0, local_b4); /* jalr target resolved by relocation */
-
-    /* fragment 277: CallSetup */
-    s8 = local_cc << (uintptr_t)s0;
-    local_88 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)s0, (uintptr_t)v0, local_cc << (uintptr_t)s0, (uintptr_t)v0); /* jalr target resolved by relocation */
-
-    /* fragment 278: Arithmetic */
-    v0 = v0 < s6;
-
-    /* fragment 279: StackAccess */
-    a3 = local_88;
-
-    /* fragment 280: Branch */
-    v1 = local_98;
-    if (v0 != 0) { goto tisp_ae_long_tune20xff8; }
-
-    /* fragment 281: StackAccess */
-    v0 = local_cc;
-    local_78 = v0;
-    v0 = local_b4;
-
+    {
+        uint32_t nl_t, nl_a3, nl_v, nl_a2, nl_sh = NL_SH;
+        local_98 = NL_U(v1);
+        nl_a3 = NL_MUL(local_b4, local_94);
+        s8 = (uintptr_t)(local_cc << nl_sh);
+        local_88 = nl_a3;
+        nl_v = NL_MUL(nl_a3, NL_U(s8));
+        v1 = (uintptr_t *)(uintptr_t)local_98;
+        if (!(nl_v < s6)) {
+            /* 0x26b38: keep the current exposure */
+            local_78 = local_cc;
+            local_74 = local_b4;
+            v0 = (uintptr_t *)(uintptr_t)local_94;
+            { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xa54"); else { __lg--; goto tisp_ae_long_tune20xa54; } }
+        }
+        /* 0x26b50 */
+        local_a0 = NL_U(v1);
+        local_98 = nl_a3;
+        s7 = (uintptr_t)NL_DIV(s6, nl_a3);
+        nl_t = local_dc << nl_sh;
+        local_88 = nl_t;
+        s5 = NL_DIV(local_c8, local_b4);
+        s6 = NL_DIV(local_e0, local_94);
+        nl_v = NL_DIV(local_140 << nl_sh, local_98);
+        t0 = (uintptr_t)local_88;
+        if (NL_U(local_90) != 0) {
+            /* 0x26bc4 */
+            uint32_t nl_lim = (uint32_t)*(uint16_t *)((char *)(uintptr_t)local_c0 + 0) << nl_sh;
+            nl_a3 = nl_lim;
+            v1 = (uintptr_t *)(uintptr_t)local_a0;
+            if (!(NL_U(t0) < nl_lim))
+                goto nl_26d48;
+        }
+        /* 0x26bdc */
+        if (NL_U(t0) < NL_U(s7))
+            goto nl_26c74;
+        nl_a2 = (NL_U(s7) >> nl_sh) << nl_sh;
+        local_78 = nl_a2;
+        if (nl_v < NL_U(s7)) {
+            /* 0x26c0c */
+            local_74 = NL_DIV(NL_U(s7), nl_a2);
+            if (s5 < local_74)
+                goto nl_26c34;
+            goto nl_26c28;
+        }
+        local_74 = 1U << nl_sh;
+        local_70 = 1U << nl_sh;
+        goto nl_26c60;
+nl_26c28:
+        local_70 = 1U << nl_sh;
+        goto nl_26c60;
+nl_26c34:
+        nl_v = NL_MUL(s5, s6);
+        if (nl_v < local_74) {
+            local_74 = s5;
+            local_70 = s6;
+            goto nl_26c60;
+        }
+        local_70 = NL_DIV(local_74, s5);
+        local_74 = s5;
+        goto nl_26c60;
+nl_26c74:
+        local_88 = NL_U(t0);
+        nl_v = NL_MUL(NL_U(t0), s5);
+        if (nl_v < NL_U(s7)) {
+            /* 0x26cb0 */
+            nl_v = NL_MUL3(NL_U(t0), s5, s6);
+            local_74 = s5;
+            local_78 = NL_U(t0);
+            if (nl_v < NL_U(s7)) {
+                local_70 = s6;
+                s1 = (typeof(s1))(uintptr_t)1;
+                goto nl_26d10;
+            }
+            nl_v = NL_MUL(NL_U(t0), s5);
+            local_70 = NL_DIV(NL_U(s7), nl_v);
+            goto nl_26c60;
+        }
+        /* 0x26c94 */
+        local_78 = NL_U(t0);
+        local_74 = NL_DIV(NL_U(s7), NL_U(t0));
+        goto nl_26c28;
+nl_26d48:
+        if (NL_U(local_90) != NL_U(v1))
+            goto nl_26c60;
+        if (!(NL_U(s7) < nl_a3)) {
+            /* 0x26e6c..0x26f9c: walk the exposure-time table local_c0[] (u16) around index local_a8 */
+            uint16_t *nl_tab = (uint16_t *)(uintptr_t)local_c0;
+            uint32_t nl_lim, nl_i;
+            nl_v = NL_DIV((uint32_t)nl_tab[local_a8] << nl_sh, NL_U(s8));
+            nl_lim = (20U << nl_sh) + NL_U(t0);
+            while (nl_lim < nl_v) {
+                /* 0x26f44 */
+                local_a8 = (local_a8 - 1) & 0xffffU;
+                if (local_a8 == 0) {
+                    local_a8 = NL_U(local_90);          /* 0x26f74 */
+                    break;
+                }
+                nl_v = (uint32_t)nl_tab[local_a8] << nl_sh;
+            }
+            /* 0x26ec0..0x26f9c */
+            nl_i = 1;
+            while (!(local_a8 < nl_i) && !(NL_U(s7) < ((uint32_t)nl_tab[nl_i] << nl_sh)))
+                nl_i++;
+            /* 0x26ed4 */
+            local_78 = (uint32_t)nl_tab[nl_i - 1] << nl_sh;
+            if (!(local_78 < NL_U(t0)))
+                local_78 = NL_U(t0);
+            nl_v = NL_DIV(NL_U(s7), local_78);
+            local_74 = nl_v;
+            if (!(s5 < nl_v))
+                goto nl_26c28;
+            local_70 = NL_DIV(nl_v, s5);
+            if (s6 < local_70)
+                local_70 = s6;
+            local_74 = s5;
+            s1 = (typeof(s1))(uintptr_t)NL_U(local_90);
+            goto nl_26d10;
+        }
+        /* 0x26d5c */
+        if (NL_U(s1) != 0) {
+            /* 0x26dd8 */
+            s5 = NL_U(local_90) << nl_sh;
+            if (NL_U(s1) == NL_U(local_90)) {
+                local_78 = nl_a3;
+                local_74 = s5;
+                local_70 = s5;
+                goto nl_26c60;
+            }
+            /* 0x26dec */
+            local_88 = nl_a3;
+            nl_v = NL_DIV(local_13c << nl_sh, local_84 << nl_sh);
+            nl_v = NL_MUL(nl_a3, nl_v);
+            nl_v = (nl_v >> nl_sh) << nl_sh;
+            local_78 = nl_v;
+            if (!(nl_v < nl_a3))
+                local_78 = nl_a3;
+            if (NL_U(s7) < local_78) {
+                local_74 = s5;
+                local_70 = s5;
+                goto nl_26c60;
+            }
+            nl_a2 = (NL_U(s7) >> nl_sh) << nl_sh;
+            local_78 = nl_a2;
+            local_74 = NL_DIV(NL_U(s7), nl_a2);
+            local_70 = s5;
+            goto nl_26c60;
+        }
+        /* 0x26d64 */
+        nl_a2 = (NL_U(s7) >> nl_sh) << nl_sh;
+        local_78 = nl_a2;
+        local_74 = NL_DIV(NL_U(s7), nl_a2);
+        if (!(s5 < local_74)) {
+            local_70 = NL_U(local_90) << nl_sh;
+            goto nl_26d10;
+        }
+        nl_v = NL_MUL(s5, s6);
+        if (nl_v < local_74) {
+            local_74 = s5;
+            local_70 = s6;
+            goto nl_26d10;
+        }
+        local_70 = NL_DIV(local_74, s5);
+        local_74 = s5;
+        goto nl_26d10;
+nl_26c60:
+        s1 = 0;
+nl_26d10:
+        local_78 = local_78 >> nl_sh;
+        local_74 = NL_MUL(local_74, local_b4);
+        local_70 = NL_MUL(local_70, local_94);
+        { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xe80"); else { __lg--; goto tisp_ae_long_tune20xe80; } }
+    }
 tisp_ae_long_tune20xfec:
-    /* fragment 282: StackAccess */
-    local_74 = v0;
-
-    /* fragment 283: Branch */
-    v0 = local_94;
+    /* 0x26b44 (reached from the 0x144c path): local_74 = local_b4; v0 = local_94; -> 0xa54 */
+    local_74 = (uint32_t)(uintptr_t)v0;
+    v0 = (uintptr_t *)(uintptr_t)local_94;
     { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xa54"); else { __lg--; goto tisp_ae_long_tune20xa54; } }
+#undef NL_U
+#undef NL_SH
+#undef NL_DIV
+#undef NL_MUL
+#undef NL_MUL3
 
-tisp_ae_long_tune20xff8:
-    /* fragment 284: CallSetup */
-    local_a0 = v1;
-    local_98 = a3;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, s6, a3, a3); /* jalr target resolved by relocation */
-
-    /* fragment 285: CallSetup */
-    s7 = v0;
-    t0 = local_dc << (uintptr_t)s0;
-    local_88 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, local_c8, local_b4); /* jalr target resolved by relocation */
-
-    /* fragment 286: CallSetup */
-    s5 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, local_e0, local_94); /* jalr target resolved by relocation */
-
-    /* fragment 287: CallSetup */
-    s6 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)((uintptr_t)s0, local_140 << (uintptr_t)s0, local_98, local_98); /* jalr target resolved by relocation */
-
-    /* fragment 288: StackAccess */
-    v1 = local_90;
-
-    /* fragment 289: Branch */
-    t0 = local_88;
-    if (v1 == 0) { goto tisp_ae_long_tune20x1084; }
-
-    /* fragment 290: StackAccess */
-    v1 = local_c0;
-    a3 = *(uint16_t *)((char *)v1 + 0);
-    a3 = a3 << (uintptr_t)s0;
-    a0 = t0 < a3;
-
-    /* fragment 291: Branch */
-    v1 = local_a0;
-    if (a0 == 0) { goto tisp_ae_long_tune20x11f0; }
-
-tisp_ae_long_tune20x1084:
-    /* fragment 292: Arithmetic */
-    a0 = t0 < s7;
-
-    /* fragment 293: Branch */
-    a2 = s7 >> (uintptr_t)s0;
-    if (a0 != 0) { goto tisp_ae_long_tune20x111c; }
-
-    /* fragment 294: Arithmetic */
-    a2 = a2 << (uintptr_t)s0;
-    v0 = v0 < s7;
-
-    /* fragment 295: Branch */
-    local_78 = a2;
-    if (v0 != 0) { goto tisp_ae_long_tune20x10b4; }
-
-    /* fragment 296: Arithmetic */
-    v0 = 1;
-    v0 = (uintptr_t)v0 << (uintptr_t)s0;
-
-    /* fragment 297: StackAccess */
-    local_74 = v0;
-
-tisp_ae_long_tune20x10ac:
-    /* fragment 298: Branch */
-    local_70 = v0;
-    goto tisp_ae_long_tune20x1108;
-
-tisp_ae_long_tune20x10b4:
-    /* fragment 299: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, s7); /* jalr target resolved by relocation */
-
-    /* fragment 300: StackAccess */
-    local_74 = v0;
-    v0 = s5 < v0;
-
-    /* fragment 301: Branch */
-    a2 = s6;
-    if (v0 != 0) { goto tisp_ae_long_tune20x10dc; }
-
-tisp_ae_long_tune20x10d0:
-    /* fragment 302: Arithmetic */
-    v0 = 1;
-
-    /* fragment 303: Branch */
-    v0 = (uintptr_t)v0 << (uintptr_t)s0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x10ac"); else { __lg--; goto tisp_ae_long_tune20x10ac; } }
-
-tisp_ae_long_tune20x10dc:
-    /* fragment 304: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s0, s5); /* jalr target resolved by relocation */
-
-    /* fragment 305: StackAccess */
-    a1 = local_74;
-    v0 = v0 < a1;
-
-    /* fragment 306: Branch */
-    a2 = s5;
-    if (v0 != 0) { goto tisp_ae_long_tune20x1110; }
-
-    /* fragment 307: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_div_32)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 308: StackAccess */
-    local_70 = v0;
-    local_74 = s5;
-
-tisp_ae_long_tune20x1108:
-    /* fragment 309: Branch */
-    s1 = 0;
-    goto tisp_ae_long_tune20x11b8;
-
-tisp_ae_long_tune20x1110:
-    /* fragment 310: StackAccess */
-    local_74 = s5;
-
-    /* fragment 311: Branch */
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x1108"); else { __lg--; goto tisp_ae_long_tune20x1108; } }
-
-tisp_ae_long_tune20x111c:
-    /* fragment 312: CallSetup */
-    local_88 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s0, t0, s5); /* jalr target resolved by relocation */
-
-    /* fragment 313: Arithmetic */
-    v0 = v0 < s7;
-
-    /* fragment 314: Branch */
-    t0 = local_88;
-    if (v0 != 0) { goto tisp_ae_long_tune20x1158; }
-
-    /* fragment 315: CallSetup */
-    local_78 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, s7, t0); /* jalr target resolved by relocation */
-
-    /* fragment 316: Branch */
-    local_74 = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x10d0"); else { __lg--; goto tisp_ae_long_tune20x10d0; } }
-
-tisp_ae_long_tune20x1158:
-    /* fragment 317: CallSetup */
-    local_88 = t0;
-    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(s0, t0, s5, s6); /* jalr target resolved by relocation */
-
-    /* fragment 318: StackAccess */
-    t0 = local_88;
-    v0 = v0 < s7;
-    local_74 = s5;
-
-    /* fragment 319: Branch */
-    local_78 = t0;
-    if (v0 != 0) { goto tisp_ae_long_tune20x11b0; }
-
-    /* fragment 320: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s0, t0, s5); /* jalr target resolved by relocation */
-
-    /* fragment 321: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, s7, v0); /* jalr target resolved by relocation */
-
-    /* fragment 322: Branch */
-    local_70 = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x1108"); else { __lg--; goto tisp_ae_long_tune20x1108; } }
-
-tisp_ae_long_tune20x11b0:
-    /* fragment 323: CallSetup */
-    local_70 = s6;
-    s1 = 1;
-
-tisp_ae_long_tune20x11b8:
-    /* fragment 324: CallSetup */
-    local_78 = local_78 >> (uintptr_t)s0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s0, local_74, local_b4); /* jalr target resolved by relocation */
-
-    /* fragment 325: CallSetup */
-    local_74 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s0, local_70, local_94); /* jalr target resolved by relocation */
-
-    /* fragment 326: Branch */
-    local_70 = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xe80"); else { __lg--; goto tisp_ae_long_tune20xe80; } }
-
-tisp_ae_long_tune20x11f0:
-    /* fragment 327: StackAccess */
-    v0 = local_90;
-
-    /* fragment 328: Branch */
-    int _bc_v0_328 = v0 != v1;
-    v0 = s7 < a3;
-    if (_bc_v0_328) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x1108"); else { __lg--; goto tisp_ae_long_tune20x1108; } } }
-
-    /* fragment 329: Branch */
-    int _bc_v0_329 = v0 == 0;
-    v0 = local_a8;
-    if (_bc_v0_329) { goto tisp_ae_long_tune20x1314; }
-
-    /* fragment 330: Branch */
-    v0 = local_90;
-    if (s1 != 0) { goto tisp_ae_long_tune20x1280; }
-
-    /* fragment 331: CallSetup */
-    local_78 = (s7 >> (uintptr_t)s0) << (uintptr_t)s0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)((uintptr_t)s0, s7, (s7 >> (uintptr_t)s0) << (uintptr_t)s0); /* jalr target resolved by relocation */
-
-    /* fragment 332: StackAccess */
-    local_74 = v0;
-    v0 = s5 < v0;
-
-    /* fragment 333: Branch */
-    int _bc_v0_333 = v0 != 0;
-    v0 = local_90;
-    if (_bc_v0_333) { goto tisp_ae_long_tune20x1240; }
-
-    /* fragment 334: Arithmetic */
-    v0 = (uintptr_t)v0 << (uintptr_t)s0;
-
-    /* fragment 335: Branch */
-    local_70 = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x11b8"); else { __lg--; goto tisp_ae_long_tune20x11b8; } }
-
-tisp_ae_long_tune20x1240:
-    /* fragment 336: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s0, s5, s6); /* jalr target resolved by relocation */
-
-    /* fragment 337: StackAccess */
-    a1 = local_74;
-    v0 = v0 < a1;
-
-    /* fragment 338: Branch */
-    a2 = s5;
-    if (v0 != 0) { goto tisp_ae_long_tune20x1274; }
-
-    /* fragment 339: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_div_32)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 340: StackAccess */
-    local_70 = v0;
-
-    /* fragment 341: Branch */
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x11b8"); else { __lg--; goto tisp_ae_long_tune20x11b8; } }
-
-tisp_ae_long_tune20x1274:
-    /* fragment 342: StackAccess */
-    local_74 = s5;
-
-    /* fragment 343: Branch */
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x11b8"); else { __lg--; goto tisp_ae_long_tune20x11b8; } }
-
-tisp_ae_long_tune20x1280:
-    /* fragment 344: Branch */
-    s5 = (uintptr_t)v0 << (uintptr_t)s0;
-    if (s1 != v0) { goto tisp_ae_long_tune20x1294; }
-
-    /* fragment 345: StackAccess */
-    local_78 = a3;
-
-tisp_ae_long_tune20x128c:
-    /* fragment 346: Branch */
-    goto tisp_ae_long_tune20x130c;
-
-tisp_ae_long_tune20x1294:
-    /* fragment 347: CallSetup */
-    local_88 = a3;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)((uintptr_t)s0, local_13c << (uintptr_t)s0, local_84 << (uintptr_t)s0, a3); /* jalr target resolved by relocation */
-
-    /* fragment 348: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s0, local_88, v0, local_88); /* jalr target resolved by relocation */
-
-    /* fragment 349: StackAccess */
-    a3 = local_88;
-    v0 = (uintptr_t)v0 >> (uintptr_t)s0;
-    v0 = (uintptr_t)v0 << (uintptr_t)s0;
-    local_78 = v0;
-    v0 = v0 < a3;
-
-    /* fragment 350: Branch */
-    int _bc_v0_350 = v0 != 0;
-    v0 = local_78;
-    if (_bc_v0_350) { goto tisp_ae_long_tune20x12e8; }
-
-    /* fragment 351: StackAccess */
-    local_78 = a3;
-    v0 = local_78;
-
-tisp_ae_long_tune20x12e8:
-    /* fragment 352: Arithmetic */
-    v0 = s7 < v0;
-
-    /* fragment 353: Branch */
-    a2 = s7 >> (uintptr_t)s0;
-    if (v0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x128c"); else { __lg--; goto tisp_ae_long_tune20x128c; } } }
-
-    /* fragment 354: CallSetup */
-    local_78 = a2 << (uintptr_t)s0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)((uintptr_t)s0, s7, a2 << (uintptr_t)s0); /* jalr target resolved by relocation */
-
-    /* fragment 355: StackAccess */
-    local_74 = v0;
-
-tisp_ae_long_tune20x130c:
-    /* fragment 356: Branch */
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x1108"); else { __lg--; goto tisp_ae_long_tune20x1108; } }
-
-tisp_ae_long_tune20x1314:
-    /* fragment 357: CallSetup */
-    local_88 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)((uintptr_t)s0, (*(uint16_t *)((char *)(local_c0 + ((uintptr_t)v0 << 1)) + 0)) << (uintptr_t)s0, s8); /* jalr target resolved by relocation */
-
-    /* fragment 358: StackAccess */
-    v1 = local_a8;
-    t0 = local_88;
-    a0 = 20;
-    a1 = (uintptr_t)v1 - 1;   /* T40-PTRSTEP: byte add (OEM addiu) */
-    a0 = a0 << (uintptr_t)s0;
-    a1 = a1 & 65535;
-    a0 = a0 + t0;
-    a1 = a1 << 1;
-    a2 = 0;
-
-tisp_ae_long_tune20x135c:
-    /* fragment 359: Arithmetic */
-    v0 = a0 < v0;
-
-    /* fragment 360: Branch */
-    int _bc_v0_360 = v0 != 0;
-    v0 = local_a8;
-    if (_bc_v0_360) { goto tisp_ae_long_tune20x13ec; }
-
-tisp_ae_long_tune20x1368:
-    /* fragment 361: Arithmetic */
-    v0 = 1;
-
-tisp_ae_long_tune20x136c:
-    /* fragment 362: StackAccess */
-    v1 = local_a8;
-    a0 = v1 < v0;
-
-    /* fragment 363: Branch */
-    v1 = local_c0;
-    if (a0 == 0) { goto tisp_ae_long_tune20x1428; }
-
-tisp_ae_long_tune20x137c:
-    /* fragment 364: Arithmetic */
-    v0 = (uintptr_t)v0 << 1;
-    v0 = (uintptr_t)v1 + (uintptr_t)v0;
-
-    /* fragment 365: MemoryAccess */
-    v0 = *(uint16_t *)((char *)v0 + -2);
-    v0 = (uintptr_t)v0 << (uintptr_t)s0;
-    local_78 = v0;
-    v0 = v0 < t0;
-
-    /* fragment 366: Branch */
-    a2 = local_78;
-    if (v0 != 0) { goto tisp_ae_long_tune20x13a4; }
-
-    /* fragment 367: CallSetup */
-    local_78 = t0;
-    a2 = local_78;
-
-tisp_ae_long_tune20x13a4:
-    /* fragment 368: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, s7); /* jalr target resolved by relocation */
-
-    /* fragment 369: Arithmetic */
-    v1 = s5 < v0;
-
-    /* fragment 370: Branch */
-    local_74 = v0;
-    if (v1 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x10d0"); else { __lg--; goto tisp_ae_long_tune20x10d0; } } }
-
-    /* fragment 371: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, v0, s5); /* jalr target resolved by relocation */
-
-    /* fragment 372: StackAccess */
-    local_70 = v0;
-    v0 = s6 < v0;
-
-    /* fragment 373: Branch */
-    if (v0 == 0) { goto tisp_ae_long_tune20x13e0; }
-
-    /* fragment 374: StackAccess */
-    local_70 = s6;
-
-tisp_ae_long_tune20x13e0:
-    /* fragment 375: StackAccess */
-    local_74 = s5;
-
-    /* fragment 376: Branch */
-    s1 = local_90;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x11b8"); else { __lg--; goto tisp_ae_long_tune20x11b8; } }
-
-tisp_ae_long_tune20x13ec:
-    /* fragment 377: Arithmetic */
-    v0 = (uintptr_t *)((uintptr_t)v0 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
-    v0 = (uintptr_t)v0 & 65535;
-
-    /* fragment 378: Branch */
-    int _bc_v0_378 = v0 == 0;
-    local_a8 = v0;
-    if (_bc_v0_378) { goto tisp_ae_long_tune20x141c; }
-
-    /* fragment 379: StackAccess */
-    v1 = local_c0;
-    v0 = a2 << 1;
-    v0 = a1 - (uintptr_t)v0;
-    v0 = (uintptr_t)v1 + (uintptr_t)v0;
-    v0 = *(uint16_t *)((char *)v0 + 0);
-    a2 = a2 + 1;
-
-    /* fragment 380: Branch */
-    v0 = (uintptr_t)v0 << (uintptr_t)s0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x135c"); else { __lg--; goto tisp_ae_long_tune20x135c; } }
-
-tisp_ae_long_tune20x141c:
-    /* fragment 381: StackAccess */
-    v0 = local_90;
-
-    /* fragment 382: Branch */
-    local_a8 = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x1368"); else { __lg--; goto tisp_ae_long_tune20x1368; } }
-
-tisp_ae_long_tune20x1428:
-    /* fragment 383: Arithmetic */
-    a0 = (uintptr_t)v0 << 1;
-    a0 = v1 + a0;
-
-    /* fragment 384: MemoryAccess */
-    a0 = *(uint16_t *)((char *)a0 + 0);
-    a0 = a0 << (uintptr_t)s0;
-    a0 = s7 < a0;
-
-    /* fragment 385: Branch */
-    v1 = local_c0;
-    if (a0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x137c"); else { __lg--; goto tisp_ae_long_tune20x137c; } } }
-
-    /* fragment 386: Branch */
-    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x136c"); else { __lg--; goto tisp_ae_long_tune20x136c; } }
 
 tisp_ae_long_tune20x144c:
     /* fragment 387: Branch */
