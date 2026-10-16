@@ -95290,7 +95290,7 @@ tisp_ae_main_process0x5c:
 
     /* fragment 7: Branch */
     a2 = (uintptr_t)a0 + (uintptr_t)v0;
-    if (a1 != 0) { goto tisp_ae_main_process0x234; }
+    /* T40-AE-SCRATCH-COPY: OEM byte-copies sensor_ctrl_main+4 (420 B) / tisp_par_info (152 B) into write-only stack scratch here (loop 0x234); the lift lost the source anchors (NULL reads: FBL10/FBL12 Oops in tisp-event-0) and sized the scratch as 4 B, so the copy is skipped - nothing reads it. */
 
     /* fragment 8: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_ctrls_update)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
@@ -95315,7 +95315,7 @@ tisp_ae_main_process0xac:
 
     /* fragment 13: Branch */
     a2 = (uintptr_t)v0 + (uintptr_t)v1;
-    if (a0 != 0) { goto tisp_ae_main_process0x248; }
+    /* T40-AE-SCRATCH-COPY: OEM byte-copies sensor_ctrl_main+4 (420 B) / tisp_par_info (152 B) into write-only stack scratch here (loop 0x248); the lift lost the source anchors (NULL reads: FBL10/FBL12 Oops in tisp-event-0) and sized the scratch as 4 B, so the copy is skipped - nothing reads it. */
 
     /* fragment 14: Arithmetic */
     v1 = s5;
@@ -95328,7 +95328,7 @@ tisp_ae_main_process0xc4:
 
     /* fragment 16: Branch */
     a1 = (uintptr_t)v1 + (uintptr_t)v0;
-    if (a0 != 0) { goto tisp_ae_main_process0x25c; }
+    /* T40-AE-SCRATCH-COPY: OEM byte-copies sensor_ctrl_main+4 (420 B) / tisp_par_info (152 B) into write-only stack scratch here (loop 0x25c); the lift lost the source anchors (NULL reads: FBL10/FBL12 Oops in tisp-event-0) and sized the scratch as 4 B, so the copy is skipped - nothing reads it. */
 
     /* fragment 17: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_sensor_inform)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
@@ -95363,7 +95363,7 @@ tisp_ae_main_process0x128:
 
     /* fragment 25: Branch */
     a1 = (uintptr_t)s3 + (uintptr_t)v0;
-    if (a0 != 0) { goto tisp_ae_main_process0x270; }
+    /* T40-AE-SCRATCH-COPY: OEM byte-copies sensor_ctrl_main+4 (420 B) / tisp_par_info (152 B) into write-only stack scratch here (loop 0x270); the lift lost the source anchors (NULL reads: FBL10/FBL12 Oops in tisp-event-0) and sized the scratch as 4 B, so the copy is skipped - nothing reads it. */
 
     /* fragment 26: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_main_long_ev_alloc)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
@@ -95393,7 +95393,7 @@ tisp_ae_main_process0x180:
 
     /* fragment 33: Branch */
     a0 = (uintptr_t)s3 + (uintptr_t)v0;
-    if (v1 != 0) { goto tisp_ae_main_process0x284; }
+    /* T40-AE-SCRATCH-COPY: OEM byte-copies sensor_ctrl_main+4 (420 B) / tisp_par_info (152 B) into write-only stack scratch here (loop 0x284); the lift lost the source anchors (NULL reads: FBL10/FBL12 Oops in tisp-event-0) and sized the scratch as 4 B, so the copy is skipped - nothing reads it. */
 
     /* fragment 34: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_short_ctrls_update)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
@@ -95407,7 +95407,7 @@ tisp_ae_main_process0x1ac:
 
     /* fragment 37: Branch */
     a0 = (uintptr_t)s3 + (uintptr_t)v0;
-    if (v1 != 0) { goto tisp_ae_main_process0x298; }
+    /* T40-AE-SCRATCH-COPY: OEM byte-copies sensor_ctrl_main+4 (420 B) / tisp_par_info (152 B) into write-only stack scratch here (loop 0x298); the lift lost the source anchors (NULL reads: FBL10/FBL12 Oops in tisp-event-0) and sized the scratch as 4 B, so the copy is skipped - nothing reads it. */
 
     /* fragment 38: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_main_short_ev_alloc)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
@@ -95524,7 +95524,7 @@ tisp_ae_main_process0x2c0:
 
     /* fragment 64: Branch */
     a3 = (uintptr_t)v1 + (uintptr_t)v0;
-    if (a1 != 0) { goto tisp_ae_main_process0x34c; }
+    /* T40-AE-SCRATCH-COPY: OEM byte-copies sensor_ctrl_main+4 (420 B) / tisp_par_info (152 B) into write-only stack scratch here (loop 0x34c); the lift lost the source anchors (NULL reads: FBL10/FBL12 Oops in tisp-event-0) and sized the scratch as 4 B, so the copy is skipped - nothing reads it. */
 
     /* fragment 65: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_short_ctrls_update)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
@@ -95549,7 +95549,7 @@ tisp_ae_main_process0x318:
 
     /* fragment 71: Branch */
     a3 = (uintptr_t)v1 + (uintptr_t)v0;
-    if (a1 != 0) { goto tisp_ae_main_process0x360; }
+    /* T40-AE-SCRATCH-COPY: OEM byte-copies sensor_ctrl_main+4 (420 B) / tisp_par_info (152 B) into write-only stack scratch here (loop 0x360); the lift lost the source anchors (NULL reads: FBL10/FBL12 Oops in tisp-event-0) and sized the scratch as 4 B, so the copy is skipped - nothing reads it. */
 
     /* fragment 72: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_main_short_ev_alloc)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
