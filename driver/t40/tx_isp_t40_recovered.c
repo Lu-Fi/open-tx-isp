@@ -2572,6 +2572,8 @@ static const char LC180[] = "[%s %d] [ %s:%d ] Failed to init tuning module!\n";
  * (46/47 AE, 0x32 LCE, 0x33 ADR); 16 entries overflowed into .bss. */
 #define T40_IRQ_FUNC_CB_N 80
 static int32_t irq_func_cb[T40_IRQ_FUNC_CB_N];
+static bool regtrace_t40_ae_par_calc = true;
+module_param_named(t40_ae_par_calc, regtrace_t40_ae_par_calc, bool, 0644);
 static inline uintptr_t t40_sensor_cb2(uint32_t off, uintptr_t a0, uintptr_t a1);   /* T40-SENSOR-CB, defined before tisp_set_sensor_analog_gain */
 static const char LC181[] = "dl = %d y = %d uv = %d\n";
 static const char LC182[] = "[ %s:%d ] ispcore: irq-status unusual 0x%08x, 0x%x, 0x%x\n ";
@@ -81420,7 +81422,8 @@ int64_t tisp_ae_par_calc(uint32_t a0, uintptr_t a1)
      * early-returned). Return early to reach tisp_ae_main_init's handler
      * registration and confirm the OEM AE/AWB chain comes alive. TODO: fix
      * properly once the chain is validated (and deflicker is restored). */
-    return 0;
+    if (!regtrace_t40_ae_par_calc)
+        return 0;   /* T40-AE-PARCALC: the EV lists (ctx+212/216/220/224) are built here; stubbed = IT request 0 (FBL24 AECTRLS) */
 
     /* fragment 0: Prologue */
     /* function prologue: stack frame and callee-saved register setup */
@@ -81457,7 +81460,7 @@ int64_t tisp_ae_par_calc(uint32_t a0, uintptr_t a1)
 
     /* fragment 2: CallSetup */
     s1 = (uintptr_t)s1 << (uintptr_t)s2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_mult2)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2)((uintptr_t)s2, (uintptr_t)a1, (uintptr_t)a2, 0, (uintptr_t)local_10, 0); /* T40-1ARG: OEM 0x22438..0x2246c a0=s2, a1=ctx, a2=*(cache+1280), a3=0, 16(sp)=local_10, 20(sp)=0 */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s2, s1, v0); /* jalr target resolved by relocation */
@@ -89978,6 +89981,8 @@ tisp_ae_short_set_sensor_integration_time0x108:
  *   sensor_set_*: the hand-written apply path's packed EXPO ioctl (again<<16 | it). */
 static uint32_t t40_vendor_again_sensor, t40_vendor_it_sensor, t40_vendor_dgain;
 static uint32_t t40_vendor_expo_count; static long t40_vendor_expo_last_ret;
+static uint32_t t40_vendor_it_default = 1919;   /* test aid: IT used for the first vendor EXPO while the AE IT output is still 0 */
+module_param_named(t40_vendor_it_default, t40_vendor_it_default, uint, 0644);
 module_param_named(t40_vendor_expo_count, t40_vendor_expo_count, uint, 0444);
 module_param_named(t40_vendor_expo_last_ret, t40_vendor_expo_last_ret, long, 0444);
 static uintptr_t t40_sensor_attr_fn(uint32_t off)
@@ -89991,10 +89996,16 @@ static uintptr_t t40_sensor_attr_fn(uint32_t off)
 static void t40_vendor_send_expo(const char *why)
 {
     uint32_t payload[2];
-    uint32_t packed = (t40_vendor_again_sensor << 16) | (t40_vendor_it_sensor & 0xffffU);
+    uint32_t it = t40_vendor_it_sensor & 0xffffU;
+    uint32_t packed;
     static unsigned int n;
-    if (!(packed & 0xffffU))
-        return;                                   /* no integration time yet */
+    if (!it)
+        it = regtrace_ae_sensor_apply_last_int[0] & 0xffffU;   /* last IT the hand-written path wrote */
+    if (!it)
+        it = t40_vendor_it_default & 0xffffU;
+    if (!it)
+        return;
+    packed = (t40_vendor_again_sensor << 16) | it;
     payload[0] = packed; payload[1] = packed;
     t40_vendor_expo_last_ret = regtrace_sensor_call_sensor_ioctl(REGTRACE_TX_ISP_EVENT_SENSOR_EXPO, payload);
     t40_vendor_expo_count++;
@@ -91279,17 +91290,23 @@ int64_t tisp_ae_main_long_ev_alloc(uintptr_t a0, uintptr_t a1, uintptr_t a2, uin
     local_230 = a0;
     v0 = *(uint32_t *)((char *)a1 + 4);
     s4 = *(uint32_t *)((char *)a1 + 208);
+    local_218 = (typeof(local_218))(uintptr_t)s4;   /* T40-SPILL: dropped sw s4,...(sp) */
     s5 = *(uint32_t *)((char *)a1 + 212);
+    local_21c = (typeof(local_21c))(uintptr_t)s5;   /* T40-SPILL: dropped sw s5,...(sp) */
     v0 = *(uint16_t *)((char *)v0 + 0);
     s2 = *(uint32_t *)((char *)a1 + 224);
+    local_210 = (typeof(local_210))(uintptr_t)s2;   /* T40-SPILL: dropped sw s2,...(sp) */
     s1 = *(uint32_t *)((char *)a1 + 216);
+    local_20c = (typeof(local_20c))(uintptr_t)s1;   /* T40-SPILL: dropped sw s1,...(sp) */
     local_1f8 = v0;
     v0 = *(uint32_t *)((char *)a1 + 288);
     v1 = local_1f8;
     s3 = *(uint32_t *)((char *)a1 + 220);
+    local_214 = (typeof(local_214))(uintptr_t)s3;   /* T40-SPILL: dropped sw s3,...(sp) */
     s0 = *(uint16_t *)((char *)v0 + 20);
     v0 = *(uint32_t *)((char *)a1 + 8);
     s6 = *(uint32_t *)((char *)a1 + 44);
+    local_220 = (typeof(local_220))(uintptr_t)s6;   /* T40-SPILL: dropped sw s6,...(sp) */
     s8 = a1;
     local_1fc = v0;
     v0 = 67108864;
