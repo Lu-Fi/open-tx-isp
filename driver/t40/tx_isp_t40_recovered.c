@@ -189630,6 +189630,8 @@ char* ispcore_irq_sec_fd_work(void)
     a1 = *(uint32_t *)((char *)s1 + 696);
     v0 = a1 + 1;
     a1 = v0 < 3;
+    if (!a1)			/* OEM 0x76614..0x7661c (testimage) movz v0,zero,a1: wrap at 3 */
+        v0 = 0;
     a1 = v0;
     *(uint32_t *)((char *)s1 + 696) = v0;
     v0 = 12;
@@ -189642,7 +189644,15 @@ char* ispcore_irq_sec_fd_work(void)
     if (v0 == 0) { goto ispcore_irq_sec_fd_work0x8c; }
 
     /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_msca_Shd_ctrl)(1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_msca_Shd_ctrl)(1, (uintptr_t)a1); /* jalr target resolved by relocation */
+    /* T40-MSCA-CTRL-ARG (FR3): the second argument was dropped by the
+     * reconstruction.  The identical sequence in update_isp_osd (Z199159-199161)
+     * documents the OEM shape: 0x7ac78 `lw a1,0(s1+692)` (the shadow index) is the
+     * second argument of tisp_msca_Shd_ctrl(0, idx) at 0x7ac94.  Here the index is
+     * loaded at Z190133 (`a1 = *(s1 + 696)`) and incremented just before the call,
+     * so pass it as the OEM does; without it Tzn_Msca_Shd_osd/_mask runs on the
+     * stale first argument (mode 1 = the mask path, which then writes the shadow
+     * registers with garbage). */
 
     /* fragment 6: MemoryAccess */
     a0 = *(uint32_t *)((char *)((char *)&ispcore_sd));
