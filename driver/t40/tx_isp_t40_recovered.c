@@ -81472,7 +81472,7 @@ int64_t tisp_ae_par_calc(uint32_t a0, uintptr_t a1)
     *(uint32_t *)((char *)s6 + 708) = (*(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 16));
     *(uint32_t *)((char *)s6 + 712) = (*(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 20));
     *(uint32_t *)((char *)s6 + 716) = (*(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 28));
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_fps_calc_max_exp)((uintptr_t)s2, ((*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 316)) + 20)) >> 16) << (uintptr_t)s2, (*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 316)) + 20) & 65535) << (uintptr_t)s2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)((uintptr_t)s2, ((*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 316)) + 20)) >> 16) << (uintptr_t)s2, /* T40-CALLEE: OEM 0x224d0 jalr s4 = fix_point_div_32 (the lift bound the next call, tisp_ae_fps_calc_max_exp -> *(a1+4) on a number: FBL25 BadVA 4) */ (*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 316)) + 20) & 65535) << (uintptr_t)s2); /* jalr target resolved by relocation */
 
     /* fragment 5: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_fps_calc_max_exp)(s7, s0, v0); /* jalr target resolved by relocation */
