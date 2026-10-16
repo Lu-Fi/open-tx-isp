@@ -189457,22 +189457,18 @@ int32_t tisp_lsc_hvflip(uintptr_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uin
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000759b0 origin=fragment_seed original=tisp_s_ae_explist */
 int32_t tisp_s_ae_explist(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *a2 = 0;
-    uint32_t t9 = 0;
-
-    /* fragment 0: Arithmetic */
-    a2 = a1 + 4;
-    t9 = (uintptr_t)&tisp_ae_api_set_exp_list;
-    t9 = t9;
-
-    /* fragment 1: Unknown */
-    /* unmatched fragment 1 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 759bc:	03200408 	jr.hb	t9 */
-
-    /* fragment 2: MemoryAccess */
-    a1 = *(uint32_t *)((char *)a1 + 0);
-
-    return 0;
+    /* T40-TAILCALL: OEM 0x763d0 `addiu a2,a1,4; lw a1,0(a1); jr.hb tisp_ae_api_set_exp_list` - the lift
+     * dropped the jump, so the app's SetAeExpList (mode + 25 exposure entries -> ctx+348 ladder,
+     * AE mode u16 at *(ctx+4)+6, par_calc re-run) never reached the AE.  The ladder is otherwise
+     * empty (FBL30: ctx+348 all zero, IT alloc = 3). */
+    static unsigned int n;
+    const uint32_t *l = (const uint32_t *)a1;
+    if (!regtrace_is_kernel_ptr((void *)l))
+        return -EINVAL;
+    if (n++ < 4)
+        printk(KERN_INFO "tx_isp_t40_recovered: AEEXPLIST ch=%u mode=%u e0=%x %x %x %x %x e1=%x %x %x %x %x\n",
+               (unsigned)a0, l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8], l[9], l[10]);
+    return tisp_ae_api_set_exp_list(a0, l[0], a1 + 4);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000759c4 origin=model_output original=tisp_g_ae_explist */
