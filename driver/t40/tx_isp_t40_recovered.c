@@ -82080,7 +82080,7 @@ tisp_ae_ev_list_alloc_calc0x2b0:
     /* fragment 41: CallSetup */
     local_18 = v1;
     local_14 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_max_exp_calc_fps)(t0, v1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_max_exp_calc_fps)(t0, v1, *(uint32_t *)((char *)s5 + 20)); /* T40-1ARG: OEM 0x22a80..0x22a8c a2 = *(s5+20) */
 
     /* fragment 42: CallSetup */
     v1 = local_18;
@@ -82170,7 +82170,7 @@ tisp_ae_ev_list_alloc_calc0x388:
     local_1c = t2;
     local_18 = v1;
     local_14 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_max_exp_calc_fps)(t0, v1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_max_exp_calc_fps)(t0, v1, (uintptr_t)a2); /* T40-1ARG: OEM 0x22b9c..0x22bb4 a2 live (compared at 0x22b88) */
 
     /* fragment 63: StackAccess */
     t2 = local_1c;
@@ -82330,7 +82330,7 @@ tisp_ae_ev_list_alloc_calc0x508:
     local_28 = t4;
     local_24 = v1;
     local_20 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_max_exp_calc_fps)(t0, v1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_max_exp_calc_fps)(t0, v1, (uintptr_t)a2); /* T40-1ARG: OEM 0x22d0c..0x22d24 a2 live (compared at 0x22d04) */
 
     /* fragment 100: StackAccess */
     t4 = local_28;
@@ -88345,7 +88345,7 @@ tisp_ae_long_tune20xab0:
 tisp_ae_long_tune20xac8:
     /* fragment 185: CallSetup */
     local_14 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_tune)(local_190, &local_7e, &local_7c, local_88); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_tune)(local_190, (uintptr_t)&local_7e, (uintptr_t)&local_7c, local_88, (uintptr_t)s0, (uintptr_t)local_14); /* T40-1ARG: OEM 0x26620..0x26640 stack args 16(sp)=s0, 20(sp)=v0(local_14) */
 
     /* fragment 186: Branch */
 /* fragment 186: Dead code - removed spurious __ashldi3 reference */
@@ -88668,7 +88668,7 @@ tisp_ae_long_tune20xe20:
     local_18 = (uint32_t *)&local_70;
     local_14 = (uintptr_t)&local_74;
     local_10 = (uint32_t *)&local_78;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_ev_list_alloc_calc)(local_180, s8, local_188, s6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_ev_list_alloc_calc)(local_180, (uintptr_t)s8, local_188, (uintptr_t)s6, (uintptr_t)&local_78, (uintptr_t)&local_74, (uintptr_t)&local_70); /* T40-1ARG: OEM 0x2699c..0x269d0 stack args 16/20/24(sp) = &local_78/&local_74/&local_70 (28(sp)=local_84 unused by the callee, frame 104, no lw 132(sp)) */
 
 tisp_ae_long_tune20xe7c:
     /* fragment 250: Arithmetic */
