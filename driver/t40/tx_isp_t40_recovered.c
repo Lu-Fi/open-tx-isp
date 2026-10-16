@@ -68138,7 +68138,7 @@ tisp_awb_ct_detect0x230:
 
     /* fragment 14: MemoryAccess */
     a1 = *(uint32_t *)((char *)a1 + 0);
-    v0 = v0 + 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     a3 = t1 < a1;
 
 tisp_awb_ct_detect0x244:
@@ -68153,7 +68153,7 @@ tisp_awb_ct_detect0x244:
 
     /* fragment 17: StackAccess */
     v0 = local_20;
-    s1 = s1 + 1;
+    s1 = (uintptr_t *)((uintptr_t)s1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     s1 = (uintptr_t)s1 & 65535;
 
     /* fragment 18: Branch */
@@ -68205,7 +68205,7 @@ tisp_awb_ct_detect0x2c0:
 
     /* fragment 27: MemoryAccess */
     v0 = *(uint32_t *)((char *)v0 + 0);
-    t3 = t3 + 4;
+    t3 = (uintptr_t *)((uintptr_t)t3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 << (uintptr_t)s0;
 
     /* fragment 28: Unknown */
@@ -68215,6 +68215,7 @@ tisp_awb_ct_detect0x2c0:
     /* fragment 29: Arithmetic */
     /* unmatched fragment 29 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 199d8:	00001012 	mflo	v0 */
+    v0 = (typeof(v0))(uintptr_t)((uint32_t)(uintptr_t)a3 ? ((uint32_t)(uintptr_t)v0 / (uint32_t)(uintptr_t)a3) : 0);   /* T40-DIV-RESTORE: divu v0,a3 ; mflo v0 */
 
     /* fragment 30: MemoryAccess */
     *(uint32_t *)((char *)t3 + -4) = v0;
@@ -68258,7 +68259,7 @@ tisp_awb_ct_detect0x320:
     /* fragment 38: StackAccess */
     local_70 = v0;
     s3 = 1;
-    v0 = s2 - 1;
+    v0 = (uintptr_t *)((uintptr_t)s2 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     s3 = (uintptr_t)s3 << (uintptr_t)v0;
     v0 = local_28;
     local_74 = v0;
@@ -68323,7 +68324,7 @@ tisp_awb_ct_detect0x3cc:
     /* fragment 47: StackAccess */
     v0 = local_bc;
     v0 = *(uint16_t *)((char *)v0 + 0);
-    v0 = v0 - 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = v0 < 2;
 
     /* fragment 48: Branch */
@@ -68427,7 +68428,7 @@ tisp_awb_ct_detect0x4c0:
     /* fragment 69: Arithmetic */
     a1 = a1 + 1;
     a1 = a1 & 65535;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x4cc:
     /* fragment 70: Branch */
@@ -68482,7 +68483,7 @@ tisp_awb_ct_detect0x530:
     a0 = a1 < a0;
 
     /* fragment 81: Branch */
-    v0 = a3 + 1;
+    v0 = (uintptr_t *)((uintptr_t)a3 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     if (a0 != 0) { goto tisp_awb_ct_detect0x558; }
 
     /* fragment 82: MemoryAccess */
@@ -68541,7 +68542,7 @@ tisp_awb_ct_detect0x5b0:
     a0 = a1 < a0;
 
     /* fragment 93: Branch */
-    t1 = a3 + 1;
+    t1 = (uintptr_t *)((uintptr_t)a3 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     if (a0 != 0) { goto tisp_awb_ct_detect0x5d8; }
 
     /* fragment 94: MemoryAccess */
@@ -68630,7 +68631,7 @@ tisp_awb_ct_detect0x670:
 
 tisp_awb_ct_detect0x678:
     /* fragment 112: Arithmetic */
-    a0 = t1 - 1;
+    a0 = (uintptr_t)t1 - 1;   /* T40-PTRSTEP: byte add (OEM addiu) */
     a1 = 28;
     a2 = a0 * a1;
 
@@ -68659,7 +68660,7 @@ tisp_awb_ct_detect0x6ac:
     /* fragment 118: StackAccess */
     local_6c = v1;
     v1 = local_38;
-    t8 = v0 + 4;
+    t8 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t6 = s8 + (uintptr_t)t8;
     a2 = *(uint32_t *)((char *)v1 + 0);
     a1 = 15;
@@ -68671,8 +68672,8 @@ tisp_awb_ct_detect0x6ac:
     if (t1 != a1) { goto tisp_awb_ct_detect0x904; }
 
     /* fragment 120: CallSetup */
-    t3 = v0 + 840;
-    t1 = v0 + 844;
+    t3 = (uintptr_t *)((uintptr_t)v0 + 840);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    t1 = (uintptr_t *)((uintptr_t)v0 + 844);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_98 = t6;
     local_94 = t1;
     local_5c = t3;
@@ -68713,13 +68714,13 @@ tisp_awb_ct_detect0x6ac:
 tisp_awb_ct_detect0x784:
     /* fragment 125: Branch */
     int _bc_t1_125 = t1 != a0;
-    a0 = t1 - 1;
+    a0 = (uintptr_t)t1 - 1;   /* T40-PTRSTEP: byte add (OEM addiu) */
     if (_bc_t1_125) { goto tisp_awb_ct_detect0x1eec; }
 
 tisp_awb_ct_detect0x78c:
     /* fragment 126: StackAccess */
     v1 = local_4c;
-    a0 = v0 + 181;
+    a0 = (uintptr_t)v0 + 181;   /* T40-PTRSTEP: byte add (OEM addiu) */
     a0 = a0 << 1;
     a0 = v1 + a0;
     a1 = *(uint16_t *)((char *)a0 + 0);
@@ -68737,7 +68738,7 @@ tisp_awb_ct_detect0x7b0:
     /* fragment 129: StackAccess */
     v0 = local_38;
     s6 = s6 + 4;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_38 = v0;
 
 tisp_awb_ct_detect0x7c0:
@@ -68752,7 +68753,7 @@ tisp_awb_ct_detect0x7c0:
     /* fragment 132: StackAccess */
     v0 = local_54;
     v1 = local_20;
-    v0 = v0 + 60;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_54 = v0;
     v0 = local_8c;
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
@@ -68764,11 +68765,11 @@ tisp_awb_ct_detect0x7c0:
 tisp_awb_ct_detect0x7ec:
     /* fragment 134: Arithmetic */
     v0 = (uintptr_t)t1 << 2;
-    v0 = v0 - 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 - 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t5 = s7 + (uintptr_t)v0;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t3 = s7 + (uintptr_t)v0;
-    t1 = t1 - 1;
+    t1 = (uintptr_t *)((uintptr_t)t1 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = 60;
     t1 = (uintptr_t)t1 * (uintptr_t)v0;
 
@@ -68779,8 +68780,8 @@ tisp_awb_ct_detect0x7ec:
     v0 = local_30;
     local_f8 = t5;
     local_6c = t3;
-    t6 = t1 + 56;
-    t1 = t1 + 116;
+    t6 = (uintptr_t *)((uintptr_t)t1 + 56);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    t1 = (uintptr_t *)((uintptr_t)t1 + 116);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 + (uintptr_t)t1;
     v0 = *(uint32_t *)((char *)v0 + 0);
     local_98 = t1;
@@ -68851,7 +68852,7 @@ tisp_awb_ct_detect0x8c4:
 
 tisp_awb_ct_detect0x904:
     /* fragment 145: Arithmetic */
-    t5 = t1 - 1;
+    t5 = (uintptr_t *)((uintptr_t)t1 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = 60;
     t5 = (uintptr_t)t5 * (uintptr_t)v0;
 
@@ -68865,7 +68866,7 @@ tisp_awb_ct_detect0x904:
     t7 = (uintptr_t)t5 + (uintptr_t)t8;
     v0 = v0 + t7;
     v0 = *(uint32_t *)((char *)v0 + 0);
-    v1 = t7 - 4;
+    v1 = (uintptr_t *)((uintptr_t)t7 - 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_108 = t7;
     local_18 = v0;
     v0 = local_30;
@@ -68884,9 +68885,9 @@ tisp_awb_ct_detect0x904:
     t5 = local_94;
     t8 = local_98;
     local_f8 = v0;
-    t5 = t5 + 60;
+    t5 = (uintptr_t *)((uintptr_t)t5 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t8 = (uintptr_t)t5 + (uintptr_t)t8;
-    v0 = t8 - 4;
+    v0 = (uintptr_t *)((uintptr_t)t8 - 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_94 = v0;
     v0 = local_6c;
     v1 = local_94;
@@ -68918,7 +68919,7 @@ tisp_awb_ct_detect0x904:
     t1 = (uintptr_t)t1 + (uintptr_t)t3;
     t1 = (uintptr_t)t1 << 2;
     local_98 = s7 + (uintptr_t)t1;
-    t1 = t1 + 4;
+    t1 = (uintptr_t *)((uintptr_t)t1 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t1 = s7 + (uintptr_t)t1;
     local_18 = v0;
     local_14 = t9;
@@ -69113,8 +69114,8 @@ tisp_awb_ct_detect0xc0c:
     /* fragment 187: Arithmetic */
     a2 = a2 + 1;
     a2 = a2 & 65535;
-    t3 = t3 + 4;
-    t1 = t1 + 4;
+    t3 = (uintptr_t *)((uintptr_t)t3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    t1 = (uintptr_t *)((uintptr_t)t1 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0xc1c:
     /* fragment 188: Branch */
@@ -69122,7 +69123,7 @@ tisp_awb_ct_detect0xc1c:
     if (a2 != s4) { goto tisp_awb_ct_detect0xb48; }
 
     /* fragment 189: Arithmetic */
-    t5 = t5 + 1;
+    t5 = (uintptr_t *)((uintptr_t)t5 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t6 = (uintptr_t)t6 + (uintptr_t)v0;
 
 tisp_awb_ct_detect0xc2c:
@@ -69154,7 +69155,7 @@ tisp_awb_ct_detect0xc58:
     a1 = a1 & 65535;
 
     /* fragment 196: Branch */
-    a3 = a3 + 4;
+    a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     goto tisp_awb_ct_detect0x3ac;
 
 tisp_awb_ct_detect0xc68:
@@ -69263,8 +69264,8 @@ tisp_awb_ct_detect0xd30:
     /* fragment 221: Arithmetic */
     a2 = a2 + 1;
     a2 = a2 & 65535;
-    t3 = t3 + 4;
-    t1 = t1 + 4;
+    t3 = (uintptr_t *)((uintptr_t)t3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    t1 = (uintptr_t *)((uintptr_t)t1 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0xd40:
     /* fragment 222: Branch */
@@ -69272,7 +69273,7 @@ tisp_awb_ct_detect0xd40:
     if (a2 != s4) { goto tisp_awb_ct_detect0xc68; }
 
     /* fragment 223: Arithmetic */
-    t5 = t5 + 1;
+    t5 = (uintptr_t *)((uintptr_t)t5 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t6 = (uintptr_t)t6 + (uintptr_t)v0;
 
 tisp_awb_ct_detect0xd50:
@@ -69307,7 +69308,7 @@ tisp_awb_ct_detect0xd80:
     a1 = a1 & 65535;
 
     /* fragment 231: Branch */
-    a3 = a3 + 4;
+    a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     goto tisp_awb_ct_detect0x3cc;
 
 tisp_awb_ct_detect0xd90:
@@ -69330,7 +69331,7 @@ tisp_awb_ct_detect0xda4:
     if (_bc_a2_235) { goto tisp_awb_ct_detect0xd90; }
 
     /* fragment 236: Arithmetic */
-    v0 = v0 + 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 & 65535;
 
     /* fragment 237: Branch */
@@ -69364,8 +69365,8 @@ tisp_awb_ct_detect0xdcc:
     t7 = local_34;
     t1 = local_30;
     *(uint32_t *)((char *)a3 + 0) = v0;
-    t3 = t3 + 1;
-    a3 = a3 + 4;
+    t3 = (uintptr_t *)((uintptr_t)t3 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0xe30:
     /* fragment 242: Arithmetic */
@@ -69378,10 +69379,10 @@ tisp_awb_ct_detect0xe30:
     if (_bc_v0_243) { goto tisp_awb_ct_detect0xdcc; }
 
     /* fragment 244: Arithmetic */
-    t5 = t5 + 1;
+    t5 = (uintptr_t *)((uintptr_t)t5 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 245: Branch */
-    t6 = t6 + 60;
+    t6 = (uintptr_t *)((uintptr_t)t6 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
     goto tisp_awb_ct_detect0x42c;
 
 tisp_awb_ct_detect0xe4c:
@@ -69399,7 +69400,7 @@ tisp_awb_ct_detect0xe50:
 
     /* fragment 249: Arithmetic */
     t6 = 14;
-    t5 = v0 + 48;
+    t5 = (uintptr_t *)((uintptr_t)v0 + 48);   /* T40-PTRSTEP: byte add (OEM addiu) */
     a3 = v0;
 
 tisp_awb_ct_detect0xe68:
@@ -69439,7 +69440,7 @@ tisp_awb_ct_detect0xea0:
     if (a1 != t6) { goto tisp_awb_ct_detect0xe74; }
 
     /* fragment 259: Arithmetic */
-    t1 = t1 + 1;
+    t1 = (uintptr_t *)((uintptr_t)t1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 260: Branch */
     a0 = a0 + 28;
@@ -69457,7 +69458,7 @@ tisp_awb_ct_detect0xec4:
     /* fragment 263: MemoryAccess */
     a0 = *(uint32_t *)((char *)a3 + 48);
     a1 = *(uint32_t *)((char *)a3 + 0);
-    a3 = a3 + 4;
+    a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v1 = a0 * (uintptr_t)t1;
     a0 = v1 + a1;
     v1 = local_4c;
@@ -69470,14 +69471,14 @@ tisp_awb_ct_detect0xec4:
 
     /* fragment 265: StackAccess */
     v1 = local_50;
-    a2 = v1 + 240;
+    a2 = (uintptr_t)v1 + 240;   /* T40-PTRSTEP: byte add (OEM addiu) */
     a0 = v1;
 
 tisp_awb_ct_detect0xef8:
     /* fragment 266: MemoryAccess */
     a1 = *(uint32_t *)((char *)v0 + 0);
     a0 = a0 + 20;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     a1 = a1 << 2;
     a1 = s8 + a1;
     a1 = *(uint32_t *)((char *)a1 + 0);
@@ -69559,11 +69560,11 @@ tisp_awb_ct_detect0xef8:
 tisp_awb_ct_detect0x1008:
     /* fragment 273: MemoryAccess */
     a1 = *(uint32_t *)((char *)a3 + 0);
-    v0 = v0 + 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 & 65535;
 
     /* fragment 274: Branch */
-    t1 = a3 + 4;
+    t1 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     if (a1 != 0) { goto tisp_awb_ct_detect0x107c; }
 
 tisp_awb_ct_detect0x101c:
@@ -69591,7 +69592,7 @@ tisp_awb_ct_detect0x102c:
 
 tisp_awb_ct_detect0x1044:
     /* fragment 281: Arithmetic */
-    t1 = t1 + 1;
+    t1 = (uintptr_t *)((uintptr_t)t1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t1 = (uintptr_t)t1 & 65535;
     t6 = 0;
     a2 = 0;
@@ -69716,16 +69717,16 @@ tisp_awb_ct_detect0x1110:
 
 tisp_awb_ct_detect0x1138:
     /* fragment 310: Arithmetic */
-    t2 = t2 + 1;
+    t2 = (uintptr_t *)((uintptr_t)t2 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t2 = (uintptr_t)t2 & 65535;
-    t5 = t5 + 4;
+    t5 = (uintptr_t *)((uintptr_t)t5 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x1144:
     /* fragment 311: Branch */
     if (t2 != s4) { goto tisp_awb_ct_detect0x10d0; }
 
     /* fragment 312: Branch */
-    t6 = t6 + 1;
+    t6 = (uintptr_t *)((uintptr_t)t6 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     goto tisp_awb_ct_detect0x105c;
 
 tisp_awb_ct_detect0x1154:
@@ -69812,14 +69813,14 @@ tisp_awb_ct_detect0x11c4:
 
 tisp_awb_ct_detect0x11e0:
     /* fragment 334: Arithmetic */
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 335: Branch */
     if (v0 != a0) { goto tisp_awb_ct_detect0x102c; }
 
     /* fragment 336: StackAccess */
     v1 = local_2c;
-    t3 = v1 + 240;
+    t3 = (uintptr_t *)((uintptr_t)v1 + 240);   /* T40-PTRSTEP: byte add (OEM addiu) */
     a3 = v1;
     a0 = local_50;
 
@@ -69926,7 +69927,7 @@ tisp_awb_ct_detect0x1290:
 
 tisp_awb_ct_detect0x12c0:
     /* fragment 362: Arithmetic */
-    t2 = t2 + 4;
+    t2 = (uintptr_t *)((uintptr_t)t2 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 363: Branch */
     if (t2 != v0) { goto tisp_awb_ct_detect0x1254; }
@@ -69954,13 +69955,14 @@ tisp_awb_ct_detect0x12c0:
     /* fragment 369: Arithmetic */
     /* unmatched fragment 369 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1a9f4:	00002012 	mflo	a0 */
+    a0 = (typeof(a0))(uintptr_t)((uint32_t)(uintptr_t)t1 ? ((uint32_t)(uintptr_t)a0 / (uint32_t)(uintptr_t)t1) : 0);   /* T40-DIV-RESTORE: divu a0,t1 ; mflo a0 */
 
     /* fragment 370: MemoryAccess */
     *(uint32_t *)((char *)a3 + 240) = a0;
 
 tisp_awb_ct_detect0x12f8:
     /* fragment 371: Arithmetic */
-    a3 = a3 + 4;
+    a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 372: Branch */
     a0 = local_50;
@@ -70076,7 +70078,7 @@ tisp_awb_ct_detect0x1398:
 tisp_awb_ct_detect0x13d0:
     /* fragment 398: Arithmetic */
     a2 = a2 + 1;
-    a3 = a3 + 4;
+    a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x13d8:
     /* fragment 399: Arithmetic */
@@ -70087,23 +70089,23 @@ tisp_awb_ct_detect0x13d8:
     if (a0 != 0) { goto tisp_awb_ct_detect0x1350; }
 
     /* fragment 401: Arithmetic */
-    t1 = t1 + 1;
+    t1 = (uintptr_t *)((uintptr_t)t1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 402: Branch */
-    t5 = t5 + 60;
+    t5 = (uintptr_t *)((uintptr_t)t5 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
     goto tisp_awb_ct_detect0x1330;
 
 tisp_awb_ct_detect0x13f4:
     /* fragment 403: Arithmetic */
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 404: Branch */
     if (t3 != v0) { goto tisp_awb_ct_detect0x130c; }
 
     /* fragment 405: StackAccess */
     v0 = local_2c;
-    a1 = v0 + 720;
-    t1 = v0 + 960;
+    a1 = (uintptr_t)v0 + 720;   /* T40-PTRSTEP: byte add (OEM addiu) */
+    t1 = (uintptr_t *)((uintptr_t)v0 + 960);   /* T40-PTRSTEP: byte add (OEM addiu) */
     a3 = a1;
     v0 = a1;
 
@@ -70126,13 +70128,14 @@ tisp_awb_ct_detect0x1414:
     /* fragment 410: Arithmetic */
     /* unmatched fragment 410 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1ab30:	00002012 	mflo	a0 */
+    a0 = (typeof(a0))(uintptr_t)((uint32_t)(uintptr_t)a2 ? ((uint32_t)(uintptr_t)a0 / (uint32_t)(uintptr_t)a2) : 0);   /* T40-DIV-RESTORE: divu a0,a2 ; mflo a0 */
 
     /* fragment 411: MemoryAccess */
     *(uint32_t *)((char *)v0 + 0) = a0;
 
 tisp_awb_ct_detect0x1434:
     /* fragment 412: Arithmetic */
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 413: Branch */
     a0 = 0;
@@ -70159,7 +70162,7 @@ tisp_awb_ct_detect0x1450:
     /* fragment 419: StackAccess */
     v0 = local_2c;
     t1 = a0 >> 1;
-    a2 = v0 + 480;
+    a2 = (uintptr_t)v0 + 480;   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = a2;
 
 tisp_awb_ct_detect0x146c:
@@ -70184,13 +70187,14 @@ tisp_awb_ct_detect0x146c:
     /* fragment 425: Arithmetic */
     /* unmatched fragment 425 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1ab94:	00002812 	mflo	a1 */
+    a1 = (typeof(a1))(uintptr_t)((uint32_t)(uintptr_t)a0 ? ((uint32_t)(uintptr_t)a1 / (uint32_t)(uintptr_t)a0) : 0);   /* T40-DIV-RESTORE: divu a1,a0 ; mflo a1 */
 
     /* fragment 426: MemoryAccess */
     *(uint32_t *)((char *)v0 + 0) = a1;
 
 tisp_awb_ct_detect0x1498:
     /* fragment 427: Arithmetic */
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 428: Branch */
     if (a3 != v0) { goto tisp_awb_ct_detect0x146c; }
@@ -70313,7 +70317,7 @@ tisp_awb_ct_detect0x1554:
     if (v0 == 0) { goto tisp_awb_ct_detect0x1600; }
 
     /* fragment 458: Arithmetic */
-    a1 = v0 - 1;
+    a1 = (uintptr_t)v0 - 1;   /* T40-PTRSTEP: byte add (OEM addiu) */
     a1 = a1 << 2;
     a1 = v1 + a1;
 
@@ -70324,11 +70328,11 @@ tisp_awb_ct_detect0x1554:
 
 tisp_awb_ct_detect0x1598:
     /* fragment 460: Arithmetic */
-    a3 = a3 - 1;
+    a3 = (uintptr_t *)((uintptr_t)a3 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     a3 = (uintptr_t)a3 & 65535;
 
     /* fragment 461: Branch */
-    t4 = t4 + 4;
+    t4 = (uintptr_t *)((uintptr_t)t4 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     if (a3 != 0) { goto tisp_awb_ct_detect0x1504; }
 
     /* fragment 462: Branch */
@@ -70337,7 +70341,7 @@ tisp_awb_ct_detect0x1598:
 
     /* fragment 463: StackAccess */
     v1 = local_2c;
-    v0 = v0 - 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)v1 + (uintptr_t)v0;
     v0 = *(uint32_t *)((char *)v0 + 480);
@@ -70350,7 +70354,7 @@ tisp_awb_ct_detect0x15cc:
     /* asm: 1acd0:	0044001b 	divu	zero,v0,a0 */
 
     /* fragment 465: Arithmetic */
-    t1 = t1 + 1;
+    t1 = (uintptr_t *)((uintptr_t)t1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t1 = (uintptr_t)t1 & 65535;
     t2 = (uintptr_t *)((char *)t2 + 4);
     t6 = (uintptr_t *)((char *)t6 + 4);  /* T6: OEM steps t2 and t6 by 4 bytes */
@@ -70363,7 +70367,7 @@ tisp_awb_ct_detect0x15e8:
     if (t1 != s4) { goto tisp_awb_ct_detect0x14f8; }
 
     /* fragment 468: Arithmetic */
-    t3 = t3 + 1;
+    t3 = (uintptr_t *)((uintptr_t)t3 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t3 = (uintptr_t)t3 & 65535;
 
     /* fragment 469: Branch */
@@ -70388,8 +70392,8 @@ tisp_awb_ct_detect0x1614:
     /* fragment 473: StackAccess */
     v1 = local_2c;
     s6 = 0;
-    v0 = v0 + 480;
-    a1 = v1 + 720;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 480);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    a1 = (uintptr_t)v1 + 720;   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x1624:
     /* fragment 474: MemoryAccess */
@@ -70404,7 +70408,7 @@ tisp_awb_ct_detect0x1624:
 
 tisp_awb_ct_detect0x1638:
     /* fragment 477: Arithmetic */
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 478: Branch */
     t4 = local_d0;
@@ -70573,8 +70577,8 @@ tisp_awb_ct_detect0x178c:
     /* fragment 514: Arithmetic */
     a2 = a2 + 1;
     a2 = a2 & 65535;
-    t1 = t1 + 4;
-    a3 = a3 + 4;
+    t1 = (uintptr_t *)((uintptr_t)t1 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x179c:
     /* fragment 515: Branch */
@@ -70582,7 +70586,7 @@ tisp_awb_ct_detect0x179c:
     if (a2 != s4) { goto tisp_awb_ct_detect0x16a8; }
 
     /* fragment 516: Arithmetic */
-    t2 = t2 + 1;
+    t2 = (uintptr_t *)((uintptr_t)t2 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 517: Branch */
     t5 = (uintptr_t)t5 + (uintptr_t)v0;
@@ -70592,10 +70596,10 @@ tisp_awb_ct_detect0x17b0:
     /* fragment 518: Arithmetic */
     a1 = a1 + 1;
     v0 = 10;
-    t4 = t4 + 2;
+    t4 = (uintptr_t *)((uintptr_t)t4 + 2);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 519: Branch */
-    t3 = t3 + 2;
+    t3 = (uintptr_t *)((uintptr_t)t3 + 2);   /* T40-PTRSTEP: byte add (OEM addiu) */
     if (a1 != v0) { goto tisp_awb_ct_detect0x1658; }
 
     /* fragment 520: Arithmetic */
@@ -70630,11 +70634,11 @@ tisp_awb_ct_detect0x17f0:
 tisp_awb_ct_detect0x1800:
     /* fragment 526: Branch */
     int _bc_v0_526 = v0 != s4;
-    v0 = v0 + 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     if (_bc_v0_526) { goto tisp_awb_ct_detect0x17f0; }
 
     /* fragment 527: Branch */
-    v1 = v1 + 1;
+    v1 = (uintptr_t *)((uintptr_t)v1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     goto tisp_awb_ct_detect0x17d0;
 
 tisp_awb_ct_detect0x1810:
@@ -70728,7 +70732,7 @@ tisp_awb_ct_detect0x188c:
     a0 = v0 < s3;
     t1 = a0 + (uintptr_t)t1;
     s3 = v0;
-    t4 = t4 + 4;
+    t4 = (uintptr_t *)((uintptr_t)t4 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t0 = t0 + 4;
     t7 = t7 + 1;
 
@@ -70743,9 +70747,9 @@ tisp_awb_ct_detect0x196c:
 
     /* fragment 541: StackAccess */
     v0 = local_20;
-    v1 = v1 + 60;
-    t2 = t2 + 60;
-    t8 = t8 + 15;
+    v1 = (uintptr_t *)((uintptr_t)v1 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    t2 = (uintptr_t *)((uintptr_t)t2 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    t8 = (uintptr_t *)((uintptr_t)t8 + 15);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 542: Branch */
     t9 = t9 + (uintptr_t)v0;
@@ -70944,11 +70948,11 @@ tisp_awb_ct_detect0x1acc:
 
 tisp_awb_ct_detect0x1bb0:
     /* fragment 576: Arithmetic */
-    t4 = t4 + 4;
-    s1 = s1 + 1;
-    t8 = t8 + 4;
+    t4 = (uintptr_t *)((uintptr_t)t4 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    s1 = (uintptr_t *)((uintptr_t)s1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    t8 = (uintptr_t *)((uintptr_t)t8 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t7 = t7 + 4;
-    s2 = s2 + 4;
+    s2 = (uintptr_t *)((uintptr_t)s2 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x1bc4:
     /* fragment 577: Branch */
@@ -70956,8 +70960,8 @@ tisp_awb_ct_detect0x1bc4:
     if (t1 != t4) { goto tisp_awb_ct_detect0x1a9c; }
 
     /* fragment 578: Arithmetic */
-    t2 = t2 + 15;
-    t1 = t1 + 60;
+    t2 = (uintptr_t *)((uintptr_t)t2 + 15);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    t1 = (uintptr_t *)((uintptr_t)t1 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 579: Branch */
     t6 = (uintptr_t)t6 + (uintptr_t)v0;
@@ -71045,7 +71049,7 @@ tisp_awb_ct_detect0x1ca0:
 
 tisp_awb_ct_detect0x1cc8:
     /* fragment 592: CallSetup */
-    s2 = s2 + 4;
+    s2 = (uintptr_t *)((uintptr_t)s2 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)s0, *(uint32_t *)((char *)((uintptr_t)s2) + 0), *(uint32_t *)((char *)(local_4c) + 0), (*(uint8_t *)((char *)(local_48) + 0)) << (uintptr_t)s0); /* jalr target resolved by relocation */
 
     /* fragment 593: CallSetup */
@@ -71071,19 +71075,19 @@ tisp_awb_ct_detect0x1cc8:
     s3 = (uintptr_t)v0 + (uintptr_t)s3;
     v0 = local_4c;
     s1 = v1;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_4c = v0;
     v0 = local_48;
-    v0 = v0 + 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_48 = v0;
     v0 = local_24;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_24 = v0;
     v0 = local_44;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_44 = v0;
     v0 = local_38;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_38 = v0;
 
 tisp_awb_ct_detect0x1db8:
@@ -71098,20 +71102,20 @@ tisp_awb_ct_detect0x1db8:
     /* fragment 598: StackAccess */
     v0 = local_3c;
     v1 = local_20;
-    s4 = s4 + 60;
-    v0 = v0 + 60;
+    s4 = (uint32_t *)((uintptr_t)s4 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    v0 = (uintptr_t *)((uintptr_t)v0 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_3c = v0;
     v0 = local_34;
-    v0 = v0 + 15;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 15);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_34 = v0;
     v0 = local_78;
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
     local_78 = v0;
     v0 = local_74;
-    v0 = v0 + 60;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_74 = v0;
     v0 = local_2c;
-    v0 = v0 + 60;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 599: Branch */
     local_2c = v0;
@@ -71189,14 +71193,14 @@ tisp_awb_ct_detect0x1edc:
     if (v0 == a0) { goto tisp_awb_ct_detect0x678; }
 
     /* fragment 617: Arithmetic */
-    a0 = t1 - 1;
+    a0 = (uintptr_t)t1 - 1;   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x1eec:
     /* fragment 618: Arithmetic */
     a1 = a0;
     a3 = 14;
     v1 = a1 * (uintptr_t)a3;
-    a2 = v0 - 1;
+    a2 = (uintptr_t)v0 - 1;   /* T40-PTRSTEP: byte add (OEM addiu) */
     a0 = v1 + a2;
 
     /* fragment 619: StackAccess */
@@ -101908,7 +101912,7 @@ int64_t tisp_awb_set_gain(uintptr_t a0, uint32_t a1)
     local_1c = v0;
     local_18 = v0;
     v0 = *(uint32_t *)((char *)a0 + 144);
-    t5 = t3 - 10;
+    t5 = (uint32_t *)((uintptr_t)t3 - 10);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t2 = (uint32_t *)&fix_point_mult2_32;
     a3 = *(uint32_t *)((char *)v0 + 0);
     v1 = *(uint32_t *)((char *)v0 + 4);
@@ -101971,6 +101975,7 @@ int64_t tisp_awb_set_gain(uintptr_t a0, uint32_t a1)
     /* fragment 7: Arithmetic */
     /* unmatched fragment 7 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 30f20:	00002012 	mflo	a0 */
+    a0 = (typeof(a0))(uintptr_t)((uint32_t)(uintptr_t)a0 ? ((uint32_t)(uintptr_t)v0 / (uint32_t)(uintptr_t)a0) : 0);   /* T40-DIV-RESTORE: divu v0,a0 ; mflo a0 */
 
     /* fragment 8: MemoryAccess */
     *(uint16_t *)((char *)a1 + 0) = a0;
@@ -101984,12 +101989,13 @@ int64_t tisp_awb_set_gain(uintptr_t a0, uint32_t a1)
     /* fragment 10: Arithmetic */
     /* unmatched fragment 10 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 30f34:	00001012 	mflo	v0 */
+    v0 = (typeof(v0))(uintptr_t)((uint32_t)(uintptr_t)a0 ? ((uint32_t)(uintptr_t)v0 / (uint32_t)(uintptr_t)a0) : 0);   /* T40-DIV-RESTORE: divu v0,a0 ; mflo v0 */
 
     /* fragment 11: MemoryAccess */
     *(uint16_t *)((char *)a1 + 2) = v0;
     v0 = *(uint32_t *)((char *)s0 + 480);
     a0 = *(uint8_t *)((char *)v0 + 0);
-    v0 = a0 - 1;
+    v0 = (uintptr_t *)((uintptr_t)a0 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = v0 < 8;
 
     /* fragment 12: Branch */
@@ -102195,13 +102201,13 @@ tisp_awb_set_gain0x328:
     /* fragment 46: MemoryAccess */
     a0 = *(uint32_t *)((char *)s0 + 488);
     v0 = *(uint16_t *)((char *)a0 + 0);
-    v0 = v0 + 64;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 64);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 * a1;
     v0 = (uintptr_t)v0 >> 6;
     local_18 = v0;
     v0 = *(uint16_t *)((char *)a0 + 2);
     a0 = local_1c;
-    v0 = v0 + 64;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 64);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 * a0;
     v0 = (uintptr_t)v0 >> 6;
 
@@ -102577,7 +102583,7 @@ int32_t tisp_awb_get_statistics(uintptr_t a0, uintptr_t a1)
     a3 = 3145728;
     s3 = 3;
     v0 = (uintptr_t)t5 * (uintptr_t)t4;
-    t3 = t3 + 128;
+    t3 = (uint32_t *)((uintptr_t)t3 + 128);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v1 = (uintptr_t)t3 * (uintptr_t)s2;
     a2 = (uintptr_t)v0 << 5;
 
@@ -102894,9 +102900,9 @@ tisp_awb_get_statistics0x358:
 
 tisp_awb_get_statistics0x464:
     /* fragment 33: Arithmetic */
-    s1 = s1 + 1;
+    s1 = (uint32_t *)((uintptr_t)s1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v1 = (uintptr_t)v1 + (uintptr_t)t3;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_get_statistics0x470:
     /* fragment 34: Arithmetic */
@@ -102907,7 +102913,7 @@ tisp_awb_get_statistics0x470:
 
     /* fragment 36: StackAccess */
     v0 = local_4;
-    s0 = s0 + 1;
+    s0 = (uint32_t *)((uintptr_t)s0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 37: Branch */
     a0 = a0 + (uintptr_t)v0;
@@ -103544,7 +103550,7 @@ int32_t tisp_awb_sec_interrupt_static(void)
     /* fragment 5: MemoryAccess */
     v1 = *(uint32_t *)((char *)((char *)&video_input_cmd_buf + 0x18));
     v0 = *(uint32_t *)((char *)v1 + 0);
-    v0 = v0 + 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     *(uint32_t *)((char *)v1 + 0) = v0;
     v0 = *(uint32_t *)((char *)((char *)&video_input_cmd_buf + 0x18));
     v1 = -1;
@@ -103590,7 +103596,7 @@ int64_t tisp_awb_long_par_update(uintptr_t a0, uintptr_t a1, uint32_t a2)
     /* fragment 0: MemoryAccess */
     v0 = *(uint32_t *)((char *)a0 + 12);
     v1 = *(uint32_t *)((char *)a0 + 464);
-    a3 = a2 + 14636;
+    a3 = (uintptr_t *)((uintptr_t)a2 + 14636);   /* T40-PTRSTEP: byte add (OEM addiu) */
     a2 = a2 + 14652;
     t2 = *(uint16_t *)((char *)v0 + 2);
     v1 = *(uint32_t *)((char *)v1 + 0);
@@ -103666,6 +103672,7 @@ tisp_awb_long_par_update0xdc:
     /* fragment 6: Arithmetic */
     /* unmatched fragment 6 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 31cf4:	00001012 	mflo	v0 */
+    v0 = (typeof(v0))(uintptr_t)((int32_t)(uintptr_t)a2 ? ((int32_t)(uintptr_t)v0 / (int32_t)(uintptr_t)a2) : 0);   /* T40-DIV-RESTORE: div v0,a2 ; mflo v0 */
 
     /* fragment 7: Branch */
     a2 = (uintptr_t)v0 + (uintptr_t)t1;
@@ -103690,7 +103697,7 @@ tisp_awb_long_par_update0x114:
     t3 = (uintptr_t)t3 + (uintptr_t)a3;
     t3 = *(uint32_t *)((char *)t3 + 0);
     t0 = t0 + (uintptr_t)a3;
-    a3 = a3 + 4;
+    a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 12: Branch */
     *(uint32_t *)((char *)t0 + 0) = t3;
@@ -103834,7 +103841,7 @@ tisp_awb_long_par_update0x2a8:
     t0 = *(uint32_t *)((char *)t0 + 0);
     t7 = t7 + (uintptr_t)t3;
     t0 = t0 - (uintptr_t)a3;
-    t3 = t3 + 4;
+    t3 = (uintptr_t *)((uintptr_t)t3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 29: Unknown */
     /* unmatched fragment 29 (Unknown): no deterministic matcher for Unknown */
@@ -103851,6 +103858,7 @@ tisp_awb_long_par_update0x2a8:
     /* fragment 32: Arithmetic */
     /* unmatched fragment 32 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 31ee0:	00003812 	mflo	a3 */
+    a3 = (typeof(a3))(uintptr_t)((int32_t)(uintptr_t)v0 ? ((int32_t)(uintptr_t)t0 / (int32_t)(uintptr_t)v0) : 0);   /* T40-DIV-RESTORE: div t0,v0 ; mflo a3 */
 
     /* fragment 33: Branch */
     *(uint32_t *)((char *)t7 + 0) = a3;
@@ -103878,7 +103886,7 @@ tisp_awb_long_par_update0x304:
     t3 = (uintptr_t)t3 + (uintptr_t)a3;
     t3 = *(uint32_t *)((char *)t3 + 0);
     t0 = t0 + (uintptr_t)a3;
-    a3 = a3 + 4;
+    a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 39: Branch */
     *(uint32_t *)((char *)t0 + 0) = t3;
@@ -103911,7 +103919,7 @@ tisp_awb_long_par_update0x344:
     t0 = *(uint32_t *)((char *)t0 + 0);
     t4 = (uintptr_t)t4 + (uintptr_t)t3;
     t0 = t0 - (uintptr_t)a3;
-    t3 = t3 + 4;
+    t3 = (uintptr_t *)((uintptr_t)t3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 45: Unknown */
     /* unmatched fragment 45 (Unknown): no deterministic matcher for Unknown */
@@ -103928,6 +103936,7 @@ tisp_awb_long_par_update0x344:
     /* fragment 48: Arithmetic */
     /* unmatched fragment 48 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 31f7c:	00003812 	mflo	a3 */
+    a3 = (typeof(a3))(uintptr_t)((int32_t)(uintptr_t)v0 ? ((int32_t)(uintptr_t)t0 / (int32_t)(uintptr_t)v0) : 0);   /* T40-DIV-RESTORE: div t0,v0 ; mflo a3 */
 
     /* fragment 49: Branch */
     *(uint32_t *)((char *)t4 + 0) = a3;
@@ -103956,6 +103965,7 @@ tisp_awb_long_par_update0x344:
     /* fragment 54: Arithmetic */
     /* unmatched fragment 54 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 31fb0:	00003012 	mflo	a2 */
+    a2 = (typeof(a2))(uintptr_t)((int32_t)(uintptr_t)v0 ? ((int32_t)(uintptr_t)a3 / (int32_t)(uintptr_t)v0) : 0);   /* T40-DIV-RESTORE: div a3,v0 ; mflo a2 */
 
     /* fragment 55: Branch */
     *(uint32_t *)((char *)t0 + 4) = a2;
@@ -104006,6 +104016,7 @@ tisp_awb_long_par_update0x414:
     /* fragment 63: Arithmetic */
     /* unmatched fragment 63 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 32018:	00001812 	mflo	v1 */
+    v1 = (typeof(v1))(uintptr_t)((int32_t)(uintptr_t)v0 ? ((int32_t)(uintptr_t)v1 / (int32_t)(uintptr_t)v0) : 0);   /* T40-DIV-RESTORE: div v1,v0 ; mflo v1 */
 
     /* fragment 64: Branch */
     *(uint32_t *)((char *)t0 + 4) = v1;
@@ -104022,7 +104033,7 @@ tisp_awb_long_par_update0x428:
     a2 = a2 + (uintptr_t)v0;
     a2 = *(uint32_t *)((char *)a2 + 0);
     v1 = (uintptr_t)v1 + (uintptr_t)v0;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 67: Branch */
     *(uint32_t *)((char *)v1 + 0) = a2;
@@ -104046,7 +104057,7 @@ tisp_awb_long_par_update0x464:
     a2 = a2 + (uintptr_t)v0;
     a2 = *(uint32_t *)((char *)a2 + 0);
     v1 = (uintptr_t)v1 + (uintptr_t)v0;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 71: Branch */
     *(uint32_t *)((char *)v1 + 0) = a2;
@@ -104076,7 +104087,7 @@ tisp_awb_long_par_update0x4a4:
     t2 = (uintptr_t)t2 + (uintptr_t)a3;
     t2 = *(uint32_t *)((char *)t2 + 0);
     t0 = t0 + (uintptr_t)a3;
-    a3 = a3 + 4;
+    a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 77: Branch */
     *(uint32_t *)((char *)t0 + 0) = t2;
@@ -104424,7 +104435,7 @@ tisp_awb_long_alogrithm0x184:
     t9 = t9 + (uintptr_t)v0;
     t9 = *(uint32_t *)((char *)t9 + 0);
     v1 = (uintptr_t)v1 + (uintptr_t)v0;
-    t8 = t8 + 1;
+    t8 = (uint32_t *)((uintptr_t)t8 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 21: Unknown */
     /* unmatched fragment 21 (Unknown): no deterministic matcher for Unknown */
@@ -104592,7 +104603,7 @@ tisp_awb_long_alogrithm0x184:
     s4 = *(uint32_t *)((char *)s8 + 156);
     s2 = *(uint32_t *)((char *)s8 + 336);
     t9 = *(uint32_t *)((char *)s8 + 316);
-    v1 = v0 + 900;
+    v1 = (uintptr_t *)((uintptr_t)v0 + 900);   /* T40-PTRSTEP: byte add (OEM addiu) */
     s2 = (uintptr_t)s2 + (uintptr_t)v0;
     s2 = *(uint32_t *)((char *)s2 + 0);
     t9 = t9 + (uintptr_t)v0;
@@ -104734,7 +104745,7 @@ tisp_awb_long_alogrithm0x184:
     s7 = *(uint32_t *)((char *)t9 + 0);
     s2 = (uintptr_t)s2 + (uintptr_t)v0;
     s2 = *(uint32_t *)((char *)s2 + 0);
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 67: Unknown */
     /* unmatched fragment 67 (Unknown): no deterministic matcher for Unknown */
@@ -104781,7 +104792,7 @@ tisp_awb_long_alogrithm0x570:
 tisp_awb_long_alogrithm0x588:
     /* fragment 73: CallSetup */
     s4 = 1;
-    s7 = s1 - 10;
+    s7 = (uintptr_t)s1 - 10;   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_50 = (uintptr_t)s4 << (uintptr_t)s1;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)s1, 1 << (uintptr_t)s1, (*(uint32_t *)((char *)(s5) + 0)) << ((uintptr_t)s1 - 10)); /* jalr target resolved by relocation */
 
@@ -104852,10 +104863,10 @@ tisp_awb_long_alogrithm0x65c:
     /* fragment 85: MemoryAccess */
     v0 = *(uint32_t *)((char *)s8 + 160);
     a0 = *(uint32_t *)((char *)s8 + 172);
-    t4 = s4 + 1800;
+    t4 = (uintptr_t *)((uintptr_t)s4 + 1800);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = v0 + s5;
     v0 = *(uint32_t *)((char *)v0 + 0);
-    t5 = s4 + 2700;
+    t5 = (uintptr_t *)((uintptr_t)s4 + 2700);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 86: Branch */
     t4 = a0 + (uintptr_t)t4;
@@ -104872,8 +104883,8 @@ tisp_awb_long_alogrithm0x65c:
 
 tisp_awb_long_alogrithm0x698:
     /* fragment 88: Arithmetic */
-    t3 = t3 + 1;
-    s4 = s4 + 4;
+    t3 = (uintptr_t *)((uintptr_t)t3 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    s4 = (uintptr_t *)((uintptr_t)s4 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_long_alogrithm0x6a0:
     /* fragment 89: StackAccess */
@@ -104881,11 +104892,11 @@ tisp_awb_long_alogrithm0x6a0:
     v0 = t3 < v0;
 
     /* fragment 90: Branch */
-    s5 = s4 + 900;
+    s5 = (uintptr_t)s4 + 900;   /* T40-PTRSTEP: byte add (OEM addiu) */
     if (v0 != 0) { goto tisp_awb_long_alogrithm0x628; }
 
     /* fragment 91: Branch */
-    t2 = t2 + 60;
+    t2 = (uint32_t *)((uintptr_t)t2 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
     goto tisp_awb_long_alogrithm0x5e4;
 
 tisp_awb_long_alogrithm0x6b8:
@@ -104967,7 +104978,7 @@ tisp_awb_long_alogrithm0x818:
     if (a3 != 0) { goto tisp_awb_long_alogrithm0x838; }
 
     /* fragment 103: Arithmetic */
-    t3 = t3 - 1;
+    t3 = (uintptr_t *)((uintptr_t)t3 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_long_alogrithm0x838:
     /* fragment 104: Branch */
@@ -104990,7 +105001,7 @@ tisp_awb_long_alogrithm0x84c:
     if (v1 != 0) { goto tisp_awb_long_alogrithm0x818; }
 
     /* fragment 109: Branch */
-    v0 = v0 + 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     goto tisp_awb_long_alogrithm0x610;
 
 tisp_awb_long_alogrithm0x864:
@@ -105138,8 +105149,8 @@ tisp_awb_long_alogrithm0x9dc:
 
 tisp_awb_long_alogrithm0xa10:
     /* fragment 136: Arithmetic */
-    t2 = t2 + 1;
-    v0 = v0 + 4;
+    t2 = (uint32_t *)((uintptr_t)t2 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_long_alogrithm0xa18:
     /* fragment 137: StackAccess */
@@ -105148,7 +105159,7 @@ tisp_awb_long_alogrithm0xa18:
 
     /* fragment 138: Branch */
     int _bc_v1_138 = v1 != 0;
-    v1 = v0 + 900;
+    v1 = (uintptr_t *)((uintptr_t)v0 + 900);   /* T40-PTRSTEP: byte add (OEM addiu) */
     if (_bc_v1_138) { goto tisp_awb_long_alogrithm0x9dc; }
 
     /* fragment 139: Branch */
@@ -105168,6 +105179,7 @@ tisp_awb_long_alogrithm0xa30:
     /* fragment 142: Arithmetic */
     /* unmatched fragment 142 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 32d38:	00003012 	mflo	a2 */
+    a2 = (typeof(a2))(uintptr_t)((uint32_t)(uintptr_t)a3 ? ((uint32_t)(uintptr_t)a2 / (uint32_t)(uintptr_t)a3) : 0);   /* T40-DIV-RESTORE: divu a2,a3 ; mflo a2 */
 
     /* fragment 143: MemoryAccess */
     *(uint32_t *)((char *)a1 + 0) = a2;
@@ -105187,6 +105199,7 @@ tisp_awb_long_alogrithm0xa30:
     /* fragment 145: Arithmetic */
     /* unmatched fragment 145 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 32d64:	00002812 	mflo	a1 */
+    a1 = (typeof(a1))(uintptr_t)((uint32_t)(uintptr_t)a3 ? ((uint32_t)(uintptr_t)a1 / (uint32_t)(uintptr_t)a3) : 0);   /* T40-DIV-RESTORE: divu a1,a3 ; mflo a1 */
 
     /* fragment 146: MemoryAccess */
     *(uint32_t *)((char *)a2 + 0) = a1;
@@ -105206,6 +105219,7 @@ tisp_awb_long_alogrithm0xa30:
     /* fragment 148: Arithmetic */
     /* unmatched fragment 148 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 32d90:	00002812 	mflo	a1 */
+    a1 = (typeof(a1))(uintptr_t)((uint32_t)(uintptr_t)v1 ? ((uint32_t)(uintptr_t)a1 / (uint32_t)(uintptr_t)v1) : 0);   /* T40-DIV-RESTORE: divu a1,v1 ; mflo a1 */
 
     /* fragment 149: Branch */
     *(uint32_t *)((char *)a2 + 0) = a1;
@@ -105219,7 +105233,7 @@ tisp_awb_long_alogrithm0xaa4:
     a1 = t0 < a1;
 
     /* fragment 151: Branch */
-    a2 = v0 + 900;
+    a2 = (uintptr_t *)((uintptr_t)v0 + 900);   /* T40-PTRSTEP: byte add (OEM addiu) */
     if (a1 != 0) { goto tisp_awb_long_alogrithm0xae0; }
 
     /* fragment 152: MemoryAccess */
@@ -105258,7 +105272,7 @@ tisp_awb_long_alogrithm0xae0:
 tisp_awb_long_alogrithm0xb20:
     /* fragment 156: Arithmetic */
     a0 = a0 + 1;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_long_alogrithm0xb28:
     /* fragment 157: StackAccess */
@@ -105270,7 +105284,7 @@ tisp_awb_long_alogrithm0xb28:
     if (a1 != 0) { goto tisp_awb_long_alogrithm0xaa4; }
 
     /* fragment 159: Arithmetic */
-    v1 = v1 + 1;
+    v1 = (uintptr_t *)((uintptr_t)v1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_long_alogrithm0xb3c:
     /* fragment 160: StackAccess */
@@ -105298,7 +105312,7 @@ tisp_awb_long_alogrithm0xb60:
     /* fragment 165: StackAccess */
     v0 = local_68;
     v0 = *(uint16_t *)((char *)v0 + 0);
-    v0 = v0 - 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = v0 < 2;
 
     /* fragment 166: Branch */
@@ -105403,7 +105417,7 @@ tisp_awb_long_alogrithm0xc34:
 tisp_awb_long_alogrithm0xc7c:
     /* fragment 189: MemoryAccess */
     a0 = *(uint32_t *)((char *)s8 + 416);
-    a1 = v0 - 4;
+    a1 = (uintptr_t)v0 - 4;   /* T40-PTRSTEP: byte add (OEM addiu) */
     v1 = a0 + (uintptr_t)v0;
     v1 = *(uint32_t *)((char *)v1 + 0);
     a0 = a0 + a1;
@@ -105417,7 +105431,7 @@ tisp_awb_long_alogrithm0xc7c:
     a0 = (uintptr_t)v1 + (uintptr_t)v0;
     a0 = *(uint32_t *)((char *)a0 + 0);
     v1 = v1 + a1;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 190: Branch */
     *(uint32_t *)((char *)v1 + 0) = a0;
@@ -105468,7 +105482,7 @@ tisp_awb_long_alogrithm0xd38:
 
     /* fragment 197: MemoryAccess */
     t6 = *(uint32_t *)((char *)t6 + 0);
-    v0 = v0 + 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     a1 = a1 + (uintptr_t)v0;
     t0 = (uintptr_t)v0 * (uintptr_t)t6;
     t6 = t7 + (uintptr_t)a2;
@@ -105477,7 +105491,7 @@ tisp_awb_long_alogrithm0xd38:
     a2 = *(uint32_t *)((char *)a2 + 0);
     a0 = a0 + (uintptr_t)v0;
     v1 = (uintptr_t)v1 + (uintptr_t)v0;
-    t4 = t4 + 4;
+    t4 = (uintptr_t *)((uintptr_t)t4 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t3 = t0 + (uintptr_t)t3;
     t0 = (uintptr_t)v0 * (uintptr_t)t6;
     t2 = t0 + (uintptr_t)t2;
@@ -105519,6 +105533,7 @@ tisp_awb_long_alogrithm0xd38:
     /* fragment 206: Arithmetic */
     /* unmatched fragment 206 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 330b4:	00003812 	mflo	a3 */
+    a3 = (typeof(a3))(uintptr_t)((uint32_t)(uintptr_t)v1 ? ((uint32_t)(uintptr_t)a3 / (uint32_t)(uintptr_t)v1) : 0);   /* T40-DIV-RESTORE: divu a3,v1 ; mflo a3 */
 
     /* fragment 207: MemoryAccess */
     *(uint32_t *)((char *)a0 + 0) = a3;
@@ -105638,7 +105653,7 @@ tisp_awb_long_alogrithm0xe98:
     a1 = *(uint32_t *)((char *)v1 + 0);
     v1 = *(uint32_t *)((char *)s8 + 424);
     v1 = (uintptr_t)v1 + (uintptr_t)v0;
-    v0 = v0 + 4;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 231: Branch */
     *(uint32_t *)((char *)v1 + 0) = a1;
@@ -105669,7 +105684,7 @@ tisp_awb_long_alogrithm0xef0:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_div)(s1); /* jalr target resolved by relocation */
 
     /* fragment 236: Arithmetic */
-    a0 = s3 - 1;
+    a0 = (uintptr_t)s3 - 1;   /* T40-PTRSTEP: byte add (OEM addiu) */
     v1 = 1;
     v1 = (uintptr_t)v1 << a0;
 
@@ -105795,7 +105810,7 @@ tisp_awb_long_alogrithm0x100c:
 
 tisp_awb_long_alogrithm0x1030:
     /* fragment 263: Arithmetic */
-    v0 = v0 + 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 264: Branch */
     int _bc_v0_264 = v0 == s0;
@@ -105816,7 +105831,7 @@ tisp_awb_long_alogrithm0x1054:
     /* fragment 267: MemoryAccess */
     *(uint32_t *)((char *)s6 + 20) = v0;
     v0 = *(uint32_t *)((char *)s6 + 4);
-    v0 = v0 + 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 268: Branch */
     *(uint32_t *)((char *)s6 + 4) = v0;
@@ -105850,6 +105865,7 @@ tisp_awb_long_alogrithm0x1068:
     /* fragment 273: Arithmetic */
     /* unmatched fragment 273 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 3339c:	00001012 	mflo	v0 */
+    v0 = (typeof(v0))(uintptr_t)((int32_t)(uintptr_t)s0 ? ((int32_t)(uintptr_t)v0 / (int32_t)(uintptr_t)s0) : 0);   /* T40-DIV-RESTORE: div v0,s0 ; mflo v0 */
 
     /* fragment 274: Branch */
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
@@ -105950,37 +105966,37 @@ int32_t tisp_awb_spec_calculate(uintptr_t a0, uint32_t a1)
 
 tisp_awb_spec_calculate0x40:
     /* fragment 5: Arithmetic */
-    v0 = a3 - 4;
+    v0 = (uintptr_t *)((uintptr_t)a3 - 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 6: StackAccess */
     local_2c = v0;
-    v0 = a3 - 60;
+    v0 = (uintptr_t *)((uintptr_t)a3 - 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_18 = v0;
-    v0 = a3 - 64;
+    v0 = (uintptr_t *)((uintptr_t)a3 - 64);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_14 = v0;
-    v0 = a3 - 68;
+    v0 = (uintptr_t *)((uintptr_t)a3 - 68);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_28 = v0;
-    v0 = a3 - 76;
+    v0 = (uintptr_t *)((uintptr_t)a3 - 76);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_24 = v0;
-    v0 = a3 - 80;
+    v0 = (uintptr_t *)((uintptr_t)a3 - 80);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_10 = v0;
-    v0 = a3 - 88;
+    v0 = (uintptr_t *)((uintptr_t)a3 - 88);   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_20 = v0;
     a0 = *(uint32_t *)((char *)s7 + 204);
-    v0 = a3 - 96;
+    v0 = (uintptr_t *)((uintptr_t)a3 - 96);   /* T40-PTRSTEP: byte add (OEM addiu) */
     a1 = *(uint32_t *)((char *)s7 + 108);
     local_1c = v0;
     v0 = (uintptr_t *)&memcpy;
-    t1 = a3 - 8;
+    t1 = (uint32_t *)((uintptr_t)a3 - 8);   /* T40-PTRSTEP: byte add (OEM addiu) */
     a2 = 10;
     v0 = v0;
-    s2 = a3 - 20;
-    s3 = a3 - 24;
-    s4 = a3 - 28;
-    s5 = a3 - 32;
-    s6 = a3 - 36;
-    s1 = a3 - 56;
-    s8 = a3 - 84;
+    s2 = (uint32_t *)((uintptr_t)a3 - 20);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    s3 = (uint32_t *)((uintptr_t)a3 - 24);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    s4 = (uint32_t *)((uintptr_t)a3 - 28);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    s5 = (uintptr_t)a3 - 32;   /* T40-PTRSTEP: byte add (OEM addiu) */
+    s6 = (uintptr_t)a3 - 36;   /* T40-PTRSTEP: byte add (OEM addiu) */
+    s1 = (uint32_t *)((uintptr_t)a3 - 56);   /* T40-PTRSTEP: byte add (OEM addiu) */
+    s8 = (uintptr_t)a3 - 84;   /* T40-PTRSTEP: byte add (OEM addiu) */
     local_38 = t0;
     local_34 = a3;
 
@@ -106003,7 +106019,7 @@ tisp_awb_spec_calculate0x40:
     a1 = v0 < 2;
 
     /* fragment 11: Branch */
-    v0 = v0 + 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     if (a1 == 0) { goto tisp_awb_spec_calculate0xf0; }
 
     /* fragment 12: MemoryAccess */
@@ -106085,6 +106101,7 @@ tisp_awb_spec_calculate0x118:
     /* fragment 31: Arithmetic */
     /* unmatched fragment 31 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 33580:	00002812 	mflo	a1 */
+    a1 = (typeof(a1))(uintptr_t)((uint32_t)(uintptr_t)a1 ? ((uint32_t)(uintptr_t)a0 / (uint32_t)(uintptr_t)a1) : 0);   /* T40-DIV-RESTORE: divu a0,a1 ; mflo a1 */
 
 tisp_awb_spec_calculate0x190:
     /* fragment 32: MemoryAccess */
@@ -106147,7 +106164,7 @@ tisp_awb_spec_calculate0x218:
 
     /* fragment 44: MemoryAccess */
     a0 = *(uint32_t *)((char *)s7 + 212);
-    v0 = v0 + 2;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 2);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 >> 2;
 
     /* fragment 45: Branch */
@@ -106213,7 +106230,7 @@ tisp_awb_spec_calculate0x2f0:
 
     /* fragment 60: MemoryAccess */
     a0 = *(uint32_t *)((char *)s7 + 212);
-    v0 = v0 + 2;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 2);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 >> 2;
 
     /* fragment 61: Branch */
@@ -106272,7 +106289,7 @@ tisp_awb_spec_calculate0x3b8:
 
     /* fragment 74: MemoryAccess */
     a0 = *(uint32_t *)((char *)s7 + 212);
-    v0 = v0 + 2;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 2);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 >> 2;
 
     /* fragment 75: Branch */
@@ -106330,7 +106347,7 @@ tisp_awb_spec_calculate0x484:
 
     /* fragment 88: MemoryAccess */
     a0 = *(uint32_t *)((char *)s7 + 212);
-    v0 = v0 + 2;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 2);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 >> 2;
 
     /* fragment 89: Branch */
@@ -106389,7 +106406,7 @@ tisp_awb_spec_calculate0x54c:
 
     /* fragment 102: MemoryAccess */
     a0 = *(uint32_t *)((char *)s7 + 212);
-    v0 = v0 + 2;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 2);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 >> 2;
 
     /* fragment 103: Branch */
@@ -106438,7 +106455,7 @@ tisp_awb_spec_calculate0x62c:
 
     /* fragment 113: MemoryAccess */
     a0 = *(uint32_t *)((char *)s7 + 212);
-    v0 = v0 + 2;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 2);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 >> 2;
 
     /* fragment 114: Branch */
@@ -106449,8 +106466,16 @@ tisp_awb_spec_calculate0x62c:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000033a7c origin=fragment_seed original=tisp_awb_main_process */
+static bool regtrace_t40_vendor_awb_process;   /* T40-AWB: run the lifted vendor AWB algorithm on event 14 (default off: the lift of tisp_awb_long_alogrithm/ct_detect still has ~20 unrestored div/mflo sites and hung the event thread in FBL15) */
+module_param_named(t40_vendor_awb_process, regtrace_t40_vendor_awb_process, bool, 0644);
+static uint32_t regtrace_t40_vendor_awb_process_skipped;
+module_param_named(t40_vendor_awb_process_skipped, regtrace_t40_vendor_awb_process_skipped, uint, 0444);
 int64_t tisp_awb_main_process(void)
 {
+    if (!regtrace_t40_vendor_awb_process) {
+        regtrace_t40_vendor_awb_process_skipped++;
+        return 0;
+    }
     /* OEM event ABI: 12 words, id at +8, eight payload words at +16. */
     uint32_t event_10[12] = { 0 };
     uint32_t local_44 = 0;
@@ -106522,7 +106547,7 @@ tisp_awb_main_process0x8c:
 
     /* fragment 11: MemoryAccess */
     v0 = *(uint8_t *)((char *)((char *)&awb_num));
-    v0 = v0 + 1;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t)v0 & 255;
     a0 = v0 < 101;
 
@@ -106911,7 +106936,7 @@ int32_t tisp_awb_param_array_set(uint32_t a0, uintptr_t a1)
 
     /* fragment 2: CallSetup */
     s0 = (uintptr_t *)&isp_memopt;
-    s0 = s0 + 16180;
+    s0 = (uintptr_t *)((uintptr_t)s0 + 16180);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_param_array_set0x1c:
     /* fragment 3: CallSetup */
@@ -106994,7 +107019,7 @@ uint32_t tisp_awb_dn_params_refresh(uint32_t a0)
 
     /* fragment 4: CallSetup */
     s0 = (uintptr_t *)&pstSecAwbOri;
-    s0 = s0 + 15668;
+    s0 = (uintptr_t *)((uintptr_t)s0 + 15668);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_dn_params_refresh0x30:
     /* fragment 5: CallSetup */
@@ -107061,7 +107086,7 @@ int32_t tisp_awb_tgain_update(uint32_t a0, uint32_t a1, uint32_t a2)
 
     /* fragment 2: CallSetup */
     s0 = (uintptr_t *)&pstMainAwbOri;
-    s0 = s0 + 16180;
+    s0 = (uintptr_t *)((uintptr_t)s0 + 16180);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_tgain_update0x1c:
     /* fragment 3: CallSetup */
@@ -107261,7 +107286,7 @@ tisp_awb_get_weight0x18:
     a0 = a0 + (uintptr_t)v1;
     a3 = *(uint8_t *)((char *)a0 + 0);
     a0 = a1 + (uintptr_t)v1;
-    v1 = v1 + 1;
+    v1 = (uint32_t *)((uintptr_t)v1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 4: Branch */
     *(uint8_t *)((char *)a0 + 0) = a3;
@@ -107754,7 +107779,7 @@ int64_t tisp_awb_sec_face_pos(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3
 
     /* fragment 2: StackAccess */
     local_14 = s0;
-    s3 = s3 + 15668;
+    s3 = (uintptr_t *)((uintptr_t)s3 + 15668);   /* T40-PTRSTEP: byte add (OEM addiu) */
     s0 = a1;
     a1 = a2 < a1;
     local_1c = s2;
@@ -107989,7 +108014,7 @@ tisp_awb_sec_face_pos0x208:
     a1 = (uintptr_t)s0 | 2;
 
     /* fragment 52: Branch */
-    a0 = s0 - 32088;
+    a0 = (uintptr_t)s0 - 32088;   /* T40-PTRSTEP: byte add (OEM addiu) */
     goto tisp_awb_sec_face_pos0x198;
 
 tisp_awb_sec_face_pos0x224:
