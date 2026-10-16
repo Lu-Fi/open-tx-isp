@@ -88315,7 +88315,7 @@ tisp_ae_long_tune20xa74:
 
 tisp_ae_long_tune20xa84:
     /* fragment 178: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_long_target)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_target)(a0, (uintptr_t)&local_48, (uintptr_t)&local_20, (uintptr_t)s0); /* T40-1ARG: OEM 0x265e0..0x265f0 a1=sp+72 (local_48), a2=sp+32 (local_20), a3=s0 - the lift dropped three args (FBL16/17 AdEL at *(a1), a1=0x490197) */
 
     /* fragment 179: Branch */
     local_84 = v0;
