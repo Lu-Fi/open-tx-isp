@@ -87245,6 +87245,18 @@ int64_t tisp_ae_long_tune2(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3,
     v0 = regtrace_ae_cache_for_channel(a0);
     if (!regtrace_is_kernel_ptr((void *)v0))
         return -EINVAL;
+    {   /* T40-AE-TUNE2-DIAG (fable): one-shot dump of the ctx pointer table the head of this
+         * function dereferences (OEM 0x25bac..0x25d3c), to pin the FBL13 Oops (BadVA = buffer end + 8). */
+        static unsigned int tune2_dump;
+        if (tune2_dump++ < 2 && regtrace_is_kernel_ptr((void *)a1)) {
+            const uint32_t *c = (const uint32_t *)a1;
+            printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2 ctx=%p inter=%p outer=%p a2=%p a3=%u | +0=%x +4=%x +8=%x +12=%x +16=%x +28=%x +32=%x +44=%x +48=%x +52=%x +108=%x\n",
+                   (void *)a1, (void *)(uintptr_t)*(uint32_t *)&stMainAeInter, (void *)(uintptr_t)*(uint32_t *)&stMainAeOuter, (void *)a2, (unsigned)a3,
+                   c[0], c[1], c[2], c[3], c[4], c[7], c[8], c[11], c[12], c[13], c[27]);
+            printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2 +260=%x +264=%x +284=%x +288=%x +292=%x +296=%x +304=%x +308=%x +312=%x +324=%x +328=%x +332=%x\n",
+                   c[65], c[66], c[71], c[72], c[73], c[74], c[76], c[77], c[78], c[81], c[82], c[83]);
+        }
+    }
 
     /* fragment 2: StackAccess */
     local_d0 = a0 << 2;
