@@ -81209,13 +81209,13 @@ tisp_ae_sensor_inform0x200:
     a0 = 4294901760;
     v1 = (uintptr_t)v1 << 1;
     v1 = (uintptr_t)v1 & a0;
-    v1 = v1 + 2;
+    v1 = (uintptr_t *)((uintptr_t)v1 + 2);   /* T40-PTRSTEP: byte add */
     *(uint32_t *)((char *)v0 + 16) = v1;
     v0 = *(uint32_t *)((char *)s1 + 48);
     v1 = *(uint32_t *)((char *)s0 + 316);
     v0 = (uintptr_t)v0 << 1;
     v0 = (uintptr_t)v0 & a0;
-    v0 = v0 + 2;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 2);   /* T40-PTRSTEP: byte add */
     *(uint32_t *)((char *)v1 + 20) = v0;
     ra = local_34;
     s7 = local_30;
@@ -91142,7 +91142,7 @@ int64_t tisp_ae_main_long_ev_alloc(uintptr_t a0, uintptr_t a1, uintptr_t a2, uin
     s8 = a1;
     local_1fc = v0;
     v0 = 67108864;
-    v0 = v0 + 1024;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1024);   /* T40-PTRSTEP: 0x4000000 + 1024 (byte add) */
     local_1f0 = v0;
     local_1f4 = v0;
     v0 = 1;
@@ -91241,13 +91241,14 @@ tisp_ae_main_long_ev_alloc0x15c:
     /* fragment 21: Unknown */
     /* unmatched fragment 21 (Unknown): no deterministic matcher for Unknown */
     /* asm: 27ad8:	7c105620 	seh	t2,s0 */
+    t2 = (uint32_t *)(uintptr_t)(int32_t)(int16_t)(uintptr_t)s0;   /* T40-SEH */
 
     /* fragment 22: Arithmetic */
     v0 = t2;
 
 tisp_ae_main_long_ev_alloc0x18c:
     /* fragment 23: Arithmetic */
-    a0 = v0 + 1;
+    a0 = (uintptr_t)v0 + 1;   /* T40-PTRSTEP: addiu a0,v0,1 */
 
     /* fragment 24: Branch */
     if (a0 > 0) { goto tisp_ae_main_long_ev_alloc0x4cc; }
@@ -91267,7 +91268,7 @@ tisp_ae_main_long_ev_alloc0x18c:
 
 tisp_ae_main_long_ev_alloc0x1e8:
     /* fragment 28: Arithmetic */
-    a0 = v0 + 1;
+    a0 = (uintptr_t)v0 + 1;   /* T40-PTRSTEP: addiu a0,v0,1 */
 
     /* fragment 29: Branch */
     int _bc_a0_29 = a0 > 0;
@@ -91330,7 +91331,7 @@ tisp_ae_main_long_ev_alloc0x28c:
     s6 = (uintptr_t)&tisp_event_push;
     s6 = s6;
     *(uint32_t *)((char *)v1 + 8) = v0;
-    v1 = s0 + 4;
+    v1 = (uintptr_t *)((uintptr_t)s0 + 4);   /* T40-PTRSTEP: addiu v1,s0,4 */
     v0 = (uintptr_t)s4 + (uintptr_t)v1;
     a1 = *(uint32_t *)((char *)v0 + 0);
     v0 = *(uint32_t *)((char *)s8 + 152);
@@ -91620,7 +91621,7 @@ tisp_ae_main_long_ev_alloc0x548:
 
 tisp_ae_main_long_ev_alloc0x554:
     /* fragment 102: Arithmetic */
-    v0 = t2 + 1;
+    v0 = (uintptr_t *)((uintptr_t)t2 + 1);   /* T40-PTRSTEP: addiu v0,t2,1 */
 
     /* fragment 103: Branch */
     int _bc_v0_103 = v0 <= 0;
@@ -91641,6 +91642,7 @@ tisp_ae_main_long_ev_alloc0x554:
     /* fragment 105: Unknown */
     /* unmatched fragment 105 (Unknown): no deterministic matcher for Unknown */
     /* asm: 27ed8:	7c0a5620 	seh	t2,t2 */
+    t2 = (uint32_t *)(uintptr_t)(int32_t)(int16_t)(uintptr_t)t2;   /* T40-SEH */
 
     /* fragment 106: Branch */
     *(uint32_t *)((char *)v0 + 0) = a0;
