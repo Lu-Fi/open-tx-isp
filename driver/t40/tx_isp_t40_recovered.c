@@ -95262,7 +95262,7 @@ int64_t tisp_ae_main_process(void)
 
     /* fragment 2: StackAccess */
     local_268 = s6;
-    s6 = s0 + 14624;
+    s6 = (uintptr_t)&pstMainAeOri;   /* OEM 0x2b130 addiu s6,s0,15280 = .bss+15280 = pstMainAeOri (lift: isp_memopt+14624, a pointer step on top) */
     v1 = *(uint32_t *)((char *)s6 + 64);
     local_254 = s1;
     local_26c = ra;
@@ -95293,7 +95293,7 @@ tisp_ae_main_process0x5c:
     if (a1 != 0) { goto tisp_ae_main_process0x234; }
 
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_ctrls_update)(0, &isp_memopt, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_ctrls_update)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
 
     /* fragment 9: MemoryAccess */
     v1 = *(uint8_t *)((char *)s2 + 1296);
@@ -95331,7 +95331,7 @@ tisp_ae_main_process0xc4:
     if (a0 != 0) { goto tisp_ae_main_process0x25c; }
 
     /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_sensor_inform)(0, &isp_memopt, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_sensor_inform)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
 
     /* fragment 18: CallSetup */
     *(uint8_t *)((char *)s2 + 1296) = 0;
@@ -95342,7 +95342,7 @@ tisp_ae_main_process0xf0:
 
 tisp_ae_main_process0xf4:
     /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_alogrithm)(0, &isp_memopt, &tisp_ae_main_ctrls); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_alogrithm)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls); /* jalr target resolved by relocation */
 
     /* fragment 21: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&ta_custom_en));
@@ -95366,7 +95366,7 @@ tisp_ae_main_process0x128:
     if (a0 != 0) { goto tisp_ae_main_process0x270; }
 
     /* fragment 26: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_main_long_ev_alloc)(0, &isp_memopt, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_main_long_ev_alloc)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
 
     /* fragment 27: MemoryAccess */
     v0 = *(uint32_t *)((char *)s6 + 76);
@@ -95396,7 +95396,7 @@ tisp_ae_main_process0x180:
     if (v1 != 0) { goto tisp_ae_main_process0x284; }
 
     /* fragment 34: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_short_ctrls_update)(0, &isp_memopt, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_short_ctrls_update)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
 
     /* fragment 35: Arithmetic */
     v0 = 0;
@@ -95410,7 +95410,7 @@ tisp_ae_main_process0x1ac:
     if (v1 != 0) { goto tisp_ae_main_process0x298; }
 
     /* fragment 38: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_main_short_ev_alloc)(0, &isp_memopt, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_main_short_ev_alloc)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
 
 tisp_ae_main_process0x1d4:
     /* fragment 39: CallSetup */
@@ -95418,7 +95418,7 @@ tisp_ae_main_process0x1d4:
 
 tisp_ae_main_process0x1d8:
     /* fragment 40: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_main_long_process_api)(&isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_main_long_process_api)((uintptr_t)&pstMainAeOri /* .bss+15280 */); /* jalr target resolved by relocation */
 
     /* fragment 41: MemoryAccess */
     v1 = *(uint32_t *)((char *)((char *)&ta_custom_en));
@@ -95527,11 +95527,11 @@ tisp_ae_main_process0x2c0:
     if (a1 != 0) { goto tisp_ae_main_process0x34c; }
 
     /* fragment 65: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_short_ctrls_update)(0, &isp_memopt, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_short_ctrls_update)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
 
 tisp_ae_main_process0x2ec:
     /* fragment 66: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_short_weight_mean2)(&isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_short_weight_mean2)((uintptr_t)&pstMainAeOri /* .bss+15280 */); /* jalr target resolved by relocation */
 
     /* fragment 67: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&ta_custom_en));
@@ -95552,7 +95552,7 @@ tisp_ae_main_process0x318:
     if (a1 != 0) { goto tisp_ae_main_process0x360; }
 
     /* fragment 72: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_main_short_ev_alloc)(0, &isp_memopt, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_main_short_ev_alloc)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
 
     /* fragment 73: Branch */
     v1 = *(uint32_t *)((char *)((char *)&ta_custom_en));
