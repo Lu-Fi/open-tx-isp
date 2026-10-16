@@ -2572,6 +2572,7 @@ static const char LC180[] = "[%s %d] [ %s:%d ] Failed to init tuning module!\n";
  * (46/47 AE, 0x32 LCE, 0x33 ADR); 16 entries overflowed into .bss. */
 #define T40_IRQ_FUNC_CB_N 80
 static int32_t irq_func_cb[T40_IRQ_FUNC_CB_N];
+static inline uintptr_t t40_sensor_cb2(uint32_t off, uintptr_t a0, uintptr_t a1);   /* T40-SENSOR-CB, defined before tisp_set_sensor_analog_gain */
 static const char LC181[] = "dl = %d y = %d uv = %d\n";
 static const char LC182[] = "[ %s:%d ] ispcore: irq-status unusual 0x%08x, 0x%x, 0x%x\n ";
 static const char LC183[] = "ispcore: isp overflow!!! isp_overflow_count = %d\n";
@@ -50699,7 +50700,12 @@ static void regtrace_isp_irq_post_dispatch_ack(int32_t irq, void *dev_id)
             }
         }
 
-        if (status0)
+        /* T40-CORE-ACK: with the OEM core ISR active it already acks exactly the status bits it
+         * read (0x7bd00 sw s2,36(v0)); bits that arrive while the (now ms-long) 3A stats handlers
+         * run must stay pending so the level IRQ re-fires and the ISR sees them (FBL21: frame-done
+         * bit 0 showed up only in this post-dispatch readout, was W1C-acked here unhandled, and
+         * legA/frames stayed at 0). */
+        if (status0 && !regtrace_core_ops_cb)
             writel(status0, regs + 0x40024);
 
         mask1 = readl(regs + 0x40030);
@@ -89733,6 +89739,7 @@ int32_t tisp_ae_short_alogrithm(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026b50 origin=fragment_seed original=tisp_ae_long_set_sensor_integration_time */
 int32_t tisp_ae_long_set_sensor_integration_time(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3, uint32_t arg4)
 {
+    uint32_t t40_it_out = 0;   /* OEM sp+28 out slot */
     uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_1c = 0;
@@ -89781,14 +89788,14 @@ int32_t tisp_ae_long_set_sensor_integration_time(uint32_t a0, uintptr_t a1, uint
 
 tisp_ae_long_set_sensor_integration_time0x54:
     /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(a2) + 12)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x15c, (uintptr_t)*(uint32_t *)((char *)(a2) + 12), (uintptr_t)&t40_it_out); /* OEM 0x275a4/0x275c4: sensor_alloc_integration_time(*(a2+12), sp+28) */
 
     /* fragment 6: CallSetup */
     *(uint32_t *)((char *)s0 + 0) = v0;
 
 tisp_ae_long_set_sensor_integration_time0x60:
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_32, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x164, (uintptr_t)local_32, (uintptr_t)&local_10); /* OEM 0x275a8/0x275d4: sensor_set_integration_time(lhu 50(sp), sp+16) */
 
     /* fragment 8: Epilogue */
     /* function epilogue: restore registers and return */
@@ -89802,7 +89809,7 @@ tisp_ae_long_set_sensor_integration_time0x60:
 
 tisp_ae_long_set_sensor_integration_time0x90:
     /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x15c, (uintptr_t)s3, (uintptr_t)&t40_it_out); /* OEM 0x27600: sensor_alloc_integration_time(s3, sp+28) */
 
     /* fragment 12: Arithmetic */
     s2 = v0;
@@ -89948,6 +89955,22 @@ tisp_ae_short_set_sensor_integration_time0x108:
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
 
+/* T40-SENSOR-CB (fable): the OEM passes the 420-byte sensor_ctrl block BY VALUE down
+ * tisp_ae_main_process -> *_ev_alloc -> tisp_set_ae_long_ag -> tisp_set_sensor_*_gain (the
+ * 416/420-byte stack copies), and the leaf setters fetch the sensor callbacks out of the caller's
+ * copy at fixed frame offsets (0x277ac lw v0,396(sp) = copy+324 = sensor_ctrl_main+0x14c ...).
+ * The lift turned those into regtrace_unresolved_jalr(); call the slots of the global directly. */
+#define T40_SENSOR_CB(off) (*(uint32_t *)((char *)&sensor_ctrl_main + (off)))
+static inline uintptr_t t40_sensor_cb2(uint32_t off, uintptr_t a0, uintptr_t a1)
+{
+    uintptr_t fn = T40_SENSOR_CB(off);
+    static unsigned int t40_sensor_cb_trace;
+    if (!regtrace_is_kernel_ptr((void *)fn))
+        return 0;
+    if (t40_sensor_cb_trace++ < 12)
+        printk(KERN_INFO "tx_isp_t40_recovered: AE vendor apply cb+0x%x fn=%p a0=0x%lx a1=%p\n", off, (void *)fn, (unsigned long)a0, (void *)a1);
+    return ((uintptr_t (*)(uintptr_t, uintptr_t))fn)(a0, a1);
+}
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026d58 origin=fragment_seed original=tisp_set_sensor_analog_gain */
 uint32_t tisp_set_sensor_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
@@ -89973,14 +89996,14 @@ uint32_t tisp_set_sensor_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x14c, (uintptr_t)v0, (uintptr_t)&local_10); /* OEM 0x277ac: sensor_alloc_analog_gain(log2gain, &again_out) */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_14, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x174, (uintptr_t)local_14, (uintptr_t)&local_10); /* OEM 0x277d8: sensor_set_analog_gain(again, &ctx) */
 
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
@@ -90065,14 +90088,14 @@ uint32_t tisp_set_sensor_digital_gain(uint32_t a0, uint32_t a1, uint32_t a2, uin
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(v0, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x154, (uintptr_t)v0, (uintptr_t)&local_10); /* OEM 0x278ac: sensor_alloc_digital_gain */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(local_18, &local_10); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x17c, (uintptr_t)local_18, (uintptr_t)&local_10); /* OEM 0x278d8: sensor_set_digital_gain */
 
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
