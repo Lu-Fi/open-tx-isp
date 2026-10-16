@@ -68138,6 +68138,7 @@ tisp_awb_ct_detect0x2c0:
     /* fragment 28: Unknown */
     /* unmatched fragment 28 (Unknown): no deterministic matcher for Unknown */
     /* asm: 199d4:	0047001b 	divu	zero,v0,a3 */
+    v0 = (typeof(v0))(uintptr_t)((uint32_t)(uintptr_t)a3 ? ((uint32_t)(uintptr_t)v0 / (uint32_t)(uintptr_t)a3) : 0U);   /* T40-DIV-RESTORE: divu v0,a3 ; mflo v0 */
 
     /* fragment 29: Arithmetic */
     /* unmatched fragment 29 (Arithmetic): arithmetic fragment did not contain supported register operations */
@@ -68535,6 +68536,7 @@ tisp_awb_ct_detect0x600:
     v0 = *(uint32_t *)((char *)v0 + 896);
     a2 = local_58;
     local_10 = a1;
+    a0 = (typeof(a0))(uintptr_t)((uint32_t)(uintptr_t)v0 ? ((uint32_t)(uintptr_t)a0 / (uint32_t)(uintptr_t)v0) : 0U);   /* T40-DIV-RESTORE: divu a0,v0 ; mflo a0 */
     a1 = local_64;
     a3 = s0;
 
@@ -68970,6 +68972,7 @@ tisp_awb_ct_detect0xb90:
     /* fragment 168: Arithmetic */
     /* unmatched fragment 168 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1a294:	00420018 	mult	v0,v0 */
+    v0 = (typeof(v0))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)v0 * (uint32_t)(uintptr_t)v0 + (uint32_t)(uintptr_t)t8 * (uint32_t)(uintptr_t)t8);   /* T40-MULT-RESTORE: mult v0,v0 ; madd t8,t8 ; mflo v0 */
 
     /* fragment 169: Unknown */
     /* unmatched fragment 169 (Unknown): no deterministic matcher for Unknown */
@@ -69121,6 +69124,7 @@ tisp_awb_ct_detect0xcb0:
     /* fragment 203: Arithmetic */
     /* unmatched fragment 203 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1a3b4:	00420018 	mult	v0,v0 */
+    t7 = (typeof(t7))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)v0 * (uint32_t)(uintptr_t)v0 + (uint32_t)(uintptr_t)t7 * (uint32_t)(uintptr_t)t7);   /* T40-MULT-RESTORE: mult v0,v0 ; madd t7,t7 ; mflo t7 */
 
     /* fragment 204: Unknown */
     /* unmatched fragment 204 (Unknown): no deterministic matcher for Unknown */
@@ -69623,6 +69627,7 @@ tisp_awb_ct_detect0x1110:
     /* fragment 304: Arithmetic */
     /* unmatched fragment 304 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1a814:	016b0018 	mult	t3,t3 */
+    a3 = (typeof(a3))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)t3 * (uint32_t)(uintptr_t)t3 + (uint32_t)(uintptr_t)a3 * (uint32_t)(uintptr_t)a3);   /* T40-MULT-RESTORE: mult t3,t3 ; madd a3,a3 ; mflo a3 */
 
     /* fragment 305: StackAccess */
     t0 = local_e4;
@@ -69667,6 +69672,7 @@ tisp_awb_ct_detect0x1154:
     /* fragment 315: Unknown */
     /* unmatched fragment 315 (Unknown): no deterministic matcher for Unknown */
     /* asm: 1a864:	00a6001b 	divu	zero,a1,a2 */
+    a1 = (typeof(a1))(uintptr_t)((uint32_t)(uintptr_t)a2 ? ((uint32_t)(uintptr_t)a1 / (uint32_t)(uintptr_t)a2) : 0U);   /* T40-DIV-RESTORE: divu a1,a2 ; mflo a1 */
 
     /* fragment 316: Arithmetic */
     t7 = a3 + t7;
@@ -69679,6 +69685,7 @@ tisp_awb_ct_detect0x1154:
     /* fragment 318: Unknown */
     /* unmatched fragment 318 (Unknown): no deterministic matcher for Unknown */
     /* asm: 1a87c:	01e6001b 	divu	zero,t7,a2 */
+    t7 = (typeof(t7))(uintptr_t)((uint32_t)(uintptr_t)a2 ? ((uint32_t)(uintptr_t)t7 / (uint32_t)(uintptr_t)a2) : 0U);   /* T40-DIV-RESTORE: divu t7,a2 ; mflo t7 */
 
     /* fragment 319: Arithmetic */
     a3 = t2 - a1;
@@ -69828,6 +69835,7 @@ tisp_awb_ct_detect0x1290:
     /* fragment 355: Arithmetic */
     /* unmatched fragment 355 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1a994:	00c60018 	mult	a2,a2 */
+    a1 = (typeof(a1))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)a2 * (uint32_t)(uintptr_t)a2 + (uint32_t)(uintptr_t)a1 * (uint32_t)(uintptr_t)a1);   /* T40-MULT-RESTORE: mult a2,a2 ; madd a1,a1 ; mflo a1 */
 
     /* fragment 356: StackAccess */
     v1 = local_e8;
@@ -69869,6 +69877,7 @@ tisp_awb_ct_detect0x12c0:
     /* fragment 366: Unknown */
     /* unmatched fragment 366 (Unknown): no deterministic matcher for Unknown */
     /* asm: 1a9dc:	0089001b 	divu	zero,a0,t1 */
+    a0 = (typeof(a0))(uintptr_t)((uint32_t)(uintptr_t)t1 ? ((uint32_t)(uintptr_t)a0 / (uint32_t)(uintptr_t)t1) : 0U);   /* T40-DIV-RESTORE: divu a0,t1 ; mflo a0 */
 
     /* fragment 367: MemoryAccess */
     *(uint32_t *)((char *)a3 + 480) = 0;
@@ -69878,6 +69887,7 @@ tisp_awb_ct_detect0x12c0:
     /* fragment 368: Unknown */
     /* unmatched fragment 368 (Unknown): no deterministic matcher for Unknown */
     /* asm: 1a9f0:	0089001b 	divu	zero,a0,t1 */
+    a0 = (typeof(a0))(uintptr_t)((uint32_t)(uintptr_t)t1 ? ((uint32_t)(uintptr_t)a0 / (uint32_t)(uintptr_t)t1) : 0U);   /* T40-DIV-RESTORE: divu a0,t1 ; mflo a0 */
 
     /* fragment 369: Arithmetic */
     /* unmatched fragment 369 (Arithmetic): arithmetic fragment did not contain supported register operations */
@@ -69979,6 +69989,7 @@ tisp_awb_ct_detect0x1398:
     /* fragment 392: Arithmetic */
     /* unmatched fragment 392 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1aa9c:	01ef0018 	mult	t7,t7 */
+    a0 = (typeof(a0))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)t7 * (uint32_t)(uintptr_t)t7 + (uint32_t)(uintptr_t)a0 * (uint32_t)(uintptr_t)a0);   /* T40-MULT-RESTORE: mult t7,t7 ; madd a0,a0 ; mflo a0 */
 
     /* fragment 393: StackAccess */
     v1 = local_a4;
@@ -70051,6 +70062,7 @@ tisp_awb_ct_detect0x1414:
     /* fragment 409: Unknown */
     /* unmatched fragment 409 (Unknown): no deterministic matcher for Unknown */
     /* asm: 1ab2c:	0086001b 	divu	zero,a0,a2 */
+    a0 = (typeof(a0))(uintptr_t)((uint32_t)(uintptr_t)a2 ? ((uint32_t)(uintptr_t)a0 / (uint32_t)(uintptr_t)a2) : 0U);   /* T40-DIV-RESTORE: divu a0,a2 ; mflo a0 */
 
     /* fragment 410: Arithmetic */
     /* unmatched fragment 410 (Arithmetic): arithmetic fragment did not contain supported register operations */
@@ -70110,6 +70122,7 @@ tisp_awb_ct_detect0x146c:
     /* fragment 424: Unknown */
     /* unmatched fragment 424 (Unknown): no deterministic matcher for Unknown */
     /* asm: 1ab90:	00a4001b 	divu	zero,a1,a0 */
+    a1 = (typeof(a1))(uintptr_t)((uint32_t)(uintptr_t)a0 ? ((uint32_t)(uintptr_t)a1 / (uint32_t)(uintptr_t)a0) : 0U);   /* T40-DIV-RESTORE: divu a1,a0 ; mflo a1 */
 
     /* fragment 425: Arithmetic */
     /* unmatched fragment 425 (Arithmetic): arithmetic fragment did not contain supported register operations */
@@ -70223,6 +70236,7 @@ tisp_awb_ct_detect0x1554:
     /* fragment 452: Arithmetic */
     /* unmatched fragment 452 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1ac58:	01ad0018 	mult	t5,t5 */
+    a1 = (typeof(a1))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)t5 * (uint32_t)(uintptr_t)t5 + (uint32_t)(uintptr_t)a1 * (uint32_t)(uintptr_t)a1);   /* T40-MULT-RESTORE: mult t5,t5 ; madd a1,a1 ; mflo a1 */
 
     /* fragment 453: StackAccess */
     v1 = local_a4;
@@ -70279,6 +70293,7 @@ tisp_awb_ct_detect0x15cc:
     /* fragment 464: Unknown */
     /* unmatched fragment 464 (Unknown): no deterministic matcher for Unknown */
     /* asm: 1acd0:	0044001b 	divu	zero,v0,a0 */
+    v0 = (typeof(v0))(uintptr_t)((uint32_t)(uintptr_t)a0 ? ((uint32_t)(uintptr_t)v0 / (uint32_t)(uintptr_t)a0) : 0U);   /* T40-DIV-RESTORE: divu v0,a0 ; mflo v0 */
 
     /* fragment 465: Arithmetic */
     t1 = (uintptr_t *)((uintptr_t)t1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
@@ -70421,6 +70436,7 @@ tisp_awb_ct_detect0x16f0:
     /* fragment 493: Arithmetic */
     /* unmatched fragment 493 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1adf4:	00420018 	mult	v0,v0 */
+    t7 = (typeof(t7))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)v0 * (uint32_t)(uintptr_t)v0 + (uint32_t)(uintptr_t)t7 * (uint32_t)(uintptr_t)t7);   /* T40-MULT-RESTORE: mult v0,v0 ; madd t7,t7 ; mflo t7 */
 
     /* fragment 494: Unknown */
     /* unmatched fragment 494 (Unknown): no deterministic matcher for Unknown */
@@ -70722,6 +70738,7 @@ tisp_awb_ct_detect0x1990:
     /* fragment 551: Unknown */
     /* unmatched fragment 551 (Unknown): no deterministic matcher for Unknown */
     /* asm: 1b100:	0014a023 	negu	s4,s4 */
+    s4 = (typeof(s4))(uintptr_t)(0U - (uint32_t)(uintptr_t)s4);   /* T40-NEGU-RESTORE: negu s4,s4 */
 
     /* fragment 552: Arithmetic */
     s2 = (uintptr_t *)&fix_point_mult3_32;
@@ -83837,224 +83854,55 @@ tisp_ae_params_refresh0x9ec:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000023568 origin=fragment_seed original=tisp_deflicker_expt */
 int64_t tisp_deflicker_expt(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t local_48 = 0;
-    uint32_t local_4c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uint32_t t0 = 0;
-    uint32_t *t1 = 0;
-    uint32_t *t2 = 0;
-    uintptr_t *t4 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+    /* Hand translation of OEM tisp_deflicker_expt (testimage 0x23f88 / eufy 0x23568).
+     * ctx = a1 (pstMainAeOri-like AE context), ch = a0.
+     *   shift = *(u16 *)ctrl           (ctrl = *(ctx+4))
+     *   p     = *(ctx+316): p[0] = flicker period base, p[2] = flicker step
+     *   tab   = *(ctx+48)  (u16[120] anti-flicker exposure table)
+     *   cnt   = *(ctx+52)  (u16 *, number of valid entries)
+     *   cache+1280 / cache+1284 = per-channel AE cache constants
+     * cnt = clamp(((p[0]*2 << shift) / cache1284) >> shift, 1, 120);
+     * tab[i-1] = (mult3(i << shift, cache1280, div(p[2] << shift, p[0]*2 << shift)) + half) >> shift
+     * for i = 1..cnt; tab[cnt..119] = tab[cnt-1]; *cnt -= 1; *(u8 *)*(ctx+168) = 1. */
+    uintptr_t cache = regtrace_ae_cache_for_channel(a0);
+    uint32_t c1280, c1284, shift, s2, t2, s3, half, q, v, i, cnt;
+    uint32_t *p;
+    uint16_t *tab, *pcnt;
 
-    /*
-     * TEMPORARY unblock: the loop below has a second translation defect -- the
-     * `div zero,s3,v0` at OEM 0x23618 is an untranslated "Unknown" fragment and
-     * the surrounding 120-entry anti-flicker loop hangs. Return early so
-     * tisp_ae_main_init reaches its handler registration (system_irq_func_set 4
-     * + tisp_event_set_cb 1) and the OEM AE/AWB chain comes alive. The
-     * anti-flicker table init is skipped (fliker_info/fliker_para stay zeroed,
-     * already memset by tisp_ae_main_init). TODO: port the loop faithfully
-     * against the OEM disasm (fix_point_div_32/mult3_32 + the missing div).
-     */
+    if (!cache || !regtrace_is_kernel_ptr((void *)a1))
+        return 0;
+    c1280 = *(uint32_t *)(cache + 1280);
+    c1284 = *(uint32_t *)(cache + 1284);
+    p = (uint32_t *)(uintptr_t)*(uint32_t *)((char *)a1 + 316);
+    shift = *(uint16_t *)(uintptr_t)*(uint32_t *)((char *)a1 + 4);
+    tab = (uint16_t *)(uintptr_t)*(uint32_t *)((char *)a1 + 48);
+    pcnt = (uint16_t *)(uintptr_t)*(uint32_t *)((char *)a1 + 52);
+    if (!regtrace_is_kernel_ptr(p) || !regtrace_is_kernel_ptr(tab) || !regtrace_is_kernel_ptr(pcnt))
+        return 0;
+    s2 = (p[0] << 1) << shift;
+    t2 = p[2] << shift;
+    v = (uint32_t)fix_point_div_32((int32_t)shift, (int32_t)s2, (int32_t)c1284);
+    v = (v >> shift) & 0xffffU;
+    if (v < 121) {
+        if (v == 0)
+            v = 1;
+    } else {
+        v = 120;
+    }
+    s3 = 1U << shift;
+    *pcnt = (uint16_t)v;
+    half = (uint32_t)((int32_t)s3 / 2);
+    cnt = v;
+    q = (uint32_t)fix_point_div_32((int32_t)shift, (int32_t)t2, (int32_t)s2);
+    for (i = 1; i <= cnt; i++) {
+        uint32_t m = fix_point_mult3_32(shift, i * s3, c1280, q);
+        tab[i - 1] = (uint16_t)((m + half) >> shift);
+    }
+    for (i = cnt; i < 120; i++)
+        tab[i] = tab[cnt - 1];
+    *pcnt = (uint16_t)(cnt - 1);
+    *(uint8_t *)(uintptr_t)*(uint32_t *)((char *)a1 + 168) = 1;
     return 0;
-
-    /* fragment 0: ConstantLoad */
-    v0 = ((char *)&LC29);
-
-    /*
-     * fragment 1: MemoryAccess
-     * OEM 0x23570-0x23578: sll a0,a0,2 ; addu a0,a0,v0 ; lw v0,0(a0)
-     * i.e. v0 = ((uint32_t *)&LC29)[a0] -- a table-of-pointers lookup indexed
-     * by a0. The original fragment translation dropped the sll/addu index math
-     * and emitted `v0 = *(a0)`, which NULL-derefs (a0 is 0 from the caller) and
-     * oopses the block-init thread before tisp_ae_main_init registers the AE
-     * stats handler -- the root cause of the dead OEM 3A chain.
-     */
-    v0 = *(uint32_t *)((char *)&LC29 + ((uintptr_t)a0 << 2));
-    local_3c = s5;
-    local_38 = s4;
-    local_4c = ra;
-    local_48 = s8;
-    local_44 = s7;
-    local_40 = s6;
-    local_34 = s3;
-    local_30 = s2;
-    local_2c = s1;
-    local_28 = s0;
-    a0 = *(uint32_t *)((char *)v0 + 1280);
-    v1 = *(uint32_t *)((char *)a1 + 316);
-    a2 = *(uint32_t *)((char *)v0 + 1284);
-    local_10 = a0;
-    a0 = *(uint32_t *)((char *)a1 + 4);
-    s2 = *(uint32_t *)((char *)v1 + 0);
-    s5 = (uintptr_t)&fix_point_div_32;
-    s0 = *(uint16_t *)((char *)a0 + 0);
-    s2 = (uintptr_t)s2 << 1;
-    s6 = *(uint32_t *)((char *)a1 + 48);
-    s2 = (uintptr_t)s2 << (uintptr_t)s0;
-    s1 = *(uint32_t *)((char *)a1 + 52);
-    s4 = a1;
-    a0 = s0;
-    a1 = s2;
-    s5 = s5;
-
-    /* fragment 2: CallSetup */
-    s3 = *(uint32_t *)((char *)(v1) + 8);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_div_32)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 3: Arithmetic */
-    v0 = (uintptr_t)v0 >> (uintptr_t)s0;
-    v0 = (uintptr_t)v0 & 65535;
-    v1 = v0 < 121;
-
-    /* fragment 4: Branch */
-    t2 = (uintptr_t)s3 << (uintptr_t)s0;
-    if (v1 != 0) { goto tisp_deflicker_expt0x13c; }
-
-    /* fragment 5: Arithmetic */
-    v0 = 120;
-
-tisp_deflicker_expt0xa0:
-    /* fragment 6: Arithmetic */
-    s3 = 1;
-    s3 = (uintptr_t)s3 << (uintptr_t)s0;
-
-    /* fragment 7: MemoryAccess */
-    *(uint16_t *)((char *)s1 + 0) = v0;
-    v0 = 2;
-
-    /* fragment 8: Unknown */
-    /* unmatched fragment 8 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 23618:	0262001a 	div	zero,s3,v0 */
-
-    /* fragment 9: Arithmetic */
-    s7 = (uintptr_t)&fix_point_mult3_32;
-    t4 = s6;
-    s8 = s3;
-    t1 = 1;
-    s7 = s7;
-
-tisp_deflicker_expt0xcc:
-    /* fragment 10: MemoryAccess */
-    v1 = *(uint16_t *)((char *)s1 + 0);
-    v0 = v1 < t1;
-
-    /* fragment 11: Branch */
-    a1 = t2;
-    if (v0 == 0) { goto tisp_deflicker_expt0x14c; }
-
-    /* fragment 12: Arithmetic */
-    a0 = (uintptr_t)v1 << 1;
-    a1 = 2147418112;
-    a0 = s6 + a0;
-    a1 = a1 | 65535;
-
-tisp_deflicker_expt0xec:
-    /* fragment 13: Arithmetic */
-    a2 = v1 < 120;
-
-    /* fragment 14: Branch */
-    v0 = *(uint16_t *)((char *)(s1) + 0);
-    if (a2 != 0) { goto tisp_deflicker_expt0x1a8; }
-
-    /* fragment 15: Arithmetic */
-    v0 = v0 - 1;
-
-    /* fragment 16: MemoryAccess */
-    *(uint16_t *)((char *)s1 + 0) = v0;
-    v0 = *(uint32_t *)((char *)s4 + 168);
-    v1 = 1;
-    *(uint8_t *)((char *)v0 + 0) = v1;
-    ra = local_4c;
-    s8 = local_48;
-    s7 = local_44;
-    s6 = local_40;
-    s5 = local_3c;
-    s4 = local_38;
-    s3 = local_34;
-    s2 = local_30;
-    s1 = local_2c;
-    s0 = local_28;
-
-    /* fragment 17: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_deflicker_expt0x13c:
-    /* fragment 18: Branch */
-    if (v0 != 0) { goto tisp_deflicker_expt0xa0; }
-
-    /* fragment 19: Branch */
-    v0 = 1;
-    goto tisp_deflicker_expt0xa0;
-
-tisp_deflicker_expt0x14c:
-    /* fragment 20: CallSetup */
-    local_20 = t0;
-    local_1c = t4;
-    local_18 = t1;
-    local_14 = t2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_div_32)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32(s0, s8, local_10, v0); /* jalr target resolved by relocation */
-
-    /* fragment 22: StackAccess */
-    t0 = local_20;
-    t4 = local_1c;
-    t1 = local_18;
-    v0 = v0 + t0;
-    v0 = (uintptr_t)v0 >> (uintptr_t)s0;
-    *(uint16_t *)((char *)t4 + 0) = v0;
-    t1 = t1 + 1;
-    s8 = s8 + (uintptr_t)s3;
-    t4 = t4 + 2;
-
-    /* fragment 23: Branch */
-    t2 = local_14;
-    goto tisp_deflicker_expt0xcc;
-
-tisp_deflicker_expt0x1a8:
-    /* fragment 24: Arithmetic */
-    v0 = v0 + a1;
-    v0 = (uintptr_t)v0 << 1;
-    v0 = s6 + (uintptr_t)v0;
-
-    /* fragment 25: MemoryAccess */
-    v0 = *(uint16_t *)((char *)v0 + 0);
-    v1 = v1 + 1;
-    a0 = a0 + 2;
-
-    /* fragment 26: Branch */
-    *(uint16_t *)((char *)a0 + -2) = v0;
-    goto tisp_deflicker_expt0xec;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000023730 origin=model_output original=system_reg_set_ae_trig */
@@ -104340,6 +104188,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 21: Unknown */
     /* unmatched fragment 21 (Unknown): no deterministic matcher for Unknown */
     /* asm: 324a4:	70990000 	madd	a0,t9 */
+    t9 = (typeof(t9))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)a1 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)a0 * (uint32_t)(uintptr_t)t9);   /* T40-MULT-RESTORE: mult a1,s2 ; madd a0,t9 ; mflo t9 */
 
     /* fragment 22: Arithmetic */
     /* unmatched fragment 22 (Arithmetic): arithmetic fragment did not contain supported register operations */
@@ -104359,6 +104208,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 24: Unknown */
     /* unmatched fragment 24 (Unknown): no deterministic matcher for Unknown */
     /* asm: 324d4:	70990000 	madd	a0,t9 */
+    t9 = (typeof(t9))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)a1 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)a0 * (uint32_t)(uintptr_t)t9);   /* T40-MULT-RESTORE: mult a1,s2 ; madd a0,t9 ; mflo t9 */
 
     /* fragment 25: Arithmetic */
     /* unmatched fragment 25 (Arithmetic): arithmetic fragment did not contain supported register operations */
@@ -104378,6 +104228,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 27: Unknown */
     /* unmatched fragment 27 (Unknown): no deterministic matcher for Unknown */
     /* asm: 32504:	70990000 	madd	a0,t9 */
+    t9 = (typeof(t9))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)a1 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)a0 * (uint32_t)(uintptr_t)t9);   /* T40-MULT-RESTORE: mult a1,s2 ; madd a0,t9 ; mflo t9 */
 
     /* fragment 28: Arithmetic */
     /* unmatched fragment 28 (Arithmetic): arithmetic fragment did not contain supported register operations */
@@ -104397,6 +104248,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 30: Unknown */
     /* unmatched fragment 30 (Unknown): no deterministic matcher for Unknown */
     /* asm: 32534:	70990000 	madd	a0,t9 */
+    t9 = (typeof(t9))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)a1 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)a0 * (uint32_t)(uintptr_t)t9);   /* T40-MULT-RESTORE: mult a1,s2 ; madd a0,t9 ; mflo t9 */
 
     /* fragment 31: Arithmetic */
     /* unmatched fragment 31 (Arithmetic): arithmetic fragment did not contain supported register operations */
@@ -104417,6 +104269,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 33: Unknown */
     /* unmatched fragment 33 (Unknown): no deterministic matcher for Unknown */
     /* asm: 32568:	70d90000 	madd	a2,t9 */
+    t9 = (typeof(t9))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)a3 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)a2 * (uint32_t)(uintptr_t)t9);   /* T40-MULT-RESTORE: mult a3,s2 ; madd a2,t9 ; mflo t9 */
 
     /* fragment 34: Arithmetic */
     t9 = s4 + t9;
@@ -104436,6 +104289,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 36: Unknown */
     /* unmatched fragment 36 (Unknown): no deterministic matcher for Unknown */
     /* asm: 325a0:	70d90000 	madd	a2,t9 */
+    t9 = (typeof(t9))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)a3 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)a2 * (uint32_t)(uintptr_t)t9);   /* T40-MULT-RESTORE: mult a3,s2 ; madd a2,t9 ; mflo t9 */
 
     /* fragment 37: Arithmetic */
     t9 = s4 + t9;
@@ -104455,6 +104309,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 39: Unknown */
     /* unmatched fragment 39 (Unknown): no deterministic matcher for Unknown */
     /* asm: 325d8:	70d90000 	madd	a2,t9 */
+    t9 = (typeof(t9))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)a3 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)a2 * (uint32_t)(uintptr_t)t9);   /* T40-MULT-RESTORE: mult a3,s2 ; madd a2,t9 ; mflo t9 */
 
     /* fragment 40: Arithmetic */
     t9 = s4 + t9;
@@ -104474,6 +104329,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 42: Unknown */
     /* unmatched fragment 42 (Unknown): no deterministic matcher for Unknown */
     /* asm: 32610:	70d90000 	madd	a2,t9 */
+    t9 = (typeof(t9))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)a3 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)a2 * (uint32_t)(uintptr_t)t9);   /* T40-MULT-RESTORE: mult a3,s2 ; madd a2,t9 ; mflo t9 */
 
     /* fragment 43: Arithmetic */
     t9 = s4 + t9;
@@ -104515,6 +104371,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 46: Unknown */
     /* unmatched fragment 46 (Unknown): no deterministic matcher for Unknown */
     /* asm: 32698:	71590000 	madd	t2,t9 */
+    t9 = (typeof(t9))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)t3 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)t2 * (uint32_t)(uintptr_t)t9);   /* T40-MULT-RESTORE: mult t3,s2 ; madd t2,t9 ; mflo t9 */
 
     /* fragment 47: Arithmetic */
     /* unmatched fragment 47 (Arithmetic): arithmetic fragment did not contain supported register operations */
@@ -104534,6 +104391,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 49: Unknown */
     /* unmatched fragment 49 (Unknown): no deterministic matcher for Unknown */
     /* asm: 326c8:	71590000 	madd	t2,t9 */
+    t9 = (typeof(t9))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)t3 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)t2 * (uint32_t)(uintptr_t)t9);   /* T40-MULT-RESTORE: mult t3,s2 ; madd t2,t9 ; mflo t9 */
 
     /* fragment 50: Arithmetic */
     /* unmatched fragment 50 (Arithmetic): arithmetic fragment did not contain supported register operations */
@@ -104553,6 +104411,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 52: Unknown */
     /* unmatched fragment 52 (Unknown): no deterministic matcher for Unknown */
     /* asm: 326f8:	71590000 	madd	t2,t9 */
+    t9 = (typeof(t9))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)t3 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)t2 * (uint32_t)(uintptr_t)t9);   /* T40-MULT-RESTORE: mult t3,s2 ; madd t2,t9 ; mflo t9 */
 
     /* fragment 53: Arithmetic */
     /* unmatched fragment 53 (Arithmetic): arithmetic fragment did not contain supported register operations */
@@ -104572,6 +104431,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 55: Unknown */
     /* unmatched fragment 55 (Unknown): no deterministic matcher for Unknown */
     /* asm: 32728:	71590000 	madd	t2,t9 */
+    t9 = (typeof(t9))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)t3 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)t2 * (uint32_t)(uintptr_t)t9);   /* T40-MULT-RESTORE: mult t3,s2 ; madd t2,t9 ; mflo t9 */
 
     /* fragment 56: Arithmetic */
     /* unmatched fragment 56 (Arithmetic): arithmetic fragment did not contain supported register operations */
@@ -104592,6 +104452,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 58: Unknown */
     /* unmatched fragment 58 (Unknown): no deterministic matcher for Unknown */
     /* asm: 3275c:	71940000 	madd	t4,s4 */
+    s4 = (typeof(s4))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)t6 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)t4 * (uint32_t)(uintptr_t)s4);   /* T40-MULT-RESTORE: mult t6,s2 ; madd t4,s4 ; mflo s4 */
 
     /* fragment 59: Arithmetic */
     s4 = s7 + (uintptr_t)s4;
@@ -104611,6 +104472,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 61: Unknown */
     /* unmatched fragment 61 (Unknown): no deterministic matcher for Unknown */
     /* asm: 32794:	71940000 	madd	t4,s4 */
+    s4 = (typeof(s4))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)t6 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)t4 * (uint32_t)(uintptr_t)s4);   /* T40-MULT-RESTORE: mult t6,s2 ; madd t4,s4 ; mflo s4 */
 
     /* fragment 62: Arithmetic */
     s4 = s7 + (uintptr_t)s4;
@@ -104630,6 +104492,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 64: Unknown */
     /* unmatched fragment 64 (Unknown): no deterministic matcher for Unknown */
     /* asm: 327cc:	71940000 	madd	t4,s4 */
+    s4 = (typeof(s4))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)t6 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)t4 * (uint32_t)(uintptr_t)s4);   /* T40-MULT-RESTORE: mult t6,s2 ; madd t4,s4 ; mflo s4 */
 
     /* fragment 65: Arithmetic */
     s4 = s7 + (uintptr_t)s4;
@@ -104650,6 +104513,7 @@ tisp_awb_long_alogrithm0x184:
     /* fragment 67: Unknown */
     /* unmatched fragment 67 (Unknown): no deterministic matcher for Unknown */
     /* asm: 32808:	71940000 	madd	t4,s4 */
+    s4 = (typeof(s4))(uintptr_t)(uint32_t)((uint32_t)(uintptr_t)t6 * (uint32_t)(uintptr_t)s2 + (uint32_t)(uintptr_t)t4 * (uint32_t)(uintptr_t)s4);   /* T40-MULT-RESTORE: mult t6,s2 ; madd t4,s4 ; mflo s4 */
 
     /* fragment 68: Arithmetic */
     s4 = s7 + (uintptr_t)s4;
@@ -104804,15 +104668,17 @@ tisp_awb_long_alogrithm0x6b8:
     local_88 = t2;
     local_84 = t3;
     local_80 = t4;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)s1, ((*(uint32_t *)((char *)((*(uint32_t *)((char *)(0) + 156)) + (uintptr_t)s4) + 0)) << 10) << s7, local_54); /* jalr target resolved by relocation */
+    a1 = (typeof(a1))(uintptr_t)(((*(uint32_t *)((char *)(uintptr_t)*(uint32_t *)((char *)s8 + 160) + (uintptr_t)s4)) ? (((uint32_t)(uintptr_t)(((*(uint32_t *)((char *)((*(uint32_t *)((char *)s8 + 156)) + (uintptr_t)s4) + 0)) << 10))) / (*(uint32_t *)((char *)(uintptr_t)*(uint32_t *)((char *)s8 + 160) + (uintptr_t)s4))) : 0U) << (uintptr_t)s7);   /* T40-DIV-RESTORE: divu a1,v0 (v0 = *(160(s8)+s4)) ; mflo a1 ; sllv a1,a1,s7 - folded away by the lift */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)s1, (uintptr_t)a1, local_54); /* jalr target resolved by relocation */
 
     /* fragment 93: CallSetup */
     t4 = local_80;
     *(uint32_t *)((char *)t4 + 0) = v0;
-    t4 = *(uint32_t *)((char *)(uintptr_t) + 172);
+    t4 = *(uint32_t *)((char *)s8 + 172);
     t4 = t4 + s5;
     local_80 = t4;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)s1, ((*(uint32_t *)((char *)((*(uint32_t *)((char *)(0) + 164)) + (uintptr_t)s4) + 0)) << 10) << s7, local_58); /* jalr target resolved by relocation */
+    a1 = (typeof(a1))(uintptr_t)(((*(uint32_t *)((char *)(uintptr_t)*(uint32_t *)((char *)s8 + 160) + (uintptr_t)s4)) ? (((uint32_t)(uintptr_t)(((*(uint32_t *)((char *)((*(uint32_t *)((char *)s8 + 164)) + (uintptr_t)s4) + 0)) << 10))) / (*(uint32_t *)((char *)(uintptr_t)*(uint32_t *)((char *)s8 + 160) + (uintptr_t)s4))) : 0U) << (uintptr_t)s7);   /* T40-DIV-RESTORE: divu a1,v0 (v0 = *(160(s8)+s4)) ; mflo a1 ; sllv a1,a1,s7 - folded away by the lift */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)s1, (uintptr_t)a1, local_58); /* jalr target resolved by relocation */
 
     /* fragment 94: StackAccess */
     t4 = local_80;
@@ -104835,15 +104701,17 @@ tisp_awb_long_alogrithm0x760:
     local_84 = t3;
     local_8c = t4;
     local_80 = t5;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)s1, ((*(uint32_t *)((char *)((*(uint32_t *)((char *)(0) + 156)) + s5) + 0)) << 10) << s7, local_54); /* jalr target resolved by relocation */
+    a1 = (typeof(a1))(uintptr_t)(((*(uint32_t *)((char *)(uintptr_t)*(uint32_t *)((char *)s8 + 160) + (uintptr_t)s5)) ? (((uint32_t)(uintptr_t)(((*(uint32_t *)((char *)((*(uint32_t *)((char *)s8 + 156)) + s5) + 0)) << 10))) / (*(uint32_t *)((char *)(uintptr_t)*(uint32_t *)((char *)s8 + 160) + (uintptr_t)s5))) : 0U) << (uintptr_t)s7);   /* T40-DIV-RESTORE: divu a1,v0 (v0 = *(160(s8)+s5)) ; mflo a1 ; sllv a1,a1,s7 - folded away by the lift */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)s1, (uintptr_t)a1, local_54); /* jalr target resolved by relocation */
 
     /* fragment 97: CallSetup */
     t4 = local_8c;
     t5 = local_80;
     *(uint32_t *)((char *)t4 + 0) = v0;
-    t5 = (*(uint32_t *)((char *)(uintptr_t) + 172)) + (uintptr_t)t5;
+    t5 = (*(uint32_t *)((char *)s8 + 172)) + (uintptr_t)t5;
     local_80 = t5;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)s1, ((*(uint32_t *)((char *)((*(uint32_t *)((char *)(0) + 164)) + s5) + 0)) << 10) << s7, local_58); /* jalr target resolved by relocation */
+    a1 = (typeof(a1))(uintptr_t)(((*(uint32_t *)((char *)(uintptr_t)*(uint32_t *)((char *)s8 + 160) + (uintptr_t)s5)) ? (((uint32_t)(uintptr_t)(((*(uint32_t *)((char *)((*(uint32_t *)((char *)s8 + 164)) + s5) + 0)) << 10))) / (*(uint32_t *)((char *)(uintptr_t)*(uint32_t *)((char *)s8 + 160) + (uintptr_t)s5))) : 0U) << (uintptr_t)s7);   /* T40-DIV-RESTORE: divu a1,v0 (v0 = *(160(s8)+s5)) ; mflo a1 ; sllv a1,a1,s7 - folded away by the lift */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)s1, (uintptr_t)a1, local_58); /* jalr target resolved by relocation */
 
     /* fragment 98: StackAccess */
     t5 = local_80;
@@ -104915,6 +104783,7 @@ tisp_awb_long_alogrithm0x864:
     /* fragment 111: CallSetup */
     t2 = 1;
     t2 = (uintptr_t)t2 << (uintptr_t)s3;
+    t2 = (typeof(t2))(uintptr_t)((int32_t)(uintptr_t)2 ? ((int32_t)(uintptr_t)t2 / (int32_t)(uintptr_t)2) : 0);   /* T40-DIV-RESTORE: div t2,2 ; mflo t2 */
     t5 = local_88;
     local_80 = v0;
     local_10 = local_58;
@@ -104941,7 +104810,7 @@ tisp_awb_long_alogrithm0x864:
     *(uint16_t *)((char *)v0 + 6) = v1;
 
     /* fragment 114: Branch */
-    t6 = *(uint32_t *)((char *)(uintptr_t) + 492);
+    t6 = *(uint32_t *)((char *)s8 + 492);
     if (t3 != 0) { goto tisp_awb_long_alogrithm0x940; }
 
     /* fragment 115: Arithmetic */
@@ -104952,7 +104821,7 @@ tisp_awb_long_alogrithm0x864:
 
 tisp_awb_long_alogrithm0x910:
     /* fragment 117: Branch */
-    t3 = *(uint32_t *)((char *)(uintptr_t) + 492);
+    t3 = *(uint32_t *)((char *)s8 + 492);
     if (s7 != 0) { goto tisp_awb_long_alogrithm0x9a0; }
 
     /* fragment 118: Arithmetic */
@@ -104998,6 +104867,7 @@ tisp_awb_long_alogrithm0x940:
     /* fragment 125: Unknown */
     /* unmatched fragment 125 (Unknown): no deterministic matcher for Unknown */
     /* asm: 32c80:	004b001b 	divu	zero,v0,t3 */
+    v0 = (typeof(v0))(uintptr_t)((uint32_t)(uintptr_t)t3 ? ((uint32_t)(uintptr_t)v0 / (uint32_t)(uintptr_t)t3) : 0U);   /* T40-DIV-RESTORE: divu v0,t3 ; mflo v0 */
 
     /* fragment 126: StackAccess */
     a3 = local_7c;
@@ -105020,6 +104890,7 @@ tisp_awb_long_alogrithm0x9a0:
     /* fragment 130: Unknown */
     /* unmatched fragment 130 (Unknown): no deterministic matcher for Unknown */
     /* asm: 32cc4:	0057001b 	divu	zero,v0,s7 */
+    v0 = (typeof(v0))(uintptr_t)((uint32_t)(uintptr_t)s7 ? ((uint32_t)(uintptr_t)v0 / (uint32_t)(uintptr_t)s7) : 0U);   /* T40-DIV-RESTORE: divu v0,s7 ; mflo v0 */
 
     /* fragment 131: StackAccess */
     t3 = local_54;
@@ -105222,8 +105093,8 @@ tisp_awb_long_alogrithm0xb60:
 
     /* fragment 167: CallSetup */
     local_14 = v0;
-    local_10 = *(uint32_t *)((char *)(uintptr_t) + 180);
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_sat_weight)(*(uint32_t *)((char *)(0) + 156), *(uint32_t *)((char *)(s8) + 160), *(uint32_t *)((char *)(s8) + 164), *(uint32_t *)((char *)(s8) + 168)); /* jalr target resolved by relocation */
+    local_10 = *(uint32_t *)((char *)s8 + 180);
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_sat_weight)(*(uint32_t *)((char *)s8 + 156), *(uint32_t *)((char *)(s8) + 160), *(uint32_t *)((char *)(s8) + 164), *(uint32_t *)((char *)(s8) + 168)); /* jalr target resolved by relocation */
 
 tisp_awb_long_alogrithm0xba4:
     /* fragment 168: MemoryAccess */
@@ -105408,6 +105279,7 @@ tisp_awb_long_alogrithm0xd38:
     /* fragment 200: Unknown */
     /* unmatched fragment 200 (Unknown): no deterministic matcher for Unknown */
     /* asm: 33084:	0165001b 	divu	zero,t3,a1 */
+    t3 = (typeof(t3))(uintptr_t)((uint32_t)(uintptr_t)a1 ? ((uint32_t)(uintptr_t)t3 / (uint32_t)(uintptr_t)a1) : 0U);   /* T40-DIV-RESTORE: divu t3,a1 ; mflo t3 */
 
     /* fragment 201: Arithmetic */
     v0 = a0 >> 1;
@@ -105421,6 +105293,7 @@ tisp_awb_long_alogrithm0xd38:
     /* fragment 203: Unknown */
     /* unmatched fragment 203 (Unknown): no deterministic matcher for Unknown */
     /* asm: 330a0:	0144001b 	divu	zero,t2,a0 */
+    t2 = (typeof(t2))(uintptr_t)((uint32_t)(uintptr_t)a0 ? ((uint32_t)(uintptr_t)t2 / (uint32_t)(uintptr_t)a0) : 0U);   /* T40-DIV-RESTORE: divu t2,a0 ; mflo t2 */
 
     /* fragment 204: MemoryAccess */
     a0 = *(uint32_t *)((char *)s8 + 28);
@@ -105560,7 +105433,7 @@ tisp_awb_long_alogrithm0xe98:
     if (v0 != a0) { goto tisp_awb_long_alogrithm0xe98; }
 
     /* fragment 232: Branch */
-    v0 = *(uint32_t *)((char *)(0) + 400);
+    v0 = *(uint32_t *)((char *)s8 + 400);
     goto tisp_awb_long_alogrithm0xdc8;
 
 tisp_awb_long_alogrithm0xedc:
@@ -105663,6 +105536,7 @@ tisp_awb_long_alogrithm0xfb8:
     /* fragment 252: Unknown */
     /* unmatched fragment 252 (Unknown): no deterministic matcher for Unknown */
     /* asm: 332c8:	0070001a 	div	zero,v1,s0 */
+    v1 = (typeof(v1))(uintptr_t)((int32_t)(uintptr_t)s0 ? ((int32_t)(uintptr_t)v1 / (int32_t)(uintptr_t)s0) : 0);   /* T40-DIV-RESTORE: div v1,s0 ; mflo v1 */
 
     /* fragment 253: StackAccess */
     a0 = local_40;
@@ -105676,6 +105550,7 @@ tisp_awb_long_alogrithm0xfb8:
     /* fragment 254: Unknown */
     /* unmatched fragment 254 (Unknown): no deterministic matcher for Unknown */
     /* asm: 332ec:	0050001a 	div	zero,v0,s0 */
+    s0 = (typeof(s0))(uintptr_t)((int32_t)(uintptr_t)s0 ? ((int32_t)(uintptr_t)v0 / (int32_t)(uintptr_t)s0) : 0);   /* T40-DIV-RESTORE: div v0,s0 ; mflo s0 */
 
     /* fragment 255: StackAccess */
     v0 = local_44;
@@ -105749,6 +105624,7 @@ tisp_awb_long_alogrithm0x1068:
     /* fragment 270: Unknown */
     /* unmatched fragment 270 (Unknown): no deterministic matcher for Unknown */
     /* asm: 33378:	0050001a 	div	zero,v0,s0 */
+    v0 = (typeof(v0))(uintptr_t)((int32_t)(uintptr_t)s0 ? ((int32_t)(uintptr_t)v0 / (int32_t)(uintptr_t)s0) : 0);   /* T40-DIV-RESTORE: div v0,s0 ; mflo v0 */
 
     /* fragment 271: StackAccess */
     v1 = local_40;
@@ -105783,6 +105659,7 @@ tisp_awb_long_alogrithm0x10b0:
     /* fragment 276: Unknown */
     /* unmatched fragment 276 (Unknown): no deterministic matcher for Unknown */
     /* asm: 333c0:	0070001a 	div	zero,v1,s0 */
+    v1 = (typeof(v1))(uintptr_t)((int32_t)(uintptr_t)s0 ? ((int32_t)(uintptr_t)v1 / (int32_t)(uintptr_t)s0) : 0);   /* T40-DIV-RESTORE: div v1,s0 ; mflo v1 */
 
     /* fragment 277: StackAccess */
     a0 = local_40;
@@ -105796,6 +105673,7 @@ tisp_awb_long_alogrithm0x10b0:
     /* fragment 278: Unknown */
     /* unmatched fragment 278 (Unknown): no deterministic matcher for Unknown */
     /* asm: 333e4:	0050001a 	div	zero,v0,s0 */
+    s0 = (typeof(s0))(uintptr_t)((int32_t)(uintptr_t)s0 ? ((int32_t)(uintptr_t)v0 / (int32_t)(uintptr_t)s0) : 0);   /* T40-DIV-RESTORE: div v0,s0 ; mflo s0 */
 
     /* fragment 279: Arithmetic */
     v0 = v1;
