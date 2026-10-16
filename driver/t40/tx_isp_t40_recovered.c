@@ -18320,6 +18320,11 @@ static const uint32_t regtrace_msca_peek_g5[] = {
     0x40020, 0x40028, 0x40030, 0x40038, 0x40060, 0x40068, 0x40070, 0x40078,
     0x400a0, 0x400a8, 0x400b0, 0x400b8,
 };
+/* drain status words the ISR polls (bit 0, OEM 0x7b9d8/0x7b9e8) and the
+ * A/B words written next to them; status only, no FIFO data/ctrl word. */
+static const uint32_t regtrace_msca_peek_g6[] = {
+    0x1617c, 0x16194, 0x1717c, 0x17194,
+};
 static const struct {
     const uint32_t *regs;
     unsigned int count;
@@ -18330,6 +18335,7 @@ static const struct {
     { regtrace_msca_peek_g3, ARRAY_SIZE(regtrace_msca_peek_g3) },
     { regtrace_msca_peek_g4, ARRAY_SIZE(regtrace_msca_peek_g4) },
     { regtrace_msca_peek_g5, ARRAY_SIZE(regtrace_msca_peek_g5) },
+    { regtrace_msca_peek_g6, ARRAY_SIZE(regtrace_msca_peek_g6) },
 };
 static unsigned int regtrace_msca_peek_group_mask = 0x1;
 module_param_named(msca_peek_groups, regtrace_msca_peek_group_mask, uint, 0644);
