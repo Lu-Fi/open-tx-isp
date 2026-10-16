@@ -16561,6 +16561,20 @@ static uint32_t regtrace_tisp_stream_event_setup_last_mask;
 static long regtrace_tisp_stream_event_setup_last_ret;
 static void *regtrace_tisp_event_cb[2][32];
 static uint32_t regtrace_tisp_event_push_count;
+
+/* T40-CORE-PATH-FRAMES: read-only counters for the core_ops_cb capture path. */
+static uint32_t regtrace_core_leg_a_iter_count;
+static uint32_t regtrace_core_leg_b_iter_count;
+static uint32_t regtrace_core_msca_fifo_write_count;
+
+static uint32_t regtrace_core_irq_fd_enodata_count;
+static uint32_t regtrace_core_dqbuf_enodata_count;
+module_param_named(core_leg_a_iter_count, regtrace_core_leg_a_iter_count, uint, 0444);
+module_param_named(core_leg_b_iter_count, regtrace_core_leg_b_iter_count, uint, 0444);
+module_param_named(core_msca_fifo_write_count, regtrace_core_msca_fifo_write_count, uint, 0444);
+
+module_param_named(core_irq_fd_enodata_count, regtrace_core_irq_fd_enodata_count, uint, 0444);
+module_param_named(core_dqbuf_enodata_count, regtrace_core_dqbuf_enodata_count, uint, 0444);
 static uint32_t regtrace_tisp_event_push_last_channel;
 static uint32_t regtrace_tisp_event_push_last_event;
 static long regtrace_tisp_event_push_last_ret;
@@ -27215,6 +27229,7 @@ static long regtrace_framechan_repair_dqbuf_event(int channel,
 
     if (!regtrace_irq_frame_done_queue_pop(channel, &phys, &uv, &index)) {
         regtrace_framechan_dqbuf_repair_no_done[channel]++;
+        regtrace_core_dqbuf_enodata_count++;
         regtrace_framechan_dqbuf_repair_last_ret[channel] = -ENODATA;
         return -ENODATA;
     }
@@ -49859,6 +49874,7 @@ static void regtrace_irq_frame_done_workfn(struct work_struct *work)
                                                &index)) {
             if (channel < 4)
                 regtrace_irq_frame_done_no_y_count[channel]++;
+            regtrace_core_irq_fd_enodata_count++;
             regtrace_irq_frame_done_last_ret = -ENODATA;
             return;
         }
@@ -50176,6 +50192,7 @@ static long regtrace_irq_frame_done_event(int channel, uint32_t source)
 
     if (!regtrace_irq_frame_done_read_addr(channel, &y, &uv, &index)) {
         regtrace_irq_frame_done_no_y_count[channel]++;
+        regtrace_core_irq_fd_enodata_count++;
         regtrace_irq_frame_done_last_ret = -ENODATA;
         return -ENODATA;
     }
@@ -177632,6 +177649,7 @@ int32_t Tzn_Msca_Shd_line_chx(int32_t arg1, int32_t arg2, int32_t arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006d50c origin=fragment_seed original=Tzn_Msca_addr_fifo_write */
 int64_t Tzn_Msca_addr_fifo_write(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
+    regtrace_core_msca_fifo_write_count++;
     if (regtrace_t40_vic_frame_output && a1 == 0) {
         static unsigned int skip_log;
         if (skip_log++ < 2)
@@ -200413,6 +200431,7 @@ ispcore_interrupt_service_routine0xd2c:
                            __isr_spin);
         return (int64_t)v0;
     }
+    regtrace_core_leg_a_iter_count++;
     goto ispcore_interrupt_service_routine0x4ec;
 
 ispcore_interrupt_service_routine0xd70:
@@ -200570,6 +200589,7 @@ ispcore_interrupt_service_routine0xeac:
                            __isr_spin);
         return (int64_t)v0;
     }
+    regtrace_core_leg_b_iter_count++;
     goto ispcore_interrupt_service_routine0x840;
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
