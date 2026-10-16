@@ -88272,7 +88272,7 @@ tisp_ae_long_tune20xa18:
 
 tisp_ae_long_tune20xa1c:
     /* fragment 165: Branch */
-    v0 = *(uint32_t *)((char *)(0) + 172);
+    v0 = *(uint32_t *)((char *)s8 + 172);   /* T40-ZEROBASE: OEM 0x26578 lw v0,172(s8) - the lift dropped the ctx base (FBL19 NULL+0xac) */
     if (v1 != s6) { goto tisp_ae_long_tune20xe1c; }
 
     /* fragment 166: MemoryAccess */
