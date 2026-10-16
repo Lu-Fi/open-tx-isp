@@ -19746,6 +19746,8 @@ static int regtrace_t40_msca_write_work_en(uint32_t active_mask,
 
 static uint32_t regtrace_msca_ratio(uint32_t source, uint32_t target);
 static uint32_t regtrace_t40_msca_oem_aux68(unsigned int channel);
+static uint32_t regtrace_t40_msca_oem_stride(unsigned int channel,
+                                           uint32_t width, int *partner);
 
 static int regtrace_t40_msca_shadow_fifo_program(int trigger_channel,
                                                  const char *reason,
@@ -19764,6 +19766,8 @@ static int regtrace_t40_msca_shadow_fifo_program(int trigger_channel,
     uint32_t crop_width;
     uint32_t crop_height;
     uint32_t hratio;
+    uint32_t stride;
+    int partner;
     uint32_t vratio;
     uint32_t status_before = 0;
     uint32_t status_after = 0;
@@ -19881,10 +19885,23 @@ static int regtrace_t40_msca_shadow_fifo_program(int trigger_channel,
             regtrace_t40_msca_oem_aux68(ch), base + 0x68, &pairs);
         if (ret)
             goto out;
-        ret = regtrace_t40_msca_shadow_pair(crop_width, base + 0x80, &pairs);
+        stride = regtrace_t40_msca_oem_stride(ch, crop_width, &partner);
+        if (partner >= 0) {
+            ret = regtrace_t40_msca_shadow_pair(
+                stride, 0x16180U + partner * REGTRACE_T40_MSCA_CH_BANK_STRIDE,
+                &pairs);
+            if (ret)
+                goto out;
+            ret = regtrace_t40_msca_shadow_pair(
+                stride, 0x16198U + partner * REGTRACE_T40_MSCA_CH_BANK_STRIDE,
+                &pairs);
+            if (ret)
+                goto out;
+        }
+        ret = regtrace_t40_msca_shadow_pair(stride, base + 0x80, &pairs);
         if (ret)
             goto out;
-        ret = regtrace_t40_msca_shadow_pair(crop_width, base + 0x98, &pairs);
+        ret = regtrace_t40_msca_shadow_pair(stride, base + 0x98, &pairs);
         if (ret)
             goto out;
 
@@ -20365,6 +20382,62 @@ static uint32_t regtrace_t40_msca_oem_aux68(unsigned int channel)
     return ((uint32_t)state[17] << 6) | state[16];
 }
 
+static uint32_t regtrace_t40_msca_round8(uint32_t value)
+{
+    value &= 0xffffU;
+    return (value & 0xfff8U) + ((value & 7U) ? 8U : 0U);
+}
+
+/*
+ * OEM Tzn_Msca_cfg_load (testimage 0x6cf38..0x6d074, group 0, k = channel)
+ * writes the same value to channel_base + 0x80 and + 0x98:
+ *   s6 = round_up(u16 state[32 + 616k], 8)
+ * Format nibbles in *(u32 *)(state + 4) (values 1..2) replace it with the sum
+ * of two channels' rounded widths:
+ *   k=0: nibble0 -> s0.ch0 + s1.ch0; else nibble1 -> s0.ch0 + s0.ch1
+ *   k=1: nibble1 -> s0.ch0 + s0.ch1 (also written to ch0's 0x80/0x98);
+ *        else nibble2 -> s0.ch1 + s1.ch1
+ * A nonzero u16 state[616 + 616k] overrides both registers (0x6d368).
+ * @partner gets the other channel the OEM also writes s6 to, or -1. Nibble
+ * values above 2 take odd OEM fall-through paths; they keep the plain round-up.
+ */
+static uint32_t regtrace_t40_msca_oem_stride(unsigned int channel,
+                                           uint32_t width, int *partner)
+{
+    const unsigned char *s0 = (const unsigned char *)mscaler_s0;
+    const unsigned char *s1 = (const unsigned char *)mscaler_s1;
+    uint32_t flags = *(const uint32_t *)(s0 + 4);
+    uint32_t n0 = flags & 0xfU;
+    uint32_t n1 = (flags >> 4) & 0xfU;
+    uint32_t n2 = (flags >> 8) & 0xfU;
+    uint32_t value = regtrace_t40_msca_round8(width);
+    uint16_t override;
+
+    *partner = -1;
+    if (channel >= 3)
+        return value;
+
+    if (channel == 0 && (n0 == 1 || n0 == 2)) {
+        value = regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 32)) +
+                regtrace_t40_msca_round8(*(const uint16_t *)(s1 + 32));
+    } else if (channel == 0 && n0 == 0 && (n1 == 1 || n1 == 2)) {
+        value = regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 32)) +
+                regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 648));
+    } else if (channel == 1 && (n1 == 1 || n1 == 2)) {
+        value = regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 32)) +
+                regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 648));
+        *partner = 0;
+    } else if (channel == 1 && n1 == 0 && (n2 == 1 || n2 == 2)) {
+        value = regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 648)) +
+                regtrace_t40_msca_round8(*(const uint16_t *)(s1 + 648));
+    }
+
+    override = *(const uint16_t *)(s0 + 616 + channel * 616U);
+    if (override)
+        value = override;
+    return value;
+}
+
 static void regtrace_t40_msca_state_put16(unsigned char *base, uint32_t off,
                                           uint32_t value)
 {
@@ -20614,6 +20687,8 @@ static int regtrace_t40_msca_cfg_program(int trigger_channel,
     uint32_t crop_width;
     uint32_t crop_height;
     uint32_t hratio;
+    uint32_t stride;
+    int partner;
     uint32_t vratio;
     uint32_t scale_bits = 0;
     uint32_t active_mask = 0;
@@ -20721,10 +20796,21 @@ static int regtrace_t40_msca_cfg_program(int trigger_channel,
                                   regtrace_t40_msca_oem_aux68(ch));
         if (ret)
             goto out;
-        ret = regtrace_core_write(base + 0x80, crop_width);
+        stride = regtrace_t40_msca_oem_stride(ch, crop_width, &partner);
+        if (partner >= 0) {
+            ret = regtrace_core_write(
+                0x16180U + partner * REGTRACE_T40_MSCA_CH_BANK_STRIDE, stride);
+            if (ret)
+                goto out;
+            ret = regtrace_core_write(
+                0x16198U + partner * REGTRACE_T40_MSCA_CH_BANK_STRIDE, stride);
+            if (ret)
+                goto out;
+        }
+        ret = regtrace_core_write(base + 0x80, stride);
         if (ret)
             goto out;
-        ret = regtrace_core_write(base + 0x98, crop_width);
+        ret = regtrace_core_write(base + 0x98, stride);
         if (ret)
             goto out;
         ret = regtrace_core_write(base + 0x28, 0);
@@ -20810,10 +20896,21 @@ static int regtrace_t40_msca_cfg_program(int trigger_channel,
                                   regtrace_t40_msca_oem_aux68(ch));
         if (ret)
             goto out;
-        ret = regtrace_core_write(base + 0x80, target_width);
+        stride = regtrace_t40_msca_oem_stride(ch, target_width, &partner);
+        if (partner >= 0) {
+            ret = regtrace_core_write(
+                0x16180U + partner * REGTRACE_T40_MSCA_CH_BANK_STRIDE, stride);
+            if (ret)
+                goto out;
+            ret = regtrace_core_write(
+                0x16198U + partner * REGTRACE_T40_MSCA_CH_BANK_STRIDE, stride);
+            if (ret)
+                goto out;
+        }
+        ret = regtrace_core_write(base + 0x80, stride);
         if (ret)
             goto out;
-        ret = regtrace_core_write(base + 0x98, target_width);
+        ret = regtrace_core_write(base + 0x98, stride);
         if (ret)
             goto out;
         ret = regtrace_core_write(base + 0x28, 0);
