@@ -44484,55 +44484,18 @@ int32_t tx_isp_ae_s_explist_isra_28(uint32_t a0, uint32_t a1) __asm__("tx_isp_ae
 #endif
 int32_t tx_isp_ae_s_explist_isra_28(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_164 = 0;
-    uint32_t local_168 = 0;
-    uint32_t local_16c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
+    /* OEM 0xaa70: copy_from_user(sp+24, user, 324); tisp_s_ae_explist(ch, sp+24).
+     * The lift copied into a lone 4-byte local (size dropped) -> frame smash. */
+    uint32_t buf[81];
+    int32_t ret;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_ae_s_explist_isra_280x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 1294;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 1294); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_ae_s_explist_isra_280x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_ae_s_explist_isra_280x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_ae_explist)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_ae_s_explist_isra_280x64;
-
-    return 0;
+    memset(buf, 0, sizeof(buf));
+    ret = private_copy_from_user((int32_t)(uintptr_t)buf, (int32_t)a1, 324);
+    if (ret != 0) {
+        isp_printf(2, (const char *)&LC1, &__param_str_isp_dual_buf, 1294);
+        return ret;
+    }
+    return tisp_s_ae_explist(a0, (uintptr_t)buf);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000a0e4 origin=fragment_seed original=tiziano_isp_ccm_attr_g_ctrl.isra.31 */
@@ -45585,70 +45548,22 @@ int32_t tx_isp_ae_g_explist_isra_56(uint32_t a0, uintptr_t a1) __asm__("tx_isp_a
 #endif
 int32_t tx_isp_ae_g_explist_isra_56(uint32_t a0, uintptr_t a1)
 {
-    /*
-     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
-     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
-     * the OEM code passes a slot as the start of a WHOLE STRUCT
-     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
-     * as separate scalars, such a copy overwrites whatever the compiler placed next
-     * to the scalar - including saved registers and the return address.
-     * Backing 0x10..0x168 (360 bytes) with one buffer and aliasing each slot at its
-     * OEM offset makes every copy land exactly where the OEM's copy landed.
-     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
-     * alias carries the width of its OEM access:
-     *   all slots are 4-byte.
-     * the initialiser reproduces the `= 0` of every slot it replaces.
-     */
-    uint32_t __frame[0x5a] = { 0 };
-    uint32_t **const __p_10 = (uint32_t **)(void *)((char *)__frame + 0x10);
-    uint32_t *const __p_14 = (uint32_t *)(void *)((char *)__frame + 0x14);
-    uint32_t **const __p_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
-    uint32_t *const __p_160 = (uint32_t *)(void *)((char *)__frame + 0x160);
-    uint32_t *const __p_164 = (uint32_t *)(void *)((char *)__frame + 0x164);
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
+    /* OEM 0xb5f0: tisp_g_ae_explist(ch, sp+24); copy_to_user(user, sp+24, 324).
+     * The lift called tisp_g_ae_explist with ONE arg (a1 = whatever was in the
+     * register = the user pointer) -> kernel wrote straight into user memory,
+     * and then dereferenced the user pointer in kernel -> Oops on GetAeExpList.
+     * a1 here is the user pointer itself (caller passes arg3[1]). */
+    uint32_t buf[81];   /* 324 bytes: mode + 16 * 5 words */
+    int32_t ret;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_g_ae_explist)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    a2 = (uint32_t *)&__param_str_isp_dual_buf;
-    if (v0 == 0) { goto tx_isp_ae_g_explist_isra_560x48; }
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC9, &__param_str_isp_dual_buf, 1309); /* jalr target resolved by relocation */
-
-tx_isp_ae_g_explist_isra_560x48:
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s0) + 0), __p_18, 324); /* jalr target resolved by relocation */
-
-    /* fragment 5: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_ae_g_explist_isra_560x98; }
-
-    /* fragment 6: CallSetup */
-    (*__p_14) = 1314;
-    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 1314); /* jalr target resolved by relocation */
-
-tx_isp_ae_g_explist_isra_560x98:
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 8: Arithmetic */
-    v0 = s0;
-
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    memset(buf, 0, sizeof(buf));
+    ret = tisp_g_ae_explist((int32_t)a0, buf);
+    if (ret != 0)
+        isp_printf(1, (const char *)&LC9, &__param_str_isp_dual_buf, 1309);
+    ret = private_copy_to_user((int32_t)a1, (int32_t)(uintptr_t)buf, 324);
+    if (ret != 0)
+        isp_printf(2, (const char *)&LC1, &__param_str_isp_dual_buf, 1314);
+    return ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000ac7c origin=fragment_seed original=isp_frame_done_wait */
@@ -87537,9 +87452,15 @@ tisp_ae_long_tune20x2d8:
     if (a2 != a1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x2d8"); else { __lg--; goto tisp_ae_long_tune20x2d8; } } }
 
     /* fragment 16: CallSetup */
+    /* T40-YMEAN (OEM 0x25e48): a0 = sum(i*hist[i]) / (zones_x*zones_y*k1*k2), clamped to 255.
+     * The lift had dropped the divu+movn and hard-coded 255 (image always "saturated"). */
+    v0 = (uintptr_t *)(uintptr_t)((uint32_t)(uintptr_t)s7 * (uint32_t)(uintptr_t)t3 * (uint32_t)(uintptr_t)t1 * (uint32_t)(uintptr_t)t0);
+    a0 = (uintptr_t)v0 ? (uintptr_t)((uint32_t)(uintptr_t)a0 / (uint32_t)(uintptr_t)v0) : 255;
+    v0 = (uintptr_t *)(uintptr_t)(((uint32_t)(uintptr_t)a0 < 256U) ? (uintptr_t)a0 : 255);
     s7 = (uintptr_t)&local_48;
-    local_84 = 255;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)((uintptr_t)s0, (a2 - (255 >> 1)) << (uintptr_t)s0, a2 << (uintptr_t)s0); /* jalr target resolved by relocation */
+    local_84 = (uint32_t)(uintptr_t)v0;
+    a1 = (uintptr_t)(uint32_t)((uintptr_t)a2 - ((uint32_t)(uintptr_t)v0 >> 1));
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)((uintptr_t)s0, (uintptr_t)a1 << (uintptr_t)s0, a2 << (uintptr_t)s0); /* jalr target resolved by relocation */
 
     /* fragment 17: CallSetup */
     local_b0 = v0;
@@ -88301,6 +88222,7 @@ tisp_ae_long_tune20x9ec:
     v0 = local_b0;
     s6 = local_b0;
     v0 = v1 < v0;
+    if (v0 == 0) { s6 = v1; }   /* T40-MOVZ (OEM 0x2656c) */
 
 tisp_ae_long_tune20xa18:
     /* fragment 164: StackAccess */
@@ -88848,6 +88770,7 @@ tisp_ae_long_tune20xf28:
     a0 = local_8c;
     v1 = 1;
     v0 = (uintptr_t)s1 ^ (uintptr_t)v0;
+    if (v0 == 0) { a0 = v1; }   /* T40-MOVZ (OEM 0x26a8c) */
     v0 = local_80;
     v1 = local_d8;
     local_8c = a0;
@@ -89413,6 +89336,7 @@ tisp_ae_long_tune20x150c:
     /* fragment 401: StackAccess */
     v1 = local_dc;
     v0 = a0 < v0;
+    if (v0 != 0) { v1 = a0; }   /* T40-MOVN (OEM 0x2706c) */
 
     /* fragment 402: Branch */
     v0 = v1;
@@ -89430,6 +89354,7 @@ tisp_ae_long_tune20x1520:
     a0 = local_e0;
     s1 = 1;
     v1 = v1 < v0;
+    if (v1 != 0) { v0 = a0; }   /* T40-MOVN (OEM 0x270a8) */
     local_70 = v0;
     v0 = local_c8;
 
@@ -98637,44 +98562,27 @@ tisp_ae_api_set_exp_list0xbc:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002cdc8 origin=model_output original=tisp_ae_api_get_exp_list */
 int32_t tisp_ae_api_get_exp_list(int32_t arg1, uint32_t* arg2, int32_t* arg3)
 {
-    int32_t* v0;
-    int32_t *i;
-    int32_t* v1_1;
-    int32_t *a3_3;
-    int32_t *a3_5;
-    int32_t temp_val;
-    
-    /* Conditional pointer selection based on arg1 */
-    if (arg1 != 0) {
-        v0 = &pstSecAeOri;
-    } else {
-        v0 = &pstMainAeOri;
+    /* OEM 0x2d7e8. ctx = pstMainAeOri/pstSecAeOri; ladder = ctx+348 (16 slots x 16 B);
+     * cache = per-channel AE cache (.rodata table in the OEM) + 712, 16 x 16 B.
+     * Output: mode (u16 at *(ctx+4)+6), then 16 x {0, slot.w1, cache.w0, cache.w1, 0}. */
+    uint32_t *ctx = (arg1 != 0) ? (uint32_t *)&pstSecAeOri : (uint32_t *)&pstMainAeOri;
+    uintptr_t cache = regtrace_ae_cache_for_channel((uint32_t)arg1);
+    uint32_t *ladder = (uint32_t *)((char *)ctx + 348);
+    uint32_t *ctrl = (uint32_t *)(uintptr_t)ctx[1];
+    int i;
+
+    if (!cache)
+        return -1;
+    for (i = 0; i < 16; i++) {
+        uint32_t *c = (uint32_t *)(cache + 712 + i * 16);
+        arg3[0] = 0;
+        arg3[1] = (int32_t)ladder[i * 4 + 1];
+        arg3[2] = (int32_t)c[0];
+        arg3[3] = (int32_t)c[1];
+        arg3[4] = 0;
+        arg3 += 5;
     }
-    
-    /* Initialize loop counter and base pointer */
-    /* Load value from ae_cache + (arg1 << 2), then add 0x2c8 to get pointer */
-    temp_val = ae_cache + (arg1 << 2);
-    v1_1 = (int32_t*)(*(int32_t*)temp_val + 0x2c8);
-    
-    i = 4;
-    
-    /* Main loop - iterates while i != 0x104 (260) */
-    do {
-        *arg3 = 0;
-        arg3 = &arg3[5];
-        v1_1 = (int32_t*)((uintptr_t)v1_1 + 0x10);
-        a3_3 = v0[0x57 + ((uintptr_t)i >> 2)];
-        i = (void *)(uintptr_t)((uintptr_t)i + (0x10));
-        *(arg3 - 0x10) = a3_3;
-        *(arg3 - 0xc) = v1_1[-4];
-        a3_5 = v1_1[-3];
-        *(arg3 - 4) = 0;
-        *(arg3 - 8) = a3_5;
-    } while (i != 0x104);
-    
-    /* Final store to arg2 - load uint16 from v0[1] + 6, zero-extend */
-    *arg2 = (uint32_t)*(uint16_t*)((int32_t)v0 + 4 + 6);
-    
+    *arg2 = regtrace_is_kernel_ptr(ctrl) ? *(uint16_t *)((char *)ctrl + 6) : 0;
     return 0;
 }
 
