@@ -201531,7 +201531,10 @@ static void regtrace_apply_t40_bringup_profile(void)
         regtrace_enable_ydns = true;
         regtrace_enable_ysp = true;
         regtrace_enable_ccm = true;
-        regtrace_enable_awb_grayworld = true;
+        /* T40-3A: the vendor AWB handler (OEM 0x32460) pushes event 14 only when gray-world is
+         * off; keep the user's choice when the vendor AWB init is requested. */
+        if (!regtrace_enable_isp_block_init_awb)
+            regtrace_enable_awb_grayworld = true;
     }
     if (regtrace_t40_quality_profile >= 2U) {
         /* DMSC(13). */
