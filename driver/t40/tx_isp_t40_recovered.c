@@ -79927,9 +79927,20 @@ tisp_event_process0x1c8:
 #endif
 }
 
+/* T40-LOOPGUARD (fable): per-call budget on every backward goto of the lifted tisp_ae_* functions;
+ * when exhausted the loop is broken and the site is named once (FBL16: the event thread never
+ * returned from tisp_ae_long_tune2 or a callee, no Oops). */
+static void regtrace_loopguard(const char *fn, const char *lbl)
+{
+    static unsigned int n;
+    if (n++ < 16)
+        printk(KERN_ERR "tx_isp_t40_recovered: LOOPGUARD %s %s budget exhausted, loop broken\n", fn, lbl);
+}
+#define REGTRACE_LOOPGUARD_BUDGET 2000000U
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000020980 origin=fragment_seed original=tisp_ae_params_transmit */
 int64_t tisp_ae_params_transmit(uintptr_t a0, uint32_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t ra = 0;
     uintptr_t v0 = 0;
     uintptr_t v1 = 0;
@@ -80178,7 +80189,7 @@ tisp_ae_params_transmit0x2d8:
 
     /* fragment 15: Branch */
     v0 = *(uint32_t *)((char *)((char *)&stSecAeInter));
-    goto tisp_ae_params_transmit0x70;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_params_transmit", "0x70"); else { __lg--; goto tisp_ae_params_transmit0x70; } }
 
 tisp_ae_params_transmit0x340:
     /* fragment 16: MemoryAccess */
@@ -80215,7 +80226,7 @@ tisp_ae_params_transmit0x340:
     /* fragment 17: Branch */
     v1 = v1 + 3134;
     *(uint32_t *)((char *)a0 + 344) = v1;
-    goto tisp_ae_params_transmit0x2d0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_params_transmit", "0x2d0"); else { __lg--; goto tisp_ae_params_transmit0x2d0; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -80223,6 +80234,7 @@ tisp_ae_params_transmit0x340:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000020d3c origin=fragment_seed original=tisp_ae_roi_point */
 int64_t tisp_ae_roi_point(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t local_1c = 0;
@@ -80310,7 +80322,7 @@ tisp_ae_roi_point0xa8:
 
     /* fragment 13: Branch */
     v0 = -1;
-    goto tisp_ae_roi_point0x84;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_roi_point", "0x84"); else { __lg--; goto tisp_ae_roi_point0x84; } }
 
 tisp_ae_roi_point0x144:
     /* fragment 14: Arithmetic */
@@ -80351,7 +80363,7 @@ tisp_ae_roi_point0x17c:
 tisp_ae_roi_point0x198:
     /* fragment 23: Branch */
     v0 = 0;
-    goto tisp_ae_roi_point0x84;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_roi_point", "0x84"); else { __lg--; goto tisp_ae_roi_point0x84; } }
 
 tisp_ae_roi_point0x1a0:
     /* fragment 24: CallSetup */
@@ -80365,12 +80377,12 @@ tisp_ae_roi_point0x1a0:
 
     /* fragment 27: Branch */
     a0 = (uintptr_t)s3 | 37376;
-    goto tisp_ae_roi_point0x17c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_roi_point", "0x17c"); else { __lg--; goto tisp_ae_roi_point0x17c; } }
 
 tisp_ae_roi_point0x1c0:
     /* fragment 28: Branch */
     *(uint8_t *)((char *)s2 + 477) = 0;
-    goto tisp_ae_roi_point0x198;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_roi_point", "0x198"); else { __lg--; goto tisp_ae_roi_point0x198; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -81362,6 +81374,7 @@ tisp_set_ae_sensor_fps0x74:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000219a8 origin=fragment_seed original=tisp_ae_par_calc */
 int64_t tisp_ae_par_calc(uint32_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -81501,7 +81514,7 @@ tisp_ae_par_calc0x188:
 
     /* fragment 14: Branch */
     *(uint32_t *)((char *)v1 + -8) = v0;
-    if (a3 != t2) { goto tisp_ae_par_calc0x130; }
+    if (a3 != t2) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_par_calc", "0x130"); else { __lg--; goto tisp_ae_par_calc0x130; } } }
 
     /* fragment 15: CallSetup */
     s1 = (uintptr_t *)((uintptr_t)s6 + 708);   /* T40-PTRSTEP: byte add (OEM addiu) */
@@ -81524,7 +81537,7 @@ tisp_ae_par_calc0x1d0:
 
     /* fragment 18: Branch */
     s7 = s7 + 4;
-    if (s4 != v1) { goto tisp_ae_par_calc0x1d0; }
+    if (s4 != v1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_par_calc", "0x1d0"); else { __lg--; goto tisp_ae_par_calc0x1d0; } } }
 
     /* fragment 19: Arithmetic */
     v0 = 0;
@@ -81544,7 +81557,7 @@ tisp_ae_par_calc0x208:
 
     /* fragment 23: Branch */
     s5 = s5 + 4;
-    if (v0 != a0) { goto tisp_ae_par_calc0x208; }
+    if (v0 != a0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_par_calc", "0x208"); else { __lg--; goto tisp_ae_par_calc0x208; } } }
 
 tisp_ae_par_calc0x228:
     /* fragment 24: Arithmetic */
@@ -81626,7 +81639,7 @@ tisp_ae_par_calc0x2cc:
     s1 = (uintptr_t *)((uintptr_t)s1 + 16);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
     /* fragment 42: Branch */
-    if (s4 != s1) { goto tisp_ae_par_calc0x268; }
+    if (s4 != s1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_par_calc", "0x268"); else { __lg--; goto tisp_ae_par_calc0x268; } } }
 
 tisp_ae_par_calc0x2d8:
     /* fragment 43: Epilogue */
@@ -81642,12 +81655,12 @@ tisp_ae_par_calc0x304:
 
     /* fragment 46: Branch */
     *(uint32_t *)((char *)v1 + 0) = t1;
-    goto tisp_ae_par_calc0x188;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_par_calc", "0x188"); else { __lg--; goto tisp_ae_par_calc0x188; } }
 
 tisp_ae_par_calc0x318:
     /* fragment 47: Branch */
     *(uint32_t *)((char *)v1 + 0) = v0;
-    goto tisp_ae_par_calc0x188;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_par_calc", "0x188"); else { __lg--; goto tisp_ae_par_calc0x188; } }
 
 tisp_ae_par_calc0x320:
     /* fragment 48: MemoryAccess */
@@ -81655,11 +81668,11 @@ tisp_ae_par_calc0x320:
     v0 = v1 < v0;
 
     /* fragment 49: Branch */
-    if (v0 == 0) { goto tisp_ae_par_calc0x294; }
+    if (v0 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_par_calc", "0x294"); else { __lg--; goto tisp_ae_par_calc0x294; } } }
 
     /* fragment 50: Branch */
     *(uint32_t *)((char *)s1 + 0) = v1;
-    goto tisp_ae_par_calc0x294;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_par_calc", "0x294"); else { __lg--; goto tisp_ae_par_calc0x294; } }
 
 tisp_ae_par_calc0x338:
     /* fragment 51: MemoryAccess */
@@ -81667,11 +81680,11 @@ tisp_ae_par_calc0x338:
     v0 = v1 < v0;
 
     /* fragment 52: Branch */
-    if (v0 == 0) { goto tisp_ae_par_calc0x2b0; }
+    if (v0 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_par_calc", "0x2b0"); else { __lg--; goto tisp_ae_par_calc0x2b0; } } }
 
     /* fragment 53: Branch */
     *(uint32_t *)((char *)s1 + 4) = v1;
-    goto tisp_ae_par_calc0x2b0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_par_calc", "0x2b0"); else { __lg--; goto tisp_ae_par_calc0x2b0; } }
 
 tisp_ae_par_calc0x350:
     /* fragment 54: MemoryAccess */
@@ -81679,11 +81692,11 @@ tisp_ae_par_calc0x350:
     v0 = v1 < v0;
 
     /* fragment 55: Branch */
-    if (v0 == 0) { goto tisp_ae_par_calc0x2cc; }
+    if (v0 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_par_calc", "0x2cc"); else { __lg--; goto tisp_ae_par_calc0x2cc; } } }
 
     /* fragment 56: Branch */
     *(uint32_t *)((char *)s1 + 8) = v1;
-    goto tisp_ae_par_calc0x2cc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_par_calc", "0x2cc"); else { __lg--; goto tisp_ae_par_calc0x2cc; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -81783,6 +81796,7 @@ int32_t tisp_ae_init_par_calc(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000021dd8 origin=fragment_seed original=tisp_ae_ev_list_alloc_calc */
 int64_t tisp_ae_ev_list_alloc_calc(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3, uintptr_t arg4, uintptr_t arg5, uintptr_t arg6)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -81951,7 +81965,7 @@ tisp_ae_ev_list_alloc_calc0x168:
 
 tisp_ae_ev_list_alloc_calc0x178:
     /* fragment 18: Branch */
-    if (s5 != v0) { goto tisp_ae_ev_list_alloc_calc0x168; }
+    if (s5 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x168"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x168; } } }
 
 tisp_ae_ev_list_alloc_calc0x180:
     /* fragment 19: MemoryAccess */
@@ -81996,7 +82010,7 @@ tisp_ae_ev_list_alloc_calc0x1c0:
 tisp_ae_ev_list_alloc_calc0x1ec:
     /* fragment 27: Branch */
     a0 = a0 + 4;
-    if (v0 != a1) { goto tisp_ae_ev_list_alloc_calc0x13c; }
+    if (v0 != a1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x13c"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x13c; } } }
 
     /* fragment 28: Arithmetic */
     s5 = 15;
@@ -82035,7 +82049,7 @@ tisp_ae_ev_list_alloc_calc0x200:
 
     /* fragment 35: Branch */
     v0 = local_78;
-    goto tisp_ae_ev_list_alloc_calc0x1a4;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x1a4"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x1a4; } }
 
 tisp_ae_ev_list_alloc_calc0x278:
     /* fragment 36: Arithmetic */
@@ -82132,12 +82146,12 @@ tisp_ae_ev_list_alloc_calc0x364:
 
     /* fragment 57: Branch */
     s2 = v0;
-    goto tisp_ae_ev_list_alloc_calc0x1a0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x1a0"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x1a0; } }
 
 tisp_ae_ev_list_alloc_calc0x388:
     /* fragment 58: Branch */
     s8 = s5 + 8;
-    if (v0 == 0) { goto tisp_ae_ev_list_alloc_calc0x2f4; }
+    if (v0 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x2f4"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x2f4; } } }
 
     /* fragment 59: Arithmetic */
     v0 = a2 < t1;
@@ -82145,12 +82159,12 @@ tisp_ae_ev_list_alloc_calc0x388:
     /* fragment 60: Branch */
     int _bc_v0_60 = v0 == 0;
     v0 = t3 < t1;
-    if (_bc_v0_60) { goto tisp_ae_ev_list_alloc_calc0x2f4; }
+    if (_bc_v0_60) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x2f4"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x2f4; } } }
 
     /* fragment 61: Branch */
     int _bc_v0_61 = v0 == 0;
     v0 = (uintptr_t *)&tisp_ae_max_exp_calc_fps;
-    if (_bc_v0_61) { goto tisp_ae_ev_list_alloc_calc0x2f4; }
+    if (_bc_v0_61) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x2f4"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x2f4; } } }
 
     /* fragment 62: CallSetup */
     local_1c = t2;
@@ -82174,12 +82188,12 @@ tisp_ae_ev_list_alloc_calc0x388:
 tisp_ae_ev_list_alloc_calc0x3dc:
     /* fragment 66: Branch */
     a1 = v1;
-    goto tisp_ae_ev_list_alloc_calc0x2e0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x2e0"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x2e0; } }
 
 tisp_ae_ev_list_alloc_calc0x3e4:
     /* fragment 67: Branch */
     *(uint32_t *)((char *)a0 + 4) = v0;
-    goto tisp_ae_ev_list_alloc_calc0x3dc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x3dc"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x3dc; } }
 
 tisp_ae_ev_list_alloc_calc0x3ec:
     /* fragment 68: StackAccess */
@@ -82190,7 +82204,7 @@ tisp_ae_ev_list_alloc_calc0x3ec:
 
     /* fragment 69: Branch */
     a1 = s1;
-    if (v1 != 0) { goto tisp_ae_ev_list_alloc_calc0x338; }
+    if (v1 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x338"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x338; } } }
 
     /* fragment 70: CallSetup */
     s1 = ((uintptr_t)v0 >> (uintptr_t)s0) << (uintptr_t)s0;
@@ -82204,7 +82218,7 @@ tisp_ae_ev_list_alloc_calc0x3ec:
 
     /* fragment 73: Branch */
     s6 = s6 + s7;
-    if (s8 != 0) { goto tisp_ae_ev_list_alloc_calc0x360; }
+    if (s8 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x360"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x360; } } }
 
 tisp_ae_ev_list_alloc_calc0x434:
     /* fragment 74: MemoryAccess */
@@ -82213,21 +82227,21 @@ tisp_ae_ev_list_alloc_calc0x434:
 
     /* fragment 75: Branch */
     a2 = s8;
-    if (v1 != 0) { goto tisp_ae_ev_list_alloc_calc0x364; }
+    if (v1 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x364"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x364; } } }
 
     /* fragment 76: MemoryAccess */
     s2 = *(uint32_t *)((char *)s5 + 0);
 
     /* fragment 77: Branch */
     s8 = v0;
-    goto tisp_ae_ev_list_alloc_calc0x1a0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x1a0"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x1a0; } }
 
 tisp_ae_ev_list_alloc_calc0x450:
     /* fragment 78: Arithmetic */
     a0 = 1;
 
     /* fragment 79: Branch */
-    if (v0 != a0) { goto tisp_ae_ev_list_alloc_calc0x1c0; }
+    if (v0 != a0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x1c0"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x1c0; } } }
 
     /* fragment 80: MemoryAccess */
     a2 = *(uint32_t *)((char *)s6 + 12);
@@ -82304,7 +82318,7 @@ tisp_ae_ev_list_alloc_calc0x4e8:
 
     /* fragment 97: Branch */
     *(uint32_t *)((char *)v0 + 0) = s7;
-    goto tisp_ae_ev_list_alloc_calc0x1bc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x1bc"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x1bc; } }
 
 tisp_ae_ev_list_alloc_calc0x508:
     /* fragment 98: Branch */
@@ -82323,11 +82337,11 @@ tisp_ae_ev_list_alloc_calc0x508:
     t4 = t4 < v0;
 
     /* fragment 101: Branch */
-    if (t4 == 0) { goto tisp_ae_ev_list_alloc_calc0x490; }
+    if (t4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x490"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x490; } } }
 
     /* fragment 102: Branch */
     v1 = local_24;
-    if (s1 == v0) { goto tisp_ae_ev_list_alloc_calc0x490; }
+    if (s1 == v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x490"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x490; } } }
 
     /* fragment 103: CallSetup */
     t0 = local_20;
@@ -82341,7 +82355,7 @@ tisp_ae_ev_list_alloc_calc0x558:
 
     /* fragment 105: Branch */
     a2 = *(uint32_t *)((char *)(s6) + 12);
-    goto tisp_ae_ev_list_alloc_calc0x494;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x494"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x494; } }
 
 tisp_ae_ev_list_alloc_calc0x570:
     /* fragment 106: Branch */
@@ -82361,7 +82375,7 @@ tisp_ae_ev_list_alloc_calc0x570:
 
     /* fragment 110: Branch */
     *(uint32_t *)((char *)v0 + 4) = t2;
-    goto tisp_ae_ev_list_alloc_calc0x558;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x558"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x558; } }
 
 tisp_ae_ev_list_alloc_calc0x598:
     /* fragment 111: StackAccess */
@@ -82374,7 +82388,7 @@ tisp_ae_ev_list_alloc_calc0x59c:
 tisp_ae_ev_list_alloc_calc0x5a0:
     /* fragment 113: Branch */
     s1 = a2 << (uintptr_t)s0;
-    if (v0 == 0) { goto tisp_ae_ev_list_alloc_calc0x4a8; }
+    if (v0 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x4a8"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x4a8; } } }
 
     /* fragment 114: StackAccess */
     v0 = local_10;
@@ -82382,7 +82396,7 @@ tisp_ae_ev_list_alloc_calc0x5a0:
 
     /* fragment 115: Branch */
     *(uint32_t *)((char *)s6 + 12) = v0;
-    goto tisp_ae_ev_list_alloc_calc0x4a8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x4a8"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x4a8; } }
 
 tisp_ae_ev_list_alloc_calc0x5b8:
     /* fragment 116: CallSetup */
@@ -82393,19 +82407,19 @@ tisp_ae_ev_list_alloc_calc0x5b8:
 
     /* fragment 118: Branch */
     s7 = local_18;
-    if (v0 != 0) { goto tisp_ae_ev_list_alloc_calc0x4e8; }
+    if (v0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x4e8"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x4e8; } } }
 
     /* fragment 119: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, s6, s5); /* jalr target resolved by relocation */
 
     /* fragment 120: Branch */
     s7 = v0;
-    goto tisp_ae_ev_list_alloc_calc0x4e8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x4e8"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x4e8; } }
 
 tisp_ae_ev_list_alloc_calc0x5e8:
     /* fragment 121: Branch */
     s5 = local_14;
-    goto tisp_ae_ev_list_alloc_calc0x4e8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_list_alloc_calc", "0x4e8"); else { __lg--; goto tisp_ae_ev_list_alloc_calc0x4e8; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -82492,6 +82506,7 @@ tisp_ae_main_deinit0x90:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002246c origin=fragment_seed original=tisp_ae_sort_H2L */
 int32_t* tisp_ae_sort_H2L(uintptr_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -82523,7 +82538,7 @@ tisp_ae_sort_H2L0x18:
 
     /* fragment 5: Branch */
     t2 = -1;
-    if (v0 != a2) { goto tisp_ae_sort_H2L0x8; }
+    if (v0 != a2) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sort_H2L", "0x8"); else { __lg--; goto tisp_ae_sort_H2L0x8; } } }
 
     /* fragment 6: Arithmetic */
     a2 = 14;
@@ -82565,14 +82580,14 @@ tisp_ae_sort_H2L0x70:
     t0 = a3 < a2;
 
     /* fragment 14: Branch */
-    if (t0 != 0) { goto tisp_ae_sort_H2L0x38; }
+    if (t0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sort_H2L", "0x38"); else { __lg--; goto tisp_ae_sort_H2L0x38; } } }
 
     /* fragment 15: Arithmetic */
     a2 = a2 - 1;
 
     /* fragment 16: Branch */
     v1 = a1;
-    if (a2 != t2) { goto tisp_ae_sort_H2L0x2c; }
+    if (a2 != t2) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sort_H2L", "0x2c"); else { __lg--; goto tisp_ae_sort_H2L0x2c; } } }
 
     /* fragment 17: Epilogue */
     /* function epilogue: restore registers and return */
@@ -82587,6 +82602,7 @@ tisp_ae_sort_H2L0x70:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000224fc origin=fragment_seed original=tisp_ae_fliker_detect */
 int64_t tisp_ae_fliker_detect(uint32_t a0, uint32_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     /*
      * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
      * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
@@ -82743,7 +82759,7 @@ tisp_ae_fliker_detect0x1a8:
 
     /* fragment 21: Branch */
     v0 = s4 - 1;
-    if (s4 <= 0) { goto tisp_ae_fliker_detect0x168; }
+    if (s4 <= 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x168"); else { __lg--; goto tisp_ae_fliker_detect0x168; } } }
 
     /* fragment 22: Arithmetic */
     a0 = 225;
@@ -82776,7 +82792,7 @@ tisp_ae_fliker_detect0x1f8:
 
     /* fragment 26: Branch */
     *(uint32_t *)((char *)t3 + 0) = a0;
-    if (a1 != t2) { goto tisp_ae_fliker_detect0x1f8; }
+    if (a1 != t2) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x1f8"); else { __lg--; goto tisp_ae_fliker_detect0x1f8; } } }
 
     /* fragment 27: Arithmetic */
     s5 = s5 + 60;
@@ -82784,14 +82800,14 @@ tisp_ae_fliker_detect0x1f8:
 
     /* fragment 28: Branch */
     v0 = v0 + 60;
-    if (s5 != s6) { goto tisp_ae_fliker_detect0x1f4; }
+    if (s5 != s6) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x1f4"); else { __lg--; goto tisp_ae_fliker_detect0x1f4; } } }
 
     /* fragment 29: Arithmetic */
     v0 = 9;
 
     /* fragment 30: Branch */
     s6 = (uintptr_t)&tisp_ae_sort_H2L;
-    if (s4 != v0) { goto tisp_ae_fliker_detect0x168; }
+    if (s4 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x168"); else { __lg--; goto tisp_ae_fliker_detect0x168; } } }
 
     /* fragment 31: CallSetup */
     v0 = s6;
@@ -82843,7 +82859,7 @@ tisp_ae_fliker_detect0x2b4:
 
     /* fragment 39: Branch */
     v1 = v1 + 4;
-    if (v0 != a1) { goto tisp_ae_fliker_detect0x2b4; }
+    if (v0 != a1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x2b4"); else { __lg--; goto tisp_ae_fliker_detect0x2b4; } } }
 
     /* fragment 40: CallSetup */
     (*__p_324) = t4;
@@ -82899,7 +82915,7 @@ tisp_ae_fliker_detect0x32c:
 
     /* fragment 52: Branch */
     s5 = s5 + 60;
-    if (s6 != v0) { goto tisp_ae_fliker_detect0x274; }
+    if (s6 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x274"); else { __lg--; goto tisp_ae_fliker_detect0x274; } } }
 
     /* fragment 53: Arithmetic */
     s7 = s7 + 225;
@@ -82907,7 +82923,7 @@ tisp_ae_fliker_detect0x32c:
 
     /* fragment 54: Branch */
     t4 = t4 + 4;
-    if (s7 != v0) { goto tisp_ae_fliker_detect0x268; }
+    if (s7 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x268"); else { __lg--; goto tisp_ae_fliker_detect0x268; } } }
 
     /* fragment 55: Arithmetic */
     t1 = (uint32_t *)__p_22c;
@@ -82932,7 +82948,7 @@ tisp_ae_fliker_detect0x37c:
 
     /* fragment 59: Branch */
     v0 = t0 + (uintptr_t)v0;
-    if (v1 != t2) { goto tisp_ae_fliker_detect0x37c; }
+    if (v1 != t2) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x37c"); else { __lg--; goto tisp_ae_fliker_detect0x37c; } } }
 
     /* fragment 60: Arithmetic */
     v0 = v0 + 4;
@@ -82947,7 +82963,7 @@ tisp_ae_fliker_detect0x37c:
 
     /* fragment 63: Branch */
     *(uint32_t *)((char *)a0 + -4) = v0;
-    if (a3 != s4) { goto tisp_ae_fliker_detect0x374; }
+    if (a3 != s4) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x374"); else { __lg--; goto tisp_ae_fliker_detect0x374; } } }
 
     /* fragment 64: StackAccess */
     a0 = __p_22c;
@@ -82964,7 +82980,7 @@ tisp_ae_fliker_detect0x3c4:
 
     /* fragment 66: Branch */
     v0 = (uintptr_t)v0 + (uintptr_t)a2;
-    if (v1 != t1) { goto tisp_ae_fliker_detect0x3c4; }
+    if (v1 != t1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x3c4"); else { __lg--; goto tisp_ae_fliker_detect0x3c4; } } }
 
     /* fragment 67: Arithmetic */
     v0 = (uintptr_t)v0 - (uintptr_t)a3;
@@ -83048,12 +83064,12 @@ tisp_ae_fliker_detect0x460:
 
     /* fragment 86: Branch */
     a2 = (uintptr_t)a2 + (uintptr_t)v1;
-    goto tisp_ae_fliker_detect0x308;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x308"); else { __lg--; goto tisp_ae_fliker_detect0x308; } }
 
 tisp_ae_fliker_detect0x48c:
     /* fragment 87: Branch */
     v1 = a0 + (uintptr_t)v1;
-    goto tisp_ae_fliker_detect0x32c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x32c"); else { __lg--; goto tisp_ae_fliker_detect0x32c; } }
 
 tisp_ae_fliker_detect0x494:
     /* fragment 88: Arithmetic */
@@ -83084,7 +83100,7 @@ tisp_ae_fliker_detect0x494:
 tisp_ae_fliker_detect0x4d0:
     /* fragment 94: Branch */
     a0 = (uintptr_t)t3 & 255;
-    goto tisp_ae_fliker_detect0x420;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x420"); else { __lg--; goto tisp_ae_fliker_detect0x420; } }
 
 tisp_ae_fliker_detect0x4d8:
     /* fragment 95: Arithmetic */
@@ -83103,7 +83119,7 @@ tisp_ae_fliker_detect0x4ec:
 
     /* fragment 98: Branch */
     a2 = (uint32_t *)__p_10;
-    if (a0 != 0) { goto tisp_ae_fliker_detect0x4d8; }
+    if (a0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x4d8"); else { __lg--; goto tisp_ae_fliker_detect0x4d8; } } }
 
     /* fragment 99: CallSetup */
     v1 = *(uint32_t *)((char *)((char *)&fliker_info));
@@ -83146,7 +83162,7 @@ tisp_ae_fliker_detect0x554:
 
     /* fragment 107: Branch */
     *(uint32_t *)((char *)v1 + 1292) = v0;
-    goto tisp_ae_fliker_detect0x168;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x168"); else { __lg--; goto tisp_ae_fliker_detect0x168; } }
 
 tisp_ae_fliker_detect0x578:
     /* fragment 108: Arithmetic */
@@ -83160,7 +83176,7 @@ tisp_ae_fliker_detect0x584:
 
     /* fragment 110: Branch */
     (*__p_2e0) = v0;
-    goto tisp_ae_fliker_detect0x504;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x504"); else { __lg--; goto tisp_ae_fliker_detect0x504; } }
 
 tisp_ae_fliker_detect0x594:
     /* fragment 111: MemoryAccess */
@@ -83169,7 +83185,7 @@ tisp_ae_fliker_detect0x594:
 
     /* fragment 112: Branch */
     *(uint32_t *)((char *)v1 + 4) = a0;
-    goto tisp_ae_fliker_detect0x584;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x584"); else { __lg--; goto tisp_ae_fliker_detect0x584; } }
 
 tisp_ae_fliker_detect0x5a4:
     /* fragment 113: MemoryAccess */
@@ -83179,7 +83195,7 @@ tisp_ae_fliker_detect0x5a4:
 
     /* fragment 114: Branch */
     *(uint32_t *)((char *)v0 + 10808) = a1;
-    goto tisp_ae_fliker_detect0x554;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_fliker_detect", "0x554"); else { __lg--; goto tisp_ae_fliker_detect0x554; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -83275,6 +83291,7 @@ tisp_ae_sec_deinit0x70:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000022b5c origin=fragment_seed original=tisp_ae_params_refresh */
 int64_t tisp_ae_params_refresh(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -83836,7 +83853,7 @@ tisp_ae_params_refresh0x688:
 
     /* fragment 121: Branch */
     a0 = *(uint32_t *)((char *)((char *)&stSecAeOuter));
-    goto tisp_ae_params_refresh0x534;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_params_refresh", "0x534"); else { __lg--; goto tisp_ae_params_refresh0x534; } }
 
 tisp_ae_params_refresh0x9c8:
     /* fragment 122: Unknown */
@@ -83853,7 +83870,7 @@ tisp_ae_params_refresh0x9c8:
 
     /* fragment 124: Branch */
     *(uint16_t *)((char *)t0 + 0) = a3;
-    goto tisp_ae_params_refresh0x57c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_params_refresh", "0x57c"); else { __lg--; goto tisp_ae_params_refresh0x57c; } }
 
 tisp_ae_params_refresh0x9ec:
     /* fragment 125: Unknown */
@@ -83868,7 +83885,7 @@ tisp_ae_params_refresh0x9ec:
 
     /* fragment 127: Branch */
     *(uint16_t *)((char *)a0 + 0) = (uint16_t)(a1 ? (uintptr_t)((int32_t)(uintptr_t)v0 / (int32_t)(uintptr_t)a1) : 0); /* T40-AE-ZONE-DIV: OEM 0x23f68 div v0,a1; mflo a2 (0x23f7c); sh a2 (0x23f84): zone height (a2 was the index*2 here) */
-    goto tisp_ae_params_refresh0x5a0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_params_refresh", "0x5a0"); else { __lg--; goto tisp_ae_params_refresh0x5a0; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -84136,6 +84153,7 @@ do_write:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000237a8 origin=fragment_seed original=tisp_ae_set_hardware_param */
 int64_t tisp_ae_set_hardware_param(uintptr_t a0, uint32_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     const uint16_t *v0_hw = NULL;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
@@ -84407,7 +84425,7 @@ tisp_ae_set_hardware_param0x2e0:
 
     /* fragment 37: Branch */
     v1 = a1 | (uintptr_t)v1;
-    goto tisp_ae_set_hardware_param0x64;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_hardware_param", "0x64"); else { __lg--; goto tisp_ae_set_hardware_param0x64; } }
 
 tisp_ae_set_hardware_param0x300:
     /* fragment 38: CallSetup */
@@ -84447,15 +84465,15 @@ tisp_ae_set_hardware_param0x36c:
 
     /* fragment 49: Branch */
     a0 = a0 | 37416;
-    goto tisp_ae_set_hardware_param0x290;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_hardware_param", "0x290"); else { __lg--; goto tisp_ae_set_hardware_param0x290; } }
 
 tisp_ae_set_hardware_param0x37c:
     /* fragment 50: Branch */
-    if (s8 != 0) { goto tisp_ae_set_hardware_param0x36c; }
+    if (s8 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_hardware_param", "0x36c"); else { __lg--; goto tisp_ae_set_hardware_param0x36c; } } }
 
     /* fragment 51: Branch */
     a0 = 65536;
-    goto tisp_ae_set_hardware_param0x288;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_hardware_param", "0x288"); else { __lg--; goto tisp_ae_set_hardware_param0x288; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -85578,6 +85596,7 @@ static unsigned char __attribute__((aligned(4))) stMainAeInterOri[17772] = {
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000023b34 origin=fragment_seed original=tisp_ae_main_init */
 int64_t tisp_ae_main_init(uint32_t a0, uint32_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     /*
      * OEM stack scratch buffers. The loop at label 0x17c byte-copies 420 bytes
      * (sensor_ctrl_main+4) into &local_10, and the loop at 0x160 copies 152
@@ -85751,7 +85770,7 @@ tisp_ae_main_init0x2a4:
 
     /* fragment 32: Branch */
     *(uint8_t *)((char *)a1 + 0) = a3;
-    goto tisp_ae_main_init0x160;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_init", "0x160"); else { __lg--; goto tisp_ae_main_init0x160; } }
 
 tisp_ae_main_init0x2b8:
     /* fragment 33: MemoryAccess */
@@ -85761,7 +85780,7 @@ tisp_ae_main_init0x2b8:
 
     /* fragment 34: Branch */
     *(uint8_t *)((char *)a1 + 0) = a3;
-    goto tisp_ae_main_init0x17c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_init", "0x17c"); else { __lg--; goto tisp_ae_main_init0x17c; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -85769,6 +85788,7 @@ tisp_ae_main_init0x2b8:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000023e00 origin=fragment_seed original=tisp_ae_sec_init */
 int64_t tisp_ae_sec_init(uint32_t a0, uint32_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_1b4 = 0;
     uint32_t local_254 = 0;
@@ -85905,7 +85925,7 @@ tisp_ae_sec_init0x250:
 
     /* fragment 29: Branch */
     *(uint8_t *)((char *)a1 + 0) = a3;
-    goto tisp_ae_sec_init0x108;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_init", "0x108"); else { __lg--; goto tisp_ae_sec_init0x108; } }
 
 tisp_ae_sec_init0x264:
     /* fragment 30: MemoryAccess */
@@ -85915,7 +85935,7 @@ tisp_ae_sec_init0x264:
 
     /* fragment 31: Branch */
     *(uint8_t *)((char *)a1 + 0) = a3;
-    goto tisp_ae_sec_init0x124;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_init", "0x124"); else { __lg--; goto tisp_ae_sec_init0x124; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -86209,6 +86229,7 @@ int32_t tisp_ae_sec_interrupt_hist(void)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024524 origin=fragment_seed original=tisp_ae_long_ctrls_update */
 int32_t tisp_ae_long_ctrls_update(uint32_t a0, uintptr_t a1, uintptr_t a2)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -86362,7 +86383,7 @@ tisp_ae_long_ctrls_update0x154:
 
     /* fragment 33: Branch */
     *(uint32_t *)((char *)a2 + 28) = v0;
-    goto tisp_ae_long_ctrls_update0x4c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_ctrls_update", "0x4c"); else { __lg--; goto tisp_ae_long_ctrls_update0x4c; } }
 
 tisp_ae_long_ctrls_update0x160:
     /* fragment 34: MemoryAccess */
@@ -86370,7 +86391,7 @@ tisp_ae_long_ctrls_update0x160:
 
     /* fragment 35: Branch */
     *(uint32_t *)((char *)s1 + 20) = v0;
-    goto tisp_ae_long_ctrls_update0x88;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_ctrls_update", "0x88"); else { __lg--; goto tisp_ae_long_ctrls_update0x88; } }
 
 tisp_ae_long_ctrls_update0x16c:
     /* fragment 36: MemoryAccess */
@@ -86378,7 +86399,7 @@ tisp_ae_long_ctrls_update0x16c:
 
     /* fragment 37: Branch */
     *(uint32_t *)((char *)s1 + 24) = v0;
-    goto tisp_ae_long_ctrls_update0xbc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_ctrls_update", "0xbc"); else { __lg--; goto tisp_ae_long_ctrls_update0xbc; } }
 
 tisp_ae_long_ctrls_update0x178:
     /* fragment 38: MemoryAccess */
@@ -86386,7 +86407,7 @@ tisp_ae_long_ctrls_update0x178:
 
     /* fragment 39: Branch */
     *(uint32_t *)((char *)s1 + 120) = v0;
-    goto tisp_ae_long_ctrls_update0xf8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_ctrls_update", "0xf8"); else { __lg--; goto tisp_ae_long_ctrls_update0xf8; } }
 
 tisp_ae_long_ctrls_update0x184:
     /* fragment 40: MemoryAccess */
@@ -86394,7 +86415,7 @@ tisp_ae_long_ctrls_update0x184:
 
     /* fragment 41: Branch */
     *(uint32_t *)((char *)s1 + 112) = v0;
-    goto tisp_ae_long_ctrls_update0x10c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_ctrls_update", "0x10c"); else { __lg--; goto tisp_ae_long_ctrls_update0x10c; } }
 
 tisp_ae_long_ctrls_update0x190:
     /* fragment 42: MemoryAccess */
@@ -86402,7 +86423,7 @@ tisp_ae_long_ctrls_update0x190:
 
     /* fragment 43: Branch */
     *(uint32_t *)((char *)s1 + 116) = v0;
-    goto tisp_ae_long_ctrls_update0x120;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_ctrls_update", "0x120"); else { __lg--; goto tisp_ae_long_ctrls_update0x120; } }
 
     return 0;
 }
@@ -86410,6 +86431,7 @@ tisp_ae_long_ctrls_update0x190:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000246c0 origin=fragment_seed original=tisp_ae_short_ctrls_update */
 int32_t tisp_ae_short_ctrls_update(uint32_t a0, uintptr_t a1, uintptr_t a2)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -86561,7 +86583,7 @@ tisp_ae_short_ctrls_update0x140:
 
     /* fragment 34: Branch */
     *(uint32_t *)((char *)a2 + 84) = v0;
-    goto tisp_ae_short_ctrls_update0x58;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_ctrls_update", "0x58"); else { __lg--; goto tisp_ae_short_ctrls_update0x58; } }
 
 tisp_ae_short_ctrls_update0x14c:
     /* fragment 35: MemoryAccess */
@@ -86569,7 +86591,7 @@ tisp_ae_short_ctrls_update0x14c:
 
     /* fragment 36: Branch */
     *(uint32_t *)((char *)s1 + 80) = v0;
-    goto tisp_ae_short_ctrls_update0x9c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_ctrls_update", "0x9c"); else { __lg--; goto tisp_ae_short_ctrls_update0x9c; } }
 
 tisp_ae_short_ctrls_update0x158:
     /* fragment 37: MemoryAccess */
@@ -86577,7 +86599,7 @@ tisp_ae_short_ctrls_update0x158:
 
     /* fragment 38: Branch */
     *(uint32_t *)((char *)s1 + 88) = v0;
-    goto tisp_ae_short_ctrls_update0xb0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_ctrls_update", "0xb0"); else { __lg--; goto tisp_ae_short_ctrls_update0xb0; } }
 
 tisp_ae_short_ctrls_update0x164:
     /* fragment 39: MemoryAccess */
@@ -86585,7 +86607,7 @@ tisp_ae_short_ctrls_update0x164:
 
     /* fragment 40: Branch */
     *(uint32_t *)((char *)s1 + 132) = v0;
-    goto tisp_ae_short_ctrls_update0xe8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_ctrls_update", "0xe8"); else { __lg--; goto tisp_ae_short_ctrls_update0xe8; } }
 
 tisp_ae_short_ctrls_update0x170:
     /* fragment 41: MemoryAccess */
@@ -86593,7 +86615,7 @@ tisp_ae_short_ctrls_update0x170:
 
     /* fragment 42: Branch */
     *(uint32_t *)((char *)s1 + 128) = v0;
-    goto tisp_ae_short_ctrls_update0xfc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_ctrls_update", "0xfc"); else { __lg--; goto tisp_ae_short_ctrls_update0xfc; } }
 
 tisp_ae_short_ctrls_update0x17c:
     /* fragment 43: MemoryAccess */
@@ -86601,7 +86623,7 @@ tisp_ae_short_ctrls_update0x17c:
 
     /* fragment 44: Branch */
     *(uint32_t *)((char *)s1 + 136) = v0;
-    goto tisp_ae_short_ctrls_update0x110;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_ctrls_update", "0x110"); else { __lg--; goto tisp_ae_short_ctrls_update0x110; } }
 
     return 0;
 }
@@ -86855,6 +86877,7 @@ int32_t tisp_ae_long_weight_mean2(int32_t arg1, int32_t (*arg2)(int32_t arg1, in
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024f04 origin=fragment_seed original=tisp_ae_long_target */
 int32_t tisp_ae_long_target(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t ra = 0;
     uintptr_t t0 = 0;
     uint32_t *t1 = 0;
@@ -86921,7 +86944,7 @@ tisp_ae_long_target0x68:
 
     /* fragment 14: Branch */
     v0 = t2;
-    if (t2 != t1) { goto tisp_ae_long_target0x40; }
+    if (t2 != t1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_target", "0x40"); else { __lg--; goto tisp_ae_long_target0x40; } } }
 
     /* fragment 15: Arithmetic */
     v0 = 0;
@@ -87138,6 +87161,7 @@ tisp_ae_long_tune0x74:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000025138 origin=fragment_seed original=tisp_ae_long_tune2 */
 int64_t tisp_ae_long_tune2(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3, uintptr_t arg4, uint32_t arg5, uint32_t arg6, uint32_t arg7, uint32_t arg8, uint32_t arg9, uint32_t arg10)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -87431,7 +87455,7 @@ tisp_ae_long_tune20x288:
 
     /* fragment 10: Branch */
     a0 = a0 + 2;
-    if (v0 != a1) { goto tisp_ae_long_tune20x288; }
+    if (v0 != a1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x288"); else { __lg--; goto tisp_ae_long_tune20x288; } } }
 
     /* fragment 11: MemoryAccess */
     v0 = *(uint32_t *)((char *)s8 + 280);
@@ -87457,7 +87481,7 @@ tisp_ae_long_tune20x2d8:
 
     /* fragment 15: Branch */
     a0 = v1 + a0;
-    if (a2 != a1) { goto tisp_ae_long_tune20x2d8; }
+    if (a2 != a1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x2d8"); else { __lg--; goto tisp_ae_long_tune20x2d8; } } }
 
     /* fragment 16: CallSetup */
     s7 = (uintptr_t)&local_48;
@@ -87490,7 +87514,7 @@ tisp_ae_long_tune20x34c:
 
     /* fragment 21: Branch */
     t0 = t0 + 4;
-    if (v0 != s7) { goto tisp_ae_long_tune20x34c; }
+    if (v0 != s7) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x34c"); else { __lg--; goto tisp_ae_long_tune20x34c; } } }
 
     /* fragment 22: MemoryAccess */
     v0 = *(uint32_t *)((char *)s8 + 280);
@@ -87563,7 +87587,7 @@ tisp_ae_long_tune20x440:
 
     /* fragment 32: Branch */
     t0 = t0 + 4;
-    if (t5 != a3) { goto tisp_ae_long_tune20x3f0; }
+    if (t5 != a3) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x3f0"); else { __lg--; goto tisp_ae_long_tune20x3f0; } } }
 
     /* fragment 33: Arithmetic */
     v0 = s3;
@@ -87579,7 +87603,7 @@ tisp_ae_long_tune20x470:
 
     /* fragment 36: Branch */
     *(uint32_t *)((char *)v0 + -4) = a1;
-    if (a0 != v0) { goto tisp_ae_long_tune20x470; }
+    if (a0 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x470"); else { __lg--; goto tisp_ae_long_tune20x470; } } }
 
     /* fragment 37: StackAccess */
     v1 = local_d0;
@@ -87600,7 +87624,7 @@ tisp_ae_long_tune20x49c:
 
     /* fragment 39: Branch */
     *(uint16_t *)((char *)a1 + 0) = a3;
-    if (a0 != a2) { goto tisp_ae_long_tune20x49c; }
+    if (a0 != a2) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x49c"); else { __lg--; goto tisp_ae_long_tune20x49c; } } }
 
     /* fragment 40: MemoryAccess */
     v0 = *(uint32_t *)((char *)v0 + 0);
@@ -87666,7 +87690,7 @@ tisp_ae_long_tune20x52c:
 
     /* fragment 53: Branch */
     s4 = a3 + (uintptr_t)s4;
-    if (v1 != a1) { goto tisp_ae_long_tune20x52c; }
+    if (v1 != a1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x52c"); else { __lg--; goto tisp_ae_long_tune20x52c; } } }
 
     /* fragment 54: Unknown */
     /* unmatched fragment 54 (Unknown): no deterministic matcher for Unknown */
@@ -87733,11 +87757,11 @@ tisp_ae_long_tune20x594:
 
     /* fragment 67: Branch */
     *(uint32_t *)((char *)a1 + 0) = a2;
-    if (v0 != a0) { goto tisp_ae_long_tune20x594; }
+    if (v0 != a0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x594"); else { __lg--; goto tisp_ae_long_tune20x594; } } }
 
     /* fragment 68: Branch */
     v0 = s3;
-    goto tisp_ae_long_tune20x46c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x46c"); else { __lg--; goto tisp_ae_long_tune20x46c; } }
 
 tisp_ae_long_tune20x5d4:
     /* fragment 69: StackAccess */
@@ -87746,27 +87770,27 @@ tisp_ae_long_tune20x5d4:
     /* fragment 70: Branch */
     int _bc_v1_70 = v1 != a1;
     a1 = *(uint32_t *)((char *)((char *)&ftune_wmeans_40861));
-    if (_bc_v1_70) { goto tisp_ae_long_tune20x4f0; }
+    if (_bc_v1_70) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x4f0"); else { __lg--; goto tisp_ae_long_tune20x4f0; } } }
 
     /* fragment 71: Branch */
     *(uint32_t *)((char *)v0 + 14216) = 0;
-    goto tisp_ae_long_tune20x4ec;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x4ec"); else { __lg--; goto tisp_ae_long_tune20x4ec; } }
 
 tisp_ae_long_tune20x5e8:
     /* fragment 72: Branch */
     s6 = 15;
-    goto tisp_ae_long_tune20x510;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x510"); else { __lg--; goto tisp_ae_long_tune20x510; } }
 
 tisp_ae_long_tune20x5f0:
     /* fragment 73: Branch */
     s6 = 1;
-    goto tisp_ae_long_tune20x510;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x510"); else { __lg--; goto tisp_ae_long_tune20x510; } }
 
 tisp_ae_long_tune20x5f8:
     /* fragment 74: Branch */
     int _bc_v0_74 = v0 == a0;
     v0 = local_124;
-    if (_bc_v0_74) { goto tisp_ae_long_tune20x578; }
+    if (_bc_v0_74) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x578"); else { __lg--; goto tisp_ae_long_tune20x578; } } }
 
 tisp_ae_long_tune20x600:
     /* fragment 75: CallSetup */
@@ -88170,7 +88194,7 @@ tisp_ae_long_tune20x994:
 
     /* fragment 152: Branch */
     *(uint32_t *)((char *)v1 + -4) = a3;
-    if (a2 != v1) { goto tisp_ae_long_tune20x994; }
+    if (a2 != v1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x994"); else { __lg--; goto tisp_ae_long_tune20x994; } } }
 
     /* fragment 153: StackAccess */
     a2 = local_ac;
@@ -88184,7 +88208,7 @@ tisp_ae_long_tune20x9b0:
 
     /* fragment 155: Branch */
     a1 = a1 + a2;
-    if (v1 != a0) { goto tisp_ae_long_tune20x9b0; }
+    if (v1 != a0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x9b0"); else { __lg--; goto tisp_ae_long_tune20x9b0; } } }
 
     /* fragment 156: StackAccess */
     v1 = local_ac;
@@ -88199,7 +88223,7 @@ tisp_ae_long_tune20x9d0:
 
     /* fragment 158: Branch */
     *(uint32_t *)((char *)a0 + -4) = a3;
-    if (v1 != a0) { goto tisp_ae_long_tune20x9d0; }
+    if (v1 != a0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x9d0"); else { __lg--; goto tisp_ae_long_tune20x9d0; } } }
 
     /* fragment 159: StackAccess */
     v1 = local_ac;
@@ -88214,7 +88238,7 @@ tisp_ae_long_tune20x9ec:
 
     /* fragment 161: Branch */
     v1 = v1 + a3;
-    if (a0 != a2) { goto tisp_ae_long_tune20x9ec; }
+    if (a0 != a2) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x9ec"); else { __lg--; goto tisp_ae_long_tune20x9ec; } } }
 
     /* fragment 162: Arithmetic */
     a1 = a1 < 11;
@@ -88269,7 +88293,7 @@ tisp_ae_long_tune20xa5c:
 
     /* fragment 173: Branch */
     local_8c = v1;
-    goto tisp_ae_long_tune20x69c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x69c"); else { __lg--; goto tisp_ae_long_tune20x69c; } }
 
 tisp_ae_long_tune20xa68:
     /* fragment 174: Epilogue */
@@ -88277,17 +88301,17 @@ tisp_ae_long_tune20xa68:
 
     /* fragment 175: Branch */
     local_8c = v1;
-    goto tisp_ae_long_tune20x6a0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x6a0"); else { __lg--; goto tisp_ae_long_tune20x6a0; } }
 
 tisp_ae_long_tune20xa74:
     /* fragment 176: Branch */
     int _bc_v0_176 = v0 != 0;
     v0 = -56;
-    if (_bc_v0_176) { goto tisp_ae_long_tune20x73c; }
+    if (_bc_v0_176) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x73c"); else { __lg--; goto tisp_ae_long_tune20x73c; } } }
 
     /* fragment 177: Branch */
     *(uint8_t *)((char *)v1 + 476) = v0;
-    goto tisp_ae_long_tune20x73c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x73c"); else { __lg--; goto tisp_ae_long_tune20x73c; } }
 
 tisp_ae_long_tune20xa84:
     /* fragment 178: CallSetup */
@@ -88295,7 +88319,7 @@ tisp_ae_long_tune20xa84:
 
     /* fragment 179: Branch */
     local_84 = v0;
-    goto tisp_ae_long_tune20x744;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x744"); else { __lg--; goto tisp_ae_long_tune20x744; } }
 
 tisp_ae_long_tune20xaa4:
     /* fragment 180: StackAccess */
@@ -88303,16 +88327,16 @@ tisp_ae_long_tune20xaa4:
 
     /* fragment 181: Branch */
     a1 = (uintptr_t)s4 - (uintptr_t)v0;
-    goto tisp_ae_long_tune20x768;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x768"); else { __lg--; goto tisp_ae_long_tune20x768; } }
 
 tisp_ae_long_tune20xab0:
     /* fragment 182: Branch */
     int _bc_v1_182 = v1 != v0;
     v0 = local_d4;
-    if (_bc_v1_182) { goto tisp_ae_long_tune20x7a0; }
+    if (_bc_v1_182) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x7a0"); else { __lg--; goto tisp_ae_long_tune20x7a0; } } }
 
     /* fragment 183: Branch */
-    if (v0 == 0) { goto tisp_ae_long_tune20x7a0; }
+    if (v0 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x7a0"); else { __lg--; goto tisp_ae_long_tune20x7a0; } } }
 
     /* fragment 184: CallSetup */
     local_88 = v0;
@@ -88325,7 +88349,7 @@ tisp_ae_long_tune20xac8:
 
     /* fragment 186: Branch */
 /* fragment 186: Dead code - removed spurious __ashldi3 reference */
-    goto tisp_ae_long_tune20x7a4;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x7a4"); else { __lg--; goto tisp_ae_long_tune20x7a4; } }
 
 tisp_ae_long_tune20xaf4:
     /* fragment 187: CallSetup */
@@ -88337,7 +88361,7 @@ tisp_ae_long_tune20xaf4:
 
     /* fragment 188: Branch */
     a1 = local_a0;
-    goto tisp_ae_long_tune20x870;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x870"); else { __lg--; goto tisp_ae_long_tune20x870; } }
 
 tisp_ae_long_tune20xb20:
     /* fragment 189: CallSetup */
@@ -88512,7 +88536,7 @@ tisp_ae_long_tune20xd04:
 
     /* fragment 220: Branch */
     a0 = local_a4;
-    if (s7 != v1) { goto tisp_ae_long_tune20x930; }
+    if (s7 != v1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x930"); else { __lg--; goto tisp_ae_long_tune20x930; } } }
 
     /* fragment 221: StackAccess */
     a0 = local_88;
@@ -88521,7 +88545,7 @@ tisp_ae_long_tune20xd04:
     /* fragment 222: Branch */
     int _bc_a0_222 = a0 == 0;
     a0 = local_a4;
-    if (_bc_a0_222) { goto tisp_ae_long_tune20x930; }
+    if (_bc_a0_222) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x930"); else { __lg--; goto tisp_ae_long_tune20x930; } } }
 
     /* fragment 223: StackAccess */
     a0 = local_a0;
@@ -88538,7 +88562,7 @@ tisp_ae_long_tune20xd4c:
     /* fragment 226: Branch */
     int _bc_a0_226 = a0 != s7;
     a0 = local_a4;
-    if (_bc_a0_226) { goto tisp_ae_long_tune20x930; }
+    if (_bc_a0_226) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x930"); else { __lg--; goto tisp_ae_long_tune20x930; } } }
 
     /* fragment 227: StackAccess */
     a0 = local_88;
@@ -88546,7 +88570,7 @@ tisp_ae_long_tune20xd4c:
 
     /* fragment 228: Branch */
     a0 = local_a4;
-    if (s6 == 0) { goto tisp_ae_long_tune20x930; }
+    if (s6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x930"); else { __lg--; goto tisp_ae_long_tune20x930; } } }
 
 tisp_ae_long_tune20xd70:
     /* fragment 229: StackAccess */
@@ -88554,7 +88578,7 @@ tisp_ae_long_tune20xd70:
 
     /* fragment 230: Branch */
     s7 = v1;
-    goto tisp_ae_long_tune20x92c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x92c"); else { __lg--; goto tisp_ae_long_tune20x92c; } }
 
 tisp_ae_long_tune20xd7c:
     /* fragment 231: CallSetup */
@@ -88569,7 +88593,7 @@ tisp_ae_long_tune20xd7c:
 
     /* fragment 233: Branch */
     a0 = local_f4;
-    if (t4 != 0) { goto tisp_ae_long_tune20xd04; }
+    if (t4 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xd04"); else { __lg--; goto tisp_ae_long_tune20xd04; } } }
 
     /* fragment 234: StackAccess */
     a0 = local_10c;
@@ -88583,7 +88607,7 @@ tisp_ae_long_tune20xd7c:
     v0 = v1 < v0;
 
     /* fragment 237: Branch */
-    if (v0 != 0) { goto tisp_ae_long_tune20xd00; }
+    if (v0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xd00"); else { __lg--; goto tisp_ae_long_tune20xd00; } } }
 
 tisp_ae_long_tune20xdcc:
     /* fragment 238: CallSetup */
@@ -88600,7 +88624,7 @@ tisp_ae_long_tune20xdcc:
 
     /* fragment 240: Branch */
     v0 = local_d4;
-    goto tisp_ae_long_tune20xcb4;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xcb4"); else { __lg--; goto tisp_ae_long_tune20xcb4; } }
 
 tisp_ae_long_tune20xe00:
     /* fragment 241: StackAccess */
@@ -88608,7 +88632,7 @@ tisp_ae_long_tune20xe00:
 
     /* fragment 242: Branch */
     s7 = v0;
-    goto tisp_ae_long_tune20x92c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x92c"); else { __lg--; goto tisp_ae_long_tune20x92c; } }
 
 tisp_ae_long_tune20xe0c:
     /* fragment 243: Arithmetic */
@@ -88619,7 +88643,7 @@ tisp_ae_long_tune20xe0c:
 
     /* fragment 245: Branch */
     local_8c = v0;
-    goto tisp_ae_long_tune20xa18;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xa18"); else { __lg--; goto tisp_ae_long_tune20xa18; } }
 
 tisp_ae_long_tune20xe1c:
     /* fragment 246: Arithmetic */
@@ -88807,7 +88831,7 @@ tisp_ae_long_tune20xfec:
 
     /* fragment 283: Branch */
     v0 = local_94;
-    goto tisp_ae_long_tune20xa54;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xa54"); else { __lg--; goto tisp_ae_long_tune20xa54; } }
 
 tisp_ae_long_tune20xff8:
     /* fragment 284: CallSetup */
@@ -88892,7 +88916,7 @@ tisp_ae_long_tune20x10d0:
 
     /* fragment 303: Branch */
     v0 = (uintptr_t)v0 << (uintptr_t)s0;
-    goto tisp_ae_long_tune20x10ac;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x10ac"); else { __lg--; goto tisp_ae_long_tune20x10ac; } }
 
 tisp_ae_long_tune20x10dc:
     /* fragment 304: CallSetup */
@@ -88923,7 +88947,7 @@ tisp_ae_long_tune20x1110:
     local_74 = s5;
 
     /* fragment 311: Branch */
-    goto tisp_ae_long_tune20x1108;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x1108"); else { __lg--; goto tisp_ae_long_tune20x1108; } }
 
 tisp_ae_long_tune20x111c:
     /* fragment 312: CallSetup */
@@ -88943,7 +88967,7 @@ tisp_ae_long_tune20x111c:
 
     /* fragment 316: Branch */
     local_74 = v0;
-    goto tisp_ae_long_tune20x10d0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x10d0"); else { __lg--; goto tisp_ae_long_tune20x10d0; } }
 
 tisp_ae_long_tune20x1158:
     /* fragment 317: CallSetup */
@@ -88967,7 +88991,7 @@ tisp_ae_long_tune20x1158:
 
     /* fragment 322: Branch */
     local_70 = v0;
-    goto tisp_ae_long_tune20x1108;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x1108"); else { __lg--; goto tisp_ae_long_tune20x1108; } }
 
 tisp_ae_long_tune20x11b0:
     /* fragment 323: CallSetup */
@@ -88985,7 +89009,7 @@ tisp_ae_long_tune20x11b8:
 
     /* fragment 326: Branch */
     local_70 = v0;
-    goto tisp_ae_long_tune20xe80;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xe80"); else { __lg--; goto tisp_ae_long_tune20xe80; } }
 
 tisp_ae_long_tune20x11f0:
     /* fragment 327: StackAccess */
@@ -88994,7 +89018,7 @@ tisp_ae_long_tune20x11f0:
     /* fragment 328: Branch */
     int _bc_v0_328 = v0 != v1;
     v0 = s7 < a3;
-    if (_bc_v0_328) { goto tisp_ae_long_tune20x1108; }
+    if (_bc_v0_328) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x1108"); else { __lg--; goto tisp_ae_long_tune20x1108; } } }
 
     /* fragment 329: Branch */
     int _bc_v0_329 = v0 == 0;
@@ -89023,7 +89047,7 @@ tisp_ae_long_tune20x11f0:
 
     /* fragment 335: Branch */
     local_70 = v0;
-    goto tisp_ae_long_tune20x11b8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x11b8"); else { __lg--; goto tisp_ae_long_tune20x11b8; } }
 
 tisp_ae_long_tune20x1240:
     /* fragment 336: CallSetup */
@@ -89044,14 +89068,14 @@ tisp_ae_long_tune20x1240:
     local_70 = v0;
 
     /* fragment 341: Branch */
-    goto tisp_ae_long_tune20x11b8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x11b8"); else { __lg--; goto tisp_ae_long_tune20x11b8; } }
 
 tisp_ae_long_tune20x1274:
     /* fragment 342: StackAccess */
     local_74 = s5;
 
     /* fragment 343: Branch */
-    goto tisp_ae_long_tune20x11b8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x11b8"); else { __lg--; goto tisp_ae_long_tune20x11b8; } }
 
 tisp_ae_long_tune20x1280:
     /* fragment 344: Branch */
@@ -89095,7 +89119,7 @@ tisp_ae_long_tune20x12e8:
 
     /* fragment 353: Branch */
     a2 = s7 >> (uintptr_t)s0;
-    if (v0 != 0) { goto tisp_ae_long_tune20x128c; }
+    if (v0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x128c"); else { __lg--; goto tisp_ae_long_tune20x128c; } } }
 
     /* fragment 354: CallSetup */
     local_78 = a2 << (uintptr_t)s0;
@@ -89106,7 +89130,7 @@ tisp_ae_long_tune20x12e8:
 
 tisp_ae_long_tune20x130c:
     /* fragment 356: Branch */
-    goto tisp_ae_long_tune20x1108;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x1108"); else { __lg--; goto tisp_ae_long_tune20x1108; } }
 
 tisp_ae_long_tune20x1314:
     /* fragment 357: CallSetup */
@@ -89174,7 +89198,7 @@ tisp_ae_long_tune20x13a4:
 
     /* fragment 370: Branch */
     local_74 = v0;
-    if (v1 == 0) { goto tisp_ae_long_tune20x10d0; }
+    if (v1 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x10d0"); else { __lg--; goto tisp_ae_long_tune20x10d0; } } }
 
     /* fragment 371: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, v0, s5); /* jalr target resolved by relocation */
@@ -89195,7 +89219,7 @@ tisp_ae_long_tune20x13e0:
 
     /* fragment 376: Branch */
     s1 = local_90;
-    goto tisp_ae_long_tune20x11b8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x11b8"); else { __lg--; goto tisp_ae_long_tune20x11b8; } }
 
 tisp_ae_long_tune20x13ec:
     /* fragment 377: Arithmetic */
@@ -89217,7 +89241,7 @@ tisp_ae_long_tune20x13ec:
 
     /* fragment 380: Branch */
     v0 = (uintptr_t)v0 << (uintptr_t)s0;
-    goto tisp_ae_long_tune20x135c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x135c"); else { __lg--; goto tisp_ae_long_tune20x135c; } }
 
 tisp_ae_long_tune20x141c:
     /* fragment 381: StackAccess */
@@ -89225,7 +89249,7 @@ tisp_ae_long_tune20x141c:
 
     /* fragment 382: Branch */
     local_a8 = v0;
-    goto tisp_ae_long_tune20x1368;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x1368"); else { __lg--; goto tisp_ae_long_tune20x1368; } }
 
 tisp_ae_long_tune20x1428:
     /* fragment 383: Arithmetic */
@@ -89239,16 +89263,16 @@ tisp_ae_long_tune20x1428:
 
     /* fragment 385: Branch */
     v1 = local_c0;
-    if (a0 != 0) { goto tisp_ae_long_tune20x137c; }
+    if (a0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x137c"); else { __lg--; goto tisp_ae_long_tune20x137c; } } }
 
     /* fragment 386: Branch */
     v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
-    goto tisp_ae_long_tune20x136c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x136c"); else { __lg--; goto tisp_ae_long_tune20x136c; } }
 
 tisp_ae_long_tune20x144c:
     /* fragment 387: Branch */
     s1 = 0;
-    if (v0 != v1) { goto tisp_ae_long_tune20xe80; }
+    if (v0 != v1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xe80"); else { __lg--; goto tisp_ae_long_tune20xe80; } } }
 
     /* fragment 388: StackAccess */
     v0 = local_188;
@@ -89276,7 +89300,7 @@ tisp_ae_long_tune20x1470:
     /* fragment 393: Branch */
     int _bc_v0_393 = v0 == 0;
     v0 = local_b4;
-    if (_bc_v0_393) { goto tisp_ae_long_tune20xfec; }
+    if (_bc_v0_393) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xfec"); else { __lg--; goto tisp_ae_long_tune20xfec; } } }
 
     /* fragment 394: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)((uintptr_t)s0, s6, local_78 << (uintptr_t)s0); /* jalr target resolved by relocation */
@@ -89302,7 +89326,7 @@ tisp_ae_long_tune20x1470:
 
     /* fragment 400: Branch */
     local_74 = v0;
-    goto tisp_ae_long_tune20xe7c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xe7c"); else { __lg--; goto tisp_ae_long_tune20xe7c; } }
 
 tisp_ae_long_tune20x150c:
     /* fragment 401: StackAccess */
@@ -89311,7 +89335,7 @@ tisp_ae_long_tune20x150c:
 
     /* fragment 402: Branch */
     v0 = v1;
-    goto tisp_ae_long_tune20x1470;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x1470"); else { __lg--; goto tisp_ae_long_tune20x1470; } }
 
 tisp_ae_long_tune20x1520:
     /* fragment 403: CallSetup */
@@ -89330,7 +89354,7 @@ tisp_ae_long_tune20x1520:
 
     /* fragment 406: Branch */
     local_74 = v0;
-    goto tisp_ae_long_tune20xe80;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xe80"); else { __lg--; goto tisp_ae_long_tune20xe80; } }
 
 tisp_ae_long_tune20x1564:
     /* fragment 407: CallSetup */
@@ -89345,7 +89369,7 @@ tisp_ae_long_tune20x1568:
 
     /* fragment 410: Branch */
     s2 = 0;
-    if (v0 == 0) { goto tisp_ae_long_tune20xef8; }
+    if (v0 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xef8"); else { __lg--; goto tisp_ae_long_tune20xef8; } } }
 
     /* fragment 411: StackAccess */
     v0 = local_1a8;
@@ -89353,7 +89377,7 @@ tisp_ae_long_tune20x1568:
 
     /* fragment 412: Branch */
     s2 = (uintptr_t)s2 ^ 1;
-    goto tisp_ae_long_tune20xef8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xef8"); else { __lg--; goto tisp_ae_long_tune20xef8; } }
 
 tisp_ae_long_tune20x1590:
     /* fragment 413: StackAccess */
@@ -89363,7 +89387,7 @@ tisp_ae_long_tune20x1590:
     /* fragment 414: Branch */
     int _bc_v0_414 = v0 == 0;
     v0 = local_80;
-    if (_bc_v0_414) { goto tisp_ae_long_tune20xefc; }
+    if (_bc_v0_414) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xefc"); else { __lg--; goto tisp_ae_long_tune20xefc; } } }
 
     /* fragment 415: CallSetup */
     s4 = local_1a4 << (uintptr_t)s0;
@@ -89375,14 +89399,14 @@ tisp_ae_long_tune20x1590:
 
     /* fragment 417: Branch */
     a2 = local_130;
-    if (v0 != 0) { goto tisp_ae_long_tune20xef4; }
+    if (v0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xef4"); else { __lg--; goto tisp_ae_long_tune20xef4; } } }
 
     /* fragment 418: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s0, s4); /* jalr target resolved by relocation */
 
     /* fragment 419: Branch */
     s2 = v0 < s2;
-    goto tisp_ae_long_tune20xef8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xef8"); else { __lg--; goto tisp_ae_long_tune20xef8; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -89565,6 +89589,7 @@ int32_t tisp_ae_long_alogrithm(int32_t arg1, int32_t (*arg2)(int32_t arg1, int32
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026a90 origin=fragment_seed original=tisp_ae_short_weight_mean2 */
 int32_t tisp_ae_short_weight_mean2(uintptr_t a0)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uintptr_t *a1 = 0;
     uint32_t *a2 = 0;
     uintptr_t *a3 = 0;
@@ -89645,7 +89670,7 @@ tisp_ae_short_weight_mean20x80:
     /* fragment 11: Branch */
     int _bc_v0_11 = v0 != 0;
     v0 = (uintptr_t)t2 + (uintptr_t)v1;
-    if (_bc_v0_11) { goto tisp_ae_short_weight_mean20x3c; }
+    if (_bc_v0_11) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_weight_mean2", "0x3c"); else { __lg--; goto tisp_ae_short_weight_mean20x3c; } } }
 
     /* fragment 12: Arithmetic */
     t0 = t0 + 1;
@@ -89656,7 +89681,7 @@ tisp_ae_short_weight_mean20x80:
 
     /* fragment 13: Branch */
     t5 = (uint32_t *)((uintptr_t)t5 + 60);   /* T40-PTRSTEP: byte add (OEM addiu) */
-    goto tisp_ae_short_weight_mean20x24;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_weight_mean2", "0x24"); else { __lg--; goto tisp_ae_short_weight_mean20x24; } }
 
 tisp_ae_short_weight_mean20xa8:
     /* fragment 14: Epilogue */
@@ -89691,6 +89716,7 @@ int32_t tisp_ae_short_alogrithm(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026b50 origin=fragment_seed original=tisp_ae_long_set_sensor_integration_time */
 int32_t tisp_ae_long_set_sensor_integration_time(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3, uint32_t arg4)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_1c = 0;
     uint32_t local_32 = 0;
@@ -89767,7 +89793,7 @@ tisp_ae_long_set_sensor_integration_time0x90:
     /* fragment 13: Branch */
     int _bc_s3_13 = s3 == v0;
     *(uint32_t *)((char *)s0 + 0) = v0;
-    if (_bc_s3_13) { goto tisp_ae_long_set_sensor_integration_time0x60; }
+    if (_bc_s3_13) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_set_sensor_integration_time", "0x60"); else { __lg--; goto tisp_ae_long_set_sensor_integration_time0x60; } } }
 
     /* fragment 14: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)s1, *(uint32_t *)((char *)((uintptr_t)s0) + 4), (uintptr_t)s3 << (uintptr_t)s1); /* jalr target resolved by relocation */
@@ -89777,7 +89803,7 @@ tisp_ae_long_set_sensor_integration_time0x90:
 
     /* fragment 16: Branch */
     *(uint32_t *)((char *)s0 + 4) = v0;
-    goto tisp_ae_long_set_sensor_integration_time0x60;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_set_sensor_integration_time", "0x60"); else { __lg--; goto tisp_ae_long_set_sensor_integration_time0x60; } }
 
     return 0;
 }
@@ -89785,6 +89811,7 @@ tisp_ae_long_set_sensor_integration_time0x90:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026c2c origin=fragment_seed original=tisp_ae_short_set_sensor_integration_time */
 int64_t tisp_ae_short_set_sensor_integration_time(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3, uint32_t arg4)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_1c = 0;
     uint32_t local_34 = 0;
@@ -89888,7 +89915,7 @@ tisp_ae_short_set_sensor_integration_time0xf0:
 
     /* fragment 17: Branch */
     *(uint32_t *)((char *)s4 + 76) = v0;
-    goto tisp_ae_short_set_sensor_integration_time0x74;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_set_sensor_integration_time", "0x74"); else { __lg--; goto tisp_ae_short_set_sensor_integration_time0x74; } }
 
 tisp_ae_short_set_sensor_integration_time0x108:
     /* fragment 18: CallSetup */
@@ -89899,7 +89926,7 @@ tisp_ae_short_set_sensor_integration_time0x108:
 
     /* fragment 20: Branch */
     *(uint32_t *)((char *)s0 + 20) = v0;
-    goto tisp_ae_short_set_sensor_integration_time0xf0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_set_sensor_integration_time", "0xf0"); else { __lg--; goto tisp_ae_short_set_sensor_integration_time0xf0; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -90464,6 +90491,7 @@ int32_t tisp_ae_IspDg(uint32_t a0, uintptr_t a1, uint32_t a2, uintptr_t a3)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027348 origin=fragment_seed original=tisp_ae_short_expt */
 int64_t tisp_ae_short_expt(uintptr_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -90557,7 +90585,7 @@ tisp_ae_short_expt0xbc:
 
     /* fragment 12: Branch */
     a1 = a1 + 4;
-    if (t1 != a0) { goto tisp_ae_short_expt0x90; }
+    if (t1 != a0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0x90"); else { __lg--; goto tisp_ae_short_expt0x90; } } }
 
     /* fragment 13: MemoryAccess */
     a0 = *(uint32_t *)((char *)s2 + 0);
@@ -90763,7 +90791,7 @@ tisp_ae_short_expt0x2e0:
 tisp_ae_short_expt0x320:
     /* fragment 54: Branch */
     *(uint32_t *)((char *)a0 + 0) = t0;
-    goto tisp_ae_short_expt0xac;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0xac"); else { __lg--; goto tisp_ae_short_expt0xac; } }
 
 tisp_ae_short_expt0x328:
     /* fragment 55: MemoryAccess */
@@ -90777,7 +90805,7 @@ tisp_ae_short_expt0x328:
 
     /* fragment 57: Branch */
     s4 = *(uint32_t *)((char *)(s3) + 36);
-    goto tisp_ae_short_expt0xe0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0xe0"); else { __lg--; goto tisp_ae_short_expt0xe0; } }
 
 tisp_ae_short_expt0x344:
     /* fragment 58: Arithmetic */
@@ -90809,7 +90837,7 @@ tisp_ae_short_expt0x374:
 
     /* fragment 64: Branch */
     a2 = a2 + 4;
-    if (a0 != a3) { goto tisp_ae_short_expt0x34c; }
+    if (a0 != a3) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0x34c"); else { __lg--; goto tisp_ae_short_expt0x34c; } } }
 
     /* fragment 65: Arithmetic */
     a0 = 0;
@@ -90828,7 +90856,7 @@ tisp_ae_short_expt0x388:
 
     /* fragment 68: Branch */
     s4 = *(uint32_t *)((char *)(a1) + 0);
-    if (a0 == t0) { goto tisp_ae_short_expt0xe0; }
+    if (a0 == t0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0xe0"); else { __lg--; goto tisp_ae_short_expt0xe0; } } }
 
     /* fragment 69: Arithmetic */
     a1 = (uintptr_t)s3 + (uintptr_t)a2;
@@ -90875,7 +90903,7 @@ tisp_ae_short_expt0x3e4:
 
     /* fragment 80: Branch */
     s4 = (uintptr_t)s4 - (uintptr_t)a2;
-    goto tisp_ae_short_expt0xe0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0xe0"); else { __lg--; goto tisp_ae_short_expt0xe0; } }
 
 tisp_ae_short_expt0x3f4:
     /* fragment 81: Arithmetic */
@@ -90910,7 +90938,7 @@ tisp_ae_short_expt0x414:
 
     /* fragment 89: Branch */
     s4 = (uintptr_t)s4 + (uintptr_t)v0;
-    goto tisp_ae_short_expt0xe0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0xe0"); else { __lg--; goto tisp_ae_short_expt0xe0; } }
 
 tisp_ae_short_expt0x424:
     /* fragment 90: CallSetup */
@@ -90918,7 +90946,7 @@ tisp_ae_short_expt0x424:
 
     /* fragment 91: Branch */
     s4 = v0 < 1024;
-    goto tisp_ae_short_expt0xe8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0xe8"); else { __lg--; goto tisp_ae_short_expt0xe8; } }
 
 tisp_ae_short_expt0x444:
     /* fragment 92: CallSetup */
@@ -90931,7 +90959,7 @@ tisp_ae_short_expt0x444:
 
     /* fragment 94: Branch */
     a2 = s5;
-    if (v0 != 0) { goto tisp_ae_short_expt0x2a4; }
+    if (v0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0x2a4"); else { __lg--; goto tisp_ae_short_expt0x2a4; } } }
 
 tisp_ae_short_expt0x464:
     /* fragment 95: CallSetup */
@@ -90939,7 +90967,7 @@ tisp_ae_short_expt0x464:
 
     /* fragment 96: Branch */
     s8 = v0;
-    goto tisp_ae_short_expt0x2a4;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0x2a4"); else { __lg--; goto tisp_ae_short_expt0x2a4; } }
 
 tisp_ae_short_expt0x478:
     /* fragment 97: CallSetup */
@@ -90963,7 +90991,7 @@ tisp_ae_short_expt0x478:
 
     /* fragment 102: Branch */
     s8 = local_14;
-    goto tisp_ae_short_expt0x2a4;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0x2a4"); else { __lg--; goto tisp_ae_short_expt0x2a4; } }
 
 tisp_ae_short_expt0x4b8:
     /* fragment 103: CallSetup */
@@ -90976,7 +91004,7 @@ tisp_ae_short_expt0x4b8:
 
     /* fragment 105: Branch */
     a2 = s5;
-    if (v0 != 0) { goto tisp_ae_short_expt0x2a4; }
+    if (v0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0x2a4"); else { __lg--; goto tisp_ae_short_expt0x2a4; } } }
 
     /* fragment 106: CallSetup */
     local_10 = v1;
@@ -90987,7 +91015,7 @@ tisp_ae_short_expt0x4b8:
 
     /* fragment 108: Branch */
     v1 = local_10;
-    goto tisp_ae_short_expt0x464;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0x464"); else { __lg--; goto tisp_ae_short_expt0x464; } }
 
 tisp_ae_short_expt0x4fc:
     /* fragment 109: Branch */
@@ -91019,7 +91047,7 @@ tisp_ae_short_expt0x520:
 
     /* fragment 115: Branch */
     a2 = s8;
-    if (v0 == 0) { goto tisp_ae_short_expt0x2e0; }
+    if (v0 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0x2e0"); else { __lg--; goto tisp_ae_short_expt0x2e0; } } }
 
     /* fragment 116: CallSetup */
     s7 = (uintptr_t)&fix_point_mult2_32;
@@ -91045,7 +91073,7 @@ tisp_ae_short_expt0x520:
 
     /* fragment 122: Branch */
     s2 = v0;
-    goto tisp_ae_short_expt0x2e0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0x2e0"); else { __lg--; goto tisp_ae_short_expt0x2e0; } }
 
 tisp_ae_short_expt0x5b8:
     /* fragment 123: CallSetup */
@@ -91061,7 +91089,7 @@ tisp_ae_short_expt0x5b8:
 
     /* fragment 126: Branch */
     s1 = v1;
-    goto tisp_ae_short_expt0x2e0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0x2e0"); else { __lg--; goto tisp_ae_short_expt0x2e0; } }
 
 tisp_ae_short_expt0x5ec:
     /* fragment 127: Arithmetic */
@@ -91070,7 +91098,7 @@ tisp_ae_short_expt0x5ec:
 
     /* fragment 128: Branch */
     s3 = t0;
-    goto tisp_ae_short_expt0x2e0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0x2e0"); else { __lg--; goto tisp_ae_short_expt0x2e0; } }
 
 tisp_ae_short_expt0x5fc:
     /* fragment 129: Arithmetic */
@@ -91079,7 +91107,7 @@ tisp_ae_short_expt0x5fc:
 
     /* fragment 130: Branch */
     s3 = 1;
-    goto tisp_ae_short_expt0x2e0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_expt", "0x2e0"); else { __lg--; goto tisp_ae_short_expt0x2e0; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -91087,6 +91115,7 @@ tisp_ae_short_expt0x5fc:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027954 origin=fragment_seed original=tisp_ae_main_long_ev_alloc */
 int64_t tisp_ae_main_long_ev_alloc(uintptr_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     /* OEM event ABI: 12 words, id at +8, eight payload words at +16. */
     uint32_t event_1b8[12] = { 0 };
     uint32_t *local_10 = 0;
@@ -91219,7 +91248,7 @@ tisp_ae_main_long_ev_alloc0x130:
 
     /* fragment 15: Branch */
     *(uint8_t *)((char *)a0 + 0) = a1;
-    goto tisp_ae_main_long_ev_alloc0x9c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_long_ev_alloc", "0x9c"); else { __lg--; goto tisp_ae_main_long_ev_alloc0x9c; } }
 
 tisp_ae_main_long_ev_alloc0x148:
     /* fragment 16: Arithmetic */
@@ -91237,7 +91266,7 @@ tisp_ae_main_long_ev_alloc0x15c:
 
     /* fragment 19: Branch */
     v1 = (int32_t *)&local_240;
-    if (a0 != 0) { goto tisp_ae_main_long_ev_alloc0x148; }
+    if (a0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_long_ev_alloc", "0x148"); else { __lg--; goto tisp_ae_main_long_ev_alloc0x148; } } }
 
     /* fragment 20: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_set_ae_long_ag)(local_230, s8, s7, local_23c); /* jalr target resolved by relocation */
@@ -91566,7 +91595,7 @@ tisp_ae_main_long_ev_alloc0x49c:
 
     /* fragment 92: Branch */
     *(uint8_t *)((char *)v0 + 0) = 0;
-    goto tisp_ae_main_long_ev_alloc0xfc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_long_ev_alloc", "0xfc"); else { __lg--; goto tisp_ae_main_long_ev_alloc0xfc; } }
 
 tisp_ae_main_long_ev_alloc0x4cc:
     /* fragment 93: Arithmetic */
@@ -91585,7 +91614,7 @@ tisp_ae_main_long_ev_alloc0x4cc:
     *(uint32_t *)((char *)a1 + 0) = a0;
 
     /* fragment 95: Branch */
-    goto tisp_ae_main_long_ev_alloc0x18c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_long_ev_alloc", "0x18c"); else { __lg--; goto tisp_ae_main_long_ev_alloc0x18c; } }
 
 tisp_ae_main_long_ev_alloc0x500:
     /* fragment 96: Arithmetic */
@@ -91607,7 +91636,7 @@ tisp_ae_main_long_ev_alloc0x500:
     *(uint32_t *)((char *)a1 + 0) = a0;
 
     /* fragment 98: Branch */
-    goto tisp_ae_main_long_ev_alloc0x1e8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_long_ev_alloc", "0x1e8"); else { __lg--; goto tisp_ae_main_long_ev_alloc0x1e8; } }
 
 tisp_ae_main_long_ev_alloc0x540:
     /* fragment 99: MemoryAccess */
@@ -91630,7 +91659,7 @@ tisp_ae_main_long_ev_alloc0x554:
     /* fragment 103: Branch */
     int _bc_v0_103 = v0 <= 0;
     v0 = (uintptr_t)v0 << 2;
-    if (_bc_v0_103) { goto tisp_ae_main_long_ev_alloc0x22c; }
+    if (_bc_v0_103) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_long_ev_alloc", "0x22c"); else { __lg--; goto tisp_ae_main_long_ev_alloc0x22c; } } }
 
     /* fragment 104: MemoryAccess */
     a1 = *(uint32_t *)((char *)s5 + 0);
@@ -91650,7 +91679,7 @@ tisp_ae_main_long_ev_alloc0x554:
 
     /* fragment 106: Branch */
     *(uint32_t *)((char *)v0 + 0) = a0;
-    goto tisp_ae_main_long_ev_alloc0x554;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_long_ev_alloc", "0x554"); else { __lg--; goto tisp_ae_main_long_ev_alloc0x554; } }
 
 tisp_ae_main_long_ev_alloc0x590:
     /* fragment 107: MemoryAccess */
@@ -91663,7 +91692,7 @@ tisp_ae_main_long_ev_alloc0x590:
     *(uint32_t *)((char *)v0 + 0) = a1;
 
     /* fragment 108: Branch */
-    goto tisp_ae_main_long_ev_alloc0x548;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_long_ev_alloc", "0x548"); else { __lg--; goto tisp_ae_main_long_ev_alloc0x548; } }
 
 tisp_ae_main_long_ev_alloc0x5b4:
     /* fragment 109: Arithmetic */
@@ -91671,7 +91700,7 @@ tisp_ae_main_long_ev_alloc0x5b4:
 
     /* fragment 110: Branch */
     a2 = local_1f0;
-    if (v0 != a0) { goto tisp_ae_main_long_ev_alloc0x288; }
+    if (v0 != a0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_long_ev_alloc", "0x288"); else { __lg--; goto tisp_ae_main_long_ev_alloc0x288; } } }
 
     /* fragment 111: CallSetup */
     local_10 = local_1f4 & 32767;
@@ -91679,7 +91708,7 @@ tisp_ae_main_long_ev_alloc0x5b4:
 
     /* fragment 112: Branch */
     a1 = local_230;
-    goto tisp_ae_main_long_ev_alloc0x28c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_long_ev_alloc", "0x28c"); else { __lg--; goto tisp_ae_main_long_ev_alloc0x28c; } }
 
 tisp_ae_main_long_ev_alloc0x5f0:
     /* fragment 113: StackAccess */
@@ -91687,7 +91716,7 @@ tisp_ae_main_long_ev_alloc0x5f0:
 
     /* fragment 114: Branch */
     event_1b8[5] = 0;
-    goto tisp_ae_main_long_ev_alloc0x350;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_long_ev_alloc", "0x350"); else { __lg--; goto tisp_ae_main_long_ev_alloc0x350; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -91695,6 +91724,7 @@ tisp_ae_main_long_ev_alloc0x5f0:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000027f50 origin=fragment_seed original=tisp_ae_main_short_ev_alloc */
 int64_t tisp_ae_main_short_ev_alloc(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     /* OEM event ABI: 12 words, id at +8, eight payload words at +16. */
     uint32_t event_1b8[12] = { 0 };
     uint32_t *local_10 = 0;
@@ -91840,7 +91870,7 @@ tisp_ae_main_short_ev_alloc0x144:
 
     /* fragment 17: Branch */
     *(uint8_t *)((char *)a0 + 0) = a1;
-    goto tisp_ae_main_short_ev_alloc0xb0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0xb0"); else { __lg--; goto tisp_ae_main_short_ev_alloc0xb0; } }
 
 tisp_ae_main_short_ev_alloc0x15c:
     /* fragment 18: Arithmetic */
@@ -91858,7 +91888,7 @@ tisp_ae_main_short_ev_alloc0x170:
 
     /* fragment 21: Branch */
     v1 = (int32_t *)&local_240;
-    if (a0 != 0) { goto tisp_ae_main_short_ev_alloc0x15c; }
+    if (a0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0x15c"); else { __lg--; goto tisp_ae_main_short_ev_alloc0x15c; } } }
 
     /* fragment 22: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_set_ae_short_ag)(local_230, s7, s8, local_23c); /* jalr target resolved by relocation */
@@ -92005,7 +92035,7 @@ tisp_ae_main_short_ev_alloc0x33c:
     *(uint32_t *)((char *)a1 + 0) = a0;
 
     /* fragment 52: Branch */
-    goto tisp_ae_main_short_ev_alloc0x1a0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0x1a0"); else { __lg--; goto tisp_ae_main_short_ev_alloc0x1a0; } }
 
 tisp_ae_main_short_ev_alloc0x370:
     /* fragment 53: Arithmetic */
@@ -92027,7 +92057,7 @@ tisp_ae_main_short_ev_alloc0x370:
     *(uint32_t *)((char *)a1 + 0) = a0;
 
     /* fragment 55: Branch */
-    goto tisp_ae_main_short_ev_alloc0x1fc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0x1fc"); else { __lg--; goto tisp_ae_main_short_ev_alloc0x1fc; } }
 
 tisp_ae_main_short_ev_alloc0x3b0:
     /* fragment 56: MemoryAccess */
@@ -92049,7 +92079,7 @@ tisp_ae_main_short_ev_alloc0x3c4:
 
     /* fragment 60: Branch */
     t2 = (uint32_t *)((uintptr_t)t2 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
-    if (v0 <= 0) { goto tisp_ae_main_short_ev_alloc0x240; }
+    if (v0 <= 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0x240"); else { __lg--; goto tisp_ae_main_short_ev_alloc0x240; } } }
 
     /* fragment 61: MemoryAccess */
     a1 = *(uint32_t *)((char *)s5 + 0);
@@ -92068,7 +92098,7 @@ tisp_ae_main_short_ev_alloc0x3c4:
 
     /* fragment 63: Branch */
     *(uint32_t *)((char *)v0 + 0) = a0;
-    goto tisp_ae_main_short_ev_alloc0x3c4;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0x3c4"); else { __lg--; goto tisp_ae_main_short_ev_alloc0x3c4; } }
 
 tisp_ae_main_short_ev_alloc0x400:
     /* fragment 64: MemoryAccess */
@@ -92081,7 +92111,7 @@ tisp_ae_main_short_ev_alloc0x400:
     *(uint32_t *)((char *)v0 + 0) = a1;
 
     /* fragment 65: Branch */
-    goto tisp_ae_main_short_ev_alloc0x3b8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0x3b8"); else { __lg--; goto tisp_ae_main_short_ev_alloc0x3b8; } }
 
 tisp_ae_main_short_ev_alloc0x424:
     /* fragment 66: MemoryAccess */
@@ -92090,7 +92120,7 @@ tisp_ae_main_short_ev_alloc0x424:
     /* fragment 67: Branch */
     int _bc_a0_67 = a0 != 0;
     a0 = 12;
-    if (_bc_a0_67) { goto tisp_ae_main_short_ev_alloc0x2e8; }
+    if (_bc_a0_67) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0x2e8"); else { __lg--; goto tisp_ae_main_short_ev_alloc0x2e8; } } }
 
     /* fragment 68: Arithmetic */
     s4 = (uintptr_t)s4 + (uintptr_t)s0;
@@ -92101,7 +92131,7 @@ tisp_ae_main_short_ev_alloc0x424:
     /* fragment 70: Branch */
     int _bc_a0_70 = a0 != a1;
     a0 = 12;
-    if (_bc_a0_70) { goto tisp_ae_main_short_ev_alloc0x2e8; }
+    if (_bc_a0_70) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0x2e8"); else { __lg--; goto tisp_ae_main_short_ev_alloc0x2e8; } } }
 
     /* fragment 71: MemoryAccess */
     a0 = *(uint32_t *)((char *)s8 + 152);
@@ -92109,7 +92139,7 @@ tisp_ae_main_short_ev_alloc0x424:
     /* fragment 72: Branch */
     int _bc_a0_72 = a0 != a1;
     a0 = 12;
-    if (_bc_a0_72) { goto tisp_ae_main_short_ev_alloc0x2e8; }
+    if (_bc_a0_72) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0x2e8"); else { __lg--; goto tisp_ae_main_short_ev_alloc0x2e8; } } }
 
     /* fragment 73: MemoryAccess */
     a0 = *(uint8_t *)((char *)v0 + 1298);
@@ -92117,7 +92147,7 @@ tisp_ae_main_short_ev_alloc0x424:
     /* fragment 74: Branch */
     int _bc_a0_74 = a0 != 0;
     a0 = 12;
-    if (_bc_a0_74) { goto tisp_ae_main_short_ev_alloc0x2e8; }
+    if (_bc_a0_74) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0x2e8"); else { __lg--; goto tisp_ae_main_short_ev_alloc0x2e8; } } }
 
 tisp_ae_main_short_ev_alloc0x458:
     /* fragment 75: CallSetup */
@@ -92226,7 +92256,7 @@ tisp_ae_main_short_ev_alloc0x574:
 
     /* fragment 98: Branch */
     *(uint8_t *)((char *)v0 + 0) = 0;
-    goto tisp_ae_main_short_ev_alloc0x110;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0x110"); else { __lg--; goto tisp_ae_main_short_ev_alloc0x110; } }
 
 tisp_ae_main_short_ev_alloc0x580:
     /* fragment 99: StackAccess */
@@ -92234,7 +92264,7 @@ tisp_ae_main_short_ev_alloc0x580:
 
     /* fragment 100: Branch */
     event_1b8[5] = 0;
-    goto tisp_ae_main_short_ev_alloc0x31c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_short_ev_alloc", "0x31c"); else { __lg--; goto tisp_ae_main_short_ev_alloc0x31c; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -92242,6 +92272,7 @@ tisp_ae_main_short_ev_alloc0x580:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000284dc origin=fragment_seed original=tisp_ae_sec_long_ev_alloc */
 int64_t tisp_ae_sec_long_ev_alloc(uintptr_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     /* OEM event ABI: 12 words, id at +8, eight payload words at +16. */
     uint32_t event_1b8[12] = { 0 };
     uint32_t *local_10 = 0;
@@ -92374,7 +92405,7 @@ tisp_ae_sec_long_ev_alloc0x130:
 
     /* fragment 15: Branch */
     *(uint8_t *)((char *)a0 + 0) = a1;
-    goto tisp_ae_sec_long_ev_alloc0x9c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_long_ev_alloc", "0x9c"); else { __lg--; goto tisp_ae_sec_long_ev_alloc0x9c; } }
 
 tisp_ae_sec_long_ev_alloc0x148:
     /* fragment 16: Arithmetic */
@@ -92392,7 +92423,7 @@ tisp_ae_sec_long_ev_alloc0x15c:
 
     /* fragment 19: Branch */
     v1 = (int32_t *)&local_240;
-    if (a0 != 0) { goto tisp_ae_sec_long_ev_alloc0x148; }
+    if (a0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_long_ev_alloc", "0x148"); else { __lg--; goto tisp_ae_sec_long_ev_alloc0x148; } } }
 
     /* fragment 20: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_set_ae_long_ag)(local_230, s8, s7, local_23c); /* jalr target resolved by relocation */
@@ -92716,7 +92747,7 @@ tisp_ae_sec_long_ev_alloc0x49c:
 
     /* fragment 91: Branch */
     *(uint8_t *)((char *)v0 + 0) = 0;
-    goto tisp_ae_sec_long_ev_alloc0xfc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_long_ev_alloc", "0xfc"); else { __lg--; goto tisp_ae_sec_long_ev_alloc0xfc; } }
 
 tisp_ae_sec_long_ev_alloc0x4cc:
     /* fragment 92: Arithmetic */
@@ -92735,7 +92766,7 @@ tisp_ae_sec_long_ev_alloc0x4cc:
     *(uint32_t *)((char *)a1 + 0) = a0;
 
     /* fragment 94: Branch */
-    goto tisp_ae_sec_long_ev_alloc0x18c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_long_ev_alloc", "0x18c"); else { __lg--; goto tisp_ae_sec_long_ev_alloc0x18c; } }
 
 tisp_ae_sec_long_ev_alloc0x500:
     /* fragment 95: Arithmetic */
@@ -92757,7 +92788,7 @@ tisp_ae_sec_long_ev_alloc0x500:
     *(uint32_t *)((char *)a1 + 0) = a0;
 
     /* fragment 97: Branch */
-    goto tisp_ae_sec_long_ev_alloc0x1e8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_long_ev_alloc", "0x1e8"); else { __lg--; goto tisp_ae_sec_long_ev_alloc0x1e8; } }
 
 tisp_ae_sec_long_ev_alloc0x540:
     /* fragment 98: MemoryAccess */
@@ -92780,7 +92811,7 @@ tisp_ae_sec_long_ev_alloc0x554:
     /* fragment 102: Branch */
     int _bc_v0_102 = v0 <= 0;
     v0 = (uintptr_t)v0 << 2;
-    if (_bc_v0_102) { goto tisp_ae_sec_long_ev_alloc0x22c; }
+    if (_bc_v0_102) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_long_ev_alloc", "0x22c"); else { __lg--; goto tisp_ae_sec_long_ev_alloc0x22c; } } }
 
     /* fragment 103: MemoryAccess */
     a1 = *(uint32_t *)((char *)s5 + 0);
@@ -92799,7 +92830,7 @@ tisp_ae_sec_long_ev_alloc0x554:
 
     /* fragment 105: Branch */
     *(uint32_t *)((char *)v0 + 0) = a0;
-    goto tisp_ae_sec_long_ev_alloc0x554;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_long_ev_alloc", "0x554"); else { __lg--; goto tisp_ae_sec_long_ev_alloc0x554; } }
 
 tisp_ae_sec_long_ev_alloc0x590:
     /* fragment 106: MemoryAccess */
@@ -92812,7 +92843,7 @@ tisp_ae_sec_long_ev_alloc0x590:
     *(uint32_t *)((char *)v0 + 0) = a1;
 
     /* fragment 107: Branch */
-    goto tisp_ae_sec_long_ev_alloc0x548;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_long_ev_alloc", "0x548"); else { __lg--; goto tisp_ae_sec_long_ev_alloc0x548; } }
 
 tisp_ae_sec_long_ev_alloc0x5b4:
     /* fragment 108: Arithmetic */
@@ -92820,7 +92851,7 @@ tisp_ae_sec_long_ev_alloc0x5b4:
 
     /* fragment 109: Branch */
     a2 = local_1f0;
-    if (v0 != a0) { goto tisp_ae_sec_long_ev_alloc0x288; }
+    if (v0 != a0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_long_ev_alloc", "0x288"); else { __lg--; goto tisp_ae_sec_long_ev_alloc0x288; } } }
 
     /* fragment 110: CallSetup */
     local_10 = local_1f4 & 32767;
@@ -92828,7 +92859,7 @@ tisp_ae_sec_long_ev_alloc0x5b4:
 
     /* fragment 111: Branch */
     v0 = (uintptr_t *)&system_reg_write;
-    goto tisp_ae_sec_long_ev_alloc0x28c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_long_ev_alloc", "0x28c"); else { __lg--; goto tisp_ae_sec_long_ev_alloc0x28c; } }
 
 tisp_ae_sec_long_ev_alloc0x5f0:
     /* fragment 112: StackAccess */
@@ -92836,7 +92867,7 @@ tisp_ae_sec_long_ev_alloc0x5f0:
 
     /* fragment 113: Branch */
     event_1b8[5] = 0;
-    goto tisp_ae_sec_long_ev_alloc0x350;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_long_ev_alloc", "0x350"); else { __lg--; goto tisp_ae_sec_long_ev_alloc0x350; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -92844,6 +92875,7 @@ tisp_ae_sec_long_ev_alloc0x5f0:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028ad8 origin=fragment_seed original=tisp_ae_sec_short_ev_alloc */
 int64_t tisp_ae_sec_short_ev_alloc(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     /* OEM event ABI: 12 words, id at +8, eight payload words at +16. */
     uint32_t event_1b8[12] = { 0 };
     uint32_t *local_10 = 0;
@@ -92989,7 +93021,7 @@ tisp_ae_sec_short_ev_alloc0x144:
 
     /* fragment 17: Branch */
     *(uint8_t *)((char *)a0 + 0) = a1;
-    goto tisp_ae_sec_short_ev_alloc0xb0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_short_ev_alloc", "0xb0"); else { __lg--; goto tisp_ae_sec_short_ev_alloc0xb0; } }
 
 tisp_ae_sec_short_ev_alloc0x15c:
     /* fragment 18: Arithmetic */
@@ -93007,7 +93039,7 @@ tisp_ae_sec_short_ev_alloc0x170:
 
     /* fragment 21: Branch */
     v1 = (int32_t *)&local_240;
-    if (a0 != 0) { goto tisp_ae_sec_short_ev_alloc0x15c; }
+    if (a0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_short_ev_alloc", "0x15c"); else { __lg--; goto tisp_ae_sec_short_ev_alloc0x15c; } } }
 
     /* fragment 22: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_set_ae_short_ag)(local_230, s7, s8, local_23c); /* jalr target resolved by relocation */
@@ -93155,7 +93187,7 @@ tisp_ae_sec_short_ev_alloc0x340:
     *(uint32_t *)((char *)a1 + 0) = a0;
 
     /* fragment 52: Branch */
-    goto tisp_ae_sec_short_ev_alloc0x1a0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_short_ev_alloc", "0x1a0"); else { __lg--; goto tisp_ae_sec_short_ev_alloc0x1a0; } }
 
 tisp_ae_sec_short_ev_alloc0x374:
     /* fragment 53: Arithmetic */
@@ -93177,7 +93209,7 @@ tisp_ae_sec_short_ev_alloc0x374:
     *(uint32_t *)((char *)a1 + 0) = a0;
 
     /* fragment 55: Branch */
-    goto tisp_ae_sec_short_ev_alloc0x1fc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_short_ev_alloc", "0x1fc"); else { __lg--; goto tisp_ae_sec_short_ev_alloc0x1fc; } }
 
 tisp_ae_sec_short_ev_alloc0x3b4:
     /* fragment 56: MemoryAccess */
@@ -93199,7 +93231,7 @@ tisp_ae_sec_short_ev_alloc0x3c8:
 
     /* fragment 60: Branch */
     t2 = t2 - 1;
-    if (v0 <= 0) { goto tisp_ae_sec_short_ev_alloc0x240; }
+    if (v0 <= 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_short_ev_alloc", "0x240"); else { __lg--; goto tisp_ae_sec_short_ev_alloc0x240; } } }
 
     /* fragment 61: MemoryAccess */
     a1 = *(uint32_t *)((char *)s4 + 0);
@@ -93218,7 +93250,7 @@ tisp_ae_sec_short_ev_alloc0x3c8:
 
     /* fragment 63: Branch */
     *(uint32_t *)((char *)v0 + 0) = a0;
-    goto tisp_ae_sec_short_ev_alloc0x3c8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_short_ev_alloc", "0x3c8"); else { __lg--; goto tisp_ae_sec_short_ev_alloc0x3c8; } }
 
 tisp_ae_sec_short_ev_alloc0x404:
     /* fragment 64: MemoryAccess */
@@ -93231,7 +93263,7 @@ tisp_ae_sec_short_ev_alloc0x404:
     *(uint32_t *)((char *)v0 + 0) = a1;
 
     /* fragment 65: Branch */
-    goto tisp_ae_sec_short_ev_alloc0x3bc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_short_ev_alloc", "0x3bc"); else { __lg--; goto tisp_ae_sec_short_ev_alloc0x3bc; } }
 
 tisp_ae_sec_short_ev_alloc0x428:
     /* fragment 66: Arithmetic */
@@ -93243,7 +93275,7 @@ tisp_ae_sec_short_ev_alloc0x428:
     /* fragment 68: Branch */
     int _bc_a0_68 = a0 != a1;
     a0 = 29;
-    if (_bc_a0_68) { goto tisp_ae_sec_short_ev_alloc0x2e8; }
+    if (_bc_a0_68) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_short_ev_alloc", "0x2e8"); else { __lg--; goto tisp_ae_sec_short_ev_alloc0x2e8; } } }
 
     /* fragment 69: MemoryAccess */
     a0 = *(uint32_t *)((char *)s8 + 96);
@@ -93251,13 +93283,13 @@ tisp_ae_sec_short_ev_alloc0x428:
     /* fragment 70: Branch */
     int _bc_a0_70 = a0 != 0;
     a0 = 29;
-    if (_bc_a0_70) { goto tisp_ae_sec_short_ev_alloc0x2e8; }
+    if (_bc_a0_70) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_short_ev_alloc", "0x2e8"); else { __lg--; goto tisp_ae_sec_short_ev_alloc0x2e8; } } }
 
     /* fragment 71: MemoryAccess */
     a0 = *(uint8_t *)((char *)v0 + 2598);
 
     /* fragment 72: Branch */
-    if (a0 != 0) { goto tisp_ae_sec_short_ev_alloc0x2e4; }
+    if (a0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_short_ev_alloc", "0x2e4"); else { __lg--; goto tisp_ae_sec_short_ev_alloc0x2e4; } } }
 
 tisp_ae_sec_short_ev_alloc0x450:
     /* fragment 73: Arithmetic */
@@ -93362,7 +93394,7 @@ tisp_ae_sec_short_ev_alloc0x55c:
 
     /* fragment 95: Branch */
     *(uint8_t *)((char *)v0 + 0) = 0;
-    goto tisp_ae_sec_short_ev_alloc0x110;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_short_ev_alloc", "0x110"); else { __lg--; goto tisp_ae_sec_short_ev_alloc0x110; } }
 
 tisp_ae_sec_short_ev_alloc0x568:
     /* fragment 96: StackAccess */
@@ -93370,7 +93402,7 @@ tisp_ae_sec_short_ev_alloc0x568:
 
     /* fragment 97: Branch */
     event_1b8[5] = 0;
-    goto tisp_ae_sec_short_ev_alloc0x320;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_short_ev_alloc", "0x320"); else { __lg--; goto tisp_ae_sec_short_ev_alloc0x320; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -93378,6 +93410,7 @@ tisp_ae_sec_short_ev_alloc0x568:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002904c origin=fragment_seed original=tisp_ae_param_array_get */
 int64_t tisp_ae_param_array_get(uint32_t a0, uint32_t a1, uint32_t a2, uintptr_t a3)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -93454,12 +93487,12 @@ tisp_ae_param_array_get0x90:
 
     /* fragment 14: Branch */
     v1 = *(uint32_t *)((char *)((char *)&stMainAeOuter));
-    goto tisp_ae_param_array_get0x28;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_param_array_get", "0x28"); else { __lg--; goto tisp_ae_param_array_get0x28; } }
 
 tisp_ae_param_array_get0x9c:
     /* fragment 15: Branch */
     s0 = 4160;
-    goto tisp_ae_param_array_get0x64;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_param_array_get", "0x64"); else { __lg--; goto tisp_ae_param_array_get0x64; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -93494,6 +93527,7 @@ int tisp_ae_param_array_set(int param_type, void *buffer, int *size)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029254 origin=fragment_seed original=tisp_ae_ir_en_update */
 int32_t* tisp_ae_ir_en_update(uint32_t a0, uint32_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t ra = 0;
     uintptr_t *v0 = 0;
 
@@ -93518,7 +93552,7 @@ tisp_ae_ir_en_update0x10:
 tisp_ae_ir_en_update0x1c:
     /* fragment 5: Branch */
     v0 = (uintptr_t *)((char *)&pstSecAeOri);
-    goto tisp_ae_ir_en_update0x10;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ir_en_update", "0x10"); else { __lg--; goto tisp_ae_ir_en_update0x10; } }
 
     return (int32_t*)v0;
 }
@@ -93526,6 +93560,7 @@ tisp_ae_ir_en_update0x1c:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029278 origin=fragment_seed original=tisp_ae_sepc_area */
 int64_t tisp_ae_sepc_area(uint32_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_1c = 0;
     uint32_t *local_20 = 0;
@@ -93665,17 +93700,17 @@ tisp_ae_sepc_area0xdc:
 tisp_ae_sepc_area0x13c:
     /* fragment 24: Branch */
     v0 = *(uint32_t *)((char *)((char *)&pstSecAeOri + 0x3c));
-    goto tisp_ae_sepc_area0x6c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sepc_area", "0x6c"); else { __lg--; goto tisp_ae_sepc_area0x6c; } }
 
 tisp_ae_sepc_area0x144:
     /* fragment 25: Branch */
     int _bc_v0_25 = v0 == 0;
     v0 = 10;
-    if (_bc_v0_25) { goto tisp_ae_sepc_area0xdc; }
+    if (_bc_v0_25) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sepc_area", "0xdc"); else { __lg--; goto tisp_ae_sepc_area0xdc; } } }
 
     /* fragment 26: Branch */
     *(uint32_t *)((char *)s0 + 20) = v0;
-    goto tisp_ae_sepc_area0xdc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sepc_area", "0xdc"); else { __lg--; goto tisp_ae_sepc_area0xdc; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -93683,6 +93718,7 @@ tisp_ae_sepc_area0x144:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000293cc origin=fragment_seed original=tisp_ae_main_mean_update */
 int64_t tisp_ae_main_mean_update(uintptr_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uintptr_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -93757,19 +93793,19 @@ tisp_ae_main_mean_update0x78:
     /* fragment 14: Branch */
     int _bc_t2_14 = t2 != 0;
     t2 = (uintptr_t)a3 << 2;
-    if (_bc_t2_14) { goto tisp_ae_main_mean_update0x68; }
+    if (_bc_t2_14) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_mean_update", "0x68"); else { __lg--; goto tisp_ae_main_mean_update0x68; } } }
 
     /* fragment 15: Arithmetic */
     t0 = t0 + 1;
 
     /* fragment 16: Branch */
     t1 = t1 + 60;
-    goto tisp_ae_main_mean_update0x20;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_mean_update", "0x20"); else { __lg--; goto tisp_ae_main_mean_update0x20; } }
 
 tisp_ae_main_mean_update0x90:
     /* fragment 17: Branch */
     a3 = 0;
-    goto tisp_ae_main_mean_update0x78;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_mean_update", "0x78"); else { __lg--; goto tisp_ae_main_mean_update0x78; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -93777,6 +93813,7 @@ tisp_ae_main_mean_update0x90:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029464 origin=fragment_seed original=tisp_ae_long_deflicker_tune */
 int32_t tisp_ae_long_deflicker_tune(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t t0 = 0;
     uint32_t t9 = 0;
@@ -93817,7 +93854,7 @@ tisp_ae_long_deflicker_tune0x44:
 
     /* fragment 6: Branch */
     v0 = (uintptr_t *)((char *)&pstSecAeOri);
-    goto tisp_ae_long_deflicker_tune0x10;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_deflicker_tune", "0x10"); else { __lg--; goto tisp_ae_long_deflicker_tune0x10; } }
 
     return 0;
 }
@@ -93825,6 +93862,7 @@ tisp_ae_long_deflicker_tune0x44:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000294b4 origin=fragment_seed original=tisp_ae_s_comp */
 int32_t tisp_ae_s_comp(uint32_t a0, uint32_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uintptr_t *a2 = 0;
     uintptr_t *a3 = 0;
     uint32_t t9 = 0;
@@ -93879,7 +93917,7 @@ tisp_ae_s_comp0x44:
 tisp_ae_s_comp0x70:
     /* fragment 9: Branch */
     v0 = (uintptr_t *)((char *)&pstMainAeOri);
-    goto tisp_ae_s_comp0x10;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_s_comp", "0x10"); else { __lg--; goto tisp_ae_s_comp0x10; } }
 
 tisp_ae_s_comp0x78:
     /* fragment 10: Arithmetic */
@@ -93896,7 +93934,7 @@ tisp_ae_s_comp0x78:
 
     /* fragment 13: Branch */
     v1 = v1 - 302;
-    goto tisp_ae_s_comp0x44;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_s_comp", "0x44"); else { __lg--; goto tisp_ae_s_comp0x44; } }
 
     return 0;
 }
@@ -93904,6 +93942,7 @@ tisp_ae_s_comp0x78:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002954c origin=fragment_seed original=tisp_ae_wdr_en */
 int32_t tisp_ae_wdr_en(uint32_t a0, uint32_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_1b4 = 0;
     uint32_t local_254 = 0;
@@ -94050,7 +94089,7 @@ tisp_ae_wdr_en0x1b0:
 
     /* fragment 21: Branch */
     s1 = (uintptr_t *)&tisp_ae_main_ctrls;
-    goto tisp_ae_wdr_en0x30;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_wdr_en", "0x30"); else { __lg--; goto tisp_ae_wdr_en0x30; } }
 
 tisp_ae_wdr_en0x1c4:
     /* fragment 22: MemoryAccess */
@@ -94060,7 +94099,7 @@ tisp_ae_wdr_en0x1c4:
 
     /* fragment 23: Branch */
     *(uint8_t *)((char *)a1 + 0) = a3;
-    goto tisp_ae_wdr_en0x114;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_wdr_en", "0x114"); else { __lg--; goto tisp_ae_wdr_en0x114; } }
 
 tisp_ae_wdr_en0x1d8:
     /* fragment 24: MemoryAccess */
@@ -94070,7 +94109,7 @@ tisp_ae_wdr_en0x1d8:
 
     /* fragment 25: Branch */
     *(uint8_t *)((char *)a1 + 0) = a3;
-    goto tisp_ae_wdr_en0x130;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_wdr_en", "0x130"); else { __lg--; goto tisp_ae_wdr_en0x130; } }
 
     return 0;
 }
@@ -94078,6 +94117,7 @@ tisp_ae_wdr_en0x1d8:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029738 origin=fragment_seed original=tisp_ae_dn_params_refresh */
 int32_t tisp_ae_dn_params_refresh(uint32_t a0)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_1b4 = 0;
     uint32_t local_254 = 0;
@@ -94214,7 +94254,7 @@ tisp_ae_dn_params_refresh0x18c:
 
     /* fragment 20: Branch */
     s2 = (uintptr_t *)&tisp_ae_main_ctrls;
-    goto tisp_ae_dn_params_refresh0x30;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_dn_params_refresh", "0x30"); else { __lg--; goto tisp_ae_dn_params_refresh0x30; } }
 
 tisp_ae_dn_params_refresh0x1a0:
     /* fragment 21: MemoryAccess */
@@ -94224,7 +94264,7 @@ tisp_ae_dn_params_refresh0x1a0:
 
     /* fragment 22: Branch */
     *(uint8_t *)((char *)a1 + 0) = a3;
-    goto tisp_ae_dn_params_refresh0xdc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_dn_params_refresh", "0xdc"); else { __lg--; goto tisp_ae_dn_params_refresh0xdc; } }
 
 tisp_ae_dn_params_refresh0x1b4:
     /* fragment 23: MemoryAccess */
@@ -94234,7 +94274,7 @@ tisp_ae_dn_params_refresh0x1b4:
 
     /* fragment 24: Branch */
     *(uint8_t *)((char *)a1 + 0) = a3;
-    goto tisp_ae_dn_params_refresh0xf8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_dn_params_refresh", "0xf8"); else { __lg--; goto tisp_ae_dn_params_refresh0xf8; } }
 
     return 0;
 }
@@ -94242,6 +94282,7 @@ tisp_ae_dn_params_refresh0x1b4:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029900 origin=fragment_seed original=tisp_ae_g_comp */
 char tisp_ae_g_comp(uint32_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t ra = 0;
     uintptr_t *v0 = 0;
 
@@ -94267,7 +94308,7 @@ tisp_ae_g_comp0x10:
 tisp_ae_g_comp0x20:
     /* fragment 5: Branch */
     v0 = (uintptr_t *)((char *)&pstSecAeOri);
-    goto tisp_ae_g_comp0x10;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_g_comp", "0x10"); else { __lg--; goto tisp_ae_g_comp0x10; } }
 
     return (char)v0;
 }
@@ -94493,6 +94534,7 @@ int32_t tisp_ae_main_min_max_set(int32_t arg1, int32_t arg2, int32_t arg3, int32
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029e68 origin=fragment_seed original=tisp_ae_ev_start_set */
 int32_t* tisp_ae_ev_start_set(uint32_t a0, uint32_t a1, uint32_t a2)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t ra = 0;
     uintptr_t *v0 = 0;
     uintptr_t *v1 = 0;
@@ -94543,7 +94585,7 @@ tisp_ae_ev_start_set0x64:
 tisp_ae_ev_start_set0x6c:
     /* fragment 7: Branch */
     v0 = (uintptr_t *)((char *)&pstSecAeOri);
-    goto tisp_ae_ev_start_set0x10;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_ev_start_set", "0x10"); else { __lg--; goto tisp_ae_ev_start_set0x10; } }
 
     return (int32_t*)v0;
 }
@@ -94551,6 +94593,7 @@ tisp_ae_ev_start_set0x6c:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029edc origin=fragment_seed original=tisp_ae_main_s_max_again */
 int64_t tisp_ae_main_s_max_again(uint32_t a0)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t local_1c = 0;
@@ -94600,7 +94643,7 @@ tisp_ae_main_s_max_again0x58:
 
     /* fragment 9: Branch */
     v0 = 0;
-    goto tisp_ae_main_s_max_again0x4c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_s_max_again", "0x4c"); else { __lg--; goto tisp_ae_main_s_max_again0x4c; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -94668,6 +94711,7 @@ int32_t tisp_ae_main_g_min(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029fc8 origin=fragment_seed original=tisp_ae_main_s_min */
 int32_t tisp_ae_main_s_min(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -94840,22 +94884,22 @@ tisp_ae_main_s_min0x154:
 tisp_ae_main_s_min0x190:
     /* fragment 24: Branch */
     *(uint32_t *)((char *)v0 + 120) = s2;
-    goto tisp_ae_main_s_min0xbc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_s_min", "0xbc"); else { __lg--; goto tisp_ae_main_s_min0xbc; } }
 
 tisp_ae_main_s_min0x198:
     /* fragment 25: Branch */
     *(uint32_t *)((char *)v0 + 112) = s1;
-    goto tisp_ae_main_s_min0xe8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_s_min", "0xe8"); else { __lg--; goto tisp_ae_main_s_min0xe8; } }
 
 tisp_ae_main_s_min0x1a0:
     /* fragment 26: Branch */
     *(uint32_t *)((char *)v0 + 132) = s0;
-    goto tisp_ae_main_s_min0x128;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_s_min", "0x128"); else { __lg--; goto tisp_ae_main_s_min0x128; } }
 
 tisp_ae_main_s_min0x1a8:
     /* fragment 27: Branch */
     *(uint32_t *)((char *)v0 + 128) = s5;
-    goto tisp_ae_main_s_min0x154;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_s_min", "0x154"); else { __lg--; goto tisp_ae_main_s_min0x154; } }
 
     return 0;
 }
@@ -94936,6 +94980,7 @@ int32_t tisp_ae_g_luma(int32_t arg1, uint8_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a1ec origin=fragment_seed original=tisp_ae_g_scene_luma */
 uint32_t tisp_ae_g_scene_luma(uint32_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -95049,7 +95094,7 @@ tisp_ae_g_scene_luma0x110:
 
     /* fragment 18: Branch */
     *(uint32_t *)((char *)v1 + -4) = a0;
-    if (v0 != v1) { goto tisp_ae_g_scene_luma0x110; }
+    if (v0 != v1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_g_scene_luma", "0x110"); else { __lg--; goto tisp_ae_g_scene_luma0x110; } } }
 
     /* fragment 19: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s5, (uintptr_t)t5, (uintptr_t)local_10 << s5); /* jalr target resolved by relocation */
@@ -95072,7 +95117,7 @@ tisp_ae_g_scene_luma0x148:
 
     /* fragment 23: Branch */
     v0 = (uintptr_t)a2 + (uintptr_t)v0;
-    if (v1 != a0) { goto tisp_ae_g_scene_luma0x148; }
+    if (v1 != a0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_g_scene_luma", "0x148"); else { __lg--; goto tisp_ae_g_scene_luma0x148; } } }
 
     /* fragment 24: Arithmetic */
     v1 = 36;
@@ -95106,7 +95151,7 @@ tisp_ae_g_scene_luma0x198:
 
     /* fragment 30: Branch */
     v0 = (uintptr_t *)((char *)&pstMainAeOri);
-    goto tisp_ae_g_scene_luma0x38;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_g_scene_luma", "0x38"); else { __lg--; goto tisp_ae_g_scene_luma0x38; } }
 
     return (uint32_t)v0;
 }
@@ -95233,6 +95278,7 @@ int32_t tisp_ae_main_long_process_api(void *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a700 origin=fragment_seed original=tisp_ae_main_process */
 int64_t tisp_ae_main_process(void)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_1b4 = 0;
     uint32_t local_250 = 0;
@@ -95477,7 +95523,7 @@ tisp_ae_main_process0x234:
 
     /* fragment 50: Branch */
     *(uint8_t *)((char *)a1 + 0) = a2;
-    goto tisp_ae_main_process0x5c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_process", "0x5c"); else { __lg--; goto tisp_ae_main_process0x5c; } }
 
 tisp_ae_main_process0x248:
     /* fragment 51: MemoryAccess */
@@ -95487,7 +95533,7 @@ tisp_ae_main_process0x248:
 
     /* fragment 52: Branch */
     *(uint8_t *)((char *)a0 + 0) = a2;
-    goto tisp_ae_main_process0xac;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_process", "0xac"); else { __lg--; goto tisp_ae_main_process0xac; } }
 
 tisp_ae_main_process0x25c:
     /* fragment 53: MemoryAccess */
@@ -95497,7 +95543,7 @@ tisp_ae_main_process0x25c:
 
     /* fragment 54: Branch */
     *(uint8_t *)((char *)a0 + 0) = a1;
-    goto tisp_ae_main_process0xc4;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_process", "0xc4"); else { __lg--; goto tisp_ae_main_process0xc4; } }
 
 tisp_ae_main_process0x270:
     /* fragment 55: MemoryAccess */
@@ -95507,7 +95553,7 @@ tisp_ae_main_process0x270:
 
     /* fragment 56: Branch */
     *(uint8_t *)((char *)a0 + 0) = a1;
-    goto tisp_ae_main_process0x128;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_process", "0x128"); else { __lg--; goto tisp_ae_main_process0x128; } }
 
 tisp_ae_main_process0x284:
     /* fragment 57: MemoryAccess */
@@ -95517,7 +95563,7 @@ tisp_ae_main_process0x284:
 
     /* fragment 58: Branch */
     *(uint8_t *)((char *)v1 + 0) = a0;
-    goto tisp_ae_main_process0x180;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_process", "0x180"); else { __lg--; goto tisp_ae_main_process0x180; } }
 
 tisp_ae_main_process0x298:
     /* fragment 59: MemoryAccess */
@@ -95527,7 +95573,7 @@ tisp_ae_main_process0x298:
 
     /* fragment 60: Branch */
     *(uint8_t *)((char *)v1 + 0) = a0;
-    goto tisp_ae_main_process0x1ac;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_process", "0x1ac"); else { __lg--; goto tisp_ae_main_process0x1ac; } }
 
 tisp_ae_main_process0x2ac:
     /* fragment 61: Branch */
@@ -95559,7 +95605,7 @@ tisp_ae_main_process0x2ec:
 
     /* fragment 68: Branch */
     v1 = *(uint32_t *)((char *)((char *)&ta_custom_en));
-    if (v0 != 0) { goto tisp_ae_main_process0x1e8; }
+    if (v0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_process", "0x1e8"); else { __lg--; goto tisp_ae_main_process0x1e8; } } }
 
     /* fragment 69: ConstantLoad */
     a0 = 0x0;
@@ -95577,7 +95623,7 @@ tisp_ae_main_process0x318:
 
     /* fragment 73: Branch */
     v1 = *(uint32_t *)((char *)((char *)&ta_custom_en));
-    goto tisp_ae_main_process0x1e8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_process", "0x1e8"); else { __lg--; goto tisp_ae_main_process0x1e8; } }
 
 tisp_ae_main_process0x34c:
     /* fragment 74: MemoryAccess */
@@ -95587,7 +95633,7 @@ tisp_ae_main_process0x34c:
 
     /* fragment 75: Branch */
     *(uint8_t *)((char *)a1 + 0) = a3;
-    goto tisp_ae_main_process0x2c0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_process", "0x2c0"); else { __lg--; goto tisp_ae_main_process0x2c0; } }
 
 tisp_ae_main_process0x360:
     /* fragment 76: MemoryAccess */
@@ -95597,7 +95643,7 @@ tisp_ae_main_process0x360:
 
     /* fragment 77: Branch */
     *(uint8_t *)((char *)a1 + 0) = a3;
-    goto tisp_ae_main_process0x318;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_main_process", "0x318"); else { __lg--; goto tisp_ae_main_process0x318; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -95605,6 +95651,7 @@ tisp_ae_main_process0x360:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002aa74 origin=fragment_seed original=tisp_ae_sec_mean_update */
 int64_t tisp_ae_sec_mean_update(uintptr_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uintptr_t *a2 = 0;
     uint32_t *a3 = 0;
     uint32_t ra = 0;
@@ -95679,19 +95726,19 @@ tisp_ae_sec_mean_update0x78:
     /* fragment 14: Branch */
     int _bc_t2_14 = t2 != 0;
     t2 = (uintptr_t)a3 << 2;
-    if (_bc_t2_14) { goto tisp_ae_sec_mean_update0x68; }
+    if (_bc_t2_14) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_mean_update", "0x68"); else { __lg--; goto tisp_ae_sec_mean_update0x68; } } }
 
     /* fragment 15: Arithmetic */
     t0 = t0 + 1;
 
     /* fragment 16: Branch */
     t1 = t1 + 60;
-    goto tisp_ae_sec_mean_update0x20;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_mean_update", "0x20"); else { __lg--; goto tisp_ae_sec_mean_update0x20; } }
 
 tisp_ae_sec_mean_update0x90:
     /* fragment 17: Branch */
     a3 = 0;
-    goto tisp_ae_sec_mean_update0x78;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_mean_update", "0x78"); else { __lg--; goto tisp_ae_sec_mean_update0x78; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -95920,6 +95967,7 @@ int tisp_ae_sec_min_max_set(int arg1, int arg2, int arg3, int arg4, int arg5, in
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002b01c origin=fragment_seed original=tisp_ae_sec_s_max_again */
 int64_t tisp_ae_sec_s_max_again(uint32_t a0)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t local_1c = 0;
@@ -95969,7 +96017,7 @@ tisp_ae_sec_s_max_again0x58:
 
     /* fragment 9: Branch */
     v0 = 0;
-    goto tisp_ae_sec_s_max_again0x4c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_s_max_again", "0x4c"); else { __lg--; goto tisp_ae_sec_s_max_again0x4c; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -96016,6 +96064,7 @@ int32_t tisp_ae_sec_g_min(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002b108 origin=fragment_seed original=tisp_ae_sec_s_min */
 int32_t tisp_ae_sec_s_min(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -96188,22 +96237,22 @@ tisp_ae_sec_s_min0x154:
 tisp_ae_sec_s_min0x190:
     /* fragment 24: Branch */
     *(uint32_t *)((char *)v0 + 120) = s2;
-    goto tisp_ae_sec_s_min0xbc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_s_min", "0xbc"); else { __lg--; goto tisp_ae_sec_s_min0xbc; } }
 
 tisp_ae_sec_s_min0x198:
     /* fragment 25: Branch */
     *(uint32_t *)((char *)v0 + 112) = s1;
-    goto tisp_ae_sec_s_min0xe8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_s_min", "0xe8"); else { __lg--; goto tisp_ae_sec_s_min0xe8; } }
 
 tisp_ae_sec_s_min0x1a0:
     /* fragment 26: Branch */
     *(uint32_t *)((char *)v0 + 132) = s0;
-    goto tisp_ae_sec_s_min0x128;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_s_min", "0x128"); else { __lg--; goto tisp_ae_sec_s_min0x128; } }
 
 tisp_ae_sec_s_min0x1a8:
     /* fragment 27: Branch */
     *(uint32_t *)((char *)v0 + 128) = s5;
-    goto tisp_ae_sec_s_min0x154;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_s_min", "0x154"); else { __lg--; goto tisp_ae_sec_s_min0x154; } }
 
     return 0;
 }
@@ -96357,6 +96406,7 @@ int32_t tisp_ae_sec_long_process_api(void *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002b628 origin=fragment_seed original=tisp_ae_sec_process */
 int64_t tisp_ae_sec_process(void)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_1b4 = 0;
     uint32_t local_250 = 0;
@@ -96586,7 +96636,7 @@ tisp_ae_sec_process0x238:
 
     /* fragment 50: Branch */
     *(uint8_t *)((char *)a1 + 0) = a2;
-    goto tisp_ae_sec_process0x60;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_process", "0x60"); else { __lg--; goto tisp_ae_sec_process0x60; } }
 
 tisp_ae_sec_process0x24c:
     /* fragment 51: MemoryAccess */
@@ -96596,7 +96646,7 @@ tisp_ae_sec_process0x24c:
 
     /* fragment 52: Branch */
     *(uint8_t *)((char *)a0 + 0) = a2;
-    goto tisp_ae_sec_process0xb0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_process", "0xb0"); else { __lg--; goto tisp_ae_sec_process0xb0; } }
 
 tisp_ae_sec_process0x260:
     /* fragment 53: MemoryAccess */
@@ -96606,7 +96656,7 @@ tisp_ae_sec_process0x260:
 
     /* fragment 54: Branch */
     *(uint8_t *)((char *)a0 + 0) = a1;
-    goto tisp_ae_sec_process0xc8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_process", "0xc8"); else { __lg--; goto tisp_ae_sec_process0xc8; } }
 
 tisp_ae_sec_process0x274:
     /* fragment 55: MemoryAccess */
@@ -96616,7 +96666,7 @@ tisp_ae_sec_process0x274:
 
     /* fragment 56: Branch */
     *(uint8_t *)((char *)a0 + 0) = a1;
-    goto tisp_ae_sec_process0x12c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_process", "0x12c"); else { __lg--; goto tisp_ae_sec_process0x12c; } }
 
 tisp_ae_sec_process0x288:
     /* fragment 57: MemoryAccess */
@@ -96626,7 +96676,7 @@ tisp_ae_sec_process0x288:
 
     /* fragment 58: Branch */
     *(uint8_t *)((char *)v1 + 0) = a0;
-    goto tisp_ae_sec_process0x184;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_process", "0x184"); else { __lg--; goto tisp_ae_sec_process0x184; } }
 
 tisp_ae_sec_process0x29c:
     /* fragment 59: MemoryAccess */
@@ -96636,7 +96686,7 @@ tisp_ae_sec_process0x29c:
 
     /* fragment 60: Branch */
     *(uint8_t *)((char *)v1 + 0) = a0;
-    goto tisp_ae_sec_process0x1b0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_process", "0x1b0"); else { __lg--; goto tisp_ae_sec_process0x1b0; } }
 
 tisp_ae_sec_process0x2b0:
     /* fragment 61: Branch */
@@ -96668,7 +96718,7 @@ tisp_ae_sec_process0x2f0:
 
     /* fragment 68: Branch */
     a2 = (uint32_t *)&local_10;
-    if (v0 != 0) { goto tisp_ae_sec_process0x1e8; }
+    if (v0 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_process", "0x1e8"); else { __lg--; goto tisp_ae_sec_process0x1e8; } } }
 
     /* fragment 69: ConstantLoad */
     a0 = 0x0;
@@ -96686,7 +96736,7 @@ tisp_ae_sec_process0x318:
 
     /* fragment 73: Branch */
     v1 = *(uint32_t *)((char *)(s1) + 4);
-    goto tisp_ae_sec_process0x1ec;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_process", "0x1ec"); else { __lg--; goto tisp_ae_sec_process0x1ec; } }
 
 tisp_ae_sec_process0x34c:
     /* fragment 74: MemoryAccess */
@@ -96696,7 +96746,7 @@ tisp_ae_sec_process0x34c:
 
     /* fragment 75: Branch */
     *(uint8_t *)((char *)a1 + 0) = a3;
-    goto tisp_ae_sec_process0x2c4;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_process", "0x2c4"); else { __lg--; goto tisp_ae_sec_process0x2c4; } }
 
 tisp_ae_sec_process0x360:
     /* fragment 76: MemoryAccess */
@@ -96706,7 +96756,7 @@ tisp_ae_sec_process0x360:
 
     /* fragment 77: Branch */
     *(uint8_t *)((char *)a1 + 0) = a3;
-    goto tisp_ae_sec_process0x318;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sec_process", "0x318"); else { __lg--; goto tisp_ae_sec_process0x318; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -96878,6 +96928,7 @@ int32_t tisp_ae_set_weight(int32_t arg1, int32_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002bce4 origin=fragment_seed original=tisp_ae_get_weight */
 int32_t tisp_ae_get_weight(uint32_t a0, uint32_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -96929,7 +96980,7 @@ tisp_ae_get_weight0x64:
 
     /* fragment 8: Branch */
     s0 = (uintptr_t *)((char *)&pstSecAeOri);
-    goto tisp_ae_get_weight0x24;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_get_weight", "0x24"); else { __lg--; goto tisp_ae_get_weight0x24; } }
 
     return 0;
 }
@@ -96937,6 +96988,7 @@ tisp_ae_get_weight0x64:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002bd54 origin=fragment_seed original=tisp_ae_set_exprinfo_attr */
 int64_t tisp_ae_set_exprinfo_attr(uint32_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -97365,7 +97417,7 @@ tisp_ae_set_exprinfo_attr0x37c:
 
     /* fragment 86: Branch */
     s5 = (uintptr_t)((char *)&pstSecAeOri);
-    goto tisp_ae_set_exprinfo_attr0x40;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x40"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x40; } }
 
 tisp_ae_set_exprinfo_attr0x390:
     /* fragment 87: MemoryAccess */
@@ -97432,7 +97484,7 @@ tisp_ae_set_exprinfo_attr0x454:
 
     /* fragment 100: Branch */
     a1 = (uint32_t *)&LC24;
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x10c; }
+    if (v1 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x10c"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x10c; } } }
 
     /* fragment 101: CallSetup */
     *(uint32_t *)((char *)s1 + 8) = (*(uint32_t *)((char *)(s0) + 32));
@@ -97440,7 +97492,7 @@ tisp_ae_set_exprinfo_attr0x454:
 
     /* fragment 102: Branch */
     v0 = *(uint32_t *)((char *)(s0) + 104);
-    goto tisp_ae_set_exprinfo_attr0x110;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x110"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x110; } }
 
 tisp_ae_set_exprinfo_attr0x498:
     /* fragment 103: MemoryAccess */
@@ -97507,7 +97559,7 @@ tisp_ae_set_exprinfo_attr0x55c:
 
     /* fragment 116: Branch */
     a1 = (uint32_t *)&LC29;
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x18c; }
+    if (v1 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x18c"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x18c; } } }
 
     /* fragment 117: CallSetup */
     *(uint32_t *)((char *)s1 + 100) = (*(uint32_t *)((char *)(s0) + 132));
@@ -97515,7 +97567,7 @@ tisp_ae_set_exprinfo_attr0x55c:
 
     /* fragment 118: Branch */
     v1 = *(uint32_t *)((char *)(s0) + 60);
-    goto tisp_ae_set_exprinfo_attr0x190;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x190"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x190; } }
 
 tisp_ae_set_exprinfo_attr0x5a0:
     /* fragment 119: Arithmetic */
@@ -97524,7 +97576,7 @@ tisp_ae_set_exprinfo_attr0x5a0:
 
     /* fragment 120: Branch */
     v0 = *(uint32_t *)((char *)(v0) + 28);
-    goto tisp_ae_set_exprinfo_attr0x1a0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x1a0"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x1a0; } }
 
 tisp_ae_set_exprinfo_attr0x5b0:
     /* fragment 121: Arithmetic */
@@ -97533,7 +97585,7 @@ tisp_ae_set_exprinfo_attr0x5b0:
 
     /* fragment 122: Branch */
     v0 = *(uint32_t *)((char *)(v0) + 32);
-    goto tisp_ae_set_exprinfo_attr0x1b8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x1b8"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x1b8; } }
 
 tisp_ae_set_exprinfo_attr0x5c0:
     /* fragment 123: Arithmetic */
@@ -97543,12 +97595,12 @@ tisp_ae_set_exprinfo_attr0x5c0:
 
     /* fragment 124: Branch */
     v0 = *(uint16_t *)((char *)(v0) + 72);
-    goto tisp_ae_set_exprinfo_attr0x1e0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x1e0"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x1e0; } }
 
 tisp_ae_set_exprinfo_attr0x5d4:
     /* fragment 125: Branch */
     v0 = *(uint32_t *)((char *)(s6) + 308);
-    goto tisp_ae_set_exprinfo_attr0x1f8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x1f8"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x1f8; } }
 
 tisp_ae_set_exprinfo_attr0x5dc:
     /* fragment 126: Arithmetic */
@@ -97557,7 +97609,7 @@ tisp_ae_set_exprinfo_attr0x5dc:
 
     /* fragment 127: Branch */
     v0 = *(uint32_t *)((char *)(v0) + 92);
-    goto tisp_ae_set_exprinfo_attr0x210;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x210"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x210; } }
 
 tisp_ae_set_exprinfo_attr0x5ec:
     /* fragment 128: Arithmetic */
@@ -97567,7 +97619,7 @@ tisp_ae_set_exprinfo_attr0x5ec:
 
     /* fragment 129: Branch */
     v0 = *(uint16_t *)((char *)(v0) + 84);
-    goto tisp_ae_set_exprinfo_attr0x238;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x238"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x238; } }
 
 tisp_ae_set_exprinfo_attr0x600:
     /* fragment 130: Arithmetic */
@@ -97576,7 +97628,7 @@ tisp_ae_set_exprinfo_attr0x600:
 
     /* fragment 131: Branch */
     v0 = *(uint32_t *)((char *)(v0) + 32);
-    goto tisp_ae_set_exprinfo_attr0x250;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x250"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x250; } }
 
 tisp_ae_set_exprinfo_attr0x610:
     /* fragment 132: Arithmetic */
@@ -97585,11 +97637,11 @@ tisp_ae_set_exprinfo_attr0x610:
 
     /* fragment 133: Branch */
     v0 = *(uint32_t *)((char *)(v0) + 32);
-    goto tisp_ae_set_exprinfo_attr0x268;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x268"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x268; } }
 
     /* fragment 134: Branch */
     v0 = 1024;
-    goto tisp_ae_set_exprinfo_attr0x298;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x298"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x298; } }
 
 tisp_ae_set_exprinfo_attr0x628:
     /* fragment 135: Arithmetic */
@@ -97599,11 +97651,11 @@ tisp_ae_set_exprinfo_attr0x628:
 
     /* fragment 136: Branch */
     v0 = *(uint16_t *)((char *)(v0) + 56);
-    goto tisp_ae_set_exprinfo_attr0x2c0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x2c0"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x2c0; } }
 
     /* fragment 137: Branch */
     v0 = 1024;
-    goto tisp_ae_set_exprinfo_attr0x2f0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x2f0"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x2f0; } }
 
 tisp_ae_set_exprinfo_attr0x644:
     ;
@@ -97613,6 +97665,7 @@ tisp_ae_set_exprinfo_attr0x644:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002c3b0 origin=fragment_seed original=tisp_ae_api_get_faceae */
 int64_t tisp_ae_api_get_faceae(uint32_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t ra = 0;
     uintptr_t *v0 = 0;
     uint32_t *v1 = 0;
@@ -97657,7 +97710,7 @@ tisp_ae_api_get_faceae0x40:
 
     /* fragment 7: Branch */
     *(uint32_t *)((char *)a1 + 20) = v0;
-    goto tisp_ae_api_get_faceae0x38;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_api_get_faceae", "0x38"); else { __lg--; goto tisp_ae_api_get_faceae0x38; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -97751,6 +97804,7 @@ int32_t *tisp_ae_algo_init(int32_t arg1, int32_t arg2, void *arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002c5a4 origin=fragment_seed original=tisp_ae_algo_handle */
 int32_t tisp_ae_algo_handle(uintptr_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     /* OEM event ABI: 12 words, id at +8, eight payload words at +16. */
     uint32_t event_178[12] = { 0 };
     /* OEM event ABI: 12 words, id at +8, eight payload words at +16. */
@@ -98255,7 +98309,7 @@ tisp_ae_algo_handle0x728:
 
     /* fragment 99: Branch */
     s0 = (uintptr_t *)&tisp_ae_sec_ctrls;
-    goto tisp_ae_algo_handle0x40;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_algo_handle", "0x40"); else { __lg--; goto tisp_ae_algo_handle0x40; } }
 
 tisp_ae_algo_handle0x734:
     /* fragment 100: CallSetup */
@@ -98263,7 +98317,7 @@ tisp_ae_algo_handle0x734:
 
     /* fragment 101: Branch */
     v0 = (uintptr_t)s1 & 255;
-    goto tisp_ae_algo_handle0x288;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_algo_handle", "0x288"); else { __lg--; goto tisp_ae_algo_handle0x288; } }
 
 tisp_ae_algo_handle0x750:
     /* fragment 102: Arithmetic */
@@ -98271,7 +98325,7 @@ tisp_ae_algo_handle0x750:
 
     /* fragment 103: Branch */
     s2 = 0;
-    goto tisp_ae_algo_handle0x4d8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_algo_handle", "0x4d8"); else { __lg--; goto tisp_ae_algo_handle0x4d8; } }
 
     return 0;
 }
@@ -98279,6 +98333,7 @@ tisp_ae_algo_handle0x750:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002cd00 origin=fragment_seed original=tisp_ae_api_set_exp_list */
 int32_t tisp_ae_api_set_exp_list(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t local_14 = 0;
     uintptr_t *a3 = 0;
     uint32_t ra = 0;
@@ -98339,7 +98394,7 @@ tisp_ae_api_set_exp_list0x4c:
 
     /* fragment 7: Branch */
     *(uint32_t *)((char *)a1 + 8) = t0;
-    if (v1 != a3) { goto tisp_ae_api_set_exp_list0x4c; }
+    if (v1 != a3) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_api_set_exp_list", "0x4c"); else { __lg--; goto tisp_ae_api_set_exp_list0x4c; } } }
 
     /* fragment 8: CallSetup */
     a1 = v0;
@@ -98364,7 +98419,7 @@ tisp_ae_api_set_exp_list0xbc:
 
     /* fragment 14: Branch */
     v0 = (uintptr_t *)((char *)&pstSecAeOri);
-    goto tisp_ae_api_set_exp_list0x14;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_api_set_exp_list", "0x14"); else { __lg--; goto tisp_ae_api_set_exp_list0x14; } }
 
     return 0;
 }
@@ -98443,6 +98498,7 @@ int32_t tisp_ae_algo_deinit_internal(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ce9c origin=fragment_seed original=tisp_ae_get_state */
 uint32_t tisp_ae_get_state(uint32_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t ra = 0;
     uintptr_t *v0 = 0;
     uint32_t *v1 = 0;
@@ -98476,7 +98532,7 @@ tisp_ae_get_state0x10:
 tisp_ae_get_state0x30:
     /* fragment 6: Branch */
     v0 = *(uint32_t *)((char *)((char *)&stMainAeOuter));
-    goto tisp_ae_get_state0x10;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_get_state", "0x10"); else { __lg--; goto tisp_ae_get_state0x10; } }
 
     return (uint32_t)v0;
 }
@@ -98484,6 +98540,7 @@ tisp_ae_get_state0x30:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ced4 origin=fragment_seed original=tisp_ae_api_set_step */
 int32_t tisp_ae_api_set_step(uint32_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t ra = 0;
     uintptr_t *v0 = 0;
     uintptr_t *v1 = 0;
@@ -98515,7 +98572,7 @@ tisp_ae_api_set_step0x30:
 
     /* fragment 6: Branch */
     v0 = (uintptr_t *)((char *)&pstSecAeOri);
-    goto tisp_ae_api_set_step0x10;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ae_api_set_step", "0x10"); else { __lg--; goto tisp_ae_api_set_step0x10; } }
 
     return 0;
 }
