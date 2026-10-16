@@ -88735,6 +88735,19 @@ tisp_ae_long_tune20xe20:
     local_14 = (uintptr_t)&local_74;
     local_10 = (uint32_t *)&local_78;
     { static unsigned int n; if (n < 3) t40_ae_evtab_dump("pre-evlist"); n++; }
+    {   /* T40-AE-IN-DIAG: requested EV (a3 = s6) and the ladder at ctx+348 (Outer+1604, 25 x 16 B) */
+        static unsigned int n;
+        const uint32_t *lad = (const uint32_t *)(uintptr_t)*(const uint32_t *)((const char *)s8 + 348);
+        const uint16_t *blk = (const uint16_t *)(uintptr_t)*(const uint32_t *)((const char *)s8 + 4);
+        if (n++ < 3) {
+            printk(KERN_INFO "tx_isp_t40_recovered: AEEVIN ev(s6)=0x%lx local_a4=0x%x local_b0=0x%x local_84=0x%x local_88=0x%x s0=%lu blk=%u %u %u %u\n",
+                   (unsigned long)(uintptr_t)s6, (unsigned)local_a4, (unsigned)local_b0, (unsigned)local_84, (unsigned)local_88, (unsigned long)(uintptr_t)s0,
+                   regtrace_is_kernel_ptr((void *)blk) ? blk[0] : 0, regtrace_is_kernel_ptr((void *)blk) ? blk[1] : 0, regtrace_is_kernel_ptr((void *)blk) ? blk[2] : 0, regtrace_is_kernel_ptr((void *)blk) ? blk[3] : 0);
+            if (regtrace_is_kernel_ptr((void *)lad))
+                printk(KERN_INFO "tx_isp_t40_recovered: AEEVIN ladder(ctx+348)=%p: [0]=%x %x %x %x [1]=%x %x %x %x [24]=%x %x %x %x\n", (void *)lad,
+                       lad[0], lad[1], lad[2], lad[3], lad[4], lad[5], lad[6], lad[7], lad[96], lad[97], lad[98], lad[99]);
+        }
+    }
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_ev_list_alloc_calc)(local_180, (uintptr_t)s8, local_188, (uintptr_t)s6, (uintptr_t)&local_78, (uintptr_t)&local_74, (uintptr_t)&local_70); /* T40-1ARG: OEM 0x2699c..0x269d0 stack args 16/20/24(sp) = &local_78/&local_74/&local_70 (28(sp)=local_84 unused by the callee, frame 104, no lw 132(sp)) */
     { static unsigned int n; if (n < 3) { t40_ae_evtab_dump("post-evlist"); printk(KERN_INFO "tx_isp_t40_recovered: AEEVOUT local_78=%x local_74=%x local_70=%x\n", (unsigned)local_78, (unsigned)local_74, (unsigned)local_70); } n++; }
 
@@ -89651,6 +89664,16 @@ int32_t tisp_ae_long_alogrithm(int32_t arg1, int32_t (*arg2)(int32_t arg1, int32
         v0_7 = var_5c;
     }
 
+    {   /* T40-AE-IN-DIAG: inputs of tune2 (FBL29: EV alloc returns IT=3, gain 1.0 -> picture dark) */
+        static unsigned int n;
+        const uint32_t *st = (const uint32_t *)(uintptr_t)*(const uint32_t *)((const char *)arg2 + 80);
+        if (n++ < 3) {
+            printk(KERN_INFO "tx_isp_t40_recovered: AEIN var_54=0x%x var_68=0x%x s6=0x%lx v1=0x%lx s4=0x%lx a0=0x%lx var_58=0x%x v0_7=0x%x\n",
+                   (unsigned)var_54, (unsigned)var_68, (unsigned long)(uintptr_t)s6, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)s4, (unsigned long)(uintptr_t)a0, (unsigned)var_58, (unsigned)v0_7);
+            if (regtrace_is_kernel_ptr((void *)st))
+                printk(KERN_INFO "tx_isp_t40_recovered: AEIN stats(ctx+80)=%p: %x %x %x %x %x %x %x %x | row1: %x %x %x %x\n", (void *)st, st[0], st[1], st[2], st[3], st[4], st[5], st[6], st[7], st[15], st[16], st[17], st[18]);
+        }
+    }
     return tisp_ae_long_tune2(arg1, arg2, arg3, var_54, &var_68, s6, v1, s4, a0, var_58, v0_7);
 }
 
