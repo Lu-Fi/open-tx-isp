@@ -2574,6 +2574,8 @@ static const char LC180[] = "[%s %d] [ %s:%d ] Failed to init tuning module!\n";
 static int32_t irq_func_cb[T40_IRQ_FUNC_CB_N];
 static bool regtrace_t40_ae_par_calc = true;
 module_param_named(t40_ae_par_calc, regtrace_t40_ae_par_calc, bool, 0644);
+static uint32_t regtrace_t40_ae_par_calc_count;
+module_param_named(t40_ae_par_calc_count, regtrace_t40_ae_par_calc_count, uint, 0444);
 static inline uintptr_t t40_sensor_cb2(uint32_t off, uintptr_t a0, uintptr_t a1);   /* T40-SENSOR-CB, defined before tisp_set_sensor_analog_gain */
 static const char LC181[] = "dl = %d y = %d uv = %d\n";
 static const char LC182[] = "[ %s:%d ] ispcore: irq-status unusual 0x%08x, 0x%x, 0x%x\n ";
@@ -81423,7 +81425,8 @@ int64_t tisp_ae_par_calc(uint32_t a0, uintptr_t a1)
      * registration and confirm the OEM AE/AWB chain comes alive. TODO: fix
      * properly once the chain is validated (and deflicker is restored). */
     if (!regtrace_t40_ae_par_calc)
-        return 0;   /* T40-AE-PARCALC: the EV lists (ctx+212/216/220/224) are built here; stubbed = IT request 0 (FBL24 AECTRLS) */
+        return 0;
+    regtrace_t40_ae_par_calc_count++;   /* T40-AE-PARCALC: the EV lists (ctx+212/216/220/224) are built here; stubbed = IT request 0 (FBL24 AECTRLS) */
 
     /* fragment 0: Prologue */
     /* function prologue: stack frame and callee-saved register setup */
@@ -85738,6 +85741,17 @@ tisp_ae_main_init0x17c:
     printk(KERN_INFO "tx_isp_t40_recovered: AECHK c4 par_calc\n");
     /* fragment 21: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_par_calc)(0, &pstMainAeOri); /* jalr target resolved by relocation */
+    {   /* T40-AE-EVLIST-DIAG */
+        const unsigned char *c = (const unsigned char *)&pstMainAeOri;
+        unsigned int k;
+        for (k = 208; k <= 224; k += 4) {
+            const uint32_t *t = (const uint32_t *)(uintptr_t)*(const uint32_t *)(c + k);
+            if (regtrace_is_kernel_ptr((void *)t))
+                printk(KERN_INFO "tx_isp_t40_recovered: AEEVLIST ctx+%u=%p: %x %x %x %x %x %x %x %x\n", k, (void *)t, t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7]);
+            else
+                printk(KERN_INFO "tx_isp_t40_recovered: AEEVLIST ctx+%u=%p (not a kernel ptr)\n", k, (void *)t);
+        }
+    }
 
     printk(KERN_INFO "tx_isp_t40_recovered: AECHK c5 set_hardware_param\n");
     /* fragment 22: CallSetup */
@@ -91592,6 +91606,13 @@ tisp_ae_main_long_ev_alloc0x36c:
     /* fragment 61: MemoryAccess */
     v0 = *(uint32_t *)((char *)s5 + 0);
     *(uint32_t *)((char *)s7 + 12) = v0;
+    {   /* T40-AE-EVALLOC-DIAG */
+        static unsigned int n;
+        if (n++ < 4)
+            printk(KERN_INFO "tx_isp_t40_recovered: AEEVALLOC list=%p idx4=0x%lx val=0x%lx ctrls=%p c52=0x%x c0=0x%x c36=0x%x\n",
+                   (void *)s5, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (void *)s7,
+                   *(uint32_t *)((char *)s7 + 52), *(uint32_t *)((char *)s7 + 0), *(uint32_t *)((char *)s7 + 36));
+    }
 
 tisp_ae_main_long_ev_alloc0x380:
     /* fragment 62: MemoryAccess */
