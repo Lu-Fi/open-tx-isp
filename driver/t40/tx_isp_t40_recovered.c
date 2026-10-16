@@ -89739,7 +89739,7 @@ int32_t tisp_ae_short_alogrithm(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026b50 origin=fragment_seed original=tisp_ae_long_set_sensor_integration_time */
 int32_t tisp_ae_long_set_sensor_integration_time(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3, uint32_t arg4)
 {
-    uint32_t t40_it_out = 0;   /* OEM sp+28 out slot */
+    uint8_t t40_sctx[64] = {0};   /* T40-SENSOR-CTX: OEM stack ctx at sp+16: +12 = channel (sw a0,28(sp)); alloc gets ctx+12 and writes the IT u16 at ctx+34 (sensor_alloc_integration_time 0x11144 sh a0,22(s0)); set gets ctx and reads +12 */
     uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_1c = 0;
@@ -89775,6 +89775,7 @@ int32_t tisp_ae_long_set_sensor_integration_time(uint32_t a0, uintptr_t a1, uint
     v0 = local_200;
     s4 = local_208;
     local_1c = a0;
+    *(uint32_t *)(t40_sctx + 12) = a0;
 
     /* fragment 2: Branch */
     a1 = (uint32_t *)&local_1c;
@@ -89788,14 +89789,14 @@ int32_t tisp_ae_long_set_sensor_integration_time(uint32_t a0, uintptr_t a1, uint
 
 tisp_ae_long_set_sensor_integration_time0x54:
     /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)t40_sensor_cb2(0x15c, (uintptr_t)*(uint32_t *)((char *)(a2) + 12), (uintptr_t)&t40_it_out); /* OEM 0x275a4/0x275c4: sensor_alloc_integration_time(*(a2+12), sp+28) */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x15c, (uintptr_t)*(uint32_t *)((char *)(a2) + 12), (uintptr_t)(t40_sctx + 12)); /* OEM 0x275a4/0x275c4: sensor_alloc_integration_time(*(a2+12), sp+28) */
 
     /* fragment 6: CallSetup */
     *(uint32_t *)((char *)s0 + 0) = v0;
 
 tisp_ae_long_set_sensor_integration_time0x60:
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)t40_sensor_cb2(0x164, (uintptr_t)local_32, (uintptr_t)&local_10); /* OEM 0x275a8/0x275d4: sensor_set_integration_time(lhu 50(sp), sp+16) */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x164, (uintptr_t)*(uint16_t *)(t40_sctx + 34), (uintptr_t)t40_sctx); /* OEM 0x275d0 lhu a0,50(sp) */ /* OEM 0x275a8/0x275d4: sensor_set_integration_time(lhu 50(sp), sp+16) */
 
     /* fragment 8: Epilogue */
     /* function epilogue: restore registers and return */
@@ -89809,7 +89810,7 @@ tisp_ae_long_set_sensor_integration_time0x60:
 
 tisp_ae_long_set_sensor_integration_time0x90:
     /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)t40_sensor_cb2(0x15c, (uintptr_t)s3, (uintptr_t)&t40_it_out); /* OEM 0x27600: sensor_alloc_integration_time(s3, sp+28) */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x15c, (uintptr_t)s3, (uintptr_t)(t40_sctx + 12)); /* OEM 0x27600: sensor_alloc_integration_time(s3, sp+28) */
 
     /* fragment 12: Arithmetic */
     s2 = v0;
@@ -89974,6 +89975,8 @@ static inline uintptr_t t40_sensor_cb2(uint32_t off, uintptr_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026d58 origin=fragment_seed original=tisp_set_sensor_analog_gain */
 uint32_t tisp_set_sensor_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
+    uint8_t t40_sctx[64] = {0};   /* T40-SENSOR-CTX: OEM stack ctx at sp+16: [0]=channel (sw a0,16(sp)), [4]=allocated gain (sensor_alloc_analog_gain 0x10fdc sw v1,4(s0)) */
+    *(uint32_t *)t40_sctx = a0;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t local_30 = 0;
@@ -89996,14 +89999,14 @@ uint32_t tisp_set_sensor_analog_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)t40_sensor_cb2(0x14c, (uintptr_t)v0, (uintptr_t)&local_10); /* OEM 0x277ac: sensor_alloc_analog_gain(log2gain, &again_out) */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x14c, (uintptr_t)v0, (uintptr_t)t40_sctx); /* OEM 0x277ac: sensor_alloc_analog_gain(log2gain, &again_out) */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)t40_sensor_cb2(0x174, (uintptr_t)local_14, (uintptr_t)&local_10); /* OEM 0x277d8: sensor_set_analog_gain(again, &ctx) */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x174, (uintptr_t)*(uint32_t *)(t40_sctx + 4), (uintptr_t)t40_sctx); /* OEM 0x277d4 lw a0,20(sp) */ /* OEM 0x277d8: sensor_set_analog_gain(again, &ctx) */
 
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
@@ -90066,6 +90069,8 @@ uint32_t tisp_set_sensor_analog_gain_short(uint32_t a0, uint32_t a1, uint32_t a2
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026e58 origin=fragment_seed original=tisp_set_sensor_digital_gain */
 uint32_t tisp_set_sensor_digital_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
+    uint8_t t40_sctx[64] = {0};   /* T40-SENSOR-CTX: OEM stack ctx at sp+16: [0]=channel; set reads lhu 24(sp) = ctx+8 (0x278d4) */
+    *(uint32_t *)t40_sctx = a0;
     uint32_t *local_10 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_30 = 0;
@@ -90088,14 +90093,14 @@ uint32_t tisp_set_sensor_digital_gain(uint32_t a0, uint32_t a1, uint32_t a2, uin
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(a1 << 6, 16, 16, a3); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)t40_sensor_cb2(0x154, (uintptr_t)v0, (uintptr_t)&local_10); /* OEM 0x278ac: sensor_alloc_digital_gain */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x154, (uintptr_t)v0, (uintptr_t)t40_sctx); /* OEM 0x278ac: sensor_alloc_digital_gain */
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(v0, 16, 16); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
     s0 = v0;
-    v0 = (uintptr_t *)t40_sensor_cb2(0x17c, (uintptr_t)local_18, (uintptr_t)&local_10); /* OEM 0x278d8: sensor_set_digital_gain */
+    v0 = (uintptr_t *)t40_sensor_cb2(0x17c, (uintptr_t)*(uint16_t *)(t40_sctx + 8), (uintptr_t)t40_sctx); /* OEM 0x278d4 lhu a0,24(sp) */ /* OEM 0x278d8: sensor_set_digital_gain */
 
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
