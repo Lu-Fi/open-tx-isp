@@ -83616,6 +83616,7 @@ tisp_ae_params_refresh0x534:
     /* fragment 59: Unknown */
     /* unmatched fragment 59 (Unknown): no deterministic matcher for Unknown */
     /* asm: 230cc:	0064001a 	div	zero,v1,a0 */
+    v1 = (uintptr_t)((int32_t)(uintptr_t)v1 / 2); /* T40-AE-ZONE-DIV: OEM 0x23aec div v1,a0(=2); mflo v1 (0x23af4) */
 
     /* fragment 60: Arithmetic */
     a0 = 0;
@@ -83635,6 +83636,7 @@ tisp_ae_params_refresh0x57c:
     /* fragment 64: Unknown */
     /* unmatched fragment 64 (Unknown): no deterministic matcher for Unknown */
     /* asm: 230f0:	0043001a 	div	zero,v0,v1 */
+    v0 = (uintptr_t)((int32_t)(uintptr_t)v0 / 2); /* T40-AE-ZONE-DIV: OEM 0x23b10 div v0,v1(=2); mflo v0 (0x23b18) */
 
     /* fragment 65: Arithmetic */
     v1 = 0;
@@ -83836,6 +83838,7 @@ tisp_ae_params_refresh0x9c8:
     /* fragment 122: Unknown */
     /* unmatched fragment 122 (Unknown): no deterministic matcher for Unknown */
     /* asm: 23524:	0066001a 	div	zero,v1,a2 */
+    a3 = (typeof(a3))(uintptr_t)(a2 ? (uintptr_t)((int32_t)(uintptr_t)v1 / (int32_t)(uintptr_t)a2) : 0); /* T40-AE-ZONE-DIV: OEM 0x23f44 div v1,a2; mflo a3 (0x23f5c): zone width */
 
     /* fragment 123: MemoryAccess */
     t0 = *(uint32_t *)((char *)s1 + 284);
@@ -83860,7 +83863,7 @@ tisp_ae_params_refresh0x9ec:
     v1 = v1 + 1;
 
     /* fragment 127: Branch */
-    *(uint16_t *)((char *)a0 + 0) = a2;
+    *(uint16_t *)((char *)a0 + 0) = (uint16_t)(a1 ? (uintptr_t)((int32_t)(uintptr_t)v0 / (int32_t)(uintptr_t)a1) : 0); /* T40-AE-ZONE-DIV: OEM 0x23f68 div v0,a1; mflo a2 (0x23f7c); sh a2 (0x23f84): zone height (a2 was the index*2 here) */
     goto tisp_ae_params_refresh0x5a0;
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
