@@ -87270,6 +87270,16 @@ int64_t tisp_ae_long_tune2(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3,
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: Arithmetic */
+    /* T40-STACKARGS: the OEM frame is 384 B, so sp+400..sp+424 are the caller's stack
+     * arguments 4..10 (lw a0,400(sp) at 0x26624 = arg4 -> tisp_ae_long_tune's ctx).  The lift
+     * declared them as zero-initialised locals (FBL18: tisp_ae_long_tune(0, ...) NULL deref). */
+    local_190 = (uint32_t)arg4;
+    local_194 = arg5;
+    local_198 = arg6;
+    local_19c = arg7;
+    local_1a0 = arg8;
+    local_1a4 = arg9;
+    local_1a8 = arg10;
     v0 = regtrace_ae_cache_for_channel(a0);
     if (!regtrace_is_kernel_ptr((void *)v0))
         return -EINVAL;
