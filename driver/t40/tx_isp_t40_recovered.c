@@ -79937,6 +79937,17 @@ tisp_event_process0x1c8:
 #endif
 }
 
+/* T40-AE-EVTAB-DIAG (fable) */
+static void t40_ae_evtab_dump(const char *tag)
+{
+    const unsigned char *c = (const unsigned char *)&pstMainAeOri;
+    unsigned int k;
+    for (k = 208; k <= 224; k += 4) {
+        const uint32_t *t = (const uint32_t *)(uintptr_t)*(const uint32_t *)(c + k);
+        if (regtrace_is_kernel_ptr((void *)t))
+            printk(KERN_INFO "tx_isp_t40_recovered: AEEVTAB %s ctx+%u=%p: %x %x %x %x %x %x %x %x\n", tag, k, (void *)t, t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7]);
+    }
+}
 /* T40-LOOPGUARD (fable): per-call budget on every backward goto of the lifted tisp_ae_* functions;
  * when exhausted the loop is broken and the site is named once (FBL16: the event thread never
  * returned from tisp_ae_long_tune2 or a callee, no Oops). */
@@ -88708,7 +88719,9 @@ tisp_ae_long_tune20xe20:
     local_18 = (uint32_t *)&local_70;
     local_14 = (uintptr_t)&local_74;
     local_10 = (uint32_t *)&local_78;
+    { static unsigned int n; if (n < 3) t40_ae_evtab_dump("pre-evlist"); n++; }
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_ev_list_alloc_calc)(local_180, (uintptr_t)s8, local_188, (uintptr_t)s6, (uintptr_t)&local_78, (uintptr_t)&local_74, (uintptr_t)&local_70); /* T40-1ARG: OEM 0x2699c..0x269d0 stack args 16/20/24(sp) = &local_78/&local_74/&local_70 (28(sp)=local_84 unused by the callee, frame 104, no lw 132(sp)) */
+    { static unsigned int n; if (n < 3) { t40_ae_evtab_dump("post-evlist"); printk(KERN_INFO "tx_isp_t40_recovered: AEEVOUT local_78=%x local_74=%x local_70=%x\n", (unsigned)local_78, (unsigned)local_74, (unsigned)local_70); } n++; }
 
 tisp_ae_long_tune20xe7c:
     /* fragment 250: Arithmetic */
@@ -91608,6 +91621,8 @@ tisp_ae_main_long_ev_alloc0x36c:
     *(uint32_t *)((char *)s7 + 12) = v0;
     {   /* T40-AE-EVALLOC-DIAG */
         static unsigned int n;
+        if (n < 4)
+            t40_ae_evtab_dump("evalloc");
         if (n++ < 4)
             printk(KERN_INFO "tx_isp_t40_recovered: AEEVALLOC list=%p idx4=0x%lx val=0x%lx ctrls=%p c52=0x%x c0=0x%x c36=0x%x\n",
                    (void *)s5, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (void *)s7,
