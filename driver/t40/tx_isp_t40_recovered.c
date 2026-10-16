@@ -81845,6 +81845,10 @@ int64_t tisp_ae_ev_list_alloc_calc(uint32_t a0, uintptr_t a1, uintptr_t a2, uint
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: Arithmetic */
+    /* T40-STACKARGS: OEM frame 104: sp+120/124/128 are the caller stack args 4..6 (the three output pointers); the lift read them as zero locals */
+    local_78 = (typeof(local_78))(uintptr_t)arg4;
+    local_7c = (typeof(local_7c))(uintptr_t)arg5;
+    local_80 = (typeof(local_80))(uintptr_t)arg6;
     v1 = a1;
 
     /* fragment 2: StackAccess */
@@ -87087,6 +87091,9 @@ int32_t tisp_ae_long_tune(uintptr_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3,
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: Arithmetic */
+    /* T40-STACKARGS: OEM frame 56: lhu s0,72(sp) / lw v0,76(sp) (0x25a78/0x25a90) are the caller stack args 4/5; the lift read them as zero locals */
+    local_48 = (typeof(local_48))(uintptr_t)arg4;
+    local_4c = (typeof(local_4c))(uintptr_t)arg5;
     s5 = a3;
 
     /* fragment 2: MemoryAccess */
