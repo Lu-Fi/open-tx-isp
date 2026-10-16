@@ -199418,7 +199418,7 @@ ispcore_interrupt_service_routine0x4ec:
     if (v0 == 0) { goto ispcore_interrupt_service_routine0xca4; }
 
     /* fragment 105: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s5) + 128), a1 + 6, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s5) + 128), (uintptr_t)a1 + 6, &local_20) /* T40-ISR-EVENT-SCALE: 0x3000006, a1 is a pointer type (was 0x3000018) */; /* jalr target resolved by relocation */
 
     /* fragment 106: MemoryAccess */
     v0 = *(uint8_t *)((char *)s7 + 210);
@@ -199771,7 +199771,7 @@ ispcore_interrupt_service_routine0x840:
     if (v0 == 0) { goto ispcore_interrupt_service_routine0xe30; }
 
     /* fragment 180: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s6) + 128), a1 + 6, &local_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tx_isp_send_event_to_remote)(*(uint32_t *)((char *)(s6) + 128), (uintptr_t)a1 + 6, &local_20) /* T40-ISR-EVENT-SCALE: 0x3000006, a1 is a pointer type (was 0x3000018) */; /* jalr target resolved by relocation */
 
     /* fragment 181: MemoryAccess */
     v0 = *(uint8_t *)((char *)s7 + 858);
