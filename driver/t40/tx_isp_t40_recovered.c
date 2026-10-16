@@ -19746,8 +19746,13 @@ static int regtrace_t40_msca_write_work_en(uint32_t active_mask,
 
 static uint32_t regtrace_msca_ratio(uint32_t source, uint32_t target);
 static uint32_t regtrace_t40_msca_oem_aux68(unsigned int channel);
-static uint32_t regtrace_t40_msca_oem_stride(unsigned int channel,
-                                           uint32_t width, int *partner);
+static uint32_t regtrace_t40_msca_oem_stride_s6(uint32_t group,
+                                              const unsigned char *st,
+                                              unsigned int k, uint32_t width,
+                                              int *partner, bool warn);
+static uint32_t regtrace_t40_msca_oem_stride_reg(const unsigned char *st,
+                                               unsigned int k, uint32_t s6);
+static uint32_t regtrace_t40_msca_partner_reg(int partner, uint32_t off);
 
 static int regtrace_t40_msca_shadow_fifo_program(int trigger_channel,
                                                  const char *reason,
@@ -19885,23 +19890,28 @@ static int regtrace_t40_msca_shadow_fifo_program(int trigger_channel,
             regtrace_t40_msca_oem_aux68(ch), base + 0x68, &pairs);
         if (ret)
             goto out;
-        stride = regtrace_t40_msca_oem_stride(ch, crop_width, &partner);
+        stride = regtrace_t40_msca_oem_stride_s6(0, (const unsigned char *)mscaler_s0,
+                                                 ch, crop_width, &partner, false);
         if (partner >= 0) {
             ret = regtrace_t40_msca_shadow_pair(
-                stride, 0x16180U + partner * REGTRACE_T40_MSCA_CH_BANK_STRIDE,
+                stride, regtrace_t40_msca_partner_reg(partner, 0x80),
                 &pairs);
             if (ret)
                 goto out;
             ret = regtrace_t40_msca_shadow_pair(
-                stride, 0x16198U + partner * REGTRACE_T40_MSCA_CH_BANK_STRIDE,
+                stride, regtrace_t40_msca_partner_reg(partner, 0x98),
                 &pairs);
             if (ret)
                 goto out;
         }
-        ret = regtrace_t40_msca_shadow_pair(stride, base + 0x80, &pairs);
+        ret = regtrace_t40_msca_shadow_pair(
+            regtrace_t40_msca_oem_stride_reg((const unsigned char *)mscaler_s0, ch,
+                                             stride), base + 0x80, &pairs);
         if (ret)
             goto out;
-        ret = regtrace_t40_msca_shadow_pair(stride, base + 0x98, &pairs);
+        ret = regtrace_t40_msca_shadow_pair(
+            regtrace_t40_msca_oem_stride_reg((const unsigned char *)mscaler_s0, ch,
+                                             stride), base + 0x98, &pairs);
         if (ret)
             goto out;
 
@@ -20389,53 +20399,109 @@ static uint32_t regtrace_t40_msca_round8(uint32_t value)
 }
 
 /*
- * OEM Tzn_Msca_cfg_load (testimage 0x6cf38..0x6d074, group 0, k = channel)
- * writes the same value to channel_base + 0x80 and + 0x98:
- *   s6 = round_up(u16 state[32 + 616k], 8)
- * Format nibbles in *(u32 *)(state + 4) (values 1..2) replace it with the sum
- * of two channels' rounded widths:
- *   k=0: nibble0 -> s0.ch0 + s1.ch0; else nibble1 -> s0.ch0 + s0.ch1
- *   k=1: nibble1 -> s0.ch0 + s0.ch1 (also written to ch0's 0x80/0x98);
- *        else nibble2 -> s0.ch1 + s1.ch1
- * A nonzero u16 state[616 + 616k] overrides both registers (0x6d368).
- * @partner gets the other channel the OEM also writes s6 to, or -1. Nibble
- * values above 2 take odd OEM fall-through paths; they keep the plain round-up.
+ * Line stride for channel_base + 0x80/+0x98 as OEM Tzn_Msca_cfg_load computes
+ * it (testimage 0x6cf38..0x6d074 and 0x6d22c..0x6d364; 616-byte channel
+ * records, t2 = group * 3 + k):
+ *   s6 = round_up(width, 8), width = u16 state[32 + 616k]
+ * For group < 2, format nibbles in *(u32 *)(state + 4) with value 1..2 replace
+ * s6 by the sum of two rounded widths (w0/w1 = u16 at +32/+648):
+ *   t2 0/3, nibble0:          s0.w0 + s1.w0, partner 0
+ *   t2 0/1, nibble1 (t2 0 only if nibble0 == 0): s0.w0 + s0.w1, partner 0
+ *   t2 1/4, nibble2 (t2 1 only if nibble1 == 0): s0.w1 + s1.w1, partner 1
+ *   t2 3/4, nibble3:          s1.w0 + s1.w1, partner 3
+ * Nibble values above 2 keep s6 but still select that partner. When the
+ * partner differs from t2, the OEM writes s6 to the partner's 0x80/0x98 too
+ * (0x16180 + (p / 3 << 12) + (p % 3 << 8)); @partner gets it, else -1.
+ * @warn prints the OEM "width cannot exceed 3840" line (group < 2 only).
  */
-static uint32_t regtrace_t40_msca_oem_stride(unsigned int channel,
-                                           uint32_t width, int *partner)
+static uint32_t regtrace_t40_msca_oem_stride_s6(uint32_t group,
+                                              const unsigned char *st,
+                                              unsigned int k, uint32_t width,
+                                              int *partner, bool warn)
 {
     const unsigned char *s0 = (const unsigned char *)mscaler_s0;
     const unsigned char *s1 = (const unsigned char *)mscaler_s1;
-    uint32_t flags = *(const uint32_t *)(s0 + 4);
-    uint32_t n0 = flags & 0xfU;
-    uint32_t n1 = (flags >> 4) & 0xfU;
-    uint32_t n2 = (flags >> 8) & 0xfU;
-    uint32_t value = regtrace_t40_msca_round8(width);
-    uint16_t override;
+    uint32_t flags = *(const uint32_t *)(st + 4);
+    uint32_t t2 = group * 3U + k;
+    uint32_t s6 = regtrace_t40_msca_round8(width);
+    uint32_t v0 = width & 7U;
+    uint32_t s8 = t2;
+    uint32_t n;
 
     *partner = -1;
-    if (channel >= 3)
-        return value;
+    if (group >= 2)
+        return s6;
 
-    if (channel == 0 && (n0 == 1 || n0 == 2)) {
-        value = regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 32)) +
-                regtrace_t40_msca_round8(*(const uint16_t *)(s1 + 32));
-    } else if (channel == 0 && n0 == 0 && (n1 == 1 || n1 == 2)) {
-        value = regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 32)) +
-                regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 648));
-    } else if (channel == 1 && (n1 == 1 || n1 == 2)) {
-        value = regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 32)) +
-                regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 648));
-        *partner = 0;
-    } else if (channel == 1 && n1 == 0 && (n2 == 1 || n2 == 2)) {
-        value = regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 648)) +
-                regtrace_t40_msca_round8(*(const uint16_t *)(s1 + 648));
+    if (t2 == 0 || t2 == 3) {
+        n = flags & 0xfU;
+        if (n) {
+            s8 = 0;
+            if (n <= 2) {
+                s6 = regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 32));
+                v0 = s6 + regtrace_t40_msca_round8(*(const uint16_t *)(s1 + 32));
+            }
+            goto done;
+        }
+    }
+    if (t2 < 2) {
+        n = (flags >> 4) & 0xfU;
+        if (n) {
+            s8 = 0;
+            if (n <= 2) {
+                s6 = regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 32));
+                v0 = s6 + regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 648));
+            }
+            goto done;
+        }
+    }
+    if (t2 == 1 || t2 == 4) {
+        n = (flags >> 8) & 0xfU;
+        if (n) {
+            s8 = 1;
+            if (n <= 2) {
+                s6 = regtrace_t40_msca_round8(*(const uint16_t *)(s0 + 648));
+                v0 = s6 + regtrace_t40_msca_round8(*(const uint16_t *)(s1 + 648));
+            }
+            goto done;
+        }
+    }
+    s8 = t2;
+    if (t2 == 3 || t2 == 4) {
+        n = (flags >> 12) & 0xfU;
+        if (n) {
+            s8 = 3;
+            if (n <= 2) {
+                s6 = regtrace_t40_msca_round8(*(const uint16_t *)(s1 + 32));
+                v0 = s6 + regtrace_t40_msca_round8(*(const uint16_t *)(s1 + 648));
+            }
+        }
     }
 
-    override = *(const uint16_t *)(s0 + 616 + channel * 616U);
-    if (override)
-        value = override;
-    return value;
+done:
+    if (s6 < v0)
+        s6 = v0;
+    if (warn && s6 >= 3841)
+        isp_printf(2, "[%s %d]  [%s:%d] : Image width cannot exceed 3840!",
+                   "Tzn_Msca_cfg_load", 390, "Tzn_Msca_cfg_load", 390);
+    if (s8 != t2)
+        *partner = (int)s8;
+    return s6;
+}
+
+/* OEM 0x6d054/0x6d368: a nonzero u16 state[616 + 616k] makes both registers
+ * take u16 state[618 + 616k] instead of s6. */
+static uint32_t regtrace_t40_msca_oem_stride_reg(const unsigned char *st,
+                                               unsigned int k, uint32_t s6)
+{
+    if (*(const uint16_t *)(st + 616 + k * 616U))
+        return *(const uint16_t *)(st + 618 + k * 616U);
+    return s6;
+}
+
+static uint32_t regtrace_t40_msca_partner_reg(int partner, uint32_t off)
+{
+    return 0x16100U + off + (((uint32_t)partner / 3U) << 12) +
+           (((uint32_t)partner % 3U) << 8);
 }
 
 static void regtrace_t40_msca_state_put16(unsigned char *base, uint32_t off,
@@ -20796,21 +20862,26 @@ static int regtrace_t40_msca_cfg_program(int trigger_channel,
                                   regtrace_t40_msca_oem_aux68(ch));
         if (ret)
             goto out;
-        stride = regtrace_t40_msca_oem_stride(ch, crop_width, &partner);
+        stride = regtrace_t40_msca_oem_stride_s6(0, (const unsigned char *)mscaler_s0,
+                                                 ch, crop_width, &partner, false);
         if (partner >= 0) {
             ret = regtrace_core_write(
-                0x16180U + partner * REGTRACE_T40_MSCA_CH_BANK_STRIDE, stride);
+                regtrace_t40_msca_partner_reg(partner, 0x80), stride);
             if (ret)
                 goto out;
             ret = regtrace_core_write(
-                0x16198U + partner * REGTRACE_T40_MSCA_CH_BANK_STRIDE, stride);
+                regtrace_t40_msca_partner_reg(partner, 0x98), stride);
             if (ret)
                 goto out;
         }
-        ret = regtrace_core_write(base + 0x80, stride);
+        ret = regtrace_core_write(base + 0x80,
+            regtrace_t40_msca_oem_stride_reg((const unsigned char *)mscaler_s0, ch,
+                                             stride));
         if (ret)
             goto out;
-        ret = regtrace_core_write(base + 0x98, stride);
+        ret = regtrace_core_write(base + 0x98,
+            regtrace_t40_msca_oem_stride_reg((const unsigned char *)mscaler_s0, ch,
+                                             stride));
         if (ret)
             goto out;
         ret = regtrace_core_write(base + 0x28, 0);
@@ -20896,21 +20967,26 @@ static int regtrace_t40_msca_cfg_program(int trigger_channel,
                                   regtrace_t40_msca_oem_aux68(ch));
         if (ret)
             goto out;
-        stride = regtrace_t40_msca_oem_stride(ch, target_width, &partner);
+        stride = regtrace_t40_msca_oem_stride_s6(0, (const unsigned char *)mscaler_s0,
+                                                 ch, target_width, &partner, false);
         if (partner >= 0) {
             ret = regtrace_core_write(
-                0x16180U + partner * REGTRACE_T40_MSCA_CH_BANK_STRIDE, stride);
+                regtrace_t40_msca_partner_reg(partner, 0x80), stride);
             if (ret)
                 goto out;
             ret = regtrace_core_write(
-                0x16198U + partner * REGTRACE_T40_MSCA_CH_BANK_STRIDE, stride);
+                regtrace_t40_msca_partner_reg(partner, 0x98), stride);
             if (ret)
                 goto out;
         }
-        ret = regtrace_core_write(base + 0x80, stride);
+        ret = regtrace_core_write(base + 0x80,
+            regtrace_t40_msca_oem_stride_reg((const unsigned char *)mscaler_s0, ch,
+                                             stride));
         if (ret)
             goto out;
-        ret = regtrace_core_write(base + 0x98, stride);
+        ret = regtrace_core_write(base + 0x98,
+            regtrace_t40_msca_oem_stride_reg((const unsigned char *)mscaler_s0, ch,
+                                             stride));
         if (ret)
             goto out;
         ret = regtrace_core_write(base + 0x28, 0);
@@ -176847,1048 +176923,217 @@ int32_t Tzn_Msca_Shd_Sta(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006bf78 origin=fragment_seed original=Tzn_Msca_cfg_load */
+/*
+ * T40-MSCA-CFGLOAD-REWRITE: written from the testimage disassembly
+ * (tx-isp-t40-testimage.ko e64d88e9, 0x6c998..0x6d378, 616-byte channel
+ * records, mscaler state 1860 B). The fragment reconstruction scaled pointer
+ * steps (`s3 + 616` on uintptr_t *), dropped call arguments and mixed up the
+ * loop registers; on the device it printed channel 2404 with fcrop_w 43448
+ * and then faulted. Register writes and their order follow the OEM exactly.
+ */
+#define MSCA_U8(st, off)  ((uint32_t)*(const uint8_t *)((st) + (off)))
+#define MSCA_U16(st, off) ((uint32_t)*(const uint16_t *)((st) + (off)))
+#define MSCA_PUT16(st, off, v) (*(uint16_t *)((st) + (off)) = (uint16_t)(v))
+
+static uint32_t msca_cfg_ratio(uint32_t num, uint32_t den)
+{
+    uint32_t r;
+
+    /* OEM divu has no zero check (result undefined on hw); avoid the trap. */
+    r = den ? ((num << 9) / den) & 0xffffU : 0;
+    /* 0x6ced0..0x6cf0c: an exact multiple of 256 other than 0x200 drops by 1 */
+    if (!(r & 0xffU) && r != 0x200U)
+        r = (r - 1U) & 0xffffU;
+    return r;
+}
+
 int32_t Tzn_Msca_cfg_load(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t local_48 = 0;
-    uint32_t local_4c = 0;
-    uint32_t local_50 = 0;
-    uint32_t local_54 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_5c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uintptr_t s7 = 0;
-    uint32_t s8 = 0;
-    uint32_t t0 = 0;
-    uint32_t *t1 = 0;
-    uint32_t *t2 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s2 = 65536;
-
-    /* fragment 2: StackAccess */
-    local_3c = s1;
-    s2 = s2 + 24592;
-    s1 = a0 << 12;
-    v0 = (uintptr_t)s1 + (uintptr_t)s2;
-    local_38 = s0;
-    s0 = (uintptr_t *)&system_reg_write;
-    local_54 = s7;
-    local_4c = s5;
-    local_48 = s4;
-    local_24 = a0;
-    s7 = a1;
-    a0 = v0;
-    a1 = 0;
-    s0 = s0;
-    s4 = (uintptr_t *)&__param_str_isp_dual_buf;
-    s5 = (uintptr_t)&isp_printf;
-    local_50 = s6;
-    local_44 = s3;
-    local_5c = ra;
-    local_58 = s8;
-    local_28 = v0;
-
-    /* fragment 3: CallSetup */
-    s3 = s7 + 20;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 4: Arithmetic */
-    s2 = 0;
-    s4 = s4 + 8724;
-    s6 = (uintptr_t)&LC0;
-    s5 = s5;
-
-Tzn_Msca_cfg_load0x78:
-    /* fragment 5: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s3 + 6);
-    a0 = *(uint16_t *)((char *)s3 + 0);
-    a1 = *(uint16_t *)((char *)s3 + 4);
-    s8 = *(uint16_t *)((char *)s3 + 2);
-    a2 = *(uint16_t *)((char *)s7 + 0);
-    s8 = s8 + (uintptr_t)v0;
-    v0 = a0 + a1;
-    v0 = a2 < v0;
-
-    /* fragment 6: Branch */
-    a3 = 123;
-    if (v0 == 0) { goto Tzn_Msca_cfg_load0xd0; }
-
-    /* fragment 7: CallSetup */
-    local_1c = a2;
-    local_18 = a1;
-    local_14 = a0;
-    /* T40-MSCA-CFGLOAD-PRINTF: OEM 0x6c0a8..0x6c0c4 passes $LC0 of this object
-     * (.rodata.str1.4+0x48a4), the function name (.rodata+0x2174), line 123 and
-     * the channel index plus fcrop_x/fcrop_w/img_width as stack arguments. The
-     * reconstruction passed the file-global LC0 ("savenv12") and dropped them. */
-    v0 = (uintptr_t *)(uintptr_t)isp_printf(2,
-        "[%s %d] [Tzn Msca Err] : set channle[%d] fcrop out range fcrop_x %d fcrop_w %d but img_width %d\n",
-        "Tzn_Msca_cfg_load", 123, (int)s2, (int)local_14, (int)(uintptr_t)local_18, (int)local_1c);
-
-    /* fragment 8: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s7 + 0);
-    a0 = *(uint16_t *)((char *)s3 + 0);
-    v0 = v0 - a0;
-    *(uint16_t *)((char *)s3 + 4) = v0;
-
-Tzn_Msca_cfg_load0xd0:
-    /* fragment 9: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s7 + 2);
-    s8 = v0 < s8;
-
-    /* fragment 10: Branch */
-    a0 = 2;
-    if (s8 == 0) { goto Tzn_Msca_cfg_load0x11c; }
-
-    /* fragment 11: CallSetup */
-    local_1c = v0;
-    local_18 = *(uint16_t *)((char *)(s3) + 6);
-    local_14 = *(uint16_t *)((char *)(s3) + 2);
-    /* T40-MSCA-CFGLOAD-PRINTF: OEM 0x6c0e8..0x6c110 passes $LC1 (+0x4908), the
-     * function name, line 127, the channel index and fcrop_y/fcrop_h/img_height.
-     * The reconstruction called isp_printf(2) without a format, so printk
-     * dereferenced a NULL format (oops, BadVA 0, in the set-fmt ioctl). */
-    v0 = (uintptr_t *)(uintptr_t)isp_printf(a0,
-        "[%s %d] [Tzn Msca Err] : set channle[%d] fcrop out range fcrop_y %d fcrop_h %d but img_height %d\n",
-        "Tzn_Msca_cfg_load", 127, (int)s2, (int)local_14, (int)(uintptr_t)local_18, (int)local_1c);
-
-    /* fragment 12: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s7 + 2);
-    a0 = *(uint16_t *)((char *)s3 + 2);
-    v0 = v0 - a0;
-    *(uint16_t *)((char *)s3 + 6) = v0;
-
-Tzn_Msca_cfg_load0x11c:
-    /* fragment 13: Arithmetic */
-    s2 = s2 + 1;
-    v0 = 3;
-
-    /* fragment 14: Branch */
-    s3 = s3 + 616;
-    if (s2 != v0) { goto Tzn_Msca_cfg_load0x78; }
-
-    /* fragment 15: MemoryAccess */
-    a0 = *(uint8_t *)((char *)s7 + 8);
-    t0 = *(uint8_t *)((char *)s7 + 624);
-
-    /* fragment 16: Branch */
-    a2 = *(uint8_t *)((char *)(s7) + 1240);
-    if (a0 != 0) { goto Tzn_Msca_cfg_load0x15c; }
-
-    /* fragment 17: Branch */
-    s8 = 65535;
-    if (t0 != 0) { goto Tzn_Msca_cfg_load0x164; }
-
-    /* fragment 18: Branch */
-    s6 = 0;
-    if (a2 != 0) { goto Tzn_Msca_cfg_load0x184; }
-
-    /* fragment 19: MemoryAccess */
-    s4 = *(uint16_t *)((char *)s7 + 0);
-    s2 = *(uint16_t *)((char *)s7 + 2);
-
-    /* fragment 20: Branch */
-    s8 = 0;
-    goto Tzn_Msca_cfg_load0x2d8;
-
-Tzn_Msca_cfg_load0x15c:
-    /* fragment 21: Branch */
-    s8 = *(uint16_t *)((char *)(s7) + 20);
-    if (t0 == 0) { goto Tzn_Msca_cfg_load0x17c; }
-
-Tzn_Msca_cfg_load0x164:
-    /* fragment 22: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s7 + 636);
-    a1 = s8 < v0;
-
-    /* fragment 23: Branch */
-    if (a1 == 0) { goto Tzn_Msca_cfg_load0x178; }
-
-    /* fragment 24: Arithmetic */
-    v0 = s8;
-
-Tzn_Msca_cfg_load0x178:
-    /* fragment 25: Arithmetic */
-    s8 = (uintptr_t)v0 & 65535;
-
-Tzn_Msca_cfg_load0x17c:
-    /* fragment 26: Branch */
-    if (a2 == 0) { goto Tzn_Msca_cfg_load0x19c; }
-
-Tzn_Msca_cfg_load0x184:
-    /* fragment 27: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s7 + 1252);
-    a1 = s8 < v0;
-
-    /* fragment 28: Branch */
-    if (a1 == 0) { goto Tzn_Msca_cfg_load0x198; }
-
-    /* fragment 29: Arithmetic */
-    v0 = s8;
-
-Tzn_Msca_cfg_load0x198:
-    /* fragment 30: Arithmetic */
-    s8 = (uintptr_t)v0 & 65535;
-
-Tzn_Msca_cfg_load0x19c:
-    /* fragment 31: Branch */
-    s6 = 65535;
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x1a8; }
-
-    /* fragment 32: MemoryAccess */
-    s6 = *(uint16_t *)((char *)s7 + 22);
-
-Tzn_Msca_cfg_load0x1a8:
-    /* fragment 33: Branch */
-    if (t0 == 0) { goto Tzn_Msca_cfg_load0x1c8; }
-
-    /* fragment 34: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s7 + 638);
-    a1 = s6 < v0;
-
-    /* fragment 35: Branch */
-    if (a1 == 0) { goto Tzn_Msca_cfg_load0x1c4; }
-
-    /* fragment 36: Arithmetic */
-    v0 = s6;
-
-Tzn_Msca_cfg_load0x1c4:
-    /* fragment 37: Arithmetic */
-    s6 = (uintptr_t)v0 & 65535;
-
-Tzn_Msca_cfg_load0x1c8:
-    /* fragment 38: Branch */
-    if (a2 == 0) { goto Tzn_Msca_cfg_load0x1e8; }
-
-    /* fragment 39: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s7 + 1254);
-    a1 = s6 < v0;
-
-    /* fragment 40: Branch */
-    if (a1 == 0) { goto Tzn_Msca_cfg_load0x1e4; }
-
-    /* fragment 41: Arithmetic */
-    v0 = s6;
-
-Tzn_Msca_cfg_load0x1e4:
-    /* fragment 42: Arithmetic */
-    s6 = (uintptr_t)v0 & 65535;
-
-Tzn_Msca_cfg_load0x1e8:
-    /* fragment 43: Branch */
-    v0 = 0;
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x210; }
-
-    /* fragment 44: MemoryAccess */
-    a1 = *(uint16_t *)((char *)s7 + 20);
-    t1 = *(uint16_t *)((char *)s7 + 640);
-    t1 = t1 + a1;
-
-    /* fragment 45: Branch */
-    if (t1 == 0) { goto Tzn_Msca_cfg_load0x210; }
-
-    /* fragment 46: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s7 + 24);
-    v0 = a1 + (uintptr_t)v0;
-    v0 = (uintptr_t)v0 & 65535;
-
-Tzn_Msca_cfg_load0x210:
-    /* fragment 47: Branch */
-    if (t0 == 0) { goto Tzn_Msca_cfg_load0x234; }
-
-    /* fragment 48: MemoryAccess */
-    t1 = *(uint16_t *)((char *)s7 + 640);
-    a1 = *(uint16_t *)((char *)s7 + 636);
-    a1 = a1 + (uintptr_t)t1;
-    t1 = v0 < a1;
-
-    /* fragment 49: Branch */
-    if (t1 == 0) { goto Tzn_Msca_cfg_load0x234; }
-
-    /* fragment 50: Arithmetic */
-    v0 = a1 & 65535;
-
-Tzn_Msca_cfg_load0x234:
-    /* fragment 51: Branch */
-    if (a2 == 0) { goto Tzn_Msca_cfg_load0x258; }
-
-    /* fragment 52: MemoryAccess */
-    t1 = *(uint16_t *)((char *)s7 + 1256);
-    a1 = *(uint16_t *)((char *)s7 + 1252);
-    a1 = a1 + (uintptr_t)t1;
-    t1 = v0 < a1;
-
-    /* fragment 53: Branch */
-    if (t1 == 0) { goto Tzn_Msca_cfg_load0x258; }
-
-    /* fragment 54: Arithmetic */
-    v0 = a1 & 65535;
-
-Tzn_Msca_cfg_load0x258:
-    /* fragment 55: Branch */
-    s3 = 0;
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x280; }
-
-    /* fragment 56: MemoryAccess */
-    a0 = *(uint16_t *)((char *)s7 + 22);
-    a1 = *(uint16_t *)((char *)s7 + 642);
-    a1 = a1 + a0;
-
-    /* fragment 57: Branch */
-    if (a1 == 0) { goto Tzn_Msca_cfg_load0x280; }
-
-    /* fragment 58: MemoryAccess */
-    s3 = *(uint16_t *)((char *)s7 + 26);
-    s3 = a0 + (uintptr_t)s3;
-    s3 = (uintptr_t)s3 & 65535;
-
-Tzn_Msca_cfg_load0x280:
-    /* fragment 59: Branch */
-    if (t0 == 0) { goto Tzn_Msca_cfg_load0x2a4; }
-
-    /* fragment 60: MemoryAccess */
-    a1 = *(uint16_t *)((char *)s7 + 642);
-    a0 = *(uint16_t *)((char *)s7 + 638);
-    a0 = a0 + a1;
-    a1 = s3 < a0;
-
-    /* fragment 61: Branch */
-    if (a1 == 0) { goto Tzn_Msca_cfg_load0x2a4; }
-
-    /* fragment 62: Arithmetic */
-    s3 = a0 & 65535;
-
-Tzn_Msca_cfg_load0x2a4:
-    /* fragment 63: Branch */
-    if (a2 == 0) { goto Tzn_Msca_cfg_load0x2c8; }
-
-    /* fragment 64: MemoryAccess */
-    a1 = *(uint16_t *)((char *)s7 + 1258);
-    a0 = *(uint16_t *)((char *)s7 + 1254);
-    a0 = a0 + a1;
-    a1 = s3 < a0;
-
-    /* fragment 65: Branch */
-    if (a1 == 0) { goto Tzn_Msca_cfg_load0x2c8; }
-
-    /* fragment 66: CallSetup */
-    s3 = a0 & 65535;
-
-Tzn_Msca_cfg_load0x2c8:
-    /* fragment 67: CallSetup */
-    v0 = v0 - s8;
-    s3 = s3 - s6;
-    s4 = (uintptr_t)v0 & 65535;
-    s2 = (uintptr_t)s3 & 65535;
-
-Tzn_Msca_cfg_load0x2d8:
-    /* fragment 68: CallSetup */
-    s5 = 65536;
-    s3 = (uintptr_t)s4 << 16;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + (65536 + 24704), (s8 << 16) | s6); /* jalr target resolved by relocation */
-
-    /* fragment 69: CallSetup */
-    s3 = (uintptr_t)s3 | (uintptr_t)s2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + (s5 + 24708), (uintptr_t)s3 | (uintptr_t)s2); /* jalr target resolved by relocation */
-
-    /* fragment 70: Arithmetic */
-    a2 = s5 + 24736;
-    v0 = s7 + 1856;
-    s2 = s7 + 8;
-    s5 = (uintptr_t)s1 + (uintptr_t)a2;
-
-    /* fragment 71: StackAccess */
-    local_20 = v0;
-
-Tzn_Msca_cfg_load0x31c:
-    /* fragment 72: MemoryAccess */
-    v0 = *(uint8_t *)((char *)s2 + 0);
-    v1 = 1;
-
-    /* fragment 73: Branch */
-    s4 = s5 + 4;
-    if (v0 != v1) { goto Tzn_Msca_cfg_load0x810; }
-
-    /* fragment 74: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s5, (((*(uint16_t *)((char *)((uintptr_t)s2) + 12)) - s8) << 16) | ((*(uint16_t *)((char *)((uintptr_t)s2) + 14)) - s6)); /* jalr target resolved by relocation */
-
-    /* fragment 75: CallSetup */
-    v0 = *(uint16_t *)((char *)s2 + 16);
-    a1 = *(uint16_t *)((char *)s2 + 18);
-    v0 = (uintptr_t)v0 << 16;
-    a1 = (uintptr_t)v0 | a1;
-
-Tzn_Msca_cfg_load0x35c:
-    /* fragment 76: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(s4); /* jalr target resolved by relocation */
-
-    /* fragment 77: StackAccess */
-    v0 = local_20;
-    s2 = s2 + 616;
-
-    /* fragment 78: Branch */
-    s5 = s5 + 8;
-    if (v0 != s2) { goto Tzn_Msca_cfg_load0x31c; }
-
-    /* fragment 79: Arithmetic */
-    a2 = 65536;
-    s2 = s7 + 10;
-    a2 = a2 + 25032;
-    s6 = 262144;
-    s4 = (uintptr_t)s1 + (uintptr_t)a2;
-    s3 = s2;
-    s5 = 0;
-
-    /* fragment 80: StackAccess */
-    local_20 = 0;
-    s6 = s6 + 128;
-
-Tzn_Msca_cfg_load0x398:
-    /* fragment 81: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s3 + 14);
-    a1 = *(uint16_t *)((char *)s3 + 2);
-    s8 = s4 - 4;
-    v0 = a1 < v0;
-
-    /* fragment 82: Branch */
-    a0 = s4 - 8;
-    if (v0 != 0) { goto Tzn_Msca_cfg_load0x824; }
-
-    /* fragment 83: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 84: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s8, 0); /* jalr target resolved by relocation */
-
-Tzn_Msca_cfg_load0x3c4:
-    /* fragment 85: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s3 + 16);
-    a0 = *(uint16_t *)((char *)s3 + 0);
-    v0 = a0 < v0;
-
-    /* fragment 86: Branch */
-    s8 = s4 + 4;
-    if (v0 != 0) { goto Tzn_Msca_cfg_load0x858; }
-
-    /* fragment 87: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s4, 512); /* jalr target resolved by relocation */
-
-    /* fragment 88: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s8, 0); /* jalr target resolved by relocation */
-
-Tzn_Msca_cfg_load0x3f0:
-    /* fragment 89: Arithmetic */
-    s5 = s5 + 1;
-    v0 = 3;
-    s3 = s3 + 616;
-
-    /* fragment 90: Branch */
-    s4 = s4 + 256;
-    if (s5 != v0) { goto Tzn_Msca_cfg_load0x398; }
-
-    /* fragment 91: CallSetup */
-    s3 = 65536;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + (65536 + 24616), local_20); /* jalr target resolved by relocation */
-
-    /* fragment 92: MemoryAccess */
-    v0 = *(uint8_t *)((char *)s7 + 1247);
-    a1 = *(uint8_t *)((char *)s7 + 14);
-    s4 = (uintptr_t *)&__param_str_isp_dual_buf;
-    a0 = (uintptr_t)v0 << 6;
-    v0 = *(uint8_t *)((char *)s7 + 630);
-    a1 = a1 | 28672;
-    s5 = (uintptr_t)&isp_printf;
-    v0 = (uintptr_t)v0 << 1;
-    v0 = (uintptr_t)v0 | a1;
-    a1 = *(uint8_t *)((char *)s7 + 1246);
-    s4 = s4 + 8724;
-    s5 = s5;
-    a1 = a1 << 2;
-    v0 = (uintptr_t)v0 | a1;
-    a1 = *(uint8_t *)((char *)s7 + 15);
-    a1 = a1 << 4;
-    v0 = (uintptr_t)v0 | a1;
-    a1 = *(uint8_t *)((char *)s7 + 631);
-    a1 = a1 << 5;
-    v0 = (uintptr_t)v0 | a1;
-    a1 = *(uint16_t *)((char *)s7 + 12);
-    v0 = a0 | (uintptr_t)v0;
-    a0 = *(uint16_t *)((char *)s7 + 628);
-    a1 = a1 < 3841;
-    a1 = a1 < 1;
-    a1 = a1 << 8;
-    a1 = a1 | (uintptr_t)v0;
-    v0 = *(uint16_t *)((char *)s7 + 1244);
-    a0 = a0 < 1281;
-    a0 = a0 < 1;
-
-    /* fragment 93: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + ((uintptr_t)s3 + 24620), ((a0 << 9) | a1) | (((uintptr_t)v0 < 641 < 1) << 10)); /* jalr target resolved by relocation */
-
-    /* fragment 94: CallSetup */
-    s3 = s3 + 24832;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + ((uintptr_t)s3 + 24676), ((*(uint8_t *)((char *)(s7) + 1229)) << 4) | ((*(uint8_t *)((char *)(s7) + 1845)) << 8) | (*(uint8_t *)((char *)(s7) + 613))); /* jalr target resolved by relocation */
-
-    /* fragment 95: CallSetup */
-    v0 = local_24;
-    s1 = (uintptr_t)s1 + (uintptr_t)s3;
-    s3 = 0;
-    s6 = (uintptr_t)v0 << 1;
-    v0 = s6 + (uintptr_t)v0;
-    local_20 = v0;
-    v0 = (uintptr_t *)&LC2;
-    local_2c = v0;
-
-Tzn_Msca_cfg_load0x500:
-    /* fragment 96: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1, a1); /* jalr target resolved by relocation */
-
-    /* fragment 97: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s2 + 14);
-    a1 = *(uint16_t *)((char *)s2 + 2);
-    a0 = *(uint16_t *)((char *)s2 + 0);
-    v0 = (uintptr_t)v0 << 9;
-
-    /* fragment 98: Unknown */
-    /* unmatched fragment 98 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6c498:	0045001b 	divu	zero,v0,a1 */
-
-    /* fragment 99: MemoryAccess */
-    a1 = *(uint16_t *)((char *)s2 + 16);
-    a1 = a1 << 9;
-    v0 = (uintptr_t)v0 & 65535;
-
-    /* fragment 100: Unknown */
-    /* unmatched fragment 100 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6c4ac:	00a4001b 	divu	zero,a1,a0 */
-
-    /* fragment 101: Arithmetic */
-    a0 = (uintptr_t)v0 & 255;
-
-    /* fragment 102: Branch */
-    a1 = a1 & 65535;
-    if (a0 != 0) { goto Tzn_Msca_cfg_load0x55c; }
-
-    /* fragment 103: Arithmetic */
-    a0 = (uintptr_t)v0 ^ 512;
-
-    /* fragment 104: Branch */
-    int _bc_a0_104 = a0 == 0;
-    a0 = a1 & 255;
-    if (_bc_a0_104) { goto Tzn_Msca_cfg_load0x560; }
-
-    /* fragment 105: Arithmetic */
-    v0 = v0 - 1;
-    v0 = (uintptr_t)v0 & 65535;
-
-Tzn_Msca_cfg_load0x55c:
-    /* fragment 106: Arithmetic */
-    a0 = a1 & 255;
-
-Tzn_Msca_cfg_load0x560:
-    /* fragment 107: Branch */
-    int _bc_a0_107 = a0 != 0;
-    a0 = a1 ^ 512;
-    if (_bc_a0_107) { goto Tzn_Msca_cfg_load0x578; }
-
-    /* fragment 108: Branch */
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x578; }
-
-    /* fragment 109: CallSetup */
-    a1 = a1 - 1;
-    a1 = a1 & 65535;
-
-Tzn_Msca_cfg_load0x578:
-    /* fragment 110: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 4, ((uintptr_t)v0 << 16) | a1); /* jalr target resolved by relocation */
-
-    /* fragment 111: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 104, ((*(uint8_t *)((char *)((uintptr_t)s2) + 7)) << 6) | (*(uint8_t *)((char *)((uintptr_t)s2) + 6))); /* jalr target resolved by relocation */
-
-    /* fragment 112: MemoryAccess */
-    t0 = *(uint16_t *)((char *)s2 + 22);
-    v0 = t0 & 7;
-
-    /* fragment 113: Branch */
-    s6 = t0 & 65528;
-    if (v0 == 0) { goto Tzn_Msca_cfg_load0x5b4; }
-
-    /* fragment 114: Arithmetic */
-    s6 = s6 + 8;
-
-Tzn_Msca_cfg_load0x5b4:
-    /* fragment 115: StackAccess */
-    v1 = local_24;
-    a0 = v1 < 2;
-
-    /* fragment 116: Branch */
-    v1 = local_20;
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x6bc; }
-
-    /* fragment 117: Arithmetic */
-    t2 = (uintptr_t)v1 + (uintptr_t)s3;
-
-    /* fragment 118: Branch */
-    a0 = 3;
-    if (t2 == 0) { goto Tzn_Msca_cfg_load0x5d8; }
-
-    /* fragment 119: Branch */
-    int _bc_t2_119 = t2 != a0;
-    a0 = t2 < 2;
-    if (_bc_t2_119) { goto Tzn_Msca_cfg_load0x898; }
-
-Tzn_Msca_cfg_load0x5d8:
-    /* fragment 120: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s7 + 4);
-    a0 = a0 & 15;
-
-    /* fragment 121: Branch */
-    int _bc_a0_121 = a0 == 0;
-    a0 = a0 - 1;
-    if (_bc_a0_121) { goto Tzn_Msca_cfg_load0x894; }
-
-    /* fragment 122: Arithmetic */
-    a0 = a0 < 2;
-
-    /* fragment 123: Branch */
-    s8 = 0;
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x634; }
-
-    /* fragment 124: Arithmetic */
-    v0 = (uintptr_t *)&mscaler_s0;
-
-    /* fragment 125: MemoryAccess */
-    t0 = *(uint16_t *)((char *)((char *)&mscaler_s0 + 0x20));
-    v0 = t0 & 7;
-
-    /* fragment 126: Branch */
-    s6 = t0;
-    if (v0 == 0) { goto Tzn_Msca_cfg_load0x610; }
-
-    /* fragment 127: Arithmetic */
-    t0 = t0 & 65528;
-    s6 = t0 + 8;
-
-Tzn_Msca_cfg_load0x610:
-    /* fragment 128: Arithmetic */
-    v0 = (uintptr_t *)&mscaler_s1;
-
-    /* fragment 129: MemoryAccess */
-    v0 = *(uint16_t *)((char *)((char *)&mscaler_s1 + 0x20));
-
-Tzn_Msca_cfg_load0x618:
-    /* fragment 130: Arithmetic */
-    a0 = (uintptr_t)v0 & 7;
-
-    /* fragment 131: Branch */
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x62c; }
-
-    /* fragment 132: Arithmetic */
-    v0 = (uintptr_t)v0 & 65528;
-    v0 = v0 + 8;
-
-Tzn_Msca_cfg_load0x62c:
-    /* fragment 133: Arithmetic */
-    v0 = s6 + (uintptr_t)v0;
-    s8 = 0;
-
-Tzn_Msca_cfg_load0x634:
-    /* fragment 134: Arithmetic */
-    a0 = s6 < v0;
-    if (a0 != 0) { s6 = v0; }
-    v0 = s6 < 3841;
-
-    /* fragment 135: Branch */
-    int _bc_v0_135 = v0 != 0;
-    v0 = 390;
-    if (_bc_v0_135) { goto Tzn_Msca_cfg_load0x670; }
-
-    /* fragment 136: CallSetup */
-    local_14 = v0;
-    local_30 = t2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC2, s4, 390); /* jalr target resolved by relocation */
-
-    /* fragment 137: StackAccess */
-    t2 = local_30;
-
-Tzn_Msca_cfg_load0x670:
-    /* fragment 138: Branch */
-    v0 = 3;
-    if (s8 == t2) { goto Tzn_Msca_cfg_load0x6bc; }
-
-    /* fragment 139: CallSetup */
-    local_30 = 65536;
-    /* Q7v2-MSCA-CHANNELOFFSET: OEM 0x6c66c sll a3,s4,0x8 - s4 is the loop
-     * counter (init 0 @0x6c448, incr @0x6c850, bound 3 @0x6c854). In st3 s4
-     * maps to s3 (loop-back: if (s3 != v0) goto 0x500). The emitter wrongly
-     * produced s8=(v0<<8)+(s8<<12) with v0=3 (loop bound, not offset) and
-     * a spurious <<12. Restore (loop_index << 8). */
-    s8 = (uintptr_t)s3 << 8;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s8 + (65536 + 24960), s6, 65536); /* jalr target resolved by relocation */
-
-    /* fragment 140: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s8 + (local_30 + 24984), s6, local_30); /* jalr target resolved by relocation */
-
-Tzn_Msca_cfg_load0x6bc:
-    /* fragment 141: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s2 + 606);
-    s8 = s1 + 152;
-
-    /* fragment 142: Branch */
-    a0 = s1 + 128;
-    if (v0 != 0) { goto Tzn_Msca_cfg_load0x9d0; }
-
-    /* fragment 143: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 144: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s8, s6); /* jalr target resolved by relocation */
-
-    /* fragment 145: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s2 + 24);
-    a0 = *(uint16_t *)((char *)s2 + 18);
-    a1 = *(uint16_t *)((char *)s2 + 22);
-    s8 = *(uint16_t *)((char *)s2 + 20);
-    a2 = *(uint16_t *)((char *)s2 + 2);
-    s8 = s8 + (uintptr_t)v0;
-    v0 = a0 + a1;
-    v0 = a2 < v0;
-
-    /* fragment 146: Branch */
-    a3 = 418;
-    if (v0 == 0) { goto Tzn_Msca_cfg_load0x73c; }
-
-    /* fragment 147: CallSetup */
-    local_18 = a1;
-    local_1c = a2;
-    local_14 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC3, s4); /* jalr target resolved by relocation */
-
-    /* fragment 148: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s2 + 2);
-    a0 = *(uint16_t *)((char *)s2 + 18);
-    v0 = v0 - a0;
-    *(uint16_t *)((char *)s2 + 22) = v0;
-
-Tzn_Msca_cfg_load0x73c:
-    /* fragment 149: MemoryAccess */
-    a0 = *(uint16_t *)((char *)s2 + 0);
-    v0 = a0 < s8;
-
-    /* fragment 150: Branch */
-    a3 = 422;
-    if (v0 == 0) { goto Tzn_Msca_cfg_load0x788; }
-
-    /* fragment 151: CallSetup */
-    local_1c = a0;
-    local_18 = *(uint16_t *)((char *)(s2) + 24);
-    local_14 = *(uint16_t *)((char *)(s2) + 20);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC4, s4); /* jalr target resolved by relocation */
-
-    /* fragment 152: CallSetup */
-    v0 = *(uint16_t *)((char *)s2 + 0);
-    a0 = *(uint16_t *)((char *)s2 + 18);
-    v0 = v0 - a0;
-    *(uint16_t *)((char *)s2 + 24) = v0;
-
-Tzn_Msca_cfg_load0x788:
-    /* fragment 153: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 40, ((*(uint16_t *)((char *)((uintptr_t)s2) + 18)) << 16) | (*(uint16_t *)((char *)((uintptr_t)s2) + 20))); /* jalr target resolved by relocation */
-
-    /* fragment 154: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 44, ((*(uint16_t *)((char *)((uintptr_t)s2) + 22)) << 16) | (*(uint16_t *)((char *)((uintptr_t)s2) + 24))); /* jalr target resolved by relocation */
-
-    /* fragment 155: Arithmetic */
-    /* Q7v3: OEM 0x6c850 `addiu s4,s4,1` — integer +1, not pointer +8.
-     * s3 is uintptr_t* so `s3 + 1` advances by sizeof(*)=8; cast to
-     * integer first to match the OEM loop counter (0,1,2). */
-    s3 = (uintptr_t *)((uintptr_t)s3 + 1);
-    v0 = 3;
-    s2 = (uintptr_t *)((uintptr_t)s2 + 616);   /* Q7v4: OEM 0x6c858 addiu s2,s2,608 (Eufy 0x260); ref layout 0x268=616, as BYTES */
-
-    /* fragment 156: Branch */
-    s1 = (uint32_t *)((uintptr_t)s1 + 256);   /* Q7v4: OEM 0x6c860 addiu s3,s3,256 (delay slot of the bne @0x6c85c); a uint32_t * would scale by 4 */
-    if (s3 != v0) { goto Tzn_Msca_cfg_load0x500; }
-
-    /* fragment 157: StackAccess */
-    a0 = local_28;
-    ra = local_5c;
-    s8 = local_58;
-    s7 = local_54;
-    s6 = local_50;
-    s5 = local_4c;
-    s4 = local_48;
-    s3 = local_44;
-    s2 = local_40;
-    s1 = local_3c;
-    t9 = s0;
-    s0 = local_38;
-    a1 = 1;
-
-    /* fragment 158: Unknown */
-    /* unmatched fragment 158 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6c778:	03200408 	jr.hb	t9 */
-
-    /* fragment 159: Arithmetic */
-    /* unmatched fragment 159 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 6c77c:	27bd0060 	addiu	sp,sp,96 */
-
-    /* fragment 160: Branch */
-    s8 = 65535;
-    goto Tzn_Msca_cfg_load0x184;
-
-Tzn_Msca_cfg_load0x810:
-    /* fragment 161: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s5, 0); /* jalr target resolved by relocation */
-
-    /* fragment 162: Branch */
-    a1 = s3;
-    goto Tzn_Msca_cfg_load0x35c;
-
-Tzn_Msca_cfg_load0x824:
-    /* fragment 163: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 164: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s8, 262144 | 128); /* jalr target resolved by relocation */
-
-    /* fragment 165: StackAccess */
-    v1 = local_20;
-    v0 = 1;
-    v0 = (uintptr_t)v0 << s5;
-    v0 = (uintptr_t)v1 | (uintptr_t)v0;
-
-    /* fragment 166: Branch */
-    local_20 = v0;
-    goto Tzn_Msca_cfg_load0x3c4;
-
-Tzn_Msca_cfg_load0x858:
-    /* fragment 167: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s4, s6); /* jalr target resolved by relocation */
-
-    /* fragment 168: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s8, 262144 | 128); /* jalr target resolved by relocation */
-
-    /* fragment 169: Arithmetic */
-    v1 = 1;
-    v0 = s5 + 3;
-    v0 = (uintptr_t)v1 << (uintptr_t)v0;
-
-    /* fragment 170: StackAccess */
-    v1 = local_20;
-    v0 = (uintptr_t)v1 | (uintptr_t)v0;
-
-    /* fragment 171: Branch */
-    local_20 = v0;
-    goto Tzn_Msca_cfg_load0x3f0;
-
-Tzn_Msca_cfg_load0x894:
-    /* fragment 172: Arithmetic */
-    a0 = t2 < 2;
-
-Tzn_Msca_cfg_load0x898:
-    /* fragment 173: Branch */
-    int _bc_a0_173 = a0 == 0;
-    a0 = 4;
-    if (_bc_a0_173) { goto Tzn_Msca_cfg_load0x8f0; }
-
-    /* fragment 174: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s7 + 4);
-
-    /* fragment 175: Branch */
-    int _bc_a0_175 = a0 == 0;
-    a0 = a0 - 1;
-    if (_bc_a0_175) { goto Tzn_Msca_cfg_load0x8e4; }
-
-    /* fragment 176: Arithmetic */
-    a0 = a0 < 2;
-
-    /* fragment 177: Branch */
-    s8 = 0;
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x634; }
-
-    /* fragment 178: ConstantLoad */
-    v0 = 0x0;
-
-    /* fragment 179: MemoryAccess */
-    t0 = *(uint16_t *)((char *)v0 + 32);
-    a0 = t0 & 7;
-
-    /* fragment 180: Branch */
-    s6 = t0;
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x8dc; }
-
-    /* fragment 181: Arithmetic */
-    t0 = t0 & 65528;
-    s6 = t0 + 8;
-
-Tzn_Msca_cfg_load0x8dc:
-    /* fragment 182: Branch */
-    v0 = *(uint16_t *)((char *)(v0) + 648);
-    goto Tzn_Msca_cfg_load0x618;
-
-Tzn_Msca_cfg_load0x8e4:
-    /* fragment 183: Arithmetic */
-    a0 = 1;
-
-    /* fragment 184: Branch */
-    int _bc_t2_184 = t2 == a0;
-    a0 = 4;
-    if (_bc_t2_184) { goto Tzn_Msca_cfg_load0x8f8; }
-
-Tzn_Msca_cfg_load0x8f0:
-    /* fragment 185: Branch */
-    v1 = local_20;
-    if (t2 != a0) { goto Tzn_Msca_cfg_load0x95c; }
-
-Tzn_Msca_cfg_load0x8f8:
-    /* fragment 186: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s7 + 4);
-
-    /* fragment 187: Branch */
-    v1 = local_20;
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x95c; }
-
-    /* fragment 188: Arithmetic */
-    a0 = a0 - 1;
-    a0 = a0 < 2;
-
-    /* fragment 189: Branch */
-    s8 = 1;
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x634; }
-
-    /* fragment 190: Arithmetic */
-    v0 = (uintptr_t *)&mscaler_s0;
-
-    /* fragment 191: MemoryAccess */
-    t0 = *(uint16_t *)((char *)((char *)&mscaler_s0 + 0x288));
-    v0 = t0 & 7;
-
-    /* fragment 192: Branch */
-    s6 = t0;
-    if (v0 == 0) { goto Tzn_Msca_cfg_load0x934; }
-
-    /* fragment 193: Arithmetic */
-    t0 = t0 & 65528;
-    s6 = t0 + 8;
-
-Tzn_Msca_cfg_load0x934:
-    /* fragment 194: Arithmetic */
-    v0 = (uintptr_t *)&mscaler_s1;
-
-    /* fragment 195: MemoryAccess */
-    v0 = *(uint16_t *)((char *)((char *)&mscaler_s1 + 0x288));
-    a0 = (uintptr_t)v0 & 7;
-
-    /* fragment 196: Branch */
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x950; }
-
-    /* fragment 197: Arithmetic */
-    v0 = (uintptr_t)v0 & 65528;
-    v0 = v0 + 8;
-
-Tzn_Msca_cfg_load0x950:
-    /* fragment 198: Arithmetic */
-    v0 = s6 + (uintptr_t)v0;
-
-    /* fragment 199: Branch */
-    s8 = 1;
-    goto Tzn_Msca_cfg_load0x634;
-
-Tzn_Msca_cfg_load0x95c:
-    /* fragment 200: Arithmetic */
-    a0 = v1 - 3;
-    a0 = a0 + (uintptr_t)s3;
-    a0 = a0 < 2;
-
-    /* fragment 201: Branch */
-    s8 = t2;
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x634; }
-
-    /* fragment 202: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s7 + 4);
-
-    /* fragment 203: Branch */
-    int _bc_a0_203 = a0 == 0;
-    a0 = a0 - 1;
-    if (_bc_a0_203) { goto Tzn_Msca_cfg_load0x634; }
-
-    /* fragment 204: Arithmetic */
-    a0 = a0 < 2;
-
-    /* fragment 205: Branch */
-    s8 = 3;
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x634; }
-
-    /* fragment 206: ConstantLoad */
-    v0 = 0x0;
-
-    /* fragment 207: MemoryAccess */
-    t0 = *(uint16_t *)((char *)v0 + 32);
-    a0 = t0 & 7;
-
-    /* fragment 208: Branch */
-    s6 = t0;
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x9ac; }
-
-    /* fragment 209: Arithmetic */
-    t0 = t0 & 65528;
-    s6 = t0 + 8;
-
-Tzn_Msca_cfg_load0x9ac:
-    /* fragment 210: MemoryAccess */
-    v0 = *(uint16_t *)((char *)v0 + 648);
-    a0 = (uintptr_t)v0 & 7;
-
-    /* fragment 211: Branch */
-    if (a0 == 0) { goto Tzn_Msca_cfg_load0x9c4; }
-
-    /* fragment 212: Arithmetic */
-    v0 = (uintptr_t)v0 & 65528;
-    v0 = v0 + 8;
-
-Tzn_Msca_cfg_load0x9c4:
-    /* fragment 213: Arithmetic */
-    v0 = s6 + (uintptr_t)v0;
-
-    /* fragment 214: Branch */
-    s8 = 3;
-    goto Tzn_Msca_cfg_load0x634;
-
-Tzn_Msca_cfg_load0x9d0:
-    /* fragment 215: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
-
-    return 0;
+    static const char fn[] = "Tzn_Msca_cfg_load";
+    unsigned char *st = (unsigned char *)a1;
+    uint32_t group = a0;
+    uint32_t gbase = group << 12;
+    uint32_t img_w, img_h;
+    uint32_t e0, e1, e2;
+    uint32_t minx, miny, maxx, maxy, bw, bh, bbox;
+    uint32_t scale_mask = 0;
+    uint32_t value;
+    unsigned int k;
+
+    system_reg_write(gbase + 0x16010U, 0);
+
+    /* 0x6ca10..0x6cac0: fcrop must fit the image; clamp w/h otherwise. */
+    for (k = 0; k < 3; k++) {
+        unsigned char *rec = st + 20 + k * 616U;
+        uint32_t x = MSCA_U16(rec, 0), w = MSCA_U16(rec, 4);
+        uint32_t yh = MSCA_U16(rec, 2) + MSCA_U16(rec, 6);
+
+        img_w = MSCA_U16(st, 0);
+        if (img_w < x + w) {
+            isp_printf(2,
+                "[%s %d] [Tzn Msca Err] : set channle[%d] fcrop out range fcrop_x %d fcrop_w %d but img_width %d\n",
+                fn, 123, k, x, w, img_w);
+            MSCA_PUT16(rec, 4, MSCA_U16(st, 0) - MSCA_U16(rec, 0));
+        }
+        img_h = MSCA_U16(st, 2);
+        if (img_h < yh) {
+            isp_printf(2,
+                "[%s %d] [Tzn Msca Err] : set channle[%d] fcrop out range fcrop_y %d fcrop_h %d but img_height %d\n",
+                fn, 127, k, MSCA_U16(rec, 2), MSCA_U16(rec, 6), img_h);
+            MSCA_PUT16(rec, 6, MSCA_U16(st, 2) - MSCA_U16(rec, 2));
+        }
+    }
+
+    /* 0x6cac4..0x6cc6c: bounding box of the enabled channels' fcrop. */
+    e0 = MSCA_U8(st, 8);
+    e1 = MSCA_U8(st, 624);
+    e2 = MSCA_U8(st, 1240);
+    if (!e0 && !e1 && !e2) {
+        minx = 0;
+        miny = 0;
+        bw = MSCA_U16(st, 0);
+        bh = MSCA_U16(st, 2);
+    } else {
+        int32_t t;
+
+        minx = e0 ? MSCA_U16(st, 20) : 0xffffU;
+        if (e1 && MSCA_U16(st, 636) < minx)
+            minx = MSCA_U16(st, 636);
+        if (e2 && MSCA_U16(st, 1252) < minx)
+            minx = MSCA_U16(st, 1252);
+        miny = e0 ? MSCA_U16(st, 22) : 0xffffU;
+        if (e1 && MSCA_U16(st, 638) < miny)
+            miny = MSCA_U16(st, 638);
+        if (e2 && MSCA_U16(st, 1254) < miny)
+            miny = MSCA_U16(st, 1254);
+
+        /* the OEM gates the ch0 term on x0 + w1 != 0 (0x6cb88..0x6cb94) */
+        maxx = 0;
+        if (e0 && MSCA_U16(st, 20) + MSCA_U16(st, 640))
+            maxx = (MSCA_U16(st, 20) + MSCA_U16(st, 24)) & 0xffffU;
+        t = (int32_t)(MSCA_U16(st, 636) + MSCA_U16(st, 640));
+        if (e1 && (int32_t)maxx < t)
+            maxx = (uint32_t)t & 0xffffU;
+        t = (int32_t)(MSCA_U16(st, 1252) + MSCA_U16(st, 1256));
+        if (e2 && (int32_t)maxx < t)
+            maxx = (uint32_t)t & 0xffffU;
+        maxy = 0;
+        if (e0 && MSCA_U16(st, 22) + MSCA_U16(st, 642))
+            maxy = (MSCA_U16(st, 22) + MSCA_U16(st, 26)) & 0xffffU;
+        t = (int32_t)(MSCA_U16(st, 638) + MSCA_U16(st, 642));
+        if (e1 && (int32_t)maxy < t)
+            maxy = (uint32_t)t & 0xffffU;
+        t = (int32_t)(MSCA_U16(st, 1254) + MSCA_U16(st, 1258));
+        if (e2 && (int32_t)maxy < t)
+            maxy = (uint32_t)t & 0xffffU;
+
+        bw = (maxx - minx) & 0xffffU;
+        bh = (maxy - miny) & 0xffffU;
+    }
+    system_reg_write(gbase + 0x16080U, (minx << 16) | miny);
+    bbox = (bw << 16) | bh;
+    system_reg_write(gbase + 0x16084U, bbox);
+
+    /* 0x6ccb4..0x6cd08, 0x6d1a8: per-channel fcrop position/size */
+    for (k = 0; k < 3; k++) {
+        const unsigned char *p = st + 8 + k * 616U;
+        uint32_t reg = gbase + 0x160a0U + k * 8U;
+
+        if (MSCA_U8(p, 0) == 1) {
+            system_reg_write(reg, ((MSCA_U16(p, 12) - minx) << 16) |
+                                  (MSCA_U16(p, 14) - miny));
+            system_reg_write(reg + 4, (MSCA_U16(p, 16) << 16) | MSCA_U16(p, 18));
+        } else {
+            system_reg_write(reg, 0);
+            system_reg_write(reg + 4, bbox);
+        }
+    }
+
+    /* 0x6cd30..0x6cd98, 0x6d1bc..0x6d228: downscale coefficients + mask */
+    for (k = 0; k < 3; k++) {
+        const unsigned char *q = st + 10 + k * 616U;
+        uint32_t reg = gbase + 0x161c0U + k * 0x100U;
+
+        if (MSCA_U16(q, 2) < MSCA_U16(q, 14)) {
+            system_reg_write(reg, 0x40080);
+            system_reg_write(reg + 4, 0x40080);
+            scale_mask |= 1U << k;
+        } else {
+            system_reg_write(reg, 0x200);
+            system_reg_write(reg + 4, 0);
+        }
+        if (MSCA_U16(q, 0) < MSCA_U16(q, 16)) {
+            system_reg_write(reg + 8, 0x40080);
+            system_reg_write(reg + 12, 0x40080);
+            scale_mask |= 1U << (k + 3);
+        } else {
+            system_reg_write(reg + 8, 0x200);
+            system_reg_write(reg + 12, 0);
+        }
+    }
+    system_reg_write(gbase + 0x16028U, scale_mask);
+
+    /* 0x6cdb0..0x6ce48 */
+    value = 0x7000U | MSCA_U8(st, 14) | (MSCA_U8(st, 630) << 1) |
+            (MSCA_U8(st, 1246) << 2) | (MSCA_U8(st, 15) << 4) |
+            (MSCA_U8(st, 631) << 5) | (MSCA_U8(st, 1247) << 6) |
+            ((MSCA_U16(st, 12) >= 3841) << 8) |
+            ((MSCA_U16(st, 628) >= 1281) << 9) |
+            ((MSCA_U16(st, 1244) >= 641) << 10);
+    system_reg_write(gbase + 0x1602cU, value);
+    /* 0x6ce4c..0x6ce74 */
+    system_reg_write(gbase + 0x16064U, (MSCA_U8(st, 1229) << 4) |
+                                       (MSCA_U8(st, 1845) << 8) |
+                                       MSCA_U8(st, 613));
+
+    /* 0x6ce98..0x6d160: per-channel scaler output */
+    for (k = 0; k < 3; k++) {
+        unsigned char *q = st + 10 + k * 616U;
+        uint32_t base = gbase + 0x16100U + k * 0x100U;
+        uint32_t s6;
+        int partner;
+        uint32_t cyh;
+
+        system_reg_write(base, (MSCA_U16(q, 2) << 16) | MSCA_U16(q, 0));
+        system_reg_write(base + 4,
+                         (msca_cfg_ratio(MSCA_U16(q, 14), MSCA_U16(q, 2)) << 16) |
+                         msca_cfg_ratio(MSCA_U16(q, 16), MSCA_U16(q, 0)));
+        system_reg_write(base + 0x68, (MSCA_U8(q, 7) << 6) | MSCA_U8(q, 6));
+
+        s6 = regtrace_t40_msca_oem_stride_s6(group, st, k, MSCA_U16(q, 22),
+                                             &partner, true);
+        if (partner >= 0) {
+            system_reg_write(regtrace_t40_msca_partner_reg(partner, 0x80), s6);
+            system_reg_write(regtrace_t40_msca_partner_reg(partner, 0x98), s6);
+        }
+        value = regtrace_t40_msca_oem_stride_reg(st, k, s6);
+        system_reg_write(base + 0x80, value);
+        system_reg_write(base + 0x98, value);
+
+        /* 0x6d078..0x6d11c: crop must fit the scaler output */
+        cyh = MSCA_U16(q, 20) + MSCA_U16(q, 24);
+        if (MSCA_U16(q, 2) < MSCA_U16(q, 18) + MSCA_U16(q, 22)) {
+            isp_printf(2,
+                "[%s %d] [Tzn Msca Err] : [channel %d] set crop out range crop_x %d crop_w %d but rsz_size_w %d\n",
+                fn, 418, k, MSCA_U16(q, 18), MSCA_U16(q, 22), MSCA_U16(q, 2));
+            MSCA_PUT16(q, 22, MSCA_U16(q, 2) - MSCA_U16(q, 18));
+        }
+        if (MSCA_U16(q, 0) < cyh) {
+            isp_printf(2,
+                "[%s %d] [Tzn Msca Err] : [channel %d] set crop out range crop_y %d crop_h %d but rsz_size_h %d\n",
+                fn, 422, k, MSCA_U16(q, 20), MSCA_U16(q, 24), MSCA_U16(q, 0));
+            /* sic: the OEM subtracts crop_x here (0x6d114 lhu a0,18(s2)) */
+            MSCA_PUT16(q, 24, MSCA_U16(q, 0) - MSCA_U16(q, 18));
+        }
+        system_reg_write(base + 0x28, (MSCA_U16(q, 18) << 16) | MSCA_U16(q, 20));
+        system_reg_write(base + 0x2c, (MSCA_U16(q, 22) << 16) | MSCA_U16(q, 24));
+    }
+
+    return system_reg_write(gbase + 0x16010U, 1);
 }
+#undef MSCA_U8
+#undef MSCA_U16
+#undef MSCA_PUT16
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006c958 origin=fragment_seed original=Tzn_Msca_Work_en */
 int32_t Tzn_Msca_Work_en(uint32_t a0, uintptr_t a1)
