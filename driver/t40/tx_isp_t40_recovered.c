@@ -198998,7 +198998,7 @@ ispcore_interrupt_service_routine0xec:
     /* fragment 15: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 232);
     v1 = (int32_t *)&isp_memopt;
-    v0 = v0 + s8;
+    v0 = (uintptr_t *)((uintptr_t)v0 + s8);   /* T40-ISR-WIN-SCALE: win+0x40000 byte add (OEM 0x7be04 error ack 0x40064) */
     *(uint32_t *)((char *)v0 + 100) = s5;
     v0 = *(uint32_t *)((char *)((char *)&isp_err));
     v0 = v0 + 1;
@@ -199346,7 +199346,7 @@ ispcore_interrupt_service_routine0x434:
     /* fragment 93: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 232);
     a2 = -2;
-    v0 = v0 + a0;
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);   /* T40-ISR-WIN-SCALE: win+0x10000 is a byte add, not a pointer step (x4) */
     a0 = *(uint32_t *)((char *)v0 + 24584);
     a0 = a0 & (uintptr_t)a2;
     *(uint32_t *)((char *)v0 + 24584) = a0;
@@ -199409,7 +199409,7 @@ ispcore_interrupt_service_routine0x4ec:
     /* fragment 103: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 232);
     a0 = 65536;
-    v0 = v0 + a0;
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);   /* T40-ISR-WIN-SCALE: win+0x10000 is a byte add, not a pointer step (x4) */
     v0 = *(uint32_t *)((char *)v0 + 24956);
     v0 = (uintptr_t)v0 & 1;
 
@@ -199650,7 +199650,7 @@ ispcore_interrupt_service_routine0x6f0:
     v0 = *(uint32_t *)((char *)s0 + 232);
     a0 = 65536;
     a1 = -5;
-    v0 = v0 + a0;
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);   /* T40-ISR-WIN-SCALE: win+0x10000 is a byte add, not a pointer step (x4) */
     a0 = *(uint32_t *)((char *)v0 + 24584);
     a0 = a0 & (uintptr_t)a1;
     *(uint32_t *)((char *)v0 + 24584) = a0;
@@ -199693,7 +199693,7 @@ ispcore_interrupt_service_routine0x77c:
     v0 = *(uint32_t *)((char *)s0 + 232);
     a0 = 65536;
     a2 = -2;
-    v0 = v0 + a0;
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);   /* T40-ISR-WIN-SCALE: win+0x10000 is a byte add, not a pointer step (x4) */
     a0 = *(uint32_t *)((char *)v0 + 28680);
     a0 = a0 & (uintptr_t)a2;
     *(uint32_t *)((char *)v0 + 28680) = a0;
@@ -199762,7 +199762,7 @@ ispcore_interrupt_service_routine0x840:
     /* fragment 178: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 232);
     a0 = 65536;
-    v0 = v0 + a0;
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);   /* T40-ISR-WIN-SCALE: win+0x10000 is a byte add, not a pointer step (x4) */
     v0 = *(uint32_t *)((char *)v0 + 29052);
     v0 = (uintptr_t)v0 & 1;
 
@@ -199998,7 +199998,7 @@ ispcore_interrupt_service_routine0xa3c:
     v0 = *(uint32_t *)((char *)s0 + 232);
     a0 = 65536;
     a1 = -5;
-    v0 = v0 + a0;
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);   /* T40-ISR-WIN-SCALE: win+0x10000 is a byte add, not a pointer step (x4) */
     a0 = *(uint32_t *)((char *)v0 + 28680);
     a0 = a0 & (uintptr_t)a1;
     *(uint32_t *)((char *)v0 + 28680) = a0;
@@ -200432,7 +200432,7 @@ ispcore_interrupt_service_routine0xd2c:
     a0 = 65536;
     v0 = *(uint32_t *)((char *)v0 + 232);
     a1 = 96;
-    v0 = v0 + a0;
+    v0 = (uintptr_t *)((uintptr_t)v0 + a0);   /* T40-ISR-WIN-SCALE: win+0x10000 is a byte add, not a pointer step (x4) */
     a0 = *(uint32_t *)((char *)v0 + 26460);
     v0 = *(uint32_t *)((char *)s5 + 120);
     a0 = a0 >> 16;
