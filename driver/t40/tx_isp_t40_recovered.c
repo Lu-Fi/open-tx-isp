@@ -90223,7 +90223,7 @@ tisp_set_ae_long_ag0xac:
 
 tisp_set_ae_long_ag0xb4:
     /* fragment 14: Arithmetic */
-    v1 = v0 < 416;
+    v1 = 0;   /* T40-AE-SCRATCH-COPY: OEM byte-copies a 416/420 B sensor-ctrl block into write-only stack scratch here; the lift sized the scratch as 4-byte locals, so the copy smashed the frame (FBL20 jr 0xffffc104). Loop never entered - nothing reads it. */
 
     /* fragment 15: Branch */
     a0 = (uint32_t *)&local_1ec;
@@ -90238,7 +90238,7 @@ tisp_set_ae_long_ag0xb4:
 
 tisp_set_ae_long_ag0xe4:
     /* fragment 18: Arithmetic */
-    v1 = v0 < 416;
+    v1 = 0;   /* T40-AE-SCRATCH-COPY: OEM byte-copies a 416/420 B sensor-ctrl block into write-only stack scratch here; the lift sized the scratch as 4-byte locals, so the copy smashed the frame (FBL20 jr 0xffffc104). Loop never entered - nothing reads it. */
 
     /* fragment 19: Branch */
     int _bc_v1_19 = v1 != 0;
@@ -90265,6 +90265,8 @@ tisp_set_ae_long_ag0xe4:
     a0 = *(uint32_t *)((char *)v1 + 12);
     *(uint32_t *)((char *)s2 + 4) = s5;
     v1 = v0 < a0;
+    if (v1 == 0)
+        v0 = a0;   /* T40-MOVZ: OEM 0x27ae0 movz v0,a0,v1 - clamp to *(*(s1)+12) */
     *(uint32_t *)((char *)s2 + 8) = v0;
     ra = local_1d4;
 
@@ -90431,7 +90433,7 @@ tisp_set_ae_short_ag0x14c:
 
 tisp_set_ae_short_ag0x160:
     /* fragment 22: Arithmetic */
-    v1 = v0 < 416;
+    v1 = 0;   /* T40-AE-SCRATCH-COPY: OEM byte-copies a 416/420 B sensor-ctrl block into write-only stack scratch here; the lift sized the scratch as 4-byte locals, so the copy smashed the frame (FBL20 jr 0xffffc104). Loop never entered - nothing reads it. */
 
     /* fragment 23: Branch */
     int _bc_v1_23 = v1 != 0;
@@ -91206,7 +91208,7 @@ int64_t tisp_ae_main_long_ev_alloc(uintptr_t a0, uintptr_t a1, uintptr_t a2, uin
 
 tisp_ae_main_long_ev_alloc0x9c:
     /* fragment 2: Arithmetic */
-    a0 = v0 < 420;
+    a0 = 0;   /* T40-AE-SCRATCH-COPY: OEM byte-copies a 416/420 B sensor-ctrl block into write-only stack scratch here; the lift sized the scratch as 4-byte locals, so the copy smashed the frame (FBL20 jr 0xffffc104). Loop never entered - nothing reads it. */
 
     /* fragment 3: Branch */
     v1 = (int32_t *)&local_240;
@@ -91279,7 +91281,7 @@ tisp_ae_main_long_ev_alloc0x148:
 
 tisp_ae_main_long_ev_alloc0x15c:
     /* fragment 18: Arithmetic */
-    a0 = v0 < 420;
+    a0 = 0;   /* T40-AE-SCRATCH-COPY: OEM byte-copies a 416/420 B sensor-ctrl block into write-only stack scratch here; the lift sized the scratch as 4-byte locals, so the copy smashed the frame (FBL20 jr 0xffffc104). Loop never entered - nothing reads it. */
 
     /* fragment 19: Branch */
     v1 = (int32_t *)&local_240;
@@ -91828,7 +91830,7 @@ int64_t tisp_ae_main_short_ev_alloc(uint32_t a0, uintptr_t a1, uintptr_t a2, uin
 
 tisp_ae_main_short_ev_alloc0xb0:
     /* fragment 4: Arithmetic */
-    a0 = v0 < 420;
+    a0 = 0;   /* T40-AE-SCRATCH-COPY: OEM byte-copies a 416/420 B sensor-ctrl block into write-only stack scratch here; the lift sized the scratch as 4-byte locals, so the copy smashed the frame (FBL20 jr 0xffffc104). Loop never entered - nothing reads it. */
 
     /* fragment 5: Branch */
     v1 = (int32_t *)&local_240;
@@ -91901,7 +91903,7 @@ tisp_ae_main_short_ev_alloc0x15c:
 
 tisp_ae_main_short_ev_alloc0x170:
     /* fragment 20: Arithmetic */
-    a0 = v0 < 420;
+    a0 = 0;   /* T40-AE-SCRATCH-COPY: OEM byte-copies a 416/420 B sensor-ctrl block into write-only stack scratch here; the lift sized the scratch as 4-byte locals, so the copy smashed the frame (FBL20 jr 0xffffc104). Loop never entered - nothing reads it. */
 
     /* fragment 21: Branch */
     v1 = (int32_t *)&local_240;
