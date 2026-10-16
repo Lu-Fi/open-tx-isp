@@ -198727,11 +198727,55 @@ module_param_named(irq_func_cb_last_frame_slots1, regtrace_irq_func_cb_last_fram
 module_param_named(irq_func_cb_last_frame_slots2, regtrace_irq_func_cb_last_frame_slots2, uint, 0444);
 module_param_named(irq_func_cb_log_count, regtrace_irq_func_cb_log_count, uint, 0644);
 
+/*
+ * T40-ISR-TAIL-POLL (2026-10-15) -- the OEM MSCA FIFO tail guards of
+ * ispcore_interrupt_service_routine, and a bound for the two drain loops that
+ * spin on the same status words.
+ *
+ * The OEM core ISR polls two raw FIFO status words.  With win = *(dev+0xe8)
+ * (the ISP window base, +0x40000 is folded into our constants) the four sites
+ * in work/eufy-oem/tx-isp-t40.ko are:
+ *
+ *   0x7b210  head A  lw v0,24956(win+0x10000)   beqz -> 0x7b7d0  (drain leg A)
+ *   0x7b43c  head B  lw v0,29052(win+0x10000)   beqz -> 0x7baa0  (drain leg B)
+ *   0x7b9d8  tail A  lw a0,24956(win+0x10000)   bnez -> 0x7b220  (retry head)
+ *   0x7b9e8  tail B  lw v0,29052(win+0x10000)   bnez -> 0x7b220  (retry head)
+ *   i.e. win+0x1617C and win+0x1717C, andi 0x1 on both.
+ * 0x7b220 is `lui v0,0x8 / addiu v0,v0,-28056 / jalr v0` =
+ * ispcore_irqstatus_func (nm 0x79268) -- the call this reconstruction makes at
+ * its label 0x54c.  Both drain legs loop back to their own head
+ * (0x7b874 b 0x7b208 ; 0x7baf4 b 0x7b43c), so once the status bit stays 0 the
+ * ISR spins in a drain leg with no system_reg_read/write and no printk -- which
+ * is exactly the boot-FR2 record (empty register ring, no panic message).
+ *
+ * isr_tail_poll=1  reinstate the OEM tail test: leave the drain leg for the
+ *                  retry head (label 0x54c == OEM 0x7b220) as soon as either
+ *                  FIFO bit is set.  Default 0 = current behaviour.
+ * isr_spin_budget  max drain iterations per ISR call, both legs together,
+ *                  before the ISR gives up and returns (0 = unbounded;
+ *                  default 20000).  A healthy drain needs tens of iterations;
+ *                  the bound turns a stuck FIFO into one kmsg line (+ one fr2
+ *                  event when the flight-recorder chain is in the tree)
+ *                  instead of a watchdog reset.  The fr2 calls are compiled in
+ *                  only if REGTRACE_FR2_EV_OFF exists (fr chain), so the patch
+ *                  also builds and modpost-checks on st3/bg.
+ * isr_tail_poll_count / isr_spin_bail_count  readbacks for both paths.
+ */
+static bool regtrace_isr_tail_poll;
+module_param_named(isr_tail_poll, regtrace_isr_tail_poll, bool, 0644);
+static uint32_t regtrace_isr_spin_budget = 20000;
+module_param_named(isr_spin_budget, regtrace_isr_spin_budget, uint, 0644);
+static uint32_t regtrace_isr_tail_poll_count;
+module_param_named(isr_tail_poll_count, regtrace_isr_tail_poll_count, uint, 0444);
+static uint32_t regtrace_isr_spin_bail_count;
+module_param_named(isr_spin_bail_count, regtrace_isr_spin_bail_count, uint, 0444);
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007b29c origin=fragment_seed original=ispcore_interrupt_service_routine */
 int64_t ispcore_interrupt_service_routine(uintptr_t a0)
 {
     int __maybe_unused __fr = regtrace_fr_mark(0x14, 0);
     uint32_t *local_10 = 0;
+    uint32_t __isr_spin = 0;   /* T40-ISR-TAIL-POLL: drain-loop iteration budget */
     if (regtrace_enable_oem_isr_lit)
         return ispcore_interrupt_service_routine_lit(a0);
 
@@ -200341,6 +200385,34 @@ ispcore_interrupt_service_routine0xd2c:
 
     /* fragment 296: Branch */
     local_38 = v0;
+    /*
+     * T40-ISR-TAIL-POLL.  This is drain leg A: OEM 0x7b7d0..0x7b874, whose
+     * back edge (0x7b874 `b 0x7b208`) re-polls win+0x1617C.  Mirror the OEM
+     * tail test (0x7b9cc..0x7b9f4, both status words) so a leg that has data
+     * to deliver leaves for the retry head (label 0x54c == OEM 0x7b220,
+     * `jalr ispcore_irqstatus_func`) instead of draining again.
+     */
+    if (regtrace_isr_tail_poll) {
+        uintptr_t __win = (uintptr_t)(*(uint32_t *)((char *)s0 + 232)) + 65536U;
+        uint32_t __fifo_a = *(uint32_t *)((char *)__win + 24956U) & 1U;   /* OEM 0x7b9d8 */
+        uint32_t __fifo_b = *(uint32_t *)((char *)__win + 29052U) & 1U;   /* OEM 0x7b9e8 */
+        if ((__fifo_a | __fifo_b) != 0) {
+            regtrace_isr_tail_poll_count++;
+#ifdef REGTRACE_FR2_EV_OFF   /* flight-recorder ring exists only in the fr chain */
+            regtrace_fr2_ev(0x22U, 0xa1U, __isr_spin, __fifo_a, __fifo_b);
+#endif
+            goto ispcore_interrupt_service_routine0x54c;   /* OEM 0x7b220 */
+        }
+    }
+    if (regtrace_isr_spin_budget && ++__isr_spin >= regtrace_isr_spin_budget) {
+        regtrace_isr_spin_bail_count++;
+#ifdef REGTRACE_FR2_EV_OFF
+        regtrace_fr2_ev(0x21U, 0xa1U, __isr_spin, 0U, 0U);
+#endif
+        pr_err_ratelimited("tx_isp_t40_recovered: ISR drain leg A stuck after %u iterations (win+0x1617C/0x1717C never ready), frame dropped\n",
+                           __isr_spin);
+        return (int64_t)v0;
+    }
     goto ispcore_interrupt_service_routine0x4ec;
 
 ispcore_interrupt_service_routine0xd70:
@@ -200471,6 +200543,33 @@ ispcore_interrupt_service_routine0xe78:
 ispcore_interrupt_service_routine0xeac:
     /* fragment 323: Branch */
     local_3c = 0;
+    /*
+     * T40-ISR-TAIL-POLL.  This is drain leg B: OEM 0x7baa0..0x7baf4, whose
+     * back edge (0x7baf4 `b 0x7b43c`) re-polls win+0x1717C.  Same OEM tail
+     * test as in leg A above (0x7b9cc..0x7b9f4): with either FIFO word set,
+     * leave for the retry head (label 0x54c == OEM 0x7b220).
+     */
+    if (regtrace_isr_tail_poll) {
+        uintptr_t __win = (uintptr_t)(*(uint32_t *)((char *)s0 + 232)) + 65536U;
+        uint32_t __fifo_a = *(uint32_t *)((char *)__win + 24956U) & 1U;   /* OEM 0x7b9d8 */
+        uint32_t __fifo_b = *(uint32_t *)((char *)__win + 29052U) & 1U;   /* OEM 0x7b9e8 */
+        if ((__fifo_a | __fifo_b) != 0) {
+            regtrace_isr_tail_poll_count++;
+#ifdef REGTRACE_FR2_EV_OFF
+            regtrace_fr2_ev(0x22U, 0xa2U, __isr_spin, __fifo_a, __fifo_b);
+#endif
+            goto ispcore_interrupt_service_routine0x54c;   /* OEM 0x7b220 */
+        }
+    }
+    if (regtrace_isr_spin_budget && ++__isr_spin >= regtrace_isr_spin_budget) {
+        regtrace_isr_spin_bail_count++;
+#ifdef REGTRACE_FR2_EV_OFF
+        regtrace_fr2_ev(0x21U, 0xa2U, __isr_spin, 0U, 0U);
+#endif
+        pr_err_ratelimited("tx_isp_t40_recovered: ISR drain leg B stuck after %u iterations (win+0x1617C/0x1717C never ready), frame dropped\n",
+                           __isr_spin);
+        return (int64_t)v0;
+    }
     goto ispcore_interrupt_service_routine0x840;
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
