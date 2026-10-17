@@ -7452,6 +7452,8 @@ static bool t40_antiflick_pending_valid;
 static uint32_t t40_runmode_pending;             /* SetISPRunningMode (CID 0x8000071) received before the tuning context exists */
 static bool t40_runmode_pending_valid;
 static bool regtrace_t40_vendor_awb_process;   /* defined with its module_param further down */
+static unsigned int regtrace_t40_awb_proc_stages = 0xffU;   /* T40-AWB-STAGES bisect: 1 par_update 2 spec_calculate 4 alogrithm 8 set_gain 16 event13 */
+module_param_named(t40_awb_proc_stages, regtrace_t40_awb_proc_stages, uint, 0644);
 static int regtrace_t40_tuning_set_running_mode(uint32_t mode);
 static uint32_t t40_aex_mean;                    /* AEX log: mean at tune2 entry */
 int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2);
@@ -105388,15 +105390,15 @@ int64_t tisp_awb_main_process(void)
     /* fragment 0: CallSetup */
     { static unsigned int n; if (n++ < 2) printk(KERN_INFO "tx_isp_t40_recovered: AWBTAB pstMainAwbOri=%p [0]=%x [38]=%x [39]=%x [115]=%x [127]=%x outer=%x inter=%x CtDetectOri=%p [33]=%x\n", (void *)&pstMainAwbOri, pstMainAwbOri[0], pstMainAwbOri[38], pstMainAwbOri[39], pstMainAwbOri[115], pstMainAwbOri[127], (unsigned)stMainAwbOuter, (unsigned)stMainAwbInter, (void *)&pstMainAwbCtDetectOri, pstMainAwbCtDetectOri[33]); }   /* T40-AWBTAB-DIAG */
     regtrace_t40_awb_step = 1;   /* T40-AWB-STEP */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_long_par_update)(&pstMainAwbOri, &pstMainAwbCtDetectOri, *(uint32_t *)((char *)((char *)&stMainAwbInter))); /* jalr target resolved by relocation */
+    if (regtrace_t40_awb_proc_stages & 1U) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_long_par_update)(&pstMainAwbOri, &pstMainAwbCtDetectOri, *(uint32_t *)((char *)((char *)&stMainAwbInter))); /* jalr target resolved by relocation */
 
     /* fragment 1: CallSetup */
     regtrace_t40_awb_step = 2;   /* T40-AWB-STEP */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_spec_calculate)(&pstMainAwbOri, 0); /* jalr target resolved by relocation */
+    if (regtrace_t40_awb_proc_stages & 2U) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_spec_calculate)(&pstMainAwbOri, 0); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
     regtrace_t40_awb_step = 3;   /* T40-AWB-STEP */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_long_alogrithm)(&pstMainAwbOri, &pstMainAwbCtDetectOri, 0); /* jalr target resolved by relocation */
+    if (regtrace_t40_awb_proc_stages & 4U) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_long_alogrithm)(&pstMainAwbOri, &pstMainAwbCtDetectOri, 0); /* jalr target resolved by relocation */
 
     /* fragment 3: Arithmetic */
     v0 = (uintptr_t *)&isp_memopt;
@@ -105420,7 +105422,7 @@ int64_t tisp_awb_main_process(void)
 tisp_awb_main_process0x8c:
     /* fragment 8: CallSetup */
     regtrace_t40_awb_step = 5;   /* T40-AWB-STEP */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_set_gain)(&pstMainAwbOri, 0); /* jalr target resolved by relocation */
+    if (regtrace_t40_awb_proc_stages & 8U) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_set_gain)(&pstMainAwbOri, 0); /* jalr target resolved by relocation */
 
     /* fragment 9: CallSetup */
     /*
@@ -105432,7 +105434,7 @@ tisp_awb_main_process0x8c:
     event_10[5] = 0;
     event_10[4] = *(uint32_t *)((char *)(*(uint32_t *)((char *)((char *)&pstMainAwbOri) + 28)) + 0);
     regtrace_t40_awb_step = 6;   /* T40-AWB-STEP */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_event_push)(0, (uintptr_t)event_10); /* jalr target resolved by relocation */
+    if (regtrace_t40_awb_proc_stages & 16U) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_event_push)(0, (uintptr_t)event_10); /* jalr target resolved by relocation */
 
     /* fragment 10: Arithmetic */
     v1 = (int32_t *)&isp_memopt;
