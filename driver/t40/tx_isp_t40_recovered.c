@@ -1395,6 +1395,7 @@ static uint32_t pstMainAwbOri[128];
 static uint32_t pstMainAwbCtDetectOri[34];
 static uintptr_t pstMainBcshOri[80];   /* OEM .bss+19184: BCSH ctx pointer table (tisp_bcsh_params_transmit fills ~0x40 entries), the lift declared one word */
 static uintptr_t pstMainCcmOri[32];   /* OEM .bss+19736: the CCM context (pointer table filled by tisp_ccm_params_transmit), the lift declared one word */
+static uintptr_t clm_ctx_tab[2];      /* OEM .bss+18936: per-channel CLM context pointers (tisp_clm_init kmalloc(24)), the lift used &isp_memopt + ch*4 */
 static uintptr_t pstSecAeOri_value;
 /* OEM .bss reserves 0x200 bytes: pointer table filled by tisp_awb_params_transmit */
 static uint32_t pstSecAwbOri[128];
@@ -178230,10 +178231,10 @@ int32_t tisp_clm_real_write_lut(uintptr_t a0)
 tisp_clm_real_write_lut0x60:
     /* fragment 6: CallSetup */
     local_1c = (uintptr_t)s2 << 2;
-    local_20 = (uint32_t *)&isp_memopt;
-    local_14 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(((uintptr_t)s2 << 2) + &isp_memopt) + 0)) + 8);
+    local_20 = (uint32_t *)(uintptr_t)clm_ctx_tab;
+    local_14 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(((uintptr_t)s2 << 2) + (uintptr_t)clm_ctx_tab) + 0)) + 8);
     local_2c = t1;
-    local_18 = (*(uint32_t *)((char *)(*(uint32_t *)((char *)(((uintptr_t)s2 << 2) + &isp_memopt) + 0)) + 8)) + 2100;
+    local_18 = (*(uint32_t *)((char *)(*(uint32_t *)((char *)(((uintptr_t)s2 << 2) + (uintptr_t)clm_ctx_tab) + 0)) + 8)) + 2100;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(t1, 257); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
@@ -178518,7 +178519,7 @@ int64_t tisp_clm_ct_interp(uint32_t a0, uint32_t a1, uint32_t a2)
 
     /* fragment 1: Arithmetic */
     s4 = a0 << 2;
-    a0 = (uint32_t *)&isp_memopt;
+    a0 = (uint32_t *)clm_ctx_tab;   /* T40-CLM-CTX: OEM .bss+18936 per-channel ctx table */
 
     /* fragment 2: StackAccess */
     local_18 = s2;
@@ -179013,7 +179014,7 @@ int32_t tisp_clm_dn_params_refresh(uint32_t a0)
 
     /* fragment 1: CallSetup */
     s0 = a0 << 2;
-    s0 = s0 + &isp_memopt;
+    s0 = (typeof(s0))((uintptr_t)s0 + (uintptr_t)clm_ctx_tab);   /* T40-CLM-CTX */
     s1 = a0;
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)((uintptr_t)s0) + 0)) + 0)), (void *)(uintptr_t)((*(uint32_t *)((char *)((a0 << 2) + &tparamsN) + 0)) + (65536 + 9132)), 18924); /* jalr target resolved by relocation */
 
@@ -179072,7 +179073,7 @@ int32_t tisp_clm_init(uintptr_t a0)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(24, 37748736 + 192); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    s0 = s5 + &isp_memopt;
+    s0 = (typeof(s0))((uintptr_t)s5 + (uintptr_t)clm_ctx_tab);   /* T40-CLM-CTX: OEM .bss+18936, the lift wrote the ctx pointer into the isp_memopt module variable */
     *(uint32_t *)((char *)s0 + 0) = v0;
     v0 = (uintptr_t *)memset((void *)(uintptr_t)v0, 0, 24); /* jalr target resolved by relocation */
 
@@ -179125,11 +179126,11 @@ int32_t tisp_clm_init(uintptr_t a0)
 
     /* fragment 15: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 0);
-    a1 = (uint32_t *)&sclk_name;
+    a1 = (uint32_t *)t40_writer_clm_csc_default;   /* OEM .data+0x2d0a4 CLM_CSC_BT709_FULL (the lift resolved it to &sclk_name-12476) */
     a2 = 92;
     v1 = *(uint32_t *)((char *)v0 + 4);
     a0 = *(uint32_t *)((char *)v0 + 0);
-    a1 = a1 - 12476;
+    /* a1 = a1 - 12476; -> blob above */
     *(uint32_t *)((char *)v1 + 0) = a0;
     v1 = *(uint32_t *)((char *)v0 + 0);
     a0 = *(uint32_t *)((char *)v0 + 4);
@@ -179198,7 +179199,7 @@ int32_t tisp_clm_deinit(uint32_t a0)
     uintptr_t *v0;
     uint32_t a0_tmp;
 
-    s0 = (uintptr_t *)&isp_memopt[0] + 18968;
+    s0 = (uintptr_t *)clm_ctx_tab;   /* T40-CLM-CTX */
     s2 = a0 << 2;
     v0 = (uintptr_t)s0 + (uintptr_t)s2;
     v0 = *(uint32_t *)v0;
@@ -179284,7 +179285,7 @@ int32_t tisp_clm_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 
     /* fragment 2: CallSetup */
     s6 = a0 << 2;
-    s4 = s6 + &isp_memopt;
+    s4 = (typeof(s4))((uintptr_t)s6 + (uintptr_t)clm_ctx_tab);   /* T40-CLM-CTX */
     s5 = a2;
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a1, (void *)(uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s4) + 0)) + 0)), 18924); /* jalr target resolved by relocation */
 
@@ -179401,7 +179402,7 @@ int32_t tisp_clm_param_array_set(uint32_t a0, uint32_t a1)
 
     /* fragment 1: CallSetup */
     s8 = a0 << 2;
-    s5 = s8 + &isp_memopt;
+    s5 = (typeof(s5))((uintptr_t)s8 + (uintptr_t)clm_ctx_tab);   /* T40-CLM-CTX */
     s6 = a0;
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s5) + 0)) + 0)), (void *)(uintptr_t)a1, 18924); /* jalr target resolved by relocation */
 
