@@ -17630,6 +17630,20 @@ static int regtrace_subdev_init_internal(uintptr_t pdev_addr, uintptr_t sd_addr,
     } else if (!strcmp(pdev->name, "isp-m0")) {
         regtrace_core_subdev = sd;
         ispcore_sd = (uint32_t)(uintptr_t)sd;
+        {   /* RC2: /proc/jz/isp/isp-m0 - the lifted tx_isp_probe/create_graph_and_nodes path is not
+             * used by the controlled child registration, so create the node here (OEM: jz_proc_mkdir("isp")
+             * + proc_create_data(subdev->name, 0444, dir, subdev->proc_fops, subdev)). */
+            static struct proc_dir_entry *t40_isp_proc_dir;
+            if (!t40_isp_proc_dir)
+                t40_isp_proc_dir = jz_proc_mkdir("isp");
+            if (t40_isp_proc_dir) {
+                struct proc_dir_entry *pe = proc_create_data("isp-m0", 0444, t40_isp_proc_dir,
+                                                             &isp_info_proc_fops, (void *)sd);
+                printk(KERN_INFO "tx_isp_t40_recovered: proc /proc/jz/isp/isp-m0 %s\n", pe ? "created" : "FAILED");
+            } else {
+                printk(KERN_ERR "tx_isp_t40_recovered: jz_proc_mkdir(isp) failed\n");
+            }
+        }
         regtrace_t40_core_activate_direct(1);
     } else if (!strcmp(pdev->name, "isp-fs")) {
         regtrace_fs_subdev = sd;
@@ -83937,7 +83951,7 @@ int32_t system_reg_set_ae_trig(int32_t arg1, int32_t arg2)
         goto do_write;
     }
     if (arg1 == 3) {
-        a0 = (void *)&private_i2c_get_clientdata040;
+        a0 = (void *)0x8040;   /* OEM 0x24188: li a0,0x8040 (lift mis-resolved the constant to a symbol) */
         goto do_write;
     }
     return 3;
@@ -86512,179 +86526,109 @@ tisp_ae_long_Pweight_Calculate0xa0:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000248f0 origin=fragment_seed original=tisp_ae_long_weight_mean2 */
 int32_t tisp_ae_long_weight_mean2(int32_t arg1, int32_t (*arg2)(int32_t arg1, int32_t *arg2), int32_t arg3, int32_t arg4, int32_t *arg5, int32_t *arg6, int32_t *arg7, uint32_t *arg8, uint32_t *arg9, int16_t arg10)
 {
-#ifdef REGTRACE_KERNEL_TREE_BUILD
-    return 0;
-#else
+    /* Hand translation of OEM tisp_ae_long_weight_mean2 (testimage 0x25310).  The lifted body was
+     * stubbed (`#ifdef REGTRACE_KERNEL_TREE_BUILD return 0;`), so every AE input (mean luma, EV
+     * weights, ratios) was 0 -> tune2 drove IT to the minimum (FBL29..MT1).
+     * ch = arg1, ctx = arg2, cnt_x = arg3, cnt_y = arg4, outputs: *arg5 (sp+68 = weighted mean),
+     * arg6[0..1] (sp+48/52 = two ratios), *arg7 (sp+56, accumulated per-zone quotient),
+     * *arg8 (sp+64), *arg9 (sp+60), arg10 = u16 divisor. */
+    const char *ctx = (const char *)arg2;
+    uint32_t s2 = (uint32_t)arg10 & 0xffffU;
+    const uint16_t *hw = (const uint16_t *)(uintptr_t)*(const uint32_t *)(ctx + 284);
+    const uint16_t *par = (const uint16_t *)(uintptr_t)*(const uint32_t *)(ctx + 288);
+    const uint32_t *st80 = (const uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 80);
+    const uint32_t *st84 = (const uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 84);
+    const uint32_t *st88 = (const uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 88);
+    const uint32_t *st96 = (const uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 96);
+    const uint32_t *st100 = (const uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 100);
+    uint32_t *out136 = (uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 136);
+    const uint8_t *w336 = (const uint8_t *)(uintptr_t)*(const uint32_t *)(ctx + 336);
+    const uint8_t *w340 = (const uint8_t *)(uintptr_t)*(const uint32_t *)(ctx + 340);
+    const uint8_t *w344 = (const uint8_t *)(uintptr_t)*(const uint32_t *)(ctx + 344);
+    uint32_t *cnt = (uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 72);
+    uint32_t sh = *(const uint16_t *)(uintptr_t)*(const uint32_t *)(ctx + 4);
+    uint32_t zx, zy, h68, h70, row, col;
+    const uint16_t *rowh;
+    uint32_t acc28 = 0, acc32 = 0, acc36 = 0, acc40 = 0;
+    uint32_t t4 = 0, c84 = 0, t3 = 0, t6 = 0, c80 = 0, s7 = 0, s8 = 0;
+    uint32_t v, s1;
+    uintptr_t cache;
 
-    void *v0 = *(void **)((char *)arg2 + 0x120);
-    void *s5 = *(void **)((char *)arg2 + 0x11c);
-    int32_t v0_1 = *(int32_t *)((char *)arg2 + 0x14);
-    uint32_t s2 = (uint32_t)arg10;
-    void *a3 = *(void **)((char *)arg2 + 0x50);
-    int32_t v0_2 = *(int32_t *)((char *)arg2 + 0x18);
-    void *a2 = *(void **)((char *)arg2 + 0x54);
-    void *v1 = *(void **)((char *)arg2 + 0x58);
-    void *t4 = *(void **)((char *)arg2 + 0x60);
-    void *t3 = *(void **)((char *)arg2 + 0x64);
-    uint32_t s0 = (uint32_t)*(uint16_t **)((char *)arg2 + 4);
-    void *t5 = *(void **)((char *)arg2 + 0x150);
-    void *t2 = *(void **)((char *)arg2 + 0x154);
-    void *t1 = *(void **)((char *)arg2 + 0x158);
-    void *t0 = *(void **)((char *)arg2 + 0x88);
-    uint32_t v0_4 = (uint32_t)*(uint16_t *)((char *)s5 + 6);
-    uint32_t v0_5 = (uint32_t)*(uint16_t *)((char *)s5 + 2);
-    uint32_t v0_6 = (uint32_t)*(uint16_t *)((char *)s5 + 0x44);
-    uint32_t v0_7 = (uint32_t)*(uint16_t *)((char *)s5 + 0x46);
-    int32_t *v0_8 = *(int32_t **)((char *)arg2 + 0x48);
-
-    if (*v0_8 == 0) {
-        int32_t a0_2 = v0_8[1] - 1;
-        if ((uint32_t)a0_2 < 0x3c1) {
-            int32_t *a0_4 = *(int32_t **)((char *)arg2 + 0x140);
-            arg2 = (int32_t (*)(int32_t, int32_t *))__private_spin_lock_irqsave;
-            ((void **)v0_8)[1] = 0x3c0;
-            *a0_4 = v0_8[10];
+    if (!regtrace_is_kernel_ptr(hw) || !regtrace_is_kernel_ptr(par) || !regtrace_is_kernel_ptr(st80) ||
+        !regtrace_is_kernel_ptr(st84) || !regtrace_is_kernel_ptr(st88) || !regtrace_is_kernel_ptr(st96) ||
+        !regtrace_is_kernel_ptr(st100) || !regtrace_is_kernel_ptr(out136) || !regtrace_is_kernel_ptr(w336) ||
+        !regtrace_is_kernel_ptr(w340) || !regtrace_is_kernel_ptr(w344) || !regtrace_is_kernel_ptr(cnt))
+        return 0;
+    zx = hw[3]; zy = hw[1]; h68 = hw[34]; h70 = hw[35];
+    if (cnt[0] == 0) {
+        uint32_t a = cnt[1] - 1;
+        if (a < 961U) {
+            uint32_t *p320 = (uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 320);
+            cnt[1] = 960;
+            if (regtrace_is_kernel_ptr(p320))
+                *p320 = cnt[10];
         } else {
-            ((void **)v0_8)[1] = a0_2;
+            cnt[1] = a;
         }
     }
-
-    int16_t *var_9c = (int16_t *)((char *)s5 + 0x26);
-        void * var_98 = t4;
-    void *var_94 = t3;
-        void * var_a0 = t5;
-    void *var_90 = a3;
-    void *var_8c = a2;
-    int32_t var_c0_1 = 0;
-    int32_t var_c0_2;
-    __builtin_memset(&var_c0_2, 0, 0x14);
-    int32_t t4_1 = 0;
-    int32_t var_84 = 0;
-    int32_t (*t3)(void *, int32_t) = NULL;
-    int32_t t6_2 = 0;
-    int32_t *var_88 = 0;
-    int32_t s7 = 0;
-    int32_t fp = 0;
-    int32_t var_bc_1 = 0;
-    int32_t var_b8_1 = 0;
-    int32_t var_b4_1 = 0;
-   int32_t var_b0_1 = 0;
-    int32_t arg2_temp = 0;
-
-   while ((uint32_t)var_c0_1 < v0_5) {
-        int16_t *var_ac_1 = (int16_t *)((char *)s5 + 8);
-        int32_t s3_1 = 0;
-
-        while ((uint32_t)s3_1 < v0_4) {
-            int32_t a0_5 = s3_1 << 2;
-            uint32_t v0_17 = (uint32_t)*(uint8_t *)((char *)var_a0 + s3_1);
-            int32_t t8_1 = *(int32_t *)((char *)v1 + a0_5);
-            int32_t s1_2 = (int32_t)*(uint16_t *)(uintptr_t)var_9c * (int32_t)*(uint16_t *)(uintptr_t)var_ac_1;
-            int32_t s4_1 = *(int32_t *)((char *)var_98 + a0_5);
-            int32_t t5_1 = *(int32_t *)((char *)var_94 + a0_5);
-            int32_t v0_26 = s1_2 - (s4_1 + t5_1);
-            int32_t t7_1 = *(int32_t *)((char *)var_90 + a0_5);
-            int32_t v0_31 = *(int32_t *)((char *)var_8c + a0_5);
-            int32_t v0_33 = t7_1 + v0_31 + t8_1;
-            uint32_t lo_1 = (uint32_t)v0_33 / s1_2;
-            *(uint32_t *)((char *)t0 + a0_5) = lo_1;
-            *arg7 += lo_1;
-            uint32_t a0_11 = (uint32_t)*(uint8_t *)((char *)t1 + s3_1);
-            int32_t lo_3;
-            int32_t hi_2;
-            hi_2 = (int32_t)((uint64_t)(v0_33 % s1_2) << 32 | (uint32_t)var_bc_1);
-            lo_3 = (int32_t)((uint64_t)a0_11 * (uint32_t)v0_33 + (uint64_t)hi_2);
-            var_bc_1 = lo_3;
-            int32_t lo_5;
-            int32_t hi_3;
-            hi_3 = (int32_t)((uint64_t)hi_2 << 32 | (uint32_t)var_b8_1);
-            lo_5 = (int32_t)((uint64_t)a0_11 * (uint32_t)s1_2 + (uint64_t)hi_3);
-            var_b8_1 = lo_5;
-            uint32_t a0_14 = (uint32_t)*(uint8_t *)((char *)t2 + s3_1);
-            int32_t lo_7;
-            int32_t hi_4;
-            hi_4 = (int32_t)((uint64_t)hi_3 << 32 | (uint32_t)var_b4_1);
-            lo_7 = (int32_t)((uint64_t)a0_14 * (uint32_t)v0_33 + (uint64_t)hi_4);
-            var_b4_1 = lo_7;
-            int32_t lo_9;
-            int32_t hi_5;
-            hi_5 = (int32_t)((uint64_t)hi_4 << 32 | (uint32_t)var_b0_1);
-            lo_9 = (int32_t)((uint64_t)a0_14 * (uint32_t)s1_2 + (uint64_t)hi_5);
-            var_b0_1 = lo_9;
-            uint32_t v0_38 = 0;
-
-            if ((uint32_t)*(uint16_t *)((char *)v0 + 0x12) != 0) {
-                int32_t a2 = tisp_ae_long_Pweight_Calculate(s0, s4_1, s1_2, v0_6 + 1) +
-                               tisp_ae_long_Pweight_Calculate(s0, v0_26, s1_2, v0_7 - v0_6 - 1) +
-                               tisp_ae_long_Pweight_Calculate(s0, t5_1, s1_2, 0x100 - v0_7);
-                v0_38 = (uint32_t)fix_point_mult2_32(s0, (uintptr_t)a2, (uintptr_t)a2) >> (s0 & 0x1f) >> 3;
+    rowh = hw + 19;                                   /* s5+38, one u16 per row */
+    for (row = 0; row < zy; row++) {
+        const uint16_t *colw = hw + 4;                /* s5+8, one u16 per column */
+        for (col = 0; col < zx; col++) {
+            uint32_t w1 = w336[col], t8 = st88[col], s4 = st96[col], t5 = st100[col];
+            uint32_t t7 = st80[col], v84 = st84[col], c96, c100, q, a3b, a2b, pw = 0, wv;
+            uint32_t ny = (uint32_t)arg4 - 1U, nx = (uint32_t)arg3 - 1U;
+            uint32_t t5b, s4b, a1q, t5c, t8q, t7s;
+            s1 = (uint32_t)rowh[0] * (uint32_t)colw[0];
+            c96 = s1 - (s4 + t5);
+            c100 = v84 + t8;
+            v = t7 + v84 + t8;
+            q = s1 ? v / s1 : 0;
+            out136[col] = q;
+            *arg7 += (int32_t)q;
+            a3b = w344[col]; acc28 += a3b * v; acc32 += a3b * s1;
+            a2b = w340[col]; acc36 += a2b * v; acc40 += a2b * s1;
+            if (par[9] != 0) {
+                uint32_t p1 = (uint32_t)tisp_ae_long_Pweight_Calculate(sh, s4, s1, h68 + 1);
+                uint32_t p2 = (uint32_t)tisp_ae_long_Pweight_Calculate(sh, c96, s1, h70 - h68 - 1);
+                uint32_t p3 = (uint32_t)tisp_ae_long_Pweight_Calculate(sh, t5, s1, 256U - h70);
+                uint32_t a2 = p1 + p2 + p3;
+                pw = ((uint32_t)fix_point_mult2_32((int32_t)sh, (int32_t)a2, (int32_t)a2) >> sh) >> 3;
             }
-
-            s3_1 += 1;
-            uint32_t v0_52 = v0_38 + v0_17;
-            int32_t a1_12 = (arg4 - 1) * t5_1;
-            int32_t lo_11;
-            int32_t hi_7;
-            hi_7 = (int32_t)((uint64_t)(a1_12 % s2) << 32 | (uint32_t)(a1_12 / s2));
-            lo_11 = (int32_t)((uint64_t)v0_52 * (uint32_t)t5_1 + (uint64_t)hi_7);
-            fp += lo_11;
-            int32_t a2_5 = (arg3 - 1) * s4_1;
-            int32_t lo_13;
-            int32_t hi_9;
-            hi_9 = (int32_t)((uint64_t)(a2_5 % s2) << 32 | (uint32_t)(a2_5 / s2));
-            lo_13 = (int32_t)((uint64_t)v0_52 * (uint32_t)s4_1 + (uint64_t)hi_9);
-            s7 += lo_13;
-            int32_t t5_5 = v0_52 * v0_26 + lo_11 + lo_13;
-            int32_t t5_6 = t4_1 + t5_5;
-            var_88 = (void *)(uintptr_t)((uintptr_t)var_88 + (t5_5));
-            int32_t arg2_temp = (v0_31 + t8_1) * v0_52;
-            int32_t (*t7_3)(void *, int32_t) = (int32_t (*)(void *, int32_t))((uintptr_t)t3 + (uint32_t)v0_52 * t7_1 + arg2_temp + (arg3 - 1) * t7_1 / s2 + (arg4 - 1) * t8_1 / s2);
-            t6_2 += (t7_3 < (uintptr_t)t3) ? 1 : 0;
-            var_84 += (t5_6 < t4_1) ? 1 : 0;
-            t3 = t7_3;
-            t4_1 = t5_6;
-            var_ac_1 = (int16_t *)((char *)var_ac_1 + 2);
+            wv = pw + w1;
+            t5b = (s2 ? (ny * t5) / s2 : 0) + wv * t5;  s8 += t5b;
+            s4b = (s2 ? (nx * s4) / s2 : 0) + wv * s4;  t5b += s4b; s7 += s4b;
+            a1q = s2 ? (nx * t7) / s2 : 0;
+            t5b = wv * c96 + t5b; c80 += t5b; t5c = t4 + t5b;
+            t8q = a1q + (s2 ? (ny * t8) / s2 : 0);
+            t8q = c100 * wv + t8q;
+            t7s = t3 + (wv * t7 + t8q);
+            t6 += (t7s < t3) ? 1U : 0U;
+            c84 += (t5c < t4) ? 1U : 0U;
+            t3 = t7s; t4 = t5c; colw++;
         }
-
-        v1 = (void *)((char *)v1 + 0x3c);
-        t0 = (void *)((char *)t0 + 0x3c);
-        var_c0_1 += 1;
-        t1 = (void *)((char *)t1 + 0xf);
-        t2 = (void *)((char *)t2 + 0xf);
-        var_a0[0] = (void *)((char *)var_a0 + 0xf);
-        var_9c = (int16_t *)((char *)var_9c + 2);
-        var_98[0] = (void *)((char *)var_98 + 0x3c);
-        var_94 = (void *)((char *)var_94 + 0x3c);
-        var_90 = (void *)((char *)var_90 + 0x3c);
-        var_8c = (void *)((char *)var_8c + 0x3c);
+        st88 += 15; out136 += 15; w336 += 15; w344 += 15; w340 += 15; rowh++;
+        st96 += 15; st100 += 15; st80 += 15; st84 += 15;
     }
-
-    *arg8 = (uint32_t)var_bc_1 / (uint32_t)var_b8_1;
-    *arg9 = (uint32_t)var_b4_1 / (uint32_t)var_b0_1;
-    int32_t v0_80 = fix_point_div_64(0, arg2_temp, (uintptr_t)t3, t6_2, t4_1, var_84);
-
-    if (v0_80 == 0) {
-        v0_80 = 1;
+    *arg8 = acc32 ? acc28 / acc32 : 0;
+    *arg9 = acc40 ? acc36 / acc40 : 0;
+    v = (uint32_t)fix_point_div_64(0, 0, t3, t6, t4, c84);     /* (t6:t3) / (c84:t4) */
+    if (v == 0)
+        v = 1;
+    *arg5 = (int32_t)v;
+    cache = regtrace_ae_cache_for_channel((uint32_t)arg1);
+    if (cache && *(const uint8_t *)(cache + 477) != 0) {
+        const uint32_t *sta = &ae_sta_info[(uint32_t)arg1 * 6U];
+        uint32_t d = *(const uint32_t *)(cache + 468);
+        s1 = sta[0] + sta[1] + sta[2];
+        s1 = d ? s1 / d : 0;
+        (void)fix_point_mult2_32(10, (int32_t)(s1 << 10), (int32_t)(1024U - *(const uint32_t *)(cache + 472)));
+        *arg5 = (int32_t)s1;                          /* OEM stores the quotient, not the product */
     }
-
-    *arg5 = v0_80;
-    void *v1_8 = (void *)regtrace_ae_cache_for_channel((uint32_t)arg1);
-    if (!regtrace_is_kernel_ptr(v1_8))
-        return -EINVAL;
-    int32_t v0_85 = var_88;
-
-    if ((uint32_t)*(uint8_t *)((char *)v1_8 + 0x1dd) != 0) {
-        *arg5 = ((uintptr_t)&ae_sta_info + arg1 * 6 + (uintptr_t)&data_b7744 + arg1 * 6 + (uintptr_t)&data_b7748 + arg1 * 6) / *(uint32_t *)((uintptr_t)v1_8 + 0x1d4);
-        v0_85 = var_88;
-    }
-
-    int32_t s1_7 = v0_85 << (s0 & 0x1f);
-    *arg6 = fix_point_div_32(s0, fp << (s0 & 0x1f), s1_7);
-    int32_t result = fix_point_div_32(s0, s7 << (s0 & 0x1f), s1_7);
-    ((void **)arg6)[1] = result;
-    return result;
-
-#endif
+    s1 = c80 << sh;
+    arg6[0] = fix_point_div_32((int32_t)sh, (int32_t)(s8 << sh), (int32_t)s1);
+    arg6[1] = fix_point_div_32((int32_t)sh, (int32_t)(s7 << sh), (int32_t)s1);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024f04 origin=fragment_seed original=tisp_ae_long_target */
@@ -89017,7 +88961,8 @@ int32_t tisp_ae_long_alogrithm(int32_t arg1, int32_t (*arg2)(int32_t arg1, int32
     int16_t *t5;
     void *v0_1;
     uint32_t *a0_1;
-    uint32_t var_68 = 0;
+    uint32_t var_68[2] = { 0, 0 };   /* weight_mean2 writes TWO words here (OEM sp+48/sp+52) */
+    uint32_t var_o56 = 0;             /* weight_mean2 output #3 (OEM sp+56), was aliased onto var_54 */
     void *v0_2;
     int32_t *s3;
     uint32_t *a2;
@@ -89117,7 +89062,7 @@ int32_t tisp_ae_long_alogrithm(int32_t arg1, int32_t (*arg2)(int32_t arg1, int32
         s7 = 1;
     }
 
-    tisp_ae_long_weight_mean2(arg1, arg2, a2_3, s1, &var_54, &var_68, &var_54, &var_58, &var_5c, (uint16_t)s7);
+    tisp_ae_long_weight_mean2(arg1, arg2, a2_3, s1, (int32_t *)&var_54, (int32_t *)var_68, (int32_t *)&var_o56, &var_58, &var_5c, (uint16_t)s7);
 
     a0_3 = s2 + 1;
     v0_5 = &s3[(uintptr_t)s2];
@@ -89176,12 +89121,12 @@ int32_t tisp_ae_long_alogrithm(int32_t arg1, int32_t (*arg2)(int32_t arg1, int32
         const uint32_t *st = (const uint32_t *)(uintptr_t)*(const uint32_t *)((const char *)arg2 + 80);
         if (regtrace_t40_ae_diag && n++ < 3) {
             printk(KERN_INFO "tx_isp_t40_recovered: AEIN var_54=0x%x var_68=0x%x s6=0x%lx v1=0x%lx s4=0x%lx a0=0x%lx var_58=0x%x v0_7=0x%x\n",
-                   (unsigned)var_54, (unsigned)var_68, (unsigned long)(uintptr_t)s6, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)s4, (unsigned long)(uintptr_t)a0, (unsigned)var_58, (unsigned)v0_7);
+                   (unsigned)var_54, (unsigned)var_68[0], (unsigned long)(uintptr_t)s6, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)s4, (unsigned long)(uintptr_t)a0, (unsigned)var_58, (unsigned)v0_7);
             if (regtrace_is_kernel_ptr((void *)st))
                 printk(KERN_INFO "tx_isp_t40_recovered: AEIN stats(ctx+80)=%p: %x %x %x %x %x %x %x %x | row1: %x %x %x %x\n", (void *)st, st[0], st[1], st[2], st[3], st[4], st[5], st[6], st[7], st[15], st[16], st[17], st[18]);
         }
     }
-    return tisp_ae_long_tune2(arg1, arg2, arg3, var_54, &var_68, s6, v1, s4, a0, var_58, v0_7);
+    return tisp_ae_long_tune2(arg1, arg2, arg3, var_54, (uintptr_t)var_68, s6, v1, s4, a0, var_58, v0_7);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000026a90 origin=fragment_seed original=tisp_ae_short_weight_mean2 */
@@ -91061,7 +91006,7 @@ tisp_ae_main_long_ev_alloc0x288:
 
 tisp_ae_main_long_ev_alloc0x28c:
     /* fragment 39: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_set_ae_trig)(3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)system_reg_set_ae_trig(3, (int32_t)local_230);   /* OEM 0x285fc: lw a1,560(sp) - the lift dropped a1 -> garbage reg offset (MT1 Oops BadVA fcc6a040) */
 
     /* fragment 40: MemoryAccess */
     v0 = *(uint32_t *)((char *)s6 + 0);
