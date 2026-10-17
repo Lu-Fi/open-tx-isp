@@ -23539,6 +23539,14 @@ static int regtrace_is_kernel_ptr(const void *ptr)
            (value & (sizeof(uint32_t) - 1)) == 0;
 }
 
+/* RC2: regtrace_is_kernel_ptr() demands 4-byte alignment - wrong for u8/u16 tables. */
+static int regtrace_is_kernel_ptr_any(const void *ptr)
+{
+    uintptr_t value = (uintptr_t)ptr;
+
+    return value >= 0x80000000UL && value < 0xfffff001UL;
+}
+
 static uintptr_t regtrace_ae_cache_for_channel(uint32_t channel)
 {
     uintptr_t ptr;
@@ -79677,7 +79685,7 @@ int64_t tisp_event_process(uint32_t a0)
                     regtrace_vendor_per_frame_regs[8 + event] + 1;
         }
         cb = (regtrace_tisp_event_callback_t)cb_ptr;
-    {   /* T40-EVSTAT: per-event dispatch count and max callback time (us), printed every 256 dispatches */
+    {   /* T40-EVSTAT: per-event dispatch count and max callback time (us), printed every 32 dispatches */
         static uint32_t ev_n[2], ev_max_us[2], ev_last_us[2];
         unsigned int slot = (event == 14U) ? 1U : 0U;
         unsigned long long t0 = sched_clock();
@@ -79690,7 +79698,7 @@ int64_t tisp_event_process(uint32_t a0)
             ev_n[slot]++;
             ev_last_us[slot] = us;
             if (us > ev_max_us[slot]) ev_max_us[slot] = us;
-            if ((ev_n[slot] & 0xffU) == 1U)
+            if ((ev_n[slot] & 0x1fU) == 1U)
                 printk(KERN_INFO "tx_isp_t40_recovered: EVSTAT ev1 n=%u last=%uus max=%uus | ev14 n=%u last=%uus max=%uus | ret=%d\n",
                        ev_n[0], ev_last_us[0], ev_max_us[0], ev_n[1], ev_last_us[1], ev_max_us[1], (int)cb_ret);
         }
@@ -83903,7 +83911,7 @@ int64_t tisp_deflicker_expt(uint32_t a0, uintptr_t a1)
     shift = *(uint16_t *)(uintptr_t)*(uint32_t *)((char *)a1 + 4);
     tab = (uint16_t *)(uintptr_t)*(uint32_t *)((char *)a1 + 48);
     pcnt = (uint16_t *)(uintptr_t)*(uint32_t *)((char *)a1 + 52);
-    if (!regtrace_is_kernel_ptr(p) || !regtrace_is_kernel_ptr(tab) || !regtrace_is_kernel_ptr(pcnt))
+    if (!regtrace_is_kernel_ptr(p) || !regtrace_is_kernel_ptr_any(tab) || !regtrace_is_kernel_ptr_any(pcnt))
         return 0;
     s2 = (p[0] << 1) << shift;
     t2 = p[2] << shift;
@@ -86556,13 +86564,16 @@ int32_t tisp_ae_long_weight_mean2(int32_t arg1, int32_t (*arg2)(int32_t arg1, in
     uint32_t v, s1;
     uintptr_t cache;
 
-    if (!regtrace_is_kernel_ptr(hw) || !regtrace_is_kernel_ptr(par) || !regtrace_is_kernel_ptr(st80) ||
+    { static unsigned int n0; n0++; if (n0 > 2 && n0 < 6) printk(KERN_INFO "tx_isp_t40_recovered: AEWM2 enter ch=%d ctx=%p hw=%p par=%p w336=%p\n", arg1, ctx, hw, par, w336); }
+
+    if (!regtrace_is_kernel_ptr_any(hw) || !regtrace_is_kernel_ptr_any(par) || !regtrace_is_kernel_ptr(st80) ||
         !regtrace_is_kernel_ptr(st84) || !regtrace_is_kernel_ptr(st88) || !regtrace_is_kernel_ptr(st96) ||
-        !regtrace_is_kernel_ptr(st100) || !regtrace_is_kernel_ptr(out136) || !regtrace_is_kernel_ptr(w336) ||
-        !regtrace_is_kernel_ptr(w340) || !regtrace_is_kernel_ptr(w344) || !regtrace_is_kernel_ptr(cnt))
+        !regtrace_is_kernel_ptr(st100) || !regtrace_is_kernel_ptr(out136) || !regtrace_is_kernel_ptr_any(w336) ||
+        !regtrace_is_kernel_ptr_any(w340) || !regtrace_is_kernel_ptr_any(w344) || !regtrace_is_kernel_ptr(cnt))
     {
         static unsigned int n;
-        if (regtrace_t40_ae_diag && n++ < 2)
+        n++;
+        if (n > 2 && n < 5)
             printk(KERN_INFO "tx_isp_t40_recovered: AEWM2 GUARD ch=%d hw=%p par=%p st80=%p st84=%p st88=%p st96=%p st100=%p out136=%p w336=%p w340=%p w344=%p cnt=%p\n",
                    arg1, hw, par, st80, st84, st88, st96, st100, out136, w336, w340, w344, cnt);
         return 0;
@@ -86638,7 +86649,8 @@ int32_t tisp_ae_long_weight_mean2(int32_t arg1, int32_t (*arg2)(int32_t arg1, in
     arg6[1] = fix_point_div_32((int32_t)sh, (int32_t)(s7 << sh), (int32_t)s1);
     {
         static unsigned int n;
-        if (regtrace_t40_ae_diag && n++ < 3)
+        n++;
+        if (n > 2 && n < 6)
             printk(KERN_INFO "tx_isp_t40_recovered: AEWM2 ch=%d z=%ux%u sh=%u cnt=%d,%d s2=%u par9=%u st80[0..3]=%x %x %x %x w336[0..3]=%u %u %u %u sum=%x:%x wsum=%x:%x -> mean=%d r0=%d r1=%d o56=%d o64=%u o60=%u c80=%x s7=%x s8=%x\n",
                    arg1, zx, zy, sh, arg3, arg4, s2, par[9],
                    ((const uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 80))[0], ((const uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 80))[1],
