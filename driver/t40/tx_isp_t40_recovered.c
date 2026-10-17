@@ -79774,8 +79774,8 @@ tisp_event_process0x1c8:
  * t40_ae_diag=1 the AE one-shot printks (AEHW/AETUNE2/AEEV.../AEIN/AECTRLS/AEEXPLIST/AE vendor). */
 static bool regtrace_t40_loopguard;
 module_param_named(t40_loopguard, regtrace_t40_loopguard, bool, 0644);
-static bool regtrace_t40_ae_diag;
-module_param_named(t40_ae_diag, regtrace_t40_ae_diag, bool, 0644);
+static unsigned int regtrace_t40_ae_diag;
+module_param_named(t40_ae_diag, regtrace_t40_ae_diag, uint, 0644);   /* 1 = summary one-shots, 2 = tune2/EV-loop traces (AEEVL, AETUNE2IN/NL/OUT, AEEV, AEX) */
 
 /* T40-AE-EVTAB-DIAG (fable) */
 static void t40_ae_evtab_dump(const char *tag)
@@ -86629,7 +86629,7 @@ tisp_ae_long_tune0x74:
 int64_t tisp_ae_long_tune2(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3, uintptr_t arg4, uint32_t arg5, uint32_t arg6, uint32_t arg7, uint32_t arg8, uint32_t arg9, uint32_t arg10)
 {
     uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
-    if (regtrace_t40_ae_diag) { static unsigned int n; const char *cx = (const char *)a1; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2IN #%u ctx=%p gate(*(ctx+4)+6)=%u @%p mean=%u ev3={%u %u %u} c44={%u %u %u} a2=%p a2+52=%u ctx0[0..3]={%u %u %u %u}\n", n, cx, *(uint16_t *)(*(uint32_t *)(cx + 4) + 6), (void *)(*(uint32_t *)(cx + 4) + 6), (unsigned)a3, ((uint32_t *)*(uint32_t *)(cx + 8))[0], ((uint32_t *)*(uint32_t *)(cx + 8))[1], ((uint32_t *)*(uint32_t *)(cx + 8))[2], ((uint32_t *)*(uint32_t *)(cx + 44))[0], ((uint32_t *)*(uint32_t *)(cx + 44))[1], ((uint32_t *)*(uint32_t *)(cx + 44))[2], (void *)a2, *(uint32_t *)((char *)a2 + 52), ((uint32_t *)*(uint32_t *)(cx + 0))[0], ((uint32_t *)*(uint32_t *)(cx + 0))[1], ((uint32_t *)*(uint32_t *)(cx + 0))[2], ((uint32_t *)*(uint32_t *)(cx + 0))[3]); }   /* T40-AE-IN2-DIAG */
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; const char *cx = (const char *)a1; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2IN #%u ctx=%p gate(*(ctx+4)+6)=%u @%p mean=%u ev3={%u %u %u} c44={%u %u %u} a2=%p a2+52=%u ctx0[0..3]={%u %u %u %u}\n", n, cx, *(uint16_t *)(*(uint32_t *)(cx + 4) + 6), (void *)(*(uint32_t *)(cx + 4) + 6), (unsigned)a3, ((uint32_t *)*(uint32_t *)(cx + 8))[0], ((uint32_t *)*(uint32_t *)(cx + 8))[1], ((uint32_t *)*(uint32_t *)(cx + 8))[2], ((uint32_t *)*(uint32_t *)(cx + 44))[0], ((uint32_t *)*(uint32_t *)(cx + 44))[1], ((uint32_t *)*(uint32_t *)(cx + 44))[2], (void *)a2, *(uint32_t *)((char *)a2 + 52), ((uint32_t *)*(uint32_t *)(cx + 0))[0], ((uint32_t *)*(uint32_t *)(cx + 0))[1], ((uint32_t *)*(uint32_t *)(cx + 0))[2], ((uint32_t *)*(uint32_t *)(cx + 0))[3]); }   /* T40-AE-IN2-DIAG */
     t40_aex_mean = (uint32_t)(uintptr_t)a3;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
@@ -87333,7 +87333,7 @@ tisp_ae_long_tune20x69c:
     local_84 = 0;
 
 tisp_ae_long_tune20x6a0:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 6a0 #%u s4(mean)=%lu s5(last target)=%u tol_lo(110)=%u tol_hi(10c)=%u 8c=%u ctx164byte=%u a4=%u s6=%x\n", n, (unsigned long)(uintptr_t)s4, s5, (unsigned)(uintptr_t)local_110, local_10c, local_8c, *(uint8_t *)(uintptr_t)*(uint32_t *)((char *)s8 + 164), local_a4, s6); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 6a0 #%u s4(mean)=%lu s5(last target)=%u tol_lo(110)=%u tol_hi(10c)=%u 8c=%u ctx164byte=%u a4=%u s6=%x\n", n, (unsigned long)(uintptr_t)s4, s5, (unsigned)(uintptr_t)local_110, local_10c, local_8c, *(uint8_t *)(uintptr_t)*(uint32_t *)((char *)s8 + 164), local_a4, s6); }
     /* fragment 89: StackAccess */
     v1 = local_80;
     a0 = local_98;
@@ -87380,7 +87380,7 @@ tisp_ae_long_tune20x6a0:
     local_8c = v1;
 
 tisp_ae_long_tune20x700:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 700 #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 700 #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
     /* fragment 99: MemoryAccess */
     v1 = *(uint32_t *)((char *)s8 + 164);
     a0 = local_d0;
@@ -87432,7 +87432,7 @@ tisp_ae_long_tune20x744:
     a1 = (uintptr_t)v0 - (uintptr_t)s4;
 
 tisp_ae_long_tune20x768:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 768 #%u a1=%lu s4=%lu s5=%u s7=%lx target(84)=%u ec=%u s0=%lu\n", n, (unsigned long)(uintptr_t)a1, (unsigned long)(uintptr_t)s4, s5, (unsigned long)(uintptr_t)s7, local_84, local_ec, (unsigned long)(uintptr_t)s0); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 768 #%u a1=%lu s4=%lu s5=%u s7=%lx target(84)=%u ec=%u s0=%lu\n", n, (unsigned long)(uintptr_t)a1, (unsigned long)(uintptr_t)s4, s5, (unsigned long)(uintptr_t)s7, local_84, local_ec, (unsigned long)(uintptr_t)s0); }
     /* fragment 109: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)((uintptr_t)s0, a1 << (uintptr_t)s0, s7); /* jalr target resolved by relocation */
 
@@ -87638,7 +87638,7 @@ tisp_ae_long_tune20x90c:
     if (s6 != 0) { goto tisp_ae_long_tune20xe00; }
 
 tisp_ae_long_tune20x92c:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 92c #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 92c #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
     /* fragment 146: CallSetup */
     a0 = local_a4;
 
@@ -87745,7 +87745,7 @@ tisp_ae_long_tune20xa18:
     v1 = local_a4;
 
 tisp_ae_long_tune20xa1c:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL a1c #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL a1c #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
     /* fragment 165: Branch */
     v0 = *(uint32_t *)((char *)s8 + 172);   /* T40-ZEROBASE: OEM 0x26578 lw v0,172(s8) - the lift dropped the ctx base (FBL19 NULL+0xac) */
     if (v1 != s6) { goto tisp_ae_long_tune20xe1c; }
@@ -87857,7 +87857,7 @@ tisp_ae_long_tune20xaf4:
     { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x870"); else { __lg--; goto tisp_ae_long_tune20x870; } }
 
 tisp_ae_long_tune20xb20:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL b20 #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL b20 #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
     /* fragment 189: CallSetup */
     local_f0 = s7 - local_f0;
     local_ec = (local_88 - (uintptr_t)local_110) - (s7 < (s7 - local_f0));
@@ -87926,7 +87926,7 @@ tisp_ae_long_tune20xb20:
     local_bc = v1;
     local_118 = (uintptr_t)&fix_point_div_64;
     T40_FP64_CALL(fix_point_div_64, (uintptr_t)s0 << 1, 0, (uintptr_t)t0, (uintptr_t)t1, (uintptr_t)local_10, local_14); /* T40-ARGS (OEM 0x26780: a2:a3 = 280/284(sp) = mult3 result, 16/20(sp) = ashldi3 result) */
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL after-div #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL after-div #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
 
     /* fragment 200: StackAccess */
     t4 = local_128;
@@ -87973,7 +87973,7 @@ tisp_ae_long_tune20xc58:
 
 tisp_ae_long_tune20xcb4:
     /* fragment 209: CallSetup */
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL cb4-call #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL cb4-call #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
     T40_FP64_CALL(((int64_t (*)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t))(uintptr_t)v0), (uintptr_t)a0, 0, (uintptr_t)a2, (uintptr_t)a3, (uintptr_t)local_10, local_14); /* T40-ARGS (OEM 0x2680c: callee is v0 = 280(sp) (div_64) or 212(sp) (mult2_64) depending on the path) */
 
     /* fragment 210: StackAccess */
@@ -88014,7 +88014,7 @@ tisp_ae_long_tune20xd00:
     a0 = local_f4;
 
 tisp_ae_long_tune20xd04:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL d04 #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL d04 #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
     /* fragment 217: CallSetup */
     { uint64_t __r = (uint64_t)((uint32_t)(uintptr_t)a0) << (((uint32_t)(uintptr_t)s0) & 63U); v0 = (uintptr_t *)(uintptr_t)(uint32_t)__r; v1 = (uintptr_t *)(uintptr_t)(uint32_t)(__r >> 32); }   /* T40-SHL64: __ashldi3 lo:hi restored */   /* OEM 0x2685c: __ashldi3(244(sp), 0, s0) */
 
@@ -88132,7 +88132,7 @@ tisp_ae_long_tune20xe00:
     { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x92c"); else { __lg--; goto tisp_ae_long_tune20x92c; } }
 
 tisp_ae_long_tune20xe0c:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL e0c #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL e0c #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
     /* fragment 243: Arithmetic */
     v0 = 1;
 
@@ -88145,7 +88145,7 @@ tisp_ae_long_tune20xe0c:
     { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xa18"); else { __lg--; goto tisp_ae_long_tune20xa18; } }
 
 tisp_ae_long_tune20xe1c:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL e1c #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL e1c #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
     /* fragment 246: Arithmetic */
     a0 = 1;
 
@@ -88199,7 +88199,7 @@ tisp_ae_long_tune20xe20:
     { static unsigned int n; if (regtrace_t40_ae_diag && n < 3) { t40_ae_evtab_dump("post-evlist"); printk(KERN_INFO "tx_isp_t40_recovered: AEEVOUT local_78=%x local_74=%x local_70=%x\n", (unsigned)local_78, (unsigned)local_74, (unsigned)local_70); } n++; }
 
 tisp_ae_long_tune20xe7c:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL e7c #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL e7c #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
     /* fragment 250: Arithmetic */
     s1 = 0;
 
@@ -88299,8 +88299,8 @@ tisp_ae_long_tune20xf28:
     if (v0 == 0) { a0 = v1; }   /* T40-MOVZ (OEM 0x26a8c) */
     v0 = local_80;
     v1 = local_d8;
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (n++ < 8) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2OUT #%u a3=%u arg4=%u arg5=%u cc=%u b4=%u 94=%u c8=%u 88=%u s6=%lx s1=%lx -> it=%u again=%u dgain=%u flag=%u\n", n, (unsigned)a3, (unsigned)arg4, (unsigned)arg5, (unsigned)local_cc, (unsigned)local_b4, (unsigned)local_94, (unsigned)local_c8, (unsigned)local_88, (unsigned long)(uintptr_t)s6, (unsigned long)(uintptr_t)s1, (unsigned)local_78, (unsigned)local_74, (unsigned)local_70, (unsigned)(uintptr_t)a0); }   /* T40-AE-OUT-DIAG */
-    if (regtrace_t40_ae_diag) { static unsigned int fn; fn++; if (fn <= 400) printk(KERN_INFO "tx_isp_t40_recovered: AEX #%u mean=%u tgt=%u -> it=%u again=%u dgain=%u conv=%u\n", fn, t40_aex_mean, local_84, (unsigned)local_78, (unsigned)local_74, (unsigned)local_70, (unsigned)(uintptr_t)a0); }   /* T40-AEX per-frame log */
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (n++ < 8) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2OUT #%u a3=%u arg4=%u arg5=%u cc=%u b4=%u 94=%u c8=%u 88=%u s6=%lx s1=%lx -> it=%u again=%u dgain=%u flag=%u\n", n, (unsigned)a3, (unsigned)arg4, (unsigned)arg5, (unsigned)local_cc, (unsigned)local_b4, (unsigned)local_94, (unsigned)local_c8, (unsigned)local_88, (unsigned long)(uintptr_t)s6, (unsigned long)(uintptr_t)s1, (unsigned)local_78, (unsigned)local_74, (unsigned)local_70, (unsigned)(uintptr_t)a0); }   /* T40-AE-OUT-DIAG */
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int fn; fn++; if (fn <= 400) printk(KERN_INFO "tx_isp_t40_recovered: AEX #%u mean=%u tgt=%u -> it=%u again=%u dgain=%u conv=%u\n", fn, t40_aex_mean, local_84, (unsigned)local_78, (unsigned)local_74, (unsigned)local_70, (unsigned)(uintptr_t)a0); }   /* T40-AEX per-frame log */
     local_8c = a0;
     *(uint16_t *)((char *)v0 + 2) = a0;
     *(uint16_t *)((char *)v0 + 8) = s1;
@@ -88326,7 +88326,7 @@ tisp_ae_long_tune20xf28:
     return (int64_t)v0;
 
 tisp_ae_long_tune20xf94:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (n++ < 12) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2NL #%u mean(s4)=%lu s6:a0=%lx:%x arg9(1a4)=%u arg5=%u arg6=%u arg7=%u arg8=%u arg10=%u cc=%u b4=%u 94=%u 88=%u 98=%u 9c=%u b8=%u bc=%u f0=%u ec=%u a4=%u 7e=%u s7=%lx | f8=%u fc=%u 100=%u 124=%u ev3@%p\n", n, (unsigned long)(uintptr_t)s4, (unsigned long)(uintptr_t)s6, (unsigned)local_a0, (unsigned)local_1a4, (unsigned)arg5, (unsigned)arg6, (unsigned)arg7, (unsigned)arg8, (unsigned)arg10, (unsigned)local_cc, (unsigned)local_b4, (unsigned)local_94, (unsigned)local_88, (unsigned)local_98, (unsigned)local_9c, (unsigned)local_b8, (unsigned)local_bc, (unsigned)local_f0, (unsigned)local_ec, (unsigned)local_a4, (unsigned)local_7e, (unsigned long)(uintptr_t)s7, (unsigned)local_f8, (unsigned)local_fc, (unsigned)local_100, (unsigned)local_124, (void *)(uintptr_t)*(uint32_t *)((char *)s8 + 8)); }   /* T40-AE-NL-DIAG */
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (n++ < 12) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2NL #%u mean(s4)=%lu s6:a0=%lx:%x arg9(1a4)=%u arg5=%u arg6=%u arg7=%u arg8=%u arg10=%u cc=%u b4=%u 94=%u 88=%u 98=%u 9c=%u b8=%u bc=%u f0=%u ec=%u a4=%u 7e=%u s7=%lx | f8=%u fc=%u 100=%u 124=%u ev3@%p\n", n, (unsigned long)(uintptr_t)s4, (unsigned long)(uintptr_t)s6, (unsigned)local_a0, (unsigned)local_1a4, (unsigned)arg5, (unsigned)arg6, (unsigned)arg7, (unsigned)arg8, (unsigned)arg10, (unsigned)local_cc, (unsigned)local_b4, (unsigned)local_94, (unsigned)local_88, (unsigned)local_98, (unsigned)local_9c, (unsigned)local_b8, (unsigned)local_bc, (unsigned)local_f0, (unsigned)local_ec, (unsigned)local_a4, (unsigned)local_7e, (unsigned long)(uintptr_t)s7, (unsigned)local_f8, (unsigned)local_fc, (unsigned)local_100, (unsigned)local_124, (void *)(uintptr_t)*(uint32_t *)((char *)s8 + 8)); }   /* T40-AE-NL-DIAG */
     /* T40-NONLIST: hand translation of OEM 0x26aec..0x26fa0 (tisp_ae_long_tune2, the EV
      * allocation WITHOUT an exposure list = vendor default, mode gate != 1).  The lift of
      * this block had truncated fix_point call arguments and dropped movn/movz, so it never
@@ -88840,7 +88840,7 @@ int32_t tisp_ae_long_alogrithm(int32_t arg1, int32_t (*arg2)(int32_t arg1, int32
 
         s0_3 = (uintptr_t)s0 * a2_2 * (uintptr_t)a2 * a2_1;
         if (s0_3 != 0) var_54 = ((s0_3 + (uintptr_t)v1_4) * var_54) / s0_3;   /* OEM 0x273d8 divu (no zero guard there) */
-        if (regtrace_t40_ae_diag) { static unsigned int nq; if ((++nq > 2 && nq < 7)) printk(KERN_INFO "tx_isp_t40_recovered: AEADJ fp=1 s0=%lu hw3=%u hw1=%u hw19=%u t2=%lu v1_4=%lu s0_3=%lu -> mean=%u\n", (unsigned long)(uintptr_t)s0, (unsigned)a2, (unsigned)a2_1, (unsigned)a2_2, (unsigned long)(uintptr_t)t2, (unsigned long)(uintptr_t)v1_4, (unsigned long)s0_3, (unsigned)var_54); }
+        if (regtrace_t40_ae_diag >= 2) { static unsigned int nq; if ((++nq > 2 && nq < 7)) printk(KERN_INFO "tx_isp_t40_recovered: AEADJ fp=1 s0=%lu hw3=%u hw1=%u hw19=%u t2=%lu v1_4=%lu s0_3=%lu -> mean=%u\n", (unsigned long)(uintptr_t)s0, (unsigned)a2, (unsigned)a2_1, (unsigned)a2_2, (unsigned long)(uintptr_t)t2, (unsigned long)(uintptr_t)v1_4, (unsigned long)s0_3, (unsigned)var_54); }
         v0_7 = var_5c;
     }
 
@@ -90580,9 +90580,9 @@ tisp_ae_main_long_ev_alloc0x9c:
 
     /* fragment 4: CallSetup */
     local_204 = t2;
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEV pre-setIT #%u s6=%p {%u %u %u}\n", n, (void *)s6, ((uint32_t *)s6)[0], ((uint32_t *)s6)[1], ((uint32_t *)s6)[2]); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEV pre-setIT #%u s6=%p {%u %u %u}\n", n, (void *)s6, ((uint32_t *)s6)[0], ((uint32_t *)s6)[1], ((uint32_t *)s6)[2]); }
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_set_sensor_integration_time)(local_230, s8, s7, local_23c); /* jalr target resolved by relocation */
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEV post-setIT #%u s6=%p {%u %u %u}\n", n, (void *)s6, ((uint32_t *)s6)[0], ((uint32_t *)s6)[1], ((uint32_t *)s6)[2]); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEV post-setIT #%u s6=%p {%u %u %u}\n", n, (void *)s6, ((uint32_t *)s6)[0], ((uint32_t *)s6)[1], ((uint32_t *)s6)[2]); }
 
     /* fragment 5: StackAccess */
     local_200 = v0;
@@ -90655,7 +90655,7 @@ tisp_ae_main_long_ev_alloc0x15c:
 
     /* fragment 20: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_set_ae_long_ag)(local_230, s8, s7, local_23c); /* jalr target resolved by relocation */
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEV post-setAG #%u s6=%p {%u %u %u}\n", n, (void *)s6, ((uint32_t *)s6)[0], ((uint32_t *)s6)[1], ((uint32_t *)s6)[2]); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEV post-setAG #%u s6=%p {%u %u %u}\n", n, (void *)s6, ((uint32_t *)s6)[0], ((uint32_t *)s6)[1], ((uint32_t *)s6)[2]); }
 
     /* fragment 21: Unknown */
     /* unmatched fragment 21 (Unknown): no deterministic matcher for Unknown */
@@ -90741,7 +90741,7 @@ tisp_ae_main_long_ev_alloc0x28c:
 
     /* fragment 40: MemoryAccess */
     v0 = *(uint32_t *)((char *)s6 + 0);
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEV copy->ev3 #%u s6=%p {%u %u %u}\n", n, (void *)s6, ((uint32_t *)s6)[0], ((uint32_t *)s6)[1], ((uint32_t *)s6)[2]); }
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEV copy->ev3 #%u s6=%p {%u %u %u}\n", n, (void *)s6, ((uint32_t *)s6)[0], ((uint32_t *)s6)[1], ((uint32_t *)s6)[2]); }
     v1 = local_1fc;
     a0 = 1;
     *(uint32_t *)((char *)v1 + 0) = v0;
