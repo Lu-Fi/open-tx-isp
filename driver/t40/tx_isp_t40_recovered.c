@@ -45084,7 +45084,7 @@ int32_t tx_isp_af_weight_g_attr_isra_39(uint32_t a0, uintptr_t a1)
     memset(buf, 0, sizeof(buf));
     r = tisp_g_af_weight_attr((uint32_t)(uintptr_t)a0, buf);
     if (r != 0) { isp_printf(1, "%%s[%%d] af weight get failed\n", "tx_isp_af_weight_g_attr", 778); return r; }
-    if (private_copy_to_user((void *)(uintptr_t)*(uint32_t *)(uintptr_t)a1, buf, 225) != 0) { isp_printf(2, "%s[%d] copy_to_user failed\n", "tx_isp_af_weight_g_attr", 784); return -EFAULT; }
+    if (private_copy_to_user((int32_t)(uintptr_t)a1 /* the lift passes the user pointer value (arg3[1]), the OEM isra variant a pointer to it */, (int32_t)(uintptr_t)buf, 225) != 0) { isp_printf(2, "%s[%d] copy_to_user failed\n", "tx_isp_af_weight_g_attr", 784); return -EFAULT; }
     return 0;
 }
 
