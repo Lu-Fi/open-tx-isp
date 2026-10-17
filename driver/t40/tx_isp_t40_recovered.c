@@ -169870,7 +169870,8 @@ int32_t tisp_bcsh_params_transmit(int32_t *arg1, int32_t arg2, void *arg3)
         ((void **)arg1)[0x45] = arg2 + 0x248;
         ((void **)arg1)[0x46] = arg2 + 0x4d4;
     }
-
+    /* OEM 0x68564 sw a1,284(a0): ctx[71] = outer+1356 (flag set) / +1276 (flag clear); the lift dropped the store */
+    ((void **)arg1)[0x47] = arg2 + ((*(unsigned char *)(arg3 + 0x1ae) != 0) ? 0x54c : 0x4fc);
     return arg2 + 0x54c;
 }
 
@@ -169935,8 +169936,8 @@ int32_t tisp_bcsh_params_refresh(void *arg1, void *arg2, int32_t arg3)
     void *matrix_ptr;
     int32_t matrix_len;
 
-    /* Read mode from arg1 + 0x6c */
-    mode = *(uint32_t *)((char *)arg1 + 0x6c);
+    /* OEM 0x686cc: lw v0,108(a0); lbu v0,0(v0) - the mode byte sits behind ctx[27] (blob+290), the lift read the pointer itself */
+    mode = **(uint8_t **)((char *)arg1 + 0x6c);
 
     switch (mode) {
     case 1:
@@ -169973,18 +169974,7 @@ int32_t tisp_bcsh_params_refresh(void *arg1, void *arg2, int32_t arg3)
         break;
 
     case 4:
-        /* BT709 Full mode */
-        bcsh_memcpy((char *)arg2 + 0x0, au16BT709FullOffsetYUVy, 4);
-        bcsh_memcpy((char *)arg2 + 0x4, au16BT709FullClip0, 8);
-        bcsh_memcpy((char *)arg2 + 0xc, au16BT709FullClip1, 8);
-        bcsh_memcpy((char *)arg2 + 0x14, au16BT709FullClip2, 8);
-        bcsh_memcpy((char *)arg2 + 0x48c, as32BT709FullMMatrix, 0x24);
-        matrix_len = 0x24;
-        matrix_ptr = as32BT709FullMinvMatrix;
-        break;
-
-    default:
-        /* Custom mode - read from arg1 */
+        /* OEM 0x68724: mode 4 = custom matrices from ctx[28..33] (blob+292..356) */
         bcsh_memcpy((char *)arg2 + 0x0, *(void **)((char *)arg1 + 0x70), 4);
         bcsh_memcpy((char *)arg2 + 0x4, *(void **)((char *)arg1 + 0x74), 4);
         bcsh_memcpy((char *)arg2 + 0xc, *(void **)((char *)arg1 + 0x78), 4);
@@ -169992,6 +169982,17 @@ int32_t tisp_bcsh_params_refresh(void *arg1, void *arg2, int32_t arg3)
         bcsh_memcpy((char *)arg2 + 0x48c, *(void **)((char *)arg1 + 0x80), 4);
         matrix_len = 4;
         matrix_ptr = *(void **)((char *)arg1 + 0x84);
+        break;
+
+    default:
+        /* OEM 0x68c94: every other mode (tisp_bcsh_main_init(2) -> mode 2) = BT709 Full */
+        bcsh_memcpy((char *)arg2 + 0x0, au16BT709FullOffsetYUVy, 4);
+        bcsh_memcpy((char *)arg2 + 0x4, au16BT709FullClip0, 8);
+        bcsh_memcpy((char *)arg2 + 0xc, au16BT709FullClip1, 8);
+        bcsh_memcpy((char *)arg2 + 0x14, au16BT709FullClip2, 8);
+        bcsh_memcpy((char *)arg2 + 0x48c, as32BT709FullMMatrix, 0x24);
+        matrix_len = 0x24;
+        matrix_ptr = as32BT709FullMinvMatrix;
         break;
     }
 
@@ -170045,7 +170046,13 @@ int32_t tisp_bcsh_params_refresh(void *arg1, void *arg2, int32_t arg3)
     bcsh_memcpy((char *)arg2 + 0x480, (char *)arg3 + 0x480, 0xc);
     bcsh_memcpy((char *)arg2 + 0x524, (char *)arg3 + 0x524, 0x28);
     bcsh_memcpy((char *)arg2 + 0x54c, (char *)arg3 + 0x54c, 0x28);
-
+    /* OEM 0x68af0..0x68b78: if *ctx[35] == 1 the six strength words come from *ctx[34]; if then *ctx[36] == 0 outer+192/+760 are cleared */
+    if (**(uint8_t **)((char *)arg1 + 140) == 1) {
+        const void *ov = *(void **)((char *)arg1 + 136);
+        bcsh_memcpy((char *)arg2 + 28, ov, 4); bcsh_memcpy((char *)arg2 + 64, ov, 4); bcsh_memcpy((char *)arg2 + 100, ov, 4);
+        bcsh_memcpy((char *)arg2 + 596, ov, 4); bcsh_memcpy((char *)arg2 + 632, ov, 4); bcsh_memcpy((char *)arg2 + 668, ov, 4);
+        if (**(uint8_t **)((char *)arg1 + 144) == 0) { *(uint32_t *)((char *)arg2 + 192) = 0; *(uint32_t *)((char *)arg2 + 760) = 0; }
+    }
     return 0;
 }
 
@@ -173765,6 +173772,7 @@ int32_t tisp_bcsh_main_init(uint32_t a0)
     /* fragment 7: MemoryAccess */
     v0 = (uintptr_t *)(uintptr_t)pstMainBcshOri[6];   /* OEM 0x6b21c lw v0,24(s0): ctx[6] -> byte = 0 */
     if (!regtrace_is_kernel_ptr((void *)v0)) return 0;
+    *(uint8_t *)v0 = 0;
     *(uint8_t *)((char *)v0 + 0) = 0;
     ra = local_1c;
     s1 = local_18;
