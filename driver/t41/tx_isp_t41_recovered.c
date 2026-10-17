@@ -881,14 +881,14 @@ t41_bringup_param(t41_ae_comp, uint, 0444);
 t41_bringup_param_desc(t41_ae_comp, "AE target compensation, 128 neutral (read-only)");
 static unsigned int t41_ae_comp_en __attribute__((section(".data")));
 static unsigned int t41_ae_cap_integration __attribute__((section(".data")));
-t41_bringup_param(t41_ae_cap_integration, uint, 0444);
+t41_bringup_param(t41_ae_cap_integration, uint, 0644);
 t41_bringup_param_desc(t41_ae_cap_integration,
 		 "caller max integration lines, 0 = sensor limit (read-only)");
 /* IMPISPAEExprInfo manual exposure (lines / x1024); 0 = automatic. */
 static unsigned int t41_ae_man_freeze, t41_ae_man_it, t41_ae_man_again;
 static unsigned int t41_ae_man_dgain_cap;
 static unsigned int t41_ae_cap_again __attribute__((section(".data")));
-t41_bringup_param(t41_ae_cap_again, uint, 0444);
+t41_bringup_param(t41_ae_cap_again, uint, 0644);
 t41_bringup_param_desc(t41_ae_cap_again,
 		 "caller max sensor gain x1024, 0 = sensor limit (read-only)");
 /* Staged IMPISPModuleRatioAttr units (bit = unit), see t41_module_ratio_apply. */
@@ -918,6 +918,9 @@ module_param(t41_ae_meter_stage, uint, 0444);
 MODULE_PARM_DESC(t41_ae_meter_stage, "safe AE meter: last stage reached (1 static 2 mean 3 tables 4 target-fail 5 ok)");
 static unsigned int t41_ae_meter_diag_once = 1;
 static unsigned int t41_ae_meter_fallback_logged;
+static unsigned int t41_ae_diag;
+module_param(t41_ae_diag, uint, 0644);
+MODULE_PARM_DESC(t41_ae_diag, "safe AE: log every sensor write (1)");
 static int t41_sensor_limits_error = -EAGAIN;
 static int t41_ae_ready[2] __attribute__((section(".data"))) = { 0, 0 };
 static int t41_awb_ready[2] __attribute__((section(".data"))) = { 0, 0 };
@@ -21964,6 +21967,40 @@ static int t41_tuning_sensor_attr(unsigned int channel, uintptr_t user_ptr)
  */
 static uint32_t t41_sensor_mode_fps;
 
+/* The sensor module rewrites its whole register table (including the
+ * frame length) at stream-on, so an fps set by the app before streaming
+ * (timps: SetSensorFPS 25 before the channels start) is silently undone:
+ * sc5336 at "25 fps" ran with VTS 1800 (30 fps) while the attribute still
+ * promised max IT 2152 (VTS 2160) - the AE then wrote IT > VTS and the
+ * sensor delivered black frames.  Re-send the rate after the sensor has
+ * started so the frame length matches the attribute again. */
+static int t41_sensor_fps_reapply(void)
+{
+    unsigned char *core, *video, *attr;
+    uint32_t fps, event_arg[2];
+    uint16_t old_vts;
+    int ret;
+
+    core = (unsigned char *)(uintptr_t)*(uint32_t *)(void *)g_ispcore;
+    if (!t41_kernel_data_ptr(core) || !t41_kernel_data_ptr((void *)(uintptr_t)ispcore_sd))
+        return -ENODEV;
+    video = core + 308;
+    attr = (unsigned char *)(uintptr_t)*(uint32_t *)(void *)(video + 52);
+    if (!t41_kernel_data_ptr(attr))
+        return -ENODEV;
+    fps = *(uint32_t *)(void *)(video + 68);
+    if (!t41_sensor_mode_fps || fps == t41_sensor_mode_fps || t41_sensor_fps_check(fps, 0))
+        return 0;
+    old_vts = *(uint16_t *)(void *)(attr + 182);
+    event_arg[0] = 0;
+    event_arg[1] = fps;
+    ret = ispcore_sensor_ops_ioctl((uintptr_t)ispcore_sd, 0x0200000aU,
+                                   (uintptr_t)event_arg);
+    printk(KERN_WARNING "t41: sensor fps %u/%u re-applied after stream-on ret=%d vts %u -> %u\n",
+           fps >> 16, fps & 0xffffU, ret, old_vts, *(uint16_t *)(void *)(attr + 182));
+    return ret;
+}
+
 static int t41_tuning_sensor_fps_set(unsigned int channel, uint32_t fps)
 {
     unsigned char *core, *video, *attr;
@@ -22005,6 +22042,8 @@ static int t41_tuning_sensor_fps_set(unsigned int channel, uint32_t fps)
     }
     *(uint32_t *)(void *)(video + 68) = fps;
     *(uint32_t *)(void *)(tisp_par_info_storage + 48) = fps;
+    printk(KERN_WARNING "t41: sensor fps %u/%u applied, vts %u -> %u\n",
+           fps >> 16, fps & 0xffffU, old_vts, *(uint16_t *)(void *)(attr + 182));
     printk(KERN_INFO "t41: sensor fps %u/%u vts %u->%u\n",
            fps >> 16, fps & 0xffffU, old_vts,
            *(uint16_t *)(void *)(attr + 182));
@@ -59167,7 +59206,7 @@ apply_sensor:
 				channel, gain_q16,
 				t41_safe_gain_fanout_mask & 0x3fU);
 	}
-	if (control->updates < 24 || ret)
+	if (control->updates < 24 || ret || t41_ae_diag)
 		t41_note(
 		       "t41: safe AE exposure=%u/%u Q10 -> %u/%u Q10 code=%#x log2=%u ret=%d\n",
 		       old_integration, old_again,
@@ -163779,6 +163818,8 @@ int32_t ispcore_frame_channel_streamon(void *arg1)
             t41_defer_sensor_start = 0;
 
         ret = t41_video_s_stream_late();
+        if (!ret && !t41_defer_sensor_start)
+            t41_sensor_fps_reapply();
         if (!ret && channel_index < 3 && t41_safe_msca_start <= 0) {
             uint32_t tisp_channel =
                 (uint32_t)(uintptr_t)*(void **)(channel + 0x78);
