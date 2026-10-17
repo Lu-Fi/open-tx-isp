@@ -102311,6 +102311,12 @@ int64_t tisp_awb_long_alogrithm(uintptr_t a0, uintptr_t a1)
         if (nd++ < 8)
             printk(KERN_INFO "tx_isp_t40_recovered: AWBALG rows=%u cols=%u s1=%u s3=%u g0=%u g1=%u cnt=%u/%u sum=%u/%u mean=%u/%u ctd_in=%u/%u ctd_out=%u/%u flag=%u/%u ct=%u mode=%u thr0=%u s0=%u\n",
                    rows, cols, s1, s3, g0, g1, cnt1, cnt2, sum1, sum2, g123[0], g123[1], loc48, loc52, ctd[0], ctd[1], ctf[0], ctf[1], *T[7], mode, t0thr, s0);
+        if (nd <= 8)
+            printk(KERN_INFO "tx_isp_t40_recovered: AWBALG2 w23=%u %u %u %u %u %u %u %u sel=%u w55=%u %u %u %u s5=%u/%u z112: sums=%u %u %u %u h2=%u %u %u %u raw59=%u %u %u %u %u | r43=%u/%u thr=%u %u %u %u\n",
+                   w23[0], w23[1], w23[2], w23[3], w23[4], w23[5], w23[6], w23[7], t7sel, w55 ? w55[0] : 0, w55 ? w55[1] : 0, w55 ? w55[2] : 0, w55 ? w55[3] : 0, s5[0], s5[1],
+                   T[39][112], T[40][112], T[41][112], T[42][112], T[39][337], T[40][337], T[41][337], T[42][337],
+                   T[59][112], T[60][112], T[61][112], T[62][112], T[63][112], T[43][112 + 450], T[43][112 + 675],
+                   ((uint32_t *)(uintptr_t)((uint32_t *)a1)[2])[0], ((uint32_t *)(uintptr_t)((uint32_t *)a1)[2])[1], ((uint32_t *)(uintptr_t)((uint32_t *)a1)[2])[2], ((uint32_t *)(uintptr_t)((uint32_t *)a1)[2])[3]);
         loc48 = ctd[0]; loc52 = ctd[1]; loc32 = ctf[0]; loc36 = ctf[1];
     }
     if (*(uint8_t *)T[100] == 1U) {
