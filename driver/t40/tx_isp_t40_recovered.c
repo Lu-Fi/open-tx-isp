@@ -110530,135 +110530,34 @@ tisp_lsc_gain_update0x3c:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037670 origin=model_output original=tisp_lsc_tool_to_awdr */
 int32_t tisp_lsc_tool_to_awdr(int32_t arg1)
 {
-    if (regtrace_isr_oem_hw_refresh) {
-    struct t40_writer_context *p = t40_writer_lsc_get((unsigned int)arg1);
-        return p ? t40_writer_lsc_tool_to_awdr(p, (unsigned int)arg1) : -EAGAIN;
+    /* Hand translation of OEM 0x38090..0x3816c.  ch = arg1: tool = lsc_{main,seco}_tool_para (.bss+17488/17492), awdr =
+     * lsc_{main,seco}_awdr_para (+17480/17484), real = lsc_{main,seco}_real_para (+17472/17476), flag = byte[.bss+17532+ch]
+     * (mirror/flip select: tables at tool+72/94/116 instead of +24/46/68).  The lift fetched these through inline asm on OUR
+     * .bss (MT72 BadVA 0x41c0). */
+    uint32_t ch = (uint32_t)(uintptr_t)arg1 & 1U;
+    uint16_t *tool = (uint16_t *)(ch ? lsc_seco_tool_para : lsc_main_tool_para);
+    char *awdr = (char *)(ch ? lsc_seco_awdr_para : lsc_main_awdr_para);
+    char *real = (char *)(ch ? lsc_seco_real_para : lsc_main_real_para);
+    uint32_t flag = ((const uint8_t *)&lsc_flip_en)[ch];
+    if (!regtrace_is_kernel_ptr(tool) || !regtrace_is_kernel_ptr(awdr) || !regtrace_is_kernel_ptr(real)) {
+        static unsigned int n;
+        if (n++ < 2) printk(KERN_INFO "tx_isp_t40_recovered: lsc_tool_to_awdr ch=%u: tool=%p awdr=%p real=%p not initialised\n", ch, tool, awdr, real);
+        return 0;
     }
-    uint16_t *v0;
-    uint16_t *v1;
-    char *a3;
-    uint16_t *a1;
-    uint32_t *a0_1;
-    uint32_t a1_2;
-    uint32_t *a2;
-    uint32_t a2_1;
-    uint32_t a2_2;
-    uint32_t a1_3;
-    uint16_t *tmp_v0;
-    uint16_t *tmp_v1;
-    char *tmp_a3;
-
-    /* Force .bss relocations through inline assembly */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "lw $v0, %%lo(.bss)($v0)\n\t"
-        : : : "$v0"
-    );
-
-    if (arg1 == 0) {
-        tmp_v0 = (uint16_t *)0;
-        tmp_v1 = (uint16_t *)0;
-        tmp_a3 = (char *)0;
-        __asm__ volatile (
-            "lui %0, %%hi(.bss)\n\t"
-            "lw %0, %%lo(.bss)(%0)\n\t"
-            "addiu %0, %0, 16832\n\t"
-            : "=r" (tmp_v0)
-            :
-            :
-        );
-        __asm__ volatile (
-            "lui %0, %%hi(.bss)\n\t"
-            "lw %0, %%lo(.bss)(%0)\n\t"
-            "addiu %0, %0, 16824\n\t"
-            : "=r" (tmp_v1)
-            :
-            :
-        );
-        __asm__ volatile (
-            "lui %0, %%hi(.bss)\n\t"
-            "lw %0, %%lo(.bss)(%0)\n\t"
-            "addiu %0, %0, 16816\n\t"
-            : "=r" (tmp_a3)
-            :
-            :
-        );
-        v0 = tmp_v0;
-        v1 = tmp_v1;
-        a3 = tmp_a3;
-    } else {
-        tmp_v0 = (uint16_t *)0;
-        tmp_v1 = (uint16_t *)0;
-        tmp_a3 = (char *)0;
-        __asm__ volatile (
-            "lui %0, %%hi(.bss)\n\t"
-            "lw %0, %%lo(.bss)(%0)\n\t"
-            "addiu %0, %0, 16836\n\t"
-            : "=r" (tmp_v0)
-            :
-            :
-        );
-        __asm__ volatile (
-            "lui %0, %%hi(.bss)\n\t"
-            "lw %0, %%lo(.bss)(%0)\n\t"
-            "addiu %0, %0, 16828\n\t"
-            : "=r" (tmp_v1)
-            :
-            :
-        );
-        __asm__ volatile (
-            "lui %0, %%hi(.bss)\n\t"
-            "lw %0, %%lo(.bss)(%0)\n\t"
-            "addiu %0, %0, 16820\n\t"
-            : "=r" (tmp_a3)
-            :
-            :
-        );
-        v0 = tmp_v0;
-        v1 = tmp_v1;
-        a3 = tmp_a3;
-    }
-
-    a1 = v0[0];
-    ((void **)v1)[0] = a1;
-
-    a0_1 = (uint32_t *)((uint16_t)((char *)arg1 + 16876));
-
-    a1 = v0[1];
-    ((void **)v1)[1] = a1;
-
-    a1_2 = (uint32_t)v0[60];
-    a2 = (uint32_t *)((char *)v0 + 12);
-    ((void **)v1)[14] = (uint16_t)a1_2;
-
-    if (a0_1 != 0) {
-        a2 = (uint32_t *)((char *)v0 + 36);
-    }
-    ((uint32_t *)((char *)v1 + 16))[0] = a2;
-
-    a2_1 = (uint32_t)((char *)v0 + 23);
-    if (a0_1 != 0) {
-        a2_1 = (uint32_t)((char *)v0 + 47);
-    }
-    ((uint32_t *)((char *)v1 + 20))[0] = a2_1;
-
-    a2_2 = (uint32_t)((char *)v0 + 34);
-    if (a0_1 != 0) {
-        a2_2 = (uint32_t)((char *)v0 + 58);
-    }
-
-    ((uint32_t *)((char *)v1 + 4))[0] = (uint32_t)((char *)v0 + 2);
-    ((uint32_t *)((char *)v1 + 8))[0] = (uint32_t)((char *)v0 + 4);
-    ((uint32_t *)((char *)v1 + 12))[0] = (uint32_t)((char *)v0 + 8);
-    ((uint32_t *)((char *)v1 + 32))[0] = (uint32_t)((char *)v0 + 61);
-    ((uint32_t *)((char *)v1 + 36))[0] = (uint32_t)((char *)v0 + 146);
-    ((uint32_t *)((char *)v1 + 44))[0] = (uint32_t)((char *)v0 + 14116);
-    ((uint32_t *)((char *)v1 + 28))[0] = a2_2;
-    ((uint32_t *)((char *)v1 + 40))[0] = (uint32_t)((char *)v0 + 7154);
-
-    a1_3 = a1_2 / 3;
-    ((uint16_t *)(a3 + 13828))[0] = (uint16_t)a1_3;
-
+    *(uint16_t *)(awdr + 0) = tool[0];
+    *(uint16_t *)(awdr + 2) = tool[1];
+    *(uint16_t *)(awdr + 28) = tool[60];
+    *(uint32_t *)(awdr + 16) = (uint32_t)(uintptr_t)((char *)tool + (flag ? 72 : 24));
+    *(uint32_t *)(awdr + 20) = (uint32_t)(uintptr_t)((char *)tool + (flag ? 94 : 46));
+    *(uint32_t *)(awdr + 24) = (uint32_t)(uintptr_t)((char *)tool + (flag ? 116 : 68));
+    *(uint32_t *)(awdr + 4) = (uint32_t)(uintptr_t)((char *)tool + 4);
+    *(uint32_t *)(awdr + 8) = (uint32_t)(uintptr_t)((char *)tool + 8);
+    *(uint32_t *)(awdr + 12) = (uint32_t)(uintptr_t)((char *)tool + 16);
+    *(uint32_t *)(awdr + 32) = (uint32_t)(uintptr_t)((char *)tool + 122);
+    *(uint32_t *)(awdr + 36) = (uint32_t)(uintptr_t)((char *)tool + 292);
+    *(uint32_t *)(awdr + 40) = (uint32_t)(uintptr_t)((char *)tool + 14116);
+    *(uint32_t *)(awdr + 44) = (uint32_t)(uintptr_t)((char *)tool + 27940);
+    *(uint16_t *)(real + 13828) = (uint16_t)(tool[60] / 3U);
     return 0;
 }
 
