@@ -87571,6 +87571,7 @@ tisp_ae_long_tune20x744:
     a1 = (uintptr_t)v0 - (uintptr_t)s4;
 
 tisp_ae_long_tune20x768:
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 768 #%u a1=%lu s4=%lu s5=%u s7=%lx target(84)=%u ec=%u s0=%lu\n", n, (unsigned long)(uintptr_t)a1, (unsigned long)(uintptr_t)s4, s5, (unsigned long)(uintptr_t)s7, local_84, local_ec, (unsigned long)(uintptr_t)s0); }
     /* fragment 109: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)((uintptr_t)s0, a1 << (uintptr_t)s0, s7); /* jalr target resolved by relocation */
 
@@ -87593,6 +87594,7 @@ tisp_ae_long_tune20x768:
     if (_bc_v0_113) { goto tisp_ae_long_tune20xac8; }
 
 tisp_ae_long_tune20x7a0:
+tisp_ae_long_tune20x7a4:   /* OEM 0x262fc: the 1024<<sh shift (0x26300..0x26310) follows BOTH labels; the lift put it before 0x7a4, so the tune-call path (0xac8 -> 0x7a4) left s7/136(sp) with the tune return value */
     /* fragment 114: CallSetup */
    /* fragment 114: 64-bit shift: (1024, 0) << s0 */
     {
@@ -87602,7 +87604,6 @@ tisp_ae_long_tune20x7a0:
         v1 = (int32_t *)(result >> 32);
     }
 
-tisp_ae_long_tune20x7a4:
     /* fragment 115: CallSetup */
    /* fragment 115: 64-bit shift: (1024, 0) << s0 - already computed above, v0/v1 set */
 
