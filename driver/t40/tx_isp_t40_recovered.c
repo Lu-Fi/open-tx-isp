@@ -88333,6 +88333,7 @@ tisp_ae_long_tune20xf28:
     return (int64_t)v0;
 
 tisp_ae_long_tune20xf94:
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (n++ < 6) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2NL #%u mean(s4)=%lu s6:a0=%lx:%x arg9(1a4)=%u arg5=%u arg6=%u arg7=%u arg8=%u arg10=%u cc=%u b4=%u 94=%u 88=%u 98=%u 9c=%u b8=%u bc=%u f0=%u ec=%u a4=%u 7e=%u s7=%lx\n", n, (unsigned long)(uintptr_t)s4, (unsigned long)(uintptr_t)s6, (unsigned)local_a0, (unsigned)local_1a4, (unsigned)arg5, (unsigned)arg6, (unsigned)arg7, (unsigned)arg8, (unsigned)arg10, (unsigned)local_cc, (unsigned)local_b4, (unsigned)local_94, (unsigned)local_88, (unsigned)local_98, (unsigned)local_9c, (unsigned)local_b8, (unsigned)local_bc, (unsigned)local_f0, (unsigned)local_ec, (unsigned)local_a4, (unsigned)local_7e, (unsigned long)(uintptr_t)s7); }   /* T40-AE-NL-DIAG */
     /* T40-NONLIST: hand translation of OEM 0x26aec..0x26fa0 (tisp_ae_long_tune2, the EV
      * allocation WITHOUT an exposure list = vendor default, mode gate != 1).  The lift of
      * this block had truncated fix_point call arguments and dropped movn/movz, so it never
@@ -105438,6 +105439,7 @@ int32_t tisp_awb_spec_calculate(uintptr_t a0, uint32_t a1)
     a3 = (uintptr_t)a3 | 32948;
 
 tisp_awb_spec_calculate0x40:
+    regtrace_t40_awb_step = 8256;   /* T40-AWB-STEP spec+0x40 */
     /* fragment 5: Arithmetic */
     v0 = (uintptr_t *)((uintptr_t)a3 - 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
@@ -105475,6 +105477,7 @@ tisp_awb_spec_calculate0x40:
 
     /* fragment 7: CallSetup */
     local_30 = t1;
+    regtrace_t40_awb_step = 12288;   /* T40-AWB-STEP spec+0x1000 */
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)a1, a2); /* jalr target resolved by relocation */
 
     /* fragment 8: StackAccess */
@@ -105499,6 +105502,7 @@ tisp_awb_spec_calculate0x40:
     *(uint8_t *)((char *)t0 + 1) = v0;
 
 tisp_awb_spec_calculate0xf0:
+    regtrace_t40_awb_step = 8432;   /* T40-AWB-STEP spec+0xf0 */
     /* fragment 13: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 108);
     s0 = (uintptr_t *)&system_reg_write;
@@ -105509,6 +105513,7 @@ tisp_awb_spec_calculate0xf0:
     if (v0 != 0) { goto tisp_awb_spec_calculate0x118; }
 
 tisp_awb_spec_calculate0x104:
+    regtrace_t40_awb_step = 8452;   /* T40-AWB-STEP spec+0x104 */
     /* fragment 15: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 112);
 
@@ -105517,11 +105522,13 @@ tisp_awb_spec_calculate0x104:
     goto tisp_awb_spec_calculate0x1f4;
 
 tisp_awb_spec_calculate0x110:
+    regtrace_t40_awb_step = 8464;   /* T40-AWB-STEP spec+0x110 */
     /* fragment 17: Branch */
     a3 = (uintptr_t)a3 | 33460;
     goto tisp_awb_spec_calculate0x40;
 
 tisp_awb_spec_calculate0x118:
+    regtrace_t40_awb_step = 8472;   /* T40-AWB-STEP spec+0x118 */
     /* fragment 18: Arithmetic */
     v0 = 1;
 
@@ -105577,6 +105584,7 @@ tisp_awb_spec_calculate0x118:
     a1 = (typeof(a1))(uintptr_t)((uint32_t)(uintptr_t)a1 ? ((uint32_t)(uintptr_t)a0 / (uint32_t)(uintptr_t)a1) : 0);   /* T40-DIV-RESTORE: divu a0,a1 ; mflo a1 */
 
 tisp_awb_spec_calculate0x190:
+    regtrace_t40_awb_step = 8592;   /* T40-AWB-STEP spec+0x190 */
     /* fragment 32: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 116);
     *(uint16_t *)((char *)v0 + 0) = a1;
@@ -105605,6 +105613,7 @@ tisp_awb_spec_calculate0x190:
     a1 = (uintptr_t)v0 | a1;
 
 tisp_awb_spec_calculate0x1f4:
+    regtrace_t40_awb_step = 8692;   /* T40-AWB-STEP spec+0x1f4 */
     /* fragment 37: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1, a1); /* jalr target resolved by relocation */
 
@@ -105617,6 +105626,7 @@ tisp_awb_spec_calculate0x1f4:
     if (a0 != 0) { goto tisp_awb_spec_calculate0x284; }
 
 tisp_awb_spec_calculate0x20c:
+    regtrace_t40_awb_step = 8716;   /* T40-AWB-STEP spec+0x20c */
     /* fragment 40: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 112);
 
@@ -105625,6 +105635,7 @@ tisp_awb_spec_calculate0x20c:
     goto tisp_awb_spec_calculate0x2cc;
 
 tisp_awb_spec_calculate0x218:
+    regtrace_t40_awb_step = 8728;   /* T40-AWB-STEP spec+0x218 */
     /* fragment 42: CallSetup */
     local_24 = t0;
     local_1c = (uintptr_t)&fix_point_mult2_32;
@@ -105645,6 +105656,7 @@ tisp_awb_spec_calculate0x218:
     goto tisp_awb_spec_calculate0x104;
 
 tisp_awb_spec_calculate0x278:
+    regtrace_t40_awb_step = 8824;   /* T40-AWB-STEP spec+0x278 */
     /* fragment 46: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 204);
 
@@ -105653,6 +105665,7 @@ tisp_awb_spec_calculate0x278:
     goto tisp_awb_spec_calculate0x104;
 
 tisp_awb_spec_calculate0x284:
+    regtrace_t40_awb_step = 8836;   /* T40-AWB-STEP spec+0x284 */
     /* fragment 48: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 116);
 
@@ -105675,6 +105688,7 @@ tisp_awb_spec_calculate0x284:
     a1 = (uintptr_t)v0 | a1;
 
 tisp_awb_spec_calculate0x2cc:
+    regtrace_t40_awb_step = 8908;   /* T40-AWB-STEP spec+0x2cc */
     /* fragment 53: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s6, a1); /* jalr target resolved by relocation */
 
@@ -105686,6 +105700,7 @@ tisp_awb_spec_calculate0x2cc:
     if (a0 != 0) { goto tisp_awb_spec_calculate0x34c; }
 
 tisp_awb_spec_calculate0x2e4:
+    regtrace_t40_awb_step = 8932;   /* T40-AWB-STEP spec+0x2e4 */
     /* fragment 56: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 112);
 
@@ -105694,6 +105709,7 @@ tisp_awb_spec_calculate0x2e4:
     goto tisp_awb_spec_calculate0x394;
 
 tisp_awb_spec_calculate0x2f0:
+    regtrace_t40_awb_step = 8944;   /* T40-AWB-STEP spec+0x2f0 */
     /* fragment 58: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(10, a1 << 2, *(uint32_t *)((char *)(*(uint32_t *)((char *)(s7) + 36)) + 0)); /* jalr target resolved by relocation */
 
@@ -105711,6 +105727,7 @@ tisp_awb_spec_calculate0x2f0:
     goto tisp_awb_spec_calculate0x20c;
 
 tisp_awb_spec_calculate0x34c:
+    regtrace_t40_awb_step = 9036;   /* T40-AWB-STEP spec+0x34c */
     /* fragment 62: Arithmetic */
     a1 = 1;
 
@@ -105733,6 +105750,7 @@ tisp_awb_spec_calculate0x34c:
     a1 = (uintptr_t)v0 | a1;
 
 tisp_awb_spec_calculate0x394:
+    regtrace_t40_awb_step = 9108;   /* T40-AWB-STEP spec+0x394 */
     /* fragment 67: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s5, a1); /* jalr target resolved by relocation */
 
@@ -105745,6 +105763,7 @@ tisp_awb_spec_calculate0x394:
     if (a0 != 0) { goto tisp_awb_spec_calculate0x418; }
 
 tisp_awb_spec_calculate0x3ac:
+    regtrace_t40_awb_step = 9132;   /* T40-AWB-STEP spec+0x3ac */
     /* fragment 70: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 112);
 
@@ -105753,6 +105772,7 @@ tisp_awb_spec_calculate0x3ac:
     goto tisp_awb_spec_calculate0x460;
 
 tisp_awb_spec_calculate0x3b8:
+    regtrace_t40_awb_step = 9144;   /* T40-AWB-STEP spec+0x3b8 */
     /* fragment 72: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(10, (*(uint16_t *)((char *)((uintptr_t)v0) + 12)) << 2, *(uint32_t *)((char *)(*(uint32_t *)((char *)(s7) + 36)) + 0)); /* jalr target resolved by relocation */
 
@@ -105770,6 +105790,7 @@ tisp_awb_spec_calculate0x3b8:
     goto tisp_awb_spec_calculate0x2e4;
 
 tisp_awb_spec_calculate0x418:
+    regtrace_t40_awb_step = 9240;   /* T40-AWB-STEP spec+0x418 */
     /* fragment 76: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 116);
 
@@ -105792,6 +105813,7 @@ tisp_awb_spec_calculate0x418:
     a1 = (uintptr_t)v0 | a1;
 
 tisp_awb_spec_calculate0x460:
+    regtrace_t40_awb_step = 9312;   /* T40-AWB-STEP spec+0x460 */
     /* fragment 81: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s4, a1); /* jalr target resolved by relocation */
 
@@ -105803,6 +105825,7 @@ tisp_awb_spec_calculate0x460:
     if (a0 != 0) { goto tisp_awb_spec_calculate0x4e0; }
 
 tisp_awb_spec_calculate0x478:
+    regtrace_t40_awb_step = 9336;   /* T40-AWB-STEP spec+0x478 */
     /* fragment 84: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 112);
 
@@ -105811,6 +105834,7 @@ tisp_awb_spec_calculate0x478:
     goto tisp_awb_spec_calculate0x528;
 
 tisp_awb_spec_calculate0x484:
+    regtrace_t40_awb_step = 9348;   /* T40-AWB-STEP spec+0x484 */
     /* fragment 86: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(10, a1 << 2, *(uint32_t *)((char *)(*(uint32_t *)((char *)(s7) + 36)) + 0)); /* jalr target resolved by relocation */
 
@@ -105828,6 +105852,7 @@ tisp_awb_spec_calculate0x484:
     goto tisp_awb_spec_calculate0x3ac;
 
 tisp_awb_spec_calculate0x4e0:
+    regtrace_t40_awb_step = 9440;   /* T40-AWB-STEP spec+0x4e0 */
     /* fragment 90: Arithmetic */
     a1 = 1;
 
@@ -105850,6 +105875,7 @@ tisp_awb_spec_calculate0x4e0:
     a1 = (uintptr_t)v0 | a1;
 
 tisp_awb_spec_calculate0x528:
+    regtrace_t40_awb_step = 9512;   /* T40-AWB-STEP spec+0x528 */
     /* fragment 95: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3, a1); /* jalr target resolved by relocation */
 
@@ -105862,6 +105888,7 @@ tisp_awb_spec_calculate0x528:
     if (a0 != 0) { goto tisp_awb_spec_calculate0x5ac; }
 
 tisp_awb_spec_calculate0x540:
+    regtrace_t40_awb_step = 9536;   /* T40-AWB-STEP spec+0x540 */
     /* fragment 98: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 112);
 
@@ -105870,6 +105897,7 @@ tisp_awb_spec_calculate0x540:
     goto tisp_awb_spec_calculate0x5f4;
 
 tisp_awb_spec_calculate0x54c:
+    regtrace_t40_awb_step = 9548;   /* T40-AWB-STEP spec+0x54c */
     /* fragment 100: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(10, (*(uint16_t *)((char *)((uintptr_t)v0) + 16)) << 2, *(uint32_t *)((char *)(*(uint32_t *)((char *)(s7) + 36)) + 0)); /* jalr target resolved by relocation */
 
@@ -105887,6 +105915,7 @@ tisp_awb_spec_calculate0x54c:
     goto tisp_awb_spec_calculate0x478;
 
 tisp_awb_spec_calculate0x5ac:
+    regtrace_t40_awb_step = 9644;   /* T40-AWB-STEP spec+0x5ac */
     /* fragment 104: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 116);
 
@@ -105909,6 +105938,7 @@ tisp_awb_spec_calculate0x5ac:
     a1 = (uintptr_t)v0 | a1;
 
 tisp_awb_spec_calculate0x5f4:
+    regtrace_t40_awb_step = 9716;   /* T40-AWB-STEP spec+0x5f4 */
     /* fragment 109: Epilogue */
     /* function epilogue: restore registers and return */
 
@@ -105919,6 +105949,7 @@ tisp_awb_spec_calculate0x5f4:
     s0 = local_40;
 
 tisp_awb_spec_calculate0x62c:
+    regtrace_t40_awb_step = 9772;   /* T40-AWB-STEP spec+0x62c */
     /* fragment 111: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(10, a1 << 2, *(uint32_t *)((char *)(*(uint32_t *)((char *)(s7) + 36)) + 0)); /* jalr target resolved by relocation */
 
