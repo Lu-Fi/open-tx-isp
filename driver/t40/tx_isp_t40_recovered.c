@@ -7454,6 +7454,8 @@ static bool t40_runmode_pending_valid;
 static bool regtrace_t40_vendor_awb_process;   /* defined with its module_param further down */
 static bool regtrace_t40_awb_spec_regs;   /* T40-AWB-SPEC-REGS: write the special-light registers 0x180xx (MT98: heap corruption with them, likely a stats DMA without a buffer) */
 module_param_named(t40_awb_spec_regs, regtrace_t40_awb_spec_regs, bool, 0644);
+static bool regtrace_t40_awb_ctd;   /* T40-AWB-CTD: run the lifted tisp_awb_ct_detect (8 KB fragment lift, heap-corruption suspect N9); off = gray-world fallback */
+module_param_named(t40_awb_ctd, regtrace_t40_awb_ctd, bool, 0644);
 static unsigned int regtrace_t40_awb_proc_stages = 0xffU;   /* T40-AWB-STAGES bisect: 1 par_update 2 spec_calculate 4 alogrithm 8 set_gain 16 event13 */
 module_param_named(t40_awb_proc_stages, regtrace_t40_awb_proc_stages, uint, 0644);
 static int regtrace_t40_tuning_set_running_mode(uint32_t mode);
@@ -102315,7 +102317,8 @@ int64_t tisp_awb_long_alogrithm(uintptr_t a0, uintptr_t a1)
     {
         uint32_t ctd[2] = { loc48, loc52 }, ctf[2] = { loc32, loc36 };
         static unsigned int nd;
-        (void)tisp_awb_ct_detect(a1, (uintptr_t)ctd, (uint32_t)(uintptr_t)ctf);
+        if (regtrace_t40_awb_ctd)
+            (void)tisp_awb_ct_detect(a1, (uintptr_t)ctd, (uint32_t)(uintptr_t)ctf);
         if (ctd[0] == loc48 && ctd[1] == loc52) {
             /* T40-AWB-GRAYWORLD-FALLBACK: the lifted tisp_awb_ct_detect leaves its outputs untouched (MT103).  Until it is
              * hand-translated, use the gray-world estimate from the global means (Q8 R/G, B/G): gain = 1/mean in Q16. */
