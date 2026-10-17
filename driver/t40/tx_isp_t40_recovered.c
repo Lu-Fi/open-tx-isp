@@ -87343,6 +87343,7 @@ tisp_ae_long_tune20x624:
     v1 = local_80;
 
 tisp_ae_long_tune20x690:
+    s6 = local_a4;   /* T40-LOSTLOAD (OEM 0x261e8 lw s6,164(sp)) */
     /* fragment 86: Epilogue */
     /* function epilogue: restore registers and return */
 
@@ -87809,6 +87810,7 @@ tisp_ae_long_tune20xa68:
     /* function epilogue: restore registers and return */
 
     /* fragment 175: Branch */
+    s6 = local_a4;   /* T40-LOSTLOAD (OEM 0x265c0 lw s6,164(sp)) */
     local_8c = v1;
     { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x6a0"); else { __lg--; goto tisp_ae_long_tune20x6a0; } }
 
@@ -88151,6 +88153,7 @@ tisp_ae_long_tune20xe0c:
     /* function epilogue: restore registers and return */
 
     /* fragment 245: Branch */
+    s6 = local_a4;   /* T40-LOSTLOAD (OEM 0x26968 lw s6,164(sp)): the lift swallowed it as 'epilogue' -> NL block compared against a stale s6 (0x400) */
     local_8c = v0;
     { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xa18"); else { __lg--; goto tisp_ae_long_tune20xa18; } }
 
@@ -105943,6 +105946,7 @@ tisp_awb_spec_calculate0x5f4:
     /* function epilogue: restore registers and return */
 
     /* fragment 110: CallSetup */
+    return system_reg_write((uint32_t)(uintptr_t)s2, (uint32_t)(uintptr_t)a1);   /* T40-TAILCALL (OEM 0x34438 jr.hb t9 = system_reg_write(s2, a1)); the lift fell through into 0x62c and looped forever */
     a0 = s2;
     t9 = s0;
     s2 = local_48;
