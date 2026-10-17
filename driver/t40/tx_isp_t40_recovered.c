@@ -1069,17 +1069,17 @@ static unsigned char video_input_cmd_buf[0x10000];
 static unsigned char csi_cmd_buf[0x10000];
 static unsigned char vic_cmd_buf[0x10000];
 static uintptr_t vic_err[0x4000];
-static uintptr_t _tisp_jump_table[0x4000];
+static uintptr_t _tisp_jump_table[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [0x4000]) */
 static uintptr_t jump_table_7e1c0[0x4000];
 static uintptr_t jump_table_7f0b4[0x4000];
 static uintptr_t jump_table_7f0c8[0x4000];
 static uintptr_t jump_table_7f0dc[0x4000];
 static uintptr_t jump_table_7f0f0[0x4000];
-static uintptr_t bss_array[0x4000];
+static uintptr_t bss_array[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [0x4000]) */
 static uintptr_t gib_data[0x4000];
 static uintptr_t lut_buffer[0x4000];
-static uintptr_t DATA_A84AC[0x4000];
-static uintptr_t DATA_A84B0[0x4000];
+static uintptr_t DATA_A84AC[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [0x4000]) */
+static uintptr_t DATA_A84B0[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [0x4000]) */
 static uint32_t *tisp_par_ioctl;
 
 static uintptr_t GIB_IR_MODE;
@@ -1577,8 +1577,8 @@ static unsigned char __attribute__((aligned(4))) ae_cache[12] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 };
 static uint32_t aeShowPar;
-static unsigned char data_b7744[16384];
-static unsigned char data_b7748[16384];
+static unsigned char data_b7744[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char data_b7748[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
 static uintptr_t (*data_b76a0)();
 static uintptr_t (*data_b7698)();
 static uintptr_t (*data_b76a4)();
@@ -1588,14 +1588,14 @@ static uintptr_t (*data_b76e0)();
 static uintptr_t (*data_b76dc)();
 static uintptr_t (*data_b7700)();
 static uintptr_t (*data_b76f8)();
-static unsigned char data_b76c8[16384];
-static unsigned char data_b76cc[16384];
-static unsigned char data_b76d0[16384];
-static unsigned char data_b7724[16384];
-static unsigned char data_b76d4[16384];
-static unsigned char data_b76d8[16384];
-static unsigned char data_b76fc[16384];
-static unsigned char data_b7728[16384];
+static unsigned char data_b76c8[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char data_b76cc[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char data_b76d0[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char data_b7724[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char data_b76d4[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char data_b76d8[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char data_b76fc[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char data_b7728[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
 static uintptr_t data_b7d3c;
 static uintptr_t data_b76b4;
 static uintptr_t data_b7708;
@@ -2083,8 +2083,8 @@ static uintptr_t (*data_a889c)();
 static uintptr_t (*data_a8898)();
 static uintptr_t (*data_a8894)();
 static unsigned char data_a8910[16384];
-static unsigned char data_3f000[16384];
-static unsigned char data_3ffc0[16384];
+static unsigned char data_3f000[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char data_3ffc0[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
 static unsigned char data_a8960[16384];
 static unsigned char data_a8968[16384];
 static unsigned char __attribute__((aligned(4))) adr_5x5_in2[124] = {
@@ -6782,11 +6782,11 @@ static unsigned char g_abs_7ecf8[16384];
 static unsigned char __attribute__((aligned(4))) vin_height[8] = {
     0x38, 0x04, 0x00, 0x00, 0x38, 0x04, 0x00, 0x00, 
 };
-static unsigned char g_data_a8a44[16384];
-static unsigned char g_data_a8a4c[16384];
-static unsigned char g_data_a8a40[16384];
-static unsigned char g_data_a8a48[16384];
-static unsigned char g_data_a8a30[16384];
+static unsigned char g_data_a8a44[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char g_data_a8a4c[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char g_data_a8a40[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char g_data_a8a48[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
+static unsigned char g_data_a8a30[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
 static uintptr_t (*data_a8cf0)();
 static unsigned char __attribute__((aligned(4))) clm_wlut_frequency[4] = {
     0x05, 0x05, 0x00, 0x00, 
