@@ -88733,7 +88733,7 @@ int32_t tisp_ae_long_alogrithm(int32_t arg1, int32_t (*arg2)(int32_t arg1, int32
     v0_2 = *(void **)((char *)arg2 + 0x11c);
     s3 = *(int32_t **)((char *)arg2 + 0x68);
     a2 = (uintptr_t)*(uint16_t *)((char *)v0_2 + 6);
-    s0 = (uintptr_t *)*(uintptr_t *)((char *)v0_2 + 8);
+    s0 = (uintptr_t *)(uintptr_t)*(uint16_t *)((char *)v0_2 + 8);   /* T40-LHU (OEM 0x271cc lhu s0,8(v0)): the lift loaded 32 bits -> zone count x garbage -> mean adjust (s0*84*88*92(sp)) overflowed to 0 -> tune2 a3 = 0 (MT11) */
     t2 = (uintptr_t)*(uint16_t *)((char *)v0_2 + 0x46);
     a2_1 = (uint32_t)*(uint16_t *)((char *)v0_2 + 2);
     a2_2 = (uint32_t)*(uint16_t *)((char *)v0_2 + 0x26);
@@ -88834,7 +88834,8 @@ int32_t tisp_ae_long_alogrithm(int32_t arg1, int32_t (*arg2)(int32_t arg1, int32
         } while (fp_1 + s7_1 != 0x100);
 
         s0_3 = (uintptr_t)s0 * a2_2 * (uintptr_t)a2 * a2_1;
-        var_54 = ((s0_3 + (uintptr_t)v1_4) * var_54) / s0_3;
+        if (s0_3 != 0) var_54 = ((s0_3 + (uintptr_t)v1_4) * var_54) / s0_3;   /* OEM 0x273d8 divu (no zero guard there) */
+        if (regtrace_t40_ae_diag) { static unsigned int nq; if (nq++ < 3) printk(KERN_INFO "tx_isp_t40_recovered: AEADJ fp=1 s0=%lu hw3=%u hw1=%u hw19=%u t2=%lu v1_4=%lu s0_3=%lu -> mean=%u\n", (unsigned long)(uintptr_t)s0, (unsigned)a2, (unsigned)a2_1, (unsigned)a2_2, (unsigned long)(uintptr_t)t2, (unsigned long)(uintptr_t)v1_4, (unsigned long)s0_3, (unsigned)var_54); }
         v0_7 = var_5c;
     }
 
