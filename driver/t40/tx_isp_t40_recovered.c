@@ -88296,6 +88296,7 @@ tisp_ae_long_tune20xf28:
     if (v0 == 0) { a0 = v1; }   /* T40-MOVZ (OEM 0x26a8c) */
     v0 = local_80;
     v1 = local_d8;
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (n++ < 8) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2OUT #%u a3=%u arg4=%u arg5=%u cc=%u b4=%u 94=%u c8=%u 88=%u s6=%lx s1=%lx -> it=%u again=%u dgain=%u flag=%u\n", n, (unsigned)a3, (unsigned)arg4, (unsigned)arg5, (unsigned)local_cc, (unsigned)local_b4, (unsigned)local_94, (unsigned)local_c8, (unsigned)local_88, (unsigned long)(uintptr_t)s6, (unsigned long)(uintptr_t)s1, (unsigned)local_78, (unsigned)local_74, (unsigned)local_70, (unsigned)(uintptr_t)a0); }   /* T40-AE-OUT-DIAG */
     local_8c = a0;
     *(uint16_t *)((char *)v0 + 2) = a0;
     *(uint16_t *)((char *)v0 + 8) = s1;
@@ -96150,9 +96151,9 @@ tisp_ae_sec_process0x360:
 int32_t *tisp_ae_param_now_get(int32_t arg1)
 {
     if (arg1 != 0) {
-        return &pstSecAeOri_value;
+        return (int32_t *)&pstSecAeOri   /* OEM .bss+14924 = the sec AE ctx, not the _value scalar */;
     }
-    return &pstMainAeOri_value;
+    return (int32_t *)&pstMainAeOri   /* OEM .bss+15280 = pstMainAeOri (tisp_ae_main_process ctx) */;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002b9bc origin=model_output original=tisp_ae_get_hist_bin */
@@ -184577,28 +184578,26 @@ int32_t tisp_set_bcsh_hue(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000072b64 origin=model_output original=tisp_g_antiflick */
 int32_t tisp_g_antiflick(int32_t arg1, int32_t *arg2)
 {
-    void *v0;
-    int16_t *v1;
-    int32_t v1_2;
+    /* Hand translation of OEM 0x73584: flags = *(u16 **)(p+312); if (!flags) return 0 (attr untouched);
+     * en == 0 -> mode 0, freq 0; else mode = flags[1] ? 1 : 2, freq = (u8)(*(u32 **)(p+316))[0].
+     * The lift used p+312 itself as the flag array and stored the p+316 pointer as the frequency. */
+    uint8_t *p = (uint8_t *)tisp_ae_param_now_get(arg1);
+    uint16_t *flags;
+    uint32_t *fq;
 
-    v0 = tisp_ae_param_now_get(arg1);
-    v1 = (int16_t *)((char *)v0 + 0x138);
-
-    if (v1 != NULL) {
-        if (*v1 != 0) {
-            if (v1[1] != 0) {
-                v1_2 = 1;
-            } else {
-                v1_2 = 2;
-            }
-            ((void **)arg2)[0] = v1_2;
-            ((void **)arg2)[1] = *(int32_t *)((char *)v0 + 0x13c);
-        } else {
-            ((void **)arg2)[0] = 0;
-            ((void **)arg2)[1] = 0;
-        }
+    if (!regtrace_is_kernel_ptr_any(p) || !regtrace_is_kernel_ptr_any(arg2))
+        return 0;
+    flags = *(uint16_t **)(p + 312);
+    fq = *(uint32_t **)(p + 316);
+    if (!regtrace_is_kernel_ptr_any(flags))
+        return 0;
+    if (flags[0] == 0) {
+        arg2[0] = 0;
+        *((uint8_t *)arg2 + 4) = 0;
+        return 0;
     }
-
+    arg2[0] = flags[1] ? 1 : 2;
+    *((uint8_t *)arg2 + 4) = regtrace_is_kernel_ptr_any(fq) ? (uint8_t)fq[0] : 0;
     return 0;
 }
 
@@ -184877,195 +184876,83 @@ tisp_enable_tuning0x2c8:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000072ed8 origin=fragment_seed original=tisp_s_antiflick */
 int64_t tisp_s_antiflick(uint32_t a0, uintptr_t a1, uint32_t a2)
 {
+    /* Hand translation of OEM 0x738f8..0x73af4.  attr = {u32 mode (0 off / 1 50Hz / 2 60Hz); u8 freq}.
+     * p = tisp_ae_param_now_get(ch): *(u16 **)(p+312) -> {enable, is50hz}, *(u32 **)(p+316) -> {freq, par44, par70, par68}.
+     * Day/night block (a2 selects tparams_day/tparams_night[ch]) and tparamsN[ch] mirror the same at +916/+918/+928..940.
+     * The lift wrote through the ctx pointer table itself (RC2 Oops BadVA 02a3e0b0 on the Get after Set). */
+    const uint32_t *attr = (const uint32_t *)a1;
+    uintptr_t *day_tab = (uintptr_t *)&tparams_day, *night_tab = (uintptr_t *)&tparams_night;
+    uintptr_t tp, tn;
+    uint8_t *p;
+    uint16_t *flags;
+    uint32_t *fq;
+    uint32_t mode, freq, par44, par70, par68;
+    const unsigned char *par;
+
     if (!regtrace_t40_allow_antiflick) {
         static unsigned int af_log;
         if (af_log++ < 4)
             printk(KERN_INFO "tx_isp_t40_recovered: tisp_s_antiflick ignored (t40_allow_antiflick=0)\n");
         return 0;
     }
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *s4 = 0;
-    uint32_t t0 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s4 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    s0 = a2;
-    s3 = a0;
-    s2 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_param_now_get)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    v1 = 1;
-    if (s0 != 0) { goto tisp_s_antiflick0xb4; }
-
-    /* fragment 3: Arithmetic */
-    a0 = (uint32_t *)&tparams_day;
-    v1 = (uintptr_t)s3 << 2;
-    a0 = a0;
-
-tisp_s_antiflick0x50:
-    /* fragment 4: Arithmetic */
-    v1 = v1 + a0;
-
-    /* fragment 5: MemoryAccess */
-    s1 = *(uint32_t *)((char *)v1 + 0);
-
-    /* fragment 6: Branch */
-    v1 = (int32_t *)&tparamsN;
-    if (s1 != 0) { goto tisp_s_antiflick0xc8; }
-
-tisp_s_antiflick0x60:
-    /* fragment 7: CallSetup */
-    local_14 = 693;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC8, &__param_str_isp_dual_buf, 693); /* jalr target resolved by relocation */
-
-tisp_s_antiflick0x90:
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 9: Arithmetic */
-    v0 = 0;
-
-    /* fragment 10: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_s_antiflick0xb4:
-    /* fragment 11: Branch */
-    a0 = (uint32_t *)&tparams_night;
-    if (s0 != v1) { goto tisp_s_antiflick0x60; }
-
-    /* fragment 12: Arithmetic */
-    v1 = (uintptr_t)s3 << 2;
-
-    /* fragment 13: Branch */
-    a0 = (uint32_t *)&tparams_night;
-    goto tisp_s_antiflick0x50;
-
-tisp_s_antiflick0xc8:
-    /* fragment 14: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s2 + 0);
-    a1 = *(uint32_t *)((char *)v0 + 312);
-    s0 = (uintptr_t)s3 << 2;
-
-    /* fragment 15: Branch */
-    v1 = (int32_t *)&tparamsN;
-    if (a0 != 0) { goto tisp_s_antiflick0xf4; }
-
-    /* fragment 16: MemoryAccess */
-    *(uint16_t *)((char *)a1 + 0) = 0;
-    s0 = (uintptr_t)v1 + (uintptr_t)s0;
-    v0 = *(uint32_t *)((char *)s0 + 0);
-    *(uint16_t *)((char *)v0 + 916) = 0;
-
-    /* fragment 17: Branch */
-    *(uint16_t *)((char *)s1 + 916) = 0;
-    goto tisp_s_antiflick0x90;
-
-tisp_s_antiflick0xf4:
-    /* fragment 18: Arithmetic */
-    a0 = 1;
-
-    /* fragment 19: MemoryAccess */
-    *(uint16_t *)((char *)a1 + 0) = a0;
-    a1 = (uintptr_t)v1 + (uintptr_t)s0;
-    a2 = *(uint32_t *)((char *)a1 + 0);
-    a3 = 2;
-    *(uint16_t *)((char *)a2 + 916) = a0;
-    *(uint16_t *)((char *)s1 + 916) = a0;
-    t0 = *(uint32_t *)((char *)s2 + 0);
-
-    /* fragment 20: Branch */
-    a2 = *(uint32_t *)((char *)(v0) + 312);
-    if (t0 != a3) { goto tisp_s_antiflick0x1ec; }
-
-    /* fragment 21: MemoryAccess */
-    *(uint16_t *)((char *)a2 + 2) = 0;
-    a0 = *(uint32_t *)((char *)a1 + 0);
-    *(uint16_t *)((char *)a0 + 918) = 0;
-
-tisp_s_antiflick0x128:
-    /* fragment 22: MemoryAccess */
-    a1 = *(uint8_t *)((char *)s2 + 4);
-    a0 = *(uint32_t *)((char *)v0 + 316);
-    s0 = (uintptr_t)v1 + (uintptr_t)s0;
-    *(uint32_t *)((char *)a0 + 0) = a1;
-    a1 = *(uint8_t *)((char *)s2 + 4);
-    a0 = s3 + 400;
-    a0 = a0 << 3;
-    s4 = s4 + a0;
-    a0 = (uint32_t *)&tisp_par_info;
-    *(uint8_t *)((char *)s4 + 8) = a1;
-    a1 = a0;
-    a0 = 152;
-    a3 = (uintptr_t)s3 * a0;
-    a2 = *(uint32_t *)((char *)v0 + 316);
-    a0 = a3 + a1;
-    a1 = *(uint32_t *)((char *)a0 + 44);
-    *(uint32_t *)((char *)a2 + 4) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 316);
-    a2 = *(uint16_t *)((char *)a0 + 70);
-    *(uint32_t *)((char *)a1 + 8) = a2;
-    v0 = *(uint32_t *)((char *)v0 + 316);
-    a1 = *(uint16_t *)((char *)a0 + 68);
-    *(uint32_t *)((char *)v0 + 12) = a1;
-    v1 = *(uint8_t *)((char *)s2 + 4);
-    v0 = *(uint32_t *)((char *)s0 + 0);
-    a2 = *(uint32_t *)((char *)a0 + 44);
-    a3 = *(uint16_t *)((char *)a0 + 70);
-    *(uint32_t *)((char *)v0 + 928) = v1;
-    v1 = *(uint16_t *)((char *)a0 + 68);
-    *(uint32_t *)((char *)v0 + 932) = a2;
-
-    /* fragment 23: CallSetup */
-    *(uint32_t *)((char *)v0 + 936) = a3;
-    *(uint32_t *)((char *)v0 + 940) = v1;
-    *(uint32_t *)((char *)s1 + 940) = v1;
-    *(uint32_t *)((char *)s1 + 932) = a2;
-    *(uint32_t *)((char *)s1 + 928) = (*(uint8_t *)((char *)(s2) + 4));
-    *(uint32_t *)((char *)s1 + 936) = a3;
-    local_10 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_deflicker_tune)(s3, *(uint8_t *)((char *)(s2) + 4), a2, a3); /* jalr target resolved by relocation */
-
-    /* fragment 24: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 0);
-    v1 = *(uint8_t *)((char *)s2 + 4);
-    *(uint32_t *)((char *)v0 + 928) = v1;
-    v0 = *(uint8_t *)((char *)s2 + 4);
-
-    /* fragment 25: Branch */
-    *(uint32_t *)((char *)s1 + 928) = v0;
-    goto tisp_s_antiflick0x90;
-
-tisp_s_antiflick0x1ec:
-    /* fragment 26: MemoryAccess */
-    *(uint16_t *)((char *)a2 + 2) = a0;
-    a1 = *(uint32_t *)((char *)a1 + 0);
-
-    /* fragment 27: Branch */
-    *(uint16_t *)((char *)a1 + 918) = a0;
-    goto tisp_s_antiflick0x128;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    p = (uint8_t *)tisp_ae_param_now_get((int32_t)a0);
+    if (a2 == 0)
+        tp = day_tab[a0 & 1];
+    else if (a2 == 1)
+        tp = night_tab[a0 & 1];
+    else
+        tp = 0;
+    if (tp == 0 || (a0 & ~1U)) {
+        printk(KERN_INFO "tx_isp_t40_recovered: tisp_s_antiflick: no param block (ch=%u a2=%u)\n", a0, a2);
+        return 0;
+    }
+    tn = tparamsN[a0 & 1];
+    if (!regtrace_is_kernel_ptr_any(p) || !regtrace_is_kernel_ptr_any((void *)tn) || !regtrace_is_kernel_ptr_any((void *)tp) ||
+        !regtrace_is_kernel_ptr_any(attr)) {
+        printk(KERN_INFO "tx_isp_t40_recovered: tisp_s_antiflick: bad pointers p=%p tn=%lx tp=%lx attr=%p\n", p, (unsigned long)tn, (unsigned long)tp, attr);
+        return 0;
+    }
+    flags = *(uint16_t **)(p + 312);
+    fq = *(uint32_t **)(p + 316);
+    if (!regtrace_is_kernel_ptr_any(flags) || !regtrace_is_kernel_ptr_any(fq)) {
+        printk(KERN_INFO "tx_isp_t40_recovered: tisp_s_antiflick: ctx+312=%p ctx+316=%p not initialised\n", flags, fq);
+        return 0;
+    }
+    mode = attr[0];
+    freq = *((const uint8_t *)attr + 4);
+    if (mode == 0) {
+        flags[0] = 0;
+        *(uint16_t *)(tn + 916) = 0;
+        *(uint16_t *)(tp + 916) = 0;
+        return 0;
+    }
+    flags[0] = 1;
+    *(uint16_t *)(tn + 916) = 1;
+    *(uint16_t *)(tp + 916) = 1;
+    if (mode == 2) {
+        flags[1] = 0;
+        *(uint16_t *)(tn + 918) = 0;
+    } else {
+        flags[1] = 1;
+        *(uint16_t *)(tn + 918) = 1;
+    }
+    fq[0] = freq;
+    if (regtrace_is_kernel_ptr_any((void *)(uintptr_t)tisp_tattr))
+        *(uint8_t *)((uintptr_t)tisp_tattr + ((a0 + 400U) << 3) + 8) = (uint8_t)freq;   /* OEM 0x73a44 */
+    par = tisp_par_info + a0 * 152U;
+    par44 = *(const uint32_t *)(par + 44);
+    par70 = *(const uint16_t *)(par + 70);
+    par68 = *(const uint16_t *)(par + 68);
+    fq[1] = par44;
+    fq[2] = par70;
+    fq[3] = par68;
+    *(uint32_t *)(tn + 928) = freq; *(uint32_t *)(tn + 932) = par44; *(uint32_t *)(tn + 936) = par70; *(uint32_t *)(tn + 940) = par68;
+    *(uint32_t *)(tp + 928) = freq; *(uint32_t *)(tp + 932) = par44; *(uint32_t *)(tp + 936) = par70; *(uint32_t *)(tp + 940) = par68;
+    tisp_ae_long_deflicker_tune(a0, freq, par44, par70, par68);
+    *(uint32_t *)(tn + 928) = freq;
+    *(uint32_t *)(tp + 928) = freq;
+    printk(KERN_INFO "tx_isp_t40_recovered: tisp_s_antiflick ch=%u mode=%u freq=%u par44=%u par70=%u par68=%u\n", a0, mode, freq, par44, par70, par68);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000730d4 origin=fragment_seed original=tisp_s_autozoom_control */
