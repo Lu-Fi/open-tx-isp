@@ -93406,50 +93406,19 @@ tisp_ae_main_mean_update0x90:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029464 origin=fragment_seed original=tisp_ae_long_deflicker_tune */
 int32_t tisp_ae_long_deflicker_tune(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4)
 {
-    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
-    uint32_t *local_10 = 0;
-    uint32_t t0 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Branch */
-    t0 = local_10;
-    if (a0 != 0) { goto tisp_ae_long_deflicker_tune0x44; }
-
-    /* fragment 1: ConstantLoad */
-    v0 = ((char *)&pstMainAeOri);
-
-tisp_ae_long_deflicker_tune0x10:
-    /* fragment 2: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v0 + 316);
-    t9 = (uintptr_t)&tisp_deflicker_expt;
-    a0 = a0 & 255;
-    *(uint32_t *)((char *)v1 + 0) = a1;
-    v1 = *(uint32_t *)((char *)v0 + 316);
-    a1 = v0;
-    t9 = t9;
-    *(uint32_t *)((char *)v1 + 4) = a2;
-    v1 = *(uint32_t *)((char *)v0 + 316);
-    *(uint32_t *)((char *)v1 + 8) = a3;
-    v1 = *(uint32_t *)((char *)v0 + 316);
-
-    /* fragment 3: Unknown */
-    /* unmatched fragment 3 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 294a0:	03200408 	jr.hb	t9 */
-
-    /* fragment 4: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 12) = t0;
-
-tisp_ae_long_deflicker_tune0x44:
-    /* fragment 5: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 6: Branch */
-    v0 = (uintptr_t *)((char *)&pstSecAeOri);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_deflicker_tune", "0x10"); else { __lg--; goto tisp_ae_long_deflicker_tune0x10; } }
-
-    return 0;
+    /* Hand translation of OEM 0x29e84..0x29ed0: p = *(u32 **)(ctx+316); p[0..3] = freq, par44, par70, par68;
+     * tail call tisp_deflicker_expt(ch & 0xff, ctx).  The lift dropped the jr.hb tail call and wrote through a
+     * NULL ctx+316 (AF1: Oops in deflicker_tune+0xa8 from tisp_s_antiflick). */
+    char *ctx = (char *)(a0 ? (void *)&pstSecAeOri : (void *)&pstMainAeOri);
+    uint32_t *p = *(uint32_t **)(ctx + 316);
+    if (!regtrace_is_kernel_ptr(p)) {
+        static unsigned int n;
+        if (n++ < 3)
+            printk(KERN_INFO "tx_isp_t40_recovered: deflicker_tune ch=%u: ctx+316=%p not initialised\n", a0, p);
+        return 0;
+    }
+    p[0] = a1; p[1] = a2; p[2] = a3; p[3] = arg4;
+    return (int32_t)tisp_deflicker_expt(a0 & 0xffU, (uintptr_t)ctx);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000294b4 origin=fragment_seed original=tisp_ae_s_comp */
