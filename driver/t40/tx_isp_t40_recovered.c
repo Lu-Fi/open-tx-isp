@@ -7451,6 +7451,7 @@ static uint32_t t40_antiflick_pending_a2;
 static bool t40_antiflick_pending_valid;
 static uint32_t t40_runmode_pending;             /* SetISPRunningMode (CID 0x8000071) received before the tuning context exists */
 static bool t40_runmode_pending_valid;
+static bool regtrace_t40_vendor_awb_process;   /* defined with its module_param further down */
 static int regtrace_t40_tuning_set_running_mode(uint32_t mode);
 static uint32_t t40_aex_mean;                    /* AEX log: mean at tune2 entry */
 int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2);
@@ -102737,6 +102738,20 @@ int32_t tisp_awb_main_interrupt_static(void)
         ((void (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)
             private_dma_cache_sync)(0, addr, size, 0);
         (void)tisp_awb_get_statistics(addr, (uintptr_t)pstMainAwbOri);
+        {   /* T40-AWB-STATDIAG: raw HW stats words and the algorithm inputs ctx[5] (=a0+20) / ctx[4] (=a0+16) for the first IRQs */
+            static unsigned int nsd;
+            if (nsd++ < 6 && regtrace_t40_vendor_awb_process) {
+                const uint32_t *hw = (const uint32_t *)(uintptr_t)addr;
+                const uint32_t *p5 = (const uint32_t *)(uintptr_t)pstMainAwbOri[5];
+                const uint16_t *p4 = (const uint16_t *)(uintptr_t)pstMainAwbOri[4];
+                uint32_t sum = 0; unsigned int k;
+                for (k = 0; k < 256; k++) sum += hw[k];
+                printk(KERN_INFO "tx_isp_t40_recovered: AWBSTAT irq#%u hw[0..5]=%x %x %x %x %x %x sum256=%x | ctx5=%p [0..3]=%x %x %x %x | ctx4=%p [0..3]=%u %u %u %u\n",
+                       nsd, hw[0], hw[1], hw[2], hw[3], hw[4], hw[5], sum,
+                       p5, p5 ? p5[0] : 0, p5 ? p5[1] : 0, p5 ? p5[2] : 0, p5 ? p5[3] : 0,
+                       p4, p4 ? p4[0] : 0, p4 ? p4[1] : 0, p4 ? p4[2] : 0, p4 ? p4[3] : 0);
+            }
+        }
         memset(ev, 0, sizeof(ev));
         ev[2] = 14;
         (void)tisp_event_push(0, (uintptr_t)ev);
