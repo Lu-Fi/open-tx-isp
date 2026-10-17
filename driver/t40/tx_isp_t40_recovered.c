@@ -64227,32 +64227,25 @@ int32_t fix_point_div_32(int32_t arg1, int32_t arg2, int32_t arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016548 origin=model_output original=tisp_math_exp2 */
 uint32_t tisp_math_exp2(int32_t arg1, int32_t arg2, int32_t arg3)
 {
-    uint32_t t0_2 = ((1U << (arg2 & 0x1f)) - 1) & (uint32_t)arg1;
-    uint32_t *v0_1;
-    uint32_t *lut;
-    
-    /* Access .rodata base address - should generate 2 .rodata relocations */
-    __asm__ volatile (
-        "lui %0, %%hi(.rodata)\n\t"
-        "addiu %0, %0, %%lo(.rodata)\n\t"
-        : "=r" (lut)
-    );
-    
-    if ((uint32_t)arg2 >= 6) {
-        uint32_t a0_1 = t0_2 >> ((arg2 - 5) & 0x1f);
-        int32_t s1_1 = (int32_t)lut[a0_1];
-        uint64_t mul_result;
-        uint32_t a3_val = ((1U << ((arg2 - 5) & 0x1f)) - 1) & t0_2;
-        int32_t diff = (int32_t)lut[a0_1 + 1] - s1_1;
-        mul_result = (uint64_t)(uint32_t)diff * (uint32_t)a3_val;
-        v0_1 = (uintptr_t)s1_1 + __lshrdi3(mul_result);
+    /* Hand translation of OEM 0x16f68..0x17028.  x = arg1 in Q(arg2), result in Q(arg3): 2^x.
+     * LUT = round(2^(i/32) * 2^30), i = 0..32, verified against the OEM .rodata (+4600).  The lift took
+     * our module's .rodata section base as the table (inline asm) -> garbage gains (MT33: again 12, dgain 0). */
+    static const uint32_t lut[33] = {
+        0x40000000, 0x4166c34c, 0x42d561b4, 0x444c0740, 0x45cae0f2, 0x47521cc6, 0x48e1e9ba, 0x4a7a77d4,
+        0x4c1bf829, 0x4dc69cdd, 0x4f7a9930, 0x51382182, 0x52ff6b55, 0x54d0ad5a, 0x56ac1f75, 0x5891fac1,
+        0x5a82799a, 0x5c7dd7a4, 0x5e8451d0, 0x60962665, 0x62b39509, 0x64dcdec3, 0x6712460b, 0x69540ec9,
+        0x6ba27e65, 0x6dfddbcc, 0x70666f76, 0x72dc8374, 0x75606374, 0x77f25cce, 0x7a92be8b, 0x7d41d96e,
+        0x80000000 };
+    uint32_t x = (uint32_t)arg1, fb = (uint32_t)arg2 & 31U, ob = (uint32_t)arg3;
+    uint32_t frac = x & ((1U << fb) - 1U), ip = x >> fb, sh = 30U - ob - ip, v;
+    if (fb < 6U) {
+        v = lut[(frac << (5U - fb)) & 63U];
     } else {
-        uint32_t shift = (5 - arg2) & 0x1f;
-        uint32_t idx = t0_2 << (shift << 2);
-        v0_1 = lut[idx];
+        uint32_t s2 = fb - 5U, idx = frac >> s2, rem = frac & ((1U << s2) - 1U);
+        uint32_t lo = lut[idx & 63U], hi = lut[(idx + 1U) & 63U];
+        v = lo + (uint32_t)(((uint64_t)(hi - lo) * rem) >> s2);
     }
-    
-    return (uintptr_t)v0_1 >> ((0x1e - arg3 - (arg1 >> (arg2 & 0x1f))) & 0x1f);
+    return (sh < 32U) ? (v >> sh) : 0U;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001660c origin=fragment_seed original=fix_point_add */
@@ -64839,105 +64832,33 @@ uint32_t tisp_simple_intp_int16(int32_t arg1, int32_t arg2, void* arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017174 origin=model_output original=tisp_log2_int_to_fixed */
 int32_t tisp_log2_int_to_fixed(uint32_t arg1, int32_t arg2, int32_t arg3)
 {
-    if (arg1 == 0)
+    /* Hand translation of OEM 0x17b94..0x17c88: integer part = floor(log2 x), arg2 fraction bits by
+     * repeated squaring of the normalised mantissa, result shifted left by arg3 with the next (15-arg3)
+     * mantissa bits or-ed in. */
+    uint32_t x = arg1, v1, v0 = 0, a0, frac = 0, nb = (uint32_t)arg2, sh = (uint32_t)arg3 & 31U, i;
+    if (x == 0)
         return 0;
-
-    uint32_t v1_2 = arg1;
-    uint32_t *v0_1;
-
-    if (arg1 < 0x10000)
-        v0_1 = 0;
-    else {
-        v1_2 = arg1 >> 0x10;
-        v0_1 = 0x10;
+    v1 = x;
+    if (x >= 0x10000U) { v1 = x >> 16; v0 = 16; }
+    if (v1 >= 256U) { v0 = (v0 + 8U) & 0xffU; v1 >>= 8; }
+    if (v1 >= 16U) { v0 = (v0 + 4U) & 0xffU; v1 >>= 4; }
+    if (v1 >= 4U) { v0 = (v0 + 2U) & 0xffU; v1 >>= 2; }
+    if (v1 != 1U) v0 = (v0 + 1U) & 0xffU;
+    if (v0 < 16U) a0 = x << (15U - v0); else a0 = x >> ((v0 - 15U) & 31U);
+    for (i = 0; (int32_t)i < (int32_t)nb; i++) {
+        uint32_t t0 = a0 * a0;
+        frac <<= 1;
+        if ((int32_t)t0 < 0) { frac += 1U; a0 = t0 >> 16; } else { a0 = t0 >> 15; }
     }
-
-    int32_t a3_2 = (v1_2 < 0x10) ? 1 : 0;
-
-    if (v1_2 >= 0x100) {
-        v1_2 >>= 8;
-        v0_1 = ((uintptr_t)v0_1 + 8) & 0xff;
-        a3_2 = (v1_2 < 0x10) ? 1 : 0;
-    }
-
-    int32_t a3_3 = (v1_2 < 4) ? 1 : 0;
-
-    if (a3_2 == 0) {
-        v1_2 >>= 4;
-        v0_1 = ((uintptr_t)v0_1 + 4) & 0xff;
-        a3_3 = (v1_2 < 4) ? 1 : 0;
-    }
-
-    if (a3_3 == 0) {
-        v1_2 >>= 2;
-        v0_1 = ((uintptr_t)v0_1 + 2) & 0xff;
-    }
-
-    int32_t v1_3 = (v0_1 < 0x10) ? 1 : 0;
-
-    if (v1_2 != 1) {
-        v0_1 = ((uintptr_t)v0_1 + 1) & 0xff;
-        v1_3 = (v0_1 < 0x10) ? 1 : 0;
-    }
-
-    uint32_t *a0;
-    if (v1_3 == 0)
-        a0 = arg1 >> (((uintptr_t)v0_1 - 0xf) & 0x1f);
-    else
-        a0 = arg1 << ((0xf - (uintptr_t)v0_1) & 0x1f);
-
-    int32_t v1_6 = 0;
-    int32_t *a3_4 = 0;
-
-    while (1) {
-        int32_t t0_2 = (uintptr_t)a0 * (uintptr_t)a0;
-
-        if (a3_4 >= arg2)
-            break;
-
-        v1_6 <<= 1;
-        a0 = (uintptr_t)t0_2 >> 0xf;
-
-        /* Explicit signed comparison to preserve bgez semantics */
-        if ((t0_2 >> 31) != 0) {
-            v1_6 += 1;
-            a0 = (uintptr_t)t0_2 >> 0x10;
-        }
-
-        a3_4 = (void *)(uintptr_t)((uintptr_t)a3_4 + (1));
-    }
-
-    return (((uintptr_t)v0_1 << (arg2 & 0x1f)) + v1_6) << (arg3 & 0x1f) | ((uintptr_t)a0 & 0x7fff) >> ((0xf - arg3) & 0x1f);
+    v0 = ((v0 << (nb & 31U)) + frac) << sh;
+    return (int32_t)(v0 | ((a0 & 0x7fffU) >> ((15U - sh) & 31U)));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001726c origin=fragment_seed original=tisp_log2_fixed_to_fixed */
 int32_t tisp_log2_fixed_to_fixed(uint32_t a0, uint32_t a1, uint32_t a2)
 {
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uint32_t *t1 = 0;
-    uint32_t *t2 = 0;
-    uint32_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    t2 = a2;
-    t1 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_log2_int_to_fixed)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    t1 = (uintptr_t)t1 << (uintptr_t)t2;
-    v0 = (uintptr_t)v0 - (uintptr_t)t1;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    /* OEM 0x17c8c: log2_int_to_fixed(a0, a2, 0) - (a1 << a2).  The lift computed it and then returned 0. */
+    return tisp_log2_int_to_fixed(a0, (int32_t)a2, 0) - (int32_t)(a1 << a2);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000172a4 origin=model_output original=tisp_log2_int_to_fixed_64 */
