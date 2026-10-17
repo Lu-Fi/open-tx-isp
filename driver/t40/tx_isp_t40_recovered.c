@@ -80901,7 +80901,7 @@ int32_t tisp_ae_sensor_inform(uint32_t a0, uintptr_t a1, uintptr_t a2)
 
     /* fragment 2: CallSetup */
     s5 = *(uint32_t *)((char *)(v0) + 4);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_math_exp2)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_math_exp2((int32_t)(uintptr_t)s6, 16, 10);   /* T40-ARGS (OEM 0x21f0c): exp2(sensor max again log2.16, 16, 10) - the lift passed one arg */
 
     /* fragment 3: Arithmetic */
     v0 = v0 < s5;
@@ -80912,7 +80912,7 @@ int32_t tisp_ae_sensor_inform(uint32_t a0, uintptr_t a1, uintptr_t a2)
 
     /* fragment 5: CallSetup */
     s5 = *(uint32_t *)((char *)(s0) + 0);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(s6, 16); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_math_exp2((int32_t)(uintptr_t)s6, 16, 10);   /* T40-ARGS (OEM 0x21f28): clamp ctx0[1] (max again Q10) to the sensor maximum */
 
     /* fragment 6: MemoryAccess */
     *(uint32_t *)((char *)s5 + 4) = v0;
