@@ -101423,7 +101423,7 @@ int32_t tisp_awb_get_statistics(uintptr_t a0, uintptr_t a1)
                     uint32_t w0 = w[0], w1 = w[1], w2 = w[2], w3 = w[3], v[5];
                     unsigned int j;
                     v[0] = w0 & 0x3fffffU;
-                    v[1] = ((w1 << 10) & 0x3ffffc00U) | (w0 >> 22);
+                    v[1] = ((w1 << 10) & 0x3ffc00U) | (w0 >> 22);   /* OEM lui a2,0x3f; ori 0xfc00 -> 22-bit field */
                     v[2] = ((w2 << 20) & 0x300000U) | (w1 >> 12);
                     v[3] = (w2 >> 2) & 0x3fffffU;
                     v[4] = ((w3 << 8) & 0x3f00U) | (w2 >> 24);
