@@ -86766,6 +86766,7 @@ tisp_ae_long_tune0x74:
 int64_t tisp_ae_long_tune2(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3, uintptr_t arg4, uint32_t arg5, uint32_t arg6, uint32_t arg7, uint32_t arg8, uint32_t arg9, uint32_t arg10)
 {
     uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
+    if (regtrace_t40_ae_diag) { static unsigned int n; const char *cx = (const char *)a1; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2IN #%u ctx=%p gate(*(ctx+4)+6)=%u @%p mean=%u ev3={%u %u %u} c44={%u %u %u}\n", n, cx, *(uint16_t *)(*(uint32_t *)(cx + 4) + 6), (void *)(*(uint32_t *)(cx + 4) + 6), (unsigned)a3, ((uint32_t *)*(uint32_t *)(cx + 8))[0], ((uint32_t *)*(uint32_t *)(cx + 8))[1], ((uint32_t *)*(uint32_t *)(cx + 8))[2], ((uint32_t *)*(uint32_t *)(cx + 44))[0], ((uint32_t *)*(uint32_t *)(cx + 44))[1], ((uint32_t *)*(uint32_t *)(cx + 44))[2]); }   /* T40-AE-IN2-DIAG */
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
