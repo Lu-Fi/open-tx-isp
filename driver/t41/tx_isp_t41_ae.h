@@ -41,7 +41,11 @@ static inline int t41_ae_statistics(const unsigned char *dma,
 }
 
 /* OEM drops exposure's fractional bits before interpolating. Its divider
- * only supports a 32-bit knot difference; reject larger differences. */
+ * only supports a 32-bit knot difference; reject larger differences.
+ * Knots only need to be non-decreasing: shipped bins repeat a knot
+ * (sc5336-t41.bin: knots 12 and 13 are both 1200000) and the OEM
+ * tisp_ae_long_target (0x2347c) simply walks past the duplicate.  A
+ * zero-width interval yields its left target, never a division by zero. */
 static inline int t41_ae_long_target(unsigned long long exposure,
 		const unsigned long long *knots, const unsigned short *targets,
 		unsigned int shift, unsigned int *out)
@@ -52,7 +56,7 @@ static inline int t41_ae_long_target(unsigned long long exposure,
 		return -1;
 	for (i = 0; i < T41_AE_TARGET_KNOTS; ++i)
 		if (knots[i] > (~0ULL >> shift) ||
-		    (i && (knots[i] <= knots[i-1] ||
+		    (i && (knots[i] < knots[i-1] ||
 			   knots[i] - knots[i-1] > 0xffffffffULL)))
 			return -1;
 	x = exposure >> shift;
@@ -60,6 +64,7 @@ static inline int t41_ae_long_target(unsigned long long exposure,
 	if (x >= knots[14]) { *out = targets[14]; return 0; }
 	for (i = 0; i < 13 && x > knots[i+1]; ++i) { }
 	a = targets[i]; b = targets[i+1];
+	if (knots[i+1] == knots[i]) { *out = a; return 0; }
 	delta = (unsigned int)t41_tmo_div((unsigned long long)(a > b ? a-b : b-a) *
 		(x - knots[i]), knots[i+1] - knots[i]);
 	*out = a > b ? a-delta : a+delta;

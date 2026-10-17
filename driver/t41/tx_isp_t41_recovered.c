@@ -913,6 +913,11 @@ t41_bringup_param_desc(t41_ae_calibrated_metering,
 static unsigned int t41_ae_zone_mean = 0x80000000U;
 static unsigned int t41_ae_calibrated_target = 0x80000000U;
 static int t41_ae_meter_error = -EAGAIN;
+static unsigned int t41_ae_meter_stage;
+module_param(t41_ae_meter_stage, uint, 0444);
+MODULE_PARM_DESC(t41_ae_meter_stage, "safe AE meter: last stage reached (1 static 2 mean 3 tables 4 target-fail 5 ok)");
+static unsigned int t41_ae_meter_diag_once = 1;
+static unsigned int t41_ae_meter_fallback_logged;
 static int t41_sensor_limits_error = -EAGAIN;
 static int t41_ae_ready[2] __attribute__((section(".data"))) = { 0, 0 };
 static int t41_awb_ready[2] __attribute__((section(".data"))) = { 0, 0 };
@@ -58830,19 +58835,36 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 	/* Copy the completed zone bank in process context, never in hard IRQ.
 	 * The histogram and zone state share one short lock while metering. */
 	meter_ret = tisp_ae_interrupt_static(channel);
+	t41_ae_meter_stage = 1;
 	ae_params = (unsigned char *)(uintptr_t)info[0];
 	if (!t41_kernel_data_ptr(ae_params))
 		meter_ret = -ENODEV;
 	if (meter_ret >= 0) {
+		const unsigned char *st = (const unsigned char *)hist;
+		if (t41_ae_meter_diag_once == 1) {
+			t41_ae_meter_diag_once = 0;
+			printk(KERN_WARNING "tx_isp_t41_recovered: AEMETER params rows=%u cols=%u shift=%u div=%u mode=%u dw=%u hw=%u adj=%u thr=%u f0=%u w0=%u | state rowh=%u,%u colw=%u,%u sum0=%u hist0=%u\n",
+			       t41_tmo_le16(ae_params+0x70a), t41_tmo_le16(ae_params+0x70e),
+			       t41_tmo_le16(ae_params+0x6c0), t41_tmo_le16(ae_params+0x7b8),
+			       t41_tmo_le32(ae_params+0x68c), t41_tmo_le16(ae_params+0x7b4),
+			       t41_tmo_le16(ae_params+0x7b6), t41_tmo_le16(ae_params+0x7c4),
+			       t41_tmo_le16(ae_params+0x712), ae_params[0x4ee], ae_params[0x82e],
+			       t41_tmo_le16(st+0x21fc), t41_tmo_le16(st+0x21fe),
+			       t41_tmo_le16(st+0x221a), t41_tmo_le16(st+0x221c),
+			       t41_tmo_le32(st+0x800), t41_tmo_le32(st));
+		}
 		spin_lock_irqsave(lock, flags);
 		meter_ret = t41_ae_weight_mean(ae_params, T41_AE_PARAM_BYTES,
 			(unsigned char *)hist, T41_AE_STATE_BYTES, &meter);
 		spin_unlock_irqrestore(lock, flags);
-		if (!meter_ret)
+		if (!meter_ret) {
+			t41_ae_meter_stage = 2;
 			meter_ret = t41_ae_target_tables(ae_params, T41_AE_PARAM_BYTES,
 				target_knots, target_values);
+		}
 		if (!meter_ret) {
 			unsigned int shift = t41_tmo_le16(ae_params + 0x6c0);
+			t41_ae_meter_stage = 3;
 			if (shift && shift <= 16)
 				WRITE_ONCE(t41_ae_ev_shift, shift);
 			meter_ret = t41_ae_long_target((u64)control->integration *
@@ -58850,6 +58872,18 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 				target_values, shift, &calibrated_target);
 			if (!meter_ret && (!calibrated_target || calibrated_target > 255))
 				meter_ret = -ERANGE;
+			t41_ae_meter_stage = meter_ret ? 4 : 5;
+			if (meter_ret && t41_ae_meter_diag_once < 2) {
+				unsigned int k;
+				t41_ae_meter_diag_once = 2;
+				for (k = 0; k < T41_AE_TARGET_KNOTS; ++k)
+					printk(KERN_WARNING "tx_isp_t41_recovered: AEKNOT %u ev=%llu tgt=%u raw=%u:%u\n",
+					       k, target_knots[k], target_values[k],
+					       t41_tmo_le32(ae_params + 0x5d0 + k * 8), t41_tmo_le16(ae_params + 0x76e + k * 2));
+				printk(KERN_WARNING "tx_isp_t41_recovered: AEKNOT shift=%u expo=%llu scale=%u f2=%u f3=%u\n",
+				       shift, (u64)control->integration * tisp_math_exp2(gain_q16, 16, shift),
+				       t41_tmo_le16(ae_params+0x7c6), t41_tmo_le16(ae_params+0x7c8), t41_tmo_le16(ae_params+0x7d4));
+			}
 		}
 	}
 	t41_ae_meter_error = meter_ret;
@@ -58858,9 +58892,17 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 		t41_ae_calibrated_target = calibrated_target;
 	}
 	if (t41_ae_calibrated_metering) {
-		if (meter_ret)
-			return meter_ret;
-		mean_q8 = meter.mean << 8;
+		/* A rejected calibration table must not freeze the exposure:
+		 * fall back to the histogram mean and the fixed target. */
+		if (meter_ret) {
+			if (!t41_ae_meter_fallback_logged) {
+				t41_ae_meter_fallback_logged = 1;
+				printk(KERN_WARNING "tx_isp_t41_recovered: safe AE calibrated metering unavailable (%d), using histogram mean\n",
+				       meter_ret);
+			}
+		} else {
+			mean_q8 = meter.mean << 8;
+		}
 	}
 	control->last_mean_q8 = mean_q8;
 	t41_safe_ae_last_mean_q8 = mean_q8;
@@ -58901,7 +58943,7 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 	if (max_integration < control->min_integration ||
 	    (flicker_floor && flicker_floor > max_integration))
 		return -ERANGE;
-	target_q8 = t41_ae_calibrated_metering ?
+	target_q8 = t41_ae_calibrated_metering && !meter_ret ?
 		calibrated_target << 8 : t41_ae_target_q8;
 	if (flicker_request == ~0U && flicker_frequency && flicker_floor &&
 	    t41_ae_flicker_profile < 0) {
