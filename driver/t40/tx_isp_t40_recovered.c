@@ -7734,7 +7734,7 @@ int64_t tisp_gib_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2);
 int32_t tisp_gib_param_array_set(uint32_t a0, uint32_t a1);
 int gib_remove(struct platform_device *pdev);
 int64_t tisp_gib_ae_write_dgain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4);
-int32_t tisp_lsc_lut_valid_judge(uint32_t arg1, uint32_t arg2, uint32_t arg3, int32_t arg4, int16_t arg5);
+int32_t tisp_lsc_lut_valid_judge(uint32_t width, uint32_t height, uint32_t mesh_x, uint32_t mesh_y, uint32_t lut_n);
 int32_t tisp_lsc_interp_by_ct(int32_t arg1, int32_t arg2, int16_t arg3, char arg4);
 int32_t tisp_lsc_interp_by_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
 int32_t tisp_lsc_real_write_lut(uint32_t a0);
@@ -109712,119 +109712,25 @@ static int t40_writer_lsc_stop(unsigned int sensor);
 static int t40_writer_lsc_control(unsigned int sensor, unsigned int op,
                                   void *arg, uint32_t *length_out);
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000036b50 origin=model_output original=tisp_lsc_lut_valid_judge */
-int32_t tisp_lsc_lut_valid_judge(uint32_t arg1, uint32_t arg2, uint32_t arg3, int32_t arg4, int16_t arg5)
+int32_t tisp_lsc_lut_valid_judge(uint32_t width, uint32_t height, uint32_t mesh_x, uint32_t mesh_y, uint32_t lut_n)
 {
-    uint32_t lut_base = 0x1c181410;
-    uint32_t s0 = (uint32_t)arg5;
-    uint32_t var_34;
-    char temp_buf[6];
-    
-    // Initialize strncpy buffer
-    __builtin_strncpy(temp_buf, " $(0@P", 6);
-    
-    int32_t v1 = (int32_t)((int32_t)arg1 >> 31);
-    uint32_t *var_28 = arg2;
-    int32_t a1 = (int32_t)((int32_t)arg2 >> 31);
-    uint32_t var_20 = arg1;
-    int32_t var_1c = v1;
-    int32_t *v0 = 0;
-    int32_t *result = 0;
-    
-    // First loop: check if any of 10 LUT entries matches arg3
-    while (1) {
-        uint32_t a3_1 = *(uint32_t *)(lut_base + (uintptr_t)v0);
-        v0 = (void *)(uintptr_t)((uintptr_t)v0 + (1));
-        
-        if (a3_1 == arg3) {
-            result = 1;
-            break;
-        }
-        
-        if (v0 == 10) {
-            result = 0;
-            break;
-        }
-    }
-    
-    // Second loop with division operations
-    int32_t *v0_1 = 0;
-    const char *a1_1 = NULL;
-    
-    while (1) {
-        uint32_t a3_3 = *(uint32_t *)(lut_base + (uintptr_t)v0_1);
-        v0_1 = (void *)(uintptr_t)((uintptr_t)v0_1 + (1));
-        
-        if (a3_3 == arg4) {
-            result = (void *)(uintptr_t)((uintptr_t)result | (1));
-        } else if (v0_1 != 10) {
-            continue;
-        } else if (result == 0) {
-            a1_1 = "\n---- [func:%s line:%d] LSC mesh size is error ----\n";
-            break;
-        }
-        
-        uint16_t *v0_3;
-        int32_t *v1_1;
-        
-        if (v1 != 0) {
-            // Use __div64_32 for 64-bit division
-            v0_3 = __div64_32(&var_20, arg3);
-            v1_1 = a1;
-        } else {
-            uint16_t hi_1 = (uint16_t)(arg1 % arg3);
-            int32_t var_1c_1 = 0;
-            arg3 = arg1 / arg3;
-            var_20 = arg3;
-            v0_3 = hi_1;
-            v1_1 = a1;
-        }
-        
-        uint32_t *v0_4 = var_28;
-        uint32_t s2_2;
-        
-        if (v1_1 != 0) {
-            int16_t *v0_10;
-            v0_10 = __div64_32(&var_28, arg4);
-            s2_2 = (uint32_t)(uint16_t)v0_10;
-        } else {
-            var_28[0] = (uintptr_t)v0_4 / arg4;
-            s2_2 = (uint32_t)((uintptr_t)v0_4 % arg4);
-        }
-        
-        int16_t v1_2 = (int16_t)(var_20 & 0xFFFF);
-        int16_t v0_6 = (int16_t)((uintptr_t)var_28 & 0xFFFF);
-        int16_t *v1_3;
-        
-        v1_3 = (v0_3 != 0) ? (v1_2 + 2) : (v1_2 + 1);
-        
-        int16_t *v0_7;
-        v0_7 = (s2_2 != 0) ? (v0_6 + 2) : (v0_6 + 1);
-        
-        uint32_t v0_9 = (uint32_t)(uint16_t)v0_7;
-        
-        if ((v0_9 & 1) != 0) {
-            v0_9 = (v0_9 & 0xFFFF) + 1;
-        }
-        
-        if (v0_9 == (s0 << 1)) {
-            if ((uint32_t)((uint32_t)(uint16_t)(uintptr_t)v1_3 * (uint32_t)(uint16_t)s0) < 0x481) {
-                return result;
-            }
-            
-            a1_1 = "\n---- [func:%s line:%d] LSC mesh lut size is error ----\n";
-        } else {
-            a1_1 = "\n---- [func:%s line:%d] LSC mesh line offset is error ----\n";
-        }
-        
-        break;
-    }
-    
-    if (a1_1 != NULL) {
-        isp_printf(1, a1_1, arg3);
-        return -1;
-    }
-    
-    return result;
+    /* Hand translation of OEM 0x37570..0x37748 (the lift was a model_output with the mesh table as a string and a
+     * dereferenced constant -> MT53 BadVA 1c181410).  Allowed mesh sizes {16,20,24,28,32,36,40,48,64,80}; the grid
+     * (width/mesh_x (+1|+2), height/mesh_y (+1|+2, even)) must have lut_n*2 rows and <= 1152 cells. */
+    static const uint8_t tab[10] = { 0x10, 0x14, 0x18, 0x1c, 0x20, 0x24, 0x28, 0x30, 0x40, 0x50 };
+    uint32_t ok = 0, i, qx, rx, qy, ry, v1, v0;
+    for (i = 0; i < 10; i++) if (tab[i] == mesh_x) { ok = 1; break; }
+    for (i = 0; i < 10; i++) if (tab[i] == mesh_y) { ok |= 1; break; }
+    if (!ok || !mesh_x || !mesh_y) { isp_printf(1, "%s[%d] LSC mesh size is error (%u x %u)\n", "tisp_lsc_lut_valid_judge", 0, mesh_x, mesh_y); return -1; }
+    qx = width / mesh_x; rx = (width % mesh_x) & 0xffffU;
+    qy = height / mesh_y; ry = (height % mesh_y) & 0xffffU;
+    v1 = ((qx & 0xffffU) + (rx ? 2U : 1U)) & 0xffffU;
+    v0 = ((qy & 0xffffU) + (ry ? 2U : 1U)) & 0xffffU;
+    if (v0 & 1U) v0 = (v0 + 1U) & 0xffffU;
+    if (v0 != ((lut_n << 1) & 0xffffU)) { isp_printf(1, "%s[%d] LSC lut rows %u != %u\n", "tisp_lsc_lut_valid_judge", 0, v0, lut_n << 1); return -1; }
+    v1 = (v1 * lut_n) & 0xffffU;
+    if (v1 >= 1153U) { isp_printf(1, "%s[%d] LSC lut cells %u too many\n", "tisp_lsc_lut_valid_judge", 0, v1); return -1; }
+    return (int32_t)ok;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000036d28 origin=model_output original=tisp_lsc_interp_by_ct */
@@ -110918,7 +110824,7 @@ tisp_lsc_init0xe0:
 
     /* fragment 15: CallSetup */
     local_10 = *(uint16_t *)((char *)(s1) + 2);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_lut_valid_judge)(s3, s4, *(uint16_t *)((char *)(s1) + 6), *(uint16_t *)((char *)(s1) + 4)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)tisp_lsc_lut_valid_judge((uint32_t)(uintptr_t)s3, (uint32_t)(uintptr_t)s4, *(uint16_t *)((char *)(s1) + 6), *(uint16_t *)((char *)(s1) + 4), *(uint16_t *)((char *)(s1) + 2));   /* T40-ARGS: 5th arg lhu 2(sX) (OEM 0x38374 sw v0,16(sp)) */
 
     /* fragment 16: Branch */
     int _bc_v0_16 = v0 >= 0;
@@ -111565,7 +111471,7 @@ tisp_lsc_mirror_flip0x4c:
     /* fragment 6: CallSetup */
     local_18 = v0;
     local_10 = *(uint16_t *)((char *)(s0) + 2);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_lut_valid_judge)(s1, s3, *(uint16_t *)((char *)(s0) + 6), *(uint16_t *)((char *)(s0) + 4)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)tisp_lsc_lut_valid_judge((uint32_t)(uintptr_t)s1, (uint32_t)(uintptr_t)s3, *(uint16_t *)((char *)(s0) + 6), *(uint16_t *)((char *)(s0) + 4), *(uint16_t *)((char *)(s0) + 2));   /* T40-ARGS: 5th arg lhu 2(sX) (OEM 0x38374 sw v0,16(sp)) */
 
     /* fragment 7: StackAccess */
     t2 = local_18;
