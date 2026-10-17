@@ -7437,6 +7437,7 @@ static bool regtrace_t40_ct_update;             /* run the event-13 colour-tempe
 module_param_named(t40_ct_update, regtrace_t40_ct_update, bool, 0644);
 static bool regtrace_t40_ev_updates;            /* run events 6..13 (tgain/again/ev/ct module updates pushed by the 3A); needs the module inits */
 module_param_named(t40_ev_updates, regtrace_t40_ev_updates, bool, 0644);
+static uint32_t t40_aex_mean;                    /* AEX log: mean at tune2 entry */
 int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_sub_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_mult2_32(int32_t arg1, int32_t arg2, int32_t arg3);
@@ -77029,6 +77030,7 @@ tisp_main_init0x8f8:
     v0 = *(uint32_t *)((char *)((char *)&tparams_status));
 
 tisp_main_init0x92c:
+    { static unsigned int n; if (n++ < 2) printk(KERN_INFO "tx_isp_t40_recovered: TPSTATUS tparams_status=%p *=%x (bit8 dmsc bit10 gamma ... gate the block inits)\n", (void *)(uintptr_t)tparams_status, regtrace_is_kernel_ptr((void *)(uintptr_t)tparams_status) ? *(uint32_t *)(uintptr_t)tparams_status : 0xdeadbeef); }
     /* fragment 153: MemoryAccess */
     v0 = *(uint32_t *)((char *)v0 + 0);
     v0 = (uintptr_t)v0 & 256;
@@ -86628,6 +86630,7 @@ int64_t tisp_ae_long_tune2(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3,
 {
     uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     if (regtrace_t40_ae_diag) { static unsigned int n; const char *cx = (const char *)a1; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2IN #%u ctx=%p gate(*(ctx+4)+6)=%u @%p mean=%u ev3={%u %u %u} c44={%u %u %u} a2=%p a2+52=%u ctx0[0..3]={%u %u %u %u}\n", n, cx, *(uint16_t *)(*(uint32_t *)(cx + 4) + 6), (void *)(*(uint32_t *)(cx + 4) + 6), (unsigned)a3, ((uint32_t *)*(uint32_t *)(cx + 8))[0], ((uint32_t *)*(uint32_t *)(cx + 8))[1], ((uint32_t *)*(uint32_t *)(cx + 8))[2], ((uint32_t *)*(uint32_t *)(cx + 44))[0], ((uint32_t *)*(uint32_t *)(cx + 44))[1], ((uint32_t *)*(uint32_t *)(cx + 44))[2], (void *)a2, *(uint32_t *)((char *)a2 + 52), ((uint32_t *)*(uint32_t *)(cx + 0))[0], ((uint32_t *)*(uint32_t *)(cx + 0))[1], ((uint32_t *)*(uint32_t *)(cx + 0))[2], ((uint32_t *)*(uint32_t *)(cx + 0))[3]); }   /* T40-AE-IN2-DIAG */
+    t40_aex_mean = (uint32_t)(uintptr_t)a3;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -88297,7 +88300,7 @@ tisp_ae_long_tune20xf28:
     v0 = local_80;
     v1 = local_d8;
     if (regtrace_t40_ae_diag) { static unsigned int n; if (n++ < 8) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2OUT #%u a3=%u arg4=%u arg5=%u cc=%u b4=%u 94=%u c8=%u 88=%u s6=%lx s1=%lx -> it=%u again=%u dgain=%u flag=%u\n", n, (unsigned)a3, (unsigned)arg4, (unsigned)arg5, (unsigned)local_cc, (unsigned)local_b4, (unsigned)local_94, (unsigned)local_c8, (unsigned)local_88, (unsigned long)(uintptr_t)s6, (unsigned long)(uintptr_t)s1, (unsigned)local_78, (unsigned)local_74, (unsigned)local_70, (unsigned)(uintptr_t)a0); }   /* T40-AE-OUT-DIAG */
-    if (regtrace_t40_ae_diag) { static unsigned int fn; fn++; if (fn <= 400) printk(KERN_INFO "tx_isp_t40_recovered: AEX #%u mean=%lu tgt=%u -> it=%u again=%u dgain=%u conv=%u\n", fn, (unsigned long)(uintptr_t)s4, local_84, (unsigned)local_78, (unsigned)local_74, (unsigned)local_70, (unsigned)(uintptr_t)a0); }   /* T40-AEX per-frame log */
+    if (regtrace_t40_ae_diag) { static unsigned int fn; fn++; if (fn <= 400) printk(KERN_INFO "tx_isp_t40_recovered: AEX #%u mean=%u tgt=%u -> it=%u again=%u dgain=%u conv=%u\n", fn, t40_aex_mean, local_84, (unsigned)local_78, (unsigned)local_74, (unsigned)local_70, (unsigned)(uintptr_t)a0); }   /* T40-AEX per-frame log */
     local_8c = a0;
     *(uint16_t *)((char *)v0 + 2) = a0;
     *(uint16_t *)((char *)v0 + 8) = s1;
