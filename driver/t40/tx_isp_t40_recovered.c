@@ -88872,7 +88872,7 @@ int32_t tisp_ae_long_alogrithm(int32_t arg1, int32_t (*arg2)(int32_t arg1, int32
     a2_2 = (uint32_t)*(uint16_t *)((char *)v0_2 + 0x26);
 
     v0_3 = *(void **)((char *)arg2 + 0x144);
-    s1 = (uintptr_t *)*(uintptr_t *)((char *)v0_3 + 10);
+    s1 = (uintptr_t *)(uintptr_t)*(uint16_t *)((char *)v0_3 + 10);   /* T40-LHU (OEM 0x271ec lhu s1,10(v0)): the lift loaded 32 bits (196614 = 0x30006) -> weight_mean2 cnt_y garbage -> wsum overflow, mean 2 at a bright frame (MT42) */
     a2_3 = (uint32_t)*(uint16_t *)((char *)v0_3 + 8);
     s7 = (uint32_t)*(uint16_t *)((char *)v0_3 + 12);
 
