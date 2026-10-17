@@ -7441,6 +7441,9 @@ static unsigned int regtrace_t40_module_ctx_inits;  /* bitmask: run the lifted m
 module_param_named(t40_module_ctx_inits, regtrace_t40_module_ctx_inits, uint, 0644);
 static unsigned int regtrace_t40_antiflick_hz;      /* 0 = bin default (60 Hz), 50/60 = set after AE init like the vendor app does */
 module_param_named(t40_antiflick_hz, regtrace_t40_antiflick_hz, uint, 0644);
+static uint32_t t40_antiflick_pending[2];        /* SetAntiFlickerAttr received before the AE context exists (timps start order) */
+static uint32_t t40_antiflick_pending_a2;
+static bool t40_antiflick_pending_valid;
 static uint32_t t40_aex_mean;                    /* AEX log: mean at tune2 entry */
 int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_sub_32(uint32_t a0, uint32_t a1, uint32_t a2);
@@ -15866,8 +15869,12 @@ static int regtrace_isp_block_init_once(const char *where)
         regtrace_isp_block_init_ae_ret =
             (int)tisp_ae_main_init(ae_width, ae_height);
     }
-    if (regtrace_t40_antiflick_hz == 50U || regtrace_t40_antiflick_hz == 60U) {   /* T40-ANTIFLICK-DEFAULT: the bin says mode 2 / 60 Hz; the vendor app sets 50 Hz (DE) via
-                                                                                 * IMP_ISP_Tuning_SetAntiFlickerAttr at start -> do the same here when no app will */
+    if (t40_antiflick_pending_valid) {   /* T40-ANTIFLICK-DEFER: timps calls SetAntiFlickerAttr after EnableTuning but before the stream/AE init */
+        uint32_t af[2] = { t40_antiflick_pending[0], t40_antiflick_pending[1] };
+        t40_antiflick_pending_valid = false;
+        (void)tisp_s_antiflick(0, (uintptr_t)af, t40_antiflick_pending_a2);
+    } else if (regtrace_t40_antiflick_hz == 50U || regtrace_t40_antiflick_hz == 60U) {
+        /* bin default is 60 Hz; the vendor app sets 50 Hz via SetAntiFlickerAttr -> do the same here when no app will */
         uint32_t af[2] = { regtrace_t40_antiflick_hz == 50U ? 1U : 2U, regtrace_t40_antiflick_hz };
         bool old = regtrace_t40_allow_antiflick;
         regtrace_t40_allow_antiflick = true;
@@ -184601,6 +184608,7 @@ int64_t tisp_s_antiflick(uint32_t a0, uintptr_t a1, uint32_t a2)
         tp = 0;
     if (tp == 0 || (a0 & ~1U)) {
         printk(KERN_INFO "tx_isp_t40_recovered: tisp_s_antiflick: no param block (ch=%u a2=%u)\n", a0, a2);
+        if (a0 == 0 && regtrace_is_kernel_ptr_any(attr)) { t40_antiflick_pending[0] = attr[0]; t40_antiflick_pending[1] = attr[1]; t40_antiflick_pending_a2 = a2; t40_antiflick_pending_valid = true; printk(KERN_INFO "tx_isp_t40_recovered: tisp_s_antiflick: deferred until AE init (mode=%u freq=%u)\n", attr[0], *((const uint8_t *)attr + 4)); }
         return 0;
     }
     tn = tparamsN[a0 & 1];
@@ -184613,6 +184621,7 @@ int64_t tisp_s_antiflick(uint32_t a0, uintptr_t a1, uint32_t a2)
     fq = *(uint32_t **)(p + 316);
     if (!regtrace_is_kernel_ptr_any(flags) || !regtrace_is_kernel_ptr_any(fq)) {
         printk(KERN_INFO "tx_isp_t40_recovered: tisp_s_antiflick: ctx+312=%p ctx+316=%p not initialised\n", flags, fq);
+        if (a0 == 0 && regtrace_is_kernel_ptr_any(attr)) { t40_antiflick_pending[0] = attr[0]; t40_antiflick_pending[1] = attr[1]; t40_antiflick_pending_a2 = a2; t40_antiflick_pending_valid = true; printk(KERN_INFO "tx_isp_t40_recovered: tisp_s_antiflick: deferred until AE init (mode=%u freq=%u)\n", attr[0], *((const uint8_t *)attr + 4)); }
         return 0;
     }
     mode = attr[0];
