@@ -1,3 +1,4 @@
+#define pr_fmt(fmt) "tx-isp: " fmt
 /*
 * Video Class definitions of Tomahawk series SoC.
  *
@@ -2029,8 +2030,12 @@ int frame_chan_event(void *priv, int event, void *data)
             }
             spin_unlock_irqrestore(&fcd->oem_buf_lock, oem_flags);
 
-            if (matched)
+            if (matched) {
                 state->sequence = completed_sequence;
+                pr_info("*** FRAME DONE ch=%d seq=%u phys=0x%08x pending=%d ***\n",
+                        ch, completed_sequence, y_done,
+                        atomic_read(&state->frame_ready_count));
+            }
         }
 
         if (!matched) {
@@ -5090,7 +5095,7 @@ static long frame_channel_ioctl_locked(struct file *file, unsigned int cmd,
             wmb();
         }
 
-        pr_debug("Channel %d: DQBUF idx=%u seq=%u memory=%u userptr=0x%lx len=%u\n",
+        pr_info("*** DQBUF ch=%d idx=%u seq=%u memory=%u userptr=0x%lx len=%u ***\n",
                 channel, buffer.index, buffer.sequence, buffer.memory,
                 (unsigned long)((buffer.memory == V4L2_MEMORY_USERPTR) ? buffer.m.userptr : 0),
                 buffer.length);
@@ -6642,7 +6647,7 @@ static int tx_isp_init(void)
     /* Step 2: Register platform device (matches reference) */
     ret = platform_device_register(&tx_isp_platform_device);
     if (ret != 0) {
-        pr_err("not support the gpio mode!\n");
+        pr_err("failed to register platform device: %d\n", ret);
         goto err_free_dev;
     }
 
