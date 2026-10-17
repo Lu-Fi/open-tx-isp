@@ -23420,6 +23420,7 @@ static long regtrace_isp_m0_default_tuning_ioctl(unsigned int cmd, unsigned long
                    af[0], af[1] & 0xffU);
             return 0;
         }
+        { static unsigned int n; if (n++ < 8) printk(KERN_INFO "tx_isp_t40_recovered: isp-m0 tuning before tuning init: vinum=%u dir=%u id=0x%x -> ENODEV\n", ctrl.vinum, ctrl.dir, ctrl.id); }
         return -ENODEV;
     }
 
