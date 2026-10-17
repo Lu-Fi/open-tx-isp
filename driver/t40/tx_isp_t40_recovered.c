@@ -7437,6 +7437,8 @@ static bool regtrace_t40_ct_update;             /* run the event-13 colour-tempe
 module_param_named(t40_ct_update, regtrace_t40_ct_update, bool, 0644);
 static bool regtrace_t40_ev_updates;            /* run events 6..13 (tgain/again/ev/ct module updates pushed by the 3A); needs the module inits */
 module_param_named(t40_ev_updates, regtrace_t40_ev_updates, bool, 0644);
+static unsigned int regtrace_t40_module_ctx_inits;  /* bitmask: run the lifted module inits (1 gamma 2 lsc 4 ccm 8 bcsh 16 clm) after the lit inits */
+module_param_named(t40_module_ctx_inits, regtrace_t40_module_ctx_inits, uint, 0644);
 static uint32_t t40_aex_mean;                    /* AEX log: mean at tune2 entry */
 int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_sub_32(uint32_t a0, uint32_t a1, uint32_t a2);
@@ -15929,6 +15931,16 @@ static int regtrace_isp_block_init_once(const char *where)
             regtrace_ccm_main_ct_update_lit(regtrace_ccm_ct, true);
         printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init ccm ret=%d\n",
                ccm_ret);
+    }
+
+    if (regtrace_t40_module_ctx_inits) {   /* T40-MODULE-CTX-INITS: the lifted OEM module inits (tisp_main_init 0x1f550..0x1f7f8) that build the
+                                            * contexts the event-6..13 updates need (gamma/lsc/ccm/bcsh/clm); bitmask 1 gamma 2 lsc 4 ccm 8 bcsh 16 clm */
+        int r;
+        if (regtrace_t40_module_ctx_inits & 2U) { printk(KERN_INFO "tx_isp_t40_recovered: module-ctx-init lsc_init(0,%u,%u)\n", *(uint32_t *)tisp_par_info, *(uint32_t *)(tisp_par_info + 4)); r = (int)tisp_lsc_init(0, *(uint32_t *)tisp_par_info, *(uint32_t *)(tisp_par_info + 4)); printk(KERN_INFO "tx_isp_t40_recovered: module-ctx-init lsc ret=%d\n", r); }
+        if (regtrace_t40_module_ctx_inits & 1U) { printk(KERN_INFO "tx_isp_t40_recovered: module-ctx-init gamma_init(0)\n"); r = (int)tisp_gamma_init(0); printk(KERN_INFO "tx_isp_t40_recovered: module-ctx-init gamma ret=%d\n", r); }
+        if (regtrace_t40_module_ctx_inits & 8U) { printk(KERN_INFO "tx_isp_t40_recovered: module-ctx-init bcsh_main_init(2)\n"); r = (int)tisp_bcsh_main_init(2); printk(KERN_INFO "tx_isp_t40_recovered: module-ctx-init bcsh ret=%d\n", r); }
+        if (regtrace_t40_module_ctx_inits & 4U) { printk(KERN_INFO "tx_isp_t40_recovered: module-ctx-init ccm_main_init()\n"); r = (int)tisp_ccm_main_init(); printk(KERN_INFO "tx_isp_t40_recovered: module-ctx-init ccm ret=%d\n", r); }
+        if (regtrace_t40_module_ctx_inits & 16U) { printk(KERN_INFO "tx_isp_t40_recovered: module-ctx-init clm_init(0)\n"); r = (int)tisp_clm_init(0); printk(KERN_INFO "tx_isp_t40_recovered: module-ctx-init clm ret=%d\n", r); }
     }
 
     if (regtrace_enable_clm) {
