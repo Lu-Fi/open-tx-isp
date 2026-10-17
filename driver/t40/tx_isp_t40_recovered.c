@@ -83798,6 +83798,7 @@ int64_t tisp_deflicker_expt(uint32_t a0, uintptr_t a1)
     pcnt = (uint16_t *)(uintptr_t)*(uint32_t *)((char *)a1 + 52);
     if (!regtrace_is_kernel_ptr(p) || !regtrace_is_kernel_ptr_any(tab) || !regtrace_is_kernel_ptr_any(pcnt))
         return 0;
+    { static unsigned int n; if (n++ < 4) printk(KERN_INFO "tx_isp_t40_recovered: DEFLK ch=%u cache=%lx c1280=%u c1284=%u p={%u %u %u %u} shift=%u\n", a0, (unsigned long)cache, c1280, c1284, p[0], p[1], p[2], p[3], shift); }
     s2 = (p[0] << 1) << shift;
     t2 = p[2] << shift;
     v = (uint32_t)fix_point_div_32((int32_t)shift, (int32_t)s2, (int32_t)c1284);
