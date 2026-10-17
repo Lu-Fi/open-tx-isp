@@ -87330,6 +87330,7 @@ tisp_ae_long_tune20x69c:
     local_84 = 0;
 
 tisp_ae_long_tune20x6a0:
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 6a0 #%u s4(mean)=%lu s5(last target)=%u tol_lo(110)=%u tol_hi(10c)=%u 8c=%u ctx164byte=%u a4=%u s6=%x\n", n, (unsigned long)(uintptr_t)s4, s5, (unsigned)(uintptr_t)local_110, local_10c, local_8c, *(uint8_t *)(uintptr_t)*(uint32_t *)((char *)s8 + 164), local_a4, s6); }
     /* fragment 89: StackAccess */
     v1 = local_80;
     a0 = local_98;
