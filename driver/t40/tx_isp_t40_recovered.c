@@ -86483,182 +86483,38 @@ int32_t tisp_ae_long_weight_mean2(int32_t arg1, int32_t (*arg2)(int32_t arg1, in
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024f04 origin=fragment_seed original=tisp_ae_long_target */
 int32_t tisp_ae_long_target(uint32_t a0, uintptr_t a1, uintptr_t a2, uint32_t a3)
 {
-    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
-    uint32_t ra = 0;
-    uintptr_t t0 = 0;
-    uint32_t *t1 = 0;
-    uint32_t *t2 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a1 + 0);
-    v0 = (uintptr_t)v0 << a3;
-    v0 = v0 < a0;
-
-    /* fragment 1: Branch */
-    if (v0 != 0) { goto tisp_ae_long_target0x1c; }
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a2 + 0);
-
-tisp_ae_long_target0x1c:
-    /* fragment 4: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a1 + 36);
-    v0 = (uintptr_t)v0 << a3;
-    v0 = a0 < v0;
-
-    /* fragment 5: Branch */
-    t0 = a1;
-    if (v0 != 0) { goto tisp_ae_long_target0x38; }
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a2 + 36);
-
-tisp_ae_long_target0x38:
-    /* fragment 8: Arithmetic */
-    v0 = 0;
-    t1 = 9;
-
-tisp_ae_long_target0x40:
-    /* fragment 9: MemoryAccess */
-    v1 = *(uint32_t *)((char *)t0 + 0);
-    v1 = (uintptr_t)v1 << a3;
-    v1 = a0 < v1;
-
-    /* fragment 10: Branch */
-    t2 = v0 + 1;
-    if (v1 != 0) { goto tisp_ae_long_target0x68; }
-
-    /* fragment 11: MemoryAccess */
-    v1 = *(uint32_t *)((char *)t0 + 4);
-    v1 = (uintptr_t)v1 << a3;
-    v1 = v1 < a0;
-
-    /* fragment 12: Branch */
-    if (v1 == 0) { goto tisp_ae_long_target0x78; }
-
-tisp_ae_long_target0x68:
-    /* fragment 13: Arithmetic */
-    t0 = t0 + 4;
-
-    /* fragment 14: Branch */
-    v0 = t2;
-    if (t2 != t1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_target", "0x40"); else { __lg--; goto tisp_ae_long_target0x40; } } }
-
-    /* fragment 15: Arithmetic */
-    v0 = 0;
-
-tisp_ae_long_target0x78:
-    /* fragment 16: Arithmetic */
-    v0 = (uintptr_t)v0 << 2;
-    t1 = v0 + 4;
-    v1 = a1 + (uintptr_t)v0;
-    a1 = a1 + (uintptr_t)t1;
-
-    /* fragment 17: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v1 + 0);
-    t0 = *(uint32_t *)((char *)a1 + 0);
-    v0 = a2 + (uintptr_t)v0;
-
-    /* fragment 18: Branch */
-    v0 = *(uint32_t *)((char *)(v0) + 0);
-    if (v1 == t0) { goto tisp_ae_long_target0x114; }
-
-    /* fragment 19: Arithmetic */
-    a2 = a2 + (uintptr_t)t1;
-
-    /* fragment 20: MemoryAccess */
-    a1 = *(uint32_t *)((char *)a2 + 0);
-    a0 = a0 >> a3;
-    t1 = v1 < a0;
-    a2 = a1 < v0;
-
-    /* fragment 21: Branch */
-    a3 = t0 < v1;
-    if (a2 == 0) { goto tisp_ae_long_target0xe8; }
-
-    /* fragment 22: Arithmetic */
-    a1 = v0 - a1;
-
-    /* fragment 23: Branch */
-    a2 = v1 - a0;
-    if (t1 == 0) { goto tisp_ae_long_target0xc8; }
-
-    /* fragment 24: Arithmetic */
-    a2 = a0 - (uintptr_t)v1;
-
-tisp_ae_long_target0xc8:
-    /* fragment 25: Arithmetic */
-    a1 = a2 * a1;
-
-    /* fragment 26: Branch */
-    a0 = t0 - (uintptr_t)v1;
-    if (a3 == 0) { goto tisp_ae_long_target0xd8; }
-
-    /* fragment 27: Arithmetic */
-    a0 = v1 - t0;
-
-tisp_ae_long_target0xd8:
-    /* fragment 28: Unknown */
-    /* unmatched fragment 28 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 24fdc:	00a4001b 	divu	zero,a1,a0 */
-
-    /* fragment 29: Arithmetic */
-    /* unmatched fragment 29 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 24fe0:	00002812 	mflo	a1 */
-
-    /* fragment 30: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 31: Arithmetic */
-    v0 = v0 - a1;
-
-tisp_ae_long_target0xe8:
-    /* fragment 32: Arithmetic */
-    a2 = a1 - (uintptr_t)v0;
-
-    /* fragment 33: Branch */
-    a1 = v1 - a0;
-    if (t1 == 0) { goto tisp_ae_long_target0xf8; }
-
-    /* fragment 34: Arithmetic */
-    a1 = a0 - (uintptr_t)v1;
-
-tisp_ae_long_target0xf8:
-    /* fragment 35: Arithmetic */
-    a0 = a1 * a2;
-
-    /* fragment 36: Branch */
-    a1 = t0 - (uintptr_t)v1;
-    if (a3 == 0) { goto tisp_ae_long_target0x108; }
-
-    /* fragment 37: Arithmetic */
-    a1 = v1 - t0;
-
-tisp_ae_long_target0x108:
-    /* fragment 38: Unknown */
-    /* unmatched fragment 38 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2500c:	0085001b 	divu	zero,a0,a1 */
-
-    /* fragment 39: Arithmetic */
-    v0 = v0 + a0;
-
-tisp_ae_long_target0x114:
-    /* fragment 40: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 41: Unknown */
-    /* unmatched fragment 41 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2501c:	00000000 	nop */
-
-    return 0;
+    /* Hand translation of OEM 0x25924..0x25a3c: piecewise-linear target luma over a 10-entry EV table.
+     * ev = a0 (Q sh), evtab = a1[10] (Q0, shifted by sh), tgt = a2[10].  The lift lost the
+     * early returns (fell through), both divu and the final return value (MT46: target 0 -> AE towards black). */
+    const uint32_t *evtab = (const uint32_t *)(uintptr_t)a1;
+    const uint32_t *tgt = (const uint32_t *)(uintptr_t)a2;
+    uint32_t ev = (uint32_t)(uintptr_t)a0, sh = (uint32_t)(uintptr_t)a3 & 31U, i, e0, e1, t0v, t1v, evs, d;
+    if (!regtrace_is_kernel_ptr(evtab) || !regtrace_is_kernel_ptr(tgt))
+        return 0;
+    if (!((evtab[0] << sh) < ev))
+        return (int32_t)tgt[0];
+    if (!(ev < (evtab[9] << sh)))
+        return (int32_t)tgt[9];
+    for (i = 0; i < 9U; i++) {
+        if (ev < (evtab[i] << sh))
+            continue;
+        if (!((evtab[i + 1] << sh) < ev))
+            break;
+    }
+    if (i == 9U)
+        i = 0;
+    e0 = evtab[i]; e1 = evtab[i + 1]; t0v = tgt[i]; t1v = tgt[i + 1];
+    if (e0 == e1)
+        return (int32_t)t0v;
+    evs = ev >> sh;
+    d = (e1 < e0) ? (e0 - e1) : (e1 - e0);
+    if (t1v < t0v) {
+        uint32_t num = ((e0 < evs) ? (evs - e0) : (e0 - evs)) * (t0v - t1v);
+        return (int32_t)(t0v - (d ? num / d : 0));
+    } else {
+        uint32_t num = ((e0 < evs) ? (evs - e0) : (e0 - evs)) * (t1v - t0v);
+        return (int32_t)(t0v + (d ? num / d : 0));
+    }
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000025020 origin=fragment_seed original=tisp_ae_long_tune */
