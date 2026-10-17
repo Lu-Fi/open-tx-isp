@@ -128167,6 +128167,7 @@ tisp_gamma_interp_by_ev0x88:
     a1 = (uintptr_t)v0 * a3;
     v1 = t0 + (uintptr_t)v1;
     v1 = a1 + (uintptr_t)v1;
+    v1 = (uintptr_t)a0 ? (uintptr_t)v1 / (uintptr_t)a0 : 0;   /* T40-DIV-RESTORE: OEM 0x48b78 divu zero,v1,a0 ; mflo v1 - the lift dropped the division, so the blended gamma weight was written unscaled (heap corruption via the gamma LUT writers, N6/MT85) */
 
     /* fragment 19: Unknown */
     /* unmatched fragment 19 (Unknown): no deterministic matcher for Unknown */
