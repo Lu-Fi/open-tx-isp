@@ -86956,7 +86956,7 @@ tisp_ae_long_tune20x2d8:
     a2 = a2 + 1;
 
     /* fragment 15: Branch */
-    a0 = v1 + a0;
+    a0 = (typeof(a0))(uintptr_t)((uintptr_t)v1 + (uintptr_t)a0);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     if (a2 != a1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x2d8"); else { __lg--; goto tisp_ae_long_tune20x2d8; } } }
 
     /* fragment 16: CallSetup */
@@ -87060,7 +87060,7 @@ tisp_ae_long_tune20x440:
     /* fragment 31: MemoryAccess */
     v0 = *(uint32_t *)((char *)a1 + 0);
     a3 = a3 + 2;
-    a1 = a1 + 4;
+    a1 = (typeof(a1))(uintptr_t)((uintptr_t)a1 + (uintptr_t)4);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     *(uint32_t *)((char *)t1 + 0) = v0;
     v0 = *(uint32_t *)((char *)a0 + 0);
     t1 = (uintptr_t *)((uintptr_t)t1 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
@@ -87101,7 +87101,7 @@ tisp_ae_long_tune20x49c:
     a1 = *(uint32_t *)((char *)v0 + 0);
     a3 = a0 << 1;
     a0 = a0 + 1;
-    a1 = a1 + a3;
+    a1 = (typeof(a1))(uintptr_t)((uintptr_t)a1 + (uintptr_t)a3);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     a3 = *(uint16_t *)((char *)a1 + 2);
 
     /* fragment 39: Branch */
@@ -87155,7 +87155,7 @@ tisp_ae_long_tune20x4f0:
 tisp_ae_long_tune20x510:
     /* fragment 51: Arithmetic */
     v0 = 15;
-    v1 = v0 - s6;
+    v1 = (typeof(v1))(uintptr_t)((uintptr_t)v0 - (uintptr_t)s6);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     v0 = (uintptr_t)v1 << 2;
     s3 = (uintptr_t)s3 + (uintptr_t)v0;
     s4 = 0;
@@ -87353,7 +87353,7 @@ tisp_ae_long_tune20x6a0:
     if (_bc_v1_92) { goto tisp_ae_long_tune20x700; }
 
     /* fragment 93: Arithmetic */
-    v1 = v1 + s5;
+    v1 = (typeof(v1))(uintptr_t)((uintptr_t)v1 + (uintptr_t)s5);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     v1 = v1 < s4;
 
     /* fragment 94: Branch */
@@ -87383,7 +87383,7 @@ tisp_ae_long_tune20x700:
     a0 = local_d0;
     *(uint8_t *)((char *)v1 + 0) = 0;
     v1 = local_e4;
-    v1 = v1 + a0;
+    v1 = (typeof(v1))(uintptr_t)((uintptr_t)v1 + (uintptr_t)a0);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     v1 = *(uint32_t *)((char *)v1 + 0);
     a0 = *(uint8_t *)((char *)v1 + 477);
 
@@ -87545,19 +87545,19 @@ tisp_ae_long_tune20x7a4:   /* OEM 0x262fc: the 1024<<sh shift (0x26300..0x26310)
 
 tisp_ae_long_tune20x870:
     /* fragment 128: Arithmetic */
-    a0 = v0 + s6;
+    a0 = (typeof(a0))(uintptr_t)((uintptr_t)v0 + (uintptr_t)s6);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     v0 = a0 < v0;
-    v1 = v1 + a1;
+    v1 = (typeof(v1))(uintptr_t)((uintptr_t)v1 + (uintptr_t)a1);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
 
     /* fragment 129: StackAccess */
     v1 = local_f0;
     a2 = local_88;
     a1 = local_110;
-    v1 = v1 + s7;
+    v1 = (typeof(v1))(uintptr_t)((uintptr_t)v1 + (uintptr_t)s7);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     t3 = v1 < s7;
-    a1 = a1 + a2;
-    s7 = t3 + a1;
+    a1 = (typeof(a1))(uintptr_t)((uintptr_t)a1 + (uintptr_t)a2);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
+    s7 = (typeof(s7))(uintptr_t)((uintptr_t)t3 + (uintptr_t)a1);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     local_88 = v1;
     v1 = v0 < s7;
 
@@ -87591,9 +87591,9 @@ tisp_ae_long_tune20x8c8:
 
     /* fragment 136: StackAccess */
     a1 = local_a0;
-    a0 = v0 + s6;
+    a0 = (typeof(a0))(uintptr_t)((uintptr_t)v0 + (uintptr_t)s6);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     v0 = a0 < v0;
-    v1 = v1 + a1;
+    v1 = (typeof(v1))(uintptr_t)((uintptr_t)v1 + (uintptr_t)a1);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
     v1 = s7 < v0;
 
@@ -87666,7 +87666,7 @@ tisp_ae_long_tune20x930:
     /* fragment 150: StackAccess */
     a0 = local_d0;
     v1 = local_e4;
-    v1 = v1 + a0;
+    v1 = (typeof(v1))(uintptr_t)((uintptr_t)v1 + (uintptr_t)a0);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     v1 = *(uint32_t *)((char *)v1 + 0);
     a1 = *(uint8_t *)((char *)v1 + 477);
     v1 = local_ac;
@@ -87694,7 +87694,7 @@ tisp_ae_long_tune20x9b0:
     a0 = a0 + 4;
 
     /* fragment 155: Branch */
-    a1 = a1 + a2;
+    a1 = (typeof(a1))(uintptr_t)((uintptr_t)a1 + (uintptr_t)a2);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     if (v1 != a0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x9b0"); else { __lg--; goto tisp_ae_long_tune20x9b0; } } }
 
     /* fragment 156: StackAccess */
@@ -87724,7 +87724,7 @@ tisp_ae_long_tune20x9ec:
     a3 = a3 >> 3;
 
     /* fragment 161: Branch */
-    v1 = v1 + a3;
+    v1 = (typeof(v1))(uintptr_t)((uintptr_t)v1 + (uintptr_t)a3);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     if (a0 != a2) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x9ec"); else { __lg--; goto tisp_ae_long_tune20x9ec; } } }
 
     /* fragment 162: Arithmetic */
@@ -87978,7 +87978,7 @@ tisp_ae_long_tune20xcb4:
     v0 = s6 - (uintptr_t)v0;
     a0 = s6 < v0;
     v1 = a1 - (uintptr_t)v1;
-    v1 = v1 - a0;
+    v1 = (typeof(v1))(uintptr_t)((uintptr_t)v1 - (uintptr_t)a0);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     a0 = local_ec;
     a0 = a0 < v1;
 
@@ -88020,7 +88020,7 @@ tisp_ae_long_tune20xd04:
     v0 = s6 - (uintptr_t)v0;
     a0 = s6 < v0;
     v1 = a1 - (uintptr_t)v1;
-    v1 = v1 - a0;
+    v1 = (typeof(v1))(uintptr_t)((uintptr_t)v1 - (uintptr_t)a0);   /* T40-PTRSTEP: byte add (OEM addu/subu), the lift scaled a pointer-typed operand x4 */
     a0 = v1 < s7;
 
     /* fragment 219: Branch */
