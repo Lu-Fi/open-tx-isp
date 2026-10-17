@@ -7435,6 +7435,8 @@ module_param_named(t40_ev_cur, regtrace_t40_ev_cur, uint, 0444);
 module_param_named(t40_ev_cur_n, regtrace_t40_ev_cur_n, uint, 0444);
 static bool regtrace_t40_ct_update;             /* run the event-13 colour-temperature updates (CCM/LSC/BCSH/CLM); needs their init */
 module_param_named(t40_ct_update, regtrace_t40_ct_update, bool, 0644);
+static bool regtrace_t40_ev_updates;            /* run events 6..13 (tgain/again/ev/ct module updates pushed by the 3A); needs the module inits */
+module_param_named(t40_ev_updates, regtrace_t40_ev_updates, bool, 0644);
 int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_sub_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_mult2_32(int32_t arg1, int32_t arg2, int32_t arg3);
@@ -79553,11 +79555,14 @@ int64_t tisp_event_process(uint32_t a0)
         static uint32_t ev_n[2], ev_max_us[2], ev_last_us[2];
         unsigned int slot = (event == 14U) ? 1U : 0U;
         unsigned long long t0 = sched_clock();
+        if (!regtrace_t40_ev_updates && event >= 6U && event <= 13U) { static unsigned int n; if (n++ < 3) printk(KERN_INFO "tx_isp_t40_recovered: event %u (module ev/gain/ct update) skipped: t40_ev_updates=0 (gamma/lsc/ccm/bcsh/clm ctx not initialised in this bring-up; MT40/MT41 Oops in tisp_main_long_ev_update callees)\n", event); goto t40_ev_skip; }
         regtrace_t40_ev_cur = event; regtrace_t40_ev_cur_n++;   /* T40-EVCUR */
         cb_ret = cb(node->args[0], node->args[1],
                     node->args[2], node->args[3],
                     node->args[4], node->args[5],
                     node->args[6], node->args[7]);
+t40_ev_skip:
+        ;
         regtrace_t40_ev_cur = 0;   /* T40-EVCUR */
         if (event == 1U || event == 14U) {
             uint32_t us = (uint32_t)((sched_clock() - t0) >> 10);
