@@ -107223,35 +107223,14 @@ void* tisp_awb_main_sel_en(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034aac origin=fragment_seed original=tisp_awb_main_ev_update */
 int32_t tisp_awb_main_ev_update(uint32_t a0)
 {
-    uint32_t local_14 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *t8 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: CallSetup */
-    *(uint32_t *)((char *)(*(uint32_t *)((char *)((char *)&video_input_cmd_buf + 0x50))) + 0) = (a0 >> 10);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_awb_ev_update_Ywgt)(&isp_memopt); /* jalr target resolved by relocation */
-
-    /* fragment 1: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 2: Arithmetic */
-    t9 = (uintptr_t)&tisp_awb_set_lum_th_freq;
-    a1 = 0;
-    a0 = t8;
-    t9 = t9;
-
-    /* fragment 3: Unknown */
-    /* unmatched fragment 3 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 34aec:	03200408 	jr.hb	t9 */
-
-    /* fragment 4: Arithmetic */
-    /* unmatched fragment 4 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 34af0:	27bd0018 	addiu	sp,sp,24 */
-
-    return 0;
+    /* Hand translation of OEM 0x354cc: *(pstMainAwbOri[116]) = ev >> 10; tisp_awb_ev_update_Ywgt(&pstMainAwbOri);
+     * tail call tisp_awb_set_lum_th_freq(&pstMainAwbOri, 0).  The lift wrote through video_input_cmd_buf+0x50 and
+     * passed &isp_memopt (MT65 Oops at +0x3c once event 8 ran). */
+    uint32_t *p = (uint32_t *)(uintptr_t)pstMainAwbOri[116];
+    if (!regtrace_is_kernel_ptr(p)) { static unsigned int n; if (n++ < 2) printk(KERN_INFO "tx_isp_t40_recovered: awb_main_ev_update: pstMainAwbOri[116]=%p not initialised\n", p); return 0; }
+    *p = (uint32_t)(uintptr_t)a0 >> 10;
+    tisp_awb_ev_update_Ywgt((void *)&pstMainAwbOri);
+    return (int32_t)tisp_awb_set_lum_th_freq((uintptr_t)&pstMainAwbOri, 0);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034af4 origin=fragment_seed original=tisp_awb_sec_face_pos */
@@ -131963,9 +131942,9 @@ int32_t tisp_gamma_ev_update(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
     a2 = (uintptr_t)v0 | a2;
     a3 = a3 >> 10;
     v0 = -1;
-    v1 = (int32_t *)&gamma_para;
+    v1 = (int32_t *)((char *)&gamma_para);
     if (a3 != 0) { a2 = v0; }
-    v1 = v1 + 17184;
+    v1 = (int32_t *)((char *)v1 + 17184);   /* T40-PTRSTEP: byte add (OEM addiu), the lift scaled x4 -> gamma_ev_update read the ctx from the wrong slot (MT65 'not initialised') */
     v0 = a0 << 2;
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
 
