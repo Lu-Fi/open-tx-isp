@@ -7433,6 +7433,8 @@ static unsigned int regtrace_t40_ev_cur_n;      /* callbacks dispatched */
 module_param_named(t40_awb_step, regtrace_t40_awb_step, uint, 0444);
 module_param_named(t40_ev_cur, regtrace_t40_ev_cur, uint, 0444);
 module_param_named(t40_ev_cur_n, regtrace_t40_ev_cur_n, uint, 0444);
+static bool regtrace_t40_ct_update;             /* run the event-13 colour-temperature updates (CCM/LSC/BCSH/CLM); needs their init */
+module_param_named(t40_ct_update, regtrace_t40_ct_update, bool, 0644);
 int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_sub_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_mult2_32(int32_t arg1, int32_t arg2, int32_t arg3);
@@ -72463,6 +72465,7 @@ tisp_main_short_ev_update0x6c:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001c308 origin=fragment_seed original=tisp_ct_update */
 int32_t tisp_ct_update(uint32_t a0, uint32_t a1)
 {
+    if (!regtrace_t40_ct_update) { static unsigned int n; if (n++ < 2) printk(KERN_INFO "tx_isp_t40_recovered: tisp_ct_update(ct=%u) skipped (t40_ct_update=0: CCM/LSC/BCSH/CLM ct tables not initialised in this bring-up, MT30 stall in bcsh_main_ct_update)\n", a0); return 0; }
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
