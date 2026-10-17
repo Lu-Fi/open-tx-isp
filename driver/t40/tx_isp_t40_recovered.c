@@ -67820,6 +67820,7 @@ tisp_awb_ct_detect0xd0:
     a2 = v0;
 
 tisp_awb_ct_detect0x220:
+    if (!regtrace_is_kernel_ptr((void *)(uintptr_t)a2) || !regtrace_is_kernel_ptr((void *)(uintptr_t)t5) || !regtrace_is_kernel_ptr((void *)(uintptr_t)v1)) { static unsigned int n; if (n++ < 3) printk(KERN_INFO "tx_isp_t40_recovered: ct_detect: bad table pointers ctx+132=%lx t5=%lx v1=%lx s5=%lx (MT22 hang at 0x27c store)\n", (unsigned long)(uintptr_t)a2, (unsigned long)(uintptr_t)t5, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)s5); return 0; }   /* T40-GUARD */
     regtrace_t40_awb_step = 12832;   /* T40-AWB-STEP ctd+0x220 */
     /* fragment 11: Branch */
     t3 = a2;
@@ -67838,6 +67839,7 @@ tisp_awb_ct_detect0x230:
     a1 = *(uint32_t *)((char *)a1 + 0);
     v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     a3 = t1 < a1;
+    if (a3 != 0) { t1 = a1; }   /* T40-MOVN (OEM 0x1a364 movn t1,a1,a3): running maximum, dropped by the lift */
 
 tisp_awb_ct_detect0x244:
     regtrace_t40_awb_step = 12868;   /* T40-AWB-STEP ctd+0x244 */
@@ -67919,7 +67921,6 @@ tisp_awb_ct_detect0x2c0:
     /* fragment 29: Arithmetic */
     /* unmatched fragment 29 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 199d8:	00001012 	mflo	v0 */
-    v0 = (typeof(v0))(uintptr_t)((uint32_t)(uintptr_t)a3 ? ((uint32_t)(uintptr_t)v0 / (uint32_t)(uintptr_t)a3) : 0);   /* T40-DIV-RESTORE: divu v0,a3 ; mflo v0 */
 
     /* fragment 30: MemoryAccess */
     *(uint32_t *)((char *)t3 + -4) = v0;
@@ -88517,7 +88518,7 @@ tisp_ae_long_tune20xf28:
     return (int64_t)v0;
 
 tisp_ae_long_tune20xf94:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (n++ < 6) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2NL #%u mean(s4)=%lu s6:a0=%lx:%x arg9(1a4)=%u arg5=%u arg6=%u arg7=%u arg8=%u arg10=%u cc=%u b4=%u 94=%u 88=%u 98=%u 9c=%u b8=%u bc=%u f0=%u ec=%u a4=%u 7e=%u s7=%lx | f8=%u fc=%u 100=%u 124=%u\n", n, (unsigned long)(uintptr_t)s4, (unsigned long)(uintptr_t)s6, (unsigned)local_a0, (unsigned)local_1a4, (unsigned)arg5, (unsigned)arg6, (unsigned)arg7, (unsigned)arg8, (unsigned)arg10, (unsigned)local_cc, (unsigned)local_b4, (unsigned)local_94, (unsigned)local_88, (unsigned)local_98, (unsigned)local_9c, (unsigned)local_b8, (unsigned)local_bc, (unsigned)local_f0, (unsigned)local_ec, (unsigned)local_a4, (unsigned)local_7e, (unsigned long)(uintptr_t)s7, (unsigned)local_f8, (unsigned)local_fc, (unsigned)local_100, (unsigned)local_124); }   /* T40-AE-NL-DIAG */
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (n++ < 6) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2NL #%u mean(s4)=%lu s6:a0=%lx:%x arg9(1a4)=%u arg5=%u arg6=%u arg7=%u arg8=%u arg10=%u cc=%u b4=%u 94=%u 88=%u 98=%u 9c=%u b8=%u bc=%u f0=%u ec=%u a4=%u 7e=%u s7=%lx | f8=%u fc=%u 100=%u 124=%u ev3@%p\n", n, (unsigned long)(uintptr_t)s4, (unsigned long)(uintptr_t)s6, (unsigned)local_a0, (unsigned)local_1a4, (unsigned)arg5, (unsigned)arg6, (unsigned)arg7, (unsigned)arg8, (unsigned)arg10, (unsigned)local_cc, (unsigned)local_b4, (unsigned)local_94, (unsigned)local_88, (unsigned)local_98, (unsigned)local_9c, (unsigned)local_b8, (unsigned)local_bc, (unsigned)local_f0, (unsigned)local_ec, (unsigned)local_a4, (unsigned)local_7e, (unsigned long)(uintptr_t)s7, (unsigned)local_f8, (unsigned)local_fc, (unsigned)local_100, (unsigned)local_124, (void *)(uintptr_t)*(uint32_t *)((char *)s8 + 8)); }   /* T40-AE-NL-DIAG */
     /* T40-NONLIST: hand translation of OEM 0x26aec..0x26fa0 (tisp_ae_long_tune2, the EV
      * allocation WITHOUT an exposure list = vendor default, mode gate != 1).  The lift of
      * this block had truncated fix_point call arguments and dropped movn/movz, so it never
