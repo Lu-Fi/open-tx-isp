@@ -23403,12 +23403,24 @@ static long regtrace_isp_m0_default_tuning_ioctl(unsigned int cmd, unsigned long
         return -EINVAL;
 
     core = regtrace_resolve_core_dev();
-    if (!regtrace_is_kernel_ptr((void *)core))
+    tuning = regtrace_is_kernel_ptr((void *)core) ? regtrace_get_u32(core, 992) : 0;
+    if (!regtrace_is_kernel_ptr((void *)tuning)) {
+        /* T40-ANTIFLICK-EARLY: timps sends SetAntiFlickerAttr after EnableTuning but before the stream/tuning context exists
+         * (TP5: "/dev/isp-m0 ioctl cmd=0xc0105436 ret=-19" 2.3 s after insmod).  Cache it; the AE-init shim applies it. */
+        if (ctrl.dir == 0 && ctrl.id == 0x08000026U && ctrl.vinum == 0) {
+            uint32_t af[2];
+            if (copy_from_user(af, (const void __user *)(uintptr_t)(uint32_t)ctrl.value, sizeof(af)))
+                return -EFAULT;
+            t40_antiflick_pending[0] = af[0];
+            t40_antiflick_pending[1] = af[1];
+            t40_antiflick_pending_a2 = 0;
+            t40_antiflick_pending_valid = true;
+            printk(KERN_INFO "tx_isp_t40_recovered: tisp_s_antiflick mode=%u freq=%u cached before tuning init (applied at AE init)\n",
+                   af[0], af[1] & 0xffU);
+            return 0;
+        }
         return -ENODEV;
-
-    tuning = regtrace_get_u32(core, 992);
-    if (!regtrace_is_kernel_ptr((void *)tuning))
-        return -ENODEV;
+    }
 
     wire[0] = (int32_t)ctrl.id;
     wire[1] = ctrl.value;
