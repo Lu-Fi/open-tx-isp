@@ -67576,6 +67576,7 @@ Tiziano_Awb_Ct_Detect_GrayWorld0x90:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019704 origin=fragment_seed original=tisp_awb_ct_detect */
 int64_t tisp_awb_ct_detect(uintptr_t a0, uintptr_t a1, uint32_t a2)
 {
+    regtrace_t40_awb_step = 0x3000;   /* T40-AWB-STEP ctd entry */
     regtrace_t40_awb_step = 25;   /* T40-AWB-STEP entry */
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
@@ -67700,15 +67701,18 @@ int64_t tisp_awb_ct_detect(uintptr_t a0, uintptr_t a1, uint32_t a2)
     a3 = a1;
 
 tisp_awb_ct_detect0x60:
+    regtrace_t40_awb_step = 12384;   /* T40-AWB-STEP ctd+0x60 */
     /* fragment 4: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tiziano_Awb_Ct_Detect_GrayWorld)(local_24, local_48, s5); /* jalr target resolved by relocation */
 
 tisp_awb_ct_detect0x78:
+    regtrace_t40_awb_step = 12408;   /* T40-AWB-STEP ctd+0x78 */
     /* fragment 5: Epilogue */
     /* function epilogue: restore registers and return */
     return (int64_t)v0;
 
 tisp_awb_ct_detect0xa8:
+    regtrace_t40_awb_step = 12456;   /* T40-AWB-STEP ctd+0xa8 */
     /* fragment 6: MemoryAccess */
     a0 = *(uint32_t *)((char *)a0 + 20);
     v0 = local_48;
@@ -67722,6 +67726,7 @@ tisp_awb_ct_detect0xa8:
     s1 = 0;
 
 tisp_awb_ct_detect0xd0:
+    regtrace_t40_awb_step = 12496;   /* T40-AWB-STEP ctd+0xd0 */
     /* fragment 7: Branch */
     v0 = 0;
     if (s1 != a2) { goto tisp_awb_ct_detect0x244; }
@@ -67815,6 +67820,7 @@ tisp_awb_ct_detect0xd0:
     a2 = v0;
 
 tisp_awb_ct_detect0x220:
+    regtrace_t40_awb_step = 12832;   /* T40-AWB-STEP ctd+0x220 */
     /* fragment 11: Branch */
     t3 = a2;
     if (s1 == a0) { goto tisp_awb_ct_detect0x304; }
@@ -67824,6 +67830,7 @@ tisp_awb_ct_detect0x220:
     goto tisp_awb_ct_detect0x2dc;
 
 tisp_awb_ct_detect0x230:
+    regtrace_t40_awb_step = 12848;   /* T40-AWB-STEP ctd+0x230 */
     /* fragment 13: Arithmetic */
     a1 = v1 + a1;
 
@@ -67833,6 +67840,7 @@ tisp_awb_ct_detect0x230:
     a3 = t1 < a1;
 
 tisp_awb_ct_detect0x244:
+    regtrace_t40_awb_step = 12868;   /* T40-AWB-STEP ctd+0x244 */
     /* fragment 15: Arithmetic */
     a1 = (uintptr_t)v0 & 65535;
     a1 = a1 < s4;
@@ -67852,6 +67860,7 @@ tisp_awb_ct_detect0x244:
     goto tisp_awb_ct_detect0xd0;
 
 tisp_awb_ct_detect0x268:
+    regtrace_t40_awb_step = 12904;   /* T40-AWB-STEP ctd+0x268 */
     /* fragment 19: MemoryAccess */
     t8 = *(uint16_t *)((char *)t6 + 2);
 
@@ -67864,6 +67873,7 @@ tisp_awb_ct_detect0x268:
     if (t1 != 0) { goto tisp_awb_ct_detect0x2c0; }
 
 tisp_awb_ct_detect0x27c:
+    regtrace_t40_awb_step = 12924;   /* T40-AWB-STEP ctd+0x27c */
     /* fragment 22: Arithmetic */
     v0 = a2 + (uintptr_t)v0;
 
@@ -67871,6 +67881,7 @@ tisp_awb_ct_detect0x27c:
     *(uint32_t *)((char *)v0 + 0) = 0;
 
 tisp_awb_ct_detect0x284:
+    regtrace_t40_awb_step = 12932;   /* T40-AWB-STEP ctd+0x284 */
     /* fragment 24: StackAccess */
     v1 = local_148;
     v0 = 1;
@@ -67891,6 +67902,7 @@ tisp_awb_ct_detect0x284:
     goto tisp_awb_ct_detect0x60;
 
 tisp_awb_ct_detect0x2c0:
+    regtrace_t40_awb_step = 12992;   /* T40-AWB-STEP ctd+0x2c0 */
     /* fragment 26: Arithmetic */
     v0 = (uintptr_t)t5 + (uintptr_t)v0;
 
@@ -67913,6 +67925,7 @@ tisp_awb_ct_detect0x2c0:
     *(uint32_t *)((char *)t3 + -4) = v0;
 
 tisp_awb_ct_detect0x2dc:
+    regtrace_t40_awb_step = 13020;   /* T40-AWB-STEP ctd+0x2dc */
     /* fragment 31: Arithmetic */
     v0 = a1 & 65535;
     v0 = v0 < s4;
@@ -67931,6 +67944,7 @@ tisp_awb_ct_detect0x2dc:
     goto tisp_awb_ct_detect0x220;
 
 tisp_awb_ct_detect0x304:
+    regtrace_t40_awb_step = 13060;   /* T40-AWB-STEP ctd+0x304 */
     /* fragment 35: StackAccess */
     v0 = local_24;
     t1 = local_24;
@@ -67941,6 +67955,7 @@ tisp_awb_ct_detect0x304:
     local_40 = v0;
 
 tisp_awb_ct_detect0x320:
+    regtrace_t40_awb_step = 13088;   /* T40-AWB-STEP ctd+0x320 */
     /* fragment 36: Branch */
     v0 = t1;
     if (s1 != a0) { goto tisp_awb_ct_detect0x4e8; }
@@ -67974,6 +67989,7 @@ tisp_awb_ct_detect0x320:
     local_b0 = v0;
 
 tisp_awb_ct_detect0x390:
+    regtrace_t40_awb_step = 13200;   /* T40-AWB-STEP ctd+0x390 */
     /* fragment 39: StackAccess */
     v0 = local_54;
     v1 = local_f0;
@@ -67989,6 +68005,7 @@ tisp_awb_ct_detect0x390:
     t7 = 60;
 
 tisp_awb_ct_detect0x3ac:
+    regtrace_t40_awb_step = 13228;   /* T40-AWB-STEP ctd+0x3ac */
     /* fragment 42: StackAccess */
     v0 = local_9c;
     v0 = *(uint8_t *)((char *)v0 + 0);
@@ -68004,6 +68021,7 @@ tisp_awb_ct_detect0x3ac:
     s6 = 256;
 
 tisp_awb_ct_detect0x3cc:
+    regtrace_t40_awb_step = 13260;   /* T40-AWB-STEP ctd+0x3cc */
     /* fragment 45: StackAccess */
     v0 = local_9c;
     v0 = *(uint8_t *)((char *)v0 + 1);
@@ -68030,6 +68048,7 @@ tisp_awb_ct_detect0x3cc:
     a1 = t6;
 
 tisp_awb_ct_detect0x408:
+    regtrace_t40_awb_step = 13320;   /* T40-AWB-STEP ctd+0x408 */
     /* fragment 50: Branch */
     if (s1 != v0) { goto tisp_awb_ct_detect0xdc4; }
 
@@ -68047,6 +68066,7 @@ tisp_awb_ct_detect0x408:
     s6 = s6;
 
 tisp_awb_ct_detect0x42c:
+    regtrace_t40_awb_step = 13356;   /* T40-AWB-STEP ctd+0x42c */
     /* fragment 54: Arithmetic */
     v0 = (uintptr_t)t5 & 65535;
     v0 = v0 < s1;
@@ -68067,6 +68087,7 @@ tisp_awb_ct_detect0x42c:
     goto tisp_awb_ct_detect0xe30;
 
 tisp_awb_ct_detect0x450:
+    regtrace_t40_awb_step = 13392;   /* T40-AWB-STEP ctd+0x450 */
     /* fragment 59: MemoryAccess */
     a2 = *(uint32_t *)((char *)s8 + 56);
     a3 = *(uint32_t *)((char *)v0 + 0);
@@ -68077,11 +68098,13 @@ tisp_awb_ct_detect0x450:
     if (t3 == 0) { goto tisp_awb_ct_detect0x470; }
 
 tisp_awb_ct_detect0x468:
+    regtrace_t40_awb_step = 13416;   /* T40-AWB-STEP ctd+0x468 */
     /* fragment 61: Branch */
     *(uint32_t *)((char *)v0 + 0) = a2;
     goto tisp_awb_ct_detect0x484;
 
 tisp_awb_ct_detect0x470:
+    regtrace_t40_awb_step = 13424;   /* T40-AWB-STEP ctd+0x470 */
     /* fragment 62: MemoryAccess */
     a2 = *(uint32_t *)((char *)s8 + 0);
     a2 = a2 << (uintptr_t)s2;
@@ -68091,6 +68114,7 @@ tisp_awb_ct_detect0x470:
     if (a3 != 0) { goto tisp_awb_ct_detect0x468; }
 
 tisp_awb_ct_detect0x484:
+    regtrace_t40_awb_step = 13444;   /* T40-AWB-STEP ctd+0x484 */
     /* fragment 64: StackAccess */
     v1 = local_40;
     a2 = *(uint32_t *)((char *)s7 + 56);
@@ -68103,11 +68127,13 @@ tisp_awb_ct_detect0x484:
     if (t5 == 0) { goto tisp_awb_ct_detect0x4ac; }
 
 tisp_awb_ct_detect0x4a4:
+    regtrace_t40_awb_step = 13476;   /* T40-AWB-STEP ctd+0x4a4 */
     /* fragment 66: Branch */
     *(uint32_t *)((char *)t3 + 0) = a2;
     goto tisp_awb_ct_detect0x4c0;
 
 tisp_awb_ct_detect0x4ac:
+    regtrace_t40_awb_step = 13484;   /* T40-AWB-STEP ctd+0x4ac */
     /* fragment 67: MemoryAccess */
     a2 = *(uint32_t *)((char *)s7 + 0);
     a2 = a2 << (uintptr_t)s2;
@@ -68117,12 +68143,14 @@ tisp_awb_ct_detect0x4ac:
     if (a3 != 0) { goto tisp_awb_ct_detect0x4a4; }
 
 tisp_awb_ct_detect0x4c0:
+    regtrace_t40_awb_step = 13504;   /* T40-AWB-STEP ctd+0x4c0 */
     /* fragment 69: Arithmetic */
     a1 = a1 + 1;
     a1 = a1 & 65535;
     v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x4cc:
+    regtrace_t40_awb_step = 13516;   /* T40-AWB-STEP ctd+0x4cc */
     /* fragment 70: Branch */
     if (a1 != s4) { goto tisp_awb_ct_detect0x450; }
 
@@ -68136,11 +68164,13 @@ tisp_awb_ct_detect0x4cc:
     goto tisp_awb_ct_detect0x320;
 
 tisp_awb_ct_detect0x4e8:
+    regtrace_t40_awb_step = 13544;   /* T40-AWB-STEP ctd+0x4e8 */
     /* fragment 73: Branch */
     a1 = 0;
     goto tisp_awb_ct_detect0x4cc;
 
 tisp_awb_ct_detect0x4f0:
+    regtrace_t40_awb_step = 13552;   /* T40-AWB-STEP ctd+0x4f0 */
     /* fragment 74: MemoryAccess */
     a0 = *(uint32_t *)((char *)s8 + 0);
     a1 = *(uint32_t *)((char *)v0 + 0);
@@ -68169,6 +68199,7 @@ tisp_awb_ct_detect0x4f0:
     t1 = 14;
 
 tisp_awb_ct_detect0x530:
+    regtrace_t40_awb_step = 13616;   /* T40-AWB-STEP ctd+0x530 */
     /* fragment 80: MemoryAccess */
     a0 = *(uint32_t *)((char *)a2 + 0);
     a0 = a0 << (uintptr_t)s2;
@@ -68187,15 +68218,18 @@ tisp_awb_ct_detect0x530:
     if (a0 != 0) { goto tisp_awb_ct_detect0x560; }
 
 tisp_awb_ct_detect0x558:
+    regtrace_t40_awb_step = 13656;   /* T40-AWB-STEP ctd+0x558 */
     /* fragment 84: Branch */
     a2 = a2 + 4;
     if (a3 != t1) { goto tisp_awb_ct_detect0x668; }
 
 tisp_awb_ct_detect0x560:
+    regtrace_t40_awb_step = 13664;   /* T40-AWB-STEP ctd+0x560 */
     /* fragment 85: Arithmetic */
     v0 = (uintptr_t)v0 & 255;
 
 tisp_awb_ct_detect0x564:
+    regtrace_t40_awb_step = 13668;   /* T40-AWB-STEP ctd+0x564 */
     /* fragment 86: StackAccess */
     a0 = local_40;
     v1 = local_38;
@@ -68228,6 +68262,7 @@ tisp_awb_ct_detect0x564:
     t3 = 14;
 
 tisp_awb_ct_detect0x5b0:
+    regtrace_t40_awb_step = 13744;   /* T40-AWB-STEP ctd+0x5b0 */
     /* fragment 92: MemoryAccess */
     a0 = *(uint32_t *)((char *)a2 + 0);
     a0 = a0 << (uintptr_t)s2;
@@ -68248,6 +68283,7 @@ tisp_awb_ct_detect0x5b0:
     if (_bc_a0_95) { goto tisp_awb_ct_detect0x5e4; }
 
 tisp_awb_ct_detect0x5d8:
+    regtrace_t40_awb_step = 13784;   /* T40-AWB-STEP ctd+0x5d8 */
     /* fragment 96: Branch */
     a2 = a2 + 4;
     if (a3 != t3) { goto tisp_awb_ct_detect0x670; }
@@ -68256,6 +68292,7 @@ tisp_awb_ct_detect0x5d8:
     a0 = 15;
 
 tisp_awb_ct_detect0x5e4:
+    regtrace_t40_awb_step = 13796;   /* T40-AWB-STEP ctd+0x5e4 */
     /* fragment 98: Branch */
     t1 = (uintptr_t)t1 & 255;
     if (v0 != a0) { goto tisp_awb_ct_detect0x784; }
@@ -68268,6 +68305,7 @@ tisp_awb_ct_detect0x5e4:
     a0 = *(uint16_t *)((char *)v1 + 390);
 
 tisp_awb_ct_detect0x5f8:
+    regtrace_t40_awb_step = 13816;   /* T40-AWB-STEP ctd+0x5f8 */
     /* fragment 101: Arithmetic */
     a0 = a0 + 1;
 
@@ -68275,6 +68313,7 @@ tisp_awb_ct_detect0x5f8:
     *(uint16_t *)((char *)v1 + 390) = a0;
 
 tisp_awb_ct_detect0x600:
+    regtrace_t40_awb_step = 13824;   /* T40-AWB-STEP ctd+0x600 */
     /* fragment 103: Arithmetic */
     a0 = 15;
 
@@ -68305,6 +68344,7 @@ tisp_awb_ct_detect0x600:
     a3 = s0;
 
 tisp_awb_ct_detect0x650:
+    regtrace_t40_awb_step = 13904;   /* T40-AWB-STEP ctd+0x650 */
     /* fragment 108: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)func_zone_ct_weight)(a0); /* jalr target resolved by relocation */
 
@@ -68313,16 +68353,19 @@ tisp_awb_ct_detect0x650:
     goto tisp_awb_ct_detect0x7b0;
 
 tisp_awb_ct_detect0x668:
+    regtrace_t40_awb_step = 13928;   /* T40-AWB-STEP ctd+0x668 */
     /* fragment 110: Branch */
     a3 = (uintptr_t)v0 & 65535;
     goto tisp_awb_ct_detect0x530;
 
 tisp_awb_ct_detect0x670:
+    regtrace_t40_awb_step = 13936;   /* T40-AWB-STEP ctd+0x670 */
     /* fragment 111: Branch */
     a3 = (uintptr_t)t1 & 65535;
     goto tisp_awb_ct_detect0x5b0;
 
 tisp_awb_ct_detect0x678:
+    regtrace_t40_awb_step = 13944;   /* T40-AWB-STEP ctd+0x678 */
     /* fragment 112: Arithmetic */
     a0 = (uintptr_t)t1 - 1;   /* T40-PTRSTEP: byte add (OEM addiu) */
     a1 = 28;
@@ -68336,6 +68379,7 @@ tisp_awb_ct_detect0x678:
     *(uint16_t *)((char *)a0 + 26) = a1;
 
 tisp_awb_ct_detect0x698:
+    regtrace_t40_awb_step = 13976;   /* T40-AWB-STEP ctd+0x698 */
     /* fragment 114: Branch */
     if (t1 == 0) { goto tisp_awb_ct_detect0x7ac; }
 
@@ -68347,6 +68391,7 @@ tisp_awb_ct_detect0x698:
     if (v0 == a0) { goto tisp_awb_ct_detect0x7ec; }
 
 tisp_awb_ct_detect0x6ac:
+    regtrace_t40_awb_step = 13996;   /* T40-AWB-STEP ctd+0x6ac */
     /* fragment 117: ConstantLoad */
     t3 = 0x3fffffff;
 
@@ -68405,12 +68450,14 @@ tisp_awb_ct_detect0x6ac:
     goto tisp_awb_ct_detect0x8b4;
 
 tisp_awb_ct_detect0x784:
+    regtrace_t40_awb_step = 14212;   /* T40-AWB-STEP ctd+0x784 */
     /* fragment 125: Branch */
     int _bc_t1_125 = t1 != a0;
     a0 = (uintptr_t)t1 - 1;   /* T40-PTRSTEP: byte add (OEM addiu) */
     if (_bc_t1_125) { goto tisp_awb_ct_detect0x1eec; }
 
 tisp_awb_ct_detect0x78c:
+    regtrace_t40_awb_step = 14220;   /* T40-AWB-STEP ctd+0x78c */
     /* fragment 126: StackAccess */
     v1 = local_4c;
     a0 = (uintptr_t)v0 + 181;   /* T40-PTRSTEP: byte add (OEM addiu) */
@@ -68424,10 +68471,12 @@ tisp_awb_ct_detect0x78c:
     if (v0 != 0) { goto tisp_awb_ct_detect0x600; }
 
 tisp_awb_ct_detect0x7ac:
+    regtrace_t40_awb_step = 14252;   /* T40-AWB-STEP ctd+0x7ac */
     /* fragment 128: MemoryAccess */
     *(uint32_t *)((char *)s6 + 0) = 0;
 
 tisp_awb_ct_detect0x7b0:
+    regtrace_t40_awb_step = 14256;   /* T40-AWB-STEP ctd+0x7b0 */
     /* fragment 129: StackAccess */
     v0 = local_38;
     s6 = s6 + 4;
@@ -68435,6 +68484,7 @@ tisp_awb_ct_detect0x7b0:
     local_38 = v0;
 
 tisp_awb_ct_detect0x7c0:
+    regtrace_t40_awb_step = 14272;   /* T40-AWB-STEP ctd+0x7c0 */
     /* fragment 130: StackAccess */
     v0 = local_f4;
 
@@ -68456,6 +68506,7 @@ tisp_awb_ct_detect0x7c0:
     goto tisp_awb_ct_detect0x390;
 
 tisp_awb_ct_detect0x7ec:
+    regtrace_t40_awb_step = 14316;   /* T40-AWB-STEP ctd+0x7ec */
     /* fragment 134: Arithmetic */
     v0 = (uintptr_t)t1 << 2;
     v0 = (uintptr_t *)((uintptr_t)v0 - 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
@@ -68518,6 +68569,7 @@ tisp_awb_ct_detect0x7ec:
     v0 = *(uint32_t *)((char *)t3 + 0);
 
 tisp_awb_ct_detect0x8b4:
+    regtrace_t40_awb_step = 14516;   /* T40-AWB-STEP ctd+0x8b4 */
     /* fragment 140: CallSetup */
     local_10 = v0;
     v0 = local_44;
@@ -68525,6 +68577,7 @@ tisp_awb_ct_detect0x8b4:
     a0 = s0;
 
 tisp_awb_ct_detect0x8c4:
+    regtrace_t40_awb_step = 14532;   /* T40-AWB-STEP ctd+0x8c4 */
     /* fragment 141: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)ISPAWBInterpolation1)(a0); /* jalr target resolved by relocation */
 
@@ -68544,6 +68597,7 @@ tisp_awb_ct_detect0x8c4:
     goto tisp_awb_ct_detect0x650;
 
 tisp_awb_ct_detect0x904:
+    regtrace_t40_awb_step = 14596;   /* T40-AWB-STEP ctd+0x904 */
     /* fragment 145: Arithmetic */
     t5 = (uintptr_t *)((uintptr_t)t1 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = 60;
@@ -68684,6 +68738,7 @@ tisp_awb_ct_detect0x904:
     goto tisp_awb_ct_detect0x8c4;
 
 tisp_awb_ct_detect0xb28:
+    regtrace_t40_awb_step = 15144;   /* T40-AWB-STEP ctd+0xb28 */
     /* fragment 158: Epilogue */
     /* function epilogue: restore registers and return */
 
@@ -68701,6 +68756,7 @@ tisp_awb_ct_detect0xb28:
     goto tisp_awb_ct_detect0x7c0;
 
 tisp_awb_ct_detect0xb48:
+    regtrace_t40_awb_step = 15176;   /* T40-AWB-STEP ctd+0xb48 */
     /* fragment 162: MemoryAccess */
     a0 = *(uint32_t *)((char *)t1 + 0);
     v0 = *(uint16_t *)((char *)a3 + 0);
@@ -68716,6 +68772,7 @@ tisp_awb_ct_detect0xb48:
     t8 = v0 - a0;
 
 tisp_awb_ct_detect0xb68:
+    regtrace_t40_awb_step = 15208;   /* T40-AWB-STEP ctd+0xb68 */
     /* fragment 165: StackAccess */
     v0 = local_40;
     t9 = *(uint16_t *)((char *)a3 + 2);
@@ -68733,6 +68790,7 @@ tisp_awb_ct_detect0xb68:
     v0 = t9 - a0;
 
 tisp_awb_ct_detect0xb90:
+    regtrace_t40_awb_step = 15248;   /* T40-AWB-STEP ctd+0xb90 */
     /* fragment 168: Arithmetic */
     /* unmatched fragment 168 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1a294:	00420018 	mult	v0,v0 */
@@ -68791,6 +68849,7 @@ tisp_awb_ct_detect0xb90:
     a0 = *(uint16_t *)((char *)v0 + 0);
 
 tisp_awb_ct_detect0xbf4:
+    regtrace_t40_awb_step = 15348;   /* T40-AWB-STEP ctd+0xbf4 */
     /* fragment 183: Arithmetic */
     v0 = a0 << (uintptr_t)s2;
 
@@ -68805,6 +68864,7 @@ tisp_awb_ct_detect0xbf4:
     *(uint32_t *)((char *)t3 + 0) = v0;
 
 tisp_awb_ct_detect0xc0c:
+    regtrace_t40_awb_step = 15372;   /* T40-AWB-STEP ctd+0xc0c */
     /* fragment 187: Arithmetic */
     a2 = a2 + 1;
     a2 = a2 & 65535;
@@ -68812,6 +68872,7 @@ tisp_awb_ct_detect0xc0c:
     t1 = (uintptr_t *)((uintptr_t)t1 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0xc1c:
+    regtrace_t40_awb_step = 15388;   /* T40-AWB-STEP ctd+0xc1c */
     /* fragment 188: Branch */
     v0 = local_20;
     if (a2 != s4) { goto tisp_awb_ct_detect0xb48; }
@@ -68821,6 +68882,7 @@ tisp_awb_ct_detect0xc1c:
     t6 = (uintptr_t)t6 + (uintptr_t)v0;
 
 tisp_awb_ct_detect0xc2c:
+    regtrace_t40_awb_step = 15404;   /* T40-AWB-STEP ctd+0xc2c */
     /* fragment 190: Arithmetic */
     v0 = (uintptr_t)t5 & 65535;
     v0 = v0 < s1;
@@ -68839,11 +68901,13 @@ tisp_awb_ct_detect0xc2c:
     goto tisp_awb_ct_detect0xc1c;
 
 tisp_awb_ct_detect0xc50:
+    regtrace_t40_awb_step = 15440;   /* T40-AWB-STEP ctd+0xc50 */
     /* fragment 194: Branch */
     t5 = 0;
     goto tisp_awb_ct_detect0xc2c;
 
 tisp_awb_ct_detect0xc58:
+    regtrace_t40_awb_step = 15448;   /* T40-AWB-STEP ctd+0xc58 */
     /* fragment 195: Arithmetic */
     a1 = a1 + 1;
     a1 = a1 & 65535;
@@ -68853,6 +68917,7 @@ tisp_awb_ct_detect0xc58:
     goto tisp_awb_ct_detect0x3ac;
 
 tisp_awb_ct_detect0xc68:
+    regtrace_t40_awb_step = 15464;   /* T40-AWB-STEP ctd+0xc68 */
     /* fragment 197: MemoryAccess */
     v0 = *(uint32_t *)((char *)t1 + 0);
     a0 = *(uint16_t *)((char *)a3 + 0);
@@ -68868,6 +68933,7 @@ tisp_awb_ct_detect0xc68:
     t7 = a0 - (uintptr_t)v0;
 
 tisp_awb_ct_detect0xc88:
+    regtrace_t40_awb_step = 15496;   /* T40-AWB-STEP ctd+0xc88 */
     /* fragment 200: StackAccess */
     v0 = local_40;
     t8 = *(uint16_t *)((char *)a3 + 2);
@@ -68885,6 +68951,7 @@ tisp_awb_ct_detect0xc88:
     v0 = t8 - a0;
 
 tisp_awb_ct_detect0xcb0:
+    regtrace_t40_awb_step = 15536;   /* T40-AWB-STEP ctd+0xcb0 */
     /* fragment 203: Arithmetic */
     /* unmatched fragment 203 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1a3b4:	00420018 	mult	v0,v0 */
@@ -68943,6 +69010,7 @@ tisp_awb_ct_detect0xcb0:
     v0 = *(uint16_t *)((char *)t7 + 0);
 
 tisp_awb_ct_detect0xd14:
+    regtrace_t40_awb_step = 15636;   /* T40-AWB-STEP ctd+0xd14 */
     /* fragment 218: MemoryAccess */
     a0 = *(uint32_t *)((char *)t3 + 0);
     v0 = s6 - (uintptr_t)v0;
@@ -68956,6 +69024,7 @@ tisp_awb_ct_detect0xd14:
     *(uint32_t *)((char *)t3 + 0) = v0;
 
 tisp_awb_ct_detect0xd30:
+    regtrace_t40_awb_step = 15664;   /* T40-AWB-STEP ctd+0xd30 */
     /* fragment 221: Arithmetic */
     a2 = a2 + 1;
     a2 = a2 & 65535;
@@ -68963,6 +69032,7 @@ tisp_awb_ct_detect0xd30:
     t1 = (uintptr_t *)((uintptr_t)t1 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0xd40:
+    regtrace_t40_awb_step = 15680;   /* T40-AWB-STEP ctd+0xd40 */
     /* fragment 222: Branch */
     v0 = local_20;
     if (a2 != s4) { goto tisp_awb_ct_detect0xc68; }
@@ -68972,6 +69042,7 @@ tisp_awb_ct_detect0xd40:
     t6 = (uintptr_t)t6 + (uintptr_t)v0;
 
 tisp_awb_ct_detect0xd50:
+    regtrace_t40_awb_step = 15696;   /* T40-AWB-STEP ctd+0xd50 */
     /* fragment 224: Arithmetic */
     v0 = (uintptr_t)t5 & 65535;
     v0 = v0 < s1;
@@ -68990,6 +69061,7 @@ tisp_awb_ct_detect0xd50:
     goto tisp_awb_ct_detect0xd40;
 
 tisp_awb_ct_detect0xd74:
+    regtrace_t40_awb_step = 15732;   /* T40-AWB-STEP ctd+0xd74 */
     /* fragment 228: Arithmetic */
     t5 = 0;
 
@@ -68998,6 +69070,7 @@ tisp_awb_ct_detect0xd74:
     goto tisp_awb_ct_detect0xd50;
 
 tisp_awb_ct_detect0xd80:
+    regtrace_t40_awb_step = 15744;   /* T40-AWB-STEP ctd+0xd80 */
     /* fragment 230: Arithmetic */
     a1 = a1 + 1;
     a1 = a1 & 65535;
@@ -69007,6 +69080,7 @@ tisp_awb_ct_detect0xd80:
     goto tisp_awb_ct_detect0x3cc;
 
 tisp_awb_ct_detect0xd90:
+    regtrace_t40_awb_step = 15760;   /* T40-AWB-STEP ctd+0xd90 */
     /* fragment 232: Arithmetic */
     a2 = a1 + a2;
 
@@ -69016,6 +69090,7 @@ tisp_awb_ct_detect0xd90:
     a3 = t1 < a2;
 
 tisp_awb_ct_detect0xda4:
+    regtrace_t40_awb_step = 15780;   /* T40-AWB-STEP ctd+0xda4 */
     /* fragment 234: Arithmetic */
     a2 = a0 & 65535;
     a2 = a2 < s4;
@@ -69034,11 +69109,13 @@ tisp_awb_ct_detect0xda4:
     goto tisp_awb_ct_detect0x408;
 
 tisp_awb_ct_detect0xdc4:
+    regtrace_t40_awb_step = 15812;   /* T40-AWB-STEP ctd+0xdc4 */
     /* fragment 238: Branch */
     a0 = 0;
     goto tisp_awb_ct_detect0xda4;
 
 tisp_awb_ct_detect0xdcc:
+    regtrace_t40_awb_step = 15820;   /* T40-AWB-STEP ctd+0xdcc */
     /* fragment 239: CallSetup */
     local_5c = t5;
     local_58 = t3;
@@ -69064,6 +69141,7 @@ tisp_awb_ct_detect0xdcc:
     a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0xe30:
+    regtrace_t40_awb_step = 15920;   /* T40-AWB-STEP ctd+0xe30 */
     /* fragment 242: Arithmetic */
     v0 = (uintptr_t)t3 & 65535;
     v0 = v0 < s4;
@@ -69081,10 +69159,12 @@ tisp_awb_ct_detect0xe30:
     goto tisp_awb_ct_detect0x42c;
 
 tisp_awb_ct_detect0xe4c:
+    regtrace_t40_awb_step = 15948;   /* T40-AWB-STEP ctd+0xe4c */
     /* fragment 246: StackAccess */
     v1 = local_88;
 
 tisp_awb_ct_detect0xe50:
+    regtrace_t40_awb_step = 15952;   /* T40-AWB-STEP ctd+0xe50 */
     /* fragment 247: Arithmetic */
     v0 = 1;
 
@@ -69099,6 +69179,7 @@ tisp_awb_ct_detect0xe50:
     a3 = v0;
 
 tisp_awb_ct_detect0xe68:
+    regtrace_t40_awb_step = 15976;   /* T40-AWB-STEP ctd+0xe68 */
     /* fragment 250: StackAccess */
     a0 = local_4c;
 
@@ -69107,6 +69188,7 @@ tisp_awb_ct_detect0xe68:
     goto tisp_awb_ct_detect0xeb8;
 
 tisp_awb_ct_detect0xe74:
+    regtrace_t40_awb_step = 15988;   /* T40-AWB-STEP ctd+0xe74 */
     /* fragment 252: MemoryAccess */
     t7 = *(uint16_t *)((char *)a2 + 0);
 
@@ -69127,6 +69209,7 @@ tisp_awb_ct_detect0xe74:
     *(uint32_t *)((char *)a3 + 96) = t3;
 
 tisp_awb_ct_detect0xea0:
+    regtrace_t40_awb_step = 16032;   /* T40-AWB-STEP ctd+0xea0 */
     /* fragment 257: Arithmetic */
     a1 = a1 + 1;
 
@@ -69142,6 +69225,7 @@ tisp_awb_ct_detect0xea0:
     if (t1 == a1) { goto tisp_awb_ct_detect0xec4; }
 
 tisp_awb_ct_detect0xeb8:
+    regtrace_t40_awb_step = 16056;   /* T40-AWB-STEP ctd+0xeb8 */
     /* fragment 261: Arithmetic */
     a2 = a0;
 
@@ -69150,6 +69234,7 @@ tisp_awb_ct_detect0xeb8:
     goto tisp_awb_ct_detect0xe74;
 
 tisp_awb_ct_detect0xec4:
+    regtrace_t40_awb_step = 16068;   /* T40-AWB-STEP ctd+0xec4 */
     /* fragment 263: MemoryAccess */
     a0 = *(uint32_t *)((char *)a3 + 48);
     a1 = *(uint32_t *)((char *)a3 + 0);
@@ -69170,6 +69255,7 @@ tisp_awb_ct_detect0xec4:
     a0 = v1;
 
 tisp_awb_ct_detect0xef8:
+    regtrace_t40_awb_step = 16120;   /* T40-AWB-STEP ctd+0xef8 */
     /* fragment 266: MemoryAccess */
     a1 = *(uint32_t *)((char *)v0 + 0);
     a0 = a0 + 20;
@@ -69253,6 +69339,7 @@ tisp_awb_ct_detect0xef8:
     t2 = 60;
 
 tisp_awb_ct_detect0x1008:
+    regtrace_t40_awb_step = 16392;   /* T40-AWB-STEP ctd+0x1008 */
     /* fragment 273: MemoryAccess */
     a1 = *(uint32_t *)((char *)a3 + 0);
     v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
@@ -69263,6 +69350,7 @@ tisp_awb_ct_detect0x1008:
     if (a1 != 0) { goto tisp_awb_ct_detect0x107c; }
 
 tisp_awb_ct_detect0x101c:
+    regtrace_t40_awb_step = 16412;   /* T40-AWB-STEP ctd+0x101c */
     /* fragment 275: Branch */
     a3 = t1;
     if (v0 != t2) { goto tisp_awb_ct_detect0x1008; }
@@ -69272,6 +69360,7 @@ tisp_awb_ct_detect0x101c:
     v1 = 60;
 
 tisp_awb_ct_detect0x102c:
+    regtrace_t40_awb_step = 16428;   /* T40-AWB-STEP ctd+0x102c */
     /* fragment 277: MemoryAccess */
     a1 = *(uint32_t *)((char *)v0 + 0);
 
@@ -69286,6 +69375,7 @@ tisp_awb_ct_detect0x102c:
     if (a1 == 0) { goto tisp_awb_ct_detect0x11e0; }
 
 tisp_awb_ct_detect0x1044:
+    regtrace_t40_awb_step = 16452;   /* T40-AWB-STEP ctd+0x1044 */
     /* fragment 281: Arithmetic */
     t1 = (uintptr_t *)((uintptr_t)t1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t1 = (uintptr_t)t1 & 65535;
@@ -69295,6 +69385,7 @@ tisp_awb_ct_detect0x1044:
     a1 = 0;
 
 tisp_awb_ct_detect0x105c:
+    regtrace_t40_awb_step = 16476;   /* T40-AWB-STEP ctd+0x105c */
     /* fragment 282: Arithmetic */
     a3 = (uintptr_t)t6 & 65535;
     a3 = a3 < s1;
@@ -69312,6 +69403,7 @@ tisp_awb_ct_detect0x105c:
     goto tisp_awb_ct_detect0x1144;
 
 tisp_awb_ct_detect0x107c:
+    regtrace_t40_awb_step = 16508;   /* T40-AWB-STEP ctd+0x107c */
     /* fragment 286: MemoryAccess */
     a1 = *(uint32_t *)((char *)a3 + 240);
 
@@ -69324,6 +69416,7 @@ tisp_awb_ct_detect0x107c:
     a2 = v0;
 
 tisp_awb_ct_detect0x108c:
+    regtrace_t40_awb_step = 16524;   /* T40-AWB-STEP ctd+0x108c */
     /* fragment 289: Arithmetic */
     t3 = a2 < 60;
 
@@ -69349,6 +69442,7 @@ tisp_awb_ct_detect0x108c:
     *(uint32_t *)((char *)a1 + 240) = 0;
 
 tisp_awb_ct_detect0x10c0:
+    regtrace_t40_awb_step = 16576;   /* T40-AWB-STEP ctd+0x10c0 */
     /* fragment 296: Arithmetic */
     a2 = a2 + 1;
     a2 = a2 & 65535;
@@ -69358,6 +69452,7 @@ tisp_awb_ct_detect0x10c0:
     goto tisp_awb_ct_detect0x108c;
 
 tisp_awb_ct_detect0x10d0:
+    regtrace_t40_awb_step = 16592;   /* T40-AWB-STEP ctd+0x10d0 */
     /* fragment 298: MemoryAccess */
     t9 = *(uint32_t *)((char *)t5 + 0);
     t4 = *(uint32_t *)((char *)v0 + 0);
@@ -69373,6 +69468,7 @@ tisp_awb_ct_detect0x10d0:
     a3 = (uintptr_t)t4 - (uintptr_t)t3;
 
 tisp_awb_ct_detect0x10f0:
+    regtrace_t40_awb_step = 16624;   /* T40-AWB-STEP ctd+0x10f0 */
     /* fragment 301: MemoryAccess */
     ra = *(uint32_t *)((char *)t5 + 900);
     t8 = *(uint32_t *)((char *)v0 + 240);
@@ -69388,6 +69484,7 @@ tisp_awb_ct_detect0x10f0:
     t3 = (uintptr_t)t8 - (uintptr_t)t4;
 
 tisp_awb_ct_detect0x1110:
+    regtrace_t40_awb_step = 16656;   /* T40-AWB-STEP ctd+0x1110 */
     /* fragment 304: Arithmetic */
     /* unmatched fragment 304 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1a814:	016b0018 	mult	t3,t3 */
@@ -69412,12 +69509,14 @@ tisp_awb_ct_detect0x1110:
     a2 = a2 + 1;
 
 tisp_awb_ct_detect0x1138:
+    regtrace_t40_awb_step = 16696;   /* T40-AWB-STEP ctd+0x1138 */
     /* fragment 310: Arithmetic */
     t2 = (uintptr_t *)((uintptr_t)t2 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     t2 = (uintptr_t)t2 & 65535;
     t5 = (uintptr_t *)((uintptr_t)t5 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x1144:
+    regtrace_t40_awb_step = 16708;   /* T40-AWB-STEP ctd+0x1144 */
     /* fragment 311: Branch */
     if (t2 != s4) { goto tisp_awb_ct_detect0x10d0; }
 
@@ -69426,6 +69525,7 @@ tisp_awb_ct_detect0x1144:
     goto tisp_awb_ct_detect0x105c;
 
 tisp_awb_ct_detect0x1154:
+    regtrace_t40_awb_step = 16724;   /* T40-AWB-STEP ctd+0x1154 */
     /* fragment 313: Branch */
     a3 = a2 >> 1;
     if (a2 == 0) { goto tisp_awb_ct_detect0x11e0; }
@@ -69462,6 +69562,7 @@ tisp_awb_ct_detect0x1154:
     a3 = a1 - (uintptr_t)t2;
 
 tisp_awb_ct_detect0x1190:
+    regtrace_t40_awb_step = 16784;   /* T40-AWB-STEP ctd+0x1190 */
     /* fragment 322: StackAccess */
     t0 = local_a8;
     a3 = t0 < a3;
@@ -69486,6 +69587,7 @@ tisp_awb_ct_detect0x1190:
     t0 = local_a8;
 
 tisp_awb_ct_detect0x11b8:
+    regtrace_t40_awb_step = 16824;   /* T40-AWB-STEP ctd+0x11b8 */
     /* fragment 328: Arithmetic */
     a3 = t0 < a3;
 
@@ -69495,6 +69597,7 @@ tisp_awb_ct_detect0x11b8:
     if (_bc_a3_329) { goto tisp_awb_ct_detect0x11e0; }
 
 tisp_awb_ct_detect0x11c4:
+    regtrace_t40_awb_step = 16836;   /* T40-AWB-STEP ctd+0x11c4 */
     /* fragment 330: Arithmetic */
     a3 = a3 < t1;
 
@@ -69510,6 +69613,7 @@ tisp_awb_ct_detect0x11c4:
     goto tisp_awb_ct_detect0x1044;
 
 tisp_awb_ct_detect0x11e0:
+    regtrace_t40_awb_step = 16864;   /* T40-AWB-STEP ctd+0x11e0 */
     /* fragment 334: Arithmetic */
     v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
@@ -69523,6 +69627,7 @@ tisp_awb_ct_detect0x11e0:
     a0 = local_50;
 
 tisp_awb_ct_detect0x11fc:
+    regtrace_t40_awb_step = 16892;   /* T40-AWB-STEP ctd+0x11fc */
     /* fragment 337: MemoryAccess */
     a1 = *(uint32_t *)((char *)a0 + 480);
 
@@ -69545,6 +69650,7 @@ tisp_awb_ct_detect0x11fc:
     *(uint32_t *)((char *)a3 + 480) = a1;
 
 tisp_awb_ct_detect0x1230:
+    regtrace_t40_awb_step = 16944;   /* T40-AWB-STEP ctd+0x1230 */
     /* fragment 342: Arithmetic */
     a0 = a0 + 4;
 
@@ -69564,6 +69670,7 @@ tisp_awb_ct_detect0x1230:
     a0 = 0;
 
 tisp_awb_ct_detect0x1254:
+    regtrace_t40_awb_step = 16980;   /* T40-AWB-STEP ctd+0x1254 */
     /* fragment 347: MemoryAccess */
     t5 = *(uint32_t *)((char *)t2 + 480);
 
@@ -69583,6 +69690,7 @@ tisp_awb_ct_detect0x1254:
     a1 = t7 - a2;
 
 tisp_awb_ct_detect0x1278:
+    regtrace_t40_awb_step = 17016;   /* T40-AWB-STEP ctd+0x1278 */
     /* fragment 352: MemoryAccess */
     t6 = *(uint32_t *)((char *)t2 + 240);
     t8 = *(uint32_t *)((char *)a3 + 240);
@@ -69596,6 +69704,7 @@ tisp_awb_ct_detect0x1278:
     a2 = (uintptr_t)t6 - (uintptr_t)t8;
 
 tisp_awb_ct_detect0x1290:
+    regtrace_t40_awb_step = 17040;   /* T40-AWB-STEP ctd+0x1290 */
     /* fragment 355: Arithmetic */
     /* unmatched fragment 355 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1a994:	00c60018 	mult	a2,a2 */
@@ -69625,6 +69734,7 @@ tisp_awb_ct_detect0x1290:
     t4 = (uintptr_t)v1 + (uintptr_t)t4;
 
 tisp_awb_ct_detect0x12c0:
+    regtrace_t40_awb_step = 17088;   /* T40-AWB-STEP ctd+0x12c0 */
     /* fragment 362: Arithmetic */
     t2 = (uintptr_t *)((uintptr_t)t2 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
@@ -69662,6 +69772,7 @@ tisp_awb_ct_detect0x12c0:
     *(uint32_t *)((char *)a3 + 240) = a0;
 
 tisp_awb_ct_detect0x12f8:
+    regtrace_t40_awb_step = 17144;   /* T40-AWB-STEP ctd+0x12f8 */
     /* fragment 371: Arithmetic */
     a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
@@ -69670,11 +69781,13 @@ tisp_awb_ct_detect0x12f8:
     if (t3 != a3) { goto tisp_awb_ct_detect0x11fc; }
 
 tisp_awb_ct_detect0x1304:
+    regtrace_t40_awb_step = 17156;   /* T40-AWB-STEP ctd+0x1304 */
     /* fragment 373: StackAccess */
     v0 = local_2c;
     t6 = 60;
 
 tisp_awb_ct_detect0x130c:
+    regtrace_t40_awb_step = 17164;   /* T40-AWB-STEP ctd+0x130c */
     /* fragment 374: MemoryAccess */
     t2 = *(uint32_t *)((char *)v0 + 0);
 
@@ -69694,6 +69807,7 @@ tisp_awb_ct_detect0x130c:
     t1 = 0;
 
 tisp_awb_ct_detect0x1330:
+    regtrace_t40_awb_step = 17200;   /* T40-AWB-STEP ctd+0x1330 */
     /* fragment 379: Arithmetic */
     a0 = (uintptr_t)t1 & 65535;
     a0 = a0 < s1;
@@ -69712,6 +69826,7 @@ tisp_awb_ct_detect0x1330:
     goto tisp_awb_ct_detect0x13d8;
 
 tisp_awb_ct_detect0x1350:
+    regtrace_t40_awb_step = 17232;   /* T40-AWB-STEP ctd+0x1350 */
     /* fragment 383: MemoryAccess */
     a0 = *(uint32_t *)((char *)a3 + 0);
 
@@ -69736,6 +69851,7 @@ tisp_awb_ct_detect0x1350:
     a0 = t2 - a1;
 
 tisp_awb_ct_detect0x137c:
+    regtrace_t40_awb_step = 17276;   /* T40-AWB-STEP ctd+0x137c */
     /* fragment 389: MemoryAccess */
     a1 = *(uint32_t *)((char *)t7 + 900);
     a1 = s3 + a1;
@@ -69750,6 +69866,7 @@ tisp_awb_ct_detect0x137c:
     t7 = t4 - a1;
 
 tisp_awb_ct_detect0x1398:
+    regtrace_t40_awb_step = 17304;   /* T40-AWB-STEP ctd+0x1398 */
     /* fragment 392: Arithmetic */
     /* unmatched fragment 392 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1aa9c:	01ef0018 	mult	t7,t7 */
@@ -69778,11 +69895,13 @@ tisp_awb_ct_detect0x1398:
     *(uint32_t *)((char *)v0 + 720) = a0;
 
 tisp_awb_ct_detect0x13d0:
+    regtrace_t40_awb_step = 17360;   /* T40-AWB-STEP ctd+0x13d0 */
     /* fragment 398: Arithmetic */
     a2 = a2 + 1;
     a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x13d8:
+    regtrace_t40_awb_step = 17368;   /* T40-AWB-STEP ctd+0x13d8 */
     /* fragment 399: Arithmetic */
     a0 = a2 & 65535;
     a0 = a0 < s4;
@@ -69798,6 +69917,7 @@ tisp_awb_ct_detect0x13d8:
     goto tisp_awb_ct_detect0x1330;
 
 tisp_awb_ct_detect0x13f4:
+    regtrace_t40_awb_step = 17396;   /* T40-AWB-STEP ctd+0x13f4 */
     /* fragment 403: Arithmetic */
     v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
@@ -69812,6 +69932,7 @@ tisp_awb_ct_detect0x13f4:
     v0 = a1;
 
 tisp_awb_ct_detect0x1414:
+    regtrace_t40_awb_step = 17428;   /* T40-AWB-STEP ctd+0x1414 */
     /* fragment 406: MemoryAccess */
     a2 = *(uint32_t *)((char *)v0 + -240);
 
@@ -69837,6 +69958,7 @@ tisp_awb_ct_detect0x1414:
     *(uint32_t *)((char *)v0 + 0) = a0;
 
 tisp_awb_ct_detect0x1434:
+    regtrace_t40_awb_step = 17460;   /* T40-AWB-STEP ctd+0x1434 */
     /* fragment 412: Arithmetic */
     v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
@@ -69845,6 +69967,7 @@ tisp_awb_ct_detect0x1434:
     if (t1 != v0) { goto tisp_awb_ct_detect0x1414; }
 
 tisp_awb_ct_detect0x1440:
+    regtrace_t40_awb_step = 17472;   /* T40-AWB-STEP ctd+0x1440 */
     /* fragment 414: MemoryAccess */
     a2 = *(uint32_t *)((char *)a1 + 0);
 
@@ -69856,6 +69979,7 @@ tisp_awb_ct_detect0x1440:
     if (t1 != 0) { a0 = a2; }
 
 tisp_awb_ct_detect0x1450:
+    regtrace_t40_awb_step = 17488;   /* T40-AWB-STEP ctd+0x1450 */
     /* fragment 417: Arithmetic */
     a1 = a1 + 4;
 
@@ -69869,6 +69993,7 @@ tisp_awb_ct_detect0x1450:
     v0 = a2;
 
 tisp_awb_ct_detect0x146c:
+    regtrace_t40_awb_step = 17516;   /* T40-AWB-STEP ctd+0x146c */
     /* fragment 420: Branch */
     if (a0 == 0) { goto tisp_awb_ct_detect0x1498; }
 
@@ -69897,6 +70022,7 @@ tisp_awb_ct_detect0x146c:
     *(uint32_t *)((char *)v0 + 0) = a1;
 
 tisp_awb_ct_detect0x1498:
+    regtrace_t40_awb_step = 17560;   /* T40-AWB-STEP ctd+0x1498 */
     /* fragment 427: Arithmetic */
     v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
@@ -69907,6 +70033,7 @@ tisp_awb_ct_detect0x1498:
     a0 = 0;
 
 tisp_awb_ct_detect0x14a8:
+    regtrace_t40_awb_step = 17576;   /* T40-AWB-STEP ctd+0x14a8 */
     /* fragment 430: MemoryAccess */
     a1 = *(uint32_t *)((char *)a2 + 0);
 
@@ -69918,6 +70045,7 @@ tisp_awb_ct_detect0x14a8:
     if (a3 != 0) { a0 = a1; }
 
 tisp_awb_ct_detect0x14b8:
+    regtrace_t40_awb_step = 17592;   /* T40-AWB-STEP ctd+0x14b8 */
     /* fragment 433: Arithmetic */
     a2 = a2 + 4;
 
@@ -69935,6 +70063,7 @@ tisp_awb_ct_detect0x14b8:
     s6 = 61;
 
 tisp_awb_ct_detect0x14dc:
+    regtrace_t40_awb_step = 17628;   /* T40-AWB-STEP ctd+0x14dc */
     /* fragment 437: Branch */
     v0 = local_28;
     if (s1 == t3) { goto tisp_awb_ct_detect0x1610; }
@@ -69951,12 +70080,14 @@ tisp_awb_ct_detect0x14dc:
     goto tisp_awb_ct_detect0x15e8;
 
 tisp_awb_ct_detect0x14f8:
+    regtrace_t40_awb_step = 17656;   /* T40-AWB-STEP ctd+0x14f8 */
     /* fragment 441: StackAccess */
     t4 = local_2c;
     a3 = 60;
     v0 = 0;
 
 tisp_awb_ct_detect0x1504:
+    regtrace_t40_awb_step = 17668;   /* T40-AWB-STEP ctd+0x1504 */
     /* fragment 442: MemoryAccess */
     t5 = *(uint32_t *)((char *)t4 + 0);
 
@@ -69983,6 +70114,7 @@ tisp_awb_ct_detect0x1504:
     a1 = t5 - a2;
 
 tisp_awb_ct_detect0x1538:
+    regtrace_t40_awb_step = 17720;   /* T40-AWB-STEP ctd+0x1538 */
     /* fragment 449: MemoryAccess */
     a2 = *(uint32_t *)((char *)t6 + 900);
     a2 = s3 + a2;
@@ -69997,6 +70129,7 @@ tisp_awb_ct_detect0x1538:
     t5 = t8 - a2;
 
 tisp_awb_ct_detect0x1554:
+    regtrace_t40_awb_step = 17748;   /* T40-AWB-STEP ctd+0x1554 */
     /* fragment 452: Arithmetic */
     /* unmatched fragment 452 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1ac58:	01ad0018 	mult	t5,t5 */
@@ -70032,6 +70165,7 @@ tisp_awb_ct_detect0x1554:
     a1 = a1 < t5;
 
 tisp_awb_ct_detect0x1598:
+    regtrace_t40_awb_step = 17816;   /* T40-AWB-STEP ctd+0x1598 */
     /* fragment 460: Arithmetic */
     a3 = (uintptr_t *)((uintptr_t)a3 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
     a3 = (uintptr_t)a3 & 65535;
@@ -70054,6 +70188,7 @@ tisp_awb_ct_detect0x1598:
     v0 = v1 + t9;
 
 tisp_awb_ct_detect0x15cc:
+    regtrace_t40_awb_step = 17868;   /* T40-AWB-STEP ctd+0x15cc */
     /* fragment 464: Unknown */
     /* unmatched fragment 464 (Unknown): no deterministic matcher for Unknown */
     /* asm: 1acd0:	0044001b 	divu	zero,v0,a0 */
@@ -70069,6 +70204,7 @@ tisp_awb_ct_detect0x15cc:
     *(uint32_t *)((char *)t2 + -4) = v0;
 
 tisp_awb_ct_detect0x15e8:
+    regtrace_t40_awb_step = 17896;   /* T40-AWB-STEP ctd+0x15e8 */
     /* fragment 467: Branch */
     if (t1 != s4) { goto tisp_awb_ct_detect0x14f8; }
 
@@ -70081,20 +70217,24 @@ tisp_awb_ct_detect0x15e8:
     goto tisp_awb_ct_detect0x14dc;
 
 tisp_awb_ct_detect0x1600:
+    regtrace_t40_awb_step = 17920;   /* T40-AWB-STEP ctd+0x1600 */
     /* fragment 470: Branch */
     v0 = a2;
     goto tisp_awb_ct_detect0x1598;
 
 tisp_awb_ct_detect0x1608:
+    regtrace_t40_awb_step = 17928;   /* T40-AWB-STEP ctd+0x1608 */
     /* fragment 471: Branch */
     v0 = t9 + a1;
     goto tisp_awb_ct_detect0x15cc;
 
 tisp_awb_ct_detect0x1610:
+    regtrace_t40_awb_step = 17936;   /* T40-AWB-STEP ctd+0x1610 */
     /* fragment 472: StackAccess */
     v0 = local_2c;
 
 tisp_awb_ct_detect0x1614:
+    regtrace_t40_awb_step = 17940;   /* T40-AWB-STEP ctd+0x1614 */
     /* fragment 473: StackAccess */
     v1 = local_2c;
     s6 = 0;
@@ -70102,6 +70242,7 @@ tisp_awb_ct_detect0x1614:
     a1 = (uintptr_t)v1 + 720;   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x1624:
+    regtrace_t40_awb_step = 17956;   /* T40-AWB-STEP ctd+0x1624 */
     /* fragment 474: MemoryAccess */
     a0 = *(uint32_t *)((char *)v0 + 0);
     a0 = a0 < 5;
@@ -70113,6 +70254,7 @@ tisp_awb_ct_detect0x1624:
     s6 = s6 + 1;
 
 tisp_awb_ct_detect0x1638:
+    regtrace_t40_awb_step = 17976;   /* T40-AWB-STEP ctd+0x1638 */
     /* fragment 477: Arithmetic */
     v0 = (uintptr_t *)((uintptr_t)v0 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
@@ -70128,6 +70270,7 @@ tisp_awb_ct_detect0x1638:
     s6 = s6 < 2;
 
 tisp_awb_ct_detect0x1658:
+    regtrace_t40_awb_step = 18008;   /* T40-AWB-STEP ctd+0x1658 */
     /* fragment 480: StackAccess */
     v0 = local_c4;
     v0 = v0 + a1;
@@ -70147,6 +70290,7 @@ tisp_awb_ct_detect0x1658:
     t9 = 60;
 
 tisp_awb_ct_detect0x1684:
+    regtrace_t40_awb_step = 18052;   /* T40-AWB-STEP ctd+0x1684 */
     /* fragment 483: Arithmetic */
     v0 = (uintptr_t)t2 & 65535;
     v0 = v0 < s1;
@@ -70165,6 +70309,7 @@ tisp_awb_ct_detect0x1684:
     goto tisp_awb_ct_detect0x179c;
 
 tisp_awb_ct_detect0x16a8:
+    regtrace_t40_awb_step = 18088;   /* T40-AWB-STEP ctd+0x16a8 */
     /* fragment 487: MemoryAccess */
     v0 = *(uint32_t *)((char *)a3 + 0);
     a0 = *(uint16_t *)((char *)t3 + 0);
@@ -70180,6 +70325,7 @@ tisp_awb_ct_detect0x16a8:
     t7 = a0 - (uintptr_t)v0;
 
 tisp_awb_ct_detect0x16c8:
+    regtrace_t40_awb_step = 18120;   /* T40-AWB-STEP ctd+0x16c8 */
     /* fragment 490: StackAccess */
     v0 = local_40;
     t8 = *(uint16_t *)((char *)t4 + 0);
@@ -70197,6 +70343,7 @@ tisp_awb_ct_detect0x16c8:
     v0 = t8 - a0;
 
 tisp_awb_ct_detect0x16f0:
+    regtrace_t40_awb_step = 18160;   /* T40-AWB-STEP ctd+0x16f0 */
     /* fragment 493: Arithmetic */
     /* unmatched fragment 493 (Arithmetic): arithmetic fragment did not contain supported register operations */
     /* asm: 1adf4:	00420018 	mult	v0,v0 */
@@ -70244,6 +70391,7 @@ tisp_awb_ct_detect0x16f0:
     if (s6 == 0) { goto tisp_awb_ct_detect0x175c; }
 
 tisp_awb_ct_detect0x1740:
+    regtrace_t40_awb_step = 18240;   /* T40-AWB-STEP ctd+0x1740 */
     /* fragment 506: StackAccess */
     v0 = local_84;
     t7 = t7 << 1;
@@ -70254,10 +70402,12 @@ tisp_awb_ct_detect0x1740:
     goto tisp_awb_ct_detect0x1770;
 
 tisp_awb_ct_detect0x1754:
+    regtrace_t40_awb_step = 18260;   /* T40-AWB-STEP ctd+0x1754 */
     /* fragment 508: Branch */
     if (v0 != 0) { goto tisp_awb_ct_detect0x1740; }
 
 tisp_awb_ct_detect0x175c:
+    regtrace_t40_awb_step = 18268;   /* T40-AWB-STEP ctd+0x175c */
     /* fragment 509: MemoryAccess */
     a0 = *(uint32_t *)((char *)t6 + 0);
     a0 = a0 * a0;
@@ -70268,6 +70418,7 @@ tisp_awb_ct_detect0x175c:
     if (a0 == 0) { goto tisp_awb_ct_detect0x1740; }
 
 tisp_awb_ct_detect0x1770:
+    regtrace_t40_awb_step = 18288;   /* T40-AWB-STEP ctd+0x1770 */
     /* fragment 511: MemoryAccess */
     a0 = *(uint32_t *)((char *)t1 + 0);
     v0 = t0 - (uintptr_t)v0;
@@ -70281,6 +70432,7 @@ tisp_awb_ct_detect0x1770:
     *(uint32_t *)((char *)t1 + 0) = v0;
 
 tisp_awb_ct_detect0x178c:
+    regtrace_t40_awb_step = 18316;   /* T40-AWB-STEP ctd+0x178c */
     /* fragment 514: Arithmetic */
     a2 = a2 + 1;
     a2 = a2 & 65535;
@@ -70288,6 +70440,7 @@ tisp_awb_ct_detect0x178c:
     a3 = (uintptr_t *)((uintptr_t)a3 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x179c:
+    regtrace_t40_awb_step = 18332;   /* T40-AWB-STEP ctd+0x179c */
     /* fragment 515: Branch */
     v0 = local_20;
     if (a2 != s4) { goto tisp_awb_ct_detect0x16a8; }
@@ -70300,6 +70453,7 @@ tisp_awb_ct_detect0x179c:
     goto tisp_awb_ct_detect0x1684;
 
 tisp_awb_ct_detect0x17b0:
+    regtrace_t40_awb_step = 18352;   /* T40-AWB-STEP ctd+0x17b0 */
     /* fragment 518: Arithmetic */
     a1 = a1 + 1;
     v0 = 10;
@@ -70315,6 +70469,7 @@ tisp_awb_ct_detect0x17b0:
     a2 = 60;
 
 tisp_awb_ct_detect0x17d0:
+    regtrace_t40_awb_step = 18384;   /* T40-AWB-STEP ctd+0x17d0 */
     /* fragment 521: Arithmetic */
     v0 = (uintptr_t)v1 & 65535;
     v0 = v0 < s1;
@@ -70332,6 +70487,7 @@ tisp_awb_ct_detect0x17d0:
     goto tisp_awb_ct_detect0x1800;
 
 tisp_awb_ct_detect0x17f0:
+    regtrace_t40_awb_step = 18416;   /* T40-AWB-STEP ctd+0x17f0 */
     /* fragment 525: MemoryAccess */
     a3 = *(uint32_t *)((char *)a1 + 0);
     v0 = (uintptr_t)v0 & 65535;
@@ -70339,6 +70495,7 @@ tisp_awb_ct_detect0x17f0:
     a1 = a1 + 4;
 
 tisp_awb_ct_detect0x1800:
+    regtrace_t40_awb_step = 18432;   /* T40-AWB-STEP ctd+0x1800 */
     /* fragment 526: Branch */
     int _bc_v0_526 = v0 != s4;
     v0 = (uintptr_t *)((uintptr_t)v0 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
@@ -70349,6 +70506,7 @@ tisp_awb_ct_detect0x1800:
     goto tisp_awb_ct_detect0x17d0;
 
 tisp_awb_ct_detect0x1810:
+    regtrace_t40_awb_step = 18448;   /* T40-AWB-STEP ctd+0x1810 */
     /* fragment 528: Branch */
     v0 = local_148;
     if (a0 == 0) { goto tisp_awb_ct_detect0x284; }
@@ -70375,6 +70533,7 @@ tisp_awb_ct_detect0x1810:
     local_2c = v0;
 
 tisp_awb_ct_detect0x1864:
+    regtrace_t40_awb_step = 18532;   /* T40-AWB-STEP ctd+0x1864 */
     /* fragment 530: StackAccess */
     v0 = local_54;
 
@@ -70397,6 +70556,7 @@ tisp_awb_ct_detect0x1864:
     goto tisp_awb_ct_detect0x196c;
 
 tisp_awb_ct_detect0x188c:
+    regtrace_t40_awb_step = 18572;   /* T40-AWB-STEP ctd+0x188c */
     /* fragment 535: CallSetup */
     local_84 = t1;
     local_70 = t9;
@@ -70444,6 +70604,7 @@ tisp_awb_ct_detect0x188c:
     t7 = t7 + 1;
 
 tisp_awb_ct_detect0x196c:
+    regtrace_t40_awb_step = 18796;   /* T40-AWB-STEP ctd+0x196c */
     /* fragment 539: StackAccess */
     v0 = local_30;
 
@@ -70463,6 +70624,7 @@ tisp_awb_ct_detect0x196c:
     goto tisp_awb_ct_detect0x1864;
 
 tisp_awb_ct_detect0x1990:
+    regtrace_t40_awb_step = 18832;   /* T40-AWB-STEP ctd+0x1990 */
     /* fragment 543: Arithmetic */
     v0 = (uintptr_t)s3 | (uintptr_t)t1;
 
@@ -70537,6 +70699,7 @@ tisp_awb_ct_detect0x1990:
     local_24 = v0;
 
 tisp_awb_ct_detect0x1a70:
+    regtrace_t40_awb_step = 19056;   /* T40-AWB-STEP ctd+0x1a70 */
     /* fragment 554: StackAccess */
     v0 = local_30;
 
@@ -70560,6 +70723,7 @@ tisp_awb_ct_detect0x1a70:
     goto tisp_awb_ct_detect0x1bc4;
 
 tisp_awb_ct_detect0x1a9c:
+    regtrace_t40_awb_step = 19100;   /* T40-AWB-STEP ctd+0x1a9c */
     /* fragment 559: MemoryAccess */
     v0 = *(uint32_t *)((char *)s2 + 0);
     v1 = v0 < s6;
@@ -70572,6 +70736,7 @@ tisp_awb_ct_detect0x1a9c:
     a2 = s6 - (uintptr_t)v0;
 
 tisp_awb_ct_detect0x1ab0:
+    regtrace_t40_awb_step = 19120;   /* T40-AWB-STEP ctd+0x1ab0 */
     /* fragment 562: StackAccess */
     v0 = local_40;
     v0 = (uintptr_t)s2 + (uintptr_t)v0;
@@ -70586,6 +70751,7 @@ tisp_awb_ct_detect0x1ab0:
     a3 = s7 - (uintptr_t)v0;
 
 tisp_awb_ct_detect0x1acc:
+    regtrace_t40_awb_step = 19148;   /* T40-AWB-STEP ctd+0x1acc */
     /* fragment 565: CallSetup */
     local_64 = t5;
     local_60 = t4;
@@ -70655,6 +70821,7 @@ tisp_awb_ct_detect0x1acc:
     t5 = (uintptr_t)t5 + (uintptr_t)v0;
 
 tisp_awb_ct_detect0x1bb0:
+    regtrace_t40_awb_step = 19376;   /* T40-AWB-STEP ctd+0x1bb0 */
     /* fragment 576: Arithmetic */
     t4 = (uintptr_t *)((uintptr_t)t4 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     s1 = (uintptr_t *)((uintptr_t)s1 + 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
@@ -70663,6 +70830,7 @@ tisp_awb_ct_detect0x1bb0:
     s2 = (uintptr_t *)((uintptr_t)s2 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x1bc4:
+    regtrace_t40_awb_step = 19396;   /* T40-AWB-STEP ctd+0x1bc4 */
     /* fragment 577: Branch */
     v0 = local_20;
     if (t1 != t4) { goto tisp_awb_ct_detect0x1a9c; }
@@ -70676,6 +70844,7 @@ tisp_awb_ct_detect0x1bc4:
     goto tisp_awb_ct_detect0x1a70;
 
 tisp_awb_ct_detect0x1bdc:
+    regtrace_t40_awb_step = 19420;   /* T40-AWB-STEP ctd+0x1bdc */
     /* fragment 580: CallSetup */
     local_50 = (uintptr_t)&fix_point_div_32;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, t5, s3); /* jalr target resolved by relocation */
@@ -70709,6 +70878,7 @@ tisp_awb_ct_detect0x1bdc:
     local_80 = v0;
 
 tisp_awb_ct_detect0x1c4c:
+    regtrace_t40_awb_step = 19532;   /* T40-AWB-STEP ctd+0x1c4c */
     /* fragment 584: StackAccess */
     v0 = local_6c;
 
@@ -70740,6 +70910,7 @@ tisp_awb_ct_detect0x1c4c:
     goto tisp_awb_ct_detect0x1db8;
 
 tisp_awb_ct_detect0x1ca0:
+    regtrace_t40_awb_step = 19616;   /* T40-AWB-STEP ctd+0x1ca0 */
     /* fragment 588: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, *(uint32_t *)((char *)(v0) + 0), local_60); /* jalr target resolved by relocation */
 
@@ -70756,6 +70927,7 @@ tisp_awb_ct_detect0x1ca0:
     *(uint32_t *)((char *)s2 + 0) = 0;
 
 tisp_awb_ct_detect0x1cc8:
+    regtrace_t40_awb_step = 19656;   /* T40-AWB-STEP ctd+0x1cc8 */
     /* fragment 592: CallSetup */
     s2 = (uintptr_t *)((uintptr_t)s2 + 4);   /* T40-PTRSTEP: byte add (OEM addiu) */
     v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_mult3_32((uintptr_t)s0, *(uint32_t *)((char *)((uintptr_t)s2) + 0), *(uint32_t *)((char *)(local_4c) + 0), (*(uint8_t *)((char *)(local_48) + 0)) << (uintptr_t)s0); /* jalr target resolved by relocation */
@@ -70799,6 +70971,7 @@ tisp_awb_ct_detect0x1cc8:
     local_38 = v0;
 
 tisp_awb_ct_detect0x1db8:
+    regtrace_t40_awb_step = 19896;   /* T40-AWB-STEP ctd+0x1db8 */
     /* fragment 596: StackAccess */
     v0 = local_68;
 
@@ -70830,6 +71003,7 @@ tisp_awb_ct_detect0x1db8:
     goto tisp_awb_ct_detect0x1c4c;
 
 tisp_awb_ct_detect0x1e0c:
+    regtrace_t40_awb_step = 19980;   /* T40-AWB-STEP ctd+0x1e0c */
     /* fragment 600: StackAccess */
     a0 = local_7c;
     a0 = v0 < a0;
@@ -70843,6 +71017,7 @@ tisp_awb_ct_detect0x1e0c:
     goto tisp_awb_ct_detect0x1cc8;
 
 tisp_awb_ct_detect0x1e24:
+    regtrace_t40_awb_step = 20004;   /* T40-AWB-STEP ctd+0x1e24 */
     /* fragment 603: CallSetup */
     local_84 = v1;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s0, v0 - local_7c, local_70); /* jalr target resolved by relocation */
@@ -70855,6 +71030,7 @@ tisp_awb_ct_detect0x1e24:
     goto tisp_awb_ct_detect0x1cc8;
 
 tisp_awb_ct_detect0x1e64:
+    regtrace_t40_awb_step = 20068;   /* T40-AWB-STEP ctd+0x1e64 */
     /* fragment 606: Arithmetic */
     v0 = (uintptr_t)s1 | (uintptr_t)s3;
 
@@ -70874,10 +71050,12 @@ tisp_awb_ct_detect0x1e64:
     s7 = v0;
 
 tisp_awb_ct_detect0x1ea8:
+    regtrace_t40_awb_step = 20136;   /* T40-AWB-STEP ctd+0x1ea8 */
     /* fragment 611: CallSetup */
     v0 = (uintptr_t *)&Tiziano_Awb_Ct_Cal;
 
 tisp_awb_ct_detect0x1eac:
+    regtrace_t40_awb_step = 20140;   /* T40-AWB-STEP ctd+0x1eac */
     /* fragment 612: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tiziano_Awb_Ct_Cal)(s5, s6, s7); /* jalr target resolved by relocation */
 
@@ -70893,6 +71071,7 @@ tisp_awb_ct_detect0x1eac:
     goto tisp_awb_ct_detect0x78;
 
 tisp_awb_ct_detect0x1edc:
+    regtrace_t40_awb_step = 20188;   /* T40-AWB-STEP ctd+0x1edc */
     /* fragment 615: Arithmetic */
     a0 = 15;
 
@@ -70904,6 +71083,7 @@ tisp_awb_ct_detect0x1edc:
     a0 = (uintptr_t)t1 - 1;   /* T40-PTRSTEP: byte add (OEM addiu) */
 
 tisp_awb_ct_detect0x1eec:
+    regtrace_t40_awb_step = 20204;   /* T40-AWB-STEP ctd+0x1eec */
     /* fragment 618: Arithmetic */
     a1 = a0;
     a3 = 14;
@@ -70926,6 +71106,7 @@ tisp_awb_ct_detect0x1eec:
     goto tisp_awb_ct_detect0x698;
 
 tisp_awb_ct_detect0x1f24:
+    regtrace_t40_awb_step = 20260;   /* T40-AWB-STEP ctd+0x1f24 */
     /* fragment 622: Branch */
     v1 = local_4c;
     if (v0 != a0) { goto tisp_awb_ct_detect0x78c; }
@@ -88336,7 +88517,7 @@ tisp_ae_long_tune20xf28:
     return (int64_t)v0;
 
 tisp_ae_long_tune20xf94:
-    if (regtrace_t40_ae_diag) { static unsigned int n; if (n++ < 6) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2NL #%u mean(s4)=%lu s6:a0=%lx:%x arg9(1a4)=%u arg5=%u arg6=%u arg7=%u arg8=%u arg10=%u cc=%u b4=%u 94=%u 88=%u 98=%u 9c=%u b8=%u bc=%u f0=%u ec=%u a4=%u 7e=%u s7=%lx\n", n, (unsigned long)(uintptr_t)s4, (unsigned long)(uintptr_t)s6, (unsigned)local_a0, (unsigned)local_1a4, (unsigned)arg5, (unsigned)arg6, (unsigned)arg7, (unsigned)arg8, (unsigned)arg10, (unsigned)local_cc, (unsigned)local_b4, (unsigned)local_94, (unsigned)local_88, (unsigned)local_98, (unsigned)local_9c, (unsigned)local_b8, (unsigned)local_bc, (unsigned)local_f0, (unsigned)local_ec, (unsigned)local_a4, (unsigned)local_7e, (unsigned long)(uintptr_t)s7); }   /* T40-AE-NL-DIAG */
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (n++ < 6) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2NL #%u mean(s4)=%lu s6:a0=%lx:%x arg9(1a4)=%u arg5=%u arg6=%u arg7=%u arg8=%u arg10=%u cc=%u b4=%u 94=%u 88=%u 98=%u 9c=%u b8=%u bc=%u f0=%u ec=%u a4=%u 7e=%u s7=%lx | f8=%u fc=%u 100=%u 124=%u\n", n, (unsigned long)(uintptr_t)s4, (unsigned long)(uintptr_t)s6, (unsigned)local_a0, (unsigned)local_1a4, (unsigned)arg5, (unsigned)arg6, (unsigned)arg7, (unsigned)arg8, (unsigned)arg10, (unsigned)local_cc, (unsigned)local_b4, (unsigned)local_94, (unsigned)local_88, (unsigned)local_98, (unsigned)local_9c, (unsigned)local_b8, (unsigned)local_bc, (unsigned)local_f0, (unsigned)local_ec, (unsigned)local_a4, (unsigned)local_7e, (unsigned long)(uintptr_t)s7, (unsigned)local_f8, (unsigned)local_fc, (unsigned)local_100, (unsigned)local_124); }   /* T40-AE-NL-DIAG */
     /* T40-NONLIST: hand translation of OEM 0x26aec..0x26fa0 (tisp_ae_long_tune2, the EV
      * allocation WITHOUT an exposure list = vendor default, mode gate != 1).  The lift of
      * this block had truncated fix_point call arguments and dropped movn/movz, so it never
