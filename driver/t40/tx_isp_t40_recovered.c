@@ -7426,6 +7426,13 @@ int64_t fix_point_mult2_64(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg
 int64_t fix_point_mult3_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5, uint32_t arg6, uint32_t arg7);
 int64_t fix_point_div_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5);
 #define T40_FP64_CALL(fn, ...) do { int64_t __fp64 = fn(__VA_ARGS__); v0 = (uintptr_t *)(uintptr_t)(uint32_t)__fp64; v1 = (uintptr_t *)(uintptr_t)(uint32_t)((uint64_t)__fp64 >> 32); } while (0)
+/* T40 progress markers for the event-thread stall with t40_vendor_awb_process=1 (read via /sys/module/tx_isp_t40/parameters) */
+static unsigned int regtrace_t40_awb_step;      /* 99 entered, 1..6 before each call in tisp_awb_main_process, 21..26 sub-function entries, 0 done */
+static unsigned int regtrace_t40_ev_cur;        /* event id currently inside its callback, 0 when idle */
+static unsigned int regtrace_t40_ev_cur_n;      /* callbacks dispatched */
+module_param_named(t40_awb_step, regtrace_t40_awb_step, uint, 0444);
+module_param_named(t40_ev_cur, regtrace_t40_ev_cur, uint, 0444);
+module_param_named(t40_ev_cur_n, regtrace_t40_ev_cur_n, uint, 0444);
 int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_sub_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_mult2_32(int32_t arg1, int32_t arg2, int32_t arg3);
@@ -66834,6 +66841,7 @@ Tiziano_Awb_Ct_Cal0x328:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000018f3c origin=fragment_seed original=Tiziano_Awb_Ct_Detect_GrayWorld_mode */
 int64_t Tiziano_Awb_Ct_Detect_GrayWorld_mode(uintptr_t a0, uint32_t a1, uintptr_t a2, uintptr_t a3, uintptr_t arg4, uint32_t arg5)
 {
+    regtrace_t40_awb_step = 26;   /* T40-AWB-STEP entry */
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -67568,6 +67576,7 @@ Tiziano_Awb_Ct_Detect_GrayWorld0x90:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019704 origin=fragment_seed original=tisp_awb_ct_detect */
 int64_t tisp_awb_ct_detect(uintptr_t a0, uintptr_t a1, uint32_t a2)
 {
+    regtrace_t40_awb_step = 25;   /* T40-AWB-STEP entry */
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -79432,10 +79441,12 @@ int64_t tisp_event_process(uint32_t a0)
         static uint32_t ev_n[2], ev_max_us[2], ev_last_us[2];
         unsigned int slot = (event == 14U) ? 1U : 0U;
         unsigned long long t0 = sched_clock();
+        regtrace_t40_ev_cur = event; regtrace_t40_ev_cur_n++;   /* T40-EVCUR */
         cb_ret = cb(node->args[0], node->args[1],
                     node->args[2], node->args[3],
                     node->args[4], node->args[5],
                     node->args[6], node->args[7]);
+        regtrace_t40_ev_cur = 0;   /* T40-EVCUR */
         if (event == 1U || event == 14U) {
             uint32_t us = (uint32_t)((sched_clock() - t0) >> 10);
             ev_n[slot]++;
@@ -88835,14 +88846,14 @@ int32_t tisp_ae_long_alogrithm(int32_t arg1, int32_t (*arg2)(int32_t arg1, int32
 
         s0_3 = (uintptr_t)s0 * a2_2 * (uintptr_t)a2 * a2_1;
         if (s0_3 != 0) var_54 = ((s0_3 + (uintptr_t)v1_4) * var_54) / s0_3;   /* OEM 0x273d8 divu (no zero guard there) */
-        if (regtrace_t40_ae_diag) { static unsigned int nq; if (nq++ < 3) printk(KERN_INFO "tx_isp_t40_recovered: AEADJ fp=1 s0=%lu hw3=%u hw1=%u hw19=%u t2=%lu v1_4=%lu s0_3=%lu -> mean=%u\n", (unsigned long)(uintptr_t)s0, (unsigned)a2, (unsigned)a2_1, (unsigned)a2_2, (unsigned long)(uintptr_t)t2, (unsigned long)(uintptr_t)v1_4, (unsigned long)s0_3, (unsigned)var_54); }
+        if (regtrace_t40_ae_diag) { static unsigned int nq; if ((++nq > 2 && nq < 7)) printk(KERN_INFO "tx_isp_t40_recovered: AEADJ fp=1 s0=%lu hw3=%u hw1=%u hw19=%u t2=%lu v1_4=%lu s0_3=%lu -> mean=%u\n", (unsigned long)(uintptr_t)s0, (unsigned)a2, (unsigned)a2_1, (unsigned)a2_2, (unsigned long)(uintptr_t)t2, (unsigned long)(uintptr_t)v1_4, (unsigned long)s0_3, (unsigned)var_54); }
         v0_7 = var_5c;
     }
 
     {   /* T40-AE-IN-DIAG: inputs of tune2 (FBL29: EV alloc returns IT=3, gain 1.0 -> picture dark) */
         static unsigned int n;
         const uint32_t *st = (const uint32_t *)(uintptr_t)*(const uint32_t *)((const char *)arg2 + 80);
-        if (regtrace_t40_ae_diag && n++ < 3) {
+        if (regtrace_t40_ae_diag && (++n > 2 && n < 7)) {
             printk(KERN_INFO "tx_isp_t40_recovered: AEIN var_54=0x%x var_68=0x%x s6=0x%lx v1=0x%lx s4=0x%lx a0=0x%lx var_58=0x%x v0_7=0x%x\n",
                    (unsigned)var_54, (unsigned)var_68[0], (unsigned long)(uintptr_t)s6, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)s4, (unsigned long)(uintptr_t)a0, (unsigned)var_58, (unsigned)v0_7);
             if (regtrace_is_kernel_ptr((void *)st))
@@ -101273,6 +101284,7 @@ int32_t tisp_awb_gain_reg(int32_t *arg1, int32_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030dcc origin=fragment_seed original=tisp_awb_set_gain */
 int64_t tisp_awb_set_gain(uintptr_t a0, uint32_t a1)
 {
+    regtrace_t40_awb_step = 24;   /* T40-AWB-STEP entry */
     /*
      * T40-AWB-SEGV: a0 is the AWB context pointer only until fragments
      * 12/13 reassign it - the OEM used $4 as a scratch register.  The
@@ -103007,6 +103019,7 @@ tisp_awb_sec_interrupt_static0xcc:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031c00 origin=fragment_seed original=tisp_awb_long_par_update */
 int64_t tisp_awb_long_par_update(uintptr_t a0, uintptr_t a1, uint32_t a2)
 {
+    regtrace_t40_awb_step = 23;   /* T40-AWB-STEP entry */
     uintptr_t *a3 = 0;
     uint32_t ra = 0;
     uintptr_t t0 = 0;
@@ -103650,6 +103663,7 @@ int32_t tisp_awb_sat_weight(void* arg1, void* arg2, void* arg3, void* arg4, void
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000322f8 origin=fragment_seed original=tisp_awb_long_alogrithm */
 int64_t tisp_awb_long_alogrithm(uintptr_t a0, uintptr_t a1)
 {
+    regtrace_t40_awb_step = 22;   /* T40-AWB-STEP entry */
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -105367,6 +105381,7 @@ tisp_awb_long_alogrithm0x10b0:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000333f4 origin=fragment_seed original=tisp_awb_spec_calculate */
 int32_t tisp_awb_spec_calculate(uintptr_t a0, uint32_t a1)
 {
+    regtrace_t40_awb_step = 21;   /* T40-AWB-STEP entry */
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -105930,8 +105945,10 @@ static uint32_t regtrace_t40_vendor_awb_process_skipped;
 module_param_named(t40_vendor_awb_process_skipped, regtrace_t40_vendor_awb_process_skipped, uint, 0444);
 int64_t tisp_awb_main_process(void)
 {
+    regtrace_t40_awb_step = 99;   /* T40-AWB-STEP: entered */
     if (!regtrace_t40_vendor_awb_process) {
         regtrace_t40_vendor_awb_process_skipped++;
+    regtrace_t40_awb_step = 0;   /* T40-AWB-STEP done */
         return 0;
     }
     /* OEM event ABI: 12 words, id at +8, eight payload words at +16. */
@@ -105959,12 +105976,15 @@ int64_t tisp_awb_main_process(void)
      * the real structs (pstMainAwbOri[128]=0x200, pstMainAwbCtDetectOri[34]=0x88).
      */
     /* fragment 0: CallSetup */
+    regtrace_t40_awb_step = 1;   /* T40-AWB-STEP */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_long_par_update)(&pstMainAwbOri, &pstMainAwbCtDetectOri, *(uint32_t *)((char *)((char *)&stMainAwbInter))); /* jalr target resolved by relocation */
 
     /* fragment 1: CallSetup */
+    regtrace_t40_awb_step = 2;   /* T40-AWB-STEP */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_spec_calculate)(&pstMainAwbOri, 0); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
+    regtrace_t40_awb_step = 3;   /* T40-AWB-STEP */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_long_alogrithm)(&pstMainAwbOri, &pstMainAwbCtDetectOri, 0); /* jalr target resolved by relocation */
 
     /* fragment 3: Arithmetic */
@@ -105980,6 +106000,7 @@ int64_t tisp_awb_main_process(void)
     if (_bc_v1_5) { goto tisp_awb_main_process0x8c; }
 
     /* fragment 6: CallSetup */
+    regtrace_t40_awb_step = 4;   /* T40-AWB-STEP */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_complete)(&awb_algo_comp); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
@@ -105987,6 +106008,7 @@ int64_t tisp_awb_main_process(void)
 
 tisp_awb_main_process0x8c:
     /* fragment 8: CallSetup */
+    regtrace_t40_awb_step = 5;   /* T40-AWB-STEP */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_set_gain)(&pstMainAwbOri, 0); /* jalr target resolved by relocation */
 
     /* fragment 9: CallSetup */
@@ -105998,6 +106020,7 @@ tisp_awb_main_process0x8c:
     event_10[2] = 13;
     event_10[5] = 0;
     event_10[4] = *(uint32_t *)((char *)(*(uint32_t *)((char *)((char *)&pstMainAwbOri) + 28)) + 0);
+    regtrace_t40_awb_step = 6;   /* T40-AWB-STEP */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_event_push)(0, (uintptr_t)event_10); /* jalr target resolved by relocation */
 
     /* fragment 10: Arithmetic */
@@ -106024,6 +106047,7 @@ tisp_awb_main_process0xec:
 
     /* fragment 16: Epilogue */
     /* function epilogue: restore registers and return */
+    regtrace_t40_awb_step = 0;   /* T40-AWB-STEP done */
     return (int64_t)v0;
 
 tisp_awb_main_process0x104:
@@ -106031,6 +106055,7 @@ tisp_awb_main_process0x104:
     awb_num = 0;   /* OEM 0x345a4: sb zero,awb_num (.bss+17364) - the lift stored to isp_memopt+16708, an unrelated .bss byte */
     goto tisp_awb_main_process0xec;
 
+    regtrace_t40_awb_step = 0;   /* T40-AWB-STEP done */
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
 
@@ -106073,6 +106098,7 @@ int32_t tisp_awb_sec_process(void)
     if (_bc_v1_5) { goto tisp_awb_sec_process0x8c; }
 
     /* fragment 6: CallSetup */
+    regtrace_t40_awb_step = 4;   /* T40-AWB-STEP */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_complete)(&awb_algo_comp); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
