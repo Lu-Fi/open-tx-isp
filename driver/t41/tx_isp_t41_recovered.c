@@ -4241,6 +4241,7 @@ int32_t private_getrawmonotonic(uintptr_t a0);
 int32_t private_kthread_should_stop(void);
 struct task_struct *private_kthread_run(int (*threadfn)(void *), void *data, const char *name);
 int private_kthread_stop(struct task_struct *task);
+int t41_stop_isp_fw_thread(unsigned char *core, const char *who);
 ssize_t private_seq_read(struct file *file, char __user *buf, size_t size, loff_t *ppos);
 loff_t private_seq_lseek(struct file *file, loff_t offset, int whence);
 int32_t private_single_release(struct inode *inode, struct file *file);
@@ -7199,6 +7200,36 @@ struct task_struct *private_kthread_run(int (*threadfn)(void *), void *data, con
 int private_kthread_stop(struct task_struct *task)
 {
     return kthread_stop(task);
+}
+
+/*
+ * Stop the isp_fw_process worker stored at core+0x22c exactly once.
+ *
+ * kthread_stop() always ends the thread: it returns the thread's exit code,
+ * or -EINTR when the stop request arrived before the thread ever ran its
+ * function (fast open/streamon/close cycles, e.g. a daemon retrying a failed
+ * AddSensor right after boot).  In every case the task_struct is released
+ * afterwards, so the pointer must be cleared unconditionally.  Keeping it on
+ * a non-zero return made the next open skip the thread start and the next
+ * close call kthread_stop() on a freed task_struct (Oops in exit_creds via
+ * __put_task_struct, timpsd ~22 s after boot).  xchg() also keeps two
+ * concurrent teardown paths from stopping the same task twice.
+ */
+int t41_stop_isp_fw_thread(unsigned char *core, const char *who)
+{
+    struct task_struct *thread;
+    int ret;
+
+    thread = (struct task_struct *)xchg((unsigned long *)(core + 0x22c), 0UL);
+    if (!thread || IS_ERR(thread))
+        return 0;
+    ret = private_kthread_stop(thread);
+    if (ret == -EINTR)
+        printk(KERN_WARNING
+               "t41: %s: firmware thread stopped before first run\n", who);
+    else if (ret)
+        isp_printf(2, "%s: firmware thread exited with %d\n", who, ret);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000e1c origin=fragment_seed original=private_seq_read */
@@ -168664,17 +168695,8 @@ int64_t ispcore_core_ops_init(uintptr_t subdev_ptr, uintptr_t init_ptr)
         if (vinum == 2)
             return 0;
 
-        if (vinum == 0) {
-            thread = *(struct task_struct **)(core + 556);
-            if (thread && !IS_ERR(thread)) {
-                stop_ret = private_kthread_stop(thread);
-                if (!stop_ret)
-                    *(uint32_t *)(core + 556) = 0;
-                else
-                    isp_printf(2, "ispcore_core_ops_init: firmware thread stop failed (%d)\n",
-                               stop_ret);
-            }
-        }
+        if (vinum == 0)
+            stop_ret = t41_stop_isp_fw_thread(core, "ispcore_core_ops_init");
 
         if (t41_safe_tisp_teardown > 0) {
             printk(KERN_WARNING
@@ -168869,10 +168891,13 @@ int32_t ispcore_slake_module(uintptr_t a0)
 		return -EINVAL;
 
 	if (ae_kthread_num == 1) {
+		/* kthread_stop() consumes the task: clear before the next slake. */
 		if (ae_process_kthread_fd)
-			private_kthread_stop((void *)(uintptr_t)ae_process_kthread_fd);
+			private_kthread_stop((void *)(uintptr_t)
+				xchg(&ae_process_kthread_fd, 0));
 		if (fs_work_kthread_fd)
-			private_kthread_stop((void *)(uintptr_t)fs_work_kthread_fd);
+			private_kthread_stop((void *)(uintptr_t)
+				xchg(&fs_work_kthread_fd, 0));
 	}
 
 	channels = *(char **)(core + 0x1ac);
@@ -168898,16 +168923,7 @@ int32_t ispcore_slake_module(uintptr_t a0)
 		*(uint32_t *)(core + 0x128) = 1;
 	}
 
-	if (*(void **)(core + 0x22c)) {
-		int ret = private_kthread_stop(*(void **)(core + 0x22c));
-
-		if (ret)
-			isp_printf(2,
-				"ispcore_slake_module: firmware thread stop failed (%d)\n",
-				ret);
-		else
-			*(void **)(core + 0x22c) = NULL;
-	}
+	t41_stop_isp_fw_thread((unsigned char *)core, "ispcore_slake_module");
 	tisp_disable_tuning();
 	tisp_slake_all();
 
