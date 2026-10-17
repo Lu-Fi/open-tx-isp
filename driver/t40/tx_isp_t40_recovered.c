@@ -178303,7 +178303,7 @@ int64_t tisp_clm_ct_interp(uint32_t a0, uint32_t a1, uint32_t a2)
 
     /* fragment 2: StackAccess */
     local_18 = s2;
-    s2 = a0 + 18968;
+    s2 = (typeof(s2))clm_ctx_tab;   /* T40-CLM-CTX: OEM .bss+18936 (lift: &isp_memopt + 18968 words -> ctx NULL, MT88 Oops BadVA 4 in ct_interp) */
     local_24 = s5;
     local_10 = s0;
     local_34 = ra;
@@ -178665,9 +178665,9 @@ int64_t tisp_clm_wdr_en(uint32_t a0, uint32_t a1)
     uintptr_t *v1 = 0;
 
     /* fragment 0: Arithmetic */
-    v1 = (int32_t *)&clm_para;
+    v1 = (int32_t *)clm_ctx_tab;   /* T40-CLM-CTX: OEM .bss+18936 ctx table (lift: &clm_para + 18968 words) */
     v0 = a0 << 2;
-    v1 = v1 + 18968;
+    /* v1 = v1 + 18968; -> clm_ctx_tab above */
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
 
     /* fragment 1: StackAccess */
