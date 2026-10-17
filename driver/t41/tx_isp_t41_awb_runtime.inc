@@ -74,6 +74,9 @@ module_param_array_named(awb_diag_det, t41_awb_detect_diag, uint, &t41_awb_detec
 /* Raw statistics layout check: words 0..31 of the DMA bank (zone 0) and
  * of the centre zone (offset (7*15+7)*128), AWB registers 0x18000..0x1804c. */
 static unsigned int t41_awb_diag_raw[84] __attribute__((section(".data")));
+static unsigned int t41_awb_diag_p[28] __attribute__((section(".data")));   /* live AWB param-block fields (fable colour diag) */
+static unsigned int t41_awb_diag_p_n = 28;
+module_param_array_named(awb_diag_p, t41_awb_diag_p, uint, &t41_awb_diag_p_n, 0444);
 static unsigned int t41_awb_diag_raw_n = 84;
 module_param_array_named(awb_diag_raw, t41_awb_diag_raw, uint, &t41_awb_diag_raw_n, 0444);
 static void t41_native_awb_save(struct t41_awb_runtime *s)
@@ -178,6 +181,13 @@ static void t41_native_awb_workfn(struct work_struct *work)
             for (k=0;k<cnt;++k) if (t41_tmo_le32(cs+0x2a30+k*4)>mx) mx=t41_tmo_le32(cs+0x2a30+k*4);
             for (r=0;r<rows;++r) for (c=0;c<cols;++c) sum+=t41_tmo_le32(cs+0xd904+(r*15+c)*4);
             t41_awb_diag[16]=t41_tmo_le16(cp+0xd60)|(t41_tmo_le16(cp+0xd62)<<8)|(t41_tmo_le16(cp+0xd66)<<16);
+            { unsigned int q; for (q=0;q<8;++q) t41_awb_diag_p[q]=t41_tmo_le16(cp+0xd60+q*2);
+              for (q=0;q<4;++q) t41_awb_diag_p[8+q]=t41_tmo_le16(cp+0xc6c+q*2);
+              t41_awb_diag_p[12]=t41_tmo_le16(cp+0xcd2); t41_awb_diag_p[13]=t41_tmo_le16(cp+0xcd4); t41_awb_diag_p[14]=t41_tmo_le16(cp+0xcd6);
+              t41_awb_diag_p[15]=cp[0xcca]; t41_awb_diag_p[16]=cp[0xccc]; t41_awb_diag_p[17]=t41_tmo_le32(cp+0x38); t41_awb_diag_p[18]=t41_tmo_le32(cp+0x70);
+              t41_awb_diag_p[19]=t41_tmo_le32(cp+0x74); t41_awb_diag_p[20]=t41_tmo_le32(cp+0xac); t41_awb_diag_p[21]=t41_tmo_le32(cp+0x28); t41_awb_diag_p[22]=cp[0xf0];
+              t41_awb_diag_p[23]=t41_tmo_le32(cp+0x120); t41_awb_diag_p[24]=t41_tmo_le16(cp+0xc74); t41_awb_diag_p[25]=t41_tmo_le16(cp+0xc92);
+              t41_awb_diag_p[26]=t41_tmo_le32(cs+0x393c); t41_awb_diag_p[27]=t41_tmo_le32(cp+0x4ec+(7*15+7)*4); }
             t41_awb_diag[17]=mx;
             t41_awb_diag[18]=t41_tmo_le32(cs+0x1c20+ctr*4);
             t41_awb_diag[19]=t41_tmo_le32(cs+0x1c20+(cnt+ctr)*4);
