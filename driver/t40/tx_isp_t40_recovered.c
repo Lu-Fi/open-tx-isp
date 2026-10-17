@@ -7437,6 +7437,10 @@ static bool regtrace_t40_ct_update;             /* run the event-13 colour-tempe
 module_param_named(t40_ct_update, regtrace_t40_ct_update, bool, 0644);
 static bool regtrace_t40_ev_updates;            /* run events 6..13 (tgain/again/ev/ct module updates pushed by the 3A); needs the module inits */
 module_param_named(t40_ev_updates, regtrace_t40_ev_updates, bool, 0644);
+/* loop-guard helpers are defined near the event dispatcher; forward declarations for the CCM/BCSH code above it */
+static bool regtrace_t40_loopguard;
+static void regtrace_loopguard(const char *fn, const char *lbl);
+#define REGTRACE_LOOPGUARD_BUDGET (regtrace_t40_loopguard ? 2000000U : 0xffffffffU)
 static unsigned int regtrace_t40_module_ctx_inits;  /* bitmask: run the lifted module inits (1 gamma 2 lsc 4 ccm 8 bcsh 16 clm) after the lit inits */
 module_param_named(t40_module_ctx_inits, regtrace_t40_module_ctx_inits, uint, 0644);
 static unsigned int regtrace_t40_antiflick_hz;      /* 0 = bin default (60 Hz), 50/60 = set after AE init like the vendor app does */
@@ -71118,6 +71122,7 @@ tisp_awb_ct_detect0x1f24:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b640 origin=fragment_seed original=cm_control */
 int64_t cm_control(uintptr_t a0, uint32_t a1, uintptr_t a2)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -71236,7 +71241,7 @@ cm_control0xc4:
     v1 = *(uint32_t *)((char *)a0 + 0);
 
     /* fragment 4: Branch */
-    if (v1 < 0) { goto cm_control0x31c; }
+    if (v1 < 0) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0x31c"); else { __lg--; goto cm_control0x31c; } } }
 
     /* fragment 5: MemoryAccess */
     *(uint32_t *)((char *)v0 + 0) = t0;
@@ -71250,7 +71255,7 @@ cm_control0xd4:
 
     /* fragment 8: Branch */
     v0 = v0 + 8;
-    if (a1 != a0) { goto cm_control0xc4; }
+    if (a1 != a0) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0xc4"); else { __lg--; goto cm_control0xc4; } } }
 
     /* fragment 9: Arithmetic */
     a1 = (uint32_t *)&local_a0;
@@ -71265,7 +71270,7 @@ cm_control0xfc:
     v1 = *(uint32_t *)((char *)a1 + 0);
 
     /* fragment 11: Branch */
-    if (v1 < 0) { goto cm_control0x328; }
+    if (v1 < 0) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0x328"); else { __lg--; goto cm_control0x328; } } }
 
     /* fragment 12: MemoryAccess */
     *(uint32_t *)((char *)v0 + 0) = t1;
@@ -71280,7 +71285,7 @@ cm_control0x10c:
 
     /* fragment 15: Branch */
     v0 = v0 + 8;
-    if (a0 != a3) { goto cm_control0xfc; }
+    if (a0 != a3) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0xfc"); else { __lg--; goto cm_control0xfc; } } }
 
     /* fragment 16: CallSetup */
     s2 = (uintptr_t *)&fix_point_mult2_32;
@@ -71372,7 +71377,7 @@ cm_control0x130:
 
     /* fragment 28: Branch */
     *(uint32_t *)((char *)s1 + 8) = v0;
-    if (v1 < 0) { goto cm_control0x334; }
+    if (v1 < 0) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0x334"); else { __lg--; goto cm_control0x334; } } }
 
     /* fragment 29: Arithmetic */
     v1 = (uintptr_t)v1 >> 6;
@@ -71383,7 +71388,7 @@ cm_control0x2bc:
     v1 = *(uint32_t *)((char *)s1 + 4);
 
     /* fragment 31: Branch */
-    if (v1 < 0) { goto cm_control0x344; }
+    if (v1 < 0) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0x344"); else { __lg--; goto cm_control0x344; } } }
 
     /* fragment 32: Arithmetic */
     v1 = (uintptr_t)v1 >> 6;
@@ -71391,7 +71396,7 @@ cm_control0x2bc:
 cm_control0x2d0:
     /* fragment 33: Branch */
     *(uint32_t *)((char *)s1 + 4) = v1;
-    if (v0 < 0) { goto cm_control0x354; }
+    if (v0 < 0) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0x354"); else { __lg--; goto cm_control0x354; } } }
 
     /* fragment 34: Arithmetic */
     v0 = (uintptr_t *)((uintptr_t)v0 >> 6);
@@ -71403,7 +71408,7 @@ cm_control0x2dc:
 
     /* fragment 36: Branch */
     s3 = s3 + 24;
-    if (t2 != s1) { goto cm_control0x130; }
+    if (t2 != s1) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0x130"); else { __lg--; goto cm_control0x130; } } }
 
     /* fragment 37: Epilogue */
     /* function epilogue: restore registers and return */
@@ -71414,14 +71419,14 @@ cm_control0x31c:
     *(uint32_t *)((char *)v0 + 0) = a3;
 
     /* fragment 39: Branch */
-    goto cm_control0xd4;
+    { if (__lg == 0U) regtrace_loopguard("cm_control", "0xd4"); else { __lg--; goto cm_control0xd4; } }
 
 cm_control0x328:
     /* fragment 40: MemoryAccess */
     *(uint32_t *)((char *)v0 + 0) = t0;
 
     /* fragment 41: Branch */
-    goto cm_control0x10c;
+    { if (__lg == 0U) regtrace_loopguard("cm_control", "0x10c"); else { __lg--; goto cm_control0x10c; } }
 
 cm_control0x334:
     /* fragment 42: Unknown */
@@ -71432,7 +71437,7 @@ cm_control0x334:
     v1 = (uintptr_t)v1 >> 6;
 
     /* fragment 44: Branch */
-    goto cm_control0x2bc;
+    { if (__lg == 0U) regtrace_loopguard("cm_control", "0x2bc"); else { __lg--; goto cm_control0x2bc; } }
 
 cm_control0x344:
     /* fragment 45: Unknown */
@@ -71443,7 +71448,7 @@ cm_control0x344:
     v1 = (uintptr_t)v1 >> 6;
 
     /* fragment 47: Branch */
-    goto cm_control0x2d0;
+    { if (__lg == 0U) regtrace_loopguard("cm_control", "0x2d0"); else { __lg--; goto cm_control0x2d0; } }
 
 cm_control0x354:
     /* fragment 48: Unknown */
@@ -71454,7 +71459,7 @@ cm_control0x354:
     v0 = (uintptr_t *)((uintptr_t)v0 >> 6);
 
     /* fragment 50: Branch */
-    goto cm_control0x2dc;
+    { if (__lg == 0U) regtrace_loopguard("cm_control", "0x2dc"); else { __lg--; goto cm_control0x2dc; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -79868,7 +79873,9 @@ static void regtrace_loopguard(const char *fn, const char *lbl)
     if (n++ < 16)
         printk(KERN_ERR "tx_isp_t40_recovered: LOOPGUARD %s %s budget exhausted, loop broken\n", fn, lbl);
 }
+#ifndef REGTRACE_LOOPGUARD_BUDGET
 #define REGTRACE_LOOPGUARD_BUDGET (regtrace_t40_loopguard ? 2000000U : 0xffffffffU)
+#endif
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000020980 origin=fragment_seed original=tisp_ae_params_transmit */
 int64_t tisp_ae_params_transmit(uintptr_t a0, uint32_t a1)
 {
@@ -171784,6 +171791,7 @@ tisp_bcsh_ev_set_parameter0x448:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006929c origin=fragment_seed original=tisp_bcsh_ev_update */
 int32_t tisp_bcsh_ev_update(uintptr_t a0, uintptr_t a1)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -171853,7 +171861,7 @@ int32_t tisp_bcsh_ev_update(uintptr_t a0, uintptr_t a1)
 
     /* fragment 3: Branch */
     s6 = *(uint32_t *)((char *)(s0) + 272);
-    if (v1 != 0) { goto tisp_bcsh_ev_update0x134; }
+    if (v1 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x134"); else { __lg--; goto tisp_bcsh_ev_update0x134; } } }
 
     /* fragment 4: MemoryAccess */
     v0 = *(uint16_t *)((char *)s8 + 0);
@@ -171922,7 +171930,7 @@ tisp_bcsh_ev_update0x134:
     /* fragment 12: Branch */
     int _bc_v1_12 = v1 != 0;
     v1 = 0;
-    if (_bc_v1_12) { goto tisp_bcsh_ev_update0x19c; }
+    if (_bc_v1_12) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x19c"); else { __lg--; goto tisp_bcsh_ev_update0x19c; } } }
 
     /* fragment 13: MemoryAccess */
     v0 = *(uint16_t *)((char *)s8 + 16);
@@ -171948,7 +171956,7 @@ tisp_bcsh_ev_update0x134:
 
     /* fragment 14: Branch */
     v0 = *(uint32_t *)((char *)(s6) + 32);
-    goto tisp_bcsh_ev_update0xdc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0xdc"); else { __lg--; goto tisp_bcsh_ev_update0xdc; } }
 
 tisp_bcsh_ev_update0x19c:
     /* fragment 15: MemoryAccess */
@@ -171960,7 +171968,7 @@ tisp_bcsh_ev_update0x19c:
 
     /* fragment 16: Branch */
     t0 = a0 + 4;
-    if (t1 == 0) { goto tisp_bcsh_ev_update0x7e0; }
+    if (t1 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x7e0"); else { __lg--; goto tisp_bcsh_ev_update0x7e0; } } }
 
     /* fragment 17: MemoryAccess */
     t4 = *(uint32_t *)((char *)a0 + 4);
@@ -171968,7 +171976,7 @@ tisp_bcsh_ev_update0x19c:
 
     /* fragment 18: Branch */
     t1 = a3 + 4;
-    if (t2 != 0) { goto tisp_bcsh_ev_update0x7e0; }
+    if (t2 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x7e0"); else { __lg--; goto tisp_bcsh_ev_update0x7e0; } } }
 
     /* fragment 19: Arithmetic */
     v1 = (uintptr_t)v1 << 1;
@@ -171979,7 +171987,7 @@ tisp_bcsh_ev_update0x19c:
 
     /* fragment 21: Branch */
     t2 = *(uint16_t *)((char *)(v1) + 0);
-    if (t3 == t4) { goto tisp_bcsh_ev_update0x228; }
+    if (t3 == t4) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x228"); else { __lg--; goto tisp_bcsh_ev_update0x228; } } }
 
     /* fragment 22: StackAccess */
     v1 = local_10;
@@ -171992,7 +172000,7 @@ tisp_bcsh_ev_update0x19c:
 
     /* fragment 23: Branch */
     s8 = (uintptr_t)v0 - (uintptr_t)t3;
-    if (s4 == 0) { goto tisp_bcsh_ev_update0x5d8; }
+    if (s4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x5d8"); else { __lg--; goto tisp_bcsh_ev_update0x5d8; } } }
 
     /* fragment 24: Arithmetic */
     v1 = (uintptr_t)t2 - (uintptr_t)v1;
@@ -172001,7 +172009,7 @@ tisp_bcsh_ev_update0x19c:
 
     /* fragment 25: Branch */
     s8 = (uintptr_t)t4 - (uintptr_t)t3;
-    if (s4 == 0) { goto tisp_bcsh_ev_update0x218; }
+    if (s4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x218"); else { __lg--; goto tisp_bcsh_ev_update0x218; } } }
 
     /* fragment 26: Arithmetic */
     s8 = (uintptr_t)t3 - (uintptr_t)t4;
@@ -172028,7 +172036,7 @@ tisp_bcsh_ev_update0x228:
 
     /* fragment 31: Branch */
     v1 = *(uint16_t *)((char *)(v1) + 0);
-    if (t2 == t3) { goto tisp_bcsh_ev_update0x294; }
+    if (t2 == t3) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x294"); else { __lg--; goto tisp_bcsh_ev_update0x294; } } }
 
     /* fragment 32: StackAccess */
     t4 = local_10;
@@ -172040,14 +172048,14 @@ tisp_bcsh_ev_update0x228:
 
     /* fragment 33: Branch */
     s4 = t3 < t2;
-    if (s5 == 0) { goto tisp_bcsh_ev_update0x600; }
+    if (s5 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x600"); else { __lg--; goto tisp_bcsh_ev_update0x600; } } }
 
     /* fragment 34: Arithmetic */
     s5 = (uintptr_t)v1 - (uintptr_t)t4;
 
     /* fragment 35: Branch */
     t4 = (uintptr_t)t2 - (uintptr_t)v0;
-    if (s8 == 0) { goto tisp_bcsh_ev_update0x274; }
+    if (s8 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x274"); else { __lg--; goto tisp_bcsh_ev_update0x274; } } }
 
     /* fragment 36: Arithmetic */
     t4 = (uintptr_t)v0 - (uintptr_t)t2;
@@ -172058,7 +172066,7 @@ tisp_bcsh_ev_update0x274:
 
     /* fragment 38: Branch */
     s5 = (uintptr_t)t3 - (uintptr_t)t2;
-    if (s4 == 0) { goto tisp_bcsh_ev_update0x284; }
+    if (s4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x284"); else { __lg--; goto tisp_bcsh_ev_update0x284; } } }
 
     /* fragment 39: Arithmetic */
     s5 = (uintptr_t)t2 - (uintptr_t)t3;
@@ -172084,7 +172092,7 @@ tisp_bcsh_ev_update0x294:
 
     /* fragment 44: Branch */
     t2 = *(uint32_t *)((char *)(t2) + 0);
-    if (v1 == t5) { goto tisp_bcsh_ev_update0x2f0; }
+    if (v1 == t5) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x2f0"); else { __lg--; goto tisp_bcsh_ev_update0x2f0; } } }
 
     /* fragment 45: Arithmetic */
     t6 = (uintptr_t)t6 + (uintptr_t)t1;
@@ -172096,14 +172104,14 @@ tisp_bcsh_ev_update0x294:
 
     /* fragment 47: Branch */
     t6 = t5 < v1;
-    if (t4 == 0) { goto tisp_bcsh_ev_update0x630; }
+    if (t4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x630"); else { __lg--; goto tisp_bcsh_ev_update0x630; } } }
 
     /* fragment 48: Arithmetic */
     t3 = (uintptr_t)t2 - (uintptr_t)t3;
 
     /* fragment 49: Branch */
     t4 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (s5 == 0) { goto tisp_bcsh_ev_update0x2d4; }
+    if (s5 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x2d4"); else { __lg--; goto tisp_bcsh_ev_update0x2d4; } } }
 
     /* fragment 50: Arithmetic */
     t4 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172114,7 +172122,7 @@ tisp_bcsh_ev_update0x2d4:
 
     /* fragment 52: Branch */
     t4 = (uintptr_t)t5 - (uintptr_t)v1;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x2e4; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x2e4"); else { __lg--; goto tisp_bcsh_ev_update0x2e4; } } }
 
     /* fragment 53: Arithmetic */
     t4 = (uintptr_t)v1 - (uintptr_t)t5;
@@ -172136,7 +172144,7 @@ tisp_bcsh_ev_update0x2f0:
 
     /* fragment 57: Branch */
     t2 = *(uint32_t *)((char *)(t2) + 0);
-    if (v1 == t5) { goto tisp_bcsh_ev_update0x34c; }
+    if (v1 == t5) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x34c"); else { __lg--; goto tisp_bcsh_ev_update0x34c; } } }
 
     /* fragment 58: Arithmetic */
     t7 = t7 + (uintptr_t)t1;
@@ -172148,14 +172156,14 @@ tisp_bcsh_ev_update0x2f0:
 
     /* fragment 60: Branch */
     t7 = v1 < v0;
-    if (t4 == 0) { goto tisp_bcsh_ev_update0x660; }
+    if (t4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x660"); else { __lg--; goto tisp_bcsh_ev_update0x660; } } }
 
     /* fragment 61: Arithmetic */
     t3 = (uintptr_t)t2 - (uintptr_t)t3;
 
     /* fragment 62: Branch */
     t4 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t7 == 0) { goto tisp_bcsh_ev_update0x330; }
+    if (t7 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x330"); else { __lg--; goto tisp_bcsh_ev_update0x330; } } }
 
     /* fragment 63: Arithmetic */
     t4 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172166,7 +172174,7 @@ tisp_bcsh_ev_update0x330:
 
     /* fragment 65: Branch */
     t4 = (uintptr_t)t5 - (uintptr_t)v1;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x340; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x340"); else { __lg--; goto tisp_bcsh_ev_update0x340; } } }
 
     /* fragment 66: Arithmetic */
     t4 = (uintptr_t)v1 - (uintptr_t)t5;
@@ -172188,7 +172196,7 @@ tisp_bcsh_ev_update0x34c:
 
     /* fragment 70: Branch */
     t2 = *(uint32_t *)((char *)(t2) + 0);
-    if (v1 == t5) { goto tisp_bcsh_ev_update0x3a8; }
+    if (v1 == t5) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x3a8"); else { __lg--; goto tisp_bcsh_ev_update0x3a8; } } }
 
     /* fragment 71: Arithmetic */
     t8 = (uintptr_t)t8 + (uintptr_t)t1;
@@ -172200,14 +172208,14 @@ tisp_bcsh_ev_update0x34c:
 
     /* fragment 73: Branch */
     t6 = t5 < v1;
-    if (t4 == 0) { goto tisp_bcsh_ev_update0x690; }
+    if (t4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x690"); else { __lg--; goto tisp_bcsh_ev_update0x690; } } }
 
     /* fragment 74: Arithmetic */
     t3 = (uintptr_t)t2 - (uintptr_t)t3;
 
     /* fragment 75: Branch */
     t4 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t7 == 0) { goto tisp_bcsh_ev_update0x38c; }
+    if (t7 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x38c"); else { __lg--; goto tisp_bcsh_ev_update0x38c; } } }
 
     /* fragment 76: Arithmetic */
     t4 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172218,7 +172226,7 @@ tisp_bcsh_ev_update0x38c:
 
     /* fragment 78: Branch */
     t4 = (uintptr_t)t5 - (uintptr_t)v1;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x39c; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x39c"); else { __lg--; goto tisp_bcsh_ev_update0x39c; } } }
 
     /* fragment 79: Arithmetic */
     t4 = (uintptr_t)v1 - (uintptr_t)t5;
@@ -172240,7 +172248,7 @@ tisp_bcsh_ev_update0x3a8:
 
     /* fragment 83: Branch */
     t2 = *(uint32_t *)((char *)(t2) + 0);
-    if (v1 == t5) { goto tisp_bcsh_ev_update0x404; }
+    if (v1 == t5) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x404"); else { __lg--; goto tisp_bcsh_ev_update0x404; } } }
 
     /* fragment 84: Arithmetic */
     t9 = t9 + (uintptr_t)t1;
@@ -172252,14 +172260,14 @@ tisp_bcsh_ev_update0x3a8:
 
     /* fragment 86: Branch */
     t6 = t5 < v1;
-    if (t4 == 0) { goto tisp_bcsh_ev_update0x6c0; }
+    if (t4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x6c0"); else { __lg--; goto tisp_bcsh_ev_update0x6c0; } } }
 
     /* fragment 87: Arithmetic */
     t3 = (uintptr_t)t2 - (uintptr_t)t3;
 
     /* fragment 88: Branch */
     t4 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t7 == 0) { goto tisp_bcsh_ev_update0x3e8; }
+    if (t7 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x3e8"); else { __lg--; goto tisp_bcsh_ev_update0x3e8; } } }
 
     /* fragment 89: Arithmetic */
     t4 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172270,7 +172278,7 @@ tisp_bcsh_ev_update0x3e8:
 
     /* fragment 91: Branch */
     t4 = (uintptr_t)t5 - (uintptr_t)v1;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x3f8; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x3f8"); else { __lg--; goto tisp_bcsh_ev_update0x3f8; } } }
 
     /* fragment 92: Arithmetic */
     t4 = (uintptr_t)v1 - (uintptr_t)t5;
@@ -172292,7 +172300,7 @@ tisp_bcsh_ev_update0x404:
 
     /* fragment 96: Branch */
     a1 = *(uint32_t *)((char *)(a1) + 0);
-    if (v1 == t4) { goto tisp_bcsh_ev_update0x460; }
+    if (v1 == t4) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x460"); else { __lg--; goto tisp_bcsh_ev_update0x460; } } }
 
     /* fragment 97: Arithmetic */
     ra = ra + (uintptr_t)t1;
@@ -172304,14 +172312,14 @@ tisp_bcsh_ev_update0x404:
 
     /* fragment 99: Branch */
     t5 = t4 < v1;
-    if (t3 == 0) { goto tisp_bcsh_ev_update0x6f0; }
+    if (t3 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x6f0"); else { __lg--; goto tisp_bcsh_ev_update0x6f0; } } }
 
     /* fragment 100: Arithmetic */
     t2 = a1 - (uintptr_t)t2;
 
     /* fragment 101: Branch */
     t3 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x444; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x444"); else { __lg--; goto tisp_bcsh_ev_update0x444; } } }
 
     /* fragment 102: Arithmetic */
     t3 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172322,7 +172330,7 @@ tisp_bcsh_ev_update0x444:
 
     /* fragment 104: Branch */
     t3 = (uintptr_t)t4 - (uintptr_t)v1;
-    if (t5 == 0) { goto tisp_bcsh_ev_update0x454; }
+    if (t5 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x454"); else { __lg--; goto tisp_bcsh_ev_update0x454; } } }
 
     /* fragment 105: Arithmetic */
     t3 = (uintptr_t)v1 - (uintptr_t)t4;
@@ -172344,7 +172352,7 @@ tisp_bcsh_ev_update0x460:
 
     /* fragment 109: Branch */
     a1 = *(uint32_t *)((char *)(a1) + 0);
-    if (v1 == t4) { goto tisp_bcsh_ev_update0x4bc; }
+    if (v1 == t4) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x4bc"); else { __lg--; goto tisp_bcsh_ev_update0x4bc; } } }
 
     /* fragment 110: Arithmetic */
     s1 = (uintptr_t)s1 + (uintptr_t)t1;
@@ -172356,14 +172364,14 @@ tisp_bcsh_ev_update0x460:
 
     /* fragment 112: Branch */
     t5 = t4 < v1;
-    if (t3 == 0) { goto tisp_bcsh_ev_update0x720; }
+    if (t3 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x720"); else { __lg--; goto tisp_bcsh_ev_update0x720; } } }
 
     /* fragment 113: Arithmetic */
     t2 = a1 - (uintptr_t)t2;
 
     /* fragment 114: Branch */
     t3 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x4a0; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x4a0"); else { __lg--; goto tisp_bcsh_ev_update0x4a0; } } }
 
     /* fragment 115: Arithmetic */
     t3 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172374,7 +172382,7 @@ tisp_bcsh_ev_update0x4a0:
 
     /* fragment 117: Branch */
     t3 = (uintptr_t)t4 - (uintptr_t)v1;
-    if (t5 == 0) { goto tisp_bcsh_ev_update0x4b0; }
+    if (t5 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x4b0"); else { __lg--; goto tisp_bcsh_ev_update0x4b0; } } }
 
     /* fragment 118: Arithmetic */
     t3 = (uintptr_t)v1 - (uintptr_t)t4;
@@ -172396,7 +172404,7 @@ tisp_bcsh_ev_update0x4bc:
 
     /* fragment 122: Branch */
     a1 = *(uint32_t *)((char *)(a1) + 0);
-    if (v1 == t4) { goto tisp_bcsh_ev_update0x518; }
+    if (v1 == t4) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x518"); else { __lg--; goto tisp_bcsh_ev_update0x518; } } }
 
     /* fragment 123: Arithmetic */
     s2 = (uintptr_t)s2 + (uintptr_t)t1;
@@ -172408,14 +172416,14 @@ tisp_bcsh_ev_update0x4bc:
 
     /* fragment 125: Branch */
     t5 = t4 < v1;
-    if (t3 == 0) { goto tisp_bcsh_ev_update0x750; }
+    if (t3 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x750"); else { __lg--; goto tisp_bcsh_ev_update0x750; } } }
 
     /* fragment 126: Arithmetic */
     t2 = a1 - (uintptr_t)t2;
 
     /* fragment 127: Branch */
     t3 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x4fc; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x4fc"); else { __lg--; goto tisp_bcsh_ev_update0x4fc; } } }
 
     /* fragment 128: Arithmetic */
     t3 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172426,7 +172434,7 @@ tisp_bcsh_ev_update0x4fc:
 
     /* fragment 130: Branch */
     t3 = (uintptr_t)t4 - (uintptr_t)v1;
-    if (t5 == 0) { goto tisp_bcsh_ev_update0x50c; }
+    if (t5 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x50c"); else { __lg--; goto tisp_bcsh_ev_update0x50c; } } }
 
     /* fragment 131: Arithmetic */
     t3 = (uintptr_t)v1 - (uintptr_t)t4;
@@ -172448,7 +172456,7 @@ tisp_bcsh_ev_update0x518:
 
     /* fragment 135: Branch */
     a1 = *(uint32_t *)((char *)(a1) + 0);
-    if (v1 == t4) { goto tisp_bcsh_ev_update0x574; }
+    if (v1 == t4) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x574"); else { __lg--; goto tisp_bcsh_ev_update0x574; } } }
 
     /* fragment 136: Arithmetic */
     s3 = (uintptr_t)s3 + (uintptr_t)t1;
@@ -172460,14 +172468,14 @@ tisp_bcsh_ev_update0x518:
 
     /* fragment 138: Branch */
     t5 = t4 < v1;
-    if (t3 == 0) { goto tisp_bcsh_ev_update0x780; }
+    if (t3 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x780"); else { __lg--; goto tisp_bcsh_ev_update0x780; } } }
 
     /* fragment 139: Arithmetic */
     t2 = a1 - (uintptr_t)t2;
 
     /* fragment 140: Branch */
     t3 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x558; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x558"); else { __lg--; goto tisp_bcsh_ev_update0x558; } } }
 
     /* fragment 141: Arithmetic */
     t3 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172478,7 +172486,7 @@ tisp_bcsh_ev_update0x558:
 
     /* fragment 143: Branch */
     t3 = (uintptr_t)t4 - (uintptr_t)v1;
-    if (t5 == 0) { goto tisp_bcsh_ev_update0x568; }
+    if (t5 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x568"); else { __lg--; goto tisp_bcsh_ev_update0x568; } } }
 
     /* fragment 144: Arithmetic */
     t3 = (uintptr_t)v1 - (uintptr_t)t4;
@@ -172500,7 +172508,7 @@ tisp_bcsh_ev_update0x574:
 
     /* fragment 148: Branch */
     a0 = *(uint32_t *)((char *)(a3) + 0);
-    if (v1 == t0) { goto tisp_bcsh_ev_update0x5d0; }
+    if (v1 == t0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x5d0"); else { __lg--; goto tisp_bcsh_ev_update0x5d0; } } }
 
     /* fragment 149: Arithmetic */
     t1 = s6 + (uintptr_t)t1;
@@ -172512,14 +172520,14 @@ tisp_bcsh_ev_update0x574:
 
     /* fragment 151: Branch */
     t1 = v1 < v0;
-    if (a2 == 0) { goto tisp_bcsh_ev_update0x7b0; }
+    if (a2 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x7b0"); else { __lg--; goto tisp_bcsh_ev_update0x7b0; } } }
 
     /* fragment 152: Arithmetic */
     a1 = a0 - a1;
 
     /* fragment 153: Branch */
     a2 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t1 == 0) { goto tisp_bcsh_ev_update0x5b4; }
+    if (t1 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x5b4"); else { __lg--; goto tisp_bcsh_ev_update0x5b4; } } }
 
     /* fragment 154: Arithmetic */
     a2 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172530,7 +172538,7 @@ tisp_bcsh_ev_update0x5b4:
 
     /* fragment 156: Branch */
     v0 = t0 - (uintptr_t)v1;
-    if (a3 == 0) { goto tisp_bcsh_ev_update0x5c4; }
+    if (a3 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x5c4"); else { __lg--; goto tisp_bcsh_ev_update0x5c4; } } }
 
     /* fragment 157: Arithmetic */
     v0 = v1 - t0;
@@ -172546,7 +172554,7 @@ tisp_bcsh_ev_update0x5c4:
 tisp_bcsh_ev_update0x5d0:
     /* fragment 160: Branch */
     *(uint32_t *)((char *)s7 + 0) = a0;
-    goto tisp_bcsh_ev_update0xe0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0xe0"); else { __lg--; goto tisp_bcsh_ev_update0xe0; } }
 
 tisp_bcsh_ev_update0x5d8:
     /* fragment 161: Arithmetic */
@@ -172556,7 +172564,7 @@ tisp_bcsh_ev_update0x5d8:
 
     /* fragment 162: Branch */
     s8 = (uintptr_t)t4 - (uintptr_t)t3;
-    if (s4 == 0) { goto tisp_bcsh_ev_update0x5f0; }
+    if (s4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x5f0"); else { __lg--; goto tisp_bcsh_ev_update0x5f0; } } }
 
     /* fragment 163: Arithmetic */
     s8 = (uintptr_t)t3 - (uintptr_t)t4;
@@ -172572,7 +172580,7 @@ tisp_bcsh_ev_update0x5f0:
 
     /* fragment 166: Branch */
     t2 = (uintptr_t)t2 + (uintptr_t)v1;
-    goto tisp_bcsh_ev_update0x224;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x224"); else { __lg--; goto tisp_bcsh_ev_update0x224; } }
 
 tisp_bcsh_ev_update0x600:
     /* fragment 167: Arithmetic */
@@ -172580,7 +172588,7 @@ tisp_bcsh_ev_update0x600:
 
     /* fragment 168: Branch */
     s5 = (uintptr_t)t2 - (uintptr_t)v0;
-    if (s8 == 0) { goto tisp_bcsh_ev_update0x610; }
+    if (s8 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x610"); else { __lg--; goto tisp_bcsh_ev_update0x610; } } }
 
     /* fragment 169: Arithmetic */
     s5 = (uintptr_t)v0 - (uintptr_t)t2;
@@ -172591,7 +172599,7 @@ tisp_bcsh_ev_update0x610:
 
     /* fragment 171: Branch */
     s5 = (uintptr_t)t3 - (uintptr_t)t2;
-    if (s4 == 0) { goto tisp_bcsh_ev_update0x620; }
+    if (s4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x620"); else { __lg--; goto tisp_bcsh_ev_update0x620; } } }
 
     /* fragment 172: Arithmetic */
     s5 = (uintptr_t)t2 - (uintptr_t)t3;
@@ -172607,7 +172615,7 @@ tisp_bcsh_ev_update0x620:
 
     /* fragment 175: Branch */
     v1 = (uintptr_t)v1 + (uintptr_t)t4;
-    goto tisp_bcsh_ev_update0x290;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x290"); else { __lg--; goto tisp_bcsh_ev_update0x290; } }
 
 tisp_bcsh_ev_update0x630:
     /* fragment 176: Arithmetic */
@@ -172615,7 +172623,7 @@ tisp_bcsh_ev_update0x630:
 
     /* fragment 177: Branch */
     t3 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (s5 == 0) { goto tisp_bcsh_ev_update0x640; }
+    if (s5 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x640"); else { __lg--; goto tisp_bcsh_ev_update0x640; } } }
 
     /* fragment 178: Arithmetic */
     t3 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172626,7 +172634,7 @@ tisp_bcsh_ev_update0x640:
 
     /* fragment 180: Branch */
     t4 = (uintptr_t)t5 - (uintptr_t)v1;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x650; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x650"); else { __lg--; goto tisp_bcsh_ev_update0x650; } } }
 
     /* fragment 181: Arithmetic */
     t4 = (uintptr_t)v1 - (uintptr_t)t5;
@@ -172642,7 +172650,7 @@ tisp_bcsh_ev_update0x650:
 
     /* fragment 184: Branch */
     t2 = (uintptr_t)t3 + (uintptr_t)t2;
-    goto tisp_bcsh_ev_update0x2f0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x2f0"); else { __lg--; goto tisp_bcsh_ev_update0x2f0; } }
 
 tisp_bcsh_ev_update0x660:
     /* fragment 185: Arithmetic */
@@ -172650,7 +172658,7 @@ tisp_bcsh_ev_update0x660:
 
     /* fragment 186: Branch */
     t3 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t7 == 0) { goto tisp_bcsh_ev_update0x670; }
+    if (t7 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x670"); else { __lg--; goto tisp_bcsh_ev_update0x670; } } }
 
     /* fragment 187: Arithmetic */
     t3 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172661,7 +172669,7 @@ tisp_bcsh_ev_update0x670:
 
     /* fragment 189: Branch */
     t4 = (uintptr_t)t5 - (uintptr_t)v1;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x680; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x680"); else { __lg--; goto tisp_bcsh_ev_update0x680; } } }
 
     /* fragment 190: Arithmetic */
     t4 = (uintptr_t)v1 - (uintptr_t)t5;
@@ -172677,7 +172685,7 @@ tisp_bcsh_ev_update0x680:
 
     /* fragment 193: Branch */
     t2 = (uintptr_t)t3 + (uintptr_t)t2;
-    goto tisp_bcsh_ev_update0x34c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x34c"); else { __lg--; goto tisp_bcsh_ev_update0x34c; } }
 
 tisp_bcsh_ev_update0x690:
     /* fragment 194: Arithmetic */
@@ -172685,7 +172693,7 @@ tisp_bcsh_ev_update0x690:
 
     /* fragment 195: Branch */
     t3 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t7 == 0) { goto tisp_bcsh_ev_update0x6a0; }
+    if (t7 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x6a0"); else { __lg--; goto tisp_bcsh_ev_update0x6a0; } } }
 
     /* fragment 196: Arithmetic */
     t3 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172696,7 +172704,7 @@ tisp_bcsh_ev_update0x6a0:
 
     /* fragment 198: Branch */
     t4 = (uintptr_t)t5 - (uintptr_t)v1;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x6b0; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x6b0"); else { __lg--; goto tisp_bcsh_ev_update0x6b0; } } }
 
     /* fragment 199: Arithmetic */
     t4 = (uintptr_t)v1 - (uintptr_t)t5;
@@ -172712,7 +172720,7 @@ tisp_bcsh_ev_update0x6b0:
 
     /* fragment 202: Branch */
     t2 = (uintptr_t)t3 + (uintptr_t)t2;
-    goto tisp_bcsh_ev_update0x3a8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x3a8"); else { __lg--; goto tisp_bcsh_ev_update0x3a8; } }
 
 tisp_bcsh_ev_update0x6c0:
     /* fragment 203: Arithmetic */
@@ -172720,7 +172728,7 @@ tisp_bcsh_ev_update0x6c0:
 
     /* fragment 204: Branch */
     t3 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t7 == 0) { goto tisp_bcsh_ev_update0x6d0; }
+    if (t7 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x6d0"); else { __lg--; goto tisp_bcsh_ev_update0x6d0; } } }
 
     /* fragment 205: Arithmetic */
     t3 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172731,7 +172739,7 @@ tisp_bcsh_ev_update0x6d0:
 
     /* fragment 207: Branch */
     t4 = (uintptr_t)t5 - (uintptr_t)v1;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x6e0; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x6e0"); else { __lg--; goto tisp_bcsh_ev_update0x6e0; } } }
 
     /* fragment 208: Arithmetic */
     t4 = (uintptr_t)v1 - (uintptr_t)t5;
@@ -172747,7 +172755,7 @@ tisp_bcsh_ev_update0x6e0:
 
     /* fragment 211: Branch */
     t2 = (uintptr_t)t3 + (uintptr_t)t2;
-    goto tisp_bcsh_ev_update0x404;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x404"); else { __lg--; goto tisp_bcsh_ev_update0x404; } }
 
 tisp_bcsh_ev_update0x6f0:
     /* fragment 212: Arithmetic */
@@ -172755,7 +172763,7 @@ tisp_bcsh_ev_update0x6f0:
 
     /* fragment 213: Branch */
     t2 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x700; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x700"); else { __lg--; goto tisp_bcsh_ev_update0x700; } } }
 
     /* fragment 214: Arithmetic */
     t2 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172766,7 +172774,7 @@ tisp_bcsh_ev_update0x700:
 
     /* fragment 216: Branch */
     t3 = (uintptr_t)t4 - (uintptr_t)v1;
-    if (t5 == 0) { goto tisp_bcsh_ev_update0x710; }
+    if (t5 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x710"); else { __lg--; goto tisp_bcsh_ev_update0x710; } } }
 
     /* fragment 217: Arithmetic */
     t3 = (uintptr_t)v1 - (uintptr_t)t4;
@@ -172782,7 +172790,7 @@ tisp_bcsh_ev_update0x710:
 
     /* fragment 220: Branch */
     a1 = t2 + a1;
-    goto tisp_bcsh_ev_update0x460;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x460"); else { __lg--; goto tisp_bcsh_ev_update0x460; } }
 
 tisp_bcsh_ev_update0x720:
     /* fragment 221: Arithmetic */
@@ -172790,7 +172798,7 @@ tisp_bcsh_ev_update0x720:
 
     /* fragment 222: Branch */
     t2 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x730; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x730"); else { __lg--; goto tisp_bcsh_ev_update0x730; } } }
 
     /* fragment 223: Arithmetic */
     t2 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172801,7 +172809,7 @@ tisp_bcsh_ev_update0x730:
 
     /* fragment 225: Branch */
     t3 = (uintptr_t)t4 - (uintptr_t)v1;
-    if (t5 == 0) { goto tisp_bcsh_ev_update0x740; }
+    if (t5 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x740"); else { __lg--; goto tisp_bcsh_ev_update0x740; } } }
 
     /* fragment 226: Arithmetic */
     t3 = (uintptr_t)v1 - (uintptr_t)t4;
@@ -172817,7 +172825,7 @@ tisp_bcsh_ev_update0x740:
 
     /* fragment 229: Branch */
     a1 = t2 + a1;
-    goto tisp_bcsh_ev_update0x4bc;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x4bc"); else { __lg--; goto tisp_bcsh_ev_update0x4bc; } }
 
 tisp_bcsh_ev_update0x750:
     /* fragment 230: Arithmetic */
@@ -172825,7 +172833,7 @@ tisp_bcsh_ev_update0x750:
 
     /* fragment 231: Branch */
     t2 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x760; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x760"); else { __lg--; goto tisp_bcsh_ev_update0x760; } } }
 
     /* fragment 232: Arithmetic */
     t2 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172836,7 +172844,7 @@ tisp_bcsh_ev_update0x760:
 
     /* fragment 234: Branch */
     t3 = (uintptr_t)t4 - (uintptr_t)v1;
-    if (t5 == 0) { goto tisp_bcsh_ev_update0x770; }
+    if (t5 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x770"); else { __lg--; goto tisp_bcsh_ev_update0x770; } } }
 
     /* fragment 235: Arithmetic */
     t3 = (uintptr_t)v1 - (uintptr_t)t4;
@@ -172852,7 +172860,7 @@ tisp_bcsh_ev_update0x770:
 
     /* fragment 238: Branch */
     a1 = t2 + a1;
-    goto tisp_bcsh_ev_update0x518;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x518"); else { __lg--; goto tisp_bcsh_ev_update0x518; } }
 
 tisp_bcsh_ev_update0x780:
     /* fragment 239: Arithmetic */
@@ -172860,7 +172868,7 @@ tisp_bcsh_ev_update0x780:
 
     /* fragment 240: Branch */
     t2 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t6 == 0) { goto tisp_bcsh_ev_update0x790; }
+    if (t6 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x790"); else { __lg--; goto tisp_bcsh_ev_update0x790; } } }
 
     /* fragment 241: Arithmetic */
     t2 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172871,7 +172879,7 @@ tisp_bcsh_ev_update0x790:
 
     /* fragment 243: Branch */
     t3 = (uintptr_t)t4 - (uintptr_t)v1;
-    if (t5 == 0) { goto tisp_bcsh_ev_update0x7a0; }
+    if (t5 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x7a0"); else { __lg--; goto tisp_bcsh_ev_update0x7a0; } } }
 
     /* fragment 244: Arithmetic */
     t3 = (uintptr_t)v1 - (uintptr_t)t4;
@@ -172887,7 +172895,7 @@ tisp_bcsh_ev_update0x7a0:
 
     /* fragment 247: Branch */
     a1 = t2 + a1;
-    goto tisp_bcsh_ev_update0x574;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x574"); else { __lg--; goto tisp_bcsh_ev_update0x574; } }
 
 tisp_bcsh_ev_update0x7b0:
     /* fragment 248: Arithmetic */
@@ -172895,7 +172903,7 @@ tisp_bcsh_ev_update0x7b0:
 
     /* fragment 249: Branch */
     a1 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (t1 == 0) { goto tisp_bcsh_ev_update0x7c0; }
+    if (t1 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x7c0"); else { __lg--; goto tisp_bcsh_ev_update0x7c0; } } }
 
     /* fragment 250: Arithmetic */
     a1 = (uintptr_t)v0 - (uintptr_t)v1;
@@ -172906,7 +172914,7 @@ tisp_bcsh_ev_update0x7c0:
 
     /* fragment 252: Branch */
     a1 = t0 - (uintptr_t)v1;
-    if (a3 == 0) { goto tisp_bcsh_ev_update0x7d0; }
+    if (a3 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x7d0"); else { __lg--; goto tisp_bcsh_ev_update0x7d0; } } }
 
     /* fragment 253: Arithmetic */
     a1 = v1 - t0;
@@ -172922,7 +172930,7 @@ tisp_bcsh_ev_update0x7d0:
 
     /* fragment 256: Branch */
     a0 = v0 + a0;
-    goto tisp_bcsh_ev_update0x5d0;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x5d0"); else { __lg--; goto tisp_bcsh_ev_update0x5d0; } }
 
 tisp_bcsh_ev_update0x7e0:
     /* fragment 257: StackAccess */
@@ -172931,11 +172939,11 @@ tisp_bcsh_ev_update0x7e0:
 
     /* fragment 258: Branch */
     a0 = t0;
-    if (v1 != a3) { goto tisp_bcsh_ev_update0x19c; }
+    if (v1 != a3) { { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0x19c"); else { __lg--; goto tisp_bcsh_ev_update0x19c; } } }
 
     /* fragment 259: Branch */
     a1 = local_18;
-    goto tisp_bcsh_ev_update0xe4;
+    { if (__lg == 0U) regtrace_loopguard("tisp_bcsh_ev_update", "0xe4"); else { __lg--; goto tisp_bcsh_ev_update0xe4; } }
 
     return 0;
 }
@@ -180180,6 +180188,7 @@ int32_t tisp_ccm_para2reg(int32_t *arg1, int32_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006fc18 origin=fragment_seed original=tisp_ccm_lut_parameter */
 int64_t tisp_ccm_lut_parameter(uintptr_t a0, uintptr_t a1, uint32_t a2)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -180249,7 +180258,7 @@ int64_t tisp_ccm_lut_parameter(uintptr_t a0, uintptr_t a1, uint32_t a2)
 
 tisp_ccm_lut_parameter0x8c:
     /* fragment 4: Branch */
-    if (s5 != t0) { goto tisp_ccm_lut_parameter0x174; }
+    if (s5 != t0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x174"); else { __lg--; goto tisp_ccm_lut_parameter0x174; } } }
 
     /* fragment 5: CallSetup */
     a1 = *(uint32_t *)((char *)a3 + 32);
@@ -180271,7 +180280,7 @@ tisp_ccm_lut_parameter0x98:
 
     /* fragment 8: Branch */
     t0 = local_18;
-    if (s5 != a2) { goto tisp_ccm_lut_parameter0x8c; }
+    if (s5 != a2) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x8c"); else { __lg--; goto tisp_ccm_lut_parameter0x8c; } } }
 
     /* fragment 9: MemoryAccess */
     v0 = *(uint32_t *)((char *)v1 + 8);
@@ -180280,7 +180289,7 @@ tisp_ccm_lut_parameter0x98:
 
     /* fragment 10: Branch */
     a0 = s2;
-    if (v1 != v0) { goto tisp_ccm_lut_parameter0x138; }
+    if (v1 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x138"); else { __lg--; goto tisp_ccm_lut_parameter0x138; } } }
 
     /* fragment 11: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s7, ((*(uint16_t *)((char *)((uintptr_t)s0) + 2)) << 16) | ((*(uint16_t *)((char *)((uintptr_t)s0) + 0)) << 12) | (*(uint16_t *)((char *)((uintptr_t)s0) + 4))); /* jalr target resolved by relocation */
@@ -180291,7 +180300,7 @@ tisp_ccm_lut_parameter0x98:
 
     /* fragment 13: Branch */
     v1 = a1 < v0;
-    if (v0 != a1) { goto tisp_ccm_lut_parameter0x188; }
+    if (v0 != a1) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x188"); else { __lg--; goto tisp_ccm_lut_parameter0x188; } } }
 
     /* fragment 14: CallSetup */
     a1 = 1;
@@ -180328,11 +180337,11 @@ tisp_ccm_lut_parameter0x174:
 
     /* fragment 23: Branch */
     a1 = a1 | (uintptr_t)v0;
-    goto tisp_ccm_lut_parameter0x98;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x98"); else { __lg--; goto tisp_ccm_lut_parameter0x98; } }
 
 tisp_ccm_lut_parameter0x188:
     /* fragment 24: Branch */
-    if (v1 == 0) { goto tisp_ccm_lut_parameter0x1a4; }
+    if (v1 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x1a4"); else { __lg--; goto tisp_ccm_lut_parameter0x1a4; } } }
 
     /* fragment 25: Arithmetic */
     v0 = v0 - a1;
@@ -180346,12 +180355,12 @@ tisp_ccm_lut_parameter0x194:
     /* asm: 6fdb0:	00a2001a 	div	zero,a1,v0 */
 
     /* fragment 28: Branch */
-    goto tisp_ccm_lut_parameter0x11c;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x11c"); else { __lg--; goto tisp_ccm_lut_parameter0x11c; } }
 
 tisp_ccm_lut_parameter0x1a4:
     /* fragment 29: Branch */
     v0 = a1 - (uintptr_t)v0;
-    goto tisp_ccm_lut_parameter0x194;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x194"); else { __lg--; goto tisp_ccm_lut_parameter0x194; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
@@ -180359,6 +180368,7 @@ tisp_ccm_lut_parameter0x1a4:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006fdc4 origin=fragment_seed original=tisp_ccm_ev_ct_update */
 int64_t tisp_ccm_ev_ct_update(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t a3)
 {
+    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
     uint32_t *local_10 = 0;
     uint32_t local_34 = 0;
     uint32_t local_5c = 0;
@@ -180401,7 +180411,7 @@ int64_t tisp_ccm_ev_ct_update(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t 
 
     /* fragment 2: Branch */
     s1 = *(uint32_t *)((char *)(s0) + 60);
-    if (v1 == v0) { goto tisp_ccm_ev_ct_update0x84; }
+    if (v1 == v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x84"); else { __lg--; goto tisp_ccm_ev_ct_update0x84; } } }
 
     /* fragment 3: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 16);
@@ -180410,7 +180420,7 @@ int64_t tisp_ccm_ev_ct_update(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t 
 
     /* fragment 4: Branch */
     v0 = v1 - a0;
-    if (a1 == 0) { goto tisp_ccm_ev_ct_update0x70; }
+    if (a1 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x70"); else { __lg--; goto tisp_ccm_ev_ct_update0x70; } } }
 
     /* fragment 5: Arithmetic */
     v0 = a0 - (uintptr_t)v1;
@@ -180424,7 +180434,7 @@ tisp_ccm_ev_ct_update0x70:
     /* fragment 7: Branch */
     int _bc_v0_7 = v0 == 0;
     v0 = (uintptr_t *)&tisp_ccm_parameter_convert;
-    if (_bc_v0_7) { goto tisp_ccm_ev_ct_update0xdc; }
+    if (_bc_v0_7) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0xdc"); else { __lg--; goto tisp_ccm_ev_ct_update0xdc; } } }
 
 tisp_ccm_ev_ct_update0x84:
     /* fragment 8: MemoryAccess */
@@ -180441,12 +180451,12 @@ tisp_ccm_ev_ct_update0x98:
 
     /* fragment 10: Branch */
     t3 = (uintptr_t)v0 << 2;
-    if (t5 != 0) { goto tisp_ccm_ev_ct_update0x200; }
+    if (t5 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x200"); else { __lg--; goto tisp_ccm_ev_ct_update0x200; } } }
 
     /* fragment 11: Branch */
     int _bc_v0_11 = v0 != 0;
     v0 = (uintptr_t)v0 << 2;
-    if (_bc_v0_11) { goto tisp_ccm_ev_ct_update0xbc; }
+    if (_bc_v0_11) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0xbc"); else { __lg--; goto tisp_ccm_ev_ct_update0xbc; } } }
 
     /* fragment 12: MemoryAccess */
     v0 = *(uint32_t *)((char *)a2 + 0);
@@ -180454,7 +180464,7 @@ tisp_ccm_ev_ct_update0x98:
 tisp_ccm_ev_ct_update0xb4:
     /* fragment 13: Branch */
     *(uint32_t *)((char *)s3 + 0) = v0;
-    goto tisp_ccm_ev_ct_update0xd8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0xd8"); else { __lg--; goto tisp_ccm_ev_ct_update0xd8; } }
 
 tisp_ccm_ev_ct_update0xbc:
     /* fragment 14: Arithmetic */
@@ -180467,7 +180477,7 @@ tisp_ccm_ev_ct_update0xbc:
 
     /* fragment 16: Branch */
     a1 = *(uint32_t *)((char *)(a1) + 0);
-    if (a3 != v0) { goto tisp_ccm_ev_ct_update0x184; }
+    if (a3 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x184"); else { __lg--; goto tisp_ccm_ev_ct_update0x184; } } }
 
     /* fragment 17: CallSetup */
     *(uint32_t *)((char *)s3 + 0) = a1;
@@ -180488,11 +180498,11 @@ tisp_ccm_ev_ct_update0xdc:
     /* fragment 21: Branch */
     int _bc_v1_21 = v1 == v0;
     v1 = t1 < t0;
-    if (_bc_v1_21) { goto tisp_ccm_ev_ct_update0x114; }
+    if (_bc_v1_21) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x114"); else { __lg--; goto tisp_ccm_ev_ct_update0x114; } } }
 
     /* fragment 22: Branch */
     v0 = t1 - t0;
-    if (v1 == 0) { goto tisp_ccm_ev_ct_update0x108; }
+    if (v1 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x108"); else { __lg--; goto tisp_ccm_ev_ct_update0x108; } } }
 
     /* fragment 23: Arithmetic */
     v0 = t0 - (uintptr_t)t1;
@@ -180502,7 +180512,7 @@ tisp_ccm_ev_ct_update0x108:
     t2 = t2 < v0;
 
     /* fragment 25: Branch */
-    if (t2 == 0) { goto tisp_ccm_ev_ct_update0x124; }
+    if (t2 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x124"); else { __lg--; goto tisp_ccm_ev_ct_update0x124; } } }
 
 tisp_ccm_ev_ct_update0x114:
     /* fragment 26: CallSetup */
@@ -180533,14 +180543,14 @@ tisp_ccm_ev_ct_update0x184:
 
     /* fragment 33: Branch */
     t3 = a3 < v0;
-    if (a2 == 0) { goto tisp_ccm_ev_ct_update0x1d0; }
+    if (a2 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x1d0"); else { __lg--; goto tisp_ccm_ev_ct_update0x1d0; } } }
 
     /* fragment 34: Arithmetic */
     a1 = v1 - a1;
 
     /* fragment 35: Branch */
     a2 = v0 - a0;
-    if (t4 == 0) { goto tisp_ccm_ev_ct_update0x1ac; }
+    if (t4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x1ac"); else { __lg--; goto tisp_ccm_ev_ct_update0x1ac; } } }
 
     /* fragment 36: Arithmetic */
     a2 = a0 - (uintptr_t)v0;
@@ -180551,7 +180561,7 @@ tisp_ccm_ev_ct_update0x1ac:
 
     /* fragment 38: Branch */
     a0 = a3 - (uintptr_t)v0;
-    if (t3 == 0) { goto tisp_ccm_ev_ct_update0x1bc; }
+    if (t3 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x1bc"); else { __lg--; goto tisp_ccm_ev_ct_update0x1bc; } } }
 
     /* fragment 39: Arithmetic */
     a0 = v0 - a3;
@@ -180559,7 +180569,7 @@ tisp_ccm_ev_ct_update0x1ac:
 tisp_ccm_ev_ct_update0x1bc:
     /* fragment 40: Unknown */
     /* unmatched fragment 40 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6ff80:	00a4001b 	divu	zero,a1,a0 */
+    a1 = (uintptr_t)a0 ? (uint32_t)(uintptr_t)a1 / (uint32_t)(uintptr_t)a0 : 0;   /* T40-DIV-RESTORE: divu a1,a0 ; mflo a1 (OEM 0x709a0) */
 
     /* fragment 41: Arithmetic */
     v1 = v1 - a1;
@@ -180567,7 +180577,7 @@ tisp_ccm_ev_ct_update0x1bc:
 tisp_ccm_ev_ct_update0x1c8:
     /* fragment 42: Branch */
     *(uint32_t *)((char *)s3 + 0) = v1;
-    goto tisp_ccm_ev_ct_update0xd8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0xd8"); else { __lg--; goto tisp_ccm_ev_ct_update0xd8; } }
 
 tisp_ccm_ev_ct_update0x1d0:
     /* fragment 43: Arithmetic */
@@ -180575,7 +180585,7 @@ tisp_ccm_ev_ct_update0x1d0:
 
     /* fragment 44: Branch */
     a2 = v0 - a0;
-    if (t4 == 0) { goto tisp_ccm_ev_ct_update0x1e0; }
+    if (t4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x1e0"); else { __lg--; goto tisp_ccm_ev_ct_update0x1e0; } } }
 
     /* fragment 45: Arithmetic */
     a2 = a0 - (uintptr_t)v0;
@@ -180586,7 +180596,7 @@ tisp_ccm_ev_ct_update0x1e0:
 
     /* fragment 47: Branch */
     a0 = a3 - (uintptr_t)v0;
-    if (t3 == 0) { goto tisp_ccm_ev_ct_update0x1f0; }
+    if (t3 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x1f0"); else { __lg--; goto tisp_ccm_ev_ct_update0x1f0; } } }
 
     /* fragment 48: Arithmetic */
     a0 = v0 - a3;
@@ -180594,27 +180604,27 @@ tisp_ccm_ev_ct_update0x1e0:
 tisp_ccm_ev_ct_update0x1f0:
     /* fragment 49: Unknown */
     /* unmatched fragment 49 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6ffb4:	00a4001b 	divu	zero,a1,a0 */
+    a1 = (uintptr_t)a0 ? (uint32_t)(uintptr_t)a1 / (uint32_t)(uintptr_t)a0 : 0;   /* T40-DIV-RESTORE: divu a1,a0 ; mflo a1 (OEM 0x709d4) */
 
     /* fragment 50: Arithmetic */
     /* unmatched fragment 50 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 6ffb8:	00002812 	mflo	a1 */
+
 
     /* fragment 51: Branch */
     v1 = a1 + (uintptr_t)v1;
-    goto tisp_ccm_ev_ct_update0x1c8;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x1c8"); else { __lg--; goto tisp_ccm_ev_ct_update0x1c8; } }
 
 tisp_ccm_ev_ct_update0x200:
     /* fragment 52: Arithmetic */
     v0 = v0 + 1;
 
     /* fragment 53: Branch */
-    v1 = v1 + 4;
-    if (v0 != t4) { goto tisp_ccm_ev_ct_update0x98; }
+    v1 = (uintptr_t *)((uintptr_t)v1 + 4);   /* T40-PTRSTEP: next table entry (OEM addiu v1,v1,4), the lift scaled x4 */
+    if (v0 != t4) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x98"); else { __lg--; goto tisp_ccm_ev_ct_update0x98; } } }
 
     /* fragment 54: Branch */
     v0 = *(uint32_t *)((char *)(a2) + 32);
-    goto tisp_ccm_ev_ct_update0xb4;
+    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0xb4"); else { __lg--; goto tisp_ccm_ev_ct_update0xb4; } }
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
