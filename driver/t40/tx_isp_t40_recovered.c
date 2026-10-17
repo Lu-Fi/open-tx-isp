@@ -174041,8 +174041,8 @@ int32_t tisp_bcsh_main_init(uint32_t a0)
 
     /* fragment 4: CallSetup */
     *(uint8_t *)((char *)(*(uint32_t *)((char *)(s0) + 108)) + 0) = s1;
-    { uintptr_t src = (uintptr_t)(*(uint32_t *)((char *)&tparamsN)) + (65536 + 7736); if (!regtrace_is_kernel_ptr((void *)src) || !regtrace_is_kernel_ptr((void *)(uintptr_t)v1)) { printk(KERN_INFO "tx_isp_t40_recovered: bcsh_main_init: refresh skipped src=%lx outer=%lx\n", (unsigned long)src, (unsigned long)(uintptr_t)v1); return 0; } }
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_params_refresh)(s0, v1, (*(uint32_t *)((char *)((char *)&tparamsN))) + (65536 + 7736)); /* jalr target resolved by relocation */
+    { uintptr_t src = (uintptr_t)(*(uint32_t *)((char *)&tparamsN)) + (65536 + 7736); if (!regtrace_is_kernel_ptr((void *)src) || !regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)((char *)&stMainBcshOuter))) { printk(KERN_INFO "tx_isp_t40_recovered: bcsh_main_init: refresh skipped src=%lx outer=%lx\n", (unsigned long)src, (unsigned long)(uintptr_t)*(uint32_t *)((char *)&stMainBcshOuter)); return 0; } }
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_params_refresh)(s0, (uintptr_t)*(uint32_t *)((char *)&stMainBcshOuter), (*(uint32_t *)((char *)((char *)&tparamsN))) + (65536 + 7736)); /* jalr target resolved by relocation */
 
     /* fragment 5: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_ev_update)(s0, 0); /* jalr target resolved by relocation */
@@ -180639,8 +180639,8 @@ int32_t tisp_ccm_main_init(void)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_params_transmit)((uintptr_t)&pstMainCcmOri, *(uint32_t *)((char *)((char *)&stMainCcmOuter)), (uintptr_t)ccm_inter_default_oem /* OEM .data+0x2d08c, the lift resolved it to &sclk_name */); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
-    { uintptr_t src = (uintptr_t)(*(uint32_t *)((char *)&tparamsN)) + (65536 + 1320); printk(KERN_INFO "tx_isp_t40_recovered: ccm_main_init: tparamsN[0]=%lx n_buf=%p refresh src=%lx outer=%lx\n", (unsigned long)tparamsN[0], regtrace_tisp_param_n_buf, (unsigned long)src, (unsigned long)(uintptr_t)v1); if (!regtrace_is_kernel_ptr((void *)src) || !regtrace_is_kernel_ptr((void *)(uintptr_t)v1)) { printk(KERN_INFO "tx_isp_t40_recovered: ccm_main_init: refresh skipped (bad src/outer)\n"); return 0; } }
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_params_refresh)((uintptr_t)&pstMainCcmOri, v1, (*(uint32_t *)((char *)((char *)&tparamsN))) + (65536 + 1320)); /* jalr target resolved by relocation */
+    { uintptr_t src = (uintptr_t)(*(uint32_t *)((char *)&tparamsN)) + (65536 + 1320); printk(KERN_INFO "tx_isp_t40_recovered: ccm_main_init: tparamsN[0]=%lx n_buf=%p refresh src=%lx outer=%lx\n", (unsigned long)tparamsN[0], regtrace_tisp_param_n_buf, (unsigned long)src, (unsigned long)(uintptr_t)*(uint32_t *)((char *)&stMainCcmOuter)); if (!regtrace_is_kernel_ptr((void *)src) || !regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)((char *)&stMainCcmOuter))) { printk(KERN_INFO "tx_isp_t40_recovered: ccm_main_init: refresh skipped (bad src/outer)\n"); return 0; } }
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_params_refresh)((uintptr_t)&pstMainCcmOri, (uintptr_t)*(uint32_t *)((char *)&stMainCcmOuter), (*(uint32_t *)((char *)((char *)&tparamsN))) + (65536 + 1320)); /* jalr target resolved by relocation */
 
     /* fragment 5: CallSetup */
     v0 = (uintptr_t *)(uintptr_t)tisp_ccm_ev_ct_update((uintptr_t)&pstMainCcmOri, 0, 0, 0);   /* OEM 0x70a90: (ctx, 0) */
