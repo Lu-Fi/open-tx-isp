@@ -8875,7 +8875,7 @@ static bool regtrace_disable_dmsc_lit;
  */
 static bool regtrace_t40_generic_profile;
 /* timps on the Eufy oopsed in the recovered tisp_s_antiflick (bad AE param pointer); antiflicker stays a no-op unless enabled */
-static bool regtrace_t40_allow_antiflick;
+static bool regtrace_t40_allow_antiflick = true;   /* 0040/0050: Set/Get hand-translated and device-tested (AF2) - the app (timps anti_flicker=1 -> SetAntiFlickerAttr 50 Hz) is the vendor way */
 /*
  * NV12 output layout: the vendor T40 module and OpenIMP use width*height
  * (no 16-line alignment) for the UV offset and the buffer size.  The seed's
