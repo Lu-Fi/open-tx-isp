@@ -101076,11 +101076,11 @@ int32_t tisp_awb_gain_reg(int32_t *arg1, int32_t *arg2)
                    awb_gain_trace_count, arg1[0], arg1[1]);
     }
 
-    if (v0 >= 0x4000) {
+    if ((uint32_t)v0 >= 0x4000U) {   /* OEM sltiu: unsigned clamp, negative inputs saturate to 0x3fff */
         v0 = 0x3fff;
     }
 
-    if (a3 < 0x4000) {
+    if ((uint32_t)a3 < 0x4000U) {
         a2 = a3;
     }
 
