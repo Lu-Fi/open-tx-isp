@@ -7439,6 +7439,8 @@ static bool regtrace_t40_ev_updates;            /* run events 6..13 (tgain/again
 module_param_named(t40_ev_updates, regtrace_t40_ev_updates, bool, 0644);
 static unsigned int regtrace_t40_module_ctx_inits;  /* bitmask: run the lifted module inits (1 gamma 2 lsc 4 ccm 8 bcsh 16 clm) after the lit inits */
 module_param_named(t40_module_ctx_inits, regtrace_t40_module_ctx_inits, uint, 0644);
+static unsigned int regtrace_t40_antiflick_hz;      /* 0 = bin default (60 Hz), 50/60 = set after AE init like the vendor app does */
+module_param_named(t40_antiflick_hz, regtrace_t40_antiflick_hz, uint, 0644);
 static uint32_t t40_aex_mean;                    /* AEX log: mean at tune2 entry */
 int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_sub_32(uint32_t a0, uint32_t a1, uint32_t a2);
@@ -15779,6 +15781,14 @@ static int regtrace_isp_block_init_once(const char *where)
             ae_height = adr_height;
         regtrace_isp_block_init_ae_ret =
             (int)tisp_ae_main_init(ae_width, ae_height);
+    }
+    if (regtrace_t40_antiflick_hz == 50U || regtrace_t40_antiflick_hz == 60U) {   /* T40-ANTIFLICK-DEFAULT: the bin says mode 2 / 60 Hz; the vendor app sets 50 Hz (DE) via
+                                                                                 * IMP_ISP_Tuning_SetAntiFlickerAttr at start -> do the same here when no app will */
+        uint32_t af[2] = { regtrace_t40_antiflick_hz == 50U ? 1U : 2U, regtrace_t40_antiflick_hz };
+        bool old = regtrace_t40_allow_antiflick;
+        regtrace_t40_allow_antiflick = true;
+        (void)tisp_s_antiflick(0, (uintptr_t)af, 0);
+        regtrace_t40_allow_antiflick = old;
     }
     printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init after-ae where=%s ae_ret=%d\n",
            where ? where : "?", regtrace_isp_block_init_ae_ret);
