@@ -101904,6 +101904,14 @@ int32_t tisp_awb_main_interrupt_static(void)
         flag = *(uint8_t *)(uintptr_t)(pstMainAwbOri[0] + 94);
     size = ((8U - 6U * (uint32_t)flag) & 0xffU) << 12;
     bank = (uint32_t)system_reg_read(0x10000U | 32848U);
+    {   /* T40-AWB-BANK: 0x18050 carries more than the 2 bank bits (T41 driver masks &3).  An out-of-range bank made
+         * private_dma_cache_sync() invalidate 32 KB of foreign kernel memory (dirty lines dropped) -> the intermittent
+         * free_pipe_info heap Oops with the vendor AWB (MT101/MT104/MT93/MT94). */
+        static unsigned int nb;
+        if ((bank & ~3U) && nb++ < 4)
+            printk(KERN_INFO "tx_isp_t40_recovered: awb-irq bank reg 0x18050=0x%x -> using %u\n", bank, bank & 3U);
+        bank &= 3U;
+    }
     addr = *(uint32_t *)(tispinfo + 36);
 
     if (regtrace_enable_awb_grayworld) {
@@ -101918,7 +101926,7 @@ int32_t tisp_awb_main_interrupt_static(void)
         goto count;
     }
 
-    if (addr) {
+    if (addr && bank * size + size <= 0x20000U) {   /* stay inside the 128 KB AWB stats buffer (regtrace_tisp_dma_alloc index 1) */
         addr += bank * size;
         ((void (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)
             private_dma_cache_sync)(0, addr, size, 0);
