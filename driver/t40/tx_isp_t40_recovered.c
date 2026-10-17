@@ -174218,86 +174218,16 @@ int32_t tisp_bcsh_sec_init(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006a900 origin=fragment_seed original=tisp_bcsh_main_ev_update */
 int32_t tisp_bcsh_main_ev_update(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    a1 = a1 << 22;
-    a0 = a0 >> 10;
-
-    /* fragment 2: StackAccess */
-    local_10 = s0;
-    s0 = a1 | a0;
-    a0 = (uint32_t *)&pstMainBcshOri;
-    local_14 = s1;
-    s1 = a0 + 18528;
-    v0 = *(uint32_t *)((char *)s1 + 160);
-    local_18 = s2;
-    local_1c = ra;
-    a1 = *(uint32_t *)((char *)v0 + 0);
-    v0 = *(uint32_t *)((char *)s1 + 152);
-    s2 = *(uint32_t *)((char *)s1 + 156);
-    *(uint32_t *)((char *)v0 + 0) = s0;
-    v0 = *(uint32_t *)((char *)s1 + 24);
-    v1 = *(uint8_t *)((char *)v0 + 0);
-    v0 = 1;
-
-    /* fragment 3: Branch */
-    int _bc_v1_3 = v1 == v0;
-    v0 = (uintptr_t *)&tisp_bcsh_ev_update;
-    if (_bc_v1_3) { goto tisp_bcsh_main_ev_update0x70; }
-
-    /* fragment 4: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s2 + 0);
-    a2 = v1 < s0;
-
-    /* fragment 5: Branch */
-    v0 = (uintptr_t)v1 - (uintptr_t)s0;
-    if (a2 == 0) { goto tisp_bcsh_main_ev_update0x64; }
-
-    /* fragment 6: Arithmetic */
-    v0 = (uintptr_t)s0 - (uintptr_t)v1;
-
-tisp_bcsh_main_ev_update0x64:
-    /* fragment 7: Arithmetic */
-    v0 = a1 < v0;
-
-    /* fragment 8: Branch */
-    int _bc_v0_8 = v0 == 0;
-    v0 = (uintptr_t *)&tisp_bcsh_ev_update;
-    if (_bc_v0_8) { goto tisp_bcsh_main_ev_update0x8c; }
-
-tisp_bcsh_main_ev_update0x70:
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_ev_update)(&isp_memopt, 0); /* jalr target resolved by relocation */
-
-    /* fragment 10: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 24);
-    *(uint8_t *)((char *)v0 + 0) = 0;
-    *(uint32_t *)((char *)s2 + 0) = s0;
-
-tisp_bcsh_main_ev_update0x8c:
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 12: Arithmetic */
-    v0 = 0;
-
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    /* Hand translation of OEM 0x6b320..0x6b3c0 (bcsh ctx .bss+19184): ctx+160 -> threshold, +152 -> current EV store, +156 -> last EV,
+     * +24 -> force byte.  The lift passed &isp_memopt to tisp_bcsh_ev_update. */
+    char *bc = (char *)&pstMainBcshOri;
+    uint32_t *thr = *(uint32_t **)(bc + 160), *cur = *(uint32_t **)(bc + 152), *last = *(uint32_t **)(bc + 156);
+    uint8_t *force = *(uint8_t **)(bc + 24);
+    uint32_t ev = ((uint32_t)(uintptr_t)a1 << 22) | ((uint32_t)(uintptr_t)a0 >> 10), d;
+    if (!regtrace_is_kernel_ptr(thr) || !regtrace_is_kernel_ptr(cur) || !regtrace_is_kernel_ptr(last) || !regtrace_is_kernel_ptr_any(force)) { static unsigned int n; if (n++ < 2) printk(KERN_INFO "tx_isp_t40_recovered: bcsh_main_ev_update: ctx not initialised thr=%p cur=%p last=%p force=%p\n", thr, cur, last, force); return 0; }
+    *cur = ev;
+    d = (*last < ev) ? (ev - *last) : (*last - ev);
+    if (*force == 1 || *thr < d) { tisp_bcsh_ev_update((uintptr_t)bc, 0); *force = 0; *last = ev; }
     return 0;
 }
 
@@ -180896,69 +180826,15 @@ int32_t tisp_ccm_sec_init(void)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000070150 origin=fragment_seed original=tisp_ccm_main_ev_update */
 int32_t tisp_ccm_main_ev_update(uint32_t a0, uint32_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uintptr_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: ConstantLoad */
-    v0 = ((char *)&pstMainCcmOri);
-
-    /* fragment 2: StackAccess */
-    local_14 = s0;
-    local_1c = ra;
-    local_18 = s1;
-    v1 = *(uint32_t *)((char *)&vic_mdma_ch1_sub_get_num);
-    s1 = *(uint32_t *)((char *)&vic_mdma_bypass_onoff);
-    a1 = a1 << 22;
-    a3 = *(uint32_t *)((char *)v1 + 0);
-    v1 = *(uint32_t *)((char *)((char *)&isp_memopt + 0xc));
-    a0 = a0 >> 10;
-    s0 = a1 | a0;
-    *(uint32_t *)((char *)v1 + 0) = s0;
-    a0 = *(uint32_t *)((char *)s1 + 0);
-    a1 = a0 < s0;
-
-    /* fragment 3: Branch */
-    v1 = a0 - (uintptr_t)s0;
-    if (a1 == 0) { goto tisp_ccm_main_ev_update0x4c; }
-
-    /* fragment 4: Arithmetic */
-    v1 = s0 - a0;
-
-tisp_ccm_main_ev_update0x4c:
-    /* fragment 5: Arithmetic */
-    v1 = a3 < v1;
-
-    /* fragment 6: Branch */
-    if (v1 == 0) { goto tisp_ccm_main_ev_update0x74; }
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_ev_ct_update)(&isp_memopt, 0); /* jalr target resolved by relocation */
-
-    /* fragment 8: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 0) = s0;
-    ra = local_1c;
-
-tisp_ccm_main_ev_update0x74:
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 10: Arithmetic */
-    v0 = 0;
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    /* Hand translation of OEM 0x70b70..0x70bf8.  pstMainCcmOri+12/+16/+20 -> current EV store, last EV, threshold; the lift
+     * resolved them to vic_mdma_* / isp_memopt (MT67 Oops at +0x88 in event 8). */
+    char *ccm = (char *)&pstMainCcmOri;
+    uint32_t *cur = *(uint32_t **)(ccm + 12), *last = *(uint32_t **)(ccm + 16), *thr = *(uint32_t **)(ccm + 20);
+    uint32_t ev = ((uint32_t)(uintptr_t)a1 << 22) | ((uint32_t)(uintptr_t)a0 >> 10), d;
+    if (!regtrace_is_kernel_ptr(cur) || !regtrace_is_kernel_ptr(last) || !regtrace_is_kernel_ptr(thr)) { static unsigned int n; if (n++ < 2) printk(KERN_INFO "tx_isp_t40_recovered: ccm_main_ev_update: ctx not initialised cur=%p last=%p thr=%p\n", cur, last, thr); return 0; }
+    *cur = ev;
+    d = (*last < ev) ? (ev - *last) : (*last - ev);
+    if (*thr < d) { tisp_ccm_ev_ct_update((uintptr_t)ccm, 0, 0, 0); *last = ev; }
     return 0;
 }
 
