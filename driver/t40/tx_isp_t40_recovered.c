@@ -181233,68 +181233,25 @@ tisp_ccm_main_ev_update0x74:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000701d8 origin=fragment_seed original=tisp_ccm_main_ct_update */
 int32_t tisp_ccm_main_ct_update(uint32_t a0)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uintptr_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: ConstantLoad */
-    v0 = ((char *)&pstMainCcmOri);
-
-    /* fragment 2: StackAccess */
-    local_18 = s1;
-    local_1c = ra;
-    local_14 = s0;
-    s0 = *(uint32_t *)((char *)&vic_mdma_ch1_set_buff_index);
-    v1 = *(uint32_t *)((char *)&vic_mdma_ch0_set_buff_index);
-    a1 = *(uint32_t *)((char *)&vic_mdma_ch0_sub_get_num);
-    s1 = a0 & 65535;
-    v1 = *(uint16_t *)((char *)v1 + 0);
-    *(uint16_t *)((char *)a1 + 0) = s1;
-    a1 = *(uint16_t *)((char *)s0 + 0);
-    a3 = a1 < a0;
-
-    /* fragment 3: Branch */
-    a2 = a1 - a0;
-    if (a3 == 0) { goto tisp_ccm_main_ct_update0x44; }
-
-    /* fragment 4: Arithmetic */
-    a2 = a0 - (uintptr_t)a1;
-
-tisp_ccm_main_ct_update0x44:
-    /* fragment 5: Arithmetic */
-    v1 = v1 < a2;
-
-    /* fragment 6: Branch */
-    if (v1 == 0) { goto tisp_ccm_main_ct_update0x6c; }
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_ev_ct_update)(&isp_memopt, 0); /* jalr target resolved by relocation */
-
-    /* fragment 8: MemoryAccess */
-    *(uint16_t *)((char *)s0 + 0) = s1;
-    ra = local_1c;
-
-tisp_ccm_main_ct_update0x6c:
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 10: Arithmetic */
-    v0 = 0;
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    /* Hand translation of OEM 0x70bf8..0x70c74.  The lift resolved the three pointer fields of pstMainCcmOri
+     * (.bss+19736 +24/+28/+32) to unrelated .bss symbols (vic_mdma_ch*_buff_index, ..._sub_get_num) and
+     * called tisp_ccm_ev_ct_update(&isp_memopt) - MT26: event 13 (tisp_ct_update) never returned (awb_step 41). */
+    char *ccm = (char *)&pstMainCcmOri;
+    uint16_t *cur = *(uint16_t **)(ccm + 24), *last = *(uint16_t **)(ccm + 28), *thr = *(uint16_t **)(ccm + 32);
+    uint32_t ct = a0 & 0xffffU, prev, diff;
+    if (!regtrace_is_kernel_ptr_any(cur) || !regtrace_is_kernel_ptr_any(last) || !regtrace_is_kernel_ptr_any(thr)) {
+        static unsigned int n;
+        if (n++ < 3)
+            printk(KERN_INFO "tx_isp_t40_recovered: ccm_main_ct_update: table not initialised cur=%p last=%p thr=%p\n", cur, last, thr);
+        return 0;
+    }
+    *cur = (uint16_t)ct;
+    prev = *last;
+    diff = (prev < a0) ? (a0 - prev) : (prev - a0);
+    if ((uint32_t)*thr < diff) {
+        tisp_ccm_ev_ct_update((uintptr_t)ccm, 0, 0, 0);   /* OEM passes a0/a1 only */
+        *last = (uint16_t)ct;
+    }
     return 0;
 }
 
