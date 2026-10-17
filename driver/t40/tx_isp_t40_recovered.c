@@ -131814,8 +131814,9 @@ int64_t tisp_gamma_interp_by_ev(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t 
     v0 = ((char *)&gamma_para);
 
     /* fragment 1: MemoryAccess */
-    t1 = *(uint32_t *)((char *)a0 + 0);
-    t3 = local_10;
+    t1 = *(uint32_t *)((char *)&gamma_para + 17184 + ((uintptr_t)a0 << 2));   /* T40-ZEROBASE (OEM 0x491d4: lw t1,(.bss+17840 + ch*4)) - the lift dereferenced the channel number (MT54 gamma_init Oops NULL+0x10); same table/offset as tisp_gamma_ev_update */
+    if (!regtrace_is_kernel_ptr((void *)(uintptr_t)t1) || !regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)((char *)t1 + 4)) || !regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)((char *)t1 + 16))) { static unsigned int n; if (n++ < 2) printk(KERN_INFO "tx_isp_t40_recovered: gamma_interp_by_ev ch=%u: ctx %p not initialised\n", (unsigned)a0, (void *)(uintptr_t)t1); return 0; }
+    t3 = (uintptr_t)arg4 & 0xffU;   /* OEM lbu t3,16(sp): 5th argument */
     a1 = 0;
     v1 = *(uint32_t *)((char *)t1 + 4);
     t5 = 9;
@@ -131987,7 +131988,7 @@ int32_t tisp_gamma_ev_update(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
     /* fragment 3: CallSetup */
     local_10 = 0;
     s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gamma_interp_by_ev)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_gamma_interp_by_ev((uint32_t)(uintptr_t)s1, (uint32_t)(uintptr_t)a1, (uint32_t)(uintptr_t)a2, 0, 0);   /* T40-ARGS (OEM 0x49324..0x49338: a3 = 0, 16(sp) = 0; the lift passed one arg) */
 
     /* fragment 4: Arithmetic */
     v0 = (uintptr_t)v0 & 255;
