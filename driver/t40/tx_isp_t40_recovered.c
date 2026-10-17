@@ -7417,14 +7417,15 @@ int32_t fix_point_div_32(int32_t arg1, int32_t arg2, int32_t arg3);
 uint32_t tisp_math_exp2(int32_t arg1, int32_t arg2, int32_t arg3);
 int64_t fix_point_add(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5);
 int32_t fix_point_sub(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5);
-int32_t fix_point_mult2(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6);
-int32_t fix_point_mult3(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6, int32_t arg7, int32_t arg8);
-int32_t fix_point_div(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6);
+int64_t fix_point_mult2(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6);
+int64_t fix_point_mult3(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6, int32_t arg7, int32_t arg8);
+int64_t fix_point_div(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6);
 int64_t fix_point_add_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5);
 int32_t fix_point_sub_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5);
-int32_t fix_point_mult2_64(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6);
-int32_t fix_point_mult3_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5, uint32_t arg6, uint32_t arg7);
-int32_t fix_point_div_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5);
+int64_t fix_point_mult2_64(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6);
+int64_t fix_point_mult3_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5, uint32_t arg6, uint32_t arg7);
+int64_t fix_point_div_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5);
+#define T40_FP64_CALL(fn, ...) do { int64_t __fp64 = fn(__VA_ARGS__); v0 = (uintptr_t *)(uintptr_t)(uint32_t)__fp64; v1 = (uintptr_t *)(uintptr_t)(uint32_t)((uint64_t)__fp64 >> 32); } while (0)
 int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_sub_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_mult2_32(int32_t arg1, int32_t arg2, int32_t arg3);
@@ -64343,218 +64344,72 @@ fix_point_sub0x70:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000166bc origin=model_output original=fix_point_mult2 */
-int32_t fix_point_mult2(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6)
+int64_t fix_point_mult2(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6)
 {
-    int32_t *s0;
-    int32_t s6;
-    int32_t *v0_2;
-    int32_t *v1_1;
-    int32_t *v0_3;
-    int32_t v1_2;
-    int32_t *v0_4;
-    int32_t *v1_3;
-    int32_t *s5_1;
-    int32_t s0_1;
-    int32_t lo_1, hi_1;
-    int32_t lo_2, hi_2;
-    int32_t *v0_8;
-    int32_t *v1_4;
-    int32_t lo_5, hi_5;
-    int32_t lo_8, hi_8;
-    int32_t lo_10, hi_10;
-    int32_t lo_11, hi_11;
-    int32_t *v0_9;
-    int32_t v1_5;
-    int64_t temp64;
-    int32_t *result;
-
-    if (arg1 == 0) {
-        s0 = 0;
-        s6 = 0;
-    } else {
-        temp64 = __lshrdi3(0xffffffffULL, 0xffffffffULL, 64 - arg1);
-        s0 = (uintptr_t *)temp64;
-        s6 = (int32_t)(temp64 >> 32);
-    }
-
-    temp64 = __lshrdi3(((int64_t)arg3 << 32) | (uint32_t)arg4, 0, arg1);
-    v0_3 = (int *)temp64;
-    v1_2 = (int32_t)(temp64 >> 32);
-
-    temp64 = __lshrdi3(((int64_t)arg5 << 32) | (uint32_t)arg6, 0, arg1);
-    v0_4 = (int *)temp64;
-    v1_3 = (int32_t *)(temp64 >> 32);
-
-    s5_1 = (uintptr_t)s0 & arg3;
-    s0_1 = (uintptr_t)s0 & arg5;
-
-    /* muls.dp.q(v1_3, v0_3) + muls.dp.d(v0_4, v1_2) */
-    /* Using standard multiply and extract hi/lo */
-    {
-        int64_t prod1 = (int64_t)(uintptr_t)v1_3 * (int64_t)(uintptr_t)v0_3;
-        int64_t prod2 = (int64_t)(uintptr_t)v0_4 * (int64_t)v1_2;
-        lo_1 = (int32_t)prod1;
-        hi_1 = (int32_t)(prod1 >> 32) + (int32_t)(prod2 >> 32);
-    }
-
-    /* mulu.dp.d(v0_3, v0_4) */
-    {
-        uint64_t prod = (uint64_t)(uint32_t)v0_3 * (uint64_t)(uint32_t)v0_4;
-        lo_2 = (int32_t)prod;
-        hi_2 = (int32_t)(prod >> 32);
-    }
-
-    temp64 = __ashldi3(((int64_t)lo_2 << 32) | (uint32_t)lo_1, 0, arg1);
-    v0_8 = (int32_t *)temp64;
-    v1_4 = (int *)(temp64 >> 32);
-
-    /* mulu.dp.d(v0_3, s0_1) */
-    {
-        uint64_t prod = (uint64_t)(uint32_t)v0_3 * (uint64_t)(uint32_t)s0_1;
-        lo_5 = (int32_t)prod;
-        hi_5 = (int32_t)(prod >> 32);
-    }
-
-    /* mulu.dp.d(s5_1, v0_4) */
-    {
-        uint64_t prod = (uint64_t)(uint32_t)s5_1 * (uint64_t)(uint32_t)v0_4;
-        lo_8 = (int32_t)prod;
-        hi_8 = (int32_t)(prod >> 32);
-    }
-
-    /* muls.dp.q(s6 & arg6, s5_1) + muls.dp.d(s6 & arg4, s0_1) */
-    {
-        int64_t prod1 = (int64_t)(s6 & arg6) * (int64_t)(uintptr_t)s5_1;
-        int64_t prod2 = (int64_t)(s6 & arg4) * (int64_t)s0_1;
-        lo_10 = (int32_t)prod1;
-        hi_10 = (int32_t)(prod1 >> 32) + (int32_t)(prod2 >> 32);
-    }
-
-    /* mulu.dp.d(s5_1, s0_1) */
-    {
-        uint64_t prod = (uint64_t)(uint32_t)s5_1 * (uint64_t)(uint32_t)s0_1;
-        lo_11 = (int32_t)prod;
-        hi_11 = (int32_t)(prod >> 32);
-    }
-
-    temp64 = __lshrdi3(((int64_t)lo_11 << 32) | (uint32_t)lo_10, 0, arg1);
-    v0_9 = (int *)temp64;
-    v1_5 = (int32_t)(temp64 >> 32);
-
-    return lo_5 + lo_8 + (uintptr_t)v0_8 + (uintptr_t)v0_9;
+    /* Hand translation of OEM 0x170dc..0x17288.  o32 64-bit args: x = a3:a2 (a2 low), y = 20(sp):16(sp)
+     * (16(sp) low), a1 is alignment padding, result in v1:v0.  The OEM splits x and y at `shift` bits and
+     * sums xi*yi<<sh + xi*yf + xf*yi + (xf*yf)>>sh modulo 2^64, which is exactly floor(x*y / 2^sh) mod 2^64.
+     * (The lift had the words swapped, a three-argument __lshrdi3 and returned only one partial sum.) */
+    uint32_t sh = (uint32_t)arg1 & 63U;
+    uint64_t x = ((uint64_t)(uint32_t)arg4 << 32) | (uint32_t)arg3;
+    uint64_t y = ((uint64_t)(uint32_t)arg6 << 32) | (uint32_t)arg5;
+    uint64_t x0 = (uint32_t)x, x1 = x >> 32, y0 = (uint32_t)y, y1 = y >> 32;
+    uint64_t p00 = x0 * y0, p01 = x0 * y1, p10 = x1 * y0, p11 = x1 * y1;
+    uint64_t mid = (p00 >> 32) + (uint32_t)p01 + (uint32_t)p10;
+    uint64_t lo = (p00 & 0xffffffffULL) | (mid << 32);
+    uint64_t hi = p11 + (p01 >> 32) + (p10 >> 32) + (mid >> 32);
+    (void)arg2;
+    if (sh == 0)
+        return (int64_t)lo;
+    return (int64_t)((lo >> sh) | (hi << (64U - sh)));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001686c origin=model_output original=fix_point_mult3 */
-int32_t fix_point_mult3(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6, int32_t arg7, int32_t arg8)
+int64_t fix_point_mult3(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6, int32_t arg7, int32_t arg8)
 {
-    int32_t *v0;
-    int32_t *v1;
-    int32_t *s1;
-    
-    v0 = arg5;
-    v1 = arg6;
-    
-    s1 = fix_point_mult2(arg1, arg2, arg3, arg4, v0, v1);
-    
-    return fix_point_mult2(arg1, arg8, s1, v0, v1, arg8);
+    /* OEM 0x1728c: mult2(sh, _, mult2(sh, _, x, y), z) - the lift passed arg8 twice and dropped z's low word. */
+    int64_t xy = fix_point_mult2(arg1, arg2, arg3, arg4, arg5, arg6);
+    return fix_point_mult2(arg1, arg2, (int32_t)(uint32_t)xy, (int32_t)(uint32_t)((uint64_t)xy >> 32), arg7, arg8);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000168d0 origin=model_output original=fix_point_div */
-int32_t fix_point_div(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6)
+int64_t fix_point_div(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6)
 {
-    int32_t *v0;
-    int32_t *v1;
-    int32_t lo_1, hi_1;
-    int32_t lo_2, hi_2;
-    int32_t t0;
-    int32_t *a3_2;
-    int32_t *i = 0;
-    int32_t s0_1 = 0;
-    int32_t s1_2 = 0;
-    int32_t *v0_3;
-    int32_t a1_2;
-    int32_t a0_6;
-    int32_t *a3_3;
-    int32_t *v0_5;
-    int32_t *v1_3;
-    int32_t v0_6;
-    int32_t *v1_4;
-    uint64_t div64_result;
-    uint64_t ashldi3_result;
-
-    /* Call div64_u64 with arg3, arg4, arg5, arg6 - returns 64-bit result split into v0 (low), v1 (high) */
-    div64_result = div64_u64(((uint64_t)arg3 << 32) | (uint32_t)arg4, ((uint64_t)arg5 << 32) | (uint32_t)arg6);
-    v0 = (uintptr_t *)(div64_result & 0xFFFFFFFF);
-    v1 = (int32_t *)(div64_result >> 32);
-    
-    /* muls.dp.q: hi_1:lo_1 = muls.dp.q(v1, arg5) + muls.dp.d(arg6, v0) */
-    /* Based on assembly: mult v1,s2 (s2=arg5), mflo/mfhi for low/high */
-    hi_1 = (int32_t)((((int64_t)(uintptr_t)v1 * (int64_t)arg5) + ((int64_t)arg6 * (int64_t)(uintptr_t)v0)) >> 32);
-    lo_1 = (int32_t)(((int64_t)(uintptr_t)v1 * (int64_t)arg5) + ((int64_t)arg6 * (int64_t)(uintptr_t)v0));
-    
-    /* mulu.dp.d: hi_2:lo_2 = mulu.dp.d(arg5, v0) */
-    /* Based on assembly: multu s2,v0 (s2=arg5), mflo/mfhi */
-    hi_2 = (int32_t)(((uint64_t)arg5 * (uint64_t)(uintptr_t)v0) >> 32);
-    lo_2 = (int32_t)((uint64_t)arg5 * (uint64_t)(uintptr_t)v0);
-    
-    /* t0 = arg3 - lo_2 */
-    t0 = arg3 - lo_2;
-    
-    /* a3_2 = arg4 - (lo_1 + hi_2) - (arg3 < t0 ? 1 : 0) */
-    a3_2 = arg4 - (lo_1 + hi_2) - (arg3 < t0 ? 1 : 0);
-    
-    for (; (uintptr_t)i != arg1; i = (void *)(uintptr_t)((uintptr_t)i + 1)) {
-        /* v0_3 = t0 >> 0x1f | a3_2 << 1 */
-        v0_3 = ((uintptr_t)t0 >> 0x1f) | ((uintptr_t)a3_2 << 1);
-        
-        /* a1_2 = s0_1 >> 0x1f | s1_2 << 1 */
-        a1_2 = ((uint32_t)s0_1 >> 0x1f) | (s1_2 << 1);
-        
-        /* t0 <<= 1 */
-        t0 <<= 1;
-        
-        /* a3_2 = v0_3 */
-        a3_2 = v0_3;
-        
-        /* s0_1 <<= 1 */
-        s0_1 <<= 1;
-        
-        /* s1_2 = a1_2 */
-        s1_2 = a1_2;
-        
-        /* if (arg6 < v0_3 || (v0_3 == arg6 && arg5 < t0)) */
-        if ((uint32_t)arg6 < (uint32_t)v0_3 || ((uint32_t)v0_3 == (uint32_t)arg6 && (uint32_t)arg5 < (uint32_t)t0)) {
-            /* a0_6 = t0 - arg5 */
-            a0_6 = t0 - arg5;
-            
-            /* a3_3 = t0 < a0_6 ? 1 : 0 */
-            a3_3 = t0 < a0_6 ? 1 : 0;
-            
-            /* s0_1 |= 1 */
-            s0_1 |= 1;
-            
-            /* t0 = a0_6 */
-            t0 = a0_6;
-            
-            /* a3_2 = v0_3 - arg6 - a3_3 */
-            a3_2 = (uintptr_t)v0_3 - arg6 - (uintptr_t)a3_3;
-        } else if (arg5 == t0 && arg6 == v0_3) {
-            /* __ashldi3(s0_1 | 1, a1_2, arg1 - 1 - i) - returns 64-bit split */
-            ashldi3_result = __ashldi3((uint64_t)(s0_1 | 1) << 32 | (uint32_t)a1_2, (uint64_t)arg1 - 1 - (uintptr_t)i);
-            v0_5 = (int32_t *)(ashldi3_result & 0xFFFFFFFF);
-            v1_3 = (int32_t *)(ashldi3_result >> 32);
-            s0_1 = v0_5;
+    /* Hand translation of OEM 0x172f0..0x17458: num = a3:a2 (a2 low), den = 20(sp):16(sp) (16(sp) low),
+     * result v1:v0 = (num / den) << sh | sh fraction bits of the remainder (floor(num * 2^sh / den)).
+     * The lift had both 64-bit pairs word-swapped (a2 taken as the HIGH word) - weight_mean2's zone mean
+     * came out as 1 (MT7: sum=1:2273fa92 wsum=0:1c68d31f -> mean=1). */
+    uint32_t sh = (uint32_t)arg1;
+    uint64_t num = ((uint64_t)(uint32_t)arg4 << 32) | (uint32_t)arg3;
+    uint64_t den = ((uint64_t)(uint32_t)arg6 << 32) | (uint32_t)arg5;
+    uint64_t q, rem, frac = 0;
+    uint32_t i;
+    (void)arg2;
+    if (den == 0)
+        return 0;                       /* the OEM would trap in div64_u64; never seen with real statistics */
+    q = div64_u64(num, den);
+    rem = num - q * den;
+    for (i = 0; i < sh && i < 64U; i++) {
+        uint32_t carry = (uint32_t)(rem >> 63);
+        rem <<= 1;
+        frac <<= 1;
+        if (carry || rem >= den) {
+            rem -= den;
+            frac |= 1;
+        }
+        if (rem == 0) {                 /* OEM 0x173f0: exact - shift the remaining fraction bits in at once */
+            if (sh - 1 - i < 64U)
+                frac <<= (sh - 1 - i);
+            else
+                frac = 0;
             break;
         }
     }
-    
-    /* __ashldi3(v0, v1, arg1) - returns 64-bit split */
-    ashldi3_result = __ashldi3(((uint64_t)(uintptr_t)v0 << 32) | (uint32_t)v1, (uint64_t)arg1);
-    v0_6 = (int32_t)(ashldi3_result & 0xFFFFFFFF);
-    v1_4 = (int *)(ashldi3_result >> 32);
-    
-    return v0_6 | s0_1;
+    if (sh == 0)
+        return (int64_t)q;
+    return (int64_t)((sh < 64U ? (q << sh) : 0) | frac);
 }
+
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016a3c origin=fragment_seed original=fix_point_add_64 */
 int64_t fix_point_add_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5)
@@ -64654,134 +64509,22 @@ fix_point_sub_640x70:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016aec origin=model_output original=fix_point_mult2_64 */
-int32_t fix_point_mult2_64(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6)
+int64_t fix_point_mult2_64(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6)
 {
-    int32_t *v0;
-    int32_t *v1;
-    int32_t *v0_1;
-    int32_t *v1_1;
-    int32_t *a3;
-    int32_t *s4_1;
-    int32_t *v0_3;
-    int32_t v1_2;
-    int32_t fp_1;
-    int32_t lo_1, hi_1;
-    int32_t lo_2, hi_2;
-    int32_t v0_6;
-    int32_t *v1_3;
-    int32_t lo_5, hi_5;
-    int32_t lo_8, hi_8;
-    int32_t lo_10, hi_10;
-    int32_t lo_11, hi_11;
-    int32_t *v0_7;
-    int32_t *v1_4;
-    
-    /* First __lshrdi3 call: shift right logical 64-bit (0xffffffff, 0xffffffff) by arg1 */
-    v0 = __lshrdi3(0xffffffff, 0xffffffff, arg1);
-    v1 = __lshrdi3(0xffffffff, 0xffffffff, arg1);
-    
-    /* Second __lshrdi3 call: shift right logical 64-bit (arg3, arg4) by arg1 */
-    v0_1 = __lshrdi3(arg3, arg4, arg1);
-    v1_1 = __lshrdi3(arg3, arg4, arg1);
-    
-    /* Compute intermediate values */
-    a3 = arg4 & (uintptr_t)v1;
-    s4_1 = arg3 & (uintptr_t)v0;
-    
-    /* Third __lshrdi3 call with additional parameters */
-    v0_3 = __lshrdi3(arg5, arg6, arg1);
-    v1_2 = __lshrdi3(arg5, arg6, arg1);
-    
-    fp_1 = arg5 & (uintptr_t)v0;
-    
-    /* muls.dp.q and muls.dp.d operations */
-    hi_1 = v1_2 * (uintptr_t)v0_1 + (uintptr_t)v0_3 * (uintptr_t)v1_1;
-    lo_1 = v1_2 * (uintptr_t)v0_1 + (uintptr_t)v0_3 * (uintptr_t)v1_1;
-    
-    /* mulu.dp.d operations */
-    hi_2 = (uintptr_t)v0_1 * (uintptr_t)v0_3;
-    lo_2 = (uintptr_t)v0_1 * (uintptr_t)v0_3;
-    
-    /* __ashldi3 call */
-    v0_6 = __ashldi3(lo_2, lo_1 + hi_2, arg1);
-    v1_3 = __ashldi3(lo_2, lo_1 + hi_2, arg1);
-    
-    /* More mulu.dp.d operations */
-    hi_5 = (uintptr_t)v0_1 * fp_1;
-    lo_5 = (uintptr_t)v0_1 * fp_1;
-    
-    hi_8 = (uintptr_t)s4_1 * (uintptr_t)v0_3;
-    lo_8 = (uintptr_t)s4_1 * (uintptr_t)v0_3;
-    
-    /* muls.dp.q and muls.dp.d with arg6 & v1 */
-    hi_10 = (arg6 & (uintptr_t)v1) * (uintptr_t)s4_1 + (uintptr_t)a3 * fp_1;
-    lo_10 = (arg6 & (uintptr_t)v1) * (uintptr_t)s4_1 + (uintptr_t)a3 * fp_1;
-    
-    hi_11 = (uintptr_t)s4_1 * fp_1;
-    lo_11 = (uintptr_t)s4_1 * fp_1;
-    
-    /* Final __lshrdi3 call */
-    v0_7 = __lshrdi3(lo_11, lo_10 + hi_11, arg1);
-    v1_4 = __lshrdi3(lo_11, lo_10 + hi_11, arg1);
-    
-    /* Return sum */
-    return lo_5 + lo_8 + v0_6 + (uintptr_t)v0_7;
+    /* OEM 0x1750c: same Q-format 64-bit multiply as fix_point_mult2 (the lift was a 3-arg __lshrdi3 mangle). */
+    return fix_point_mult2(arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016c8c origin=fragment_seed original=fix_point_mult3_64 */
-int32_t fix_point_mult3_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5, uint32_t arg6, uint32_t arg7)
+int64_t fix_point_mult3_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5, uint32_t arg6, uint32_t arg7)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t t9 = 0;
-    uint32_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    local_10 = local_38;
-    local_14 = local_3c;
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_mult2_64)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: StackAccess */
-    a0 = local_40;
-    a1 = local_44;
-    ra = local_24;
-    local_38 = a0;
-    t9 = s0;
-    a0 = s1;
-    s0 = local_1c;
-    s1 = local_20;
-    local_3c = a1;
-    a2 = v0;
-    a3 = v1;
-
-    /* fragment 3: Unknown */
-    /* unmatched fragment 3 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 16ce8:	03200408 	jr.hb	t9 */
-
-    /* fragment 4: Arithmetic */
-    /* unmatched fragment 4 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 16cec:	27bd0028 	addiu	sp,sp,40 */
-
-    return 0;
+    /* OEM 0x176ac: mult2_64(sh, _, mult2_64(sh, _, x, y), z). */
+    int64_t xy = fix_point_mult2_64((int32_t)a0, (int32_t)a1, (int32_t)a2, (int32_t)a3, (int32_t)arg4, (int32_t)arg5);
+    return fix_point_mult2_64((int32_t)a0, (int32_t)a1, (int32_t)(uint32_t)xy, (int32_t)(uint32_t)((uint64_t)xy >> 32), (int32_t)arg6, (int32_t)arg7);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016cf0 origin=fragment_seed original=fix_point_div_64 */
-int32_t fix_point_div_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5)
+int64_t fix_point_div_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5)
 {
     /* OEM 0x17710: lui/addiu t9,fix_point_div ; jr.hb t9 - a tail-call thunk (the lift returned 0). */
     return fix_point_div((int32_t)a0, (int32_t)a1, (int32_t)a2, (int32_t)a3, (int32_t)arg4, (int32_t)arg5);
@@ -86468,69 +86211,16 @@ tisp_ae_short_ctrls_update0x17c:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024848 origin=fragment_seed original=tisp_ae_long_Pweight_Calculate */
 int32_t tisp_ae_long_Pweight_Calculate(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Branch */
-    if (a1 == 0) { goto tisp_ae_long_Pweight_Calculate0xa0; }
-
-    /* fragment 1: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 2: CallSetup */
-    s1 = a1 << a0;
-    s3 = a2;
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_div_32)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)((uintptr_t)v0, (uintptr_t)s0, (uintptr_t)s0 & 255); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s0, s1, v0); /* jalr target resolved by relocation */
-
-    /* fragment 5: Arithmetic */
-    a2 = (uintptr_t)s3 << (uintptr_t)s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Arithmetic */
-    a0 = s0;
-    t9 = s2;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 9: Arithmetic */
-    a1 = v0;
-
-    /* fragment 10: Unknown */
-    /* unmatched fragment 10 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 248e0:	03200408 	jr.hb	t9 */
-
-    /* fragment 11: Arithmetic */
-    /* unmatched fragment 11 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 248e4:	27bd0028 	addiu	sp,sp,40 */
-
-tisp_ae_long_Pweight_Calculate0xa0:
-    /* fragment 12: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 13: Arithmetic */
-    v0 = 0;
-
-    return 0;
+    /* Hand translation of OEM 0x25268..0x25308 (the lift called div_32 with one arg and dropped the
+     * jr.hb tail call): w = div32(sh, mult32(sh, a1<<sh, log2(div32(sh, (a3*a2)<<sh, a1<<sh))), a2<<sh). */
+    uint32_t sh = a0, s1, q, lg, m;
+    if (a1 == 0)
+        return 0;
+    s1 = a1 << sh;
+    q = (uint32_t)fix_point_div_32((int32_t)sh, (int32_t)((a3 * a2) << sh), (int32_t)s1);
+    lg = (uint32_t)tisp_log2_fixed_to_fixed(q, sh, sh & 255U);
+    m = (uint32_t)fix_point_mult2_32((int32_t)sh, (int32_t)s1, (int32_t)lg);
+    return fix_point_div_32((int32_t)sh, (int32_t)m, (int32_t)(a2 << sh));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000248f0 origin=fragment_seed original=tisp_ae_long_weight_mean2 */
@@ -87859,7 +87549,7 @@ tisp_ae_long_tune20x7a4:
     /* fragment 126: CallSetup */
     local_10 = v0;
     local_14 = local_9c;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_mult2_64)((uintptr_t)s0 << 1); /* jalr target resolved by relocation */
+    T40_FP64_CALL(fix_point_mult2_64, (uintptr_t)s0 << 1, 0, (uintptr_t)a2, (uintptr_t)a3, (uintptr_t)local_10, local_14); /* T40-ARGS (OEM 0x263bc: callee 212(sp) = mult2_64; a2:a3 = ashldi3(124(sp)) , 16/20(sp) = 152/156(sp)) */
 
     /* fragment 127: StackAccess */
     a1 = local_a0;
@@ -87972,7 +87662,7 @@ tisp_ae_long_tune20x930:
     /* fragment 148: CallSetup */
     local_10 = v0;
     local_14 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_mult2_64)((uintptr_t)s0 << 1); /* jalr target resolved by relocation */
+    T40_FP64_CALL(fix_point_mult2_64, (uintptr_t)s0 << 1, 0, local_88, (uintptr_t)s7, (uintptr_t)local_10, local_14); /* T40-ARGS (OEM 0x264a8: callee 212(sp) = mult2_64; a2 = 136(sp), a3 = s7, 16/20(sp) = ashldi3 result) */
 
     /* fragment 149: CallSetup */
 /* fragment 149: 64-bit right shift: (v0, v1) >> s0 */
@@ -88165,7 +87855,7 @@ tisp_ae_long_tune20xaf4:
     local_10 = v0;
     local_1c = local_9c;
     local_14 = local_9c;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_mult3_64)((uintptr_t)s0 << 1); /* jalr target resolved by relocation */
+    T40_FP64_CALL(fix_point_mult3_64, (uintptr_t)s0 << 1, 0, (uintptr_t)a2, (uintptr_t)a3, (uintptr_t)local_10, local_14, (uintptr_t)local_18, local_1c); /* T40-ARGS (OEM 0x26668: a2:a3 carried from 0x26390, 16..28(sp) = v0/156(sp) twice) */
 
     /* fragment 188: Branch */
     a1 = local_a0;
@@ -88224,7 +87914,7 @@ tisp_ae_long_tune20xb20:
     local_14 = local_9c;
     local_128 = t4;
     local_110 = (uint32_t *)&fix_point_mult3_64;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_mult3_64)((uintptr_t)s0 << 1); /* jalr target resolved by relocation */
+    T40_FP64_CALL(fix_point_mult3_64, (uintptr_t)s0 << 1, 0, (uintptr_t)t0, (uintptr_t)t1, local_98, local_9c, local_98, local_9c); /* T40-ARGS (OEM 0x2672c: a2:a3 = 272/276(sp), 16..28(sp) = 152/156(sp) twice) */
 
     /* fragment 198: CallSetup */
     local_118 = v0;
@@ -88239,7 +87929,7 @@ tisp_ae_long_tune20xb20:
     local_14 = v1;
     local_bc = v1;
     local_118 = (uintptr_t)&fix_point_div_64;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_div_64)((uintptr_t)s0 << 1); /* jalr target resolved by relocation */
+    T40_FP64_CALL(fix_point_div_64, (uintptr_t)s0 << 1, 0, (uintptr_t)t0, (uintptr_t)t1, (uintptr_t)local_10, local_14); /* T40-ARGS (OEM 0x26780: a2:a3 = 280/284(sp) = mult3 result, 16/20(sp) = ashldi3 result) */
 
     /* fragment 200: StackAccess */
     t4 = local_128;
@@ -88272,7 +87962,7 @@ tisp_ae_long_tune20xc58:
     local_1c = local_9c;
     local_10 = local_98;
     local_14 = local_9c;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult3_64)((uintptr_t)s0 << 1, local_9c, (uintptr_t)v0, (uintptr_t)v1); /* jalr target resolved by relocation */
+    T40_FP64_CALL(fix_point_mult3_64, (uintptr_t)s0 << 1, 0, (uintptr_t)v0, (uintptr_t)v1, local_98, local_9c, local_98, local_9c); /* T40-ARGS (OEM 0x267e4: callee 272(sp) = mult3_64; a2:a3 = ashldi3 result, 16..28(sp) = 152/156(sp) twice) */
 
     /* fragment 208: CallSetup */
     a0 = local_b8;
@@ -88286,7 +87976,7 @@ tisp_ae_long_tune20xc58:
 
 tisp_ae_long_tune20xcb4:
     /* fragment 209: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_div_64)(a0); /* jalr target resolved by relocation */
+    T40_FP64_CALL(((int64_t (*)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t))(uintptr_t)v0), (uintptr_t)a0, 0, (uintptr_t)a2, (uintptr_t)a3, (uintptr_t)local_10, local_14); /* T40-ARGS (OEM 0x2680c: callee is v0 = 280(sp) (div_64) or 212(sp) (mult2_64) depending on the path) */
 
     /* fragment 210: StackAccess */
     a1 = local_a0;
@@ -88393,7 +88083,7 @@ tisp_ae_long_tune20xd7c:
     local_10 = local_98;
     local_14 = local_9c;
     local_b8 = t4;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_mult2_64)((uintptr_t)s0 << 1); /* jalr target resolved by relocation */
+    T40_FP64_CALL(fix_point_mult2_64, (uintptr_t)s0 << 1, 0, (uintptr_t)t0, (uintptr_t)t1, (uintptr_t)local_10, local_14); /* T40-ARGS (OEM 0x268e4: callee 212(sp) = mult2_64; a2:a3 = 272/276(sp), 16/20(sp) = 152/156(sp)) */
 
     /* fragment 232: StackAccess */
     t4 = local_b8;
@@ -90138,7 +89828,7 @@ int32_t tisp_ae_IspDg(uint32_t a0, uintptr_t a1, uint32_t a2, uintptr_t a3)
     s3 = a3;
     s5 = a0;
     s1 = a2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_mult2_32)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)fix_point_mult2_32((int32_t)a0, (int32_t)*(uint32_t *)((char *)a3 + 0), (int32_t)a2); /* T40-ARGS (OEM 0x27ce4): a1 = *(a3+0), a2 kept */
 
     /* fragment 2: CallSetup */
     s4 = v0;
