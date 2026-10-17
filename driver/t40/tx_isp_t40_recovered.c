@@ -1394,7 +1394,7 @@ static uint32_t pstMainAwbOri[128];
 /* OEM .bss+0x3cac/0x3c24: 0x88-byte ct-detect pointer tables used by the AWB process path */
 static uint32_t pstMainAwbCtDetectOri[34];
 static uintptr_t pstMainBcshOri;
-static uintptr_t pstMainCcmOri;
+static uintptr_t pstMainCcmOri[32];   /* OEM .bss+19736: the CCM context (pointer table filled by tisp_ccm_params_transmit), the lift declared one word */
 static uintptr_t pstSecAeOri_value;
 /* OEM .bss reserves 0x200 bytes: pointer table filled by tisp_awb_params_transmit */
 static uint32_t pstSecAwbOri[128];
@@ -179927,36 +179927,13 @@ int32_t tisp_ccm_reg2par(int32_t *arg1, int32_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f944 origin=fragment_seed original=tisp_ccm_parameter_convert */
 int32_t tisp_ccm_parameter_convert(uintptr_t a0)
 {
-    uint32_t local_14 = 0;
-    uint32_t *a1 = 0;
-    uintptr_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_reg2par)(*(uint32_t *)((char *)(a0) + 48), *(uint32_t *)((char *)(a0) + 80)); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_reg2par)(*(uint32_t *)((char *)(a3) + 52), *(uint32_t *)((char *)(a3) + 84)); /* jalr target resolved by relocation */
-
-    /* fragment 3: MemoryAccess */
-    a1 = *(uint32_t *)((char *)((char *)&vic_err + 0x10));
-    ra = local_14;
-    a0 = *(uint32_t *)((char *)((char *)&vic_cmd_buf + 0x14));
-
-    /* fragment 4: Unknown */
-    /* unmatched fragment 4 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6f97c:	03200408 	jr.hb	t9 */
-
-    /* fragment 5: Arithmetic */
-    /* unmatched fragment 5 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 6f980:	27bd0018 	addiu	sp,sp,24 */
-
-    return 0;
+    /* OEM 0x70364: reg2par(ctx[12], ctx[20]); reg2par(ctx[13], ctx[21]); tail reg2par(ctx[14], ctx[22]) - the lift read the
+     * third pair from vic_err/vic_cmd_buf (MT75 Oops NULL+0x34). */
+    uint32_t *c = (uint32_t *)a0;
+    if (!regtrace_is_kernel_ptr(c) || !regtrace_is_kernel_ptr((void *)(uintptr_t)c[12]) || !regtrace_is_kernel_ptr((void *)(uintptr_t)c[20]) || !regtrace_is_kernel_ptr((void *)(uintptr_t)c[14]) || !regtrace_is_kernel_ptr((void *)(uintptr_t)c[22])) return 0;
+    tisp_ccm_reg2par((int32_t *)(uintptr_t)c[12], (int32_t *)(uintptr_t)c[20]);
+    tisp_ccm_reg2par((int32_t *)(uintptr_t)c[13], (int32_t *)(uintptr_t)c[21]);
+    return tisp_ccm_reg2par((int32_t *)(uintptr_t)c[14], (int32_t *)(uintptr_t)c[22]);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f984 origin=model_output original=tisp_ct_ccm_interpolation */
@@ -180572,16 +180549,17 @@ int32_t tisp_ccm_main_init(void)
     v0 = (uintptr_t *)memset((void *)(uintptr_t)v0, 0, 4); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_params_transmit)(&isp_memopt, *(uint32_t *)((char *)((char *)&stMainCcmOuter)), &sclk_name); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_params_transmit)((uintptr_t)&pstMainCcmOri, *(uint32_t *)((char *)((char *)&stMainCcmOuter)), &sclk_name); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_params_refresh)(&isp_memopt, v1, (*(uint32_t *)((char *)((char *)&tparamsN))) + (65536 + 1320)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_params_refresh)((uintptr_t)&pstMainCcmOri, v1, (*(uint32_t *)((char *)((char *)&tparamsN))) + (65536 + 1320)); /* jalr target resolved by relocation */
 
     /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_ev_ct_update)(&isp_memopt, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_ccm_ev_ct_update((uintptr_t)&pstMainCcmOri, 0, 0, 0);   /* OEM 0x70a90: (ctx, 0) */
 
     /* fragment 6: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&isp_memopt + 0x8));
+    v0 = (uintptr_t *)(uintptr_t)pstMainCcmOri[2];   /* OEM 0x70a98: *(ctx+8) -> byte flag = 0 */
+    if (!regtrace_is_kernel_ptr((void *)v0)) return 0;
     *(uint8_t *)((char *)v0 + 0) = 0;
     ra = local_14;
     s0 = local_10;
