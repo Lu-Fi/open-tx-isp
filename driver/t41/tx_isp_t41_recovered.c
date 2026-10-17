@@ -58745,9 +58745,9 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 	u64 samples = 0;
 	u64 weighted = 0;
 	u64 scaled;
-	uint32_t mean_q8;
+	uint32_t mean_q8 = 0;
 	u64 current_total;
-	u64 desired_total;
+	u64 desired_total = 0;
 	uint32_t integration;
 	uint32_t again;
 	uint32_t old_integration;
@@ -58760,7 +58760,7 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 	uint32_t max_integration;
 	uint32_t max_gain_q10;
 	uint32_t cap;
-	uint32_t target_q8;
+	uint32_t target_q8 = 0;
 	uint32_t gain_q16;
 	uint32_t sensor_value[2];
 	uint32_t sensor_integration, actual_integration;
@@ -59057,8 +59057,81 @@ allocate_sensor:
 		return -ERANGE;
 	if (t41_safe_ae_sensor[channel].applied &&
 	    actual_integration == control->integration &&
-	    allocated_gain.code == t41_safe_ae_sensor[channel].code)
-		return 0;
+	    allocated_gain.code == t41_safe_ae_sensor[channel].code) {
+		/* The sensor's gain LUT is coarse (gc5603: ~0.22 EV steps) and
+		 * the deflicker lattice pins the integration time, so a small
+		 * requested change rounds back to the current exposure while the
+		 * mean is still outside the dead band (seen: mean 63 vs target
+		 * 70 at 1575/1536 forever; stepping the gain alone oscillates
+		 * 63 <-> 76).  Keep the gain and trim the integration time off
+		 * the lattice; only when that cannot move step the gain code. */
+		struct t41_sensor_gain step_gain;
+		unsigned int request = control->again;
+		unsigned int up = mean_q8 < target_q8;
+		unsigned int tries;
+		u64 want;
+		uint32_t trimmed;
+
+		want = div64_u64(desired_total + control->again / 2, control->again);
+		trimmed = clamp_t(u32, (u32)want,
+				  max(control->min_integration, flicker_floor),
+				  max_integration);
+		sensor_integration = trimmed;
+		actual_integration = trimmed;
+		if (sensor.integration) {
+			sensor_integration = ~0U;
+			actual_integration = sensor.integration(trimmed, 0,
+							       &sensor_integration);
+		}
+		if (sensor_integration <= 65535 &&
+		    actual_integration >= sensor.minimum &&
+		    actual_integration <= sensor.maximum &&
+		    actual_integration != control->integration) {
+			integration = trimmed;
+			goto apply_sensor;
+		}
+		if (!up && request <= 1024U)
+			return 0;
+		for (tries = 0; tries < 24; ++tries) {
+			request = up ? request + request / 16 + 1 :
+				       request - request / 16 - 1;
+			if (request < 1024U)
+				request = 1024U;
+			if (request > max_gain_q10)
+				request = max_gain_q10;
+			if (t41_sensor_gain_allocate(request, sensor.max_gain_q16,
+						     sensor.gain, &step_gain))
+				break;
+			if (step_gain.code != allocated_gain.code &&
+			    (up ? step_gain.linear_q10 > allocated_gain.linear_q10 :
+				  step_gain.linear_q10 < allocated_gain.linear_q10)) {
+				allocated_gain = step_gain;
+				break;
+			}
+			if (request == 1024U || request == max_gain_q10)
+				break;
+		}
+		if (allocated_gain.code == t41_safe_ae_sensor[channel].code)
+			return 0;
+		/* New gain: re-aim the integration time at the desired total. */
+		want = div64_u64(desired_total + allocated_gain.linear_q10 / 2,
+				 allocated_gain.linear_q10);
+		integration = clamp_t(u32, (u32)want,
+				      max(control->min_integration, flicker_floor),
+				      max_integration);
+		sensor_integration = integration;
+		actual_integration = integration;
+		if (sensor.integration) {
+			sensor_integration = ~0U;
+			actual_integration = sensor.integration(integration, 0,
+							       &sensor_integration);
+		}
+		if (sensor_integration > 65535 ||
+		    actual_integration < sensor.minimum ||
+		    actual_integration > sensor.maximum)
+			return -ERANGE;
+	}
+apply_sensor:
 	old_integration = control->integration;
 	old_again = control->again;
 	sensor_value[0] = channel;
