@@ -25853,6 +25853,12 @@ static void regtrace_tisp_desc_oem_fill(uint32_t *desc, uint32_t channel,
     regtrace_put_u32((uintptr_t)raw, 0x28,
                      regtrace_attr_u32_or(attr, 0x118, 0));
     regtrace_put_u32((uintptr_t)raw, 0x2c, fps);
+    /* T40-DEFLICKER: tisp_ae_sensor_inform derives the AE cache fps constants (+1280/+1284/+1288) from par_info+44/+48/+52 as
+     * hi16/lo16 rationals; +48/+52 were left 0 -> c1284 = 0 -> tisp_deflicker_expt built a 1-entry ladder (469 lines) and the
+     * non-list allocator could never raise IT above 1/120 s (MT55..MT59).  The vendor run (vmeas-1350) shows the 375-line
+     * ladder of its 20 fps mode, i.e. the constants equal the sensor frame rate. */
+    regtrace_put_u32((uintptr_t)raw, 0x30, fps);
+    regtrace_put_u32((uintptr_t)raw, 0x34, fps);
     regtrace_put_u16((uintptr_t)raw, 0x38,
                      regtrace_attr_u16_or(attr, 0xa8, 1));
     regtrace_put_u16((uintptr_t)raw, 0x3a,
