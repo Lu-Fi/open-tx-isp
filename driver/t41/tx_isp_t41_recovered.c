@@ -58746,7 +58746,7 @@ int32_t t41_safe_ae_calc_process(uint32_t channel)
 	u64 weighted = 0;
 	u64 scaled;
 	uint32_t mean_q8 = 0;
-	u64 current_total;
+	u64 current_total = 0;
 	u64 desired_total = 0;
 	uint32_t integration;
 	uint32_t again;
@@ -59055,9 +59055,16 @@ allocate_sensor:
 	if (sensor_integration > 65535 || actual_integration < sensor.minimum ||
 	    actual_integration > sensor.maximum)
 		return -ERANGE;
+	/* At the gain limit the planner snaps back to the lattice node (1620)
+	 * while the trim below had moved IT above it (2025): the two alternated
+	 * every update in a black room.  A plan that does not move the total
+	 * exposure in the direction of the error counts as "no change" too. */
 	if (t41_safe_ae_sensor[channel].applied &&
-	    actual_integration == control->integration &&
-	    allocated_gain.code == t41_safe_ae_sensor[channel].code) {
+	    ((actual_integration == control->integration &&
+	      allocated_gain.code == t41_safe_ae_sensor[channel].code) ||
+	     (mean_q8 < target_q8 ?
+	      (u64)actual_integration * allocated_gain.linear_q10 <= current_total :
+	      (u64)actual_integration * allocated_gain.linear_q10 >= current_total))) {
 		/* The sensor's gain LUT is coarse (gc5603: ~0.22 EV steps) and
 		 * the deflicker lattice pins the integration time, so a small
 		 * requested change rounds back to the current exposure while the
@@ -59111,8 +59118,10 @@ allocate_sensor:
 			if (request == 1024U || request == max_gain_q10)
 				break;
 		}
-		if (allocated_gain.code == t41_safe_ae_sensor[channel].code)
+		if (allocated_gain.code == t41_safe_ae_sensor[channel].code) {
+			allocated_gain.code = t41_safe_ae_sensor[channel].code;
 			return 0;
+		}
 		/* New gain: re-aim the integration time at the desired total. */
 		want = div64_u64(desired_total + allocated_gain.linear_q10 / 2,
 				 allocated_gain.linear_q10);
