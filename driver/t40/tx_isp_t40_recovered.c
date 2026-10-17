@@ -88216,6 +88216,7 @@ tisp_ae_long_tune20xe7c:
     s1 = 0;
 
 tisp_ae_long_tune20xe80:
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL e80 #%u 78=%u 74=%u 70=%u dc=%u 88=%x s7=%lx s6=%x s5=%u e0=%u c8=%u\n", n, local_78, local_74, local_70, local_dc, local_88, (unsigned long)(uintptr_t)s7, s6, s5, local_e0, local_c8); }
     /* fragment 251: StackAccess */
     v0 = local_8c;
 
@@ -88519,8 +88520,10 @@ nl_26d48:
         local_74 = s5;
         goto nl_26d10;
 nl_26c60:
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL nl_c60 #%u 78=%u 74=%u 70=%u dc=%u 88=%x s7=%lx s6=%x s5=%u e0=%u c8=%u\n", n, local_78, local_74, local_70, local_dc, local_88, (unsigned long)(uintptr_t)s7, s6, s5, local_e0, local_c8); }
         s1 = 0;
 nl_26d10:
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL nl_d10 #%u 78=%u 74=%u 70=%u dc=%u 88=%x s7=%lx s6=%x s5=%u e0=%u c8=%u\n", n, local_78, local_74, local_70, local_dc, local_88, (unsigned long)(uintptr_t)s7, s6, s5, local_e0, local_c8); }
         local_78 = local_78 >> nl_sh;
         local_74 = NL_MUL(local_74, local_b4);
         local_70 = NL_MUL(local_70, local_94);
@@ -88539,6 +88542,7 @@ tisp_ae_long_tune20xfec:
 
 
 tisp_ae_long_tune20x144c:
+    if (regtrace_t40_ae_diag >= 2) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 144c #%u 78=%u 74=%u 70=%u dc=%u 88=%x s7=%lx s6=%x s5=%u e0=%u c8=%u\n", n, local_78, local_74, local_70, local_dc, local_88, (unsigned long)(uintptr_t)s7, s6, s5, local_e0, local_c8); }
     /* fragment 387: Branch */
     s1 = 0;
     if (v0 != v1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xe80"); else { __lg--; goto tisp_ae_long_tune20xe80; } } }
