@@ -71122,346 +71122,43 @@ tisp_awb_ct_detect0x1f24:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b640 origin=fragment_seed original=cm_control */
 int64_t cm_control(uintptr_t a0, uint32_t a1, uintptr_t a2)
 {
-    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t local_48 = 0;
-    uint32_t local_4c = 0;
-    uint32_t local_50 = 0;
-    uint32_t local_54 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_a4 = 0;
-    uint32_t local_a8 = 0;
-    uint32_t local_ac = 0;
-    uint32_t *local_b0 = 0;
-    uint32_t local_b4 = 0;
-    uint32_t local_b8 = 0;
-    uint32_t local_bc = 0;
-    uint32_t local_c0 = 0;
-    uint32_t local_c8 = 0;
-    uint32_t local_cc = 0;
-    uint32_t local_d0 = 0;
-    uint32_t local_d4 = 0;
-    uint32_t local_d8 = 0;
-    uint32_t local_dc = 0;
-    uint32_t local_e0 = 0;
-    uint32_t local_e4 = 0;
-    uint32_t local_e8 = 0;
-    uint32_t local_ec = 0;
-    uint32_t local_f0 = 0;
-    uint32_t local_f4 = 0;
-    uint32_t local_f8 = 0;
-    uint32_t local_fc = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uint32_t t0 = 0;
-    uint32_t *t1 = 0;
-    uint32_t *t2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = 45941;
-    v0 = a1 * (uintptr_t)v0;
-    t0 = 7471;
-    a3 = 19595;
-    t1 = 38470;
-
-    /* fragment 1: StackAccess */
-    local_e4 = s3;
-    s3 = (uint32_t *)&local_58;
-    local_fc = ra;
-    local_f8 = s8;
-    local_f4 = s7;
-    local_f0 = s6;
-    local_ec = s5;
-    local_e8 = s4;
-    local_e0 = s2;
-    local_dc = s1;
-    local_d8 = s0;
-    v0 = (uintptr_t)v0 >> 8;
-    v0 = v0 + 19595;
-    local_a0 = v0;
-    v0 = a1 * t0;
-    v0 = (uintptr_t)v0 >> 8;
-    t0 = t0 - (uintptr_t)v0;
-    v0 = a1 * (uintptr_t)a3;
-    local_a8 = t0;
-    local_b4 = t0;
-    t0 = 1;
-    v0 = (uintptr_t)v0 >> 8;
-    a3 = (uintptr_t)a3 - (uintptr_t)v0;
-    v0 = 27066;
-    v0 = a1 * (uintptr_t)v0;
-    local_ac = a3;
-    local_b8 = a3;
-    a3 = -1;
-    v0 = (uintptr_t)v0 >> 8;
-    v0 = (uintptr_t)v0 + (uintptr_t)t1;
-
-    /* fragment 2: StackAccess */
-    local_b0 = v0;
-    v0 = 58065;
-    v1 = a1 * (uintptr_t)t1;
-    a1 = a1 * (uintptr_t)v0;
-    v1 = (uintptr_t)v1 >> 8;
-    v1 = (uintptr_t)t1 - (uintptr_t)v1;
-    local_a4 = v1;
-    local_bc = v1;
-    v0 = s3;
-    a1 = a1 >> 8;
-    a1 = a1 + 7471;
-    local_c0 = a1;
-    a1 = a0 + 36;
-
-cm_control0xc4:
-    /* fragment 3: MemoryAccess */
-    v1 = *(uint32_t *)((char *)a0 + 0);
-
-    /* fragment 4: Branch */
-    if (v1 < 0) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0x31c"); else { __lg--; goto cm_control0x31c; } } }
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 0) = t0;
-
-cm_control0xd4:
-    /* fragment 6: Arithmetic */
-    a0 = a0 + 4;
-
-    /* fragment 7: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 4) = v1;
-
-    /* fragment 8: Branch */
-    v0 = v0 + 8;
-    if (a1 != a0) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0xc4"); else { __lg--; goto cm_control0xc4; } } }
-
-    /* fragment 9: Arithmetic */
-    a1 = (uint32_t *)&local_a0;
-    v0 = (uintptr_t *)&local_10;
-    a0 = 0;
-    t0 = -1;
-    t1 = 1;
-    a3 = 9;
-
-cm_control0xfc:
-    /* fragment 10: MemoryAccess */
-    v1 = *(uint32_t *)((char *)a1 + 0);
-
-    /* fragment 11: Branch */
-    if (v1 < 0) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0x328"); else { __lg--; goto cm_control0x328; } } }
-
-    /* fragment 12: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 0) = t1;
-
-cm_control0x10c:
-    /* fragment 13: Arithmetic */
-    a0 = a0 + 1;
-
-    /* fragment 14: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 4) = v1;
-    a1 = a1 + 4;
-
-    /* fragment 15: Branch */
-    v0 = v0 + 8;
-    if (a0 != a3) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0xfc"); else { __lg--; goto cm_control0xfc; } } }
-
-    /* fragment 16: CallSetup */
-    s2 = (uintptr_t *)&fix_point_mult2_32;
-    s1 = a2;
-    t2 = a2 + 36;
-    s2 = s2;
-
-cm_control0x130:
-    /* fragment 17: CallSetup */
-    s5 = *(uint32_t *)((char *)(s3) + 0);
-    s7 = local_10;
-    local_d4 = t2;
-    local_d0 = (*(uint32_t *)((char *)((uintptr_t)s3) + 4)) << 6;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(16, (*(uint32_t *)((char *)((uintptr_t)s3) + 4)) << 6, local_14, (*(uint32_t *)((char *)((uintptr_t)s3) + 4)) << 6); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    s6 = *(uint32_t *)((char *)(s3) + 8);
-    t1 = local_28;
-    s7 = s5 * s7;
-    s4 = (*(uint32_t *)((char *)((uintptr_t)s3) + 12)) << 6;
-    s0 = s6 * (uintptr_t)t1;
-    s7 = s7 * (uintptr_t)v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(16, (*(uint32_t *)((char *)((uintptr_t)s3) + 12)) << 6, local_2c); /* jalr target resolved by relocation */
-
-    /* fragment 19: CallSetup */
-    t0 = local_40;
-    s8 = *(uint32_t *)((char *)(s3) + 20);
-    s8 = s8 << 6;
-    t1 = (uintptr_t)s0 * (uintptr_t)v0;
-    s0 = *(uint32_t *)((char *)(s3) + 16);
-    t0 = (uintptr_t)s0 * t0;
-    local_cc = t1;
-    local_c8 = t0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(16, s8 << 6, local_44); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    t0 = local_c8;
-    t1 = local_cc;
-    s7 = s7 + (uintptr_t)t1;
-    s7 = (t0 * (uintptr_t)v0) + s7;
-    *(uint32_t *)((char *)s1 + 0) = s7;
-    s7 = local_18;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(16, local_d0, local_1c, local_d0); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    t1 = local_30;
-    s7 = s5 * s7;
-    t1 = s6 * (uintptr_t)t1;
-    s7 = s7 * (uintptr_t)v0;
-    local_c8 = t1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(16, s4, local_34); /* jalr target resolved by relocation */
-
-    /* fragment 22: CallSetup */
-    t1 = local_c8;
-    t0 = local_48;
-    t0 = (uintptr_t)s0 * t0;
-    t1 = (uintptr_t)t1 * (uintptr_t)v0;
-    local_c8 = t0;
-    local_cc = t1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(16, s8, local_4c); /* jalr target resolved by relocation */
-
-    /* fragment 23: CallSetup */
-    t0 = local_c8;
-    t1 = local_cc;
-    s7 = s7 + (uintptr_t)t1;
-    s5 = s5 * (uintptr_t)local_20;
-    s7 = (t0 * (uintptr_t)v0) + s7;
-    *(uint32_t *)((char *)s1 + 4) = s7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(16, local_d0, local_24, local_d0); /* jalr target resolved by relocation */
-
-    /* fragment 24: CallSetup */
-    s5 = s5 * (uintptr_t)v0;
-    s6 = s6 * local_38;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(16, s4, local_3c); /* jalr target resolved by relocation */
-
-    /* fragment 25: CallSetup */
-    s6 = s6 * (uintptr_t)v0;
-    s0 = (uintptr_t)s0 * local_50;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(16, s8, local_54); /* jalr target resolved by relocation */
-
-    /* fragment 26: Arithmetic */
-    s5 = s5 + s6;
-
-    /* fragment 27: StackAccess */
-    t2 = local_d4;
-    v1 = (uintptr_t)s0 * (uintptr_t)v0;
-    v0 = v1 + s5;
-    v1 = *(uint32_t *)((char *)s1 + 0);
-
-    /* fragment 28: Branch */
-    *(uint32_t *)((char *)s1 + 8) = v0;
-    if (v1 < 0) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0x334"); else { __lg--; goto cm_control0x334; } } }
-
-    /* fragment 29: Arithmetic */
-    v1 = (uintptr_t)v1 >> 6;
-
-cm_control0x2bc:
-    /* fragment 30: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 0) = v1;
-    v1 = *(uint32_t *)((char *)s1 + 4);
-
-    /* fragment 31: Branch */
-    if (v1 < 0) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0x344"); else { __lg--; goto cm_control0x344; } } }
-
-    /* fragment 32: Arithmetic */
-    v1 = (uintptr_t)v1 >> 6;
-
-cm_control0x2d0:
-    /* fragment 33: Branch */
-    *(uint32_t *)((char *)s1 + 4) = v1;
-    if (v0 < 0) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0x354"); else { __lg--; goto cm_control0x354; } } }
-
-    /* fragment 34: Arithmetic */
-    v0 = (uintptr_t *)((uintptr_t)v0 >> 6);
-
-cm_control0x2dc:
-    /* fragment 35: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 8) = v0;
-    s1 = s1 + 12;
-
-    /* fragment 36: Branch */
-    s3 = s3 + 24;
-    if (t2 != s1) { { if (__lg == 0U) regtrace_loopguard("cm_control", "0x130"); else { __lg--; goto cm_control0x130; } } }
-
-    /* fragment 37: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-cm_control0x31c:
-    /* fragment 38: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 0) = a3;
-
-    /* fragment 39: Branch */
-    { if (__lg == 0U) regtrace_loopguard("cm_control", "0xd4"); else { __lg--; goto cm_control0xd4; } }
-
-cm_control0x328:
-    /* fragment 40: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 0) = t0;
-
-    /* fragment 41: Branch */
-    { if (__lg == 0U) regtrace_loopguard("cm_control", "0x10c"); else { __lg--; goto cm_control0x10c; } }
-
-cm_control0x334:
-    /* fragment 42: Unknown */
-    /* unmatched fragment 42 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 1b974:	00031823 	negu	v1,v1 */
-
-    /* fragment 43: Arithmetic */
-    v1 = (uintptr_t)v1 >> 6;
-
-    /* fragment 44: Branch */
-    { if (__lg == 0U) regtrace_loopguard("cm_control", "0x2bc"); else { __lg--; goto cm_control0x2bc; } }
-
-cm_control0x344:
-    /* fragment 45: Unknown */
-    /* unmatched fragment 45 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 1b984:	00031823 	negu	v1,v1 */
-
-    /* fragment 46: Arithmetic */
-    v1 = (uintptr_t)v1 >> 6;
-
-    /* fragment 47: Branch */
-    { if (__lg == 0U) regtrace_loopguard("cm_control", "0x2d0"); else { __lg--; goto cm_control0x2d0; } }
-
-cm_control0x354:
-    /* fragment 48: Unknown */
-    /* unmatched fragment 48 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 1b994:	00021023 	negu	v0,v0 */
-
-    /* fragment 49: Arithmetic */
-    v0 = (uintptr_t *)((uintptr_t)v0 >> 6);
-
-    /* fragment 50: Branch */
-    { if (__lg == 0U) regtrace_loopguard("cm_control", "0x2dc"); else { __lg--; goto cm_control0x2dc; } }
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    /* Hand translation of OEM cm_control (Eufy ko 0x1a980, 868 bytes): out[3x3] = |m| x saturation matrix S(sat) with
+     * sign/magnitude bookkeeping; S rows are Q16 luma weights (19595/38470/7471) blended by sat/256. */
+    int32_t *m = (int32_t *)a0, *out = (int32_t *)a2;
+    uint32_t s = a1;
+    uint32_t smag[9]; int32_t ssgn[9], msgn[9]; uint32_t mmag[9];
+    int i, r;
+    smag[0] = ((s * 0xb375U) >> 8) + 19595U;
+    smag[1] = 0x9646U - ((s * 0x9646U) >> 8);
+    smag[2] = 7471U - ((s * 7471U) >> 8);
+    smag[3] = 19595U - ((s * 19595U) >> 8);
+    smag[4] = ((s * 27066U) >> 8) + 0x9646U;
+    smag[5] = smag[2];
+    smag[6] = smag[3];
+    smag[7] = smag[1];
+    smag[8] = ((s * 0xe2d1U) >> 8) + 7471U;
+    for (i = 0; i < 9; i++) {
+        int32_t v = m[i];
+        msgn[i] = (v < 0) ? -1 : 1; mmag[i] = (uint32_t)((v < 0) ? -v : v);
+        v = (int32_t)smag[i];
+        ssgn[i] = (v < 0) ? -1 : 1; smag[i] = (uint32_t)((v < 0) ? -v : v);
+    }
+    for (r = 0; r < 3; r++) {
+        int c;
+        for (c = 0; c < 3; c++) {
+            uint32_t acc = 0; int k;
+            for (k = 0; k < 3; k++) {
+                int mi = r * 3 + k, si = k * 3 + c;
+                uint32_t f = (uint32_t)fix_point_mult2_32(16, msgn[mi] << 6, (int32_t)smag[si]);
+                acc += (mmag[mi] * (uint32_t)ssgn[si]) * f;
+            }
+            {
+                int32_t v = (int32_t)acc;
+                out[r * 3 + c] = (v < 0) ? -((-v) >> 6) : (v >> 6);
+            }
+        }
+    }
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001b9b0 origin=fragment_seed original=tisp_main_long_again_update */
@@ -179976,7 +179673,7 @@ int32_t tisp_ccm_params_refresh(void *arg1, void *arg2, int32_t arg3)
         memcpy((char *)s2 + 12, (char *)s3 + 12, 36);
         memcpy((char *)s2 + 48, (char *)s3 + 48, 36);
         memcpy((char *)s2 + 84, (char *)s3 + 84, 36);
-        memcpy((char *)s2 + 110, (char *)s3 + 110, 36);
+        memcpy((char *)s2 + 272, (char *)s3 + 272, 36);   /* OEM 0x702dc: +272, the lift had +110 */
         memcpy((char *)s2 + 120, (char *)s3 + 120, 36);
         memcpy((char *)s2 + 156, (char *)s3 + 156, 36);
         memcpy((char *)s2 + 192, (char *)s3 + 192, 36);
@@ -180041,592 +179738,128 @@ int32_t tisp_ccm_parameter_convert(uintptr_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f984 origin=model_output original=tisp_ct_ccm_interpolation */
 uint32_t tisp_ct_ccm_interpolation(void *arg1)
 {
-#ifdef REGTRACE_KERNEL_TREE_BUILD
-    return 0;
-#else
-
-    int *i = 0;
-    int16_t *t1 = *(int16_t **)((char *)arg1 + 4);
-    int16_t *t2 = *(int16_t **)((char *)arg1 + 0x24);
-    uint32_t a2 = (uint32_t)(unsigned short)t1[1];
-    uint32_t v0_1 = (uint32_t)(unsigned short)**(uint16_t **)((char *)arg1 + 0x20);
-    uint32_t *t4 = a2 - v0_1;
-    uint32_t a3_1 = (uint32_t)(unsigned short)*t1 + v0_1;
-    uint32_t t1_2 = (uint32_t)(unsigned short)t1[2] - v0_1;
-    uint32_t a2_1 = v0_1 + a2;
-    int16_t *t6 = *(int16_t **)((char *)arg1 + 0x28);
-    void *t5 = *(void **)((char *)arg1 + 0x30);
-    uint32_t v0_3 = (uint32_t)(unsigned short)**(uint16_t **)((char *)arg1 + 0x18);
-    void *t0 = *(void **)((char *)arg1 + 0x34);
-    void *a1 = *(void **)((char *)arg1 + 0x38);
-    void *a0 = *(void **)((char *)arg1 + 0x3c);
-    int16_t t3_3;
-
-    if (t1_2 >= v0_3) {
-        t3_3 = 1;
-        if (a2_1 >= v0_3) {
-            t3_3 = 2;
-            if (t4 >= v0_3) {
-                t3_3 = (a3_1 >= v0_3) ? 4 : 3;
-            }
-        }
-        *t2 = t3_3;
-    } else {
-        *t2 = 0;
-    }
-
-    uint32_t t3_1 = (uint32_t)(unsigned short)*t2;
-
-    if (**(uint32_t **)((char *)arg1 + 8) == 0) {
-        if (t3_1 != 0) {
-            if (t3_1 != 2) {
-                if (t3_1 == 4 && (uint32_t)(unsigned short)*t6 == t3_1) {
-                    return v0_3;
-                }
-            } else if ((uint32_t)(unsigned short)*t6 == t3_1) {
-                return v0_3;
-            }
-        } else if ((uint32_t)(unsigned short)*t6 == 0) {
-            return v0_3;
-        }
-    }
-
-    *t6 = (int16_t)t3_1;
-
-    switch ((uint32_t)(unsigned short)*t2) {
+    /* Hand translation of OEM tisp_ct_ccm_interpolation (Eufy ko 0x6f624).  ctx+4 -> u16 th[3] (outer+228), +24 ct cur,
+     * +32 ct hysteresis, +36 zone, +40 last zone, +48/52/56 CCM tables A/B/C (low/mid/high CT), +60 current CCM out. */
+    char *ctx = (char *)arg1;
+    uint16_t *th = *(uint16_t **)(ctx + 4);
+    uint32_t hyst = **(uint16_t **)(ctx + 32);
+    uint16_t *zone = *(uint16_t **)(ctx + 36), *zone_last = *(uint16_t **)(ctx + 40);
+    uint32_t ct = **(uint16_t **)(ctx + 24);
+    int32_t *tabA = *(int32_t **)(ctx + 48), *tabB = *(int32_t **)(ctx + 52), *tabC = *(int32_t **)(ctx + 56);
+    int32_t *out = *(int32_t **)(ctx + 60);
+    uint32_t lo_hi = th[0] + hyst, mid_lo = th[1] - hyst, mid_hi = th[1] + hyst, hi_lo = th[2] - hyst;
+    uint32_t z, j;
+    if (hi_lo < ct) z = 0; else if (mid_hi < ct) z = 1; else if (mid_lo < ct) z = 2; else if (lo_hi < ct) z = 3; else z = 4;
+    *zone = (uint16_t)z;
+    if (**(uint8_t **)(ctx + 8) == 0 && (z == 0 || z == 2 || z == 4) && *zone_last == z) return 0;
+    *zone_last = (uint16_t)z;
+    switch (z) {
+    case 0: memcpy(out, tabC, 36); break;
+    case 2: memcpy(out, tabB, 36); break;
+    case 4: memcpy(out, tabA, 36); break;
     case 1: {
-        uint32_t v1_8 = a2_1 - v0_3;
-        if (a2_1 < v0_3) {
-            v1_8 = v0_3 - a2_1;
+        uint32_t w = (mid_hi < ct) ? ct - mid_hi : mid_hi - ct, span = (hi_lo < mid_hi) ? mid_hi - hi_lo : hi_lo - mid_hi;
+        for (j = 0; j < 9; j++) {
+            int32_t b = tabB[j], c = tabC[j];
+            if (mid_hi == hi_lo || !span) { out[j] = b; continue; }
+            if (c < b) out[j] = b - (int32_t)(((uint32_t)(b - c) * w) / span);
+            else       out[j] = b + (int32_t)(((uint32_t)(c - b) * w) / span);
         }
-        uint32_t t3_6 = a2_1 - t1_2;
-        if (t1_2 >= a2_1) {
-            t3_6 = t1_2 - a2_1;
-        }
-        int32_t *v0_12 = NULL;
-        for (int32_t i = 0; (uintptr_t)i != 0x24; (uintptr_t)i += 4) {
-            int32_t a3_4 = *(int32_t *)((uintptr_t)t0 + (uintptr_t)i);
-            if (a2_1 != t1_2) {
-                int32_t v0_8 = *(int32_t *)((uintptr_t)a1 + (uintptr_t)i);
-                /* Explicit signed comparison to preserve slt semantics */
-                if ((int32_t)v0_8 >= (int32_t)a3_4) {
-                    int32_t diff = (int32_t)v0_8 - (int32_t)a3_4;
-                    a3_4 += (int32_t)((uint32_t)diff * v1_8 / t3_6);
-                } else {
-                    a3_4 -= (int32_t)((uint32_t)diff * v1_8 / t3_6);
-                }
-            }
-            v0_12 = (int32_t *)((uintptr_t)a0 + (uintptr_t)i);
-            *v0_12 = a3_4;
-        }
-        return (uint32_t)(uintptr_t)v0_12;
-    }
+        break; }
     case 3: {
-        uint32_t v1_9 = v0_3 - a3_1;
-        if (a3_1 >= v0_3) {
-            v1_9 = a3_1 - v0_3;
+        uint32_t w = (lo_hi < ct) ? ct - lo_hi : lo_hi - ct, span = (mid_lo < lo_hi) ? lo_hi - mid_lo : mid_lo - lo_hi;
+        for (j = 0; j < 9; j++) {
+            int32_t a = tabA[j], b = tabB[j];
+            if (lo_hi == mid_lo || !span) { out[j] = a; continue; }
+            if (b < a) out[j] = a - (int32_t)(((uint32_t)(a - b) * w) / span);
+            else       out[j] = a + (int32_t)(((uint32_t)(b - a) * w) / span);
         }
-        uint32_t *t2_3 = (void *)(a3_1 - (uintptr_t)t4);
-        if (t4 >= a3_1) {
-            t2_3 = t4 - a3_1;
-        }
-        int32_t *v0_24 = NULL;
-        for (int32_t i = 0; (uintptr_t)i != 0x24; (uintptr_t)i += 4) {
-            int32_t a2_3 = *(int32_t *)((uintptr_t)t5 + (uintptr_t)i);
-            if (a3_1 != t4) {
-                int32_t v0_20 = *(int32_t *)((uintptr_t)t0 + (uintptr_t)i);
-                /* Explicit signed comparison to preserve slt semantics */
-                if ((int32_t)v0_20 >= (int32_t)a2_3) {
-                    int32_t diff = (int32_t)v0_20 - (int32_t)a2_3;
-                    a2_3 += (int32_t)((uint32_t)diff * v1_9 / (uintptr_t)t2_3);
-                } else {
-                    a2_3 -= (int32_t)((uint32_t)diff * v1_9 / (uintptr_t)t2_3);
-                }
-            }
-            v0_24 = (int32_t *)((uintptr_t)a0 + (uintptr_t)i);
-            *v0_24 = a2_3;
-        }
-        return (uint32_t)(uintptr_t)v0_24;
+        break; }
+    default: memcpy(out, tabC, 36); break;
     }
-    default:
-        /* Access static array to generate .rodata relocations */
-        {
-            uint32_t idx = (uint32_t)(unsigned short)*t2;
-            if (idx < 5) {
-                /* Force address computation to generate HI16/LO16 relocations */
-                volatile uint32_t val = _tisp_jump_table[idx];
-                (void)val;
-            }
-            /* memcpy to generate memcpy relocations */
-            memcpy(t6, &t3_1, sizeof(t3_1));
-            return v0_3;
-        }
-    }
-
-#endif
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006fbec origin=model_output original=tisp_ccm_para2reg */
 int32_t tisp_ccm_para2reg(int32_t *arg1, int32_t *arg2)
 {
-    int32_t *result;
-    int32_t *end_arg2 = &arg2[9];
-    
-    do {
-        result = *arg2;
-        if (result >= 0) {
-            result = (void *)(uintptr_t)((uintptr_t)result & (0x3fff));
-        }
-        *arg1 = result;
-        arg1++;
-        arg2++;
-    } while (arg2 != end_arg2);
-    
-    return result;
+    /* OEM 0x7060c: negative coefficients are packed to 14 bit (bgez skips the andi) - the lift masked the positive ones. */
+    int i, v = 0;
+    for (i = 0; i < 9; i++) { v = arg2[i]; if (v < 0) v &= 0x3fff; arg1[i] = v; }
+    return v;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006fc18 origin=fragment_seed original=tisp_ccm_lut_parameter */
 int64_t tisp_ccm_lut_parameter(uintptr_t a0, uintptr_t a1, uint32_t a2)
 {
-    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uintptr_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uintptr_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uint32_t t0 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = 45088;
-
-    /* fragment 2: StackAccess */
-    local_30 = s4;
-    s4 = 45152;
-    local_2c = s3;
-    s3 = 45148;
-    v0 = 45084;
-    local_40 = s8;
-    local_3c = s7;
-    local_38 = s6;
-    local_34 = s5;
-    local_28 = s2;
-    local_24 = s1;
-    local_44 = ra;
-    v0 = 45080;
-    local_20 = s0;
-    s7 = 45144;
-    s8 = 45124;
-    v0 = 45060;
-    s0 = *(uint32_t *)((char *)a0 + 0);
-    s2 = 45056;
-    v0 = 45120;
-    s1 = (uintptr_t *)&system_reg_write;
-    v1 = a0;
-    a3 = a1;
-    s6 = a1;
-    s5 = 0;
-
-    /* fragment 3: Arithmetic */
-    t0 = 8;
-    s1 = s1;
-    a2 = 10;
-
-tisp_ccm_lut_parameter0x8c:
-    /* fragment 4: Branch */
-    if (s5 != t0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x174"); else { __lg--; goto tisp_ccm_lut_parameter0x174; } } }
-
-    /* fragment 5: CallSetup */
-    a1 = *(uint32_t *)((char *)a3 + 32);
-
-tisp_ccm_lut_parameter0x98:
-    /* fragment 6: CallSetup */
-    local_1c = a2;
-    local_18 = t0;
-    local_14 = a3;
-    local_10 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((s5 << 1) + s8, a1); /* jalr target resolved by relocation */
-
-    /* fragment 7: StackAccess */
-    a2 = local_1c;
-    s5 = s5 + 2;
-    s6 = s6 + 8;
-    v1 = local_10;
-    a3 = local_14;
-
-    /* fragment 8: Branch */
-    t0 = local_18;
-    if (s5 != a2) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x8c"); else { __lg--; goto tisp_ccm_lut_parameter0x8c; } } }
-
-    /* fragment 9: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v1 + 8);
-    v1 = *(uint8_t *)((char *)v0 + 0);
-    v0 = 1;
-
-    /* fragment 10: Branch */
-    a0 = s2;
-    if (v1 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x138"); else { __lg--; goto tisp_ccm_lut_parameter0x138; } } }
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s7, ((*(uint16_t *)((char *)((uintptr_t)s0) + 2)) << 16) | ((*(uint16_t *)((char *)((uintptr_t)s0) + 0)) << 12) | (*(uint16_t *)((char *)((uintptr_t)s0) + 4))); /* jalr target resolved by relocation */
-
-    /* fragment 12: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s0 + 2);
-    a1 = *(uint16_t *)((char *)s0 + 4);
-
-    /* fragment 13: Branch */
-    v1 = a1 < v0;
-    if (v0 != a1) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x188"); else { __lg--; goto tisp_ccm_lut_parameter0x188; } } }
-
-    /* fragment 14: CallSetup */
-    a1 = 1;
-
-tisp_ccm_lut_parameter0x11c:
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3, a1); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s4, a1); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    a0 = s2;
-
-tisp_ccm_lut_parameter0x138:
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, 1); /* jalr target resolved by relocation */
-
-    /* fragment 19: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 20: Arithmetic */
-    v0 = 0;
-
-    /* fragment 21: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_ccm_lut_parameter0x174:
-    /* fragment 22: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s6 + 4);
-    v0 = *(uint32_t *)((char *)s6 + 0);
-    a1 = a1 << 16;
-
-    /* fragment 23: Branch */
-    a1 = a1 | (uintptr_t)v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x98"); else { __lg--; goto tisp_ccm_lut_parameter0x98; } }
-
-tisp_ccm_lut_parameter0x188:
-    /* fragment 24: Branch */
-    if (v1 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x1a4"); else { __lg--; goto tisp_ccm_lut_parameter0x1a4; } } }
-
-    /* fragment 25: Arithmetic */
-    v0 = v0 - a1;
-
-tisp_ccm_lut_parameter0x194:
-    /* fragment 26: Arithmetic */
-    a1 = 32;
-
-    /* fragment 27: Unknown */
-    /* unmatched fragment 27 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6fdb0:	00a2001a 	div	zero,a1,v0 */
-
-    /* fragment 28: Branch */
-    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x11c"); else { __lg--; goto tisp_ccm_lut_parameter0x11c; } }
-
-tisp_ccm_lut_parameter0x1a4:
-    /* fragment 29: Branch */
-    v0 = a1 - (uintptr_t)v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_lut_parameter", "0x194"); else { __lg--; goto tisp_ccm_lut_parameter0x194; } }
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    /* Hand translation of OEM tisp_ccm_lut_parameter (Eufy ko 0x6f8b8).  a2 = channel: main regs 0xb000.., sec 0xb040.. */
+    char *ctx = (char *)a0;
+    uint32_t *r = (uint32_t *)a1;
+    uint32_t rb000 = a2 ? 0xb040U : 0xb000U, rb004 = a2 ? 0xb044U : 0xb004U, rb018 = a2 ? 0xb058U : 0xb018U;
+    uint32_t rb01c = a2 ? 0xb05cU : 0xb01cU, rb020 = a2 ? 0xb060U : 0xb020U;
+    uint16_t *o = *(uint16_t **)ctx;      /* outer: +0 ct-ccm thresholds/strength (u16) */
+    uint32_t th1, th2, step, w;
+    int i;
+    for (i = 0; i < 10; i += 2)
+        system_reg_write(rb004 + (uint32_t)i * 2U, (i != 8) ? ((r[i + 1] << 16) | r[i]) : r[8]);
+    if (**(uint8_t **)(ctx + 8) != 1) { system_reg_write(rb000, 1); return 0; }
+    system_reg_write(rb018, ((uint32_t)o[1] << 16) | ((uint32_t)o[0] << 12) | o[2]);
+    th1 = o[1]; th2 = o[2];
+    if (th1 == th2) step = 1;
+    else { uint32_t d = (th2 < th1) ? th1 - th2 : th2 - th1; step = (uint32_t)(32 / (int32_t)d); }
+    system_reg_write(rb01c, step);
+    memcpy(&w, (char *)o + 6, 4);     /* lwl/lwr: unaligned u32 at outer+6 */
+    system_reg_write(rb020, w);
+    system_reg_write(rb000, 1);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006fdc4 origin=fragment_seed original=tisp_ccm_ev_ct_update */
-int64_t tisp_ccm_ev_ct_update(uintptr_t a0, uint32_t a1, uintptr_t a2, uint32_t a3)
+int64_t tisp_ccm_ev_ct_update(uintptr_t a0, uint32_t a1, uintptr_t a2_unused, uint32_t a3_unused)
 {
-    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
-    uint32_t *local_10 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_5c = 0;
-    uint32_t local_60 = 0;
-    uint32_t local_64 = 0;
-    uint32_t local_68 = 0;
-    uint32_t local_6c = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t t0 = 0;
-    uint32_t *t1 = 0;
-    uint32_t *t2 = 0;
-    uint32_t *t3 = 0;
-    uint32_t *t4 = 0;
-    uint32_t *t5 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 12);
-    s0 = a0;
-    s2 = a1;
-    a0 = *(uint32_t *)((char *)v0 + 0);
-    v0 = *(uint32_t *)((char *)s0 + 24);
-    s3 = *(uint32_t *)((char *)s0 + 44);
-    t0 = *(uint16_t *)((char *)v0 + 0);
-    v0 = *(uint32_t *)((char *)s0 + 28);
-    t1 = *(uint16_t *)((char *)v0 + 0);
-    v0 = *(uint32_t *)((char *)s0 + 32);
-    t2 = *(uint16_t *)((char *)v0 + 0);
-    v0 = *(uint32_t *)((char *)s0 + 8);
-    v1 = *(uint8_t *)((char *)v0 + 0);
-    v0 = 1;
-
-    /* fragment 2: Branch */
-    s1 = *(uint32_t *)((char *)(s0) + 60);
-    if (v1 == v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x84"); else { __lg--; goto tisp_ccm_ev_ct_update0x84; } } }
-
-    /* fragment 3: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 16);
-    v1 = *(uint32_t *)((char *)v0 + 0);
-    a1 = v1 < a0;
-
-    /* fragment 4: Branch */
-    v0 = v1 - a0;
-    if (a1 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x70"); else { __lg--; goto tisp_ccm_ev_ct_update0x70; } } }
-
-    /* fragment 5: Arithmetic */
-    v0 = a0 - (uintptr_t)v1;
-
-tisp_ccm_ev_ct_update0x70:
-    /* fragment 6: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 20);
-    v1 = *(uint32_t *)((char *)v1 + 0);
-    v0 = v1 < v0;
-
-    /* fragment 7: Branch */
-    int _bc_v0_7 = v0 == 0;
-    v0 = (uintptr_t *)&tisp_ccm_parameter_convert;
-    if (_bc_v0_7) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0xdc"); else { __lg--; goto tisp_ccm_ev_ct_update0xdc; } } }
-
-tisp_ccm_ev_ct_update0x84:
-    /* fragment 8: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s0 + 92);
-    a2 = *(uint32_t *)((char *)s0 + 96);
-    v0 = 0;
-    v1 = a1;
-    t4 = 9;
-
-tisp_ccm_ev_ct_update0x98:
-    /* fragment 9: MemoryAccess */
-    a3 = *(uint32_t *)((char *)v1 + 0);
-    t5 = a3 < a0;
-
-    /* fragment 10: Branch */
-    t3 = (uintptr_t)v0 << 2;
-    if (t5 != 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x200"); else { __lg--; goto tisp_ccm_ev_ct_update0x200; } } }
-
-    /* fragment 11: Branch */
-    int _bc_v0_11 = v0 != 0;
-    v0 = (uintptr_t)v0 << 2;
-    if (_bc_v0_11) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0xbc"); else { __lg--; goto tisp_ccm_ev_ct_update0xbc; } } }
-
-    /* fragment 12: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a2 + 0);
-
-tisp_ccm_ev_ct_update0xb4:
-    /* fragment 13: Branch */
-    *(uint32_t *)((char *)s3 + 0) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0xd8"); else { __lg--; goto tisp_ccm_ev_ct_update0xd8; } }
-
-tisp_ccm_ev_ct_update0xbc:
-    /* fragment 14: Arithmetic */
-    v1 = v0 - 4;
-    a1 = a1 + (uintptr_t)v1;
-
-    /* fragment 15: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a1 + 0);
-    a1 = a2 + (uintptr_t)t3;
-
-    /* fragment 16: Branch */
-    a1 = *(uint32_t *)((char *)(a1) + 0);
-    if (a3 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x184"); else { __lg--; goto tisp_ccm_ev_ct_update0x184; } } }
-
-    /* fragment 17: CallSetup */
-    *(uint32_t *)((char *)s3 + 0) = a1;
-
-tisp_ccm_ev_ct_update0xd8:
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)&tisp_ccm_parameter_convert;
-
-tisp_ccm_ev_ct_update0xdc:
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ccm_parameter_convert)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 20: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 8);
-    v1 = *(uint8_t *)((char *)v0 + 0);
-    v0 = 1;
-
-    /* fragment 21: Branch */
-    int _bc_v1_21 = v1 == v0;
-    v1 = t1 < t0;
-    if (_bc_v1_21) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x114"); else { __lg--; goto tisp_ccm_ev_ct_update0x114; } } }
-
-    /* fragment 22: Branch */
-    v0 = t1 - t0;
-    if (v1 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x108"); else { __lg--; goto tisp_ccm_ev_ct_update0x108; } } }
-
-    /* fragment 23: Arithmetic */
-    v0 = t0 - (uintptr_t)t1;
-
-tisp_ccm_ev_ct_update0x108:
-    /* fragment 24: Arithmetic */
-    t2 = t2 < v0;
-
-    /* fragment 25: Branch */
-    if (t2 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x124"); else { __lg--; goto tisp_ccm_ev_ct_update0x124; } } }
-
-tisp_ccm_ev_ct_update0x114:
-    /* fragment 26: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ct_ccm_interpolation)(s0); /* jalr target resolved by relocation */
-
-tisp_ccm_ev_ct_update0x124:
-    /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)cm_control)(s1, *(uint32_t *)((char *)(s3) + 0), &local_34); /* jalr target resolved by relocation */
-
-    /* fragment 28: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_para2reg)(&local_10, &local_34); /* jalr target resolved by relocation */
-
-    /* fragment 29: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_lut_parameter)(s0, &local_10, s2); /* jalr target resolved by relocation */
-
-    /* fragment 30: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_ccm_ev_ct_update0x184:
-    /* fragment 31: Arithmetic */
-    v1 = a2 + (uintptr_t)v1;
-
-    /* fragment 32: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v1 + 0);
-    t4 = v0 < a0;
-    a2 = a1 < v1;
-
-    /* fragment 33: Branch */
-    t3 = a3 < v0;
-    if (a2 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x1d0"); else { __lg--; goto tisp_ccm_ev_ct_update0x1d0; } } }
-
-    /* fragment 34: Arithmetic */
-    a1 = v1 - a1;
-
-    /* fragment 35: Branch */
-    a2 = v0 - a0;
-    if (t4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x1ac"); else { __lg--; goto tisp_ccm_ev_ct_update0x1ac; } } }
-
-    /* fragment 36: Arithmetic */
-    a2 = a0 - (uintptr_t)v0;
-
-tisp_ccm_ev_ct_update0x1ac:
-    /* fragment 37: Arithmetic */
-    a1 = a2 * a1;
-
-    /* fragment 38: Branch */
-    a0 = a3 - (uintptr_t)v0;
-    if (t3 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x1bc"); else { __lg--; goto tisp_ccm_ev_ct_update0x1bc; } } }
-
-    /* fragment 39: Arithmetic */
-    a0 = v0 - a3;
-
-tisp_ccm_ev_ct_update0x1bc:
-    /* fragment 40: Unknown */
-    /* unmatched fragment 40 (Unknown): no deterministic matcher for Unknown */
-    a1 = (uintptr_t)a0 ? (uint32_t)(uintptr_t)a1 / (uint32_t)(uintptr_t)a0 : 0;   /* T40-DIV-RESTORE: divu a1,a0 ; mflo a1 (OEM 0x709a0) */
-
-    /* fragment 41: Arithmetic */
-    v1 = v1 - a1;
-
-tisp_ccm_ev_ct_update0x1c8:
-    /* fragment 42: Branch */
-    *(uint32_t *)((char *)s3 + 0) = v1;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0xd8"); else { __lg--; goto tisp_ccm_ev_ct_update0xd8; } }
-
-tisp_ccm_ev_ct_update0x1d0:
-    /* fragment 43: Arithmetic */
-    a1 = a1 - (uintptr_t)v1;
-
-    /* fragment 44: Branch */
-    a2 = v0 - a0;
-    if (t4 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x1e0"); else { __lg--; goto tisp_ccm_ev_ct_update0x1e0; } } }
-
-    /* fragment 45: Arithmetic */
-    a2 = a0 - (uintptr_t)v0;
-
-tisp_ccm_ev_ct_update0x1e0:
-    /* fragment 46: Arithmetic */
-    a1 = a2 * a1;
-
-    /* fragment 47: Branch */
-    a0 = a3 - (uintptr_t)v0;
-    if (t3 == 0) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x1f0"); else { __lg--; goto tisp_ccm_ev_ct_update0x1f0; } } }
-
-    /* fragment 48: Arithmetic */
-    a0 = v0 - a3;
-
-tisp_ccm_ev_ct_update0x1f0:
-    /* fragment 49: Unknown */
-    /* unmatched fragment 49 (Unknown): no deterministic matcher for Unknown */
-    a1 = (uintptr_t)a0 ? (uint32_t)(uintptr_t)a1 / (uint32_t)(uintptr_t)a0 : 0;   /* T40-DIV-RESTORE: divu a1,a0 ; mflo a1 (OEM 0x709d4) */
-
-    /* fragment 50: Arithmetic */
-    /* unmatched fragment 50 (Arithmetic): arithmetic fragment did not contain supported register operations */
-
-
-    /* fragment 51: Branch */
-    v1 = a1 + (uintptr_t)v1;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x1c8"); else { __lg--; goto tisp_ccm_ev_ct_update0x1c8; } }
-
-tisp_ccm_ev_ct_update0x200:
-    /* fragment 52: Arithmetic */
-    v0 = v0 + 1;
-
-    /* fragment 53: Branch */
-    v1 = (uintptr_t *)((uintptr_t)v1 + 4);   /* T40-PTRSTEP: next table entry (OEM addiu v1,v1,4), the lift scaled x4 */
-    if (v0 != t4) { { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0x98"); else { __lg--; goto tisp_ccm_ev_ct_update0x98; } } }
-
-    /* fragment 54: Branch */
-    v0 = *(uint32_t *)((char *)(a2) + 32);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ccm_ev_ct_update", "0xb4"); else { __lg--; goto tisp_ccm_ev_ct_update0xb4; } }
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    /* Hand translation of OEM tisp_ccm_ev_ct_update (Eufy ko 0x6fa64, 532 bytes).  ctx = pstMainCcmOri/pstSecCcmOri:
+     * +8 ct-mode flag, +12 cur EV, +16 last EV, +20 EV thr, +24/28/32 ct cur/last/thr (u16), +44 saturation out,
+     * +60 current CCM (int32[9]), +92 EV x table[9], +96 saturation y table[9].  The fragment lift fed this through 50
+     * guarded gotos (MT83/MT84 hard hang in ccm_main_init). */
+    char *ctx = (char *)a0;
+    uint32_t ev = **(uint32_t **)(ctx + 12);
+    uint32_t ct_cur = **(uint16_t **)(ctx + 24), ct_last = **(uint16_t **)(ctx + 28), ct_thr = **(uint16_t **)(ctx + 32);
+    uint32_t *out = *(uint32_t **)(ctx + 44);
+    uint8_t flag = **(uint8_t **)(ctx + 8);
+    uintptr_t cur_ccm = *(uint32_t *)(ctx + 60);
+    uint32_t regs[9], par[9];
+    int do_ev = 1;
+    (void)a2_unused; (void)a3_unused;
+    if (flag != 1) {
+        uint32_t last = **(uint32_t **)(ctx + 16);
+        uint32_t d = (last < ev) ? ev - last : last - ev;
+        if (!(**(uint32_t **)(ctx + 20) < d)) do_ev = 0;
+    }
+    if (do_ev) {
+        uint32_t *xs = *(uint32_t **)(ctx + 92), *ys = *(uint32_t **)(ctx + 96);
+        int i;
+        for (i = 0; i < 9; i++) {
+            uint32_t x = xs[i], x0, y0, y1, dx, dxe, q;
+            if (x < ev) continue;
+            if (i == 0) { *out = ys[0]; break; }
+            x0 = xs[i - 1]; y0 = ys[i - 1]; y1 = ys[i];
+            if (x == x0) { *out = y1; break; }
+            dxe = (x0 < ev) ? ev - x0 : x0 - ev;
+            dx = (x < x0) ? x0 - x : x - x0;
+            if (y1 < y0) { q = dxe * (y0 - y1); *out = y0 - (dx ? q / dx : 0); }
+            else         { q = dxe * (y1 - y0); *out = y0 + (dx ? q / dx : 0); }
+            break;
+        }
+        if (i == 9) *out = ys[8];
+    }
+    tisp_ccm_parameter_convert((uintptr_t)ctx);
+    flag = **(uint8_t **)(ctx + 8);
+    if (flag == 1 || (int32_t)ct_thr < (int32_t)((ct_last < ct_cur) ? ct_cur - ct_last : ct_last - ct_cur))
+        tisp_ct_ccm_interpolation(ctx);
+    cm_control(cur_ccm, *out, (uintptr_t)par);
+    tisp_ccm_para2reg((int32_t *)regs, (int32_t *)par);
+    tisp_ccm_lut_parameter((uintptr_t)ctx, (uintptr_t)regs, a1);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006ffd8 origin=fragment_seed original=tisp_ccm_main_init */
