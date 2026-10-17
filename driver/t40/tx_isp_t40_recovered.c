@@ -7452,6 +7452,8 @@ static bool t40_antiflick_pending_valid;
 static uint32_t t40_runmode_pending;             /* SetISPRunningMode (CID 0x8000071) received before the tuning context exists */
 static bool t40_runmode_pending_valid;
 static bool regtrace_t40_vendor_awb_process;   /* defined with its module_param further down */
+static bool regtrace_t40_awb_spec_regs;   /* T40-AWB-SPEC-REGS: write the special-light registers 0x180xx (MT98: heap corruption with them, likely a stats DMA without a buffer) */
+module_param_named(t40_awb_spec_regs, regtrace_t40_awb_spec_regs, bool, 0644);
 static unsigned int regtrace_t40_awb_proc_stages = 0xffU;   /* T40-AWB-STAGES bisect: 1 par_update 2 spec_calculate 4 alogrithm 8 set_gain 16 event13 */
 module_param_named(t40_awb_proc_stages, regtrace_t40_awb_proc_stages, uint, 0644);
 static int regtrace_t40_tuning_set_running_mode(uint32_t mode);
@@ -102355,6 +102357,15 @@ int64_t tisp_awb_long_alogrithm(uintptr_t a0, uintptr_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000333f4 origin=fragment_seed original=tisp_awb_spec_calculate */
+static void t40_awb_spec_reg_write(uint32_t reg, uint32_t val)
+{
+    static unsigned int n;
+    if (n++ < 12)
+        printk(KERN_INFO "tx_isp_t40_recovered: AWBSPEC reg 0x%x = 0x%x (%s)\n", reg, val, regtrace_t40_awb_spec_regs ? "written" : "skipped");
+    if (regtrace_t40_awb_spec_regs)
+        system_reg_write(reg, val);
+}
+
 int32_t tisp_awb_spec_calculate(uintptr_t a0, uint32_t a1)
 {
     /* Hand translation of OEM tisp_awb_spec_calculate (Eufy ko 0x33880, 1672 bytes): special-light handling for lights
@@ -102391,16 +102402,16 @@ int32_t tisp_awb_spec_calculate(uintptr_t a0, uint32_t a1)
         uint32_t k = light[idx], mode = m27[k], rr, rb;
         if (idx == 0 && !measured) mode = 0;    /* 0x33984: plain control word */
         if (mode == 1U) {
-            memcpy(&w, (const uint8_t *)r29 + pair_byte[idx], 4); system_reg_write(base - pair_r_off[idx], w);
-            memcpy(&w, (const uint8_t *)r30 + pair_byte[idx], 4); system_reg_write(base - pair_b_off[idx], w);
-            system_reg_write(base - ctl_off[idx], ((uint32_t)c51[k] << 16) | c28[k]);
+            memcpy(&w, (const uint8_t *)r29 + pair_byte[idx], 4); t40_awb_spec_reg_write(base - pair_r_off[idx], w);
+            memcpy(&w, (const uint8_t *)r30 + pair_byte[idx], 4); t40_awb_spec_reg_write(base - pair_b_off[idx], w);
+            t40_awb_spec_reg_write(base - ctl_off[idx], ((uint32_t)c51[k] << 16) | c28[k]);
         } else if (mode >= 2U) {
             if (idx == 0) { rr = ratio_r; rb = ratio_b; } else { rr = r29[k]; rb = r30[k]; }
             r52[k] = (uint16_t)(((uint32_t)fix_point_mult2_32(10, (int32_t)(rr << 2), (int32_t)g9[0]) + 2U) >> 2);
             r53[k] = (uint16_t)(((uint32_t)fix_point_mult2_32(10, (int32_t)(rb << 2), (int32_t)g9[1]) + 2U) >> 2);
-            system_reg_write(base - ctl_off[idx], c28[k]);
+            t40_awb_spec_reg_write(base - ctl_off[idx], c28[k]);
         } else {
-            system_reg_write(base - ctl_off[idx], c28[k]);
+            t40_awb_spec_reg_write(base - ctl_off[idx], c28[k]);
         }
     }
     return 0;
