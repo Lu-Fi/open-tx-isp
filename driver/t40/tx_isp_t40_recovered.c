@@ -8260,7 +8260,7 @@ int32_t tisp_msca_state(void);
 int64_t tisp_g_draw_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_msca_Shd_ctrl(uint32_t a0, uint32_t a1);
 int32_t tisp_s_af_weight_attr(uint32_t a0, uint32_t a1);
-int32_t tisp_g_af_weight_attr(void);
+int32_t tisp_g_af_weight_attr(uint32_t a0, void *a1);
 int32_t tisp_s_awb_weight_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_g_awb_weight_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_s_awb_attr(uint32_t a0, uintptr_t a1);
@@ -45077,63 +45077,14 @@ int32_t tx_isp_af_weight_g_attr_isra_39(uint32_t a0, uintptr_t a1) __asm__("tx_i
 #endif
 int32_t tx_isp_af_weight_g_attr_isra_39(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_104 = 0;
-    uint32_t local_108 = 0;
-    uint32_t local_10c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_g_af_weight_attr)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    a2 = 225;
-    if (v0 == 0) { goto tx_isp_af_weight_g_attr_isra_390x6c; }
-
-    /* fragment 3: CallSetup */
-    s0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC7, &__param_str_isp_dual_buf, 778); /* jalr target resolved by relocation */
-
-tx_isp_af_weight_g_attr_isra_390x54:
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_af_weight_g_attr_isra_390x58:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_af_weight_g_attr_isra_390x6c:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_af_weight_g_attr_isra_390x54; }
-
-    /* fragment 9: CallSetup */
-    local_14 = 784;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 784); /* jalr target resolved by relocation */
-
-    /* fragment 10: Branch */
-    goto tx_isp_af_weight_g_attr_isra_390x58;
-
+    /* Hand translation of OEM 0xb02c: kernel buffer sp+24 (225 B weights), tisp_g_af_weight_attr(vinum, buf),
+     * then copy_to_user(*(a1), buf, 225).  The lift passed no buffer and copied 4 bytes of a local. */
+    uint8_t buf[232];
+    int32_t r;
+    memset(buf, 0, sizeof(buf));
+    r = tisp_g_af_weight_attr((uint32_t)(uintptr_t)a0, buf);
+    if (r != 0) { isp_printf(1, "%%s[%%d] af weight get failed\n", "tx_isp_af_weight_g_attr", 778); return r; }
+    if (private_copy_to_user((void *)(uintptr_t)*(uint32_t *)(uintptr_t)a1, buf, 225) != 0) { isp_printf(2, "%s[%d] copy_to_user failed\n", "tx_isp_af_weight_g_attr", 784); return -EFAULT; }
     return 0;
 }
 
@@ -186376,9 +186327,12 @@ int32_t tisp_s_af_weight_attr(uint32_t a0, uint32_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074208 origin=model_output original=tisp_g_af_weight_attr */
-int32_t tisp_g_af_weight_attr(void)
+int32_t tisp_g_af_weight_attr(uint32_t a0, void *a1)
 {
-    tisp_af_get_weight(0, (int32_t *)0);
+    /* OEM 0x74c28: tisp_af_get_weight(vinum, buf) passthrough - the lift called it with (0, NULL) (RC2 devtest Oops in
+     * tx_isp_af_weight_g_attr_isra_39+0xd0). */
+    if (!regtrace_is_kernel_ptr(a1)) return -EINVAL;
+    tisp_af_get_weight((int32_t)a0, (int32_t *)a1);
     return 0;
 }
 
