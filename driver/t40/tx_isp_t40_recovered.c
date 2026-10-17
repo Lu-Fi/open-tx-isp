@@ -23596,6 +23596,15 @@ static long regtrace_bootstrap_ioctl(struct file *file, unsigned int cmd, unsign
     if (isp_m0) {
         if (cmd == REGTRACE_TISP_VIDIOC_DEFAULT_CMD_ISP_TUNING ||
             cmd == REGTRACE_TISP_VIDIOC_DEFAULT_CMD_ISP_TUNING_T40_COMPAT) {
+            {   /* T40-TUNING-ENTRY-DIAG: every tuning ioctl at the entry, with caller (antiflicker/timps diagnosis) */
+                static unsigned int nent;
+                struct regtrace_isp_m0_tuning_ctrl ec;
+                if (nent < 40 && !copy_from_user(&ec, (const void __user *)(uintptr_t)arg, sizeof(ec))) {
+                    nent++;
+                    printk(KERN_INFO "tx_isp_t40_recovered: isp-m0 tuning entry cmd=0x%x vinum=%u dir=%u id=0x%x pid=%d comm=%s\n",
+                           cmd, ec.vinum, ec.dir, ec.id, current->pid, current->comm);
+                }
+            }
             regtrace_isp_m0_tuning_count++;
             ret = regtrace_isp_m0_default_tuning_ioctl(cmd, arg);
         } else if (cmd == REGTRACE_TISP_VIDIOC_S_CTRL ||
