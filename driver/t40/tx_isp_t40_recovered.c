@@ -23550,6 +23550,12 @@ static long regtrace_isp_m0_default_tuning_ioctl(unsigned int cmd, unsigned long
     if (ret == -ENOIOCTLCMD)
         ret = 0;
 
+    if (ret < 0 || ctrl.id == 0x08000026U) {   /* T40-TUNING-DIAG: failed CIDs and the antiflicker CID are always logged (first 8) */
+        static unsigned int nfail;
+        if (nfail++ < 8)
+            printk(KERN_INFO "tx_isp_t40_recovered: isp-m0 tuning vinum=%u dir=%u id=0x%x ret=%ld\n", ctrl.vinum, ctrl.dir, ctrl.id, ret);
+    }
+
     if (log_count < 4) {
         printk(KERN_INFO "tx_isp_t40_recovered: isp-m0 tuning cmd=0x%x vinum=%u dir=%u id=0x%x value=%d/0x%x\n",
                cmd, ctrl.vinum, ctrl.dir, ctrl.id, ctrl.value,
