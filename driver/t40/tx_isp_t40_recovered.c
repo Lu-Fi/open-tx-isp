@@ -86591,7 +86591,7 @@ tisp_ae_long_tune0x74:
 
     /* fragment 9: CallSetup */
     s3 = (uintptr_t)s3 << (uintptr_t)s0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)((uintptr_t)s0, (uintptr_t)v0, (uintptr_t)s3 << (uintptr_t)s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)(uint32_t)fix_point_div_32((int32_t)(uintptr_t)s0, (int32_t)(uintptr_t)v0, (int32_t)(uintptr_t)s3);   /* T40-ARGS (OEM 0x25ae8): a2 = s3 = 128<<sh, the lift shifted it a second time -> step/1024 */
 
     /* fragment 10: CallSetup */
     *(uint16_t *)((char *)s8 + 0) = ((uintptr_t)s1 + (uintptr_t)v0);
@@ -88297,6 +88297,7 @@ tisp_ae_long_tune20xf28:
     v0 = local_80;
     v1 = local_d8;
     if (regtrace_t40_ae_diag) { static unsigned int n; if (n++ < 8) printk(KERN_INFO "tx_isp_t40_recovered: AETUNE2OUT #%u a3=%u arg4=%u arg5=%u cc=%u b4=%u 94=%u c8=%u 88=%u s6=%lx s1=%lx -> it=%u again=%u dgain=%u flag=%u\n", n, (unsigned)a3, (unsigned)arg4, (unsigned)arg5, (unsigned)local_cc, (unsigned)local_b4, (unsigned)local_94, (unsigned)local_c8, (unsigned)local_88, (unsigned long)(uintptr_t)s6, (unsigned long)(uintptr_t)s1, (unsigned)local_78, (unsigned)local_74, (unsigned)local_70, (unsigned)(uintptr_t)a0); }   /* T40-AE-OUT-DIAG */
+    if (regtrace_t40_ae_diag) { static unsigned int fn; fn++; if (fn <= 400) printk(KERN_INFO "tx_isp_t40_recovered: AEX #%u mean=%lu tgt=%u -> it=%u again=%u dgain=%u conv=%u\n", fn, (unsigned long)(uintptr_t)s4, local_84, (unsigned)local_78, (unsigned)local_74, (unsigned)local_70, (unsigned)(uintptr_t)a0); }   /* T40-AEX per-frame log */
     local_8c = a0;
     *(uint16_t *)((char *)v0 + 2) = a0;
     *(uint16_t *)((char *)v0 + 8) = s1;
