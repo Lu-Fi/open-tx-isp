@@ -102308,6 +102308,13 @@ int64_t tisp_awb_long_alogrithm(uintptr_t a0, uintptr_t a1)
         uint32_t ctd[2] = { loc48, loc52 }, ctf[2] = { loc32, loc36 };
         static unsigned int nd;
         (void)tisp_awb_ct_detect(a1, (uintptr_t)ctd, (uint32_t)(uintptr_t)ctf);
+        if (ctd[0] == loc48 && ctd[1] == loc52) {
+            /* T40-AWB-GRAYWORLD-FALLBACK: the lifted tisp_awb_ct_detect leaves its outputs untouched (MT103).  Until it is
+             * hand-translated, use the gray-world estimate from the global means (Q8 R/G, B/G): gain = 1/mean in Q16. */
+            if (g123[0]) ctd[0] = (65536U * 256U) / g123[0];
+            if (g123[1]) ctd[1] = (65536U * 256U) / g123[1];
+            regtrace_t40_awb_step = 26;
+        }
         if (nd++ < 8)
             printk(KERN_INFO "tx_isp_t40_recovered: AWBALG rows=%u cols=%u s1=%u s3=%u g0=%u g1=%u cnt=%u/%u sum=%u/%u mean=%u/%u ctd_in=%u/%u ctd_out=%u/%u flag=%u/%u ct=%u mode=%u thr0=%u s0=%u\n",
                    rows, cols, s1, s3, g0, g1, cnt1, cnt2, sum1, sum2, g123[0], g123[1], loc48, loc52, ctd[0], ctd[1], ctf[0], ctf[1], *T[7], mode, t0thr, s0);
