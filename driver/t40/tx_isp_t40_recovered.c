@@ -90781,7 +90781,9 @@ tisp_ae_main_long_ev_alloc0x9c:
 
     /* fragment 4: CallSetup */
     local_204 = t2;
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEV pre-setIT #%u s6=%p {%u %u %u}\n", n, (void *)s6, ((uint32_t *)s6)[0], ((uint32_t *)s6)[1], ((uint32_t *)s6)[2]); }
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_set_sensor_integration_time)(local_230, s8, s7, local_23c); /* jalr target resolved by relocation */
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEV post-setIT #%u s6=%p {%u %u %u}\n", n, (void *)s6, ((uint32_t *)s6)[0], ((uint32_t *)s6)[1], ((uint32_t *)s6)[2]); }
 
     /* fragment 5: StackAccess */
     local_200 = v0;
@@ -90854,6 +90856,7 @@ tisp_ae_main_long_ev_alloc0x15c:
 
     /* fragment 20: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_set_ae_long_ag)(local_230, s8, s7, local_23c); /* jalr target resolved by relocation */
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEV post-setAG #%u s6=%p {%u %u %u}\n", n, (void *)s6, ((uint32_t *)s6)[0], ((uint32_t *)s6)[1], ((uint32_t *)s6)[2]); }
 
     /* fragment 21: Unknown */
     /* unmatched fragment 21 (Unknown): no deterministic matcher for Unknown */
@@ -90939,6 +90942,7 @@ tisp_ae_main_long_ev_alloc0x28c:
 
     /* fragment 40: MemoryAccess */
     v0 = *(uint32_t *)((char *)s6 + 0);
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEV copy->ev3 #%u s6=%p {%u %u %u}\n", n, (void *)s6, ((uint32_t *)s6)[0], ((uint32_t *)s6)[1], ((uint32_t *)s6)[2]); }
     v1 = local_1fc;
     a0 = 1;
     *(uint32_t *)((char *)v1 + 0) = v0;
