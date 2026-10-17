@@ -87776,6 +87776,7 @@ tisp_ae_long_tune20x90c:
     if (s6 != 0) { goto tisp_ae_long_tune20xe00; }
 
 tisp_ae_long_tune20x92c:
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 92c #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
     /* fragment 146: CallSetup */
     a0 = local_a4;
 
@@ -87993,6 +87994,7 @@ tisp_ae_long_tune20xaf4:
     { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x870"); else { __lg--; goto tisp_ae_long_tune20x870; } }
 
 tisp_ae_long_tune20xb20:
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL b20 #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
     /* fragment 189: CallSetup */
     local_f0 = s7 - local_f0;
     local_ec = (local_88 - (uintptr_t)local_110) - (s7 < (s7 - local_f0));
@@ -88061,6 +88063,7 @@ tisp_ae_long_tune20xb20:
     local_bc = v1;
     local_118 = (uintptr_t)&fix_point_div_64;
     T40_FP64_CALL(fix_point_div_64, (uintptr_t)s0 << 1, 0, (uintptr_t)t0, (uintptr_t)t1, (uintptr_t)local_10, local_14); /* T40-ARGS (OEM 0x26780: a2:a3 = 280/284(sp) = mult3 result, 16/20(sp) = ashldi3 result) */
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL after-div #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
 
     /* fragment 200: StackAccess */
     t4 = local_128;
@@ -88107,6 +88110,7 @@ tisp_ae_long_tune20xc58:
 
 tisp_ae_long_tune20xcb4:
     /* fragment 209: CallSetup */
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL cb4-call #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
     T40_FP64_CALL(((int64_t (*)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t))(uintptr_t)v0), (uintptr_t)a0, 0, (uintptr_t)a2, (uintptr_t)a3, (uintptr_t)local_10, local_14); /* T40-ARGS (OEM 0x2680c: callee is v0 = 280(sp) (div_64) or 212(sp) (mult2_64) depending on the path) */
 
     /* fragment 210: StackAccess */
@@ -88147,6 +88151,7 @@ tisp_ae_long_tune20xd00:
     a0 = local_f4;
 
 tisp_ae_long_tune20xd04:
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 7) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL d04 #%u v1:v0=%lx:%lx s7:88=%lx:%x s6:a0=%x:%x b8=%u f4=%u 128=%u 7c=%u 7e=%u 118:11c=%x:%x ec:f0=%x:%x\n", n, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)s7, local_88, s6, local_a0, local_b8, local_f4, local_128, (uint16_t)local_7c, (uint16_t)local_7e, local_118, local_11c, local_ec, local_f0); }
     /* fragment 217: CallSetup */
     { uint64_t __r = (uint64_t)((uint32_t)(uintptr_t)a0) << (((uint32_t)(uintptr_t)s0) & 63U); v0 = (uintptr_t *)(uintptr_t)(uint32_t)__r; v1 = (uintptr_t *)(uintptr_t)(uint32_t)(__r >> 32); }   /* T40-SHL64: __ashldi3 lo:hi restored */   /* OEM 0x2685c: __ashldi3(244(sp), 0, s0) */
 
