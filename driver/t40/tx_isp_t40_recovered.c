@@ -72496,6 +72496,7 @@ int32_t tisp_ct_update(uint32_t a0, uint32_t a1)
     if (_bc_v0_3) { goto tisp_ct_update0x54; }
 
     /* fragment 4: CallSetup */
+    regtrace_t40_awb_step = 41;   /* T40-AWB-STEP ct_update */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ccm_main_ct_update)(s2, s3); /* jalr target resolved by relocation */
 
     /* fragment 5: Arithmetic */
@@ -72520,6 +72521,7 @@ tisp_ct_update0x54:
        tisp_lsc_prepare_write_lut never ran. */
     local_14 = *(uint32_t *)((char *)((char *)&fnum + 0x4));
     local_10 = *(uint32_t *)((char *)((char *)&fnum));
+    regtrace_t40_awb_step = 42;   /* T40-AWB-STEP ct_update */
     v0 = (uintptr_t *)(uintptr_t)tisp_lsc_ct_update(0, (uint32_t)(uintptr_t)s3, (uint32_t)(uintptr_t)s2, (uint32_t)(uintptr_t)s3, (uint32_t)(uintptr_t)local_10, local_14);
 
     /* fragment 8: Arithmetic */
@@ -72532,6 +72534,7 @@ tisp_ct_update0x8c:
     if (_bc_v0_9) { goto tisp_ct_update0xa4; }
 
     /* fragment 10: CallSetup */
+    regtrace_t40_awb_step = 43;   /* T40-AWB-STEP ct_update */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_main_ct_update)(s2, s3); /* jalr target resolved by relocation */
 
 tisp_ct_update0xa4:
@@ -72546,10 +72549,12 @@ tisp_ct_update0xa4:
        pair, forced to sensor index 0. */
     local_14 = *(uint32_t *)((char *)((char *)&fnum + 0x4));
     local_10 = *(uint32_t *)((char *)((char *)&fnum));
+    regtrace_t40_awb_step = 44;   /* T40-AWB-STEP ct_update */
     v0 = (uintptr_t *)(uintptr_t)tisp_clm_ct_update(0, (uint32_t)(uintptr_t)s3, (uint32_t)(uintptr_t)s2, (uint32_t)(uintptr_t)s3, (uint32_t)(uintptr_t)local_10, local_14);
 
     /* fragment 14: Epilogue */
     /* function epilogue: restore registers and return */
+    regtrace_t40_awb_step = 40;   /* T40-AWB-STEP ct_update done */
     return (int32_t)v0;
 
 tisp_ct_update0xe0:
@@ -72562,6 +72567,7 @@ tisp_ct_update0xe0:
     /* fragment 17: Epilogue */
     /* function epilogue: restore registers and return */
 
+    regtrace_t40_awb_step = 40;   /* T40-AWB-STEP ct_update done */
     return 0;
 }
 
@@ -106193,6 +106199,7 @@ int64_t tisp_awb_main_process(void)
      * the real structs (pstMainAwbOri[128]=0x200, pstMainAwbCtDetectOri[34]=0x88).
      */
     /* fragment 0: CallSetup */
+    { static unsigned int n; if (n++ < 2) printk(KERN_INFO "tx_isp_t40_recovered: AWBTAB pstMainAwbOri=%p [0]=%x [38]=%x [39]=%x [115]=%x [127]=%x outer=%x inter=%x CtDetectOri=%p [33]=%x\n", (void *)&pstMainAwbOri, pstMainAwbOri[0], pstMainAwbOri[38], pstMainAwbOri[39], pstMainAwbOri[115], pstMainAwbOri[127], (unsigned)stMainAwbOuter, (unsigned)stMainAwbInter, (void *)&pstMainAwbCtDetectOri, pstMainAwbCtDetectOri[33]); }   /* T40-AWBTAB-DIAG */
     regtrace_t40_awb_step = 1;   /* T40-AWB-STEP */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_long_par_update)(&pstMainAwbOri, &pstMainAwbCtDetectOri, *(uint32_t *)((char *)((char *)&stMainAwbInter))); /* jalr target resolved by relocation */
 
