@@ -101093,439 +101093,62 @@ int32_t tisp_awb_gain_reg(int32_t *arg1, int32_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000030dcc origin=fragment_seed original=tisp_awb_set_gain */
 int64_t tisp_awb_set_gain(uintptr_t a0, uint32_t a1)
 {
-    regtrace_t40_awb_step = 24;   /* T40-AWB-STEP entry */
-    /*
-     * T40-AWB-SEGV: a0 is the AWB context pointer only until fragments
-     * 12/13 reassign it - the OEM used $4 as a scratch register.  The
-     * AWBGAIN trace at label tisp_awb_set_gain0x210 needs the context, so
-     * keep the entry value in its own variable instead of reading the
-     * scratch value as a pointer.
-     */
-    uintptr_t awb_main_ctx_entry = a0;
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t local_48 = 0;
-    uint32_t local_4c = 0;
-    uint32_t local_50 = 0;
-    uint32_t local_54 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_5c = 0;
-    uint32_t local_60 = 0;
-    uint32_t local_64 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uint32_t t0 = 0;
-    uint32_t *t1 = 0;
-    uint32_t *t2 = 0;
-    uint32_t *t3 = 0;
-    uintptr_t *t4 = 0;
-    uint32_t *t5 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 12);
-    s1 = 1;
-    t4 = *(uint32_t *)((char *)a0 + 36);
-    t3 = *(uint16_t *)((char *)v0 + 0);
-    s4 = *(uint16_t *)((char *)v0 + 2);
-    s3 = *(uint32_t *)((char *)a0 + 232);
-    s2 = a1;
-    v0 = (uintptr_t)t3 - (uintptr_t)s4;
-    v0 = (uintptr_t)s1 << (uintptr_t)v0;
-    local_1c = v0;
-    local_18 = v0;
-    v0 = *(uint32_t *)((char *)a0 + 144);
-    t5 = (uint32_t *)((uintptr_t)t3 - 10);   /* T40-PTRSTEP: byte add (OEM addiu) */
-    t2 = (uint32_t *)&fix_point_mult2_32;
-    a3 = *(uint32_t *)((char *)v0 + 0);
-    v1 = *(uint32_t *)((char *)v0 + 4);
-    t1 = *(uint32_t *)((char *)v0 + 12);
-    t0 = *(uint32_t *)((char *)v0 + 28);
-    s5 = *(uint32_t *)((char *)v0 + 8);
-    s7 = *(uint32_t *)((char *)v0 + 16);
-    s6 = *(uint32_t *)((char *)v0 + 20);
-    s8 = *(uint32_t *)((char *)v0 + 24);
-    v0 = *(uint32_t *)((char *)a0 + 20);
-    local_3c = a3;
-    local_38 = v1;
-    local_34 = t1;
-    local_30 = t0;
-    a1 = *(uint32_t *)((char *)v0 + 16);
-    v0 = *(uint32_t *)((char *)v0 + 20);
-    s0 = a0;
-
-    /* fragment 2: CallSetup */
-    local_18 = a1;
-    local_1c = v0;
-    local_2c = t4;
-    local_28 = t5;
-    local_24 = t3;
-    local_20 = (uint32_t *)&fix_point_mult2_32;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)t3, a1 << (uintptr_t)s4, (*(uint32_t *)((char *)((uintptr_t)t4) + 0)) << (uintptr_t)t5); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    s1 = (uintptr_t)s1 << ((uintptr_t)s4 - 1);
-    t4 = local_2c;
-    local_18 = ((uintptr_t)v0 + (uintptr_t)s1) >> (uintptr_t)s4;
-    t5 = local_28;
-    t3 = local_24;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)((uintptr_t)local_24, local_1c << (uintptr_t)s4, (*(uint32_t *)((char *)(local_2c) + 4)) << local_28); /* jalr target resolved by relocation */
-
-    /* fragment 4: Arithmetic */
-    v0 = (uintptr_t)s1 + (uintptr_t)v0;
-    v0 = (uintptr_t)v0 >> (uintptr_t)s4;
-
-    /* fragment 5: StackAccess */
-    local_1c = v0;
-    v0 = *(uint32_t *)((char *)s0 + 496);
-    t0 = local_30;
-    t1 = local_34;
-    a0 = *(uint16_t *)((char *)v0 + 0);
-    v1 = local_38;
-    a3 = local_3c;
-    *(uint16_t *)((char *)v0 + 4) = a0;
-    v0 = *(uint32_t *)((char *)s0 + 496);
-    a0 = *(uint16_t *)((char *)v0 + 2);
-    *(uint16_t *)((char *)v0 + 6) = a0;
-    a0 = local_18;
-    v0 = 65536;
-    a1 = *(uint32_t *)((char *)s0 + 496);
-
-    /* fragment 6: Unknown */
-    /* unmatched fragment 6 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 30f1c:	0044001b 	divu	zero,v0,a0 */
-
-    /* fragment 7: Arithmetic */
-    /* unmatched fragment 7 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 30f20:	00002012 	mflo	a0 */
-    a0 = (typeof(a0))(uintptr_t)((uint32_t)(uintptr_t)a0 ? ((uint32_t)(uintptr_t)v0 / (uint32_t)(uintptr_t)a0) : 0);   /* T40-DIV-RESTORE: divu v0,a0 ; mflo a0 */
-
-    /* fragment 8: MemoryAccess */
-    *(uint16_t *)((char *)a1 + 0) = a0;
-    a0 = local_1c;
-    a1 = *(uint32_t *)((char *)s0 + 496);
-
-    /* fragment 9: Unknown */
-    /* unmatched fragment 9 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 30f30:	0044001b 	divu	zero,v0,a0 */
-
-    /* fragment 10: Arithmetic */
-    /* unmatched fragment 10 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 30f34:	00001012 	mflo	v0 */
-    v0 = (typeof(v0))(uintptr_t)((uint32_t)(uintptr_t)a0 ? ((uint32_t)(uintptr_t)v0 / (uint32_t)(uintptr_t)a0) : 0);   /* T40-DIV-RESTORE: divu v0,a0 ; mflo v0 */
-
-    /* fragment 11: MemoryAccess */
-    *(uint16_t *)((char *)a1 + 2) = v0;
-    v0 = *(uint32_t *)((char *)s0 + 480);
-    a0 = *(uint8_t *)((char *)v0 + 0);
-    v0 = (uintptr_t *)((uintptr_t)a0 - 1);   /* T40-PTRSTEP: byte add (OEM addiu) */
-    v0 = v0 < 8;
-
-    /* fragment 12: Branch */
-    int _bc_v0_12 = v0 == 0;
-    v0 = 9;
-    if (_bc_v0_12) { goto tisp_awb_set_gain0x328; }
-
-    /* fragment 13: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 488);
-    a0 = *(uint16_t *)((char *)v0 + 0);
-    local_18 = a0;
-    v0 = *(uint16_t *)((char *)v0 + 2);
-    a0 = *(uint32_t *)((char *)s0 + 484);
-    local_1c = v0;
-    a0 = *(uint32_t *)((char *)a0 + 0);
-    v0 = *(uint32_t *)((char *)s0 + 28);
-    *(uint32_t *)((char *)v0 + 0) = a0;
-
-tisp_awb_set_gain0x1ac:
-    /* fragment 14: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 28);
-    a1 = *(uint32_t *)((char *)s0 + 224);
-    a0 = *(uint32_t *)((char *)v0 + 0);
-    v0 = *(uint32_t *)((char *)a1 + 0);
-    a2 = v0 < a0;
-
-    /* fragment 15: Branch */
-    if (a2 == 0) { goto tisp_awb_set_gain0x364; }
-
-    /* fragment 16: Arithmetic */
-    v0 = a0 - (uintptr_t)v0;
-
-tisp_awb_set_gain0x1cc:
-    /* fragment 17: Arithmetic */
-    v0 = v0 < 200;
-
-    /* fragment 18: Branch */
-    if (v0 == 0) { goto tisp_awb_set_gain0x1ec; }
-
-    /* fragment 19: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 472);
-    a2 = *(uint8_t *)((char *)v0 + 0);
-    v0 = 1;
-
-    /* fragment 20: Branch */
-    int _bc_a2_20 = a2 != v0;
-    v0 = local_18;
-    if (_bc_a2_20) { goto tisp_awb_set_gain0x210; }
-
-tisp_awb_set_gain0x1ec:
-    /* fragment 21: MemoryAccess */
-    *(uint32_t *)((char *)a1 + 0) = a0;
-    v0 = *(uint32_t *)((char *)s0 + 28);
-    v0 = *(uint32_t *)((char *)v0 + 0);
-    t0 = v0 < t0;
-
-    /* fragment 22: Branch */
-    if (t0 != 0) { goto tisp_awb_set_gain0x36c; }
-
-    /* fragment 23: CallSetup */
-    *(uint32_t *)((char *)s3 + 0) = a3;
-    *(uint32_t *)((char *)s3 + 4) = v1;
-
-tisp_awb_set_gain0x20c:
-    /* fragment 24: CallSetup */
-    v0 = local_18;
-
-tisp_awb_set_gain0x210:
-    /* fragment 25: CallSetup */
-    local_18 = (((uintptr_t)v0 << 2) - 1024) + (*(uint32_t *)((char *)((uintptr_t)s3) + 0));
-    local_1c = ((local_1c << 2) - 1024) + (*(uint32_t *)((char *)((uintptr_t)s3) + 4));
-    {
-        /*
-         * T40-AWB-SEGV: resolve the two context slots from the value a0
-         * held on entry.  By the time this trace runs a0 has been reused
-         * as a scratch register (fragments 12/13), so reading (a0 + 12)
-         * dereferenced a plain data value: on the 2026-10-13 device run it
-         * was 0x1561, the load at 0x156d raised AdEL "Unhandled kernel
-         * unaligned access" inside t40_devtest and killed it with SIGSEGV.
-         * The guards also keep the trace safe if set_gain ever runs before
-         * tisp_awb_params_transmit() filled the pointer table.
-         */
-        static uint32_t _awbg_trace;
-        uint32_t _awbg_p12 = awb_main_ctx_entry ?
-            *(uint32_t *)((char *)awb_main_ctx_entry + 12) : 0;
-        uint32_t _awbg_p20 = awb_main_ctx_entry ?
-            *(uint32_t *)((char *)awb_main_ctx_entry + 20) : 0;
-        if (_awbg_trace++ < 8)
-            printk(KERN_INFO "tx_isp_t40_recovered: AWBGAIN ctx=%p v0=%u s4(shift)=%u p12=0x%08x p12+2=%u p20=0x%08x p20+20=%u base_r=%u -> rgain=%d bgain=%d\n",
-                   (void *)awb_main_ctx_entry,
-                   (uint32_t)(uintptr_t)v0, (uint32_t)(uintptr_t)s4,
-                   _awbg_p12,
-                   _awbg_p12 ? *(uint16_t *)((char *)(uintptr_t)_awbg_p12 + 2) : 0xffff,
-                   _awbg_p20,
-                   _awbg_p20 ? *(uint32_t *)((char *)(uintptr_t)_awbg_p20 + 20) : 0xffffffff,
-                   *(uint32_t *)((char *)((uintptr_t)s3) + 0),
-                   (int)(uintptr_t)local_18, (int)local_1c);
+    /* Hand translation of OEM tisp_awb_set_gain (Eufy ko 0x30ff8, 1336 bytes).  Applies the convergence state's current
+     * gains (*ctx[5])[4..5] scaled by the base gains ctx[9], handles the manual modes *ctx[120] (1..8 fixed ctx[122],
+     * 9 = scaled), selects the CT-dependent offset pair ctx[58] from the limits ctx[36] and writes the AWB gain registers
+     * 0x4004../0x5004.. (ch0) via tisp_awb_gain_reg.  The wide/tele path (awb_wide_tele_para[0]==1 && [1]==ch) only applies
+     * to the second channel and is not translated (one-shot note). */
+    uint32_t *ctx = (uint32_t *)a0;
+    const uint16_t *sh = (const uint16_t *)(uintptr_t)ctx[3];
+    const uint32_t *g9 = (const uint32_t *)(uintptr_t)ctx[9], *lim = (const uint32_t *)(uintptr_t)ctx[36], *s6 = (const uint32_t *)(uintptr_t)ctx[5];
+    uint32_t *o58 = (uint32_t *)(uintptr_t)ctx[58];
+    uint16_t *inv124 = (uint16_t *)(uintptr_t)ctx[124];
+    static uint16_t wide_tele_awb_gain[2][2] = { { 1024, 1024 }, { 1024, 1024 } };   /* OEM .data wide_tele_awb_gain */
+    uint32_t t4, s5, rnd, gr, gb, mode, ct, prev, d;
+    int32_t gain_in[2], gain_out[4] = { 256, 256, 256, 256 };
+    if (!regtrace_is_kernel_ptr(ctx) || !sh || !g9 || !lim || !s6 || !o58 || !inv124 || !ctx[7] || !ctx[56] || !ctx[118] || !ctx[119] || !ctx[120] || !ctx[122] || !ctx[121]) return 0;
+    t4 = sh[0]; s5 = sh[1]; rnd = 1U << (s5 - 1);
+    gr = ((uint32_t)fix_point_mult2_32((int32_t)t4, (int32_t)(s6[4] << s5), (int32_t)(g9[0] << (t4 - 10))) + rnd) >> s5;
+    gb = ((uint32_t)fix_point_mult2_32((int32_t)t4, (int32_t)(s6[5] << s5), (int32_t)(g9[1] << (t4 - 10))) + rnd) >> s5;
+    wide_tele_awb_gain[a1 & 1][0] = (uint16_t)gr; wide_tele_awb_gain[a1 & 1][1] = (uint16_t)gb;
+    if (a1 == 1U) { static unsigned int n; if (n++ < 1) printk(KERN_INFO "tx_isp_t40_recovered: awb_set_gain: wide/tele gain path for ch1 not translated\n"); }
+    inv124[2] = inv124[0]; inv124[3] = inv124[1];
+    inv124[0] = (uint16_t)(gr ? 0x10000U / gr : 0); inv124[1] = (uint16_t)(gb ? 0x10000U / gb : 0);
+    mode = *(uint8_t *)(uintptr_t)ctx[120];
+    if (mode >= 1U && mode <= 8U) {
+        const uint16_t *m = (const uint16_t *)(uintptr_t)ctx[122];
+        gr = m[0]; gb = m[1];
+        *(uint32_t *)(uintptr_t)ctx[7] = *(uint32_t *)(uintptr_t)ctx[121];
+    } else if (mode == 9U) {
+        const uint16_t *m = (const uint16_t *)(uintptr_t)ctx[122];
+        gr = ((m[0] + 64U) * gr) >> 6; gb = ((m[1] + 64U) * gb) >> 6;
     }
-    /*
-     * tisp_awb_gain_reg reads arg1[0]/arg1[1] (rgain,bgain) and writes
-     * arg2[0]/arg2[1] (packed rgain,bgain). The OEM frame has local_18@0x18 /
-     * local_1c@0x1c and local_10@0x10 / local_14@0x14 as ADJACENT slot pairs;
-     * the reconstruction declared them as separate scalars, so &local_18+4 and
-     * &local_10+4 read/write unrelated stack -> bgain came back as a stack
-     * garbage pointer (e.g. -2141316532). Marshal through contiguous 2-word
-     * temporaries so the pair ABI holds regardless of compiler slot placement.
-     */
-    {
-        uint32_t _gr_in[2];
-        uint32_t _gr_out[2] = { 0, 0 };
-
-        _gr_in[0] = (uint32_t)(uintptr_t)local_18; /* rgain */
-        _gr_in[1] = (uint32_t)local_1c;            /* bgain */
-        v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_gain_reg)((uintptr_t)_gr_in, (uintptr_t)_gr_out); /* jalr target resolved by relocation */
-        local_10 = (uint32_t *)(uintptr_t)_gr_out[0]; /* packed rgain */
-        local_14 = _gr_out[1];                        /* packed bgain */
+    ct = *(uint32_t *)(uintptr_t)ctx[7]; prev = *(uint32_t *)(uintptr_t)ctx[56];
+    d = (prev < ct) ? ct - prev : prev - ct;
+    if (d >= 200U || *(uint8_t *)(uintptr_t)ctx[118] == 1U) {
+        *(uint32_t *)(uintptr_t)ctx[56] = ct;
+        if (ct < lim[7]) {
+            if (lim[6] < ct) { o58[0] = lim[2]; o58[1] = lim[3]; }
+            else { o58[0] = lim[4]; o58[1] = lim[5]; }
+        } else { o58[0] = lim[0]; o58[1] = lim[1]; }
     }
-
-    /* fragment 26: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 476);
-    v0 = *(uint8_t *)((char *)v0 + 0);
-
-    /* fragment 27: Branch */
-    s1 = (uintptr_t *)&system_reg_write;
-    if (v0 != 0) { goto tisp_awb_set_gain0x2f0; }
-
-    /* fragment 28: StackAccess */
-    a1 = local_10;
-
-    /* fragment 29: Branch */
-    s1 = (uintptr_t *)&system_reg_write;
-    if (s2 != 0) { goto tisp_awb_set_gain0x390; }
-
-    /* fragment 30: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(16388, a1); /* jalr target resolved by relocation */
-
-    /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(16392, local_14); /* jalr target resolved by relocation */
-
-    /* fragment 32: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(16396, local_10); /* jalr target resolved by relocation */
-
-    /* fragment 33: CallSetup */
-    a1 = local_14;
-    a0 = 16400;
-
-tisp_awb_set_gain0x294:
-    /* fragment 34: CallSetup */
-    s3 = (uint32_t *)&system_reg_set_awb_trig;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, a1); /* jalr target resolved by relocation */
-
-    /* fragment 35: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_set_awb_trig)(2, s2); /* jalr target resolved by relocation */
-
-    /* fragment 36: Branch */
-    a1 = local_10;
-    if (s2 != 0) { goto tisp_awb_set_gain0x3bc; }
-
-    /* fragment 37: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(20484, a1); /* jalr target resolved by relocation */
-
-    /* fragment 38: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(20488, local_14); /* jalr target resolved by relocation */
-
-    /* fragment 39: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(20492, local_10); /* jalr target resolved by relocation */
-
-    /* fragment 40: CallSetup */
-    a1 = local_14;
-    a0 = 20496;
-
-tisp_awb_set_gain0x2dc:
-    /* fragment 41: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, a1); /* jalr target resolved by relocation */
-
-    /* fragment 42: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_set_awb_trig)(3, s2); /* jalr target resolved by relocation */
-
-tisp_awb_set_gain0x2f0:
-    /* fragment 43: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 472);
-    *(uint8_t *)((char *)v0 + 0) = 0;
-    ra = local_64;
-    s8 = local_60;
-    s7 = local_5c;
-    s6 = local_58;
-    s5 = local_54;
-    s4 = local_50;
-    s3 = local_4c;
-    s2 = local_48;
-    s1 = local_44;
-    s0 = local_40;
-
-    /* fragment 44: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_awb_set_gain0x328:
-    /* fragment 45: Branch */
-    a1 = local_18;
-    if (a0 != v0) { goto tisp_awb_set_gain0x1ac; }
-
-    /* fragment 46: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s0 + 488);
-    v0 = *(uint16_t *)((char *)a0 + 0);
-    v0 = (uintptr_t *)((uintptr_t)v0 + 64);   /* T40-PTRSTEP: byte add (OEM addiu) */
-    v0 = (uintptr_t)v0 * a1;
-    v0 = (uintptr_t)v0 >> 6;
-    local_18 = v0;
-    v0 = *(uint16_t *)((char *)a0 + 2);
-    a0 = local_1c;
-    v0 = (uintptr_t *)((uintptr_t)v0 + 64);   /* T40-PTRSTEP: byte add (OEM addiu) */
-    v0 = (uintptr_t)v0 * a0;
-    v0 = (uintptr_t)v0 >> 6;
-
-    /* fragment 47: Branch */
-    local_1c = v0;
-    goto tisp_awb_set_gain0x1ac;
-
-tisp_awb_set_gain0x364:
-    /* fragment 48: Branch */
-    v0 = v0 - a0;
-    goto tisp_awb_set_gain0x1cc;
-
-tisp_awb_set_gain0x36c:
-    /* fragment 49: Arithmetic */
-    s8 = s8 < v0;
-
-    /* fragment 50: Branch */
-    if (s8 != 0) { goto tisp_awb_set_gain0x384; }
-
-    /* fragment 51: MemoryAccess */
-    *(uint32_t *)((char *)s3 + 0) = s7;
-
-    /* fragment 52: Branch */
-    *(uint32_t *)((char *)s3 + 4) = s6;
-    goto tisp_awb_set_gain0x20c;
-
-tisp_awb_set_gain0x384:
-    /* fragment 53: MemoryAccess */
-    *(uint32_t *)((char *)s3 + 0) = s5;
-
-    /* fragment 54: Branch */
-    *(uint32_t *)((char *)s3 + 4) = t1;
-    goto tisp_awb_set_gain0x20c;
-
-tisp_awb_set_gain0x390:
-    /* fragment 55: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(16420, a1); /* jalr target resolved by relocation */
-
-    /* fragment 56: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(16424, local_14); /* jalr target resolved by relocation */
-
-    /* fragment 57: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(16428, local_10); /* jalr target resolved by relocation */
-
-    /* fragment 58: StackAccess */
-    a1 = local_14;
-
-    /* fragment 59: Branch */
-    a0 = 16432;
-    goto tisp_awb_set_gain0x294;
-
-tisp_awb_set_gain0x3bc:
-    /* fragment 60: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(20516, a1); /* jalr target resolved by relocation */
-
-    /* fragment 61: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(20520, local_14); /* jalr target resolved by relocation */
-
-    /* fragment 62: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(20524, local_10); /* jalr target resolved by relocation */
-
-    /* fragment 63: StackAccess */
-    a1 = local_14;
-
-    /* fragment 64: Branch */
-    a0 = 20528;
-    goto tisp_awb_set_gain0x2dc;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    gain_in[0] = (int32_t)((gr << 2) - 1024U + o58[0]);
+    gain_in[1] = (int32_t)((gb << 2) - 1024U + o58[1]);
+    (void)tisp_awb_gain_reg(gain_in, gain_out);
+    { static unsigned int n; if (n++ < 8 || regtrace_t40_ae_diag >= 2)
+        printk(KERN_INFO "tx_isp_t40_recovered: AWBGAIN2 state=%u step=%u tgt=%u/%u cur=%u/%u base=%u/%u -> gr=%u gb=%u ct=%u off=%u/%u reg=%d/%d mode=%u\n",
+               s6[0], s6[1], s6[2], s6[3], s6[4], s6[5], g9[0], g9[1], gr, gb, ct, o58[0], o58[1], gain_out[0], gain_out[1], mode); }
+    if (*(uint8_t *)(uintptr_t)ctx[119] == 0U) {
+        uint32_t b4 = a1 ? 0x4024U : 0x4004U, b5 = a1 ? 0x5024U : 0x5004U;
+        system_reg_write(b4, (uint32_t)gain_out[0]); system_reg_write(b4 + 4, (uint32_t)gain_out[1]);
+        system_reg_write(b4 + 8, (uint32_t)gain_out[0]); system_reg_write(b4 + 12, (uint32_t)gain_out[1]);
+        (void)system_reg_set_awb_trig(2, a1);
+        system_reg_write(b5, (uint32_t)gain_out[0]); system_reg_write(b5 + 4, (uint32_t)gain_out[1]);
+        system_reg_write(b5 + 8, (uint32_t)gain_out[0]); system_reg_write(b5 + 12, (uint32_t)gain_out[1]);
+        (void)system_reg_set_awb_trig(3, a1);
+    }
+    *(uint8_t *)(uintptr_t)ctx[118] = 0;
+    return 0;
 }
 
 static void *regtrace_awb_main_inter_alloc(void)
