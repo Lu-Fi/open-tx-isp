@@ -64775,20 +64775,8 @@ int32_t fix_point_mult3_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, u
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016cf0 origin=fragment_seed original=fix_point_div_64 */
 int32_t fix_point_div_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5)
 {
-    uint32_t t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: Unknown */
-    /* unmatched fragment 1 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 16cf8:	03200408 	jr.hb	t9 */
-
-    /* fragment 2: Unknown */
-    /* unmatched fragment 2 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 16cfc:	00000000 	nop */
-
-    return 0;
+    /* OEM 0x17710: lui/addiu t9,fix_point_div ; jr.hb t9 - a tail-call thunk (the lift returned 0). */
+    return fix_point_div((int32_t)a0, (int32_t)a1, (int32_t)a2, (int32_t)a3, (int32_t)arg4, (int32_t)arg5);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000016d00 origin=fragment_seed original=fix_point_add_32 */
@@ -79689,10 +79677,24 @@ int64_t tisp_event_process(uint32_t a0)
                     regtrace_vendor_per_frame_regs[8 + event] + 1;
         }
         cb = (regtrace_tisp_event_callback_t)cb_ptr;
+    {   /* T40-EVSTAT: per-event dispatch count and max callback time (us), printed every 256 dispatches */
+        static uint32_t ev_n[2], ev_max_us[2], ev_last_us[2];
+        unsigned int slot = (event == 14U) ? 1U : 0U;
+        unsigned long long t0 = sched_clock();
         cb_ret = cb(node->args[0], node->args[1],
                     node->args[2], node->args[3],
                     node->args[4], node->args[5],
                     node->args[6], node->args[7]);
+        if (event == 1U || event == 14U) {
+            uint32_t us = (uint32_t)((sched_clock() - t0) >> 10);
+            ev_n[slot]++;
+            ev_last_us[slot] = us;
+            if (us > ev_max_us[slot]) ev_max_us[slot] = us;
+            if ((ev_n[slot] & 0xffU) == 1U)
+                printk(KERN_INFO "tx_isp_t40_recovered: EVSTAT ev1 n=%u last=%uus max=%uus | ev14 n=%u last=%uus max=%uus | ret=%d\n",
+                       ev_n[0], ev_last_us[0], ev_max_us[0], ev_n[1], ev_last_us[1], ev_max_us[1], (int)cb_ret);
+        }
+    }
         if (pf_on) {
             /* T40-VENDOR-PER-FRAME: did the vendor 3A entry change what the
              * W-LUT refresh polls?  One hash per window, before/after. */
@@ -86558,7 +86560,13 @@ int32_t tisp_ae_long_weight_mean2(int32_t arg1, int32_t (*arg2)(int32_t arg1, in
         !regtrace_is_kernel_ptr(st84) || !regtrace_is_kernel_ptr(st88) || !regtrace_is_kernel_ptr(st96) ||
         !regtrace_is_kernel_ptr(st100) || !regtrace_is_kernel_ptr(out136) || !regtrace_is_kernel_ptr(w336) ||
         !regtrace_is_kernel_ptr(w340) || !regtrace_is_kernel_ptr(w344) || !regtrace_is_kernel_ptr(cnt))
+    {
+        static unsigned int n;
+        if (regtrace_t40_ae_diag && n++ < 2)
+            printk(KERN_INFO "tx_isp_t40_recovered: AEWM2 GUARD ch=%d hw=%p par=%p st80=%p st84=%p st88=%p st96=%p st100=%p out136=%p w336=%p w340=%p w344=%p cnt=%p\n",
+                   arg1, hw, par, st80, st84, st88, st96, st100, out136, w336, w340, w344, cnt);
         return 0;
+    }
     zx = hw[3]; zy = hw[1]; h68 = hw[34]; h70 = hw[35];
     if (cnt[0] == 0) {
         uint32_t a = cnt[1] - 1;
@@ -86628,6 +86636,17 @@ int32_t tisp_ae_long_weight_mean2(int32_t arg1, int32_t (*arg2)(int32_t arg1, in
     s1 = c80 << sh;
     arg6[0] = fix_point_div_32((int32_t)sh, (int32_t)(s8 << sh), (int32_t)s1);
     arg6[1] = fix_point_div_32((int32_t)sh, (int32_t)(s7 << sh), (int32_t)s1);
+    {
+        static unsigned int n;
+        if (regtrace_t40_ae_diag && n++ < 3)
+            printk(KERN_INFO "tx_isp_t40_recovered: AEWM2 ch=%d z=%ux%u sh=%u cnt=%d,%d s2=%u par9=%u st80[0..3]=%x %x %x %x w336[0..3]=%u %u %u %u sum=%x:%x wsum=%x:%x -> mean=%d r0=%d r1=%d o56=%d o64=%u o60=%u c80=%x s7=%x s8=%x\n",
+                   arg1, zx, zy, sh, arg3, arg4, s2, par[9],
+                   ((const uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 80))[0], ((const uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 80))[1],
+                   ((const uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 80))[2], ((const uint32_t *)(uintptr_t)*(const uint32_t *)(ctx + 80))[3],
+                   ((const uint8_t *)(uintptr_t)*(const uint32_t *)(ctx + 336))[0], ((const uint8_t *)(uintptr_t)*(const uint32_t *)(ctx + 336))[1],
+                   ((const uint8_t *)(uintptr_t)*(const uint32_t *)(ctx + 336))[2], ((const uint8_t *)(uintptr_t)*(const uint32_t *)(ctx + 336))[3],
+                   t6, t3, c84, t4, *arg5, arg6[0], arg6[1], *arg7, *arg8, *arg9, c80, s7, s8);
+    }
     return 0;
 }
 
@@ -106305,7 +106324,7 @@ tisp_awb_main_process0xec:
 
 tisp_awb_main_process0x104:
     /* fragment 17: Branch */
-    *(uint8_t *)((char *)v1 + 16708) = 0;
+    awb_num = 0;   /* OEM 0x345a4: sb zero,awb_num (.bss+17364) - the lift stored to isp_memopt+16708, an unrelated .bss byte */
     goto tisp_awb_main_process0xec;
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
