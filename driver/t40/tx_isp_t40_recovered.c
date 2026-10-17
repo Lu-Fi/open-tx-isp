@@ -131536,7 +131536,7 @@ int32_t tisp_gamma_real_write_lut(uint32_t a0)
 tisp_gamma_real_write_lut0x5c:
     /* fragment 6: CallSetup */
     local_20 = (uintptr_t)s2 << 2;
-    local_1c = (uintptr_t)&isp_memopt;
+    local_1c = (uintptr_t)((char *)&gamma_para + 17184);   /* T40-BSS: gamma ctx table (.bss+17840), the lift resolved it to &isp_memopt */
     s3 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(((uintptr_t)s2 << 2) + local_1c) + 0)) + 8);
     s1 = (uintptr_t *)&system_reg_write;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)((*(uint32_t *)((char *)(((uintptr_t)s2 << 2) + local_1c) + 0)) + 20, &local_10); /* jalr target resolved by relocation */
@@ -131722,7 +131722,8 @@ int32_t tisp_gamma_strength_transform(uint32_t a0)
     v0 = ((char *)&gamma_para);
 
     /* fragment 1: MemoryAccess */
-    v1 = *(uint32_t *)((char *)a0 + 0);
+    v1 = *(uint32_t *)(((char *)&gamma_para + 17184) + ((uintptr_t)a0 << 2));   /* T40-ZEROBASE: gamma ctx of channel a0 */
+    if (!regtrace_is_kernel_ptr((void *)(uintptr_t)v1)) return 0;
     a0 = 1;
     v0 = *(uint32_t *)((char *)v1 + 16);
     a1 = *(uint8_t *)((char *)v0 + 5);
@@ -132286,7 +132287,7 @@ int32_t tisp_gamma_init(uint32_t a0)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(24, 37748736 + 192); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    s0 = s5 + &isp_memopt;
+    s0 = s5 + ((char *)&gamma_para + 17184);   /* T40-BSS: gamma ctx table (.bss+17840), the lift resolved it to &isp_memopt */
     *(uint32_t *)((char *)s0 + 0) = v0;
     v0 = (uintptr_t *)memset((void *)(uintptr_t)v0, 0, 24); /* jalr target resolved by relocation */
 
@@ -132368,7 +132369,7 @@ int32_t tisp_gamma_init(uint32_t a0)
 
     /* fragment 17: CallSetup */
     local_10 = 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gamma_interp_by_ev)(s4); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_gamma_interp_by_ev((uint32_t)(uintptr_t)s4, 0, *(uint32_t *)(uintptr_t)*(uint32_t *)((char *)(uintptr_t)*(uint32_t *)((char *)s0 + 0) + 16), 0, 1);   /* T40-ARGS (OEM 0x4981c..0x49838: a2 = *ctx[16], a3 = 0, 16(sp) = 1) */
 
     /* fragment 18: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gamma_strength_transform)(s4); /* jalr target resolved by relocation */
