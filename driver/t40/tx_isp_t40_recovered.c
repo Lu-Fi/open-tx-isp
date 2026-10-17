@@ -87657,7 +87657,7 @@ tisp_ae_long_tune20x7a4:
     /* fragment 122: CallSetup */
 /* fragment 122: 64-bit shift: (local_7c, 0) << s0 */
     {
-        uint64_t shift_val = ((uint64_t)0 << 32) | (uint64_t)local_7c;
+        uint64_t shift_val = ((uint64_t)0 << 32) | (uint64_t)(uint16_t)local_7c;
         uint64_t result = shift_val << (uintptr_t)s0;
         v0 = (uintptr_t *)result;
         v1 = (int32_t *)(result >> 32);
@@ -87999,7 +87999,7 @@ tisp_ae_long_tune20xb20:
     local_88 = local_f0;
 /* fragment 189: 64-bit shift: (local_7e, 0) << s0 */
     {
-        uint64_t shift_val = ((uint64_t)0 << 32) | (uint64_t)local_7e;
+        uint64_t shift_val = ((uint64_t)0 << 32) | (uint64_t)(uint16_t)local_7e;
         uint64_t result = shift_val << (uintptr_t)s0;
         v0 = (uintptr_t *)result;
         v1 = (int32_t *)(result >> 32);
@@ -88008,7 +88008,7 @@ tisp_ae_long_tune20xb20:
     /* fragment 190: CallSetup */
     local_110 = v0;
     local_114 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)__ashldi3)((uintptr_t)local_b0, 0, (uintptr_t)s0 << 1); /* jalr target resolved by relocation */
+    { uint64_t __r = (uint64_t)((uint32_t)(uintptr_t)local_b0) << (((uint32_t)(uintptr_t)s0 << 1) & 63U); v0 = (uintptr_t *)(uintptr_t)(uint32_t)__r; v1 = (uintptr_t *)(uintptr_t)(uint32_t)(__r >> 32); }   /* T40-SHL64: __ashldi3 lo:hi restored */
 
     /* fragment 191: StackAccess */
     local_124 = v0;
@@ -88050,7 +88050,7 @@ tisp_ae_long_tune20xb20:
     /* fragment 198: CallSetup */
     local_118 = v0;
     local_11c = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)__ashldi3)(local_b0 - local_b8, 0, s0); /* jalr target resolved by relocation */
+    { uint64_t __r = (uint64_t)((uint32_t)((uint32_t)(uintptr_t)local_b0 - local_b8)) << (((uint32_t)(uintptr_t)s0) & 63U); v0 = (uintptr_t *)(uintptr_t)(uint32_t)__r; v1 = (uintptr_t *)(uintptr_t)(uint32_t)(__r >> 32); }   /* T40-SHL64: __ashldi3 lo:hi restored */
 
     /* fragment 199: CallSetup */
     t0 = local_118;
@@ -88086,7 +88086,7 @@ tisp_ae_long_tune20xb20:
 
 tisp_ae_long_tune20xc58:
     /* fragment 206: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)__ashldi3)(local_7e, 0, s0); /* jalr target resolved by relocation */
+    { uint64_t __r = (uint64_t)((uint16_t)local_7e) << (((uint32_t)(uintptr_t)s0) & 63U); v0 = (uintptr_t *)(uintptr_t)(uint32_t)__r; v1 = (uintptr_t *)(uintptr_t)(uint32_t)(__r >> 32); }   /* T40-SHL64: __ashldi3 lo:hi restored */
 
     /* fragment 207: CallSetup */
     local_18 = local_98;
@@ -88148,7 +88148,7 @@ tisp_ae_long_tune20xd00:
 
 tisp_ae_long_tune20xd04:
     /* fragment 217: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)__ashldi3)(a0); /* jalr target resolved by relocation */
+    { uint64_t __r = (uint64_t)((uint32_t)(uintptr_t)a0) << (((uint32_t)(uintptr_t)s0) & 63U); v0 = (uintptr_t *)(uintptr_t)(uint32_t)__r; v1 = (uintptr_t *)(uintptr_t)(uint32_t)(__r >> 32); }   /* T40-SHL64: __ashldi3 lo:hi restored */   /* OEM 0x2685c: __ashldi3(244(sp), 0, s0) */
 
     /* fragment 218: StackAccess */
     a1 = local_a0;
@@ -88240,7 +88240,7 @@ tisp_ae_long_tune20xd7c:
 
 tisp_ae_long_tune20xdcc:
     /* fragment 238: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)__ashldi3)(local_7e, 0, s0); /* jalr target resolved by relocation */
+    { uint64_t __r = (uint64_t)((uint16_t)local_7e) << (((uint32_t)(uintptr_t)s0) & 63U); v0 = (uintptr_t *)(uintptr_t)(uint32_t)__r; v1 = (uintptr_t *)(uintptr_t)(uint32_t)(__r >> 32); }   /* T40-SHL64: __ashldi3 lo:hi restored */
 
     /* fragment 239: StackAccess */
     a0 = local_98;
