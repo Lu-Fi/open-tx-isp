@@ -1,3 +1,4 @@
+#define pr_fmt(fmt) "tx-isp: " fmt
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/miscdevice.h>
@@ -779,13 +780,6 @@ int awb_interrupt_static(void);
 int tisp_get_awb_info(void *out_buf);
 int tisp_set_awb_info(void *in_buf);
 irqreturn_t ispcore_interrupt_service_routine(int irq, void *dev_id);
-
-/* Debug macro for sensor functions */
-#define ISP_DEBUG(fmt, ...) \
-    do { \
-        if (print_level <= ISP_INFO_LEVEL) \
-            printk(KERN_DEBUG "ISP_DEBUG: " fmt, ##__VA_ARGS__); \
-    } while (0)
 
 /* ===== MISSING CONTINUOUS PROCESSING SYSTEM ===== */
 /* This is what generates the continuous register activity that your trace module captures */
@@ -2956,7 +2950,7 @@ static int isp_free_buffer(struct tx_isp_dev *isp, void *virt_addr, dma_addr_t p
     /* For rmem, we just unmap the virtual address */
     iounmap(virt_addr);
 
-    ISP_INFO("*** isp_free_buffer: Freed %d bytes from rmem at virt=%p, phys=0x%08x ***\n",
+    ISP_DEBUG("isp_free_buffer: freed %d bytes from rmem at virt=%p, phys=0x%08x\n",
              size, virt_addr, (uint32_t)phys_addr);
 
     return 0;
@@ -2984,7 +2978,7 @@ int tisp_channel_start(int channel_id, struct tx_isp_channel_attr *attr)
         return -EINVAL;
     }
 
-    ISP_INFO("*** tisp_channel_start: Starting channel %d ***\n", channel_id);
+    ISP_INFO("channel %u: starting\n", channel_id);
 
     if (msca_ch_en == ~0U)
         msca_ch_en = 0;
@@ -3068,7 +3062,7 @@ int tisp_channel_start(int channel_id, struct tx_isp_channel_attr *attr)
             system_reg_read(channel_base + 0x1c8),
             system_reg_read(channel_base + 0x1cc));
 
-    ISP_INFO("*** tisp_channel_start: Channel %d started successfully ***\n", channel_id);
+    ISP_INFO("channel %u: started\n", channel_id);
     return 0;
 }
 EXPORT_SYMBOL(tisp_channel_start);
@@ -3126,12 +3120,12 @@ static int frame_channel_vidioc_set_fmt(void *channel_dev, void __user *arg)
     /* Extract format type from buffer - this is the first field in V4L2 format structure */
     format_type = format.type;
 
-    ISP_INFO("frame_channel_vidioc_set_fmt: format_type=%d (V4L2_BUF_TYPE_*)\n", format_type);
+    ISP_DEBUG("frame_channel_vidioc_set_fmt: format_type=%d\n", format_type);
 
     /* Binary Ninja: Validate format type - more permissive validation */
     /* Accept V4L2_BUF_TYPE_VIDEO_CAPTURE (1) and V4L2_BUF_TYPE_VIDEO_OUTPUT (2) */
     if (format_type != 1 && format_type != 2) {
-        ISP_INFO("frame_channel_vidioc_set_fmt: Accepting format type %d anyway\n", format_type);
+        ISP_DEBUG("frame_channel_vidioc_set_fmt: accepting format type %d\n", format_type);
         /* Don't fail - just log and continue as the Binary Ninja reference might be more permissive */
     }
 
@@ -3144,7 +3138,7 @@ static int frame_channel_vidioc_set_fmt(void *channel_dev, void __user *arg)
     remote_sd = &isp_dev->channels[fcd->channel_num].subdev;
 
     /* Binary Ninja: tx_isp_send_event_to_remote(*(arg1 + 0x2bc), 0x3000002, &var_80) */
-    ISP_INFO("frame_channel_vidioc_set_fmt: Forwarding set format to core channel %d\n",
+    ISP_DEBUG("frame_channel_vidioc_set_fmt: forwarding to core channel %d\n",
              fcd->channel_num);
     event_ret = tx_isp_send_event_to_remote(remote_sd, TX_ISP_FRAME_EVENT_SET_FORMAT, &format);
 
@@ -3163,7 +3157,7 @@ static int frame_channel_vidioc_set_fmt(void *channel_dev, void __user *arg)
     if (event_ret == 0xfffffdfd)
         ispcore_store_channel_format(fcd->channel_num, &format);
 
-    ISP_INFO("frame_channel_vidioc_set_fmt: SUCCESS - Video format set\n");
+    ISP_DEBUG("frame_channel_vidioc_set_fmt: success\n");
     return 0;
 }
 
@@ -3191,7 +3185,7 @@ static int frame_channel_vidioc_get_fmt(void *channel_dev, void __user *arg)
         return -EFAULT;
     }
 
-    ISP_INFO("frame_channel_vidioc_get_fmt: SUCCESS - Returned channel %d format\n",
+    ISP_DEBUG("frame_channel_vidioc_get_fmt: returned channel %d format\n",
              fcd->channel_num);
     return 0;
 }
@@ -3343,8 +3337,6 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
             tisp_channel_attr_word(ds0_attr, 10),
             arg2[0], arg2[1], arg2[2], arg2[3],
             arg2[6], arg2[7], arg2[4], arg2[5]);
-
-    isp_printf(0, "not support the gpio mode!\n", channel_id);
 
     /* Store channel attributes in global arrays */
     if (channel_id == 0) {
@@ -4001,7 +3993,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
     struct tx_isp_dev *isp_dev = tx_isp_get_device();
 
     /* Add MCP logging for method entry */
-    ISP_INFO("ispcore_pad_event_handle: entry with arg2=0x%x", arg2);
+    ISP_DEBUG("ispcore_pad_event_handle: entry with arg2=0x%x", arg2);
 
     if (dispatch && dispatch->enabled != 0 && ((uint32_t)(arg2 - TX_ISP_FRAME_EVENT_GET_FORMAT) < 7)) {
         switch (arg2) {
@@ -4009,7 +4001,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
             /* Get format */
             result = 0;
 
-            ISP_INFO("ispcore_pad_event_handle: case 0x3000001 (get format), ch=%u arg3=%p",
+            ISP_DEBUG("ispcore_pad_event_handle: case 0x3000001 (get format), ch=%u arg3=%p",
                      dispatch->channel_id, arg3);
 
             if (!arg3 || !ispcore_valid_channel_id(dispatch->channel_id))
@@ -4027,7 +4019,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
             u32 sensor_height;
 
             /* Set format */
-            ISP_INFO("ispcore_pad_event_handle: case 0x3000002 (set format)");
+            ISP_DEBUG("ispcore_pad_event_handle: case 0x3000002 (set format)");
             result = 0xffffffea; /* -EINVAL */
 
             if (!format || !channel || !ispcore_valid_channel_id(dispatch->channel_id))
@@ -4093,7 +4085,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
              * msca_ch_en which could strip the 0xf0000 DMA output bits. */
 
             ispcore_store_channel_format(dispatch->channel_id, format);
-            ISP_INFO("ispcore_pad_event_handle: format set successfully");
+            ISP_DEBUG("ispcore_pad_event_handle: format set successfully");
             return 0;
 
             break;
@@ -4104,7 +4096,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
              * offsets.  The OEM event_priv layout does NOT match our
              * isp_channel struct; raw *(priv+0x9c) spinlock and *(priv+0x74)
              * hw_state hit garbage memory, causing hangs on channel 1. */
-            ISP_INFO("ispcore_pad_event_handle: case 0x3000003 (stream start)");
+            ISP_DEBUG("ispcore_pad_event_handle: case 0x3000003 (stream start)");
 
             pr_info("*** ispcore_pad_event_handle: STREAMON ch=%u state=%u ***\n",
                     dispatch->channel_id, dispatch->state);
@@ -4125,7 +4117,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
 
         case TX_ISP_FRAME_EVENT_STREAM_OFF: {
             /* Stream stop */
-            ISP_INFO("ispcore_pad_event_handle: case 0x3000004 (stream stop)");
+            ISP_DEBUG("ispcore_pad_event_handle: case 0x3000004 (stream stop)");
             return ispcore_frame_channel_streamoff(arg1);
         }
 
@@ -4139,7 +4131,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
             struct isp_channel *qbuf_ch;
             u32 ch_id, y_addr, uv_addr, ch_w, ch_h, aligned_h;
 
-            ISP_INFO("ispcore_pad_event_handle: case 0x3000005 (queue buffer)");
+            ISP_DEBUG("ispcore_pad_event_handle: case 0x3000005 (queue buffer)");
 
             if (ispcore_bypass_enabled(isp_dev)) {
                 result = 0;
@@ -4182,7 +4174,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
              *      *(base + (ch_id << 8) + 0x9984) = UV */
             if (isp_dev->core_regs && ch_id < 3) {
                 tx_isp_msca_fifo_push(ch_id, y_addr, uv_addr);
-                ISP_INFO("ispcore QBUF: ch%u Y=0x%x UV=0x%x (%ux%u)",
+                ISP_DEBUG("ispcore QBUF: ch%u Y=0x%x UV=0x%x (%ux%u)",
                          ch_id, y_addr, uv_addr, ch_w, ch_h);
             }
             break;
@@ -4195,7 +4187,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
 
         case 0x3000007: {
             /* FIFO clear — use dispatch->channel_id, not raw pointer offsets */
-            ISP_INFO("ispcore_pad_event_handle: case 0x3000007 (fifo clear)");
+            ISP_DEBUG("ispcore_pad_event_handle: case 0x3000007 (fifo clear)");
 
             /* No bypass shortcut: the frame-channel QBUF pushes into the
              * MSCA FIFO in bypass mode too (unlike stock, which routes a
@@ -4214,7 +4206,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
                 tisp_channel_fifo_clear(dispatch->channel_id);
                 spin_unlock_irqrestore(&msca_fifo_lock[dispatch->channel_id],
                                        fifo_flags);
-                ISP_INFO("ispcore_pad_event_handle: channel %u fifo cleared",
+                ISP_DEBUG("ispcore_pad_event_handle: channel %u fifo cleared",
                          dispatch->channel_id);
             }
             break;
@@ -4227,7 +4219,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
         }
     }
 
-    ISP_INFO("ispcore_pad_event_handle: exit with result=%d", result);
+    ISP_DEBUG("ispcore_pad_event_handle: exit with result=%d", result);
     return result;
 }
 
@@ -5060,23 +5052,34 @@ int isp_printf(unsigned int level, unsigned char *fmt, ...)
 {
     struct va_format vaf;
     va_list args;
+    const char *tag;
     int r = 0;
 
-    if(level >= print_level){
-        va_start(args, fmt);
+    if (level < print_level)
+        return 0;
 
-        vaf.fmt = fmt;
-        vaf.va = &args;
+    if (level >= ISP_ERROR_LEVEL)
+        tag = KERN_ERR;
+    else if (level >= ISP_WARN_LEVEL)
+        tag = KERN_WARNING;
+    else
+        tag = KERN_INFO;
 
-        r = printk("%pV",&vaf);
-        va_end(args);
-        /* The OEM dumps the stack on every error.  Sensor drivers report
-         * expected conditions this way (sc4336p: "gpio request failed" for
-         * its reset GPIO on every stream start), so the log filled with
-         * oops-like traces.  Keep the trace for print_level=0 only. */
-        if (level >= ISP_ERROR_LEVEL && print_level <= ISP_INFO_LEVEL)
-            dump_stack();
-    }
+    va_start(args, fmt);
+    vaf.fmt = fmt;
+    vaf.va = &args;
+    r = printk("%s" "tx-isp: %pV", tag, &vaf);
+    va_end(args);
+
+    /*
+     * Sensor drivers report expected conditions as errors (for example
+     * "gpio request failed" for an optional reset GPIO).  Only dump the
+     * stack when the bring-up trace is explicitly enabled; otherwise the
+     * error line alone is the useful information.
+     */
+    if (level >= ISP_ERROR_LEVEL && t31_runtime_trace)
+        dump_stack();
+
     return r;
 }
 EXPORT_SYMBOL(isp_printf);

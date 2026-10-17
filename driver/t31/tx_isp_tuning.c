@@ -10946,8 +10946,7 @@ int apical_isp_ae_g_roi(struct tx_isp_dev *dev, struct isp_core_ctrl *ctrl)
 
     buffer = kmalloc(0x384, GFP_KERNEL);
     if (buffer == NULL) {
-        /* Binary Ninja: isp_printf(1, "not support the gpio mode!\n", $a2) */
-        pr_err("apical_isp_ae_g_roi: not support the gpio mode!\n");
+        ISP_ERROR("apical_isp_ae_g_roi: out of memory\n");
         return -ENOMEM;  /* Binary Ninja returns 0xffffffff */
     }
 

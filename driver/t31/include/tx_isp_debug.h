@@ -48,6 +48,18 @@ extern int t31_runtime_trace;
 #define ISP_WARNING(...) ISP_PRINT(ISP_WARN_LEVEL, __VA_ARGS__)
 #define ISP_ERROR(...) ISP_PRINT(ISP_ERROR_LEVEL, __VA_ARGS__)
 
+/*
+ * Per-event/per-frame diagnostics. Not part of a release log: with
+ * TX_ISP_T31_NO_TRACE the strings are compiled out, and in a trace build
+ * they still need t31_runtime_trace=1 and print_level=0.
+ */
+#if defined(TX_ISP_T31_NO_TRACE)
+#define ISP_DEBUG(fmt, ...) no_printk(KERN_DEBUG "tx-isp: DEBUG: " fmt, ##__VA_ARGS__)
+#else
+#define ISP_DEBUG(fmt, ...) \
+	do { if (t31_runtime_trace) ISP_PRINT(ISP_INFO_LEVEL, "DEBUG: " fmt, ##__VA_ARGS__); } while (0)
+#endif
+
 //extern unsigned int isp_print_level;
 /*int isp_debug_init(void);*/
 /*int isp_debug_deinit(void);*/
