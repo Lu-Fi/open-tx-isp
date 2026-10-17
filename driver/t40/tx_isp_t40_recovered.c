@@ -7449,6 +7449,9 @@ module_param_named(t40_antiflick_hz, regtrace_t40_antiflick_hz, uint, 0644);
 static uint32_t t40_antiflick_pending[2];        /* SetAntiFlickerAttr received before the AE context exists (timps start order) */
 static uint32_t t40_antiflick_pending_a2;
 static bool t40_antiflick_pending_valid;
+static uint32_t t40_runmode_pending;             /* SetISPRunningMode (CID 0x8000071) received before the tuning context exists */
+static bool t40_runmode_pending_valid;
+static int regtrace_t40_tuning_set_running_mode(uint32_t mode);
 static uint32_t t40_aex_mean;                    /* AEX log: mean at tune2 entry */
 int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t fix_point_sub_32(uint32_t a0, uint32_t a1, uint32_t a2);
@@ -15886,6 +15889,12 @@ static int regtrace_isp_block_init_once(const char *where)
         (void)tisp_s_antiflick(0, (uintptr_t)af, 0);
         regtrace_t40_allow_antiflick = old;
     }
+    if (t40_runmode_pending_valid) {   /* T40-RUNMODE-DEFER: apply the running mode timps set before the tuning context existed */
+        int rm_ret;
+        t40_runmode_pending_valid = false;
+        rm_ret = regtrace_t40_tuning_set_running_mode(t40_runmode_pending);
+        printk(KERN_INFO "tx_isp_t40_recovered: running_mode=%u applied at AE init ret=%d\n", t40_runmode_pending, rm_ret);
+    }
     printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init after-ae where=%s ae_ret=%d\n",
            where ? where : "?", regtrace_isp_block_init_ae_ret);
 
@@ -23420,6 +23429,19 @@ static long regtrace_isp_m0_default_tuning_ioctl(unsigned int cmd, unsigned long
                    af[0], af[1] & 0xffU);
             return 0;
         }
+        if (ctrl.dir == 0 && ctrl.id == TX_ISP_TUNING_CMD_T41_RUNNING_MODE && ctrl.vinum == 0) {
+            /* T40-RUNMODE-EARLY: same start order as the antiflicker attribute (timps SetISPRunningMode right after EnableTuning,
+             * TP5..TP20 "ioctl 0xc0105436 ret=-19" / libimp "failed: 19").  The OEM gate is the same tuning object (core+992). */
+            uint32_t mode;
+            if (copy_from_user(&mode, (const void __user *)(uintptr_t)(uint32_t)ctrl.value, sizeof(mode)))
+                return -EFAULT;
+            if (mode > 1U)
+                return -EINVAL;
+            t40_runmode_pending = mode;
+            t40_runmode_pending_valid = true;
+            printk(KERN_INFO "tx_isp_t40_recovered: running_mode=%u cached before tuning init (applied at AE init)\n", mode);
+            return 0;
+        }
         { static unsigned int n; if (n++ < 8) printk(KERN_INFO "tx_isp_t40_recovered: isp-m0 tuning before tuning init: vinum=%u dir=%u id=0x%x -> ENODEV\n", ctrl.vinum, ctrl.dir, ctrl.id); }
         return -ENODEV;
     }
@@ -23437,6 +23459,14 @@ static long regtrace_isp_m0_default_tuning_ioctl(unsigned int cmd, unsigned long
                     sizeof(mode)))
                 return -EFAULT;
             ret = regtrace_t40_tuning_set_running_mode(mode);
+            if (ret == -ENODEV && ctrl.vinum == 0) {
+                /* T40-RUNMODE-EARLY: the tuning banks (tparamsN/tparams_day/night) do not exist yet - timps sets the running
+                 * mode right after EnableTuning (TP5..TP21 "ret=-19").  Cache and apply at AE init like the antiflicker attr. */
+                t40_runmode_pending = mode;
+                t40_runmode_pending_valid = true;
+                printk(KERN_INFO "tx_isp_t40_recovered: running_mode=%u cached before tuning banks exist (applied at AE init)\n", mode);
+                ret = 0;
+            }
         } else if (ctrl.id == TX_ISP_TUNING_CMD_T41_AWB_ATTR) {
             ret = regtrace_t40_tuning_set_awb_attr(
                 (uintptr_t)(uint32_t)ctrl.value);
