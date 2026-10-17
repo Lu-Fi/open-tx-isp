@@ -132074,6 +132074,7 @@ int32_t tisp_gamma_ev_update(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
     local_1c = s1;
     local_18 = s0;
     v0 = *(uint32_t *)((char *)v0 + 0);
+    if (!regtrace_is_kernel_ptr((void *)(uintptr_t)v0) || !regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)((char *)v0 + 16))) { static unsigned int n; if (n++ < 2) printk(KERN_INFO "tx_isp_t40_recovered: gamma_ev_update ch=%u: gamma ctx %p not initialised (MT40 Oops NULL+0x10 in event 8)\n", (unsigned)a0, (void *)(uintptr_t)v0); return 0; }   /* T40-GUARD */
     s2 = local_40;
     v0 = *(uint32_t *)((char *)v0 + 16);
     v0 = *(uint8_t *)((char *)v0 + 5);
