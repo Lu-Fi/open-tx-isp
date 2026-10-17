@@ -87377,6 +87377,7 @@ tisp_ae_long_tune20x6a0:
     local_8c = v1;
 
 tisp_ae_long_tune20x700:
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL 700 #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
     /* fragment 99: MemoryAccess */
     v1 = *(uint32_t *)((char *)s8 + 164);
     a0 = local_d0;
@@ -87741,6 +87742,7 @@ tisp_ae_long_tune20xa18:
     v1 = local_a4;
 
 tisp_ae_long_tune20xa1c:
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL a1c #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
     /* fragment 165: Branch */
     v0 = *(uint32_t *)((char *)s8 + 172);   /* T40-ZEROBASE: OEM 0x26578 lw v0,172(s8) - the lift dropped the ctx base (FBL19 NULL+0xac) */
     if (v1 != s6) { goto tisp_ae_long_tune20xe1c; }
@@ -88127,6 +88129,7 @@ tisp_ae_long_tune20xe00:
     { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0x92c"); else { __lg--; goto tisp_ae_long_tune20x92c; } }
 
 tisp_ae_long_tune20xe0c:
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL e0c #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
     /* fragment 243: Arithmetic */
     v0 = 1;
 
@@ -88139,6 +88142,7 @@ tisp_ae_long_tune20xe0c:
     { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_tune2", "0xa18"); else { __lg--; goto tisp_ae_long_tune20xa18; } }
 
 tisp_ae_long_tune20xe1c:
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL e1c #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
     /* fragment 246: Arithmetic */
     a0 = 1;
 
@@ -88192,6 +88196,7 @@ tisp_ae_long_tune20xe20:
     { static unsigned int n; if (regtrace_t40_ae_diag && n < 3) { t40_ae_evtab_dump("post-evlist"); printk(KERN_INFO "tx_isp_t40_recovered: AEEVOUT local_78=%x local_74=%x local_70=%x\n", (unsigned)local_78, (unsigned)local_74, (unsigned)local_70); } n++; }
 
 tisp_ae_long_tune20xe7c:
+    if (regtrace_t40_ae_diag) { static unsigned int n; if (++n > 2 && n < 9) printk(KERN_INFO "tx_isp_t40_recovered: AEEVL e7c #%u s4=%lu s5=%u 8c=%u a4=%u s6=%x v0=%lx v1=%lx a0=%lx\n", n, (unsigned long)(uintptr_t)s4, s5, local_8c, local_a4, s6, (unsigned long)(uintptr_t)v0, (unsigned long)(uintptr_t)v1, (unsigned long)(uintptr_t)a0); }
     /* fragment 250: Arithmetic */
     s1 = 0;
 
