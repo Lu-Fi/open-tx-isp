@@ -90,6 +90,10 @@ static inline int t41_awb_detect_refine(const unsigned char *p,unsigned char *s,
 
 /* Full calibrated detector; no live driver calls this boundary until its
  * runtime ownership and calibration-replacement lifecycle are checked. */
+/* Centre-zone weight after each stage (diagnostics): surface, CT prior,
+ * include/exclude centres, saturation scaling, cluster regions; [5] =
+ * s+0x393c (CT prior enabled), [6] = cluster mode, [7] = clusters. */
+static unsigned int t41_awb_detect_diag[8];
 static inline int t41_awb_detect(unsigned char *p,unsigned int pb,
 		unsigned char *s,unsigned int sb,unsigned short cluster_red[6],unsigned short cluster_blue[6],
 		unsigned int out[2],unsigned int failed[2])
@@ -139,6 +143,7 @@ static inline int t41_awb_detect(unsigned char *p,unsigned int pb,
 		t41_ae_put32(s+0xc6b8+bin*4,t41_tmo_le32(s+0xc6b8+bin*4)+red);
 		t41_ae_put32(s+0xc9c8+bin*4,t41_tmo_le32(s+0xc9c8+bin*4)+blue);
 		if (t41_awb_surface(p,pb,0x4ec,red,blue,&weight)) return -1;
+		if (r==rows/2 && c==cols/2) t41_awb_detect_diag[0]=weight;
 		if (t41_tmo_le32(s+0x393c)==1) {
 			/* Unlike final CT publication, the upper/upper zone prior uses
 			 * an unrounded integer reciprocal at this exact endpoint. */
@@ -148,6 +153,7 @@ static inline int t41_awb_detect(unsigned char *p,unsigned int pb,
 				ct=1000000U/mired;
 			} else if (t41_awb_ct_calculate(p,pb,red,blue,&ct)) return -1;
 			if (t41_awb_zone_ct_weight(ct,s+0x392c,t41_tmo_le32(s+0x3940),precision,weight,&weight)) return -1;
+			if (r==rows/2 && c==cols/2) t41_awb_detect_diag[1]=weight;
 		}
 		for (i=0;i<s[0x34cc]+s[0x34cd];++i) {
 			unsigned int exclude=i>=s[0x34cc],j=exclude ? i-s[0x34cc] : i;
@@ -158,6 +164,7 @@ static inline int t41_awb_detect(unsigned char *p,unsigned int pb,
 			w=(exclude ? 256-w : w)<<fraction;
 			if (exclude ? w<weight : w>weight) weight=w;
 		}
+		if (r==rows/2 && c==cols/2) t41_awb_detect_diag[2]=weight;
 		t41_ae_put32(s+0xd904+at,weight);
 		if (t41_tmo_le32(s+0x3138+pos*4)>max_sat) max_sat=t41_tmo_le32(s+0x3138+pos*4);
 	}
@@ -166,6 +173,7 @@ static inline int t41_awb_detect(unsigned char *p,unsigned int pb,
 		if ((t41_tmo_le16(p+0xd56)==1 || t41_tmo_le16(p+0xd56)==2) && max_sat>=2)
 			weight=t41_ae_fixed_div(precision,t41_ae_fixed_mul(precision,weight,
 				t41_tmo_le32(s+0x3138+pos*4)),max_sat);
+		if (r==rows/2 && c==cols/2) t41_awb_detect_diag[3]=weight;
 		t41_ae_put32(s+0xd904+at,weight);
 	}
 	if (cluster_mode==1 && t41_awb_clusters(p,s,rows,cols,fraction,1)) return -1;
@@ -182,8 +190,11 @@ static inline int t41_awb_detect(unsigned char *p,unsigned int pb,
 			w=(256-w)<<fraction;
 			if (w<weight) weight=w;
 		}
+		if (r==rows/2 && c==cols/2) t41_awb_detect_diag[4]=weight;
 		t41_ae_put32(s+0xd904+at,weight); sum+=weight;
 	}
+	t41_awb_detect_diag[5]=t41_tmo_le32(s+0x393c); t41_awb_detect_diag[6]=cluster_mode;
+	t41_awb_detect_diag[7]=clusters;
 	if (!sum) return t41_awb_detect_fallback(p,pb,s,sb,count,out,failed);
 	for (r=0;r<rows;++r) for (c=0;c<cols;++c) {
 		unsigned int pos=r*cols+c,at=(r*15+c)*4;

@@ -4076,6 +4076,52 @@ struct t21_sensor_update {
 	u32 value;
 };
 
+/*
+ * Sensor exposure write cache.  Stock sensor_set_integration_time /
+ * sensor_set_analog_gain (vendor 0x8f40 / 0x8f90) return without queueing an
+ * update when the AE value equals the one the sensor already has, so a
+ * converged AE writes nothing.  The recovery queued every frame (2-3 i2c
+ * transfers per frame, ~51 i2c IRQs/s against 0.1/s on the vendor stack).
+ * As on T20, the cache is only valid while the sensor keeps its registers:
+ * set_input (IMP_ISP_EnableSensor) reloads the sensor's init table, so the
+ * next AE value is written once even if it equals the cached one.
+ * t21_sensor_write_always=1 restores the per-frame writes.
+ */
+#define T21_SENSOR_STALE_IT	0
+#define T21_SENSOR_STALE_AGAIN	1
+static unsigned long t21_sensor_regs_stale = ~0UL;
+static int t21_sensor_write_always;
+module_param(t21_sensor_write_always, int, 0644);
+MODULE_PARM_DESC(t21_sensor_write_always, "1 queues the sensor exposure/gain every frame even when unchanged (default 0: only on change, as stock)");
+static unsigned int t21_sensor_writes_skipped;
+module_param(t21_sensor_writes_skipped, uint, 0444);
+static unsigned int t21_sensor_rearm_count;
+module_param(t21_sensor_rearm_count, uint, 0444);
+static unsigned int t21_sensor_rearm_writes;
+module_param(t21_sensor_rearm_writes, uint, 0444);
+
+/* true when the value has to be queued for the sensor */
+static bool t21_sensor_reg_changed(int slot, u32 cached, u32 value)
+{
+	bool stale = test_and_clear_bit(slot, &t21_sensor_regs_stale);
+
+	if (cached != value || t21_sensor_write_always)
+		return true;
+	if (stale) {
+		t21_sensor_rearm_writes++;
+		return true;
+	}
+	t21_sensor_writes_skipped++;
+	return false;
+}
+
+static void t21_sensor_exposure_invalidate(void)
+{
+	set_bit(T21_SENSOR_STALE_IT, &t21_sensor_regs_stale);
+	set_bit(T21_SENSOR_STALE_AGAIN, &t21_sensor_regs_stale);
+	t21_sensor_rearm_count++;
+}
+
 static unsigned char ae_array_d[900] __attribute__((aligned(4)));
 static unsigned char ae_array_m[900] __attribute__((aligned(4)));
 static unsigned char ae_array_s[900] __attribute__((aligned(4)));
@@ -8663,6 +8709,9 @@ int32_t subdev_sensor_ops_ioctl(void *file, int32_t cmd, void *arg)
 		goto check_ret;
 	case 0x2000004:
 		ret = subdev_sensor_ops_set_input(file, (int *)arg, (int *)arg);
+		/* the sensor reloaded its init table: write the next AE values */
+		if (ret == 0)
+			t21_sensor_exposure_invalidate();
 		goto check_ret;
 	case 0x2000003:
 		if (!file || !arg)
@@ -12047,8 +12096,11 @@ uint32_t sensor_set_integration_time(uint32_t a0)
 	BUILD_BUG_ON(offsetof(struct t21_sensor_bridge_state,
 			      integration_time) != 0x70);
 
-	/* Do not suppress an unchanged request.  Some sensors require their
-	 * group/latch update to be repeated while AE is holding a value. */
+	/* As stock: an unchanged value is not queued again (see
+	 * t21_sensor_reg_changed for the re-arm after a sensor reload). */
+	if (!t21_sensor_reg_changed(T21_SENSOR_STALE_IT,
+				    sensor->integration_time, value))
+		return 0;
 	sensor->integration_time = value;
 	combined = (combined & 0xffff0000U) | value;
 	sensor->combined_exposure = combined;
@@ -12073,6 +12125,9 @@ uint32_t sensor_set_analog_gain(uint32_t a0)
 	BUILD_BUG_ON(offsetof(struct t21_sensor_bridge_state,
 			      analog_gain) != 0x60);
 
+	if (!t21_sensor_reg_changed(T21_SENSOR_STALE_AGAIN,
+				    sensor->analog_gain, value))
+		return 0;
 	sensor->analog_gain = value;
 	combined = (value << 16) | (combined & 0xffff);
 	sensor->combined_exposure = combined;
@@ -15234,9 +15289,12 @@ int tx_isp_probe(struct platform_device *pdev)
 
     isp_mem_init();
     *(char **)((char *)dev + 0x104) = "H20200509a";
+#ifndef OTX_BUILD_ID
+#define OTX_BUILD_ID "unknown"
+#endif
     isp_printf(0,
-               "@@@@ tx-isp-probe ok(version %s), compiler date=%s @@@@@\n",
-               "H20200509a", __DATE__);
+               "@@@@ tx-isp-probe ok(version %s), build=%s @@@@@\n",
+               "H20200509a", OTX_BUILD_ID);
     return 0;
 
 out_deregister:

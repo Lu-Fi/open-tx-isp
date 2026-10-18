@@ -22,6 +22,26 @@ module_param(t41_native_awb_frames, uint, 0444);
 module_param(t41_native_awb_dropped, uint, 0444);
 module_param(t41_native_awb_error, int, 0444);
 static void t41_native_awb_workfn(struct work_struct *work);
+
+/* Colour diag (claude/t41-color): one-shot dump of the raw AWB DMA bank plus
+ * the derived state s and parameter block p of the same frame. Write 1 to
+ * awb_dump_req, then read /proc/t41_awb_dump: [dma 32768][s][p]. */
+#include <linux/proc_fs.h>
+#include <linux/vmalloc.h>
+static unsigned int t41_awb_dump_req __attribute__((section(".data")));
+static unsigned int t41_awb_dump_len __attribute__((section(".data")));
+module_param_named(awb_dump_req, t41_awb_dump_req, uint, 0644);
+static unsigned char *t41_awb_dump_buf;
+static ssize_t t41_awb_dump_read(struct file *f, char __user *u, size_t n, loff_t *off)
+{
+    ssize_t r;
+    mutex_lock(&t41_native_awb_lock);
+    r=t41_awb_dump_buf ? simple_read_from_buffer(u,n,off,t41_awb_dump_buf,t41_awb_dump_len) : 0;
+    mutex_unlock(&t41_native_awb_lock);
+    return r;
+}
+static const struct file_operations t41_awb_dump_fops = { .owner=THIS_MODULE, .read=t41_awb_dump_read };
+#define T41_AWB_DUMP_BYTES (32768U+sizeof(((struct t41_awb_owned *)0)->s)+sizeof(((struct t41_awb_owned *)0)->p))
 static DECLARE_WORK(t41_native_awb_work, t41_native_awb_workfn);
 
 static struct t41_awb_runtime *t41_native_awb_object(unsigned int channel)
@@ -37,10 +57,60 @@ static void t41_native_awb_emit(const struct t41_awb_register *words, unsigned i
         if (words[i].address==0x4008) WRITE_ONCE(t41_awb_last_bgain,words[i].value&0x3fff);
     }
 }
+/* Diagnostics of the published AWB result (read-only): mode (state
+ * +0xeaa2; 1..8 take CT and gains from the manual slot), the calibrated CT
+ * before a manual override (report +0x94) and the published reciprocal
+ * R/B gains (report +0x90/+0x92, Q12). */
+static unsigned int t41_awb_diag_mode __attribute__((section(".data")));
+static unsigned int t41_awb_diag_ct_cal __attribute__((section(".data")));
+static unsigned int t41_awb_diag_rgain __attribute__((section(".data")));
+static unsigned int t41_awb_diag_bgain __attribute__((section(".data")));
+module_param_named(awb_diag_mode, t41_awb_diag_mode, uint, 0444);
+module_param_named(awb_diag_ct_cal, t41_awb_diag_ct_cal, uint, 0444);
+module_param_named(awb_diag_rgain, t41_awb_diag_rgain, uint, 0444);
+module_param_named(awb_diag_bgain, t41_awb_diag_bgain, uint, 0444);
+/* t41_awb_long() skips the illuminant detection while state +0xc5f8 == 1,
+ * +0xc600 == 1 and the statistics change is below params +0xcdc. */
+static unsigned int t41_awb_diag_frz __attribute__((section(".data")));
+static unsigned int t41_awb_diag_change __attribute__((section(".data")));
+static unsigned int t41_awb_diag_frz_th __attribute__((section(".data")));
+module_param_named(awb_diag_frz, t41_awb_diag_frz, uint, 0444);
+module_param_named(awb_diag_change, t41_awb_diag_change, uint, 0444);
+module_param_named(awb_diag_frz_th, t41_awb_diag_frz_th, uint, 0444);
+/* Diagnostics (read-only), refreshed every AWB frame: detector outcome
+ * (t41_awb_long_diag), non-zero words of the statistics DMA bank, the
+ * global R/G/B sums (0x180ac..), the centre zone's first R/G/B plane values,
+ * the published CT, the calibrated CT and the published reciprocal gains,
+ * and the last frame error. */
+static unsigned int t41_awb_diag[30] __attribute__((section(".data")));
+static unsigned int t41_awb_diag_n = 30;
+module_param_array_named(awb_diag, t41_awb_diag, uint, &t41_awb_diag_n, 0444);
+/* AWB calibration words p+0xd20..0xd5e (u16) and EV knots p+0xf8..0x11c. */
+static unsigned int t41_awb_diag_cal[42] __attribute__((section(".data")));
+static unsigned int t41_awb_diag_cal_n = 42;
+module_param_array_named(awb_diag_cal, t41_awb_diag_cal, uint, &t41_awb_diag_cal_n, 0444);
+static unsigned int t41_awb_detect_diag_n = 8;
+module_param_array_named(awb_diag_det, t41_awb_detect_diag, uint, &t41_awb_detect_diag_n, 0444);
+/* Raw statistics layout check: words 0..31 of the DMA bank (zone 0) and
+ * of the centre zone (offset (7*15+7)*128), AWB registers 0x18000..0x1804c. */
+static unsigned int t41_awb_diag_raw[84] __attribute__((section(".data")));
+static unsigned int t41_awb_diag_p[28] __attribute__((section(".data")));   /* live AWB param-block fields (fable colour diag) */
+static unsigned int t41_awb_diag_p_n = 28;
+module_param_array_named(awb_diag_p, t41_awb_diag_p, uint, &t41_awb_diag_p_n, 0444);
+static unsigned int t41_awb_diag_raw_n = 84;
+module_param_array_named(awb_diag_raw, t41_awb_diag_raw, uint, &t41_awb_diag_raw_n, 0444);
 static void t41_native_awb_save(struct t41_awb_runtime *s)
 {
     memcpy(&s->saved,&s->candidate,sizeof(s->saved));
     WRITE_ONCE(t41_ccm_ct,t41_tmo_le32(s->saved.p+0x28));
+    t41_awb_diag_mode=s->saved.s[0xeaa2];
+    t41_awb_diag_ct_cal=t41_tmo_le16(s->saved.report+0x94);
+    t41_awb_diag_rgain=t41_tmo_le16(s->saved.report+0x90);
+    t41_awb_diag_bgain=t41_tmo_le16(s->saved.report+0x92);
+    t41_awb_diag_frz=(t41_tmo_le16(s->saved.s+0xc5f8)<<8)|s->saved.s[0xc600];
+    t41_awb_diag_change=(t41_awb_absdiff(t41_tmo_le16(s->saved.s+0xeab4),t41_tmo_le16(s->saved.s+0xeaac))+
+        t41_awb_absdiff(t41_tmo_le16(s->saved.s+0xeab6),t41_tmo_le16(s->saved.s+0xeaae)))&0xffff;
+    t41_awb_diag_frz_th=t41_tmo_le16(s->saved.p+0xcdc);
 }
 static void t41_native_awb_stop(void)
 {
@@ -101,6 +171,73 @@ static void t41_native_awb_workfn(struct work_struct *work)
     buffers=t41_awb_buffers(&s->candidate);
     ret=t41_awb_frame(&buffers,s->candidate.red,s->candidate.blue,
         s->dma+bank*bytes,bytes,rgb,words,&n) ? -ERANGE : 0;
+    if (READ_ONCE(t41_awb_dump_req) && t41_awb_dump_buf) {
+        memcpy(t41_awb_dump_buf,s->dma+bank*bytes,bytes);
+        memcpy(t41_awb_dump_buf+32768,s->candidate.s,sizeof(s->candidate.s));
+        memcpy(t41_awb_dump_buf+32768+sizeof(s->candidate.s),s->candidate.p,sizeof(s->candidate.p));
+        t41_awb_dump_len=T41_AWB_DUMP_BYTES; WRITE_ONCE(t41_awb_dump_req,0);
+    }
+    {
+        const uint32_t *w=(const uint32_t *)(s->dma+bank*bytes);
+        unsigned int nz=0,k,zone=(7*15+7)*4;
+        for (k=0;k<bytes/4;++k) nz+=w[k]!=0;
+        for (k=0;k<32;++k) t41_awb_diag_raw[k]=w[k];
+        for (k=0;k<32 && (7*15+7)*32+k<bytes/4;++k) t41_awb_diag_raw[32+k]=w[(7*15+7)*32+k];
+        for (k=0;k<20;++k) t41_awb_diag_raw[64+k]=system_reg_read(0x18000+k*4);
+        t41_awb_diag[0]=t41_awb_long_diag[0]; t41_awb_diag[1]=t41_awb_long_diag[1];
+        t41_awb_diag[2]=t41_awb_long_diag[2]; t41_awb_diag[3]=nz;
+        t41_awb_diag[4]=rgb[0]; t41_awb_diag[5]=rgb[1]; t41_awb_diag[6]=rgb[2];
+        t41_awb_diag[7]=t41_tmo_le32(s->candidate.s+0x3944+zone);
+        t41_awb_diag[8]=t41_tmo_le32(s->candidate.s+0x3944+T41_AWB_PLANE_BYTES+zone);
+        t41_awb_diag[9]=t41_tmo_le32(s->candidate.s+0x3944+2*T41_AWB_PLANE_BYTES+zone);
+        t41_awb_diag[10]=t41_tmo_le32(s->candidate.p+0x28);
+        t41_awb_diag[11]=t41_tmo_le16(s->candidate.report+0x94);
+        t41_awb_diag[12]=t41_tmo_le16(s->candidate.report+0x90);
+        t41_awb_diag[13]=t41_tmo_le16(s->candidate.report+0x92);
+        t41_awb_diag[14]=(unsigned int)ret;
+        t41_awb_diag[15]=(s->candidate.p[0xcca]<<24)|(s->candidate.p[0xccc]<<16)|
+            (t41_tmo_le16(s->candidate.p+0xc6e)<<8)|t41_tmo_le16(s->candidate.p+0xc72);
+        {
+            const unsigned char *cp=s->candidate.p,*cs=s->candidate.s;
+            unsigned int rows=t41_tmo_le16(cp+0xc6e),cols=t41_tmo_le16(cp+0xc72);
+            unsigned int cnt=rows*cols,mx=0,sum=0,r,c,ctr;
+            if (rows>15) rows=15;
+            if (cols>15) cols=15;
+            cnt=rows*cols; ctr=(rows/2)*cols+cols/2;
+            for (k=0;k<cnt;++k) if (t41_tmo_le32(cs+0x2a30+k*4)>mx) mx=t41_tmo_le32(cs+0x2a30+k*4);
+            for (r=0;r<rows;++r) for (c=0;c<cols;++c) sum+=t41_tmo_le32(cs+0xd904+(r*15+c)*4);
+            t41_awb_diag[16]=t41_tmo_le16(cp+0xd60)|(t41_tmo_le16(cp+0xd62)<<8)|(t41_tmo_le16(cp+0xd66)<<16);
+            { unsigned int q; for (q=0;q<8;++q) t41_awb_diag_p[q]=t41_tmo_le16(cp+0xd60+q*2);
+              for (q=0;q<4;++q) t41_awb_diag_p[8+q]=t41_tmo_le16(cp+0xc6c+q*2);
+              t41_awb_diag_p[12]=t41_tmo_le16(cp+0xcd2); t41_awb_diag_p[13]=t41_tmo_le16(cp+0xcd4); t41_awb_diag_p[14]=t41_tmo_le16(cp+0xcd6);
+              t41_awb_diag_p[15]=cp[0xcca]; t41_awb_diag_p[16]=cp[0xccc]; t41_awb_diag_p[17]=t41_tmo_le32(cp+0x38); t41_awb_diag_p[18]=t41_tmo_le32(cp+0x70);
+              t41_awb_diag_p[19]=t41_tmo_le32(cp+0x74); t41_awb_diag_p[20]=t41_tmo_le32(cp+0xac); t41_awb_diag_p[21]=t41_tmo_le32(cp+0x28); t41_awb_diag_p[22]=cp[0xf0];
+              t41_awb_diag_p[23]=t41_tmo_le32(cp+0x120); t41_awb_diag_p[24]=t41_tmo_le16(cp+0xc74); t41_awb_diag_p[25]=t41_tmo_le16(cp+0xc92);
+              t41_awb_diag_p[26]=t41_tmo_le32(cs+0x393c); t41_awb_diag_p[27]=t41_tmo_le32(cp+0x4ec+(7*15+7)*4); }
+            t41_awb_diag[17]=mx;
+            t41_awb_diag[18]=t41_tmo_le32(cs+0x1c20+ctr*4);
+            t41_awb_diag[19]=t41_tmo_le32(cs+0x1c20+(cnt+ctr)*4);
+            t41_awb_diag[20]=t41_tmo_le32(cs+0xd904+((rows/2)*15+cols/2)*4);
+            t41_awb_diag[21]=sum;
+            {
+                unsigned int at=((rows/2)*15+cols/2)*4,b2,w0=0,w1=0;
+                for (b2=0;b2<4;++b2) {
+                    w0|=(t41_tmo_le16(cp + 0xd46 + b2*2)&0xff)<<(b2*8);
+                    w1|=(t41_tmo_le16(cp + 0xd4e + b2*2)&0xff)<<(b2*8);
+                }
+                t41_awb_diag[22]=t41_tmo_le32(cp);
+                t41_awb_diag[23]=w0;
+                t41_awb_diag[24]=t41_tmo_le32(cs+at+0x1518);
+                t41_awb_diag[25]=t41_tmo_le32(cs+0x3944+4*T41_AWB_PLANE_BYTES+at);
+                t41_awb_diag[26]=w1;
+                t41_awb_diag[27]=t41_tmo_le16(cp+0xd44);
+                t41_awb_diag[28]=t41_tmo_le16(cs+0x3514);
+                t41_awb_diag[29]=t41_tmo_le32(cs+0xea98);
+                for (b2=0;b2<32;++b2) t41_awb_diag_cal[b2]=t41_tmo_le16(cp + 0xd20 + b2*2);
+                for (b2=0;b2<10;++b2) t41_awb_diag_cal[32+b2]=t41_tmo_le32(cp + 0xf8 + b2*4);
+            }
+        }
+    }
     if (!ret) {
         /* Exactly one publication after the entire candidate has validated. */
         t41_native_awb_emit(words,n);
@@ -155,6 +292,10 @@ static int t41_native_awb_init(unsigned int channel, const uint32_t *config)
     t41_native_awb_frames=t41_native_awb_dropped=0;
     WRITE_ONCE(t41_native_awb_zone_stamp,0);
     smp_store_release(&t41_awb_ready[0],1);
+    if (!t41_awb_dump_buf) {
+        t41_awb_dump_buf=vzalloc(T41_AWB_DUMP_BYTES);
+        if (t41_awb_dump_buf) proc_create("t41_awb_dump",0444,NULL,&t41_awb_dump_fops);
+    }
     ret=0; goto done;
 free_state:
     vfree(s);
@@ -182,6 +323,7 @@ static int t41_native_awb_deinit(unsigned int channel)
     ((uint32_t *)(void *)tpm_cb_storage)[5]=0;
     /* Review2 M3: stop the AWB statistics DMA before its ring is freed. */
     if (s) { system_reg_write(0x1804c,0); private_kfree(s->dma); vfree(s); }
+    if (t41_awb_dump_buf) { remove_proc_entry("t41_awb_dump",NULL); vfree(t41_awb_dump_buf); t41_awb_dump_buf=NULL; }
     t41_native_awb_error=-ENODEV;
     mutex_unlock(&t41_native_awb_lock);
     return 0;

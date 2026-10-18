@@ -114,3 +114,471 @@ The date/time OSD in the upper-left corner is outside the ISP comparison.  It
 is rendered by the userspace overlay using the camera's system clock, so any
 remaining offset or formatting issue should be fixed in the Thingino
 time/NTP/timezone and OSD configuration without changing this driver profile.
+
+## Eufy T40XP / sc830ai bring-up (2026-10-12, branch `claude/t40-sc830ai`)
+
+Second T40 device: Eufy T8416 (T40XP, sc830ai 3840x2160@20 on CSI0/i2c1
+0x30, boot mode 4; the second sensor sc3338 is unused).  Linux 4.4.94
+(`thingino-out/eufy_t8416_master/build/linux-3143636237cf5…`), vendor SDK
+d30c0af with ISP firmware 1.3.1.
+
+First open-driver boot (2026-10-12 19:20, commit 3bd3087b): insmod, sensor
+detect, `IMP_ISP_Open/AddSensor/EnableSensor`, `FS_EnableChn` and
+`StartRecvPic` all returned 0, but 0 frames, ISP IRQs 36-39 stayed at 0 and
+the sensor never logged "stream on".  dmesg showed
+`send_event … event=0x3000002 ret=-22` (SET_FMT), `0x3000005 ret=-22`
+(QBUF) and `0x3000008 ret=-515` (SET_BANKS, expected) on framechan1.
+
+Findings:
+
+- `t40_devtest` streams frame channel 1 (1280x720 scaled).  The regtrace
+  stream path handed the frame-channel index to `vic_core_s_stream`, the CSI
+  state/stream helpers, `tx_isp_vic_index_cal` and the cached sensor
+  attribute lookup.  On T40 those take the sensor number (vinum): frame
+  channels 0..2 belong to vinum 0, 3..5 to vinum 1 (the OEM `tx_isp_core_probe`
+  stores `index / 3`; the Eufy 1.3.1 module writes `index % 3` to +0x74 and
+  `index / 3` to +0x78 of each core channel).  Channel 1 therefore addressed
+  the unbound second sensor.  Fixed by `regtrace_channel_vinum()`.
+- `AeIntegrationTimeUnit : -1064949056` plus a stack dump is not a sensor
+  attribute problem: `frame_channel_unlocked_ioctl` prints a mis-resolved
+  rodata literal (`LC79`) with `&__param_str_isp_dual_buf` for an
+  unsupported ioctl; the value is that pointer.
+- The rmmod oops recorded on the Eufy (`Kernel unaligned instruction access`,
+  epc 0x6ef, module size 763904) was the vendor `tx_isp_t40`, not the open
+  module.  The open module's unload path (`tx_isp_t40_core_exit`) frees IRQs
+  with the same dev_id it requested them with and pins itself through the
+  misc fops owners; it has not been rmmod-tested on the Eufy yet.
+- `KERN_INFO` notes are suppressed unless `t40_runtime_trace=1` (only lines
+  with `ret=-…`/`fail=…` pass), so the first boot's dmesg hid the whole
+  core-event / VIC / CSI trace.  Test boots use `t40_runtime_trace=1` with a
+  `dmesg -c` drain loop.
+- `regtrace_core_event_tisp_bootstrap` only runs for frame channel 0, so a
+  stream must start on channel 0 before channel 1 can be used.
+- The driver still carries GC4653 fallbacks (synthetic attribute 2560x1440,
+  literal LSC/CLM/DMSC tables, IQ bank names).  They are only used when the
+  sensor attribute is missing, but image quality on sc830ai is GC4653-tuned
+  until an sc830ai bank exists.
+
+Open image recipe (firmware tree `claude/t40-prod-fw`): same camera config
+`eufy_t8416_t40xp_sc830_aic8800d40`, the ISP choice comes from the user
+overlay fragment (`BR2_PACKAGE_THINGINO_ISP_OPEN=y`, proprietary choice
+unset), open-tx-isp + OpenIMP, SDK sensor modules unchanged (the stock
+`sensor_sc830ai_t40.ko` resolves all 35 imports against this module,
+`tests/check_ko_symbols.sh`).  Build with `OPEN_TX_ISP_SITE=<this repo>
+OPEN_TX_ISP_VERSION=<sha>` on the make line.  Keep the camera name: the
+user overlay (U-Boot 2026.07, timps, WiFi) is keyed by it.
+
+### Device runs 2026-10-12 (test boots 1-3, commits 5e94df1e..68ac89d0)
+
+| run | state | result |
+|---|---|---|
+| b1 | vinum fix | `sc830ai stream on`, CSI/VIC/core streamon ret=0, isp-w02/isp-m0 IRQs run, 0 frames: tisp_main_init and MSCA used the synthetic GC4653 2560x1440 attribute; framechan1 events resolved to ch=-22; rmmod oops in `ispcore_slake_module` |
+| b2 | + early attr seed, late pad bind, slake call 1 | geometry 3840x2160, core frame-done IRQ (status0 0x2000) every ~106 ms, channel 0: `GetFrame` OK but 1 frame per 2 s (channel frame-done only every 1.65 s, buffer content all zero); pad 1 resolved to channel 0; rmmod oops at a second mis-resolved call |
+| b3 | + slake call 2, pad ids | ch0 native 3840x2160 (no scaler): same 1 frame / 1.65 s; ch0 1920x1080 run ended in a kernel panic (`panic=2` reboot, log lost: the kmsg drain wrote to tmpfs); extra run ch0 1280x720 with `irq_frame_done_require_content=0`: unchanged, so the content gate is not the limiter |
+
+Current state: sensor, CSI, VIC and the ISP core run; the MSCA output
+completes a frame only every ~1.65 s and writes no data (the sampler reads
+the buffer uncached, the zeros are real).  The deferred frame-done work
+(`regtrace_irq_frame_done_workfn`) finds a done address in the MSCA address
+FIFO (`Tzn_Msca_addr_fifo_read`) only at that cadence.
+
+### Round 2, 2026-10-12 evening (boots r1-r3, commits 9fe90a6f, 64692b1d)
+
+- r1/r2a `t40_profile_direct_vic_feed=1`, ch0 native 3840x2160: 41 frames
+  per 2 s (20 fps) through the VIC MDMA qbuf ring, but the dumped frame is
+  all zeros; 720p under direct feed panics (VIC writes full-width lines
+  into the small buffer).
+- r3a normal path, registers read with devmem while streaming and diffed
+  against the vendor stack streaming the same sensor
+  (`t40prod/out/oracle/vendor-regs.txt` vs `out/p4/r3a/*-regs.txt`): MIPI
+  PHY and CSI identical (settle 0x1b, lanes 2, VIC 0x04 = 0x0f000870,
+  0x0c = 2); the vendor programs the VIC output DMA block 0x300..0x350
+  (0x304 = 3840x2160, four raw buffers at 0x318..0x350) plus 0x8c/0x90/
+  0xa0/0xb0 and 0x3a4/0x3b0/0x3c0/0x3e0/0x3e4 (0x32/0x44000/0x37b/0x204);
+  the open driver leaves 0x304 at the probe default 1920x1080, the bases
+  at 0 and the latter group at 0x6f/0x4402b/0x499/0x81.  T40 runs 4K in
+  VIC frame mode (VIC -> DDR -> ISP core); the open driver only brings up
+  the direct (streaming) input that worked for GC4653 2560x1440, so the
+  core and MSCA produce empty frames.
+- Sensor swap inside one boot (sc3338 counter-check) is refused by the
+  regtrace sensor capture ("sensor client exists but no tx_isp_subdev_init
+  capture occurred"), so that check needs its own boot with the sc3338
+  module loaded first.
+- rmmod oopsed four times in the recovered tisp_deinit path; the loop is
+  now skipped by default (`skip_tisp_deinit=1`), untested.
+- The kernel has no netconsole (CONFIG_NETCONSOLE/NETPOLL unset); panic
+  logs need the serial console.
+- timpsd did not start on one vendor restore boot (no log line); manual
+  `S95timps start` worked.  Keep S95timps at mode 0755 when restoring.
+
+### Round 3, 2026-10-12 night (A/B register oracle, commits f25ce716..0855c953)
+
+Method: the same `t40_devtest` + OpenIMP `libimp.so` run on the vendor
+1.3.1 module (39 fps at 4K) and on the open module (1 empty frame per
+1.65 s), registers read with `devmem` mid-stream and diffed
+(`t40prod/out/pv/v2/regs.txt` vs `out/p4/r11a/*-regs.txt`, full core
+0x13300000-0x13320000, VIC, CSI, PHY).
+
+- The vendor does not use the VIC DMA bank (0x13380300 stays idle); the
+  frame-output path in f25ce716 is therefore off and only kept as an
+  experiment.
+- The vendor keeps the MSCA address FIFO like the open driver but with
+  other words: Y 0x80021100 / UV 0x80022001, addresses tagged y|6 uv|7,
+  1:1 coefficients 0x200/0/0x200/0, 0x1617c = 1, 0x16194 = 0x11001,
+  0x1602c = 0x7600, shadow 0x50420 = 0, top 0x88 = 0x101, 0x40 =
+  0x7fd0000d, `tisp_stream_on` writes 0x1010=0, 0x1014=0x11e, 0x1060=1,
+  then 0x1010=1, 0x1014=1.  All of this is now reproducible through
+  parameters (`t40_msca_fifo_ch0_*`, `t40_msca_fifo_addr_tag_mode=4`,
+  `t40_msca_vendor_fixups`, `t40_quality_top40_override`,
+  `tisp_main_init_reg88_override`, `t40_core_fixup_shadow0`,
+  `t40_tisp_stream_vendor`, `sensor_full_*_override`) and was verified in
+  the dump; the result did not change: the ISP core raises its frame-done
+  (status0 0x2000) per frame, the MSCA FIFO keeps its two tagged entries
+  (0x1617c/0x16194 = 0x22001) and never consumes them.
+- What still differs after that: the tuning blocks the open driver never
+  configures (DPC 0x3000, 0x4000/0x5000, AE/AWB statistics 0x7000/0x8000,
+  0xb000, 0xe000, 0x10000/0x11000 and the LUTs) and the group
+  0x13301104/0x1120/0x1134/0x1138/0x1160 (vendor 0x58f/0/0x333/0x100010/
+  0xc700, open 0xde70716/0x20000/0/0x10002/0xa000; 0xa000 = 2560*16 again
+  looks GC4653-sized).  Their writers are the tisp parameter tables, not
+  direct register writes.
+- Every second stream start after a 4K run panics (five of five), the
+  first run never does; one run per boot until the cause is known.
+  The kernel has no netconsole, so the panic text is lost.
+- The sc3338 counter-check (sensor module loaded before the first
+  AddSensor, CSI1, 2304x1296) detects and streams the sensor but oopses in
+  `tx_isp_send_event_to_remote+0x3c0` at `FS_EnableChn`; not analysed.
+
+### Night of 2026-10-13: ISP overflow
+
+The vendor core ISR names error-status bit 0x20 "ispcore: isp overflow!!!"
+(string `$LC183`); the open driver logged `err=0x20` on every frame.  The
+seed's clock table pins `div_isp` to 200 MHz (168 MHz effective), the
+vendor runs `isp_clk=300000000` (CPM ISPCDR 0x40000003 = MPLL/4).  Fixed by
+taking the rate from the `isp_clk` parameter.  The vendor ISR also uses
+status bit 0x400 for an MSCA work-enable countdown handshake (clear bit,
+re-set after N frames); bit 0x400 never fired on the open driver while the
+core overflowed.  Vendor counters are readable in `/proc/jz/isp/isp-m0`
+(`debug0`), the sensor IQ bin is loaded from `/etc/sensor/sc830ai-t40.bin`.
+
+After the clock fix the pipeline runs at 20 fps with 24/24 devtest passes
+but all-zero output; the direct VIC feed dump (r15a) now contains pixel
+data, so the black came from the sensor: the AE packed its GC4653 gain
+index into the EXPO event while sc830ai's `set_expo` expects the LUT
+register value (0x4080 = 1x).  b0611287 converts the index through the
+sensor's `alloc_again`.
+
+### 2026-10-13 00:28 – first real frames on the Eufy T40XP / sc830ai
+
+Run r20a: open module (clock fix a16b94f3, AE alloc_again b0611287), 4K
+channel 0, 39 frames per 2 s (20 fps), 2.4 Mbit/s H.264, decoded frame is
+the IR night scene.  Parameters:
+
+    insmod tx-isp-t40.ko isp_clk=300000000 t40_quality_profile=0 t40_generic_profile=1 \
+        enable_mdns=0 enable_adr_reg_writes=0 enable_ydns=0 enable_sdns=0 \
+        enable_ysp=0 sensor_full_width_override=3840 \
+        sensor_full_height_override=2160 skip_tisp_deinit=1
+    insmod sensor_sc830ai_t40.ko
+
+With quality profile 5 (MDNS/YDNS/SDNS/YSP/ADR active) the core never
+raised the late status bits 0x100/0x200/0x400 and the output stayed zero;
+with profile 0 (blocks bypassed) the pipeline completes.
+
+Block bisect (each run one boot, metrics only, media discarded):
+- r21a profile 0 + `enable_mdns=1`: 20 fps, 2.3 Mbit/s, luma mean 42 -> MDNS
+  is fine at 4K.
+- r23a same: 186 frames / 10 s, consecutive-frame SSIM 0.977..0.997.
+- r22a profile 0 + MDNS + YDNS + SDNS + YSP: immediate kernel panic
+  (self-reboot, no console); one of the Y blocks crashes at 4K.
+- r24a profile 0 + MDNS + YSP: kernel panic -> YSP is the crashing block
+  (recovered `tisp_ysp_*` path at 4K); keep `enable_ysp=0`.
+- r25a + SDNS, r26a + SDNS + YDNS, r27a + ADR, r28a + CCM + gamma, r29a + BLC + LSC + GIB: fine (200 frames / 10 s, 0 decode errors).
+- r30a/r31a quality profile 5 with YSP off (and DMSC-lit off): black
+  again; the profile >= 1 extras (GC4653 literal tables, top40 bit 2) are
+  not usable on this sensor.
+- Recommended for the Eufy: `t40_quality_profile=0 t40_generic_profile=1`
+  (607695b7) = profile 0 plus MDNS, SDNS, YDNS, ADR, CCM, gamma, BLC, LSC,
+  GIB; YSP and DMSC-lit off.
+- r32a generic profile, channel 0 scaled to 1280x720: fine (201 frames /
+  10 s, luma mean 53).  rmmod afterwards oopsed in the `isp_core_tuning_clear`
+  model stub (bad pointer); guarded in 6b70a5e5.  r33a: rmmod still takes
+  the camera down (no console); reload is not usable yet.
+- t1 timps (OpenIMP backend, 4K main + sub stream) on the open module:
+  timpsd oopsed the kernel in the recovered `tisp_s_antiflick` (bad AE
+  parameter pointer) right after `SetISPRunningMode(night)` returned -1;
+  antiflicker is now a no-op unless `t40_allow_antiflick=1` (open item: no
+  50 Hz antiflicker on T40 until the recovered `tisp_s_antiflick` is fixed).
+- t2: the next timps call, `tx_isp_sensor_g_attr` (IMP_ISP_Tuning_GetSensorAttr),
+  oopsed on the empty core sensor slot; d3544601 answers it from the bound
+  sensor's attribute and video state.
+- WLAN failure of the agg38-fw/hybrid image (host-side diff): the user
+  overlay `thingino-user/common/overlay/etc/wpa_supplicant.conf` bakes
+  ssid FB_IOT_1 while the Eufy lives on FB_IOT_0 (its runtime overlay had
+  FB_IOT_0 and the flash replaced it); S38wpa_supplicant in agg38-fw adds a
+  preset/portal fallback on top.  Fix for the recipe: a per-camera
+  `wpa_supplicant.conf` in the eufy user-overlay dir, or keep the overlay.
+- t3-t6 timps (video0 1920x1080 scaled + video1 640x360): after the
+  tuning fixes timpsd streamed, then died with SIGBUS on the first 1080p
+  frames; devtest 1080p runs had panicked the kernel three times and every
+  second stream start after a 4K run panicked.  Cause: the seed laid NV12
+  buffers out as width*ALIGN(height,16); OpenIMP and the vendor use
+  width*height*3/2, so 1080p frames overran their buffers by 8 lines.
+  989e7424 makes the vendor layout the default (`t40_nv12_height_align=1`).
+- t7 timps with the layout fix still died with SIGBUS right after
+  "framesource 0 enabled".  kmsg showed the real cause: the second frame
+  channel (video1 640x360) enabled the core IRQ with irq index 1 (= the
+  second ISP core instance) -> `core IRQ OEM enable idx=1 ret=-22` ->
+  `core-event streamon ch=1 ret=-22`, OpenIMP then crashed timps.
+  f03d0700 maps the core IRQ to the vinum (channel/3, same as VIC/CSI)
+  and reference-counts the streaming channels so the shared IRQ is
+  enabled once and only disabled by the last channel.
+- t8 (f03d0700): no -22 chain any more, but timps died again right after
+  "framesource 0 enabled", now SIGSEGV pc=libimp VBMGetFrame+0xd4.
+  Resolved via the crash maps + LD_TRACE: the crashing libimp is
+  `/lib/libimp.so` = the **Ingenic vendor** library of the hybrid image
+  (strings "IMP-ISP", "Ingenic High Pass Filter"), not OpenIMP.  All timps
+  runs t1-t8 therefore ran vendor libimp against the open driver; its
+  VBMGetFrame builds the frame pointer from an index the open DQBUF does
+  not fill the vendor way -> wild pointer (t7 si_addr=0, t8 0x62dbef84).
+  devtest always used OpenIMP (`LD_LIBRARY_PATH=/tmp/otx/lib`), which is
+  why it streams.  p5-timps.sh now uploads lib2/libimp.so (OpenIMP
+  t40-prod, frame gate) and starts timpsd with LD_LIBRARY_PATH=/tmp/otx/lib.
+  For the open image: libimp must be OpenIMP (thingino-isp-open), the
+  vendor ingenic-lib libimp cannot sit on the open driver.
+- t9: the restored master image's /usr/bin/timpsd is the vendor flavour
+  (USE_OPENIMP=0) and refuses the OpenIMP libimp ("libimp mismatch", exit
+  78).  Built an OpenIMP-flavour timpsd from the image's own timps source
+  (buildroot timps-custom copy, same USE_* set, USE_OPENIMP=1, linked
+  against lib2/libimp.so): t40prod/bin-timpsd-oimp-t40; p5-timps.sh
+  uploads it to /tmp/otx/timpsd.  Nothing in timps was changed.
+- t9b (f03d0700, OpenIMP libimp + OpenIMP timpsd, fs_keepalive=1):
+  framesource 0 (1920x1080 scaled) and 1 (640x360) both enabled, RTSP/HTTP
+  up, local snapshot.jpg HTTP 200 (~44 kB), VIC IRQ exactly 20/s, timpsd
+  RSS flat at ~3.4 MB, no kernel messages, 30 min clean (see
+  t40prod/out/p5-t9b.log; timpsd left running afterwards).  Open item: timps reports "sensor fps:
+  requested 20, driver holds 25/1" - sensor_g_attr returns the sensor
+  module's 25/1, the stream runs at 20 fps.
+- rmmod: 587502b1 splits the module exit into ten steps that can be run
+  one by one with `echo exit N > /proc/tx_isp_t40_recovered` while kmsg
+  streams (t40prod/p6-exit.sh); the step that takes the camera down is
+  the one to look at.  Pending the next boot.
+- YSP hypothesis for daylight: tisp_ysp_main_init is size independent
+  (vmalloc 3432/420/146), so the "4K panic" is more likely a bus hang on
+  YSP register writes while top40 bit 17 still gates the block (no kmsg
+  at all in r22a/r24a, which fits a hang, not an oops).  Check the vendor
+  order top40 -> ysp regs before enabling again.
+- Second-start test (t40prod/p7-restart.sh, OpenIMP timpsd, keepalive=1):
+  timps stop/start cycles die at a random cycle (c1: 3rd, c2: 5th, c3:
+  2nd); the panic notifier (7c9f03a2) never fired, the watchdog reset the
+  camera -> a hang, not an oops.  The flight recorder (fd83f4b7, 32 marks
+  in the rmem tail, t40prod/panicdump.sh) shows for c3: stop of ch0/ch1
+  completed (streamoff steps, release, tx-isp ioctls), the new start ran
+  up to the ch1 stream-on, and the last mark is `isp_irq_handle irq=39`
+  (ISP core IRQ) with nothing after it - the handler hangs on a register
+  access right after the restart.  f337ddda marks every
+  system_reg_read/write (offset) and the ISR entries to name the register.
+- Panic/hang forensics on the Eufy: `panic_dump_phys=0xe9f0000` (module
+  param, rmem tail): on panic the printk ring is copied there, every
+  marked step writes into a ring at +0x100; after the reboot
+  `t40prod/panicdump.sh out.txt` (mmap /dev/mem via t40prod/memdump) prints
+  both.  `echo dumplog > /proc/tx_isp_t40_recovered` tests the copy.
+- Flight recorder c5-c8c: the restart hung on a CSI or VIC register access
+  at a random point of the CSI/VIC bring-up (CSI reg04/reg28, the first
+  core IRQ after it, vic_core_s_stream).  CPM clock gates are identical
+  while streaming and after a stop (p8-clk.sh), so no gated clock.  Root
+  cause: frame channels 0..2 share vinum 0, but the direct stream path
+  ran the CSI bring-up (reset, PHY) again for channel 1 while the sensor
+  was already streaming, and the sensor was never stopped on streamoff -
+  so a restart re-initialised CSI/VIC against live MIPI data.
+  1284cb0e: CSI/VIC are started by the first channel of a vinum and
+  stopped by the last one, and the sensor video stream is stopped before
+  the last VIC stop (`t40_sensor_stream_off_on_stop=1`).  Result c10:
+  15/15 timps stop/start cycles and 3/3 framesource idle off/on cycles
+  (fs_keepalive=0) clean, snapshot 200 every time.  Second-start panic
+  closed.  (906dacd0, CSI clocks re-armed after a slake, stays in: it is
+  correct, just not the cause.)
+- rmmod (p6 x1 on the same boot): exit steps 1-8 fine, step 10 (platform
+  device unregister -> OEM remove callbacks) hangs the camera.  Split into
+  one step per child device (fs, vin, vic, csi, core) with recorder marks.
+- p6 x2 (03:57): exit step 10 again took the camera down, and this time it
+  did not come back (no watchdog reset, no ping for >10 min) - the
+  remove path can leave the SoC in a state the watchdog does not recover
+  from; needs a power cycle.  Per-device bisect (steps 10-14 = fs, vin,
+  vic, csi, core; 15 = parent/drivers; marks 0x80/0x81/0x91-0x95) is in
+  62a1e4ea and waits for the next boot.  Until the remove path is
+  understood: do not rmmod tx-isp-t40 on the Eufy; reboot instead.
+Next: p6 per-device rmmod bisect (after power cycle); YSP order; sc830ai
+tuning (daylight).
+
+### Status 2026-10-13 04:15 (consolidated, end of the night shift)
+
+Working on the Eufy T40XP (open driver `claude/t40-sc830ai` @ 62a1e4ea+,
+module built against the Eufy 4.4.94 tree, `tests/check_ko_symbols.sh` OK):
+
+    insmod tx-isp-t40.ko isp_clk=300000000 t40_quality_profile=0 \
+        t40_generic_profile=1 sensor_full_width_override=3840 \
+        sensor_full_height_override=2160 skip_tisp_deinit=1
+    insmod sensor_sc830ai_t40.ko
+    # streamer: OpenIMP libimp (lib2/libimp.so) + OpenIMP-flavour timpsd
+    # (USE_OPENIMP=1); the Ingenic vendor libimp cannot sit on this driver.
+
+- 4K and scaled 1080p/720p/360p frames, 20 fps, both frame channels (timps
+  video0 1920x1080 + video1 640x360).
+- timps 30 min soak clean (t9b), 15/15 stop/start cycles + 3/3 framesource
+  idle off/on cycles clean (c10) after 1284cb0e.
+- Forensics: panic log copy and flight recorder in the rmem tail
+  (`panic_dump_phys=0xe9f0000`), reader `t40prod/panicdump.sh`.
+
+Open:
+1. rmmod: the core remove (exit step 10 = `tx_isp_core_remove`, run first
+   because the child devices unregister in reverse order: core, fs, vin,
+   vic, csi) hangs the camera; after p6 x2 the Eufy did not come back by
+   watchdog (power cycle needed).  Core remove = isp_core_tuning_deinit,
+   ispcore_slake_module (ISP clock/power teardown, only when core state
+   >= 2), tx_isp_subdev_deinit (free_irq, iounmap, release mem),
+   tisp_deinit (skipped).  Host-side prepared, untested: a per-device
+   bisect (steps 10-14, recorder marks 0x80/0x81/0x91-0x97) and
+   `t40_rmmod_skip_slake=1` (default on) that skips the slake in the core
+   remove, since the slake tears down clocks the still-registered VIC/CSI
+   removes touch afterwards.  Until tested: do not rmmod on the Eufy,
+   reboot instead.  Also open: `gpio request fail 91` on a sensor
+   restart (reset GPIO not freed on close, harmless).
+2. YSP at 4K (panic in r22a/r24a): the vendor `tisp_main_init` runs every
+   block init (ae, awb, blc, gib, lsc, dpc, adr, dmsc, gamma, defog, lce,
+   mdns, af, ydns, cdns, sdns, ysp, bcsh, ccm, clm, hldc, gsm, tstp) and
+   then writes the top register, all before `tiziano_enable`.  Our block
+   init needs the tuning blob (`tparamsN`); without a bin file
+   (`/usr/share/sensor/gc4653-t40.bin` missing on the Eufy, load ret=-2)
+   it is skipped at tisp_main_init and re-run from the frame-done work,
+   i.e. while the ISP is already processing 4K frames - the likely YSP
+   crash.  Night-safe experiment: `t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin`
+   (the vendor IQ bin is on the camera) so the blob exists and the block
+   init runs pre-stream; then `enable_ysp=1` at 720p first, then 4K.
+3. Daylight (image quality, needs a bright scene, metrics only, collage
+   per the pictures rule): with the sc830ai bin loaded compare BLC/LSC/
+   CCM/gamma against the vendor stream (A/B method, same scene); find the
+   profile >= 1 black (top40 bit 2 and the GC4653 literal tables); ircut
+   on, AWB/CCM check; 50 Hz antiflicker is a no-op on T40 for now.
+4. sc3338 (CSI1) counter-check oops - low priority.
+
+### 2026-10-13 image quality on the Eufy (noise, bitrate, tuning bin)
+
+Metrics only (1080p JPEG snapshots of timps, static scene, 5 frames, no
+pictures kept; temporal std = median per-pixel std over frames, Y 0..255):
+
+| variant (all `t40_quality_profile=0` unless noted)            | temporal std Y | stream (CBR 3000, max_qp 51) |
+|-----------------------------------------------------------------|---------------:|------------------------------|
+| generic profile, no bin (previous recommendation)               | 30-32          | 10-12 Mbit/s at max_qp 45 (28 Mbit/s while AE dark) |
+| generic profile + `t40_dns_ev_boost` 0.13 .. 8 (x65536)        | 30-32 (no change) | -                          |
+| sc830ai bin, MDNS/YDNS/SDNS only (generic off)                  | 39, chroma 0   | 3.5                          |
+| bin + generic profile (boot with bin1/bin2)                     | 92 % white or bimodal, AE stuck at max gain 22-25 | - |
+| bin + `t40_quality_profile=1 t40_force_bypass=0x20000`          | 36 (picture ok, stable) | 3.0               |
+| same + `t40_force_active=0x44000` (YDNS+SDNS forced on)         | 36-38, boost 0.5..1 worse | 2.9             |
+| generic + `t40_quality_top40_override=0x7ffba8ff` (CCM/gamma/YDNS/SDNS HW on, no bin) | black (Y 0.6) | -   |
+| generic + top40 override `0x7ffbaeff` (YDNS/SDNS on, no bin)     | black (Y 0.6) | -                            |
+
+Findings:
+- Bitrate: timps asked for CBR 3000 but the encoder sat at QP 45 (the
+  `video0.max_qp = 45` default; slice QP read from the stream) and still
+  produced 10-28 Mbit/s because the picture is noise dominated.  With
+  `video0.max_qp = 51` the same stream holds 2.8-3.5 Mbit/s.  OpenIMP CBR
+  itself is fine (devtest 4K at 2000 kbps: 2.15 Mbit/s).  The noise is the root
+  cause; max_qp 51 is the config fix.
+- The generic profile leaves the top40 bypass bits of CCM (9), gamma (10),
+  YDNS (14) and SDNS (18) set (`0x7fffeeff`): those blocks are initialised
+  but bypassed in hardware.  Clearing the bits without tuning data gives a
+  black image, because the block parameter tables are empty without a bin.
+  Only MDNS (bit 8) is active in the generic profile, which is why
+  `dns_gain_ev` changes show no effect.
+- The sc830ai bin loads (`ret=0`, 204800 bytes).  Its gates mark YDNS (14),
+  SDNS (18) and GIB (5) as bypass (check whether the flags are read from the
+  right offset), and with profile 0 + generic the BLC/LSC/GIB tables read from
+  the bin give a mostly white picture (92 % of pixels >= 254, AE walking down
+  one index per ~13 s from gain index 25).  That points to the bin AE/BLC
+  sections being read with the wrong layout; unresolved.
+- Forcing YDNS/SDNS on with the bin parameters did not reduce the temporal
+  noise (36 vs 36).  The remaining noise is therefore probably upstream of
+  the Y denoisers (raw level; compare a GetRaw dump: devtest mask 2000
+  with `T40D_RAW_DIR`).
+- New opt-in module parameters (all default 0, no behaviour change):
+  `t40_dns_ev_boost` (16.16 log2 offset on the DNS gain EV, runtime),
+  `t40_force_bypass` / `t40_force_active` (top40 bits forced after the bin
+  gates; bit 17 keeps YSP off while the bin gates would enable it).
+- Best stable set with a bin (boot 7, 5+ min, picture ok, no oops):
+  `isp_clk=300000000 t40_quality_profile=1 t40_force_bypass=0x20000
+  sensor_full_width_override=3840 sensor_full_height_override=2160
+  skip_tisp_deinit=1 t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin`.
+  Do not use `enable_ysp` or the WDR/ADR-linear/defog/DPC paths on a boot
+  without a valid bin (NULL comb buffers).
+
+### Daylight plan (image quality)
+1. Load the sc830ai tuning (`t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin`)
+   and compare BLC/LSC/CCM/gamma against the vendor stream with the A/B
+   method (same scene, metrics only).
+2. Find the profile >= 1 black (top40 bit 2 and the GC4653 literal tables).
+3. Daylight colour check: ircut on, AWB/CCM, then YSP (720p, then 4K).
+
+### Next steps (host side first)
+
+1. Morning, after the power cycle: p6 per-device rmmod bisect with
+   `t40_rmmod_skip_slake=1` first, then =0 to confirm the slake.
+2. YSP order experiment (item 2 above), then the daylight plan.
+3. Open image: `t40prod/build-img-open2.sh` already builds timps with
+   USE_OPENIMP=1 (BR2_PACKAGE_OPENIMP=y via BR2_PACKAGE_THINGINO_ISP_OPEN);
+   nothing to change there.
+
+### Previous test plan (superseded)
+
+1. Baseline ch0 1280x720 with `t40_profile_direct_vic_feed=1` (VIC frame
+   MDMA to DDR, bypassing core/MSCA): proves CSI/VIC/sensor data flow and
+   gives a raw picture to check the MIPI setup (2 lanes, 1080 Mbps, boot 4).
+2. Same without the profile, read the bounded diag (`proc_live_reads=1`,
+   `head -c` on the frame-done/MSCA sections) right after `StartRecvPic`:
+   MSCA status/FIFO counters (0x16008, 0x1616c/0x16184 banks), core
+   status0/err bits (0x1000 + err 0x20 appear once per frame), tisp event
+   thread counters, `regtrace_irq_frame_done_*` counters.
+3. Vendor reference on the same boot image is not possible (vendor rmmod
+   oopses); take the vendor MSCA/core register values from a separate
+   vendor boot (`/proc/jz/isp` or the ISP register dump tool) and diff them
+   against the open driver's `regtrace_core_write` trace for 3840x2160.
+4. Reproduce the 1920x1080 panic with the console log captured (serial or
+   `netconsole`), it is the only kernel-fatal signature seen on this device.
+5. rmmod after a run: the two mis-resolved calls in `ispcore_slake_module`
+   are fixed on paper (68ac89d0) but untested; check with
+   `dmesg | grep -c "Unable to handle"`.
+
+## Eufy sc830ai: best tested picture (2026-10-13)
+
+Device-tested on the Eufy T40XP (sc830ai, 4K sensor, 1280x720 capture, same-age frames). Each step was measured in one boot, numbers only:
+
+| Step | Y (centre) | neighbour diff | U / V |
+|---|---|---|---|
+| morning baseline (profile 1 + bin) | 32.6 | 22.1 | 157 / 156 |
+| + stale-TOP-replay fix + fixpoint/AE-writer repair (this commit) | 19.8 | 15.9 | 144 / 144 |
+| + `enable_dmsc_static=1 dmsc_stock_current_overlay=1` | 29.7 | 12.3 | 130 / 132 |
+| + `frame_3a_interval=3` | 125 | 23.5 | 131 / 131 |
+| + `t40_force_active=0x4000` (YDNS) | 145 | 23.0 | 131 / 131 |
+| `t40_force_active=0x6020` (YDNS + DMSC + GIB) instead | 137 | 8.9 | 131 / 131 |
+| + Bayer phase BGGR: `tisp_main_init_reg88_override=0x101 core_bayer_reg8_value=0x10001` | 117 (frame) | 7.0 | 120 / 136 |
+
+The Bayer step is the colour fix. The driver defaulted to the GRBG phase of the GC4653 bring-up, while the sc830ai delivers BGGR (`0x13300088` = `0x101`, as in the vendor stack). With the wrong phase the white-balance gains landed on the wrong colours, giving a grey picture with a magenta cast in shadows and clipped highlights. With BGGR the colours are natural. The frame white balance then started from GRBG-era gains and converged too slowly (warm picture). `frame_awb_bggr_fast=1` seeds the measured sc830ai daylight gains R 1060 / B 2640 on the first BGGR frame and then trims proportionally inside the existing deadband: full-frame U/V 128.1/130.7, neighbour diff 6.4.
+
+Rejected:
+- `t40_force_bypass=0x20001` (BLC off): U/V rise to 172.
+- `dmsc_stock_high_gain_overlay=1`: U/V rise to 142.
+- `enable_clm=1`: no change.
+- `t40_quality_top40_override=0x7FD0000D` (vendor TOP word): black frame. Bit 18 (SDNS) is the cause, because its initialiser is not run.
+
+Recommended insmod line (since the defaults patch the best settings are the driver defaults):
+
+    insmod tx-isp-t40.ko isp_clk=300000000 t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin
+
+All former tuning parameters (t40_quality_profile=1, t40_force_bypass=0x20000, t40_force_active=0x6020, enable_dmsc_static, dmsc_stock_current_overlay, frame_3a_interval=3, frame_3a_slide_window, frame_awb_bggr_fast, t40_gamma_from_bin) are now defaults and stay overridable. The BGGR white-balance seed is only applied when the sensor runs 3840x2160 (the calibrated sc830ai); the sensor frame size is taken from the sensor instead of sensor_full_*_override. Device check on the Eufy: same picture as the old long line (frame Y 184, neighbour diff 3.15, TOP 0x7FFF08D8).
+
+The Bayer phase is now taken from the sensor media-bus format (sc830ai SBGGR10 -> `0x13300088` = `0x101`), so no override is needed; `tisp_main_init_reg88_override` / `core_bayer_reg8_value` still work for experiments. Without overrides: full-frame U/V 129.9/128.0, neighbour diff 6.0.
+
+Native 4K (3840x2160, scaler off): the frame-3A sampler mapped a fixed 32 MiB window and silently skipped frames whose planes left it (7 of 7 samples missed, frame Y 77, dark). `frame_3a_slide_window=1` remaps per frame: 0 misses, frame Y 153, midtones neutral (U/V +2.5/+0.6).
+
+Gamma: the driver used a hard-coded GC4653 curve whose first 11 nodes are zero, which crushed the shadows. `t40_gamma_from_bin=1` uses the sc830ai bin curve (nodes 0/144/1070/2879/4095): at 4K the shadow share drops from 47 % to 21 % of the samples, frame Y 134 -> 158, neighbour diff 4.8 -> 3.9.
+
+Still open: white-balance fine tuning; YSP (sharpness) is still forced off, and day/night has not been checked on this baseline. Analyses and reviews by external helpers are in the session notes.

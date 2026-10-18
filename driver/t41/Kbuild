@@ -22,6 +22,11 @@ obj-m += tx-isp-t41.o
 
 ccflags-y += -I$(src)/../include
 ccflags-y += -DREGTRACE_KERNEL_TREE_BUILD
+
+# Reproducible builds: the probe log line names the source revision instead of
+# __DATE__ (override with OTX_BUILD_ID=..., "unknown" outside a git tree).
+OTX_BUILD_ID ?= $(shell git -C $(src) describe --always --dirty --abbrev=12 2>/dev/null || echo unknown)
+ccflags-y += -DOTX_BUILD_ID='"$(OTX_BUILD_ID)"'
 ccflags-y += -std=gnu99
 ccflags-y += -fpermissive
 ccflags-y += -w
