@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-18: T40 restart, stop path and GIB (`claude/t40-gib-stop`, `claude/t40-restart-hang`; in `next`)
+
+- **Second stream start with ch0+ch1 no longer hangs the SoC:** the last close of `/dev/tx-isp` now runs the OEM release path (idle handshake on 0x200/0x204 with a bounded wait, core reset pulse on 0x24) and the block init runs again per session; before, MSCA output 1 kept its state and the ISP bus froze ~60 ms after the next ch1 stream-on. Device-tested: 10/10 start/stop cycles with 181/181 frames on both channels, 10 min with two stream clients, 5 client reconnects, no oops. `t40_release_reset` (default 1) switches it off; difference to the OEM: clocks stay on.
+- **Stop path like the OEM:** one `work_en` write after the 0x16010 latch, then 0 (before, 0x2 stayed and ch1 stayed on). An out-of-bounds byte write ~1.1 MB behind the MSCA state for ch1 (`a0*616 + &mscaler_s0`) and a stack overwrite in IspDg are fixed.
+- **GIB block rebuilt from the OEM** (`tisp_gib_init` was a stub, `tisp_gib_ae_write_dgain` returned -1 every frame): with `t40_gib_real` auto it runs only together with `t40_gates_oem_offset=1` (device: init 0, dgain applied 598/598); with the default gates it stays off, because the black level would be subtracted twice. With offset 1 the black is lifted and the shadows turn blue, so the default picture stays unchanged (open).
+- Diagnostics: `t40_fr_big` flight recorder at the end of rmem (survives a watchdog reset), default off.
+
 ## 2026-10-18: T40 substream, NV12 chroma and AutoZoom (`claude/t40-ch1`, `claude/t40-autozoom`; both in `next`)
 
 - **ch1 delivers frames (`t40_isr_ch1_direct`, default 1):** the ISR pops MSCA output 1 on status0 bit 1 like the OEM ISR and the ch2 leg; before, ch1 stalled after its first buffer. Device (T40XP sc830ai): 1080p + 360p/720p 226/226 frames in 15 s, ch0 back to 15 fps; streamer 10 min, ch0/ch1 ~20 fps each, no oops.
