@@ -5633,8 +5633,8 @@ static void tx_isp_last_close_teardown(struct tx_isp_dev *isp)
         /* Self-check: every channel's wait objects are initialised in
          * module init (frame_channel_init_sync). A NULL list head here
          * would oops in __wake_up_common. */
-        if (WARN_ON_ONCE(!tx_isp_wq_head_next(state->frame_done.wait) ||
-                         !tx_isp_wq_head_next(state->frame_wait)))
+        if (WARN_ON_ONCE(!TX_ISP_COMPLETION_LIST(state->frame_done).next ||
+                         !TX_ISP_WAITQ_LIST(state->frame_wait).next))
             continue;
 
         mutex_lock(&fcd->buffer_mutex);
@@ -5646,7 +5646,7 @@ static void tx_isp_last_close_teardown(struct tx_isp_dev *isp)
             frame_channel_streamoff_locked(fcd, "last close");
             did = true;
         } else if (fcd->open_count > 0 &&
-                   tx_isp_completion_waiting(state->frame_done)) {
+                   TX_ISP_COMPLETION_HAS_WAITERS(state->frame_done)) {
             /* A 0x400456bf caller waiting for a first STREAMON that will
              * not come from this ISP setup any more. Only an open channel
              * can have one. */

@@ -170,15 +170,6 @@ static inline void getrawmonotonic(struct timespec *ts)
 #define tx_isp_clk_get(dev, id)	clk_get((dev), (id))
 #endif
 
-/* wait_queue_head_t::task_list became ::head (4.13); completion::wait is a swait queue (4.6+). */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0)
-#define tx_isp_wq_head_next(wq)		((wq).head.next)
-#define tx_isp_completion_waiting(c)	swait_active(&(c).wait)
-#else
-#define tx_isp_wq_head_next(wq)		((wq).task_list.next)
-#define tx_isp_completion_waiting(c)	waitqueue_active(&(c).wait)
-#endif
-
 /* platform_driver::remove returns void since 6.11. */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
 #define TX_ISP_REMOVE_FN(fn)	((void (*)(struct platform_device *))(fn))
@@ -194,6 +185,31 @@ static inline size_t strlcpy(char *dst, const char *src, size_t size)
 	int ret = strscpy(dst, src, size);
 	return ret < 0 ? size : (size_t)ret;
 }
+#endif
+
+/* wait_queue_head_t kept its wait list in .task_list until 4.13, which renamed
+ * it .head. swait_queue_head (5.7+) kept .task_list. */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0)
+#define TX_ISP_WAITQ_LIST(wq) ((wq).task_list)
+#else
+#define TX_ISP_WAITQ_LIST(wq) ((wq).head)
+#endif
+
+/* struct completion is backed by a wait_queue_head_t before 5.7 and by an
+ * swait_queue_head after, so both the member holding the wait list and the
+ * "has waiters" predicate depend on the version. */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0)
+#define TX_ISP_COMPLETION_LIST(c) ((c).wait.task_list)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 7, 0)
+#define TX_ISP_COMPLETION_LIST(c) ((c).wait.head)
+#else
+#define TX_ISP_COMPLETION_LIST(c) ((c).wait.task_list)
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 7, 0)
+#define TX_ISP_COMPLETION_HAS_WAITERS(c) waitqueue_active(&(c).wait)
+#else
+#define TX_ISP_COMPLETION_HAS_WAITERS(c) swait_active(&(c).wait)
 #endif
 
 /* strncpy() was removed in 7.2; the recovered OEM code needs the exact old semantics. */
