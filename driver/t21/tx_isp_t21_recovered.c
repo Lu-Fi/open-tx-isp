@@ -4464,25 +4464,6 @@ static uint32_t t21_ae_current_sensor_dgain_q10;
 static uint32_t t21_ae_current_isp_dgain_q10;
 static uint32_t t21_ae_measured_luma;
 static uint32_t t21_ae_frame_count;
-/*
- * AE loop shaping for the reconstructed controller.  The luma it measures
- * lags the exposure it writes (sensor IT/gain latch two frames late, the
- * ISP digital gain at the next frame start, and the statistics DMA a frame
- * behind that), so a full proportional step every third frame overshoots:
- * once IT and analogue gain are pinned at night the ISP digital gain
- * hunted 1.14x..1.72x with a ~0.6 s period, which the picture shows as
- * flicker.  Each step now multiplies the exposure by the 2^ae_step_shift-th
- * root of target/luma (a fraction of the error in the log domain, stable
- * against one or two steps of lag in a host model), and the exposure is
- * held while the measured luma is within ae_hold_pct percent of the
- * target.
- */
-static int ae_step_shift = 3;
-module_param(ae_step_shift, int, 0644);
-MODULE_PARM_DESC(ae_step_shift, "T21 AE: no-op since the stock AE (ae_tune2) runs; kept for load-line compatibility");
-static int ae_hold_pct = 15;
-module_param(ae_hold_pct, int, 0644);
-MODULE_PARM_DESC(ae_hold_pct, "T21 AE: no-op since the stock AE (ae_tune2) runs; kept for load-line compatibility");
 
 /*
  * ISP TOP bypass bit 4 is the ADR (local tone mapping) block (pipeline
