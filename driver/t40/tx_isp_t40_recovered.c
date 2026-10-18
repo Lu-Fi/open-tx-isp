@@ -9861,6 +9861,13 @@ struct regtrace_fr_entry { uint32_t id; uint32_t aux; uint32_t jiffies_lo; uint3
 #define REGTRACE_FR_OFF 0x100U
 #define REGTRACE_FR_ENTRIES 32U
 #define REGTRACE_FR_LOG_OFF 0x400U
+#define REGTRACE_FR_BIG_OFF 0xb000U
+#define REGTRACE_FR_BIG_ENTRIES 1024U
+/* t40_fr_big=1 (diagnostic, default 0): big mark ring + MSCA/FIFO/ISR-status marks + MSCA snapshots */
+static bool regtrace_fr_big;
+static bool regtrace_fr_regs;
+module_param_named(t40_fr_regs, regtrace_fr_regs, bool, 0644);
+module_param_named(t40_fr_big, regtrace_fr_big, bool, 0644);
 static uint32_t regtrace_fr_seq;
 static int regtrace_fr_mark(uint32_t id, uint32_t aux)
 {
@@ -9870,8 +9877,17 @@ static int regtrace_fr_mark(uint32_t id, uint32_t aux)
     if (!regtrace_panic_dump_enable || !regtrace_panic_dump_phys)
         return 0;
     seq = ++regtrace_fr_seq;
-    e = (struct regtrace_fr_entry *)KSEG1ADDR(regtrace_panic_dump_phys + REGTRACE_FR_OFF);
-    e += seq % REGTRACE_FR_ENTRIES;
+    if (regtrace_fr_big) {
+        /* t40_fr_big: 1024-entry ring at rmem tail + 0xb000 (above the fr2 rings), enough to hold
+         * the last ~100 IRQs plus the stream/fifo marks before a watchdog reset */
+        e = (struct regtrace_fr_entry *)KSEG1ADDR(regtrace_panic_dump_phys + REGTRACE_FR_BIG_OFF);
+        if (seq == 1)
+            memset(e, 0, REGTRACE_FR_BIG_ENTRIES * sizeof(*e));   /* drop the ring of the previous boot */
+        e += seq % REGTRACE_FR_BIG_ENTRIES;
+    } else {
+        e = (struct regtrace_fr_entry *)KSEG1ADDR(regtrace_panic_dump_phys + REGTRACE_FR_OFF);
+        e += seq % REGTRACE_FR_ENTRIES;
+    }
     e->id = id;
     e->aux = aux;
     e->jiffies_lo = (uint32_t)jiffies;
@@ -21615,6 +21631,13 @@ static int regtrace_core_channel_stream(int channel, int enable)
     if (channel < 0 || channel >= 3)
         return -EINVAL;
 
+    if (regtrace_fr_big) {   /* t40_fr_big diag: fifo status at stream on/off */
+        uint32_t fy = 0, fuv = 0;
+        regtrace_core_read(0x1617cU + ((uint32_t)channel << 8), &fy);
+        regtrace_core_read(0x16194U + ((uint32_t)channel << 8), &fuv);
+        regtrace_fr_mark((enable ? 0xb0U : 0xb4U) + (uint32_t)channel, fy);
+        regtrace_fr_mark((enable ? 0xb8U : 0xbcU) + (uint32_t)channel, fuv);
+    }
     if (!enable) {
         if (regtrace_msca_ch_en != ~0U) {
             regtrace_msca_ch_en &= ~(1U << (channel & 0x1f));
@@ -22756,9 +22779,56 @@ static long regtrace_tx_isp_sensor_register_ioctl(unsigned long arg)
     return 0;
 }
 
+/*
+ * T40 restart hang (2026-10-18): the Eufy OEM tx_isp_release (0x10d3c) slakes every subdev on the
+ * last close of /dev/tx-isp; the core slake (ispcore_slake_module 0x7a4d8, tail 0x7a6a4..0x7a700)
+ * requests bus idle (0x200 |= 1), waits for the ack (0x204 bit0) and pulses the core soft reset
+ * (0x24 bit0), so every session starts from a reset ISP (vendor: MSCA 0x16000.. reads 0 after
+ * roitest exits).  The open driver never slaked: MSCA output 1 kept its internal state across
+ * sessions and the next ch0+ch1 stream on froze the ISP bus (watchdog reset, status1 0x8000 on
+ * the first IRQ).  Do the core slake tail on the last close.  Deviation: the clocks stay on (the
+ * open driver activates them once at probe and has no per-open activate), and the ack poll is
+ * bounded (OEM polls forever).
+ */
+static void regtrace_t40_msca_snap(uint32_t tag);
+static atomic_t regtrace_tx_isp_open_count = ATOMIC_INIT(0);
+static bool regtrace_t40_release_reset = true;
+static uint regtrace_t40_release_reset_count;
+static uint regtrace_t40_release_reset_last_ack;   /* polls until 0x204 bit0, 0xffffffff = timeout */
+module_param_named(t40_release_reset, regtrace_t40_release_reset, bool, 0644);
+module_param_named(t40_release_reset_count, regtrace_t40_release_reset_count, uint, 0444);
+module_param_named(t40_release_reset_last_ack, regtrace_t40_release_reset_last_ack, uint, 0444);
+
+static void regtrace_t40_core_slake_reset(void)
+{
+    uint32_t v = 0, i;
+
+    regtrace_fr_mark(0xe0U, regtrace_msca_ch_en);
+    regtrace_core_read(0x200U, &v);
+    regtrace_core_write(0x200U, v | 1U);
+    for (i = 0; i < 10000U; i++) {
+        v = 0;
+        regtrace_core_read(0x204U, &v);
+        if (v & 1U)
+            break;
+        udelay(1);
+    }
+    regtrace_t40_release_reset_last_ack = i < 10000U ? i : 0xffffffffU;
+    regtrace_core_read(0x24U, &v);
+    regtrace_core_write(0x24U, v | 1U);
+    regtrace_core_write(0x24U, v & ~1U);
+    regtrace_t40_msca_snap(0xe1U);
+    /* the reset cleared the block tables (LUTs, gates): the next session must run the block
+     * init again, as the OEM does with tisp_init/tisp_main_init on every core init */
+    regtrace_isp_block_init_ran = false;
+    regtrace_t40_release_reset_count++;
+    regtrace_fr_mark(0xe1U, regtrace_t40_release_reset_last_ack);
+}
+
 static int regtrace_tx_isp_open(struct inode *inode, struct file *file)
 {
     (void)inode;
+    atomic_inc(&regtrace_tx_isp_open_count);
     regtrace_prepare_tx_isp_context();
     if (file) {
         file->private_data = regtrace_tx_isp_context + 0x0c;
@@ -22772,6 +22842,12 @@ static int regtrace_tx_isp_release(struct inode *inode, struct file *file)
     (void)inode;
     if (file) {
         file->private_data = NULL;
+    }
+    if (atomic_dec_return(&regtrace_tx_isp_open_count) <= 0) {
+        atomic_set(&regtrace_tx_isp_open_count, 0);
+        if (regtrace_t40_release_reset &&
+            (regtrace_msca_ch_en == 0 || regtrace_msca_ch_en == ~0U))
+            regtrace_t40_core_slake_reset();
     }
     printk(KERN_INFO "tx_isp_t40_recovered: release /dev/tx-isp pid=%d comm=%s\n", current->pid, current->comm);
     return 0;
@@ -26484,6 +26560,27 @@ static int regtrace_t40_msca_vendor_fixups_apply(int channel)
     return 0;
 }
 
+/* restart-hang diag: MSCA 0x16000..0x163ff snapshot into the rmem tail (+0xf000, 4 x 1 KB slots)
+ * at ch1 stream on/off, readable after a watchdog reset (t40_fr_big=1 only) */
+static uint32_t regtrace_t40_msca_snap_n;
+static void regtrace_t40_msca_snap(uint32_t tag)
+{
+    uint32_t *d, off, v;
+
+    if (!regtrace_fr_big || !regtrace_panic_dump_phys || regtrace_t40_msca_snap_n >= 4)
+        return;
+    if (!regtrace_t40_msca_snap_n)
+        memset((void *)KSEG1ADDR(regtrace_panic_dump_phys + 0xf000U), 0, 0x1000U);
+    d = (uint32_t *)KSEG1ADDR(regtrace_panic_dump_phys + 0xf000U + regtrace_t40_msca_snap_n * 0x400U);
+    regtrace_t40_msca_snap_n++;
+    for (off = 0; off < 0x400U; off += 4) {
+        v = 0;
+        regtrace_core_read(0x16000U + off, &v);
+        d[off / 4] = off ? v : (0x5a500000U | tag);
+    }
+    wmb();
+}
+
 static int regtrace_core_event_stream(void *pad_arg, int enable)
 {
     int __maybe_unused __fr = regtrace_fr_mark(0x06, (uint32_t)enable);
@@ -26665,6 +26762,8 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
     }
 
     regtrace_fr_mark(0x4f, (uint32_t)(enable ? 1 : 0) | ((uint32_t)channel << 8));
+    if (channel == 1)
+        regtrace_t40_msca_snap(enable ? 1U : 0U);
     printk(KERN_INFO "tx_isp_t40_recovered: core-event %s ch=%d tisp_index=%d tisp_id=%u pad=%p data=%p ret=%ld\n",
            enable ? "streamon" : "streamoff", channel, tisp_index, tisp_id,
            pad_arg, channel_data, ret);
@@ -26699,6 +26798,7 @@ static int regtrace_core_event_clear(void *pad_arg)
         return 0;
     }
 
+    if (regtrace_fr_big) regtrace_fr_mark(0xc0U + (uint32_t)channel, ((uint32_t)tisp_index << 8) | tisp_id);
     if (tisp_index >= 0 && tisp_index < 3)
         tisp_channel_main_fifo_clear(tisp_id);
     else if (tisp_index >= 3 && tisp_index < 6)
@@ -167233,6 +167333,7 @@ int64_t Tzn_Msca_addr_fifo_write(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t
 		ret = regtrace_core_write(REGTRACE_T40_MSCA_UV_FIFO_WRITE_REG + bank, uv);
 	if (!ret && channel < 4)
 		regtrace_msca_fifo_depth[channel]++;
+	if (regtrace_fr_big) regtrace_fr_mark(0xa0U + channel + (group << 3), y);
 	if (!ret && regtrace_t40_msca_fifo_ctrl_after_qbuf)
 		ret = regtrace_t40_msca_program_fifo_ctrl(group, channel);
 
@@ -167428,6 +167529,7 @@ uint32_t Tzn_Msca_addr_fifo_read(uint32_t a0, uint32_t a1, uintptr_t a2, uintptr
 
     y &= ~7U;
     uv &= ~7U;
+    if (regtrace_fr_big) regtrace_fr_mark(0xa4U + channel + (group << 3), y);
     if (*(uint16_t *)(state + 608)) {
         adjust = ((uint32_t)*(uint16_t *)(state + 20) +
                   (uint32_t)*(uint16_t *)(state + 610) -
@@ -184898,7 +185000,8 @@ int32_t system_reg_write(uint32_t a0, uint32_t a1)
     if (!regtrace_is_kernel_ptr(base))
         return -ENODEV;
 
-    regtrace_fr_mark(0x31, a0);
+    if (!regtrace_fr_big || regtrace_fr_regs)
+        regtrace_fr_mark(0x31, a0);
     watched = regtrace_core_top_watch_index(a0) >= 0;
     if (watched)
         before = readl(base + a0);
@@ -185324,7 +185427,8 @@ int32_t system_reg_read(uint32_t a0)
     if (!regtrace_is_kernel_ptr(base))
         return 0;
 
-    regtrace_fr_mark(0x30, a0);
+    if (!regtrace_fr_big || regtrace_fr_regs)
+        regtrace_fr_mark(0x30, a0);
     {
         void *fr2 = regtrace_fr2_reg_pre(0x30U, a0, 0);
         uint32_t fr2_val = readl(base + a0);
@@ -187826,6 +187930,8 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
     v0 = *(uint32_t *)((char *)a0 + 232);
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
     s5 = *(uint32_t *)((char *)v0 + 104);
+    if (regtrace_fr_big) regtrace_fr_mark(0xd0U, (uint32_t)(uintptr_t)s2);
+    if (regtrace_fr_big) regtrace_fr_mark(0xd1U, (uint32_t)(uintptr_t)s1);
 
     if (regtrace_enable_isp_3a_diag) {
         regtrace_3a_isr_count++;
@@ -188386,6 +188492,7 @@ ispcore_interrupt_service_routine0x5a0:
      * never fills, so output 1 was never popped and its DMA stalled after the first buffer. */
     if (regtrace_t40_isr_ch1_direct && v0 != 0) {
         regtrace_t40_isr_ch1_irq++;
+        if (regtrace_fr_big) regtrace_fr_mark(0xa3U, (uint32_t)s2);
         if (!*(uint32_t *)((char *)((char *)&saveflag))) {
             local_28 = 0;
             local_2c = 0;
