@@ -3,6 +3,18 @@
 
 #include <linux/version.h>
 
+/* READ_ONCE()/WRITE_ONCE() were introduced in 3.18; on the 3.10.14 vendor
+ * tree the equivalent is ACCESS_ONCE(). Every object they touch here is a
+ * plain scalar, which is exactly the case where the two forms agree. */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 18, 0)
+#ifndef READ_ONCE
+#define READ_ONCE(x) ACCESS_ONCE(x)
+#endif
+#ifndef WRITE_ONCE
+#define WRITE_ONCE(x, val) do { ACCESS_ONCE(x) = (val); } while (0)
+#endif
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
 #include <linux/fs.h>
 #include <linux/proc_fs.h>
@@ -208,6 +220,31 @@ static inline size_t strlcpy(char *dst, const char *src, size_t size)
 	int ret = strscpy(dst, src, size);
 	return ret < 0 ? size : (size_t)ret;
 }
+#endif
+
+/* wait_queue_head_t kept its wait list in .task_list until 4.13, which renamed
+ * it .head. swait_queue_head (5.7+) kept .task_list. */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0)
+#define TX_ISP_WAITQ_LIST(wq) ((wq).task_list)
+#else
+#define TX_ISP_WAITQ_LIST(wq) ((wq).head)
+#endif
+
+/* struct completion is backed by a wait_queue_head_t before 5.7 and by an
+ * swait_queue_head after, so both the member holding the wait list and the
+ * "has waiters" predicate depend on the version. */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0)
+#define TX_ISP_COMPLETION_LIST(c) ((c).wait.task_list)
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 7, 0)
+#define TX_ISP_COMPLETION_LIST(c) ((c).wait.head)
+#else
+#define TX_ISP_COMPLETION_LIST(c) ((c).wait.task_list)
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 7, 0)
+#define TX_ISP_COMPLETION_HAS_WAITERS(c) waitqueue_active(&(c).wait)
+#else
+#define TX_ISP_COMPLETION_HAS_WAITERS(c) swait_active(&(c).wait)
 #endif
 
 /* strncpy() was removed from the kernel in 7.2 (no declaration, no export).
