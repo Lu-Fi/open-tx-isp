@@ -22,6 +22,26 @@ module_param(t41_native_awb_frames, uint, 0444);
 module_param(t41_native_awb_dropped, uint, 0444);
 module_param(t41_native_awb_error, int, 0444);
 static void t41_native_awb_workfn(struct work_struct *work);
+
+/* Colour diag (claude/t41-color): one-shot dump of the raw AWB DMA bank plus
+ * the derived state s and parameter block p of the same frame. Write 1 to
+ * awb_dump_req, then read /proc/t41_awb_dump: [dma 32768][s][p]. */
+#include <linux/proc_fs.h>
+#include <linux/vmalloc.h>
+static unsigned int t41_awb_dump_req __attribute__((section(".data")));
+static unsigned int t41_awb_dump_len __attribute__((section(".data")));
+module_param_named(awb_dump_req, t41_awb_dump_req, uint, 0644);
+static unsigned char *t41_awb_dump_buf;
+static ssize_t t41_awb_dump_read(struct file *f, char __user *u, size_t n, loff_t *off)
+{
+    ssize_t r;
+    mutex_lock(&t41_native_awb_lock);
+    r=t41_awb_dump_buf ? simple_read_from_buffer(u,n,off,t41_awb_dump_buf,t41_awb_dump_len) : 0;
+    mutex_unlock(&t41_native_awb_lock);
+    return r;
+}
+static const struct file_operations t41_awb_dump_fops = { .owner=THIS_MODULE, .read=t41_awb_dump_read };
+#define T41_AWB_DUMP_BYTES (32768U+sizeof(((struct t41_awb_owned *)0)->s)+sizeof(((struct t41_awb_owned *)0)->p))
 static DECLARE_WORK(t41_native_awb_work, t41_native_awb_workfn);
 
 static struct t41_awb_runtime *t41_native_awb_object(unsigned int channel)
@@ -151,6 +171,12 @@ static void t41_native_awb_workfn(struct work_struct *work)
     buffers=t41_awb_buffers(&s->candidate);
     ret=t41_awb_frame(&buffers,s->candidate.red,s->candidate.blue,
         s->dma+bank*bytes,bytes,rgb,words,&n) ? -ERANGE : 0;
+    if (READ_ONCE(t41_awb_dump_req) && t41_awb_dump_buf) {
+        memcpy(t41_awb_dump_buf,s->dma+bank*bytes,bytes);
+        memcpy(t41_awb_dump_buf+32768,s->candidate.s,sizeof(s->candidate.s));
+        memcpy(t41_awb_dump_buf+32768+sizeof(s->candidate.s),s->candidate.p,sizeof(s->candidate.p));
+        t41_awb_dump_len=T41_AWB_DUMP_BYTES; WRITE_ONCE(t41_awb_dump_req,0);
+    }
     {
         const uint32_t *w=(const uint32_t *)(s->dma+bank*bytes);
         unsigned int nz=0,k,zone=(7*15+7)*4;
@@ -266,6 +292,10 @@ static int t41_native_awb_init(unsigned int channel, const uint32_t *config)
     t41_native_awb_frames=t41_native_awb_dropped=0;
     WRITE_ONCE(t41_native_awb_zone_stamp,0);
     smp_store_release(&t41_awb_ready[0],1);
+    if (!t41_awb_dump_buf) {
+        t41_awb_dump_buf=vzalloc(T41_AWB_DUMP_BYTES);
+        if (t41_awb_dump_buf) proc_create("t41_awb_dump",0444,NULL,&t41_awb_dump_fops);
+    }
     ret=0; goto done;
 free_state:
     vfree(s);
@@ -293,6 +323,7 @@ static int t41_native_awb_deinit(unsigned int channel)
     ((uint32_t *)(void *)tpm_cb_storage)[5]=0;
     /* Review2 M3: stop the AWB statistics DMA before its ring is freed. */
     if (s) { system_reg_write(0x1804c,0); private_kfree(s->dma); vfree(s); }
+    if (t41_awb_dump_buf) { remove_proc_entry("t41_awb_dump",NULL); vfree(t41_awb_dump_buf); t41_awb_dump_buf=NULL; }
     t41_native_awb_error=-ENODEV;
     mutex_unlock(&t41_native_awb_lock);
     return 0;

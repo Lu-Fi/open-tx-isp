@@ -23134,6 +23134,48 @@ static int t41_daynight_notify(void *opaque, u32 mode)
  * The first frame applies the requested CSC clamp and notifies the tuning
  * event queue; the following frame closes the CSC shadow transaction.
  */
+/*
+ * Day/night TOP module selection (claude/t41-color).  Stock
+ * tisp_day_or_night_event (event 18) copies the selected bank into tparams
+ * and rebuilds TOP 0x40 from bank+4 (32 bypass bytes); the kernel build
+ * suppresses event 18 (t41_safe_tuning_events), so a night switch only
+ * clamped the CSC and kept every day module running.  Modules after the CSC
+ * (bit 16, active in the gc5603 day bank, bypassed in its night bank) then
+ * put chroma back into the "B&W" picture.  This applies just the TOP part
+ * of the bank switch: each bit that differs between the day and night banks
+ * follows the selected bank; bits equal in both keep their live runtime
+ * state; module-control overrides win; DEFOG (11) never leaves bypass.
+ */
+static int t41_dn_top = 0;
+module_param(t41_dn_top, int, 0644);
+MODULE_PARM_DESC(t41_dn_top, "apply the night/day bank TOP module bypass on a running-mode switch (1 = like stock)");
+static unsigned int t41_dn_top_last __attribute__((section(".data")));
+module_param(t41_dn_top_last, uint, 0444);
+
+static void t41_dn_apply_top(uint32_t mode)
+{
+	const uint8_t *day = (const uint8_t *)(uintptr_t)tparams_day;
+	const uint8_t *night = (const uint8_t *)(uintptr_t)tparams_night;
+	const uint8_t *sel = mode ? night : day;
+	uint32_t *bypass = &((uint32_t *)(void *)top_bypass_global)[0];
+	uint32_t word = *bypass, i;
+
+	if (!READ_ONCE(t41_dn_top) || !t41_kernel_data_ptr((void *)day) ||
+	    !t41_kernel_data_ptr((void *)night))
+		return;
+	for (i = 0; i < 26; i++) {
+		if ((day[4 + i] & 1) == (night[4 + i] & 1))
+			continue;
+		word &= ~(1U << i);
+		word |= (uint32_t)(sel[4 + i] & 1) << i;
+	}
+	word |= T41_MODCTL_DEFOG_BIT | 0xfc000000U;
+	word = (word & ~t41_modctl_mask) | (t41_modctl_value & t41_modctl_mask);
+	*bypass = word;
+	system_reg_write(0x40, word);
+	t41_dn_top_last = word;
+}
+
 static void t41_apply_pending_day_night(char *core)
 {
     struct t41_daynight_context context;
@@ -23162,6 +23204,8 @@ static void t41_apply_pending_day_night(char *core)
     runtime.notify_result = &notify_ret;
 
     ret = tx_isp_daynight_apply(&runtime);
+    if (ret == TX_ISP_DAYNIGHT_SWITCH)
+        t41_dn_apply_top(mode);
     if (ret == TX_ISP_DAYNIGHT_SWITCH)
         printk(KERN_WARNING
                "t41: applied running-mode=%u csc=%#x "
