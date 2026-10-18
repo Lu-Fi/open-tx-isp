@@ -97394,7 +97394,7 @@ int64_t tisp_awb_long_alogrithm(uintptr_t a0, uintptr_t a1)
     }
     /* (2) ratios */
     g0 = (uint32_t)fix_point_mult2_32((int32_t)s1, (int32_t)(1U << s1), (int32_t)(s5[0] << (s1 - 10)));
-    g1 = (uint32_t)fix_point_mult2_32((int32_t)s1, (int32_t)g0, (int32_t)(s5[1] << (s1 - 10)));
+    g1 = (uint32_t)fix_point_mult2_32((int32_t)s1, (int32_t)(1U << s1), (int32_t)(s5[1] << (s1 - 10)));   /* OEM 0x32d0c: the 2nd fix_point_mult2_32 gets 80(sp) = unity (stored in the 1st jalr delay slot), not g0 */
     for (r = 0; r < rows; r++) for (c = 0; c < cols; c++) {
         uint32_t g; int h;
         z = r * 15 + c;
