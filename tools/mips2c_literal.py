@@ -10,6 +10,11 @@ import re, sys
 
 ASM, FNAME = sys.argv[1], sys.argv[2]
 BSSMAP = {}
+SECMAP = {}
+BSS_HI_ZERO = False
+CALL_DISPATCH = False
+hi_val = {}
+hi_seen = {}
 if len(sys.argv) > 3:
     exec(open(sys.argv[3]).read())  # defines BSSMAP = {offset: "symbol"}
 
@@ -57,11 +62,33 @@ def r(name):
     if name == "fp": name = "s8"
     return f"r_{name}"
 
+def secsym(sec, basereg, lo):
+    hv = hi_val.get(basereg.replace('$',''))
+    if (hv is None or hv[0] != sec) and sec == ".bss" and BSS_HI_ZERO:
+        hv = (".bss", 0)	# every .bss HI16 in this module is 0
+    if hv is None or hv[0] != sec:
+        return None
+    full = (hv[1] << 16) + lo
+    if SECMAP:
+        return SECMAP.get((sec, full)) or f"/*UNMAPPED {sec}+0x{full:x}*/0"
+    tab = globals().get("SYMTAB", {}).get(sec)
+    if not tab:
+        return None
+    import bisect
+    i = bisect.bisect_right([t[0] for t in tab], full) - 1
+    if i >= 0 and tab[i][0] <= full < tab[i][0] + max(tab[i][1], 1):
+        k = full - tab[i][0]
+        return f"&{tab[i][2]}" if k == 0 else f"((uint8_t *)&{tab[i][2]} + {k})"
+    return f"/*UNMAPPED {sec}+0x{full:x}*/0"
+
 def memref(arg, ins, size):
     m = re.match(r'(-?\d+)\((\w+)\)', arg)
     off, base = int(m.group(1)), m.group(2)
     rel = ins["reloc"]
-    if rel and rel[0] == "R_MIPS_LO16" and rel[1] in (".bss", ".data"):
+    if rel and rel[0] == "R_MIPS_LO16" and rel[1] in (".bss", ".data", ".rodata"):
+        ss = secsym(rel[1], base, off)
+        if ss:
+            return f"((uintptr_t){ss})", 0, True
         sym = BSSMAP.get(off)
         if sym:
             return f"((uintptr_t)&{sym})", 0, True
@@ -88,20 +115,26 @@ while i < len(insns):
     handled = True
     if op == "lui":
         rel = ins["reloc"]
-        if rel and rel[1] not in (".bss",".data"):
+        if rel and rel[1] not in (".bss",".data",".rodata"):
             emit(f"{r(a[0])} = (uint32_t)(uintptr_t)&{rel[1]}; /* HI16 {rel[1]} */")
             hi_pending[a[0].replace('$','')] = rel[1]
             regsym[a[0].replace('$','')] = rel[1]
         elif rel:
             emit(f"{r(a[0])} = 0; /* HI16 {rel[1]} anchor */")
             hi_pending[a[0].replace('$','')] = rel[1]
+            rg = a[0].replace('$',''); hv = (rel[1], int(a[1],0))
+            if rg in hi_seen and hi_seen[rg] != hv:
+                emitted_warn.append(f"{addr:x}: {rg} HI16 anchors differ ({hi_seen[rg]} vs {hv}); check flow")
+            hi_val[rg] = hv; hi_seen[rg] = hv
         else:
             emit(f"{r(a[0])} = 0x{int(a[1],0)<<16:x}U;")
     elif op in ("addiu","addi"):
         rel = ins["reloc"]
         imm = int(a[2],0)
-        if rel and rel[0]=="R_MIPS_LO16" and rel[1] not in (".bss",".data"):
+        if rel and rel[0]=="R_MIPS_LO16" and rel[1] not in (".bss",".data",".rodata"):
             emit(f"{r(a[0])} = (uint32_t)(uintptr_t)&{rel[1]};")
+        elif rel and rel[0]=="R_MIPS_LO16" and secsym(rel[1], a[1], imm):
+            emit(f"{r(a[0])} = (uint32_t)(uintptr_t){secsym(rel[1], a[1], imm)};")
         elif rel and rel[0]=="R_MIPS_LO16":
             sym = BSSMAP.get(imm if imm >= 0 else imm + 0x10000)
             key = imm if imm >= 0 else imm + 0x10000
@@ -139,6 +172,18 @@ while i < len(insns):
         s_, t_ = (a[1], a[2]) if len(a)==3 else (a[0], a[1])
         c = "(int32_t)" if op=="div" else ""
         emit(f"if ({r(t_)}) {{ mips_lo = (uint32_t)({c}{r(s_)} / {c}{r(t_)}); mips_hi = (uint32_t)({c}{r(s_)} % {c}{r(t_)}); }}")
+    elif op in ("mult","multu","madd","maddu","msub","msubu"):
+        s_, t_ = a[0], a[1]
+        sg = op in ("mult","madd","msub")
+        prod = (f"(uint64_t)((int64_t)(int32_t){r(s_)} * (int64_t)(int32_t){r(t_)})" if sg
+                else f"((uint64_t){r(s_)} * (uint64_t){r(t_)})")
+        if op.startswith("mult"):
+            emit(f"{{ uint64_t mips_acc = {prod}; mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }}")
+        else:
+            sign = "+" if op.startswith("madd") else "-"
+            emit(f"{{ uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) {sign} {prod}; mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }}")
+    elif op == "mtlo": emit(f"mips_lo = {r(a[0])};")
+    elif op == "mthi": emit(f"mips_hi = {r(a[0])};")
     elif op == "mflo": emit(f"{r(a[0])} = mips_lo;")
     elif op == "mfhi": emit(f"{r(a[0])} = mips_hi;")
     elif op == "ext":
@@ -212,6 +257,8 @@ while i < len(insns):
             emitted_warn.append(f"{addr:x}: jr via {a[-1]} (tail call sym={sym})")
             callstr = (f"r_v0 = (uint32_t)REGCALL_{sym}(r_a0, r_a1, r_a2, r_a3); goto fn_exit;"
                        if sym else f"TAILCALL({r(a[-1])}); goto fn_exit;")
+            if CALL_DISPATCH:
+                callstr = f"r_v0 = ADR_DISPATCH({r(a[-1])}); goto fn_exit; /* tail {sym} */"
             if i+1 < len(insns):
                 insns[i+1]["__after"] = callstr
             i += 1
@@ -221,6 +268,8 @@ while i < len(insns):
         sym = regsym.get(tgt)
         callstr = (f"r_v0 = (uint32_t)REGCALL_{sym}(r_a0, r_a1, r_a2, r_a3);"
                    if sym else f"CALL_VIA({r(tgt)});")
+        if CALL_DISPATCH:
+            callstr = f"r_v0 = ADR_DISPATCH({r(tgt)}); /* {sym} */"
         if i+1 < len(insns):
             insns[i+1]["__after"] = callstr
         i += 1
@@ -237,6 +286,20 @@ while i < len(insns):
         emitted_warn.append(f"{addr:x}: UNHANDLED {op} {args}")
         emit(f"/* UNHANDLED {op} {args} */")
         handled = True
+    # a register written by anything but the symbol-tracking forms loses its symbol
+    WRITES_A0 = {"addi","addiu","addu","subu","negu","and","or","xor","nor","andi","ori","xori",
+                 "sll","srl","sra","sllv","srlv","srav","slt","sltu","slti","sltiu","movn","movz",
+                 "mul","mflo","mfhi","ext","ins","seb","seh","wsbh","lw","lbu","lhu","lb","lh",
+                 "lwl","lwr","li"}
+    # Only in dispatch mode: there the symbol is a comment, the call goes by
+    # value.  Without dispatch keep the original text-order tracking, which
+    # suits compiler-hoisted function-pointer registers.
+    if CALL_DISPATCH and a and op in WRITES_A0 and not (op in ("addiu","addi") and ins["reloc"]):
+        regsym.pop(a[0].replace('$',''), None)
+    if CALL_DISPATCH and op == "lui" and not (ins["reloc"] and ins["reloc"][1] not in (".bss",".data",".rodata")):
+        regsym.pop(a[0].replace('$',''), None)
+    if CALL_DISPATCH and op == "move" and a[1].replace('$','') not in regsym:
+        regsym.pop(a[0].replace('$',''), None)
     after = ins.get("__after")
     if after: emit(after)
     i += 1

@@ -1,0 +1,5 @@
+static int isp_memopt;
+static const char __param_str_isp_dual_buf[] = "isp_dual_buf";
+static const char LC15[] = "GBRG";
+static uintptr_t line_switch;
+static uint32_t ispcore_sd;
