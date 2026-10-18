@@ -4,11 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
-## 2026-10-18: T40 substream and NV12 chroma (`claude/t40-ch1`, on the T40 3A per-frame line)
+## 2026-10-18: T40 substream, NV12 chroma and AutoZoom (`claude/t40-ch1`, `claude/t40-autozoom`; both in `next`)
 
 - **ch1 delivers frames (`t40_isr_ch1_direct`, default 1):** the ISR pops MSCA output 1 on status0 bit 1 like the OEM ISR and the ch2 leg; before, ch1 stalled after its first buffer. Device (T40XP sc830ai): 1080p + 360p/720p 226/226 frames in 15 s, ch0 back to 15 fps; streamer 10 min, ch0/ch1 ~20 fps each, no oops.
 - **NV12 UV offset (`t40_nv12_height_align=0` = auto):** UV at width*ALIGN(height,16) as the vendor driver when the queued buffer holds it, else width*height (older libimp). Removes the green strip at the bottom and the chroma shift on 360p.
 - `tisp_gib_ae_write_dgain` no longer floods the log every frame; `t40_msca_late_work_en` (default 1) programs and latches the output geometry before work_en, in OEM order.
+- **AutoZoom (CID 0x08000077) real on T40:** `tisp_s/g_autozoom_control` re-done after the OEM routine (per output channel a window, programmed into the MSCA source-window words at once, live while streaming; the recovered code had lost a relocation and oopsed). A window is accepted only when it lies inside the sensor, is at least 2x2 and not smaller than the channel output (the MSCA cannot upscale); otherwise `-EINVAL`, nothing stored. Second sensor (vinum 1) refused. Also fixed: after a stream restart the window position was lost (the OEM-order repeat wrote 0x160a0 = 0). Counters `t40_az_{live,deferred,stored,failed}`, optional deferral of large outputs via `t40_az_live_max_w/h`. Device-tested (T40XP sc830ai): outputs 640x360 to 2560x1440 live within one frame (gap 67-85 ms at 15 fps), regions match, invalid and too-small windows rejected, no oops. Output 4K only with the full window; zoom on ch1/ch2 not device-proven.
+- Housekeeping: `fable-aeexp_test.c` (user-space GetAeExpList/SetAeExpList test) moved from the repository root to `tools/`.
 
 ## 2026-10-15: T40 integration branch `claude/t40-integration-1015` (not in `next`)
 
