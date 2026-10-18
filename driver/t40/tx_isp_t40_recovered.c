@@ -16848,6 +16848,7 @@ static uint32_t regtrace_t40_msca_cfg_last_full_width;
 static uint32_t regtrace_t40_msca_cfg_last_full_height;
 static uint32_t regtrace_t40_msca_cfg_last_source_width[3];
 static uint32_t regtrace_t40_msca_cfg_last_source_height[3];
+static uint32_t regtrace_t40_msca_cfg_last_source_pos[3];   /* left << 16 | top */
 static uint32_t regtrace_t40_msca_cfg_last_target_width[3];
 static uint32_t regtrace_t40_msca_cfg_last_target_height[3];
 static uint32_t regtrace_t40_msca_cfg_last_ratio[3];
@@ -17180,6 +17181,64 @@ static uint32_t regtrace_tzn_fifo_write_unknown_count[4];
 static uint32_t regtrace_tzn_fifo_read_unknown_count[4];
 static uint32_t regtrace_vic_mdma_count;
 static uint32_t regtrace_msca_ch_en = ~0U;
+
+/*
+ * AutoZoom (CID 0x08000077, IMPISPAutoZoom of the T40 1.3.1 header: five
+ * u32[3] arrays en/left/top/width/height).  OEM tisp_s_autozoom_control
+ * (Eufy ko 0x72d38) stores an en == 1 window, any other value the full
+ * image (0, 0, img_w, img_h), into mscaler_s0[ch] +18..+26 and calls
+ * Tzn_Msca_cfg_load, which programs that window as the MSCA input crop
+ * (0x160a0 = left << 16 | top, 0x160a4 = w << 16 | h, ratio = w * 512 / out).
+ * Here the window replaces the fcrop-derived source window of the open MSCA
+ * programmer.  t40_az = requested (GET), t40_az_hw = programmed; a running
+ * channel gets it live unless its output exceeds t40_az_live_max_w/h, then
+ * it is applied at the channel's next stream-on (deferred).
+ */
+struct t40_az_win {
+    uint32_t en, left, top, width, height;
+};
+static struct t40_az_win t40_az[3];
+static struct t40_az_win t40_az_hw[3];
+static unsigned int t40_az_live_max_w;
+static unsigned int t40_az_live_max_h;
+static unsigned int t40_az_live_count;
+static unsigned int t40_az_deferred_count;
+static unsigned int t40_az_stored_count;
+static unsigned int t40_az_failed_count;
+module_param_named(t40_az_live_max_w, t40_az_live_max_w, uint, 0644);
+module_param_named(t40_az_live_max_h, t40_az_live_max_h, uint, 0644);
+module_param_named(t40_az_live, t40_az_live_count, uint, 0444);
+module_param_named(t40_az_deferred, t40_az_deferred_count, uint, 0444);
+module_param_named(t40_az_stored, t40_az_stored_count, uint, 0444);
+module_param_named(t40_az_failed, t40_az_failed_count, uint, 0444);
+
+static void regtrace_get_framechan_format(int channel,
+                                          struct regtrace_frame_image_format *format);
+
+static void t40_az_override(int ch, uint32_t full_w, uint32_t full_h,
+                            uint32_t *left, uint32_t *top,
+                            uint32_t *width, uint32_t *height)
+{
+    const struct t40_az_win *z;
+    struct regtrace_frame_image_format format;
+
+    if (ch < 0 || ch >= 3)
+        return;
+    z = &t40_az_hw[ch];
+    if (z->en != 1 || z->width < 2 || z->height < 2 ||
+        z->left + z->width > full_w || z->top + z->height > full_h)
+        return;
+    /* MSCA only scales down: a window smaller than the output stalls the
+     * channel (Eufy 10-18), so such a window is not programmed. */
+    regtrace_get_framechan_format(ch, &format);
+    if (z->width < format.pix.width || z->height < format.pix.height)
+        return;
+    /* NV12 output: keep the window on even coordinates */
+    *left = z->left & ~1U;
+    *top = z->top & ~1U;
+    *width = z->width & ~1U;
+    *height = z->height & ~1U;
+}
 static uint32_t regtrace_t40_msca_work_en_last_active;
 static uint32_t regtrace_t40_msca_work_en_last_hw;
 static uint32_t regtrace_t40_msca_work_en_last_readback;
@@ -20135,6 +20194,8 @@ static int regtrace_t40_msca_shadow_fifo_program(int trigger_channel,
             source_width = format.fcrop_width;
             source_height = format.fcrop_height;
         }
+        t40_az_override((int)ch, full_width, full_height, &source_left,
+                        &source_top, &source_width, &source_height);
 
         if (format.scaler_enable ||
             (format.pix.width && format.pix.width != source_width) ||
@@ -20850,6 +20911,8 @@ static int regtrace_t40_msca_state_update_channel(
         source_width = format->fcrop_width;
         source_height = format->fcrop_height;
     }
+    t40_az_override(channel, full_width, full_height, &source_left,
+                    &source_top, &source_width, &source_height);
 
     if (format->scaler_enable ||
         (format->pix.width && format->pix.width != source_width) ||
@@ -21106,6 +21169,8 @@ static int regtrace_t40_msca_cfg_program(int trigger_channel,
             source_width = format.fcrop_width;
             source_height = format.fcrop_height;
         }
+        t40_az_override((int)ch, full_width, full_height, &source_left,
+                        &source_top, &source_width, &source_height);
 
         if (format.scaler_enable ||
             (format.pix.width && format.pix.width != source_width) ||
@@ -21150,6 +21215,8 @@ static int regtrace_t40_msca_cfg_program(int trigger_channel,
         vratio = regtrace_msca_ratio(source_height, crop_height);
         regtrace_t40_msca_cfg_last_source_width[ch] = source_width;
         regtrace_t40_msca_cfg_last_source_height[ch] = source_height;
+        regtrace_t40_msca_cfg_last_source_pos[ch] =
+            active ? ((source_left << 16) | source_top) : 0;
         regtrace_t40_msca_cfg_last_target_width[ch] = crop_width;
         regtrace_t40_msca_cfg_last_target_height[ch] = crop_height;
         regtrace_t40_msca_cfg_last_ratio[ch] =
@@ -21256,7 +21323,9 @@ static int regtrace_t40_msca_cfg_program(int trigger_channel,
         hratio = regtrace_msca_ratio(source_width, target_width);
         vratio = regtrace_msca_ratio(source_height, target_height);
 
-        ret = regtrace_core_write(0x160a0U + ch * 8U, 0);
+        /* keep the window position (AutoZoom/fcrop); was 0 */
+        ret = regtrace_core_write(0x160a0U + ch * 8U,
+                                  regtrace_t40_msca_cfg_last_source_pos[ch]);
         if (ret)
             goto out;
         ret = regtrace_core_write(0x160a4U + ch * 8U,
@@ -21452,6 +21521,8 @@ static int regtrace_core_program_channel_attr(
         source_width = format->fcrop_width;
         source_height = format->fcrop_height;
     }
+    t40_az_override(channel, full_width, full_height, &source_left,
+                    &source_top, &source_width, &source_height);
 
     implicit_scaler =
         (format->pix.width && format->pix.width != source_width) ||
@@ -21593,6 +21664,7 @@ static int regtrace_core_channel_stream(int channel, int enable)
     if (regtrace_msca_ch_en == ~0U)
         regtrace_msca_ch_en = 0;
     regtrace_msca_ch_en |= (1U << (channel & 0x1f));
+    t40_az_hw[channel] = t40_az[channel];   /* deferred AutoZoom window */
 
     if (regtrace_msca_dmaout_arb == ~0U)
         regtrace_msca_dmaout_arb = 0xe;
@@ -46178,6 +46250,115 @@ isp_frame_done_wait0x388:
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
 }
 
+/*
+ * AutoZoom SET/GET (see t40_az above).  Window check (not in the OEM kernel,
+ * which programs whatever it gets): an enabled window must be at least 2x2
+ * and inside the sensor image; the whole request is rejected before anything
+ * is stored (libimp returns -1).
+ */
+static void t40_az_full(uint32_t *w, uint32_t *h)
+{
+    regtrace_sensor_dimensions(0, w, h);
+}
+
+static int t40_az_set(uint32_t vinum, const void __user *uptr)
+{
+    uint32_t req[15];
+    struct t40_az_win nw[3];
+    struct regtrace_frame_image_format format;
+    uint32_t full_w = 0, full_h = 0;
+    unsigned int ch, live = 0;
+    int ret;
+
+    if (vinum != 0 || !uptr)
+        return -EINVAL;
+    if (copy_from_user(req, uptr, sizeof(req)))
+        return -EFAULT;
+    t40_az_full(&full_w, &full_h);
+    for (ch = 0; ch < 3; ch++) {
+        if (req[ch] == 1) {
+            uint32_t l = req[3 + ch], t = req[6 + ch];
+            uint32_t w = req[9 + ch], h = req[12 + ch];
+
+            if (!full_w || !full_h || w < 2 || h < 2 ||
+                l >= full_w || t >= full_h ||
+                w > full_w - l || h > full_h - t)
+                return -EINVAL;
+            /* no upscaling (see t40_az_override) */
+            regtrace_get_framechan_format((int)ch, &format);
+            if (w < format.pix.width || h < format.pix.height)
+                return -EINVAL;
+            nw[ch].en = 1;
+            nw[ch].left = l;
+            nw[ch].top = t;
+            nw[ch].width = w;
+            nw[ch].height = h;
+        } else {
+            nw[ch].en = req[ch];
+            nw[ch].left = 0;
+            nw[ch].top = 0;
+            nw[ch].width = full_w;
+            nw[ch].height = full_h;
+        }
+    }
+    for (ch = 0; ch < 3; ch++) {
+        int changed = memcmp(&t40_az[ch], &nw[ch], sizeof(nw[ch])) != 0;
+        int running = regtrace_msca_ch_en != ~0U &&
+                      (regtrace_msca_ch_en & (1U << ch));
+
+        t40_az[ch] = nw[ch];
+        if (!changed)
+            continue;
+        if (!running) {
+            /* applied by cfg_program at this channel's stream-on */
+            t40_az_hw[ch] = nw[ch];
+            t40_az_stored_count++;
+            continue;
+        }
+        regtrace_get_framechan_format((int)ch, &format);
+        if ((t40_az_live_max_w && format.pix.width > t40_az_live_max_w) ||
+            (t40_az_live_max_h && format.pix.height > t40_az_live_max_h)) {
+            t40_az_deferred_count++;
+            printk(KERN_INFO "tx-isp-t40: AutoZoom ch=%u stored, applied at the next start (output %ux%u > live max %ux%u)\n",
+                   ch, format.pix.width, format.pix.height,
+                   t40_az_live_max_w, t40_az_live_max_h);
+            continue;
+        }
+        t40_az_hw[ch] = nw[ch];
+        live = 1;
+    }
+    if (!live)
+        return 0;
+    ret = regtrace_t40_msca_cfg_program(-1, "autozoom");
+    if (ret) {
+        t40_az_failed_count++;
+        return ret;
+    }
+    t40_az_live_count++;
+    return 0;
+}
+
+static int t40_az_get(uint32_t vinum, void __user *uptr)
+{
+    uint32_t req[15];
+    uint32_t full_w = 0, full_h = 0;
+    unsigned int ch;
+
+    if (vinum != 0 || !uptr)
+        return -EINVAL;
+    t40_az_full(&full_w, &full_h);
+    for (ch = 0; ch < 3; ch++) {
+        const struct t40_az_win *z = &t40_az[ch];
+
+        req[ch] = z->en;
+        req[3 + ch] = z->left;
+        req[6 + ch] = z->top;
+        req[9 + ch] = z->width ? z->width : full_w;
+        req[12 + ch] = z->height ? z->height : full_h;
+    }
+    return copy_to_user(uptr, req, sizeof(req)) ? -EFAULT : 0;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000b024 origin=fragment_seed original=tx_isp_core_ops_s_ctrl */
 int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
 {
@@ -46194,8 +46375,8 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
          * it oopsed (Eufy 10-18, store to 0x48); the open MSCA path
          * (regtrace) does not read the window either.  Refused until a real
          * implementation exists; libimp returns -1. */
-        printk_ratelimited(KERN_INFO "tx-isp-t40: AutoZoom not implemented (refused)\n");
-        return -EOPNOTSUPP;
+        return t40_az_set((uint32_t)(uintptr_t)arg1,
+                          (const void __user *)(uintptr_t)arg3[1]);
     }
     if (v1 == 0x8000077 + 0x10000000) {   /* old recovered path, unreachable */
         int v0_54 = copy_from_user(&var_88, (void __user *)arg3[1], 0x3c);
@@ -47047,8 +47228,8 @@ label_c33c_vfree:
 
     if (cmd == 0x8000077) {
         /* AutoZoom GET: the recovered wrapper calls tisp_g_autozoom_control
-         * without its buffer argument (see SET above). */
-        return -EOPNOTSUPP;
+         * without its buffer argument; own implementation (t40_az_get). */
+        return t40_az_get(arg1, (void __user *)(uintptr_t)arg3[1]);
     }
 
     if (cmd < 0x8000078) {
