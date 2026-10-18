@@ -4873,6 +4873,9 @@ int64_t tisp_ae_interrupt_hist(uint32_t a0);
 int32_t t41_safe_ae_calc_process(uint32_t channel);
 int32_t t41_vae_calc_process(uint32_t channel);
 u64 vae_tisp_ae_roi_point(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
+u64 vae_tisp_clm_write_csc_para(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
+u64 vae_tisp_clm_ct_interp(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
+u64 vae_tisp_clm_write_lut(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 int64_t tisp_ae_get_statistics(uint32_t a0, uintptr_t a1);
 int32_t tisp_ae_interrupt_static(uint32_t a0);
 int64_t tisp_set_ae_sensor_fps(uint32_t a0);
@@ -147924,6 +147927,64 @@ int32_t tisp_clm_dn_params_refresh(uint32_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000064ff0 origin=fragment_seed original=tisp_clm_init */
+/*
+ * CLM (TOP bit 16, colour LUT behind the CSC).  The kernel build kept the
+ * block "safe neutral": no LUT was ever written, yet the gc5603 day bank
+ * enables the block, so it ran on whatever the LUT RAM held - the bulb became
+ * a yellow blob with cyan/purple fringes and white walls turned cyan.
+ *   t41_clm=0  unchanged (no LUT, TOP bit from the bank)
+ *   t41_clm=1  OEM CLM: tisp_clm_write_csc_para + tisp_clm_ct_interp +
+ *              tisp_clm_write_lut (translated by tools/t41_vae/gen.sh), LUT
+ *              re-interpolated when the AWB CT moves (OEM tisp_clm_ct_update)
+ *   t41_clm=2  keep the block bypassed (TOP bit 16 set)
+ */
+static unsigned int t41_clm;
+module_param(t41_clm, uint, 0444);
+MODULE_PARM_DESC(t41_clm, "CLM: 0 no LUT (old), 1 OEM LUT by CT, 2 bypass");
+static unsigned int t41_clm_ct_last;
+module_param(t41_clm_ct_last, uint, 0444);
+static unsigned int t41_clm_writes;
+module_param(t41_clm_writes, uint, 0444);
+static DEFINE_MUTEX(t41_clm_lock);
+
+static void t41_clm_vendor_load(unsigned int ct, int force)
+{
+	u32 area[8] __aligned(8) = { 0 };
+	unsigned char *info = (unsigned char *)(uintptr_t)clm_info;
+
+	if (!t41_kernel_data_ptr(info) ||
+	    !t41_kernel_data_ptr((void *)(uintptr_t)*(uint32_t *)(void *)info))
+		return;
+	if (!ct || ct > 100000)
+		return;
+	mutex_lock(&t41_clm_lock);
+	if (force) {
+		tisp_csc_api_get(0, (uint32_t)(uintptr_t)(info + 4));
+		vae_tisp_clm_write_csc_para(0, 0, 0, 0, (u32)(uintptr_t)area);
+	}
+	/* OEM tisp_clm_ct_update: interp returns 0 when the LUT changed */
+	if (force || ct != t41_clm_ct_last) {
+		if (!(u32)vae_tisp_clm_ct_interp(0, ct, force ? 1 : 0, 0,
+						 (u32)(uintptr_t)area) || force) {
+			vae_tisp_clm_write_lut(0, 0, 0, 0, (u32)(uintptr_t)area);
+			t41_clm_writes++;
+		}
+		t41_clm_ct_last = ct;
+	}
+	mutex_unlock(&t41_clm_lock);
+}
+
+static void t41_clm_frame(unsigned int ct)
+{
+	if (t41_clm == 1) {
+		t41_clm_vendor_load(ct, !t41_clm_writes);
+	} else if (t41_clm == 2) {
+		uint32_t top = system_reg_read(0x40);
+		if (!(top & BIT(16)))
+			system_reg_write(0x40, top | BIT(16));
+	}
+}
+
 int32_t tisp_clm_init(uint32_t a0)
 {
 #ifdef REGTRACE_KERNEL_TREE_BUILD
@@ -147952,8 +148013,14 @@ int32_t tisp_clm_init(uint32_t a0)
     *(uint16_t *)(void *)(info + 2200) = 16;
     *(uint8_t *)(void *)(info + 3252) = 5;
 
+    if (t41_clm == 1) {
+        /* OEM tisp_clm_init tail: csc para, LUT for 5000 K, id word */
+        t41_clm_vendor_load(5000, 1);
+        system_reg_write(0x338, 0x20220721);
+    }
     printk(KERN_WARNING
-           "t41: clm-init safe neutral channel=%u\n", a0);
+           "t41: clm-init %s channel=%u\n",
+           t41_clm == 1 ? "OEM LUT" : t41_clm == 2 ? "bypass" : "safe neutral", a0);
     return 0;
 #else
     uint32_t *local_10 = 0;
@@ -153683,6 +153750,8 @@ static void t41_tmo_workfn(struct work_struct *work)
     if (t41_native_awb) t41_native_awb_exposure(gain, ev);
     t41_ccm_update(READ_ONCE(t41_ccm_ct), ev, 0);
     t41_bcsh_update(READ_ONCE(t41_ccm_ct), ev, 0);
+    if (t41_clm)
+        t41_clm_frame(READ_ONCE(t41_ccm_ct));
     t41_gamma_error = t41_gamma_update(ev);
     t41_native_lsc_frame(READ_ONCE(t41_ccm_ct), gain);
     t41_native_adr_frame(exposure);

@@ -30,6 +30,7 @@ DATA = {
     'ae_api_tmp': 'ae_api_tmp_storage', 'tisp_ae_hist_last': 'tisp_ae_hist_last',
     'tisp_ae_hist': 'vae_tisp_ae_hist', 'ta_custom_en': 'vae_ta_custom_en',
     'ae_ceguang': 'vae_ae_ceguang', 'slock_hist': 'vae_slock', 'slock_stas': 'vae_slock',
+    'clm_info': '&clm_info',
 }
 ADAPT = {'memcpy', 'memset', 'private_complete', '__private_spin_lock_irqsave',
          'private_spin_unlock_irqrestore', 'system_reg_write', 'isp_printf',
@@ -177,6 +178,12 @@ def gen(fname, translated, warn):
         if m == 'movn': return f'if ({r(a[2])} != 0) {w(a[0])} = {r(a[1])};'
         if m == 'seb': return f'{w(a[0])} = (u32)(s32)(signed char){r(a[1])};'
         if m == 'seh': return f'{w(a[0])} = (u32)(s32)(short){r(a[1])};'
+        if m == 'ext':
+            pos, sz = num(a[2]), num(a[3]); mk = (1 << sz) - 1
+            return f'{w(a[0])} = ({r(a[1])} >> {pos}) & {mk:#x}U;'
+        if m == 'ins':
+            pos, sz = num(a[2]), num(a[3]); mk = ((1 << sz) - 1) << pos
+            return f'{w(a[0])} = ({r(a[0])} & {(~mk) & 0xffffffff:#x}U) | (({r(a[1])} << {pos}) & {mk:#x}U);'
         if m in ('lw', 'lh', 'lhu', 'lb', 'lbu'):
             rt, ad = mem(i, ops)
             f = {'lw': 'vae_lw', 'lh': 'vae_lh', 'lhu': 'vae_lhu', 'lb': 'vae_lb', 'lbu': 'vae_lbu'}[m]
