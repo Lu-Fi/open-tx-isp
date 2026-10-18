@@ -46189,6 +46189,15 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
     char *s3_2;
 
     if (v1 == 0x8000077) {
+        /* AutoZoom SET: the recovered tisp_s_autozoom_control lost the
+         * &mscaler_s0 relocation (v1 = 0) and scales byte offsets by 4, so
+         * it oopsed (Eufy 10-18, store to 0x48); the open MSCA path
+         * (regtrace) does not read the window either.  Refused until a real
+         * implementation exists; libimp returns -1. */
+        printk_ratelimited(KERN_INFO "tx-isp-t40: AutoZoom not implemented (refused)\n");
+        return -EOPNOTSUPP;
+    }
+    if (v1 == 0x8000077 + 0x10000000) {   /* old recovered path, unreachable */
         int v0_54 = copy_from_user(&var_88, (void __user *)arg3[1], 0x3c);
         s1_1 = v0_54;
 
@@ -47037,7 +47046,9 @@ label_c33c_vfree:
     }
 
     if (cmd == 0x8000077) {
-        return tx_isp_autozoom_g_attr_isra_34(arg1, arg3[1]);
+        /* AutoZoom GET: the recovered wrapper calls tisp_g_autozoom_control
+         * without its buffer argument (see SET above). */
+        return -EOPNOTSUPP;
     }
 
     if (cmd < 0x8000078) {
