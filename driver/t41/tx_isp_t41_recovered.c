@@ -23146,7 +23146,7 @@ static int t41_daynight_notify(void *opaque, u32 mode)
  * follows the selected bank; bits equal in both keep their live runtime
  * state; module-control overrides win; DEFOG (11) never leaves bypass.
  */
-static int t41_dn_top = 0;
+static int t41_dn_top = 1;
 module_param(t41_dn_top, int, 0644);
 MODULE_PARM_DESC(t41_dn_top, "apply the night/day bank TOP module bypass on a running-mode switch (1 = like stock)");
 static unsigned int t41_dn_top_last __attribute__((section(".data")));
