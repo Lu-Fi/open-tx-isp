@@ -601,3 +601,10 @@ Opt-in vendor blocks: `enable_cdns` (CDNS), `t40_ysp_on` (YSP), `t40_adr_on` (AD
 Recommended line for colour work on this board:
 
     insmod tx-isp-t40.ko isp_clk=300000000 t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin t40_gates_oem_offset=1 t40_gates_day_blc=1
+
+## Substream, NV12 layout and AutoZoom (2026-10-18)
+
+- Output 1 (substream) delivers frames: the interrupt handler pops MSCA output 1 like the OEM ISR (`t40_isr_ch1_direct`, default 1). Device-tested on the T40XP / sc830ai board: 1080p + 360p/720p 226/226 frames in 15 s, 10 min at about 20 fps per stream, no oops.
+- `t40_nv12_height_align=0` (auto): chroma plane at width*ALIGN(height,16) when the queued buffer is large enough, else width*height (older libraries). Removes the green bottom strip and the chroma shift on small outputs.
+- AutoZoom (CID 0x08000077): per-output source window in the MSCA, applied live. The window must lie inside the sensor and be at least as large as the output (no upscale in the MSCA); invalid requests return `-EINVAL`. Second sensor refused. Parameters/counters: `t40_az_live_max_w/h`, `t40_az_{live,deferred,stored,failed}`. Device-tested on the same board (outputs up to 2560x1440 zoomed, 4K only full window); ch1/ch2 zoom not device-proven.
+- Open: the stop path (`Tzn_Msca_Work_en`) mask is not OEM-exact (harmless in tests); `tisp_gib_ae_write_dgain` still returns -1 per frame (GIB AE dgain not applied).
