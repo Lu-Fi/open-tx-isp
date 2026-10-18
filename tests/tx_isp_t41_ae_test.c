@@ -112,7 +112,11 @@ int main(void)
 	assert(!t41_ae_long_target(0,knots,targets,10,&target) && target==150);
 	assert(!t41_ae_long_target((65ULL<<10)+1023,knots,targets,10,&target) && target==134);
 	assert(!t41_ae_long_target(1000ULL<<10,knots,targets,10,&target) && target==108);
+	/* duplicate knot (sc5336-t41.bin knots 12/13): accepted, interval after it interpolates */
 	knots[5]=knots[4]; target=999;
+	assert(!t41_ae_long_target(0,knots,targets,10,&target) && target==150);
+	assert(!t41_ae_long_target(60ULL<<10,knots,targets,10,&target) && target==134);
+	knots[5]=knots[4]-1; target=999;
 	assert(t41_ae_long_target(0,knots,targets,10,&target) && target==999);
 	knots[5]=60;
 	assert(t41_ae_long_target(0,knots,targets,32,&target) && target==999);
