@@ -8900,7 +8900,29 @@ static bool regtrace_t40_allow_antiflick = true;   /* 0040/0050: Set/Get hand-tr
  * ALIGN(height, 16) overran the 1920x1080 buffers by 8 lines (OpenIMP SIGBUS,
  * kernel panics on the second start, devtest 1080p panics).  1 = vendor.
  */
-static uint regtrace_t40_nv12_height_align = 1;
+static uint regtrace_t40_nv12_height_align = 0;
+/* 2026-10-18 (t40ch1): the Eufy vendor ko + OpenIMP puts UV at width*ALIGN(height,16)
+ * (0x16288 - 0x16274: 1920x1080 -> 0x1fe000, 640x360 -> 0x39800) and OpenIMP now allocates
+ * buffers of exactly width*ALIGN(height,16)*3/2 (qlen 0x2fd000 / 0x56400).  The w*h offset
+ * shifted chroma by 8 lines (green strip at the bottom, colour fringes on ch1).
+ * 0 = auto: 16-line alignment when the queued buffer holds it, otherwise w*h (old libimp). */
+static uint32_t regtrace_framechan_qbuf_len[4][8];
+static uint32_t regtrace_t40_nv12_align_for(int channel, uint32_t width, uint32_t height)
+{
+    unsigned int i;
+
+    if (regtrace_t40_nv12_height_align)
+        return regtrace_t40_nv12_height_align;
+    if (channel < 0 || channel >= 4)
+        return 1U;
+    for (i = 0; i < 8; i++) {
+        uint32_t len = regtrace_framechan_qbuf_len[channel][i];
+
+        if (len)
+            return len >= width * ALIGN(height, 16U) * 3U / 2U ? 16U : 1U;
+    }
+    return 1U;
+}
 /*
  * Vendor 1.3.1 core ISR: on status bit 0x400 it clears the MSCA work-enable
  * bit of a freshly started channel and sets it again N frame-dones later
@@ -9211,6 +9233,13 @@ static bool regtrace_enable_t40_msca_oem_cfg_load;
 static bool regtrace_enable_t40_msca_cfg_after_video;
 static bool regtrace_enable_t40_msca_cfg_on_set_fmt;
 static bool regtrace_t40_msca_scale_active_only = true;
+static bool regtrace_t40_msca_late_work_en = true;
+static bool regtrace_t40_isr_ch1_direct = true;
+module_param_named(t40_isr_ch1_direct, regtrace_t40_isr_ch1_direct, bool, 0644);
+static uint regtrace_t40_isr_ch1_irq, regtrace_t40_isr_ch1_pop;
+module_param_named(t40_isr_ch1_irq, regtrace_t40_isr_ch1_irq, uint, 0444);
+module_param_named(t40_isr_ch1_pop, regtrace_t40_isr_ch1_pop, uint, 0444);
+module_param_named(t40_msca_late_work_en, regtrace_t40_msca_late_work_en, bool, 0644);
 static bool regtrace_t40_msca_clear_load_after_program = true;
 static bool regtrace_t40_msca_shadow_write_load_mask;
 static bool regtrace_t40_msca_rewrite_full_size_late;
@@ -21622,11 +21651,20 @@ static int regtrace_core_channel_stream(int channel, int enable)
         }
     }
 
-    ret = regtrace_t40_msca_write_work_en(regtrace_msca_ch_en, "streamon");
-    if (!ret)
+    if (regtrace_t40_msca_late_work_en) {
+        /* OEM Tzn_Msca_cfg_load order: 0x16010=0, geometry, 0x16010=1, then 0x16008 work_en. */
         ret = regtrace_t40_msca_cfg_program(channel, "stream");
-    if (!ret)
-        ret = regtrace_msca_cfg_load_pulse(channel, "stream");
+        if (!ret)
+            ret = regtrace_msca_cfg_load_pulse(channel, "stream");
+        if (!ret)
+            ret = regtrace_t40_msca_write_work_en(regtrace_msca_ch_en, "streamon");
+    } else {
+        ret = regtrace_t40_msca_write_work_en(regtrace_msca_ch_en, "streamon");
+        if (!ret)
+            ret = regtrace_t40_msca_cfg_program(channel, "stream");
+        if (!ret)
+            ret = regtrace_msca_cfg_load_pulse(channel, "stream");
+    }
     if (!ret && regtrace_t40_msca_fifo_ctrl_on_set_fmt) {
         ret = regtrace_t40_msca_program_fifo_ctrl(0, (uint32_t)channel);
         regtrace_tzn_fifo_ctrl_set_fmt_count++;
@@ -21776,7 +21814,7 @@ static uint32_t regtrace_framechan_uv_offset(int channel)
     if (!width || !height)
         return 0;
 
-    return width * ALIGN(height, regtrace_t40_nv12_height_align ? regtrace_t40_nv12_height_align : 16U);
+    return width * ALIGN(height, regtrace_t40_nv12_align_for(channel, width, height));
 }
 
 static uint32_t regtrace_untag_phys(uint32_t phys)
@@ -22204,11 +22242,11 @@ static void regtrace_framechan_record_qbuf(int channel, uint32_t index,
         index >= REGTRACE_FRAMECHAN_QBUF_SHADOW_MAX)
         return;
 
+    regtrace_framechan_qbuf_len[channel][index] = length;   /* before the UV offset: nv12 auto-align reads it */
     uv_offset = regtrace_framechan_uv_offset(channel);
     regtrace_framechan_qbuf_phys[channel][index] = phys;
     regtrace_framechan_qbuf_uv[channel][index] =
         phys && uv_offset ? phys + uv_offset : 0;
-    regtrace_framechan_qbuf_len[channel][index] = length;
     regtrace_framechan_shadow_set_state(channel, index,
                                         REGTRACE_FRAMECHAN_SHADOW_STATE_QUEUED,
                                         REGTRACE_FRAMECHAN_SHADOW_STATE_QUEUED);
@@ -22240,10 +22278,10 @@ static int regtrace_core_program_qbuf(int channel, uint32_t phys,
     sync_len = (index < REGTRACE_FRAMECHAN_QBUF_SHADOW_MAX &&
                 regtrace_framechan_qbuf_len[channel][index]) ?
         regtrace_framechan_qbuf_len[channel][index] :
-        (width * ALIGN(height, regtrace_t40_nv12_height_align ? regtrace_t40_nv12_height_align : 16U) * 3U / 2U);
+        (width * ALIGN(height, regtrace_t40_nv12_align_for(channel, width, height)) * 3U / 2U);
 
     ret = tx_isp_nv12_buffer_build(width, height, 1,
-                                   regtrace_t40_nv12_height_align ? regtrace_t40_nv12_height_align : 16U,
+                                   regtrace_t40_nv12_align_for(channel, width, height),
                                    phys, sync_len, &dma_buffer);
     if (ret)
         return ret;
@@ -22480,7 +22518,7 @@ static int regtrace_vic_frame_mdma_stream(int channel, int enable)
         if (qbuf_count > REGTRACE_VIC_MDMA_RING_SLOTS)
             qbuf_count = REGTRACE_VIC_MDMA_RING_SLOTS;
 
-        aligned_height = ALIGN(height, regtrace_t40_nv12_height_align ? regtrace_t40_nv12_height_align : 16U);
+        aligned_height = ALIGN(height, regtrace_t40_nv12_align_for(channel, width, height));
         y_size = regtrace_vic_mdma_qbuf_ring_uv_offset_override ?
             regtrace_vic_mdma_qbuf_ring_uv_offset_override :
             width * aligned_height;
@@ -68950,7 +68988,11 @@ int32_t tisp_channel_main_start(uint32_t a0)
 
     /* fragment 0: CallSetup */
     *(uint8_t *)((char *)((a0 * 616) + &mscaler_s0) + 8) = 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_Work_en)(0, &mscaler_s0); /* jalr target resolved by relocation */
+    /* t40_msca_late_work_en: the Eufy OEM (0x1c500) sets the enable flag and lets Tzn_Msca_cfg_load
+     * program + latch (0x16010=1) the outputs BEFORE it writes work_en; regtrace_core_channel_stream
+     * does that order, so do not switch the output on here, ahead of its geometry. */
+    if (!regtrace_t40_msca_late_work_en)
+        v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_Work_en)(0, &mscaler_s0); /* jalr target resolved by relocation */
 
     /* fragment 1: Epilogue */
     /* function epilogue: restore registers and return */
@@ -101323,7 +101365,8 @@ tisp_gib_ae_write_dgain0x18:
     if (v0 != 0) { goto tisp_gib_ae_write_dgain0x60; }
 
     /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC1, &__param_str_isp_dual_buf, 718); /* jalr target resolved by relocation */
+    /* OEM 0x36ed8: NULL real_para -> return -1 silently. The lifted isp_printf here (wrong LC1/
+     * isp_dual_buf strings) flooded kmsg every frame with "isp_dual_buf:718 The number of the frames ...". */
 
     /* fragment 7: Arithmetic */
     v0 = -1;
@@ -189467,6 +189510,24 @@ ispcore_interrupt_service_routine0x59c:
     v0 = (uintptr_t)s2 & 2;
 
 ispcore_interrupt_service_routine0x5a0:
+    /* T40-ISR-CH1 (Eufy OEM 0x7b270..0x7b308): status0 bit 1 = MSCA output 1 frame done ->
+     * Tzn_Msca_addr_fifo_read(0, 1) and deliver it, exactly like the ch2 leg below (bit 2).  The
+     * lifted testimage leg gated the pop on a frame-schedule table (+426/+427/+210) the open driver
+     * never fills, so output 1 was never popped and its DMA stalled after the first buffer. */
+    if (regtrace_t40_isr_ch1_direct && v0 != 0) {
+        regtrace_t40_isr_ch1_irq++;
+        if (!*(uint32_t *)((char *)((char *)&saveflag))) {
+            local_28 = 0;
+            local_2c = 0;
+            Tzn_Msca_addr_fifo_read(0, 1, (uintptr_t)&local_28, (uintptr_t)&local_2c);
+            if (local_28) {
+                regtrace_t40_isr_ch1_pop++;
+                regtrace_core_isr_frame_done(0, 0, 1, local_28, local_2c, &local_20);
+            }
+        }
+        v0 = (uintptr_t)s2 & 4;
+        goto ispcore_interrupt_service_routine0x6f0;
+    }
     /* fragment 119: Branch */
     int _bc_v0_119 = v0 == 0;
     v0 = (uintptr_t)s2 & 4;
