@@ -505,6 +505,35 @@ run if any `tx_isp*` module is already loaded and reboots the camera after
 every experiment; use the one-shot init hook when the stock boot sequence
 cannot safely unload its active module.
 
+## Vendor AE (`t41_vendor_ae=1`, default 0)
+
+`t41_vendor_ae=1` (load time) runs the OEM AE chain per frame instead of the
+safe AE controller: `tisp_ae_calc_process` and its 62 callees (weight mean,
+flicker detect, BV, tune, EV/list allocation, long/short exposure split, ROI,
+sensor IT/gain callbacks, BLC/GIB digital gain, API copy) are translated
+mechanically from the H20250310a SDK module by `tools/t41_vae/gen.sh` into
+`tx_isp_t41_vae_gen.inc`: one C statement per instruction on 32-bit register
+variables, relocations resolved by symbol name to the driver's own objects.
+Every load, store, division and indirect call is guarded; a bad address is
+counted and skipped (`t41: vendor AE guard ...`) instead of oopsing.
+
+- The AE histogram IRQ (status bit 5) is dispatched with vendor AE as well;
+  event 1 is bound to `t41_vae_calc_process`.
+- Sensor writes go through the translated `sensor_set_integration_time` /
+  `sensor_set_analog_gain` callbacks into the core's pending slots, which the
+  frame-done work sends to the sensor (as in the OEM driver).
+- OEM AE events (ids 4..6, EV/gain update for the gain-indexed modules) are
+  dropped unless enabled in `t41_vae_events`; the driver's own gain fanout,
+  TMO exposure feed and the proc/IMP exposure report use the realized vendor
+  IT and gain instead.
+- `t41_ae_diag=1` logs once a second, `=2` every frame.
+
+Device result 2026-10-18 (gc5603 .32, sc5336 .34): per-frame regulation, IT
+raised to its limit before gain, gain reduced before IT, 50 Hz IT lattice
+(525-line steps on gc5603), light off -> max gain in 0.36 s, light on ->
+mean back near target within ~0.5 s and settled in ~2 s, no guard faults,
+no oops.
+
 ## ioctl stack-overflow hardening and device test plan
 
 The recovered `tx_isp_unlocked_ioctl`, `frame_channel_unlocked_ioctl` and the

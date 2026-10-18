@@ -868,6 +868,11 @@ static int t41_safe_ae_controller = 1;
 t41_bringup_param(t41_safe_ae_controller, int, 0644);
 t41_bringup_param_desc(t41_safe_ae_controller,
 		 "use the bounded histogram AE controller instead of recovered vendor AE");
+/* 1: run the OEM AE chain (tisp_ae_calc_process, mechanically translated in
+ * tx_isp_t41_vae_gen.inc) per frame instead of the safe AE controller. */
+static int t41_vendor_ae;
+module_param(t41_vendor_ae, int, 0444);
+MODULE_PARM_DESC(t41_vendor_ae, "run the translated vendor AE per frame (default 0)");
 static unsigned int t41_ae_target_q8 = 128U << 8;
 t41_bringup_param(t41_ae_target_q8, uint, 0644);
 t41_bringup_param_desc(t41_ae_target_q8,
@@ -4874,6 +4879,8 @@ int64_t tisp_ae_set_hardware_param(uint32_t a0);
 int32_t tisp_ae_get_hist(int32_t arg1, int32_t *arg2);
 int64_t tisp_ae_interrupt_hist(uint32_t a0);
 int32_t t41_safe_ae_calc_process(uint32_t channel);
+int32_t t41_vae_calc_process(uint32_t channel);
+u64 vae_tisp_ae_roi_point(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 int64_t tisp_ae_get_statistics(uint32_t a0, uintptr_t a1);
 int32_t tisp_ae_interrupt_static(uint32_t a0);
 int64_t tisp_set_ae_sensor_fps(uint32_t a0);
@@ -56804,7 +56811,9 @@ int32_t tisp_event_set_cb(int32_t arg1, int32_t arg2, int32_t arg3)
     if (arg1 < 0 || arg1 >= T41_TISP_EVENT_CHANNELS ||
         arg2 < 0 || arg2 >= T41_TISP_EVENT_COUNT)
         return -EINVAL;
-    if (arg2 == 1 && arg3 && t41_safe_ae_controller > 0)
+    if (arg2 == 1 && arg3 && t41_vendor_ae > 0)
+        arg3 = (int)(uintptr_t)t41_vae_calc_process;
+    else if (arg2 == 1 && arg3 && t41_safe_ae_controller > 0)
         arg3 = (int)(uintptr_t)t41_safe_ae_calc_process;
     if (t41_safe_tuning_events && arg3 &&
         (arg2 == 12 || arg2 == 13 || arg2 == 15 ||
@@ -69773,6 +69782,15 @@ tisp_ae_par_update_trig0x198:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000028a4c origin=fragment_seed original=tisp_ae_roi_point */
 int64_t tisp_ae_roi_point(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4)
 {
+    if (t41_vendor_ae > 0) {
+        /* OEM body (writes the ROI area at ae_cache+1284 the vendor
+         * weight_mean divides by) */
+        uint32_t argarea[8] = { 0 };
+
+        argarea[4] = arg4;
+        return (int64_t)vae_tisp_ae_roi_point(a0, a1, a2, a3,
+                                              (uint32_t)(uintptr_t)argarea);
+    }
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -170652,7 +170670,8 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             WRITE_ONCE(t41_ae_zones[0].sequence,
                 READ_ONCE(t41_ae_zones[0].sequence) + 1);
 
-        if ((status0 & BIT(5)) && t41_safe_ae_controller > 0) {
+        if ((status0 & BIT(5)) &&
+            (t41_safe_ae_controller > 0 || t41_vendor_ae > 0)) {
             t41_heapwatch_mark("isr:aehist");
             int32_t callback = READ_ONCE(irq_func_cb[5]);
             int64_t callback_ret = -ENODEV;
@@ -171775,3 +171794,5 @@ static noinline void t41_note(const char *fmt, ...)
 	else if (t41_note_is_error(buf))
 		printk(KERN_WARNING "%s", buf);
 }
+
+#include "tx_isp_t41_vae.h"
