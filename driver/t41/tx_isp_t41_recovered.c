@@ -1479,14 +1479,6 @@ module_param_call(t41_safe_awb_controller, t41_safe_awb_controller_set,
 		  param_get_int, &t41_safe_awb_controller, 0644);
 MODULE_PARM_DESC(t41_safe_awb_controller,
 		 "negative enables and rearms the workqueue-backed T41 AWB DMA controller");
-static unsigned int t41_awb_rbias_q10 = 1040U;
-t41_bringup_param(t41_awb_rbias_q10, uint, 0644);
-t41_bringup_param_desc(t41_awb_rbias_q10,
-		 "safe AWB red calibration bias in Q10");
-static unsigned int t41_awb_bbias_q10 = 1086U;
-t41_bringup_param(t41_awb_bbias_q10, uint, 0644);
-t41_bringup_param_desc(t41_awb_bbias_q10,
-		 "safe AWB blue calibration bias in Q10");
 static unsigned int t41_awb_update_irqs = 2U;
 t41_bringup_param(t41_awb_update_irqs, uint, 0644);
 t41_bringup_param_desc(t41_awb_update_irqs,
@@ -34763,10 +34755,6 @@ static int32_t t41_safe_awb_interrupt(uint32_t channel)
     t41_awb_outlier_count = 0U;
     target_r = raw_r;
     target_b = raw_b;
-    target_r = (uint32_t)(((uint64_t)target_r *
-                           t41_awb_rbias_q10) >> 10);
-    target_b = (uint32_t)(((uint64_t)target_b *
-                           t41_awb_bbias_q10) >> 10);
     target_r = clamp_t(uint32_t, target_r, 0x200U, 0x1800U);
     target_b = clamp_t(uint32_t, target_b, 0x200U, 0x1800U);
 
@@ -34821,10 +34809,8 @@ static int t41_safe_awb_controller_set(const char *value,
         t41_awb_update_count = 0x80000000U;
         t41_awb_reject_count = 0x80000000U;
         t41_awb_last_bank = 0x80000000U;
-        t41_awb_last_raw_r_q10 = t41_awb_rbias_q10 ?
-            (t41_awb_last_rgain << 10) / t41_awb_rbias_q10 : 0x400U;
-        t41_awb_last_raw_b_q10 = t41_awb_bbias_q10 ?
-            (t41_awb_last_bgain << 10) / t41_awb_bbias_q10 : 0x400U;
+        t41_awb_last_raw_r_q10 = t41_awb_last_rgain;
+        t41_awb_last_raw_b_q10 = t41_awb_last_bgain;
         t41_awb_outlier_r_q10 = t41_awb_last_raw_r_q10;
         t41_awb_outlier_b_q10 = t41_awb_last_raw_b_q10;
         t41_awb_outlier_count = 0x80000000U;
@@ -34873,10 +34859,8 @@ static int t41_safe_awb_configure(uint32_t mode, uint16_t rgain,
         t41_awb_update_count = 0x80000000U;
         t41_awb_reject_count = 0x80000000U;
         t41_awb_last_bank = 0x80000000U;
-        t41_awb_last_raw_r_q10 = t41_awb_rbias_q10 ?
-            (t41_awb_last_rgain << 10) / t41_awb_rbias_q10 : 0x400U;
-        t41_awb_last_raw_b_q10 = t41_awb_bbias_q10 ?
-            (t41_awb_last_bgain << 10) / t41_awb_bbias_q10 : 0x400U;
+        t41_awb_last_raw_r_q10 = t41_awb_last_rgain;
+        t41_awb_last_raw_b_q10 = t41_awb_last_bgain;
         t41_awb_outlier_r_q10 = t41_awb_last_raw_r_q10;
         t41_awb_outlier_b_q10 = t41_awb_last_raw_b_q10;
         t41_awb_outlier_count = 0x80000000U;
