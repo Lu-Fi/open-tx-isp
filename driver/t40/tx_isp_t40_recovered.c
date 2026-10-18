@@ -7741,7 +7741,7 @@ int32_t tisp_gib_tool_2_real(int32_t arg1);
 int32_t tisp_gib_interp_by_gain(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t tisp_gib_blc_value_to_self_gain(int32_t arg1);
 int32_t tisp_gib_calc_digital_gain(int32_t arg1);
-int64_t tisp_gib_interp_by_ir(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
+int64_t tisp_gib_interp_by_ir(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t force);
 int32_t tisp_gib_write_reg(uint32_t a0, uint32_t a1);
 int32_t tisp_gib_a_gian_update(uint32_t a0, uint32_t a1);
 int32_t tisp_gib_ir_update(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
@@ -7752,6 +7752,7 @@ int64_t tisp_gib_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2);
 int32_t tisp_gib_param_array_set(uint32_t a0, uint32_t a1);
 int gib_remove(struct platform_device *pdev);
 int64_t tisp_gib_ae_write_dgain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4);
+static int t40_gib_block_init(void);
 int32_t tisp_lsc_lut_valid_judge(uint32_t width, uint32_t height, uint32_t mesh_x, uint32_t mesh_y, uint32_t lut_n);
 int32_t tisp_lsc_interp_by_ct(int32_t arg1, int32_t arg2, int16_t arg3, char arg4);
 int32_t tisp_lsc_interp_by_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
@@ -9240,6 +9241,12 @@ static uint regtrace_t40_isr_ch1_irq, regtrace_t40_isr_ch1_pop;
 module_param_named(t40_isr_ch1_irq, regtrace_t40_isr_ch1_irq, uint, 0444);
 module_param_named(t40_isr_ch1_pop, regtrace_t40_isr_ch1_pop, uint, 0444);
 module_param_named(t40_msca_late_work_en, regtrace_t40_msca_late_work_en, bool, 0644);
+/* OEM stop (Eufy tisp_channel_main_stop 0x1c588): enable flag = 0, then Tzn_Msca_cfg_load: 0x16010=0, geometry,
+ * 0x16010=1, 0x16008 = flag0 | flag1 << 1 | flag2 << 2 - one work_en write with the remaining channels. */
+static bool regtrace_t40_msca_oem_stop = true;
+module_param_named(t40_msca_oem_stop, regtrace_t40_msca_oem_stop, bool, 0644);
+static uint regtrace_t40_msca_oem_stop_count;
+module_param_named(t40_msca_oem_stop_count, regtrace_t40_msca_oem_stop_count, uint, 0444);
 static bool regtrace_t40_msca_clear_load_after_program = true;
 static bool regtrace_t40_msca_shadow_write_load_mask;
 static bool regtrace_t40_msca_rewrite_full_size_late;
@@ -16037,6 +16044,11 @@ static int regtrace_isp_block_init_once(const char *where)
                blc_ret);
     }
 
+    /* OEM tisp_main_init 0x1decc..0x1dee4: tisp_gib_init(0) only when tparams_status bit 5 (GIB enable =
+     * !bypass flag 5 of the bin) is set; the real flow then replaces the gib-lit substitute. */
+    if (t40_gib_block_init() == 0)
+        regtrace_enable_gib_lit = false;
+
     if (regtrace_enable_gib_lit) {
         int gib_ret = regtrace_gib_main_init_lit();
 
@@ -21606,9 +21618,12 @@ static int regtrace_core_channel_stream(int channel, int enable)
     if (!enable) {
         if (regtrace_msca_ch_en != ~0U) {
             regtrace_msca_ch_en &= ~(1U << (channel & 0x1f));
-            regtrace_t40_msca_write_work_en(regtrace_msca_ch_en,
-                                            "streamoff");
-            regtrace_t40_msca_cfg_program(channel, "streamoff");
+            /* t40_msca_oem_stop: cfg + work_en follow in tisp_channel_main_stop (OEM order) */
+            if (!regtrace_t40_msca_oem_stop) {
+                regtrace_t40_msca_write_work_en(regtrace_msca_ch_en,
+                                                "streamoff");
+                regtrace_t40_msca_cfg_program(channel, "streamoff");
+            }
         }
         return 0;
     }
@@ -26627,6 +26642,13 @@ static int regtrace_core_event_stream(void *pad_arg, int enable)
             tisp_channel_main_stop(tisp_id);
         } else if (tisp_index >= 3 && tisp_index < 6) {
             tisp_channel_sec_stop(tisp_id);
+        }
+        if (regtrace_t40_msca_oem_stop &&
+            (regtrace_skip_tisp_channel_start || tisp_index < 0 || tisp_index >= 3) &&
+            regtrace_msca_ch_en != ~0U) {
+            /* no main-path tisp stop ran: keep the old behaviour (cfg + work_en of the remaining outputs) */
+            regtrace_t40_msca_write_work_en(regtrace_msca_ch_en, "streamoff");
+            regtrace_t40_msca_cfg_program(channel, "streamoff");
         }
         regtrace_fr_mark(0x26, channel);
 
@@ -68987,7 +69009,8 @@ int32_t tisp_channel_main_start(uint32_t a0)
     uint32_t *v1 = 0;
 
     /* fragment 0: CallSetup */
-    *(uint8_t *)((char *)((a0 * 616) + &mscaler_s0) + 8) = 1;
+    ((uint8_t *)mscaler_s0)[a0 * 616U + 8U] = 1;   /* lift had (a0*616) + &mscaler_s0: pointer-to-array arithmetic
+                                                 * scaled by sizeof(mscaler_s0) = 1860 -> ch1 wrote 1.1 MB past the state */
     /* t40_msca_late_work_en: the Eufy OEM (0x1c500) sets the enable flag and lets Tzn_Msca_cfg_load
      * program + latch (0x16010=1) the outputs BEFORE it writes work_en; regtrace_core_channel_stream
      * does that order, so do not switch the output on here, ahead of its geometry. */
@@ -69016,7 +69039,8 @@ int32_t tisp_channel_sec_start(uint32_t a0)
     uint32_t *v1 = 0;
 
     /* fragment 0: CallSetup */
-    *(uint8_t *)((char *)((a0 * 616) + &mscaler_s1) + 8) = 1;
+    ((uint8_t *)mscaler_s1)[a0 * 616U + 8U] = 1;   /* lift had (a0*616) + &mscaler_s1: pointer-to-array arithmetic
+                                                 * scaled by sizeof(mscaler_s1) = 1860 -> ch1 wrote 1.1 MB past the state */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_Work_en)(1, &mscaler_s1); /* jalr target resolved by relocation */
 
     /* fragment 1: Epilogue */
@@ -69041,8 +69065,15 @@ int32_t tisp_channel_main_stop(uint32_t a0)
     uint32_t *v1 = 0;
 
     /* fragment 0: CallSetup */
-    *(uint8_t *)((char *)((a0 * 616) + &mscaler_s0) + 8) = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_Work_en)(0, &mscaler_s0); /* jalr target resolved by relocation */
+    ((uint8_t *)mscaler_s0)[a0 * 616U + 8U] = 0;   /* lift had (a0*616) + &mscaler_s0: pointer-to-array arithmetic
+                                                 * scaled by sizeof(mscaler_s0) = 1860 -> ch1 wrote 1.1 MB past the state */
+    if (regtrace_t40_msca_oem_stop && a0 < 3) {
+        /* OEM Tzn_Msca_cfg_load(0) tail: 0x16010=0, geometry of the still enabled outputs, 0x16010=1,
+         * then 0x16008 from the enable flags (this driver's state stride is 616, flags at +8/+624/+1240). */
+        regtrace_t40_msca_cfg_program((int)a0, "streamoff");
+        regtrace_t40_msca_oem_stop_count++;
+    }
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_Work_en)(0, (uintptr_t)mscaler_s0); /* jalr target resolved by relocation */
 
     /* fragment 1: Epilogue */
     /* function epilogue: restore registers and return */
@@ -69066,7 +69097,8 @@ int32_t tisp_channel_sec_stop(uint32_t a0)
     uint32_t *v1 = 0;
 
     /* fragment 0: CallSetup */
-    *(uint8_t *)((char *)((a0 * 616) + &mscaler_s1) + 8) = 0;
+    ((uint8_t *)mscaler_s1)[a0 * 616U + 8U] = 0;   /* lift had (a0*616) + &mscaler_s1: pointer-to-array arithmetic
+                                                 * scaled by sizeof(mscaler_s1) = 1860 -> ch1 wrote 1.1 MB past the state */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_Work_en)(1, &mscaler_s1); /* jalr target resolved by relocation */
 
     /* fragment 1: Epilogue */
@@ -85755,7 +85787,11 @@ tisp_ae_main_long_ev_alloc0x1e8:
 tisp_ae_main_long_ev_alloc0x22c:
     /* fragment 34: CallSetup */
     s0 = (uintptr_t)s0 << 2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_IspDg)(local_1f8, &local_1f0, *(uint32_t *)((char *)((uintptr_t)s3 + ((uintptr_t)s0 << 2)) + 0), &local_1e8); /* jalr target resolved by relocation */
+    { /* OEM 0x26ef0..0x26f0c: a2 = *(s3 + s0) with s0 already scaled; a1/a3 are 2-word stack arrays (sp+496, sp+488).
+       * The lift scaled s0 twice and passed single locals, so tisp_ae_IspDg wrote past local_1f0 and read past local_1e8. */
+      uint32_t dg_in[2] = { local_1e8, local_1ec }, dg_out[2] = { local_1f0, local_1f4 };
+      v0 = (uintptr_t *)(uintptr_t)tisp_ae_IspDg(local_1f8, (uintptr_t)dg_out, *(uint32_t *)((char *)((uintptr_t)s3 + (uintptr_t)s0) + 0), (uintptr_t)dg_in);
+      local_1f0 = dg_out[0]; local_1f4 = dg_out[1]; }
 
     /* fragment 35: MemoryAccess */
     v0 = *(uint32_t *)((char *)s8 + 76);
@@ -85767,7 +85803,7 @@ tisp_ae_main_long_ev_alloc0x22c:
 
     /* fragment 37: CallSetup */
     local_10 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_gib_ae_write_dgain)(local_230, local_1f0 & 32767, a2, a3 & 32767); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_gib_ae_write_dgain(local_230, local_1f0 & 0x7fff, (local_1f0 >> 16) & 0x7fff, local_1f4 & 0x7fff, (local_1f4 >> 16) & 0x7fff); /* OEM 0x26f20..0x26f40: 4 gains, the 5th on the stack; the lift passed garbage a2 and no 5th arg */
 
 tisp_ae_main_long_ev_alloc0x288:
     /* fragment 38: CallSetup */
@@ -86921,7 +86957,11 @@ tisp_ae_sec_long_ev_alloc0x1e8:
 tisp_ae_sec_long_ev_alloc0x22c:
     /* fragment 34: CallSetup */
     s0 = (uintptr_t)s0 << 2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_IspDg)(local_1f8, &local_1f0, *(uint32_t *)((char *)((uintptr_t)s3 + ((uintptr_t)s0 << 2)) + 0), &local_1e8); /* jalr target resolved by relocation */
+    { /* OEM 0x26ef0..0x26f0c: a2 = *(s3 + s0) with s0 already scaled; a1/a3 are 2-word stack arrays (sp+496, sp+488).
+       * The lift scaled s0 twice and passed single locals, so tisp_ae_IspDg wrote past local_1f0 and read past local_1e8. */
+      uint32_t dg_in[2] = { local_1e8, local_1ec }, dg_out[2] = { local_1f0, local_1f4 };
+      v0 = (uintptr_t *)(uintptr_t)tisp_ae_IspDg(local_1f8, (uintptr_t)dg_out, *(uint32_t *)((char *)((uintptr_t)s3 + (uintptr_t)s0) + 0), (uintptr_t)dg_in);
+      local_1f0 = dg_out[0]; local_1f4 = dg_out[1]; }
 
     /* fragment 35: MemoryAccess */
     v0 = *(uint32_t *)((char *)s8 + 76);
@@ -86933,7 +86973,7 @@ tisp_ae_sec_long_ev_alloc0x22c:
 
     /* fragment 37: CallSetup */
     local_10 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_gib_ae_write_dgain)(local_230, local_1f0 & 32767, a2, a3 & 32767); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_gib_ae_write_dgain(local_230, local_1f0 & 0x7fff, (local_1f0 >> 16) & 0x7fff, local_1f4 & 0x7fff, (local_1f4 >> 16) & 0x7fff); /* OEM 0x26f20..0x26f40: 4 gains, the 5th on the stack; the lift passed garbage a2 and no 5th arg */
 
 tisp_ae_sec_long_ev_alloc0x288:
     /* fragment 38: CallSetup */
@@ -92418,7 +92458,7 @@ tisp_ae_algo_handle0x134:
     if (v0 != 0) { goto tisp_ae_algo_handle0x734; }
 
     /* fragment 29: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gib_ae_write_dgain)(s1, s8); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_gib_ae_write_dgain(s1, s8, s8, s8, s8); /* OEM 0x2baec..0x2bb0c: a1 = a2 = a3 = sp+16 = s8; the lift dropped three args */
 
     /* fragment 30: CallSetup */
     v0 = (uintptr_t)s1 & 255;
@@ -99732,1674 +99772,504 @@ int32_t tisp_gib_print_real_para(int32_t arg1)
     return isp_printf(1, "\n", a2_8);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000035830 origin=model_output original=tisp_gib_tool_2_real */
-int32_t tisp_gib_tool_2_real(int32_t arg1)
+/*
+ * T40 GIB block (BLC values, self gain, AE digital gain, DEIR) - hand translation of the Eufy OEM
+ * tx-isp-t40.ko 0x35c4c..0x36f44 (tisp_gib_tool_2_real .. tisp_gib_ae_write_dgain).
+ *
+ * The lifted versions of these functions did not work: tisp_gib_init was stubbed out for the kernel
+ * build (return 0), so gib_main_real_para stayed NULL and tisp_gib_ae_write_dgain returned -1 on every
+ * frame (OEM 0x36ed8 returns -1 only while real_para is NULL, i.e. when tparams_status bit 0x20 = GIB
+ * is off in the tuning bin).  The other lifted helpers used wrong globals (_ptr_16792, sclk_name for
+ * gib_AG, isp_memopt+16800 for the IR-mode byte) and word stores for byte fields.
+ *
+ * Layout (OEM): tool para = 872 bytes copied from tparamsN[s] + 0xd610; real para = 284 bytes:
+ *   +0..3 u8 blc_en/blc_pos/blc_min_en/blc_min_value, +4..12 u16 blc_value[5], +14..24 u16 deir cfg,
+ *   +26 u8 dgain_en, +27 u8 dgain_bsft, +28 u16 max_blc_value, +30 u16 self_gain, +32..44 u32 ae_gain[4],
+ *   +48..54 u16 final_gain[4], +56..283 deir matrix 3x33 u16 + 15 params.
+ * Registers: base (s + 256) << 7 (0x8000 main, 0x8080 second), latch base+64; DEIR LUT at 0x50170.. / 0x50140...
+ *
+ * Deviations from the OEM, all only for states the OEM never reaches in normal operation: NULL checks
+ * (allocation failure, missing bin, tuning ioctl stubs that pass NULL), init reuses the buffers of a
+ * previous init instead of leaking them, deinit clears the pointers after kfree.
+ */
+static uint32_t t40_gib_AG[2] = { 1024, 1024 };   /* OEM .data gib_AG (0x2c0e8) */
+static uint8_t t40_gib_ir_mode[2];                 /* OEM .bss 0x4180: bayer descriptor & 0x1f >= 4 */
+#define T40_GIB_IR ((uint32_t *)gib_IR)            /* OEM .data gib_IR (0x2c0e0), {1024, 1024} */
+
+static uint t40_gib_init_calls;
+static int t40_gib_init_ret = 1;                   /* 1 = tisp_gib_init never ran (GIB off in the bin) */
+static uint t40_gib_dgain_calls;
+static uint t40_gib_dgain_ok;
+static uint t40_gib_dgain_last;                    /* final_gain[1] << 16 | final_gain[0] of the last apply */
+static uint t40_gib_dgain_last_in;                 /* ae_gain[0] of the last apply */
+module_param_named(t40_gib_init_calls, t40_gib_init_calls, uint, 0444);
+module_param_named(t40_gib_init_ret, t40_gib_init_ret, int, 0444);
+module_param_named(t40_gib_dgain_calls, t40_gib_dgain_calls, uint, 0444);
+module_param_named(t40_gib_dgain_ok, t40_gib_dgain_ok, uint, 0444);
+module_param_named(t40_gib_dgain_last, t40_gib_dgain_last, uint, 0444);
+module_param_named(t40_gib_dgain_last_in, t40_gib_dgain_last_in, uint, 0444);
+
+#define T40_GIB_TOOL(s) ((uint8_t *)(uintptr_t)((s) ? gib_seco_tool_para : gib_main_tool_para))
+#define T40_GIB_REAL(s) ((uint8_t *)(uintptr_t)((s) ? gib_seco_real_para : gib_main_real_para))
+#define T40_GIB_U16(p, o) (*(uint16_t *)((p) + (o)))
+#define T40_GIB_S16(p, o) (*(int16_t *)((p) + (o)))
+#define T40_GIB_U32(p, o) (*(uint32_t *)((p) + (o)))
+
+static uint32_t t40_gib_bayer(uint32_t s)
 {
-    char *a0;
-    char *v1;
-    uint8_t temp8;
-    uint16_t temp16;
-
-    if (arg1 == 0) {
-        a0 = _ptr_16792;
-        v1 = _ptr_16784;
-    } else {
-        a0 = _ptr_16796;
-        v1 = _ptr_16788;
-    }
-
-    if (a0 == NULL || v1 == NULL) {
-        return -1;
-    }
-
-    /* Copy bytes 0-3 */
-    ((void **)v1)[0] = a0[0];
-    ((void **)v1)[1] = a0[1];
-    ((void **)v1)[2] = a0[2];
-    ((void **)v1)[3] = a0[3];
-
-    /* Copy halfwords at offsets 24, 26, 28, 30, 32, 34 */
-    temp16 = *(uint16_t *)(a0 + 24);
-    *(uint16_t *)(v1 + 14) = temp16;
-
-    temp16 = *(uint16_t *)(a0 + 26);
-    *(uint16_t *)(v1 + 16) = temp16;
-
-    temp16 = *(uint16_t *)(a0 + 28);
-    *(uint16_t *)(v1 + 18) = temp16;
-
-    temp16 = *(uint16_t *)(a0 + 30);
-    *(uint16_t *)(v1 + 20) = temp16;
-
-    temp16 = *(uint16_t *)(a0 + 32);
-    *(uint16_t *)(v1 + 22) = temp16;
-
-    temp16 = *(uint16_t *)(a0 + 34);
-    *(uint16_t *)(v1 + 24) = temp16;
-
-    /* Copy byte at offset 8 to offset 26 */
-    temp8 = a0[8];
-    ((void **)v1)[26] = temp8;
-
-    return 0;
+	return *(uint32_t *)(tisp_par_info + s * 152U + 8U) & 0x1fU;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000358d0 origin=fragment_seed original=tisp_gib_interp_by_gain */
-int32_t tisp_gib_interp_by_gain(uint32_t a0, uint32_t a1, uint32_t a2)
+/* OEM tisp_simple_intp_int16 0x16300 */
+static uint16_t t40_gib_intp16(uint32_t idx, uint32_t frac, const uint8_t *tab)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3a = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_3e = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_4c = 0;
-    uint32_t local_50 = 0;
-    uint32_t local_54 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_5c = 0;
-    uint32_t local_60 = 0;
-    uint32_t local_64 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uintptr_t s5 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+	uint32_t lo, hi, d, m;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s5 = a0;
-    s0 = a1;
-
-    /* fragment 2: Branch */
-    s3 = a2;
-    if (a0 == 0) { goto tisp_gib_interp_by_gain0x1d4; }
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)&isp_memopt;
-    s2 = *(uint32_t *)((char *)((char *)&gib_seco_tool_para));
-    v0 = (uintptr_t *)&isp_memopt;
-    s1 = *(uint32_t *)((char *)((char *)&gib_seco_real_para));
-
-tisp_gib_interp_by_gain0x40:
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_10, (void *)(uintptr_t)&__param_str_isp_dual_buf, 40); /* jalr target resolved by relocation */
-
-    /* fragment 5: Arithmetic */
-    v1 = (int32_t *)&sclk_name;
-    a1 = s5 << 2;
-    v1 = v1 - 16504;
-    v0 = a1 + (uintptr_t)v1;
-
-    /* fragment 6: MemoryAccess */
-    a0 = *(uint32_t *)((char *)v0 + 0);
-    a2 = a0 < s0;
-
-    /* fragment 7: Branch */
-    v0 = a0 - (uintptr_t)s0;
-    if (a2 == 0) { goto tisp_gib_interp_by_gain0x80; }
-
-    /* fragment 8: Arithmetic */
-    v0 = s0 - a0;
-
-tisp_gib_interp_by_gain0x80:
-    /* fragment 9: Arithmetic */
-    v0 = (uintptr_t)v0 >> 10;
-
-    /* fragment 10: Branch */
-    if (v0 != 0) { goto tisp_gib_interp_by_gain0x94; }
-
-    /* fragment 11: Branch */
-    v0 = 1;
-    if (s3 == 0) { goto tisp_gib_interp_by_gain0x1b0; }
-
-tisp_gib_interp_by_gain0x94:
-    /* fragment 12: CallSetup */
-    *(uint32_t *)((char *)(v1 + a1) + 0) = s0;
-    s3 = (uintptr_t)s0 >> 16;
-    s4 = (uintptr_t)s0 & 65535;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_simple_intp_int16)((uintptr_t)s0 >> 16, (uintptr_t)s0 & 65535, (uintptr_t)s2 + 40); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    local_38 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_simple_intp_int16)(s3, s4, s2 + 62); /* jalr target resolved by relocation */
-
-    /* fragment 14: CallSetup */
-    local_3a = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_simple_intp_int16)(s3, s4, s2 + 84); /* jalr target resolved by relocation */
-
-    /* fragment 15: CallSetup */
-    local_3c = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_simple_intp_int16)(s3, s4, s2 + 106); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    local_3e = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_simple_intp_int16)(s3, s4, s2 + 128); /* jalr target resolved by relocation */
-
-    /* fragment 17: Arithmetic */
-    v1 = 152;
-    a0 = s5 * (uintptr_t)v1;
-
-    /* fragment 18: StackAccess */
-    local_40 = v0;
-    v0 = (uintptr_t *)&tisp_par_info;
-    v0 = v0;
-    s5 = a0 + (uintptr_t)v0;
-    v0 = *(uint32_t *)((char *)s5 + 8);
-    a0 = (uint32_t *)&local_10;
-    v0 = (uintptr_t)v0 & 31;
-    v1 = v0 < 20;
-    v0 = (uintptr_t)v0 << 1;
-    v1 = (int32_t *)&local_10;
-    v0 = (uintptr_t)v1 + (uintptr_t)v0;
-    v0 = *(uint16_t *)((char *)v0 + 0);
-    v1 = (uintptr_t)v0 & 7;
-    v1 = (uintptr_t)v1 << 1;
-    v1 = a0 + (uintptr_t)v1;
-    v1 = *(uint16_t *)((char *)v1 + 40);
-    *(uint16_t *)((char *)s1 + 4) = v1;
-    v1 = (uintptr_t)v1 << 1;
-    v1 = a0 + (uintptr_t)v1;
-    v1 = *(uint16_t *)((char *)v1 + 40);
-    *(uint16_t *)((char *)s1 + 6) = v1;
-    v1 = (uintptr_t)v1 << 1;
-    v1 = a0 + (uintptr_t)v1;
-    v1 = *(uint16_t *)((char *)v1 + 40);
-    *(uint16_t *)((char *)s1 + 8) = v1;
-
-    /* fragment 19: Arithmetic */
-    v1 = (uintptr_t)v1 << 1;
-    v0 = (uintptr_t)v0 << 1;
-    v1 = a0 + (uintptr_t)v1;
-    v0 = a0 + (uintptr_t)v0;
-
-    /* fragment 20: MemoryAccess */
-    v0 = *(uint16_t *)((char *)v0 + 40);
-    v1 = *(uint16_t *)((char *)v1 + 40);
-    *(uint16_t *)((char *)s1 + 12) = v0;
-    *(uint16_t *)((char *)s1 + 10) = v1;
-    v0 = 0;
-
-tisp_gib_interp_by_gain0x1b0:
-    /* fragment 21: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_gib_interp_by_gain0x1d4:
-    /* fragment 22: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 23: MemoryAccess */
-    s2 = *(uint32_t *)((char *)((char *)&gib_main_tool_para));
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 24: Branch */
-    s1 = *(uint32_t *)((char *)((char *)&gib_main_real_para));
-    goto tisp_gib_interp_by_gain0x40;
-
-    return 0;
+	if (idx >= 10)
+		return T40_GIB_U16(tab, 20);
+	lo = T40_GIB_U16(tab, idx * 2);
+	hi = T40_GIB_U16(tab, idx * 2 + 2);
+	if (lo == hi)
+		return hi;
+	d = lo < hi ? hi - lo : lo - hi;
+	m = d * frac;
+	d = ((m >> 16) + ((m >> 15) & 1U)) & 0xffffU;
+	return (uint16_t)(lo < hi ? lo + d : lo - d);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000035ab8 origin=model_output original=tisp_gib_blc_value_to_self_gain */
-int32_t tisp_gib_blc_value_to_self_gain(int32_t arg1)
+/* OEM 0x35c4c */
+int32_t tisp_gib_tool_2_real(int32_t s)
 {
-    unsigned short *v1;
-    unsigned short val_6, val_4, val_8, val_10, val_12;
-    unsigned short max_val, temp_val;
-    unsigned short quotient, remainder;
-    unsigned short result_1e;
-    unsigned short divisor;
-    unsigned short *a2;
-    
-    /* Select base address based on arg1 */
-    /* Original uses addresses 16784 and 16788 */
-    if (arg1 == 0) {
-        v1 = &bss_data[8394];  /* 16788/2 = 8394 */
-    } else {
-        v1 = &bss_data[8392];  /* 16784/2 = 8392 */
-    }
-    
-    /* Load values from offsets 6 and 4 relative to v1 */
-    val_6 = v1[3];   /* offset 6 */
-    val_4 = v1[2];   /* offset 4 */
-    
-    /* First comparison: val_4 vs val_6 (unsigned) */
-    if (val_4 < val_6) {
-        max_val = val_6;
-    } else {
-        max_val = val_4;
-    }
-    
-    /* Load and compare with offset 8 */
-    val_8 = v1[4];   /* offset 8 */
-    if (val_8 < max_val) {
-        max_val = val_8;
-    }
-    
-    /* Load and compare with offset 10 */
-    val_10 = v1[5];  /* offset 10 */
-    if (val_10 < max_val) {
-        max_val = val_10;
-    }
-    
-    /* Load and compare with offset 12 */
-    val_12 = v1[6];  /* offset 12 */
-    temp_val = val_12;
-    if (val_12 < max_val) {
-        temp_val = max_val;
-    }
-    
-    /* Check if temp_val >> 11 == 1 */
-    a2 = temp_val >> 11;
-    if (a2 == 1) {
-        result_1e = 8192;  /* 0x2000 */
-    } else {
-        /* Division calculation: 0x2000000 / (0x1000 - temp_val) */
-        divisor = 4096 - temp_val;  /* 0x1000 - temp_val */
-        quotient = (0x2000000 / divisor) & 0xffff;
-        remainder = quotient >> 1;
-        result_1e = remainder + (quotient & 1);
-    }
-    
-    /* Store results to offsets 30 and 28 */
-    ((void **)v1)[15] = result_1e;  /* offset 30 */
-    ((void **)v1)[14] = temp_val;   /* offset 28 */
-    
-    return 0;
+	uint8_t *t = T40_GIB_TOOL(s), *r = T40_GIB_REAL(s);
+	int i;
+
+	if (!t || !r)
+		return -1;
+	for (i = 0; i < 4; i++)
+		r[i] = t[i];
+	for (i = 0; i < 6; i++)
+		T40_GIB_U16(r, 14 + 2 * i) = T40_GIB_U16(t, 24 + 2 * i);
+	r[26] = (uint8_t)T40_GIB_U16(t, 8);
+	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000035b78 origin=model_output original=tisp_gib_calc_digital_gain */
-int32_t tisp_gib_calc_digital_gain(int32_t arg1)
+/* OEM 0x35cec: BLC values from the 5 gain tables (tool +40, 22 bytes each), bayer-mapped */
+int32_t tisp_gib_interp_by_gain(uint32_t s, uint32_t gain, uint32_t force)
 {
-    uint8_t *v0;
-    uint16_t *v1;
-    int32_t a3_1, a2_1, a1_1;
-    uint32_t *t5;
-    uint32_t *t4;
-    uint32_t *t3;
-    uint32_t *t1;
-    uint32_t t0_3;
-    uint32_t *t2;
-    uint16_t v1_2;
-    uint8_t *base_ptr;
-    uint8_t *check_ptr;
-    
-    /* Select base pointer based on arg1 */
-    if (arg1 == 0) {
-        base_ptr = &gib_data[16788];
-    } else {
-        base_ptr = &gib_data[16784];
-    }
-    v0 = base_ptr;
-    
-    /* Read values from offsets relative to base_ptr */
-    v1 = *(uint16_t *)(v0 + 0x1e);
-    a3_1 = (uintptr_t)v1 * *(int32_t *)((uintptr_t)v0 + 0x20);
-    a2_1 = (uintptr_t)v1 * *(int32_t *)((uintptr_t)v0 + 0x24);
-    t5 = (uintptr_t)a3_1 >> 12;
-    a1_1 = (uintptr_t)v1 * *(int32_t *)((uintptr_t)v0 + 0x28);
-    t4 = (uintptr_t)a2_1 >> 12;
-    t1 = t4;
-    t2 = (uintptr_t)v1 * *(int32_t *)((uintptr_t)v0 + 0x2c);
-    t3 = (uintptr_t)a1_1 >> 12;
-    
-    /* Compute max of t5, t4, t3 */
-    if (t5 >= t4) {
-        t1 = t5;
-    }
-    if (t3 >= t1) {
-        t1 = t3;
-    }
-    
-    t0_3 = t1;
-    t2 = (uintptr_t)t2 >> 12;
-    
-    /* Check condition from arg1 + 16800 */
-    if (arg1 != 0) {
-        check_ptr = (uint8_t *)(arg1 + 16800);
-        uint8_t check_val = *check_ptr;
-        if (check_val == 1 && t0_3 < t2) {
-            t0_3 = t2;
-        }
-    }
-    
-    /* Main decision tree based on t0_3 shifts */
-    if ((t0_3 >> 18) == 0) {
-        if ((t0_3 >> 17) == 1) {
-            /* Case: shift 15 */
-            *(uint16_t *)((uintptr_t)v0 + 0x30) = (uint16_t)(a3_1 >> 15);
-            *(uint16_t *)((uintptr_t)v0 + 0x32) = (uint16_t)(a2_1 >> 15);
-            *(uint16_t *)((uintptr_t)v0 + 0x34) = (uint16_t)(a1_1 >> 15);
-            v1_2 = (uint16_t)((uintptr_t)t2 >> 15);
-            goto label_35c1c;
-        }
-        
-        uint32_t t1_4 = t0_3 >> 15;
-        
-        if ((t0_3 >> 16) == 1) {
-            /* Case: shift 14 */
-            *(uint16_t *)((uintptr_t)v0 + 0x36) = (uint16_t)((uintptr_t)t2 >> 14);
-            *(uint16_t *)((uintptr_t)v0 + 0x30) = (uint16_t)(a3_1 >> 14);
-            *(uint16_t *)((uintptr_t)v0 + 0x32) = (uint16_t)(a2_1 >> 14);
-            *(uint16_t *)((uintptr_t)v0 + 0x34) = (uint16_t)(a1_1 >> 14);
-            *(uint8_t *)(v0 + 0x1b) = 2;
-        } else if (t1_4 != 1) {
-            if ((t0_3 >> 10) == 0) {
-                /* Special case */
-                *(uint16_t *)((uintptr_t)v0 + 0x30) = (uint16_t)(0x4000400 & 0xFFFF);
-                *(uint16_t *)((uintptr_t)v0 + 0x34) = (uint16_t)(0x4000400 & 0xFFFF);
-            } else {
-                /* Case: use t5, t4, t3, t2 */
-                *(uint16_t *)(v0 + 0x30) = (uint16_t)t5;
-                *(uint16_t *)(v0 + 0x32) = (uint16_t)t4;
-                *(uint16_t *)(v0 + 0x34) = (uint16_t)t3;
-                *(uint16_t *)(v0 + 0x36) = (uint16_t)t2;
-            }
-            *(uint8_t *)(v0 + 0x1b) = 0;
-        } else {
-            /* Case: shift 13 */
-            *(uint16_t *)((uintptr_t)v0 + 0x30) = (uint16_t)(a3_1 >> 13);
-            *(uint16_t *)((uintptr_t)v0 + 0x32) = (uint16_t)(a2_1 >> 13);
-            *(uint16_t *)((uintptr_t)v0 + 0x34) = (uint16_t)(a1_1 >> 13);
-            *(uint16_t *)((uintptr_t)v0 + 0x36) = (uint16_t)((uintptr_t)t2 >> 13);
-            *(uint8_t *)(v0 + 0x1b) = (uint8_t)t1_4;
-        }
-    } else {
-        /* Case: shift 16 */
-        *(uint16_t *)((uintptr_t)v0 + 0x30) = (uint16_t)(a3_1 >> 16);
-        *(uint16_t *)((uintptr_t)v0 + 0x32) = (uint16_t)(a2_1 >> 16);
-        *(uint16_t *)((uintptr_t)v0 + 0x34) = (uint16_t)(a1_1 >> 16);
-        v1_2 = (uint16_t)((uintptr_t)t2 >> 16);
-        goto label_35c1c;
-    }
-    
-    return 0;
-    
-label_35c1c:
-    *(uint16_t *)(v0 + 0x36) = v1_2;
-    *(uint8_t *)(v0 + 0x1b) = 3;
-    return 0;
+	static const uint16_t map[20] = {	/* OEM .rodata 0x15a0 */
+		0x4688, 0x4053, 0x44c1, 0x421a, 0x2708, 0x1113, 0x16a0, 0x2063, 0x28c1, 0x181a,
+		0x14c4, 0x221c, 0x3888, 0x0853, 0x3501, 0x031a, 0x3222, 0x04e1, 0x3054, 0x068c,
+	};
+	uint8_t *t = T40_GIB_TOOL(s), *r = T40_GIB_REAL(s);
+	uint32_t i = s ? 1 : 0, old = t40_gib_AG[i], d, b, m;
+	uint16_t v[5];
+	int k;
+
+	if (!t || !r)
+		return -1;
+	d = old < gain ? gain - old : old - gain;
+	if (!(d >> 10) && !force)
+		return 1;
+	t40_gib_AG[i] = gain;
+	for (k = 0; k < 5; k++)
+		v[k] = t40_gib_intp16(gain >> 16, gain & 0xffffU, t + 40 + 22 * k);
+	b = t40_gib_bayer(s);
+	if (b >= 20)
+		b = 0;
+	m = map[b];
+	for (k = 0; k < 5; k++) {
+		uint32_t src = (m >> (3 * k)) & 7U;
+
+		T40_GIB_U16(r, 4 + 2 * k) = src < 5 ? v[src] : 0;
+	}
+	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000035cf4 origin=fragment_seed original=tisp_gib_interp_by_ir */
-int64_t tisp_gib_interp_by_ir(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+/* OEM 0x35ed4 */
+int32_t tisp_gib_blc_value_to_self_gain(int32_t s)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_38 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t t0 = 0;
-    uint32_t *t1 = 0;
-    uintptr_t *t2 = 0;
-    uint32_t *t3 = 0;
-    uint32_t *t4 = 0;
-    uint32_t *t5 = 0;
-    uint32_t *t6 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    a1 = local_38;
-    if (a0 == 0) { goto tisp_gib_interp_by_ir0xf8; }
-
-    /* fragment 2: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 3: MemoryAccess */
-    s0 = *(uint32_t *)((char *)((char *)&gib_seco_tool_para));
-    v0 = (uintptr_t *)&isp_memopt;
-    s1 = *(uint32_t *)((char *)((char *)&gib_seco_real_para));
-
-tisp_gib_interp_by_ir0x34:
-    /* fragment 4: ConstantLoad */
-    v1 = ((char *)&gib_IR);
-
-    /* fragment 5: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-    a3 = v0 < a2;
-
-    /* fragment 6: Branch */
-    v1 = v0 - a2;
-    if (a3 == 0) { goto tisp_gib_interp_by_ir0x58; }
-
-    /* fragment 7: Arithmetic */
-    v1 = a2 - (uintptr_t)v0;
-
-tisp_gib_interp_by_ir0x58:
-    /* fragment 8: ConstantLoad */
-    v0 = ((char *)&GIB_IR_MODE);
-
-    /* fragment 9: MemoryAccess */
-    a0 = *(uint8_t *)((char *)a0 + 0);
-
-    /* fragment 10: Branch */
-    v0 = 1;
-    if (a0 == 0) { goto tisp_gib_interp_by_ir0xd8; }
-
-    /* fragment 11: Branch */
-    if (v1 != 0) { goto tisp_gib_interp_by_ir0x80; }
-
-    /* fragment 12: Branch */
-    if (a1 == 0) { goto tisp_gib_interp_by_ir0xdc; }
-
-tisp_gib_interp_by_ir0x80:
-    /* fragment 13: MemoryAccess */
-    v1 = *(uint16_t *)((char *)s0 + 156);
-    v0 = v1 < a2;
-
-    /* fragment 14: Branch */
-    s2 = (uintptr_t *)&memcpy;
-    if (v0 == 0) { goto tisp_gib_interp_by_ir0x10c; }
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 56), (void *)(uintptr_t)(s0 + 188), 66); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 122), (void *)(uintptr_t)(s0 + 254), 66); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 188), (void *)(uintptr_t)(s0 + 320), 66); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    a2 = 30;
-    a1 = s0 + 782;
-
-tisp_gib_interp_by_ir0xcc:
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 254), (void *)(uintptr_t)a1, a2); /* jalr target resolved by relocation */
-
-    /* fragment 20: Arithmetic */
-    v0 = 0;
-
-tisp_gib_interp_by_ir0xd8:
-    /* fragment 21: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_gib_interp_by_ir0xdc:
-    /* fragment 22: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_gib_interp_by_ir0xf8:
-    /* fragment 23: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 24: MemoryAccess */
-    s0 = *(uint32_t *)((char *)((char *)&gib_main_tool_para));
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 25: Branch */
-    s1 = *(uint32_t *)((char *)((char *)&gib_main_real_para));
-    goto tisp_gib_interp_by_ir0x34;
-
-tisp_gib_interp_by_ir0x10c:
-    /* fragment 26: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s0 + 154);
-    a0 = v0 < a2;
-
-    /* fragment 27: Branch */
-    v1 = (uintptr_t)v1 - (uintptr_t)v0;
-    if (a0 == 0) { goto tisp_gib_interp_by_ir0x224; }
-
-    /* fragment 28: Arithmetic */
-    a2 = a2 - (uintptr_t)v0;
-    t1 = v1 - a2;
-    t5 = s0 + 188;
-    a1 = s0 + 386;
-    t4 = s0 + 254;
-    s4 = s0 + 452;
-    t3 = s0 + 320;
-    s3 = s0 + 518;
-    a0 = s0 + 782;
-    s2 = s0 + 812;
-
-tisp_gib_interp_by_ir0x144:
-    /* fragment 29: Branch */
-    v0 = 2;
-    if (v1 == 0) { goto tisp_gib_interp_by_ir0xd8; }
-
-    /* fragment 30: Arithmetic */
-    t2 = s1 + 56;
-    v0 = 0;
-    t6 = 66;
-
-tisp_gib_interp_by_ir0x158:
-    /* fragment 31: Arithmetic */
-    a3 = a1 + (uintptr_t)v0;
-
-    /* fragment 32: MemoryAccess */
-    t0 = *(uint16_t *)((char *)a3 + 0);
-    a3 = (uintptr_t)t5 + (uintptr_t)v0;
-    a3 = *(uint16_t *)((char *)a3 + 0);
-    t2 = t2 + 2;
-
-    /* fragment 33: Unknown */
-    /* unmatched fragment 33 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 35e64:	71090000 	madd	t0,t1 */
-
-    /* fragment 34: Arithmetic */
-    /* unmatched fragment 34 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 35e68:	00004012 	mflo	t0 */
-
-    /* fragment 35: Unknown */
-    /* unmatched fragment 35 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 35e6c:	0103001a 	div	zero,t0,v1 */
-
-    /* fragment 36: Arithmetic */
-    /* unmatched fragment 36 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 35e70:	00003812 	mflo	a3 */
-
-    /* fragment 37: MemoryAccess */
-    *(uint16_t *)((char *)t2 + -2) = a3;
-    a3 = (uintptr_t)s4 + (uintptr_t)v0;
-    t0 = *(uint16_t *)((char *)a3 + 0);
-    a3 = (uintptr_t)t4 + (uintptr_t)v0;
-    a3 = *(uint16_t *)((char *)a3 + 0);
-
-    /* fragment 38: Unknown */
-    /* unmatched fragment 38 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 35e8c:	71090000 	madd	t0,t1 */
-
-    /* fragment 39: Arithmetic */
-    /* unmatched fragment 39 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 35e90:	00004012 	mflo	t0 */
-
-    /* fragment 40: Unknown */
-    /* unmatched fragment 40 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 35e94:	0103001a 	div	zero,t0,v1 */
-
-    /* fragment 41: Arithmetic */
-    /* unmatched fragment 41 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 35e98:	00003812 	mflo	a3 */
-
-    /* fragment 42: MemoryAccess */
-    *(uint16_t *)((char *)t2 + 64) = a3;
-    a3 = (uintptr_t)s3 + (uintptr_t)v0;
-    t0 = *(uint16_t *)((char *)a3 + 0);
-    a3 = (uintptr_t)t3 + (uintptr_t)v0;
-    a3 = *(uint16_t *)((char *)a3 + 0);
-    v0 = v0 + 2;
-
-    /* fragment 43: Unknown */
-    /* unmatched fragment 43 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 35eb8:	71090000 	madd	t0,t1 */
-
-    /* fragment 44: Arithmetic */
-    /* unmatched fragment 44 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 35ebc:	00004012 	mflo	t0 */
-
-    /* fragment 45: Unknown */
-    /* unmatched fragment 45 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 35ec0:	0103001a 	div	zero,t0,v1 */
-
-    /* fragment 46: Arithmetic */
-    /* unmatched fragment 46 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 35ec4:	00003812 	mflo	a3 */
-
-    /* fragment 47: Branch */
-    *(uint16_t *)((char *)t2 + 130) = a3;
-    if (v0 != t6) { goto tisp_gib_interp_by_ir0x158; }
-
-    /* fragment 48: Arithmetic */
-    a1 = s2;
-    v0 = a0;
-    s1 = s1 + 254;
-    t0 = s2 + 30;
-
-tisp_gib_interp_by_ir0x1ec:
-    /* fragment 49: MemoryAccess */
-    a0 = *(uint16_t *)((char *)v0 + 0);
-    a3 = *(uint16_t *)((char *)a1 + 0);
-    a1 = a1 + 2;
-    v0 = v0 + 2;
-    s1 = s1 + 2;
-
-    /* fragment 50: Unknown */
-    /* unmatched fragment 50 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 35ef8:	70e90000 	madd	a3,t1 */
-
-    /* fragment 51: Arithmetic */
-    /* unmatched fragment 51 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 35efc:	00003812 	mflo	a3 */
-
-    /* fragment 52: Unknown */
-    /* unmatched fragment 52 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 35f00:	00e3001a 	div	zero,a3,v1 */
-
-    /* fragment 53: Arithmetic */
-    /* unmatched fragment 53 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 35f04:	00002012 	mflo	a0 */
-
-    /* fragment 54: Branch */
-    *(uint16_t *)((char *)s1 + -2) = a0;
-    if (t0 != a1) { goto tisp_gib_interp_by_ir0x1ec; }
-
-    /* fragment 55: Branch */
-    v0 = 0;
-    goto tisp_gib_interp_by_ir0xd8;
-
-tisp_gib_interp_by_ir0x224:
-    /* fragment 56: MemoryAccess */
-    v1 = *(uint16_t *)((char *)s0 + 152);
-    v0 = v1 < a2;
-
-    /* fragment 57: Branch */
-    s4 = s0 + 650;
-    if (v0 == 0) { goto tisp_gib_interp_by_ir0x278; }
-
-    /* fragment 58: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 56), (void *)(uintptr_t)(s0 + 386), 66); /* jalr target resolved by relocation */
-
-    /* fragment 59: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 122), (void *)(uintptr_t)(s0 + 452), 66); /* jalr target resolved by relocation */
-
-    /* fragment 60: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 188), (void *)(uintptr_t)(s0 + 518), 66); /* jalr target resolved by relocation */
-
-    /* fragment 61: Arithmetic */
-    a2 = 30;
-
-    /* fragment 62: Branch */
-    a1 = s0 + 812;
-    goto tisp_gib_interp_by_ir0xcc;
-
-tisp_gib_interp_by_ir0x278:
-    /* fragment 63: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s0 + 150);
-    a1 = s0 + 584;
-    a0 = v0 < a2;
-    s3 = s0 + 716;
-
-    /* fragment 64: Branch */
-    s2 = s0 + 842;
-    if (a0 == 0) { goto tisp_gib_interp_by_ir0x2b0; }
-
-    /* fragment 65: Arithmetic */
-    v1 = (uintptr_t)v1 - (uintptr_t)v0;
-    a2 = a2 - (uintptr_t)v0;
-    t1 = v1 - a2;
-    t5 = s0 + 386;
-    t4 = s0 + 452;
-    t3 = s0 + 518;
-
-    /* fragment 66: Branch */
-    a0 = s0 + 812;
-    goto tisp_gib_interp_by_ir0x144;
-
-tisp_gib_interp_by_ir0x2b0:
-    /* fragment 67: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 56), (void *)(uintptr_t)a1, 66); /* jalr target resolved by relocation */
-
-    /* fragment 68: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 122), (void *)(uintptr_t)s4, 66); /* jalr target resolved by relocation */
-
-    /* fragment 69: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 188), (void *)(uintptr_t)s3, 66); /* jalr target resolved by relocation */
-
-    /* fragment 70: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + 254), (void *)(uintptr_t)s2, 30); /* jalr target resolved by relocation */
-
-    /* fragment 71: Branch */
-    v0 = 0;
-    goto tisp_gib_interp_by_ir0xd8;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+	uint8_t *r = T40_GIB_REAL(s);
+	uint32_t mx = 0, sg;
+	int k;
+
+	if (!r)
+		return -1;
+	for (k = 0; k < 5; k++)
+		mx = max_t(uint32_t, mx, T40_GIB_U16(r, 4 + 2 * k));
+	if ((mx >> 11) == 1) {
+		sg = 8192;
+	} else {
+		int32_t den = 4096 - (int32_t)mx;
+
+		sg = den ? (uint32_t)(0x2000000 / den) & 0xffffU : 0;
+		sg = (sg >> 1) + (sg & 1U);
+	}
+	T40_GIB_U16(r, 30) = (uint16_t)sg;
+	T40_GIB_U16(r, 28) = (uint16_t)mx;
+	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000035ff0 origin=fragment_seed original=tisp_gib_write_reg */
-int32_t tisp_gib_write_reg(uint32_t a0, uint32_t a1)
+/* OEM 0x35f94: final_gain = self_gain * ae_gain, normalised with dgain_bsft */
+int32_t tisp_gib_calc_digital_gain(int32_t s)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uintptr_t s7 = 0;
-    uint32_t s8 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+	uint8_t *r = T40_GIB_REAL(s);
+	uint32_t self, p[4], sc[4], mx, sh;
+	uint8_t bsft;
+	int k;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s3 = a0;
-
-    /* fragment 2: Branch */
-    s2 = a1;
-    if (a0 == 0) { goto tisp_gib_write_reg0x3dc; }
-
-    /* fragment 3: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 4: MemoryAccess */
-    s7 = *(uint32_t *)((char *)((char *)&gib_seco_real_para));
-    v0 = 327680;
-    v1 = v0 + 388;
-    s4 = v0 + 400;
-    s5 = v0 + 384;
-    s8 = v0 + 372;
-    s6 = v0 + 368;
-    local_14 = v1;
-    v0 = v0 + 404;
-
-tisp_gib_write_reg0x60:
-    /* fragment 5: StackAccess */
-    local_10 = v0;
-    s1 = s3 + 256;
-    s0 = (uintptr_t *)&system_reg_write;
-    v0 = s2 < 2;
-    s1 = (uintptr_t)s1 << 7;
-
-    /* fragment 6: Branch */
-    s0 = (uintptr_t *)&system_reg_write;
-    if (v0 != 0) { goto tisp_gib_write_reg0x408; }
-
-    /* fragment 7: Arithmetic */
-    v0 = 2;
-
-    /* fragment 8: Branch */
-    int _bc_s2_8 = s2 != v0;
-    v0 = 3;
-    if (_bc_s2_8) { goto tisp_gib_write_reg0x488; }
-
-tisp_gib_write_reg0x88:
-    /* fragment 9: CallSetup */
-    local_18 = 2147418112;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1, (((*(uint16_t *)((char *)(s7) + 50)) << 16) & 2147418112) | (*(uint16_t *)((char *)(s7) + 48) & 32767), 2147418112); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 4, (((*(uint16_t *)((char *)(s7) + 54)) << 16) & (uintptr_t)local_18) | (*(uint16_t *)((char *)(s7) + 52) & 32767), (uintptr_t)local_18); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 60, *(uint8_t *)((char *)(s7) + 27) & 3); /* jalr target resolved by relocation */
-
-    /* fragment 12: Branch */
-    v0 = 3;
-    if (s2 != 0) { goto tisp_gib_write_reg0x488; }
-
-tisp_gib_write_reg0xec:
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 48, *(uint16_t *)((char *)(s7) + 4) & 4095); /* jalr target resolved by relocation */
-
-    /* fragment 14: CallSetup */
-    local_18 = 268369920;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 52, (((*(uint16_t *)((char *)(s7) + 8)) << 16) & 268369920) | (*(uint16_t *)((char *)(s7) + 6) & 4095), 268369920); /* jalr target resolved by relocation */
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 56, (((*(uint16_t *)((char *)(s7) + 12)) << 16) & (uintptr_t)local_18) | (*(uint16_t *)((char *)(s7) + 10) & 4095), (uintptr_t)local_18); /* jalr target resolved by relocation */
-
-    /* fragment 16: Branch */
-    v0 = 4;
-    if (s2 != 0) { goto tisp_gib_write_reg0x490; }
-
-tisp_gib_write_reg0x150:
-    /* fragment 17: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s7 + 18);
-    a0 = *(uint16_t *)((char *)s7 + 20);
-    a1 = *(uint16_t *)((char *)s7 + 14);
-    v0 = (uintptr_t)v0 << 2;
-    a0 = a0 << 4;
-    a0 = a0 & 255;
-    v0 = (uintptr_t)v0 & 4;
-    a1 = a1 << 8;
-    v0 = (uintptr_t)v0 | a0;
-    a1 = a1 & 256;
-    v0 = (uintptr_t)v0 | a1;
-    a1 = *(uint8_t *)((char *)s7 + 1);
-    a0 = 65536;
-    s2 = 67043328;
-    a1 = a1 << 10;
-    a1 = a1 & 1024;
-    v0 = (uintptr_t)v0 | a1;
-    a1 = *(uint8_t *)((char *)s7 + 0);
-    a1 = a1 << 12;
-    a1 = a1 & 4096;
-    v0 = (uintptr_t)v0 | a1;
-    a1 = *(uint8_t *)((char *)s7 + 26);
-    a1 = a1 << 14;
-    a1 = a1 & 16384;
-    v0 = (uintptr_t)v0 | a1;
-    a1 = *(uint16_t *)((char *)s7 + 16);
-    a1 = a1 << 16;
-    a1 = a1 & a0;
-    a1 = (uintptr_t)v0 | a1;
-
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(s1 + 12); /* jalr target resolved by relocation */
-
-    /* fragment 19: CallSetup */
-    local_18 = 268369920;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 8, (((*(uint16_t *)((char *)(s7) + 24)) << 16) & 268369920) | (*(uint16_t *)((char *)(s7) + 22) & 4095), 268369920); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 16, (((*(uint16_t *)((char *)(s7) + 256)) << 16) & (uintptr_t)s2) | (*(uint16_t *)((char *)(s7) + 254) & 1023)); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 20, (((*(uint16_t *)((char *)(s7) + 260)) << 16) & (uintptr_t)s2) | (*(uint16_t *)((char *)(s7) + 258) & 1023)); /* jalr target resolved by relocation */
-
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 24, (((*(uint16_t *)((char *)(s7) + 266)) << 16) & (uintptr_t)s2) | (*(uint16_t *)((char *)(s7) + 264) & 1023)); /* jalr target resolved by relocation */
-
-    /* fragment 23: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 28, (((*(uint16_t *)((char *)(s7) + 270)) << 16) & (uintptr_t)s2) | (*(uint16_t *)((char *)(s7) + 268) & 1023)); /* jalr target resolved by relocation */
-
-    /* fragment 24: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 32, (((*(uint16_t *)((char *)(s7) + 276)) << 16) & (uintptr_t)s2) | (*(uint16_t *)((char *)(s7) + 274) & 1023)); /* jalr target resolved by relocation */
-
-    /* fragment 25: CallSetup */
-    s2 = ((*(uint16_t *)((char *)(s7) + 280)) << 16) & (uintptr_t)s2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 36, (((*(uint16_t *)((char *)(s7) + 280)) << 16) & (uintptr_t)s2) | (*(uint16_t *)((char *)(s7) + 278) & 1023)); /* jalr target resolved by relocation */
-
-    /* fragment 26: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 40, (((*(uint16_t *)((char *)(s7) + 272)) << 16) & (uintptr_t)local_18) | (*(uint16_t *)((char *)(s7) + 262) & 4095), (uintptr_t)local_18); /* jalr target resolved by relocation */
-
-    /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 44, *(uint16_t *)((char *)(s7) + 282) & 4095); /* jalr target resolved by relocation */
-
-    /* fragment 28: ConstantLoad */
-    v0 = ((char *)&GIB_IR_MODE);
-
-    /* fragment 29: MemoryAccess */
-    a0 = *(uint8_t *)((char *)s3 + 0);
-    v0 = 1;
-
-    /* fragment 30: Branch */
-    int _bc_a0_30 = a0 != v0;
-    a0 = s1 + 64;
-    if (_bc_a0_30) { goto tisp_gib_write_reg0x49c; }
-
-    /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s6, 257); /* jalr target resolved by relocation */
-
-    /* fragment 32: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s5, 257); /* jalr target resolved by relocation */
-
-    /* fragment 33: CallSetup */
-    s2 = 16711680;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s4, 257); /* jalr target resolved by relocation */
-
-    /* fragment 34: CallSetup */
-    s3 = s7 + 56;
-    v1 = s7 + 120;
-    s2 = (uintptr_t)s2 | 61440;
-
-tisp_gib_write_reg0x338:
-    /* fragment 35: CallSetup */
-    local_18 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s8, (((*(uint16_t *)((char *)((uintptr_t)s3) + 2)) << 12) & (uintptr_t)s2) | (*(uint16_t *)((char *)((uintptr_t)s3) + 0) & 4095)); /* jalr target resolved by relocation */
-
-    /* fragment 36: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(local_14, (((*(uint16_t *)((char *)((uintptr_t)s3) + 68)) << 12) & (uintptr_t)s2) | (*(uint16_t *)((char *)((uintptr_t)s3) + 66) & 4095)); /* jalr target resolved by relocation */
-
-    /* fragment 37: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)local_10, (((*(uint16_t *)((char *)((uintptr_t)s3) + 134)) << 12) & (uintptr_t)s2) | (*(uint16_t *)((char *)((uintptr_t)s3) + 132) & 4095)); /* jalr target resolved by relocation */
-
-    /* fragment 38: StackAccess */
-    v1 = local_18;
-    s3 = s3 + 2;
-
-    /* fragment 39: Branch */
-    if (s3 != v1) { goto tisp_gib_write_reg0x338; }
-
-    /* fragment 40: CallSetup */
-    s2 = 2031616;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s6, 2031616 + 258); /* jalr target resolved by relocation */
-
-    /* fragment 41: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s5, (uintptr_t)s2 | 258); /* jalr target resolved by relocation */
-
-    /* fragment 42: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s4, (uintptr_t)s2 | 258); /* jalr target resolved by relocation */
-
-    /* fragment 43: Branch */
-    a0 = s1 + 64;
-    goto tisp_gib_write_reg0x49c;
-
-tisp_gib_write_reg0x3dc:
-    /* fragment 44: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 45: MemoryAccess */
-    s7 = *(uint32_t *)((char *)((char *)&gib_main_real_para));
-    v0 = 327680;
-    v1 = v0 + 340;
-    s4 = v0 + 352;
-    s5 = v0 + 336;
-    s8 = v0 + 324;
-    s6 = v0 + 320;
-    local_14 = v1;
-
-    /* fragment 46: Branch */
-    v0 = v0 + 356;
-    goto tisp_gib_write_reg0x60;
-
-tisp_gib_write_reg0x408:
-    /* fragment 47: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s7 + 18);
-    a0 = *(uint16_t *)((char *)s7 + 20);
-    a1 = *(uint16_t *)((char *)s7 + 14);
-    v0 = (uintptr_t)v0 << 2;
-    a0 = a0 << 4;
-    a0 = a0 & 255;
-    v0 = (uintptr_t)v0 & 4;
-    a1 = a1 << 8;
-    v0 = (uintptr_t)v0 | a0;
-    a1 = a1 & 256;
-    v0 = (uintptr_t)v0 | a1;
-    a1 = *(uint8_t *)((char *)s7 + 1);
-    a0 = 65536;
-    a1 = a1 << 10;
-    a1 = a1 & 1024;
-    v0 = (uintptr_t)v0 | a1;
-    a1 = *(uint8_t *)((char *)s7 + 0);
-    a1 = a1 << 12;
-    a1 = a1 & 4096;
-    v0 = (uintptr_t)v0 | a1;
-    a1 = *(uint8_t *)((char *)s7 + 26);
-    a1 = a1 << 14;
-    a1 = a1 & 16384;
-    v0 = (uintptr_t)v0 | a1;
-    a1 = *(uint16_t *)((char *)s7 + 16);
-    a1 = a1 << 16;
-    a1 = a1 & a0;
-    a1 = (uintptr_t)v0 | a1;
-
-    /* fragment 48: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(s1 + 12); /* jalr target resolved by relocation */
-
-    /* fragment 49: Branch */
-    v0 = 3;
-    if (s2 == 0) { goto tisp_gib_write_reg0x88; }
-
-tisp_gib_write_reg0x488:
-    /* fragment 50: Branch */
-    int _bc_s2_50 = s2 == v0;
-    v0 = 4;
-    if (_bc_s2_50) { goto tisp_gib_write_reg0xec; }
-
-tisp_gib_write_reg0x490:
-    /* fragment 51: Branch */
-    if (s2 == v0) { goto tisp_gib_write_reg0x150; }
-
-    /* fragment 52: CallSetup */
-    a0 = s1 + 64;
-
-tisp_gib_write_reg0x49c:
-    /* fragment 53: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 54: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 55: Arithmetic */
-    v0 = 0;
-
-    /* fragment 56: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	if (!r)
+		return -1;
+	self = T40_GIB_U16(r, 30);
+	for (k = 0; k < 4; k++) {
+		p[k] = self * T40_GIB_U32(r, 32 + 4 * k);
+		sc[k] = p[k] >> 12;
+	}
+	mx = max(max(sc[0], sc[1]), sc[2]);
+	if (t40_gib_ir_mode[s ? 1 : 0] == 1 && sc[3] > mx)
+		mx = sc[3];
+	if (mx >> 18) {
+		sh = 16; bsft = 3;
+	} else if ((mx >> 17) == 1) {
+		sh = 15; bsft = 3;	/* OEM 0x36078 branches into the bsft=3 store, like the >>16 case */
+	} else if ((mx >> 16) == 1) {
+		sh = 14; bsft = 2;
+	} else if ((mx >> 15) == 1) {
+		sh = 13; bsft = 1;
+	} else if (mx >> 10) {
+		sh = 12; bsft = 0;
+	} else {
+		for (k = 0; k < 4; k++)
+			T40_GIB_U16(r, 48 + 2 * k) = 1024;
+		r[27] = 0;
+		return 0;
+	}
+	for (k = 0; k < 4; k++)
+		T40_GIB_U16(r, 48 + 2 * k) = (uint16_t)(p[k] >> sh);
+	r[27] = bsft;
+	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000364c8 origin=fragment_seed original=tisp_gib_a_gian_update */
-int32_t tisp_gib_a_gian_update(uint32_t a0, uint32_t a1)
+static void t40_gib_ir_copy(uint8_t *r, const uint8_t *t, uint32_t m0, uint32_t m1, uint32_t m2, uint32_t prm)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_interp_by_gain)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Arithmetic */
-    v1 = 1;
-
-    /* fragment 3: Branch */
-    if (v0 == v1) { goto tisp_gib_a_gian_update0x58; }
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_blc_value_to_self_gain)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gib_write_reg)(s0, 3); /* jalr target resolved by relocation */
-
-    /* fragment 6: Arithmetic */
-    v0 = 0;
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_gib_a_gian_update0x58:
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	memcpy(r + 56, t + m0, 66);
+	memcpy(r + 122, t + m1, 66);
+	memcpy(r + 188, t + m2, 66);
+	memcpy(r + 254, t + prm, 30);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000003652c origin=fragment_seed original=tisp_gib_ir_update */
-int32_t tisp_gib_ir_update(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
+static void t40_gib_ir_mix(uint8_t *r, const uint8_t *t, const uint32_t up[4], const uint32_t lo[4],
+			   int32_t w, int32_t wl, int32_t span)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *v0 = 0;
+	int i, j;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    local_10 = 0;
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_interp_by_ir)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gib_write_reg)(s0, 4); /* jalr target resolved by relocation */
-
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 4: Arithmetic */
-    v0 = 0;
-
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	for (j = 0; j < 3; j++)
+		for (i = 0; i < 33; i++)
+			T40_GIB_U16(r, 56 + 66 * j + 2 * i) = (uint16_t)((int32_t)(
+				(uint32_t)T40_GIB_U16(t, up[j] + 2 * i) * (uint32_t)w +
+				(uint32_t)T40_GIB_U16(t, lo[j] + 2 * i) * (uint32_t)wl) / span);
+	for (i = 0; i < 15; i++)
+		T40_GIB_U16(r, 254 + 2 * i) = (uint16_t)((T40_GIB_S16(t, up[3] + 2 * i) * w +
+							   T40_GIB_S16(t, lo[3] + 2 * i) * wl) / span);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000036574 origin=fragment_seed original=tisp_gib_dn_params_refresh */
-int32_t tisp_gib_dn_params_refresh(uint32_t a0)
+/* OEM 0x36110: DEIR matrix by IR level, 3 thresholds sets A/B/C (tool +150..+156) */
+int64_t tisp_gib_interp_by_ir(uint32_t s, uint32_t a1, uint32_t ir, uint32_t a3, uint32_t force)
 {
-#ifdef REGTRACE_KERNEL_TREE_BUILD
-    return 0;
-#else
+	static const uint32_t A[4] = { 584, 650, 716, 842 }, B[4] = { 386, 452, 518, 812 },
+			      C[4] = { 188, 254, 320, 782 };
+	uint8_t *t = T40_GIB_TOOL(s), *r = T40_GIB_REAL(s);
+	uint32_t i = s ? 1 : 0, old = T40_GIB_IR[i], d, t150, t152, t154, t156;
+	int32_t span;
 
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    s0 = a0;
-    if (a0 == 0) { goto tisp_gib_dn_params_refresh0x140; }
-
-    /* fragment 2: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 3: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&gib_seco_tool_para));
-
-tisp_gib_dn_params_refresh0x24:
-    /* fragment 4: Arithmetic */
-    v0 = 152;
-    a1 = (uintptr_t)s0 * (uintptr_t)v0;
-    v1 = (int32_t *)&tisp_par_info;
-    v1 = v1;
-    s1 = (uintptr_t *)&isp_memopt;
-    s1 = s1 + 16800;
-    s1 = (uintptr_t)s0 + (uintptr_t)s1;
-    s2 = (uintptr_t)s0 << 2;
-    v0 = (uintptr_t)a1 + (uintptr_t)v1;
-
-    /* fragment 5: CallSetup */
-    *(uint8_t *)((uintptr_t)s1 + 0) = (*(uint32_t *)((char *)((uintptr_t)v0) + 8) & 31 < 4 ^ 1);
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)((*(uint32_t *)((char *)(s2 + &tparamsN) + 0)) + 54800), 872); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_tool_2_real)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_gib_interp_by_gain)(s0, *(uint32_t *)((char *)(s2 + &sclk_name) + 0), 1); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_blc_value_to_self_gain)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_calc_digital_gain)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 10: MemoryAccess */
-    v0 = *(uint8_t *)((char *)s1 + 0);
-
-    /* fragment 11: Branch */
-    int _bc_v0_11 = v0 == 0;
-    v0 = (uintptr_t *)&tisp_gib_write_reg;
-    if (_bc_v0_11) { goto tisp_gib_dn_params_refresh0x114; }
-
-    /* fragment 12: CallSetup */
-    s2 = s2 + &sclk_name;
-    local_10 = 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_interp_by_ir)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)&tisp_gib_write_reg;
-
-tisp_gib_dn_params_refresh0x114:
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gib_write_reg)(s0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 15: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 16: Arithmetic */
-    v0 = 0;
-
-    /* fragment 17: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_gib_dn_params_refresh0x140:
-    /* fragment 18: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 19: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&gib_main_tool_para));
-    goto tisp_gib_dn_params_refresh0x24;
-
-    return 0;
-
-#endif
+	if (!t || !r)
+		return -1;
+	d = old < ir ? ir - old : old - ir;
+	if (t40_gib_ir_mode[i] == 0)
+		return 1;
+	if (!d && !force)
+		return 1;	/* OEM never stores ir into gib_IR here */
+	t150 = T40_GIB_U16(t, 150);
+	t152 = T40_GIB_U16(t, 152);
+	t154 = T40_GIB_U16(t, 154);
+	t156 = T40_GIB_U16(t, 156);
+	if (t156 < ir) {
+		t40_gib_ir_copy(r, t, C[0], C[1], C[2], C[3]);
+	} else if (t154 < ir) {
+		span = (int32_t)(t156 - t154);
+		if (!span)
+			return 2;
+		t40_gib_ir_mix(r, t, C, B, (int32_t)(ir - t154), span - (int32_t)(ir - t154), span);
+	} else if (t152 < ir) {
+		t40_gib_ir_copy(r, t, B[0], B[1], B[2], B[3]);
+	} else if (t150 < ir) {
+		span = (int32_t)(t152 - t150);
+		if (!span)
+			return 2;
+		t40_gib_ir_mix(r, t, B, A, (int32_t)(ir - t150), span - (int32_t)(ir - t150), span);
+	} else {
+		t40_gib_ir_copy(r, t, A[0], A[1], A[2], A[3]);
+	}
+	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000366c0 origin=fragment_seed original=tisp_gib_init */
-int32_t tisp_gib_init(uint32_t a0)
+static uint32_t t40_gib_ctrl_word(const uint8_t *r)
 {
-#ifdef REGTRACE_KERNEL_TREE_BUILD
-    return 0;
-#else
-
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(140); /* jalr target resolved by relocation */
-
-    /* fragment 2: Arithmetic */
-    s2 = (uintptr_t *)&isp_memopt;
-    v0 = (uintptr_t)v0 & 31;
-    s2 = s2 + 16800;
-    v0 = v0 < 4;
-    v1 = (uintptr_t)s0 + (uintptr_t)s2;
-    v0 = (uintptr_t)v0 ^ 1;
-    s1 = (uintptr_t *)&private_kmalloc;
-    s4 = 37748736;
-
-    /* fragment 3: MemoryAccess */
-    *(uint8_t *)((char *)v1 + 0) = v0;
-    s1 = s1;
-    a1 = s4 + 192;
-
-    /* fragment 4: Branch */
-    a0 = 872;
-    if (s0 != 0) { goto tisp_gib_init0x1b4; }
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_kmalloc)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    *(uint32_t *)((char *)&gib_main_tool_para) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(284, (uintptr_t)s4 | 192); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    a0 = *(uint32_t *)((char *)((char *)&gib_main_tool_para));
-    s1 = v0;
-    v0 = (uintptr_t *)&isp_memopt;
-    *(uint32_t *)((char *)((char *)&gib_main_real_para)) = s1;
-
-tisp_gib_init0x94:
-    /* fragment 8: CallSetup */
-    s3 = (uintptr_t)s0 << 2;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)((*(uint32_t *)((char *)(((uintptr_t)s0 << 2) + &tparamsN) + 0)) + 54800), 872); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)s1, 0, 284); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    *(uint32_t *)((char *)s1 + 32) = 1024;
-    *(uint32_t *)((char *)s1 + 36) = 1024;
-    *(uint32_t *)((char *)s1 + 40) = 1024;
-    *(uint32_t *)((char *)s1 + 44) = 1024;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_tool_2_real)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_gib_interp_by_gain)(s0, *(uint32_t *)((char *)(s3 + &sclk_name) + 0), 1); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_blc_value_to_self_gain)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    s2 = (uintptr_t)s2 + (uintptr_t)s0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_calc_digital_gain)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 14: MemoryAccess */
-    v0 = *(uint8_t *)((char *)s2 + 0);
-
-    /* fragment 15: Branch */
-    int _bc_v0_15 = v0 == 0;
-    v0 = (uintptr_t *)&tisp_gib_write_reg;
-    if (_bc_v0_15) { goto tisp_gib_init0x180; }
-
-    /* fragment 16: CallSetup */
-    s3 = s3 + &sclk_name;
-    local_10 = 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_interp_by_ir)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)&tisp_gib_write_reg;
-
-tisp_gib_init0x180:
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gib_write_reg)(s0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 19: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 20: Arithmetic */
-    v0 = 0;
-
-    /* fragment 21: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_gib_init0x1b4:
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_kmalloc)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 23: CallSetup */
-    *(uint32_t *)((char *)s3 + 16792) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(284, (uintptr_t)s4 | 192); /* jalr target resolved by relocation */
-
-    /* fragment 24: Arithmetic */
-    s1 = v0;
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 25: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&gib_seco_real_para)) = s1;
-
-    /* fragment 26: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&gib_seco_tool_para));
-    goto tisp_gib_init0x94;
-
-    return 0;
-
-#endif
+	return ((T40_GIB_U16(r, 18) << 2) & 0x4U) | ((T40_GIB_U16(r, 20) << 4) & 0xffU) |
+	       ((T40_GIB_U16(r, 14) << 8) & 0x100U) | (((uint32_t)r[1] << 10) & 0x400U) |
+	       (((uint32_t)r[0] << 12) & 0x1000U) | (((uint32_t)r[26] << 14) & 0x4000U) |
+	       ((T40_GIB_U16(r, 16) << 16) & 0x10000U);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000368a0 origin=fragment_seed original=tisp_gib_deinit */
-int tisp_gib_deinit(int arg1)
+static uint32_t t40_gib_pair(const uint8_t *r, uint32_t hi, uint32_t lo, uint32_t m)
 {
-    void *ptr;
-
-    if (arg1 != 0) {
-        ptr = *(void **)((char *)&stMainAwbInterOri + 0x53c0);
-        if (ptr != 0) {
-            private_kfree(NULL);
-        }
-        ptr = *(void **)((char *)&stMainAwbInterOri + 0x53b8);
-    } else {
-        ptr = *(void **)((char *)&stMainAwbInterOri + 0x53c4);
-        if (ptr != 0) {
-            private_kfree(NULL);
-        }
-        ptr = *(void **)((char *)&stMainAwbInterOri + 0x53bc);
-    }
-
-    if (ptr != 0) {
-        private_kfree(NULL);
-    }
-
-    return 0;
+	return (((uint32_t)T40_GIB_U16(r, hi) << 16) & (m << 16)) | (T40_GIB_U16(r, lo) & m);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000003691c origin=fragment_seed original=tisp_gib_param_array_get */
-int64_t tisp_gib_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
+/* OEM 0x3640c: mode 0 all, 1 ctrl, 2 digital gain, 3 BLC values, 4 cfg + DEIR; always latch base+64 */
+int32_t tisp_gib_write_reg(uint32_t s, uint32_t mode)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+	uint8_t *r = T40_GIB_REAL(s);
+	uint32_t base = (s + 256U) << 7, d = s ? 0x50140U : 0x50170U;
+	int i;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
+	if (!r)
+		return -1;
+	if (mode < 2)
+		system_reg_write(base + 12, t40_gib_ctrl_word(r));
+	if (mode == 0 || mode == 2) {
+		system_reg_write(base + 0, t40_gib_pair(r, 50, 48, 0x7fff));
+		system_reg_write(base + 4, t40_gib_pair(r, 54, 52, 0x7fff));
+		system_reg_write(base + 60, r[27] & 3U);
+	}
+	if (mode == 0 || mode == 3) {
+		system_reg_write(base + 48, T40_GIB_U16(r, 4) & 0xfffU);
+		system_reg_write(base + 52, t40_gib_pair(r, 8, 6, 0xfff));
+		system_reg_write(base + 56, t40_gib_pair(r, 12, 10, 0xfff));
+	}
+	if (mode == 0 || mode == 4) {
+		system_reg_write(base + 12, t40_gib_ctrl_word(r));
+		system_reg_write(base + 8, t40_gib_pair(r, 24, 22, 0xfff));
+		system_reg_write(base + 16, t40_gib_pair(r, 256, 254, 0x3ff));
+		system_reg_write(base + 20, t40_gib_pair(r, 260, 258, 0x3ff));
+		system_reg_write(base + 24, t40_gib_pair(r, 266, 264, 0x3ff));
+		system_reg_write(base + 28, t40_gib_pair(r, 270, 268, 0x3ff));
+		system_reg_write(base + 32, t40_gib_pair(r, 276, 274, 0x3ff));
+		system_reg_write(base + 36, t40_gib_pair(r, 280, 278, 0x3ff));
+		system_reg_write(base + 40, t40_gib_pair(r, 272, 262, 0xfff));
+		system_reg_write(base + 44, T40_GIB_U16(r, 282) & 0xfffU);
+		if (t40_gib_ir_mode[s ? 1 : 0] == 1) {
+			system_reg_write(d + 0x00, 257);
+			system_reg_write(d + 0x10, 257);
+			system_reg_write(d + 0x20, 257);
+			for (i = 0; i < 32; i++) {
+				const uint8_t *p = r + 56 + 2 * i;
 
-    /* fragment 1: Arithmetic */
-    v0 = a1;
-
-    /* fragment 2: StackAccess */
-    local_10 = s0;
-    local_14 = ra;
-
-    /* fragment 3: Branch */
-    s0 = a2;
-    if (a0 == 0) { goto tisp_gib_param_array_get0x50; }
-
-    /* fragment 4: CallSetup */
-    v1 = (int32_t *)&gib_seco_tool_para;
-    a1 = *(uint32_t *)((char *)((char *)&gib_seco_tool_para));
-
-tisp_gib_param_array_get0x20:
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)v0, (void *)(uintptr_t)a1, 872); /* jalr target resolved by relocation */
-
-    /* fragment 6: Arithmetic */
-    v0 = 872;
-
-    /* fragment 7: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 0) = v0;
-    ra = local_14;
-    s0 = local_10;
-    v0 = 0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_gib_param_array_get0x50:
-    /* fragment 9: Arithmetic */
-    v1 = (int32_t *)&gib_main_tool_para;
-
-    /* fragment 10: Branch */
-    a1 = *(uint32_t *)((char *)((char *)&gib_main_tool_para));
-    goto tisp_gib_param_array_get0x20;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+				system_reg_write(d + 0x04, ((T40_GIB_U16(p, 2) << 12) & 0xfff000U) | (T40_GIB_U16(p, 0) & 0xfffU));
+				system_reg_write(d + 0x14, ((T40_GIB_U16(p, 68) << 12) & 0xfff000U) | (T40_GIB_U16(p, 66) & 0xfffU));
+				system_reg_write(d + 0x24, ((T40_GIB_U16(p, 134) << 12) & 0xfff000U) | (T40_GIB_U16(p, 132) & 0xfffU));
+			}
+			system_reg_write(d + 0x00, 0x1f0102);
+			system_reg_write(d + 0x10, 0x1f0102);
+			system_reg_write(d + 0x20, 0x1f0102);
+		}
+	}
+	system_reg_write(base + 64, 1);
+	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000036978 origin=fragment_seed original=tisp_gib_param_array_set */
-int32_t tisp_gib_param_array_set(uint32_t a0, uint32_t a1)
+/* OEM 0x368e4 (tisp_main/sec_long_tgain_update) */
+static uint t40_gib_again_calls;
+module_param_named(t40_gib_again_calls, t40_gib_again_calls, uint, 0444);
+int32_t tisp_gib_a_gian_update(uint32_t s, uint32_t gain)
 {
-#ifdef REGTRACE_KERNEL_TREE_BUILD
-    return 0;
-#else
+	int32_t ret = tisp_gib_interp_by_gain(s, gain, 0);
 
-    uint32_t *local_10 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *v0 = 0;
+	t40_gib_again_calls++;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    s0 = a0;
-    if (a0 == 0) { goto tisp_gib_param_array_set0xf8; }
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)&isp_memopt;
-    a0 = *(uint32_t *)((char *)((char *)&gib_seco_tool_para));
-
-tisp_gib_param_array_set0x20:
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)a1, 872); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_tool_2_real)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    s1 = (uintptr_t)s0 << 2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_gib_interp_by_gain)((uintptr_t)s0, *(uint32_t *)((char *)(((uintptr_t)s0 << 2) + &sclk_name) + 0), 1); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_blc_value_to_self_gain)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_calc_digital_gain)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 8: ConstantLoad */
-    v0 = ((char *)&GIB_IR_MODE);
-
-    /* fragment 9: MemoryAccess */
-    v0 = *(uint8_t *)((char *)v0 + 0);
-
-    /* fragment 10: Branch */
-    int _bc_v0_10 = v0 == 0;
-    v0 = (uintptr_t *)&tisp_gib_write_reg;
-    if (_bc_v0_10) { goto tisp_gib_param_array_set0xd0; }
-
-    /* fragment 11: CallSetup */
-    s1 = s1 + &sclk_name;
-    local_10 = 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gib_interp_by_ir)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)&tisp_gib_write_reg;
-
-tisp_gib_param_array_set0xd0:
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gib_write_reg)(s0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 14: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 15: Arithmetic */
-    v0 = 0;
-
-    /* fragment 16: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_gib_param_array_set0xf8:
-    /* fragment 17: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 18: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&gib_main_tool_para));
-    goto tisp_gib_param_array_set0x20;
-
-    return 0;
-
-#endif
+	if (ret)
+		return ret;
+	tisp_gib_blc_value_to_self_gain(s);
+	tisp_gib_write_reg(s, 3);
+	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000036a7c origin=model_output original=gib_remove */
+/* OEM 0x36948 */
+int32_t tisp_gib_ir_update(uint32_t s, uint32_t a1, uint32_t ir, uint32_t a3)
+{
+	if (!T40_GIB_REAL(s))
+		return -1;
+	tisp_gib_interp_by_ir(s, a1, ir, a3, 0);
+	tisp_gib_write_reg(s, 4);
+	return 0;
+}
+
+static int32_t t40_gib_refresh(uint32_t s)
+{
+	uint32_t i = s ? 1 : 0;
+
+	tisp_gib_tool_2_real(s);
+	tisp_gib_interp_by_gain(s, t40_gib_AG[i], 1);
+	tisp_gib_blc_value_to_self_gain(s);
+	tisp_gib_calc_digital_gain(s);
+	if (t40_gib_ir_mode[i])
+		tisp_gib_interp_by_ir(s, 0, T40_GIB_IR[i], 0, 1);
+	tisp_gib_write_reg(s, 0);
+	return 0;
+}
+
+/* OEM 0x36990 (tisp_day_or_night_s_ctrl) */
+int32_t tisp_gib_dn_params_refresh(uint32_t s)
+{
+	uint8_t *t = T40_GIB_TOOL(s);
+	const uint8_t *bin = (const uint8_t *)(uintptr_t)tparamsN[s ? 1 : 0];
+
+	if (!t || !T40_GIB_REAL(s) || !bin)
+		return -1;
+	t40_gib_ir_mode[s ? 1 : 0] = t40_gib_bayer(s) >= 4;
+	memcpy(t, bin + 0xd610, 872);
+	return t40_gib_refresh(s);
+}
+
+/* OEM 0x36adc (tisp_main_init / tisp_sec_init when tparams_status & 0x20) */
+int32_t tisp_gib_init(uint32_t s)
+{
+	uint32_t i = s ? 1 : 0;
+	const uint8_t *bin = (const uint8_t *)(uintptr_t)tparamsN[i];
+	uint8_t *t = T40_GIB_TOOL(s), *r = T40_GIB_REAL(s);
+
+	t40_gib_init_calls++;
+	t40_gib_ir_mode[i] = (system_reg_read(s ? 0x8c : 0x88) & 0x1fU) >= 4;
+	if (!bin) {
+		t40_gib_init_ret = -2;
+		return -1;
+	}
+	if (!t)
+		t = private_kmalloc(872, GFP_KERNEL);
+	if (!r)
+		r = private_kmalloc(284, GFP_KERNEL);
+	if (!t || !r) {
+		if (t)
+			private_kfree(t);
+		if (r)
+			private_kfree(r);
+		t = r = NULL;
+	}
+	if (s) {
+		gib_seco_tool_para = (uintptr_t)t;
+		gib_seco_real_para = (uintptr_t)r;
+	} else {
+		gib_main_tool_para = (uintptr_t)t;
+		gib_main_real_para = (uintptr_t)r;
+	}
+	if (!t) {
+		t40_gib_init_ret = -12;
+		return -1;
+	}
+	memcpy(t, bin + 0xd610, 872);
+	memset(r, 0, 284);
+	T40_GIB_U32(r, 32) = 1024;
+	T40_GIB_U32(r, 36) = 1024;
+	T40_GIB_U32(r, 40) = 1024;
+	T40_GIB_U32(r, 44) = 1024;
+	t40_gib_refresh(s);
+	t40_gib_init_ret = 0;
+	return 0;
+}
+
+static bool t40_gib_force_init;   /* test only: run the real GIB init although the bin bypasses GIB */
+module_param_named(t40_gib_force_init, t40_gib_force_init, bool, 0644);
+static uint t40_gib_status_word = 0xdeadbeef;   /* *tparams_status at block init (OEM module enable bits) */
+module_param_named(t40_gib_status_word, t40_gib_status_word, uint, 0444);
+
+/*
+ * t40_gib_real: -1 auto (default) = run the OEM GIB flow when the vendor-like gate offset is active
+ * (t40_gates_oem_offset=1: BLC block bypassed, GIB subtracts the bin black level 260 like the vendor);
+ * with the legacy gates the BLC block stays on and the real GIB would subtract the black level twice
+ * (device 10-18: mean Y 72 -> 54, crushed shadows), so the old state is kept there.  0 off, 1 on.
+ */
+static int t40_gib_real = -1;
+module_param_named(t40_gib_real, t40_gib_real, int, 0644);
+
+static int t40_gib_block_init(void)
+{
+	/* OEM tisp_main_init 0x1decc: lw v0,tparams_status; lw v0,0(v0); andi 0x20 (the same word sets TOP 0x40 = ~status) */
+	t40_gib_status_word = tparams_status ? *(uint32_t *)(uintptr_t)tparams_status : 0xdeadbeefU;
+	if (!t40_gib_real || (t40_gib_real < 0 && !regtrace_t40_gates_oem_offset))
+		return 1;
+	if ((!tparams_status || !(t40_gib_status_word & 0x20U)) && !t40_gib_force_init)
+		return 1;	/* GIB off in the bin: no tisp_gib_init, ae_write_dgain returns -1 like the OEM */
+	return tisp_gib_init(0);
+}
+
+/* OEM 0x36cbc */
+int tisp_gib_deinit(int s)
+{
+	uint8_t *t = T40_GIB_TOOL(s), *r = T40_GIB_REAL(s);
+
+	if (s) {
+		gib_seco_tool_para = 0;
+		gib_seco_real_para = 0;
+	} else {
+		gib_main_tool_para = 0;
+		gib_main_real_para = 0;
+	}
+	if (t)
+		private_kfree(t);
+	if (r)
+		private_kfree(r);
+	return 0;
+}
+
+/* OEM 0x36d38 (tisp_code_tuning_ioctl) */
+int64_t tisp_gib_param_array_get(uint32_t s, uint32_t dst, uintptr_t len_out)
+{
+	uint8_t *t = T40_GIB_TOOL(s);
+
+	if (!t || !dst || !len_out)
+		return -1;
+	memcpy((void *)(uintptr_t)dst, t, 872);
+	*(uint32_t *)len_out = 872;
+	return 0;
+}
+
+/* OEM 0x36d94 (tisp_code_tuning_ioctl) */
+int32_t tisp_gib_param_array_set(uint32_t s, uint32_t src)
+{
+	uint8_t *t = T40_GIB_TOOL(s);
+
+	if (!t || !src || !T40_GIB_REAL(s))
+		return -1;
+	memcpy(t, (const void *)(uintptr_t)src, 872);
+	return t40_gib_refresh(s);
+}
+
+/* OEM 0x36e98 (tisp_slake_all) */
 int gib_remove(struct platform_device *pdev)
 {
-    register unsigned int v1;
-    register unsigned int v0;
-    
-    v1 = 1024;
-    
-    // First .data access: lui + sw with %%lo()
-    __asm__ volatile (
-        "lui $v0, %%hi(.data)\n\t"
-        "sw $v1, %%lo(.data)-16504($v0)\n\t"
-        :
-        : "r"(v1)
-        : "$v0", "memory"
-    );
-    
-    // Second .data access: addiu with %%lo() + sw
-    __asm__ volatile (
-        "addiu $v0, $v0, %%lo(.data)-16504\n\t"
-        "sw $v1, 4($v0)\n\t"
-        :
-        : "r"(v1)
-        : "$v0", "memory"
-    );
-    
-    // Third .data access: lui + sw with %%lo()
-    __asm__ volatile (
-        "lui $v0, %%hi(.data)\n\t"
-        "sw $v1, %%lo(.data)-16512($v0)\n\t"
-        :
-        : "r"(v1)
-        : "$v0", "memory"
-    );
-    
-    // Fourth .data access: addiu with %%lo() + sw
-    __asm__ volatile (
-        "addiu $v0, $v0, %%lo(.data)-16512\n\t"
-        "sw $v1, 4($v0)\n\t"
-        :
-        : "r"(v1)
-        : "$v0", "memory"
-    );
-    
-    // .bss access: lui + sh with %%lo()
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sh $zero, %%lo(.bss)+16800($v0)\n\t"
-        :
-        : "r"(v1)
-        : "$v0", "memory"
-    );
-    
-    return 0;
+	t40_gib_AG[0] = t40_gib_AG[1] = 1024;
+	T40_GIB_IR[0] = T40_GIB_IR[1] = 1024;
+	t40_gib_ir_mode[0] = t40_gib_ir_mode[1] = 0;
+	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000036aac origin=fragment_seed original=tisp_gib_ae_write_dgain */
-int64_t tisp_gib_ae_write_dgain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4)
+/* OEM 0x36ec8 (tisp_ae_main/sec_long_ev_alloc, tisp_ae_algo_handle): AE digital gain -> GIB final gain */
+int64_t tisp_gib_ae_write_dgain(uint32_t s, uint32_t g0, uint32_t g1, uint32_t g2, uint32_t g3)
 {
-    uint32_t local_14 = 0;
-    uint32_t local_28 = 0;
-    uint32_t ra = 0;
-    uint32_t *t6 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+	uint8_t *r = T40_GIB_REAL(s);
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    t6 = a0;
-
-    /* fragment 2: Branch */
-    if (a0 == 0) { goto tisp_gib_ae_write_dgain0x54; }
-
-    /* fragment 3: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 4: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&gib_seco_real_para));
-
-tisp_gib_ae_write_dgain0x18:
-    /* fragment 5: Branch */
-    v1 = local_28;
-    if (v0 != 0) { goto tisp_gib_ae_write_dgain0x60; }
-
-    /* fragment 6: CallSetup */
-    /* OEM 0x36ed8: NULL real_para -> return -1 silently. The lifted isp_printf here (wrong LC1/
-     * isp_dual_buf strings) flooded kmsg every frame with "isp_dual_buf:718 The number of the frames ...". */
-
-    /* fragment 7: Arithmetic */
-    v0 = -1;
-
-tisp_gib_ae_write_dgain0x48:
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_gib_ae_write_dgain0x54:
-    /* fragment 9: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 10: Branch */
-    v0 = *(uint32_t *)((char *)((char *)&gib_main_real_para));
-    goto tisp_gib_ae_write_dgain0x18;
-
-tisp_gib_ae_write_dgain0x60:
-    /* fragment 11: CallSetup */
-    *(uint32_t *)((char *)v0 + 32) = a1;
-    *(uint32_t *)((char *)v0 + 36) = a2;
-    *(uint32_t *)((char *)v0 + 40) = a3;
-    *(uint32_t *)((char *)v0 + 44) = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_gib_calc_digital_gain)(t6, a1, a2, a3); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gib_write_reg)(t6, 2); /* jalr target resolved by relocation */
-
-    /* fragment 13: Branch */
-    v0 = 0;
-    goto tisp_gib_ae_write_dgain0x48;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+	t40_gib_dgain_calls++;
+	if (!r)
+		return -1;
+	T40_GIB_U32(r, 32) = g0;
+	T40_GIB_U32(r, 36) = g1;
+	T40_GIB_U32(r, 40) = g2;
+	T40_GIB_U32(r, 44) = g3;
+	tisp_gib_calc_digital_gain(s);
+	tisp_gib_write_reg(s, 2);
+	t40_gib_dgain_ok++;
+	t40_gib_dgain_last = (uint32_t)T40_GIB_U16(r, 50) << 16 | T40_GIB_U16(r, 48);
+	t40_gib_dgain_last_in = g0;
+	return 0;
 }
 
 /*
