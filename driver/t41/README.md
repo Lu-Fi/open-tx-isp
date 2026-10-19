@@ -701,6 +701,18 @@ ch1 SET_FMT gate 1280x720 (`t41_msca_ch1_max_w/h`); the old behaviour is
 `t41_msca_cfg_update=0 t41_msca_stop_disable=0`.
 
 
+Update 2026-10-19 (cause found, branch `claude/t41-restart-reload`): an
+uncached flight recorder at the nmem end (`t41_fr_phys=0x7ff7000`) caught
+the hang twice: output stop, then REQBUFS 0 cleared the output's MSCA address
+FIFO (`tisp_channel_main_fifo_clear`, error IRQ 0x20 right after), and the
+next output enable with the input running froze the SoC within 3 jiffies.
+The 2024 Cinnado stock module never clears that FIFO.
+`t41_msca_freebufs_fifo_clear=0` (new default) skips it: ch0 1920x1080 +
+ch1 1280x720 AutoZoom restart (zr0+zr1) 10/10 and 3/3 cycles, ch1 1600x900
+and 1920x1080 5/5 each, 60/60 frames per channel and cycle, ch1 picture
+matches ch0, then timps 10 min clean; with the clear the same test hung 3/3
+(twice at the first ch0+ch1 start). The ch1 SET_FMT gate is now 1920x1080.
+
 ## MSCA zoom, mask and scaler level (branch `claude/t41-zoom-mask`)
 
 Host- and build-tested only; not run on a camera yet (test plan below).

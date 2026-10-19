@@ -39,10 +39,12 @@ struct fs_platform_data {
 /* Forward declarations */
 static int frame_chan_event(void *priv, u32 event, void *data);
 int fs_slake_module(struct tx_isp_subdev *sd);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
 int frame_channel_open(struct inode *inode, struct file *file);
 int frame_channel_release(struct inode *inode, struct file *file);
 long frame_channel_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 unsigned int frame_channel_poll(struct file *file, struct poll_table_struct *wait);
+#endif
 
 /* fs_slake_module - EXACT Binary Ninja reference implementation */
 int fs_slake_module(struct tx_isp_subdev *sd)
@@ -203,6 +205,7 @@ static const struct file_operations isp_framesource_fops = {
     .llseek = default_llseek,
 };
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
 /* Frame channel operations structure - fs_channel_ops */
 static const struct file_operations fs_channel_ops = {
     .owner = THIS_MODULE,
@@ -214,6 +217,7 @@ static const struct file_operations fs_channel_ops = {
     .llseek = default_llseek,
 };
 
+#endif
 /* Frame channel event handler - EXACT Binary Ninja implementation */
 static int frame_chan_event(void *priv, u32 event, void *data)
 {
@@ -254,7 +258,9 @@ int tx_isp_fs_probe(struct platform_device *pdev)
     struct tx_isp_platform_data *pdata;
     struct tx_isp_frame_channel *channels_buffer = NULL;
     struct tx_isp_frame_channel *current_channel;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
     void *channel_config_ptr;
+#endif
     uint32_t channel_count;
     int ret;
     int i;
@@ -360,6 +366,7 @@ int tx_isp_fs_probe(struct platform_device *pdev)
         /* SAFE: Check channel config using proper struct member access */
         /* Note: Removed unsafe offset access - use proper channel enable logic */
         if (i < 4) {  /* Enable first 4 channels by default */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
             /* Binary Ninja: sprintf(&$s0_2[0xab], "Err [VIC_INT] : mipi fid asfifo ovf!!!\n") */
             snprintf(current_channel->name, sizeof(current_channel->name),
                      "/dev/framechan%d", i);
@@ -380,6 +387,17 @@ int tx_isp_fs_probe(struct platform_device *pdev)
                 ret = -2;
                 goto error_cleanup_loop;
             }
+#else
+            /* Mainline: the /dev/framechanN misc nodes are owned and
+             * registered by tx_isp_core.c's frame_channels[]
+             * (tx_isp_create_framechan_devices).  This buffer only carries
+             * the FS subdev's channel state that fs_activate_module()/
+             * fs_slake_module() walk.  On the vendor 3.10/4.4 kernels the
+             * FS probe runs first and these nodes are the ones userspace
+             * opens, so the recovered registration stays there. */
+            snprintf(current_channel->name, sizeof(current_channel->name),
+                     "fs-chan%d", i);
+#endif
 
             /* Binary Ninja: Initialize completion and synchronization objects */
             /* Binary Ninja: private_init_completion(&$s0_2[0xb5]) */

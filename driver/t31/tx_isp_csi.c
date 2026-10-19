@@ -852,8 +852,9 @@ int csi_core_ops_init(struct tx_isp_subdev *sd, int enable)
         /* Mainline must release the complete DesignWare host/PHY reset set.
          * Preserve the recovered OEM sequence on vendor kernels, where the
          * boot chain owns PHY_SHUTDOWNZ/DPHY_RSTZ and the ISP driver releases
-         * CSI2_RESETN only. */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+         * CSI2_RESETN only. The 4.4 vendor blob confirms this: it computes
+         * rate_sel unconditionally then writes only 0x10, never 0x08. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0) && !defined(TX_ISP_VENDOR_TREE)
         writel(1, csi_regs + 0x08);
         writel(1, csi_regs + 0x0c);
         writel(1, csi_regs + 0x10);

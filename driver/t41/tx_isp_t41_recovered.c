@@ -1242,16 +1242,16 @@ MODULE_PARM_DESC(t41_msca_live_max_h,
                  "largest output height AutoZoom/Mask/ScalerLv reprogram while streaming");
 /*
  * SET_FMT gate for output 1 with t41_msca_cfg_update >= 2 (README "Output
- * restart hang"): 960x540 and 1280x720 once hung the SoC; with this branch
- * up to 1280x720 (the output's reset size) ran clean on the device, larger
- * is untested and refused with -EINVAL.  0 in either limit disables the
- * gate.
+ * restart hang"): the old hangs came from the REQBUFS-0 FIFO clear (see
+ * t41_msca_freebufs_fifo_clear); without it ch1 up to 1920x1080 ran clean
+ * with restart cycles (2026-10-19), larger is refused with -EINVAL.  0 in
+ * either limit disables the gate.
  */
-static unsigned int t41_msca_ch1_max_w = 1280;
+static unsigned int t41_msca_ch1_max_w = 1920;
 module_param(t41_msca_ch1_max_w, uint, 0644);
 MODULE_PARM_DESC(t41_msca_ch1_max_w,
                  "largest ch1 width SET_FMT accepts with t41_msca_cfg_update>=2 (0 = no limit)");
-static unsigned int t41_msca_ch1_max_h = 720;
+static unsigned int t41_msca_ch1_max_h = 1080;
 module_param(t41_msca_ch1_max_h, uint, 0644);
 MODULE_PARM_DESC(t41_msca_ch1_max_h,
                  "largest ch1 height SET_FMT accepts with t41_msca_cfg_update>=2 (0 = no limit)");
@@ -163518,6 +163518,15 @@ label_704e8:
     return -22;
 }
 
+/* REQBUFS 0 cleared the output's MSCA address FIFO (H20250310a model).  The
+ * Cinnado stock tx-isp-t41.ko never calls tisp_channel_main_fifo_clear().
+ * With the input running the clear raises error IRQ 0x20 and the next output
+ * restart hard-hangs the SoC (flight recorder 2026-10-19: hang within 3
+ * jiffies of the following ch1 enable).  Default 0 = stock: the FIFO is not
+ * cleared, the restart queues fresh addresses (10/10 + 5x900p + 5x1080p
+ * ch0+ch1 restart cycles clean).  1 restores the clear. */
+static int t41_msca_freebufs_fifo_clear;
+module_param(t41_msca_freebufs_fifo_clear, int, 0644);
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000070538 origin=model_output original=ispcore_frame_channel_freebufs */
 int ispcore_frame_channel_freebufs(void *arg1) {
     t41_heapwatch_mark("ispcore_frame_channel_freebufs");
@@ -163536,7 +163545,7 @@ int ispcore_frame_channel_freebufs(void *arg1) {
             __private_spin_lock_irqsave(lock_addr, (uintptr_t)&flags);
 
             uint32_t val_74 = *(uint32_t *)((char *)s0 + 0x74);
-            if (val_74 < 3) {
+            if (val_74 < 3 && t41_msca_freebufs_fifo_clear > 0) {
                 void * fifo_ptr = *(void **)((char *)s0 + 0x78);
                 tisp_channel_main_fifo_clear((uint32_t)fifo_ptr);
             }

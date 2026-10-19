@@ -4,6 +4,17 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-19: PR #2 (themactep): T31 mainline V4L2 sensor bridge, vendor 5.15 bring-up, SC2336 (`claude/pr2-v4l2`; in `next`)
+
+Commits by Paul Philippov from Lu-Fi/open-tx-isp#2, author kept; the AK Sharma commits the PR carries again were already in `next`.
+
+- **Mainline V4L2 sensor bridge (`tx_isp_v4l2_sensor.c`, kernel >= 5.0 only):** AddSensor first looks for a DT-probed mainline V4L2 sensor on the adapter and drives it through the vendor sensor ABI; its i2c address/bus is published to the sensor registry (works with our `/proc/jz/sensor` layout, no flat mirror needed). **Not build- or device-tested here** (no 5.15/7.x tree); reviewed only. Currently SC2336-specific (chip id, gain table).
+- **Vendor 5.15 T31 tree:** intc/clock-name fallbacks, CSI init like the vendor 5.15 blob, `TX_ISP_VENDOR_TREE` switch; `/dev/framechanN` single owner on mainline only (on 3.10 the FS-probe nodes are the live ones: removing them left no nodes, device-tested T31L .29 sc2336).
+- **Completion/wait-queue compat fixed:** `TX_ISP_COMPLETION_*` treat a completion as swait-backed from 5.7 (was 4.13; would not build on mainline). Same code on 3.10/4.4.
+- **SC2336 sensor for T31 (`sensor-src/t31/sc2336.c`):** builds on 3.10.14, incl. the vflip fix (`ret` started at -1, every flip reported failure and the attribute sync never ran); not device-tested with this sensor module (our T31L uses the thingino sensor module). `tools/isp_ioctl_trace.c` (LD_PRELOAD ioctl tracer) added.
+- 3.10.14 / 4.4.94 modules: `tx-isp-t23.ko` byte-identical, `tx-isp-t31.ko` identical code (only two `__LINE__` literals of WARN sites move), `tx-isp-t41.ko` only the git-describe string; T31L .29 A/B: stream, snapshot, vflip/hflip, 3x streamer restart identical to `next`.
+- Not taken: two unguarded `tx_isp_core.c` hunks that reverted newer `next` work (channel-attr sync, SET_FORMAT front crop); the log-level changes in the 3.10/4.4 driver (deferred).
+
 ## 2026-10-19: T41 vendor-AE code size (`claude/t41-vae-size`; in `next`)
 
 - **`tx-isp-t41.ko` 1029 -> 798 KB (vendor 779 KB), behaviour identical:** the generated vendor-AE code (`tx_isp_t41_vae_gen.inc`, 67 functions) no longer guards accesses to its own stack frame slots (52 % of all loads/stores, where the guard can never trigger), and the remaining guards are out of line; vae text 284 -> 98 KB. Host proof `tests/t41_vae_diff.sh`: old vs new on identical pseudo-random state, 300 seeds x 8 steps, digest of the whole AE memory, return values, fault counters and register writes identical (a mutation is detected). Device T41 .34: `t41_vendor_ae=1`, 0 faults, 0 oops (plausibility only; soak with the new module before release).
