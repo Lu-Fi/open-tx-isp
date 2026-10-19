@@ -1283,6 +1283,47 @@ struct t41_msca_live_cfg {
 static struct t41_msca_live_cfg t41_msca_live[3];
 static bool t41_msca_live_valid[3];
 
+/*
+ * Flight recorder (diagnostic, default off): t41_fr_phys = physical address
+ * of a 64 KiB rmem area the streamer does not use (the rmem tail).  Header
+ * "TF411FR1" + last sequence at +8, a 2048-entry ring of {seq,
+ * jiffies << 8 | id, a, b} at +0x40, written uncached so it survives a
+ * watchdog reset.  Marks: id 1 MSCA/top register write (reg, value), 2 ISP
+ * interrupt (status0, status2), 3 output steps (code, ch).
+ */
+static unsigned int t41_fr_phys;
+module_param(t41_fr_phys, uint, 0644);
+struct t41_fr_entry { uint32_t seq, jif_id, a, b; };
+#define T41_FR_ENTRIES 2048U
+static uint32_t t41_fr_seq;
+static void t41_fr(uint32_t id, uint32_t a, uint32_t b)
+{
+	uint32_t phys = READ_ONCE(t41_fr_phys);
+	volatile uint32_t *hdr;
+	struct t41_fr_entry *e;
+	uint32_t seq;
+
+	if (!phys || phys >= 0x20000000U - 0x10000U)
+		return;
+	hdr = (volatile uint32_t *)KSEG1ADDR(phys);
+	seq = ++t41_fr_seq;
+	if (seq == 1) {
+		memset((void *)KSEG1ADDR(phys), 0,
+		       0x40 + T41_FR_ENTRIES * sizeof(*e));
+		hdr[0] = 0x31344654;
+		hdr[1] = 0x31524631;
+	}
+	e = (struct t41_fr_entry *)KSEG1ADDR(phys + 0x40) +
+	    (seq % T41_FR_ENTRIES);
+	e->jif_id = ((uint32_t)jiffies << 8) | (id & 0xffU);
+	e->a = a;
+	e->b = b;
+	wmb();
+	e->seq = seq;
+	hdr[2] = seq;
+	wmb();
+}
+
 static int t41_defer_vic_irq = 1;
 t41_bringup_param(t41_defer_vic_irq, int, 0);
 t41_bringup_param_desc(t41_defer_vic_irq,
@@ -4147,6 +4188,7 @@ long private_clk_set_rate(struct clk *clk, unsigned long rate);
 int private_i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num);
 int private_i2c_add_driver(struct i2c_driver *driver);
 void private_i2c_del_driver(struct i2c_driver *driver);
+#include "tx_isp_t41_sensor_client.h"
 /* tx_isp_t41_sensor_pin.c */
 int tx_isp_t41_i2c_add_sensor_driver(struct i2c_driver *driver);
 bool tx_isp_t41_sensor_pin(struct module *owner);
@@ -15252,10 +15294,41 @@ static void t41_unregister_i2c_sensor(uintptr_t sensor_sd)
 	client = (struct i2c_client *)t41_load_ptr(sensor_sd,
 						   T41_SUBDEV_CLIENT_OFF);
 	if (client) {
+		tx_isp_t41_sensor_client_forget(client);
 		if (client->adapter)
 			private_i2c_put_adapter(client->adapter);
 		private_i2c_unregister_device(client);
 	}
+}
+
+/*
+ * The sensor object is about to be freed behind our back (its module is
+ * unbound/removed while the sensor is still registered): drop it from the
+ * VIN list and the active slots and unsync the core/VIC copies while it is
+ * still valid.  Also used by the module exit for every registered sensor.
+ */
+static void t41_unsync_stale_sensor(uintptr_t sensor);
+
+static void t41_detach_sensor(void *sensor_sd)
+{
+	uintptr_t sensor = (uintptr_t)sensor_sd;
+	uintptr_t vin = (uintptr_t)private_platform_get_drvdata(
+		(uintptr_t)&tx_isp_vin_platform_device);
+	struct list_head *node;
+	unsigned int id;
+
+	if (!t41_kernel_data_ptr((void *)vin) || !sensor)
+		return;
+	private_mutex_lock((void *)(vin + T41_VIN_SENSOR_LOCK_OFF));
+	node = (struct list_head *)(sensor + T41_SENSOR_LIST_OFF);
+	if (node->next && node->prev && node->next != LIST_POISON1)
+		list_del(node);
+	for (id = 0; id < T41_SENSOR_MAX_VIN; id++)
+		if (t41_vin_active_sensor(vin, id) == sensor)
+			t41_store_ptr(vin, T41_VIN_ACTIVE_SENSOR_OFF +
+					   id * sizeof(uintptr_t), 0);
+	private_mutex_unlock((void *)(vin + T41_VIN_SENSOR_LOCK_OFF));
+	t41_unsync_stale_sensor(sensor);
 }
 
 /*
@@ -15391,6 +15464,10 @@ static int t41_register_sensor(uintptr_t vin, uintptr_t arg)
 	memset(&board_info, 0, sizeof(board_info));
 	memcpy(board_info.type, (void *)(arg + 36), sizeof(board_info.type));
 	board_info.addr = *(uint32_t *)(arg + 56);
+	/* Beyond vendor: a client left at this address by a previous driver
+	 * instance (rmmod without IMP_ISP_DelSensor) would make
+	 * i2c_new_device() fail with -EBUSY until reboot. */
+	tx_isp_t41_sensor_client_evict(adapter, board_info.addr);
 	sensor_sd = isp_i2c_new_subdev_board(adapter, &board_info, NULL);
 	if (!sensor_sd || IS_ERR(sensor_sd)) {
 		private_i2c_put_adapter(adapter);
@@ -15427,6 +15504,8 @@ static int t41_register_sensor(uintptr_t vin, uintptr_t arg)
 	list_add_tail(sensor_list,
 		      (struct list_head *)(vin + T41_VIN_SENSOR_LIST_OFF));
 	private_mutex_unlock((void *)(vin + T41_VIN_SENSOR_LOCK_OFF));
+	tx_isp_t41_sensor_client_add((struct i2c_client *)t41_load_ptr(
+		(uintptr_t)sensor_sd, T41_SUBDEV_CLIENT_OFF), adapter, sensor_sd);
 
 	/* Sensor notifications must return through the owning VIN subdevice. */
 	t41_store_ptr((uintptr_t)sensor_sd, T41_SUBDEV_NOTIFY_OFF,
@@ -15874,6 +15953,9 @@ int32_t csi_core_ops_init(uintptr_t a0, uintptr_t a1)
     if (!csi || a0 >= (uintptr_t)-4095 || !t41_kernel_data_ptr(init)) {
         isp_printf(2, "[%s %d] the parameters are invalid!\n",
                    "csi_core_ops_init", 356);
+        printk_ratelimited(KERN_WARNING
+               "t41: csi init invalid csi=%p init=%p caller=%pS\n",
+               csi, init, __builtin_return_address(0));
         return -EINVAL;
     }
 
@@ -54517,6 +54599,7 @@ int tisp_deinit(int channel)
     tisp_lce_deinit(channel);
     tisp_msca_deinit(channel);
     ((int (*)(uint32_t))(uintptr_t)tisp_raw_deinit)(channel);
+    tisp_top_deinit(channel);
 
     mutex_lock(&t41_switch_bin_lock);
     if (t41_bin_retired) {
@@ -54594,6 +54677,7 @@ int32_t tisp_channel_main_start(uint32_t a0)
     uintptr_t *v0 = 0;
     uint32_t *v1 = 0;
 
+    t41_fr(3, 0x13, a0);
     /* fragment 0: CallSetup */
     *(uint8_t *)((char *)((a0 * 612) + (uintptr_t)&mscaler) + 4) = 1;
     *(uint8_t *)((char *)((a0 * 26) + (uintptr_t)&msca) + 0) = 1;
@@ -54619,6 +54703,7 @@ int32_t tisp_channel_main_start(uint32_t a0)
 int32_t tisp_channel_main_stop(uint32_t a0)
 {
     t41_heapwatch_mark("tisp_channel_main_stop");
+    t41_fr(3, 0x10, a0);
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     unsigned long flags = 0;
     unsigned long deadline = jiffies + HZ;
@@ -54650,6 +54735,7 @@ int32_t tisp_channel_main_stop(uint32_t a0)
     /* FIFO reset and VB2 buffer return/free must follow DMA quiescence.
      * This process-context path holds no spinlock. A stuck engine must
      * retain its buffers, not time out into freeing live DMA destinations. */
+    t41_fr(3, 0x12, system_reg_read(0x0f00e0U));
     while ((active = system_reg_read(0x0f00e0U)) & mask) {
         if (time_after_eq(jiffies, deadline)) {
             printk(KERN_ERR "t41: MSCA channel %u still active=%#x; retaining capture buffers\n",
@@ -54689,6 +54775,7 @@ int32_t tisp_channel_main_stop(uint32_t a0)
 int32_t tisp_channel_main_fifo_clear(uint32_t a0)
 {
     t41_heapwatch_mark("tisp_channel_main_fifo_clear");
+    t41_fr(3, 0x11, a0);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -57441,48 +57528,24 @@ int32_t tisp_top_par_reg_cfg(uint32_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000021aa8 origin=fragment_seed original=tisp_top_deinit */
-int32_t tisp_top_deinit(uint32_t a0)
+int32_t tisp_top_deinit(uint32_t channel)
 {
+    uint32_t *slot;
+
     t41_heapwatch_mark("tisp_top_deinit");
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s0 = (unsigned int *)&ivdc_threshold_line;
-    a0 = a0 << 2;
-    s0 = s0 + 13588;
-
-    /* fragment 2: StackAccess */
-    local_14 = ra;
-    s0 = a0 + (uintptr_t)s0;
-    a0 = *(uint32_t *)((char *)s0 + 0);
-
-    /* fragment 3: Branch */
-    v0 = (unsigned int *)&private_vfree;
-    if (a0 == 0) { goto tisp_top_deinit0x38; }
-
-    /* fragment 4: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 0) = 0;
-
-tisp_top_deinit0x38:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Arithmetic */
-    v0 = 0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    /*
+     * Stock never calls this: tisp_deinit leaves the 8-byte vmalloc of
+     * tisp_top_init behind (one page per tisp_init).  Free it here.  Only
+     * channel 0: in the recovered layout top_info_storage[1] is sdns_info,
+     * which tisp_sdns_deinit owns.
+     */
+    if (channel != 0)
+        return 0;
+    slot = (uint32_t *)(void *)top_info_storage;
+    if (*slot) {
+        private_vfree((void *)(uintptr_t)*slot);
+        *slot = 0;
+    }
     return 0;
 }
 
@@ -162383,6 +162446,7 @@ isp_fw_process0x44:
 int32_t ispcore_frame_channel_streamoff(void *arg1)
 {
     t41_heapwatch_mark("ispcore_frame_channel_streamoff");
+    t41_fr(3, 0x20, 0);
     char *pad = arg1;
     char *channel;
     unsigned long flags = 0;
@@ -163488,6 +163552,7 @@ static void t41_msca_frame_enable(void)
                 (desc[0] & 1U))
                 on |= 1U << ch;
         }
+        t41_fr(3, 0x30, on);
         if (on)
             system_reg_write(0x0f0008U, system_reg_read(0x0f0008U) | on);
         t41_msca_enable_pending &= ~armed;
@@ -163522,6 +163587,7 @@ static void t41_msca_finish_enable(uint32_t ch)
     if (!(READ_ONCE(t41_msca_enable_pending) & bit))
         return;
     start = ktime_get();
+    t41_fr(3, 0x31, ch);
     if (t41_isp_stream_started == 1) {
         deadline = jiffies + msecs_to_jiffies(t41_msca_latch_timeout_ms);
         for (;;) {
@@ -163860,6 +163926,7 @@ module_param_cb(t41_msca_regs, &t41_msca_regs_ops, NULL, 0444);
 int32_t ispcore_frame_channel_streamon(void *arg1)
 {
     t41_heapwatch_mark("ispcore_frame_channel_streamon");
+    t41_fr(3, 0x21, 0);
     char *pad = arg1;
     char *channel;
     unsigned long flags = 0;
@@ -167393,6 +167460,8 @@ int32_t system_reg_write(uint32_t a0, uint32_t a1)
 
     /* Exact H20250310a address calculation, paired with system_reg_read():
      * write to *(ispcore_sd + 0xe8) + the byte offset. */
+    if (a0 >= 0xf0000 || a0 < 0x100)
+        t41_fr(1, a0, a1);
     writel(a1, regs + a0);
     /* T40 and T23 both order each ISP MMIO write before issuing the next
      * command.  This is required for RAM-port transactions such as TMO,
@@ -170571,6 +170640,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
         writel(status2, regs + 0x400a4);
         status3 = readl(regs + 0x400b8);
         writel(status3, regs + 0x400b4);
+        t41_fr(2, status0, status2 | (error << 24));
 
         /*
          * The non-direct T41 frame path is completed from ISP status bit 0.
@@ -171564,9 +171634,11 @@ int32_t init_module(void)
 		t41_heapwatch_stop();
 		return ret;
 	}
+	tx_isp_t41_sensor_clients_init(t41_detach_sensor);
 	ret = tx_isp_sinfo_init();
 	if (ret) {
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
+		tx_isp_t41_sensor_clients_exit();
 		t41_heapwatch_stop();
 		return ret;
 	}
@@ -171574,6 +171646,7 @@ int32_t init_module(void)
 	if (ret) {
 		tx_isp_sinfo_exit();
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
+		tx_isp_t41_sensor_clients_exit();
 		t41_heapwatch_stop();
 		return ret;
 	}
@@ -171594,6 +171667,7 @@ void cleanup_module(void)
 	t41_heapwatch_census("exit");
     ((void (*)(void))(uintptr_t)t9)();
 	t41_heapwatch_step("exit:tx_isp_exit");
+	tx_isp_t41_sensor_clients_exit();
 
 	/*
 	 * The ISP/VIC IRQs are freed by now, so nothing queues these static
@@ -171736,6 +171810,9 @@ int tx_isp_remove(struct platform_device *pdev)
 	private_misc_deregister((char *)ispdev + 0x0c);
 	t41_procwatch_stop();
 	private_proc_remove(*(void **)((char *)ispdev + 0x138));
+	/* Like TX_ISP_SENSOR_RELEASE for every sensor the application did
+	 * not release: VIN list, core/VIC copies, i2c client, adapter ref. */
+	tx_isp_t41_sensor_clients_release_all();
 	tx_isp_unregister_platforms((int32_t *)((char *)ispdev + 0x88));
 	private_platform_set_drvdata(pdev, NULL);
 	private_kfree(ispdev);
