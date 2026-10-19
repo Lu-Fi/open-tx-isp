@@ -622,6 +622,21 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
         /* Copy sensor_register_info into sensor->info */
         memcpy(&sensor->info, reg_info, sizeof(struct tx_isp_sensor_register_info));
 
+        /* A mainline sensor is reached through its DT client, so the registry
+         * gets the address and bus it is really on.  The register info above
+         * carries whatever the streamer sent - nothing, when sensor.i2c_addr
+         * is unset - and publishing that left /proc/jz/sensor/i2c_addr at
+         * 0x0 and every reader falling back to 0x37. */
+        if (sensor_sd == global_v4l2_sensor_sd) {
+            struct i2c_client *bridge_client =
+                tx_isp_v4l2_sensor_client(sensor_sd);
+
+            if (bridge_client) {
+                sensor->info.i2c.addr = bridge_client->addr;
+                sensor->info.i2c.i2c_adapter_id = bridge_client->adapter->nr;
+            }
+        }
+
         /* Stock: Call g_chip_ident to validate sensor */
         if (sensor_sd->ops && sensor_sd->ops->core &&
             sensor_sd->ops->core->g_chip_ident) {
@@ -8558,6 +8573,17 @@ int tx_isp_register_sensor_subdev(struct tx_isp_subdev *sd, struct tx_isp_sensor
 		pr_warn("tx-isp: failed to publish active sensor %s: %d\n",
 			sensor->info.name[0] ? sensor->info.name : "(unnamed)",
 			sinfo_ret);
+	else if (sd == global_v4l2_sensor_sd) {
+		/* The mainline subdev stores no i2c client pointer (the bridge
+		 * keeps the DT-owned client out of the vendor teardown paths), so
+		 * the registry has no address to read. Publish the one the bridge
+		 * resolved instead of letting readers fall back to 0x37. */
+		struct i2c_client *bridge_client =
+			tx_isp_v4l2_sensor_client(sd);
+
+		if (bridge_client)
+			tx_isp_sinfo_sensor_addr(sd, bridge_client->addr);
+	}
 
     /* RACE CONDITION FIX: If the sensor module loads AFTER the ISP module,
      * the ISP probe already ran tx_isp_create_subdev_graph() which set

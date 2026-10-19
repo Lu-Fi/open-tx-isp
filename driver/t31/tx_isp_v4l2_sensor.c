@@ -610,3 +610,11 @@ void tx_isp_v4l2_sensor_put(struct tx_isp_subdev *sd)
 	tx_isp_subdev_deinit(sd);
 	tx_v4l2_sensor_free(s);
 }
+
+struct i2c_client *tx_isp_v4l2_sensor_client(struct tx_isp_subdev *sd)
+{
+	if (!sd || sd != tx_isp_v4l2_sensor_sd)
+		return NULL;
+
+	return sd_to_v4l2_sensor(sd)->client;
+}
