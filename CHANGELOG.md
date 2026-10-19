@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-19: T40 tuning crash fixes (`claude/t40-sensorreg` up to 6b5dfac7; in `next`)
+
+- **Sensor register ioctl / tuning s_attr:** the 8 tuning attribute setters copied user data into a 4-byte stack slot (stack smash, hard hang on SetAeExprInfo and similar). They now copy into a kernel buffer of the right size like the OEM, and the sensor register ioctl reaches the sensor.
+- **Tuning attribute cache:** allocated on isp-m0 open like the OEM `tisp_enable_tuning` (NULL oops in `tisp_tattr` before).
+- **Getters/setters rebuilt like the OEM:** AeExprInfo, the g_ctrl getters (copy_to_user from a kernel buffer), AE/AWB/AF weights, ModuleRatio/sdns ratio; the streamer-reachable oopses in SetAfWeight (`tisp_af_params_refresh`) and SetModule_Ratio are gone.
+- Device-tested on the T40 (Eufy, gc4653): register rounds 50/50, Get-Set-Get identical for all attributes except gamma (needs `t40_module_ctx_inits=1`), AE hold 60-75 s, 0 oops. Open: the auto-mode exposure readback unit, the manual analog gain, and the follow-up commit d1c0d0f0 (OEM AE for GetAeExprInfo, ratio setters) stay on the branch.
+
 ## 2026-10-19: PR #2 leftovers (themactep): level-gated T31 debug output, vendor-tree-only core hunks (`claude/pr2-leftovers`; in `next`)
 
 Commits by Paul Philippov from Lu-Fi/open-tx-isp#2 (author kept, `cherry-pick -x`), adapted where noted.
