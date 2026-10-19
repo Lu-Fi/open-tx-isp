@@ -1213,6 +1213,9 @@ static uintptr_t ftune_wmeans_40861;
    the linker placed after it. */
 static uint64_t gamma_frame_num_saved[2];
 static uintptr_t gamma_para;
+#define T40_GAMMA_CTX_BASE ((char *)t40_gamma_ctx_tab)   /* T40-GAMMA-CTX: OEM gamma_para[2] ctx table (the lift used &gamma_para + 17184, out of bounds) */
+static uint32_t t40_sdns_wdr_en[2];   /* OEM .bss sdns_wdr_en[2] */
+static uint32_t t40_gamma_ctx_tab[2];
 static uintptr_t gamma_wlut_flag;
 static uintptr_t gamma_wlut_times;
 static uintptr_t gib_main_real_para;
@@ -22966,6 +22969,70 @@ static int regtrace_tx_isp_release(struct inode *inode, struct file *file)
     return 0;
 }
 
+/*
+ * T40-SENSOR-REGISTER (IMP_ISP_Set/GetSensorRegister): OEM tx_isp_unlocked_ioctl
+ * 0x11d40 (0xc040540d, event 0x2000011) and 0x11794 (0x8040540e, event
+ * 0x2000012): copy the 64-byte struct tx_isp_dbg_register {name[32], sensor_id,
+ * type, size, pad, u64 reg, u64 val}, send the event to the subdevs; the VIN
+ * subdev (OEM subdev_sensor_ops_ioctl 0x7230/0x72a0) picks the sensor by
+ * sensor_id and calls its core s_register (core ops +28) / g_register (+16);
+ * -ENOIOCTLCMD counts as 0; the get copies the 64 bytes back.
+ * The reconstructed ladder compared 0xc004540d / 0x8004540e, so both requests
+ * fell through to "return 0" (no access, the get returned the caller's buffer).
+ * Here the VIN step is done directly on the bound sensor (only VIN slot 0
+ * exists in this driver); the OEM does not range-check sensor_id, we do.
+ */
+#define REGTRACE_TISP_SET_SENSOR_REGISTER 0xc040540dU
+#define REGTRACE_TISP_GET_SENSOR_REGISTER 0x8040540eU
+struct regtrace_t40_dbg_register {
+    char name[32];
+    int32_t sensor_id;
+    int32_t type;
+    uint32_t size;
+    uint32_t pad;
+    uint64_t reg;
+    uint64_t val;
+};
+static DEFINE_MUTEX(regtrace_t40_sensor_reg_lock);
+static long regtrace_t40_sensor_register_ioctl(unsigned int cmd, unsigned long arg)
+{
+    struct regtrace_t40_dbg_register reg;
+    uintptr_t sd, ops, core, fn;
+    int set = cmd == REGTRACE_TISP_SET_SENSOR_REGISTER;
+    long ret;
+
+    BUILD_BUG_ON(sizeof(reg) != 64);
+    if (copy_from_user(&reg, (const void __user *)(uintptr_t)arg, sizeof(reg)))
+        return -EFAULT;
+    reg.name[sizeof(reg.name) - 1] = '\0';
+    if (reg.sensor_id != 0) {
+        isp_printf(1, "[%d] sensor %d is not registered\n", __LINE__, reg.sensor_id);
+        return -1;
+    }
+    mutex_lock(&regtrace_t40_sensor_reg_lock);
+    sd = (uintptr_t)regtrace_sensor_subdev;
+    ops = sd ? *(uint32_t *)(sd + REGTRACE_TX_ISP_SUBDEV_OPS_OFFSET) : 0;
+    core = ops ? *(uint32_t *)ops : 0;
+    fn = core ? *(uint32_t *)(core + (set ? 28 : 16)) : 0;
+    if (!sd) {
+        ret = -1;   /* OEM: "sensor is not registered", -1 */
+    } else if (!fn) {
+        ret = 0;    /* OEM: no core ops / no handler -> 0 */
+    } else {
+        regtrace_fr_mark(0xc6, (set ? 0x10000U : 0U) | (uint32_t)(reg.reg & 0xffffU));
+        ret = ((int (*)(void *, void *))fn)((void *)sd, &reg);
+        regtrace_fr_mark(0xc7, (uint32_t)ret);
+        if (ret == -ENOIOCTLCMD)
+            ret = 0;
+    }
+    mutex_unlock(&regtrace_t40_sensor_reg_lock);
+    if (ret)
+        return ret;
+    if (!set && copy_to_user((void __user *)(uintptr_t)arg, &reg, sizeof(reg)))
+        return -EFAULT;
+    return 0;
+}
+
 static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     int __maybe_unused __fr = regtrace_fr_mark(0x02, cmd);
@@ -22976,6 +23043,11 @@ static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned 
 
     if (cmd == 0x80045401) {
         ret = tx_isp_driver_version_isra_15(arg);
+        printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x ret=%ld\n", cmd, ret);
+        return ret;
+    }
+    if (cmd == REGTRACE_TISP_SET_SENSOR_REGISTER || cmd == REGTRACE_TISP_GET_SENSOR_REGISTER) {
+        ret = regtrace_t40_sensor_register_ioctl(cmd, arg);
         printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x ret=%ld\n", cmd, ret);
         return ret;
     }
@@ -23016,6 +23088,7 @@ static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned 
         file->private_data = regtrace_tx_isp_context + 0x0c;
     }
     ret = tx_isp_unlocked_ioctl((uintptr_t)regtrace_tx_isp_file_shadow, cmd, arg);
+    regtrace_fr_mark(0xc2, (uint32_t)ret);
     printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x ret=%ld\n", cmd, ret);
     return ret;
 }
@@ -23027,9 +23100,30 @@ static const struct file_operations regtrace_tx_isp_fops = {
     .release = regtrace_tx_isp_release,
 };
 
+/*
+ * T40-TUNING-TATTR: OEM isp_core_tunning_open (0x8bbc) calls tisp_enable_tuning(),
+ * which vmallocs the tuning attribute cache tisp_tattr (3388 B) and fills its
+ * defaults.  /dev/isp-m0 is served by the bootstrap fops here, so the cache was
+ * never allocated and every tisp_s/g_*_attr that indexes it (e.g.
+ * tisp_s_ae_exprinfo_attr, IMP_ISP_Tuning_SetAeExprInfo) oopsed at NULL + off.
+ * Allocate it on the first isp-m0 open like the OEM; freed at module exit.
+ */
+static DEFINE_MUTEX(regtrace_t40_tattr_lock);
+static void regtrace_t40_tattr_ensure(void)
+{
+    mutex_lock(&regtrace_t40_tattr_lock);
+    if (!tisp_tattr)
+        (void)tisp_enable_tuning();
+    mutex_unlock(&regtrace_t40_tattr_lock);
+    if (!tisp_tattr)
+        printk(KERN_ERR "tx_isp_t40_recovered: tisp_enable_tuning: no tuning attr cache\n");
+}
+
 static int regtrace_bootstrap_open(struct inode *inode, struct file *file)
 {
     (void)inode;
+    if (file && !strcmp(regtrace_file_name(file), "isp-m0"))
+        regtrace_t40_tattr_ensure();
     printk(KERN_INFO "tx_isp_t40_recovered: open /dev/%s pid=%d comm=%s\n",
            regtrace_file_name(file), current->pid, current->comm);
     return 0;
@@ -23979,9 +24073,16 @@ static unsigned int regtrace_tisp_poll(struct file *file, poll_table *wait)
 static long regtrace_tisp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     int __maybe_unused __fr = regtrace_fr_mark(0x04, cmd);
+    uint32_t fr_w[3] = { 0, 0, 0 };
+    long ret;
+
+    if (arg && !copy_from_user(fr_w, (const void __user *)(uintptr_t)arg, sizeof(fr_w)))
+        regtrace_fr_mark(0xc4, fr_w[2] ^ (fr_w[1] << 31));   /* FR: tuning control | dir<<31 */
     printk(KERN_INFO "tx_isp_t40_recovered: tisp ioctl cmd=0x%x arg=0x%lx pid=%d comm=%s\n",
            cmd, arg, current->pid, current->comm);
-    return tisp_code_tuning_ioctl((int)(uintptr_t)file, (int)cmd, (int)arg);
+    ret = tisp_code_tuning_ioctl((int)(uintptr_t)file, (int)cmd, (int)arg);
+    regtrace_fr_mark(0xc5, (uint32_t)ret);
+    return ret;
 }
 
 static const struct file_operations regtrace_tisp_fops = {
@@ -44133,70 +44234,88 @@ isp_core_tunning_open0xb8:
     return 0;
 }
 
+/* T40-S-ATTR-COPY: common body of the OEM tx_isp_*_s_attr.isra helpers (see each caller). */
+static noinline int regtrace_t40_s_attr_copy(uint32_t vinum, uint32_t user_ptr, size_t size,
+                                             int (*set)(uint32_t, void *), const char *what)
+{
+    uint8_t buf[460] __aligned(8);
+    int ret;
+
+    if (size > sizeof(buf))
+        return -EINVAL;
+    if (copy_from_user(buf, (const void __user *)(uintptr_t)user_ptr, size)) {
+        isp_printf(2, "[%s] copy from user error\n", what);
+        return -EFAULT;
+    }
+    ret = set(vinum, buf);
+    if (ret)
+        isp_printf(1, "[%s] set error %d\n", what, ret);
+    return ret;
+}
+
+/* T40-G-ATTR-COPY: common body of the OEM tx_isp_*_g_attr.isra helpers (Eufy 0x95ec..0x9fd0):
+ * get(vinum, kbuf); copy_to_user(user, kbuf, size).  The lifted helpers passed no kernel buffer
+ * (getter wrote through a user/garbage pointer) or copied a 4-byte local. */
+static noinline int regtrace_t40_g_attr_copy(uint32_t vinum, uint32_t user_ptr, size_t size,
+                                             int (*get)(uint32_t, void *), const char *what)
+{
+    uint8_t *buf;
+    int ret;
+
+    if (vinum > 1 || !user_ptr)
+        return -EINVAL;
+    buf = kzalloc(size < 256 ? 256 : size, GFP_KERNEL);
+    if (!buf)
+        return -ENOMEM;
+    ret = get(vinum, buf);
+    if (ret) {
+        isp_printf(1, "[%s] get error %d\n", what, ret);
+    } else if (copy_to_user((void __user *)(uintptr_t)user_ptr, buf, size)) {
+        isp_printf(2, "[%s] copy to user error\n", what);
+        ret = -EFAULT;
+    }
+    kfree(buf);
+    return ret;
+}
+
+static int regtrace_t40_g_ae_scence(uint32_t vinum, void *buf)
+{
+    (void)tisp_g_ae_scence_attr(vinum, (uintptr_t)buf);   /* OEM returns 0 */
+    return 0;
+}
+
+/* T40-G-CTRL: GET dispatch of the tuning attrs (IDs as in our libimp / s_ctrl), rebuilt from
+ * OEM tx_isp_core_ops_g_ctrl 0xb120.  Returns 1 when cmd is not one of these. */
+static int regtrace_t40_g_ctrl_attr(uint32_t vinum, uint32_t cmd, uint32_t user, int *ret)
+{
+#define G(sz, fn, nm) (*ret = regtrace_t40_g_attr_copy(vinum, user, sz, (int (*)(uint32_t, void *))(uintptr_t)(fn), nm))
+    switch (cmd) {
+    case 0x8000000: G(124, tisp_g_statis_config_attr, "statis_config_g"); break;
+    case 0x8000010: G(76, tisp_g_awb_attr, "awb_attr_g"); break;
+    case 0x8000012: G(225, tisp_g_awb_weight_attr, "awb_weight_g"); break;
+    case 0x8000021: G(460, tisp_g_ae_weight_attr, "ae_weight_g"); break;
+    case 0x8000023: G(220, tisp_g_ae_exprinfo_attr, "ae_expoinfo_g"); break;
+    case 0x8000024: G(52, regtrace_t40_g_ae_scence, "ae_scence_g"); break;
+    case 0x8000025: G(264, tisp_g_Gamma, "gamma_g"); break;
+    case 0x8000032: G(225, tisp_g_af_weight_attr, "af_weight_g"); break;
+    case 0x80000a4: G(128, tisp_g_module_ratio_attr, "module_ratio_g"); break;
+    default: return 1;
+    }
+#undef G
+    return 0;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000097c4 origin=fragment_seed original=tx_isp_gamma_s_attr.isra.6 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t tx_isp_gamma_s_attr_isra_6(uint32_t a0, uint32_t a1) __asm__("tx_isp_gamma_s_attr.isra.6");
 #endif
 int32_t tx_isp_gamma_s_attr_isra_6(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t *local_124 = 0;
-    uint32_t local_128 = 0;
-    uint32_t local_12c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    a1 = (uint32_t *)&local_18;
-    if (v0 == 0) { goto tx_isp_gamma_s_attr_isra_60x7c; }
-
-    /* fragment 3: CallSetup */
-    s0 = v0;
-    local_14 = 528;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 528); /* jalr target resolved by relocation */
-
-tx_isp_gamma_s_attr_isra_60x64:
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_gamma_s_attr_isra_60x68:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_gamma_s_attr_isra_60x7c:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_s_Gamma)(s1); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_gamma_s_attr_isra_60x64; }
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC2, &__param_str_isp_dual_buf, 532); /* jalr target resolved by relocation */
-
-    /* fragment 10: Branch */
-    goto tx_isp_gamma_s_attr_isra_60x68;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_gamma_s_attr.isra: copy_from_user(buf, user, 264) then
+     * tisp_s_Gamma(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 264, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_Gamma, "tx_isp_gamma_s_attr_isra_6");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009884 origin=fragment_seed original=tx_isp_module_ratio_s_attr.isra.7 */
@@ -44205,64 +44324,11 @@ int32_t tx_isp_module_ratio_s_attr_isra_7(uint32_t a0, uint32_t a1) __asm__("tx_
 #endif
 int32_t tx_isp_module_ratio_s_attr_isra_7(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_9c = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_a4 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    a1 = (uint32_t *)&local_18;
-    if (v0 == 0) { goto tx_isp_module_ratio_s_attr_isra_70x7c; }
-
-    /* fragment 3: CallSetup */
-    s0 = v0;
-    local_14 = 479;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 479); /* jalr target resolved by relocation */
-
-tx_isp_module_ratio_s_attr_isra_70x64:
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_module_ratio_s_attr_isra_70x68:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_module_ratio_s_attr_isra_70x7c:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_s_module_ratio_attr)(s1); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_module_ratio_s_attr_isra_70x64; }
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC3, &__param_str_isp_dual_buf, 483); /* jalr target resolved by relocation */
-
-    /* fragment 10: Branch */
-    goto tx_isp_module_ratio_s_attr_isra_70x68;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_module_ratio_s_attr.isra: copy_from_user(buf, user, 128) then
+     * tisp_s_module_ratio_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 128, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_module_ratio_attr, "tx_isp_module_ratio_s_attr_isra_7");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009944 origin=fragment_seed original=tx_isp_mask_s_attr.isra.9 */
@@ -44524,55 +44590,11 @@ int32_t tx_isp_af_weight_s_attr_isra_13(uint32_t a0, uint32_t a1) __asm__("tx_is
 #endif
 int32_t tx_isp_af_weight_s_attr_isra_13(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_104 = 0;
-    uint32_t local_108 = 0;
-    uint32_t local_10c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_af_weight_s_attr_isra_130x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 763;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 763); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_af_weight_s_attr_isra_130x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_af_weight_s_attr_isra_130x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_af_weight_attr)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_af_weight_s_attr_isra_130x64;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_af_weight_s_attr.isra: copy_from_user(buf, user, 225) then
+     * tisp_s_af_weight_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 225, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_af_weight_attr, "tx_isp_af_weight_s_attr_isra_13");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009c24 origin=fragment_seed original=tx_isp_awb_weight_s_attr.isra.14 */
@@ -44581,55 +44603,11 @@ int32_t tx_isp_awb_weight_s_attr_isra_14(uint32_t a0, uint32_t a1) __asm__("tx_i
 #endif
 int32_t tx_isp_awb_weight_s_attr_isra_14(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_104 = 0;
-    uint32_t local_108 = 0;
-    uint32_t local_10c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_awb_weight_s_attr_isra_140x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 797;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 797); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_awb_weight_s_attr_isra_140x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_awb_weight_s_attr_isra_140x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_awb_weight_attr)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_awb_weight_s_attr_isra_140x64;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_awb_weight_s_attr.isra: copy_from_user(buf, user, 225) then
+     * tisp_s_awb_weight_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 225, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_awb_weight_attr, "tx_isp_awb_weight_s_attr_isra_14");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009cb8 origin=fragment_seed original=tx_isp_awb_attr_s_attr.isra.15 */
@@ -44638,55 +44616,11 @@ int32_t tx_isp_awb_attr_s_attr_isra_15(uint32_t a0, uint32_t a1) __asm__("tx_isp
 #endif
 int32_t tx_isp_awb_attr_s_attr_isra_15(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_6c = 0;
-    uint32_t local_70 = 0;
-    uint32_t local_74 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_awb_attr_s_attr_isra_150x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 831;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 831); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_awb_attr_s_attr_isra_150x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_awb_attr_s_attr_isra_150x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_awb_attr)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_awb_attr_s_attr_isra_150x64;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_awb_attr_s_attr.isra: copy_from_user(buf, user, 76) then
+     * tisp_s_awb_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 76, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_awb_attr, "tx_isp_awb_attr_s_attr_isra_15");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009d4c origin=fragment_seed original=tx_isp_ae_expoinfo_s_attr.isra.17 */
@@ -44695,55 +44629,11 @@ int32_t tx_isp_ae_expoinfo_s_attr_isra_17(uint32_t a0, uint32_t a1) __asm__("tx_
 #endif
 int32_t tx_isp_ae_expoinfo_s_attr_isra_17(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_fc = 0;
-    uint32_t local_100 = 0;
-    uint32_t local_104 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_ae_expoinfo_s_attr_isra_170x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 944;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 944); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_ae_expoinfo_s_attr_isra_170x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_ae_expoinfo_s_attr_isra_170x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_ae_exprinfo_attr)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_ae_expoinfo_s_attr_isra_170x64;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_ae_expoinfo_s_attr.isra: copy_from_user(buf, user, 220) then
+     * tisp_s_ae_exprinfo_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 220, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_ae_exprinfo_attr, "tx_isp_ae_expoinfo_s_attr_isra_17");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009de0 origin=fragment_seed original=tx_isp_ae_weight_s_attr.isra.18 */
@@ -44752,55 +44642,11 @@ int32_t tx_isp_ae_weight_s_attr_isra_18(uint32_t a0, uint32_t a1) __asm__("tx_is
 #endif
 int32_t tx_isp_ae_weight_s_attr_isra_18(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1ec = 0;
-    uint32_t local_1f0 = 0;
-    uint32_t local_1f4 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_ae_weight_s_attr_isra_180x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 1022;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 1022); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_ae_weight_s_attr_isra_180x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_ae_weight_s_attr_isra_180x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_ae_weight_attr)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_ae_weight_s_attr_isra_180x64;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_ae_weight_s_attr.isra: copy_from_user(buf, user, 460) then
+     * tisp_s_ae_weight_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 460, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_ae_weight_attr, "tx_isp_ae_weight_s_attr_isra_18");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009e74 origin=fragment_seed original=tx_isp_statis_config_s_attr.isra.19 */
@@ -44809,55 +44655,11 @@ int32_t tx_isp_statis_config_s_attr_isra_19(uint32_t a0, uint32_t a1) __asm__("t
 #endif
 int32_t tx_isp_statis_config_s_attr_isra_19(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_9c = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_a4 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_statis_config_s_attr_isra_190x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 1056;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 1056); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_statis_config_s_attr_isra_190x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_statis_config_s_attr_isra_190x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_statis_config_attr)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_statis_config_s_attr_isra_190x64;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_statis_config_s_attr.isra: copy_from_user(buf, user, 124) then
+     * tisp_s_statis_config_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 124, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_statis_config_attr, "tx_isp_statis_config_s_attr_isra_19");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009f08 origin=fragment_seed original=tx_isp_switch_bin.isra.22 */
@@ -47172,6 +46974,11 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
     const char *a2_str;
     int32_t *result;
     uint32_t cmd = *arg3;
+    {
+        int __r;
+        if (!regtrace_t40_g_ctrl_attr(arg1, cmd, (uint32_t)arg3[1], &__r))
+            return __r;
+    }
 
     if (cmd == 0x8000035) {
         result = private_copy_to_user(arg3[1], __p_80, 0x18);
@@ -91419,827 +91226,140 @@ int32_t tisp_ae_get_y_zone(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002bb94 origin=model_output original=tisp_ae_set_weight */
 int32_t tisp_ae_set_weight(int32_t arg1, int32_t *arg2)
 {
-    int32_t *s0;
-    int32_t *v0;
-    int32_t *result;
-    char var_100[225];
-    int32_t *i;
-    int32_t j;
-    uint8_t *v1;
-    int32_t *a1_2;
-    int32_t *bss_base_14624;
-    int32_t *bss_base_14992;
-    int32_t *bss_base_14268;
-    
-    /* Load .bss base address at offset 14624 */
-    __asm__ volatile (
-        "lui %0, %%hi(.bss)\n\t"
-        "addiu %0, %0, %%lo(.bss)\n\t"
-        "addiu %0, %0, 14624"
-        : "=r" (bss_base_14624)
-        :
-        : 
-    );
-    
-    /* Load .bss base address at offset 14992 */
-    __asm__ volatile (
-        "lui %0, %%hi(.bss)\n\t"
-        "addiu %0, %0, %%lo(.bss)\n\t"
-        "addiu %0, %0, 14992"
-        : "=r" (bss_base_14992)
-        :
-        : 
-    );
-    
-    /* Load .bss base address at offset 14268 */
-    __asm__ volatile (
-        "lui %0, %%hi(.bss)\n\t"
-        "addiu %0, %0, %%lo(.bss)\n\t"
-        "addiu %0, %0, 14268"
-        : "=r" (bss_base_14268)
-        :
-        : 
-    );
-    
-    /* Determine which global to use based on arg1 */
-    if (arg1 != 0) {
-        s0 = bss_base_14624;
-    } else {
-        s0 = bss_base_14624;
+    /* T40-AE-WEIGHT: hand translation of OEM 0x2ae10.  ori = pst{Main,Sec}AeOri: +344 zone weights,
+     * +340 inverted zone weights (8 - w), +336 ROI weights, +68 default weights (all pointers from
+     * tisp_ae_params_transmit); the ROI weights are mirrored into *stMainAeOuter + 2684 / + 928.
+     * The lift used raw .bss offsets of another build and copied into ori itself. */
+    uint8_t *ori = arg1 ? pstSecAeOri_storage : pstMainAeOri_storage;
+    uint8_t *w = (uint8_t *)(uintptr_t)*(uint32_t *)(ori + 344);
+    uint8_t *winv = (uint8_t *)(uintptr_t)*(uint32_t *)(ori + 340);
+    uint8_t *roi = (uint8_t *)(uintptr_t)*(uint32_t *)(ori + 336);
+    const uint8_t *def = (const uint8_t *)(uintptr_t)*(uint32_t *)(ori + 68);
+    uint8_t *outer = (uint8_t *)(uintptr_t)*(uint32_t *)&stMainAeOuter;
+    const uint8_t *b = (const uint8_t *)arg2;
+    uint8_t inv[225];
+    int i;
+    if (!b || !regtrace_is_kernel_ptr(w) || !regtrace_is_kernel_ptr(winv) || !regtrace_is_kernel_ptr(roi))
+        return -EAGAIN;
+    if (arg2[0] == 1) {
+        memcpy(w, b + 8, 225);
+        for (i = 0; i < 225; i++)
+            inv[i] = (uint8_t)(8 - b[8 + i]);
+        memcpy(winv, inv, 225);
+    } else if (arg2[0] == 0 && regtrace_is_kernel_ptr((void *)def)) {
+        memcpy(w, def, 225);
     }
-    
-    v0 = arg2[0];
-    
-    if (v0 == 1) {
-        memcpy(&s0[0x56], &arg2[2], 0xe1);
-        memset(var_100, 0, 0xe1);
-        
-        i = &arg2[2];
-        for (j = 0; j < 0xe9; j++) {
-            v1 = (int32_t *)i[j];
-            ((void **)var_100)[j] = 8 - (uintptr_t)v1;
-        }
-        
-        memcpy(&s0[0x55], var_100, 0xe1);
-        result = arg2[1];
-    } else if (v0 != 0) {
-        result = arg2[1];
-    } else {
-        memcpy(&s0[0x56], &s0[0x11], 0xe1);
-        result = arg2[1];
+    if (arg2[1] == 1)
+        memcpy(roi, b + 233, 225);
+    else if (arg2[1] == 0 && regtrace_is_kernel_ptr((void *)def))
+        memcpy(roi, def, 225);
+    else
+        return 0;
+    if (regtrace_is_kernel_ptr(outer)) {
+        memcpy(outer + 2684, roi, 225);
+        memcpy(outer + 928, roi, 225);
     }
-    
-    if (result != 1) {
-        if (result != 0) {
-            return result;
-        }
-        a1_2 = &s0[0x11];
-    } else {
-        a1_2 = &arg2[0xe9];
-    }
-    
-    memcpy(&s0[0x54], a1_2, 0xe1);
-    memcpy((char *)bss_base_14992 + 0xa7c, &s0[0x54], 0xe1);
-    memcpy((char *)bss_base_14992 + 0x3a0, &s0[0x54], 0xe1);
-    
-    return (int32_t)memcpy((char *)bss_base_14992 + 0x3a0, &s0[0x54], 0xe1);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002bce4 origin=fragment_seed original=tisp_ae_get_weight */
 int32_t tisp_ae_get_weight(uint32_t a0, uint32_t a1)
 {
-    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    s2 = a1;
-    if (a0 != 0) { goto tisp_ae_get_weight0x64; }
-
-    /* fragment 2: CallSetup */
-    s0 = (uintptr_t *)&isp_memopt;
-    s0 = s0 + 14624;
-
-tisp_ae_get_weight0x24:
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s2 + 8), (void *)(uintptr_t)(*(uint32_t *)((char *)(s0) + 344)), 225); /* jalr target resolved by relocation */
-
-    /* fragment 4: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s0 + 336);
-    ra = local_1c;
-    s0 = local_10;
-    a0 = s2 + 233;
-    t9 = s1;
-    s2 = local_18;
-    s1 = local_14;
-    a2 = 225;
-
-    /* fragment 5: Unknown */
-    /* unmatched fragment 5 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2bd40:	03200408 	jr.hb	t9 */
-
-    /* fragment 6: Arithmetic */
-    /* unmatched fragment 6 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 2bd44:	27bd0020 	addiu	sp,sp,32 */
-
-tisp_ae_get_weight0x64:
-    /* fragment 7: Arithmetic */
-    s0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 8: Branch */
-    s0 = (uintptr_t *)((char *)&pstSecAeOri);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_get_weight", "0x24"); else { __lg--; goto tisp_ae_get_weight0x24; } }
-
+    /* T40-AE-WEIGHT: hand translation of OEM 0x2af60: buf+8 <- *(ori+344) (zone weights, 225 B),
+     * buf+233 <- *(ori+336) (ROI weights, 225 B); ori = pst{Main,Sec}AeOri (pointers set by
+     * tisp_ae_params_transmit).  The lift used &isp_memopt + 14624 (uintptr_t-scaled) as ori. */
+    uint8_t *ori = a0 ? pstSecAeOri_storage : pstMainAeOri_storage;
+    void *w = (void *)(uintptr_t)*(uint32_t *)(ori + 344);
+    void *r = (void *)(uintptr_t)*(uint32_t *)(ori + 336);
+    uint8_t *buf = (uint8_t *)(uintptr_t)a1;
+    if (!buf) return -EINVAL;
+    if (regtrace_is_kernel_ptr(w)) memcpy(buf + 8, w, 225); else memset(buf + 8, 0, 225);
+    if (regtrace_is_kernel_ptr(r)) memcpy(buf + 233, r, 225); else memset(buf + 233, 0, 225);
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000002bd54 origin=fragment_seed original=tisp_ae_set_exprinfo_attr */
+/* T40-AE-EXPRINFO: hand translation of OEM tisp_ae_set_exprinfo_attr (Eufy tx-isp-t40.ko 0x2afd0).
+ * The lifted body used v0 uninitialised and dropped the divu (oops at +0x100 on SetAeExprInfo).
+ * a1 = kernel copy of the 220-byte IMPISPAEExprInfo (A[n] = word n), a0 = vinum (0 main, 1 sec).
+ * Time values given in us (A[0] != 0) are converted to lines: lines = us / (1e6 * fps_num_lo16 /
+ * (line_len * fps)), all from tisp_par_info[vinum] (stride 152) exactly as the OEM. */
 int64_t tisp_ae_set_exprinfo_attr(uint32_t a0, uintptr_t a1)
 {
-    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uintptr_t s5 = 0;
-    uintptr_t s6 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s3 = a0;
-
-    /* fragment 2: Branch */
-    s0 = a1;
-    if (a0 != 0) { goto tisp_ae_set_exprinfo_attr0x37c; }
-
-    /* fragment 3: Arithmetic */
-    s1 = (uintptr_t *)&tisp_ae_main_ctrls;
-    s5 = (uintptr_t)&isp_memopt;
-    s1 = s1;
-    s5 = s5 + 14624;
-
-tisp_ae_set_exprinfo_attr0x40:
-    /* fragment 4: ConstantLoad */
-    v1 = 0x0;
-
-    /* fragment 5: MemoryAccess */
-    s6 = *(uint32_t *)((char *)v0 + 0);
-    v0 = (uintptr_t)s3 * (uintptr_t)v1;
-    a0 = (uint32_t *)&tisp_par_info;
-    s4 = a0;
-    s2 = 983040;
-    s2 = s2 + 16960;
-    v1 = (uintptr_t)v0 + (uintptr_t)s4;
-    a0 = *(uint32_t *)((char *)v1 + 44);
-    v0 = a0 & 65535;
-    v0 = (uintptr_t)v0 * (uintptr_t)s2;
-    s2 = *(uint16_t *)((char *)v1 + 70);
-    s2 = (uintptr_t)s2 * a0;
-    s2 = (uintptr_t)s2 >> 16;
-
-    /* fragment 6: Unknown */
-    /* unmatched fragment 6 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2bddc:	0052001b 	divu	zero,v0,s2 */
-
-    /* fragment 7: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 4);
-    *(uint32_t *)((char *)s1 + 0) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 4);
-    v0 = 1;
-
-    /* fragment 8: Branch */
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x390; }
-
-    /* fragment 9: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 0);
-
-    /* fragment 10: Branch */
-    v0 = *(uint32_t *)((char *)(s0) + 24);
-    if (v1 == 0) { goto tisp_ae_set_exprinfo_attr0xb8; }
-
-    /* fragment 11: Unknown */
-    /* unmatched fragment 11 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2be04:	0052001b 	divu	zero,v0,s2 */
-
-    /* fragment 12: Arithmetic */
-    /* unmatched fragment 12 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 2be08:	00001012 	mflo	v0 */
-
-tisp_ae_set_exprinfo_attr0xb8:
-    /* fragment 13: CallSetup */
-    *(uint32_t *)((char *)s1 + 12) = v0;
-    *(uint32_t *)((char *)s1 + 4) = (*(uint32_t *)((char *)(s0) + 28));
-    *(uint32_t *)((char *)s1 + 16) = (*(uint32_t *)((char *)(s0) + 36));
-    *(uint32_t *)((char *)s1 + 8) = (*(uint32_t *)((char *)(s0) + 32));
-    local_18 = *(uint32_t *)((char *)(s0) + 36);
-    local_14 = *(uint32_t *)((char *)(s0) + 32);
-    local_10 = *(uint32_t *)((char *)(s0) + 28);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC20, *(uint32_t *)((char *)(s0) + 4), *(uint32_t *)((char *)(s0) + 24)); /* jalr target resolved by relocation */
-
-tisp_ae_set_exprinfo_attr0x10c:
-    /* fragment 14: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 104);
-
-tisp_ae_set_exprinfo_attr0x110:
-    /* fragment 15: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 96) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 104);
-    v0 = 1;
-
-    /* fragment 16: Branch */
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x498; }
-
-    /* fragment 17: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 0);
-
-    /* fragment 18: Branch */
-    v0 = *(uint32_t *)((char *)(s0) + 124);
-    if (v1 == 0) { goto tisp_ae_set_exprinfo_attr0x138; }
-
-    /* fragment 19: Unknown */
-    /* unmatched fragment 19 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2be84:	0052001b 	divu	zero,v0,s2 */
-
-    /* fragment 20: Arithmetic */
-    /* unmatched fragment 20 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 2be88:	00001012 	mflo	v0 */
-
-tisp_ae_set_exprinfo_attr0x138:
-    /* fragment 21: CallSetup */
-    *(uint32_t *)((char *)s1 + 76) = v0;
-    *(uint32_t *)((char *)s1 + 72) = (*(uint32_t *)((char *)(s0) + 128));
-    *(uint32_t *)((char *)s1 + 108) = (*(uint32_t *)((char *)(s0) + 136));
-    *(uint32_t *)((char *)s1 + 100) = (*(uint32_t *)((char *)(s0) + 132));
-    local_18 = *(uint32_t *)((char *)(s0) + 136);
-    local_14 = *(uint32_t *)((char *)(s0) + 132);
-    local_10 = *(uint32_t *)((char *)(s0) + 128);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC25, *(uint32_t *)((char *)(s0) + 104), *(uint32_t *)((char *)(s0) + 124)); /* jalr target resolved by relocation */
-
-tisp_ae_set_exprinfo_attr0x18c:
-    /* fragment 22: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 60);
-
-tisp_ae_set_exprinfo_attr0x190:
-    /* fragment 23: Arithmetic */
-    v0 = 1;
-
-    /* fragment 24: Branch */
-    int _bc_v1_24 = v1 != v0;
-    v0 = 152;
-    if (_bc_v1_24) { goto tisp_ae_set_exprinfo_attr0x5a0; }
-
-    /* fragment 25: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 92);
-
-tisp_ae_set_exprinfo_attr0x1a0:
-    /* fragment 26: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 20) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 64);
-    v0 = 1;
-
-    /* fragment 27: Branch */
-    int _bc_v1_27 = v1 != v0;
-    v0 = 152;
-    if (_bc_v1_27) { goto tisp_ae_set_exprinfo_attr0x5b0; }
-
-    /* fragment 28: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 96);
-
-tisp_ae_set_exprinfo_attr0x1b8:
-    /* fragment 29: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 24) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 56);
-    v0 = 1;
-
-    /* fragment 30: Branch */
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x5c0; }
-
-    /* fragment 31: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 0);
-
-    /* fragment 32: Branch */
-    v0 = *(uint32_t *)((char *)(s0) + 88);
-    if (v1 == 0) { goto tisp_ae_set_exprinfo_attr0x1e0; }
-
-    /* fragment 33: Unknown */
-    /* unmatched fragment 33 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2bf2c:	0052001b 	divu	zero,v0,s2 */
-
-    /* fragment 34: Arithmetic */
-    /* unmatched fragment 34 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 2bf30:	00001012 	mflo	v0 */
-
-tisp_ae_set_exprinfo_attr0x1e0:
-    /* fragment 35: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 28) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 68);
-    v0 = 1;
-
-    /* fragment 36: Branch */
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x5d4; }
-
-    /* fragment 37: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 100);
-
-tisp_ae_set_exprinfo_attr0x1f8:
-    /* fragment 38: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 32) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 160);
-    v0 = 1;
-
-    /* fragment 39: Branch */
-    int _bc_v1_39 = v1 != v0;
-    v0 = 152;
-    if (_bc_v1_39) { goto tisp_ae_set_exprinfo_attr0x5dc; }
-
-    /* fragment 40: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 192);
-
-tisp_ae_set_exprinfo_attr0x210:
-    /* fragment 41: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 80) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 156);
-    v0 = 1;
-
-    /* fragment 42: Branch */
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x5ec; }
-
-    /* fragment 43: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 0);
-
-    /* fragment 44: Branch */
-    v0 = *(uint32_t *)((char *)(s0) + 188);
-    if (v1 == 0) { goto tisp_ae_set_exprinfo_attr0x238; }
-
-    /* fragment 45: Unknown */
-    /* unmatched fragment 45 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2bf84:	0052001b 	divu	zero,v0,s2 */
-
-    /* fragment 46: Arithmetic */
-    /* unmatched fragment 46 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 2bf88:	00001012 	mflo	v0 */
-
-tisp_ae_set_exprinfo_attr0x238:
-    /* fragment 47: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 84) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 164);
-    v0 = 1;
-
-    /* fragment 48: Branch */
-    int _bc_v1_48 = v1 != v0;
-    v0 = 152;
-    if (_bc_v1_48) { goto tisp_ae_set_exprinfo_attr0x600; }
-
-    /* fragment 49: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 196);
-
-tisp_ae_set_exprinfo_attr0x250:
-    /* fragment 50: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 88) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 168);
-    v0 = 1;
-
-    /* fragment 51: Branch */
-    int _bc_v1_51 = v1 != v0;
-    v0 = 152;
-    if (_bc_v1_51) { goto tisp_ae_set_exprinfo_attr0x610; }
-
-    /* fragment 52: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 200);
-
-tisp_ae_set_exprinfo_attr0x268:
-    /* fragment 53: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 92) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 44);
-    v0 = 1;
-
-    /* fragment 54: Branch */
-    int _bc_v1_54 = v1 != v0;
-    v0 = 1024;
-    if (_bc_v1_54) { goto tisp_ae_set_exprinfo_attr0x280; }
-
-    /* fragment 55: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 76);
-
-tisp_ae_set_exprinfo_attr0x280:
-    /* fragment 56: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 112) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 48);
-    v0 = 1;
-
-    /* fragment 57: Branch */
-    int _bc_v1_57 = v1 != v0;
-    v0 = 1024;
-    if (_bc_v1_57) { goto tisp_ae_set_exprinfo_attr0x298; }
-
-    /* fragment 58: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 80);
-
-tisp_ae_set_exprinfo_attr0x298:
-    /* fragment 59: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 116) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 40);
-    v0 = 1;
-
-    /* fragment 60: Branch */
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x628; }
-
-    /* fragment 61: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 0);
-
-    /* fragment 62: Branch */
-    v0 = *(uint32_t *)((char *)(s0) + 72);
-    if (v1 == 0) { goto tisp_ae_set_exprinfo_attr0x2c0; }
-
-    /* fragment 63: Unknown */
-    /* unmatched fragment 63 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2c00c:	0052001b 	divu	zero,v0,s2 */
-
-    /* fragment 64: Arithmetic */
-    /* unmatched fragment 64 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 2c010:	00001012 	mflo	v0 */
-
-tisp_ae_set_exprinfo_attr0x2c0:
-    /* fragment 65: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 120) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 52);
-    v0 = 1;
-
-    /* fragment 66: Branch */
-    int _bc_v1_66 = v1 != v0;
-    v0 = 1024;
-    if (_bc_v1_66) { goto tisp_ae_set_exprinfo_attr0x2d8; }
-
-    /* fragment 67: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 84);
-
-tisp_ae_set_exprinfo_attr0x2d8:
-    /* fragment 68: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 124) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 144);
-    v0 = 1;
-
-    /* fragment 69: Branch */
-    int _bc_v1_69 = v1 != v0;
-    v0 = 1024;
-    if (_bc_v1_69) { goto tisp_ae_set_exprinfo_attr0x2f0; }
-
-    /* fragment 70: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 176);
-
-tisp_ae_set_exprinfo_attr0x2f0:
-    /* fragment 71: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 128) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 140);
-    v0 = 1;
-
-    /* fragment 72: Branch */
-    a0 = 152;
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x644; }
-
-    /* fragment 73: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 0);
-
-    /* fragment 74: Branch */
-    v0 = *(uint32_t *)((char *)(s0) + 172);
-    if (v1 == 0) { goto tisp_ae_set_exprinfo_attr0x318; }
-
-    /* fragment 75: Unknown */
-    /* unmatched fragment 75 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2c064:	0052001b 	divu	zero,v0,s2 */
-
-    /* fragment 76: Arithmetic */
-    /* unmatched fragment 76 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 2c068:	00001012 	mflo	v0 */
-
-tisp_ae_set_exprinfo_attr0x318:
-    /* fragment 77: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 132) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 148);
-    v0 = 1;
-
-    /* fragment 78: Branch */
-    int _bc_v1_78 = v1 != v0;
-    v0 = 1024;
-    if (_bc_v1_78) { goto tisp_ae_set_exprinfo_attr0x330; }
-
-    /* fragment 79: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 180);
-
-tisp_ae_set_exprinfo_attr0x330:
-    /* fragment 80: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 136) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 152);
-    v0 = 1;
-
-    /* fragment 81: Branch */
-    int _bc_v1_81 = v1 != v0;
-    v0 = 1024;
-    if (_bc_v1_81) { goto tisp_ae_set_exprinfo_attr0x348; }
-
-    /* fragment 82: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 184);
-
-tisp_ae_set_exprinfo_attr0x348:
-    /* fragment 83: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 140) = v0;
-    v0 = *(uint32_t *)((char *)s5 + 172);
-    *(uint8_t *)((char *)v0 + 0) = 0;
-    ra = local_3c;
-    s6 = local_38;
-    s5 = local_34;
-    s4 = local_30;
-    s3 = local_2c;
-    s2 = local_28;
-    s1 = local_24;
-    s0 = local_20;
-
-    /* fragment 84: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_ae_set_exprinfo_attr0x37c:
-    /* fragment 85: Arithmetic */
-    s1 = (uintptr_t *)&tisp_ae_sec_ctrls;
-    s5 = (uintptr_t)&isp_memopt;
-    s1 = s1;
-
-    /* fragment 86: Branch */
-    s5 = (uintptr_t)((char *)&pstSecAeOri);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x40"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x40; } }
-
-tisp_ae_set_exprinfo_attr0x390:
-    /* fragment 87: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 8);
-    *(uint32_t *)((char *)s1 + 52) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 8);
-
-    /* fragment 88: Branch */
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x3dc; }
-
-    /* fragment 89: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 0);
-
-    /* fragment 90: Branch */
-    v0 = *(uint32_t *)((char *)(s0) + 24);
-    if (v1 == 0) { goto tisp_ae_set_exprinfo_attr0x3b8; }
-
-    /* fragment 91: CallSetup */
-    /* unmatched fragment 91 (CallSetup): call fragment did not include a relocated symbol */
-    /* asm: 2c104:	0052001b 	divu	zero,v0,s2 */
-    /* asm: 2c108:	00001012 	mflo	v0 */
-
-tisp_ae_set_exprinfo_attr0x3b8:
-    /* fragment 92: CallSetup */
-    *(uint32_t *)((char *)s1 + 12) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC21, *(uint32_t *)((char *)(s0) + 8), *(uint32_t *)((char *)(s0) + 24)); /* jalr target resolved by relocation */
-
-tisp_ae_set_exprinfo_attr0x3dc:
-    /* fragment 93: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 12);
-    *(uint32_t *)((char *)s1 + 56) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 12);
-    v0 = 1;
-
-    /* fragment 94: Branch */
-    a1 = (uint32_t *)&LC22;
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x418; }
-
-    /* fragment 95: CallSetup */
-    *(uint32_t *)((char *)s1 + 4) = (*(uint32_t *)((char *)(s0) + 28));
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC22, *(uint32_t *)((char *)(s0) + 12), *(uint32_t *)((char *)(s0) + 28)); /* jalr target resolved by relocation */
-
-tisp_ae_set_exprinfo_attr0x418:
-    /* fragment 96: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 20);
-    *(uint32_t *)((char *)s1 + 60) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 20);
-    v0 = 1;
-
-    /* fragment 97: Branch */
-    a1 = (uint32_t *)&LC23;
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x454; }
-
-    /* fragment 98: CallSetup */
-    *(uint32_t *)((char *)s1 + 16) = (*(uint32_t *)((char *)(s0) + 36));
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC23, *(uint32_t *)((char *)(s0) + 20), *(uint32_t *)((char *)(s0) + 36)); /* jalr target resolved by relocation */
-
-tisp_ae_set_exprinfo_attr0x454:
-    /* fragment 99: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 16);
-    *(uint32_t *)((char *)s1 + 144) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 16);
-    v0 = 1;
-
-    /* fragment 100: Branch */
-    a1 = (uint32_t *)&LC24;
-    if (v1 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x10c"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x10c; } } }
-
-    /* fragment 101: CallSetup */
-    *(uint32_t *)((char *)s1 + 8) = (*(uint32_t *)((char *)(s0) + 32));
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC24, *(uint32_t *)((char *)(s0) + 16), *(uint32_t *)((char *)(s0) + 32)); /* jalr target resolved by relocation */
-
-    /* fragment 102: Branch */
-    v0 = *(uint32_t *)((char *)(s0) + 104);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x110"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x110; } }
-
-tisp_ae_set_exprinfo_attr0x498:
-    /* fragment 103: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 108);
-    *(uint32_t *)((char *)s1 + 64) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 108);
-
-    /* fragment 104: Branch */
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x4e4; }
-
-    /* fragment 105: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 0);
-
-    /* fragment 106: Branch */
-    v0 = *(uint32_t *)((char *)(s0) + 124);
-    if (v1 == 0) { goto tisp_ae_set_exprinfo_attr0x4c0; }
-
-    /* fragment 107: CallSetup */
-    /* unmatched fragment 107 (CallSetup): call fragment did not include a relocated symbol */
-    /* asm: 2c20c:	0052001b 	divu	zero,v0,s2 */
-    /* asm: 2c210:	00001012 	mflo	v0 */
-
-tisp_ae_set_exprinfo_attr0x4c0:
-    /* fragment 108: CallSetup */
-    *(uint32_t *)((char *)s1 + 76) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC26, *(uint32_t *)((char *)(s0) + 104), *(uint32_t *)((char *)(s0) + 124)); /* jalr target resolved by relocation */
-
-tisp_ae_set_exprinfo_attr0x4e4:
-    /* fragment 109: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 112);
-    *(uint32_t *)((char *)s1 + 68) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 112);
-    v0 = 1;
-
-    /* fragment 110: Branch */
-    a1 = (uint32_t *)&LC27;
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x520; }
-
-    /* fragment 111: CallSetup */
-    *(uint32_t *)((char *)s1 + 72) = (*(uint32_t *)((char *)(s0) + 128));
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC27, *(uint32_t *)((char *)(s0) + 112), *(uint32_t *)((char *)(s0) + 128)); /* jalr target resolved by relocation */
-
-tisp_ae_set_exprinfo_attr0x520:
-    /* fragment 112: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 120);
-    *(uint32_t *)((char *)s1 + 104) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 120);
-    v0 = 1;
-
-    /* fragment 113: Branch */
-    a1 = (uint32_t *)&LC28;
-    if (v1 != v0) { goto tisp_ae_set_exprinfo_attr0x55c; }
-
-    /* fragment 114: CallSetup */
-    *(uint32_t *)((char *)s1 + 108) = (*(uint32_t *)((char *)(s0) + 136));
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC28, *(uint32_t *)((char *)(s0) + 120), *(uint32_t *)((char *)(s0) + 136)); /* jalr target resolved by relocation */
-
-tisp_ae_set_exprinfo_attr0x55c:
-    /* fragment 115: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 116);
-    *(uint32_t *)((char *)s1 + 148) = v0;
-    v1 = *(uint32_t *)((char *)s0 + 116);
-    v0 = 1;
-
-    /* fragment 116: Branch */
-    a1 = (uint32_t *)&LC29;
-    if (v1 != v0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x18c"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x18c; } } }
-
-    /* fragment 117: CallSetup */
-    *(uint32_t *)((char *)s1 + 100) = (*(uint32_t *)((char *)(s0) + 132));
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC29, *(uint32_t *)((char *)(s0) + 116), *(uint32_t *)((char *)(s0) + 132)); /* jalr target resolved by relocation */
-
-    /* fragment 118: Branch */
-    v1 = *(uint32_t *)((char *)(s0) + 60);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x190"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x190; } }
-
-tisp_ae_set_exprinfo_attr0x5a0:
-    /* fragment 119: Arithmetic */
-    v1 = (uintptr_t)s3 * (uintptr_t)v0;
-    v0 = (uintptr_t)v1 + (uintptr_t)s4;
-
-    /* fragment 120: Branch */
-    v0 = *(uint32_t *)((char *)(v0) + 28);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x1a0"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x1a0; } }
-
-tisp_ae_set_exprinfo_attr0x5b0:
-    /* fragment 121: Arithmetic */
-    v1 = (uintptr_t)s3 * (uintptr_t)v0;
-    v0 = (uintptr_t)v1 + (uintptr_t)s4;
-
-    /* fragment 122: Branch */
-    v0 = *(uint32_t *)((char *)(v0) + 32);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x1b8"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x1b8; } }
-
-tisp_ae_set_exprinfo_attr0x5c0:
-    /* fragment 123: Arithmetic */
-    v0 = 152;
-    v1 = (uintptr_t)s3 * (uintptr_t)v0;
-    v0 = (uintptr_t)v1 + (uintptr_t)s4;
-
-    /* fragment 124: Branch */
-    v0 = *(uint16_t *)((char *)(v0) + 72);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x1e0"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x1e0; } }
-
-tisp_ae_set_exprinfo_attr0x5d4:
-    /* fragment 125: Branch */
-    v0 = *(uint32_t *)((char *)(s6) + 308);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x1f8"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x1f8; } }
-
-tisp_ae_set_exprinfo_attr0x5dc:
-    /* fragment 126: Arithmetic */
-    v1 = (uintptr_t)s3 * (uintptr_t)v0;
-    v0 = (uintptr_t)v1 + (uintptr_t)s4;
-
-    /* fragment 127: Branch */
-    v0 = *(uint32_t *)((char *)(v0) + 92);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x210"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x210; } }
-
-tisp_ae_set_exprinfo_attr0x5ec:
-    /* fragment 128: Arithmetic */
-    v0 = 152;
-    v1 = (uintptr_t)s3 * (uintptr_t)v0;
-    v0 = (uintptr_t)v1 + (uintptr_t)s4;
-
-    /* fragment 129: Branch */
-    v0 = *(uint16_t *)((char *)(v0) + 84);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x238"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x238; } }
-
-tisp_ae_set_exprinfo_attr0x600:
-    /* fragment 130: Arithmetic */
-    v1 = (uintptr_t)s3 * (uintptr_t)v0;
-    v0 = (uintptr_t)v1 + (uintptr_t)s4;
-
-    /* fragment 131: Branch */
-    v0 = *(uint32_t *)((char *)(v0) + 32);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x250"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x250; } }
-
-tisp_ae_set_exprinfo_attr0x610:
-    /* fragment 132: Arithmetic */
-    v1 = (uintptr_t)s3 * (uintptr_t)v0;
-    v0 = (uintptr_t)v1 + (uintptr_t)s4;
-
-    /* fragment 133: Branch */
-    v0 = *(uint32_t *)((char *)(v0) + 32);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x268"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x268; } }
-
-    /* fragment 134: Branch */
-    v0 = 1024;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x298"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x298; } }
-
-tisp_ae_set_exprinfo_attr0x628:
-    /* fragment 135: Arithmetic */
-    v0 = 152;
-    v1 = (uintptr_t)s3 * (uintptr_t)v0;
-    v0 = (uintptr_t)v1 + (uintptr_t)s4;
-
-    /* fragment 136: Branch */
-    v0 = *(uint16_t *)((char *)(v0) + 56);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x2c0"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x2c0; } }
-
-    /* fragment 137: Branch */
-    v0 = 1024;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_set_exprinfo_attr", "0x2f0"); else { __lg--; goto tisp_ae_set_exprinfo_attr0x2f0; } }
-
-tisp_ae_set_exprinfo_attr0x644:
-    ;
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    const uint32_t *A = (const uint32_t *)a1;
+    uint32_t *c = a0 ? tisp_ae_sec_ctrls_storage : tisp_ae_main_ctrls_storage;
+    unsigned char *ori = a0 ? pstSecAeOri_storage : pstMainAeOri_storage;
+    const unsigned char *pi = tisp_par_info + a0 * 152U;
+    const unsigned char *tp = (const unsigned char *)(uintptr_t)tparamsN[a0];
+    uint32_t p44 = *(const uint32_t *)(pi + 44);
+    uint32_t den = ((uint32_t)*(const uint16_t *)(pi + 70) * p44) >> 16;
+    uint32_t div = den ? ((p44 & 0xffffU) * 1000000U) / den : 0;
+    uint8_t *flag;
+
+#define T40_EXPR_US(v) ((A[0] && div) ? (uint32_t)(v) / div : (uint32_t)(v))
+    if (a0 > 1 || !A)
+        return -1;
+    c[0] = A[1];
+    if (A[1] == 1) {
+        c[3] = T40_EXPR_US(A[6]);
+        c[1] = A[7];
+        c[4] = A[9];
+        c[2] = A[8];
+    } else {
+        c[13] = A[2];
+        if (A[2] == 1)
+            c[3] = T40_EXPR_US(A[6]);
+        c[14] = A[3];
+        if (A[3] == 1)
+            c[1] = A[7];
+        c[15] = A[5];
+        if (A[5] == 1)
+            c[4] = A[9];
+        c[36] = A[4];
+        if (A[4] == 1)
+            c[2] = A[8];
+    }
+    c[24] = A[26];
+    if (A[26] == 1) {
+        c[19] = T40_EXPR_US(A[31]);
+        c[18] = A[32];
+        c[27] = A[34];
+        c[25] = A[33];
+    } else {
+        c[16] = A[27];
+        if (A[27] == 1)
+            c[19] = T40_EXPR_US(A[31]);
+        c[17] = A[28];
+        if (A[28] == 1)
+            c[18] = A[32];
+        c[26] = A[30];
+        if (A[30] == 1)
+            c[27] = A[34];
+        c[37] = A[29];
+        if (A[29] == 1)
+            c[25] = A[33];
+    }
+    c[5] = (A[15] == 1) ? A[23] : *(const uint32_t *)(pi + 28);
+    c[6] = (A[16] == 1) ? A[24] : *(const uint32_t *)(pi + 32);
+    c[7] = (A[14] == 1) ? T40_EXPR_US(A[22]) : *(const uint16_t *)(pi + 72);
+    c[8] = (A[17] == 1) ? A[25] : (tp ? *(const uint32_t *)(tp + 308) : c[8]);
+    c[20] = (A[40] == 1) ? A[48] : *(const uint32_t *)(pi + 92);
+    c[21] = (A[39] == 1) ? T40_EXPR_US(A[47]) : *(const uint16_t *)(pi + 84);
+    c[22] = (A[41] == 1) ? A[49] : *(const uint32_t *)(pi + 32);
+    c[23] = (A[42] == 1) ? A[50] : *(const uint32_t *)(pi + 32);
+    c[28] = (A[11] == 1) ? A[19] : 1024;
+    c[29] = (A[12] == 1) ? A[20] : 1024;
+    c[30] = (A[10] == 1) ? T40_EXPR_US(A[18]) : *(const uint16_t *)(pi + 56);
+    c[31] = (A[13] == 1) ? A[21] : 1024;
+    c[32] = (A[36] == 1) ? A[44] : 1024;
+    c[33] = (A[35] == 1) ? T40_EXPR_US(A[43]) : *(const uint16_t *)(pi + 82);
+    c[34] = (A[37] == 1) ? A[45] : 1024;
+    c[35] = (A[38] == 1) ? A[46] : 1024;
+#undef T40_EXPR_US
+    /* OEM: *(u8 *)pst{Main,Sec}AeOri[+0xac] = 0 (re-sync request for the AE thread) */
+    flag = *(uint8_t **)(ori + 0xac);
+    if (flag)
+        *flag = 0;
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002c3b0 origin=fragment_seed original=tisp_ae_api_get_faceae */
@@ -95679,125 +94799,36 @@ tisp_af_set_attr0x88:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f2f0 origin=fragment_seed original=tisp_af_set_weight */
 char* tisp_af_set_weight(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uintptr_t s5 = 0;
-    uintptr_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s8 = a0;
-
-    /* fragment 2: Branch */
-    s4 = a1;
-    if (a0 != 0) { goto tisp_af_set_weight0x4c; }
-
-    /* fragment 3: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-    s0 = (uintptr_t *)&pstMainAfOri;
-
-    /* fragment 4: MemoryAccess */
-    v1 = *(uint32_t *)((char *)((char *)&stMainAfOuter));
-
-    /* fragment 5: Branch */
-    s0 = (uintptr_t *)((char *)&pstMainAfOri);
-    goto tisp_af_set_weight0x5c;
-
-tisp_af_set_weight0x4c:
-    /* fragment 6: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 7: MemoryAccess */
-    v1 = *(uint32_t *)((char *)((char *)&stSecAfOuter));
-    s0 = (uintptr_t *)&isp_memopt;
-    s0 = s0 + 15044;
-
-tisp_af_set_weight0x5c:
-    /* fragment 8: CallSetup */
-    s5 = s8 << 2;
-    *(uint8_t *)((char *)(*(uint32_t *)((char *)(s0) + 32)) + 0) = 0;
-    s3 = s5 + &tparamsN;
-    *(uint8_t *)((char *)(*(uint32_t *)((char *)(s0) + 28)) + 0) = 1;
-    s1 = 65536;
-    s1 = (uintptr_t)s1 | 35000;
-    local_10 = v1;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)((uintptr_t)s3) + 0)) + (65536 | 35000)), (uintptr_t)s4, 225); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    s7 = s1 + 388;
-    s6 = s5 + &tparams_day;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)(s3) + 0)) + (s1 + 388)), (void *)(uintptr_t)s4, 225); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)(s6) + 0)) + (uintptr_t)s1), (uintptr_t)s4, 225); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)(s6) + 0)) + s7), (void *)(uintptr_t)s4, 225); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    s5 = s5 + &tparams_night;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)(s5) + 0)) + (uintptr_t)s1), (uintptr_t)s4, 225); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)(s5) + 0)) + s7), (void *)(uintptr_t)s4, 225); /* jalr target resolved by relocation */
-
-    /* fragment 14: CallSetup */
-    s1 = s1 - 580;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_af_params_refresh)(s0, local_10, (*(uint32_t *)((char *)(s3) + 0)) + (s1 - 580)); /* jalr target resolved by relocation */
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_af_set_hardware_param)((uintptr_t)s0, s8 & 255); /* jalr target resolved by relocation */
-
-    /* fragment 16: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 28);
-    *(uint8_t *)((char *)v0 + 0) = 0;
-    ra = local_3c;
-    s8 = local_38;
-    s7 = local_34;
-    s6 = local_30;
-    s5 = local_2c;
-    s4 = local_28;
-    s3 = local_24;
-    s2 = local_20;
-    s1 = local_1c;
-    s0 = local_18;
-
-    /* fragment 17: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return (char*)v0;
+    /* T40-AF-WEIGHT: OEM 0x2e590 stores the 225 B zone weights in the tuning banks (tparamsN /
+     * tparams_day / tparams_night at 0x188b8 and 0x188b8 + 388), then refreshes the AF context
+     * (tisp_af_params_refresh(ori, outer, bank) + tisp_af_set_hardware_param) under the busy flag
+     * *(ori+28).  This build has no AF context: tisp_af_params_transmit is fed &isp_memopt and
+     * pstMainAfOri is a scalar, so ori+0/16/20/28/36 are neighbouring statics (proof p6: Oops in
+     * tisp_af_params_refresh, NULL+0xc98).  Store the banks only (GetAfWeight reads them back);
+     * the AF refresh stays off until the AF context is rebuilt (no AF lens on the T40 test cams). */
+    static const uint32_t off = 0x188b8;
+    uintptr_t banks[3];
+    int i;
+    if (a0 != 0 || !a1) return NULL;
+    banks[0] = tparamsN[0]; banks[1] = tparams_day; banks[2] = tparams_night;
+    for (i = 0; i < 3; i++) {
+        if (!regtrace_is_kernel_ptr((void *)banks[i])) continue;
+        memcpy((void *)(banks[i] + off), (const void *)(uintptr_t)a1, 225);
+        memcpy((void *)(banks[i] + off + 388), (const void *)(uintptr_t)a1, 225);
+    }
+    return NULL;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f488 origin=model_output original=tisp_af_get_weight */
 int32_t tisp_af_get_weight(int32_t arg1, int32_t *dest)
 {
-    int32_t *ptr = (int32_t *)&tparamsN[arg1];
-    int32_t loaded = *ptr;
-    char *src = (char *)(loaded + 0x188b8);
-    memcpy(dest, src, 225);
-    return loaded;
+    /* OEM 0x2e728: memcpy(buf, tparamsN[vinum] + 0x188b8, 225). */
+    uintptr_t base;
+    if ((uint32_t)arg1 > 1 || !dest) return -EINVAL;
+    base = tparamsN[arg1];
+    if (!regtrace_is_kernel_ptr((void *)base)) return -EAGAIN;
+    memcpy(dest, (const void *)(base + 0x188b8), 225);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f4c0 origin=fragment_seed original=tisp_af_get_metric */
@@ -98594,30 +97625,16 @@ int32_t tisp_awb_get_mode(int32_t arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003432c origin=model_output original=tisp_awb_set_weight */
 char *tisp_awb_set_weight(int32_t arg1, void *arg2)
 {
-    char *base;
-    int32_t *i;
-    char byte_val;
-    char *dest;
-    char *result;
-
-    /* Select base address based on arg1 */
-    if (arg1 != 0) {
-        base = tisp_awb_data + 15668;  /* 0x3d34 */
-    } else {
-        base = tisp_awb_data + 16180;  /* 0x3f34 */
-    }
-
-    /* Loop: copy 225 bytes from arg2 to base + 0x8c + i */
-    for (i = 0; i != 225; i++) {
-        byte_val = *((char *)arg2 + (uintptr_t)i);
-        dest = (uintptr_t)base + 140 + (uintptr_t)i;  /* 140 = 0x8c */
-        *dest = byte_val;
-    }
-
-    /* Final store: set base + 0x190 to 0 */
-    result = base + 400;  /* 400 = 0x190 */
-    *result = 0;
-    return result;
+    /* T40-AWB-WEIGHT: hand translation of OEM 0x34834: copy 225 B into the buffer that
+     * pst{Main,Sec}AwbOri + 140 points to, then clear the byte flag *(ori + 400).
+     * The lift wrote into tisp_awb_data + 0x3f34 + 140 itself (out of bounds of a scalar). */
+    uint8_t *ori = arg1 ? (uint8_t *)pstSecAwbOri : (uint8_t *)pstMainAwbOri;
+    uint8_t *dst = (uint8_t *)(uintptr_t)*(uint32_t *)(ori + 140);
+    uint8_t *flag = (uint8_t *)(uintptr_t)*(uint32_t *)(ori + 400);
+    if (!arg2 || !regtrace_is_kernel_ptr(dst)) return NULL;
+    memcpy(dst, arg2, 225);
+    if (regtrace_is_kernel_ptr(flag)) *flag = 0;
+    return (char *)flag;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034374 origin=fragment_seed original=tisp_awb_get_weight */
@@ -122010,7 +121027,7 @@ int32_t tisp_gamma_real_write_lut(uint32_t a0)
 tisp_gamma_real_write_lut0x5c:
     /* fragment 6: CallSetup */
     local_20 = (uintptr_t)s2 << 2;
-    local_1c = (uintptr_t)((char *)&gamma_para + 17184);   /* T40-BSS: gamma ctx table (.bss+17840), the lift resolved it to &isp_memopt */
+    local_1c = (uintptr_t)T40_GAMMA_CTX_BASE;   /* T40-BSS: gamma ctx table (.bss+17840), the lift resolved it to &isp_memopt */
     s3 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(((uintptr_t)s2 << 2) + local_1c) + 0)) + 8);
     s1 = (uintptr_t *)&system_reg_write;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)((*(uint32_t *)((char *)(((uintptr_t)s2 << 2) + local_1c) + 0)) + 20, &local_10); /* jalr target resolved by relocation */
@@ -122196,7 +121213,7 @@ int32_t tisp_gamma_strength_transform(uint32_t a0)
     v0 = ((char *)&gamma_para);
 
     /* fragment 1: MemoryAccess */
-    v1 = *(uint32_t *)(((char *)&gamma_para + 17184) + ((uintptr_t)a0 << 2));   /* T40-ZEROBASE: gamma ctx of channel a0 */
+    v1 = *(uint32_t *)(T40_GAMMA_CTX_BASE + ((uintptr_t)a0 << 2));   /* T40-ZEROBASE: gamma ctx of channel a0 */
     if (!regtrace_is_kernel_ptr((void *)(uintptr_t)v1)) return 0;
     a0 = 1;
     v0 = *(uint32_t *)((char *)v1 + 16);
@@ -122289,7 +121306,7 @@ int64_t tisp_gamma_interp_by_ev(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t 
     v0 = ((char *)&gamma_para);
 
     /* fragment 1: MemoryAccess */
-    t1 = *(uint32_t *)((char *)&gamma_para + 17184 + ((uintptr_t)a0 << 2));   /* T40-ZEROBASE (OEM 0x491d4: lw t1,(.bss+17840 + ch*4)) - the lift dereferenced the channel number (MT54 gamma_init Oops NULL+0x10); same table/offset as tisp_gamma_ev_update */
+    t1 = *(uint32_t *)(T40_GAMMA_CTX_BASE + ((uintptr_t)a0 << 2));   /* T40-ZEROBASE (OEM 0x491d4: lw t1,(.bss+17840 + ch*4)) - the lift dereferenced the channel number (MT54 gamma_init Oops NULL+0x10); same table/offset as tisp_gamma_ev_update */
     if (!regtrace_is_kernel_ptr((void *)(uintptr_t)t1) || !regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)((char *)t1 + 4)) || !regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)((char *)t1 + 16))) { static unsigned int n; if (n++ < 2) printk(KERN_INFO "tx_isp_t40_recovered: gamma_interp_by_ev ch=%u: ctx %p not initialised\n", (unsigned)a0, (void *)(uintptr_t)t1); return 0; }
     t3 = (uintptr_t)arg4 & 0xffU;   /* OEM lbu t3,16(sp): 5th argument */
     a1 = 0;
@@ -122440,7 +121457,7 @@ int32_t tisp_gamma_ev_update(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
     v0 = -1;
     v1 = (int32_t *)((char *)&gamma_para);
     if (a3 != 0) { a2 = v0; }
-    v1 = (int32_t *)((char *)v1 + 17184);   /* T40-PTRSTEP: byte add (OEM addiu), the lift scaled x4 -> gamma_ev_update read the ctx from the wrong slot (MT65 'not initialised') */
+    v1 = (int32_t *)T40_GAMMA_CTX_BASE;   /* T40-PTRSTEP: byte add (OEM addiu), the lift scaled x4 -> gamma_ev_update read the ctx from the wrong slot (MT65 'not initialised') */
     v0 = a0 << 2;
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
 
@@ -122553,7 +121570,7 @@ int64_t tisp_gamma_wdr_en(uint32_t a0, uint32_t a1)
     /* fragment 0: Arithmetic */
     v1 = (int32_t *)&gamma_para;
     v0 = a0 << 2;
-    v1 = v1 + 17184;
+    v1 = (int32_t *)T40_GAMMA_CTX_BASE;   /* T40-GAMMA-CTX: the lift scaled x4 */
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
 
     /* fragment 1: StackAccess */
@@ -122652,7 +121669,7 @@ int32_t tisp_gamma_dn_params_refresh(uint32_t a0)
 
     /* fragment 2: StackAccess */
     local_28 = s4;
-    s0 = s0 + 17184;
+    s0 = (uintptr_t *)T40_GAMMA_CTX_BASE;   /* T40-GAMMA-CTX: the lift scaled x4 */
     s4 = a0 << 2;
     local_24 = s3;
     local_20 = s2;
@@ -122762,7 +121779,7 @@ int32_t tisp_gamma_init(uint32_t a0)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(24, 37748736 + 192); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    s0 = s5 + ((char *)&gamma_para + 17184);   /* T40-BSS: gamma ctx table (.bss+17840), the lift resolved it to &isp_memopt */
+    s0 = s5 + T40_GAMMA_CTX_BASE;   /* T40-BSS: gamma ctx table (.bss+17840), the lift resolved it to &isp_memopt */
     *(uint32_t *)((char *)s0 + 0) = v0;
     v0 = (uintptr_t *)memset((void *)(uintptr_t)v0, 0, 24); /* jalr target resolved by relocation */
 
@@ -123070,177 +122087,64 @@ int gamma_remove(struct platform_device *pdev)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000490e8 origin=fragment_seed original=tisp_gamma_set_attr */
 int32_t tisp_gamma_set_attr(uint32_t a0, uintptr_t a1)
 {
+    /* T40-GAMMA-SET: hand translation of OEM 0x493e8.  ctx = gamma_para[vinum] (24 B: p0 620 B LUT
+     * params, p8 264 B write LUT, p12 264 B user attr, p16 8 B state).  OEM copies the attr to
+     * ctx+12 itself (overruns the 24-byte ctx); we copy into the 264-byte buffer ctx+12 points to,
+     * which is where the OEM getter reads it from.  The lift used an isp_memopt-based table. */
+    uint8_t *ctx, *p0, *p8, *p12, *p16;
+    const uint8_t *curve;
+    const uint32_t *A = (const uint32_t *)a1;
     if (regtrace_isr_oem_hw_refresh) return t40_writer_gamma_control(a0, 4, a1, 0);
-
-    uint32_t *local_10 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uintptr_t s5 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s5 = a0 << 2;
-    s2 = s5 + &isp_memopt;
-    s4 = a0;
-    s3 = a1;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)(s2) + 0)) + 12)), (void *)(uintptr_t)a1, 264); /* jalr target resolved by relocation */
-
-    /* fragment 2: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s3 + 0);
-
-    /* fragment 3: Branch */
-    v0 = *(uint32_t *)((char *)(s2) + 0);
-    if (v1 != 0) { goto tisp_gamma_set_attr0xb0; }
-
-    /* fragment 4: CallSetup */
-    *(uint8_t *)((char *)(*(uint32_t *)((char *)(v0) + 16)) + 5) = 0;
-    local_10 = 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gamma_interp_by_ev)(s4); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gamma_strength_transform)(s4); /* jalr target resolved by relocation */
-
-tisp_gamma_set_attr0x98:
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gamma_prepare_write_lut)(s4); /* jalr target resolved by relocation */
-
-    /* fragment 7: Branch */
-    v0 = 0;
-    goto tisp_gamma_set_attr0x218;
-
-tisp_gamma_set_attr0xb0:
-    /* fragment 8: Arithmetic */
-    a1 = 1;
-
-    /* fragment 9: Branch */
-    a0 = *(uint32_t *)((char *)(v0) + 16);
-    if (v1 != a1) { goto tisp_gamma_set_attr0x154; }
-
-    /* fragment 10: CallSetup */
-    *(uint8_t *)((char *)a0 + 5) = v1;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(v0) + 0)), (void *)(uintptr_t)&static_srgb_gamma, 258); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)(*(uint32_t *)((char *)(s2) + 0)) + 0)) + 258), (void *)(uintptr_t)&static_srgb_gamma, 258); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    v0 = *(uint32_t *)((char *)s2 + 0);
-    a2 = 258;
-    a1 = s3;
-    a0 = *(uint32_t *)((char *)v0 + 8);
-
-tisp_gamma_set_attr0xfc:
-    /* fragment 13: CallSetup */
-    s5 = s1 + s5;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(a0 + 4), (void *)(uintptr_t)a1, a2); /* jalr target resolved by relocation */
-
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)((*(uint32_t *)((char *)(*(uint32_t *)((char *)(s5) + 0)) + 0)) + 556), 255, 10); /* jalr target resolved by relocation */
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)((*(uint32_t *)((char *)(*(uint32_t *)((char *)(s5) + 0)) + 0)) + 608), 255, 10); /* jalr target resolved by relocation */
-
-    /* fragment 16: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s5 + 0);
-    v1 = 255;
-    v0 = *(uint32_t *)((char *)v0 + 8);
-
-    /* fragment 17: Branch */
-    *(uint32_t *)((char *)v0 + 0) = v1;
-    goto tisp_gamma_set_attr0x98;
-
-tisp_gamma_set_attr0x154:
-    /* fragment 18: Arithmetic */
-    a2 = 2;
-
-    /* fragment 19: Branch */
-    int _bc_v1_19 = v1 != a2;
-    a2 = 258;
-    if (_bc_v1_19) { goto tisp_gamma_set_attr0x1a0; }
-
-    /* fragment 20: CallSetup */
-    *(uint8_t *)((char *)a0 + 5) = a1;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(v0) + 0)), (void *)(uintptr_t)&static_hdr_gamma, a2); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)(*(uint32_t *)((char *)(s2) + 0)) + 0)) + 258), (void *)(uintptr_t)&static_hdr_gamma, 258); /* jalr target resolved by relocation */
-
-    /* fragment 22: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s2 + 0);
-    a2 = 258;
-    a1 = s3;
-
-    /* fragment 23: Branch */
-    a0 = *(uint32_t *)((char *)(v0) + 8);
-    goto tisp_gamma_set_attr0xfc;
-
-tisp_gamma_set_attr0x1a0:
-    /* fragment 24: Arithmetic */
-    a2 = 3;
-
-    /* fragment 25: Branch */
-    s3 = s3 + 4;
-    if (v1 != a2) { goto tisp_gamma_set_attr0x1ec; }
-
-    /* fragment 26: CallSetup */
-    *(uint8_t *)((char *)a0 + 5) = a1;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)(v0) + 0)), (void *)(uintptr_t)s3, 258); /* jalr target resolved by relocation */
-
-    /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)(*(uint32_t *)((char *)(s2) + 0)) + 0)) + 258), (void *)(uintptr_t)s3, 258); /* jalr target resolved by relocation */
-
-    /* fragment 28: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s2 + 0);
-    a2 = 258;
-    a1 = s3;
-
-    /* fragment 29: Branch */
-    a0 = *(uint32_t *)((char *)(v0) + 8);
-    goto tisp_gamma_set_attr0xfc;
-
-tisp_gamma_set_attr0x1ec:
-    /* fragment 30: CallSetup */
-    *(uint8_t *)((char *)a0 + 5) = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC2, &__param_str_isp_dual_buf, 457); /* jalr target resolved by relocation */
-
-    /* fragment 31: Arithmetic */
-    v0 = -1;
-
-tisp_gamma_set_attr0x218:
-    /* fragment 32: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    if (a0 > 1 || !A) return -EINVAL;
+    ctx = (uint8_t *)(uintptr_t)*(uint32_t *)(T40_GAMMA_CTX_BASE + (a0 << 2));
+    if (!regtrace_is_kernel_ptr(ctx)) return -EAGAIN;
+    p0 = (uint8_t *)(uintptr_t)*(uint32_t *)(ctx + 0);
+    p8 = (uint8_t *)(uintptr_t)*(uint32_t *)(ctx + 8);
+    p12 = (uint8_t *)(uintptr_t)*(uint32_t *)(ctx + 12);
+    p16 = (uint8_t *)(uintptr_t)*(uint32_t *)(ctx + 16);
+    if (!regtrace_is_kernel_ptr(p0) || !regtrace_is_kernel_ptr(p8) || !regtrace_is_kernel_ptr(p12) ||
+        !regtrace_is_kernel_ptr(p16))
+        return -EAGAIN;
+    memcpy(p12, A, 264);
+    switch (A[0]) {
+    case 0:
+        p16[5] = 0;
+        tisp_gamma_interp_by_ev(a0, 0, *(uint32_t *)p16, 0, 1);
+        tisp_gamma_strength_transform(a0);
+        tisp_gamma_prepare_write_lut((int32_t)a0);
+        return 0;
+    case 1: curve = static_srgb_gamma; break;
+    case 2: curve = static_hdr_gamma; break;
+    case 3: curve = (const uint8_t *)A + 4; break;
+    default:
+        p16[5] = 0;
+        isp_printf(1, "%s: bad gamma mode %u\n", "tisp_gamma_set_attr", A[0]);
+        return -1;
+    }
+    p16[5] = 1;
+    memcpy(p0, curve, 258);
+    memcpy(p0 + 258, curve, 258);
+    memcpy(p8 + 4, curve, 258);
+    memset(p0 + 556, 255, 10);
+    memset(p0 + 608, 255, 10);
+    *(uint32_t *)p8 = 255;
+    tisp_gamma_prepare_write_lut((int32_t)a0);
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000049324 origin=model_output original=tisp_gamma_get_attr */
 int32_t tisp_gamma_get_attr(int32_t arg1, int32_t arg2)
 {
+    /* T40-GAMMA-GET: OEM 0x49624: memcpy(buf, gamma_para[vinum]->curve (ctx+12), 264).
+     * The lift read a table at &bss_data[0x4320] (16-entry array -> random pointer, GetGamma Oops)
+     * and copied from ctx+12 instead of the buffer that ctx+12 points to. */
+    uint8_t *ctx;
     if (regtrace_isr_oem_hw_refresh) return t40_writer_gamma_control(arg1, 3, (uintptr_t)(uint32_t)arg2, 0);
-
-    void *base = (void *)&bss_data[0x4320];
-    void *src_ptr = *(void **)((char *)base + (arg1 << 2));
-    void *source = (char *)src_ptr + 0xc;
-    
-    memcpy(arg2, source, 264);
-    
+    if ((uint32_t)arg1 > 1 || !arg2) return -EINVAL;
+    ctx = (uint8_t *)(uintptr_t)*(uint32_t *)(T40_GAMMA_CTX_BASE + ((uint32_t)arg1 << 2));
+    if (!regtrace_is_kernel_ptr(ctx) || !regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)(ctx + 12)))
+        return -EAGAIN;
+    memcpy((void *)(uintptr_t)arg2, (void *)(uintptr_t)*(uint32_t *)(ctx + 12), 264);
     return 0;
 }
 
@@ -154748,7 +153652,7 @@ tisp_sdns_wdr_en0x18:
     /* fragment 3: Arithmetic */
     a2 = (uint32_t *)&isp_memopt;
     a0 = a0 << 2;
-    a2 = a2 + 18200;
+    a2 = (uint32_t *)t40_sdns_wdr_en;   /* T40-SDNS-WDR: OEM sdns_wdr_en[2]; the lift wrote &isp_memopt + 72800 (out of bounds) */
     a0 = a0 + (uintptr_t)a2;
 
     /* fragment 4: Branch */
@@ -155952,1361 +154856,47 @@ tisp_sdns_param_array_set0x64:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000063e00 origin=fragment_seed original=tisp_s_sdns_ratio */
 int64_t tisp_s_sdns_ratio(uint32_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t t0 = 0;
-    uint32_t *t1 = 0;
-    uint32_t *t2 = 0;
-    uintptr_t *t3 = 0;
-    uintptr_t *t4 = 0;
-    uintptr_t *t5 = 0;
-    uint32_t *t6 = 0;
-    uint32_t t7 = 0;
-    uint32_t *t8 = 0;
-    uintptr_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    if (a0 == 0) { goto tisp_s_sdns_ratio0x518; }
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)&isp_memopt;
-    s0 = *(uint32_t *)((char *)((char *)&sec_sdns_comb));
-
-tisp_s_sdns_ratio0x20:
-    /* fragment 3: CallSetup */
-    local_10 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_get_tuning)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 4: Arithmetic */
-    a1 = 128;
-
-    /* fragment 5: Branch */
-    a0 = local_10;
-    if (v0 == 0) { goto tisp_s_sdns_ratio0x54; }
-
-    /* fragment 6: Arithmetic */
-    v1 = a0 << 7;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-
-    /* fragment 7: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v0 + 832);
-
-    /* fragment 8: Branch */
-    if (v1 == 0) { goto tisp_s_sdns_ratio0x54; }
-
-    /* fragment 9: MemoryAccess */
-    a1 = *(uint8_t *)((char *)v0 + 836);
-
-tisp_s_sdns_ratio0x54:
-    /* fragment 10: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-    t4 = (int32_t *)&tparamsN;
-    t5 = a0 << 2;
-    v0 = v0 + 18200;
-    t4 = t4;
-    v0 = (uintptr_t)t5 + (uintptr_t)v0;
-    t4 = (uintptr_t)t4 + (uintptr_t)t5;
-
-    /* fragment 11: MemoryAccess */
-    t8 = *(uint32_t *)((char *)v0 + 0);
-    a2 = a1 < 129;
-    v0 = 0;
-    t0 = 131072;
-    v1 = t4;
-    a3 = a1 - 128;
-    t6 = 200;
-    t2 = 16;
-    t1 = 65536;
-    t7 = 11;
-
-tisp_s_sdns_ratio0x98:
-    /* fragment 12: MemoryAccess */
-    t3 = *(uint32_t *)((char *)t4 + 0);
-    t9 = *(uint32_t *)((char *)s0 + 56);
-
-    /* fragment 13: Branch */
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    if (t8 != 0) { goto tisp_s_sdns_ratio0x5e4; }
-
-    /* fragment 14: Arithmetic */
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 15: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31733);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x524; }
-
-    /* fragment 16: Arithmetic */
-    s2 = t3 < 16;
-
-    /* fragment 17: Branch */
-    s1 = 0;
-    if (s2 == 0) { goto tisp_s_sdns_ratio0xc4; }
-
-    /* fragment 18: Arithmetic */
-    s1 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0xc4:
-    /* fragment 19: Arithmetic */
-    s1 = (uintptr_t)a3 * (uintptr_t)s1;
-    s1 = (uintptr_t *)((uintptr_t)s1 >> 7);
-    t3 = (uintptr_t)t3 + (uintptr_t)s1;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0xd4:
-    /* fragment 20: Arithmetic */
-    t9 = t9 + (uintptr_t)v0;
-
-    /* fragment 21: MemoryAccess */
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 22: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31744);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x530; }
-
-    /* fragment 23: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 24: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x100; }
-
-    /* fragment 25: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x100:
-    /* fragment 26: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x110:
-    /* fragment 27: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 60);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 28: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31755);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x53c; }
-
-    /* fragment 29: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 30: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x140; }
-
-    /* fragment 31: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x140:
-    /* fragment 32: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x150:
-    /* fragment 33: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 64);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 34: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31766);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x548; }
-
-    /* fragment 35: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 36: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x180; }
-
-    /* fragment 37: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x180:
-    /* fragment 38: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x190:
-    /* fragment 39: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 68);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 40: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31777);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x554; }
-
-    /* fragment 41: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 42: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x1c0; }
-
-    /* fragment 43: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x1c0:
-    /* fragment 44: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x1d0:
-    /* fragment 45: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 72);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 46: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31788);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x560; }
-
-    /* fragment 47: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 48: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x200; }
-
-    /* fragment 49: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x200:
-    /* fragment 50: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x210:
-    /* fragment 51: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 76);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 52: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31799);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x56c; }
-
-    /* fragment 53: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 54: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x240; }
-
-    /* fragment 55: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x240:
-    /* fragment 56: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x250:
-    /* fragment 57: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 80);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 58: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31810);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x578; }
-
-    /* fragment 59: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 60: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x280; }
-
-    /* fragment 61: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x280:
-    /* fragment 62: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x290:
-    /* fragment 63: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 84);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 64: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31821);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x584; }
-
-    /* fragment 65: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 66: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x2c0; }
-
-    /* fragment 67: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x2c0:
-    /* fragment 68: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x2d0:
-    /* fragment 69: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 88);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 70: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31832);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x590; }
-
-    /* fragment 71: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 72: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x300; }
-
-    /* fragment 73: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x300:
-    /* fragment 74: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x310:
-    /* fragment 75: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 92);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 76: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31843);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x59c; }
-
-    /* fragment 77: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 78: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x340; }
-
-    /* fragment 79: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x340:
-    /* fragment 80: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x350:
-    /* fragment 81: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 96);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 82: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31854);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x5a8; }
-
-    /* fragment 83: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 84: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x380; }
-
-    /* fragment 85: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x380:
-    /* fragment 86: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x390:
-    /* fragment 87: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 100);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 88: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31865);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x5b4; }
-
-    /* fragment 89: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 90: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x3c0; }
-
-    /* fragment 91: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x3c0:
-    /* fragment 92: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x3d0:
-    /* fragment 93: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 104);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 94: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31876);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x5c0; }
-
-    /* fragment 95: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 96: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x400; }
-
-    /* fragment 97: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x400:
-    /* fragment 98: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x410:
-    /* fragment 99: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 108);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 100: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31887);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x5cc; }
-
-    /* fragment 101: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 102: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x440; }
-
-    /* fragment 103: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x440:
-    /* fragment 104: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x450:
-    /* fragment 105: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 112);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-
-    /* fragment 106: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + 31898);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x5d8; }
-
-    /* fragment 107: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 108: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x480; }
-
-    /* fragment 109: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x480:
-    /* fragment 110: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x490:
-    /* fragment 111: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 116);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = (uintptr_t)t1 + (uintptr_t)t3;
-    t3 = *(uint8_t *)((char *)t3 + 32544);
-
-tisp_s_sdns_ratio0x4ac:
-    /* fragment 112: Branch */
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xaac; }
-
-    /* fragment 113: Arithmetic */
-    s1 = t3 < 200;
-
-    /* fragment 114: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x4c4; }
-
-    /* fragment 115: Arithmetic */
-    t9 = (uintptr_t)t6 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x4c4:
-    /* fragment 116: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x4d4:
-    /* fragment 117: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 340);
-    t9 = t9 + (uintptr_t)v0;
-    v0 = v0 + 1;
-
-    /* fragment 118: Branch */
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    if (v0 != t7) { goto tisp_s_sdns_ratio0x98; }
-
-    /* fragment 119: ConstantLoad */
-    v0 = ((char *)&gain_old);
-
-    /* fragment 120: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 121: MemoryAccess */
-    a1 = *(uint32_t *)((char *)t5 + 0);
-    t9 = (uintptr_t)&tisp_sdns_refresh;
-    t9 = t9;
-
-    /* fragment 122: Unknown */
-    /* unmatched fragment 122 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 64310:	03200408 	jr.hb	t9 */
-
-    /* fragment 123: Arithmetic */
-    /* unmatched fragment 123 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 64314:	27bd0028 	addiu	sp,sp,40 */
-
-tisp_s_sdns_ratio0x518:
-    /* fragment 124: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 125: Branch */
-    s0 = *(uint32_t *)((char *)((char *)&main_sdns_comb));
-    goto tisp_s_sdns_ratio0x20;
-
-tisp_s_sdns_ratio0x524:
-    /* fragment 126: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 127: Branch */
-    goto tisp_s_sdns_ratio0xd4;
-
-tisp_s_sdns_ratio0x530:
-    /* fragment 128: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 129: Branch */
-    goto tisp_s_sdns_ratio0x110;
-
-tisp_s_sdns_ratio0x53c:
-    /* fragment 130: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 131: Branch */
-    goto tisp_s_sdns_ratio0x150;
-
-tisp_s_sdns_ratio0x548:
-    /* fragment 132: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 133: Branch */
-    goto tisp_s_sdns_ratio0x190;
-
-tisp_s_sdns_ratio0x554:
-    /* fragment 134: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 135: Branch */
-    goto tisp_s_sdns_ratio0x1d0;
-
-tisp_s_sdns_ratio0x560:
-    /* fragment 136: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 137: Branch */
-    goto tisp_s_sdns_ratio0x210;
-
-tisp_s_sdns_ratio0x56c:
-    /* fragment 138: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 139: Branch */
-    goto tisp_s_sdns_ratio0x250;
-
-tisp_s_sdns_ratio0x578:
-    /* fragment 140: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 141: Branch */
-    goto tisp_s_sdns_ratio0x290;
-
-tisp_s_sdns_ratio0x584:
-    /* fragment 142: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 143: Branch */
-    goto tisp_s_sdns_ratio0x2d0;
-
-tisp_s_sdns_ratio0x590:
-    /* fragment 144: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 145: Branch */
-    goto tisp_s_sdns_ratio0x310;
-
-tisp_s_sdns_ratio0x59c:
-    /* fragment 146: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 147: Branch */
-    goto tisp_s_sdns_ratio0x350;
-
-tisp_s_sdns_ratio0x5a8:
-    /* fragment 148: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 149: Branch */
-    goto tisp_s_sdns_ratio0x390;
-
-tisp_s_sdns_ratio0x5b4:
-    /* fragment 150: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 151: Branch */
-    goto tisp_s_sdns_ratio0x3d0;
-
-tisp_s_sdns_ratio0x5c0:
-    /* fragment 152: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 153: Branch */
-    goto tisp_s_sdns_ratio0x410;
-
-tisp_s_sdns_ratio0x5cc:
-    /* fragment 154: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 155: Branch */
-    goto tisp_s_sdns_ratio0x450;
-
-tisp_s_sdns_ratio0x5d8:
-    /* fragment 156: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 157: Branch */
-    goto tisp_s_sdns_ratio0x490;
-
-tisp_s_sdns_ratio0x5e4:
-    /* fragment 158: Arithmetic */
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 159: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32368);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x9ec; }
-
-    /* fragment 160: Arithmetic */
-    s2 = t3 < 16;
-
-    /* fragment 161: Branch */
-    s1 = 0;
-    if (s2 == 0) { goto tisp_s_sdns_ratio0x600; }
-
-    /* fragment 162: Arithmetic */
-    s1 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x600:
-    /* fragment 163: Arithmetic */
-    s1 = (uintptr_t)a3 * (uintptr_t)s1;
-    s1 = (uintptr_t *)((uintptr_t)s1 >> 7);
-    t3 = (uintptr_t)t3 + (uintptr_t)s1;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x610:
-    /* fragment 164: Arithmetic */
-    t9 = t9 + (uintptr_t)v0;
-
-    /* fragment 165: MemoryAccess */
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 166: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32357);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0x9f8; }
-
-    /* fragment 167: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 168: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x63c; }
-
-    /* fragment 169: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x63c:
-    /* fragment 170: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x64c:
-    /* fragment 171: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 60);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 172: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32346);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa04; }
-
-    /* fragment 173: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 174: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x67c; }
-
-    /* fragment 175: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x67c:
-    /* fragment 176: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x68c:
-    /* fragment 177: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 64);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 178: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32335);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa10; }
-
-    /* fragment 179: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 180: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x6bc; }
-
-    /* fragment 181: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x6bc:
-    /* fragment 182: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x6cc:
-    /* fragment 183: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 68);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 184: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32324);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa1c; }
-
-    /* fragment 185: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 186: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x6fc; }
-
-    /* fragment 187: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x6fc:
-    /* fragment 188: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x70c:
-    /* fragment 189: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 72);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 190: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32313);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa28; }
-
-    /* fragment 191: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 192: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x73c; }
-
-    /* fragment 193: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x73c:
-    /* fragment 194: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x74c:
-    /* fragment 195: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 76);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 196: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32302);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa34; }
-
-    /* fragment 197: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 198: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x77c; }
-
-    /* fragment 199: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x77c:
-    /* fragment 200: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x78c:
-    /* fragment 201: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 80);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 202: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32291);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa40; }
-
-    /* fragment 203: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 204: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x7bc; }
-
-    /* fragment 205: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x7bc:
-    /* fragment 206: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x7cc:
-    /* fragment 207: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 84);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 208: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32280);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa4c; }
-
-    /* fragment 209: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 210: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x7fc; }
-
-    /* fragment 211: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x7fc:
-    /* fragment 212: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x80c:
-    /* fragment 213: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 88);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 214: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32269);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa58; }
-
-    /* fragment 215: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 216: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x83c; }
-
-    /* fragment 217: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x83c:
-    /* fragment 218: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x84c:
-    /* fragment 219: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 92);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 220: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32258);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa64; }
-
-    /* fragment 221: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 222: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x87c; }
-
-    /* fragment 223: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x87c:
-    /* fragment 224: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x88c:
-    /* fragment 225: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 96);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 226: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32247);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa70; }
-
-    /* fragment 227: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 228: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x8bc; }
-
-    /* fragment 229: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x8bc:
-    /* fragment 230: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x8cc:
-    /* fragment 231: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 100);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 232: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32236);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa7c; }
-
-    /* fragment 233: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 234: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x8fc; }
-
-    /* fragment 235: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x8fc:
-    /* fragment 236: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x90c:
-    /* fragment 237: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 104);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 238: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32225);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa88; }
-
-    /* fragment 239: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 240: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x93c; }
-
-    /* fragment 241: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x93c:
-    /* fragment 242: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x94c:
-    /* fragment 243: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 108);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 244: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32214);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xa94; }
-
-    /* fragment 245: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 246: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x97c; }
-
-    /* fragment 247: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x97c:
-    /* fragment 248: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x98c:
-    /* fragment 249: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 112);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 250: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -32203);
-    if (a2 != 0) { goto tisp_s_sdns_ratio0xaa0; }
-
-    /* fragment 251: Arithmetic */
-    s1 = t3 < 16;
-
-    /* fragment 252: Branch */
-    t9 = 0;
-    if (s1 == 0) { goto tisp_s_sdns_ratio0x9bc; }
-
-    /* fragment 253: Arithmetic */
-    t9 = (uintptr_t)t2 - (uintptr_t)t3;
-
-tisp_s_sdns_ratio0x9bc:
-    /* fragment 254: Arithmetic */
-    t9 = (uintptr_t)a3 * t9;
-    t9 = (int32_t)t9 >> 7;
-    t3 = t3 + t9;
-    t3 = (uintptr_t)t3 & 255;
-
-tisp_s_sdns_ratio0x9cc:
-    /* fragment 255: MemoryAccess */
-    t9 = *(uint32_t *)((char *)s0 + 116);
-    t9 = t9 + (uintptr_t)v0;
-    *(uint8_t *)((char *)t9 + 0) = t3;
-    t3 = *(uint32_t *)((char *)v1 + 0);
-    t3 = (uintptr_t)t3 + (uintptr_t)v0;
-    t3 = t0 + (uintptr_t)t3;
-
-    /* fragment 256: Branch */
-    t3 = *(uint8_t *)((char *)(t3) + -31590);
-    goto tisp_s_sdns_ratio0x4ac;
-
-tisp_s_sdns_ratio0x9ec:
-    /* fragment 257: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 258: Branch */
-    goto tisp_s_sdns_ratio0x610;
-
-tisp_s_sdns_ratio0x9f8:
-    /* fragment 259: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 260: Branch */
-    goto tisp_s_sdns_ratio0x64c;
-
-tisp_s_sdns_ratio0xa04:
-    /* fragment 261: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 262: Branch */
-    goto tisp_s_sdns_ratio0x68c;
-
-tisp_s_sdns_ratio0xa10:
-    /* fragment 263: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 264: Branch */
-    goto tisp_s_sdns_ratio0x6cc;
-
-tisp_s_sdns_ratio0xa1c:
-    /* fragment 265: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 266: Branch */
-    goto tisp_s_sdns_ratio0x70c;
-
-tisp_s_sdns_ratio0xa28:
-    /* fragment 267: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 268: Branch */
-    goto tisp_s_sdns_ratio0x74c;
-
-tisp_s_sdns_ratio0xa34:
-    /* fragment 269: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 270: Branch */
-    goto tisp_s_sdns_ratio0x78c;
-
-tisp_s_sdns_ratio0xa40:
-    /* fragment 271: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 272: Branch */
-    goto tisp_s_sdns_ratio0x7cc;
-
-tisp_s_sdns_ratio0xa4c:
-    /* fragment 273: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 274: Branch */
-    goto tisp_s_sdns_ratio0x80c;
-
-tisp_s_sdns_ratio0xa58:
-    /* fragment 275: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 276: Branch */
-    goto tisp_s_sdns_ratio0x84c;
-
-tisp_s_sdns_ratio0xa64:
-    /* fragment 277: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 278: Branch */
-    goto tisp_s_sdns_ratio0x88c;
-
-tisp_s_sdns_ratio0xa70:
-    /* fragment 279: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 280: Branch */
-    goto tisp_s_sdns_ratio0x8cc;
-
-tisp_s_sdns_ratio0xa7c:
-    /* fragment 281: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 282: Branch */
-    goto tisp_s_sdns_ratio0x90c;
-
-tisp_s_sdns_ratio0xa88:
-    /* fragment 283: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 284: Branch */
-    goto tisp_s_sdns_ratio0x94c;
-
-tisp_s_sdns_ratio0xa94:
-    /* fragment 285: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 286: Branch */
-    goto tisp_s_sdns_ratio0x98c;
-
-tisp_s_sdns_ratio0xaa0:
-    /* fragment 287: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 288: Branch */
-    goto tisp_s_sdns_ratio0x9cc;
-
-tisp_s_sdns_ratio0xaac:
-    /* fragment 289: Arithmetic */
-    t3 = (uintptr_t)t3 * (uintptr_t)a1;
-
-    /* fragment 290: Branch */
-    goto tisp_s_sdns_ratio0x4d4;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    /* T40-SDNS-RATIO: hand translation of OEM tisp_s_sdns_ratio (Eufy 0x63fc0).  ratio = module
+     * ratio byte (tattr + vinum * 128 + 836, 128 = neutral, used when +832 enabled).  For each of
+     * the 11 gain steps i the 16 sdns strength bytes (bank + base + 11 * j + i) and the 17th byte
+     * (bank + last + i) are scaled into the comb tables (*(comb + 56 + 4j))[i] / (*(comb + 340))[i]:
+     * ratio <= 128: x = (x * ratio) >> 7; ratio > 128: x += ((ratio - 128) * (lim - x)) >> 7 for
+     * x < lim (lim 16, 200 for the 17th).  bank = tparamsN[vinum]; base/last 0x17bf5/0x17f20
+     * linear, 0x18190/0x1849a WDR.  Then tisp_sdns_refresh(vinum, gain_old).  The lift kept the
+     * loop index as a pointer (Oops tisp_s_sdns_ratio+0x20c on SetModule_Ratio, proof p7). */
+    const uint8_t *tt = (const uint8_t *)(uintptr_t)tisp_get_tuning();
+    const uint8_t *bank = (const uint8_t *)(uintptr_t)tparamsN[a0 ? 1 : 0];
+    uint8_t *comb = (uint8_t *)(uintptr_t)(a0 ? sec_sdns_comb : main_sdns_comb);
+    uint32_t ratio = 128, base, last, i, j;
+    int wdr;
+
+    if (a0 > 1) return -EINVAL;
+    if (regtrace_is_kernel_ptr(tt) && *(const uint32_t *)(tt + a0 * 128 + 832))
+        ratio = tt[a0 * 128 + 836];
+    if (!regtrace_is_kernel_ptr(bank) || !regtrace_is_kernel_ptr(comb))
+        return -EAGAIN;
+    for (j = 0; j < 16; j++)
+        if (!regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)(comb + 56 + 4 * j)))
+            return -EAGAIN;
+    if (!regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)(comb + 340)))
+        return -EAGAIN;
+    wdr = t40_sdns_wdr_en[a0] != 0;
+    base = wdr ? 0x18190 : 0x17bf5;
+    last = wdr ? 0x1849a : 0x17f20;
+#define T40_SDNS_SCALE(x, lim) ((ratio <= 128) ? (((x) * ratio) >> 7) & 0xff : \
+        ((x) + (((int32_t)(ratio - 128) * (int32_t)((x) < (lim) ? (lim) - (x) : 0)) >> 7)) & 0xff)
+    for (i = 0; i < 11; i++) {
+        for (j = 0; j < 16; j++) {
+            uint32_t x = bank[base + 11 * j + i];
+            ((uint8_t *)(uintptr_t)*(uint32_t *)(comb + 56 + 4 * j))[i] = T40_SDNS_SCALE(x, 16U);
+        }
+        {
+            uint32_t x = bank[last + i];
+            ((uint8_t *)(uintptr_t)*(uint32_t *)(comb + 340))[i] = T40_SDNS_SCALE(x, 200U);
+        }
+    }
+#undef T40_SDNS_SCALE
+    return tisp_sdns_refresh(a0, *(const uint32_t *)(gain_old + 0));
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000648b8 origin=fragment_seed original=tisp_sdns_dn_params_refresh */
@@ -172621,8 +170211,8 @@ void tisp_disable_tuning(void)
 
     tisp_tattr_val = tisp_tattr;
     if (tisp_tattr_val != 0) {
-        private_vfree();
         tisp_tattr = 0;
+        vfree((void *)(uintptr_t)tisp_tattr_val);   /* the lift called private_vfree() without its argument */
     }
 }
 
@@ -173901,7 +171491,7 @@ int32_t tisp_s_Gamma(uint32_t a0, uintptr_t a1)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gamma_set_attr)(a0); /* jalr target resolved by relocation */
+    (void)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gamma_set_attr)((uintptr_t)a0, (uintptr_t)a1); /* T40: OEM passes a1 through */ /* jalr target resolved by relocation */
 
     /* fragment 2: Epilogue */
     /* function epilogue: restore registers and return */
@@ -173918,26 +171508,8 @@ int32_t tisp_s_Gamma(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000724ac origin=fragment_seed original=tisp_g_Gamma */
 int32_t tisp_g_Gamma(uint32_t a0, uint32_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gamma_get_attr)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    v0 = 0;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    /* OEM 0x7214c: tisp_gamma_get_attr(vinum, buf); the lift dropped the buffer. */
+    return tisp_gamma_get_attr((int32_t)a0, (int32_t)a1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000724d4 origin=fragment_seed original=tisp_s_wdr_en */
@@ -174275,273 +171847,46 @@ int32_t tisp_g_antiflick(int32_t arg1, int32_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000072be0 origin=fragment_seed original=tisp_enable_tuning */
 int64_t tisp_enable_tuning(void)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a0 = 0;
-    uintptr_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t t0 = 0;
-    uint32_t *t1 = 0;
-    uint32_t *t2 = 0;
-    uint32_t *t3 = 0;
-    uint32_t *t4 = 0;
-    uint32_t *t5 = 0;
-    uint32_t *t6 = 0;
-    uint32_t t7 = 0;
-    uint32_t *t8 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+    /* T40-TUNING-TATTR: hand translation of OEM tisp_enable_tuning (0x72844); the lift's
+     * loops ran past the 3388-byte cache (oops at vmalloc end).  OEM tsbin is 2 words and
+     * tiziano_enable 3 words; here both are scalars, so only slot 0 is used. */
+    uint8_t *t = vmalloc(3388);
+    int i, j, k;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(3388); /* jalr target resolved by relocation */
-
-    /* fragment 2: Arithmetic */
-    s0 = (uintptr_t *)&tisp_tattr;
-
-    /* fragment 3: Branch */
-    int _bc_v0_3 = v0 != 0;
-    *(uint32_t *)((char *)s0 + 0) = v0;
-    if (_bc_v0_3) { goto tisp_enable_tuning0x98; }
-
-    /* fragment 4: CallSetup */
-    local_14 = 60;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC7, &__param_str_isp_dual_buf, 60); /* jalr target resolved by relocation */
-
-    /* fragment 5: Arithmetic */
-    s1 = -1;
-
-tisp_enable_tuning0x70:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_enable_tuning0x74:
-    /* fragment 7: Arithmetic */
-    v0 = s1;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_enable_tuning0x98:
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)v0, 0, 3388); /* jalr target resolved by relocation */
-
-    /* fragment 10: Arithmetic */
-    v0 = 0;
-    a0 = -128;
-    a2 = 3;
-
-tisp_enable_tuning0xbc:
-    /* fragment 11: MemoryAccess */
-    v1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    v1 = (uintptr_t)v1 + (uintptr_t)v0;
-    *(uint8_t *)((char *)v1 + 0) = a0;
-    v1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    v1 = (uintptr_t)v1 + (uintptr_t)v0;
-    *(uint8_t *)((char *)v1 + 3) = a0;
-    v1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    a1 = (uintptr_t)v1 + (uintptr_t)v0;
-    v0 = v0 + 1;
-    *(uint8_t *)((char *)a1 + 6) = a0;
-    *(uint8_t *)((char *)a1 + 9) = a0;
-
-    /* fragment 12: Branch */
-    *(uint8_t *)((char *)a1 + 12) = a0;
-    if (v0 != a2) { goto tisp_enable_tuning0xbc; }
-
-    /* fragment 13: Arithmetic */
-    a2 = v1 + 384;
-    a0 = v1;
-    a3 = -128;
-    t0 = 16;
-    v0 = a0;
-
-tisp_enable_tuning0x104:
-    /* fragment 14: Arithmetic */
-    a1 = 0;
-
-tisp_enable_tuning0x108:
-    /* fragment 15: Arithmetic */
-    a1 = a1 + 1;
-
-    /* fragment 16: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 832) = 0;
-    *(uint8_t *)((char *)v0 + 836) = a3;
-
-    /* fragment 17: Branch */
-    v0 = v0 + 8;
-    if (a1 != t0) { goto tisp_enable_tuning0x108; }
-
-    /* fragment 18: Arithmetic */
-    a0 = a0 + 128;
-
-    /* fragment 19: Branch */
-    v0 = a0;
-    if (a0 != a2) { goto tisp_enable_tuning0x104; }
-
-    /* fragment 20: Arithmetic */
-    v0 = v1 + 1216;
-    a2 = v1 + 1464;
-    a1 = 1;
-    a0 = 15;
-    t8 = 13;
-    t7 = 64;
-    t6 = -112;
-    t5 = -64;
-    t4 = 3;
-    t3 = 42;
-    t2 = 22;
-    t1 = 200;
-    t0 = 19;
-    a3 = 58;
-
-tisp_enable_tuning0x160:
-    /* fragment 21: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 0) = 0;
-    *(uint32_t *)((char *)v0 + 4) = a1;
-    *(uint32_t *)((char *)v0 + 8) = a1;
-    *(uint8_t *)((char *)v0 + 12) = a0;
-    *(uint8_t *)((char *)v0 + 13) = a0;
-    *(uint32_t *)((char *)v0 + 16) = 0;
-    *(uint8_t *)((char *)v0 + 20) = t8;
-    *(uint8_t *)((char *)v0 + 21) = t7;
-    *(uint8_t *)((char *)v0 + 22) = t6;
-    *(uint8_t *)((char *)v0 + 23) = t5;
-    *(uint32_t *)((char *)v0 + 24) = 0;
-    *(uint32_t *)((char *)v0 + 28) = a1;
-    *(uint32_t *)((char *)v0 + 32) = a1;
-    *(uint8_t *)((char *)v0 + 36) = a0;
-    *(uint8_t *)((char *)v0 + 37) = a0;
-    *(uint32_t *)((char *)v0 + 40) = 0;
-    *(uint32_t *)((char *)v0 + 44) = 0;
-    *(uint32_t *)((char *)v0 + 48) = a1;
-    *(uint32_t *)((char *)v0 + 52) = t4;
-    *(uint8_t *)((char *)v0 + 56) = a0;
-    *(uint8_t *)((char *)v0 + 57) = a0;
-    *(uint8_t *)((char *)v0 + 60) = 0;
-    *(uint16_t *)((char *)v0 + 62) = t3;
-    *(uint16_t *)((char *)v0 + 64) = t2;
-    *(uint16_t *)((char *)v0 + 66) = t1;
-    *(uint16_t *)((char *)v0 + 68) = t0;
-    *(uint16_t *)((char *)v0 + 70) = a3;
-    v0 = v0 + 124;
-
-    /* fragment 22: Branch */
-    s2 = 0;
-    if (v0 != a2) { goto tisp_enable_tuning0x160; }
-
-    /* fragment 23: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 1692) = 0;
-    *(uint32_t *)((char *)v1 + 1696) = 0;
-    *(uint32_t *)((char *)v1 + 1476) = 0;
-    *(uint32_t *)((char *)v1 + 1528) = 0;
-    *(uint32_t *)((char *)v1 + 2152) = 0;
-    *(uint32_t *)((char *)v1 + 2156) = 0;
-    *(uint32_t *)((char *)v1 + 1552) = 0;
-    *(uint32_t *)((char *)v1 + 1604) = 0;
-    *(uint32_t *)((char *)v1 + 2612) = 0;
-    *(uint32_t *)((char *)v1 + 2616) = 0;
-    *(uint32_t *)((char *)v1 + 1628) = 0;
-    *(uint32_t *)((char *)v1 + 1680) = 0;
-    s4 = 44;
-    s3 = 3;
-    v1 = (uintptr_t)s2 * (uintptr_t)s4;
-
-tisp_enable_tuning0x214:
-    /* fragment 24: CallSetup */
-    s2 = s2 + 1;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3072) = 0;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3076) = 0;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3080) = 0;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3084) = 0;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3088) = 0;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3092) = 0;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3096) = 0;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (v1 + 3100)), 0, 16); /* jalr target resolved by relocation */
-
-    /* fragment 25: Branch */
-    v1 = (uintptr_t)s2 * (uintptr_t)s4;
-    if (s2 != s3) { goto tisp_enable_tuning0x214; }
-
-    /* fragment 26: Arithmetic */
-    s2 = (uintptr_t *)&tiziano_enable;
-    s3 = (uint32_t *)&tisp_g_antiflick;
-    s2 = s2;
-    s1 = 0;
-    s5 = 1;
-    s3 = s3;
-    s4 = 3;
-
-tisp_enable_tuning0x274:
-    /* fragment 27: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s2 + 0);
-
-    /* fragment 28: Branch */
-    a1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    if (v0 != s5) { goto tisp_enable_tuning0x294; }
-
-    /* fragment 29: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_antiflick)((uintptr_t)s1, (uintptr_t)a1 + (((uintptr_t)s1 << 3) + 3204)); /* jalr target resolved by relocation */
-
-tisp_enable_tuning0x294:
-    /* fragment 30: Arithmetic */
-    s1 = s1 + 1;
-
-    /* fragment 31: Branch */
-    s2 = s2 + 4;
-    if (s1 != s4) { goto tisp_enable_tuning0x274; }
-
-    /* fragment 32: Arithmetic */
-    v0 = (uintptr_t *)&tsbin;
-
-    /* fragment 33: MemoryAccess */
-    a1 = *(uint32_t *)((char *)((char *)&tsbin));
-
-    /* fragment 34: Branch */
-    s1 = v0;
-    if (a1 == 0) { goto tisp_enable_tuning0x2c8; }
-
-    /* fragment 35: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + 3228), (void *)(uintptr_t)a1, 80); /* jalr target resolved by relocation */
-
-tisp_enable_tuning0x2c8:
-    /* fragment 36: Arithmetic */
-    v0 = s1;
-
-    /* fragment 37: MemoryAccess */
-    a1 = *(uint32_t *)((char *)v0 + 4);
-
-    /* fragment 38: Branch */
-    s1 = 0;
-    if (a1 == 0) { goto tisp_enable_tuning0x70; }
-
-    /* fragment 39: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + 3308), (void *)(uintptr_t)a1, 80); /* jalr target resolved by relocation */
-
-    /* fragment 40: Branch */
-    goto tisp_enable_tuning0x74;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    tisp_tattr = (uint32_t)(uintptr_t)t;
+    if (!t) {
+        isp_printf(2, "[%s %d] Failed to vmalloc tuning attr\n", "tisp_enable_tuning", 60);
+        return -1;
+    }
+    memset(t, 0, 3388);
+    for (i = 0; i < 3; i++) {
+        t[i] = 0x80; t[i + 3] = 0x80; t[i + 6] = 0x80; t[i + 9] = 0x80; t[i + 12] = 0x80;
+    }
+    for (j = 0; j < 3; j++)
+        for (k = 0; k < 16; k++) {
+            *(uint32_t *)(t + j * 128 + 832 + 8 * k) = 0;
+            t[j * 128 + 836 + 8 * k] = 0x80;
+        }
+    for (i = 1216; i != 1464; i += 124) {
+        uint8_t *q = t + i;
+        *(uint32_t *)(q + 0) = 0; *(uint32_t *)(q + 4) = 1; *(uint32_t *)(q + 8) = 1;
+        q[12] = 15; q[13] = 15; *(uint32_t *)(q + 16) = 0;
+        q[20] = 13; q[21] = 64; q[22] = 0x90; q[23] = 0xc0;
+        *(uint32_t *)(q + 24) = 0; *(uint32_t *)(q + 28) = 1; *(uint32_t *)(q + 32) = 1;
+        q[36] = 15; q[37] = 15;
+        *(uint32_t *)(q + 40) = 0; *(uint32_t *)(q + 44) = 0; *(uint32_t *)(q + 48) = 1; *(uint32_t *)(q + 52) = 3;
+        q[56] = 15; q[57] = 15; q[60] = 0;
+        *(uint16_t *)(q + 62) = 42; *(uint16_t *)(q + 64) = 22; *(uint16_t *)(q + 66) = 200;
+        *(uint16_t *)(q + 68) = 19; *(uint16_t *)(q + 70) = 58;
+    }
+    /* already zero from the memset, kept for the OEM order: 1692 1696 1476 1528 2152 2156 1552 1604 2612 2616 1628 1680 */
+    for (i = 0; i < 3; i++)
+        memset(t + i * 44 + 3072, 0, 28 + 16);
+    if (tiziano_enable == 1)
+        tisp_g_antiflick(0, (int32_t *)(t + 3204));
+    if (tsbin)
+        memcpy(t + 3228, (const void *)(uintptr_t)tsbin, 80);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000072ed8 origin=fragment_seed original=tisp_s_antiflick */
@@ -176045,7 +173390,7 @@ int32_t tisp_s_af_weight_attr(uint32_t a0, uint32_t a1)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_af_set_weight)(a0); /* jalr target resolved by relocation */
+    (void)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_af_set_weight)((uintptr_t)a0, (uintptr_t)a1); /* T40: OEM passes a1 through */ /* jalr target resolved by relocation */
 
     /* fragment 2: Epilogue */
     /* function epilogue: restore registers and return */
@@ -176080,7 +173425,7 @@ int32_t tisp_s_awb_weight_attr(uint32_t a0, uintptr_t a1)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_awb_set_weight)(a0); /* jalr target resolved by relocation */
+    (void)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_set_weight)((uintptr_t)a0, (uintptr_t)a1); /* T40: OEM passes a1 through */ /* jalr target resolved by relocation */
 
     /* fragment 2: Epilogue */
     /* function epilogue: restore registers and return */
@@ -176097,25 +173442,13 @@ int32_t tisp_s_awb_weight_attr(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074258 origin=fragment_seed original=tisp_g_awb_weight_attr */
 int32_t tisp_g_awb_weight_attr(uint32_t a0, uintptr_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_awb_get_weight)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    v0 = 0;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    /* T40-AWB-WEIGHT: OEM 0x73ec4/0x3487c: copy 225 B from *(pst{Main,Sec}AwbOri + 140).
+     * The lift called tisp_awb_get_weight without the buffer (GetAwbWeight returned garbage). */
+    const uint8_t *ori = a0 ? (const uint8_t *)&pstSecAwbOri : (const uint8_t *)&pstMainAwbOri;
+    const void *src = (const void *)(uintptr_t)*(const uint32_t *)(ori + 140);
+    if (a0 > 1 || !a1) return -EINVAL;
+    if (!regtrace_is_kernel_ptr((void *)src)) return -EAGAIN;
+    memcpy((void *)a1, src, 225);
     return 0;
 }
 
@@ -176612,7 +173945,7 @@ int32_t tisp_s_ae_exprinfo_attr(uint32_t a0, uintptr_t a1)
     *(uint32_t *)((char *)v0 + 176) = (*(uint32_t *)((char *)(a1) + 160));
     *(uint32_t *)((char *)v0 + 180) = (*(uint32_t *)((char *)(a1) + 164));
     *(uint32_t *)((char *)v0 + 184) = (*(uint32_t *)((char *)(a1) + 168));
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_set_exprinfo_attr)(a0); /* jalr target resolved by relocation */
+    (void)((int64_t (*)(uint32_t, uintptr_t))(uintptr_t)tisp_ae_set_exprinfo_attr)(a0, a1); /* jalr target resolved by relocation */
 
     /* fragment 3: Epilogue */
     /* function epilogue: restore registers and return */
@@ -176629,202 +173962,40 @@ int32_t tisp_s_ae_exprinfo_attr(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007482c origin=fragment_seed original=tisp_g_ae_exprinfo_attr */
 int32_t tisp_g_ae_exprinfo_attr(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uintptr_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t t0 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    s0 = a1;
-    if (a0 != 0) { goto tisp_g_ae_exprinfo_attr0x298; }
-
-    /* fragment 2: ConstantLoad */
-    v0 = 0x0;
-
-tisp_g_ae_exprinfo_attr0x1c:
-    /* fragment 3: Arithmetic */
-    v1 = (int32_t *)&tisp_tattr;
-    a2 = (uint32_t *)&tisp_par_info;
-
-    /* fragment 4: MemoryAccess */
-    a3 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    v1 = a2;
-    a2 = 152;
-    a1 = a0 * (uintptr_t)a2;
-    a2 = a1 + (uintptr_t)v1;
-    t0 = *(uint32_t *)((char *)a2 + 44);
-    v1 = 983040;
-    v1 = v1 + 16960;
-    a1 = t0 & 65535;
-    a1 = a1 * (uintptr_t)v1;
-    v1 = *(uint16_t *)((char *)a2 + 70);
-    v1 = (uintptr_t)v1 * t0;
-    v1 = (uintptr_t)v1 >> 16;
-
-    /* fragment 5: Unknown */
-    /* unmatched fragment 5 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 74884:	00a3001b 	divu	zero,a1,v1 */
-
-    /* fragment 6: Arithmetic */
-    a1 = 220;
-    a2 = a0 * a1;
-    a1 = (uintptr_t)a2 + (uintptr_t)a3;
-
-    /* fragment 7: MemoryAccess */
-    a2 = *(uint32_t *)((char *)a1 + 16);
-    *(uint32_t *)((char *)s0 + 0) = a2;
-    a1 = *(uint32_t *)((char *)v0 + 0);
-    *(uint32_t *)((char *)s0 + 4) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 52);
-    *(uint32_t *)((char *)s0 + 8) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 56);
-    *(uint32_t *)((char *)s0 + 12) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 144);
-    *(uint32_t *)((char *)s0 + 16) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 60);
-    *(uint32_t *)((char *)s0 + 20) = a1;
-    t0 = *(uint32_t *)((char *)v0 + 12);
-    a1 = (uintptr_t)v1 * t0;
-    *(uint32_t *)((char *)s0 + 24) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 4);
-    *(uint32_t *)((char *)s0 + 28) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 8);
-    *(uint32_t *)((char *)s0 + 32) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 16);
-    *(uint32_t *)((char *)s0 + 36) = a1;
-    a1 = 220;
-    t0 = a0 * a1;
-    a1 = t0 + (uintptr_t)a3;
-    t0 = *(uint32_t *)((char *)a1 + 56);
-    *(uint32_t *)((char *)s0 + 40) = t0;
-    t0 = *(uint32_t *)((char *)a1 + 60);
-    *(uint32_t *)((char *)s0 + 44) = t0;
-    t0 = *(uint32_t *)((char *)a1 + 64);
-
-    /* fragment 8: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 48) = t0;
-    t0 = *(uint32_t *)((char *)a1 + 68);
-    *(uint32_t *)((char *)s0 + 52) = t0;
-    t0 = *(uint32_t *)((char *)a1 + 72);
-    *(uint32_t *)((char *)s0 + 56) = t0;
-    t0 = *(uint32_t *)((char *)a1 + 76);
-    *(uint32_t *)((char *)s0 + 60) = t0;
-    t0 = *(uint32_t *)((char *)a1 + 80);
-    *(uint32_t *)((char *)s0 + 64) = t0;
-    a1 = *(uint32_t *)((char *)a1 + 84);
-    *(uint32_t *)((char *)s0 + 68) = a1;
-    t0 = *(uint32_t *)((char *)v0 + 120);
-    a1 = (uintptr_t)v1 * t0;
-    *(uint32_t *)((char *)s0 + 72) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 112);
-    *(uint32_t *)((char *)s0 + 76) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 116);
-    *(uint32_t *)((char *)s0 + 80) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 124);
-    *(uint32_t *)((char *)s0 + 84) = a1;
-    t0 = *(uint32_t *)((char *)v0 + 28);
-    a1 = (uintptr_t)v1 * t0;
-    *(uint32_t *)((char *)s0 + 88) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 20);
-    *(uint32_t *)((char *)s0 + 92) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 24);
-    *(uint32_t *)((char *)s0 + 96) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 32);
-
-    /* fragment 9: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 100) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 96);
-    *(uint32_t *)((char *)s0 + 104) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 64);
-    *(uint32_t *)((char *)s0 + 108) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 68);
-    *(uint32_t *)((char *)s0 + 112) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 148);
-    *(uint32_t *)((char *)s0 + 116) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 104);
-    *(uint32_t *)((char *)s0 + 120) = a1;
-    t0 = *(uint32_t *)((char *)v0 + 76);
-    a1 = (uintptr_t)v1 * t0;
-    *(uint32_t *)((char *)s0 + 124) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 72);
-    *(uint32_t *)((char *)s0 + 128) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 100);
-    *(uint32_t *)((char *)s0 + 132) = a1;
-    a1 = *(uint32_t *)((char *)v0 + 108);
-    *(uint32_t *)((char *)s0 + 136) = a1;
-    a1 = 220;
-    t0 = a0 * a1;
-    a0 = t0 + (uintptr_t)a3;
-    a1 = *(uint32_t *)((char *)a0 + 156);
-    *(uint32_t *)((char *)s0 + 140) = a1;
-    a1 = *(uint32_t *)((char *)a0 + 160);
-    *(uint32_t *)((char *)s0 + 144) = a1;
-    a1 = *(uint32_t *)((char *)a0 + 164);
-    *(uint32_t *)((char *)s0 + 148) = a1;
-
-    /* fragment 10: MemoryAccess */
-    a1 = *(uint32_t *)((char *)a0 + 168);
-    *(uint32_t *)((char *)s0 + 152) = a1;
-    a1 = *(uint32_t *)((char *)a0 + 172);
-    *(uint32_t *)((char *)s0 + 156) = a1;
-    a1 = *(uint32_t *)((char *)a0 + 176);
-    *(uint32_t *)((char *)s0 + 160) = a1;
-    a1 = *(uint32_t *)((char *)a0 + 180);
-    *(uint32_t *)((char *)s0 + 164) = a1;
-    a0 = *(uint32_t *)((char *)a0 + 184);
-    *(uint32_t *)((char *)s0 + 168) = a0;
-    a1 = *(uint32_t *)((char *)v0 + 132);
-    a0 = (uintptr_t)v1 * a1;
-    *(uint32_t *)((char *)s0 + 172) = a0;
-    a0 = *(uint32_t *)((char *)v0 + 128);
-    a1 = 10;
-    *(uint32_t *)((char *)s0 + 176) = a0;
-    a0 = *(uint32_t *)((char *)v0 + 136);
-    *(uint32_t *)((char *)s0 + 180) = a0;
-    a0 = *(uint32_t *)((char *)v0 + 140);
-    *(uint32_t *)((char *)s0 + 184) = a0;
-    a0 = *(uint32_t *)((char *)v0 + 84);
-    v1 = (uintptr_t)v1 * a0;
-    *(uint32_t *)((char *)s0 + 188) = v1;
-    v1 = *(uint32_t *)((char *)v0 + 80);
-    *(uint32_t *)((char *)s0 + 192) = v1;
-    v1 = *(uint32_t *)((char *)v0 + 88);
-    *(uint32_t *)((char *)s0 + 196) = v1;
-    v1 = *(uint32_t *)((char *)v0 + 92);
-
-    /* fragment 11: CallSetup */
-    *(uint32_t *)((char *)s0 + 200) = v1;
-    *(uint32_t *)((char *)s0 + 204) = (*(uint32_t *)((char *)(v0) + 40));
-    *(uint32_t *)((char *)s0 + 208) = (*(uint32_t *)((char *)(v0) + 156));
-    *(uint32_t *)((uintptr_t)s0 + 212) = ((*(uint32_t *)((char *)((uintptr_t)v0) + 36)) >> 10);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_log2_fixed_to_fixed)(*(uint32_t *)((char *)(v0) + 36)); /* jalr target resolved by relocation */
-
-    /* fragment 12: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 216) = v0;
-    ra = local_14;
-    s0 = local_10;
-    v0 = 0;
-
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_g_ae_exprinfo_attr0x298:
-    /* fragment 14: Arithmetic */
-    v0 = (uintptr_t *)&tisp_ae_sec_ctrls;
-
-    /* fragment 15: Branch */
-    v0 = (uintptr_t *)&tisp_ae_sec_ctrls;
-    goto tisp_g_ae_exprinfo_attr0x1c;
-
+    /* T40-AE-EXPRINFO: hand translation of OEM tisp_g_ae_exprinfo_attr (Eufy 0x744e8).  Mirror of
+     * tisp_ae_set_exprinfo_attr: ctrls = tisp_ae_{main,sec}_ctrls, t = tisp_tattr + vinum * 220
+     * (the cached attr), times are converted back to us (lines * div) when t[16] (unit) != 0.
+     * The lift used ctrls = NULL and dropped the divu (GetAeExprInfo Oops). */
+    const uint32_t *c = a0 ? tisp_ae_sec_ctrls_storage : tisp_ae_main_ctrls_storage;
+    const uint8_t *tb = (const uint8_t *)(uintptr_t)*(uint32_t *)&tisp_tattr;
+    const unsigned char *pi = tisp_par_info + a0 * 152U;
+    uint32_t p44 = *(const uint32_t *)(pi + 44);
+    uint32_t den = ((uint32_t)*(const uint16_t *)(pi + 70) * p44) >> 16;
+    uint32_t k = den ? ((p44 & 0xffffU) * 1000000U) / den : 0;
+    uint32_t *O = (uint32_t *)a1;
+    const uint8_t *t;
+    uint32_t unit;
+    int i;
+    if (a0 > 1 || !O || !regtrace_is_kernel_ptr(tb)) return -EINVAL;
+    t = tb + a0 * 220;
+#define T40_T(x) (*(const uint32_t *)(t + (x)))
+#define T40_M(v) (unit ? k * (v) : (v))
+    unit = T40_T(16);
+    O[0] = unit;
+    O[1] = c[0]; O[2] = c[13]; O[3] = c[14]; O[4] = c[36]; O[5] = c[15];
+    O[6] = T40_M(c[3]); O[7] = c[1]; O[8] = c[2]; O[9] = c[4];
+    for (i = 0; i < 8; i++) O[10 + i] = T40_T(56 + 4 * i);
+    O[18] = T40_M(c[30]); O[19] = c[28]; O[20] = c[29]; O[21] = c[31];
+    O[22] = T40_M(c[7]); O[23] = c[5]; O[24] = c[6]; O[25] = c[8];
+    O[26] = c[24]; O[27] = c[16]; O[28] = c[17]; O[29] = c[37]; O[30] = c[26];
+    O[31] = T40_M(c[19]); O[32] = c[18]; O[33] = c[25]; O[34] = c[27];
+    for (i = 0; i < 8; i++) O[35 + i] = T40_T(156 + 4 * i);
+    O[43] = T40_M(c[33]); O[44] = c[32]; O[45] = c[34]; O[46] = c[35];
+    O[47] = T40_M(c[21]); O[48] = c[20]; O[49] = c[22]; O[50] = c[23];
+    O[51] = c[10]; O[52] = c[39]; O[53] = c[9] >> 10;
+    O[54] = (uint32_t)tisp_log2_fixed_to_fixed(c[9], 10, 16);
+#undef T40_T
+#undef T40_M
     return 0;
 }
 
@@ -176965,7 +174136,7 @@ int32_t tisp_s_ae_weight_attr(uint32_t a0, uintptr_t a1)
     s2 = *(uint32_t *)((char *)((char *)&tisp_tattr));
     s0 = a0;
     s1 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_set_weight)(a0); /* jalr target resolved by relocation */
+    (void)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_set_weight)((uintptr_t)a0, (uintptr_t)a1); /* T40: OEM passes a1 through */ /* jalr target resolved by relocation */
 
     /* fragment 2: Arithmetic */
     a0 = 460;
@@ -176992,44 +174163,21 @@ int32_t tisp_s_ae_weight_attr(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074c8c origin=fragment_seed original=tisp_g_ae_weight_attr */
 int32_t tisp_g_ae_weight_attr(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s2 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    s0 = a0;
-    s1 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_get_weight)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Arithmetic */
-    a0 = 460;
-    v0 = (uintptr_t)s0 * a0;
-    a0 = (uintptr_t)v0 + (uintptr_t)s2;
-
-    /* fragment 3: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 1692);
-    *(uint32_t *)((char *)s1 + 0) = v0;
-    v0 = *(uint32_t *)((char *)a0 + 1696);
-    *(uint32_t *)((char *)s1 + 4) = v0;
-    ra = local_1c;
-    s2 = local_18;
-    s1 = local_14;
-    s0 = local_10;
-    v0 = 0;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    /* T40-AE-WEIGHT: OEM 0x74948: tisp_ae_get_weight(vinum, buf), then buf[0..1] = the enable
+     * words cached by tisp_s_ae_weight_attr in tisp_tattr (vinum * 460 + 1692/1696).
+     * The lift called tisp_ae_get_weight without the buffer. */
+    uint8_t *t = (uint8_t *)(uintptr_t)*(uint32_t *)&tisp_tattr;
+    uint32_t *buf = (uint32_t *)a1;
+    int r;
+    if (a0 > 1 || !buf) return -EINVAL;
+    r = tisp_ae_get_weight(a0, (uint32_t)a1);
+    if (r) return r;
+    if (regtrace_is_kernel_ptr(t)) {
+        buf[0] = *(uint32_t *)(t + a0 * 460 + 1692);
+        buf[1] = *(uint32_t *)(t + a0 * 460 + 1696);
+    } else {
+        buf[0] = buf[1] = 0;
+    }
     return 0;
 }
 
@@ -177143,188 +174291,29 @@ int32_t tisp_g_statis_config_attr(int32_t arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000075014 origin=fragment_seed original=tisp_s_module_ratio_attr */
 int32_t tisp_s_module_ratio_attr(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v1 = (int32_t *)&tisp_tattr;
-
-    /* fragment 2: StackAccess */
-    local_14 = s1;
-    s1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    local_24 = s5;
-    local_20 = s4;
-    v0 = a0 << 7;
-    s4 = (uintptr_t *)&tisp_s_drc_ratio;
-    s5 = (uintptr_t)&tisp_s_sdns_ratio;
-    local_28 = s6;
-    local_1c = s3;
-    local_18 = s2;
-    local_10 = s0;
-    local_2c = ra;
-    s2 = a0;
-    s1 = (uintptr_t)s1 + (uintptr_t)v0;
-    s3 = a1 + 4;
-    s0 = 0;
-    s4 = s4;
-    s5 = s5;
-    s6 = (uintptr_t)&tisp_s_dpc_ratio;
-
-tisp_s_module_ratio_attr0x54:
-    /* fragment 3: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 832);
-    v0 = *(uint32_t *)((char *)s3 + -4);
-
-    /* fragment 4: Branch */
-    if (v1 != v0) { goto tisp_s_module_ratio_attr0x84; }
-
-    /* fragment 5: MemoryAccess */
-    a0 = *(uint8_t *)((char *)s1 + 836);
-
-    /* fragment 6: Branch */
-    v1 = *(uint8_t *)((char *)(s3) + 0);
-    if (v0 == 0) { goto tisp_s_module_ratio_attr0xc0; }
-
-    /* fragment 7: Arithmetic */
-    a1 = 1;
-
-    /* fragment 8: Branch */
-    if (v0 != a1) { goto tisp_s_module_ratio_attr0x84; }
-
-    /* fragment 9: Branch */
-    if (a0 == v1) { goto tisp_s_module_ratio_attr0xc0; }
-
-tisp_s_module_ratio_attr0x84:
-    /* fragment 10: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 832) = v0;
-
-    /* fragment 11: Branch */
-    v1 = 128;
-    if (v0 == 0) { goto tisp_s_module_ratio_attr0x94; }
-
-    /* fragment 12: MemoryAccess */
-    v1 = *(uint8_t *)((char *)s3 + 0);
-
-tisp_s_module_ratio_attr0x94:
-    /* fragment 13: Arithmetic */
-    v0 = 2;
-
-    /* fragment 14: Branch */
-    *(uint8_t *)((char *)s1 + 836) = v1;
-    if (s0 == v0) { goto tisp_s_module_ratio_attr0x138; }
-
-    /* fragment 15: Arithmetic */
-    v0 = s0 < 3;
-
-    /* fragment 16: Branch */
-    int _bc_v0_16 = v0 == 0;
-    v0 = 3;
-    if (_bc_v0_16) { goto tisp_s_module_ratio_attr0x100; }
-
-    /* fragment 17: Arithmetic */
-    v0 = 1;
-
-    /* fragment 18: Branch */
-    int _bc_s0_18 = s0 == v0;
-    v0 = (uintptr_t *)&tisp_s_mdns_ratio;
-    if (_bc_s0_18) { goto tisp_s_module_ratio_attr0x120; }
-
-tisp_s_module_ratio_attr0xb8:
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_s_sdns_ratio)(s2); /* jalr target resolved by relocation */
-
-tisp_s_module_ratio_attr0xc0:
-    /* fragment 20: Arithmetic */
-    s0 = s0 + 1;
-
-tisp_s_module_ratio_attr0xc4:
-    /* fragment 21: Arithmetic */
-    v0 = 5;
-
-tisp_s_module_ratio_attr0xc8:
-    /* fragment 22: Arithmetic */
-    s1 = s1 + 8;
-
-    /* fragment 23: Branch */
-    s3 = s3 + 8;
-    if (s0 != v0) { goto tisp_s_module_ratio_attr0x54; }
-
-    /* fragment 24: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 25: Arithmetic */
-    v0 = 0;
-
-    /* fragment 26: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_s_module_ratio_attr0x100:
-    /* fragment 27: Branch */
-    a0 = s2;
-    if (s0 == v0) { goto tisp_s_module_ratio_attr0x148; }
-
-    /* fragment 28: Arithmetic */
-    v0 = 4;
-
-    /* fragment 29: Branch */
-    int _bc_s0_29 = s0 != v0;
-    v0 = (uintptr_t *)&tisp_s_defog_ratio;
-    if (_bc_s0_29) { goto tisp_s_module_ratio_attr0xb8; }
-
-    /* fragment 30: Arithmetic */
-    a0 = s2;
-
-    /* fragment 31: Branch */
-    v0 = (uintptr_t *)&tisp_s_defog_ratio;
-    goto tisp_s_module_ratio_attr0x128;
-
-tisp_s_module_ratio_attr0x120:
-    /* fragment 32: CallSetup */
-    a0 = s2;
-    v0 = v0;
-
-tisp_s_module_ratio_attr0x128:
-    /* fragment 33: CallSetup */
-    s0 = s0 + 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_s_mdns_ratio)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 34: Branch */
-    v0 = 5;
-    goto tisp_s_module_ratio_attr0xc8;
-
-tisp_s_module_ratio_attr0x138:
-    /* fragment 35: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_s_drc_ratio)(s2); /* jalr target resolved by relocation */
-
-    /* fragment 36: Branch */
-    s0 = s0 + 1;
-    goto tisp_s_module_ratio_attr0xc4;
-
-tisp_s_module_ratio_attr0x148:
-    /* fragment 37: Branch */
-    v0 = (uintptr_t *)&tisp_s_dpc_ratio;
-    goto tisp_s_module_ratio_attr0x128;
-
+    /* T40-MODULE-RATIO: hand translation of OEM tisp_s_module_ratio_attr (Eufy 0x74cd0): 5 entries
+     * {u32 enable, u8 ratio} (sdns, mdns, drc, dpc, defog) cached at tattr + vinum * 128 + 832;
+     * an entry is applied only when it changed.  The lift left the index uninitialised and sent
+     * every entry to the sdns/mdns setter.  mdns/drc/dpc/defog ratio setters are still lifted
+     * bodies with isp_memopt-relative tables: they are not called until hand-translated (the
+     * value is cached, GetModule_Ratio returns it). */
+    uint8_t *t = (uint8_t *)(uintptr_t)*(uint32_t *)&tisp_tattr;
+    const uint8_t *A = (const uint8_t *)a1;
+    uint32_t i;
+    if (a0 > 1 || !A || !regtrace_is_kernel_ptr(t)) return -EINVAL;
+    t += a0 * 128;
+    for (i = 0; i < 5; i++) {
+        uint32_t en = *(const uint32_t *)(A + 8 * i), r = A[8 * i + 4];
+        uint32_t oen = *(uint32_t *)(t + 832 + 8 * i);
+        if (oen == en && (en == 0 || (en == 1 && t[836 + 8 * i] == r)))
+            continue;
+        *(uint32_t *)(t + 832 + 8 * i) = en;
+        t[836 + 8 * i] = en ? r : 128;
+        if (i == 0)
+            tisp_s_sdns_ratio(a0);
+        else
+            isp_printf(1, "%s: ratio %u of module %u cached, not applied yet\n", "tisp_s_module_ratio_attr", r, i);
+    }
     return 0;
 }
 
@@ -190196,7 +187185,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
         case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); break;
         case 4: regtrace_dmsc_lit_cleanup(); break;
         case 5: regtrace_lsc_lit_cleanup(); break;
-        case 6: regtrace_tisp_main_init_param_free(); break;
+        case 6: regtrace_tisp_main_init_param_free(); tisp_disable_tuning(); break;
         case 7: regtrace_tisp_dma_free(); break;
         case 8: regtrace_vic_mdma_internal_free(); break;
         case 9: regtrace_unregister_bootstrap_devices(); break;
