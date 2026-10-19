@@ -7459,7 +7459,7 @@ static uint32_t t40_antiflick_pending_a2;
 static bool t40_antiflick_pending_valid;
 static uint32_t t40_runmode_pending;             /* SetISPRunningMode (CID 0x8000071) received before the tuning context exists */
 static bool t40_runmode_pending_valid;
-static bool regtrace_t40_vendor_awb_process;   /* defined with its module_param further down */
+static bool regtrace_t40_vendor_awb_process;   /* defined (default 1) with its module_param further down */
 static bool regtrace_t40_awb_spec_regs;   /* T40-AWB-SPEC-REGS: write the special-light registers 0x180xx (MT98: heap corruption with them, likely a stats DMA without a buffer) */
 module_param_named(t40_awb_spec_regs, regtrace_t40_awb_spec_regs, bool, 0644);
 static bool regtrace_t40_awb_ctd = true;   /* T40-AWB-CTD: run tisp_awb_ct_detect (hand translation, tx_isp_t40_awb_ctd.inc); off = gray-world fallback */
@@ -97823,9 +97823,9 @@ int32_t tisp_awb_spec_calculate(uintptr_t a0, uint32_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000033a7c origin=fragment_seed original=tisp_awb_main_process */
-static bool regtrace_t40_vendor_awb_process;   /* T40-AWB: run the vendor AWB algorithm on event 14. Default still off (2026-10-19): stall-free now (FBL15 stall = spec_calculate tail-call loop, fixed in bfed4662; 10 min timps + 5 restarts, events/ct_detect running, 0 LOOPGUARD), but the day picture on the Eufy turns strongly magenta with it (A/B vs. off) -> AWB gain output still wrong */
+static bool regtrace_t40_vendor_awb_process = true;   /* T40-AWB: run the vendor AWB algorithm on event 14 (default on since 2026-10-19: the FBL15 event-thread stall was the spec_calculate tail-call loop, fixed in bfed4662; ct_detect hand-translated in 2a157e96) */
 module_param_named(t40_vendor_awb_process, regtrace_t40_vendor_awb_process, bool, 0644);
-MODULE_PARM_DESC(t40_vendor_awb_process, "Vendor AWB algorithm per AWB event like the OEM (default 0: stall-free, but magenta day picture on the Eufy); 0 = gray-world white balance");
+MODULE_PARM_DESC(t40_vendor_awb_process, "Vendor AWB algorithm per AWB event like the OEM (default 1); 0 = skip (gray-world white balance)");
 static uint32_t regtrace_t40_vendor_awb_process_skipped;
 module_param_named(t40_vendor_awb_process_skipped, regtrace_t40_vendor_awb_process_skipped, uint, 0444);
 int64_t tisp_awb_main_process(void)

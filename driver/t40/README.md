@@ -569,7 +569,7 @@ Rejected:
 - `enable_clm=1`: no change.
 - `t40_quality_top40_override=0x7FD0000D` (vendor TOP word): black frame. Bit 18 (SDNS) is the cause, because its initialiser is not run.
 
-Since 2026-10-19 `enable_core_ops_cb=1` is the default (OEM core ISR, vendor AE per frame) and `t40_awb_ctd=1` (colour-temperature detection, runs only inside the vendor AWB process); neither needs to be passed any more, `=0` restores the old path. `t40_vendor_awb_process` stays 0: with it the event thread is stall-free now (10 min timps + 5 restarts, ct_detect and events running, no LOOPGUARD), but the day picture turns strongly magenta (A/B against 0 on the Eufy), so the vendor AWB gain output is still wrong. Read-only counters: `t40_awb_ctd_runs`, `t40_awb_ctd_fallbacks`, `t40_vendor_awb_process_skipped`, `t40_worker_stat`.
+Since 2026-10-19 the 3A defaults match the T41 line: `enable_core_ops_cb=1` (OEM core ISR, vendor AE/AWB per frame), `t40_vendor_awb_process=1` (vendor AWB algorithm; the former event-thread stall was the spec_calculate tail-call loop, fixed earlier) and `t40_awb_ctd=1` (colour-temperature detection; only runs inside the vendor AWB process). None of them needs to be passed any more; `=0` restores the old behaviour. Read-only counters: `t40_awb_ctd_runs`, `t40_awb_ctd_fallbacks`, `t40_vendor_awb_process_skipped`, `t40_worker_stat`.
 
 Recommended insmod line (since the defaults patch the best settings are the driver defaults):
 
