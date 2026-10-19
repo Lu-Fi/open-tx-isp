@@ -1283,6 +1283,47 @@ struct t41_msca_live_cfg {
 static struct t41_msca_live_cfg t41_msca_live[3];
 static bool t41_msca_live_valid[3];
 
+/*
+ * Flight recorder (diagnostic, default off): t41_fr_phys = physical address
+ * of a 64 KiB rmem area the streamer does not use (the rmem tail).  Header
+ * "TF411FR1" + last sequence at +8, a 2048-entry ring of {seq,
+ * jiffies << 8 | id, a, b} at +0x40, written uncached so it survives a
+ * watchdog reset.  Marks: id 1 MSCA/top register write (reg, value), 2 ISP
+ * interrupt (status0, status2), 3 output steps (code, ch).
+ */
+static unsigned int t41_fr_phys;
+module_param(t41_fr_phys, uint, 0644);
+struct t41_fr_entry { uint32_t seq, jif_id, a, b; };
+#define T41_FR_ENTRIES 2048U
+static uint32_t t41_fr_seq;
+static void t41_fr(uint32_t id, uint32_t a, uint32_t b)
+{
+	uint32_t phys = READ_ONCE(t41_fr_phys);
+	volatile uint32_t *hdr;
+	struct t41_fr_entry *e;
+	uint32_t seq;
+
+	if (!phys || phys >= 0x20000000U - 0x10000U)
+		return;
+	hdr = (volatile uint32_t *)KSEG1ADDR(phys);
+	seq = ++t41_fr_seq;
+	if (seq == 1) {
+		memset((void *)KSEG1ADDR(phys), 0,
+		       0x40 + T41_FR_ENTRIES * sizeof(*e));
+		hdr[0] = 0x31344654;
+		hdr[1] = 0x31524631;
+	}
+	e = (struct t41_fr_entry *)KSEG1ADDR(phys + 0x40) +
+	    (seq % T41_FR_ENTRIES);
+	e->jif_id = ((uint32_t)jiffies << 8) | (id & 0xffU);
+	e->a = a;
+	e->b = b;
+	wmb();
+	e->seq = seq;
+	hdr[2] = seq;
+	wmb();
+}
+
 static int t41_defer_vic_irq = 1;
 t41_bringup_param(t41_defer_vic_irq, int, 0);
 t41_bringup_param_desc(t41_defer_vic_irq,
@@ -15912,6 +15953,9 @@ int32_t csi_core_ops_init(uintptr_t a0, uintptr_t a1)
     if (!csi || a0 >= (uintptr_t)-4095 || !t41_kernel_data_ptr(init)) {
         isp_printf(2, "[%s %d] the parameters are invalid!\n",
                    "csi_core_ops_init", 356);
+        printk_ratelimited(KERN_WARNING
+               "t41: csi init invalid csi=%p init=%p caller=%pS\n",
+               csi, init, __builtin_return_address(0));
         return -EINVAL;
     }
 
@@ -54632,6 +54676,7 @@ int32_t tisp_channel_main_start(uint32_t a0)
     uintptr_t *v0 = 0;
     uint32_t *v1 = 0;
 
+    t41_fr(3, 0x13, a0);
     /* fragment 0: CallSetup */
     *(uint8_t *)((char *)((a0 * 612) + (uintptr_t)&mscaler) + 4) = 1;
     *(uint8_t *)((char *)((a0 * 26) + (uintptr_t)&msca) + 0) = 1;
@@ -54657,6 +54702,7 @@ int32_t tisp_channel_main_start(uint32_t a0)
 int32_t tisp_channel_main_stop(uint32_t a0)
 {
     t41_heapwatch_mark("tisp_channel_main_stop");
+    t41_fr(3, 0x10, a0);
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     unsigned long flags = 0;
     unsigned long deadline = jiffies + HZ;
@@ -54688,6 +54734,7 @@ int32_t tisp_channel_main_stop(uint32_t a0)
     /* FIFO reset and VB2 buffer return/free must follow DMA quiescence.
      * This process-context path holds no spinlock. A stuck engine must
      * retain its buffers, not time out into freeing live DMA destinations. */
+    t41_fr(3, 0x12, system_reg_read(0x0f00e0U));
     while ((active = system_reg_read(0x0f00e0U)) & mask) {
         if (time_after_eq(jiffies, deadline)) {
             printk(KERN_ERR "t41: MSCA channel %u still active=%#x; retaining capture buffers\n",
@@ -54727,6 +54774,7 @@ int32_t tisp_channel_main_stop(uint32_t a0)
 int32_t tisp_channel_main_fifo_clear(uint32_t a0)
 {
     t41_heapwatch_mark("tisp_channel_main_fifo_clear");
+    t41_fr(3, 0x11, a0);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -162421,6 +162469,7 @@ isp_fw_process0x44:
 int32_t ispcore_frame_channel_streamoff(void *arg1)
 {
     t41_heapwatch_mark("ispcore_frame_channel_streamoff");
+    t41_fr(3, 0x20, 0);
     char *pad = arg1;
     char *channel;
     unsigned long flags = 0;
@@ -163526,6 +163575,7 @@ static void t41_msca_frame_enable(void)
                 (desc[0] & 1U))
                 on |= 1U << ch;
         }
+        t41_fr(3, 0x30, on);
         if (on)
             system_reg_write(0x0f0008U, system_reg_read(0x0f0008U) | on);
         t41_msca_enable_pending &= ~armed;
@@ -163560,6 +163610,7 @@ static void t41_msca_finish_enable(uint32_t ch)
     if (!(READ_ONCE(t41_msca_enable_pending) & bit))
         return;
     start = ktime_get();
+    t41_fr(3, 0x31, ch);
     if (t41_isp_stream_started == 1) {
         deadline = jiffies + msecs_to_jiffies(t41_msca_latch_timeout_ms);
         for (;;) {
@@ -163898,6 +163949,7 @@ module_param_cb(t41_msca_regs, &t41_msca_regs_ops, NULL, 0444);
 int32_t ispcore_frame_channel_streamon(void *arg1)
 {
     t41_heapwatch_mark("ispcore_frame_channel_streamon");
+    t41_fr(3, 0x21, 0);
     char *pad = arg1;
     char *channel;
     unsigned long flags = 0;
@@ -167431,6 +167483,8 @@ int32_t system_reg_write(uint32_t a0, uint32_t a1)
 
     /* Exact H20250310a address calculation, paired with system_reg_read():
      * write to *(ispcore_sd + 0xe8) + the byte offset. */
+    if (a0 >= 0xf0000 || a0 < 0x100)
+        t41_fr(1, a0, a1);
     writel(a1, regs + a0);
     /* T40 and T23 both order each ISP MMIO write before issuing the next
      * command.  This is required for RAM-port transactions such as TMO,
@@ -170609,6 +170663,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
         writel(status2, regs + 0x400a4);
         status3 = readl(regs + 0x400b8);
         writel(status3, regs + 0x400b4);
+        t41_fr(2, status0, status2 | (error << 24));
 
         /*
          * The non-direct T41 frame path is completed from ISP status bit 0.
