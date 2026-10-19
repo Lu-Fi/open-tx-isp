@@ -476,7 +476,7 @@ static void regtrace_lsc_lit_track_wb_gains(uint32_t rgain, uint32_t bgain)
 	uint8_t zone_before, zone_after;
 
 	if (!regtrace_enable_lsc_lit || !regtrace_lsc_lit_ct_track ||
-	    !lsc_lit_banks[0].alive)
+	    !lsc_lit_banks[0].alive || READ_ONCE(t40_vawb_live))
 		return;
 	ct = regtrace_lsc_lit_ct_from_gains(rgain, bgain);
 	zone_before = lsc_lit_banks[0].zone;
