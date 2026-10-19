@@ -55,6 +55,7 @@
 #include "tx_isp_t31_subdev_resolver.h"
 #include "tx_isp_t31_sensor_policy.h"
 #include "tx_isp_v4l2.h"
+#include "tx_isp_v4l2_sensor.h"
 #include "../include/tx_isp/tx_isp_frame_channel.h"
 #include "../include/tx_isp/tx_isp_frame_layout.h"
 #include "../include/tx_isp/tx_isp_sinfo.h"
@@ -517,6 +518,7 @@ int tx_isp_unregister_sensor_subdev(struct tx_isp_subdev *sd);
 
 /* Global I2C client tracking to prevent duplicate creation. */
 static struct i2c_client *global_sensor_i2c_client;
+static struct tx_isp_subdev *global_v4l2_sensor_sd;
 static DEFINE_MUTEX(i2c_client_mutex);
 
 long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *arg)
@@ -566,17 +568,27 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
                 return -ENODEV;
             }
 
-            /* Stock: Build board_info from sensor_register_info */
-            memset(&sensor_board_info, 0, sizeof(sensor_board_info));
-            memcpy(sensor_board_info.type, reg_info->i2c.type,
-                   sizeof(sensor_board_info.type));
-            sensor_board_info.addr = reg_info->i2c.addr;
-
             pr_info("*** subdev_sensor_ops_ioctl: request sensor=%s addr=0x%02x adapter=%d ***\n",
-                    sensor_board_info.type, sensor_board_info.addr, i2c_adapter_num);
+                    reg_info->i2c.type, reg_info->i2c.addr, i2c_adapter_num);
 
-            /* Stock: isp_i2c_new_subdev_board returns the SUBDEV, not client */
-            sensor_sd = isp_i2c_new_subdev_board(adapter, &sensor_board_info);
+            /*
+             * Prefer the mainline V4L2 subdev that already probed from DT.
+             * Creating the vendor i2c client below would collide with the
+             * DT client at the same address and would not speak V4L2.
+             */
+            sensor_sd = tx_isp_v4l2_sensor_get(adapter, reg_info->i2c.type);
+            if (sensor_sd) {
+                global_v4l2_sensor_sd = sensor_sd;
+            } else {
+                /* Stock: Build board_info from sensor_register_info */
+                memset(&sensor_board_info, 0, sizeof(sensor_board_info));
+                memcpy(sensor_board_info.type, reg_info->i2c.type,
+                       sizeof(sensor_board_info.type));
+                sensor_board_info.addr = reg_info->i2c.addr;
+
+                /* Stock: isp_i2c_new_subdev_board returns the SUBDEV, not client */
+                sensor_sd = isp_i2c_new_subdev_board(adapter, &sensor_board_info);
+            }
             i2c_put_adapter(adapter);
 
             if (!sensor_sd || (uintptr_t)sensor_sd >= 0xfffff001) {
@@ -983,6 +995,13 @@ static void cleanup_i2c_infrastructure(struct tx_isp_dev *dev)
     /* The I2C core invokes sensor_remove(); do not hold our mutex then. */
     if (client)
         i2c_unregister_device(client);
+
+    if (global_v4l2_sensor_sd) {
+        struct tx_isp_subdev *v4l2_sd = global_v4l2_sensor_sd;
+
+        global_v4l2_sensor_sd = NULL;
+        tx_isp_v4l2_sensor_put(v4l2_sd);
+    }
 
     /* Clean up any remaining I2C clients and adapters */
     pr_info("I2C infrastructure cleanup complete\n");
