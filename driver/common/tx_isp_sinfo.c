@@ -1323,6 +1323,26 @@ int tx_isp_sinfo_sensor_bind(void *subdev, struct module *owner)
 }
 EXPORT_SYMBOL(tx_isp_sinfo_sensor_bind);
 
+void tx_isp_sinfo_sensor_addr(void *subdev, unsigned short addr)
+{
+	int i;
+
+	if (!subdev || !tx_isp_sinfo_slots)
+		return;
+	mutex_lock(&tx_isp_sinfo_publish_lock);
+	mutex_lock(&tx_isp_sinfo_lock);
+	for (i = 0; i < TX_ISP_SINFO_MAX_SENSORS; ++i) {
+		struct tx_isp_sinfo_slot *slot = &tx_isp_sinfo_slots[i];
+
+		if (slot->used && slot->subdev == subdev) {
+			slot->default_i2c_addr = addr;
+			break;
+		}
+	}
+	mutex_unlock(&tx_isp_sinfo_lock);
+	mutex_unlock(&tx_isp_sinfo_publish_lock);
+}
+
 void tx_isp_sinfo_sensor_unbind(void *subdev, struct module *owner)
 {
 	int i;

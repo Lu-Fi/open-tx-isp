@@ -155,6 +155,9 @@ int tx_isp_sinfo_get_driver(unsigned int index, char *name,
 			    unsigned int name_size,
 			    unsigned short *default_i2c_addr);
 int tx_isp_sinfo_sensor_bind(void *subdev, struct module *owner);
+/* Address of a sensor whose driver did not register one itself, e.g. a
+   mainline V4L2 subdev attached through the tx_isp_v4l2 bridge. */
+void tx_isp_sinfo_sensor_addr(void *subdev, unsigned short addr);
 void tx_isp_sinfo_sensor_unbind(void *subdev, struct module *owner);
 
 int tx_isp_sinfo_init(void);
