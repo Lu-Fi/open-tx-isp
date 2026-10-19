@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-19: Takeover from AK Sharma's mainline T31 port (`claude/akoo7-port`)
+
+Commits by AK Sharma (fork AKoo7/open-tx-isp, `t31-6.12-port-v2`), author kept.
+
+- **T31 IRQ leak and double free after a failed core probe fixed (device-tested, T31L .29 sc2336, kernel 3.10.14):** `tx_isp_core_probe` freed the global `ourISPdev` on failure (then freed again by `tx_isp_exit`, IRQ never released); `tx_isp_subdev_init` returned straight out of the clock/pad failure paths and freed the IRQ with the wrong `dev_id`. Test: the shipped load order already fails the core probe benignly (`/dev/framechan0: -17`, pre-existing), i.e. the error path runs on every load; load, `rmmod`, reload, timps streaming, 0 oops/WARN, no ISP IRQ left after `rmmod`.
+- **GC4653 sensor for T31 (`sensor-src/t31/gc4653.c`): builds on 3.10.14, untested on hardware** (no T31 camera with GC4653). The mainline mbus aliases in `sensor-common.h` are now behind `LINUX_VERSION_CODE >= 5.0` (they broke the 3.10 sensor build).
+- **Mainline 7.1/7.2 kernel-API adaptation merged with the k7-compat patch into one path** (`READ_ONCE/WRITE_ONCE`, `swait_active`, `.remove` void, `strlcpy`/`strncpy` shims, vendor clock-name aliases `cgu_isp->isp`, `csi->mipi_csi`, `cgu_cim->cim`, vendor-sized stand-in for the embedded `miscdevice` and no `spinlock_t` inside the OEM ABI window, no `__module_address`/`set_fs`/`__ioremap` in guard/trace). All behind `LINUX_VERSION_CODE`; the mainline path was **not build-tested** here (no 5.15+/7.x tree). 3.10.14 / 4.4.94 modules unchanged: `tx-isp-t31.ko` and `tx-isp-t23.ko` byte-identical, `tx-isp-t41.ko` identical apart from the git-describe string, `tx_isp_trace.ko` identical code (only srcversion).
+- Not taken: `5ebcfb14` (flat first-sensor symlinks; our vendor `/proc/jz/sensor` layout already provides the flat files) and the T41 AWB scene sampling `50f529f9`.
+
 ## 2026-10-19: T41 defaults, T40 AWB statistics oops, T40 AE maximum integration (`claude/t41-defaults-vae-clm-tone`, `claude/t40-az-nohang`, `claude/t40-ae-maxint`; all in `next`)
 
 - **T41 defaults changed (device-tested, T41 .32 gc5603):** `t41_vendor_ae=1` (translated vendor AE per frame), `t41_clm=1` (OEM CLM LUT by colour temperature) and `t41_tone_trigger=1` (per-frame tone worker from the AE statistics interrupt) are now on by default; `=0` restores the previous safe-AE / no-LUT / TMO-interrupt-only behaviour. Merged only after an overnight soak with exactly these settings: 16.6 h (2026-10-18 15:02 to 10-19 07:39) without reboot, 0 BUG/oops, the streamer ran without restart, day/night switched normally.
