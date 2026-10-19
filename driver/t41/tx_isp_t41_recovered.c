@@ -4722,6 +4722,8 @@ int32_t tx_isp_video_link_destroy_isra_3(uintptr_t a0, uint32_t a1) __asm__("tx_
 int32_t tx_isp_video_link_destroy_isra_3(uintptr_t a0, uint32_t a1);
 int32_t tx_isp_release(uint32_t a0, uintptr_t a1);
 int32_t tx_isp_init(void);
+int t41_rawinject_init(void);
+void t41_rawinject_exit(void);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t tx_isp_driver_version_isra_12(uint32_t a0) __asm__("tx_isp_driver_version.isra.12");
 #endif
@@ -35936,9 +35938,23 @@ int32_t tx_isp_exit(void)
     if (t41_bringup() < 0)
         return 0;
 
+    t41_rawinject_exit();
     private_platform_driver_unregister(&tx_isp_driver);
     private_platform_device_unregister(&tx_isp_platform_device);
     return 0;
+}
+
+/* RAW inject (tx_isp_t41_rawinject.c): accessor for the static sensor
+ * parameter block (width = [0], height = [1]). */
+uint32_t t41_rawinject_par(unsigned int idx)
+{
+    return ((uint32_t *)(void *)tisp_par_info_storage)[idx];
+}
+
+/* RAW inject: OEM raw-DMA state block (NULL until tisp_raw_init ran). */
+uint32_t t41_rawinject_rpars(void)
+{
+    return rpars;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000013aa4 origin=fragment_seed original=subdev_video_destroy_link */
@@ -36298,7 +36314,7 @@ tx_isp_init0x6c:
 
     /* fragment 8: Branch */
     s0 = v0;
-    if (v0 == 0) { goto tx_isp_init0x54; }
+    if (v0 == 0) { t41_rawinject_init(); goto tx_isp_init0x54; }
 
     /* fragment 9: CallSetup */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_platform_device_unregister)(&tx_isp_platform_device); /* jalr target resolved by relocation */
