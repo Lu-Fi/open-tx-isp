@@ -4147,6 +4147,7 @@ long private_clk_set_rate(struct clk *clk, unsigned long rate);
 int private_i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num);
 int private_i2c_add_driver(struct i2c_driver *driver);
 void private_i2c_del_driver(struct i2c_driver *driver);
+#include "tx_isp_t41_sensor_client.h"
 /* tx_isp_t41_sensor_pin.c */
 int tx_isp_t41_i2c_add_sensor_driver(struct i2c_driver *driver);
 bool tx_isp_t41_sensor_pin(struct module *owner);
@@ -15252,10 +15253,41 @@ static void t41_unregister_i2c_sensor(uintptr_t sensor_sd)
 	client = (struct i2c_client *)t41_load_ptr(sensor_sd,
 						   T41_SUBDEV_CLIENT_OFF);
 	if (client) {
+		tx_isp_t41_sensor_client_forget(client);
 		if (client->adapter)
 			private_i2c_put_adapter(client->adapter);
 		private_i2c_unregister_device(client);
 	}
+}
+
+/*
+ * The sensor object is about to be freed behind our back (its module is
+ * unbound/removed while the sensor is still registered): drop it from the
+ * VIN list and the active slots and unsync the core/VIC copies while it is
+ * still valid.  Also used by the module exit for every registered sensor.
+ */
+static void t41_unsync_stale_sensor(uintptr_t sensor);
+
+static void t41_detach_sensor(void *sensor_sd)
+{
+	uintptr_t sensor = (uintptr_t)sensor_sd;
+	uintptr_t vin = (uintptr_t)private_platform_get_drvdata(
+		(uintptr_t)&tx_isp_vin_platform_device);
+	struct list_head *node;
+	unsigned int id;
+
+	if (!t41_kernel_data_ptr((void *)vin) || !sensor)
+		return;
+	private_mutex_lock((void *)(vin + T41_VIN_SENSOR_LOCK_OFF));
+	node = (struct list_head *)(sensor + T41_SENSOR_LIST_OFF);
+	if (node->next && node->prev && node->next != LIST_POISON1)
+		list_del(node);
+	for (id = 0; id < T41_SENSOR_MAX_VIN; id++)
+		if (t41_vin_active_sensor(vin, id) == sensor)
+			t41_store_ptr(vin, T41_VIN_ACTIVE_SENSOR_OFF +
+					   id * sizeof(uintptr_t), 0);
+	private_mutex_unlock((void *)(vin + T41_VIN_SENSOR_LOCK_OFF));
+	t41_unsync_stale_sensor(sensor);
 }
 
 /*
@@ -15391,6 +15423,10 @@ static int t41_register_sensor(uintptr_t vin, uintptr_t arg)
 	memset(&board_info, 0, sizeof(board_info));
 	memcpy(board_info.type, (void *)(arg + 36), sizeof(board_info.type));
 	board_info.addr = *(uint32_t *)(arg + 56);
+	/* Beyond vendor: a client left at this address by a previous driver
+	 * instance (rmmod without IMP_ISP_DelSensor) would make
+	 * i2c_new_device() fail with -EBUSY until reboot. */
+	tx_isp_t41_sensor_client_evict(adapter, board_info.addr);
 	sensor_sd = isp_i2c_new_subdev_board(adapter, &board_info, NULL);
 	if (!sensor_sd || IS_ERR(sensor_sd)) {
 		private_i2c_put_adapter(adapter);
@@ -15427,6 +15463,8 @@ static int t41_register_sensor(uintptr_t vin, uintptr_t arg)
 	list_add_tail(sensor_list,
 		      (struct list_head *)(vin + T41_VIN_SENSOR_LIST_OFF));
 	private_mutex_unlock((void *)(vin + T41_VIN_SENSOR_LOCK_OFF));
+	tx_isp_t41_sensor_client_add((struct i2c_client *)t41_load_ptr(
+		(uintptr_t)sensor_sd, T41_SUBDEV_CLIENT_OFF), adapter, sensor_sd);
 
 	/* Sensor notifications must return through the owning VIN subdevice. */
 	t41_store_ptr((uintptr_t)sensor_sd, T41_SUBDEV_NOTIFY_OFF,
@@ -171564,9 +171602,11 @@ int32_t init_module(void)
 		t41_heapwatch_stop();
 		return ret;
 	}
+	tx_isp_t41_sensor_clients_init(t41_detach_sensor);
 	ret = tx_isp_sinfo_init();
 	if (ret) {
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
+		tx_isp_t41_sensor_clients_exit();
 		t41_heapwatch_stop();
 		return ret;
 	}
@@ -171574,6 +171614,7 @@ int32_t init_module(void)
 	if (ret) {
 		tx_isp_sinfo_exit();
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
+		tx_isp_t41_sensor_clients_exit();
 		t41_heapwatch_stop();
 		return ret;
 	}
@@ -171594,6 +171635,7 @@ void cleanup_module(void)
 	t41_heapwatch_census("exit");
     ((void (*)(void))(uintptr_t)t9)();
 	t41_heapwatch_step("exit:tx_isp_exit");
+	tx_isp_t41_sensor_clients_exit();
 
 	/*
 	 * The ISP/VIC IRQs are freed by now, so nothing queues these static
@@ -171736,6 +171778,9 @@ int tx_isp_remove(struct platform_device *pdev)
 	private_misc_deregister((char *)ispdev + 0x0c);
 	t41_procwatch_stop();
 	private_proc_remove(*(void **)((char *)ispdev + 0x138));
+	/* Like TX_ISP_SENSOR_RELEASE for every sensor the application did
+	 * not release: VIN list, core/VIC copies, i2c client, adapter ref. */
+	tx_isp_t41_sensor_clients_release_all();
 	tx_isp_unregister_platforms((int32_t *)((char *)ispdev + 0x88));
 	private_platform_set_drvdata(pdev, NULL);
 	private_kfree(ispdev);
