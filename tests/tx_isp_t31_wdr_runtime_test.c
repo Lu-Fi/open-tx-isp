@@ -10,6 +10,8 @@
 #define min(a,b) ((a)<(b)?(a):(b))
 #define clamp(v,lo,hi) ((v)<(lo)?(lo):((v)>(hi)?(hi):(v)))
 #define ACCESS_ONCE(v) (v)
+#define READ_ONCE(v) (v)
+#define WRITE_ONCE(v, val) ((v) = (val))
 #define mutex_lock(p) ((void)(p))
 #define mutex_unlock(p) ((void)(p))
 #define spin_lock_irqsave(p,f) do { (void)(p); (f)=0; } while(0)
