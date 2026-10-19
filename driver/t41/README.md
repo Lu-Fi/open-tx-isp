@@ -956,3 +956,10 @@ step and do not continue with larger sizes.
   fixed:** the counter stays constant (13) and every call returns after its full
   timeout with ret 0; the `isp_frame_done_wakeup()` call in the core 0x0100000b
   path is not reached (or does not advance the counter) in steady state.
+
+## Defaults since 2026-10-19
+
+`t41_vendor_ae`, `t41_clm` and `t41_tone_trigger` default to 1 (translated
+vendor AE per frame, OEM CLM LUT by colour temperature, per-frame tone worker).
+Set them to 0 for the previous behaviour (0 for `t41_clm` = no LUT, 2 = bypass).
+Device-tested: 16.6 h overnight run on a gc5603 camera without reboot, 0 BUG/oops.
