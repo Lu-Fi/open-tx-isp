@@ -38,11 +38,15 @@ struct kernel_param { int x; };
 struct kernel_param_ops { int (*get)(char *, const struct kernel_param *); };
 static int harness_verbose = 1;
 #define VD __attribute__((section(".vdata")))
+#define in_interrupt() 0
 static u32 pstMainAwbOri[128] VD, pstSecAwbOri[128] VD, pstMainAwbCtDetectOri[34] VD;
 static u32 stMainAwbInter VD, stMainAwbOuter VD, stSecAwbInter VD, stSecAwbOuter VD;
 static u8 pstMainAeOri_storage[0x164] VD, pstSecAeOri_storage[0x164] VD;
 static u32 tparamsN[4] VD, awb_algo_comp[64] VD;
 static u8 tispinfo[64] VD;
+/* colour contexts of the CT chains (unused by the AWB run, referenced by the generated code) */
+static u32 pstMainCcmOri_lit[26] VD, pstMainBcshOri_lit[72] VD;
+static u8 s_bcsh_mjpeg_mode_lit[2] VD, s_bcsh_mjpeg_y_range_low_lit[2] VD, s_bcsh_mjpeg_y_range_high_lit[16] VD;
 static u8 inter[0x10000] __aligned(16) VD, outer[0x2000] __aligned(16) VD, bank[0x19000] __aligned(16) VD;
 static u8 stats[0x10000] __aligned(16) VD;
 static u32 nreg;
@@ -67,6 +71,10 @@ static u32 harness_ok(u32 a, u32 align)
 	return a >= 0x30000000U && a < 0x30400000U;
 }
 #include VAWB_TOP
+/* CT-chain externals (tx_isp_t40_vct.h on the device), unused by the AWB run */
+static u64 vawb_x___private_spin_lock_irqsave(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp) { return 0; }
+static u64 vawb_x_private_spin_unlock_irqrestore(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp) { return 0; }
+static u64 vawb_s_tisp_clm_ct_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp) { return 0; }
 #include VAWB_INC
 
 #define VAWB_CSP ((u32)(uintptr_t)vawb_argarea)
@@ -135,6 +143,12 @@ static void replay(void)
 	vawb_tisp_awb_main_process(0, 0, 0, 0, VAWB_CSP);
 	vawb_tarmed = 0;
 	for (i = 0; i < 60328; i++) if (inter[i] != g_dump[VAWB_ONE + i]) { d_in++; if (first == ~0U) first = i; }
+	for (i = 0; i < 60328; i += 4)	/* the differing words: host vs device, and the ctx slot that owns them */
+		if (*(u32 *)(inter + i) != *(u32 *)(g_dump + VAWB_ONE + i)) {
+			u32 k, own = ~0U;
+			for (k = 0; k < 128; k++) if (c[k] >= (u32)(uintptr_t)inter && c[k] - (u32)(uintptr_t)inter <= i && (own == ~0U || c[k] > c[own])) own = k;
+			printf("  inter+%#x host %#x device %#x (ctx[%u]+%u)\n", i, *(u32 *)(inter + i), *(u32 *)(g_dump + VAWB_ONE + i), own, own == ~0U ? 0 : i - (c[own] - (u32)(uintptr_t)inter));
+		}
 	for (i = 0; i < 4752; i++) if (outer[i] != g_dump[VAWB_ONE + 60328 + i]) d_out++;
 	printf("replay frame %u: faults=%u loops=%u ct=%u g9=%u,%u reg=%#x,%#x  diff vs device: inter %u B (first %#x) outer %u B\n",
 	       h[5], vawb_faults, vawb_loop_trips, *(u32 *)(uintptr_t)c[7], ((u32 *)(uintptr_t)c[9])[0],

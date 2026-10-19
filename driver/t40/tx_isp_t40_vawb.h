@@ -23,6 +23,10 @@ typedef u64 (*vawb_fn_t)(u32, u32, u32, u32, u32);
 static u32 vawb_faults;
 static u32 vawb_calls, vawb_frames, vawb_irqs;
 static const char vawb_str[] = "t40-vawb";
+/* caller-saved register file across translated calls (OEM IPA-RA, see asm2c.py), one per context:
+ * the AWB statistics run in the ISP IRQ while the process chain runs in the event thread */
+static u32 vawb_rf_thr[32], vawb_rf_irq[32];
+#define vawb_rf (in_interrupt() ? vawb_rf_irq : vawb_rf_thr)
 module_param_named(t40_vawb_faults, vawb_faults, uint, 0444);
 module_param_named(t40_vawb_frames, vawb_frames, uint, 0444);
 
@@ -202,7 +206,12 @@ static noinline u64 vawb_call(u32 tg, u32 a0, u32 a1, u32 a2, u32 a3, u32 sp, u3
 		vawb_fault_note(tg, pc);
 		return 0;
 	}
-	return ((vawb_fn_t)(uintptr_t)tg)(a0, a1, a2, a3, sp);
+	{
+		u64 rv = ((vawb_fn_t)(uintptr_t)tg)(a0, a1, a2, a3, sp);
+
+		vawb_rf[3] = (u32)(rv >> 32);	/* v1 of a 64-bit result (also from the external leaves) */
+		return rv;
+	}
 }
 
 /* ---- external leaves the OEM code calls (same ABI) ---- */
@@ -261,6 +270,20 @@ static u64 vawb_x_div64_u64(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
 	if (!b) { vawb_fault_note(0, 4); return 0; }
 	return div64_u64(((u64)a1 << 32) | a0, b);
 }
+
+/* OEM private state of the CT/EV colour chains (t40_ct_chains, tx_isp_t40_vct.h) */
+static u64 vct_fnum[2];			/* OEM fnum (.bss 16 B): read by tisp_ct_update, never written by the module */
+static u32 vct_lsc_ct;			/* OEM lsc_ct */
+static u8 vct_lsc_ct_flag[2];		/* OEM lsc_ct_flag */
+static u32 vct_lsc_ram_lock[2];		/* OEM lsc_ram_lock: only its address is used (adapter -> lsc_lit_banks[].lock) */
+static u8 vct_lsc_lut_write_times[2];	/* OEM lsc_lut_write_times */
+static u64 vct_lsc_frm_num_saved[2];	/* OEM lsc_frm_num_saved */
+static u8 vct_lsc_wlut_frequency[2] = { 5, 5 };	/* OEM .data 0x2c0f0 */
+static u32 vct_lsc_real_para[2];	/* OEM lsc_main_real_para, lsc_seco_real_para */
+static u32 vct_lsc_awdr_para[2];	/* OEM lsc_main_awdr_para, lsc_seco_awdr_para */
+static u64 vawb_x___private_spin_lock_irqsave(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
+static u64 vawb_x_private_spin_unlock_irqrestore(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
+static u64 vawb_s_tisp_clm_ct_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 
 #include "tx_isp_t40_vawb_gen.inc"
 
@@ -337,6 +360,7 @@ module_param(t40_vawb_run, uint, 0644);
 module_param(t40_vawb_debug, uint, 0644);
 #define VAWB_STEP(n) do { if (t40_vawb_debug) { printk(KERN_WARNING "t40: vawb init step %d faults=%u\n", n, vawb_faults); msleep(400); } } while (0)
 #define VAWB_CSP ((u32)(uintptr_t)vawb_argarea)
+#include "tx_isp_t40_vct.h"
 
 /* OEM tisp_awb_main_init 0x31530 (frame of the open driver: inter seed =
  * stMainAwbInterOri, byte-identical with the Eufy OEM .data 0x1d36c). */
@@ -544,6 +568,10 @@ static void t40_vawb_ev_follow(void)
 	t40_vawb_ev_sent = ev;
 	VAWB_TOP();
 	vawb_tisp_awb_main_ev_update(ev, 0, 0, 0, VAWB_CSP);
+	if (t40_ct_chains) {	/* OEM event 8: tisp_ccm_main_ev_update + tisp_bcsh_main_ev_update */
+		t40_vct_ev_update(ev);
+		return;
+	}
 	if (regtrace_enable_ccm && regtrace_ccm_ct_track)
 		regtrace_ccm_ev = e10;	/* CCM by EV: the frame-done block below re-interpolates on change */
 	/* OEM tisp_bcsh_main_ev_update 0x6aac0: [38] cur, [39] last, [40] threshold, [6] dirty */
@@ -570,6 +598,10 @@ static void t40_vawb_ct_follow(void)
 	if (ct < 1500U || ct > 15000U || READ_ONCE(regtrace_running_mode))
 		return;
 	t40_vawb_ct = ct;
+	if (t40_ct_chains) {	/* OEM event 13: tisp_ct_update (TOP-gated CCM/LSC/BCSH/CLM) */
+		t40_vct_ct_update(ct);
+		return;
+	}
 	if (regtrace_enable_ccm && regtrace_ccm_ct_track) {
 		regtrace_ccm_ct = ct;	/* the EV re-interpolation in the frame-done block uses it */
 		regtrace_ccm_main_ct_update_lit(ct, false);	/* own threshold ctx[8] like OEM */

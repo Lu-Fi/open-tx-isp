@@ -44,6 +44,7 @@ import json
 if os.environ.get('VAE_DATA'): DATA.update(json.load(open(os.environ['VAE_DATA'])))
 if os.environ.get('VAE_ADAPT'): ADAPT |= set(os.environ['VAE_ADAPT'].split())
 STOP=set(os.environ.get('VAE_STOP','').split())
+BLOB=os.environ.get('VAE_DATA_BLOB','')  # host harness: whole OEM .data section at this C object, any unmapped .data symbol resolves into it
 TRACE=set(os.environ.get('VAE_TRACE','').split())
 
 R = ['zero', 'at', 'v0', 'v1', 'a0', 'a1', 'a2', 'a3', 't0', 't1', 't2', 't3', 't4', 't5', 't6', 't7',
@@ -57,6 +58,7 @@ for l in open(os.path.join(IN, 'rodata.rel')):
         o = int(p[0], 16); jt[o] = struct.unpack_from('<I', rodata, o)[0]
 
 def num(x): return int(x, 0)
+def cid(n): return n.replace('.', '_')  # tisp_x.part.0 -> tisp_x_part_0
 
 def gen(fname, translated, warn):
     fn = F[fname]; ins = fn['ins']; start = ins[0][0]; end = ins[-1][0] + 4
@@ -92,17 +94,26 @@ def gen(fname, translated, warn):
     def reloc_addr(i, imm, base=None):
         """C expression for the address a LO16 reloc designates (without base reg)."""
         t, s = [rr for rr in i[3] if rr[0] == 'R_MIPS_LO16'][0]
-        if s in ('.data', '.bss', '.rodata', '.sbss'):
+        if s in ('.data', '.bss', '.rodata', '.sbss', '.text'):
             h = HI.get((base, s))
             if h is None: raise Exception(f'no HI16 for {s} base {base} at {i[0]:x} in {fname}')
             imm = (h << 16) + imm
         if s in ('.bss', '.data', '.sbss'):
             n, k, sz = resolve(s, imm)
+            if n not in DATA and BLOB and s == '.data':
+                used_data[n] = sz
+                return f'((u32)(uintptr_t)({BLOB}) + {imm}U)'
             if n not in DATA:
                 UNM.setdefault(n,(s,sz,set())); UNM[n][2].add(fname)
                 return f'((u32)(uintptr_t)(UNMAPPED_{n}) + {k}U)'
             used_data[n] = sz
             return f'((u32)(uintptr_t)({DATA[n]}) + {k}U)'
+        if s == '.text':   # static function referenced by section offset (tail call to a .part.N split)
+            for fn2, d in F.items():
+                if d['start'] <= imm < d['start'] + 4 * len(d['ins']):
+                    translated.add(fn2)
+                    return f'((u32)(uintptr_t)vae_{cid(fn2)} + {imm - d["start"]}U)'
+            raise Exception(f'.text+{imm:#x} in no function ({fname})')
         if s == '.rodata':
             n, k, sz = resolve(s, imm)
             if n == 'ae_cache':
@@ -114,10 +125,20 @@ def gen(fname, translated, warn):
             if s in ADAPT: return f'((u32)(uintptr_t)vae_x_{s} + {imm}U)'
             if s in STOP: return f'((u32)(uintptr_t)vae_s_{s} + {imm}U)'
             translated.add(s)
-            return f'((u32)(uintptr_t)vae_{s} + {imm}U)'
+            return f'((u32)(uintptr_t)vae_{cid(s)} + {imm}U)'
         if s in DATA:
             used_data[s] = 0
             return f'((u32)(uintptr_t)({DATA[s]}) + {imm}U)'
+        for sn, L in sec.items():   # named .data/.bss/.rodata object referenced by symbol
+            for a, sz, n in L:
+                if n == s:
+                    if sn == '.rodata':
+                        return f'((u32)(uintptr_t)vae_rodata + {a + imm}U)'
+                    if BLOB and sn == '.data':
+                        used_data[s] = sz
+                        return f'((u32)(uintptr_t)({BLOB}) + {a + imm}U)'
+                    UNM.setdefault(s,(sn,sz,set()))[2].add(fname)
+                    return f'((u32)(uintptr_t)(UNMAPPED_{s}) + {imm}U)'
         UNM.setdefault(s,('sym',0,set()))[2].add(fname); translated.add(s) if s in F else None
         return f'((u32)(uintptr_t)vae_{s} + {imm}U)'
 
@@ -272,14 +293,14 @@ def gen(fname, translated, warn):
             continue
         if m == 'jalr':
             tr = a[-1]
-            body.append(f'\ttg = {r(tr)}; {delay()} {{ u64 rv = vae_call(tg, a0, a1, a2, a3, sp, {i[0]}U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }}{after()}')
+            body.append(f'\ttg = {r(tr)}; {delay()} vae_rf_save(); {{ u64 rv = vae_call(tg, a0, a1, a2, a3, sp, {i[0]}U); v0 = (u32)rv; }} vae_rf_load();{after()}')
             continue
         if m in ('jr', 'jr.hb'):
             tr = a[0]
             if tr == 'ra':
-                body.append(f'\t{delay()} return ((u64)v1 << 32) | v0;')
+                body.append(f'\t{delay()} vae_rf_save(); return ((u64)v1 << 32) | v0;')
             elif tr == 't9':
-                body.append(f'\ttg = t9; {delay()} return vae_call(tg, a0, a1, a2, a3, csp, {i[0]}U);')
+                body.append(f'\ttg = t9; {delay()} vae_rf_save(); return vae_call(tg, a0, a1, a2, a3, csp, {i[0]}U);')
             else:
                 cases = ' '.join(f'case {t}U: goto L_{t-start:x};' for t in jtargets)
                 body.append(f'\ttg = {r(tr)}; {delay()} switch (tg) {{ {cases} default: vae_fault_note(0, {i[0]}U); return 0; }}')
@@ -288,17 +309,17 @@ def gen(fname, translated, warn):
         if s: body.append('\t' + s)
     regs = ', '.join(x + ' = 0' for x in R if x not in ('zero', 'sp'))
     hdr = [f'/* OEM {fname} (.text+{start:#x}, {len(ins)} insns, frame {frame}) */',
-           f'u64 noinline vae_{fname}(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)',
+           f'u64 noinline vae_{cid(fname)}(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)',
            '{', f'\tu32 {regs.replace("a0 = 0, a1 = 0, a2 = 0, a3 = 0, ", "")};',
            '\tu32 tg = 0, c = 0; u64 acc = 0;',
            f'\tu32 vframe[{max(frame,4)//4 + 1}] __aligned(8);', '\tu32 sp = (u32)(uintptr_t)vframe;',
            '\t(void)tg; (void)c; (void)acc; (void)sp; (void)csp; (void)at; (void)k0; (void)k1; (void)gp; (void)ra;',
-           '\tvae_fn_enter();']
+           '\tvae_fn_enter(); vae_rf_load();']
     # silence unused labels warnings
     used = set(re.findall(r'goto (L_[0-9a-f]+)', '\n'.join(body)))
     body = [b for b in body if not (b.endswith(':') and b[:-1] not in used)]
     if caller_area or nonlocal_flag[0]: warn.append(fname)
-    return '\n'.join(hdr + body + ['\treturn ((u64)v1 << 32) | v0;', '}', ''])
+    return '\n'.join(hdr + body + ['\tvae_rf_save(); return ((u64)v1 << 32) | v0;', '}', ''])
 
 if __name__ == '__main__':
     roots = sys.argv[1:]
@@ -311,9 +332,15 @@ if __name__ == '__main__':
         out.append(gen(f, translated, warn))
         for t in sorted(translated):
             if t not in done and t not in q: q.append(t)
-    protos = [f'u64 vae_{f}(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);' for f in done]
+    protos = [f'u64 vae_{cid(f)}(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);' for f in done]
     hdr = ['/* GENERATED by tools/t40_vawb/gen.sh from the Eufy T8416 OEM tx-isp-t40.ko (with',
            ' * symbols).  Do not edit; regenerate. */']
+    # caller-saved registers flow through vae_rf[] across calls and returns like hardware registers:
+    # the OEM build uses IPA-RA (a caller keeps e.g. v1 live across a call to a local function that
+    # does not write it), so a callee's untouched registers must come back unchanged
+    CS = [('at', 1), ('v1', 3)] + [(f't{k}', 8 + k) for k in range(8)] + [('t8', 24), ('t9', 25)]
+    hdr.append('#define vae_rf_save() do { ' + ' '.join(f'vae_rf[{k}] = {n};' for n, k in CS) + ' } while (0)')
+    hdr.append('#define vae_rf_load() do { ' + ' '.join(f'{n} = vae_rf[{k}];' for n, k in CS) + ' } while (0)')
     rod = ', '.join(f'{b:#04x}' for b in rodata)
     hdr.append(f'static const u8 vae_rodata[{len(rodata)}] __aligned(8) = {{ {rod} }};')
     open(OUT, 'w').write('\n'.join(hdr + protos + out))
