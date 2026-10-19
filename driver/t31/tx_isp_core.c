@@ -1446,11 +1446,11 @@ int tx_isp_core_wait_quiet(u32 frame_ms)
     u32 quiet_ms, waited = 0, seq, now;
 
     quiet_ms = clamp_t(u32, frame_ms, 10, 500) * 2;
-    seq = ACCESS_ONCE(isp_core_irq_seq);
+    seq = READ_ONCE(isp_core_irq_seq);
     while (waited < 1000) {
         msleep(quiet_ms);
         waited += quiet_ms;
-        now = ACCESS_ONCE(isp_core_irq_seq);
+        now = READ_ONCE(isp_core_irq_seq);
         if (now == seq)
             return waited;
         seq = now;
@@ -1994,14 +1994,14 @@ int tx_isp_configure_clocks(struct tx_isp_dev *isp)
     pr_info("[CLK] Configuring ISP system clocks\n");
 
     /* Get the CGU ISP clock */
-    cgu_isp = clk_get(isp->dev, "cgu_isp");
+    cgu_isp = tx_isp_clk_get(isp->dev, "cgu_isp");
     if (IS_ERR(cgu_isp)) {
         pr_err("[CLK] Failed to get CGU ISP clock: %ld\n", PTR_ERR(cgu_isp));
         return PTR_ERR(cgu_isp);
     }
 
     /* Get the ISP core clock */
-    isp_core_clk = clk_get(isp->dev, "isp");
+    isp_core_clk = tx_isp_clk_get(isp->dev, "isp");
     if (IS_ERR(isp_core_clk)) {
         pr_err("[CLK] Failed to get ISP clock: %ld\n", PTR_ERR(isp_core_clk));
         ret = PTR_ERR(isp_core_clk);
@@ -2009,7 +2009,7 @@ int tx_isp_configure_clocks(struct tx_isp_dev *isp)
     }
 
     /* Get the CSI clock */
-    csi_clk = clk_get(isp->dev, "csi");
+    csi_clk = tx_isp_clk_get(isp->dev, "csi");
     if (IS_ERR(csi_clk)) {
         long csi_err = PTR_ERR(csi_clk);
 
@@ -2018,7 +2018,7 @@ int tx_isp_configure_clocks(struct tx_isp_dev *isp)
          * and use the observed vendor alias only when it is absent. */
         pr_warn("[CLK] CSI clock lookup failed (%ld), trying cgu_cim compatibility alias\n",
                 csi_err);
-        csi_clk = clk_get(isp->dev, "cgu_cim");
+        csi_clk = tx_isp_clk_get(isp->dev, "cgu_cim");
         if (IS_ERR(csi_clk)) {
             pr_err("[CLK] Failed to get CSI clock or cgu_cim alias: %ld\n",
                    PTR_ERR(csi_clk));
@@ -4701,7 +4701,10 @@ int tx_isp_core_probe(struct platform_device *pdev)
         isp_printf(2, "Failed to init isp subdev!\n");
     }
 
-    kfree(isp_dev);
+    /* The OEM probe kzalloc()s its own device and frees it here.  This one
+     * adopts the global ourISPdev (tx_isp_init allocates it, tx_isp_exit frees
+     * it), so freeing it left ourISPdev dangling with isp-m0's IRQ dev_id
+     * inside it: the IRQ was never freed and tx_isp_exit freed it twice. */
     return -ENOMEM;
 }
 
@@ -4760,6 +4763,24 @@ void private_spin_lock_init(spinlock_t *lock)
 EXPORT_SYMBOL(private_spin_lock_init);
 
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+/*
+ * Vendor clkdev names -> mainline T31 CGU names (adapted from AK Sharma's
+ * port).  The mainline CGU registers every clock as a global clkdev entry
+ * under its own name and has no "cgu_isp"/"csi": the ISP divider and gate are
+ * one MUX|DIV|GATE clock "isp", the MIPI-CSI gate is "mipi_csi".  Only tried
+ * when the vendor name itself is absent, so vendor kernels are unaffected.
+ */
+static const struct {
+    const char *vendor;
+    const char *mainline;
+} tx_isp_clk_aliases[] = {
+    { "cgu_isp", "isp" },
+    { "csi",     "mipi_csi" },
+    { "cgu_cim", "cim" },
+};
+#endif
+
 struct clk * private_clk_get(struct device *dev, const char *id)
 {
     struct clk *clk;
@@ -4767,6 +4788,24 @@ struct clk * private_clk_get(struct device *dev, const char *id)
     clk = clk_get(dev, id);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+    if (IS_ERR(clk) && id) {
+        int i;
+
+        for (i = 0; i < ARRAY_SIZE(tx_isp_clk_aliases); i++) {
+            struct clk *alias;
+
+            if (strcmp(id, tx_isp_clk_aliases[i].vendor))
+                continue;
+            alias = clk_get(dev, tx_isp_clk_aliases[i].mainline);
+            if (!IS_ERR(alias)) {
+                pr_info("tx-isp: clock '%s' resolved as mainline '%s'\n",
+                        id, tx_isp_clk_aliases[i].mainline);
+                return alias;
+            }
+            break;
+        }
+    }
+
     /*
      * Vendor T31 sensor drivers request the CIM clock through the global
      * clkdev name "cgu_cim". Mainline exposes it only through the CGU OF

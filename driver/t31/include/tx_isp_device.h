@@ -297,9 +297,17 @@ struct tx_isp_subdev_pad_ops {
 	int (*streamoff)(struct tx_isp_subdev *sd, void *data);
 };
 
+/*
+ * On kernels >= 5.0 sizeof(spinlock_t) is 4 (0 on the vendor 3.10 UP build) and
+ * would shift every raw OEM slot of tx_isp_subdev; the T31 IRQ path never takes
+ * this lock, so it is dropped there (adapted from AK Sharma's port; the vendor
+ * kernels keep the struct unchanged).
+ */
 struct tx_isp_irq_device {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
 	spinlock_t slock;
 	/*struct mutex mlock;*/
+#endif
 	int irq;
 	void (*enable_irq)(struct tx_isp_irq_device *irq_dev);
 	void (*disable_irq)(struct tx_isp_irq_device *irq_dev);
@@ -331,6 +339,28 @@ struct tx_isp_descriptor {
 };
 
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+/*
+ * Vendor-sized (0x24 bytes, ->name at +0x04) stand-in for the miscdevice node
+ * embedded at tx_isp_module +0x0c: a mainline struct miscdevice is 0x28 bytes
+ * and would shift the OEM ABI window. The T31 driver never registers this node
+ * (adapted from AK Sharma's port).
+ */
+struct tx_isp_oem_miscdev {
+	int				minor;		/* +0x00 */
+	const char			*name;		/* +0x04 */
+	const struct file_operations	*fops;		/* +0x08 */
+	void				*list[2];	/* +0x0c: list_head */
+	void				*parent;	/* +0x14 */
+	void				*this_device;	/* +0x18 */
+	const char			*nodename;	/* +0x1c */
+	unsigned short			mode;		/* +0x20 (pads to 0x24) */
+};
+#define TX_ISP_MODULE_MISCDEV_T struct tx_isp_oem_miscdev
+#else
+#define TX_ISP_MODULE_MISCDEV_T struct miscdevice
+#endif
+
 /*
  * tx_isp_module - MUST match stock SDK layout exactly.
  * Stock offset reference (from BN decompilation):
@@ -340,7 +370,7 @@ struct tx_isp_module {
 	struct tx_isp_descriptor desc;
 	struct device *dev;
 	const char *name;
-	struct miscdevice miscdev;
+	TX_ISP_MODULE_MISCDEV_T miscdev;
 	const struct file_operations *ops;
 	const struct file_operations *debug_ops;
 	struct tx_isp_module *submods[TX_ISP_ENTITY_ENUM_MAX_DEPTH];

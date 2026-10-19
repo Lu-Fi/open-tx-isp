@@ -1,3 +1,4 @@
+#include <linux/version.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -856,7 +857,9 @@ static void trace_write(const char *fmt, ...)
 	va_list args;
 	char buf[256];
 	int len;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
 	mm_segment_t old_fs;
+#endif
 
 	if (!trace_file)
 		return;
@@ -867,12 +870,19 @@ static void trace_write(const char *fmt, ...)
 
 	if (len > 0 && len < sizeof(buf)) {
 		mutex_lock(&trace_file_mutex);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+		/* set_fs() is gone on mainline (5.10): kernel_write() instead
+		 * (adapted from AK Sharma's port). */
+		if (trace_file && !IS_ERR(trace_file))
+			kernel_write(trace_file, buf, len, &trace_file->f_pos);
+#else
 		if (trace_file && !IS_ERR(trace_file)) {
 			old_fs = get_fs();
 			set_fs(KERNEL_DS);
 			vfs_write(trace_file, buf, len, &trace_file->f_pos);
 			set_fs(old_fs);
 		}
+#endif
 		mutex_unlock(&trace_file_mutex);
 	}
 }
@@ -1081,12 +1091,18 @@ static int __init isp_trace_init(void)
 
 	/* The T41 vendor wrapper uses __ioremap(..., 1024); the generic ioremap
 	 * mapping reads as zero on this Ingenic kernel. */
-	isp_base = __ioremap(0x13300000, 0x100000, 1024);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+	/* __ioremap is not exported on mainline; ioremap() is uncached on MIPS. */
+#define TX_ISP_TRACE_IOREMAP(a, s)	ioremap((a), (s))
+#else
+#define TX_ISP_TRACE_IOREMAP(a, s)	__ioremap((a), (s), 1024)
+#endif
+	isp_base = TX_ISP_TRACE_IOREMAP(0x13300000, 0x100000);
 	if (!isp_base) {
 		pr_err("isp-trace: failed to map ISP core\n");
 		return -ENOMEM;
 	}
-	csi_base = __ioremap(0x10020000, 0x40000, 1024);
+	csi_base = TX_ISP_TRACE_IOREMAP(0x10020000, 0x40000);
 	if (!csi_base) {
 		pr_err("isp-trace: failed to map CSI region\n");
 		iounmap(isp_base);
