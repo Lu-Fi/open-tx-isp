@@ -54599,6 +54599,7 @@ int tisp_deinit(int channel)
     tisp_lce_deinit(channel);
     tisp_msca_deinit(channel);
     ((int (*)(uint32_t))(uintptr_t)tisp_raw_deinit)(channel);
+    tisp_top_deinit(channel);
 
     mutex_lock(&t41_switch_bin_lock);
     if (t41_bin_retired) {
@@ -57527,48 +57528,24 @@ int32_t tisp_top_par_reg_cfg(uint32_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000021aa8 origin=fragment_seed original=tisp_top_deinit */
-int32_t tisp_top_deinit(uint32_t a0)
+int32_t tisp_top_deinit(uint32_t channel)
 {
+    uint32_t *slot;
+
     t41_heapwatch_mark("tisp_top_deinit");
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s0 = (unsigned int *)&ivdc_threshold_line;
-    a0 = a0 << 2;
-    s0 = s0 + 13588;
-
-    /* fragment 2: StackAccess */
-    local_14 = ra;
-    s0 = a0 + (uintptr_t)s0;
-    a0 = *(uint32_t *)((char *)s0 + 0);
-
-    /* fragment 3: Branch */
-    v0 = (unsigned int *)&private_vfree;
-    if (a0 == 0) { goto tisp_top_deinit0x38; }
-
-    /* fragment 4: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 0) = 0;
-
-tisp_top_deinit0x38:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Arithmetic */
-    v0 = 0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    /*
+     * Stock never calls this: tisp_deinit leaves the 8-byte vmalloc of
+     * tisp_top_init behind (one page per tisp_init).  Free it here.  Only
+     * channel 0: in the recovered layout top_info_storage[1] is sdns_info,
+     * which tisp_sdns_deinit owns.
+     */
+    if (channel != 0)
+        return 0;
+    slot = (uint32_t *)(void *)top_info_storage;
+    if (*slot) {
+        private_vfree((void *)(uintptr_t)*slot);
+        *slot = 0;
+    }
     return 0;
 }
 
