@@ -66,6 +66,7 @@
 #endif
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
+#include <linux/reboot.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
@@ -171654,6 +171655,37 @@ ispcore_interrupt_service_routine0x824:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074cc0 origin=fragment_seed original=init_module */
+/*
+ * T41 reboot quiesce. The kernel restarts through the watchdog
+ * (arch/mips/xburst2/soc-t41/reset.c jz_wdt_restart: irqs off, WDT fires
+ * after 500 ms) and no ISP platform driver has a .shutdown, so the ISP AXI
+ * master can still be mid-transfer when the short WDT reset hits. Before the
+ * restart, run the OEM bus-idle handshake (CPM_SRBC bit 21 stop request,
+ * wait for bit 20, then the bit-22 soft reset; private_reset_tx_isp_module,
+ * OEM 0x16148) so the ISP is idle and reset. t41_reboot_quiesce=0 disables it.
+ * Audit T41_REBOOT_HANG_1019, "Zweiter Ausloeser".
+ */
+static bool t41_reboot_quiesce = true;
+module_param(t41_reboot_quiesce, bool, 0644);
+MODULE_PARM_DESC(t41_reboot_quiesce, "stop and soft-reset the ISP bus master before restart/halt (default 1)");
+
+static int t41_reboot_notify(struct notifier_block *nb, unsigned long action, void *data)
+{
+	int ret;
+
+	if (!READ_ONCE(t41_reboot_quiesce))
+		return NOTIFY_DONE;
+	ret = private_reset_tx_isp_module(0);
+	pr_info("tx-isp-t41: reboot quiesce (action %lu): ISP bus idle + soft reset %s\n",
+		action, ret ? "timed out" : "done");
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block t41_reboot_nb = {
+	.notifier_call = t41_reboot_notify,
+	.priority = 128,
+};
+
 int32_t init_module(void)
 {
 	int ret;
@@ -171682,6 +171714,7 @@ int32_t init_module(void)
 		return ret;
 	}
 	t41_heapwatch_start();
+	register_reboot_notifier(&t41_reboot_nb);
 	return ret;
 }
 
@@ -171690,6 +171723,7 @@ void cleanup_module(void)
 {
     uintptr_t t9 = (uintptr_t)&tx_isp_exit;
 
+	unregister_reboot_notifier(&t41_reboot_nb);
 	t41_heapwatch_step("exit:begin");
 	tx_isp_t41_v4l2_exit();
 	t41_heapwatch_step("exit:v4l2");
