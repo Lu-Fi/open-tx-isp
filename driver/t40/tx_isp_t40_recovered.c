@@ -2758,7 +2758,9 @@ static unsigned char __attribute__((aligned(4))) ispcore_subdev_core_ops[44] = {
 };
 
 /* WHOLE_DRIVER_RECOVERED_GLOBALS */
-static unsigned char __attribute__((aligned(4))) ae_cache_init[2600] = {
+/* T40-WORKER-FIX: OEM ae_cache_init is 2608 B = 2 x 0x518 (Eufy .data 0xb298, ae_cache[1] = +0x518); the lift
+ * had 2 x 0x514, so the ch0 words the AE writes at +1296/+1300 (OEM 0x24284/0x242bc) landed in ch1 [0]. */
+static unsigned char __attribute__((aligned(4))) ae_cache_init[2608] = {
     0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
     0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
     0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
@@ -2840,54 +2842,37 @@ static unsigned char __attribute__((aligned(4))) ae_cache_init[2600] = {
     0x05, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
     0x90, 0x01, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 
     0x00, 0x64, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x02, 0x02, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
     0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
     0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
     0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
     0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
     0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x3c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -2916,12 +2901,29 @@ static unsigned char __attribute__((aligned(4))) ae_cache_init[2600] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x90, 0x01, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 
-    0x00, 0x10, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
-    0x00, 0x04, 0x00, 0x00, 0x90, 0x01, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 
-    0x00, 0x10, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x02, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x90, 0x01, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 
+    0x00, 0x10, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 
+    0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x90, 0x01, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 
+    0x00, 0x10, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 
+    0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 };
 static unsigned char __attribute__((aligned(4))) tx_isp_fs_pads[20] = {
     0x02, 0x10, 0x02, 0x10, 0x02, 0x10, 0x02, 0x10, 0x02, 0x10, 0x02, 0x10, 0x02, 0x10, 0x00, 0x00, 
@@ -8672,7 +8674,7 @@ static void regtrace_patch_relocated_data(void)
     *(const void **)((char *)configs + 0x8) = (const void *)&link2;
     *(const void **)((char *)configs + 0x10) = (const void *)&link3;
     *(const void **)((char *)ae_cache + 0x0) = (const void *)&ae_cache_init;
-    *(const void **)((char *)ae_cache + 0x4) = (const void *)((char *)((char *)&ae_cache_init + 0x514));
+    *(const void **)((char *)ae_cache + 0x4) = (const void *)((char *)((char *)&ae_cache_init + 0x518));
     *(const void **)((char *)sclk_name + 0x0) = (const void *)"mpll";
     *(const void **)((char *)sclk_name + 0x4) = (const void *)"vpll";
     *(const void **)((char *)sclk_name + 0x8) = (const void *)"epll";
@@ -24016,7 +24018,7 @@ static uintptr_t regtrace_ae_cache_for_channel(uint32_t channel)
 
     ptr = *(uintptr_t *)((char *)ae_cache + channel * sizeof(uint32_t));
     if (!regtrace_is_kernel_ptr((void *)ptr))
-        ptr = (uintptr_t)&ae_cache_init + channel * 0x514U;
+        ptr = (uintptr_t)&ae_cache_init + channel * 0x518U;
 
     return ptr;
 }
@@ -56684,43 +56686,101 @@ static void *regtrace_sensor_ctrl_set_ptr(uint32_t value, uintptr_t state)
     return NULL;
 }
 
-static uint32_t regtrace_sensor_ctrl_get_normal_fps(uintptr_t state)
-{
-    (void)state;
-    return 30U << 8;
-}
 
-static uint32_t regtrace_sensor_ctrl_get_id(uintptr_t state)
-{
-    (void)state;
-    return 0x4653;
-}
 
-static int64_t regtrace_sensor_ctrl_fps_control(uint32_t fps, uintptr_t state)
-{
-    (void)fps;
-    if (regtrace_is_kernel_addr((void *)state)) {
-        *(uint16_t *)(state + 2) = 3000;
-        *(uint16_t *)(state + 4) = 1920;
-        *(uint32_t *)(state + 48) = 1;
-        *(uint32_t *)(state + 52) = 1919;
-        *(uint32_t *)(state + 56) = 1919;
-        *(uint32_t *)(state + 60) = 1919;
-        *(uint32_t *)(state + 88) = 1;
-        *(uint32_t *)(state + 92) = 0;
-    }
-    return 0x1e0001;
-}
 
 static int32_t regtrace_sensor_ctrl_lines_per_second(void)
 {
     return 90000;
 }
 
+
+/* T40-WORKER-FIX: sensor_ctrl fps callbacks as in the Eufy OEM (sensor_get_normal_fps 0xfca4, sensor_get_id
+ * 0xfd00, sensor_fps_control 0xfd2c, sensor_set_fps 0xfd98) instead of fixed GC4653 numbers: they read the bound
+ * sensor's attr (core+368+ch*96) and fps (core+384+ch*96, packed num<<16|den); set_fps arms the pending fps
+ * slot core+832/836+ch*72 that ispcore_irq_main/sec_fd_work hands to the sensor (0x200000a). The channel
+ * is state+12 (OEM lw v1,12(a1)). */
+static uintptr_t t40_sctrl_core(uintptr_t state, uint32_t *ch)
+{
+    uintptr_t core = regtrace_get_u32((uintptr_t)g_ispcore, 0);
+
+    if (!regtrace_is_kernel_ptr((void *)core) || !regtrace_is_kernel_ptr((void *)state))
+        return 0;
+    *ch = regtrace_get_u32(state, 12);
+    if (*ch >= 2)
+        return 0;
+    return core;
+}
+
+static uint32_t regtrace_sensor_ctrl_get_normal_fps(uintptr_t state)
+{
+    uint32_t ch, fps, num, den;
+    uintptr_t core = t40_sctrl_core(state, &ch);
+
+    if (!core)
+        return 0;
+    fps = regtrace_get_u32(core, 384 + ch * 96);
+    num = fps >> 16;
+    den = fps & 0xffffU;
+    if (!den)
+        return 0;
+    return (((num / den) << 8) + (((num % den) << 8) / den)) & 0xffffU;
+}
+
+static uint32_t regtrace_sensor_ctrl_get_id(uintptr_t state)
+{
+    uintptr_t core = regtrace_get_u32((uintptr_t)g_ispcore, 0);
+    uintptr_t attr;
+    uint32_t ch;
+
+    /* OEM: ch = *(state+0) here (lw v0,0(a0)), attr->chip_id u16 at +4 */
+    if (!regtrace_is_kernel_ptr((void *)core) || !regtrace_is_kernel_ptr((void *)state))
+        return 0;
+    ch = regtrace_get_u32(state, 0);
+    if (ch >= 2)
+        return 0;
+    attr = regtrace_get_u32(core, 368 + ch * 96);
+    return regtrace_is_kernel_ptr((void *)attr) ? regtrace_get_u16(attr, 4) : 0;
+}
+
+static int64_t regtrace_sensor_ctrl_fps_control(uint32_t fps, uintptr_t state)
+{
+    uint32_t ch;
+    uintptr_t core = t40_sctrl_core(state, &ch);
+    uintptr_t attr;
+
+    (void)fps;
+    if (!core)
+        return 0;
+    attr = regtrace_get_u32(core, 368 + ch * 96);
+    if (!regtrace_is_kernel_ptr((void *)attr))
+        return 0;
+    *(uint16_t *)(state + 2) = regtrace_get_u16(attr, 180);    /* total width */
+    *(uint16_t *)(state + 4) = regtrace_get_u16(attr, 182);    /* total height */
+    *(uint32_t *)(state + 48) = regtrace_get_u16(attr, 168);   /* min integration time */
+    *(uint32_t *)(state + 52) = regtrace_get_u16(attr, 184);   /* max integration time */
+    *(uint32_t *)(state + 88) = regtrace_get_u16(attr, 268);
+    *(uint32_t *)(state + 92) = regtrace_get_u16(attr, 270);
+    *(uint32_t *)(state + 56) = regtrace_get_u16(attr, 184);
+    *(uint32_t *)(state + 60) = regtrace_get_u16(attr, 174);   /* integration time limit */
+    return regtrace_get_u32(core, 384 + ch * 96);
+}
+
+static uint32_t t40_sctrl_set_fps_count, t40_sctrl_set_fps_last;
 static void *regtrace_sensor_ctrl_set_fps(uint32_t fps, uintptr_t state)
 {
-    (void)fps;
-    (void)state;
+    uint32_t ch;
+    uintptr_t core = t40_sctrl_core(state, &ch);
+
+    if (!core)
+        return NULL;
+    if (regtrace_get_u32(core, 384 + ch * 96) == fps)
+        return NULL;
+    regtrace_put_u32(core, 832 + ch * 72, 1);
+    regtrace_put_u32(core, 836 + ch * 72, fps);
+    regtrace_put_u32(core, 384 + ch * 96, fps);
+    t40_sctrl_set_fps_count++;
+    t40_sctrl_set_fps_last = fps;
     return NULL;
 }
 
@@ -56868,7 +56928,9 @@ int32_t sensor_init(void *arg1, int32_t arg2)
 int32_t sensor_early_init(uint32_t arg1)
 {
     int32_t *result = -22;
-    uint32_t *ispcore_ptr = (uint32_t *)(g_ispcore + 1568);
+    /* T40-WORKER-FIX: OEM .bss+1568 is the core pointer this driver keeps in g_ispcore[0] (sensor_init,
+     * regtrace_seed_g_ispcore); g_ispcore is 16 B, so g_ispcore+1568 wrote into tx_isp_csi_platform_device. */
+    uint32_t *ispcore_ptr = (uint32_t *)g_ispcore;
     
     if (arg1 == 0) {
         return result;
@@ -76620,7 +76682,11 @@ void* tisp_set_ae_sensor_fps(uint32_t a0, uintptr_t a1)
     v0 = *(uint32_t *)((char *)&sensor_ctrl_main + 420);
     t40_ae_fps_req_count++; t40_ae_fps_req_last = (uint32_t)(uintptr_t)a0;
     if (regtrace_is_kernel_ptr((void *)v0))
-        v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)v0)(a0, (uintptr_t)&local_80); /* jalr target resolved by relocation */
+        {   /* T40-WORKER-FIX: OEM 0x20d54 passes a1 = sp+16 whose +12 (sw s0,28(sp)) is the channel; the lift passed a lone local */
+            uint32_t t40_fctx[28] = {0};
+            t40_fctx[3] = (uint32_t)(uintptr_t)s0;
+            v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)v0)(a0, (uintptr_t)t40_fctx); /* OEM sensor_ctrl_main.set_fps */
+        }
 
 tisp_set_ae_sensor_fps0x70:
     /* fragment 6: ConstantLoad */
@@ -77000,10 +77066,10 @@ int32_t tisp_ae_init_par_calc(uint32_t a0, uintptr_t a1)
 
     /* fragment 1: ConstantLoad
      * OEM 0x21d14-0x21d28: the .rodata+5572 table is &ae_cache_init[chan]
-     * (per-channel AE cache, 0x514 bytes each), NOT &LC29 -- the translator
+     * (per-channel AE cache, 0x518 bytes each), NOT &LC29 -- the translator
      * mis-mapped the pointer table to the "GBIG" debug string, so LC29[a0]
      * read ASCII as a pointer and fault-unaligned. regtrace_ae_cache_for_channel
-     * already implements `&ae_cache_init + chan*0x514` (with the ae_cache live
+     * already implements `&ae_cache_init + chan*0x518` (OEM stride; was 0x514) (with the ae_cache live
      * override). */
 
     /* fragment 2: StackAccess */
@@ -178287,98 +178353,152 @@ int32_t ispcore_sensor_ops_release_all_sensor(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000075af0 origin=fragment_seed original=ispcore_sensor_ops_ioctl */
+/*
+ * T40-WORKER-FIX: ispcore_sensor_ops_ioctl and the four frame-done / frame-start workers as clean C from the
+ * Eufy OEM tx-isp-t40.ko (ispcore_sensor_ops_ioctl 0x75740, ispcore_irq_sec_fd_work 0x757f8,
+ * ispcore_irq_main_fd_work 0x759f4, ispcore_irq_main_fs_work 0x7bb34, ispcore_irq_sec_fs_work 0x7bca0).
+ * The lift called the per-subdev sensor ioctl through an unresolved jalr (no-op, cmd/arg dropped), all four
+ * workers called ispcore_sensor_ops_ioctl(a0) without cmd/arg, and the fs workers dispatched on the core
+ * pointer (switch (s5)) instead of the slot index.  OEM layout used here (core = ispcore_sd+268):
+ *   core+768+ch*72 : 9 pending slots {u32 pending, u32 value}; slot cmds (.rodata 0x2340/0x2364/0x23f4/0x2418):
+ *                    0x2000007, 0x2000008, 0x2000009, 0x2000005, 0x2000006, (5: 0x2000010 own call),
+ *                    0x2000016, (7: none), 0x200000a
+ *   core+368+ch*96 : sensor attr; attr+292 = 0 -> applied from the fd worker, 1 -> from the fs worker
+ *   arg            : {u32 channel, u32 value} (sp+16/sp+20 in the OEM)
+ */
+static uint32_t t40_sensor_ioctl_calls, t40_sensor_ioctl_fallback, t40_sensor_ioctl_last_cmd;
+static int t40_sensor_ioctl_last_ret;
+static uint32_t t40_worker_runs[4], t40_worker_sent[4];
+static int32_t t40_sd_sensor_ioctl(uintptr_t sd, uint32_t cmd, void *arg, int *has)
+{
+    uintptr_t ops, sops, fn;
+
+    *has = 0;
+    if (!regtrace_is_kernel_ptr((void *)sd))
+        return -515;
+    ops = regtrace_get_u32(sd, REGTRACE_TX_ISP_SUBDEV_OPS_OFFSET);
+    if (!regtrace_is_kernel_ptr((void *)ops))
+        return -515;
+    sops = regtrace_get_u32(ops, 12);
+    if (!regtrace_is_kernel_ptr((void *)sops))
+        return -515;
+    fn = regtrace_get_u32(sops, 8);
+    if (!regtrace_is_kernel_ptr((void *)fn) || fn == (uintptr_t)&ispcore_sensor_ops_ioctl)
+        return -515;
+    *has = 1;
+    return ((int32_t (*)(uintptr_t, uint32_t, void *))fn)(sd, cmd, arg);
+}
+
 int32_t ispcore_sensor_ops_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    int32_t ret = 0;
+    int any = 0;
+    uint32_t i;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
+    t40_sensor_ioctl_calls++;
+    t40_sensor_ioctl_last_cmd = a1;
+    if (!regtrace_is_kernel_ptr((void *)a0))
+        return -EINVAL;
+    /* OEM: every module of the core (sd+60 .. sd+124) whose ops have sensor_ops->ioctl gets the event;
+     * 0 / -515 (ENOIOCTLCMD) continue, anything else ends the walk and is returned. */
+    for (i = 0; i < 16; i++) {
+        int has;
+        int32_t r = t40_sd_sensor_ioctl(regtrace_get_u32(a0, 60 + i * 4), a1, (void *)(uintptr_t)a2, &has);
 
-    /* fragment 1: Arithmetic */
-    v0 = 0;
-
-    /* fragment 2: StackAccess */
-    local_20 = s4;
-    local_1c = s3;
-    local_18 = s2;
-    local_14 = s1;
-    local_10 = s0;
-    local_24 = ra;
-    s2 = a1;
-    s3 = a2;
-    s1 = a0 + 60;
-    s0 = a0 + 124;
-    s4 = -515;
-
-ispcore_sensor_ops_ioctl0x34:
-    /* fragment 3: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s1 + 0);
-
-    /* fragment 4: Branch */
-    if (a0 == 0) { goto ispcore_sensor_ops_ioctl0x54; }
-
-    /* fragment 5: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 252);
-    v0 = *(uint32_t *)((char *)v0 + 12);
-
-    /* fragment 6: Branch */
-    if (v0 != 0) { goto ispcore_sensor_ops_ioctl0x70; }
-
-ispcore_sensor_ops_ioctl0x50:
-    /* fragment 7: Arithmetic */
-    v0 = -515;
-
-ispcore_sensor_ops_ioctl0x54:
-    /* fragment 8: Arithmetic */
-    s1 = s1 + 4;
-
-    /* fragment 9: Branch */
-    v1 = -515;
-    if (s1 != s0) { goto ispcore_sensor_ops_ioctl0x34; }
-
-    /* fragment 10: Branch */
-    if (v0 != v1) { goto ispcore_sensor_ops_ioctl0x94; }
-
-    /* fragment 11: Branch */
-    v0 = 0;
-    goto ispcore_sensor_ops_ioctl0x94;
-
-ispcore_sensor_ops_ioctl0x70:
-    /* fragment 12: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 8);
-
-    /* fragment 13: Branch */
-    a2 = s3;
-    if (v0 == 0) { goto ispcore_sensor_ops_ioctl0x50; }
-
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 15: Branch */
-    if (v0 == 0) { goto ispcore_sensor_ops_ioctl0x54; }
-
-    /* fragment 16: Branch */
-    if (v0 == s4) { goto ispcore_sensor_ops_ioctl0x50; }
-
-ispcore_sensor_ops_ioctl0x94:
-    /* fragment 17: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+        any |= has;
+        if (!has || r == -515) {
+            ret = -515;
+            continue;
+        }
+        if (r != 0) {
+            t40_sensor_ioctl_last_ret = r;
+            return r;
+        }
+        ret = 0;
+    }
+    if (!any && regtrace_is_kernel_ptr(regtrace_sensor_subdev)) {
+        /* The controlled child registration of this driver links the sensor outside the core's module
+         * table (regtrace_capture_sensor_subdev); deliver to that sensor like the OEM walk would. */
+        t40_sensor_ioctl_fallback++;
+        ret = regtrace_sensor_call_sensor_ioctl(a1, (void *)(uintptr_t)a2);
+    }
+    if (ret == -515)
+        ret = 0;
+    t40_sensor_ioctl_last_ret = ret;
+    return ret;
 }
+
+/* OEM: the core subdev's own sensor_ops->ioctl (ispcore_sd->ops+12 ->+8) = ispcore_sensor_ops_ioctl */
+static int32_t t40_core_sd_ioctl(uint32_t cmd, uint32_t *arg)
+{
+    uintptr_t sd = (uintptr_t)ispcore_sd;
+    uintptr_t ops, sops, fn;
+
+    if (!regtrace_is_kernel_ptr((void *)sd))
+        return 0;
+    ops = regtrace_get_u32(sd, REGTRACE_TX_ISP_SUBDEV_OPS_OFFSET);
+    if (!regtrace_is_kernel_ptr((void *)ops))
+        return 0;
+    sops = regtrace_get_u32(ops, 12);
+    if (!regtrace_is_kernel_ptr((void *)sops))
+        return 0;
+    fn = regtrace_get_u32(sops, 8);
+    if (!regtrace_is_kernel_ptr((void *)fn))
+        return 0;
+    return ((int32_t (*)(uintptr_t, uint32_t, uint32_t))fn)(sd, cmd, (uint32_t)(uintptr_t)arg);
+}
+
+static const int32_t t40_slot_cmd[9] = {
+    0x2000007, 0x2000008, 0x2000009, 0x2000005, 0x2000006, 0x2000010, 0x2000016, -1, 0x200000a
+};
+
+/* fs == 0: fd worker (applies when attr+292 == 0), fs == 1: fs worker (attr+292 == 1) */
+static void t40_core_slots_apply(uintptr_t core, uint32_t ch, uint32_t fs, uint32_t widx)
+{
+    uintptr_t slots = core + 768 + ch * 72;
+    uint32_t arg[2];
+    uint32_t i;
+
+    t40_worker_runs[widx]++;
+    for (i = 0; i < 9; i++) {
+        uintptr_t attr;
+
+        if (!regtrace_get_u32(slots, i * 8))
+            continue;
+        if (i == 5) {
+            /* OEM: slot 5 issues 0x2000010 with core+812/+884 and clears its pending word (core+808/+880)
+             * in both workers, independent of the attr+292 mode. */
+            arg[0] = ch;
+            arg[1] = regtrace_get_u32(slots, 5 * 8 + 4);
+            ispcore_sensor_ops_ioctl((uintptr_t)ispcore_sd, 0x2000010, (uint32_t)(uintptr_t)arg);
+            regtrace_put_u32(slots, 5 * 8, 0);
+            t40_worker_sent[widx]++;
+            continue;
+        }
+        attr = regtrace_get_u32(core, 368 + ch * 96);
+        if (!regtrace_is_kernel_ptr((void *)attr) || regtrace_get_u32(attr, 292) != fs)
+            continue;
+        if (t40_slot_cmd[i] == -1)
+            continue;
+        arg[0] = ch;
+        arg[1] = regtrace_get_u32(slots, i * 8 + 4);
+        ispcore_sensor_ops_ioctl((uintptr_t)ispcore_sd, (uint32_t)t40_slot_cmd[i], (uint32_t)(uintptr_t)arg);
+        regtrace_put_u32(slots, i * 8, 0);
+        t40_worker_sent[widx]++;
+    }
+}
+
+static uintptr_t t40_worker_core(void)
+{
+    uintptr_t sd = (uintptr_t)ispcore_sd;
+    uintptr_t core;
+
+    if (!regtrace_is_kernel_ptr((void *)sd))
+        return 0;
+    core = regtrace_get_u32(sd, 268);
+    return regtrace_is_kernel_ptr((void *)core) ? core : 0;
+}
+
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000075ba0 origin=fragment_seed original=ispcore_link_setup */
 int32_t ispcore_link_setup(void)
@@ -178396,501 +178516,80 @@ int32_t ispcore_link_setup(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000075ba8 origin=fragment_seed original=ispcore_irq_sec_fd_work */
+static int t40_worker_stat_get(char *buf, const struct kernel_param *kp)
+{
+    uintptr_t sd = (uintptr_t)ispcore_sd, core = t40_worker_core();
+    int n = 0, ch, i;
+
+    n += scnprintf(buf + n, PAGE_SIZE - n, "ioctl calls=%u fallback=%u last cmd=0x%x ret=%d\n",
+                   t40_sensor_ioctl_calls, t40_sensor_ioctl_fallback, t40_sensor_ioctl_last_cmd, t40_sensor_ioctl_last_ret);
+    n += scnprintf(buf + n, PAGE_SIZE - n, "runs mfd=%u sfd=%u mfs=%u sfs=%u sent %u/%u/%u/%u setfps n=%u last=%x\n",
+                   t40_worker_runs[0], t40_worker_runs[1], t40_worker_runs[2], t40_worker_runs[3],
+                   t40_worker_sent[0], t40_worker_sent[1], t40_worker_sent[2], t40_worker_sent[3],
+                   t40_sctrl_set_fps_count, t40_sctrl_set_fps_last);
+    n += scnprintf(buf + n, PAGE_SIZE - n, "sd=%lx core=%lx g_ispcore=%x sensor_sd=%p\n", (unsigned long)sd,
+                   (unsigned long)core, regtrace_get_u32((uintptr_t)g_ispcore, 0), regtrace_sensor_subdev);
+    if (regtrace_is_kernel_ptr((void *)sd)) {
+        n += scnprintf(buf + n, PAGE_SIZE - n, "mods");
+        for (i = 0; i < 16; i++)
+            n += scnprintf(buf + n, PAGE_SIZE - n, " %x", regtrace_get_u32(sd, 60 + i * 4));
+        n += scnprintf(buf + n, PAGE_SIZE - n, "\n");
+    }
+    if (core)
+        for (ch = 0; ch < 2; ch++) {
+            uintptr_t attr = regtrace_get_u32(core, 368 + ch * 96);
+            n += scnprintf(buf + n, PAGE_SIZE - n, "ch%d fps=%x attr=%lx trig=%d slots", ch,
+                           regtrace_get_u32(core, 384 + ch * 96), (unsigned long)attr,
+                           regtrace_is_kernel_ptr((void *)attr) ? (int)regtrace_get_u32(attr, 292) : -1);
+            for (i = 0; i < 9; i++)
+                n += scnprintf(buf + n, PAGE_SIZE - n, " %u:%x", regtrace_get_u32(core, 768 + ch * 72 + i * 8),
+                               regtrace_get_u32(core, 772 + ch * 72 + i * 8));
+            n += scnprintf(buf + n, PAGE_SIZE - n, "\n");
+        }
+    return n;
+}
+static const struct kernel_param_ops t40_worker_stat_ops = { .get = t40_worker_stat_get };
+module_param_cb(t40_worker_stat, &t40_worker_stat_ops, NULL, 0444);
+
 char* ispcore_irq_sec_fd_work(void)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uintptr_t *a0 = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uintptr_t s6 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+    uintptr_t core = t40_worker_core();
+    uint32_t arg[2] = { 0, 0 };
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
+    if (core && !tisp_msca_state()) {
+        /* OEM 0x75830..0x75878: shadow slot idx = core+696; if its entry (core+660+idx*12) is armed,
+         * tisp_msca_Shd_ctrl(1, idx) and then idx = (idx + 1) % 3 */
+        uint32_t idx = regtrace_get_u32(core, 696);
 
-    /* fragment 1: CallSetup */
-    s1 = *(uint32_t *)((char *)(*(uint32_t *)((char *)((char *)&ispcore_sd))) + 268);
-    local_18 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_msca_state)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&ispcore_sd));
-    if (v0 != 0) { goto ispcore_irq_sec_fd_work0x8c; }
-
-    /* fragment 3: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s1 + 696);
-    v0 = a1 + 1;
-    a1 = v0 < 3;
-    if (!a1)			/* OEM 0x76614..0x7661c (testimage) movz v0,zero,a1: wrap at 3 */
-        v0 = 0;
-    a1 = v0;
-    *(uint32_t *)((char *)s1 + 696) = v0;
-    v0 = 12;
-    v1 = (uintptr_t)a1 * (uintptr_t)v0;
-    v0 = (uintptr_t)v1 + (uintptr_t)s1;
-    v0 = *(uint32_t *)((char *)v0 + 660);
-
-    /* fragment 4: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&ispcore_sd));
-    if (v0 == 0) { goto ispcore_irq_sec_fd_work0x8c; }
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_msca_Shd_ctrl)(1, (uintptr_t)a1); /* jalr target resolved by relocation */
-    /* T40-MSCA-CTRL-ARG (FR3): the second argument was dropped by the
-     * reconstruction.  The identical sequence in update_isp_osd (Z199159-199161)
-     * documents the OEM shape: 0x7ac78 `lw a1,0(s1+692)` (the shadow index) is the
-     * second argument of tisp_msca_Shd_ctrl(0, idx) at 0x7ac94.  Here the index is
-     * loaded at Z190133 (`a1 = *(s1 + 696)`) and incremented just before the call,
-     * so pass it as the OEM does; without it Tzn_Msca_Shd_osd/_mask runs on the
-     * stale first argument (mode 1 = the mask path, which then writes the shadow
-     * registers with garbage). */
-
-    /* fragment 6: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&ispcore_sd));
-
-ispcore_irq_sec_fd_work0x8c:
-    /* fragment 7: Branch */
-    if (a0 == 0) { goto ispcore_irq_sec_fd_work0xbc; }
-
-    /* fragment 8: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 252);
-    v0 = *(uint32_t *)((char *)v0 + 12);
-
-    /* fragment 9: Branch */
-    if (v0 == 0) { goto ispcore_irq_sec_fd_work0xbc; }
-
-    /* fragment 10: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 8);
-
-    /* fragment 11: Branch */
-    a2 = (uint32_t *)&local_18;
-    if (v0 == 0) { goto ispcore_irq_sec_fd_work0xbc; }
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
-
-ispcore_irq_sec_fd_work0xbc:
-    /* fragment 13: Branch */
-    s3 = 458752;
-    if (s1 == 0) { goto ispcore_irq_sec_fd_work0x15c; }
-
-    /* fragment 14: Arithmetic */
-    s4 = (uintptr_t *)&__param_str_isp_dual_buf;
-    /* T40-FDWORK-S1-SCALE: OEM 0x758bc is `addiu s6,s1,840` = +840 BYTES; s1 is a
-     * uintptr_t* here, so `s1 + 840` was scaled by sizeof(uintptr_t) (4 on the
-     * device: s6 landed 2520 bytes past the slot table). Byte arithmetic restores
-     * the OEM offset. */
-    s6 = (uintptr_t)s1 + 840;
-    s5 = 0;
-    s0 = 0;
-    s3 = s3 + 23280;
-    s4 = s4 + 9184;
-
-ispcore_irq_sec_fd_work0xdc:
-    /* fragment 15: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s6 + 0);
-
-    /* fragment 16: Branch */
-    int _bc_v0_16 = v0 == 0;
-    v0 = s5 < 9;
-    if (_bc_v0_16) { goto ispcore_irq_sec_fd_work0x14c; }
-
-    /* fragment 17: Branch */
-    int _bc_v0_17 = v0 == 0;
-    v0 = s5 << 2;
-    if (_bc_v0_17) { goto ispcore_irq_sec_fd_work0x1ec; }
-
-    /* fragment 18: Arithmetic */
-    v0 = (uintptr_t)s4 + (uintptr_t)v0;
-
-    /* fragment 19: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 20: Unknown */
-    /* unmatched fragment 20 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 75ca0:	00400408 	jr.hb	v0 */
-
-    /* fragment 21: Unknown */
-    /* unmatched fragment 21 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 75ca4:	00000000 	nop */
-
-    /* T40-FDWORK-DISPATCH: OEM 0x758e0..0x758ec tail-dispatches per slot through the
-     * handler table at .rodata+0x2340 (nine code pointers into this function). The
-     * reconstruction dropped the `jr v0`, so the flow fell into the slot-1 handler and
-     * from there back into the body - the source of both the 0x124 fault with an empty
-     * table and the never-terminating loop with an active slot. */
-    switch (s5) {
-    case 0: goto fdw_h0;   /* 0x759e8 -> s0 = 0x2000007 */
-    case 1: goto fdw_h1;   /* 0x758f4 -> s0 = 0x2000008, then falls through into the body */
-    case 2: goto fdw_h2;   /* 0x75978 -> s0 = 0x2000009 */
-    case 3: goto fdw_h3;   /* 0x75984 -> s0 = 0x2000005 */
-    case 4: goto fdw_h4;   /* 0x75990 -> s0 = 0x2000006 */
-    case 5: goto fdw_h5;   /* 0x759a8 -> own call (a1 = 0x2000010), clears state+880 */
-    case 6: goto fdw_h6;   /* 0x7599c -> s0 = 0x2000016 */
-    case 7: goto ispcore_irq_sec_fd_work0x1ec;  /* 0x759e0 -> s0 = -1 */
-    case 8: goto fdw_h8;   /* 0x759d4 -> s0 = 0x200000a */
-    default: goto ispcore_irq_sec_fd_work0x1ec; /* out of range -> -1 */
+        if (idx < 3 && regtrace_get_u32(core, 660 + idx * 12)) {
+            tisp_msca_Shd_ctrl(1, idx);
+            idx++;
+            regtrace_put_u32(core, 696, idx < 3 ? idx : 0);
+        }
     }
-
-fdw_h1:
-    /* fragment 22: ConstantLoad */
-    s0 = 0x2000008;
-
-ispcore_irq_sec_fd_work0x108:
-    /* fragment 23: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s6 + 4);
-    v1 = 5;
-
-    /* fragment 24: Branch */
-    local_18 = v0;
-    if (s5 == v1) { goto ispcore_irq_sec_fd_work0x14c; }
-
-    /* fragment 25: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 464);
-    v1 = *(uint32_t *)((char *)v1 + 292);
-
-    /* fragment 26: Branch */
-    int _bc_v1_26 = v1 != 0;
-    v1 = -1;
-    if (_bc_v1_26) { goto ispcore_irq_sec_fd_work0x14c; }
-
-    /* fragment 27: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&ispcore_sd));
-    if (s0 == v1) { goto ispcore_irq_sec_fd_work0x14c; }
-
-    /* fragment 28: CallSetup */
-    local_10 = 1;
-    local_14 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)ispcore_sensor_ops_ioctl)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 29: MemoryAccess */
-    *(uint32_t *)((char *)s6 + 0) = 0;
-
-ispcore_irq_sec_fd_work0x14c:
-    /* fragment 30: Arithmetic */
-    s5 = s5 + 1;
-    v0 = 9;
-
-    /* fragment 31: Branch */
-    s6 = s6 + 8;
-    if (s5 != v0) { goto ispcore_irq_sec_fd_work0xdc; }
-
-ispcore_irq_sec_fd_work0x15c:
-    /* fragment 32: Epilogue */
-    /* T40-FDWORK-EPILOGUE: OEM 0x75950..0x75974 (lw ra,60(sp); lw s6..s0; jr ra;
-     * addiu sp,sp,64) - the reconstruction emitted only this comment, so control fell
-     * through into the per-slot handler blocks below and re-entered the body via
-     * `goto ...0x108` (the +464 deref). Return here. */
-    return (char *)v0;
-
-fdw_h2:
-    /* fragment 33: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 34: Branch */
-    s0 = s0 + 9;
-    goto ispcore_irq_sec_fd_work0x108;
-
-fdw_h3:
-    /* fragment 35: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 36: Branch */
-    s0 = s0 + 5;
-    goto ispcore_irq_sec_fd_work0x108;
-
-fdw_h4:
-    /* fragment 37: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 38: Branch */
-    s0 = s0 + 6;
-    goto ispcore_irq_sec_fd_work0x108;
-
-fdw_h6:
-    /* fragment 39: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 40: Branch */
-    s0 = s0 + 22;
-    goto ispcore_irq_sec_fd_work0x108;
-
-fdw_h5:
-    /* fragment 41: CallSetup */
-    local_10 = 1;
-    local_14 = *(uint32_t *)((char *)(s1) + 884);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)ispcore_sensor_ops_ioctl)(*(uint32_t *)((char *)((char *)&ispcore_sd)), 33554432 + 16, &local_10); /* jalr target resolved by relocation */
-
-    /* fragment 42: Branch */
-    *(uint32_t *)((char *)s1 + 880) = 0;
-    goto ispcore_irq_sec_fd_work0x108;
-
-fdw_h8:
-    /* fragment 43: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 44: Branch */
-    s0 = s0 + 10;
-    goto ispcore_irq_sec_fd_work0x108;
-
-ispcore_irq_sec_fd_work0x1ec:
-    /* fragment 45: Branch */
-    s0 = -1;
-    goto ispcore_irq_sec_fd_work0x108;
-
-fdw_h0:
-    /* fragment 46: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 47: Branch */
-    s0 = s0 + 7;
-    goto ispcore_irq_sec_fd_work0x108;
-
-    return (char*)v0;
+    t40_core_sd_ioctl(0x2000015, arg);   /* OEM 0x758a8: arg {0, -} */
+    if (core)
+        t40_core_slots_apply(core, 1, 0, 1);
+    return NULL;
 }
+
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000075da8 origin=fragment_seed original=ispcore_irq_main_fd_work */
 char* ispcore_irq_main_fd_work(void)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uintptr_t *a0 = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uintptr_t *s4 = 0;
-    uint32_t s5 = 0;
-    uintptr_t *v0 = 0;
+    uintptr_t core = t40_worker_core();
+    uint32_t tgain = 0;
+    uint32_t arg[2];
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s4 = *(uint32_t *)((char *)(*(uint32_t *)((char *)((char *)&ispcore_sd))) + 268);
-    local_18 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_get_ae_tgain)(0, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: StackAccess */
-    v0 = local_18;
-    a0 = *(uint32_t *)((char *)((char *)&ispcore_sd));
-    local_10 = 0;
-
-    /* fragment 3: Branch */
-    local_14 = v0;
-    if (a0 == 0) { goto ispcore_irq_main_fd_work0x80; }
-
-    /* fragment 4: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 252);
-    v0 = *(uint32_t *)((char *)v0 + 12);
-
-    /* fragment 5: Branch */
-    if (v0 == 0) { goto ispcore_irq_main_fd_work0x80; }
-
-    /* fragment 6: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 8);
-
-    /* fragment 7: Branch */
-    a2 = (uint32_t *)&local_10;
-    if (v0 == 0) { goto ispcore_irq_main_fd_work0x80; }
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
-
-ispcore_irq_main_fd_work0x80:
-    /* fragment 9: Branch */
-    s1 = 458752;
-    if (s4 == 0) { goto ispcore_irq_main_fd_work0x148; }
-
-    /* fragment 10: Arithmetic */
-    s2 = (uintptr_t *)&__param_str_isp_dual_buf;
-    s3 = s4 + 768;
-    s5 = 0;
-    s1 = s1 + 23280;
-    s2 = s2 + 9220;
-
-ispcore_irq_main_fd_work0x9c:
-    /* fragment 11: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s3 + 0);
-
-    /* fragment 12: Branch */
-    int _bc_v0_12 = v0 == 0;
-    v0 = s5 < 9;
-    if (_bc_v0_12) { goto ispcore_irq_main_fd_work0x138; }
-
-    /* fragment 13: Branch */
-    int _bc_v0_13 = v0 == 0;
-    v0 = s5 << 2;
-    if (_bc_v0_13) { goto ispcore_irq_main_fd_work0x190; }
-
-    /* fragment 14: Arithmetic */
-    v0 = (uintptr_t)s2 + (uintptr_t)v0;
-
-    /* fragment 15: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 16: Unknown */
-    /* unmatched fragment 16 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 75e60:	00400408 	jr.hb	v0 */
-
-    /* fragment 17: Unknown */
-    /* unmatched fragment 17 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 75e64:	00000000 	nop */
-
-    /* T40-FDWORK-DISPATCH: OEM 0x75aa0..0x75aac tail-dispatches per slot through the
-     * handler table at .rodata+0x2364 (nine code pointers into this function); the
-     * reconstruction dropped the `jr v0` (the two unmatched fragments above). Mapping
-     * decoded from the OEM table: */
-    switch (s5) {
-    case 0: goto mfdw_h0;   /* 0x75b8c -> a1 = 0x2000007 */
-    case 1: goto mfdw_h1;   /* 0x75b6c -> a1 = 0x2000008 */
-    case 2: goto mfdw_h2;   /* 0x75ab4 -> a1 = 0x2000009, then falls through into the body */
-    case 3: goto mfdw_h3;   /* 0x75b78 -> a1 = 0x2000005 */
-    case 4: goto mfdw_h4;   /* 0x75af0 -> a1 = 0x2000006 */
-    case 5: goto mfdw_h5;   /* 0x75b08 -> own call (a1 = 0x2000010), clears state+808 */
-    case 6: goto mfdw_h6;   /* 0x75afc -> a1 = 0x2000016 */
-    case 7: goto ispcore_irq_main_fd_work0x190;  /* 0x75b84 -> a1 = -1 */
-    case 8: goto mfdw_h8;   /* 0x75b60 -> a1 = 0x200000a */
-    default: goto ispcore_irq_main_fd_work0x190; /* out of range -> -1 */
-    }
-
-mfdw_h2:
-    /* fragment 18: ConstantLoad */
-    a1 = 0x2000009;
-
-ispcore_irq_main_fd_work0xc8:
-    /* fragment 19: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s4 + 368);
-    v0 = *(uint32_t *)((char *)v0 + 292);
-
-    /* fragment 20: Branch */
-    int _bc_v0_20 = v0 != 0;
-    v0 = -1;
-    if (_bc_v0_20) { goto ispcore_irq_main_fd_work0x138; }
-
-    /* fragment 21: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&ispcore_sd));
-    if (a1 == v0) { goto ispcore_irq_main_fd_work0x138; }
-
-    /* fragment 22: CallSetup */
-    local_10 = 0;
-    local_14 = *(uint32_t *)((char *)(s3) + 4);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)ispcore_sensor_ops_ioctl)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 23: Branch */
-    *(uint32_t *)((char *)s3 + 0) = 0;
-    goto ispcore_irq_main_fd_work0x138;
-
-mfdw_h4:
-    /* fragment 24: Arithmetic */
-    a1 = 33554432;
-
-    /* fragment 25: Branch */
-    a1 = a1 + 6;
-    goto ispcore_irq_main_fd_work0xc8;
-
-mfdw_h6:
-    /* fragment 26: Arithmetic */
-    a1 = 33554432;
-
-    /* fragment 27: Branch */
-    a1 = a1 + 22;
-    goto ispcore_irq_main_fd_work0xc8;
-
-mfdw_h5:
-    /* fragment 28: CallSetup */
-    local_10 = 0;
-    local_14 = *(uint32_t *)((char *)(s4) + 812);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)ispcore_sensor_ops_ioctl)(*(uint32_t *)((char *)((char *)&ispcore_sd)), 33554432 + 16, &local_10); /* jalr target resolved by relocation */
-
-    /* fragment 29: MemoryAccess */
-    *(uint32_t *)((char *)s4 + 808) = 0;
-
-ispcore_irq_main_fd_work0x138:
-    /* fragment 30: Arithmetic */
-    s5 = s5 + 1;
-    v0 = 9;
-
-    /* fragment 31: Branch */
-    s3 = s3 + 8;
-    if (s5 != v0) { goto ispcore_irq_main_fd_work0x9c; }
-
-ispcore_irq_main_fd_work0x148:
-    /* fragment 32: Epilogue */
-    /* T40-FDWORK-EPILOGUE: OEM 0x75950..0x75974 (sec) / 0x75b3c..0x75b5c (main)
-     * restore the registers and `jr ra`; the reconstruction emitted only this
-     * comment, so control fell through into the handler blocks below and
-     * re-entered the body via `goto ...` (the +464/+368 dereference). */
-    return (char *)v0;
-
-mfdw_h8:
-    /* fragment 33: Arithmetic */
-    a1 = 33554432;
-
-    /* fragment 34: Branch */
-    a1 = a1 + 10;
-    goto ispcore_irq_main_fd_work0xc8;
-
-mfdw_h1:
-    /* fragment 35: Arithmetic */
-    a1 = 33554432;
-
-    /* fragment 36: Branch */
-    a1 = a1 + 8;
-    goto ispcore_irq_main_fd_work0xc8;
-
-mfdw_h3:
-    /* fragment 37: Arithmetic */
-    a1 = 33554432;
-
-    /* fragment 38: Branch */
-    a1 = a1 + 5;
-    goto ispcore_irq_main_fd_work0xc8;
-
-ispcore_irq_main_fd_work0x190:
-    /* fragment 39: Branch */
-    a1 = -1;
-    goto ispcore_irq_main_fd_work0xc8;
-
-mfdw_h0:
-    /* fragment 40: Arithmetic */
-    a1 = 33554432;
-
-    /* fragment 41: Branch */
-    a1 = a1 + 7;
-    goto ispcore_irq_main_fd_work0xc8;
-
-    return (char*)v0;
+    tisp_get_ae_tgain(0, (uintptr_t)&tgain);
+    arg[0] = 0;
+    arg[1] = tgain;
+    t40_core_sd_ioctl(0x2000015, arg);   /* OEM 0x75a6c: total gain to the sensor every frame */
+    if (core)
+        t40_core_slots_apply(core, 0, 0, 0);
+    return NULL;
 }
+
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000075f4c origin=fragment_seed original=isp_main_pre_frame_dequeue */
 int32_t isp_main_pre_frame_dequeue(void)
@@ -189621,434 +189320,29 @@ ispcore_interrupt_service_routine0xeac:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c150 origin=fragment_seed original=ispcore_irq_main_fs_work */
+/* T40-WORKER-FIX: OEM ispcore_irq_main_fs_work 0x7bb34 / ispcore_irq_sec_fs_work 0x7bca0 - same slot table as
+ * the fd workers, applied when the sensor attr selects the frame-start path (attr+292 == 1); dispatch by slot
+ * index (the lift switched on the core pointer). */
 uint32_t ispcore_irq_main_fs_work(void)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a0 = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uintptr_t s5 = 0;
-    uintptr_t s6 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    uintptr_t core = t40_worker_core();
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s1 = (uintptr_t *)&ispcore_sd;
-
-    /* fragment 2: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&ispcore_sd));
-    local_34 = ra;
-    local_30 = s6;
-    local_2c = s5;
-    local_28 = s4;
-    local_24 = s3;
-    local_20 = s2;
-    local_18 = s0;
-    s5 = *(uint32_t *)((char *)v0 + 268);
-
-    /* fragment 3: Branch */
-    s2 = 458752;
-    if (s5 == 0) { goto ispcore_irq_main_fs_work0xcc; }
-
-    /* fragment 4: Arithmetic */
-    s3 = (uint32_t *)&__param_str_isp_dual_buf;
-    s6 = s5 + 768;
-    s4 = 0;
-    s0 = 0;
-    s2 = s2 + 23280;
-    s3 = s3 + 9364;
-
-ispcore_irq_main_fs_work0x50:
-    /* fragment 5: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s6 + 0);
-
-    /* fragment 6: Branch */
-    int _bc_v0_6 = v0 == 0;
-    v0 = s4 < 9;
-    if (_bc_v0_6) { goto ispcore_irq_main_fs_work0xbc; }
-
-    /* fragment 7: Branch */
-    int _bc_v0_7 = v0 == 0;
-    v0 = (uintptr_t)s4 << 2;
-    if (_bc_v0_7) { goto ispcore_irq_main_fs_work0x158; }
-
-    /* fragment 8: Arithmetic */
-    v0 = (uintptr_t)s3 + (uintptr_t)v0;
-
-    /* fragment 9: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 10: Unknown */
-    /* unmatched fragment 10 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 7c1bc:	00400408 	jr.hb	v0 */
-
-    /* fragment 11: Unknown */
-    /* unmatched fragment 11 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 7c1c0:	00000000 	nop */
-
-    /* fragment 12: ConstantLoad */
-    /* T40-FDWORK-DISPATCH: the OEM tail-dispatches per slot through the handler
-     * table in .rodata (nine code pointers into this function). The reconstruction
-     * dropped the `jr v0` (the two unmatched fragments above), so the flow fell into
-     * the slot-1 handler and from there back into the body. Slot->code mapping
-     * decoded from the OEM tables (identical in all four workers). */
-    switch (s5) {
-    case 0: goto mfs_h7;   /* +7 */
-    case 1: goto mfs_h8;   /* +8 (falls through into the body in the sec workers) */
-    case 2: goto mfs_h9;   /* +9 */
-    case 3: goto mfs_h5;   /* +5 */
-    case 4: goto mfs_h6;   /* +6 */
-    case 5: goto mfs_h16;  /* special: own call, a1 = 0x2000010 */
-    case 6: goto mfs_h22;   /* +22 */
-    case 7: goto ispcore_irq_main_fs_work0x158;   /* -1 */
-    case 8: goto mfs_h10;   /* +10 */
-    default: goto ispcore_irq_main_fs_work0x158;  /* out of range -> -1 */
-    }
-
-mfs_h8:
-    s0 = 0x2000008;
-
-ispcore_irq_main_fs_work0x7c:
-    /* fragment 13: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s5 + 368);
-    v1 = *(uint32_t *)((char *)v0 + 292);
-    v0 = 1;
-
-    /* fragment 14: Branch */
-    int _bc_v1_14 = v1 != v0;
-    v0 = 5;
-    if (_bc_v1_14) { goto ispcore_irq_main_fs_work0xbc; }
-
-    /* fragment 15: Branch */
-    int _bc_s4_15 = s4 == v0;
-    v0 = -1;
-    if (_bc_s4_15) { goto ispcore_irq_main_fs_work0xbc; }
-
-    /* fragment 16: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&ispcore_sd));
-    if (s0 == v0) { goto ispcore_irq_main_fs_work0xbc; }
-
-    /* fragment 17: CallSetup */
-    local_10 = 0;
-    local_14 = *(uint32_t *)((char *)(s6) + 4);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)ispcore_sensor_ops_ioctl)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 18: MemoryAccess */
-    *(uint32_t *)((char *)s6 + 0) = 0;
-
-ispcore_irq_main_fs_work0xbc:
-    /* fragment 19: Arithmetic */
-    s4 = s4 + 1;
-    v0 = 9;
-
-    /* fragment 20: Branch */
-    s6 = s6 + 8;
-    if (s4 != v0) { goto ispcore_irq_main_fs_work0x50; }
-
-ispcore_irq_main_fs_work0xcc:
-    /* T40-FDWORK-EPILOGUE: the OEM epilogue restores the registers and `jr ra`; the
-     * reconstruction emitted only this comment, so control fell through into the
-     * handler blocks below and re-entered the body via `goto ...`. */
-    return (char *)v0;
-
-mfs_h9:
-    /* fragment 22: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 23: Branch */
-    s0 = s0 + 9;
-    goto ispcore_irq_main_fs_work0x7c;
-
-mfs_h5:
-    /* fragment 24: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 25: Branch */
-    s0 = s0 + 5;
-    goto ispcore_irq_main_fs_work0x7c;
-
-mfs_h6:
-    /* fragment 26: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 27: Branch */
-    s0 = s0 + 6;
-    goto ispcore_irq_main_fs_work0x7c;
-
-mfs_h22:
-    /* fragment 28: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 29: Branch */
-    s0 = s0 + 22;
-    goto ispcore_irq_main_fs_work0x7c;
-
-mfs_h16:
-    /* fragment 30: CallSetup */
-    local_10 = 0;
-    local_14 = *(uint32_t *)((char *)(s5) + 812);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)ispcore_sensor_ops_ioctl)(*(uint32_t *)((char *)((char *)&ispcore_sd)), 33554432 + 16, &local_10); /* jalr target resolved by relocation */
-
-    /* fragment 31: Branch */
-    *(uint32_t *)((char *)s5 + 808) = 0;
-    goto ispcore_irq_main_fs_work0x7c;
-
-mfs_h10:
-    /* fragment 32: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 33: Branch */
-    s0 = s0 + 10;
-    goto ispcore_irq_main_fs_work0x7c;
-
-ispcore_irq_main_fs_work0x158:
-    /* fragment 34: Branch */
-    s0 = -1;
-    goto ispcore_irq_main_fs_work0x7c;
-
-mfs_h7:
-    /* fragment 35: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 36: Branch */
-    s0 = s0 + 7;
-    goto ispcore_irq_main_fs_work0x7c;
-
-    return (uint32_t)v0;
+    if (core)
+        t40_core_slots_apply(core, 0, 1, 2);
+    return 0;
 }
+
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c2bc origin=fragment_seed original=ispcore_irq_sec_fs_work */
 uint32_t ispcore_irq_sec_fs_work(void)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a0 = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uintptr_t s5 = 0;
-    uintptr_t s6 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    uintptr_t core = t40_worker_core();
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s1 = (uintptr_t *)&ispcore_sd;
-
-    /* fragment 2: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&ispcore_sd));
-    local_34 = ra;
-    local_30 = s6;
-    local_2c = s5;
-    local_28 = s4;
-    local_24 = s3;
-    local_20 = s2;
-    local_18 = s0;
-    s6 = *(uint32_t *)((char *)v0 + 268);
-
-    /* fragment 3: Branch */
-    s2 = 458752;
-    if (s6 == 0) { goto ispcore_irq_sec_fs_work0xcc; }
-
-    /* fragment 4: Arithmetic */
-    s3 = (uint32_t *)&__param_str_isp_dual_buf;
-    s5 = s6 + 840;
-    s4 = 0;
-    s0 = 0;
-    s2 = s2 + 23280;
-    s3 = s3 + 9400;
-
-ispcore_irq_sec_fs_work0x50:
-    /* fragment 5: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s5 + 0);
-
-    /* fragment 6: Branch */
-    int _bc_v0_6 = v0 == 0;
-    v0 = s4 < 9;
-    if (_bc_v0_6) { goto ispcore_irq_sec_fs_work0xbc; }
-
-    /* fragment 7: Branch */
-    int _bc_v0_7 = v0 == 0;
-    v0 = (uintptr_t)s4 << 2;
-    if (_bc_v0_7) { goto ispcore_irq_sec_fs_work0x15c; }
-
-    /* fragment 8: Arithmetic */
-    v0 = (uintptr_t)s3 + (uintptr_t)v0;
-
-    /* fragment 9: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 10: Unknown */
-    /* unmatched fragment 10 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 7c328:	00400408 	jr.hb	v0 */
-
-    /* fragment 11: Unknown */
-    /* unmatched fragment 11 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 7c32c:	00000000 	nop */
-
-    /* fragment 12: ConstantLoad */
-    /* T40-FDWORK-DISPATCH: the OEM tail-dispatches per slot through the handler
-     * table in .rodata (nine code pointers into this function). The reconstruction
-     * dropped the `jr v0` (the two unmatched fragments above), so the flow fell into
-     * the slot-1 handler and from there back into the body. Slot->code mapping
-     * decoded from the OEM tables (identical in all four workers). */
-    switch (s5) {
-    case 0: goto sfs_h7;   /* +7 */
-    case 1: goto sfs_h8;   /* +8 (falls through into the body in the sec workers) */
-    case 2: goto sfs_h9;   /* +9 */
-    case 3: goto sfs_h5;   /* +5 */
-    case 4: goto sfs_h6;   /* +6 */
-    case 5: goto sfs_h16;  /* special: own call, a1 = 0x2000010 */
-    case 6: goto sfs_h22;   /* +22 */
-    case 7: goto ispcore_irq_sec_fs_work0x15c;   /* -1 */
-    case 8: goto sfs_h10;   /* +10 */
-    default: goto ispcore_irq_sec_fs_work0x15c;  /* out of range -> -1 */
-    }
-
-sfs_h8:
-    s0 = 0x2000008;
-
-ispcore_irq_sec_fs_work0x7c:
-    /* fragment 13: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s6 + 464);
-    v1 = 1;
-    v0 = *(uint32_t *)((char *)v0 + 292);
-
-    /* fragment 14: Branch */
-    int _bc_v0_14 = v0 != v1;
-    v1 = 5;
-    if (_bc_v0_14) { goto ispcore_irq_sec_fs_work0xbc; }
-
-    /* fragment 15: Branch */
-    int _bc_s4_15 = s4 == v1;
-    v1 = -1;
-    if (_bc_s4_15) { goto ispcore_irq_sec_fs_work0xbc; }
-
-    /* fragment 16: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&ispcore_sd));
-    if (s0 == v1) { goto ispcore_irq_sec_fs_work0xbc; }
-
-    /* fragment 17: CallSetup */
-    local_10 = v0;
-    local_14 = *(uint32_t *)((char *)(s5) + 4);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)ispcore_sensor_ops_ioctl)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 18: MemoryAccess */
-    *(uint32_t *)((char *)s5 + 0) = 0;
-
-ispcore_irq_sec_fs_work0xbc:
-    /* fragment 19: Arithmetic */
-    s4 = s4 + 1;
-    v0 = 9;
-
-    /* fragment 20: Branch */
-    s5 = s5 + 8;
-    if (s4 != v0) { goto ispcore_irq_sec_fs_work0x50; }
-
-ispcore_irq_sec_fs_work0xcc:
-    /* T40-FDWORK-EPILOGUE: the OEM epilogue restores the registers and `jr ra`; the
-     * reconstruction emitted only this comment, so control fell through into the
-     * handler blocks below and re-entered the body via `goto ...`. */
-    return (char *)v0;
-
-sfs_h9:
-    /* fragment 22: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 23: Branch */
-    s0 = s0 + 9;
-    goto ispcore_irq_sec_fs_work0x7c;
-
-sfs_h5:
-    /* fragment 24: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 25: Branch */
-    s0 = s0 + 5;
-    goto ispcore_irq_sec_fs_work0x7c;
-
-sfs_h6:
-    /* fragment 26: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 27: Branch */
-    s0 = s0 + 6;
-    goto ispcore_irq_sec_fs_work0x7c;
-
-sfs_h22:
-    /* fragment 28: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 29: Branch */
-    s0 = s0 + 22;
-    goto ispcore_irq_sec_fs_work0x7c;
-
-sfs_h16:
-    /* fragment 30: CallSetup */
-    local_10 = 1;
-    local_14 = *(uint32_t *)((char *)(s6) + 884);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)ispcore_sensor_ops_ioctl)(*(uint32_t *)((char *)((char *)&ispcore_sd)), 33554432 + 16, &local_10); /* jalr target resolved by relocation */
-
-    /* fragment 31: Branch */
-    *(uint32_t *)((char *)s6 + 880) = 0;
-    goto ispcore_irq_sec_fs_work0x7c;
-
-sfs_h10:
-    /* fragment 32: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 33: Branch */
-    s0 = s0 + 10;
-    goto ispcore_irq_sec_fs_work0x7c;
-
-ispcore_irq_sec_fs_work0x15c:
-    /* fragment 34: Branch */
-    s0 = -1;
-    goto ispcore_irq_sec_fs_work0x7c;
-
-sfs_h7:
-    /* fragment 35: Arithmetic */
-    s0 = 33554432;
-
-    /* fragment 36: Branch */
-    s0 = s0 + 7;
-    goto ispcore_irq_sec_fs_work0x7c;
-
-    return (uint32_t)v0;
+    if (core)
+        t40_core_slots_apply(core, 1, 1, 3);
+    return 0;
 }
+
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007c42c origin=fragment_seed original=ispcore_s_wdr_en */
 int32_t ispcore_s_wdr_en(uintptr_t a0, uintptr_t a1)
