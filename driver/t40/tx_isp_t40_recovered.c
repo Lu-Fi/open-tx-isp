@@ -56712,6 +56712,18 @@ static uintptr_t t40_sctrl_core(uintptr_t state, uint32_t *ch)
     return core;
 }
 
+/* core+316+ch*96 is the OEM copy of the sensor's 96-byte video block (ispcore_sync_sensor_attr 0x76500 memcpy on
+ * SYNC_SENSOR_ATTR); +68 of it (core+384) is the sensor fps.  This driver fills only the attr pointer there, so read
+ * the fps from the source the OEM copies, the sensor subdev's video block (sd+0x2d0+68), while the copy is empty. */
+static uint32_t t40_core_fps(uintptr_t core, uint32_t ch)
+{
+    uint32_t v = regtrace_get_u32(core, 384 + ch * 96);
+
+    if (!v && ch == 0 && regtrace_is_kernel_ptr(regtrace_sensor_subdev))
+        v = regtrace_get_u32((uintptr_t)regtrace_sensor_subdev, REGTRACE_SENSOR_SUBDEV_VIDEO_OFFSET + 68);
+    return v;
+}
+
 static uint32_t regtrace_sensor_ctrl_get_normal_fps(uintptr_t state)
 {
     uint32_t ch, fps, num, den;
@@ -56719,7 +56731,7 @@ static uint32_t regtrace_sensor_ctrl_get_normal_fps(uintptr_t state)
 
     if (!core)
         return 0;
-    fps = regtrace_get_u32(core, 384 + ch * 96);
+    fps = t40_core_fps(core, ch);
     num = fps >> 16;
     den = fps & 0xffffU;
     if (!den)
@@ -56763,7 +56775,7 @@ static int64_t regtrace_sensor_ctrl_fps_control(uint32_t fps, uintptr_t state)
     *(uint32_t *)(state + 92) = regtrace_get_u16(attr, 270);
     *(uint32_t *)(state + 56) = regtrace_get_u16(attr, 184);
     *(uint32_t *)(state + 60) = regtrace_get_u16(attr, 174);   /* integration time limit */
-    return regtrace_get_u32(core, 384 + ch * 96);
+    return t40_core_fps(core, ch);
 }
 
 static uint32_t t40_sctrl_set_fps_count, t40_sctrl_set_fps_last;
@@ -56774,7 +56786,7 @@ static void *regtrace_sensor_ctrl_set_fps(uint32_t fps, uintptr_t state)
 
     if (!core)
         return NULL;
-    if (regtrace_get_u32(core, 384 + ch * 96) == fps)
+    if (t40_core_fps(core, ch) == fps)
         return NULL;
     regtrace_put_u32(core, 832 + ch * 72, 1);
     regtrace_put_u32(core, 836 + ch * 72, fps);
@@ -178538,8 +178550,8 @@ static int t40_worker_stat_get(char *buf, const struct kernel_param *kp)
     if (core)
         for (ch = 0; ch < 2; ch++) {
             uintptr_t attr = regtrace_get_u32(core, 368 + ch * 96);
-            n += scnprintf(buf + n, PAGE_SIZE - n, "ch%d fps=%x attr=%lx trig=%d slots", ch,
-                           regtrace_get_u32(core, 384 + ch * 96), (unsigned long)attr,
+            n += scnprintf(buf + n, PAGE_SIZE - n, "ch%d fps=%x/%x attr=%lx trig=%d slots", ch,
+                           regtrace_get_u32(core, 384 + ch * 96), t40_core_fps(core, ch), (unsigned long)attr,
                            regtrace_is_kernel_ptr((void *)attr) ? (int)regtrace_get_u32(attr, 292) : -1);
             for (i = 0; i < 9; i++)
                 n += scnprintf(buf + n, PAGE_SIZE - n, " %u:%x", regtrace_get_u32(core, 768 + ch * 72 + i * 8),
