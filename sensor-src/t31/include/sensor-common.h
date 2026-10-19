@@ -36,11 +36,14 @@
 #define V4L2_SBUS_MASK_SPI_HALF_ADDR 0x8000
 #define V4L2_SBUS_MASK_SPI_LSB 0x10000
 
+#include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
 #ifndef V4L2_MBUS_FMT_SRGGB10_1X10
 #define V4L2_MBUS_FMT_SRGGB10_1X10 MEDIA_BUS_FMT_SRGGB10_1X10
 #endif
 #ifndef V4L2_MBUS_FMT_SGRBG10_1X10
 #define V4L2_MBUS_FMT_SGRBG10_1X10 MEDIA_BUS_FMT_SGRBG10_1X10
+#endif
 #endif
 
 static inline int set_sensor_gpio_function(int func_set)
