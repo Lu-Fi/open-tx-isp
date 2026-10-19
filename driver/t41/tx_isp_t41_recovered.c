@@ -3503,6 +3503,20 @@ static const char LC168[] = "ISP[0]==>>frame_interival:%ld, valid:%ld, vb:%ld\n"
 static const char LC169[] = "This ISP[0] Don't Wrok\n";
 static const char LC170[] = "ISP[0]==>>vb measure error\n";
 static int32_t irq_func_cb[96];
+/* OEM-style ISR dispatch: every status bit -> irq_func_cb[group*32+bit]
+ * (group 0 = 0x40028, 1 = 0x400a8, 2 = 0x400b8), as the vendor ISR loop
+ * (mbus_to_bayer_write+0x5f4: for i in 0..95).  0 = hard-wired legacy
+ * dispatch (only [5], [8], [17]); 1 = generic loop.  t41_isr_dispatch_skip
+ * lists indices (bit n of the 32-bit words skip[0..2]) that the native
+ * replacements already handle (default: 3 AWB main, 9 ADR). */
+static int t41_isr_dispatch;
+module_param(t41_isr_dispatch, int, 0644);
+MODULE_PARM_DESC(t41_isr_dispatch, "ISP IRQ dispatch: 0 hard-wired, 1 OEM-style table loop");
+static unsigned int t41_isr_dispatch_skip[3] = { (1u << 3) | (1u << 9), 0, 0 };
+module_param_array(t41_isr_dispatch_skip, uint, NULL, 0644);
+static unsigned int t41_isr_counts[96];
+module_param_array(t41_isr_counts, uint, NULL, 0444);
+MODULE_PARM_DESC(t41_isr_counts, "per-index irq_func_cb dispatch counters");
 static const char LC171[] = "[%s %d] Enter the resume ... \n";
 static const char LC172[] = "[%s %d] [ %s:%d ] Failed to resume %s\n";
 static const char LC173[] = "[%s %d] Enter the suspend ... \n";
@@ -170802,7 +170816,29 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             WRITE_ONCE(t41_ae_zones[0].sequence,
                 READ_ONCE(t41_ae_zones[0].sequence) + 1);
 
-        if ((status0 & BIT(5)) &&
+        if (t41_isr_dispatch) {
+            uint32_t words[3] = { status0, status2, status3 };
+            int i;
+
+            for (i = 0; i < 96; i++) {
+                int32_t dcb;
+
+                if (!(words[i >> 5] & (1u << (i & 31))))
+                    continue;
+                if (t41_isr_dispatch_skip[i >> 5] & (1u << (i & 31)))
+                    continue;
+                dcb = READ_ONCE(irq_func_cb[i]);
+                if (!dcb || !t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)dcb))
+                    continue;
+                t41_isr_counts[i]++;
+                if (t41_isr_counts[i] <= 2)
+                    printk(KERN_WARNING "t41: ISR dispatch idx=%d cb=%#x\n",
+                           i, (uint32_t)dcb);
+                ((int32_t (*)(uint32_t))(uintptr_t)(uint32_t)dcb)(0);
+            }
+        }
+
+        if (!t41_isr_dispatch && (status0 & BIT(5)) &&
             (t41_safe_ae_controller > 0 || t41_vendor_ae > 0)) {
             t41_heapwatch_mark("isr:aehist");
             int32_t callback = READ_ONCE(irq_func_cb[5]);
@@ -170829,7 +170865,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             }
             spin_unlock(&t41_tmo_state_lock);
         }
-        if ((status0 & BIT(17)) && t41_safe_tmo_irq_stats < 0) {
+        if (!t41_isr_dispatch && (status0 & BIT(17)) && t41_safe_tmo_irq_stats < 0) {
             int32_t callback = READ_ONCE(irq_func_cb[17]);
             int32_t callback_ret = -ENODEV;
 
@@ -170843,7 +170879,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                        (uint32_t)callback, callback_ret);
         }
 
-        if ((status0 & BIT(8)) && t41_stock_lce_ram_profile <= 0) {
+        if (!t41_isr_dispatch && (status0 & BIT(8)) && t41_stock_lce_ram_profile <= 0) {
             int32_t callback = READ_ONCE(irq_func_cb[8]);
             int64_t callback_ret = -ENODEV;
 
