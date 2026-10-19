@@ -2849,7 +2849,12 @@ static int tisp_load_single_bin_file(const char *path, int is_custom)
 
 	ret = tisp_read_file_into_buffer(path, &file_buf, &file_size);
 	if (ret) {
-		if (ret == -ENOENT)
+		/* The custom tuning blob is optional; only the standard blob is
+		   required. Report a missing custom blob at debug level so a
+		   normal boot stays quiet. */
+		if (is_custom)
+			pr_debug("tisp_load_single_bin_file: no custom bin %s: %d\n", path, ret);
+		else if (ret == -ENOENT)
 			pr_info("tisp_load_single_bin_file: no %s, using built-in tuning\n", path);
 		else
 			pr_warn("tisp_load_single_bin_file: failed to read %s: %d\n", path, ret);
@@ -10941,8 +10946,7 @@ int apical_isp_ae_g_roi(struct tx_isp_dev *dev, struct isp_core_ctrl *ctrl)
 
     buffer = kmalloc(0x384, GFP_KERNEL);
     if (buffer == NULL) {
-        /* Binary Ninja: isp_printf(1, "not support the gpio mode!\n", $a2) */
-        pr_err("apical_isp_ae_g_roi: not support the gpio mode!\n");
+        ISP_ERROR("apical_isp_ae_g_roi: out of memory\n");
         return -ENOMEM;  /* Binary Ninja returns 0xffffffff */
     }
 

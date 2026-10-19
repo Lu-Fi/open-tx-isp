@@ -14,6 +14,15 @@
 #ifndef TX_ISP_GUARD_H
 #define TX_ISP_GUARD_H
 
+/* tx-isp log prefix: T31 sets a pr_fmt that already adds it */
+#ifndef TX_ISP_LOGPFX
+#ifdef TX_ISP_PRFMT_PREFIXED
+#define TX_ISP_LOGPFX ""
+#else
+#define TX_ISP_LOGPFX "tx-isp: "
+#endif
+#endif
+
 #include <linux/i2c.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
@@ -103,10 +112,10 @@ static inline void tx_isp_rmem_probe(void)
 	}
 	kfree(buf);
 	if (w.state == 1)
-		pr_notice("tx-isp: QBUF guard: rmem window 0x%08x+0x%x\n",
+		pr_notice(TX_ISP_LOGPFX "QBUF guard: rmem window 0x%08x+0x%x\n",
 			w.base, w.size);
 	else
-		pr_warn("tx-isp: QBUF guard inactive: no rmem=SIZE@BASE on the kernel command line\n");
+		pr_warn(TX_ISP_LOGPFX "QBUF guard inactive: no rmem=SIZE@BASE on the kernel command line\n");
 	tx_isp_rmem_window.base = w.base;
 	tx_isp_rmem_window.size = w.size;
 	smp_wmb();
@@ -192,7 +201,7 @@ static inline bool tx_isp_sensor_pin(struct tx_isp_sensor_pins *pins,
 	if (!keep) {
 		/* already pinned, or table full (pr_warn below) */
 		if (i == TX_ISP_SENSOR_PIN_MAX)
-			pr_warn("tx-isp: sensor pin table full, %s not pinned\n",
+			pr_warn(TX_ISP_LOGPFX "sensor pin table full, %s not pinned\n",
 				module_name(owner));
 		module_put(owner);
 	}

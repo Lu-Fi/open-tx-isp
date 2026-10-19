@@ -1944,7 +1944,7 @@ dvp_apply:
         } else if (gpio_mode == 1) {
             bt601_config = 0x88060820;
         } else {
-            pr_info("Unsupported GPIO mode\n");
+            ISP_WARNING("BT601 GPIO mode %d is not supported\n", gpio_mode);
             return -1;
         }
 

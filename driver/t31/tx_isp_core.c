@@ -1,3 +1,5 @@
+#define pr_fmt(fmt) "tx-isp: " fmt
+#define TX_ISP_PRFMT_PREFIXED 1
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/miscdevice.h>
@@ -779,13 +781,6 @@ int awb_interrupt_static(void);
 int tisp_get_awb_info(void *out_buf);
 int tisp_set_awb_info(void *in_buf);
 irqreturn_t ispcore_interrupt_service_routine(int irq, void *dev_id);
-
-/* Debug macro for sensor functions */
-#define ISP_DEBUG(fmt, ...) \
-    do { \
-        if (print_level <= ISP_INFO_LEVEL) \
-            printk(KERN_DEBUG "ISP_DEBUG: " fmt, ##__VA_ARGS__); \
-    } while (0)
 
 /* ===== MISSING CONTINUOUS PROCESSING SYSTEM ===== */
 /* This is what generates the continuous register activity that your trace module captures */
@@ -2956,7 +2951,7 @@ static int isp_free_buffer(struct tx_isp_dev *isp, void *virt_addr, dma_addr_t p
     /* For rmem, we just unmap the virtual address */
     iounmap(virt_addr);
 
-    ISP_INFO("*** isp_free_buffer: Freed %d bytes from rmem at virt=%p, phys=0x%08x ***\n",
+    ISP_DEBUG("isp_free_buffer: freed %d bytes from rmem at virt=%p, phys=0x%08x\n",
              size, virt_addr, (uint32_t)phys_addr);
 
     return 0;
@@ -2984,7 +2979,7 @@ int tisp_channel_start(int channel_id, struct tx_isp_channel_attr *attr)
         return -EINVAL;
     }
 
-    ISP_INFO("*** tisp_channel_start: Starting channel %d ***\n", channel_id);
+    ISP_INFO("channel %u: starting\n", channel_id);
 
     if (msca_ch_en == ~0U)
         msca_ch_en = 0;
@@ -3068,7 +3063,7 @@ int tisp_channel_start(int channel_id, struct tx_isp_channel_attr *attr)
             system_reg_read(channel_base + 0x1c8),
             system_reg_read(channel_base + 0x1cc));
 
-    ISP_INFO("*** tisp_channel_start: Channel %d started successfully ***\n", channel_id);
+    ISP_INFO("channel %u: started\n", channel_id);
     return 0;
 }
 EXPORT_SYMBOL(tisp_channel_start);
@@ -3126,12 +3121,12 @@ static int frame_channel_vidioc_set_fmt(void *channel_dev, void __user *arg)
     /* Extract format type from buffer - this is the first field in V4L2 format structure */
     format_type = format.type;
 
-    ISP_INFO("frame_channel_vidioc_set_fmt: format_type=%d (V4L2_BUF_TYPE_*)\n", format_type);
+    ISP_DEBUG("frame_channel_vidioc_set_fmt: format_type=%d\n", format_type);
 
     /* Binary Ninja: Validate format type - more permissive validation */
     /* Accept V4L2_BUF_TYPE_VIDEO_CAPTURE (1) and V4L2_BUF_TYPE_VIDEO_OUTPUT (2) */
     if (format_type != 1 && format_type != 2) {
-        ISP_INFO("frame_channel_vidioc_set_fmt: Accepting format type %d anyway\n", format_type);
+        ISP_DEBUG("frame_channel_vidioc_set_fmt: accepting format type %d\n", format_type);
         /* Don't fail - just log and continue as the Binary Ninja reference might be more permissive */
     }
 
@@ -3144,7 +3139,7 @@ static int frame_channel_vidioc_set_fmt(void *channel_dev, void __user *arg)
     remote_sd = &isp_dev->channels[fcd->channel_num].subdev;
 
     /* Binary Ninja: tx_isp_send_event_to_remote(*(arg1 + 0x2bc), 0x3000002, &var_80) */
-    ISP_INFO("frame_channel_vidioc_set_fmt: Forwarding set format to core channel %d\n",
+    ISP_DEBUG("frame_channel_vidioc_set_fmt: forwarding to core channel %d\n",
              fcd->channel_num);
     event_ret = tx_isp_send_event_to_remote(remote_sd, TX_ISP_FRAME_EVENT_SET_FORMAT, &format);
 
@@ -3163,7 +3158,7 @@ static int frame_channel_vidioc_set_fmt(void *channel_dev, void __user *arg)
     if (event_ret == 0xfffffdfd)
         ispcore_store_channel_format(fcd->channel_num, &format);
 
-    ISP_INFO("frame_channel_vidioc_set_fmt: SUCCESS - Video format set\n");
+    ISP_DEBUG("frame_channel_vidioc_set_fmt: success\n");
     return 0;
 }
 
@@ -3191,7 +3186,7 @@ static int frame_channel_vidioc_get_fmt(void *channel_dev, void __user *arg)
         return -EFAULT;
     }
 
-    ISP_INFO("frame_channel_vidioc_get_fmt: SUCCESS - Returned channel %d format\n",
+    ISP_DEBUG("frame_channel_vidioc_get_fmt: returned channel %d format\n",
              fcd->channel_num);
     return 0;
 }
@@ -3344,8 +3339,6 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
             arg2[0], arg2[1], arg2[2], arg2[3],
             arg2[6], arg2[7], arg2[4], arg2[5]);
 
-    isp_printf(0, "not support the gpio mode!\n", channel_id);
-
     /* Store channel attributes in global arrays */
     if (channel_id == 0) {
         memcpy(ds0_attr, arg2, 0x34);
@@ -3377,10 +3370,19 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
         tisp_channel_attr_word_set(ds0_attr, 12, s2);
         a1_2 = 0;
     } else {
+#ifdef TX_ISP_VENDOR_TREE
+        /* Vendor 5.15 tree (themactep): the bounds come from the exported
+         * data_b2e* words, which that tree's callers keep. */
+        int32_t tispinfo_3 = data_b2e10;
+        int32_t v1_1 = data_b2e08;
+        int32_t a0_1 = data_b2e14;
+        int32_t a1_1 = data_b2e0c;
+#else
         int32_t tispinfo_3 = tisp_channel_attr_word(ds0_attr, 11);
         int32_t v1_1 = tisp_channel_attr_word(ds0_attr, 9);
         int32_t a0_1 = tisp_channel_attr_word(ds0_attr, 12);
         int32_t a1_1 = tisp_channel_attr_word(ds0_attr, 10);
+#endif
 
         if ((uint32_t)tispinfo_2 < (uint32_t)(tispinfo_3 + v1_1) ||
             (uint32_t)s2 < (uint32_t)(a0_1 + a1_1)) {
@@ -3408,12 +3410,12 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
                 (uint32_t)s2 == t31_fcrop.height;
 
             if (!isp_crop && *arg2 != 0) {
-                pr_warn("tx-isp T31: ch%u output %dx%d refused: larger than the frame crop window %dx%d (the MSCA cannot upscale)\n",
+                pr_warn("T31: ch%u output %dx%d refused: larger than the frame crop window %dx%d (the MSCA cannot upscale)\n",
                         channel_id, arg2[1], arg2[2], tispinfo_2, s2);
                 return -EINVAL;
             }
             if (isp_crop) {
-                pr_warn("tx-isp T31: ch%u output %dx%d does not fit the front crop %ux%u: front crop dropped (the MSCA cannot upscale)\n",
+                pr_warn("T31: ch%u output %dx%d does not fit the front crop %ux%u: front crop dropped (the MSCA cannot upscale)\n",
                         channel_id, *arg2 ? arg2[1] : tispinfo_1,
                         *arg2 ? arg2[2] : (int32_t)data_b2f34,
                         t31_fcrop.width, t31_fcrop.height);
@@ -3428,12 +3430,14 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
         }
     }
 
+#ifndef TX_ISP_VENDOR_TREE
     /* Keep the compatibility exports coherent with their stock storage. */
     data_b2e04 = tisp_channel_attr_word(ds0_attr, 8);
     data_b2e08 = tisp_channel_attr_word(ds0_attr, 9);
     data_b2e0c = tisp_channel_attr_word(ds0_attr, 10);
     data_b2e10 = tisp_channel_attr_word(ds0_attr, 11);
     data_b2e14 = tisp_channel_attr_word(ds0_attr, 12);
+#endif
 
     system_reg_write(0x9860, a1_2);
     system_reg_write(0x9864, (tispinfo_2 << 0x10) | s2);
@@ -3844,7 +3848,7 @@ static int tisp_fcrop_fits_channels(u32 width, u32 height)
                                  system_reg_read(0x9900 + ch * 0x100),
                                  cache_w[ch], cache_h[ch], width, height,
                                  fcrop_upscale_pct, &out_w, &out_h)) {
-            pr_warn("tx-isp T31: front crop %ux%u refused: smaller than the ch%d output %ux%u (the MSCA cannot upscale)\n",
+            pr_warn("T31: front crop %ux%u refused: smaller than the ch%d output %ux%u (the MSCA cannot upscale)\n",
                     width, height, ch, out_w, out_h);
             return -EINVAL;
         }
@@ -4008,7 +4012,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
     struct tx_isp_dev *isp_dev = tx_isp_get_device();
 
     /* Add MCP logging for method entry */
-    ISP_INFO("ispcore_pad_event_handle: entry with arg2=0x%x", arg2);
+    ISP_DEBUG("ispcore_pad_event_handle: entry with arg2=0x%x", arg2);
 
     if (dispatch && dispatch->enabled != 0 && ((uint32_t)(arg2 - TX_ISP_FRAME_EVENT_GET_FORMAT) < 7)) {
         switch (arg2) {
@@ -4016,7 +4020,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
             /* Get format */
             result = 0;
 
-            ISP_INFO("ispcore_pad_event_handle: case 0x3000001 (get format), ch=%u arg3=%p",
+            ISP_DEBUG("ispcore_pad_event_handle: case 0x3000001 (get format), ch=%u arg3=%p",
                      dispatch->channel_id, arg3);
 
             if (!arg3 || !ispcore_valid_channel_id(dispatch->channel_id))
@@ -4034,7 +4038,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
             u32 sensor_height;
 
             /* Set format */
-            ISP_INFO("ispcore_pad_event_handle: case 0x3000002 (set format)");
+            ISP_DEBUG("ispcore_pad_event_handle: case 0x3000002 (set format)");
             result = 0xffffffea; /* -EINVAL */
 
             if (!format || !channel || !ispcore_valid_channel_id(dispatch->channel_id))
@@ -4081,6 +4085,12 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
 
             ispcore_frame_format_to_attr_words(format, attr_words);
 
+#ifdef TX_ISP_VENDOR_TREE
+            /* Vendor 5.15 tree: the OEM does not arm the frame crop from
+             * SET_FORMAT (only its dedicated control does); the VIC format
+             * payload carries a bogus fcrop there (ch0: 38,38 1882x6) that
+             * sized the non-scaled ch0 MSCA output to 6 lines. */
+#else
             if (format->fcrop_enable) {
                 tisp_s_fcrop_control(1,
                                      format->fcrop_top,
@@ -4088,6 +4098,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
                                      format->fcrop_width,
                                      format->fcrop_height);
             }
+#endif
 
             if (!ispcore_bypass_enabled(isp_dev) &&
                 tisp_channel_attr_set(dispatch->channel_id, attr_words) != 0) {
@@ -4102,7 +4113,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
              * msca_ch_en which could strip the 0xf0000 DMA output bits. */
 
             ispcore_store_channel_format(dispatch->channel_id, format);
-            ISP_INFO("ispcore_pad_event_handle: format set successfully");
+            ISP_DEBUG("ispcore_pad_event_handle: format set successfully");
             return 0;
 
             break;
@@ -4113,7 +4124,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
              * offsets.  The OEM event_priv layout does NOT match our
              * isp_channel struct; raw *(priv+0x9c) spinlock and *(priv+0x74)
              * hw_state hit garbage memory, causing hangs on channel 1. */
-            ISP_INFO("ispcore_pad_event_handle: case 0x3000003 (stream start)");
+            ISP_DEBUG("ispcore_pad_event_handle: case 0x3000003 (stream start)");
 
             pr_info("*** ispcore_pad_event_handle: STREAMON ch=%u state=%u ***\n",
                     dispatch->channel_id, dispatch->state);
@@ -4134,7 +4145,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
 
         case TX_ISP_FRAME_EVENT_STREAM_OFF: {
             /* Stream stop */
-            ISP_INFO("ispcore_pad_event_handle: case 0x3000004 (stream stop)");
+            ISP_DEBUG("ispcore_pad_event_handle: case 0x3000004 (stream stop)");
             return ispcore_frame_channel_streamoff(arg1);
         }
 
@@ -4148,7 +4159,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
             struct isp_channel *qbuf_ch;
             u32 ch_id, y_addr, uv_addr, ch_w, ch_h, aligned_h;
 
-            ISP_INFO("ispcore_pad_event_handle: case 0x3000005 (queue buffer)");
+            ISP_DEBUG("ispcore_pad_event_handle: case 0x3000005 (queue buffer)");
 
             if (ispcore_bypass_enabled(isp_dev)) {
                 result = 0;
@@ -4191,7 +4202,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
              *      *(base + (ch_id << 8) + 0x9984) = UV */
             if (isp_dev->core_regs && ch_id < 3) {
                 tx_isp_msca_fifo_push(ch_id, y_addr, uv_addr);
-                ISP_INFO("ispcore QBUF: ch%u Y=0x%x UV=0x%x (%ux%u)",
+                ISP_DEBUG("ispcore QBUF: ch%u Y=0x%x UV=0x%x (%ux%u)",
                          ch_id, y_addr, uv_addr, ch_w, ch_h);
             }
             break;
@@ -4204,7 +4215,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
 
         case 0x3000007: {
             /* FIFO clear — use dispatch->channel_id, not raw pointer offsets */
-            ISP_INFO("ispcore_pad_event_handle: case 0x3000007 (fifo clear)");
+            ISP_DEBUG("ispcore_pad_event_handle: case 0x3000007 (fifo clear)");
 
             /* No bypass shortcut: the frame-channel QBUF pushes into the
              * MSCA FIFO in bypass mode too (unlike stock, which routes a
@@ -4223,7 +4234,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
                 tisp_channel_fifo_clear(dispatch->channel_id);
                 spin_unlock_irqrestore(&msca_fifo_lock[dispatch->channel_id],
                                        fifo_flags);
-                ISP_INFO("ispcore_pad_event_handle: channel %u fifo cleared",
+                ISP_DEBUG("ispcore_pad_event_handle: channel %u fifo cleared",
                          dispatch->channel_id);
             }
             break;
@@ -4236,7 +4247,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
         }
     }
 
-    ISP_INFO("ispcore_pad_event_handle: exit with result=%d", result);
+    ISP_DEBUG("ispcore_pad_event_handle: exit with result=%d", result);
     return result;
 }
 
@@ -4817,7 +4828,7 @@ struct clk * private_clk_get(struct device *dev, const char *id)
                 continue;
             alias = clk_get(dev, tx_isp_vendor_clk_aliases[i].name);
             if (!IS_ERR(alias)) {
-                pr_info("tx-isp: clock '%s' resolved as vendor '%s'\n",
+                pr_info("clock '%s' resolved as vendor '%s'\n",
                         id, tx_isp_vendor_clk_aliases[i].name);
                 return alias;
             }
@@ -4832,7 +4843,7 @@ struct clk * private_clk_get(struct device *dev, const char *id)
                 continue;
             alias = clk_get(dev, tx_isp_clk_aliases[i].mainline);
             if (!IS_ERR(alias)) {
-                pr_info("tx-isp: clock '%s' resolved as mainline '%s'\n",
+                pr_info("clock '%s' resolved as mainline '%s'\n",
                         id, tx_isp_clk_aliases[i].mainline);
                 return alias;
             }
@@ -4861,7 +4872,7 @@ struct clk * private_clk_get(struct device *dev, const char *id)
         of_node_put(cgu_np);
 
         if (!IS_ERR(clk))
-            pr_info("tx-isp: resolved legacy cgu_cim through T31 CGU provider\n");
+            pr_info("resolved legacy cgu_cim through T31 CGU provider\n");
     }
 #endif
 
@@ -5024,7 +5035,7 @@ int private_i2c_add_driver_addr(struct i2c_driver *driver,
     sinfo_ret = tx_isp_sinfo_driver_add(driver, default_i2c_addr,
                                         driver->driver.owner);
     if (sinfo_ret)
-        pr_warn("tx-isp: failed to publish sensor driver %s: %d\n",
+        pr_warn("failed to publish sensor driver %s: %d\n",
                 driver->driver.name, sinfo_ret);
 
     return 0;
@@ -5069,23 +5080,34 @@ int isp_printf(unsigned int level, unsigned char *fmt, ...)
 {
     struct va_format vaf;
     va_list args;
+    const char *tag;
     int r = 0;
 
-    if(level >= print_level){
-        va_start(args, fmt);
+    if (level < print_level)
+        return 0;
 
-        vaf.fmt = fmt;
-        vaf.va = &args;
+    if (level >= ISP_ERROR_LEVEL)
+        tag = KERN_ERR;
+    else if (level >= ISP_WARN_LEVEL)
+        tag = KERN_WARNING;
+    else
+        tag = KERN_INFO;
 
-        r = printk("%pV",&vaf);
-        va_end(args);
-        /* The OEM dumps the stack on every error.  Sensor drivers report
-         * expected conditions this way (sc4336p: "gpio request failed" for
-         * its reset GPIO on every stream start), so the log filled with
-         * oops-like traces.  Keep the trace for print_level=0 only. */
-        if (level >= ISP_ERROR_LEVEL && print_level <= ISP_INFO_LEVEL)
-            dump_stack();
-    }
+    va_start(args, fmt);
+    vaf.fmt = fmt;
+    vaf.va = &args;
+    r = printk("%s" "tx-isp: %pV", tag, &vaf);
+    va_end(args);
+
+    /*
+     * Sensor drivers report expected conditions as errors (for example
+     * "gpio request failed" for an optional reset GPIO).  Only dump the
+     * stack when the bring-up trace is explicitly enabled; otherwise the
+     * error line alone is the useful information.
+     */
+    if (level >= ISP_ERROR_LEVEL && t31_runtime_trace)
+        dump_stack();
+
     return r;
 }
 EXPORT_SYMBOL(isp_printf);
@@ -5119,7 +5141,7 @@ int private_jzgpio_set_func(enum gpio_port port, enum gpio_function func,unsigne
     wmb();
     iounmap(gpio_base);
 
-    pr_info("tx-isp: T31 pinmux P%c mask=0x%08x function=%u\n",
+    pr_info("T31 pinmux P%c mask=0x%08x function=%u\n",
             'A' + port, mask, func);
     return 0;
 #endif

@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-19: PR #2 leftovers (themactep): level-gated T31 debug output, vendor-tree-only core hunks (`claude/pr2-leftovers`; in `next`)
+
+Commits by Paul Philippov from Lu-Fi/open-tx-isp#2 (author kept, `cherry-pick -x`), adapted where noted.
+
+- **Vendor 5.15 tree only (`TX_ISP_VENDOR_TREE`):** the two `tx_isp_core.c` hunks that were dropped from the first merge because they were unguarded now sit behind the vendor-tree switch: `tisp_channel_attr_set` takes its bounds from the `data_b2e*` words and skips the sync, and SET_FORMAT does not arm the front crop. 3.10/4.4/mainline builds unchanged: `tx-isp-t31.ko` identical code (only two `__LINE__` literals and the build-id move), `tx-isp-t41.ko` only the git-describe string, `tx-isp-t23.ko`/`t21`/`t40` byte-identical.
+- **Level-gated ISP debug output (T31):** `isp_printf()` adds the `tx-isp:` prefix and the kernel level tag; `ISP_DEBUG` (needs `t31_runtime_trace=1`) carries the per-event/per-frame chatter; the false "not support the gpio mode!" lines are replaced by the real errors; the error stack dump needs `t31_runtime_trace`. Adapted: no doubled `tx-isp:` (hand-written prefixes dropped from T31 messages), `tx_isp_guard.h` (shared with T20/T21/T41) keeps its text and the rmem-window notice, so the other SoCs log exactly as before. Also the log parts of 30a8f30e: no `print_hex_dump()` in sensor registration, a missing custom tuning bin is reported at debug level.
+- Default-level lines that tools and agents wait for (framechan, MSCA, isp-guard, sinfo, `refused`, `QBUF guard`, Oops/BUG) are unchanged apart from the prefix. `tx-isp-t31.ko` +760 bytes. T31L .29 sc2336 (3.10.14), A/B against `next`: selftest 20/0 both, snapshot, v/hflip, 3x restart OK, 0 oops, dmesg identical except the removed hexdump lines and the `tx-isp:` prefix.
+
 ## 2026-10-19: PR #2 (themactep): T31 mainline V4L2 sensor bridge, vendor 5.15 bring-up, SC2336 (`claude/pr2-v4l2`; in `next`)
 
 Commits by Paul Philippov from Lu-Fi/open-tx-isp#2, author kept; the AK Sharma commits the PR carries again were already in `next`.
