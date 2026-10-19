@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-19: Kernel 5.15 / 7.x compat for T31 (`claude/k7-compat`; in `next`)
+
+- Taken over from thingino `feature/kernel-7` patch 0004 by themactep: `TX_ISP_VENDOR_TREE=1` builds the T31 driver and sensors against the Ingenic vendor 5.15.170 tree (no `set_fs`, own `timeval`/`PDE_DATA`, legacy mbus names, `gnu99`, no CGU binding header); mainline 7.x uses the existing >= 5.0 shims plus `ACCESS_ONCE`. Build-checked only (no 5.15/7.x tree locally, not device-tested). 3.10.14 and 4.4.94 are unchanged: T31/T41 code identical to before, T23 `.ko` byte-identical (T31 differs only in `__LINE__` constants).
+
 ## 2026-10-18: T40 restart, stop path and GIB (`claude/t40-gib-stop`, `claude/t40-restart-hang`; in `next`)
 
 - **Second stream start with ch0+ch1 no longer hangs the SoC:** the last close of `/dev/tx-isp` now runs the OEM release path (idle handshake on 0x200/0x204 with a bounded wait, core reset pulse on 0x24) and the block init runs again per session; before, MSCA output 1 kept its state and the ISP bus froze ~60 ms after the next ch1 stream-on. Device-tested: 10/10 start/stop cycles with 181/181 frames on both channels, 10 min with two stream clients, 5 client reconnects, no oops. `t40_release_reset` (default 1) switches it off; difference to the OEM: clocks stay on.
