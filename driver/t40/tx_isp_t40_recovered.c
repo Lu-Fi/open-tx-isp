@@ -8286,7 +8286,7 @@ int32_t tisp_s_awb_weight_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_g_awb_weight_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_s_awb_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_g_awb_attr(uint32_t a0, uintptr_t a1);
-int32_t tisp_g_awb_statis_attr(void);
+int32_t tisp_g_awb_statis_attr(uint32_t vinum, uintptr_t buf);
 int32_t tisp_g_awb_global_statis_attr(uint32_t a0, uintptr_t a1);
 int64_t tisp_s_ae_scence_attr(uint32_t a0, uintptr_t a1);
 int64_t tisp_g_ae_scence_attr(uint32_t a0, uintptr_t a1);
@@ -23498,6 +23498,27 @@ static void regtrace_t40_awb_global_snapshot(uint32_t response[4])
     response[3] = response[1];
 }
 
+/* OEM tx_isp_awb_statis_g_attr (g_ctrl 0x8000011): vmalloc 0xa8c, zero,
+ * tisp_g_awb_statis_attr(vinum, buf), copy_to_user 0xa8c, vfree.  All
+ * zero before the first AWB statistics frame, as in the OEM driver
+ * (libimp turns an all-zero block into -1/EAGAIN). */
+static int regtrace_t40_tuning_copy_awb_stats(uint32_t vinum,
+                                              uintptr_t user_ptr)
+{
+    unsigned char *buf;
+    int ret;
+
+    if (!user_ptr || vinum > 1)
+        return -EINVAL;
+    buf = kzalloc(0xa8c, GFP_KERNEL);
+    if (!buf)
+        return -ENOMEM;
+    tisp_g_awb_statis_attr(vinum, (uintptr_t)buf);
+    ret = copy_to_user((void __user *)user_ptr, buf, 0xa8c) ? -EFAULT : 0;
+    kfree(buf);
+    return ret;
+}
+
 static int regtrace_t40_tuning_copy_awb_global_stats(uintptr_t user_ptr)
 {
     uint32_t response[4];
@@ -23776,6 +23797,9 @@ static long regtrace_isp_m0_default_tuning_ioctl(unsigned int cmd, unsigned long
                 (uintptr_t)(uint32_t)ctrl.value);
         } else if (ctrl.id == TX_ISP_TUNING_CMD_T41_AWB_GLOBAL_STATS) {
             ret = regtrace_t40_tuning_copy_awb_global_stats(
+                (uintptr_t)(uint32_t)ctrl.value);
+        } else if (ctrl.id == TX_ISP_TUNING_CMD_T41_AWB_STATS) {
+            ret = regtrace_t40_tuning_copy_awb_stats(ctrl.vinum,
                 (uintptr_t)(uint32_t)ctrl.value);
         } else {
             ret = tx_isp_core_ops_g_ctrl(ctrl.vinum, (int32_t *)tuning,
@@ -47267,10 +47291,11 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
             }
 
             {
-                uint8_t *v0_ptr = private_vmalloc();
-                s3_ptr = v0_ptr;
-                memset(v0_ptr, 0, 0xa8c);
-                tisp_g_awb_statis_attr();
+                /* AWB zone statistics (0xa8c = 3 x 900): served by
+                 * regtrace_t40_tuning_copy_awb_stats before this
+                 * dispatcher; unreachable here, kept safe. */
+                return regtrace_t40_tuning_copy_awb_stats(arg1,
+                    (uintptr_t)(uint32_t)arg3[1]);
                 result = private_copy_to_user(arg3[1], s3_ptr, 0xa8c);
                 if (result == 0) {
                     private_vfree();
@@ -98814,26 +98839,31 @@ tisp_awb_get_weight0x3c:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000343b8 origin=model_output original=tisp_awb_get_zone */
+/*
+ * OEM tisp_awb_get_zone (Eufy ko 0x348c0): vinum 0 -> pstMainAwbOri, else
+ * pstSecAwbOri; copies the three 900-byte zone-mean planes the AWB table
+ * points to (entries 125/126/127, filled by tisp_awb_long_alogrithm) to
+ * dst, dst + 900, dst + 1800.  The recovered body used an unset bss base
+ * and an uninitialised dst (Eufy 10-19: NULL store in the "dn" thread's
+ * GetAwbStatistics, the oops left libimp's tuning lock held and every
+ * later tuning call, AutoZoom included, blocked).  A plane whose pointer
+ * is not set yet (no AWB frame) is left as is (the caller zeroes dst).
+ */
 int32_t *tisp_awb_get_zone(int32_t arg1, int32_t arg2)
 {
-    int32_t *s0;
-    int32_t *data1, *data2;
+    const uint32_t *tbl = arg1 ? pstSecAwbOri : pstMainAwbOri;
+    unsigned char *dst = (unsigned char *)(uintptr_t)arg2;
+    unsigned int i;
 
-    /* Reference .bss data at specific offsets */
-    data1 = (int32_t *)(bss_data1 + 16180);
-    data2 = (int32_t *)(bss_data2 + 15668);
+    if (!regtrace_is_kernel_ptr(dst))
+        return NULL;
+    for (i = 0; i < 3; i++) {
+        const void *src = (const void *)(uintptr_t)tbl[125 + i];
 
-    if (arg1 == 0) {
-        s0 = data1;
-    } else {
-        s0 = data2;
+        if (regtrace_is_kernel_ptr(src))
+            memcpy(dst + i * 900, src, 900);
     }
-
-    memcpy((void *)arg2, (void *)(s0 + 0x7d), 900);
-    memcpy((void *)(arg2 + 900), (void *)(s0 + 0x7e), 900);
-    memcpy((void *)(arg2 + 1800), (void *)(s0 + 0x7f), 900);
-
-    return s0 + 0x7f;
+    return (int32_t *)(uintptr_t)tbl[127];
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034438 origin=fragment_seed original=tisp_awb_set_start */
@@ -176349,28 +176379,10 @@ int32_t tisp_g_awb_attr(uint32_t a0, uintptr_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074408 origin=fragment_seed original=tisp_g_awb_statis_attr */
-int32_t tisp_g_awb_statis_attr(void)
+/* OEM 0x74074: tail call tisp_awb_get_zone(vinum, buf), returns 0. */
+int32_t tisp_g_awb_statis_attr(uint32_t vinum, uintptr_t buf)
 {
-    int32_t *a0 = 0;
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_awb_get_zone)(v0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    v0 = 0;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    tisp_awb_get_zone((int32_t)vinum, (int32_t)buf);
     return 0;
 }
 
