@@ -3377,10 +3377,19 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
         tisp_channel_attr_word_set(ds0_attr, 12, s2);
         a1_2 = 0;
     } else {
+#ifdef TX_ISP_VENDOR_TREE
+        /* Vendor 5.15 tree (themactep): the bounds come from the exported
+         * data_b2e* words, which that tree's callers keep. */
+        int32_t tispinfo_3 = data_b2e10;
+        int32_t v1_1 = data_b2e08;
+        int32_t a0_1 = data_b2e14;
+        int32_t a1_1 = data_b2e0c;
+#else
         int32_t tispinfo_3 = tisp_channel_attr_word(ds0_attr, 11);
         int32_t v1_1 = tisp_channel_attr_word(ds0_attr, 9);
         int32_t a0_1 = tisp_channel_attr_word(ds0_attr, 12);
         int32_t a1_1 = tisp_channel_attr_word(ds0_attr, 10);
+#endif
 
         if ((uint32_t)tispinfo_2 < (uint32_t)(tispinfo_3 + v1_1) ||
             (uint32_t)s2 < (uint32_t)(a0_1 + a1_1)) {
@@ -3428,12 +3437,14 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
         }
     }
 
+#ifndef TX_ISP_VENDOR_TREE
     /* Keep the compatibility exports coherent with their stock storage. */
     data_b2e04 = tisp_channel_attr_word(ds0_attr, 8);
     data_b2e08 = tisp_channel_attr_word(ds0_attr, 9);
     data_b2e0c = tisp_channel_attr_word(ds0_attr, 10);
     data_b2e10 = tisp_channel_attr_word(ds0_attr, 11);
     data_b2e14 = tisp_channel_attr_word(ds0_attr, 12);
+#endif
 
     system_reg_write(0x9860, a1_2);
     system_reg_write(0x9864, (tispinfo_2 << 0x10) | s2);
@@ -4081,6 +4092,12 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
 
             ispcore_frame_format_to_attr_words(format, attr_words);
 
+#ifdef TX_ISP_VENDOR_TREE
+            /* Vendor 5.15 tree: the OEM does not arm the frame crop from
+             * SET_FORMAT (only its dedicated control does); the VIC format
+             * payload carries a bogus fcrop there (ch0: 38,38 1882x6) that
+             * sized the non-scaled ch0 MSCA output to 6 lines. */
+#else
             if (format->fcrop_enable) {
                 tisp_s_fcrop_control(1,
                                      format->fcrop_top,
@@ -4088,6 +4105,7 @@ static int ispcore_pad_event_handle(int32_t* arg1, int32_t arg2, void* arg3)
                                      format->fcrop_width,
                                      format->fcrop_height);
             }
+#endif
 
             if (!ispcore_bypass_enabled(isp_dev) &&
                 tisp_channel_attr_set(dispatch->channel_id, attr_words) != 0) {
