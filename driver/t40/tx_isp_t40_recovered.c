@@ -23097,9 +23097,30 @@ static const struct file_operations regtrace_tx_isp_fops = {
     .release = regtrace_tx_isp_release,
 };
 
+/*
+ * T40-TUNING-TATTR: OEM isp_core_tunning_open (0x8bbc) calls tisp_enable_tuning(),
+ * which vmallocs the tuning attribute cache tisp_tattr (3388 B) and fills its
+ * defaults.  /dev/isp-m0 is served by the bootstrap fops here, so the cache was
+ * never allocated and every tisp_s/g_*_attr that indexes it (e.g.
+ * tisp_s_ae_exprinfo_attr, IMP_ISP_Tuning_SetAeExprInfo) oopsed at NULL + off.
+ * Allocate it on the first isp-m0 open like the OEM; freed at module exit.
+ */
+static DEFINE_MUTEX(regtrace_t40_tattr_lock);
+static void regtrace_t40_tattr_ensure(void)
+{
+    mutex_lock(&regtrace_t40_tattr_lock);
+    if (!tisp_tattr)
+        (void)tisp_enable_tuning();
+    mutex_unlock(&regtrace_t40_tattr_lock);
+    if (!tisp_tattr)
+        printk(KERN_ERR "tx_isp_t40_recovered: tisp_enable_tuning: no tuning attr cache\n");
+}
+
 static int regtrace_bootstrap_open(struct inode *inode, struct file *file)
 {
     (void)inode;
+    if (file && !strcmp(regtrace_file_name(file), "isp-m0"))
+        regtrace_t40_tattr_ensure();
     printk(KERN_INFO "tx_isp_t40_recovered: open /dev/%s pid=%d comm=%s\n",
            regtrace_file_name(file), current->pid, current->comm);
     return 0;
@@ -172347,8 +172368,8 @@ void tisp_disable_tuning(void)
 
     tisp_tattr_val = tisp_tattr;
     if (tisp_tattr_val != 0) {
-        private_vfree();
         tisp_tattr = 0;
+        vfree((void *)(uintptr_t)tisp_tattr_val);   /* the lift called private_vfree() without its argument */
     }
 }
 
@@ -174001,273 +174022,46 @@ int32_t tisp_g_antiflick(int32_t arg1, int32_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000072be0 origin=fragment_seed original=tisp_enable_tuning */
 int64_t tisp_enable_tuning(void)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a0 = 0;
-    uintptr_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t t0 = 0;
-    uint32_t *t1 = 0;
-    uint32_t *t2 = 0;
-    uint32_t *t3 = 0;
-    uint32_t *t4 = 0;
-    uint32_t *t5 = 0;
-    uint32_t *t6 = 0;
-    uint32_t t7 = 0;
-    uint32_t *t8 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+    /* T40-TUNING-TATTR: hand translation of OEM tisp_enable_tuning (0x72844); the lift's
+     * loops ran past the 3388-byte cache (oops at vmalloc end).  OEM tsbin is 2 words and
+     * tiziano_enable 3 words; here both are scalars, so only slot 0 is used. */
+    uint8_t *t = vmalloc(3388);
+    int i, j, k;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(3388); /* jalr target resolved by relocation */
-
-    /* fragment 2: Arithmetic */
-    s0 = (uintptr_t *)&tisp_tattr;
-
-    /* fragment 3: Branch */
-    int _bc_v0_3 = v0 != 0;
-    *(uint32_t *)((char *)s0 + 0) = v0;
-    if (_bc_v0_3) { goto tisp_enable_tuning0x98; }
-
-    /* fragment 4: CallSetup */
-    local_14 = 60;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC7, &__param_str_isp_dual_buf, 60); /* jalr target resolved by relocation */
-
-    /* fragment 5: Arithmetic */
-    s1 = -1;
-
-tisp_enable_tuning0x70:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_enable_tuning0x74:
-    /* fragment 7: Arithmetic */
-    v0 = s1;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_enable_tuning0x98:
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)v0, 0, 3388); /* jalr target resolved by relocation */
-
-    /* fragment 10: Arithmetic */
-    v0 = 0;
-    a0 = -128;
-    a2 = 3;
-
-tisp_enable_tuning0xbc:
-    /* fragment 11: MemoryAccess */
-    v1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    v1 = (uintptr_t)v1 + (uintptr_t)v0;
-    *(uint8_t *)((char *)v1 + 0) = a0;
-    v1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    v1 = (uintptr_t)v1 + (uintptr_t)v0;
-    *(uint8_t *)((char *)v1 + 3) = a0;
-    v1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    a1 = (uintptr_t)v1 + (uintptr_t)v0;
-    v0 = v0 + 1;
-    *(uint8_t *)((char *)a1 + 6) = a0;
-    *(uint8_t *)((char *)a1 + 9) = a0;
-
-    /* fragment 12: Branch */
-    *(uint8_t *)((char *)a1 + 12) = a0;
-    if (v0 != a2) { goto tisp_enable_tuning0xbc; }
-
-    /* fragment 13: Arithmetic */
-    a2 = v1 + 384;
-    a0 = v1;
-    a3 = -128;
-    t0 = 16;
-    v0 = a0;
-
-tisp_enable_tuning0x104:
-    /* fragment 14: Arithmetic */
-    a1 = 0;
-
-tisp_enable_tuning0x108:
-    /* fragment 15: Arithmetic */
-    a1 = a1 + 1;
-
-    /* fragment 16: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 832) = 0;
-    *(uint8_t *)((char *)v0 + 836) = a3;
-
-    /* fragment 17: Branch */
-    v0 = v0 + 8;
-    if (a1 != t0) { goto tisp_enable_tuning0x108; }
-
-    /* fragment 18: Arithmetic */
-    a0 = a0 + 128;
-
-    /* fragment 19: Branch */
-    v0 = a0;
-    if (a0 != a2) { goto tisp_enable_tuning0x104; }
-
-    /* fragment 20: Arithmetic */
-    v0 = v1 + 1216;
-    a2 = v1 + 1464;
-    a1 = 1;
-    a0 = 15;
-    t8 = 13;
-    t7 = 64;
-    t6 = -112;
-    t5 = -64;
-    t4 = 3;
-    t3 = 42;
-    t2 = 22;
-    t1 = 200;
-    t0 = 19;
-    a3 = 58;
-
-tisp_enable_tuning0x160:
-    /* fragment 21: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 0) = 0;
-    *(uint32_t *)((char *)v0 + 4) = a1;
-    *(uint32_t *)((char *)v0 + 8) = a1;
-    *(uint8_t *)((char *)v0 + 12) = a0;
-    *(uint8_t *)((char *)v0 + 13) = a0;
-    *(uint32_t *)((char *)v0 + 16) = 0;
-    *(uint8_t *)((char *)v0 + 20) = t8;
-    *(uint8_t *)((char *)v0 + 21) = t7;
-    *(uint8_t *)((char *)v0 + 22) = t6;
-    *(uint8_t *)((char *)v0 + 23) = t5;
-    *(uint32_t *)((char *)v0 + 24) = 0;
-    *(uint32_t *)((char *)v0 + 28) = a1;
-    *(uint32_t *)((char *)v0 + 32) = a1;
-    *(uint8_t *)((char *)v0 + 36) = a0;
-    *(uint8_t *)((char *)v0 + 37) = a0;
-    *(uint32_t *)((char *)v0 + 40) = 0;
-    *(uint32_t *)((char *)v0 + 44) = 0;
-    *(uint32_t *)((char *)v0 + 48) = a1;
-    *(uint32_t *)((char *)v0 + 52) = t4;
-    *(uint8_t *)((char *)v0 + 56) = a0;
-    *(uint8_t *)((char *)v0 + 57) = a0;
-    *(uint8_t *)((char *)v0 + 60) = 0;
-    *(uint16_t *)((char *)v0 + 62) = t3;
-    *(uint16_t *)((char *)v0 + 64) = t2;
-    *(uint16_t *)((char *)v0 + 66) = t1;
-    *(uint16_t *)((char *)v0 + 68) = t0;
-    *(uint16_t *)((char *)v0 + 70) = a3;
-    v0 = v0 + 124;
-
-    /* fragment 22: Branch */
-    s2 = 0;
-    if (v0 != a2) { goto tisp_enable_tuning0x160; }
-
-    /* fragment 23: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 1692) = 0;
-    *(uint32_t *)((char *)v1 + 1696) = 0;
-    *(uint32_t *)((char *)v1 + 1476) = 0;
-    *(uint32_t *)((char *)v1 + 1528) = 0;
-    *(uint32_t *)((char *)v1 + 2152) = 0;
-    *(uint32_t *)((char *)v1 + 2156) = 0;
-    *(uint32_t *)((char *)v1 + 1552) = 0;
-    *(uint32_t *)((char *)v1 + 1604) = 0;
-    *(uint32_t *)((char *)v1 + 2612) = 0;
-    *(uint32_t *)((char *)v1 + 2616) = 0;
-    *(uint32_t *)((char *)v1 + 1628) = 0;
-    *(uint32_t *)((char *)v1 + 1680) = 0;
-    s4 = 44;
-    s3 = 3;
-    v1 = (uintptr_t)s2 * (uintptr_t)s4;
-
-tisp_enable_tuning0x214:
-    /* fragment 24: CallSetup */
-    s2 = s2 + 1;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3072) = 0;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3076) = 0;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3080) = 0;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3084) = 0;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3088) = 0;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3092) = 0;
-    *(uint32_t *)((char *)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (uintptr_t)v1) + 3096) = 0;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + (v1 + 3100)), 0, 16); /* jalr target resolved by relocation */
-
-    /* fragment 25: Branch */
-    v1 = (uintptr_t)s2 * (uintptr_t)s4;
-    if (s2 != s3) { goto tisp_enable_tuning0x214; }
-
-    /* fragment 26: Arithmetic */
-    s2 = (uintptr_t *)&tiziano_enable;
-    s3 = (uint32_t *)&tisp_g_antiflick;
-    s2 = s2;
-    s1 = 0;
-    s5 = 1;
-    s3 = s3;
-    s4 = 3;
-
-tisp_enable_tuning0x274:
-    /* fragment 27: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s2 + 0);
-
-    /* fragment 28: Branch */
-    a1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    if (v0 != s5) { goto tisp_enable_tuning0x294; }
-
-    /* fragment 29: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_antiflick)((uintptr_t)s1, (uintptr_t)a1 + (((uintptr_t)s1 << 3) + 3204)); /* jalr target resolved by relocation */
-
-tisp_enable_tuning0x294:
-    /* fragment 30: Arithmetic */
-    s1 = s1 + 1;
-
-    /* fragment 31: Branch */
-    s2 = s2 + 4;
-    if (s1 != s4) { goto tisp_enable_tuning0x274; }
-
-    /* fragment 32: Arithmetic */
-    v0 = (uintptr_t *)&tsbin;
-
-    /* fragment 33: MemoryAccess */
-    a1 = *(uint32_t *)((char *)((char *)&tsbin));
-
-    /* fragment 34: Branch */
-    s1 = v0;
-    if (a1 == 0) { goto tisp_enable_tuning0x2c8; }
-
-    /* fragment 35: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + 3228), (void *)(uintptr_t)a1, 80); /* jalr target resolved by relocation */
-
-tisp_enable_tuning0x2c8:
-    /* fragment 36: Arithmetic */
-    v0 = s1;
-
-    /* fragment 37: MemoryAccess */
-    a1 = *(uint32_t *)((char *)v0 + 4);
-
-    /* fragment 38: Branch */
-    s1 = 0;
-    if (a1 == 0) { goto tisp_enable_tuning0x70; }
-
-    /* fragment 39: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&tisp_tattr))) + 3308), (void *)(uintptr_t)a1, 80); /* jalr target resolved by relocation */
-
-    /* fragment 40: Branch */
-    goto tisp_enable_tuning0x74;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    tisp_tattr = (uint32_t)(uintptr_t)t;
+    if (!t) {
+        isp_printf(2, "[%s %d] Failed to vmalloc tuning attr\n", "tisp_enable_tuning", 60);
+        return -1;
+    }
+    memset(t, 0, 3388);
+    for (i = 0; i < 3; i++) {
+        t[i] = 0x80; t[i + 3] = 0x80; t[i + 6] = 0x80; t[i + 9] = 0x80; t[i + 12] = 0x80;
+    }
+    for (j = 0; j < 3; j++)
+        for (k = 0; k < 16; k++) {
+            *(uint32_t *)(t + j * 128 + 832 + 8 * k) = 0;
+            t[j * 128 + 836 + 8 * k] = 0x80;
+        }
+    for (i = 1216; i != 1464; i += 124) {
+        uint8_t *q = t + i;
+        *(uint32_t *)(q + 0) = 0; *(uint32_t *)(q + 4) = 1; *(uint32_t *)(q + 8) = 1;
+        q[12] = 15; q[13] = 15; *(uint32_t *)(q + 16) = 0;
+        q[20] = 13; q[21] = 64; q[22] = 0x90; q[23] = 0xc0;
+        *(uint32_t *)(q + 24) = 0; *(uint32_t *)(q + 28) = 1; *(uint32_t *)(q + 32) = 1;
+        q[36] = 15; q[37] = 15;
+        *(uint32_t *)(q + 40) = 0; *(uint32_t *)(q + 44) = 0; *(uint32_t *)(q + 48) = 1; *(uint32_t *)(q + 52) = 3;
+        q[56] = 15; q[57] = 15; q[60] = 0;
+        *(uint16_t *)(q + 62) = 42; *(uint16_t *)(q + 64) = 22; *(uint16_t *)(q + 66) = 200;
+        *(uint16_t *)(q + 68) = 19; *(uint16_t *)(q + 70) = 58;
+    }
+    /* already zero from the memset, kept for the OEM order: 1692 1696 1476 1528 2152 2156 1552 1604 2612 2616 1628 1680 */
+    for (i = 0; i < 3; i++)
+        memset(t + i * 44 + 3072, 0, 28 + 16);
+    if (tiziano_enable == 1)
+        tisp_g_antiflick(0, (int32_t *)(t + 3204));
+    if (tsbin)
+        memcpy(t + 3228, (const void *)(uintptr_t)tsbin, 80);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000072ed8 origin=fragment_seed original=tisp_s_antiflick */
@@ -189922,7 +189716,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
         case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); break;
         case 4: regtrace_dmsc_lit_cleanup(); break;
         case 5: regtrace_lsc_lit_cleanup(); break;
-        case 6: regtrace_tisp_main_init_param_free(); break;
+        case 6: regtrace_tisp_main_init_param_free(); tisp_disable_tuning(); break;
         case 7: regtrace_tisp_dma_free(); break;
         case 8: regtrace_vic_mdma_internal_free(); break;
         case 9: regtrace_unregister_bootstrap_devices(); break;
