@@ -231,11 +231,19 @@ static inline int tx_isp_i2c_add_sensor_driver(struct i2c_driver *driver)
 {
 	struct module *owner;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+	/* __module_address() is not exported to modules on mainline; the sensor's
+	 * static i2c_driver sets .driver.owner = THIS_MODULE and we call
+	 * i2c_register_driver() directly, so owner is not clobbered
+	 * (adapted from AK Sharma's port). */
+	owner = driver->driver.owner;
+#else
 	preempt_disable();
 	owner = __module_address((unsigned long)driver);
 	preempt_enable();
 	if (!owner)
 		owner = driver->driver.owner;	/* built in: NULL */
+#endif
 	driver->driver.suppress_bind_attrs = true;
 	return i2c_register_driver(owner, driver);
 }

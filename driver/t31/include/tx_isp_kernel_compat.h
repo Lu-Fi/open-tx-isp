@@ -142,3 +142,69 @@ static inline void getrawmonotonic(struct timespec *ts)
 #endif
 
 #endif
+
+/*
+ * Mainline-only adaptations (kernel >= 5.0 / 6.8 / 7.2); ported from AK Sharma's
+ * T31 mainline port (adapted). Everything is behind LINUX_VERSION_CODE, the
+ * 3.10.14 / 4.4.94 vendor builds see none of it.
+ */
+
+/* READ_ONCE/WRITE_ONCE: ACCESS_ONCE() is no lvalue any more on mainline. */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 19, 0)
+#ifndef READ_ONCE
+#define READ_ONCE(x)		ACCESS_ONCE(x)
+#endif
+#ifndef WRITE_ONCE
+#define WRITE_ONCE(x, val)	(ACCESS_ONCE(x) = (val))
+#endif
+#endif
+
+/* Vendor clock names -> mainline T31 CGU names are resolved by private_clk_get(). */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+#define tx_isp_clk_get(dev, id)	private_clk_get((dev), (id))
+#else
+#define tx_isp_clk_get(dev, id)	clk_get((dev), (id))
+#endif
+
+/* wait_queue_head_t::task_list became ::head (4.13); completion::wait is a swait queue (4.6+). */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0)
+#define tx_isp_wq_head_next(wq)		((wq).head.next)
+#define tx_isp_completion_waiting(c)	swait_active(&(c).wait)
+#else
+#define tx_isp_wq_head_next(wq)		((wq).task_list.next)
+#define tx_isp_completion_waiting(c)	waitqueue_active(&(c).wait)
+#endif
+
+/* platform_driver::remove returns void since 6.11. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+#define TX_ISP_REMOVE_FN(fn)	((void (*)(struct platform_device *))(fn))
+#else
+#define TX_ISP_REMOVE_FN(fn)	(fn)
+#endif
+
+/* strlcpy() was removed in 6.8; every call site ignores the return value difference. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
+#include <linux/string.h>
+static inline size_t strlcpy(char *dst, const char *src, size_t size)
+{
+	int ret = strscpy(dst, src, size);
+	return ret < 0 ? size : (size_t)ret;
+}
+#endif
+
+/* strncpy() was removed in 7.2; the recovered OEM code needs the exact old semantics. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 2, 0)
+static inline char *tx_isp_strncpy(char *dest, const char *src, size_t count)
+{
+	char *tmp = dest;
+
+	while (count) {
+		if ((*tmp = *src) != 0)
+			src++;
+		tmp++;
+		count--;
+	}
+	return dest;
+}
+#define strncpy tx_isp_strncpy
+#endif
