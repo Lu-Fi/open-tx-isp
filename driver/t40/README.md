@@ -608,3 +608,15 @@ Recommended line for colour work on this board:
 - `t40_nv12_height_align=0` (auto): chroma plane at width*ALIGN(height,16) when the queued buffer is large enough, else width*height (older libraries). Removes the green bottom strip and the chroma shift on small outputs.
 - AutoZoom (CID 0x08000077): per-output source window in the MSCA, applied live. The window must lie inside the sensor and be at least as large as the output (no upscale in the MSCA); invalid requests return `-EINVAL`. Second sensor refused. Parameters/counters: `t40_az_live_max_w/h`, `t40_az_{live,deferred,stored,failed}`. Device-tested on the same board (outputs up to 2560x1440 zoomed, 4K only full window); ch1/ch2 zoom not device-proven.
 - Open: the stop path (`Tzn_Msca_Work_en`) mask is not OEM-exact (harmless in tests); `tisp_gib_ae_write_dgain` still returns -1 per frame (GIB AE dgain not applied).
+
+## AWB statistics and AE limits (2026-10-19)
+
+- Tuning control `0x8000011` (AWB statistics) fills a kernel-allocated block
+  from the main/sec AWB tables as the OEM does; the plane is zero until the
+  first AWB frame. Older builds oopsed in `tisp_awb_get_zone` here.
+- The AE clamps its maximum/minimum integration time and gains against the
+  sensor attributes like the OEM. A frame-rate request before the first
+  delivered frame is held and sent with the first exposure update. The read-only
+  module parameter `t40_ae_limits` shows the limits the AE uses.
+- Known, not changed: second-sensor `ae_cache` stride, `fs_work` dispatch and the
+  sensor-control stubs that still hard-code GC4653 values.
