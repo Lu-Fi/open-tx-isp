@@ -838,22 +838,29 @@ static int sensor_g_chip_ident(struct tx_isp_subdev *sd, struct tx_isp_chip_iden
 }
 
 static int sensor_set_vflip(struct tx_isp_subdev *sd, int enable) {
-	int ret = -1;
 	struct tx_isp_sensor *sensor = sd_to_sensor_device(sd);
 	unsigned char val = 0x00;
+	int ret;
 
-	ret += sensor_read(sd, 0x3221, &val);
+	/* Start from 0, not -1: a fully successful read+write used to add up
+	   to -1 and the ISP logged "sensor flip failed" on every flip. */
+	ret = sensor_read(sd, 0x3221, &val);
+	if (ret) {
+		return ret;
+	}
+
 	if (enable & 0x02) {
 		val |= 0x60;
 	} else {
 		val &= 0x9f;
 	}
-	ret += sensor_write(sd, 0x3221, val);
-	if (!ret) {
-		ret = tx_isp_call_subdev_notify(sd, TX_ISP_EVENT_SYNC_SENSOR_ATTR, &sensor->video);
+
+	ret = sensor_write(sd, 0x3221, val);
+	if (ret) {
+		return ret;
 	}
 
-	return ret;
+	return tx_isp_call_subdev_notify(sd, TX_ISP_EVENT_SYNC_SENSOR_ATTR, &sensor->video);
 }
 
 static int sensor_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *arg) {
