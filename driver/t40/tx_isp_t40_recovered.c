@@ -1542,8 +1542,14 @@ static uint32_t awb_info_mine[T40_ALGO_IDX_COUNT];
 static uint8_t tispPollValue;
 static int32_t dumpQueue;
 static unsigned char tisp_par_info[480];
-static uint32_t tisp_ae_main_ctrls;
-static uint32_t tisp_ae_sec_ctrls;
+/* T40-AE-MAXINT: OEM .bss tisp_ae_main_ctrls/tisp_ae_sec_ctrls are 0xa4-byte AE control blocks
+ * (tisp_ae_sensor_inform/ctrls_update/sync_sensor_attr access +20..+140).  Declared as a single
+ * uint32_t, every write past +4 landed in the neighbouring statics and their writes in the AE limits. */
+#define T40_AE_CTRLS_BYTES 0xa4
+static uint32_t tisp_ae_main_ctrls_storage[T40_AE_CTRLS_BYTES / 4];
+static uint32_t tisp_ae_sec_ctrls_storage[T40_AE_CTRLS_BYTES / 4];
+#define tisp_ae_main_ctrls (tisp_ae_main_ctrls_storage[0])
+#define tisp_ae_sec_ctrls (tisp_ae_sec_ctrls_storage[0])
 static struct file_operations tisp_fops;
 static struct cdev tisp_cdev;
 static uint32_t major;
@@ -76593,7 +76599,7 @@ tisp_set_ae_sensor_fps0x74:
 
     /* fragment 8: MemoryAccess */
     v1 = 1;
-    *(uint8_t *)((char *)v0 + 1296) = v1;
+    *(uint8_t *)((char *)v0 + 1292) = v1;   /* T40-AE-MAXINT: OEM 0x20d78 sb v1,1292 (sensor trig) */
     ra = local_84;
     s0 = local_80;
 
@@ -78447,7 +78453,7 @@ int32_t tisp_ae_sensor_trig(int32_t arg1)
     if (!regtrace_is_kernel_ptr(ptr))
         return -EINVAL;
 
-    *(uint8_t *)((char *)ptr + 0x510) = 1;
+    *(uint8_t *)((char *)ptr + 0x50c) = 1;   /* T40-AE-MAXINT: OEM 0x21ed4 sb v1,1292 */
     return 0;
 }
 
@@ -81308,406 +81314,78 @@ int32_t tisp_ae_sec_interrupt_hist(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024524 origin=fragment_seed original=tisp_ae_long_ctrls_update */
+/* T40-AE-MAXINT: tisp_ae_long/short_ctrls_update rewritten from the OEM (tx-isp-t40.ko 0x238ec / 0x23a88).
+ * The OEM receives sensor_ctrl_main BY VALUE (a3 + 420 stack bytes) and reads the sensor limits from it
+ * ("sensor_info" = sp+40 + ch*108, i.e. &sensor_ctrl_main - 12 + ch*108, the same anchor
+ * tisp_ae_sensor_inform uses).  The lift read them from an unrelated stack local (&local_28, with
+ * uint32_t* scaled arithmetic), so the clamp "AE max integration = min(ctrl, sensor max_integration_time)"
+ * compared against garbage and any ctrls value - including a value clobbered in memory - reached the AE
+ * context unbounded (Eufy sc830ai: 3888 lines at VTS 2250 -> sensor slow shutter, 11.6 instead of 20 fps).
+ * OEM semantics, per limit: a ctrl value beyond the sensor's limit is rejected (the ctrl is reset to the
+ * value the AE context already holds), otherwise it is taken over into the AE context. */
+static inline const uint8_t *t40_ae_sensor_info(uint32_t ch)
+{
+    return (const uint8_t *)&sensor_ctrl_main + ch * 108U - 12U;
+}
+#define T40_SI32(si, off) (*(const uint32_t *)((si) + (off)))
+#define T40_K32(k, off)   (*(uint32_t *)((k) + (off)))
 int32_t tisp_ae_long_ctrls_update(uint32_t a0, uintptr_t a1, uintptr_t a2)
 {
-    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    const uint8_t *si;
+    uint32_t *c;
+    uint8_t *k = (uint8_t *)a2;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = 108;
-
-    /* fragment 2: StackAccess */
-    local_1c = s2;
-    local_18 = s1;
-    local_24 = ra;
-    local_20 = s3;
-    local_14 = s0;
-    s2 = a0;
-    s0 = *(uint32_t *)((char *)a1 + 0);
-    a1 = (uintptr_t)s2 * (uintptr_t)v0;
-    a0 = (uint32_t *)&local_28;
-    local_34 = a3;
-    v1 = *(uint32_t *)((char *)a2 + 28);
-    v0 = a1 + a0;
-    v0 = *(uint32_t *)((char *)v0 + 64);
-    v0 = v0 < v1;
-
-    /* fragment 3: Branch */
-    s1 = a2;
-    if (v0 != 0) { goto tisp_ae_long_ctrls_update0x154; }
-
-    /* fragment 4: CallSetup */
-    *(uint32_t *)((char *)s0 + 0) = v1;
-
-tisp_ae_long_ctrls_update0x4c:
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(*(uint32_t *)((char *)(((uintptr_t)s2 * 108) + &local_28) + 52), 16, 10); /* jalr target resolved by relocation */
-
-    /* fragment 6: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 20);
-    v0 = v0 < v1;
-
-    /* fragment 7: Branch */
-    if (v0 != 0) { goto tisp_ae_long_ctrls_update0x160; }
-
-    /* fragment 8: CallSetup */
-    *(uint32_t *)((char *)s0 + 4) = v1;
-
-tisp_ae_long_ctrls_update0x88:
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(*(uint32_t *)((char *)(((uintptr_t)s2 * 108) + &local_28) + 56), 16, 10); /* jalr target resolved by relocation */
-
-    /* fragment 10: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 24);
-    v0 = v0 < v1;
-
-    /* fragment 11: Branch */
-    if (v0 != 0) { goto tisp_ae_long_ctrls_update0x16c; }
-
-    /* fragment 12: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 8) = v1;
-
-tisp_ae_long_ctrls_update0xbc:
-    /* fragment 13: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 32);
-    v1 = *(uint32_t *)((char *)s0 + 12);
-
-    /* fragment 14: Branch */
-    if (v0 == v1) { goto tisp_ae_long_ctrls_update0xd0; }
-
-    /* fragment 15: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 12) = v0;
-
-tisp_ae_long_ctrls_update0xd0:
-    /* fragment 16: Arithmetic */
-    v0 = 108;
-    a1 = (uintptr_t)s2 * (uintptr_t)v0;
-    a0 = (uint32_t *)&local_28;
-
-    /* fragment 17: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 120);
-    s2 = a1 + a0;
-    v0 = *(uint32_t *)((char *)s2 + 60);
-    v0 = v1 < v0;
-
-    /* fragment 18: Branch */
-    if (v0 != 0) { goto tisp_ae_long_ctrls_update0x178; }
-
-    /* fragment 19: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 16) = v1;
-
-tisp_ae_long_ctrls_update0xf8:
-    /* fragment 20: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 112);
-    v1 = v0 < 1024;
-
-    /* fragment 21: Branch */
-    if (v1 != 0) { goto tisp_ae_long_ctrls_update0x184; }
-
-    /* fragment 22: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 20) = v0;
-
-tisp_ae_long_ctrls_update0x10c:
-    /* fragment 23: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 116);
-    v1 = v0 < 1024;
-
-    /* fragment 24: Branch */
-    if (v1 != 0) { goto tisp_ae_long_ctrls_update0x190; }
-
-    /* fragment 25: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 24) = v0;
-
-tisp_ae_long_ctrls_update0x120:
-    /* fragment 26: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 124);
-    v1 = *(uint32_t *)((char *)s0 + 28);
-
-    /* fragment 27: Branch */
-    if (v0 == v1) { goto tisp_ae_long_ctrls_update0x138; }
-
-    /* fragment 28: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 28) = v0;
-    ra = local_24;
-
-tisp_ae_long_ctrls_update0x138:
-    /* fragment 29: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 30: Arithmetic */
-    v0 = 0;
-
-    /* fragment 31: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_ae_long_ctrls_update0x154:
-    /* fragment 32: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 0);
-
-    /* fragment 33: Branch */
-    *(uint32_t *)((char *)a2 + 28) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_ctrls_update", "0x4c"); else { __lg--; goto tisp_ae_long_ctrls_update0x4c; } }
-
-tisp_ae_long_ctrls_update0x160:
-    /* fragment 34: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 4);
-
-    /* fragment 35: Branch */
-    *(uint32_t *)((char *)s1 + 20) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_ctrls_update", "0x88"); else { __lg--; goto tisp_ae_long_ctrls_update0x88; } }
-
-tisp_ae_long_ctrls_update0x16c:
-    /* fragment 36: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 8);
-
-    /* fragment 37: Branch */
-    *(uint32_t *)((char *)s1 + 24) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_ctrls_update", "0xbc"); else { __lg--; goto tisp_ae_long_ctrls_update0xbc; } }
-
-tisp_ae_long_ctrls_update0x178:
-    /* fragment 38: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 16);
-
-    /* fragment 39: Branch */
-    *(uint32_t *)((char *)s1 + 120) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_ctrls_update", "0xf8"); else { __lg--; goto tisp_ae_long_ctrls_update0xf8; } }
-
-tisp_ae_long_ctrls_update0x184:
-    /* fragment 40: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 20);
-
-    /* fragment 41: Branch */
-    *(uint32_t *)((char *)s1 + 112) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_ctrls_update", "0x10c"); else { __lg--; goto tisp_ae_long_ctrls_update0x10c; } }
-
-tisp_ae_long_ctrls_update0x190:
-    /* fragment 42: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 24);
-
-    /* fragment 43: Branch */
-    *(uint32_t *)((char *)s1 + 116) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_long_ctrls_update", "0x120"); else { __lg--; goto tisp_ae_long_ctrls_update0x120; } }
-
+    if (a0 > 1U || !regtrace_is_kernel_ptr((void *)a1) || !regtrace_is_kernel_ptr((void *)a2))
+        return -EINVAL;
+    c = (uint32_t *)(uintptr_t)*(uint32_t *)a1;
+    if (!regtrace_is_kernel_ptr(c))
+        return -EINVAL;
+    si = t40_ae_sensor_info(a0);
+    /* max integration time (sensor_ctrl +52 = attr max_integration_time) */
+    if (T40_SI32(si, 64) < T40_K32(k, 28)) T40_K32(k, 28) = c[0]; else c[0] = T40_K32(k, 28);
+    /* max analog gain (log2 16.16 -> Q10) */
+    if ((uint32_t)tisp_math_exp2(T40_SI32(si, 52), 16, 10) < T40_K32(k, 20)) T40_K32(k, 20) = c[1]; else c[1] = T40_K32(k, 20);
+    /* max digital gain */
+    if ((uint32_t)tisp_math_exp2(T40_SI32(si, 56), 16, 10) < T40_K32(k, 24)) T40_K32(k, 24) = c[2]; else c[2] = T40_K32(k, 24);
+    if (T40_K32(k, 32) != c[3]) c[3] = T40_K32(k, 32);
+    /* min integration time */
+    if (T40_K32(k, 120) < T40_SI32(si, 60)) T40_K32(k, 120) = c[4]; else c[4] = T40_K32(k, 120);
+    /* min analog / digital gain, at least 1x */
+    if (T40_K32(k, 112) < 1024U) T40_K32(k, 112) = c[5]; else c[5] = T40_K32(k, 112);
+    if (T40_K32(k, 116) < 1024U) T40_K32(k, 116) = c[6]; else c[6] = T40_K32(k, 116);
+    if (T40_K32(k, 124) != c[7]) c[7] = T40_K32(k, 124);
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000246c0 origin=fragment_seed original=tisp_ae_short_ctrls_update */
+/* OEM 0x23a88: the same for the short (WDR) exposure, only while WDR is on (*ctx[76] == 1). */
 int32_t tisp_ae_short_ctrls_update(uint32_t a0, uintptr_t a1, uintptr_t a2)
 {
-    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t local_2c = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    const uint8_t *si;
+    uint32_t *c;
+    uint8_t *k = (uint8_t *)a2;
+    const uint8_t *wdr;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a1 + 76);
-    local_2c = a3;
-    v1 = *(uint8_t *)((char *)v0 + 0);
-    v0 = 1;
-
-    /* fragment 2: Branch */
-    if (v1 != v0) { goto tisp_ae_short_ctrls_update0x128; }
-
-    /* fragment 3: Arithmetic */
-    v0 = 108;
-    a3 = a0 * (uintptr_t)v0;
-
-    /* fragment 4: MemoryAccess */
-    s0 = *(uint32_t *)((char *)a1 + 0);
-    a1 = (uint32_t *)&local_20;
-    v1 = *(uint32_t *)((char *)a2 + 84);
-    v0 = a3 + a1;
-    v0 = *(uint32_t *)((char *)v0 + 104);
-    v0 = v0 < v1;
-
-    /* fragment 5: Branch */
-    if (v0 != 0) { goto tisp_ae_short_ctrls_update0x140; }
-
-    /* fragment 6: CallSetup */
-    *(uint32_t *)((char *)s0 + 32) = v1;
-
-tisp_ae_short_ctrls_update0x58:
-    /* fragment 7: CallSetup */
-    s2 = a0;
-    s1 = a2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(*(uint32_t *)((char *)((a0 * 108) + &local_20) + 108), 16, 10); /* jalr target resolved by relocation */
-
-    /* fragment 8: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 80);
-    v0 = v0 < v1;
-
-    /* fragment 9: Branch */
-    if (v0 != 0) { goto tisp_ae_short_ctrls_update0x14c; }
-
-    /* fragment 10: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 36) = v1;
-
-tisp_ae_short_ctrls_update0x9c:
-    /* fragment 11: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 88);
-    v1 = v0 < 1025;
-
-    /* fragment 12: Branch */
-    if (v1 == 0) { goto tisp_ae_short_ctrls_update0x158; }
-
-    /* fragment 13: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 40) = v0;
-
-tisp_ae_short_ctrls_update0xb0:
-    /* fragment 14: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 92);
-    v1 = *(uint32_t *)((char *)s0 + 44);
-
-    /* fragment 15: Branch */
-    a0 = 108;
-    if (v0 == v1) { goto tisp_ae_short_ctrls_update0xc4; }
-
-    /* fragment 16: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 44) = v0;
-
-tisp_ae_short_ctrls_update0xc4:
-    /* fragment 17: Arithmetic */
-    a1 = (uintptr_t)s2 * a0;
-    v0 = (uintptr_t *)&local_20;
-
-    /* fragment 18: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 132);
-    a0 = a1 + (uintptr_t)v0;
-    v0 = *(uint32_t *)((char *)a0 + 100);
-    v0 = v1 < v0;
-
-    /* fragment 19: Branch */
-    if (v0 != 0) { goto tisp_ae_short_ctrls_update0x164; }
-
-    /* fragment 20: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 48) = v1;
-
-tisp_ae_short_ctrls_update0xe8:
-    /* fragment 21: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 128);
-    v1 = v0 < 1024;
-
-    /* fragment 22: Branch */
-    if (v1 != 0) { goto tisp_ae_short_ctrls_update0x170; }
-
-    /* fragment 23: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 52) = v0;
-
-tisp_ae_short_ctrls_update0xfc:
-    /* fragment 24: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 136);
-    v1 = v0 < 1024;
-
-    /* fragment 25: Branch */
-    if (v1 != 0) { goto tisp_ae_short_ctrls_update0x17c; }
-
-    /* fragment 26: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 56) = v0;
-
-tisp_ae_short_ctrls_update0x110:
-    /* fragment 27: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 140);
-    v1 = *(uint32_t *)((char *)s0 + 60);
-
-    /* fragment 28: Branch */
-    if (v0 == v1) { goto tisp_ae_short_ctrls_update0x128; }
-
-    /* fragment 29: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 60) = v0;
-    ra = local_1c;
-
-tisp_ae_short_ctrls_update0x128:
-    /* fragment 30: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 31: Arithmetic */
-    v0 = 0;
-
-    /* fragment 32: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_ae_short_ctrls_update0x140:
-    /* fragment 33: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 32);
-
-    /* fragment 34: Branch */
-    *(uint32_t *)((char *)a2 + 84) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_ctrls_update", "0x58"); else { __lg--; goto tisp_ae_short_ctrls_update0x58; } }
-
-tisp_ae_short_ctrls_update0x14c:
-    /* fragment 35: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 36);
-
-    /* fragment 36: Branch */
-    *(uint32_t *)((char *)s1 + 80) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_ctrls_update", "0x9c"); else { __lg--; goto tisp_ae_short_ctrls_update0x9c; } }
-
-tisp_ae_short_ctrls_update0x158:
-    /* fragment 37: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 40);
-
-    /* fragment 38: Branch */
-    *(uint32_t *)((char *)s1 + 88) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_ctrls_update", "0xb0"); else { __lg--; goto tisp_ae_short_ctrls_update0xb0; } }
-
-tisp_ae_short_ctrls_update0x164:
-    /* fragment 39: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 48);
-
-    /* fragment 40: Branch */
-    *(uint32_t *)((char *)s1 + 132) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_ctrls_update", "0xe8"); else { __lg--; goto tisp_ae_short_ctrls_update0xe8; } }
-
-tisp_ae_short_ctrls_update0x170:
-    /* fragment 41: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 52);
-
-    /* fragment 42: Branch */
-    *(uint32_t *)((char *)s1 + 128) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_ctrls_update", "0xfc"); else { __lg--; goto tisp_ae_short_ctrls_update0xfc; } }
-
-tisp_ae_short_ctrls_update0x17c:
-    /* fragment 43: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 56);
-
-    /* fragment 44: Branch */
-    *(uint32_t *)((char *)s1 + 136) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_short_ctrls_update", "0x110"); else { __lg--; goto tisp_ae_short_ctrls_update0x110; } }
-
+    if (a0 > 1U || !regtrace_is_kernel_ptr((void *)a1) || !regtrace_is_kernel_ptr((void *)a2))
+        return -EINVAL;
+    wdr = (const uint8_t *)(uintptr_t)*(uint32_t *)(a1 + 76);
+    if (!regtrace_is_kernel_ptr((void *)wdr) || *wdr != 1)
+        return 0;
+    c = (uint32_t *)(uintptr_t)*(uint32_t *)a1;
+    if (!regtrace_is_kernel_ptr(c))
+        return -EINVAL;
+    si = t40_ae_sensor_info(a0);
+    if (T40_SI32(si, 104) < T40_K32(k, 84)) T40_K32(k, 84) = c[8]; else c[8] = T40_K32(k, 84);
+    if ((uint32_t)tisp_math_exp2(T40_SI32(si, 108), 16, 10) < T40_K32(k, 80)) T40_K32(k, 80) = c[9]; else c[9] = T40_K32(k, 80);
+    if (T40_K32(k, 88) > 1024U) T40_K32(k, 88) = c[10]; else c[10] = T40_K32(k, 88);
+    if (T40_K32(k, 92) != c[11]) c[11] = T40_K32(k, 92);
+    if (T40_K32(k, 132) < T40_SI32(si, 100)) T40_K32(k, 132) = c[12]; else c[12] = T40_K32(k, 132);
+    if (T40_K32(k, 128) < 1024U) T40_K32(k, 128) = c[13]; else c[13] = T40_K32(k, 128);
+    if (T40_K32(k, 136) < 1024U) T40_K32(k, 136) = c[14]; else c[14] = T40_K32(k, 136);
+    if (T40_K32(k, 140) != c[15]) c[15] = T40_K32(k, 140);
     return 0;
 }
+#undef T40_SI32
+#undef T40_K32
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024848 origin=fragment_seed original=tisp_ae_long_Pweight_Calculate */
 int32_t tisp_ae_long_Pweight_Calculate(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
@@ -90112,7 +89790,7 @@ tisp_ae_main_process0x5c:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_ctrls_update)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
 
     /* fragment 9: MemoryAccess */
-    v1 = *(uint8_t *)((char *)s2 + 1296);
+    v1 = *(uint8_t *)((char *)regtrace_ae_cache_for_channel(0) + 1292) /* T40-AE-MAXINT: OEM 0x29a0c lbu 1292(ae_cache_init) - the lift read tisp_ae_main_ctrls+1296 */;
     v0 = 1;
 
     /* fragment 10: Branch */
@@ -90150,7 +89828,7 @@ tisp_ae_main_process0xc4:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_sensor_inform)(0, (uintptr_t)&pstMainAeOri /* .bss+15280 */, &tisp_ae_main_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
 
     /* fragment 18: CallSetup */
-    *(uint8_t *)((char *)s2 + 1296) = 0;
+    *(uint8_t *)((char *)regtrace_ae_cache_for_channel(0) + 1292) = 0;
 
 tisp_ae_main_process0xf0:
     /* fragment 19: CallSetup */
@@ -91224,7 +90902,7 @@ tisp_ae_sec_process0x60:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_long_ctrls_update)(1, &isp_memopt, &tisp_ae_sec_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
 
     /* fragment 9: MemoryAccess */
-    v1 = *(uint8_t *)((char *)s2 + 2596);
+    v1 = *(uint8_t *)((char *)regtrace_ae_cache_for_channel(1) + 1292) /* T40-AE-MAXINT: OEM 0x2a938 lbu 2596(ae_cache_init) = ch1 cache +1292 */;
     v0 = 1;
 
     /* fragment 10: Branch */
@@ -91262,7 +90940,7 @@ tisp_ae_sec_process0xc8:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_sensor_inform)(1, &isp_memopt, &tisp_ae_sec_ctrls, *(uint32_t *)((char *)((char *)&sensor_ctrl_main))); /* jalr target resolved by relocation */
 
     /* fragment 18: CallSetup */
-    *(uint8_t *)((char *)s2 + 2596) = 0;
+    *(uint8_t *)((char *)regtrace_ae_cache_for_channel(1) + 1292) = 0;
 
 tisp_ae_sec_process0xf4:
     /* fragment 19: CallSetup */
