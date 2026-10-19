@@ -44,6 +44,7 @@ import json
 if os.environ.get('VAE_DATA'): DATA.update(json.load(open(os.environ['VAE_DATA'])))
 if os.environ.get('VAE_ADAPT'): ADAPT |= set(os.environ['VAE_ADAPT'].split())
 STOP=set(os.environ.get('VAE_STOP','').split())
+TRACE=set(os.environ.get('VAE_TRACE','').split())
 
 R = ['zero', 'at', 'v0', 'v1', 'a0', 'a1', 'a2', 'a3', 't0', 't1', 't2', 't3', 't4', 't5', 't6', 't7',
      's0', 's1', 's2', 's3', 's4', 's5', 's6', 's7', 't8', 't9', 'k0', 'k1', 'gp', 'sp', 's8', 'ra']
@@ -238,7 +239,9 @@ def gen(fname, translated, warn):
         m, ops = i[1], i[2]
         a = [x.strip() for x in ops.split(',')] if ops else []
         lab = f'L_{i[0]-start:x}'
-        if i[0] in labels: body.append(f'{lab}:')
+        if i[0] in labels:
+            body.append(f'{lab}:')
+            if fname in TRACE: body.append(f'\tvae_trace({i[0]}U);')
         if k in skip:
             continue
         nxt = ins[k + 1] if k + 1 < len(ins) else None
@@ -262,7 +265,10 @@ def gen(fname, translated, warn):
             br = '1'; tgt = int(a[0], 16)
         if br is not None:
             if not (start <= tgt < end): raise Exception(f'branch out of fn {fname}')
-            body.append(f'\tc = {br}; {delay()} if (c) goto L_{tgt-start:x};{after()}')
+            if tgt <= i[0]:   # backward branch: loop guard (bounded work per top-level call)
+                body.append(f'\tc = {br}; {delay()} if (c) {{ if (unlikely(vae_loop_guard({i[0]}U))) return 0; goto L_{tgt-start:x}; }}{after()}')
+            else:
+                body.append(f'\tc = {br}; {delay()} if (c) goto L_{tgt-start:x};{after()}')
             continue
         if m == 'jalr':
             tr = a[-1]

@@ -10,7 +10,7 @@ $OBJDUMP -t "$KO" | awk 'NF>=5 && $0 ~ /^[0-9a-f]{8}/ {sec=$(NF-2); if (sec ~ /^
 $OBJCOPY -O binary --only-section=.rodata "$KO" $W/rodata.bin
 $OBJDUMP -r -j .rodata "$KO" > $W/rodata.rel
 OUT=$HERE/../../driver/t40/tx_isp_t40_vawb_gen.inc
-VAE_IN=$W VAE_OUT=$W/gen.inc VAE_DATA=$HERE/data.json \
+VAE_IN=$W VAE_OUT=$W/gen.inc VAE_DATA=$HERE/data.json VAE_TRACE="${VAE_TRACE:-}" \
 VAE_ADAPT="system_reg_read div64_u64 __lshrdi3 __ashldi3" python3 -I "$HERE/asm2c.py" \
 	tisp_awb_main_process tisp_awb_get_statistics tisp_awb_params_transmit tisp_awb_params_refresh \
 	tisp_awb_set_hardware_param tisp_awb_set_gain tisp_awb_dn_params_refresh tisp_awb_main_ev_update \

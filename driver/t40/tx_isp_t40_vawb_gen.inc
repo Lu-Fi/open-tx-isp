@@ -98,12 +98,12 @@ L_d0:
 	v0 = v0 + ((u32)(uintptr_t)vawb_x_tisp_event_push + 0U);
 	tg = v0; vf_sw((sp + 36U), 0U); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 212976U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
 	v1 = 0;
-	v0 = vawb_lbu((v1 + ((u32)(uintptr_t)(vawb_awb_num) + 0U)), 212988U);
+	v0 = vawb_lbu((v1 + ((u32)(uintptr_t)(&vawb_awb_num) + 0U)), 212988U);
 	v0 = v0 + (u32)1;
 	v0 = v0 & 255U;
 	a0 = v0 < (u32)51;
 	c = (a0 == 0);  if (c) goto L_140;
-	vawb_sb((v1 + ((u32)(uintptr_t)(vawb_awb_num) + 0U)), v0, 213012U);
+	vawb_sb((v1 + ((u32)(uintptr_t)(&vawb_awb_num) + 0U)), v0, 213012U);
 L_110:
 	v1 = 0;
 	v0 = vawb_lw((v1 + ((u32)(uintptr_t)(vawb_peter_test_count) + 0U)), 213020U);
@@ -115,9 +115,9 @@ L_110:
 	v0 = 0U;
 	 return ((u64)v1 << 32) | v0;
 L_138:
-	c = 1; v0 = vawb_lw((v0 + (u32)28), 213060U); if (c) goto L_d0;
+	c = 1; v0 = vawb_lw((v0 + (u32)28), 213060U); if (c) { if (unlikely(vawb_loop_guard(213056U))) return 0; goto L_d0; }
 L_140:
-	c = 1; vawb_sb((v1 + ((u32)(uintptr_t)(vawb_awb_num) + 0U)), 0U, 213068U); if (c) goto L_110;
+	c = 1; vawb_sb((v1 + ((u32)(uintptr_t)(&vawb_awb_num) + 0U)), 0U, 213068U); if (c) { if (unlikely(vawb_loop_guard(213064U))) return 0; goto L_110; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -415,10 +415,10 @@ L_464:
 	v0 = v0 + (u32)4;
 L_470:
 	t2 = s1 < s2;
-	c = (t2 != 0);  if (c) goto L_100;
+	c = (t2 != 0);  if (c) { if (unlikely(vawb_loop_guard(204140U))) return 0; goto L_100; }
 	v0 = vf_lw((sp + 4U));
 	s0 = s0 + (u32)1;
-	c = 1; a0 = a0 + v0; if (c) goto L_e0;
+	c = 1; a0 = a0 + v0; if (c) { if (unlikely(vawb_loop_guard(204156U))) return 0; goto L_e0; }
 L_48c:
 	s7 = vawb_lw((t2 + (u32)0), 204164U);
 	s5 = vawb_lw((a1 + (u32)316), 204168U);
@@ -487,8 +487,8 @@ L_48c:
 	s4 = s4 >> 24;
 	s5 = s5 + v0;
 	s4 = t2 | s4;
-	c = (t4 == 0); vawb_sw((s5 + (u32)0), s4, 204436U); if (c) goto L_11c;
-	c = 1; t2 = (u32)1; if (c) goto L_114;
+	c = (t4 == 0); vawb_sw((s5 + (u32)0), s4, 204436U); if (c) { if (unlikely(vawb_loop_guard(204432U))) return 0; goto L_11c; }
+	c = 1; t2 = (u32)1; if (c) { if (unlikely(vawb_loop_guard(204440U))) return 0; goto L_114; }
 L_5a8:
 	s8 = vf_lw((sp + 52U));
 	s7 = vf_lw((sp + 48U));
@@ -900,7 +900,7 @@ L_4d4:
 	vawb_sw((a0 + (u32)152), v0, 192004U);
 	v0 = 0;
 	vawb_sw((a0 + (u32)148), v1, 192012U);
-	c = 1; v0 = vawb_lw((v0 + ((u32)(uintptr_t)(&stSecAwbInter) + 0U)), 192020U); if (c) goto L_14c;
+	c = 1; v0 = vawb_lw((v0 + ((u32)(uintptr_t)(&stSecAwbInter) + 0U)), 192020U); if (c) { if (unlikely(vawb_loop_guard(192016U))) return 0; goto L_14c; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -1175,7 +1175,7 @@ L_45c:
 	a0 = vawb_lhu((s3 + (u32)672), 197980U);
 	vawb_sh((v0 + (u32)672), a0, 197984U);
 	v1 = vawb_lhu((s3 + (u32)674), 197988U);
-	c = 1; vawb_sh((v0 + (u32)674), v1, 197996U); if (c) goto L_31c;
+	c = 1; vawb_sh((v0 + (u32)674), v1, 197996U); if (c) { if (unlikely(vawb_loop_guard(197992U))) return 0; goto L_31c; }
 L_4b4:
 	s1 = 0;
 	a0 = vawb_lw((s1 + ((u32)(uintptr_t)(&stSecAwbOuter) + 0U)), 198004U);
@@ -1332,7 +1332,7 @@ L_710:
 	a1 = vf_lw((sp + 40U));
 	a2 = (u32)40;
 	tg = s0; a0 = a0 + (u32)4672; { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 198744U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
-	c = 1; a0 = vawb_lw((s1 + ((u32)(uintptr_t)(&stSecAwbOuter) + 0U)), 198756U); if (c) goto L_3b4;
+	c = 1; a0 = vawb_lw((s1 + ((u32)(uintptr_t)(&stSecAwbOuter) + 0U)), 198756U); if (c) { if (unlikely(vawb_loop_guard(198752U))) return 0; goto L_3b4; }
 L_7ac:
 	a0 = vawb_lhu((s3 + (u32)646), 198760U);
 	v0 = vawb_lw((s1 + ((u32)(uintptr_t)(&stSecAwbOuter) + 0U)), 198764U);
@@ -1354,7 +1354,7 @@ L_7ac:
 	a0 = vawb_lhu((s3 + (u32)672), 198828U);
 	vawb_sh((v0 + (u32)672), a0, 198832U);
 	v1 = vawb_lhu((s3 + (u32)674), 198836U);
-	c = 1; vawb_sh((v0 + (u32)674), v1, 198844U); if (c) goto L_710;
+	c = 1; vawb_sh((v0 + (u32)674), v1, 198844U); if (c) { if (unlikely(vawb_loop_guard(198840U))) return 0; goto L_710; }
 L_804:
 	acc = vawb_divs(v1, a2, 198848U);
 	a3 = vawb_lw((s2 + (u32)0), 198852U);
@@ -1362,7 +1362,7 @@ L_804:
 	a3 = a3 + t1;
 	a0 = a0 + (u32)1;
 	t0 = (u32)acc;
-	c = 1; vawb_sh((a3 + (u32)0), t0, 198876U); if (c) goto L_3fc;
+	c = 1; vawb_sh((a3 + (u32)0), t0, 198876U); if (c) { if (unlikely(vawb_loop_guard(198872U))) return 0; goto L_3fc; }
 L_824:
 	acc = vawb_divs(v0, a1, 198880U);
 	a0 = vawb_lw((s2 + (u32)0), 198884U);
@@ -1371,7 +1371,7 @@ L_824:
 	a0 = a0 + a2;
 	v1 = v1 + (u32)1;
 	a2 = (u32)acc;
-	c = 1; vawb_sh((a0 + (u32)0), a2, 198912U); if (c) goto L_420;
+	c = 1; vawb_sh((a0 + (u32)0), a2, 198912U); if (c) { if (unlikely(vawb_loop_guard(198908U))) return 0; goto L_420; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -1562,7 +1562,7 @@ L_2b4:
 	a1 = vf_lw((sp + 20U));
 	tg = s0; a0 = s1 | 33316U; { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 200624U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
 	a1 = vf_lw((sp + 24U));
-	c = 1; a0 = s1 | 33356U; if (c) goto L_250;
+	c = 1; a0 = s1 | 33356U; if (c) { if (unlikely(vawb_loop_guard(200636U))) return 0; goto L_250; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -1836,14 +1836,14 @@ L_43c:
 	v0 = a0;
 	vf_sw((sp + 180U), a3);
 	vf_sw((sp + 168U), a2);
-	c = 1; a0 = a1; if (c) goto L_1d8;
+	c = 1; a0 = a1; if (c) { if (unlikely(vawb_loop_guard(201804U))) return 0; goto L_1d8; }
 L_45c:
 	a2 = vawb_lbu((a2 + (u32)0), 201812U);
 	a0 = a1 + v0;
 	v0 = v0 + (u32)1;
-	c = 1; vawb_sb((a0 + (u32)0), a2, 201828U); if (c) goto L_1fc;
+	c = 1; vawb_sb((a0 + (u32)0), a2, 201828U); if (c) { if (unlikely(vawb_loop_guard(201824U))) return 0; goto L_1fc; }
 L_470:
-	c = (v1 != v0); a0 = vf_lw((sp + 184U)); if (c) goto L_2c0;
+	c = (v1 != v0); a0 = vf_lw((sp + 184U)); if (c) { if (unlikely(vawb_loop_guard(201832U))) return 0; goto L_2c0; }
 	v1 = vawb_lw((s0 + (u32)488), 201840U);
 	v0 = vawb_lhu((v1 + (u32)0), 201844U);
 	v0 = v0 + (u32)64;
@@ -1855,9 +1855,9 @@ L_470:
 	v0 = v0 + (u32)64;
 	v0 = (u32)((s32)v0 * (s32)v1);
 	v0 = v0 >> 6;
-	c = 1; vf_sw((sp + 188U), v0); if (c) goto L_2c0;
+	c = 1; vf_sw((sp + 188U), v0); if (c) { if (unlikely(vawb_loop_guard(201884U))) return 0; goto L_2c0; }
 L_4ac:
-	c = 1; v0 = v0 - v1; if (c) goto L_2e0;
+	c = 1; v0 = v0 - v1; if (c) { if (unlikely(vawb_loop_guard(201892U))) return 0; goto L_2e0; }
 L_4b4:
 	s6 = s6 < v0;
 	c = (s6 != 0); v0 = vf_lw((sp + 192U)); if (c) goto L_4d4;
@@ -1865,10 +1865,10 @@ L_4b4:
 	vawb_sw((s3 + (u32)0), v0, 201916U);
 	v0 = vf_lw((sp + 204U));
 L_4cc:
-	c = 1; vawb_sw((s3 + (u32)4), v0, 201928U); if (c) goto L_320;
+	c = 1; vawb_sw((s3 + (u32)4), v0, 201928U); if (c) { if (unlikely(vawb_loop_guard(201924U))) return 0; goto L_320; }
 L_4d4:
 	vawb_sw((s3 + (u32)0), v0, 201932U);
-	c = 1; v0 = vf_lw((sp + 196U)); if (c) goto L_4cc;
+	c = 1; v0 = vf_lw((sp + 196U)); if (c) { if (unlikely(vawb_loop_guard(201936U))) return 0; goto L_4cc; }
 L_4e0:
 	tg = s2; a0 = (u32)16420; { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 201944U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
 	a1 = vf_lw((sp + 172U));
@@ -1876,7 +1876,7 @@ L_4e0:
 	a1 = vf_lw((sp + 168U));
 	tg = s2; a0 = (u32)16428; { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 201968U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
 	a1 = vf_lw((sp + 172U));
-	c = 1; a0 = (u32)16432; if (c) goto L_3a8;
+	c = 1; a0 = (u32)16432; if (c) { if (unlikely(vawb_loop_guard(201980U))) return 0; goto L_3a8; }
 L_50c:
 	tg = s2; a0 = (u32)20516; { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 201988U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
 	a1 = vf_lw((sp + 172U));
@@ -1884,7 +1884,7 @@ L_50c:
 	a1 = vf_lw((sp + 168U));
 	tg = s2; a0 = (u32)20524; { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 202012U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
 	a1 = vf_lw((sp + 172U));
-	c = 1; a0 = (u32)20528; if (c) goto L_3f0;
+	c = 1; a0 = (u32)20528; if (c) { if (unlikely(vawb_loop_guard(202024U))) return 0; goto L_3f0; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -1997,7 +1997,7 @@ L_1c:
 	tg = t9;  return vawb_call(tg, a0, a1, a2, a3, csp, 214632U);
 L_60:
 	s0 = 0;
-	c = 1; s0 = s0 + ((u32)(uintptr_t)(pstSecAwbOri) + 0U); if (c) goto L_1c;
+	c = 1; s0 = s0 + ((u32)(uintptr_t)(pstSecAwbOri) + 0U); if (c) { if (unlikely(vawb_loop_guard(214644U))) return 0; goto L_1c; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -2080,30 +2080,37 @@ u64 noinline vawb_tisp_awb_long_alogrithm(u32 a0, u32 a1, u32 a2, u32 a3, u32 cs
 	a0 = vawb_lhu((v1 + (u32)0), 207000U);
 	t2 = a0;
 L_11c:
+	vawb_trace(207008U);
 	t7 = 0U;
 L_120:
+	vawb_trace(207012U);
 	ra = (u32)60;
 L_124:
+	vawb_trace(207016U);
 	v0 = vf_lw((sp + 60U));
 	v0 = t7 < v0;
 	c = (v0 == 0); v0 = (u32)((s32)t7 * (s32)ra); if (c) goto L_588;
 	c = 1; t8 = 0U; if (c) goto L_570;
 L_13c:
+	vawb_trace(207040U);
 	a0 = vawb_lhu((v0 + (u32)0), 207040U);
 	t2 = vawb_lhu((v0 + (u32)8), 207044U);
 	v0 = (u32)2;
 	c = (t7 != v0); v0 = (u32)3; if (c) goto L_15c;
 	a1 = vawb_lhu((v1 + (u32)2), 207060U);
-	c = 1; t3 = a1; if (c) goto L_11c;
+	c = 1; t3 = a1; if (c) { if (unlikely(vawb_loop_guard(207064U))) return 0; goto L_11c; }
 L_15c:
+	vawb_trace(207072U);
 	c = (t7 != v0); v0 = (u32)4; if (c) goto L_170;
 	a2 = vawb_lhu((v1 + (u32)4), 207080U);
-	c = 1; t4 = a2; if (c) goto L_11c;
+	c = 1; t4 = a2; if (c) { if (unlikely(vawb_loop_guard(207084U))) return 0; goto L_11c; }
 L_170:
-	c = (t7 != v0); t7 = 0U; if (c) goto L_120;
+	vawb_trace(207092U);
+	c = (t7 != v0); t7 = 0U; if (c) { if (unlikely(vawb_loop_guard(207092U))) return 0; goto L_120; }
 	a3 = vawb_lhu((v1 + (u32)6), 207100U);
-	c = 1; t6 = a3; if (c) goto L_120;
+	c = 1; t6 = a3; if (c) { if (unlikely(vawb_loop_guard(207104U))) return 0; goto L_120; }
 L_184:
+	vawb_trace(207112U);
 	s2 = vawb_lw((s8 + (u32)256), 207112U);
 	t9 = vawb_lw((s8 + (u32)236), 207116U);
 	v1 = vawb_lw((s8 + (u32)156), 207120U);
@@ -2356,11 +2363,13 @@ L_184:
 	t9 = t9 >> 3;
 	vawb_sw((v1 + (u32)0), t9, 208112U);
 L_570:
+	vawb_trace(208116U);
 	v1 = vf_lw((sp + 56U));
 	v1 = t8 < v1;
-	c = (v1 != 0);  if (c) goto L_184;
-	c = 1; t7 = t7 + (u32)1; if (c) goto L_124;
+	c = (v1 != 0);  if (c) { if (unlikely(vawb_loop_guard(208124U))) return 0; goto L_184; }
+	c = 1; t7 = t7 + (u32)1; if (c) { if (unlikely(vawb_loop_guard(208132U))) return 0; goto L_124; }
 L_588:
+	vawb_trace(208140U);
 	a2 = vawb_lw((s5 + (u32)0), 208140U);
 	s4 = (u32)1;
 	v0 = s4 << (s1 & 31);
@@ -2383,6 +2392,7 @@ L_588:
 	t2 = 0U;
 	vf_sw((sp + 124U), v0);
 L_5e4:
+	vawb_trace(208232U);
 	v0 = vf_lw((sp + 124U));
 	c = (v0 != t2); s4 = t2; if (c) goto L_810;
 	v0 = vf_lw((sp + 60U));
@@ -2394,11 +2404,13 @@ L_5e4:
 	v0 = 0U;
 	s7 = t3;
 L_610:
+	vawb_trace(208276U);
 	v1 = vf_lw((sp + 60U));
 	v1 = v0 < v1;
 	c = (v1 == 0); a1 = (u32)((s32)v0 * (s32)t2); if (c) goto L_864;
 	c = 1; a0 = 0U; if (c) goto L_84c;
 L_628:
+	vawb_trace(208300U);
 	v0 = vawb_lw((s8 + (u32)160), 208300U);
 	t4 = vawb_lw((s8 + (u32)172), 208304U);
 	v0 = v0 + s4;
@@ -2412,6 +2424,7 @@ L_628:
 	v0 = v0 + s4;
 	vawb_sw((v0 + (u32)0), 0U, 208348U);
 L_65c:
+	vawb_trace(208352U);
 	v0 = vawb_lw((s8 + (u32)160), 208352U);
 	a0 = vawb_lw((s8 + (u32)172), 208356U);
 	t4 = s4 + (u32)1800;
@@ -2427,14 +2440,17 @@ L_65c:
 	a3 = v0 + s5;
 	vawb_sw((a3 + (u32)0), 0U, 208408U);
 L_698:
+	vawb_trace(208412U);
 	t3 = t3 + (u32)1;
 	s4 = s4 + (u32)4;
 L_6a0:
+	vawb_trace(208420U);
 	v0 = vf_lw((sp + 56U));
 	v0 = t3 < v0;
-	c = (v0 != 0); s5 = s4 + (u32)900; if (c) goto L_628;
-	c = 1; t2 = t2 + (u32)60; if (c) goto L_5e4;
+	c = (v0 != 0); s5 = s4 + (u32)900; if (c) { if (unlikely(vawb_loop_guard(208428U))) return 0; goto L_628; }
+	c = 1; t2 = t2 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(208436U))) return 0; goto L_5e4; }
 L_6b8:
+	vawb_trace(208444U);
 	a0 = vawb_lw((s8 + (u32)156), 208444U);
 	a2 = vf_lw((sp + 84U));
 	vf_sw((sp + 136U), t2);
@@ -2473,8 +2489,9 @@ L_6b8:
 	a0 = vawb_lw((v0 + (u32)0), 208592U);
 	v0 = vawb_lw((s8 + (u32)176), 208596U);
 	v0 = v0 + s4;
-	c = 1; vawb_sw((v0 + (u32)0), a0, 208608U); if (c) goto L_65c;
+	c = 1; vawb_sw((v0 + (u32)0), a0, 208608U); if (c) { if (unlikely(vawb_loop_guard(208604U))) return 0; goto L_65c; }
 L_760:
+	vawb_trace(208612U);
 	a0 = vawb_lw((s8 + (u32)156), 208612U);
 	a2 = vf_lw((sp + 84U));
 	vf_sw((sp + 136U), t2);
@@ -2515,10 +2532,12 @@ L_760:
 	a0 = vawb_lw((v0 + (u32)0), 208768U);
 	v0 = vawb_lw((s8 + (u32)176), 208772U);
 	a3 = v0 + s5;
-	c = 1; vawb_sw((a3 + (u32)0), a0, 208784U); if (c) goto L_698;
+	c = 1; vawb_sw((a3 + (u32)0), a0, 208784U); if (c) { if (unlikely(vawb_loop_guard(208780U))) return 0; goto L_698; }
 L_810:
-	c = 1; t3 = 0U; if (c) goto L_6a0;
+	vawb_trace(208788U);
+	c = 1; t3 = 0U; if (c) { if (unlikely(vawb_loop_guard(208788U))) return 0; goto L_6a0; }
 L_818:
+	vawb_trace(208796U);
 	v1 = vawb_lw((s8 + (u32)172), 208796U);
 	v1 = v1 + a1;
 	a3 = vawb_lw((v1 + (u32)1800), 208804U);
@@ -2527,17 +2546,21 @@ L_818:
 	c = (a3 != 0); t5 = t5 + v1; if (c) goto L_838;
 	t3 = t3 + (u32)-1;
 L_838:
+	vawb_trace(208828U);
 	c = (v1 != 0);  if (c) goto L_844;
 	s7 = s7 + (u32)-1;
 L_844:
+	vawb_trace(208840U);
 	a0 = a0 + (u32)1;
 	a1 = a1 + (u32)4;
 L_84c:
+	vawb_trace(208848U);
 	v1 = vf_lw((sp + 56U));
 	v1 = a0 < v1;
-	c = (v1 != 0);  if (c) goto L_818;
-	c = 1; v0 = v0 + (u32)1; if (c) goto L_610;
+	c = (v1 != 0);  if (c) { if (unlikely(vawb_loop_guard(208856U))) return 0; goto L_818; }
+	c = 1; v0 = v0 + (u32)1; if (c) { if (unlikely(vawb_loop_guard(208864U))) return 0; goto L_610; }
 L_864:
+	vawb_trace(208872U);
 	v0 = vf_lw((sp + 84U));
 	s2 = 0;
 	a3 = 0U;
@@ -2579,18 +2602,22 @@ L_864:
 	v0 = (u32)256;
 	vawb_sh((t6 + (u32)0), v0, 209040U);
 L_910:
+	vawb_trace(209044U);
 	c = (s7 != 0); t3 = vawb_lw((s8 + (u32)492), 209048U); if (c) goto L_9a0;
 	v0 = (u32)256;
 L_91c:
+	vawb_trace(209056U);
 	vawb_sh((t3 + (u32)2), v0, 209056U);
 	a0 = 0U;
 	t3 = (u32)60;
 L_928:
+	vawb_trace(209068U);
 	v0 = vf_lw((sp + 60U));
 	v0 = a0 < v0;
 	c = (v0 == 0); v0 = (u32)((s32)a0 * (s32)t3); if (c) goto L_b54;
 	c = 1; t2 = 0U; if (c) goto L_a18;
 L_940:
+	vawb_trace(209092U);
 	a0 = t7 + t2;
 	t7 = a0 < t7;
 	a1 = t8 + s4;
@@ -2612,8 +2639,9 @@ L_940:
 	a3 = vf_lw((sp + 124U));
 	t2 = vf_lw((sp + 84U));
 	v0 = (u32)acc;
-	c = 1; vawb_sh((t6 + (u32)0), v0, 209184U); if (c) goto L_910;
+	c = 1; vawb_sh((t6 + (u32)0), v0, 209184U); if (c) { if (unlikely(vawb_loop_guard(209180U))) return 0; goto L_910; }
 L_9a0:
+	vawb_trace(209188U);
 	a0 = t2 + a3;
 	t2 = a0 < t2;
 	a1 = s4 + t5;
@@ -2626,8 +2654,9 @@ L_9a0:
 	v0 = v1 + v0;
 	acc = vawb_divu(v0, s7, 209232U);
 	t3 = vf_lw((sp + 84U));
-	c = 1; v0 = (u32)acc; if (c) goto L_91c;
+	c = 1; v0 = (u32)acc; if (c) { if (unlikely(vawb_loop_guard(209240U))) return 0; goto L_91c; }
 L_9dc:
+	vawb_trace(209248U);
 	a1 = vawb_lw((s8 + (u32)168), 209248U);
 	a1 = a1 + v1;
 	a3 = vawb_lw((a1 + (u32)0), 209256U);
@@ -2641,14 +2670,17 @@ L_9dc:
 	v1 = v1 + v0;
 	vawb_sw((v1 + (u32)0), 0U, 209296U);
 L_a10:
+	vawb_trace(209300U);
 	t2 = t2 + (u32)1;
 	v0 = v0 + (u32)4;
 L_a18:
+	vawb_trace(209308U);
 	v1 = vf_lw((sp + 56U));
 	v1 = t2 < v1;
-	c = (v1 != 0); v1 = v0 + (u32)900; if (c) goto L_9dc;
-	c = 1; a0 = a0 + (u32)1; if (c) goto L_928;
+	c = (v1 != 0); v1 = v0 + (u32)900; if (c) { if (unlikely(vawb_loop_guard(209316U))) return 0; goto L_9dc; }
+	c = 1; a0 = a0 + (u32)1; if (c) { if (unlikely(vawb_loop_guard(209324U))) return 0; goto L_928; }
 L_a30:
+	vawb_trace(209332U);
 	a2 = vawb_lw((s8 + (u32)156), 209332U);
 	a2 = a2 + v1;
 	a2 = vawb_lw((a2 + (u32)0), 209340U);
@@ -2676,8 +2708,9 @@ L_a30:
 	a2 = a2 + v0;
 	acc = vawb_divu(a1, v1, 209432U);
 	a1 = (u32)acc;
-	c = 1; vawb_sw((a2 + (u32)0), a1, 209444U); if (c) goto L_a10;
+	c = 1; vawb_sw((a2 + (u32)0), a1, 209444U); if (c) { if (unlikely(vawb_loop_guard(209440U))) return 0; goto L_a10; }
 L_aa4:
+	vawb_trace(209448U);
 	a1 = vawb_lw((s8 + (u32)168), 209448U);
 	a1 = a1 + v0;
 	a1 = vawb_lw((a1 + (u32)0), 209456U);
@@ -2693,6 +2726,7 @@ L_aa4:
 	a1 = a1 + v0;
 	vawb_sw((a1 + (u32)0), 0U, 209504U);
 L_ae0:
+	vawb_trace(209508U);
 	a1 = vawb_lw((s8 + (u32)168), 209508U);
 	t0 = vf_lw((sp + 96U));
 	a1 = a1 + a2;
@@ -2709,22 +2743,27 @@ L_ae0:
 	a1 = a1 + a2;
 	vawb_sw((a1 + (u32)0), 0U, 209568U);
 L_b20:
+	vawb_trace(209572U);
 	a0 = a0 + (u32)1;
 	v0 = v0 + (u32)4;
 L_b28:
+	vawb_trace(209580U);
 	a1 = vf_lw((sp + 56U));
 	a1 = a0 < a1;
-	c = (a1 != 0); t0 = vf_lw((sp + 96U)); if (c) goto L_aa4;
+	c = (a1 != 0); t0 = vf_lw((sp + 96U)); if (c) { if (unlikely(vawb_loop_guard(209588U))) return 0; goto L_aa4; }
 	v1 = v1 + (u32)1;
 L_b3c:
+	vawb_trace(209600U);
 	v0 = vf_lw((sp + 60U));
 	v0 = v1 < v0;
 	c = (v0 == 0); v0 = (u32)((s32)v1 * (s32)a3); if (c) goto L_b60;
-	c = 1; a0 = 0U; if (c) goto L_b28;
+	c = 1; a0 = 0U; if (c) { if (unlikely(vawb_loop_guard(209616U))) return 0; goto L_b28; }
 L_b54:
+	vawb_trace(209624U);
 	v1 = 0U;
-	c = 1; a3 = (u32)60; if (c) goto L_b3c;
+	c = 1; a3 = (u32)60; if (c) { if (unlikely(vawb_loop_guard(209628U))) return 0; goto L_b3c; }
 L_b60:
+	vawb_trace(209636U);
 	v0 = vf_lw((sp + 104U));
 	v0 = vawb_lhu((v0 + (u32)0), 209640U);
 	v0 = v0 + (u32)-1;
@@ -2741,6 +2780,7 @@ L_b60:
 	v0 = v0 + ((u32)(uintptr_t)vawb_tisp_awb_sat_weight + 0U);
 	tg = v0; a0 = vawb_lw((s8 + (u32)156), 209700U); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 209696U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
 L_ba4:
+	vawb_trace(209704U);
 	v0 = vawb_lw((s8 + (u32)400), 209704U);
 	a0 = vawb_lw((s8 + (u32)492), 209708U);
 	v1 = vawb_lbu((v0 + (u32)0), 209712U);
@@ -2751,12 +2791,14 @@ L_ba4:
 	c = (v1 == 0);  if (c) goto L_e78;
 	v0 = a2 - v0;
 L_bd0:
+	vawb_trace(209748U);
 	a1 = vawb_lhu((a0 + (u32)2), 209748U);
 	v1 = vawb_lhu((a0 + (u32)10), 209752U);
 	a3 = v1 < a1;
 	c = (a3 == 0); v0 = v0 & 65535U; if (c) goto L_e80;
 	v1 = a1 - v1;
 L_be8:
+	vawb_trace(209772U);
 	a1 = vf_lw((sp + 92U));
 	a3 = vawb_lbu((a1 + (u32)0), 209776U);
 	a1 = (u32)1;
@@ -2773,6 +2815,7 @@ L_be8:
 	v0 = vawb_lbu((v0 + (u32)0), 209836U);
 	c = (v0 == 0); ra = vf_lw((sp + 180U)); if (c) goto L_e4c;
 L_c34:
+	vawb_trace(209848U);
 	vawb_sh((a0 + (u32)8), a2, 209848U);
 	v0 = vawb_lw((s8 + (u32)492), 209852U);
 	a0 = vawb_lw((csp + 4U), 209856U);
@@ -2790,6 +2833,7 @@ L_c34:
 	v0 = (u32)4;
 	a2 = (u32)60;
 L_c7c:
+	vawb_trace(209920U);
 	a0 = vawb_lw((s8 + (u32)416), 209920U);
 	a1 = v0 + (u32)-4;
 	v1 = a0 + v0;
@@ -2806,7 +2850,7 @@ L_c7c:
 	a0 = vawb_lw((a0 + (u32)0), 209972U);
 	v1 = v1 + a1;
 	v0 = v0 + (u32)4;
-	c = (v0 != a2); vawb_sw((v1 + (u32)0), a0, 209988U); if (c) goto L_c7c;
+	c = (v0 != a2); vawb_sw((v1 + (u32)0), a0, 209988U); if (c) { if (unlikely(vawb_loop_guard(209984U))) return 0; goto L_c7c; }
 	v0 = vawb_lw((s8 + (u32)416), 209992U);
 	v1 = vf_lw((sp + 48U));
 	vawb_sw((v0 + (u32)56), v1, 210000U);
@@ -2821,6 +2865,7 @@ L_c7c:
 	c = (v0 == 0);  if (c) goto L_e88;
 	c = (s0 == 0);  if (c) goto L_e90;
 L_d00:
+	vawb_trace(210052U);
 	v0 = (u32)15;
 	t8 = vawb_lw((s8 + (u32)416), 210056U);
 	t7 = vawb_lw((s8 + (u32)420), 210060U);
@@ -2836,6 +2881,7 @@ L_d00:
 	t3 = 0U;
 	s5 = (u32)15;
 L_d38:
+	vawb_trace(210108U);
 	a2 = t9 + t4;
 	t6 = t8 + a2;
 	t6 = vawb_lw((t6 + (u32)0), 210116U);
@@ -2853,7 +2899,7 @@ L_d38:
 	t0 = (u32)((s32)v0 * (s32)t6);
 	t2 = t0 + t2;
 	t0 = (u32)((s32)v0 * (s32)a2);
-	c = (v0 != s5); a3 = t0 + a3; if (c) goto L_d38;
+	c = (v0 != s5); a3 = t0 + a3; if (c) { if (unlikely(vawb_loop_guard(210176U))) return 0; goto L_d38; }
 	v0 = a1 >> 1;
 	t3 = v0 + t3;
 	acc = vawb_divu(t3, a1, 210192U);
@@ -2872,6 +2918,7 @@ L_d38:
 	vawb_sw((a0 + (u32)0), a3, 210244U);
 	v0 = vawb_lw((s8 + (u32)400), 210248U);
 L_dc8:
+	vawb_trace(210252U);
 	v1 = (u32)1;
 	a0 = vawb_lbu((v0 + (u32)0), 210256U);
 	c = (a0 != v1);  if (c) goto L_edc;
@@ -2898,8 +2945,10 @@ L_dc8:
 	v0 = vf_lw((sp + 92U));
 	vawb_sb((v0 + (u32)0), a0, 210376U);
 L_e48:
+	vawb_trace(210380U);
 	ra = vf_lw((sp + 180U));
 L_e4c:
+	vawb_trace(210384U);
 	s8 = vf_lw((sp + 176U));
 	s7 = vf_lw((sp + 172U));
 	s6 = vf_lw((sp + 168U));
@@ -2911,14 +2960,19 @@ L_e4c:
 	s0 = vf_lw((sp + 144U));
 	 return ((u64)v1 << 32) | v0;
 L_e78:
-	c = 1; v0 = v0 - a2; if (c) goto L_bd0;
+	vawb_trace(210428U);
+	c = 1; v0 = v0 - a2; if (c) { if (unlikely(vawb_loop_guard(210428U))) return 0; goto L_bd0; }
 L_e80:
-	c = 1; v1 = v1 - a1; if (c) goto L_be8;
+	vawb_trace(210436U);
+	c = 1; v1 = v1 - a1; if (c) { if (unlikely(vawb_loop_guard(210436U))) return 0; goto L_be8; }
 L_e88:
-	c = 1; s0 = (u32)15; if (c) goto L_d00;
+	vawb_trace(210444U);
+	c = 1; s0 = (u32)15; if (c) { if (unlikely(vawb_loop_guard(210444U))) return 0; goto L_d00; }
 L_e90:
-	c = 1; s0 = (u32)1; if (c) goto L_d00;
+	vawb_trace(210452U);
+	c = 1; s0 = (u32)1; if (c) { if (unlikely(vawb_loop_guard(210452U))) return 0; goto L_d00; }
 L_e98:
+	vawb_trace(210460U);
 	v1 = vawb_lw((s8 + (u32)416), 210460U);
 	a1 = vf_lw((sp + 48U));
 	v1 = v1 + v0;
@@ -2932,15 +2986,17 @@ L_e98:
 	v1 = vawb_lw((s8 + (u32)424), 210500U);
 	v1 = v1 + v0;
 	v0 = v0 + (u32)4;
-	c = (v0 != a0); vawb_sw((v1 + (u32)0), a1, 210516U); if (c) goto L_e98;
-	c = 1; v0 = vawb_lw((s8 + (u32)400), 210524U); if (c) goto L_dc8;
+	c = (v0 != a0); vawb_sw((v1 + (u32)0), a1, 210516U); if (c) { if (unlikely(vawb_loop_guard(210512U))) return 0; goto L_e98; }
+	c = 1; v0 = vawb_lw((s8 + (u32)400), 210524U); if (c) { if (unlikely(vawb_loop_guard(210520U))) return 0; goto L_dc8; }
 L_edc:
+	vawb_trace(210528U);
 	vawb_sb((v0 + (u32)0), v1, 210528U);
 	v0 = vf_lw((sp + 92U));
 	s0 = (u32)1;
 	vawb_sb((v0 + (u32)0), 0U, 210540U);
 	v0 = vf_lw((sp + 48U));
 L_ef0:
+	vawb_trace(210548U);
 	a2 = vf_lw((sp + 80U));
 	a3 = 0U;
 	a0 = s1;
@@ -2969,6 +3025,7 @@ L_ef0:
 	v0 = vf_lw((sp + 72U));
 	v0 = a0 - v0;
 L_f68:
+	vawb_trace(210668U);
 	v1 = vf_lw((sp + 76U));
 	a0 = vf_lw((sp + 76U));
 	v1 = v1 < s3;
@@ -2976,6 +3033,7 @@ L_f68:
 	v1 = vf_lw((sp + 76U));
 	a0 = s3 - v1;
 L_f84:
+	vawb_trace(210696U);
 	v1 = vf_lw((sp + 108U));
 	c = (v1 != 0); v0 = v0 + a0; if (c) goto L_100c;
 	v1 = vf_lw((sp + 116U));
@@ -2984,9 +3042,11 @@ L_f84:
 	v0 = (u32)1;
 	c = (v1 != v0);  if (c) goto L_fb8;
 L_fac:
+	vawb_trace(210736U);
 	vawb_sw((s6 + (u32)0), 0U, 210736U);
-	c = 1; vawb_sw((s6 + (u32)4), 0U, 210744U); if (c) goto L_e48;
+	c = 1; vawb_sw((s6 + (u32)4), 0U, 210744U); if (c) { if (unlikely(vawb_loop_guard(210740U))) return 0; goto L_e48; }
 L_fb8:
+	vawb_trace(210748U);
 	vawb_sw((s6 + (u32)0), v0, 210748U);
 	vawb_sw((s6 + (u32)4), v0, 210752U);
 	v1 = vf_lw((sp + 40U));
@@ -3006,9 +3066,11 @@ L_fb8:
 	v0 = vf_lw((sp + 68U));
 	s0 = (u32)acc;
 L_1000:
+	vawb_trace(210820U);
 	s0 = s0 + v0;
-	c = 1; vawb_sw((s6 + (u32)20), s0, 210828U); if (c) goto L_e48;
+	c = 1; vawb_sw((s6 + (u32)20), s0, 210828U); if (c) { if (unlikely(vawb_loop_guard(210824U))) return 0; goto L_e48; }
 L_100c:
+	vawb_trace(210832U);
 	v1 = vf_lw((sp + 112U));
 	v0 = v1 < v0;
 	c = (v0 == 0); v0 = vf_lw((sp + 100U)); if (c) goto L_1030;
@@ -3017,20 +3079,24 @@ L_100c:
 	c = (v1 != v0);  if (c) goto L_10b0;
 	v0 = vf_lw((sp + 100U));
 L_1030:
+	vawb_trace(210868U);
 	v0 = v0 + (u32)1;
 	c = (v0 == s0); v0 = (u32)1; if (c) goto L_1044;
 	c = (s0 != v0);  if (c) goto L_1068;
 L_1044:
+	vawb_trace(210888U);
 	v0 = vawb_lw((s6 + (u32)8), 210888U);
 	vawb_sw((s6 + (u32)0), 0U, 210892U);
 	vawb_sw((s6 + (u32)16), v0, 210896U);
 	v0 = vawb_lw((s6 + (u32)12), 210900U);
 L_1054:
+	vawb_trace(210904U);
 	vawb_sw((s6 + (u32)20), v0, 210904U);
 	v0 = vawb_lw((s6 + (u32)4), 210908U);
 	v0 = v0 + (u32)1;
-	c = 1; vawb_sw((s6 + (u32)4), v0, 210920U); if (c) goto L_e48;
+	c = 1; vawb_sw((s6 + (u32)4), v0, 210920U); if (c) { if (unlikely(vawb_loop_guard(210916U))) return 0; goto L_e48; }
 L_1068:
+	vawb_trace(210924U);
 	vawb_sw((s6 + (u32)0), v0, 210924U);
 	v0 = vf_lw((sp + 100U));
 	v1 = vf_lw((sp + 64U));
@@ -3047,8 +3113,9 @@ L_1068:
 	v0 = v0 - v1;
 	acc = vawb_divs(v0, s0, 210980U);
 	v0 = (u32)acc;
-	c = 1; v0 = v0 + v1; if (c) goto L_1054;
+	c = 1; v0 = v0 + v1; if (c) { if (unlikely(vawb_loop_guard(210988U))) return 0; goto L_1054; }
 L_10b0:
+	vawb_trace(210996U);
 	vawb_sw((s6 + (u32)0), v0, 210996U);
 	vawb_sw((s6 + (u32)4), v0, 211000U);
 	v1 = vf_lw((sp + 40U));
@@ -3066,7 +3133,7 @@ L_10b0:
 	v0 = v0 - v1;
 	acc = vawb_divs(v0, s0, 211056U);
 	v0 = v1;
-	c = 1; s0 = (u32)acc; if (c) goto L_1000;
+	c = 1; s0 = (u32)acc; if (c) { if (unlikely(vawb_loop_guard(211064U))) return 0; goto L_1000; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -3154,7 +3221,7 @@ L_114:
 	t3 = vawb_lw((t3 + (u32)0), 205228U);
 	t0 = t0 + a3;
 	a3 = a3 + (u32)4;
-	c = (a3 != t4); vawb_sw((t0 + (u32)0), t3, 205244U); if (c) goto L_114;
+	c = (a3 != t4); vawb_sw((t0 + (u32)0), t3, 205244U); if (c) { if (unlikely(vawb_loop_guard(205240U))) return 0; goto L_114; }
 L_134:
 	c = (t6 != 0); a2 = (s32)v1 < (s32)a2; if (c) goto L_14c;
 	c = (a2 == 0); a2 = (s32)v1 < (s32)t1; if (c) goto L_450;
@@ -3225,7 +3292,7 @@ L_14c:
 L_248:
 	v0 = vawb_lw((v0 + (u32)4), 205524U);
 	v0 = v1 < v0;
-	c = (v0 != 0);  if (c) goto L_ac;
+	c = (v0 != 0);  if (c) { if (unlikely(vawb_loop_guard(205532U))) return 0; goto L_ac; }
 	v0 = vawb_lw((a0 + (u32)48), 205540U);
 	v0 = vawb_lbu((v0 + (u32)0), 205544U);
 	vawb_sb((a2 + (u32)0), v0, 205548U);
@@ -3239,7 +3306,7 @@ L_248:
 	v0 = vawb_lw((a1 + (u32)12), 205580U);
 	vawb_sw((v0 + (u32)0), a2, 205584U);
 	v0 = vawb_lw((a1 + (u32)12), 205588U);
-	c = 1; a2 = vawb_lw((a0 + (u32)188), 205596U); if (c) goto L_dc;
+	c = 1; a2 = vawb_lw((a0 + (u32)188), 205596U); if (c) { if (unlikely(vawb_loop_guard(205592U))) return 0; goto L_dc; }
 L_294:
 	t0 = (s32)v1 < (s32)t0;
 	c = (t0 == 0); t3 = 0U; if (c) goto L_2f4;
@@ -3261,8 +3328,8 @@ L_2a8:
 	t0 = (u32)acc;
 	acc = vawb_divs(t0, v0, 205672U);
 	a3 = (u32)acc;
-	c = (t3 != t8); vawb_sw((t7 + (u32)0), a3, 205684U); if (c) goto L_2a8;
-	c = 1;  if (c) goto L_134;
+	c = (t3 != t8); vawb_sw((t7 + (u32)0), a3, 205684U); if (c) { if (unlikely(vawb_loop_guard(205680U))) return 0; goto L_2a8; }
+	c = 1;  if (c) { if (unlikely(vawb_loop_guard(205688U))) return 0; goto L_134; }
 L_2f4:
 	a3 = (s32)v1 < (s32)t1;
 	c = (a3 == 0); a3 = 0U; if (c) goto L_32c;
@@ -3274,8 +3341,8 @@ L_304:
 	t3 = vawb_lw((t3 + (u32)0), 205724U);
 	t0 = t0 + a3;
 	a3 = a3 + (u32)4;
-	c = (a3 != t4); vawb_sw((t0 + (u32)0), t3, 205740U); if (c) goto L_304;
-	c = 1;  if (c) goto L_134;
+	c = (a3 != t4); vawb_sw((t0 + (u32)0), t3, 205740U); if (c) { if (unlikely(vawb_loop_guard(205736U))) return 0; goto L_304; }
+	c = 1;  if (c) { if (unlikely(vawb_loop_guard(205744U))) return 0; goto L_134; }
 L_32c:
 	a2 = (s32)v1 < (s32)a2;
 	c = (a2 == 0); a3 = (u32)16; if (c) goto L_424;
@@ -3298,7 +3365,7 @@ L_344:
 	t0 = (u32)acc;
 	acc = vawb_divs(t0, v0, 205828U);
 	a3 = (u32)acc;
-	c = (t3 != a2); vawb_sw((t4 + (u32)0), a3, 205840U); if (c) goto L_344;
+	c = (t3 != a2); vawb_sw((t4 + (u32)0), a3, 205840U); if (c) { if (unlikely(vawb_loop_guard(205836U))) return 0; goto L_344; }
 	a2 = vawb_lw((a0 + (u32)184), 205844U);
 	a3 = vawb_lw((a0 + (u32)188), 205848U);
 	t0 = vawb_lw((a1 + (u32)12), 205852U);
@@ -3310,7 +3377,7 @@ L_344:
 	a3 = (u32)acc;
 	acc = vawb_divs(a3, v0, 205880U);
 	a2 = (u32)acc;
-	c = (t6 != 0); vawb_sw((t0 + (u32)4), a2, 205892U); if (c) goto L_14c;
+	c = (t6 != 0); vawb_sw((t0 + (u32)4), a2, 205892U); if (c) { if (unlikely(vawb_loop_guard(205888U))) return 0; goto L_14c; }
 L_3bc:
 	a2 = vawb_lw((a1 + (u32)12), 205896U);
 	t2 = t2 & 65535U;
@@ -3324,7 +3391,7 @@ L_3d0:
 	t0 = vawb_lw((t0 + (u32)0), 205928U);
 	a3 = a3 + a2;
 	a2 = a2 + (u32)4;
-	c = (a2 != t2); vawb_sw((a3 + (u32)0), t0, 205944U); if (c) goto L_3d0;
+	c = (a2 != t2); vawb_sw((a3 + (u32)0), t0, 205944U); if (c) { if (unlikely(vawb_loop_guard(205940U))) return 0; goto L_3d0; }
 	a2 = vawb_lw((a0 + (u32)184), 205948U);
 	v1 = v1 - t1;
 	t0 = vawb_lw((a1 + (u32)12), 205956U);
@@ -3337,7 +3404,7 @@ L_3d0:
 L_414:
 	acc = vawb_divs(v1, v0, 205984U);
 	v1 = (u32)acc;
-	c = 1; vawb_sw((t0 + (u32)4), v1, 205996U); if (c) goto L_14c;
+	c = 1; vawb_sw((t0 + (u32)4), v1, 205996U); if (c) { if (unlikely(vawb_loop_guard(205992U))) return 0; goto L_14c; }
 L_424:
 	v0 = 0U;
 L_428:
@@ -3347,8 +3414,8 @@ L_428:
 	a2 = vawb_lw((a2 + (u32)0), 206016U);
 	v1 = v1 + v0;
 	v0 = v0 + (u32)4;
-	c = (v0 != a3); vawb_sw((v1 + (u32)0), a2, 206032U); if (c) goto L_428;
-	c = (t6 != 0);  if (c) goto L_14c;
+	c = (v0 != a3); vawb_sw((v1 + (u32)0), a2, 206032U); if (c) { if (unlikely(vawb_loop_guard(206028U))) return 0; goto L_428; }
+	c = (t6 != 0);  if (c) { if (unlikely(vawb_loop_guard(206036U))) return 0; goto L_14c; }
 L_450:
 	v0 = vawb_lw((a1 + (u32)12), 206044U);
 	t5 = t5 & 65535U;
@@ -3362,13 +3429,13 @@ L_464:
 	a2 = vawb_lw((a2 + (u32)0), 206076U);
 	v1 = v1 + v0;
 	v0 = v0 + (u32)4;
-	c = (v0 != a3); vawb_sw((v1 + (u32)0), a2, 206092U); if (c) goto L_464;
+	c = (v0 != a3); vawb_sw((v1 + (u32)0), a2, 206092U); if (c) { if (unlikely(vawb_loop_guard(206088U))) return 0; goto L_464; }
 	v0 = vawb_lw((a1 + (u32)12), 206096U);
 	v1 = 1U << 16;
 L_48c:
-	c = 1; vawb_sw((v0 + (u32)4), v1, 206108U); if (c) goto L_14c;
+	c = 1; vawb_sw((v0 + (u32)4), v1, 206108U); if (c) { if (unlikely(vawb_loop_guard(206104U))) return 0; goto L_14c; }
 L_494:
-	c = (t3 != 0);  if (c) goto L_14c;
+	c = (t3 != 0);  if (c) { if (unlikely(vawb_loop_guard(206112U))) return 0; goto L_14c; }
 	a3 = 0U;
 	t3 = (u32)16;
 L_4a4:
@@ -3378,12 +3445,12 @@ L_4a4:
 	t2 = vawb_lw((t2 + (u32)0), 206140U);
 	t0 = t0 + a3;
 	a3 = a3 + (u32)4;
-	c = (a3 != t3); vawb_sw((t0 + (u32)0), t2, 206156U); if (c) goto L_4a4;
+	c = (a3 != t3); vawb_sw((t0 + (u32)0), t2, 206156U); if (c) { if (unlikely(vawb_loop_guard(206152U))) return 0; goto L_4a4; }
 	t0 = vawb_lw((a1 + (u32)12), 206160U);
 	a3 = 1U << 16;
 	vawb_sw((t0 + (u32)4), a3, 206168U);
 	t0 = (u32)1;
-	c = (t6 != t0);  if (c) goto L_14c;
+	c = (t6 != t0);  if (c) { if (unlikely(vawb_loop_guard(206176U))) return 0; goto L_14c; }
 	t0 = (s32)v1 < (s32)t1;
 	c = (t0 != 0); a2 = (s32)v1 < (s32)a2; if (c) goto L_514;
 	c = (a2 == 0);  if (c) goto L_51c;
@@ -3394,13 +3461,13 @@ L_4a4:
 	t0 = vawb_lw((a1 + (u32)12), 206220U);
 	a3 = a3 - t2;
 	t1 = (u32)((s32)a3 * (s32)v1);
-	c = 1; v1 = a2 - t1; if (c) goto L_414;
+	c = 1; v1 = a2 - t1; if (c) { if (unlikely(vawb_loop_guard(206232U))) return 0; goto L_414; }
 L_514:
-	c = (a2 != 0);  if (c) goto L_14c;
+	c = (a2 != 0);  if (c) { if (unlikely(vawb_loop_guard(206240U))) return 0; goto L_14c; }
 L_51c:
 	v1 = vawb_lw((a0 + (u32)188), 206248U);
 	v0 = vawb_lw((a1 + (u32)12), 206252U);
-	c = 1; v1 = vawb_lw((v1 + (u32)4), 206260U); if (c) goto L_48c;
+	c = 1; v1 = vawb_lw((v1 + (u32)4), 206260U); if (c) { if (unlikely(vawb_loop_guard(206256U))) return 0; goto L_48c; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -3478,7 +3545,7 @@ L_104:
 	v0 = vawb_lw((s7 + (u32)112), 211332U);
 	c = 1; a1 = vawb_lw((v0 + (u32)0), 211340U); if (c) goto L_1f4;
 L_110:
-	c = 1; a3 = a3 | 33460U; if (c) goto L_40;
+	c = 1; a3 = a3 | 33460U; if (c) { if (unlikely(vawb_loop_guard(211344U))) return 0; goto L_40; }
 L_118:
 	v0 = (u32)1;
 	c = (a0 != v0); vf_sw((sp + 56U), a3); if (c) goto L_278;
@@ -3556,10 +3623,10 @@ L_218:
 	a0 = vawb_lw((s7 + (u32)212), 211684U);
 	v0 = v0 + (u32)2;
 	v0 = v0 >> 2;
-	c = 1; vawb_sh((a0 + (u32)0), v0, 211700U); if (c) goto L_104;
+	c = 1; vawb_sh((a0 + (u32)0), v0, 211700U); if (c) { if (unlikely(vawb_loop_guard(211696U))) return 0; goto L_104; }
 L_278:
 	v0 = vawb_lw((s7 + (u32)204), 211704U);
-	c = 1; vawb_sb((v0 + (u32)0), 0U, 211712U); if (c) goto L_104;
+	c = 1; vawb_sb((v0 + (u32)0), 0U, 211712U); if (c) { if (unlikely(vawb_loop_guard(211708U))) return 0; goto L_104; }
 L_284:
 	v0 = vawb_lw((s7 + (u32)116), 211716U);
 	c = (a0 != a2); a1 = vawb_lhu((v0 + (u32)10), 211724U); if (c) goto L_2f0;
@@ -3604,7 +3671,7 @@ L_2f0:
 	a0 = vawb_lw((s7 + (u32)212), 211896U);
 	v0 = v0 + (u32)2;
 	v0 = v0 >> 2;
-	c = 1; vawb_sh((a0 + (u32)10), v0, 211912U); if (c) goto L_20c;
+	c = 1; vawb_sh((a0 + (u32)10), v0, 211912U); if (c) { if (unlikely(vawb_loop_guard(211908U))) return 0; goto L_20c; }
 L_34c:
 	a1 = (u32)1;
 	c = (a0 != a1); v0 = vawb_lw((s7 + (u32)116), 211924U); if (c) goto L_3b8;
@@ -3650,7 +3717,7 @@ L_3b8:
 	a0 = vawb_lw((s7 + (u32)212), 212100U);
 	v0 = v0 + (u32)2;
 	v0 = v0 >> 2;
-	c = 1; vawb_sh((a0 + (u32)12), v0, 212116U); if (c) goto L_2e4;
+	c = 1; vawb_sh((a0 + (u32)12), v0, 212116U); if (c) { if (unlikely(vawb_loop_guard(212112U))) return 0; goto L_2e4; }
 L_418:
 	v0 = vawb_lw((s7 + (u32)116), 212120U);
 	c = (a0 != a2); a1 = vawb_lhu((v0 + (u32)14), 212128U); if (c) goto L_484;
@@ -3695,7 +3762,7 @@ L_484:
 	a0 = vawb_lw((s7 + (u32)212), 212300U);
 	v0 = v0 + (u32)2;
 	v0 = v0 >> 2;
-	c = 1; vawb_sh((a0 + (u32)14), v0, 212316U); if (c) goto L_3ac;
+	c = 1; vawb_sh((a0 + (u32)14), v0, 212316U); if (c) { if (unlikely(vawb_loop_guard(212312U))) return 0; goto L_3ac; }
 L_4e0:
 	a1 = (u32)1;
 	c = (a0 != a1); v0 = vawb_lw((s7 + (u32)116), 212328U); if (c) goto L_54c;
@@ -3741,7 +3808,7 @@ L_54c:
 	a0 = vawb_lw((s7 + (u32)212), 212504U);
 	v0 = v0 + (u32)2;
 	v0 = v0 >> 2;
-	c = 1; vawb_sh((a0 + (u32)16), v0, 212520U); if (c) goto L_478;
+	c = 1; vawb_sh((a0 + (u32)16), v0, 212520U); if (c) { if (unlikely(vawb_loop_guard(212516U))) return 0; goto L_478; }
 L_5ac:
 	v0 = vawb_lw((s7 + (u32)116), 212524U);
 	c = (a0 != a2); a1 = vawb_lhu((v0 + (u32)18), 212532U); if (c) goto L_62c;
@@ -3792,7 +3859,7 @@ L_62c:
 	a0 = vawb_lw((s7 + (u32)212), 212724U);
 	v0 = v0 + (u32)2;
 	v0 = v0 >> 2;
-	c = 1; vawb_sh((a0 + (u32)18), v0, 212740U); if (c) goto L_540;
+	c = 1; vawb_sh((a0 + (u32)18), v0, 212740U); if (c) { if (unlikely(vawb_loop_guard(212736U))) return 0; goto L_540; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -3873,9 +3940,9 @@ L_e4:
 	 return ((u64)v1 << 32) | v0;
 L_128:
 	v0 = 0;
-	c = 1; v0 = v0 + ((u32)(uintptr_t)vawb_tisp_ae_sec_mean_update + 0U); if (c) goto L_a0;
+	c = 1; v0 = v0 + ((u32)(uintptr_t)vawb_tisp_ae_sec_mean_update + 0U); if (c) { if (unlikely(vawb_loop_guard(199820U))) return 0; goto L_a0; }
 L_134:
-	c = 1; a0 = a0 | 33336U; if (c) goto L_e4;
+	c = 1; a0 = a0 | 33336U; if (c) { if (unlikely(vawb_loop_guard(199828U))) return 0; goto L_e4; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -3983,7 +4050,7 @@ L_19c:
 	a1 = s2;
 	tg = s0; a0 = s5 | 33328U; { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 199500U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
 	a1 = s1;
-	c = 1; a0 = s5 | 33332U; if (c) goto L_154;
+	c = 1; a0 = s5 | 33332U; if (c) { if (unlikely(vawb_loop_guard(199512U))) return 0; goto L_154; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -4035,23 +4102,23 @@ L_1c:
 	tg = t9;  return vawb_call(tg, a0, a1, a2, a3, csp, 198952U);
 L_2c:
 	c = (a0 != v0); a1 = (u32)1; if (c) goto L_3c;
-	c = 1; a0 = (u32)16384; if (c) goto L_1c;
+	c = 1; a0 = (u32)16384; if (c) { if (unlikely(vawb_loop_guard(198968U))) return 0; goto L_1c; }
 L_3c:
 	v0 = (u32)3;
 	c = (a0 != v0); a0 = (u32)20480; if (c) goto L_8c;
-	c = 1;  if (c) goto L_1c;
+	c = 1;  if (c) { if (unlikely(vawb_loop_guard(198988U))) return 0; goto L_1c; }
 L_50:
 	c = (a0 != v0); a1 = (u32)1; if (c) goto L_64;
 	a0 = 1U << 16;
-	c = 1; a0 = a0 | 33280U; if (c) goto L_1c;
+	c = 1; a0 = a0 | 33280U; if (c) { if (unlikely(vawb_loop_guard(199008U))) return 0; goto L_1c; }
 L_64:
 	v0 = (u32)2;
 	c = (a0 != v0);  if (c) goto L_78;
-	c = 1; a0 = (u32)16416; if (c) goto L_1c;
+	c = 1; a0 = (u32)16416; if (c) { if (unlikely(vawb_loop_guard(199028U))) return 0; goto L_1c; }
 L_78:
 	v0 = (u32)3;
 	c = (a0 != v0); a1 = (u32)1; if (c) goto L_8c;
-	c = 1; a0 = (u32)20512; if (c) goto L_1c;
+	c = 1; a0 = (u32)20512; if (c) { if (unlikely(vawb_loop_guard(199048U))) return 0; goto L_1c; }
 L_8c:
 	 return ((u64)v1 << 32) | v0;
 	return ((u64)v1 << 32) | v0;
@@ -4225,7 +4292,7 @@ L_274:
 	t3 = t3 + (u32)1;
 	t4 = t4 + (u32)4;
 	t5 = t5 + (u32)4;
-	c = 1; a0 = a0 + (u32)2; if (c) goto L_144;
+	c = 1; a0 = a0 + (u32)2; if (c) { if (unlikely(vawb_loop_guard(193792U))) return 0; goto L_144; }
 L_298:
 	a0 = vawb_lhu((t9 + (u32)14), 193800U);
 	v0 = vawb_lhu((t9 + (u32)46), 193804U);
@@ -4248,14 +4315,14 @@ L_298:
 	t2 = t2 + (u32)4;
 	a2 = vf_lw((sp + 384U));
 	v1 = vf_lw((sp + 380U));
-	c = 1; t3 = vf_lw((sp + 376U)); if (c) goto L_160;
+	c = 1; t3 = vf_lw((sp + 376U)); if (c) { if (unlikely(vawb_loop_guard(193888U))) return 0; goto L_160; }
 L_2f8:
 	t2 = vawb_lw((a2 + (u32)0), 193896U);
 	vawb_sw((a0 + (u32)60), v0, 193900U);
 	a2 = a2 + (u32)4;
 	vawb_sw((a0 + (u32)0), t2, 193908U);
 	v0 = v0 + (u32)1;
-	c = 1; a0 = a0 + (u32)4; if (c) goto L_178;
+	c = 1; a0 = a0 + (u32)4; if (c) { if (unlikely(vawb_loop_guard(193916U))) return 0; goto L_178; }
 L_314:
 	v0 = a0 << 2;
 	v0 = a2 + v0;
@@ -4265,7 +4332,7 @@ L_320:
 	c = (t2 != 0);  if (c) goto L_33c;
 	a0 = a0 + (u32)1;
 	a0 = a0 & 255U;
-	c = 1; t4 = t4 + (u32)4; if (c) goto L_194;
+	c = 1; t4 = t4 + (u32)4; if (c) { if (unlikely(vawb_loop_guard(193956U))) return 0; goto L_194; }
 L_33c:
 	t2 = vawb_lw((t4 + (u32)0), 193964U);
 	t3 = vawb_lw((v0 + (u32)0), 193968U);
@@ -4280,9 +4347,9 @@ L_33c:
 L_368:
 	a2 = a2 + (u32)1;
 	a2 = a2 & 255U;
-	c = 1; v0 = v0 + (u32)4; if (c) goto L_320;
+	c = 1; v0 = v0 + (u32)4; if (c) { if (unlikely(vawb_loop_guard(194016U))) return 0; goto L_320; }
 L_378:
-	c = (a2 == v0); v0 = sp + 16U; if (c) goto L_1ac;
+	c = (a2 == v0); v0 = sp + 16U; if (c) { if (unlikely(vawb_loop_guard(194024U))) return 0; goto L_1ac; }
 	c = 1; a0 = 0U; if (c) goto L_3a0;
 L_388:
 	t2 = vawb_lw((v0 + (u32)60), 194040U);
@@ -4293,11 +4360,11 @@ L_398:
 	v0 = v0 + (u32)4;
 L_3a0:
 	t2 = (s32)a0 < (s32)s8;
-	c = (t2 != 0);  if (c) goto L_388;
-	c = 1; v0 = vawb_lw((csp + 160U), 194080U); if (c) goto L_1b0;
+	c = (t2 != 0);  if (c) { if (unlikely(vawb_loop_guard(194068U))) return 0; goto L_388; }
+	c = 1; v0 = vawb_lw((csp + 160U), 194080U); if (c) { if (unlikely(vawb_loop_guard(194076U))) return 0; goto L_1b0; }
 L_3b4:
 	v0 = (s32)s8 < (s32)4;
-	c = (v0 != 0);  if (c) goto L_1bc;
+	c = (v0 != 0);  if (c) { if (unlikely(vawb_loop_guard(194088U))) return 0; goto L_1bc; }
 	v0 = vf_lw((sp + 352U));
 	t8 = (u32)20;
 	s0 = s5 + v0;
@@ -4312,7 +4379,7 @@ L_3e8:
 	v0 = v0 + (u32)1;
 	a0 = (s32)v0 < (s32)s8;
 	vawb_sw((t1 + (u32)12), 0U, 194144U);
-	c = (a0 != 0); t1 = t1 + (u32)4; if (c) goto L_3e8;
+	c = (a0 != 0); t1 = t1 + (u32)4; if (c) { if (unlikely(vawb_loop_guard(194148U))) return 0; goto L_3e8; }
 	t4 = (u32)3;
 L_400:
 	v0 = 0U;
@@ -4339,7 +4406,7 @@ L_450:
 	t1 = t1 & 255U;
 L_458:
 	t2 = (s32)t1 < (s32)t4;
-	c = (t2 != 0); t2 = t1 + (u32)15; if (c) goto L_414;
+	c = (t2 != 0); t2 = t1 + (u32)15; if (c) { if (unlikely(vawb_loop_guard(194252U))) return 0; goto L_414; }
 	t3 = t3 + (u32)1;
 	a1 = a1 + (u32)4;
 	v1 = v1 + (u32)4;
@@ -4659,20 +4726,20 @@ L_92c:
 	v1 = v0 | v1;
 	c = 1; vf_sw((sp + 332U), v1); if (c) goto L_9f4;
 L_9a0:
-	c = 1; t1 = 0U; if (c) goto L_458;
+	c = 1; t1 = 0U; if (c) { if (unlikely(vawb_loop_guard(195600U))) return 0; goto L_458; }
 L_9a8:
 	a0 = 0U - a0;
 	acc = vawb_divu(a0, a2, 195612U);
 	a0 = (u32)acc;
-	c = 1; v1 = 0U - a0; if (c) goto L_494;
+	c = 1; v1 = 0U - a0; if (c) { if (unlikely(vawb_loop_guard(195620U))) return 0; goto L_494; }
 L_9bc:
 	v0 = 0U - v0;
 	acc = vawb_divu(v0, a2, 195632U);
 	v0 = (u32)acc;
-	c = 1; v0 = 0U - v0; if (c) goto L_4a4;
+	c = 1; v0 = 0U - v0; if (c) { if (unlikely(vawb_loop_guard(195640U))) return 0; goto L_4a4; }
 L_9d0:
 	v0 = 0U;
-	c = 1; v1 = 0U; if (c) goto L_4a4;
+	c = 1; v1 = 0U; if (c) { if (unlikely(vawb_loop_guard(195652U))) return 0; goto L_4a4; }
 L_9dc:
 	v0 = 0;
 L_9e0:
@@ -4759,7 +4826,7 @@ L_ae0:
 	v0 = (u32)((s32)s0 * (s32)s2);
 	s7 = v0 + s7;
 	s7 = s7 >> 8;
-	c = 1; vawb_sw((s6 + (u32)0), s7, 196000U); if (c) goto L_1d4;
+	c = 1; vawb_sw((s6 + (u32)0), s7, 196000U); if (c) { if (unlikely(vawb_loop_guard(195996U))) return 0; goto L_1d4; }
 L_b34:
 	a2 = vawb_lw((csp + 144U), 196004U);
 	v0 = v0 & 255U;
@@ -4814,10 +4881,10 @@ L_b34:
 	t7 = a2;
 L_c00:
 	v0 = s2 < t1;
-	c = (v0 == 0); v0 = a3 + t1; if (c) goto L_b34;
+	c = (v0 == 0); v0 = a3 + t1; if (c) { if (unlikely(vawb_loop_guard(196212U))) return 0; goto L_b34; }
 	a3 = a3 + (u32)15;
 	a0 = a0 + (u32)1;
-	c = 1; a3 = a3 & 255U; if (c) goto L_548;
+	c = 1; a3 = a3 & 255U; if (c) { if (unlikely(vawb_loop_guard(196228U))) return 0; goto L_548; }
 L_c1c:
 	a2 = vawb_lw((csp + 148U), 196236U);
 	v0 = v0 & 255U;
@@ -4878,38 +4945,38 @@ L_c1c:
 L_cfc:
 	v0 = vf_lw((sp + 368U));
 	v0 = v0 < a3;
-	c = (v0 == 0); v0 = a3 + a0; if (c) goto L_c1c;
+	c = (v0 == 0); v0 = a3 + a0; if (c) { if (unlikely(vawb_loop_guard(196468U))) return 0; goto L_c1c; }
 	a0 = a0 + (u32)15;
 	t6 = t6 + (u32)1;
-	c = 1; a0 = a0 & 255U; if (c) goto L_580;
+	c = 1; a0 = a0 & 255U; if (c) { if (unlikely(vawb_loop_guard(196484U))) return 0; goto L_580; }
 L_d1c:
-	c = 1; a3 = vf_lw((sp + 372U)); if (c) goto L_cfc;
+	c = 1; a3 = vf_lw((sp + 372U)); if (c) { if (unlikely(vawb_loop_guard(196492U))) return 0; goto L_cfc; }
 L_d24:
 	v0 = 1U << 16;
 L_d28:
 	a1 = 0U;
 	s4 = 1U << 16;
-	c = 1; t1 = 0U; if (c) goto L_92c;
+	c = 1; t1 = 0U; if (c) { if (unlikely(vawb_loop_guard(196512U))) return 0; goto L_92c; }
 L_d38:
 	v0 = 7U << 16;
 	v0 = v0 | 65535U;
-	c = 1; a1 = 0U; if (c) goto L_92c;
+	c = 1; a1 = 0U; if (c) { if (unlikely(vawb_loop_guard(196528U))) return 0; goto L_92c; }
 L_d48:
-	c = 1; t2 = (u32)1; if (c) goto L_a24;
+	c = 1; t2 = (u32)1; if (c) { if (unlikely(vawb_loop_guard(196536U))) return 0; goto L_a24; }
 L_d50:
 	vawb_sb((a3 + (u32)0), t5, 196544U);
-	c = 1; a1 = a2 - a0; if (c) goto L_a40;
+	c = 1; a1 = a2 - a0; if (c) { if (unlikely(vawb_loop_guard(196548U))) return 0; goto L_a40; }
 L_d5c:
 	s1 = (s32)a1 < (s32)11;
 	if (s1 == 0) a1 = t7;
-	c = 1; vawb_sw((v0 + (u32)0), a1, 196568U); if (c) goto L_a60;
+	c = 1; vawb_sw((v0 + (u32)0), a1, 196568U); if (c) { if (unlikely(vawb_loop_guard(196564U))) return 0; goto L_a60; }
 L_d6c:
 	c = (a1 == 0); s2 = a0 + s1; if (c) goto L_d7c;
-	c = 1; s2 = (s32)a2 < (s32)s2; if (c) goto L_a74;
+	c = 1; s2 = (s32)a2 < (s32)s2; if (c) { if (unlikely(vawb_loop_guard(196580U))) return 0; goto L_a74; }
 L_d7c:
 	a0 = (u32)((s32)a1 * (s32)s1);
 	a2 = a0 + a2;
-	c = 1; vawb_sh((v1 + (u32)0), a2, 196600U); if (c) goto L_a80;
+	c = 1; vawb_sh((v1 + (u32)0), a2, 196600U); if (c) { if (unlikely(vawb_loop_guard(196596U))) return 0; goto L_a80; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -4973,7 +5040,7 @@ L_48:
 	vawb_sh((a2 + (u32)2), v0, 213556U);
 	v0 = vawb_lhu((a1 + (u32)16), 213560U);
 	vawb_sh((a2 + (u32)4), v0, 213564U);
-	c = 1; v0 = vawb_lhu((a1 + (u32)16), 213572U); if (c) goto L_40;
+	c = 1; v0 = vawb_lhu((a1 + (u32)16), 213572U); if (c) { if (unlikely(vawb_loop_guard(213568U))) return 0; goto L_40; }
 L_78:
 	v0 = (u32)8;
 L_7c:
@@ -5055,7 +5122,7 @@ L_1b0:
 	vawb_sh((a2 + (u32)4), v0, 213888U);
 	a0 = vawb_lw((a0 + (u32)0), 213892U);
 	t0 = vawb_lw((t2 + (u32)0), 213896U);
-	c = (a0 == t0); v0 = vawb_lhu((a3 + (u32)0), 213904U); if (c) goto L_40;
+	c = (a0 == t0); v0 = vawb_lhu((a3 + (u32)0), 213904U); if (c) { if (unlikely(vawb_loop_guard(213900U))) return 0; goto L_40; }
 	t1 = t1 << 1;
 	a1 = a1 + t1;
 	a1 = vawb_lhu((a1 + (u32)0), 213916U);
@@ -5074,7 +5141,7 @@ L_200:
 	a1 = (u32)acc;
 	v0 = v0 - a1;
 L_20c:
-	c = 1; v0 = v0 & 65535U; if (c) goto L_40;
+	c = 1; v0 = v0 & 65535U; if (c) { if (unlikely(vawb_loop_guard(213980U))) return 0; goto L_40; }
 L_214:
 	v0 = v0 - t0;
 	v0 = (u32)((s32)v0 * (s32)t5);
@@ -5083,7 +5150,7 @@ L_214:
 L_228:
 	acc = vawb_divu(v0, t5, 214008U);
 	v0 = (u32)acc;
-	c = 1; v0 = t0 + v0; if (c) goto L_ec;
+	c = 1; v0 = t0 + v0; if (c) { if (unlikely(vawb_loop_guard(214016U))) return 0; goto L_ec; }
 L_238:
 	t4 = t3 - v0;
 	c = (t7 == 0); t3 = t0 - v1; if (c) goto L_248;
@@ -5095,7 +5162,7 @@ L_248:
 L_258:
 	acc = vawb_divu(t3, t4, 214056U);
 	t3 = (u32)acc;
-	c = 1; v0 = v0 + t3; if (c) goto L_14c;
+	c = 1; v0 = v0 + t3; if (c) { if (unlikely(vawb_loop_guard(214064U))) return 0; goto L_14c; }
 L_268:
 	t4 = t3 - v0;
 	c = (t7 == 0); t3 = t0 - v1; if (c) goto L_278;
@@ -5107,7 +5174,7 @@ L_278:
 L_288:
 	acc = vawb_divu(t3, t4, 214104U);
 	t3 = (u32)acc;
-	c = 1; v0 = v0 + t3; if (c) goto L_1ac;
+	c = 1; v0 = v0 + t3; if (c) { if (unlikely(vawb_loop_guard(214112U))) return 0; goto L_1ac; }
 L_298:
 	a3 = a1 - v0;
 	c = (t2 == 0); a1 = a0 - v1; if (c) goto L_2a8;
@@ -5119,10 +5186,10 @@ L_2a8:
 L_2b8:
 	acc = vawb_divu(v1, a1, 214152U);
 	v1 = (u32)acc;
-	c = 1; v0 = v0 + v1; if (c) goto L_20c;
+	c = 1; v0 = v0 + v1; if (c) { if (unlikely(vawb_loop_guard(214160U))) return 0; goto L_20c; }
 L_2c8:
 	a0 = t2;
-	c = (t1 != v0); a3 = t1; if (c) goto L_7c;
+	c = (t1 != v0); a3 = t1; if (c) { if (unlikely(vawb_loop_guard(214172U))) return 0; goto L_7c; }
 	 return ((u64)v1 << 32) | v0;
 	return ((u64)v1 << 32) | v0;
 }
@@ -5193,10 +5260,10 @@ L_d8:
 	t0 = a0;
 	a3 = v0 - a3;
 L_f0:
-	c = 1; v1 = v1 + (u32)1; if (c) goto L_94;
+	c = 1; v1 = v1 + (u32)1; if (c) { if (unlikely(vawb_loop_guard(89024U))) return 0; goto L_94; }
 L_f8:
-	c = (s2 != t0);  if (c) goto L_f0;
-	c = (s3 != v0); a2 = s5 + (u32)-1; if (c) goto L_f0;
+	c = (s2 != t0);  if (c) { if (unlikely(vawb_loop_guard(89032U))) return 0; goto L_f0; }
+	c = (s3 != v0); a2 = s5 + (u32)-1; if (c) { if (unlikely(vawb_loop_guard(89040U))) return 0; goto L_f0; }
 	v0 = 0;
 	a0 = s0 | 1U;
 	v0 = v0 + ((u32)(uintptr_t)vawb_x___ashldi3 + 0U);
@@ -5397,13 +5464,13 @@ L_288:
 	t0 = vf_lw((sp + 36U));
 	a1 = v0 & 65535U;
 	a1 = a1 < t0;
-	c = (a1 != 0); a1 = v0 << 2; if (c) goto L_274;
+	c = (a1 != 0); a1 = v0 << 2; if (c) { if (unlikely(vawb_loop_guard(101328U))) return 0; goto L_274; }
 	v0 = vf_lw((sp + 32U));
 	s6 = v0 + (u32)1;
 	v0 = s6 & 65535U;
 	vf_sw((sp + 32U), v0);
 	v0 = vf_lw((sp + 84U));
-	c = 1; v1 = v1 + v0; if (c) goto L_114;
+	c = 1; v1 = v1 + v0; if (c) { if (unlikely(vawb_loop_guard(101356U))) return 0; goto L_114; }
 L_2b8:
 	t8 = vawb_lhu((t6 + (u32)2), 101364U);
 	c = (t8 == t7); v0 = a1 << 2; if (c) goto L_2cc;
@@ -5420,7 +5487,7 @@ L_2d4:
 	v1 = (u32)5000;
 	vawb_sw((a0 + (u32)0), v1, 101416U);
 	v0 = v0 << (s8 & 31);
-	c = 1; v1 = vawb_lw((csp + 4U), 101428U); if (c) goto L_88;
+	c = 1; v1 = vawb_lw((csp + 4U), 101428U); if (c) { if (unlikely(vawb_loop_guard(101424U))) return 0; goto L_88; }
 L_2fc:
 	v0 = t5 + v0;
 	v0 = vawb_lw((v0 + (u32)0), 101436U);
@@ -5433,12 +5500,12 @@ L_318:
 	v1 = vf_lw((sp + 36U));
 	v0 = a1 & 65535U;
 	v0 = v0 < v1;
-	c = (v0 != 0);  if (c) goto L_2b8;
+	c = (v0 != 0);  if (c) { if (unlikely(vawb_loop_guard(101472U))) return 0; goto L_2b8; }
 	v0 = vf_lw((sp + 60U));
 	a0 = a0 + (u32)1;
 	a0 = a0 & 65535U;
 	a2 = a2 + (u32)60;
-	c = 1; t5 = t5 + v0; if (c) goto L_260;
+	c = 1; t5 = t5 + v0; if (c) { if (unlikely(vawb_loop_guard(101496U))) return 0; goto L_260; }
 L_344:
 	v0 = vf_lw((sp + 44U));
 	v1 = vf_lw((sp + 36U));
@@ -5539,7 +5606,7 @@ L_4cc:
 	a2 = vawb_lw((t1 + (u32)0), 101896U);
 	a2 = a2 << (s5 & 31);
 	a3 = a3 < a2;
-	c = (a3 != 0);  if (c) goto L_4c4;
+	c = (a3 != 0);  if (c) { if (unlikely(vawb_loop_guard(101908U))) return 0; goto L_4c4; }
 L_4e0:
 	v1 = vf_lw((sp + 68U));
 	a2 = vawb_lw((s3 + (u32)56), 101920U);
@@ -5554,20 +5621,20 @@ L_508:
 	a2 = vawb_lw((s3 + (u32)0), 101956U);
 	a2 = a2 << (s5 & 31);
 	a3 = a3 < a2;
-	c = (a3 != 0);  if (c) goto L_500;
+	c = (a3 != 0);  if (c) { if (unlikely(vawb_loop_guard(101968U))) return 0; goto L_500; }
 L_51c:
 	a1 = a1 + (u32)1;
 	a1 = a1 & 65535U;
 	v0 = v0 + (u32)4;
 L_528:
 	v1 = vf_lw((sp + 36U));
-	c = (a1 != v1);  if (c) goto L_4ac;
+	c = (a1 != v1);  if (c) { if (unlikely(vawb_loop_guard(101992U))) return 0; goto L_4ac; }
 	v0 = vf_lw((sp + 60U));
 	a0 = a0 + (u32)1;
 	a0 = a0 & 65535U;
-	c = 1; t2 = t2 + v0; if (c) goto L_368;
+	c = 1; t2 = t2 + v0; if (c) { if (unlikely(vawb_loop_guard(102012U))) return 0; goto L_368; }
 L_548:
-	c = 1; a1 = 0U; if (c) goto L_528;
+	c = 1; a1 = 0U; if (c) { if (unlikely(vawb_loop_guard(102020U))) return 0; goto L_528; }
 L_550:
 	a0 = vawb_lw((t1 + (u32)0), 102028U);
 	a1 = vawb_lw((s1 + (u32)0), 102032U);
@@ -5660,10 +5727,10 @@ L_6b4:
 	c = 1; t1 = vf_lw((sp + 100U)); if (c) goto L_850;
 L_6d0:
 	v0 = v0 + (u32)1;
-	c = 1; v0 = v0 & 65535U; if (c) goto L_590;
+	c = 1; v0 = v0 & 65535U; if (c) { if (unlikely(vawb_loop_guard(102416U))) return 0; goto L_590; }
 L_6dc:
 	s7 = s7 + (u32)1;
-	c = 1; s7 = s7 & 65535U; if (c) goto L_610;
+	c = 1; s7 = s7 & 65535U; if (c) { if (unlikely(vawb_loop_guard(102428U))) return 0; goto L_610; }
 L_6e8:
 	a0 = s7 + (u32)-1;
 	a1 = (u32)28;
@@ -5737,7 +5804,7 @@ L_71c:
 	vf_sw((sp + 16U), a0);
 	a2 = vf_lw((sp + 96U));
 	a1 = vf_lw((sp + 108U));
-	c = 1; a0 = v0 >> (s5 & 31); if (c) goto L_6b4;
+	c = 1; a0 = v0 >> (s5 & 31); if (c) { if (unlikely(vawb_loop_guard(102744U))) return 0; goto L_6b4; }
 L_824:
 	c = (s7 != a0); a0 = s7 + (u32)-1; if (c) goto L_1ffc;
 L_82c:
@@ -5747,7 +5814,7 @@ L_82c:
 	a0 = v1 + a0;
 	a1 = vawb_lhu((a0 + (u32)0), 102776U);
 	a1 = a1 + (u32)1;
-	c = (v0 != 0); vawb_sh((a0 + (u32)0), a1, 102788U); if (c) goto L_664;
+	c = (v0 != 0); vawb_sh((a0 + (u32)0), a1, 102788U); if (c) { if (unlikely(vawb_loop_guard(102784U))) return 0; goto L_664; }
 L_84c:
 	vawb_sw((s0 + (u32)0), 0U, 102792U);
 L_850:
@@ -5755,13 +5822,13 @@ L_850:
 	s1 = s1 + (u32)4;
 L_858:
 	v0 = vf_lw((sp + 252U));
-	c = (s0 != v0); v1 = vf_lw((sp + 60U)); if (c) goto L_550;
+	c = (s0 != v0); v1 = vf_lw((sp + 60U)); if (c) { if (unlikely(vawb_loop_guard(102808U))) return 0; goto L_550; }
 	v0 = vf_lw((sp + 92U));
 	v0 = v0 + (u32)60;
 	vf_sw((sp + 92U), v0);
 	v0 = vf_lw((sp + 148U));
 	v0 = v0 + v1;
-	c = 1; vf_sw((sp + 148U), v0); if (c) goto L_3e4;
+	c = 1; vf_sw((sp + 148U), v0); if (c) { if (unlikely(vawb_loop_guard(102836U))) return 0; goto L_3e4; }
 L_880:
 	v0 = s7 << 2;
 	v0 = v0 + (u32)-4;
@@ -5795,7 +5862,7 @@ L_880:
 	v0 = (u32)1;
 	v1 = vf_lw((sp + 120U));
 	t2 = vf_lw((sp + 156U));
-	c = (a0 != v0); t1 = vf_lw((sp + 192U)); if (c) goto L_850;
+	c = (a0 != v0); t1 = vf_lw((sp + 192U)); if (c) { if (unlikely(vawb_loop_guard(102976U))) return 0; goto L_850; }
 	v0 = vf_lw((sp + 100U));
 	a3 = vawb_lw((s6 + (u32)0), 102988U);
 	a1 = s5;
@@ -5829,7 +5896,7 @@ L_880:
 	v0 = v0 + ((u32)(uintptr_t)vawb_func_zone_ct_weight + 0U);
 	tg = v0; a3 = s8; { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 103116U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
 	vawb_sw((s0 + (u32)0), v0, 103124U);
-	c = 1; t1 = vf_lw((sp + 120U)); if (c) goto L_850;
+	c = 1; t1 = vf_lw((sp + 120U)); if (c) { if (unlikely(vawb_loop_guard(103128U))) return 0; goto L_850; }
 L_9a4:
 	s6 = s7 + (u32)-1;
 	v0 = (u32)60;
@@ -5898,7 +5965,7 @@ L_9a4:
 	t4 = vf_lw((sp + 256U));
 	t6 = vf_lw((sp + 264U));
 	t5 = vf_lw((sp + 268U));
-	c = (v1 != v0); t1 = vf_lw((sp + 272U)); if (c) goto L_850;
+	c = (v1 != v0); t1 = vf_lw((sp + 272U)); if (c) { if (unlikely(vawb_loop_guard(103416U))) return 0; goto L_850; }
 	v0 = vf_lw((sp + 120U));
 	a2 = vawb_lw((s1 + (u32)0), 103428U);
 	a1 = s5;
@@ -5964,14 +6031,14 @@ L_9a4:
 	v0 = v0 + ((u32)(uintptr_t)vawb_func_zone_ct_weight + 0U);
 	tg = v0; a3 = s8; { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 103692U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
 	vawb_sw((s0 + (u32)0), v0, 103700U);
-	c = 1; t1 = vf_lw((sp + 264U)); if (c) goto L_850;
+	c = 1; t1 = vf_lw((sp + 264U)); if (c) { if (unlikely(vawb_loop_guard(103704U))) return 0; goto L_850; }
 L_be4:
 	s1 = vf_lw((sp + 148U));
 	s0 = vf_lw((sp + 92U));
 	v0 = v0 + v1;
 	vf_sw((sp + 252U), v0);
 	v0 = 0;
-	c = 1; vf_sw((sp + 152U), v0); if (c) goto L_858;
+	c = 1; vf_sw((sp + 152U), v0); if (c) { if (unlikely(vawb_loop_guard(103732U))) return 0; goto L_858; }
 L_c00:
 	a0 = vawb_lw((t2 + (u32)0), 103740U);
 	a0 = v0 + a0;
@@ -6024,7 +6091,7 @@ L_cc8:
 	t2 = t2 + (u32)4;
 L_cd8:
 	v0 = vf_lw((sp + 36U));
-	c = (a2 != v0); v0 = vf_lw((sp + 40U)); if (c) goto L_c00;
+	c = (a2 != v0); v0 = vf_lw((sp + 40U)); if (c) { if (unlikely(vawb_loop_guard(103960U))) return 0; goto L_c00; }
 	v0 = vf_lw((sp + 60U));
 	t5 = t5 + (u32)1;
 	t6 = t6 + v0;
@@ -6036,13 +6103,13 @@ L_cf0:
 	v0 = vf_lw((sp + 52U));
 	t2 = t6;
 	a2 = 0U;
-	c = 1; t4 = v1 + v0; if (c) goto L_cd8;
+	c = 1; t4 = v1 + v0; if (c) { if (unlikely(vawb_loop_guard(104012U))) return 0; goto L_cd8; }
 L_d18:
-	c = 1; t5 = 0U; if (c) goto L_cf0;
+	c = 1; t5 = 0U; if (c) { if (unlikely(vawb_loop_guard(104020U))) return 0; goto L_cf0; }
 L_d20:
 	a1 = a1 + (u32)1;
 	a1 = a1 & 65535U;
-	c = 1; a3 = a3 + (u32)4; if (c) goto L_400;
+	c = 1; a3 = a3 + (u32)4; if (c) { if (unlikely(vawb_loop_guard(104036U))) return 0; goto L_400; }
 L_d30:
 	v0 = vawb_lw((t2 + (u32)0), 104044U);
 	a0 = vawb_lhu((a3 + (u32)0), 104048U);
@@ -6096,7 +6163,7 @@ L_dfc:
 	t2 = t2 + (u32)4;
 L_e0c:
 	v0 = vf_lw((sp + 36U));
-	c = (a2 != v0); v1 = vf_lw((sp + 40U)); if (c) goto L_d30;
+	c = (a2 != v0); v1 = vf_lw((sp + 40U)); if (c) { if (unlikely(vawb_loop_guard(104268U))) return 0; goto L_d30; }
 	v0 = vf_lw((sp + 60U));
 	t5 = t5 + (u32)1;
 	t6 = t6 + v0;
@@ -6108,14 +6175,14 @@ L_e24:
 	v0 = vf_lw((sp + 52U));
 	t2 = t6;
 	a2 = 0U;
-	c = 1; t4 = v1 + v0; if (c) goto L_e0c;
+	c = 1; t4 = v1 + v0; if (c) { if (unlikely(vawb_loop_guard(104320U))) return 0; goto L_e0c; }
 L_e4c:
 	t5 = 0U;
-	c = 1; s0 = (u32)60; if (c) goto L_e24;
+	c = 1; s0 = (u32)60; if (c) { if (unlikely(vawb_loop_guard(104332U))) return 0; goto L_e24; }
 L_e58:
 	a1 = a1 + (u32)1;
 	a1 = a1 & 65535U;
-	c = 1; a3 = a3 + (u32)4; if (c) goto L_420;
+	c = 1; a3 = a3 + (u32)4; if (c) { if (unlikely(vawb_loop_guard(104348U))) return 0; goto L_420; }
 L_e68:
 	a2 = a1 + a2;
 	a2 = vawb_lw((a2 + (u32)0), 104360U);
@@ -6126,10 +6193,10 @@ L_e7c:
 	v1 = vf_lw((sp + 36U));
 	a2 = a0 & 65535U;
 	a2 = a2 < v1;
-	c = (a2 != 0); a2 = a0 << 2; if (c) goto L_e68;
+	c = (a2 != 0); a2 = a0 << 2; if (c) { if (unlikely(vawb_loop_guard(104388U))) return 0; goto L_e68; }
 	v0 = v0 + (u32)1;
 	v0 = v0 & 65535U;
-	c = 1; a1 = a1 + (u32)60; if (c) goto L_45c;
+	c = 1; a1 = a1 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(104404U))) return 0; goto L_45c; }
 L_ea0:
 	v0 = t0 + v0;
 	a1 = vawb_lw((s1 + (u32)0), 104416U);
@@ -6151,9 +6218,9 @@ L_ee8:
 	a0 = vf_lw((sp + 36U));
 	v0 = s7 & 65535U;
 	v0 = v0 < a0;
-	c = (v0 != 0); v0 = s7 << 2; if (c) goto L_ea0;
+	c = (v0 != 0); v0 = s7 << 2; if (c) { if (unlikely(vawb_loop_guard(104496U))) return 0; goto L_ea0; }
 	v1 = v1 + (u32)1;
-	c = 1; t0 = t0 + (u32)60; if (c) goto L_484;
+	c = 1; t0 = t0 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(104508U))) return 0; goto L_484; }
 L_f08:
 	v1 = vf_lw((sp + 136U));
 L_f0c:
@@ -6177,12 +6244,12 @@ L_f30:
 	vawb_sw((a3 + (u32)96), t4, 104596U);
 L_f5c:
 	a1 = a1 + (u32)1;
-	c = (a1 != t6); a2 = a2 + (u32)2; if (c) goto L_f30;
+	c = (a1 != t6); a2 = a2 + (u32)2; if (c) { if (unlikely(vawb_loop_guard(104604U))) return 0; goto L_f30; }
 	t2 = t2 + (u32)1;
 	c = (t2 == a1); a0 = a0 + (u32)28; if (c) goto L_f80;
 L_f74:
 	a2 = a0;
-	c = 1; a1 = 0U; if (c) goto L_f30;
+	c = 1; a1 = 0U; if (c) { if (unlikely(vawb_loop_guard(104628U))) return 0; goto L_f30; }
 L_f80:
 	a0 = vawb_lw((a3 + (u32)48), 104636U);
 	a1 = vawb_lw((a3 + (u32)0), 104640U);
@@ -6192,7 +6259,7 @@ L_f80:
 	v1 = vf_lw((sp + 80U));
 	a0 = a0 << 1;
 	a0 = v1 + a0;
-	c = (a3 != t5); vawb_sh((a0 + (u32)0), 0U, 104672U); if (c) goto L_f24;
+	c = (a3 != t5); vawb_sh((a0 + (u32)0), 0U, 104672U); if (c) { if (unlikely(vawb_loop_guard(104668U))) return 0; goto L_f24; }
 	v1 = vf_lw((sp + 88U));
 	a2 = v1 + (u32)240;
 	a0 = v1;
@@ -6260,7 +6327,7 @@ L_fb4:
 	a1 = a1 << 2;
 	a1 = s3 + a1;
 	a1 = vawb_lw((a1 + (u32)0), 104936U);
-	c = (a0 != a2); vawb_sw((a0 + (u32)236), a1, 104944U); if (c) goto L_fb4;
+	c = (a0 != a2); vawb_sw((a0 + (u32)236), a1, 104944U); if (c) { if (unlikely(vawb_loop_guard(104940U))) return 0; goto L_fb4; }
 	v0 = vf_lw((sp + 88U));
 	a1 = 0U;
 	t1 = (u32)60;
@@ -6269,7 +6336,7 @@ L_10c4:
 	a1 = a1 + (u32)1;
 	c = (a2 != 0); a1 = a1 & 65535U; if (c) goto L_1138;
 L_10d4:
-	c = (a1 != t1); v0 = v0 + (u32)4; if (c) goto L_10c4;
+	c = (a1 != t1); v0 = v0 + (u32)4; if (c) { if (unlikely(vawb_loop_guard(104976U))) return 0; goto L_10c4; }
 	v0 = vf_lw((sp + 88U));
 	s1 = (u32)60;
 L_10e4:
@@ -6294,11 +6361,11 @@ L_1114:
 	c = 1; t5 = a3 + v1; if (c) goto L_1204;
 L_1138:
 	a2 = vawb_lw((v0 + (u32)240), 105076U);
-	c = (a2 == 0); a2 = v0 + (u32)4; if (c) goto L_10d4;
+	c = (a2 == 0); a2 = v0 + (u32)4; if (c) { if (unlikely(vawb_loop_guard(105080U))) return 0; goto L_10d4; }
 	a3 = a1;
 L_1148:
 	t2 = a3 < (u32)60;
-	c = (t2 == 0);  if (c) goto L_10d4;
+	c = (t2 == 0);  if (c) { if (unlikely(vawb_loop_guard(105096U))) return 0; goto L_10d4; }
 	t3 = vawb_lw((v0 + (u32)0), 105104U);
 	t2 = vawb_lw((a2 + (u32)0), 105108U);
 	c = (t3 != t2);  if (c) goto L_117c;
@@ -6310,7 +6377,7 @@ L_1148:
 L_117c:
 	a3 = a3 + (u32)1;
 	a3 = a3 & 65535U;
-	c = 1; a2 = a2 + (u32)4; if (c) goto L_1148;
+	c = 1; a2 = a2 + (u32)4; if (c) { if (unlikely(vawb_loop_guard(105152U))) return 0; goto L_1148; }
 L_118c:
 	s0 = vawb_lw((t5 + (u32)0), 105160U);
 	t4 = vawb_lw((v0 + (u32)0), 105164U);
@@ -6344,8 +6411,8 @@ L_11f8:
 	t5 = t5 + (u32)4;
 L_1204:
 	v1 = vf_lw((sp + 36U));
-	c = (t2 != v1); v1 = vf_lw((sp + 40U)); if (c) goto L_118c;
-	c = 1; t6 = t6 + (u32)1; if (c) goto L_1114;
+	c = (t2 != v1); v1 = vf_lw((sp + 40U)); if (c) { if (unlikely(vawb_loop_guard(105284U))) return 0; goto L_118c; }
+	c = 1; t6 = t6 + (u32)1; if (c) { if (unlikely(vawb_loop_guard(105292U))) return 0; goto L_1114; }
 L_1218:
 	c = (a2 == 0); a3 = a2 >> 1; if (c) goto L_12a4;
 	a1 = a3 + a1;
@@ -6377,10 +6444,10 @@ L_1288:
 	c = (a3 != 0);  if (c) goto L_12a4;
 	vawb_sw((v0 + (u32)0), a1, 105424U);
 	vawb_sw((v0 + (u32)240), t7, 105428U);
-	c = 1; vawb_sw((v0 + (u32)480), a2, 105436U); if (c) goto L_10fc;
+	c = 1; vawb_sw((v0 + (u32)480), a2, 105436U); if (c) { if (unlikely(vawb_loop_guard(105432U))) return 0; goto L_10fc; }
 L_12a4:
 	v0 = v0 + (u32)4;
-	c = (v0 != a0); v1 = vf_lw((sp + 48U)); if (c) goto L_10e4;
+	c = (v0 != a0); v1 = vf_lw((sp + 48U)); if (c) { if (unlikely(vawb_loop_guard(105444U))) return 0; goto L_10e4; }
 	a2 = v1 + (u32)240;
 	t1 = v1;
 	a0 = vf_lw((sp + 88U));
@@ -6398,7 +6465,7 @@ L_12bc:
 	vawb_sw((t1 + (u32)480), a1, 105512U);
 L_12f0:
 	a0 = a0 + (u32)4;
-	c = (a0 != v0);  if (c) goto L_12bc;
+	c = (a0 != v0);  if (c) { if (unlikely(vawb_loop_guard(105520U))) return 0; goto L_12bc; }
 	a0 = vawb_lw((t1 + (u32)480), 105528U);
 	c = (a0 == 0); t2 = 0U; if (c) goto L_13c4;
 	t3 = vf_lw((sp + 88U));
@@ -6432,7 +6499,7 @@ L_1350:
 	t4 = v1 + t4;
 L_1380:
 	t3 = t3 + (u32)4;
-	c = (t3 != v0);  if (c) goto L_1314;
+	c = (t3 != v0);  if (c) { if (unlikely(vawb_loop_guard(105664U))) return 0; goto L_1314; }
 	c = (t2 == 0); a1 = t2 >> 1; if (c) goto L_13b8;
 	a0 = a1 + a0;
 	acc = vawb_divu(a0, t2, 105684U);
@@ -6445,7 +6512,7 @@ L_1380:
 	vawb_sw((t1 + (u32)240), a0, 105712U);
 L_13b8:
 	t1 = t1 + (u32)4;
-	c = (t1 != a2); a0 = vf_lw((sp + 88U)); if (c) goto L_12bc;
+	c = (t1 != a2); a0 = vf_lw((sp + 88U)); if (c) { if (unlikely(vawb_loop_guard(105720U))) return 0; goto L_12bc; }
 L_13c4:
 	v0 = vf_lw((sp + 48U));
 	t4 = (u32)60;
@@ -6507,12 +6574,12 @@ L_14ac:
 	v1 = vf_lw((sp + 36U));
 	a0 = a3 & 65535U;
 	a0 = a0 < v1;
-	c = (a0 != 0);  if (c) goto L_1414;
+	c = (a0 != 0);  if (c) { if (unlikely(vawb_loop_guard(105972U))) return 0; goto L_1414; }
 	t2 = t2 + (u32)1;
-	c = 1; t3 = t3 + (u32)60; if (c) goto L_13f0;
+	c = 1; t3 = t3 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(105984U))) return 0; goto L_13f0; }
 L_14cc:
 	v0 = v0 + (u32)4;
-	c = (v0 != a2);  if (c) goto L_13cc;
+	c = (v0 != a2);  if (c) { if (unlikely(vawb_loop_guard(105996U))) return 0; goto L_13cc; }
 	v0 = vf_lw((sp + 48U));
 	a1 = v0 + (u32)720;
 	a3 = v0 + (u32)960;
@@ -6527,7 +6594,7 @@ L_14e8:
 	vawb_sw((v0 + (u32)0), a0, 106048U);
 L_1508:
 	v0 = v0 + (u32)4;
-	c = (v0 != a3);  if (c) goto L_14e8;
+	c = (v0 != a3);  if (c) { if (unlikely(vawb_loop_guard(106056U))) return 0; goto L_14e8; }
 	a3 = 0U;
 L_1518:
 	a0 = vawb_lw((a1 + (u32)0), 106068U);
@@ -6535,7 +6602,7 @@ L_1518:
 	if (a2 != 0) a3 = a0;
 L_1528:
 	a1 = a1 + (u32)4;
-	c = (v0 != a1); t5 = a3 >> 1; if (c) goto L_1518;
+	c = (v0 != a1); t5 = a3 >> 1; if (c) { if (unlikely(vawb_loop_guard(106088U))) return 0; goto L_1518; }
 	v0 = vf_lw((sp + 48U));
 	t4 = (u32)256;
 	t1 = v0 + (u32)480;
@@ -6561,7 +6628,7 @@ L_1574:
 	acc += (u64)((s64)(s32)a0 * (s64)(s32)v0);
 	v0 = (u32)acc;
 	v0 = v0 >> 8;
-	c = (a2 != t3); vawb_sw((a2 + (u32)-4), v0, 106196U); if (c) goto L_1548;
+	c = (a2 != t3); vawb_sw((a2 + (u32)-4), v0, 106196U); if (c) { if (unlikely(vawb_loop_guard(106192U))) return 0; goto L_1548; }
 	a0 = 0U;
 L_15a0:
 	v0 = vawb_lw((t1 + (u32)0), 106204U);
@@ -6569,7 +6636,7 @@ L_15a0:
 	if (a1 != 0) a0 = v0;
 L_15b0:
 	t1 = t1 + (u32)4;
-	c = (t1 != a2);  if (c) goto L_15a0;
+	c = (t1 != a2);  if (c) { if (unlikely(vawb_loop_guard(106224U))) return 0; goto L_15a0; }
 	c = (a0 == 0); v0 = vf_lw((sp + 48U)); if (c) goto L_1714;
 	t9 = a0 >> 1;
 	t7 = 0U;
@@ -6623,7 +6690,7 @@ L_1650:
 L_1694:
 	a3 = a3 + (u32)-1;
 	a3 = a3 & 65535U;
-	c = (a3 != 0); t4 = t4 + (u32)4; if (c) goto L_15fc;
+	c = (a3 != 0); t4 = t4 + (u32)4; if (c) { if (unlikely(vawb_loop_guard(106456U))) return 0; goto L_15fc; }
 	c = (v0 == 0); a1 = vawb_lw((t2 + (u32)0), 106468U); if (c) goto L_1708;
 	v1 = vf_lw((sp + 48U));
 	v0 = v0 + (u32)-1;
@@ -6642,14 +6709,14 @@ L_16c8:
 	vawb_sw((t2 + (u32)-4), v0, 106524U);
 L_16e4:
 	v0 = vf_lw((sp + 36U));
-	c = (t1 != v0); v0 = 0U; if (c) goto L_15f4;
+	c = (t1 != v0); v0 = 0U; if (c) { if (unlikely(vawb_loop_guard(106532U))) return 0; goto L_15f4; }
 	t3 = t3 + (u32)1;
 	t3 = t3 & 65535U;
-	c = 1; t7 = t7 + (u32)60; if (c) goto L_15d4;
+	c = 1; t7 = t7 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(106548U))) return 0; goto L_15d4; }
 L_1700:
-	c = 1; v0 = a2; if (c) goto L_1694;
+	c = 1; v0 = a2; if (c) { if (unlikely(vawb_loop_guard(106556U))) return 0; goto L_1694; }
 L_1708:
-	c = 1; v0 = t9 + a1; if (c) goto L_16c8;
+	c = 1; v0 = t9 + a1; if (c) { if (unlikely(vawb_loop_guard(106564U))) return 0; goto L_16c8; }
 L_1710:
 	v0 = vf_lw((sp + 48U));
 L_1714:
@@ -6664,7 +6731,7 @@ L_1724:
 	a2 = a2 + (u32)1;
 L_1738:
 	v0 = v0 + (u32)4;
-	c = (v0 != a1); t5 = vf_lw((sp + 216U)); if (c) goto L_1724;
+	c = (v0 != a1); t5 = vf_lw((sp + 216U)); if (c) { if (unlikely(vawb_loop_guard(106616U))) return 0; goto L_1724; }
 	t4 = vf_lw((sp + 212U));
 	a1 = 0U;
 	s0 = (u32)1;
@@ -6730,12 +6797,12 @@ L_1848:
 	t8 = v0 + t8;
 	c = 1; v0 = vawb_lhu((t8 + (u32)0), 106900U); if (c) goto L_1878;
 L_185c:
-	c = (v0 != 0);  if (c) goto L_1848;
+	c = (v0 != 0);  if (c) { if (unlikely(vawb_loop_guard(106904U))) return 0; goto L_1848; }
 L_1864:
 	a0 = vawb_lw((t7 + (u32)0), 106912U);
 	a0 = (u32)((s32)a0 * (s32)a0);
 	a0 = t8 < a0;
-	c = (a0 == 0); v0 = (u32)256; if (c) goto L_1848;
+	c = (a0 == 0); v0 = (u32)256; if (c) { if (unlikely(vawb_loop_guard(106924U))) return 0; goto L_1848; }
 L_1878:
 	a0 = vawb_lw((t2 + (u32)0), 106932U);
 	v0 = s1 - v0;
@@ -6750,15 +6817,15 @@ L_1894:
 	t1 = t1 + (u32)4;
 L_18a4:
 	v0 = vf_lw((sp + 36U));
-	c = (a3 != v0); v1 = vf_lw((sp + 40U)); if (c) goto L_17ac;
+	c = (a3 != v0); v1 = vf_lw((sp + 40U)); if (c) { if (unlikely(vawb_loop_guard(106980U))) return 0; goto L_17ac; }
 	v0 = vf_lw((sp + 60U));
 	t3 = t3 + (u32)1;
-	c = 1; t6 = t6 + v0; if (c) goto L_1784;
+	c = 1; t6 = t6 + v0; if (c) { if (unlikely(vawb_loop_guard(106996U))) return 0; goto L_1784; }
 L_18c0:
 	a1 = a1 + (u32)1;
 	v0 = (u32)10;
 	t5 = t5 + (u32)2;
-	c = (a1 != v0); t4 = t4 + (u32)2; if (c) goto L_1758;
+	c = (a1 != v0); t4 = t4 + (u32)2; if (c) { if (unlikely(vawb_loop_guard(107016U))) return 0; goto L_1758; }
 	v1 = 0U;
 	a0 = 0U;
 	a2 = (u32)60;
@@ -6777,10 +6844,10 @@ L_1904:
 	a1 = a1 + (u32)4;
 L_1914:
 	a3 = vf_lw((sp + 36U));
-	c = (v0 != a3); v0 = v0 + (u32)1; if (c) goto L_1904;
-	c = 1; v1 = v1 + (u32)1; if (c) goto L_18e0;
+	c = (v0 != a3); v0 = v0 + (u32)1; if (c) { if (unlikely(vawb_loop_guard(107092U))) return 0; goto L_1904; }
+	c = 1; v1 = v1 + (u32)1; if (c) { if (unlikely(vawb_loop_guard(107100U))) return 0; goto L_18e0; }
 L_1928:
-	c = (a0 == 0); s5 = 0; if (c) goto L_2d4;
+	c = (a0 == 0); s5 = 0; if (c) { if (unlikely(vawb_loop_guard(107108U))) return 0; goto L_2d4; }
 	v0 = vawb_lw((csp + 8U), 107116U);
 	t5 = vf_lw((sp + 44U));
 	vawb_sw((v0 + (u32)0), 0U, 107124U);
@@ -6862,15 +6929,15 @@ L_199c:
 	t3 = t3 + (u32)1;
 	s5 = s5 + (u32)4;
 L_1a7c:
-	c = (s7 != t7); a0 = s8; if (c) goto L_199c;
+	c = (s7 != t7); a0 = s8; if (c) { if (unlikely(vawb_loop_guard(107448U))) return 0; goto L_199c; }
 	v0 = vf_lw((sp + 60U));
 	s1 = s1 + (u32)60;
 	t2 = t2 + (u32)60;
 	t4 = t4 + (u32)15;
-	c = 1; t5 = t5 + v0; if (c) goto L_1978;
+	c = 1; t5 = t5 + v0; if (c) { if (unlikely(vawb_loop_guard(107472U))) return 0; goto L_1978; }
 L_1a9c:
 	v0 = s2 | s0;
-	c = (v0 == 0); a2 = s6; if (c) goto L_2d4;
+	c = (v0 == 0); a2 = s6; if (c) { if (unlikely(vawb_loop_guard(107484U))) return 0; goto L_2d4; }
 	v0 = 0;
 	vf_sw((sp + 20U), s0);
 	a3 = v1;
@@ -7001,10 +7068,10 @@ L_1cbc:
 	t7 = t7 + (u32)4;
 	t3 = t3 + (u32)4;
 L_1cd0:
-	c = (t1 != t4); v0 = vf_lw((sp + 60U)); if (c) goto L_1bb8;
+	c = (t1 != t4); v0 = vf_lw((sp + 60U)); if (c) { if (unlikely(vawb_loop_guard(108044U))) return 0; goto L_1bb8; }
 	s7 = s7 + (u32)15;
 	t1 = t1 + (u32)60;
-	c = 1; t6 = t6 + v0; if (c) goto L_1b8c;
+	c = 1; t6 = t6 + v0; if (c) { if (unlikely(vawb_loop_guard(108060U))) return 0; goto L_1b8c; }
 L_1ce8:
 	v0 = 0;
 	v0 = v0 + ((u32)(uintptr_t)vawb_fix_point_div_32 + 0U);
@@ -7120,7 +7187,7 @@ L_1dd4:
 	vf_sw((sp + 52U), v0);
 L_1ec0:
 	v0 = vf_lw((sp + 108U));
-	c = (v0 != s5); v0 = vf_lw((sp + 52U)); if (c) goto L_1dac;
+	c = (v0 != s5); v0 = vf_lw((sp + 52U)); if (c) { if (unlikely(vawb_loop_guard(108544U))) return 0; goto L_1dac; }
 	v0 = vf_lw((sp + 64U));
 	v1 = vf_lw((sp + 60U));
 	s6 = s6 + (u32)60;
@@ -7137,12 +7204,12 @@ L_1ec0:
 	vf_sw((sp + 140U), v0);
 	v0 = vf_lw((sp + 32U));
 	v0 = v0 + (u32)60;
-	c = 1; vf_sw((sp + 32U), v0); if (c) goto L_1d58;
+	c = 1; vf_sw((sp + 32U), v0); if (c) { if (unlikely(vawb_loop_guard(108616U))) return 0; goto L_1d58; }
 L_1f14:
 	a0 = vf_lw((sp + 128U));
 	a0 = v0 < a0;
 	c = (a0 == 0); v1 = vawb_lw((v1 + (u32)0), 108636U); if (c) goto L_1f2c;
-	c = 1; vawb_sw((s5 + (u32)0), v1, 108644U); if (c) goto L_1dd4;
+	c = 1; vawb_sw((s5 + (u32)0), v1, 108644U); if (c) { if (unlikely(vawb_loop_guard(108640U))) return 0; goto L_1dd4; }
 L_1f2c:
 	vf_sw((sp + 124U), v1);
 	v1 = vf_lw((sp + 128U));
@@ -7156,7 +7223,7 @@ L_1f2c:
 	v1 = vf_lw((sp + 124U));
 	v0 = vf_lw((sp + 96U));
 	tg = v0; a1 = v1; { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 108696U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
-	c = 1; vawb_sw((s5 + (u32)0), v0, 108708U); if (c) goto L_1dd4;
+	c = 1; vawb_sw((s5 + (u32)0), v0, 108708U); if (c) { if (unlikely(vawb_loop_guard(108704U))) return 0; goto L_1dd4; }
 L_1f6c:
 	v0 = s2 | s3;
 	c = (v0 == 0); v0 = 0; if (c) goto L_1fbc;
@@ -7186,10 +7253,10 @@ L_1fbc:
 	vawb_sw((v0 + (u32)4), s0, 108820U);
 	v0 = vawb_lw((csp + 8U), 108824U);
 	vawb_sw((v0 + (u32)0), 0U, 108828U);
-	c = 1; vawb_sw((v0 + (u32)4), 0U, 108836U); if (c) goto L_b4;
+	c = 1; vawb_sw((v0 + (u32)4), 0U, 108836U); if (c) { if (unlikely(vawb_loop_guard(108832U))) return 0; goto L_b4; }
 L_1fec:
 	a0 = (u32)15;
-	c = (v0 == a0); s7 = 0U; if (c) goto L_6e8;
+	c = (v0 == a0); s7 = 0U; if (c) { if (unlikely(vawb_loop_guard(108844U))) return 0; goto L_6e8; }
 	a0 = s7 + (u32)-1;
 L_1ffc:
 	a1 = a0;
@@ -7202,11 +7269,11 @@ L_1ffc:
 	a0 = v1 + a0;
 	a1 = vawb_lhu((a0 + (u32)0), 108888U);
 	a1 = a1 + (u32)1;
-	c = (v0 == 0); vawb_sh((a0 + (u32)0), a1, 108900U); if (c) goto L_84c;
-	c = 1;  if (c) goto L_708;
+	c = (v0 == 0); vawb_sh((a0 + (u32)0), a1, 108900U); if (c) { if (unlikely(vawb_loop_guard(108896U))) return 0; goto L_84c; }
+	c = 1;  if (c) { if (unlikely(vawb_loop_guard(108904U))) return 0; goto L_708; }
 L_2034:
-	c = (v0 != a0); v1 = vf_lw((sp + 80U)); if (c) goto L_82c;
-	c = 1; a0 = vawb_lhu((v1 + (u32)390), 108924U); if (c) goto L_65c;
+	c = (v0 != a0); v1 = vf_lw((sp + 80U)); if (c) { if (unlikely(vawb_loop_guard(108912U))) return 0; goto L_82c; }
+	c = 1; a0 = vawb_lhu((v1 + (u32)390), 108924U); if (c) { if (unlikely(vawb_loop_guard(108920U))) return 0; goto L_65c; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -7277,11 +7344,11 @@ L_d8:
 	t0 = t0 + (u32)4;
 L_e0:
 	v0 = t7 < s6;
-	c = (v0 != 0); v0 = a1 + t0; if (c) goto L_ac;
+	c = (v0 != 0); v0 = a1 + t0; if (c) { if (unlikely(vawb_loop_guard(206492U))) return 0; goto L_ac; }
 	t4 = t4 + (u32)1;
 	t5 = t5 + (u32)60;
 	a1 = a1 + (u32)60;
-	c = 1; t2 = t2 + (u32)60; if (c) goto L_68;
+	c = 1; t2 = t2 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(206512U))) return 0; goto L_68; }
 L_100:
 	v1 = vawb_lw((s1 + (u32)0), 206520U);
 	v0 = v0 + t0;
@@ -7300,7 +7367,7 @@ L_100:
 	t6 = v1;
 	v1 = t3 < v1;
 	if (v1 != 0) t6 = t3;
-	c = (t6 == 0); v1 = t6 << (t8 & 31); if (c) goto L_d0;
+	c = (t6 == 0); v1 = t6 << (t8 & 31); if (c) { if (unlikely(vawb_loop_guard(206588U))) return 0; goto L_d0; }
 	t6 = vawb_lhu((s5 + (u32)0), 206596U);
 	c = (t6 != t9); t6 = vf_lw((sp + 12U)); if (c) goto L_17c;
 	t6 = v0 < t1;
@@ -7310,7 +7377,7 @@ L_100:
 	acc = vawb_divu(v1, t3, 206624U);
 	s0 = s3 + t0;
 	t1 = (u32)acc;
-	c = 1; vawb_sw((s0 + (u32)0), t1, 206640U); if (c) goto L_d8;
+	c = 1; vawb_sw((s0 + (u32)0), t1, 206640U); if (c) { if (unlikely(vawb_loop_guard(206636U))) return 0; goto L_d8; }
 L_17c:
 	v0 = v0 + t1;
 	v0 = v0 + t3;
@@ -7319,7 +7386,7 @@ L_17c:
 	v0 = (u32)acc;
 	acc = vawb_divu(v1, v0, 206664U);
 	v1 = (u32)acc;
-	c = 1; vawb_sw((t6 + (u32)0), v1, 206676U); if (c) goto L_d8;
+	c = 1; vawb_sw((t6 + (u32)0), v1, 206676U); if (c) { if (unlikely(vawb_loop_guard(206672U))) return 0; goto L_d8; }
 L_1a0:
 	s8 = vf_lw((sp + 52U));
 	s7 = vf_lw((sp + 48U));
@@ -7375,11 +7442,11 @@ L_68:
 	v0 = v0 + t2;
 L_78:
 	t2 = a3 < a2;
-	c = (t2 != 0); t2 = a3 << 2; if (c) goto L_68;
+	c = (t2 != 0); t2 = a3 << 2; if (c) { if (unlikely(vawb_loop_guard(165604U))) return 0; goto L_68; }
 	t0 = t0 + (u32)1;
-	c = 1; t1 = t1 + (u32)60; if (c) goto L_20;
+	c = 1; t1 = t1 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(165616U))) return 0; goto L_20; }
 L_90:
-	c = 1; a3 = 0U; if (c) goto L_78;
+	c = 1; a3 = 0U; if (c) { if (unlikely(vawb_loop_guard(165624U))) return 0; goto L_78; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -7424,11 +7491,11 @@ L_68:
 	v0 = v0 + t2;
 L_78:
 	t2 = a3 < a2;
-	c = (t2 != 0); t2 = a3 << 2; if (c) goto L_68;
+	c = (t2 != 0); t2 = a3 << 2; if (c) { if (unlikely(vawb_loop_guard(171372U))) return 0; goto L_68; }
 	t0 = t0 + (u32)1;
-	c = 1; t1 = t1 + (u32)60; if (c) goto L_20;
+	c = 1; t1 = t1 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(171384U))) return 0; goto L_20; }
 L_90:
-	c = 1; a3 = 0U; if (c) goto L_78;
+	c = 1; a3 = 0U; if (c) { if (unlikely(vawb_loop_guard(171392U))) return 0; goto L_78; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -7465,9 +7532,9 @@ L_58:
 	 return ((u64)v1 << 32) | v0;
 L_60:
 	v0 = v1 - v0;
-	c = 1; a0 = (u32)1; if (c) goto L_38;
+	c = 1; a0 = (u32)1; if (c) { if (unlikely(vawb_loop_guard(90980U))) return 0; goto L_38; }
 L_6c:
-	c = 1; v0 = v1 + v0; if (c) goto L_54;
+	c = 1; v0 = v1 + v0; if (c) { if (unlikely(vawb_loop_guard(90988U))) return 0; goto L_54; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -7536,34 +7603,34 @@ L_f4:
 L_fc:
 	t0 = 16U << 16;
 	a1 = 0U;
-	c = 1; v1 = 8U << 16; if (c) goto L_8c;
+	c = 1; v1 = 8U << 16; if (c) { if (unlikely(vawb_loop_guard(192928U))) return 0; goto L_8c; }
 L_10c:
 	a1 = 0U;
-	c = 1; v1 = 4U << 16; if (c) goto L_8c;
+	c = 1; v1 = 4U << 16; if (c) { if (unlikely(vawb_loop_guard(192940U))) return 0; goto L_8c; }
 L_118:
 	a1 = 0U;
-	c = 1; v1 = 2U << 16; if (c) goto L_8c;
+	c = 1; v1 = 2U << 16; if (c) { if (unlikely(vawb_loop_guard(192952U))) return 0; goto L_8c; }
 L_124:
 	a1 = 0U;
-	c = 1; v1 = 1U << 16; if (c) goto L_8c;
+	c = 1; v1 = 1U << 16; if (c) { if (unlikely(vawb_loop_guard(192964U))) return 0; goto L_8c; }
 L_130:
 	a1 = 0U;
-	c = 1; v1 = (u32)32768; if (c) goto L_8c;
+	c = 1; v1 = (u32)32768; if (c) { if (unlikely(vawb_loop_guard(192976U))) return 0; goto L_8c; }
 L_13c:
 	a1 = 0U;
-	c = 1; v1 = (u32)16384; if (c) goto L_8c;
+	c = 1; v1 = (u32)16384; if (c) { if (unlikely(vawb_loop_guard(192988U))) return 0; goto L_8c; }
 L_148:
 	a1 = 0U;
-	c = 1; v1 = (u32)8192; if (c) goto L_8c;
+	c = 1; v1 = (u32)8192; if (c) { if (unlikely(vawb_loop_guard(193000U))) return 0; goto L_8c; }
 L_154:
 	a1 = 0U;
-	c = 1; v1 = (u32)4096; if (c) goto L_8c;
+	c = 1; v1 = (u32)4096; if (c) { if (unlikely(vawb_loop_guard(193012U))) return 0; goto L_8c; }
 L_160:
 	a1 = 0U;
-	c = 1; v1 = (u32)2048; if (c) goto L_8c;
+	c = 1; v1 = (u32)2048; if (c) { if (unlikely(vawb_loop_guard(193024U))) return 0; goto L_8c; }
 L_16c:
 	v1 = v0;
-	c = 1; a3 = t4; if (c) goto L_94;
+	c = 1; a3 = t4; if (c) { if (unlikely(vawb_loop_guard(193036U))) return 0; goto L_94; }
 L_178:
 	t3 = (u32)((s32)t4 * (s32)v0);
 L_17c:
@@ -7573,16 +7640,16 @@ L_17c:
 	t3 = t3 + t7;
 	t2 = t3 < t5;
 	t6 = (u32)acc;
-	c = (t2 != 0); t7 = t3; if (c) goto L_16c;
+	c = (t2 != 0); t7 = t3; if (c) { if (unlikely(vawb_loop_guard(193072U))) return 0; goto L_16c; }
 	c = (t5 != t3); t2 = t6 < a0; if (c) goto L_1ac;
-	c = (t2 != 0);  if (c) goto L_16c;
+	c = (t2 != 0);  if (c) { if (unlikely(vawb_loop_guard(193088U))) return 0; goto L_16c; }
 L_1ac:
 	t2 = t5 < t7;
 	t0 = v0;
-	c = (t2 != 0); a1 = t4; if (c) goto L_94;
-	c = (t5 != t7); t2 = a0 < t6; if (c) goto L_d8;
-	c = (t2 != 0); t1 = t1 << 30; if (c) goto L_94;
-	c = 1; a2 = a2 >> 2; if (c) goto L_e0;
+	c = (t2 != 0); a1 = t4; if (c) { if (unlikely(vawb_loop_guard(193104U))) return 0; goto L_94; }
+	c = (t5 != t7); t2 = a0 < t6; if (c) { if (unlikely(vawb_loop_guard(193112U))) return 0; goto L_d8; }
+	c = (t2 != 0); t1 = t1 << 30; if (c) { if (unlikely(vawb_loop_guard(193120U))) return 0; goto L_94; }
+	c = 1; a2 = a2 >> 2; if (c) { if (unlikely(vawb_loop_guard(193128U))) return 0; goto L_e0; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -7633,7 +7700,7 @@ L_90:
 	a1 = v0;
 	a2 = s0;
 	tg = s2; a0 = s3; { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 97444U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
-	c = 1; v0 = s1 - v0; if (c) goto L_74;
+	c = 1; v0 = s1 - v0; if (c) { if (unlikely(vawb_loop_guard(97452U))) return 0; goto L_74; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -7681,7 +7748,7 @@ L_88:
 	a1 = v0;
 	a2 = s1;
 	tg = s2; a0 = s3; { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 97612U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
-	c = 1; v0 = s0 - v0; if (c) goto L_6c;
+	c = 1; v0 = s0 - v0; if (c) { if (unlikely(vawb_loop_guard(97620U))) return 0; goto L_6c; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -7805,9 +7872,9 @@ L_188:
 	s0 = vf_lw((sp + 48U));
 	 return ((u64)v1 << 32) | v0;
 L_1bc:
-	c = 1; a3 = v0; if (c) goto L_a8;
+	c = 1; a3 = v0; if (c) { if (unlikely(vawb_loop_guard(98240U))) return 0; goto L_a8; }
 L_1c4:
-	c = 1; s5 = a1; if (c) goto L_ec;
+	c = 1; s5 = a1; if (c) { if (unlikely(vawb_loop_guard(98248U))) return 0; goto L_ec; }
 L_1cc:
 	a0 = a0 | 65535U;
 	s6 = v0 + a0;
@@ -7829,7 +7896,7 @@ L_1f0:
 	v0 = vawb_lw((s0 + (u32)840), 98324U);
 	vf_sw((sp + 20U), v0);
 	v0 = vawb_lw((v1 + (u32)4), 98332U);
-	c = 1; vf_sw((sp + 16U), v0); if (c) goto L_164;
+	c = 1; vf_sw((sp + 16U), v0); if (c) { if (unlikely(vawb_loop_guard(98336U))) return 0; goto L_164; }
 L_224:
 	s0 = a1 << 4;
 	s0 = s0 - a1;
@@ -7875,7 +7942,7 @@ L_224:
 	vf_sw((sp + 16U), v0);
 	v0 = 0;
 	a0 = s7;
-	c = 1; v0 = v0 + ((u32)(uintptr_t)vawb_ISPAWBInterpolation2 + 0U); if (c) goto L_174;
+	c = 1; v0 = v0 + ((u32)(uintptr_t)vawb_ISPAWBInterpolation2 + 0U); if (c) { if (unlikely(vawb_loop_guard(98528U))) return 0; goto L_174; }
 L_2e4:
 	a2 = v0;
 	a1 = a1 + (u32)16960;
@@ -7887,13 +7954,13 @@ L_2e4:
 	v1 = (u32)1;
 	v1 = v1 << (a0 & 31);
 	v0 = v1 + v0;
-	c = 1; v0 = v0 >> (s2 & 31); if (c) goto L_188;
+	c = 1; v0 = v0 >> (s2 & 31); if (c) { if (unlikely(vawb_loop_guard(98580U))) return 0; goto L_188; }
 L_318:
-	c = (v0 != a0); s0 = (u32)60; if (c) goto L_1f0;
-	c = 1; a0 = (u32)((s32)v0 * (s32)s0); if (c) goto L_134;
+	c = (v0 != a0); s0 = (u32)60; if (c) { if (unlikely(vawb_loop_guard(98588U))) return 0; goto L_1f0; }
+	c = 1; a0 = (u32)((s32)v0 * (s32)s0); if (c) { if (unlikely(vawb_loop_guard(98596U))) return 0; goto L_134; }
 L_328:
-	c = (a0 != s4); v0 = (u32)15; if (c) goto L_e0;
-	c = 1; s0 = (u32)60; if (c) goto L_130;
+	c = (a0 != s4); v0 = (u32)15; if (c) { if (unlikely(vawb_loop_guard(98604U))) return 0; goto L_e0; }
+	c = 1; s0 = (u32)60; if (c) { if (unlikely(vawb_loop_guard(98612U))) return 0; goto L_130; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -7973,9 +8040,9 @@ L_24:
 	s0 = s0 | 1U;
 	v0 = v0 - a2;
 L_40:
-	c = 1; v1 = v1 + (u32)1; if (c) goto L_24;
+	c = 1; v1 = v1 + (u32)1; if (c) { if (unlikely(vawb_loop_guard(87808U))) return 0; goto L_24; }
 L_48:
-	c = (a2 != v0);  if (c) goto L_40;
+	c = (a2 != v0);  if (c) { if (unlikely(vawb_loop_guard(87816U))) return 0; goto L_40; }
 	v0 = a3 + (u32)-1;
 	s0 = s0 | 1U;
 	v1 = v0 - v1;
@@ -8074,7 +8141,7 @@ L_8c:
 	v0 = v0 - t3;
 	a2 = t0 + a1;
 	a1 = (u32)((s32)v0 * (s32)a0);
-	c = 1; a2 = a1 + a2; if (c) goto L_70;
+	c = 1; a2 = a1 + a2; if (c) { if (unlikely(vawb_loop_guard(97788U))) return 0; goto L_70; }
 	return ((u64)v1 << 32) | v0;
 }
 
@@ -8290,14 +8357,14 @@ L_240:
 	s5 = s5 + (u32)4;
 L_344:
 	v0 = vf_lw((sp + 968U));
-	c = (s5 != v0); t9 = t0 + s5; if (c) goto L_1e0;
+	c = (s5 != v0); t9 = t0 + s5; if (c) { if (unlikely(vawb_loop_guard(99460U))) return 0; goto L_1e0; }
 	s8 = s8 + (u32)15;
 	s4 = s4 + (u32)60;
-	c = 1; t0 = t0 + (u32)60; if (c) goto L_15c;
+	c = 1; t0 = t0 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(99476U))) return 0; goto L_15c; }
 L_360:
-	c = 1; a0 = vf_lw((sp + 960U)); if (c) goto L_240;
+	c = 1; a0 = vf_lw((sp + 960U)); if (c) { if (unlikely(vawb_loop_guard(99484U))) return 0; goto L_240; }
 L_368:
-	c = 1; s5 = 0U; if (c) goto L_344;
+	c = 1; s5 = 0U; if (c) { if (unlikely(vawb_loop_guard(99492U))) return 0; goto L_344; }
 L_370:
 	s4 = 0;
 	a3 = t4;
@@ -8419,13 +8486,13 @@ L_550:
 L_564:
 	v0 = vf_lw((sp + 936U));
 	v0 = t2 < v0;
-	c = (v0 != 0);  if (c) goto L_4ac;
+	c = (v0 != 0);  if (c) { if (unlikely(vawb_loop_guard(100008U))) return 0; goto L_4ac; }
 	a1 = a1 + (u32)-60;
-	c = 1; t4 = t4 + (u32)60; if (c) goto L_40c;
+	c = 1; t4 = t4 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(100020U))) return 0; goto L_40c; }
 L_580:
 	t1 = t6 - a1;
 	t2 = 0U;
-	c = 1; t3 = v0 - a1; if (c) goto L_564;
+	c = 1; t3 = v0 - a1; if (c) { if (unlikely(vawb_loop_guard(100036U))) return 0; goto L_564; }
 L_590:
 	a2 = vawb_lbu((s5 + (u32)0), 100044U);
 	a3 = vawb_lw((s7 + (u32)0), 100048U);
@@ -8484,8 +8551,8 @@ L_670:
 	v1 = vf_lw((sp + 936U));
 	v0 = s5 + s2;
 	v0 = v0 < v1;
-	c = (v0 != 0); v0 = vf_lw((sp + 932U)); if (c) goto L_590;
-	c = 1; s2 = s2 + (u32)-15; if (c) goto L_470;
+	c = (v0 != 0); v0 = vf_lw((sp + 932U)); if (c) { if (unlikely(vawb_loop_guard(100280U))) return 0; goto L_590; }
+	c = 1; s2 = s2 + (u32)-15; if (c) { if (unlikely(vawb_loop_guard(100288U))) return 0; goto L_470; }
 L_68c:
 	v0 = t2 | t5;
 	c = (v0 == 0); v1 = vawb_lw((csp + 16U), 100304U); if (c) goto L_6b0;
@@ -8515,7 +8582,7 @@ L_6d4:
 	v1 = vf_lw((sp + 928U));
 	t7 = vf_lw((sp + 932U));
 	vawb_sw((v0 + (u32)0), v1, 100408U);
-	c = 1; vawb_sw((v0 + (u32)4), t7, 100416U); if (c) goto L_1b0;
+	c = 1; vawb_sw((v0 + (u32)4), t7, 100416U); if (c) { if (unlikely(vawb_loop_guard(100412U))) return 0; goto L_1b0; }
 L_708:
 	a3 = t8;
 	vf_sw((sp + 16U), t2);
@@ -8531,6 +8598,6 @@ L_708:
 	a3 = s6;
 	a0 = s0;
 	tg = s4; vf_sw((sp + 928U), v0); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 100476U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
-	c = 1; t7 = v0; if (c) goto L_6d4;
+	c = 1; t7 = v0; if (c) { if (unlikely(vawb_loop_guard(100484U))) return 0; goto L_6d4; }
 	return ((u64)v1 << 32) | v0;
 }

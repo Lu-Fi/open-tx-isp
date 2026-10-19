@@ -7470,12 +7470,12 @@ module_param_named(t40_vawb, regtrace_t40_vawb, bool, 0644);
 MODULE_PARM_DESC(t40_vawb, "T40 AWB: 1 = vendor AWB (OEM chain, default), 0 = old lifted path");
 static bool t40_vawb_live;   /* the translated chain owns pstMainAwbOri (set by its init) */
 static int t40_vawb_main_init(uint32_t a0, uint32_t a1);
+static void t40_vawb_cleanup(void);
 static void t40_vawb_get_statistics(uintptr_t addr);
 static int64_t t40_vawb_process(void);
 static uint32_t t40_vawb_dn_params_refresh(uint32_t a0);
 static int32_t t40_vawb_main_ev_update(uint32_t a0);
 static int32_t t40_vawb_tgain_update(uint32_t a0, uint32_t a1, uint32_t a2);
-static void t40_vawb_ct_follow(void);
 static bool regtrace_t40_awb_spec_regs;   /* T40-AWB-SPEC-REGS: write the special-light registers 0x180xx (MT98: heap corruption with them, likely a stats DMA without a buffer) */
 module_param_named(t40_awb_spec_regs, regtrace_t40_awb_spec_regs, bool, 0644);
 static bool regtrace_t40_awb_ctd;   /* T40-AWB-CTD: run the lifted tisp_awb_ct_detect (8 KB fragment lift, heap-corruption suspect N9); off = gray-world fallback */
@@ -50349,8 +50349,6 @@ static void regtrace_irq_frame_done_workfn(struct work_struct *work)
          * corners (for example GC4653 LUT index 4 is 65535, while userspace
          * deliberately drives DNS at 196608).
          */
-        if (READ_ONCE(t40_vawb_live))
-            t40_vawb_ct_follow();   /* vendor AWB CT -> CCM / LSC / BCSH (OEM event 13 consumers) */
         if (regtrace_enable_lsc_lit) {
             static uint32_t lsc_gain_applied;
             static uint32_t lsc_ct_applied;
@@ -187222,7 +187220,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
             cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
             cancel_work_sync(&regtrace_isp_block_init_work);
             break;
-        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); break;
+        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); t40_vawb_cleanup(); break;
         case 4: regtrace_dmsc_lit_cleanup(); break;
         case 5: regtrace_lsc_lit_cleanup(); break;
         case 6: regtrace_tisp_main_init_param_free(); tisp_disable_tuning(); break;
