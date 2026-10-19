@@ -1230,7 +1230,7 @@ static uintptr_t isp_ch0_frm_done;
 static uintptr_t isp_err;
 static uintptr_t isp_overflow;
 static uintptr_t lce_data_refresh_flag;
-static uintptr_t lce_debug;
+static uintptr_t lce_debug[2];   /* OEM .bss+17296: 8-byte LCE debug block (word 0 = interrupt count), copied by tisp_lce_get_debug */
 static uintptr_t lce_frm_num;
 static uintptr_t lce_lines;
 static uintptr_t lce_main_awdr_para;
@@ -7941,7 +7941,7 @@ int64_t tisp_lce_get_show_data(uintptr_t a0, uintptr_t a1);
 int32_t tisp_lce_tgain_update(uint32_t a0, uint32_t a1);
 int32_t tisp_lce_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2);
 int32_t tisp_lce_param_array_set(uint32_t a0, uint32_t a1);
-int32_t tisp_lce_get_debug(void);
+int32_t tisp_lce_get_debug(void *dst);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t* tisp_defog_get_data_part_0(uintptr_t a0) __asm__("tisp_defog_get_data.part.0");
 #endif
@@ -41039,8 +41039,10 @@ int32_t video_input_cmd_show(void *arg1)
     void *v0;
     int32_t *i;
     int32_t s2_1;
-    int32_t entry_a2;
-    char *video_input_cmd_buf;
+    int32_t entry_a2 = 0;
+    /* OEM video_input_cmd_show (0x71ac) prints the three 128-byte per-sensor strings of the
+     * global video_input_cmd_buf.  The lift declared a local pointer of the same name here, so
+     * the strlen/sprintf("null") below wrote up to 384 bytes over this stack frame. */
     
     v1 = *(void **)((char *)arg1 + 0x4c);
     v0 = NULL;
@@ -128743,11 +128745,13 @@ tisp_lce_param_array_set0xa4:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004da38 origin=model_output original=tisp_lce_get_debug */
-int32_t tisp_lce_get_debug(void)
+int32_t tisp_lce_get_debug(void *dst)
 {
-    extern unsigned char __bss_start;
-    unsigned char *dest = &__bss_start + 17328;
-    memcpy(dest, (void *)0, 8);
+    /* OEM 0x4dd38: memcpy(dst = a0, &lce_debug (.bss+17296, the LCE interrupt counter that
+     * tisp_lce_main_interrupt_static increments), 8).  The lift had lost the argument and
+     * copied 8 bytes from NULL into a placeholder instead. */
+    if (dst)
+        memcpy(dst, &lce_debug, 8);
     return 0;
 }
 
