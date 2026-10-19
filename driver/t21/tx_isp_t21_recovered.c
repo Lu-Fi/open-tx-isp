@@ -789,8 +789,8 @@ struct t21_subdev_core_ops_view {
     void *g_chip_ident;
     int32_t (*init)(void *subdev, int32_t enable);
     int32_t (*reset)(void *subdev, int32_t enable);
-    void *reserved_0c;
-    void *reserved_10;
+    int32_t (*g_register)(void *subdev, void *reg);       /* struct tx_isp_dbg_register */
+    int32_t (*s_register)(void *subdev, const void *reg);
     void *ioctl;
     int32_t (*interrupt_service_routine)(void *subdev, uint32_t status,
                                          void *handled);
@@ -8875,9 +8875,27 @@ register_sensor:
 	case 0x200000c:
 	case 0x200000d:
 	case 0x200000e:
+		goto sensor_ioctl;
 	case 0x200000f:
 	case 0x2000010:
-		goto sensor_ioctl;
+		/* Stock: sensor register access goes to the sensor's core g/s_register with a
+		 * struct tx_isp_dbg_register (the sensor's own ioctl does not know these events,
+		 * forwarding there made IMP_ISP_Set/GetSensorRegister a silent no-op). */
+		if (!active) {
+			isp_printf(1, "[%d] Don't have active sensor!\n", 0x21f);
+			return -1;
+		}
+		{
+			struct t21_sensor_subdev_view *sensor = active;
+			const struct t21_subdev_core_ops_view *core =
+				sensor->ops ? sensor->ops->core : NULL;
+
+			if (!core)
+				return -ENODEV;
+			if (cmd == 0x200000f)
+				return core->s_register ? core->s_register(active, arg) : -ENOIOCTLCMD;
+			return core->g_register ? core->g_register(active, arg) : -ENOIOCTLCMD;
+		}
 	default:
 		break;
 	}
@@ -14365,18 +14383,46 @@ static long tx_isp_unlocked_ioctl(struct file *file, unsigned int cmd,
 			return -EFAULT;
 		return 0;
 	case 0x8038564f:
-	case 0xc0385650:
-		if (private_copy_from_user(buf, (void __user *)arg, 0x38))
+	case 0xc0385650: {
+		/* Stock wire object (0x38 bytes: match type, name[32], size, u64 reg,
+		 * u64 val); the sensor gets a struct tx_isp_dbg_register whose name
+		 * points at the kernel copy (as the T31 driver). */
+		struct {
+			uint32_t match_type;
+			char name[32];
+			uint32_t size;
+			uint64_t reg;
+			uint64_t val;
+		} wire;
+		struct {
+			char *name;
+			unsigned int size;
+			unsigned long long reg;
+			unsigned long long val;
+		} dbg;
+
+		BUILD_BUG_ON(sizeof(wire) != 0x38);
+		if (private_copy_from_user(&wire, (void __user *)arg, sizeof(wire)))
 			return -EFAULT;
+		wire.name[sizeof(wire.name) - 1] = '\0';
+		memset(&dbg, 0, sizeof(dbg));
+		dbg.name = wire.name;
+		dbg.size = wire.size;
+		dbg.reg = wire.reg;
+		dbg.val = wire.val;
 		ret = tx_isp_dispatch_sensor_ioctl(base,
 			cmd == 0x8038564f ? 0x200000f : 0x2000010,
-			buf);
+			&dbg);
 		if (ret)
 			return ret;
-		if (cmd == 0xc0385650 &&
-		    private_copy_to_user((void __user *)arg, buf, 0x38))
-			return -EFAULT;
+		if (cmd == 0xc0385650) {
+			wire.size = dbg.size;
+			wire.val = dbg.val;
+			if (private_copy_to_user((void __user *)arg, &wire, sizeof(wire)))
+				return -EFAULT;
+		}
 		return 0;
+	}
 	case 0x800856d5:
 		vic = t21_setbuf_vic(priv);
 		if (!vic)

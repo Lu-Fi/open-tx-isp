@@ -15990,6 +15990,64 @@ static int regtrace_tx_isp_release(struct inode *inode, struct file *file)
     return 0;
 }
 
+/*
+ * Stock sensor register access (IMP_ISP_Set/GetSensorRegister): 0x38-byte wire
+ * object {match type, name[32], size, u64 reg, u64 val} -> the bound sensor's core
+ * g_register (core ops +0x0c) / s_register (+0x18) with a struct tx_isp_dbg_register
+ * {char *name; u32 size; u64 reg; u64 val} whose name points at the kernel copy.
+ * Before, both ioctls fell through to the stub and returned 0 without any access.
+ */
+static long regtrace_t23_sensor_register_ioctl(unsigned int cmd, unsigned long arg)
+{
+    struct {
+        uint32_t match_type;
+        char name[32];
+        uint32_t size;
+        uint64_t reg;
+        uint64_t val;
+    } wire;
+    struct {
+        char *name;
+        unsigned int size;
+        unsigned long long reg;
+        unsigned long long val;
+    } dbg;
+    uintptr_t sd = (uintptr_t)regtrace_t23_sensor_sd;
+    uintptr_t ops, core_ops, fn;
+    int ret;
+
+    BUILD_BUG_ON(sizeof(wire) != 0x38);
+    if (!regtrace_t23_sensor_registered || !regtrace_t23_valid_ptr(sd))
+        return -ENODEV;
+    ops = *(uint32_t *)(sd + REGTRACE_TX_ISP_SUBDEV_OPS_OFFSET);
+    if (!regtrace_t23_valid_ptr(ops))
+        return -ENODEV;
+    core_ops = *(uint32_t *)(ops + 0);
+    if (!regtrace_t23_valid_ptr(core_ops))
+        return -ENODEV;
+    fn = *(uint32_t *)(core_ops + (cmd == 0x8038564fU ? 0x18 : 0x0c));
+    if (!regtrace_t23_valid_ptr(fn))
+        return -ENOIOCTLCMD;
+    if (copy_from_user(&wire, (void __user *)arg, sizeof(wire)))
+        return -EFAULT;
+    wire.name[sizeof(wire.name) - 1] = '\0';
+    memset(&dbg, 0, sizeof(dbg));
+    dbg.name = wire.name;
+    dbg.size = wire.size;
+    dbg.reg = wire.reg;
+    dbg.val = wire.val;
+    ret = ((int (*)(uintptr_t, void *))fn)(sd, &dbg);
+    if (ret)
+        return ret;
+    if (cmd == 0xc0385650U) {
+        wire.size = dbg.size;
+        wire.val = dbg.val;
+        if (copy_to_user((void __user *)arg, &wire, sizeof(wire)))
+            return -EFAULT;
+    }
+    return 0;
+}
+
 static long regtrace_tx_isp_ioctl_body(struct file *file, unsigned int cmd,
                                         unsigned long arg);
 
@@ -16066,6 +16124,9 @@ static long regtrace_tx_isp_ioctl_body(struct file *file, unsigned int cmd,
         regtrace_t23_sensor_registered = 0;
         return 0;
     }
+
+    if (cmd == 0x8038564fU || cmd == 0xc0385650U)
+        return regtrace_t23_sensor_register_ioctl(cmd, arg);
 
     ret = tx_isp_unlocked_ioctl(file, cmd, arg);
     printk(KERN_INFO "t23: tx-isp ioctl cmd=0x%x arg=0x%lx ret=%ld pid=%d comm=%s\n",
