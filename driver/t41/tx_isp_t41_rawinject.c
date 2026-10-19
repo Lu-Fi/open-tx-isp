@@ -144,8 +144,8 @@ static int rj_inject(uint32_t lines, uint32_t dtype)
 	rp = (void *)(uintptr_t)t41_rawinject_rpars();
 	if (!lines)
 		lines = h;
-	if (!dtype)
-		dtype = 0x20;
+	if (!(dtype & 0xff))
+		dtype |= 0x20;
 	if (w * lines * 2 > rj_size)
 		pr_warn("t41_rawinject: buffer %u < %ux%u x2 bytes\n", rj_size, w, lines);
 	pr_info("t41_rawinject: inject paddr=0x%08x %ux%u lines=%u dtype=0x%x mux=0x%x\n",
@@ -158,12 +158,18 @@ static int rj_inject(uint32_t lines, uint32_t dtype)
 		system_reg_write(0x21004, 1);		/* RDMA enable */
 		msleep(1000);
 	}
-	system_reg_write(0x21024, dtype);
+	system_reg_write(0x21024, dtype & 0xff);
 	system_reg_write(0x21008, lines);
 	system_reg_write(0x21014, w * lines);
 	system_reg_write(0x2100c, rj_paddr);
 	RP_RDMA_EN(rp) = 1;
 	rj_active = 1;
+	/* OEM raw rw-control ends its enable sequence with the mux "run" value;
+	 * the plain single-shot path left the front end at 0x4444 and never
+	 * produced an RDMA frame-done (run a3), so kick it here. */
+	if (dtype & 0x100)
+		system_reg_write(0x801a8, 0x4404);
+	dtype &= 0xff;
 	t = wait_for_completion_interruptible_timeout(RP_RDMA_DONE(rp), 2 * HZ);
 	rj_frames++;
 	pr_info("t41_rawinject: rdma done wait=%ld (0 = timeout) frames=%d\n", t, rj_frames);
