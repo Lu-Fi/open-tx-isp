@@ -23312,6 +23312,8 @@ static void t41_dn_bank_workfn(struct work_struct *work)
 		ret = tisp_params_copy(0, bank, global_wdr_en, 0,
 				       ((unsigned char *)&dnw)[mode ? 3 : 1]);
 		memcpy(dst, keep, sizeof(keep));
+		if (ret > 0)	/* stock copy returns a positive count */
+			ret = 0;
 	}
 	t41_gamma_base_valid = false;
 #define T41_DN_STEP(bit, call) do { if (m & BIT(bit)) { r = (call); if (r && !ret) ret = r; } } while (0)
