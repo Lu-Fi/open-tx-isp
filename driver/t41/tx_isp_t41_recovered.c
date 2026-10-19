@@ -1865,6 +1865,15 @@ module_param(t41_runtime_trace, int, 0644);
 MODULE_PARM_DESC(t41_runtime_trace,
 		 "enable verbose T41 frame/remote-event/IRQ recovery tracing");
 
+/* T41-ISR-FRAMEDOWN: OEM frame-down callbacks 36 (LSC) and 52 (BCSH) in the
+ * hard-wired ISR list (default on); t41_isr_counts[idx] counts the calls. */
+static bool t41_isr_framedown = true;
+module_param(t41_isr_framedown, bool, 0644);
+MODULE_PARM_DESC(t41_isr_framedown, "call the OEM LSC/BCSH frame-down callbacks (irq_func_cb[36]/[52]) from the ISR (default 1)");
+static unsigned int t41_isr_counts[96];
+module_param_array(t41_isr_counts, uint, NULL, 0444);
+MODULE_PARM_DESC(t41_isr_counts, "per-index irq_func_cb call counters (hard-wired ISR list)");
+
 /*
  * Progress notes (bring-up enter/exit, per-ioctl and per-event lines) were
  * KERN_WARNING and flooded dmesg on every stream start, format ioctl and
@@ -139009,7 +139018,11 @@ int32_t tisp_bcsh_init(uint32_t a0)
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_bcsh_write_reg)(s0); /* jalr target resolved by relocation */
 
     /* fragment 10: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_fra_down_interrupt)((uintptr_t)s0, ((uintptr_t)s0 * 42) + 52, &tisp_bcsh_fra_down_interrupt); /* jalr target resolved by relocation */
+    /* OEM 0x5e2a4..0x5e2c0 (vendor T41): system_irq_func_set(vin, vin*42 + 52,
+     * tisp_bcsh_fra_down_interrupt).  The lift resolved the jalr to the callback
+     * itself, so the frame-down handler ran once at init with bogus arguments and
+     * was never registered. */
+    v0 = (uintptr_t)system_irq_func_set((uintptr_t)s0, ((uintptr_t)s0 * 42) + 52, tisp_bcsh_fra_down_interrupt);
 
     /* fragment 11: CallSetup */
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(820, 539099136 + 2051); /* jalr target resolved by relocation */
@@ -170806,6 +170819,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             (t41_safe_ae_controller > 0 || t41_vendor_ae > 0)) {
             t41_heapwatch_mark("isr:aehist");
             int32_t callback = READ_ONCE(irq_func_cb[5]);
+            t41_isr_counts[5]++;
             int64_t callback_ret = -ENODEV;
 
             if (t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)callback))
@@ -170831,6 +170845,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
         }
         if ((status0 & BIT(17)) && t41_safe_tmo_irq_stats < 0) {
             int32_t callback = READ_ONCE(irq_func_cb[17]);
+            t41_isr_counts[17]++;
             int32_t callback_ret = -ENODEV;
 
             if (t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)callback))
@@ -170845,6 +170860,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
 
         if ((status0 & BIT(8)) && t41_stock_lce_ram_profile <= 0) {
             int32_t callback = READ_ONCE(irq_func_cb[8]);
+            t41_isr_counts[8]++;
             int64_t callback_ret = -ENODEV;
 
             if (t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)callback))
@@ -170855,6 +170871,29 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                 printk(KERN_WARNING
                        "t41: ISP LCE stats irq callback=%#x ret=%lld\n",
                        (uint32_t)callback, (long long)callback_ret);
+        }
+
+        /* OEM frame-down commits (vendor tisp_lsc_init / tisp_bcsh_init register
+         * irq_func_cb[36] = tisp_lsc_fra_down_interrupt and [52] =
+         * tisp_bcsh_fra_down_interrupt; index = group*32 + bit, group 1 =
+         * 0x400a8): they write the deferred LSC LUT/registers and the BCSH
+         * registers at frame end.  t41_isr_framedown=0 skips them. */
+        if (t41_isr_framedown) {
+            static const uint8_t fd_bits[2] = { 36 - 32, 52 - 32 };
+            int k;
+
+            for (k = 0; k < 2; k++) {
+                int idx = 32 + fd_bits[k];
+                int32_t callback;
+
+                if (!(status2 & BIT(fd_bits[k])))
+                    continue;
+                callback = READ_ONCE(irq_func_cb[idx]);
+                if (!t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)callback))
+                    continue;
+                t41_isr_counts[idx]++;
+                ((int32_t (*)(uint32_t))(uintptr_t)(uint32_t)callback)(0);
+            }
         }
 
         /* Bit 9 was previously acknowledged without dispatch while ADR
