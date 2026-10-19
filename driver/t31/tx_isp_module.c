@@ -54,6 +54,7 @@
 #include "tx_isp_t31_subdev_resolver.h"
 #include "tx_isp_t31_sensor_policy.h"
 #include "tx_isp_v4l2.h"
+#include "tx_isp_v4l2_sensor.h"
 #include "../include/tx_isp/tx_isp_frame_channel.h"
 #include "../include/tx_isp/tx_isp_frame_layout.h"
 #include "../include/tx_isp/tx_isp_sinfo.h"
@@ -516,6 +517,10 @@ int tx_isp_unregister_sensor_subdev(struct tx_isp_subdev *sd);
 
 /* Global I2C client tracking to prevent duplicate creation. */
 static struct i2c_client *global_sensor_i2c_client;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+/* Mainline V4L2 sensor attached through tx_isp_v4l2_sensor.c (bridge). */
+static struct tx_isp_subdev *global_v4l2_sensor_sd;
+#endif
 static DEFINE_MUTEX(i2c_client_mutex);
 
 long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *arg)
@@ -565,6 +570,29 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
                 return -ENODEV;
             }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+            pr_info("*** subdev_sensor_ops_ioctl: request sensor=%s addr=0x%02x adapter=%d ***\n",
+                    reg_info->i2c.type, reg_info->i2c.addr, i2c_adapter_num);
+
+            /*
+             * Prefer the mainline V4L2 subdev that already probed from DT.
+             * Creating the vendor i2c client below would collide with the
+             * DT client at the same address and would not speak V4L2.
+             */
+            sensor_sd = tx_isp_v4l2_sensor_get(adapter, reg_info->i2c.type);
+            if (sensor_sd) {
+                global_v4l2_sensor_sd = sensor_sd;
+            } else {
+                /* Stock: Build board_info from sensor_register_info */
+                memset(&sensor_board_info, 0, sizeof(sensor_board_info));
+                memcpy(sensor_board_info.type, reg_info->i2c.type,
+                       sizeof(sensor_board_info.type));
+                sensor_board_info.addr = reg_info->i2c.addr;
+
+                /* Stock: isp_i2c_new_subdev_board returns the SUBDEV, not client */
+                sensor_sd = isp_i2c_new_subdev_board(adapter, &sensor_board_info);
+            }
+#else
             /* Stock: Build board_info from sensor_register_info */
             memset(&sensor_board_info, 0, sizeof(sensor_board_info));
             memcpy(sensor_board_info.type, reg_info->i2c.type,
@@ -576,6 +604,7 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
 
             /* Stock: isp_i2c_new_subdev_board returns the SUBDEV, not client */
             sensor_sd = isp_i2c_new_subdev_board(adapter, &sensor_board_info);
+#endif
             i2c_put_adapter(adapter);
 
             if (!sensor_sd || (uintptr_t)sensor_sd >= 0xfffff001) {
@@ -630,6 +659,23 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
         /* Stock: memcpy($s3_2 + info_offset, arg3, 0x50) */
         /* Copy sensor_register_info into sensor->info */
         memcpy(&sensor->info, reg_info, sizeof(struct tx_isp_sensor_register_info));
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+        /* A mainline sensor is reached through its DT client, so the registry
+         * gets the address and bus it is really on.  The register info above
+         * carries whatever the streamer sent - nothing, when sensor.i2c_addr
+         * is unset - and publishing that left /proc/jz/sensor/i2c_addr at
+         * 0x0 and every reader falling back to 0x37. */
+        if (sensor_sd == global_v4l2_sensor_sd) {
+            struct i2c_client *bridge_client =
+                tx_isp_v4l2_sensor_client(sensor_sd);
+
+            if (bridge_client) {
+                sensor->info.i2c.addr = bridge_client->addr;
+                sensor->info.i2c.i2c_adapter_id = bridge_client->adapter->nr;
+            }
+        }
+#endif
 
         /* Stock: Call g_chip_ident to validate sensor */
         if (sensor_sd->ops && sensor_sd->ops->core &&
@@ -1004,6 +1050,15 @@ static void cleanup_i2c_infrastructure(struct tx_isp_dev *dev)
     /* The I2C core invokes sensor_remove(); do not hold our mutex then. */
     if (client)
         i2c_unregister_device(client);
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+    if (global_v4l2_sensor_sd) {
+        struct tx_isp_subdev *v4l2_sd = global_v4l2_sensor_sd;
+
+        global_v4l2_sensor_sd = NULL;
+        tx_isp_v4l2_sensor_put(v4l2_sd);
+    }
+#endif
 
     /* Clean up any remaining I2C clients and adapters */
     pr_info("I2C infrastructure cleanup complete\n");
@@ -1558,6 +1613,12 @@ static int tx_isp_map_mainline_irqs(void)
     unsigned int vic_irq;
 
     intc_np = of_find_compatible_node(NULL, NULL, "ingenic,t31-intc");
+#ifdef TX_ISP_VENDOR_TREE
+    /* The vendor 5.15 T31 tree names its intc node "ingenic,ingenic-intc"
+       (same HW lines: IRQ_ISP=29, IRQ_VIC=30). */
+    if (!intc_np)
+        intc_np = of_find_compatible_node(NULL, NULL, "ingenic,ingenic-intc");
+#endif
     if (!intc_np) {
         pr_err("tx-isp: T31 interrupt controller node not found\n");
         return -ENODEV;
@@ -5627,8 +5688,8 @@ static void tx_isp_last_close_teardown(struct tx_isp_dev *isp)
         /* Self-check: every channel's wait objects are initialised in
          * module init (frame_channel_init_sync). A NULL list head here
          * would oops in __wake_up_common. */
-        if (WARN_ON_ONCE(!tx_isp_wq_head_next(state->frame_done.wait) ||
-                         !tx_isp_wq_head_next(state->frame_wait)))
+        if (WARN_ON_ONCE(!TX_ISP_COMPLETION_LIST(state->frame_done).next ||
+                         !TX_ISP_WAITQ_LIST(state->frame_wait).next))
             continue;
 
         mutex_lock(&fcd->buffer_mutex);
@@ -5640,7 +5701,7 @@ static void tx_isp_last_close_teardown(struct tx_isp_dev *isp)
             frame_channel_streamoff_locked(fcd, "last close");
             did = true;
         } else if (fcd->open_count > 0 &&
-                   tx_isp_completion_waiting(state->frame_done)) {
+                   TX_ISP_COMPLETION_HAS_WAITERS(state->frame_done)) {
             /* A 0x400456bf caller waiting for a first STREAMON that will
              * not come from this ISP setup any more. Only an open channel
              * can have one. */
@@ -8550,6 +8611,19 @@ int tx_isp_register_sensor_subdev(struct tx_isp_subdev *sd, struct tx_isp_sensor
 		pr_warn("tx-isp: failed to publish active sensor %s: %d\n",
 			sensor->info.name[0] ? sensor->info.name : "(unnamed)",
 			sinfo_ret);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+	else if (sd == global_v4l2_sensor_sd) {
+		/* The mainline subdev stores no i2c client pointer (the bridge
+		 * keeps the DT-owned client out of the vendor teardown paths), so
+		 * the registry has no address to read. Publish the one the bridge
+		 * resolved instead of letting readers fall back to 0x37. */
+		struct i2c_client *bridge_client =
+			tx_isp_v4l2_sensor_client(sd);
+
+		if (bridge_client)
+			tx_isp_sinfo_sensor_addr(sd, bridge_client->addr);
+	}
+#endif
 
     /* RACE CONDITION FIX: If the sensor module loads AFTER the ISP module,
      * the ISP probe already ran tx_isp_create_subdev_graph() which set
