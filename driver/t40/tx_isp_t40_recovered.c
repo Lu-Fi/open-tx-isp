@@ -22966,6 +22966,70 @@ static int regtrace_tx_isp_release(struct inode *inode, struct file *file)
     return 0;
 }
 
+/*
+ * T40-SENSOR-REGISTER (IMP_ISP_Set/GetSensorRegister): OEM tx_isp_unlocked_ioctl
+ * 0x11d40 (0xc040540d, event 0x2000011) and 0x11794 (0x8040540e, event
+ * 0x2000012): copy the 64-byte struct tx_isp_dbg_register {name[32], sensor_id,
+ * type, size, pad, u64 reg, u64 val}, send the event to the subdevs; the VIN
+ * subdev (OEM subdev_sensor_ops_ioctl 0x7230/0x72a0) picks the sensor by
+ * sensor_id and calls its core s_register (core ops +28) / g_register (+16);
+ * -ENOIOCTLCMD counts as 0; the get copies the 64 bytes back.
+ * The reconstructed ladder compared 0xc004540d / 0x8004540e, so both requests
+ * fell through to "return 0" (no access, the get returned the caller's buffer).
+ * Here the VIN step is done directly on the bound sensor (only VIN slot 0
+ * exists in this driver); the OEM does not range-check sensor_id, we do.
+ */
+#define REGTRACE_TISP_SET_SENSOR_REGISTER 0xc040540dU
+#define REGTRACE_TISP_GET_SENSOR_REGISTER 0x8040540eU
+struct regtrace_t40_dbg_register {
+    char name[32];
+    int32_t sensor_id;
+    int32_t type;
+    uint32_t size;
+    uint32_t pad;
+    uint64_t reg;
+    uint64_t val;
+};
+static DEFINE_MUTEX(regtrace_t40_sensor_reg_lock);
+static long regtrace_t40_sensor_register_ioctl(unsigned int cmd, unsigned long arg)
+{
+    struct regtrace_t40_dbg_register reg;
+    uintptr_t sd, ops, core, fn;
+    int set = cmd == REGTRACE_TISP_SET_SENSOR_REGISTER;
+    long ret;
+
+    BUILD_BUG_ON(sizeof(reg) != 64);
+    if (copy_from_user(&reg, (const void __user *)(uintptr_t)arg, sizeof(reg)))
+        return -EFAULT;
+    reg.name[sizeof(reg.name) - 1] = '\0';
+    if (reg.sensor_id != 0) {
+        isp_printf(1, "[%d] sensor %d is not registered\n", __LINE__, reg.sensor_id);
+        return -1;
+    }
+    mutex_lock(&regtrace_t40_sensor_reg_lock);
+    sd = (uintptr_t)regtrace_sensor_subdev;
+    ops = sd ? *(uint32_t *)(sd + REGTRACE_TX_ISP_SUBDEV_OPS_OFFSET) : 0;
+    core = ops ? *(uint32_t *)ops : 0;
+    fn = core ? *(uint32_t *)(core + (set ? 28 : 16)) : 0;
+    if (!sd) {
+        ret = -1;   /* OEM: "sensor is not registered", -1 */
+    } else if (!fn) {
+        ret = 0;    /* OEM: no core ops / no handler -> 0 */
+    } else {
+        regtrace_fr_mark(0xc6, (set ? 0x10000U : 0U) | (uint32_t)(reg.reg & 0xffffU));
+        ret = ((int (*)(void *, void *))fn)((void *)sd, &reg);
+        regtrace_fr_mark(0xc7, (uint32_t)ret);
+        if (ret == -ENOIOCTLCMD)
+            ret = 0;
+    }
+    mutex_unlock(&regtrace_t40_sensor_reg_lock);
+    if (ret)
+        return ret;
+    if (!set && copy_to_user((void __user *)(uintptr_t)arg, &reg, sizeof(reg)))
+        return -EFAULT;
+    return 0;
+}
+
 static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     int __maybe_unused __fr = regtrace_fr_mark(0x02, cmd);
@@ -22976,6 +23040,11 @@ static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned 
 
     if (cmd == 0x80045401) {
         ret = tx_isp_driver_version_isra_15(arg);
+        printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x ret=%ld\n", cmd, ret);
+        return ret;
+    }
+    if (cmd == REGTRACE_TISP_SET_SENSOR_REGISTER || cmd == REGTRACE_TISP_GET_SENSOR_REGISTER) {
+        ret = regtrace_t40_sensor_register_ioctl(cmd, arg);
         printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x ret=%ld\n", cmd, ret);
         return ret;
     }
@@ -23016,6 +23085,7 @@ static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned 
         file->private_data = regtrace_tx_isp_context + 0x0c;
     }
     ret = tx_isp_unlocked_ioctl((uintptr_t)regtrace_tx_isp_file_shadow, cmd, arg);
+    regtrace_fr_mark(0xc2, (uint32_t)ret);
     printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x ret=%ld\n", cmd, ret);
     return ret;
 }
@@ -23979,9 +24049,16 @@ static unsigned int regtrace_tisp_poll(struct file *file, poll_table *wait)
 static long regtrace_tisp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     int __maybe_unused __fr = regtrace_fr_mark(0x04, cmd);
+    uint32_t fr_w[3] = { 0, 0, 0 };
+    long ret;
+
+    if (arg && !copy_from_user(fr_w, (const void __user *)(uintptr_t)arg, sizeof(fr_w)))
+        regtrace_fr_mark(0xc4, fr_w[2] ^ (fr_w[1] << 31));   /* FR: tuning control | dir<<31 */
     printk(KERN_INFO "tx_isp_t40_recovered: tisp ioctl cmd=0x%x arg=0x%lx pid=%d comm=%s\n",
            cmd, arg, current->pid, current->comm);
-    return tisp_code_tuning_ioctl((int)(uintptr_t)file, (int)cmd, (int)arg);
+    ret = tisp_code_tuning_ioctl((int)(uintptr_t)file, (int)cmd, (int)arg);
+    regtrace_fr_mark(0xc5, (uint32_t)ret);
+    return ret;
 }
 
 static const struct file_operations regtrace_tisp_fops = {
@@ -44133,70 +44210,36 @@ isp_core_tunning_open0xb8:
     return 0;
 }
 
+/* T40-S-ATTR-COPY: common body of the OEM tx_isp_*_s_attr.isra helpers (see each caller). */
+static noinline int regtrace_t40_s_attr_copy(uint32_t vinum, uint32_t user_ptr, size_t size,
+                                             int (*set)(uint32_t, void *), const char *what)
+{
+    uint8_t buf[460] __aligned(8);
+    int ret;
+
+    if (size > sizeof(buf))
+        return -EINVAL;
+    if (copy_from_user(buf, (const void __user *)(uintptr_t)user_ptr, size)) {
+        isp_printf(2, "[%s] copy from user error\n", what);
+        return -EFAULT;
+    }
+    ret = set(vinum, buf);
+    if (ret)
+        isp_printf(1, "[%s] set error %d\n", what, ret);
+    return ret;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000097c4 origin=fragment_seed original=tx_isp_gamma_s_attr.isra.6 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t tx_isp_gamma_s_attr_isra_6(uint32_t a0, uint32_t a1) __asm__("tx_isp_gamma_s_attr.isra.6");
 #endif
 int32_t tx_isp_gamma_s_attr_isra_6(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t *local_124 = 0;
-    uint32_t local_128 = 0;
-    uint32_t local_12c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    a1 = (uint32_t *)&local_18;
-    if (v0 == 0) { goto tx_isp_gamma_s_attr_isra_60x7c; }
-
-    /* fragment 3: CallSetup */
-    s0 = v0;
-    local_14 = 528;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 528); /* jalr target resolved by relocation */
-
-tx_isp_gamma_s_attr_isra_60x64:
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_gamma_s_attr_isra_60x68:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_gamma_s_attr_isra_60x7c:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_s_Gamma)(s1); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_gamma_s_attr_isra_60x64; }
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC2, &__param_str_isp_dual_buf, 532); /* jalr target resolved by relocation */
-
-    /* fragment 10: Branch */
-    goto tx_isp_gamma_s_attr_isra_60x68;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_gamma_s_attr.isra: copy_from_user(buf, user, 264) then
+     * tisp_s_Gamma(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 264, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_Gamma, "tx_isp_gamma_s_attr_isra_6");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009884 origin=fragment_seed original=tx_isp_module_ratio_s_attr.isra.7 */
@@ -44205,64 +44248,11 @@ int32_t tx_isp_module_ratio_s_attr_isra_7(uint32_t a0, uint32_t a1) __asm__("tx_
 #endif
 int32_t tx_isp_module_ratio_s_attr_isra_7(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_9c = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_a4 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    a1 = (uint32_t *)&local_18;
-    if (v0 == 0) { goto tx_isp_module_ratio_s_attr_isra_70x7c; }
-
-    /* fragment 3: CallSetup */
-    s0 = v0;
-    local_14 = 479;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 479); /* jalr target resolved by relocation */
-
-tx_isp_module_ratio_s_attr_isra_70x64:
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_module_ratio_s_attr_isra_70x68:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_module_ratio_s_attr_isra_70x7c:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_s_module_ratio_attr)(s1); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_module_ratio_s_attr_isra_70x64; }
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC3, &__param_str_isp_dual_buf, 483); /* jalr target resolved by relocation */
-
-    /* fragment 10: Branch */
-    goto tx_isp_module_ratio_s_attr_isra_70x68;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_module_ratio_s_attr.isra: copy_from_user(buf, user, 128) then
+     * tisp_s_module_ratio_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 128, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_module_ratio_attr, "tx_isp_module_ratio_s_attr_isra_7");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009944 origin=fragment_seed original=tx_isp_mask_s_attr.isra.9 */
@@ -44524,55 +44514,11 @@ int32_t tx_isp_af_weight_s_attr_isra_13(uint32_t a0, uint32_t a1) __asm__("tx_is
 #endif
 int32_t tx_isp_af_weight_s_attr_isra_13(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_104 = 0;
-    uint32_t local_108 = 0;
-    uint32_t local_10c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_af_weight_s_attr_isra_130x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 763;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 763); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_af_weight_s_attr_isra_130x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_af_weight_s_attr_isra_130x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_af_weight_attr)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_af_weight_s_attr_isra_130x64;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_af_weight_s_attr.isra: copy_from_user(buf, user, 225) then
+     * tisp_s_af_weight_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 225, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_af_weight_attr, "tx_isp_af_weight_s_attr_isra_13");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009c24 origin=fragment_seed original=tx_isp_awb_weight_s_attr.isra.14 */
@@ -44581,55 +44527,11 @@ int32_t tx_isp_awb_weight_s_attr_isra_14(uint32_t a0, uint32_t a1) __asm__("tx_i
 #endif
 int32_t tx_isp_awb_weight_s_attr_isra_14(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_104 = 0;
-    uint32_t local_108 = 0;
-    uint32_t local_10c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_awb_weight_s_attr_isra_140x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 797;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 797); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_awb_weight_s_attr_isra_140x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_awb_weight_s_attr_isra_140x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_awb_weight_attr)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_awb_weight_s_attr_isra_140x64;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_awb_weight_s_attr.isra: copy_from_user(buf, user, 225) then
+     * tisp_s_awb_weight_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 225, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_awb_weight_attr, "tx_isp_awb_weight_s_attr_isra_14");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009cb8 origin=fragment_seed original=tx_isp_awb_attr_s_attr.isra.15 */
@@ -44638,55 +44540,11 @@ int32_t tx_isp_awb_attr_s_attr_isra_15(uint32_t a0, uint32_t a1) __asm__("tx_isp
 #endif
 int32_t tx_isp_awb_attr_s_attr_isra_15(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_6c = 0;
-    uint32_t local_70 = 0;
-    uint32_t local_74 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_awb_attr_s_attr_isra_150x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 831;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 831); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_awb_attr_s_attr_isra_150x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_awb_attr_s_attr_isra_150x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_awb_attr)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_awb_attr_s_attr_isra_150x64;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_awb_attr_s_attr.isra: copy_from_user(buf, user, 76) then
+     * tisp_s_awb_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 76, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_awb_attr, "tx_isp_awb_attr_s_attr_isra_15");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009d4c origin=fragment_seed original=tx_isp_ae_expoinfo_s_attr.isra.17 */
@@ -44695,55 +44553,11 @@ int32_t tx_isp_ae_expoinfo_s_attr_isra_17(uint32_t a0, uint32_t a1) __asm__("tx_
 #endif
 int32_t tx_isp_ae_expoinfo_s_attr_isra_17(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_fc = 0;
-    uint32_t local_100 = 0;
-    uint32_t local_104 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_ae_expoinfo_s_attr_isra_170x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 944;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 944); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_ae_expoinfo_s_attr_isra_170x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_ae_expoinfo_s_attr_isra_170x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_ae_exprinfo_attr)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_ae_expoinfo_s_attr_isra_170x64;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_ae_expoinfo_s_attr.isra: copy_from_user(buf, user, 220) then
+     * tisp_s_ae_exprinfo_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 220, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_ae_exprinfo_attr, "tx_isp_ae_expoinfo_s_attr_isra_17");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009de0 origin=fragment_seed original=tx_isp_ae_weight_s_attr.isra.18 */
@@ -44752,55 +44566,11 @@ int32_t tx_isp_ae_weight_s_attr_isra_18(uint32_t a0, uint32_t a1) __asm__("tx_is
 #endif
 int32_t tx_isp_ae_weight_s_attr_isra_18(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1ec = 0;
-    uint32_t local_1f0 = 0;
-    uint32_t local_1f4 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_ae_weight_s_attr_isra_180x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 1022;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 1022); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_ae_weight_s_attr_isra_180x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_ae_weight_s_attr_isra_180x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_ae_weight_attr)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_ae_weight_s_attr_isra_180x64;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_ae_weight_s_attr.isra: copy_from_user(buf, user, 460) then
+     * tisp_s_ae_weight_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 460, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_ae_weight_attr, "tx_isp_ae_weight_s_attr_isra_18");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009e74 origin=fragment_seed original=tx_isp_statis_config_s_attr.isra.19 */
@@ -44809,55 +44579,11 @@ int32_t tx_isp_statis_config_s_attr_isra_19(uint32_t a0, uint32_t a1) __asm__("t
 #endif
 int32_t tx_isp_statis_config_s_attr_isra_19(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_9c = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_a4 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_statis_config_s_attr_isra_190x78; }
-
-    /* fragment 3: CallSetup */
-    local_14 = 1056;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC1, &__param_str_isp_dual_buf, 1056); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_statis_config_s_attr_isra_190x64:
-    /* fragment 5: Arithmetic */
-    v0 = s0;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_statis_config_s_attr_isra_190x78:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_statis_config_attr)(s1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    goto tx_isp_statis_config_s_attr_isra_190x64;
-
-    return 0;
+    /* T40-S-ATTR-COPY: OEM tx_isp_statis_config_s_attr.isra: copy_from_user(buf, user, 124) then
+     * tisp_s_statis_config_attr(vinum, buf).  The lift lost the size and source of the copy
+     * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
+     * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
+    return regtrace_t40_s_attr_copy(a0, a1, 124, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_statis_config_attr, "tx_isp_statis_config_s_attr_isra_19");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009f08 origin=fragment_seed original=tx_isp_switch_bin.isra.22 */
