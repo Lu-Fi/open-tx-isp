@@ -630,12 +630,27 @@ static int t21_fcrop_get(void __user *uptr)
 	return private_copy_to_user(uptr, f, sizeof(f)) ? -EFAULT : 0;
 }
 
+/*
+ * AE hold, control 0x8000034 (the T23/T31 SetAeFreeze number; the T21 1.0.33
+ * library has no such call, so this is an extension).  While set, the AE
+ * keeps computing but no new integration time / sensor gain is queued to the
+ * sensor: the sensor keeps the values of the moment it was set (used by the
+ * OpenIMP sensor test pattern, whose JX-F23 bit 0x0c[0] the sensor driver
+ * rewrites with every analogue gain write).
+ */
+#define T21_CID_AE_FREEZE	0x08000034
+static int t21_ae_hold;
+
 static int t21_tuning_ctl_s(int32_t *ctl, int32_t *ret)
 {
 	uint8_t blk[T21_SINTER_BLOCK];
 	uint32_t v = (uint32_t)ctl[1];
 
 	switch ((uint32_t)ctl[0]) {
+	case T21_CID_AE_FREEZE:
+		ACCESS_ONCE(t21_ae_hold) = v ? 1 : 0;
+		*ret = 0;
+		return 1;
 	case TX_ISP_CID_CSC_ATTR:
 		*ret = t21_csc_set((const void __user *)(uintptr_t)v);
 		return 1;
