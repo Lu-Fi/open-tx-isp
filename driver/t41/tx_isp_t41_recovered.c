@@ -870,9 +870,9 @@ t41_bringup_param_desc(t41_safe_ae_controller,
 		 "use the bounded histogram AE controller instead of recovered vendor AE");
 /* 1: run the OEM AE chain (tisp_ae_calc_process, mechanically translated in
  * tx_isp_t41_vae_gen.inc) per frame instead of the safe AE controller. */
-static int t41_vendor_ae;
+static int t41_vendor_ae = 1;
 module_param(t41_vendor_ae, int, 0444);
-MODULE_PARM_DESC(t41_vendor_ae, "run the translated vendor AE per frame (default 0)");
+MODULE_PARM_DESC(t41_vendor_ae, "run the translated vendor AE per frame (default 1; 0 = safe AE controller)");
 static unsigned int t41_ae_target_q8 = 128U << 8;
 t41_bringup_param(t41_ae_target_q8, uint, 0644);
 t41_bringup_param_desc(t41_ae_target_q8,
@@ -1620,12 +1620,12 @@ static DECLARE_WORK(t41_tmo_work, t41_tmo_workfn);
  * TMO keeps its bypass until the worker's first good frame, and on the
  * T41 test camera the worker never ran (t41_tmo_frames 0 after millions
  * of frames).  1 also schedules it from the AE statistics interrupt
- * (ISR bit 4, every frame).  Default 0 (unchanged behaviour).
+ * (ISR bit 4, every frame).  Default 1 since 2026-10-18 (soak on .32).
  */
-static int t41_tone_trigger;
+static int t41_tone_trigger = 1;
 module_param(t41_tone_trigger, int, 0644);
 MODULE_PARM_DESC(t41_tone_trigger,
-                 "1 also runs the per-frame tone worker from the AE statistics interrupt (default 0: TMO interrupt only)");
+                 "1 also runs the per-frame tone worker from the AE statistics interrupt (default 1; 0: TMO interrupt only)");
 /*
  * EV handed to the per-frame consumers (AWB Y weights, CCM, BCSH, gamma,
  * ADR, TMO): stock tisp_ae_long_ev_alloc pushes integration x total gain
@@ -147938,9 +147938,9 @@ int32_t tisp_clm_dn_params_refresh(uint32_t a0)
  *              re-interpolated when the AWB CT moves (OEM tisp_clm_ct_update)
  *   t41_clm=2  keep the block bypassed (TOP bit 16 set)
  */
-static unsigned int t41_clm;
+static unsigned int t41_clm = 1;
 module_param(t41_clm, uint, 0444);
-MODULE_PARM_DESC(t41_clm, "CLM: 0 no LUT (old), 1 OEM LUT by CT, 2 bypass");
+MODULE_PARM_DESC(t41_clm, "CLM: 0 no LUT (old), 1 OEM LUT by CT (default), 2 bypass");
 static unsigned int t41_clm_ct_last;
 module_param(t41_clm_ct_last, uint, 0444);
 static unsigned int t41_clm_writes;
