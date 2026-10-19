@@ -1323,6 +1323,7 @@ int tx_isp_sinfo_sensor_bind(void *subdev, struct module *owner)
 }
 EXPORT_SYMBOL(tx_isp_sinfo_sensor_bind);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
 void tx_isp_sinfo_sensor_addr(void *subdev, unsigned short addr)
 {
 	int i;
@@ -1342,6 +1343,7 @@ void tx_isp_sinfo_sensor_addr(void *subdev, unsigned short addr)
 	mutex_unlock(&tx_isp_sinfo_lock);
 	mutex_unlock(&tx_isp_sinfo_publish_lock);
 }
+#endif
 
 void tx_isp_sinfo_sensor_unbind(void *subdev, struct module *owner)
 {

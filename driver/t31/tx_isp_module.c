@@ -517,7 +517,10 @@ int tx_isp_unregister_sensor_subdev(struct tx_isp_subdev *sd);
 
 /* Global I2C client tracking to prevent duplicate creation. */
 static struct i2c_client *global_sensor_i2c_client;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+/* Mainline V4L2 sensor attached through tx_isp_v4l2_sensor.c (bridge). */
 static struct tx_isp_subdev *global_v4l2_sensor_sd;
+#endif
 static DEFINE_MUTEX(i2c_client_mutex);
 
 long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *arg)
@@ -567,6 +570,7 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
                 return -ENODEV;
             }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
             pr_info("*** subdev_sensor_ops_ioctl: request sensor=%s addr=0x%02x adapter=%d ***\n",
                     reg_info->i2c.type, reg_info->i2c.addr, i2c_adapter_num);
 
@@ -588,6 +592,19 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
                 /* Stock: isp_i2c_new_subdev_board returns the SUBDEV, not client */
                 sensor_sd = isp_i2c_new_subdev_board(adapter, &sensor_board_info);
             }
+#else
+            /* Stock: Build board_info from sensor_register_info */
+            memset(&sensor_board_info, 0, sizeof(sensor_board_info));
+            memcpy(sensor_board_info.type, reg_info->i2c.type,
+                   sizeof(sensor_board_info.type));
+            sensor_board_info.addr = reg_info->i2c.addr;
+
+            pr_info("*** subdev_sensor_ops_ioctl: request sensor=%s addr=0x%02x adapter=%d ***\n",
+                    sensor_board_info.type, sensor_board_info.addr, i2c_adapter_num);
+
+            /* Stock: isp_i2c_new_subdev_board returns the SUBDEV, not client */
+            sensor_sd = isp_i2c_new_subdev_board(adapter, &sensor_board_info);
+#endif
             i2c_put_adapter(adapter);
 
             if (!sensor_sd || (uintptr_t)sensor_sd >= 0xfffff001) {
@@ -643,6 +660,7 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
         /* Copy sensor_register_info into sensor->info */
         memcpy(&sensor->info, reg_info, sizeof(struct tx_isp_sensor_register_info));
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
         /* A mainline sensor is reached through its DT client, so the registry
          * gets the address and bus it is really on.  The register info above
          * carries whatever the streamer sent - nothing, when sensor.i2c_addr
@@ -657,6 +675,7 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
                 sensor->info.i2c.i2c_adapter_id = bridge_client->adapter->nr;
             }
         }
+#endif
 
         /* Stock: Call g_chip_ident to validate sensor */
         if (sensor_sd->ops && sensor_sd->ops->core &&
@@ -1032,12 +1051,14 @@ static void cleanup_i2c_infrastructure(struct tx_isp_dev *dev)
     if (client)
         i2c_unregister_device(client);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
     if (global_v4l2_sensor_sd) {
         struct tx_isp_subdev *v4l2_sd = global_v4l2_sensor_sd;
 
         global_v4l2_sensor_sd = NULL;
         tx_isp_v4l2_sensor_put(v4l2_sd);
     }
+#endif
 
     /* Clean up any remaining I2C clients and adapters */
     pr_info("I2C infrastructure cleanup complete\n");
@@ -8590,6 +8611,7 @@ int tx_isp_register_sensor_subdev(struct tx_isp_subdev *sd, struct tx_isp_sensor
 		pr_warn("tx-isp: failed to publish active sensor %s: %d\n",
 			sensor->info.name[0] ? sensor->info.name : "(unnamed)",
 			sinfo_ret);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
 	else if (sd == global_v4l2_sensor_sd) {
 		/* The mainline subdev stores no i2c client pointer (the bridge
 		 * keeps the DT-owned client out of the vendor teardown paths), so
@@ -8601,6 +8623,7 @@ int tx_isp_register_sensor_subdev(struct tx_isp_subdev *sd, struct tx_isp_sensor
 		if (bridge_client)
 			tx_isp_sinfo_sensor_addr(sd, bridge_client->addr);
 	}
+#endif
 
     /* RACE CONDITION FIX: If the sensor module loads AFTER the ISP module,
      * the ISP probe already ran tx_isp_create_subdev_graph() which set
