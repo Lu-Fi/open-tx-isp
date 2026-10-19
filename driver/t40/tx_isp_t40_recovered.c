@@ -20555,15 +20555,47 @@ static int regtrace_t40_sensor_fps_get(uint32_t *packed_fps)
     return 0;
 }
 
+/* T40-AE-MAXINT: SetSensorFPS before the sensor streams its mode.  The sc830ai (like most SmartSens T40
+ * drivers) derives VTS from the HTS register it reads back and stores VTS-9 as max_integration_time; before
+ * the first stream-on the mode table is not written yet (HTS still at reset), so the attr got VTS 4666 /
+ * max IT 4657 while the stream-on then programmed VTS 2250.  The AE (OEM tisp_ae_long_ctrls_update) caps the
+ * exposure at that attr value -> up to 4657 lines in a 2250-line frame -> sensor slow shutter (11.6 fps).
+ * The OEM applies sensor fps changes from the frame-done work (sensor_set_fps -> core+832/836 pending,
+ * ispcore_irq_main_fd_work slot 8), i.e. on a running sensor; do the same: before the first delivered frame
+ * the request is kept pending and sent with the first AE exposure update. */
+static uint32_t regtrace_core_isr_frame_deliver_count;
+static uint32_t regtrace_t40_sensor_fps_pending;
+static int regtrace_t40_sensor_fps_send(uint32_t packed_fps);
 static int regtrace_t40_sensor_fps_set(uint32_t packed_fps)
+{
+    uint32_t numerator = packed_fps >> 16;
+    uint32_t denominator = packed_fps & 0xffffU;
+
+    if (!numerator || !denominator || numerator > 120U * denominator)
+        return -EINVAL;
+    if (!READ_ONCE(regtrace_core_isr_frame_deliver_count)) {
+        WRITE_ONCE(regtrace_t40_sensor_fps_pending, packed_fps);
+        WRITE_ONCE(regtrace_sensor_fps_packed, packed_fps);
+        printk(KERN_INFO "tx_isp_t40_recovered: sensor fps %u/%u pending until the sensor streams\n", numerator, denominator);
+        return 0;
+    }
+    return regtrace_t40_sensor_fps_send(packed_fps);
+}
+static void regtrace_t40_sensor_fps_apply_pending(void)
+{
+    uint32_t packed = READ_ONCE(regtrace_t40_sensor_fps_pending);
+
+    if (!packed || !READ_ONCE(regtrace_core_isr_frame_deliver_count))
+        return;
+    WRITE_ONCE(regtrace_t40_sensor_fps_pending, 0);
+    regtrace_t40_sensor_fps_send(packed);
+}
+static int regtrace_t40_sensor_fps_send(uint32_t packed_fps)
 {
     uint32_t payload[2];
     uint32_t numerator = packed_fps >> 16;
     uint32_t denominator = packed_fps & 0xffffU;
     int ret;
-
-    if (!numerator || !denominator || numerator > 120U * denominator)
-        return -EINVAL;
 
     /*
      * T40 sensor modules consume struct tx_isp_sensor_value, not the bare
@@ -20575,6 +20607,7 @@ static int regtrace_t40_sensor_fps_set(uint32_t packed_fps)
     payload[1] = packed_fps;
     ret = regtrace_sensor_call_sensor_ioctl(
         REGTRACE_TX_ISP_EVENT_SENSOR_FPS, payload);
+    printk(KERN_INFO "tx_isp_t40_recovered: sensor fps set %u/%u ret=%d\n", numerator, denominator, ret);
     if (ret)
         return ret;
     WRITE_ONCE(regtrace_sensor_fps_packed, packed_fps);
@@ -76537,6 +76570,7 @@ int32_t tisp_ae_fps_calc_max_exp(int32_t arg1, int32_t* arg2, int32_t arg3)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002190c origin=fragment_seed original=tisp_set_ae_sensor_fps */
+static uint32_t t40_ae_fps_req_count, t40_ae_fps_req_last;   /* T40-AE-MAXINT diag */
 void* tisp_set_ae_sensor_fps(uint32_t a0, uintptr_t a1)
 {
     uint32_t local_1c = 0;
@@ -76584,6 +76618,7 @@ void* tisp_set_ae_sensor_fps(uint32_t a0, uintptr_t a1)
 
     /* fragment 5: CallSetup */
     v0 = *(uint32_t *)((char *)&sensor_ctrl_main + 420);
+    t40_ae_fps_req_count++; t40_ae_fps_req_last = (uint32_t)(uintptr_t)a0;
     if (regtrace_is_kernel_ptr((void *)v0))
         v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)v0)(a0, (uintptr_t)&local_80); /* jalr target resolved by relocation */
 
@@ -84280,6 +84315,45 @@ tisp_ae_short_set_sensor_integration_time0x108:
  *   sensor_set_*: the hand-written apply path's packed EXPO ioctl (again<<16 | it). */
 static uint32_t t40_vendor_again_sensor, t40_vendor_it_sensor, t40_vendor_dgain;
 static uint32_t t40_vendor_again_log2;   /* log2 16.16 gain the vendor AE asked for (0x14c) */
+/* T40-AE-MAXINT diag (read-only): AE exposure limits as the AE sees them. */
+static int t40_ae_limits_get(char *buf, const struct kernel_param *kp)
+{
+    const uint32_t *ctx = (const uint32_t *)pstMainAeOri_storage;
+    const uint32_t *c0 = (const uint32_t *)(uintptr_t)ctx[0];
+    const uint16_t *c1 = (const uint16_t *)(uintptr_t)ctx[1];
+    const uint32_t *fb = (const uint32_t *)(uintptr_t)ctx[79];
+    const uint32_t *k = (const uint32_t *)&tisp_ae_main_ctrls;
+    const uint32_t *sc = (const uint32_t *)&sensor_ctrl_main;
+    const uint8_t *cache = (const uint8_t *)regtrace_ae_cache_for_channel(0);
+    int n = 0;
+    (void)kp;
+    if (regtrace_is_kernel_ptr((void *)c0))
+        n += scnprintf(buf + n, PAGE_SIZE - n, "ctx0 maxit=%u maxag=%u maxdg=%u c3=%u minit=%u c5=%u c6=%u c7=%u\n",
+                       c0[0], c0[1], c0[2], c0[3], c0[4], c0[5], c0[6], c0[7]);
+    if (regtrace_is_kernel_ptr((void *)c1))
+        n += scnprintf(buf + n, PAGE_SIZE - n, "ctx1 shift=%u h1=%u h2=%u fpsauto=%u h4=%u h5=%u\n",
+                       c1[0], c1[1], c1[2], c1[3], c1[4], c1[5]);
+    if (regtrace_is_kernel_ptr((void *)fb))
+        n += scnprintf(buf + n, PAGE_SIZE - n, "fpsblk %x %x %x %x %x %x\n", fb[0], fb[1], fb[2], fb[3], fb[4], fb[5]);
+    n += scnprintf(buf + n, PAGE_SIZE - n, "ctrls ag=%u dg=%u it=%u c32=%u minit=%u\n", k[5], k[6], k[7], k[8], k[30]);
+    n += scnprintf(buf + n, PAGE_SIZE - n, "sctrl maxag=%u minit=%u maxit=%u par fps=%x th=%u maxit=%u\n",
+                   sc[10], sc[12], sc[13], *(uint32_t *)(tisp_par_info + 44),
+                   *(uint16_t *)(tisp_par_info + 70), *(uint16_t *)(tisp_par_info + 72));
+    if (regtrace_is_kernel_ptr((void *)cache))
+        n += scnprintf(buf + n, PAGE_SIZE - n, "cache 500=%x 504=%x 508=%x trig=%u\n",
+                       *(uint32_t *)(cache + 0x500), *(uint32_t *)(cache + 0x504), *(uint32_t *)(cache + 0x508), cache[0x50c]);
+    n += scnprintf(buf + n, PAGE_SIZE - n, "fpsreq n=%u last=%x vendor_it=%u\n", t40_ae_fps_req_count, t40_ae_fps_req_last, t40_vendor_it_sensor);
+    if (regtrace_is_kernel_ptr(regtrace_sensor_subdev)) {
+        uintptr_t at = regtrace_get_u32((uintptr_t)regtrace_sensor_subdev, 0x304);
+        if (regtrace_is_kernel_ptr((void *)at))
+            n += scnprintf(buf + n, PAGE_SIZE - n, "attr %lx minit=%u nat=%u lim=%u it=%u tw=%u th=%u maxit=%u\n", (unsigned long)at,
+                           regtrace_get_u16(at, 0xa8), regtrace_get_u16(at, 0xac), regtrace_get_u16(at, 0xae),
+                           regtrace_get_u32(at, 0xb0), regtrace_get_u16(at, 0xb4), regtrace_get_u16(at, 0xb6), regtrace_get_u16(at, 0xb8));
+    }
+    return n;
+}
+static const struct kernel_param_ops t40_ae_limits_ops = { .get = t40_ae_limits_get };
+module_param_cb(t40_ae_limits, &t40_ae_limits_ops, NULL, 0444);
 static uint32_t t40_vendor_expo_count; static long t40_vendor_expo_last_ret;
 static uint32_t t40_vendor_it_default = 1919;   /* test aid: IT used for the first vendor EXPO while the AE IT output is still 0 */
 module_param_named(t40_vendor_it_default, t40_vendor_it_default, uint, 0644);
@@ -84305,6 +84379,7 @@ static void t40_vendor_send_expo(const char *why)
         it = t40_vendor_it_default & 0xffffU;
     if (!it)
         return;
+    regtrace_t40_sensor_fps_apply_pending();   /* T40-AE-MAXINT: deferred SetSensorFPS, sensor now streams */
     packed = (t40_vendor_again_sensor << 16) | it;
     payload[0] = packed; payload[1] = packed;
     t40_vendor_expo_last_ret = regtrace_sensor_call_sensor_ioctl(REGTRACE_TX_ISP_EVENT_SENSOR_EXPO, payload);
