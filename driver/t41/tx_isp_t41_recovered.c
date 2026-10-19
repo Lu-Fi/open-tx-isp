@@ -1825,27 +1825,35 @@ static int isp_memopt = 1;
 module_param(isp_memopt, int, 0);
 MODULE_PARM_DESC(isp_memopt, "isp memory optimize");
 
-static int isp_clka = 600000000;
+/*
+ * T41 clock defaults = the image's /etc/modules.d/20-isp line (vpll 300 MHz,
+ * sclka 550/550). The old OEM defaults (mpll, isp_clk 285 MHz, isp_clka
+ * 600 MHz) gave ISPA = sclka/2 = 552 MHz on a parameterless modprobe/insmod,
+ * and a WDT reset after such a load did not boot again (audit
+ * T41_REBOOT_HANG_1019). isp_clka is also clamped in get_isp_clka().
+ */
+#define T41_ISP_CLKA_MAX 550000000
+static int isp_clka = 550000000;
 module_param(isp_clka, int, 0);
-MODULE_PARM_DESC(isp_clka, "isp axi bus clock freq");
+MODULE_PARM_DESC(isp_clka, "isp axi bus clock freq (default 550 MHz, clamped to <= 550 MHz)");
 
 static int isp_clks = 550000000;
 module_param(isp_clks, int, 0);
 MODULE_PARM_DESC(isp_clks, "isp scaler clock freq");
 
-static int isp_clk = 285000000;
+static int isp_clk = 300000000;
 module_param(isp_clk, int, 0);
 MODULE_PARM_DESC(isp_clk, "isp clock freq");
 
-static char *clka_name = "mpll";
+static char *clka_name = "sclka";
 module_param(clka_name, charp, 0);
 MODULE_PARM_DESC(clka_name, "select the axi bus parent clock");
 
-static char *clks_name = "mpll";
+static char *clks_name = "sclka";
 module_param(clks_name, charp, 0);
 MODULE_PARM_DESC(clks_name, "select the scaler parent clock");
 
-static char *clk_name = "mpll";
+static char *clk_name = "vpll";
 module_param(clk_name, charp, 0);
 MODULE_PARM_DESC(clk_name, "select the isp parent clock");
 
@@ -6526,7 +6534,13 @@ uint32_t get_isp_clka(void)
     /* fragment 2: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&isp_clka));
 
-    return (uint32_t)v0;
+    if ((uint32_t)(uintptr_t)v0 > T41_ISP_CLKA_MAX) {
+        pr_warn_once("tx-isp-t41: isp_clka=%u above %u Hz, clamped (ISP AXI over-clock left the SoC unbootable after a WDT reset)\n",
+                     (uint32_t)(uintptr_t)v0, T41_ISP_CLKA_MAX);
+        v0 = (uintptr_t *)(uintptr_t)T41_ISP_CLKA_MAX;
+    }
+
+    return (uint32_t)(uintptr_t)v0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000003c4 origin=fragment_seed original=get_isp_memopt */
