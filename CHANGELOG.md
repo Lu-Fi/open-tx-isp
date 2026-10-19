@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-19: T41 vendor-AE code size (`claude/t41-vae-size`; in `next`)
+
+- **`tx-isp-t41.ko` 1029 -> 798 KB (vendor 779 KB), behaviour identical:** the generated vendor-AE code (`tx_isp_t41_vae_gen.inc`, 67 functions) no longer guards accesses to its own stack frame slots (52 % of all loads/stores, where the guard can never trigger), and the remaining guards are out of line; vae text 284 -> 98 KB. Host proof `tests/t41_vae_diff.sh`: old vs new on identical pseudo-random state, 300 seeds x 8 steps, digest of the whole AE memory, return values, fault counters and register writes identical (a mutation is detected). Device T41 .34: `t41_vendor_ae=1`, 0 faults, 0 oops (plausibility only; soak with the new module before release).
+
 ## 2026-10-19: T41 defaults, T40 AWB statistics oops, T40 AE maximum integration (`claude/t41-defaults-vae-clm-tone`, `claude/t40-az-nohang`, `claude/t40-ae-maxint`; all in `next`)
 
 - **T41 defaults changed (device-tested, T41 .32 gc5603):** `t41_vendor_ae=1` (translated vendor AE per frame), `t41_clm=1` (OEM CLM LUT by colour temperature) and `t41_tone_trigger=1` (per-frame tone worker from the AE statistics interrupt) are now on by default; `=0` restores the previous safe-AE / no-LUT / TMO-interrupt-only behaviour. Merged only after an overnight soak with exactly these settings: 16.6 h (2026-10-18 15:02 to 10-19 07:39) without reboot, 0 BUG/oops, the streamer ran without restart, day/night switched normally.
