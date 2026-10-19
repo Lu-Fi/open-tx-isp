@@ -32,7 +32,6 @@
 #include <linux/string.h>
 #include <linux/kernel.h>
 
-extern int32_t tisp_s_raw_row_control(uint32_t a0, uintptr_t a1);
 extern int32_t isp_malloc_buffer(int32_t size);
 extern int isp_free_buffer(int32_t addr);
 extern uint32_t t41_rawinject_par(unsigned int idx);	/* tisp_par_info[idx] */
@@ -102,11 +101,37 @@ static void rj_free(void)
  * [0] mode (0 off, 1 DDR->ISP, 2 ISP->DDR)
  * [1..4] rdma: addr, enable, lines, dtype(0 -> 0x20)
  * [5..8] wdma: addr, enable, lines, dtype(0 -> 0x20) */
+extern int32_t system_reg_write(uint32_t addr, uint32_t val);
+extern int32_t system_reg_read(int32_t addr);
+#include <linux/completion.h>
+#include <linux/delay.h>
+
+/* rpars (OEM, 48 bytes): [1] rw_en [2] rdma_en [3] wdma_en, +16 rdma done
+ * completion, +32 wdma done completion. */
+#define RP_RW_EN(rp)   (((uint32_t *)(rp))[1])
+#define RP_RDMA_EN(rp) (((uint32_t *)(rp))[2])
+#define RP_RDMA_DONE(rp) ((struct completion *)((char *)(rp) + 16))
+
+static int rj_prepare_rpars(void)
+{
+	int ret;
+
+	if (t41_rawinject_rpars())
+		return 0;
+	ret = tisp_raw_init(0);	/* OEM init-list entry did not run: lazy init */
+	pr_info("t41_rawinject: lazy tisp_raw_init ret=%d rpars=%08x\n", ret, t41_rawinject_rpars());
+	return t41_rawinject_rpars() ? 0 : -ENODEV;
+}
+
+/* OEM tisp_ddr_to_isp_raw(ctrl) with ctrl = {w, _, flag=0, paddr, _, lines, dtype},
+ * written out plainly (the recovered copy in tx_isp_t41_recovered.c scales
+ * the register offsets by 4 and gets no ctrl pointer from
+ * tisp_raw_set_row_control - do not use it). */
 static int rj_inject(uint32_t lines, uint32_t dtype)
 {
-	uint32_t u[9];
 	uint32_t w = t41_rawinject_par(0), h = t41_rawinject_par(1);
-	int ret;
+	void *rp;
+	long t;
 
 	if (!rj_paddr)
 		return -ENOENT;
@@ -114,40 +139,51 @@ static int rj_inject(uint32_t lines, uint32_t dtype)
 		pr_err("t41_rawinject: ISP not initialised (sensor %ux%u)\n", w, h);
 		return -ENODEV;
 	}
-	if (!t41_rawinject_rpars()) {
-		ret = tisp_raw_init(0);	/* OEM init-list entry did not run: lazy init */
-		pr_info("t41_rawinject: lazy tisp_raw_init ret=%d rpars=%08x\n", ret, t41_rawinject_rpars());
-		if (!t41_rawinject_rpars())
-			return -ENODEV;
-	}
+	if (rj_prepare_rpars())
+		return -ENODEV;
+	rp = (void *)(uintptr_t)t41_rawinject_rpars();
 	if (!lines)
 		lines = h;
+	if (!dtype)
+		dtype = 0x20;
 	if (w * lines * 2 > rj_size)
 		pr_warn("t41_rawinject: buffer %u < %ux%u x2 bytes\n", rj_size, w, lines);
-	memset(u, 0, sizeof(u));
-	u[0] = 1;
-	u[1] = rj_paddr;
-	u[2] = 1;
-	u[3] = lines;
-	u[4] = dtype;
-	pr_info("t41_rawinject: inject paddr=0x%08x %ux%u lines=%u dtype=%u\n",
-		rj_paddr, w, h, lines, u[4] ? u[4] : 0x20);
-	ret = tisp_s_raw_row_control(0, (uintptr_t)u);
+	pr_info("t41_rawinject: inject paddr=0x%08x %ux%u lines=%u dtype=0x%x mux=0x%x\n",
+		rj_paddr, w, h, lines, dtype, system_reg_read(0x801a8));
+	if (RP_RW_EN(rp) == 0 && !rj_active) {
+		system_reg_write(0x801a8, 0x4444);	/* front end input <- RDMA */
+		msleep(1000);
+	}
+	if (RP_RDMA_EN(rp) == 0) {
+		system_reg_write(0x21004, 1);		/* RDMA enable */
+		msleep(1000);
+	}
+	system_reg_write(0x21024, dtype);
+	system_reg_write(0x21008, lines);
+	system_reg_write(0x21014, w * lines);
+	system_reg_write(0x2100c, rj_paddr);
+	RP_RDMA_EN(rp) = 1;
 	rj_active = 1;
+	t = wait_for_completion_interruptible_timeout(RP_RDMA_DONE(rp), 2 * HZ);
 	rj_frames++;
-	pr_info("t41_rawinject: row_control ret=%d\n", ret);
+	pr_info("t41_rawinject: rdma done wait=%ld (0 = timeout) frames=%d\n", t, rj_frames);
 	return 0;
 }
 
+/* OEM tisp_raw_set_row_control mode 0 */
 static int rj_stop(void)
 {
-	uint32_t u[9];
+	void *rp = (void *)(uintptr_t)t41_rawinject_rpars();
 
-	if (!rj_active || !t41_rawinject_rpars())
+	if (!rj_active || !rp)
 		return 0;
-	memset(u, 0, sizeof(u));
-	tisp_s_raw_row_control(0, (uintptr_t)u);
+	msleep(100);
+	system_reg_write(0x21024, 0);
+	system_reg_write(0x801a8, 0x4404);	/* front end input <- VIC */
+	RP_RDMA_EN(rp) = 0;
+	RP_RW_EN(rp) = 0;
 	rj_active = 0;
+	pr_info("t41_rawinject: stopped, mux=0x%x\n", system_reg_read(0x801a8));
 	return 0;
 }
 
