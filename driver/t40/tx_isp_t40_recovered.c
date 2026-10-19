@@ -993,7 +993,7 @@ static uintptr_t regtrace_ashldi3(uintptr_t value, ...)
 }
 #define __ashldi3 regtrace_ashldi3
 
-unsigned char regtrace_bss_start[0x20000] __asm__("__bss_start");
+unsigned char regtrace_bss_start[0x4400] __asm__("__bss_start");   /* T40-BSS-SHRINK: only &__bss_start + 17328 (8 bytes, tisp_lce_get_debug) is used (was 0x20000) */
 
 __asm__(
     ".data\n"
@@ -1065,7 +1065,7 @@ static struct platform_device tx_isp_csi_platform_device;
 static struct platform_device tx_isp_vin_platform_device;
 static struct platform_device tx_isp_fs_platform_device;
 
-static unsigned char video_input_cmd_buf[0x10000];
+static unsigned char video_input_cmd_buf[0x200];   /* T40-BSS-SHRINK: only constant offsets <= 0x16c are used (was 0x10000) */
 static unsigned char csi_cmd_buf[0x10000];
 static unsigned char vic_cmd_buf[0x10000];
 static uintptr_t vic_err[0x4000];
