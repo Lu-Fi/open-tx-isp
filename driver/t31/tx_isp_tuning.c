@@ -4299,7 +4299,7 @@ static uint32_t ae_scene_luma = 0;  /* Scene luminance output */
  * disabled; off unless asked for: echo 1 > /sys/module/tx_isp_t31/parameters/isp_ae_log */
 static int isp_ae_log;
 module_param(isp_ae_log, int, 0644);
-MODULE_PARM_DESC(isp_ae_log, "Log per-frame AE diagnostics (0 = off)");
+MODULE_PARM_DESC(isp_ae_log, "Log per-frame AE diagnostics (0 = off, >= 2: AE_TRACE every N frames)");
 
 static uint32_t IspAeFlag = 1;     /* AE initial convergence flag — OEM sets to 1 during init */
 
@@ -6197,19 +6197,22 @@ phase_f_target:
                 }
             }
 
-            /* OEM EXACT: clamp the full 64-bit interpolated ratio to
-             * [1.0 - a3_3, 1.0 + a3_3] in Q(q*2). */
+            /* OEM (0x50a44..0x50b2c): ae_ev_step[2] is a MINIMUM step, not
+             * a clamp.  A ratio strictly between 1.0 and 1.0 + a3_3 is pushed
+             * up to 1.0 + a3_3, one strictly between 1.0 - a3_3 and 1.0 is
+             * pushed down to 1.0 - a3_3; larger steps pass unchanged.  The
+             * earlier clamp to [1.0 - a3_3, 1.0 + a3_3] limited AE to
+             * 4/1024 = 0.4 % per frame with the stock bins, so the open AE
+             * took minutes to settle after a light change. */
             {
                 uint64_t step_q2 = (uint64_t)a3_3 << qm;
                 uint64_t upper_bound = base_q2 + step_q2;
                 uint64_t lower_bound = base_q2 - step_q2;
-
-                if (interp_q2 > upper_bound)
+                if (interp_q2 > base_q2 && interp_q2 < upper_bound)
                     interp_q2 = upper_bound;
-                if (interp_q2 < lower_bound)
+                else if (interp_q2 < base_q2 && interp_q2 > lower_bound)
                     interp_q2 = lower_bound;
             }
-
             /* OEM EXACT: scale the clamped ratio by var_b8, shift back to Qq,
              * then keep at least unity if the 64-bit result fits in 32 bits. */
             {
@@ -6231,9 +6234,11 @@ phase_f_target:
     /* DEBUG: trace convergence on first frames */
     {
         static int ae_trace;
-        if (ae_trace < 10) {
-            pr_info("AE_TRACE[%d]: wmean=%u s5=%u s6=%u var_b8=0x%x s2_2=0x%x v0_68=0x%x v0_34=%u var_cc=%u\n",
-                ae_trace, wmean, s5, s6_2, var_b8, s2_2, v0_68, v0_34, var_cc_2);
+        static int ae_dbg_cnt;
+        /* isp_ae_log >= 2: one trace line every isp_ae_log frames */
+        if (isp_ae_log >= 2 && (ae_dbg_cnt++ % isp_ae_log) == 0) {
+            printk(KERN_INFO "AE_TRACE[%d]: wmean=%u s5=%u s6=%u var_b8=0x%x s2_2=0x%x v0_68=0x%x v0_34=%u var_cc=%u dc=0x%x e0=0x%x a33=0x%x a34=0x%x v01=0x%x q=%u it=%u ag=0x%x dg=0x%x\n",
+                ae_trace, wmean, s5, s6_2, var_b8, s2_2, v0_68, v0_34, var_cc_2, var_dc, var_e0, a3_3, a3_4, v0_1, qm, cur_it, cur_ag, cur_dg);
             ae_trace++;
         }
     }
@@ -12019,6 +12024,30 @@ static inline void le32_put(uint8_t *arr, int i, uint32_t v) {
     p[3] = (uint8_t)((v >> 24) & 0xFF);
 }
 
+#include "tx_isp_t31_defog_tables.inc"
+
+/* OEM tiziano_defog_init (0x46250..0x46904): for the six known sensor
+ * geometries the stock module loads per-resolution cent3/cent5 distance
+ * weights and the 16:9 or 4:3 weight LUTs into the *_tmp tables before they
+ * are copied to the live arrays.  Without this every geometry ran with the
+ * 1920x1080 defaults (e.g. 2560x1440 got ~0.57x the stock cent3 weights). */
+static void tiziano_defog_load_res_tables(const uint32_t *w3, const uint32_t *w5, int is_4_3)
+{
+	int i;
+
+	for (i = 0; i < 24; i++)
+		le32_put(param_defog_cent3_w_dis_array_tmp, i, w3[i]);
+	for (i = 0; i < 31; i++)
+		le32_put(param_defog_cent5_w_dis_array_tmp, i, w5[i]);
+	for (i = 0; i < 32; i++) {
+		le32_put(param_defog_weightlut22_tmp, i, is_4_3 ? oem_defog_wei22_4_3[i] : oem_defog_wei22_16_9[i]);
+		le32_put(param_defog_weightlut12_tmp, i, is_4_3 ? oem_defog_wei12_4_3[i] : oem_defog_wei12_16_9[i]);
+		le32_put(param_defog_weightlut21_tmp, i, is_4_3 ? oem_defog_wei21_4_3[i] : oem_defog_wei21_16_9[i]);
+		le32_put(param_defog_weightlut20_tmp, i, is_4_3 ? oem_defog_wei20_4_3[i] : oem_defog_wei20_16_9[i]);
+		le32_put(param_defog_weightlut02_tmp, i, is_4_3 ? oem_defog_wei02_4_3[i] : oem_defog_wei02_16_9[i]);
+	}
+}
+
 static void tisp_defog_trsy_apply(uint32_t str);
 static uint32_t defog_strength_attr;
 
@@ -12617,20 +12646,24 @@ static void tiziano_defog_params_init(void)
         for (k = 0; k < 14; k++)
             c[k] = le32_at(&defog_color_control_array[k * 4]);
 
+        /* OEM 0x44bcc..0x44c28: 0x5A10 packs c[0..3] as bytes, 0x5A14
+         * packs c[5..8], 0x5A18 is c[4] | c[9] << 16. */
         system_reg_write(0x5A10, (c[0] & 0xFF) | ((c[1] & 0xFF) << 8)
-                       | ((c[2] & 0x3f) << 16) | ((c[3] & 0x3f) << 24));
-        system_reg_write(0x5A14, (c[4] & 0x3f) | ((c[5] & 0x3f) << 8)
-                       | ((c[6] & 0x3f) << 16) | ((c[7] & 0x3f) << 24));
-        system_reg_write(0x5A18, (c[8] & 0x3f) | ((c[9] & 0x3f) << 16));
+                       | ((c[2] & 0xFF) << 16) | ((c[3] & 0xFF) << 24));
+        system_reg_write(0x5A14, (c[5] & 0x3f) | ((c[6] & 0x3f) << 8)
+                       | ((c[7] & 0x3f) << 16) | ((c[8] & 0x3f) << 24));
+        system_reg_write(0x5A18, (c[4] & 0xFF) | ((c[9] & 0x3f) << 16));
     }
 
     /* --- 0x5A1C: col_ct_array packing (3-bit values) ---
      * OEM: (e[0] & 7) | ((e[1] & 7) << 8) | ((e[2] & 7) << 16) | ((e[3] & 7) << 24)
      */
     {
+        /* OEM 0x44c68 reads data_9cc24..0x9cc30, i.e. entries 10..13 of
+         * param_defog_color_control_array, not param_defog_col_ct_array. */
         uint32_t ct[4];
         for (k = 0; k < 4; k++)
-            ct[k] = le32_at(&defog_col_ct_array[k * 4]);
+            ct[k] = le32_at(&defog_color_control_array[(10 + k) * 4]);
         system_reg_write(0x5A1C, (ct[0] & 7) | ((ct[1] & 7) << 8)
                        | ((ct[2] & 7) << 16) | ((ct[3] & 7) << 24));
     }
@@ -12663,8 +12696,8 @@ static void tiziano_defog_params_init(void)
             v[k] = le32_at(&defog_lc_v_array[k * 4]);
         system_reg_write(0x5A30, (v[0] & 7) | ((v[1] & 7) << 8)
                        | ((v[2] & 7) << 16) | ((v[3] & 7) << 24));
-        system_reg_write(0x5A34, (v[4] & 0x1f) | ((v[5] & 0x1f) << 8)
-                       | ((v[6] & 0x1f) << 16));
+        system_reg_write(0x5A34, (v[4] & 0xff) | ((v[5] & 0xff) << 8)
+                       | ((v[6] & 0xff) << 16)); /* OEM: bytes */
         system_reg_write(0x5A38, (v[7] & 0x3f) | ((v[8] & 0x3f) << 8)
                        | ((v[9] & 0x3f) << 16));
     }
@@ -12696,8 +12729,8 @@ static void tiziano_defog_params_init(void)
             cv[k] = le32_at(&defog_cc_v_array[k * 4]);
         system_reg_write(0x5A50, (cv[0] & 7) | ((cv[1] & 7) << 8)
                        | ((cv[2] & 7) << 16));
-        system_reg_write(0x5A54, (cv[3] & 0x1f) | ((cv[4] & 0x1f) << 8)
-                       | ((cv[5] & 0x1f) << 16));
+        system_reg_write(0x5A54, (cv[3] & 0xff) | ((cv[4] & 0xff) << 8)
+                       | ((cv[5] & 0xff) << 16)); /* OEM: bytes */
         system_reg_write(0x5A58, (cv[6] & 0x3f) | ((cv[7] & 0x3f) << 8)
                        | ((cv[8] & 0x3f) << 16));
     }
@@ -12714,8 +12747,8 @@ static void tiziano_defog_params_init(void)
             d1[k] = le32_at(&defog_dark_l1_array[k * 4]);
         system_reg_write(0x5A60, (d1[0] & 7) | ((d1[1] & 7) << 8)
                        | ((d1[2] & 7) << 16));
-        system_reg_write(0x5A64, (d1[3] & 0x1f) | ((d1[4] & 0x1f) << 8)
-                       | ((d1[5] & 0x1f) << 16));
+        system_reg_write(0x5A64, (d1[3] & 0xff) | ((d1[4] & 0xff) << 8)
+                       | ((d1[5] & 0xff) << 16)); /* OEM: bytes */
         system_reg_write(0x5A68, (d1[6] & 0x3f) | ((d1[7] & 0x3f) << 8)
                        | ((d1[8] & 0x3f) << 16) | ((d1[9] & 0x3f) << 24));
     }
@@ -12732,8 +12765,8 @@ static void tiziano_defog_params_init(void)
             d2[k] = le32_at(&defog_dark_l2_array[k * 4]);
         system_reg_write(0x5A70, (d2[0] & 7) | ((d2[1] & 7) << 8)
                        | ((d2[2] & 7) << 16));
-        system_reg_write(0x5A74, (d2[3] & 0x1f) | ((d2[4] & 0x1f) << 8)
-                       | ((d2[5] & 0x1f) << 16));
+        system_reg_write(0x5A74, (d2[3] & 0xff) | ((d2[4] & 0xff) << 8)
+                       | ((d2[5] & 0xff) << 16)); /* OEM: bytes */
         system_reg_write(0x5A78, (d2[6] & 0x3f) | ((d2[7] & 0x3f) << 8)
                        | ((d2[8] & 0x3f) << 16) | ((d2[9] & 0x3f) << 24));
     }
@@ -26277,31 +26310,37 @@ int tiziano_defog_init(uint32_t width, uint32_t height)
         defog_block_area_index[1] = width % 18;
 
         if (total == 0xe1000) {         /* 1280x720 */
+            tiziano_defog_load_res_tables(oem_defog_weight3_1280_720, oem_defog_weight5_1280_720, 0);
             defog_block_area_div = 0xc78031;
             defog_block_area_div_edge_w = 0xca4f85;
             defog_block_area_div_edge_h = 0xca4587;
             defog_block_area_div_corner = 0xcd1ed9;
         } else if (total == 0x1fa400) { /* 1920x1080 */
+            tiziano_defog_load_res_tables(oem_defog_weight3_1920_1080, oem_defog_weight5_1920_1080, 0);
             defog_block_area_div = 0x59e7fd;
             defog_block_area_div_edge_w = 0x5ac11e;
             defog_block_area_div_edge_h = 0x5abd19;
             defog_block_area_div_corner = 0x5b983e;
         } else if (total == 0x2d9000) { /* 2304x1296 */
+            tiziano_defog_load_res_tables(oem_defog_weight3_2304_1296, oem_defog_weight5_2304_1296, 0);
             defog_block_area_div = 0x3e86e2;
             defog_block_area_div_edge_w = 0x3f03f0;
             defog_block_area_div_edge_h = 0x3f02f8;
             defog_block_area_div_corner = 0x3f80fe;
         } else if (total == 0x384000) { /* 2560x1440 */
+            tiziano_defog_load_res_tables(oem_defog_weight3_2560_1440, oem_defog_weight5_2560_1440, 0);
             defog_block_area_div = 0x329202;
             defog_block_area_div_edge_w = 0x32ed2d;
             defog_block_area_div_edge_h = 0x32ebe9;
             defog_block_area_div_corner = 0x3347b6;
         } else if (total == 0x4b0000) { /* 2560x1920 */
+            tiziano_defog_load_res_tables(oem_defog_weight3_2560_1920, oem_defog_weight5_2560_1920, 1);
             defog_block_area_div = 0x25fe46;
             defog_block_area_div_edge_w = 0x2642c5;
             defog_block_area_div_edge_h = 0x2630ef;
             defog_block_area_div_corner = 0x2675c9;
         } else if (total == 0x4ce300) { /* 2592x1944 */
+            tiziano_defog_load_res_tables(oem_defog_weight3_2592_1944, oem_defog_weight5_2592_1944, 1);
             defog_block_area_div = 0x2515bd;
             defog_block_area_div_edge_w = 0x2557ab;
             defog_block_area_div_edge_h = 0x2546ad;
