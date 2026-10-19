@@ -1,4 +1,5 @@
 #define pr_fmt(fmt) "tx-isp: " fmt
+#define TX_ISP_PRFMT_PREFIXED 1
 /*
 * Video Class definitions of Tomahawk series SoC.
  *
@@ -633,28 +634,6 @@ long subdev_sensor_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *a
                     sensor_sd ? sensor_sd->host_priv : NULL,
                     sensor_sd ? sensor_sd->dev_priv : NULL);
             return -ENODEV;
-        }
-
-        pr_info("REGISTER: sensor=%p sd=%p video.attr=%p video.mbus.code=0x%x\n",
-                sensor, sensor_sd, sensor->video.attr, sensor->video.mbus.code);
-        pr_info("REGISTER: offsetof(tx_isp_sensor, video.attr)=%zu sizeof(tx_isp_subdev)=%zu sizeof(info)=%zu\n",
-                offsetof(struct tx_isp_sensor, video) + offsetof(struct tx_isp_video_in, attr),
-                sizeof(struct tx_isp_subdev),
-                sizeof(struct tx_isp_sensor_register_info));
-        /* HEXDUMP: Dump 64 bytes around video.attr to see what's actually there */
-        {
-            unsigned char *base = (unsigned char *)sensor;
-            size_t attr_off = offsetof(struct tx_isp_sensor, video) + offsetof(struct tx_isp_video_in, attr);
-            size_t dump_start = (attr_off > 32) ? attr_off - 32 : 0;
-            pr_info("REGISTER: HEXDUMP from offset %zu (attr at %zu):\n", dump_start, attr_off);
-            print_hex_dump(KERN_INFO, "  sensor+: ", DUMP_PREFIX_OFFSET, 16, 4,
-                           base + dump_start, 64, false);
-            pr_info("REGISTER: video starts at offset %zu, mbus at +0, mbus_change at +%zu, attr at +%zu\n",
-                    offsetof(struct tx_isp_sensor, video),
-                    offsetof(struct tx_isp_video_in, mbus_change),
-                    offsetof(struct tx_isp_video_in, attr));
-            pr_info("REGISTER: sizeof(v4l2_mbus_framefmt)=%zu sizeof(tx_isp_video_in)=%zu\n",
-                    sizeof(struct v4l2_mbus_framefmt), sizeof(struct tx_isp_video_in));
         }
 
         /* Stock: memcpy($s3_2 + info_offset, arg3, 0x50) */
@@ -1621,21 +1600,21 @@ static int tx_isp_map_mainline_irqs(void)
         intc_np = of_find_compatible_node(NULL, NULL, "ingenic,ingenic-intc");
 #endif
     if (!intc_np) {
-        pr_err("tx-isp: T31 interrupt controller node not found\n");
+        pr_err("T31 interrupt controller node not found\n");
         return -ENODEV;
     }
 
     intc_domain = irq_find_host(intc_np);
     of_node_put(intc_np);
     if (!intc_domain) {
-        pr_err("tx-isp: T31 interrupt controller domain not ready\n");
+        pr_err("T31 interrupt controller domain not ready\n");
         return -EPROBE_DEFER;
     }
 
     isp_irq = irq_create_mapping(intc_domain, 29);
     vic_irq = irq_create_mapping(intc_domain, 30);
     if (!isp_irq || !vic_irq) {
-        pr_err("tx-isp: failed to map T31 ISP/VIC hardware IRQs\n");
+        pr_err("failed to map T31 ISP/VIC hardware IRQs\n");
         return -ENODEV;
     }
 
@@ -1647,7 +1626,7 @@ static int tx_isp_map_mainline_irqs(void)
     tx_isp_fs_resources[1].start = tx_isp_fs_resources[1].end = vic_irq;
     tx_isp_core_resources[1].start = tx_isp_core_resources[1].end = isp_irq;
 
-    pr_info("tx-isp: mapped T31 hardware IRQs ISP=29->%u VIC=30->%u\n",
+    pr_info("mapped T31 hardware IRQs ISP=29->%u VIC=30->%u\n",
             isp_irq, vic_irq);
 #endif
     return 0;
@@ -4335,7 +4314,7 @@ static int tx_isp_t31_setbuf_guard(const char *what, u32 addr, u32 len)
 {
     if (!tx_isp_qbuf_phys_check(addr, len))
         return 0;
-    pr_warn_ratelimited("tx-isp-t31: %s SET_BUF addr=0x%08x len=0x%x outside rmem%s\n",
+    pr_warn_ratelimited("%s SET_BUF addr=0x%08x len=0x%x outside rmem%s\n",
                         what, addr, len,
                         tx_isp_t31_qbuf_guard ? ", rejected" : " (qbuf_guard=0, accepted)");
     return tx_isp_t31_qbuf_guard ? -EINVAL : 0;
@@ -5642,7 +5621,7 @@ static void tx_isp_last_close_stream_off(struct tx_isp_dev *isp)
             continue;
         ret = sd->ops->video->s_stream(sd, 0);
         if (ret && ret != -ENOIOCTLCMD)
-            pr_warn("tx-isp last close: subdev %d s_stream(0) returned %d\n",
+            pr_warn("last close: subdev %d s_stream(0) returned %d\n",
                     i, ret);
     }
 }
@@ -5700,7 +5679,7 @@ static void tx_isp_last_close_teardown(struct tx_isp_dev *isp)
         mutex_lock(&fcd->buffer_mutex);
         if (state->streaming || state->state == 4 ||
             (fcd->streaming_flags & 1)) {
-            pr_info("tx-isp last close: channel %d still streaming, STREAMOFF\n",
+            pr_info("last close: channel %d still streaming, STREAMOFF\n",
                     ch);
             frame_channel_drain_deliverability_queues(state);
             frame_channel_streamoff_locked(fcd, "last close");
@@ -5717,25 +5696,25 @@ static void tx_isp_last_close_teardown(struct tx_isp_dev *isp)
 
     /* 2. IMP_ISP_DisableSensor */
     if (tx_isp_ae_algo_is_open()) {
-        pr_info("tx-isp last close: closing the custom AE algorithm\n");
+        pr_info("last close: closing the custom AE algorithm\n");
         tx_isp_ae_algo_close_internal();
         did = true;
     }
 
     if (tx_isp_uapi_links_streaming) {
-        pr_info("tx-isp last close: DISABLE_LINKS\n");
+        pr_info("last close: DISABLE_LINKS\n");
         ret = tx_isp_video_link_stream(isp, 0);
         if (ret)
-            pr_warn("tx-isp last close: DISABLE_LINKS returned %d\n", ret);
+            pr_warn("last close: DISABLE_LINKS returned %d\n", ret);
         tx_isp_uapi_links_streaming = false;
         did = true;
     }
 
     if (isp->active_link >= 0 || isp->links_enabled) {
-        pr_info("tx-isp last close: DESTROY_LINKS\n");
+        pr_info("last close: DESTROY_LINKS\n");
         ret = tx_isp_video_link_destroy_impl(isp);
         if (ret)
-            pr_warn("tx-isp last close: DESTROY_LINKS returned %d\n", ret);
+            pr_warn("last close: DESTROY_LINKS returned %d\n", ret);
         did = true;
     }
 
@@ -5748,10 +5727,10 @@ static void tx_isp_last_close_teardown(struct tx_isp_dev *isp)
          * and the exposure write they queued finish while the sensor still
          * streams, as they would before a clean DISABLE_SENSOR. */
         if (isp->fw_thread && tisp_event_drain(500))
-            pr_warn("tx-isp last close: ISP events still queued after 500 ms\n");
+            pr_warn("last close: ISP events still queued after 500 ms\n");
         flush_work(&sensor_expo_work);
 
-        pr_info("tx-isp last close: DISABLE_SENSOR\n");
+        pr_info("last close: DISABLE_SENSOR\n");
         mutex_lock(&sensor_ops_call_mutex);
         tx_isp_last_close_stream_off(isp);
         mutex_unlock(&sensor_ops_call_mutex);
@@ -5763,7 +5742,7 @@ static void tx_isp_last_close_teardown(struct tx_isp_dev *isp)
          * would then skip the sensor start ("already streaming") and
          * DelSensor would be refused. */
         if (isp->vin_state == TX_ISP_MODULE_RUNNING) {
-            pr_warn("tx-isp last close: no sensor stopped the VIN, resetting its state\n");
+            pr_warn("last close: no sensor stopped the VIN, resetting its state\n");
             isp->vin_state = TX_ISP_MODULE_INIT;
         }
         if (vin && vin->state == TX_ISP_MODULE_RUNNING)
@@ -5783,19 +5762,19 @@ static void tx_isp_last_close_teardown(struct tx_isp_dev *isp)
         if (isp->sensor)
             strlcpy(unreg_info.name, isp->sensor->info.name,
                     sizeof(unreg_info.name));
-        pr_info("tx-isp last close: releasing sensor %s\n", unreg_info.name);
+        pr_info("last close: releasing sensor %s\n", unreg_info.name);
         ret = tx_isp_sensor_set_input(isp, &input);
         if (ret)
-            pr_warn("tx-isp last close: SET_INPUT(-1) returned %d\n", ret);
+            pr_warn("last close: SET_INPUT(-1) returned %d\n", ret);
         ret = tx_isp_sensor_release(isp, &unreg_info);
         if (ret)
-            pr_warn("tx-isp last close: RELEASE_SENSOR returned %d\n", ret);
+            pr_warn("last close: RELEASE_SENSOR returned %d\n", ret);
         did = true;
     }
     mutex_unlock(&sensor_ops_call_mutex);
 
     if (did)
-        pr_info("tx-isp last close: streamer teardown done (ISP state=%d vin_state=%d)\n",
+        pr_info("last close: streamer teardown done (ISP state=%d vin_state=%d)\n",
                 isp->state, isp->vin_state);
 }
 
@@ -8613,7 +8592,7 @@ int tx_isp_register_sensor_subdev(struct tx_isp_subdev *sd, struct tx_isp_sensor
 		owner = client->dev.driver->owner;
 	sinfo_ret = tx_isp_sinfo_sensor_bind(sd, owner);
 	if (sinfo_ret)
-		pr_warn("tx-isp: failed to publish active sensor %s: %d\n",
+		pr_warn("failed to publish active sensor %s: %d\n",
 			sensor->info.name[0] ? sensor->info.name : "(unnamed)",
 			sinfo_ret);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)

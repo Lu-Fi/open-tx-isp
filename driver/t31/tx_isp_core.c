@@ -1,4 +1,5 @@
 #define pr_fmt(fmt) "tx-isp: " fmt
+#define TX_ISP_PRFMT_PREFIXED 1
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/miscdevice.h>
@@ -3409,12 +3410,12 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
                 (uint32_t)s2 == t31_fcrop.height;
 
             if (!isp_crop && *arg2 != 0) {
-                pr_warn("tx-isp T31: ch%u output %dx%d refused: larger than the frame crop window %dx%d (the MSCA cannot upscale)\n",
+                pr_warn("T31: ch%u output %dx%d refused: larger than the frame crop window %dx%d (the MSCA cannot upscale)\n",
                         channel_id, arg2[1], arg2[2], tispinfo_2, s2);
                 return -EINVAL;
             }
             if (isp_crop) {
-                pr_warn("tx-isp T31: ch%u output %dx%d does not fit the front crop %ux%u: front crop dropped (the MSCA cannot upscale)\n",
+                pr_warn("T31: ch%u output %dx%d does not fit the front crop %ux%u: front crop dropped (the MSCA cannot upscale)\n",
                         channel_id, *arg2 ? arg2[1] : tispinfo_1,
                         *arg2 ? arg2[2] : (int32_t)data_b2f34,
                         t31_fcrop.width, t31_fcrop.height);
@@ -3847,7 +3848,7 @@ static int tisp_fcrop_fits_channels(u32 width, u32 height)
                                  system_reg_read(0x9900 + ch * 0x100),
                                  cache_w[ch], cache_h[ch], width, height,
                                  fcrop_upscale_pct, &out_w, &out_h)) {
-            pr_warn("tx-isp T31: front crop %ux%u refused: smaller than the ch%d output %ux%u (the MSCA cannot upscale)\n",
+            pr_warn("T31: front crop %ux%u refused: smaller than the ch%d output %ux%u (the MSCA cannot upscale)\n",
                     width, height, ch, out_w, out_h);
             return -EINVAL;
         }
@@ -4827,7 +4828,7 @@ struct clk * private_clk_get(struct device *dev, const char *id)
                 continue;
             alias = clk_get(dev, tx_isp_vendor_clk_aliases[i].name);
             if (!IS_ERR(alias)) {
-                pr_info("tx-isp: clock '%s' resolved as vendor '%s'\n",
+                pr_info("clock '%s' resolved as vendor '%s'\n",
                         id, tx_isp_vendor_clk_aliases[i].name);
                 return alias;
             }
@@ -4842,7 +4843,7 @@ struct clk * private_clk_get(struct device *dev, const char *id)
                 continue;
             alias = clk_get(dev, tx_isp_clk_aliases[i].mainline);
             if (!IS_ERR(alias)) {
-                pr_info("tx-isp: clock '%s' resolved as mainline '%s'\n",
+                pr_info("clock '%s' resolved as mainline '%s'\n",
                         id, tx_isp_clk_aliases[i].mainline);
                 return alias;
             }
@@ -4871,7 +4872,7 @@ struct clk * private_clk_get(struct device *dev, const char *id)
         of_node_put(cgu_np);
 
         if (!IS_ERR(clk))
-            pr_info("tx-isp: resolved legacy cgu_cim through T31 CGU provider\n");
+            pr_info("resolved legacy cgu_cim through T31 CGU provider\n");
     }
 #endif
 
@@ -5034,7 +5035,7 @@ int private_i2c_add_driver_addr(struct i2c_driver *driver,
     sinfo_ret = tx_isp_sinfo_driver_add(driver, default_i2c_addr,
                                         driver->driver.owner);
     if (sinfo_ret)
-        pr_warn("tx-isp: failed to publish sensor driver %s: %d\n",
+        pr_warn("failed to publish sensor driver %s: %d\n",
                 driver->driver.name, sinfo_ret);
 
     return 0;
@@ -5140,7 +5141,7 @@ int private_jzgpio_set_func(enum gpio_port port, enum gpio_function func,unsigne
     wmb();
     iounmap(gpio_base);
 
-    pr_info("tx-isp: T31 pinmux P%c mask=0x%08x function=%u\n",
+    pr_info("T31 pinmux P%c mask=0x%08x function=%u\n",
             'A' + port, mask, func);
     return 0;
 #endif
