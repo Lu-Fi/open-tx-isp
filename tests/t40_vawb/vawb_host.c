@@ -139,7 +139,13 @@ static void replay(void)
 	printf("replay frame %u: faults=%u loops=%u ct=%u g9=%u,%u reg=%#x,%#x  diff vs device: inter %u B (first %#x) outer %u B\n",
 	       h[5], vawb_faults, vawb_loop_trips, *(u32 *)(uintptr_t)c[7], ((u32 *)(uintptr_t)c[9])[0],
 	       ((u32 *)(uintptr_t)c[9])[1], reg4004, reg4008, d_in, first, d_out);
-	if (g_trace) { printf("trace:"); for (i = 0; i < vawb_tn; i++) printf(" %x", vawb_tbuf[i]); printf("\n"); }
+	for (i = 104; i <= 106; i++) {
+		u32 k, *a = (u32 *)(uintptr_t)c[i];
+		printf("ctx[%u]:", i);
+		for (k = 0; k < 15; k++) printf(" %u", a[k]);
+		printf("\n");
+	}
+	if (g_trace > 1) { printf("trace:"); for (i = 0; i < vawb_tn; i++) printf(" %x", vawb_tbuf[i]); printf("\n"); }
 }
 static void load(const char *fn, u8 *dst, long off, u32 n)
 {
@@ -156,7 +162,7 @@ int main(int argc, char **argv)
 		static u8 buf[VAWB_ONE + 60328 + 4752];
 
 		if (!f || fread(buf, 1, sizeof(buf), f) != sizeof(buf)) { printf("dump short\n"); return 2; }
-		g_dump = buf; g_trace = argc > 3;
+		g_dump = buf; g_trace = argc > 3 ? atoi(argv[3]) : 0;
 		stMainAwbInter = (u32)(uintptr_t)inter; stMainAwbOuter = (u32)(uintptr_t)outer;
 		memcpy(vawb_wide_tele_para, vawb_wide_tele_para_t8416, 144); vawb_wide_tele_para[0] = 0;
 		stk_lo = mmap(NULL, 0x40000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
