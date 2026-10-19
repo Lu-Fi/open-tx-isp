@@ -12089,6 +12089,9 @@ uint32_t sensor_set_integration_time(uint32_t a0)
 	u32 value = a0 & 0xffff;
 	u32 combined = sensor->combined_exposure;
 
+	if (ACCESS_ONCE(t21_ae_hold))	/* AE hold: keep the sensor's values */
+		return 0;
+
 	BUILD_BUG_ON(offsetof(struct t21_sensor_bridge_runtime, sensor) != 0x120);
 	BUILD_BUG_ON(offsetof(struct t21_sensor_bridge_runtime,
 			      integration_time_pending) != 0x188);
@@ -12119,6 +12122,9 @@ uint32_t sensor_set_analog_gain(uint32_t a0)
 	u32 value = a0 & 0xffff;
 	u32 combined = sensor->combined_exposure;
 
+	if (ACCESS_ONCE(t21_ae_hold))	/* AE hold: keep the sensor's values */
+		return 0;
+
 	BUILD_BUG_ON(offsetof(struct t21_sensor_bridge_runtime,
 			      analog_gain_pending) != 0x178);
 	BUILD_BUG_ON(offsetof(struct t21_sensor_bridge_state,
@@ -12144,6 +12150,9 @@ uint32_t sensor_set_digital_gain(uint32_t a0)
     uint32_t ra = 0;
     uintptr_t *v0 = 0;
     uintptr_t v1 = 0;
+
+	if (ACCESS_ONCE(t21_ae_hold))	/* AE hold: keep the sensor's values */
+		return 0;
 
     /* fragment 0: Arithmetic */
     v0 = (uintptr_t *)&sinfo_root;
