@@ -19,6 +19,7 @@ endif
 
 # Main ISP module objects - note changed name to tx-isp-t31 (ensure tx_isp_module.o is first)
 tx-isp-t31-objs := tx_isp_module.o \
+               tx_isp_v4l2_sensor.o \
                tx_isp_core.o \
                tx_isp_reset.o \
                tx_isp_subdev.o \
