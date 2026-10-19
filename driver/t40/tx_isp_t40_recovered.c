@@ -12143,9 +12143,22 @@ static int regtrace_blc_main_init_lit(void)
  * t40_force_bypass.
  */
 static uint32_t regtrace_tisp_main_init_last_wdr;
-static bool regtrace_t40_gates_oem_offset;
+static bool regtrace_t40_gates_oem_offset = true;
 module_param_named(t40_gates_oem_offset, regtrace_t40_gates_oem_offset, bool, 0644);
-MODULE_PARM_DESC(t40_gates_oem_offset, "1 reads the bin bypass flags at +0x00 for linear sensors like stock (default 0: always +0x20, the WDR set)");
+MODULE_PARM_DESC(t40_gates_oem_offset, "1 (default) reads the bin bypass flags at +0x00 for linear sensors like stock tisp_main_init; 0 = old profile behaviour (always +0x20, the WDR set)");
+/*
+ * AWB0 / AWB1 placement like stock (TOP bits 2 and 6 from the bin flags;
+ * stock sc830ai: AWB0 bypassed, AWB1 active, TOP 0x7FD0000D).  The pipe is
+ * BLC(0) -> LSC(1) -> AWB0(2) -> WDR(3) -> DPC(4) -> GIB(5) -> AWB1(6): with
+ * AWB0 active the GIB black level is subtracted after the white-balance
+ * gains (violet shadows) and the AWB statistics see the gained data; stock
+ * bypasses AWB0 and applies the same gains in AWB1 behind GIB
+ * (tisp_awb_set_gain writes 0x4004.. and 0x5004.., trigger 0x5000).
+ * t40_gates_awb=0 keeps the profile's bits 2/6 (old behaviour).
+ */
+static bool regtrace_t40_gates_awb = true;
+module_param_named(t40_gates_awb, regtrace_t40_gates_awb, bool, 0644);
+MODULE_PARM_DESC(t40_gates_awb, "1 (default) takes TOP bits 2 (AWB0) and 6 (AWB1) from the bin flags like stock; 0 keeps the profile bits");
 static uint regtrace_t40_gates_offset_now = 0x20U;
 /*
  * A/B aid, not stock behaviour: the OEM linear gate set bypasses BLC
@@ -12280,6 +12293,17 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
         regtrace_t40_quality_top40_final &= ~BIT(15);
     }
 
+    if (regtrace_t40_gates_awb) {
+        if (flags[2])
+            regtrace_t40_quality_top40_final |= BIT(2);
+        else
+            regtrace_t40_quality_top40_final &= ~BIT(2);
+        if (flags[6])
+            regtrace_t40_quality_top40_final |= BIT(6);
+        else
+            regtrace_t40_quality_top40_final &= ~BIT(6);
+    }
+
     /*
      * The first T40 recovery profile hard-coded these enable bits once
      * at module load.  Day/night banks carry their own bypass policy, just
@@ -12354,10 +12378,12 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
     }
 
     printk(KERN_INFO
-           "tx_isp_t40_recovered: tuning gates off=0x%x flags=0x%08x BLC=%s LSC=%s GIB=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
+           "tx_isp_t40_recovered: tuning gates off=0x%x flags=0x%08x BLC=%s LSC=%s AWB0=%s GIB=%s AWB1=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
            gate_off, packed, flags[0] ? "bypass" : "active",
            flags[1] ? "bypass" : "active",
+           (regtrace_t40_quality_top40_final & BIT(2)) ? "bypass" : "active",
            flags[5] ? "bypass" : "active",
+           (regtrace_t40_quality_top40_final & BIT(6)) ? "bypass" : "active",
            flags[15] ? "bypass" : "active",
            regtrace_enable_soft_gamma ? 1U : 0U,
            regtrace_enable_ccm ? 1U : 0U,
