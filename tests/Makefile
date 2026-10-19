@@ -12,7 +12,7 @@ CFLAGS += -std=c99 -Wall -Wextra -Werror
 # so a test cannot be added and then silently never run.
 TESTS :=
 # Further check steps, run as "$(MAKE) <target>" after the binaries.
-CHECK_TARGETS := t30_storage_audit
+CHECK_TARGETS := t30_storage_audit t41_dfg_host
 # Sources that only run on the camera (not built on the host).
 TARGET_TESTS := $(basename $(wildcard t41_v4l2_*_test.c)) t41_antiflicker_ioctl_test
 TEST_TIMEOUT ?= 600
@@ -466,6 +466,9 @@ check:
 
 t30_storage_audit:
 	../driver/t30/check_storage.sh
+
+t41_dfg_host:
+	./t41_dfg_host.sh
 
 clean:
 	$(RM) $(TESTS)
