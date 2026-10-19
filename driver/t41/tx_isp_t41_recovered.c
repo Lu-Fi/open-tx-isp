@@ -3511,8 +3511,8 @@ static int32_t irq_func_cb[96];
  * replacements already handle (default: 3 AWB main, 9 ADR). */
 static int t41_isr_dispatch;
 module_param(t41_isr_dispatch, int, 0644);
-MODULE_PARM_DESC(t41_isr_dispatch, "ISP IRQ dispatch: 0 hard-wired, 1 OEM-style table loop");
-static unsigned int t41_isr_dispatch_skip[3] = { (1u << 3) | (1u << 9), 0, 0 };
+MODULE_PARM_DESC(t41_isr_dispatch, "ISP IRQ dispatch: 0 hard-wired, 1 OEM-style table loop, 2 count-only probe");
+static unsigned int t41_isr_dispatch_skip[3] = { (1u << 3) | (1u << 9), 1u << (61 - 32), 0 };
 module_param_array(t41_isr_dispatch_skip, uint, NULL, 0644);
 static unsigned int t41_isr_counts[96];
 module_param_array(t41_isr_counts, uint, NULL, 0444);
@@ -57780,6 +57780,15 @@ int32_t tisp_ae_ai_interrupt_static(uint32_t a0)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
+    /* The recovered relocation names ivdc_threshold_line, which is a plain
+     * int (0) in this build: the OEM chain *(*(sym + ch*4) + 4) then
+     * dereferences address 4 in hard IRQ (device reset with
+     * t41_isr_dispatch=1, .34 2026-10-19).  Until the real target table is
+     * resolved this callback is a guarded no-op; index 61 is also in the
+     * default dispatch skip mask. */
+    if (a0 >= 2 || !t41_kernel_data_ptr((void *)(uintptr_t)
+            *(uint32_t *)((char *)&ivdc_threshold_line + (a0 << 2))))
+        return 0;
     s1 = (a0 << 2) + (uintptr_t)&ivdc_threshold_line;
     s2 = 65536;
     s3 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 0)) + 4);
@@ -155464,6 +155473,8 @@ int32_t tisp_raw_wdma_fd_interrupt(void)
 
     /* fragment 1: MemoryAccess */
     v1 = *(uint32_t *)((char *)((char *)&rpars));
+    if (!v1)    /* no RAW DMA session: OEM derefs NULL here */
+        return 1;
     a0 = 1;
     a1 = *(uint32_t *)((char *)v1 + 12);
 
@@ -170847,6 +170858,8 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                 if (!dcb || !t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)dcb))
                     continue;
                 t41_isr_counts[i]++;
+                if (t41_isr_dispatch == 2)
+                    continue;   /* probe: count status bits, call nothing */
                 if (t41_isr_counts[i] <= 2)
                     printk(KERN_WARNING "t41: ISR dispatch idx=%d cb=%#x\n",
                            i, (uint32_t)dcb);
@@ -170854,7 +170867,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             }
         }
 
-        if (!t41_isr_dispatch && (status0 & BIT(5)) &&
+        if (t41_isr_dispatch != 1 && (status0 & BIT(5)) &&
             (t41_safe_ae_controller > 0 || t41_vendor_ae > 0)) {
             t41_heapwatch_mark("isr:aehist");
             int32_t callback = READ_ONCE(irq_func_cb[5]);
@@ -170881,7 +170894,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             }
             spin_unlock(&t41_tmo_state_lock);
         }
-        if (!t41_isr_dispatch && (status0 & BIT(17)) && t41_safe_tmo_irq_stats < 0) {
+        if (t41_isr_dispatch != 1 && (status0 & BIT(17)) && t41_safe_tmo_irq_stats < 0) {
             int32_t callback = READ_ONCE(irq_func_cb[17]);
             int32_t callback_ret = -ENODEV;
 
@@ -170895,7 +170908,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                        (uint32_t)callback, callback_ret);
         }
 
-        if (!t41_isr_dispatch && (status0 & BIT(8)) && t41_stock_lce_ram_profile <= 0) {
+        if (t41_isr_dispatch != 1 && (status0 & BIT(8)) && t41_stock_lce_ram_profile <= 0) {
             int32_t callback = READ_ONCE(irq_func_cb[8]);
             int64_t callback_ret = -ENODEV;
 
