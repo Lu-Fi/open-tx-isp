@@ -19365,7 +19365,9 @@ static int regtrace_tisp_main_init_dma_regs(void)
     subret = regtrace_core_write(0x18040, p + 0x08000); if (subret && !ret) ret = subret;
     subret = regtrace_core_write(0x18044, p + 0x10000); if (subret && !ret) ret = subret;
     subret = regtrace_core_write(0x18048, p + 0x18000); if (subret && !ret) ret = subret;
-    subret = regtrace_core_write(0x1804c, 3); if (subret && !ret) ret = subret;
+    /* OEM writes 3 before tisp_awb_main_init; set_hardware_param then adds the stats-type enables
+     * (vendor 0x03010103).  When this re-runs after the vendor AWB init keep those bits. */
+    subret = regtrace_core_write(0x1804c, READ_ONCE(t40_vawb_live) ? ((uint32_t)system_reg_read(0x1804c) | 3U) : 3U); if (subret && !ret) ret = subret;
     regtrace_tisp_main_init_dma_last_mask |= 1U << 1;
 
     p = regtrace_tisp_dma_hw_addr(2, 0);
