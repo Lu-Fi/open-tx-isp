@@ -10,9 +10,37 @@ obj-m += tx-isp-t40.o
 ccflags-y += -I$(src)/../include
 ccflags-y += -DREGTRACE_KERNEL_TREE_BUILD
 ccflags-$(CONFIG_TX_ISP_T40_V4L2) += -DCONFIG_TX_ISP_T40_V4L2
+# -Os like the other SoCs (kernel default) instead of the old bring-up
+# -O0 -fno-tree-dce -fno-ipa-pure-const -fno-ipa-reference.  TX_ISP_T40_O0=y
+# restores that build for A/B if the recovered code misbehaves when optimised.
+TX_ISP_T40_O0 ?= n
+ifeq ($(TX_ISP_T40_O0),y)
 ccflags-y += -O0 -fno-tree-dce -fno-ipa-pure-const -fno-ipa-reference
+endif
 ccflags-y += -std=gnu99 -w
 ccflags-y += -Wno-error=strict-prototypes
 ccflags-y += -Wno-error=int-conversion
 ccflags-y += -Wno-error=incompatible-pointer-types
 ccflags-y += -Wno-error=implicit-function-declaration
+
+# Rootfs size: no .pdr (procedure descriptors, never loaded by the kernel).
+ccflags-y += $(call cc-option,-Wa$(comma)-mno-pdr)
+
+# Rootfs size: address static data through section anchors (one lui/addiu
+# per block instead of a HI16/LO16 pair per object); halves .rel.text.
+ccflags-y += -fsection-anchors
+
+# Rootfs size: drop local (static) symbols from the module image. The kernel
+# resolves exports through __ksymtab, so .symtab/.strtab bulk is dead weight.
+LDFLAGS_MODULE += -x
+
+# Rootfs size: per-function sections + --gc-sections drop code nothing
+# references (recovered-but-unused helpers); driver/tx_isp_merge.lds keeps the
+# module-loader sections and folds the rest back (same as T31/T41).
+# TX_ISP_GC=n builds the old layout.
+TX_ISP_GC ?= y
+ifneq ($(TX_ISP_GC),n)
+ccflags-y += -ffunction-sections
+LDFLAGS_MODULE += --gc-sections --undefined=init_module --undefined=cleanup_module \
+	-T $(abspath $(src)/../tx_isp_merge.lds)
+endif
