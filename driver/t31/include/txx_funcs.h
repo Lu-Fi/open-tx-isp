@@ -67,7 +67,9 @@ enum gpio_port {
 	GPIO_NR_PORTS,
 };
 
+#ifndef TX_ISP_VENDOR_TREE
 typedef unsigned long mm_segment_t;
+#endif
 #endif
 
 struct jz_driver_common_interfaces {

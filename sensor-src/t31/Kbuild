@@ -1,6 +1,12 @@
 ccflags-y += -I$(src)/include -I$(src)/../../driver/t31/include
 ccflags-y += -I$(src)/../../driver/include
 ccflags-y += -include $(src)/../../driver/t31/include/tx_isp_kernel_compat.h
+
+# Vendor 5.15: see driver/t31/Kbuild.
+ifdef TX_ISP_VENDOR_TREE
+ccflags-y += -DTX_ISP_VENDOR_TREE -std=gnu99
+endif
+
 ccflags-y += -Wno-error=incompatible-pointer-types -Wno-error=strict-prototypes
 
 KBUILD_EXTRA_SYMBOLS := $(src)/../../driver/t31/Module.symvers

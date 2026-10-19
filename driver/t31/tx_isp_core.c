@@ -33,7 +33,14 @@
 #include <linux/device.h>
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+#ifdef TX_ISP_VENDOR_TREE
+/* Vendor 5.15 exposes the T31 CGU through clkdev, not a DT provider; the
+   T31_CLK_CIM fallback below is dead code there, so the real binding header
+   (mainline-only) is not needed. */
+#define T31_CLK_CIM	0
+#else
 #include <dt-bindings/clock/ingenic,t31-cgu.h>
+#endif
 #endif
 #include "tx_isp_t31_fcrop.h"
 

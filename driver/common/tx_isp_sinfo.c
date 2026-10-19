@@ -38,7 +38,7 @@
 #endif
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0) && !defined(PDE_DATA)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0) && !defined(PDE_DATA) && !defined(TX_ISP_VENDOR_TREE)
 #define PDE_DATA(inode) pde_data(inode)
 #endif
 
