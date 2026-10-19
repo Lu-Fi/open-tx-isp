@@ -7459,15 +7459,11 @@ static uint32_t t40_antiflick_pending_a2;
 static bool t40_antiflick_pending_valid;
 static uint32_t t40_runmode_pending;             /* SetISPRunningMode (CID 0x8000071) received before the tuning context exists */
 static bool t40_runmode_pending_valid;
-static bool regtrace_t40_vendor_awb_process;   /* defined (default 1) with its module_param further down */
+static bool regtrace_t40_vendor_awb_process;   /* defined with its module_param further down */
 static bool regtrace_t40_awb_spec_regs;   /* T40-AWB-SPEC-REGS: write the special-light registers 0x180xx (MT98: heap corruption with them, likely a stats DMA without a buffer) */
 module_param_named(t40_awb_spec_regs, regtrace_t40_awb_spec_regs, bool, 0644);
-static bool regtrace_t40_awb_ctd = true;   /* T40-AWB-CTD: run tisp_awb_ct_detect (hand translation, tx_isp_t40_awb_ctd.inc); off = gray-world fallback */
+static bool regtrace_t40_awb_ctd;   /* T40-AWB-CTD: run the lifted tisp_awb_ct_detect (8 KB fragment lift, heap-corruption suspect N9); off = gray-world fallback */
 module_param_named(t40_awb_ctd, regtrace_t40_awb_ctd, bool, 0644);
-static uint32_t regtrace_t40_awb_ctd_runs, regtrace_t40_awb_ctd_fallbacks;
-module_param_named(t40_awb_ctd_runs, regtrace_t40_awb_ctd_runs, uint, 0444);
-module_param_named(t40_awb_ctd_fallbacks, regtrace_t40_awb_ctd_fallbacks, uint, 0444);
-MODULE_PARM_DESC(t40_awb_ctd, "AWB colour-temperature detection like the OEM (tisp_awb_ct_detect, default 1; needs t40_vendor_awb_process=1); 0 = gray-world fallback");
 static unsigned int regtrace_t40_awb_proc_stages = 0xffU;   /* T40-AWB-STAGES bisect: 1 par_update 2 spec_calculate 4 alogrithm 8 set_gain 16 event13 */
 module_param_named(t40_awb_proc_stages, regtrace_t40_awb_proc_stages, uint, 0644);
 static int regtrace_t40_tuning_set_running_mode(uint32_t mode);
@@ -40286,8 +40282,8 @@ int32_t tx_isp_vin_activate_subdev(void *arg1)
  * last_cb = .rodata bytes).  The correct tables are built by the recovered
  * literal data (vin_subdev_ops and core_subdev_ops at +0/+4/+0xc/+0x10, with
  * ispcore_subdev_core_ops + 0x24 = ispcore_interrupt_service_routine) but
- * nothing consumes them.  Default on (2026-10-19); =0 reproduces the pristine
- * behaviour (no vendor AE per frame).
+ * nothing consumes them.  Opt in here; the default reproduces the pristine
+ * behaviour unchanged, so the first enabled boot is an experiment.
  *
  * T40-CORE-OPS-FIRE-GATE: enable_core_ops_cb=1 makes the OEM ISR reachable on
  * every fire.  The OEM top half has no fire-type test (see isp_irq_handle
@@ -40296,7 +40292,7 @@ int32_t tx_isp_vin_activate_subdev(void *arg1)
  * pending ISP core status, which is the fire type the OEM ISR serves.
  * core_ops_cb_fire_gate=0 (default) leaves the OEM dispatch behaviour intact.
  */
-static bool regtrace_core_ops_cb = true;   /* default on since 2026-10-19: OEM ISR -> AE/AWB per frame */
+static bool regtrace_core_ops_cb;
 
 static uintptr_t regtrace_core_ops_arg(const char *who, const void *table,
                                        uintptr_t fallback)
@@ -40309,7 +40305,6 @@ static uintptr_t regtrace_core_ops_arg(const char *who, const void *table,
 }
 
 module_param_named(enable_core_ops_cb, regtrace_core_ops_cb, bool, 0644);
-MODULE_PARM_DESC(enable_core_ops_cb, "OEM ISP core interrupt service routine via the core ops table (vendor AE/AWB per frame, default 1)");
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000006a7c origin=fragment_seed original=tx_isp_vin_probe */
 int tx_isp_vin_probe(struct platform_device *pdev)
@@ -97691,12 +97686,9 @@ int64_t tisp_awb_long_alogrithm(uintptr_t a0, uintptr_t a1)
     {
         uint32_t ctd[2] = { loc48, loc52 }, ctf[2] = { loc32, loc36 };
         static unsigned int nd;
-        if (regtrace_t40_awb_ctd) {
+        if (regtrace_t40_awb_ctd)
             (void)tisp_awb_ct_detect(a1, (uintptr_t)ctd, (uint32_t)(uintptr_t)ctf);
-            regtrace_t40_awb_ctd_runs++;
-        }
         if (ctd[0] == loc48 && ctd[1] == loc52) {
-            regtrace_t40_awb_ctd_fallbacks++;
             /* T40-AWB-GRAYWORLD-FALLBACK: the lifted tisp_awb_ct_detect leaves its outputs untouched (MT103).  Until it is
              * hand-translated, use the gray-world estimate from the global means (Q8 R/G, B/G): gain = 1/mean in Q16. */
             if (g123[0]) ctd[0] = (65536U * 256U) / g123[0];
@@ -97823,9 +97815,8 @@ int32_t tisp_awb_spec_calculate(uintptr_t a0, uint32_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000033a7c origin=fragment_seed original=tisp_awb_main_process */
-static bool regtrace_t40_vendor_awb_process = true;   /* T40-AWB: run the vendor AWB algorithm on event 14 (default on since 2026-10-19: the FBL15 event-thread stall was the spec_calculate tail-call loop, fixed in bfed4662; ct_detect hand-translated in 2a157e96) */
+static bool regtrace_t40_vendor_awb_process;   /* T40-AWB: run the lifted vendor AWB algorithm on event 14 (default off: the lift of tisp_awb_long_alogrithm/ct_detect still has ~20 unrestored div/mflo sites and hung the event thread in FBL15) */
 module_param_named(t40_vendor_awb_process, regtrace_t40_vendor_awb_process, bool, 0644);
-MODULE_PARM_DESC(t40_vendor_awb_process, "Vendor AWB algorithm per AWB event like the OEM (default 1); 0 = skip (gray-world white balance)");
 static uint32_t regtrace_t40_vendor_awb_process_skipped;
 module_param_named(t40_vendor_awb_process_skipped, regtrace_t40_vendor_awb_process_skipped, uint, 0444);
 int64_t tisp_awb_main_process(void)
