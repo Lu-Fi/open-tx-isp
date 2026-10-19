@@ -816,9 +816,17 @@ static int tx_isp_core_ioctl_mask;
 module_param(tx_isp_core_ioctl_mask, int, 0);
 MODULE_PARM_DESC(tx_isp_core_ioctl_mask, "isp ioctl calls mask");
 
-static int tx_isp_bringup_level;
+/*
+ * Default 3 = full core bring-up, the level the image passes from
+ * /etc/modules.d/20-isp. Below 3 the core probe returns before the ISP/CSI
+ * clock gates and the ISPA divider are set up (CLKGR 0x3F9F77E5, ISPACDR 1 =
+ * 552 MHz instead of 0x3D1F77E5 / 2 = 368 MHz), and a WDT reboot after such a
+ * load hangs (audit T41_REBOOT_HANG_1019, "Geraetetest clk-defaults").
+ * Lower levels stay available for bring-up via the module parameter.
+ */
+static int tx_isp_bringup_level = 3;
 module_param(tx_isp_bringup_level, int, 0);
-MODULE_PARM_DESC(tx_isp_bringup_level, "bring-up gate: -1 exports only, 0 shallow, 1 graph, 2 mem, 3 core tuning");
+MODULE_PARM_DESC(tx_isp_bringup_level, "bring-up gate: -1 exports only, 0 shallow, 1 graph, 2 mem, 3 core tuning (default)");
 /*
  * Load-time copy in .data, used by the unload path.  The .bss parameter
  * sits among recovered globals that decompiled code addresses as a base
