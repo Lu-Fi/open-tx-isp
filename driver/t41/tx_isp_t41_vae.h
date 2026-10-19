@@ -44,7 +44,7 @@ static inline bool vae_ok(u32 a, u32 align)
 }
 
 #define VAE_LD(name, type, align) \
-static inline u32 vae_##name(u32 a, u32 pc) \
+static noinline u32 vae_##name(u32 a, u32 pc) \
 { \
 	if (unlikely(!vae_ok(a, align))) { vae_fault_note(a, pc); return 0; } \
 	return (u32)*(volatile type *)(uintptr_t)a; \
@@ -56,7 +56,7 @@ static inline u32 vae_lh(u32 a, u32 pc) { return (u32)(s32)(s16)vae_lhu(a, pc); 
 static inline u32 vae_lb(u32 a, u32 pc) { return (u32)(s32)(signed char)vae_lbu(a, pc); }
 
 #define VAE_ST(name, type, align) \
-static inline void vae_##name(u32 a, u32 v, u32 pc) \
+static noinline void vae_##name(u32 a, u32 v, u32 pc) \
 { \
 	if (unlikely(!vae_ok(a, align))) { vae_fault_note(a, pc); return; } \
 	*(volatile type *)(uintptr_t)a = (type)v; \
@@ -64,6 +64,18 @@ static inline void vae_##name(u32 a, u32 v, u32 pc) \
 VAE_ST(sw, u32, 3)
 VAE_ST(sh, u16, 1)
 VAE_ST(sb, u8, 0)
+
+/* Accesses to the function's own frame array vframe[] (generated "sp + N"):
+ * always a valid, aligned kernel stack address, so no guard (same result as
+ * the guarded access, which could never fault there). */
+#define vf_lw(a)  (*(volatile u32 *)(uintptr_t)(a))
+#define vf_lhu(a) ((u32)*(volatile u16 *)(uintptr_t)(a))
+#define vf_lbu(a) ((u32)*(volatile u8 *)(uintptr_t)(a))
+#define vf_lh(a)  ((u32)(s32)*(volatile s16 *)(uintptr_t)(a))
+#define vf_lb(a)  ((u32)(s32)*(volatile s8 *)(uintptr_t)(a))
+#define vf_sw(a, v) (*(volatile u32 *)(uintptr_t)(a) = (u32)(v))
+#define vf_sh(a, v) (*(volatile u16 *)(uintptr_t)(a) = (u16)(v))
+#define vf_sb(a, v) (*(volatile u8 *)(uintptr_t)(a) = (u8)(v))
 
 /* hi:lo as one u64 (hi in the upper word); x/0 leaves 0 instead of trapping */
 static inline u64 vae_divu(u32 x, u32 y, u32 pc)

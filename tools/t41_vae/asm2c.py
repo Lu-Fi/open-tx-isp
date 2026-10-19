@@ -6,6 +6,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from parse import load
 IN = os.environ.get('VAE_IN', '.')
 OUT = os.environ.get('VAE_OUT', 'vae_gen.inc')
+VF = os.environ.get('VAE_VF', '1') == '1'  # frame-slot accesses unguarded (own stack array)
+VFW = {'lw': 4, 'lh': 2, 'lhu': 2, 'lb': 1, 'lbu': 1, 'sw': 4, 'sh': 2, 'sb': 1}
 
 F = load(os.path.join(IN, 'sdk.dis'))
 sec = {}
@@ -117,6 +119,14 @@ def gen(fname, translated, warn):
             return rt, f'(sp + {off}U)'
         return rt, f'({r(base)} + (u32){off})'
 
+    def vf_ok(ad, m):
+        # (sp + N): N-th byte of this function's own vframe[] -> no guard needed
+        # (always a valid, naturally aligned kernel stack address)
+        mm = re.fullmatch(r'\(sp \+ (\d+)U\)', ad)
+        if not VF or not mm: return False
+        n, wd = int(mm.group(1)), VFW[m]
+        return n % wd == 0 and n + wd <= (max(frame, 4) // 4 + 1) * 4
+
     def one(i):
         m, ops = i[1], i[2]
         a = [x.strip() for x in ops.split(',')] if ops else []
@@ -186,10 +196,14 @@ def gen(fname, translated, warn):
             return f'{w(a[0])} = ({r(a[0])} & {(~mk) & 0xffffffff:#x}U) | (({r(a[1])} << {pos}) & {mk:#x}U);'
         if m in ('lw', 'lh', 'lhu', 'lb', 'lbu'):
             rt, ad = mem(i, ops)
+            if vf_ok(ad, m):
+                return f'{w(rt)} = vf_{m}({ad});'
             f = {'lw': 'vae_lw', 'lh': 'vae_lh', 'lhu': 'vae_lhu', 'lb': 'vae_lb', 'lbu': 'vae_lbu'}[m]
             return f'{w(rt)} = {f}({ad}, {pc}U);'
         if m in ('sw', 'sh', 'sb'):
             rt, ad = mem(i, ops)
+            if vf_ok(ad, m):
+                return f'vf_{m}({ad}, {r(rt)});'
             return f'vae_{m}({ad}, {r(rt)}, {pc}U);'
         raise Exception(f'unhandled {m} {ops} in {fname}+{pc:x}')
 
