@@ -1653,7 +1653,89 @@ t41_bringup_param(t41_tmo_frames, uint, 0444);
 t41_bringup_param(t41_tmo_dropped, uint, 0444);
 t41_bringup_param(t41_tmo_error, int, 0444);
 static void t41_tmo_workfn(struct work_struct *work);
-static DECLARE_WORK(t41_tmo_work, t41_tmo_workfn);
+static void t41_tmo_work_timed(struct work_struct *work);
+static DECLARE_WORK(t41_tmo_work, t41_tmo_work_timed);
+
+/*
+ * Per-frame load statistics (build with TX_ISP_LOAD_STATS=y). Compiled out
+ * by default; when built in, t41_load_stats=0 turns the accounting off at
+ * runtime. Kept in .data like the other diagnostics (see the AWB comment).
+ *
+ * t41_isr_bits[]: hits per status bit, [0..31] 0x40028, [32..63] 0x400a8,
+ * [64..95] 0x400b8 (same numbering as irq_func_cb), [96..127] error 0x40068.
+ * t41_isr_calls: ISR entries, entries with no status bit set.
+ * t41_work_*: per work item fs, fd, awb, tmo, adr (adr runs inside tmo):
+ * count, summed and maximum run time in microseconds.
+ */
+enum { T41_WT_FS, T41_WT_FD, T41_WT_AWB, T41_WT_TMO, T41_WT_ADR, T41_WT_N };
+#ifdef TX_ISP_LOAD_STATS
+static int t41_load_stats __attribute__((section(".data"))) = 1;
+module_param(t41_load_stats, int, 0644);
+MODULE_PARM_DESC(t41_load_stats, "count ISR status bits and time per-frame work (1=on)");
+static unsigned int t41_isr_bits[128] __attribute__((section(".data")));
+static unsigned int t41_isr_bits_num __attribute__((section(".data"))) = 128;
+module_param_array(t41_isr_bits, uint, &t41_isr_bits_num, 0444);
+static unsigned int t41_isr_calls[2] __attribute__((section(".data")));
+static unsigned int t41_isr_calls_num __attribute__((section(".data"))) = 2;
+module_param_array(t41_isr_calls, uint, &t41_isr_calls_num, 0444);
+static unsigned int t41_work_count[T41_WT_N] __attribute__((section(".data")));
+static unsigned int t41_work_us[T41_WT_N] __attribute__((section(".data")));
+static unsigned int t41_work_max_us[T41_WT_N] __attribute__((section(".data")));
+static unsigned int t41_work_num __attribute__((section(".data"))) = T41_WT_N;
+module_param_array(t41_work_count, uint, &t41_work_num, 0444);
+module_param_array(t41_work_us, uint, &t41_work_num, 0444);
+module_param_array(t41_work_max_us, uint, &t41_work_num, 0444);
+
+static inline void t41_isr_count_word(unsigned int base, uint32_t word)
+{
+	while (word) {
+		unsigned int bit = __ffs(word);
+
+		t41_isr_bits[base + bit]++;
+		word &= word - 1;
+	}
+}
+
+static inline void t41_isr_count(uint32_t status0, uint32_t status2,
+				 uint32_t status3, uint32_t error)
+{
+	if (READ_ONCE(t41_load_stats) <= 0)
+		return;
+	t41_isr_calls[0]++;
+	if (!(status0 | status2 | status3 | error))
+		t41_isr_calls[1]++;
+	t41_isr_count_word(0, status0);
+	t41_isr_count_word(32, status2);
+	t41_isr_count_word(64, status3);
+	t41_isr_count_word(96, error);
+}
+
+static inline u64 t41_work_begin(void)
+{
+	return READ_ONCE(t41_load_stats) > 0 ? ktime_get_ns() : 0;
+}
+
+static inline void t41_work_end(unsigned int id, u64 start)
+{
+	u64 ns;
+	unsigned int us;
+
+	if (!start)
+		return;
+	ns = ktime_get_ns() - start;
+	do_div(ns, 1000);
+	us = (unsigned int)ns;
+	t41_work_count[id]++;
+	t41_work_us[id] += us;
+	if (us > t41_work_max_us[id])
+		t41_work_max_us[id] = us;
+}
+#else
+static inline void t41_isr_count(uint32_t status0, uint32_t status2,
+				 uint32_t status3, uint32_t error) { }
+static inline u64 t41_work_begin(void) { return 0; }
+static inline void t41_work_end(unsigned int id, u64 start) { }
+#endif
 /*
  * Per-frame tone worker trigger (t41_tmo_workfn: CCM/BCSH by EV, gamma,
  * LSC gain, ADR, LCE, YSP, CDNS, MDNS, DPC gain, TMO map).  Stock-like it
@@ -3528,7 +3610,8 @@ static const char LC193[] = "[%s %d] %s[%d] the format(0x%08x) of input couldn't
 static const char LC194[] = "[ %s:%d ] ispcore: irq-status unusual 0x%08x, 0x%x\n ";
 static const char LC195[] = "[ %s:%d ] ispcore: irq-status unusual 0x%08x\n isp overflow !!!";
 static void ispcore_irq_main_fd_work(struct work_struct *work);
-static DECLARE_WORK(main_fd_work, ispcore_irq_main_fd_work);
+static void t41_main_fd_work_timed(struct work_struct *work);
+static DECLARE_WORK(main_fd_work, t41_main_fd_work_timed);
 static unsigned char __attribute__((aligned(4))) isp_drivers[24] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -5794,6 +5877,7 @@ int32_t system_reg_write(uint32_t a0, uint32_t a1);
 int32_t system_reg_read(int32_t arg1);
 int32_t system_irq_func_set(int32_t arg1, int32_t arg2, int32_t arg3);
 void ispcore_irq_main_fs_work(void *work);
+static void t41_main_fs_work_timed(struct work_struct *work);
 int32_t fs_work_kthread(void);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t tx_isp_enable_irq_1(uintptr_t a0) __asm__("tx_isp_enable_irq");
@@ -5995,7 +6079,7 @@ static void regtrace_patch_relocated_data(void)
     *(const void **)((char *)vic_core_ops + 0x24) = (const void *)&isp_vic_interrupt_service_routine;
     *(const void **)((char *)main_fs_work + 0x4) = (const void *)((char *)((char *)&main_fs_work + 0x4));
     *(const void **)((char *)main_fs_work + 0x8) = (const void *)((char *)((char *)&main_fs_work + 0x4));
-    *(const void **)((char *)main_fs_work + 0xc) = (const void *)&ispcore_irq_main_fs_work;
+    *(const void **)((char *)main_fs_work + 0xc) = (const void *)&t41_main_fs_work_timed;
     *(const void **)((char *)vin_subdev_ops + 0x0) = (const void *)&vin_subdev_core_ops;
     *(const void **)((char *)vin_subdev_ops + 0x4) = (const void *)&vin_subdev_video_ops;
     *(const void **)((char *)vin_subdev_ops + 0xc) = (const void *)&vin_subdev_sensor_ops;
@@ -153817,7 +153901,12 @@ static void t41_tmo_workfn(struct work_struct *work)
         t41_clm_frame(READ_ONCE(t41_ccm_ct));
     t41_gamma_error = t41_gamma_update(ev);
     t41_native_lsc_frame(READ_ONCE(t41_ccm_ct), gain);
-    t41_native_adr_frame(exposure);
+    {
+        u64 adr_start = t41_work_begin();
+
+        t41_native_adr_frame(exposure);
+        t41_work_end(T41_WT_ADR, adr_start);
+    }
     t41_lce_frame(gain);
     if (gain != t41_ysp_gain)
         t41_ysp_error = tisp_ysp_refresh(0, gain);
@@ -153845,6 +153934,14 @@ static void t41_tmo_workfn(struct work_struct *work)
     }
 done:
     mutex_unlock(&t41_tmo_map_lock);
+}
+
+static void t41_tmo_work_timed(struct work_struct *work)
+{
+    u64 start = t41_work_begin();
+
+    t41_tmo_workfn(work);
+    t41_work_end(T41_WT_TMO, start);
 }
 
 static void t41_tmo_stream_stop(void)
@@ -162094,6 +162191,22 @@ static int t41_msca_commit_frame_shadow(void)
 		       "t41: MSCA frame shadow commit status=%08x ret=%d\n",
 		       status, ret);
 	return ret;
+}
+
+static void t41_main_fd_work_timed(struct work_struct *work)
+{
+    u64 start = t41_work_begin();
+
+    ispcore_irq_main_fd_work(work);
+    t41_work_end(T41_WT_FD, start);
+}
+
+static void t41_main_fs_work_timed(struct work_struct *work)
+{
+    u64 start = t41_work_begin();
+
+    ispcore_irq_main_fs_work(work);
+    t41_work_end(T41_WT_FS, start);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f380 origin=fragment_seed original=ispcore_irq_main_fd_work */
@@ -170650,6 +170763,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
         status3 = readl(regs + 0x400b8);
         writel(status3, regs + 0x400b4);
         t41_fr(2, status0, status2 | (error << 24));
+        t41_isr_count(status0, status2, status3, error);
 
         /*
          * The non-direct T41 frame path is completed from ISP status bit 0.

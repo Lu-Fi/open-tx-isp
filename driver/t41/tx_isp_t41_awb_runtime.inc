@@ -47,7 +47,8 @@ static unsigned int t41_awb_dump_req, t41_awb_dump_len;
 static unsigned char *t41_awb_dump_buf;
 #endif
 #define T41_AWB_DUMP_BYTES (32768U+sizeof(((struct t41_awb_owned *)0)->s)+sizeof(((struct t41_awb_owned *)0)->p))
-static DECLARE_WORK(t41_native_awb_work, t41_native_awb_workfn);
+static void t41_native_awb_work_timed(struct work_struct *work);
+static DECLARE_WORK(t41_native_awb_work, t41_native_awb_work_timed);
 
 static struct t41_awb_runtime *t41_native_awb_object(unsigned int channel)
 {
@@ -151,6 +152,13 @@ static void t41_native_awb_queue(void)
         schedule_work(&t41_native_awb_work);
     }
     spin_unlock_irqrestore(&t41_native_awb_irq_lock,flags);
+}
+static void t41_native_awb_work_timed(struct work_struct *work)
+{
+    u64 start = t41_work_begin();
+
+    t41_native_awb_workfn(work);
+    t41_work_end(T41_WT_AWB, start);
 }
 static void t41_native_awb_workfn(struct work_struct *work)
 {
