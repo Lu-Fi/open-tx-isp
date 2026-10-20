@@ -30055,7 +30055,7 @@ int apical_isp_hvflip_update(void *arg1, int arg2)
 
 	tisp_s_mscaler_hvflip_mask(flip_mask);
 	tisp_hv_flip_enable(flip_mask);
-	READ_ONCE(t31_flip_state) = state | ((u32)(flip_mask & 3) << 2);
+	WRITE_ONCE(t31_flip_state, state | ((u32)(flip_mask & 3) << 2));
 	return 0;
 }
 EXPORT_SYMBOL(apical_isp_hvflip_update);
