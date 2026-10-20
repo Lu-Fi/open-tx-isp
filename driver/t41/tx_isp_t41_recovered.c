@@ -1664,8 +1664,9 @@ static DECLARE_WORK(t41_tmo_work, t41_tmo_work_timed);
  * t41_isr_bits[]: hits per status bit, [0..31] 0x40028, [32..63] 0x400a8,
  * [64..95] 0x400b8 (same numbering as irq_func_cb), [96..127] error 0x40068.
  * t41_isr_calls: ISR entries, entries with no status bit set.
- * t41_work_*: per work item fs, fd, awb, tmo, adr (adr runs inside tmo):
- * count, summed and maximum run time in microseconds.
+ * t41_work_*: per work item, see the enum below (fs, fd, awb, tmo, adr,
+ * then the tone worker's sub-blocks): count, summed and maximum run time
+ * in microseconds.
  */
 /*
  * Stock queues main_fs_work and main_fd_work on system_wq (queue_work_on
@@ -1714,7 +1715,24 @@ module_param(t41_adr_interval, uint, 0644);
 MODULE_PARM_DESC(t41_adr_interval, "evaluate ADR every n-th frame (1=every frame, stock)");
 static unsigned int t41_adr_tick __attribute__((section(".data")));
 
-enum { T41_WT_FS, T41_WT_FD, T41_WT_AWB, T41_WT_TMO, T41_WT_ADR, T41_WT_N };
+enum {
+	T41_WT_FS, T41_WT_FD, T41_WT_AWB, T41_WT_TMO, T41_WT_ADR,
+	/* sub-blocks of the tone worker (t41_tmo_workfn) */
+	T41_WT_AWB_EXPOSURE, T41_WT_CCM, T41_WT_BCSH, T41_WT_CLM,
+	T41_WT_GAMMA, T41_WT_LSC, T41_WT_LCE, T41_WT_YSP, T41_WT_CDNS,
+	T41_WT_MDNS, T41_WT_DPC, T41_WT_TMO_FRAME,
+	/* inside t41_tmo_frame */
+	T41_WT_TMO_CURVE, T41_WT_TMO_MAP, T41_WT_TMO_INTERP, T41_WT_TMO_RAM,
+	T41_WT_TMO_DEFAULT,
+	T41_WT_N
+};
+/* Time one statement under a work index (no-op without TX_ISP_LOAD_STATS). */
+#define T41_LS_TIME(id, stmt) do {				\
+	u64 t41_ls_t0 = t41_work_begin();			\
+								\
+	stmt;							\
+	t41_work_end(id, t41_ls_t0);				\
+} while (0)
 #ifdef TX_ISP_LOAD_STATS
 static int t41_load_stats __attribute__((section(".data"))) = 1;
 module_param(t41_load_stats, int, 0644);
@@ -153542,6 +153560,38 @@ tisp_tmo_fpga0xbcc:
     return 0;
 }
 
+/*
+ * TMO RAM port writes. system_reg_write() issues wmb() after every store;
+ * stock writes the ~1650 TMO RAM data words per frame with plain stores.
+ * t41_tmo_ram_fast=1 writes the data words without the per-store barrier
+ * (uncached MMIO stores to one device stay in order on MIPS) and orders
+ * the whole burst with one wmb() before the commit writes. Default 0 keeps
+ * the per-store barrier.
+ */
+static int t41_tmo_ram_fast __attribute__((section(".data")));
+module_param(t41_tmo_ram_fast, int, 0644);
+MODULE_PARM_DESC(t41_tmo_ram_fast, "1=write TMO RAM data words without a barrier per store (stock-like)");
+
+static void __iomem *t41_isp_regs(void)
+{
+	char *subdev = (char *)(uintptr_t)ispcore_sd;
+	void __iomem *regs;
+
+	if (!t41_kernel_data_ptr(subdev))
+		return NULL;
+	regs = *(void __iomem **)(subdev + 0xe8);
+	return t41_kernel_data_ptr((void *)regs) ? regs : NULL;
+}
+
+static inline void t41_tmo_ram_data(void __iomem *regs, uint32_t reg,
+				    uint32_t value)
+{
+	if (regs)
+		__raw_writel(value, regs + reg);
+	else
+		system_reg_write(reg, value);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000069570 origin=fragment_seed original=tisp_tmo_ram_reg_refresh */
 int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
 {
@@ -153585,6 +153635,7 @@ int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
         uint32_t first;
         uint32_t second;
         uint32_t value;
+        void __iomem *regs;
 
         if (a0 >= 2 || !tmo_info[a0] || !statYOut)
             return -EINVAL;
@@ -153594,6 +153645,8 @@ int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
         stats = (uint8_t *)(uintptr_t)statYOut;
         if (!runtime || !stats)
             return -EINVAL;
+        regs = READ_ONCE(t41_tmo_ram_fast) > 0 ?
+            t41_isp_regs() : NULL;
 
         system_reg_write(0x50220, 0x101);
         for (cursor = runtime + 120; cursor != runtime + 316;
@@ -153601,10 +153654,10 @@ int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
             value = ((uint32_t)*(uint16_t *)(void *)(cursor + 2)
                      << 16) & 0x0fff0000U;
             value |= *(uint16_t *)(void *)cursor & 0x0fffU;
-            system_reg_write(0x50224, value);
+            t41_tmo_ram_data(regs, 0x50224, value);
         }
         value = *(uint16_t *)(void *)(runtime + 316) & 0x0fffU;
-        system_reg_write(0x50224, value | (value << 16));
+        t41_tmo_ram_data(regs, 0x50224, value | (value << 16));
         system_reg_write(0x50220, 0x10102);
 
         system_reg_write(0x50240, 0x101);
@@ -153613,10 +153666,10 @@ int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
             value = ((uint32_t)*(uint16_t *)(void *)(cursor + 2)
                      << 16) & 0x1fff0000U;
             value |= *(uint16_t *)(void *)cursor & 0x1fffU;
-            system_reg_write(0x50244, value);
+            t41_tmo_ram_data(regs, 0x50244, value);
         }
         value = *(uint16_t *)(void *)(runtime + 718) & 0x1fffU;
-        system_reg_write(0x50244, value | (value << 16));
+        t41_tmo_ram_data(regs, 0x50244, value | (value << 16));
         system_reg_write(0x50240, 0x10102);
 
         system_reg_write(0x50260, 0x101);
@@ -153627,7 +153680,7 @@ int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
                 first |= (*(uint32_t *)(void *)(cursor + 1500)
                           << 12) & 0x00fff000U;
                 first |= *(uint32_t *)(void *)(cursor + 3000) << 24;
-                system_reg_write(0x50264, first);
+                t41_tmo_ram_data(regs, 0x50264, first);
 
                 second = (*(uint32_t *)(void *)(cursor + 3000) >> 8)
                          & 0x0fU;
@@ -153635,10 +153688,12 @@ int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
                           & 0x0000ffffU;
                 second |= (*(uint32_t *)(void *)(cursor + 6000) << 16)
                           & 0x0fff0000U;
-                system_reg_write(0x50264, second);
+                t41_tmo_ram_data(regs, 0x50264, second);
             }
         }
         system_reg_write(0x50260, 0x10102);
+        if (regs)
+            wmb();
         system_reg_write(0x1e030, ~system_reg_read(0x1e030));
         system_reg_write(0x1e034, 1);
         system_reg_write(0x1e008, 1);
@@ -153797,6 +153852,12 @@ tisp_tmo_ram_reg_refresh0x168:
 }
 
 /* map_lock owns the algorithm workspaces and the entire RAM transaction. */
+static int t41_tmo_on_change __attribute__((section(".data")));
+module_param(t41_tmo_on_change, int, 0644);
+MODULE_PARM_DESC(t41_tmo_on_change, "1=TMO gain/EV interpolation and default registers only on change (stock-like)");
+static uint32_t t41_tmo_last_gain __attribute__((section(".data"))) = ~0U;
+static uint32_t t41_tmo_last_ev __attribute__((section(".data"))) = ~0U;
+
 static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
 {
     uint8_t *info, *params, *geometry, *runtime, *dma;
@@ -153804,6 +153865,7 @@ static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
     uint16_t *shadow;
     uint16_t curve[T41_TMO_CURVE_ENTRIES];
     uint32_t bank, samples = 0, shift, i;
+    bool changed;
     int ret;
 
     info = (uint8_t *)(uintptr_t)tmo_info[0];
@@ -153831,7 +153893,9 @@ static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
         geometry[21] != T41_TMO_COLS + 4 || geometry[22] > 9)
         return -ERANGE;
     shift = geometry[22];
-    if (t41_tmo_curve(params, T41_TMO_PARAM_BYTES, ev, curve))
+    T41_LS_TIME(T41_WT_TMO_CURVE,
+                ret = t41_tmo_curve(params, T41_TMO_PARAM_BYTES, ev, curve));
+    if (ret)
         return -EOPNOTSUPP;
     bank = system_reg_read(0x1e028U) & 1U;
     dma += bank << 14;
@@ -153853,8 +153917,9 @@ static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
             t41_tmo_again[1]++;
         return -EAGAIN;
     }
-    ret = t41_tmo_map(params, T41_TMO_PARAM_BYTES, shift, sums, counts,
-                      previous, t41_tmo_state.first, out);
+    T41_LS_TIME(T41_WT_TMO_MAP,
+                ret = t41_tmo_map(params, T41_TMO_PARAM_BYTES, shift, sums,
+                                  counts, previous, t41_tmo_state.first, out));
     if (ret)
         return -EOPNOTSUPP;
     *(uint32_t *)(void *)(info + 32) = ev;
@@ -153862,18 +153927,34 @@ static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
     *(uint32_t *)(void *)(info + 40) = gain;
     memcpy(shadow, curve, sizeof(curve));
     memcpy(runtime + 318, curve, sizeof(curve));
-    ret = tisp_tmo_gain_interp(0);
-    if (!ret && t41_tmo_le16(params + 480) == 1)
-        ret = tisp_tmo_detailen_ev_interp(0);
+    /*
+     * Stock tisp_tmo_process only refreshes the TMO RAM per frame; gain
+     * interpolation runs from tisp_long_tgain_update (gain change), the
+     * detail/EV interpolation from tisp_tmo_ev_update (EV change), and the
+     * default registers are not rewritten per frame. t41_tmo_on_change=1
+     * does the same; default 0 recomputes everything every frame.
+     */
+    changed = READ_ONCE(t41_tmo_on_change) <= 0 || t41_tmo_state.first ||
+        gain != t41_tmo_last_gain || ev != t41_tmo_last_ev;
+    if (changed) {
+        T41_LS_TIME(T41_WT_TMO_INTERP, {
+            ret = tisp_tmo_gain_interp(0);
+            if (!ret && t41_tmo_le16(params + 480) == 1)
+                ret = tisp_tmo_detailen_ev_interp(0);
+        });
+        if (ret)
+            return ret;
+    }
+    T41_LS_TIME(T41_WT_TMO_RAM, ret = tisp_tmo_ram_reg_refresh(0));
     if (ret)
         return ret;
-    ret = tisp_tmo_ram_reg_refresh(0);
-    if (ret)
-        return ret;
-    ret = tisp_tmo_default_reg_refresh(0);
+    if (changed)
+        T41_LS_TIME(T41_WT_TMO_DEFAULT, ret = tisp_tmo_default_reg_refresh(0));
     if (ret)
         return ret;
     memcpy(previous, out, T41_TMO_SAMPLES * sizeof(*out));
+    t41_tmo_last_gain = gain;
+    t41_tmo_last_ev = ev;
     t41_tmo_state.first = 0;
     return t41_top_restore_bypass(BIT(22));
 }
@@ -153941,13 +154022,14 @@ static void t41_tmo_workfn(struct work_struct *work)
     exposure = (uint64_t)integration * linear;
     ev = min_t(uint64_t, exposure, UINT_MAX);
     t41_tone_ev = ev;
-    if (t41_native_awb) t41_native_awb_exposure(gain, ev);
-    t41_ccm_update(READ_ONCE(t41_ccm_ct), ev, 0);
-    t41_bcsh_update(READ_ONCE(t41_ccm_ct), ev, 0);
+    if (t41_native_awb)
+        T41_LS_TIME(T41_WT_AWB_EXPOSURE, t41_native_awb_exposure(gain, ev));
+    T41_LS_TIME(T41_WT_CCM, t41_ccm_update(READ_ONCE(t41_ccm_ct), ev, 0));
+    T41_LS_TIME(T41_WT_BCSH, t41_bcsh_update(READ_ONCE(t41_ccm_ct), ev, 0));
     if (t41_clm)
-        t41_clm_frame(READ_ONCE(t41_ccm_ct));
-    t41_gamma_error = t41_gamma_update(ev);
-    t41_native_lsc_frame(READ_ONCE(t41_ccm_ct), gain);
+        T41_LS_TIME(T41_WT_CLM, t41_clm_frame(READ_ONCE(t41_ccm_ct)));
+    T41_LS_TIME(T41_WT_GAMMA, t41_gamma_error = t41_gamma_update(ev));
+    T41_LS_TIME(T41_WT_LSC, t41_native_lsc_frame(READ_ONCE(t41_ccm_ct), gain));
     {
         u64 adr_start = t41_work_begin();
         unsigned int interval = READ_ONCE(t41_adr_interval);
@@ -153958,19 +154040,19 @@ static void t41_tmo_workfn(struct work_struct *work)
             t41_work_end(T41_WT_ADR, adr_start);
         }
     }
-    t41_lce_frame(gain);
+    T41_LS_TIME(T41_WT_LCE, t41_lce_frame(gain));
     if (gain != t41_ysp_gain)
-        t41_ysp_error = tisp_ysp_refresh(0, gain);
+        T41_LS_TIME(T41_WT_YSP, t41_ysp_error = tisp_ysp_refresh(0, gain));
     if (gain != t41_cdns_gain)
-        t41_cdns_error = tisp_cdns_refresh(0, gain);
+        T41_LS_TIME(T41_WT_CDNS, t41_cdns_error = tisp_cdns_refresh(0, gain));
     if (t41_mdns_buf_info[0].paddr && gain != t41_mdns_gain)
-        t41_mdns_error = tisp_mdns_refresh(0, gain);
+        T41_LS_TIME(T41_WT_MDNS, t41_mdns_error = tisp_mdns_refresh(0, gain));
     if (t41_stock_dpc_profile <= 0 && gain != t41_dpc_gain) {
-        t41_dpc_error = tisp_dpc_l_gain_update(0, 0, gain);
+        T41_LS_TIME(T41_WT_DPC, t41_dpc_error = tisp_dpc_l_gain_update(0, 0, gain));
         if (!t41_dpc_error)
             t41_dpc_gain = gain;
     }
-    ret = t41_tmo_frame(ev, gain, sequence);
+    T41_LS_TIME(T41_WT_TMO_FRAME, ret = t41_tmo_frame(ev, gain, sequence));
     t41_tmo_error = ret;
     if (ret) {
         ++t41_tmo_dropped;
