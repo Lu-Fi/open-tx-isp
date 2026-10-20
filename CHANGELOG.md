@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-20: T31 picture fix (`claude/t31-bild`; in `next`)
+
+- **AE minimum EV step and defog tables/packing like the OEM (T31):** the AE step floor and the defog table layout/packing now follow the OEM tuning code.
+- Soak 10-19/20: T31X/SC4336P 21.5 h without reboot, 0 oops. T31L/SC2336 rebooted once at dusk after 5.7 h (cause open); a fresh soak with this state flashed in the image is running.
+
 ## 2026-10-19: T40 tuning crash fixes (`claude/t40-sensorreg` up to 6b5dfac7; in `next`)
 
 - **Sensor register ioctl / tuning s_attr:** the 8 tuning attribute setters copied user data into a 4-byte stack slot (stack smash, hard hang on SetAeExprInfo and similar). They now copy into a kernel buffer of the right size like the OEM, and the sensor register ioctl reaches the sensor.
