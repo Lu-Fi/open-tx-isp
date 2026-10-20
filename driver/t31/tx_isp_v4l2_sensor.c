@@ -309,11 +309,16 @@ static int tx_v4l2_sensor_set_expo(struct tx_isp_subdev *sd, int value)
 			return ret;
 	}
 
-	if (again) {
-		ret = v4l2_ctrl_s_ctrl(s->gain, again);
-		if (ret)
-			return ret;
-	}
+	/*
+	 * Index 0 is the 1.0x entry, not "no change": the vendor modules write
+	 * the gain on every EXPO event. Skipping it left the sensor at the
+	 * previous gain whenever the AE traded gain for integration time, so
+	 * that frame came out up to a stop too bright and the AE oscillated
+	 * between anti-flicker steps.
+	 */
+	ret = v4l2_ctrl_s_ctrl(s->gain, again);
+	if (ret)
+		return ret;
 
 	return 0;
 }
