@@ -34799,6 +34799,7 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
             return IRQ_NONE;
 
         status0 = readl(base + 0xb4);
+        tx_ls_isr(&status0, 1);
         if (status0) {
             writel(status0, base + 0xb8);
             wmb();
@@ -102304,11 +102305,6 @@ int32_t ispcore_interrupt_service_routine(uintptr_t a0)
     s0 = *(uint32_t *)((char *)a0 + 212);
     s1 = *(uint32_t *)((char *)v0 + 180);
     *(uint32_t *)((char *)v0 + 184) = s1;
-    {
-        u32 ls_status = (u32)(uintptr_t)s1;
-
-        tx_ls_isr(&ls_status, 1);
-    }
     v0 = (uintptr_t)s1 & 1016;
 
     /* fragment 2: Unknown */

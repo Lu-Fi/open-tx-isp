@@ -7,8 +7,12 @@
  * ../../include/tx_isp/tx_isp_load_stats.h). Parameters are t23_*.
  *
  * t23_isr_bits[0..31]: ISP core status word 0xb4.
+ * Counted in isp_irq_handle_body() (core branch), the handler actually
+ * registered; the lifted ispcore_interrupt_service_routine is not used.
  * t23_work_*[]: 0 frame-sync work, 1 AE work (lifted OEM AE), 2 AE work
  * (HLIL), 3 AWB work, 4 ADR work, 5 defog work.
+ * The active ISR does not queue fs_work (only the unused lifted ISR did),
+ * so index 0 stays 0 on the current driver.
  */
 #define TX_LS_PREFIX		t23_
 #define TX_LS_ISR_WORDS		1
