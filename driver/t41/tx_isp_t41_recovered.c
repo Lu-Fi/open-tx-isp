@@ -1667,6 +1667,53 @@ static DECLARE_WORK(t41_tmo_work, t41_tmo_work_timed);
  * t41_work_*: per work item fs, fd, awb, tmo, adr (adr runs inside tmo):
  * count, summed and maximum run time in microseconds.
  */
+/*
+ * Stock queues main_fs_work and main_fd_work on system_wq (queue_work_on
+ * CPU 2 = unbound) but runs the statistics/tuning work (AE, AWB, ADR, ...)
+ * in its own isp_fw_process thread. Mirror that: the AWB and tone (TMO,
+ * CCM, ADR, LCE, ...) work go to one ordered workqueue, so they run
+ * serialized on one worker instead of waking kworkers on both CPUs every
+ * frame. t41_isp_wq=0 keeps them on system_wq.
+ */
+static int t41_isp_wq __attribute__((section(".data"))) = 1;
+module_param(t41_isp_wq, int, 0444);
+MODULE_PARM_DESC(t41_isp_wq, "1=own ordered workqueue for AWB/tone work (stock isp_fw_process), 0=system_wq");
+static struct workqueue_struct *t41_fw_wq __attribute__((section(".data")));
+
+static inline struct workqueue_struct *t41_tuning_wq(void)
+{
+	struct workqueue_struct *wq = READ_ONCE(t41_fw_wq);
+
+	return wq ? wq : system_wq;
+}
+
+static void t41_isp_wq_init(void)
+{
+	if (t41_isp_wq <= 0)
+		return;
+	t41_fw_wq = alloc_ordered_workqueue("t41-isp-fw", 0);
+	if (!t41_fw_wq)
+		pr_warn("t41: tuning workqueue unavailable, using system_wq\n");
+}
+
+static void t41_isp_wq_exit(void)
+{
+	struct workqueue_struct *fw = t41_fw_wq;
+
+	WRITE_ONCE(t41_fw_wq, NULL);
+	if (fw)
+		destroy_workqueue(fw);
+}
+
+/*
+ * ADR statistics arrive every frame and stock evaluates them every frame.
+ * t41_adr_interval > 1 evaluates only every n-th frame (A/B load test).
+ */
+static unsigned int t41_adr_interval __attribute__((section(".data"))) = 1;
+module_param(t41_adr_interval, uint, 0644);
+MODULE_PARM_DESC(t41_adr_interval, "evaluate ADR every n-th frame (1=every frame, stock)");
+static unsigned int t41_adr_tick __attribute__((section(".data")));
+
 enum { T41_WT_FS, T41_WT_FD, T41_WT_AWB, T41_WT_TMO, T41_WT_ADR, T41_WT_N };
 #ifdef TX_ISP_LOAD_STATS
 static int t41_load_stats __attribute__((section(".data"))) = 1;
@@ -153903,9 +153950,13 @@ static void t41_tmo_workfn(struct work_struct *work)
     t41_native_lsc_frame(READ_ONCE(t41_ccm_ct), gain);
     {
         u64 adr_start = t41_work_begin();
+        unsigned int interval = READ_ONCE(t41_adr_interval);
 
-        t41_native_adr_frame(exposure);
-        t41_work_end(T41_WT_ADR, adr_start);
+        if (interval <= 1 || ++t41_adr_tick >= interval) {
+            t41_adr_tick = 0;
+            t41_native_adr_frame(exposure);
+            t41_work_end(T41_WT_ADR, adr_start);
+        }
     }
     t41_lce_frame(gain);
     if (gain != t41_ysp_gain)
@@ -154471,7 +154522,7 @@ int32_t tisp_tmo_interrupt_static(uint32_t a0)
         spin_lock_irqsave(&t41_tmo_state_lock, flags);
         ++t41_tmo_state.sequence;
         if (a0 == 0 && t41_tmo_state.live == 1)
-            schedule_work(&t41_tmo_work);
+            queue_work(t41_tuning_wq(), &t41_tmo_work);
         spin_unlock_irqrestore(&t41_tmo_state_lock, flags);
         return 1;
     }
@@ -170992,7 +171043,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             spin_lock(&t41_tmo_state_lock);
             if (t41_tmo_state.live == 1) {
                 t41_tone_kicks++;
-                schedule_work(&t41_tmo_work);
+                queue_work(t41_tuning_wq(), &t41_tmo_work);
             }
             spin_unlock(&t41_tmo_state_lock);
         }
@@ -171805,8 +171856,10 @@ int32_t init_module(void)
 
     t41_heapwatch_decoys_arm();
     regtrace_patch_relocated_data();
+	t41_isp_wq_init();
 	ret = tx_isp_init();
 	if (ret) {
+		t41_isp_wq_exit();
 		t41_heapwatch_stop();
 		return ret;
 	}
@@ -171815,6 +171868,7 @@ int32_t init_module(void)
 	if (ret) {
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
 		tx_isp_t41_sensor_clients_exit();
+		t41_isp_wq_exit();
 		t41_heapwatch_stop();
 		return ret;
 	}
@@ -171823,6 +171877,7 @@ int32_t init_module(void)
 		tx_isp_sinfo_exit();
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
 		tx_isp_t41_sensor_clients_exit();
+		t41_isp_wq_exit();
 		t41_heapwatch_stop();
 		return ret;
 	}
@@ -171854,6 +171909,8 @@ void cleanup_module(void)
 	cancel_work_sync(&main_fd_work);
 	cancel_work_sync(&t41_safe_awb_work);
 	cancel_work_sync(&t41_tmo_work);
+	cancel_work_sync(&t41_native_awb_work);
+	t41_isp_wq_exit();
 	t41_heapwatch_step("exit:works");
 	t41_heapwatch_stop();
 }

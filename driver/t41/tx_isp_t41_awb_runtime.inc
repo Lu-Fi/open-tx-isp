@@ -149,7 +149,7 @@ static void t41_native_awb_queue(void)
         if (t41_native_awb_pending) ++t41_native_awb_dropped;
         t41_native_awb_bank=system_reg_read(0x18050)&3U;
         t41_native_awb_pending=1;
-        schedule_work(&t41_native_awb_work);
+        queue_work(t41_tuning_wq(), &t41_native_awb_work);
     }
     spin_unlock_irqrestore(&t41_native_awb_irq_lock,flags);
 }
