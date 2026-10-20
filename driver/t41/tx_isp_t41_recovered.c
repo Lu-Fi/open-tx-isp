@@ -167801,6 +167801,57 @@ int32_t tx_isp_enable_irq(uintptr_t a0)
 }
 #endif
 
+/*
+ * ISP interrupt enable words written when interrupts are enabled. The
+ * defaults are the stock values (H20250310a isp_interrupts_enable writes
+ * the same four words). Clearing a bit masks that interrupt source; a
+ * write while interrupts are live takes effect at once. Use the
+ * t41_isr_bits statistics to see which sources fire.
+ */
+static unsigned int t41_isr_enable[4] __attribute__((section(".data"))) = {
+	0xffffffffU,	/* 0x40020, status 0x40028 */
+	0xffffffffU,	/* 0x40060, error 0x40068 */
+	0xffffffffU,	/* 0x400a0, status 0x400a8 */
+	0x3fU,		/* 0x400b0, status 0x400b8 */
+};
+static const unsigned int t41_isr_enable_reg[4] = {
+	0x40020, 0x40060, 0x400a0, 0x400b0,
+};
+static unsigned int t41_isr_enable_num __attribute__((section(".data"))) = 4;
+static int t41_isr_enable_live __attribute__((section(".data"))) = -1;
+
+static int t41_isr_enable_set(const char *value, const struct kernel_param *kp)
+{
+	unsigned int i;
+	int ret = param_array_ops.set(value, kp);
+
+	if (ret || READ_ONCE(t41_isr_enable_live) != 1)
+		return ret;
+	for (i = 0; i < ARRAY_SIZE(t41_isr_enable); ++i)
+		system_reg_write(t41_isr_enable_reg[i], t41_isr_enable[i]);
+	return 0;
+}
+
+static int t41_isr_enable_get(char *buffer, const struct kernel_param *kp)
+{
+	return param_array_ops.get(buffer, kp);
+}
+
+static const struct kernel_param_ops t41_isr_enable_ops = {
+	.set = t41_isr_enable_set,
+	.get = t41_isr_enable_get,
+};
+static struct kparam_array t41_isr_enable_arr = {
+	.max = ARRAY_SIZE(t41_isr_enable),
+	.elemsize = sizeof(t41_isr_enable[0]),
+	.num = &t41_isr_enable_num,
+	.ops = &param_ops_uint,
+	.elem = t41_isr_enable,
+};
+module_param_cb(t41_isr_enable, &t41_isr_enable_ops, &t41_isr_enable_arr, 0644);
+MODULE_PARM_DESC(t41_isr_enable,
+		 "ISP IRQ enable words 0x40020,0x40060,0x400a0,0x400b0 (default stock: all, all, all, 0x3f)");
+
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000727b8 origin=fragment_seed original=isp_interrupts_enable */
 int32_t isp_interrupts_enable(uintptr_t a0)
 {
@@ -167815,10 +167866,11 @@ int32_t isp_interrupts_enable(uintptr_t a0)
     if (!t41_kernel_data_ptr(regs))
         return -EINVAL;
 
-    writel(0xffffffffU, regs + 0x40020);
-    writel(0xffffffffU, regs + 0x40060);
-    writel(0xffffffffU, regs + 0x400a0);
-    writel(0x3f, regs + 0x400b0);
+    writel(READ_ONCE(t41_isr_enable[0]), regs + 0x40020);
+    writel(READ_ONCE(t41_isr_enable[1]), regs + 0x40060);
+    writel(READ_ONCE(t41_isr_enable[2]), regs + 0x400a0);
+    writel(READ_ONCE(t41_isr_enable[3]), regs + 0x400b0);
+    WRITE_ONCE(t41_isr_enable_live, 1);
 
     __private_spin_lock_irqsave(
         (uint32_t)(uintptr_t)(subdev + 0x84),
@@ -168047,6 +168099,7 @@ int32_t isp_interrupts_disable(uintptr_t a0, uint32_t a1)
         return -EINVAL;
 
     if (a1 == 0) {
+        WRITE_ONCE(t41_isr_enable_live, -1);
         writel(0, regs + 0x40020);
         writel(0, regs + 0x40060);
         writel(0, regs + 0x400a0);
