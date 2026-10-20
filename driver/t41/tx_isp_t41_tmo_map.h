@@ -137,6 +137,16 @@ static inline int t41_tmo_map(const unsigned char *p, unsigned int bytes,
 #define T41_TMO_PH (T41_TMO_ROWS + 2U * T41_TMO_PAD)
 #define T41_TMO_KERNELS 11U
 
+/* Spatial weight for offsets (ax, ay); the kernel table is indexed by the
+ * sorted pair. */
+static inline unsigned int t41_tmo_spatial_weight(unsigned int sk,
+		unsigned int ax, unsigned int ay)
+{
+	unsigned int lo = ax < ay ? ax : ay, hi = ax < ay ? ay : ax;
+
+	return t41_tmo_spatial_kernels[sk][hi * (hi + 1) / 2 + lo];
+}
+
 struct t41_tmo_map_scratch {
 	unsigned int c[T41_TMO_PH][T41_TMO_PW][T41_TMO_BINS];
 	unsigned int l[T41_TMO_PH][T41_TMO_PW][T41_TMO_BINS];

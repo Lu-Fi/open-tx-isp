@@ -1,7 +1,36 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-#include "../driver/t41/tx_isp_t41_tmo_map.h"
+#include "../driver/t41/tx_isp_t41_tmo_mxu3.h"
+
+/*
+ * Host model of the MXU3 kernel (tx_isp_t41_tmo_mxu3.S), written from the
+ * same contract: per term and lane, 32-bit wrap-around multiply, optional
+ * shift of the luma product, 32-bit add. It checks the C side (planes,
+ * offsets, weights, lane mapping) of t41_tmo_map_mxu3(); the instruction
+ * encodings themselves need the device self-test (t41_tmo_map_selftest).
+ */
+void t41_tmo_mxu3_chunk(const struct t41_tmo_mxu3_job *job)
+{
+	unsigned int t, i;
+
+	for (i = 0; i < T41_TMO_MXU3_LANES; ++i) {
+		job->out[i] = 0;
+		job->out[T41_TMO_MXU3_LANES + i] = 0;
+	}
+	for (t = 0; t < job->terms; ++t) {
+		const unsigned int *w = job->weight + t * T41_TMO_MXU3_LANES;
+		const unsigned int *c = job->c + job->offset[t] / 4;
+		const unsigned int *l = job->l + job->offset[t] / 4;
+
+		for (i = 0; i < T41_TMO_MXU3_LANES; ++i) {
+			job->out[i] += w[i] * c[i];
+			job->out[T41_TMO_MXU3_LANES + i] += (w[i] * l[i]) >> job->extra;
+		}
+	}
+}
+void kernel_mxuv3_begin_partial(unsigned int num_regs) { (void)num_regs; }
+void kernel_mxuv3_end(void) { }
 
 static unsigned char params[T41_TMO_PARAM_BYTES];
 static unsigned int sums[3750], counts[3750], history[3750], output[3750];
@@ -23,7 +52,8 @@ static unsigned int lcg(void)
 static void fast_equivalence(void)
 {
 	static struct t41_tmo_map_scratch ws;
-	static unsigned int ref[3750], fast[3750];
+	static struct t41_tmo_mxu3_scratch mws;
+	static unsigned int ref[3750], fast[3750], mxu[3750];
 	unsigned int round, i;
 
 	for (round = 0; round < 4000; ++round) {
@@ -52,8 +82,12 @@ static void fast_equivalence(void)
 		assert(r1 == r2);
 		if (!r1)
 			assert(!memcmp(ref, fast, sizeof(ref)));
+		r2 = t41_tmo_map_mxu3(params, sizeof(params), shift, sums, counts, history, first, mxu, &mws);
+		assert(r1 == r2);
+		if (!r1)
+			assert(!memcmp(ref, mxu, sizeof(ref)));
 	}
-	puts("T41 local TMO: fast map matches the reference (4000 random frames)");
+	puts("T41 local TMO: fast map and MXU3 data path (host model) match the reference (4000 random frames)");
 }
 
 int main(void)

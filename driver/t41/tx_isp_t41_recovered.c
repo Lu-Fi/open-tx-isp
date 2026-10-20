@@ -18,6 +18,8 @@
 #include "tx_isp_t41_capture_gate.h"
 #include "tx_isp_t41_tmo.h"
 #include "tx_isp_t41_tmo_map.h"
+#include "tx_isp_t41_tmo_mxu3.h"
+#include <linux/random.h>
 #include "tx_isp_t41_ccm.h"
 #include "tx_isp_t41_modctl.h"
 #include "tx_isp_t41_gamma_ctl.h"
@@ -153853,20 +153855,163 @@ tisp_tmo_ram_reg_refresh0x168:
 
 /* map_lock owns the algorithm workspaces and the entire RAM transaction. */
 /*
- * t41_tmo_map_fast=1 (default) uses t41_tmo_map_fast(), bit-exact with the
- * reference t41_tmo_map() (host test tx_isp_t41_tmo_map_test) but with
- * fewer operations; 0 selects the reference. t41_tmo_map_interval=n > 1
- * recomputes the local map only every n-th frame and reuses the previous
- * one otherwise (stock recomputes it every frame, with MXU SIMD).
+ * Local TMO map implementation, all bit-exact with the reference
+ * t41_tmo_map() (host test tx_isp_t41_tmo_map_test):
+ *   0 = reference C, 1 = fast C (default), 2 = MXU3 spatial filter
+ *   (tx_isp_t41_tmo_mxu3.S; falls back to fast C without MXU3).
+ * Writing 1 to t41_tmo_map_selftest runs MXU3, fast C and the reference on
+ * random inputs in a work item and prints the result and timings.
+ * t41_tmo_map_interval=n > 1 recomputes the local map only every n-th
+ * frame and reuses the previous one otherwise (stock recomputes it every
+ * frame, with MXU3).
  */
-static int t41_tmo_map_fast_enable __attribute__((section(".data"))) = 1;
-module_param_named(t41_tmo_map_fast, t41_tmo_map_fast_enable, int, 0644);
-MODULE_PARM_DESC(t41_tmo_map_fast, "1=fast bit-exact local TMO map (default), 0=reference");
+static struct t41_tmo_map_scratch *t41_tmo_map_ws __attribute__((section(".data")));
+static int t41_tmo_map_impl __attribute__((section(".data"))) = 1;
+module_param(t41_tmo_map_impl, int, 0644);
+MODULE_PARM_DESC(t41_tmo_map_impl, "local TMO map: 0=reference C, 1=fast C (default), 2=MXU3");
+static struct t41_tmo_mxu3_scratch *t41_tmo_mxu3_ws __attribute__((section(".data")));
+static void t41_tmo_selftest_workfn(struct work_struct *work);
+static DECLARE_WORK(t41_tmo_selftest_work, t41_tmo_selftest_workfn);
+static int t41_tmo_map_selftest_set(const char *value, const struct kernel_param *kp)
+{
+	int ret = param_set_int(value, kp);
+
+	if (!ret && *(int *)kp->arg > 0)
+		schedule_work(&t41_tmo_selftest_work);
+	return ret;
+}
+static int t41_tmo_map_selftest __attribute__((section(".data")));
+module_param_call(t41_tmo_map_selftest, t41_tmo_map_selftest_set, param_get_int,
+		  &t41_tmo_map_selftest, 0644);
+MODULE_PARM_DESC(t41_tmo_map_selftest, "write 1: compare MXU3/fast/reference TMO map on random inputs (dmesg)");
+
+static bool t41_tmo_mxu3_available(void)
+{
+	return cpu_has_mxuv3;
+}
+
+/* Runs the selected implementation; *used reports the one that ran. */
+static int t41_tmo_map_run(int impl, const unsigned char *p, unsigned int shift,
+			   const unsigned int *sums, const unsigned int *counts,
+			   const unsigned int *previous, int first, unsigned int *out,
+			   int *used)
+{
+	if (impl >= 2 && t41_tmo_mxu3_available()) {
+		if (!t41_tmo_mxu3_ws)
+			t41_tmo_mxu3_ws = vzalloc(sizeof(*t41_tmo_mxu3_ws));
+		if (t41_tmo_mxu3_ws) {
+			*used = 2;
+			return t41_tmo_map_mxu3(p, T41_TMO_PARAM_BYTES, shift, sums,
+						counts, previous, first, out,
+						t41_tmo_mxu3_ws);
+		}
+	}
+	if (impl >= 1) {
+		if (!t41_tmo_map_ws)
+			t41_tmo_map_ws = vmalloc(sizeof(*t41_tmo_map_ws));
+		if (t41_tmo_map_ws) {
+			*used = 1;
+			return t41_tmo_map_fast(p, T41_TMO_PARAM_BYTES, shift, sums,
+						counts, previous, first, out,
+						t41_tmo_map_ws);
+		}
+	}
+	*used = 0;
+	return t41_tmo_map(p, T41_TMO_PARAM_BYTES, shift, sums, counts,
+			   previous, first, out);
+}
+
+static void t41_tmo_selftest_workfn(struct work_struct *work)
+{
+	enum { ROUNDS = 64 };
+	unsigned char *p = NULL;
+	unsigned int *sums = NULL, *counts, *history, *ref, *res;
+	unsigned int round, i, mismatches = 0, frames = 0;
+	u64 t_ref = 0, t_fast = 0, t_mxu = 0;
+	int used;
+
+	(void)work;
+	if (!t41_tmo_mxu3_available()) {
+		printk(KERN_INFO "t41: TMO map selftest: no MXU3 on this CPU\n");
+		goto out;
+	}
+	p = vzalloc(T41_TMO_PARAM_BYTES);
+	sums = vmalloc(5 * T41_TMO_SAMPLES * sizeof(*sums));
+	if (!p || !sums)
+		goto out;
+	counts = sums + T41_TMO_SAMPLES;
+	history = counts + T41_TMO_SAMPLES;
+	ref = history + T41_TMO_SAMPLES;
+	res = ref + T41_TMO_SAMPLES;
+	mutex_lock(&t41_tmo_map_lock);
+	for (round = 0; round < ROUNDS; ++round) {
+		unsigned int shift = prandom_u32() % 10, big = prandom_u32() % 4;
+		unsigned int limit = big == 0 ? 65536 : big == 1 ? 4096 : 256;
+		int first = prandom_u32() & 1, r_ref, r_res, impl;
+		u64 t0;
+
+		memset(p, 0, T41_TMO_PARAM_BYTES);
+		p[0x1742] = round % 5;
+		p[0x1739] = prandom_u32() & 1;
+		p[0x173c] = prandom_u32() & 1;
+		p[0x173b] = prandom_u32() % 11;
+		p[0x173a] = prandom_u32() % 15;
+		for (i = 0; i < T41_TMO_TILES; ++i) {
+			p[0x230 + i] = prandom_u32() % 11;
+			p[0x3a7 + i] = prandom_u32() % 15;
+		}
+		for (i = 0; i < T41_TMO_SAMPLES; ++i) {
+			counts[i] = prandom_u32() % limit;
+			sums[i] = big == 3 ? 65535 : prandom_u32() % limit;
+			history[i] = prandom_u32() % 4096;
+		}
+		t0 = ktime_to_ns(ktime_get());
+		r_ref = t41_tmo_map(p, T41_TMO_PARAM_BYTES, shift, sums, counts,
+				    history, first, ref);
+		t_ref += ktime_to_ns(ktime_get()) - t0;
+		for (impl = 1; impl <= 2; ++impl) {
+			t0 = ktime_to_ns(ktime_get());
+			r_res = t41_tmo_map_run(impl, p, shift, sums, counts,
+						history, first, res, &used);
+			if (impl == 1)
+				t_fast += ktime_to_ns(ktime_get()) - t0;
+			else
+				t_mxu += ktime_to_ns(ktime_get()) - t0;
+			if (used != impl || r_res != r_ref) {
+				++mismatches;
+				printk(KERN_WARNING "t41: TMO map selftest round %u impl %d: used %d ret %d ref %d\n",
+				       round, impl, used, r_res, r_ref);
+				continue;
+			}
+			if (r_ref)
+				continue;
+			for (i = 0; i < T41_TMO_SAMPLES; ++i) {
+				if (res[i] == ref[i])
+					continue;
+				if (mismatches++ < 8)
+					printk(KERN_WARNING "t41: TMO map selftest round %u impl %d: out[%u]=%u ref %u (radius %u mode %u shift %u first %d)\n",
+					       round, impl, i, res[i], ref[i], p[0x1742],
+					       p[0x1739], shift, first);
+				break;
+			}
+		}
+		++frames;
+	}
+	mutex_unlock(&t41_tmo_map_lock);
+	do_div(t_ref, frames * 1000);
+	do_div(t_fast, frames * 1000);
+	do_div(t_mxu, frames * 1000);
+	printk(KERN_INFO "t41: TMO map selftest: %u frames, %u mismatches; avg us ref %llu fast %llu mxu3 %llu\n",
+	       frames, mismatches, t_ref, t_fast, t_mxu);
+out:
+	vfree(sums);
+	vfree(p);
+	t41_tmo_map_selftest = 0;
+}
 static unsigned int t41_tmo_map_interval __attribute__((section(".data"))) = 1;
 module_param(t41_tmo_map_interval, uint, 0644);
 MODULE_PARM_DESC(t41_tmo_map_interval, "recompute the local TMO map every n-th frame (1=every frame, stock)");
 static unsigned int t41_tmo_map_tick __attribute__((section(".data")));
-static struct t41_tmo_map_scratch *t41_tmo_map_ws __attribute__((section(".data")));
 
 static int t41_tmo_on_change __attribute__((section(".data")));
 module_param(t41_tmo_on_change, int, 0644);
@@ -153940,19 +154085,12 @@ static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
         if (interval <= 1 || t41_tmo_state.first ||
             ++t41_tmo_map_tick >= interval) {
             t41_tmo_map_tick = 0;
-            if (READ_ONCE(t41_tmo_map_fast_enable) > 0 && !t41_tmo_map_ws)
-                t41_tmo_map_ws = vmalloc(sizeof(*t41_tmo_map_ws));
-            if (READ_ONCE(t41_tmo_map_fast_enable) > 0 && t41_tmo_map_ws)
-                T41_LS_TIME(T41_WT_TMO_MAP,
-                    ret = t41_tmo_map_fast(params, T41_TMO_PARAM_BYTES, shift,
-                                           sums, counts, previous,
-                                           t41_tmo_state.first, out,
-                                           t41_tmo_map_ws));
-            else
-                T41_LS_TIME(T41_WT_TMO_MAP,
-                    ret = t41_tmo_map(params, T41_TMO_PARAM_BYTES, shift, sums,
-                                      counts, previous, t41_tmo_state.first,
-                                      out));
+            int used;
+
+            T41_LS_TIME(T41_WT_TMO_MAP,
+                ret = t41_tmo_map_run(READ_ONCE(t41_tmo_map_impl), params,
+                                      shift, sums, counts, previous,
+                                      t41_tmo_state.first, out, &used));
         }
     }
     if (ret)
@@ -172028,8 +172166,11 @@ void cleanup_module(void)
 	cancel_work_sync(&t41_tmo_work);
 	cancel_work_sync(&t41_native_awb_work);
 	t41_isp_wq_exit();
+	cancel_work_sync(&t41_tmo_selftest_work);
 	vfree(t41_tmo_map_ws);
 	t41_tmo_map_ws = NULL;
+	vfree(t41_tmo_mxu3_ws);
+	t41_tmo_mxu3_ws = NULL;
 	t41_heapwatch_step("exit:works");
 	t41_heapwatch_stop();
 }
