@@ -153852,6 +153852,22 @@ tisp_tmo_ram_reg_refresh0x168:
 }
 
 /* map_lock owns the algorithm workspaces and the entire RAM transaction. */
+/*
+ * t41_tmo_map_fast=1 (default) uses t41_tmo_map_fast(), bit-exact with the
+ * reference t41_tmo_map() (host test tx_isp_t41_tmo_map_test) but with
+ * fewer operations; 0 selects the reference. t41_tmo_map_interval=n > 1
+ * recomputes the local map only every n-th frame and reuses the previous
+ * one otherwise (stock recomputes it every frame, with MXU SIMD).
+ */
+static int t41_tmo_map_fast_enable __attribute__((section(".data"))) = 1;
+module_param_named(t41_tmo_map_fast, t41_tmo_map_fast_enable, int, 0644);
+MODULE_PARM_DESC(t41_tmo_map_fast, "1=fast bit-exact local TMO map (default), 0=reference");
+static unsigned int t41_tmo_map_interval __attribute__((section(".data"))) = 1;
+module_param(t41_tmo_map_interval, uint, 0644);
+MODULE_PARM_DESC(t41_tmo_map_interval, "recompute the local TMO map every n-th frame (1=every frame, stock)");
+static unsigned int t41_tmo_map_tick __attribute__((section(".data")));
+static struct t41_tmo_map_scratch *t41_tmo_map_ws __attribute__((section(".data")));
+
 static int t41_tmo_on_change __attribute__((section(".data")));
 module_param(t41_tmo_on_change, int, 0644);
 MODULE_PARM_DESC(t41_tmo_on_change, "1=TMO gain/EV interpolation and default registers only on change (stock-like)");
@@ -153917,9 +153933,28 @@ static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
             t41_tmo_again[1]++;
         return -EAGAIN;
     }
-    T41_LS_TIME(T41_WT_TMO_MAP,
-                ret = t41_tmo_map(params, T41_TMO_PARAM_BYTES, shift, sums,
-                                  counts, previous, t41_tmo_state.first, out));
+    {
+        unsigned int interval = READ_ONCE(t41_tmo_map_interval);
+
+        ret = 0;
+        if (interval <= 1 || t41_tmo_state.first ||
+            ++t41_tmo_map_tick >= interval) {
+            t41_tmo_map_tick = 0;
+            if (READ_ONCE(t41_tmo_map_fast_enable) > 0 && !t41_tmo_map_ws)
+                t41_tmo_map_ws = vmalloc(sizeof(*t41_tmo_map_ws));
+            if (READ_ONCE(t41_tmo_map_fast_enable) > 0 && t41_tmo_map_ws)
+                T41_LS_TIME(T41_WT_TMO_MAP,
+                    ret = t41_tmo_map_fast(params, T41_TMO_PARAM_BYTES, shift,
+                                           sums, counts, previous,
+                                           t41_tmo_state.first, out,
+                                           t41_tmo_map_ws));
+            else
+                T41_LS_TIME(T41_WT_TMO_MAP,
+                    ret = t41_tmo_map(params, T41_TMO_PARAM_BYTES, shift, sums,
+                                      counts, previous, t41_tmo_state.first,
+                                      out));
+        }
+    }
     if (ret)
         return -EOPNOTSUPP;
     *(uint32_t *)(void *)(info + 32) = ev;
@@ -171993,6 +172028,8 @@ void cleanup_module(void)
 	cancel_work_sync(&t41_tmo_work);
 	cancel_work_sync(&t41_native_awb_work);
 	t41_isp_wq_exit();
+	vfree(t41_tmo_map_ws);
+	t41_tmo_map_ws = NULL;
 	t41_heapwatch_step("exit:works");
 	t41_heapwatch_stop();
 }

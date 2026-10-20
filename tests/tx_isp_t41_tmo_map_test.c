@@ -11,6 +11,51 @@ static void run(int first)
 	assert(!t41_tmo_map(params, sizeof(params), 8, sums, counts, history, first, output));
 }
 
+static unsigned int lcg_state = 12345;
+static unsigned int lcg(void)
+{
+	lcg_state = lcg_state * 1103515245U + 12345U;
+	return lcg_state >> 8;
+}
+
+/* t41_tmo_map_fast() must match the reference bit for bit, including the
+ * 32-bit wrap of large luma products and both kernel modes. */
+static void fast_equivalence(void)
+{
+	static struct t41_tmo_map_scratch ws;
+	static unsigned int ref[3750], fast[3750];
+	unsigned int round, i;
+
+	for (round = 0; round < 4000; ++round) {
+		unsigned int shift = lcg() % 10, big = lcg() % 4;
+		int first = lcg() & 1, r1, r2;
+
+		memset(params, 0, sizeof(params));
+		params[0x1742] = lcg() % 5;
+		params[0x1739] = lcg() & 1;
+		params[0x173c] = lcg() & 1;
+		params[0x173b] = lcg() % 11;
+		params[0x173a] = lcg() % 15;
+		for (i = 0; i < 375; ++i) {
+			params[0x230 + i] = lcg() % 11;
+			params[0x3a7 + i] = lcg() % 15;
+		}
+		for (i = 0; i < 3750; ++i) {
+			unsigned int limit = big == 0 ? 65536 : big == 1 ? 4096 : 256;
+
+			counts[i] = lcg() % limit;
+			sums[i] = big == 3 ? 65535 : lcg() % limit;
+			history[i] = lcg() % 4096;
+		}
+		r1 = t41_tmo_map(params, sizeof(params), shift, sums, counts, history, first, ref);
+		r2 = t41_tmo_map_fast(params, sizeof(params), shift, sums, counts, history, first, fast, &ws);
+		assert(r1 == r2);
+		if (!r1)
+			assert(!memcmp(ref, fast, sizeof(ref)));
+	}
+	puts("T41 local TMO: fast map matches the reference (4000 random frames)");
+}
+
 int main(void)
 {
 	unsigned int b, i;
@@ -64,5 +109,6 @@ int main(void)
 	assert(t41_tmo_map(NULL, sizeof(params), 8, sums, counts, history, 0, output));
 	for (i = 0; i < 3750; ++i) assert(output[i] == 0x5a5a5a5a);
 	puts("T41 scalar local TMO: padding, spatial response, history and rejection passed");
+	fast_equivalence();
 	return 0;
 }
