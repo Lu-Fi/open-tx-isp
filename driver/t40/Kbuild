@@ -9,6 +9,12 @@ obj-m += tx-isp-t40.o
 
 ccflags-y += -I$(src)/../include
 ccflags-y += -DREGTRACE_KERNEL_TREE_BUILD
+
+# Per-frame load statistics (ISR bit counters, work run times), off for
+# release builds: make ... TX_ISP_LOAD_STATS=y
+ifeq ($(TX_ISP_LOAD_STATS),y)
+ccflags-y += -DTX_ISP_LOAD_STATS
+endif
 ccflags-$(CONFIG_TX_ISP_T40_V4L2) += -DCONFIG_TX_ISP_T40_V4L2
 ccflags-y += -O0 -fno-tree-dce -fno-ipa-pure-const -fno-ipa-reference
 ccflags-y += -std=gnu99 -w

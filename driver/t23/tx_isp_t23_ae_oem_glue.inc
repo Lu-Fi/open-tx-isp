@@ -108,7 +108,8 @@ static uint32_t t23_aelift_it, t23_aelift_again;   /* latched by set_* */
 static bool t23_aelift_expo_dirty;
 
 static void t23_aelift_work_fn(struct work_struct *work);
-static DECLARE_WORK(t23_aelift_work, t23_aelift_work_fn);
+TX_LS_TIMED_WORK(t23_aelift_work_timed, t23_aelift_work_fn, T23_LS_WORK_AE_LIFT)
+static DECLARE_WORK(t23_aelift_work, t23_aelift_work_timed);
 /*
  * Process-context users of the lifted AE state: the AE work
  * (tisp_ae0_process), stream start (tiziano_ae_init, state copy), the

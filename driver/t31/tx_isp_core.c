@@ -45,6 +45,7 @@
 #endif
 #endif
 #include "tx_isp_t31_fcrop.h"
+#include "include/tx_isp_t31_load_stats.h"
 
 
 static int print_level = ISP_WARN_LEVEL;
@@ -845,7 +846,8 @@ EXPORT_SYMBOL(isp_day_night_switch_drop_frame_cnt_pdq_interrupt);
  * worker closing the transition (dn_transition_active, drop counters).
  */
 static void t31_daynight_work_fn(struct work_struct *work);
-static DECLARE_WORK(t31_daynight_work, t31_daynight_work_fn);
+TX_LS_TIMED_WORK(t31_daynight_work_timed, t31_daynight_work_fn, T31_LS_WORK_DAYNIGHT)
+static DECLARE_WORK(t31_daynight_work, t31_daynight_work_timed);
 static DEFINE_SPINLOCK(t31_daynight_lock);
 
 int isp_memopt;
@@ -1063,6 +1065,7 @@ static volatile int isp_force_core_isr = 0;  /* Force ISP core ISR flag */
 static struct workqueue_struct *fs_workqueue = NULL;
 static struct work_struct fs_work;
 static void ispcore_irq_fs_work(struct work_struct *work);
+TX_LS_TIMED_WORK(ispcore_irq_fs_work_timed, ispcore_irq_fs_work, T31_LS_WORK_FS)
 
 
 
@@ -1524,6 +1527,7 @@ irqreturn_t ispcore_interrupt_service_routine(int irq, void *dev_id)
      * a dedicated status bit in the ISP core status register.
      */
     interrupt_status = readl(isp_regs + 0xb4);
+    tx_ls_isr(&interrupt_status, 1);
     if (interrupt_status) {
         writel(interrupt_status, isp_regs + 0xb8);
         wmb();
@@ -4486,7 +4490,7 @@ int tx_isp_core_probe(struct platform_device *pdev)
     pr_info("*** tx_isp_core_probe: Frame sync workqueue created successfully at %p ***\n", fs_workqueue);
 
     /* Initialize the work structure */
-    INIT_WORK(&fs_work, ispcore_irq_fs_work);
+    INIT_WORK(&fs_work, ispcore_irq_fs_work_timed);
     pr_info("*** tx_isp_core_probe: Frame sync work initialized at %p ***\n", &fs_work);
     pr_info("*** tx_isp_core_probe: Frame sync work queue READY - safe to enable interrupts ***\n");
 

@@ -358,8 +358,9 @@ static bool regtrace_t23_ae_hlil_paused;
 static DEFINE_SPINLOCK(regtrace_t23_ae_hlil_lock);
 
 static void regtrace_t23_source_ae_hlil_work(struct work_struct *work);
+TX_LS_TIMED_WORK(regtrace_t23_ae_hlil_work_timed, regtrace_t23_source_ae_hlil_work, T23_LS_WORK_AE_HLIL)
 static DECLARE_WORK(regtrace_t23_source_ae_hlil_work_item,
-                    regtrace_t23_source_ae_hlil_work);
+                    regtrace_t23_ae_hlil_work_timed);
 
 static void regtrace_t23_source_ae_hlil_work_body(struct work_struct *work);
 

@@ -1,4 +1,23 @@
 #include <linux/module.h>
+/*
+ * Load statistics (TX_ISP_LOAD_STATS=y, see
+ * driver/include/tx_isp/tx_isp_load_stats.h), shared by T10 and T20;
+ * parameters are t10_* or t20_*.
+ * isr_bits[0..15]: APICAL interrupt status (bits 16..31 unused).
+ * work_*[0..15]: hard-IRQ handling per interrupt source, [16] ISP IRQ
+ * thread, [17] day/night work.
+ */
+#define TX_LS_STORAGE
+#ifdef TX_ISP_T10
+#define TX_LS_PREFIX		t10_
+#else
+#define TX_LS_PREFIX		t20_
+#endif
+#define TX_LS_ISR_WORDS		1
+#define TX_LS_WORKS		18
+#define APICAL_LS_WORK_IRQ_THREAD	16
+#define APICAL_LS_WORK_DAYNIGHT		17
+#include "../../../../include/tx_isp/tx_isp_load_stats.h"
 #include <linux/delay.h>
 #include <linux/sched.h>
 #include <media/v4l2-common.h>
@@ -509,6 +528,9 @@ extern void isp_frame_done_wakeup(void);
 extern int t20_fw_context_ready(void);
 extern uint32_t t20_fw_context_word(unsigned int offset);
 
+static void t20_daynight_work(struct work_struct *work);
+TX_LS_TIMED_WORK(t20_daynight_work_timed, t20_daynight_work, APICAL_LS_WORK_DAYNIGHT)
+
 static void t20_daynight_work(struct work_struct *work)
 {
 	struct tx_isp_core_device *core =
@@ -546,12 +568,17 @@ static int isp_core_interrupt_service_routine(struct v4l2_subdev *sd, u32 status
 	unsigned int i = 0;
 	int ret = IRQ_HANDLED;
 	if ((isp_irq_status = isp_intc_state()) != 0) {
+		u32 ls_status = isp_irq_status;
+
+		tx_ls_isr(&ls_status, 1);
 		apical_isp_interrupts_interrupt_clear_write(0);
 		apical_isp_interrupts_interrupt_clear_write(isp_irq_status);
 		isp_irq_status &= t20_irq_allow_mask;
 		/* printk("0xb00 = 0x%0x state = 0x%x\n", APICAL_READ_32(0xb00), isp_irq_status); */
 		for (i = 0; i < APICAL_IRQ_COUNT; i++) {
 			if (isp_irq_status & (1 << i)) {
+				u64 ls_start = tx_ls_work_begin();
+
 				if (isp_runtime_trace && t20_irq_trace_count < 64)
 					printk(KERN_INFO "T20IRQ enter n=%u status=0x%x bit=%u handler=%p param=%p\n",
 						t20_irq_trace_count, isp_irq_status, i,
@@ -666,6 +693,7 @@ static int isp_core_interrupt_service_routine(struct v4l2_subdev *sd, u32 status
 					printk(KERN_INFO "T20IRQ exit n=%u bit=%u\n",
 						t20_irq_trace_count, i);
 				t20_irq_trace_count++;
+				tx_ls_work_end(i, ls_start);
 			}
 		}
 		/*printk("^~^ intc end ^~^\n");*/
@@ -673,7 +701,18 @@ static int isp_core_interrupt_service_routine(struct v4l2_subdev *sd, u32 status
 	return ret;
 }
 
+static irqreturn_t isp_irq_thread_handle_body(int this_irq, void *dev);
+
 irqreturn_t isp_irq_thread_handle(int this_irq, void *dev)
+{
+	u64 ls_start = tx_ls_work_begin();
+	irqreturn_t ret = isp_irq_thread_handle_body(this_irq, dev);
+
+	tx_ls_work_end(APICAL_LS_WORK_IRQ_THREAD, ls_start);
+	return ret;
+}
+
+static irqreturn_t isp_irq_thread_handle_body(int this_irq, void *dev)
 {
 	static unsigned int t20_i2c_thread_trace_count;
 	tx_isp_device_t *ispdev = (tx_isp_device_t *)dev;
@@ -3294,7 +3333,7 @@ int register_tx_isp_core_device(struct platform_device *pdev, struct v4l2_device
 	core_dev->res = res;
 	spin_lock_init(&core_dev->slock);
 	mutex_init(&core_dev->mlock);
-	INIT_WORK(&core_dev->daynight_work, t20_daynight_work);
+	INIT_WORK(&core_dev->daynight_work, t20_daynight_work_timed);
 	core_dev->refcnt = 0;
 	core_dev->pdata = pdata;
 	core_dev->dev = &pdev->dev;

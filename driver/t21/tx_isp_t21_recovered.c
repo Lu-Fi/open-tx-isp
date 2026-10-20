@@ -14,6 +14,8 @@
 #include <linux/types.h>
 #include <linux/fs.h>
 #include <linux/cdev.h>
+#define TX_LS_STORAGE
+#include "tx_isp_t21_load_stats.h"
 #include <linux/mm.h>
 #include <linux/poll.h>
 #include <linux/device.h>
@@ -17077,9 +17079,13 @@ int32_t tisp_event_process(void)
 	 * ISR consumes), and running them atomically keeps the event thread from
 	 * being preempted mid-callback, which let the 20-node pool overflow at
 	 * stream start. */
-	if (cb)
+	if (cb) {
+		u64 ls_start = tx_ls_work_begin();
+
 		cb(args[0], args[1], args[2], args[3],
 		   args[4], args[5], args[6], args[7]);
+		tx_ls_work_end(event, ls_start);
+	}
 	list_add_tail(&node->link, &tevent_info.free);
 	if (unlikely(stat))
 		dt = ktime_us_delta(ktime_get(), t0);
@@ -34126,6 +34132,7 @@ int32_t ispcore_interrupt_service_routine(uintptr_t a0)
 	registers = core->registers;
 	runtime = core->runtime;
 	status = readl(registers + 0x84);
+	tx_ls_isr(&status, 1);
 	writel(status, registers + 0x88);
 	mask = readl(registers + 0x80);
 	writel(mask & ~status, registers + 0x80);

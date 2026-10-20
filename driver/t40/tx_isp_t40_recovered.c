@@ -10,6 +10,8 @@
 #include "../include/tx_isp/tx_isp_subdev_abi.h"
 #include "../include/tx_isp/tx_isp_tuning_abi.h"
 #include "tx_isp_t40_subdev.h"
+#define TX_LS_STORAGE
+#include "tx_isp_t40_load_stats.h"
 #include "tx_isp_t40_v4l2.h"
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
@@ -8383,6 +8385,19 @@ int32_t update_isp_osd(void);
 int64_t ispcore_interrupt_service_routine(uintptr_t a0);
 uint32_t ispcore_irq_main_fs_work(void);
 uint32_t ispcore_irq_sec_fs_work(void);
+#define T40_LS_FS_FD_WRAPPER(wrapper, fn, id)				\
+static void wrapper(struct work_struct *work)				\
+{									\
+    u64 start = tx_ls_work_begin();					\
+									\
+    (void)work;								\
+    fn();								\
+    tx_ls_work_end(id, start);						\
+}
+T40_LS_FS_FD_WRAPPER(t40_main_fs_work_timed, ispcore_irq_main_fs_work, T40_LS_WORK_MAIN_FS)
+T40_LS_FS_FD_WRAPPER(t40_sec_fs_work_timed, ispcore_irq_sec_fs_work, T40_LS_WORK_SEC_FS)
+T40_LS_FS_FD_WRAPPER(t40_main_fd_work_timed, ispcore_irq_main_fd_work, T40_LS_WORK_MAIN_FD)
+T40_LS_FS_FD_WRAPPER(t40_sec_fd_work_timed, ispcore_irq_sec_fd_work, T40_LS_WORK_SEC_FD)
 int32_t ispcore_s_wdr_en(uintptr_t a0, uintptr_t a1);
 int64_t ispcore_core_ops_ioctl(uintptr_t a0, uint32_t a1, uintptr_t a2);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
@@ -8723,10 +8738,10 @@ static void regtrace_patch_relocated_data(void)
     *(const void **)((char *)vic_core_ops + 0x24) = (const void *)&isp_vic_interrupt_service_routine;
     *(const void **)((char *)sec_fs_work + 0x4) = (const void *)((char *)((char *)&sec_fs_work + 0x4));
     *(const void **)((char *)sec_fs_work + 0x8) = (const void *)((char *)((char *)&sec_fs_work + 0x4));
-    *(const void **)((char *)sec_fs_work + 0xc) = (const void *)&ispcore_irq_sec_fs_work;
+    *(const void **)((char *)sec_fs_work + 0xc) = (const void *)&t40_sec_fs_work_timed;
     *(const void **)((char *)main_fs_work + 0x4) = (const void *)((char *)((char *)&main_fs_work + 0x4));
     *(const void **)((char *)main_fs_work + 0x8) = (const void *)((char *)((char *)&main_fs_work + 0x4));
-    *(const void **)((char *)main_fs_work + 0xc) = (const void *)&ispcore_irq_main_fs_work;
+    *(const void **)((char *)main_fs_work + 0xc) = (const void *)&t40_main_fs_work_timed;
     *(const void **)((char *)vin_subdev_ops + 0x0) = (const void *)&vin_subdev_core_ops;
     *(const void **)((char *)vin_subdev_ops + 0x4) = (const void *)&vin_subdev_video_ops;
     *(const void **)((char *)vin_subdev_ops + 0xc) = (const void *)&vin_subdev_sensor_ops;
@@ -8801,10 +8816,10 @@ static void regtrace_patch_relocated_data(void)
     *(const void **)((char *)pre_frame_dequeue + 0xc) = (const void *)&isp_main_pre_frame_dequeue;
     *(const void **)((char *)main_fd_work + 0x4) = (const void *)((char *)((char *)&main_fd_work + 0x4));
     *(const void **)((char *)main_fd_work + 0x8) = (const void *)((char *)((char *)&main_fd_work + 0x4));
-    *(const void **)((char *)main_fd_work + 0xc) = (const void *)&ispcore_irq_main_fd_work;
+    *(const void **)((char *)main_fd_work + 0xc) = (const void *)&t40_main_fd_work_timed;
     *(const void **)((char *)sec_fd_work + 0x4) = (const void *)((char *)((char *)&sec_fd_work + 0x4));
     *(const void **)((char *)sec_fd_work + 0x8) = (const void *)((char *)((char *)&sec_fd_work + 0x4));
-    *(const void **)((char *)sec_fd_work + 0xc) = (const void *)&ispcore_irq_sec_fd_work;
+    *(const void **)((char *)sec_fd_work + 0xc) = (const void *)&t40_sec_fd_work_timed;
 }
 
 static struct file_operations isp_core_tunning_fops = {
@@ -16837,7 +16852,8 @@ static void regtrace_adr_process_workfn(struct work_struct *work)
                regtrace_adr_process_work_run_count, ret);
 }
 
-static DECLARE_WORK(regtrace_adr_process_work, regtrace_adr_process_workfn);
+TX_LS_TIMED_WORK(regtrace_adr_process_work_timed, regtrace_adr_process_workfn, T40_LS_WORK_ADR)
+static DECLARE_WORK(regtrace_adr_process_work, regtrace_adr_process_work_timed);
 static uint32_t regtrace_tisp_event_thread_loop_count[2];
 static uint32_t regtrace_tisp_event_thread_last_channel;
 static long regtrace_tisp_event_thread_last_ret;
@@ -50438,6 +50454,8 @@ static void regtrace_irq_frame_done_workfn(struct work_struct *work)
                                  true);
 }
 
+TX_LS_TIMED_WORK(regtrace_irq_frame_done_work_timed, regtrace_irq_frame_done_workfn, T40_LS_WORK_FRAME_DONE)
+
 static void regtrace_irq_frame_done_work_init(void)
 {
     uint32_t i;
@@ -50447,7 +50465,7 @@ static void regtrace_irq_frame_done_work_init(void)
         spin_lock_init(&regtrace_irq_frame_done_work[i].lock);
         spin_lock_init(&regtrace_irq_frame_done_queue_lock[i]);
         INIT_WORK(&regtrace_irq_frame_done_work[i].work,
-                  regtrace_irq_frame_done_workfn);
+                  regtrace_irq_frame_done_work_timed);
         init_waitqueue_head(&regtrace_irq_frame_done_waitq[i]);
         atomic_set(&regtrace_irq_frame_done_ready[i], 0);
         regtrace_irq_frame_done_queue_last_pop_index[i] = 0xffffffffU;
@@ -74847,10 +74865,16 @@ int64_t tisp_event_process(uint32_t a0)
         unsigned long long t0 = sched_clock();
         if (!regtrace_t40_ev_updates && event >= 6U && event <= 13U) { static unsigned int n; if (n++ < 3) printk(KERN_INFO "tx_isp_t40_recovered: event %u (module ev/gain/ct update) skipped: t40_ev_updates=0 (gamma/lsc/ccm/bcsh/clm ctx not initialised in this bring-up; MT40/MT41 Oops in tisp_main_long_ev_update callees)\n", event); goto t40_ev_skip; }
         regtrace_t40_ev_cur = event; regtrace_t40_ev_cur_n++;   /* T40-EVCUR */
-        cb_ret = cb(node->args[0], node->args[1],
-                    node->args[2], node->args[3],
-                    node->args[4], node->args[5],
-                    node->args[6], node->args[7]);
+        {
+            u64 ls_start = tx_ls_work_begin();
+
+            cb_ret = cb(node->args[0], node->args[1],
+                        node->args[2], node->args[3],
+                        node->args[4], node->args[5],
+                        node->args[6], node->args[7]);
+            if (a0 < 2 && event < 32)
+                tx_ls_work_end(T40_LS_WORK_EVENT(a0, event), ls_start);
+        }
 t40_ev_skip:
         ;
         regtrace_t40_ev_cur = 0;   /* T40-EVCUR */
@@ -184576,6 +184600,12 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
     v0 = *(uint32_t *)((char *)a0 + 232);
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
     s5 = *(uint32_t *)((char *)v0 + 104);
+    {
+        u32 ls_status[3] = { (u32)(uintptr_t)s2, (u32)(uintptr_t)s1,
+                             (u32)(uintptr_t)s5 };
+
+        tx_ls_isr(ls_status, 3);
+    }
     if (regtrace_fr_big) regtrace_fr_mark(0xd0U, (uint32_t)(uintptr_t)s2);
     if (regtrace_fr_big) regtrace_fr_mark(0xd1U, (uint32_t)(uintptr_t)s1);
 

@@ -114,8 +114,9 @@ static uint32_t regtrace_t23_awb_statis[4];
 static DEFINE_SPINLOCK(regtrace_t23_awb_hlil_lock);
 
 static void regtrace_t23_source_awb_hlil_work(struct work_struct *work);
+TX_LS_TIMED_WORK(regtrace_t23_awb_hlil_work_timed, regtrace_t23_source_awb_hlil_work, T23_LS_WORK_AWB)
 static DECLARE_WORK(regtrace_t23_source_awb_hlil_work_item,
-                    regtrace_t23_source_awb_hlil_work);
+                    regtrace_t23_awb_hlil_work_timed);
 
 static uint32_t regtrace_t23_awb_hlil_mul_q(uint32_t left, uint32_t right)
 {

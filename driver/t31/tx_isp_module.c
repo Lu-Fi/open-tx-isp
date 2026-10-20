@@ -56,6 +56,7 @@
 #include "tx_isp_t31_subdev_resolver.h"
 #include "tx_isp_t31_sensor_policy.h"
 #include "tx_isp_v4l2.h"
+#include "include/tx_isp_t31_load_stats.h"
 #include "tx_isp_v4l2_sensor.h"
 #include "../include/tx_isp/tx_isp_frame_channel.h"
 #include "../include/tx_isp/tx_isp_frame_layout.h"
@@ -146,7 +147,8 @@ static DEFINE_MUTEX(sensor_ops_call_mutex);
 
 /* Deferred sensor I2C write — runs in workqueue context (process context) */
 static void sensor_expo_work_func(struct work_struct *work);
-DECLARE_WORK(sensor_expo_work, sensor_expo_work_func);
+TX_LS_TIMED_WORK(sensor_expo_work_timed, sensor_expo_work_func, T31_LS_WORK_EXPO)
+DECLARE_WORK(sensor_expo_work, sensor_expo_work_timed);
 /* Review2 L14: internal, not exported. */
 static u32 sensor_expo_last_packed = ~0U;
 static uint sensor_expo_catchups;
