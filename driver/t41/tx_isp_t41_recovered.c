@@ -1832,6 +1832,9 @@ module_param_named(tone_ev, t41_tone_ev, uint, 0444);
 static unsigned int t41_tmo_again[3] __attribute__((section(".data")));
 static unsigned int t41_tmo_again_n = 3;
 module_param_array_named(tmo_again, t41_tmo_again, uint, &t41_tmo_again_n, 0444);
+/* Stale frames on which the last good TMO map was committed again. */
+static unsigned int t41_tmo_again_commits __attribute__((section(".data")));
+module_param_named(tmo_again_commits, t41_tmo_again_commits, uint, 0444);
 static unsigned int t41_tmo_irq17 __attribute__((section(".data")));
 static unsigned int t41_tone_kicks __attribute__((section(".data")));
 static unsigned int t41_tone_gated __attribute__((section(".data")));
@@ -153926,24 +153929,28 @@ static void t41_tmo_selftest_workfn(struct work_struct *work)
 	enum { ROUNDS = 64 };
 	unsigned char *p = NULL;
 	unsigned int *sums = NULL, *counts, *history, *ref, *res;
+	struct t41_tmo_map_scratch *fast_ws = NULL;
+	struct t41_tmo_mxu3_scratch *mxu_ws = NULL;
 	unsigned int round, i, mismatches = 0, frames = 0;
 	u64 t_ref = 0, t_fast = 0, t_mxu = 0;
-	int used;
 
 	(void)work;
 	if (!t41_tmo_mxu3_available()) {
 		printk(KERN_INFO "t41: TMO map selftest: no MXU3 on this CPU\n");
 		goto out;
 	}
+	/* Own buffers: the selftest neither touches nor locks the live map
+	 * state, so streaming continues undisturbed while it runs. */
 	p = vzalloc(T41_TMO_PARAM_BYTES);
 	sums = vmalloc(5 * T41_TMO_SAMPLES * sizeof(*sums));
-	if (!p || !sums)
+	fast_ws = vmalloc(sizeof(*fast_ws));
+	mxu_ws = vzalloc(sizeof(*mxu_ws));
+	if (!p || !sums || !fast_ws || !mxu_ws)
 		goto out;
 	counts = sums + T41_TMO_SAMPLES;
 	history = counts + T41_TMO_SAMPLES;
 	ref = history + T41_TMO_SAMPLES;
 	res = ref + T41_TMO_SAMPLES;
-	mutex_lock(&t41_tmo_map_lock);
 	for (round = 0; round < ROUNDS; ++round) {
 		unsigned int shift = prandom_u32() % 10, big = prandom_u32() % 4;
 		unsigned int limit = big == 0 ? 65536 : big == 1 ? 4096 : 256;
@@ -153971,16 +153978,22 @@ static void t41_tmo_selftest_workfn(struct work_struct *work)
 		t_ref += ktime_to_ns(ktime_get()) - t0;
 		for (impl = 1; impl <= 2; ++impl) {
 			t0 = ktime_to_ns(ktime_get());
-			r_res = t41_tmo_map_run(impl, p, shift, sums, counts,
-						history, first, res, &used);
+			if (impl == 1)
+				r_res = t41_tmo_map_fast(p, T41_TMO_PARAM_BYTES, shift,
+							 sums, counts, history, first,
+							 res, fast_ws);
+			else
+				r_res = t41_tmo_map_mxu3(p, T41_TMO_PARAM_BYTES, shift,
+							 sums, counts, history, first,
+							 res, mxu_ws);
 			if (impl == 1)
 				t_fast += ktime_to_ns(ktime_get()) - t0;
 			else
 				t_mxu += ktime_to_ns(ktime_get()) - t0;
-			if (used != impl || r_res != r_ref) {
+			if (r_res != r_ref) {
 				++mismatches;
-				printk(KERN_WARNING "t41: TMO map selftest round %u impl %d: used %d ret %d ref %d\n",
-				       round, impl, used, r_res, r_ref);
+				printk(KERN_WARNING "t41: TMO map selftest round %u impl %d: ret %d ref %d\n",
+				       round, impl, r_res, r_ref);
 				continue;
 			}
 			if (r_ref)
@@ -153996,14 +154009,16 @@ static void t41_tmo_selftest_workfn(struct work_struct *work)
 			}
 		}
 		++frames;
+		cond_resched();
 	}
-	mutex_unlock(&t41_tmo_map_lock);
 	do_div(t_ref, frames * 1000);
 	do_div(t_fast, frames * 1000);
 	do_div(t_mxu, frames * 1000);
 	printk(KERN_INFO "t41: TMO map selftest: %u frames, %u mismatches; avg us ref %llu fast %llu mxu3 %llu\n",
 	       frames, mismatches, t_ref, t_fast, t_mxu);
 out:
+	vfree(mxu_ws);
+	vfree(fast_ws);
 	vfree(sums);
 	vfree(p);
 	t41_tmo_map_selftest = 0;
@@ -154076,6 +154091,17 @@ static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
             t41_tmo_again[2]++;
         else
             t41_tmo_again[1]++;
+        /*
+         * Stock refreshes the TMO RAM on every TMO event, and that refresh
+         * also flips the statistics bank (0x1e030) and commits (0x1e034,
+         * 0x1e008). Skipping it on a stale frame let a single delay (e.g.
+         * 330 ms of selftest holding the map lock) stop the statistics for
+         * good: every later frame was stale too. Re-commit the last good
+         * map instead; before the first good frame statYOut is still zero
+         * and must not be uploaded.
+         */
+        if (!t41_tmo_state.first && !tisp_tmo_ram_reg_refresh(0))
+            t41_tmo_again_commits++;
         return -EAGAIN;
     }
     {
