@@ -12,6 +12,8 @@
 #include <linux/init.h>
 #include <linux/types.h>
 #include <linux/fs.h>
+#define TX_LS_STORAGE
+#include "tx_isp_t30_load_stats.h"
 #include <linux/cdev.h>
 #include <linux/mm.h>
 #include <linux/poll.h>
@@ -15625,7 +15627,18 @@ int32_t ispcore_sync_sensor_attr(void *subdev, void *video_in)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000b514 origin=model_output original=ispcore_irq_thread_handle */
+static int32_t ispcore_irq_thread_handle_body(void *arg1);
+
 int32_t ispcore_irq_thread_handle(void *arg1)
+{
+	u64 ls_start = tx_ls_work_begin();
+	int32_t ret = ispcore_irq_thread_handle_body(arg1);
+
+	tx_ls_work_end(T30_LS_WORK_IRQ_THREAD, ls_start);
+	return ret;
+}
+
+static int32_t ispcore_irq_thread_handle_body(void *arg1)
 {
 	int i;
 	if (arg1 == 0 || (uint32_t)arg1 >= 0xfffff001u)
@@ -19132,8 +19145,12 @@ static void tx_isp_t30_dispatch_firmware_irqs(u32 status)
 		       isr_param[0]);
 	status &= recovered_sources;
 	for (source = 0; source < ARRAY_SIZE(isr_func); source++) {
-		if ((status & BIT(source)) && isr_func[source])
+		if ((status & BIT(source)) && isr_func[source]) {
+			u64 ls_start = tx_ls_work_begin();
+
 			isr_func[source](isr_param[source]);
+			tx_ls_work_end(source, ls_start);
+		}
 	}
 }
 
@@ -19151,6 +19168,7 @@ static int tx_isp_t30_ispcore_interrupt(struct tx_isp_t30_subdev *sd)
 		return IRQ_HANDLED;
 
 	irq_status = APICAL_READ_32(0xa0) & 0xffff;
+	tx_ls_isr(&irq_status, 1);
 	if (tx_isp_t30_irq_entry_trace_count++ < 8)
 		pr_err("tx-isp-t30: ISP IRQ entry sd=%p status=%04x ack=%08x\n",
 		       sd, irq_status, APICAL_READ_32(0xa4));

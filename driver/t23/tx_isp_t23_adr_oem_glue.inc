@@ -192,8 +192,10 @@ static void t23_adrlift_defog_work_fn(struct work_struct *work)
 	mutex_unlock(&t23_adrlift_mutex);
 }
 
-static DECLARE_WORK(t23_adrlift_adr_work, t23_adrlift_adr_work_fn);
-static DECLARE_WORK(t23_adrlift_defog_work, t23_adrlift_defog_work_fn);
+TX_LS_TIMED_WORK(t23_adrlift_adr_work_timed, t23_adrlift_adr_work_fn, T23_LS_WORK_ADR)
+TX_LS_TIMED_WORK(t23_adrlift_defog_work_timed, t23_adrlift_defog_work_fn, T23_LS_WORK_DEFOG)
+static DECLARE_WORK(t23_adrlift_adr_work, t23_adrlift_adr_work_timed);
+static DECLARE_WORK(t23_adrlift_defog_work, t23_adrlift_defog_work_timed);
 
 static noinline __attribute__((noipa)) uint32_t t23_adrlift_event_push(uint32_t channel, uint32_t event)
 {

@@ -33,6 +33,12 @@ tx-isp-t10-objs := \
 
 ccflags-y += -DREGTRACE_KERNEL_TREE_BUILD
 
+# Per-frame load statistics (ISR bit counters, work run times), off for
+# release builds: make ... TX_ISP_LOAD_STATS=y
+ifeq ($(TX_ISP_LOAD_STATS),y)
+ccflags-y += -DTX_ISP_LOAD_STATS
+endif
+
 # Reproducible builds: __FILE__ in the SDK log macros is shortened to a
 # path relative to the repository, so the module does not depend on the
 # directory it is built in.

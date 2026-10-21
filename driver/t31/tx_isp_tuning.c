@@ -29,6 +29,8 @@
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
+#define TX_LS_STORAGE
+#include "include/tx_isp_t31_load_stats.h"
 #include <linux/seq_file.h>
 #include <linux/math64.h>  /* For div64_s64() and do_div() */
 #include "../include/tx_isp/tx_isp_awb_zone.h"
@@ -1755,7 +1757,8 @@ static dma_addr_t wdr_dma_phys;
 static bool wdr_ready, wdr_stats_pending, wdr_ev_pending;
 static u32 wdr_ev_low, wdr_ev_high;
 static void t31_wdr_work(struct work_struct *work);
-static DECLARE_WORK(wdr_work, t31_wdr_work);
+TX_LS_TIMED_WORK(t31_wdr_work_timed, t31_wdr_work, T31_LS_WORK_WDR)
+static DECLARE_WORK(wdr_work, t31_wdr_work_timed);
 static u32 width_wdr_def, height_wdr_def, wdr_frame;
 static u32 param_fusion1_cure_y_array[33];
 static u32 wdr_thrAll_software_out[27];
@@ -31207,8 +31210,11 @@ int tisp_event_process(void)
      * by awb_interrupt_static (hardware IRQ bit 30, not polled) and are
      * stable during dispatch since the ISR can't fire with IRQs off. */
     if (event.event_id < 32 && cb[event.event_id]) {
+        u64 ls_start = tx_ls_work_begin();
+
         cb[event.event_id](event.args[0], event.args[1], event.args[2], event.args[3],
                            event.args[4], event.args[5], event.args[6], event.args[7]);
+        tx_ls_work_end(T31_LS_WORK_EVENT(event.event_id), ls_start);
     }
 
     local_irq_restore(flags);

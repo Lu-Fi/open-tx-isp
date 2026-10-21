@@ -17,6 +17,8 @@
 #include "tx_isp_t23_crumbs.h"
 #include "tx_isp_t23_scratch.h"
 #include "tx_isp_t23_msca_geom.h"
+#define TX_LS_STORAGE
+#include "include/tx_isp_t23_load_stats.h"
 #ifdef REGTRACE_KERNEL_TREE_BUILD
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -18955,6 +18957,14 @@ static int32_t tisp_g_hldc_attr(int32_t a0, int32_t a1);
 int32_t ispcore_sensor_ops_release_all_sensor(void *arg1);
 int32_t ispcore_sensor_ops_ioctl(void *arg1);
 char* ispcore_irq_fs_work(void);
+static void t23_fs_work_timed(struct work_struct *work)
+{
+    u64 start = tx_ls_work_begin();
+
+    (void)work;
+    ispcore_irq_fs_work();
+    tx_ls_work_end(T23_LS_WORK_FS, start);
+}
 int32_t ispcore_link_setup(void);
 int32_t isp_pre_frame_dequeue(void);
 int32_t isp_ch1_frame_dequeue_delay(void);
@@ -20434,7 +20444,7 @@ static void __init regtrace_patch_relocated_data(void)
     *(const void **)((char *)ispcore_subdev_core_ops + 0x24) = (const void *)&ispcore_irq_thread_handle;
     *(const void **)((char *)fs_work + 0x4) = (const void *)((char *)((char *)&fs_work + 0x4));
     *(const void **)((char *)fs_work + 0x8) = (const void *)((char *)((char *)&fs_work + 0x4));
-    *(const void **)((char *)fs_work + 0xc) = (const void *)&ispcore_irq_fs_work;
+    *(const void **)((char *)fs_work + 0xc) = (const void *)&t23_fs_work_timed;
     *(const void **)((char *)ch1_frame_dequeue_delay + 0x4) = (const void *)((char *)((char *)&ch1_frame_dequeue_delay + 0x4));
     *(const void **)((char *)ch1_frame_dequeue_delay + 0x8) = (const void *)((char *)((char *)&ch1_frame_dequeue_delay + 0x4));
     *(const void **)((char *)ch1_frame_dequeue_delay + 0xc) = (const void *)&isp_ch1_frame_dequeue_delay;
@@ -34789,6 +34799,7 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
             return IRQ_NONE;
 
         status0 = readl(base + 0xb4);
+        tx_ls_isr(&status0, 1);
         if (status0) {
             writel(status0, base + 0xb8);
             wmb();
