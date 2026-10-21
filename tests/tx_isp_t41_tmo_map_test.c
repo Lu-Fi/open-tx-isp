@@ -1,7 +1,36 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-#include "../driver/t41/tx_isp_t41_tmo_map.h"
+#include "../driver/t41/tx_isp_t41_tmo_mxu3.h"
+
+/*
+ * Host model of the MXU3 kernel (tx_isp_t41_tmo_mxu3.S), written from the
+ * same contract: per term and lane, 32-bit wrap-around multiply, optional
+ * shift of the luma product, 32-bit add. It checks the C side (planes,
+ * offsets, weights, lane mapping) of t41_tmo_map_mxu3(); the instruction
+ * encodings themselves need the device self-test (t41_tmo_map_selftest).
+ */
+void t41_tmo_mxu3_chunk(const struct t41_tmo_mxu3_job *job)
+{
+	unsigned int t, i;
+
+	for (i = 0; i < T41_TMO_MXU3_LANES; ++i) {
+		job->out[i] = 0;
+		job->out[T41_TMO_MXU3_LANES + i] = 0;
+	}
+	for (t = 0; t < job->terms; ++t) {
+		const unsigned int *w = job->weight + t * T41_TMO_MXU3_LANES;
+		const unsigned int *c = job->c + job->offset[t] / 4;
+		const unsigned int *l = job->l + job->offset[t] / 4;
+
+		for (i = 0; i < T41_TMO_MXU3_LANES; ++i) {
+			job->out[i] += w[i] * c[i];
+			job->out[T41_TMO_MXU3_LANES + i] += (w[i] * l[i]) >> job->extra;
+		}
+	}
+}
+void kernel_mxuv3_begin_partial(unsigned int num_regs) { (void)num_regs; }
+void kernel_mxuv3_end(void) { }
 
 static unsigned char params[T41_TMO_PARAM_BYTES];
 static unsigned int sums[3750], counts[3750], history[3750], output[3750];
@@ -9,6 +38,56 @@ static unsigned int sums[3750], counts[3750], history[3750], output[3750];
 static void run(int first)
 {
 	assert(!t41_tmo_map(params, sizeof(params), 8, sums, counts, history, first, output));
+}
+
+static unsigned int lcg_state = 12345;
+static unsigned int lcg(void)
+{
+	lcg_state = lcg_state * 1103515245U + 12345U;
+	return lcg_state >> 8;
+}
+
+/* t41_tmo_map_fast() must match the reference bit for bit, including the
+ * 32-bit wrap of large luma products and both kernel modes. */
+static void fast_equivalence(void)
+{
+	static struct t41_tmo_map_scratch ws;
+	static struct t41_tmo_mxu3_scratch mws;
+	static unsigned int ref[3750], fast[3750], mxu[3750];
+	unsigned int round, i;
+
+	for (round = 0; round < 4000; ++round) {
+		unsigned int shift = lcg() % 10, big = lcg() % 4;
+		int first = lcg() & 1, r1, r2;
+
+		memset(params, 0, sizeof(params));
+		params[0x1742] = lcg() % 5;
+		params[0x1739] = lcg() & 1;
+		params[0x173c] = lcg() & 1;
+		params[0x173b] = lcg() % 11;
+		params[0x173a] = lcg() % 15;
+		for (i = 0; i < 375; ++i) {
+			params[0x230 + i] = lcg() % 11;
+			params[0x3a7 + i] = lcg() % 15;
+		}
+		for (i = 0; i < 3750; ++i) {
+			unsigned int limit = big == 0 ? 65536 : big == 1 ? 4096 : 256;
+
+			counts[i] = lcg() % limit;
+			sums[i] = big == 3 ? 65535 : lcg() % limit;
+			history[i] = lcg() % 4096;
+		}
+		r1 = t41_tmo_map(params, sizeof(params), shift, sums, counts, history, first, ref);
+		r2 = t41_tmo_map_fast(params, sizeof(params), shift, sums, counts, history, first, fast, &ws);
+		assert(r1 == r2);
+		if (!r1)
+			assert(!memcmp(ref, fast, sizeof(ref)));
+		r2 = t41_tmo_map_mxu3(params, sizeof(params), shift, sums, counts, history, first, mxu, &mws);
+		assert(r1 == r2);
+		if (!r1)
+			assert(!memcmp(ref, mxu, sizeof(ref)));
+	}
+	puts("T41 local TMO: fast map and MXU3 data path (host model) match the reference (4000 random frames)");
 }
 
 int main(void)
@@ -64,5 +143,6 @@ int main(void)
 	assert(t41_tmo_map(NULL, sizeof(params), 8, sums, counts, history, 0, output));
 	for (i = 0; i < 3750; ++i) assert(output[i] == 0x5a5a5a5a);
 	puts("T41 scalar local TMO: padding, spatial response, history and rejection passed");
+	fast_equivalence();
 	return 0;
 }

@@ -18,6 +18,8 @@
 #include "tx_isp_t41_capture_gate.h"
 #include "tx_isp_t41_tmo.h"
 #include "tx_isp_t41_tmo_map.h"
+#include "tx_isp_t41_tmo_mxu3.h"
+#include <linux/random.h>
 #include "tx_isp_t41_ccm.h"
 #include "tx_isp_t41_modctl.h"
 #include "tx_isp_t41_gamma_ctl.h"
@@ -1653,7 +1655,154 @@ t41_bringup_param(t41_tmo_frames, uint, 0444);
 t41_bringup_param(t41_tmo_dropped, uint, 0444);
 t41_bringup_param(t41_tmo_error, int, 0444);
 static void t41_tmo_workfn(struct work_struct *work);
-static DECLARE_WORK(t41_tmo_work, t41_tmo_workfn);
+static void t41_tmo_work_timed(struct work_struct *work);
+static DECLARE_WORK(t41_tmo_work, t41_tmo_work_timed);
+
+/*
+ * Per-frame load statistics (build with TX_ISP_LOAD_STATS=y). Compiled out
+ * by default; when built in, t41_load_stats=0 turns the accounting off at
+ * runtime. Kept in .data like the other diagnostics (see the AWB comment).
+ *
+ * t41_isr_bits[]: hits per status bit, [0..31] 0x40028, [32..63] 0x400a8,
+ * [64..95] 0x400b8 (same numbering as irq_func_cb), [96..127] error 0x40068.
+ * t41_isr_calls: ISR entries, entries with no status bit set.
+ * t41_work_*: per work item, see the enum below (fs, fd, awb, tmo, adr,
+ * then the tone worker's sub-blocks): count, summed and maximum run time
+ * in microseconds.
+ */
+/*
+ * Stock queues main_fs_work and main_fd_work on system_wq (queue_work_on
+ * CPU 2 = unbound) but runs the statistics/tuning work (AE, AWB, ADR, ...)
+ * in its own isp_fw_process thread. Mirror that: the AWB and tone (TMO,
+ * CCM, ADR, LCE, ...) work go to one ordered workqueue, so they run
+ * serialized on one worker instead of waking kworkers on both CPUs every
+ * frame. t41_isp_wq=0 keeps them on system_wq.
+ */
+static int t41_isp_wq __attribute__((section(".data"))) = 1;
+module_param(t41_isp_wq, int, 0444);
+MODULE_PARM_DESC(t41_isp_wq, "1=own ordered workqueue for AWB/tone work (stock isp_fw_process), 0=system_wq");
+static struct workqueue_struct *t41_fw_wq __attribute__((section(".data")));
+
+static inline struct workqueue_struct *t41_tuning_wq(void)
+{
+	struct workqueue_struct *wq = READ_ONCE(t41_fw_wq);
+
+	return wq ? wq : system_wq;
+}
+
+static void t41_isp_wq_init(void)
+{
+	if (t41_isp_wq <= 0)
+		return;
+	t41_fw_wq = alloc_ordered_workqueue("t41-isp-fw", 0);
+	if (!t41_fw_wq)
+		pr_warn("t41: tuning workqueue unavailable, using system_wq\n");
+}
+
+static void t41_isp_wq_exit(void)
+{
+	struct workqueue_struct *fw = t41_fw_wq;
+
+	WRITE_ONCE(t41_fw_wq, NULL);
+	if (fw)
+		destroy_workqueue(fw);
+}
+
+/*
+ * ADR statistics arrive every frame and stock evaluates them every frame.
+ * t41_adr_interval > 1 evaluates only every n-th frame (A/B load test).
+ */
+static unsigned int t41_adr_interval __attribute__((section(".data"))) = 1;
+module_param(t41_adr_interval, uint, 0644);
+MODULE_PARM_DESC(t41_adr_interval, "evaluate ADR every n-th frame (1=every frame, stock)");
+static unsigned int t41_adr_tick __attribute__((section(".data")));
+
+enum {
+	T41_WT_FS, T41_WT_FD, T41_WT_AWB, T41_WT_TMO, T41_WT_ADR,
+	/* sub-blocks of the tone worker (t41_tmo_workfn) */
+	T41_WT_AWB_EXPOSURE, T41_WT_CCM, T41_WT_BCSH, T41_WT_CLM,
+	T41_WT_GAMMA, T41_WT_LSC, T41_WT_LCE, T41_WT_YSP, T41_WT_CDNS,
+	T41_WT_MDNS, T41_WT_DPC, T41_WT_TMO_FRAME,
+	/* inside t41_tmo_frame */
+	T41_WT_TMO_CURVE, T41_WT_TMO_MAP, T41_WT_TMO_INTERP, T41_WT_TMO_RAM,
+	T41_WT_TMO_DEFAULT,
+	T41_WT_N
+};
+/* Time one statement under a work index (no-op without TX_ISP_LOAD_STATS). */
+#define T41_LS_TIME(id, stmt) do {				\
+	u64 t41_ls_t0 = t41_work_begin();			\
+								\
+	stmt;							\
+	t41_work_end(id, t41_ls_t0);				\
+} while (0)
+#ifdef TX_ISP_LOAD_STATS
+static int t41_load_stats __attribute__((section(".data"))) = 1;
+module_param(t41_load_stats, int, 0644);
+MODULE_PARM_DESC(t41_load_stats, "count ISR status bits and time per-frame work (1=on)");
+static unsigned int t41_isr_bits[128] __attribute__((section(".data")));
+static unsigned int t41_isr_bits_num __attribute__((section(".data"))) = 128;
+module_param_array(t41_isr_bits, uint, &t41_isr_bits_num, 0444);
+static unsigned int t41_isr_calls[2] __attribute__((section(".data")));
+static unsigned int t41_isr_calls_num __attribute__((section(".data"))) = 2;
+module_param_array(t41_isr_calls, uint, &t41_isr_calls_num, 0444);
+static unsigned int t41_work_count[T41_WT_N] __attribute__((section(".data")));
+static unsigned int t41_work_us[T41_WT_N] __attribute__((section(".data")));
+static unsigned int t41_work_max_us[T41_WT_N] __attribute__((section(".data")));
+static unsigned int t41_work_num __attribute__((section(".data"))) = T41_WT_N;
+module_param_array(t41_work_count, uint, &t41_work_num, 0444);
+module_param_array(t41_work_us, uint, &t41_work_num, 0444);
+module_param_array(t41_work_max_us, uint, &t41_work_num, 0444);
+
+static inline void t41_isr_count_word(unsigned int base, uint32_t word)
+{
+	while (word) {
+		unsigned int bit = __ffs(word);
+
+		t41_isr_bits[base + bit]++;
+		word &= word - 1;
+	}
+}
+
+static inline void t41_isr_count(uint32_t status0, uint32_t status2,
+				 uint32_t status3, uint32_t error)
+{
+	if (READ_ONCE(t41_load_stats) <= 0)
+		return;
+	t41_isr_calls[0]++;
+	if (!(status0 | status2 | status3 | error))
+		t41_isr_calls[1]++;
+	t41_isr_count_word(0, status0);
+	t41_isr_count_word(32, status2);
+	t41_isr_count_word(64, status3);
+	t41_isr_count_word(96, error);
+}
+
+static inline u64 t41_work_begin(void)
+{
+	return READ_ONCE(t41_load_stats) > 0 ? ktime_get_ns() : 0;
+}
+
+static inline void t41_work_end(unsigned int id, u64 start)
+{
+	u64 ns;
+	unsigned int us;
+
+	if (!start)
+		return;
+	ns = ktime_get_ns() - start;
+	do_div(ns, 1000);
+	us = (unsigned int)ns;
+	t41_work_count[id]++;
+	t41_work_us[id] += us;
+	if (us > t41_work_max_us[id])
+		t41_work_max_us[id] = us;
+}
+#else
+static inline void t41_isr_count(uint32_t status0, uint32_t status2,
+				 uint32_t status3, uint32_t error) { }
+static inline u64 t41_work_begin(void) { return 0; }
+static inline void t41_work_end(unsigned int id, u64 start) { }
+#endif
 /*
  * Per-frame tone worker trigger (t41_tmo_workfn: CCM/BCSH by EV, gamma,
  * LSC gain, ADR, LCE, YSP, CDNS, MDNS, DPC gain, TMO map).  Stock-like it
@@ -1683,6 +1832,9 @@ module_param_named(tone_ev, t41_tone_ev, uint, 0444);
 static unsigned int t41_tmo_again[3] __attribute__((section(".data")));
 static unsigned int t41_tmo_again_n = 3;
 module_param_array_named(tmo_again, t41_tmo_again, uint, &t41_tmo_again_n, 0444);
+/* Stale frames on which the last good TMO map was committed again. */
+static unsigned int t41_tmo_again_commits __attribute__((section(".data")));
+module_param_named(tmo_again_commits, t41_tmo_again_commits, uint, 0444);
 static unsigned int t41_tmo_irq17 __attribute__((section(".data")));
 static unsigned int t41_tone_kicks __attribute__((section(".data")));
 static unsigned int t41_tone_gated __attribute__((section(".data")));
@@ -3528,7 +3680,8 @@ static const char LC193[] = "[%s %d] %s[%d] the format(0x%08x) of input couldn't
 static const char LC194[] = "[ %s:%d ] ispcore: irq-status unusual 0x%08x, 0x%x\n ";
 static const char LC195[] = "[ %s:%d ] ispcore: irq-status unusual 0x%08x\n isp overflow !!!";
 static void ispcore_irq_main_fd_work(struct work_struct *work);
-static DECLARE_WORK(main_fd_work, ispcore_irq_main_fd_work);
+static void t41_main_fd_work_timed(struct work_struct *work);
+static DECLARE_WORK(main_fd_work, t41_main_fd_work_timed);
 static unsigned char __attribute__((aligned(4))) isp_drivers[24] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -5794,6 +5947,7 @@ int32_t system_reg_write(uint32_t a0, uint32_t a1);
 int32_t system_reg_read(int32_t arg1);
 int32_t system_irq_func_set(int32_t arg1, int32_t arg2, int32_t arg3);
 void ispcore_irq_main_fs_work(void *work);
+static void t41_main_fs_work_timed(struct work_struct *work);
 int32_t fs_work_kthread(void);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t tx_isp_enable_irq_1(uintptr_t a0) __asm__("tx_isp_enable_irq");
@@ -5995,7 +6149,7 @@ static void regtrace_patch_relocated_data(void)
     *(const void **)((char *)vic_core_ops + 0x24) = (const void *)&isp_vic_interrupt_service_routine;
     *(const void **)((char *)main_fs_work + 0x4) = (const void *)((char *)((char *)&main_fs_work + 0x4));
     *(const void **)((char *)main_fs_work + 0x8) = (const void *)((char *)((char *)&main_fs_work + 0x4));
-    *(const void **)((char *)main_fs_work + 0xc) = (const void *)&ispcore_irq_main_fs_work;
+    *(const void **)((char *)main_fs_work + 0xc) = (const void *)&t41_main_fs_work_timed;
     *(const void **)((char *)vin_subdev_ops + 0x0) = (const void *)&vin_subdev_core_ops;
     *(const void **)((char *)vin_subdev_ops + 0x4) = (const void *)&vin_subdev_video_ops;
     *(const void **)((char *)vin_subdev_ops + 0xc) = (const void *)&vin_subdev_sensor_ops;
@@ -153411,6 +153565,38 @@ tisp_tmo_fpga0xbcc:
     return 0;
 }
 
+/*
+ * TMO RAM port writes. system_reg_write() issues wmb() after every store;
+ * stock writes the ~1650 TMO RAM data words per frame with plain stores.
+ * t41_tmo_ram_fast=1 writes the data words without the per-store barrier
+ * (uncached MMIO stores to one device stay in order on MIPS) and orders
+ * the whole burst with one wmb() before the commit writes. Default 0 keeps
+ * the per-store barrier.
+ */
+static int t41_tmo_ram_fast __attribute__((section(".data")));
+module_param(t41_tmo_ram_fast, int, 0644);
+MODULE_PARM_DESC(t41_tmo_ram_fast, "1=write TMO RAM data words without a barrier per store (stock-like)");
+
+static void __iomem *t41_isp_regs(void)
+{
+	char *subdev = (char *)(uintptr_t)ispcore_sd;
+	void __iomem *regs;
+
+	if (!t41_kernel_data_ptr(subdev))
+		return NULL;
+	regs = *(void __iomem **)(subdev + 0xe8);
+	return t41_kernel_data_ptr((void *)regs) ? regs : NULL;
+}
+
+static inline void t41_tmo_ram_data(void __iomem *regs, uint32_t reg,
+				    uint32_t value)
+{
+	if (regs)
+		__raw_writel(value, regs + reg);
+	else
+		system_reg_write(reg, value);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000069570 origin=fragment_seed original=tisp_tmo_ram_reg_refresh */
 int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
 {
@@ -153454,6 +153640,7 @@ int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
         uint32_t first;
         uint32_t second;
         uint32_t value;
+        void __iomem *regs;
 
         if (a0 >= 2 || !tmo_info[a0] || !statYOut)
             return -EINVAL;
@@ -153463,6 +153650,8 @@ int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
         stats = (uint8_t *)(uintptr_t)statYOut;
         if (!runtime || !stats)
             return -EINVAL;
+        regs = READ_ONCE(t41_tmo_ram_fast) > 0 ?
+            t41_isp_regs() : NULL;
 
         system_reg_write(0x50220, 0x101);
         for (cursor = runtime + 120; cursor != runtime + 316;
@@ -153470,10 +153659,10 @@ int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
             value = ((uint32_t)*(uint16_t *)(void *)(cursor + 2)
                      << 16) & 0x0fff0000U;
             value |= *(uint16_t *)(void *)cursor & 0x0fffU;
-            system_reg_write(0x50224, value);
+            t41_tmo_ram_data(regs, 0x50224, value);
         }
         value = *(uint16_t *)(void *)(runtime + 316) & 0x0fffU;
-        system_reg_write(0x50224, value | (value << 16));
+        t41_tmo_ram_data(regs, 0x50224, value | (value << 16));
         system_reg_write(0x50220, 0x10102);
 
         system_reg_write(0x50240, 0x101);
@@ -153482,10 +153671,10 @@ int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
             value = ((uint32_t)*(uint16_t *)(void *)(cursor + 2)
                      << 16) & 0x1fff0000U;
             value |= *(uint16_t *)(void *)cursor & 0x1fffU;
-            system_reg_write(0x50244, value);
+            t41_tmo_ram_data(regs, 0x50244, value);
         }
         value = *(uint16_t *)(void *)(runtime + 718) & 0x1fffU;
-        system_reg_write(0x50244, value | (value << 16));
+        t41_tmo_ram_data(regs, 0x50244, value | (value << 16));
         system_reg_write(0x50240, 0x10102);
 
         system_reg_write(0x50260, 0x101);
@@ -153496,7 +153685,7 @@ int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
                 first |= (*(uint32_t *)(void *)(cursor + 1500)
                           << 12) & 0x00fff000U;
                 first |= *(uint32_t *)(void *)(cursor + 3000) << 24;
-                system_reg_write(0x50264, first);
+                t41_tmo_ram_data(regs, 0x50264, first);
 
                 second = (*(uint32_t *)(void *)(cursor + 3000) >> 8)
                          & 0x0fU;
@@ -153504,10 +153693,12 @@ int32_t tisp_tmo_ram_reg_refresh(uint32_t a0)
                           & 0x0000ffffU;
                 second |= (*(uint32_t *)(void *)(cursor + 6000) << 16)
                           & 0x0fff0000U;
-                system_reg_write(0x50264, second);
+                t41_tmo_ram_data(regs, 0x50264, second);
             }
         }
         system_reg_write(0x50260, 0x10102);
+        if (regs)
+            wmb();
         system_reg_write(0x1e030, ~system_reg_read(0x1e030));
         system_reg_write(0x1e034, 1);
         system_reg_write(0x1e008, 1);
@@ -153666,6 +153857,183 @@ tisp_tmo_ram_reg_refresh0x168:
 }
 
 /* map_lock owns the algorithm workspaces and the entire RAM transaction. */
+/*
+ * Local TMO map implementation, all bit-exact with the reference
+ * t41_tmo_map() (host test tx_isp_t41_tmo_map_test):
+ *   0 = reference C, 1 = fast C (default), 2 = MXU3 spatial filter
+ *   (tx_isp_t41_tmo_mxu3.S; falls back to fast C without MXU3).
+ * Writing 1 to t41_tmo_map_selftest runs MXU3, fast C and the reference on
+ * random inputs in a work item and prints the result and timings.
+ * t41_tmo_map_interval=n > 1 recomputes the local map only every n-th
+ * frame and reuses the previous one otherwise (stock recomputes it every
+ * frame, with MXU3).
+ */
+static struct t41_tmo_map_scratch *t41_tmo_map_ws __attribute__((section(".data")));
+static int t41_tmo_map_impl __attribute__((section(".data"))) = 1;
+module_param(t41_tmo_map_impl, int, 0644);
+MODULE_PARM_DESC(t41_tmo_map_impl, "local TMO map: 0=reference C, 1=fast C (default), 2=MXU3");
+static struct t41_tmo_mxu3_scratch *t41_tmo_mxu3_ws __attribute__((section(".data")));
+static void t41_tmo_selftest_workfn(struct work_struct *work);
+static DECLARE_WORK(t41_tmo_selftest_work, t41_tmo_selftest_workfn);
+static int t41_tmo_map_selftest_set(const char *value, const struct kernel_param *kp)
+{
+	int ret = param_set_int(value, kp);
+
+	if (!ret && *(int *)kp->arg > 0)
+		schedule_work(&t41_tmo_selftest_work);
+	return ret;
+}
+static int t41_tmo_map_selftest __attribute__((section(".data")));
+module_param_call(t41_tmo_map_selftest, t41_tmo_map_selftest_set, param_get_int,
+		  &t41_tmo_map_selftest, 0644);
+MODULE_PARM_DESC(t41_tmo_map_selftest, "write 1: compare MXU3/fast/reference TMO map on random inputs (dmesg)");
+
+static bool t41_tmo_mxu3_available(void)
+{
+	return cpu_has_mxuv3;
+}
+
+/* Runs the selected implementation; *used reports the one that ran. */
+static int t41_tmo_map_run(int impl, const unsigned char *p, unsigned int shift,
+			   const unsigned int *sums, const unsigned int *counts,
+			   const unsigned int *previous, int first, unsigned int *out,
+			   int *used)
+{
+	if (impl >= 2 && t41_tmo_mxu3_available()) {
+		if (!t41_tmo_mxu3_ws)
+			t41_tmo_mxu3_ws = vzalloc(sizeof(*t41_tmo_mxu3_ws));
+		if (t41_tmo_mxu3_ws) {
+			*used = 2;
+			return t41_tmo_map_mxu3(p, T41_TMO_PARAM_BYTES, shift, sums,
+						counts, previous, first, out,
+						t41_tmo_mxu3_ws);
+		}
+	}
+	if (impl >= 1) {
+		if (!t41_tmo_map_ws)
+			t41_tmo_map_ws = vmalloc(sizeof(*t41_tmo_map_ws));
+		if (t41_tmo_map_ws) {
+			*used = 1;
+			return t41_tmo_map_fast(p, T41_TMO_PARAM_BYTES, shift, sums,
+						counts, previous, first, out,
+						t41_tmo_map_ws);
+		}
+	}
+	*used = 0;
+	return t41_tmo_map(p, T41_TMO_PARAM_BYTES, shift, sums, counts,
+			   previous, first, out);
+}
+
+static void t41_tmo_selftest_workfn(struct work_struct *work)
+{
+	enum { ROUNDS = 64 };
+	unsigned char *p = NULL;
+	unsigned int *sums = NULL, *counts, *history, *ref, *res;
+	struct t41_tmo_map_scratch *fast_ws = NULL;
+	struct t41_tmo_mxu3_scratch *mxu_ws = NULL;
+	unsigned int round, i, mismatches = 0, frames = 0;
+	u64 t_ref = 0, t_fast = 0, t_mxu = 0;
+
+	(void)work;
+	if (!t41_tmo_mxu3_available()) {
+		printk(KERN_INFO "t41: TMO map selftest: no MXU3 on this CPU\n");
+		goto out;
+	}
+	/* Own buffers: the selftest neither touches nor locks the live map
+	 * state, so streaming continues undisturbed while it runs. */
+	p = vzalloc(T41_TMO_PARAM_BYTES);
+	sums = vmalloc(5 * T41_TMO_SAMPLES * sizeof(*sums));
+	fast_ws = vmalloc(sizeof(*fast_ws));
+	mxu_ws = vzalloc(sizeof(*mxu_ws));
+	if (!p || !sums || !fast_ws || !mxu_ws)
+		goto out;
+	counts = sums + T41_TMO_SAMPLES;
+	history = counts + T41_TMO_SAMPLES;
+	ref = history + T41_TMO_SAMPLES;
+	res = ref + T41_TMO_SAMPLES;
+	for (round = 0; round < ROUNDS; ++round) {
+		unsigned int shift = prandom_u32() % 10, big = prandom_u32() % 4;
+		unsigned int limit = big == 0 ? 65536 : big == 1 ? 4096 : 256;
+		int first = prandom_u32() & 1, r_ref, r_res, impl;
+		u64 t0;
+
+		memset(p, 0, T41_TMO_PARAM_BYTES);
+		p[0x1742] = round % 5;
+		p[0x1739] = prandom_u32() & 1;
+		p[0x173c] = prandom_u32() & 1;
+		p[0x173b] = prandom_u32() % 11;
+		p[0x173a] = prandom_u32() % 15;
+		for (i = 0; i < T41_TMO_TILES; ++i) {
+			p[0x230 + i] = prandom_u32() % 11;
+			p[0x3a7 + i] = prandom_u32() % 15;
+		}
+		for (i = 0; i < T41_TMO_SAMPLES; ++i) {
+			counts[i] = prandom_u32() % limit;
+			sums[i] = big == 3 ? 65535 : prandom_u32() % limit;
+			history[i] = prandom_u32() % 4096;
+		}
+		t0 = ktime_to_ns(ktime_get());
+		r_ref = t41_tmo_map(p, T41_TMO_PARAM_BYTES, shift, sums, counts,
+				    history, first, ref);
+		t_ref += ktime_to_ns(ktime_get()) - t0;
+		for (impl = 1; impl <= 2; ++impl) {
+			t0 = ktime_to_ns(ktime_get());
+			if (impl == 1)
+				r_res = t41_tmo_map_fast(p, T41_TMO_PARAM_BYTES, shift,
+							 sums, counts, history, first,
+							 res, fast_ws);
+			else
+				r_res = t41_tmo_map_mxu3(p, T41_TMO_PARAM_BYTES, shift,
+							 sums, counts, history, first,
+							 res, mxu_ws);
+			if (impl == 1)
+				t_fast += ktime_to_ns(ktime_get()) - t0;
+			else
+				t_mxu += ktime_to_ns(ktime_get()) - t0;
+			if (r_res != r_ref) {
+				++mismatches;
+				printk(KERN_WARNING "t41: TMO map selftest round %u impl %d: ret %d ref %d\n",
+				       round, impl, r_res, r_ref);
+				continue;
+			}
+			if (r_ref)
+				continue;
+			for (i = 0; i < T41_TMO_SAMPLES; ++i) {
+				if (res[i] == ref[i])
+					continue;
+				if (mismatches++ < 8)
+					printk(KERN_WARNING "t41: TMO map selftest round %u impl %d: out[%u]=%u ref %u (radius %u mode %u shift %u first %d)\n",
+					       round, impl, i, res[i], ref[i], p[0x1742],
+					       p[0x1739], shift, first);
+				break;
+			}
+		}
+		++frames;
+		cond_resched();
+	}
+	do_div(t_ref, frames * 1000);
+	do_div(t_fast, frames * 1000);
+	do_div(t_mxu, frames * 1000);
+	printk(KERN_INFO "t41: TMO map selftest: %u frames, %u mismatches; avg us ref %llu fast %llu mxu3 %llu\n",
+	       frames, mismatches, t_ref, t_fast, t_mxu);
+out:
+	vfree(mxu_ws);
+	vfree(fast_ws);
+	vfree(sums);
+	vfree(p);
+	t41_tmo_map_selftest = 0;
+}
+static unsigned int t41_tmo_map_interval __attribute__((section(".data"))) = 1;
+module_param(t41_tmo_map_interval, uint, 0644);
+MODULE_PARM_DESC(t41_tmo_map_interval, "recompute the local TMO map every n-th frame (1=every frame, stock)");
+static unsigned int t41_tmo_map_tick __attribute__((section(".data")));
+
+static int t41_tmo_on_change __attribute__((section(".data")));
+module_param(t41_tmo_on_change, int, 0644);
+MODULE_PARM_DESC(t41_tmo_on_change, "1=TMO gain/EV interpolation and default registers only on change (stock-like)");
+static uint32_t t41_tmo_last_gain __attribute__((section(".data"))) = ~0U;
+static uint32_t t41_tmo_last_ev __attribute__((section(".data"))) = ~0U;
+
 static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
 {
     uint8_t *info, *params, *geometry, *runtime, *dma;
@@ -153673,6 +154041,7 @@ static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
     uint16_t *shadow;
     uint16_t curve[T41_TMO_CURVE_ENTRIES];
     uint32_t bank, samples = 0, shift, i;
+    bool changed;
     int ret;
 
     info = (uint8_t *)(uintptr_t)tmo_info[0];
@@ -153700,7 +154069,9 @@ static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
         geometry[21] != T41_TMO_COLS + 4 || geometry[22] > 9)
         return -ERANGE;
     shift = geometry[22];
-    if (t41_tmo_curve(params, T41_TMO_PARAM_BYTES, ev, curve))
+    T41_LS_TIME(T41_WT_TMO_CURVE,
+                ret = t41_tmo_curve(params, T41_TMO_PARAM_BYTES, ev, curve));
+    if (ret)
         return -EOPNOTSUPP;
     bank = system_reg_read(0x1e028U) & 1U;
     dma += bank << 14;
@@ -153720,10 +154091,34 @@ static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
             t41_tmo_again[2]++;
         else
             t41_tmo_again[1]++;
+        /*
+         * Stock refreshes the TMO RAM on every TMO event, and that refresh
+         * also flips the statistics bank (0x1e030) and commits (0x1e034,
+         * 0x1e008). Skipping it on a stale frame let a single delay (e.g.
+         * 330 ms of selftest holding the map lock) stop the statistics for
+         * good: every later frame was stale too. Re-commit the last good
+         * map instead; before the first good frame statYOut is still zero
+         * and must not be uploaded.
+         */
+        if (!t41_tmo_state.first && !tisp_tmo_ram_reg_refresh(0))
+            t41_tmo_again_commits++;
         return -EAGAIN;
     }
-    ret = t41_tmo_map(params, T41_TMO_PARAM_BYTES, shift, sums, counts,
-                      previous, t41_tmo_state.first, out);
+    {
+        unsigned int interval = READ_ONCE(t41_tmo_map_interval);
+
+        ret = 0;
+        if (interval <= 1 || t41_tmo_state.first ||
+            ++t41_tmo_map_tick >= interval) {
+            t41_tmo_map_tick = 0;
+            int used;
+
+            T41_LS_TIME(T41_WT_TMO_MAP,
+                ret = t41_tmo_map_run(READ_ONCE(t41_tmo_map_impl), params,
+                                      shift, sums, counts, previous,
+                                      t41_tmo_state.first, out, &used));
+        }
+    }
     if (ret)
         return -EOPNOTSUPP;
     *(uint32_t *)(void *)(info + 32) = ev;
@@ -153731,18 +154126,34 @@ static int t41_tmo_frame(uint32_t ev, uint32_t gain, uint32_t sequence)
     *(uint32_t *)(void *)(info + 40) = gain;
     memcpy(shadow, curve, sizeof(curve));
     memcpy(runtime + 318, curve, sizeof(curve));
-    ret = tisp_tmo_gain_interp(0);
-    if (!ret && t41_tmo_le16(params + 480) == 1)
-        ret = tisp_tmo_detailen_ev_interp(0);
+    /*
+     * Stock tisp_tmo_process only refreshes the TMO RAM per frame; gain
+     * interpolation runs from tisp_long_tgain_update (gain change), the
+     * detail/EV interpolation from tisp_tmo_ev_update (EV change), and the
+     * default registers are not rewritten per frame. t41_tmo_on_change=1
+     * does the same; default 0 recomputes everything every frame.
+     */
+    changed = READ_ONCE(t41_tmo_on_change) <= 0 || t41_tmo_state.first ||
+        gain != t41_tmo_last_gain || ev != t41_tmo_last_ev;
+    if (changed) {
+        T41_LS_TIME(T41_WT_TMO_INTERP, {
+            ret = tisp_tmo_gain_interp(0);
+            if (!ret && t41_tmo_le16(params + 480) == 1)
+                ret = tisp_tmo_detailen_ev_interp(0);
+        });
+        if (ret)
+            return ret;
+    }
+    T41_LS_TIME(T41_WT_TMO_RAM, ret = tisp_tmo_ram_reg_refresh(0));
     if (ret)
         return ret;
-    ret = tisp_tmo_ram_reg_refresh(0);
-    if (ret)
-        return ret;
-    ret = tisp_tmo_default_reg_refresh(0);
+    if (changed)
+        T41_LS_TIME(T41_WT_TMO_DEFAULT, ret = tisp_tmo_default_reg_refresh(0));
     if (ret)
         return ret;
     memcpy(previous, out, T41_TMO_SAMPLES * sizeof(*out));
+    t41_tmo_last_gain = gain;
+    t41_tmo_last_ev = ev;
     t41_tmo_state.first = 0;
     return t41_top_restore_bypass(BIT(22));
 }
@@ -153810,27 +154221,37 @@ static void t41_tmo_workfn(struct work_struct *work)
     exposure = (uint64_t)integration * linear;
     ev = min_t(uint64_t, exposure, UINT_MAX);
     t41_tone_ev = ev;
-    if (t41_native_awb) t41_native_awb_exposure(gain, ev);
-    t41_ccm_update(READ_ONCE(t41_ccm_ct), ev, 0);
-    t41_bcsh_update(READ_ONCE(t41_ccm_ct), ev, 0);
+    if (t41_native_awb)
+        T41_LS_TIME(T41_WT_AWB_EXPOSURE, t41_native_awb_exposure(gain, ev));
+    T41_LS_TIME(T41_WT_CCM, t41_ccm_update(READ_ONCE(t41_ccm_ct), ev, 0));
+    T41_LS_TIME(T41_WT_BCSH, t41_bcsh_update(READ_ONCE(t41_ccm_ct), ev, 0));
     if (t41_clm)
-        t41_clm_frame(READ_ONCE(t41_ccm_ct));
-    t41_gamma_error = t41_gamma_update(ev);
-    t41_native_lsc_frame(READ_ONCE(t41_ccm_ct), gain);
-    t41_native_adr_frame(exposure);
-    t41_lce_frame(gain);
+        T41_LS_TIME(T41_WT_CLM, t41_clm_frame(READ_ONCE(t41_ccm_ct)));
+    T41_LS_TIME(T41_WT_GAMMA, t41_gamma_error = t41_gamma_update(ev));
+    T41_LS_TIME(T41_WT_LSC, t41_native_lsc_frame(READ_ONCE(t41_ccm_ct), gain));
+    {
+        u64 adr_start = t41_work_begin();
+        unsigned int interval = READ_ONCE(t41_adr_interval);
+
+        if (interval <= 1 || ++t41_adr_tick >= interval) {
+            t41_adr_tick = 0;
+            t41_native_adr_frame(exposure);
+            t41_work_end(T41_WT_ADR, adr_start);
+        }
+    }
+    T41_LS_TIME(T41_WT_LCE, t41_lce_frame(gain));
     if (gain != t41_ysp_gain)
-        t41_ysp_error = tisp_ysp_refresh(0, gain);
+        T41_LS_TIME(T41_WT_YSP, t41_ysp_error = tisp_ysp_refresh(0, gain));
     if (gain != t41_cdns_gain)
-        t41_cdns_error = tisp_cdns_refresh(0, gain);
+        T41_LS_TIME(T41_WT_CDNS, t41_cdns_error = tisp_cdns_refresh(0, gain));
     if (t41_mdns_buf_info[0].paddr && gain != t41_mdns_gain)
-        t41_mdns_error = tisp_mdns_refresh(0, gain);
+        T41_LS_TIME(T41_WT_MDNS, t41_mdns_error = tisp_mdns_refresh(0, gain));
     if (t41_stock_dpc_profile <= 0 && gain != t41_dpc_gain) {
-        t41_dpc_error = tisp_dpc_l_gain_update(0, 0, gain);
+        T41_LS_TIME(T41_WT_DPC, t41_dpc_error = tisp_dpc_l_gain_update(0, 0, gain));
         if (!t41_dpc_error)
             t41_dpc_gain = gain;
     }
-    ret = t41_tmo_frame(ev, gain, sequence);
+    T41_LS_TIME(T41_WT_TMO_FRAME, ret = t41_tmo_frame(ev, gain, sequence));
     t41_tmo_error = ret;
     if (ret) {
         ++t41_tmo_dropped;
@@ -153845,6 +154266,14 @@ static void t41_tmo_workfn(struct work_struct *work)
     }
 done:
     mutex_unlock(&t41_tmo_map_lock);
+}
+
+static void t41_tmo_work_timed(struct work_struct *work)
+{
+    u64 start = t41_work_begin();
+
+    t41_tmo_workfn(work);
+    t41_work_end(T41_WT_TMO, start);
 }
 
 static void t41_tmo_stream_stop(void)
@@ -154374,7 +154803,7 @@ int32_t tisp_tmo_interrupt_static(uint32_t a0)
         spin_lock_irqsave(&t41_tmo_state_lock, flags);
         ++t41_tmo_state.sequence;
         if (a0 == 0 && t41_tmo_state.live == 1)
-            schedule_work(&t41_tmo_work);
+            queue_work(t41_tuning_wq(), &t41_tmo_work);
         spin_unlock_irqrestore(&t41_tmo_state_lock, flags);
         return 1;
     }
@@ -162096,6 +162525,22 @@ static int t41_msca_commit_frame_shadow(void)
 	return ret;
 }
 
+static void t41_main_fd_work_timed(struct work_struct *work)
+{
+    u64 start = t41_work_begin();
+
+    ispcore_irq_main_fd_work(work);
+    t41_work_end(T41_WT_FD, start);
+}
+
+static void t41_main_fs_work_timed(struct work_struct *work)
+{
+    u64 start = t41_work_begin();
+
+    ispcore_irq_main_fs_work(work);
+    t41_work_end(T41_WT_FS, start);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f380 origin=fragment_seed original=ispcore_irq_main_fd_work */
 static void ispcore_irq_main_fd_work(struct work_struct *work)
 {
@@ -167688,6 +168133,57 @@ int32_t tx_isp_enable_irq(uintptr_t a0)
 }
 #endif
 
+/*
+ * ISP interrupt enable words written when interrupts are enabled. The
+ * defaults are the stock values (H20250310a isp_interrupts_enable writes
+ * the same four words). Clearing a bit masks that interrupt source; a
+ * write while interrupts are live takes effect at once. Use the
+ * t41_isr_bits statistics to see which sources fire.
+ */
+static unsigned int t41_isr_enable[4] __attribute__((section(".data"))) = {
+	0xffffffffU,	/* 0x40020, status 0x40028 */
+	0xffffffffU,	/* 0x40060, error 0x40068 */
+	0xffffffffU,	/* 0x400a0, status 0x400a8 */
+	0x3fU,		/* 0x400b0, status 0x400b8 */
+};
+static const unsigned int t41_isr_enable_reg[4] = {
+	0x40020, 0x40060, 0x400a0, 0x400b0,
+};
+static unsigned int t41_isr_enable_num __attribute__((section(".data"))) = 4;
+static int t41_isr_enable_live __attribute__((section(".data"))) = -1;
+
+static int t41_isr_enable_set(const char *value, const struct kernel_param *kp)
+{
+	unsigned int i;
+	int ret = param_array_ops.set(value, kp);
+
+	if (ret || READ_ONCE(t41_isr_enable_live) != 1)
+		return ret;
+	for (i = 0; i < ARRAY_SIZE(t41_isr_enable); ++i)
+		system_reg_write(t41_isr_enable_reg[i], t41_isr_enable[i]);
+	return 0;
+}
+
+static int t41_isr_enable_get(char *buffer, const struct kernel_param *kp)
+{
+	return param_array_ops.get(buffer, kp);
+}
+
+static const struct kernel_param_ops t41_isr_enable_ops = {
+	.set = t41_isr_enable_set,
+	.get = t41_isr_enable_get,
+};
+static struct kparam_array t41_isr_enable_arr = {
+	.max = ARRAY_SIZE(t41_isr_enable),
+	.elemsize = sizeof(t41_isr_enable[0]),
+	.num = &t41_isr_enable_num,
+	.ops = &param_ops_uint,
+	.elem = t41_isr_enable,
+};
+module_param_cb(t41_isr_enable, &t41_isr_enable_ops, &t41_isr_enable_arr, 0644);
+MODULE_PARM_DESC(t41_isr_enable,
+		 "ISP IRQ enable words 0x40020,0x40060,0x400a0,0x400b0 (default stock: all, all, all, 0x3f)");
+
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000727b8 origin=fragment_seed original=isp_interrupts_enable */
 int32_t isp_interrupts_enable(uintptr_t a0)
 {
@@ -167702,10 +168198,11 @@ int32_t isp_interrupts_enable(uintptr_t a0)
     if (!t41_kernel_data_ptr(regs))
         return -EINVAL;
 
-    writel(0xffffffffU, regs + 0x40020);
-    writel(0xffffffffU, regs + 0x40060);
-    writel(0xffffffffU, regs + 0x400a0);
-    writel(0x3f, regs + 0x400b0);
+    writel(READ_ONCE(t41_isr_enable[0]), regs + 0x40020);
+    writel(READ_ONCE(t41_isr_enable[1]), regs + 0x40060);
+    writel(READ_ONCE(t41_isr_enable[2]), regs + 0x400a0);
+    writel(READ_ONCE(t41_isr_enable[3]), regs + 0x400b0);
+    WRITE_ONCE(t41_isr_enable_live, 1);
 
     __private_spin_lock_irqsave(
         (uint32_t)(uintptr_t)(subdev + 0x84),
@@ -167934,6 +168431,7 @@ int32_t isp_interrupts_disable(uintptr_t a0, uint32_t a1)
         return -EINVAL;
 
     if (a1 == 0) {
+        WRITE_ONCE(t41_isr_enable_live, -1);
         writel(0, regs + 0x40020);
         writel(0, regs + 0x40060);
         writel(0, regs + 0x400a0);
@@ -170650,6 +171148,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
         status3 = readl(regs + 0x400b8);
         writel(status3, regs + 0x400b4);
         t41_fr(2, status0, status2 | (error << 24));
+        t41_isr_count(status0, status2, status3, error);
 
         /*
          * The non-direct T41 frame path is completed from ISP status bit 0.
@@ -170825,7 +171324,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             spin_lock(&t41_tmo_state_lock);
             if (t41_tmo_state.live == 1) {
                 t41_tone_kicks++;
-                schedule_work(&t41_tmo_work);
+                queue_work(t41_tuning_wq(), &t41_tmo_work);
             }
             spin_unlock(&t41_tmo_state_lock);
         }
@@ -171638,8 +172137,10 @@ int32_t init_module(void)
 
     t41_heapwatch_decoys_arm();
     regtrace_patch_relocated_data();
+	t41_isp_wq_init();
 	ret = tx_isp_init();
 	if (ret) {
+		t41_isp_wq_exit();
 		t41_heapwatch_stop();
 		return ret;
 	}
@@ -171648,6 +172149,7 @@ int32_t init_module(void)
 	if (ret) {
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
 		tx_isp_t41_sensor_clients_exit();
+		t41_isp_wq_exit();
 		t41_heapwatch_stop();
 		return ret;
 	}
@@ -171656,6 +172158,7 @@ int32_t init_module(void)
 		tx_isp_sinfo_exit();
 		((void (*)(void))(uintptr_t)&tx_isp_exit)();
 		tx_isp_t41_sensor_clients_exit();
+		t41_isp_wq_exit();
 		t41_heapwatch_stop();
 		return ret;
 	}
@@ -171687,6 +172190,13 @@ void cleanup_module(void)
 	cancel_work_sync(&main_fd_work);
 	cancel_work_sync(&t41_safe_awb_work);
 	cancel_work_sync(&t41_tmo_work);
+	cancel_work_sync(&t41_native_awb_work);
+	t41_isp_wq_exit();
+	cancel_work_sync(&t41_tmo_selftest_work);
+	vfree(t41_tmo_map_ws);
+	t41_tmo_map_ws = NULL;
+	vfree(t41_tmo_mxu3_ws);
+	t41_tmo_mxu3_ws = NULL;
 	t41_heapwatch_step("exit:works");
 	t41_heapwatch_stop();
 }
