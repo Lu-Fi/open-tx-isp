@@ -59,6 +59,7 @@
 #include "../include/tx_isp/tx_isp_math.h"
 #include "../include/tx_isp/tx_isp_daynight.h"
 #include "../include/tx_isp/tx_isp_tuning_abi.h"
+#include "tx_isp_t31_ae_step.h"
 #include "tx_isp_t31_exposure.h"
 #include "tx_isp_t31_adr.h"
 #include "tx_isp_t31_mdns.h"
@@ -6206,21 +6207,9 @@ phase_f_target:
             }
 
             /* OEM (0x50a44..0x50b2c): ae_ev_step[2] is a MINIMUM step, not
-             * a clamp.  A ratio strictly between 1.0 and 1.0 + a3_3 is pushed
-             * up to 1.0 + a3_3, one strictly between 1.0 - a3_3 and 1.0 is
-             * pushed down to 1.0 - a3_3; larger steps pass unchanged.  The
-             * earlier clamp to [1.0 - a3_3, 1.0 + a3_3] limited AE to
-             * 4/1024 = 0.4 % per frame with the stock bins, so the open AE
-             * took minutes to settle after a light change. */
-            {
-                uint64_t step_q2 = (uint64_t)a3_3 << qm;
-                uint64_t upper_bound = base_q2 + step_q2;
-                uint64_t lower_bound = base_q2 - step_q2;
-                if (interp_q2 > base_q2 && interp_q2 < upper_bound)
-                    interp_q2 = upper_bound;
-                else if (interp_q2 < base_q2 && interp_q2 > lower_bound)
-                    interp_q2 = lower_bound;
-            }
+             * a clamp (see tx_isp_t31_ae_step.h). */
+            interp_q2 = t31_ae_min_step_q2(interp_q2, base_q2,
+                                           (uint64_t)a3_3 << qm);
             /* OEM EXACT: scale the clamped ratio by var_b8, shift back to Qq,
              * then keep at least unity if the 64-bit result fits in 32 bits. */
             {
