@@ -51,7 +51,13 @@ static void system_irq_func_set(unsigned int c,unsigned int n,unsigned int cb) {
 static void tisp_event_set_cb(unsigned int c,unsigned int n,unsigned int cb) { assert(!c && n==12 && !cb); }
 static void dma_cache_sync(void *dev,void *p,unsigned int n,int mode)
 { assert(!dev && p && locks && !spins && (n==8192 || n==32768 || n==131072)); assert(mode==1 || mode==2); ++cache_syncs; }
-static int schedule_work(struct work_struct *w) { int old=w->queued; assert(spins); w->queued=1; return !old; }
+static void *t41_tuning_wq(void) { return NULL; }
+static int queue_work(void *wq, struct work_struct *w) { int old=w->queued; (void)wq; assert(spins); w->queued=1; return !old; }
+typedef unsigned long long u64;
+/* load statistics (TX_ISP_LOAD_STATS) are kernel-only; stub the timing hooks */
+enum { T41_WT_AWB };
+static u64 t41_work_begin(void) { return 0; }
+static void t41_work_end(unsigned int id, u64 start) { (void)id; (void)start; }
 static void t41_native_awb_queue(void);
 static void cancel_work_sync(struct work_struct *w)
 {
