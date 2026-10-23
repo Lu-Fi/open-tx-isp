@@ -21,6 +21,8 @@
 #include "tx_isp_t41_tmo_mxu3.h"
 #include <linux/random.h>
 #include "tx_isp_t41_ccm.h"
+bool t41_dfg_ready(void);
+#define T41_MODCTL_DEFOG_MAY_RUN() t41_dfg_ready()
 #include "tx_isp_t41_modctl.h"
 #include "tx_isp_t41_gamma_ctl.h"
 #include "tx_isp_t41_ccm_manual.h"
@@ -5436,6 +5438,17 @@ int64_t tisp_defog_init(uint32_t a0, uintptr_t a1);
 int32_t tisp_defog_deinit(uint32_t a0);
 int32_t tisp_defog_ev_update(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
 int32_t tisp_defog_wdr_en(uint32_t a0, uint32_t a1);
+/* OEM defog chain (tx_isp_t41_dfg.h), falls back to the bypass-only block */
+int64_t t41_dfg_init(uint32_t ch, uintptr_t par);
+int32_t t41_dfg_deinit(uint32_t ch);
+int32_t t41_dfg_wdr_en(uint32_t ch, uint32_t en);
+int32_t t41_dfg_dn_params_refresh(uint32_t ch, uint32_t mode, uint32_t a2, uint32_t a3);
+bool t41_dfg_ready(void);
+int32_t t41_dfg_ratio_apply(void);
+void t41_dfg_irq(void);
+u64 vae_tisp_defog_param_array_get(u32, u32, u32, u32, u32);
+u64 vae_tisp_defog_param_array_set(u32, u32, u32, u32, u32);
+u64 vae_tisp_s_defog_ratio(u32, u32, u32, u32, u32);
 int32_t tisp_defog_dn_params_refresh(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
 int32_t tisp_defog_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2);
 int32_t tisp_defog_param_array_set(uint32_t a0, uint32_t a1);
@@ -21579,6 +21592,7 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
      * non-neutral request instead of acknowledging it unchanged. */
     for (i = TX_ISP_TUNING_T41_RATIO_DRC; i < ARRAY_SIZE(units); i++)
         if (i != TX_ISP_TUNING_T41_RATIO_DPC && i != TX_ISP_TUNING_T41_RATIO_DRC &&
+            !(i == TX_ISP_TUNING_T41_RATIO_DEFOG && t41_dfg_ready()) &&
             units[i].en && units[i].ratio != 128)
             return -EOPNOTSUPP;
     drc_ratio = units[TX_ISP_TUNING_T41_RATIO_DRC].en ?
@@ -21632,6 +21646,21 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
         ret = t41_dpc_ratio_apply(dpc_ratio);
         if (ret < 0)
             return ret;
+    }
+    if (t41_dfg_ready()) {
+        const struct tx_isp_tuning_t41_ratio_unit *dfg =
+            &units[TX_ISP_TUNING_T41_RATIO_DEFOG];
+        u8 dfg_ratio = dfg->en ? (u8)dfg->ratio : 128;
+        u32 *dfg_en = (u32 *)(void *)(tuning + 184 + TX_ISP_TUNING_T41_RATIO_DEFOG * 8);
+
+        if (*dfg_en != dfg->en ||
+            tuning[188 + TX_ISP_TUNING_T41_RATIO_DEFOG * 8] != dfg_ratio) {
+            *dfg_en = dfg->en;
+            tuning[188 + TX_ISP_TUNING_T41_RATIO_DEFOG * 8] = dfg_ratio;
+            ret = t41_dfg_ratio_apply();
+            if (ret < 0)
+                return ret;
+        }
     }
     if (!pending)
         return 0;
@@ -23407,7 +23436,9 @@ static void t41_dn_apply_top(uint32_t mode)
 		word &= ~(1U << i);
 		word |= (uint32_t)(sel[4 + i] & 1) << i;
 	}
-	word |= T41_MODCTL_DEFOG_BIT | 0xfc000000U;
+	word |= 0xfc000000U;
+	if (!t41_dfg_ready())
+		word |= T41_MODCTL_DEFOG_BIT;
 	word = (word & ~t41_modctl_mask) | (t41_modctl_value & t41_modctl_mask);
 	*bypass = word;
 	system_reg_write(0x40, word);
@@ -44439,7 +44470,7 @@ tisp_code_tuning_ioctl0x1c4:
     goto tisp_code_tuning_ioctl0x1bc;
 
     /* fragment 56: Arithmetic */
-    v0 = (unsigned int *)&tisp_defog_param_array_get;
+    v0 = (unsigned int *)&vae_tisp_defog_param_array_get;
     a2 = a0 + 4;
     a1 = a0 + 27;
     v0 = v0;
@@ -44804,7 +44835,7 @@ tisp_code_tuning_ioctl0x5ec:
     goto tisp_code_tuning_ioctl0x5c4;
 
     /* fragment 135: Arithmetic */
-    v0 = (unsigned int *)&tisp_defog_param_array_set;
+    v0 = (unsigned int *)&vae_tisp_defog_param_array_set;
     a1 = a0 + 27;
     v0 = v0;
 
@@ -54735,7 +54766,7 @@ int tisp_deinit(int channel)
     tisp_lsc_deinit(channel);
     tisp_dpc_deinit(channel);
     tisp_adr_deinit(channel);
-    tisp_defog_deinit(channel);
+    t41_dfg_deinit(channel);
     tisp_dmsc_deinit(channel);
     tisp_gamma_deinit(channel);
     tisp_mdns_deinit(channel);
@@ -55975,7 +56006,7 @@ tisp_init0x4d4:
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gamma_init)(s0, s1); /* jalr target resolved by relocation */
 
     /* fragment 96: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_defog_init)(s0, s1); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)t41_dfg_init)(s0, s1); /* jalr target resolved by relocation */
 
     /* fragment 97: CallSetup */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lce_init)(s0, s1); /* jalr target resolved by relocation */
@@ -56089,7 +56120,7 @@ tisp_init0x74c:
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lce_wdr_en)(s0, 1); /* jalr target resolved by relocation */
 
     /* fragment 128: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_defog_wdr_en)(s0, 1); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)t41_dfg_wdr_en)(s0, 1); /* jalr target resolved by relocation */
 
     /* fragment 129: CallSetup */
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(32, 3355377664 + 4096); /* jalr target resolved by relocation */
@@ -56508,7 +56539,7 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
     T41_INIT2(tisp_adr_init);
     T41_INIT2(tisp_dmsc_init);
     T41_INIT2(tisp_gamma_init);
-    T41_INIT2(tisp_defog_init);
+    T41_INIT2(t41_dfg_init);
     T41_INIT2(tisp_lce_init);
     T41_INIT2(tisp_mdns_init);
     T41_INIT2(tisp_af_init);
@@ -56581,7 +56612,7 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
         T41_WDR2(tisp_gamma_wdr_en);
         T41_WDR2(tisp_mdns_wdr_en);
         T41_WDR2(tisp_lce_wdr_en);
-        T41_WDR2(tisp_defog_wdr_en);
+        T41_WDR2(t41_dfg_wdr_en);
         system_reg_write(0x20, 0xc7ff1000);
         tisp_adr_linear_switch(0, 1);
         T41_WDR2(tisp_dpc_wdr_en);
@@ -157022,7 +157053,7 @@ tisp_day_or_night_event0x1e8:
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_hldc_dn_params_refresh)(s0, s1); /* jalr target resolved by relocation */
 
     /* fragment 44: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_defog_dn_params_refresh)(s0, s1, *(uint32_t *)((char *)((char *)&tisp_par_info)), *(uint32_t *)((char *)(s5) + 4)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)t41_dfg_dn_params_refresh)(s0, s1, *(uint32_t *)((char *)((char *)&tisp_par_info)), *(uint32_t *)((char *)(s5) + 4)); /* jalr target resolved by relocation */
 
     /* fragment 45: CallSetup */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lce_dn_params_refresh)(s0, s1); /* jalr target resolved by relocation */
@@ -158283,7 +158314,7 @@ tisp_s_wdr_en0x2c4:
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lce_wdr_en)(s3, s2); /* jalr target resolved by relocation */
 
     /* fragment 60: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_defog_wdr_en)(s3, s2); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)t41_dfg_wdr_en)(s3, s2); /* jalr target resolved by relocation */
 
     /* fragment 61: CallSetup */
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(32, 3355377664 + 4096); /* jalr target resolved by relocation */
@@ -160291,14 +160322,14 @@ tisp_s_module_ratio_attr0x100:
 
     /* fragment 28: Branch */
     int _bc_s0_28 = s0 != v0;
-    v0 = (unsigned int *)&tisp_s_defog_ratio;
+    v0 = (unsigned int *)&vae_tisp_s_defog_ratio;
     if (_bc_s0_28) { goto tisp_s_module_ratio_attr0xb8; }
 
     /* fragment 29: Arithmetic */
     a0 = s2;
 
     /* fragment 30: Branch */
-    v0 = (unsigned int *)&tisp_s_defog_ratio;
+    v0 = (unsigned int *)&vae_tisp_s_defog_ratio;
     goto tisp_s_module_ratio_attr0x128;
 
 tisp_s_module_ratio_attr0x120:
@@ -171356,6 +171387,10 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                        (uint32_t)callback, (long long)callback_ret);
         }
 
+        /* Bit 10: defog statistics (OEM irq slot 10) */
+        if (status0 & BIT(10))
+            t41_dfg_irq();
+
         /* Bit 9 was previously acknowledged without dispatch while ADR
          * was disabled. Only the native, owned-page reader is now armed. */
         if ((status0 & BIT(9)) && t41_stock_adr_profile <= 0)
@@ -172445,3 +172480,4 @@ static noinline void t41_note(const char *fmt, ...)
 }
 
 #include "tx_isp_t41_vae.h"
+#include "tx_isp_t41_dfg.h"

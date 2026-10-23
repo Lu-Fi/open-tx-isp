@@ -150,9 +150,13 @@ static unsigned int t41_vae_events;
 module_param(t41_vae_events, uint, 0644);
 MODULE_PARM_DESC(t41_vae_events, "vendor AE: forward OEM AE event ids (bitmask, default 0)");
 static u32 vae_events_seen, vae_events_dropped;
+static bool t41_dfg_event(u32 ch, u32 id, u32 ev);
 static u64 vae_x_tisp_event_push(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
 {
 	u32 id = vae_lw(a1 + 8, 5);
+
+	if (t41_dfg_event(a0, id, a1))
+		return (u32)tisp_event_push(a0, a1);
 
 	vae_events_seen |= id < 32 ? BIT(id) : BIT(31);
 	if (id < 32 && (t41_vae_events & BIT(id)))

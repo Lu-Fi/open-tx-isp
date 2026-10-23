@@ -51,6 +51,7 @@ static int system_reg_write(u32 a, u32 v)
 	return 0;
 }
 static int tisp_event_push(u32 a, u32 b) { harness_nevt++; return 0; }
+static bool t41_dfg_event(u32 ch, u32 id, u32 ev) { return false; }
 static u32 harness_ok(u32 a, u32 align);
 static u64 harness_dispatch(u32 tg, u32 a0, u32 a1, u32 a2, u32 a3, u32 sp);
 static void *harness_bad_call;
