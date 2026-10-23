@@ -70,6 +70,7 @@ bool t41_dfg_ready(void);
 #endif
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
+#include <linux/reboot.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
@@ -820,9 +821,17 @@ static int tx_isp_core_ioctl_mask;
 module_param(tx_isp_core_ioctl_mask, int, 0);
 MODULE_PARM_DESC(tx_isp_core_ioctl_mask, "isp ioctl calls mask");
 
-static int tx_isp_bringup_level;
+/*
+ * Default 3 = full core bring-up, the level the image passes from
+ * /etc/modules.d/20-isp. Below 3 the core probe returns before the ISP/CSI
+ * clock gates and the ISPA divider are set up (CLKGR 0x3F9F77E5, ISPACDR 1 =
+ * 552 MHz instead of 0x3D1F77E5 / 2 = 368 MHz), and a WDT reboot after such a
+ * load hangs (audit T41_REBOOT_HANG_1019, "Geraetetest clk-defaults").
+ * Lower levels stay available for bring-up via the module parameter.
+ */
+static int tx_isp_bringup_level = 3;
 module_param(tx_isp_bringup_level, int, 0);
-MODULE_PARM_DESC(tx_isp_bringup_level, "bring-up gate: -1 exports only, 0 shallow, 1 graph, 2 mem, 3 core tuning");
+MODULE_PARM_DESC(tx_isp_bringup_level, "bring-up gate: -1 exports only, 0 shallow, 1 graph, 2 mem, 3 core tuning (default)");
 /*
  * Load-time copy in .data, used by the unload path.  The .bss parameter
  * sits among recovered globals that decompiled code addresses as a base
@@ -1979,27 +1988,35 @@ static int isp_memopt = 1;
 module_param(isp_memopt, int, 0);
 MODULE_PARM_DESC(isp_memopt, "isp memory optimize");
 
-static int isp_clka = 600000000;
+/*
+ * T41 clock defaults = the image's /etc/modules.d/20-isp line (vpll 300 MHz,
+ * sclka 550/550). The old OEM defaults (mpll, isp_clk 285 MHz, isp_clka
+ * 600 MHz) gave ISPA = sclka/2 = 552 MHz on a parameterless modprobe/insmod,
+ * and a WDT reset after such a load did not boot again (audit
+ * T41_REBOOT_HANG_1019). isp_clka is also clamped in get_isp_clka().
+ */
+#define T41_ISP_CLKA_MAX 550000000
+static int isp_clka = 550000000;
 module_param(isp_clka, int, 0);
-MODULE_PARM_DESC(isp_clka, "isp axi bus clock freq");
+MODULE_PARM_DESC(isp_clka, "isp axi bus clock freq (default 550 MHz, clamped to <= 550 MHz)");
 
 static int isp_clks = 550000000;
 module_param(isp_clks, int, 0);
 MODULE_PARM_DESC(isp_clks, "isp scaler clock freq");
 
-static int isp_clk = 285000000;
+static int isp_clk = 300000000;
 module_param(isp_clk, int, 0);
 MODULE_PARM_DESC(isp_clk, "isp clock freq");
 
-static char *clka_name = "mpll";
+static char *clka_name = "sclka";
 module_param(clka_name, charp, 0);
 MODULE_PARM_DESC(clka_name, "select the axi bus parent clock");
 
-static char *clks_name = "mpll";
+static char *clks_name = "sclka";
 module_param(clks_name, charp, 0);
 MODULE_PARM_DESC(clks_name, "select the scaler parent clock");
 
-static char *clk_name = "mpll";
+static char *clk_name = "vpll";
 module_param(clk_name, charp, 0);
 MODULE_PARM_DESC(clk_name, "select the isp parent clock");
 
@@ -6702,7 +6719,13 @@ uint32_t get_isp_clka(void)
     /* fragment 2: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&isp_clka));
 
-    return (uint32_t)v0;
+    if ((uint32_t)(uintptr_t)v0 > T41_ISP_CLKA_MAX) {
+        pr_warn_once("tx-isp-t41: isp_clka=%u above %u Hz, clamped (ISP AXI over-clock left the SoC unbootable after a WDT reset)\n",
+                     (uint32_t)(uintptr_t)v0, T41_ISP_CLKA_MAX);
+        v0 = (uintptr_t *)(uintptr_t)T41_ISP_CLKA_MAX;
+    }
+
+    return (uint32_t)(uintptr_t)v0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000003c4 origin=fragment_seed original=get_isp_memopt */
@@ -172293,6 +172316,37 @@ ispcore_interrupt_service_routine0x824:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074cc0 origin=fragment_seed original=init_module */
+/*
+ * T41 reboot quiesce. The kernel restarts through the watchdog
+ * (arch/mips/xburst2/soc-t41/reset.c jz_wdt_restart: irqs off, WDT fires
+ * after 500 ms) and no ISP platform driver has a .shutdown, so the ISP AXI
+ * master can still be mid-transfer when the short WDT reset hits. Before the
+ * restart, run the OEM bus-idle handshake (CPM_SRBC bit 21 stop request,
+ * wait for bit 20, then the bit-22 soft reset; private_reset_tx_isp_module,
+ * OEM 0x16148) so the ISP is idle and reset. t41_reboot_quiesce=0 disables it.
+ * Audit T41_REBOOT_HANG_1019, "Zweiter Ausloeser".
+ */
+static bool t41_reboot_quiesce = true;
+module_param(t41_reboot_quiesce, bool, 0644);
+MODULE_PARM_DESC(t41_reboot_quiesce, "stop and soft-reset the ISP bus master before restart/halt (default 1)");
+
+static int t41_reboot_notify(struct notifier_block *nb, unsigned long action, void *data)
+{
+	int ret;
+
+	if (!READ_ONCE(t41_reboot_quiesce))
+		return NOTIFY_DONE;
+	ret = private_reset_tx_isp_module(0);
+	pr_info("tx-isp-t41: reboot quiesce (action %lu): ISP bus idle + soft reset %s\n",
+		action, ret ? "timed out" : "done");
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block t41_reboot_nb = {
+	.notifier_call = t41_reboot_notify,
+	.priority = 128,
+};
+
 int32_t init_module(void)
 {
 	int ret;
@@ -172325,6 +172379,7 @@ int32_t init_module(void)
 		return ret;
 	}
 	t41_heapwatch_start();
+	register_reboot_notifier(&t41_reboot_nb);
 	return ret;
 }
 
@@ -172333,6 +172388,7 @@ void cleanup_module(void)
 {
     uintptr_t t9 = (uintptr_t)&tx_isp_exit;
 
+	unregister_reboot_notifier(&t41_reboot_nb);
 	t41_heapwatch_step("exit:begin");
 	tx_isp_t41_v4l2_exit();
 	t41_heapwatch_step("exit:v4l2");
