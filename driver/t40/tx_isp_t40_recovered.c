@@ -9450,7 +9450,33 @@ static uint regtrace_tisp_main_init_reg60_value = 0;
 static uint regtrace_tisp_main_init_reg88_override = 0xffffffffU;
 static uint regtrace_tisp_main_init_csc_version_value = 2;
 static uint regtrace_tisp_main_init_color_init_mask;
-static char *regtrace_t40_tuning_bin_path = "/usr/share/sensor/gc4653-t40.bin";
+/* T40-BIN-PATH: empty = derive the IQ bin from the registered sensor:
+ * 1. the path libimp handed in through TISP_VIDIOC_SET_DEFAULT_BIN_PATH
+ *    (IMP_ISP_SetDefaultBinPath before AddSensor),
+ * 2. this module parameter when set,
+ * 3. /etc/sensor/<name>-t40.bin from the sensor-register ioctl name
+ *    (the vendor layout timps/thingino ship: /etc/sensor/sc830ai-t40.bin),
+ * 4. the old GC4653 fallback.
+ * Before this the default was hard-wired to gc4653-t40.bin: on the Eufy T40XP
+ * (sc830ai) every tisp_main_init logged "tiziano param load ... ret=-2" and
+ * ran without tuning parameters (2026-10-24). */
+static char *regtrace_t40_tuning_bin_path = "";
+static char regtrace_t40_sensor_reg_name[32];
+static char regtrace_t40_user_bin_path[64];
+static char regtrace_t40_bin_path_buf[96];
+static const char *regtrace_t40_resolve_bin_path(void)
+{
+    if (regtrace_t40_user_bin_path[0])
+        return regtrace_t40_user_bin_path;
+    if (regtrace_t40_tuning_bin_path && regtrace_t40_tuning_bin_path[0])
+        return regtrace_t40_tuning_bin_path;
+    if (regtrace_t40_sensor_reg_name[0]) {
+        snprintf(regtrace_t40_bin_path_buf, sizeof(regtrace_t40_bin_path_buf),
+                 "/etc/sensor/%s-t40.bin", regtrace_t40_sensor_reg_name);
+        return regtrace_t40_bin_path_buf;
+    }
+    return "/usr/share/sensor/gc4653-t40.bin";
+}
 static uint regtrace_framechan_wait_msca_timeout_ms = 40;
 static uint regtrace_vic_mdma_qbuf_ring_ctrl_value;
 static uint regtrace_vic_mdma_qbuf_ring_stride_override;
@@ -16390,6 +16416,7 @@ static void regtrace_isp_block_init_retry(const char *where)
 #define REGTRACE_TISP_VIDIOC_ENUMINPUT 0xc0045402U
 #define REGTRACE_TISP_VIDIOC_G_INPUT 0x80085403U
 #define REGTRACE_TISP_VIDIOC_S_INPUT 0xc0085404U
+#define REGTRACE_TISP_VIDIOC_SET_DEFAULT_BIN_PATH 0xc004542aU   /* T40-BIN-PATH: struct { int vinum; char path[64]; } */
 #define REGTRACE_TISP_VIDIOC_SET_MDNS_BUF_INFO 0x800c540fU
 #define REGTRACE_TISP_VIDIOC_GET_MDNS_BUF_INFO 0x800c5410U
 #define REGTRACE_TISP_VIDIOC_SET_WDR_BUF_INFO 0x800c5411U
@@ -22941,6 +22968,12 @@ static long regtrace_tx_isp_sensor_register_ioctl(unsigned long arg)
         printk(KERN_ERR "tx_isp_t40_recovered: unsupported sensor cbus=%d\n", sensor_info.cbus_type);
         return -EINVAL;
     }
+    /* T40-BIN-PATH: remember the sensor name for /etc/sensor/<name>-t40.bin */
+    strlcpy(regtrace_t40_sensor_reg_name,
+            sensor_info.name[0] ? sensor_info.name : sensor_info.i2c.type,
+            sizeof(regtrace_t40_sensor_reg_name));
+    printk(KERN_INFO "tx_isp_t40_recovered: tuning bin for %s: %s\n",
+           regtrace_t40_sensor_reg_name, regtrace_t40_resolve_bin_path());
 
     if (!regtrace_sensor_client) {
         memset(&board_info, 0, sizeof(board_info));
@@ -23165,6 +23198,22 @@ static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned 
     if (cmd == REGTRACE_TISP_VIDIOC_G_INPUT) {
         ret = regtrace_tx_isp_get_input_ioctl(arg);
         printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x ret=%ld\n", cmd, ret);
+        return ret;
+    }
+    if (cmd == REGTRACE_TISP_VIDIOC_SET_DEFAULT_BIN_PATH) {
+        struct { int32_t vinum; char path[64]; } bp;
+
+        ret = 0;
+        if (copy_from_user(&bp, (const void __user *)(uintptr_t)arg, sizeof(bp)))
+            ret = -EFAULT;
+        else if (bp.vinum != 0)
+            ret = -EINVAL;
+        else {
+            bp.path[sizeof(bp.path) - 1] = '\0';
+            strlcpy(regtrace_t40_user_bin_path, bp.path, sizeof(regtrace_t40_user_bin_path));
+        }
+        printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x set default bin path=%s ret=%ld\n",
+               cmd, regtrace_t40_resolve_bin_path(), ret);
         return ret;
     }
     if (cmd == REGTRACE_TISP_VIDIOC_S_INPUT) {
@@ -29523,7 +29572,7 @@ static int regtrace_debug_proc_show(struct seq_file *m, void *v)
     seq_printf(m,
                "tiziano_param_load enable=%u path=%s count=%u ret=%ld read=%ld magic=0x%x/0x%x header=0x%x/0x%x payload=0x%x checksum=0x%x status=0x%x/0x%x day=0x%x/0x%x night=0x%x/0x%x N=0x%x/0x%x regs=%u/%u\n",
                regtrace_enable_tiziano_param_load ? 1U : 0U,
-               regtrace_t40_tuning_bin_path ? regtrace_t40_tuning_bin_path : "<null>",
+               regtrace_t40_resolve_bin_path(),
                regtrace_tiziano_param_load_count,
                regtrace_tiziano_param_load_ret,
                regtrace_tiziano_param_load_read_len,
@@ -71089,7 +71138,7 @@ static uint32_t regtrace_tiziano_load_parameters_safe(uint32_t channel,
                                                       uintptr_t path_arg)
 {
     const uint32_t payload_expected = REGTRACE_TISP_PARAM_BYTES * 2U;
-    const char *path = regtrace_t40_tuning_bin_path;
+    const char *path = regtrace_t40_resolve_bin_path();
     uint8_t *bin;
     ssize_t nread;
     uint32_t payload_len;
