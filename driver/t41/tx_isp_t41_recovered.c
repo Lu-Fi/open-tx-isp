@@ -1828,12 +1828,13 @@ module_param(t41_tone_trigger, int, 0644);
 MODULE_PARM_DESC(t41_tone_trigger,
                  "1 also runs the per-frame tone worker from the AE statistics interrupt (default 1; 0: TMO interrupt only)");
 /*
- * EV handed to the per-frame consumers (AWB Y weights, CCM, BCSH, gamma,
- * ADR, TMO): stock tisp_ae_long_ev_alloc pushes integration x total gain
- * in the AE fixed-point precision (AE params +0x6c0) and every stock
- * *_ev_update undoes only its own <<10, so they all see that value; the
- * open AE target uses the same product.  The AE path records its precision
- * here; tone_ev reports the last EV the worker distributed.
+ * AE EV units.  Stock tisp_ae_long_ev_alloc pushes the AE EV (integration x
+ * total gain, in the AE fixed-point precision, AE params +0x6c0 = 10 in the
+ * shipped bins) and the gamma/CCM/BCSH/ADR/TMO *_ev_update callbacks shift
+ * it right by 10, i.e. they compare plain integration x linear gain against
+ * their knots.  Only the AWB block here keeps the shifted value.  The AE
+ * path records its precision in t41_ae_ev_shift; tone_ev reports the last
+ * plain EV the tone worker distributed.
  */
 static unsigned int t41_ae_ev_shift __attribute__((section(".data"))) = 10;
 static unsigned int t41_tone_ev __attribute__((section(".data")));
@@ -3690,7 +3691,8 @@ static int32_t irq_func_cb[96];
  * lists indices (bit n of the 32-bit words skip[0..2]) that the native
  * replacements already handle (default: 3 AWB main, 9 ADR). */
 static int t41_isr_dispatch;
-module_param(t41_isr_dispatch, int, 0644);
+static int t41_isr_dispatch_set(const char *value, const struct kernel_param *kp);
+module_param_call(t41_isr_dispatch, t41_isr_dispatch_set, param_get_int, &t41_isr_dispatch, 0644);
 MODULE_PARM_DESC(t41_isr_dispatch, "ISP IRQ dispatch: 0 hard-wired, 1 OEM-style table loop, 2 count-only probe");
 static unsigned int t41_isr_dispatch_skip[3] = { (1u << 3) | (1u << 9), 1u << (61 - 32), 0 };
 module_param_array(t41_isr_dispatch_skip, uint, NULL, 0644);
@@ -154051,8 +154053,8 @@ tisp_tmo_ram_reg_refresh0x168:
 /*
  * Local TMO map implementation, all bit-exact with the reference
  * t41_tmo_map() (host test tx_isp_t41_tmo_map_test):
- *   0 = reference C, 1 = fast C (default), 2 = MXU3 spatial filter
- *   (tx_isp_t41_tmo_mxu3.S; falls back to fast C without MXU3).
+ *   0 = reference C, 1 = fast C, 2 = MXU3 spatial filter (default,
+ *   tx_isp_t41_tmo_mxu3.S; falls back to fast C without MXU3).
  * Writing 1 to t41_tmo_map_selftest runs MXU3, fast C and the reference on
  * random inputs in a work item and prints the result and timings.
  * t41_tmo_map_interval=n > 1 recomputes the local map only every n-th
@@ -154060,9 +154062,9 @@ tisp_tmo_ram_reg_refresh0x168:
  * frame, with MXU3).
  */
 static struct t41_tmo_map_scratch *t41_tmo_map_ws __attribute__((section(".data")));
-static int t41_tmo_map_impl __attribute__((section(".data"))) = 1;
+static int t41_tmo_map_impl __attribute__((section(".data"))) = 2;
 module_param(t41_tmo_map_impl, int, 0644);
-MODULE_PARM_DESC(t41_tmo_map_impl, "local TMO map: 0=reference C, 1=fast C (default), 2=MXU3");
+MODULE_PARM_DESC(t41_tmo_map_impl, "local TMO map: 0=reference C, 1=fast C, 2=MXU3 (default; fast C where the CPU has no MXU3), all bit-exact");
 static struct t41_tmo_mxu3_scratch *t41_tmo_mxu3_ws __attribute__((section(".data")));
 static void t41_tmo_selftest_workfn(struct work_struct *work);
 static DECLARE_WORK(t41_tmo_selftest_work, t41_tmo_selftest_workfn);
@@ -154385,9 +154387,9 @@ done:
 static void t41_tmo_workfn(struct work_struct *work)
 {
     t41_heapwatch_mark("t41_tmo_workfn");
-    uint32_t integration, gain, sequence, linear, ev;
+    uint32_t integration, gain, sequence, linear, ev, ev_plain, shift;
     unsigned long flags;
-    uint64_t exposure;
+    uint64_t exposure, ev_plain64;
     int ret;
     (void)work;
     mutex_lock(&t41_tmo_map_lock);
@@ -154405,20 +154407,30 @@ static void t41_tmo_workfn(struct work_struct *work)
         t41_tmo_error = -EAGAIN;
         goto done;
     }
-    /* Stock EV units (see t41_ae_ev_shift); dropping the precision here
-     * made every consumer see a 1024x smaller EV (bright-light tables, AWB
-     * Y weight 0, no AWB zones). */
-    linear = tisp_math_exp2(gain, 16, READ_ONCE(t41_ae_ev_shift));
+    /* Two EV units.  The AWB block keeps its own, in the AE fixed-point
+     * precision (integration x gain << t41_ae_ev_shift).  Every other
+     * consumer (gamma, CCM, BCSH, ADR, TMO) compares against calibration
+     * knots in plain integration x linear-gain units (bin: gamma 50..200000,
+     * CCM/BCSH 32..102400, ADR 160..4800, TMO 20..300000), and stock gets
+     * them as (AE event << 10) >> 10 = the AE EV without the precision
+     * shift.  Handing them the shifted value put gamma/CCM/BCSH/ADR/TMO in
+     * their lowest-light bracket at any brightness (gamma strength 128
+     * instead of 252: day image 24 % darker, saturation 28 % lower than the
+     * vendor stack on .32, A/B 2026-10-24). */
+    shift = READ_ONCE(t41_ae_ev_shift);
+    linear = tisp_math_exp2(gain, 16, shift);
     exposure = (uint64_t)integration * linear;
     ev = min_t(uint64_t, exposure, UINT_MAX);
-    t41_tone_ev = ev;
+    ev_plain64 = shift < 32 ? exposure >> shift : 0;
+    ev_plain = min_t(uint64_t, ev_plain64, UINT_MAX);
+    t41_tone_ev = ev_plain;
     if (t41_native_awb)
         T41_LS_TIME(T41_WT_AWB_EXPOSURE, t41_native_awb_exposure(gain, ev));
-    T41_LS_TIME(T41_WT_CCM, t41_ccm_update(READ_ONCE(t41_ccm_ct), ev, 0));
-    T41_LS_TIME(T41_WT_BCSH, t41_bcsh_update(READ_ONCE(t41_ccm_ct), ev, 0));
+    T41_LS_TIME(T41_WT_CCM, t41_ccm_update(READ_ONCE(t41_ccm_ct), ev_plain, 0));
+    T41_LS_TIME(T41_WT_BCSH, t41_bcsh_update(READ_ONCE(t41_ccm_ct), ev_plain, 0));
     if (t41_clm)
         T41_LS_TIME(T41_WT_CLM, t41_clm_frame(READ_ONCE(t41_ccm_ct)));
-    T41_LS_TIME(T41_WT_GAMMA, t41_gamma_error = t41_gamma_update(ev));
+    T41_LS_TIME(T41_WT_GAMMA, t41_gamma_error = t41_gamma_update(ev_plain));
     T41_LS_TIME(T41_WT_LSC, t41_native_lsc_frame(READ_ONCE(t41_ccm_ct), gain));
     {
         u64 adr_start = t41_work_begin();
@@ -154426,7 +154438,7 @@ static void t41_tmo_workfn(struct work_struct *work)
 
         if (interval <= 1 || ++t41_adr_tick >= interval) {
             t41_adr_tick = 0;
-            t41_native_adr_frame(exposure);
+            t41_native_adr_frame(ev_plain64);
             t41_work_end(T41_WT_ADR, adr_start);
         }
     }
@@ -154442,7 +154454,7 @@ static void t41_tmo_workfn(struct work_struct *work)
         if (!t41_dpc_error)
             t41_dpc_gain = gain;
     }
-    T41_LS_TIME(T41_WT_TMO_FRAME, ret = t41_tmo_frame(ev, gain, sequence));
+    T41_LS_TIME(T41_WT_TMO_FRAME, ret = t41_tmo_frame(ev_plain, gain, sequence));
     t41_tmo_error = ret;
     if (ret) {
         ++t41_tmo_dropped;
@@ -154452,7 +154464,7 @@ static void t41_tmo_workfn(struct work_struct *work)
         }
     } else {
         if (!t41_tmo_frames)
-            printk(KERN_INFO "t41: frame TMO enabled ev=%u gain=%u\n", ev, gain);
+            printk(KERN_INFO "t41: frame TMO enabled ev=%u gain=%u\n", ev_plain, gain);
         ++t41_tmo_frames;
     }
 done:
@@ -168328,18 +168340,37 @@ int32_t tx_isp_enable_irq(uintptr_t a0)
 #endif
 
 /*
- * ISP interrupt enable words written when interrupts are enabled. The
- * defaults are the stock values (H20250310a isp_interrupts_enable writes
- * the same four words). Clearing a bit masks that interrupt source; a
- * write while interrupts are live takes effect at once. Use the
- * t41_isr_bits statistics to see which sources fire.
+ * ISP interrupt enable words written when interrupts are enabled.  Stock
+ * (H20250310a isp_interrupts_enable) writes all-ones for the status words
+ * 0x40028 and 0x400a8, but the hard-wired dispatch only acts on a few bits;
+ * the rest were taken as an interrupt entry each (about 14 per frame) just
+ * to be acknowledged.  The default therefore leaves enabled
+ *   0x40020: everything except bit 6 (AF statistics, no consumer),
+ *   0x400a0: bits 4 and 20 (OEM LSC/BCSH frame-down commits, irq_func_cb
+ *            36/52); the other 28 module update/done bits have no consumer,
+ *   0x400b0: stock (raw WDMA/RDMA bits 68/69 for the raw input path).
+ * t41_isr_dispatch != 0 (OEM table loop / probe) restores all-ones for
+ * both words.  Clearing a bit masks that interrupt source; a write while
+ * interrupts are live takes effect at once.  A/B on .32 (day, 25 fps):
+ * 215 -> 125 isp-m0 IRQ/s, 0 image or frame-rate change (vendor: 179).
  */
+#define T41_ISR_G0_UNUSED	BIT(6)
+#define T41_ISR_G1_NEEDED	(BIT(4) | BIT(20))
 static unsigned int t41_isr_enable[4] __attribute__((section(".data"))) = {
-	0xffffffffU,	/* 0x40020, status 0x40028 */
-	0xffffffffU,	/* 0x40060, error 0x40068 */
-	0xffffffffU,	/* 0x400a0, status 0x400a8 */
-	0x3fU,		/* 0x400b0, status 0x400b8 */
+	0xffffffffU & ~T41_ISR_G0_UNUSED,	/* 0x40020, status 0x40028 */
+	0xffffffffU,				/* 0x40060, error 0x40068 */
+	T41_ISR_G1_NEEDED,			/* 0x400a0, status 0x400a8 */
+	0x3fU,					/* 0x400b0, status 0x400b8 */
 };
+/* Effective word: the OEM-style dispatch modes need every source. */
+static inline unsigned int t41_isr_enable_word(unsigned int i)
+{
+	unsigned int v = READ_ONCE(t41_isr_enable[i]);
+
+	if (READ_ONCE(t41_isr_dispatch) && (i == 0 || i == 2))
+		v = 0xffffffffU;
+	return v;
+}
 static const unsigned int t41_isr_enable_reg[4] = {
 	0x40020, 0x40060, 0x400a0, 0x400b0,
 };
@@ -168354,7 +168385,19 @@ static int t41_isr_enable_set(const char *value, const struct kernel_param *kp)
 	if (ret || READ_ONCE(t41_isr_enable_live) != 1)
 		return ret;
 	for (i = 0; i < ARRAY_SIZE(t41_isr_enable); ++i)
-		system_reg_write(t41_isr_enable_reg[i], t41_isr_enable[i]);
+		system_reg_write(t41_isr_enable_reg[i], t41_isr_enable_word(i));
+	return 0;
+}
+
+static int t41_isr_dispatch_set(const char *value, const struct kernel_param *kp)
+{
+	unsigned int i;
+	int ret = param_set_int(value, kp);
+
+	if (ret || READ_ONCE(t41_isr_enable_live) != 1)
+		return ret;
+	for (i = 0; i < ARRAY_SIZE(t41_isr_enable); ++i)
+		system_reg_write(t41_isr_enable_reg[i], t41_isr_enable_word(i));
 	return 0;
 }
 
@@ -168376,7 +168419,7 @@ static struct kparam_array t41_isr_enable_arr = {
 };
 module_param_cb(t41_isr_enable, &t41_isr_enable_ops, &t41_isr_enable_arr, 0644);
 MODULE_PARM_DESC(t41_isr_enable,
-		 "ISP IRQ enable words 0x40020,0x40060,0x400a0,0x400b0 (default stock: all, all, all, 0x3f)");
+		 "ISP IRQ enable words 0x40020,0x40060,0x400a0,0x400b0 (default: all but AF bit 6, all, LSC/BCSH frame-down bits 4+20, 0x3f; stock is all, all, all, 0x3f)");
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000727b8 origin=fragment_seed original=isp_interrupts_enable */
 int32_t isp_interrupts_enable(uintptr_t a0)
@@ -168392,10 +168435,10 @@ int32_t isp_interrupts_enable(uintptr_t a0)
     if (!t41_kernel_data_ptr(regs))
         return -EINVAL;
 
-    writel(READ_ONCE(t41_isr_enable[0]), regs + 0x40020);
-    writel(READ_ONCE(t41_isr_enable[1]), regs + 0x40060);
-    writel(READ_ONCE(t41_isr_enable[2]), regs + 0x400a0);
-    writel(READ_ONCE(t41_isr_enable[3]), regs + 0x400b0);
+    writel(t41_isr_enable_word(0), regs + 0x40020);
+    writel(t41_isr_enable_word(1), regs + 0x40060);
+    writel(t41_isr_enable_word(2), regs + 0x400a0);
+    writel(t41_isr_enable_word(3), regs + 0x400b0);
     WRITE_ONCE(t41_isr_enable_live, 1);
 
     __private_spin_lock_irqsave(

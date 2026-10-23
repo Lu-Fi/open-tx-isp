@@ -241,6 +241,15 @@ int32_t t41_vae_calc_process(uint32_t channel)
 		t41_module_ratio_apply(0, xchg(&t41_ratio_pending, 0));
 	/* zone bank copy in process context (OEM: hist/static IRQ pair) */
 	tisp_ae_interrupt_static(channel);
+	{
+		/* EV fixed-point precision of the calibration (AE params +0x6c0):
+		 * the tone consumers need it to strip the shift again. */
+		const unsigned char *ap = (const unsigned char *)(uintptr_t)info[0];
+		unsigned int shift = ap[0x6c0] | (ap[0x6c1] << 8);
+
+		if (shift && shift <= 16)
+			WRITE_ONCE(t41_ae_ev_shift, shift);
+	}
 	faults0 = vae_faults;
 	ret = vae_tisp_ae_calc_process(channel, 0, 0, 0, (u32)(uintptr_t)argarea);
 	vae_frames++;

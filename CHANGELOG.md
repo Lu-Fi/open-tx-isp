@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24: T41 A/B fixes against the vendor stack (`claude/t41-ab-fixes`; .32 gc5603 A/B, device re-test pending)
+
+- **Tone consumers got the EV 1024x too large:** gamma, CCM, BCSH, ADR and the TMO curves compare the exposure against calibration knots in plain integration x linear gain units (gc5603 bin: gamma 50..200000, CCM/BCSH 32..102400, ADR 160..4800, TMO 20..300000; stock gets the AE event shifted by 10 and shifts it back). The tone worker passed the AE-precision value (x1024), which put them in their lowest-light bracket at any brightness: gamma strength 128 instead of 252 (day Y 103 instead of about 135: 24 % darker than the vendor stack), CCM/BCSH saturation from the dim-light bracket (28 % lower). The worker now hands them the plain EV; AWB keeps its own unit. The AE precision (params +0x6c0) is read from the calibration instead of assumed.
+- **TMO local map on MXU3 by default** (`t41_tmo_map_impl=2`, bit-exact with the C reference, falls back to C without MXU3): the per-frame tone worker was the main system-CPU difference to the vendor stack.
+- **ISP interrupt sources trimmed to what is consumed** (`t41_isr_enable`: all but AF bit 6 in 0x40020, LSC/BCSH frame-down bits 4+20 in 0x400a0; `t41_isr_dispatch != 0` restores everything): isp-m0 215 -> 125 IRQ/s on .32 (vendor 179), frame rate and tone/AWB/ADR work unchanged.
+- **Defog off by default (`t41_defog=0`):** the translated chain leaves a bright diamond at every block corner of the gc5603 day picture (18 x 10 lattice, scales with the defog strength; none with defog bypassed, none in the vendor stack). Init registers are identical on host and device and the per-block LUT is smooth, cause open.
+
 ## 2026-10-20: T31 picture fix (`claude/t31-bild`; in `next`)
 
 - **AE minimum EV step and defog tables/packing like the OEM (T31):** the AE step floor and the defog table layout/packing now follow the OEM tuning code.

@@ -138,6 +138,7 @@ static int run(int argc, char **argv)
 	if (!f) { printf("t41_dfg_host: SKIP (no tuning bin)\n"); return 0; }
 	heap = mmap(NULL, 16 << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
 	CHECK(heap != MAP_FAILED);
+	t41_defog = 1;	/* the driver default is 0 (bypass), the chain is what is tested */
 	par = hmalloc(8); par[0] = 2560; par[1] = 1440;
 	fseek(f, 0, SEEK_END); n = ftell(f); fseek(f, 0, SEEK_SET);
 	bin = hmalloc(n); CHECK(fread(bin, 1, n, f) == (size_t)n);
