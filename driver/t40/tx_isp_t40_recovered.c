@@ -1573,6 +1573,10 @@ static uintptr_t tparamsN[0x4000];
 static uint32_t tparams_day;
 static uint32_t tparams_night;
 static uint32_t tparams_status;
+/* tx_isp_t40_vct.h (included via tx_isp_t40_vawb.h at the end): OEM TOP word from the bin */
+static uint t40_ct_top_apply;
+static u32 t40_ct_top, t40_ct_top_sel;
+static u32 t40_vct_top_word(const u8 *bin, u32 sel, u32 status, u32 *reg6c);
 static uint32_t tsbin;
 static uint32_t deir_en;
 struct regtrace_sensor_ctrl_main_storage {
@@ -7465,6 +7469,19 @@ static bool t40_antiflick_pending_valid;
 static uint32_t t40_runmode_pending;             /* SetISPRunningMode (CID 0x8000071) received before the tuning context exists */
 static bool t40_runmode_pending_valid;
 static bool regtrace_t40_vendor_awb_process;   /* defined with its module_param further down */
+/* T40-VAWB: vendor AWB = mechanically translated OEM chain (tx_isp_t40_vawb.h / _gen.inc). Read at
+ * tisp_awb_main_init (stream start); 0 = the old lift (fixed seed gains unless t40_vendor_awb_process=1). */
+static bool regtrace_t40_vawb = 1;
+module_param_named(t40_vawb, regtrace_t40_vawb, bool, 0644);
+MODULE_PARM_DESC(t40_vawb, "T40 AWB: 1 = vendor AWB (OEM chain, default), 0 = old lifted path");
+static bool t40_vawb_live;   /* the translated chain owns pstMainAwbOri (set by its init) */
+static int t40_vawb_main_init(uint32_t a0, uint32_t a1);
+static void t40_vawb_cleanup(void);
+static void t40_vawb_get_statistics(uintptr_t addr);
+static int64_t t40_vawb_process(void);
+static uint32_t t40_vawb_dn_params_refresh(uint32_t a0);
+static int32_t t40_vawb_main_ev_update(uint32_t a0);
+static int32_t t40_vawb_tgain_update(uint32_t a0, uint32_t a1, uint32_t a2);
 static bool regtrace_t40_awb_spec_regs;   /* T40-AWB-SPEC-REGS: write the special-light registers 0x180xx (MT98: heap corruption with them, likely a stats DMA without a buffer) */
 module_param_named(t40_awb_spec_regs, regtrace_t40_awb_spec_regs, bool, 0644);
 static bool regtrace_t40_awb_ctd;   /* T40-AWB-CTD: run the lifted tisp_awb_ct_detect (8 KB fragment lift, heap-corruption suspect N9); off = gray-world fallback */
@@ -12141,9 +12158,22 @@ static int regtrace_blc_main_init_lit(void)
  * t40_force_bypass.
  */
 static uint32_t regtrace_tisp_main_init_last_wdr;
-static bool regtrace_t40_gates_oem_offset;
+static bool regtrace_t40_gates_oem_offset = true;
 module_param_named(t40_gates_oem_offset, regtrace_t40_gates_oem_offset, bool, 0644);
-MODULE_PARM_DESC(t40_gates_oem_offset, "1 reads the bin bypass flags at +0x00 for linear sensors like stock (default 0: always +0x20, the WDR set)");
+MODULE_PARM_DESC(t40_gates_oem_offset, "1 (default) reads the bin bypass flags at +0x00 for linear sensors like stock tisp_main_init; 0 = old profile behaviour (always +0x20, the WDR set)");
+/*
+ * AWB0 / AWB1 placement like stock (TOP bits 2 and 6 from the bin flags;
+ * stock sc830ai: AWB0 bypassed, AWB1 active, TOP 0x7FD0000D).  The pipe is
+ * BLC(0) -> LSC(1) -> AWB0(2) -> WDR(3) -> DPC(4) -> GIB(5) -> AWB1(6): with
+ * AWB0 active the GIB black level is subtracted after the white-balance
+ * gains (violet shadows) and the AWB statistics see the gained data; stock
+ * bypasses AWB0 and applies the same gains in AWB1 behind GIB
+ * (tisp_awb_set_gain writes 0x4004.. and 0x5004.., trigger 0x5000).
+ * t40_gates_awb=0 keeps the profile's bits 2/6 (old behaviour).
+ */
+static bool regtrace_t40_gates_awb = true;
+module_param_named(t40_gates_awb, regtrace_t40_gates_awb, bool, 0644);
+MODULE_PARM_DESC(t40_gates_awb, "1 (default) takes TOP bits 2 (AWB0) and 6 (AWB1) from the bin flags like stock; 0 keeps the profile bits");
 static uint regtrace_t40_gates_offset_now = 0x20U;
 /*
  * A/B aid, not stock behaviour: the OEM linear gate set bypasses BLC
@@ -12278,6 +12308,17 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
         regtrace_t40_quality_top40_final &= ~BIT(15);
     }
 
+    if (regtrace_t40_gates_awb) {
+        if (flags[2])
+            regtrace_t40_quality_top40_final |= BIT(2);
+        else
+            regtrace_t40_quality_top40_final &= ~BIT(2);
+        if (flags[6])
+            regtrace_t40_quality_top40_final |= BIT(6);
+        else
+            regtrace_t40_quality_top40_final &= ~BIT(6);
+    }
+
     /*
      * The first T40 recovery profile hard-coded these enable bits once
      * at module load.  Day/night banks carry their own bypass policy, just
@@ -12352,10 +12393,12 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
     }
 
     printk(KERN_INFO
-           "tx_isp_t40_recovered: tuning gates off=0x%x flags=0x%08x BLC=%s LSC=%s GIB=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
+           "tx_isp_t40_recovered: tuning gates off=0x%x flags=0x%08x BLC=%s LSC=%s AWB0=%s GIB=%s AWB1=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
            gate_off, packed, flags[0] ? "bypass" : "active",
            flags[1] ? "bypass" : "active",
+           (regtrace_t40_quality_top40_final & BIT(2)) ? "bypass" : "active",
            flags[5] ? "bypass" : "active",
+           (regtrace_t40_quality_top40_final & BIT(6)) ? "bypass" : "active",
            flags[15] ? "bypass" : "active",
            regtrace_enable_soft_gamma ? 1U : 0U,
            regtrace_enable_ccm ? 1U : 0U,
@@ -16185,6 +16228,17 @@ static int regtrace_isp_block_init_once(const char *where)
      * initializer above has completed, then make later scalar replays retain
      * that final value.
      */
+    /* OEM TOP word from the bin (tisp_main_init 0x1da5c..0x1dae8, tx_isp_t40_vct.h); readable as
+     * t40_ct_top, committed instead of the profile value with t40_ct_top_apply=1 */
+    if (nbuf) {
+        t40_ct_top_sel = *(uint32_t *)(tisp_par_info + 0x74);
+        t40_ct_top = t40_vct_top_word((const uint8_t *)(uintptr_t)nbuf, t40_ct_top_sel, tparams_status, NULL);
+        if (t40_ct_top_apply) {
+            printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init top40 OEM word 0x%08x (sel=%u status=0x%x) replaces 0x%08x\n",
+                   t40_ct_top, t40_ct_top_sel, tparams_status, regtrace_t40_quality_top40_final);
+            regtrace_t40_quality_top40_final = t40_ct_top;
+        }
+    }
     if (regtrace_t40_quality_top40_final !=
         regtrace_tisp_main_init_top40_value) {
         int top_ret = system_reg_write(0x40U,
@@ -19353,7 +19407,9 @@ static int regtrace_tisp_main_init_dma_regs(void)
     subret = regtrace_core_write(0x18040, p + 0x08000); if (subret && !ret) ret = subret;
     subret = regtrace_core_write(0x18044, p + 0x10000); if (subret && !ret) ret = subret;
     subret = regtrace_core_write(0x18048, p + 0x18000); if (subret && !ret) ret = subret;
-    subret = regtrace_core_write(0x1804c, 3); if (subret && !ret) ret = subret;
+    /* OEM writes 3 before tisp_awb_main_init; set_hardware_param then adds the stats-type enables
+     * (vendor 0x03010103).  When this re-runs after the vendor AWB init keep those bits. */
+    subret = regtrace_core_write(0x1804c, READ_ONCE(t40_vawb_live) ? ((uint32_t)system_reg_read(0x1804c) | 3U) : 3U); if (subret && !ret) ret = subret;
     regtrace_tisp_main_init_dma_last_mask |= 1U << 1;
 
     p = regtrace_tisp_dma_hw_addr(2, 0);
@@ -23545,7 +23601,7 @@ static int regtrace_t40_tuning_set_running_mode(uint32_t mode)
         ret = regtrace_t40_refresh_daynight_pipeline();
     }
 
-    if (!mode) {
+    if (!mode && (!READ_ONCE(t40_vawb_live) || READ_ONCE(regtrace_awb_control_mode) == 1U)) {   /* vendor AWB sets the gains itself */
         uint32_t rgain = regtrace_day_awb_rgain;
         uint32_t bgain = regtrace_day_awb_bgain;
 
@@ -95605,6 +95661,16 @@ static void *regtrace_awb_main_inter_alloc(void)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000311b4 origin=fragment_seed original=tisp_awb_main_init */
 int32_t tisp_awb_main_init(uint32_t a0, uint32_t a1)
 {
+    if (regtrace_t40_vawb) {
+        int vret = t40_vawb_main_init(a0, a1);
+
+        WRITE_ONCE(t40_vawb_live, vret == 0);
+        if (!vret)
+            return 0;
+        printk(KERN_WARNING "tx_isp_t40_recovered: vendor AWB init failed (%d), old path\n", vret);
+    } else {
+        WRITE_ONCE(t40_vawb_live, false);
+    }
     /* OEM anchors the AWB pointer table at pstMainAwbOri (.bss+0x3f34), not isp_memopt */
     uint32_t *ctx = pstMainAwbOri;
     void *inter;
@@ -96340,7 +96406,7 @@ int32_t tisp_awb_main_interrupt_static(void)
     }
     addr = *(uint32_t *)(tispinfo + 36);
 
-    if (regtrace_enable_awb_grayworld) {
+    if (regtrace_enable_awb_grayworld && !READ_ONCE(t40_vawb_live)) {
         regtrace_awb_grayworld_irqs++;
         if (!READ_ONCE(regtrace_running_mode) &&
             (regtrace_awb_grayworld_interval == 0 ||
@@ -96356,7 +96422,10 @@ int32_t tisp_awb_main_interrupt_static(void)
         addr += bank * size;
         ((void (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)
             private_dma_cache_sync)(0, addr, size, 0);
-        (void)tisp_awb_get_statistics(addr, (uintptr_t)pstMainAwbOri);
+        if (READ_ONCE(t40_vawb_live))
+            t40_vawb_get_statistics(addr);
+        else
+            (void)tisp_awb_get_statistics(addr, (uintptr_t)pstMainAwbOri);
         {   /* T40-AWB-STATDIAG: raw HW stats words and the algorithm inputs ctx[5] (=a0+20) / ctx[4] (=a0+16) for the first IRQs */
             static unsigned int nsd;
             if (nsd++ < 6 && regtrace_t40_vendor_awb_process) {
@@ -96876,6 +96945,12 @@ static uint32_t regtrace_t40_vendor_awb_process_skipped;
 module_param_named(t40_vendor_awb_process_skipped, regtrace_t40_vendor_awb_process_skipped, uint, 0444);
 int64_t tisp_awb_main_process(void)
 {
+    if (READ_ONCE(t40_vawb_live)) {
+        /* manual WB / frozen (IMPISPWBAttr): keep the gains the control plane wrote */
+        if (READ_ONCE(regtrace_awb_control_mode) == 1U || READ_ONCE(regtrace_awb_control_frozen))
+            return 0;
+        return t40_vawb_process();
+    }
     regtrace_t40_awb_step = 99;   /* T40-AWB-STEP: entered */
     if (!regtrace_t40_vendor_awb_process) {
         regtrace_t40_vendor_awb_process_skipped++;
@@ -97403,6 +97478,8 @@ tisp_awb_param_array_set0x90:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034040 origin=fragment_seed original=tisp_awb_dn_params_refresh */
 uint32_t tisp_awb_dn_params_refresh(uint32_t a0)
 {
+    if (READ_ONCE(t40_vawb_live))
+        return t40_vawb_dn_params_refresh(a0);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -97485,6 +97562,8 @@ tisp_awb_dn_params_refresh0xb4:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034108 origin=fragment_seed original=tisp_awb_tgain_update */
 int32_t tisp_awb_tgain_update(uint32_t a0, uint32_t a1, uint32_t a2)
 {
+    if (READ_ONCE(t40_vawb_live))
+        return t40_vawb_tgain_update(a0, a1, a2);
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -98123,6 +98202,8 @@ void* tisp_awb_main_sel_en(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034aac origin=fragment_seed original=tisp_awb_main_ev_update */
 int32_t tisp_awb_main_ev_update(uint32_t a0)
 {
+    if (READ_ONCE(t40_vawb_live))
+        return t40_vawb_main_ev_update(a0);
     /* Hand translation of OEM 0x354cc: *(pstMainAwbOri[116]) = ev >> 10; tisp_awb_ev_update_Ywgt(&pstMainAwbOri);
      * tail call tisp_awb_set_lum_th_freq(&pstMainAwbOri, 0).  The lift wrote through video_input_cmd_buf+0x50 and
      * passed &isp_memopt (MT65 Oops at +0x3c once event 8 ran). */
@@ -187212,7 +187293,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
             cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
             cancel_work_sync(&regtrace_isp_block_init_work);
             break;
-        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); break;
+        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); t40_vawb_cleanup(); break;
         case 4: regtrace_dmsc_lit_cleanup(); break;
         case 5: regtrace_lsc_lit_cleanup(); break;
         case 6: regtrace_tisp_main_init_param_free(); tisp_disable_tuning(); break;
@@ -187541,6 +187622,8 @@ EXPORT_SYMBOL(private_msleep);
 EXPORT_SYMBOL(private_capable);
 EXPORT_SYMBOL(isp_printf);
 #endif
+
+#include "tx_isp_t40_vawb.h"
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("tx isp driver");

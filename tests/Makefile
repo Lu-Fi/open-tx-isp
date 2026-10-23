@@ -3,7 +3,7 @@ CC ?= cc
 CFLAGS ?= -O2
 CFLAGS += -std=c99 -Wall -Wextra -Werror
 
-.PHONY: all check clean t30_storage_audit
+.PHONY: all check clean t30_storage_audit t40_vct_host
 
 # Every host test binary.  A new test is registered with "TESTS += name"
 # (plus its build rule); `check` builds and runs all of them, keeps going
@@ -12,7 +12,7 @@ CFLAGS += -std=c99 -Wall -Wextra -Werror
 # so a test cannot be added and then silently never run.
 TESTS :=
 # Further check steps, run as "$(MAKE) <target>" after the binaries.
-CHECK_TARGETS := t30_storage_audit
+CHECK_TARGETS := t30_storage_audit t40_vct_host
 # Sources that only run on the camera (not built on the host).
 TARGET_TESTS := $(basename $(wildcard t41_v4l2_*_test.c)) t41_antiflicker_ioctl_test
 TEST_TIMEOUT ?= 600
@@ -471,6 +471,10 @@ check:
 
 t30_storage_audit:
 	../driver/t30/check_storage.sh
+
+# translated OEM colour chains (needs T40_TUNING_BIN + T40_OEM_DATA, else SKIP)
+t40_vct_host:
+	./t40_vct_host.sh
 
 clean:
 	$(RM) $(TESTS)
