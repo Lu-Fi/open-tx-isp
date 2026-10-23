@@ -57570,7 +57570,14 @@ tx_isp_sensor_release_sensor0xb8:
 int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
 {
     int __maybe_unused __fr = regtrace_fr_mark(0x0a, (uint32_t)arg2);
-    int32_t *var_28;
+    /* T40-STACK-FRAMES: the OEM slot sp+0x28 holds the WHOLE 8-byte initarg
+     * {enable, vinum} copied from user space; as a lone 4-byte scalar the
+     * copy spilled into the next stack slot (today's layout: unused padding,
+     * but tx_isp_core_ops_s_ctrl's identical pattern hit a saved register).
+     * The error unwind clears the OEM enable word (`var_28 = 0` on the OEM
+     * stack), not *(int32_t *)enable. */
+    uint32_t __sframe[2];
+#define var_28 (*(int32_t **)__sframe)
     int32_t *s3 = (int32_t *)((char *)arg1 + 0x3c);
     int32_t *result;
     int32_t *i;
@@ -57604,7 +57611,7 @@ int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
                     if (result != 0 && result != 0xfffffdfd) {
                         isp_printf(2, "[%s %d] s_stream error\n", LC6);
                         j = (char *)arg1 + ((uintptr_t)i << 2);
-                        var_28[0] = 0;
+                        __sframe[0] = 0;   /* OEM: initarg.enable = 0 for the unwind */
                         
                         while (arg1 != j) {
                             j = (char *)j - 4;
@@ -57634,6 +57641,7 @@ int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
     }
 
     return 0;
+#undef var_28
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000117dc origin=fragment_seed original=tx_isp_video_link_stream */
