@@ -3683,6 +3683,20 @@ static const char LC168[] = "ISP[0]==>>frame_interival:%ld, valid:%ld, vb:%ld\n"
 static const char LC169[] = "This ISP[0] Don't Wrok\n";
 static const char LC170[] = "ISP[0]==>>vb measure error\n";
 static int32_t irq_func_cb[96];
+/* OEM-style ISR dispatch: every status bit -> irq_func_cb[group*32+bit]
+ * (group 0 = 0x40028, 1 = 0x400a8, 2 = 0x400b8), as the vendor ISR loop
+ * (mbus_to_bayer_write+0x5f4: for i in 0..95).  0 = hard-wired legacy
+ * dispatch (only [5], [8], [17]); 1 = generic loop.  t41_isr_dispatch_skip
+ * lists indices (bit n of the 32-bit words skip[0..2]) that the native
+ * replacements already handle (default: 3 AWB main, 9 ADR). */
+static int t41_isr_dispatch;
+module_param(t41_isr_dispatch, int, 0644);
+MODULE_PARM_DESC(t41_isr_dispatch, "ISP IRQ dispatch: 0 hard-wired, 1 OEM-style table loop, 2 count-only probe");
+static unsigned int t41_isr_dispatch_skip[3] = { (1u << 3) | (1u << 9), 1u << (61 - 32), 0 };
+module_param_array(t41_isr_dispatch_skip, uint, NULL, 0644);
+static unsigned int t41_isr_counts[96];
+module_param_array(t41_isr_counts, uint, NULL, 0444);
+MODULE_PARM_DESC(t41_isr_counts, "per-index irq_func_cb dispatch counters");
 static const char LC171[] = "[%s %d] Enter the resume ... \n";
 static const char LC172[] = "[%s %d] [ %s:%d ] Failed to resume %s\n";
 static const char LC173[] = "[%s %d] Enter the suspend ... \n";
@@ -4903,6 +4917,8 @@ int32_t tx_isp_video_link_destroy_isra_3(uintptr_t a0, uint32_t a1) __asm__("tx_
 int32_t tx_isp_video_link_destroy_isra_3(uintptr_t a0, uint32_t a1);
 int32_t tx_isp_release(uint32_t a0, uintptr_t a1);
 int32_t tx_isp_init(void);
+int t41_rawinject_init(void);
+void t41_rawinject_exit(void);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t tx_isp_driver_version_isra_12(uint32_t a0) __asm__("tx_isp_driver_version.isra.12");
 #endif
@@ -36241,9 +36257,23 @@ int32_t tx_isp_exit(void)
     if (t41_bringup() < 0)
         return 0;
 
+    t41_rawinject_exit();
     private_platform_driver_unregister(&tx_isp_driver);
     private_platform_device_unregister(&tx_isp_platform_device);
     return 0;
+}
+
+/* RAW inject (tx_isp_t41_rawinject.c): accessor for the static sensor
+ * parameter block (width = [0], height = [1]). */
+uint32_t t41_rawinject_par(unsigned int idx)
+{
+    return ((uint32_t *)(void *)tisp_par_info_storage)[idx];
+}
+
+/* RAW inject: OEM raw-DMA state block (NULL until tisp_raw_init ran). */
+uint32_t t41_rawinject_rpars(void)
+{
+    return rpars;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000013aa4 origin=fragment_seed original=subdev_video_destroy_link */
@@ -36603,7 +36633,7 @@ tx_isp_init0x6c:
 
     /* fragment 8: Branch */
     s0 = v0;
-    if (v0 == 0) { goto tx_isp_init0x54; }
+    if (v0 == 0) { t41_rawinject_init(); goto tx_isp_init0x54; }
 
     /* fragment 9: CallSetup */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_platform_device_unregister)(&tx_isp_platform_device); /* jalr target resolved by relocation */
@@ -58055,6 +58085,15 @@ int32_t tisp_ae_ai_interrupt_static(uint32_t a0)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
+    /* The recovered relocation names ivdc_threshold_line, which is a plain
+     * int (0) in this build: the OEM chain *(*(sym + ch*4) + 4) then
+     * dereferences address 4 in hard IRQ (device reset with
+     * t41_isr_dispatch=1, .34 2026-10-19).  Until the real target table is
+     * resolved this callback is a guarded no-op; index 61 is also in the
+     * default dispatch skip mask. */
+    if (a0 >= 2 || !t41_kernel_data_ptr((void *)(uintptr_t)
+            *(uint32_t *)((char *)&ivdc_threshold_line + (a0 << 2))))
+        return 0;
     s1 = (a0 << 2) + (uintptr_t)&ivdc_threshold_line;
     s2 = 65536;
     s3 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 0)) + 4);
@@ -156019,6 +156058,8 @@ int32_t tisp_raw_wdma_fd_interrupt(void)
 
     /* fragment 1: MemoryAccess */
     v1 = *(uint32_t *)((char *)((char *)&rpars));
+    if (!v1)    /* no RAW DMA session: OEM derefs NULL here */
+        return 1;
     a0 = 1;
     a1 = *(uint32_t *)((char *)v1 + 12);
 
@@ -171457,7 +171498,31 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             WRITE_ONCE(t41_ae_zones[0].sequence,
                 READ_ONCE(t41_ae_zones[0].sequence) + 1);
 
-        if ((status0 & BIT(5)) &&
+        if (t41_isr_dispatch) {
+            uint32_t words[3] = { status0, status2, status3 };
+            int i;
+
+            for (i = 0; i < 96; i++) {
+                int32_t dcb;
+
+                if (!(words[i >> 5] & (1u << (i & 31))))
+                    continue;
+                if (t41_isr_dispatch_skip[i >> 5] & (1u << (i & 31)))
+                    continue;
+                dcb = READ_ONCE(irq_func_cb[i]);
+                if (!dcb || !t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)dcb))
+                    continue;
+                t41_isr_counts[i]++;
+                if (t41_isr_dispatch == 2)
+                    continue;   /* probe: count status bits, call nothing */
+                if (t41_isr_counts[i] <= 2)
+                    printk(KERN_WARNING "t41: ISR dispatch idx=%d cb=%#x\n",
+                           i, (uint32_t)dcb);
+                ((int32_t (*)(uint32_t))(uintptr_t)(uint32_t)dcb)(0);
+            }
+        }
+
+        if (t41_isr_dispatch != 1 && (status0 & BIT(5)) &&
             (t41_safe_ae_controller > 0 || t41_vendor_ae > 0)) {
             t41_heapwatch_mark("isr:aehist");
             int32_t callback = READ_ONCE(irq_func_cb[5]);
@@ -171485,7 +171550,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             }
             spin_unlock(&t41_tmo_state_lock);
         }
-        if ((status0 & BIT(17)) && t41_safe_tmo_irq_stats < 0) {
+        if (t41_isr_dispatch != 1 && (status0 & BIT(17)) && t41_safe_tmo_irq_stats < 0) {
             int32_t callback = READ_ONCE(irq_func_cb[17]);
             t41_isr_counts[17]++;
             int32_t callback_ret = -ENODEV;
@@ -171500,7 +171565,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                        (uint32_t)callback, callback_ret);
         }
 
-        if ((status0 & BIT(8)) && t41_stock_lce_ram_profile <= 0) {
+        if (t41_isr_dispatch != 1 && (status0 & BIT(8)) && t41_stock_lce_ram_profile <= 0) {
             int32_t callback = READ_ONCE(irq_func_cb[8]);
             t41_isr_counts[8]++;
             int64_t callback_ret = -ENODEV;
