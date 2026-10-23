@@ -23445,6 +23445,90 @@ static void t41_dn_apply_top(uint32_t mode)
 	t41_dn_top_last = word;
 }
 
+/*
+ * Parameter-bank switch of tisp_day_or_night_event (event 18).  Stock copies
+ * the selected bank (day/night) into the live tparamsP image, keeps the three
+ * runtime bytes at +0x7fb2..+0x7fb4 and then runs every module's
+ * *_dn_params_refresh.  The event callback stays suppressed (packed
+ * workspaces), so the same flow runs here from a work item with the open
+ * module paths: CCM/BCSH/gamma/NR/YSP/LSC/ADR/DMSC/DPC/LCE/TMO re-read their
+ * tables from the new bank.  Bit n of t41_dn_bank enables step n.
+ */
+static int t41_dn_bank = 0x3ffff;
+module_param(t41_dn_bank, int, 0644);
+MODULE_PARM_DESC(t41_dn_bank, "night/day parameter bank switch steps (bit0 copy, 1 awb, 2 lsc, 3 adr, 4 dmsc, 5 gamma, 6 ccm, 7 bcsh, 8 clm, 9 ysp, 10 mdns, 11 ydns, 12 cdns, 13 sdns, 14 lce, 15 dpc, 16 tmo, 17 blc); 0 = off");
+static unsigned int t41_clm;
+static void t41_clm_frame(unsigned int ct);
+static unsigned int t41_dn_bank_mode;
+static unsigned int t41_dn_bank_count;
+static int t41_dn_bank_ret;
+module_param(t41_dn_bank_count, uint, 0444);
+module_param(t41_dn_bank_ret, int, 0444);
+
+static void t41_dn_bank_workfn(struct work_struct *work);
+static DECLARE_WORK(t41_dn_bank_work, t41_dn_bank_workfn);
+
+static void t41_dn_bank_workfn(struct work_struct *work)
+{
+	uint32_t mode = READ_ONCE(t41_dn_bank_mode) & 1;
+	uint32_t gain = READ_ONCE(t41_safe_ae_gain_q16);
+	uint32_t integration = READ_ONCE(t41_safe_ae_integration);
+	uint32_t m = (uint32_t)READ_ONCE(t41_dn_bank);
+	uint32_t ct = READ_ONCE(t41_ccm_ct);
+	uint64_t ev = 0;
+	uint8_t *dst, keep[3];
+	uintptr_t bank;
+	int ret = 0, r;
+	(void)work;
+
+	if (!m || !t41_kernel_data_ptr((void *)(uintptr_t)tparamsP) ||
+	    !t41_kernel_data_ptr((void *)(uintptr_t)tparams_day) ||
+	    !t41_kernel_data_ptr((void *)(uintptr_t)tparams_night))
+		return;
+	if (gain <= (16U << 16) && integration != UINT_MAX)
+		ev = (uint64_t)integration * tisp_math_exp2(gain, 16, 10) >> 10;
+	ev = min_t(uint64_t, ev, UINT_MAX);
+	bank = mode ? tparams_night : tparams_day;
+
+	mutex_lock(&t41_tmo_map_lock);
+	if (m & BIT(0)) {
+		dst = (uint8_t *)(uintptr_t)tparamsP + 65536 + 32690;
+		memcpy(keep, dst, sizeof(keep));
+		ret = tisp_params_copy(0, bank, global_wdr_en, 0,
+				       ((unsigned char *)&dnw)[mode ? 3 : 1]);
+		memcpy(dst, keep, sizeof(keep));
+		if (ret > 0)	/* stock copy returns a positive count */
+			ret = 0;
+	}
+	t41_gamma_base_valid = false;
+#define T41_DN_STEP(bit, call) do { if (m & BIT(bit)) { r = (call); if (r && !ret) ret = r; } } while (0)
+	T41_DN_STEP(1, tisp_awb_dn_params_refresh(0));
+	T41_DN_STEP(2, tisp_lsc_dn_params_refresh(0));
+	T41_DN_STEP(3, tisp_adr_dn_params_refresh(0, mode));
+	T41_DN_STEP(4, tisp_dmsc_dn_params_refresh(0));
+	T41_DN_STEP(5, tisp_gamma_dn_params_refresh(0, mode));
+	T41_DN_STEP(6, t41_ccm_update(ct, ev, 1));
+	T41_DN_STEP(7, t41_apply_calibrated_bcsh(READ_ONCE(t41_bcsh_color_model)));
+	if ((m & BIT(8)) && t41_clm)
+		t41_clm_frame(ct);
+	T41_DN_STEP(9, tisp_ysp_dn_params_refresh(0));
+	if (t41_mdns_buf_info[0].paddr)
+		T41_DN_STEP(10, tisp_mdns_dn_params_refresh(0, mode));
+	T41_DN_STEP(11, tisp_ydns_dn_params_refresh(0));
+	T41_DN_STEP(12, tisp_cdns_dn_params_refresh(0));
+	T41_DN_STEP(13, tisp_sdns_dn_params_refresh(0));
+	T41_DN_STEP(14, tisp_lce_dn_params_refresh(0));
+	T41_DN_STEP(15, tisp_dpc_dn_params_refresh(0, mode));
+	T41_DN_STEP(17, tisp_blc_dn_params_refresh(0));
+	mutex_unlock(&t41_tmo_map_lock);
+	T41_DN_STEP(16, t41_tmo_refresh(0, NULL));
+#undef T41_DN_STEP
+	t41_dn_bank_ret = ret;
+	t41_dn_bank_count++;
+	printk(KERN_WARNING "t41: dn bank %s applied mask=%#x ret=%d ev=%llu\n",
+	       mode ? "night" : "day", m, ret, (unsigned long long)ev);
+}
+
 static void t41_apply_pending_day_night(char *core)
 {
     struct t41_daynight_context context;
@@ -23473,8 +23557,12 @@ static void t41_apply_pending_day_night(char *core)
     runtime.notify_result = &notify_ret;
 
     ret = tx_isp_daynight_apply(&runtime);
-    if (ret == TX_ISP_DAYNIGHT_SWITCH)
+    if (ret == TX_ISP_DAYNIGHT_SWITCH) {
         t41_dn_apply_top(mode);
+        WRITE_ONCE(t41_dn_bank_mode, mode);
+        if (READ_ONCE(t41_dn_bank))
+            schedule_work(&t41_dn_bank_work);
+    }
     if (ret == TX_ISP_DAYNIGHT_SWITCH)
         printk(KERN_WARNING
                "t41: applied running-mode=%u csc=%#x "
@@ -154316,6 +154404,7 @@ static void t41_tmo_stream_stop(void)
     t41_tmo_state.live = -1;
     spin_unlock_irqrestore(&t41_tmo_state_lock, flags);
     cancel_work_sync(&t41_tmo_work);
+    cancel_work_sync(&t41_dn_bank_work);
 }
 
 static void t41_tmo_stream_start(void)
@@ -172232,6 +172321,7 @@ void cleanup_module(void)
 	t41_tmo_map_ws = NULL;
 	vfree(t41_tmo_mxu3_ws);
 	t41_tmo_mxu3_ws = NULL;
+	cancel_work_sync(&t41_dn_bank_work);
 	t41_heapwatch_step("exit:works");
 	t41_heapwatch_stop();
 }
