@@ -9806,6 +9806,24 @@ module_param_named(t40_msca_work_cfg_override, regtrace_t40_msca_work_cfg_overri
 module_param_named(t40_msca_work_en_dma_mask, regtrace_t40_msca_work_en_dma_mask, uint, 0644);
 module_param_named(t40_msca_cfg_1602c_value, regtrace_t40_msca_cfg_1602c_value, uint, 0644);
 module_param_named(t40_msca_coeff_override, regtrace_t40_msca_coeff_override, uint, 0644);
+/* T40-CH1-KNOBS (device-test switches, defaults = current behaviour):
+ * t40_msca_oem_coeffs=1   the bring-up profile no longer forces the late
+ *                         coefficient rewrite (0x40080 for every downscale);
+ *                         the coefficients stay as Tzn_Msca_cfg_load wrote them.
+ * t40_msca_oem_1602c=1    the shadow program and the MSCA attr path no longer
+ *                         overwrite 0x1602c with the fixed t40_msca_cfg_1602c_value
+ *                         (0x7400: clears the per-channel flags bits 0-2/4-6,
+ *                         sets "ch2 >= 641"); cfg_load's computed value stays.
+ * t40_msca_ch1_kick=1     ch1 stream-on with ch0 not enabled issues the 0x834
+ *                         shadow kick and the line kick (experimental: no OEM
+ *                         evidence that the OEM kicks differently for ch1-only).
+ * msca_kick834_count/_last_value (read-only) count every 0x834/line kick. */
+static bool regtrace_t40_msca_oem_coeffs;
+module_param_named(t40_msca_oem_coeffs, regtrace_t40_msca_oem_coeffs, bool, 0644);
+static bool regtrace_t40_msca_oem_1602c;
+module_param_named(t40_msca_oem_1602c, regtrace_t40_msca_oem_1602c, bool, 0644);
+static bool regtrace_t40_msca_ch1_kick;
+module_param_named(t40_msca_ch1_kick, regtrace_t40_msca_ch1_kick, bool, 0644);
 module_param_named(t40_profile_no_direct_addr_source, regtrace_t40_profile_no_direct_addr_source, uint, 0644);
 module_param_named(t40_msca_fifo_ch0_y_ctrl, regtrace_t40_msca_fifo_ch0_y_ctrl, uint, 0644);
 module_param_named(t40_msca_fifo_ch0_uv_ctrl, regtrace_t40_msca_fifo_ch0_uv_ctrl, uint, 0644);
@@ -17024,6 +17042,8 @@ static long regtrace_t40_msca_shadow_fifo_last_ret;
 static uint32_t regtrace_t40_msca_shadow_kick_834_count;
 static uint32_t regtrace_t40_msca_shadow_kick_834_last_reg;
 static uint32_t regtrace_t40_msca_shadow_kick_834_last_value;
+module_param_named(msca_kick834_count, regtrace_t40_msca_shadow_kick_834_count, uint, 0444);
+module_param_named(msca_kick834_last_value, regtrace_t40_msca_shadow_kick_834_last_value, uint, 0444);
 static uint32_t regtrace_t40_msca_shadow_kick_834_last_before;
 static uint32_t regtrace_t40_msca_shadow_kick_834_last_after;
 static long regtrace_t40_msca_shadow_kick_834_last_ret;
@@ -20314,10 +20334,12 @@ static int regtrace_t40_msca_shadow_fifo_program(int trigger_channel,
                                         &pairs);
     if (ret)
         goto out;
-    ret = regtrace_t40_msca_shadow_pair(regtrace_t40_msca_cfg_1602c_value,
-                                        0x1602cU, &pairs);
-    if (ret)
-        goto out;
+    if (!regtrace_t40_msca_oem_1602c) {
+        ret = regtrace_t40_msca_shadow_pair(regtrace_t40_msca_cfg_1602c_value,
+                                            0x1602cU, &pairs);
+        if (ret)
+            goto out;
+    }
 
     for (ch = 0; ch < 3; ch++) {
         regtrace_get_framechan_format((int)ch, &format);
@@ -21468,7 +21490,8 @@ static int regtrace_t40_msca_cfg_program(int trigger_channel,
     ret = regtrace_core_write(REGTRACE_T40_MSCA_WORK_CFG_REG, scale_bits);
     if (ret)
         goto out;
-    ret = regtrace_core_write(0x1602c, regtrace_t40_msca_cfg_1602c_value);
+    ret = regtrace_t40_msca_oem_1602c ? 0 :
+          regtrace_core_write(0x1602c, regtrace_t40_msca_cfg_1602c_value);
     if (ret)
         goto out;
     ret = regtrace_core_write(0x16064, 0);
@@ -21890,6 +21913,12 @@ static int regtrace_core_channel_stream(int channel, int enable)
             ret = regtrace_t40_msca_cfg_program(channel, "stream");
         if (!ret)
             ret = regtrace_msca_cfg_load_pulse(channel, "stream");
+    }
+    if (!ret && regtrace_t40_msca_ch1_kick && channel == 1 &&
+        !(regtrace_msca_ch_en & 1U)) {
+        ret = regtrace_t40_msca_shadow_kick_834("ch1-only stream");
+        if (!ret)
+            ret = regtrace_t40_msca_shadow_kick_line("ch1-only stream");
     }
     if (!ret && regtrace_t40_msca_fifo_ctrl_on_set_fmt) {
         ret = regtrace_t40_msca_program_fifo_ctrl(0, (uint32_t)channel);
@@ -186875,7 +186904,7 @@ static void regtrace_apply_t40_bringup_profile(void)
     regtrace_enable_t40_msca_shadow_kick_834 = true;
     regtrace_t40_msca_shadow_write_load_mask = true;
     regtrace_t40_msca_rewrite_full_size_late = true;
-    regtrace_t40_msca_rewrite_coeffs_late = true;
+    regtrace_t40_msca_rewrite_coeffs_late = !regtrace_t40_msca_oem_coeffs;
     regtrace_t40_msca_coeff_override = 0x40080;
     regtrace_t40_msca_fifo_ctrl_on_set_fmt = true;
     regtrace_t40_msca_fifo_addr_tag_write = true;
