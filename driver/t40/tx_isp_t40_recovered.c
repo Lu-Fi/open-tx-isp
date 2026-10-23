@@ -46493,7 +46493,20 @@ static int t40_az_get(uint32_t vinum, void __user *uptr)
 int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
 {
     int *v1 = *arg3;
-    char *var_88;
+    /*
+     * T40-STACK-FRAMES (s_ctrl): the OEM slot sp+0x88 is the start of a WHOLE
+     * user struct - every copy_from_user(&var_88, ..., N) below copies up to
+     * 0x5c bytes (N = 1..0x5c) into it.  As a lone 4-byte scalar the compiler
+     * placed it right below the callee-saved registers, so the antiflicker
+     * SET (CID 0x8000026, 8 bytes {mode, freq}) overwrote the saved s0 with
+     * freq: the caller (isp-m0 tuning ioctl) got s0 = 60 back and oopsed at
+     * BadVA 0x4890 (timps start on the Eufy T40XP, 2026-10-24).  Back the
+     * slot with a 0x60-byte frame; var_88 keeps its OEM type so every
+     * existing &var_88 / *(int *)&var_88 use stays unchanged; the OEM
+     * var_84 word (the struct's second member) is __sframe[1].
+     */
+    uint32_t __sframe[0x18];
+#define var_88 (*(char **)__sframe)
     const char *a2_2;
     int *s1_1;
     int *var_2c;
@@ -46837,7 +46850,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
 
         if ((uintptr_t)s3_2 != *(char **)((char *)*(int **)((char **)arg2 + 0x10c / sizeof(uintptr_t)) + (int)arg1 * 0x60 + 0x180)) {
             *(int *)&var_88 = (int)arg1;
-            char *var_84_1 = s3_2;
+            __sframe[1] = (uint32_t)(uintptr_t)s3_2;   /* OEM var_84: the fps word the sensor ioctl reads at +4 */
 
             if (a0_25 == 0) {
                 s1_1 = -2;
@@ -46878,7 +46891,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
         if ((unsigned int)v1 < 0x8000072) {
             void *s4_2 = *(void **)((char **)arg2 + 0x10c / sizeof(void *));
             *(int *)&var_88 = 0;
-            int var_84_2 = 0;
+            __sframe[1] = 0;   /* OEM var_84 */
             s1_1 = copy_from_user(&var_2c, (void __user *)arg3[1], 4);
 
             if (s1_1 != 0) {
@@ -47051,6 +47064,7 @@ label_b280:
 label_b8bc:
     isp_printf(1, "Failed to set sensor fps=%u, ret=%d\n", (unsigned int)(long)s3_2);
     return s1_1;
+#undef var_88
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000bf14 origin=fragment_seed original=tx_isp_core_ops_g_ctrl */
