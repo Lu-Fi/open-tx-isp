@@ -171334,8 +171334,35 @@ int32_t mbus_to_bayer_write(uint32_t mbus_code)
 	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000074494 origin=fragment_seed original=ispcore_interrupt_service_routine */
+#ifdef TX_ISP_LOAD_STATS
+/* ISR run time (whole handler incl. nested dispatch), microseconds. */
+static unsigned long long t41_isr_us __attribute__((section(".data")));
+static unsigned long long t41_isr_max_us __attribute__((section(".data")));
+module_param(t41_isr_us, ullong, 0444);
+module_param(t41_isr_max_us, ullong, 0444);
+static int64_t t41_isr_body(uintptr_t a0);
 int64_t ispcore_interrupt_service_routine(uintptr_t a0)
+{
+	u64 t0 = t41_work_begin();
+	int64_t ret = t41_isr_body(a0);
+
+	if (t0) {
+		u64 us = ktime_get_ns() - t0;
+
+		do_div(us, 1000);
+		t41_isr_us += us;
+		if (us > t41_isr_max_us)
+			t41_isr_max_us = us;
+	}
+	return ret;
+}
+#endif
+/* WHOLE_DRIVER_CANDIDATE fn_0000000000074494 origin=fragment_seed original=ispcore_interrupt_service_routine */
+#ifdef TX_ISP_LOAD_STATS
+static int64_t t41_isr_body(uintptr_t a0)
+#else
+int64_t ispcore_interrupt_service_routine(uintptr_t a0)
+#endif
 {
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
