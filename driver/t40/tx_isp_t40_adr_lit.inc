@@ -9930,8 +9930,15 @@ static int regtrace_adr_drc_ratio_lit(void)
 
 static int regtrace_adr_main_init_lit(uint32_t width, uint32_t height)
 {
-    int ret = (int)tisp_adr_main_init_lit(width, height, 0, 0,
-                                          ADRLIT_SP(adrlit_stack_init), NULL, 0);
+    int ret;
+
+    /* OEM: tisp_deinit -> tisp_adr_main_deinit at every session end (ispcore_core_ops_init(0)).
+     * The open driver re-inits per session without it: ~30 ADR vmalloc areas (~300 KB) leaked per
+     * streamer restart.  Tear the previous session's ADR state down first. */
+    if (regtrace_t40_adr_lit_active)
+        regtrace_adr_lit_cleanup();
+    ret = (int)tisp_adr_main_init_lit(width, height, 0, 0,
+                                      ADRLIT_SP(adrlit_stack_init), NULL, 0);
 
     regtrace_adr_lit_init_ret = ret;
     regtrace_t40_adr_lit_active = !ret;

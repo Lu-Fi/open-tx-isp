@@ -6971,7 +6971,7 @@ int32_t private_complete(uintptr_t a0);
 int private_wait_for_completion_interruptible(uintptr_t a0);
 int32_t private_wait_for_completion_timeout(uintptr_t a0, unsigned long timeout);
 int32_t private_wait_event_interruptible(int32_t arg1, int32_t arg2, int32_t arg3);
-int32_t private_wake_up_all(void);
+int32_t private_wake_up_all(void *wq);
 int32_t private_wake_up(void);
 int32_t private_init_waitqueue_head(void);
 int32_t private_misc_register(void);
@@ -7485,6 +7485,97 @@ static u32 t40_wdr_out_mode[2];  /* SetWdrOutputMode shadow (linear sensor: flag
  * ~700 bytes of new statics in .bss delivered no frames at all).  State added after the lift lives in its own
  * section, outside .bss/.data. */
 #define T40C2 __attribute__((section(".t40c2")))
+
+/*
+ * vmalloc tracker (reload leak): the lifted block inits (ae/awb/ysp/ydns/defog/lce/... main_init,
+ * isp_core_tuning_init) vmalloc their buffers once per load through private_vmalloc and only the
+ * lifted tisp_deinit (skipped, it oopsed) would free them: ~19 areas / ~230 KB per rmmod/insmod.
+ * private_vmalloc records every area, every vfree in this file drops it, and the module exit frees
+ * what is left after all users (threads, IRQs, works, devices) are gone.
+ */
+#define T40_VTRACK_SLOTS 256
+static void *t40_vtrack[T40_VTRACK_SLOTS] T40C2;
+static void *t40_vtrack_site[T40_VTRACK_SLOTS] T40C2;
+static unsigned int t40_vtrack_ep[T40_VTRACK_SLOTS] T40C2;
+static unsigned int t40_vtrack_live T40C2, t40_vtrack_overflow T40C2;
+static unsigned int t40_vtrack_epoch T40C2, t40_vtrack_replaced T40C2;
+/*
+ * Per-session leak: the vendor runs tisp_deinit at every session end (ispcore_core_ops_init(0));
+ * the open driver skips it, and tisp_adr_main_init & co. vmalloc their ~36 buffers again at
+ * every tisp_main_init without a NULL check (+344 KB per streamer restart on the Eufy).  An init
+ * entry starts a new epoch; when a call site allocates again in a later epoch, its area from the
+ * earlier epoch is the one the caller is about to overwrite, so it is freed.  Alloc-once sites
+ * (NULL-checked) never come back and keep their area until the module exit.
+ */
+static void t40_vtrack_new_epoch(void)
+{
+    t40_vtrack_epoch++;
+    printk(KERN_NOTICE "tx_isp_t40_recovered: vtrack epoch %u live %u replaced %u overflow %u\n",
+           t40_vtrack_epoch, t40_vtrack_live, t40_vtrack_replaced, t40_vtrack_overflow);
+}
+static void t40_vtrack_add(void *p, void *site)
+{
+    unsigned int i, slot = T40_VTRACK_SLOTS;
+
+    if (!p)
+        return;
+    for (i = 0; i < T40_VTRACK_SLOTS; i++) {
+        if (site && t40_vtrack[i] && t40_vtrack_site[i] == site &&
+            t40_vtrack_ep[i] != t40_vtrack_epoch) {
+            if (t40_vtrack_replaced < 8)
+                printk(KERN_NOTICE "tx_isp_t40_recovered: vtrack replace site %pS size-area %p\n",
+                       site, t40_vtrack[i]);
+            vfree(t40_vtrack[i]);
+            t40_vtrack[i] = NULL;
+            t40_vtrack_live--;
+            t40_vtrack_replaced++;
+        }
+        if (!t40_vtrack[i] && slot == T40_VTRACK_SLOTS)
+            slot = i;
+    }
+    if (slot == T40_VTRACK_SLOTS) {
+        t40_vtrack_overflow++;
+        return;
+    }
+    t40_vtrack[slot] = p;
+    t40_vtrack_site[slot] = site;
+    t40_vtrack_ep[slot] = t40_vtrack_epoch;
+    t40_vtrack_live++;
+}
+static void t40_vtrack_del(const void *p)
+{
+    unsigned int i;
+
+    if (!p)
+        return;
+    for (i = 0; i < T40_VTRACK_SLOTS; i++) {
+        if (t40_vtrack[i] == p) {
+            t40_vtrack[i] = NULL;
+            t40_vtrack_live--;
+            return;
+        }
+    }
+}
+static void t40_vfree(const void *p)
+{
+    t40_vtrack_del(p);
+    vfree(p);
+}
+static void t40_vtrack_free_all(void)
+{
+    unsigned int i, n = 0;
+
+    for (i = 0; i < T40_VTRACK_SLOTS; i++) {
+        if (t40_vtrack[i]) {
+            vfree(t40_vtrack[i]);
+            t40_vtrack[i] = NULL;
+            n++;
+        }
+    }
+    printk(KERN_NOTICE "tx_isp_t40_recovered: exit freed %u lifted vmalloc areas (replaced %u, overflow %u)\n",
+           n, t40_vtrack_replaced, t40_vtrack_overflow);
+    t40_vtrack_live = 0;
+}
 /* bisect switches for the no-frames hunt (2026-10-24): 1 = also do the OEM-lift stray store of the CSC standard */
 static unsigned int t40_c2_stray T40C2;
 module_param(t40_c2_stray, uint, 0644);
@@ -8520,10 +8611,13 @@ static void regtrace_unregister_child_platform_device_one(int i)
 
 static void regtrace_unregister_child_platform_devices(void)
 {
-    int i;
-
-    for (i = ARRAY_SIZE(regtrace_child_device_registered) - 1; i >= 0; i--)
-        regtrace_unregister_child_platform_device_one(i);
+    /* consumers first: fs (3) sends events to the core (4) while it cancels its queues
+     * (explicit calls: a const order table would grow .rodata, which the lift addresses by offset) */
+    regtrace_unregister_child_platform_device_one(3);
+    regtrace_unregister_child_platform_device_one(4);
+    regtrace_unregister_child_platform_device_one(2);
+    regtrace_unregister_child_platform_device_one(1);
+    regtrace_unregister_child_platform_device_one(0);
 }
 
 static int regtrace_register_child_platform_devices(void)
@@ -16390,6 +16484,8 @@ static int regtrace_isp_block_init_once(const char *where)
     uint32_t adr_width;
     uint32_t adr_height;
 
+    t40_vtrack_new_epoch();
+
     if (!regtrace_enable_isp_block_init)
         return 0;
     if (regtrace_isp_block_init_ran)
@@ -17064,6 +17160,10 @@ static int regtrace_framechan_context_ready[4];
 static void *regtrace_vic_subdev;
 static void *regtrace_core_subdev;
 static void *regtrace_fs_subdev;
+/* /proc/jz/isp + isp-m0 created by the core subdev init; removed again in the core remove
+ * (a stale entry kept the unloaded module's fops and blocked the mkdir on the next load) */
+static struct proc_dir_entry *t40_isp_proc_dir_rm T40C2;   /* own section: keeps the lifted .bss layout */
+static struct proc_dir_entry *t40_isp_proc_m0 T40C2;
 static void *regtrace_sensor_subdev;
 static void *regtrace_sensor_ops;
 static struct i2c_client *regtrace_sensor_client;
@@ -18287,6 +18387,15 @@ static void regtrace_subdev_cleanup_internal(unsigned char *sd)
     *(uint16_t *)(sd + REGTRACE_TX_ISP_MODULE_OUTPAD_COUNT_OFFSET) = 0;
     *(uint16_t *)(sd + REGTRACE_TX_ISP_MODULE_INPAD_COUNT_OFFSET) = 0;
     tx_isp_module_deinit((int32_t)(uintptr_t)sd);
+    /* the removes free sd right after this: drop the global aliases first */
+    if (regtrace_vic_subdev == (void *)sd)
+        regtrace_vic_subdev = NULL;
+    if (regtrace_core_subdev == (void *)sd)
+        regtrace_core_subdev = NULL;
+    if (regtrace_fs_subdev == (void *)sd)
+        regtrace_fs_subdev = NULL;
+    if (ispcore_sd == (uint32_t)(uintptr_t)sd)
+        ispcore_sd = 0;
 }
 
 static void regtrace_ensure_oem_links(void);
@@ -18475,9 +18584,11 @@ static int regtrace_subdev_init_internal(uintptr_t pdev_addr, uintptr_t sd_addr,
             static struct proc_dir_entry *t40_isp_proc_dir;
             if (!t40_isp_proc_dir)
                 t40_isp_proc_dir = jz_proc_mkdir("isp");
-            if (t40_isp_proc_dir) {
+            t40_isp_proc_dir_rm = t40_isp_proc_dir;
+            if (t40_isp_proc_dir && !t40_isp_proc_m0) {
                 struct proc_dir_entry *pe = proc_create_data("isp-m0", 0444, t40_isp_proc_dir,
                                                              &isp_info_proc_fops, (void *)sd);
+                t40_isp_proc_m0 = pe;
                 printk(KERN_INFO "tx_isp_t40_recovered: proc /proc/jz/isp/isp-m0 %s\n", pe ? "created" : "FAILED");
             } else {
                 printk(KERN_ERR "tx_isp_t40_recovered: jz_proc_mkdir(isp) failed\n");
@@ -23442,6 +23553,32 @@ static long regtrace_framechan_format_ioctl(int channel, unsigned int cmd, unsig
     return 0;
 }
 
+static int regtrace_t40_i2c_addr_match(struct device *dev, void *data)
+{
+    struct i2c_client *client = i2c_verify_client(dev);
+
+    return client && client->addr == *(unsigned short *)data;
+}
+
+/* A client left at this address by an earlier driver instance (a build without the release on
+ * unload, the stock module, a crash): adopt it when it is the same sensor, so it is released on
+ * the next unload.  The sensor module bound to it is what the capture path already uses. */
+static struct i2c_client *regtrace_t40_adopt_stale_client(struct i2c_adapter *adapter,
+                                                          const struct i2c_board_info *info)
+{
+    unsigned short addr = info->addr;
+    struct device *dev = device_find_child(&adapter->dev, &addr, regtrace_t40_i2c_addr_match);
+    struct i2c_client *client;
+
+    if (!dev)
+        return NULL;
+    client = i2c_verify_client(dev);
+    if (client && strncmp(client->name, info->type, I2C_NAME_SIZE))
+        client = NULL;
+    put_device(dev);
+    return client;
+}
+
 static long regtrace_tx_isp_sensor_register_ioctl(unsigned long arg)
 {
     struct regtrace_tx_isp_sensor_register_info sensor_info;
@@ -23494,6 +23631,12 @@ static long regtrace_tx_isp_sensor_register_ioctl(unsigned long arg)
         }
 
         regtrace_sensor_client = i2c_new_device(adapter, &board_info);
+        if (!regtrace_sensor_client) {
+            regtrace_sensor_client = regtrace_t40_adopt_stale_client(adapter, &board_info);
+            if (regtrace_sensor_client)
+                printk(KERN_INFO "tx_isp_t40_recovered: adopted stale i2c sensor client %s addr=0x%x (released on unload)\n",
+                       board_info.type, board_info.addr);
+        }
         i2c_put_adapter(adapter);
         if (!regtrace_sensor_client) {
             printk(KERN_ERR "tx_isp_t40_recovered: failed to create i2c sensor %s addr=0x%x adapter=%d\n",
@@ -32166,9 +32309,16 @@ int32_t private_wait_event_interruptible(int32_t arg1, int32_t arg2, int32_t arg
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000006a0 origin=model_output original=private_wake_up_all */
-int32_t private_wake_up_all(void)
+int32_t private_wake_up_all(void *wq)
 {
-    __wake_up(NULL, 3, 0, NULL);
+    /* OEM: wake_up_all(wq).  The lift dropped the argument and woke NULL (rmmod oops in
+     * tx_isp_fs_remove -> frame_chan_deinit -> __vb2_queue_cancel).  The fs probe's
+     * init_waitqueue_head is a no-op stub too, so a queue may still be all zero: skip it then. */
+    wait_queue_head_t *h = (wait_queue_head_t *)wq;
+
+    if (!regtrace_is_kernel_ptr(h) || !regtrace_is_kernel_ptr(h->task_list.next))
+        return 0;
+    wake_up_all(h);
     return 0;
 }
 
@@ -32247,7 +32397,7 @@ int32_t private_proc_create_data(const char *name, umode_t mode, void *parent, c
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000071c origin=model_output original=private_vmalloc */
-int32_t private_vmalloc(void)
+noinline int32_t private_vmalloc(void)
 {
     uintptr_t size;
 
@@ -32259,7 +32409,12 @@ int32_t private_vmalloc(void)
     if (!size)
         return 0;
 
-    return (int32_t)(uintptr_t)vmalloc(size);
+    {
+        void *p = vmalloc(size);
+
+        t40_vtrack_add(p, __builtin_return_address(0));
+        return (int32_t)(uintptr_t)p;
+    }
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000072c origin=model_output original=private_vfree */
@@ -32271,7 +32426,7 @@ int private_vfree(void)
     if (ZERO_OR_NULL_PTR(ptr))
         return 0;
 
-    vfree(ptr);
+    t40_vfree(ptr);
     return 0;
 }
 
@@ -48779,9 +48934,10 @@ isp_core_tuning_init0x70:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000ce6c origin=model_output original=isp_core_tuning_deinit */
 void isp_core_tuning_deinit(int32_t arg1)
 {
-    if (arg1 == 0)
+    /* OEM: kfree(tuning) - the 132-byte object from isp_core_tuning_init; the lift freed NULL */
+    if (!regtrace_is_kernel_ptr((void *)(uintptr_t)arg1))
         return;
-    private_kfree(NULL);
+    private_kfree((void *)(uintptr_t)arg1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000ce8c origin=model_output original=isp_core_tuning_clear */
@@ -53032,7 +53188,7 @@ void __vb2_queue_cancel(void *arg1)
 
     ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(*(uint32_t *)(s0 + 0x29c)), (uintptr_t)(0x3000007), (uintptr_t)(0));
 
-    private_wake_up_all();
+    private_wake_up_all((void *)((uintptr_t)s0 + 0x20c));   /* OEM: a0 = q + 524 */
 
     ptr = (uint32_t *)((uintptr_t)s0 + 0xec);
     i = 0;
@@ -72123,7 +72279,7 @@ static uint32_t regtrace_tiziano_load_parameters_safe(uint32_t channel,
     regtrace_tiziano_param_update_samples();
 
 out_free:
-    vfree(bin);
+    t40_vfree(bin);
 out:
     regtrace_tiziano_param_load_ret = ret;
     printk(KERN_INFO "tx_isp_t40_recovered: tiziano param load enable=%u path=%s count=%u ret=%d read=%ld payload=0x%x checksum=0x%x status=0x%x/0x%x day=0x%x/0x%x night=0x%x/0x%x regs=%u/%u\n",
@@ -72146,11 +72302,11 @@ out:
 
 static void regtrace_tisp_main_init_param_free(void)
 {
-    vfree(regtrace_tisp_param_tsbin_buf);
-    vfree(regtrace_tisp_param_n_buf);
-    vfree(regtrace_tisp_param_day_buf);
-    vfree(regtrace_tisp_param_night_buf);
-    vfree(regtrace_tisp_param_status_buf);
+    t40_vfree(regtrace_tisp_param_tsbin_buf);
+    t40_vfree(regtrace_tisp_param_n_buf);
+    t40_vfree(regtrace_tisp_param_day_buf);
+    t40_vfree(regtrace_tisp_param_night_buf);
+    t40_vfree(regtrace_tisp_param_status_buf);
     regtrace_tisp_param_tsbin_buf = NULL;
     regtrace_tisp_param_n_buf = NULL;
     regtrace_tisp_param_day_buf = NULL;
@@ -72505,6 +72661,7 @@ int64_t tisp_main_init(uintptr_t a0, uint32_t a1)
         msca_flags = *(uint32_t *)((char *)a0 + 148);
     }
 
+    t40_vtrack_new_epoch();
     regtrace_tisp_main_init_count++;
     regtrace_tisp_main_init_last_a0 = a0;
     regtrace_tisp_main_init_last_path = a1;
@@ -141209,8 +141366,12 @@ struct regtrace_adr_main_alloc_desc {
 
 static uintptr_t regtrace_private_vmalloc_size(uint32_t size)
 {
-    return (uintptr_t)((int32_t (*)(uintptr_t))(uintptr_t)private_vmalloc)
-        ((uintptr_t)size);
+    /* shared helper (one call site for many slots, alloc-once): tracked without a site, so the
+     * per-site epoch replacement never touches its areas */
+    void *p = size ? vmalloc(size) : NULL;
+
+    t40_vtrack_add(p, NULL);
+    return (uintptr_t)p;
 }
 
 static int regtrace_adr_alloc_zero(uintptr_t *slot, uint32_t size,
@@ -171452,7 +171613,7 @@ void tisp_disable_tuning(void)
     tisp_tattr_val = tisp_tattr;
     if (tisp_tattr_val != 0) {
         tisp_tattr = 0;
-        vfree((void *)(uintptr_t)tisp_tattr_val);   /* the lift called private_vfree() without its argument */
+        t40_vfree((void *)(uintptr_t)tisp_tattr_val);   /* the lift called private_vfree() without its argument */
     }
 }
 
@@ -188254,8 +188415,10 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
         case 7: regtrace_tisp_dma_free(); break;
         case 8: regtrace_vic_mdma_internal_free(); break;
         case 9: regtrace_unregister_bootstrap_devices(); break;
-        case 10: regtrace_unregister_child_platform_device_one(4); break;
-        case 11: regtrace_unregister_child_platform_device_one(3); break;
+        /* fs before core: the fs remove cancels its vb2 queues, which sends events to the core pads
+         * (OEM order core -> fs used the core after it was gone) */
+        case 10: regtrace_unregister_child_platform_device_one(3); break;
+        case 11: regtrace_unregister_child_platform_device_one(4); break;
         case 12: regtrace_unregister_child_platform_device_one(2); break;
         case 13: regtrace_unregister_child_platform_device_one(1); break;
         case 14: regtrace_unregister_child_platform_device_one(0); break;
@@ -188271,6 +188434,15 @@ void tx_isp_t40_core_exit(void)
 {
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     regtrace_core_exit_steps(REGTRACE_EXIT_STEPS, 0);
+    /* The sensor i2c client created by SENSOR_REGISTER was never destroyed: after a reload the
+     * next register failed with -EBUSY and only worked because the reloaded sensor module bound
+     * the stale client.  The sensor modules are gone by now (they depend on this module). */
+    if (regtrace_sensor_client) {
+        printk(KERN_INFO "tx_isp_t40_recovered: releasing sensor i2c client %p\n", regtrace_sensor_client);
+        i2c_unregister_device(regtrace_sensor_client);
+        regtrace_sensor_client = NULL;
+    }
+    t40_vtrack_free_all();
     return;
 #endif
     tx_isp_exit();
@@ -188367,7 +188539,7 @@ int tx_isp_vin_remove(struct platform_device *pdev)
 
     private_platform_set_drvdata((void *)s1, 0);
     tx_isp_subdev_deinit((void *)s0);
-    private_kfree(NULL);
+    private_kfree((void *)s0);   /* OEM: kfree(vin) (352 bytes from the probe); the lift freed NULL */
 
     return 0;
 }
@@ -188451,7 +188623,11 @@ int tx_isp_fs_remove(struct platform_device *pdev)
     void *v0_2;
 
     drv_data = private_platform_get_drvdata(arg1);
+    if (!regtrace_is_kernel_ptr(drv_data))
+        return 0;
     s1 = *(void **)((char *)drv_data + 0x10c);
+    if (!regtrace_is_kernel_ptr(s1))
+        s1 = drv_data;   /* the fs probe stores the object itself at +0x10c */
     s0 = 0;
     v1 = *(int32_t *)((char *)s1 + 0x118);
 
@@ -188467,11 +188643,14 @@ int tx_isp_fs_remove(struct platform_device *pdev)
         v1 = *(int32_t *)((char *)s1 + 0x118);
     }
 
+    /* OEM: kfree(fs->chans (+0x114, n * 0x384)), subdev_deinit, kfree(fs); the lift freed NULL twice */
     if (a0 != 0)
-        private_kfree(NULL);
-
+        private_kfree((void *)a0);
+    *(void **)((char *)s1 + 0x114) = NULL;
+    *(uint32_t *)((char *)s1 + 0x118) = 0;
     tx_isp_subdev_deinit(drv_data);
-    private_kfree(NULL);
+    private_platform_set_drvdata(arg1, NULL);
+    private_kfree(s1);
     return 0;
 }
 
@@ -188516,12 +188695,18 @@ int tx_isp_core_remove(struct platform_device *pdev)
     uintptr_t *v0;
     uintptr_t *s0;
     uintptr_t *s2;
-    uint32_t *s3;
     uint32_t *a0;
     uint32_t tmp;
 
     v0 = (uintptr_t *)private_platform_get_drvdata((void *)arg1);
+    /* probe failed or never ran: nothing to tear down (OEM dereferences blindly) */
+    if (!regtrace_is_kernel_ptr(v0)) {
+        printk(KERN_INFO "tx_isp_t40_recovered: core remove: no drvdata\n");
+        return 0;
+    }
     s0 = *(uintptr_t *)((char *)v0 + 0x10c);
+    if (!regtrace_is_kernel_ptr(s0))
+        s0 = v0;    /* the core probe stores the object itself at +0x10c */
     a0 = *(uint32_t *)((char *)s0 + 0x3e0);
 
     if (a0 != 0) {
@@ -188538,11 +188723,22 @@ int tx_isp_core_remove(struct platform_device *pdev)
     }
     regtrace_fr_mark(0x97, 0);
 
+    /* /proc/jz/isp/isp-m0 points at this object and the module's fops */
+    if (t40_isp_proc_m0) {
+        proc_remove(t40_isp_proc_m0);
+        t40_isp_proc_m0 = NULL;
+    }
+    if (t40_isp_proc_dir_rm) {
+        proc_remove(t40_isp_proc_dir_rm);
+        t40_isp_proc_dir_rm = NULL;
+    }
+
     s2 = v0;
-    private_kfree(NULL);
+    /* OEM: kfree(core->chans (+0x274, n * 216 bytes from the probe)); the lift freed NULL */
+    private_kfree((void *)(uintptr_t)*(uint32_t *)((char *)s0 + 0x274));
     *(uint32_t *)((char *)s0 + 0x27c) = 1;
     *(uint32_t *)((char *)s0 + 0x274) = 0;
-    tx_isp_subdev_deinit((void *)s2);
+    tx_isp_subdev_deinit((void *)s2);   /* free_irq, clocks, iounmap, pads */
     tisp_deinit(0);
 
     tmp = *(uint32_t *)((char *)s0 + 0x2e8);
@@ -188550,7 +188746,17 @@ int tx_isp_core_remove(struct platform_device *pdev)
         tisp_deinit(1);
     }
 
-    private_kfree(NULL);
+    /* the ISR is gone now: drop the frame-done works a last IRQ may have queued after exit step 2 */
+    cancel_work_sync(&regtrace_irq_frame_done_work[0].work);
+    cancel_work_sync(&regtrace_irq_frame_done_work[1].work);
+    cancel_work_sync(&regtrace_irq_frame_done_work[2].work);
+    cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
+    cancel_work_sync(&regtrace_isp_block_init_work);
+
+    /* the object itself (OEM: kfree(core); the lift freed NULL); global aliases were dropped by subdev_deinit */
+    private_platform_set_drvdata((void *)arg1, NULL);
+    private_kfree((void *)s0);
+    printk(KERN_INFO "tx_isp_t40_recovered: core remove done (core object freed)\n");
     return 0;
 }
 

@@ -358,6 +358,11 @@ Block bisect (each run one boot, metrics only, media discarded):
   t40prod/out/p5-t9b.log; the streamer left running afterwards).  Open item: the streamer reports "sensor fps:
   requested 20, driver holds 25/1" - sensor_g_attr returns the sensor
   module's 25/1, the stream runs at 20 fps.
+- rmmod (2026-10-24, claude/t40-reload): FIXED and device-tested, 20 reload cycles plus 10 streamer
+  restarts in one boot without oops or leak.  The first-unload oops was `private_wake_up_all` waking a
+  NULL queue in the framesource remove (fs is now removed before the core); the probe objects, the
+  tuning object, `/proc/jz/isp` and the sensor i2c client are released; lifted vmalloc areas are
+  tracked and freed (per session for ADR/LCE/AE, the rest at exit).  The notes below are history.
 - rmmod: 587502b1 splits the module exit into ten steps that can be run
   one by one with `echo exit N > /proc/tx_isp_t40_recovered` while kmsg
   streams (t40prod/p6-exit.sh); the step that takes the camera down is
