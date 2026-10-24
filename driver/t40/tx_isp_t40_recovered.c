@@ -7459,7 +7459,7 @@ module_param_named(t40_ev_updates, regtrace_t40_ev_updates, bool, 0644);
 static bool regtrace_t40_loopguard;
 static void regtrace_loopguard(const char *fn, const char *lbl);
 #define REGTRACE_LOOPGUARD_BUDGET (regtrace_t40_loopguard ? 2000000U : 0xffffffffU)
-static unsigned int t40_csc_unsafe;  /* 1: allow the broken lifted CSC get/set (debug only) */
+static unsigned int t40_csc_unsafe;  /* 1: allow the broken lifted CSC and CCM get/set (debug only) */
 module_param(t40_csc_unsafe, uint, 0644);
 MODULE_PARM_DESC(t40_csc_unsafe, "allow the lifted OEM CSC get/set (stack/bss overflow, debug only)");
 static unsigned int regtrace_t40_module_ctx_inits;  /* bitmask: run the lifted module inits (1 gamma 2 lsc 4 ccm 8 bcsh 16 clm) after the lit inits */
@@ -46755,6 +46755,9 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
                     return -1;
                 }
 
+                /* T40-CCM-GUARD: tisp_ccm_set_attr memcpys 40 bytes into the 4-byte ccm_main_ctrl */
+                if (!t40_csc_unsafe)
+                    return -EOPNOTSUPP;
                 int v0_5 = copy_from_user(&var_88, (void __user *)arg3[1], 0x28);
                 s1_1 = v0_5;
 
@@ -47552,6 +47555,10 @@ label_c33c_vfree:
     }
 
     if (cmd == 0x8000080) {
+        /* T40-CCM-GUARD: tisp_ccm_get_attr copies to address 0 (kernel oops on GetCCMAttr, Eufy .184
+         * 2026-10-24) and the wrapper copies an uninitialised stack buffer to the user */
+        if (!t40_csc_unsafe)
+            return -EOPNOTSUPP;
         return tiziano_isp_ccm_attr_g_ctrl_isra_31(arg1, arg3[1]);
     }
 
