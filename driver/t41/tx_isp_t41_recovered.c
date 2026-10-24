@@ -23576,6 +23576,10 @@ static void t41_dn_bank_workfn(struct work_struct *work)
 	       mode ? "night" : "day", m, ret, (unsigned long long)ev);
 }
 
+static int t41_dn_apply_ae_irq = 1;
+module_param(t41_dn_apply_ae_irq, int, 0644);
+MODULE_PARM_DESC(t41_dn_apply_ae_irq, "1 = step the day/night transition from the per-frame AE statistics interrupt (works without a stream consumer), 0 = from the frame-completion interrupt (needs a consumer)");
+
 static void t41_apply_pending_day_night(char *core)
 {
     struct t41_daynight_context context;
@@ -171397,6 +171401,20 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
          */
         if ((status0 & 0x1) && READ_ONCE(t41_msca_enable_armed))
             t41_msca_frame_enable();
+        /*
+         * Day/night switches are staged by the running-mode ioctl and applied
+         * at a frame boundary.  The frame-completion interrupt (bit 0)
+         * only arrives while a consumer (stream, snapshot) is attached, so
+         * on an idle camera the switch, including the night/day parameter
+         * bank, waited for the next viewer (30..100 s in the A/B logs:
+         * forced day left the night bank, AWB at 5000 K and a red cast).
+         * The AE statistics interrupt (bit 4) comes every frame regardless,
+         * so the transition state machine is stepped from there; bit 0 only
+         * does it when t41_dn_apply_ae_irq=0.
+         */
+        if ((status0 & BIT(4)) && READ_ONCE(t41_dn_apply_ae_irq) > 0 &&
+            t41_kernel_data_ptr(*(char **)(subdev + 0x10c)))
+            t41_apply_pending_day_night(*(char **)(subdev + 0x10c));
         if (status0 & 0x1) {
             t41_heapwatch_mark("isr:frame0");
             uint32_t event_data[8] = { 0 };
@@ -171409,7 +171427,8 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             int work_queued;
 
             core = *(char **)(subdev + 0x10c);
-            t41_apply_pending_day_night(core);
+            if (READ_ONCE(t41_dn_apply_ae_irq) <= 0)
+                t41_apply_pending_day_night(core);
             channels = t41_kernel_data_ptr(core) ?
                 *(char **)(core + 0x1ac) : NULL;
             if (t41_kernel_data_ptr(channels))

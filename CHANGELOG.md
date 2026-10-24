@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24 (2): T41 day/night switch without a stream consumer (`claude/t41-ab-fixes2`; device re-test pending)
+
+- **Day/night switch applied from the per-frame AE statistics interrupt:** the transition state machine (CSC fill, night/day parameter bank, TOP bypass) was stepped only from the frame-completion interrupt (status0 bit 0), which arrives while a consumer (stream, snapshot) is attached. On an idle camera a running-mode request flipped the readback at once but the bank switch waited 30..100 s for the next viewer (.32: dn-bank applies only at the snapshots; forced day left AWB at 5000 K and a red cast, timps logged "ISP did not follow the switch"). The AE statistics interrupt (bit 4) comes every frame without a consumer; `t41_dn_apply_ae_irq=0` restores the old trigger.
+
 ## 2026-10-24: T41 A/B fixes against the vendor stack (`claude/t41-ab-fixes`; .32 gc5603 A/B, device re-test pending)
 
 - **Tone consumers got the EV 1024x too large:** gamma, CCM, BCSH, ADR and the TMO curves compare the exposure against calibration knots in plain integration x linear gain units (gc5603 bin: gamma 50..200000, CCM/BCSH 32..102400, ADR 160..4800, TMO 20..300000; stock gets the AE event shifted by 10 and shifts it back). The tone worker passed the AE-precision value (x1024), which put them in their lowest-light bracket at any brightness: gamma strength 128 instead of 252 (day Y 103 instead of about 135: 24 % darker than the vendor stack), CCM/BCSH saturation from the dim-light bracket (28 % lower). The worker now hands them the plain EV; AWB keeps its own unit. The AE precision (params +0x6c0) is read from the calibration instead of assumed.
