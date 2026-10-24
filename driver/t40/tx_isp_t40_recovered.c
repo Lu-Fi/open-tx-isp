@@ -97284,6 +97284,12 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
             luma >= regtrace_t40_frame_3a_target_eff();
         bool changed = false;
         bool dgain_changed = false;
+
+        /* a user IT cap (SetAeExprInfo) below the running exposure time pulls it down */
+        if (it > max_it && max_it > regtrace_ae_soft_min_it) {
+            it = max_it;
+            changed = true;
+        }
         /*
          * T40-AE-BIGSTEP: far from target (half / double) the gain stages
          * move two steps per sample (~1.37x) so a light step settles in the
@@ -97316,7 +97322,7 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
                 uint32_t error = target - luma;
                 uint32_t step = (uint32_t)div64_u64(
                     (uint64_t)max_t(uint32_t, it, 64U) * error,
-                    max_t(uint32_t, regtrace_frame_3a_target * 2U, 1U));
+                    max_t(uint32_t, target * 2U, 1U));
                 uint32_t limit = max_t(uint32_t, it / 4U, 8U);
 
                 step = clamp_t(uint32_t, step, 8U, limit);
@@ -97326,11 +97332,11 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
                 changed = true;
                 break;
             } else if (again < max_again &&
-                       luma + again_band < regtrace_frame_3a_target) {
+                       luma + again_band < target) {
                 again++;
                 changed = true;
             } else if (dgain < dgain_max &&
-                       luma + dgain_band < regtrace_frame_3a_target) {
+                       luma + dgain_band < target) {
                 /* T40-AE-ISPDGAIN: ~1.08x per step */
                 dgain = min_t(uint32_t, dgain + dgain / 12U, dgain_max);
                 dgain_changed = true;
@@ -97338,25 +97344,25 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
                 break;
             }
         } else if (protect_highlights ||
-                   luma > regtrace_frame_3a_target + deadband) {
+                   luma > target + deadband) {
             if (dgain > 1024U &&
                 (protect_highlights ||
-                 luma > regtrace_frame_3a_target + dgain_band)) {
+                 luma > target + dgain_band)) {
                 dgain = max_t(uint32_t, dgain - dgain / 13U, 1024U);
                 dgain_changed = true;
             } else if (again > 0 &&
                        (protect_highlights ||
-                        luma > regtrace_frame_3a_target + again_band)) {
+                        luma > target + again_band)) {
                 again--;
                 changed = true;
             } else if (dgain > 1024U || again > 0) {
                 break;
             } else if (it > regtrace_ae_soft_min_it) {
-                uint32_t error = luma > regtrace_frame_3a_target ?
-                    luma - regtrace_frame_3a_target : deadband;
+                uint32_t error = luma > target ?
+                    luma - target : deadband;
                 uint32_t step = (uint32_t)div64_u64(
                     (uint64_t)max_t(uint32_t, it, 64U) * error,
-                    max_t(uint32_t, regtrace_frame_3a_target * 2U, 1U));
+                    max_t(uint32_t, target * 2U, 1U));
                 uint32_t limit = max_t(uint32_t, it / 4U, 8U);
 
                 step = clamp_t(uint32_t, step, 8U, limit);
