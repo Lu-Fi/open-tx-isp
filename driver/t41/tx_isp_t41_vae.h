@@ -134,8 +134,39 @@ static u64 vae_x_private_spin_unlock_irqrestore(u32 a0, u32 a1, u32 a2, u32 a3, 
 	local_irq_restore((unsigned long)a1);
 	return 0;
 }
+/* DEBUG experiment (defog): bit k forces byte k of every 0x500a4 LUT word to expv[k] */
+static unsigned int t41_dfg_exp, t41_dfg_idx, t41_dfg_target = 80, t41_dfg_probe = 0x20;
+module_param_named(defog_target, t41_dfg_target, uint, 0644);
+module_param_named(defog_probe, t41_dfg_probe, uint, 0644);
+static unsigned int t41_dfg_expv = 0x50808080;
+module_param_named(defog_exp, t41_dfg_exp, uint, 0644);
+module_param_named(defog_expv, t41_dfg_expv, uint, 0644);
 static u64 vae_x_system_reg_write(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
 {
+	if (a0 == 0x500a0 && a1 == 257)
+		t41_dfg_idx = 0;
+	if (a0 == 0x500a4 && (t41_dfg_exp & 0x100)) {
+		/* single-block probe: block t41_dfg_target gets byte3 = expv>>24 ^ ..., rest flat */
+		a1 = t41_dfg_expv;
+		if (t41_dfg_idx == t41_dfg_target)
+			a1 = (a1 & 0x00ffffff) | (t41_dfg_probe << 24);
+		if ((t41_dfg_exp & 0x400) && t41_dfg_idx == t41_dfg_target) {
+			unsigned int ln = (t41_dfg_probe >> 8) & 3;
+			a1 = (t41_dfg_expv & ~(0xffU << (8 * ln))) | ((t41_dfg_probe & 0xff) << (8 * ln));
+		}
+		if (t41_dfg_exp & 0x200)	/* probe airlight instead of t */
+			a1 = (t41_dfg_idx == t41_dfg_target) ? 0x5a000000 | t41_dfg_probe | t41_dfg_probe << 8 | t41_dfg_probe << 16 : t41_dfg_expv;
+	}
+	if (a0 == 0x500a4)
+		t41_dfg_idx++;
+	if (a0 == 0x500a4 && (t41_dfg_exp & 15)) {
+		int k;
+		for (k = 0; k < 4; k++)
+			if (t41_dfg_exp & (1U << k)) {
+				a1 &= ~(0xffU << (8 * k));
+				a1 |= ((t41_dfg_expv >> (8 * k)) & 0xff) << (8 * k);
+			}
+	}
 	return (u32)system_reg_write(a0, a1);
 }
 static u64 vae_x_isp_printf(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
