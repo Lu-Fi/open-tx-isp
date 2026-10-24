@@ -14260,6 +14260,9 @@ static uint32_t Cluster_rgbg_index_max[CIDX_MAX_ENTRIES * 3]; /* OEM 0xa7574 */
  */
 static int t31_awb_impl __attribute__((section(".data")));
 static int t31_awb_selftest_state __attribute__((section(".data")));	/* 0 not run, 1 pass, -1 fail */
+static u32 t31_mxu2_cpm __attribute__((section(".data")));
+module_param_named(t31_mxu2_cpm, t31_mxu2_cpm, uint, 0444);
+MODULE_PARM_DESC(t31_mxu2_cpm, "CPM 0x10000034 read by the selftest: 0x101 MXU2 free, 0x110 locked");
 static int awb_ctdet_mode __attribute__((section(".data")));	/* mode of the running call */
 static void t31_awb_selftest_workfn(struct work_struct *work);
 static DECLARE_WORK(t31_awb_selftest_work, t31_awb_selftest_workfn);
@@ -20036,6 +20039,14 @@ static void t31_awb_selftest_workfn(struct work_struct *work)
 
 	st_rng = 0x31a5b001;
 	t31_ri_hits = 0;
+	/* CPM 0x10000034: 0x101 = MXU2 enabled by the Ingenic kernel, 0x110 = locked */
+	t31_mxu2_cpm = *(volatile u32 *)0xb0000034;
+	if (t31_mxu2_cpm != 0x101) {
+		pr_warn("t31_awb_selftest: mxu2 locked by SoC (cpm 0x%x), using fast C\n",
+			t31_mxu2_cpm);
+		t31_awb_selftest_state = -1;
+		goto out;
+	}
 	if (!cpu_has_mxu_v2) {
 		pr_warn("t31_awb_selftest: CPU has no MXU2, MXU2 stays off (fast C used)\n");
 		t31_awb_selftest_state = -1;
