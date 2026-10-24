@@ -7485,6 +7485,66 @@ static u32 t40_wdr_out_mode[2];  /* SetWdrOutputMode shadow (linear sensor: flag
  * ~700 bytes of new statics in .bss delivered no frames at all).  State added after the lift lives in its own
  * section, outside .bss/.data. */
 #define T40C2 __attribute__((section(".t40c2")))
+
+/*
+ * vmalloc tracker (reload leak): the lifted block inits (ae/awb/ysp/ydns/defog/lce/... main_init,
+ * isp_core_tuning_init) vmalloc their buffers once per load through private_vmalloc and only the
+ * lifted tisp_deinit (skipped, it oopsed) would free them: ~19 areas / ~230 KB per rmmod/insmod.
+ * private_vmalloc records every area, every vfree in this file drops it, and the module exit frees
+ * what is left after all users (threads, IRQs, works, devices) are gone.
+ */
+#define T40_VTRACK_SLOTS 256
+static void *t40_vtrack[T40_VTRACK_SLOTS] T40C2;
+static unsigned int t40_vtrack_live T40C2, t40_vtrack_overflow T40C2;
+static void t40_vtrack_add(void *p)
+{
+    unsigned int i;
+
+    if (!p)
+        return;
+    for (i = 0; i < T40_VTRACK_SLOTS; i++) {
+        if (!t40_vtrack[i]) {
+            t40_vtrack[i] = p;
+            t40_vtrack_live++;
+            return;
+        }
+    }
+    t40_vtrack_overflow++;
+}
+static void t40_vtrack_del(const void *p)
+{
+    unsigned int i;
+
+    if (!p)
+        return;
+    for (i = 0; i < T40_VTRACK_SLOTS; i++) {
+        if (t40_vtrack[i] == p) {
+            t40_vtrack[i] = NULL;
+            t40_vtrack_live--;
+            return;
+        }
+    }
+}
+static void t40_vfree(const void *p)
+{
+    t40_vtrack_del(p);
+    vfree(p);
+}
+static void t40_vtrack_free_all(void)
+{
+    unsigned int i, n = 0;
+
+    for (i = 0; i < T40_VTRACK_SLOTS; i++) {
+        if (t40_vtrack[i]) {
+            vfree(t40_vtrack[i]);
+            t40_vtrack[i] = NULL;
+            n++;
+        }
+    }
+    printk(KERN_INFO "tx_isp_t40_recovered: exit freed %u lifted vmalloc areas (overflow %u)\n",
+           n, t40_vtrack_overflow);
+    t40_vtrack_live = 0;
+}
 /* bisect switches for the no-frames hunt (2026-10-24): 1 = also do the OEM-lift stray store of the CSC standard */
 static unsigned int t40_c2_stray T40C2;
 module_param(t40_c2_stray, uint, 0644);
@@ -23460,6 +23520,32 @@ static long regtrace_framechan_format_ioctl(int channel, unsigned int cmd, unsig
     return 0;
 }
 
+static int regtrace_t40_i2c_addr_match(struct device *dev, void *data)
+{
+    struct i2c_client *client = i2c_verify_client(dev);
+
+    return client && client->addr == *(unsigned short *)data;
+}
+
+/* A client left at this address by an earlier driver instance (a build without the release on
+ * unload, the stock module, a crash): adopt it when it is the same sensor, so it is released on
+ * the next unload.  The sensor module bound to it is what the capture path already uses. */
+static struct i2c_client *regtrace_t40_adopt_stale_client(struct i2c_adapter *adapter,
+                                                          const struct i2c_board_info *info)
+{
+    unsigned short addr = info->addr;
+    struct device *dev = device_find_child(&adapter->dev, &addr, regtrace_t40_i2c_addr_match);
+    struct i2c_client *client;
+
+    if (!dev)
+        return NULL;
+    client = i2c_verify_client(dev);
+    if (client && strncmp(client->name, info->type, I2C_NAME_SIZE))
+        client = NULL;
+    put_device(dev);
+    return client;
+}
+
 static long regtrace_tx_isp_sensor_register_ioctl(unsigned long arg)
 {
     struct regtrace_tx_isp_sensor_register_info sensor_info;
@@ -23512,6 +23598,12 @@ static long regtrace_tx_isp_sensor_register_ioctl(unsigned long arg)
         }
 
         regtrace_sensor_client = i2c_new_device(adapter, &board_info);
+        if (!regtrace_sensor_client) {
+            regtrace_sensor_client = regtrace_t40_adopt_stale_client(adapter, &board_info);
+            if (regtrace_sensor_client)
+                printk(KERN_INFO "tx_isp_t40_recovered: adopted stale i2c sensor client %s addr=0x%x (released on unload)\n",
+                       board_info.type, board_info.addr);
+        }
         i2c_put_adapter(adapter);
         if (!regtrace_sensor_client) {
             printk(KERN_ERR "tx_isp_t40_recovered: failed to create i2c sensor %s addr=0x%x adapter=%d\n",
@@ -32284,7 +32376,12 @@ int32_t private_vmalloc(void)
     if (!size)
         return 0;
 
-    return (int32_t)(uintptr_t)vmalloc(size);
+    {
+        void *p = vmalloc(size);
+
+        t40_vtrack_add(p);
+        return (int32_t)(uintptr_t)p;
+    }
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000072c origin=model_output original=private_vfree */
@@ -32296,7 +32393,7 @@ int private_vfree(void)
     if (ZERO_OR_NULL_PTR(ptr))
         return 0;
 
-    vfree(ptr);
+    t40_vfree(ptr);
     return 0;
 }
 
@@ -72149,7 +72246,7 @@ static uint32_t regtrace_tiziano_load_parameters_safe(uint32_t channel,
     regtrace_tiziano_param_update_samples();
 
 out_free:
-    vfree(bin);
+    t40_vfree(bin);
 out:
     regtrace_tiziano_param_load_ret = ret;
     printk(KERN_INFO "tx_isp_t40_recovered: tiziano param load enable=%u path=%s count=%u ret=%d read=%ld payload=0x%x checksum=0x%x status=0x%x/0x%x day=0x%x/0x%x night=0x%x/0x%x regs=%u/%u\n",
@@ -72172,11 +72269,11 @@ out:
 
 static void regtrace_tisp_main_init_param_free(void)
 {
-    vfree(regtrace_tisp_param_tsbin_buf);
-    vfree(regtrace_tisp_param_n_buf);
-    vfree(regtrace_tisp_param_day_buf);
-    vfree(regtrace_tisp_param_night_buf);
-    vfree(regtrace_tisp_param_status_buf);
+    t40_vfree(regtrace_tisp_param_tsbin_buf);
+    t40_vfree(regtrace_tisp_param_n_buf);
+    t40_vfree(regtrace_tisp_param_day_buf);
+    t40_vfree(regtrace_tisp_param_night_buf);
+    t40_vfree(regtrace_tisp_param_status_buf);
     regtrace_tisp_param_tsbin_buf = NULL;
     regtrace_tisp_param_n_buf = NULL;
     regtrace_tisp_param_day_buf = NULL;
@@ -171478,7 +171575,7 @@ void tisp_disable_tuning(void)
     tisp_tattr_val = tisp_tattr;
     if (tisp_tattr_val != 0) {
         tisp_tattr = 0;
-        vfree((void *)(uintptr_t)tisp_tattr_val);   /* the lift called private_vfree() without its argument */
+        t40_vfree((void *)(uintptr_t)tisp_tattr_val);   /* the lift called private_vfree() without its argument */
     }
 }
 
@@ -188299,6 +188396,15 @@ void tx_isp_t40_core_exit(void)
 {
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     regtrace_core_exit_steps(REGTRACE_EXIT_STEPS, 0);
+    /* The sensor i2c client created by SENSOR_REGISTER was never destroyed: after a reload the
+     * next register failed with -EBUSY and only worked because the reloaded sensor module bound
+     * the stale client.  The sensor modules are gone by now (they depend on this module). */
+    if (regtrace_sensor_client) {
+        printk(KERN_INFO "tx_isp_t40_recovered: releasing sensor i2c client %p\n", regtrace_sensor_client);
+        i2c_unregister_device(regtrace_sensor_client);
+        regtrace_sensor_client = NULL;
+    }
+    t40_vtrack_free_all();
     return;
 #endif
     tx_isp_exit();
