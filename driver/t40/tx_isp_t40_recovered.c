@@ -10677,6 +10677,7 @@ static int regtrace_t40_apply_dmsc_sharpness(uint8_t sharpness);
 #include "tx_isp_t40_adr_lit.inc"
 #include "tx_isp_t40_defog_lit.inc"
 #include "tx_isp_t40_lce_lit.inc"
+#include "tx_isp_t40_dpc_lit.inc"
 #include "tx_isp_t40_isr_lit.inc"
 
 
@@ -12756,6 +12757,7 @@ static void regtrace_gc4653_tuning_again_update(uint32_t again_index)
      * value; both leaves return early when the value did not change.
      */
     regtrace_lce_tgain_update_lit(total);
+    regtrace_dpc_refresh_lit(total);
     if (regtrace_t40_defog_lit_active) {
         uint32_t it = READ_ONCE(regtrace_ae_soft_cur_it);
         uint32_t again_x1024 = tx_isp_exp2_u32(gain, 16, 10);
@@ -16246,6 +16248,15 @@ static int regtrace_isp_block_init_once(const char *where)
             regtrace_t40_quality_top40_final &= ~BIT(21);
         else
             regtrace_t40_quality_top40_final |= BIT(21);
+    }
+    /* and the literal OEM DPC chain (TOP bit 4, table driven, gain follow) */
+    if (regtrace_t40_dpc_on && regtrace_t40_gates_oem_offset) {
+        int pret = regtrace_dpc_init_lit();
+
+        if (!pret && !(regtrace_t40_force_bypass & BIT(4)))
+            regtrace_t40_quality_top40_final &= ~BIT(4);
+        else
+            regtrace_t40_quality_top40_final |= BIT(4);
     }
 
     if (regtrace_enable_soft_gamma)
@@ -23742,6 +23753,8 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
         REGTRACE_T40_DN_STEP(regtrace_defog_dn_refresh_lit(width, height));
     if (regtrace_t40_lce_lit_active)
         REGTRACE_T40_DN_STEP(regtrace_lce_dn_refresh_lit());
+    if (regtrace_t40_dpc_lit_active)
+        REGTRACE_T40_DN_STEP(regtrace_dpc_dn_refresh_lit());
 
     /* Every DNS/YSP initializer installs its bootstrap interpolation state.
      * The next completed frame must replay the live gain even when that gain
@@ -187713,7 +187726,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
             cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
             cancel_work_sync(&regtrace_isp_block_init_work);
             break;
-        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); regtrace_defog_lit_cleanup(); regtrace_lce_lit_cleanup(); t40_vawb_cleanup(); break;
+        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); regtrace_defog_lit_cleanup(); regtrace_lce_lit_cleanup(); regtrace_dpc_lit_cleanup(); t40_vawb_cleanup(); break;
         case 4: regtrace_dmsc_lit_cleanup(); break;
         case 5: regtrace_lsc_lit_cleanup(); break;
         case 6: regtrace_tisp_main_init_param_free(); tisp_disable_tuning(); break;
