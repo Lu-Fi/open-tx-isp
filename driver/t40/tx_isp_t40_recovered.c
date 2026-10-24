@@ -9058,6 +9058,9 @@ static bool regtrace_t40_tisp_stream_vendor;
 static bool regtrace_t40_ae_sensor_alloc_again = true;
 /* bisect aid: keep the quality profile but leave the literal DMSC path off */
 static bool regtrace_disable_dmsc_lit;
+static bool regtrace_t40_dmsc_follow = true;
+module_param_named(t40_dmsc_follow, regtrace_t40_dmsc_follow, bool, 0644);
+MODULE_PARM_DESC(t40_dmsc_follow, "1 (default): DMSC follows the active day/night bank and the total gain like the OEM (literal chain); 0 = old profile-1 behaviour (static DMSC)");
 /*
  * Eufy T40XP/sc830ai 2026-10-13: quality profile 0 plus the individually
  * verified blocks (MDNS, SDNS, YDNS, ADR, CCM, gamma, BLC, LSC, GIB) streams
@@ -10843,6 +10846,8 @@ static void regtrace_soft_gamma_write(void)
 #include "tx_isp_t40_dmsc_lit.inc"
 
 static int regtrace_t40_apply_dmsc_sharpness(uint8_t sharpness);
+static void regtrace_t40_dmsc_day_shadow_switch(bool lit_on);
+static bool regtrace_t40_dmsc_day_valid;
 #include "tx_isp_t40_clm_lit.inc"
 #include "tx_isp_t40_lsc_lit.inc"
 #include "tx_isp_t40_sdns_lit.inc"
@@ -12823,8 +12828,25 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
         regtrace_t40_quality_profile >= 1U && !flags[17];
     regtrace_enable_sdns =
         regtrace_t40_quality_profile >= 1U && !flags[18];
+    /*
+     * T40 night lift: with the default profile 1 the DMSC block ran on, but
+     * nobody re-interpolated it, so it kept low-gain day values at night
+     * (open night 0xa000.. = vendor day; vendor night = night bank at the
+     * total gain).  The literal OEM chain (tisp_dmsc_all_reg_refresh with
+     * the active bank and the total gain) reproduces the vendor night block
+     * bit-exactly (tests/t40/dmsc_night_host); swapping the vendor night
+     * values in on .184 took the dark+IR night p50 from 25 to 15 (vendor 11)
+     * and the temporal noise from 2.07 to 1.35 (vendor 1.25).
+     * In day mode the literal day bank desaturated the picture in this
+     * pipeline (chart chroma 0.38 instead of 1.14, CCM/BCSH are tuned
+     * against the static day DMSC), so profile 1 follows at night only and
+     * puts the day DMSC block back on the return (regtrace_t40_dmsc_day_*).
+     * t40_dmsc_follow=0 restores the old profile-1 behaviour.
+     */
     regtrace_enable_dmsc_lit =
-        regtrace_t40_quality_profile >= 2U && !flags[13];
+        (regtrace_t40_quality_profile >= 2U ||
+         (regtrace_t40_dmsc_follow && READ_ONCE(regtrace_running_mode))) &&
+        !regtrace_disable_dmsc_lit && !flags[13];
 
     if (regtrace_enable_soft_gamma)
         regtrace_t40_quality_top40_final &= ~BIT(10);
@@ -16797,6 +16819,11 @@ static int regtrace_isp_block_init_once(const char *where)
     if (regtrace_enable_dmsc_static)
         regtrace_dmsc_static_write();
 
+    if (regtrace_t40_quality_profile < 2U) {
+        /* block init writes the day DMSC block above: a new shadow */
+        regtrace_t40_dmsc_day_valid = false;
+        regtrace_t40_dmsc_day_shadow_switch(regtrace_enable_dmsc_lit);
+    }
     if (regtrace_enable_dmsc_lit) {
         int dmsc_ret = (int)regtrace_dmsc_main_init_lit();
 
@@ -24392,6 +24419,41 @@ static bool regtrace_t40_lsc_bank_matches(uint32_t nbuf, uint32_t width,
     return true;
 }
 
+/*
+ * T40 night lift: profile 1 runs the literal DMSC chain at night only.  The
+ * day DMSC block (static table + OEM init) is saved on the first switch to
+ * the literal chain and written back (with the DMSC trigger 0xa19c) when
+ * the literal chain goes off again on the return to day.  0xa18c..0xa198
+ * are status words and are not restored.
+ */
+#define T40_DMSC_SHADOW_WORDS (0x280U / 4U)
+static uint32_t regtrace_t40_dmsc_day_shadow[T40_DMSC_SHADOW_WORDS];
+static uint regtrace_t40_dmsc_day_restores;
+module_param_named(t40_dmsc_day_restores, regtrace_t40_dmsc_day_restores, uint, 0444);
+
+static void regtrace_t40_dmsc_day_shadow_switch(bool lit_on)
+{
+    unsigned int i;
+
+    if (lit_on && !regtrace_t40_dmsc_day_valid) {
+        for (i = 0; i < T40_DMSC_SHADOW_WORDS; i++)
+            regtrace_t40_dmsc_day_shadow[i] =
+                (uint32_t)system_reg_read(0xa000U + 4U * i);
+        regtrace_t40_dmsc_day_valid = true;
+    } else if (!lit_on && regtrace_t40_dmsc_day_valid) {
+        for (i = 0; i < T40_DMSC_SHADOW_WORDS; i++) {
+            uint32_t reg = 0xa000U + 4U * i;
+
+            if (reg >= 0xa18cU && reg <= 0xa19cU)
+                continue;
+            system_reg_write(reg, regtrace_t40_dmsc_day_shadow[i]);
+        }
+        system_reg_write(0xa19cU, 1U);
+        regtrace_t40_dmsc_day_valid = false;
+        regtrace_t40_dmsc_day_restores++;
+    }
+}
+
 static int regtrace_t40_refresh_daynight_pipeline(void)
 {
     uint32_t nbuf = *(uint32_t *)((char *)&tparamsN);
@@ -24432,6 +24494,8 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
         regtrace_t40_lsc_bank_matches(nbuf, width, height))
         REGTRACE_T40_DN_STEP(regtrace_lsc_main_init_lit(
             0, (const uint8_t *)(uintptr_t)nbuf, width, height));
+    if (regtrace_t40_quality_profile < 2U)
+        regtrace_t40_dmsc_day_shadow_switch(regtrace_enable_dmsc_lit);
     if (regtrace_enable_dmsc_lit) {
         REGTRACE_T40_DN_STEP(regtrace_dmsc_main_init_lit());
         if (!subret && regtrace_dmsc_sharpness != 128U)
