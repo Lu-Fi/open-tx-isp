@@ -50140,6 +50140,134 @@ static atomic_t regtrace_frame_3a_work_pending = ATOMIC_INIT(0);
 module_param_named(frame_3a_work_runs, regtrace_frame_3a_work_runs, uint, 0444);
 module_param_named(frame_3a_work_busy, regtrace_frame_3a_work_busy, uint, 0444);
 
+/*
+ * T40-TUNING-FOLLOW (2026-10-24): the per-frame tuning follow (DNS/YSP gain
+ * refresh, DMSC, LSC gain/CT, manual WBG, CCM CT/EV, BCSH saturation) lived
+ * only inside the FIFO frame-done work item.  With enable_core_ops_cb=1 the
+ * OEM ISR delivers the frames (leg A) and none of it ran (run5: ysp_gain_ev_now
+ * stayed 0, the denoisers kept their init strength at night).  Shared by both
+ * delivery paths now; the frame-3A work item calls it after the AE sample.
+ */
+static void regtrace_frame_done_tuning_follow(void)
+{
+    /* userspace 3A: retune DNS and independently retune YSP sharpening. */
+    if (regtrace_enable_ydns || regtrace_enable_ysp || regtrace_enable_mdns ||
+        regtrace_enable_sdns || regtrace_enable_cdns) {
+        uint32_t dns_ev = regtrace_dns_gain_ev + regtrace_dns_ev_boost;
+        uint32_t ysp_ev = regtrace_ysp_gain_ev ?
+                          regtrace_ysp_gain_ev : regtrace_dns_gain_ev;
+
+        if (dns_ev !=
+            READ_ONCE(regtrace_dns_ev_applied)) {
+            WRITE_ONCE(regtrace_dns_ev_applied,
+                       dns_ev);
+            if (regtrace_enable_ydns)
+                (void)tisp_ydns_par_refresh(
+                    0, dns_ev, 256);
+            if (regtrace_enable_mdns && main_mdns &&
+                !regtrace_mdns_dbg_init_ret)
+                (void)tisp_mdns_par_refresh_lit(
+                    0, dns_ev, 256);
+            if (regtrace_enable_sdns && main_sdns &&
+                !regtrace_sdns_dbg_init_ret)
+                (void)tisp_sdns_par_refresh_lit(
+                    0, dns_ev, 256);
+            if (regtrace_enable_cdns && main_cdns &&
+                !regtrace_cdns_dbg_init_ret)
+                (void)tisp_cdns_par_refresh_lit(
+                    0, dns_ev, regtrace_cdns_thresh);
+        }
+        if (regtrace_enable_ysp &&
+            ysp_ev != READ_ONCE(regtrace_ysp_ev_applied)) {
+            WRITE_ONCE(regtrace_ysp_ev_applied, ysp_ev);
+            (void)tisp_ysp_par_refresh(0, ysp_ev, 256);
+            regtrace_ysp_gain_ev_now = ysp_ev;
+        }
+    }
+
+    if (regtrace_enable_dmsc_lit)
+        regtrace_dmsc_lit_gain_update(regtrace_dmsc_lit_gain);
+
+    /*
+     * LSC consumes the sensor's real 16.16 log2 gain, not the stronger
+     * empirical EV used to make the recovered DNS blocks match stock
+     * noise.  Keeping these controls coupled over-corrected the mesh
+     * corners (for example GC4653 LUT index 4 is 65535, while userspace
+     * deliberately drives DNS at 196608).
+     */
+    if (regtrace_enable_lsc_lit) {
+        static uint32_t lsc_gain_applied;
+        static uint32_t lsc_ct_applied;
+
+        if (regtrace_lsc_lit_gain != lsc_gain_applied) {
+            lsc_gain_applied = regtrace_lsc_lit_gain;
+            regtrace_lsc_lit_gain_update(0, lsc_gain_applied);
+        }
+
+        /*
+         * With WB-derived CT tracking disabled, lsc_lit_ct is the
+         * explicit forensic control.  The old module parameter changed
+         * only the backing integer after init, so apparent live CT
+         * sweeps all captured the same LUT.  Apply a changed value at a
+         * completed-frame boundary, using the same immediate LUT flush
+         * as the OEM CT update path.
+         */
+        if (!regtrace_lsc_lit_ct_track &&
+            regtrace_lsc_lit_ct != lsc_ct_applied) {
+            lsc_ct_applied = regtrace_lsc_lit_ct;
+            regtrace_lsc_lit_ct_update(0, lsc_ct_applied);
+            regtrace_lsc_lit_ct_now = lsc_ct_applied;
+        }
+    }
+
+    /* userspace 3A: apply manual WBG gains when they change */
+    if (!READ_ONCE(regtrace_running_mode) &&
+        regtrace_awb_manual_rgain && regtrace_awb_manual_bgain) {
+        static uint32_t manual_applied_r, manual_applied_b;
+
+        if (regtrace_awb_manual_rgain != manual_applied_r ||
+            regtrace_awb_manual_bgain != manual_applied_b) {
+            manual_applied_r = regtrace_awb_manual_rgain;
+            manual_applied_b = regtrace_awb_manual_bgain;
+            regtrace_awb_grayworld_last_rgain = manual_applied_r;
+            regtrace_awb_grayworld_last_bgain = manual_applied_b;
+            regtrace_awb_grayworld_apply(manual_applied_r,
+                                         manual_applied_b);
+        }
+    }
+
+    /* Explicit forensic CT remains live when automatic gain-derived
+     * tracking is disabled. */
+    if (regtrace_enable_ccm && !regtrace_ccm_ct_track &&
+        (regtrace_ccm_ct != regtrace_ccm_ct_now ||
+         regtrace_ccm_ev != regtrace_ccm_ev_now))
+        regtrace_ccm_main_ct_update_lit(regtrace_ccm_ct, false);
+    else if (regtrace_enable_ccm && regtrace_ccm_ct_track &&
+             regtrace_ccm_ev != regtrace_ccm_ev_now)
+        regtrace_ccm_main_ct_update_lit(regtrace_ccm_ct, false);
+
+    /* Apply module-parameter changes through the same translated BCSH
+     * state/update path used by the tuning ioctl. */
+    if (regtrace_enable_bcsh) {
+        static uint32_t sat_applied;
+        uint32_t sat = regtrace_bcsh_saturation;
+
+        if (sat > 255)
+            sat = 255;
+        if (sat != sat_applied) {
+            int sat_ret;
+
+            sat_applied = sat;
+            sat_ret = regtrace_isp_m0_apply_saturation(
+                READ_ONCE(regtrace_running_mode) ? 0U : (uint8_t)sat);
+            printk(KERN_INFO
+                   "tx_isp_t40_recovered: bcsh saturation updated to %u/128 ret=%d\n",
+                   sat, sat_ret);
+        }
+    }
+
+}
+
 static void regtrace_frame_3a_workfn(struct work_struct *work)
 {
     uint32_t y = READ_ONCE(regtrace_frame_3a_work_y);
@@ -50152,6 +50280,7 @@ static void regtrace_frame_3a_workfn(struct work_struct *work)
         return;
     regtrace_frame_3a_sample(y, uv);
     regtrace_ae_sensor_apply_maybe(0, "frame-3a-work");
+    regtrace_frame_done_tuning_follow();
 }
 static DECLARE_WORK(regtrace_frame_3a_work, regtrace_frame_3a_workfn);
 
@@ -50600,121 +50729,7 @@ static void regtrace_irq_frame_done_workfn(struct work_struct *work)
          */
         regtrace_isp_block_init_retry("frame-done");
 
-        /* userspace 3A: retune DNS and independently retune YSP sharpening. */
-        if (regtrace_enable_ydns || regtrace_enable_ysp || regtrace_enable_mdns ||
-            regtrace_enable_sdns || regtrace_enable_cdns) {
-            uint32_t dns_ev = regtrace_dns_gain_ev + regtrace_dns_ev_boost;
-            uint32_t ysp_ev = regtrace_ysp_gain_ev ?
-                              regtrace_ysp_gain_ev : regtrace_dns_gain_ev;
-
-            if (dns_ev !=
-                READ_ONCE(regtrace_dns_ev_applied)) {
-                WRITE_ONCE(regtrace_dns_ev_applied,
-                           dns_ev);
-                if (regtrace_enable_ydns)
-                    (void)tisp_ydns_par_refresh(
-                        0, dns_ev, 256);
-                if (regtrace_enable_mdns && main_mdns &&
-                    !regtrace_mdns_dbg_init_ret)
-                    (void)tisp_mdns_par_refresh_lit(
-                        0, dns_ev, 256);
-                if (regtrace_enable_sdns && main_sdns &&
-                    !regtrace_sdns_dbg_init_ret)
-                    (void)tisp_sdns_par_refresh_lit(
-                        0, dns_ev, 256);
-                if (regtrace_enable_cdns && main_cdns &&
-                    !regtrace_cdns_dbg_init_ret)
-                    (void)tisp_cdns_par_refresh_lit(
-                        0, dns_ev, regtrace_cdns_thresh);
-            }
-            if (regtrace_enable_ysp &&
-                ysp_ev != READ_ONCE(regtrace_ysp_ev_applied)) {
-                WRITE_ONCE(regtrace_ysp_ev_applied, ysp_ev);
-                (void)tisp_ysp_par_refresh(0, ysp_ev, 256);
-                regtrace_ysp_gain_ev_now = ysp_ev;
-            }
-        }
-
-        if (regtrace_enable_dmsc_lit)
-            regtrace_dmsc_lit_gain_update(regtrace_dmsc_lit_gain);
-
-        /*
-         * LSC consumes the sensor's real 16.16 log2 gain, not the stronger
-         * empirical EV used to make the recovered DNS blocks match stock
-         * noise.  Keeping these controls coupled over-corrected the mesh
-         * corners (for example GC4653 LUT index 4 is 65535, while userspace
-         * deliberately drives DNS at 196608).
-         */
-        if (regtrace_enable_lsc_lit) {
-            static uint32_t lsc_gain_applied;
-            static uint32_t lsc_ct_applied;
-
-            if (regtrace_lsc_lit_gain != lsc_gain_applied) {
-                lsc_gain_applied = regtrace_lsc_lit_gain;
-                regtrace_lsc_lit_gain_update(0, lsc_gain_applied);
-            }
-
-            /*
-             * With WB-derived CT tracking disabled, lsc_lit_ct is the
-             * explicit forensic control.  The old module parameter changed
-             * only the backing integer after init, so apparent live CT
-             * sweeps all captured the same LUT.  Apply a changed value at a
-             * completed-frame boundary, using the same immediate LUT flush
-             * as the OEM CT update path.
-             */
-            if (!regtrace_lsc_lit_ct_track &&
-                regtrace_lsc_lit_ct != lsc_ct_applied) {
-                lsc_ct_applied = regtrace_lsc_lit_ct;
-                regtrace_lsc_lit_ct_update(0, lsc_ct_applied);
-                regtrace_lsc_lit_ct_now = lsc_ct_applied;
-            }
-        }
-
-        /* userspace 3A: apply manual WBG gains when they change */
-        if (!READ_ONCE(regtrace_running_mode) &&
-            regtrace_awb_manual_rgain && regtrace_awb_manual_bgain) {
-            static uint32_t manual_applied_r, manual_applied_b;
-
-            if (regtrace_awb_manual_rgain != manual_applied_r ||
-                regtrace_awb_manual_bgain != manual_applied_b) {
-                manual_applied_r = regtrace_awb_manual_rgain;
-                manual_applied_b = regtrace_awb_manual_bgain;
-                regtrace_awb_grayworld_last_rgain = manual_applied_r;
-                regtrace_awb_grayworld_last_bgain = manual_applied_b;
-                regtrace_awb_grayworld_apply(manual_applied_r,
-                                             manual_applied_b);
-            }
-        }
-
-        /* Explicit forensic CT remains live when automatic gain-derived
-         * tracking is disabled. */
-        if (regtrace_enable_ccm && !regtrace_ccm_ct_track &&
-            (regtrace_ccm_ct != regtrace_ccm_ct_now ||
-             regtrace_ccm_ev != regtrace_ccm_ev_now))
-            regtrace_ccm_main_ct_update_lit(regtrace_ccm_ct, false);
-        else if (regtrace_enable_ccm && regtrace_ccm_ct_track &&
-                 regtrace_ccm_ev != regtrace_ccm_ev_now)
-            regtrace_ccm_main_ct_update_lit(regtrace_ccm_ct, false);
-
-        /* Apply module-parameter changes through the same translated BCSH
-         * state/update path used by the tuning ioctl. */
-        if (regtrace_enable_bcsh) {
-            static uint32_t sat_applied;
-            uint32_t sat = regtrace_bcsh_saturation;
-
-            if (sat > 255)
-                sat = 255;
-            if (sat != sat_applied) {
-                int sat_ret;
-
-                sat_applied = sat;
-                sat_ret = regtrace_isp_m0_apply_saturation(
-                    READ_ONCE(regtrace_running_mode) ? 0U : (uint8_t)sat);
-                printk(KERN_INFO
-                       "tx_isp_t40_recovered: bcsh saturation updated to %u/128 ret=%d\n",
-                       sat, sat_ret);
-            }
-        }
+        regtrace_frame_done_tuning_follow();
 
         if (regtrace_irq_frame_done_dry_run) {
             regtrace_irq_frame_done_record_dry((int)channel, source, y,
