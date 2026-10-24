@@ -682,5 +682,14 @@ vendor (`audit/ab-t41/COMPARE.md`, open184d).
 - Device (Eufy .184, test module against the agg43d kernel, `measure.sh open184e`, defog + LCE on): day contrast std
   53.3 (vendor 50.8, before 47.0), day edge energy 4.69 (vendor 5.23, before 3.76), day black p1 17 (vendor 17, before
   26); night luma 82.3 (vendor 78.7, before 65.9), night std 36.6 (35.6), night edge 3.00 (2.44); grey balance 7 / 4 %
-  (vendor 12 / 11 %); 0 oops, ISR and process once per frame. TOP with both on: `0x7FD9009D` (bits 4 and 7 still set
-  until DPC/ADR are enabled).
+  (vendor 12 / 11 %); 0 oops, ISR and process once per frame. With all four chains (`open184f`, defaults since
+  cf49b97c): TOP `0x7FD9000D` (vendor `0x7FD9004D`, bit 6 = AWB stage 2 differs), day edge 5.02 / luma 120 / std 49.6 /
+  p1 15, night luma 88 / std 37.1 / edge 2.8 / p1 20 (vendor 7), grey balance 1.5 / 0.9 %.
+- AE gain ceiling from the sensor attribute (`ae_max_again_from_sensor`, default 1; `t40_ae_max_again_index_eff`
+  read-only): the gain ladder (`regtrace_gc4653_again_log2_gain`) is the GC4653 one, index 25 = 76x, while the sc830ai
+  attribute says max_again 5.0 log2 (32x). The sensor's alloc_again clamped indices 21..25 silently, but AeAGain and
+  every gain-indexed table saw 76x at night. The ceiling is now the highest ladder step within the attribute's
+  max_again (index 20 on the sc830ai), the ISP digital gain stage starts there like the OEM `tisp_ae_main_s_max_again`.
+  Night re-test pending (candidate for the night black level p1 20 against the vendor's 7).
+- Open: colour saturation after the night -> day return (HSV S 15 against the vendor's 51, also before this branch;
+  `enable_bcsh=Y`), TOP bit 6.
