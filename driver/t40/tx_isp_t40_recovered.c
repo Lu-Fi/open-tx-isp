@@ -7459,6 +7459,7 @@ module_param_named(t40_ev_updates, regtrace_t40_ev_updates, bool, 0644);
 static bool regtrace_t40_loopguard;
 static void regtrace_loopguard(const char *fn, const char *lbl);
 #define REGTRACE_LOOPGUARD_BUDGET (regtrace_t40_loopguard ? 2000000U : 0xffffffffU)
+static u32 t40_wdr_out_mode[2];  /* SetWdrOutputMode shadow (linear sensor: flag only) */
 static unsigned int t40_csc_unsafe;  /* 1: allow the broken lifted CSC and CCM get/set (debug only) */
 module_param(t40_csc_unsafe, uint, 0644);
 MODULE_PARM_DESC(t40_csc_unsafe, "allow the lifted OEM CSC get/set (stack/bss overflow, debug only)");
@@ -47208,11 +47209,19 @@ label_b660:
             return tx_isp_af_weight_s_attr_isra_13(arg1, arg3[1]);
     }
 
-    copy_from_user(&var_88, (void __user *)arg3[1], 4);
-    char *a1_13 = &var_88;
-    void *a0_8 = arg1;
-    int (*v0_10)(int, int *) = tisp_set_wdr_output_mode;
-    return v0_10((int)a0_8, (int *)a1_13);
+    /* T40-WDR-OUTMODE-SHADOW: the lifted tisp_set_wdr_output_mode walks the WDR parameter array
+     * (null on a linear sensor, oops at tisp_wdr_param_array_get on the Eufy sc830ai 2026-10-24).
+     * Like the vendor on a linear sensor the mode is a stored flag. */
+    {
+        u32 wm = 0, vi = (u32)(uintptr_t)arg1;
+
+        if (copy_from_user(&wm, (void __user *)arg3[1], 4))
+            return -EFAULT;
+        if (wm > 2 || vi > 1)
+            return -EINVAL;
+        t40_wdr_out_mode[vi] = wm;
+        return 0;
+    }
 
 label_b3e8:
     isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", a2_2);
@@ -47533,8 +47542,10 @@ label_c33c_vfree:
         }
 
         if (cmd == 0x8000054) {
-            tisp_get_wdr_output_mode(arg1, __p_80);
-            private_copy_to_user(arg3[1], __p_80, 4);
+            u32 wm = arg1 > 1 ? 0 : t40_wdr_out_mode[arg1];
+
+            if (copy_to_user((void __user *)(uintptr_t)arg3[1], &wm, 4))
+                return -EFAULT;
             return 0;
         }
 
