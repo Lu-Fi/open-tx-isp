@@ -10134,6 +10134,7 @@ module_param_named(t40_rmmod_skip_slake, regtrace_t40_rmmod_skip_slake, bool, 06
  * System.map addresses of the Eufy 4.4.94 kernel are module params.
  */
 static int regtrace_is_kernel_ptr(const void *ptr);
+static int regtrace_is_kernel_ptr_any(const void *ptr);
 static int regtrace_fr_mark(uint32_t id, uint32_t aux);
 static bool regtrace_panic_dump_enable = true;
 static uint regtrace_panic_dump_phys = 0xe9f0000U;
@@ -12280,6 +12281,47 @@ static void regtrace_ccm_main_ct_update_lit(uint32_t ct, bool force)
 static uint8_t t40_csc_state[2][92] T40C2;
 static struct mutex t40_csc_attr_lock T40C2 = __MUTEX_INITIALIZER(t40_csc_attr_lock);
 static inline uint32_t t40_csc_abs(int32_t v) { return v < 0 ? (uint32_t)(-v) : (uint32_t)v; }
+
+/*
+ * T40-CSC-BCSH: OEM tisp_set_csc_attr (1.3.1 0x717d0) = tisp_csc_set_attr + tisp_bcsh_csc_attr.  The second
+ * half is what changes the picture: the ch0 RGB->YUV conversion is done by the BCSH block (0x110xx), whose
+ * matrix/offset/clip set is chosen by the gamut byte *ctx[27] (0 BT601 full, 1 BT601 limited, 2 BT709 full,
+ * 3 BT709 limited, 4 user tables from ctx[28..30]).  tisp_bcsh_csc_attr: *ctx[27] = attr[0], busy *ctx[6] = 1,
+ * tisp_bcsh_params_refresh(ctx, outer, tparamsN[vinum] + 0x11e38), tisp_bcsh_ev_update + ct_update, busy = 0.
+ * The CSC 0xd010.. registers alone (what the open driver did) leave ch0 unchanged (cells2 18:13: BT601
+ * FULL vs LIMITED identical).  Only vinum 0 has a literal BCSH state; the gamut is also kept for the BCSH
+ * re-init on day/night (vendor keeps it in the ctx, its DN refresh does not re-run tisp_bcsh_init(2)).
+ */
+static int t40_csc_bcsh_apply(uint32_t vinum, uint32_t gamut)
+{
+    uint8_t *modep, *busy;
+    uint32_t nbuf = (uint32_t)tparamsN[0];
+    int ret = 0;
+
+    if (vinum != 0)
+        return 0;
+    mutex_lock(&regtrace_t40_running_mode_lock);
+    regtrace_bcsh_mode = gamut & 0xffU;
+    if (!regtrace_enable_bcsh || !stMainBcshOuter_lit || !nbuf ||
+        !regtrace_is_kernel_ptr_any((void *)(uintptr_t)pstMainBcshOri_lit[27]) ||
+        !regtrace_is_kernel_ptr_any((void *)(uintptr_t)pstMainBcshOri_lit[6])) {
+        ret = -ENODEV;   /* stored, applied by the next BCSH init */
+        goto out;
+    }
+    modep = (uint8_t *)(uintptr_t)pstMainBcshOri_lit[27];
+    busy = (uint8_t *)(uintptr_t)pstMainBcshOri_lit[6];
+    *modep = (uint8_t)gamut;
+    *busy = 1U;
+    (void)tisp_bcsh_params_refresh_lit((uint32_t)(uintptr_t)pstMainBcshOri_lit,
+                                       (uint32_t)stMainBcshOuter_lit, nbuf + 0x11e38U);
+    (void)tisp_bcsh_ev_update_lit((uint32_t)(uintptr_t)pstMainBcshOri_lit, 0);
+    (void)tisp_bcsh_ct_update_lit((uint32_t)(uintptr_t)pstMainBcshOri_lit, 0);
+    *busy = 0U;
+out:
+    mutex_unlock(&regtrace_t40_running_mode_lock);
+    return ret;
+}
+
 static int t40_csc_attr_set(uint32_t vinum, const uint8_t *buf)
 {
     const uint32_t *w = (const uint32_t *)buf;
@@ -12311,6 +12353,11 @@ static int t40_csc_attr_set(uint32_t vinum, const uint8_t *buf)
     memcpy(t40_csc_state[vinum], buf, 92);
 out:
     mutex_unlock(&t40_csc_attr_lock);
+    if (!ret) {
+        int bret = t40_csc_bcsh_apply(vinum, std);   /* OEM: return value of tisp_csc_set_attr only */
+
+        isp_printf(1, "%s: gamut %u csc ok, bcsh ret=%d\n", "tisp_set_csc_attr", std, bret);
+    }
     return ret;
 }
 
@@ -16474,6 +16521,58 @@ static int32_t regtrace_mdns_main_init_lit(uint32_t width, uint32_t height)
     printk(KERN_INFO "tx_isp_t40_recovered: mdns-main-init-lit done par=%p w=%u h=%u reg68=0x%x\n",
            (void *)(uintptr_t)main_mdns, width, height, regtrace_mdns_dbg_reg68);
     return 0;
+}
+
+/*
+ * T40-TEMPER-RATIO: hand translation of OEM tisp_s_mdns_ratio (SDK 1.3.1 0x5f540, Eufy 0x5ffd0) for vinum 0 on
+ * the literal MDNS state.  ratio = tattr[vinum * 128 + 844] if the Module_Ratio temper entry (+840) is enabled,
+ * else 128.  For 11 nodes of 7 strength curves the pristine bank value (tparamsN[0] + 0x10000 + off, linear or
+ * WDR set by the wdr flag) is scaled into the par blob through the comb pointers: ratio <= 128 -> v * ratio >> 7,
+ * ratio > 128 -> v + ((ratio - 128) * (cap - v) >> 7) with cap 230 (comb 9/21) or 250 (comb 10/3/6/0/1), 0 when
+ * v >= cap.  Then tisp_mdns_refresh(vinum, gain_old) reprograms the registers with the current gain.  The bank
+ * stays untouched, so the ratio is absolute (idempotent).  OEM tisp_mdns_dn_params_refresh tail-calls it after
+ * the day/night bank reload.  The lifted body read comb/bank through isp_memopt-relative slots.
+ */
+/* one node of OEM tisp_s_mdns_ratio: "mul; ext 7,8" below 129, "sltiu cap; subu; mul; sra 7; addu; andi 0xff" above */
+static inline uint8_t t40_mdns_ratio_scale(uint32_t v, uint32_t ratio, uint32_t cap)
+{
+    if (ratio <= 128U)
+        return (uint8_t)((v * ratio) >> 7);
+    return (uint8_t)(v + (uint32_t)((int32_t)((ratio - 128U) * (v < cap ? cap - v : 0U)) >> 7));
+}
+
+static int regtrace_mdns_ratio_lit(void)
+{
+    /* own section like all new T40 state: .rodata/.bss/.data offsets stay those of the lift */
+    static struct { uint16_t lin, wdr; uint8_t comb, cap; } tbl[7] T40C2 = {
+        { 4440, 5805,  9, 230 }, { 4925, 5937, 21, 230 }, { 4451, 5816, 10, 250 },
+        { 4297, 5739,  3, 250 }, { 4363, 5772,  6, 250 }, { 4198, 5706,  0, 250 },
+        { 4209, 5717,  1, 250 },
+    };
+    const uint8_t *tattr = (const uint8_t *)(uintptr_t)*(uint32_t *)&tisp_tattr;
+    const uint8_t *bank = (const uint8_t *)tparamsN[0];
+    const uint32_t *comb = (const uint32_t *)main_mdns_comb;
+    uint32_t ratio = 128U, wdr = regtrace_mdns_wdr_flags[0] ? 1U : 0U;
+    uint32_t i, k;
+
+    if (!regtrace_enable_mdns || !main_mdns || !comb || regtrace_mdns_dbg_init_ret ||
+        !regtrace_is_kernel_ptr(bank))
+        return -ENODEV;
+    if (regtrace_is_kernel_ptr(tattr) && *(const uint32_t *)(tattr + 840))
+        ratio = tattr[844];
+    for (k = 0; k < ARRAY_SIZE(tbl); k++) {
+        const uint8_t *src = bank + 0x10000U + (wdr ? tbl[k].wdr : tbl[k].lin);
+        uintptr_t d = (uintptr_t)comb[tbl[k].comb];
+        uint8_t *dst = (uint8_t *)d;
+
+        /* comb entries point into the 2398-byte par blob (tisp_mdns_wdr_en) */
+        if (d < main_mdns || d + 11U > main_mdns + 2398U)
+            return -EFAULT;
+        for (i = 0; i < 11; i++)
+            dst[i] = t40_mdns_ratio_scale(src[i], ratio, tbl[k].cap);
+    }
+    (void)tisp_mdns_refresh_lit(0, regtrace_mdns_gain_old);
+    return (int)ratio;
 }
 
 static int regtrace_isp_block_init_once(const char *where)
@@ -24371,9 +24470,13 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
         REGTRACE_T40_DN_STEP(regtrace_cdns_main_init_lit());
         regtrace_t40_cdns_top_bit(subret);
     }
-    if (regtrace_enable_mdns)
+    if (regtrace_enable_mdns) {
         REGTRACE_T40_DN_STEP(
             regtrace_mdns_main_init_lit(width, height));
+        /* OEM tisp_mdns_dn_params_refresh tail-calls tisp_s_mdns_ratio: keep the temper ratio */
+        if (!subret)
+            (void)regtrace_mdns_ratio_lit();
+    }
     if (regtrace_enable_ydns)
         REGTRACE_T40_DN_STEP(tisp_ydns_main_init());
     /* OEM tisp_day_or_night_s_ctrl also refreshes ADR from the new bank */
@@ -171185,169 +171288,37 @@ int32_t tisp_gsm_set_hist_bin(uint32_t arg1, uint32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000071300 origin=fragment_seed original=tisp_set_csc_version */
 int32_t tisp_set_csc_version(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    /* T40-CSC-VERSION: hand translation of OEM tisp_set_csc_version (SDK 1.3.1 0x70870).  Standards 0..3
+     * (BT601 full / BT601 limited / BT709 full / BT709 limited) program CSC registers +0x10/+0x14/+0x18/+0x20/
+     * +0x30 of base (vinum + 416) << 7 and store the standard in csc_attr[vinum] word 0; others print and
+     * return -1.  The lift lost the << 7 of the base for most writes (stray writes to ISP registers around
+     * 0x1a0..0x1d0) and stored the standard 85 KB past isp_memopt (t40_c2_stray keeps that for bisects). */
+    static uint32_t tbl[4][5] T40C2 = {
+        { 0x07596532U, 0x20054cadU, 0x0536b600U, 0x8000U, 0xff00ff00U },   /* 0 BT601 full */
+        { 0x06481107U, 0x1c24a898U, 0x0495e5c2U, 0x8010U, 0xeb10f010U },   /* 1 BT601 limited */
+        { 0x04ab70daU, 0x20062c75U, 0x02f74600U, 0x8000U, 0xff00ff00U },   /* 2 BT709 full */
+        { 0x03f9d4bbU, 0x1c256c67U, 0x029661c2U, 0x8010U, 0xeb10f010U },   /* 3 BT709 limited */
+    };
+    uint32_t base = (a0 + 416U) << 7;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = 1;
-
-    /* fragment 2: StackAccess */
-    local_28 = s3;
-    local_1c = s0;
-    local_2c = ra;
-    local_24 = s2;
-    local_20 = s1;
-    s0 = a0;
-
-    /* fragment 3: Branch */
-    s3 = a1;
-    if (a1 == v0) { goto tisp_set_csc_version0x78; }
-
-    /* fragment 4: Branch */
-    v0 = 2;
-    if (a1 == 0) { goto tisp_set_csc_version0xd0; }
-
-    /* fragment 5: Branch */
-    int _bc_a1_5 = a1 == v0;
-    v0 = 3;
-    if (_bc_a1_5) { goto tisp_set_csc_version0x19c; }
-
-    /* fragment 6: Branch */
-    s2 = a0 + 416;
-    if (a1 == v0) { goto tisp_set_csc_version0x164; }
-
-    /* fragment 7: CallSetup */
-    local_14 = 82;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC0, &__param_str_isp_dual_buf, 82); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    v0 = -1;
-    goto tisp_set_csc_version0x148;
-
-tisp_set_csc_version0x78:
-    /* fragment 9: CallSetup */
-    s2 = a0 + 416;
-    s2 = (uintptr_t)s2 << 7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(((a0 + 416) << 7) + 16, 105381888 + 4359); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s2 + 20, 472121344 | 43160); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    a1 = 76873728;
-    a1 = a1 | 58818;
-
-tisp_set_csc_version0xb0:
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 24, a1); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 32, 32784); /* jalr target resolved by relocation */
-
-    /* fragment 14: Arithmetic */
-    a1 = 3943694336;
-
-    /* fragment 15: Branch */
-    a1 = a1 | 61456;
-    goto tisp_set_csc_version0x124;
-
-tisp_set_csc_version0xd0:
-    /* fragment 16: CallSetup */
-    s2 = a0 + 416;
-    s2 = (uintptr_t)s2 << 7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(((a0 + 416) << 7) + 16, 123273216 + 25906); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 20, 537198592 + 19629); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    a1 = 87425024;
-    a1 = a1 | 46592;
-
-tisp_set_csc_version0x108:
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 24, a1); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 32, 32768); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    a1 = 4278190080;
-    a1 = a1 | 65280;
-
-tisp_set_csc_version0x124:
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 48, a1); /* jalr target resolved by relocation */
-
-    /* fragment 23: Arithmetic */
-    /* T40-CSC-SET: OEM stores the standard in csc_attr[vinum] (.bss+21328, 92 bytes each).  The lift added
-     * 21344 to the ADDRESS OF the int module parameter isp_memopt (scaled x4 = 85 KB past it), so every
-     * tisp_set_csc_version (also the one in tisp_main_init) wrote the value into unrelated module data. */
+    if (a1 > 3U) {
+        isp_printf(2, "%s[%d] VIC do not support this format %d\n", "tisp_set_csc_version", 82, a1);
+        return -1;
+    }
+    (void)system_reg_write(base + 16U, tbl[a1][0]);
+    (void)system_reg_write(base + 20U, tbl[a1][1]);
+    (void)system_reg_write(base + 24U, tbl[a1][2]);
+    (void)system_reg_write(base + 32U, tbl[a1][3]);
+    (void)system_reg_write(base + 48U, tbl[a1][4]);
     if (t40_c2_stray) {   /* the original lift: store into unrelated module data */
         uintptr_t *vv = (uintptr_t *)&isp_memopt;
         vv = vv + 21344;
-        *(uint32_t *)((char *)((uintptr_t)s0 * 92U + (uintptr_t)vv)) = s3;
+        *(uint32_t *)((char *)((uintptr_t)a0 * 92U + (uintptr_t)vv)) = a1;
     }
-    if ((uint32_t)s0 < 2U) {
-        memset(t40_csc_state[(uint32_t)s0], 0, sizeof(t40_csc_state[0]));
-        *(uint32_t *)t40_csc_state[(uint32_t)s0] = s3;
+    if (a0 < 2U) {
+        memset(t40_csc_state[a0], 0, sizeof(t40_csc_state[0]));
+        *(uint32_t *)t40_csc_state[a0] = a1;
     }
-    v0 = 0;
-
-tisp_set_csc_version0x148:
-    /* fragment 25: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_set_csc_version0x164:
-    /* fragment 26: CallSetup */
-    s2 = (uintptr_t)s2 << 7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(((uintptr_t)s2 << 7) + 16, 66650112 | 54459); /* jalr target resolved by relocation */
-
-    /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 20, 472186880 + 27751); /* jalr target resolved by relocation */
-
-    /* fragment 28: Arithmetic */
-    a1 = 43384832;
-
-    /* fragment 29: Branch */
-    a1 = a1 + 25026;
-    goto tisp_set_csc_version0xb0;
-
-tisp_set_csc_version0x19c:
-    /* fragment 30: CallSetup */
-    s2 = a0 + 416;
-    s2 = (uintptr_t)s2 << 7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(((a0 + 416) << 7) + 16, 78315520 + 28890); /* jalr target resolved by relocation */
-
-    /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 20, 537264128 + 11381); /* jalr target resolved by relocation */
-
-    /* fragment 32: Arithmetic */
-    a1 = 49741824;
-
-    /* fragment 33: Branch */
-    a1 = a1 + 17920;
-    goto tisp_set_csc_version0x108;
-
     return 0;
 }
 
@@ -175703,9 +175674,9 @@ int32_t tisp_s_module_ratio_attr(uint32_t a0, uintptr_t a1)
     /* T40-MODULE-RATIO: hand translation of OEM tisp_s_module_ratio_attr (Eufy 0x74cd0): 5 entries
      * {u32 enable, u8 ratio} (sdns, mdns, drc, dpc, defog) cached at tattr + vinum * 128 + 832;
      * an entry is applied only when it changed.  The lift left the index uninitialised and sent
-     * every entry to the sdns/mdns setter.  mdns/drc/dpc/defog ratio setters are still lifted
-     * bodies with isp_memopt-relative tables: they are not called until hand-translated (the
-     * value is cached, GetModule_Ratio returns it). */
+     * every entry to the sdns/mdns setter.  sdns/mdns(temper)/drc/defog are applied on the literal
+     * states; the dpc ratio setter is still a lifted body with isp_memopt-relative tables and is
+     * not called (the value is cached, GetModule_Ratio returns it). */
     uint8_t *t = (uint8_t *)(uintptr_t)*(uint32_t *)&tisp_tattr;
     const uint8_t *A = (const uint8_t *)a1;
     uint32_t i;
@@ -175726,6 +175697,11 @@ int32_t tisp_s_module_ratio_attr(uint32_t a0, uintptr_t a1)
                 (void)regtrace_sdns_main_init_lit();
                 WRITE_ONCE(regtrace_dns_ev_applied, 0xffffffffU);
             }
+        } else if (i == 1 && a0 == 0) {
+            /* temper (MDNS) ratio -> literal OEM tisp_s_mdns_ratio on the private MDNS state */
+            int mret = regtrace_mdns_ratio_lit();
+
+            isp_printf(1, "%s: temper ratio %u -> mdns ret=%d\n", "tisp_s_module_ratio_attr", r, mret);
         } else if (i == 2 && a0 == 0) {
             /* DRC ratio -> literal OEM tisp_s_drc_ratio on the private ADR state */
             int dret = regtrace_adr_drc_ratio_lit();

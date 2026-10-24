@@ -733,3 +733,21 @@ analog gain only (5.0 log2 at night), so the black level stayed at node 5 while 
 became a pedestal in the night picture (Y p1 12..20 against the vendor's 7). The sensor gain update now passes the
 total gain (`regtrace_gc4653_tuning_again_update`: `tisp_gib_a_gian_update(0, total)`); day is unchanged because the
 ISP digital gain is 1x there. `SetModule_Ratio` defog -> literal `tisp_s_defog_ratio`; Temper remains cached only.
+
+## CSC gamut and Temper ratio (2026-10-24, `claude/t40-csc-temper`)
+
+- Set/GetISPCSCAttr (CID 0x8000096): OEM `tisp_set_csc_attr` = `tisp_csc_set_attr` (registers 0xd010/14/18/20/30
+  + 0x80 per vinum, state 92 bytes; libimp exchanges 64) + `tisp_bcsh_csc_attr`. The second call is the visible part:
+  the BCSH block does the ch0 RGB -> YUV and `*ctx[27]` (0 BT601 full, 1 BT601 limited, 2 BT709 full, 3 BT709 limited,
+  4 user tables) selects the matrix/offset/clip set in `tisp_bcsh_params_refresh` (bank + 0x11e38). Implemented in
+  `t40_csc_bcsh_apply()` (vinum 0, under the running-mode lock): gamut byte, busy flag, params refresh, EV/CT update.
+  `bcsh_mode` (module parameter, OEM init value 2) follows the gamut so a day/night BCSH re-init keeps it.
+  `tisp_set_csc_version` is literal now (tables for standards 0..3). Device 2026-10-24: BCSH 0x11000..0x11014 follow
+  the gamut, 0xd010.. read back the BT709-full init values after every write and 0xd000 reads 0; the ch0 picture is
+  unchanged between gamuts (open, vendor register dump needed).
+- Module_Ratio temper (index 1): `regtrace_mdns_ratio_lit()` = OEM `tisp_s_mdns_ratio` (1.3.1 0x5f540). Bank nodes at
+  tparamsN[0] + 0x10000 + {4440, 4925, 4451, 4297, 4363, 4198, 4209} (WDR: {5805, 5937, 5816, 5739, 5772, 5706,
+  5717}) x 11 are scaled into par through comb[9, 21, 10, 3, 6, 0, 1]: ratio <= 128 -> v * r >> 7, above ->
+  v + ((r - 128) * (cap - v) >> 7), cap 230 for comb 9/21 and 250 otherwise; then `tisp_mdns_refresh(0, gain_old)`.
+  Also called after the DN MDNS reload (OEM `tisp_mdns_dn_params_refresh` tail). Only the DPC ratio is still cached.
+  Device: 28-35 MDNS registers change per ratio step (0/128/255); temporal noise 1.16 / 0.82 / 1.08.
