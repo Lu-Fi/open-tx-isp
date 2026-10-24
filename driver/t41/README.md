@@ -857,6 +857,20 @@ step and do not continue with larger sizes.
    script. Pass: no reset, `msca_ctl_failed` = 0, `msca_latch_timeouts`
    unchanged, both streams 25 fps at the end.
 
+### Device results 2026-10-24 (Cinnado .34, sc5336, ch0 1920x1080 + ch1 640x360, FixQP)
+
+- `t41_msca_ch1_max_w/h` is 1920x1080 in the shipped image (not 1280x720);
+  the live envelope `t41_msca_live_max_w/h` is still 768x432 (runtime
+  writable, raising it is untested).
+- ScalerLv on ch1 is LIVE (`msca_ctl_live` +1 per call, 0 failures, no frame
+  gap above 75 ms). Fitting curve, level 0 against level 128, three
+  alternations: no measurable difference in the decoded ch1 picture
+  (Laplacian energy within the noise of 1 %) at 2880 -> 640 (4.5:1);
+  `0xf0710` reads `0x80008080` at level 128. FIXED_WEIGHT (mode 1) against
+  fitting curve level 128: reproducibly softer, Laplacian energy -12 %
+  (143/138 -> 125/122 in two alternations). Mode 2: no change, ret 0.
+  ret -1 for level 129.
+
 ## Known issues (2026-10-10)
 
 - **Heap overwrite across module reloads.** `rmmod tx_isp_t41` sometimes
