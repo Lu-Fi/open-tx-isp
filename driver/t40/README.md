@@ -693,3 +693,9 @@ vendor (`audit/ab-t41/COMPARE.md`, open184d).
   Night re-test pending (candidate for the night black level p1 20 against the vendor's 7).
 - Open: colour saturation after the night -> day return (HSV S 15 against the vendor's 51, also before this branch;
   `enable_bcsh=Y`), TOP bit 6.
+
+## Client crash recovery: framechan release (2026-10-24, `claude/t40-stability`)
+
+`regtrace_framechan_release` (misc fops of `/dev/framechanN`, also the v4l2 private file) used to only clear `private_data`. The OEM `frame_channel_release` streams off and frees the vb2 queue when the channel state is 4 (streaming). Without that, a client that died while streaming left the streaming flag (+0x244) set and every later STREAMON returned -EBUSY until reboot.
+The driver now remembers per channel which file started the stream (`regtrace_framechan_stream_owner`) and which file owns the buffer set (`regtrace_framechan_buf_owner`, REQBUFS with count > 0). Closing that file issues STREAMOFF through the normal ioctl path and frees the repaired buffers (= REQBUFS 0). A failed streamoff still clears the stale flag (buffers kept, the next REQBUFS frees them). Closing any other fd on the channel does not stop a running stream (the OEM stops on any close).
+Device test on the Eufy: kill -9 / SIGSEGV of the streamer, restart: video back (snapshot 200), no -EBUSY; stock ko without the fix: snapshot 503.
