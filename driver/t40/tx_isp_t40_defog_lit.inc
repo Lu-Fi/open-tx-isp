@@ -6483,6 +6483,15 @@ static void regtrace_defog_ev_update_lit(uint64_t ev_q10)
                                    DFGLIT_SP(dfglit_stack_ctl), NULL, 0);
 }
 
+/* SetModule_Ratio (defog): OEM tisp_s_defog_ratio(sensor) on the private defog state
+ * (tattr +864 enable / +868 ratio), strength interpolation + register update. */
+static int regtrace_defog_ratio_lit(void)
+{
+    if (!regtrace_t40_defog_lit_active)
+        return -ENODEV;
+    return (int)tisp_s_defog_ratio_lit(0, 0, 0, 0, DFGLIT_SP(dfglit_stack_ctl), NULL, 0);
+}
+
 static int regtrace_defog_init_lit(uint32_t width, uint32_t height)
 {
     int ret = (int)tisp_defog_init_lit(0, width, height, 0,
