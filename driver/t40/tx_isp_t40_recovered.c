@@ -10611,6 +10611,11 @@ static void regtrace_dmsc_static_write(void)
     printk(KERN_INFO "tx_isp_t40_recovered: dmsc-static %u regs written + trig\n", k);
 }
 
+/* T40-GAMMA-GET: the LUT the soft-gamma writer programmed last (GetGammaAttr answers from it when the lifted
+ * gamma ctx does not exist, which is the production state) */
+static uint16_t t40_gamma_live[129];
+static bool t40_gamma_live_valid;
+
 static void regtrace_soft_gamma_write(void)
 {
     static const uint16_t lut[129] = {
@@ -10667,6 +10672,8 @@ static void regtrace_soft_gamma_write(void)
     (void)system_reg_write(0x50040, 0x7f0102);
     (void)system_reg_write(0x50060, 0x7f0102);
     (void)system_reg_write(0x50080, 0x7f0102);
+    memcpy(t40_gamma_live, active_lut, sizeof(t40_gamma_live));
+    t40_gamma_live_valid = true;
     printk(KERN_INFO "tx_isp_t40_recovered: soft-gamma 2.2 LUT written\n");
 }
 
@@ -10775,7 +10782,8 @@ static unsigned char __attribute__((aligned(4))) ccm_inter_default_oem[452] = { 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,
 };
-static const unsigned char __attribute__((aligned(4))) stMainCcmInterOri_lit[228] = {
+/* T40-CCM-SET: writable (OEM .data) - the manual-CCM block (inter+0xb0..0xd8) and the busy flag inter[0] live in it */
+static unsigned char __attribute__((aligned(4))) stMainCcmInterOri_lit[228] = {
     0x01, 0x00, 0x00, 0x00, 0x90, 0x01, 0x00, 0x00, 0x90, 0x01, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00,
     0x70, 0x17, 0x70, 0x17, 0x64, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -11747,27 +11755,27 @@ static int32_t tisp_ccm_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint3
     r_s4 = r_s1 + 0xc0U;
     if (mips_cond) goto L_6f890;
     r_a1 = *(uint32_t *)(uintptr_t)(r_s3 + 72);
-    r_a2 = 4U;
+    r_a2 = 36U; /* T40-CCM-SET: OEM copies only 4 bytes (li a2,4) of the manual matrix into each of the 6 CT matrices - one coefficient, not a matrix */
     r_s1 = r_s1 + 0x110U;
     r_v0 = (uint32_t)REGCALL_memcpy(r_a0, r_a1, r_a2, r_a3);
     r_a1 = *(uint32_t *)(uintptr_t)(r_s3 + 72);
-    r_a2 = 4U;
+    r_a2 = 36U; /* T40-CCM-SET: OEM copies only 4 bytes (li a2,4) of the manual matrix into each of the 6 CT matrices - one coefficient, not a matrix */
     r_a0 = r_s8;
     r_v0 = (uint32_t)REGCALL_memcpy(r_a0, r_a1, r_a2, r_a3);
     r_a1 = *(uint32_t *)(uintptr_t)(r_s3 + 72);
-    r_a2 = 4U;
+    r_a2 = 36U; /* T40-CCM-SET: OEM copies only 4 bytes (li a2,4) of the manual matrix into each of the 6 CT matrices - one coefficient, not a matrix */
     r_a0 = r_s7;
     r_v0 = (uint32_t)REGCALL_memcpy(r_a0, r_a1, r_a2, r_a3);
     r_a1 = *(uint32_t *)(uintptr_t)(r_s3 + 72);
-    r_a2 = 4U;
+    r_a2 = 36U; /* T40-CCM-SET: OEM copies only 4 bytes (li a2,4) of the manual matrix into each of the 6 CT matrices - one coefficient, not a matrix */
     r_a0 = r_s6;
     r_v0 = (uint32_t)REGCALL_memcpy(r_a0, r_a1, r_a2, r_a3);
     r_a1 = *(uint32_t *)(uintptr_t)(r_s3 + 72);
-    r_a2 = 4U;
+    r_a2 = 36U; /* T40-CCM-SET: OEM copies only 4 bytes (li a2,4) of the manual matrix into each of the 6 CT matrices - one coefficient, not a matrix */
     r_a0 = r_s5;
     r_v0 = (uint32_t)REGCALL_memcpy(r_a0, r_a1, r_a2, r_a3);
     r_a1 = *(uint32_t *)(uintptr_t)(r_s3 + 72);
-    r_a2 = 4U;
+    r_a2 = 36U; /* T40-CCM-SET: OEM copies only 4 bytes (li a2,4) of the manual matrix into each of the 6 CT matrices - one coefficient, not a matrix */
     r_a0 = r_s4;
     r_v0 = (uint32_t)REGCALL_memcpy(r_a0, r_a1, r_a2, r_a3);
     r_v0 = *(uint32_t *)(uintptr_t)(r_s3 + 68);
@@ -12094,6 +12102,119 @@ static void regtrace_ccm_main_ct_update_lit(uint32_t ct, bool force)
     }
     regtrace_ccm_ev_now = regtrace_ccm_ev;
     regtrace_ccm_ct_now = ct;
+}
+
+/*
+ * T40-CSC-SET: Get/SetISPCSCAttr (CID 0x8000096).  OEM csc_attr[vinum] (.bss+21328) holds the last
+ * 92-byte attribute: word 0 = standard (0..3 = BT601/709 full/limited, 4 = user matrix).  Standards are
+ * programmed by tisp_set_csc_version, a user matrix (tisp_csc_set_attr 0x70a48) through CSC registers
+ * 0xd010/0xd014/0xd018/0xd020/0xd030 (+0x80 per vinum) built from the libimp-converted words.  tisp_csc_get_attr
+ * returns the stored attribute for the user matrix and {standard, zeros} otherwise.  The lift memset 92 bytes
+ * into a 4-byte slot / copied 92 bytes over the isp_memopt int.  The BCSH-side copy (tisp_bcsh_csc_attr) is
+ * only reached when the BCSH chain is initialised (not in the production profile).
+ */
+#define T40_CSC_WIRE 64U   /* bytes of the attribute the T40 libimp (OpenIMP and 1.3.1) exchanges: gamut, 9 words, offset[2], clip[4] */
+static uint8_t t40_csc_state[2][92];
+static DEFINE_MUTEX(t40_csc_attr_lock);
+static inline uint32_t t40_csc_abs(int32_t v) { return v < 0 ? (uint32_t)(-v) : (uint32_t)v; }
+static int t40_csc_attr_set(uint32_t vinum, const uint8_t *buf)
+{
+    const uint32_t *w = (const uint32_t *)buf;
+    uint32_t std = w[0], base, a, b, c, v;
+    int ret = 0;
+
+    if (vinum > 1)
+        return -EINVAL;
+    mutex_lock(&t40_csc_attr_lock);
+    if (std != 4U) {
+        if (std > 3U) {
+            ret = -EINVAL;
+            goto out;
+        }
+        ret = tisp_set_csc_version(vinum, std);   /* stores the standard in t40_csc_state */
+        goto out;
+    }
+    base = (vinum + 416U) << 7;
+    a = (t40_csc_abs((int32_t)w[2]) << 10) | t40_csc_abs((int32_t)(w[3] << 20)) | t40_csc_abs((int32_t)w[1]);
+    b = (t40_csc_abs((int32_t)w[5]) << 10) | t40_csc_abs((int32_t)(w[6] << 20)) | t40_csc_abs((int32_t)w[4]);
+    c = (t40_csc_abs((int32_t)w[8]) << 10) | t40_csc_abs((int32_t)(w[9] << 20)) | t40_csc_abs((int32_t)w[7]);
+    (void)system_reg_write(base + 16U, a);
+    (void)system_reg_write(base + 20U, b);
+    (void)system_reg_write(base + 24U, c);
+    v = (uint32_t)buf[40] | ((uint32_t)buf[41] << 8);
+    (void)system_reg_write(base + 32U, v);
+    v = (uint32_t)buf[42] | ((uint32_t)buf[43] << 8) | ((uint32_t)buf[44] << 16) | ((uint32_t)buf[45] << 24);
+    (void)system_reg_write(base + 48U, v);
+    memcpy(t40_csc_state[vinum], buf, 92);
+out:
+    mutex_unlock(&t40_csc_attr_lock);
+    return ret;
+}
+
+static int t40_csc_attr_get(uint32_t vinum, uint8_t *buf)
+{
+    if (vinum > 1)
+        return -EINVAL;
+    mutex_lock(&t40_csc_attr_lock);
+    if (*(uint32_t *)t40_csc_state[vinum] == 4U) {
+        memcpy(buf, t40_csc_state[vinum], 92);
+    } else {
+        memset(buf, 0, 92);
+        memcpy(buf, t40_csc_state[vinum], 4);
+    }
+    mutex_unlock(&t40_csc_attr_lock);
+    return 0;
+}
+
+/*
+ * T40-CCM-SET: Get/SetCCMAttr (CID 0x8000080) on the literal CCM state.
+ *
+ * Wire format (libimp IMP_ISP_Tuning_Set/GetCCMAttr): 40 bytes = u8 ManualEn, u8 SatEn, 2 pad,
+ * 9 x u32 matrix in the 14-bit two's-complement register format (libimp converts the floats).
+ * OEM tisp_ccm_set_attr 0x6fb5c: memcpy(ccm_main_ctrl, user, 40) (bss+19216, read back by
+ * tisp_ccm_get_attr), the manual flag / sat flag / matrix are copied to the pointers ctx+64/+68/+72,
+ * the busy byte (*ctx[2]) is set, tisp_ccm_params_refresh re-seeds the CT matrices and
+ * tisp_ccm_ev_ct_update applies them.  The lift stored the 40 bytes over a 4-byte int and
+ * read them back from address 0.  Needs the literal CCM chain (quality profile >= 1, enable_ccm).
+ */
+static uint8_t t40_ccm_ctrl[40];
+static DEFINE_MUTEX(t40_ccm_attr_lock);
+static int t40_ccm_attr_set(uint32_t vinum, const uint8_t *buf)
+{
+    uint32_t *ctx = pstMainCcmOri_lit;
+    uint8_t *busy;
+
+    if (vinum != 0)
+        return -EINVAL;
+    if (!regtrace_enable_ccm || !stMainCcmOuter_lit || !tparamsN[0] ||
+        !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[2]) ||
+        !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[16]) ||
+        !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[17]) ||
+        !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[18]))
+        return -EAGAIN;
+    mutex_lock(&t40_ccm_attr_lock);
+    memcpy(t40_ccm_ctrl, buf, sizeof(t40_ccm_ctrl));
+    *(uint8_t *)(uintptr_t)ctx[16] = buf[0] ? 1 : 0;
+    *(uint8_t *)(uintptr_t)ctx[17] = buf[1] ? 1 : 0;
+    memcpy((void *)(uintptr_t)ctx[18], buf + 4, 36);
+    busy = (uint8_t *)(uintptr_t)ctx[2];
+    *busy = 1;
+    (void)tisp_ccm_params_refresh_lit((uint32_t)(uintptr_t)ctx, (uint32_t)stMainCcmOuter_lit,
+                                      (uint32_t)tparamsN[0] + 0x10528U);
+    (void)tisp_ccm_ev_ct_update_lit((uint32_t)(uintptr_t)ctx, 0);
+    *busy = 0;
+    mutex_unlock(&t40_ccm_attr_lock);
+    return 0;
+}
+
+static int t40_ccm_attr_get(uint32_t vinum, uint8_t *buf)
+{
+    if (vinum != 0)
+        return -EINVAL;
+    mutex_lock(&t40_ccm_attr_lock);
+    memcpy(buf, t40_ccm_ctrl, sizeof(t40_ccm_ctrl));
+    mutex_unlock(&t40_ccm_attr_lock);
+    return 0;
 }
 
 static uint16_t regtrace_t40_tuning_u16(const uint8_t *p, uint32_t off)
@@ -23273,6 +23394,110 @@ static long regtrace_t40_sensor_register_ioctl(unsigned int cmd, unsigned long a
     if (!set && copy_to_user((void __user *)(uintptr_t)arg, &reg, sizeof(reg)))
         return -EFAULT;
     return 0;
+}
+
+/*
+ * T40-SENSOR-FLIP: sensor mirror/flip (HVFLIP modes 4..8: SENSOR_H/V/HV, IHSV, SHIV).
+ *
+ * Vendor flow (tx_isp_hvflip_s_attr, OEM 0xb440): the mode is only acted on when the sensor video attr says
+ * shvflip == 1 (core+0x194 + vinum*0x60, set by the sensor module, "t40 sensor hvflip function only takes
+ * effect when shvflip == 1" in the SDK sensors); the ISP part (MSCA flip, LSC table flip) is applied directly and
+ * the sensor part is queued as pending slot 5 (core+0x328/+0x32c: value 1 mirror, 2 flip, 3 both), which the frame
+ * workers deliver as event TX_ISP_EVENT_SENSOR_VFLIP (0x2000010) to the sensor module.
+ * The vendor sc830ai module (SDK 1.3.1) has neither the VFLIP event nor shvflip, so the vendor never flips this
+ * sensor.  Here the core does it itself for known sensors: read-modify-write of the sensor's mirror/flip register
+ * through the sensor module's own g_register/s_register ops (the same path as the debug register ioctl).
+ * The sc830ai init table sets 0x3221 = 0x66 (flip[6:5] and mirror[2:1] both on = the mounted, upright
+ * orientation), so a requested mirror/flip is XORed onto that initial value.
+ */
+struct t40_flip_profile {
+    const char *name;
+    uint16_t reg;
+    uint8_t mirror_mask;
+    uint8_t flip_mask;
+};
+static const struct t40_flip_profile t40_flip_profiles[] = {
+    { "sc830ai", 0x3221, 0x06, 0x60 },
+};
+static bool t40_flip_base_valid;
+static uint8_t t40_flip_base;
+static uint32_t t40_flip_applied = ~0U;
+static int t40_flip_last_ret;
+static DEFINE_MUTEX(t40_flip_lock);
+
+static const struct t40_flip_profile *t40_flip_profile_get(void)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(t40_flip_profiles); i++)
+        if (regtrace_t40_sensor_reg_name[0] &&
+            !strncmp(regtrace_t40_sensor_reg_name, t40_flip_profiles[i].name, strlen(t40_flip_profiles[i].name)))
+            return &t40_flip_profiles[i];
+    return NULL;
+}
+
+/* 1: the HVFLIP sensor modes may be acted on (vendor: shvflip == 1; open: also for sensors with a register profile) */
+static bool t40_sensor_flip_capable(unsigned int video_shvflip)
+{
+    return video_shvflip == 1U || t40_flip_profile_get() != NULL;
+}
+
+static int t40_flip_sensor_reg(const struct t40_flip_profile *pf, int set, uint8_t *val)
+{
+    struct regtrace_t40_dbg_register reg;
+    uintptr_t sd = (uintptr_t)regtrace_sensor_subdev, ops, core, fn;
+    int ret;
+
+    if (!regtrace_is_kernel_ptr((void *)sd))
+        return -ENODEV;
+    ops = *(uint32_t *)(sd + REGTRACE_TX_ISP_SUBDEV_OPS_OFFSET);
+    core = regtrace_is_kernel_ptr((void *)ops) ? *(uint32_t *)ops : 0;
+    fn = regtrace_is_kernel_ptr((void *)core) ? *(uint32_t *)(core + (set ? 28 : 16)) : 0;
+    if (!regtrace_is_kernel_ptr((void *)fn))
+        return -ENOSYS;
+    memset(&reg, 0, sizeof(reg));
+    strlcpy(reg.name, pf->name, sizeof(reg.name));
+    reg.reg = pf->reg;
+    reg.size = 2;
+    if (set)
+        reg.val = *val;
+    ret = ((int (*)(void *, void *))fn)((void *)sd, &reg);
+    if (!set && !ret)
+        *val = (uint8_t)reg.val;
+    return ret;
+}
+
+/* mode: 0 normal, 1 mirror, 2 flip, 3 mirror+flip (the VFLIP event value).  Returns 0 or a negative errno. */
+static int t40_sensor_flip_apply(uint32_t mode)
+{
+    const struct t40_flip_profile *pf = t40_flip_profile_get();
+    uint8_t v;
+    int ret;
+
+    if (!pf)
+        return 0;   /* the sensor module handles the event itself */
+    mutex_lock(&t40_flip_lock);
+    if (!t40_flip_base_valid) {
+        ret = t40_flip_sensor_reg(pf, 0, &v);
+        if (ret)
+            goto out;
+        t40_flip_base = v;
+        t40_flip_base_valid = true;
+    }
+    v = t40_flip_base;
+    if (mode & 1U)
+        v ^= pf->mirror_mask;
+    if (mode & 2U)
+        v ^= pf->flip_mask;
+    ret = t40_flip_sensor_reg(pf, 1, &v);
+    if (!ret)
+        t40_flip_applied = mode;
+out:
+    t40_flip_last_ret = ret;
+    printk(KERN_INFO "tx_isp_t40_recovered: sensor flip %s mode=%u reg 0x%04x base=0x%02x -> 0x%02x ret=%d\n",
+           pf->name, mode, pf->reg, t40_flip_base, v, ret);
+    mutex_unlock(&t40_flip_lock);
+    return ret;
 }
 
 static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
@@ -46785,10 +47010,16 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
                     return -1;
                 }
 
-                /* T40-CCM-GUARD: tisp_ccm_set_attr memcpys 40 bytes into the 4-byte ccm_main_ctrl */
-                if (!t40_csc_unsafe)
-                    return -EOPNOTSUPP;
-                int v0_5 = copy_from_user(&var_88, (void __user *)arg3[1], 0x28);
+                /* T40-CCM-SET: the lifted tisp_ccm_set_attr memcpys 40 bytes into the 4-byte ccm_main_ctrl; use the
+                 * literal-state implementation (t40_ccm_attr_set) unless t40_csc_unsafe asks for the lift */
+                int v0_5;
+                uint8_t ccm_buf[40];
+                if (!t40_csc_unsafe) {
+                    if (copy_from_user(ccm_buf, (void __user *)arg3[1], sizeof(ccm_buf)))
+                        return -EFAULT;
+                    return t40_ccm_attr_set(arg1, ccm_buf);
+                }
+                v0_5 = copy_from_user(&var_88, (void __user *)arg3[1], 0x28);
                 s1_1 = v0_5;
 
                 if (v0_5 == 0) {
@@ -46833,11 +47064,19 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
             }
 
             if (v1 == 0x8000096) {
-                /* T40-CSC-GUARD: the lifted tisp_csc_set_attr copies 92 bytes over the isp_memopt
+                /* T40-CSC-SET: the lifted tisp_csc_set_attr copies 92 bytes over the isp_memopt
                  * module parameter (an int) and its set_csc_version tail call is lost. */
-                if (!t40_csc_unsafe)
-                    return -EOPNOTSUPP;
-                int v0_49 = copy_from_user(&var_88, (void __user *)arg3[1], 0x5c);
+                int v0_49;
+                uint8_t csc_buf[92];
+                if (!t40_csc_unsafe) {
+                    /* the T40 libimp wire block is 64 bytes (gamut, 9 words, offset[2], clip[4]); the OEM kernel reads
+                     * 92 from the caller's stack.  Read 64, the rest of the attribute is unused. */
+                    memset(csc_buf, 0, sizeof(csc_buf));
+                    if (copy_from_user(csc_buf, (void __user *)arg3[1], T40_CSC_WIRE))
+                        return -EFAULT;
+                    return t40_csc_attr_set(arg1, csc_buf);
+                }
+                v0_49 = copy_from_user(&var_88, (void __user *)arg3[1], 0x5c);
                 s1_1 = v0_49;
 
                 if (v0_49 == 0) {
@@ -47147,9 +47386,10 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
             case 6:
                 int s7_1 = *(int *)(v0_15 + 0x194);
 
-                if (s7_1 != 1) {
+                if (!t40_sensor_flip_capable((unsigned int)s7_1)) {   /* T40-SENSOR-FLIP */
                     goto label_b660;
                 }
+                s7_1 = 1;
 
                 tisp_hv_flip_enable(arg1, 0);
                 int v1_5 = *(int *)&var_88;
@@ -47180,9 +47420,10 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
             case 8:
                 int s5_2 = *(int *)(v0_15 + 0x194);
 
-                if (s5_2 != 1) {
+                if (!t40_sensor_flip_capable((unsigned int)s5_2)) {   /* T40-SENSOR-FLIP */
                     goto label_b660;
                 }
+                s5_2 = 1;
 
                 tisp_hv_flip_enable(arg1, (int)((unsigned char)*(int *)&var_88 - 6));
                 void *s0_4 = (void *)((char *)s3_1 + (int)arg1 * 0x48);
@@ -47205,7 +47446,8 @@ label_b4d0:
         int v1_3 = *(int *)((char *)s3_1 + (int)arg1 * 0x60 + 0x194);
         v0_22 = *(int *)&var_88;
 
-        if (v1_3 == 1) {
+        if (t40_sensor_flip_capable((unsigned int)v1_3)) {   /* T40-SENSOR-FLIP */
+            v1_3 = 1;
             void *s0_2 = (void *)((char *)s3_1 + (int)arg1 * 0x48);
             *(int *)(s0_2 + 0x328) = v1_3;
             *(int *)(s0_2 + 0x32c) = 0;
@@ -47479,8 +47721,15 @@ label_c33c_vfree:
     if (cmd == 0x8000096) {
         /* T40-CSC-GUARD: the lifted tisp_csc_get_attr memsets 92 bytes into a 4-byte stack slot
          * (kernel oops with epc 0 on the first GetISPCSCAttr, Eufy .184 2026-10-24). */
-        if (!t40_csc_unsafe)
-            return -EOPNOTSUPP;
+        if (!t40_csc_unsafe) {
+            uint8_t csc_buf[92];
+            int csc_ret = t40_csc_attr_get(arg1, csc_buf);   /* T40-CSC-SET */
+            if (csc_ret)
+                return csc_ret;
+            if (private_copy_to_user(arg3[1], csc_buf, T40_CSC_WIRE))   /* 64 bytes: a 92-byte store overran the libimp wire[64] */
+                return -EFAULT;
+            return 0;
+        }
         tisp_get_csc_attr(arg1, __p_80);
         if (private_copy_to_user(arg3[1], __p_80, 0x5c) == 0) {
             return 0;
@@ -47603,8 +47852,15 @@ label_c33c_vfree:
     if (cmd == 0x8000080) {
         /* T40-CCM-GUARD: tisp_ccm_get_attr copies to address 0 (kernel oops on GetCCMAttr, Eufy .184
          * 2026-10-24) and the wrapper copies an uninitialised stack buffer to the user */
-        if (!t40_csc_unsafe)
-            return -EOPNOTSUPP;
+        if (!t40_csc_unsafe) {
+            uint8_t ccm_buf[40];
+            int ccm_ret = t40_ccm_attr_get(arg1, ccm_buf);   /* T40-CCM-SET */
+            if (ccm_ret)
+                return ccm_ret;
+            if (private_copy_to_user(arg3[1], ccm_buf, sizeof(ccm_buf)))
+                return -EFAULT;
+            return 0;
+        }
         return tiziano_isp_ccm_attr_g_ctrl_isra_31(arg1, arg3[1]);
     }
 
@@ -122677,8 +122933,16 @@ int32_t tisp_gamma_get_attr(int32_t arg1, int32_t arg2)
     if (regtrace_isr_oem_hw_refresh) return t40_writer_gamma_control(arg1, 3, (uintptr_t)(uint32_t)arg2, 0);
     if ((uint32_t)arg1 > 1 || !arg2) return -EINVAL;
     ctx = (uint8_t *)(uintptr_t)*(uint32_t *)(T40_GAMMA_CTX_BASE + ((uint32_t)arg1 << 2));
-    if (!regtrace_is_kernel_ptr(ctx) || !regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)(ctx + 12)))
+    if (!regtrace_is_kernel_ptr(ctx) || !regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)(ctx + 12))) {
+        /* T40-GAMMA-GET: no lifted gamma ctx (production: soft-gamma writer).  IMPISPGammaAttr = u32 mode +
+         * 129 x u16 nodes (+2 pad): mode 0 (default), nodes = the programmed LUT. */
+        if (arg1 == 0 && t40_gamma_live_valid) {
+            memset((void *)(uintptr_t)arg2, 0, 264);
+            memcpy((uint8_t *)(uintptr_t)arg2 + 4, t40_gamma_live, sizeof(t40_gamma_live));
+            return 0;
+        }
         return -EAGAIN;
+    }
     memcpy((void *)(uintptr_t)arg2, (void *)(uintptr_t)*(uint32_t *)(ctx + 12), 264);
     return 0;
 }
@@ -170439,14 +170703,13 @@ tisp_set_csc_version0x124:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 48, a1); /* jalr target resolved by relocation */
 
     /* fragment 23: Arithmetic */
-    v1 = 92;
-    a0 = (uintptr_t)s0 * (uintptr_t)v1;
-    v0 = (uintptr_t *)&isp_memopt;
-    v0 = v0 + 21344;
-    s0 = a0 + (uintptr_t)v0;
-
-    /* fragment 24: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 0) = s3;
+    /* T40-CSC-SET: OEM stores the standard in csc_attr[vinum] (.bss+21328, 92 bytes each).  The lift added
+     * 21344 to the ADDRESS OF the int module parameter isp_memopt (scaled x4 = 85 KB past it), so every
+     * tisp_set_csc_version (also the one in tisp_main_init) wrote the value into unrelated module data. */
+    if ((uint32_t)s0 < 2U) {
+        memset(t40_csc_state[(uint32_t)s0], 0, sizeof(t40_csc_state[0]));
+        *(uint32_t *)t40_csc_state[(uint32_t)s0] = s3;
+    }
     v0 = 0;
 
 tisp_set_csc_version0x148:
@@ -176018,6 +176281,7 @@ static void t40_core_slots_apply(uintptr_t core, uint32_t ch, uint32_t fs, uint3
             arg[0] = ch;
             arg[1] = regtrace_get_u32(slots, 5 * 8 + 4);
             ispcore_sensor_ops_ioctl((uintptr_t)ispcore_sd, 0x2000010, (uint32_t)(uintptr_t)arg);
+            (void)t40_sensor_flip_apply(arg[1]);   /* T40-SENSOR-FLIP: sensor modules without a VFLIP handler */
             regtrace_put_u32(slots, 5 * 8, 0);
             t40_worker_sent[widx]++;
             continue;
