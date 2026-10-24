@@ -20838,6 +20838,10 @@ static int regtrace_t40_sensor_fps_send(uint32_t packed_fps)
     ret = regtrace_sensor_call_sensor_ioctl(
         REGTRACE_TX_ISP_EVENT_SENSOR_FPS, payload);
     printk(KERN_INFO "tx_isp_t40_recovered: sensor fps set %u/%u ret=%d\n", numerator, denominator, ret);
+    /* -ENOIOCTLCMD: the sc830ai module has no FPS event; the rate is applied by the AE/VTS path (12 fps
+     * delivered on the Eufy), so the request is recorded for GetSensorFPS all the same. */
+    if (ret == -ENOIOCTLCMD)
+        WRITE_ONCE(regtrace_sensor_fps_packed, packed_fps);
     if (ret)
         return ret;
     WRITE_ONCE(regtrace_sensor_fps_packed, packed_fps);
