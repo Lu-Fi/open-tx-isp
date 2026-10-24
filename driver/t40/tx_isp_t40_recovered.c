@@ -50253,16 +50253,22 @@ static void regtrace_frame_done_tuning_follow(void)
      * state/update path used by the tuning ioctl. */
     if (regtrace_enable_bcsh) {
         static uint32_t sat_applied;
+        static uint32_t sat_mode_applied = 0xffffffffU;
         uint32_t sat = regtrace_bcsh_saturation;
+        uint32_t mode = READ_ONCE(regtrace_running_mode) ? 1U : 0U;
 
         if (sat > 255)
             sat = 255;
-        if (sat != sat_applied) {
+        /* T40-QUALITY: re-apply on a day/night change too.  After the
+         * night -> day return the BCSH saturation stayed at the night value
+         * (open184d: HSV S 11 instead of 57) until a saturation set came in. */
+        if (sat != sat_applied || mode != sat_mode_applied) {
             int sat_ret;
 
             sat_applied = sat;
+            sat_mode_applied = mode;
             sat_ret = regtrace_isp_m0_apply_saturation(
-                READ_ONCE(regtrace_running_mode) ? 0U : (uint8_t)sat);
+                mode ? 0U : (uint8_t)sat);
             printk(KERN_INFO
                    "tx_isp_t40_recovered: bcsh saturation updated to %u/128 ret=%d\n",
                    sat, sat_ret);
