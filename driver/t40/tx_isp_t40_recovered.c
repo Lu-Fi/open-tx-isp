@@ -9084,14 +9084,14 @@ static uint regtrace_ae_soft_max_it = 1919;
  * the literal GIB path.  Q10: 1024 = 1x.  ae_isp_dgain_max=1024 disables it.
  */
 /*
- * Default OFF (1024) for now: on the Eufy the GIB final gain words take the
- * OEM values (0x1116 at 4x, latch 0x8040) but the picture does not change,
- * not even with 0x7fff/shift 3 forced by devmem (run4 2026-10-24, luma 68 in
- * both cases).  Where the vendor's AeIspDGain really acts in this pipeline
- * is still open; with the stage on, the EV/TotalGainDb readouts would claim
- * a gain the picture does not have.  ae_isp_dgain_max=4096 re-enables it.
+ * Default 4x like the vendor (AeIspDGain 4096 at night).  Device check
+ * (.184, light 30, run6 2026-10-24): GIB final gain 0x0445 -> 0x1116 by
+ * devmem lifts the snapshot luma 24.6 -> 64.0 (vendor 78.7 at the same light),
+ * so the OEM entry works.  (An earlier devmem test with 0x7fff/shift 3 on top
+ * of an already written 0x1116 showed no change and was misread as "no
+ * effect".)  ae_isp_dgain_max=1024 disables the stage.
  */
-static uint regtrace_ae_isp_dgain_max = 1024;
+static uint regtrace_ae_isp_dgain_max = 4096;
 static uint regtrace_ae_isp_dgain_cur = 1024;
 static uint regtrace_ae_isp_dgain_updates;
 /* T40-AE-MAXIT-SENSOR: take the integration ceiling from the registered
@@ -9180,7 +9180,10 @@ static bool regtrace_enable_ysp;
  * init returned 0.  Default 0.
  */
 static int regtrace_ysp_init_ret = -1;
-static bool regtrace_t40_ysp_on;
+/* T40-QUALITY: default on since 2026-10-24 (bin gates enable YSP like the vendor
+ * TOP word; sc830ai 4K runs 5/6 on .184 with the bin: init ok, 0 oops, edge
+ * energy 3.41 -> 3.63). =0 keeps bit 17 forced. */
+static bool regtrace_t40_ysp_on = true;
 static unsigned int regtrace_ysp_refresh_count;
 static unsigned int regtrace_ysp_refresh_blocked;
 static bool regtrace_enable_ccm;
@@ -96365,6 +96368,10 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
         uint32_t dgain_max = clamp_t(uint32_t, regtrace_ae_isp_dgain_max,
                                      1024U, 32767U);
         uint32_t deadband = max_t(uint32_t, regtrace_ae_soft_hyst, 2U);
+        bool dgain_clamped = dgain > dgain_max;   /* ae_isp_dgain_max lowered at runtime */
+
+        if (dgain_clamped)
+            dgain = dgain_max;
         bool protect_highlights =
             regtrace_frame_3a_highlight_limit_permille &&
             highlight_permille > regtrace_frame_3a_highlight_limit_permille &&
@@ -96454,7 +96461,8 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
             }
         }
         }
-        if (dgain_changed) {
+        if (dgain_changed || dgain_clamped) {
+            dgain_changed = true;
             WRITE_ONCE(regtrace_ae_isp_dgain_cur, dgain);
             regtrace_ae_isp_dgain_updates++;
             (void)regtrace_t40_ae_isp_dgain_apply();
