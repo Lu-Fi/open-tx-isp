@@ -4,9 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
-## 2026-10-24 (9): T40 night black level: GIB follows the total gain (`claude/t40-quality4`; Eufy T40 night proof pending)
+## 2026-10-24 (9): T40 night black level: GIB follows the total gain, pedestal traced to ADR (`claude/t40-quality4`; Eufy T40 night proof 17:40)
 
 - **GIB black level vs gain:** the OEM tgain fan-out hands `tisp_gib_a_gian_update` the total gain (TotalGainDb includes the ISP digital gain, 7.0 log2 at night), so the bin's black-level nodes are read at node 7; with the analog gain only (quality2) the black level stayed too low at night and the 4x ISP stage amplified the remainder into a pedestal (Y p1 12..20 against the vendor's 7). Now the total gain is used; day unchanged (ISP dgain 1x).
+- Night proof (.184, forced night, consumer on): p1 12 -> 11 only; the GIB black level registers are 0x104 at node 7 as at node 5 (the bin's tables are flat), so GIB is not the pedestal. Bypassing TOP bit 7 (ADR) by devmem drops p1 11 -> 5 (luma 78 -> 71); defog / LCE bypass leave p1 at 11. The night pedestal is the ADR chain lifting the shadows more than the vendor's (p1 7 with ADR on); open for the next round (ADR night bank refresh / ev-tgain scaling / ratio default).
 - `SetModule_Ratio` defog entry runs the OEM `tisp_s_defog_ratio` on the private defog state. Temper (MDNS) stays cached only (the lifted `tisp_s_mdns_ratio` body uses isp_memopt-relative tables and is unsafe to call).
 
 ## 2026-10-24 (8): T40 AE EV fan-out, user AE caps, ratios (`claude/t40-quality3`; Eufy T40 device proof 17:00)
