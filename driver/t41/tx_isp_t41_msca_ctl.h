@@ -394,7 +394,7 @@ enum t41_msca_live_step {
  * A streaming output is reprogrammed only with the latch-while-off start
  * sequence (t41_msca_cfg_update=2 with t41_msca_stop_disable=1) and only
  * inside the size envelope that was stable on the device (output
- * <= max_w x max_h, 768x432 by default; 960x540 and larger hung the SoC
+ * <= max_w x max_h, 1920x1080 by default since the 2026-10-24 ladder; before that 768x432 because 960x540 and larger hung the SoC
  * when started mid-stream, driver/t41/README.md "Known issues").
  */
 static inline enum t41_msca_live_step

@@ -1245,11 +1245,11 @@ static void t41_msca_start_words(unsigned int ch, struct t41_msca_word *w,
  * reprogrammed inside the proven envelope below; otherwise the request is
  * stored and applied at the output's next start.
  */
-static unsigned int t41_msca_live_max_w = 768;
+static unsigned int t41_msca_live_max_w = 1920;
 module_param(t41_msca_live_max_w, uint, 0644);
 MODULE_PARM_DESC(t41_msca_live_max_w,
                  "largest output width AutoZoom/Mask/ScalerLv reprogram while streaming (needs t41_msca_cfg_update=2)");
-static unsigned int t41_msca_live_max_h = 432;
+static unsigned int t41_msca_live_max_h = 1080;
 module_param(t41_msca_live_max_h, uint, 0644);
 MODULE_PARM_DESC(t41_msca_live_max_h,
                  "largest output height AutoZoom/Mask/ScalerLv reprogram while streaming");
