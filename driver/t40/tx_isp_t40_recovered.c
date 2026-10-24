@@ -7465,6 +7465,11 @@ static u32 t40_wdr_out_mode[2];  /* SetWdrOutputMode shadow (linear sensor: flag
  * ~700 bytes of new statics in .bss delivered no frames at all).  State added after the lift lives in its own
  * section, outside .bss/.data. */
 #define T40C2 __attribute__((section(".t40c2")))
+/* bisect switches for the no-frames hunt (2026-10-24): 1 = also do the OEM-lift stray store of the CSC standard */
+static unsigned int t40_c2_stray T40C2;
+module_param(t40_c2_stray, uint, 0644);
+static unsigned int t40_c2_flip T40C2 = 1;   /* 0 = sensor flip hooks off */
+module_param(t40_c2_flip, uint, 0644);
 static unsigned int t40_csc_unsafe;  /* 1: allow the broken lifted CSC and CCM get/set (debug only) */
 module_param(t40_csc_unsafe, uint, 0644);
 MODULE_PARM_DESC(t40_csc_unsafe, "allow the lifted OEM CSC get/set (stack/bss overflow, debug only)");
@@ -23485,7 +23490,7 @@ static struct t40_flip_profile *t40_flip_profile_get(void)
 /* 1: the HVFLIP sensor modes may be acted on (vendor: shvflip == 1; open: also for sensors with a register profile) */
 static bool t40_sensor_flip_capable(unsigned int video_shvflip)
 {
-    return video_shvflip == 1U || t40_flip_profile_get() != NULL;
+    return video_shvflip == 1U || (t40_c2_flip && t40_flip_profile_get() != NULL);
 }
 
 static int t40_flip_sensor_reg(struct t40_flip_profile *pf, int set, uint8_t *val)
@@ -170727,6 +170732,11 @@ tisp_set_csc_version0x124:
     /* T40-CSC-SET: OEM stores the standard in csc_attr[vinum] (.bss+21328, 92 bytes each).  The lift added
      * 21344 to the ADDRESS OF the int module parameter isp_memopt (scaled x4 = 85 KB past it), so every
      * tisp_set_csc_version (also the one in tisp_main_init) wrote the value into unrelated module data. */
+    if (t40_c2_stray) {   /* the original lift: store into unrelated module data */
+        uintptr_t *vv = (uintptr_t *)&isp_memopt;
+        vv = vv + 21344;
+        *(uint32_t *)((char *)((uintptr_t)s0 * 92U + (uintptr_t)vv)) = s3;
+    }
     if ((uint32_t)s0 < 2U) {
         memset(t40_csc_state[(uint32_t)s0], 0, sizeof(t40_csc_state[0]));
         *(uint32_t *)t40_csc_state[(uint32_t)s0] = s3;
