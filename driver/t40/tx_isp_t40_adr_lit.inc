@@ -9400,6 +9400,43 @@ static uint8_t adrlit_stack_ctl[ADRLIT_STACK] __attribute__((aligned(8)));
  * not the mode; the mode is already in the bank copied to tparamsN[0].
  * Only channel 0 is initialised here.
  */
+/*
+ * OEM tisp_main_long_ev_update -> tisp_adr_ev_update(ev_lo, ev_hi, sensor)
+ * and tisp_main_long_tgain_update -> tisp_adr_tgain_update(tg_lo, tg_hi,
+ * sensor): hand translations of the two 60/80-byte leaves (0x53ebc /
+ * 0x53ef8).  They only store into the ADR private state read by
+ * tiziano_adr_ev_func / tgain_func on the next event; without them the chain
+ * stayed at its init EV/gain (black level up at night, open184f p1 20).
+ * adr_tgain_top / adr_tg_f_top are not referenced by the generated chain,
+ * so they are declared here with their OEM sizes.
+ */
+static uint8_t adrlit_adr_tgain_top[8] __attribute__((aligned(8)));
+static uint8_t adrlit_adr_tg_f_top[8] __attribute__((aligned(8)));
+static void regtrace_adr_ev_update_lit(uint64_t ev_q10)
+{
+    uint32_t lo = (uint32_t)ev_q10, hi = (uint32_t)(ev_q10 >> 32);
+    uint32_t ev = (hi << 22) | (lo >> 10);
+
+    if (!regtrace_t40_adr_lit_active)
+        return;
+    if (*(uint32_t *)adrlit_adr_ev_top == ev)
+        return;
+    *(uint16_t *)adrlit_adr_ev_changed = 1;
+    *(uint32_t *)adrlit_adr_ev_top = ev;
+}
+
+static void regtrace_adr_tgain_update_lit(uint32_t tgain)
+{
+    if (!regtrace_t40_adr_lit_active)
+        return;
+    if (*(uint32_t *)adrlit_adr_tgain_top == (tgain >> 16) &&
+        *(uint32_t *)adrlit_adr_tg_f_top == (tgain & 0xffffU))
+        return;
+    *(uint16_t *)adrlit_adr_tgain_changed = 1;
+    *(uint32_t *)adrlit_adr_tgain_top = tgain >> 16;
+    *(uint32_t *)adrlit_adr_tg_f_top = tgain & 0xffffU;
+}
+
 static int regtrace_adr_dn_refresh_lit(uint32_t mode)
 {
     (void)mode;

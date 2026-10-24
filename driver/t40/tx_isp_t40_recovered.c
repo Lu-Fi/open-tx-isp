@@ -9254,7 +9254,7 @@ static uint regtrace_frame_3a_interval = 3;
 /* T40-QUALITY: 110 -> 118.  A/B .184 against the vendor stack: at the same
  * exposure (EV 5367 vs 5589) the vendor day picture measured luma 122, ours
  * 108 at target 110; the open pipeline's tone curve sits a little lower. */
-static uint regtrace_frame_3a_target = 118;
+static uint regtrace_frame_3a_target = 122; /* T40-QUALITY3: vendor day luma 122 (ours 120 at 118 with LCE) */
 static bool regtrace_frame_3a_slide_window = true;
 static uint regtrace_frame_3a_window_misses;
 /*
@@ -12748,6 +12748,41 @@ static int regtrace_t40_ae_isp_dgain_apply(void)
     return regtrace_gib_main_gain_update_lit(regtrace_gib_lit_gain, false);
 }
 
+/*
+ * T40-QUALITY3: the OEM AE fans its EV (IT x gain, Q10; stored >> 10 it is
+ * the vendor's ExposureValue) out to defog, ADR, CCM and BCSH on every
+ * change (tisp_main_long_ev_update).  Our CCM/BCSH EV were module
+ * parameters frozen at 400 (the comment in the BCSH init says so), so the
+ * saturation-vs-EV interpolation never moved: after a night -> day return
+ * the CCM re-init ran at the stale EV and the picture stayed desaturated
+ * (HSV S 15 against the vendor's 51).  Called from the sensor gain update
+ * and from the per-frame tuning follow (the EV also moves with IT).
+ * t40_ev_follow=0 restores the frozen parameters for A/B.
+ */
+static bool regtrace_t40_ev_follow = true;
+module_param_named(t40_ev_follow, regtrace_t40_ev_follow, bool, 0644);
+static uint32_t regtrace_t40_ev_now;
+module_param_named(t40_ev_now, regtrace_t40_ev_now, uint, 0444);
+static void regtrace_t40_ev_fanout(uint32_t again_log2)
+{
+    uint32_t it = READ_ONCE(regtrace_ae_soft_cur_it);
+    uint32_t again_x1024 = tx_isp_exp2_u32(again_log2, 16, 10);
+    uint32_t dg = clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur), 1024U, 32767U);
+    uint64_t ev_q10;
+
+    if (!again_x1024)
+        again_x1024 = 1024U;
+    ev_q10 = ((uint64_t)it * again_x1024 * dg) >> 10;
+    regtrace_t40_ev_now = (uint32_t)(ev_q10 >> 10);
+    regtrace_defog_ev_update_lit(ev_q10);
+    regtrace_adr_ev_update_lit(ev_q10);
+    if (regtrace_t40_ev_follow) {
+        regtrace_ccm_ev = regtrace_t40_ev_now;
+        if (regtrace_enable_bcsh)
+            regtrace_bcsh_ev_follow_lit(regtrace_t40_ev_now);
+    }
+}
+
 static void regtrace_gc4653_tuning_again_update(uint32_t again_index)
 {
     uint32_t gain = regtrace_gc4653_again_log2_gain(again_index);
@@ -12775,6 +12810,7 @@ static void regtrace_gc4653_tuning_again_update(uint32_t again_index)
      */
     regtrace_lce_tgain_update_lit(total);
     regtrace_dpc_refresh_lit(total);
+    regtrace_adr_tgain_update_lit(total);
     /*
      * T40-QUALITY2: with the OEM GIB flow (t40_gib_real) nobody re-ran
      * tisp_gib_a_gian_update, so the GIB black level stayed at the init
@@ -12784,15 +12820,7 @@ static void regtrace_gc4653_tuning_again_update(uint32_t again_index)
      */
     if (t40_gib_oem_active)
         (void)tisp_gib_a_gian_update(0, gain);
-    if (regtrace_t40_defog_lit_active) {
-        uint32_t it = READ_ONCE(regtrace_ae_soft_cur_it);
-        uint32_t again_x1024 = tx_isp_exp2_u32(gain, 16, 10);
-        uint32_t dg = clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur), 1024U, 32767U);
-
-        if (!again_x1024)
-            again_x1024 = 1024U;
-        regtrace_defog_ev_update_lit(((uint64_t)it * again_x1024 * dg) >> 10);
-    }
+    regtrace_t40_ev_fanout(gain);
     if (regtrace_enable_blc_lit && gain != regtrace_blc_lit_gain_now)
         (void)regtrace_blc_main_gain_update_lit(gain, false);
     if (regtrace_enable_gib_lit && gain != regtrace_gib_lit_gain_now)
@@ -50355,6 +50383,8 @@ static void regtrace_frame_done_tuning_follow(void)
 
     /* Explicit forensic CT remains live when automatic gain-derived
      * tracking is disabled. */
+    regtrace_t40_ev_fanout(regtrace_gc4653_again_log2_gain(min_t(uint32_t,
+        READ_ONCE(regtrace_ae_soft_cur_again), regtrace_t40_ae_max_again_index())));
     if (regtrace_enable_ccm && !regtrace_ccm_ct_track &&
         (regtrace_ccm_ct != regtrace_ccm_ct_now ||
          regtrace_ccm_ev != regtrace_ccm_ev_now))
