@@ -17064,6 +17064,10 @@ static int regtrace_framechan_context_ready[4];
 static void *regtrace_vic_subdev;
 static void *regtrace_core_subdev;
 static void *regtrace_fs_subdev;
+/* /proc/jz/isp + isp-m0 created by the core subdev init; removed again in the core remove
+ * (a stale entry kept the unloaded module's fops and blocked the mkdir on the next load) */
+static struct proc_dir_entry *t40_isp_proc_dir_rm T40C2;   /* own section: keeps the lifted .bss layout */
+static struct proc_dir_entry *t40_isp_proc_m0 T40C2;
 static void *regtrace_sensor_subdev;
 static void *regtrace_sensor_ops;
 static struct i2c_client *regtrace_sensor_client;
@@ -18287,6 +18291,15 @@ static void regtrace_subdev_cleanup_internal(unsigned char *sd)
     *(uint16_t *)(sd + REGTRACE_TX_ISP_MODULE_OUTPAD_COUNT_OFFSET) = 0;
     *(uint16_t *)(sd + REGTRACE_TX_ISP_MODULE_INPAD_COUNT_OFFSET) = 0;
     tx_isp_module_deinit((int32_t)(uintptr_t)sd);
+    /* the removes free sd right after this: drop the global aliases first */
+    if (regtrace_vic_subdev == (void *)sd)
+        regtrace_vic_subdev = NULL;
+    if (regtrace_core_subdev == (void *)sd)
+        regtrace_core_subdev = NULL;
+    if (regtrace_fs_subdev == (void *)sd)
+        regtrace_fs_subdev = NULL;
+    if (ispcore_sd == (uint32_t)(uintptr_t)sd)
+        ispcore_sd = 0;
 }
 
 static void regtrace_ensure_oem_links(void);
@@ -18475,9 +18488,11 @@ static int regtrace_subdev_init_internal(uintptr_t pdev_addr, uintptr_t sd_addr,
             static struct proc_dir_entry *t40_isp_proc_dir;
             if (!t40_isp_proc_dir)
                 t40_isp_proc_dir = jz_proc_mkdir("isp");
-            if (t40_isp_proc_dir) {
+            t40_isp_proc_dir_rm = t40_isp_proc_dir;
+            if (t40_isp_proc_dir && !t40_isp_proc_m0) {
                 struct proc_dir_entry *pe = proc_create_data("isp-m0", 0444, t40_isp_proc_dir,
                                                              &isp_info_proc_fops, (void *)sd);
+                t40_isp_proc_m0 = pe;
                 printk(KERN_INFO "tx_isp_t40_recovered: proc /proc/jz/isp/isp-m0 %s\n", pe ? "created" : "FAILED");
             } else {
                 printk(KERN_ERR "tx_isp_t40_recovered: jz_proc_mkdir(isp) failed\n");
@@ -48779,9 +48794,10 @@ isp_core_tuning_init0x70:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000ce6c origin=model_output original=isp_core_tuning_deinit */
 void isp_core_tuning_deinit(int32_t arg1)
 {
-    if (arg1 == 0)
+    /* OEM: kfree(tuning) - the 132-byte object from isp_core_tuning_init; the lift freed NULL */
+    if (!regtrace_is_kernel_ptr((void *)(uintptr_t)arg1))
         return;
-    private_kfree(NULL);
+    private_kfree((void *)(uintptr_t)arg1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000ce8c origin=model_output original=isp_core_tuning_clear */
@@ -188367,7 +188383,7 @@ int tx_isp_vin_remove(struct platform_device *pdev)
 
     private_platform_set_drvdata((void *)s1, 0);
     tx_isp_subdev_deinit((void *)s0);
-    private_kfree(NULL);
+    private_kfree((void *)s0);   /* OEM: kfree(vin) (352 bytes from the probe); the lift freed NULL */
 
     return 0;
 }
@@ -188451,7 +188467,11 @@ int tx_isp_fs_remove(struct platform_device *pdev)
     void *v0_2;
 
     drv_data = private_platform_get_drvdata(arg1);
+    if (!regtrace_is_kernel_ptr(drv_data))
+        return 0;
     s1 = *(void **)((char *)drv_data + 0x10c);
+    if (!regtrace_is_kernel_ptr(s1))
+        s1 = drv_data;   /* the fs probe stores the object itself at +0x10c */
     s0 = 0;
     v1 = *(int32_t *)((char *)s1 + 0x118);
 
@@ -188467,11 +188487,14 @@ int tx_isp_fs_remove(struct platform_device *pdev)
         v1 = *(int32_t *)((char *)s1 + 0x118);
     }
 
+    /* OEM: kfree(fs->chans (+0x114, n * 0x384)), subdev_deinit, kfree(fs); the lift freed NULL twice */
     if (a0 != 0)
-        private_kfree(NULL);
-
+        private_kfree((void *)a0);
+    *(void **)((char *)s1 + 0x114) = NULL;
+    *(uint32_t *)((char *)s1 + 0x118) = 0;
     tx_isp_subdev_deinit(drv_data);
-    private_kfree(NULL);
+    private_platform_set_drvdata(arg1, NULL);
+    private_kfree(s1);
     return 0;
 }
 
@@ -188516,12 +188539,18 @@ int tx_isp_core_remove(struct platform_device *pdev)
     uintptr_t *v0;
     uintptr_t *s0;
     uintptr_t *s2;
-    uint32_t *s3;
     uint32_t *a0;
     uint32_t tmp;
 
     v0 = (uintptr_t *)private_platform_get_drvdata((void *)arg1);
+    /* probe failed or never ran: nothing to tear down (OEM dereferences blindly) */
+    if (!regtrace_is_kernel_ptr(v0)) {
+        printk(KERN_INFO "tx_isp_t40_recovered: core remove: no drvdata\n");
+        return 0;
+    }
     s0 = *(uintptr_t *)((char *)v0 + 0x10c);
+    if (!regtrace_is_kernel_ptr(s0))
+        s0 = v0;    /* the core probe stores the object itself at +0x10c */
     a0 = *(uint32_t *)((char *)s0 + 0x3e0);
 
     if (a0 != 0) {
@@ -188538,11 +188567,22 @@ int tx_isp_core_remove(struct platform_device *pdev)
     }
     regtrace_fr_mark(0x97, 0);
 
+    /* /proc/jz/isp/isp-m0 points at this object and the module's fops */
+    if (t40_isp_proc_m0) {
+        proc_remove(t40_isp_proc_m0);
+        t40_isp_proc_m0 = NULL;
+    }
+    if (t40_isp_proc_dir_rm) {
+        proc_remove(t40_isp_proc_dir_rm);
+        t40_isp_proc_dir_rm = NULL;
+    }
+
     s2 = v0;
-    private_kfree(NULL);
+    /* OEM: kfree(core->chans (+0x274, n * 216 bytes from the probe)); the lift freed NULL */
+    private_kfree((void *)(uintptr_t)*(uint32_t *)((char *)s0 + 0x274));
     *(uint32_t *)((char *)s0 + 0x27c) = 1;
     *(uint32_t *)((char *)s0 + 0x274) = 0;
-    tx_isp_subdev_deinit((void *)s2);
+    tx_isp_subdev_deinit((void *)s2);   /* free_irq, clocks, iounmap, pads */
     tisp_deinit(0);
 
     tmp = *(uint32_t *)((char *)s0 + 0x2e8);
@@ -188550,7 +188590,17 @@ int tx_isp_core_remove(struct platform_device *pdev)
         tisp_deinit(1);
     }
 
-    private_kfree(NULL);
+    /* the ISR is gone now: drop the frame-done works a last IRQ may have queued after exit step 2 */
+    cancel_work_sync(&regtrace_irq_frame_done_work[0].work);
+    cancel_work_sync(&regtrace_irq_frame_done_work[1].work);
+    cancel_work_sync(&regtrace_irq_frame_done_work[2].work);
+    cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
+    cancel_work_sync(&regtrace_isp_block_init_work);
+
+    /* the object itself (OEM: kfree(core); the lift freed NULL); global aliases were dropped by subdev_deinit */
+    private_platform_set_drvdata((void *)arg1, NULL);
+    private_kfree((void *)s0);
+    printk(KERN_INFO "tx_isp_t40_recovered: core remove done (core object freed)\n");
     return 0;
 }
 
