@@ -2937,6 +2937,28 @@ static int tiziano_load_parameters(const char *param_name)
 	if (ret)
 		pr_info("tiziano_load_parameters: no cust bin at %s\n", cust_path);
 
+	/* OEM tiziano_load_parameters (tx-isp-t31.ko 0x160f4): with isp_memopt==1
+	 * the day/night/cust blocks are patched right after loading, because the
+	 * single shared MDNS reference bank cannot serve the extra planes:
+	 * ass_enable=0, sta_group_num=1, bgm_enable=0, psn_enable=0 and
+	 * mdns_y_con_thres[9] cleared. */
+	if (isp_memopt == 1) {
+		void *blk[3] = { tparams_day, tparams_night, tparams_cust };
+		int i;
+
+		for (i = 0; i < 3; i++) {
+			u8 *b = blk[i];
+
+			if (!b)
+				continue;
+			memset(b + (0x90660 - 0x84B10), 0, 4);
+			*(u32 *)(b + (0x90668 - 0x84B10)) = 1;
+			memset(b + (0x90670 - 0x84B10), 0, 4);
+			memset(b + (0x90678 - 0x84B10), 0, 4);
+			memset(b + (0x92348 - 0x84B10), 0, 0x24);
+		}
+	}
+
 	tuning_bin_loaded = true;
 	pr_info("tiziano_load_parameters: loaded %s\n", std_bin_path);
 	return 0;
