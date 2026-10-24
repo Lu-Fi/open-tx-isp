@@ -50,3 +50,16 @@ ccflags-y += -ffunction-sections
 LDFLAGS_MODULE += --gc-sections --undefined=init_module --undefined=cleanup_module \
 	-T $(abspath $(src)/../tx_isp_merge.lds)
 endif
+
+# Rootfs size: bring-up-only parameters (see docs/SIZE.md) and the legacy
+# /proc/tx_isp_t40_recovered debug file (register dump, "exit N", "dumplog")
+# are built in only on request:
+#   make ... TX_ISP_T40_BRINGUP_PARAMS=y TX_ISP_T40_DEBUG_PROC=y
+TX_ISP_T40_BRINGUP_PARAMS ?= n
+ifeq ($(TX_ISP_T40_BRINGUP_PARAMS),y)
+ccflags-y += -DTX_ISP_T40_BRINGUP_PARAMS
+endif
+TX_ISP_T40_DEBUG_PROC ?= n
+ifeq ($(TX_ISP_T40_DEBUG_PROC),y)
+ccflags-y += -DTX_ISP_T40_DEBUG_PROC
+endif

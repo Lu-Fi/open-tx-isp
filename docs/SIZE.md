@@ -62,6 +62,26 @@ T23 parameters left out: enable_irqs_on_streamon, log_framechan_payloads, text_w
 
 T41 parameters behind the switch: t41_safe_tuning_events, t41_safe_ae_controller, t41_ae_target_q8, t41_ae_comp, t41_ae_cap_integration, t41_ae_cap_again, t41_ae_update_frames, t41_ae_calibrated_metering, t41_sensor_limits_error, t41_ae_flicker_floor_lines, t41_ae_flicker_ceiling_lines, t41_ae_flicker_frequency_hz, t41_ae_flicker_gib_gain_q10, t41_color_green_correction_q10, t41_color_blue_correction_q10, t41_ae_flicker_profile, t41_safe_gain_fanout_mask, t41_safe_ae_integration, t41_safe_ae_again, t41_safe_ae_gain_q16, t41_safe_ae_last_mean_q8, t41_gain_fanout_trigger, t41_safe_ev_fanout_mask, t41_ev_fanout_trigger, t41_safe_tmo_irq_stats, t41_safe_tisp_teardown, t41_safe_msca_start, t41_defer_vic_irq, t41_vic_frame_sync_work, t41_defer_vic_start, t41_defer_isp_start, t41_defer_isp_fw_thread, t41_defer_sensor_start, t41_defer_csi_start, t41_msca_frame_shadow_commit, t41_stock_awb_gain_a, t41_stock_awb_gain_b, t41_awb_gain_trigger, t41_native_awb, t41_awb_update_irqs, t41_awb_warmup_irqs, t41_awb_min_zones, t41_awb_min_pixels, t41_safe_awb_rgain, t41_safe_awb_bgain, t41_safe_awb_raw_r_q10, t41_safe_awb_raw_b_q10, t41_safe_awb_irq_count, t41_safe_awb_update_count, t41_safe_awb_reject_count, t41_safe_awb_bank, t41_stock_dmsc_profile, t41_stock_ysp_profile, t41_stock_ysp_unbypass, t41_stock_spatial_profile, t41_stock_cdns_profile, t41_stock_mdns_profile, t41_stock_adr_profile, t41_stock_tmo_profile, t41_tmo_frames, t41_tmo_dropped, t41_tmo_error, t41_ccm_error, t41_bcsh_error, t41_ydns_error, t41_ydns_gain, t41_ysp_error, t41_ysp_gain, t41_cdns_error, t41_cdns_gain, t41_mdns_error, t41_mdns_gain, t41_sdns_error, t41_sdns_gain, t41_gamma_error, t41_gamma_ev, t41_gamma_strength_value, t41_gamma_updates, t41_tmo_replay_trigger, t41_bcsh_color_model, t41_stat_y_out.
 
+## Bring-up parameters and debug proc (T40)
+
+Same scheme as T23/T41, on the single-file T40 recovered driver
+(`t40_bringup_param*` macros in `tx_isp_t40_recovered.c`):
+`TX_ISP_T40_BRINGUP_PARAMS=n` (default since 2026-10-24) leaves out 340 of the
+548 parameters: every one whose name appears in no tool, script, test, doc,
+OpenIMP, timps, thingino or audit file (searched 2026-10-24). The vendor
+parameters (`isp_dual_buf`, `isp_ch0_pre_dequeue_time`, `isp_memopt`,
+`isp_clk`, `clk_name`, `print_level`) always stay. `TX_ISP_T40_DEBUG_PROC=n`
+(default) does not create the legacy `/proc/tx_isp_t40_recovered` file (its
+reads can block while streaming, `tools/t40_safe_qbuf_dump_probe.sh` already
+skips it); `=y` brings back the register dump, `echo exit N` and `echo dumplog`.
+Stripped module 1557 -> 1445 KB, xz 431 -> 404 KB (.text 1023 -> 987 KB,
+.rodata + strings 135 -> 103 KB, .modinfo + __param 37 -> 16 KB).
+Open: .bss is 987 KB of RAM (about 50 zeroed 16 KB and four 64 KB command
+buffers `vic_err`, `vic_cmd_buf`, `csi_cmd_buf`, `tparamsN`) and the 60 KB
+`stMainAwbInterOri` table; not touched, they need a use audit with the
+picture chains (RAM only, no file size). Already `-Os`, `--gc-sections`,
+section anchors on.
+
 ## Log prefixes (T23, T41)
 
 The kernel log lines start with `t23: ` and `t41: ` (`pr_fmt` for the
