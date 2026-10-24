@@ -14264,6 +14264,9 @@ static u32 t31_mxu2_cpm __attribute__((section(".data")));
 module_param_named(t31_mxu2_cpm, t31_mxu2_cpm, uint, 0444);
 MODULE_PARM_DESC(t31_mxu2_cpm, "CPM 0x10000034 read by the selftest: 0x101 MXU2 free, 0x110 locked");
 static int awb_ctdet_mode __attribute__((section(".data")));	/* mode of the running call */
+static int t31_mxu2_force __attribute__((section(".data")));
+module_param_named(t31_mxu2_force, t31_mxu2_force, int, 0644);
+MODULE_PARM_DESC(t31_mxu2_force, "DEBUG: 1 = selftest ignores the CPPSR==0x101 gate (probe a locked chip; may trap)");
 static void t31_awb_selftest_workfn(struct work_struct *work);
 static DECLARE_WORK(t31_awb_selftest_work, t31_awb_selftest_workfn);
 
@@ -20041,7 +20044,7 @@ static void t31_awb_selftest_workfn(struct work_struct *work)
 	t31_ri_hits = 0;
 	/* CPM 0x10000034: 0x101 = MXU2 enabled by the Ingenic kernel, 0x110 = locked */
 	t31_mxu2_cpm = *(volatile u32 *)0xb0000034;
-	if (t31_mxu2_cpm != 0x101) {
+	if (t31_mxu2_cpm != 0x101 && !t31_mxu2_force) {
 		pr_warn("t31_awb_selftest: mxu2 locked by SoC (cpm 0x%x), using fast C\n",
 			t31_mxu2_cpm);
 		t31_awb_selftest_state = -1;
