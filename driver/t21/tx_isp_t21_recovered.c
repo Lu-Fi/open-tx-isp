@@ -10894,6 +10894,36 @@ static int32_t tx_isp_irq_line_enable(uintptr_t a0)
     return 0;
 }
 
+/* Quiesce the ISP/VIC interrupt hardware before the handler is (re)registered and before it is
+ * released.  A status bit latched by the previous stream is otherwise delivered into the fresh
+ * handler on a reload (QEMU T21: soft lockup in __do_softirq on the first reload after streaming).
+ * VIC: status 0x100, mask 0x104 (1 = masked), clear 0x108.  Core: mask 0x80, status 0x84, ack 0x88. */
+static void t21_irq_quiesce_pdev(struct platform_device *pdev)
+{
+	struct resource *res;
+	void __iomem *base;
+	const char *name;
+
+	if (!pdev || !pdev->name)
+		return;
+	name = pdev->name;
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!res || resource_size(res) < 0x200)
+		return;
+	base = ioremap(res->start, resource_size(res));
+	if (!base)
+		return;
+	if (!strcmp(name, "isp-w02")) {
+		writel(0xffffffffU, base + 0x104);
+		writel(0xffffffffU, base + 0x108);
+	} else if (!strcmp(name, "isp-m0")) {
+		writel(0, base + 0x80);
+		writel(0xffffffffU, base + 0x88);
+	}
+	wmb();
+	iounmap(base);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000726c origin=model_output original=tx_isp_request_irq */
 int tx_isp_request_irq(struct platform_device *pdev, void *data)
 {
@@ -10912,6 +10942,7 @@ int tx_isp_request_irq(struct platform_device *pdev, void *data)
 		return 0;
 	}
 
+	t21_irq_quiesce_pdev(pdev);
 	private_spin_lock_init((spinlock_t *)data);
 	name = *(uint32_t *)pdev;
 	ret = private_request_threaded_irq(irq, isp_irq_handle, isp_irq_thread_handle, 8192, (const char *)name, data);

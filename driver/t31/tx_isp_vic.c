@@ -677,6 +677,24 @@ static void vic_program_irq_registers(struct tx_isp_vic_device *vic_dev,
             readl(vic_base + 0x1e8), readl(vic_base + 0x1ec));
 }
 
+/* Mask every VIC interrupt source and acknowledge all pending bits.  Called before the
+ * isp-w02 IRQ is requested and before it is freed: a status bit left latched by the previous
+ * stream (rmmod/insmod reload) otherwise fires into the freshly registered handler, nobody
+ * claims it and the kernel disables the line ("irq 38: nobody cared", ISP IRQs then dead until
+ * reboot).  Mask bit=1 masks (see vic_program_irq_registers); streaming unmasks again. */
+void tx_isp_vic_quiesce_irq(struct tx_isp_vic_device *vic_dev)
+{
+    void __iomem *vic_base = vic_primary_regs_resolve(vic_dev);
+
+    if (!vic_base)
+        return;
+    writel(0xFFFFFFFF, vic_base + 0x1e8);
+    writel(0xFFFFFFFF, vic_base + 0x1ec);
+    writel(0xFFFFFFFF, vic_base + 0x1f0);
+    writel(0xFFFFFFFF, vic_base + 0x1f4);
+    wmb();
+}
+
 /* VIC interrupt restoration function - using correct VIC base */
 void tx_isp_vic_restore_interrupts(void)
 {
@@ -3371,6 +3389,7 @@ int tx_isp_vic_remove(struct platform_device *pdev)
 
     platform_set_drvdata(pdev, NULL);
 
+    tx_isp_vic_quiesce_irq(vic_dev);
     if (vic_dev->sd_irq_info.irq > 0) {
         pr_info("tx_isp_vic_remove: free_irq %d (dev_id=%p)\n",
                 vic_dev->sd_irq_info.irq, &vic_dev->sd_irq_info);

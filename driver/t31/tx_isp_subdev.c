@@ -99,6 +99,7 @@ extern int sensor_count;
 /* Function declarations for Binary Ninja compatibility */
 int isp_subdev_init_clks(struct tx_isp_subdev *sd, int clk_num);
 int tx_isp_module_init(struct platform_device *pdev, struct tx_isp_subdev *sd);
+void tx_isp_vic_quiesce_irq(struct tx_isp_vic_device *vic_dev);
 int tx_isp_request_irq(struct platform_device *pdev, struct tx_isp_irq_info *irq_info);
 void tx_isp_free_irq(struct tx_isp_irq_info *irq_info);
 void tx_isp_disable_irq(void *arg1);
@@ -880,6 +881,8 @@ int tx_isp_subdev_init(struct platform_device *pdev, struct tx_isp_subdev *sd,
 					irq_dst = &ourISPdev->vic_dev->sd_irq_info;
 				}
 				if (irq_dst) {
+					if (irq_dst == &ourISPdev->vic_dev->sd_irq_info)
+						tx_isp_vic_quiesce_irq(ourISPdev->vic_dev);
 					ret = tx_isp_request_irq(pdev, irq_dst);
 					if (ret != 0)
 						goto cleanup_irq;
