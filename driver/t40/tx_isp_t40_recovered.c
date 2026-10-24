@@ -126281,6 +126281,9 @@ int32_t tisp_lce_clr_ram1(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004b5c8 origin=fragment_seed original=tisp_lce_clear_stat_ram */
 int32_t tisp_lce_clear_stat_ram(uint32_t a0)
 {
+    /* T40-LCE-CLEAR-GUARD: the lifted body faults (BadVA 8, tisp_lce_clear_stat_ram+0x34) on every
+     * SetModuleControl that reaches tisp_reg_map_set; the OEM clears the per-sensor stat RAM. */
+    return a0 ? tisp_lce_clr_ram1() : tisp_lce_clr_ram0();
     uint32_t local_14 = 0;
     uint32_t ra = 0;
     uint32_t t9 = 0;
