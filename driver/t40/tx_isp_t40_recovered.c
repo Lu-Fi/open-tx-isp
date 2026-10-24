@@ -172642,7 +172642,9 @@ int32_t tisp_s_mscaler_mask_attr(uint32_t a0, uintptr_t a1)
     if (a0 != 0) { goto tisp_s_mscaler_mask_attr0xe0; }
 
     /* fragment 2: ConstantLoad */
-    s0 = 0x0;
+    /* T40-MASK-S0: the lift lost the vinum 0 state base (movz a1,zero,a0 compiled it to NULL: kernel oops at
+     * tisp_s_mscaler_mask_attr+0x50 on the first SetMask, Eufy agg43d 2026-10-24); the get uses mscaler_s0. */
+    s0 = (uintptr_t *)mscaler_s0;
 
 tisp_s_mscaler_mask_attr0x28:
     /* fragment 3: Arithmetic */
