@@ -7459,6 +7459,9 @@ module_param_named(t40_ev_updates, regtrace_t40_ev_updates, bool, 0644);
 static bool regtrace_t40_loopguard;
 static void regtrace_loopguard(const char *fn, const char *lbl);
 #define REGTRACE_LOOPGUARD_BUDGET (regtrace_t40_loopguard ? 2000000U : 0xffffffffU)
+static unsigned int t40_csc_unsafe;  /* 1: allow the broken lifted CSC get/set (debug only) */
+module_param(t40_csc_unsafe, uint, 0644);
+MODULE_PARM_DESC(t40_csc_unsafe, "allow the lifted OEM CSC get/set (stack/bss overflow, debug only)");
 static unsigned int regtrace_t40_module_ctx_inits;  /* bitmask: run the lifted module inits (1 gamma 2 lsc 4 ccm 8 bcsh 16 clm) after the lit inits */
 module_param_named(t40_module_ctx_inits, regtrace_t40_module_ctx_inits, uint, 0644);
 static unsigned int regtrace_t40_antiflick_hz;      /* 0 = bin default (60 Hz), 50/60 = set after AE init like the vendor app does */
@@ -46797,6 +46800,10 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
             }
 
             if (v1 == 0x8000096) {
+                /* T40-CSC-GUARD: the lifted tisp_csc_set_attr copies 92 bytes over the isp_memopt
+                 * module parameter (an int) and its set_csc_version tail call is lost. */
+                if (!t40_csc_unsafe)
+                    return -EOPNOTSUPP;
                 int v0_49 = copy_from_user(&var_88, (void __user *)arg3[1], 0x5c);
                 s1_1 = v0_49;
 
@@ -47429,6 +47436,10 @@ label_c33c_vfree:
     }
 
     if (cmd == 0x8000096) {
+        /* T40-CSC-GUARD: the lifted tisp_csc_get_attr memsets 92 bytes into a 4-byte stack slot
+         * (kernel oops with epc 0 on the first GetISPCSCAttr, Eufy .184 2026-10-24). */
+        if (!t40_csc_unsafe)
+            return -EOPNOTSUPP;
         tisp_get_csc_attr(arg1, __p_80);
         if (private_copy_to_user(arg3[1], __p_80, 0x5c) == 0) {
             return 0;
