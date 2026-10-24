@@ -9090,6 +9090,9 @@ static uint regtrace_ae_isp_dgain_updates;
  * sensor's attribute (max_integration_time, attr+0xb8: sc830ai boot 4 = 2241
  * lines at 20 fps) instead of the GC4653-era 1919.  =0 keeps ae_soft_max_it. */
 static bool regtrace_ae_soft_max_it_from_sensor = true;
+/* T40-QUALITY: lifted OEM AE (tisp_ae_main_process, event 1) opt-in only. */
+static bool regtrace_t40_oem_ae;
+static uint regtrace_t40_oem_ae_skipped;
 
 /* 16.16 log2 of the ISP digital gain (0 at 1x). */
 static uint32_t regtrace_t40_ae_isp_dgain_log2(void)
@@ -9686,6 +9689,8 @@ module_param_named(ae_isp_dgain_max, regtrace_ae_isp_dgain_max, uint, 0644);
 module_param_named(ae_isp_dgain_cur, regtrace_ae_isp_dgain_cur, uint, 0444);
 module_param_named(ae_isp_dgain_updates, regtrace_ae_isp_dgain_updates, uint, 0444);
 module_param_named(ae_soft_max_it_from_sensor, regtrace_ae_soft_max_it_from_sensor, bool, 0644);
+module_param_named(t40_oem_ae, regtrace_t40_oem_ae, bool, 0644);
+module_param_named(t40_oem_ae_skipped, regtrace_t40_oem_ae_skipped, uint, 0444);
 module_param_named(awb_manual_rgain, regtrace_awb_manual_rgain, uint, 0644);
 module_param_named(awb_manual_bgain, regtrace_awb_manual_bgain, uint, 0644);
 module_param_named(awb_control_mode, regtrace_awb_control_mode, uint, 0444);
@@ -50099,6 +50104,55 @@ out:
     return ret;
 }
 
+/*
+ * T40-FRAME3A-WORK (2026-10-24): the frame-3A sampler (AE from the finished
+ * channel-0 frame + the EXPO ioctl to the sensor) used to run only inside the
+ * FIFO frame-done work item.  With enable_core_ops_cb=1 the OEM core ISR
+ * delivers the frames itself (leg A, regtrace_core_isr_frame_done -> _send in
+ * hard-IRQ context) and the sampler never ran: AE frozen at IT 1919 / gain 0
+ * (run2).  Both delivery paths meet in regtrace_irq_frame_done_send, so the
+ * tick lives there and defers the sampling (ioremap of the Y/UV planes, I2C
+ * EXPO write) to its own work item.
+ */
+static uint32_t regtrace_frame_3a_work_y, regtrace_frame_3a_work_uv;
+static uint32_t regtrace_frame_3a_work_runs, regtrace_frame_3a_work_busy;
+static atomic_t regtrace_frame_3a_work_pending = ATOMIC_INIT(0);
+module_param_named(frame_3a_work_runs, regtrace_frame_3a_work_runs, uint, 0444);
+module_param_named(frame_3a_work_busy, regtrace_frame_3a_work_busy, uint, 0444);
+
+static void regtrace_frame_3a_workfn(struct work_struct *work)
+{
+    uint32_t y = READ_ONCE(regtrace_frame_3a_work_y);
+    uint32_t uv = READ_ONCE(regtrace_frame_3a_work_uv);
+
+    (void)work;
+    atomic_set(&regtrace_frame_3a_work_pending, 0);
+    regtrace_frame_3a_work_runs++;
+    if (!regtrace_enable_frame_3a || !y || !uv)
+        return;
+    regtrace_frame_3a_sample(y, uv);
+    regtrace_ae_sensor_apply_maybe(0, "frame-3a-work");
+}
+static DECLARE_WORK(regtrace_frame_3a_work, regtrace_frame_3a_workfn);
+
+static void regtrace_frame_3a_tick(uint32_t y, uint32_t uv)
+{
+    static uint32_t f3a_tick;
+
+    if (!regtrace_enable_frame_3a || !y || !uv)
+        return;
+    if (++f3a_tick < max_t(uint32_t, regtrace_frame_3a_interval, 1U))
+        return;
+    f3a_tick = 0;
+    if (atomic_cmpxchg(&regtrace_frame_3a_work_pending, 0, 1) != 0) {
+        regtrace_frame_3a_work_busy++;
+        return;
+    }
+    WRITE_ONCE(regtrace_frame_3a_work_y, y);
+    WRITE_ONCE(regtrace_frame_3a_work_uv, uv);
+    schedule_work(&regtrace_frame_3a_work);
+}
+
 static long regtrace_irq_frame_done_send(int channel, uint32_t source,
                                          uint32_t core_pad, uint32_t y,
                                          uint32_t uv, uint32_t index,
@@ -50131,6 +50185,7 @@ static long regtrace_irq_frame_done_send(int channel, uint32_t source,
         regtrace_frame_3a_completed_uv_phys = regtrace_untag_phys(uv);
         wmb();
         regtrace_frame_3a_completed_seq++;
+        regtrace_frame_3a_tick(regtrace_untag_phys(y), regtrace_untag_phys(uv));
     }
 
     if (regtrace_irq_frame_done_delivery_mode ==
@@ -50516,14 +50571,8 @@ static void regtrace_irq_frame_done_workfn(struct work_struct *work)
             }
         }
 
-        if (regtrace_enable_frame_3a && channel == 0 && y && uv) {
-            static uint32_t f3a_tick;
-
-            if (++f3a_tick >= regtrace_frame_3a_interval) {
-                f3a_tick = 0;
-                regtrace_frame_3a_sample(y, uv);
-            }
-        }
+        /* T40-FRAME3A-WORK: the frame-3A sampler now ticks from
+         * regtrace_irq_frame_done_send (both delivery paths), see there. */
 
         /*
          * Keep the old post-guard retry too; this is normally a no-op after
@@ -89946,6 +89995,20 @@ int64_t tisp_ae_main_process(void)
     uintptr_t s6 = 0;
     uintptr_t *v0 = 0;
     uintptr_t *v1 = 0;
+
+    /*
+     * T40-QUALITY: with enable_core_ops_cb=1 (now default) the OEM ISR pushes
+     * event 1 from the AE stats interrupt and this lifted OEM AE runs on the
+     * tisp-event thread.  The lift is not usable yet: on the Eufy it oopsed
+     * in tisp_ae_long_tune2 (BadVA 0x1774, run1 2026-10-24) and took the
+     * frame path with it.  Exposure is owned by the frame-3A AE
+     * (enable_frame_3a/enable_ae_sensor_apply); the OEM AE only runs when
+     * t40_oem_ae=1 is asked for explicitly.
+     */
+    if (!regtrace_t40_oem_ae) {
+        regtrace_t40_oem_ae_skipped++;
+        return 0;
+    }
 
     /*
      * head-to-head trace: a hit here means the OEM AE event-1 process actually
