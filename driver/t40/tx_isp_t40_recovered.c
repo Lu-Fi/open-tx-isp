@@ -7495,21 +7495,52 @@ static u32 t40_wdr_out_mode[2];  /* SetWdrOutputMode shadow (linear sensor: flag
  */
 #define T40_VTRACK_SLOTS 256
 static void *t40_vtrack[T40_VTRACK_SLOTS] T40C2;
+static void *t40_vtrack_site[T40_VTRACK_SLOTS] T40C2;
+static unsigned int t40_vtrack_ep[T40_VTRACK_SLOTS] T40C2;
 static unsigned int t40_vtrack_live T40C2, t40_vtrack_overflow T40C2;
-static void t40_vtrack_add(void *p)
+static unsigned int t40_vtrack_epoch T40C2, t40_vtrack_replaced T40C2;
+/*
+ * Per-session leak: the vendor runs tisp_deinit at every session end (ispcore_core_ops_init(0));
+ * the open driver skips it, and tisp_adr_main_init & co. vmalloc their ~36 buffers again at
+ * every tisp_main_init without a NULL check (+344 KB per streamer restart on the Eufy).  An init
+ * entry starts a new epoch; when a call site allocates again in a later epoch, its area from the
+ * earlier epoch is the one the caller is about to overwrite, so it is freed.  Alloc-once sites
+ * (NULL-checked) never come back and keep their area until the module exit.
+ */
+static void t40_vtrack_new_epoch(void)
 {
-    unsigned int i;
+    t40_vtrack_epoch++;
+    printk(KERN_NOTICE "tx_isp_t40_recovered: vtrack epoch %u live %u replaced %u overflow %u\n",
+           t40_vtrack_epoch, t40_vtrack_live, t40_vtrack_replaced, t40_vtrack_overflow);
+}
+static void t40_vtrack_add(void *p, void *site)
+{
+    unsigned int i, slot = T40_VTRACK_SLOTS;
 
     if (!p)
         return;
     for (i = 0; i < T40_VTRACK_SLOTS; i++) {
-        if (!t40_vtrack[i]) {
-            t40_vtrack[i] = p;
-            t40_vtrack_live++;
-            return;
+        if (site && t40_vtrack[i] && t40_vtrack_site[i] == site &&
+            t40_vtrack_ep[i] != t40_vtrack_epoch) {
+            if (t40_vtrack_replaced < 8)
+                printk(KERN_NOTICE "tx_isp_t40_recovered: vtrack replace site %pS size-area %p\n",
+                       site, t40_vtrack[i]);
+            vfree(t40_vtrack[i]);
+            t40_vtrack[i] = NULL;
+            t40_vtrack_live--;
+            t40_vtrack_replaced++;
         }
+        if (!t40_vtrack[i] && slot == T40_VTRACK_SLOTS)
+            slot = i;
     }
-    t40_vtrack_overflow++;
+    if (slot == T40_VTRACK_SLOTS) {
+        t40_vtrack_overflow++;
+        return;
+    }
+    t40_vtrack[slot] = p;
+    t40_vtrack_site[slot] = site;
+    t40_vtrack_ep[slot] = t40_vtrack_epoch;
+    t40_vtrack_live++;
 }
 static void t40_vtrack_del(const void *p)
 {
@@ -7541,8 +7572,8 @@ static void t40_vtrack_free_all(void)
             n++;
         }
     }
-    printk(KERN_INFO "tx_isp_t40_recovered: exit freed %u lifted vmalloc areas (overflow %u)\n",
-           n, t40_vtrack_overflow);
+    printk(KERN_NOTICE "tx_isp_t40_recovered: exit freed %u lifted vmalloc areas (replaced %u, overflow %u)\n",
+           n, t40_vtrack_replaced, t40_vtrack_overflow);
     t40_vtrack_live = 0;
 }
 /* bisect switches for the no-frames hunt (2026-10-24): 1 = also do the OEM-lift stray store of the CSC standard */
@@ -16452,6 +16483,8 @@ static int regtrace_isp_block_init_once(const char *where)
     uint32_t blob;
     uint32_t adr_width;
     uint32_t adr_height;
+
+    t40_vtrack_new_epoch();
 
     if (!regtrace_enable_isp_block_init)
         return 0;
@@ -32364,7 +32397,7 @@ int32_t private_proc_create_data(const char *name, umode_t mode, void *parent, c
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000071c origin=model_output original=private_vmalloc */
-int32_t private_vmalloc(void)
+noinline int32_t private_vmalloc(void)
 {
     uintptr_t size;
 
@@ -32379,7 +32412,7 @@ int32_t private_vmalloc(void)
     {
         void *p = vmalloc(size);
 
-        t40_vtrack_add(p);
+        t40_vtrack_add(p, __builtin_return_address(0));
         return (int32_t)(uintptr_t)p;
     }
 }
@@ -72628,6 +72661,7 @@ int64_t tisp_main_init(uintptr_t a0, uint32_t a1)
         msca_flags = *(uint32_t *)((char *)a0 + 148);
     }
 
+    t40_vtrack_new_epoch();
     regtrace_tisp_main_init_count++;
     regtrace_tisp_main_init_last_a0 = a0;
     regtrace_tisp_main_init_last_path = a1;
@@ -141332,8 +141366,12 @@ struct regtrace_adr_main_alloc_desc {
 
 static uintptr_t regtrace_private_vmalloc_size(uint32_t size)
 {
-    return (uintptr_t)((int32_t (*)(uintptr_t))(uintptr_t)private_vmalloc)
-        ((uintptr_t)size);
+    /* shared helper (one call site for many slots, alloc-once): tracked without a site, so the
+     * per-site epoch replacement never touches its areas */
+    void *p = size ? vmalloc(size) : NULL;
+
+    t40_vtrack_add(p, NULL);
+    return (uintptr_t)p;
 }
 
 static int regtrace_adr_alloc_zero(uintptr_t *slot, uint32_t size,

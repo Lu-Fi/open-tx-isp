@@ -5180,8 +5180,14 @@ static void regtrace_lce_lit_cleanup(void)
 /* OEM tisp_main_init: tisp_lce_init(sensor, width, height, sensor_total_num) */
 static int regtrace_lce_init_lit(uint32_t width, uint32_t height)
 {
-    int ret = (int)tisp_lce_init_lit(0, width, height, 1,
-                                     LCELIT_SP(lcelit_stack_init), NULL, 0);
+    int ret;
+
+    /* OEM tears LCE down in tisp_deinit at every session end; without it the re-init per
+     * session leaked its vmalloc areas (~64 KB per streamer restart) */
+    if (regtrace_t40_lce_lit_active)
+        regtrace_lce_lit_cleanup();
+    ret = (int)tisp_lce_init_lit(0, width, height, 1,
+                                 LCELIT_SP(lcelit_stack_init), NULL, 0);
 
     regtrace_lce_lit_init_ret = ret;
     regtrace_t40_lce_lit_active = !ret;
