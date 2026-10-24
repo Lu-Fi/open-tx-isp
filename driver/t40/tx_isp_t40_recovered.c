@@ -9083,7 +9083,15 @@ static uint regtrace_ae_soft_max_it = 1919;
  * (tisp_gib_ae_write_dgain -> final gain 0x8000/0x8004 + shift 0x803c), via
  * the literal GIB path.  Q10: 1024 = 1x.  ae_isp_dgain_max=1024 disables it.
  */
-static uint regtrace_ae_isp_dgain_max = 4096;
+/*
+ * Default OFF (1024) for now: on the Eufy the GIB final gain words take the
+ * OEM values (0x1116 at 4x, latch 0x8040) but the picture does not change,
+ * not even with 0x7fff/shift 3 forced by devmem (run4 2026-10-24, luma 68 in
+ * both cases).  Where the vendor's AeIspDGain really acts in this pipeline
+ * is still open; with the stage on, the EV/TotalGainDb readouts would claim
+ * a gain the picture does not have.  ae_isp_dgain_max=4096 re-enables it.
+ */
+static uint regtrace_ae_isp_dgain_max = 1024;
 static uint regtrace_ae_isp_dgain_cur = 1024;
 static uint regtrace_ae_isp_dgain_updates;
 /* T40-AE-MAXIT-SENSOR: take the integration ceiling from the registered
@@ -12700,7 +12708,19 @@ static int regtrace_gib_main_init_lit(void)
  * (the literal GIB path reads regtrace_ae_isp_dgain_cur). */
 static int regtrace_t40_ae_isp_dgain_apply(void)
 {
-    if (!regtrace_enable_gib_lit || !regtrace_isp_block_init_ran)
+    uint32_t dg = clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur),
+                          1024U, 32767U);
+
+    if (!regtrace_isp_block_init_ran)
+        return -ENODEV;
+    /* With the OEM gates (t40_gates_oem_offset) the OEM GIB context is
+     * initialised by t40_gib_block_init and the literal GIB path is off
+     * (enable_gib_lit=0, run3): use the OEM AE entry point, which is
+     * tisp_gib_ae_write_dgain -> tisp_gib_calc_digital_gain -> write_reg
+     * mode 2 (0x8000/0x8004/0x803c).  Same Q10 unit, same ladder. */
+    if (tisp_gib_ae_write_dgain(0, dg, dg, dg, dg) == 0)
+        return 0;
+    if (!regtrace_enable_gib_lit)
         return -ENODEV;
     return regtrace_gib_main_gain_update_lit(regtrace_gib_lit_gain, false);
 }
@@ -96345,6 +96365,20 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
         unsigned int moves = (luma * 2U < regtrace_frame_3a_target ||
                               luma > regtrace_frame_3a_target * 2U) ? 2U : 1U;
         unsigned int n;
+        /*
+         * T40-AE-GAINBAND: a sensor gain step is 1.17x (14995/65536 log2),
+         * the ISP dgain step 1.08x.  Stepping them inside the 4-level
+         * integration deadband produced a limit cycle once the integration
+         * time sat at its ceiling (open184b: frames alternating 113/124 at
+         * target 118, day temporal noise 4.2 vs 0.5 at equal brightness).
+         * A gain stage therefore moves only when the error exceeds half its
+         * own step (9 % / 5 % of the target); integration keeps the fine
+         * deadband.
+         */
+        uint32_t again_band = max_t(uint32_t, deadband,
+                                    regtrace_frame_3a_target * 9U / 100U);
+        uint32_t dgain_band = max_t(uint32_t, deadband,
+                                    regtrace_frame_3a_target * 5U / 100U);
 
         for (n = 0; n < moves; n++) {
         if (!protect_highlights &&
@@ -96362,22 +96396,32 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
                     it = max_it;
                 changed = true;
                 break;
-            } else if (again < max_again) {
+            } else if (again < max_again &&
+                       luma + again_band < regtrace_frame_3a_target) {
                 again++;
                 changed = true;
-            } else if (dgain < dgain_max) {
-                /* T40-AE-ISPDGAIN: ~1.17x per step like the analog ladder */
-                dgain = min_t(uint32_t, dgain + dgain / 6U, dgain_max);
+            } else if (dgain < dgain_max &&
+                       luma + dgain_band < regtrace_frame_3a_target) {
+                /* T40-AE-ISPDGAIN: ~1.08x per step */
+                dgain = min_t(uint32_t, dgain + dgain / 12U, dgain_max);
                 dgain_changed = true;
+            } else {
+                break;
             }
         } else if (protect_highlights ||
                    luma > regtrace_frame_3a_target + deadband) {
-            if (dgain > 1024U) {
-                dgain = max_t(uint32_t, dgain - dgain / 7U, 1024U);
+            if (dgain > 1024U &&
+                (protect_highlights ||
+                 luma > regtrace_frame_3a_target + dgain_band)) {
+                dgain = max_t(uint32_t, dgain - dgain / 13U, 1024U);
                 dgain_changed = true;
-            } else if (again > 0) {
+            } else if (again > 0 &&
+                       (protect_highlights ||
+                        luma > regtrace_frame_3a_target + again_band)) {
                 again--;
                 changed = true;
+            } else if (dgain > 1024U || again > 0) {
+                break;
             } else if (it > regtrace_ae_soft_min_it) {
                 uint32_t error = luma > regtrace_frame_3a_target ?
                     luma - regtrace_frame_3a_target : deadband;
