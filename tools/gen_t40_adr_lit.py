@@ -13,7 +13,7 @@ EXT = {  # OEM external -> handled in the dispatcher
  'system_reg_write','system_reg_read','memcpy','memset','private_vmalloc','private_vfree',
  'private_raw_mutex_init','private_mutex_lock','private_mutex_unlock','private_dma_cache_sync',
  'isp_printf','system_irq_func_set','tisp_event_set_cb','tisp_event_push','__ashldi3',
- '__lshrdi3','div64_u64'}
+ '__lshrdi3','div64_u64','tisp_get_tuning'}
 bodies = {}
 used = set()
 for f in fns:
@@ -186,6 +186,8 @@ d.append('''    if (fn == (uint32_t)(uintptr_t)&system_reg_write)
     }
     if (fn == (uint32_t)(uintptr_t)&isp_printf)
         return 0;
+    if (fn == (uint32_t)(uintptr_t)&tisp_get_tuning)
+        return (uint32_t)tisp_get_tuning();
     if (fn == (uint32_t)(uintptr_t)&system_irq_func_set) {
         if (a1 == (uint32_t)(uintptr_t)&tiziano_adr_main_interrupt_static)
             a1 = (uint32_t)(uintptr_t)&adrlit_isr_cb;
@@ -250,6 +252,43 @@ static uint8_t adrlit_stack_ctl[ADRLIT_STACK] __attribute__((aligned(8)));
  * not the mode; the mode is already in the bank copied to tparamsN[0].
  * Only channel 0 is initialised here.
  */
+/*
+ * OEM tisp_main_long_ev_update -> tisp_adr_ev_update(ev_lo, ev_hi, sensor)
+ * and tisp_main_long_tgain_update -> tisp_adr_tgain_update(tg_lo, tg_hi,
+ * sensor): hand translations of the two 60/80-byte leaves (0x53ebc /
+ * 0x53ef8).  They only store into the ADR private state read by
+ * tiziano_adr_ev_func / tgain_func on the next event; without them the chain
+ * stayed at its init EV/gain (black level up at night, open184f p1 20).
+ * adr_tgain_top / adr_tg_f_top are not referenced by the generated chain,
+ * so they are declared here with their OEM sizes.
+ */
+static uint8_t adrlit_adr_tgain_top[8] __attribute__((aligned(8)));
+static uint8_t adrlit_adr_tg_f_top[8] __attribute__((aligned(8)));
+static void regtrace_adr_ev_update_lit(uint64_t ev_q10)
+{
+    uint32_t lo = (uint32_t)ev_q10, hi = (uint32_t)(ev_q10 >> 32);
+    uint32_t ev = (hi << 22) | (lo >> 10);
+
+    if (!regtrace_t40_adr_lit_active)
+        return;
+    if (*(uint32_t *)adrlit_adr_ev_top == ev)
+        return;
+    *(uint16_t *)adrlit_adr_ev_changed = 1;
+    *(uint32_t *)adrlit_adr_ev_top = ev;
+}
+
+static void regtrace_adr_tgain_update_lit(uint32_t tgain)
+{
+    if (!regtrace_t40_adr_lit_active)
+        return;
+    if (*(uint32_t *)adrlit_adr_tgain_top == (tgain >> 16) &&
+        *(uint32_t *)adrlit_adr_tg_f_top == (tgain & 0xffffU))
+        return;
+    *(uint16_t *)adrlit_adr_tgain_changed = 1;
+    *(uint32_t *)adrlit_adr_tgain_top = tgain >> 16;
+    *(uint32_t *)adrlit_adr_tg_f_top = tgain & 0xffffU;
+}
+
 static int regtrace_adr_dn_refresh_lit(uint32_t mode)
 {
     (void)mode;
@@ -273,6 +312,16 @@ static void regtrace_adr_lit_cleanup(void)
     tisp_event_set_cb(0, 2, 0);
     (void)tisp_adr_main_deinit_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_ctl), NULL, 0);
     printk(KERN_INFO "tx_isp_t40_recovered: adr-lit deinit done\\n");
+}
+
+/* OEM tisp_s_drc_ratio(sensor): scales the ADR wal parameters by the module
+ * ratio (tattr +848 enable / +852 ratio) and refreshes the top parameters;
+ * runs against the private ADR state (the lifted copy only touched its own). */
+static int regtrace_adr_drc_ratio_lit(void)
+{
+    if (!regtrace_t40_adr_lit_active)
+        return -ENODEV;
+    return (int)tisp_s_drc_ratio_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_ctl), NULL, 0);
 }
 
 static int regtrace_adr_main_init_lit(uint32_t width, uint32_t height)

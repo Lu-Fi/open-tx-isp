@@ -175047,9 +175047,20 @@ int32_t tisp_s_module_ratio_attr(uint32_t a0, uintptr_t a1)
             continue;
         *(uint32_t *)(t + 832 + 8 * i) = en;
         t[836 + 8 * i] = en ? r : 128;
-        if (i == 0)
+        if (i == 0) {
             tisp_s_sdns_ratio(a0);
-        else
+            /* T40-QUALITY3: the setter scales the bank tables, the literal SDNS chain works on
+             * its own copies taken at init: reload them and replay the live gain. */
+            if (a0 == 0 && regtrace_enable_sdns) {
+                (void)regtrace_sdns_main_init_lit();
+                WRITE_ONCE(regtrace_dns_ev_applied, 0xffffffffU);
+            }
+        } else if (i == 2 && a0 == 0) {
+            /* DRC ratio -> literal OEM tisp_s_drc_ratio on the private ADR state */
+            int dret = regtrace_adr_drc_ratio_lit();
+
+            isp_printf(1, "%s: drc ratio %u -> adr ret=%d\n", "tisp_s_module_ratio_attr", r, dret);
+        } else
             isp_printf(1, "%s: ratio %u of module %u cached, not applied yet\n", "tisp_s_module_ratio_attr", r, i);
     }
     return 0;
