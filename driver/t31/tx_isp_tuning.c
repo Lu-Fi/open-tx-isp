@@ -3781,6 +3781,7 @@ extern void system_reg_write(u32 reg, u32 value);
 /* External system_irq_func_set from tx_isp_core.c */
 extern int system_irq_func_set(int index, irqreturn_t (*handler)(int irq, void *dev_id));
 extern int tisp_ae_get_y_zone(void *arg1);
+extern int tisp_ae_get_y_zone_sum(u64 *sum, unsigned int *count);
 extern int tisp_ae_update_zone_data(uint32_t *new_zone_data, size_t data_size);
 
 /* Forward declarations for AE interrupt functions */
@@ -20589,22 +20590,20 @@ static void tiziano_awb_fill_zone_geometry(uint32_t height, uint32_t width)
 
 static int tisp_ae_mean_update(uint32_t *mean, int32_t *scale)
 {
-	u32 zones[AWB_STATS_ZONES];
+	/* Runs in the AWB statistics interrupt: no zone copy on the stack
+	 * (it was 900 bytes in hard-IRQ context on the 8 KiB task stack). */
 	u64 sum = 0;
+	unsigned int n = 0;
 	int ret;
-	int i;
 
 	if (!mean || !scale)
 		return -EINVAL;
 
-	ret = tisp_ae_get_y_zone(zones);
+	ret = tisp_ae_get_y_zone_sum(&sum, &n);
 	if (ret)
 		return ret;
 
-	for (i = 0; i < ARRAY_SIZE(zones); ++i)
-		sum += zones[i];
-
-	*mean = div_u64(sum + (ARRAY_SIZE(zones) >> 1), ARRAY_SIZE(zones));
+	*mean = div_u64(sum + (n >> 1), n);
 	if (*scale == 0)
 		*scale = 0x400;
 
