@@ -65,7 +65,7 @@ u64 noinline vae_tisp_defog_init(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
 	a1 = 0;
 	v0 = 0;
 	a3 = (u32)1850;
-	a2 = a2 + ((u32)(uintptr_t)vae_rodata + 8320U);
+	a2 = a2 + ((u32)(uintptr_t)dfg_rodata + 8320U);
 	a1 = a1 + ((u32)(uintptr_t)vae_str);
 	v0 = v0 + ((u32)(uintptr_t)vae_x_isp_printf + 0U);
 	tg = v0; a0 = (u32)2; { u64 rv = vae_call(tg, a0, a1, a2, a3, sp, 298072U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
@@ -1405,7 +1405,7 @@ u64 noinline vae_defog_count_weight35abc(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp
 	s4 = a2;
 	s1 = a0;
 	a2 = (u32)48;
-	a1 = a1 + ((u32)(uintptr_t)vae_rodata + 8144U);
+	a1 = a1 + ((u32)(uintptr_t)dfg_rodata + 8144U);
 	a0 = sp + 272U;
 	vf_sw((sp + 432U), s8);
 	vf_sw((sp + 428U), s7);
@@ -1415,7 +1415,7 @@ u64 noinline vae_defog_count_weight35abc(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp
 	tg = s0; vf_sw((sp + 396U), v0); { u64 rv = vae_call(tg, a0, a1, a2, a3, sp, 282564U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
 	a1 = 0;
 	a2 = (u32)126;
-	a1 = a1 + ((u32)(uintptr_t)vae_rodata + 8192U);
+	a1 = a1 + ((u32)(uintptr_t)dfg_rodata + 8192U);
 	tg = s0; a0 = sp + 144U; { u64 rv = vae_call(tg, a0, a1, a2, a3, sp, 282584U); v0 = (u32)rv; v1 = (u32)(rv >> 32); }
 	t1 = s1 + (u32)5;
 	v0 = (u32)10;

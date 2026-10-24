@@ -93,6 +93,7 @@ static u64 vae_x_tisp_event_set_cb(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
 	return (u32)tisp_event_set_cb(a0, a1, a2);
 }
 
+#include "tx_isp_t41_dfg_rodata.inc"
 #include "tx_isp_t41_dfg_gen.inc"
 
 /* Defog pushes event 3 itself (stats ready); AE event 6 carries the EV. */
