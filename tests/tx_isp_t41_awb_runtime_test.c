@@ -55,7 +55,8 @@ static void *t41_tuning_wq(void) { return NULL; }
 static int queue_work(void *wq, struct work_struct *w) { int old=w->queued; (void)wq; assert(spins); w->queued=1; return !old; }
 typedef unsigned long long u64;
 /* load statistics (TX_ISP_LOAD_STATS) are kernel-only; stub the timing hooks */
-enum { T41_WT_AWB };
+enum { T41_WT_AWB, T41_WT_AWB_COPY, T41_WT_AWB_FRAME, T41_WT_AWB_DIAG, T41_WT_AWB_SAVE };
+#define T41_LS_TIME(id, stmt) do { stmt; } while (0)
 static u64 t41_work_begin(void) { return 0; }
 static void t41_work_end(unsigned int id, u64 start) { (void)id; (void)start; }
 static void t41_native_awb_queue(void);

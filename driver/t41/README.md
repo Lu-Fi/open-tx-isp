@@ -993,3 +993,10 @@ step and do not continue with larger sizes.
 vendor AE per frame, OEM CLM LUT by colour temperature, per-frame tone worker).
 Set them to 0 for the previous behaviour (0 for `t41_clm` = no LUT, 2 = bypass).
 Device-tested: 16.6 h overnight run on a gc5603 camera without reboot, 0 BUG/oops.
+
+## Defog and size switches (2026-10-24)
+
+- `t41_defog` defaults to 1 again. The translated defog chain now takes its constant tables from `tx_isp_t41_dfg_rodata.inc` (14784 bytes, the `.rodata` of the module the chain was translated from); earlier it used the rodata image of the vendor-AE translation, whose offsets are 1056 bytes off, which scaled garbage into the curve and weight-table registers and drew a diamond lattice at the block corners. Regenerate both include files with `tools/t41_vae/gen_defog.sh`. Check: `tests/t41_dfg_host.sh`; on a gc5603 (2880x1620) the registers 0xc000..0xc28c equal a vendor dump. `Module_Ratio` index 4 sets the strength (0..255).
+- Size: `TX_ISP_T41_BRINGUP_PARAMS` and `TX_ISP_T41_TMO_SELFTEST` (Kbuild) default to `n`. Scripts that read the bring-up parameters, such as `tools/rawchart/t41_isr_stages.sh`, need `TX_ISP_T41_BRINGUP_PARAMS=y`. Details in `docs/SIZE.md`.
+- CPU-load measurements: the kernel is built with `NO_HZ_FULL` and `VIRT_CPU_ACCOUNTING_GEN`, so the system column of `/proc/stat` does not show the time of the ISP kernel threads reliably. Compare stacks by free CPU (one idle-priority busy loop per core, iterations per second) instead.
+- Known open issue: a camera rebooted under 1080p + 360p at 25 fps 8000 kbit/s (three events on two cameras); not yet explained.

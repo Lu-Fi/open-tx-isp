@@ -255,6 +255,10 @@ only when the histogram-derived value is zero.
   surrounding function has been made free of code-generation-sensitive
   recovered constructs.
 
+## AWB statistics sweeps (`t31_awb_impl`)
+
+The per-frame colour-temperature detection has three implementations: 0 = reference C, 1 = fast C, 2 = MXU2 (default). MXU2 is used only after a load-time selftest passed (bit-exact against the reference on random scenes); otherwise the fast C path runs. Writing `t31_awb_impl=0/1` switches MXU2 off. Measured on a T31X and a T31L: identical results, about 2.4x faster sweeps (96 sweeps: 1229 us in C, 504 us with MXU2).
+
 ## Build and Check
 
 ```bash

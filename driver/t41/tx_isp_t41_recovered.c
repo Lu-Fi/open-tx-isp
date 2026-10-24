@@ -1737,6 +1737,11 @@ enum {
 	/* inside t41_tmo_frame */
 	T41_WT_TMO_CURVE, T41_WT_TMO_MAP, T41_WT_TMO_INTERP, T41_WT_TMO_RAM,
 	T41_WT_TMO_DEFAULT,
+	/* inside the AWB work and t41_native_adr_frame */
+	T41_WT_AWB_COPY, T41_WT_AWB_FRAME, T41_WT_AWB_DIAG, T41_WT_AWB_SAVE,
+	T41_WT_ADR_STATS, T41_WT_ADR_CALC, T41_WT_ADR_EMIT,
+	/* ISR parts */
+	T41_WT_ISR_DISP, T41_WT_ISR_AE, T41_WT_ISR_LCE, T41_WT_ISR_FDN, T41_WT_ISR_ADR,
 	T41_WT_N
 };
 /* Time one statement under a work index (no-op without TX_ISP_LOAD_STATS). */
@@ -15626,6 +15631,33 @@ static void t41_reclaim_stale_sensor(uintptr_t vin, uintptr_t arg,
 		t41_unregister_i2c_sensor(sensor);
 }
 
+static int t41_sensor_owned_by_other_session(uintptr_t vin, uintptr_t arg)
+{
+	char *ispdev = (char *)(uintptr_t)globe_ispdev;
+	struct list_head *head;
+	struct list_head *node;
+	int32_t refs;
+	int found = 0;
+
+	if (!t41_kernel_data_ptr(ispdev))
+		return 0;
+	refs = READ_ONCE(*(int32_t *)(ispdev + 0x0c + 0x114));
+	if (refs <= 1)
+		return 0;
+	head = (struct list_head *)(vin + T41_VIN_SENSOR_LIST_OFF);
+	private_mutex_lock((void *)(vin + T41_VIN_SENSOR_LOCK_OFF));
+	if (head->next)
+		for (node = head->next; node != head; node = node->next)
+			if (!strncmp((char *)((uintptr_t)node - T41_SENSOR_LIST_OFF +
+					      T41_SENSOR_INFO_OFF),
+				     (char *)arg, T41_SENSOR_NAME_LEN)) {
+				found = 1;
+				break;
+			}
+	private_mutex_unlock((void *)(vin + T41_VIN_SENSOR_LOCK_OFF));
+	return found;
+}
+
 static int t41_register_sensor(uintptr_t vin, uintptr_t arg)
 {
 	struct i2c_board_info board_info;
@@ -15665,7 +15697,20 @@ static int t41_register_sensor(uintptr_t vin, uintptr_t arg)
 	 * bound, so every later AddSensor fails with EBUSY from
 	 * i2c_new_device until reboot.  The VIN state check above already
 	 * proved no stream owns this slot, so reclaim a same-named stale
-	 * entry before creating the new client. */
+	 * entry before creating the new client.
+	 * A same-named entry is only stale when no other session holds
+	 * /dev/tx-isp (a dead owner's fd is closed: open count back to 0,
+	 * this caller is 1).  With a second live IMP process (count >= 2) it
+	 * belongs to a running stream: reclaiming it (and the i2c eviction
+	 * after it) tore the streamer's sensor away and oopsed a kworker
+	 * (.34 2026-10-24).  One ISP pipeline cannot serve two IMP sessions,
+	 * so refuse the second AddSensor. */
+	if (t41_sensor_owned_by_other_session(vin, arg)) {
+		printk(KERN_WARNING
+		       "t41: sensor %.32s busy: another session holds tx-isp, AddSensor refused\n",
+		       (char *)arg);
+		return -EBUSY;
+	}
 	t41_reclaim_stale_sensor(vin, arg, sensor_id);
 
 	adapter = private_i2c_get_adapter(*(uint32_t *)(arg + 60));
@@ -29185,6 +29230,19 @@ int32_t fs_core_ops_ioctl(uintptr_t a0, uint32_t a1, uintptr_t a2)
 		char *name = channel + 0x2c8;
 		int ret;
 
+		/* Already registered (a second IMP session while the first still
+		 * holds /dev/tx-isp, or DelSensor+AddSensor on one fd): keep it.
+		 * misc_register() starts with INIT_LIST_HEAD(&misc->list); on a
+		 * node that is still in misc_list this self-links it, every later
+		 * misc_open()/misc_register() walk then spins forever under
+		 * misc_mtx and all other misc users hang in D state (.34,
+		 * 2026-10-24: "duplicate filename framechan0", misc.c:253 WARN). */
+		if (*(uint32_t *)(channel + 0x28)) {
+			printk(KERN_WARNING
+				"t41: framechan%u already registered, kept (concurrent or repeated sensor register)\n",
+				*(uint32_t *)(channel + 0x2dc));
+			continue;
+		}
 		sprintf(name, "framechan%d",
 			*(uint32_t *)(channel + 0x2dc));
 		*(uint32_t *)(channel + 0x00) = 0xff;
@@ -171338,8 +171396,35 @@ int32_t mbus_to_bayer_write(uint32_t mbus_code)
 	return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000074494 origin=fragment_seed original=ispcore_interrupt_service_routine */
+#ifdef TX_ISP_LOAD_STATS
+/* ISR run time (whole handler incl. nested dispatch), microseconds. */
+static unsigned long long t41_isr_us __attribute__((section(".data")));
+static unsigned long long t41_isr_max_us __attribute__((section(".data")));
+module_param(t41_isr_us, ullong, 0444);
+module_param(t41_isr_max_us, ullong, 0444);
+static int64_t t41_isr_body(uintptr_t a0);
 int64_t ispcore_interrupt_service_routine(uintptr_t a0)
+{
+	u64 t0 = t41_work_begin();
+	int64_t ret = t41_isr_body(a0);
+
+	if (t0) {
+		u64 us = ktime_get_ns() - t0;
+
+		do_div(us, 1000);
+		t41_isr_us += us;
+		if (us > t41_isr_max_us)
+			t41_isr_max_us = us;
+	}
+	return ret;
+}
+#endif
+/* WHOLE_DRIVER_CANDIDATE fn_0000000000074494 origin=fragment_seed original=ispcore_interrupt_service_routine */
+#ifdef TX_ISP_LOAD_STATS
+static int64_t t41_isr_body(uintptr_t a0)
+#else
+int64_t ispcore_interrupt_service_routine(uintptr_t a0)
+#endif
 {
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
@@ -171577,6 +171662,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             WRITE_ONCE(t41_ae_zones[0].sequence,
                 READ_ONCE(t41_ae_zones[0].sequence) + 1);
 
+        u64 t41_isr_t0 = t41_work_begin();
         if (t41_isr_dispatch) {
             uint32_t words[3] = { status0, status2, status3 };
             int i;
@@ -171601,6 +171687,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             }
         }
 
+        t41_work_end(T41_WT_ISR_DISP, t41_isr_t0); t41_isr_t0 = t41_work_begin();
         if (t41_isr_dispatch != 1 && (status0 & BIT(5)) &&
             (t41_safe_ae_controller > 0 || t41_vendor_ae > 0)) {
             t41_heapwatch_mark("isr:aehist");
@@ -171619,6 +171706,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             ae_hist_dispatch_trace_count++;
         }
 
+        if (status0 & BIT(5)) t41_work_end(T41_WT_ISR_AE, t41_isr_t0);
         if (status0 & BIT(17))
             t41_tmo_irq17++;
         if ((status0 & BIT(4)) && t41_tone_trigger > 0) {
@@ -171644,6 +171732,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                        (uint32_t)callback, callback_ret);
         }
 
+        t41_isr_t0 = t41_work_begin();
         if (t41_isr_dispatch != 1 && (status0 & BIT(8)) && t41_stock_lce_ram_profile <= 0) {
             int32_t callback = READ_ONCE(irq_func_cb[8]);
             t41_isr_counts[8]++;
@@ -171659,9 +171748,11 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                        (uint32_t)callback, (long long)callback_ret);
         }
 
+        if (status0 & BIT(8)) t41_work_end(T41_WT_ISR_LCE, t41_isr_t0);
         /* Bit 10: defog statistics (OEM irq slot 10) */
         if (status0 & BIT(10))
             t41_dfg_irq();
+        t41_isr_t0 = t41_work_begin();
         /* OEM frame-down commits (vendor tisp_lsc_init / tisp_bcsh_init register
          * irq_func_cb[36] = tisp_lsc_fra_down_interrupt and [52] =
          * tisp_bcsh_fra_down_interrupt; index = group*32 + bit, group 1 =
@@ -171687,8 +171778,11 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
 
         /* Bit 9 was previously acknowledged without dispatch while ADR
          * was disabled. Only the native, owned-page reader is now armed. */
+        if (status2 & (BIT(4) | BIT(20))) t41_work_end(T41_WT_ISR_FDN, t41_isr_t0);
+        t41_isr_t0 = t41_work_begin();
         if ((status0 & BIT(9)) && t41_stock_adr_profile <= 0)
             t41_native_adr_interrupt();
+        if (status0 & BIT(9)) t41_work_end(T41_WT_ISR_ADR, t41_isr_t0);
 
         if (t41_runtime_trace && (trace_count < 32 || (status0 & 0x1)))
             printk(KERN_WARNING

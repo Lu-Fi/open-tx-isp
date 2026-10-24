@@ -7787,6 +7787,7 @@ int32_t tisp_gib_param_array_set(uint32_t a0, uint32_t a1);
 int gib_remove(struct platform_device *pdev);
 int64_t tisp_gib_ae_write_dgain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4);
 static int t40_gib_block_init(void);
+static bool t40_gib_oem_active;
 int32_t tisp_lsc_lut_valid_judge(uint32_t width, uint32_t height, uint32_t mesh_x, uint32_t mesh_y, uint32_t lut_n);
 int32_t tisp_lsc_interp_by_ct(int32_t arg1, int32_t arg2, int16_t arg3, char arg4);
 int32_t tisp_lsc_interp_by_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
@@ -10679,6 +10680,9 @@ static int regtrace_t40_apply_dmsc_sharpness(uint8_t sharpness);
 #include "tx_isp_t40_sdns_lit.inc"
 #include "tx_isp_t40_cdns_lit.inc"
 #include "tx_isp_t40_adr_lit.inc"
+#include "tx_isp_t40_defog_lit.inc"
+#include "tx_isp_t40_lce_lit.inc"
+#include "tx_isp_t40_dpc_lit.inc"
 #include "tx_isp_t40_isr_lit.inc"
 
 
@@ -12176,6 +12180,22 @@ static uint32_t regtrace_gc4653_again_log2_gain(uint32_t index)
 }
 
 /*
+ * T40-QUALITY2: the AE gain ladder above is the GC4653 one (index 25 =
+ * 6.24 log2 = 76x).  The sc830ai stops at max_again 5.0 log2 (32x): the
+ * sensor's alloc_again clamps indices 21..25 silently, while every
+ * gain-indexed table (DNS/YSP/LSC/DMSC, GIB black level) and the reported
+ * AeAGain used the ladder value.  Like the OEM (tisp_ae_main_s_max_again
+ * from the attribute) the ceiling is the highest ladder step that does not
+ * exceed the sensor attribute's max_again (attr+0x98, .16 log2); the
+ * module parameter stays as an upper bound.
+ */
+static bool regtrace_ae_max_again_from_sensor = true;
+module_param_named(ae_max_again_from_sensor, regtrace_ae_max_again_from_sensor, bool, 0644);
+static uint regtrace_t40_ae_max_again_index_eff;
+module_param_named(t40_ae_max_again_index_eff, regtrace_t40_ae_max_again_index_eff, uint, 0444);
+static uint32_t regtrace_t40_ae_max_again_index(void);
+
+/*
  * Source-faithful main-channel T40 BLC init.  tisp_blc_init consumes the
  * 252-byte tool block at +0x2350, interpolates four 11-entry gain tables,
  * derives a pedestal-compensating self gain, and commits the main and short
@@ -12749,6 +12769,34 @@ static void regtrace_gc4653_tuning_again_update(uint32_t again_index)
 
     if (!regtrace_isp_block_init_ran)
         return;
+
+    /*
+     * T40-QUALITY2: the OEM AE fans its total gain / EV out to LCE
+     * (tisp_lce_tgain_update) and defog (tisp_defog_ev_update, EV = IT x
+     * gain in Q10, stored >> 10 like the vendor's ExposureValue).  Feed the
+     * literal chains from the same place the other gain tables take their
+     * value; both leaves return early when the value did not change.
+     */
+    regtrace_lce_tgain_update_lit(total);
+    regtrace_dpc_refresh_lit(total);
+    /*
+     * T40-QUALITY2: with the OEM GIB flow (t40_gib_real) nobody re-ran
+     * tisp_gib_a_gian_update, so the GIB black level stayed at the init
+     * gain interpolation (open184e night: Y p1 16, vendor 7).  The OEM AE
+     * fan-out calls it with the sensor analog gain (16.16 log2) on every
+     * gain change; interp_by_gain returns 1 when the gain moved < 1/64 EV.
+     */
+    if (t40_gib_oem_active)
+        (void)tisp_gib_a_gian_update(0, gain);
+    if (regtrace_t40_defog_lit_active) {
+        uint32_t it = READ_ONCE(regtrace_ae_soft_cur_it);
+        uint32_t again_x1024 = tx_isp_exp2_u32(gain, 16, 10);
+        uint32_t dg = clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur), 1024U, 32767U);
+
+        if (!again_x1024)
+            again_x1024 = 1024U;
+        regtrace_defog_ev_update_lit(((uint64_t)it * again_x1024 * dg) >> 10);
+    }
     if (regtrace_enable_blc_lit && gain != regtrace_blc_lit_gain_now)
         (void)regtrace_blc_main_gain_update_lit(gain, false);
     if (regtrace_enable_gib_lit && gain != regtrace_gib_lit_gain_now)
@@ -16208,6 +16256,39 @@ static int regtrace_isp_block_init_once(const char *where)
            regtrace_isp_block_init_adr_ret,
            (uint32_t)*(volatile uint32_t *)((char *)&adr_main_stat_info));
 
+    /*
+     * T40-QUALITY2: literal OEM defog chain (TOP bit 11).  The recovered
+     * lift never hooked IRQ 10 / event 4, so the block stayed bypassed
+     * although the sc830ai linear bank enables it (vendor TOP 0x7FD9004D).
+     * Clear the bypass bit only after a successful init.
+     */
+    if (regtrace_t40_defog_on && regtrace_t40_gates_oem_offset) {
+        int dret = regtrace_defog_init_lit(adr_width, adr_height);
+
+        if (!dret && !(regtrace_t40_force_bypass & BIT(11)))
+            regtrace_t40_quality_top40_final &= ~BIT(11);
+        else
+            regtrace_t40_quality_top40_final |= BIT(11);
+    }
+    /* same for the literal OEM LCE chain (TOP bit 21) */
+    if (regtrace_t40_lce_on && regtrace_t40_gates_oem_offset) {
+        int lret = regtrace_lce_init_lit(adr_width, adr_height);
+
+        if (!lret && !(regtrace_t40_force_bypass & BIT(21)))
+            regtrace_t40_quality_top40_final &= ~BIT(21);
+        else
+            regtrace_t40_quality_top40_final |= BIT(21);
+    }
+    /* and the literal OEM DPC chain (TOP bit 4, table driven, gain follow) */
+    if (regtrace_t40_dpc_on && regtrace_t40_gates_oem_offset) {
+        int pret = regtrace_dpc_init_lit();
+
+        if (!pret && !(regtrace_t40_force_bypass & BIT(4)))
+            regtrace_t40_quality_top40_final &= ~BIT(4);
+        else
+            regtrace_t40_quality_top40_final |= BIT(4);
+    }
+
     if (regtrace_enable_soft_gamma)
         regtrace_soft_gamma_write();
 
@@ -16269,8 +16350,10 @@ static int regtrace_isp_block_init_once(const char *where)
 
     /* OEM tisp_main_init 0x1decc..0x1dee4: tisp_gib_init(0) only when tparams_status bit 5 (GIB enable =
      * !bypass flag 5 of the bin) is set; the real flow then replaces the gib-lit substitute. */
-    if (t40_gib_block_init() == 0)
+    if (t40_gib_block_init() == 0) {
         regtrace_enable_gib_lit = false;
+        t40_gib_oem_active = true;
+    }
 
     if (regtrace_enable_gib_lit) {
         int gib_ret = regtrace_gib_main_init_lit();
@@ -18637,6 +18720,30 @@ static void regtrace_normalize_frame_format(struct regtrace_frame_image_format *
 
 static int regtrace_is_kernel_ptr(const void *ptr);
 static inline uint32_t regtrace_get_u32(uintptr_t base, uint32_t off);
+
+static uint32_t regtrace_t40_ae_max_again_index(void)
+{
+    uint32_t idx = READ_ONCE(regtrace_ae_sensor_apply_max_again_index);
+
+    if (regtrace_ae_max_again_from_sensor &&
+        regtrace_is_kernel_ptr(regtrace_sensor_subdev)) {
+        uintptr_t attr = regtrace_get_u32((uintptr_t)regtrace_sensor_subdev, 0x304);
+        uint32_t ma = regtrace_is_kernel_ptr((void *)attr) ?
+                      regtrace_get_u32(attr, 0x98) : 0;
+
+        if (ma && ma < 0x800000U) {
+            uint32_t i = 0;
+
+            while (i + 1U < 26U &&
+                   regtrace_gc4653_again_log2_gain(i + 1U) <= ma)
+                i++;
+            if (i < idx)
+                idx = i;
+        }
+    }
+    regtrace_t40_ae_max_again_index_eff = idx;
+    return idx;
+}
 static inline uint16_t regtrace_get_u16(uintptr_t base, uint32_t off);
 static inline void regtrace_put_u32(uintptr_t base, uint32_t off, uint32_t value);
 static uintptr_t regtrace_vic_channel(uintptr_t vic_dev, uint32_t channel);
@@ -23711,6 +23818,13 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
     if (regtrace_t40_adr_lit_active)
         REGTRACE_T40_DN_STEP(regtrace_adr_dn_refresh_lit(
             READ_ONCE(regtrace_running_mode)));
+    /* ... and defog (tisp_defog_dn_params_refresh(sensor, width, height)) */
+    if (regtrace_t40_defog_lit_active)
+        REGTRACE_T40_DN_STEP(regtrace_defog_dn_refresh_lit(width, height));
+    if (regtrace_t40_lce_lit_active)
+        REGTRACE_T40_DN_STEP(regtrace_lce_dn_refresh_lit());
+    if (regtrace_t40_dpc_lit_active)
+        REGTRACE_T40_DN_STEP(regtrace_dpc_dn_refresh_lit());
 
     /* Every DNS/YSP initializer installs its bootstrap interpolation state.
      * The next completed frame must replay the live gain even when that gain
@@ -23824,7 +23938,7 @@ static int regtrace_t40_tuning_copy_ae_expr(uintptr_t user_ptr)
         return -EINVAL;
 
     again_index = min_t(uint32_t, READ_ONCE(regtrace_ae_soft_cur_again),
-                        READ_ONCE(regtrace_ae_sensor_apply_max_again_index));
+                        regtrace_t40_ae_max_again_index());
     again_log2 = regtrace_gc4653_again_log2_gain(again_index);
     again_x1024 = tx_isp_exp2_u32(again_log2, 16, 10);
     if (!again_x1024)
@@ -23840,7 +23954,7 @@ static int regtrace_t40_tuning_copy_ae_expr(uintptr_t user_ptr)
     values.max_integration_time = READ_ONCE(regtrace_ae_soft_max_it);
     values.max_analog_gain_x1024 = tx_isp_exp2_u32(
         regtrace_gc4653_again_log2_gain(
-            READ_ONCE(regtrace_ae_sensor_apply_max_again_index)), 16, 10);
+            regtrace_t40_ae_max_again_index()), 16, 10);
     values.total_gain_db = again_log2 + regtrace_t40_ae_isp_dgain_log2();
     values.max_dgain = clamp_t(uint32_t, regtrace_ae_isp_dgain_max, 1024U, 32767U);
     values.exposure_value = exposure;
@@ -24474,7 +24588,7 @@ static int regtrace_ae_sensor_apply_maybe(int channel, const char *reason)
     }
 
     again = packed >> 16;
-    max_again = regtrace_ae_sensor_apply_max_again_index;
+    max_again = regtrace_t40_ae_max_again_index();
     if (max_again && again > max_again) {
         packed = (max_again << 16) | (packed & 0xffffU);
         again = max_again;
@@ -55607,6 +55721,24 @@ int32_t tx_isp_frame_chan_misc_register(int32_t *arg1)
     int32_t *result;
     int32_t *s1;
     
+    /*
+     * T40-QUALITY2 (mirror of the T41 fix a0449408): a channel whose
+     * registered flag (+0x28, arg1[0xa]) is already set must not be handed
+     * to misc_register() again.  Kernel 4.4 misc_register() starts with
+     * INIT_LIST_HEAD(&misc->list); on a node still in misc_list that
+     * self-links it and every later misc_open()/misc_register() walk spins
+     * forever under misc_mtx (T41 .34: "duplicate filename framechan0",
+     * misc.c:253 WARN, D-state hang).  On T40 the framechan nodes are
+     * registered once at probe (regtrace_register_all_misc) and this OEM
+     * path is kept for parity; keep it idempotent.
+     */
+    if (arg1[0xa]) {
+        printk(KERN_WARNING
+               "tx_isp_t40_recovered: framechan%d already registered, kept (concurrent or repeated sensor register)\n",
+               arg1[0xb3]);
+        return 0;
+    }
+
     /* s1 = arg1 + 696 (0x2b8) - this is the buffer for sprintf */
     s1 = (uintptr_t *)(arg1 + 0x2b8);
     
@@ -96431,7 +96563,7 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
     if (regtrace_enable_ae_sensor_apply) {
         uint32_t it = regtrace_ae_soft_cur_it;
         uint32_t again = regtrace_ae_soft_cur_again;
-        uint32_t max_again = regtrace_ae_sensor_apply_max_again_index;
+        uint32_t max_again = regtrace_t40_ae_max_again_index();
         uint32_t max_it = regtrace_t40_ae_max_it();
         uint32_t dgain = clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur),
                                  1024U, 32767U);
@@ -96740,7 +96872,7 @@ static void regtrace_awb_grayworld_update(void)
         uint32_t mean = (uint32_t)div64_u64(raw_gs, pixels);
         uint32_t it = regtrace_ae_soft_cur_it;
         uint32_t again = regtrace_ae_soft_cur_again;
-        uint32_t max_again = regtrace_ae_sensor_apply_max_again_index;
+        uint32_t max_again = regtrace_t40_ae_max_again_index();
         bool changed = false;
 
         regtrace_ae_soft_last_mean = mean;
@@ -99883,6 +100015,10 @@ module_param_named(t40_gib_status_word, t40_gib_status_word, uint, 0444);
  */
 static int t40_gib_real = -1;
 module_param_named(t40_gib_real, t40_gib_real, int, 0644);
+/* set once the OEM GIB flow initialised (block init); the sensor gain update then follows the OEM
+ * tisp_main_long_tgain_update -> tisp_gib_a_gian_update(0, again) so the GIB black level is
+ * re-interpolated from the bin's gain tables instead of staying at the init gain */
+module_param_named(t40_gib_oem_active, t40_gib_oem_active, bool, 0444);
 
 static int t40_gib_block_init(void)
 {
@@ -176597,7 +176733,7 @@ static int t40_isp_status_show(struct seq_file *m, void *unused)
     } else {
         it = READ_ONCE(regtrace_ae_soft_cur_it);
         again_log2 = regtrace_gc4653_again_log2_gain(min_t(uint32_t, READ_ONCE(regtrace_ae_soft_cur_again),
-                                                   READ_ONCE(regtrace_ae_sensor_apply_max_again_index)));
+                                                   regtrace_t40_ae_max_again_index()));
     }
     again_x1024 = tx_isp_exp2_u32(again_log2, 16, 10);
     if (!again_x1024)
@@ -187737,7 +187873,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
             cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
             cancel_work_sync(&regtrace_isp_block_init_work);
             break;
-        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); t40_vawb_cleanup(); break;
+        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); regtrace_defog_lit_cleanup(); regtrace_lce_lit_cleanup(); regtrace_dpc_lit_cleanup(); t40_vawb_cleanup(); break;
         case 4: regtrace_dmsc_lit_cleanup(); break;
         case 5: regtrace_lsc_lit_cleanup(); break;
         case 6: regtrace_tisp_main_init_param_free(); tisp_disable_tuning(); break;
