@@ -12819,6 +12819,8 @@ static int regtrace_t40_ae_isp_dgain_apply(void)
  * and from the per-frame tuning follow (the EV also moves with IT).
  * t40_ev_follow=0 restores the frozen parameters for A/B.
  */
+static int regtrace_t40_adr_ev_shift;
+module_param_named(t40_adr_ev_shift, regtrace_t40_adr_ev_shift, int, 0644);
 static bool regtrace_t40_ev_follow = true;
 module_param_named(t40_ev_follow, regtrace_t40_ev_follow, bool, 0644);
 static uint32_t regtrace_t40_ev_now;
@@ -12835,7 +12837,11 @@ static void regtrace_t40_ev_fanout(uint32_t again_log2)
     ev_q10 = ((uint64_t)it * again_x1024 * dg) >> 10;
     regtrace_t40_ev_now = (uint32_t)(ev_q10 >> 10);
     regtrace_defog_ev_update_lit(ev_q10);
-    regtrace_adr_ev_update_lit(ev_q10);
+    /* T40-QUALITY4: EV unit probe for the ADR chain (night pedestal): the OEM AE pushes its
+     * own 64-bit EV with event 8; t40_adr_ev_shift scales ours by 2^shift (runtime, default 0). */
+    regtrace_adr_ev_update_lit(regtrace_t40_adr_ev_shift >= 0 ?
+                               ev_q10 << regtrace_t40_adr_ev_shift :
+                               ev_q10 >> (-regtrace_t40_adr_ev_shift));
     if (regtrace_t40_ev_follow) {
         regtrace_ccm_ev = regtrace_t40_ev_now;
         if (regtrace_enable_bcsh)
@@ -12878,8 +12884,16 @@ static void regtrace_gc4653_tuning_again_update(uint32_t again_index)
      * fan-out calls it with the sensor analog gain (16.16 log2) on every
      * gain change; interp_by_gain returns 1 when the gain moved < 1/64 EV.
      */
+    /*
+     * T40-QUALITY4: the OEM tgain fan-out hands GIB the TOTAL gain (its
+     * TotalGainDb includes the ISP digital gain: 7.0 log2 at night = 32x
+     * sensor x 4x ISP), so the bin's black-level-vs-gain nodes are read at
+     * node 7, not 5.  With the analog gain only the GIB black level stayed
+     * ~40 counts too low at night and the 4x stage amplified the rest into
+     * a pedestal (Y p1 12..20 against the vendor's 7).
+     */
     if (t40_gib_oem_active)
-        (void)tisp_gib_a_gian_update(0, gain);
+        (void)tisp_gib_a_gian_update(0, total);
     regtrace_t40_ev_fanout(gain);
     if (regtrace_enable_blc_lit && gain != regtrace_blc_lit_gain_now)
         (void)regtrace_blc_main_gain_update_lit(gain, false);
@@ -175218,6 +175232,11 @@ int32_t tisp_s_module_ratio_attr(uint32_t a0, uintptr_t a1)
             int dret = regtrace_adr_drc_ratio_lit();
 
             isp_printf(1, "%s: drc ratio %u -> adr ret=%d\n", "tisp_s_module_ratio_attr", r, dret);
+        } else if (i == 4 && a0 == 0) {
+            /* defog ratio -> literal OEM tisp_s_defog_ratio on the private defog state */
+            int fret = regtrace_defog_ratio_lit();
+
+            isp_printf(1, "%s: defog ratio %u -> defog ret=%d\n", "tisp_s_module_ratio_attr", r, fret);
         } else
             isp_printf(1, "%s: ratio %u of module %u cached, not applied yet\n", "tisp_s_module_ratio_attr", r, i);
     }

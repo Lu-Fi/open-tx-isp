@@ -718,3 +718,13 @@ vendor (`audit/ab-t41/COMPARE.md`, open184d).
 `regtrace_framechan_release` (misc fops of `/dev/framechanN`, also the v4l2 private file) used to only clear `private_data`. The OEM `frame_channel_release` streams off and frees the vb2 queue when the channel state is 4 (streaming). Without that, a client that died while streaming left the streaming flag (+0x244) set and every later STREAMON returned -EBUSY until reboot.
 The driver now remembers per channel which file started the stream (`regtrace_framechan_stream_owner`) and which file owns the buffer set (`regtrace_framechan_buf_owner`, REQBUFS with count > 0). Closing that file issues STREAMOFF through the normal ioctl path and frees the repaired buffers (= REQBUFS 0). A failed streamoff still clears the stale flag (buffers kept, the next REQBUFS frees them). Closing any other fd on the channel does not stop a running stream (the OEM stops on any close).
 Device test on the Eufy: kill -9 / SIGSEGV of the streamer, restart: video back (snapshot 200), no -EBUSY; stock ko without the fix: snapshot 503.
+
+## Eufy sc830ai: night black level (2026-10-24, `claude/t40-quality4`)
+
+The OEM `tisp_main_long_tgain_update` hands GIB (`tisp_gib_a_gian_update`) the total gain: the vendor's TotalGainDb
+includes the ISP digital gain (458752 = 7.0 log2 at night = 32x sensor x 4x ISP). The bin's five GIB black-level
+tables are interpolated by that gain (`tisp_gib_interp_by_gain`, integer part = node). The quality2 follow passed the
+analog gain only (5.0 log2 at night), so the black level stayed at node 5 while the 4x stage ran, and the remainder
+became a pedestal in the night picture (Y p1 12..20 against the vendor's 7). The sensor gain update now passes the
+total gain (`regtrace_gc4653_tuning_again_update`: `tisp_gib_a_gian_update(0, total)`); day is unchanged because the
+ISP digital gain is 1x there. `SetModule_Ratio` defog -> literal `tisp_s_defog_ratio`; Temper remains cached only.
