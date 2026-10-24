@@ -751,3 +751,9 @@ ISP digital gain is 1x there. `SetModule_Ratio` defog -> literal `tisp_s_defog_r
   v + ((r - 128) * (cap - v) >> 7), cap 230 for comb 9/21 and 250 otherwise; then `tisp_mdns_refresh(0, gain_old)`.
   Also called after the DN MDNS reload (OEM `tisp_mdns_dn_params_refresh` tail). Only the DPC ratio is still cached.
   Device: 28-35 MDNS registers change per ratio step (0/128/255); temporal noise 1.16 / 0.82 / 1.08.
+
+## DMSC day/night (2026-10-24, `t40_dmsc_follow`)
+- Default profile 1: DMSC (0xa000..0xa27c) uses the literal OEM chain at night only (active bank, total gain incl. ISP
+  digital gain, re-interpolated per frame). The day block (static table + OEM init) is saved on the switch and written
+  back with the trigger 0xa19c on the return (`t40_dmsc_day_restores` counts the restores). Host check:
+  `tests/t40/dmsc_night_host` (bit-exact against the vendor night dump). `t40_dmsc_follow=0` = old static DMSC.
