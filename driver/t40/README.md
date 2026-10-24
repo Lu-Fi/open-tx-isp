@@ -645,10 +645,14 @@ night picture 69 % darker than the vendor. Findings and fixes, all device-tested
   110 -> 118 (vendor day luma 122 at the same EV; ours now 127), two gain steps per sample far from target, and gain
   bands (`9 %` analog / `5 %` ISP dgain of the target) so a 1.17x gain step cannot limit-cycle inside the 4-level
   deadband (it did: frames alternating 113/124). Settle after a light step < 1 s (vendor 1.5 s).
-- Open: the sc830ai ends at 32x analog; the vendor adds up to 4x ISP digital gain (night luma 79 vs our 27, light step
-  to 100: 105 vs 69). A dgain stage exists (`ae_isp_dgain_max`, Q10) and writes the OEM GIB final gain
-  (`tisp_gib_ae_write_dgain`, 0x8000/0x8004 + latch), but the picture does not react, not even to 0x7fff/shift 3 by
-  devmem; default off until the vendor's dgain point is found (candidate: folded into the WB gains 0x5004..).
-- Open: sharpness (edge energy 3.4 vs vendor 5.2): YSP is still forced off (`t40_force_bypass` bit 17).
+- ISP digital gain stage (`ae_isp_dgain_max`, Q10, default 4096 = 4x like the vendor's AeIspDGain at night): after
+  integration time and sensor analog gain (the sc830ai ends at 32x), the AE raises the GIB final gain through the OEM
+  entry `tisp_gib_ae_write_dgain` (0x8000/0x8004 + latch 0x8040; checked by devmem: 0x0445 -> 0x1116 lifts the night
+  luma 24.6 -> 64.0). Night luma 66 vs vendor 79 (was 24), light step to 100 holds 124 (vendor 105, was 63).
+- The per-frame tuning follow (DNS/YSP gain refresh, DMSC, LSC gain/CT, manual WBG, CCM, BCSH saturation) is shared by
+  both frame delivery paths (it used to live only in the FIFO work item, so with the OEM ISR nothing of it ran), and
+  the BCSH saturation is re-applied on a day/night change (it stayed at the night value after the return).
+- `t40_ysp_on` defaults to 1: the bin gates enable YSP like the vendor TOP word (TOP 0x7FF9089D, init ok, 0 oops at
+  4K). Day edge energy 2.89 -> 3.76 (vendor 5.23); the remaining sharpness gap is open.
 - The open timps stops the framesource without a viewer (`framesource.keepalive=0`), so the ISP idles at 0 IRQ/s and the
   3A only runs in snapshot bursts; the A/B runs therefore keep a stream consumer open. Not a driver difference.
