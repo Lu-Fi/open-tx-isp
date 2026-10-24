@@ -14254,19 +14254,16 @@ static uint32_t Cluster_rgbg_index_max[CIDX_MAX_ENTRIES * 3]; /* OEM 0xa7574 */
 /*
  * AWB colour-temperature detection implementation (see
  * tx_isp_t31_awb_simd.h): 0 = reference C, 1 = fast C, 2 = MXU2.  All three
- * give identical results; the default stays the reference until the MXU2
- * kernels are verified on the device.  Writing 2 starts the selftest
- * (t31_awb_selftest) once; MXU2 is only used after it passed, else fast C.
+ * give identical results.  Default 2: the first detection starts the
+ * selftest (t31_awb_selftest) once; MXU2 is only used after it passed, else
+ * fast C.  0 or 1 turns MXU2 off.
  */
-static int t31_awb_impl __attribute__((section(".data")));
+static int t31_awb_impl __attribute__((section(".data"))) = 2;
 static int t31_awb_selftest_state __attribute__((section(".data")));	/* 0 not run, 1 pass, -1 fail */
 static u32 t31_mxu2_cpm __attribute__((section(".data")));
 module_param_named(t31_mxu2_cpm, t31_mxu2_cpm, uint, 0444);
-MODULE_PARM_DESC(t31_mxu2_cpm, "CPM 0x10000034 read by the selftest: 0x101 MXU2 free, 0x110 locked");
+MODULE_PARM_DESC(t31_mxu2_cpm, "CPM 0x10000034 read by the selftest (info only; 0x101 or 0x110, MXU2 works on both)");
 static int awb_ctdet_mode __attribute__((section(".data")));	/* mode of the running call */
-static int t31_mxu2_force __attribute__((section(".data")));
-module_param_named(t31_mxu2_force, t31_mxu2_force, int, 0644);
-MODULE_PARM_DESC(t31_mxu2_force, "DEBUG: 1 = selftest ignores the CPPSR==0x101 gate (probe a locked chip; may trap)");
 static void t31_awb_selftest_workfn(struct work_struct *work);
 static DECLARE_WORK(t31_awb_selftest_work, t31_awb_selftest_workfn);
 
@@ -14280,7 +14277,7 @@ static int t31_awb_impl_set(const char *value, const struct kernel_param *kp)
 }
 module_param_call(t31_awb_impl, t31_awb_impl_set, param_get_int,
 		  &t31_awb_impl, 0644);
-MODULE_PARM_DESC(t31_awb_impl, "AWB CT detection: 0=reference C (default), 1=fast C, 2=MXU2 (after selftest; fast C otherwise), all bit-exact");
+MODULE_PARM_DESC(t31_awb_impl, "AWB CT detection: 0=reference C, 1=fast C, 2=MXU2 (default; after selftest, fast C otherwise), all bit-exact");
 
 static int t31_awb_selftest_set(const char *value, const struct kernel_param *kp)
 {
@@ -14297,6 +14294,8 @@ MODULE_PARM_DESC(t31_awb_selftest, "write 1: compare reference/fast/MXU2 AWB CT 
 module_param_named(t31_awb_selftest_state, t31_awb_selftest_state, int, 0444);
 MODULE_PARM_DESC(t31_awb_selftest_state, "0 not run, 1 passed, -1 failed");
 
+static int t31_awb_selftest_kicked;
+
 /* mode actually used for one detection: MXU2 only once verified */
 static int awb_ctdet_effective_mode(void)
 {
@@ -14306,6 +14305,9 @@ static int awb_ctdet_effective_mode(void)
 		return 0;
 	if (m >= 2 && READ_ONCE(t31_awb_selftest_state) == 1)
 		return 2;
+	if (m >= 2 && READ_ONCE(t31_awb_selftest_state) == 0 &&
+	    !xchg(&t31_awb_selftest_kicked, 1))
+		schedule_work(&t31_awb_selftest_work);
 	return 1;
 }
 
@@ -20042,14 +20044,10 @@ static void t31_awb_selftest_workfn(struct work_struct *work)
 
 	st_rng = 0x31a5b001;
 	t31_ri_hits = 0;
-	/* CPM 0x10000034: 0x101 = MXU2 enabled by the Ingenic kernel, 0x110 = locked */
+	/* CPM 0x10000034 (info): the user-mode CU2 gate of the Ingenic kernel.
+	 * The selftest runs in kernel mode with CU2 set locally, so 0x110 does
+	 * not matter here; the bit-exact compare below decides. */
 	t31_mxu2_cpm = *(volatile u32 *)0xb0000034;
-	if (t31_mxu2_cpm != 0x101 && !t31_mxu2_force) {
-		pr_warn("t31_awb_selftest: mxu2 locked by SoC (cpm 0x%x), using fast C\n",
-			t31_mxu2_cpm);
-		t31_awb_selftest_state = -1;
-		goto out;
-	}
 	if (!cpu_has_mxu_v2) {
 		pr_warn("t31_awb_selftest: CPU has no MXU2, MXU2 stays off (fast C used)\n");
 		t31_awb_selftest_state = -1;
