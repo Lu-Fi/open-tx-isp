@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24 (8): T40 AE EV fan-out, user AE caps, ratios (`claude/t40-quality3`; Eufy T40 device proof pending)
+
+- **AE EV fan-out:** the OEM AE hands its EV (IT x gain, Q10) to defog, ADR, CCM and BCSH on every change and its total gain to ADR; ours fed only defog and the CCM/BCSH EV were module parameters frozen at 400, the ADR chain sat at its init EV/gain. `regtrace_t40_ev_fanout()` now runs per frame and on every sensor gain update (defog/ADR EV leaves, `ccm_ev`, BCSH EV, ADR tgain; read-only `t40_ev_now`, `t40_ev_follow=0` for A/B). This is the night -> day desaturation (CCM re-init at the stale EV) and part of the night black level (ADR without EV/gain follow lifts the shadows). `frame_3a_target` 118 -> 122 (vendor day luma 122).
+- **User AE caps and AeTargetComp reach the open frame AE:** SetAeExprInfo max integration time / analog gain / ISP digital gain (mode 1) cap the AE, AeTargetComp scales the target (x comp/128) when enabled, GetAeScenceAttr reports the open AE's values (read-only `ae_user_max_*`, `ae_target_comp`). Before, the OEM setters only filled the lifted AE context the open AE never reads (T40_WIPCELLS_1024.md).
+- **SetModule_Ratio:** DRC ratio runs the OEM `tisp_s_drc_ratio` translated into the literal ADR chain; the Sinter ratio reloads the literal SDNS tables from the scaled bank and replays the gain (it had no effect before). Temper/DPC/defog ratios stay cached only.
+
 ## 2026-10-24 (7): T40 defog / LCE / DPC chains, GIB gain follow (`claude/t40-quality2`; Eufy T40 device A/B)
 
 - **T40 TOP word against the vendor:** the vendor runs `0x7FD9004D` on the sc830ai in daylight, our driver `0x7FF9089D`: four blocks the bin enables stayed bypassed in every profile: DPC (bit 4), ADR (7), defog (11), LCE (21). The recovered defog lift never hooked IRQ 10 / event 4 (its init calls the ISR with `(10, &isr)` in place of `system_irq_func_set`), the LCE lift is fragmentary. That is where the softer, flatter picture came from (black level up, contrast and night luma down).
