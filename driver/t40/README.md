@@ -737,8 +737,12 @@ ISP digital gain is 1x there. `SetModule_Ratio` defog -> literal `tisp_s_defog_r
   4 user tables) selects the matrix/offset/clip set in `tisp_bcsh_params_refresh` (bank + 0x11e38). Implemented in
   `t40_csc_bcsh_apply()` (vinum 0, under the running-mode lock): gamut byte, busy flag, params refresh, EV/CT update.
   `bcsh_mode` (module parameter, OEM init value 2) follows the gamut so a day/night BCSH re-init keeps it.
+  `tisp_set_csc_version` is literal now (tables for standards 0..3). Device 2026-10-24: BCSH 0x11000..0x11014 follow
+  the gamut, 0xd010.. read back the BT709-full init values after every write and 0xd000 reads 0; the ch0 picture is
+  unchanged between gamuts (open, vendor register dump needed).
 - Module_Ratio temper (index 1): `regtrace_mdns_ratio_lit()` = OEM `tisp_s_mdns_ratio` (1.3.1 0x5f540). Bank nodes at
   tparamsN[0] + 0x10000 + {4440, 4925, 4451, 4297, 4363, 4198, 4209} (WDR: {5805, 5937, 5816, 5739, 5772, 5706,
   5717}) x 11 are scaled into par through comb[9, 21, 10, 3, 6, 0, 1]: ratio <= 128 -> v * r >> 7, above ->
   v + ((r - 128) * (cap - v) >> 7), cap 230 for comb 9/21 and 250 otherwise; then `tisp_mdns_refresh(0, gain_old)`.
   Also called after the DN MDNS reload (OEM `tisp_mdns_dn_params_refresh` tail). Only the DPC ratio is still cached.
+  Device: 28-35 MDNS registers change per ratio step (0/128/255); temporal noise 1.16 / 0.82 / 1.08.
