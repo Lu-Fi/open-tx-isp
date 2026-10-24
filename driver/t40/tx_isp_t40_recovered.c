@@ -175430,296 +175430,93 @@ int32_t tisp_get_frame_drop(int32_t arg1, int32_t arg2, int32_t *arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007562c origin=fragment_seed original=tisp_set_scaler_level_control */
 int32_t tisp_set_scaler_level_control(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t local_48 = 0;
-    uint32_t local_4c = 0;
-    uint32_t local_50 = 0;
-    uint32_t local_54 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_5c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uintptr_t s8 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    /*
+     * T40-SCALER-LV: rewritten from the OEM tisp_set_scaler_level_control
+     * (0x75308).  The lifted body lost the base of the attribute read
+     * (NULL + 8 -> oops on the first IMP_ISP_SetScalerLv) and, for vinum 0,
+     * the register bases of s1/s2/s3 (only the vinum 1 branch was right).
+     * Attribute (IMPISPScalerLvAttr): u8 chx @0, u32 mode @4 (0 = fitting
+     * curve, which restores the neutral weights, 1 = level weights), u8
+     * level @8.  Registers (per vinum +0x1000, per channel +0x100):
+     * 0x16028 work config, 0x16008 enable, 0x16010 load, 0x16104 guard,
+     * 0x161c0/c4 weight pair 0, 0x161c8/cc weight pair 1.
+     */
+    const uint8_t *attr = (const uint8_t *)a1;
+    uint32_t vinum = a0, chx, mode, level;
+    uint32_t base, bank, work_cfg_reg, en_reg, load_reg, guard_reg;
+    uint32_t p0_reg, p1_reg, p2_reg, p3_reg;
+    uint32_t work_cfg, en, w0, w1, hi0, lo0, hi1, lo1, g;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
+    if (!regtrace_is_kernel_ptr((const void *)attr) || vinum > 1U)
+        return -EINVAL;
+    chx = attr[0];
+    memcpy(&mode, attr + 4, sizeof(mode));
+    level = attr[8];
+    if (chx > 2U)
+        return -EINVAL;
 
-    /* fragment 1: MemoryAccess */
-    s4 = *(uint8_t *)((char *)a1 + 0);
-    a2 = a0;
-    s8 = a1;
+    base = 0x10000U + (vinum << 12);
+    bank = chx << 8;
+    work_cfg_reg = base + 0x6028U;
+    en_reg = base + 0x6008U;
+    load_reg = base + 0x6010U;
+    guard_reg = base + 0x6104U;
+    p0_reg = base + 0x61c0U + bank;
+    p1_reg = base + 0x61c4U + bank;
+    p2_reg = base + 0x61c8U + bank;
+    p3_reg = base + 0x61ccU + bank;
 
-    /* fragment 2: Branch */
-    v0 = (uintptr_t)s4 << 8;
-    if (a0 != 0) { goto tisp_set_scaler_level_control0x180; }
+    work_cfg = system_reg_read(work_cfg_reg);
+    en = system_reg_read(en_reg);
+    if (en == 0xffffffffU)
+        en = 0;
+    w0 = system_reg_read(p0_reg);
+    w1 = system_reg_read(p1_reg);
+    g = system_reg_read(guard_reg);
+    if (g == 0x2000200U)
+        system_reg_write(guard_reg, 0x1ff01ffU);
+    if (!((1U << chx) & en)) {
+        isp_printf(2, "[%s %d] scaler level: channel %u is not enabled\n",
+                   "tisp_set_scaler_level_control", __LINE__, chx);
+        return 0;
+    }
+    hi0 = (w0 >> 11) & 0x7ffU;
+    lo0 = w0 & 0x7ffU;
+    hi1 = (w1 >> 11) & 0x7ffU;
+    lo1 = w1 & 0x7ffU;
 
-    /* fragment 3: ConstantLoad */
-    v1 = 0x161c8;
+    if (mode == 0U) {
+        work_cfg &= ~(17U << chx);
+        hi0 = 0; lo0 = 512; hi1 = 0; lo1 = 0;
+    } else if (mode == 1U) {
+        uint32_t l3 = level * 3U;
 
-    /* fragment 4: StackAccess */
-    local_24 = a0;
-    a0 = v1 + 25036;
-    s2 = (uintptr_t)v0 + (uintptr_t)s2;
-    s1 = (uintptr_t)v0 + (uintptr_t)s1;
-    v0 = v0 + a0;
-    local_1c = v0;
-    s7 = v1 + 24836;
-    s6 = v1 + 24616;
-
-    /* fragment 5: Branch */
-    v0 = v1 + 24592;
-    goto tisp_set_scaler_level_control0x1b8;
-
-tisp_set_scaler_level_control0x7c:
-    /* fragment 6: Arithmetic */
-    s8 = ((uintptr_t)v1 >> 11) & 0x7ff;
-
-    /* fragment 7: StackAccess */
-    v1 = local_2c;
-    s3 = (uintptr_t)v1 & 2047;
-    v1 = local_30;
-    v1 = local_34;
-
-    /* fragment 8: Branch */
-    s7 = (uintptr_t)v1 & 2047;
-    if (v0 != a0) { goto tisp_set_scaler_level_control0x124; }
-
-    /* fragment 9: StackAccess */
-    v0 = local_18;
-    v1 = local_18;
-    v0 = (uintptr_t)v0 << 1;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-    a0 = v0 < 129;
-
-    /* fragment 10: Branch */
-    if (a0 == 0) { goto tisp_set_scaler_level_control0xdc; }
-
-    /* fragment 11: Arithmetic */
-    s8 = 128;
-    s8 = s8 - (uintptr_t)v0;
-    s3 = v0 + 128;
-    s7 = s8;
-    s0 = s3;
-
-tisp_set_scaler_level_control0xcc:
-    /* fragment 12: Arithmetic */
-    v0 = 17;
-
-tisp_set_scaler_level_control0xd0:
-    /* fragment 13: Arithmetic */
-    s4 = (uintptr_t)v0 << (uintptr_t)s4;
-
-    /* fragment 14: Branch */
-    s5 = s5 | (uintptr_t)s4;
-    goto tisp_set_scaler_level_control0x2a8;
-
-tisp_set_scaler_level_control0xdc:
-    /* fragment 15: Arithmetic */
-    a0 = v0 - 129;
-    a0 = a0 < 256;
-
-    /* fragment 16: Branch */
-    if (a0 == 0) { goto tisp_set_scaler_level_control0x104; }
-
-    /* fragment 17: Arithmetic */
-    s0 = 384;
-    s3 = v0 + 128;
-    s0 = (uintptr_t)s0 - (uintptr_t)v0;
-    s7 = 0;
-
-    /* fragment 18: Branch */
-    s8 = 0;
-    goto tisp_set_scaler_level_control0xcc;
-
-tisp_set_scaler_level_control0x104:
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC19); /* jalr target resolved by relocation */
-
-    /* fragment 20: Branch */
-    v0 = 17;
-    goto tisp_set_scaler_level_control0xd0;
-
-tisp_set_scaler_level_control0x124:
-    /* fragment 21: CallSetup */
-    local_10 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC20, &__param_str_isp_dual_buf, 2096); /* jalr target resolved by relocation */
-
-    /* fragment 22: Branch */
-    s8 = s8 << 11;
-    goto tisp_set_scaler_level_control0x2ac;
-
-tisp_set_scaler_level_control0x154:
-    /* fragment 23: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC21, &__param_str_isp_dual_buf, 2108); /* jalr target resolved by relocation */
-
-    /* fragment 24: Branch */
-    goto tisp_set_scaler_level_control0x30c;
-
-tisp_set_scaler_level_control0x180:
-    /* fragment 25: CallSetup */
-    v1 = 65536;
-    s3 = v1 + 29128;
-    a0 = (uintptr_t)v0 + (uintptr_t)s3;
-    s2 = v1 + 29120;
-    s1 = v1 + 29124;
-    local_24 = a0;
-    a0 = v1 + 29132;
-    s2 = (uintptr_t)v0 + (uintptr_t)s2;
-    s1 = (uintptr_t)v0 + (uintptr_t)s1;
-    v0 = v0 + a0;
-    local_1c = v0;
-    s7 = v1 + 28932;
-    s6 = v1 + 28712;
-    v0 = v1 + 28688;
-
-tisp_set_scaler_level_control0x1b8:
-    /* fragment 26: CallSetup */
-    local_18 = a2;
-    local_20 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(s6); /* jalr target resolved by relocation */
-
-    /* fragment 27: CallSetup */
-    s5 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(((uintptr_t)local_18 << 12) + (65536 + 24584)); /* jalr target resolved by relocation */
-
-    /* fragment 28: Arithmetic */
-    s3 = v0;
-    v0 = -1;
-
-    /* fragment 29: Branch */
-    if (s3 != v0) { goto tisp_set_scaler_level_control0x200; }
-
-    /* fragment 30: CallSetup */
-    s3 = 0;
-
-tisp_set_scaler_level_control0x200:
-    /* fragment 31: CallSetup */
-    local_18 = *(uint8_t *)((char *)(uintptr_t) + 8);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(s2); /* jalr target resolved by relocation */
-
-    /* fragment 32: CallSetup */
-    local_28 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(s2); /* jalr target resolved by relocation */
-
-    /* fragment 33: CallSetup */
-    local_2c = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(s1); /* jalr target resolved by relocation */
-
-    /* fragment 34: CallSetup */
-    local_30 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(s1); /* jalr target resolved by relocation */
-
-    /* fragment 35: CallSetup */
-    local_34 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(s7); /* jalr target resolved by relocation */
-
-    /* fragment 36: ConstantLoad */
-    a0 = 0x2000200;
-
-    /* fragment 37: Branch */
-    int _bc_v0_37 = v0 != a0;
-    a0 = 1;
-    if (_bc_v0_37) { goto tisp_set_scaler_level_control0x26c; }
-
-    /* fragment 38: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s7, 33488896 + 511); /* jalr target resolved by relocation */
-
-    /* fragment 39: Arithmetic */
-    a0 = 1;
-
-tisp_set_scaler_level_control0x26c:
-    /* fragment 40: Arithmetic */
-    v0 = a0 << (uintptr_t)s4;
-    v0 = (uintptr_t)v0 & (uintptr_t)s3;
-
-    /* fragment 41: Branch */
-    a2 = (uint32_t *)&__param_str_isp_dual_buf;
-    if (v0 == 0) { goto tisp_set_scaler_level_control0x154; }
-
-    /* fragment 42: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s8 + 4);
-
-    /* fragment 43: Branch */
-    v1 = local_28;
-    if (v0 != 0) { goto tisp_set_scaler_level_control0x7c; }
-
-    /* fragment 44: CallSetup */
-    v0 = 17;
-    s4 = (uintptr_t)v0 << (uintptr_t)s4;
-    s4 = ~(0 | (uintptr_t)s4);
-    s5 = s5 & (uintptr_t)s4;
-    s7 = 0;
-    s0 = 0;
-    s3 = 512;
-    s8 = 0;
-
-tisp_set_scaler_level_control0x2a8:
-    /* fragment 45: CallSetup */
-    s8 = s8 << 11;
-
-tisp_set_scaler_level_control0x2ac:
-    /* fragment 46: CallSetup */
-    s8 = s8 | (uintptr_t)s3;
-    s0 = (uintptr_t)s0 << 11;
-    s7 = (uintptr_t)s0 | s7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s2, s8 | (uintptr_t)s3); /* jalr target resolved by relocation */
-
-    /* fragment 47: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1, s7); /* jalr target resolved by relocation */
-
-    /* fragment 48: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(local_24, s8); /* jalr target resolved by relocation */
-
-    /* fragment 49: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(local_1c, s7); /* jalr target resolved by relocation */
-
-    /* fragment 50: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s6, s5); /* jalr target resolved by relocation */
-
-    /* fragment 51: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(local_20, -1); /* jalr target resolved by relocation */
-
-    /* fragment 52: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_set_scaler_level_control0x30c:
-    /* fragment 53: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 54: Arithmetic */
-    v0 = 0;
-
-    /* fragment 55: Epilogue */
-    /* function epilogue: restore registers and return */
-
+        if (l3 < 129U) {
+            lo0 = l3 + 128U; hi0 = 128U - l3;
+            lo1 = hi0; hi1 = lo0;
+        } else if (l3 - 129U < 256U) {
+            lo0 = l3 + 128U; hi0 = 0;
+            lo1 = 0; hi1 = 384U - l3;
+        } else {
+            isp_printf(1, "[%s %d] scaler level %u out of range\n",
+                       "tisp_set_scaler_level_control", __LINE__, level);
+        }
+        work_cfg |= 17U << chx;
+    } else {
+        isp_printf(2, "[%s %d] scaler mode %u is not supported\n",
+                   "tisp_set_scaler_level_control", __LINE__, mode);
+    }
+    w0 = (hi0 << 11) | lo0;
+    w1 = (hi1 << 11) | lo1;
+    system_reg_write(p0_reg, w0);
+    system_reg_write(p1_reg, w1);
+    system_reg_write(p2_reg, w0);
+    system_reg_write(p3_reg, w1);
+    system_reg_write(work_cfg_reg, work_cfg);
+    system_reg_write(load_reg, 0xffffffffU);
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000075968 origin=fragment_seed original=tisp_s_hldc_attr */
 int32_t tisp_s_hldc_attr(uint32_t a0, uintptr_t a1)
 {
     uint32_t t9 = 0;
