@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24 (8): T40 framechan freed when its client dies (`claude/t40-stability`; Eufy T40 device-tested on a test ko)
+
+- **No more "no video until reboot" after a crashed client on T40:** the framechan release only dropped the file pointer; the OEM release streams off and frees the queue. A client killed while streaming (kill -9, SIGSEGV inside libimp) left the channel flagged as streaming and every later STREAMON (`0xc0045457`) returned -EBUSY. The release now streams off and frees the buffers when the closing file is the one that started the stream / allocated the buffers (another opener closing its fd leaves a live stream alone); a failed streamoff still clears the stale flag.
+- Device proof (.184, test ko = wip-cells + next d1606e95 + this fix): stock agg43d after `kill -9 timpsd` + restart: snapshot 503, 8x STREAMON -16 in 20 s; test ko: kill -9, SIGSEGV, kill -9 again: timps back with snapshot 200 each time, 0x -16, 0 oops.
+
 ## 2026-10-24 (7): T40 lifted-body crashes in the tuning controls (`claude/t40-wip-cells`; Eufy T40 device-tested on a test ko)
 
 - **Kernel oops / memory overwrite fixed or refused on T40** (each reproduced on the Eufy sc830ai with `t40_devtest`): `SetModuleControl` (LCE clear/top-state read NULL tool_para blocks; BadVA 8; the client then left the framechan degraded), `SetMask`/`GetMask` (NULL state base, NULL copy buffer), `SetWdrOutputMode` (lifted setter walks the missing WDR param array; now a stored flag per sensor, read back), `Get/SetISPCSCAttr` and `Get/SetCCMAttr` (92/40-byte copies into 4-byte slots, address 0; refused with -EOPNOTSUPP unless `t40_csc_unsafe=1`).
