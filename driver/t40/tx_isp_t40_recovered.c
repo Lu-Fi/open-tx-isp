@@ -7783,6 +7783,7 @@ int32_t tisp_gib_param_array_set(uint32_t a0, uint32_t a1);
 int gib_remove(struct platform_device *pdev);
 int64_t tisp_gib_ae_write_dgain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4);
 static int t40_gib_block_init(void);
+static bool t40_gib_oem_active;
 int32_t tisp_lsc_lut_valid_judge(uint32_t width, uint32_t height, uint32_t mesh_x, uint32_t mesh_y, uint32_t lut_n);
 int32_t tisp_lsc_interp_by_ct(int32_t arg1, int32_t arg2, int16_t arg3, char arg4);
 int32_t tisp_lsc_interp_by_gain(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
@@ -12758,6 +12759,15 @@ static void regtrace_gc4653_tuning_again_update(uint32_t again_index)
      */
     regtrace_lce_tgain_update_lit(total);
     regtrace_dpc_refresh_lit(total);
+    /*
+     * T40-QUALITY2: with the OEM GIB flow (t40_gib_real) nobody re-ran
+     * tisp_gib_a_gian_update, so the GIB black level stayed at the init
+     * gain interpolation (open184e night: Y p1 16, vendor 7).  The OEM AE
+     * fan-out calls it with the sensor analog gain (16.16 log2) on every
+     * gain change; interp_by_gain returns 1 when the gain moved < 1/64 EV.
+     */
+    if (t40_gib_oem_active)
+        (void)tisp_gib_a_gian_update(0, gain);
     if (regtrace_t40_defog_lit_active) {
         uint32_t it = READ_ONCE(regtrace_ae_soft_cur_it);
         uint32_t again_x1024 = tx_isp_exp2_u32(gain, 16, 10);
@@ -16320,8 +16330,10 @@ static int regtrace_isp_block_init_once(const char *where)
 
     /* OEM tisp_main_init 0x1decc..0x1dee4: tisp_gib_init(0) only when tparams_status bit 5 (GIB enable =
      * !bypass flag 5 of the bin) is set; the real flow then replaces the gib-lit substitute. */
-    if (t40_gib_block_init() == 0)
+    if (t40_gib_block_init() == 0) {
         regtrace_enable_gib_lit = false;
+        t40_gib_oem_active = true;
+    }
 
     if (regtrace_enable_gib_lit) {
         int gib_ret = regtrace_gib_main_init_lit();
@@ -99881,6 +99893,10 @@ module_param_named(t40_gib_status_word, t40_gib_status_word, uint, 0444);
  */
 static int t40_gib_real = -1;
 module_param_named(t40_gib_real, t40_gib_real, int, 0644);
+/* set once the OEM GIB flow initialised (block init); the sensor gain update then follows the OEM
+ * tisp_main_long_tgain_update -> tisp_gib_a_gian_update(0, again) so the GIB black level is
+ * re-interpolated from the bin's gain tables instead of staying at the init gain */
+module_param_named(t40_gib_oem_active, t40_gib_oem_active, bool, 0444);
 
 static int t40_gib_block_init(void)
 {
