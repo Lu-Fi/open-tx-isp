@@ -176,20 +176,21 @@ static void t41_native_awb_workfn(struct work_struct *work)
     bank=t41_native_awb_bank; t41_native_awb_pending=0;
     spin_unlock_irqrestore(&t41_native_awb_irq_lock,flags);
     if (!s || !pending) goto done;
-    memcpy(&s->candidate,&s->saved,sizeof(s->candidate));
+    T41_LS_TIME(T41_WT_AWB_COPY, memcpy(&s->candidate,&s->saved,sizeof(s->candidate)));
     if (s->candidate.p[0xcca]>1) { ret=-EINVAL; goto failed; }
     bytes=s->candidate.p[0xcca] ? 8192U : 32768U;
     dma_cache_sync(NULL,s->dma+bank*bytes,bytes,DMA_FROM_DEVICE);
     for (i=0;i<3;++i) rgb[i]=system_reg_read(0x180ac+i*4);
     buffers=t41_awb_buffers(&s->candidate);
-    ret=t41_awb_frame(&buffers,s->candidate.red,s->candidate.blue,
-        s->dma+bank*bytes,bytes,rgb,words,&n) ? -ERANGE : 0;
+    T41_LS_TIME(T41_WT_AWB_FRAME, ret=t41_awb_frame(&buffers,s->candidate.red,s->candidate.blue,
+        s->dma+bank*bytes,bytes,rgb,words,&n) ? -ERANGE : 0);
     if (READ_ONCE(t41_awb_dump_req) && t41_awb_dump_buf) {
         memcpy(t41_awb_dump_buf,s->dma+bank*bytes,bytes);
         memcpy(t41_awb_dump_buf+32768,s->candidate.s,sizeof(s->candidate.s));
         memcpy(t41_awb_dump_buf+32768+sizeof(s->candidate.s),s->candidate.p,sizeof(s->candidate.p));
         t41_awb_dump_len=T41_AWB_DUMP_BYTES; WRITE_ONCE(t41_awb_dump_req,0);
     }
+    { u64 t41_diag_t0=t41_work_begin();
     {
         const uint32_t *w=(const uint32_t *)(s->dma+bank*bytes);
         unsigned int nz=0,k,zone=(7*15+7)*4;
@@ -251,10 +252,11 @@ static void t41_native_awb_workfn(struct work_struct *work)
             }
         }
     }
+    t41_work_end(T41_WT_AWB_DIAG,t41_diag_t0); }
     if (!ret) {
         /* Exactly one publication after the entire candidate has validated. */
         t41_native_awb_emit(words,n);
-        t41_native_awb_save(s);
+        T41_LS_TIME(T41_WT_AWB_SAVE, t41_native_awb_save(s));
         ++t41_native_awb_frames;
         WRITE_ONCE(t41_native_awb_zone_stamp,t41_awb_zone_report_stamp(jiffies));
     }
