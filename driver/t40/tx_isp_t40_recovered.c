@@ -12170,6 +12170,27 @@ static int t40_csc_attr_get(uint32_t vinum, uint8_t *buf)
     return 0;
 }
 
+/* The ioctl dispatchers keep their buffers in hand-aliased OEM stack frames (T40-STACK-FRAMES): no new locals there,
+ * the user copies live in these helpers. */
+static noinline int t40_csc_attr_set_user(uint32_t vinum, uintptr_t user)
+{
+    uint8_t buf[92];
+
+    memset(buf, 0, sizeof(buf));
+    if (copy_from_user(buf, (void __user *)user, T40_CSC_WIRE))
+        return -EFAULT;
+    return t40_csc_attr_set(vinum, buf);
+}
+static noinline int t40_csc_attr_get_user(uint32_t vinum, uintptr_t user)
+{
+    uint8_t buf[92];
+    int ret = t40_csc_attr_get(vinum, buf);
+
+    if (ret)
+        return ret;
+    return copy_to_user((void __user *)user, buf, T40_CSC_WIRE) ? -EFAULT : 0;
+}
+
 /*
  * T40-CCM-SET: Get/SetCCMAttr (CID 0x8000080) on the literal CCM state.
  *
@@ -12194,8 +12215,11 @@ static int t40_ccm_attr_set(uint32_t vinum, const uint8_t *buf)
         !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[2]) ||
         !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[16]) ||
         !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[17]) ||
-        !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[18]))
+        !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[18])) {
+        printk(KERN_INFO "tx_isp_t40_recovered: SetCCMAttr: CCM chain not running (enable_ccm=%d outer=%lx tparams=%lx ctx2/16/17/18=%x/%x/%x/%x)\n",
+               regtrace_enable_ccm, (unsigned long)stMainCcmOuter_lit, (unsigned long)tparamsN[0], ctx[2], ctx[16], ctx[17], ctx[18]);
         return -EAGAIN;
+    }
     mutex_lock(&t40_ccm_attr_lock);
     memcpy(t40_ccm_ctrl, buf, sizeof(t40_ccm_ctrl));
     *(uint8_t *)(uintptr_t)ctx[16] = buf[0] ? 1 : 0;
@@ -12219,6 +12243,24 @@ static int t40_ccm_attr_get(uint32_t vinum, uint8_t *buf)
     memcpy(buf, t40_ccm_ctrl, sizeof(t40_ccm_ctrl));
     mutex_unlock(&t40_ccm_attr_lock);
     return 0;
+}
+
+static noinline int t40_ccm_attr_set_user(uint32_t vinum, uintptr_t user)
+{
+    uint8_t buf[40];
+
+    if (copy_from_user(buf, (void __user *)user, sizeof(buf)))
+        return -EFAULT;
+    return t40_ccm_attr_set(vinum, buf);
+}
+static noinline int t40_ccm_attr_get_user(uint32_t vinum, uintptr_t user)
+{
+    uint8_t buf[40];
+    int ret = t40_ccm_attr_get(vinum, buf);
+
+    if (ret)
+        return ret;
+    return copy_to_user((void __user *)user, buf, sizeof(buf)) ? -EFAULT : 0;
 }
 
 static uint16_t regtrace_t40_tuning_u16(const uint8_t *p, uint32_t off)
@@ -47016,14 +47058,9 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
 
                 /* T40-CCM-SET: the lifted tisp_ccm_set_attr memcpys 40 bytes into the 4-byte ccm_main_ctrl; use the
                  * literal-state implementation (t40_ccm_attr_set) unless t40_csc_unsafe asks for the lift */
-                int v0_5;
-                uint8_t ccm_buf[40];
-                if (!t40_csc_unsafe) {
-                    if (copy_from_user(ccm_buf, (void __user *)arg3[1], sizeof(ccm_buf)))
-                        return -EFAULT;
-                    return t40_ccm_attr_set(arg1, ccm_buf);
-                }
-                v0_5 = copy_from_user(&var_88, (void __user *)arg3[1], 0x28);
+                if (!t40_csc_unsafe)
+                    return t40_ccm_attr_set_user(arg1, (uintptr_t)arg3[1]);
+                int v0_5 = copy_from_user(&var_88, (void __user *)arg3[1], 0x28);
                 s1_1 = v0_5;
 
                 if (v0_5 == 0) {
@@ -47070,17 +47107,11 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
             if (v1 == 0x8000096) {
                 /* T40-CSC-SET: the lifted tisp_csc_set_attr copies 92 bytes over the isp_memopt
                  * module parameter (an int) and its set_csc_version tail call is lost. */
-                int v0_49;
-                uint8_t csc_buf[92];
-                if (!t40_csc_unsafe) {
-                    /* the T40 libimp wire block is 64 bytes (gamut, 9 words, offset[2], clip[4]); the OEM kernel reads
-                     * 92 from the caller's stack.  Read 64, the rest of the attribute is unused. */
-                    memset(csc_buf, 0, sizeof(csc_buf));
-                    if (copy_from_user(csc_buf, (void __user *)arg3[1], T40_CSC_WIRE))
-                        return -EFAULT;
-                    return t40_csc_attr_set(arg1, csc_buf);
-                }
-                v0_49 = copy_from_user(&var_88, (void __user *)arg3[1], 0x5c);
+                /* the T40 libimp wire block is 64 bytes (gamut, 9 words, offset[2], clip[4]); the OEM kernel reads
+                 * 92 from the caller's stack.  Read 64, the rest of the attribute is unused. */
+                if (!t40_csc_unsafe)
+                    return t40_csc_attr_set_user(arg1, (uintptr_t)arg3[1]);
+                int v0_49 = copy_from_user(&var_88, (void __user *)arg3[1], 0x5c);
                 s1_1 = v0_49;
 
                 if (v0_49 == 0) {
@@ -47725,15 +47756,8 @@ label_c33c_vfree:
     if (cmd == 0x8000096) {
         /* T40-CSC-GUARD: the lifted tisp_csc_get_attr memsets 92 bytes into a 4-byte stack slot
          * (kernel oops with epc 0 on the first GetISPCSCAttr, Eufy .184 2026-10-24). */
-        if (!t40_csc_unsafe) {
-            uint8_t csc_buf[92];
-            int csc_ret = t40_csc_attr_get(arg1, csc_buf);   /* T40-CSC-SET */
-            if (csc_ret)
-                return csc_ret;
-            if (private_copy_to_user(arg3[1], csc_buf, T40_CSC_WIRE))   /* 64 bytes: a 92-byte store overran the libimp wire[64] */
-                return -EFAULT;
-            return 0;
-        }
+        if (!t40_csc_unsafe)   /* T40-CSC-SET: 64 bytes - a 92-byte store overran the libimp wire[64] */
+            return t40_csc_attr_get_user(arg1, (uintptr_t)arg3[1]);
         tisp_get_csc_attr(arg1, __p_80);
         if (private_copy_to_user(arg3[1], __p_80, 0x5c) == 0) {
             return 0;
@@ -47856,15 +47880,8 @@ label_c33c_vfree:
     if (cmd == 0x8000080) {
         /* T40-CCM-GUARD: tisp_ccm_get_attr copies to address 0 (kernel oops on GetCCMAttr, Eufy .184
          * 2026-10-24) and the wrapper copies an uninitialised stack buffer to the user */
-        if (!t40_csc_unsafe) {
-            uint8_t ccm_buf[40];
-            int ccm_ret = t40_ccm_attr_get(arg1, ccm_buf);   /* T40-CCM-SET */
-            if (ccm_ret)
-                return ccm_ret;
-            if (private_copy_to_user(arg3[1], ccm_buf, sizeof(ccm_buf)))
-                return -EFAULT;
-            return 0;
-        }
+        if (!t40_csc_unsafe)   /* T40-CCM-SET */
+            return t40_ccm_attr_get_user(arg1, (uintptr_t)arg3[1]);
         return tiziano_isp_ccm_attr_g_ctrl_isra_31(arg1, arg3[1]);
     }
 
