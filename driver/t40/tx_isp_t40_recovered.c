@@ -7460,6 +7460,11 @@ static bool regtrace_t40_loopguard;
 static void regtrace_loopguard(const char *fn, const char *lbl);
 #define REGTRACE_LOOPGUARD_BUDGET (regtrace_t40_loopguard ? 2000000U : 0xffffffffU)
 static u32 t40_wdr_out_mode[2];  /* SetWdrOutputMode shadow (linear sensor: flag only) */
+/* T40-LAYOUT: the lifted code reaches the OEM .bss as `&isp_memopt + N` (unrelated module variables at N bytes /
+ * words from the int module parameter), so ANY new .bss/.data object shifts what those stray accesses hit (a build with
+ * ~700 bytes of new statics in .bss delivered no frames at all).  State added after the lift lives in its own
+ * section, outside .bss/.data. */
+#define T40C2 __attribute__((section(".t40c2")))
 static unsigned int t40_csc_unsafe;  /* 1: allow the broken lifted CSC and CCM get/set (debug only) */
 module_param(t40_csc_unsafe, uint, 0644);
 MODULE_PARM_DESC(t40_csc_unsafe, "allow the lifted OEM CSC get/set (stack/bss overflow, debug only)");
@@ -10613,8 +10618,8 @@ static void regtrace_dmsc_static_write(void)
 
 /* T40-GAMMA-GET: the LUT the soft-gamma writer programmed last (GetGammaAttr answers from it when the lifted
  * gamma ctx does not exist, which is the production state) */
-static uint16_t t40_gamma_live[129];
-static bool t40_gamma_live_valid;
+static uint16_t t40_gamma_live[129] T40C2;
+static bool t40_gamma_live_valid T40C2;
 
 static void regtrace_soft_gamma_write(void)
 {
@@ -10782,8 +10787,7 @@ static unsigned char __attribute__((aligned(4))) ccm_inter_default_oem[452] = { 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,
 };
-/* T40-CCM-SET: writable (OEM .data) - the manual-CCM block (inter+0xb0..0xd8) and the busy flag inter[0] live in it */
-static unsigned char __attribute__((aligned(4))) stMainCcmInterOri_lit[228] = {
+static const unsigned char __attribute__((aligned(4))) stMainCcmInterOri_lit[228] = {   /* T40-CCM-SET: stays const (layout); the OEM init and the manual-CCM block already write through the ctx pointers */
     0x01, 0x00, 0x00, 0x00, 0x90, 0x01, 0x00, 0x00, 0x90, 0x01, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00,
     0x70, 0x17, 0x70, 0x17, 0x64, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -12114,8 +12118,8 @@ static void regtrace_ccm_main_ct_update_lit(uint32_t ct, bool force)
  * only reached when the BCSH chain is initialised (not in the production profile).
  */
 #define T40_CSC_WIRE 64U   /* bytes of the attribute the T40 libimp (OpenIMP and 1.3.1) exchanges: gamut, 9 words, offset[2], clip[4] */
-static uint8_t t40_csc_state[2][92];
-static DEFINE_MUTEX(t40_csc_attr_lock);
+static uint8_t t40_csc_state[2][92] T40C2;
+static struct mutex t40_csc_attr_lock T40C2 = __MUTEX_INITIALIZER(t40_csc_attr_lock);
 static inline uint32_t t40_csc_abs(int32_t v) { return v < 0 ? (uint32_t)(-v) : (uint32_t)v; }
 static int t40_csc_attr_set(uint32_t vinum, const uint8_t *buf)
 {
@@ -12177,8 +12181,8 @@ static int t40_csc_attr_get(uint32_t vinum, uint8_t *buf)
  * tisp_ccm_ev_ct_update applies them.  The lift stored the 40 bytes over a 4-byte int and
  * read them back from address 0.  Needs the literal CCM chain (quality profile >= 1, enable_ccm).
  */
-static uint8_t t40_ccm_ctrl[40];
-static DEFINE_MUTEX(t40_ccm_attr_lock);
+static uint8_t t40_ccm_ctrl[40] T40C2;
+static struct mutex t40_ccm_attr_lock T40C2 = __MUTEX_INITIALIZER(t40_ccm_attr_lock);
 static int t40_ccm_attr_set(uint32_t vinum, const uint8_t *buf)
 {
     uint32_t *ctx = pstMainCcmOri_lit;
@@ -23416,16 +23420,16 @@ struct t40_flip_profile {
     uint8_t mirror_mask;
     uint8_t flip_mask;
 };
-static const struct t40_flip_profile t40_flip_profiles[] = {
+static struct t40_flip_profile t40_flip_profiles[] T40C2 = {
     { "sc830ai", 0x3221, 0x06, 0x60 },
 };
-static bool t40_flip_base_valid;
-static uint8_t t40_flip_base;
-static uint32_t t40_flip_applied = ~0U;
-static int t40_flip_last_ret;
-static DEFINE_MUTEX(t40_flip_lock);
+static bool t40_flip_base_valid T40C2;
+static uint8_t t40_flip_base T40C2;
+static uint32_t t40_flip_applied T40C2 = ~0U;
+static int t40_flip_last_ret T40C2;
+static struct mutex t40_flip_lock T40C2 = __MUTEX_INITIALIZER(t40_flip_lock);
 
-static const struct t40_flip_profile *t40_flip_profile_get(void)
+static struct t40_flip_profile *t40_flip_profile_get(void)
 {
     unsigned int i;
 
@@ -23442,7 +23446,7 @@ static bool t40_sensor_flip_capable(unsigned int video_shvflip)
     return video_shvflip == 1U || t40_flip_profile_get() != NULL;
 }
 
-static int t40_flip_sensor_reg(const struct t40_flip_profile *pf, int set, uint8_t *val)
+static int t40_flip_sensor_reg(struct t40_flip_profile *pf, int set, uint8_t *val)
 {
     struct regtrace_t40_dbg_register reg;
     uintptr_t sd = (uintptr_t)regtrace_sensor_subdev, ops, core, fn;
@@ -23470,7 +23474,7 @@ static int t40_flip_sensor_reg(const struct t40_flip_profile *pf, int set, uint8
 /* mode: 0 normal, 1 mirror, 2 flip, 3 mirror+flip (the VFLIP event value).  Returns 0 or a negative errno. */
 static int t40_sensor_flip_apply(uint32_t mode)
 {
-    const struct t40_flip_profile *pf = t40_flip_profile_get();
+    struct t40_flip_profile *pf = t40_flip_profile_get();
     uint8_t v;
     int ret;
 
