@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24: T40 picture against the vendor (`claude/t40-quality`; not merged)
+
+- **T40 (Eufy sc830ai): vendor AWB per frame on by default** (`enable_core_ops_cb=1`): the OEM core ISR now reaches the AWB statistics interrupt and runs the translated vendor AWB each frame. A/B against the vendor stack on the same scene: R/G 1.85 -> 1.03, B/G 0.70 -> 1.00, grey-patch channel deviation 53 % -> 12 % (vendor 12 %), saturation 162 -> 53 (vendor 51). The lifted OEM AE that the same ISR would start is gated (`t40_oem_ae`, default 0; it oopsed in `tisp_ae_long_tune2`), and the frame-3A AE sampler ticks from the frame-done send (own work item) because the OEM ISR delivers frames in hard-IRQ context.
+- **T40 AE:** integration ceiling from the sensor attribute (2241 lines, was 1919), target 118, two gain steps per sample far from target, gain bands against the limit cycle a 1.17x gain step caused inside the deadband. Light step 100 -> 255 settles in < 1 s (vendor 1.5 s, before 11 s). Day luma 127 (vendor 122, before 108), day temporal noise 1.06 (vendor 1.90).
+- Open on T40: night brightness and the light step to 100 (sensor 32x cap; the vendor's 4x ISP digital gain does not act through the GIB final gain in our pipeline, stage present but default off), sharpness (YSP still forced off, edge energy 3.4 vs 5.2). 0 oops in 5 device runs, 50 min stream.
+
 ## 2026-10-20: T31 picture fix (`claude/t31-bild`; in `next`)
 
 - **AE minimum EV step and defog tables/packing like the OEM (T31):** the AE step floor and the defog table layout/packing now follow the OEM tuning code.

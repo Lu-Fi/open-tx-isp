@@ -625,3 +625,30 @@ Recommended line for colour work on this board:
   module parameter `t40_ae_limits` shows the limits the AE uses.
 - Known, not changed: second-sensor `ae_cache` stride, `fs_work` dispatch and the
   sensor-control stubs that still hard-code GC4653 values.
+
+## Eufy sc830ai: picture quality against the vendor stack (2026-10-24, `claude/t40-quality`)
+
+A/B on the Eufy .184 (same scene, basement lamp 3649 K, `audit/ab-t41/measure.sh`, data in the session's
+`audit/ab-t41/COMPARE.md`): the agg43c open image was orange (R/G 1.85, no AWB), 45 % softer, the AE 5-10x slower and the
+night picture 69 % darker than the vendor. Findings and fixes, all device-tested with a test module built from this branch
+(0 oops in 5 runs, 50 min stream):
+
+- `enable_core_ops_cb` now defaults to 1. Only the real ops tables hand the OEM core ISR to the AWB statistics interrupt,
+  and only that path runs `tisp_awb_main_process` -> the translated vendor AWB (`t40_vawb`) per frame. The image had
+  `t40_vawb_frames=0`; the 10-19/20 basement runs all carried `=1` on the insmod line. With it: R/G 1.03, B/G 1.00,
+  grey cabinet/tiles channel deviation 12 %/10 % (vendor 12 %/11 %), saturation 53 (vendor 51).
+- The OEM ISR also pushes event 1 to the lifted OEM AE, which oopses (`tisp_ae_long_tune2`, BadVA 0x1774); it is now
+  behind `t40_oem_ae` (default 0). The ISR delivers frames itself (leg A, hard IRQ), so the frame-3A sampler that only
+  lived in the FIFO frame-done work item never ran; the tick moved to `regtrace_irq_frame_done_send` with its own work
+  item (`frame_3a_work_runs`).
+- AE: integration ceiling from the sensor attribute (`ae_soft_max_it_from_sensor`, sc830ai boot 4 = 2241), target
+  110 -> 118 (vendor day luma 122 at the same EV; ours now 127), two gain steps per sample far from target, and gain
+  bands (`9 %` analog / `5 %` ISP dgain of the target) so a 1.17x gain step cannot limit-cycle inside the 4-level
+  deadband (it did: frames alternating 113/124). Settle after a light step < 1 s (vendor 1.5 s).
+- Open: the sc830ai ends at 32x analog; the vendor adds up to 4x ISP digital gain (night luma 79 vs our 27, light step
+  to 100: 105 vs 69). A dgain stage exists (`ae_isp_dgain_max`, Q10) and writes the OEM GIB final gain
+  (`tisp_gib_ae_write_dgain`, 0x8000/0x8004 + latch), but the picture does not react, not even to 0x7fff/shift 3 by
+  devmem; default off until the vendor's dgain point is found (candidate: folded into the WB gains 0x5004..).
+- Open: sharpness (edge energy 3.4 vs vendor 5.2): YSP is still forced off (`t40_force_bypass` bit 17).
+- The open timps stops the framesource without a viewer (`framesource.keepalive=0`), so the ISP idles at 0 IRQ/s and the
+  3A only runs in snapshot bursts; the A/B runs therefore keep a stream consumer open. Not a driver difference.
