@@ -694,6 +694,25 @@ vendor (`audit/ab-t41/COMPARE.md`, open184d).
 - Open: colour saturation after the night -> day return (HSV S 15 against the vendor's 51, also before this branch;
   `enable_bcsh=Y`), TOP bit 6.
 
+## Eufy sc830ai: AE EV fan-out, user AE caps, ratios (2026-10-24, `claude/t40-quality3`)
+
+- The OEM AE fans its EV (IT x gain, Q10; `>> 10` = the vendor's ExposureValue) out to defog, ADR, CCM and BCSH on
+  every change (`tisp_main_long_ev_update`) and its total gain to ADR (`tisp_adr_tgain_update`). The open driver fed
+  only defog (quality2); `ccm_ev` / `bcsh_ev` were module parameters frozen at 400 and the ADR private state
+  (`adr_ev_top`, `adr_tgain_top`) was never written. `regtrace_t40_ev_fanout()` (per frame in the tuning follow and
+  on every sensor gain update) now feeds all four; `t40_ev_now` shows the value, `t40_ev_follow=0` keeps the frozen
+  CCM/BCSH values for A/B. Effects: the CCM re-init after a night -> day return no longer runs at a stale EV (HSV S 15
+  against the vendor's 51 before), ADR follows EV/gain at night.
+- `frame_3a_target` default 122 (vendor day luma 122 at the same EV; ours was 120 at 118 with LCE).
+- User AE limits (`IMP_ISP_Tuning_SetAeExprInfo`: max integration time in lines or us, max analog gain and max ISP
+  digital gain x1024, each when its mode is 1) and `AeTargetComp` (target x comp/128 when `AeTargetCompEn`) now reach
+  the open frame AE; read-only `ae_user_max_it`, `ae_user_max_again_x1024`, `ae_user_max_isp_dgain_x1024`,
+  `ae_target_comp`. `GetAeScenceAttr` reports the open AE's compensation, last luma and effective target. HLC/BLC
+  strengths are still stored only.
+- `SetModule_Ratio`: DRC -> OEM `tisp_s_drc_ratio` translated into `tx_isp_t40_adr_lit.inc` (private wal parameters,
+  top-para refresh); Sinter -> after the hand-translated `tisp_s_sdns_ratio` scaled the bank, the literal SDNS chain
+  reloads its tables and replays the live gain. Temper (MDNS), DPC and defog ratios are cached only.
+
 ## Client crash recovery: framechan release (2026-10-24, `claude/t40-stability`)
 
 `regtrace_framechan_release` (misc fops of `/dev/framechanN`, also the v4l2 private file) used to only clear `private_data`. The OEM `frame_channel_release` streams off and frees the vb2 queue when the channel state is 4 (streaming). Without that, a client that died while streaming left the streaming flag (+0x244) set and every later STREAMON returned -EBUSY until reboot.

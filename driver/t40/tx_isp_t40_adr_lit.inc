@@ -125,17 +125,16 @@ static uint8_t adrlit_sec_adr_paras[4] __attribute__((aligned(8)));
 static uint8_t adrlit_sumImgDR_w[4] __attribute__((aligned(8))) = { 0x3e, 0x3e, 0x00, 0x00 };
 static uint8_t adrlit_wdr_en_adr[8] __attribute__((aligned(8)));
 static uint8_t adrlit_width_adr[8] __attribute__((aligned(8)));
-static const uint8_t adrlit_ro_1f28[96] __attribute__((aligned(8))) = { 0x06, 0xff, 0xff, 0xff, 0x06, 0xff, 0xff, 0xff, 0x06, 0xff, 0xff, 0xff, 0x06, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0xce, 0xff, 0xff, 0xff, 0xce, 0xff, 0xff, 0xff, 0xce, 0xff, 0xff, 0xff, 0xce, 0xff, 0xff, 0xff, 0x32, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x96, 0x00, 0x00, 0x00, 0x96, 0x00, 0x00, 0x00, 0x96, 0x00, 0x00, 0x00, 0x96, 0x00, 0x00, 0x00, 0xfa, 0x00, 0x00, 0x00, 0xfa, 0x00, 0x00, 0x00, 0xfa, 0x00, 0x00, 0x00, 0xfa, 0x00, 0x00, 0x00 };
-static const uint8_t adrlit_ro_1f88[96] __attribute__((aligned(8))) = { 0x96, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0xce, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x96, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0xce, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x96, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0xce, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x96, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0xce, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x96, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0xce, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x96, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0xce, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff };
-static const uint8_t adrlit_ro_1fe8[96] __attribute__((aligned(8))) = { 0xb4, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0xc4, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff, 0xb4, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0xc4, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff, 0xb4, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0xc4, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff, 0xb4, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0xc4, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff, 0xb4, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0xc4, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff, 0xb4, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0xc4, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff };
-static const uint8_t adrlit_ro_2048[96] __attribute__((aligned(8))) = { 0xd2, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0xba, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff, 0xd2, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0xba, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff, 0xd2, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0xba, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff, 0xd2, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0xba, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff, 0xd2, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0xba, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff, 0xd2, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0xba, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff };
-static const uint8_t adrlit_ro_20a8[96] __attribute__((aligned(8))) = { 0xf0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0xb0, 0xff, 0xff, 0xff, 0x10, 0xff, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0xb0, 0xff, 0xff, 0xff, 0x10, 0xff, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0xb0, 0xff, 0xff, 0xff, 0x10, 0xff, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0xb0, 0xff, 0xff, 0xff, 0x10, 0xff, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0xb0, 0xff, 0xff, 0xff, 0x10, 0xff, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0xb0, 0xff, 0xff, 0xff, 0x10, 0xff, 0xff, 0xff };
-static const uint8_t adrlit_ro_2108[68] __attribute__((aligned(8))) = { 0x00, 0x00, 0x80, 0x00, 0x00, 0x01, 0x80, 0x01, 0x00, 0x02, 0x80, 0x02, 0x00, 0x03, 0x80, 0x03, 0x00, 0x04, 0x80, 0x04, 0x00, 0x05, 0x80, 0x05, 0x00, 0x06, 0x80, 0x06, 0x00, 0x07, 0x80, 0x07, 0x00, 0x08, 0x80, 0x08, 0x00, 0x09, 0x80, 0x09, 0x00, 0x0a, 0x80, 0x0a, 0x00, 0x0b, 0x80, 0x0b, 0x00, 0x0c, 0x80, 0x0c, 0x00, 0x0d, 0x80, 0x0d, 0x00, 0x0e, 0x80, 0x0e, 0x00, 0x0f, 0x80, 0x0f, 0xff, 0x0f, 0x00, 0x00 };
-static const uint8_t adrlit_ro_214c[28] __attribute__((aligned(8))) = { 0x00, 0x00, 0x20, 0x00, 0x40, 0x00, 0x80, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x00, 0x06, 0x00, 0x08, 0x00, 0x0a, 0x00, 0x0c, 0x00, 0x0e, 0xff, 0x0f, 0x00, 0x00 };
-static const uint8_t adrlit_ro_2168[20] __attribute__((aligned(8))) = { 0x08, 0x00, 0x10, 0x00, 0x20, 0x00, 0x40, 0x00, 0x80, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x00, 0x08, 0x00, 0x00 };
-static const uint8_t adrlit_ro_217c[124] __attribute__((aligned(8))) = { 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x06, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x98, 0x9c, 0x06, 0x00, 0xbc, 0x9c, 0x06, 0x00, 0x64, 0x9d, 0x06, 0x00, 0x84, 0x9d, 0x06, 0x00, 0x2c, 0x9e, 0x06, 0x00, 0x01, 0x04, 0x00, 0x00, 0x04, 0xfe, 0xff, 0xff, 0xf3, 0xfe, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0x05, 0x09, 0x00, 0x00, 0x5f, 0x01, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff, 0xf1, 0x02, 0x00, 0x00, 0x9b, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x82, 0x00, 0x0e, 0x01, 0x68, 0x01, 0xf4, 0x01, 0x00, 0x00, 0xf4, 0x01, 0x7c, 0x01, 0x04, 0x01, 0x7d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1e, 0x00, 0x64, 0x00, 0x00, 0x00 };
+static const uint8_t adrlit_ro_1e68[96] __attribute__((aligned(8))) = { 0x06, 0xff, 0xff, 0xff, 0x06, 0xff, 0xff, 0xff, 0x06, 0xff, 0xff, 0xff, 0x06, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0xce, 0xff, 0xff, 0xff, 0xce, 0xff, 0xff, 0xff, 0xce, 0xff, 0xff, 0xff, 0xce, 0xff, 0xff, 0xff, 0x32, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x96, 0x00, 0x00, 0x00, 0x96, 0x00, 0x00, 0x00, 0x96, 0x00, 0x00, 0x00, 0x96, 0x00, 0x00, 0x00, 0xfa, 0x00, 0x00, 0x00, 0xfa, 0x00, 0x00, 0x00, 0xfa, 0x00, 0x00, 0x00, 0xfa, 0x00, 0x00, 0x00 };
+static const uint8_t adrlit_ro_1ec8[96] __attribute__((aligned(8))) = { 0x96, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0xce, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x96, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0xce, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x96, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0xce, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x96, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0xce, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x96, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0xce, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff, 0x96, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0xce, 0xff, 0xff, 0xff, 0x6a, 0xff, 0xff, 0xff };
+static const uint8_t adrlit_ro_1f28[96] __attribute__((aligned(8))) = { 0xb4, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0xc4, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff, 0xb4, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0xc4, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff, 0xb4, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0xc4, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff, 0xb4, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0xc4, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff, 0xb4, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0xc4, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff, 0xb4, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0xc4, 0xff, 0xff, 0xff, 0x4c, 0xff, 0xff, 0xff };
+static const uint8_t adrlit_ro_1f88[96] __attribute__((aligned(8))) = { 0xd2, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0xba, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff, 0xd2, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0xba, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff, 0xd2, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0xba, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff, 0xd2, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0xba, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff, 0xd2, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0xba, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff, 0xd2, 0x00, 0x00, 0x00, 0x46, 0x00, 0x00, 0x00, 0xba, 0xff, 0xff, 0xff, 0x2e, 0xff, 0xff, 0xff };
+static const uint8_t adrlit_ro_1fe8[96] __attribute__((aligned(8))) = { 0xf0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0xb0, 0xff, 0xff, 0xff, 0x10, 0xff, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0xb0, 0xff, 0xff, 0xff, 0x10, 0xff, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0xb0, 0xff, 0xff, 0xff, 0x10, 0xff, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0xb0, 0xff, 0xff, 0xff, 0x10, 0xff, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0xb0, 0xff, 0xff, 0xff, 0x10, 0xff, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0xb0, 0xff, 0xff, 0xff, 0x10, 0xff, 0xff, 0xff };
+static const uint8_t adrlit_ro_2048[68] __attribute__((aligned(8))) = { 0x00, 0x00, 0x80, 0x00, 0x00, 0x01, 0x80, 0x01, 0x00, 0x02, 0x80, 0x02, 0x00, 0x03, 0x80, 0x03, 0x00, 0x04, 0x80, 0x04, 0x00, 0x05, 0x80, 0x05, 0x00, 0x06, 0x80, 0x06, 0x00, 0x07, 0x80, 0x07, 0x00, 0x08, 0x80, 0x08, 0x00, 0x09, 0x80, 0x09, 0x00, 0x0a, 0x80, 0x0a, 0x00, 0x0b, 0x80, 0x0b, 0x00, 0x0c, 0x80, 0x0c, 0x00, 0x0d, 0x80, 0x0d, 0x00, 0x0e, 0x80, 0x0e, 0x00, 0x0f, 0x80, 0x0f, 0xff, 0x0f, 0x00, 0x00 };
+static const uint8_t adrlit_ro_208c[28] __attribute__((aligned(8))) = { 0x00, 0x00, 0x20, 0x00, 0x40, 0x00, 0x80, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x00, 0x06, 0x00, 0x08, 0x00, 0x0a, 0x00, 0x0c, 0x00, 0x0e, 0xff, 0x0f, 0x00, 0x00 };
+static const uint8_t adrlit_ro_20a8[20] __attribute__((aligned(8))) = { 0x08, 0x00, 0x10, 0x00, 0x20, 0x00, 0x40, 0x00, 0x80, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x00, 0x08, 0x00, 0x00 };
+static const uint8_t adrlit_ro_20bc[124] __attribute__((aligned(8))) = { 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x06, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc8, 0x9d, 0x06, 0x00, 0xec, 0x9d, 0x06, 0x00, 0x94, 0x9e, 0x06, 0x00, 0xb4, 0x9e, 0x06, 0x00, 0x5c, 0x9f, 0x06, 0x00, 0x01, 0x04, 0x00, 0x00, 0x04, 0xfe, 0xff, 0xff, 0xf3, 0xfe, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0x05, 0x09, 0x00, 0x00, 0x5f, 0x01, 0x00, 0x00, 0xfe, 0xff, 0xff, 0xff, 0xf1, 0x02, 0x00, 0x00, 0x9b, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x82, 0x00, 0x0e, 0x01, 0x68, 0x01, 0xf4, 0x01, 0x00, 0x00, 0xf4, 0x01, 0x7c, 0x01, 0x04, 0x01, 0x7d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1e, 0x00, 0x64, 0x00, 0x00, 0x00 };
 
-static int32_t Tiziano_adr_fpga_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t fix_point_div_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t fix_point_div_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t fix_point_mult2_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
@@ -153,6 +152,8 @@ static int32_t ispint_adr_16_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in,
 static int32_t ispint_adr_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t subsection_map_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t subsection_up_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tisp_adr_dn_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tisp_adr_main_deinit_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t tisp_adr_main_init_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t tisp_adr_main_process_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t tisp_math_exp2_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
@@ -161,6 +162,7 @@ static int32_t tiziano_adr_5x5_out_lit(uint32_t a0_in, uint32_t a1_in, uint32_t 
 static int32_t tiziano_adr_algorithm_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t tiziano_adr_base_pars_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t tiziano_adr_ev_func_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t Tiziano_adr_fpga_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t tiziano_adr_hard_base_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t tiziano_adr_hard_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t tiziano_adr_main_interrupt_static_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
@@ -171,1685 +173,9 @@ static int32_t tiziano_adr_stat_calc_lit(uint32_t a0_in, uint32_t a1_in, uint32_
 static int32_t tiziano_adr_tgain_func_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t tiziano_adr_top_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static int32_t tiziano_adr_wal_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
-static int32_t tisp_adr_main_deinit_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
-static int32_t tisp_adr_dn_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
+static int32_t tisp_s_drc_ratio_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in);
 static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t sp, uint32_t *v1, uint32_t v0);
 #define ADR_DISPATCH(r) adrlit_dispatch((r), r_a0, r_a1, r_a2, r_a3, r_sp, &r_v1, r_v0)
-
-static int32_t Tiziano_adr_fpga_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
-{
-    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
-    uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
-    uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
-    uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
-    uint32_t r_s6 = 0, r_s7 = 0, r_s8 = 0, r_ra = 0, r_at = 0;
-    uint32_t mips_lo = 0, mips_hi = 0, mips_cond = 0;
-    uint32_t r_a0 = a0_in, r_a1 = a1_in, r_a2 = a2_in, r_a3 = a3_in;
-    uint32_t r_sp = sp_in;
-
-    (void)r_at; (void)r_ra; (void)r_t8; (void)r_t9; (void)mips_lo; (void)mips_hi;
-    (void)mips_cond;
-    r_sp = r_sp + -0x3e8U;
-    *(uint32_t *)(uintptr_t)(r_sp + 996) = (uint32_t)r_ra;
-    *(uint32_t *)(uintptr_t)(r_sp + 992) = (uint32_t)r_s8;
-    *(uint32_t *)(uintptr_t)(r_sp + 988) = (uint32_t)r_s7;
-    *(uint32_t *)(uintptr_t)(r_sp + 984) = (uint32_t)r_s6;
-    *(uint32_t *)(uintptr_t)(r_sp + 980) = (uint32_t)r_s5;
-    *(uint32_t *)(uintptr_t)(r_sp + 964) = (uint32_t)r_s1;
-    *(uint32_t *)(uintptr_t)(r_sp + 976) = (uint32_t)r_s4;
-    *(uint32_t *)(uintptr_t)(r_sp + 972) = (uint32_t)r_s3;
-    *(uint32_t *)(uintptr_t)(r_sp + 968) = (uint32_t)r_s2;
-    *(uint32_t *)(uintptr_t)(r_sp + 960) = (uint32_t)r_s0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
-    r_s2 = *(uint32_t *)(uintptr_t)(r_a0 + 4);
-    r_s0 = *(uint32_t *)(uintptr_t)(r_a0 + 16);
-    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 8);
-    r_s3 = *(uint32_t *)(uintptr_t)(r_a0 + 20);
-    r_s4 = *(uint32_t *)(uintptr_t)(r_a0 + 28);
-    *(uint32_t *)(uintptr_t)(r_sp + 784) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 12);
-    r_s5 = r_a1;
-    r_t2 = (uint32_t)(uintptr_t)&memcpy; /* HI16 memcpy */
-    *(uint32_t *)(uintptr_t)(r_sp + 796) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 24);
-    r_t2 = (uint32_t)(uintptr_t)&memcpy;
-    r_a2 = 26U;
-    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 32);
-    *(uint32_t *)(uintptr_t)(r_sp + 852) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 36);
-    *(uint32_t *)(uintptr_t)(r_sp + 856) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 40);
-    *(uint32_t *)(uintptr_t)(r_sp + 760) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 44);
-    *(uint32_t *)(uintptr_t)(r_sp + 860) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 48);
-    *(uint32_t *)(uintptr_t)(r_sp + 864) = (uint32_t)r_v0;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_a0 + 140);
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 92);
-    r_a1 = *(uint32_t *)(uintptr_t)(r_a0 + 60);
-    *(uint32_t *)(uintptr_t)(r_sp + 772) = (uint32_t)r_v1;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_a0 + 148);
-    *(uint32_t *)(uintptr_t)(r_sp + 792) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 96);
-    *(uint32_t *)(uintptr_t)(r_sp + 808) = (uint32_t)r_v1;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_a0 + 152);
-    *(uint32_t *)(uintptr_t)(r_sp + 800) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 116);
-    *(uint32_t *)(uintptr_t)(r_sp + 868) = (uint32_t)r_v1;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_a0 + 156);
-    *(uint32_t *)(uintptr_t)(r_sp + 780) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 120);
-    *(uint32_t *)(uintptr_t)(r_sp + 812) = (uint32_t)r_v1;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_a0 + 164);
-    *(uint32_t *)(uintptr_t)(r_sp + 804) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 124);
-    *(uint32_t *)(uintptr_t)(r_sp + 872) = (uint32_t)r_v1;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
-    r_a3 = *(uint32_t *)(uintptr_t)(r_a0 + 64);
-    *(uint32_t *)(uintptr_t)(r_sp + 764) = (uint32_t)r_v0;
-    *(uint32_t *)(uintptr_t)(r_sp + 876) = (uint32_t)r_v1;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 136);
-    r_v1 = *(uint32_t *)(uintptr_t)(r_a1 + 4);
-    r_s8 = *(uint32_t *)(uintptr_t)(r_a0 + 144);
-    *(uint32_t *)(uintptr_t)(r_sp + 920) = (uint32_t)r_a3;
-    r_s1 = *(uint32_t *)(uintptr_t)(r_a0 + 160);
-    r_s6 = *(uint32_t *)(uintptr_t)(r_a0 + 168);
-    r_s7 = *(uint32_t *)(uintptr_t)(r_a0 + 172);
-    *(uint32_t *)(uintptr_t)(r_sp + 880) = (uint32_t)r_v1;
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 10);
-    r_a1 = 0; /* HI16 .rodata anchor */
-    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_214c;
-    *(uint32_t *)(uintptr_t)(r_sp + 768) = (uint32_t)r_v1;
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 12);
-    r_a0 = r_sp + 0x28cU;
-    *(uint32_t *)(uintptr_t)(r_sp + 900) = (uint32_t)r_t2;
-    *(uint32_t *)(uintptr_t)(r_sp + 816) = (uint32_t)r_v1;
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 14);
-    *(uint32_t *)(uintptr_t)(r_sp + 820) = (uint32_t)r_v1;
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 16);
-    *(uint32_t *)(uintptr_t)(r_sp + 824) = (uint32_t)r_v1;
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
-    *(uint32_t *)(uintptr_t)(r_sp + 884) = (uint32_t)r_v1;
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 2);
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 4);
-    *(uint32_t *)(uintptr_t)(r_sp + 828) = (uint32_t)r_v1;
-    *(uint32_t *)(uintptr_t)(r_sp + 848) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 804);
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 20);
-    *(uint32_t *)(uintptr_t)(r_sp + 888) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 780);
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 38);
-    *(uint32_t *)(uintptr_t)(r_sp + 832) = (uint32_t)r_v0;
-    r_v0 = ADR_DISPATCH(r_t2); /* memcpy */
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 772);
-    r_t2 = *(uint32_t *)(uintptr_t)(r_sp + 900);
-    r_a1 = 0; /* HI16 .rodata anchor */
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
-    r_a2 = 18U;
-    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_2168;
-    *(uint32_t *)(uintptr_t)(r_sp + 772) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 2);
-    r_a0 = r_sp + 0x2a8U;
-    *(uint32_t *)(uintptr_t)(r_sp + 776) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 4);
-    *(uint32_t *)(uintptr_t)(r_sp + 836) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 800);
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
-    *(uint32_t *)(uintptr_t)(r_sp + 892) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 8);
-    *(uint32_t *)(uintptr_t)(r_sp + 896) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 10);
-    *(uint32_t *)(uintptr_t)(r_sp + 788) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 12);
-    *(uint32_t *)(uintptr_t)(r_sp + 840) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 14);
-    *(uint32_t *)(uintptr_t)(r_sp + 844) = (uint32_t)r_v0;
-    r_v0 = ADR_DISPATCH(r_t2); /* None */
-    r_v1 = (uint32_t)(uintptr_t)&memset; /* HI16 memset */
-    r_v1 = (uint32_t)(uintptr_t)&memset;
-    r_a2 = 32U;
-    r_a1 = 0;
-    r_a0 = r_sp + 0x1fcU;
-    *(uint32_t *)(uintptr_t)(r_sp + 900) = (uint32_t)r_v1;
-    r_v0 = ADR_DISPATCH(r_v1); /* memset */
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 900);
-    r_a1 = 0;
-    r_a0 = r_sp + 0x1daU;
-    r_a2 = 32U;
-    r_v0 = ADR_DISPATCH(r_v1); /* None */
-    r_v0 = 10U;
-    *(uint16_t *)(uintptr_t)(r_sp + 472) = (uint16_t)r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s8 + 2);
-    r_t2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s8 + 0);
-    r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 760);
-    *(uint32_t *)(uintptr_t)(r_sp + 900) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s8 + 4);
-    r_a3 = *(uint32_t *)(uintptr_t)(r_sp + 920);
-    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_imgDR_w; /* HI16 adr_imgDR_w */
-    *(uint32_t *)(uintptr_t)(r_sp + 904) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s8 + 6);
-    r_t3 = (uint32_t)(uintptr_t)adrlit_sumImgDR_w; /* HI16 sumImgDR_w */
-    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_imgDR_w;
-    *(uint32_t *)(uintptr_t)(r_sp + 908) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s8 + 8);
-    r_v1 = 0;
-    r_t6 = 16U;
-    *(uint32_t *)(uintptr_t)(r_sp + 912) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s8 + 10);
-    r_t4 = r_t3;
-    r_t7 = 32U;
-    *(uint32_t *)(uintptr_t)(r_sp + 916) = (uint32_t)r_v0;
-    r_t8 = 64U;
-    r_v0 = 0;
-    r_t9 = 96U;
-    r_t5 = 128U;
-L_5ae18:
-    mips_cond = (r_v1 != 0) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5ba20;
-    r_a2 = *(uint32_t *)(uintptr_t)(r_sp + 760);
-    r_a2 = *(uint32_t *)(uintptr_t)(r_a2 + 0);
-L_5ae28:
-    r_t0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
-    r_t1 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
-    r_a2 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
-    mips_cond = (r_v1 != r_t6) ? 1U : 0U;
-    r_v0 = r_t1 + r_v0;
-    if (mips_cond) goto L_5ba30;
-    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a2); }
-    r_a2 = mips_lo;
-    *(uint16_t *)(uintptr_t)(r_a3 + 2) = (uint16_t)r_a2;
-L_5ae48:
-    r_v1 = r_v1 + 0x1U;
-L_5ae4c:
-    r_a0 = r_a0 + 0x4U;
-    mips_cond = (r_v1 != r_t5) ? 1U : 0U;
-    r_a1 = r_a1 + 0x4U;
-    if (mips_cond) goto L_5ae18;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_t4 + 0);
-    r_t7 = *(uint32_t *)(uintptr_t)(r_sp + 864);
-    r_t6 = *(uint32_t *)(uintptr_t)(r_sp + 860);
-    if (r_v1) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_v1); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_v1); }
-    r_t5 = 4095U;
-    r_t4 = 0;
-    r_v1 = 0;
-    r_v0 = mips_lo;
-    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_v0;
-    r_v0 = (uint32_t)(uintptr_t)&func_local_info; /* HI16 func_local_info */
-    r_v0 = (uint32_t)(uintptr_t)&func_local_info;
-    *(uint32_t *)(uintptr_t)(r_sp + 864) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(uintptr_t)adrlit_adr_local_light_b_in; /* HI16 adr_local_light_b_in */
-    *(uint32_t *)(uintptr_t)(r_sp + 920) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(uintptr_t)&ispint_adr_16; /* HI16 ispint_adr_16 */
-    r_v0 = (uint32_t)(uintptr_t)&ispint_adr_16;
-    *(uint32_t *)(uintptr_t)(r_sp + 924) = (uint32_t)r_v0;
-L_5ae9c:
-    r_t3 = *(uint32_t *)(uintptr_t)(r_t6 + 0);
-    r_a0 = 3U;
-    r_v0 = ((int32_t)r_t4 < (int32_t)r_t3) ? 1U : 0U;
-    if (r_v0 != 0) r_t4 = r_t3;
-    r_v0 = ((int32_t)r_t3 < (int32_t)r_t5) ? 1U : 0U;
-    if (r_v0 != 0) r_t5 = r_t3;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_t7 + 0);
-    *(uint32_t *)(uintptr_t)(r_sp + 860) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 792);
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
-    mips_cond = (r_v0 != r_a0) ? 1U : 0U;
-    r_a0 = 2U;
-    if (mips_cond) goto L_5ba7c;
-    r_v0 = r_v1 & 0x3U;
-    r_a0 = r_v0;
-    r_a1 = (uint32_t)((int32_t)r_v1 >> 2);
-    r_a2 = 6U;
-    r_v0 = r_a1;
-    r_a1 = (uint32_t)((int32_t)r_a0 * (int32_t)r_a2);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 792);
-    r_v0 = r_a1 + r_v0;
-    r_v0 = r_v0 + 0x5U;
-    r_v0 = r_v0 << 1;
-    r_v0 = r_a0 + r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
-    r_a0 = 51200U;
-    r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_t2);
-    if (r_a0) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a0); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a0); }
-    r_v0 = mips_lo;
-L_5af0c:
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 852);
-    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 30);
-    r_a0 = 1U;
-    mips_cond = (r_a2 != r_a0) ? 1U : 0U;
-    r_a1 = r_v1 << 2;
-    if (mips_cond) goto L_5bbc0;
-    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local; /* HI16 adr_gauss_local */
-    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local;
-    r_a0 = r_a0 + r_a1;
-    r_a0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
-    r_a2 = 10000U;
-    r_a0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_a0);
-    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_a0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_a0 % (int32_t)r_a2); }
-    r_a2 = r_sp + 0x28U;
-    r_a2 = r_a2 + r_a1;
-    r_a0 = mips_lo;
-    *(uint32_t *)(uintptr_t)(r_a2 + 0) = (uint32_t)r_a0;
-L_5af4c:
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-    r_a2 = 2U;
-    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
-    mips_cond = (r_a0 == r_a2) ? 1U : 0U;
-    r_a2 = 3U;
-    if (mips_cond) goto L_5af90;
-    mips_cond = (r_a0 == r_a2) ? 1U : 0U;
-    r_v0 = r_t3;
-    if (mips_cond) goto L_5af90;
-    r_a2 = 4U;
-    mips_cond = (r_a0 == r_a2) ? 1U : 0U;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 860);
-    if (mips_cond) goto L_5af90;
-    r_a2 = 5U;
-    mips_cond = (r_a0 != r_a2) ? 1U : 0U;
-    r_v0 = 0;
-    if (mips_cond) goto L_5af90;
-    r_v0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local; /* HI16 adr_gauss_local */
-    r_v0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local;
-    r_v0 = r_v0 + r_a1;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
-L_5af90:
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-    r_a1 = ((int32_t)r_v1 < 8) ? 1U : 0U;
-    mips_cond = (r_a1 == 0) ? 1U : 0U;
-    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 2);
-    if (mips_cond) goto L_5bbd0;
-    mips_cond = (r_a0 != 0) ? 1U : 0U;
-    r_a0 = r_v1 << 1;
-    if (mips_cond) goto L_5afb0;
-    r_a0 = r_s4 + r_a0;
-    *(uint16_t *)(uintptr_t)(r_a0 + 4) = (uint16_t)r_v0;
-L_5afb0:
-    r_v1 = r_v1 + 0x1U;
-    r_v0 = 24U;
-    r_t6 = r_t6 + 0x4U;
-    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
-    r_t7 = r_t7 + 0x4U;
-    if (mips_cond) goto L_5ae9c;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
-    mips_cond = (r_v0 != 0) ? 1U : 0U;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-    if (mips_cond) goto L_5afe8;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 876);
-    *(uint16_t *)(uintptr_t)(r_s4 + 4) = (uint16_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 880);
-    *(uint16_t *)(uintptr_t)(r_s4 + 6) = (uint16_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-L_5afe8:
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
-    r_v0 = 1U;
-    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
-    r_v1 = r_s2 + 0x1eU;
-    if (mips_cond) goto L_5b000;
-    *(uint16_t *)(uintptr_t)(r_s4 + 4) = (uint16_t)r_t5;
-    *(uint16_t *)(uintptr_t)(r_s4 + 6) = (uint16_t)r_t4;
-L_5b000:
-    *(uint32_t *)(uintptr_t)(r_sp + 792) = (uint32_t)r_v1;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 884);
-    r_v0 = 1U;
-    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
-    r_s4 = r_s2 + 0x2U;
-    if (mips_cond) goto L_5bc08;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 848);
-    r_v1 = 155U;
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 828);
-    r_a2 = r_v0 + 0x9bU;
-    r_v0 = ((int32_t)r_a2 < 155) ? 1U : 0U;
-    if (r_v0 == 0) r_v1 = r_a2;
-    r_v0 = r_v1;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 828);
-    r_a2 = ((int32_t)r_v0 < 256) ? 1U : 0U;
-    r_a1 = 30U;
-    r_v1 = ((int32_t)r_v1 < 0) ? 1U : 0U;
-    if (r_v1 != 0) r_a0 = 0;
-    r_t0 = ((int32_t)r_a0 < 101) ? 1U : 0U;
-    r_v1 = r_a0;
-    r_a0 = 100U;
-    if (r_t0 != 0) r_a0 = r_v1;
-    r_v1 = 255U;
-    if (r_a2 != 0) r_v1 = r_v0;
-    r_v0 = (uint32_t)(uintptr_t)&func_adr_map_curve1; /* HI16 func_adr_map_curve1 */
-    r_a2 = r_v1;
-    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_a0;
-    r_v0 = (uint32_t)(uintptr_t)&func_adr_map_curve1;
-    r_a0 = r_sp + 0x88U;
-    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_map_curve1 */
-    r_a2 = *(uint32_t *)(uintptr_t)(r_sp + 796);
-    r_t0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-    r_a0 = r_s4;
-    r_v1 = r_sp + 0x88U;
-    r_a3 = 100U;
-L_5b088:
-    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
-    r_v0 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
-    r_a0 = r_a0 + 0x2U;
-    { uint64_t mips_acc = (uint64_t)((int64_t)(int32_t)r_a1 * (int64_t)(int32_t)r_a3); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
-    r_v0 = r_v0 - r_a1;
-    r_a2 = r_a2 + 0x2U;
-    { uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) + (uint64_t)((int64_t)(int32_t)r_v0 * (int64_t)(int32_t)r_t0); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
-    r_v0 = mips_lo;
-    r_v0 = r_v0 + 0x32U;
-    if (r_a3) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a3); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a3); }
-    r_v0 = mips_lo;
-    *(uint16_t *)(uintptr_t)(r_a2 + -2) = (uint16_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 792);
-    mips_cond = (r_v0 != r_a0) ? 1U : 0U;
-    r_v1 = r_v1 + 0x4U;
-    if (mips_cond) goto L_5b088;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 888);
-L_5b0c8:
-    r_v0 = 1U;
-    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 784);
-    if (mips_cond) goto L_5bc34;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 804);
-    r_a0 = r_sp + 0x2bcU;
-    r_t6 = r_a0;
-    r_a3 = r_v0 + 0x12U;
-    r_t0 = 800U;
-    r_a2 = 100U;
-L_5b0ec:
-    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
-    r_v0 = r_v0 + 0x2U;
-    r_a0 = r_a0 + 0x2U;
-    r_v1 = ((int32_t)r_a1 < 0) ? 1U : 0U;
-    if (r_v1 != 0) r_a1 = 0;
-    r_v1 = ((int32_t)r_a1 < 801) ? 1U : 0U;
-    if (r_v1 == 0) r_a1 = r_t0;
-    r_v1 = r_a1 << 10;
-    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v1 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v1 % (int32_t)r_a2); }
-    r_v1 = mips_lo;
-    mips_cond = (r_v0 != r_a3) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_a0 + -2) = (uint16_t)r_v1;
-    if (mips_cond) goto L_5b0ec;
-    r_t5 = *(uint32_t *)(uintptr_t)(r_sp + 784);
-    r_t7 = (uint32_t)(uintptr_t)&ispint_adr_16; /* HI16 ispint_adr_16 */
-    r_t4 = r_s2;
-    r_t8 = r_s2 + 0x20U;
-    r_t7 = (uint32_t)(uintptr_t)&ispint_adr_16;
-L_5b130:
-    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t4 + 0);
-    r_a3 = 9U;
-    r_a2 = r_t6;
-    r_a1 = r_sp + 0x2a8U;
-    r_v0 = ADR_DISPATCH(r_t7); /* ispint_adr_16 */
-    r_t4 = r_t4 + 0x2U;
-    *(uint16_t *)(uintptr_t)(r_t5 + 0) = (uint16_t)r_v0;
-    mips_cond = (r_t4 != r_t8) ? 1U : 0U;
-    r_t5 = r_t5 + 0x2U;
-    if (mips_cond) goto L_5b130;
-L_5b154:
-    mips_cond = (r_s5 != 0) ? 1U : 0U;
-    r_v0 = 1U;
-    if (mips_cond) goto L_5bc7c;
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)((uintptr_t)adrlit_adr_ctc1_y_change);
-    r_v1 = 1U;
-    mips_cond = (r_a0 != r_v1) ? 1U : 0U;
-    r_v1 = 22U;
-    if (mips_cond) goto L_5b280;
-    *(uint16_t *)((uintptr_t)((uintptr_t)adrlit_adr_ctc1_y_change) + 0) = (uint16_t)0;
-    r_v0 = 4095U;
-    *(uint16_t *)(uintptr_t)(r_sp + 564) = (uint16_t)r_v0;
-    *(uint16_t *)(uintptr_t)(r_sp + 540) = (uint16_t)0;
-    r_v0 = 0;
-L_5b184:
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 780);
-    r_a0 = r_a0 + r_v0;
-    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
-    r_a0 = r_sp + 0x21cU;
-    r_a0 = r_a0 + r_v0;
-    r_v0 = r_v0 + 0x2U;
-    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_a0 + 2) = (uint16_t)r_a1;
-    if (mips_cond) goto L_5b184;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 832);
-    r_v0 = 1U;
-    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    if (mips_cond) goto L_5bc54;
-    r_v0 = 129U;
-    r_v1 = 13U;
-    r_s8 = (uint32_t)(uintptr_t)&func_interp1_short; /* HI16 func_interp1_short */
-    r_s8 = (uint32_t)(uintptr_t)&func_interp1_short;
-    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v0;
-    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v1;
-    r_a3 = r_sp + 0x270U;
-    r_a2 = r_sp + 0x28cU;
-    r_a1 = r_s7;
-    r_a0 = r_s6;
-    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_v0;
-    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v1;
-    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_a3 = r_sp + 0x254U;
-    r_a2 = r_sp + 0x270U;
-    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v1;
-    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v1;
-    r_a1 = r_sp + 0x21cU;
-    r_a0 = r_sp + 0x28cU;
-    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-    r_a3 = r_sp + 0x238U;
-    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v1;
-    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v0;
-    r_a2 = r_sp + 0x254U;
-    r_a1 = r_s6;
-    r_a0 = r_s7;
-    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_ctc1_y_tmp);
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_a0 = 23U;
-    r_a2 = (uint32_t)(uintptr_t)adrlit_adr_ctc1_x; /* HI16 adr_ctc1_x */
-    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_a0;
-    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v1;
-    r_a3 = r_v0;
-    r_a2 = (uint32_t)(uintptr_t)adrlit_adr_ctc1_x;
-    r_a1 = r_sp + 0x238U;
-    r_a0 = r_sp + 0x28cU;
-    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v0;
-    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_v1 = r_v0 + 0x2U;
-    r_v0 = r_v0 + 0x2cU;
-L_5b26c:
-    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
-    r_v1 = r_v1 + 0x2U;
-    r_s3 = r_s3 + 0x2U;
-    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_s3 + -2) = (uint16_t)r_a0;
-    if (mips_cond) goto L_5b26c;
-L_5b280:
-    r_v0 = r_sp + 0x28U;
-L_5b284:
-    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 856);
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 820);
-    r_s8 = 1U;
-    *(uint32_t *)(uintptr_t)(r_sp + 784) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(uintptr_t)&subsection_up; /* HI16 subsection_up */
-    r_v0 = (uint32_t)(uintptr_t)&subsection_up;
-    *(uint32_t *)(uintptr_t)(r_sp + 804) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(uintptr_t)&func_interp1_short; /* HI16 func_interp1_short */
-    r_v0 = (uint32_t)(uintptr_t)&func_interp1_short;
-    *(uint32_t *)(uintptr_t)(r_sp + 828) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 816);
-    r_s3 = r_s0;
-    *(uint32_t *)(uintptr_t)(r_sp + 780) = (uint32_t)r_s0;
-    r_v0 = r_v0 + r_v1;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 824);
-    r_v0 = r_v0 + r_v1;
-    r_v1 = ((int32_t)0 < (int32_t)r_v0) ? 1U : 0U;
-    if (r_v1 == 0) r_v0 = r_s8;
-    *(uint32_t *)(uintptr_t)(r_sp + 796) = (uint32_t)r_v0;
-L_5b2d4:
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_a3 = r_s7;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
-    *(uint32_t *)(uintptr_t)(r_sp + 32) = (uint32_t)r_s8;
-    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_v0;
-    r_v0 = 16U;
-    *(uint32_t *)(uintptr_t)(r_sp + 28) = (uint32_t)r_v0;
-    r_v0 = 10U;
-    *(uint32_t *)(uintptr_t)(r_sp + 24) = (uint32_t)r_v0;
-    r_v0 = 8U;
-    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 760);
-    r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v0;
-    r_v0 = (uint32_t)(uintptr_t)adrlit_adr_cut_base_up; /* HI16 adr_cut_base_up */
-    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_cut_base_up;
-    *(uint32_t *)(uintptr_t)(r_sp + 832) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 804);
-    r_a2 = r_s6;
-    r_v0 = ADR_DISPATCH(r_v0); /* None */
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 832);
-    r_a1 = 0;
-    r_a3 = 10U;
-    r_a0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
-    r_v1 = ((int32_t)0 < (int32_t)r_a0) ? 1U : 0U;
-    if (r_v1 == 0) r_a0 = r_s8;
-    *(uint32_t *)(uintptr_t)(r_v0 + 0) = (uint32_t)r_a0;
-    r_v0 = (uint32_t)(uintptr_t)adrlit_adr_cut_base_up;
-    r_v1 = r_v0;
-L_5b348:
-    r_a0 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
-    r_a2 = *(uint32_t *)(uintptr_t)(r_v1 + 4);
-    r_a2 = ((int32_t)r_a0 < (int32_t)r_a2) ? 1U : 0U;
-    mips_cond = (r_a2 != 0) ? 1U : 0U;
-    r_a1 = r_a1 + 0x1U;
-    if (mips_cond) goto L_5b364;
-    r_a0 = r_a0 + 0x1U;
-    *(uint32_t *)(uintptr_t)(r_v1 + 4) = (uint32_t)r_a0;
-L_5b364:
-    mips_cond = (r_a1 != r_a3) ? 1U : 0U;
-    r_v1 = r_v1 + 0x4U;
-    if (mips_cond) goto L_5b348;
-    r_v1 = 4095U;
-    *(uint16_t *)(uintptr_t)(r_sp + 734) = (uint16_t)r_v1;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_v0 + 40);
-    *(uint16_t *)(uintptr_t)(r_sp + 720) = (uint16_t)0;
-    r_a1 = 0;
-    *(uint16_t *)(uintptr_t)(r_sp + 750) = (uint16_t)r_v1;
-    r_v1 = r_sp + 0x2e0U;
-    r_a2 = r_v1;
-    r_a0 = r_v1;
-    r_a3 = 7U;
-L_5b394:
-    r_t0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
-    r_a1 = r_a1 + 0x1U;
-    r_v0 = r_v0 + 0x4U;
-    *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_t0;
-    mips_cond = (r_a1 != r_a3) ? 1U : 0U;
-    r_a2 = r_a2 + 0x2U;
-    if (mips_cond) goto L_5b394;
-    r_a3 = *(uint32_t *)(uintptr_t)(r_sp + 808);
-    r_t1 = *(uint32_t *)(uintptr_t)(r_sp + 872);
-    r_a2 = r_sp + 0x2d0U;
-    r_t0 = r_s1;
-    r_t3 = r_a3 + 0xcU;
-    r_a1 = r_a2;
-    r_t2 = 100U;
-L_5b3c8:
-    r_t4 = *(uint16_t *)(uintptr_t)(r_a3 + 0);
-    r_v0 = (uint32_t)(int16_t)(r_t4 & 0xffffU);
-    r_v0 = ((int32_t)r_v0 < 251) ? 1U : 0U;
-    mips_cond = (r_v0 != 0) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5b3e0;
-    r_t4 = 250U;
-L_5b3e0:
-    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_t4;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t1 + 0);
-    r_t5 = (uint32_t)(int16_t)(r_t4 & 0xffffU);
-    r_t4 = *(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_t5);
-    r_t6 = *(uint16_t *)(uintptr_t)(r_v1 + 0);
-    r_v0 = r_v0 + 0x32U;
-    if (r_t2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_t2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_t2); }
-    r_v0 = mips_lo;
-    r_t5 = (uint32_t)(int16_t)(r_v0 & 0xffffU);
-    r_v0 = r_t4 + r_v0;
-    *(uint16_t *)(uintptr_t)(r_a2 + 2) = (uint16_t)r_v0;
-    r_v0 = *(uint16_t *)(uintptr_t)(r_v1 + 2);
-    r_v0 = r_v0 - r_t6;
-    r_v0 = r_v0 & 0xffffU;
-    r_t6 = (uint32_t)(int16_t)(r_v0 & 0xffffU);
-    r_t6 = ((int32_t)r_t5 < (int32_t)r_t6) ? 1U : 0U;
-    mips_cond = (r_t6 == 0) ? 1U : 0U;
-    r_v0 = r_t4 + r_v0;
-    if (mips_cond) goto L_5b430;
-    *(uint16_t *)(uintptr_t)(r_a2 + 2) = (uint16_t)r_v0;
-L_5b430:
-    r_a3 = r_a3 + 0x2U;
-    *(uint16_t *)(uintptr_t)(r_t0 + 0) = (uint16_t)r_t5;
-    r_t1 = r_t1 + 0x2U;
-    r_a2 = r_a2 + 0x2U;
-    r_v1 = r_v1 + 0x2U;
-    mips_cond = (r_t3 != r_a3) ? 1U : 0U;
-    r_t0 = r_t0 + 0x2U;
-    if (mips_cond) goto L_5b3c8;
-    r_v0 = *(uint16_t *)(uintptr_t)(r_s1 + 8);
-    r_v1 = *(uint16_t *)(uintptr_t)(r_s1 + 2);
-    r_a3 = r_sp + 0x1fcU;
-    *(uint16_t *)(uintptr_t)(r_s1 + 18) = (uint16_t)r_v0;
-    r_v0 = *(uint16_t *)(uintptr_t)(r_s1 + 10);
-    *(uint16_t *)(uintptr_t)(r_s1 + 20) = (uint16_t)r_v0;
-    r_v0 = *(uint16_t *)(uintptr_t)(r_s1 + 0);
-    r_v0 = r_v0 + r_v1;
-    *(uint16_t *)(uintptr_t)(r_s1 + 14) = (uint16_t)r_v0;
-    r_v1 = *(uint16_t *)(uintptr_t)(r_s1 + 6);
-    r_v0 = *(uint16_t *)(uintptr_t)(r_s1 + 4);
-    r_v0 = r_v0 + r_v1;
-    *(uint16_t *)(uintptr_t)(r_s1 + 16) = (uint16_t)r_v0;
-    r_v0 = 16U;
-    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v0;
-    r_v0 = 8U;
-    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 828);
-    r_a2 = r_s2;
-    r_v0 = ADR_DISPATCH(r_v0); /* None */
-    r_v1 = r_sp + 0x168U;
-    r_v0 = 0;
-    r_t2 = r_v1;
-    r_a0 = 28U;
-L_5b4ac:
-    r_a1 = r_sp + 0x1fcU;
-    r_a1 = r_a1 + r_v0;
-    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 2);
-    r_v0 = r_v0 + 0x2U;
-    r_v1 = r_v1 + 0x4U;
-    mips_cond = (r_v0 != r_a0) ? 1U : 0U;
-    *(uint32_t *)(uintptr_t)(r_v1 + -4) = (uint32_t)r_a1;
-    if (mips_cond) goto L_5b4ac;
-    r_t0 = *(uint32_t *)(uintptr_t)(r_sp + 868);
-    r_a0 = r_sp + 0x130U;
-    r_a2 = (uint32_t)(uintptr_t)adrlit_adr_kneepoint_diff; /* HI16 adr_kneepoint_diff */
-    r_t4 = (uint32_t)(uintptr_t)adrlit_adr_kneepoint_x; /* HI16 adr_kneepoint_x */
-    r_a2 = (uint32_t)(uintptr_t)adrlit_adr_kneepoint_diff;
-    r_a1 = r_a0;
-    r_v1 = 0;
-    r_t1 = r_a0;
-    r_t5 = 10000U;
-    r_a3 = 64U;
-    r_t4 = (uint32_t)(uintptr_t)adrlit_adr_kneepoint_x;
-    r_t3 = 4095U;
-    r_t6 = 14U;
-L_5b4fc:
-    r_t7 = *(uint32_t *)(uintptr_t)(r_sp + 784);
-    r_v0 = r_v1 << 2;
-    r_v0 = r_t7 + r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
-    r_t7 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_t8 = r_v0 << 12;
-    r_t8 = r_t8 - r_v0;
-    r_t8 = r_t8 + 0x1388U;
-    if (r_t5) { mips_lo = (uint32_t)((int32_t)r_t8 / (int32_t)r_t5); mips_hi = (uint32_t)((int32_t)r_t8 % (int32_t)r_t5); }
-    r_v0 = (r_v1 < (uint32_t)11) ? 1U : 0U;
-    mips_cond = (r_v0 == 0) ? 1U : 0U;
-    r_t8 = mips_lo;
-    if (mips_cond) goto L_5bdd8;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t0 + 0);
-L_5b530:
-    r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_t7);
-    r_v0 = r_v0 + 0x20U;
-    if (r_a3) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a3); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a3); }
-    r_v0 = mips_lo;
-    r_t9 = ((int32_t)r_v0 < (int32_t)r_t8) ? 1U : 0U;
-    mips_cond = (r_t9 != 0) ? 1U : 0U;
-    r_t7 = ((int32_t)r_t8 < (int32_t)r_t7) ? 1U : 0U;
-    if (mips_cond) goto L_5b588;
-    mips_cond = (r_t7 == 0) ? 1U : 0U;
-    r_v0 = r_t8;
-    if (mips_cond) goto L_5b588;
-    r_t7 = r_v1 << 1;
-    r_t7 = r_t4 + r_t7;
-    r_t9 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t7 + 0);
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t7 + 2);
-    r_t8 = r_t3 - r_t9;
-    r_t7 = r_v0 - r_t9;
-    mips_cond = (r_v1 == 0) ? 1U : 0U;
-    r_v0 = 4095U;
-    if (mips_cond) goto L_5b57c;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a1 + -4);
-    r_v0 = r_t3 - r_v0;
-L_5b57c:
-    r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_t7);
-    if (r_t8) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_t8); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_t8); }
-    r_v0 = mips_lo;
-L_5b588:
-    mips_cond = (r_v1 != 0) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5bdec;
-    *(uint32_t *)(uintptr_t)(r_sp + 304) = (uint32_t)r_v0;
-L_5b594:
-    r_t7 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
-    r_v1 = r_v1 + 0x1U;
-    r_a2 = r_a2 + 0x2U;
-    r_v0 = ((int32_t)r_t7 < 4096) ? 1U : 0U;
-    if (r_v0 == 0) r_t7 = r_t3;
-    *(uint32_t *)(uintptr_t)(r_a1 + 0) = (uint32_t)r_t7;
-    r_t0 = r_t0 + 0x2U;
-    mips_cond = (r_v1 != r_t6) ? 1U : 0U;
-    r_a1 = r_a1 + 0x4U;
-    if (mips_cond) goto L_5b4fc;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-    r_a2 = 100U;
-    r_v1 = r_s4;
-    r_a3 = r_a2 - r_v0;
-L_5b5c8:
-    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
-    r_v0 = ((int32_t)r_v0 < (int32_t)r_a1) ? 1U : 0U;
-    mips_cond = (r_v0 == 0) ? 1U : 0U;
-    { uint64_t mips_acc = (uint64_t)((int64_t)(int32_t)r_a1 * (int64_t)(int32_t)r_a3); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
-    if (mips_cond) goto L_5b5e0;
-    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a1;
-L_5b5e0:
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
-    r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-    r_v1 = r_v1 + 0x2U;
-    r_a0 = r_a0 + 0x4U;
-    { uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) + (uint64_t)((int64_t)(int32_t)r_a1 * (int64_t)(int32_t)r_v0); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
-    r_v0 = mips_lo;
-    r_v0 = r_v0 + 0x32U;
-    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a2); }
-    r_v0 = mips_lo;
-    *(uint32_t *)(uintptr_t)(r_a0 + -4) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 792);
-    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
-    r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 912);
-    if (mips_cond) goto L_5b5c8;
-    r_a2 = *(uint32_t *)(uintptr_t)(r_sp + 916);
-    r_v0 = (uint32_t)(uintptr_t)&func_adr_map_curve1; /* HI16 func_adr_map_curve1 */
-    r_a0 = r_sp + 0xf8U;
-    r_v0 = (uint32_t)(uintptr_t)&func_adr_map_curve1;
-    *(uint32_t *)(uintptr_t)(r_sp + 856) = (uint32_t)r_t1;
-    *(uint32_t *)(uintptr_t)(r_sp + 852) = (uint32_t)r_t2;
-    *(uint32_t *)(uintptr_t)(r_sp + 848) = (uint32_t)r_v1;
-    *(uint32_t *)(uintptr_t)(r_sp + 832) = (uint32_t)r_a3;
-    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_map_curve1 */
-    r_t1 = *(uint32_t *)(uintptr_t)(r_sp + 856);
-    r_t2 = *(uint32_t *)(uintptr_t)(r_sp + 852);
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 848);
-    r_a3 = *(uint32_t *)(uintptr_t)(r_sp + 832);
-    r_a0 = r_sp + 0xf8U;
-    r_t0 = r_s4;
-    r_a2 = 100U;
-L_5b654:
-    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t0 + 0);
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
-    r_v0 = ((int32_t)r_v0 < (int32_t)r_a1) ? 1U : 0U;
-    mips_cond = (r_v0 == 0) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5b670;
-    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a1;
-    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t0 + 0);
-L_5b670:
-    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
-    r_t0 = r_t0 + 0x2U;
-    { uint64_t mips_acc = (uint64_t)((int64_t)(int32_t)r_a1 * (int64_t)(int32_t)r_a3); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
-    r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-    r_a0 = r_a0 + 0x4U;
-    { uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) + (uint64_t)((int64_t)(int32_t)r_a1 * (int64_t)(int32_t)r_v0); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
-    r_v0 = mips_lo;
-    r_v0 = r_v0 + 0x32U;
-    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a2); }
-    r_v0 = mips_lo;
-    mips_cond = (r_v1 != r_t0) ? 1U : 0U;
-    *(uint32_t *)(uintptr_t)(r_a0 + -4) = (uint32_t)r_v0;
-    if (mips_cond) goto L_5b654;
-    r_v0 = 0;
-    r_a1 = 56U;
-L_5b6a8:
-    r_a0 = r_t1 + r_v0;
-    r_a0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
-    r_a3 = *(uint32_t *)(uintptr_t)(r_sp + 820);
-    r_v1 = r_sp + 0xc0U;
-    r_a2 = r_v1 + r_v0;
-    { uint64_t mips_acc = (uint64_t)((int64_t)(int32_t)r_a3 * (int64_t)(int32_t)r_a0); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
-    r_v1 = r_t2 + r_v0;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 816);
-    { uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) + (uint64_t)((int64_t)(int32_t)r_a0 * (int64_t)(int32_t)r_v1); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
-    r_v1 = r_sp + 0xf8U;
-    r_v1 = r_v1 + r_v0;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 824);
-    r_v0 = r_v0 + 0x4U;
-    { uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) + (uint64_t)((int64_t)(int32_t)r_a0 * (int64_t)(int32_t)r_v1); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 796);
-    r_v1 = mips_lo;
-    if (r_a0) { mips_lo = (uint32_t)((int32_t)r_v1 / (int32_t)r_a0); mips_hi = (uint32_t)((int32_t)r_v1 % (int32_t)r_a0); }
-    r_v1 = mips_lo;
-    mips_cond = (r_v0 != r_a1) ? 1U : 0U;
-    *(uint32_t *)(uintptr_t)(r_a2 + 0) = (uint32_t)r_v1;
-    if (mips_cond) goto L_5b6a8;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 768);
-    mips_cond = (r_v0 != 0) ? 1U : 0U;
-    r_v1 = 56U;
-    if (mips_cond) goto L_5bdfc;
-L_5b70c:
-    r_a1 = r_t2 + r_v0;
-    r_a1 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
-    r_a0 = r_sp + 0x1a0U;
-    r_a0 = r_a0 + r_v0;
-    r_v0 = r_v0 + 0x4U;
-    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
-    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a1;
-    if (mips_cond) goto L_5b70c;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
-L_5b72c:
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 18);
-    mips_cond = (r_v0 != r_s8) ? 1U : 0U;
-    r_v1 = 2U;
-    if (mips_cond) goto L_5bec8;
-    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_t0;
-    r_a2 = 3U;
-L_5b740:
-    r_v0 = (uint32_t)(uintptr_t)&func_map_y_filter_sp; /* HI16 func_map_y_filter_sp */
-    r_a1 = r_sp + 0x1a0U;
-    r_v0 = (uint32_t)(uintptr_t)&func_map_y_filter_sp;
-    r_a0 = r_s2;
-    r_v0 = ADR_DISPATCH(r_v0); /* func_map_y_filter_sp */
-    r_t0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-L_5b758:
-    r_v0 = r_sp + 0x1a0U;
-L_5b75c:
-    r_v1 = 0;
-    r_a1 = 14U;
-L_5b764:
-    r_a2 = *(uint32_t *)(uintptr_t)(r_sp + 780);
-    r_a0 = r_v1 << 1;
-    r_v1 = r_v1 + 0x1U;
-    r_a0 = r_a2 + r_a0;
-    r_a2 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
-    r_v0 = r_v0 + 0x4U;
-    mips_cond = (r_v1 != r_a1) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)r_a2;
-    if (mips_cond) goto L_5b764;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_v0 = r_v0 + 0x4U;
-    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 780);
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_v0 = r_v0 + 0x1cU;
-    *(uint32_t *)(uintptr_t)(r_sp + 780) = (uint32_t)r_v0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 784);
-    r_v0 = r_v0 + 0x38U;
-    *(uint32_t *)(uintptr_t)(r_sp + 784) = (uint32_t)r_v0;
-    r_v0 = r_sp + 0x88U;
-    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5b2d4;
-    mips_cond = (r_s5 != 0) ? 1U : 0U;
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 772);
-    if (mips_cond) goto L_5bfa4;
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_v1 = 1U;
-    mips_cond = (r_a0 != r_v1) ? 1U : 0U;
-    r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_map_y_old);
-    if (mips_cond) goto L_5bf68;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 776);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 776);
-    r_a1 = ((int32_t)r_v1 < 513) ? 1U : 0U;
-    r_v1 = 512U;
-    if (r_a1 == 0) r_a0 = r_v1;
-    r_a1 = r_a0;
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 836);
-    r_v1 = 9U;
-    mips_cond = (r_a0 == r_v1) ? 1U : 0U;
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 772);
-    if (mips_cond) goto L_5b804;
-    r_v1 = ((int32_t)0 < (int32_t)r_a1) ? 1U : 0U;
-    if (r_v1 != 0) r_a0 = r_a1;
-    r_a1 = r_a0;
-L_5b804:
-    r_t4 = r_a1 << 21;
-    r_t7 = r_v0 + 0x2a0U;
-    r_a3 = r_s0;
-    r_t8 = 28U;
-    r_t5 = 4096U;
-    r_t6 = 0x100000U;
-L_5b81c:
-    r_v1 = 0;
-    r_a0 = 0;
-L_5b824:
-    r_a2 = r_a3 + r_a0;
-    r_t2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_a2 = r_v0 + r_a0;
-    r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_t3 = ((int32_t)r_t1 < (int32_t)r_t2) ? 1U : 0U;
-    mips_cond = (r_t3 == 0) ? 1U : 0U;
-    r_a2 = r_t1 - r_t2;
-    if (mips_cond) goto L_5b844;
-    r_a2 = r_t2 - r_t1;
-L_5b844:
-    r_t1 = ((int32_t)r_v1 < (int32_t)r_a2) ? 1U : 0U;
-    r_a0 = r_a0 + 0x2U;
-    mips_cond = (r_a0 != r_t8) ? 1U : 0U;
-    if (r_t1 != 0) r_v1 = r_a2;
-    if (mips_cond) goto L_5b824;
-    r_a0 = ((int32_t)r_a1 < (int32_t)r_v1) ? 1U : 0U;
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_a2 = r_a3;
-    if (mips_cond) goto L_5bf30;
-    if (r_v1) { mips_lo = (uint32_t)((int32_t)r_t4 / (int32_t)r_v1); mips_hi = (uint32_t)((int32_t)r_t4 % (int32_t)r_v1); }
-    r_t2 = r_v0;
-    r_t1 = 4082U;
-    r_s1 = mips_lo;
-L_5b870:
-    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t2 + 0);
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_t9 = ((int32_t)r_a0 < (int32_t)r_v1) ? 1U : 0U;
-    mips_cond = (r_t9 == 0) ? 1U : 0U;
-    r_t3 = r_a0 & 0xffffU;
-    if (mips_cond) goto L_5bf14;
-    r_v1 = r_v1 - r_a0;
-    r_a0 = (uint32_t)((int32_t)r_v1 * (int32_t)r_s1);
-    r_v1 = r_a0 + r_t6;
-    r_v1 = (uint32_t)((int32_t)r_v1 >> 21);
-    r_t3 = r_t3 + r_v1;
-    *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_t3;
-L_5b89c:
-    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_t2 = r_t2 + 0x2U;
-    r_a2 = r_a2 + 0x2U;
-    r_v1 = ((int32_t)r_t1 < (int32_t)r_a0) ? 1U : 0U;
-    if (r_v1 != 0) r_a0 = r_t1;
-    r_v1 = (uint32_t)(int16_t)(r_a0 & 0xffffU);
-    r_t1 = r_t1 + 0x1U;
-    *(uint16_t *)(uintptr_t)(r_a2 + -2) = (uint16_t)r_v1;
-    mips_cond = (r_t1 != r_t5) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_t2 + -2) = (uint16_t)r_v1;
-    if (mips_cond) goto L_5b870;
-    r_v0 = r_v0 + 0x1cU;
-L_5b8c8:
-    mips_cond = (r_t7 != r_v0) ? 1U : 0U;
-    r_a3 = r_a3 + 0x1cU;
-    if (mips_cond) goto L_5b81c;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 892);
-L_5b8d4:
-    r_v0 = 1U;
-L_5b8d8:
-    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 896);
-    if (mips_cond) goto L_5b968;
-    r_t3 = r_s0 + 0x2a0U;
-    r_a0 = r_s0;
-    r_t2 = 100U;
-    r_t4 = 14U;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 800);
-L_5b8f4:
-    r_a1 = r_a0;
-    r_a2 = r_s2;
-    r_t1 = r_v0 + 0x2U;
-    r_a3 = 0;
-    r_v0 = 0;
-L_5b908:
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 2);
-    r_t5 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_t5 = r_v1 - r_t5;
-    mips_cond = (r_t5 != 0) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5b920;
-    r_t5 = 1U;
-L_5b920:
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t1 + 0);
-    r_a3 = r_a3 + 0x1U;
-    r_v1 = (uint32_t)((int32_t)r_v1 * (int32_t)r_t5);
-    r_t5 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
-    r_v1 = r_v1 + 0x32U;
-    if (r_t2) { mips_lo = (uint32_t)((int32_t)r_v1 / (int32_t)r_t2); mips_hi = (uint32_t)((int32_t)r_v1 % (int32_t)r_t2); }
-    r_v1 = mips_lo;
-    r_v0 = r_v1 + r_v0;
-    r_v1 = ((int32_t)r_t5 < (int32_t)r_v0) ? 1U : 0U;
-    if (r_v1 != 0) r_v0 = r_t5;
-    r_v0 = (uint32_t)(int16_t)(r_v0 & 0xffffU);
-    mips_cond = (r_a3 != r_t4) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_a1 + 0) = (uint16_t)r_v0;
-    if (mips_cond) goto L_5c158;
-    r_a0 = r_a0 + 0x1cU;
-    mips_cond = (r_t3 != r_a0) ? 1U : 0U;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 800);
-    if (mips_cond) goto L_5b8f4;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 896);
-    r_v0 = 1U;
-L_5b968:
-    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5b9f0;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 844);
-    mips_cond = ((int32_t)r_v1 >= 0) ? 1U : 0U;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 844);
-    if (mips_cond) goto L_5b980;
-    r_v0 = 0;
-L_5b980:
-    r_v1 = (uint32_t)(int16_t)(r_v0 & 0xffffU);
-    r_v1 = ((int32_t)r_v1 < 512) ? 1U : 0U;
-    mips_cond = (r_v1 != 0) ? 1U : 0U;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 760);
-    if (mips_cond) goto L_5b994;
-    r_v0 = 511U;
-L_5b994:
-    r_v0 = (uint32_t)(int16_t)(r_v0 & 0xffffU);
-    r_v0 = r_v0 << 2;
-    r_v0 = r_v1 + r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 788);
-    r_v1 = ((int32_t)r_v0 < (int32_t)r_v1) ? 1U : 0U;
-    mips_cond = (r_v1 != 0) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5b9f0;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 840);
-    r_v1 = ((int32_t)r_v1 < (int32_t)r_v0) ? 1U : 0U;
-    mips_cond = (r_v1 == 0) ? 1U : 0U;
-    r_s0 = r_s0 + 0x2a0U;
-    if (mips_cond) goto L_5c168;
-    r_v1 = 28U;
-L_5b9c8:
-    r_v0 = 0;
-L_5b9cc:
-    r_a0 = r_s2 + r_v0;
-    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 2);
-    r_a0 = r_s3 + r_v0;
-    r_v0 = r_v0 + 0x2U;
-    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)r_a1;
-    if (mips_cond) goto L_5b9cc;
-    r_s3 = r_s3 + 0x1cU;
-    mips_cond = (r_s0 != r_s3) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5b9c8;
-L_5b9f0:
-    r_ra = *(uint32_t *)(uintptr_t)(r_sp + 996);
-    r_s8 = *(uint32_t *)(uintptr_t)(r_sp + 992);
-L_5b9f8:
-    r_s7 = *(uint32_t *)(uintptr_t)(r_sp + 988);
-    r_s6 = *(uint32_t *)(uintptr_t)(r_sp + 984);
-    r_s5 = *(uint32_t *)(uintptr_t)(r_sp + 980);
-    r_s4 = *(uint32_t *)(uintptr_t)(r_sp + 976);
-    r_s3 = *(uint32_t *)(uintptr_t)(r_sp + 972);
-    r_s2 = *(uint32_t *)(uintptr_t)(r_sp + 968);
-    r_s1 = *(uint32_t *)(uintptr_t)(r_sp + 964);
-    r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 960);
-    r_sp = r_sp + 0x3e8U;
-    goto fn_exit;
-L_5ba20:
-    r_a2 = *(uint32_t *)(uintptr_t)(r_a1 + -4);
-    r_t0 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
-    r_a2 = r_t0 - r_a2;
-    goto L_5ae28;
-L_5ba30:
-    mips_cond = (r_v1 != r_t7) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5ba48;
-    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a2); }
-    r_a2 = mips_lo;
-    *(uint16_t *)(uintptr_t)(r_a3 + 4) = (uint16_t)r_a2;
-    goto L_5ae48;
-L_5ba48:
-    mips_cond = (r_v1 != r_t8) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5ba60;
-    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a2); }
-    r_a2 = mips_lo;
-    *(uint16_t *)(uintptr_t)(r_a3 + 6) = (uint16_t)r_a2;
-    goto L_5ae48;
-L_5ba60:
-    mips_cond = (r_v1 != r_t9) ? 1U : 0U;
-    r_v1 = r_v1 + 0x1U;
-    if (mips_cond) goto L_5ae4c;
-    r_v1 = r_v1 + -0x1U;
-    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a2); }
-    r_a2 = mips_lo;
-    *(uint16_t *)(uintptr_t)(r_a3 + 8) = (uint16_t)r_a2;
-    goto L_5ae48;
-L_5ba7c:
-    mips_cond = (r_v0 != r_a0) ? 1U : 0U;
-    r_a3 = *(uint32_t *)(uintptr_t)(r_sp + 908);
-    if (mips_cond) goto L_5bb6c;
-    r_v0 = r_sp + 0x1d8U;
-    r_a0 = 0;
-    r_a2 = r_v0;
-    r_t8 = 17U;
-L_5ba94:
-    r_a1 = (r_a0 < (uint32_t)3) ? 1U : 0U;
-    mips_cond = (r_a1 == 0) ? 1U : 0U;
-    r_a1 = ((int32_t)r_a0 < 11) ? 1U : 0U;
-    if (mips_cond) goto L_5bb4c;
-    r_a1 = r_a0 << 1;
-    r_a1 = r_s8 + r_a1;
-    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 2);
-L_5baac:
-    *(uint16_t *)(uintptr_t)(r_v0 + 0) = (uint16_t)r_a1;
-L_5bab0:
-    r_a1 = *(uint16_t *)(uintptr_t)(r_v0 + 0);
-    r_a3 = (uint32_t)(int16_t)(r_a1 & 0xffffU);
-    mips_cond = ((int32_t)r_a3 >= 0) ? 1U : 0U;
-    r_a3 = ((int32_t)r_a3 < 1025) ? 1U : 0U;
-    if (mips_cond) goto L_5bacc;
-    r_a1 = 0;
-    r_a3 = (uint32_t)(int16_t)(r_a1 & 0xffffU);
-    r_a3 = ((int32_t)r_a3 < 1025) ? 1U : 0U;
-L_5bacc:
-    mips_cond = (r_a3 != 0) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5bad8;
-    r_a1 = 1024U;
-L_5bad8:
-    r_a0 = r_a0 + 0x1U;
-    *(uint16_t *)(uintptr_t)(r_v0 + 0) = (uint16_t)r_a1;
-    mips_cond = (r_a0 != r_t8) ? 1U : 0U;
-    r_v0 = r_v0 + 0x2U;
-    if (mips_cond) goto L_5ba94;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 920);
-    r_a0 = (uint32_t)(int16_t)(r_t3 & 0xffffU);
-    r_a3 = 17U;
-    r_a1 = (uint32_t)(uintptr_t)adrlit_adr_local_light_b_in;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 924);
-    *(uint32_t *)(uintptr_t)(r_sp + 952) = (uint32_t)r_t7;
-    *(uint32_t *)(uintptr_t)(r_sp + 948) = (uint32_t)r_t6;
-    *(uint32_t *)(uintptr_t)(r_sp + 944) = (uint32_t)r_t4;
-    *(uint32_t *)(uintptr_t)(r_sp + 940) = (uint32_t)r_v1;
-    *(uint32_t *)(uintptr_t)(r_sp + 936) = (uint32_t)r_t2;
-    *(uint32_t *)(uintptr_t)(r_sp + 932) = (uint32_t)r_t5;
-    *(uint32_t *)(uintptr_t)(r_sp + 928) = (uint32_t)r_t3;
-    r_v0 = ADR_DISPATCH(r_v0); /* None */
-    r_t2 = *(uint32_t *)(uintptr_t)(r_sp + 936);
-    r_a0 = 51200U;
-    r_t3 = *(uint32_t *)(uintptr_t)(r_sp + 928);
-    r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_t2);
-    r_t5 = *(uint32_t *)(uintptr_t)(r_sp + 932);
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 940);
-    r_t4 = *(uint32_t *)(uintptr_t)(r_sp + 944);
-    r_t6 = *(uint32_t *)(uintptr_t)(r_sp + 948);
-    r_t7 = *(uint32_t *)(uintptr_t)(r_sp + 952);
-    if (r_a0) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a0); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a0); }
-    r_v0 = mips_lo;
-    goto L_5af0c;
-L_5bb4c:
-    mips_cond = (r_a1 == 0) ? 1U : 0U;
-    r_a3 = *(uint32_t *)(uintptr_t)(r_sp + 812);
-    if (mips_cond) goto L_5bb64;
-    r_a1 = r_a0 << 1;
-    r_a1 = r_a3 + r_a1;
-    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
-    goto L_5baac;
-L_5bb64:
-    *(uint16_t *)(uintptr_t)(r_v0 + 0) = (uint16_t)0;
-    goto L_5bab0;
-L_5bb6c:
-    r_a2 = *(uint32_t *)(uintptr_t)(r_sp + 904);
-    r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 900);
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 864);
-    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_t3;
-    r_a0 = r_t2;
-    *(uint32_t *)(uintptr_t)(r_sp + 952) = (uint32_t)r_t7;
-    *(uint32_t *)(uintptr_t)(r_sp + 948) = (uint32_t)r_t6;
-    *(uint32_t *)(uintptr_t)(r_sp + 944) = (uint32_t)r_t4;
-    *(uint32_t *)(uintptr_t)(r_sp + 940) = (uint32_t)r_v1;
-    *(uint32_t *)(uintptr_t)(r_sp + 936) = (uint32_t)r_t5;
-    *(uint32_t *)(uintptr_t)(r_sp + 932) = (uint32_t)r_t3;
-    *(uint32_t *)(uintptr_t)(r_sp + 928) = (uint32_t)r_t2;
-    r_v0 = ADR_DISPATCH(r_v0); /* None */
-    r_t7 = *(uint32_t *)(uintptr_t)(r_sp + 952);
-    r_t6 = *(uint32_t *)(uintptr_t)(r_sp + 948);
-    r_t4 = *(uint32_t *)(uintptr_t)(r_sp + 944);
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 940);
-    r_t5 = *(uint32_t *)(uintptr_t)(r_sp + 936);
-    r_t3 = *(uint32_t *)(uintptr_t)(r_sp + 932);
-    r_t2 = *(uint32_t *)(uintptr_t)(r_sp + 928);
-    goto L_5af0c;
-L_5bbc0:
-    r_a0 = r_sp + 0x28U;
-    r_a0 = r_a0 + r_a1;
-    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_v0;
-    goto L_5af4c;
-L_5bbd0:
-    r_a1 = ((int32_t)r_v1 < 16) ? 1U : 0U;
-    mips_cond = (r_a1 == 0) ? 1U : 0U;
-    r_a1 = 1U;
-    if (mips_cond) goto L_5bbf0;
-    mips_cond = (r_a0 != r_a1) ? 1U : 0U;
-    r_a0 = r_v1 << 1;
-    if (mips_cond) goto L_5afb0;
-    r_a0 = r_s4 + r_a0;
-    *(uint16_t *)(uintptr_t)(r_a0 + -12) = (uint16_t)r_v0;
-    goto L_5afb0;
-L_5bbf0:
-    r_a1 = 2U;
-    mips_cond = (r_a0 != r_a1) ? 1U : 0U;
-    r_a0 = r_v1 << 1;
-    if (mips_cond) goto L_5afb0;
-    r_a0 = r_s4 + r_a0;
-    *(uint16_t *)(uintptr_t)(r_a0 + -28) = (uint16_t)r_v0;
-    goto L_5afb0;
-L_5bc08:
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 796);
-    r_v1 = r_s4;
-L_5bc10:
-    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
-    r_v1 = r_v1 + 0x2U;
-    r_v0 = r_v0 + 0x2U;
-    *(uint16_t *)(uintptr_t)(r_v0 + -2) = (uint16_t)r_a0;
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 792);
-    mips_cond = (r_a0 != r_v1) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5bc10;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 888);
-    goto L_5b0c8;
-L_5bc34:
-    r_a0 = 1024U;
-    r_v1 = r_v0 + 0x20U;
-L_5bc3c:
-    *(uint16_t *)(uintptr_t)(r_v0 + 0) = (uint16_t)r_a0;
-    r_v0 = r_v0 + 0x2U;
-    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
-    /* nop */
-    if (mips_cond) goto L_5bc3c;
-    /* nop */
-    goto L_5b154;
-L_5bc54:
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_v0 = r_v0 + 0x2U;
-    r_s8 = r_v1 + 0x2cU;
-L_5bc60:
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
-    r_v0 = r_v0 + 0x2U;
-    r_s3 = r_s3 + 0x2U;
-    mips_cond = (r_v0 != r_s8) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_s3 + -2) = (uint16_t)r_v1;
-    if (mips_cond) goto L_5bc60;
-    r_v0 = r_sp + 0x28U;
-    goto L_5b284;
-L_5bc7c:
-    mips_cond = (r_s5 != r_v0) ? 1U : 0U;
-    r_v0 = r_sp + 0x28U;
-    if (mips_cond) goto L_5b284;
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_v0 = (uint32_t)(uintptr_t)adrlit_adr_ctc1_y_change;
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 2);
-    mips_cond = (r_v1 != r_s5) ? 1U : 0U;
-    r_v1 = 22U;
-    if (mips_cond) goto L_5b280;
-    *(uint16_t *)(uintptr_t)(r_v0 + 2) = (uint16_t)0;
-    r_v0 = 4095U;
-    *(uint16_t *)(uintptr_t)(r_sp + 564) = (uint16_t)r_v0;
-    *(uint16_t *)(uintptr_t)(r_sp + 540) = (uint16_t)0;
-    r_v0 = 0;
-L_5bcac:
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 780);
-    r_a0 = r_a0 + r_v0;
-    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
-    r_a0 = r_sp + 0x21cU;
-    r_a0 = r_a0 + r_v0;
-    r_v0 = r_v0 + 0x2U;
-    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_a0 + 2) = (uint16_t)r_a1;
-    if (mips_cond) goto L_5bcac;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 832);
-    r_v0 = 1U;
-    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    if (mips_cond) goto L_5bdb0;
-    r_v0 = 129U;
-    r_v1 = 13U;
-    r_s8 = (uint32_t)(uintptr_t)&func_interp1_short; /* HI16 func_interp1_short */
-    r_s8 = (uint32_t)(uintptr_t)&func_interp1_short;
-    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v0;
-    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v1;
-    r_a3 = r_sp + 0x270U;
-    r_a2 = r_sp + 0x28cU;
-    r_a1 = r_s7;
-    r_a0 = r_s6;
-    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_v0;
-    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v1;
-    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_a3 = r_sp + 0x254U;
-    r_a2 = r_sp + 0x270U;
-    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v1;
-    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v1;
-    r_a1 = r_sp + 0x21cU;
-    r_a0 = r_sp + 0x28cU;
-    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-    r_a3 = r_sp + 0x238U;
-    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v1;
-    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v0;
-    r_a2 = r_sp + 0x254U;
-    r_a1 = r_s6;
-    r_a0 = r_s7;
-    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_ctc1_y_tmp);
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_a0 = 23U;
-    r_a2 = (uint32_t)(uintptr_t)adrlit_adr_ctc1_x; /* HI16 adr_ctc1_x */
-    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_a0;
-    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v1;
-    r_a3 = r_v0;
-    r_a2 = (uint32_t)(uintptr_t)adrlit_adr_ctc1_x;
-    r_a1 = r_sp + 0x238U;
-    r_a0 = r_sp + 0x28cU;
-    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v0;
-    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_v1 = r_v0 + 0x2U;
-    r_v0 = r_v0 + 0x2cU;
-L_5bd94:
-    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
-    r_v1 = r_v1 + 0x2U;
-    r_s3 = r_s3 + 0x2U;
-    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_s3 + -2) = (uint16_t)r_a0;
-    if (mips_cond) goto L_5bd94;
-    r_v0 = r_sp + 0x28U;
-    goto L_5b284;
-L_5bdb0:
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
-    r_v0 = r_v0 + 0x2U;
-    r_s8 = r_v1 + 0x2cU;
-L_5bdbc:
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
-    r_v0 = r_v0 + 0x2U;
-    r_s3 = r_s3 + 0x2U;
-    mips_cond = (r_v0 != r_s8) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_s3 + -2) = (uint16_t)r_v1;
-    if (mips_cond) goto L_5bdbc;
-    r_v0 = r_sp + 0x28U;
-    goto L_5b284;
-L_5bdd8:
-    r_t9 = *(uint32_t *)(uintptr_t)(r_sp + 812);
-    r_v0 = r_v1 << 1;
-    r_v0 = r_t9 + r_v0;
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + -22);
-    goto L_5b530;
-L_5bdec:
-    r_t7 = *(uint32_t *)(uintptr_t)(r_a1 + -4);
-    r_v0 = r_t7 + r_v0;
-    *(uint32_t *)(uintptr_t)(r_a1 + 0) = (uint32_t)r_v0;
-    goto L_5b594;
-L_5bdfc:
-    mips_cond = (r_v0 != r_s8) ? 1U : 0U;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 768);
-    if (mips_cond) goto L_5be30;
-    r_v0 = 0;
-    r_v1 = 56U;
-L_5be0c:
-    r_a1 = r_t1 + r_v0;
-    r_a1 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
-    r_a0 = r_sp + 0x1a0U;
-    r_a0 = r_a0 + r_v0;
-    r_v0 = r_v0 + 0x4U;
-    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
-    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a1;
-    if (mips_cond) goto L_5be0c;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
-    goto L_5b72c;
-L_5be30:
-    r_v0 = 2U;
-    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 768);
-    if (mips_cond) goto L_5be6c;
-    r_v0 = 0;
-    r_v1 = 56U;
-L_5be44:
-    r_a1 = r_sp + 0xf8U;
-    r_a1 = r_a1 + r_v0;
-    r_a1 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
-    r_a0 = r_sp + 0x1a0U;
-    r_a0 = r_a0 + r_v0;
-    r_v0 = r_v0 + 0x4U;
-    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
-    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a1;
-    if (mips_cond) goto L_5be44;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
-    goto L_5b72c;
-L_5be6c:
-    r_v0 = 3U;
-    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
-    r_v1 = r_sp + 0x1a0U;
-    if (mips_cond) goto L_5bea8;
-    r_v0 = 0;
-    r_v1 = 56U;
-L_5be80:
-    r_a1 = r_sp + 0xc0U;
-    r_a1 = r_a1 + r_v0;
-    r_a1 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
-    r_a0 = r_sp + 0x1a0U;
-    r_a0 = r_a0 + r_v0;
-    r_v0 = r_v0 + 0x4U;
-    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
-    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a1;
-    if (mips_cond) goto L_5be80;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
-    goto L_5b72c;
-L_5bea8:
-    r_v0 = r_s4;
-L_5beac:
-    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
-    r_v0 = r_v0 + 0x2U;
-    r_v1 = r_v1 + 0x4U;
-    mips_cond = (r_t0 != r_v0) ? 1U : 0U;
-    *(uint32_t *)(uintptr_t)(r_v1 + -4) = (uint32_t)r_a0;
-    if (mips_cond) goto L_5beac;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
-    goto L_5b72c;
-L_5bec8:
-    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
-    r_v1 = 3U;
-    if (mips_cond) goto L_5bee0;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
-    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_t0;
-    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 16);
-    goto L_5b740;
-L_5bee0:
-    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
-    r_v0 = r_sp + 0x1a0U;
-    if (mips_cond) goto L_5b75c;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
-    r_a1 = r_sp + 0x1a0U;
-    r_a0 = r_s2;
-    r_a3 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 14);
-    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 16);
-    r_v0 = (uint32_t)(uintptr_t)&func_map_y_filter; /* HI16 func_map_y_filter */
-    r_v0 = (uint32_t)(uintptr_t)&func_map_y_filter;
-    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_t0;
-    r_v0 = ADR_DISPATCH(r_v0); /* func_map_y_filter */
-    r_t0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
-    goto L_5b758;
-L_5bf14:
-    r_v1 = r_a0 - r_v1;
-    r_a0 = (uint32_t)((int32_t)r_v1 * (int32_t)r_s1);
-    r_v1 = r_a0 + r_t6;
-    r_v1 = (uint32_t)((int32_t)r_v1 >> 21);
-    r_v1 = r_t3 - r_v1;
-    *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_v1;
-    goto L_5b89c;
-L_5bf30:
-    r_v1 = 4082U;
-L_5bf34:
-    r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_a2 = r_a2 + 0x2U;
-    r_a0 = ((int32_t)r_v1 < (int32_t)r_t1) ? 1U : 0U;
-    if (r_a0 != 0) r_t1 = r_v1;
-    r_a0 = (uint32_t)(int16_t)(r_t1 & 0xffffU);
-    r_t1 = r_v1 << 1;
-    r_t1 = r_v0 + r_t1;
-    r_v1 = r_v1 + 0x1U;
-    *(uint16_t *)(uintptr_t)(r_a2 + -2) = (uint16_t)r_a0;
-    mips_cond = (r_v1 != r_t5) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_t1 + -8164) = (uint16_t)r_a0;
-    if (mips_cond) goto L_5bf34;
-    r_v0 = r_v0 + 0x1cU;
-    goto L_5b8c8;
-L_5bf68:
-    r_a1 = r_s0 + 0x2a0U;
-    r_a0 = r_s0;
-    r_a2 = 28U;
-L_5bf74:
-    r_v1 = 0;
-L_5bf78:
-    r_a3 = r_a0 + r_v1;
-    r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a3 + 0);
-    r_a3 = r_v0 + r_v1;
-    r_v1 = r_v1 + 0x2U;
-    mips_cond = (r_v1 != r_a2) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_t1;
-    if (mips_cond) goto L_5bf78;
-    r_a0 = r_a0 + 0x1cU;
-    mips_cond = (r_a1 != r_a0) ? 1U : 0U;
-    r_v0 = r_v0 + 0x1cU;
-    if (mips_cond) goto L_5bf74;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 892);
-    goto L_5b8d4;
-L_5bfa4:
-    r_v0 = 1U;
-    mips_cond = (r_s5 != r_v0) ? 1U : 0U;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 892);
-    if (mips_cond) goto L_5b8d8;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 772);
-    r_v0 = 0; /* HI16 .bss anchor */
-    mips_cond = (r_v1 != r_s5) ? 1U : 0U;
-    r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_map_y_old);
-    if (mips_cond) goto L_5c11c;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 776);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 776);
-    r_a1 = ((int32_t)r_v1 < 513) ? 1U : 0U;
-    r_v1 = 512U;
-    if (r_a1 == 0) r_a0 = r_v1;
-    r_a1 = r_a0;
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 836);
-    r_v1 = 9U;
-    mips_cond = (r_a0 == r_v1) ? 1U : 0U;
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 772);
-    if (mips_cond) goto L_5bff4;
-    r_v1 = ((int32_t)0 < (int32_t)r_a1) ? 1U : 0U;
-    if (r_v1 != 0) r_a0 = r_a1;
-    r_a1 = r_a0;
-L_5bff4:
-    r_t4 = r_a1 << 21;
-    r_t7 = r_v0 + 0x2a0U;
-    r_a3 = r_s0;
-    r_t8 = 28U;
-    r_t5 = 4096U;
-    r_t6 = 0x100000U;
-L_5c00c:
-    r_a0 = 0;
-    r_v1 = 0;
-L_5c014:
-    r_a2 = r_a3 + r_a0;
-    r_t2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_a2 = r_v0 + r_a0;
-    r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_t3 = ((int32_t)r_t1 < (int32_t)r_t2) ? 1U : 0U;
-    mips_cond = (r_t3 == 0) ? 1U : 0U;
-    r_a2 = r_t1 - r_t2;
-    if (mips_cond) goto L_5c034;
-    r_a2 = r_t2 - r_t1;
-L_5c034:
-    r_t1 = ((int32_t)r_v1 < (int32_t)r_a2) ? 1U : 0U;
-    r_a0 = r_a0 + 0x2U;
-    mips_cond = (r_a0 != r_t8) ? 1U : 0U;
-    if (r_t1 != 0) r_v1 = r_a2;
-    if (mips_cond) goto L_5c014;
-    r_a0 = ((int32_t)r_a1 < (int32_t)r_v1) ? 1U : 0U;
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_a2 = r_a3;
-    if (mips_cond) goto L_5c0e4;
-    if (r_v1) { mips_lo = (uint32_t)((int32_t)r_t4 / (int32_t)r_v1); mips_hi = (uint32_t)((int32_t)r_t4 % (int32_t)r_v1); }
-    r_t2 = r_v0;
-    r_t1 = 4082U;
-    r_s1 = mips_lo;
-L_5c060:
-    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t2 + 0);
-    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_t9 = ((int32_t)r_a0 < (int32_t)r_v1) ? 1U : 0U;
-    mips_cond = (r_t9 == 0) ? 1U : 0U;
-    r_t3 = r_a0 & 0xffffU;
-    if (mips_cond) goto L_5c0c8;
-    r_v1 = r_v1 - r_a0;
-    r_a0 = (uint32_t)((int32_t)r_v1 * (int32_t)r_s1);
-    r_v1 = r_a0 + r_t6;
-    r_v1 = (uint32_t)((int32_t)r_v1 >> 21);
-    r_t3 = r_t3 + r_v1;
-    *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_t3;
-L_5c08c:
-    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_t2 = r_t2 + 0x2U;
-    r_a2 = r_a2 + 0x2U;
-    r_v1 = ((int32_t)r_t1 < (int32_t)r_a0) ? 1U : 0U;
-    if (r_v1 != 0) r_a0 = r_t1;
-    r_v1 = (uint32_t)(int16_t)(r_a0 & 0xffffU);
-    r_t1 = r_t1 + 0x1U;
-    *(uint16_t *)(uintptr_t)(r_a2 + -2) = (uint16_t)r_v1;
-    mips_cond = (r_t1 != r_t5) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_t2 + -2) = (uint16_t)r_v1;
-    if (mips_cond) goto L_5c060;
-    r_v0 = r_v0 + 0x1cU;
-L_5c0b8:
-    mips_cond = (r_t7 != r_v0) ? 1U : 0U;
-    r_a3 = r_a3 + 0x1cU;
-    if (mips_cond) goto L_5c00c;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 892);
-    goto L_5b8d4;
-L_5c0c8:
-    r_v1 = r_a0 - r_v1;
-    r_a0 = (uint32_t)((int32_t)r_v1 * (int32_t)r_s1);
-    r_v1 = r_a0 + r_t6;
-    r_v1 = (uint32_t)((int32_t)r_v1 >> 21);
-    r_v1 = r_t3 - r_v1;
-    *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_v1;
-    goto L_5c08c;
-L_5c0e4:
-    r_v1 = 4082U;
-L_5c0e8:
-    r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_a2 = r_a2 + 0x2U;
-    r_a0 = ((int32_t)r_v1 < (int32_t)r_t1) ? 1U : 0U;
-    if (r_a0 != 0) r_t1 = r_v1;
-    r_a0 = (uint32_t)(int16_t)(r_t1 & 0xffffU);
-    r_t1 = r_v1 << 1;
-    r_t1 = r_v0 + r_t1;
-    r_v1 = r_v1 + 0x1U;
-    *(uint16_t *)(uintptr_t)(r_a2 + -2) = (uint16_t)r_a0;
-    mips_cond = (r_v1 != r_t5) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_t1 + -8164) = (uint16_t)r_a0;
-    if (mips_cond) goto L_5c0e8;
-    r_v0 = r_v0 + 0x1cU;
-    goto L_5c0b8;
-L_5c11c:
-    r_a1 = r_s0 + 0x2a0U;
-    r_a0 = r_s0;
-    r_a2 = 28U;
-L_5c128:
-    r_v1 = 0;
-L_5c12c:
-    r_a3 = r_a0 + r_v1;
-    r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a3 + 0);
-    r_a3 = r_v0 + r_v1;
-    r_v1 = r_v1 + 0x2U;
-    mips_cond = (r_v1 != r_a2) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_t1;
-    if (mips_cond) goto L_5c12c;
-    r_a0 = r_a0 + 0x1cU;
-    mips_cond = (r_a1 != r_a0) ? 1U : 0U;
-    r_v0 = r_v0 + 0x1cU;
-    if (mips_cond) goto L_5c128;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 892);
-    goto L_5b8d4;
-L_5c158:
-    r_a2 = r_a2 + 0x2U;
-    r_a1 = r_a1 + 0x2U;
-    r_t1 = r_t1 + 0x2U;
-    goto L_5b908;
-L_5c168:
-    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 788);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 788);
-    r_v1 = r_v0 - r_v1;
-    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 840);
-    r_a0 = r_v0 - r_a0;
-L_5c17c:
-    r_a1 = r_s4;
-    r_a2 = r_s3;
-L_5c184:
-    r_a3 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
-    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
-    r_a1 = r_a1 + 0x2U;
-    r_a2 = r_a2 + 0x2U;
-    r_v0 = r_a3 - r_v0;
-    r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_v1);
-    if (r_a0) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a0); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a0); }
-    r_v0 = mips_lo;
-    r_v0 = r_a3 - r_v0;
-    mips_cond = (r_t0 != r_a1) ? 1U : 0U;
-    *(uint16_t *)(uintptr_t)(r_a2 + -2) = (uint16_t)r_v0;
-    if (mips_cond) goto L_5c184;
-    r_s3 = r_s3 + 0x1cU;
-    mips_cond = (r_s0 != r_s3) ? 1U : 0U;
-    r_ra = *(uint32_t *)(uintptr_t)(r_sp + 996);
-    if (mips_cond) goto L_5c17c;
-    r_s8 = *(uint32_t *)(uintptr_t)(r_sp + 992);
-    goto L_5b9f8;
-
-fn_exit:
-    if (v1_io)
-        *v1_io = r_v1;
-    return (int32_t)r_v0;
-}
 
 static int32_t fix_point_div_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
@@ -1901,10 +227,10 @@ static int32_t fix_point_div_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in,
     r_v1 = 0;
     r_s0 = 0;
     r_s1 = 0;
-L_169f4:
+L_15b64:
     mips_cond = (r_v1 == r_s5) ? 1U : 0U;
     r_a0 = r_t0 >> 31;
-    if (mips_cond) goto L_16a84;
+    if (mips_cond) goto L_15bf4;
     r_v0 = r_a3 << 1;
     r_v0 = r_a0 | r_v0;
     r_a1 = r_s1 << 1;
@@ -1916,30 +242,30 @@ L_169f4:
     r_s0 = r_s0 << 1;
     mips_cond = (r_a0 != 0) ? 1U : 0U;
     r_s1 = r_a1;
-    if (mips_cond) goto L_16a38;
+    if (mips_cond) goto L_15ba8;
     mips_cond = (r_v0 != r_s3) ? 1U : 0U;
     r_a0 = (r_s2 < r_t0) ? 1U : 0U;
-    if (mips_cond) goto L_16a58;
+    if (mips_cond) goto L_15bc8;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_16a58;
-L_16a38:
+    if (mips_cond) goto L_15bc8;
+L_15ba8:
     r_a0 = r_t0 - r_s2;
     r_a3 = (r_t0 < r_a0) ? 1U : 0U;
     r_v0 = r_v0 - r_s3;
     r_s0 = r_s0 | 0x1U;
     r_t0 = r_a0;
     r_a3 = r_v0 - r_a3;
-L_16a50:
+L_15bc0:
     r_v1 = r_v1 + 0x1U;
-    goto L_169f4;
-L_16a58:
+    goto L_15b64;
+L_15bc8:
     mips_cond = (r_s2 != r_t0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_16a50;
+    if (mips_cond) goto L_15bc0;
     mips_cond = (r_s3 != r_v0) ? 1U : 0U;
     r_a2 = r_s5 + -0x1U;
-    if (mips_cond) goto L_16a50;
+    if (mips_cond) goto L_15bc0;
     r_v0 = (uint32_t)(uintptr_t)&__ashldi3; /* HI16 __ashldi3 */
     r_a0 = r_s0 | 0x1U;
     r_v0 = (uint32_t)(uintptr_t)&__ashldi3;
@@ -1947,7 +273,7 @@ L_16a58:
     r_v0 = ADR_DISPATCH(r_v0); /* __ashldi3 */
     r_s0 = r_v0;
     r_s1 = r_v1;
-L_16a84:
+L_15bf4:
     r_v0 = (uint32_t)(uintptr_t)&__ashldi3; /* HI16 __ashldi3 */
     r_a2 = r_s5;
     r_a0 = r_s4;
@@ -1995,28 +321,28 @@ static int32_t fix_point_div_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_
     r_s0 = 0;
     r_v0 = mips_hi;
     r_a0 = mips_lo;
-L_16574:
+L_156e4:
     mips_cond = (r_v1 == r_a3) ? 1U : 0U;
     r_v0 = r_v0 << 1;
-    if (mips_cond) goto L_165b0;
+    if (mips_cond) goto L_15720;
     r_a1 = (r_a2 < r_v0) ? 1U : 0U;
     mips_cond = (r_a1 == 0) ? 1U : 0U;
     r_s0 = r_s0 << 1;
-    if (mips_cond) goto L_16598;
+    if (mips_cond) goto L_15708;
     r_s0 = r_s0 | 0x1U;
     r_v0 = r_v0 - r_a2;
-L_16590:
+L_15700:
     r_v1 = r_v1 + 0x1U;
-    goto L_16574;
-L_16598:
+    goto L_156e4;
+L_15708:
     mips_cond = (r_a2 != r_v0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_16590;
+    if (mips_cond) goto L_15700;
     r_v0 = r_a3 + -0x1U;
     r_s0 = r_s0 | 0x1U;
     r_v1 = r_v0 - r_v1;
     r_s0 = r_s0 << (r_v1 & 31);
-L_165b0:
+L_15720:
     r_v0 = (uint32_t)(uintptr_t)&__ashldi3; /* HI16 __ashldi3 */
     r_a2 = r_a3;
     r_v0 = (uint32_t)(uintptr_t)&__ashldi3;
@@ -2125,25 +451,25 @@ static int32_t func_adr_map_curve1_lit(uint32_t a0_in, uint32_t a1_in, uint32_t 
     r_s5 = mips_hi;
     r_s3 = (uint32_t)((int32_t)r_s3 * (int32_t)r_a2);
     r_t3 = (uint32_t)((int32_t)r_s3 >> 31);
-L_56ae4:
+L_56c60:
     mips_cond = ((int32_t)r_s1 >= 0) ? 1U : 0U;
     r_v0 = r_s6;
-    if (mips_cond) goto L_56af4;
+    if (mips_cond) goto L_56c70;
     r_v0 = 32U;
     r_v0 = r_v0 - r_s6;
-L_56af4:
+L_56c70:
     r_v0 = r_v0 << 3;
     r_a0 = r_v0 + r_s2;
     r_v1 = r_s8 - r_a0;
     r_s6 = r_s6 + 0x1U;
     mips_cond = ((int32_t)r_s1 >= 0) ? 1U : 0U;
     r_t6 = (uint32_t)((int32_t)r_v1 >> 31);
-    if (mips_cond) goto L_56ddc;
+    if (mips_cond) goto L_56f58;
     r_a2 = r_s8 - r_s1;
     r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_v0);
     r_v0 = r_v0 - r_s1;
     r_a3 = (uint32_t)((int32_t)r_a2 >> 31);
-L_56b1c:
+L_56c98:
     { uint64_t mips_acc = (uint64_t)((int64_t)(int32_t)r_v1 * (int64_t)(int32_t)r_v1); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
     r_t5 = (uint32_t)((int32_t)r_v0 >> 31);
     *(uint32_t *)(uintptr_t)(r_sp + 176) = (uint32_t)r_t4;
@@ -2196,27 +522,27 @@ L_56b1c:
     r_t2 = *(uint32_t *)(uintptr_t)(r_sp + 172);
     mips_cond = (r_v1 != 0) ? 1U : 0U;
     r_t4 = *(uint32_t *)(uintptr_t)(r_sp + 176);
-    if (mips_cond) goto L_56c00;
+    if (mips_cond) goto L_56d7c;
     r_v1 = 0x10000U;
     r_v1 = r_v1 + 0x1U;
     r_v0 = (r_v0 < r_v1) ? 1U : 0U;
     mips_cond = (r_v0 != 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_56c04;
-L_56c00:
+    if (mips_cond) goto L_56d80;
+L_56d7c:
     r_a0 = 0x10000U;
-L_56c04:
+L_56d80:
     mips_cond = ((int32_t)r_s1 >= 0) ? 1U : 0U;
     r_v0 = r_a0;
-    if (mips_cond) goto L_56c14;
+    if (mips_cond) goto L_56d90;
     r_v1 = 0x10000U;
     r_v0 = r_v1 - r_a0;
-L_56c14:
+L_56d90:
     *(uint32_t *)(uintptr_t)(r_s7 + 0) = (uint32_t)r_v0;
     r_v0 = 33U;
     mips_cond = (r_s6 != r_v0) ? 1U : 0U;
     r_s7 = r_s7 + 0x4U;
-    if (mips_cond) goto L_56ae4;
+    if (mips_cond) goto L_56c60;
     r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 24);
     r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 28);
     r_a2 = 0xf0000U;
@@ -2327,11 +653,11 @@ L_56c14:
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 184);
     r_sp = r_sp + 0xe0U;
     goto fn_exit;
-L_56ddc:
+L_56f58:
     r_a2 = (uint32_t)((int32_t)r_t4 * (int32_t)r_v0);
     r_v0 = r_s1 + r_v0;
     r_a3 = (uint32_t)((int32_t)r_a2 >> 31);
-    goto L_56b1c;
+    goto L_56c98;
 
 fn_exit:
     if (v1_io)
@@ -2363,10 +689,10 @@ static int32_t func_adr_reg_write_5x5_lit(uint32_t a0_in, uint32_t a1_in, uint32
     *(uint32_t *)(uintptr_t)(r_sp + 24) = (uint32_t)r_s1;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_s0;
-    if (mips_cond) goto L_54e70;
+    if (mips_cond) goto L_550e0;
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_hard_base);
-L_54bec:
+L_54e5c:
     r_a0 = r_a0 + 0x12U;
     r_s0 = r_a0 << 11;
     r_s1 = (uint32_t)(uintptr_t)&system_reg_write; /* HI16 system_reg_write */
@@ -2375,7 +701,7 @@ L_54bec:
     r_s5 = 0x1f000000U;
     r_s4 = r_s0 + 0x4cU;
     r_s1 = (uint32_t)(uintptr_t)&system_reg_write;
-L_54c0c:
+L_54e7c:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 8);
     r_a0 = r_s4 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -2398,12 +724,12 @@ L_54c0c:
     r_v0 = 32U;
     mips_cond = (r_s3 != r_v0) ? 1U : 0U;
     r_s7 = 0x1f0000U;
-    if (mips_cond) goto L_54c0c;
+    if (mips_cond) goto L_54e7c;
     r_s3 = 0;
     r_s6 = 0x1f000000U;
     r_s5 = r_s0 + 0x6cU;
     r_s4 = 32U;
-L_54c74:
+L_54ee4:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 12);
     r_a0 = r_s5 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -2425,13 +751,13 @@ L_54c74:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_54c74;
+    if (mips_cond) goto L_54ee4;
     r_s3 = 0;
     r_s7 = 0x1f0000U;
     r_s6 = 0x1f000000U;
     r_s5 = r_s0 + 0x8cU;
     r_s4 = 32U;
-L_54cdc:
+L_54f4c:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 16);
     r_a0 = r_s5 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -2453,13 +779,13 @@ L_54cdc:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_54cdc;
+    if (mips_cond) goto L_54f4c;
     r_s3 = 0;
     r_s7 = 0x1f0000U;
     r_s6 = 0x1f000000U;
     r_s5 = r_s0 + 0xacU;
     r_s4 = 32U;
-L_54d44:
+L_54fb4:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 20);
     r_a0 = r_s5 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -2481,13 +807,13 @@ L_54d44:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_54d44;
+    if (mips_cond) goto L_54fb4;
     r_s3 = 0;
     r_s7 = 0x1f0000U;
     r_s6 = 0x1f000000U;
     r_s5 = r_s0 + 0xccU;
     r_s4 = 32U;
-L_54dac:
+L_5501c:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 24);
     r_a0 = r_s5 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -2509,11 +835,11 @@ L_54dac:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_54dac;
+    if (mips_cond) goto L_5501c;
     r_s3 = 0;
     r_s5 = r_s0 + 0x49cU;
     r_s4 = 60U;
-L_54e0c:
+L_5507c:
     r_v0 = *(uint32_t *)(uintptr_t)(r_s2 + 28);
     r_a0 = r_s5 + r_s3;
     r_v0 = r_v0 + r_s3;
@@ -2525,7 +851,7 @@ L_54e0c:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 52);
-    if (mips_cond) goto L_54e0c;
+    if (mips_cond) goto L_5507c;
     r_v0 = *(uint32_t *)(uintptr_t)(r_s2 + 28);
     r_s7 = *(uint32_t *)(uintptr_t)(r_sp + 48);
     r_s6 = *(uint32_t *)(uintptr_t)(r_sp + 44);
@@ -2540,10 +866,10 @@ L_54e0c:
     r_s1 = *(uint32_t *)(uintptr_t)(r_sp + 24);
     r_sp = r_sp + 0x38U;
     r_v0 = ADR_DISPATCH(r_t9); goto fn_exit; /* tail system_reg_write */
-L_54e70:
+L_550e0:
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
-    goto L_54bec;
+    goto L_54e5c;
 
 fn_exit:
     if (v1_io)
@@ -2575,10 +901,10 @@ static int32_t func_adr_reg_write_every_lit(uint32_t a0_in, uint32_t a1_in, uint
     *(uint32_t *)(uintptr_t)(r_sp + 24) = (uint32_t)r_s1;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_s0;
-    if (mips_cond) goto L_554dc;
+    if (mips_cond) goto L_5574c;
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_hard_para);
-L_5536c:
+L_555dc:
     r_a0 = r_a0 + 0x12U;
     r_s0 = r_a0 << 11;
     r_s1 = (uint32_t)(uintptr_t)&system_reg_write; /* HI16 system_reg_write */
@@ -2587,7 +913,7 @@ L_5536c:
     r_s5 = r_s0 + 0xecU;
     r_s1 = (uint32_t)(uintptr_t)&system_reg_write;
     r_s4 = 32U;
-L_5538c:
+L_555fc:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 8);
     r_a0 = r_s5 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -2601,12 +927,12 @@ L_5538c:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_5538c;
+    if (mips_cond) goto L_555fc;
     r_s3 = 0;
     r_s6 = 0xfff0000U;
     r_s5 = r_s0 + 0x10cU;
     r_s4 = 40U;
-L_553d0:
+L_55640:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 12);
     r_a0 = r_s5 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -2620,7 +946,7 @@ L_553d0:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     r_a0 = r_s0 + 0x134U;
-    if (mips_cond) goto L_553d0;
+    if (mips_cond) goto L_55640;
     r_v0 = *(uint32_t *)(uintptr_t)(r_s2 + 12);
     r_s3 = 0;
     r_a1 = *(uint16_t *)(uintptr_t)(r_v0 + 40);
@@ -2629,7 +955,7 @@ L_553d0:
     r_a1 = r_a1 & 0xfffU;
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     r_s4 = 28U;
-L_55424:
+L_55694:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 16);
     r_a0 = r_s5 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -2643,14 +969,14 @@ L_55424:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     r_s7 = 672U;
-    if (mips_cond) goto L_55424;
+    if (mips_cond) goto L_55694;
     r_s0 = r_s0 + 0x154U;
     r_s4 = 0;
     r_s5 = 0xfff0000U;
     r_s6 = 28U;
-L_55468:
+L_556d8:
     r_s3 = 0;
-L_5546c:
+L_556dc:
     r_v0 = *(uint32_t *)(uintptr_t)(r_s2 + 20);
     r_a0 = r_s0 + r_s3;
     r_v0 = r_v0 + r_s4;
@@ -2665,11 +991,11 @@ L_5546c:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s6) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_5546c;
+    if (mips_cond) goto L_556dc;
     r_s4 = r_s4 + 0x1cU;
     mips_cond = (r_s4 != r_s7) ? 1U : 0U;
     r_s0 = r_s0 + 0x1cU;
-    if (mips_cond) goto L_55468;
+    if (mips_cond) goto L_556d8;
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 52);
     r_s7 = *(uint32_t *)(uintptr_t)(r_sp + 48);
     r_s6 = *(uint32_t *)(uintptr_t)(r_sp + 44);
@@ -2681,10 +1007,10 @@ L_5546c:
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 20);
     r_sp = r_sp + 0x38U;
     goto fn_exit;
-L_554dc:
+L_5574c:
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_para);
-    goto L_5536c;
+    goto L_555dc;
 
 fn_exit:
     if (v1_io)
@@ -2712,10 +1038,10 @@ static int32_t func_adr_reg_write_one_lit(uint32_t a0_in, uint32_t a1_in, uint32
     *(uint32_t *)(uintptr_t)(r_sp + 24) = (uint32_t)r_s1;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_s0;
-    if (mips_cond) goto L_54bac;
+    if (mips_cond) goto L_54e1c;
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_hard_base);
-L_54aa0:
+L_54d10:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 0);
     r_s3 = 0x1fff0000U;
     r_a0 = r_a0 + 0x12U;
@@ -2783,10 +1109,10 @@ L_54aa0:
     r_a1 = r_a1 & 0x1fffU;
     r_sp = r_sp + 0x28U;
     r_v0 = ADR_DISPATCH(r_t9); goto fn_exit; /* tail system_reg_write */
-L_54bac:
+L_54e1c:
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
-    goto L_54aa0;
+    goto L_54d10;
 
 fn_exit:
     if (v1_io)
@@ -2817,10 +1143,10 @@ static int32_t func_adr_reg_write_sometimes_lit(uint32_t a0_in, uint32_t a1_in, 
     *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_s1;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_s0;
-    if (mips_cond) goto L_5532c;
+    if (mips_cond) goto L_5559c;
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_hard_para);
-L_54eac:
+L_5511c:
     r_v0 = *(uint32_t *)(uintptr_t)(r_s2 + 0);
     r_a0 = r_a0 + 0x12U;
     r_s0 = r_a0 << 11;
@@ -2979,7 +1305,7 @@ L_54eac:
     r_a1 = *(uint16_t *)(uintptr_t)(r_v0 + 22);
     r_a1 = r_a1 & 0xfU;
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
-L_55124:
+L_55394:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 24);
     r_a0 = r_s5 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -2993,12 +1319,12 @@ L_55124:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_55124;
+    if (mips_cond) goto L_55394;
     r_s3 = 0;
     r_s6 = 0x3fff0000U;
     r_s5 = r_s0 + 0x40cU;
     r_s4 = 24U;
-L_55168:
+L_553d8:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 28);
     r_a0 = r_s5 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -3012,12 +1338,12 @@ L_55168:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_55168;
+    if (mips_cond) goto L_553d8;
     r_s3 = 0;
     r_s6 = 0x3fff0000U;
     r_s5 = r_s0 + 0x424U;
     r_s4 = 24U;
-L_551ac:
+L_5541c:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 32);
     r_a0 = r_s5 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -3031,12 +1357,12 @@ L_551ac:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_551ac;
+    if (mips_cond) goto L_5541c;
     r_s3 = 0;
     r_s6 = 0x3fff0000U;
     r_s5 = r_s0 + 0x43cU;
     r_s4 = 24U;
-L_551f0:
+L_55460:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 36);
     r_a0 = r_s5 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -3050,12 +1376,12 @@ L_551f0:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_551f0;
+    if (mips_cond) goto L_55460;
     r_s3 = 0;
     r_s6 = 0x3fff0000U;
     r_s5 = r_s0 + 0x454U;
     r_s4 = 24U;
-L_55234:
+L_554a4:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 40);
     r_a0 = r_s5 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -3069,7 +1395,7 @@ L_55234:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     r_a0 = r_s0 + 0x46cU;
-    if (mips_cond) goto L_55234;
+    if (mips_cond) goto L_554a4;
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 44);
     r_s3 = 0xfff0000U;
     r_v0 = *(uint16_t *)(uintptr_t)(r_v1 + 2);
@@ -3097,7 +1423,7 @@ L_55234:
     r_s0 = r_s0 + 0x478U;
     r_a1 = r_a1 & 0xfffU;
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
-L_552d4:
+L_55544:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 48);
     r_a0 = r_s0 + r_s3;
     r_v1 = r_v1 + r_s3;
@@ -3111,7 +1437,7 @@ L_552d4:
     r_v0 = ADR_DISPATCH(r_s1); /* system_reg_write */
     mips_cond = (r_s3 != r_s4) ? 1U : 0U;
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 44);
-    if (mips_cond) goto L_552d4;
+    if (mips_cond) goto L_55544;
     r_s6 = *(uint32_t *)(uintptr_t)(r_sp + 40);
     r_s5 = *(uint32_t *)(uintptr_t)(r_sp + 36);
     r_s4 = *(uint32_t *)(uintptr_t)(r_sp + 32);
@@ -3121,10 +1447,10 @@ L_552d4:
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 16);
     r_sp = r_sp + 0x30U;
     goto fn_exit;
-L_5532c:
+L_5559c:
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_para);
-    goto L_54eac;
+    goto L_5511c;
 
 fn_exit:
     if (v1_io)
@@ -3158,35 +1484,35 @@ static int32_t func_gauss_local_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_
     *(uint32_t *)(uintptr_t)(r_sp + 512) = (uint32_t)r_s0;
     mips_cond = (r_a1 == 0) ? 1U : 0U;
     r_s5 = r_a0;
-    if (mips_cond) goto L_572e0;
+    if (mips_cond) goto L_5745c;
     r_v0 = 0; /* HI16 .bss anchor */
     r_s1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_soft_para);
-L_5700c:
+L_57188:
     r_a1 = 0; /* HI16 .rodata anchor */
     r_s0 = (uint32_t)(uintptr_t)&memcpy; /* HI16 memcpy */
     r_s0 = (uint32_t)(uintptr_t)&memcpy;
     r_a2 = 96U;
-    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_1f28;
+    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_1e68;
     r_a0 = r_sp + 0x190U;
     r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
     r_a1 = 0; /* HI16 .rodata anchor */
     r_a2 = 96U;
-    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_1f88;
+    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_1ec8;
     r_a0 = r_sp + 0x130U;
     r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
     r_a1 = 0; /* HI16 .rodata anchor */
     r_a2 = 96U;
-    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_1fe8;
+    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_1f28;
     r_a0 = r_sp + 0xd0U;
     r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
     r_a1 = 0; /* HI16 .rodata anchor */
     r_a2 = 96U;
-    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_2048;
+    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_1f88;
     r_a0 = r_sp + 0x70U;
     r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
     r_a1 = 0; /* HI16 .rodata anchor */
     r_a2 = 96U;
-    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_20a8;
+    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_1fe8;
     r_a0 = r_sp + 0x10U;
     r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
     r_s0 = (uint32_t)(uintptr_t)&fix_point_div_32; /* HI16 fix_point_div_32 */
@@ -3231,22 +1557,22 @@ L_5700c:
     r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
     mips_cond = (r_a2 != r_v0) ? 1U : 0U;
     r_v1 = (uint32_t)(uintptr_t)adrlit_adr_gauss_old;
-    if (mips_cond) goto L_57144;
+    if (mips_cond) goto L_572c0;
     r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 2);
     mips_cond = (r_a2 != r_t0) ? 1U : 0U;
     r_a3 = r_v0 << 1;
-    if (mips_cond) goto L_57148;
+    if (mips_cond) goto L_572c4;
     r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 4);
     mips_cond = (r_a2 != r_s7) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_57148;
+    if (mips_cond) goto L_572c4;
     r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 6);
     mips_cond = (r_a2 == r_a1) ? 1U : 0U;
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 548);
-    if (mips_cond) goto L_572b4;
-L_57144:
+    if (mips_cond) goto L_57430;
+L_572c0:
     r_a3 = r_v0 << 1;
-L_57148:
+L_572c4:
     *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)r_v0;
     r_v0 = (uint32_t)((int32_t)r_a3 * (int32_t)r_v0);
     r_t1 = 0x70000U;
@@ -3263,17 +1589,17 @@ L_57148:
     r_s2 = r_s2 | 0xffffU;
     r_s1 = (uint32_t)(uintptr_t)&tisp_math_exp2;
     r_a3 = r_v0 << 10;
-L_57188:
+L_57304:
     r_v0 = r_sp + 0x190U;
     r_v0 = r_v0 + r_s6;
     r_v0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
     r_a0 = r_t0 + -0x64U;
     mips_cond = ((int32_t)r_s8 > 0) ? 1U : 0U;
     r_a0 = r_v0 - r_a0;
-    if (mips_cond) goto L_572ec;
+    if (mips_cond) goto L_57468;
     r_v0 = r_s7 + -0x64U;
     r_v1 = r_sp + 0x130U;
-L_571a8:
+L_57324:
     r_v1 = r_v1 + r_s6;
     r_v1 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
     r_a2 = r_a3;
@@ -3316,7 +1642,7 @@ L_571a8:
     r_t2 = *(uint32_t *)(uintptr_t)(r_sp + 504);
     mips_cond = (r_s6 != r_v0) ? 1U : 0U;
     r_t0 = *(uint32_t *)(uintptr_t)(r_sp + 508);
-    if (mips_cond) goto L_57188;
+    if (mips_cond) goto L_57304;
     r_a0 = *(uint32_t *)(uintptr_t)(r_s5 + 36);
     r_v1 = *(uint32_t *)(uintptr_t)(r_s5 + 40);
     r_a1 = 10000U;
@@ -3334,7 +1660,7 @@ L_571a8:
     if (r_v0 == 0) r_v1 = r_a0;
     r_v0 = r_v1;
     r_a0 = r_s5 + 0x60U;
-L_57294:
+L_57410:
     r_v1 = *(uint32_t *)(uintptr_t)(r_s5 + 0);
     r_s5 = r_s5 + 0x4U;
     r_v1 = (uint32_t)((int32_t)r_a1 * (int32_t)r_v1);
@@ -3342,9 +1668,9 @@ L_57294:
     r_v1 = mips_lo;
     mips_cond = (r_a0 != r_s5) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_s5 + -4) = (uint32_t)r_v1;
-    if (mips_cond) goto L_57294;
+    if (mips_cond) goto L_57410;
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 548);
-L_572b4:
+L_57430:
     r_s8 = *(uint32_t *)(uintptr_t)(r_sp + 544);
     r_s7 = *(uint32_t *)(uintptr_t)(r_sp + 540);
     r_s6 = *(uint32_t *)(uintptr_t)(r_sp + 536);
@@ -3356,34 +1682,34 @@ L_572b4:
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 512);
     r_sp = r_sp + 0x228U;
     goto fn_exit;
-L_572e0:
+L_5745c:
     r_v0 = 0; /* HI16 .bss anchor */
     r_s1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_soft_para);
-    goto L_5700c;
-L_572ec:
+    goto L_57188;
+L_57468:
     r_v0 = 1U;
     mips_cond = (r_s8 != r_v0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_57304;
-L_572f8:
+    if (mips_cond) goto L_57480;
+L_57474:
     r_v0 = r_s7 + -0x78U;
     r_v1 = r_sp + 0xd0U;
-    goto L_571a8;
-L_57304:
+    goto L_57324;
+L_57480:
     r_v0 = 2U;
     mips_cond = (r_s8 != r_v0) ? 1U : 0U;
     r_v0 = r_s7 + -0x8cU;
-    if (mips_cond) goto L_57318;
+    if (mips_cond) goto L_57494;
     r_v1 = r_sp + 0x70U;
-    goto L_571a8;
-L_57318:
+    goto L_57324;
+L_57494:
     r_v0 = 3U;
     mips_cond = (r_s8 != r_v0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_572f8;
+    if (mips_cond) goto L_57474;
     r_v0 = r_s7 + -0xa0U;
     r_v1 = r_sp + 0x10U;
-    goto L_571a8;
+    goto L_57324;
 
 fn_exit:
     if (v1_io)
@@ -3413,30 +1739,30 @@ static int32_t func_interp1_short_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a
     r_t4 = 0;
     r_t2 = r_a1 + r_t2;
     r_t7 = 2U;
-L_58690:
+L_5880c:
     r_v0 = ((int32_t)r_t4 < (int32_t)r_t6) ? 1U : 0U;
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_v0 = r_a0 + 0x2U;
-    if (mips_cond) goto L_58770;
+    if (mips_cond) goto L_588ec;
     r_v1 = 1U;
-    goto L_58754;
-L_586a4:
+    goto L_588d0;
+L_58820:
     r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
     r_t0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
     r_t0 = ((int32_t)r_t0 < (int32_t)r_t1) ? 1U : 0U;
     mips_cond = (r_t0 != 0) ? 1U : 0U;
     r_v0 = r_v0 + 0x2U;
-    if (mips_cond) goto L_586c4;
+    if (mips_cond) goto L_58840;
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
-L_586bc:
+L_58838:
     *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_v0;
-    goto L_58740;
-L_586c4:
+    goto L_588bc;
+L_58840:
     r_t0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + -2);
     r_t9 = ((int32_t)r_t1 < (int32_t)r_t0) ? 1U : 0U;
     mips_cond = (r_t9 == 0) ? 1U : 0U;
     r_t8 = r_v1 << 1;
-    if (mips_cond) goto L_58750;
+    if (mips_cond) goto L_588cc;
     r_v1 = r_v1 + r_t3;
     r_v1 = r_v1 << 1;
     r_v0 = r_a0 + r_v1;
@@ -3463,26 +1789,26 @@ L_586c4:
     r_v0 = ((int32_t)r_v1 < (int32_t)r_v0) ? 1U : 0U;
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_58740;
+    if (mips_cond) goto L_588bc;
     *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_v1;
-L_58740:
+L_588bc:
     r_t4 = r_t4 + 0x1U;
     r_a3 = r_a3 + 0x2U;
     r_a2 = r_a2 + 0x2U;
-    goto L_58690;
-L_58750:
+    goto L_5880c;
+L_588cc:
     r_v1 = r_v1 + 0x1U;
-L_58754:
+L_588d0:
     r_t0 = ((int32_t)r_v1 < (int32_t)r_t5) ? 1U : 0U;
     mips_cond = (r_t0 != 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_586a4;
+    if (mips_cond) goto L_58820;
     mips_cond = (r_t5 != r_v1) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_58740;
+    if (mips_cond) goto L_588bc;
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t2 + 0);
-    goto L_586bc;
-L_58770:
+    goto L_58838;
+L_588ec:
     /* nop */
     goto fn_exit;
 
@@ -3539,7 +1865,7 @@ static int32_t func_local_info_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_i
     r_s5 = (uint32_t)(uintptr_t)&fix_point_mult2_32;
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_s2 = (uint32_t)(uintptr_t)&tisp_math_exp2;
-    if (mips_cond) goto L_56f48;
+    if (mips_cond) goto L_570c4;
     r_a1 = r_a1 - r_s6;
     r_a1 = (uint32_t)((int32_t)r_a1 * (int32_t)r_a1);
     r_a2 = r_s8 << 1;
@@ -3571,7 +1897,7 @@ static int32_t func_local_info_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_i
     r_a0 = 16U;
     r_v0 = ADR_DISPATCH(r_s1); /* fix_point_div_32 */
     r_v0 = (uint32_t)((int32_t)r_v0 >> 16);
-L_56ef0:
+L_5706c:
     r_a0 = ((int32_t)r_v0 < 10001) ? 1U : 0U;
     r_v1 = 10000U;
     if (r_a0 == 0) r_v0 = r_v1;
@@ -3594,7 +1920,7 @@ L_56ef0:
     r_v0 = (uint32_t)((int32_t)r_v0 >> 10);
     r_sp = r_sp + 0x38U;
     goto fn_exit;
-L_56f48:
+L_570c4:
     r_a1 = r_s6 - r_a1;
     r_a1 = (uint32_t)((int32_t)r_a1 * (int32_t)r_a1);
     r_a2 = r_s7 << 1;
@@ -3628,7 +1954,7 @@ L_56f48:
     r_v0 = r_s0 - r_v0;
     r_v0 = (uint32_t)((int32_t)r_v0 >> 16);
     r_v0 = r_v0 + r_s3;
-    goto L_56ef0;
+    goto L_5706c;
 
 fn_exit:
     if (v1_io)
@@ -3679,13 +2005,13 @@ static int32_t func_map_y_filter_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2
     r_t9 = 10000U;
     r_t5 = 2U;
     r_t6 = 16U;
-L_595b8:
+L_59734:
     mips_cond = (r_a3 == r_s1) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_595c8;
+    if (mips_cond) goto L_59744;
     r_v0 = *(uint32_t *)(uintptr_t)(r_t2 + 0);
     *(uint32_t *)(uintptr_t)(r_a0 + 4) = (uint32_t)r_v0;
-L_595c8:
+L_59744:
     r_s0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t1 + 2);
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t1 + 0);
     r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 4);
@@ -3711,27 +2037,27 @@ L_595c8:
     r_s2 = r_s3;
     mips_cond = (r_a3 != r_t6) ? 1U : 0U;
     r_a2 = r_s0;
-    if (mips_cond) goto L_595b8;
+    if (mips_cond) goto L_59734;
     r_v0 = (uint32_t)(uintptr_t)&fix_point_div; /* HI16 fix_point_div */
     r_v0 = (uint32_t)(uintptr_t)&fix_point_div;
     r_s8 = 0;
     *(uint32_t *)(uintptr_t)(r_sp + 156) = (uint32_t)r_v0;
     r_t1 = 4095U;
-L_59640:
+L_597bc:
     r_v0 = ((int32_t)r_s8 < (int32_t)r_t7) ? 1U : 0U;
     mips_cond = (r_v0 != 0) ? 1U : 0U;
     r_v1 = r_sp + 0x58U;
-    if (mips_cond) goto L_5969c;
+    if (mips_cond) goto L_59818;
     r_v0 = 0;
     r_v1 = 56U;
-L_59654:
+L_597d0:
     r_a2 = r_t4 + r_v0;
     r_a2 = *(uint32_t *)(uintptr_t)(r_a2 + 4);
     r_a0 = r_a1 + r_v0;
     r_v0 = r_v0 + 0x4U;
     mips_cond = (r_v0 != r_v1) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a2;
-    if (mips_cond) goto L_59654;
+    if (mips_cond) goto L_597d0;
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 244);
     r_s8 = *(uint32_t *)(uintptr_t)(r_sp + 240);
     r_s7 = *(uint32_t *)(uintptr_t)(r_sp + 236);
@@ -3744,13 +2070,13 @@ L_59654:
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 208);
     r_sp = r_sp + 0xf8U;
     goto fn_exit;
-L_5969c:
+L_59818:
     r_s2 = *(uint32_t *)(uintptr_t)(r_sp + 88);
     r_a2 = 1U;
     r_a0 = (uint32_t)((int32_t)r_s2 >> 31);
     r_a3 = 3U;
     r_t2 = 14U;
-L_596b0:
+L_5982c:
     r_t3 = *(uint32_t *)(uintptr_t)(r_v1 + 4);
     r_v0 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
     r_a2 = r_a2 + 0x1U;
@@ -3769,7 +2095,7 @@ L_596b0:
     r_s2 = r_v0;
     mips_cond = (r_a2 != r_t2) ? 1U : 0U;
     r_a0 = r_t3 + r_s1;
-    if (mips_cond) goto L_596b0;
+    if (mips_cond) goto L_5982c;
     r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 144);
     r_s4 = r_sp + 0x58U;
     r_s6 = r_t0;
@@ -3785,7 +2111,7 @@ L_596b0:
     r_s5 = 1U;
     r_t2 = 10000U;
     r_t6 = 2U;
-L_59734:
+L_598b0:
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s6 + 0);
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s6 + 2);
     r_s7 = r_s5 << 2;
@@ -3795,7 +2121,7 @@ L_59734:
     r_v1 = ((int32_t)r_t8 < (int32_t)r_s5) ? 1U : 0U;
     mips_cond = (r_v1 == 0) ? 1U : 0U;
     r_t5 = *(uint32_t *)(uintptr_t)(r_s7 + -4);
-    if (mips_cond) goto L_597bc;
+    if (mips_cond) goto L_59938;
     r_v1 = r_t1 - r_v0;
     if (r_t6) { mips_lo = (uint32_t)((int32_t)r_v1 / (int32_t)r_t6); mips_hi = (uint32_t)((int32_t)r_v1 % (int32_t)r_t6); }
     r_v0 = r_t1 - r_t5;
@@ -3804,7 +2130,7 @@ L_59734:
     if (r_v1) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_v1); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_v1); }
     r_v0 = mips_lo;
     *(uint32_t *)(uintptr_t)(r_s4 + 0) = (uint32_t)r_v0;
-L_59778:
+L_598f4:
     r_v0 = *(uint32_t *)(uintptr_t)(r_s4 + 0);
     r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 152);
     r_s5 = r_s5 + 0x1U;
@@ -3820,10 +2146,10 @@ L_59778:
     r_v0 = 16U;
     mips_cond = (r_s5 != r_v0) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_s7 + 0) = (uint32_t)r_t5;
-    if (mips_cond) goto L_59734;
+    if (mips_cond) goto L_598b0;
     r_s8 = r_s8 + 0x1U;
-    goto L_59640;
-L_597bc:
+    goto L_597bc;
+L_59938:
     r_v0 = *(uint32_t *)(uintptr_t)(r_s4 + 0);
     *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_s2;
     *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_s1;
@@ -3865,7 +2191,7 @@ L_597bc:
     r_t5 = *(uint32_t *)(uintptr_t)(r_sp + 168);
     r_t3 = *(uint32_t *)(uintptr_t)(r_sp + 164);
     r_t9 = *(uint32_t *)(uintptr_t)(r_sp + 160);
-    goto L_59778;
+    goto L_598f4;
 
 fn_exit:
     if (v1_io)
@@ -3903,7 +2229,7 @@ static int32_t func_map_y_filter_sp_lit(uint32_t a0_in, uint32_t a1_in, uint32_t
     *(uint32_t *)(uintptr_t)(r_sp + 364) = (uint32_t)r_s1;
     *(uint32_t *)(uintptr_t)(r_sp + 360) = (uint32_t)r_s0;
     r_a2 = 66U;
-    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_2108;
+    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_2048;
     r_v0 = (uint32_t)(uintptr_t)&memcpy;
     r_a0 = r_sp + 0x98U;
     r_v0 = ADR_DISPATCH(r_v0); /* memcpy */
@@ -3915,13 +2241,13 @@ static int32_t func_map_y_filter_sp_lit(uint32_t a0_in, uint32_t a1_in, uint32_t
     r_v1 = r_s3 + 0x38U;
     r_v0 = r_s4;
     r_s8 = r_s3;
-L_598d8:
+L_59a54:
     r_a0 = *(uint32_t *)(uintptr_t)(r_s8 + 0);
     r_s8 = r_s8 + 0x4U;
     r_v0 = r_v0 + 0x2U;
     mips_cond = (r_v1 != r_s8) ? 1U : 0U;
     *(uint16_t *)(uintptr_t)(r_v0 + 0) = (uint16_t)r_a0;
-    if (mips_cond) goto L_598d8;
+    if (mips_cond) goto L_59a54;
     r_v0 = 33U;
     *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v0;
     r_s6 = (uint32_t)(uintptr_t)&func_interp1_short; /* HI16 func_interp1_short */
@@ -3941,7 +2267,7 @@ L_598d8:
     r_t1 = 0;
     r_t4 = 10000U;
     r_t2 = 2U;
-L_59938:
+L_59ab4:
     r_s0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s5 + 2);
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s5 + 0);
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 2);
@@ -3965,16 +2291,16 @@ L_59938:
     r_t1 = r_a1;
     mips_cond = (r_t3 != r_s5) ? 1U : 0U;
     r_a0 = r_s0;
-    if (mips_cond) goto L_59938;
+    if (mips_cond) goto L_59ab4;
     r_t5 = (uint32_t)(uintptr_t)&fix_point_div; /* HI16 fix_point_div */
     r_t4 = 0;
     r_t5 = (uint32_t)(uintptr_t)&fix_point_div;
-L_599a0:
+L_59b1c:
     r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 408);
     r_v0 = ((int32_t)r_t4 < (int32_t)r_v0) ? 1U : 0U;
     mips_cond = (r_v0 != 0) ? 1U : 0U;
     r_s2 = *(uint32_t *)(uintptr_t)(r_sp + 24);
-    if (mips_cond) goto L_59a18;
+    if (mips_cond) goto L_59b94;
     r_v0 = 16U;
     *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v0;
     r_v0 = 33U;
@@ -3984,13 +2310,13 @@ L_599a0:
     r_a1 = r_sp + 0xdcU;
     r_a0 = r_sp + 0x98U;
     r_v0 = ADR_DISPATCH(r_s6); /* func_interp1_short */
-L_599d4:
+L_59b50:
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s4 + 2);
     r_s3 = r_s3 + 0x4U;
     r_s4 = r_s4 + 0x2U;
     mips_cond = (r_s8 != r_s3) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_s3 + -4) = (uint32_t)r_v0;
-    if (mips_cond) goto L_599d4;
+    if (mips_cond) goto L_59b50;
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 396);
     r_s8 = *(uint32_t *)(uintptr_t)(r_sp + 392);
     r_s7 = *(uint32_t *)(uintptr_t)(r_sp + 388);
@@ -4003,12 +2329,12 @@ L_599d4:
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 360);
     r_sp = r_sp + 0x190U;
     goto fn_exit;
-L_59a18:
+L_59b94:
     r_v1 = r_sp + 0x18U;
     r_a2 = 1U;
     r_a0 = (uint32_t)((int32_t)r_s2 >> 31);
     r_a3 = 31U;
-L_59a28:
+L_59ba4:
     r_t1 = *(uint32_t *)(uintptr_t)(r_v1 + 4);
     r_v0 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
     r_t0 = 3U;
@@ -4028,7 +2354,7 @@ L_59a28:
     r_s2 = r_v0;
     mips_cond = (r_a2 != r_a3) ? 1U : 0U;
     r_a0 = r_t1 + r_s1;
-    if (mips_cond) goto L_59a28;
+    if (mips_cond) goto L_59ba4;
     r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 148);
     r_t2 = r_sp + 0xdcU;
     r_t3 = r_sp + 0x18U;
@@ -4043,7 +2369,7 @@ L_59a28:
     r_t9 = r_s1 >> 1;
     r_t1 = r_sp + 0x98U;
     r_t8 = 10000U;
-L_59aac:
+L_59c28:
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t1 + 0);
     r_t7 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t1 + 2);
     *(uint32_t *)(uintptr_t)(r_sp + 356) = (uint32_t)r_t8;
@@ -4095,17 +2421,17 @@ L_59aac:
     r_t7 = ((int32_t)r_t7 < 4096) ? 1U : 0U;
     mips_cond = (r_t7 != 0) ? 1U : 0U;
     r_t4 = *(uint32_t *)(uintptr_t)(r_sp + 348);
-    if (mips_cond) goto L_59b7c;
+    if (mips_cond) goto L_59cf8;
     r_v0 = 4095U;
-L_59b7c:
+L_59cf8:
     r_t1 = r_t1 + 0x2U;
     *(uint16_t *)(uintptr_t)(r_t2 + 2) = (uint16_t)r_v0;
     r_t3 = r_t3 + 0x4U;
     mips_cond = (r_s5 != r_t1) ? 1U : 0U;
     r_t2 = r_t2 + 0x2U;
-    if (mips_cond) goto L_59aac;
+    if (mips_cond) goto L_59c28;
     r_t4 = r_t4 + 0x1U;
-    goto L_599a0;
+    goto L_59b1c;
 
 fn_exit:
     if (v1_io)
@@ -4131,33 +2457,33 @@ static int32_t ispint_adr_16_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in,
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + -2);
     r_t1 = r_a1;
     r_v1 = 0;
-L_594b8:
+L_59634:
     r_t0 = ((int32_t)r_v1 < (int32_t)r_a3) ? 1U : 0U;
     mips_cond = (r_t0 != 0) ? 1U : 0U;
     r_t1 = r_t1 + 0x2U;
-    if (mips_cond) goto L_594cc;
-L_594c4:
+    if (mips_cond) goto L_59648;
+L_59640:
     /* nop */
     goto fn_exit;
-L_594cc:
+L_59648:
     r_t0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t1 + -2);
     r_t3 = ((int32_t)r_t0 < (int32_t)r_a0) ? 1U : 0U;
     mips_cond = (r_t3 != 0) ? 1U : 0U;
     r_t2 = r_v1 << 1;
-    if (mips_cond) goto L_59538;
+    if (mips_cond) goto L_596b4;
     mips_cond = (r_v1 != 0) ? 1U : 0U;
     r_v1 = r_v1 << 1;
-    if (mips_cond) goto L_594ec;
+    if (mips_cond) goto L_59668;
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
     goto fn_exit;
-L_594ec:
+L_59668:
     r_v1 = r_v1 + -0x2U;
     r_a1 = r_a1 + r_v1;
     r_a3 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
     r_v0 = r_a2 + r_t2;
     mips_cond = (r_t0 == r_a3) ? 1U : 0U;
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
-    if (mips_cond) goto L_594c4;
+    if (mips_cond) goto L_59640;
     r_v1 = r_a2 + r_v1;
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
     r_a0 = r_a0 - r_a3;
@@ -4171,9 +2497,9 @@ L_594ec:
     r_v0 = r_v0 + r_v1;
     r_v0 = (uint32_t)(int16_t)(r_v0 & 0xffffU);
     goto fn_exit;
-L_59538:
+L_596b4:
     r_v1 = r_v1 + 0x1U;
-    goto L_594b8;
+    goto L_59634;
 
 fn_exit:
     if (v1_io)
@@ -4199,26 +2525,26 @@ static int32_t ispint_adr_32_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in,
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + -2);
     r_t1 = r_a1;
     r_v1 = 0;
-L_587f4:
+L_58970:
     r_t0 = ((int32_t)r_v1 < (int32_t)r_a3) ? 1U : 0U;
     mips_cond = (r_t0 != 0) ? 1U : 0U;
     r_t1 = r_t1 + 0x4U;
-    if (mips_cond) goto L_58808;
-L_58800:
+    if (mips_cond) goto L_58984;
+L_5897c:
     /* nop */
     goto fn_exit;
-L_58808:
+L_58984:
     r_t0 = *(uint32_t *)(uintptr_t)(r_t1 + -4);
     r_t2 = ((int32_t)r_t0 < (int32_t)r_a0) ? 1U : 0U;
     mips_cond = (r_t2 != 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_58870;
+    if (mips_cond) goto L_589ec;
     mips_cond = (r_v1 != 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_58828;
+    if (mips_cond) goto L_589a4;
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
     goto fn_exit;
-L_58828:
+L_589a4:
     r_v0 = r_v1 << 2;
     r_a1 = r_a1 + r_v0;
     r_a3 = *(uint32_t *)(uintptr_t)(r_a1 + -4);
@@ -4226,7 +2552,7 @@ L_58828:
     r_v1 = r_a2 + r_v1;
     mips_cond = (r_t0 == r_a3) ? 1U : 0U;
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
-    if (mips_cond) goto L_58800;
+    if (mips_cond) goto L_5897c;
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + -2);
     r_a0 = r_a0 - r_a3;
     r_a1 = r_t0 - r_a3;
@@ -4238,9 +2564,9 @@ L_58828:
     r_v0 = mips_lo;
     r_v0 = r_v0 + r_v1;
     goto fn_exit;
-L_58870:
+L_589ec:
     r_v1 = r_v1 + 0x1U;
-    goto L_587f4;
+    goto L_58970;
 
 fn_exit:
     if (v1_io)
@@ -4284,31 +2610,31 @@ static int32_t subsection_map_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in
     r_a1 = 0;
     r_v0 = 0;
     r_t2 = 512U;
-L_59bf4:
+L_59d70:
     r_t1 = *(uint32_t *)(uintptr_t)(r_a3 + 0);
     r_t3 = ((int32_t)r_a0 < (int32_t)r_t1) ? 1U : 0U;
     mips_cond = (r_t3 == 0) ? 1U : 0U;
     r_v1 = r_a0 - r_t1;
-    if (mips_cond) goto L_59c08;
+    if (mips_cond) goto L_59d84;
     r_v1 = r_t1 - r_a0;
-L_59c08:
+L_59d84:
     r_t1 = ((int32_t)r_v1 < (int32_t)r_t0) ? 1U : 0U;
     mips_cond = (r_t1 != 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_59d2c;
+    if (mips_cond) goto L_59ea8;
     mips_cond = (r_v1 != r_t0) ? 1U : 0U;
     r_v0 = r_v0 + 0x1U;
-    if (mips_cond) goto L_59c30;
+    if (mips_cond) goto L_59dac;
     r_v0 = r_v0 + -0x1U;
-L_59c20:
+L_59d9c:
     r_a1 = r_a1 + r_v0;
     r_a2 = r_a2 + 0x1U;
     r_t0 = r_v1;
     r_v0 = r_v0 + 0x1U;
-L_59c30:
+L_59dac:
     mips_cond = (r_v0 != r_t2) ? 1U : 0U;
     r_a3 = r_a3 + 0x4U;
-    if (mips_cond) goto L_59bf4;
+    if (mips_cond) goto L_59d70;
     r_s4 = 1U;
     r_v0 = ((int32_t)0 < (int32_t)r_a2) ? 1U : 0U;
     if (r_v0 == 0) r_a2 = r_s4;
@@ -4332,12 +2658,12 @@ L_59c30:
     r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_v1);
     r_v1 = 0;
     r_v0 = r_v0 + -0x1U;
-L_59c94:
+L_59e10:
     r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
     r_a3 = ((int32_t)r_v0 < (int32_t)r_a2) ? 1U : 0U;
     mips_cond = (r_a3 == 0) ? 1U : 0U;
     r_t0 = r_v1 << 1;
-    if (mips_cond) goto L_59d38;
+    if (mips_cond) goto L_59eb4;
     r_v1 = r_t0 + -0x2U;
     r_s8 = r_s8 + r_v1;
     r_s3 = r_a2 - r_v0;
@@ -4364,34 +2690,34 @@ L_59c94:
     r_s0 = (uint32_t)((int32_t)r_v0 >> (r_s0 & 31));
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t0 + 0);
     r_s0 = r_v1 - r_s0;
-L_59d0c:
+L_59e88:
     r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 100);
     r_a1 = 100U;
     r_v0 = 1U;
     mips_cond = (r_v1 != r_v0) ? 1U : 0U;
     { uint64_t mips_acc = (uint64_t)((int64_t)(int32_t)r_s6 * (int64_t)(int32_t)r_a1); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
-    if (mips_cond) goto L_59d4c;
+    if (mips_cond) goto L_59ec8;
     r_s0 = r_s0 - r_s6;
-L_59d24:
+L_59ea0:
     { uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) + (uint64_t)((int64_t)(int32_t)r_s0 * (int64_t)(int32_t)r_s2); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
-    goto L_59d58;
-L_59d2c:
+    goto L_59ed4;
+L_59ea8:
     r_a2 = 0;
     r_a1 = 0;
-    goto L_59c20;
-L_59d38:
+    goto L_59d9c;
+L_59eb4:
     r_v1 = r_v1 + 0x1U;
     mips_cond = (r_v1 != r_a1) ? 1U : 0U;
     r_a0 = r_a0 + 0x2U;
-    if (mips_cond) goto L_59c94;
+    if (mips_cond) goto L_59e10;
     r_s0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s7 + 256);
-    goto L_59d0c;
-L_59d4c:
+    goto L_59e88;
+L_59ec8:
     r_v0 = ((int32_t)r_s6 < (int32_t)r_s0) ? 1U : 0U;
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_s0 = r_s0 - r_s6;
-    if (mips_cond) goto L_59d24;
-L_59d58:
+    if (mips_cond) goto L_59ea0;
+L_59ed4:
     r_v0 = mips_lo;
     r_a2 = 100U;
     r_a0 = r_s1;
@@ -4488,13 +2814,13 @@ static int32_t subsection_up_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in,
     r_a0 = r_s2;
     r_v0 = 0;
     r_a1 = 129U;
-L_5a42c:
+L_5a5a8:
     r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
     r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 44);
     r_a3 = ((int32_t)r_v1 < (int32_t)r_a2) ? 1U : 0U;
     mips_cond = (r_a3 == 0) ? 1U : 0U;
     r_s6 = r_v0 << 1;
-    if (mips_cond) goto L_5ab2c;
+    if (mips_cond) goto L_5aca8;
     r_v0 = r_v0 << 1;
     r_v0 = r_v0 + -0x2U;
     r_s6 = r_s0 + r_s6;
@@ -4520,7 +2846,7 @@ L_5a42c:
     r_v0 = r_v0 + 0x200U;
     r_v0 = (uint32_t)((int32_t)r_v0 >> (r_s5 & 31));
     r_a1 = r_a1 - r_v0;
-L_5a4a4:
+L_5a620:
     r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 124);
     *(uint32_t *)(uintptr_t)(r_s8 + 24) = (uint32_t)r_a1;
     r_a0 = r_s5;
@@ -4560,12 +2886,12 @@ L_5a4a4:
     r_a0 = r_s2;
     r_v0 = 0;
     r_a1 = 129U;
-L_5a540:
+L_5a6bc:
     r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
     r_t1 = ((int32_t)r_s6 < (int32_t)r_a2) ? 1U : 0U;
     mips_cond = (r_t1 == 0) ? 1U : 0U;
     r_a3 = r_v0 << 1;
-    if (mips_cond) goto L_5ab40;
+    if (mips_cond) goto L_5acbc;
     r_v0 = r_v0 << 1;
     r_v0 = r_v0 + -0x2U;
     r_a3 = r_s0 + r_a3;
@@ -4595,7 +2921,7 @@ L_5a540:
     r_v0 = (uint32_t)((int32_t)r_v0 >> (r_s5 & 31));
     r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a3 + 0);
     r_a1 = r_a1 - r_v0;
-L_5a5c4:
+L_5a740:
     *(uint32_t *)(uintptr_t)(r_s8 + 16) = (uint32_t)r_a1;
     r_a2 = r_s7;
     r_a1 = r_a1 << (r_s5 & 31);
@@ -4634,13 +2960,13 @@ L_5a5c4:
     r_a0 = r_s2;
     r_v0 = 0;
     r_a1 = 129U;
-L_5a65c:
+L_5a7d8:
     r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
     r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 48);
     r_t1 = ((int32_t)r_v1 < (int32_t)r_a2) ? 1U : 0U;
     mips_cond = (r_t1 == 0) ? 1U : 0U;
     r_a3 = r_v0 << 1;
-    if (mips_cond) goto L_5ab54;
+    if (mips_cond) goto L_5acd0;
     r_v0 = r_v0 << 1;
     r_v0 = r_v0 + -0x2U;
     r_a3 = r_s0 + r_a3;
@@ -4670,7 +2996,7 @@ L_5a65c:
     r_v0 = (uint32_t)((int32_t)r_v0 >> (r_s5 & 31));
     r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a3 + 0);
     r_v0 = r_a0 - r_v0;
-L_5a6e4:
+L_5a860:
     r_a1 = *(uint32_t *)(uintptr_t)(r_s8 + 16);
     r_a2 = r_s7;
     r_a0 = r_s5;
@@ -4724,12 +3050,12 @@ L_5a6e4:
     r_a1 = r_s2;
     r_a0 = 0;
     r_a3 = 129U;
-L_5a7b8:
+L_5a934:
     r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
     r_t2 = ((int32_t)r_v0 < (int32_t)r_a2) ? 1U : 0U;
     mips_cond = (r_t2 == 0) ? 1U : 0U;
     r_t1 = r_a0 << 1;
-    if (mips_cond) goto L_5ab68;
+    if (mips_cond) goto L_5ace4;
     r_a0 = r_a0 << 1;
     r_a0 = r_a0 + -0x2U;
     r_a3 = r_a2 - r_v0;
@@ -4759,7 +3085,7 @@ L_5a7b8:
     r_v0 = (uint32_t)((int32_t)r_v0 >> (r_s5 & 31));
     r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t1 + 0);
     r_v0 = r_a0 - r_v0;
-L_5a83c:
+L_5a9b8:
     r_a1 = *(uint32_t *)(uintptr_t)(r_s8 + 8);
     r_a2 = r_s7;
     r_a0 = r_s5;
@@ -4799,12 +3125,12 @@ L_5a83c:
     r_a1 = r_s2;
     r_a0 = 0;
     r_a3 = 129U;
-L_5a8d8:
+L_5aa54:
     r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
     r_t2 = ((int32_t)r_v0 < (int32_t)r_a2) ? 1U : 0U;
     mips_cond = (r_t2 == 0) ? 1U : 0U;
     r_t1 = r_a0 << 1;
-    if (mips_cond) goto L_5ab7c;
+    if (mips_cond) goto L_5acf8;
     r_a0 = r_a0 << 1;
     r_a0 = r_a0 + -0x2U;
     r_a3 = r_a2 - r_v0;
@@ -4834,7 +3160,7 @@ L_5a8d8:
     r_v0 = (uint32_t)((int32_t)r_v0 >> (r_s5 & 31));
     r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t1 + 0);
     r_v0 = r_a0 - r_v0;
-L_5a95c:
+L_5aad8:
     r_a1 = *(uint32_t *)(uintptr_t)(r_s8 + 8);
     r_a2 = r_s7;
     r_a0 = r_s5;
@@ -4885,13 +3211,13 @@ L_5a95c:
     r_v0 = ADR_DISPATCH(r_s4); /* subsection_map */
     r_a0 = 0;
     r_a1 = 129U;
-L_5aa24:
+L_5aba0:
     r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 52);
     r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
     r_a3 = ((int32_t)r_v0 < (int32_t)r_a2) ? 1U : 0U;
     mips_cond = (r_a3 == 0) ? 1U : 0U;
     r_s4 = r_a0 << 1;
-    if (mips_cond) goto L_5ab90;
+    if (mips_cond) goto L_5ad0c;
     r_a0 = r_a0 << 1;
     r_a0 = r_a0 + -0x2U;
     r_s2 = r_s2 + r_a0;
@@ -4917,7 +3243,7 @@ L_5aa24:
     r_v0 = r_v0 + 0x200U;
     r_v1 = (uint32_t)((int32_t)r_v0 >> (r_s5 & 31));
     r_v1 = r_a0 - r_v1;
-L_5aa9c:
+L_5ac18:
     r_v0 = *(uint32_t *)(uintptr_t)(r_s8 + 24);
     *(uint32_t *)(uintptr_t)(r_s8 + 12) = (uint32_t)r_v1;
     r_v1 = r_v0 + 0x1U;
@@ -4928,7 +3254,7 @@ L_5aa9c:
     r_v0 = ((int32_t)r_v0 < 4095) ? 1U : 0U;
     mips_cond = (r_v0 != 0) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_s8 + 32) = (uint32_t)r_v1;
-    if (mips_cond) goto L_5aae4;
+    if (mips_cond) goto L_5ac60;
     r_v0 = 4091U;
     *(uint32_t *)(uintptr_t)(r_s8 + 24) = (uint32_t)r_v0;
     r_v0 = 4092U;
@@ -4937,16 +3263,16 @@ L_5aa9c:
     *(uint32_t *)(uintptr_t)(r_s8 + 32) = (uint32_t)r_v0;
     r_v0 = 4094U;
     *(uint32_t *)(uintptr_t)(r_s8 + 36) = (uint32_t)r_v0;
-L_5aae4:
+L_5ac60:
     r_v0 = *(uint32_t *)(uintptr_t)(r_s8 + 40);
     r_v0 = ((int32_t)r_v0 < 4096) ? 1U : 0U;
     mips_cond = (r_v0 != 0) ? 1U : 0U;
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 100);
-    if (mips_cond) goto L_5ab00;
+    if (mips_cond) goto L_5ac7c;
     r_v0 = 4095U;
     *(uint32_t *)(uintptr_t)(r_s8 + 40) = (uint32_t)r_v0;
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 100);
-L_5ab00:
+L_5ac7c:
     r_s8 = *(uint32_t *)(uintptr_t)(r_sp + 96);
     r_s7 = *(uint32_t *)(uintptr_t)(r_sp + 92);
     r_s6 = *(uint32_t *)(uintptr_t)(r_sp + 88);
@@ -4958,49 +3284,554 @@ L_5ab00:
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 64);
     r_sp = r_sp + 0x68U;
     goto fn_exit;
-L_5ab2c:
+L_5aca8:
     r_v0 = r_v0 + 0x1U;
     mips_cond = (r_v0 != r_a1) ? 1U : 0U;
     r_a0 = r_a0 + 0x2U;
-    if (mips_cond) goto L_5a42c;
+    if (mips_cond) goto L_5a5a8;
     r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s0 + 256);
-    goto L_5a4a4;
-L_5ab40:
+    goto L_5a620;
+L_5acbc:
     r_v0 = r_v0 + 0x1U;
     mips_cond = (r_v0 != r_a1) ? 1U : 0U;
     r_a0 = r_a0 + 0x2U;
-    if (mips_cond) goto L_5a540;
+    if (mips_cond) goto L_5a6bc;
     r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s0 + 256);
-    goto L_5a5c4;
-L_5ab54:
+    goto L_5a740;
+L_5acd0:
     r_v0 = r_v0 + 0x1U;
     mips_cond = (r_v0 != r_a1) ? 1U : 0U;
     r_a0 = r_a0 + 0x2U;
-    if (mips_cond) goto L_5a65c;
+    if (mips_cond) goto L_5a7d8;
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s0 + 256);
-    goto L_5a6e4;
-L_5ab68:
+    goto L_5a860;
+L_5ace4:
     r_a0 = r_a0 + 0x1U;
     mips_cond = (r_a0 != r_a3) ? 1U : 0U;
     r_a1 = r_a1 + 0x2U;
-    if (mips_cond) goto L_5a7b8;
+    if (mips_cond) goto L_5a934;
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s0 + 256);
-    goto L_5a83c;
-L_5ab7c:
+    goto L_5a9b8;
+L_5acf8:
     r_a0 = r_a0 + 0x1U;
     mips_cond = (r_a0 != r_a3) ? 1U : 0U;
     r_a1 = r_a1 + 0x2U;
-    if (mips_cond) goto L_5a8d8;
+    if (mips_cond) goto L_5aa54;
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s0 + 256);
-    goto L_5a95c;
-L_5ab90:
+    goto L_5aad8;
+L_5ad0c:
     r_a0 = r_a0 + 0x1U;
     r_v1 = r_v1 + 0x2U;
     mips_cond = (r_a0 != r_a1) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_sp + 52) = (uint32_t)r_v1;
-    if (mips_cond) goto L_5aa24;
+    if (mips_cond) goto L_5aba0;
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s0 + 256);
-    goto L_5aa9c;
+    goto L_5ac18;
+
+fn_exit:
+    if (v1_io)
+        *v1_io = r_v1;
+    return (int32_t)r_v0;
+}
+
+static int32_t tisp_adr_dn_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
+{
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
+    uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
+    uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
+    uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
+    uint32_t r_s6 = 0, r_s7 = 0, r_s8 = 0, r_ra = 0, r_at = 0;
+    uint32_t mips_lo = 0, mips_hi = 0, mips_cond = 0;
+    uint32_t r_a0 = a0_in, r_a1 = a1_in, r_a2 = a2_in, r_a3 = a3_in;
+    uint32_t r_sp = sp_in;
+
+    (void)r_at; (void)r_ra; (void)r_t8; (void)r_t9; (void)mips_lo; (void)mips_hi;
+    (void)mips_cond;
+    r_sp = r_sp + -0x20U;
+    *(uint32_t *)(uintptr_t)(r_sp + 24) = (uint32_t)r_s2;
+    *(uint32_t *)(uintptr_t)(r_sp + 28) = (uint32_t)r_ra;
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_s1;
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_s0;
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_s2 = r_a0;
+    if (mips_cond) goto L_58740;
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_s1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_hard_base);
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_s0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_soft_para);
+L_58574:
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_params_refresh; /* HI16 tiziano_adr_params_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_params_refresh;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_params_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_wal_para_refresh; /* HI16 tiziano_adr_wal_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_wal_para_refresh;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_wal_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_top_para_refresh; /* HI16 tiziano_adr_top_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_top_para_refresh;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_top_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_soft_para_refresh; /* HI16 tiziano_adr_soft_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_soft_para_refresh;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_soft_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_hard_para_refresh; /* HI16 tiziano_adr_hard_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_hard_para_refresh;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_hard_para_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_hard_base_refresh; /* HI16 tiziano_adr_hard_base_refresh */
+    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_hard_base_refresh;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_hard_base_refresh */
+    r_a1 = *(uint32_t *)(uintptr_t)(r_s0 + 52);
+    r_v1 = 0; /* HI16 .bss anchor */
+    r_a0 = r_s2 << 2;
+    r_v1 = (uint32_t)(uintptr_t)adrlit_width_adr;
+    r_v1 = r_a0 + r_v1;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
+    r_v0 = 0; /* HI16 .bss anchor */
+    mips_cond = (r_a2 != r_v1) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)adrlit_height_adr;
+    if (mips_cond) goto L_58610;
+    r_a2 = r_v0 + r_a0;
+    r_a3 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 2);
+    r_a2 = *(uint32_t *)(uintptr_t)(r_a2 + 0);
+    mips_cond = (r_a3 == r_a2) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_586d4;
+L_58610:
+    *(uint16_t *)(uintptr_t)(r_a1 + 0) = (uint16_t)r_v1;
+    r_v0 = r_v0 + r_a0;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_s0 + 52);
+    r_v0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
+    r_s0 = (uint32_t)(uintptr_t)&memcpy; /* HI16 memcpy */
+    r_s0 = (uint32_t)(uintptr_t)&memcpy;
+    *(uint16_t *)(uintptr_t)(r_v1 + 2) = (uint16_t)r_v0;
+    r_v0 = 1U;
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 8);
+    mips_cond = (r_s2 != r_v0) ? 1U : 0U;
+    r_a2 = 32U;
+    if (mips_cond) goto L_58754;
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_20_lut_sec);
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_02_lut_sec);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 12);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_12_lut_sec);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 16);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_22_lut_sec);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 20);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_21_lut_sec);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 24);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_m_sec);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 0);
+    r_a2 = 10U;
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_n_sec);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 4);
+    r_a2 = 14U;
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_5x5_dis_sec);
+    r_a2 = 62U;
+L_586cc:
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 28);
+    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
+L_586d4:
+    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local; /* HI16 adr_gauss_local */
+    r_v0 = (uint32_t)(uintptr_t)&func_gauss_local; /* HI16 func_gauss_local */
+    r_a1 = r_s2;
+    r_v0 = (uint32_t)(uintptr_t)&func_gauss_local;
+    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local;
+    r_v0 = ADR_DISPATCH(r_v0); /* func_gauss_local */
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_one; /* HI16 func_adr_reg_write_one */
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_one;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_reg_write_one */
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_5x5; /* HI16 func_adr_reg_write_5x5 */
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_5x5;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_reg_write_5x5 */
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_sometimes; /* HI16 func_adr_reg_write_sometimes */
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_sometimes;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_reg_write_sometimes */
+    r_ra = *(uint32_t *)(uintptr_t)(r_sp + 28);
+    r_s1 = *(uint32_t *)(uintptr_t)(r_sp + 20);
+    r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 16);
+    r_a0 = r_s2;
+    r_s2 = *(uint32_t *)(uintptr_t)(r_sp + 24);
+    r_t9 = (uint32_t)(uintptr_t)&func_adr_reg_write_every; /* HI16 func_adr_reg_write_every */
+    r_t9 = (uint32_t)(uintptr_t)&func_adr_reg_write_every;
+    r_sp = r_sp + 0x20U;
+    r_v0 = ADR_DISPATCH(r_t9); goto fn_exit; /* tail func_adr_reg_write_every */
+L_58740:
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_s1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_s0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_soft_para);
+    goto L_58574;
+L_58754:
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_20_lut_main);
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_02_lut_main);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 12);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_12_lut_main);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 16);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_22_lut_main);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 20);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_21_lut_main);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 24);
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_m_main);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 0);
+    r_a2 = 10U;
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_n_main);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 4);
+    r_a2 = 14U;
+    r_v0 = ADR_DISPATCH(r_s0); /* None */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a2 = 62U;
+    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_5x5_dis_main);
+    goto L_586cc;
+
+fn_exit:
+    if (v1_io)
+        *v1_io = r_v1;
+    return (int32_t)r_v0;
+}
+
+static int32_t tisp_adr_main_deinit_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
+{
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
+    uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
+    uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
+    uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
+    uint32_t r_s6 = 0, r_s7 = 0, r_s8 = 0, r_ra = 0, r_at = 0;
+    uint32_t mips_lo = 0, mips_hi = 0, mips_cond = 0;
+    uint32_t r_a0 = a0_in, r_a1 = a1_in, r_a2 = a2_in, r_a3 = a3_in;
+    uint32_t r_sp = sp_in;
+
+    (void)r_at; (void)r_ra; (void)r_t8; (void)r_t9; (void)mips_lo; (void)mips_hi;
+    (void)mips_cond;
+    r_sp = r_sp + -0x20U;
+    r_v0 = (uint32_t)(uintptr_t)&private_mutex_lock; /* HI16 private_mutex_lock */
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_s0;
+    r_s0 = 0; /* HI16 .bss anchor */
+    *(uint32_t *)(uintptr_t)(r_sp + 24) = (uint32_t)r_s1;
+    r_a0 = (uint32_t)(uintptr_t)&adrlit_adr_mlock;
+    *(uint32_t *)(uintptr_t)(r_sp + 28) = (uint32_t)r_ra;
+    r_v0 = (uint32_t)(uintptr_t)&private_mutex_lock;
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_mutex_lock */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_main_adr_paras);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_545e8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_main_adr_paras) + 0) = (uint32_t)0;
+L_545e8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_main_adr_gamma);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54608;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_main_adr_gamma) + 0) = (uint32_t)0;
+L_54608:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_wal_para);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54628;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_wal_para) + 0) = (uint32_t)0;
+L_54628:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_top_para);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54648;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_top_para) + 0) = (uint32_t)0;
+L_54648:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_soft_para);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54668;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_soft_para) + 0) = (uint32_t)0;
+L_54668:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_para);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54688;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_hard_para) + 0) = (uint32_t)0;
+L_54688:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_546a8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_hard_base) + 0) = (uint32_t)0;
+L_546a8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_stat_info);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_546c8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_stat_info) + 0) = (uint32_t)0;
+L_546c8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_fpga_para);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_546e8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_fpga_para) + 0) = (uint32_t)0;
+L_546e8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_map_y_old);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54708;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_map_y_old) + 0) = (uint32_t)0;
+L_54708:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_ctc1_y_tmp);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54728;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_ctc1_y_tmp) + 0) = (uint32_t)0;
+L_54728:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_20_lut_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54748;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_20_lut_main) + 0) = (uint32_t)0;
+L_54748:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_02_lut_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54768;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_02_lut_main) + 0) = (uint32_t)0;
+L_54768:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_12_lut_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54788;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_12_lut_main) + 0) = (uint32_t)0;
+L_54788:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_22_lut_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_547a8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_22_lut_main) + 0) = (uint32_t)0;
+L_547a8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_21_lut_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_547c8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_21_lut_main) + 0) = (uint32_t)0;
+L_547c8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_5x5_dis_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_547e8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_5x5_dis_main) + 0) = (uint32_t)0;
+L_547e8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_m_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54808;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_block_coord_m_main) + 0) = (uint32_t)0;
+L_54808:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_n_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54828;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_block_coord_n_main) + 0) = (uint32_t)0;
+L_54828:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light3_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54848;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light3_main) + 0) = (uint32_t)0;
+L_54848:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light4_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54868;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light4_main) + 0) = (uint32_t)0;
+L_54868:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light5_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54888;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light5_main) + 0) = (uint32_t)0;
+L_54888:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light6_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_548a8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light6_main) + 0) = (uint32_t)0;
+L_548a8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light7_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_548c8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light7_main) + 0) = (uint32_t)0;
+L_548c8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light8_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_548e8;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light8_main) + 0) = (uint32_t)0;
+L_548e8:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light9_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54908;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light9_main) + 0) = (uint32_t)0;
+L_54908:
+    r_s1 = 0; /* HI16 .bss anchor */
+    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light10_main);
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
+    if (mips_cond) goto L_54928;
+    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
+    /* nop */
+    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
+    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light10_main) + 0) = (uint32_t)0;
+L_54928:
+    r_ra = *(uint32_t *)(uintptr_t)(r_sp + 28);
+    r_s1 = *(uint32_t *)(uintptr_t)(r_sp + 24);
+    r_a0 = (uint32_t)(uintptr_t)&adrlit_adr_mlock;
+    r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 20);
+    r_t9 = (uint32_t)(uintptr_t)&private_mutex_unlock; /* HI16 private_mutex_unlock */
+    r_t9 = (uint32_t)(uintptr_t)&private_mutex_unlock;
+    r_sp = r_sp + 0x20U;
+    r_v0 = ADR_DISPATCH(r_t9); goto fn_exit; /* tail private_mutex_unlock */
 
 fn_exit:
     if (v1_io)
@@ -5318,7 +4149,7 @@ static int32_t tisp_adr_main_init_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a
     r_v1 = (uint32_t)(uintptr_t)adrlit_adr_kneepoint_x;
     r_s3 = (uint32_t)(uintptr_t)&memcpy;
     r_a3 = 672U;
-L_57a84:
+L_57c00:
     r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_map_y_old);
     r_a1 = r_v1;
     r_a2 = 28U;
@@ -5332,7 +4163,7 @@ L_57a84:
     r_t1 = r_t1 + 0x1cU;
     mips_cond = (r_t1 != r_a3) ? 1U : 0U;
     r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 40);
-    if (mips_cond) goto L_57a84;
+    if (mips_cond) goto L_57c00;
     r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_params_refresh; /* HI16 tiziano_adr_params_refresh */
     r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_params_refresh;
     r_a0 = 0;
@@ -5365,13 +4196,13 @@ L_57a84:
     r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
     mips_cond = (r_a1 != r_a0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_57b48;
+    if (mips_cond) goto L_57cc4;
     r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 2);
     r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_height_adr);
     mips_cond = (r_a2 == r_a1) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_57b68;
-L_57b48:
+    if (mips_cond) goto L_57ce4;
+L_57cc4:
     *(uint16_t *)(uintptr_t)(r_v0 + 0) = (uint16_t)r_a0;
     r_v0 = *(uint32_t *)(uintptr_t)(r_v1 + 52);
     r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_height_adr);
@@ -5380,7 +4211,7 @@ L_57b48:
     r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_base_pars;
     r_a2 = 0;
     r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_base_pars */
-L_57b68:
+L_57ce4:
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
     r_a2 = 32U;
     r_a1 = *(uint32_t *)(uintptr_t)(r_v0 + 8);
@@ -5505,35 +4336,35 @@ static int32_t tisp_adr_main_process_lit(uint32_t a0_in, uint32_t a1_in, uint32_
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_wal_para);
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_5c5c8;
+    if (mips_cond) goto L_5c744;
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_top_para);
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_5c5c8;
+    if (mips_cond) goto L_5c744;
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_soft_para);
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_5c5c8;
+    if (mips_cond) goto L_5c744;
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_para);
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_5c5c8;
+    if (mips_cond) goto L_5c744;
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_5c5c8;
+    if (mips_cond) goto L_5c744;
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_stat_info);
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_5c5c8;
+    if (mips_cond) goto L_5c744;
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_fpga_para);
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_s0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_5c5c8;
+    if (mips_cond) goto L_5c744;
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_count_adr_test);
     mips_cond = (r_v0 != 0) ? 1U : 0U;
     r_v1 = 0x10000U;
-    if (mips_cond) goto L_5c558;
+    if (mips_cond) goto L_5c6d4;
     r_v0 = 0; /* HI16 .data anchor */
     r_a2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_version_num);
     r_a1 = (uint32_t)(uintptr_t)adrlit_str; /* HI16 $LC28 */
@@ -5544,13 +4375,13 @@ static int32_t tisp_adr_main_process_lit(uint32_t a0_in, uint32_t a1_in, uint32_
     r_v0 = ADR_DISPATCH(r_v0); /* isp_printf */
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_count_adr_test);
     r_v1 = 0x10000U;
-L_5c558:
+L_5c6d4:
     r_v1 = ((int32_t)r_v0 < (int32_t)r_v1) ? 1U : 0U;
     mips_cond = (r_v1 == 0) ? 1U : 0U;
     r_v0 = r_v0 + 0x1U;
-    if (mips_cond) goto L_5c568;
+    if (mips_cond) goto L_5c6e4;
     *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_count_adr_test) + 0) = (uint32_t)r_v0;
-L_5c568:
+L_5c6e4:
     r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_stat_calc; /* HI16 tiziano_adr_stat_calc */
     r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_stat_calc;
     r_a0 = 0;
@@ -5575,7 +4406,7 @@ L_5c568:
     r_v0 = (uint32_t)(uintptr_t)&private_mutex_unlock;
     r_a0 = (uint32_t)(uintptr_t)&adrlit_adr_mlock;
     r_v0 = ADR_DISPATCH(r_v0); /* private_mutex_unlock */
-L_5c5c8:
+L_5c744:
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 28);
     r_s1 = *(uint32_t *)(uintptr_t)(r_sp + 24);
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 20);
@@ -5618,21 +4449,21 @@ static int32_t tisp_math_exp2_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in
     r_s0 = r_s0 - r_a0;
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_v1 = (uint32_t)(uintptr_t)adrlit___pow2_lut;
-    if (mips_cond) goto L_16648;
+    if (mips_cond) goto L_157b8;
     r_a3 = 5U;
     r_a3 = r_a3 - r_a1;
     r_a3 = r_t0 << (r_a3 & 31);
     r_a3 = r_a3 << 2;
     r_v1 = r_v1 + r_a3;
     r_v0 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
-L_16630:
+L_157a0:
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 28);
     r_v0 = r_v0 >> (r_s0 & 31);
     r_s1 = *(uint32_t *)(uintptr_t)(r_sp + 24);
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 20);
     r_sp = r_sp + 0x20U;
     goto fn_exit;
-L_16648:
+L_157b8:
     r_a2 = r_a1 + -0x5U;
     r_a0 = r_t0 >> (r_a2 & 31);
     r_v0 = r_a0 << 2;
@@ -5653,7 +4484,7 @@ L_16648:
     r_a1 = mips_hi;
     r_v0 = ADR_DISPATCH(r_v0); /* __lshrdi3 */
     r_v0 = r_s1 + r_v0;
-    goto L_16630;
+    goto L_157a0;
 
 fn_exit:
     if (v1_io)
@@ -5689,10 +4520,10 @@ static int32_t tiziano_adr_5x5_init_lit(uint32_t a0_in, uint32_t a1_in, uint32_t
     *(uint32_t *)(uintptr_t)(r_sp + 200) = (uint32_t)r_s0;
     mips_cond = (r_a3 == 0) ? 1U : 0U;
     r_s1 = r_a2;
-    if (mips_cond) goto L_56258;
+    if (mips_cond) goto L_563d4;
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_hard_base);
-L_55f38:
+L_560b4:
     r_s0 = (uint32_t)(uintptr_t)&private_vmalloc; /* HI16 private_vmalloc */
     r_s0 = (uint32_t)(uintptr_t)&private_vmalloc;
     r_a0 = 128U;
@@ -5783,48 +4614,48 @@ L_55f38:
     r_t5 = mips_lo;
     r_t7 = r_t0 + r_t5;
     r_t0 = r_t0 + r_t7;
-L_560a0:
+L_5621c:
     r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 192);
     r_v0 = ((int32_t)r_v0 < (int32_t)r_t1) ? 1U : 0U;
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_t3 = r_s0;
-    if (mips_cond) goto L_563b4;
+    if (mips_cond) goto L_56530;
     r_a2 = r_s8;
     r_t0 = r_s6;
     r_a3 = r_s7;
     r_v0 = 0;
     r_v1 = 2U;
     r_t1 = 32U;
-L_560c8:
+L_56244:
     r_a1 = *(uint32_t *)(uintptr_t)(r_a2 + 0);
     r_a0 = r_a1 | r_v0;
     mips_cond = (r_a0 != 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_563c8;
+    if (mips_cond) goto L_56544;
     *(uint8_t *)(uintptr_t)(r_sp + 88) = (uint8_t)0;
     *(uint8_t *)(uintptr_t)(r_sp + 56) = (uint8_t)0;
     *(uint8_t *)(uintptr_t)(r_sp + 24) = (uint8_t)0;
-L_560e4:
+L_56260:
     r_a0 = *(uint32_t *)(uintptr_t)(r_a3 + 0);
     r_a1 = r_a0 | r_v0;
     mips_cond = (r_a1 != 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_5648c;
+    if (mips_cond) goto L_56608;
     *(uint8_t *)(uintptr_t)(r_sp + 120) = (uint8_t)0;
-L_560f8:
+L_56274:
     r_a0 = *(uint32_t *)(uintptr_t)(r_t0 + 0);
     r_a1 = r_a0 | r_v0;
     mips_cond = (r_a1 != 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_564d4;
+    if (mips_cond) goto L_56650;
     *(uint8_t *)(uintptr_t)(r_sp + 152) = (uint8_t)0;
-L_5610c:
+L_56288:
     r_v0 = r_v0 + 0x1U;
     r_a2 = r_a2 + 0x4U;
     r_t0 = r_t0 + 0x4U;
     mips_cond = (r_v0 != r_t1) ? 1U : 0U;
     r_a3 = r_a3 + 0x4U;
-    if (mips_cond) goto L_560c8;
+    if (mips_cond) goto L_56244;
     r_a0 = *(uint32_t *)(uintptr_t)(r_s2 + 8);
     r_s0 = (uint32_t)(uintptr_t)&memcpy; /* HI16 memcpy */
     r_s0 = (uint32_t)(uintptr_t)&memcpy;
@@ -5849,64 +4680,64 @@ L_5610c:
     r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
     mips_cond = (r_s8 == 0) ? 1U : 0U;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_5618c;
+    if (mips_cond) goto L_56308;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree;
     r_a0 = r_s8;
     r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-L_5618c:
+L_56308:
     mips_cond = (r_s7 == 0) ? 1U : 0U;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_561a0;
+    if (mips_cond) goto L_5631c;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree;
     r_a0 = r_s7;
     r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-L_561a0:
+L_5631c:
     mips_cond = (r_s6 == 0) ? 1U : 0U;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_561b4;
+    if (mips_cond) goto L_56330;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree;
     r_a0 = r_s6;
     r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-L_561b4:
+L_56330:
     mips_cond = (r_s5 == 0) ? 1U : 0U;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_561c8;
+    if (mips_cond) goto L_56344;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree;
     r_a0 = r_s5;
     r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-L_561c8:
+L_56344:
     mips_cond = (r_s4 == 0) ? 1U : 0U;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_561dc;
+    if (mips_cond) goto L_56358;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree;
     r_a0 = r_s4;
     r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-L_561dc:
+L_56358:
     mips_cond = (r_s3 == 0) ? 1U : 0U;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_561f0;
+    if (mips_cond) goto L_5636c;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree;
     r_a0 = r_s3;
     r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-L_561f0:
+L_5636c:
     r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 184);
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_a0 = r_v0;
-    if (mips_cond) goto L_5620c;
+    if (mips_cond) goto L_56388;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
     r_v0 = (uint32_t)(uintptr_t)&private_vfree;
     /* nop */
     r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-L_5620c:
+L_56388:
     r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 188);
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_a0 = r_v0;
-    if (mips_cond) goto L_56228;
+    if (mips_cond) goto L_563a4;
     r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
     r_v0 = (uint32_t)(uintptr_t)&private_vfree;
     /* nop */
     r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-L_56228:
+L_563a4:
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 236);
     r_s8 = *(uint32_t *)(uintptr_t)(r_sp + 232);
     r_s7 = *(uint32_t *)(uintptr_t)(r_sp + 228);
@@ -5919,11 +4750,11 @@ L_56228:
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 200);
     r_sp = r_sp + 0xf0U;
     goto fn_exit;
-L_56258:
+L_563d4:
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
-    goto L_55f38;
-L_56264:
+    goto L_560b4;
+L_563e0:
     r_a1 = r_t3;
     r_a2 = r_t7;
     r_a0 = r_t1;
@@ -6008,17 +4839,17 @@ L_56264:
     r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 196);
     r_v0 = r_a0 + r_v0;
     *(uint32_t *)(uintptr_t)(r_t6 + 0) = (uint32_t)r_v0;
-L_563b4:
+L_56530:
     r_v0 = ((int32_t)r_v1 < (int32_t)r_t3) ? 1U : 0U;
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_a3 = r_t8;
-    if (mips_cond) goto L_56264;
+    if (mips_cond) goto L_563e0;
     r_t1 = r_t1 + 0x1U;
-    goto L_560a0;
-L_563c8:
+    goto L_5621c;
+L_56544:
     mips_cond = (r_a1 != 0) ? 1U : 0U;
     r_a0 = r_v0 << 2;
-    if (mips_cond) goto L_56404;
+    if (mips_cond) goto L_56580;
     r_a0 = r_sp + 0x58U;
     r_a0 = r_a0 + r_v0;
     r_a1 = *(uint8_t *)(uintptr_t)(r_a0 + -1);
@@ -6031,8 +4862,8 @@ L_563c8:
     r_a0 = r_a0 + r_v0;
     r_a1 = *(uint8_t *)(uintptr_t)(r_a0 + -1);
     *(uint8_t *)(uintptr_t)(r_a0 + 0) = (uint8_t)r_a1;
-    goto L_560e4;
-L_56404:
+    goto L_56260;
+L_56580:
     if (r_v1) { mips_lo = (uint32_t)((int32_t)r_a1 / (int32_t)r_v1); mips_hi = (uint32_t)((int32_t)r_a1 % (int32_t)r_v1); }
     r_t3 = r_s4 + r_a0;
     r_t3 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
@@ -6066,18 +4897,18 @@ L_56404:
     r_a1 = r_a1 + r_v0;
     r_a0 = mips_lo;
     *(uint8_t *)(uintptr_t)(r_a1 + 0) = (uint8_t)r_a0;
-    goto L_560e4;
-L_5648c:
+    goto L_56260;
+L_56608:
     mips_cond = (r_a0 != 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_564a8;
+    if (mips_cond) goto L_56624;
     r_a0 = r_sp + 0x78U;
     r_a0 = r_a0 + r_v0;
     r_a1 = *(uint8_t *)(uintptr_t)(r_a0 + -1);
-L_564a0:
+L_5661c:
     *(uint8_t *)(uintptr_t)(r_a0 + 0) = (uint8_t)r_a1;
-    goto L_560f8;
-L_564a8:
+    goto L_56274;
+L_56624:
     if (r_v1) { mips_lo = (uint32_t)((int32_t)r_a0 / (int32_t)r_v1); mips_hi = (uint32_t)((int32_t)r_a0 % (int32_t)r_v1); }
     r_t2 = r_v0 << 2;
     r_t2 = r_s3 + r_t2;
@@ -6088,18 +4919,18 @@ L_564a8:
     r_a0 = r_sp + 0x78U;
     r_a0 = r_a0 + r_v0;
     r_a1 = mips_lo;
-    goto L_564a0;
-L_564d4:
+    goto L_5661c;
+L_56650:
     mips_cond = (r_a0 != 0) ? 1U : 0U;
     r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 188);
-    if (mips_cond) goto L_564f0;
+    if (mips_cond) goto L_5666c;
     r_a0 = r_sp + 0x98U;
     r_a0 = r_a0 + r_v0;
     r_a1 = *(uint8_t *)(uintptr_t)(r_a0 + -1);
-L_564e8:
+L_56664:
     *(uint8_t *)(uintptr_t)(r_a0 + 0) = (uint8_t)r_a1;
-    goto L_5610c;
-L_564f0:
+    goto L_56288;
+L_5666c:
     if (r_v1) { mips_lo = (uint32_t)((int32_t)r_a0 / (int32_t)r_v1); mips_hi = (uint32_t)((int32_t)r_a0 % (int32_t)r_v1); }
     r_t2 = r_v0 << 2;
     r_t2 = r_a1 + r_t2;
@@ -6110,7 +4941,7 @@ L_564f0:
     r_a0 = r_sp + 0x98U;
     r_a0 = r_a0 + r_v0;
     r_a1 = mips_lo;
-    goto L_564e8;
+    goto L_56664;
 
 fn_exit:
     if (v1_io)
@@ -6134,15 +4965,15 @@ static int32_t tiziano_adr_5x5_out_lit(uint32_t a0_in, uint32_t a1_in, uint32_t 
     r_v0 = ((int32_t)r_a2 < (int32_t)r_a0) ? 1U : 0U;
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_55ed4;
+    if (mips_cond) goto L_56050;
     r_a2 = r_a0 - r_a2;
-L_55e88:
+L_56004:
     r_v0 = ((int32_t)r_a3 < (int32_t)r_a1) ? 1U : 0U;
     mips_cond = (r_v0 == 0) ? 1U : 0U;
     r_a2 = r_a2 >> 3;
-    if (mips_cond) goto L_55edc;
+    if (mips_cond) goto L_56058;
     r_a1 = r_a1 - r_a3;
-L_55e98:
+L_56014:
     r_a1 = r_a1 >> 3;
     { uint64_t mips_acc = (uint64_t)((int64_t)(int32_t)r_a1 * (int64_t)(int32_t)r_a1); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
     r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 16);
@@ -6151,25 +4982,25 @@ L_55e98:
     r_v1 = r_v1 + 0x3cU;
     { uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) + (uint64_t)((int64_t)(int32_t)r_a2 * (int64_t)(int32_t)r_a2); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
     r_a2 = mips_lo;
-L_55eb8:
+L_56034:
     r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
     r_a0 = ((int32_t)r_a0 < (int32_t)r_a2) ? 1U : 0U;
     mips_cond = (r_a0 != 0) ? 1U : 0U;
     r_v0 = r_v0 + -0x1U;
-    if (mips_cond) goto L_55ee4;
+    if (mips_cond) goto L_56060;
     r_v0 = r_v0 + 0x1U;
     r_v0 = r_v0 + 0x1U;
     goto fn_exit;
-L_55ed4:
+L_56050:
     r_a2 = r_a2 - r_a0;
-    goto L_55e88;
-L_55edc:
+    goto L_56004;
+L_56058:
     r_a1 = r_a3 - r_a1;
-    goto L_55e98;
-L_55ee4:
+    goto L_56014;
+L_56060:
     mips_cond = (r_v0 != r_a1) ? 1U : 0U;
     r_v1 = r_v1 + -0x2U;
-    if (mips_cond) goto L_55eb8;
+    if (mips_cond) goto L_56034;
     r_v0 = 0;
     goto fn_exit;
 
@@ -6203,7 +5034,7 @@ static int32_t tiziano_adr_algorithm_lit(uint32_t a0_in, uint32_t a1_in, uint32_
     *(uint32_t *)(uintptr_t)(r_sp + 56) = (uint32_t)r_s0;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     r_s5 = r_a0;
-    if (mips_cond) goto L_5c47c;
+    if (mips_cond) goto L_5c5f8;
     r_v0 = 0; /* HI16 .bss anchor */
     r_s0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_fpga_para);
     r_v0 = 0; /* HI16 .bss anchor */
@@ -6214,11 +5045,11 @@ static int32_t tiziano_adr_algorithm_lit(uint32_t a0_in, uint32_t a1_in, uint32_
     r_s3 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_stat_info);
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_top_para);
-L_5c218:
+L_5c394:
     r_a1 = 0; /* HI16 .rodata anchor */
     r_v0 = (uint32_t)(uintptr_t)&memcpy; /* HI16 memcpy */
     r_a2 = 14U;
-    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_217c;
+    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_20bc;
     r_v0 = (uint32_t)(uintptr_t)&memcpy;
     r_a0 = r_sp + 0x18U;
     r_v0 = ADR_DISPATCH(r_v0); /* memcpy */
@@ -6237,7 +5068,7 @@ L_5c218:
     r_v0 = r_sp + 0x28U;
     r_v1 = 0;
     r_a2 = 12U;
-L_5c270:
+L_5c3ec:
     r_a1 = *(uint16_t *)(uintptr_t)(r_v0 + 2);
     r_a3 = *(uint16_t *)(uintptr_t)(r_v0 + 0);
     r_a0 = *(uint32_t *)(uintptr_t)(r_s2 + 104);
@@ -6247,7 +5078,7 @@ L_5c270:
     r_v1 = r_v1 + 0x2U;
     mips_cond = (r_v1 != r_a2) ? 1U : 0U;
     *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)r_a1;
-    if (mips_cond) goto L_5c270;
+    if (mips_cond) goto L_5c3ec;
     r_v1 = *(uint32_t *)(uintptr_t)(r_s2 + 104);
     r_a1 = r_s5;
     r_v0 = *(uint16_t *)(uintptr_t)(r_v1 + 8);
@@ -6370,7 +5201,7 @@ L_5c270:
     r_v0 = 0;
     r_sp = r_sp + 0x58U;
     goto fn_exit;
-L_5c47c:
+L_5c5f8:
     r_v0 = 0; /* HI16 .bss anchor */
     r_s0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_fpga_para);
     r_v0 = 0; /* HI16 .bss anchor */
@@ -6381,7 +5212,7 @@ L_5c47c:
     r_s3 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_stat_info);
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_top_para);
-    goto L_5c218;
+    goto L_5c394;
 
 fn_exit:
     if (v1_io)
@@ -6415,10 +5246,10 @@ static int32_t tiziano_adr_base_pars_lit(uint32_t a0_in, uint32_t a1_in, uint32_
     r_s3 = r_a1;
     mips_cond = (r_a2 == 0) ? 1U : 0U;
     r_s0 = r_a2;
-    if (mips_cond) goto L_5671c;
+    if (mips_cond) goto L_56898;
     r_v0 = 0; /* HI16 .bss anchor */
     r_s4 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_hard_base);
-L_56558:
+L_566d4:
     r_v0 = 6U;
     if (r_v0) { mips_lo = (uint32_t)((int32_t)r_s2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_s2 % (int32_t)r_v0); }
     r_v1 = 4U;
@@ -6429,14 +5260,14 @@ L_56558:
     r_v1 = r_s5 & 0x1U;
     mips_cond = (r_v1 == 0) ? 1U : 0U;
     r_v1 = r_v0 & 0x1U;
-    if (mips_cond) goto L_56584;
+    if (mips_cond) goto L_56700;
     r_s5 = r_s5 + -0x1U;
-L_56584:
+L_56700:
     mips_cond = (r_v1 == 0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_56590;
+    if (mips_cond) goto L_5670c;
     r_s1 = r_v0 + -0x1U;
-L_56590:
+L_5670c:
     r_v0 = r_s5 & 0xffffU;
     r_v1 = r_v0 << 1;
     r_v1 = r_v1 & 0xffffU;
@@ -6481,11 +5312,11 @@ L_56590:
     r_a0 = ((int32_t)r_v1 < (int32_t)r_s1) ? 1U : 0U;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     r_a0 = r_v1 << 1;
-    if (mips_cond) goto L_56728;
+    if (mips_cond) goto L_568a4;
     r_v1 = r_a0 + r_v1;
     r_v1 = r_v1 + 0x1U;
     if (r_v0) { mips_lo = (uint32_t)((int32_t)r_v1 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_v1 % (int32_t)r_v0); }
-L_5664c:
+L_567c8:
     r_a2 = (uint32_t)(uintptr_t)adrlit_adr_5x5_in2; /* HI16 adr_5x5_in2 */
     r_t0 = r_sp + 0x10U;
     r_a2 = (uint32_t)(uintptr_t)adrlit_adr_5x5_in2;
@@ -6497,7 +5328,7 @@ L_5664c:
     { uint64_t mips_acc = (uint64_t)((int64_t)(int32_t)r_v0 * (int64_t)(int32_t)r_v0); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
     r_v0 = mips_lo;
     r_v1 = mips_hi;
-L_56678:
+L_567f4:
     r_a0 = *(uint32_t *)(uintptr_t)(r_a2 + 0);
     r_t1 = r_t1 + 0x1U;
     r_a2 = r_a2 + 0x4U;
@@ -6518,7 +5349,7 @@ L_56678:
     r_a1 = r_a0 | r_a1;
     mips_cond = (r_t1 != r_t2) ? 1U : 0U;
     *(uint16_t *)(uintptr_t)(r_t0 + -2) = (uint16_t)r_a1;
-    if (mips_cond) goto L_56678;
+    if (mips_cond) goto L_567f4;
     r_a0 = *(uint32_t *)(uintptr_t)(r_s4 + 28);
     r_a1 = r_s1;
     r_a2 = 62U;
@@ -6540,16 +5371,16 @@ L_56678:
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 112);
     r_sp = r_sp + 0x90U;
     goto fn_exit;
-L_5671c:
+L_56898:
     r_v0 = 0; /* HI16 .bss anchor */
     r_s4 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
-    goto L_56558;
-L_56728:
+    goto L_566d4;
+L_568a4:
     r_v1 = r_s1 << 1;
     r_s1 = r_v1 + r_s1;
     r_s1 = r_s1 + 0x1U;
     if (r_v0) { mips_lo = (uint32_t)((int32_t)r_s1 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_s1 % (int32_t)r_v0); }
-    goto L_5664c;
+    goto L_567c8;
 
 fn_exit:
     if (v1_io)
@@ -6572,12 +5403,12 @@ static int32_t tiziano_adr_ev_func_lit(uint32_t a0_in, uint32_t a1_in, uint32_t 
     (void)mips_cond;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_58f70;
+    if (mips_cond) goto L_590ec;
     r_v0 = 0; /* HI16 .bss anchor */
     r_t4 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_top_para);
     r_v0 = 0; /* HI16 .bss anchor */
     r_t3 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_soft_para);
-L_58890:
+L_58a0c:
     r_v0 = 0; /* HI16 .bss anchor */
     r_t8 = r_a0 << 2;
     r_v0 = (uint32_t)(uintptr_t)adrlit_adr_ev_top;
@@ -6595,7 +5426,7 @@ L_58890:
     r_v1 = 1U;
     mips_cond = (r_a1 != r_v1) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_5949c;
+    if (mips_cond) goto L_59618;
     r_sp = r_sp + -0x30U;
     *(uint32_t *)(uintptr_t)(r_sp + 44) = (uint32_t)r_ra;
     *(uint32_t *)(uintptr_t)(r_sp + 40) = (uint32_t)r_s6;
@@ -6627,10 +5458,10 @@ L_58890:
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
     mips_cond = (r_v1 != r_a2) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_59218;
+    if (mips_cond) goto L_59394;
     mips_cond = (r_a0 != r_a1) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_58fa0;
+    if (mips_cond) goto L_5911c;
     r_v0 = 0; /* HI16 .bss anchor */
     r_s6 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light3_sec);
     r_v0 = 0; /* HI16 .bss anchor */
@@ -6650,7 +5481,7 @@ L_58890:
     r_v1 = 0;
     r_v0 = 0;
     r_a1 = 11U;
-L_589a4:
+L_58b20:
     r_a0 = *(uint32_t *)(uintptr_t)(r_t4 + 0);
     r_a3 = ((int32_t)r_v1 < 4) ? 1U : 0U;
     r_a0 = r_a0 + r_v0;
@@ -6659,11 +5490,11 @@ L_589a4:
     *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)r_a2;
     mips_cond = (r_a3 == 0) ? 1U : 0U;
     r_a2 = r_s5 + r_v0;
-    if (mips_cond) goto L_58f80;
+    if (mips_cond) goto L_590fc;
     r_a0 = *(uint32_t *)(uintptr_t)(r_t4 + 12);
     r_a0 = r_a0 + r_v0;
     r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
-L_589d0:
+L_58b4c:
     *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_a0;
     r_a0 = *(uint32_t *)(uintptr_t)(r_t4 + 108);
     r_a0 = r_a0 + r_v0;
@@ -6677,11 +5508,11 @@ L_589d0:
     *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)r_a2;
     mips_cond = (r_a3 == 0) ? 1U : 0U;
     r_a2 = r_s2 + r_v0;
-    if (mips_cond) goto L_58f90;
+    if (mips_cond) goto L_5910c;
     r_a0 = *(uint32_t *)(uintptr_t)(r_t3 + 16);
     r_a0 = r_a0 + r_v0;
     r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
-L_58a10:
+L_58b8c:
     *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_a0;
     r_a0 = *(uint32_t *)(uintptr_t)(r_t3 + 60);
     r_v1 = r_v1 + 0x1U;
@@ -6701,7 +5532,7 @@ L_58a10:
     r_v0 = r_v0 + 0x2U;
     mips_cond = (r_v1 != r_a1) ? 1U : 0U;
     *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)r_a2;
-    if (mips_cond) goto L_589a4;
+    if (mips_cond) goto L_58b20;
     r_t6 = *(uint32_t *)(uintptr_t)(r_t7 + 4);
     r_a2 = *(uint32_t *)(uintptr_t)(r_t4 + 32);
     r_a1 = *(uint32_t *)(uintptr_t)(r_t4 + 20);
@@ -6788,14 +5619,14 @@ L_58a10:
     r_a0 = r_t6;
     r_v0 = ADR_DISPATCH(r_t5); /* ispint_adr_32 */
     r_v1 = *(uint32_t *)(uintptr_t)(r_t3 + 12);
-L_58bb4:
+L_58d30:
     *(uint16_t *)(uintptr_t)(r_v1 + 20) = (uint16_t)r_v0;
-L_58bb8:
+L_58d34:
     r_v0 = *(uint32_t *)(uintptr_t)(r_t3 + 128);
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
     mips_cond = (r_v1 != 0) ? 1U : 0U;
     r_t6 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
-    if (mips_cond) goto L_592d4;
+    if (mips_cond) goto L_59450;
     r_v0 = r_t7 + r_t8;
     r_t9 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
     r_a2 = *(uint32_t *)(uintptr_t)(r_t4 + 176);
@@ -6813,12 +5644,12 @@ L_58bb8:
     r_v0 = ADR_DISPATCH(r_t5); /* ispint_adr_32 */
     r_v1 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
     *(uint16_t *)(uintptr_t)(r_v1 + 10) = (uint16_t)r_v0;
-L_58c0c:
+L_58d88:
     r_v0 = *(uint32_t *)(uintptr_t)(r_t3 + 136);
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 10);
     mips_cond = (r_v0 != 0) ? 1U : 0U;
     r_t9 = *(uint32_t *)(uintptr_t)(r_t3 + 4);
-    if (mips_cond) goto L_592f0;
+    if (mips_cond) goto L_5946c;
     r_v0 = r_t7 + r_t8;
     r_t6 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
     r_a2 = *(uint32_t *)(uintptr_t)(r_t4 + 48);
@@ -6913,7 +5744,7 @@ L_58c0c:
     r_v0 = ADR_DISPATCH(r_t5); /* ispint_adr_32 */
     r_v1 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
     *(uint16_t *)(uintptr_t)(r_v1 + 16) = (uint16_t)r_v0;
-L_58d94:
+L_58f10:
     r_v0 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
     *(uint16_t *)(uintptr_t)(r_v0 + 18) = (uint16_t)0;
     r_v0 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
@@ -6922,7 +5753,7 @@ L_58d94:
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 28);
     mips_cond = (r_v1 != 0) ? 1U : 0U;
     r_t9 = *(uint32_t *)(uintptr_t)(r_t3 + 8);
-    if (mips_cond) goto L_593c0;
+    if (mips_cond) goto L_5953c;
     r_t7 = r_t7 + r_t8;
     r_t6 = *(uint32_t *)(uintptr_t)(r_t7 + 0);
     r_a2 = *(uint32_t *)(uintptr_t)(r_t4 + 120);
@@ -7024,7 +5855,7 @@ L_58d94:
     r_v0 = ADR_DISPATCH(r_t5); /* ispint_adr_32 */
     r_v1 = *(uint32_t *)(uintptr_t)(r_t3 + 12);
     *(uint16_t *)(uintptr_t)(r_v1 + 4) = (uint16_t)r_v0;
-L_58f48:
+L_590c4:
     r_ra = *(uint32_t *)(uintptr_t)(r_sp + 44);
     r_s6 = *(uint32_t *)(uintptr_t)(r_sp + 40);
     r_s5 = *(uint32_t *)(uintptr_t)(r_sp + 36);
@@ -7035,22 +5866,22 @@ L_58f48:
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 16);
     r_sp = r_sp + 0x30U;
     goto fn_exit;
-L_58f70:
+L_590ec:
     r_t4 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_top_para);
     r_v0 = 0; /* HI16 .bss anchor */
     r_t3 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_soft_para);
-    goto L_58890;
-L_58f80:
+    goto L_58a0c;
+L_590fc:
     r_a0 = *(uint32_t *)(uintptr_t)(r_t4 + 16);
     r_a0 = r_a0 + r_v0;
     r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + -8);
-    goto L_589d0;
-L_58f90:
+    goto L_58b4c;
+L_5910c:
     r_a0 = *(uint32_t *)(uintptr_t)(r_t3 + 20);
     r_a0 = r_a0 + r_v0;
     r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + -8);
-    goto L_58a10;
-L_58fa0:
+    goto L_58b8c;
+L_5911c:
     r_s6 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light3_main);
     r_v0 = 0; /* HI16 .bss anchor */
     r_s5 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light4_main);
@@ -7069,7 +5900,7 @@ L_58fa0:
     r_v1 = 0;
     r_v0 = 0;
     r_a1 = 11U;
-L_58fe8:
+L_59164:
     r_a0 = *(uint32_t *)(uintptr_t)(r_t4 + 0);
     r_a3 = ((int32_t)r_v1 < 4) ? 1U : 0U;
     r_a0 = r_a0 + r_v0;
@@ -7078,11 +5909,11 @@ L_58fe8:
     *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)r_a2;
     mips_cond = (r_a3 == 0) ? 1U : 0U;
     r_a2 = r_s5 + r_v0;
-    if (mips_cond) goto L_591f8;
+    if (mips_cond) goto L_59374;
     r_a0 = *(uint32_t *)(uintptr_t)(r_t4 + 12);
     r_a0 = r_a0 + r_v0;
     r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
-L_59014:
+L_59190:
     *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_a0;
     r_a0 = *(uint32_t *)(uintptr_t)(r_t4 + 108);
     r_a0 = r_a0 + r_v0;
@@ -7096,11 +5927,11 @@ L_59014:
     *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)r_a2;
     mips_cond = (r_a3 == 0) ? 1U : 0U;
     r_a2 = r_s2 + r_v0;
-    if (mips_cond) goto L_59208;
+    if (mips_cond) goto L_59384;
     r_a0 = *(uint32_t *)(uintptr_t)(r_t3 + 16);
     r_a0 = r_a0 + r_v0;
     r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
-L_59054:
+L_591d0:
     *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_a0;
     r_a0 = *(uint32_t *)(uintptr_t)(r_t3 + 60);
     r_v1 = r_v1 + 0x1U;
@@ -7120,7 +5951,7 @@ L_59054:
     r_v0 = r_v0 + 0x2U;
     mips_cond = (r_v1 != r_a1) ? 1U : 0U;
     *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)r_a2;
-    if (mips_cond) goto L_58fe8;
+    if (mips_cond) goto L_59164;
     r_a2 = *(uint32_t *)(uintptr_t)(r_t4 + 32);
     r_a1 = *(uint32_t *)(uintptr_t)(r_t4 + 20);
     r_t6 = (uint32_t)(uintptr_t)&ispint_adr_32; /* HI16 ispint_adr_32 */
@@ -7206,21 +6037,21 @@ L_59054:
     r_a0 = r_t5;
     r_v0 = ADR_DISPATCH(r_t6); /* ispint_adr_32 */
     r_v1 = *(uint32_t *)(uintptr_t)(r_t3 + 12);
-    goto L_58bb4;
-L_591f8:
+    goto L_58d30;
+L_59374:
     r_a0 = *(uint32_t *)(uintptr_t)(r_t4 + 16);
     r_a0 = r_a0 + r_v0;
     r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + -8);
-    goto L_59014;
-L_59208:
+    goto L_59190;
+L_59384:
     r_a0 = *(uint32_t *)(uintptr_t)(r_t3 + 20);
     r_a0 = r_a0 + r_v0;
     r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + -8);
-    goto L_59054;
-L_59218:
+    goto L_591d0;
+L_59394:
     mips_cond = (r_v1 != 0) ? 1U : 0U;
     r_t9 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
-    if (mips_cond) goto L_59298;
+    if (mips_cond) goto L_59414;
     r_a2 = *(uint32_t *)(uintptr_t)(r_t4 + 32);
     r_a1 = *(uint32_t *)(uintptr_t)(r_t4 + 20);
     r_t6 = (uint32_t)(uintptr_t)&ispint_adr_32; /* HI16 ispint_adr_32 */
@@ -7250,8 +6081,8 @@ L_59218:
     r_v0 = ADR_DISPATCH(r_t6); /* ispint_adr_32 */
     r_v1 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
     *(uint16_t *)(uintptr_t)(r_v1 + 6) = (uint16_t)r_v0;
-    goto L_58bb8;
-L_59298:
+    goto L_58d34;
+L_59414:
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 2);
     *(uint16_t *)(uintptr_t)(r_t9 + 0) = (uint16_t)r_v0;
     r_v1 = *(uint32_t *)(uintptr_t)(r_t3 + 84);
@@ -7266,16 +6097,16 @@ L_59298:
     r_v0 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 8);
     *(uint16_t *)(uintptr_t)(r_v0 + 6) = (uint16_t)r_v1;
-    goto L_58bb8;
-L_592d4:
+    goto L_58d34;
+L_59450:
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 2);
     *(uint16_t *)(uintptr_t)(r_t6 + 8) = (uint16_t)r_v0;
     r_v1 = *(uint32_t *)(uintptr_t)(r_t3 + 128);
     r_v0 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 4);
     *(uint16_t *)(uintptr_t)(r_v0 + 10) = (uint16_t)r_v1;
-    goto L_58c0c;
-L_592f0:
+    goto L_58d88;
+L_5946c:
     r_v0 = *(uint32_t *)(uintptr_t)(r_t3 + 132);
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
     *(uint16_t *)(uintptr_t)(r_t9 + 0) = (uint16_t)r_v0;
@@ -7327,8 +6158,8 @@ L_592f0:
     r_v0 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 4);
     *(uint16_t *)(uintptr_t)(r_v0 + 16) = (uint16_t)r_v1;
-    goto L_58d94;
-L_593c0:
+    goto L_58f10;
+L_5953c:
     r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
     *(uint16_t *)(uintptr_t)(r_t9 + 0) = (uint16_t)r_v0;
     r_v1 = *(uint32_t *)(uintptr_t)(r_t3 + 24);
@@ -7383,10 +6214,1685 @@ L_593c0:
     r_v0 = *(uint32_t *)(uintptr_t)(r_t3 + 12);
     r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 26);
     *(uint16_t *)(uintptr_t)(r_v0 + 4) = (uint16_t)r_v1;
-    goto L_58f48;
-L_5949c:
+    goto L_590c4;
+L_59618:
     /* nop */
     goto fn_exit;
+
+fn_exit:
+    if (v1_io)
+        *v1_io = r_v1;
+    return (int32_t)r_v0;
+}
+
+static int32_t Tiziano_adr_fpga_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
+{
+    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
+    uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
+    uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
+    uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
+    uint32_t r_s6 = 0, r_s7 = 0, r_s8 = 0, r_ra = 0, r_at = 0;
+    uint32_t mips_lo = 0, mips_hi = 0, mips_cond = 0;
+    uint32_t r_a0 = a0_in, r_a1 = a1_in, r_a2 = a2_in, r_a3 = a3_in;
+    uint32_t r_sp = sp_in;
+
+    (void)r_at; (void)r_ra; (void)r_t8; (void)r_t9; (void)mips_lo; (void)mips_hi;
+    (void)mips_cond;
+    r_sp = r_sp + -0x3e8U;
+    *(uint32_t *)(uintptr_t)(r_sp + 996) = (uint32_t)r_ra;
+    *(uint32_t *)(uintptr_t)(r_sp + 992) = (uint32_t)r_s8;
+    *(uint32_t *)(uintptr_t)(r_sp + 988) = (uint32_t)r_s7;
+    *(uint32_t *)(uintptr_t)(r_sp + 984) = (uint32_t)r_s6;
+    *(uint32_t *)(uintptr_t)(r_sp + 980) = (uint32_t)r_s5;
+    *(uint32_t *)(uintptr_t)(r_sp + 964) = (uint32_t)r_s1;
+    *(uint32_t *)(uintptr_t)(r_sp + 976) = (uint32_t)r_s4;
+    *(uint32_t *)(uintptr_t)(r_sp + 972) = (uint32_t)r_s3;
+    *(uint32_t *)(uintptr_t)(r_sp + 968) = (uint32_t)r_s2;
+    *(uint32_t *)(uintptr_t)(r_sp + 960) = (uint32_t)r_s0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
+    r_s2 = *(uint32_t *)(uintptr_t)(r_a0 + 4);
+    r_s0 = *(uint32_t *)(uintptr_t)(r_a0 + 16);
+    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 8);
+    r_s3 = *(uint32_t *)(uintptr_t)(r_a0 + 20);
+    r_s4 = *(uint32_t *)(uintptr_t)(r_a0 + 28);
+    *(uint32_t *)(uintptr_t)(r_sp + 784) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 12);
+    r_s5 = r_a1;
+    r_t2 = (uint32_t)(uintptr_t)&memcpy; /* HI16 memcpy */
+    *(uint32_t *)(uintptr_t)(r_sp + 796) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 24);
+    r_t2 = (uint32_t)(uintptr_t)&memcpy;
+    r_a2 = 26U;
+    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 32);
+    *(uint32_t *)(uintptr_t)(r_sp + 852) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 36);
+    *(uint32_t *)(uintptr_t)(r_sp + 856) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 40);
+    *(uint32_t *)(uintptr_t)(r_sp + 760) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 44);
+    *(uint32_t *)(uintptr_t)(r_sp + 860) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 48);
+    *(uint32_t *)(uintptr_t)(r_sp + 864) = (uint32_t)r_v0;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_a0 + 140);
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 92);
+    r_a1 = *(uint32_t *)(uintptr_t)(r_a0 + 60);
+    *(uint32_t *)(uintptr_t)(r_sp + 772) = (uint32_t)r_v1;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_a0 + 148);
+    *(uint32_t *)(uintptr_t)(r_sp + 792) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 96);
+    *(uint32_t *)(uintptr_t)(r_sp + 808) = (uint32_t)r_v1;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_a0 + 152);
+    *(uint32_t *)(uintptr_t)(r_sp + 800) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 116);
+    *(uint32_t *)(uintptr_t)(r_sp + 868) = (uint32_t)r_v1;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_a0 + 156);
+    *(uint32_t *)(uintptr_t)(r_sp + 780) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 120);
+    *(uint32_t *)(uintptr_t)(r_sp + 812) = (uint32_t)r_v1;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_a0 + 164);
+    *(uint32_t *)(uintptr_t)(r_sp + 804) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 124);
+    *(uint32_t *)(uintptr_t)(r_sp + 872) = (uint32_t)r_v1;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
+    r_a3 = *(uint32_t *)(uintptr_t)(r_a0 + 64);
+    *(uint32_t *)(uintptr_t)(r_sp + 764) = (uint32_t)r_v0;
+    *(uint32_t *)(uintptr_t)(r_sp + 876) = (uint32_t)r_v1;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 136);
+    r_v1 = *(uint32_t *)(uintptr_t)(r_a1 + 4);
+    r_s8 = *(uint32_t *)(uintptr_t)(r_a0 + 144);
+    *(uint32_t *)(uintptr_t)(r_sp + 920) = (uint32_t)r_a3;
+    r_s1 = *(uint32_t *)(uintptr_t)(r_a0 + 160);
+    r_s6 = *(uint32_t *)(uintptr_t)(r_a0 + 168);
+    r_s7 = *(uint32_t *)(uintptr_t)(r_a0 + 172);
+    *(uint32_t *)(uintptr_t)(r_sp + 880) = (uint32_t)r_v1;
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 10);
+    r_a1 = 0; /* HI16 .rodata anchor */
+    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_208c;
+    *(uint32_t *)(uintptr_t)(r_sp + 768) = (uint32_t)r_v1;
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 12);
+    r_a0 = r_sp + 0x28cU;
+    *(uint32_t *)(uintptr_t)(r_sp + 900) = (uint32_t)r_t2;
+    *(uint32_t *)(uintptr_t)(r_sp + 816) = (uint32_t)r_v1;
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 14);
+    *(uint32_t *)(uintptr_t)(r_sp + 820) = (uint32_t)r_v1;
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 16);
+    *(uint32_t *)(uintptr_t)(r_sp + 824) = (uint32_t)r_v1;
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
+    *(uint32_t *)(uintptr_t)(r_sp + 884) = (uint32_t)r_v1;
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 2);
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 4);
+    *(uint32_t *)(uintptr_t)(r_sp + 828) = (uint32_t)r_v1;
+    *(uint32_t *)(uintptr_t)(r_sp + 848) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 804);
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 20);
+    *(uint32_t *)(uintptr_t)(r_sp + 888) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 780);
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 38);
+    *(uint32_t *)(uintptr_t)(r_sp + 832) = (uint32_t)r_v0;
+    r_v0 = ADR_DISPATCH(r_t2); /* memcpy */
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 772);
+    r_t2 = *(uint32_t *)(uintptr_t)(r_sp + 900);
+    r_a1 = 0; /* HI16 .rodata anchor */
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = 18U;
+    r_a1 = (uint32_t)(uintptr_t)adrlit_ro_20a8;
+    *(uint32_t *)(uintptr_t)(r_sp + 772) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 2);
+    r_a0 = r_sp + 0x2a8U;
+    *(uint32_t *)(uintptr_t)(r_sp + 776) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 4);
+    *(uint32_t *)(uintptr_t)(r_sp + 836) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 800);
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
+    *(uint32_t *)(uintptr_t)(r_sp + 892) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 8);
+    *(uint32_t *)(uintptr_t)(r_sp + 896) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 10);
+    *(uint32_t *)(uintptr_t)(r_sp + 788) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 12);
+    *(uint32_t *)(uintptr_t)(r_sp + 840) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 14);
+    *(uint32_t *)(uintptr_t)(r_sp + 844) = (uint32_t)r_v0;
+    r_v0 = ADR_DISPATCH(r_t2); /* None */
+    r_v1 = (uint32_t)(uintptr_t)&memset; /* HI16 memset */
+    r_v1 = (uint32_t)(uintptr_t)&memset;
+    r_a2 = 32U;
+    r_a1 = 0;
+    r_a0 = r_sp + 0x1fcU;
+    *(uint32_t *)(uintptr_t)(r_sp + 900) = (uint32_t)r_v1;
+    r_v0 = ADR_DISPATCH(r_v1); /* memset */
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 900);
+    r_a1 = 0;
+    r_a0 = r_sp + 0x1daU;
+    r_a2 = 32U;
+    r_v0 = ADR_DISPATCH(r_v1); /* None */
+    r_v0 = 10U;
+    *(uint16_t *)(uintptr_t)(r_sp + 472) = (uint16_t)r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s8 + 2);
+    r_t2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s8 + 0);
+    r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 760);
+    *(uint32_t *)(uintptr_t)(r_sp + 900) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s8 + 4);
+    r_a3 = *(uint32_t *)(uintptr_t)(r_sp + 920);
+    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_imgDR_w; /* HI16 adr_imgDR_w */
+    *(uint32_t *)(uintptr_t)(r_sp + 904) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s8 + 6);
+    r_t3 = (uint32_t)(uintptr_t)adrlit_sumImgDR_w; /* HI16 sumImgDR_w */
+    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_imgDR_w;
+    *(uint32_t *)(uintptr_t)(r_sp + 908) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s8 + 8);
+    r_v1 = 0;
+    r_t6 = 16U;
+    *(uint32_t *)(uintptr_t)(r_sp + 912) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_s8 + 10);
+    r_t4 = r_t3;
+    r_t7 = 32U;
+    *(uint32_t *)(uintptr_t)(r_sp + 916) = (uint32_t)r_v0;
+    r_t8 = 64U;
+    r_v0 = 0;
+    r_t9 = 96U;
+    r_t5 = 128U;
+L_5af94:
+    mips_cond = (r_v1 != 0) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5bb9c;
+    r_a2 = *(uint32_t *)(uintptr_t)(r_sp + 760);
+    r_a2 = *(uint32_t *)(uintptr_t)(r_a2 + 0);
+L_5afa4:
+    r_t0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
+    r_t1 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    r_a2 = *(uint32_t *)(uintptr_t)(r_t3 + 0);
+    mips_cond = (r_v1 != r_t6) ? 1U : 0U;
+    r_v0 = r_t1 + r_v0;
+    if (mips_cond) goto L_5bbac;
+    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a2); }
+    r_a2 = mips_lo;
+    *(uint16_t *)(uintptr_t)(r_a3 + 2) = (uint16_t)r_a2;
+L_5afc4:
+    r_v1 = r_v1 + 0x1U;
+L_5afc8:
+    r_a0 = r_a0 + 0x4U;
+    mips_cond = (r_v1 != r_t5) ? 1U : 0U;
+    r_a1 = r_a1 + 0x4U;
+    if (mips_cond) goto L_5af94;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_t4 + 0);
+    r_t7 = *(uint32_t *)(uintptr_t)(r_sp + 864);
+    r_t6 = *(uint32_t *)(uintptr_t)(r_sp + 860);
+    if (r_v1) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_v1); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_v1); }
+    r_t5 = 4095U;
+    r_t4 = 0;
+    r_v1 = 0;
+    r_v0 = mips_lo;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_v0;
+    r_v0 = (uint32_t)(uintptr_t)&func_local_info; /* HI16 func_local_info */
+    r_v0 = (uint32_t)(uintptr_t)&func_local_info;
+    *(uint32_t *)(uintptr_t)(r_sp + 864) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(uintptr_t)adrlit_adr_local_light_b_in; /* HI16 adr_local_light_b_in */
+    *(uint32_t *)(uintptr_t)(r_sp + 920) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(uintptr_t)&ispint_adr_16; /* HI16 ispint_adr_16 */
+    r_v0 = (uint32_t)(uintptr_t)&ispint_adr_16;
+    *(uint32_t *)(uintptr_t)(r_sp + 924) = (uint32_t)r_v0;
+L_5b018:
+    r_t3 = *(uint32_t *)(uintptr_t)(r_t6 + 0);
+    r_a0 = 3U;
+    r_v0 = ((int32_t)r_t4 < (int32_t)r_t3) ? 1U : 0U;
+    if (r_v0 != 0) r_t4 = r_t3;
+    r_v0 = ((int32_t)r_t3 < (int32_t)r_t5) ? 1U : 0U;
+    if (r_v0 != 0) r_t5 = r_t3;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_t7 + 0);
+    *(uint32_t *)(uintptr_t)(r_sp + 860) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 792);
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
+    mips_cond = (r_v0 != r_a0) ? 1U : 0U;
+    r_a0 = 2U;
+    if (mips_cond) goto L_5bbf8;
+    r_v0 = r_v1 & 0x3U;
+    r_a0 = r_v0;
+    r_a1 = (uint32_t)((int32_t)r_v1 >> 2);
+    r_a2 = 6U;
+    r_v0 = r_a1;
+    r_a1 = (uint32_t)((int32_t)r_a0 * (int32_t)r_a2);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 792);
+    r_v0 = r_a1 + r_v0;
+    r_v0 = r_v0 + 0x5U;
+    r_v0 = r_v0 << 1;
+    r_v0 = r_a0 + r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
+    r_a0 = 51200U;
+    r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_t2);
+    if (r_a0) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a0); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a0); }
+    r_v0 = mips_lo;
+L_5b088:
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 852);
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 30);
+    r_a0 = 1U;
+    mips_cond = (r_a2 != r_a0) ? 1U : 0U;
+    r_a1 = r_v1 << 2;
+    if (mips_cond) goto L_5bd3c;
+    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local; /* HI16 adr_gauss_local */
+    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local;
+    r_a0 = r_a0 + r_a1;
+    r_a0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
+    r_a2 = 10000U;
+    r_a0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_a0);
+    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_a0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_a0 % (int32_t)r_a2); }
+    r_a2 = r_sp + 0x28U;
+    r_a2 = r_a2 + r_a1;
+    r_a0 = mips_lo;
+    *(uint32_t *)(uintptr_t)(r_a2 + 0) = (uint32_t)r_a0;
+L_5b0c8:
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+    r_a2 = 2U;
+    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
+    mips_cond = (r_a0 == r_a2) ? 1U : 0U;
+    r_a2 = 3U;
+    if (mips_cond) goto L_5b10c;
+    mips_cond = (r_a0 == r_a2) ? 1U : 0U;
+    r_v0 = r_t3;
+    if (mips_cond) goto L_5b10c;
+    r_a2 = 4U;
+    mips_cond = (r_a0 == r_a2) ? 1U : 0U;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 860);
+    if (mips_cond) goto L_5b10c;
+    r_a2 = 5U;
+    mips_cond = (r_a0 != r_a2) ? 1U : 0U;
+    r_v0 = 0;
+    if (mips_cond) goto L_5b10c;
+    r_v0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local; /* HI16 adr_gauss_local */
+    r_v0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local;
+    r_v0 = r_v0 + r_a1;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
+L_5b10c:
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+    r_a1 = ((int32_t)r_v1 < 8) ? 1U : 0U;
+    mips_cond = (r_a1 == 0) ? 1U : 0U;
+    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 2);
+    if (mips_cond) goto L_5bd4c;
+    mips_cond = (r_a0 != 0) ? 1U : 0U;
+    r_a0 = r_v1 << 1;
+    if (mips_cond) goto L_5b12c;
+    r_a0 = r_s4 + r_a0;
+    *(uint16_t *)(uintptr_t)(r_a0 + 4) = (uint16_t)r_v0;
+L_5b12c:
+    r_v1 = r_v1 + 0x1U;
+    r_v0 = 24U;
+    r_t6 = r_t6 + 0x4U;
+    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
+    r_t7 = r_t7 + 0x4U;
+    if (mips_cond) goto L_5b018;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
+    mips_cond = (r_v0 != 0) ? 1U : 0U;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+    if (mips_cond) goto L_5b164;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 876);
+    *(uint16_t *)(uintptr_t)(r_s4 + 4) = (uint16_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 880);
+    *(uint16_t *)(uintptr_t)(r_s4 + 6) = (uint16_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+L_5b164:
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
+    r_v0 = 1U;
+    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
+    r_v1 = r_s2 + 0x1eU;
+    if (mips_cond) goto L_5b17c;
+    *(uint16_t *)(uintptr_t)(r_s4 + 4) = (uint16_t)r_t5;
+    *(uint16_t *)(uintptr_t)(r_s4 + 6) = (uint16_t)r_t4;
+L_5b17c:
+    *(uint32_t *)(uintptr_t)(r_sp + 792) = (uint32_t)r_v1;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 884);
+    r_v0 = 1U;
+    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
+    r_s4 = r_s2 + 0x2U;
+    if (mips_cond) goto L_5bd84;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 848);
+    r_v1 = 155U;
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 828);
+    r_a2 = r_v0 + 0x9bU;
+    r_v0 = ((int32_t)r_a2 < 155) ? 1U : 0U;
+    if (r_v0 == 0) r_v1 = r_a2;
+    r_v0 = r_v1;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 828);
+    r_a2 = ((int32_t)r_v0 < 256) ? 1U : 0U;
+    r_a1 = 30U;
+    r_v1 = ((int32_t)r_v1 < 0) ? 1U : 0U;
+    if (r_v1 != 0) r_a0 = 0;
+    r_t0 = ((int32_t)r_a0 < 101) ? 1U : 0U;
+    r_v1 = r_a0;
+    r_a0 = 100U;
+    if (r_t0 != 0) r_a0 = r_v1;
+    r_v1 = 255U;
+    if (r_a2 != 0) r_v1 = r_v0;
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_map_curve1; /* HI16 func_adr_map_curve1 */
+    r_a2 = r_v1;
+    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_a0;
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_map_curve1;
+    r_a0 = r_sp + 0x88U;
+    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_map_curve1 */
+    r_a2 = *(uint32_t *)(uintptr_t)(r_sp + 796);
+    r_t0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+    r_a0 = r_s4;
+    r_v1 = r_sp + 0x88U;
+    r_a3 = 100U;
+L_5b204:
+    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
+    r_v0 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a0 = r_a0 + 0x2U;
+    { uint64_t mips_acc = (uint64_t)((int64_t)(int32_t)r_a1 * (int64_t)(int32_t)r_a3); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
+    r_v0 = r_v0 - r_a1;
+    r_a2 = r_a2 + 0x2U;
+    { uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) + (uint64_t)((int64_t)(int32_t)r_v0 * (int64_t)(int32_t)r_t0); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
+    r_v0 = mips_lo;
+    r_v0 = r_v0 + 0x32U;
+    if (r_a3) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a3); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a3); }
+    r_v0 = mips_lo;
+    *(uint16_t *)(uintptr_t)(r_a2 + -2) = (uint16_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 792);
+    mips_cond = (r_v0 != r_a0) ? 1U : 0U;
+    r_v1 = r_v1 + 0x4U;
+    if (mips_cond) goto L_5b204;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 888);
+L_5b244:
+    r_v0 = 1U;
+    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 784);
+    if (mips_cond) goto L_5bdb0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 804);
+    r_a0 = r_sp + 0x2bcU;
+    r_t6 = r_a0;
+    r_a3 = r_v0 + 0x12U;
+    r_t0 = 800U;
+    r_a2 = 100U;
+L_5b268:
+    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
+    r_v0 = r_v0 + 0x2U;
+    r_a0 = r_a0 + 0x2U;
+    r_v1 = ((int32_t)r_a1 < 0) ? 1U : 0U;
+    if (r_v1 != 0) r_a1 = 0;
+    r_v1 = ((int32_t)r_a1 < 801) ? 1U : 0U;
+    if (r_v1 == 0) r_a1 = r_t0;
+    r_v1 = r_a1 << 10;
+    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v1 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v1 % (int32_t)r_a2); }
+    r_v1 = mips_lo;
+    mips_cond = (r_v0 != r_a3) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_a0 + -2) = (uint16_t)r_v1;
+    if (mips_cond) goto L_5b268;
+    r_t5 = *(uint32_t *)(uintptr_t)(r_sp + 784);
+    r_t7 = (uint32_t)(uintptr_t)&ispint_adr_16; /* HI16 ispint_adr_16 */
+    r_t4 = r_s2;
+    r_t8 = r_s2 + 0x20U;
+    r_t7 = (uint32_t)(uintptr_t)&ispint_adr_16;
+L_5b2ac:
+    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t4 + 0);
+    r_a3 = 9U;
+    r_a2 = r_t6;
+    r_a1 = r_sp + 0x2a8U;
+    r_v0 = ADR_DISPATCH(r_t7); /* ispint_adr_16 */
+    r_t4 = r_t4 + 0x2U;
+    *(uint16_t *)(uintptr_t)(r_t5 + 0) = (uint16_t)r_v0;
+    mips_cond = (r_t4 != r_t8) ? 1U : 0U;
+    r_t5 = r_t5 + 0x2U;
+    if (mips_cond) goto L_5b2ac;
+L_5b2d0:
+    mips_cond = (r_s5 != 0) ? 1U : 0U;
+    r_v0 = 1U;
+    if (mips_cond) goto L_5bdf8;
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)((uintptr_t)adrlit_adr_ctc1_y_change);
+    r_v1 = 1U;
+    mips_cond = (r_a0 != r_v1) ? 1U : 0U;
+    r_v1 = 22U;
+    if (mips_cond) goto L_5b3fc;
+    *(uint16_t *)((uintptr_t)((uintptr_t)adrlit_adr_ctc1_y_change) + 0) = (uint16_t)0;
+    r_v0 = 4095U;
+    *(uint16_t *)(uintptr_t)(r_sp + 564) = (uint16_t)r_v0;
+    *(uint16_t *)(uintptr_t)(r_sp + 540) = (uint16_t)0;
+    r_v0 = 0;
+L_5b300:
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 780);
+    r_a0 = r_a0 + r_v0;
+    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
+    r_a0 = r_sp + 0x21cU;
+    r_a0 = r_a0 + r_v0;
+    r_v0 = r_v0 + 0x2U;
+    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_a0 + 2) = (uint16_t)r_a1;
+    if (mips_cond) goto L_5b300;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 832);
+    r_v0 = 1U;
+    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    if (mips_cond) goto L_5bdd0;
+    r_v0 = 129U;
+    r_v1 = 13U;
+    r_s8 = (uint32_t)(uintptr_t)&func_interp1_short; /* HI16 func_interp1_short */
+    r_s8 = (uint32_t)(uintptr_t)&func_interp1_short;
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v0;
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v1;
+    r_a3 = r_sp + 0x270U;
+    r_a2 = r_sp + 0x28cU;
+    r_a1 = r_s7;
+    r_a0 = r_s6;
+    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_v0;
+    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v1;
+    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_a3 = r_sp + 0x254U;
+    r_a2 = r_sp + 0x270U;
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v1;
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v1;
+    r_a1 = r_sp + 0x21cU;
+    r_a0 = r_sp + 0x28cU;
+    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+    r_a3 = r_sp + 0x238U;
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v1;
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v0;
+    r_a2 = r_sp + 0x254U;
+    r_a1 = r_s6;
+    r_a0 = r_s7;
+    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_ctc1_y_tmp);
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_a0 = 23U;
+    r_a2 = (uint32_t)(uintptr_t)adrlit_adr_ctc1_x; /* HI16 adr_ctc1_x */
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_a0;
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v1;
+    r_a3 = r_v0;
+    r_a2 = (uint32_t)(uintptr_t)adrlit_adr_ctc1_x;
+    r_a1 = r_sp + 0x238U;
+    r_a0 = r_sp + 0x28cU;
+    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v0;
+    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_v1 = r_v0 + 0x2U;
+    r_v0 = r_v0 + 0x2cU;
+L_5b3e8:
+    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
+    r_v1 = r_v1 + 0x2U;
+    r_s3 = r_s3 + 0x2U;
+    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_s3 + -2) = (uint16_t)r_a0;
+    if (mips_cond) goto L_5b3e8;
+L_5b3fc:
+    r_v0 = r_sp + 0x28U;
+L_5b400:
+    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 856);
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 820);
+    r_s8 = 1U;
+    *(uint32_t *)(uintptr_t)(r_sp + 784) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(uintptr_t)&subsection_up; /* HI16 subsection_up */
+    r_v0 = (uint32_t)(uintptr_t)&subsection_up;
+    *(uint32_t *)(uintptr_t)(r_sp + 804) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(uintptr_t)&func_interp1_short; /* HI16 func_interp1_short */
+    r_v0 = (uint32_t)(uintptr_t)&func_interp1_short;
+    *(uint32_t *)(uintptr_t)(r_sp + 828) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 816);
+    r_s3 = r_s0;
+    *(uint32_t *)(uintptr_t)(r_sp + 780) = (uint32_t)r_s0;
+    r_v0 = r_v0 + r_v1;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 824);
+    r_v0 = r_v0 + r_v1;
+    r_v1 = ((int32_t)0 < (int32_t)r_v0) ? 1U : 0U;
+    if (r_v1 == 0) r_v0 = r_s8;
+    *(uint32_t *)(uintptr_t)(r_sp + 796) = (uint32_t)r_v0;
+L_5b450:
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_a3 = r_s7;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
+    *(uint32_t *)(uintptr_t)(r_sp + 32) = (uint32_t)r_s8;
+    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_v0;
+    r_v0 = 16U;
+    *(uint32_t *)(uintptr_t)(r_sp + 28) = (uint32_t)r_v0;
+    r_v0 = 10U;
+    *(uint32_t *)(uintptr_t)(r_sp + 24) = (uint32_t)r_v0;
+    r_v0 = 8U;
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 760);
+    r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v0;
+    r_v0 = (uint32_t)(uintptr_t)adrlit_adr_cut_base_up; /* HI16 adr_cut_base_up */
+    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_cut_base_up;
+    *(uint32_t *)(uintptr_t)(r_sp + 832) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 804);
+    r_a2 = r_s6;
+    r_v0 = ADR_DISPATCH(r_v0); /* None */
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 832);
+    r_a1 = 0;
+    r_a3 = 10U;
+    r_a0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
+    r_v1 = ((int32_t)0 < (int32_t)r_a0) ? 1U : 0U;
+    if (r_v1 == 0) r_a0 = r_s8;
+    *(uint32_t *)(uintptr_t)(r_v0 + 0) = (uint32_t)r_a0;
+    r_v0 = (uint32_t)(uintptr_t)adrlit_adr_cut_base_up;
+    r_v1 = r_v0;
+L_5b4c4:
+    r_a0 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = *(uint32_t *)(uintptr_t)(r_v1 + 4);
+    r_a2 = ((int32_t)r_a0 < (int32_t)r_a2) ? 1U : 0U;
+    mips_cond = (r_a2 != 0) ? 1U : 0U;
+    r_a1 = r_a1 + 0x1U;
+    if (mips_cond) goto L_5b4e0;
+    r_a0 = r_a0 + 0x1U;
+    *(uint32_t *)(uintptr_t)(r_v1 + 4) = (uint32_t)r_a0;
+L_5b4e0:
+    mips_cond = (r_a1 != r_a3) ? 1U : 0U;
+    r_v1 = r_v1 + 0x4U;
+    if (mips_cond) goto L_5b4c4;
+    r_v1 = 4095U;
+    *(uint16_t *)(uintptr_t)(r_sp + 734) = (uint16_t)r_v1;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_v0 + 40);
+    *(uint16_t *)(uintptr_t)(r_sp + 720) = (uint16_t)0;
+    r_a1 = 0;
+    *(uint16_t *)(uintptr_t)(r_sp + 750) = (uint16_t)r_v1;
+    r_v1 = r_sp + 0x2e0U;
+    r_a2 = r_v1;
+    r_a0 = r_v1;
+    r_a3 = 7U;
+L_5b510:
+    r_t0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
+    r_a1 = r_a1 + 0x1U;
+    r_v0 = r_v0 + 0x4U;
+    *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_t0;
+    mips_cond = (r_a1 != r_a3) ? 1U : 0U;
+    r_a2 = r_a2 + 0x2U;
+    if (mips_cond) goto L_5b510;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_sp + 808);
+    r_t1 = *(uint32_t *)(uintptr_t)(r_sp + 872);
+    r_a2 = r_sp + 0x2d0U;
+    r_t0 = r_s1;
+    r_t3 = r_a3 + 0xcU;
+    r_a1 = r_a2;
+    r_t2 = 100U;
+L_5b544:
+    r_t4 = *(uint16_t *)(uintptr_t)(r_a3 + 0);
+    r_v0 = (uint32_t)(int16_t)(r_t4 & 0xffffU);
+    r_v0 = ((int32_t)r_v0 < 251) ? 1U : 0U;
+    mips_cond = (r_v0 != 0) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5b55c;
+    r_t4 = 250U;
+L_5b55c:
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_t4;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t1 + 0);
+    r_t5 = (uint32_t)(int16_t)(r_t4 & 0xffffU);
+    r_t4 = *(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_t5);
+    r_t6 = *(uint16_t *)(uintptr_t)(r_v1 + 0);
+    r_v0 = r_v0 + 0x32U;
+    if (r_t2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_t2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_t2); }
+    r_v0 = mips_lo;
+    r_t5 = (uint32_t)(int16_t)(r_v0 & 0xffffU);
+    r_v0 = r_t4 + r_v0;
+    *(uint16_t *)(uintptr_t)(r_a2 + 2) = (uint16_t)r_v0;
+    r_v0 = *(uint16_t *)(uintptr_t)(r_v1 + 2);
+    r_v0 = r_v0 - r_t6;
+    r_v0 = r_v0 & 0xffffU;
+    r_t6 = (uint32_t)(int16_t)(r_v0 & 0xffffU);
+    r_t6 = ((int32_t)r_t5 < (int32_t)r_t6) ? 1U : 0U;
+    mips_cond = (r_t6 == 0) ? 1U : 0U;
+    r_v0 = r_t4 + r_v0;
+    if (mips_cond) goto L_5b5ac;
+    *(uint16_t *)(uintptr_t)(r_a2 + 2) = (uint16_t)r_v0;
+L_5b5ac:
+    r_a3 = r_a3 + 0x2U;
+    *(uint16_t *)(uintptr_t)(r_t0 + 0) = (uint16_t)r_t5;
+    r_t1 = r_t1 + 0x2U;
+    r_a2 = r_a2 + 0x2U;
+    r_v1 = r_v1 + 0x2U;
+    mips_cond = (r_t3 != r_a3) ? 1U : 0U;
+    r_t0 = r_t0 + 0x2U;
+    if (mips_cond) goto L_5b544;
+    r_v0 = *(uint16_t *)(uintptr_t)(r_s1 + 8);
+    r_v1 = *(uint16_t *)(uintptr_t)(r_s1 + 2);
+    r_a3 = r_sp + 0x1fcU;
+    *(uint16_t *)(uintptr_t)(r_s1 + 18) = (uint16_t)r_v0;
+    r_v0 = *(uint16_t *)(uintptr_t)(r_s1 + 10);
+    *(uint16_t *)(uintptr_t)(r_s1 + 20) = (uint16_t)r_v0;
+    r_v0 = *(uint16_t *)(uintptr_t)(r_s1 + 0);
+    r_v0 = r_v0 + r_v1;
+    *(uint16_t *)(uintptr_t)(r_s1 + 14) = (uint16_t)r_v0;
+    r_v1 = *(uint16_t *)(uintptr_t)(r_s1 + 6);
+    r_v0 = *(uint16_t *)(uintptr_t)(r_s1 + 4);
+    r_v0 = r_v0 + r_v1;
+    *(uint16_t *)(uintptr_t)(r_s1 + 16) = (uint16_t)r_v0;
+    r_v0 = 16U;
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v0;
+    r_v0 = 8U;
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 828);
+    r_a2 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* None */
+    r_v1 = r_sp + 0x168U;
+    r_v0 = 0;
+    r_t2 = r_v1;
+    r_a0 = 28U;
+L_5b628:
+    r_a1 = r_sp + 0x1fcU;
+    r_a1 = r_a1 + r_v0;
+    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 2);
+    r_v0 = r_v0 + 0x2U;
+    r_v1 = r_v1 + 0x4U;
+    mips_cond = (r_v0 != r_a0) ? 1U : 0U;
+    *(uint32_t *)(uintptr_t)(r_v1 + -4) = (uint32_t)r_a1;
+    if (mips_cond) goto L_5b628;
+    r_t0 = *(uint32_t *)(uintptr_t)(r_sp + 868);
+    r_a0 = r_sp + 0x130U;
+    r_a2 = (uint32_t)(uintptr_t)adrlit_adr_kneepoint_diff; /* HI16 adr_kneepoint_diff */
+    r_t4 = (uint32_t)(uintptr_t)adrlit_adr_kneepoint_x; /* HI16 adr_kneepoint_x */
+    r_a2 = (uint32_t)(uintptr_t)adrlit_adr_kneepoint_diff;
+    r_a1 = r_a0;
+    r_v1 = 0;
+    r_t1 = r_a0;
+    r_t5 = 10000U;
+    r_a3 = 64U;
+    r_t4 = (uint32_t)(uintptr_t)adrlit_adr_kneepoint_x;
+    r_t3 = 4095U;
+    r_t6 = 14U;
+L_5b678:
+    r_t7 = *(uint32_t *)(uintptr_t)(r_sp + 784);
+    r_v0 = r_v1 << 2;
+    r_v0 = r_t7 + r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
+    r_t7 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_t8 = r_v0 << 12;
+    r_t8 = r_t8 - r_v0;
+    r_t8 = r_t8 + 0x1388U;
+    if (r_t5) { mips_lo = (uint32_t)((int32_t)r_t8 / (int32_t)r_t5); mips_hi = (uint32_t)((int32_t)r_t8 % (int32_t)r_t5); }
+    r_v0 = (r_v1 < (uint32_t)11) ? 1U : 0U;
+    mips_cond = (r_v0 == 0) ? 1U : 0U;
+    r_t8 = mips_lo;
+    if (mips_cond) goto L_5bf54;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t0 + 0);
+L_5b6ac:
+    r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_t7);
+    r_v0 = r_v0 + 0x20U;
+    if (r_a3) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a3); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a3); }
+    r_v0 = mips_lo;
+    r_t9 = ((int32_t)r_v0 < (int32_t)r_t8) ? 1U : 0U;
+    mips_cond = (r_t9 != 0) ? 1U : 0U;
+    r_t7 = ((int32_t)r_t8 < (int32_t)r_t7) ? 1U : 0U;
+    if (mips_cond) goto L_5b704;
+    mips_cond = (r_t7 == 0) ? 1U : 0U;
+    r_v0 = r_t8;
+    if (mips_cond) goto L_5b704;
+    r_t7 = r_v1 << 1;
+    r_t7 = r_t4 + r_t7;
+    r_t9 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t7 + 0);
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t7 + 2);
+    r_t8 = r_t3 - r_t9;
+    r_t7 = r_v0 - r_t9;
+    mips_cond = (r_v1 == 0) ? 1U : 0U;
+    r_v0 = 4095U;
+    if (mips_cond) goto L_5b6f8;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a1 + -4);
+    r_v0 = r_t3 - r_v0;
+L_5b6f8:
+    r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_t7);
+    if (r_t8) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_t8); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_t8); }
+    r_v0 = mips_lo;
+L_5b704:
+    mips_cond = (r_v1 != 0) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5bf68;
+    *(uint32_t *)(uintptr_t)(r_sp + 304) = (uint32_t)r_v0;
+L_5b710:
+    r_t7 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
+    r_v1 = r_v1 + 0x1U;
+    r_a2 = r_a2 + 0x2U;
+    r_v0 = ((int32_t)r_t7 < 4096) ? 1U : 0U;
+    if (r_v0 == 0) r_t7 = r_t3;
+    *(uint32_t *)(uintptr_t)(r_a1 + 0) = (uint32_t)r_t7;
+    r_t0 = r_t0 + 0x2U;
+    mips_cond = (r_v1 != r_t6) ? 1U : 0U;
+    r_a1 = r_a1 + 0x4U;
+    if (mips_cond) goto L_5b678;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+    r_a2 = 100U;
+    r_v1 = r_s4;
+    r_a3 = r_a2 - r_v0;
+L_5b744:
+    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
+    r_v0 = ((int32_t)r_v0 < (int32_t)r_a1) ? 1U : 0U;
+    mips_cond = (r_v0 == 0) ? 1U : 0U;
+    { uint64_t mips_acc = (uint64_t)((int64_t)(int32_t)r_a1 * (int64_t)(int32_t)r_a3); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
+    if (mips_cond) goto L_5b75c;
+    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a1;
+L_5b75c:
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
+    r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+    r_v1 = r_v1 + 0x2U;
+    r_a0 = r_a0 + 0x4U;
+    { uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) + (uint64_t)((int64_t)(int32_t)r_a1 * (int64_t)(int32_t)r_v0); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
+    r_v0 = mips_lo;
+    r_v0 = r_v0 + 0x32U;
+    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a2); }
+    r_v0 = mips_lo;
+    *(uint32_t *)(uintptr_t)(r_a0 + -4) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 792);
+    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
+    r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 912);
+    if (mips_cond) goto L_5b744;
+    r_a2 = *(uint32_t *)(uintptr_t)(r_sp + 916);
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_map_curve1; /* HI16 func_adr_map_curve1 */
+    r_a0 = r_sp + 0xf8U;
+    r_v0 = (uint32_t)(uintptr_t)&func_adr_map_curve1;
+    *(uint32_t *)(uintptr_t)(r_sp + 856) = (uint32_t)r_t1;
+    *(uint32_t *)(uintptr_t)(r_sp + 852) = (uint32_t)r_t2;
+    *(uint32_t *)(uintptr_t)(r_sp + 848) = (uint32_t)r_v1;
+    *(uint32_t *)(uintptr_t)(r_sp + 832) = (uint32_t)r_a3;
+    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_map_curve1 */
+    r_t1 = *(uint32_t *)(uintptr_t)(r_sp + 856);
+    r_t2 = *(uint32_t *)(uintptr_t)(r_sp + 852);
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 848);
+    r_a3 = *(uint32_t *)(uintptr_t)(r_sp + 832);
+    r_a0 = r_sp + 0xf8U;
+    r_t0 = r_s4;
+    r_a2 = 100U;
+L_5b7d0:
+    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t0 + 0);
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
+    r_v0 = ((int32_t)r_v0 < (int32_t)r_a1) ? 1U : 0U;
+    mips_cond = (r_v0 == 0) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5b7ec;
+    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a1;
+    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t0 + 0);
+L_5b7ec:
+    r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
+    r_t0 = r_t0 + 0x2U;
+    { uint64_t mips_acc = (uint64_t)((int64_t)(int32_t)r_a1 * (int64_t)(int32_t)r_a3); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
+    r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+    r_a0 = r_a0 + 0x4U;
+    { uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) + (uint64_t)((int64_t)(int32_t)r_a1 * (int64_t)(int32_t)r_v0); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
+    r_v0 = mips_lo;
+    r_v0 = r_v0 + 0x32U;
+    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a2); }
+    r_v0 = mips_lo;
+    mips_cond = (r_v1 != r_t0) ? 1U : 0U;
+    *(uint32_t *)(uintptr_t)(r_a0 + -4) = (uint32_t)r_v0;
+    if (mips_cond) goto L_5b7d0;
+    r_v0 = 0;
+    r_a1 = 56U;
+L_5b824:
+    r_a0 = r_t1 + r_v0;
+    r_a0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
+    r_a3 = *(uint32_t *)(uintptr_t)(r_sp + 820);
+    r_v1 = r_sp + 0xc0U;
+    r_a2 = r_v1 + r_v0;
+    { uint64_t mips_acc = (uint64_t)((int64_t)(int32_t)r_a3 * (int64_t)(int32_t)r_a0); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
+    r_v1 = r_t2 + r_v0;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 816);
+    { uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) + (uint64_t)((int64_t)(int32_t)r_a0 * (int64_t)(int32_t)r_v1); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
+    r_v1 = r_sp + 0xf8U;
+    r_v1 = r_v1 + r_v0;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 824);
+    r_v0 = r_v0 + 0x4U;
+    { uint64_t mips_acc = (((uint64_t)mips_hi << 32) | mips_lo) + (uint64_t)((int64_t)(int32_t)r_a0 * (int64_t)(int32_t)r_v1); mips_lo = (uint32_t)mips_acc; mips_hi = (uint32_t)(mips_acc >> 32); }
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 796);
+    r_v1 = mips_lo;
+    if (r_a0) { mips_lo = (uint32_t)((int32_t)r_v1 / (int32_t)r_a0); mips_hi = (uint32_t)((int32_t)r_v1 % (int32_t)r_a0); }
+    r_v1 = mips_lo;
+    mips_cond = (r_v0 != r_a1) ? 1U : 0U;
+    *(uint32_t *)(uintptr_t)(r_a2 + 0) = (uint32_t)r_v1;
+    if (mips_cond) goto L_5b824;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 768);
+    mips_cond = (r_v0 != 0) ? 1U : 0U;
+    r_v1 = 56U;
+    if (mips_cond) goto L_5bf78;
+L_5b888:
+    r_a1 = r_t2 + r_v0;
+    r_a1 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
+    r_a0 = r_sp + 0x1a0U;
+    r_a0 = r_a0 + r_v0;
+    r_v0 = r_v0 + 0x4U;
+    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
+    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a1;
+    if (mips_cond) goto L_5b888;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
+L_5b8a8:
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 18);
+    mips_cond = (r_v0 != r_s8) ? 1U : 0U;
+    r_v1 = 2U;
+    if (mips_cond) goto L_5c044;
+    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_t0;
+    r_a2 = 3U;
+L_5b8bc:
+    r_v0 = (uint32_t)(uintptr_t)&func_map_y_filter_sp; /* HI16 func_map_y_filter_sp */
+    r_a1 = r_sp + 0x1a0U;
+    r_v0 = (uint32_t)(uintptr_t)&func_map_y_filter_sp;
+    r_a0 = r_s2;
+    r_v0 = ADR_DISPATCH(r_v0); /* func_map_y_filter_sp */
+    r_t0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+L_5b8d4:
+    r_v0 = r_sp + 0x1a0U;
+L_5b8d8:
+    r_v1 = 0;
+    r_a1 = 14U;
+L_5b8e0:
+    r_a2 = *(uint32_t *)(uintptr_t)(r_sp + 780);
+    r_a0 = r_v1 << 1;
+    r_v1 = r_v1 + 0x1U;
+    r_a0 = r_a2 + r_a0;
+    r_a2 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
+    r_v0 = r_v0 + 0x4U;
+    mips_cond = (r_v1 != r_a1) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)r_a2;
+    if (mips_cond) goto L_5b8e0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_v0 = r_v0 + 0x4U;
+    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 780);
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_v0 = r_v0 + 0x1cU;
+    *(uint32_t *)(uintptr_t)(r_sp + 780) = (uint32_t)r_v0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 784);
+    r_v0 = r_v0 + 0x38U;
+    *(uint32_t *)(uintptr_t)(r_sp + 784) = (uint32_t)r_v0;
+    r_v0 = r_sp + 0x88U;
+    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5b450;
+    mips_cond = (r_s5 != 0) ? 1U : 0U;
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 772);
+    if (mips_cond) goto L_5c120;
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_v1 = 1U;
+    mips_cond = (r_a0 != r_v1) ? 1U : 0U;
+    r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_map_y_old);
+    if (mips_cond) goto L_5c0e4;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 776);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 776);
+    r_a1 = ((int32_t)r_v1 < 513) ? 1U : 0U;
+    r_v1 = 512U;
+    if (r_a1 == 0) r_a0 = r_v1;
+    r_a1 = r_a0;
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 836);
+    r_v1 = 9U;
+    mips_cond = (r_a0 == r_v1) ? 1U : 0U;
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 772);
+    if (mips_cond) goto L_5b980;
+    r_v1 = ((int32_t)0 < (int32_t)r_a1) ? 1U : 0U;
+    if (r_v1 != 0) r_a0 = r_a1;
+    r_a1 = r_a0;
+L_5b980:
+    r_t4 = r_a1 << 21;
+    r_t7 = r_v0 + 0x2a0U;
+    r_a3 = r_s0;
+    r_t8 = 28U;
+    r_t5 = 4096U;
+    r_t6 = 0x100000U;
+L_5b998:
+    r_v1 = 0;
+    r_a0 = 0;
+L_5b9a0:
+    r_a2 = r_a3 + r_a0;
+    r_t2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_a2 = r_v0 + r_a0;
+    r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_t3 = ((int32_t)r_t1 < (int32_t)r_t2) ? 1U : 0U;
+    mips_cond = (r_t3 == 0) ? 1U : 0U;
+    r_a2 = r_t1 - r_t2;
+    if (mips_cond) goto L_5b9c0;
+    r_a2 = r_t2 - r_t1;
+L_5b9c0:
+    r_t1 = ((int32_t)r_v1 < (int32_t)r_a2) ? 1U : 0U;
+    r_a0 = r_a0 + 0x2U;
+    mips_cond = (r_a0 != r_t8) ? 1U : 0U;
+    if (r_t1 != 0) r_v1 = r_a2;
+    if (mips_cond) goto L_5b9a0;
+    r_a0 = ((int32_t)r_a1 < (int32_t)r_v1) ? 1U : 0U;
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_a2 = r_a3;
+    if (mips_cond) goto L_5c0ac;
+    if (r_v1) { mips_lo = (uint32_t)((int32_t)r_t4 / (int32_t)r_v1); mips_hi = (uint32_t)((int32_t)r_t4 % (int32_t)r_v1); }
+    r_t2 = r_v0;
+    r_t1 = 4082U;
+    r_s1 = mips_lo;
+L_5b9ec:
+    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t2 + 0);
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_t9 = ((int32_t)r_a0 < (int32_t)r_v1) ? 1U : 0U;
+    mips_cond = (r_t9 == 0) ? 1U : 0U;
+    r_t3 = r_a0 & 0xffffU;
+    if (mips_cond) goto L_5c090;
+    r_v1 = r_v1 - r_a0;
+    r_a0 = (uint32_t)((int32_t)r_v1 * (int32_t)r_s1);
+    r_v1 = r_a0 + r_t6;
+    r_v1 = (uint32_t)((int32_t)r_v1 >> 21);
+    r_t3 = r_t3 + r_v1;
+    *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_t3;
+L_5ba18:
+    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_t2 = r_t2 + 0x2U;
+    r_a2 = r_a2 + 0x2U;
+    r_v1 = ((int32_t)r_t1 < (int32_t)r_a0) ? 1U : 0U;
+    if (r_v1 != 0) r_a0 = r_t1;
+    r_v1 = (uint32_t)(int16_t)(r_a0 & 0xffffU);
+    r_t1 = r_t1 + 0x1U;
+    *(uint16_t *)(uintptr_t)(r_a2 + -2) = (uint16_t)r_v1;
+    mips_cond = (r_t1 != r_t5) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_t2 + -2) = (uint16_t)r_v1;
+    if (mips_cond) goto L_5b9ec;
+    r_v0 = r_v0 + 0x1cU;
+L_5ba44:
+    mips_cond = (r_t7 != r_v0) ? 1U : 0U;
+    r_a3 = r_a3 + 0x1cU;
+    if (mips_cond) goto L_5b998;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 892);
+L_5ba50:
+    r_v0 = 1U;
+L_5ba54:
+    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 896);
+    if (mips_cond) goto L_5bae4;
+    r_t3 = r_s0 + 0x2a0U;
+    r_a0 = r_s0;
+    r_t2 = 100U;
+    r_t4 = 14U;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 800);
+L_5ba70:
+    r_a1 = r_a0;
+    r_a2 = r_s2;
+    r_t1 = r_v0 + 0x2U;
+    r_a3 = 0;
+    r_v0 = 0;
+L_5ba84:
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 2);
+    r_t5 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_t5 = r_v1 - r_t5;
+    mips_cond = (r_t5 != 0) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5ba9c;
+    r_t5 = 1U;
+L_5ba9c:
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t1 + 0);
+    r_a3 = r_a3 + 0x1U;
+    r_v1 = (uint32_t)((int32_t)r_v1 * (int32_t)r_t5);
+    r_t5 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
+    r_v1 = r_v1 + 0x32U;
+    if (r_t2) { mips_lo = (uint32_t)((int32_t)r_v1 / (int32_t)r_t2); mips_hi = (uint32_t)((int32_t)r_v1 % (int32_t)r_t2); }
+    r_v1 = mips_lo;
+    r_v0 = r_v1 + r_v0;
+    r_v1 = ((int32_t)r_t5 < (int32_t)r_v0) ? 1U : 0U;
+    if (r_v1 != 0) r_v0 = r_t5;
+    r_v0 = (uint32_t)(int16_t)(r_v0 & 0xffffU);
+    mips_cond = (r_a3 != r_t4) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_a1 + 0) = (uint16_t)r_v0;
+    if (mips_cond) goto L_5c2d4;
+    r_a0 = r_a0 + 0x1cU;
+    mips_cond = (r_t3 != r_a0) ? 1U : 0U;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 800);
+    if (mips_cond) goto L_5ba70;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 896);
+    r_v0 = 1U;
+L_5bae4:
+    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5bb6c;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 844);
+    mips_cond = ((int32_t)r_v1 >= 0) ? 1U : 0U;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 844);
+    if (mips_cond) goto L_5bafc;
+    r_v0 = 0;
+L_5bafc:
+    r_v1 = (uint32_t)(int16_t)(r_v0 & 0xffffU);
+    r_v1 = ((int32_t)r_v1 < 512) ? 1U : 0U;
+    mips_cond = (r_v1 != 0) ? 1U : 0U;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 760);
+    if (mips_cond) goto L_5bb10;
+    r_v0 = 511U;
+L_5bb10:
+    r_v0 = (uint32_t)(int16_t)(r_v0 & 0xffffU);
+    r_v0 = r_v0 << 2;
+    r_v0 = r_v1 + r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 788);
+    r_v1 = ((int32_t)r_v0 < (int32_t)r_v1) ? 1U : 0U;
+    mips_cond = (r_v1 != 0) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5bb6c;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 840);
+    r_v1 = ((int32_t)r_v1 < (int32_t)r_v0) ? 1U : 0U;
+    mips_cond = (r_v1 == 0) ? 1U : 0U;
+    r_s0 = r_s0 + 0x2a0U;
+    if (mips_cond) goto L_5c2e4;
+    r_v1 = 28U;
+L_5bb44:
+    r_v0 = 0;
+L_5bb48:
+    r_a0 = r_s2 + r_v0;
+    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 2);
+    r_a0 = r_s3 + r_v0;
+    r_v0 = r_v0 + 0x2U;
+    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)r_a1;
+    if (mips_cond) goto L_5bb48;
+    r_s3 = r_s3 + 0x1cU;
+    mips_cond = (r_s0 != r_s3) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5bb44;
+L_5bb6c:
+    r_ra = *(uint32_t *)(uintptr_t)(r_sp + 996);
+    r_s8 = *(uint32_t *)(uintptr_t)(r_sp + 992);
+L_5bb74:
+    r_s7 = *(uint32_t *)(uintptr_t)(r_sp + 988);
+    r_s6 = *(uint32_t *)(uintptr_t)(r_sp + 984);
+    r_s5 = *(uint32_t *)(uintptr_t)(r_sp + 980);
+    r_s4 = *(uint32_t *)(uintptr_t)(r_sp + 976);
+    r_s3 = *(uint32_t *)(uintptr_t)(r_sp + 972);
+    r_s2 = *(uint32_t *)(uintptr_t)(r_sp + 968);
+    r_s1 = *(uint32_t *)(uintptr_t)(r_sp + 964);
+    r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 960);
+    r_sp = r_sp + 0x3e8U;
+    goto fn_exit;
+L_5bb9c:
+    r_a2 = *(uint32_t *)(uintptr_t)(r_a1 + -4);
+    r_t0 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
+    r_a2 = r_t0 - r_a2;
+    goto L_5afa4;
+L_5bbac:
+    mips_cond = (r_v1 != r_t7) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5bbc4;
+    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a2); }
+    r_a2 = mips_lo;
+    *(uint16_t *)(uintptr_t)(r_a3 + 4) = (uint16_t)r_a2;
+    goto L_5afc4;
+L_5bbc4:
+    mips_cond = (r_v1 != r_t8) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5bbdc;
+    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a2); }
+    r_a2 = mips_lo;
+    *(uint16_t *)(uintptr_t)(r_a3 + 6) = (uint16_t)r_a2;
+    goto L_5afc4;
+L_5bbdc:
+    mips_cond = (r_v1 != r_t9) ? 1U : 0U;
+    r_v1 = r_v1 + 0x1U;
+    if (mips_cond) goto L_5afc8;
+    r_v1 = r_v1 + -0x1U;
+    if (r_a2) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a2); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a2); }
+    r_a2 = mips_lo;
+    *(uint16_t *)(uintptr_t)(r_a3 + 8) = (uint16_t)r_a2;
+    goto L_5afc4;
+L_5bbf8:
+    mips_cond = (r_v0 != r_a0) ? 1U : 0U;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_sp + 908);
+    if (mips_cond) goto L_5bce8;
+    r_v0 = r_sp + 0x1d8U;
+    r_a0 = 0;
+    r_a2 = r_v0;
+    r_t8 = 17U;
+L_5bc10:
+    r_a1 = (r_a0 < (uint32_t)3) ? 1U : 0U;
+    mips_cond = (r_a1 == 0) ? 1U : 0U;
+    r_a1 = ((int32_t)r_a0 < 11) ? 1U : 0U;
+    if (mips_cond) goto L_5bcc8;
+    r_a1 = r_a0 << 1;
+    r_a1 = r_s8 + r_a1;
+    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 2);
+L_5bc28:
+    *(uint16_t *)(uintptr_t)(r_v0 + 0) = (uint16_t)r_a1;
+L_5bc2c:
+    r_a1 = *(uint16_t *)(uintptr_t)(r_v0 + 0);
+    r_a3 = (uint32_t)(int16_t)(r_a1 & 0xffffU);
+    mips_cond = ((int32_t)r_a3 >= 0) ? 1U : 0U;
+    r_a3 = ((int32_t)r_a3 < 1025) ? 1U : 0U;
+    if (mips_cond) goto L_5bc48;
+    r_a1 = 0;
+    r_a3 = (uint32_t)(int16_t)(r_a1 & 0xffffU);
+    r_a3 = ((int32_t)r_a3 < 1025) ? 1U : 0U;
+L_5bc48:
+    mips_cond = (r_a3 != 0) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5bc54;
+    r_a1 = 1024U;
+L_5bc54:
+    r_a0 = r_a0 + 0x1U;
+    *(uint16_t *)(uintptr_t)(r_v0 + 0) = (uint16_t)r_a1;
+    mips_cond = (r_a0 != r_t8) ? 1U : 0U;
+    r_v0 = r_v0 + 0x2U;
+    if (mips_cond) goto L_5bc10;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 920);
+    r_a0 = (uint32_t)(int16_t)(r_t3 & 0xffffU);
+    r_a3 = 17U;
+    r_a1 = (uint32_t)(uintptr_t)adrlit_adr_local_light_b_in;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 924);
+    *(uint32_t *)(uintptr_t)(r_sp + 952) = (uint32_t)r_t7;
+    *(uint32_t *)(uintptr_t)(r_sp + 948) = (uint32_t)r_t6;
+    *(uint32_t *)(uintptr_t)(r_sp + 944) = (uint32_t)r_t4;
+    *(uint32_t *)(uintptr_t)(r_sp + 940) = (uint32_t)r_v1;
+    *(uint32_t *)(uintptr_t)(r_sp + 936) = (uint32_t)r_t2;
+    *(uint32_t *)(uintptr_t)(r_sp + 932) = (uint32_t)r_t5;
+    *(uint32_t *)(uintptr_t)(r_sp + 928) = (uint32_t)r_t3;
+    r_v0 = ADR_DISPATCH(r_v0); /* None */
+    r_t2 = *(uint32_t *)(uintptr_t)(r_sp + 936);
+    r_a0 = 51200U;
+    r_t3 = *(uint32_t *)(uintptr_t)(r_sp + 928);
+    r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_t2);
+    r_t5 = *(uint32_t *)(uintptr_t)(r_sp + 932);
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 940);
+    r_t4 = *(uint32_t *)(uintptr_t)(r_sp + 944);
+    r_t6 = *(uint32_t *)(uintptr_t)(r_sp + 948);
+    r_t7 = *(uint32_t *)(uintptr_t)(r_sp + 952);
+    if (r_a0) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a0); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a0); }
+    r_v0 = mips_lo;
+    goto L_5b088;
+L_5bcc8:
+    mips_cond = (r_a1 == 0) ? 1U : 0U;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_sp + 812);
+    if (mips_cond) goto L_5bce0;
+    r_a1 = r_a0 << 1;
+    r_a1 = r_a3 + r_a1;
+    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
+    goto L_5bc28;
+L_5bce0:
+    *(uint16_t *)(uintptr_t)(r_v0 + 0) = (uint16_t)0;
+    goto L_5bc2c;
+L_5bce8:
+    r_a2 = *(uint32_t *)(uintptr_t)(r_sp + 904);
+    r_a1 = *(uint32_t *)(uintptr_t)(r_sp + 900);
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 864);
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_t3;
+    r_a0 = r_t2;
+    *(uint32_t *)(uintptr_t)(r_sp + 952) = (uint32_t)r_t7;
+    *(uint32_t *)(uintptr_t)(r_sp + 948) = (uint32_t)r_t6;
+    *(uint32_t *)(uintptr_t)(r_sp + 944) = (uint32_t)r_t4;
+    *(uint32_t *)(uintptr_t)(r_sp + 940) = (uint32_t)r_v1;
+    *(uint32_t *)(uintptr_t)(r_sp + 936) = (uint32_t)r_t5;
+    *(uint32_t *)(uintptr_t)(r_sp + 932) = (uint32_t)r_t3;
+    *(uint32_t *)(uintptr_t)(r_sp + 928) = (uint32_t)r_t2;
+    r_v0 = ADR_DISPATCH(r_v0); /* None */
+    r_t7 = *(uint32_t *)(uintptr_t)(r_sp + 952);
+    r_t6 = *(uint32_t *)(uintptr_t)(r_sp + 948);
+    r_t4 = *(uint32_t *)(uintptr_t)(r_sp + 944);
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 940);
+    r_t5 = *(uint32_t *)(uintptr_t)(r_sp + 936);
+    r_t3 = *(uint32_t *)(uintptr_t)(r_sp + 932);
+    r_t2 = *(uint32_t *)(uintptr_t)(r_sp + 928);
+    goto L_5b088;
+L_5bd3c:
+    r_a0 = r_sp + 0x28U;
+    r_a0 = r_a0 + r_a1;
+    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_v0;
+    goto L_5b0c8;
+L_5bd4c:
+    r_a1 = ((int32_t)r_v1 < 16) ? 1U : 0U;
+    mips_cond = (r_a1 == 0) ? 1U : 0U;
+    r_a1 = 1U;
+    if (mips_cond) goto L_5bd6c;
+    mips_cond = (r_a0 != r_a1) ? 1U : 0U;
+    r_a0 = r_v1 << 1;
+    if (mips_cond) goto L_5b12c;
+    r_a0 = r_s4 + r_a0;
+    *(uint16_t *)(uintptr_t)(r_a0 + -12) = (uint16_t)r_v0;
+    goto L_5b12c;
+L_5bd6c:
+    r_a1 = 2U;
+    mips_cond = (r_a0 != r_a1) ? 1U : 0U;
+    r_a0 = r_v1 << 1;
+    if (mips_cond) goto L_5b12c;
+    r_a0 = r_s4 + r_a0;
+    *(uint16_t *)(uintptr_t)(r_a0 + -28) = (uint16_t)r_v0;
+    goto L_5b12c;
+L_5bd84:
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 796);
+    r_v1 = r_s4;
+L_5bd8c:
+    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
+    r_v1 = r_v1 + 0x2U;
+    r_v0 = r_v0 + 0x2U;
+    *(uint16_t *)(uintptr_t)(r_v0 + -2) = (uint16_t)r_a0;
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 792);
+    mips_cond = (r_a0 != r_v1) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5bd8c;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 888);
+    goto L_5b244;
+L_5bdb0:
+    r_a0 = 1024U;
+    r_v1 = r_v0 + 0x20U;
+L_5bdb8:
+    *(uint16_t *)(uintptr_t)(r_v0 + 0) = (uint16_t)r_a0;
+    r_v0 = r_v0 + 0x2U;
+    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
+    /* nop */
+    if (mips_cond) goto L_5bdb8;
+    /* nop */
+    goto L_5b2d0;
+L_5bdd0:
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_v0 = r_v0 + 0x2U;
+    r_s8 = r_v1 + 0x2cU;
+L_5bddc:
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
+    r_v0 = r_v0 + 0x2U;
+    r_s3 = r_s3 + 0x2U;
+    mips_cond = (r_v0 != r_s8) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_s3 + -2) = (uint16_t)r_v1;
+    if (mips_cond) goto L_5bddc;
+    r_v0 = r_sp + 0x28U;
+    goto L_5b400;
+L_5bdf8:
+    mips_cond = (r_s5 != r_v0) ? 1U : 0U;
+    r_v0 = r_sp + 0x28U;
+    if (mips_cond) goto L_5b400;
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_v0 = (uint32_t)(uintptr_t)adrlit_adr_ctc1_y_change;
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 2);
+    mips_cond = (r_v1 != r_s5) ? 1U : 0U;
+    r_v1 = 22U;
+    if (mips_cond) goto L_5b3fc;
+    *(uint16_t *)(uintptr_t)(r_v0 + 2) = (uint16_t)0;
+    r_v0 = 4095U;
+    *(uint16_t *)(uintptr_t)(r_sp + 564) = (uint16_t)r_v0;
+    *(uint16_t *)(uintptr_t)(r_sp + 540) = (uint16_t)0;
+    r_v0 = 0;
+L_5be28:
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 780);
+    r_a0 = r_a0 + r_v0;
+    r_a1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a0 + 0);
+    r_a0 = r_sp + 0x21cU;
+    r_a0 = r_a0 + r_v0;
+    r_v0 = r_v0 + 0x2U;
+    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_a0 + 2) = (uint16_t)r_a1;
+    if (mips_cond) goto L_5be28;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 832);
+    r_v0 = 1U;
+    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    if (mips_cond) goto L_5bf2c;
+    r_v0 = 129U;
+    r_v1 = 13U;
+    r_s8 = (uint32_t)(uintptr_t)&func_interp1_short; /* HI16 func_interp1_short */
+    r_s8 = (uint32_t)(uintptr_t)&func_interp1_short;
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v0;
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v1;
+    r_a3 = r_sp + 0x270U;
+    r_a2 = r_sp + 0x28cU;
+    r_a1 = r_s7;
+    r_a0 = r_s6;
+    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_v0;
+    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v1;
+    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_a3 = r_sp + 0x254U;
+    r_a2 = r_sp + 0x270U;
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v1;
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v1;
+    r_a1 = r_sp + 0x21cU;
+    r_a0 = r_sp + 0x28cU;
+    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+    r_a3 = r_sp + 0x238U;
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_v1;
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v0;
+    r_a2 = r_sp + 0x254U;
+    r_a1 = r_s6;
+    r_a0 = r_s7;
+    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
+    r_v0 = 0; /* HI16 .bss anchor */
+    r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_ctc1_y_tmp);
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_a0 = 23U;
+    r_a2 = (uint32_t)(uintptr_t)adrlit_adr_ctc1_x; /* HI16 adr_ctc1_x */
+    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_a0;
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_v1;
+    r_a3 = r_v0;
+    r_a2 = (uint32_t)(uintptr_t)adrlit_adr_ctc1_x;
+    r_a1 = r_sp + 0x238U;
+    r_a0 = r_sp + 0x28cU;
+    *(uint32_t *)(uintptr_t)(r_sp + 752) = (uint32_t)r_v0;
+    r_v0 = ADR_DISPATCH(r_s8); /* func_interp1_short */
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_v1 = r_v0 + 0x2U;
+    r_v0 = r_v0 + 0x2cU;
+L_5bf10:
+    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v1 + 0);
+    r_v1 = r_v1 + 0x2U;
+    r_s3 = r_s3 + 0x2U;
+    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_s3 + -2) = (uint16_t)r_a0;
+    if (mips_cond) goto L_5bf10;
+    r_v0 = r_sp + 0x28U;
+    goto L_5b400;
+L_5bf2c:
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 752);
+    r_v0 = r_v0 + 0x2U;
+    r_s8 = r_v1 + 0x2cU;
+L_5bf38:
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
+    r_v0 = r_v0 + 0x2U;
+    r_s3 = r_s3 + 0x2U;
+    mips_cond = (r_v0 != r_s8) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_s3 + -2) = (uint16_t)r_v1;
+    if (mips_cond) goto L_5bf38;
+    r_v0 = r_sp + 0x28U;
+    goto L_5b400;
+L_5bf54:
+    r_t9 = *(uint32_t *)(uintptr_t)(r_sp + 812);
+    r_v0 = r_v1 << 1;
+    r_v0 = r_t9 + r_v0;
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + -22);
+    goto L_5b6ac;
+L_5bf68:
+    r_t7 = *(uint32_t *)(uintptr_t)(r_a1 + -4);
+    r_v0 = r_t7 + r_v0;
+    *(uint32_t *)(uintptr_t)(r_a1 + 0) = (uint32_t)r_v0;
+    goto L_5b710;
+L_5bf78:
+    mips_cond = (r_v0 != r_s8) ? 1U : 0U;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 768);
+    if (mips_cond) goto L_5bfac;
+    r_v0 = 0;
+    r_v1 = 56U;
+L_5bf88:
+    r_a1 = r_t1 + r_v0;
+    r_a1 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
+    r_a0 = r_sp + 0x1a0U;
+    r_a0 = r_a0 + r_v0;
+    r_v0 = r_v0 + 0x4U;
+    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
+    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a1;
+    if (mips_cond) goto L_5bf88;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
+    goto L_5b8a8;
+L_5bfac:
+    r_v0 = 2U;
+    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 768);
+    if (mips_cond) goto L_5bfe8;
+    r_v0 = 0;
+    r_v1 = 56U;
+L_5bfc0:
+    r_a1 = r_sp + 0xf8U;
+    r_a1 = r_a1 + r_v0;
+    r_a1 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
+    r_a0 = r_sp + 0x1a0U;
+    r_a0 = r_a0 + r_v0;
+    r_v0 = r_v0 + 0x4U;
+    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
+    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a1;
+    if (mips_cond) goto L_5bfc0;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
+    goto L_5b8a8;
+L_5bfe8:
+    r_v0 = 3U;
+    mips_cond = (r_v1 != r_v0) ? 1U : 0U;
+    r_v1 = r_sp + 0x1a0U;
+    if (mips_cond) goto L_5c024;
+    r_v0 = 0;
+    r_v1 = 56U;
+L_5bffc:
+    r_a1 = r_sp + 0xc0U;
+    r_a1 = r_a1 + r_v0;
+    r_a1 = *(uint32_t *)(uintptr_t)(r_a1 + 0);
+    r_a0 = r_sp + 0x1a0U;
+    r_a0 = r_a0 + r_v0;
+    r_v0 = r_v0 + 0x4U;
+    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
+    *(uint32_t *)(uintptr_t)(r_a0 + 0) = (uint32_t)r_a1;
+    if (mips_cond) goto L_5bffc;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
+    goto L_5b8a8;
+L_5c024:
+    r_v0 = r_s4;
+L_5c028:
+    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 0);
+    r_v0 = r_v0 + 0x2U;
+    r_v1 = r_v1 + 0x4U;
+    mips_cond = (r_t0 != r_v0) ? 1U : 0U;
+    *(uint32_t *)(uintptr_t)(r_v1 + -4) = (uint32_t)r_a0;
+    if (mips_cond) goto L_5c028;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
+    goto L_5b8a8;
+L_5c044:
+    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
+    r_v1 = 3U;
+    if (mips_cond) goto L_5c05c;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
+    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_t0;
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 16);
+    goto L_5b8bc;
+L_5c05c:
+    mips_cond = (r_v0 != r_v1) ? 1U : 0U;
+    r_v0 = r_sp + 0x1a0U;
+    if (mips_cond) goto L_5b8d8;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 764);
+    r_a1 = r_sp + 0x1a0U;
+    r_a0 = r_s2;
+    r_a3 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 14);
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_v0 + 16);
+    r_v0 = (uint32_t)(uintptr_t)&func_map_y_filter; /* HI16 func_map_y_filter */
+    r_v0 = (uint32_t)(uintptr_t)&func_map_y_filter;
+    *(uint32_t *)(uintptr_t)(r_sp + 756) = (uint32_t)r_t0;
+    r_v0 = ADR_DISPATCH(r_v0); /* func_map_y_filter */
+    r_t0 = *(uint32_t *)(uintptr_t)(r_sp + 756);
+    goto L_5b8d4;
+L_5c090:
+    r_v1 = r_a0 - r_v1;
+    r_a0 = (uint32_t)((int32_t)r_v1 * (int32_t)r_s1);
+    r_v1 = r_a0 + r_t6;
+    r_v1 = (uint32_t)((int32_t)r_v1 >> 21);
+    r_v1 = r_t3 - r_v1;
+    *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_v1;
+    goto L_5ba18;
+L_5c0ac:
+    r_v1 = 4082U;
+L_5c0b0:
+    r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_a2 = r_a2 + 0x2U;
+    r_a0 = ((int32_t)r_v1 < (int32_t)r_t1) ? 1U : 0U;
+    if (r_a0 != 0) r_t1 = r_v1;
+    r_a0 = (uint32_t)(int16_t)(r_t1 & 0xffffU);
+    r_t1 = r_v1 << 1;
+    r_t1 = r_v0 + r_t1;
+    r_v1 = r_v1 + 0x1U;
+    *(uint16_t *)(uintptr_t)(r_a2 + -2) = (uint16_t)r_a0;
+    mips_cond = (r_v1 != r_t5) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_t1 + -8164) = (uint16_t)r_a0;
+    if (mips_cond) goto L_5c0b0;
+    r_v0 = r_v0 + 0x1cU;
+    goto L_5ba44;
+L_5c0e4:
+    r_a1 = r_s0 + 0x2a0U;
+    r_a0 = r_s0;
+    r_a2 = 28U;
+L_5c0f0:
+    r_v1 = 0;
+L_5c0f4:
+    r_a3 = r_a0 + r_v1;
+    r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a3 + 0);
+    r_a3 = r_v0 + r_v1;
+    r_v1 = r_v1 + 0x2U;
+    mips_cond = (r_v1 != r_a2) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_t1;
+    if (mips_cond) goto L_5c0f4;
+    r_a0 = r_a0 + 0x1cU;
+    mips_cond = (r_a1 != r_a0) ? 1U : 0U;
+    r_v0 = r_v0 + 0x1cU;
+    if (mips_cond) goto L_5c0f0;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 892);
+    goto L_5ba50;
+L_5c120:
+    r_v0 = 1U;
+    mips_cond = (r_s5 != r_v0) ? 1U : 0U;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 892);
+    if (mips_cond) goto L_5ba54;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 772);
+    r_v0 = 0; /* HI16 .bss anchor */
+    mips_cond = (r_v1 != r_s5) ? 1U : 0U;
+    r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_map_y_old);
+    if (mips_cond) goto L_5c298;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 776);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 776);
+    r_a1 = ((int32_t)r_v1 < 513) ? 1U : 0U;
+    r_v1 = 512U;
+    if (r_a1 == 0) r_a0 = r_v1;
+    r_a1 = r_a0;
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 836);
+    r_v1 = 9U;
+    mips_cond = (r_a0 == r_v1) ? 1U : 0U;
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 772);
+    if (mips_cond) goto L_5c170;
+    r_v1 = ((int32_t)0 < (int32_t)r_a1) ? 1U : 0U;
+    if (r_v1 != 0) r_a0 = r_a1;
+    r_a1 = r_a0;
+L_5c170:
+    r_t4 = r_a1 << 21;
+    r_t7 = r_v0 + 0x2a0U;
+    r_a3 = r_s0;
+    r_t8 = 28U;
+    r_t5 = 4096U;
+    r_t6 = 0x100000U;
+L_5c188:
+    r_a0 = 0;
+    r_v1 = 0;
+L_5c190:
+    r_a2 = r_a3 + r_a0;
+    r_t2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_a2 = r_v0 + r_a0;
+    r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_t3 = ((int32_t)r_t1 < (int32_t)r_t2) ? 1U : 0U;
+    mips_cond = (r_t3 == 0) ? 1U : 0U;
+    r_a2 = r_t1 - r_t2;
+    if (mips_cond) goto L_5c1b0;
+    r_a2 = r_t2 - r_t1;
+L_5c1b0:
+    r_t1 = ((int32_t)r_v1 < (int32_t)r_a2) ? 1U : 0U;
+    r_a0 = r_a0 + 0x2U;
+    mips_cond = (r_a0 != r_t8) ? 1U : 0U;
+    if (r_t1 != 0) r_v1 = r_a2;
+    if (mips_cond) goto L_5c190;
+    r_a0 = ((int32_t)r_a1 < (int32_t)r_v1) ? 1U : 0U;
+    mips_cond = (r_a0 == 0) ? 1U : 0U;
+    r_a2 = r_a3;
+    if (mips_cond) goto L_5c260;
+    if (r_v1) { mips_lo = (uint32_t)((int32_t)r_t4 / (int32_t)r_v1); mips_hi = (uint32_t)((int32_t)r_t4 % (int32_t)r_v1); }
+    r_t2 = r_v0;
+    r_t1 = 4082U;
+    r_s1 = mips_lo;
+L_5c1dc:
+    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_t2 + 0);
+    r_v1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_t9 = ((int32_t)r_a0 < (int32_t)r_v1) ? 1U : 0U;
+    mips_cond = (r_t9 == 0) ? 1U : 0U;
+    r_t3 = r_a0 & 0xffffU;
+    if (mips_cond) goto L_5c244;
+    r_v1 = r_v1 - r_a0;
+    r_a0 = (uint32_t)((int32_t)r_v1 * (int32_t)r_s1);
+    r_v1 = r_a0 + r_t6;
+    r_v1 = (uint32_t)((int32_t)r_v1 >> 21);
+    r_t3 = r_t3 + r_v1;
+    *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_t3;
+L_5c208:
+    r_a0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_t2 = r_t2 + 0x2U;
+    r_a2 = r_a2 + 0x2U;
+    r_v1 = ((int32_t)r_t1 < (int32_t)r_a0) ? 1U : 0U;
+    if (r_v1 != 0) r_a0 = r_t1;
+    r_v1 = (uint32_t)(int16_t)(r_a0 & 0xffffU);
+    r_t1 = r_t1 + 0x1U;
+    *(uint16_t *)(uintptr_t)(r_a2 + -2) = (uint16_t)r_v1;
+    mips_cond = (r_t1 != r_t5) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_t2 + -2) = (uint16_t)r_v1;
+    if (mips_cond) goto L_5c1dc;
+    r_v0 = r_v0 + 0x1cU;
+L_5c234:
+    mips_cond = (r_t7 != r_v0) ? 1U : 0U;
+    r_a3 = r_a3 + 0x1cU;
+    if (mips_cond) goto L_5c188;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 892);
+    goto L_5ba50;
+L_5c244:
+    r_v1 = r_a0 - r_v1;
+    r_a0 = (uint32_t)((int32_t)r_v1 * (int32_t)r_s1);
+    r_v1 = r_a0 + r_t6;
+    r_v1 = (uint32_t)((int32_t)r_v1 >> 21);
+    r_v1 = r_t3 - r_v1;
+    *(uint16_t *)(uintptr_t)(r_a2 + 0) = (uint16_t)r_v1;
+    goto L_5c208;
+L_5c260:
+    r_v1 = 4082U;
+L_5c264:
+    r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_a2 = r_a2 + 0x2U;
+    r_a0 = ((int32_t)r_v1 < (int32_t)r_t1) ? 1U : 0U;
+    if (r_a0 != 0) r_t1 = r_v1;
+    r_a0 = (uint32_t)(int16_t)(r_t1 & 0xffffU);
+    r_t1 = r_v1 << 1;
+    r_t1 = r_v0 + r_t1;
+    r_v1 = r_v1 + 0x1U;
+    *(uint16_t *)(uintptr_t)(r_a2 + -2) = (uint16_t)r_a0;
+    mips_cond = (r_v1 != r_t5) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_t1 + -8164) = (uint16_t)r_a0;
+    if (mips_cond) goto L_5c264;
+    r_v0 = r_v0 + 0x1cU;
+    goto L_5c234;
+L_5c298:
+    r_a1 = r_s0 + 0x2a0U;
+    r_a0 = r_s0;
+    r_a2 = 28U;
+L_5c2a4:
+    r_v1 = 0;
+L_5c2a8:
+    r_a3 = r_a0 + r_v1;
+    r_t1 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a3 + 0);
+    r_a3 = r_v0 + r_v1;
+    r_v1 = r_v1 + 0x2U;
+    mips_cond = (r_v1 != r_a2) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_t1;
+    if (mips_cond) goto L_5c2a8;
+    r_a0 = r_a0 + 0x1cU;
+    mips_cond = (r_a1 != r_a0) ? 1U : 0U;
+    r_v0 = r_v0 + 0x1cU;
+    if (mips_cond) goto L_5c2a4;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 892);
+    goto L_5ba50;
+L_5c2d4:
+    r_a2 = r_a2 + 0x2U;
+    r_a1 = r_a1 + 0x2U;
+    r_t1 = r_t1 + 0x2U;
+    goto L_5ba84;
+L_5c2e4:
+    r_v1 = *(uint32_t *)(uintptr_t)(r_sp + 788);
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 788);
+    r_v1 = r_v0 - r_v1;
+    r_v0 = *(uint32_t *)(uintptr_t)(r_sp + 840);
+    r_a0 = r_v0 - r_a0;
+L_5c2f8:
+    r_a1 = r_s4;
+    r_a2 = r_s3;
+L_5c300:
+    r_a3 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_v0 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
+    r_a1 = r_a1 + 0x2U;
+    r_a2 = r_a2 + 0x2U;
+    r_v0 = r_a3 - r_v0;
+    r_v0 = (uint32_t)((int32_t)r_v0 * (int32_t)r_v1);
+    if (r_a0) { mips_lo = (uint32_t)((int32_t)r_v0 / (int32_t)r_a0); mips_hi = (uint32_t)((int32_t)r_v0 % (int32_t)r_a0); }
+    r_v0 = mips_lo;
+    r_v0 = r_a3 - r_v0;
+    mips_cond = (r_t0 != r_a1) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_a2 + -2) = (uint16_t)r_v0;
+    if (mips_cond) goto L_5c300;
+    r_s3 = r_s3 + 0x1cU;
+    mips_cond = (r_s0 != r_s3) ? 1U : 0U;
+    r_ra = *(uint32_t *)(uintptr_t)(r_sp + 996);
+    if (mips_cond) goto L_5c2f8;
+    r_s8 = *(uint32_t *)(uintptr_t)(r_sp + 992);
+    goto L_5bb74;
 
 fn_exit:
     if (v1_io)
@@ -7409,12 +7915,12 @@ static int32_t tiziano_adr_hard_base_refresh_lit(uint32_t a0_in, uint32_t a1_in,
     (void)mips_cond;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_53b70;
+    if (mips_cond) goto L_53de0;
     r_v0 = 0; /* HI16 .bss anchor */
     r_v1 = 0; /* HI16 .bss anchor */
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_sec_adr_paras);
     r_v1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_hard_base);
-L_53b2c:
+L_53d9c:
     r_a0 = r_v0 + 0x15cU;
     *(uint32_t *)(uintptr_t)(r_v1 + 8) = (uint32_t)r_a0;
     r_a0 = r_v0 + 0x17cU;
@@ -7432,11 +7938,11 @@ L_53b2c:
     *(uint32_t *)(uintptr_t)(r_v1 + 4) = (uint32_t)r_a0;
     *(uint32_t *)(uintptr_t)(r_v1 + 28) = (uint32_t)r_v0;
     goto fn_exit;
-L_53b70:
+L_53de0:
     r_v1 = 0; /* HI16 .bss anchor */
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_main_adr_paras);
     r_v1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
-    goto L_53b2c;
+    goto L_53d9c;
 
 fn_exit:
     if (v1_io)
@@ -7459,14 +7965,14 @@ static int32_t tiziano_adr_hard_para_refresh_lit(uint32_t a0_in, uint32_t a1_in,
     (void)mips_cond;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_53afc;
+    if (mips_cond) goto L_53d6c;
     r_v0 = 0; /* HI16 .bss anchor */
     r_v1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_sec_adr_paras);
     r_v0 = 0; /* HI16 .bss anchor */
     r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_wal_para);
     r_v0 = 0; /* HI16 .bss anchor */
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_hard_para);
-L_53a80:
+L_53cf0:
     r_a1 = r_v1 + 0x13cU;
     *(uint32_t *)(uintptr_t)(r_v0 + 4) = (uint32_t)r_a1;
     r_a1 = *(uint32_t *)(uintptr_t)(r_a0 + 264);
@@ -7498,13 +8004,13 @@ L_53a80:
     *(uint32_t *)(uintptr_t)(r_v0 + 40) = (uint32_t)r_a0;
     *(uint32_t *)(uintptr_t)(r_v0 + 48) = (uint32_t)r_v1;
     goto fn_exit;
-L_53afc:
+L_53d6c:
     r_v1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_main_adr_paras);
     r_v0 = 0; /* HI16 .bss anchor */
     r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_wal_para);
     r_v0 = 0; /* HI16 .bss anchor */
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_para);
-    goto L_53a80;
+    goto L_53cf0;
 
 fn_exit:
     if (v1_io)
@@ -7539,7 +8045,7 @@ static int32_t tiziano_adr_main_interrupt_static_lit(uint32_t a0_in, uint32_t a1
     r_v0 = *(uint32_t *)(uintptr_t)(r_s0 + 52);
     mips_cond = (r_v0 != r_s1) ? 1U : 0U;
     r_v0 = r_v0 + 0x1000U;
-    if (mips_cond) goto L_55848;
+    if (mips_cond) goto L_55ab8;
     r_a1 = *(uint32_t *)(uintptr_t)(r_s0 + 48);
     r_v0 = (uint32_t)(uintptr_t)&private_dma_cache_sync; /* HI16 private_dma_cache_sync */
     r_a0 = 0;
@@ -7554,10 +8060,10 @@ static int32_t tiziano_adr_main_interrupt_static_lit(uint32_t a0_in, uint32_t a1
     r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_read_data */
     r_v0 = *(uint32_t *)(uintptr_t)(r_s0 + 52);
     r_v0 = r_v0 + 0x1000U;
-L_55848:
+L_55ab8:
     mips_cond = (r_v0 != r_s1) ? 1U : 0U;
     r_v0 = (uint32_t)(uintptr_t)&private_dma_cache_sync; /* HI16 private_dma_cache_sync */
-    if (mips_cond) goto L_55884;
+    if (mips_cond) goto L_55af4;
     r_a1 = *(uint32_t *)(uintptr_t)(r_s0 + 48);
     r_a0 = 0;
     r_a1 = r_a1 + 0x1000U;
@@ -7571,12 +8077,12 @@ L_55848:
     r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_read_data;
     r_a0 = r_a0 + 0x1000U;
     r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_read_data */
-L_55884:
+L_55af4:
     r_v0 = *(uint32_t *)(uintptr_t)(r_s0 + 52);
     r_v0 = r_v0 + 0x2000U;
     mips_cond = (r_v0 != r_s1) ? 1U : 0U;
     r_v0 = (uint32_t)(uintptr_t)&private_dma_cache_sync; /* HI16 private_dma_cache_sync */
-    if (mips_cond) goto L_558c8;
+    if (mips_cond) goto L_55b38;
     r_a1 = *(uint32_t *)(uintptr_t)(r_s0 + 48);
     r_a0 = 0;
     r_a1 = r_a1 + 0x2000U;
@@ -7590,12 +8096,12 @@ L_55884:
     r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_read_data;
     r_a0 = r_a0 + 0x2000U;
     r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_read_data */
-L_558c8:
+L_55b38:
     r_v0 = *(uint32_t *)(uintptr_t)(r_s0 + 52);
     r_v0 = r_v0 + 0x3000U;
     mips_cond = (r_v0 != r_s1) ? 1U : 0U;
     r_v0 = 2U;
-    if (mips_cond) goto L_55914;
+    if (mips_cond) goto L_55b84;
     r_a1 = *(uint32_t *)(uintptr_t)(r_s0 + 48);
     r_v0 = (uint32_t)(uintptr_t)&private_dma_cache_sync; /* HI16 private_dma_cache_sync */
     r_a0 = 0;
@@ -7611,7 +8117,7 @@ L_558c8:
     r_a0 = r_a0 + 0x3000U;
     r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_read_data */
     r_v0 = 2U;
-L_55914:
+L_55b84:
     *(uint32_t *)(uintptr_t)(r_sp + 24) = (uint32_t)r_v0;
     r_v0 = (uint32_t)(uintptr_t)&tisp_event_push; /* HI16 tisp_event_push */
     r_a1 = r_sp + 0x10U;
@@ -7652,12 +8158,12 @@ static int32_t tiziano_adr_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, ui
     *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_s1;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_s0;
-    if (mips_cond) goto L_53c38;
+    if (mips_cond) goto L_53ea8;
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_sec_adr_paras);
     r_v0 = 0; /* HI16 .bss anchor */
     r_s3 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_sec_adr_gamma);
-L_53bb0:
+L_53e20:
     r_s0 = (uint32_t)(uintptr_t)&tparamsN; /* HI16 tparamsN */
     r_a0 = r_a0 << 2;
     r_s0 = (uint32_t)(uintptr_t)&tparamsN;
@@ -7692,12 +8198,12 @@ L_53bb0:
     r_a2 = 258U;
     r_sp = r_sp + 0x28U;
     r_v0 = ADR_DISPATCH(r_t9); goto fn_exit; /* tail memcpy */
-L_53c38:
+L_53ea8:
     r_v0 = 0; /* HI16 .bss anchor */
     r_s2 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_main_adr_paras);
     r_v0 = 0; /* HI16 .bss anchor */
     r_s3 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_main_adr_gamma);
-    goto L_53bb0;
+    goto L_53e20;
 
 fn_exit:
     if (v1_io)
@@ -7726,10 +8232,10 @@ static int32_t tiziano_adr_read_data_lit(uint32_t a0_in, uint32_t a1_in, uint32_
     *(uint32_t *)(uintptr_t)(r_sp + 4) = (uint32_t)r_s1;
     mips_cond = (r_a1 == 0) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_sp + 0) = (uint32_t)r_s0;
-    if (mips_cond) goto L_557cc;
+    if (mips_cond) goto L_55a3c;
     r_v0 = 0; /* HI16 .bss anchor */
     r_a3 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_stat_info);
-L_55510:
+L_55780:
     r_t6 = 0x30000U;
     r_a1 = r_t6 | 0xc000U;
     r_t2 = r_a0;
@@ -7744,12 +8250,12 @@ L_55510:
     r_s2 = r_a1 + 0x3f00U;
     r_s3 = r_a1 + 0x3ff0U;
     r_s4 = 6U;
-L_55548:
+L_557b8:
     r_t0 = r_t5;
     r_v1 = r_t4;
     r_v0 = r_t2;
     r_t3 = 0;
-L_55558:
+L_557c8:
     r_a2 = *(uint32_t *)(uintptr_t)(r_v0 + 8);
     r_t3 = r_t3 + 0x1U;
     r_v0 = r_v0 + 0x38U;
@@ -7865,17 +8371,17 @@ L_55558:
     r_a2 = (r_a2 >> 0) & 0x1fffffffU;
     mips_cond = (r_t3 != r_s4) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_t0 + 5392) = (uint32_t)r_a2;
-    if (mips_cond) goto L_55558;
+    if (mips_cond) goto L_557c8;
     r_t2 = r_t2 + 0x150U;
     r_t4 = r_t4 + 0x50U;
     mips_cond = (r_t2 != r_t8) ? 1U : 0U;
     r_t5 = r_t5 + 0x4U;
-    if (mips_cond) goto L_55548;
+    if (mips_cond) goto L_557b8;
     r_v0 = 0x1f0000U;
     r_v1 = r_a0 + 0x548U;
     r_t0 = r_a0 + 0xa98U;
     r_a2 = r_v0 | 0xf800U;
-L_55744:
+L_559b4:
     r_v0 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
     r_v1 = r_v1 + 0x8U;
     r_t1 = r_t1 + 0xcU;
@@ -7892,7 +8398,7 @@ L_55744:
     r_v0 = (r_v0 >> 10) & 0x1fffffU;
     mips_cond = (r_t0 != r_v1) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_t1 + -4) = (uint32_t)r_v0;
-    if (mips_cond) goto L_55744;
+    if (mips_cond) goto L_559b4;
     r_v0 = *(uint32_t *)(uintptr_t)(r_a0 + 2712);
     r_v0 = (r_v0 >> 0) & 0x1fffffU;
     *(uint32_t *)(uintptr_t)(r_a3 + 2040) = (uint32_t)r_v0;
@@ -7911,10 +8417,10 @@ L_55744:
     r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 0);
     r_sp = r_sp + 0x18U;
     goto fn_exit;
-L_557cc:
+L_55a3c:
     r_v0 = 0; /* HI16 .bss anchor */
     r_a3 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_stat_info);
-    goto L_55510;
+    goto L_55780;
 
 fn_exit:
     if (v1_io)
@@ -7937,7 +8443,7 @@ static int32_t tiziano_adr_soft_para_refresh_lit(uint32_t a0_in, uint32_t a1_in,
     (void)mips_cond;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_53a40;
+    if (mips_cond) goto L_53cb0;
     r_v0 = 0; /* HI16 .bss anchor */
     r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_sec_adr_paras);
     r_v0 = 0; /* HI16 .bss anchor */
@@ -7946,7 +8452,7 @@ static int32_t tiziano_adr_soft_para_refresh_lit(uint32_t a0_in, uint32_t a1_in,
     r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_top_para);
     r_v0 = 0; /* HI16 .bss anchor */
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_soft_para);
-L_53918:
+L_53b88:
     r_a2 = *(uint32_t *)(uintptr_t)(r_a1 + 24);
     *(uint32_t *)(uintptr_t)(r_v0 + 0) = (uint32_t)r_a2;
     r_a2 = *(uint32_t *)(uintptr_t)(r_a1 + 28);
@@ -8021,7 +8527,7 @@ L_53918:
     r_v1 = *(uint32_t *)(uintptr_t)(r_v1 + 260);
     *(uint32_t *)(uintptr_t)(r_v0 + 144) = (uint32_t)r_v1;
     goto fn_exit;
-L_53a40:
+L_53cb0:
     r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_main_adr_paras);
     r_v0 = 0; /* HI16 .bss anchor */
     r_v1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_wal_para);
@@ -8029,7 +8535,7 @@ L_53a40:
     r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_top_para);
     r_v0 = 0; /* HI16 .bss anchor */
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_soft_para);
-    goto L_53918;
+    goto L_53b88;
 
 fn_exit:
     if (v1_io)
@@ -8052,10 +8558,10 @@ static int32_t tiziano_adr_stat_calc_lit(uint32_t a0_in, uint32_t a1_in, uint32_
     (void)mips_cond;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_55e44;
+    if (mips_cond) goto L_55fc0;
     r_v0 = 0; /* HI16 .bss anchor */
     r_a3 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_stat_info);
-L_55bdc:
+L_55d58:
     r_v0 = 0; /* HI16 .bss anchor */
     r_v1 = 0; /* HI16 .bss anchor */
     r_a0 = r_a0 << 2;
@@ -8079,7 +8585,7 @@ L_55bdc:
     if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a1 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a1 % (int32_t)r_v0); }
     r_v1 = r_a3 + 0x14c0U;
     r_v0 = mips_lo;
-L_55c38:
+L_55db4:
     r_t1 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
     r_t0 = *(uint32_t *)(uintptr_t)(r_v1 + 96);
     r_t3 = *(uint32_t *)(uintptr_t)(r_v1 + 192);
@@ -8096,7 +8602,7 @@ L_55c38:
     r_t0 = mips_lo;
     mips_cond = (r_v1 != r_t2) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_v1 + 4444) = (uint32_t)r_t0;
-    if (mips_cond) goto L_55c38;
+    if (mips_cond) goto L_55db4;
     if (r_a1) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_a1); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_a1); }
     r_t1 = (uint32_t)((int32_t)r_a1 >> 8);
     r_t2 = r_a3 + 0x800U;
@@ -8109,7 +8615,7 @@ L_55c38:
     r_a0 = mips_lo;
     *(uint32_t *)(uintptr_t)(r_a3 + 10052) = (uint32_t)r_a0;
     r_a0 = 0;
-L_55ca8:
+L_55e24:
     r_a2 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
     r_v1 = r_v1 + 0x4U;
     r_a0 = r_a0 + r_a2;
@@ -8123,11 +8629,11 @@ L_55ca8:
     r_a2 = mips_lo;
     mips_cond = (r_v1 != r_t2) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_v1 + 5692) = (uint32_t)r_a2;
-    if (mips_cond) goto L_55ca8;
+    if (mips_cond) goto L_55e24;
     r_a0 = r_a3 + 0xf80U;
     r_a3 = r_a0;
     r_a1 = 10000U;
-L_55ce8:
+L_55e64:
     r_a2 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
     r_v1 = r_v1 + 0x50U;
     r_a0 = r_a0 + 0x38U;
@@ -8213,12 +8719,12 @@ L_55ce8:
     r_a2 = mips_lo;
     mips_cond = (r_v1 != r_a3) ? 1U : 0U;
     *(uint32_t *)(uintptr_t)(r_a0 + -4) = (uint32_t)r_a2;
-    if (mips_cond) goto L_55ce8;
+    if (mips_cond) goto L_55e64;
     /* nop */
     goto fn_exit;
-L_55e44:
+L_55fc0:
     r_a3 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_stat_info);
-    goto L_55bdc;
+    goto L_55d58;
 
 fn_exit:
     if (v1_io)
@@ -8247,9 +8753,9 @@ static int32_t tiziano_adr_tgain_func_lit(uint32_t a0_in, uint32_t a1_in, uint32
     r_v0 = 1U;
     mips_cond = (r_v1 != r_v0) ? 1U : 0U;
     /* nop */
-    if (mips_cond) goto L_55e70;
+    if (mips_cond) goto L_55fec;
     *(uint16_t *)(uintptr_t)(r_a0 + 0) = (uint16_t)0;
-L_55e70:
+L_55fec:
     /* nop */
     goto fn_exit;
 
@@ -8274,12 +8780,12 @@ static int32_t tiziano_adr_top_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, 
     (void)mips_cond;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_538e0;
+    if (mips_cond) goto L_53b50;
     r_v0 = 0; /* HI16 .bss anchor */
     r_v1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_wal_para);
     r_v0 = 0; /* HI16 .bss anchor */
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_top_para);
-L_5374c:
+L_539bc:
     r_a0 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
     *(uint32_t *)(uintptr_t)(r_v0 + 0) = (uint32_t)r_a0;
     r_a0 = *(uint32_t *)(uintptr_t)(r_v1 + 4);
@@ -8381,11 +8887,11 @@ L_5374c:
     r_v1 = *(uint32_t *)(uintptr_t)(r_v1 + 280);
     *(uint32_t *)(uintptr_t)(r_v0 + 196) = (uint32_t)r_v1;
     goto fn_exit;
-L_538e0:
+L_53b50:
     r_v1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_wal_para);
     r_v0 = 0; /* HI16 .bss anchor */
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_top_para);
-    goto L_5374c;
+    goto L_539bc;
 
 fn_exit:
     if (v1_io)
@@ -8408,12 +8914,12 @@ static int32_t tiziano_adr_wal_para_refresh_lit(uint32_t a0_in, uint32_t a1_in, 
     (void)mips_cond;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
     r_v0 = 0; /* HI16 .bss anchor */
-    if (mips_cond) goto L_534f0;
+    if (mips_cond) goto L_53760;
     r_v0 = 0; /* HI16 .bss anchor */
     r_v1 = 0; /* HI16 .bss anchor */
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_sec_adr_paras);
     r_v1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_wal_para);
-L_53298:
+L_53508:
     r_a1 = 0; /* HI16 .bss anchor */
     r_a0 = r_a0 << 2;
     r_a1 = (uint32_t)(uintptr_t)adrlit_wdr_en_adr;
@@ -8421,7 +8927,7 @@ L_53298:
     r_a0 = *(uint32_t *)(uintptr_t)(r_a0 + 0);
     mips_cond = (r_a0 != 0) ? 1U : 0U;
     r_a0 = r_v0 + 0xce6U;
-    if (mips_cond) goto L_53500;
+    if (mips_cond) goto L_53770;
     r_a0 = r_v0 + 0x5dcU;
     *(uint32_t *)(uintptr_t)(r_v1 + 0) = (uint32_t)r_a0;
     r_a0 = r_v0 + 0x5f4U;
@@ -8563,15 +9069,15 @@ L_53298:
     r_a0 = r_v0 + 0xccaU;
     *(uint32_t *)(uintptr_t)(r_v1 + 276) = (uint32_t)r_a0;
     r_v0 = r_v0 + 0xcd2U;
-L_534e8:
+L_53758:
     *(uint32_t *)(uintptr_t)(r_v1 + 280) = (uint32_t)r_v0;
     goto fn_exit;
-L_534f0:
+L_53760:
     r_v1 = 0; /* HI16 .bss anchor */
     r_v0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_main_adr_paras);
     r_v1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_wal_para);
-    goto L_53298;
-L_53500:
+    goto L_53508;
+L_53770:
     *(uint32_t *)(uintptr_t)(r_v1 + 0) = (uint32_t)r_a0;
     r_a0 = r_v0 + 0xcfeU;
     *(uint32_t *)(uintptr_t)(r_v1 + 4) = (uint32_t)r_a0;
@@ -8712,7 +9218,7 @@ L_53500:
     r_a0 = r_v0 + 0x13d6U;
     *(uint32_t *)(uintptr_t)(r_v1 + 276) = (uint32_t)r_a0;
     r_v0 = r_v0 + 0x13deU;
-    goto L_534e8;
+    goto L_53758;
 
 fn_exit:
     if (v1_io)
@@ -8720,7 +9226,7 @@ fn_exit:
     return (int32_t)r_v0;
 }
 
-static int32_t tisp_adr_main_deinit_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
+static int32_t tisp_s_drc_ratio_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
 {
     uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
     uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
@@ -8733,491 +9239,437 @@ static int32_t tisp_adr_main_deinit_lit(uint32_t a0_in, uint32_t a1_in, uint32_t
 
     (void)r_at; (void)r_ra; (void)r_t8; (void)r_t9; (void)mips_lo; (void)mips_hi;
     (void)mips_cond;
-    r_sp = r_sp + -0x20U;
-    r_v0 = (uint32_t)(uintptr_t)&private_mutex_lock; /* HI16 private_mutex_lock */
-    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_s0;
-    r_s0 = 0; /* HI16 .bss anchor */
-    *(uint32_t *)(uintptr_t)(r_sp + 24) = (uint32_t)r_s1;
-    r_a0 = (uint32_t)(uintptr_t)&adrlit_adr_mlock;
-    *(uint32_t *)(uintptr_t)(r_sp + 28) = (uint32_t)r_ra;
-    r_v0 = (uint32_t)(uintptr_t)&private_mutex_lock;
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_mutex_lock */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_main_adr_paras);
+    r_sp = r_sp + -0x30U;
+    *(uint32_t *)(uintptr_t)(r_sp + 44) = (uint32_t)r_ra;
+    *(uint32_t *)(uintptr_t)(r_sp + 40) = (uint32_t)r_s3;
+    *(uint32_t *)(uintptr_t)(r_sp + 36) = (uint32_t)r_s2;
+    *(uint32_t *)(uintptr_t)(r_sp + 32) = (uint32_t)r_s1;
     mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54378;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_main_adr_paras) + 0) = (uint32_t)0;
-L_54378:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_main_adr_gamma);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54398;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_main_adr_gamma) + 0) = (uint32_t)0;
-L_54398:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_wal_para);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_543b8;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_wal_para) + 0) = (uint32_t)0;
-L_543b8:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_top_para);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_543d8;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_top_para) + 0) = (uint32_t)0;
-L_543d8:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_soft_para);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_543f8;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_soft_para) + 0) = (uint32_t)0;
-L_543f8:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_para);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54418;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_hard_para) + 0) = (uint32_t)0;
-L_54418:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54438;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_hard_base) + 0) = (uint32_t)0;
-L_54438:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_stat_info);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54458;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_stat_info) + 0) = (uint32_t)0;
-L_54458:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_fpga_para);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54478;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_fpga_para) + 0) = (uint32_t)0;
-L_54478:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_map_y_old);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54498;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_map_y_old) + 0) = (uint32_t)0;
-L_54498:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_ctc1_y_tmp);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_544b8;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_main_ctc1_y_tmp) + 0) = (uint32_t)0;
-L_544b8:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_20_lut_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_544d8;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_20_lut_main) + 0) = (uint32_t)0;
-L_544d8:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_02_lut_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_544f8;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_02_lut_main) + 0) = (uint32_t)0;
-L_544f8:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_12_lut_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54518;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_12_lut_main) + 0) = (uint32_t)0;
-L_54518:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_22_lut_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54538;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_22_lut_main) + 0) = (uint32_t)0;
-L_54538:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_21_lut_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54558;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_21_lut_main) + 0) = (uint32_t)0;
-L_54558:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_5x5_dis_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54578;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_w_5x5_dis_main) + 0) = (uint32_t)0;
-L_54578:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_m_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54598;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_block_coord_m_main) + 0) = (uint32_t)0;
-L_54598:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_n_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_545b8;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_block_coord_n_main) + 0) = (uint32_t)0;
-L_545b8:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light3_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_545d8;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light3_main) + 0) = (uint32_t)0;
-L_545d8:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light4_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_545f8;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light4_main) + 0) = (uint32_t)0;
-L_545f8:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light5_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54618;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light5_main) + 0) = (uint32_t)0;
-L_54618:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light6_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54638;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light6_main) + 0) = (uint32_t)0;
-L_54638:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light7_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54658;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light7_main) + 0) = (uint32_t)0;
-L_54658:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light8_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54678;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light8_main) + 0) = (uint32_t)0;
-L_54678:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light9_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_54698;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light9_main) + 0) = (uint32_t)0;
-L_54698:
-    r_s1 = 0; /* HI16 .bss anchor */
-    r_a0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_local_b_light10_main);
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree; /* HI16 private_vfree */
-    if (mips_cond) goto L_546b8;
-    r_v0 = (uint32_t)(uintptr_t)&private_vfree;
-    /* nop */
-    r_v0 = ADR_DISPATCH(r_v0); /* private_vfree */
-    *(uint32_t *)((uintptr_t)((uintptr_t)adrlit_adr_local_b_light10_main) + 0) = (uint32_t)0;
-L_546b8:
-    r_ra = *(uint32_t *)(uintptr_t)(r_sp + 28);
-    r_s1 = *(uint32_t *)(uintptr_t)(r_sp + 24);
-    r_a0 = (uint32_t)(uintptr_t)&adrlit_adr_mlock;
-    r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 20);
-    r_t9 = (uint32_t)(uintptr_t)&private_mutex_unlock; /* HI16 private_mutex_unlock */
-    r_t9 = (uint32_t)(uintptr_t)&private_mutex_unlock;
-    r_sp = r_sp + 0x20U;
-    r_v0 = ADR_DISPATCH(r_t9); goto fn_exit; /* tail private_mutex_unlock */
-
-fn_exit:
-    if (v1_io)
-        *v1_io = r_v1;
-    return (int32_t)r_v0;
-}
-
-static int32_t tisp_adr_dn_params_refresh_lit(uint32_t a0_in, uint32_t a1_in, uint32_t a2_in, uint32_t a3_in, uint32_t sp_in, uint32_t *v1_io, uint32_t v0_in)
-{
-    uint32_t r_v0 = v0_in, r_v1 = v1_io ? *v1_io : 0;
-    uint32_t r_t0 = 0, r_t1 = 0, r_t2 = 0, r_t3 = 0, r_t4 = 0, r_t5 = 0;
-    uint32_t r_t6 = 0, r_t7 = 0, r_t8 = 0, r_t9 = 0;
-    uint32_t r_s0 = 0, r_s1 = 0, r_s2 = 0, r_s3 = 0, r_s4 = 0, r_s5 = 0;
-    uint32_t r_s6 = 0, r_s7 = 0, r_s8 = 0, r_ra = 0, r_at = 0;
-    uint32_t mips_lo = 0, mips_hi = 0, mips_cond = 0;
-    uint32_t r_a0 = a0_in, r_a1 = a1_in, r_a2 = a2_in, r_a3 = a3_in;
-    uint32_t r_sp = sp_in;
-
-    (void)r_at; (void)r_ra; (void)r_t8; (void)r_t9; (void)mips_lo; (void)mips_hi;
-    (void)mips_cond;
-    r_sp = r_sp + -0x20U;
-    *(uint32_t *)(uintptr_t)(r_sp + 24) = (uint32_t)r_s2;
-    *(uint32_t *)(uintptr_t)(r_sp + 28) = (uint32_t)r_ra;
-    *(uint32_t *)(uintptr_t)(r_sp + 20) = (uint32_t)r_s1;
-    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_s0;
-    mips_cond = (r_a0 == 0) ? 1U : 0U;
-    r_s2 = r_a0;
-    if (mips_cond) goto L_585c4;
+    *(uint32_t *)(uintptr_t)(r_sp + 28) = (uint32_t)r_s0;
+    if (mips_cond) goto L_5cd20;
     r_v0 = 0; /* HI16 .bss anchor */
-    r_s1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_hard_base);
+    r_s0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_wal_para);
+L_5ca80:
+    r_v0 = (uint32_t)(uintptr_t)&tisp_get_tuning; /* HI16 tisp_get_tuning */
+    r_v0 = (uint32_t)(uintptr_t)&tisp_get_tuning;
+    *(uint32_t *)(uintptr_t)(r_sp + 16) = (uint32_t)r_a0;
+    r_v0 = ADR_DISPATCH(r_v0); /* tisp_get_tuning */
+    r_a0 = *(uint32_t *)(uintptr_t)(r_sp + 16);
+    r_v1 = r_a0 << 7;
+    r_v0 = r_v0 + r_v1;
+    r_v1 = *(uint32_t *)(uintptr_t)(r_v0 + 848);
+    mips_cond = (r_v1 == 0) ? 1U : 0U;
+    r_t0 = 128U;
+    if (mips_cond) goto L_5caac;
+    r_t0 = *(uint8_t *)(uintptr_t)(r_v0 + 852);
+L_5caac:
     r_v0 = 0; /* HI16 .bss anchor */
-    r_s0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_sec_soft_para);
-L_583f8:
-    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_params_refresh; /* HI16 tiziano_adr_params_refresh */
-    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_params_refresh;
-    r_a0 = r_s2;
-    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_params_refresh */
-    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_wal_para_refresh; /* HI16 tiziano_adr_wal_para_refresh */
-    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_wal_para_refresh;
-    r_a0 = r_s2;
-    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_wal_para_refresh */
-    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_top_para_refresh; /* HI16 tiziano_adr_top_para_refresh */
-    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_top_para_refresh;
-    r_a0 = r_s2;
-    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_top_para_refresh */
-    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_soft_para_refresh; /* HI16 tiziano_adr_soft_para_refresh */
-    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_soft_para_refresh;
-    r_a0 = r_s2;
-    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_soft_para_refresh */
-    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_hard_para_refresh; /* HI16 tiziano_adr_hard_para_refresh */
-    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_hard_para_refresh;
-    r_a0 = r_s2;
-    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_hard_para_refresh */
-    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_hard_base_refresh; /* HI16 tiziano_adr_hard_base_refresh */
-    r_v0 = (uint32_t)(uintptr_t)&tiziano_adr_hard_base_refresh;
-    r_a0 = r_s2;
-    r_v0 = ADR_DISPATCH(r_v0); /* tiziano_adr_hard_base_refresh */
-    r_a1 = *(uint32_t *)(uintptr_t)(r_s0 + 52);
+    r_t5 = r_a0 << 2;
+    r_v0 = (uint32_t)(uintptr_t)adrlit_wdr_en_adr;
+    r_v1 = r_t5;
+    r_v0 = r_t5 + r_v0;
+    r_t5 = (uint32_t)(uintptr_t)&tparamsN; /* HI16 tparamsN */
+    r_t5 = (uint32_t)(uintptr_t)&tparamsN;
+    r_t5 = r_t5 + r_v1;
+    r_s1 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
+    r_a1 = 0;
+    r_t1 = (r_t0 < (uint32_t)129) ? 1U : 0U;
+    r_v1 = r_t5;
+    r_v0 = 128U;
+    r_t2 = r_t0 + -0x80U;
+    r_t6 = 7000U;
+    r_t4 = 600U;
+    r_t7 = 500U;
+    r_t8 = 400U;
+    r_t9 = 11U;
+L_5caf8:
+    r_a2 = *(uint32_t *)(uintptr_t)(r_t5 + 0);
+    r_t3 = r_a1 << 1;
+    mips_cond = (r_s1 != 0) ? 1U : 0U;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_s0 + 48);
+    if (mips_cond) goto L_5cdb4;
+    r_s2 = r_a1 + 0x7020U;
+    r_s2 = r_s2 << 1;
+    r_a2 = r_a2 + r_s2;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    if (mips_cond) goto L_5cd2c;
+    r_s3 = ((int32_t)r_a2 < 400) ? 1U : 0U;
+    mips_cond = (r_s3 == 0) ? 1U : 0U;
+    r_s2 = 0;
+    if (mips_cond) goto L_5cb2c;
+    r_s2 = r_t8 - r_a2;
+L_5cb2c:
+    r_s2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_s2);
+    r_s2 = (uint32_t)((int32_t)r_s2 >> 7);
+    r_a2 = r_s2 + r_a2;
+L_5cb38:
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a3 = r_a3 + r_t3;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_a2;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = r_a1 + 0x7028U;
+    r_a2 = r_a2 << 1;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = r_a3 + r_a2;
+    if (mips_cond) goto L_5cd3c;
+    r_s2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 6);
+    r_a2 = ((int32_t)r_s2 < 500) ? 1U : 0U;
+    mips_cond = (r_a2 == 0) ? 1U : 0U;
+    r_a3 = 0;
+    if (mips_cond) goto L_5cb6c;
+    r_a3 = r_t7 - r_s2;
+L_5cb6c:
+    r_a2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_a3);
+    r_a2 = (uint32_t)((int32_t)r_a2 >> 7);
+    r_a2 = r_a2 + r_s2;
+L_5cb78:
+    r_a3 = *(uint32_t *)(uintptr_t)(r_s0 + 52);
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a3 = r_a3 + r_t3;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_a2;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = r_a1 + 0x7034U;
+    r_a2 = r_a2 << 1;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = r_a3 + r_a2;
+    if (mips_cond) goto L_5cd50;
+    r_s2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 4);
+    r_a2 = ((int32_t)r_s2 < 600) ? 1U : 0U;
+    mips_cond = (r_a2 == 0) ? 1U : 0U;
+    r_a3 = 0;
+    if (mips_cond) goto L_5cbb0;
+    r_a3 = r_t4 - r_s2;
+L_5cbb0:
+    r_a2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_a3);
+    r_a2 = (uint32_t)((int32_t)r_a2 >> 7);
+    r_a2 = r_a2 + r_s2;
+L_5cbbc:
+    r_a3 = *(uint32_t *)(uintptr_t)(r_s0 + 56);
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a3 = r_a3 + r_t3;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_a2;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = r_a1 + 0x7040U;
+    r_a2 = r_a2 << 1;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = r_a3 + r_a2;
+    if (mips_cond) goto L_5cd64;
+    r_s2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 2);
+    r_a2 = ((int32_t)r_s2 < 600) ? 1U : 0U;
+    mips_cond = (r_a2 == 0) ? 1U : 0U;
+    r_a3 = 0;
+    if (mips_cond) goto L_5cbf4;
+    r_a3 = r_t4 - r_s2;
+L_5cbf4:
+    r_a2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_a3);
+    r_a2 = (uint32_t)((int32_t)r_a2 >> 7);
+    r_a2 = r_a2 + r_s2;
+L_5cc00:
+    r_a3 = *(uint32_t *)(uintptr_t)(r_s0 + 60);
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a3 = r_a3 + r_t3;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_a2;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = r_a1 + 0x704cU;
+    r_a2 = r_a2 << 1;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = r_a3 + r_a2;
+    if (mips_cond) goto L_5cd78;
+    r_s2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_a2 = ((int32_t)r_s2 < 600) ? 1U : 0U;
+    mips_cond = (r_a2 == 0) ? 1U : 0U;
+    r_a3 = 0;
+    if (mips_cond) goto L_5cc38;
+    r_a3 = r_t4 - r_s2;
+L_5cc38:
+    r_a2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_a3);
+    r_a2 = (uint32_t)((int32_t)r_a2 >> 7);
+    r_a2 = r_a2 + r_s2;
+L_5cc44:
+    r_a3 = *(uint32_t *)(uintptr_t)(r_s0 + 64);
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a3 = r_a3 + r_t3;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_a2;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = r_a1 + 0x7054U;
+    r_a2 = r_a2 << 1;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = r_a3 + r_a2;
+    if (mips_cond) goto L_5cd8c;
+    r_s2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 6);
+    r_a2 = ((int32_t)r_s2 < 600) ? 1U : 0U;
+    mips_cond = (r_a2 == 0) ? 1U : 0U;
+    r_a3 = 0;
+    if (mips_cond) goto L_5cc7c;
+    r_a3 = r_t4 - r_s2;
+L_5cc7c:
+    r_a2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_a3);
+    r_a2 = (uint32_t)((int32_t)r_a2 >> 7);
+    r_a2 = r_a2 + r_s2;
+L_5cc88:
+    r_a3 = *(uint32_t *)(uintptr_t)(r_s0 + 68);
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a3 = r_a3 + r_t3;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_a2;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = r_a1 + 0x6ff4U;
+    r_a2 = r_a2 << 1;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = r_a3 + r_a2;
+    if (mips_cond) goto L_5cda0;
+    r_s2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+L_5ccb0:
+    r_a2 = ((int32_t)r_s2 < 7000) ? 1U : 0U;
+    mips_cond = (r_a2 == 0) ? 1U : 0U;
+    r_a3 = 0;
+    if (mips_cond) goto L_5ccc0;
+    r_a3 = r_t6 - r_s2;
+L_5ccc0:
+    r_a2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_a3);
+    r_a2 = (uint32_t)((int32_t)r_a2 >> 7);
+    r_a2 = r_a2 + r_s2;
+L_5cccc:
+    r_a3 = *(uint32_t *)(uintptr_t)(r_s0 + 32);
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a1 = r_a1 + 0x1U;
+    r_t3 = r_a3 + r_t3;
+    mips_cond = (r_a1 != r_t9) ? 1U : 0U;
+    *(uint16_t *)(uintptr_t)(r_t3 + 0) = (uint16_t)r_a2;
+    if (mips_cond) goto L_5caf8;
     r_v1 = 0; /* HI16 .bss anchor */
-    r_a0 = r_s2 << 2;
-    r_v1 = (uint32_t)(uintptr_t)adrlit_width_adr;
-    r_v1 = r_a0 + r_v1;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
-    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 0);
+    r_v1 = (uint32_t)(uintptr_t)adrlit_adr_ev_changed;
+    r_v0 = r_a0 << 1;
+    r_v0 = r_v0 + r_v1;
+    r_v1 = 1U;
+    *(uint16_t *)(uintptr_t)(r_v0 + 0) = (uint16_t)r_v1;
+    r_ra = *(uint32_t *)(uintptr_t)(r_sp + 44);
+    r_s3 = *(uint32_t *)(uintptr_t)(r_sp + 40);
+    r_s2 = *(uint32_t *)(uintptr_t)(r_sp + 36);
+    r_s1 = *(uint32_t *)(uintptr_t)(r_sp + 32);
+    r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 28);
+    r_t9 = (uint32_t)(uintptr_t)&tiziano_adr_top_para_refresh; /* HI16 tiziano_adr_top_para_refresh */
+    r_t9 = (uint32_t)(uintptr_t)&tiziano_adr_top_para_refresh;
+    r_sp = r_sp + 0x30U;
+    r_v0 = ADR_DISPATCH(r_t9); goto fn_exit; /* tail tiziano_adr_top_para_refresh */
+L_5cd20:
     r_v0 = 0; /* HI16 .bss anchor */
-    mips_cond = (r_a2 != r_v1) ? 1U : 0U;
-    r_v0 = (uint32_t)(uintptr_t)adrlit_height_adr;
-    if (mips_cond) goto L_58494;
-    r_a2 = r_v0 + r_a0;
-    r_a3 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a1 + 2);
-    r_a2 = *(uint32_t *)(uintptr_t)(r_a2 + 0);
-    mips_cond = (r_a3 == r_a2) ? 1U : 0U;
+    r_s0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_wal_para);
+    goto L_5ca80;
+L_5cd2c:
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5cb38;
+L_5cd3c:
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 6);
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5cb78;
+L_5cd50:
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 4);
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5cbbc;
+L_5cd64:
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 2);
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5cc00;
+L_5cd78:
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5cc44;
+L_5cd8c:
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 6);
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5cc88;
+L_5cda0:
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+L_5cda4:
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5cccc;
+L_5cdb4:
+    r_s2 = r_a1 + 0x73a4U;
+    r_s2 = r_s2 << 1;
+    r_a2 = r_a2 + r_s2;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 4);
+    if (mips_cond) goto L_5cf60;
+    r_s3 = ((int32_t)r_a2 < 400) ? 1U : 0U;
+    mips_cond = (r_s3 == 0) ? 1U : 0U;
+    r_s2 = 0;
+    if (mips_cond) goto L_5cdd8;
+    r_s2 = r_t8 - r_a2;
+L_5cdd8:
+    r_s2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_s2);
+    r_s2 = (uint32_t)((int32_t)r_s2 >> 7);
+    r_a2 = r_s2 + r_a2;
+L_5cde4:
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a3 = r_a3 + r_t3;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_a2;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = r_a1 + 0x73b0U;
+    r_a2 = r_a2 << 1;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = r_a3 + r_a2;
+    if (mips_cond) goto L_5cf70;
+    r_s2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 2);
+    r_a2 = ((int32_t)r_s2 < 500) ? 1U : 0U;
+    mips_cond = (r_a2 == 0) ? 1U : 0U;
+    r_a3 = 0;
+    if (mips_cond) goto L_5ce18;
+    r_a3 = r_t7 - r_s2;
+L_5ce18:
+    r_a2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_a3);
+    r_a2 = (uint32_t)((int32_t)r_a2 >> 7);
+    r_a2 = r_a2 + r_s2;
+L_5ce24:
+    r_a3 = *(uint32_t *)(uintptr_t)(r_s0 + 52);
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a3 = r_a3 + r_t3;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_a2;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = r_a1 + 0x73bcU;
+    r_a2 = r_a2 << 1;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = r_a3 + r_a2;
+    if (mips_cond) goto L_5cf84;
+    r_s2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_a2 = ((int32_t)r_s2 < 600) ? 1U : 0U;
+    mips_cond = (r_a2 == 0) ? 1U : 0U;
+    r_a3 = 0;
+    if (mips_cond) goto L_5ce5c;
+    r_a3 = r_t4 - r_s2;
+L_5ce5c:
+    r_a2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_a3);
+    r_a2 = (uint32_t)((int32_t)r_a2 >> 7);
+    r_a2 = r_a2 + r_s2;
+L_5ce68:
+    r_a3 = *(uint32_t *)(uintptr_t)(r_s0 + 56);
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a3 = r_a3 + r_t3;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_a2;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = r_a1 + 0x73c4U;
+    r_a2 = r_a2 << 1;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = r_a3 + r_a2;
+    if (mips_cond) goto L_5cf98;
+    r_s2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 6);
+    r_a2 = ((int32_t)r_s2 < 600) ? 1U : 0U;
+    mips_cond = (r_a2 == 0) ? 1U : 0U;
+    r_a3 = 0;
+    if (mips_cond) goto L_5cea0;
+    r_a3 = r_t4 - r_s2;
+L_5cea0:
+    r_a2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_a3);
+    r_a2 = (uint32_t)((int32_t)r_a2 >> 7);
+    r_a2 = r_a2 + r_s2;
+L_5ceac:
+    r_a3 = *(uint32_t *)(uintptr_t)(r_s0 + 60);
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a3 = r_a3 + r_t3;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_a2;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = r_a1 + 0x73d0U;
+    r_a2 = r_a2 << 1;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = r_a3 + r_a2;
+    if (mips_cond) goto L_5cfac;
+    r_s2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 4);
+    r_a2 = ((int32_t)r_s2 < 600) ? 1U : 0U;
+    mips_cond = (r_a2 == 0) ? 1U : 0U;
+    r_a3 = 0;
+    if (mips_cond) goto L_5cee4;
+    r_a3 = r_t4 - r_s2;
+L_5cee4:
+    r_a2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_a3);
+    r_a2 = (uint32_t)((int32_t)r_a2 >> 7);
+    r_a2 = r_a2 + r_s2;
+L_5cef0:
+    r_a3 = *(uint32_t *)(uintptr_t)(r_s0 + 64);
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a3 = r_a3 + r_t3;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_a2;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = r_a1 + 0x73dcU;
+    r_a2 = r_a2 << 1;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = r_a3 + r_a2;
+    if (mips_cond) goto L_5cfc0;
+    r_s2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 2);
+    r_a2 = ((int32_t)r_s2 < 600) ? 1U : 0U;
+    mips_cond = (r_a2 == 0) ? 1U : 0U;
+    r_a3 = 0;
+    if (mips_cond) goto L_5cf28;
+    r_a3 = r_t4 - r_s2;
+L_5cf28:
+    r_a2 = (uint32_t)((int32_t)r_t2 * (int32_t)r_a3);
+    r_a2 = (uint32_t)((int32_t)r_a2 >> 7);
+    r_a2 = r_a2 + r_s2;
+L_5cf34:
+    r_a3 = *(uint32_t *)(uintptr_t)(r_s0 + 68);
+    r_a2 = (uint32_t)(int16_t)(r_a2 & 0xffffU);
+    r_a3 = r_a3 + r_t3;
+    *(uint16_t *)(uintptr_t)(r_a3 + 0) = (uint16_t)r_a2;
+    r_a3 = *(uint32_t *)(uintptr_t)(r_v1 + 0);
+    r_a2 = r_a1 + 0x7378U;
+    r_a2 = r_a2 << 1;
+    mips_cond = (r_t1 != 0) ? 1U : 0U;
+    r_a2 = r_a3 + r_a2;
+    if (mips_cond) goto L_5cfd4;
+    r_s2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 4);
+    goto L_5ccb0;
+L_5cf60:
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5cde4;
+L_5cf70:
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 2);
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5ce24;
+L_5cf84:
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 0);
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5ce68;
+L_5cf98:
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 6);
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5ceac;
+L_5cfac:
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 4);
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5cef0;
+L_5cfc0:
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 2);
+    r_a2 = (uint32_t)((int32_t)r_a2 * (int32_t)r_t0);
+    if (r_v0) { mips_lo = (uint32_t)((int32_t)r_a2 / (int32_t)r_v0); mips_hi = (uint32_t)((int32_t)r_a2 % (int32_t)r_v0); }
+    r_a2 = mips_lo;
+    goto L_5cf34;
+L_5cfd4:
+    r_a2 = (uint32_t)(int16_t)*(uint16_t *)(uintptr_t)(r_a2 + 4);
+    goto L_5cda4;
     /* nop */
-    if (mips_cond) goto L_58558;
-L_58494:
-    *(uint16_t *)(uintptr_t)(r_a1 + 0) = (uint16_t)r_v1;
-    r_v0 = r_v0 + r_a0;
-    r_v1 = *(uint32_t *)(uintptr_t)(r_s0 + 52);
-    r_v0 = *(uint32_t *)(uintptr_t)(r_v0 + 0);
-    r_s0 = (uint32_t)(uintptr_t)&memcpy; /* HI16 memcpy */
-    r_s0 = (uint32_t)(uintptr_t)&memcpy;
-    *(uint16_t *)(uintptr_t)(r_v1 + 2) = (uint16_t)r_v0;
-    r_v0 = 1U;
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 8);
-    mips_cond = (r_s2 != r_v0) ? 1U : 0U;
-    r_a2 = 32U;
-    if (mips_cond) goto L_585d8;
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_20_lut_sec);
-    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_02_lut_sec);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 12);
-    r_a2 = 32U;
-    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_12_lut_sec);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 16);
-    r_a2 = 32U;
-    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_22_lut_sec);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 20);
-    r_a2 = 32U;
-    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_21_lut_sec);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 24);
-    r_a2 = 32U;
-    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_m_sec);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 0);
-    r_a2 = 10U;
-    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_n_sec);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 4);
-    r_a2 = 14U;
-    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_5x5_dis_sec);
-    r_a2 = 62U;
-L_58550:
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 28);
-    r_v0 = ADR_DISPATCH(r_s0); /* memcpy */
-L_58558:
-    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local; /* HI16 adr_gauss_local */
-    r_v0 = (uint32_t)(uintptr_t)&func_gauss_local; /* HI16 func_gauss_local */
-    r_a1 = r_s2;
-    r_v0 = (uint32_t)(uintptr_t)&func_gauss_local;
-    r_a0 = (uint32_t)(uintptr_t)adrlit_adr_gauss_local;
-    r_v0 = ADR_DISPATCH(r_v0); /* func_gauss_local */
-    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_one; /* HI16 func_adr_reg_write_one */
-    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_one;
-    r_a0 = r_s2;
-    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_reg_write_one */
-    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_5x5; /* HI16 func_adr_reg_write_5x5 */
-    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_5x5;
-    r_a0 = r_s2;
-    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_reg_write_5x5 */
-    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_sometimes; /* HI16 func_adr_reg_write_sometimes */
-    r_v0 = (uint32_t)(uintptr_t)&func_adr_reg_write_sometimes;
-    r_a0 = r_s2;
-    r_v0 = ADR_DISPATCH(r_v0); /* func_adr_reg_write_sometimes */
-    r_ra = *(uint32_t *)(uintptr_t)(r_sp + 28);
-    r_s1 = *(uint32_t *)(uintptr_t)(r_sp + 20);
-    r_s0 = *(uint32_t *)(uintptr_t)(r_sp + 16);
-    r_a0 = r_s2;
-    r_s2 = *(uint32_t *)(uintptr_t)(r_sp + 24);
-    r_t9 = (uint32_t)(uintptr_t)&func_adr_reg_write_every; /* HI16 func_adr_reg_write_every */
-    r_t9 = (uint32_t)(uintptr_t)&func_adr_reg_write_every;
-    r_sp = r_sp + 0x20U;
-    r_v0 = ADR_DISPATCH(r_t9); goto fn_exit; /* tail func_adr_reg_write_every */
-L_585c4:
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_s1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_hard_base);
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_s0 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_main_soft_para);
-    goto L_583f8;
-L_585d8:
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_20_lut_main);
-    r_v0 = ADR_DISPATCH(r_s0); /* None */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_02_lut_main);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 12);
-    r_a2 = 32U;
-    r_v0 = ADR_DISPATCH(r_s0); /* None */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_12_lut_main);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 16);
-    r_a2 = 32U;
-    r_v0 = ADR_DISPATCH(r_s0); /* None */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_22_lut_main);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 20);
-    r_a2 = 32U;
-    r_v0 = ADR_DISPATCH(r_s0); /* None */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_21_lut_main);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 24);
-    r_a2 = 32U;
-    r_v0 = ADR_DISPATCH(r_s0); /* None */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_m_main);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 0);
-    r_a2 = 10U;
-    r_v0 = ADR_DISPATCH(r_s0); /* None */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_block_coord_n_main);
-    r_a0 = *(uint32_t *)(uintptr_t)(r_s1 + 4);
-    r_a2 = 14U;
-    r_v0 = ADR_DISPATCH(r_s0); /* None */
-    r_v0 = 0; /* HI16 .bss anchor */
-    r_a2 = 62U;
-    r_a1 = *(uint32_t *)(uintptr_t)((uintptr_t)adrlit_adr_w_5x5_dis_main);
-    goto L_58550;
 
 fn_exit:
     if (v1_io)
@@ -9248,8 +9700,6 @@ static int32_t adrlit_process_cb(uint32_t a0, uint32_t a1, uint32_t a2,
 
 static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t sp, uint32_t *v1, uint32_t v0)
 {
-    if (fn == (uint32_t)(uintptr_t)&Tiziano_adr_fpga)
-        return (uint32_t)Tiziano_adr_fpga_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&fix_point_div)
         return (uint32_t)fix_point_div_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&fix_point_div_32)
@@ -9284,6 +9734,10 @@ static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t 
         return (uint32_t)subsection_map_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&subsection_up)
         return (uint32_t)subsection_up_lit(a0, a1, a2, a3, sp, v1, v0);
+    if (fn == (uint32_t)(uintptr_t)&tisp_adr_dn_params_refresh)
+        return (uint32_t)tisp_adr_dn_params_refresh_lit(a0, a1, a2, a3, sp, v1, v0);
+    if (fn == (uint32_t)(uintptr_t)&tisp_adr_main_deinit)
+        return (uint32_t)tisp_adr_main_deinit_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tisp_adr_main_init)
         return (uint32_t)tisp_adr_main_init_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tisp_adr_main_process)
@@ -9300,6 +9754,8 @@ static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t 
         return (uint32_t)tiziano_adr_base_pars_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_ev_func)
         return (uint32_t)tiziano_adr_ev_func_lit(a0, a1, a2, a3, sp, v1, v0);
+    if (fn == (uint32_t)(uintptr_t)&Tiziano_adr_fpga)
+        return (uint32_t)Tiziano_adr_fpga_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_hard_base_refresh)
         return (uint32_t)tiziano_adr_hard_base_refresh_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_hard_para_refresh)
@@ -9320,10 +9776,8 @@ static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t 
         return (uint32_t)tiziano_adr_top_para_refresh_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&tiziano_adr_wal_para_refresh)
         return (uint32_t)tiziano_adr_wal_para_refresh_lit(a0, a1, a2, a3, sp, v1, v0);
-    if (fn == (uint32_t)(uintptr_t)&tisp_adr_main_deinit)
-        return (uint32_t)tisp_adr_main_deinit_lit(a0, a1, a2, a3, sp, v1, v0);
-    if (fn == (uint32_t)(uintptr_t)&tisp_adr_dn_params_refresh)
-        return (uint32_t)tisp_adr_dn_params_refresh_lit(a0, a1, a2, a3, sp, v1, v0);
+    if (fn == (uint32_t)(uintptr_t)&tisp_s_drc_ratio)
+        return (uint32_t)tisp_s_drc_ratio_lit(a0, a1, a2, a3, sp, v1, v0);
     if (fn == (uint32_t)(uintptr_t)&system_reg_write)
         return (uint32_t)system_reg_write(a0, a1);
     if (fn == (uint32_t)(uintptr_t)&system_reg_read)
@@ -9358,6 +9812,8 @@ static uint32_t adrlit_dispatch(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t 
     }
     if (fn == (uint32_t)(uintptr_t)&isp_printf)
         return 0;
+    if (fn == (uint32_t)(uintptr_t)&tisp_get_tuning)
+        return (uint32_t)tisp_get_tuning();
     if (fn == (uint32_t)(uintptr_t)&system_irq_func_set) {
         if (a1 == (uint32_t)(uintptr_t)&tiziano_adr_main_interrupt_static)
             a1 = (uint32_t)(uintptr_t)&adrlit_isr_cb;
@@ -9400,6 +9856,43 @@ static uint8_t adrlit_stack_ctl[ADRLIT_STACK] __attribute__((aligned(8)));
  * not the mode; the mode is already in the bank copied to tparamsN[0].
  * Only channel 0 is initialised here.
  */
+/*
+ * OEM tisp_main_long_ev_update -> tisp_adr_ev_update(ev_lo, ev_hi, sensor)
+ * and tisp_main_long_tgain_update -> tisp_adr_tgain_update(tg_lo, tg_hi,
+ * sensor): hand translations of the two 60/80-byte leaves (0x53ebc /
+ * 0x53ef8).  They only store into the ADR private state read by
+ * tiziano_adr_ev_func / tgain_func on the next event; without them the chain
+ * stayed at its init EV/gain (black level up at night, open184f p1 20).
+ * adr_tgain_top / adr_tg_f_top are not referenced by the generated chain,
+ * so they are declared here with their OEM sizes.
+ */
+static uint8_t adrlit_adr_tgain_top[8] __attribute__((aligned(8)));
+static uint8_t adrlit_adr_tg_f_top[8] __attribute__((aligned(8)));
+static void regtrace_adr_ev_update_lit(uint64_t ev_q10)
+{
+    uint32_t lo = (uint32_t)ev_q10, hi = (uint32_t)(ev_q10 >> 32);
+    uint32_t ev = (hi << 22) | (lo >> 10);
+
+    if (!regtrace_t40_adr_lit_active)
+        return;
+    if (*(uint32_t *)adrlit_adr_ev_top == ev)
+        return;
+    *(uint16_t *)adrlit_adr_ev_changed = 1;
+    *(uint32_t *)adrlit_adr_ev_top = ev;
+}
+
+static void regtrace_adr_tgain_update_lit(uint32_t tgain)
+{
+    if (!regtrace_t40_adr_lit_active)
+        return;
+    if (*(uint32_t *)adrlit_adr_tgain_top == (tgain >> 16) &&
+        *(uint32_t *)adrlit_adr_tg_f_top == (tgain & 0xffffU))
+        return;
+    *(uint16_t *)adrlit_adr_tgain_changed = 1;
+    *(uint32_t *)adrlit_adr_tgain_top = tgain >> 16;
+    *(uint32_t *)adrlit_adr_tg_f_top = tgain & 0xffffU;
+}
+
 static int regtrace_adr_dn_refresh_lit(uint32_t mode)
 {
     (void)mode;
@@ -9423,6 +9916,16 @@ static void regtrace_adr_lit_cleanup(void)
     tisp_event_set_cb(0, 2, 0);
     (void)tisp_adr_main_deinit_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_ctl), NULL, 0);
     printk(KERN_INFO "tx_isp_t40_recovered: adr-lit deinit done\n");
+}
+
+/* OEM tisp_s_drc_ratio(sensor): scales the ADR wal parameters by the module
+ * ratio (tattr +848 enable / +852 ratio) and refreshes the top parameters;
+ * runs against the private ADR state (the lifted copy only touched its own). */
+static int regtrace_adr_drc_ratio_lit(void)
+{
+    if (!regtrace_t40_adr_lit_active)
+        return -ENODEV;
+    return (int)tisp_s_drc_ratio_lit(0, 0, 0, 0, ADRLIT_SP(adrlit_stack_ctl), NULL, 0);
 }
 
 static int regtrace_adr_main_init_lit(uint32_t width, uint32_t height)

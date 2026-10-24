@@ -3697,6 +3697,22 @@ fn_exit:
 #undef REGCALL_tisp_bcsh_StrenCal
 #undef REGCALL_tisp_bcsh_StrenCal_part_0
 
+/* OEM tisp_bcsh_main_ev_update(sensor, ev): store the AE EV in the context and
+ * re-interpolate (tisp_bcsh_ev_update(ctx, 0)); called from the frame follow. */
+static void regtrace_bcsh_ev_follow_lit(uint32_t ev)
+{
+    uint32_t *p;
+
+    if (!stMainBcshOuter_lit || !pstMainBcshOri_lit[38])
+        return;
+    p = (uint32_t *)(uintptr_t)pstMainBcshOri_lit[38];
+    if (*p == ev)
+        return;
+    *p = ev;
+    regtrace_bcsh_ev = ev;
+    (void)tisp_bcsh_ev_update_lit((uint32_t)(uintptr_t)pstMainBcshOri_lit, 0);
+}
+
 static int32_t regtrace_bcsh_main_init_lit(uint32_t mode)
 {
     void *outer;

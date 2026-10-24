@@ -9278,7 +9278,43 @@ static uint regtrace_frame_3a_interval = 3;
 /* T40-QUALITY: 110 -> 118.  A/B .184 against the vendor stack: at the same
  * exposure (EV 5367 vs 5589) the vendor day picture measured luma 122, ours
  * 108 at target 110; the open pipeline's tone curve sits a little lower. */
-static uint regtrace_frame_3a_target = 118;
+static uint regtrace_frame_3a_target = 122; /* T40-QUALITY3: vendor day luma 122 (ours 120 at 118 with LCE) */
+/*
+ * T40-QUALITY3: user AE limits and target compensation.  The OEM setters
+ * (tisp_s_ae_exprinfo_attr, tisp_s_ae_scence_attr) store into the lifted OEM
+ * AE context, which the open frame AE never reads (T40_WIPCELLS_1024.md: caps
+ * and AeTargetComp "stored but no effect").  The tuning handlers now mirror
+ * the user values here: max integration time (lines), max sensor analog
+ * gain (x1024) and max ISP digital gain (x1024) cap the open AE the way the
+ * OEM tisp_ae_main_s_max_again / s_max_isp_dgain / min_max_set do, and the
+ * frame AE target is scaled by AeTargetComp / 128 like the OEM
+ * tisp_ae_long_target.  0 = no user cap.
+ */
+static uint regtrace_ae_user_max_it;
+static uint regtrace_ae_user_max_again_x1024;
+static uint regtrace_ae_user_max_isp_dgain_x1024;
+static uint regtrace_ae_target_comp = 128;
+static uint regtrace_ae_target_comp_en;
+module_param_named(ae_user_max_it, regtrace_ae_user_max_it, uint, 0444);
+module_param_named(ae_user_max_again_x1024, regtrace_ae_user_max_again_x1024, uint, 0444);
+module_param_named(ae_user_max_isp_dgain_x1024, regtrace_ae_user_max_isp_dgain_x1024, uint, 0444);
+module_param_named(ae_target_comp, regtrace_ae_target_comp, uint, 0444);
+static uint32_t regtrace_t40_frame_3a_target_eff(void)
+{
+    uint32_t t = READ_ONCE(regtrace_frame_3a_target);
+
+    if (regtrace_ae_target_comp_en)
+        t = (t * clamp_t(uint32_t, regtrace_ae_target_comp, 1U, 255U)) >> 7;
+    return clamp_t(uint32_t, t, 8U, 250U);
+}
+static uint32_t regtrace_t40_ae_isp_dgain_max_eff(void)
+{
+    uint32_t m = clamp_t(uint32_t, regtrace_ae_isp_dgain_max, 1024U, 32767U);
+
+    if (regtrace_ae_user_max_isp_dgain_x1024)
+        m = min_t(uint32_t, m, clamp_t(uint32_t, regtrace_ae_user_max_isp_dgain_x1024, 1024U, 32767U));
+    return m;
+}
 static bool regtrace_frame_3a_slide_window = true;
 static uint regtrace_frame_3a_window_misses;
 /*
@@ -12772,6 +12808,41 @@ static int regtrace_t40_ae_isp_dgain_apply(void)
     return regtrace_gib_main_gain_update_lit(regtrace_gib_lit_gain, false);
 }
 
+/*
+ * T40-QUALITY3: the OEM AE fans its EV (IT x gain, Q10; stored >> 10 it is
+ * the vendor's ExposureValue) out to defog, ADR, CCM and BCSH on every
+ * change (tisp_main_long_ev_update).  Our CCM/BCSH EV were module
+ * parameters frozen at 400 (the comment in the BCSH init says so), so the
+ * saturation-vs-EV interpolation never moved: after a night -> day return
+ * the CCM re-init ran at the stale EV and the picture stayed desaturated
+ * (HSV S 15 against the vendor's 51).  Called from the sensor gain update
+ * and from the per-frame tuning follow (the EV also moves with IT).
+ * t40_ev_follow=0 restores the frozen parameters for A/B.
+ */
+static bool regtrace_t40_ev_follow = true;
+module_param_named(t40_ev_follow, regtrace_t40_ev_follow, bool, 0644);
+static uint32_t regtrace_t40_ev_now;
+module_param_named(t40_ev_now, regtrace_t40_ev_now, uint, 0444);
+static void regtrace_t40_ev_fanout(uint32_t again_log2)
+{
+    uint32_t it = READ_ONCE(regtrace_ae_soft_cur_it);
+    uint32_t again_x1024 = tx_isp_exp2_u32(again_log2, 16, 10);
+    uint32_t dg = clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur), 1024U, 32767U);
+    uint64_t ev_q10;
+
+    if (!again_x1024)
+        again_x1024 = 1024U;
+    ev_q10 = ((uint64_t)it * again_x1024 * dg) >> 10;
+    regtrace_t40_ev_now = (uint32_t)(ev_q10 >> 10);
+    regtrace_defog_ev_update_lit(ev_q10);
+    regtrace_adr_ev_update_lit(ev_q10);
+    if (regtrace_t40_ev_follow) {
+        regtrace_ccm_ev = regtrace_t40_ev_now;
+        if (regtrace_enable_bcsh)
+            regtrace_bcsh_ev_follow_lit(regtrace_t40_ev_now);
+    }
+}
+
 static void regtrace_gc4653_tuning_again_update(uint32_t again_index)
 {
     uint32_t gain = regtrace_gc4653_again_log2_gain(again_index);
@@ -12799,6 +12870,7 @@ static void regtrace_gc4653_tuning_again_update(uint32_t again_index)
      */
     regtrace_lce_tgain_update_lit(total);
     regtrace_dpc_refresh_lit(total);
+    regtrace_adr_tgain_update_lit(total);
     /*
      * T40-QUALITY2: with the OEM GIB flow (t40_gib_real) nobody re-ran
      * tisp_gib_a_gian_update, so the GIB black level stayed at the init
@@ -12808,15 +12880,7 @@ static void regtrace_gc4653_tuning_again_update(uint32_t again_index)
      */
     if (t40_gib_oem_active)
         (void)tisp_gib_a_gian_update(0, gain);
-    if (regtrace_t40_defog_lit_active) {
-        uint32_t it = READ_ONCE(regtrace_ae_soft_cur_it);
-        uint32_t again_x1024 = tx_isp_exp2_u32(gain, 16, 10);
-        uint32_t dg = clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur), 1024U, 32767U);
-
-        if (!again_x1024)
-            again_x1024 = 1024U;
-        regtrace_defog_ev_update_lit(((uint64_t)it * again_x1024 * dg) >> 10);
-    }
+    regtrace_t40_ev_fanout(gain);
     if (regtrace_enable_blc_lit && gain != regtrace_blc_lit_gain_now)
         (void)regtrace_blc_main_gain_update_lit(gain, false);
     if (regtrace_enable_gib_lit && gain != regtrace_gib_lit_gain_now)
@@ -18761,6 +18825,16 @@ static uint32_t regtrace_t40_ae_max_again_index(void)
                 idx = i;
         }
     }
+    if (regtrace_ae_user_max_again_x1024 >= 1024U) {
+        uint32_t i = 0;
+
+        while (i + 1U < 26U &&
+               tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(i + 1U), 16, 10) <=
+               regtrace_ae_user_max_again_x1024)
+            i++;
+        if (i < idx)
+            idx = i;
+    }
     regtrace_t40_ae_max_again_index_eff = idx;
     return idx;
 }
@@ -23976,7 +24050,7 @@ static int regtrace_t40_tuning_copy_ae_expr(uintptr_t user_ptr)
         regtrace_gc4653_again_log2_gain(
             regtrace_t40_ae_max_again_index()), 16, 10);
     values.total_gain_db = again_log2 + regtrace_t40_ae_isp_dgain_log2();
-    values.max_dgain = clamp_t(uint32_t, regtrace_ae_isp_dgain_max, 1024U, 32767U);
+    values.max_dgain = regtrace_t40_ae_isp_dgain_max_eff();
     values.exposure_value = exposure;
     values.ev_log2 = exposure ?
         tx_isp_log2_int_u64(exposure, 16, 0) : 0;
@@ -44751,7 +44825,16 @@ static noinline int regtrace_t40_g_attr_copy(uint32_t vinum, uint32_t user_ptr, 
 
 static int regtrace_t40_g_ae_scence(uint32_t vinum, void *buf)
 {
+    uint32_t *w = (uint32_t *)buf;
+
     (void)tisp_g_ae_scence_attr(vinum, (uintptr_t)buf);   /* OEM returns 0 */
+    if (vinum == 0 && w) {
+        /* the lifted context does not hold our compensation / target: report the open AE's */
+        w[4] = regtrace_ae_target_comp_en ? 1U : 0U;
+        w[5] = regtrace_ae_target_comp;
+        w[8] = READ_ONCE(regtrace_frame_3a_last_luma);
+        w[11] = regtrace_t40_frame_3a_target_eff();
+    }
     return 0;
 }
 
@@ -45098,13 +45181,43 @@ int32_t tx_isp_awb_attr_s_attr_isra_15(uint32_t a0, uint32_t a1)
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t tx_isp_ae_expoinfo_s_attr_isra_17(uint32_t a0, uint32_t a1) __asm__("tx_isp_ae_expoinfo_s_attr.isra.17");
 #endif
+/* T40-QUALITY3: OEM setter first (lifted AE context), then the user caps for the open AE.
+ * IMPISPAEExprInfo words: [0] time unit (0 lines, else us), [14..17] max IT/again/dgain/ispdgain
+ * mode (1 = cap on), [22..25] the values (IT lines or us, gains x1024). */
+static int regtrace_t40_s_ae_exprinfo_hook(uint32_t vinum, void *buf)
+{
+    const uint32_t *A = (const uint32_t *)buf;
+    int ret = (int)tisp_s_ae_exprinfo_attr(vinum, (uintptr_t)buf);
+
+    if (vinum == 0 && A) {
+        uint32_t it = A[22];
+
+        if (A[0] && it) {
+            /* us -> lines, as the OEM tisp_ae_set_exprinfo_attr does */
+            const unsigned char *pi = tisp_par_info;
+            uint32_t p44 = *(const uint32_t *)(pi + 44);
+            uint32_t den = ((uint32_t)*(const uint16_t *)(pi + 70) * p44) >> 16;
+            uint32_t div = den ? ((p44 & 0xffffU) * 1000000U) / den : 0;
+
+            it = div ? it / div : 0;
+        }
+        regtrace_ae_user_max_it = (A[14] == 1U) ? it : 0;
+        regtrace_ae_user_max_again_x1024 = (A[15] == 1U) ? A[23] : 0;
+        regtrace_ae_user_max_isp_dgain_x1024 = (A[17] == 1U) ? A[25] : 0;
+        printk(KERN_INFO "tx_isp_t40_recovered: ae user caps it=%u again=%u ispdg=%u (modes %u/%u/%u)\n",
+               regtrace_ae_user_max_it, regtrace_ae_user_max_again_x1024,
+               regtrace_ae_user_max_isp_dgain_x1024, A[14], A[15], A[17]);
+    }
+    return ret;
+}
+
 int32_t tx_isp_ae_expoinfo_s_attr_isra_17(uint32_t a0, uint32_t a1)
 {
     /* T40-S-ATTR-COPY: OEM tx_isp_ae_expoinfo_s_attr.isra: copy_from_user(buf, user, 220) then
      * tisp_s_ae_exprinfo_attr(vinum, buf).  The lift lost the size and source of the copy
      * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
      * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
-    return regtrace_t40_s_attr_copy(a0, a1, 220, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_ae_exprinfo_attr, "tx_isp_ae_expoinfo_s_attr_isra_17");
+    return regtrace_t40_s_attr_copy(a0, a1, 220, regtrace_t40_s_ae_exprinfo_hook, "tx_isp_ae_expoinfo_s_attr_isra_17");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009de0 origin=fragment_seed original=tx_isp_ae_weight_s_attr.isra.18 */
@@ -47230,6 +47343,16 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
         }
 
         tisp_s_ae_scence_attr(arg1, &var_88);
+        if (arg1 == 0) {
+            const uint32_t *w = (const uint32_t *)&var_88;
+
+            /* IMPISPAEScenceAttr words: [4] AeTargetCompEn, [5] AeTargetComp (128 = unchanged) */
+            regtrace_ae_target_comp_en = (w[4] == 1U || w[4] == 3U) ? 1U : 0U;
+            regtrace_ae_target_comp = w[5] ? w[5] : 128U;
+            printk(KERN_INFO "tx_isp_t40_recovered: ae target comp en=%u comp=%u -> target %u\n",
+                   regtrace_ae_target_comp_en, regtrace_ae_target_comp,
+                   regtrace_t40_frame_3a_target_eff());
+        }
         return s1_1;
     }
 
@@ -50504,6 +50627,8 @@ static void regtrace_frame_done_tuning_follow(void)
 
     /* Explicit forensic CT remains live when automatic gain-derived
      * tracking is disabled. */
+    regtrace_t40_ev_fanout(regtrace_gc4653_again_log2_gain(min_t(uint32_t,
+        READ_ONCE(regtrace_ae_soft_cur_again), regtrace_t40_ae_max_again_index())));
     if (regtrace_enable_ccm && !regtrace_ccm_ct_track &&
         (regtrace_ccm_ct != regtrace_ccm_ct_now ||
          regtrace_ccm_ev != regtrace_ccm_ev_now))
@@ -96537,6 +96662,9 @@ static uint32_t regtrace_t40_ae_max_it(void)
                 WRITE_ONCE(regtrace_ae_soft_max_it, s);
         }
     }
+    if (regtrace_ae_user_max_it > regtrace_ae_soft_min_it &&
+        regtrace_ae_user_max_it < it)
+        it = regtrace_ae_user_max_it;
     return it;
 }
 
@@ -96652,7 +96780,7 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
         uint32_t max_it = regtrace_t40_ae_max_it();
         uint32_t dgain = clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur),
                                  1024U, 32767U);
-        uint32_t dgain_max = clamp_t(uint32_t, regtrace_ae_isp_dgain_max,
+        uint32_t dgain_max = clamp_t(uint32_t, regtrace_t40_ae_isp_dgain_max_eff(),
                                      1024U, 32767U);
         uint32_t deadband = max_t(uint32_t, regtrace_ae_soft_hyst, 2U);
         bool dgain_clamped = dgain > dgain_max;   /* ae_isp_dgain_max lowered at runtime */
@@ -96662,7 +96790,7 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
         bool protect_highlights =
             regtrace_frame_3a_highlight_limit_permille &&
             highlight_permille > regtrace_frame_3a_highlight_limit_permille &&
-            luma >= regtrace_frame_3a_target;
+            luma >= regtrace_t40_frame_3a_target_eff();
         bool changed = false;
         bool dgain_changed = false;
         /*
@@ -96671,8 +96799,9 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
          * vendor's 2-3 s with frame_3a_interval=3 at 20 fps.  Integration
          * steps are already proportional to the error and stay single.
          */
-        unsigned int moves = (luma * 2U < regtrace_frame_3a_target ||
-                              luma > regtrace_frame_3a_target * 2U) ? 2U : 1U;
+        uint32_t target = regtrace_t40_frame_3a_target_eff();
+        unsigned int moves = (luma * 2U < target ||
+                              luma > target * 2U) ? 2U : 1U;
         unsigned int n;
         /*
          * T40-AE-GAINBAND: a sensor gain step is 1.17x (14995/65536 log2),
@@ -96685,15 +96814,15 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
          * deadband.
          */
         uint32_t again_band = max_t(uint32_t, deadband,
-                                    regtrace_frame_3a_target * 9U / 100U);
+                                    target * 9U / 100U);
         uint32_t dgain_band = max_t(uint32_t, deadband,
-                                    regtrace_frame_3a_target * 5U / 100U);
+                                    target * 5U / 100U);
 
         for (n = 0; n < moves; n++) {
         if (!protect_highlights &&
-            luma + deadband < regtrace_frame_3a_target) {
+            luma + deadband < target) {
             if (it < max_it) {
-                uint32_t error = regtrace_frame_3a_target - luma;
+                uint32_t error = target - luma;
                 uint32_t step = (uint32_t)div64_u64(
                     (uint64_t)max_t(uint32_t, it, 64U) * error,
                     max_t(uint32_t, regtrace_frame_3a_target * 2U, 1U));
@@ -175076,9 +175205,20 @@ int32_t tisp_s_module_ratio_attr(uint32_t a0, uintptr_t a1)
             continue;
         *(uint32_t *)(t + 832 + 8 * i) = en;
         t[836 + 8 * i] = en ? r : 128;
-        if (i == 0)
+        if (i == 0) {
             tisp_s_sdns_ratio(a0);
-        else
+            /* T40-QUALITY3: the setter scales the bank tables, the literal SDNS chain works on
+             * its own copies taken at init: reload them and replay the live gain. */
+            if (a0 == 0 && regtrace_enable_sdns) {
+                (void)regtrace_sdns_main_init_lit();
+                WRITE_ONCE(regtrace_dns_ev_applied, 0xffffffffU);
+            }
+        } else if (i == 2 && a0 == 0) {
+            /* DRC ratio -> literal OEM tisp_s_drc_ratio on the private ADR state */
+            int dret = regtrace_adr_drc_ratio_lit();
+
+            isp_printf(1, "%s: drc ratio %u -> adr ret=%d\n", "tisp_s_module_ratio_attr", r, dret);
+        } else
             isp_printf(1, "%s: ratio %u of module %u cached, not applied yet\n", "tisp_s_module_ratio_attr", r, i);
     }
     return 0;
