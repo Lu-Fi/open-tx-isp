@@ -47030,6 +47030,10 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
 
                 tisp_set_fps(arg1, s3_2);
                 ((int **)arg2)[(int)arg1 * 8 + 6] = (int)(long)(uintptr_t)s3_2;
+                /* T40-FPS-READBACK: the GET (and the unchanged-value check above) read this word; nothing
+                 * updated it, so GetSensorFPS kept answering the boot rate after a working set (12 fps
+                 * delivered, GET 20/1, Eufy agg43d 2026-10-24). */
+                *(int *)((char *)*(int **)((char **)arg2 + 0x10c / sizeof(uintptr_t)) + (int)arg1 * 0x60 + 0x180) = (int)(long)(uintptr_t)s3_2;
             }
         }
 
