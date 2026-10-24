@@ -14,16 +14,14 @@
 #ifndef TX_ISP_T41_DFG_H
 #define TX_ISP_T41_DFG_H
 
-/* Default 0 since the 2026-10-24 .32 A/B: in the day bank (gc5603, 2880x1620,
- * 160x162 blocks) the translated chain leaves a bright, desaturated diamond
- * at every block corner (18 x 10 lattice, strength scales it; none with the
- * block bypassed, none in the vendor stack).  Registers programmed by init
- * are identical on host and device and the per-block LUT is smooth, so the
- * fault is not in the parameter loading; cause open.  1 = OEM defog chain
- * (translated), 0 = block kept in bypass (needs a boot-time param). */
-static unsigned int t41_defog = 0;
+/* Default 1 since 2026-10-24: the diamond lattice at every block corner came
+ * from constant tables read out of the vendor-AE rodata image (1056 B off);
+ * with its own dfg_rodata the defog registers equal the vendor dump (.32,
+ * gc5603 2880x1620).  1 = OEM defog chain (translated), 0 = block kept in
+ * bypass (needs a boot-time param). */
+static unsigned int t41_defog = 1;
 module_param(t41_defog, uint, 0444);
-MODULE_PARM_DESC(t41_defog, "defog: 1 = OEM defog chain (translated, leaves a diamond lattice in the gc5603 day picture), 0 = block kept in bypass (default)");
+MODULE_PARM_DESC(t41_defog, "defog: 1 = OEM defog chain (default, registers equal the vendor), 0 = block kept in bypass");
 
 /* OEM statics: .bss+0x3ea0 (deghost_en_flag_tmp and the defog words behind it;
  * +0xf0 is the per-channel info pointer) and the PM callback table */
