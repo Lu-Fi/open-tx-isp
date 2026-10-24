@@ -14,12 +14,17 @@
  * modules that were device-tested are accepted; a key that changes any
  * other bit is refused instead of being acknowledged.
  *
- * DEFOG (bit 11) may only stay in or go to bypass: the kernel build keeps
- * defog bypassed from tisp_defog_init on, because its per-frame algorithm
- * (Tiziano_defog_soft and helpers) is not recovered; leaving bypass would
- * run the block with its init-time parameters only.
+ * DEFOG (bit 11) may only stay in or go to bypass unless the translated OEM
+ * defog chain runs (t41_defog, tx_isp_t41_dfg.h): the bypass-only block has
+ * no per-frame algorithm, so leaving bypass would run it with its init-time
+ * parameters only.
  */
 #define T41_MODCTL_DEFOG_BIT (1U<<11)
+/* The driver defines this to "the OEM defog chain (t41_defog) is running";
+ * until then the block may only stay in or go to bypass. */
+#ifndef T41_MODCTL_DEFOG_MAY_RUN
+#define T41_MODCTL_DEFOG_MAY_RUN() 0
+#endif
 #define T41_MODCTL_KEY_MASK 0x01ffffffU
 /* LSC 1, DPC 4, ADR 7, CCM 9, GAMMA 10, DEFOG 11, MDNS 13, YDNS 14,
  * BCSH 15, YSP 17, SDNS 18 */
@@ -42,7 +47,8 @@ static inline int t41_modctl_plan(unsigned int old_top, unsigned int key,
 	diff = cur ^ key;
 	if (diff & ~T41_MODCTL_SUPPORTED)
 		return -1;
-	if ((diff & T41_MODCTL_DEFOG_BIT) && !(key & T41_MODCTL_DEFOG_BIT))
+	if ((diff & T41_MODCTL_DEFOG_BIT) && !(key & T41_MODCTL_DEFOG_BIT) &&
+	    !T41_MODCTL_DEFOG_MAY_RUN())
 		return -1;
 	for (bit = 0; bit < 25; ++bit) {
 		unsigned int b = 1U << bit;

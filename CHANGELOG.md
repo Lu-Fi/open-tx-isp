@@ -4,6 +4,22 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24 (3): T41 day/night idle apply only without frame-completion IRQs (`claude/t41-ab-fixes3`; device re-test pending)
+
+- The AE-statistics-interrupt apply of `t41_dn_apply_ae_irq` now runs only while no frame-completion interrupt (bit 0) arrived for 250 ms (idle camera); with a consumer the bit-0 path alone applies, exactly as before ab-fixes2. A/B on .32 showed the parameter itself changes neither the auto day return (about 35 s with 0 and 1) nor the day saturation after a night cycle; the reported misses came from the shared test light (.34 run in the same room) and from the timps reference timing.
+- The night/day bank work waits up to 3 s for a first AE exposure before computing CCM/BCSH/TMO (an idle boot with a persisted night mode applied the bank with ev=0).
+
+## 2026-10-24 (2): T41 day/night switch without a stream consumer (`claude/t41-ab-fixes2`; device re-test pending)
+
+- **Day/night switch applied from the per-frame AE statistics interrupt:** the transition state machine (CSC fill, night/day parameter bank, TOP bypass) was stepped only from the frame-completion interrupt (status0 bit 0), which arrives while a consumer (stream, snapshot) is attached. On an idle camera a running-mode request flipped the readback at once but the bank switch waited 30..100 s for the next viewer (.32: dn-bank applies only at the snapshots; forced day left AWB at 5000 K and a red cast, timps logged "ISP did not follow the switch"). The AE statistics interrupt (bit 4) comes every frame without a consumer; `t41_dn_apply_ae_irq=0` restores the old trigger.
+
+## 2026-10-24: T41 A/B fixes against the vendor stack (`claude/t41-ab-fixes`; .32 gc5603 A/B, device re-test pending)
+
+- **Tone consumers got the EV 1024x too large:** gamma, CCM, BCSH, ADR and the TMO curves compare the exposure against calibration knots in plain integration x linear gain units (gc5603 bin: gamma 50..200000, CCM/BCSH 32..102400, ADR 160..4800, TMO 20..300000; stock gets the AE event shifted by 10 and shifts it back). The tone worker passed the AE-precision value (x1024), which put them in their lowest-light bracket at any brightness: gamma strength 128 instead of 252 (day Y 103 instead of about 135: 24 % darker than the vendor stack), CCM/BCSH saturation from the dim-light bracket (28 % lower). The worker now hands them the plain EV; AWB keeps its own unit. The AE precision (params +0x6c0) is read from the calibration instead of assumed.
+- **TMO local map on MXU3 by default** (`t41_tmo_map_impl=2`, bit-exact with the C reference, falls back to C without MXU3): the per-frame tone worker was the main system-CPU difference to the vendor stack.
+- **ISP interrupt sources trimmed to what is consumed** (`t41_isr_enable`: all but AF bit 6 in 0x40020, LSC/BCSH frame-down bits 4+20 in 0x400a0; `t41_isr_dispatch != 0` restores everything): isp-m0 215 -> 125 IRQ/s on .32 (vendor 179), frame rate and tone/AWB/ADR work unchanged.
+- **Defog off by default (`t41_defog=0`):** the translated chain leaves a bright diamond at every block corner of the gc5603 day picture (18 x 10 lattice, scales with the defog strength; none with defog bypassed, none in the vendor stack). Init registers are identical on host and device and the per-block LUT is smooth, cause open.
+
 ## 2026-10-20: T31 picture fix (`claude/t31-bild`; in `next`)
 
 - **AE minimum EV step and defog tables/packing like the OEM (T31):** the AE step floor and the defog table layout/packing now follow the OEM tuning code.

@@ -21,6 +21,8 @@
 #include "tx_isp_t41_tmo_mxu3.h"
 #include <linux/random.h>
 #include "tx_isp_t41_ccm.h"
+bool t41_dfg_ready(void);
+#define T41_MODCTL_DEFOG_MAY_RUN() t41_dfg_ready()
 #include "tx_isp_t41_modctl.h"
 #include "tx_isp_t41_gamma_ctl.h"
 #include "tx_isp_t41_ccm_manual.h"
@@ -68,6 +70,7 @@
 #endif
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
+#include <linux/reboot.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
@@ -818,9 +821,17 @@ static int tx_isp_core_ioctl_mask;
 module_param(tx_isp_core_ioctl_mask, int, 0);
 MODULE_PARM_DESC(tx_isp_core_ioctl_mask, "isp ioctl calls mask");
 
-static int tx_isp_bringup_level;
+/*
+ * Default 3 = full core bring-up, the level the image passes from
+ * /etc/modules.d/20-isp. Below 3 the core probe returns before the ISP/CSI
+ * clock gates and the ISPA divider are set up (CLKGR 0x3F9F77E5, ISPACDR 1 =
+ * 552 MHz instead of 0x3D1F77E5 / 2 = 368 MHz), and a WDT reboot after such a
+ * load hangs (audit T41_REBOOT_HANG_1019, "Geraetetest clk-defaults").
+ * Lower levels stay available for bring-up via the module parameter.
+ */
+static int tx_isp_bringup_level = 3;
 module_param(tx_isp_bringup_level, int, 0);
-MODULE_PARM_DESC(tx_isp_bringup_level, "bring-up gate: -1 exports only, 0 shallow, 1 graph, 2 mem, 3 core tuning");
+MODULE_PARM_DESC(tx_isp_bringup_level, "bring-up gate: -1 exports only, 0 shallow, 1 graph, 2 mem, 3 core tuning (default)");
 /*
  * Load-time copy in .data, used by the unload path.  The .bss parameter
  * sits among recovered globals that decompiled code addresses as a base
@@ -1817,12 +1828,13 @@ module_param(t41_tone_trigger, int, 0644);
 MODULE_PARM_DESC(t41_tone_trigger,
                  "1 also runs the per-frame tone worker from the AE statistics interrupt (default 1; 0: TMO interrupt only)");
 /*
- * EV handed to the per-frame consumers (AWB Y weights, CCM, BCSH, gamma,
- * ADR, TMO): stock tisp_ae_long_ev_alloc pushes integration x total gain
- * in the AE fixed-point precision (AE params +0x6c0) and every stock
- * *_ev_update undoes only its own <<10, so they all see that value; the
- * open AE target uses the same product.  The AE path records its precision
- * here; tone_ev reports the last EV the worker distributed.
+ * AE EV units.  Stock tisp_ae_long_ev_alloc pushes the AE EV (integration x
+ * total gain, in the AE fixed-point precision, AE params +0x6c0 = 10 in the
+ * shipped bins) and the gamma/CCM/BCSH/ADR/TMO *_ev_update callbacks shift
+ * it right by 10, i.e. they compare plain integration x linear gain against
+ * their knots.  Only the AWB block here keeps the shifted value.  The AE
+ * path records its precision in t41_ae_ev_shift; tone_ev reports the last
+ * plain EV the tone worker distributed.
  */
 static unsigned int t41_ae_ev_shift __attribute__((section(".data"))) = 10;
 static unsigned int t41_tone_ev __attribute__((section(".data")));
@@ -1977,27 +1989,35 @@ static int isp_memopt = 1;
 module_param(isp_memopt, int, 0);
 MODULE_PARM_DESC(isp_memopt, "isp memory optimize");
 
-static int isp_clka = 600000000;
+/*
+ * T41 clock defaults = the image's /etc/modules.d/20-isp line (vpll 300 MHz,
+ * sclka 550/550). The old OEM defaults (mpll, isp_clk 285 MHz, isp_clka
+ * 600 MHz) gave ISPA = sclka/2 = 552 MHz on a parameterless modprobe/insmod,
+ * and a WDT reset after such a load did not boot again (audit
+ * T41_REBOOT_HANG_1019). isp_clka is also clamped in get_isp_clka().
+ */
+#define T41_ISP_CLKA_MAX 550000000
+static int isp_clka = 550000000;
 module_param(isp_clka, int, 0);
-MODULE_PARM_DESC(isp_clka, "isp axi bus clock freq");
+MODULE_PARM_DESC(isp_clka, "isp axi bus clock freq (default 550 MHz, clamped to <= 550 MHz)");
 
 static int isp_clks = 550000000;
 module_param(isp_clks, int, 0);
 MODULE_PARM_DESC(isp_clks, "isp scaler clock freq");
 
-static int isp_clk = 285000000;
+static int isp_clk = 300000000;
 module_param(isp_clk, int, 0);
 MODULE_PARM_DESC(isp_clk, "isp clock freq");
 
-static char *clka_name = "mpll";
+static char *clka_name = "sclka";
 module_param(clka_name, charp, 0);
 MODULE_PARM_DESC(clka_name, "select the axi bus parent clock");
 
-static char *clks_name = "mpll";
+static char *clks_name = "sclka";
 module_param(clks_name, charp, 0);
 MODULE_PARM_DESC(clks_name, "select the scaler parent clock");
 
-static char *clk_name = "mpll";
+static char *clk_name = "vpll";
 module_param(clk_name, charp, 0);
 MODULE_PARM_DESC(clk_name, "select the isp parent clock");
 
@@ -2016,6 +2036,15 @@ static int t41_runtime_trace;
 module_param(t41_runtime_trace, int, 0644);
 MODULE_PARM_DESC(t41_runtime_trace,
 		 "enable verbose T41 frame/remote-event/IRQ recovery tracing");
+
+/* T41-ISR-FRAMEDOWN: OEM frame-down callbacks 36 (LSC) and 52 (BCSH) in the
+ * hard-wired ISR list (default on); t41_isr_counts[idx] counts the calls. */
+static bool t41_isr_framedown = true;
+module_param(t41_isr_framedown, bool, 0644);
+MODULE_PARM_DESC(t41_isr_framedown, "call the OEM LSC/BCSH frame-down callbacks (irq_func_cb[36]/[52]) from the ISR (default 1)");
+static unsigned int t41_isr_counts[96];
+module_param_array(t41_isr_counts, uint, NULL, 0444);
+MODULE_PARM_DESC(t41_isr_counts, "per-index irq_func_cb call counters (hard-wired ISR list)");
 
 /*
  * Progress notes (bring-up enter/exit, per-ioctl and per-event lines) were
@@ -3655,6 +3684,18 @@ static const char LC168[] = "ISP[0]==>>frame_interival:%ld, valid:%ld, vb:%ld\n"
 static const char LC169[] = "This ISP[0] Don't Wrok\n";
 static const char LC170[] = "ISP[0]==>>vb measure error\n";
 static int32_t irq_func_cb[96];
+/* OEM-style ISR dispatch: every status bit -> irq_func_cb[group*32+bit]
+ * (group 0 = 0x40028, 1 = 0x400a8, 2 = 0x400b8), as the vendor ISR loop
+ * (mbus_to_bayer_write+0x5f4: for i in 0..95).  0 = hard-wired legacy
+ * dispatch (only [5], [8], [17]); 1 = generic loop.  t41_isr_dispatch_skip
+ * lists indices (bit n of the 32-bit words skip[0..2]) that the native
+ * replacements already handle (default: 3 AWB main, 9 ADR). */
+static int t41_isr_dispatch;
+static int t41_isr_dispatch_set(const char *value, const struct kernel_param *kp);
+module_param_call(t41_isr_dispatch, t41_isr_dispatch_set, param_get_int, &t41_isr_dispatch, 0644);
+MODULE_PARM_DESC(t41_isr_dispatch, "ISP IRQ dispatch: 0 hard-wired, 1 OEM-style table loop, 2 count-only probe");
+static unsigned int t41_isr_dispatch_skip[3] = { (1u << 3) | (1u << 9), 1u << (61 - 32), 0 };
+module_param_array(t41_isr_dispatch_skip, uint, NULL, 0644);
 static const char LC171[] = "[%s %d] Enter the resume ... \n";
 static const char LC172[] = "[%s %d] [ %s:%d ] Failed to resume %s\n";
 static const char LC173[] = "[%s %d] Enter the suspend ... \n";
@@ -4875,6 +4916,8 @@ int32_t tx_isp_video_link_destroy_isra_3(uintptr_t a0, uint32_t a1) __asm__("tx_
 int32_t tx_isp_video_link_destroy_isra_3(uintptr_t a0, uint32_t a1);
 int32_t tx_isp_release(uint32_t a0, uintptr_t a1);
 int32_t tx_isp_init(void);
+int t41_rawinject_init(void);
+void t41_rawinject_exit(void);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t tx_isp_driver_version_isra_12(uint32_t a0) __asm__("tx_isp_driver_version.isra.12");
 #endif
@@ -5436,6 +5479,17 @@ int64_t tisp_defog_init(uint32_t a0, uintptr_t a1);
 int32_t tisp_defog_deinit(uint32_t a0);
 int32_t tisp_defog_ev_update(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
 int32_t tisp_defog_wdr_en(uint32_t a0, uint32_t a1);
+/* OEM defog chain (tx_isp_t41_dfg.h), falls back to the bypass-only block */
+int64_t t41_dfg_init(uint32_t ch, uintptr_t par);
+int32_t t41_dfg_deinit(uint32_t ch);
+int32_t t41_dfg_wdr_en(uint32_t ch, uint32_t en);
+int32_t t41_dfg_dn_params_refresh(uint32_t ch, uint32_t mode, uint32_t a2, uint32_t a3);
+bool t41_dfg_ready(void);
+int32_t t41_dfg_ratio_apply(void);
+void t41_dfg_irq(void);
+u64 vae_tisp_defog_param_array_get(u32, u32, u32, u32, u32);
+u64 vae_tisp_defog_param_array_set(u32, u32, u32, u32, u32);
+u64 vae_tisp_s_defog_ratio(u32, u32, u32, u32, u32);
 int32_t tisp_defog_dn_params_refresh(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
 int32_t tisp_defog_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2);
 int32_t tisp_defog_param_array_set(uint32_t a0, uint32_t a1);
@@ -6680,7 +6734,13 @@ uint32_t get_isp_clka(void)
     /* fragment 2: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&isp_clka));
 
-    return (uint32_t)v0;
+    if ((uint32_t)(uintptr_t)v0 > T41_ISP_CLKA_MAX) {
+        pr_warn_once("tx-isp-t41: isp_clka=%u above %u Hz, clamped (ISP AXI over-clock left the SoC unbootable after a WDT reset)\n",
+                     (uint32_t)(uintptr_t)v0, T41_ISP_CLKA_MAX);
+        v0 = (uintptr_t *)(uintptr_t)T41_ISP_CLKA_MAX;
+    }
+
+    return (uint32_t)(uintptr_t)v0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000003c4 origin=fragment_seed original=get_isp_memopt */
@@ -21579,6 +21639,7 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
      * non-neutral request instead of acknowledging it unchanged. */
     for (i = TX_ISP_TUNING_T41_RATIO_DRC; i < ARRAY_SIZE(units); i++)
         if (i != TX_ISP_TUNING_T41_RATIO_DPC && i != TX_ISP_TUNING_T41_RATIO_DRC &&
+            !(i == TX_ISP_TUNING_T41_RATIO_DEFOG && t41_dfg_ready()) &&
             units[i].en && units[i].ratio != 128)
             return -EOPNOTSUPP;
     drc_ratio = units[TX_ISP_TUNING_T41_RATIO_DRC].en ?
@@ -21632,6 +21693,21 @@ static int t41_tuning_module_ratio(unsigned int channel, unsigned int is_get,
         ret = t41_dpc_ratio_apply(dpc_ratio);
         if (ret < 0)
             return ret;
+    }
+    if (t41_dfg_ready()) {
+        const struct tx_isp_tuning_t41_ratio_unit *dfg =
+            &units[TX_ISP_TUNING_T41_RATIO_DEFOG];
+        u8 dfg_ratio = dfg->en ? (u8)dfg->ratio : 128;
+        u32 *dfg_en = (u32 *)(void *)(tuning + 184 + TX_ISP_TUNING_T41_RATIO_DEFOG * 8);
+
+        if (*dfg_en != dfg->en ||
+            tuning[188 + TX_ISP_TUNING_T41_RATIO_DEFOG * 8] != dfg_ratio) {
+            *dfg_en = dfg->en;
+            tuning[188 + TX_ISP_TUNING_T41_RATIO_DEFOG * 8] = dfg_ratio;
+            ret = t41_dfg_ratio_apply();
+            if (ret < 0)
+                return ret;
+        }
     }
     if (!pending)
         return 0;
@@ -23407,12 +23483,116 @@ static void t41_dn_apply_top(uint32_t mode)
 		word &= ~(1U << i);
 		word |= (uint32_t)(sel[4 + i] & 1) << i;
 	}
-	word |= T41_MODCTL_DEFOG_BIT | 0xfc000000U;
+	word |= 0xfc000000U;
+	if (!t41_dfg_ready())
+		word |= T41_MODCTL_DEFOG_BIT;
 	word = (word & ~t41_modctl_mask) | (t41_modctl_value & t41_modctl_mask);
 	*bypass = word;
 	system_reg_write(0x40, word);
 	t41_dn_top_last = word;
 }
+
+/*
+ * Parameter-bank switch of tisp_day_or_night_event (event 18).  Stock copies
+ * the selected bank (day/night) into the live tparamsP image, keeps the three
+ * runtime bytes at +0x7fb2..+0x7fb4 and then runs every module's
+ * *_dn_params_refresh.  The event callback stays suppressed (packed
+ * workspaces), so the same flow runs here from a work item with the open
+ * module paths: CCM/BCSH/gamma/NR/YSP/LSC/ADR/DMSC/DPC/LCE/TMO re-read their
+ * tables from the new bank.  Bit n of t41_dn_bank enables step n.
+ */
+static int t41_dn_bank = 0x3ffff;
+module_param(t41_dn_bank, int, 0644);
+MODULE_PARM_DESC(t41_dn_bank, "night/day parameter bank switch steps (bit0 copy, 1 awb, 2 lsc, 3 adr, 4 dmsc, 5 gamma, 6 ccm, 7 bcsh, 8 clm, 9 ysp, 10 mdns, 11 ydns, 12 cdns, 13 sdns, 14 lce, 15 dpc, 16 tmo, 17 blc); 0 = off");
+static unsigned int t41_clm;
+static void t41_clm_frame(unsigned int ct);
+static unsigned int t41_dn_bank_mode;
+static unsigned int t41_dn_bank_count;
+static int t41_dn_bank_ret;
+module_param(t41_dn_bank_count, uint, 0444);
+module_param(t41_dn_bank_ret, int, 0444);
+
+static void t41_dn_bank_workfn(struct work_struct *work);
+static DECLARE_WORK(t41_dn_bank_work, t41_dn_bank_workfn);
+
+static void t41_dn_bank_workfn(struct work_struct *work)
+{
+	uint32_t mode = READ_ONCE(t41_dn_bank_mode) & 1;
+	uint32_t gain = READ_ONCE(t41_safe_ae_gain_q16);
+	uint32_t integration = READ_ONCE(t41_safe_ae_integration);
+	uint32_t m = (uint32_t)READ_ONCE(t41_dn_bank);
+	uint32_t ct = READ_ONCE(t41_ccm_ct);
+	uint64_t ev = 0;
+	uint8_t *dst, keep[3];
+	uintptr_t bank;
+	int ret = 0, r;
+	(void)work;
+
+	if (!m || !t41_kernel_data_ptr((void *)(uintptr_t)tparamsP) ||
+	    !t41_kernel_data_ptr((void *)(uintptr_t)tparams_day) ||
+	    !t41_kernel_data_ptr((void *)(uintptr_t)tparams_night))
+		return;
+	/*
+	 * An idle camera applies a persisted/boot-time switch before the AE has
+	 * produced a first exposure (ev=0): CCM/BCSH/TMO would be derived from
+	 * nothing.  Give the AE up to 3 s, then go on with what is there.
+	 */
+	for (r = 0; r < 30; r++) {
+		gain = READ_ONCE(t41_safe_ae_gain_q16);
+		integration = READ_ONCE(t41_safe_ae_integration);
+		if (gain <= (16U << 16) && integration != UINT_MAX && integration)
+			break;
+		msleep(100);
+	}
+	mode = READ_ONCE(t41_dn_bank_mode) & 1;
+	if (gain <= (16U << 16) && integration != UINT_MAX)
+		ev = (uint64_t)integration * tisp_math_exp2(gain, 16, 10) >> 10;
+	ev = min_t(uint64_t, ev, UINT_MAX);
+	bank = mode ? tparams_night : tparams_day;
+
+	mutex_lock(&t41_tmo_map_lock);
+	if (m & BIT(0)) {
+		dst = (uint8_t *)(uintptr_t)tparamsP + 65536 + 32690;
+		memcpy(keep, dst, sizeof(keep));
+		ret = tisp_params_copy(0, bank, global_wdr_en, 0,
+				       ((unsigned char *)&dnw)[mode ? 3 : 1]);
+		memcpy(dst, keep, sizeof(keep));
+		if (ret > 0)	/* stock copy returns a positive count */
+			ret = 0;
+	}
+	t41_gamma_base_valid = false;
+#define T41_DN_STEP(bit, call) do { if (m & BIT(bit)) { r = (call); if (r && !ret) ret = r; } } while (0)
+	T41_DN_STEP(1, tisp_awb_dn_params_refresh(0));
+	T41_DN_STEP(2, tisp_lsc_dn_params_refresh(0));
+	T41_DN_STEP(3, tisp_adr_dn_params_refresh(0, mode));
+	T41_DN_STEP(4, tisp_dmsc_dn_params_refresh(0));
+	T41_DN_STEP(5, tisp_gamma_dn_params_refresh(0, mode));
+	T41_DN_STEP(6, t41_ccm_update(ct, ev, 1));
+	T41_DN_STEP(7, t41_apply_calibrated_bcsh(READ_ONCE(t41_bcsh_color_model)));
+	if ((m & BIT(8)) && t41_clm)
+		t41_clm_frame(ct);
+	T41_DN_STEP(9, tisp_ysp_dn_params_refresh(0));
+	if (t41_mdns_buf_info[0].paddr)
+		T41_DN_STEP(10, tisp_mdns_dn_params_refresh(0, mode));
+	T41_DN_STEP(11, tisp_ydns_dn_params_refresh(0));
+	T41_DN_STEP(12, tisp_cdns_dn_params_refresh(0));
+	T41_DN_STEP(13, tisp_sdns_dn_params_refresh(0));
+	T41_DN_STEP(14, tisp_lce_dn_params_refresh(0));
+	T41_DN_STEP(15, tisp_dpc_dn_params_refresh(0, mode));
+	T41_DN_STEP(17, tisp_blc_dn_params_refresh(0));
+	mutex_unlock(&t41_tmo_map_lock);
+	T41_DN_STEP(16, t41_tmo_refresh(0, NULL));
+#undef T41_DN_STEP
+	t41_dn_bank_ret = ret;
+	t41_dn_bank_count++;
+	printk(KERN_WARNING "t41: dn bank %s applied mask=%#x ret=%d ev=%llu\n",
+	       mode ? "night" : "day", m, ret, (unsigned long long)ev);
+}
+
+static unsigned long t41_dn_last_frame0;
+static int t41_dn_apply_ae_irq = 1;
+module_param(t41_dn_apply_ae_irq, int, 0644);
+MODULE_PARM_DESC(t41_dn_apply_ae_irq, "1 = additionally step the day/night transition from the per-frame AE statistics interrupt while no frame-completion interrupt has arrived for 250 ms (idle camera without a consumer; with a consumer the frame-completion path alone applies, as before), 0 = frame-completion interrupt only");
 
 static void t41_apply_pending_day_night(char *core)
 {
@@ -23442,8 +23622,12 @@ static void t41_apply_pending_day_night(char *core)
     runtime.notify_result = &notify_ret;
 
     ret = tx_isp_daynight_apply(&runtime);
-    if (ret == TX_ISP_DAYNIGHT_SWITCH)
+    if (ret == TX_ISP_DAYNIGHT_SWITCH) {
         t41_dn_apply_top(mode);
+        WRITE_ONCE(t41_dn_bank_mode, mode);
+        if (READ_ONCE(t41_dn_bank))
+            schedule_work(&t41_dn_bank_work);
+    }
     if (ret == TX_ISP_DAYNIGHT_SWITCH)
         printk(KERN_WARNING
                "t41: applied running-mode=%u csc=%#x "
@@ -36090,9 +36274,23 @@ int32_t tx_isp_exit(void)
     if (t41_bringup() < 0)
         return 0;
 
+    t41_rawinject_exit();
     private_platform_driver_unregister(&tx_isp_driver);
     private_platform_device_unregister(&tx_isp_platform_device);
     return 0;
+}
+
+/* RAW inject (tx_isp_t41_rawinject.c): accessor for the static sensor
+ * parameter block (width = [0], height = [1]). */
+uint32_t t41_rawinject_par(unsigned int idx)
+{
+    return ((uint32_t *)(void *)tisp_par_info_storage)[idx];
+}
+
+/* RAW inject: OEM raw-DMA state block (NULL until tisp_raw_init ran). */
+uint32_t t41_rawinject_rpars(void)
+{
+    return rpars;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000013aa4 origin=fragment_seed original=subdev_video_destroy_link */
@@ -36452,7 +36650,7 @@ tx_isp_init0x6c:
 
     /* fragment 8: Branch */
     s0 = v0;
-    if (v0 == 0) { goto tx_isp_init0x54; }
+    if (v0 == 0) { t41_rawinject_init(); goto tx_isp_init0x54; }
 
     /* fragment 9: CallSetup */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_platform_device_unregister)(&tx_isp_platform_device); /* jalr target resolved by relocation */
@@ -44439,7 +44637,7 @@ tisp_code_tuning_ioctl0x1c4:
     goto tisp_code_tuning_ioctl0x1bc;
 
     /* fragment 56: Arithmetic */
-    v0 = (unsigned int *)&tisp_defog_param_array_get;
+    v0 = (unsigned int *)&vae_tisp_defog_param_array_get;
     a2 = a0 + 4;
     a1 = a0 + 27;
     v0 = v0;
@@ -44804,7 +45002,7 @@ tisp_code_tuning_ioctl0x5ec:
     goto tisp_code_tuning_ioctl0x5c4;
 
     /* fragment 135: Arithmetic */
-    v0 = (unsigned int *)&tisp_defog_param_array_set;
+    v0 = (unsigned int *)&vae_tisp_defog_param_array_set;
     a1 = a0 + 27;
     v0 = v0;
 
@@ -54735,7 +54933,7 @@ int tisp_deinit(int channel)
     tisp_lsc_deinit(channel);
     tisp_dpc_deinit(channel);
     tisp_adr_deinit(channel);
-    tisp_defog_deinit(channel);
+    t41_dfg_deinit(channel);
     tisp_dmsc_deinit(channel);
     tisp_gamma_deinit(channel);
     tisp_mdns_deinit(channel);
@@ -55975,7 +56173,7 @@ tisp_init0x4d4:
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gamma_init)(s0, s1); /* jalr target resolved by relocation */
 
     /* fragment 96: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_defog_init)(s0, s1); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)t41_dfg_init)(s0, s1); /* jalr target resolved by relocation */
 
     /* fragment 97: CallSetup */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lce_init)(s0, s1); /* jalr target resolved by relocation */
@@ -56089,7 +56287,7 @@ tisp_init0x74c:
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lce_wdr_en)(s0, 1); /* jalr target resolved by relocation */
 
     /* fragment 128: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_defog_wdr_en)(s0, 1); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)t41_dfg_wdr_en)(s0, 1); /* jalr target resolved by relocation */
 
     /* fragment 129: CallSetup */
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(32, 3355377664 + 4096); /* jalr target resolved by relocation */
@@ -56508,7 +56706,7 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
     T41_INIT2(tisp_adr_init);
     T41_INIT2(tisp_dmsc_init);
     T41_INIT2(tisp_gamma_init);
-    T41_INIT2(tisp_defog_init);
+    T41_INIT2(t41_dfg_init);
     T41_INIT2(tisp_lce_init);
     T41_INIT2(tisp_mdns_init);
     T41_INIT2(tisp_af_init);
@@ -56581,7 +56779,7 @@ int64_t tisp_init(uint32_t channel, uintptr_t config, uintptr_t param_path)
         T41_WDR2(tisp_gamma_wdr_en);
         T41_WDR2(tisp_mdns_wdr_en);
         T41_WDR2(tisp_lce_wdr_en);
-        T41_WDR2(tisp_defog_wdr_en);
+        T41_WDR2(t41_dfg_wdr_en);
         system_reg_write(0x20, 0xc7ff1000);
         tisp_adr_linear_switch(0, 1);
         T41_WDR2(tisp_dpc_wdr_en);
@@ -57904,6 +58102,15 @@ int32_t tisp_ae_ai_interrupt_static(uint32_t a0)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
+    /* The recovered relocation names ivdc_threshold_line, which is a plain
+     * int (0) in this build: the OEM chain *(*(sym + ch*4) + 4) then
+     * dereferences address 4 in hard IRQ (device reset with
+     * t41_isr_dispatch=1, .34 2026-10-19).  Until the real target table is
+     * resolved this callback is a guarded no-op; index 61 is also in the
+     * default dispatch skip mask. */
+    if (a0 >= 2 || !t41_kernel_data_ptr((void *)(uintptr_t)
+            *(uint32_t *)((char *)&ivdc_threshold_line + (a0 << 2))))
+        return 0;
     s1 = (a0 << 2) + (uintptr_t)&ivdc_threshold_line;
     s2 = 65536;
     s3 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s1) + 0)) + 4);
@@ -139163,7 +139370,11 @@ int32_t tisp_bcsh_init(uint32_t a0)
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_bcsh_write_reg)(s0); /* jalr target resolved by relocation */
 
     /* fragment 10: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_fra_down_interrupt)((uintptr_t)s0, ((uintptr_t)s0 * 42) + 52, &tisp_bcsh_fra_down_interrupt); /* jalr target resolved by relocation */
+    /* OEM 0x5e2a4..0x5e2c0 (vendor T41): system_irq_func_set(vin, vin*42 + 52,
+     * tisp_bcsh_fra_down_interrupt).  The lift resolved the jalr to the callback
+     * itself, so the frame-down handler ran once at init with bogus arguments and
+     * was never registered. */
+    v0 = (uintptr_t)system_irq_func_set((uintptr_t)s0, ((uintptr_t)s0 * 42) + 52, tisp_bcsh_fra_down_interrupt);
 
     /* fragment 11: CallSetup */
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(820, 539099136 + 2051); /* jalr target resolved by relocation */
@@ -153860,8 +154071,8 @@ tisp_tmo_ram_reg_refresh0x168:
 /*
  * Local TMO map implementation, all bit-exact with the reference
  * t41_tmo_map() (host test tx_isp_t41_tmo_map_test):
- *   0 = reference C, 1 = fast C (default), 2 = MXU3 spatial filter
- *   (tx_isp_t41_tmo_mxu3.S; falls back to fast C without MXU3).
+ *   0 = reference C, 1 = fast C, 2 = MXU3 spatial filter (default,
+ *   tx_isp_t41_tmo_mxu3.S; falls back to fast C without MXU3).
  * Writing 1 to t41_tmo_map_selftest runs MXU3, fast C and the reference on
  * random inputs in a work item and prints the result and timings.
  * t41_tmo_map_interval=n > 1 recomputes the local map only every n-th
@@ -153869,9 +154080,9 @@ tisp_tmo_ram_reg_refresh0x168:
  * frame, with MXU3).
  */
 static struct t41_tmo_map_scratch *t41_tmo_map_ws __attribute__((section(".data")));
-static int t41_tmo_map_impl __attribute__((section(".data"))) = 1;
+static int t41_tmo_map_impl __attribute__((section(".data"))) = 2;
 module_param(t41_tmo_map_impl, int, 0644);
-MODULE_PARM_DESC(t41_tmo_map_impl, "local TMO map: 0=reference C, 1=fast C (default), 2=MXU3");
+MODULE_PARM_DESC(t41_tmo_map_impl, "local TMO map: 0=reference C, 1=fast C, 2=MXU3 (default; fast C where the CPU has no MXU3), all bit-exact");
 static struct t41_tmo_mxu3_scratch *t41_tmo_mxu3_ws __attribute__((section(".data")));
 static void t41_tmo_selftest_workfn(struct work_struct *work);
 static DECLARE_WORK(t41_tmo_selftest_work, t41_tmo_selftest_workfn);
@@ -154194,9 +154405,9 @@ done:
 static void t41_tmo_workfn(struct work_struct *work)
 {
     t41_heapwatch_mark("t41_tmo_workfn");
-    uint32_t integration, gain, sequence, linear, ev;
+    uint32_t integration, gain, sequence, linear, ev, ev_plain, shift;
     unsigned long flags;
-    uint64_t exposure;
+    uint64_t exposure, ev_plain64;
     int ret;
     (void)work;
     mutex_lock(&t41_tmo_map_lock);
@@ -154214,20 +154425,30 @@ static void t41_tmo_workfn(struct work_struct *work)
         t41_tmo_error = -EAGAIN;
         goto done;
     }
-    /* Stock EV units (see t41_ae_ev_shift); dropping the precision here
-     * made every consumer see a 1024x smaller EV (bright-light tables, AWB
-     * Y weight 0, no AWB zones). */
-    linear = tisp_math_exp2(gain, 16, READ_ONCE(t41_ae_ev_shift));
+    /* Two EV units.  The AWB block keeps its own, in the AE fixed-point
+     * precision (integration x gain << t41_ae_ev_shift).  Every other
+     * consumer (gamma, CCM, BCSH, ADR, TMO) compares against calibration
+     * knots in plain integration x linear-gain units (bin: gamma 50..200000,
+     * CCM/BCSH 32..102400, ADR 160..4800, TMO 20..300000), and stock gets
+     * them as (AE event << 10) >> 10 = the AE EV without the precision
+     * shift.  Handing them the shifted value put gamma/CCM/BCSH/ADR/TMO in
+     * their lowest-light bracket at any brightness (gamma strength 128
+     * instead of 252: day image 24 % darker, saturation 28 % lower than the
+     * vendor stack on .32, A/B 2026-10-24). */
+    shift = READ_ONCE(t41_ae_ev_shift);
+    linear = tisp_math_exp2(gain, 16, shift);
     exposure = (uint64_t)integration * linear;
     ev = min_t(uint64_t, exposure, UINT_MAX);
-    t41_tone_ev = ev;
+    ev_plain64 = shift < 32 ? exposure >> shift : 0;
+    ev_plain = min_t(uint64_t, ev_plain64, UINT_MAX);
+    t41_tone_ev = ev_plain;
     if (t41_native_awb)
         T41_LS_TIME(T41_WT_AWB_EXPOSURE, t41_native_awb_exposure(gain, ev));
-    T41_LS_TIME(T41_WT_CCM, t41_ccm_update(READ_ONCE(t41_ccm_ct), ev, 0));
-    T41_LS_TIME(T41_WT_BCSH, t41_bcsh_update(READ_ONCE(t41_ccm_ct), ev, 0));
+    T41_LS_TIME(T41_WT_CCM, t41_ccm_update(READ_ONCE(t41_ccm_ct), ev_plain, 0));
+    T41_LS_TIME(T41_WT_BCSH, t41_bcsh_update(READ_ONCE(t41_ccm_ct), ev_plain, 0));
     if (t41_clm)
         T41_LS_TIME(T41_WT_CLM, t41_clm_frame(READ_ONCE(t41_ccm_ct)));
-    T41_LS_TIME(T41_WT_GAMMA, t41_gamma_error = t41_gamma_update(ev));
+    T41_LS_TIME(T41_WT_GAMMA, t41_gamma_error = t41_gamma_update(ev_plain));
     T41_LS_TIME(T41_WT_LSC, t41_native_lsc_frame(READ_ONCE(t41_ccm_ct), gain));
     {
         u64 adr_start = t41_work_begin();
@@ -154235,7 +154456,7 @@ static void t41_tmo_workfn(struct work_struct *work)
 
         if (interval <= 1 || ++t41_adr_tick >= interval) {
             t41_adr_tick = 0;
-            t41_native_adr_frame(exposure);
+            t41_native_adr_frame(ev_plain64);
             t41_work_end(T41_WT_ADR, adr_start);
         }
     }
@@ -154251,7 +154472,7 @@ static void t41_tmo_workfn(struct work_struct *work)
         if (!t41_dpc_error)
             t41_dpc_gain = gain;
     }
-    T41_LS_TIME(T41_WT_TMO_FRAME, ret = t41_tmo_frame(ev, gain, sequence));
+    T41_LS_TIME(T41_WT_TMO_FRAME, ret = t41_tmo_frame(ev_plain, gain, sequence));
     t41_tmo_error = ret;
     if (ret) {
         ++t41_tmo_dropped;
@@ -154261,7 +154482,7 @@ static void t41_tmo_workfn(struct work_struct *work)
         }
     } else {
         if (!t41_tmo_frames)
-            printk(KERN_INFO "t41: frame TMO enabled ev=%u gain=%u\n", ev, gain);
+            printk(KERN_INFO "t41: frame TMO enabled ev=%u gain=%u\n", ev_plain, gain);
         ++t41_tmo_frames;
     }
 done:
@@ -154285,6 +154506,7 @@ static void t41_tmo_stream_stop(void)
     t41_tmo_state.live = -1;
     spin_unlock_irqrestore(&t41_tmo_state_lock, flags);
     cancel_work_sync(&t41_tmo_work);
+    cancel_work_sync(&t41_dn_bank_work);
 }
 
 static void t41_tmo_stream_start(void)
@@ -155863,6 +156085,8 @@ int32_t tisp_raw_wdma_fd_interrupt(void)
 
     /* fragment 1: MemoryAccess */
     v1 = *(uint32_t *)((char *)((char *)&rpars));
+    if (!v1)    /* no RAW DMA session: OEM derefs NULL here */
+        return 1;
     a0 = 1;
     a1 = *(uint32_t *)((char *)v1 + 12);
 
@@ -157022,7 +157246,7 @@ tisp_day_or_night_event0x1e8:
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_hldc_dn_params_refresh)(s0, s1); /* jalr target resolved by relocation */
 
     /* fragment 44: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_defog_dn_params_refresh)(s0, s1, *(uint32_t *)((char *)((char *)&tisp_par_info)), *(uint32_t *)((char *)(s5) + 4)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)t41_dfg_dn_params_refresh)(s0, s1, *(uint32_t *)((char *)((char *)&tisp_par_info)), *(uint32_t *)((char *)(s5) + 4)); /* jalr target resolved by relocation */
 
     /* fragment 45: CallSetup */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lce_dn_params_refresh)(s0, s1); /* jalr target resolved by relocation */
@@ -158283,7 +158507,7 @@ tisp_s_wdr_en0x2c4:
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lce_wdr_en)(s3, s2); /* jalr target resolved by relocation */
 
     /* fragment 60: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_defog_wdr_en)(s3, s2); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)t41_dfg_wdr_en)(s3, s2); /* jalr target resolved by relocation */
 
     /* fragment 61: CallSetup */
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(32, 3355377664 + 4096); /* jalr target resolved by relocation */
@@ -160291,14 +160515,14 @@ tisp_s_module_ratio_attr0x100:
 
     /* fragment 28: Branch */
     int _bc_s0_28 = s0 != v0;
-    v0 = (unsigned int *)&tisp_s_defog_ratio;
+    v0 = (unsigned int *)&vae_tisp_s_defog_ratio;
     if (_bc_s0_28) { goto tisp_s_module_ratio_attr0xb8; }
 
     /* fragment 29: Arithmetic */
     a0 = s2;
 
     /* fragment 30: Branch */
-    v0 = (unsigned int *)&tisp_s_defog_ratio;
+    v0 = (unsigned int *)&vae_tisp_s_defog_ratio;
     goto tisp_s_module_ratio_attr0x128;
 
 tisp_s_module_ratio_attr0x120:
@@ -168134,18 +168358,37 @@ int32_t tx_isp_enable_irq(uintptr_t a0)
 #endif
 
 /*
- * ISP interrupt enable words written when interrupts are enabled. The
- * defaults are the stock values (H20250310a isp_interrupts_enable writes
- * the same four words). Clearing a bit masks that interrupt source; a
- * write while interrupts are live takes effect at once. Use the
- * t41_isr_bits statistics to see which sources fire.
+ * ISP interrupt enable words written when interrupts are enabled.  Stock
+ * (H20250310a isp_interrupts_enable) writes all-ones for the status words
+ * 0x40028 and 0x400a8, but the hard-wired dispatch only acts on a few bits;
+ * the rest were taken as an interrupt entry each (about 14 per frame) just
+ * to be acknowledged.  The default therefore leaves enabled
+ *   0x40020: everything except bit 6 (AF statistics, no consumer),
+ *   0x400a0: bits 4 and 20 (OEM LSC/BCSH frame-down commits, irq_func_cb
+ *            36/52); the other 28 module update/done bits have no consumer,
+ *   0x400b0: stock (raw WDMA/RDMA bits 68/69 for the raw input path).
+ * t41_isr_dispatch != 0 (OEM table loop / probe) restores all-ones for
+ * both words.  Clearing a bit masks that interrupt source; a write while
+ * interrupts are live takes effect at once.  A/B on .32 (day, 25 fps):
+ * 215 -> 125 isp-m0 IRQ/s, 0 image or frame-rate change (vendor: 179).
  */
+#define T41_ISR_G0_UNUSED	BIT(6)
+#define T41_ISR_G1_NEEDED	(BIT(4) | BIT(20))
 static unsigned int t41_isr_enable[4] __attribute__((section(".data"))) = {
-	0xffffffffU,	/* 0x40020, status 0x40028 */
-	0xffffffffU,	/* 0x40060, error 0x40068 */
-	0xffffffffU,	/* 0x400a0, status 0x400a8 */
-	0x3fU,		/* 0x400b0, status 0x400b8 */
+	0xffffffffU & ~T41_ISR_G0_UNUSED,	/* 0x40020, status 0x40028 */
+	0xffffffffU,				/* 0x40060, error 0x40068 */
+	T41_ISR_G1_NEEDED,			/* 0x400a0, status 0x400a8 */
+	0x3fU,					/* 0x400b0, status 0x400b8 */
 };
+/* Effective word: the OEM-style dispatch modes need every source. */
+static inline unsigned int t41_isr_enable_word(unsigned int i)
+{
+	unsigned int v = READ_ONCE(t41_isr_enable[i]);
+
+	if (READ_ONCE(t41_isr_dispatch) && (i == 0 || i == 2))
+		v = 0xffffffffU;
+	return v;
+}
 static const unsigned int t41_isr_enable_reg[4] = {
 	0x40020, 0x40060, 0x400a0, 0x400b0,
 };
@@ -168160,7 +168403,19 @@ static int t41_isr_enable_set(const char *value, const struct kernel_param *kp)
 	if (ret || READ_ONCE(t41_isr_enable_live) != 1)
 		return ret;
 	for (i = 0; i < ARRAY_SIZE(t41_isr_enable); ++i)
-		system_reg_write(t41_isr_enable_reg[i], t41_isr_enable[i]);
+		system_reg_write(t41_isr_enable_reg[i], t41_isr_enable_word(i));
+	return 0;
+}
+
+static int t41_isr_dispatch_set(const char *value, const struct kernel_param *kp)
+{
+	unsigned int i;
+	int ret = param_set_int(value, kp);
+
+	if (ret || READ_ONCE(t41_isr_enable_live) != 1)
+		return ret;
+	for (i = 0; i < ARRAY_SIZE(t41_isr_enable); ++i)
+		system_reg_write(t41_isr_enable_reg[i], t41_isr_enable_word(i));
 	return 0;
 }
 
@@ -168182,7 +168437,7 @@ static struct kparam_array t41_isr_enable_arr = {
 };
 module_param_cb(t41_isr_enable, &t41_isr_enable_ops, &t41_isr_enable_arr, 0644);
 MODULE_PARM_DESC(t41_isr_enable,
-		 "ISP IRQ enable words 0x40020,0x40060,0x400a0,0x400b0 (default stock: all, all, all, 0x3f)");
+		 "ISP IRQ enable words 0x40020,0x40060,0x400a0,0x400b0 (default: all but AF bit 6, all, LSC/BCSH frame-down bits 4+20, 0x3f; stock is all, all, all, 0x3f)");
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000727b8 origin=fragment_seed original=isp_interrupts_enable */
 int32_t isp_interrupts_enable(uintptr_t a0)
@@ -168198,10 +168453,10 @@ int32_t isp_interrupts_enable(uintptr_t a0)
     if (!t41_kernel_data_ptr(regs))
         return -EINVAL;
 
-    writel(READ_ONCE(t41_isr_enable[0]), regs + 0x40020);
-    writel(READ_ONCE(t41_isr_enable[1]), regs + 0x40060);
-    writel(READ_ONCE(t41_isr_enable[2]), regs + 0x400a0);
-    writel(READ_ONCE(t41_isr_enable[3]), regs + 0x400b0);
+    writel(t41_isr_enable_word(0), regs + 0x40020);
+    writel(t41_isr_enable_word(1), regs + 0x40060);
+    writel(t41_isr_enable_word(2), regs + 0x400a0);
+    writel(t41_isr_enable_word(3), regs + 0x400b0);
     WRITE_ONCE(t41_isr_enable_live, 1);
 
     __private_spin_lock_irqsave(
@@ -171160,6 +171415,23 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
          */
         if ((status0 & 0x1) && READ_ONCE(t41_msca_enable_armed))
             t41_msca_frame_enable();
+        /*
+         * Day/night switches are staged by the running-mode ioctl and applied
+         * at a frame boundary.  The frame-completion interrupt (bit 0)
+         * only arrives while a consumer (stream, snapshot) is attached, so
+         * on an idle camera the switch, including the night/day parameter
+         * bank, waited for the next viewer (30..100 s in the A/B logs:
+         * forced day left the night bank, AWB at 5000 K and a red cast).
+         * The AE statistics interrupt (bit 4) comes every frame regardless,
+         * so the transition state machine is stepped from there; bit 0 only
+         * does it when t41_dn_apply_ae_irq=0.
+         */
+        if (status0 & 0x1)
+            WRITE_ONCE(t41_dn_last_frame0, jiffies);
+        if ((status0 & BIT(4)) && READ_ONCE(t41_dn_apply_ae_irq) > 0 &&
+            time_after(jiffies, READ_ONCE(t41_dn_last_frame0) + HZ / 4) &&
+            t41_kernel_data_ptr(*(char **)(subdev + 0x10c)))
+            t41_apply_pending_day_night(*(char **)(subdev + 0x10c));
         if (status0 & 0x1) {
             t41_heapwatch_mark("isr:frame0");
             uint32_t event_data[8] = { 0 };
@@ -171301,10 +171573,35 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             WRITE_ONCE(t41_ae_zones[0].sequence,
                 READ_ONCE(t41_ae_zones[0].sequence) + 1);
 
-        if ((status0 & BIT(5)) &&
+        if (t41_isr_dispatch) {
+            uint32_t words[3] = { status0, status2, status3 };
+            int i;
+
+            for (i = 0; i < 96; i++) {
+                int32_t dcb;
+
+                if (!(words[i >> 5] & (1u << (i & 31))))
+                    continue;
+                if (t41_isr_dispatch_skip[i >> 5] & (1u << (i & 31)))
+                    continue;
+                dcb = READ_ONCE(irq_func_cb[i]);
+                if (!dcb || !t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)dcb))
+                    continue;
+                t41_isr_counts[i]++;
+                if (t41_isr_dispatch == 2)
+                    continue;   /* probe: count status bits, call nothing */
+                if (t41_isr_counts[i] <= 2)
+                    printk(KERN_WARNING "t41: ISR dispatch idx=%d cb=%#x\n",
+                           i, (uint32_t)dcb);
+                ((int32_t (*)(uint32_t))(uintptr_t)(uint32_t)dcb)(0);
+            }
+        }
+
+        if (t41_isr_dispatch != 1 && (status0 & BIT(5)) &&
             (t41_safe_ae_controller > 0 || t41_vendor_ae > 0)) {
             t41_heapwatch_mark("isr:aehist");
             int32_t callback = READ_ONCE(irq_func_cb[5]);
+            t41_isr_counts[5]++;
             int64_t callback_ret = -ENODEV;
 
             if (t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)callback))
@@ -171328,8 +171625,9 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             }
             spin_unlock(&t41_tmo_state_lock);
         }
-        if ((status0 & BIT(17)) && t41_safe_tmo_irq_stats < 0) {
+        if (t41_isr_dispatch != 1 && (status0 & BIT(17)) && t41_safe_tmo_irq_stats < 0) {
             int32_t callback = READ_ONCE(irq_func_cb[17]);
+            t41_isr_counts[17]++;
             int32_t callback_ret = -ENODEV;
 
             if (t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)callback))
@@ -171342,8 +171640,9 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                        (uint32_t)callback, callback_ret);
         }
 
-        if ((status0 & BIT(8)) && t41_stock_lce_ram_profile <= 0) {
+        if (t41_isr_dispatch != 1 && (status0 & BIT(8)) && t41_stock_lce_ram_profile <= 0) {
             int32_t callback = READ_ONCE(irq_func_cb[8]);
+            t41_isr_counts[8]++;
             int64_t callback_ret = -ENODEV;
 
             if (t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)callback))
@@ -171354,6 +171653,32 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                 printk(KERN_WARNING
                        "t41: ISP LCE stats irq callback=%#x ret=%lld\n",
                        (uint32_t)callback, (long long)callback_ret);
+        }
+
+        /* Bit 10: defog statistics (OEM irq slot 10) */
+        if (status0 & BIT(10))
+            t41_dfg_irq();
+        /* OEM frame-down commits (vendor tisp_lsc_init / tisp_bcsh_init register
+         * irq_func_cb[36] = tisp_lsc_fra_down_interrupt and [52] =
+         * tisp_bcsh_fra_down_interrupt; index = group*32 + bit, group 1 =
+         * 0x400a8): they write the deferred LSC LUT/registers and the BCSH
+         * registers at frame end.  t41_isr_framedown=0 skips them. */
+        if (t41_isr_framedown) {
+            static const uint8_t fd_bits[2] = { 36 - 32, 52 - 32 };
+            int k;
+
+            for (k = 0; k < 2; k++) {
+                int idx = 32 + fd_bits[k];
+                int32_t callback;
+
+                if (!(status2 & BIT(fd_bits[k])))
+                    continue;
+                callback = READ_ONCE(irq_func_cb[idx]);
+                if (!t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)callback))
+                    continue;
+                t41_isr_counts[idx]++;
+                ((int32_t (*)(uint32_t))(uintptr_t)(uint32_t)callback)(0);
+            }
         }
 
         /* Bit 9 was previously acknowledged without dispatch while ADR
@@ -172131,6 +172456,37 @@ ispcore_interrupt_service_routine0x824:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074cc0 origin=fragment_seed original=init_module */
+/*
+ * T41 reboot quiesce. The kernel restarts through the watchdog
+ * (arch/mips/xburst2/soc-t41/reset.c jz_wdt_restart: irqs off, WDT fires
+ * after 500 ms) and no ISP platform driver has a .shutdown, so the ISP AXI
+ * master can still be mid-transfer when the short WDT reset hits. Before the
+ * restart, run the OEM bus-idle handshake (CPM_SRBC bit 21 stop request,
+ * wait for bit 20, then the bit-22 soft reset; private_reset_tx_isp_module,
+ * OEM 0x16148) so the ISP is idle and reset. t41_reboot_quiesce=0 disables it.
+ * Audit T41_REBOOT_HANG_1019, "Zweiter Ausloeser".
+ */
+static bool t41_reboot_quiesce = true;
+module_param(t41_reboot_quiesce, bool, 0644);
+MODULE_PARM_DESC(t41_reboot_quiesce, "stop and soft-reset the ISP bus master before restart/halt (default 1)");
+
+static int t41_reboot_notify(struct notifier_block *nb, unsigned long action, void *data)
+{
+	int ret;
+
+	if (!READ_ONCE(t41_reboot_quiesce))
+		return NOTIFY_DONE;
+	ret = private_reset_tx_isp_module(0);
+	pr_info("tx-isp-t41: reboot quiesce (action %lu): ISP bus idle + soft reset %s\n",
+		action, ret ? "timed out" : "done");
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block t41_reboot_nb = {
+	.notifier_call = t41_reboot_notify,
+	.priority = 128,
+};
+
 int32_t init_module(void)
 {
 	int ret;
@@ -172163,6 +172519,7 @@ int32_t init_module(void)
 		return ret;
 	}
 	t41_heapwatch_start();
+	register_reboot_notifier(&t41_reboot_nb);
 	return ret;
 }
 
@@ -172171,6 +172528,7 @@ void cleanup_module(void)
 {
     uintptr_t t9 = (uintptr_t)&tx_isp_exit;
 
+	unregister_reboot_notifier(&t41_reboot_nb);
 	t41_heapwatch_step("exit:begin");
 	tx_isp_t41_v4l2_exit();
 	t41_heapwatch_step("exit:v4l2");
@@ -172197,6 +172555,7 @@ void cleanup_module(void)
 	t41_tmo_map_ws = NULL;
 	vfree(t41_tmo_mxu3_ws);
 	t41_tmo_mxu3_ws = NULL;
+	cancel_work_sync(&t41_dn_bank_work);
 	t41_heapwatch_step("exit:works");
 	t41_heapwatch_stop();
 }
@@ -172445,3 +172804,4 @@ static noinline void t41_note(const char *fmt, ...)
 }
 
 #include "tx_isp_t41_vae.h"
+#include "tx_isp_t41_dfg.h"
