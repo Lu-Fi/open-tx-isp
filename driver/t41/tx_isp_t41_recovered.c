@@ -29185,6 +29185,19 @@ int32_t fs_core_ops_ioctl(uintptr_t a0, uint32_t a1, uintptr_t a2)
 		char *name = channel + 0x2c8;
 		int ret;
 
+		/* Already registered (a second IMP session while the first still
+		 * holds /dev/tx-isp, or DelSensor+AddSensor on one fd): keep it.
+		 * misc_register() starts with INIT_LIST_HEAD(&misc->list); on a
+		 * node that is still in misc_list this self-links it, every later
+		 * misc_open()/misc_register() walk then spins forever under
+		 * misc_mtx and all other misc users hang in D state (.34,
+		 * 2026-10-24: "duplicate filename framechan0", misc.c:253 WARN). */
+		if (*(uint32_t *)(channel + 0x28)) {
+			printk(KERN_WARNING
+				"t41: framechan%u already registered, kept (concurrent or repeated sensor register)\n",
+				*(uint32_t *)(channel + 0x2dc));
+			continue;
+		}
 		sprintf(name, "framechan%d",
 			*(uint32_t *)(channel + 0x2dc));
 		*(uint32_t *)(channel + 0x00) = 0xff;
