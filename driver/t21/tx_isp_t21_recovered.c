@@ -10913,10 +10913,24 @@ static void t21_irq_quiesce_pdev(struct platform_device *pdev)
 	base = ioremap(res->start, resource_size(res));
 	if (!base)
 		return;
+	/* The driver never programs the mask registers itself (the ISR only reads VIC 0x104), it relies on
+	 * the unmasked reset default.  So mask only for the duration of the ack and restore the old value,
+	 * otherwise the line stays masked for good and no frame IRQ is delivered after a reload. */
 	if (!strcmp(name, "isp-w02")) {
+		u32 m = readl(base + 0x104);
+
+		/* VIC command register (+0x0, 2 = reset, 1 = start; tx_isp_vic_start writes 2 then 1): reset it so
+		 * a VIC left running by the previous load stops latching a frame-done status every frame.  The
+		 * half-initialised handler never acks that status and the level IRQ livelocks the CPU (QEMU
+		 * T21: soft lockup in __do_softirq right after request_irq on reload). */
+		writel(2, base + 0x0);
 		writel(0xffffffffU, base + 0x104);
 		writel(0xffffffffU, base + 0x108);
+		writel(m, base + 0x104);
 	} else if (!strcmp(name, "isp-m0")) {
+		/* Core int enable (+0x80) is owned by the stream on/off path (0x283f03ff / 0), so leave it
+		 * disabled here: a stale enable from the previous load plus a latched status storms the
+		 * half-initialised handler. */
 		writel(0, base + 0x80);
 		writel(0xffffffffU, base + 0x88);
 	}
