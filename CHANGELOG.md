@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24 (3): T41 day/night idle apply only without frame-completion IRQs (`claude/t41-ab-fixes3`; device re-test pending)
+
+- The AE-statistics-interrupt apply of `t41_dn_apply_ae_irq` now runs only while no frame-completion interrupt (bit 0) arrived for 250 ms (idle camera); with a consumer the bit-0 path alone applies, exactly as before ab-fixes2. A/B on .32 showed the parameter itself changes neither the auto day return (about 35 s with 0 and 1) nor the day saturation after a night cycle; the reported misses came from the shared test light (.34 run in the same room) and from the timps reference timing.
+- The night/day bank work waits up to 3 s for a first AE exposure before computing CCM/BCSH/TMO (an idle boot with a persisted night mode applied the bank with ev=0).
+
 ## 2026-10-24 (2): T41 day/night switch without a stream consumer (`claude/t41-ab-fixes2`; device re-test pending)
 
 - **Day/night switch applied from the per-frame AE statistics interrupt:** the transition state machine (CSC fill, night/day parameter bank, TOP bypass) was stepped only from the frame-completion interrupt (status0 bit 0), which arrives while a consumer (stream, snapshot) is attached. On an idle camera a running-mode request flipped the readback at once but the bank switch waited 30..100 s for the next viewer (.32: dn-bank applies only at the snapshots; forced day left AWB at 5000 K and a red cast, timps logged "ISP did not follow the switch"). The AE statistics interrupt (bit 4) comes every frame without a consumer; `t41_dn_apply_ae_irq=0` restores the old trigger.

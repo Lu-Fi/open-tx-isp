@@ -23532,6 +23532,19 @@ static void t41_dn_bank_workfn(struct work_struct *work)
 	    !t41_kernel_data_ptr((void *)(uintptr_t)tparams_day) ||
 	    !t41_kernel_data_ptr((void *)(uintptr_t)tparams_night))
 		return;
+	/*
+	 * An idle camera applies a persisted/boot-time switch before the AE has
+	 * produced a first exposure (ev=0): CCM/BCSH/TMO would be derived from
+	 * nothing.  Give the AE up to 3 s, then go on with what is there.
+	 */
+	for (r = 0; r < 30; r++) {
+		gain = READ_ONCE(t41_safe_ae_gain_q16);
+		integration = READ_ONCE(t41_safe_ae_integration);
+		if (gain <= (16U << 16) && integration != UINT_MAX && integration)
+			break;
+		msleep(100);
+	}
+	mode = READ_ONCE(t41_dn_bank_mode) & 1;
 	if (gain <= (16U << 16) && integration != UINT_MAX)
 		ev = (uint64_t)integration * tisp_math_exp2(gain, 16, 10) >> 10;
 	ev = min_t(uint64_t, ev, UINT_MAX);
@@ -23576,9 +23589,10 @@ static void t41_dn_bank_workfn(struct work_struct *work)
 	       mode ? "night" : "day", m, ret, (unsigned long long)ev);
 }
 
+static unsigned long t41_dn_last_frame0;
 static int t41_dn_apply_ae_irq = 1;
 module_param(t41_dn_apply_ae_irq, int, 0644);
-MODULE_PARM_DESC(t41_dn_apply_ae_irq, "1 = step the day/night transition from the per-frame AE statistics interrupt (works without a stream consumer), 0 = from the frame-completion interrupt (needs a consumer)");
+MODULE_PARM_DESC(t41_dn_apply_ae_irq, "1 = additionally step the day/night transition from the per-frame AE statistics interrupt while no frame-completion interrupt has arrived for 250 ms (idle camera without a consumer; with a consumer the frame-completion path alone applies, as before), 0 = frame-completion interrupt only");
 
 static void t41_apply_pending_day_night(char *core)
 {
@@ -171412,7 +171426,10 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
          * so the transition state machine is stepped from there; bit 0 only
          * does it when t41_dn_apply_ae_irq=0.
          */
+        if (status0 & 0x1)
+            WRITE_ONCE(t41_dn_last_frame0, jiffies);
         if ((status0 & BIT(4)) && READ_ONCE(t41_dn_apply_ae_irq) > 0 &&
+            time_after(jiffies, READ_ONCE(t41_dn_last_frame0) + HZ / 4) &&
             t41_kernel_data_ptr(*(char **)(subdev + 0x10c)))
             t41_apply_pending_day_night(*(char **)(subdev + 0x10c));
         if (status0 & 0x1) {
@@ -171427,8 +171444,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             int work_queued;
 
             core = *(char **)(subdev + 0x10c);
-            if (READ_ONCE(t41_dn_apply_ae_irq) <= 0)
-                t41_apply_pending_day_night(core);
+            t41_apply_pending_day_night(core);
             channels = t41_kernel_data_ptr(core) ?
                 *(char **)(core + 0x1ac) : NULL;
             if (t41_kernel_data_ptr(channels))
