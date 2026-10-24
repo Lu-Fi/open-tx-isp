@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24 (7): T40 lifted-body crashes in the tuning controls (`claude/t40-wip-cells`; Eufy T40 device-tested on a test ko)
+
+- **Kernel oops / memory overwrite fixed or refused on T40** (each reproduced on the Eufy sc830ai with `t40_devtest`): `SetModuleControl` (LCE clear/top-state read NULL tool_para blocks; BadVA 8; the client then left the framechan degraded), `SetMask`/`GetMask` (NULL state base, NULL copy buffer), `SetWdrOutputMode` (lifted setter walks the missing WDR param array; now a stored flag per sensor, read back), `Get/SetISPCSCAttr` and `Get/SetCCMAttr` (92/40-byte copies into 4-byte slots, address 0; refused with -EOPNOTSUPP unless `t40_csc_unsafe=1`).
+- `GetSensorFPS` answers the rate the set recorded (was the boot rate: 12 fps delivered, 20/1 read back).
+- Device proof (test ko = next 091e1fa2 + these patches, 3 runs, 0 oops): LSC bypass through ModuleControl (corner/centre luma 0.971 -> 0.836), ISP flip modes 4/4, mask cover (Y 146 -> 255), WdrOutputMode 0/1/2 readback, SensorFPS 12/1.
+- Still open on T40: AeTargetComp/HLC/BLC and AE caps are stored but never reach the open AE; Sinter/Temper/DRC ratios are stored without visible effect; CCM/CSC are refused; sensor flip modes do not change the picture.
+
 ## 2026-10-24 (6): T40 picture against the vendor (`claude/t40-quality`; Eufy T40 device A/B)
 
 - **T40 (Eufy sc830ai): vendor AWB per frame on by default** (`enable_core_ops_cb=1`): the OEM core ISR now reaches the AWB statistics interrupt and runs the translated vendor AWB each frame. A/B against the vendor stack on the same scene: R/G 1.85 -> 1.03, B/G 0.70 -> 1.00, grey-patch channel deviation 53 % -> 12 % (vendor 12 %), saturation 162 -> 53 (vendor 51). The lifted OEM AE that the same ISR would start is gated (`t40_oem_ae`, default 0; it oopsed in `tisp_ae_long_tune2`), and the frame-3A AE sampler ticks from the frame-done send (own work item) because the OEM ISR delivers frames in hard-IRQ context.
