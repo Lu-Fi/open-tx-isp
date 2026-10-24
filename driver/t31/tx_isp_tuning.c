@@ -60,6 +60,9 @@
 #include "../include/tx_isp/tx_isp_daynight.h"
 #include "../include/tx_isp/tx_isp_tuning_abi.h"
 #include "tx_isp_t31_ae_step.h"
+#include "tx_isp_t31_awb_simd.h"
+#include <linux/kdebug.h>
+#include <linux/notifier.h>
 #include "tx_isp_t31_exposure.h"
 #include "tx_isp_t31_adr.h"
 #include "tx_isp_t31_mdns.h"
@@ -14222,7 +14225,7 @@ static int      awb_dn_refresh_flag;
 static uint32_t zone_pix_wgh[AWB_STATS_ZONES];     /* OEM 0xa5a40 */
 static uint32_t rgbg_d_wght[AWB_STATS_ZONES];      /* OEM 0xa5dc4 */
 static uint32_t rgbg_dis[AWB_STATS_ZONES];          /* OEM 0xa6148 — AWB distance array */
-static uint32_t rgbg_wght[AWB_STATS_ZONES];         /* OEM 0xa64cc */
+static uint32_t rgbg_wght[AWB_STATS_ZONES] __attribute__((aligned(16)));         /* OEM 0xa64cc */
 static uint32_t Cluster_rgbg_index_num[14 * 14];    /* OEM 0xa6850 — 196 entries */
 static uint32_t Cluster_rgbg_weight[AWB_STATS_ZONES]; /* OEM 0xa6b60 */
 
@@ -14247,6 +14250,93 @@ static uint32_t Cluster_rgbg_value2[CLUSTER_ENTRIES * 4];  /* OEM 0xa6ee4: rg+bg
  */
 #define CIDX_MAX_ENTRIES    12
 static uint32_t Cluster_rgbg_index_max[CIDX_MAX_ENTRIES * 3]; /* OEM 0xa7574 */
+
+/*
+ * AWB colour-temperature detection implementation (see
+ * tx_isp_t31_awb_simd.h): 0 = reference C, 1 = fast C, 2 = MXU2.  All three
+ * give identical results.  Default 2: the first detection starts the
+ * selftest (t31_awb_selftest) once; MXU2 is only used after it passed, else
+ * fast C.  0 or 1 turns MXU2 off.
+ */
+static int t31_awb_impl __attribute__((section(".data"))) = 2;
+static int t31_awb_selftest_state __attribute__((section(".data")));	/* 0 not run, 1 pass, -1 fail */
+static u32 t31_mxu2_cpm __attribute__((section(".data")));
+module_param_named(t31_mxu2_cpm, t31_mxu2_cpm, uint, 0444);
+MODULE_PARM_DESC(t31_mxu2_cpm, "CPM 0x10000034 read by the selftest (info only; 0x101 or 0x110, MXU2 works on both)");
+static int awb_ctdet_mode __attribute__((section(".data")));	/* mode of the running call */
+static void t31_awb_selftest_workfn(struct work_struct *work);
+static DECLARE_WORK(t31_awb_selftest_work, t31_awb_selftest_workfn);
+
+static int t31_awb_impl_set(const char *value, const struct kernel_param *kp)
+{
+	int ret = param_set_int(value, kp);
+
+	if (!ret && t31_awb_impl >= 2 && t31_awb_selftest_state == 0)
+		schedule_work(&t31_awb_selftest_work);
+	return ret;
+}
+module_param_call(t31_awb_impl, t31_awb_impl_set, param_get_int,
+		  &t31_awb_impl, 0644);
+MODULE_PARM_DESC(t31_awb_impl, "AWB CT detection: 0=reference C, 1=fast C, 2=MXU2 (default; after selftest, fast C otherwise), all bit-exact");
+
+static int t31_awb_selftest_set(const char *value, const struct kernel_param *kp)
+{
+	int ret = param_set_int(value, kp);
+
+	if (!ret && *(int *)kp->arg > 0)
+		schedule_work(&t31_awb_selftest_work);
+	return ret;
+}
+static int t31_awb_selftest __attribute__((section(".data")));
+module_param_call(t31_awb_selftest, t31_awb_selftest_set, param_get_int,
+		  &t31_awb_selftest, 0644);
+MODULE_PARM_DESC(t31_awb_selftest, "write 1: compare reference/fast/MXU2 AWB CT detection on random scenes and time them (dmesg)");
+module_param_named(t31_awb_selftest_state, t31_awb_selftest_state, int, 0444);
+MODULE_PARM_DESC(t31_awb_selftest_state, "0 not run, 1 passed, -1 failed");
+
+static int t31_awb_selftest_kicked;
+
+/* mode actually used for one detection: MXU2 only once verified */
+static int awb_ctdet_effective_mode(void)
+{
+	int m = READ_ONCE(t31_awb_impl);
+
+	if (m <= 0)
+		return 0;
+	if (m >= 2 && READ_ONCE(t31_awb_selftest_state) == 1)
+		return 2;
+	if (m >= 2 && READ_ONCE(t31_awb_selftest_state) == 0 &&
+	    !xchg(&t31_awb_selftest_kicked, 1))
+		schedule_work(&t31_awb_selftest_work);
+	return 1;
+}
+
+/* T31_AWB_HOST_DEFS_BEGIN (extracted by tests/t31_awb_simd_host_test.c) */
+static inline u32 awb_div(u32 q, u32 n, u32 d)
+{
+	return awb_ctdet_mode >= 1 ? t31_fixdiv_fast(q, n, d) :
+				     fix_point_div_32(q, n, d);
+}
+
+static inline u32 awb_mul(u32 q, u32 a, u32 b)
+{
+	return awb_ctdet_mode >= 1 ? t31_fixmul_fast(q, a, b) :
+				     fix_point_mult2_32(q, a, b);
+}
+
+static inline u32 awb_mul3(u32 q, u32 a, u32 b, u32 c)
+{
+	return awb_mul(q, awb_mul(q, a, b), c);
+}
+
+/* rounded zone coordinates and cluster winner scratch, per detection */
+static u32 awb_ct_zr[T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+static u32 awb_ct_zb[T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+static u32 awb_ct_rg[T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+static u32 awb_ct_bg[T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+static u32 awb_ct_bj[T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+static u32 awb_ct_bc[T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+/* T31_AWB_HOST_DEFS_END */
 
 static void tiziano_awb_refresh_hw_shadow_from_params(const char *reason)
 {
@@ -18164,12 +18254,12 @@ static uint32_t ISPAWBInterpolation1(uint32_t q, uint32_t x,
 		return y0_q;
 
 	if (y1 < y0)
-		return y0_q - fix_point_div_32(q,
-			fix_point_mult2_32(q, (y0 - y1) << (q & 0x1f), x - x0_q),
+		return y0_q - awb_div(q,
+			awb_mul(q, (y0 - y1) << (q & 0x1f), x - x0_q),
 			denom);
 
-	return y0_q + fix_point_div_32(q,
-		fix_point_mult2_32(q, (y1 - y0) << (q & 0x1f), x - x0_q),
+	return y0_q + awb_div(q,
+		awb_mul(q, (y1 - y0) << (q & 0x1f), x - x0_q),
 		denom);
 }
 
@@ -18185,11 +18275,11 @@ static uint32_t ISPAWBInterpolation2(uint32_t q, uint32_t x,
 
 	x_delta = x - (x0 << (q & 0x1f));
 	if (y1 < y0)
-		return y0 - fix_point_div_32(q,
-			fix_point_mult2_32(q, y0 - y1, x_delta), denom);
+		return y0 - awb_div(q,
+			awb_mul(q, y0 - y1, x_delta), denom);
 
-	return y0 + fix_point_div_32(q,
-		fix_point_mult2_32(q, y1 - y0, x_delta), denom);
+	return y0 + awb_div(q,
+		awb_mul(q, y1 - y0, x_delta), denom);
 }
 
 static uint32_t __maybe_unused awb_ratio_u8(uint32_t numer, uint32_t denom)
@@ -18453,13 +18543,13 @@ static uint32_t func_zone_ct_weight(uint32_t inv_ct, const uint32_t *cw,
 		} else if (cw[2] < inv_ct) {
 			/* Between ct_hi_inner and ct_hi: ramp toward ct_scale */
 			scale_q = (ct_scale << (q & 0x1f))
-				+ fix_point_mult2_32(q,
+				+ awb_mul(q,
 					(ct_hi - inv_ct) << (q & 0x1f),
 					ramp_bg);
 		} else if (inv_ct < cw[0]) {
 			/* Between ct_lo_inner and ct_lo_outer: ramp toward ct_scale */
 			scale_q = (ct_scale << (q & 0x1f))
-				+ fix_point_mult2_32(q,
+				+ awb_mul(q,
 					(inv_ct - ct_lo_inner) << (q & 0x1f),
 					ramp_rg);
 		} else {
@@ -18468,8 +18558,8 @@ static uint32_t func_zone_ct_weight(uint32_t inv_ct, const uint32_t *cw,
 		}
 	}
 
-	return fix_point_div_32(q,
-			fix_point_mult2_32(q, zone_wght_q, scale_q),
+	return awb_div(q,
+			awb_mul(q, zone_wght_q, scale_q),
 			0x100u << (q & 0x1f));
 }
 
@@ -18559,6 +18649,8 @@ static void Tiziano_Awb_Ct_Detect(
 
 	uint32_t max_pix;
 	uint32_t r, c, idx;
+	/* 0 reference, 1 fast C, 2 MXU2; the zone-sweep kernels need 15x15 */
+	int impl = (cols * rows == T31_AWB_ZONES) ? awb_ctdet_mode : 0;
 
 	/* --- Phase 0: Setup --- */
 	memset(ls_ref, 0, sizeof(ls_ref));
@@ -18568,9 +18660,9 @@ static void Tiziano_Awb_Ct_Detect(
 		uint32_t denom_bg = (ct_wght_p[3] - ct_wght_p[2]) << q_mask;
 		uint32_t denom_rg = (ct_wght_p[0] - ct_wght_p[1]) << q_mask;
 		if (denom_bg)
-			var_a4 = fix_point_div_32(fp, s2_2, denom_bg);
+			var_a4 = awb_div(fp, s2_2, denom_bg);
 		if (denom_rg)
-			var_a0 = fix_point_div_32(fp, s2_2, denom_rg);
+			var_a0 = awb_div(fp, s2_2, denom_rg);
 	}
 
 	/* Copy light-source reference points (subtract 1 from each) */
@@ -18595,7 +18687,7 @@ static void Tiziano_Awb_Ct_Detect(
 				/* OEM breaks the inner loop on max_pix==0 */
 				break;
 			}
-			zone_pix_wgh[idx] = fix_point_div_32(fp,
+			zone_pix_wgh[idx] = awb_div(fp,
 				zone_pix[idx] << q_mask,
 				max_pix << q_mask);
 		}
@@ -18623,6 +18715,17 @@ static void Tiziano_Awb_Ct_Detect(
 				else if (*bg_p < bg_lo_q)
 					*bg_p = bg_lo_q;
 			}
+		}
+	}
+
+	if (impl >= 1) {
+		/* the sweeps below compare the rounded coordinates again and
+		 * again; round them once */
+		for (idx = 0; idx < T31_AWB_ZONES; idx++) {
+			awb_ct_zr[idx] = (rounding + zone_rg[idx]) >> q_mask;
+			awb_ct_zb[idx] = (rounding + zone_rg[v0_28 + idx]) >> q_mask;
+			awb_ct_rg[idx] = zone_rg[idx];		/* 16-byte aligned copies */
+			awb_ct_bg[idx] = zone_rg[v0_28 + idx];
 		}
 	}
 
@@ -18990,24 +19093,31 @@ find_bg_idx:
 
 					iter_count++;
 
-					for (r = 0; r < rows; r++) {
-						for (c = 0; c < cols; c++) {
-							uint32_t zr = (rounding + zone_rg[r * cols + c]) >> q_mask;
-							uint32_t zb = (rounding + zone_rg[v0_28 + r * cols + c]) >> q_mask;
-							uint32_t dr, db;
-							uint64_t dsq;
+					if (impl >= 1) {
+						t31_awb_sweep_sum(impl, awb_ct_zr, awb_ct_zb,
+							awb_ct_rg, awb_ct_bg,
+							*cv1, cv1[CLUSTER_BG_OFF], cl_dist,
+							&sum_rg, &sum_bg, &match_cnt);
+					} else {
+						for (r = 0; r < rows; r++) {
+							for (c = 0; c < cols; c++) {
+								uint32_t zr = (rounding + zone_rg[r * cols + c]) >> q_mask;
+								uint32_t zb = (rounding + zone_rg[v0_28 + r * cols + c]) >> q_mask;
+								uint32_t dr, db;
+								uint64_t dsq;
 
-							dr = (zr >= *cv1) ?
-								(zr - *cv1) : (*cv1 - zr);
-							db = (zb >= cv1[CLUSTER_BG_OFF]) ?
-								(zb - cv1[CLUSTER_BG_OFF]) :
-								(cv1[CLUSTER_BG_OFF] - zb);
+								dr = (zr >= *cv1) ?
+									(zr - *cv1) : (*cv1 - zr);
+								db = (zb >= cv1[CLUSTER_BG_OFF]) ?
+									(zb - cv1[CLUSTER_BG_OFF]) :
+									(cv1[CLUSTER_BG_OFF] - zb);
 
-							dsq = (uint64_t)db * db + (uint64_t)dr * dr;
-							if (cl_dist >= (uint32_t)dsq) {
-								sum_rg += zone_rg[r * cols + c];
-								sum_bg += zone_rg[v0_28 + r * cols + c];
-								match_cnt++;
+								dsq = (uint64_t)db * db + (uint64_t)dr * dr;
+								if (cl_dist >= (uint32_t)dsq) {
+									sum_rg += zone_rg[r * cols + c];
+									sum_bg += zone_rg[v0_28 + r * cols + c];
+									match_cnt++;
+								}
 							}
 						}
 					}
@@ -19143,27 +19253,38 @@ find_bg_idx:
 				cv2[CLUSTER_CNT_OFF] = 0;
 				cv2[CLUSTER_WAVG_OFF] = 0;
 
-				for (r = 0; r < rows; r++) {
-					for (c = 0; c < cols; c++) {
-						uint32_t w = rgbg_wght[r * cols + c];
-						if (w == 0)
-							continue;
-						{
-							uint32_t zr = (rounding + zone_rg[r * cols + c]) >> q_mask;
-							uint32_t zb = (rounding + zone_rg[v0_28 + r * cols + c]) >> q_mask;
-							uint32_t dr, db;
-							uint64_t dsq;
+				if (impl >= 1) {
+					u32 near_cnt, near_w;
 
-							dr = (zr >= cv2_rg) ?
-								(zr - cv2_rg) : (cv2_rg - zr);
-							db = (zb >= cv2[CLUSTER_BG_OFF]) ?
-								(zb - cv2[CLUSTER_BG_OFF]) :
-								(cv2[CLUSTER_BG_OFF] - zb);
+					t31_awb_sweep_wcount(impl, awb_ct_zr, awb_ct_zb,
+						rgbg_wght, cv2_rg,
+						cv2[CLUSTER_BG_OFF], cl_conv_thr,
+						&near_cnt, &near_w);
+					cv2[CLUSTER_CNT_OFF] = near_cnt;
+					cv2[CLUSTER_WAVG_OFF] = near_w;
+				} else {
+					for (r = 0; r < rows; r++) {
+						for (c = 0; c < cols; c++) {
+							uint32_t w = rgbg_wght[r * cols + c];
+							if (w == 0)
+								continue;
+							{
+								uint32_t zr = (rounding + zone_rg[r * cols + c]) >> q_mask;
+								uint32_t zb = (rounding + zone_rg[v0_28 + r * cols + c]) >> q_mask;
+								uint32_t dr, db;
+								uint64_t dsq;
 
-							dsq = (uint64_t)db * db + (uint64_t)dr * dr;
-							if (cl_conv_thr >= (uint32_t)dsq) {
-								cv2[CLUSTER_CNT_OFF] += 1;
-								cv2[CLUSTER_WAVG_OFF] += w;
+								dr = (zr >= cv2_rg) ?
+									(zr - cv2_rg) : (cv2_rg - zr);
+								db = (zb >= cv2[CLUSTER_BG_OFF]) ?
+									(zb - cv2[CLUSTER_BG_OFF]) :
+									(cv2[CLUSTER_BG_OFF] - zb);
+
+								dsq = (uint64_t)db * db + (uint64_t)dr * dr;
+								if (cl_conv_thr >= (uint32_t)dsq) {
+									cv2[CLUSTER_CNT_OFF] += 1;
+									cv2[CLUSTER_WAVG_OFF] += w;
+								}
 							}
 						}
 					}
@@ -19222,53 +19343,79 @@ find_bg_idx:
 			half_max = max_cnt >> 1;
 
 			/* 6k: Apply cluster weights to rgbg_wght */
-			for (r = 0; r < rows; r++) {
-				for (c = 0; c < cols; c++) {
-					uint32_t *wp = &rgbg_wght[r * cols + c];
-					uint32_t best_j = 0;
-					uint32_t best_cnt = 0;
+			if (impl >= 1) {
+				/* all clusters compete for every zone at once; the
+				 * winner (first of the highest count, in cluster
+				 * order) ends up in awb_ct_bj/bc */
+				memset(awb_ct_bj, 0, sizeof(awb_ct_bj));
+				memset(awb_ct_bc, 0, sizeof(awb_ct_bc));
+				cv2 = Cluster_rgbg_value2;
+				for (ci = 1; ci <= CLUSTER_ENTRIES; ci++, cv2++) {
+					if (cv2[0] == 0 || cv2[CLUSTER_BG_OFF] == 0)
+						continue;
+					t31_awb_assign(impl, awb_ct_zr, awb_ct_zb,
+						cv2[0], cv2[CLUSTER_BG_OFF],
+						cl_conv_thr, ci, cv2[CLUSTER_CNT_OFF],
+						awb_ct_bj, awb_ct_bc);
+				}
+				for (idx = 0; idx < T31_AWB_ZONES; idx++) {
+					uint32_t *wp = &rgbg_wght[idx];
 
-					cv2 = Cluster_rgbg_value2;
-					for (ci = 1; ci <= CLUSTER_ENTRIES; ci++) {
-						uint32_t cv2_rg = cv2[0];
-						if (cv2_rg == 0 || cv2[CLUSTER_BG_OFF] == 0) {
-							cv2++;
-							if (ci >= CLUSTER_ENTRIES)
-								break;
-							continue;
-						}
-						{
-							uint32_t zr = (rounding + zone_rg[r * cols + c]) >> q_mask;
-							uint32_t zb = (rounding + zone_rg[v0_28 + r * cols + c]) >> q_mask;
-							uint32_t dr, db;
-							uint64_t dsq;
-
-							dr = (zr >= cv2_rg) ?
-								(zr - cv2_rg) : (cv2_rg - zr);
-							db = (zb >= cv2[CLUSTER_BG_OFF]) ?
-								(zb - cv2[CLUSTER_BG_OFF]) :
-								(cv2[CLUSTER_BG_OFF] - zb);
-
-							dsq = (uint64_t)db * db + (uint64_t)dr * dr;
-							if (cl_conv_thr < (uint32_t)dsq) {
-								cv2++;
-								continue;
-							}
-							if (best_j == 0) {
-								best_j = ci;
-							} else if (Cluster_rgbg_value2[best_j - 1 + CLUSTER_CNT_OFF] <
-								   cv2[CLUSTER_CNT_OFF]) {
-								best_j = ci;
-							}
-						}
-						cv2++;
-					}
-
-					if (best_j == 0)
+					if (awb_ct_bj[idx] == 0)
 						*wp = (half_max + *wp) / (max_cnt ? max_cnt : 1);
 					else
-						*wp = (Cluster_rgbg_value2[best_j - 1 + CLUSTER_CNT_OFF] * *wp +
-						       half_max) / (max_cnt ? max_cnt : 1);
+						*wp = (awb_ct_bc[idx] * *wp + half_max) /
+						      (max_cnt ? max_cnt : 1);
+				}
+			} else {
+				for (r = 0; r < rows; r++) {
+					for (c = 0; c < cols; c++) {
+						uint32_t *wp = &rgbg_wght[r * cols + c];
+						uint32_t best_j = 0;
+						uint32_t best_cnt = 0;
+
+						cv2 = Cluster_rgbg_value2;
+						for (ci = 1; ci <= CLUSTER_ENTRIES; ci++) {
+							uint32_t cv2_rg = cv2[0];
+							if (cv2_rg == 0 || cv2[CLUSTER_BG_OFF] == 0) {
+								cv2++;
+								if (ci >= CLUSTER_ENTRIES)
+									break;
+								continue;
+							}
+							{
+								uint32_t zr = (rounding + zone_rg[r * cols + c]) >> q_mask;
+								uint32_t zb = (rounding + zone_rg[v0_28 + r * cols + c]) >> q_mask;
+								uint32_t dr, db;
+								uint64_t dsq;
+
+								dr = (zr >= cv2_rg) ?
+									(zr - cv2_rg) : (cv2_rg - zr);
+								db = (zb >= cv2[CLUSTER_BG_OFF]) ?
+									(zb - cv2[CLUSTER_BG_OFF]) :
+									(cv2[CLUSTER_BG_OFF] - zb);
+
+								dsq = (uint64_t)db * db + (uint64_t)dr * dr;
+								if (cl_conv_thr < (uint32_t)dsq) {
+									cv2++;
+									continue;
+								}
+								if (best_j == 0) {
+									best_j = ci;
+								} else if (Cluster_rgbg_value2[best_j - 1 + CLUSTER_CNT_OFF] <
+									   cv2[CLUSTER_CNT_OFF]) {
+									best_j = ci;
+								}
+							}
+							cv2++;
+						}
+
+						if (best_j == 0)
+							*wp = (half_max + *wp) / (max_cnt ? max_cnt : 1);
+						else
+							*wp = (Cluster_rgbg_value2[best_j - 1 + CLUSTER_CNT_OFF] * *wp +
+							       half_max) / (max_cnt ? max_cnt : 1);
+					}
 				}
 			}
 		}
@@ -19325,13 +19472,13 @@ find_bg_idx:
 						 * rgbg_wght, zone_pix_wgh, and arg13 (_awb_wght) in
 						 * a1/a2/a3.  Some older T31 binaries expose a three-
 						 * argument alias here, so follow the active VDB2 ABI. */
-						uint32_t w = fix_point_mult3_32(fp,
+						uint32_t w = awb_mul3(fp,
 							rgbg_wght[idx],
 							zone_pix_wgh[idx],
 							awb_wght[idx] << q_mask);
-						sum_rg_w += (uint64_t)fix_point_mult2_32(fp,
+						sum_rg_w += (uint64_t)awb_mul(fp,
 							zone_rg[idx], w);
-						sum_bg_w += (uint64_t)fix_point_mult2_32(fp,
+						sum_bg_w += (uint64_t)awb_mul(fp,
 							zone_rg[v0_28 + idx], w);
 						sum_w += w;
 					}
@@ -19381,8 +19528,8 @@ find_bg_idx:
 						d_bg = (i_17 >= zbg) ?
 							(i_17 - zbg) : (zbg - i_17);
 
-						dist = fix_point_mult2_32(fp, d_rg, d_rg)
-						     + fix_point_mult2_32(fp, d_bg, d_bg);
+						dist = awb_mul(fp, d_rg, d_rg)
+						     + awb_mul(fp, d_bg, d_bg);
 
 						rgbg_dis[zone_idx] = dist;
 
@@ -19396,8 +19543,8 @@ find_bg_idx:
 						if (awb_wght[zone_idx] == 0)
 							continue;
 
-						dist_sum_w += fix_point_mult2_32(fp,
-							fix_point_mult3_32(fp, dist,
+						dist_sum_w += awb_mul(fp,
+							awb_mul3(fp, dist,
 								rgbg_wght[zone_idx],
 								zone_pix_wgh[zone_idx]),
 							awb_wght[zone_idx] << q_mask);
@@ -19405,7 +19552,7 @@ find_bg_idx:
 				}
 
 				{
-					uint32_t norm_dist = fix_point_div_32(fp, dist_sum_w, (uint32_t)sum_w);
+					uint32_t norm_dist = awb_div(fp, dist_sum_w, (uint32_t)sum_w);
 
 					if (norm_dist != 0) {
 						/* Compute distance-weighted rgbg_d_wght */
@@ -19421,7 +19568,7 @@ find_bg_idx:
 									uint32_t dw;
 									uint32_t w_combined;
 
-									rel_dist = fix_point_div_32(fp,
+									rel_dist = awb_div(fp,
 										rgbg_dis[idx],
 										norm_dist);
 
@@ -19431,10 +19578,10 @@ find_bg_idx:
 									} else if (rel_dist >= dis_lo) {
 										uint32_t w_base = rgbg_wght[idx];
 										rgbg_d_wght[idx] =
-											fix_point_mult2_32(fp,
+											awb_mul(fp,
 												w_base,
 												(1u << q_mask) -
-												fix_point_div_32(fp,
+												awb_div(fp,
 													rel_dist - dis_lo,
 													dis_hi - dis_lo));
 									} else {
@@ -19443,16 +19590,16 @@ find_bg_idx:
 
 									/* VDB2 OEM 0x1bfd8: retain all three zone
 									 * confidence terms in the refined average. */
-									dw = fix_point_mult3_32(fp,
+									dw = awb_mul3(fp,
 										rgbg_d_wght[idx],
 										zone_pix_wgh[idx],
 										awb_wght[idx] << q_mask);
 
-									w_combined = fix_point_mult2_32(fp,
+									w_combined = awb_mul(fp,
 										zone_rg[idx], dw);
 									dw_sum_rg += w_combined;
 
-									w_combined = fix_point_mult2_32(fp,
+									w_combined = awb_mul(fp,
 										zone_rg[v0_28 + idx], dw);
 									dw_sum_bg += w_combined;
 
@@ -19573,7 +19720,7 @@ find_bg_idx:
 				/* Convert to CT: 1000000 / (interp >> q) */
 				if (interp_val != 0) {
 					ct_val = (rounding +
-						fix_point_div_32(fp,
+						awb_div(fp,
 							0xf4240u << q_mask,
 							interp_val)) >> q_mask;
 				} else {
@@ -19609,6 +19756,338 @@ fail_output:
 	*out_ct = 5000; /* 0x1388 */
 	out_rg_bg[0] = 0x100;
 	out_rg_bg[1] = 0x100;
+}
+
+/* T31_AWB_HOST_END */
+
+/*
+ * Selftest for t31_awb_impl (work item, so it runs in a kernel thread):
+ *   1. the three MXU2 sweep kernels against their C versions on random
+ *      zone sets (all-ones/zero/wrapping coordinates included),
+ *   2. whole Tiziano_Awb_Ct_Detect runs on random clustered scenes in all
+ *      three modes: outputs and every intermediate array must be equal.
+ * Each case runs with interrupts off like the event dispatch (the MXU2
+ * section requires it); the three modes of one scene are timed.
+ * Result: t31_awb_selftest_state (1 pass, -1 fail) and dmesg.
+ */
+static u32 st_rng;
+
+/*
+ * A trapped MXU2 instruction (reserved instruction on a chip without it)
+ * must fail the selftest, not oops the kernel thread: while the guard is up
+ * the DIE_RI notifier skips the instruction and counts the hit.
+ */
+static bool t31_ri_guard;
+static int t31_ri_hits;
+
+static int t31_awb_die_notify(struct notifier_block *nb, unsigned long val,
+			      void *data)
+{
+	struct die_args *args = data;
+
+	if (val != DIE_RI || !t31_ri_guard || user_mode(args->regs))
+		return NOTIFY_DONE;
+	args->regs->cp0_epc += 4;
+	t31_ri_hits++;
+	return NOTIFY_STOP;
+}
+
+static struct notifier_block t31_awb_die_nb = {
+	.notifier_call = t31_awb_die_notify,
+};
+
+static u32 st_rand(void)
+{
+	st_rng = st_rng * 1664525u + 1013904223u;
+	return st_rng >> 8;
+}
+
+static u32 st_zr[T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+static u32 st_zb[T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+static u32 st_a[T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+static u32 st_b[T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+static u32 st_w[T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+static u32 st_bj[2][T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+static u32 st_bc[2][T31_AWB_ZONES + 3] __attribute__((aligned(16)));
+
+static int t31_awb_selftest_kernels(void)
+{
+	int bad = 0, n, i;
+
+	for (n = 0; n < 96; n++) {
+		unsigned long flags;
+		u32 cx, cy, thr, c1[3], c2[3], w1[2], w2[2];
+		u32 mode = n & 3;
+
+		for (i = 0; i < T31_AWB_ZONES; i++) {
+			u32 r = st_rand();
+
+			st_zr[i] = mode == 3 ? (r << 8) ^ st_rand() : st_rand() & 0x3ff;
+			st_zb[i] = mode == 3 ? (st_rand() << 8) ^ r : st_rand() & 0x3ff;
+			st_a[i] = st_rand() << 8;
+			st_b[i] = st_rand();
+			st_w[i] = (st_rand() & 3) ? st_rand() & 0xffff : 0;
+			st_bj[0][i] = st_bj[1][i] = (st_rand() & 1) ? st_rand() & 63 : 0;
+			st_bc[0][i] = st_bc[1][i] = st_rand() & 0xff;
+		}
+		cx = mode == 3 ? st_rand() << 8 : st_rand() & 0x3ff;
+		cy = mode == 3 ? st_rand() << 8 : st_rand() & 0x3ff;
+		thr = mode == 1 ? 0 : (mode == 2 ? 0xffffffffu : st_rand() & 0xffff);
+		if (n & 4)	/* make a few zones sit exactly on the centre */
+			st_zr[n % T31_AWB_ZONES] = cx, st_zb[n % T31_AWB_ZONES] = cy;
+		/* edge zones: last vector lane and the scalar tail */
+		st_zr[223] = st_zr[224] = cx;
+		st_zb[223] = st_zb[224] = cy + (n & 1);
+
+		local_irq_save(flags);
+		t31_awb_sweep_sum_c(st_zr, st_zb, st_a, st_b, cx, cy, thr,
+				    &c1[0], &c1[1], &c1[2]);
+		t31_awb_sweep_sum(2, st_zr, st_zb, st_a, st_b, cx, cy, thr,
+				  &c2[0], &c2[1], &c2[2]);
+		t31_awb_sweep_wcount_c(st_zr, st_zb, st_w, cx, cy, thr,
+				       &w1[0], &w1[1]);
+		t31_awb_sweep_wcount(2, st_zr, st_zb, st_w, cx, cy, thr,
+				     &w2[0], &w2[1]);
+		local_irq_restore(flags);
+
+		if (c1[0] != c2[0] || c1[1] != c2[1] || c1[2] != c2[2] ||
+		    w1[0] != w2[0] || w1[1] != w2[1]) {
+			bad++;
+			pr_err("t31_awb_selftest: sweep mismatch n=%d sum %u/%u/%u vs %u/%u/%u wc %u/%u vs %u/%u\n",
+			       n, c1[0], c1[1], c1[2], c2[0], c2[1], c2[2],
+			       w1[0], w1[1], w2[0], w2[1]);
+		}
+		cond_resched();
+	}
+	return bad;
+}
+
+/*
+ * The assign kernel is checked on its own with its own two copies (C twice
+ * with identical input, then SIMD) so the comparison does not depend on the
+ * random count drawn above.
+ */
+static int t31_awb_selftest_assign(void)
+{
+	int bad = 0, n, i, k;
+
+	for (n = 0; n < 48; n++) {
+		unsigned long flags;
+
+		for (i = 0; i < T31_AWB_ZONES; i++) {
+			st_zr[i] = st_rand() & 0x1ff;
+			st_zb[i] = st_rand() & 0x1ff;
+			st_bj[0][i] = st_bj[1][i] = (st_rand() & 1) ? 1 + (st_rand() % 60) : 0;
+			st_bc[0][i] = st_bc[1][i] = st_rand() & 0x7;
+		}
+		local_irq_save(flags);
+		for (k = 0; k < 6; k++) {
+			u32 cx = st_rand() & 0x1ff, cy = st_rand() & 0x1ff;
+			u32 thr = st_rand() & 0x7fff, id = 1 + (st_rand() % 60);
+			u32 cc = st_rand() & 0x7;
+
+			t31_awb_assign_c(st_zr, st_zb, cx, cy, thr, id, cc,
+					 st_bj[0], st_bc[0]);
+			t31_awb_assign(2, st_zr, st_zb, cx, cy, thr, id, cc,
+				       st_bj[1], st_bc[1]);
+		}
+		local_irq_restore(flags);
+		for (i = 0; i < T31_AWB_ZONES; i++) {
+			if (st_bj[0][i] != st_bj[1][i] || st_bc[0][i] != st_bc[1][i]) {
+				bad++;
+				pr_err("t31_awb_selftest: assign mismatch n=%d zone %d: %u/%u vs %u/%u\n",
+				       n, i, st_bj[0][i], st_bc[0][i],
+				       st_bj[1][i], st_bc[1][i]);
+				break;
+			}
+		}
+		cond_resched();
+	}
+	return bad;
+}
+
+struct st_ctdet_out {
+	u32 ct, status, rgbg[2];
+	u32 zone[2 * T31_AWB_ZONES];
+	u32 wght[T31_AWB_ZONES], pixw[T31_AWB_ZONES];
+	u32 dis[T31_AWB_ZONES], dwght[T31_AWB_ZONES];
+	u32 v1[CLUSTER_ENTRIES * 3], v2[CLUSTER_ENTRIES * 4];
+};
+
+static void t31_awb_selftest_run(int mode, u32 q, const u32 *zone_in,
+				 const u32 *pix, const u32 *light, u32 n_lights,
+				 const u32 *ctw, const u32 *ctmode, const u32 *wmesh,
+				 const u32 *rg_pos, const u32 *bg_pos,
+				 const u32 *ct_mesh, const u32 *awbw, const u32 *dis,
+				 const u32 *lut, const u32 *cl,
+				 struct st_ctdet_out *o, u64 *ns)
+{
+	u32 pp = q;
+	u64 t0;
+
+	memcpy(o->zone, zone_in, sizeof(o->zone));
+	o->ct = 5000;
+	o->status = 0xdead;
+	o->rgbg[0] = o->rgbg[1] = 0;
+	awb_ctdet_mode = mode;
+	t0 = ktime_to_ns(ktime_get());
+	Tiziano_Awb_Ct_Detect(o->zone, pix, light, n_lights, ctw, ctmode, wmesh,
+			      15, 15, rg_pos, bg_pos, ct_mesh, awbw, dis, &o->ct,
+			      lut, &pp, cl, o->rgbg, &o->status);
+	*ns += ktime_to_ns(ktime_get()) - t0;
+	memcpy(o->wght, rgbg_wght, sizeof(o->wght));
+	memcpy(o->pixw, zone_pix_wgh, sizeof(o->pixw));
+	memcpy(o->dis, rgbg_dis, sizeof(o->dis));
+	memcpy(o->dwght, rgbg_d_wght, sizeof(o->dwght));
+	memcpy(o->v1, Cluster_rgbg_value1, sizeof(o->v1));
+	memcpy(o->v2, Cluster_rgbg_value2, sizeof(o->v2));
+}
+
+/* two scenes' worth of buffers, static: too big for a kernel stack */
+static struct st_ctdet_out st_out[3];
+static u32 st_zone_in[2 * T31_AWB_ZONES], st_pix[T31_AWB_ZONES];
+static u32 st_ct_mesh[225], st_wmesh[225], st_awbw[225], st_lut[514];
+
+static int t31_awb_selftest_ctdet(u64 ns[3])
+{
+	static const u32 qs[3] = { 10, 8, 12 };
+	int bad = 0, n, i, m;
+
+	for (n = 0; n < 24; n++) {
+		unsigned long flags;
+		u32 q = qs[n % 3];
+		u32 rg_pos[15], bg_pos[15], light[20] = { 0 };
+		u32 ctw[4], ctmode[2], dis[3], cl[6];
+		u32 n_lights = st_rand() % 6;
+		u32 centres = 1 + st_rand() % 4;
+		u32 crg[4], cbg[4];
+		u32 spread = 4 + st_rand() % 40;
+
+		for (i = 0; i < 15; i++) {
+			rg_pos[i] = 60 + i * (16 + (n % 5));
+			bg_pos[i] = 50 + i * (14 + (n % 7));
+		}
+		for (i = 0; i < 225; i++) {
+			st_ct_mesh[i] = 300 + st_rand() % 900;
+			st_wmesh[i] = st_rand() % 257;
+			st_awbw[i] = 32 + st_rand() % 224;
+		}
+		for (i = 0; i < 514; i++)
+			st_lut[i] = i < 0x202 ? 5 + (st_rand() % 40) : 0;
+		for (i = 0; i < (int)n_lights; i++) {
+			light[2 * i] = 100 + i * 40 + st_rand() % 20;
+			light[2 * i + 1] = 120 + i * 20 + st_rand() % 20;
+		}
+		ctw[0] = 900; ctw[1] = 700; ctw[2] = 300; ctw[3] = 200;
+		ctmode[0] = n & 1; ctmode[1] = 32 + st_rand() % 128;
+		dis[0] = (n >> 1) & 1; dis[1] = 3 << q; dis[2] = 1 << q;
+		cl[0] = (n % 5) ? 1 : 0;
+		cl[1] = 200 + st_rand() % 1500;
+		cl[2] = 100 + st_rand() % 800;
+		cl[3] = 500 + st_rand() % 4000;
+		cl[4] = 1 + st_rand() % 6;
+		cl[5] = 2 + st_rand() % 12;
+		for (i = 0; i < 4; i++) {
+			crg[i] = 80 + st_rand() % 250;
+			cbg[i] = 70 + st_rand() % 200;
+		}
+		for (i = 0; i < 225; i++) {
+			u32 c = st_rand() % centres;
+			u32 rg = crg[c] + st_rand() % spread, bg = cbg[c] + st_rand() % spread;
+
+			if (!(st_rand() % 23)) {	/* outliers, also out of range */
+				rg = st_rand() % 600;
+				bg = st_rand() % 500;
+			}
+			st_zone_in[i] = rg << q;
+			st_zone_in[225 + i] = bg << q;
+			st_pix[i] = (n == 7) ? 0 : ((st_rand() % 9) ? 1500 + st_rand() % 2500 : 0);
+		}
+
+		local_irq_save(flags);
+		for (m = 0; m < 3; m++)
+			t31_awb_selftest_run(m, q, st_zone_in, st_pix, light,
+					     n_lights, ctw, ctmode, st_wmesh,
+					     rg_pos, bg_pos, st_ct_mesh, st_awbw,
+					     dis, st_lut, cl, &st_out[m], &ns[m]);
+		local_irq_restore(flags);
+
+		for (m = 1; m < 3; m++) {
+			if (memcmp(&st_out[0], &st_out[m], sizeof(st_out[0]))) {
+				bad++;
+				pr_err("t31_awb_selftest: scene %d (q=%u) mode %d differs from reference: ct %u/%u status %u/%u rg %u/%u bg %u/%u\n",
+				       n, q, m, st_out[0].ct, st_out[m].ct,
+				       st_out[0].status, st_out[m].status,
+				       st_out[0].rgbg[0], st_out[m].rgbg[0],
+				       st_out[0].rgbg[1], st_out[m].rgbg[1]);
+			}
+		}
+		cond_resched();
+	}
+	return bad;
+}
+
+/* module exit: no selftest may run (or start) while the code goes away */
+void t31_awb_selftest_cancel(void)
+{
+	t31_awb_impl = 0;
+	cancel_work_sync(&t31_awb_selftest_work);
+}
+
+static void t31_awb_selftest_workfn(struct work_struct *work)
+{
+	unsigned long runs0 = t31_awb_mxu2_runs, fb0 = t31_awb_mxu2_fallbacks;
+	int saved = awb_ctdet_mode;
+	u64 ns[3] = { 0, 0, 0 };
+	int bad = 0;
+	unsigned long flags;
+
+	st_rng = 0x31a5b001;
+	t31_ri_hits = 0;
+	/* CPM 0x10000034 (info): the user-mode CU2 gate of the Ingenic kernel.
+	 * The selftest runs in kernel mode with CU2 set locally, so 0x110 does
+	 * not matter here; the bit-exact compare below decides. */
+	t31_mxu2_cpm = *(volatile u32 *)0xb0000034;
+	if (!cpu_has_mxu_v2) {
+		pr_warn("t31_awb_selftest: CPU has no MXU2, MXU2 stays off (fast C used)\n");
+		t31_awb_selftest_state = -1;
+		goto out;
+	}
+	register_die_notifier(&t31_awb_die_nb);
+	t31_ri_guard = true;
+	bad += t31_awb_selftest_kernels();
+	bad += t31_awb_selftest_assign();
+	if (t31_ri_hits) {
+		/* the vector instructions trap: stop before the full runs */
+		t31_ri_guard = false;
+		unregister_die_notifier(&t31_awb_die_nb);
+		pr_err("t31_awb_selftest: %d MXU2 instructions trapped (reserved instruction), MXU2 not usable here\n",
+		       t31_ri_hits);
+		t31_awb_selftest_state = -1;
+		goto out;
+	}
+	if (t31_awb_mxu2_runs == runs0) {
+		pr_err("t31_awb_selftest: MXU2 kernels did not run (%lu fallbacks)\n",
+		       t31_awb_mxu2_fallbacks - fb0);
+		bad++;
+	}
+	bad += t31_awb_selftest_ctdet(ns);
+	t31_ri_guard = false;
+	unregister_die_notifier(&t31_awb_die_nb);
+	if (t31_ri_hits)
+		bad++;
+	local_irq_save(flags);
+	awb_ctdet_mode = saved;
+	local_irq_restore(flags);
+	pr_info("t31_awb_selftest: %s, %d mismatches; 24 scenes, CT detection per call: reference %llu us, fast C %llu us, MXU2 %llu us (MXU2 kernel runs %lu, fallbacks %lu)\n",
+		bad ? "FAILED" : "passed", bad,
+		div_u64(ns[0], 24 * 1000), div_u64(ns[1], 24 * 1000),
+		div_u64(ns[2], 24 * 1000), t31_awb_mxu2_runs - runs0,
+		t31_awb_mxu2_fallbacks - fb0);
+	t31_awb_selftest_state = bad ? -1 : 1;
+out:
+	awb_ctdet_mode = saved;
+	t31_awb_selftest = 0;
 }
 
 /* OEM-matched Tiziano_awb_fpga: compute per-zone rg/bg ratios in Q-format
@@ -19869,6 +20348,7 @@ static int Tiziano_awb_fpga(const uint32_t *stats_r,
 				((const uint32_t *)_bg_pos)[14]);
 		}
 
+		awb_ctdet_mode = awb_ctdet_effective_mode();
 		Tiziano_Awb_Ct_Detect(
 			awb_zone_rgbg,                        /* arg1: zone rg+bg interleaved */
 			awb_zone_pix_cnt,                     /* arg2: zone pixel counts */

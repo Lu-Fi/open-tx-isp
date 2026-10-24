@@ -1704,6 +1704,7 @@ extern int tisp_ae_algo_handle(void *attr);
 extern void tx_isp_ae_algo_close_internal(void);
 extern bool tx_isp_ae_algo_is_open(void);
 extern int tisp_event_drain(unsigned int timeout_ms);
+extern void t31_awb_selftest_cancel(void);
 
 /* Forward declarations for initialization functions */
 extern int tx_isp_vic_platform_init(void);
@@ -7000,6 +7001,7 @@ static void tx_isp_exit(void)
     int i;
 
     pr_info("TX ISP driver exiting...\n");
+    t31_awb_selftest_cancel();
     tx_isp_t31_wdr_stop();
     /* Tear down the netlink channel before the objects its requests use
      * (tuning data, ourISPdev) go away, then its message buffers. */

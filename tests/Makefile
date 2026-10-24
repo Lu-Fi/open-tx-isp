@@ -432,6 +432,19 @@ TESTS += t20_ae_max_host_test
 t20_ae_max_host_test: t20_ae_max_host_test.c ../driver/t20/tx_isp_t20_ae_max.h
 	$(CC) $(CFLAGS) -o $@ $<
 
+TESTS += t31_awb_simd_host_test
+
+# the detection code is taken from the real driver source, not copied
+t31_awb_defs.inc: ../driver/t31/tx_isp_tuning.c
+	sed -n '/T31_AWB_HOST_DEFS_BEGIN/,/T31_AWB_HOST_DEFS_END/p' $< > $@
+
+t31_awb_region.inc: ../driver/t31/tx_isp_tuning.c
+	{ sed -n '/^static uint32_t ISPAWBInterpolation1/,/^static uint32_t __maybe_unused awb_ratio_u8/p' $< | sed '$$d'; \
+	  sed -n '/^\/\* OEM func_zone_ct_weight/,/T31_AWB_HOST_END/p' $< ; } > $@
+
+t31_awb_simd_host_test: t31_awb_simd_host_test.c t31_awb_defs.inc t31_awb_region.inc ../driver/t31/tx_isp_t31_awb_simd.h
+	$(CC) $(CFLAGS) -O2 -Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable -o $@ $<
+
 all: $(TESTS)
 
 # "all check: foo_test" (old style, e.g. on older branches) still works:
@@ -488,7 +501,7 @@ clean:
 	$(RM) tx_isp_t41_awb_runtime_test
 	$(RM) tx_isp_t41_awb_detect_test
 	$(RM) tx_isp_t41_awb_long_test
-	$(RM) tx_isp_t41_tuning_ctl_test t21_sepia_host_test t31_sharpness_host_test t31_ae_step_host_test sinfo_vendor_host_test
+	$(RM) t31_awb_simd_host_test t31_awb_defs.inc t31_awb_region.inc tx_isp_t41_tuning_ctl_test t21_sepia_host_test t31_sharpness_host_test t31_ae_step_host_test sinfo_vendor_host_test
 	$(RM) tx_isp_t41_awb_stats_test
 	$(RM) tx_isp_math_test tx_isp_modulation_test \
 		tx_isp_awb_mesh_test \
