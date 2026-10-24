@@ -1000,3 +1000,11 @@ Device-tested: 16.6 h overnight run on a gc5603 camera without reboot, 0 BUG/oop
 - Size: `TX_ISP_T41_BRINGUP_PARAMS` and `TX_ISP_T41_TMO_SELFTEST` (Kbuild) default to `n`. Scripts that read the bring-up parameters, such as `tools/rawchart/t41_isr_stages.sh`, need `TX_ISP_T41_BRINGUP_PARAMS=y`. Details in `docs/SIZE.md`.
 - CPU-load measurements: the kernel is built with `NO_HZ_FULL` and `VIRT_CPU_ACCOUNTING_GEN`, so the system column of `/proc/stat` does not show the time of the ISP kernel threads reliably. Compare stacks by free CPU (one idle-priority busy loop per core, iterations per second) instead.
 - Known open issue: a camera rebooted under 1080p + 360p at 25 fps 8000 kbit/s (three events on two cameras); not yet explained.
+
+## Colour check (2026-10-24, evening)
+
+A 24-patch chart was measured on both T41 cameras against the vendor stack in the same scene (same IQ bin on each camera). The CCM (colour-temperature / exposure interpolation of the bin matrices and saturation transform), the AWB statistics configuration, the white-balance gains (within the AWB convergence band), BLC, BCSH and the TOP enable word equal the vendor within frame-to-frame noise; the worst patches are the same on both stacks (calibration of the bin). No code change was needed.
+
+## Testing in QEMU
+
+The modules can be loaded, unloaded and exercised without a camera in the `ingenic-t41` machine of the [gtxaspec/qemu](https://github.com/gtxaspec/qemu) `ingenic-txx` branch (boots the thingino image (64 MB, gc5603 sensor model, `eth0` present), all modules load, the streamer starts and 10 reload cycles are clean; frames and encoder output are not verified there). It is a crash-test bench, not a picture-quality bench: the ISP is a register-file model with a modelled frame path (synthetic colour-bar frames), there are no 3A statistics, and timing and image quality cannot be tested. Setup, per-SoC status and limits: [docs/QEMU_TESTING.md](../../docs/QEMU_TESTING.md).

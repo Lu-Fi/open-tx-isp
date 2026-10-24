@@ -757,3 +757,16 @@ ISP digital gain is 1x there. `SetModule_Ratio` defog -> literal `tisp_s_defog_r
   digital gain, re-interpolated per frame). The day block (static table + OEM init) is saved on the switch and written
   back with the trigger 0xa19c on the return (`t40_dmsc_day_restores` counts the restores). Host check:
   `tests/t40/dmsc_night_host` (bit-exact against the vendor night dump). `t40_dmsc_follow=0` = old static DMSC.
+
+## Tuning controls and guards of the lifted bodies (2026-10-24, evening)
+
+- **Guards.** Lifted OEM bodies that overran a small stack slot or dereferenced a NULL base oopsed the stock open module. Fixed: `SetModuleControl` (`tisp_lce_clear_stat_ram` / `tisp_lce_top_change_state` without LCE tool parameters), `SetMask`/`GetMask` on vinum 0, `SetWdrOutputMode` (a stored flag on the linear sensor, as the vendor), `GetSensorFPS`/`SetSensorFPS` read-back, `SetScalerLv` (rewritten from the OEM function). `Get/SetISPCSCAttr` and `Get/SetCCMAttr` run on the literal OEM state; the CSC wire block is 64 bytes. `t40_csc_unsafe=1` restores the old 92-byte lifted path (not for use).
+- **New state section.** The lift reaches the OEM `.bss` through `&isp_memopt + N` offsets, so new `.bss`/`.data` objects shift what those accesses hit (the frames stopped once). All new state (CCM, CSC, gamma, flip) is in its own section `.t40c2`; the sizes of `.bss`, `.data` and `.rodata` equal the base. `/sys/module/tx_isp_t40/parameters/t40_c2_state` shows it.
+- **Sensor flip.** The vendor core acts on HVFLIP modes 4..8 only when the sensor module has a vertical-flip handler; the vendor sc830ai module has none, so the vendor never flips this sensor. The open driver can flip through the sensor register profile (`0x3221`) applied from the HVFLIP ioctl, but it is off by default (`t40_c2_flip=0`, like the vendor); with it on the picture did not change on this sensor. `t40_c2_stray=1` restores a stray store of the lifted CSC standard (bisect only).
+- **GetGamma.** Answers `{mode 0, 129 nodes}` from the last programmed LUT (production uses the soft-gamma writer, not the lifted gamma context).
+- **Probe parameters.** `t40_ev_follow=0` switches the AE EV fan-out off (A/B), `t40_adr_ev_shift` scales the EV fed to the ADR chain (diagnosis only, 0 = OEM unit).
+- **Reload.** `t40_rmmod_skip_slake=1` stays the default (the slake step is skipped; the core remove passed every time); the unload order is frame source first, then core.
+
+## Testing in QEMU
+
+The modules can be loaded, unloaded and exercised without a camera in the `ingenic-t40` machine of the [gtxaspec/qemu](https://github.com/gtxaspec/qemu) `ingenic-txx` branch (boots the thingino image to a shell with the sc830ai sensor model, all modules load; it reproduced the `rmmod` oops and the frame-slot index crash of the ISR (both fixed) and is the bench for the reload tests). It is a crash-test bench, not a picture-quality bench: the ISP is a register-file model with a modelled frame path (synthetic colour-bar frames), there are no 3A statistics, and timing and image quality cannot be tested. Setup, per-SoC status and limits: [docs/QEMU_TESTING.md](../../docs/QEMU_TESTING.md).
