@@ -45300,6 +45300,21 @@ int32_t tx_isp_mask_g_attr_isra_35(uint32_t a0, uintptr_t a1) __asm__("tx_isp_ma
 #endif
 int32_t tx_isp_mask_g_attr_isra_35(uint32_t a0, uintptr_t a1)
 {
+    /* T40-MASK-GET: the lift passed no buffer to tisp_g_mscaler_mask_attr (NULL store, kernel oops on the first
+     * GetMask, Eufy agg43d 2026-10-24) and dereferenced the user address as a struct holding the destination
+     * pointer.  a1 is the user buffer (g_ctrl passes arg3[1]). */
+    {
+        u8 *mbuf = kzalloc(288, GFP_KERNEL);
+        int mret = 0;
+
+        if (!mbuf)
+            return -ENOMEM;
+        tisp_g_mscaler_mask_attr(a0 > 1 ? 1 : (int32_t)a0, (char *)mbuf);
+        if (copy_to_user((void __user *)a1, mbuf, 288))
+            mret = -EFAULT;
+        kfree(mbuf);
+        return mret;
+    }
     /*
      * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
      * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
