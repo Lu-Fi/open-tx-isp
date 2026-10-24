@@ -47030,10 +47030,6 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
 
                 tisp_set_fps(arg1, s3_2);
                 ((int **)arg2)[(int)arg1 * 8 + 6] = (int)(long)(uintptr_t)s3_2;
-                /* T40-FPS-READBACK: the GET (and the unchanged-value check above) read this word; nothing
-                 * updated it, so GetSensorFPS kept answering the boot rate after a working set (12 fps
-                 * delivered, GET 20/1, Eufy agg43d 2026-10-24). */
-                *(int *)((char *)*(int **)((char **)arg2 + 0x10c / sizeof(uintptr_t)) + (int)arg1 * 0x60 + 0x180) = (int)(long)(uintptr_t)s3_2;
             }
         }
 
@@ -47536,7 +47532,13 @@ label_c33c_vfree:
 
     if (cmd < 0x8000073) {
         if (cmd == 0x8000070) {
-            ((void **)arg3)[1] = *(int32_t*)((uint32_t)arg1 * 0x60 + *(uint32_t*)((char*)arg2 + 0x10c) + 0x180);
+            /* T40-FPS-READBACK: the set goes through regtrace_t40_sensor_fps_send, which records the packed
+             * rate in regtrace_sensor_fps_packed; the OEM core word read here stayed at the boot rate (12 fps
+             * delivered, GetSensorFPS 20/1, Eufy agg43d 2026-10-24). */
+            uint32_t fps_set = READ_ONCE(regtrace_sensor_fps_packed);
+
+            ((void **)arg3)[1] = fps_set ? (void *)(uintptr_t)fps_set :
+                (void *)(uintptr_t)*(int32_t*)((uint32_t)arg1 * 0x60 + *(uint32_t*)((char*)arg2 + 0x10c) + 0x180);
             return 0;
         }
 
