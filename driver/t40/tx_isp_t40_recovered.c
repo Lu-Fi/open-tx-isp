@@ -12207,6 +12207,7 @@ static noinline int t40_csc_attr_get_user(uint32_t vinum, uintptr_t user)
  * tisp_ccm_ev_ct_update applies them.  The lift stored the 40 bytes over a 4-byte int and
  * read them back from address 0.  Needs the literal CCM chain (quality profile >= 1, enable_ccm).
  */
+/* regtrace_is_kernel_ptr() demands 4-byte alignment; ctx[16]/ctx[17] point at u8 flags (inter+0xb0/+0xb1), so check the range only */
 static uint8_t t40_ccm_ctrl[40] T40C2;
 static struct mutex t40_ccm_attr_lock T40C2 = __MUTEX_INITIALIZER(t40_ccm_attr_lock);
 static int t40_ccm_attr_set(uint32_t vinum, const uint8_t *buf)
@@ -12217,11 +12218,11 @@ static int t40_ccm_attr_set(uint32_t vinum, const uint8_t *buf)
     if (vinum != 0)
         return -EINVAL;
     if (!regtrace_enable_ccm || !stMainCcmOuter_lit || !tparamsN[0] ||
-        !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[2]) ||
-        !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[16]) ||
-        !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[17]) ||
-        !regtrace_is_kernel_ptr((void *)(uintptr_t)ctx[18])) {
-        printk(KERN_INFO "tx_isp_t40_recovered: SetCCMAttr: CCM chain not running (enable_ccm=%d outer=%lx tparams=%lx ctx2/16/17/18=%x/%x/%x/%x)\n",
+        (uint32_t)ctx[2] < 0x80000000U ||
+        (uint32_t)ctx[16] < 0x80000000U ||
+        (uint32_t)ctx[17] < 0x80000000U ||
+        (uint32_t)ctx[18] < 0x80000000U) {
+        printk(KERN_WARNING "tx_isp_t40_recovered: SetCCMAttr: CCM chain not running (enable_ccm=%d outer=%lx tparams=%lx ctx2/16/17/18=%x/%x/%x/%x)\n",
                regtrace_enable_ccm, (unsigned long)stMainCcmOuter_lit, (unsigned long)tparamsN[0], ctx[2], ctx[16], ctx[17], ctx[18]);
         return -EAGAIN;
     }
@@ -23474,6 +23475,8 @@ static bool t40_flip_base_valid T40C2;
 static uint8_t t40_flip_base T40C2;
 static uint32_t t40_flip_applied T40C2 = ~0U;
 static int t40_flip_last_ret T40C2;
+static uint32_t t40_flip_seen T40C2;   /* bit per mode requested */
+static uint32_t t40_flip_wr T40C2, t40_flip_rb T40C2;   /* last register value written / read back */
 static struct mutex t40_flip_lock T40C2 = __MUTEX_INITIALIZER(t40_flip_lock);
 
 static struct t40_flip_profile *t40_flip_profile_get(void)
@@ -23518,6 +23521,17 @@ static int t40_flip_sensor_reg(struct t40_flip_profile *pf, int set, uint8_t *va
     return ret;
 }
 
+static int t40_sensor_flip_apply(uint32_t mode);
+/* HVFLIP ioctl (process context): for a sensor with a register profile apply the sensor part right away and drop the
+ * pending slot - the frame workers that would deliver it do not run in the production ISR mode. */
+static void t40_sensor_flip_direct(void *pending, int mode)
+{
+    if (!t40_c2_flip || !t40_flip_profile_get())
+        return;
+    if (t40_sensor_flip_apply((uint32_t)mode) == 0)
+        *(int *)pending = 0;
+}
+
 /* mode: 0 normal, 1 mirror, 2 flip, 3 mirror+flip (the VFLIP event value).  Returns 0 or a negative errno. */
 static int t40_sensor_flip_apply(uint32_t mode)
 {
@@ -23540,9 +23554,16 @@ static int t40_sensor_flip_apply(uint32_t mode)
         v ^= pf->mirror_mask;
     if (mode & 2U)
         v ^= pf->flip_mask;
+    t40_flip_seen |= 1U << (mode & 31U);
     ret = t40_flip_sensor_reg(pf, 1, &v);
-    if (!ret)
+    t40_flip_wr = v;
+    if (!ret) {
+        uint8_t rb = 0xee;
+
         t40_flip_applied = mode;
+        (void)t40_flip_sensor_reg(pf, 0, &rb);
+        t40_flip_rb = rb;
+    }
 out:
     t40_flip_last_ret = ret;
     printk(KERN_INFO "tx_isp_t40_recovered: sensor flip %s mode=%u reg 0x%04x base=0x%02x -> 0x%02x ret=%d\n",
@@ -23550,6 +23571,20 @@ out:
     mutex_unlock(&t40_flip_lock);
     return ret;
 }
+
+static int t40_c2_state_get(char *buf, const struct kernel_param *kp)
+{
+    uint32_t *ctx = pstMainCcmOri_lit;
+
+    return scnprintf(buf, PAGE_SIZE,
+        "ccm: enable=%d outer=%lx tparams0=%lx ctx2/16/17/18=%x/%x/%x/%x ctrl0/1=%u/%u\nflip: profile=%s base_valid=%d base=%02x applied=%x last_ret=%d c2_flip=%u seen=%x wr=%02x rb=%02x\n",
+        regtrace_enable_ccm, (unsigned long)stMainCcmOuter_lit, (unsigned long)tparamsN[0], ctx[2], ctx[16], ctx[17], ctx[18],
+        t40_ccm_ctrl[0], t40_ccm_ctrl[1], t40_flip_profile_get() ? t40_flip_profile_get()->name : "none",
+        t40_flip_base_valid, t40_flip_base, t40_flip_applied, t40_flip_last_ret, t40_c2_flip,
+        t40_flip_seen, t40_flip_wr, t40_flip_rb);
+}
+static const struct kernel_param_ops t40_c2_state_ops = { .get = t40_c2_state_get };
+module_param_cb(t40_c2_state, &t40_c2_state_ops, NULL, 0444);
 
 static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
@@ -47454,6 +47489,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
                 void *s0_3 = (void *)((char *)s3_1 + (int)arg1 * 0x48);
                 *(int *)(s0_3 + 0x328) = 1;
                 *(int *)(s0_3 + 0x32c) = *(int *)&var_88 - 3;
+                t40_sensor_flip_direct(s0_3 + 0x328, *(int *)&var_88 - 3);   /* T40-SENSOR-FLIP */
                 v0_22 = *(int *)&var_88;
                 break;
             case 7:
@@ -47474,6 +47510,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
                 }
 
                 *(int *)(s0_4 + 0x32c) = s5_2;
+                t40_sensor_flip_direct(s0_4 + 0x328, s5_2);   /* T40-SENSOR-FLIP */
                 v0_22 = *(int *)&var_88;
                 break;
             default:
@@ -47491,6 +47528,7 @@ label_b4d0:
             void *s0_2 = (void *)((char *)s3_1 + (int)arg1 * 0x48);
             *(int *)(s0_2 + 0x328) = v1_3;
             *(int *)(s0_2 + 0x32c) = 0;
+            t40_sensor_flip_direct(s0_2 + 0x328, 0);   /* T40-SENSOR-FLIP */
             v0_22 = *(int *)&var_88;
         }
 
