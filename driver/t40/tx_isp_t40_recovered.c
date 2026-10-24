@@ -12819,6 +12819,8 @@ static int regtrace_t40_ae_isp_dgain_apply(void)
  * and from the per-frame tuning follow (the EV also moves with IT).
  * t40_ev_follow=0 restores the frozen parameters for A/B.
  */
+static int regtrace_t40_adr_ev_shift;
+module_param_named(t40_adr_ev_shift, regtrace_t40_adr_ev_shift, int, 0644);
 static bool regtrace_t40_ev_follow = true;
 module_param_named(t40_ev_follow, regtrace_t40_ev_follow, bool, 0644);
 static uint32_t regtrace_t40_ev_now;
@@ -12835,7 +12837,11 @@ static void regtrace_t40_ev_fanout(uint32_t again_log2)
     ev_q10 = ((uint64_t)it * again_x1024 * dg) >> 10;
     regtrace_t40_ev_now = (uint32_t)(ev_q10 >> 10);
     regtrace_defog_ev_update_lit(ev_q10);
-    regtrace_adr_ev_update_lit(ev_q10);
+    /* T40-QUALITY4: EV unit probe for the ADR chain (night pedestal): the OEM AE pushes its
+     * own 64-bit EV with event 8; t40_adr_ev_shift scales ours by 2^shift (runtime, default 0). */
+    regtrace_adr_ev_update_lit(regtrace_t40_adr_ev_shift >= 0 ?
+                               ev_q10 << regtrace_t40_adr_ev_shift :
+                               ev_q10 >> (-regtrace_t40_adr_ev_shift));
     if (regtrace_t40_ev_follow) {
         regtrace_ccm_ev = regtrace_t40_ev_now;
         if (regtrace_enable_bcsh)
