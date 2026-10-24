@@ -97127,6 +97127,12 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
             luma >= regtrace_t40_frame_3a_target_eff();
         bool changed = false;
         bool dgain_changed = false;
+
+        /* a user IT cap (SetAeExprInfo) below the running exposure time pulls it down */
+        if (it > max_it && max_it > regtrace_ae_soft_min_it) {
+            it = max_it;
+            changed = true;
+        }
         /*
          * T40-AE-BIGSTEP: far from target (half / double) the gain stages
          * move two steps per sample (~1.37x) so a light step settles in the
