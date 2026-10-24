@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24 (8): T40 module size (`claude/t40-size2`; Eufy T40 device-tested)
+
+- **T40 module size:** bring-up parameters (340 experiment switches and diagnostic counters that no tool, script, document, OpenIMP, timps or thingino file uses; 288 parameters remain) and the legacy `/proc/tx_isp_t40_recovered` debug file (register dump, `exit N`, `dumplog`) are built in only on request: `TX_ISP_T40_BRINGUP_PARAMS=y`, `TX_ISP_T40_DEBUG_PROC=y` (Kbuild, default `n`). Stripped module 1557 -> 1445 KB, xz 431 -> 404 KB (.text 1023 -> 987, .rodata+strings 135 -> 103, .modinfo+__param 37 -> 16 KB). Variables keep their defaults, so behaviour is unchanged; passing a removed parameter to `insmod` only logs "unknown parameter ignored". Device (.184, test ko via the autostart swap, restored to stock agg43d afterwards): insmod OK, sc830ai probe, timps up, snapshot and 2 MB of stream, 0 oops/warn. Host: `make -C tests check` 95 passed.
+
 ## 2026-10-24 (7): T40 defog / LCE / DPC chains, GIB gain follow (`claude/t40-quality2`; Eufy T40 device A/B)
 
 - **T40 TOP word against the vendor:** the vendor runs `0x7FD9004D` on the sc830ai in daylight, our driver `0x7FF9089D`: four blocks the bin enables stayed bypassed in every profile: DPC (bit 4), ADR (7), defog (11), LCE (21). The recovered defog lift never hooked IRQ 10 / event 4 (its init calls the ISR with `(10, &isr)` in place of `system_irq_func_set`), the LCE lift is fragmentary. That is where the softer, flatter picture came from (black level up, contrast and night luma down).

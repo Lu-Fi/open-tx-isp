@@ -605,6 +605,26 @@ extern struct module __this_module;
 #endif
 #endif
 
+/*
+ * Bring-up-only parameters (experiment switches, diagnostic counters; no
+ * tool, script, document, OpenIMP, timps or thingino file uses them): the
+ * variables keep their defaults, the parameters are built in only with
+ * TX_ISP_T40_BRINGUP_PARAMS=y (Kbuild).
+ */
+#ifdef TX_ISP_T40_BRINGUP_PARAMS
+#define t40_bringup_param(name, ...) module_param(name, __VA_ARGS__)
+#define t40_bringup_param_named(name, ...) module_param_named(name, __VA_ARGS__)
+#define t40_bringup_param_array_named(name, ...) module_param_array_named(name, __VA_ARGS__)
+#define t40_bringup_param_cb(name, ...) module_param_cb(name, __VA_ARGS__)
+#define t40_bringup_parm_desc(name, desc) MODULE_PARM_DESC(name, desc)
+#else
+#define t40_bringup_param(name, ...) struct t40_bringup_unused_##name
+#define t40_bringup_param_named(name, ...) struct t40_bringup_unused_##name
+#define t40_bringup_param_array_named(name, ...) struct t40_bringup_unused_##name
+#define t40_bringup_param_cb(name, ...) struct t40_bringup_unused_##name
+#define t40_bringup_parm_desc(name, desc) struct t40_bringup_unused_desc_##name
+#endif
+
 static int isp_dual_buf = 65538;
 module_param(isp_dual_buf, int, 0);
 MODULE_PARM_DESC(isp_dual_buf, "isp dual buff");
@@ -1334,9 +1354,9 @@ static uintptr_t lsc_wlut_flag_b1;
 static uint32_t regtrace_wlut_trace_regs[56];
 static unsigned int regtrace_wlut_trace_n = 56;
 static int regtrace_isr_wlut_trace;
-module_param_named(isr_wlut_trace, regtrace_isr_wlut_trace, int, 0644);
-MODULE_PARM_DESC(isr_wlut_trace, "W-LUT pending-handshake trace: counts the get_wlut_times call/ok/zero paths, the raw system_reg_read((a0+16)<<2) words and the real_write_lut flushers (default 0, counters only)");
-module_param_array_named(isr_wlut_trace_regs, regtrace_wlut_trace_regs, uint, &regtrace_wlut_trace_n, 0444);
+t40_bringup_param_named(isr_wlut_trace, regtrace_isr_wlut_trace, int, 0644);
+t40_bringup_parm_desc(isr_wlut_trace, "W-LUT pending-handshake trace: counts the get_wlut_times call/ok/zero paths, the raw system_reg_read((a0+16)<<2) words and the real_write_lut flushers (default 0, counters only)");
+t40_bringup_param_array_named(isr_wlut_trace_regs, regtrace_wlut_trace_regs, uint, &regtrace_wlut_trace_n, 0444);
 static uintptr_t main_adr_gamma;
 static uintptr_t main_adr_paras;
 static uintptr_t main_cdns;
@@ -2590,10 +2610,10 @@ static const char LC180[] = "[%s %d] [ %s:%d ] Failed to init tuning module!\n";
 static int32_t irq_func_cb[T40_IRQ_FUNC_CB_N];
 static bool regtrace_t40_ae_par_calc = true;
 static bool regtrace_t40_ae_force_auto;   /* test aid: force the AE mode u16 at *(ctx+4)+6 to 1 so tune2 runs the per-frame EV allocation */
-module_param_named(t40_ae_force_auto, regtrace_t40_ae_force_auto, bool, 0644);
+t40_bringup_param_named(t40_ae_force_auto, regtrace_t40_ae_force_auto, bool, 0644);
 module_param_named(t40_ae_par_calc, regtrace_t40_ae_par_calc, bool, 0644);
 static uint32_t regtrace_t40_ae_par_calc_count;
-module_param_named(t40_ae_par_calc_count, regtrace_t40_ae_par_calc_count, uint, 0444);
+t40_bringup_param_named(t40_ae_par_calc_count, regtrace_t40_ae_par_calc_count, uint, 0444);
 static inline uintptr_t t40_sensor_cb2(uint32_t off, uintptr_t a0, uintptr_t a1);   /* T40-SENSOR-CB, defined before tisp_set_sensor_analog_gain */
 static const char LC181[] = "dl = %d y = %d uv = %d\n";
 static const char LC182[] = "[ %s:%d ] ispcore: irq-status unusual 0x%08x, 0x%x, 0x%x\n ";
@@ -7448,9 +7468,9 @@ int64_t fix_point_div_64(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uin
 static unsigned int regtrace_t40_awb_step;      /* 99 entered, 1..6 before each call in tisp_awb_main_process, 21..26 sub-function entries, 0 done */
 static unsigned int regtrace_t40_ev_cur;        /* event id currently inside its callback, 0 when idle */
 static unsigned int regtrace_t40_ev_cur_n;      /* callbacks dispatched */
-module_param_named(t40_awb_step, regtrace_t40_awb_step, uint, 0444);
-module_param_named(t40_ev_cur, regtrace_t40_ev_cur, uint, 0444);
-module_param_named(t40_ev_cur_n, regtrace_t40_ev_cur_n, uint, 0444);
+t40_bringup_param_named(t40_awb_step, regtrace_t40_awb_step, uint, 0444);
+t40_bringup_param_named(t40_ev_cur, regtrace_t40_ev_cur, uint, 0444);
+t40_bringup_param_named(t40_ev_cur_n, regtrace_t40_ev_cur_n, uint, 0444);
 static bool regtrace_t40_ct_update;             /* run the event-13 colour-temperature updates (CCM/LSC/BCSH/CLM); needs their init */
 module_param_named(t40_ct_update, regtrace_t40_ct_update, bool, 0644);
 static bool regtrace_t40_ev_updates;            /* run events 6..13 (tgain/again/ev/ct module updates pushed by the 3A); needs the module inits */
@@ -7483,11 +7503,11 @@ static uint32_t t40_vawb_dn_params_refresh(uint32_t a0);
 static int32_t t40_vawb_main_ev_update(uint32_t a0);
 static int32_t t40_vawb_tgain_update(uint32_t a0, uint32_t a1, uint32_t a2);
 static bool regtrace_t40_awb_spec_regs;   /* T40-AWB-SPEC-REGS: write the special-light registers 0x180xx (MT98: heap corruption with them, likely a stats DMA without a buffer) */
-module_param_named(t40_awb_spec_regs, regtrace_t40_awb_spec_regs, bool, 0644);
+t40_bringup_param_named(t40_awb_spec_regs, regtrace_t40_awb_spec_regs, bool, 0644);
 static bool regtrace_t40_awb_ctd;   /* T40-AWB-CTD: run the lifted tisp_awb_ct_detect (8 KB fragment lift, heap-corruption suspect N9); off = gray-world fallback */
 module_param_named(t40_awb_ctd, regtrace_t40_awb_ctd, bool, 0644);
 static unsigned int regtrace_t40_awb_proc_stages = 0xffU;   /* T40-AWB-STAGES bisect: 1 par_update 2 spec_calculate 4 alogrithm 8 set_gain 16 event13 */
-module_param_named(t40_awb_proc_stages, regtrace_t40_awb_proc_stages, uint, 0644);
+t40_bringup_param_named(t40_awb_proc_stages, regtrace_t40_awb_proc_stages, uint, 0644);
 static int regtrace_t40_tuning_set_running_mode(uint32_t mode);
 static uint32_t t40_aex_mean;                    /* AEX log: mean at tune2 entry */
 int32_t fix_point_add_32(uint32_t a0, uint32_t a1, uint32_t a2);
@@ -9576,22 +9596,22 @@ static uint regtrace_oem_event_pre_csi_stage_limit;
 static uint regtrace_oem_event_pre_csi_delay_ms;
 static uint regtrace_ae_sensor_apply_force_packed;
 static uint regtrace_ae_sensor_apply_max_again_index = 25U;
-module_param_named(delegate_tx_isp_ioctl, regtrace_delegate_tx_isp_ioctl, bool, 0644);
-module_param_named(delegate_framechan_ioctl, regtrace_delegate_framechan_ioctl, bool, 0644);
-module_param_named(activate_core_direct, regtrace_activate_core_direct, bool, 0644);
-module_param_named(activate_core_state_only, regtrace_activate_core_state_only, bool, 0644);
-module_param_named(activate_core_clk_mask, regtrace_activate_core_clk_mask, uint, 0644);
-module_param_named(activate_core_probe_state, regtrace_activate_core_probe_state, bool, 0644);
-module_param_named(activate_core_probe_clk_mask, regtrace_activate_core_probe_clk_mask, uint, 0644);
-module_param_named(skip_vic_irq_enable, regtrace_skip_vic_irq_enable, bool, 0644);
-module_param_named(skip_core_mmio_writes, regtrace_skip_core_mmio_writes, bool, 0644);
-module_param_named(skip_vic_mipi_start, regtrace_skip_vic_mipi_start, bool, 0644);
-module_param_named(skip_vic_mdma_writes, regtrace_skip_vic_mdma_writes, bool, 0644);
-module_param_named(skip_tisp_channel_start, regtrace_skip_tisp_channel_start, bool, 0644);
-module_param_named(skip_csi_stream, regtrace_skip_csi_stream, bool, 0644);
-module_param_named(skip_vic_stream, regtrace_skip_vic_stream, bool, 0644);
-module_param_named(skip_sensor_core_init, regtrace_skip_sensor_core_init, bool, 0644);
-module_param_named(skip_sensor_video_stream, regtrace_skip_sensor_video_stream, bool, 0644);
+t40_bringup_param_named(delegate_tx_isp_ioctl, regtrace_delegate_tx_isp_ioctl, bool, 0644);
+t40_bringup_param_named(delegate_framechan_ioctl, regtrace_delegate_framechan_ioctl, bool, 0644);
+t40_bringup_param_named(activate_core_direct, regtrace_activate_core_direct, bool, 0644);
+t40_bringup_param_named(activate_core_state_only, regtrace_activate_core_state_only, bool, 0644);
+t40_bringup_param_named(activate_core_clk_mask, regtrace_activate_core_clk_mask, uint, 0644);
+t40_bringup_param_named(activate_core_probe_state, regtrace_activate_core_probe_state, bool, 0644);
+t40_bringup_param_named(activate_core_probe_clk_mask, regtrace_activate_core_probe_clk_mask, uint, 0644);
+t40_bringup_param_named(skip_vic_irq_enable, regtrace_skip_vic_irq_enable, bool, 0644);
+t40_bringup_param_named(skip_core_mmio_writes, regtrace_skip_core_mmio_writes, bool, 0644);
+t40_bringup_param_named(skip_vic_mipi_start, regtrace_skip_vic_mipi_start, bool, 0644);
+t40_bringup_param_named(skip_vic_mdma_writes, regtrace_skip_vic_mdma_writes, bool, 0644);
+t40_bringup_param_named(skip_tisp_channel_start, regtrace_skip_tisp_channel_start, bool, 0644);
+t40_bringup_param_named(skip_csi_stream, regtrace_skip_csi_stream, bool, 0644);
+t40_bringup_param_named(skip_vic_stream, regtrace_skip_vic_stream, bool, 0644);
+t40_bringup_param_named(skip_sensor_core_init, regtrace_skip_sensor_core_init, bool, 0644);
+t40_bringup_param_named(skip_sensor_video_stream, regtrace_skip_sensor_video_stream, bool, 0644);
 module_param_named(t40_bringup_profile, regtrace_t40_bringup_profile, bool, 0644);
 module_param_named(proc_live_reads, regtrace_proc_live_reads, bool, 0644);
 module_param_named(t40_quality_profile, regtrace_t40_quality_profile, uint, 0644);
@@ -9600,24 +9620,24 @@ module_param_named(t40_quality_top40_override,
 module_param_named(t40_profile_direct_vic_feed, regtrace_t40_profile_direct_vic_feed, bool, 0644);
 module_param_named(t40_profile_no_direct_irq_defaults, regtrace_t40_profile_no_direct_irq_defaults, bool, 0644);
 module_param_named(t40_profile_isp_irq_passthrough, regtrace_t40_profile_isp_irq_passthrough, bool, 0644);
-module_param_named(enable_core_irq_on_stream, regtrace_enable_core_irq_on_stream, bool, 0644);
-module_param_named(enable_tisp_stream_on, regtrace_enable_tisp_stream_on, bool, 0644);
-module_param_named(enable_tisp_stream_regs, regtrace_enable_tisp_stream_regs, bool, 0644);
-module_param_named(enable_tisp_stream_setup_regs, regtrace_enable_tisp_stream_setup_regs, bool, 0644);
-module_param_named(enable_tisp_stream_preamble_regs, regtrace_enable_tisp_stream_preamble_regs, bool, 0644);
-module_param_named(enable_tisp_stream_reg_1010_zero, regtrace_enable_tisp_stream_reg_1010_zero, bool, 0644);
-module_param_named(enable_tisp_stream_reg_1014_zero, regtrace_enable_tisp_stream_reg_1014_zero, bool, 0644);
-module_param_named(enable_tisp_stream_reg_1008_286, regtrace_enable_tisp_stream_reg_1008_286, bool, 0644);
-module_param_named(enable_tisp_stream_reg_1008_value, regtrace_enable_tisp_stream_reg_1008_value, bool, 0644);
-module_param_named(enable_tisp_stream_start_1060, regtrace_enable_tisp_stream_start_1060, bool, 0644);
-module_param_named(enable_tisp_ipc_trigger, regtrace_enable_tisp_ipc_trigger, bool, 0644);
-module_param_named(enable_tisp_ipc_trigger_1004, regtrace_enable_tisp_ipc_trigger_1004, bool, 0644);
-module_param_named(enable_tisp_ipc_trigger_1000, regtrace_enable_tisp_ipc_trigger_1000, bool, 0644);
-module_param_named(enable_tisp_ipc_oem_gate, regtrace_enable_tisp_ipc_oem_gate, bool, 0644);
+t40_bringup_param_named(enable_core_irq_on_stream, regtrace_enable_core_irq_on_stream, bool, 0644);
+t40_bringup_param_named(enable_tisp_stream_on, regtrace_enable_tisp_stream_on, bool, 0644);
+t40_bringup_param_named(enable_tisp_stream_regs, regtrace_enable_tisp_stream_regs, bool, 0644);
+t40_bringup_param_named(enable_tisp_stream_setup_regs, regtrace_enable_tisp_stream_setup_regs, bool, 0644);
+t40_bringup_param_named(enable_tisp_stream_preamble_regs, regtrace_enable_tisp_stream_preamble_regs, bool, 0644);
+t40_bringup_param_named(enable_tisp_stream_reg_1010_zero, regtrace_enable_tisp_stream_reg_1010_zero, bool, 0644);
+t40_bringup_param_named(enable_tisp_stream_reg_1014_zero, regtrace_enable_tisp_stream_reg_1014_zero, bool, 0644);
+t40_bringup_param_named(enable_tisp_stream_reg_1008_286, regtrace_enable_tisp_stream_reg_1008_286, bool, 0644);
+t40_bringup_param_named(enable_tisp_stream_reg_1008_value, regtrace_enable_tisp_stream_reg_1008_value, bool, 0644);
+t40_bringup_param_named(enable_tisp_stream_start_1060, regtrace_enable_tisp_stream_start_1060, bool, 0644);
+t40_bringup_param_named(enable_tisp_ipc_trigger, regtrace_enable_tisp_ipc_trigger, bool, 0644);
+t40_bringup_param_named(enable_tisp_ipc_trigger_1004, regtrace_enable_tisp_ipc_trigger_1004, bool, 0644);
+t40_bringup_param_named(enable_tisp_ipc_trigger_1000, regtrace_enable_tisp_ipc_trigger_1000, bool, 0644);
+t40_bringup_param_named(enable_tisp_ipc_oem_gate, regtrace_enable_tisp_ipc_oem_gate, bool, 0644);
 module_param_named(enable_tisp_stream_regs_after_video, regtrace_enable_tisp_stream_regs_after_video, bool, 0644);
 module_param_named(enable_tisp_stream_event_init, regtrace_enable_tisp_stream_event_init, bool, 0644);
 module_param_named(enable_tisp_stream_event_cbs, regtrace_enable_tisp_stream_event_cbs, bool, 0644);
-module_param_named(enable_tisp_stream_event_cbs_before_1008, regtrace_enable_tisp_stream_event_cbs_before_1008, bool, 0644);
+t40_bringup_param_named(enable_tisp_stream_event_cbs_before_1008, regtrace_enable_tisp_stream_event_cbs_before_1008, bool, 0644);
 module_param_named(enable_tisp_event_threads, regtrace_enable_tisp_event_threads, bool, 0644);
 module_param_named(enable_isp_3a_diag, regtrace_enable_isp_3a_diag, bool, 0644);
 module_param_named(enable_isp_stats_fanout, regtrace_enable_isp_stats_fanout, bool, 0644);
@@ -9636,24 +9656,24 @@ module_param_named(enable_blc_lit, regtrace_enable_blc_lit, bool, 0644);
 module_param_named(blc_lit_gain, regtrace_blc_lit_gain, uint, 0644);
 module_param_named(blc_lit_gain_now, regtrace_blc_lit_gain_now, uint, 0444);
 module_param_named(enable_gib_lit, regtrace_enable_gib_lit, bool, 0644);
-module_param_named(t40_quality_raw_init, regtrace_t40_quality_raw_init, bool, 0644);
+t40_bringup_param_named(t40_quality_raw_init, regtrace_t40_quality_raw_init, bool, 0644);
 module_param_named(gib_lit_gain, regtrace_gib_lit_gain, uint, 0644);
 module_param_named(gib_lit_gain_now, regtrace_gib_lit_gain_now, uint, 0444);
-module_param_named(gib_lit_bayer_now, regtrace_gib_lit_bayer_now, uint, 0444);
-module_param_named(gib_lit_map_now, regtrace_gib_lit_map_now, uint, 0444);
-module_param_named(gib_lit_dgain01_now, regtrace_gib_lit_dgain01_now, uint, 0444);
-module_param_named(gib_lit_dgain23_now, regtrace_gib_lit_dgain23_now, uint, 0444);
-module_param_named(gib_lit_dgain_shift_now,
+t40_bringup_param_named(gib_lit_bayer_now, regtrace_gib_lit_bayer_now, uint, 0444);
+t40_bringup_param_named(gib_lit_map_now, regtrace_gib_lit_map_now, uint, 0444);
+t40_bringup_param_named(gib_lit_dgain01_now, regtrace_gib_lit_dgain01_now, uint, 0444);
+t40_bringup_param_named(gib_lit_dgain23_now, regtrace_gib_lit_dgain23_now, uint, 0444);
+t40_bringup_param_named(gib_lit_dgain_shift_now,
                    regtrace_gib_lit_dgain_shift_now, uint, 0444);
-module_param_named(t40_tuning_top_flags_now,
+t40_bringup_param_named(t40_tuning_top_flags_now,
                    regtrace_t40_tuning_top_flags_now, uint, 0444);
-module_param_named(t40_tuning_blc_bypass_now,
+t40_bringup_param_named(t40_tuning_blc_bypass_now,
                    regtrace_t40_tuning_blc_bypass_now, uint, 0444);
-module_param_named(t40_tuning_lsc_bypass_now,
+t40_bringup_param_named(t40_tuning_lsc_bypass_now,
                    regtrace_t40_tuning_lsc_bypass_now, uint, 0444);
-module_param_named(t40_tuning_gib_bypass_now,
+t40_bringup_param_named(t40_tuning_gib_bypass_now,
                    regtrace_t40_tuning_gib_bypass_now, uint, 0444);
-module_param_named(t40_tuning_bcsh_bypass_now,
+t40_bringup_param_named(t40_tuning_bcsh_bypass_now,
                    regtrace_t40_tuning_bcsh_bypass_now, uint, 0444);
 module_param_named(gib_lit_final_gain, regtrace_gib_lit_final_gain, uint, 0644);
 module_param_named(enable_ysp, regtrace_enable_ysp, bool, 0644);
@@ -9673,65 +9693,65 @@ module_param_named(dns_gain_ev, regtrace_dns_gain_ev, uint, 0644);
 module_param_named(t40_dns_ev_boost, regtrace_dns_ev_boost, uint, 0644);
 module_param_named(t40_force_bypass, regtrace_t40_force_bypass, uint, 0644);
 module_param_named(t40_force_active, regtrace_t40_force_active, uint, 0644);
-module_param_named(dns_ev_applied, regtrace_dns_ev_applied, uint, 0444);
+t40_bringup_param_named(dns_ev_applied, regtrace_dns_ev_applied, uint, 0444);
 module_param_named(ysp_gain_ev, regtrace_ysp_gain_ev, uint, 0644);
-module_param_named(ysp_ev_applied, regtrace_ysp_ev_applied, uint, 0444);
+t40_bringup_param_named(ysp_ev_applied, regtrace_ysp_ev_applied, uint, 0444);
 module_param_named(ysp_gain_ev_now, regtrace_ysp_gain_ev_now, uint, 0444);
 module_param_array_named(mdns_wr_bitmap, regtrace_mdns_wr_bitmap, uint, NULL, 0444);
 module_param_named(gib_blc_offset, regtrace_gib_blc_offset, uint, 0644);
 module_param_named(enable_awb_grayworld, regtrace_enable_awb_grayworld, bool, 0644);
-module_param_named(awb_grayworld_interval, regtrace_awb_grayworld_interval, uint, 0644);
-module_param_named(awb_grayworld_updates, regtrace_awb_grayworld_updates, uint, 0444);
-module_param_named(awb_grayworld_irqs, regtrace_awb_grayworld_irqs, uint, 0444);
+t40_bringup_param_named(awb_grayworld_interval, regtrace_awb_grayworld_interval, uint, 0644);
+t40_bringup_param_named(awb_grayworld_updates, regtrace_awb_grayworld_updates, uint, 0444);
+t40_bringup_param_named(awb_grayworld_irqs, regtrace_awb_grayworld_irqs, uint, 0444);
 module_param_named(awb_grayworld_last_rgain, regtrace_awb_grayworld_last_rgain, uint, 0444);
 module_param_named(awb_grayworld_last_bgain, regtrace_awb_grayworld_last_bgain, uint, 0444);
 module_param_named(awb_grayworld_rbias, regtrace_awb_grayworld_rbias, uint, 0644);
 module_param_named(awb_grayworld_bbias, regtrace_awb_grayworld_bbias, uint, 0644);
 module_param_named(enable_ae_soft, regtrace_enable_ae_soft, bool, 0644);
 module_param_named(ae_soft_target, regtrace_ae_soft_target, uint, 0644);
-module_param_named(ae_soft_hyst, regtrace_ae_soft_hyst, uint, 0644);
-module_param_named(ae_soft_min_it, regtrace_ae_soft_min_it, uint, 0644);
-module_param_named(ae_soft_max_it, regtrace_ae_soft_max_it, uint, 0644);
-module_param_named(ae_soft_cur_it, regtrace_ae_soft_cur_it, uint, 0444);
-module_param_named(ae_soft_cur_again, regtrace_ae_soft_cur_again, uint, 0444);
+t40_bringup_param_named(ae_soft_hyst, regtrace_ae_soft_hyst, uint, 0644);
+t40_bringup_param_named(ae_soft_min_it, regtrace_ae_soft_min_it, uint, 0644);
+t40_bringup_param_named(ae_soft_max_it, regtrace_ae_soft_max_it, uint, 0644);
+t40_bringup_param_named(ae_soft_cur_it, regtrace_ae_soft_cur_it, uint, 0444);
+t40_bringup_param_named(ae_soft_cur_again, regtrace_ae_soft_cur_again, uint, 0444);
 module_param_named(ae_soft_updates, regtrace_ae_soft_updates, uint, 0444);
-module_param_named(ae_soft_last_mean, regtrace_ae_soft_last_mean, uint, 0444);
+t40_bringup_param_named(ae_soft_last_mean, regtrace_ae_soft_last_mean, uint, 0444);
 module_param_named(enable_frame_3a, regtrace_enable_frame_3a, bool, 0644);
 module_param_named(ae_isp_dgain_max, regtrace_ae_isp_dgain_max, uint, 0644);
-module_param_named(ae_isp_dgain_cur, regtrace_ae_isp_dgain_cur, uint, 0444);
-module_param_named(ae_isp_dgain_updates, regtrace_ae_isp_dgain_updates, uint, 0444);
+t40_bringup_param_named(ae_isp_dgain_cur, regtrace_ae_isp_dgain_cur, uint, 0444);
+t40_bringup_param_named(ae_isp_dgain_updates, regtrace_ae_isp_dgain_updates, uint, 0444);
 module_param_named(ae_soft_max_it_from_sensor, regtrace_ae_soft_max_it_from_sensor, bool, 0644);
 module_param_named(t40_oem_ae, regtrace_t40_oem_ae, bool, 0644);
-module_param_named(t40_oem_ae_skipped, regtrace_t40_oem_ae_skipped, uint, 0444);
+t40_bringup_param_named(t40_oem_ae_skipped, regtrace_t40_oem_ae_skipped, uint, 0444);
 module_param_named(awb_manual_rgain, regtrace_awb_manual_rgain, uint, 0644);
 module_param_named(awb_manual_bgain, regtrace_awb_manual_bgain, uint, 0644);
-module_param_named(awb_control_mode, regtrace_awb_control_mode, uint, 0444);
-module_param_named(awb_control_frozen, regtrace_awb_control_frozen, bool, 0444);
+t40_bringup_param_named(awb_control_mode, regtrace_awb_control_mode, uint, 0444);
+t40_bringup_param_named(awb_control_frozen, regtrace_awb_control_frozen, bool, 0444);
 module_param_named(running_mode, regtrace_running_mode, uint, 0444);
 module_param_named(sensor_fps_packed, regtrace_sensor_fps_packed, uint, 0444);
-module_param_named(day_awb_rgain, regtrace_day_awb_rgain, uint, 0444);
-module_param_named(day_awb_bgain, regtrace_day_awb_bgain, uint, 0444);
-module_param_named(dmsc_sharpness, regtrace_dmsc_sharpness, uint, 0444);
+t40_bringup_param_named(day_awb_rgain, regtrace_day_awb_rgain, uint, 0444);
+t40_bringup_param_named(day_awb_bgain, regtrace_day_awb_bgain, uint, 0444);
+t40_bringup_param_named(dmsc_sharpness, regtrace_dmsc_sharpness, uint, 0444);
 module_param_named(bcsh_brightness, regtrace_bcsh_brightness, uint, 0444);
 module_param_named(bcsh_contrast, regtrace_bcsh_contrast, uint, 0444);
 module_param_named(bcsh_saturation, regtrace_bcsh_saturation, uint, 0644);
 module_param_named(bcsh_hue, regtrace_bcsh_hue, uint, 0444);
 module_param_named(frame_3a_interval, regtrace_frame_3a_interval, uint, 0644);
-module_param_named(frame_3a_target, regtrace_frame_3a_target, uint, 0644);
+t40_bringup_param_named(frame_3a_target, regtrace_frame_3a_target, uint, 0644);
 module_param_named(frame_3a_slide_window, regtrace_frame_3a_slide_window, bool, 0644);
-module_param_named(frame_3a_window_misses, regtrace_frame_3a_window_misses, uint, 0444);
-module_param_named(frame_awb_target, regtrace_frame_awb_target, uint, 0644);
-module_param_named(frame_awb_hyst, regtrace_frame_awb_hyst, uint, 0644);
+t40_bringup_param_named(frame_3a_window_misses, regtrace_frame_3a_window_misses, uint, 0444);
+t40_bringup_param_named(frame_awb_target, regtrace_frame_awb_target, uint, 0644);
+t40_bringup_param_named(frame_awb_hyst, regtrace_frame_awb_hyst, uint, 0644);
 module_param_named(frame_awb_bggr_fast, regtrace_frame_awb_bggr_fast, bool, 0644);
-module_param_named(frame_3a_highlight_level,
+t40_bringup_param_named(frame_3a_highlight_level,
                    regtrace_frame_3a_highlight_level, uint, 0644);
-module_param_named(frame_3a_highlight_limit_permille,
+t40_bringup_param_named(frame_3a_highlight_limit_permille,
                    regtrace_frame_3a_highlight_limit_permille, uint, 0644);
 module_param_named(frame_3a_samples, regtrace_frame_3a_samples, uint, 0444);
-module_param_named(frame_3a_last_luma, regtrace_frame_3a_last_luma, uint, 0444);
-module_param_named(frame_3a_last_u, regtrace_frame_3a_last_u, uint, 0444);
-module_param_named(frame_3a_last_v, regtrace_frame_3a_last_v, uint, 0444);
-module_param_named(frame_3a_last_highlight_permille,
+t40_bringup_param_named(frame_3a_last_luma, regtrace_frame_3a_last_luma, uint, 0444);
+t40_bringup_param_named(frame_3a_last_u, regtrace_frame_3a_last_u, uint, 0444);
+t40_bringup_param_named(frame_3a_last_v, regtrace_frame_3a_last_v, uint, 0444);
+t40_bringup_param_named(frame_3a_last_highlight_permille,
                    regtrace_frame_3a_last_highlight_permille, uint, 0444);
 module_param_named(enable_adr_reg_writes, regtrace_enable_adr_reg_writes, bool, 0644);
 module_param_named(isp_block_init_stage_limit, regtrace_isp_block_init_stage_limit, uint, 0644);
@@ -9740,148 +9760,148 @@ module_param_named(adr_main_init_stage_limit, regtrace_adr_main_init_stage_limit
 module_param_named(isp_block_init_ran, regtrace_isp_block_init_ran, bool, 0444);
 module_param_named(isp_block_init_count, regtrace_isp_block_init_count, uint, 0444);
 module_param_named(isp_block_init_skip_no_blob, regtrace_isp_block_init_skip_no_blob, uint, 0444);
-module_param_named(isp_block_init_ae_ret, regtrace_isp_block_init_ae_ret, int, 0444);
+t40_bringup_param_named(isp_block_init_ae_ret, regtrace_isp_block_init_ae_ret, int, 0444);
 module_param_named(isp_block_init_awb_ret, regtrace_isp_block_init_awb_ret, int, 0444);
 module_param_named(isp_block_init_adr_ret, regtrace_isp_block_init_adr_ret, int, 0444);
 module_param_named(isp_block_init_clm_ret, regtrace_isp_block_init_clm_ret, int, 0444);
-module_param_named(adr_main_init_direct_count, regtrace_adr_main_init_direct_count, uint, 0444);
-module_param_named(adr_main_init_direct_stage, regtrace_adr_main_init_direct_stage, uint, 0444);
-module_param_named(adr_main_init_direct_ret, regtrace_adr_main_init_direct_ret, int, 0444);
+t40_bringup_param_named(adr_main_init_direct_count, regtrace_adr_main_init_direct_count, uint, 0444);
+t40_bringup_param_named(adr_main_init_direct_stage, regtrace_adr_main_init_direct_stage, uint, 0444);
+t40_bringup_param_named(adr_main_init_direct_ret, regtrace_adr_main_init_direct_ret, int, 0444);
 module_param_named(enable_ae_sensor_apply, regtrace_enable_ae_sensor_apply, bool, 0644);
 module_param_named(ae_sensor_apply_clear_dirty, regtrace_ae_sensor_apply_clear_dirty, bool, 0644);
 module_param_named(ae_sensor_apply_log_skips, regtrace_ae_sensor_apply_log_skips, bool, 0644);
 module_param_named(enable_core_bayer_reg8, regtrace_enable_core_bayer_reg8, bool, 0644);
 module_param_named(enable_core_top_sel_reg0c, regtrace_enable_core_top_sel_reg0c, bool, 0644);
-module_param_named(enable_core_start_800, regtrace_enable_core_start_800, bool, 0644);
-module_param_named(enable_core_irq_after_video, regtrace_enable_core_irq_after_video, bool, 0644);
-module_param_named(enable_core_system_reg_write, regtrace_enable_core_system_reg_write, bool, 0644);
-module_param_named(enable_core_irq_oem_enable_path, regtrace_enable_core_irq_oem_enable_path, bool, 0644);
-module_param_named(enable_msca_cfg_load_pulse, regtrace_enable_msca_cfg_load_pulse, bool, 0644);
-module_param_named(enable_t40_msca_cfg_program, regtrace_enable_t40_msca_cfg_program, bool, 0644);
-module_param_named(skip_legacy_msca_attr, regtrace_skip_legacy_msca_attr, bool, 0644);
-module_param_named(enable_t40_msca_scaler_level_control, regtrace_enable_t40_msca_scaler_level_control, bool, 0644);
-module_param_named(enable_t40_msca_shadow_commit, regtrace_enable_t40_msca_shadow_commit, bool, 0644);
+t40_bringup_param_named(enable_core_start_800, regtrace_enable_core_start_800, bool, 0644);
+t40_bringup_param_named(enable_core_irq_after_video, regtrace_enable_core_irq_after_video, bool, 0644);
+t40_bringup_param_named(enable_core_system_reg_write, regtrace_enable_core_system_reg_write, bool, 0644);
+t40_bringup_param_named(enable_core_irq_oem_enable_path, regtrace_enable_core_irq_oem_enable_path, bool, 0644);
+t40_bringup_param_named(enable_msca_cfg_load_pulse, regtrace_enable_msca_cfg_load_pulse, bool, 0644);
+t40_bringup_param_named(enable_t40_msca_cfg_program, regtrace_enable_t40_msca_cfg_program, bool, 0644);
+t40_bringup_param_named(skip_legacy_msca_attr, regtrace_skip_legacy_msca_attr, bool, 0644);
+t40_bringup_param_named(enable_t40_msca_scaler_level_control, regtrace_enable_t40_msca_scaler_level_control, bool, 0644);
+t40_bringup_param_named(enable_t40_msca_shadow_commit, regtrace_enable_t40_msca_shadow_commit, bool, 0644);
 module_param_named(enable_t40_msca_shadow_fifo_program, regtrace_enable_t40_msca_shadow_fifo_program, bool, 0644);
-module_param_named(enable_t40_msca_shadow_kick_834, regtrace_enable_t40_msca_shadow_kick_834, bool, 0644);
-module_param_named(enable_t40_msca_oem_cfg_load, regtrace_enable_t40_msca_oem_cfg_load, bool, 0644);
-module_param_named(enable_t40_msca_cfg_after_video, regtrace_enable_t40_msca_cfg_after_video, bool, 0644);
-module_param_named(enable_t40_msca_cfg_on_set_fmt, regtrace_enable_t40_msca_cfg_on_set_fmt, bool, 0644);
-module_param_named(t40_msca_scale_active_only, regtrace_t40_msca_scale_active_only, bool, 0644);
-module_param_named(t40_msca_clear_load_after_program, regtrace_t40_msca_clear_load_after_program, bool, 0644);
-module_param_named(t40_msca_shadow_write_load_mask, regtrace_t40_msca_shadow_write_load_mask, bool, 0644);
-module_param_named(t40_msca_rewrite_full_size_late, regtrace_t40_msca_rewrite_full_size_late, bool, 0644);
-module_param_named(t40_msca_rewrite_coeffs_late, regtrace_t40_msca_rewrite_coeffs_late, bool, 0644);
-module_param_named(t40_msca_work_en_dma_bits, regtrace_t40_msca_work_en_dma_bits, bool, 0644);
+t40_bringup_param_named(enable_t40_msca_shadow_kick_834, regtrace_enable_t40_msca_shadow_kick_834, bool, 0644);
+t40_bringup_param_named(enable_t40_msca_oem_cfg_load, regtrace_enable_t40_msca_oem_cfg_load, bool, 0644);
+t40_bringup_param_named(enable_t40_msca_cfg_after_video, regtrace_enable_t40_msca_cfg_after_video, bool, 0644);
+t40_bringup_param_named(enable_t40_msca_cfg_on_set_fmt, regtrace_enable_t40_msca_cfg_on_set_fmt, bool, 0644);
+t40_bringup_param_named(t40_msca_scale_active_only, regtrace_t40_msca_scale_active_only, bool, 0644);
+t40_bringup_param_named(t40_msca_clear_load_after_program, regtrace_t40_msca_clear_load_after_program, bool, 0644);
+t40_bringup_param_named(t40_msca_shadow_write_load_mask, regtrace_t40_msca_shadow_write_load_mask, bool, 0644);
+t40_bringup_param_named(t40_msca_rewrite_full_size_late, regtrace_t40_msca_rewrite_full_size_late, bool, 0644);
+t40_bringup_param_named(t40_msca_rewrite_coeffs_late, regtrace_t40_msca_rewrite_coeffs_late, bool, 0644);
+t40_bringup_param_named(t40_msca_work_en_dma_bits, regtrace_t40_msca_work_en_dma_bits, bool, 0644);
 module_param_named(t40_msca_fifo_ctrl_on_set_fmt, regtrace_t40_msca_fifo_ctrl_on_set_fmt, bool, 0644);
-module_param_named(t40_msca_fifo_ctrl_on_qbuf, regtrace_t40_msca_fifo_ctrl_on_qbuf, bool, 0644);
+t40_bringup_param_named(t40_msca_fifo_ctrl_on_qbuf, regtrace_t40_msca_fifo_ctrl_on_qbuf, bool, 0644);
 module_param_named(enable_msca_rearm_guard, regtrace_enable_msca_rearm_guard, bool, 0644);
 module_param_named(enable_msca_spare, regtrace_enable_msca_spare, bool, 0644);
 module_param_named(msca_spare_phys, regtrace_msca_spare_phys, uint, 0644);
 module_param_array_named(msca_fifo_depth, regtrace_msca_fifo_depth, uint, NULL, 0444);
-module_param_array_named(msca_spare_push_count, regtrace_msca_spare_push_count, uint, NULL, 0444);
-module_param_array_named(msca_spare_drop_count, regtrace_msca_spare_drop_count, uint, NULL, 0444);
+t40_bringup_param_array_named(msca_spare_push_count, regtrace_msca_spare_push_count, uint, NULL, 0444);
+t40_bringup_param_array_named(msca_spare_drop_count, regtrace_msca_spare_drop_count, uint, NULL, 0444);
 module_param_array_named(msca_fifo_oob_drop_count, regtrace_msca_fifo_oob_drop_count, uint, NULL, 0444);
 module_param_array_named(msca_spare_violation_count, regtrace_msca_spare_violation_count, uint, NULL, 0444);
 module_param_named(msca_rearm_guard_max_skips, regtrace_msca_rearm_guard_max_skips, uint, 0644);
-module_param_named(t40_msca_fifo_ctrl_after_qbuf, regtrace_t40_msca_fifo_ctrl_after_qbuf, bool, 0644);
-module_param_named(t40_msca_fifo_addr_tag_write, regtrace_t40_msca_fifo_addr_tag_write, bool, 0644);
+t40_bringup_param_named(t40_msca_fifo_ctrl_after_qbuf, regtrace_t40_msca_fifo_ctrl_after_qbuf, bool, 0644);
+t40_bringup_param_named(t40_msca_fifo_addr_tag_write, regtrace_t40_msca_fifo_addr_tag_write, bool, 0644);
 module_param_named(enable_vic_mdma_qbuf_ring, regtrace_enable_vic_mdma_qbuf_ring, bool, 0644);
 module_param_named(t40_profile_force_vic_mdma_qbuf_ring, regtrace_t40_profile_force_vic_mdma_qbuf_ring, bool, 0644);
-module_param_named(enable_vic_mdma_no_ring, regtrace_enable_vic_mdma_no_ring, bool, 0644);
-module_param_named(enable_vic_mdma_internal_ring, regtrace_enable_vic_mdma_internal_ring, bool, 0644);
-module_param_named(enable_vic_mdma_qbuf_rearm_irq, regtrace_enable_vic_mdma_qbuf_rearm_irq, bool, 0644);
+t40_bringup_param_named(enable_vic_mdma_no_ring, regtrace_enable_vic_mdma_no_ring, bool, 0644);
+t40_bringup_param_named(enable_vic_mdma_internal_ring, regtrace_enable_vic_mdma_internal_ring, bool, 0644);
+t40_bringup_param_named(enable_vic_mdma_qbuf_rearm_irq, regtrace_enable_vic_mdma_qbuf_rearm_irq, bool, 0644);
 module_param_named(force_local_frame_streamoff, regtrace_force_local_frame_streamoff, bool, 0644);
-module_param_named(enable_vic_irq_ack_filter, regtrace_enable_vic_irq_ack_filter, bool, 0644);
-module_param_named(enable_vic_mdma_kick_370, regtrace_enable_vic_mdma_kick_370, bool, 0644);
-module_param_named(enable_core_event_tisp_main_init, regtrace_enable_core_event_tisp_main_init, bool, 0644);
-module_param_named(enable_core_event_gate_1700c, regtrace_enable_core_event_gate_1700c, bool, 0644);
-module_param_named(enable_core_event_state_3, regtrace_enable_core_event_state_3, bool, 0644);
-module_param_named(enable_core_event_state_4, regtrace_enable_core_event_state_4, bool, 0644);
-module_param_named(enable_core_event_state_2_before_boot, regtrace_enable_core_event_state_2_before_boot, bool, 0644);
-module_param_named(enable_core_event_oem_state_sequence, regtrace_enable_core_event_oem_state_sequence, bool, 0644);
-module_param_named(enable_tisp_desc_oem_fill, regtrace_enable_tisp_desc_oem_fill, bool, 0644);
+t40_bringup_param_named(enable_vic_irq_ack_filter, regtrace_enable_vic_irq_ack_filter, bool, 0644);
+t40_bringup_param_named(enable_vic_mdma_kick_370, regtrace_enable_vic_mdma_kick_370, bool, 0644);
+t40_bringup_param_named(enable_core_event_tisp_main_init, regtrace_enable_core_event_tisp_main_init, bool, 0644);
+t40_bringup_param_named(enable_core_event_gate_1700c, regtrace_enable_core_event_gate_1700c, bool, 0644);
+t40_bringup_param_named(enable_core_event_state_3, regtrace_enable_core_event_state_3, bool, 0644);
+t40_bringup_param_named(enable_core_event_state_4, regtrace_enable_core_event_state_4, bool, 0644);
+t40_bringup_param_named(enable_core_event_state_2_before_boot, regtrace_enable_core_event_state_2_before_boot, bool, 0644);
+t40_bringup_param_named(enable_core_event_oem_state_sequence, regtrace_enable_core_event_oem_state_sequence, bool, 0644);
+t40_bringup_param_named(enable_tisp_desc_oem_fill, regtrace_enable_tisp_desc_oem_fill, bool, 0644);
 module_param_named(force_core_bayer_reg8_value, regtrace_force_core_bayer_reg8_value, bool, 0644);
-module_param_named(t40_bayer_oem_mapper_check, regtrace_t40_bayer_oem_mapper_check, bool, 0644);
-module_param_named(enable_tisp_process_init, regtrace_enable_tisp_process_init, bool, 0644);
-module_param_named(enable_tisp_main_init_state, regtrace_enable_tisp_main_init_state, bool, 0644);
-module_param_named(enable_tisp_main_init_size_reg, regtrace_enable_tisp_main_init_size_reg, bool, 0644);
+t40_bringup_param_named(t40_bayer_oem_mapper_check, regtrace_t40_bayer_oem_mapper_check, bool, 0644);
+t40_bringup_param_named(enable_tisp_process_init, regtrace_enable_tisp_process_init, bool, 0644);
+t40_bringup_param_named(enable_tisp_main_init_state, regtrace_enable_tisp_main_init_state, bool, 0644);
+t40_bringup_param_named(enable_tisp_main_init_size_reg, regtrace_enable_tisp_main_init_size_reg, bool, 0644);
 module_param_named(enable_tisp_main_init_scalar_regs, regtrace_enable_tisp_main_init_scalar_regs, bool, 0644);
-module_param_named(enable_tisp_main_init_scalar_regs_after_video, regtrace_enable_tisp_main_init_scalar_regs_after_video, bool, 0644);
+t40_bringup_param_named(enable_tisp_main_init_scalar_regs_after_video, regtrace_enable_tisp_main_init_scalar_regs_after_video, bool, 0644);
 module_param_named(enable_tisp_top_regs_final_reapply, regtrace_enable_tisp_top_regs_final_reapply, bool, 0644);
-module_param_named(enable_tisp_main_init_dma_regs, regtrace_enable_tisp_main_init_dma_regs, bool, 0644);
+t40_bringup_param_named(enable_tisp_main_init_dma_regs, regtrace_enable_tisp_main_init_dma_regs, bool, 0644);
 module_param_named(enable_tisp_main_init_dma_kseg0, regtrace_enable_tisp_main_init_dma_kseg0, bool, 0644);
 module_param_named(enable_tisp_main_init_tispinfo_dma, regtrace_enable_tisp_main_init_tispinfo_dma, bool, 0644);
 module_param_named(enable_tisp_main_init_color_inits, regtrace_enable_tisp_main_init_color_inits, bool, 0644);
-module_param_named(enable_tisp_main_init_tail_regs, regtrace_enable_tisp_main_init_tail_regs, bool, 0644);
-module_param_named(enable_tisp_main_init_sensor_init, regtrace_enable_tisp_main_init_sensor_init, bool, 0644);
-module_param_named(enable_tisp_main_init_param_alloc, regtrace_enable_tisp_main_init_param_alloc, bool, 0644);
+t40_bringup_param_named(enable_tisp_main_init_tail_regs, regtrace_enable_tisp_main_init_tail_regs, bool, 0644);
+t40_bringup_param_named(enable_tisp_main_init_sensor_init, regtrace_enable_tisp_main_init_sensor_init, bool, 0644);
+t40_bringup_param_named(enable_tisp_main_init_param_alloc, regtrace_enable_tisp_main_init_param_alloc, bool, 0644);
 module_param_named(enable_tiziano_param_load, regtrace_enable_tiziano_param_load, bool, 0644);
 module_param_named(enable_tisp_main_init_csc_version, regtrace_enable_tisp_main_init_csc_version, bool, 0644);
-module_param_named(enable_tisp_main_init_yuv_input_csc_version, regtrace_enable_tisp_main_init_yuv_input_csc_version, bool, 0644);
+t40_bringup_param_named(enable_tisp_main_init_yuv_input_csc_version, regtrace_enable_tisp_main_init_yuv_input_csc_version, bool, 0644);
 module_param_named(force_tisp_main_init_yuv_input_csc_version, regtrace_force_tisp_main_init_yuv_input_csc_version, bool, 0644);
-module_param_named(enable_tisp_main_init_msca_oem_order, regtrace_enable_tisp_main_init_msca_oem_order, bool, 0644);
+t40_bringup_param_named(enable_tisp_main_init_msca_oem_order, regtrace_enable_tisp_main_init_msca_oem_order, bool, 0644);
 module_param_named(enable_tisp_main_init_event_init, regtrace_enable_tisp_main_init_event_init, bool, 0644);
 module_param_named(enable_tisp_main_init_tiziano, regtrace_enable_tisp_main_init_tiziano, bool, 0644);
-module_param_named(enable_isp_irq_ack_only, regtrace_enable_isp_irq_ack_only, bool, 0644);
-module_param_named(enable_isp_irq_post_dispatch_ack, regtrace_enable_isp_irq_post_dispatch_ack, bool, 0644);
-module_param_named(enable_framechan_wait_msca_poll, regtrace_enable_framechan_wait_msca_poll, bool, 0644);
-module_param_named(enable_proc_jz_sensor_read, regtrace_enable_proc_jz_sensor_read, bool, 0644);
-module_param_named(enable_irq_frame_done_event, regtrace_enable_irq_frame_done_event, bool, 0644);
-module_param_named(irq_frame_done_require_fifo, regtrace_irq_frame_done_require_fifo, bool, 0644);
-module_param_named(irq_frame_done_defer, regtrace_irq_frame_done_defer, bool, 0644);
-module_param_named(irq_frame_done_dry_run, regtrace_irq_frame_done_dry_run, bool, 0644);
-module_param_named(irq_frame_done_defer_fifo_read, regtrace_irq_frame_done_defer_fifo_read, bool, 0644);
-module_param_named(irq_frame_done_count_only, regtrace_irq_frame_done_count_only, bool, 0644);
-module_param_named(irq_frame_done_local_match_buf, regtrace_irq_frame_done_local_match_buf, bool, 0644);
-module_param_named(irq_frame_done_local_touch_buf, regtrace_irq_frame_done_local_touch_buf, bool, 0644);
-module_param_named(irq_frame_done_require_active, regtrace_irq_frame_done_require_active, bool, 0644);
-module_param_named(irq_frame_done_active_fallback, regtrace_irq_frame_done_active_fallback, bool, 0644);
-module_param_named(enable_framechan_wait_irq_done, regtrace_enable_framechan_wait_irq_done, bool, 0644);
-module_param_named(framechan_repair_dqbuf, regtrace_framechan_repair_dqbuf, bool, 0644);
+t40_bringup_param_named(enable_isp_irq_ack_only, regtrace_enable_isp_irq_ack_only, bool, 0644);
+t40_bringup_param_named(enable_isp_irq_post_dispatch_ack, regtrace_enable_isp_irq_post_dispatch_ack, bool, 0644);
+t40_bringup_param_named(enable_framechan_wait_msca_poll, regtrace_enable_framechan_wait_msca_poll, bool, 0644);
+t40_bringup_param_named(enable_proc_jz_sensor_read, regtrace_enable_proc_jz_sensor_read, bool, 0644);
+t40_bringup_param_named(enable_irq_frame_done_event, regtrace_enable_irq_frame_done_event, bool, 0644);
+t40_bringup_param_named(irq_frame_done_require_fifo, regtrace_irq_frame_done_require_fifo, bool, 0644);
+t40_bringup_param_named(irq_frame_done_defer, regtrace_irq_frame_done_defer, bool, 0644);
+t40_bringup_param_named(irq_frame_done_dry_run, regtrace_irq_frame_done_dry_run, bool, 0644);
+t40_bringup_param_named(irq_frame_done_defer_fifo_read, regtrace_irq_frame_done_defer_fifo_read, bool, 0644);
+t40_bringup_param_named(irq_frame_done_count_only, regtrace_irq_frame_done_count_only, bool, 0644);
+t40_bringup_param_named(irq_frame_done_local_match_buf, regtrace_irq_frame_done_local_match_buf, bool, 0644);
+t40_bringup_param_named(irq_frame_done_local_touch_buf, regtrace_irq_frame_done_local_touch_buf, bool, 0644);
+t40_bringup_param_named(irq_frame_done_require_active, regtrace_irq_frame_done_require_active, bool, 0644);
+t40_bringup_param_named(irq_frame_done_active_fallback, regtrace_irq_frame_done_active_fallback, bool, 0644);
+t40_bringup_param_named(enable_framechan_wait_irq_done, regtrace_enable_framechan_wait_irq_done, bool, 0644);
+t40_bringup_param_named(framechan_repair_dqbuf, regtrace_framechan_repair_dqbuf, bool, 0644);
 module_param_named(irq_frame_done_require_content, regtrace_irq_frame_done_require_content, bool, 0644);
-module_param_named(framechan_dma_sync_qbuf, regtrace_framechan_dma_sync_qbuf, bool, 0644);
-module_param_named(framechan_dma_sync_dqbuf, regtrace_framechan_dma_sync_dqbuf, bool, 0644);
-module_param_named(trace_core_top_writes, regtrace_trace_core_top_writes, bool, 0644);
+t40_bringup_param_named(framechan_dma_sync_qbuf, regtrace_framechan_dma_sync_qbuf, bool, 0644);
+t40_bringup_param_named(framechan_dma_sync_dqbuf, regtrace_framechan_dma_sync_dqbuf, bool, 0644);
+t40_bringup_param_named(trace_core_top_writes, regtrace_trace_core_top_writes, bool, 0644);
 module_param_named(enable_t40_color_reg_snapshot, regtrace_enable_t40_color_reg_snapshot, bool, 0644);
 module_param_named(framechan_neutral_uv_on_done, regtrace_framechan_neutral_uv_on_done, bool, 0644);
-module_param_named(tisp_stream_reg_1008_offset, regtrace_tisp_stream_reg_1008_offset, uint, 0644);
-module_param_named(tisp_stream_reg_1008_value, regtrace_tisp_stream_reg_1008_value, uint, 0644);
-module_param_named(core_irq_mask0_value, regtrace_core_irq_mask0_value, uint, 0644);
-module_param_named(core_irq_mask1_value, regtrace_core_irq_mask1_value, uint, 0644);
-module_param_named(core_irq_errmask0_value, regtrace_core_irq_errmask0_value, uint, 0644);
-module_param_named(core_irq_errmask1_value, regtrace_core_irq_errmask1_value, uint, 0644);
-module_param_named(core_irq_cfg0_value, regtrace_core_irq_cfg0_value, uint, 0644);
-module_param_named(core_irq_cfg1_value, regtrace_core_irq_cfg1_value, uint, 0644);
-module_param_named(isp_irq_ack_only_disable_after, regtrace_isp_irq_ack_only_disable_after, uint, 0644);
+t40_bringup_param_named(tisp_stream_reg_1008_offset, regtrace_tisp_stream_reg_1008_offset, uint, 0644);
+t40_bringup_param_named(tisp_stream_reg_1008_value, regtrace_tisp_stream_reg_1008_value, uint, 0644);
+t40_bringup_param_named(core_irq_mask0_value, regtrace_core_irq_mask0_value, uint, 0644);
+t40_bringup_param_named(core_irq_mask1_value, regtrace_core_irq_mask1_value, uint, 0644);
+t40_bringup_param_named(core_irq_errmask0_value, regtrace_core_irq_errmask0_value, uint, 0644);
+t40_bringup_param_named(core_irq_errmask1_value, regtrace_core_irq_errmask1_value, uint, 0644);
+t40_bringup_param_named(core_irq_cfg0_value, regtrace_core_irq_cfg0_value, uint, 0644);
+t40_bringup_param_named(core_irq_cfg1_value, regtrace_core_irq_cfg1_value, uint, 0644);
+t40_bringup_param_named(isp_irq_ack_only_disable_after, regtrace_isp_irq_ack_only_disable_after, uint, 0644);
 module_param_named(isp_irq_frame_done_status0_mask, regtrace_isp_irq_frame_done_status0_mask, uint, 0644);
-module_param_named(isp_irq_frame_done_status1_mask, regtrace_isp_irq_frame_done_status1_mask, uint, 0644);
-module_param_named(isp_irq_frame_done_sec_status0_mask, regtrace_isp_irq_frame_done_sec_status0_mask, uint, 0644);
-module_param_named(irq_frame_done_addr_source, regtrace_irq_frame_done_addr_source, uint, 0644);
-module_param_named(irq_frame_done_delivery_mode, regtrace_irq_frame_done_delivery_mode, uint, 0644);
-module_param_named(irq_frame_done_source_mask, regtrace_irq_frame_done_source_mask, uint, 0644);
-module_param_named(irq_frame_done_channel_mask, regtrace_irq_frame_done_channel_mask, uint, 0644);
-module_param_named(irq_frame_done_event_limit, regtrace_irq_frame_done_event_limit, uint, 0644);
+t40_bringup_param_named(isp_irq_frame_done_status1_mask, regtrace_isp_irq_frame_done_status1_mask, uint, 0644);
+t40_bringup_param_named(isp_irq_frame_done_sec_status0_mask, regtrace_isp_irq_frame_done_sec_status0_mask, uint, 0644);
+t40_bringup_param_named(irq_frame_done_addr_source, regtrace_irq_frame_done_addr_source, uint, 0644);
+t40_bringup_param_named(irq_frame_done_delivery_mode, regtrace_irq_frame_done_delivery_mode, uint, 0644);
+t40_bringup_param_named(irq_frame_done_source_mask, regtrace_irq_frame_done_source_mask, uint, 0644);
+t40_bringup_param_named(irq_frame_done_channel_mask, regtrace_irq_frame_done_channel_mask, uint, 0644);
+t40_bringup_param_named(irq_frame_done_event_limit, regtrace_irq_frame_done_event_limit, uint, 0644);
 module_param_named(irq_frame_done_delay_ms, regtrace_irq_frame_done_delay_ms, uint, 0644);
-module_param_named(irq_frame_done_min_nonzero_words, regtrace_irq_frame_done_min_nonzero_words, uint, 0644);
-module_param_named(irq_frame_done_min_change_words, regtrace_irq_frame_done_min_change_words, uint, 0644);
+t40_bringup_param_named(irq_frame_done_min_nonzero_words, regtrace_irq_frame_done_min_nonzero_words, uint, 0644);
+t40_bringup_param_named(irq_frame_done_min_change_words, regtrace_irq_frame_done_min_change_words, uint, 0644);
 module_param_named(frame_3a_completed_seq, regtrace_frame_3a_completed_seq, uint, 0444);
 module_param_named(frame_3a_completed_y_phys, regtrace_frame_3a_completed_y_phys, uint, 0444);
 module_param_named(frame_3a_completed_uv_phys, regtrace_frame_3a_completed_uv_phys, uint, 0444);
-module_param_named(framechan_wait_irq_timeout_ms, regtrace_framechan_wait_irq_timeout_ms, uint, 0644);
-module_param_named(framechan_dma_sync_qbuf_dir, regtrace_framechan_dma_sync_qbuf_dir, uint, 0644);
-module_param_named(framechan_dma_sync_dqbuf_dir, regtrace_framechan_dma_sync_dqbuf_dir, uint, 0644);
+t40_bringup_param_named(framechan_wait_irq_timeout_ms, regtrace_framechan_wait_irq_timeout_ms, uint, 0644);
+t40_bringup_param_named(framechan_dma_sync_qbuf_dir, regtrace_framechan_dma_sync_qbuf_dir, uint, 0644);
+t40_bringup_param_named(framechan_dma_sync_dqbuf_dir, regtrace_framechan_dma_sync_dqbuf_dir, uint, 0644);
 module_param_named(framechan_neutral_uv_channel_mask, regtrace_framechan_neutral_uv_channel_mask, uint, 0644);
 module_param_named(framechan_neutral_uv_value, regtrace_framechan_neutral_uv_value, uint, 0644);
-module_param_named(tisp_ipc_1000_delay_ms, regtrace_tisp_ipc_1000_delay_ms, uint, 0644);
+t40_bringup_param_named(tisp_ipc_1000_delay_ms, regtrace_tisp_ipc_1000_delay_ms, uint, 0644);
 module_param_named(core_bayer_reg8_value, regtrace_core_bayer_reg8_value, uint, 0644);
-module_param_named(core_start_mode_804_value, regtrace_core_start_mode_804_value, uint, 0644);
-module_param_named(t40_msca_shadow_cmd_mask, regtrace_t40_msca_shadow_cmd_mask, uint, 0644);
-module_param_named(t40_msca_shadow_kick_reg, regtrace_t40_msca_shadow_kick_reg, uint, 0644);
-module_param_named(t40_msca_shadow_kick_value, regtrace_t40_msca_shadow_kick_value, uint, 0644);
-module_param_named(t40_msca_work_cfg_override, regtrace_t40_msca_work_cfg_override, uint, 0644);
-module_param_named(t40_msca_work_en_dma_mask, regtrace_t40_msca_work_en_dma_mask, uint, 0644);
-module_param_named(t40_msca_cfg_1602c_value, regtrace_t40_msca_cfg_1602c_value, uint, 0644);
-module_param_named(t40_msca_coeff_override, regtrace_t40_msca_coeff_override, uint, 0644);
+t40_bringup_param_named(core_start_mode_804_value, regtrace_core_start_mode_804_value, uint, 0644);
+t40_bringup_param_named(t40_msca_shadow_cmd_mask, regtrace_t40_msca_shadow_cmd_mask, uint, 0644);
+t40_bringup_param_named(t40_msca_shadow_kick_reg, regtrace_t40_msca_shadow_kick_reg, uint, 0644);
+t40_bringup_param_named(t40_msca_shadow_kick_value, regtrace_t40_msca_shadow_kick_value, uint, 0644);
+t40_bringup_param_named(t40_msca_work_cfg_override, regtrace_t40_msca_work_cfg_override, uint, 0644);
+t40_bringup_param_named(t40_msca_work_en_dma_mask, regtrace_t40_msca_work_en_dma_mask, uint, 0644);
+t40_bringup_param_named(t40_msca_cfg_1602c_value, regtrace_t40_msca_cfg_1602c_value, uint, 0644);
+t40_bringup_param_named(t40_msca_coeff_override, regtrace_t40_msca_coeff_override, uint, 0644);
 /* T40-CH1-KNOBS (device-test switches, defaults = current behaviour):
  * t40_msca_oem_coeffs=1   the bring-up profile no longer forces the late
  *                         coefficient rewrite (0x40080 for every downscale);
@@ -9895,64 +9915,64 @@ module_param_named(t40_msca_coeff_override, regtrace_t40_msca_coeff_override, ui
  *                         evidence that the OEM kicks differently for ch1-only).
  * msca_kick834_count/_last_value (read-only) count every 0x834/line kick. */
 static bool regtrace_t40_msca_oem_coeffs;
-module_param_named(t40_msca_oem_coeffs, regtrace_t40_msca_oem_coeffs, bool, 0644);
+t40_bringup_param_named(t40_msca_oem_coeffs, regtrace_t40_msca_oem_coeffs, bool, 0644);
 static bool regtrace_t40_msca_oem_1602c;
 module_param_named(t40_msca_oem_1602c, regtrace_t40_msca_oem_1602c, bool, 0644);
 static bool regtrace_t40_msca_ch1_kick;
-module_param_named(t40_msca_ch1_kick, regtrace_t40_msca_ch1_kick, bool, 0644);
+t40_bringup_param_named(t40_msca_ch1_kick, regtrace_t40_msca_ch1_kick, bool, 0644);
 module_param_named(t40_profile_no_direct_addr_source, regtrace_t40_profile_no_direct_addr_source, uint, 0644);
-module_param_named(t40_msca_fifo_ch0_y_ctrl, regtrace_t40_msca_fifo_ch0_y_ctrl, uint, 0644);
-module_param_named(t40_msca_fifo_ch0_uv_ctrl, regtrace_t40_msca_fifo_ch0_uv_ctrl, uint, 0644);
-module_param_named(t40_msca_fifo_ch1_y_ctrl, regtrace_t40_msca_fifo_ch1_y_ctrl, uint, 0644);
-module_param_named(t40_msca_fifo_ch1_uv_ctrl, regtrace_t40_msca_fifo_ch1_uv_ctrl, uint, 0644);
-module_param_named(t40_msca_fifo_ch2_y_ctrl, regtrace_t40_msca_fifo_ch2_y_ctrl, uint, 0644);
-module_param_named(t40_msca_fifo_ch2_uv_ctrl, regtrace_t40_msca_fifo_ch2_uv_ctrl, uint, 0644);
+t40_bringup_param_named(t40_msca_fifo_ch0_y_ctrl, regtrace_t40_msca_fifo_ch0_y_ctrl, uint, 0644);
+t40_bringup_param_named(t40_msca_fifo_ch0_uv_ctrl, regtrace_t40_msca_fifo_ch0_uv_ctrl, uint, 0644);
+t40_bringup_param_named(t40_msca_fifo_ch1_y_ctrl, regtrace_t40_msca_fifo_ch1_y_ctrl, uint, 0644);
+t40_bringup_param_named(t40_msca_fifo_ch1_uv_ctrl, regtrace_t40_msca_fifo_ch1_uv_ctrl, uint, 0644);
+t40_bringup_param_named(t40_msca_fifo_ch2_y_ctrl, regtrace_t40_msca_fifo_ch2_y_ctrl, uint, 0644);
+t40_bringup_param_named(t40_msca_fifo_ch2_uv_ctrl, regtrace_t40_msca_fifo_ch2_uv_ctrl, uint, 0644);
 module_param_named(t40_msca_fifo_addr_tag_mode, regtrace_t40_msca_fifo_addr_tag_mode, uint, 0644);
 module_param_array_named(adr_linear_mode, regtrace_adr_linear_mode, bool, NULL, 0644);
-module_param_named(tisp_main_init_reg20_value, regtrace_tisp_main_init_reg20_value, uint, 0644);
+t40_bringup_param_named(tisp_main_init_reg20_value, regtrace_tisp_main_init_reg20_value, uint, 0644);
 module_param_named(tisp_main_init_top40_value, regtrace_tisp_main_init_top40_value, uint, 0644);
-module_param_named(tisp_main_init_reg48_value, regtrace_tisp_main_init_reg48_value, uint, 0644);
-module_param_named(tisp_main_init_reg6c_value, regtrace_tisp_main_init_reg6c_value, uint, 0644);
-module_param_named(tisp_main_init_reg60_value, regtrace_tisp_main_init_reg60_value, uint, 0644);
+t40_bringup_param_named(tisp_main_init_reg48_value, regtrace_tisp_main_init_reg48_value, uint, 0644);
+t40_bringup_param_named(tisp_main_init_reg6c_value, regtrace_tisp_main_init_reg6c_value, uint, 0644);
+t40_bringup_param_named(tisp_main_init_reg60_value, regtrace_tisp_main_init_reg60_value, uint, 0644);
 module_param_named(tisp_main_init_reg88_override, regtrace_tisp_main_init_reg88_override, uint, 0644);
 module_param_named(tisp_main_init_csc_version_value, regtrace_tisp_main_init_csc_version_value, uint, 0644);
 module_param_named(tisp_main_init_color_init_mask, regtrace_tisp_main_init_color_init_mask, uint, 0644);
 module_param_named(t40_tuning_bin_path, regtrace_t40_tuning_bin_path, charp, 0644);
-module_param_named(framechan_wait_msca_timeout_ms, regtrace_framechan_wait_msca_timeout_ms, uint, 0644);
+t40_bringup_param_named(framechan_wait_msca_timeout_ms, regtrace_framechan_wait_msca_timeout_ms, uint, 0644);
 module_param_named(vic_mdma_qbuf_ring_ctrl_value, regtrace_vic_mdma_qbuf_ring_ctrl_value, uint, 0644);
 module_param_named(vic_mdma_qbuf_ring_stride_override, regtrace_vic_mdma_qbuf_ring_stride_override, uint, 0644);
 module_param_named(vic_mdma_qbuf_ring_uv_offset_override, regtrace_vic_mdma_qbuf_ring_uv_offset_override, uint, 0644);
-module_param_named(vic_mdma_internal_count, regtrace_vic_mdma_internal_count, uint, 0644);
-module_param_named(vic_mdma_internal_fmt, regtrace_vic_mdma_internal_fmt, uint, 0644);
-module_param_named(vic_mdma_internal_channel_mask, regtrace_vic_mdma_internal_channel_mask, uint, 0644);
-module_param_named(vic_mdma_internal_phys_base, regtrace_vic_mdma_internal_phys_base, uint, 0644);
-module_param_named(vic_mdma_internal_size, regtrace_vic_mdma_internal_size, uint, 0644);
-module_param_named(vic_mdma_internal_layout, regtrace_vic_mdma_internal_layout, uint, 0644);
+t40_bringup_param_named(vic_mdma_internal_count, regtrace_vic_mdma_internal_count, uint, 0644);
+t40_bringup_param_named(vic_mdma_internal_fmt, regtrace_vic_mdma_internal_fmt, uint, 0644);
+t40_bringup_param_named(vic_mdma_internal_channel_mask, regtrace_vic_mdma_internal_channel_mask, uint, 0644);
+t40_bringup_param_named(vic_mdma_internal_phys_base, regtrace_vic_mdma_internal_phys_base, uint, 0644);
+t40_bringup_param_named(vic_mdma_internal_size, regtrace_vic_mdma_internal_size, uint, 0644);
+t40_bringup_param_named(vic_mdma_internal_layout, regtrace_vic_mdma_internal_layout, uint, 0644);
 module_param_named(sensor_full_width_override, regtrace_sensor_full_width_override, uint, 0644);
 module_param_named(sensor_full_height_override, regtrace_sensor_full_height_override, uint, 0644);
-module_param_named(t40_msca_scaler_level, regtrace_t40_msca_scaler_level, uint, 0644);
+t40_bringup_param_named(t40_msca_scaler_level, regtrace_t40_msca_scaler_level, uint, 0644);
 module_param_named(csi_direct_stage_limit, regtrace_csi_direct_stage_limit, uint, 0644);
 module_param_named(csi_settle_override, regtrace_csi_settle_override, uint, 0644);
-module_param_named(t40_vic_frame_output, regtrace_t40_vic_frame_output, bool, 0644);
-module_param_named(t40_vic_frame_output_msca_ctrl, regtrace_t40_vic_frame_output_msca_ctrl, uint, 0644);
-module_param_named(t40_vic_frame_output_msca_ctrl2, regtrace_t40_vic_frame_output_msca_ctrl2, uint, 0644);
-module_param_named(t40_vic_frame_output_msca_word74, regtrace_t40_vic_frame_output_msca_word74, uint, 0644);
-module_param_named(t40_vic_frame_output_msca_word8c, regtrace_t40_vic_frame_output_msca_word8c, uint, 0644);
-module_param_named(t40_vic_frame_output_msca_words, regtrace_t40_vic_frame_output_msca_words, bool, 0644);
-module_param_named(t40_vic_frame_output_msca_work28, regtrace_t40_vic_frame_output_msca_work28, bool, 0644);
+t40_bringup_param_named(t40_vic_frame_output, regtrace_t40_vic_frame_output, bool, 0644);
+t40_bringup_param_named(t40_vic_frame_output_msca_ctrl, regtrace_t40_vic_frame_output_msca_ctrl, uint, 0644);
+t40_bringup_param_named(t40_vic_frame_output_msca_ctrl2, regtrace_t40_vic_frame_output_msca_ctrl2, uint, 0644);
+t40_bringup_param_named(t40_vic_frame_output_msca_word74, regtrace_t40_vic_frame_output_msca_word74, uint, 0644);
+t40_bringup_param_named(t40_vic_frame_output_msca_word8c, regtrace_t40_vic_frame_output_msca_word8c, uint, 0644);
+t40_bringup_param_named(t40_vic_frame_output_msca_words, regtrace_t40_vic_frame_output_msca_words, bool, 0644);
+t40_bringup_param_named(t40_vic_frame_output_msca_work28, regtrace_t40_vic_frame_output_msca_work28, bool, 0644);
 module_param_named(t40_msca_vendor_fixups, regtrace_t40_msca_vendor_fixups, bool, 0644);
-module_param_named(t40_msca_vendor_fixups_2c, regtrace_t40_msca_vendor_fixups_2c, bool, 0644);
-module_param_named(t40_core_fixup_88, regtrace_t40_core_fixup_88, uint, 0644);
-module_param_named(t40_core_fixup_40, regtrace_t40_core_fixup_40, uint, 0644);
+t40_bringup_param_named(t40_msca_vendor_fixups_2c, regtrace_t40_msca_vendor_fixups_2c, bool, 0644);
+t40_bringup_param_named(t40_core_fixup_88, regtrace_t40_core_fixup_88, uint, 0644);
+t40_bringup_param_named(t40_core_fixup_40, regtrace_t40_core_fixup_40, uint, 0644);
 module_param_named(t40_core_fixup_shadow0, regtrace_t40_core_fixup_shadow0, bool, 0644);
 module_param_named(t40_tisp_stream_vendor, regtrace_t40_tisp_stream_vendor, bool, 0644);
-module_param_named(t40_ae_sensor_alloc_again, regtrace_t40_ae_sensor_alloc_again, bool, 0644);
-module_param_named(disable_dmsc_lit, regtrace_disable_dmsc_lit, bool, 0644);
+t40_bringup_param_named(t40_ae_sensor_alloc_again, regtrace_t40_ae_sensor_alloc_again, bool, 0644);
+t40_bringup_param_named(disable_dmsc_lit, regtrace_disable_dmsc_lit, bool, 0644);
 module_param_named(t40_generic_profile, regtrace_t40_generic_profile, bool, 0644);
 module_param_named(t40_allow_antiflick, regtrace_t40_allow_antiflick, bool, 0644);
 module_param_named(t40_nv12_height_align, regtrace_t40_nv12_height_align, uint, 0644);
-module_param_named(t40_msca_work_handshake, regtrace_t40_msca_work_handshake, uint, 0644);
-module_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
+t40_bringup_param_named(t40_msca_work_handshake, regtrace_t40_msca_work_handshake, uint, 0644);
+t40_bringup_param_named(t40_vic_frame_output_msca_e0_clear, regtrace_t40_vic_frame_output_msca_e0_clear, bool, 0644);
 module_param_named(skip_tisp_deinit, regtrace_skip_tisp_deinit, bool, 0644);
 /* rmmod: the core remove runs ispcore_slake_module (clock/power teardown) before
  * the VIC/CSI/fs removes; the Eufy hangs in that step (p6 x1/x2) and once did
@@ -9976,10 +9996,10 @@ static uint regtrace_panic_dump_phys = 0xe9f0000U;
 static uint regtrace_panic_dump_logbuf_ptr = 0x8044229cU;   /* &log_buf */
 static uint regtrace_panic_dump_logbuf_len = 0x80442298U;   /* &log_buf_len */
 static int regtrace_panic_dump_registered;
-module_param_named(panic_dump_enable, regtrace_panic_dump_enable, bool, 0644);
+t40_bringup_param_named(panic_dump_enable, regtrace_panic_dump_enable, bool, 0644);
 module_param_named(panic_dump_phys, regtrace_panic_dump_phys, uint, 0644);
-module_param_named(panic_dump_logbuf_ptr, regtrace_panic_dump_logbuf_ptr, uint, 0644);
-module_param_named(panic_dump_logbuf_len, regtrace_panic_dump_logbuf_len, uint, 0644);
+t40_bringup_param_named(panic_dump_logbuf_ptr, regtrace_panic_dump_logbuf_ptr, uint, 0644);
+t40_bringup_param_named(panic_dump_logbuf_len, regtrace_panic_dump_logbuf_len, uint, 0644);
 
 struct regtrace_panic_dump_hdr {
     char magic[8];          /* "T40PANIC" */
@@ -10109,13 +10129,13 @@ static bool regtrace_fr2_capture;
 static uint32_t regtrace_fr2_reg_seq;
 static uint32_t regtrace_fr2_ev_seq;
 static uint32_t regtrace_fr2_open_seq;
-module_param_named(flight_recorder, regtrace_fr2_enable, bool, 0644);
-MODULE_PARM_DESC(flight_recorder,
+t40_bringup_param_named(flight_recorder, regtrace_fr2_enable, bool, 0644);
+t40_bringup_parm_desc(flight_recorder,
     "T40-FLIGHT-RECORDER-PERSIST: write the dispatch + register rings into the rmem tail 0xe9f0000 (default 0; needs the panic dump rmem)");
-module_param_named(fr2_open_seq, regtrace_fr2_open_seq, uint, 0444);
-module_param_named(fr2_reg_seq, regtrace_fr2_reg_seq, uint, 0444);
-module_param_named(fr2_ev_seq, regtrace_fr2_ev_seq, uint, 0444);
-module_param_named(fr2_capture, regtrace_fr2_capture, bool, 0444);
+t40_bringup_param_named(fr2_open_seq, regtrace_fr2_open_seq, uint, 0444);
+t40_bringup_param_named(fr2_reg_seq, regtrace_fr2_reg_seq, uint, 0444);
+t40_bringup_param_named(fr2_ev_seq, regtrace_fr2_ev_seq, uint, 0444);
+t40_bringup_param_named(fr2_capture, regtrace_fr2_capture, bool, 0444);
 
 static void *regtrace_fr2_hdr_ptr(void)
 {
@@ -12319,7 +12339,7 @@ static bool regtrace_t40_gates_day_blc_on(void)
     return regtrace_t40_gates_day_blc && regtrace_t40_gates_oem_offset &&
            !READ_ONCE(regtrace_running_mode);
 }
-module_param_named(t40_gates_offset_now, regtrace_t40_gates_offset_now, uint, 0444);
+t40_bringup_param_named(t40_gates_offset_now, regtrace_t40_gates_offset_now, uint, 0444);
 /*
  * Second OEM word: 0x6c = 24 bits from the bank's bytes at gate offset
  * +0x40 (linear +0x40, WDR +0x60).  main_init writes the fixed 0x30024
@@ -12333,9 +12353,9 @@ static bool regtrace_t40_gates_reg6c;
 module_param_named(t40_gates_reg6c, regtrace_t40_gates_reg6c, bool, 0644);
 MODULE_PARM_DESC(t40_gates_reg6c, "1 (with t40_gates_oem_offset=1) writes TOP 0x6c from the active bank like stock (default 0)");
 static uint regtrace_t40_gates_reg6c_value;
-module_param_named(t40_gates_reg6c_value, regtrace_t40_gates_reg6c_value, uint, 0444);
+t40_bringup_param_named(t40_gates_reg6c_value, regtrace_t40_gates_reg6c_value, uint, 0444);
 static unsigned int regtrace_t40_gates_reg6c_writes;
-module_param_named(t40_gates_reg6c_writes, regtrace_t40_gates_reg6c_writes, uint, 0444);
+t40_bringup_param_named(t40_gates_reg6c_writes, regtrace_t40_gates_reg6c_writes, uint, 0444);
 
 static void regtrace_t40_gates_commit_reg6c(void)
 {
@@ -12823,9 +12843,9 @@ static uint32_t regtrace_mdns_buf_size;
 static uint32_t regtrace_rmem_base_now;
 static uint32_t regtrace_rmem_size_now;
 module_param_named(mdns_buf_phys, regtrace_mdns_buf_phys, uint, 0644);
-module_param_named(mdns_buf_size, regtrace_mdns_buf_size, uint, 0644);
-module_param_named(rmem_base_now, regtrace_rmem_base_now, uint, 0444);
-module_param_named(rmem_size_now, regtrace_rmem_size_now, uint, 0444);
+t40_bringup_param_named(mdns_buf_size, regtrace_mdns_buf_size, uint, 0644);
+t40_bringup_param_named(rmem_base_now, regtrace_rmem_base_now, uint, 0444);
+t40_bringup_param_named(rmem_size_now, regtrace_rmem_size_now, uint, 0444);
 static uint32_t regtrace_mdns_dbg_reg68;
 static uint32_t regtrace_mdns_dbg_init_ret = 0xdeadbeefU;
 module_param_named(mdns_dbg_reg68, regtrace_mdns_dbg_reg68, uint, 0444);
@@ -16793,7 +16813,7 @@ static void *regtrace_sensor_subdev;
 static void *regtrace_sensor_ops;
 static struct i2c_client *regtrace_sensor_client;
 static int regtrace_sensor_i2c_adapter_fallback = 1;
-module_param_named(sensor_i2c_adapter_fallback,
+t40_bringup_param_named(sensor_i2c_adapter_fallback,
                    regtrace_sensor_i2c_adapter_fallback, int, 0644);
 static int regtrace_active_sensor_input;
 static struct regtrace_isp_buf_info regtrace_mdns_buf_info[3];
@@ -17080,12 +17100,12 @@ static uint32_t regtrace_core_msca_fifo_write_count;
 
 static uint32_t regtrace_core_irq_fd_enodata_count;
 static uint32_t regtrace_core_dqbuf_enodata_count;
-module_param_named(core_leg_a_iter_count, regtrace_core_leg_a_iter_count, uint, 0444);
-module_param_named(core_leg_b_iter_count, regtrace_core_leg_b_iter_count, uint, 0444);
-module_param_named(core_msca_fifo_write_count, regtrace_core_msca_fifo_write_count, uint, 0444);
+t40_bringup_param_named(core_leg_a_iter_count, regtrace_core_leg_a_iter_count, uint, 0444);
+t40_bringup_param_named(core_leg_b_iter_count, regtrace_core_leg_b_iter_count, uint, 0444);
+t40_bringup_param_named(core_msca_fifo_write_count, regtrace_core_msca_fifo_write_count, uint, 0444);
 
-module_param_named(core_irq_fd_enodata_count, regtrace_core_irq_fd_enodata_count, uint, 0444);
-module_param_named(core_dqbuf_enodata_count, regtrace_core_dqbuf_enodata_count, uint, 0444);
+t40_bringup_param_named(core_irq_fd_enodata_count, regtrace_core_irq_fd_enodata_count, uint, 0444);
+t40_bringup_param_named(core_dqbuf_enodata_count, regtrace_core_dqbuf_enodata_count, uint, 0444);
 static uint32_t regtrace_tisp_event_push_last_channel;
 static uint32_t regtrace_tisp_event_push_last_event;
 static long regtrace_tisp_event_push_last_ret;
@@ -17242,8 +17262,8 @@ static long regtrace_t40_msca_shadow_fifo_last_ret;
 static uint32_t regtrace_t40_msca_shadow_kick_834_count;
 static uint32_t regtrace_t40_msca_shadow_kick_834_last_reg;
 static uint32_t regtrace_t40_msca_shadow_kick_834_last_value;
-module_param_named(msca_kick834_count, regtrace_t40_msca_shadow_kick_834_count, uint, 0444);
-module_param_named(msca_kick834_last_value, regtrace_t40_msca_shadow_kick_834_last_value, uint, 0444);
+t40_bringup_param_named(msca_kick834_count, regtrace_t40_msca_shadow_kick_834_count, uint, 0444);
+t40_bringup_param_named(msca_kick834_last_value, regtrace_t40_msca_shadow_kick_834_last_value, uint, 0444);
 static uint32_t regtrace_t40_msca_shadow_kick_834_last_before;
 static uint32_t regtrace_t40_msca_shadow_kick_834_last_after;
 static long regtrace_t40_msca_shadow_kick_834_last_ret;
@@ -17564,11 +17584,11 @@ static unsigned int t40_az_deferred_count;
 static unsigned int t40_az_stored_count;
 static unsigned int t40_az_failed_count;
 module_param_named(t40_az_live_max_w, t40_az_live_max_w, uint, 0644);
-module_param_named(t40_az_live_max_h, t40_az_live_max_h, uint, 0644);
-module_param_named(t40_az_live, t40_az_live_count, uint, 0444);
-module_param_named(t40_az_deferred, t40_az_deferred_count, uint, 0444);
-module_param_named(t40_az_stored, t40_az_stored_count, uint, 0444);
-module_param_named(t40_az_failed, t40_az_failed_count, uint, 0444);
+t40_bringup_param_named(t40_az_live_max_h, t40_az_live_max_h, uint, 0644);
+t40_bringup_param_named(t40_az_live, t40_az_live_count, uint, 0444);
+t40_bringup_param_named(t40_az_deferred, t40_az_deferred_count, uint, 0444);
+t40_bringup_param_named(t40_az_stored, t40_az_stored_count, uint, 0444);
+t40_bringup_param_named(t40_az_failed, t40_az_failed_count, uint, 0444);
 
 static void regtrace_get_framechan_format(int channel,
                                           struct regtrace_frame_image_format *format);
@@ -18970,7 +18990,7 @@ static const struct {
     { regtrace_msca_peek_g7, ARRAY_SIZE(regtrace_msca_peek_g7) },
 };
 static unsigned int regtrace_msca_peek_group_mask = 0x1;
-module_param_named(msca_peek_groups, regtrace_msca_peek_group_mask, uint, 0644);
+t40_bringup_param_named(msca_peek_groups, regtrace_msca_peek_group_mask, uint, 0644);
 
 static int regtrace_msca_peek_get(char *buffer, const struct kernel_param *kp)
 {
@@ -18999,7 +19019,7 @@ static int regtrace_msca_peek_get(char *buffer, const struct kernel_param *kp)
 static const struct kernel_param_ops regtrace_msca_peek_ops = {
     .get = regtrace_msca_peek_get,
 };
-module_param_cb(msca_peek, &regtrace_msca_peek_ops, NULL, 0444);
+t40_bringup_param_cb(msca_peek, &regtrace_msca_peek_ops, NULL, 0444);
 
 #define REGTRACE_CORE_TOP_PATH_CORE 1U
 #define REGTRACE_CORE_TOP_PATH_SYSTEM 2U
@@ -20411,11 +20431,11 @@ static int regtrace_t40_msca_shadow_commit(const char *reason)
 }
 
 static bool regtrace_t40_msca_cfg_direct;
-module_param_named(t40_msca_cfg_direct, regtrace_t40_msca_cfg_direct, bool, 0644);
+t40_bringup_param_named(t40_msca_cfg_direct, regtrace_t40_msca_cfg_direct, bool, 0644);
 static uint32_t regtrace_t40_msca_cfg_direct_count;
-module_param_named(msca_cfg_direct_count, regtrace_t40_msca_cfg_direct_count, uint, 0444);
+t40_bringup_param_named(msca_cfg_direct_count, regtrace_t40_msca_cfg_direct_count, uint, 0444);
 static int regtrace_t40_msca_cfg_direct_last_ret;
-module_param_named(msca_cfg_direct_last_ret, regtrace_t40_msca_cfg_direct_last_ret, int, 0444);
+t40_bringup_param_named(msca_cfg_direct_last_ret, regtrace_t40_msca_cfg_direct_last_ret, int, 0444);
 
 static int regtrace_t40_msca_shadow_pair(uint32_t value, uint32_t addr,
                                          uint32_t *pairs)
@@ -30891,6 +30911,7 @@ static int regtrace_register_bootstrap_devices(void)
         }
     }
 
+#ifdef TX_ISP_T40_DEBUG_PROC
     if (!regtrace_debug_proc) {
         regtrace_debug_proc = proc_create("tx_isp_t40_recovered", 0644, NULL,
                                           &regtrace_debug_proc_fops);
@@ -30900,6 +30921,7 @@ static int regtrace_register_bootstrap_devices(void)
             printk(KERN_WARNING "tx_isp_t40_recovered: failed to create /proc/tx_isp_t40_recovered\n");
         }
     }
+#endif /* TX_ISP_T40_DEBUG_PROC */
 
     return 0;
 
@@ -50255,7 +50277,7 @@ static uint32_t regtrace_frame_3a_work_y, regtrace_frame_3a_work_uv;
 static uint32_t regtrace_frame_3a_work_runs, regtrace_frame_3a_work_busy;
 static atomic_t regtrace_frame_3a_work_pending = ATOMIC_INIT(0);
 module_param_named(frame_3a_work_runs, regtrace_frame_3a_work_runs, uint, 0444);
-module_param_named(frame_3a_work_busy, regtrace_frame_3a_work_busy, uint, 0444);
+t40_bringup_param_named(frame_3a_work_busy, regtrace_frame_3a_work_busy, uint, 0444);
 
 /*
  * T40-TUNING-FOLLOW (2026-10-24): the per-frame tuning follow (DNS/YSP gain
@@ -51202,11 +51224,11 @@ module_param_named(isr_oem_hw_refresh, regtrace_isr_oem_hw_refresh, int, 0644);
 MODULE_PARM_DESC(isr_oem_hw_refresh,
     "core IRQ frame-done: call tisp_hardware_reg_refresh() (OEM 0x7b138). default 0");
 static uint32_t regtrace_isr_oem_hw_refresh_count;
-module_param_named(isr_oem_hw_refresh_count, regtrace_isr_oem_hw_refresh_count, uint, 0444);
+t40_bringup_param_named(isr_oem_hw_refresh_count, regtrace_isr_oem_hw_refresh_count, uint, 0444);
 static uint32_t regtrace_isr_oem_hw_refresh_out;
-module_param_named(isr_oem_hw_refresh_out, regtrace_isr_oem_hw_refresh_out, uint, 0444);
+t40_bringup_param_named(isr_oem_hw_refresh_out, regtrace_isr_oem_hw_refresh_out, uint, 0444);
 static uint32_t regtrace_isr_oem_hw_refresh_ret;
-module_param_named(isr_oem_hw_refresh_ret, regtrace_isr_oem_hw_refresh_ret, uint, 0444);
+t40_bringup_param_named(isr_oem_hw_refresh_ret, regtrace_isr_oem_hw_refresh_ret, uint, 0444);
 
 /*
  * OEM ISR entry state (0x7ad08 lw v0,744(s1) / 0x7ad0c lw s4,764(s1) with
@@ -51214,17 +51236,17 @@ module_param_named(isr_oem_hw_refresh_ret, regtrace_isr_oem_hw_refresh_ret, uint
  * reconstructed dataflow.
  */
 static int regtrace_isr_oem_state_load;
-module_param_named(isr_oem_state_load, regtrace_isr_oem_state_load, int, 0644);
-MODULE_PARM_DESC(isr_oem_state_load,
+t40_bringup_param_named(isr_oem_state_load, regtrace_isr_oem_state_load, int, 0644);
+t40_bringup_parm_desc(isr_oem_state_load,
     "record OEM ISR entry loads st+744/st+764 into counters (diagnostic). default 0");
 static uint32_t regtrace_isr_oem_state744;
-module_param_named(isr_oem_state744, regtrace_isr_oem_state744, uint, 0444);
+t40_bringup_param_named(isr_oem_state744, regtrace_isr_oem_state744, uint, 0444);
 static uint32_t regtrace_isr_oem_state764;
-module_param_named(isr_oem_state764, regtrace_isr_oem_state764, uint, 0444);
+t40_bringup_param_named(isr_oem_state764, regtrace_isr_oem_state764, uint, 0444);
 static uint32_t regtrace_isr_oem_state_load_count;
-module_param_named(isr_oem_state_load_count, regtrace_isr_oem_state_load_count, uint, 0444);
+t40_bringup_param_named(isr_oem_state_load_count, regtrace_isr_oem_state_load_count, uint, 0444);
 static uint32_t regtrace_isr_oem_state_load_bad;
-module_param_named(isr_oem_state_load_bad, regtrace_isr_oem_state_load_bad, uint, 0444);
+t40_bringup_param_named(isr_oem_state_load_bad, regtrace_isr_oem_state_load_bad, uint, 0444);
 
 static int32_t regtrace_isp_irq_ack_only_filter(int32_t irq, void *dev_id)
 {
@@ -51622,41 +51644,41 @@ static unsigned int regtrace_core_ops_cb_last_ret;
 static unsigned long regtrace_core_ops_cb_last_dev;
 static unsigned long regtrace_core_ops_cb_last_cb;
 
-module_param_named(core_ops_cb_fire_gate, regtrace_core_ops_cb_fire_gate,
+t40_bringup_param_named(core_ops_cb_fire_gate, regtrace_core_ops_cb_fire_gate,
                    int, 0644);
-module_param_named(core_ops_cb_fire_require_pending,
+t40_bringup_param_named(core_ops_cb_fire_require_pending,
                    regtrace_core_ops_cb_fire_require_pending, int, 0644);
-module_param_named(core_ops_cb_call_count, regtrace_core_ops_cb_call_count,
+t40_bringup_param_named(core_ops_cb_call_count, regtrace_core_ops_cb_call_count,
                    uint, 0444);
-module_param_named(core_ops_cb_gate_bypass_count,
+t40_bringup_param_named(core_ops_cb_gate_bypass_count,
                    regtrace_core_ops_cb_gate_bypass_count, uint, 0444);
-module_param_named(core_ops_cb_gate_skip_count,
+t40_bringup_param_named(core_ops_cb_gate_skip_count,
                    regtrace_core_ops_cb_gate_skip_count, uint, 0444);
-module_param_named(core_ops_cb_gate_skip_nocore_count,
+t40_bringup_param_named(core_ops_cb_gate_skip_nocore_count,
                    regtrace_core_ops_cb_gate_skip_nocore_count, uint, 0444);
-module_param_named(core_ops_cb_gate_skip_nopending_count,
+t40_bringup_param_named(core_ops_cb_gate_skip_nopending_count,
                    regtrace_core_ops_cb_gate_skip_nopending_count, uint, 0444);
-module_param_named(core_ops_cb_core_path_count,
+t40_bringup_param_named(core_ops_cb_core_path_count,
                    regtrace_core_ops_cb_core_path_count, uint, 0444);
-module_param_named(core_ops_cb_walk_path_count,
+t40_bringup_param_named(core_ops_cb_walk_path_count,
                    regtrace_core_ops_cb_walk_path_count, uint, 0444);
-module_param_named(core_ops_cb_last_irq, regtrace_core_ops_cb_last_irq,
+t40_bringup_param_named(core_ops_cb_last_irq, regtrace_core_ops_cb_last_irq,
                    uint, 0444);
-module_param_named(core_ops_cb_last_is_core, regtrace_core_ops_cb_last_is_core,
+t40_bringup_param_named(core_ops_cb_last_is_core, regtrace_core_ops_cb_last_is_core,
                    uint, 0444);
-module_param_named(core_ops_cb_last_pending, regtrace_core_ops_cb_last_pending,
+t40_bringup_param_named(core_ops_cb_last_pending, regtrace_core_ops_cb_last_pending,
                    uint, 0444);
-module_param_named(core_ops_cb_last_status0, regtrace_core_ops_cb_last_status0,
+t40_bringup_param_named(core_ops_cb_last_status0, regtrace_core_ops_cb_last_status0,
                    uint, 0444);
-module_param_named(core_ops_cb_last_status1, regtrace_core_ops_cb_last_status1,
+t40_bringup_param_named(core_ops_cb_last_status1, regtrace_core_ops_cb_last_status1,
                    uint, 0444);
-module_param_named(core_ops_cb_last_sec_status0,
+t40_bringup_param_named(core_ops_cb_last_sec_status0,
                    regtrace_core_ops_cb_last_sec_status0, uint, 0444);
-module_param_named(core_ops_cb_last_ret, regtrace_core_ops_cb_last_ret,
+t40_bringup_param_named(core_ops_cb_last_ret, regtrace_core_ops_cb_last_ret,
                    uint, 0444);
-module_param_named(core_ops_cb_last_dev, regtrace_core_ops_cb_last_dev,
+t40_bringup_param_named(core_ops_cb_last_dev, regtrace_core_ops_cb_last_dev,
                    ulong, 0444);
-module_param_named(core_ops_cb_last_cb, regtrace_core_ops_cb_last_cb,
+t40_bringup_param_named(core_ops_cb_last_cb, regtrace_core_ops_cb_last_cb,
                    ulong, 0444);
 
 /*
@@ -51736,55 +51758,55 @@ static uint32_t regtrace_core_ops_cb_first_status1;
 static uint32_t regtrace_core_ops_cb_first_sec0;
 static uint32_t regtrace_core_ops_cb_bisect_log_count;
 
-module_param_named(core_ops_cb_max_per_jiffy,
+t40_bringup_param_named(core_ops_cb_max_per_jiffy,
                    regtrace_core_ops_cb_max_per_jiffy, uint, 0644);
-MODULE_PARM_DESC(core_ops_cb_max_per_jiffy,
+t40_bringup_parm_desc(core_ops_cb_max_per_jiffy,
     "T40-CORE-OPS-CB-BISECT: handler fires per jiffy before the core_ops_cb path disables itself (0 = off)");
-module_param_named(core_ops_cb_slot_mask, regtrace_core_ops_cb_slot_mask,
+t40_bringup_param_named(core_ops_cb_slot_mask, regtrace_core_ops_cb_slot_mask,
                    uint, 0644);
-MODULE_PARM_DESC(core_ops_cb_slot_mask,
+t40_bringup_parm_desc(core_ops_cb_slot_mask,
     "T40-CORE-OPS-CB-BISECT: fire only when pending core status0 & mask (module ids 3=awb 4=ae 5=aehist 6=af 9=adr 10=defog 11=wdr); 0 = no gating");
-module_param_named(core_ops_cb_walk_mask, regtrace_core_ops_cb_walk_mask,
+t40_bringup_param_named(core_ops_cb_walk_mask, regtrace_core_ops_cb_walk_mask,
                    uint, 0644);
-MODULE_PARM_DESC(core_ops_cb_walk_mask,
+t40_bringup_parm_desc(core_ops_cb_walk_mask,
     "T40-CORE-OPS-CB-BISECT: allow only these module-walk SLOT indices (bit0 = first slot at base-0x48); 0 = no gating");
-module_param_named(core_ops_cb_core_off, regtrace_core_ops_cb_core_off, int,
+t40_bringup_param_named(core_ops_cb_core_off, regtrace_core_ops_cb_core_off, int,
                    0644);
-MODULE_PARM_DESC(core_ops_cb_core_off,
+t40_bringup_parm_desc(core_ops_cb_core_off,
     "T40-CORE-OPS-CB-BISECT: 1 = never fire the direct core path, so only the 16-slot module walk runs");
-module_param_named(core_ops_cb_storm_reset, regtrace_core_ops_cb_storm_reset,
+t40_bringup_param_named(core_ops_cb_storm_reset, regtrace_core_ops_cb_storm_reset,
                    uint, 0644);
-MODULE_PARM_DESC(core_ops_cb_storm_reset,
+t40_bringup_parm_desc(core_ops_cb_storm_reset,
     "T40-CORE-OPS-CB-BISECT: write 1 to clear core_ops_cb_storm_tripped and the jiffy budget");
-module_param_named(core_ops_cb_storm_tripped,
+t40_bringup_param_named(core_ops_cb_storm_tripped,
                    regtrace_core_ops_cb_storm_tripped, uint, 0444);
-module_param_named(core_ops_cb_storm_count, regtrace_core_ops_cb_storm_count,
+t40_bringup_param_named(core_ops_cb_storm_count, regtrace_core_ops_cb_storm_count,
                    uint, 0444);
-module_param_named(core_ops_cb_jiffy_calls, regtrace_core_ops_cb_jiffy_calls,
+t40_bringup_param_named(core_ops_cb_jiffy_calls, regtrace_core_ops_cb_jiffy_calls,
                    uint, 0444);
-module_param_named(core_ops_cb_jiffy_calls_max,
+t40_bringup_param_named(core_ops_cb_jiffy_calls_max,
                    regtrace_core_ops_cb_jiffy_calls_max, uint, 0444);
-module_param_named(core_ops_cb_slot_skip, regtrace_core_ops_cb_slot_skip,
+t40_bringup_param_named(core_ops_cb_slot_skip, regtrace_core_ops_cb_slot_skip,
                    uint, 0444);
-module_param_named(core_ops_cb_walk_skip, regtrace_core_ops_cb_walk_skip,
+t40_bringup_param_named(core_ops_cb_walk_skip, regtrace_core_ops_cb_walk_skip,
                    uint, 0444);
-module_param_named(core_ops_cb_core_skip, regtrace_core_ops_cb_core_skip,
+t40_bringup_param_named(core_ops_cb_core_skip, regtrace_core_ops_cb_core_skip,
                    uint, 0444);
-module_param_named(core_ops_cb_walk_index, regtrace_core_ops_cb_walk_index,
+t40_bringup_param_named(core_ops_cb_walk_index, regtrace_core_ops_cb_walk_index,
                    uint, 0444);
-module_param_named(core_ops_cb_first_who, regtrace_core_ops_cb_first_who,
+t40_bringup_param_named(core_ops_cb_first_who, regtrace_core_ops_cb_first_who,
                    uint, 0444);
-module_param_named(core_ops_cb_first_walk_index,
+t40_bringup_param_named(core_ops_cb_first_walk_index,
                    regtrace_core_ops_cb_first_walk_index, uint, 0444);
-module_param_named(core_ops_cb_first_dev, regtrace_core_ops_cb_first_dev,
+t40_bringup_param_named(core_ops_cb_first_dev, regtrace_core_ops_cb_first_dev,
                    ulong, 0444);
-module_param_named(core_ops_cb_first_cb, regtrace_core_ops_cb_first_cb,
+t40_bringup_param_named(core_ops_cb_first_cb, regtrace_core_ops_cb_first_cb,
                    ulong, 0444);
-module_param_named(core_ops_cb_first_status0, regtrace_core_ops_cb_first_status0,
+t40_bringup_param_named(core_ops_cb_first_status0, regtrace_core_ops_cb_first_status0,
                    uint, 0444);
-module_param_named(core_ops_cb_first_status1, regtrace_core_ops_cb_first_status1,
+t40_bringup_param_named(core_ops_cb_first_status1, regtrace_core_ops_cb_first_status1,
                    uint, 0444);
-module_param_named(core_ops_cb_first_sec0, regtrace_core_ops_cb_first_sec0,
+t40_bringup_param_named(core_ops_cb_first_sec0, regtrace_core_ops_cb_first_sec0,
                    uint, 0444);
 
 /*
@@ -75193,9 +75215,9 @@ int32_t tisp_event_exit(uint32_t a0)
 static uint32_t regtrace_vendor_per_frame_regs[REGTRACE_VENDOR_PF_N];
 static unsigned int regtrace_vendor_per_frame_n = REGTRACE_VENDOR_PF_N;
 static int regtrace_vendor_per_frame;
-module_param_named(vendor_per_frame, regtrace_vendor_per_frame, int, 0644);
-MODULE_PARM_DESC(vendor_per_frame, "producer-side per-frame 3A counters: event-cb call/return counts and before/after hashes of the three windows the W-LUT refresh polls (default 0, counters only)");
-module_param_array_named(vendor_per_frame_regs, regtrace_vendor_per_frame_regs, uint,
+t40_bringup_param_named(vendor_per_frame, regtrace_vendor_per_frame, int, 0644);
+t40_bringup_parm_desc(vendor_per_frame, "producer-side per-frame 3A counters: event-cb call/return counts and before/after hashes of the three windows the W-LUT refresh polls (default 0, counters only)");
+t40_bringup_param_array_named(vendor_per_frame_regs, regtrace_vendor_per_frame_regs, uint,
                          &regtrace_vendor_per_frame_n, 0444);
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
@@ -84719,12 +84741,12 @@ static int t40_ae_limits_get(char *buf, const struct kernel_param *kp)
     return n;
 }
 static const struct kernel_param_ops t40_ae_limits_ops = { .get = t40_ae_limits_get };
-module_param_cb(t40_ae_limits, &t40_ae_limits_ops, NULL, 0444);
+t40_bringup_param_cb(t40_ae_limits, &t40_ae_limits_ops, NULL, 0444);
 static uint32_t t40_vendor_expo_count; static long t40_vendor_expo_last_ret;
 static uint32_t t40_vendor_it_default = 1919;   /* test aid: IT used for the first vendor EXPO while the AE IT output is still 0 */
-module_param_named(t40_vendor_it_default, t40_vendor_it_default, uint, 0644);
-module_param_named(t40_vendor_expo_count, t40_vendor_expo_count, uint, 0444);
-module_param_named(t40_vendor_expo_last_ret, t40_vendor_expo_last_ret, long, 0444);
+t40_bringup_param_named(t40_vendor_it_default, t40_vendor_it_default, uint, 0644);
+t40_bringup_param_named(t40_vendor_expo_count, t40_vendor_expo_count, uint, 0444);
+t40_bringup_param_named(t40_vendor_expo_last_ret, t40_vendor_expo_last_ret, long, 0444);
 static uintptr_t t40_sensor_attr_fn(uint32_t off)
 {
     uintptr_t attr;
@@ -96719,7 +96741,7 @@ static void regtrace_awb_grayworld_apply(uint32_t rgain, uint32_t bgain)
 static int regtrace_t40_awb_stats_ped;
 module_param_named(t40_awb_stats_ped, regtrace_t40_awb_stats_ped, int, 0644);
 static uint regtrace_t40_awb_stats_ped_now;
-module_param_named(t40_awb_stats_ped_now, regtrace_t40_awb_stats_ped_now, uint, 0444);
+t40_bringup_param_named(t40_awb_stats_ped_now, regtrace_t40_awb_stats_ped_now, uint, 0444);
 
 static void regtrace_awb_grayworld_update(void)
 {
@@ -97440,7 +97462,7 @@ int32_t tisp_awb_spec_calculate(uintptr_t a0, uint32_t a1)
 static bool regtrace_t40_vendor_awb_process;   /* T40-AWB: run the lifted vendor AWB algorithm on event 14 (default off: the lift of tisp_awb_long_alogrithm/ct_detect still has ~20 unrestored div/mflo sites and hung the event thread in FBL15) */
 module_param_named(t40_vendor_awb_process, regtrace_t40_vendor_awb_process, bool, 0644);
 static uint32_t regtrace_t40_vendor_awb_process_skipped;
-module_param_named(t40_vendor_awb_process_skipped, regtrace_t40_vendor_awb_process_skipped, uint, 0444);
+t40_bringup_param_named(t40_vendor_awb_process_skipped, regtrace_t40_vendor_awb_process_skipped, uint, 0444);
 int64_t tisp_awb_main_process(void)
 {
     if (READ_ONCE(t40_vawb_live)) {
@@ -99564,12 +99586,12 @@ static uint t40_gib_dgain_calls;
 static uint t40_gib_dgain_ok;
 static uint t40_gib_dgain_last;                    /* final_gain[1] << 16 | final_gain[0] of the last apply */
 static uint t40_gib_dgain_last_in;                 /* ae_gain[0] of the last apply */
-module_param_named(t40_gib_init_calls, t40_gib_init_calls, uint, 0444);
+t40_bringup_param_named(t40_gib_init_calls, t40_gib_init_calls, uint, 0444);
 module_param_named(t40_gib_init_ret, t40_gib_init_ret, int, 0444);
-module_param_named(t40_gib_dgain_calls, t40_gib_dgain_calls, uint, 0444);
-module_param_named(t40_gib_dgain_ok, t40_gib_dgain_ok, uint, 0444);
-module_param_named(t40_gib_dgain_last, t40_gib_dgain_last, uint, 0444);
-module_param_named(t40_gib_dgain_last_in, t40_gib_dgain_last_in, uint, 0444);
+t40_bringup_param_named(t40_gib_dgain_calls, t40_gib_dgain_calls, uint, 0444);
+t40_bringup_param_named(t40_gib_dgain_ok, t40_gib_dgain_ok, uint, 0444);
+t40_bringup_param_named(t40_gib_dgain_last, t40_gib_dgain_last, uint, 0444);
+t40_bringup_param_named(t40_gib_dgain_last_in, t40_gib_dgain_last_in, uint, 0444);
 
 #define T40_GIB_TOOL(s) ((uint8_t *)(uintptr_t)((s) ? gib_seco_tool_para : gib_main_tool_para))
 #define T40_GIB_REAL(s) ((uint8_t *)(uintptr_t)((s) ? gib_seco_real_para : gib_main_real_para))
@@ -99939,9 +99961,9 @@ int32_t tisp_gib_init(uint32_t s)
 }
 
 static bool t40_gib_force_init;   /* test only: run the real GIB init although the bin bypasses GIB */
-module_param_named(t40_gib_force_init, t40_gib_force_init, bool, 0644);
+t40_bringup_param_named(t40_gib_force_init, t40_gib_force_init, bool, 0644);
 static uint t40_gib_status_word = 0xdeadbeef;   /* *tparams_status at block init (OEM module enable bits) */
-module_param_named(t40_gib_status_word, t40_gib_status_word, uint, 0444);
+t40_bringup_param_named(t40_gib_status_word, t40_gib_status_word, uint, 0444);
 
 /*
  * t40_gib_real: -1 auto (default) = run the OEM GIB flow when the vendor-like gate offset is active
@@ -99954,7 +99976,7 @@ module_param_named(t40_gib_real, t40_gib_real, int, 0644);
 /* set once the OEM GIB flow initialised (block init); the sensor gain update then follows the OEM
  * tisp_main_long_tgain_update -> tisp_gib_a_gian_update(0, again) so the GIB black level is
  * re-interpolated from the bin's gain tables instead of staying at the init gain */
-module_param_named(t40_gib_oem_active, t40_gib_oem_active, bool, 0444);
+t40_bringup_param_named(t40_gib_oem_active, t40_gib_oem_active, bool, 0444);
 
 static int t40_gib_block_init(void)
 {
@@ -176159,7 +176181,7 @@ static int t40_worker_stat_get(char *buf, const struct kernel_param *kp)
     return n;
 }
 static const struct kernel_param_ops t40_worker_stat_ops = { .get = t40_worker_stat_get };
-module_param_cb(t40_worker_stat, &t40_worker_stat_ops, NULL, 0444);
+t40_bringup_param_cb(t40_worker_stat, &t40_worker_stat_ops, NULL, 0444);
 
 char* ispcore_irq_sec_fd_work(void)
 {
@@ -184930,29 +184952,29 @@ static unsigned int regtrace_irq_func_cb_last_frame_slots1;
 static unsigned int regtrace_irq_func_cb_last_frame_slots2;
 static unsigned int regtrace_irq_func_cb_log_count;
 
-module_param_array_named(irq_func_cb_slot_count, regtrace_irq_func_cb_slot_count,
+t40_bringup_param_array_named(irq_func_cb_slot_count, regtrace_irq_func_cb_slot_count,
                          uint, &regtrace_irq_func_cb_slot_count_n, 0444);
-module_param_named(irq_func_cb_frame_count, regtrace_irq_func_cb_frame_count, uint, 0444);
-module_param_named(irq_func_cb_frame_calls, regtrace_irq_func_cb_frame_calls, uint, 0444);
-module_param_named(irq_func_cb_dispatch_count, regtrace_irq_func_cb_dispatch_count, uint, 0444);
-module_param_named(irq_func_cb_bank2_dispatch_count, regtrace_irq_func_cb_bank2_dispatch_count, uint, 0444);
-module_param_named(irq_func_cb_tested_count, regtrace_irq_func_cb_tested_count, uint, 0444);
-module_param_named(irq_func_cb_bank2_tested_count, regtrace_irq_func_cb_bank2_tested_count, uint, 0444);
-module_param_named(irq_func_cb_null_count, regtrace_irq_func_cb_null_count, uint, 0444);
-module_param_named(irq_func_cb_bank2_null_count, regtrace_irq_func_cb_bank2_null_count, uint, 0444);
-module_param_named(irq_func_cb_oob_count, regtrace_irq_func_cb_oob_count, uint, 0444);
-module_param_named(irq_func_cb_stride_mismatch_count, regtrace_irq_func_cb_stride_mismatch_count, uint, 0444);
-module_param_named(irq_func_cb_last_actual_index, regtrace_irq_func_cb_last_actual_index, uint, 0444);
-module_param_named(irq_func_cb_last_slot, regtrace_irq_func_cb_last_slot, uint, 0444);
-module_param_named(irq_func_cb_last_slot_valid, regtrace_irq_func_cb_last_slot_valid, uint, 0444);
-module_param_named(irq_func_cb_last_bank, regtrace_irq_func_cb_last_bank, uint, 0444);
-module_param_named(irq_func_cb_last_frame_calls, regtrace_irq_func_cb_last_frame_calls, uint, 0444);
-module_param_named(irq_func_cb_last_frame_primary_mask, regtrace_irq_func_cb_last_frame_primary_mask, uint, 0444);
-module_param_named(irq_func_cb_last_frame_secondary_mask, regtrace_irq_func_cb_last_frame_secondary_mask, uint, 0444);
-module_param_named(irq_func_cb_last_frame_slots0, regtrace_irq_func_cb_last_frame_slots0, uint, 0444);
-module_param_named(irq_func_cb_last_frame_slots1, regtrace_irq_func_cb_last_frame_slots1, uint, 0444);
-module_param_named(irq_func_cb_last_frame_slots2, regtrace_irq_func_cb_last_frame_slots2, uint, 0444);
-module_param_named(irq_func_cb_log_count, regtrace_irq_func_cb_log_count, uint, 0644);
+t40_bringup_param_named(irq_func_cb_frame_count, regtrace_irq_func_cb_frame_count, uint, 0444);
+t40_bringup_param_named(irq_func_cb_frame_calls, regtrace_irq_func_cb_frame_calls, uint, 0444);
+t40_bringup_param_named(irq_func_cb_dispatch_count, regtrace_irq_func_cb_dispatch_count, uint, 0444);
+t40_bringup_param_named(irq_func_cb_bank2_dispatch_count, regtrace_irq_func_cb_bank2_dispatch_count, uint, 0444);
+t40_bringup_param_named(irq_func_cb_tested_count, regtrace_irq_func_cb_tested_count, uint, 0444);
+t40_bringup_param_named(irq_func_cb_bank2_tested_count, regtrace_irq_func_cb_bank2_tested_count, uint, 0444);
+t40_bringup_param_named(irq_func_cb_null_count, regtrace_irq_func_cb_null_count, uint, 0444);
+t40_bringup_param_named(irq_func_cb_bank2_null_count, regtrace_irq_func_cb_bank2_null_count, uint, 0444);
+t40_bringup_param_named(irq_func_cb_oob_count, regtrace_irq_func_cb_oob_count, uint, 0444);
+t40_bringup_param_named(irq_func_cb_stride_mismatch_count, regtrace_irq_func_cb_stride_mismatch_count, uint, 0444);
+t40_bringup_param_named(irq_func_cb_last_actual_index, regtrace_irq_func_cb_last_actual_index, uint, 0444);
+t40_bringup_param_named(irq_func_cb_last_slot, regtrace_irq_func_cb_last_slot, uint, 0444);
+t40_bringup_param_named(irq_func_cb_last_slot_valid, regtrace_irq_func_cb_last_slot_valid, uint, 0444);
+t40_bringup_param_named(irq_func_cb_last_bank, regtrace_irq_func_cb_last_bank, uint, 0444);
+t40_bringup_param_named(irq_func_cb_last_frame_calls, regtrace_irq_func_cb_last_frame_calls, uint, 0444);
+t40_bringup_param_named(irq_func_cb_last_frame_primary_mask, regtrace_irq_func_cb_last_frame_primary_mask, uint, 0444);
+t40_bringup_param_named(irq_func_cb_last_frame_secondary_mask, regtrace_irq_func_cb_last_frame_secondary_mask, uint, 0444);
+t40_bringup_param_named(irq_func_cb_last_frame_slots0, regtrace_irq_func_cb_last_frame_slots0, uint, 0444);
+t40_bringup_param_named(irq_func_cb_last_frame_slots1, regtrace_irq_func_cb_last_frame_slots1, uint, 0444);
+t40_bringup_param_named(irq_func_cb_last_frame_slots2, regtrace_irq_func_cb_last_frame_slots2, uint, 0444);
+t40_bringup_param_named(irq_func_cb_log_count, regtrace_irq_func_cb_log_count, uint, 0644);
 
 /*
  * T40-ISR-TAIL-POLL (2026-10-15) -- the OEM MSCA FIFO tail guards of
@@ -184989,13 +185011,13 @@ module_param_named(irq_func_cb_log_count, regtrace_irq_func_cb_log_count, uint, 
  * isr_tail_poll_count / isr_spin_bail_count  readbacks for both paths.
  */
 static bool regtrace_isr_tail_poll;
-module_param_named(isr_tail_poll, regtrace_isr_tail_poll, bool, 0644);
+t40_bringup_param_named(isr_tail_poll, regtrace_isr_tail_poll, bool, 0644);
 static uint32_t regtrace_isr_spin_budget = 20000;
-module_param_named(isr_spin_budget, regtrace_isr_spin_budget, uint, 0644);
+t40_bringup_param_named(isr_spin_budget, regtrace_isr_spin_budget, uint, 0644);
 static uint32_t regtrace_isr_tail_poll_count;
-module_param_named(isr_tail_poll_count, regtrace_isr_tail_poll_count, uint, 0444);
+t40_bringup_param_named(isr_tail_poll_count, regtrace_isr_tail_poll_count, uint, 0444);
 static uint32_t regtrace_isr_spin_bail_count;
-module_param_named(isr_spin_bail_count, regtrace_isr_spin_bail_count, uint, 0444);
+t40_bringup_param_named(isr_spin_bail_count, regtrace_isr_spin_bail_count, uint, 0444);
 
 /* T40-ISR-DRAIN-DIAG (fable): sample the MSCA status words around the leg-A
  * poll/pop so the device tells us what bit 0 of 0x1617C does across a pop.
@@ -185011,7 +185033,7 @@ static struct regtrace_isr_diag_s regtrace_isr_diag[REGTRACE_ISR_DIAG_N];
 static uint32_t regtrace_isr_diag_n;
 static uint32_t regtrace_isr_diag_isr;
 static bool regtrace_isr_drain_diag;
-module_param_named(isr_drain_diag, regtrace_isr_drain_diag, bool, 0644);
+t40_bringup_param_named(isr_drain_diag, regtrace_isr_drain_diag, bool, 0644);
 
 /* T40-ISR-FRAME-DELIVER (fable): the lifted frame_chan_event (OEM 0xf598) is unusable - every
  * list/lock/wait access in it is a pointer-stepped offset (s0+540/556/568/744, s1+8, s2-88 ...)
@@ -185020,11 +185042,11 @@ module_param_named(isr_drain_diag, regtrace_isr_drain_diag, bool, 0644);
  * DQBUF reads (regtrace_irq_frame_done_send, LOCAL mode, same as the VIC/normal path) - and
  * keep the OEM event behind core_isr_oem_frame_event (default off). */
 static bool regtrace_core_isr_oem_frame_event;
-module_param_named(core_isr_oem_frame_event, regtrace_core_isr_oem_frame_event, bool, 0644);
+t40_bringup_param_named(core_isr_oem_frame_event, regtrace_core_isr_oem_frame_event, bool, 0644);
 static uint32_t regtrace_core_isr_frame_deliver_count;
 module_param_named(core_isr_frame_deliver_count, regtrace_core_isr_frame_deliver_count, uint, 0444);
 static long regtrace_core_isr_frame_deliver_last_ret;
-module_param_named(core_isr_frame_deliver_last_ret, regtrace_core_isr_frame_deliver_last_ret, long, 0444);
+t40_bringup_param_named(core_isr_frame_deliver_last_ret, regtrace_core_isr_frame_deliver_last_ret, long, 0444);
 
 static int32_t regtrace_core_isr_frame_done(uintptr_t pad, uint32_t group, uint32_t channel,
                                             uint32_t y, uint32_t uv, void *desc)
