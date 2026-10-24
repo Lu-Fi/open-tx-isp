@@ -154084,6 +154084,7 @@ static int t41_tmo_map_impl __attribute__((section(".data"))) = 2;
 module_param(t41_tmo_map_impl, int, 0644);
 MODULE_PARM_DESC(t41_tmo_map_impl, "local TMO map: 0=reference C, 1=fast C, 2=MXU3 (default; fast C where the CPU has no MXU3), all bit-exact");
 static struct t41_tmo_mxu3_scratch *t41_tmo_mxu3_ws __attribute__((section(".data")));
+#ifdef TX_ISP_T41_TMO_SELFTEST
 static void t41_tmo_selftest_workfn(struct work_struct *work);
 static DECLARE_WORK(t41_tmo_selftest_work, t41_tmo_selftest_workfn);
 static int t41_tmo_map_selftest_set(const char *value, const struct kernel_param *kp)
@@ -154098,6 +154099,7 @@ static int t41_tmo_map_selftest __attribute__((section(".data")));
 module_param_call(t41_tmo_map_selftest, t41_tmo_map_selftest_set, param_get_int,
 		  &t41_tmo_map_selftest, 0644);
 MODULE_PARM_DESC(t41_tmo_map_selftest, "write 1: compare MXU3/fast/reference TMO map on random inputs (dmesg)");
+#endif
 
 static bool t41_tmo_mxu3_available(void)
 {
@@ -154135,6 +154137,7 @@ static int t41_tmo_map_run(int impl, const unsigned char *p, unsigned int shift,
 			   previous, first, out);
 }
 
+#ifdef TX_ISP_T41_TMO_SELFTEST
 static void t41_tmo_selftest_workfn(struct work_struct *work)
 {
 	enum { ROUNDS = 64 };
@@ -154234,6 +154237,7 @@ out:
 	vfree(p);
 	t41_tmo_map_selftest = 0;
 }
+#endif
 static unsigned int t41_tmo_map_interval __attribute__((section(".data"))) = 1;
 module_param(t41_tmo_map_interval, uint, 0644);
 MODULE_PARM_DESC(t41_tmo_map_interval, "recompute the local TMO map every n-th frame (1=every frame, stock)");
@@ -172550,7 +172554,9 @@ void cleanup_module(void)
 	cancel_work_sync(&t41_tmo_work);
 	cancel_work_sync(&t41_native_awb_work);
 	t41_isp_wq_exit();
+#ifdef TX_ISP_T41_TMO_SELFTEST
 	cancel_work_sync(&t41_tmo_selftest_work);
+#endif
 	vfree(t41_tmo_map_ws);
 	t41_tmo_map_ws = NULL;
 	vfree(t41_tmo_mxu3_ws);

@@ -51,12 +51,12 @@ settings always stay. Passing a removed parameter to `insmod` only logs
 
 - T23: `TX_ISP_T23_BRINGUP_PARAMS=y` builds them in; default: left out
   (115 parameters).
-- T41: `TX_ISP_T41_BRINGUP_PARAMS=n` leaves them out (83 parameters, a
-  further 42 KB of module file and 34 KB of RAM); default: built in. The open
-  heap overwrite on module reload (`driver/t41/README.md`, "Known
-  issues") lands in the module's kmalloc'd parameter attribute array; with
-  fewer parameters that array moves to another slab size class and the stray
-  write would hit some other object. Prune only after that bug is fixed.
+- T41: `TX_ISP_T41_BRINGUP_PARAMS=n` (default since 2026-10-24) leaves them out
+  (83 parameters, 41 KB of module file, 15 KB xz and 34 KB of RAM);
+  `=y` builds them in (diagnostic scripts such as tools/rawchart/t41_isr_stages.sh
+  read some). It was `y` while the module-reload heap overwrite was open; that
+  bug has not been seen again in 70+ load/unload cycles. `TX_ISP_T41_TMO_SELFTEST=y`
+  builds the `t41_tmo_map_selftest` parameter (off by default, 8 KB).
 
 T23 parameters left out: enable_irqs_on_streamon, log_framechan_payloads, text_watch, direct_msca_qbuf, direct_msca_start, direct_msca_cfg_load, direct_tisp_stream_regs, source_core_start, source_frame_done, source_msca_curves, source_msca_init, source_core_bypass, source_core_bypass_from_tuning, source_mdns_tuning_init, source_mdns_internal_enable, source_mdns_uv, source_mdns_gain_old, source_mdns_top_control, source_mdns_top_override, source_mdns_mode, source_mdns_paddr, source_mdns_size, source_mdns_used, source_mdns_set_count, source_mdns_restore_count, source_sdns_tuning_init, source_sdns_gain_old, source_adr_tuning_init, source_adr_initialized, source_adr_width, source_adr_height, source_gib_tuning_init, source_gamma_tuning_init, source_lsc_tuning_init, source_lsc_events, source_dpc_tuning_init, source_ydns_tuning_init, source_defog_tuning_init, source_defog_geometry_init, source_defog_initialized, source_defog_width, source_defog_height, source_defog_geometry_runs, source_lsc_runtime_ct, source_lsc_event_count, source_lsc_gain_events, source_ae_stats_irqs, source_ae_stats_snapshots, source_stock_stream_regs, source_ae_hlil_fast_interval, source_ae_hlil_sat_permille, source_ae_hlil_deadband, source_ae_hlil_runs, source_ae_hlil_updates, source_ae_hlil_drops, source_ae_hlil_state, source_ae_hlil_ev, source_ae_hlil_status, source_awb_static_init, source_awb_stats_init, source_awb_stats_processed_tap, source_awb_stats_wide_thresholds, source_awb_grayworld, source_awb_grayworld_interval, source_awb_grayworld_rbias, source_awb_grayworld_bbias, source_awb_profile_rbias, source_awb_profile_bbias, source_awb_hlil_interval, source_awb_hlil_min_pixels, source_awb_bootstrap_rgain, source_awb_bootstrap_bgain, source_awb_stats_irqs, source_awb_stats_snapshots, source_awb_grayworld_updates, source_awb_hlil_drops, source_awb_hlil_rg, source_awb_hlil_bg, source_awb_hlil_ct, source_awb_last_mf_rg, source_awb_last_mf_bg, source_wb_mode, source_bcsh_events, source_bcsh_ev_events, source_bcsh_ct_events, source_bcsh_ct_region, source_ccm_events, source_ccm_runtime_ct, source_ccm_event_count, source_dmsc_tuning_init, source_dmsc_sharpness, source_bcsh_tuning_init, source_bcsh_runtime, source_clm_tuning_init, source_clm_events, source_clm_startup_ct, source_clm_runtime_ct, source_clm_event_count, source_clm_region, source_bcsh_neutral, source_csccr_init, source_core_mode, direct_csi_start, direct_vic_start, vic_irq_unmask_all, direct_sensor_stream, source_csi_stream, source_sensor_stream, source_vic_stream, direct_enable_clks, csi_rate_override, sensor_i2c_adapter, real_platforms, child_platforms, recovered_child_probes.
 

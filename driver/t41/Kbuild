@@ -79,11 +79,20 @@ LDFLAGS_MODULE += --gc-sections --undefined=init_module --undefined=cleanup_modu
 endif
 
 # Bring-up-only module parameters (experiment switches and diagnostic
-# counters nothing reads; list in docs/SIZE.md): n leaves them out.  Default
-# y: the open rmmod heap overwrite (README "Known issues") lands in the
-# kmalloc'd param attribute array, and fewer parameters would move that
-# array to another slab size class; prune only after that is fixed.
-TX_ISP_T41_BRINGUP_PARAMS ?= y
+# counters; list in docs/SIZE.md): y builds them in (needed by
+# tools/rawchart/t41_isr_stages.sh and bring-up experiments).  Default n since
+# the module-reload heap overwrite is closed (claude/t41-reload: 70+ load/unload
+# cycles on .32/.34 without a hit, 5 more with this build); the vendor-compatible
+# and documented parameters always stay.
+TX_ISP_T41_BRINGUP_PARAMS ?= n
 ifeq ($(TX_ISP_T41_BRINGUP_PARAMS),y)
 ccflags-y += -DTX_ISP_T41_BRINGUP_PARAMS
+endif
+
+# Rootfs size: TX_ISP_T41_TMO_SELFTEST=y builds the t41_tmo_map_selftest
+# parameter and its work item (MXU3/fast/reference comparison on random
+# input); off by default (host test tx_isp_t41_tmo_map_test covers the maths).
+TX_ISP_T41_TMO_SELFTEST ?= n
+ifeq ($(TX_ISP_T41_TMO_SELFTEST),y)
+ccflags-y += -DTX_ISP_T41_TMO_SELFTEST
 endif
