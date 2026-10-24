@@ -15626,6 +15626,33 @@ static void t41_reclaim_stale_sensor(uintptr_t vin, uintptr_t arg,
 		t41_unregister_i2c_sensor(sensor);
 }
 
+static int t41_sensor_owned_by_other_session(uintptr_t vin, uintptr_t arg)
+{
+	char *ispdev = (char *)(uintptr_t)globe_ispdev;
+	struct list_head *head;
+	struct list_head *node;
+	int32_t refs;
+	int found = 0;
+
+	if (!t41_kernel_data_ptr(ispdev))
+		return 0;
+	refs = READ_ONCE(*(int32_t *)(ispdev + 0x0c + 0x114));
+	if (refs <= 1)
+		return 0;
+	head = (struct list_head *)(vin + T41_VIN_SENSOR_LIST_OFF);
+	private_mutex_lock((void *)(vin + T41_VIN_SENSOR_LOCK_OFF));
+	if (head->next)
+		for (node = head->next; node != head; node = node->next)
+			if (!strncmp((char *)((uintptr_t)node - T41_SENSOR_LIST_OFF +
+					      T41_SENSOR_INFO_OFF),
+				     (char *)arg, T41_SENSOR_NAME_LEN)) {
+				found = 1;
+				break;
+			}
+	private_mutex_unlock((void *)(vin + T41_VIN_SENSOR_LOCK_OFF));
+	return found;
+}
+
 static int t41_register_sensor(uintptr_t vin, uintptr_t arg)
 {
 	struct i2c_board_info board_info;
@@ -15665,7 +15692,20 @@ static int t41_register_sensor(uintptr_t vin, uintptr_t arg)
 	 * bound, so every later AddSensor fails with EBUSY from
 	 * i2c_new_device until reboot.  The VIN state check above already
 	 * proved no stream owns this slot, so reclaim a same-named stale
-	 * entry before creating the new client. */
+	 * entry before creating the new client.
+	 * A same-named entry is only stale when no other session holds
+	 * /dev/tx-isp (a dead owner's fd is closed: open count back to 0,
+	 * this caller is 1).  With a second live IMP process (count >= 2) it
+	 * belongs to a running stream: reclaiming it (and the i2c eviction
+	 * after it) tore the streamer's sensor away and oopsed a kworker
+	 * (.34 2026-10-24).  One ISP pipeline cannot serve two IMP sessions,
+	 * so refuse the second AddSensor. */
+	if (t41_sensor_owned_by_other_session(vin, arg)) {
+		printk(KERN_WARNING
+		       "t41: sensor %.32s busy: another session holds tx-isp, AddSensor refused\n",
+		       (char *)arg);
+		return -EBUSY;
+	}
 	t41_reclaim_stale_sensor(vin, arg, sensor_id);
 
 	adapter = private_i2c_get_adapter(*(uint32_t *)(arg + 60));
