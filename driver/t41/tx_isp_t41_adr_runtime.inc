@@ -166,20 +166,22 @@ static int t41_native_adr_frame(uint64_t exposure)
     spin_unlock_irqrestore(&t41_adr_irq_lock, flags);
     c = &s->candidate;
     memcpy(c, &s->saved, sizeof(*c));
-    if (t41_adr_unpack(s->working_dma, sizeof(s->working_dma), s->statistics, sizeof(s->statistics)) ||
-        t41_adr_statistics(s->statistics, sizeof(s->statistics), s->width, s->height) ||
-        t41_adr_ev(c->params, sizeof(c->params), c->history, sizeof(c->history), exposure,
+    { u64 t0 = t41_work_begin(); int bad = t41_adr_unpack(s->working_dma, sizeof(s->working_dma), s->statistics, sizeof(s->statistics)) ||
+        t41_adr_statistics(s->statistics, sizeof(s->statistics), s->width, s->height);
+      t41_work_end(T41_WT_ADR_STATS, t0); if (bad) { ret = -EINVAL; goto failed; } }
+    if (t41_adr_ev(c->params, sizeof(c->params), c->history, sizeof(c->history), exposure,
             s->ev_changed || exposure != s->exposure) < 0 ||
         t41_adr_gaussian(c->params, sizeof(c->params), c->context.gaussian_previous, c->context.gaussian) < 0) {
         ret = -EINVAL; goto failed;
     }
-    ret = t41_adr_frame(&c->context, c->params, sizeof(c->params), c->output, sizeof(c->output),
-        c->history, sizeof(c->history), s->statistics, sizeof(s->statistics), ai_curve1_y);
+    T41_LS_TIME(T41_WT_ADR_CALC, ret = t41_adr_frame(&c->context, c->params, sizeof(c->params), c->output, sizeof(c->output),
+        c->history, sizeof(c->history), s->statistics, sizeof(s->statistics), ai_curve1_y));
     if (ret) { ret = -ERANGE; goto failed; }
+    { u64 t0 = t41_work_begin();
     count = t41_adr_pack_curve(c->params, sizeof(c->params), c->output, sizeof(c->output),
         system_reg_read(0x5040c), s->words, ARRAY_SIZE(s->words));
-    if (count <= 0) { ret = count ? -EINVAL : -EBUSY; goto failed; }
-    ret = t41_adr_emit_locked(s, count);
+    ret = count <= 0 ? (count ? -EINVAL : -EBUSY) : t41_adr_emit_locked(s, count);
+    t41_work_end(T41_WT_ADR_EMIT, t0); }
     if (ret) goto failed;
     /* A busy/invalid candidate never advances the temporal history. */
     memcpy(&s->saved, c, sizeof(*c));

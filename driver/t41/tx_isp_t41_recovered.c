@@ -1737,6 +1737,11 @@ enum {
 	/* inside t41_tmo_frame */
 	T41_WT_TMO_CURVE, T41_WT_TMO_MAP, T41_WT_TMO_INTERP, T41_WT_TMO_RAM,
 	T41_WT_TMO_DEFAULT,
+	/* inside the AWB work and t41_native_adr_frame */
+	T41_WT_AWB_COPY, T41_WT_AWB_FRAME, T41_WT_AWB_DIAG, T41_WT_AWB_SAVE,
+	T41_WT_ADR_STATS, T41_WT_ADR_CALC, T41_WT_ADR_EMIT,
+	/* ISR parts */
+	T41_WT_ISR_DISP, T41_WT_ISR_AE, T41_WT_ISR_LCE, T41_WT_ISR_FDN, T41_WT_ISR_ADR,
 	T41_WT_N
 };
 /* Time one statement under a work index (no-op without TX_ISP_LOAD_STATS). */
@@ -171600,6 +171605,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             WRITE_ONCE(t41_ae_zones[0].sequence,
                 READ_ONCE(t41_ae_zones[0].sequence) + 1);
 
+        u64 t41_isr_t0 = t41_work_begin();
         if (t41_isr_dispatch) {
             uint32_t words[3] = { status0, status2, status3 };
             int i;
@@ -171624,6 +171630,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             }
         }
 
+        t41_work_end(T41_WT_ISR_DISP, t41_isr_t0); t41_isr_t0 = t41_work_begin();
         if (t41_isr_dispatch != 1 && (status0 & BIT(5)) &&
             (t41_safe_ae_controller > 0 || t41_vendor_ae > 0)) {
             t41_heapwatch_mark("isr:aehist");
@@ -171642,6 +171649,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
             ae_hist_dispatch_trace_count++;
         }
 
+        if (status0 & BIT(5)) t41_work_end(T41_WT_ISR_AE, t41_isr_t0);
         if (status0 & BIT(17))
             t41_tmo_irq17++;
         if ((status0 & BIT(4)) && t41_tone_trigger > 0) {
@@ -171667,6 +171675,7 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                        (uint32_t)callback, callback_ret);
         }
 
+        t41_isr_t0 = t41_work_begin();
         if (t41_isr_dispatch != 1 && (status0 & BIT(8)) && t41_stock_lce_ram_profile <= 0) {
             int32_t callback = READ_ONCE(irq_func_cb[8]);
             t41_isr_counts[8]++;
@@ -171682,9 +171691,11 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
                        (uint32_t)callback, (long long)callback_ret);
         }
 
+        if (status0 & BIT(8)) t41_work_end(T41_WT_ISR_LCE, t41_isr_t0);
         /* Bit 10: defog statistics (OEM irq slot 10) */
         if (status0 & BIT(10))
             t41_dfg_irq();
+        t41_isr_t0 = t41_work_begin();
         /* OEM frame-down commits (vendor tisp_lsc_init / tisp_bcsh_init register
          * irq_func_cb[36] = tisp_lsc_fra_down_interrupt and [52] =
          * tisp_bcsh_fra_down_interrupt; index = group*32 + bit, group 1 =
@@ -171710,8 +171721,11 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
 
         /* Bit 9 was previously acknowledged without dispatch while ADR
          * was disabled. Only the native, owned-page reader is now armed. */
+        if (status2 & (BIT(4) | BIT(20))) t41_work_end(T41_WT_ISR_FDN, t41_isr_t0);
+        t41_isr_t0 = t41_work_begin();
         if ((status0 & BIT(9)) && t41_stock_adr_profile <= 0)
             t41_native_adr_interrupt();
+        if (status0 & BIT(9)) t41_work_end(T41_WT_ISR_ADR, t41_isr_t0);
 
         if (t41_runtime_trace && (trace_count < 32 || (status0 & 0x1)))
             printk(KERN_WARNING
