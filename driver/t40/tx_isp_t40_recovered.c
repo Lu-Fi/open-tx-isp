@@ -55657,6 +55657,24 @@ int32_t tx_isp_frame_chan_misc_register(int32_t *arg1)
     int32_t *result;
     int32_t *s1;
     
+    /*
+     * T40-QUALITY2 (mirror of the T41 fix a0449408): a channel whose
+     * registered flag (+0x28, arg1[0xa]) is already set must not be handed
+     * to misc_register() again.  Kernel 4.4 misc_register() starts with
+     * INIT_LIST_HEAD(&misc->list); on a node still in misc_list that
+     * self-links it and every later misc_open()/misc_register() walk spins
+     * forever under misc_mtx (T41 .34: "duplicate filename framechan0",
+     * misc.c:253 WARN, D-state hang).  On T40 the framechan nodes are
+     * registered once at probe (regtrace_register_all_misc) and this OEM
+     * path is kept for parity; keep it idempotent.
+     */
+    if (arg1[0xa]) {
+        printk(KERN_WARNING
+               "tx_isp_t40_recovered: framechan%d already registered, kept (concurrent or repeated sensor register)\n",
+               arg1[0xb3]);
+        return 0;
+    }
+
     /* s1 = arg1 + 696 (0x2b8) - this is the buffer for sprintf */
     s1 = (uintptr_t *)(arg1 + 0x2b8);
     
