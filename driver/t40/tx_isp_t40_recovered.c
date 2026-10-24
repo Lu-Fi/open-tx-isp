@@ -20751,6 +20751,16 @@ static int regtrace_t40_sensor_fps_get(uint32_t *packed_fps)
     if (!packed_fps)
         return -EINVAL;
 
+    /* T40-FPS-READBACK: after a SetSensorFPS the sensor proc entry kept the boot rate (12 fps delivered,
+     * GetSensorFPS 20/1, Eufy agg43d 2026-10-24); the last accepted request is the truth. */
+    value = READ_ONCE(regtrace_sensor_fps_packed);
+    numerator = value >> 16;
+    denominator = value & 0xffffU;
+    if (numerator && denominator && numerator <= 120U * denominator) {
+        *packed_fps = value;
+        return 0;
+    }
+
     ret = regtrace_read_proc_u32("/proc/jz/sensor/sensor0/fps", &value);
     if (ret)
         ret = regtrace_read_proc_u32("/proc/jz/sensor/fps", &value);
@@ -126831,6 +126841,10 @@ tisp_lce_curve_init_default0x150:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004bae0 origin=fragment_seed original=tisp_lce_top_change_state */
 int64_t tisp_lce_top_change_state(uint32_t a0)
 {
+    /* T40-LCE-TOP-GUARD: the tool_para block exists only once the LCE module is initialised
+     * (t40_lce_on); without it every SetModuleControl faulted here (BadVA 8, Eufy agg43d 2026-10-24). */
+    if (!(a0 ? *(uint32_t *)((char *)&lce_seco_tool_para) : *(uint32_t *)((char *)&lce_main_tool_para)))
+        return 0;
     uint32_t *a1 = 0;
     uint32_t *a2 = 0;
     uint32_t *a3 = 0;
