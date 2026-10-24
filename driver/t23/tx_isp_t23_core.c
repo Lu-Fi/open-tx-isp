@@ -19226,6 +19226,35 @@ fail:
     return ret;
 }
 
+/* Mask every VIC interrupt source and ack all pending bits (mask bit=1 masks, see the ISR
+ * pending = status & ~mask).  Run before the isp-w02 IRQ is requested and before it is
+ * released: a status bit left latched by the previous stream otherwise fires into the freshly
+ * registered handler on a reload and the kernel disables the line ("irq 38: nobody cared"). */
+static void regtrace_t23_vic_quiesce_regs(void __iomem *base)
+{
+    if (!base)
+        return;
+    writel(0xffffffffU, base + 0x1e8);
+    writel(0xffffffffU, base + 0x1ec);
+    writel(0xffffffffU, base + 0x1f0);
+    writel(0xffffffffU, base + 0x1f4);
+    wmb();
+}
+
+static void regtrace_t23_vic_quiesce_pdev(struct platform_device *pdev)
+{
+    struct resource *res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+    void __iomem *base;
+
+    if (!res || resource_size(res) < 0x200)
+        return;
+    base = ioremap(res->start, resource_size(res));
+    if (!base)
+        return;
+    regtrace_t23_vic_quiesce_regs(base);
+    iounmap(base);
+}
+
 static int regtrace_t23_probe_vic_safe(struct platform_device *pdev)
 {
     unsigned char *vic = private_kmalloc(544, GFP_KERNEL);
@@ -19238,6 +19267,7 @@ static int regtrace_t23_probe_vic_safe(struct platform_device *pdev)
                              (uint32_t)(uintptr_t)&vic_subdev_ops);
     if (ret)
         goto fail;
+    regtrace_t23_vic_quiesce_pdev(pdev);
     ret = regtrace_t23_request_irq(pdev, vic);
     if (ret)
         goto fail;
@@ -19533,6 +19563,8 @@ static int regtrace_t23_remove_vic_safe(struct platform_device *pdev)
 {
     unsigned char *vic = platform_get_drvdata(pdev);
 
+    if (vic)
+        regtrace_t23_vic_quiesce_regs((void __iomem *)(uintptr_t)*(uint32_t *)(vic + 184));
     regtrace_t23_release_subdev_safe(
         pdev, vic, true, true, &regtrace_t23_vic_clks_enabled);
     private_kfree(vic);

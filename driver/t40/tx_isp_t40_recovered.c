@@ -185237,9 +185237,13 @@ tx_isp_core_probe0x2e0:
     /* asm: 7b068:	0243001a 	div	zero,s2,v1 */
 
     /* fragment 38: MemoryAccess */
+    /* T40-SLOT-DIV: OEM 0x7a5d8 `div s2,v1(=3)`; mfhi -> slot+116, mflo -> slot+120 (OEM 0x7a5e4/0x7a5ec).
+     * The lift dropped the div and stored the stale v0 (here &isp_core_tuning_init, a module pointer)
+     * in both words; the ISR drain leg then used slot+120 as the pipeline index (idx*96 + 0x17c) and
+     * loaded from a wild address (QEMU: bus error, silicon: unmapped read returns junk). */
     *(uint32_t *)((char *)s1 + 112) = s2;
-    *(uint32_t *)((char *)s1 + 116) = v0;
-    *(uint32_t *)((char *)s1 + 120) = v0;
+    *(uint32_t *)((char *)s1 + 116) = (uint32_t)(((uintptr_t)s2 / 4U) % 3U);   /* s2 is a uint32_t* here: counts in 4-byte steps (see below) */
+    *(uint32_t *)((char *)s1 + 120) = (uint32_t)(((uintptr_t)s2 / 4U) / 3U);
     v0 = *(uint32_t *)((char *)s0 + 260);
     s8 = (uintptr_t)s2 * (uintptr_t)a2;
     v0 = v0 + s8;
@@ -187322,6 +187326,8 @@ ispcore_interrupt_service_routine0xd2c:
     v0 = (uintptr_t *)((uintptr_t)v0 + a0);   /* T40-ISR-WIN-SCALE: win+0x10000 is a byte add, not a pointer step (x4) */
     a0 = *(uint32_t *)((char *)v0 + 26460);
     v0 = *(uint32_t *)((char *)s5 + 120);
+    if (v0 > 2)   /* T40-SLOT-DIV guard: pipeline index (slot/3) is 0..2; never index off a bad slot word */
+        v0 = 0;
     a0 = a0 >> 16;
     v1 = (uintptr_t)v0 * (uintptr_t)a1;
     v0 = (uintptr_t)v1 + (uintptr_t)s3;
