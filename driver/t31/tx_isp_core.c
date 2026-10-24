@@ -3279,11 +3279,12 @@ int ispcore_frame_channel_dqbuf(void* arg1, void* arg2)
 static struct { u32 en, top, left, width, height; } t31_fcrop;
 
 /* How far a front crop may make the MSCA upscale, in percent (0 = never).
- * Only for measuring the hardware limit; the default refuses any upscale.
+ * Default 100 (2.0x, the measured safe maximum; the vendor enlarges a
+ * window without a check); 0 refuses any upscale.
  * Writable at run time: /sys/module/tx_isp_t31/parameters/fcrop_upscale_pct */
-static unsigned int fcrop_upscale_pct;
+static unsigned int fcrop_upscale_pct = T31_FCROP_UPSCALE_DEFAULT_PCT;
 module_param(fcrop_upscale_pct, uint, 0644);
-MODULE_PARM_DESC(fcrop_upscale_pct, "front crop: allowed MSCA upscale in percent (0 = none, capped at 100)");
+MODULE_PARM_DESC(fcrop_upscale_pct, "front crop: allowed MSCA upscale in percent (default 100 = 2.0x like the vendor, 0 = none, capped at 100)");
 
 int tisp_s_fcrop_control(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5);
 
@@ -3414,12 +3415,12 @@ int tisp_channel_attr_set(uint32_t channel_id, void* attr)
                 (uint32_t)s2 == t31_fcrop.height;
 
             if (!isp_crop && *arg2 != 0) {
-                pr_warn("T31: ch%u output %dx%d refused: larger than the frame crop window %dx%d (the MSCA cannot upscale)\n",
+                pr_warn("T31: ch%u output %dx%d refused: larger than the frame crop window %dx%d (beyond the 2.0x the MSCA can enlarge)\n",
                         channel_id, arg2[1], arg2[2], tispinfo_2, s2);
                 return -EINVAL;
             }
             if (isp_crop) {
-                pr_warn("T31: ch%u output %dx%d does not fit the front crop %ux%u: front crop dropped (the MSCA cannot upscale)\n",
+                pr_warn("T31: ch%u output %dx%d does not fit the front crop %ux%u: front crop dropped (beyond the 2.0x the MSCA can enlarge)\n",
                         channel_id, *arg2 ? arg2[1] : tispinfo_1,
                         *arg2 ? arg2[2] : (int32_t)data_b2f34,
                         t31_fcrop.width, t31_fcrop.height);
@@ -3852,7 +3853,7 @@ static int tisp_fcrop_fits_channels(u32 width, u32 height)
                                  system_reg_read(0x9900 + ch * 0x100),
                                  cache_w[ch], cache_h[ch], width, height,
                                  fcrop_upscale_pct, &out_w, &out_h)) {
-            pr_warn("T31: front crop %ux%u refused: smaller than the ch%d output %ux%u (the MSCA cannot upscale)\n",
+            pr_warn("T31: front crop %ux%u refused: smaller than the ch%d output %ux%u (beyond the 2.0x the MSCA can enlarge)\n",
                     width, height, ch, out_w, out_h);
             return -EINVAL;
         }

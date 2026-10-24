@@ -18,6 +18,21 @@ int main(void)
 	assert(!t31_fcrop_axis_ok(959, 1920, 1000));
 	assert(t31_fcrop_axis_ok(960, 1920, 0xffffffffu));
 
+	/* default parameter value = the safe maximum (vendor enlarges) */
+	assert(T31_FCROP_UPSCALE_DEFAULT_PCT == 100);
+	/* 1920x1080 main + 640x360 sub under a 960x540 window: both fit at 2.0x */
+	assert(t31_fcrop_chan_fits(3, 0, (1920u << 16) | 1080, 1920, 1080,
+				   960, 540, T31_FCROP_UPSCALE_DEFAULT_PCT, 0, 0));
+	assert(t31_fcrop_chan_fits(3, 1, (640u << 16) | 360, 640, 360,
+				   960, 540, T31_FCROP_UPSCALE_DEFAULT_PCT, 0, 0));
+	/* 768x432 (2.5x, hung the SoC) is still refused with the default */
+	assert(!t31_fcrop_chan_fits(1, 0, (1920u << 16) | 1080, 1920, 1080,
+				    768, 432, T31_FCROP_UPSCALE_DEFAULT_PCT, 0, 0));
+	/* set-format of a 1920x1080 scaler channel under a 960x540 window */
+	assert(!t31_fcrop_format_misfit(1, 960, 540, 2560, 1440, 1920, 1080,
+					T31_FCROP_UPSCALE_DEFAULT_PCT));
+	assert(t31_fcrop_format_misfit(1, 960, 540, 2560, 1440, 1920, 1080, 0));
+
 	/* running ch0 main 1920x1080 scaled from 2560x1440 */
 	assert(t31_fcrop_chan_fits(1, 0, (1920u << 16) | 1080, 1920, 1080,
 				   1920, 1080, 0, &w, &h) && w == 1920 && h == 1080);

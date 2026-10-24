@@ -238,6 +238,10 @@ pixels across 241 nonzero bins and a frame-responsive weighted mean.
 `tisp_ae_g_luma` retains the per-zone AE weighted mean as a defensive fallback
 only when the histogram-derived value is zero.
 
+## Front crop (`IMP_ISP_Tuning_SetFrontCrop`)
+
+A window is accepted when every running channel's scaler output is at most 2.0x the window per axis (module parameter `fcrop_upscale_pct`, default and maximum 100; the vendor enlarges without a check, the T31X MSCA hung at 2.5x). Larger enlargements are refused with -EINVAL and a log line, windows are dropped at the last ISP close and when a larger main stream starts. `fcrop_upscale_pct=0` refuses every upscale. Device-tested on the T31L (2.0x, 1.5x) and the T31X (2.0x). Logic: `tx_isp_t31_fcrop.h`, host test `tests/tx_isp_t31_fcrop_test.c`.
+
 ## Known Gaps
 
 - T23/T41 still need their own device-backed ownership tests before the full

@@ -4,9 +4,10 @@
 
 /*
  * T31 front crop decisions as plain functions (host test:
- * tests/tx_isp_t31_fcrop_test.c).  The MSCA cannot upscale, so a crop
- * window is only accepted when it covers every running channel's output.
- * Beyond stock.
+ * tests/tx_isp_t31_fcrop_test.c).  The vendor accepts every window and
+ * lets the MSCA enlarge it (its T31 guide documents enlarging an image); the hardware stalls beyond 2.0x
+ * per axis, so a window is accepted up to T31_FCROP_UPSCALE_MAX_PCT and
+ * refused (-EINVAL) beyond that instead of hanging the SoC.
  */
 #ifdef __KERNEL__
 #include <linux/types.h>
@@ -22,6 +23,11 @@ typedef uint64_t u64;
  * hard-hung the SoC at once (hardware watchdog reset, no oops), so a larger
  * parameter value is clamped here, never trusted. */
 #define T31_FCROP_UPSCALE_MAX_PCT 100U
+
+/* Default of the parameter: the vendor does enlarge a window, and 2.0x is
+ * the measured safe maximum, so that is what the driver allows unless the
+ * parameter is lowered (0 = old behaviour, never upscale). */
+#define T31_FCROP_UPSCALE_DEFAULT_PCT T31_FCROP_UPSCALE_MAX_PCT
 
 /* window may feed an output of out pixels on one axis; upscale_pct = 0
  * never allows an upscale, values above T31_FCROP_UPSCALE_MAX_PCT count as

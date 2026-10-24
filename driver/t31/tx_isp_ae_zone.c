@@ -52,6 +52,39 @@ int tisp_ae_get_y_zone(void *arg1)
 }
 EXPORT_SYMBOL(tisp_ae_get_y_zone);
 
+/* tisp_ae_get_y_zone_sum - sum of the 225 zone values, read in place.
+ *
+ * The AWB statistics interrupt only needs the mean luminance.  Copying the
+ * zones into a 900-byte array on the stack first put a ~1.1 KiB frame chain
+ * into hard-IRQ context; on MIPS 3.10 interrupts run on the 8 KiB stack of
+ * whatever task they hit, with thread_info (preempt_count) at its bottom.
+ * Beyond stock. */
+int tisp_ae_get_y_zone_sum(u64 *sum, unsigned int *count)
+{
+    unsigned long flags;
+    u64 s = 0;
+    int i;
+
+    if (!sum || !count)
+        return -EINVAL;
+
+    if (!ae_zone_data.initialized) {
+        spin_lock_init(&ae_zone_data.lock);
+        memset(ae_zone_data.zone_data, 0, sizeof(ae_zone_data.zone_data));
+        ae_zone_data.zone_status = 1;
+        ae_zone_data.initialized = true;
+    }
+
+    spin_lock_irqsave(&ae_zone_data.lock, flags);
+    for (i = 0; i < ARRAY_SIZE(ae_zone_data.zone_data); i++)
+        s += ae_zone_data.zone_data[i];
+    spin_unlock_irqrestore(&ae_zone_data.lock, flags);
+
+    *sum = s;
+    *count = ARRAY_SIZE(ae_zone_data.zone_data);
+    return 0;
+}
+
 /* tisp_g_ae_zone - stock takes the caller's 900-byte buffer and fills it
  * through tisp_ae_get_y_zone().  The previous (dev, ctrl) signature did not
  * match the one-argument prototype its only caller (apical_isp_ae_zone_g_ctrl
