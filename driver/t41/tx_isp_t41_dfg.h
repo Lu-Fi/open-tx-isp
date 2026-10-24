@@ -78,61 +78,13 @@ static u64 vae_x_tisp_get_tuning(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
 	return (u32)tisp_get_tuning();
 }
 
-static int t41_dfg_dump;
-module_param_named(defog_dump, t41_dfg_dump, int, 0644);
-static void t41_dfg_do_dump(void)
-{
-	u32 info = dfg_bss[60];
-	u8 *b, *st;
-	int i, k;
-	char line[200];
-
-	if (!info)
-		return;
-	b = (u8 *)(uintptr_t)*(u32 *)(uintptr_t)(info + 16);
-	st = (u8 *)(uintptr_t)*(u32 *)(uintptr_t)(info + 4);
-	printk(KERN_WARNING "dfgdump info=%#x b=%p st=%p\n", info, b, st);
-	for (k = 0; k < 4; k++)
-		for (i = 0; i < 180; i += 18) {
-			int j, n = 0;
-			for (j = 0; j < 18; j++)
-				n += scnprintf(line + n, sizeof(line) - n, "%02x ", b[2458 + 180 * k + i + j]);
-			printk(KERN_WARNING "dfgdump lut%d r%d %s\n", k, i / 18, line);
-		}
-	{
-		u8 *pr = (u8 *)(uintptr_t)*(u32 *)(uintptr_t)(info + 12);
-		u32 w = *(u32 *)(uintptr_t)(info + 32), h = *(u32 *)(uintptr_t)(info + 28);
-		printk(KERN_WARNING "dfgdump dims w=%u h=%u bin461=%u bin624=%u bin626=%u par=%p\n", w, h, pr[461],
-		       pr[624] | pr[625] << 8, pr[626] | pr[627] << 8, pr);
-		for (i = 0; i < 720; i += 32) {
-			int j, n = 0;
-			for (j = 0; j < 32 && i + j < 720; j++)
-				n += scnprintf(line + n, sizeof(line) - n, "%02x", pr[i + j]);
-			printk(KERN_WARNING "dfgdump par %04x %s\n", i, line);
-		}
-	}
-	for (i = 0; i < 2048; i += 32) {
-		int j, n = 0;
-		for (j = 0; j < 32; j++)
-			n += scnprintf(line + n, sizeof(line) - n, "%02x", st[i + j]);
-		printk(KERN_WARNING "dfgdump st %04x %s\n", i, line);
-	}
-}
-
 /* event 3 callback: the event thread passes (channel, ...) */
 static int t41_dfg_process_cb(uint32_t channel)
 {
-	int r;
-
 	if (!READ_ONCE(t41_dfg_live))
 		return 0;
 	t41_dfg_frames++;
-	r = (int)vae_tisp_defog_process(channel, 0, 0, 0, 0);
-	if (t41_dfg_dump > 0) {
-		t41_dfg_dump--;
-		t41_dfg_do_dump();
-	}
-	return r;
+	return (int)vae_tisp_defog_process(channel, 0, 0, 0, 0);
 }
 static u64 vae_x_tisp_event_set_cb(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
 {
