@@ -171121,169 +171121,37 @@ int32_t tisp_gsm_set_hist_bin(uint32_t arg1, uint32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000071300 origin=fragment_seed original=tisp_set_csc_version */
 int32_t tisp_set_csc_version(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    /* T40-CSC-VERSION: hand translation of OEM tisp_set_csc_version (SDK 1.3.1 0x70870).  Standards 0..3
+     * (BT601 full / BT601 limited / BT709 full / BT709 limited) program CSC registers +0x10/+0x14/+0x18/+0x20/
+     * +0x30 of base (vinum + 416) << 7 and store the standard in csc_attr[vinum] word 0; others print and
+     * return -1.  The lift lost the << 7 of the base for most writes (stray writes to ISP registers around
+     * 0x1a0..0x1d0) and stored the standard 85 KB past isp_memopt (t40_c2_stray keeps that for bisects). */
+    static uint32_t tbl[4][5] T40C2 = {
+        { 0x07596532U, 0x20054cadU, 0x0536b600U, 0x8000U, 0xff00ff00U },   /* 0 BT601 full */
+        { 0x06481107U, 0x1c24a898U, 0x0495e5c2U, 0x8010U, 0xeb10f010U },   /* 1 BT601 limited */
+        { 0x04ab70daU, 0x20062c75U, 0x02f74600U, 0x8000U, 0xff00ff00U },   /* 2 BT709 full */
+        { 0x03f9d4bbU, 0x1c256c67U, 0x029661c2U, 0x8010U, 0xeb10f010U },   /* 3 BT709 limited */
+    };
+    uint32_t base = (a0 + 416U) << 7;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = 1;
-
-    /* fragment 2: StackAccess */
-    local_28 = s3;
-    local_1c = s0;
-    local_2c = ra;
-    local_24 = s2;
-    local_20 = s1;
-    s0 = a0;
-
-    /* fragment 3: Branch */
-    s3 = a1;
-    if (a1 == v0) { goto tisp_set_csc_version0x78; }
-
-    /* fragment 4: Branch */
-    v0 = 2;
-    if (a1 == 0) { goto tisp_set_csc_version0xd0; }
-
-    /* fragment 5: Branch */
-    int _bc_a1_5 = a1 == v0;
-    v0 = 3;
-    if (_bc_a1_5) { goto tisp_set_csc_version0x19c; }
-
-    /* fragment 6: Branch */
-    s2 = a0 + 416;
-    if (a1 == v0) { goto tisp_set_csc_version0x164; }
-
-    /* fragment 7: CallSetup */
-    local_14 = 82;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC0, &__param_str_isp_dual_buf, 82); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    v0 = -1;
-    goto tisp_set_csc_version0x148;
-
-tisp_set_csc_version0x78:
-    /* fragment 9: CallSetup */
-    s2 = a0 + 416;
-    s2 = (uintptr_t)s2 << 7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(((a0 + 416) << 7) + 16, 105381888 + 4359); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s2 + 20, 472121344 | 43160); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    a1 = 76873728;
-    a1 = a1 | 58818;
-
-tisp_set_csc_version0xb0:
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 24, a1); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 32, 32784); /* jalr target resolved by relocation */
-
-    /* fragment 14: Arithmetic */
-    a1 = 3943694336;
-
-    /* fragment 15: Branch */
-    a1 = a1 | 61456;
-    goto tisp_set_csc_version0x124;
-
-tisp_set_csc_version0xd0:
-    /* fragment 16: CallSetup */
-    s2 = a0 + 416;
-    s2 = (uintptr_t)s2 << 7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(((a0 + 416) << 7) + 16, 123273216 + 25906); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 20, 537198592 + 19629); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    a1 = 87425024;
-    a1 = a1 | 46592;
-
-tisp_set_csc_version0x108:
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 24, a1); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 32, 32768); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    a1 = 4278190080;
-    a1 = a1 | 65280;
-
-tisp_set_csc_version0x124:
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 48, a1); /* jalr target resolved by relocation */
-
-    /* fragment 23: Arithmetic */
-    /* T40-CSC-SET: OEM stores the standard in csc_attr[vinum] (.bss+21328, 92 bytes each).  The lift added
-     * 21344 to the ADDRESS OF the int module parameter isp_memopt (scaled x4 = 85 KB past it), so every
-     * tisp_set_csc_version (also the one in tisp_main_init) wrote the value into unrelated module data. */
+    if (a1 > 3U) {
+        isp_printf(2, "%s[%d] VIC do not support this format %d\n", "tisp_set_csc_version", 82, a1);
+        return -1;
+    }
+    (void)system_reg_write(base + 16U, tbl[a1][0]);
+    (void)system_reg_write(base + 20U, tbl[a1][1]);
+    (void)system_reg_write(base + 24U, tbl[a1][2]);
+    (void)system_reg_write(base + 32U, tbl[a1][3]);
+    (void)system_reg_write(base + 48U, tbl[a1][4]);
     if (t40_c2_stray) {   /* the original lift: store into unrelated module data */
         uintptr_t *vv = (uintptr_t *)&isp_memopt;
         vv = vv + 21344;
-        *(uint32_t *)((char *)((uintptr_t)s0 * 92U + (uintptr_t)vv)) = s3;
+        *(uint32_t *)((char *)((uintptr_t)a0 * 92U + (uintptr_t)vv)) = a1;
     }
-    if ((uint32_t)s0 < 2U) {
-        memset(t40_csc_state[(uint32_t)s0], 0, sizeof(t40_csc_state[0]));
-        *(uint32_t *)t40_csc_state[(uint32_t)s0] = s3;
+    if (a0 < 2U) {
+        memset(t40_csc_state[a0], 0, sizeof(t40_csc_state[0]));
+        *(uint32_t *)t40_csc_state[a0] = a1;
     }
-    v0 = 0;
-
-tisp_set_csc_version0x148:
-    /* fragment 25: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_set_csc_version0x164:
-    /* fragment 26: CallSetup */
-    s2 = (uintptr_t)s2 << 7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(((uintptr_t)s2 << 7) + 16, 66650112 | 54459); /* jalr target resolved by relocation */
-
-    /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 20, 472186880 + 27751); /* jalr target resolved by relocation */
-
-    /* fragment 28: Arithmetic */
-    a1 = 43384832;
-
-    /* fragment 29: Branch */
-    a1 = a1 + 25026;
-    goto tisp_set_csc_version0xb0;
-
-tisp_set_csc_version0x19c:
-    /* fragment 30: CallSetup */
-    s2 = a0 + 416;
-    s2 = (uintptr_t)s2 << 7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(((a0 + 416) << 7) + 16, 78315520 + 28890); /* jalr target resolved by relocation */
-
-    /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 20, 537264128 + 11381); /* jalr target resolved by relocation */
-
-    /* fragment 32: Arithmetic */
-    a1 = 49741824;
-
-    /* fragment 33: Branch */
-    a1 = a1 + 17920;
-    goto tisp_set_csc_version0x108;
-
     return 0;
 }
 

@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24 (10): T40 CSC gamut reaches the picture, Temper ratio works (`claude/t40-csc-temper`)
+
+- **`SetISPCSCAttr` changes the channel 0 picture on T40:** the vendor's `tisp_set_csc_attr` does two things: it programs the CSC registers (0xd010..0xd030) and then (`tisp_bcsh_csc_attr`) selects the gamut in the BCSH block, which does the RGB -> YUV conversion of channel 0 (matrix, offsets and clip sets for BT601/BT709 full/limited or the user tables). We did only the first half, so BT601 full and limited gave the same picture. Now the gamut byte of the literal BCSH state is set and BCSH is refreshed (params refresh, EV and CT update) like the vendor; the gamut is also kept when BCSH is re-initialised on a day/night switch.
+- **`SetModule_Ratio` Temper (3D NR) strength works on T40** (before: stored only): hand translation of the vendor's `tisp_s_mdns_ratio` on the literal MDNS state. Ratio 0..128 scales the bin's 7 temporal-NR strength curves (11 gain nodes each) down linearly, 129..255 raises them towards caps of 230/250; the bin values stay untouched (the ratio is absolute), then the MDNS registers are reprogrammed at the current gain. Like the vendor it is applied again after the day/night MDNS reload. Host test `tests/t40/mdns_ratio_host` (formula against the vendor instructions for all values, table offsets against the MDNS node layout).
+- New state lives in section `.t40c2`; `.rodata`/`.data`/`.bss` sizes are unchanged against `next`.
+
 ## 2026-10-24 (8): T40 CCM/CSC/GetGamma attributes, sensor-flip groundwork (`claude/t40-cells2`; Eufy T40 device-tested on a test ko)
 
 - **`GetGammaAttr` works on T40** (answers from the programmed soft-gamma LUT: mode 0, 129 monotone nodes, 0 ... 4095).
