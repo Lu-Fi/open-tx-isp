@@ -6971,7 +6971,7 @@ int32_t private_complete(uintptr_t a0);
 int private_wait_for_completion_interruptible(uintptr_t a0);
 int32_t private_wait_for_completion_timeout(uintptr_t a0, unsigned long timeout);
 int32_t private_wait_event_interruptible(int32_t arg1, int32_t arg2, int32_t arg3);
-int32_t private_wake_up_all(void);
+int32_t private_wake_up_all(void *wq);
 int32_t private_wake_up(void);
 int32_t private_init_waitqueue_head(void);
 int32_t private_misc_register(void);
@@ -8520,10 +8520,13 @@ static void regtrace_unregister_child_platform_device_one(int i)
 
 static void regtrace_unregister_child_platform_devices(void)
 {
-    int i;
-
-    for (i = ARRAY_SIZE(regtrace_child_device_registered) - 1; i >= 0; i--)
-        regtrace_unregister_child_platform_device_one(i);
+    /* consumers first: fs (3) sends events to the core (4) while it cancels its queues
+     * (explicit calls: a const order table would grow .rodata, which the lift addresses by offset) */
+    regtrace_unregister_child_platform_device_one(3);
+    regtrace_unregister_child_platform_device_one(4);
+    regtrace_unregister_child_platform_device_one(2);
+    regtrace_unregister_child_platform_device_one(1);
+    regtrace_unregister_child_platform_device_one(0);
 }
 
 static int regtrace_register_child_platform_devices(void)
@@ -32181,9 +32184,16 @@ int32_t private_wait_event_interruptible(int32_t arg1, int32_t arg2, int32_t arg
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000006a0 origin=model_output original=private_wake_up_all */
-int32_t private_wake_up_all(void)
+int32_t private_wake_up_all(void *wq)
 {
-    __wake_up(NULL, 3, 0, NULL);
+    /* OEM: wake_up_all(wq).  The lift dropped the argument and woke NULL (rmmod oops in
+     * tx_isp_fs_remove -> frame_chan_deinit -> __vb2_queue_cancel).  The fs probe's
+     * init_waitqueue_head is a no-op stub too, so a queue may still be all zero: skip it then. */
+    wait_queue_head_t *h = (wait_queue_head_t *)wq;
+
+    if (!regtrace_is_kernel_ptr(h) || !regtrace_is_kernel_ptr(h->task_list.next))
+        return 0;
+    wake_up_all(h);
     return 0;
 }
 
@@ -53048,7 +53058,7 @@ void __vb2_queue_cancel(void *arg1)
 
     ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((uintptr_t)(*(uint32_t *)(s0 + 0x29c)), (uintptr_t)(0x3000007), (uintptr_t)(0));
 
-    private_wake_up_all();
+    private_wake_up_all((void *)((uintptr_t)s0 + 0x20c));   /* OEM: a0 = q + 524 */
 
     ptr = (uint32_t *)((uintptr_t)s0 + 0xec);
     i = 0;
@@ -188270,8 +188280,10 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
         case 7: regtrace_tisp_dma_free(); break;
         case 8: regtrace_vic_mdma_internal_free(); break;
         case 9: regtrace_unregister_bootstrap_devices(); break;
-        case 10: regtrace_unregister_child_platform_device_one(4); break;
-        case 11: regtrace_unregister_child_platform_device_one(3); break;
+        /* fs before core: the fs remove cancels its vb2 queues, which sends events to the core pads
+         * (OEM order core -> fs used the core after it was gone) */
+        case 10: regtrace_unregister_child_platform_device_one(3); break;
+        case 11: regtrace_unregister_child_platform_device_one(4); break;
         case 12: regtrace_unregister_child_platform_device_one(2); break;
         case 13: regtrace_unregister_child_platform_device_one(1); break;
         case 14: regtrace_unregister_child_platform_device_one(0); break;
