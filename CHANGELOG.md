@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24 (9): T40 module reload and streamer restart without oops or leaks (`claude/t40-reload`; Eufy T40 device-tested on a test ko)
+
+- **`rmmod tx_isp_t40` works on T40** (before: oops on the first unload, module stuck "Unloading", reboot needed; the Eufy history of unload hangs is closed): the lifted `private_wake_up_all` woke a NULL wait queue in the frame-channel cancel of the framesource remove; the framesource device is now removed before the core (its queue cancel sends events to the core pads).
+- Unload frees what the probes allocated (core object and channel array, tuning object, VIN and framesource objects; the lift passed NULL to every one of these frees), removes `/proc/jz/isp/isp-m0` (a stale entry kept the unloaded module's fops and blocked the next load's mkdir) and drops the global pointers to the freed objects.
+- The sensor i2c client is released on unload; a stale client of the same sensor (older build, stock module, crash) is adopted instead of failing with `-EBUSY`, so the next unload releases it.
+- **Streamer restart leak closed (beyond the open driver's previous state, like the vendor):** each streamer stop/start leaked ~36 vmalloc areas / ~344 KB (64 MB Eufy: out of memory after ~60 restarts) because the per-session teardown (`tisp_deinit`, run by the vendor at every session end) is skipped. ADR and LCE are torn down before their per-session re-init; a vmalloc tracker frees an area when its call site allocates again in a later session (AE main init) and frees all lifted areas left at module exit (19 areas / ~230 KB per load before).
+- Test (.184, agg43d, one boot): 10 rmmod/insmod cycles with streamer stop, 10 after `kill -9` of the streamer, 10 streamer stop/start: 30/30 snapshot 200, 0 oops, unloaded state vmallocinfo 29 areas / 1982464 B flat over 20 reloads, 92 areas flat over 10 restarts (stock: +36 per restart), ISP iomem/IRQs and the sensor client gone after every unload.
+
 ## 2026-10-24 (8): T40 CCM/CSC/GetGamma attributes, sensor-flip groundwork (`claude/t40-cells2`; Eufy T40 device-tested on a test ko)
 
 - **`GetGammaAttr` works on T40** (answers from the programmed soft-gamma LUT: mode 0, 129 monotone nodes, 0 ... 4095).
