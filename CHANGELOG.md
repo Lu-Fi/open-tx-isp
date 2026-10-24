@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24 (9): T40 night black level: GIB follows the total gain (`claude/t40-quality4`; Eufy T40 night proof pending)
+
+- **GIB black level vs gain:** the OEM tgain fan-out hands `tisp_gib_a_gian_update` the total gain (TotalGainDb includes the ISP digital gain, 7.0 log2 at night), so the bin's black-level nodes are read at node 7; with the analog gain only (quality2) the black level stayed too low at night and the 4x ISP stage amplified the remainder into a pedestal (Y p1 12..20 against the vendor's 7). Now the total gain is used; day unchanged (ISP dgain 1x).
+- `SetModule_Ratio` defog entry runs the OEM `tisp_s_defog_ratio` on the private defog state. Temper (MDNS) stays cached only (the lifted `tisp_s_mdns_ratio` body uses isp_memopt-relative tables and is unsafe to call).
+
 ## 2026-10-24 (8): T40 AE EV fan-out, user AE caps, ratios (`claude/t40-quality3`; Eufy T40 device proof 17:00)
 
 - **AE EV fan-out:** the OEM AE hands its EV (IT x gain, Q10) to defog, ADR, CCM and BCSH on every change and its total gain to ADR; ours fed only defog and the CCM/BCSH EV were module parameters frozen at 400, the ADR chain sat at its init EV/gain. `regtrace_t40_ev_fanout()` now runs per frame and on every sensor gain update (defog/ADR EV leaves, `ccm_ev`, BCSH EV, ADR tgain; read-only `t40_ev_now`, `t40_ev_follow=0` for A/B). This is the night -> day desaturation (CCM re-init at the stale EV) and part of the night black level (ADR without EV/gain follow lifts the shadows). `frame_3a_target` 118 -> 122 (vendor day luma 122).
