@@ -7479,6 +7479,10 @@ module_param_named(t40_ev_updates, regtrace_t40_ev_updates, bool, 0644);
 static bool regtrace_t40_loopguard;
 static void regtrace_loopguard(const char *fn, const char *lbl);
 #define REGTRACE_LOOPGUARD_BUDGET (regtrace_t40_loopguard ? 2000000U : 0xffffffffU)
+static u32 t40_wdr_out_mode[2];  /* SetWdrOutputMode shadow (linear sensor: flag only) */
+static unsigned int t40_csc_unsafe;  /* 1: allow the broken lifted CSC and CCM get/set (debug only) */
+module_param(t40_csc_unsafe, uint, 0644);
+MODULE_PARM_DESC(t40_csc_unsafe, "allow the lifted OEM CSC get/set (stack/bss overflow, debug only)");
 static unsigned int regtrace_t40_module_ctx_inits;  /* bitmask: run the lifted module inits (1 gamma 2 lsc 4 ccm 8 bcsh 16 clm) after the lit inits */
 module_param_named(t40_module_ctx_inits, regtrace_t40_module_ctx_inits, uint, 0644);
 static unsigned int regtrace_t40_antiflick_hz;      /* 0 = bin default (60 Hz), 50/60 = set after AE init like the vendor app does */
@@ -20874,6 +20878,16 @@ static int regtrace_t40_sensor_fps_get(uint32_t *packed_fps)
     if (!packed_fps)
         return -EINVAL;
 
+    /* T40-FPS-READBACK: after a SetSensorFPS the sensor proc entry kept the boot rate (12 fps delivered,
+     * GetSensorFPS 20/1, Eufy agg43d 2026-10-24); the last accepted request is the truth. */
+    value = READ_ONCE(regtrace_sensor_fps_packed);
+    numerator = value >> 16;
+    denominator = value & 0xffffU;
+    if (numerator && denominator && numerator <= 120U * denominator) {
+        *packed_fps = value;
+        return 0;
+    }
+
     ret = regtrace_read_proc_u32("/proc/jz/sensor/sensor0/fps", &value);
     if (ret)
         ret = regtrace_read_proc_u32("/proc/jz/sensor/fps", &value);
@@ -20951,6 +20965,10 @@ static int regtrace_t40_sensor_fps_send(uint32_t packed_fps)
     ret = regtrace_sensor_call_sensor_ioctl(
         REGTRACE_TX_ISP_EVENT_SENSOR_FPS, payload);
     printk(KERN_INFO "tx_isp_t40_recovered: sensor fps set %u/%u ret=%d\n", numerator, denominator, ret);
+    /* -ENOIOCTLCMD: the sc830ai module has no FPS event; the rate is applied by the AE/VTS path (12 fps
+     * delivered on the Eufy), so the request is recorded for GetSensorFPS all the same. */
+    if (ret == -ENOIOCTLCMD)
+        WRITE_ONCE(regtrace_sensor_fps_packed, packed_fps);
     if (ret)
         return ret;
     WRITE_ONCE(regtrace_sensor_fps_packed, packed_fps);
@@ -45418,6 +45436,21 @@ int32_t tx_isp_mask_g_attr_isra_35(uint32_t a0, uintptr_t a1) __asm__("tx_isp_ma
 #endif
 int32_t tx_isp_mask_g_attr_isra_35(uint32_t a0, uintptr_t a1)
 {
+    /* T40-MASK-GET: the lift passed no buffer to tisp_g_mscaler_mask_attr (NULL store, kernel oops on the first
+     * GetMask, Eufy agg43d 2026-10-24) and dereferenced the user address as a struct holding the destination
+     * pointer.  a1 is the user buffer (g_ctrl passes arg3[1]). */
+    {
+        u8 *mbuf = kzalloc(288, GFP_KERNEL);
+        int mret = 0;
+
+        if (!mbuf)
+            return -ENOMEM;
+        tisp_g_mscaler_mask_attr(a0 > 1 ? 1 : (int32_t)a0, (char *)mbuf);
+        if (copy_to_user((void __user *)a1, mbuf, 288))
+            mret = -EFAULT;
+        kfree(mbuf);
+        return mret;
+    }
     /*
      * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
      * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
@@ -46888,6 +46921,9 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
                     return -1;
                 }
 
+                /* T40-CCM-GUARD: tisp_ccm_set_attr memcpys 40 bytes into the 4-byte ccm_main_ctrl */
+                if (!t40_csc_unsafe)
+                    return -EOPNOTSUPP;
                 int v0_5 = copy_from_user(&var_88, (void __user *)arg3[1], 0x28);
                 s1_1 = v0_5;
 
@@ -46933,6 +46969,10 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
             }
 
             if (v1 == 0x8000096) {
+                /* T40-CSC-GUARD: the lifted tisp_csc_set_attr copies 92 bytes over the isp_memopt
+                 * module parameter (an int) and its set_csc_version tail call is lost. */
+                if (!t40_csc_unsafe)
+                    return -EOPNOTSUPP;
                 int v0_49 = copy_from_user(&var_88, (void __user *)arg3[1], 0x5c);
                 s1_1 = v0_49;
 
@@ -47334,11 +47374,19 @@ label_b660:
             return tx_isp_af_weight_s_attr_isra_13(arg1, arg3[1]);
     }
 
-    copy_from_user(&var_88, (void __user *)arg3[1], 4);
-    char *a1_13 = &var_88;
-    void *a0_8 = arg1;
-    int (*v0_10)(int, int *) = tisp_set_wdr_output_mode;
-    return v0_10((int)a0_8, (int *)a1_13);
+    /* T40-WDR-OUTMODE-SHADOW: the lifted tisp_set_wdr_output_mode walks the WDR parameter array
+     * (null on a linear sensor, oops at tisp_wdr_param_array_get on the Eufy sc830ai 2026-10-24).
+     * Like the vendor on a linear sensor the mode is a stored flag. */
+    {
+        u32 wm = 0, vi = (u32)(uintptr_t)arg1;
+
+        if (copy_from_user(&wm, (void __user *)arg3[1], 4))
+            return -EFAULT;
+        if (wm > 2 || vi > 1)
+            return -EINVAL;
+        t40_wdr_out_mode[vi] = wm;
+        return 0;
+    }
 
 label_b3e8:
     isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", a2_2);
@@ -47565,6 +47613,10 @@ label_c33c_vfree:
     }
 
     if (cmd == 0x8000096) {
+        /* T40-CSC-GUARD: the lifted tisp_csc_get_attr memsets 92 bytes into a 4-byte stack slot
+         * (kernel oops with epc 0 on the first GetISPCSCAttr, Eufy .184 2026-10-24). */
+        if (!t40_csc_unsafe)
+            return -EOPNOTSUPP;
         tisp_get_csc_attr(arg1, __p_80);
         if (private_copy_to_user(arg3[1], __p_80, 0x5c) == 0) {
             return 0;
@@ -47645,7 +47697,13 @@ label_c33c_vfree:
 
     if (cmd < 0x8000073) {
         if (cmd == 0x8000070) {
-            ((void **)arg3)[1] = *(int32_t*)((uint32_t)arg1 * 0x60 + *(uint32_t*)((char*)arg2 + 0x10c) + 0x180);
+            /* T40-FPS-READBACK: the set goes through regtrace_t40_sensor_fps_send, which records the packed
+             * rate in regtrace_sensor_fps_packed; the OEM core word read here stayed at the boot rate (12 fps
+             * delivered, GetSensorFPS 20/1, Eufy agg43d 2026-10-24). */
+            uint32_t fps_set = READ_ONCE(regtrace_sensor_fps_packed);
+
+            ((void **)arg3)[1] = fps_set ? (void *)(uintptr_t)fps_set :
+                (void *)(uintptr_t)*(int32_t*)((uint32_t)arg1 * 0x60 + *(uint32_t*)((char*)arg2 + 0x10c) + 0x180);
             return 0;
         }
 
@@ -47655,8 +47713,10 @@ label_c33c_vfree:
         }
 
         if (cmd == 0x8000054) {
-            tisp_get_wdr_output_mode(arg1, __p_80);
-            private_copy_to_user(arg3[1], __p_80, 4);
+            u32 wm = arg1 > 1 ? 0 : t40_wdr_out_mode[arg1];
+
+            if (copy_to_user((void __user *)(uintptr_t)arg3[1], &wm, 4))
+                return -EFAULT;
             return 0;
         }
 
@@ -47677,6 +47737,10 @@ label_c33c_vfree:
     }
 
     if (cmd == 0x8000080) {
+        /* T40-CCM-GUARD: tisp_ccm_get_attr copies to address 0 (kernel oops on GetCCMAttr, Eufy .184
+         * 2026-10-24) and the wrapper copies an uninitialised stack buffer to the user */
+        if (!t40_csc_unsafe)
+            return -EOPNOTSUPP;
         return tiziano_isp_ccm_attr_g_ctrl_isra_31(arg1, arg3[1]);
     }
 
@@ -126421,6 +126485,9 @@ int32_t tisp_lce_clr_ram1(void)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004b5c8 origin=fragment_seed original=tisp_lce_clear_stat_ram */
 int32_t tisp_lce_clear_stat_ram(uint32_t a0)
 {
+    /* T40-LCE-CLEAR-GUARD: the lifted body faults (BadVA 8, tisp_lce_clear_stat_ram+0x34) on every
+     * SetModuleControl that reaches tisp_reg_map_set; the OEM clears the per-sensor stat RAM. */
+    return a0 ? tisp_lce_clr_ram1() : tisp_lce_clr_ram0();
     uint32_t local_14 = 0;
     uint32_t ra = 0;
     uint32_t t9 = 0;
@@ -126951,6 +127018,10 @@ tisp_lce_curve_init_default0x150:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004bae0 origin=fragment_seed original=tisp_lce_top_change_state */
 int64_t tisp_lce_top_change_state(uint32_t a0)
 {
+    /* T40-LCE-TOP-GUARD: the tool_para block exists only once the LCE module is initialised
+     * (t40_lce_on); without it every SetModuleControl faulted here (BadVA 8, Eufy agg43d 2026-10-24). */
+    if (!(a0 ? *(uint32_t *)((char *)&lce_seco_tool_para) : *(uint32_t *)((char *)&lce_main_tool_para)))
+        return 0;
     uint32_t *a1 = 0;
     uint32_t *a2 = 0;
     uint32_t *a3 = 0;
@@ -172764,7 +172835,9 @@ int32_t tisp_s_mscaler_mask_attr(uint32_t a0, uintptr_t a1)
     if (a0 != 0) { goto tisp_s_mscaler_mask_attr0xe0; }
 
     /* fragment 2: ConstantLoad */
-    s0 = 0x0;
+    /* T40-MASK-S0: the lift lost the vinum 0 state base (movz a1,zero,a0 compiled it to NULL: kernel oops at
+     * tisp_s_mscaler_mask_attr+0x50 on the first SetMask, Eufy agg43d 2026-10-24); the get uses mscaler_s0. */
+    s0 = (uintptr_t *)mscaler_s0;
 
 tisp_s_mscaler_mask_attr0x28:
     /* fragment 3: Arithmetic */

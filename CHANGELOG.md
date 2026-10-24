@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24 (7): T40 lifted-body crashes in the tuning controls (`claude/t40-wip-cells`; Eufy T40 device-tested on a test ko)
+
+- **Kernel oops / memory overwrite fixed or refused on T40** (each reproduced on the Eufy sc830ai with `t40_devtest`): `SetModuleControl` (LCE clear/top-state read NULL tool_para blocks; BadVA 8; the client then left the framechan degraded), `SetMask`/`GetMask` (NULL state base, NULL copy buffer), `SetWdrOutputMode` (lifted setter walks the missing WDR param array; now a stored flag per sensor, read back), `Get/SetISPCSCAttr` and `Get/SetCCMAttr` (92/40-byte copies into 4-byte slots, address 0; refused with -EOPNOTSUPP unless `t40_csc_unsafe=1`).
+- `GetSensorFPS` answers the rate the set recorded (was the boot rate: 12 fps delivered, 20/1 read back).
+- Device proof (test ko = next 091e1fa2 + these patches, 3 runs, 0 oops): LSC bypass through ModuleControl (corner/centre luma 0.971 -> 0.836), ISP flip modes 4/4, mask cover (Y 146 -> 255), WdrOutputMode 0/1/2 readback, SensorFPS 12/1.
+- Still open on T40: AeTargetComp/HLC/BLC and AE caps are stored but never reach the open AE; Sinter/Temper/DRC ratios are stored without visible effect; CCM/CSC are refused; sensor flip modes do not change the picture.
+
 ## 2026-10-24 (8): T40 module size (`claude/t40-size2`; Eufy T40 device-tested)
 
 - **T40 module size:** bring-up parameters (340 experiment switches and diagnostic counters that no tool, script, document, OpenIMP, timps or thingino file uses; 288 parameters remain) and the legacy `/proc/tx_isp_t40_recovered` debug file (register dump, `exit N`, `dumplog`) are built in only on request: `TX_ISP_T40_BRINGUP_PARAMS=y`, `TX_ISP_T40_DEBUG_PROC=y` (Kbuild, default `n`). Stripped module 1557 -> 1445 KB, xz 431 -> 404 KB (.text 1023 -> 987, .rodata+strings 135 -> 103, .modinfo+__param 37 -> 16 KB). Variables keep their defaults, so behaviour is unchanged; passing a removed parameter to `insmod` only logs "unknown parameter ignored". Device (.184, test ko via the autostart swap, restored to stock agg43d afterwards): insmod OK, sc830ai probe, timps up, snapshot and 2 MB of stream, 0 oops/warn. Host: `make -C tests check` 95 passed.
