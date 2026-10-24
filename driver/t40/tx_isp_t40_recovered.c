@@ -7488,7 +7488,7 @@ static u32 t40_wdr_out_mode[2];  /* SetWdrOutputMode shadow (linear sensor: flag
 /* bisect switches for the no-frames hunt (2026-10-24): 1 = also do the OEM-lift stray store of the CSC standard */
 static unsigned int t40_c2_stray T40C2;
 module_param(t40_c2_stray, uint, 0644);
-static unsigned int t40_c2_flip T40C2 = 1;   /* 0 = sensor flip hooks off */
+static unsigned int t40_c2_flip T40C2 = 0;   /* 1 = sensor flip hooks on (experimental: sc830ai frames unchanged, may freeze; vendor ignores sensor flip modes) */
 module_param(t40_c2_flip, uint, 0644);
 static unsigned int t40_csc_unsafe;  /* 1: allow the broken lifted CSC and CCM get/set (debug only) */
 module_param(t40_csc_unsafe, uint, 0644);
