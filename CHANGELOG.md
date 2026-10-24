@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-24 (8): T40 CCM/CSC/GetGamma attributes, sensor-flip groundwork (`claude/t40-cells2`; Eufy T40 device-tested on a test ko)
+
+- **`GetGammaAttr` works on T40** (answers from the programmed soft-gamma LUT: mode 0, 129 monotone nodes, 0 ... 4095).
+- **`Set/GetCCMAttr` work on T40** on the literal CCM state (before: refused, the lifted body copied to address 0): manual flag, saturation flag and matrix are stored, `params_refresh` + `ev_ct_update` apply them; readback manual=1, m00=1.000 on the Eufy. Unlike the vendor (which copies 4 bytes of the manual matrix into each CT matrix), all 9 coefficients are copied. The visible colour change of a red-boost matrix was small (dV +0.7) - treat as functional, effect not yet characterised.
+- **`Set/GetISPCSCAttr` no longer crash**: the T40 libimp block is 64 bytes (the OEM kernel stored 92: stack overrun, SIGSEGV in the caller); standards and the user matrix are programmed (registers 0xd010..0xd030), readback follows. No visible change on channel 0 between BT601 full/limited yet.
+- Fixed a lifted `tisp_set_csc_version` that wrote its state 85 KB past an int module parameter at every `tisp_main_init`.
+- Sensor mirror/flip (HVFLIP 4..8) on sc830ai: the vendor module has no flip event, so the vendor never flips this sensor. The core now writes the sensor's mirror/flip register itself from the HVFLIP ioctl, but the picture does not change yet (writes accepted, no visible effect) - still open.
+- Note for T40 lift work: new static state must not be added to `.bss`/`.data` (the lift reaches the OEM layout through `&isp_memopt + N`); it lives in section `.t40c2`.
+
 ## 2026-10-24 (8): T40 SetScalerLv no longer oopses (`claude/t40-crop-pan`; Eufy T40 device proof)
 
 - **`IMP_ISP_SetScalerLv` on T40 oopsed the kernel** (NULL + 8 in `tisp_set_scaler_level_control`): the lifted body lost the base of the attribute read and, for vinum 0, the register bases of three pointers (only the vinum 1 branch was right). Rewritten from the OEM disassembly (0x75308): weights for fitting-curve (mode 0, neutral 512/0) and level mode (mode 1, level 0..128 -> two weight pairs at 0x161c0..0x161cc + channel * 0x100 + vinum * 0x1000), enable check, load strobe; vinum or channel out of range -> -EINVAL. Device (Eufy .184, test ko): `SetScalerLv` ch0/ch1 mode 1 level 64 and ch0 mode 0 level 128 return 0 on the live stream, 0 oops, ch1 frame gap at most 77 ms. The picture effect was not measured (on T41 the curve levels showed no measurable change at a 4.5:1 scale).
