@@ -995,7 +995,7 @@ static uintptr_t regtrace_ashldi3(uintptr_t value, ...)
 }
 #define __ashldi3 regtrace_ashldi3
 
-unsigned char regtrace_bss_start[0x20000] __asm__("__bss_start");
+unsigned char regtrace_bss_start[0x4400] __asm__("__bss_start");   /* T40-BSS-SHRINK: only &__bss_start + 17328 (8 bytes, tisp_lce_get_debug) is used (was 0x20000) */
 
 __asm__(
     ".data\n"
@@ -1067,7 +1067,7 @@ static struct platform_device tx_isp_csi_platform_device;
 static struct platform_device tx_isp_vin_platform_device;
 static struct platform_device tx_isp_fs_platform_device;
 
-static unsigned char video_input_cmd_buf[0x10000];
+static unsigned char video_input_cmd_buf[0x200];   /* T40-BSS-SHRINK: only constant offsets <= 0x16c are used (was 0x10000) */
 static unsigned char csi_cmd_buf[0x10000];
 static unsigned char vic_cmd_buf[0x10000];
 static uintptr_t vic_err[0x4000];
@@ -1232,7 +1232,7 @@ static uintptr_t isp_ch0_frm_done;
 static uintptr_t isp_err;
 static uintptr_t isp_overflow;
 static uintptr_t lce_data_refresh_flag;
-static uintptr_t lce_debug;
+static uintptr_t lce_debug[2];   /* OEM .bss+17296: 8-byte LCE debug block (word 0 = interrupt count), copied by tisp_lce_get_debug */
 static uintptr_t lce_frm_num;
 static uintptr_t lce_lines;
 static uintptr_t lce_main_awdr_para;
@@ -1573,6 +1573,10 @@ static uintptr_t tparamsN[0x4000];
 static uint32_t tparams_day;
 static uint32_t tparams_night;
 static uint32_t tparams_status;
+/* tx_isp_t40_vct.h (included via tx_isp_t40_vawb.h at the end): OEM TOP word from the bin */
+static uint t40_ct_top_apply;
+static u32 t40_ct_top, t40_ct_top_sel;
+static u32 t40_vct_top_word(const u8 *bin, u32 sel, u32 status, u32 *reg6c);
 static uint32_t tsbin;
 static uint32_t deir_en;
 struct regtrace_sensor_ctrl_main_storage {
@@ -7465,6 +7469,19 @@ static bool t40_antiflick_pending_valid;
 static uint32_t t40_runmode_pending;             /* SetISPRunningMode (CID 0x8000071) received before the tuning context exists */
 static bool t40_runmode_pending_valid;
 static bool regtrace_t40_vendor_awb_process;   /* defined with its module_param further down */
+/* T40-VAWB: vendor AWB = mechanically translated OEM chain (tx_isp_t40_vawb.h / _gen.inc). Read at
+ * tisp_awb_main_init (stream start); 0 = the old lift (fixed seed gains unless t40_vendor_awb_process=1). */
+static bool regtrace_t40_vawb = 1;
+module_param_named(t40_vawb, regtrace_t40_vawb, bool, 0644);
+MODULE_PARM_DESC(t40_vawb, "T40 AWB: 1 = vendor AWB (OEM chain, default), 0 = old lifted path");
+static bool t40_vawb_live;   /* the translated chain owns pstMainAwbOri (set by its init) */
+static int t40_vawb_main_init(uint32_t a0, uint32_t a1);
+static void t40_vawb_cleanup(void);
+static void t40_vawb_get_statistics(uintptr_t addr);
+static int64_t t40_vawb_process(void);
+static uint32_t t40_vawb_dn_params_refresh(uint32_t a0);
+static int32_t t40_vawb_main_ev_update(uint32_t a0);
+static int32_t t40_vawb_tgain_update(uint32_t a0, uint32_t a1, uint32_t a2);
 static bool regtrace_t40_awb_spec_regs;   /* T40-AWB-SPEC-REGS: write the special-light registers 0x180xx (MT98: heap corruption with them, likely a stats DMA without a buffer) */
 module_param_named(t40_awb_spec_regs, regtrace_t40_awb_spec_regs, bool, 0644);
 static bool regtrace_t40_awb_ctd;   /* T40-AWB-CTD: run the lifted tisp_awb_ct_detect (8 KB fragment lift, heap-corruption suspect N9); off = gray-world fallback */
@@ -7943,7 +7960,7 @@ int64_t tisp_lce_get_show_data(uintptr_t a0, uintptr_t a1);
 int32_t tisp_lce_tgain_update(uint32_t a0, uint32_t a1);
 int32_t tisp_lce_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2);
 int32_t tisp_lce_param_array_set(uint32_t a0, uint32_t a1);
-int32_t tisp_lce_get_debug(void);
+int32_t tisp_lce_get_debug(void *dst);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t* tisp_defog_get_data_part_0(uintptr_t a0) __asm__("tisp_defog_get_data.part.0");
 #endif
@@ -9433,7 +9450,33 @@ static uint regtrace_tisp_main_init_reg60_value = 0;
 static uint regtrace_tisp_main_init_reg88_override = 0xffffffffU;
 static uint regtrace_tisp_main_init_csc_version_value = 2;
 static uint regtrace_tisp_main_init_color_init_mask;
-static char *regtrace_t40_tuning_bin_path = "/usr/share/sensor/gc4653-t40.bin";
+/* T40-BIN-PATH: empty = derive the IQ bin from the registered sensor:
+ * 1. the path libimp handed in through TISP_VIDIOC_SET_DEFAULT_BIN_PATH
+ *    (IMP_ISP_SetDefaultBinPath before AddSensor),
+ * 2. this module parameter when set,
+ * 3. /etc/sensor/<name>-t40.bin from the sensor-register ioctl name
+ *    (the vendor layout timps/thingino ship: /etc/sensor/sc830ai-t40.bin),
+ * 4. the old GC4653 fallback.
+ * Before this the default was hard-wired to gc4653-t40.bin: on the Eufy T40XP
+ * (sc830ai) every tisp_main_init logged "tiziano param load ... ret=-2" and
+ * ran without tuning parameters (2026-10-24). */
+static char *regtrace_t40_tuning_bin_path = "";
+static char regtrace_t40_sensor_reg_name[32];
+static char regtrace_t40_user_bin_path[64];
+static char regtrace_t40_bin_path_buf[96];
+static const char *regtrace_t40_resolve_bin_path(void)
+{
+    if (regtrace_t40_user_bin_path[0])
+        return regtrace_t40_user_bin_path;
+    if (regtrace_t40_tuning_bin_path && regtrace_t40_tuning_bin_path[0])
+        return regtrace_t40_tuning_bin_path;
+    if (regtrace_t40_sensor_reg_name[0]) {
+        snprintf(regtrace_t40_bin_path_buf, sizeof(regtrace_t40_bin_path_buf),
+                 "/etc/sensor/%s-t40.bin", regtrace_t40_sensor_reg_name);
+        return regtrace_t40_bin_path_buf;
+    }
+    return "/usr/share/sensor/gc4653-t40.bin";
+}
 static uint regtrace_framechan_wait_msca_timeout_ms = 40;
 static uint regtrace_vic_mdma_qbuf_ring_ctrl_value;
 static uint regtrace_vic_mdma_qbuf_ring_stride_override;
@@ -9789,6 +9832,24 @@ module_param_named(t40_msca_work_cfg_override, regtrace_t40_msca_work_cfg_overri
 module_param_named(t40_msca_work_en_dma_mask, regtrace_t40_msca_work_en_dma_mask, uint, 0644);
 module_param_named(t40_msca_cfg_1602c_value, regtrace_t40_msca_cfg_1602c_value, uint, 0644);
 module_param_named(t40_msca_coeff_override, regtrace_t40_msca_coeff_override, uint, 0644);
+/* T40-CH1-KNOBS (device-test switches, defaults = current behaviour):
+ * t40_msca_oem_coeffs=1   the bring-up profile no longer forces the late
+ *                         coefficient rewrite (0x40080 for every downscale);
+ *                         the coefficients stay as Tzn_Msca_cfg_load wrote them.
+ * t40_msca_oem_1602c=1    the shadow program and the MSCA attr path no longer
+ *                         overwrite 0x1602c with the fixed t40_msca_cfg_1602c_value
+ *                         (0x7400: clears the per-channel flags bits 0-2/4-6,
+ *                         sets "ch2 >= 641"); cfg_load's computed value stays.
+ * t40_msca_ch1_kick=1     ch1 stream-on with ch0 not enabled issues the 0x834
+ *                         shadow kick and the line kick (experimental: no OEM
+ *                         evidence that the OEM kicks differently for ch1-only).
+ * msca_kick834_count/_last_value (read-only) count every 0x834/line kick. */
+static bool regtrace_t40_msca_oem_coeffs;
+module_param_named(t40_msca_oem_coeffs, regtrace_t40_msca_oem_coeffs, bool, 0644);
+static bool regtrace_t40_msca_oem_1602c;
+module_param_named(t40_msca_oem_1602c, regtrace_t40_msca_oem_1602c, bool, 0644);
+static bool regtrace_t40_msca_ch1_kick;
+module_param_named(t40_msca_ch1_kick, regtrace_t40_msca_ch1_kick, bool, 0644);
 module_param_named(t40_profile_no_direct_addr_source, regtrace_t40_profile_no_direct_addr_source, uint, 0644);
 module_param_named(t40_msca_fifo_ch0_y_ctrl, regtrace_t40_msca_fifo_ch0_y_ctrl, uint, 0644);
 module_param_named(t40_msca_fifo_ch0_uv_ctrl, regtrace_t40_msca_fifo_ch0_uv_ctrl, uint, 0644);
@@ -12141,9 +12202,22 @@ static int regtrace_blc_main_init_lit(void)
  * t40_force_bypass.
  */
 static uint32_t regtrace_tisp_main_init_last_wdr;
-static bool regtrace_t40_gates_oem_offset;
+static bool regtrace_t40_gates_oem_offset = true;
 module_param_named(t40_gates_oem_offset, regtrace_t40_gates_oem_offset, bool, 0644);
-MODULE_PARM_DESC(t40_gates_oem_offset, "1 reads the bin bypass flags at +0x00 for linear sensors like stock (default 0: always +0x20, the WDR set)");
+MODULE_PARM_DESC(t40_gates_oem_offset, "1 (default) reads the bin bypass flags at +0x00 for linear sensors like stock tisp_main_init; 0 = old profile behaviour (always +0x20, the WDR set)");
+/*
+ * AWB0 / AWB1 placement like stock (TOP bits 2 and 6 from the bin flags;
+ * stock sc830ai: AWB0 bypassed, AWB1 active, TOP 0x7FD0000D).  The pipe is
+ * BLC(0) -> LSC(1) -> AWB0(2) -> WDR(3) -> DPC(4) -> GIB(5) -> AWB1(6): with
+ * AWB0 active the GIB black level is subtracted after the white-balance
+ * gains (violet shadows) and the AWB statistics see the gained data; stock
+ * bypasses AWB0 and applies the same gains in AWB1 behind GIB
+ * (tisp_awb_set_gain writes 0x4004.. and 0x5004.., trigger 0x5000).
+ * t40_gates_awb=0 keeps the profile's bits 2/6 (old behaviour).
+ */
+static bool regtrace_t40_gates_awb = true;
+module_param_named(t40_gates_awb, regtrace_t40_gates_awb, bool, 0644);
+MODULE_PARM_DESC(t40_gates_awb, "1 (default) takes TOP bits 2 (AWB0) and 6 (AWB1) from the bin flags like stock; 0 keeps the profile bits");
 static uint regtrace_t40_gates_offset_now = 0x20U;
 /*
  * A/B aid, not stock behaviour: the OEM linear gate set bypasses BLC
@@ -12278,6 +12352,17 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
         regtrace_t40_quality_top40_final &= ~BIT(15);
     }
 
+    if (regtrace_t40_gates_awb) {
+        if (flags[2])
+            regtrace_t40_quality_top40_final |= BIT(2);
+        else
+            regtrace_t40_quality_top40_final &= ~BIT(2);
+        if (flags[6])
+            regtrace_t40_quality_top40_final |= BIT(6);
+        else
+            regtrace_t40_quality_top40_final &= ~BIT(6);
+    }
+
     /*
      * The first T40 recovery profile hard-coded these enable bits once
      * at module load.  Day/night banks carry their own bypass policy, just
@@ -12352,10 +12437,12 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
     }
 
     printk(KERN_INFO
-           "tx_isp_t40_recovered: tuning gates off=0x%x flags=0x%08x BLC=%s LSC=%s GIB=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
+           "tx_isp_t40_recovered: tuning gates off=0x%x flags=0x%08x BLC=%s LSC=%s AWB0=%s GIB=%s AWB1=%s BCSH=%s gamma=%u CCM=%u DMSC=%u YDNS=%u YSP=%u SDNS=%u top40=0x%08x\n",
            gate_off, packed, flags[0] ? "bypass" : "active",
            flags[1] ? "bypass" : "active",
+           (regtrace_t40_quality_top40_final & BIT(2)) ? "bypass" : "active",
            flags[5] ? "bypass" : "active",
+           (regtrace_t40_quality_top40_final & BIT(6)) ? "bypass" : "active",
            flags[15] ? "bypass" : "active",
            regtrace_enable_soft_gamma ? 1U : 0U,
            regtrace_enable_ccm ? 1U : 0U,
@@ -16185,6 +16272,17 @@ static int regtrace_isp_block_init_once(const char *where)
      * initializer above has completed, then make later scalar replays retain
      * that final value.
      */
+    /* OEM TOP word from the bin (tisp_main_init 0x1da5c..0x1dae8, tx_isp_t40_vct.h); readable as
+     * t40_ct_top, committed instead of the profile value with t40_ct_top_apply=1 */
+    if (nbuf) {
+        t40_ct_top_sel = *(uint32_t *)(tisp_par_info + 0x74);
+        t40_ct_top = t40_vct_top_word((const uint8_t *)(uintptr_t)nbuf, t40_ct_top_sel, tparams_status, NULL);
+        if (t40_ct_top_apply) {
+            printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init top40 OEM word 0x%08x (sel=%u status=0x%x) replaces 0x%08x\n",
+                   t40_ct_top, t40_ct_top_sel, tparams_status, regtrace_t40_quality_top40_final);
+            regtrace_t40_quality_top40_final = t40_ct_top;
+        }
+    }
     if (regtrace_t40_quality_top40_final !=
         regtrace_tisp_main_init_top40_value) {
         int top_ret = system_reg_write(0x40U,
@@ -16318,6 +16416,7 @@ static void regtrace_isp_block_init_retry(const char *where)
 #define REGTRACE_TISP_VIDIOC_ENUMINPUT 0xc0045402U
 #define REGTRACE_TISP_VIDIOC_G_INPUT 0x80085403U
 #define REGTRACE_TISP_VIDIOC_S_INPUT 0xc0085404U
+#define REGTRACE_TISP_VIDIOC_SET_DEFAULT_BIN_PATH 0xc004542aU   /* T40-BIN-PATH: struct { int vinum; char path[64]; } */
 #define REGTRACE_TISP_VIDIOC_SET_MDNS_BUF_INFO 0x800c540fU
 #define REGTRACE_TISP_VIDIOC_GET_MDNS_BUF_INFO 0x800c5410U
 #define REGTRACE_TISP_VIDIOC_SET_WDR_BUF_INFO 0x800c5411U
@@ -16970,6 +17069,8 @@ static long regtrace_t40_msca_shadow_fifo_last_ret;
 static uint32_t regtrace_t40_msca_shadow_kick_834_count;
 static uint32_t regtrace_t40_msca_shadow_kick_834_last_reg;
 static uint32_t regtrace_t40_msca_shadow_kick_834_last_value;
+module_param_named(msca_kick834_count, regtrace_t40_msca_shadow_kick_834_count, uint, 0444);
+module_param_named(msca_kick834_last_value, regtrace_t40_msca_shadow_kick_834_last_value, uint, 0444);
 static uint32_t regtrace_t40_msca_shadow_kick_834_last_before;
 static uint32_t regtrace_t40_msca_shadow_kick_834_last_after;
 static long regtrace_t40_msca_shadow_kick_834_last_ret;
@@ -19353,7 +19454,9 @@ static int regtrace_tisp_main_init_dma_regs(void)
     subret = regtrace_core_write(0x18040, p + 0x08000); if (subret && !ret) ret = subret;
     subret = regtrace_core_write(0x18044, p + 0x10000); if (subret && !ret) ret = subret;
     subret = regtrace_core_write(0x18048, p + 0x18000); if (subret && !ret) ret = subret;
-    subret = regtrace_core_write(0x1804c, 3); if (subret && !ret) ret = subret;
+    /* OEM writes 3 before tisp_awb_main_init; set_hardware_param then adds the stats-type enables
+     * (vendor 0x03010103).  When this re-runs after the vendor AWB init keep those bits. */
+    subret = regtrace_core_write(0x1804c, READ_ONCE(t40_vawb_live) ? ((uint32_t)system_reg_read(0x1804c) | 3U) : 3U); if (subret && !ret) ret = subret;
     regtrace_tisp_main_init_dma_last_mask |= 1U << 1;
 
     p = regtrace_tisp_dma_hw_addr(2, 0);
@@ -20258,10 +20361,12 @@ static int regtrace_t40_msca_shadow_fifo_program(int trigger_channel,
                                         &pairs);
     if (ret)
         goto out;
-    ret = regtrace_t40_msca_shadow_pair(regtrace_t40_msca_cfg_1602c_value,
-                                        0x1602cU, &pairs);
-    if (ret)
-        goto out;
+    if (!regtrace_t40_msca_oem_1602c) {
+        ret = regtrace_t40_msca_shadow_pair(regtrace_t40_msca_cfg_1602c_value,
+                                            0x1602cU, &pairs);
+        if (ret)
+            goto out;
+    }
 
     for (ch = 0; ch < 3; ch++) {
         regtrace_get_framechan_format((int)ch, &format);
@@ -21412,7 +21517,8 @@ static int regtrace_t40_msca_cfg_program(int trigger_channel,
     ret = regtrace_core_write(REGTRACE_T40_MSCA_WORK_CFG_REG, scale_bits);
     if (ret)
         goto out;
-    ret = regtrace_core_write(0x1602c, regtrace_t40_msca_cfg_1602c_value);
+    ret = regtrace_t40_msca_oem_1602c ? 0 :
+          regtrace_core_write(0x1602c, regtrace_t40_msca_cfg_1602c_value);
     if (ret)
         goto out;
     ret = regtrace_core_write(0x16064, 0);
@@ -21834,6 +21940,12 @@ static int regtrace_core_channel_stream(int channel, int enable)
             ret = regtrace_t40_msca_cfg_program(channel, "stream");
         if (!ret)
             ret = regtrace_msca_cfg_load_pulse(channel, "stream");
+    }
+    if (!ret && regtrace_t40_msca_ch1_kick && channel == 1 &&
+        !(regtrace_msca_ch_en & 1U)) {
+        ret = regtrace_t40_msca_shadow_kick_834("ch1-only stream");
+        if (!ret)
+            ret = regtrace_t40_msca_shadow_kick_line("ch1-only stream");
     }
     if (!ret && regtrace_t40_msca_fifo_ctrl_on_set_fmt) {
         ret = regtrace_t40_msca_program_fifo_ctrl(0, (uint32_t)channel);
@@ -22856,6 +22968,12 @@ static long regtrace_tx_isp_sensor_register_ioctl(unsigned long arg)
         printk(KERN_ERR "tx_isp_t40_recovered: unsupported sensor cbus=%d\n", sensor_info.cbus_type);
         return -EINVAL;
     }
+    /* T40-BIN-PATH: remember the sensor name for /etc/sensor/<name>-t40.bin */
+    strlcpy(regtrace_t40_sensor_reg_name,
+            sensor_info.name[0] ? sensor_info.name : sensor_info.i2c.type,
+            sizeof(regtrace_t40_sensor_reg_name));
+    printk(KERN_INFO "tx_isp_t40_recovered: tuning bin for %s: %s\n",
+           regtrace_t40_sensor_reg_name, regtrace_t40_resolve_bin_path());
 
     if (!regtrace_sensor_client) {
         memset(&board_info, 0, sizeof(board_info));
@@ -23080,6 +23198,22 @@ static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned 
     if (cmd == REGTRACE_TISP_VIDIOC_G_INPUT) {
         ret = regtrace_tx_isp_get_input_ioctl(arg);
         printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x ret=%ld\n", cmd, ret);
+        return ret;
+    }
+    if (cmd == REGTRACE_TISP_VIDIOC_SET_DEFAULT_BIN_PATH) {
+        struct { int32_t vinum; char path[64]; } bp;
+
+        ret = 0;
+        if (copy_from_user(&bp, (const void __user *)(uintptr_t)arg, sizeof(bp)))
+            ret = -EFAULT;
+        else if (bp.vinum != 0)
+            ret = -EINVAL;
+        else {
+            bp.path[sizeof(bp.path) - 1] = '\0';
+            strlcpy(regtrace_t40_user_bin_path, bp.path, sizeof(regtrace_t40_user_bin_path));
+        }
+        printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x set default bin path=%s ret=%ld\n",
+               cmd, regtrace_t40_resolve_bin_path(), ret);
         return ret;
     }
     if (cmd == REGTRACE_TISP_VIDIOC_S_INPUT) {
@@ -23545,7 +23679,7 @@ static int regtrace_t40_tuning_set_running_mode(uint32_t mode)
         ret = regtrace_t40_refresh_daynight_pipeline();
     }
 
-    if (!mode) {
+    if (!mode && (!READ_ONCE(t40_vawb_live) || READ_ONCE(regtrace_awb_control_mode) == 1U)) {   /* vendor AWB sets the gains itself */
         uint32_t rgain = regtrace_day_awb_rgain;
         uint32_t bgain = regtrace_day_awb_bgain;
 
@@ -29438,7 +29572,7 @@ static int regtrace_debug_proc_show(struct seq_file *m, void *v)
     seq_printf(m,
                "tiziano_param_load enable=%u path=%s count=%u ret=%ld read=%ld magic=0x%x/0x%x header=0x%x/0x%x payload=0x%x checksum=0x%x status=0x%x/0x%x day=0x%x/0x%x night=0x%x/0x%x N=0x%x/0x%x regs=%u/%u\n",
                regtrace_enable_tiziano_param_load ? 1U : 0U,
-               regtrace_t40_tuning_bin_path ? regtrace_t40_tuning_bin_path : "<null>",
+               regtrace_t40_resolve_bin_path(),
                regtrace_tiziano_param_load_count,
                regtrace_tiziano_param_load_ret,
                regtrace_tiziano_param_load_read_len,
@@ -41055,8 +41189,10 @@ int32_t video_input_cmd_show(void *arg1)
     void *v0;
     int32_t *i;
     int32_t s2_1;
-    int32_t entry_a2;
-    char *video_input_cmd_buf;
+    int32_t entry_a2 = 0;
+    /* OEM video_input_cmd_show (0x71ac) prints the three 128-byte per-sensor strings of the
+     * global video_input_cmd_buf.  The lift declared a local pointer of the same name here, so
+     * the strlen/sprintf("null") below wrote up to 384 bytes over this stack frame. */
     
     v1 = *(void **)((char *)arg1 + 0x4c);
     v0 = NULL;
@@ -46406,7 +46542,20 @@ static int t40_az_get(uint32_t vinum, void __user *uptr)
 int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
 {
     int *v1 = *arg3;
-    char *var_88;
+    /*
+     * T40-STACK-FRAMES (s_ctrl): the OEM slot sp+0x88 is the start of a WHOLE
+     * user struct - every copy_from_user(&var_88, ..., N) below copies up to
+     * 0x5c bytes (N = 1..0x5c) into it.  As a lone 4-byte scalar the compiler
+     * placed it right below the callee-saved registers, so the antiflicker
+     * SET (CID 0x8000026, 8 bytes {mode, freq}) overwrote the saved s0 with
+     * freq: the caller (isp-m0 tuning ioctl) got s0 = 60 back and oopsed at
+     * BadVA 0x4890 (timps start on the Eufy T40XP, 2026-10-24).  Back the
+     * slot with a 0x60-byte frame; var_88 keeps its OEM type so every
+     * existing &var_88 / *(int *)&var_88 use stays unchanged; the OEM
+     * var_84 word (the struct's second member) is __sframe[1].
+     */
+    uint32_t __sframe[0x18];
+#define var_88 (*(char **)__sframe)
     const char *a2_2;
     int *s1_1;
     int *var_2c;
@@ -46750,7 +46899,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
 
         if ((uintptr_t)s3_2 != *(char **)((char *)*(int **)((char **)arg2 + 0x10c / sizeof(uintptr_t)) + (int)arg1 * 0x60 + 0x180)) {
             *(int *)&var_88 = (int)arg1;
-            char *var_84_1 = s3_2;
+            __sframe[1] = (uint32_t)(uintptr_t)s3_2;   /* OEM var_84: the fps word the sensor ioctl reads at +4 */
 
             if (a0_25 == 0) {
                 s1_1 = -2;
@@ -46791,7 +46940,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
         if ((unsigned int)v1 < 0x8000072) {
             void *s4_2 = *(void **)((char **)arg2 + 0x10c / sizeof(void *));
             *(int *)&var_88 = 0;
-            int var_84_2 = 0;
+            __sframe[1] = 0;   /* OEM var_84 */
             s1_1 = copy_from_user(&var_2c, (void __user *)arg3[1], 4);
 
             if (s1_1 != 0) {
@@ -46964,6 +47113,7 @@ label_b280:
 label_b8bc:
     isp_printf(1, "Failed to set sensor fps=%u, ret=%d\n", (unsigned int)(long)s3_2);
     return s1_1;
+#undef var_88
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000bf14 origin=fragment_seed original=tx_isp_core_ops_g_ctrl */
@@ -57469,7 +57619,14 @@ tx_isp_sensor_release_sensor0xb8:
 int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
 {
     int __maybe_unused __fr = regtrace_fr_mark(0x0a, (uint32_t)arg2);
-    int32_t *var_28;
+    /* T40-STACK-FRAMES: the OEM slot sp+0x28 holds the WHOLE 8-byte initarg
+     * {enable, vinum} copied from user space; as a lone 4-byte scalar the
+     * copy spilled into the next stack slot (today's layout: unused padding,
+     * but tx_isp_core_ops_s_ctrl's identical pattern hit a saved register).
+     * The error unwind clears the OEM enable word (`var_28 = 0` on the OEM
+     * stack), not *(int32_t *)enable. */
+    uint32_t __sframe[2];
+#define var_28 (*(int32_t **)__sframe)
     int32_t *s3 = (int32_t *)((char *)arg1 + 0x3c);
     int32_t *result;
     int32_t *i;
@@ -57503,7 +57660,7 @@ int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
                     if (result != 0 && result != 0xfffffdfd) {
                         isp_printf(2, "[%s %d] s_stream error\n", LC6);
                         j = (char *)arg1 + ((uintptr_t)i << 2);
-                        var_28[0] = 0;
+                        __sframe[0] = 0;   /* OEM: initarg.enable = 0 for the unwind */
                         
                         while (arg1 != j) {
                             j = (char *)j - 4;
@@ -57533,6 +57690,7 @@ int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
     }
 
     return 0;
+#undef var_28
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000117dc origin=fragment_seed original=tx_isp_video_link_stream */
@@ -70980,7 +71138,7 @@ static uint32_t regtrace_tiziano_load_parameters_safe(uint32_t channel,
                                                       uintptr_t path_arg)
 {
     const uint32_t payload_expected = REGTRACE_TISP_PARAM_BYTES * 2U;
-    const char *path = regtrace_t40_tuning_bin_path;
+    const char *path = regtrace_t40_resolve_bin_path();
     uint8_t *bin;
     ssize_t nread;
     uint32_t payload_len;
@@ -95605,6 +95763,16 @@ static void *regtrace_awb_main_inter_alloc(void)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000311b4 origin=fragment_seed original=tisp_awb_main_init */
 int32_t tisp_awb_main_init(uint32_t a0, uint32_t a1)
 {
+    if (regtrace_t40_vawb) {
+        int vret = t40_vawb_main_init(a0, a1);
+
+        WRITE_ONCE(t40_vawb_live, vret == 0);
+        if (!vret)
+            return 0;
+        printk(KERN_WARNING "tx_isp_t40_recovered: vendor AWB init failed (%d), old path\n", vret);
+    } else {
+        WRITE_ONCE(t40_vawb_live, false);
+    }
     /* OEM anchors the AWB pointer table at pstMainAwbOri (.bss+0x3f34), not isp_memopt */
     uint32_t *ctx = pstMainAwbOri;
     void *inter;
@@ -96340,7 +96508,7 @@ int32_t tisp_awb_main_interrupt_static(void)
     }
     addr = *(uint32_t *)(tispinfo + 36);
 
-    if (regtrace_enable_awb_grayworld) {
+    if (regtrace_enable_awb_grayworld && !READ_ONCE(t40_vawb_live)) {
         regtrace_awb_grayworld_irqs++;
         if (!READ_ONCE(regtrace_running_mode) &&
             (regtrace_awb_grayworld_interval == 0 ||
@@ -96356,7 +96524,10 @@ int32_t tisp_awb_main_interrupt_static(void)
         addr += bank * size;
         ((void (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)
             private_dma_cache_sync)(0, addr, size, 0);
-        (void)tisp_awb_get_statistics(addr, (uintptr_t)pstMainAwbOri);
+        if (READ_ONCE(t40_vawb_live))
+            t40_vawb_get_statistics(addr);
+        else
+            (void)tisp_awb_get_statistics(addr, (uintptr_t)pstMainAwbOri);
         {   /* T40-AWB-STATDIAG: raw HW stats words and the algorithm inputs ctx[5] (=a0+20) / ctx[4] (=a0+16) for the first IRQs */
             static unsigned int nsd;
             if (nsd++ < 6 && regtrace_t40_vendor_awb_process) {
@@ -96876,6 +97047,12 @@ static uint32_t regtrace_t40_vendor_awb_process_skipped;
 module_param_named(t40_vendor_awb_process_skipped, regtrace_t40_vendor_awb_process_skipped, uint, 0444);
 int64_t tisp_awb_main_process(void)
 {
+    if (READ_ONCE(t40_vawb_live)) {
+        /* manual WB / frozen (IMPISPWBAttr): keep the gains the control plane wrote */
+        if (READ_ONCE(regtrace_awb_control_mode) == 1U || READ_ONCE(regtrace_awb_control_frozen))
+            return 0;
+        return t40_vawb_process();
+    }
     regtrace_t40_awb_step = 99;   /* T40-AWB-STEP: entered */
     if (!regtrace_t40_vendor_awb_process) {
         regtrace_t40_vendor_awb_process_skipped++;
@@ -97403,6 +97580,8 @@ tisp_awb_param_array_set0x90:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034040 origin=fragment_seed original=tisp_awb_dn_params_refresh */
 uint32_t tisp_awb_dn_params_refresh(uint32_t a0)
 {
+    if (READ_ONCE(t40_vawb_live))
+        return t40_vawb_dn_params_refresh(a0);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -97485,6 +97664,8 @@ tisp_awb_dn_params_refresh0xb4:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034108 origin=fragment_seed original=tisp_awb_tgain_update */
 int32_t tisp_awb_tgain_update(uint32_t a0, uint32_t a1, uint32_t a2)
 {
+    if (READ_ONCE(t40_vawb_live))
+        return t40_vawb_tgain_update(a0, a1, a2);
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -98123,6 +98304,8 @@ void* tisp_awb_main_sel_en(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034aac origin=fragment_seed original=tisp_awb_main_ev_update */
 int32_t tisp_awb_main_ev_update(uint32_t a0)
 {
+    if (READ_ONCE(t40_vawb_live))
+        return t40_vawb_main_ev_update(a0);
     /* Hand translation of OEM 0x354cc: *(pstMainAwbOri[116]) = ev >> 10; tisp_awb_ev_update_Ywgt(&pstMainAwbOri);
      * tail call tisp_awb_set_lum_th_freq(&pstMainAwbOri, 0).  The lift wrote through video_input_cmd_buf+0x50 and
      * passed &isp_memopt (MT65 Oops at +0x3c once event 8 ran). */
@@ -128767,11 +128950,13 @@ tisp_lce_param_array_set0xa4:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004da38 origin=model_output original=tisp_lce_get_debug */
-int32_t tisp_lce_get_debug(void)
+int32_t tisp_lce_get_debug(void *dst)
 {
-    extern unsigned char __bss_start;
-    unsigned char *dest = &__bss_start + 17328;
-    memcpy(dest, (void *)0, 8);
+    /* OEM 0x4dd38: memcpy(dst = a0, &lce_debug (.bss+17296, the LCE interrupt counter that
+     * tisp_lce_main_interrupt_static increments), 8).  The lift had lost the argument and
+     * copied 8 bytes from NULL into a placeholder instead. */
+    if (dst)
+        memcpy(dst, &lce_debug, 8);
     return 0;
 }
 
@@ -186790,7 +186975,7 @@ static void regtrace_apply_t40_bringup_profile(void)
     regtrace_enable_t40_msca_shadow_kick_834 = true;
     regtrace_t40_msca_shadow_write_load_mask = true;
     regtrace_t40_msca_rewrite_full_size_late = true;
-    regtrace_t40_msca_rewrite_coeffs_late = true;
+    regtrace_t40_msca_rewrite_coeffs_late = !regtrace_t40_msca_oem_coeffs;
     regtrace_t40_msca_coeff_override = 0x40080;
     regtrace_t40_msca_fifo_ctrl_on_set_fmt = true;
     regtrace_t40_msca_fifo_addr_tag_write = true;
@@ -187212,7 +187397,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
             cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
             cancel_work_sync(&regtrace_isp_block_init_work);
             break;
-        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); break;
+        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); t40_vawb_cleanup(); break;
         case 4: regtrace_dmsc_lit_cleanup(); break;
         case 5: regtrace_lsc_lit_cleanup(); break;
         case 6: regtrace_tisp_main_init_param_free(); tisp_disable_tuning(); break;
@@ -187541,6 +187726,8 @@ EXPORT_SYMBOL(private_msleep);
 EXPORT_SYMBOL(private_capable);
 EXPORT_SYMBOL(isp_printf);
 #endif
+
+#include "tx_isp_t40_vawb.h"
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("tx isp driver");

@@ -571,7 +571,12 @@ Rejected:
 
 Recommended insmod line (since the defaults patch the best settings are the driver defaults):
 
-    insmod tx-isp-t40.ko isp_clk=300000000 t40_tuning_bin_path=/etc/sensor/sc830ai-t40.bin
+    insmod tx-isp-t40.ko isp_clk=300000000
+
+(Since claude/t40-bind-fix the IQ bin is derived from the registered sensor:
+IMP_ISP_SetDefaultBinPath path > `t40_tuning_bin_path=` > `/etc/sensor/<name>-t40.bin`
+> the old gc4653 fallback; before that the parameter had to be given, otherwise
+`tiziano param load ... gc4653-t40.bin ret=-2` and the pipeline ran untuned.)
 
 All former tuning parameters (t40_quality_profile=1, t40_force_bypass=0x20000, t40_force_active=0x6020, enable_dmsc_static, dmsc_stock_current_overlay, frame_3a_interval=3, frame_3a_slide_window, frame_awb_bggr_fast, t40_gamma_from_bin) are now defaults and stay overridable. The BGGR white-balance seed is only applied when the sensor runs 3840x2160 (the calibrated sc830ai); the sensor frame size is taken from the sensor instead of sensor_full_*_override. Device check on the Eufy: same picture as the old long line (frame Y 184, neighbour diff 3.15, TOP 0x7FFF08D8).
 
