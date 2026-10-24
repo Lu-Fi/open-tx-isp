@@ -28498,6 +28498,58 @@ static long regtrace_framechan_private_ioctl(int channel, unsigned int cmd, unsi
     }
 }
 
+/*
+ * Per-channel owner of the stream and of the buffer set.  The OEM
+ * frame_channel_release stops the vb2 stream and frees the queue when the
+ * channel is streaming; the recovered release only cleared private_data, so
+ * a client that died while streaming (kill -9, SIGSEGV in libimp) left the
+ * streaming flag set and every later STREAMON returned -EBUSY until reboot
+ * (.184 2026-10-24).  Only the file that started the stream stops it on
+ * close, so a second opener (diagnostic tool) closing its fd cannot tear a
+ * live stream down.
+ */
+static struct file *regtrace_framechan_stream_owner[4];
+static struct file *regtrace_framechan_buf_owner[4];
+static long regtrace_framechan_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
+
+static void regtrace_framechan_release_owned(int channel, struct file *file)
+{
+    unsigned char *ctx;
+    long ret = 0;
+    int stream_owner;
+    int buf_owner;
+
+    if (channel < 0 || channel >= 4 || !file)
+        return;
+    stream_owner = regtrace_framechan_stream_owner[channel] == file;
+    buf_owner = regtrace_framechan_buf_owner[channel] == file;
+    if (!stream_owner && !buf_owner)
+        return;
+
+    ctx = regtrace_bind_framechan_context(channel);
+    if (stream_owner) {
+        if (ctx && (*(uint8_t *)(ctx + REGTRACE_FRAMECHAN_STREAMING_FLAG_OFFSET) & 1U))
+            ret = regtrace_framechan_ioctl(file, REGTRACE_TISP_VIDIOC_STREAMOFF, 0);
+        regtrace_framechan_stream_owner[channel] = NULL;
+    }
+    if (ctx && (*(uint8_t *)(ctx + REGTRACE_FRAMECHAN_STREAMING_FLAG_OFFSET) & 1U)) {
+        /* streamoff failed: keep the buffers (the IRQ path may still own
+         * them) but do not leave the channel wedged for the next client. */
+        printk(KERN_WARNING "tx_isp_t40_recovered: framechan%d release: streamoff ret=%ld, clearing stale streaming flag\n",
+               channel, ret);
+        *(uint8_t *)(ctx + REGTRACE_FRAMECHAN_STREAMING_FLAG_OFFSET) &= ~1U;
+        *(uint32_t *)(ctx + REGTRACE_FRAMECHAN_STATE_OFFSET) =
+            REGTRACE_FRAMECHAN_STATE_READY;
+    } else if (buf_owner && ctx) {
+        regtrace_framechan_free_repaired_buffers(channel, ctx,
+            *(uint32_t *)(ctx + REGTRACE_FRAMECHAN_BUFFER_COUNT_OFFSET));
+    }
+    if (buf_owner)
+        regtrace_framechan_buf_owner[channel] = NULL;
+    printk(KERN_INFO "tx_isp_t40_recovered: framechan%d release by owner: stream=%d bufs=%d streamoff=%ld pid=%d comm=%s\n",
+           channel, stream_owner, buf_owner, ret, current->pid, current->comm);
+}
+
 static int regtrace_framechan_open(struct inode *inode, struct file *file)
 {
     int channel = regtrace_framechan_index(file);
@@ -28527,6 +28579,7 @@ static int regtrace_framechan_release(struct inode *inode, struct file *file)
     int channel = regtrace_framechan_index(file);
 
     (void)inode;
+    regtrace_framechan_release_owned(channel, file);
     if (file) {
         file->private_data = NULL;
     }
@@ -28702,6 +28755,16 @@ static long regtrace_framechan_ioctl(struct file *file, unsigned int cmd, unsign
                     }
                 }
             }
+        }
+        if (channel >= 0 && channel < 4 && file) {
+            if (cmd == REGTRACE_TISP_VIDIOC_STREAMON && ret == 0)
+                regtrace_framechan_stream_owner[channel] = file;
+            else if (cmd == REGTRACE_TISP_VIDIOC_STREAMOFF && ret >= 0)
+                regtrace_framechan_stream_owner[channel] = NULL;
+            else if (cmd == REGTRACE_TISP_VIDIOC_REQBUFS && ret >= 0)
+                regtrace_framechan_buf_owner[channel] = ctx &&
+                    *(uint32_t *)(ctx + REGTRACE_FRAMECHAN_BUFFER_COUNT_OFFSET) ?
+                    file : NULL;
         }
         regtrace_framechan_note_ret(channel, ret);
         if (regtrace_framechan_log_ret(channel, cmd, ret)) {
