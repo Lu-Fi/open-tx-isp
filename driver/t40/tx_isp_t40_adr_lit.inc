@@ -25,9 +25,9 @@
  * fan-out path is blocked while this chain is active); the process runs
  * only from event 2.
  */
-static bool regtrace_t40_adr_on;
+static bool regtrace_t40_adr_on = true;
 module_param_named(t40_adr_on, regtrace_t40_adr_on, bool, 0644);
-MODULE_PARM_DESC(t40_adr_on, "1 (with t40_gates_oem_offset=1) runs the literal OEM ADR chain and clears TOP bit 7 after a successful init (default 0)");
+MODULE_PARM_DESC(t40_adr_on, "1 (with t40_gates_oem_offset=1) runs the literal OEM ADR chain and clears TOP bit 7 after a successful init (default 1)");
 static bool regtrace_t40_adr_lit_active;
 static int regtrace_adr_lit_init_ret = -1;
 static unsigned int regtrace_adr_lit_isr_count, regtrace_adr_lit_process_count;

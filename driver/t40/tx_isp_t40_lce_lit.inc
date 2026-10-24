@@ -13,9 +13,9 @@
  * wdr_lce_para are shared.  Active only with t40_lce_on=1 and
  * t40_gates_oem_offset=1; TOP bit 21 is cleared only when the init returned 0.
  */
-static bool regtrace_t40_lce_on;
+static bool regtrace_t40_lce_on = true;
 module_param_named(t40_lce_on, regtrace_t40_lce_on, bool, 0644);
-MODULE_PARM_DESC(t40_lce_on, "1 (with t40_gates_oem_offset=1) runs the literal OEM LCE chain and clears TOP bit 21 after a successful init (default 0)");
+MODULE_PARM_DESC(t40_lce_on, "1 (with t40_gates_oem_offset=1) runs the literal OEM LCE chain and clears TOP bit 21 after a successful init (default 1)");
 static bool regtrace_t40_lce_lit_active;
 static int regtrace_lce_lit_init_ret = -1;
 static unsigned int regtrace_lce_lit_isr_count, regtrace_lce_lit_process_count;
