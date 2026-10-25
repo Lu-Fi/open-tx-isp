@@ -19754,6 +19754,43 @@ static int regtrace_core_first_frame_regs(int enable)
     return ret;
 }
 
+/*
+ * Exit hardening (beyond the OEM): the VICs the stream started, so the exit can stop them before the
+ * statistics buffers are freed.  The OEM frees them with AE/AWB statistics still enabled and the VIC
+ * running; that is only safe because the sensor is in standby by then (no frames, no DMA).  A sensor
+ * that keeps sending (or a model of one) would let the ISP write into freed pages.
+ */
+static volatile void __iomem *t40_vic_started_base[REGTRACE_MAX_IRQS_PER_DEVICE];
+static bool t40_exit_stats_off = true;
+module_param(t40_exit_stats_off, bool, 0644);
+MODULE_PARM_DESC(t40_exit_stats_off, "exit: also clear the AE/AWB statistics enables (0x19000/0x18000) before freeing their buffers");
+static bool t40_exit_vic_reset = true;
+module_param(t40_exit_vic_reset, bool, 0644);
+MODULE_PARM_DESC(t40_exit_vic_reset, "exit: reset the started VICs before the statistics buffers are freed");
+
+static void t40_exit_quiesce_dma(void)
+{
+    unsigned int i, vics = 0;
+
+    for (i = 0; i < REGTRACE_MAX_IRQS_PER_DEVICE; i++) {
+        if (!t40_vic_started_base[i])
+            continue;
+        if (t40_exit_vic_reset) {
+            writel(2, t40_vic_started_base[i] + 0x00);  /* VIC reset: no frames into the ISP */
+            vics++;
+        }
+        t40_vic_started_base[i] = NULL;
+    }
+    wmb();
+    /* AE / AWB statistics off (tisp_main_init and the AE/AWB init set them again on the next load) */
+    if (t40_exit_stats_off) {
+        regtrace_core_write(0x19000, 0);
+        regtrace_core_write(0x18000, 0);
+    }
+    printk(KERN_INFO "tx_isp_t40_recovered: exit: %u VIC(s) reset, AE/AWB statistics off before the buffers are freed\n",
+           vics);
+}
+
 static void regtrace_tisp_dma_free(void)
 {
     unsigned int i;
@@ -26455,6 +26492,8 @@ static int regtrace_t40_vic_start_mipi(uintptr_t vic_dev, uint32_t channel)
     regtrace_vic_start_diag_readback(base);
     regtrace_t40_apply_stock_vic_overrides(base, mapped_index, "vic-start");
     regtrace_vic_start_diag_readback(base);
+    if (mapped_index < REGTRACE_MAX_IRQS_PER_DEVICE)
+        t40_vic_started_base[mapped_index] = base;
 
     printk(KERN_INFO "tx_isp_t40_recovered: VIC MIPI start ch=%u mapped=%u regs=%p attr=%p %ux%u twidth=%u csi=%u ctrl=0x%x reg10c=0x%x wait=%d\n",
            channel, mapped_index, (void *)base, (void *)attr, width, height,
@@ -188509,7 +188548,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
         case 4: regtrace_dmsc_lit_cleanup(); break;
         case 5: regtrace_lsc_lit_cleanup(); break;
         case 6: regtrace_tisp_main_init_param_free(); tisp_disable_tuning(); break;
-        case 7: regtrace_tisp_dma_free(); break;
+        case 7: t40_exit_quiesce_dma(); regtrace_tisp_dma_free(); break;
         case 8: regtrace_vic_mdma_internal_free(); break;
         case 9: regtrace_unregister_bootstrap_devices(); break;
         /* fs before core: the fs remove cancels its vb2 queues, which sends events to the core pads

@@ -94,6 +94,7 @@ Defaults of `tx-isp-t23.ko` in the release candidate. The switches are `0644` mo
 ## Better than the vendor driver
 
 - Reload and stop: 10 stop/start and rmmod/insmod cycles without an oops on T20/T21/T23/T31/T41 (T10: 5 cycles).
+- T40: rmmod resets the VICs and switches the AE/AWB statistics off before their buffers are freed, so a sensor that keeps sending frames cannot make the ISP write into freed memory (the vendor frees them with the statistics running).
 - T20/T10 give back about 8 MB RAM (unused 8 MiB V4L2 frame pool off by default); on a T20 the open stack measured 10.5 % application CPU against 25.2 % with the vendor stack, snapshots 0.20 s against 0.45 s.
 - Smaller modules than the vendor on T21, T23 and T31.
 - Checked inputs (all user copies, QBUF window, bounded waits), sensor module pinned while streaming.
