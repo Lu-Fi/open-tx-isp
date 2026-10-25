@@ -24611,9 +24611,19 @@ int tx_isp_request_irq(struct platform_device *pdev,
 	}
 
 	spin_lock_init(&irqdev->slock);
+	/*
+	 * Register the handler with the line kept disabled (depth 1, as the
+	 * disable right after request_irq used to leave it).  A VIC/ISP status bit
+	 * latched by the previous load (the VIC is never stopped) otherwise fires
+	 * into the half-initialised handler, which returns without acknowledging
+	 * it: the level interrupt then livelocks the CPU before the disable below
+	 * can run ("BUG: soft lockup" in modprobe on every reload after streaming).
+	 */
+	irq_set_status_flags(irq, IRQ_NOAUTOEN);
 	ret = private_request_threaded_irq(irq, isp_irq_handle,
 					   isp_irq_thread_handle, IRQF_ONESHOT,
 					   pdev->name, irqdev);
+	irq_clear_status_flags(irq, IRQ_NOAUTOEN);
 	if (ret) {
 		isp_printf(2, "%s[%d] Failed to request irq(%d).\n",
 			   __func__, __LINE__, irq);
@@ -24624,7 +24634,6 @@ int tx_isp_request_irq(struct platform_device *pdev,
 	irqdev->irq = irq;
 	irqdev->enable_irq = tx_isp_enable_irq;
 	irqdev->disable_irq = tx_isp_disable_irq;
-	tx_isp_disable_irq(irqdev);
 	return 0;
 }
 
