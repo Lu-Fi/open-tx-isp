@@ -646,7 +646,7 @@ static int t32_proc_show(struct seq_file *m, void *v)
 {
 	struct t32_vi *vi = &core.vi[0];
 
-	seq_printf(m, "tx-isp-t32 (open, S1 skeleton)\n");
+	seq_printf(m, "tx-isp-t32 (open, S2: frames, no tisp)\n");
 	seq_printf(m, "sensor: %s registered %d input %d streaming %d %ux%u\n",
 		   vi->registered ? vi->info.name : "-", vi->registered,
 		   vi->input_on, vi->streaming, vi->width, vi->height);
@@ -711,7 +711,7 @@ int tx_isp_t32_core_init(void)
 		proc_create("isp-m0", 0444, core.proc, &t32_proc_fops);
 		proc_create("isp-w02", 0444, core.proc, &t32_proc_fops);
 	}
-	pr_info("tx-isp-t32: open driver S1 skeleton loaded (memopt %u)\n", isp_memopt);
+	pr_info("tx-isp-t32: open driver loaded (S2: frames, no tisp) (memopt %u)\n", isp_memopt);
 	return 0;
 
 err_hw:
