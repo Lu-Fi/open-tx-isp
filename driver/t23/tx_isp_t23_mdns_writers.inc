@@ -1,4 +1,20 @@
 /* Generated from the checked-in T31 MDNS source reference. */
+#include "tx_isp_t23_mdns_hold.h"
+
+/*
+ * mdns_ref_hold (0644, default 0): see tx_isp_t23_mdns_hold.h.  Setting it
+ * rewrites the reference weight words at once (hold on, or the computed
+ * values again on release) so the state does not wait for the next gain step.
+ */
+static unsigned int regtrace_t23_mdns_ref_hold;
+
+static inline u32 regtrace_t23_mdns_hold(unsigned int reg, u32 computed)
+{
+    unsigned int hold = ACCESS_ONCE(regtrace_t23_mdns_ref_hold);
+
+    return hold ? t23_mdns_hold_word(hold, reg, computed) : computed;
+}
+
 static inline u32 regtrace_t23_mdns_pack4(const u32 *array, unsigned int start)
 {
     if (!array)
@@ -137,20 +153,20 @@ static int regtrace_t23_mdns_y_3d_param_cfg(void)
     system_reg_write(0x7994, regtrace_t23_mdns_pack4(mdns_y_ref_wei_psn_array, 12));
 
     /* ref_wei scalar params */
-    system_reg_write(0x7998,
+    system_reg_write(0x7998, regtrace_t23_mdns_hold(0x7998,
                      mdns_y_ref_wei_psn_fs_opt_intp |
                      (mdns_y_ref_wei_sta_fs_opt_intp << 4) |
                      (mdns_y_ref_wei_fake_intp << 8) |
-                     (mdns_y_ref_wei_mv_intp << 16));
-    system_reg_write(0x799c,
+                     (mdns_y_ref_wei_mv_intp << 16)));
+    system_reg_write(0x799c, regtrace_t23_mdns_hold(0x799c,
                      mdns_y_ref_wei_f_max_intp |
                      (mdns_y_ref_wei_f_min_intp << 8) |
                      (mdns_y_ref_wei_b_max_intp << 16) |
-                     (mdns_y_ref_wei_b_min_intp << 24));
-    system_reg_write(0x79a0,
+                     (mdns_y_ref_wei_b_min_intp << 24)));
+    system_reg_write(0x79a0, regtrace_t23_mdns_hold(0x79a0,
                      mdns_y_ref_wei_r_max_intp |
                      (mdns_y_ref_wei_r_min_intp << 8) |
-                     (mdns_y_ref_wei_increase_intp << 16));
+                     (mdns_y_ref_wei_increase_intp << 16)));
 
     /* Histogram config */
     hist_sta_en = mdns_y_hist_sta_en_intp;
@@ -431,18 +447,18 @@ static int regtrace_t23_mdns_c_3d_param_cfg(void)
                      (mdns_c_sad_dtb_thres_intp << 24));
 
     /* Ref weight */
-    system_reg_write(0x7a68,
+    system_reg_write(0x7a68, regtrace_t23_mdns_hold(0x7a68,
                      (mdns_c_ref_wei_fake_intp << 8) |
-                     (mdns_c_ref_wei_mv_intp << 16));
-    system_reg_write(0x7a6c,
+                     (mdns_c_ref_wei_mv_intp << 16)));
+    system_reg_write(0x7a6c, regtrace_t23_mdns_hold(0x7a6c,
                      mdns_c_ref_wei_f_max_intp |
                      (mdns_c_ref_wei_f_min_intp << 8) |
                      (mdns_c_ref_wei_b_max_intp << 16) |
-                     (mdns_c_ref_wei_b_min_intp << 24));
-    system_reg_write(0x7a70,
+                     (mdns_c_ref_wei_b_min_intp << 24)));
+    system_reg_write(0x7a70, regtrace_t23_mdns_hold(0x7a70,
                      mdns_c_ref_wei_r_max_intp |
                      (mdns_c_ref_wei_r_min_intp << 8) |
-                     (mdns_c_ref_wei_increase_intp << 16));
+                     (mdns_c_ref_wei_increase_intp << 16)));
 
     /* Corner */
     system_reg_write(0x7a04,
@@ -698,3 +714,68 @@ static int regtrace_t23_mdns_c_2d_param_cfg(void)
 
     return 0;
 }
+
+/* Rewrite just the reference weight words (y/c 3d cfg do the same among many). */
+static void regtrace_t23_mdns_ref_hold_apply(void)
+{
+    if (!mdns_y_sta_blk_size_intp)      /* tuning interpolation has not run yet */
+        return;
+    system_reg_write(0x7998, regtrace_t23_mdns_hold(0x7998,
+                     mdns_y_ref_wei_psn_fs_opt_intp |
+                     (mdns_y_ref_wei_sta_fs_opt_intp << 4) |
+                     (mdns_y_ref_wei_fake_intp << 8) |
+                     (mdns_y_ref_wei_mv_intp << 16)));
+    system_reg_write(0x799c, regtrace_t23_mdns_hold(0x799c,
+                     mdns_y_ref_wei_f_max_intp |
+                     (mdns_y_ref_wei_f_min_intp << 8) |
+                     (mdns_y_ref_wei_b_max_intp << 16) |
+                     (mdns_y_ref_wei_b_min_intp << 24)));
+    system_reg_write(0x79a0, regtrace_t23_mdns_hold(0x79a0,
+                     mdns_y_ref_wei_r_max_intp |
+                     (mdns_y_ref_wei_r_min_intp << 8) |
+                     (mdns_y_ref_wei_increase_intp << 16)));
+    system_reg_write(0x7a68, regtrace_t23_mdns_hold(0x7a68,
+                     (mdns_c_ref_wei_fake_intp << 8) |
+                     (mdns_c_ref_wei_mv_intp << 16)));
+    system_reg_write(0x7a6c, regtrace_t23_mdns_hold(0x7a6c,
+                     mdns_c_ref_wei_f_max_intp |
+                     (mdns_c_ref_wei_f_min_intp << 8) |
+                     (mdns_c_ref_wei_b_max_intp << 16) |
+                     (mdns_c_ref_wei_b_min_intp << 24)));
+    system_reg_write(0x7a70, regtrace_t23_mdns_hold(0x7a70,
+                     mdns_c_ref_wei_r_max_intp |
+                     (mdns_c_ref_wei_r_min_intp << 8) |
+                     (mdns_c_ref_wei_increase_intp << 16)));
+}
+
+static int regtrace_t23_mdns_ref_hold_set(const char *val,
+                                          const struct kernel_param *kp)
+{
+    unsigned int v;
+    int ret = kstrtouint(val, 0, &v);
+
+    (void)kp;
+    if (ret)
+        return ret;
+    if (v & ~T23_MDNS_HOLD_MASK)
+        return -EINVAL;
+    ACCESS_ONCE(regtrace_t23_mdns_ref_hold) = v;
+    regtrace_t23_mdns_ref_hold_apply();
+    return 0;
+}
+
+static int regtrace_t23_mdns_ref_hold_get(char *buffer,
+                                          const struct kernel_param *kp)
+{
+    (void)kp;
+    return scnprintf(buffer, PAGE_SIZE, "%u\n",
+                     ACCESS_ONCE(regtrace_t23_mdns_ref_hold));
+}
+
+static struct kernel_param_ops regtrace_t23_mdns_ref_hold_ops = {
+    .set = regtrace_t23_mdns_ref_hold_set,
+    .get = regtrace_t23_mdns_ref_hold_get,
+};
+module_param_cb(mdns_ref_hold, &regtrace_t23_mdns_ref_hold_ops, NULL, 0644);
+MODULE_PARM_DESC(mdns_ref_hold,
+                 "MDNS reference weight hold bitmask, default 0 = driver computed: 1 luma/chroma ref weight max (0x799c/0x7a6c), 2 fake/mv weight max, 4 r_max/r_min max");
