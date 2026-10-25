@@ -1,0 +1,10 @@
+# Open T32 (PRJ007) TX-ISP driver, S1 skeleton: device nodes, sensor
+# registration through the prebuilt T32 sensor modules, and the libimp 2.2.0
+# ioctl ABI up to EnableSensor.  The ISP pipeline (VIC/CSI/MSCA/tisp) follows
+# in S2/S3 (audit/T32_S0_1025.md for the plan).
+tx-isp-t32-objs := tx_isp_t32_sinfo.o \
+		   tx_isp_t32_core.o \
+		   tx_isp_t32_funcs.o
+obj-m += tx-isp-t32.o
+
+ccflags-y += -I$(src)/../include -std=gnu99
