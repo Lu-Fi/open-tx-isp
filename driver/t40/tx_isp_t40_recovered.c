@@ -82228,8 +82228,10 @@ tisp_ae_main_init0x17c:
     /* fragment 23: CallSetup */
     v1 = *(uint32_t *)((char *)&pstMainAeOri + 288);
     v1 = v1 ? ((*(uint8_t *)((char *)v1 + 20)) + 1) : 1;
-    *(uint8_t *)((char *)((char *)&tx_isp_core_platform_device + 0x189)) = v1;
-    *(uint8_t *)((char *)((char *)&tx_isp_core_platform_device + 0x18a)) = v1;
+    /* T40-LAYOUT: removed byte writes to tx_isp_core_platform_device + 0x189/0x18a (inside the registered
+     * struct device; the OEM tisp_ae_*_init stores nothing here).  They corrupted the device and made the
+     * next unregister/register oops (QEMU: BUG in kfree from dev_set_name on the 2nd insmod). */
+    (void)v1;
     printk(KERN_INFO "tx_isp_t40_recovered: AECHK pre-register (about to system_irq_func_set 4)\n");
     v0 = (uintptr_t *)(uintptr_t)system_irq_func_set(5, (int32_t)(uintptr_t)&tisp_ae_main_interrupt_hist); /* jalr target resolved by relocation */
 
@@ -82382,8 +82384,10 @@ tisp_ae_sec_init0x124:
     /* fragment 19: CallSetup */
     s1 = *(uint32_t *)((char *)&pstSecAeOri + 288);
     s1 = s1 ? ((*(uint8_t *)((char *)s1 + 20)) + 1) : 1;
-    *(uint8_t *)((char *)((char *)&tx_isp_vin_platform_device + 0x9d)) = s1;
-    *(uint8_t *)((char *)((char *)&tx_isp_vin_platform_device + 0x9e)) = s1;
+    /* T40-LAYOUT: removed byte writes to tx_isp_vin_platform_device + 0x9d/0x9e (inside the registered
+     * struct device; the OEM tisp_ae_*_init stores nothing here).  They corrupted the device and made the
+     * next unregister/register oops (QEMU: BUG in kfree from dev_set_name on the 2nd insmod). */
+    (void)s1;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_set_hardware_param)(&pstSecAeOri, 1); /* jalr target resolved by relocation */
 
     /* fragment 20: CallSetup */
