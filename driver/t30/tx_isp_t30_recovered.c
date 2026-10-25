@@ -57729,8 +57729,44 @@ static void tx_isp_t30_root_driver_unregister(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000038a40 origin=model_output original=cleanup_module */
+/*
+ * The core keeps the sensor attribute pointer (core + 0x120), which points
+ * into the sensor module's data.  The AE interrupt path reads it, so it must
+ * not outlive that module: GOING is notified after the module's exit() and
+ * before its memory is freed (rmmod of the sensor module oopsed in
+ * tx_isp_t30_simple_ae_update on the freed attribute, "Fatal exception in
+ * interrupt").
+ */
+static int tx_isp_t30_sensor_module_notify(struct notifier_block *nb,
+					   unsigned long action, void *data)
+{
+	struct module *mod = data;
+	struct tx_isp_t30_core_sensor_view *core = ispcore;
+	unsigned long attr;
+
+	(void)nb;
+	if (action != MODULE_STATE_GOING || !mod || !core)
+		return NOTIFY_DONE;
+	attr = core->sensor_attr;
+	if (attr &&
+	    ((attr >= (unsigned long)mod->module_core &&
+	      attr < (unsigned long)mod->module_core + mod->core_size) ||
+	     (attr >= (unsigned long)mod->module_init &&
+	      attr < (unsigned long)mod->module_init + mod->init_size))) {
+		pr_info("tx-isp-t30: dropping sensor attribute of unloading module %s\n",
+			mod->name);
+		core->sensor_attr = 0;
+	}
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block tx_isp_t30_sensor_module_nb = {
+	.notifier_call = tx_isp_t30_sensor_module_notify,
+};
+
 void cleanup_module(void)
 {
+    unregister_module_notifier(&tx_isp_t30_sensor_module_nb);
     tx_isp_t30_v4l2_cleanup();
     tx_isp_sinfo_exit();
     tx_isp_t30_root_driver_unregister();
@@ -58027,8 +58063,10 @@ int32_t init_module(void)
 		private_platform_device_unregister(&tx_isp_platform_device);
 		return r;
 	}
+	register_module_notifier(&tx_isp_t30_sensor_module_nb);
 	r = tx_isp_t30_v4l2_init();
 	if (r != 0) {
+		unregister_module_notifier(&tx_isp_t30_sensor_module_nb);
 		tx_isp_sinfo_exit();
 		tx_isp_t30_root_driver_unregister();
 		private_platform_device_unregister(&tx_isp_platform_device);
