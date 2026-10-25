@@ -17,6 +17,7 @@ and the WDR table set where the chain has one.
     ./run.sh dpc <sensor-t40.bin>... [fuzz:<seed>...]
     ./run.sh lce <sensor-t40.bin>... [fuzz:<seed>...]
     ./run.sh sdns <sensor-t40.bin>... [fuzz:<seed>...]
+    ./run.sh defog <sensor-t40.bin>... [fuzz:<seed>...]
 
 LCE runs whole frames: init at six resolutions (3840x2160 ... 640x360, the last one below the
 OEM minimum cell area, so init must fail on both sides), 160 frames each through the statistics
@@ -26,6 +27,15 @@ full 32-bit garbage), total gain changes, bank switches, WDR light lock on/off w
 `wdr_lce_para`, session cleanup. Before the frames, 20000 random calls of every helper
 (smoothing, head/tail, shaping, CDF, converge, light correction, light lock, normalisation,
 distance) compare the helpers alone.
+
+Defog runs whole frames as well (literal chain from `LIT_REF_DEFOG`, default `1bc9b8e2`): per bin six
+parameter variants (the bin as is; per-channel curve + motion weighting + output smoothing; one curve
+for all channels; the simple luma mode; manual levels with zoomed position weights; bank weights for
+1920x1080), each with init at six resolutions (bank weights or count_weight), 70 frames of statistics
+through IRQ 10 (the four DMA slots and a foreign address; garbage, realistic, dark and saturated 21-bit
+sums) and event 4, EV walks (small steps, jumps, exactly on the knots, huge values), IMP strength
+changes (0..255, enable off/on), day/night refreshes, the WDR table switch and session cleanups.
+Compared: every register write and the parameter block, soft state and register image.
 
 `run.sh` instruments the literal code: a division by zero (the MIPS result is unpredictable)
 or an LCE histogram knot past bin 31 (the OEM writes past its stack array) counts as undefined

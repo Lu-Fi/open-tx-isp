@@ -10868,7 +10868,7 @@ static bool regtrace_t40_dmsc_day_valid;
 #include "tx_isp_t40_sdns.h"
 #include "tx_isp_t40_cdns_lit.inc"
 #include "tx_isp_t40_adr_lit.inc"
-#include "tx_isp_t40_defog_lit.inc"
+#include "tx_isp_t40_defog.h"
 #include "tx_isp_t40_lce.h"
 #include "tx_isp_t40_dpc.h"
 #include "tx_isp_t40_isr_lit.inc"
@@ -13216,7 +13216,7 @@ static void regtrace_t40_ev_fanout(uint32_t again_log2)
         again_x1024 = 1024U;
     ev_q10 = ((uint64_t)it * again_x1024 * dg) >> 10;
     regtrace_t40_ev_now = (uint32_t)(ev_q10 >> 10);
-    regtrace_defog_ev_update_lit(ev_q10);
+    t40_defog_ev_update(ev_q10);
     /* T40-QUALITY4: EV unit probe for the ADR chain (night pedestal): the OEM AE pushes its
      * own 64-bit EV with event 8; t40_adr_ev_shift scales ours by 2^shift (runtime, default 0). */
     regtrace_adr_ev_update_lit(regtrace_t40_adr_ev_shift >= 0 ?
@@ -16789,13 +16789,13 @@ static int regtrace_isp_block_init_once(const char *where)
            (uint32_t)*(volatile uint32_t *)((char *)&adr_main_stat_info));
 
     /*
-     * T40-QUALITY2: literal OEM defog chain (TOP bit 11).  The recovered
+     * T40-QUALITY2: defog chain (TOP bit 11, tx_isp_t40_defog.h).  The recovered
      * lift never hooked IRQ 10 / event 4, so the block stayed bypassed
      * although the sc830ai linear bank enables it (vendor TOP 0x7FD9004D).
      * Clear the bypass bit only after a successful init.
      */
     if (regtrace_t40_defog_on && regtrace_t40_gates_oem_offset) {
-        int dret = regtrace_defog_init_lit(adr_width, adr_height);
+        int dret = t40_defog_init(adr_width, adr_height);
 
         if (!dret && !(regtrace_t40_force_bypass & BIT(11)))
             regtrace_t40_quality_top40_final &= ~BIT(11);
@@ -24592,8 +24592,8 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
         REGTRACE_T40_DN_STEP(regtrace_adr_dn_refresh_lit(
             READ_ONCE(regtrace_running_mode)));
     /* ... and defog (tisp_defog_dn_params_refresh(sensor, width, height)) */
-    if (regtrace_t40_defog_lit_active)
-        REGTRACE_T40_DN_STEP(regtrace_defog_dn_refresh_lit(width, height));
+    if (regtrace_t40_defog_active)
+        REGTRACE_T40_DN_STEP(t40_defog_dn_refresh(width, height));
     if (regtrace_t40_lce_active)
         REGTRACE_T40_DN_STEP(t40_lce_dn_refresh());
     if (regtrace_t40_dpc_active)
@@ -175850,8 +175850,8 @@ int32_t tisp_s_module_ratio_attr(uint32_t a0, uintptr_t a1)
 
             isp_printf(1, "%s: drc ratio %u -> adr ret=%d\n", "tisp_s_module_ratio_attr", r, dret);
         } else if (i == 4 && a0 == 0) {
-            /* defog ratio -> literal OEM tisp_s_defog_ratio on the private defog state */
-            int fret = regtrace_defog_ratio_lit();
+            /* defog ratio -> tisp_s_defog_ratio (tx_isp_t40_defog.h) */
+            int fret = t40_defog_ratio();
 
             isp_printf(1, "%s: defog ratio %u -> defog ret=%d\n", "tisp_s_module_ratio_attr", r, fret);
         } else
@@ -188505,7 +188505,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
             cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
             cancel_work_sync(&regtrace_isp_block_init_work);
             break;
-        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); regtrace_defog_lit_cleanup(); t40_lce_cleanup(); t40_dpc_cleanup(); t40_vawb_cleanup(); break;
+        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); t40_defog_cleanup(); t40_lce_cleanup(); t40_dpc_cleanup(); t40_vawb_cleanup(); break;
         case 4: regtrace_dmsc_lit_cleanup(); break;
         case 5: regtrace_lsc_lit_cleanup(); break;
         case 6: regtrace_tisp_main_init_param_free(); tisp_disable_tuning(); break;
