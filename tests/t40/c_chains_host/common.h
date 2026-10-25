@@ -27,6 +27,7 @@ typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32; typedef int32_t 
 #define READ_ONCE(x) (x)
 #define WRITE_ONCE(x, v) ((x) = (v))
 #define BIT(n) (1U << (n))
+#define T40C2	/* driver: own section outside .bss/.data */
 #define GFP_KERNEL 0x24000c0U
 #define REGTRACE_LWLR(b, o) \
     ((uint32_t)*(const uint8_t *)(uintptr_t)((b) + (o)) | \

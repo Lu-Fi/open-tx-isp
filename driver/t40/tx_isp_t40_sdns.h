@@ -18,6 +18,7 @@
  */
 #ifndef TX_ISP_T40_SDNS_H
 #define TX_ISP_T40_SDNS_H
+
 #include "tx_isp_t40_intp.h"
 
 #define T40_SDNS_PAR_OFFSET 0x17b00U
@@ -67,14 +68,25 @@ static bool regtrace_enable_sdns;
 module_param_named(enable_sdns, regtrace_enable_sdns, bool, 0644);
 static int regtrace_sdns_dbg_init_ret = -1;
 
+/* The three OEM buffers (section copy, field table, interpolated values) are
+ * the OEM globals main_sdns / main_sdns_comb / main_sdns_intp, allocated as
+ * the literal glue did: the recovered tisp_sdns_* helpers (SetModule_Ratio
+ * scaling through the field table, WDR switch, tuning get/set) keep working
+ * on them.  The C code keeps its own field pointers. */
 static struct t40_sdns_state {
-	uint8_t par[T40_SDNS_PAR_BYTES] __attribute__((aligned(4)));
-	uint8_t cur[T40_SDNS_CUR_BYTES] __attribute__((aligned(4)));
+	uint8_t *par;		/* main_sdns, T40_SDNS_PAR_BYTES */
+	uint8_t *cur;		/* main_sdns_intp, T40_SDNS_CUR_BYTES */
 	const uint8_t *f[T40_SDNS_FIELDS];
 	uint32_t wdr;		/* OEM sdns_wdr_en[0]; never set on this driver */
 	uint32_t ev_old;	/* 0xffffffff: nothing packed yet */
 	bool ready;
-} *t40_sdns;
+} t40_sdns T40C2;	/* outside .bss/.data (see T40-LAYOUT in tx_isp_t40_recovered.c) */
+
+/* the OEM buffers are still the ones this state was set up with */
+static inline bool t40_sdns_live(const struct t40_sdns_state *s)
+{
+	return s->ready && s->par && s->par == (uint8_t *)main_sdns && s->cur == (uint8_t *)main_sdns_intp;
+}
 
 static inline uint32_t t40_sdns_le16(const uint8_t *p)
 {
@@ -93,8 +105,10 @@ static void t40_sdns_select(struct t40_sdns_state *s, uint32_t wdr)
 	unsigned int i;
 
 	s->wdr = wdr;
-	for (i = 0; i < T40_SDNS_FIELDS; i++)
+	for (i = 0; i < T40_SDNS_FIELDS; i++) {
 		s->f[i] = s->par + off[i];
+		((uint32_t *)main_sdns_comb)[i] = (uint32_t)(uintptr_t)s->f[i];
+	}
 }
 
 /* tisp_sdns_intp */
@@ -223,10 +237,10 @@ static void t40_sdns_pack(struct t40_sdns_state *s, uint32_t ev, bool with_stati
 /* tisp_sdns_par_refresh: repack when the EV moved by at least thres */
 static void t40_sdns_refresh(uint32_t ev, uint32_t thres)
 {
-	struct t40_sdns_state *s = t40_sdns;
+	struct t40_sdns_state *s = &t40_sdns;
 	uint32_t old;
 
-	if (!s || !s->ready)
+	if (!t40_sdns_live(s))
 		return;
 	old = s->ev_old;
 	if (old == 0xffffffffU) {
@@ -244,26 +258,35 @@ static void t40_sdns_refresh(uint32_t ev, uint32_t thres)
  * SetModule_Ratio): copy the section, select the half, pack at EV 1.0 */
 static int t40_sdns_init(void)
 {
-	struct t40_sdns_state *s = t40_sdns;
+	struct t40_sdns_state *s = &t40_sdns;
 	const uint8_t *bank = (const uint8_t *)(uintptr_t)tparamsN[0];
 
-	if (!s) {
-		s = vzalloc(sizeof(*s));
-		if (!s)
+	if (!main_sdns || !main_sdns_comb || !main_sdns_intp) {
+		/* page-granular vmalloc like the OEM-era glue (tracked, freed at module exit):
+		 * the recovered WDR/tuning helpers write the field table with their own
+		 * (scaled) strides and must stay inside the page */
+		uintptr_t (*valloc)(uintptr_t) = (uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc;
+		void *par = (void *)valloc(T40_SDNS_PAR_BYTES);
+		void *comb = (void *)valloc(4 * T40_SDNS_FIELDS);
+		void *cur = (void *)valloc(T40_SDNS_CUR_BYTES);
+
+		if (!par || !comb || !cur) {
+			s->ready = false;
 			return -ENOMEM;
-		t40_sdns = s;
-		/* the recovered tisp_sdns_* helpers (SetModule_Ratio scaling, WDR switch,
-		 * tuning get/set) address the OEM globals: point them at this state, the
-		 * field table has the OEM layout (125 32-bit pointers) on the target */
-		main_sdns = (uintptr_t)s->par;
-		main_sdns_comb = (uintptr_t)s->f;
-		main_sdns_intp = (uintptr_t)s->cur;
+		}
+		memset(par, 0, T40_SDNS_PAR_BYTES);
+		memset(comb, 0, 4 * T40_SDNS_FIELDS);
+		memset(cur, 0, T40_SDNS_CUR_BYTES);
+		main_sdns = (uintptr_t)par;
+		main_sdns_comb = (uintptr_t)comb;
+		main_sdns_intp = (uintptr_t)cur;
 	}
+	s->par = (uint8_t *)main_sdns;
+	s->cur = (uint8_t *)main_sdns_intp;
 	s->ev_old = 0xffffffffU;
-	if (!bank) {
-		s->ready = false;
+	s->ready = false;
+	if (!bank)
 		return -ENOENT;
-	}
 	memcpy(s->par, bank + T40_SDNS_PAR_OFFSET, T40_SDNS_PAR_BYTES);
 	t40_sdns_select(s, s->wdr);
 	t40_sdns_pack(s, 0x10000, true);

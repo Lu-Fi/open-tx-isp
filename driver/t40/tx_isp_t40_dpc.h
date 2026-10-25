@@ -18,6 +18,7 @@
  */
 #ifndef TX_ISP_T40_DPC_H
 #define TX_ISP_T40_DPC_H
+
 #include "tx_isp_t40_intp.h"
 
 #define T40_DPC_PAR_OFFSET 11960U	/* DPC section inside a tuning bank */
@@ -37,7 +38,8 @@ struct t40_dpc_state {
 	uint32_t gain_thres;
 };
 
-static struct t40_dpc_state t40_dpc = { .gain_old = 0xffffffffU, .gain_thres = 256 };
+/* T40C2: state of the C chains lives outside .bss/.data (see T40-LAYOUT in tx_isp_t40_recovered.c) */
+static struct t40_dpc_state t40_dpc T40C2 = { .gain_old = 0xffffffffU, .gain_thres = 256 };
 
 /* Table offsets in the DPC section (OEM tisp_dpc_wdr_en), linear and WDR.
  * Table 6 is an 8-bit table (11 bytes + pad), all others are 11 x u16. */
@@ -212,7 +214,7 @@ static int t40_dpc_load_bank(struct t40_dpc_state *d)
 static bool regtrace_t40_dpc_on = true;
 module_param_named(t40_dpc_on, regtrace_t40_dpc_on, bool, 0644);
 MODULE_PARM_DESC(t40_dpc_on, "1 (with t40_gates_oem_offset=1) runs the DPC chain and clears TOP bit 4 after a successful init (default 1)");
-static bool regtrace_t40_dpc_active;
+static bool regtrace_t40_dpc_active T40C2;
 
 /* OEM tisp_dpc_main_init */
 static int t40_dpc_init(void)

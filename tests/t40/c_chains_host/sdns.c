@@ -5,7 +5,7 @@
 static void *private_vmalloc(size_t n) { return vmalloc(n); }
 /* the literal chain keeps its buffers in the OEM globals; the C chain gets its own copies */
 static uintptr_t lit_main_sdns, lit_main_sdns_comb, lit_main_sdns_intp, sec_sdns, sec_sdns_comb, sec_sdns_intp;
-static uintptr_t main_sdns, main_sdns_comb, main_sdns_intp;
+static uintptr_t main_sdns, main_sdns_comb, main_sdns_intp;	/* the C chain allocates these (host: arena below 4 GiB) */
 #define main_sdns lit_main_sdns
 #define regtrace_enable_sdns lit_enable_sdns
 #define regtrace_sdns_dbg_init_ret lit_sdns_dbg_init_ret
@@ -32,14 +32,14 @@ static unsigned step(int what, uint32_t ev, uint32_t thr, uint8_t *bank, const c
     if (what == S_INIT) t40_sdns_init(); else t40_sdns_refresh(ev, thr);
     b = snap(&nb);
     bad = cmp_logs(tag, a, na, b, nb); nwr += na;
-    if (t40_sdns && lit_main_sdns) {
+    if (t40_sdns.ready && lit_main_sdns) {
         uint8_t *li = (uint8_t *)lit_main_sdns_intp, *lp = (uint8_t *)lit_main_sdns;
         for (i = 0; i < T40_SDNS_CUR_BYTES; i++)
-            if (li[i] != t40_sdns->cur[i]) { if (bad < 8) printf("  %s: cur[%u] lit %02x c %02x\n", tag, i, li[i], t40_sdns->cur[i]); bad++; break; }
-        if (memcmp(lp, t40_sdns->par, T40_SDNS_PAR_BYTES)) { printf("  %s: par differs\n", tag); bad++; }
+            if (li[i] != t40_sdns.cur[i]) { if (bad < 8) printf("  %s: cur[%u] lit %02x c %02x\n", tag, i, li[i], t40_sdns.cur[i]); bad++; break; }
+        if (memcmp(lp, t40_sdns.par, T40_SDNS_PAR_BYTES)) { printf("  %s: par differs\n", tag); bad++; }
         for (i = 0; i < T40_SDNS_FIELDS; i++)
-            if (((uint32_t *)lit_main_sdns_comb)[i] - (uint32_t)lit_main_sdns != (uint32_t)(t40_sdns->f[i] - t40_sdns->par)) { printf("  %s: field %u\n", tag, i); bad++; break; }
-        if (regtrace_sdns_gain_old[0] != t40_sdns->ev_old) { printf("  %s: ev_old lit %x c %x\n", tag, regtrace_sdns_gain_old[0], t40_sdns->ev_old); bad++; }
+            if (((uint32_t *)lit_main_sdns_comb)[i] - (uint32_t)lit_main_sdns != (uint32_t)(t40_sdns.f[i] - t40_sdns.par)) { printf("  %s: field %u\n", tag, i); bad++; break; }
+        if (regtrace_sdns_gain_old[0] != t40_sdns.ev_old) { printf("  %s: ev_old lit %x c %x\n", tag, regtrace_sdns_gain_old[0], t40_sdns.ev_old); bad++; }
     }
     free(a); free(b);
     return bad;

@@ -25,6 +25,7 @@
  */
 #ifndef TX_ISP_T40_LCE_H
 #define TX_ISP_T40_LCE_H
+
 #include "tx_isp_t40_intp.h"
 
 #define T40_LCE_TOOL_OFFSET 0x10c84U	/* LCE section inside a tuning bank */
@@ -91,14 +92,15 @@ struct t40_lce_ctx {
 typedef char t40_lce_par_size[sizeof(struct t40_lce_par) == 388 ? 1 : -1];
 typedef char t40_lce_work_size[sizeof(struct t40_lce_work) == 16088 ? 1 : -1];
 
-static struct t40_lce_ctx *t40_lce;
+/* T40C2: state of the C chains lives outside .bss/.data (see T40-LAYOUT in tx_isp_t40_recovered.c) */
+static struct t40_lce_ctx *t40_lce T40C2;
 static void t40_lce_cleanup(void);
-static uint32_t t40_lce_wdr_on;		/* OEM lce_wdr_en[0] */
-static uint32_t t40_lce_tgain;		/* OEM lce_tgain[0] */
-static uint32_t t40_lce_refresh;	/* OEM lce_data_refresh_flag[0] */
-static uint32_t t40_lce_frames;		/* OEM lce_frm_num[0] */
-static uint32_t t40_lce_wdr_duan = 0x1f;	/* OEM lce_wdr_save_duan[0] */
-static uint32_t t40_lce_idle_irqs, t40_lce_dual_irqs;	/* OEM lce_debug[0..1] */
+static uint32_t t40_lce_wdr_on T40C2;		/* OEM lce_wdr_en[0] */
+static uint32_t t40_lce_tgain T40C2;		/* OEM lce_tgain[0] */
+static uint32_t t40_lce_refresh T40C2;	/* OEM lce_data_refresh_flag[0] */
+static uint32_t t40_lce_frames T40C2;		/* OEM lce_frm_num[0] */
+static uint32_t t40_lce_wdr_duan T40C2 = 0x1f;	/* OEM lce_wdr_save_duan[0] */
+static uint32_t t40_lce_idle_irqs T40C2, t40_lce_dual_irqs T40C2;	/* OEM lce_debug[0..1] */
 
 static inline int32_t t40_lce_mul(int32_t a, int32_t b)
 {
@@ -134,7 +136,7 @@ static void t40_lce_load_params(struct t40_lce_ctx *c)
 	if (!t40_lce_wdr_on) {
 		p->wdr[0] = 0;
 	} else if (!p->wdr[1]) {
-		uint16_t v = (*(uint32_t *)wdr_lce_para >> 7) & 0xffff;
+		uint16_t v = (*(volatile uint32_t *)wdr_lce_para >> 7) & 0xffff;
 
 		p->wdr[2] = v;
 		c->tool[578 + 4] = v;	/* OEM writes it back into the section copy */
@@ -792,7 +794,7 @@ static int t40_lce_soft(struct t40_lce_ctx *c, uint32_t reset)
 static bool regtrace_t40_lce_on = true;
 module_param_named(t40_lce_on, regtrace_t40_lce_on, bool, 0644);
 MODULE_PARM_DESC(t40_lce_on, "1 (with t40_gates_oem_offset=1) runs the LCE chain and clears TOP bit 21 after a successful init (default 1)");
-static bool regtrace_t40_lce_active;
+static bool regtrace_t40_lce_active T40C2;
 
 /* statistics IRQ 8 (OEM tisp_lce_main_interrupt_static, one sensor) */
 static int32_t t40_lce_isr(void)
@@ -838,7 +840,7 @@ static int32_t t40_lce_isr(void)
 static int32_t t40_lce_process(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4)
 {
 	struct t40_lce_ctx *c = t40_lce;
-	uint32_t duan = (int32_t)*(uint32_t *)wdr_lce_para >> 7;
+	uint32_t duan = (int32_t)*(volatile uint32_t *)wdr_lce_para >> 7;
 
 	(void)a0; (void)a1; (void)a2; (void)a3; (void)a4;
 	if (!c)
