@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-25 (9): T23/T31 unused ISP IRQ sources masked (`claude/irq-t23-t31`, device-tested on T23 .30 and T31 .26)
+
+- **T23: `t23_isr_enable` (0xb0 interrupt enable word), default masks the unused sources 12, 13, 16.** The core ISR consumes status bits 0 (frame done), 18 (ADR), 20 (defog), 26/27 (AE), 30 (AWB) and 31 (AF); 12, 13 and 16 each raised an interrupt of their own once per frame that the ISR only acknowledged. 78 -> 45 IRQ/s at 15 fps (5.4 -> 3 per frame); `0xffffffff` restores the stock value, writable at run time.
+- **T31: `t31_isr_enable`, default masks source 16** (an interrupt of its own with no consumer): 105.6 -> 90.6 IRQ/s at 30 fps. Source 12 (needed once to latch `streaming_enabled`) and the AF/ip_done bits stay.
+- Measured with a ktime wrapper on the ISR: the ISR itself is only 0.3-0.4 % of one core (T23 4.0 ms/s, T31 3.4 ms/s) and the remaining interrupts are the expensive ones, so the CPU saving is within noise; the gain is fewer interrupts/wakeups. Stream (RTSP), forced night/day and picture (Y, SSIM) unchanged, 0 new oops. T21 keeps the stock mask 0x283f03ff (3 IRQ/frame), no change.
+- T23 load statistics proof: `TX_ISP_LOAD_STATS=y` test ko loaded on .30, `t23_isr_bits/isr_calls/work_*` count (60 s: 4836 ISR calls, 904 frames, ADR/AE/defog work 0.29-0.75 ms each).
+
 ## 2026-10-25 (8): T32 S2 frame path (`claude/t32-s2`; QEMU-tested only, not on a camera)
 
 - **T32: frames from the open driver.** VIC input setup at `S_INPUT`, interrupt enables + VIC run + MIPI CSI/D-PHY start at `STREAMON` (vendor trace values for the cv8001 RAW10 mode), MSCA channel setup and buffer pushes, the ISP frame-done interrupt draining the channel's done FIFO, and the framechan buffer ioctls (`REQBUFS`, `QBUF`/`DQBUF` with the 96-byte buffer, `STREAMON`/`STREAMOFF`, `LISTEN_BUF`). QEMU `-M ingenic-t32` with vendor libimp 2.2.0 and `sensor_cv8001_t32.ko`: FrameSource 10/10 frames at 1920x1080 (same colour-bar picture as the vendor run) and 5/5 at 1280x720; the vendor JPEG and H.264 encoders bound to channel 0 deliver 10/10 (H.264 decodes, 1920x1080); `DisableSensor`/`DelSensor` teardown returns 0; 3 x (rmmod both, modprobe both, run with frames) clean, no oops.

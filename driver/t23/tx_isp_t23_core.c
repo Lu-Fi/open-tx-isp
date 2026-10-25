@@ -11330,6 +11330,42 @@ static void regtrace_t23_enable_stream_clks(void)
                                     &regtrace_t23_ivdc_clks_enabled);
 }
 
+/*
+ * ISP core interrupt enable word (0xb0, 1 = the source raises the line).
+ * The core ISR consumes status bits 0 (frame done), 18 (ADR), 20 (defog),
+ * 26/27 (AE), 30 (AWB) and 31 (AF); the MSCA completion FIFOs are drained on
+ * any interrupt and fill together with the group 17..22.  The sources 12,
+ * 13 and 16 each raised an interrupt of their own once per frame (15/s of
+ * the 82/s on the T23 test camera) that the ISR only acknowledged, so they
+ * are left masked.  Everything else (1, 14, 17..25, ...) always fires in
+ * the same interrupt as a bit that is used and stays on.  0xffffffff is the
+ * stock value; writable at run time (takes effect at once while streaming).
+ */
+#define T23_ISR_UNUSED (BIT(12) | BIT(13) | BIT(16))
+static unsigned int t23_isr_enable = 0xffffffffU & ~T23_ISR_UNUSED;
+
+static int t23_isr_enable_set(const char *value, const struct kernel_param *kp)
+{
+    int ret = param_set_uint(value, kp);
+    unsigned char *sd = regtrace_t23_core_sd;
+    void __iomem *base;
+
+    if (ret || !sd || !ACCESS_ONCE(regtrace_t23_core_irq_enabled))
+        return ret;
+    base = (void __iomem *)(uintptr_t)*(uint32_t *)(sd + 184);
+    if (base)
+        writel(ACCESS_ONCE(t23_isr_enable), base + 0xb0);
+    return 0;
+}
+
+static const struct kernel_param_ops t23_isr_enable_ops = {
+    .set = t23_isr_enable_set,
+    .get = param_get_uint,
+};
+module_param_cb(t23_isr_enable, &t23_isr_enable_ops, &t23_isr_enable, 0644);
+MODULE_PARM_DESC(t23_isr_enable,
+                 "ISP core interrupt enable word (0xb0); default masks the unused sources 12, 13, 16, stock is 0xffffffff");
+
 static void regtrace_t23_set_irq_enabled(const char *name,
                                          unsigned char *sd,
                                          bool *enabled,
@@ -11352,7 +11388,7 @@ static void regtrace_t23_set_irq_enabled(const char *name,
 
     base = (void __iomem *)(uintptr_t)*(uint32_t *)(sd + 184);
     if (sd == regtrace_t23_core_sd && base) {
-        writel(enable ? 0xffffffffU : 0, base + 0xb0);
+        writel(enable ? ACCESS_ONCE(t23_isr_enable) : 0, base + 0xb0);
         wmb();
         hw_mask = readl(base + 0xb0);
     }

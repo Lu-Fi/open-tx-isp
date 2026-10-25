@@ -1082,6 +1082,43 @@ TX_LS_TIMED_WORK(ispcore_irq_fs_work_timed, ispcore_irq_fs_work, T31_LS_WORK_FS)
  * ============================================================================
  */
 
+/*
+ * ISP core interrupt enable word (0xb0, 1 = the source raises the line).
+ * The ISR consumes bit 12 (frame sync latch), the irq_func_cb slots 11, 13,
+ * 18, 20, 26..31 and the error bits 3..9; the MSCA FIFOs are drained on any
+ * interrupt (they fill with the group 0/1/23/25).  Source 16 raised an
+ * interrupt of its own once per frame (about one of seven on the T31 test
+ * camera) that nothing consumes, so it is left masked.  Everything else
+ * that fires without a consumer shares its interrupt with a used bit.
+ * 0xffffffff is the stock value; writable at run time (takes effect at once
+ * while the core interrupts are enabled).
+ */
+#define T31_ISR_UNUSED BIT(16)
+static unsigned int t31_isr_enable = 0xffffffffU & ~T31_ISR_UNUSED;
+
+static int t31_isr_enable_set(const char *value, const struct kernel_param *kp)
+{
+    int ret = param_set_uint(value, kp);
+    struct tx_isp_dev *isp_dev = ourISPdev;
+    void __iomem *core;
+
+    if (ret || !isp_dev)
+        return ret;
+    core = isp_dev->core_regs;
+    /* only while the core interrupts are enabled (0xb0 != 0) */
+    if (core && readl(core + 0xb0))
+        writel(READ_ONCE(t31_isr_enable), core + 0xb0);
+    return 0;
+}
+
+static const struct kernel_param_ops t31_isr_enable_ops = {
+    .set = t31_isr_enable_set,
+    .get = param_get_uint,
+};
+module_param_cb(t31_isr_enable, &t31_isr_enable_ops, &t31_isr_enable, 0644);
+MODULE_PARM_DESC(t31_isr_enable,
+                 "ISP core interrupt enable word (0xb0); default masks the unused source 16, stock is 0xffffffff");
+
 /* ispcore_video_s_stream - EXACT Binary Ninja MCP implementation */
 int ispcore_video_s_stream(struct tx_isp_subdev *sd, int enable)
 {
@@ -1255,9 +1292,9 @@ int ispcore_video_s_stream(struct tx_isp_subdev *sd, int enable)
                 pr_info("ispcore_s_stream: reg[0xb0]=0x0 (disable, en=%d byp=%d)\n",
                     enable, ispcore_bypass_enabled(isp_dev));
             } else {
-                writel(0xFFFFFFFF, core_base + 0xb0);
-                pr_info("ispcore_s_stream: reg[0xb0]=0xFFFFFFFF (enable, en=%d byp=%d) readback=0x%08x\n",
-                    enable, ispcore_bypass_enabled(isp_dev), readl(core_base + 0xb0));
+                writel(READ_ONCE(t31_isr_enable), core_base + 0xb0);
+                pr_info("ispcore_s_stream: reg[0xb0]=0x%08x (enable, en=%d byp=%d) readback=0x%08x\n",
+                    READ_ONCE(t31_isr_enable), enable, ispcore_bypass_enabled(isp_dev), readl(core_base + 0xb0));
             }
         } else {
             pr_err("ispcore_s_stream: core_base NULL, can't write 0xb0!\n");
