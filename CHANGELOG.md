@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-25 (9): T40 defog in plain C instead of the literal mips2c chain (`claude/t40-defog`; host bit-exact, QEMU reload x5, .184 picture equal to next)
+
+- **T40: defog (TOP bit 11) rebuilt as readable C** (`driver/t40/tx_isp_t40_defog.h`) from the OEM `tisp_defog_*` / `Tiziano_defog_soft` flow: 10 x 18 statistics cells, parameter block from the bank, position weights from the bank or recomputed for the resolution/zoom, statistics IRQ 10 + event 4 (air light curve, EV-interpolated transmission curve, motion weighting, smoothing, 0x500a4 table), EV follow, IMP strength, day/night refresh. `tx_isp_t40_defog_lit.inc` is removed, the state lives in `.t40c2`; `t40_defog_on` stays, the `dfglit_*` diagnostic parameters are gone.
+- Host comparison against the literal chain (`tests/t40/c_chains_host/run.sh defog`): 31 real bins + 8 random, 6 parameter variants, 7 resolutions, EV walks, strength 0..255, day/night, WDR, cleanups: 22.7 M register writes plus the full state identical, 0 differences; one-character changes are detected (the undetected ones are equivalent or unreachable). OEM quirks are kept on purpose (bit-exact), e.g. the air-light curve cache is not invalidated by a day/night refresh.
+- QEMU (`ingenic-t40`, fixed sensor-standby model): load + 5 x (streamer stop, rmmod, insmod, stream): snapshots 200, 0 oops, memory stable, defog active (TOP 0x7FD9000D).
+- .184 (light 255/3649K, settled frames) next / defog C / next: edge 4.67 / 4.67 / 4.63, noise 5.60 / 5.59 / 5.57, HSV S 40.3 / 40.3 / 39.7, chart chroma 0.79 / 0.78 / 0.77, dE00 9.5 / 9.6 / 9.6, AE 37630/3336; after day/night x2: edge 4.67 / 4.67 / 4.68, noise 5.60 / 5.60 / 5.61. Defog registers (0xc004..0xc2a0 sample) identical to next, day/night bank values switch both ways, 0 oops, stock module back.
+- Module (stripped) against next 1bc9b8e2: 1462612 -> 1422900 bytes (xz 410256 -> 400276), .text -32.6 KB.
+
 ## 2026-10-25 (9): T41 night NR/sharpen host check (`claude/t41-night-sharp`; host-tested, no driver change)
 
 - **New `tests/t41/night_nr_host`**: runs the driver's MDNS/SDNS/YSP/DMSC interpolation and packing on a tuning-bin bank at a given total gain and compares the result with ISP core dumps (`scan` mode prints the gains that reproduce a dump). It maps the bank offsets `tisp_params_copy` uses (YSP at bank+0x1cc74, not +0x16dcc).
