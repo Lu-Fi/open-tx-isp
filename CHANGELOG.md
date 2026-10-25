@@ -4,6 +4,17 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## RC2 (v2026.10.25-rc2, 2026-10-25; open-tx-isp next 1bf4549d + docs, with OpenIMP next 7c30aa99 + docs)
+
+Release note with the full per-SoC text: [OpenIMP docs/RELEASE_NOTES_RC2.md](https://github.com/opensensor/openimp/blob/aperto/docs/RELEASE_NOTES_RC2.md); rendered feature matrix: [feature-matrix.html](https://htmlpreview.github.io/?https://github.com/opensensor/openimp/blob/aperto/docs/feature-matrix.html). Use matching tags of both repositories.
+
+- 636 open-tx-isp commits since RC1 (`v2026.10.11-rc1`). The exact code runs on all 19 test cameras as image agg46; the overnight soak of 2026-10-24/25 on the T40 and T41 cameras was clean (0 oopses, snapshots always 200).
+- **T41:** defog root cause fixed and on by default, DRC/DPC/NR, CCM/gamma/CSC, live crop envelope 1920x1080, day/night apply from the AE statistics interrupt, module reload without oops or leak, size switches.
+- **T40:** boot-time oops, reload/unload and dead-client release fixed; AE, AWB, DRC/Sinter/Temper ratios, CSC to BCSH and the night picture against the vendor driver (A/B); tuning-control oops fixes.
+- **T31:** AWB colour-temperature detection on the MXU2 vector unit by default (`t31_awb_impl=2`, load-time self-test, bit-exact); front crop enlarges up to 2.0x (`fcrop_upscale_pct=100`); AWB interrupt stack use removed; ISP interrupt quiesce before `request_irq` (also T23, T21).
+- **Changed defaults:** `t41_defog=1`; T41 and T40 bring-up/diagnostic parameters only with `TX_ISP_T41_BRINGUP_PARAMS=y` / `TX_ISP_T41_TMO_SELFTEST=y` / `TX_ISP_T40_BRINGUP_PARAMS=y` / `TX_ISP_T40_DEBUG_PROC=y`; `t31_awb_impl=2`; `fcrop_upscale_pct=100`; `t40_dmsc_follow=1`.
+- **Known limitations:** T31 long-term stability (one unexplained reboot on 2026-10-17, one hang on the old agg43 image; multi-day run ends 2026-10-29); T40 manual CCM effect small, sharpness 4-5 % below the vendor; T21 IRQ quiesce for the VIC is QEMU-tested only.
+
 ## 2026-10-25: T21 IRQ quiesce also parks the VIC (QEMU-tested, not yet on a camera)
 
 - **T21: reload after streaming no longer livelocks.** The first quiesce version (VIC mask 0xffffffff left in place, core mask restored) was not enough on QEMU: the VIC kept latching a frame-done status every frame after the previous load (the VIC command register +0x0 is never written on rmmod), the half-initialised handler never acked it, and the level IRQ still livelocked `request_irq` (soft lockup in `__do_softirq`, reload cycle 1..4). Now `isp-w02` is reset first (+0x0 = 2, the same value `tx_isp_vic_start` writes before 1), the status is acked, and the mask register is restored to its old value instead of being left at 0xffffffff (a permanently masked VIC delivers no frame IRQs). The core int enable (+0x80) stays 0 after the quiesce; the stream on/off path owns it (0x283f03ff / 0). QEMU T21 (PC420 image, jxf23): 10 reload cycles after timpsd had streamed, no lockup, no "nobody cared", ISP frame IRQ counter keeps rising after timpsd restart and a snapshot is served. T23 (Cinnado D1, sc2336) with the unchanged 5879744d quiesce: 10 cycles, no "nobody cared", counter rising.
