@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-25 (b): `t31_mxu2_cpm` parameter text reworded
+
+- **T31: no longer calls CPM 0x10000034 an MXU2 gate.** The `MODULE_PARM_DESC` of `t31_mxu2_cpm` now says "CPM 0x10000034 read by the selftest, information only; it is a clock/part register". Text only, no code change (builds as before; host tests unchanged).
+
 ## 2026-10-25 (2): T40 AE runs with a sub-stream-only consumer (`claude/t40-dn1025`; Eufy T40 device-tested on a test ko)
 
 - **T40: AE/AWB no longer freeze while only the sub stream (or nothing on the main stream) is consumed.** The frame 3A sampled channel-0 completions only. With an on-demand FrameSource a ch1-only client (20 s ch1 RTSP: 0 new samples) left the exposure at its last value, so after an IR-off day switch the streamer read the IR-lit exposure (554 after 8 s, the real 22117 only 14 s later, after a main-stream client came) and decided "day" in the dark; the IR flapping then disturbed the neighbouring cameras. Channel 1 now feeds the same AE/AWB/EV loop whenever channel 0 has been idle for `frame_3a_ch1_idle_ms` (default 300 ms, 0 = old behaviour, counter `frame_3a_ch1_samples`). Device (.184, dark, ch1 only, `daynight day`): EV 3375 -> 286830 (max) in ~3 s, the streamer switched back to night after ~16 s and the AE settled back in ~4 s; stock: no change at all. With a main-stream client the AE was already fast (4353 -> 286830 in ~3 s). Without any consumer the ISP stream is off on this camera (`framesource.keepalive=0`), so nothing can be measured then; that case stays the streamer's (keepalive / freshness check).

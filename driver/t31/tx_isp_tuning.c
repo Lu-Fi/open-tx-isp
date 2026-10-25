@@ -14263,7 +14263,7 @@ static int t31_awb_impl __attribute__((section(".data"))) = 2;
 static int t31_awb_selftest_state __attribute__((section(".data")));	/* 0 not run, 1 pass, -1 fail */
 static u32 t31_mxu2_cpm __attribute__((section(".data")));
 module_param_named(t31_mxu2_cpm, t31_mxu2_cpm, uint, 0444);
-MODULE_PARM_DESC(t31_mxu2_cpm, "CPM 0x10000034 read by the selftest (info only; 0x101 or 0x110, MXU2 works on both)");
+MODULE_PARM_DESC(t31_mxu2_cpm, "CPM 0x10000034 read by the selftest, information only; it is a clock/part register");
 static int awb_ctdet_mode __attribute__((section(".data")));	/* mode of the running call */
 static void t31_awb_selftest_workfn(struct work_struct *work);
 static DECLARE_WORK(t31_awb_selftest_work, t31_awb_selftest_workfn);
