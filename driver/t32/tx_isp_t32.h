@@ -19,6 +19,31 @@ void t32_core_sensor_driver_gone(struct i2c_driver *drv);
 int tx_isp_subdev_init(struct platform_device *pdev, void *sd, void *ops);
 void tx_isp_subdev_deinit(void *sd);
 
+u32 t32_core_sensor_fps(void);
+
+/* tx_isp_t32_hw.c */
+struct t32_hw_stats {
+	u32 isp_irqs, vic_irqs, frame_ends, stream_ons;
+};
+extern struct t32_hw_stats t32_hw_stats;
+int t32_hw_init(void);
+void t32_hw_exit(void);
+void t32_hw_input_setup(u32 w, u32 h);
+void t32_hw_stream_on(void);
+void t32_hw_stream_off(void);
+void t32_hw_msca_push(int ch, u32 y, u32 uv);
+void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride);
+void t32_hw_msca_stop(int ch);
+int t32_hw_msca_pop_done(int ch, u32 *y, u32 *uv);
+
+/* tx_isp_t32_fs.c */
+struct seq_file;
+int t32_fs_init(void);
+void t32_fs_exit(void);
+void t32_fs_stop_all(void);
+void t32_fs_done_irq(u32 done);
+void t32_fs_show(struct seq_file *m);
+
 /* tx_isp_t32_sinfo.c (shared registry, driver/common/tx_isp_sinfo.c) */
 int tx_isp_sinfo_init(void);
 void tx_isp_sinfo_exit(void);

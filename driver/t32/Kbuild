@@ -4,7 +4,9 @@
 # in S2/S3 (audit/T32_S0_1025.md for the plan).
 tx-isp-t32-objs := tx_isp_t32_sinfo.o \
 		   tx_isp_t32_core.o \
-		   tx_isp_t32_funcs.o
+		   tx_isp_t32_funcs.o \
+		   tx_isp_t32_hw.o \
+		   tx_isp_t32_fs.o
 obj-m += tx-isp-t32.o
 
 ccflags-y += -I$(src)/../include -std=gnu99

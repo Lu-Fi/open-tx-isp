@@ -286,7 +286,10 @@ static int t32_sensor_stream(struct t32_vi *vi, int on)
 			ret = init(vi->sd, &arg);
 		if (!ret && stream)
 			ret = stream(vi->sd, &arg);
+		if (!ret)
+			t32_hw_stream_on();
 	} else {
+		t32_hw_stream_off();
 		if (stream)
 			ret = stream(vi->sd, &arg);
 		if (init)
@@ -487,6 +490,8 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 			}
 			vi->width = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_MBUS_WIDTH, u32);
 			vi->height = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_MBUS_HEIGHT, u32);
+			if (!vi->input_on)
+				t32_hw_input_setup(vi->width, vi->height);
 			vi->input_on = 1;
 			ia.vinum = (s32)((vi->width << 16) | vi->height);
 		} else {
@@ -632,28 +637,6 @@ static struct miscdevice t32_ivdc_misc = {
 	.fops = &t32_ivdc_fops,
 };
 
-static long t32_fc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
-{
-	u32 v;
-
-	switch (cmd) {
-	case T32_IOC_FS_SET_FORMAT:
-	case T32_IOC_FS_GET_FORMAT:
-		/* T32 libimp passes an int here; the geometry comes with QBUF */
-		return copy_from_user(&v, (void __user *)arg, sizeof(v)) ? -EFAULT : 0;
-	}
-	isp_printf(1, "tx-isp-t32: framechan ioctl %#x not in S1\n", cmd);
-	return -ENOTTY;
-}
-
-static const struct file_operations t32_fc_fops = {
-	.owner = THIS_MODULE,
-	.unlocked_ioctl = t32_fc_ioctl,
-};
-
-static char t32_fc_names[T32_MSCA_CHANNELS][12];
-static struct miscdevice t32_fc_misc[T32_MSCA_CHANNELS];
-
 /* ------------------------------------------------------------------ */
 /* /proc/jz/isp                                                       */
 
@@ -670,7 +653,20 @@ static int t32_proc_show(struct seq_file *m, void *v)
 	seq_printf(m, "isp mem pa %#x size %#x, iq pa %#x, ioctls %u, memopt %u\n",
 		   vi->isp_mem_pa, vi->isp_mem_size, core.tiziano_pa, core.ioctls,
 		   isp_memopt);
+	seq_printf(m, "irqs isp %u vic %u frame ends %u stream ons %u\n",
+		   t32_hw_stats.isp_irqs, t32_hw_stats.vic_irqs,
+		   t32_hw_stats.frame_ends, t32_hw_stats.stream_ons);
+	t32_fs_show(m);
 	return 0;
+}
+
+u32 t32_core_sensor_fps(void)
+{
+	struct t32_vi *vi = &core.vi[0];
+
+	if (!vi->registered || !vi->sd)
+		return 0;
+	return T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_FPS, u32);
 }
 
 static int t32_proc_open(struct inode *inode, struct file *file)
@@ -704,15 +700,12 @@ int tx_isp_t32_core_init(void)
 	ret = misc_register(&t32_ivdc_misc);
 	if (ret)
 		goto err_ivdc;
-	for (i = 0; i < T32_MSCA_CHANNELS; i++) {
-		snprintf(t32_fc_names[i], sizeof(t32_fc_names[i]), "framechan%d", i);
-		t32_fc_misc[i].minor = MISC_DYNAMIC_MINOR;
-		t32_fc_misc[i].name = t32_fc_names[i];
-		t32_fc_misc[i].fops = &t32_fc_fops;
-		ret = misc_register(&t32_fc_misc[i]);
-		if (ret)
-			goto err_fc;
-	}
+	ret = t32_fs_init();
+	if (ret)
+		goto err_fc;
+	ret = t32_hw_init();
+	if (ret)
+		goto err_hw;
 	core.proc = jz_proc_mkdir("isp");
 	if (core.proc) {
 		proc_create("isp-m0", 0444, core.proc, &t32_proc_fops);
@@ -721,9 +714,9 @@ int tx_isp_t32_core_init(void)
 	pr_info("tx-isp-t32: open driver S1 skeleton loaded (memopt %u)\n", isp_memopt);
 	return 0;
 
+err_hw:
+	t32_fs_exit();
 err_fc:
-	while (--i >= 0)
-		misc_deregister(&t32_fc_misc[i]);
 	misc_deregister(&t32_ivdc_misc);
 err_ivdc:
 	misc_deregister(&t32_m0_misc);
@@ -736,6 +729,7 @@ void tx_isp_t32_core_exit(void)
 {
 	int i;
 
+	t32_fs_stop_all();
 	mutex_lock(&core.lock);
 	for (i = 0; i < T32_MAX_VI; i++) {
 		if (core.vi[i].streaming)
@@ -749,8 +743,8 @@ void tx_isp_t32_core_exit(void)
 		remove_proc_entry("isp-w02", core.proc);
 		proc_remove(core.proc);
 	}
-	for (i = 0; i < T32_MSCA_CHANNELS; i++)
-		misc_deregister(&t32_fc_misc[i]);
+	t32_hw_exit();
+	t32_fs_exit();
 	misc_deregister(&t32_ivdc_misc);
 	misc_deregister(&t32_m0_misc);
 	misc_deregister(&t32_isp_misc);
