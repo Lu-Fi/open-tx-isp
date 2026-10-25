@@ -263,6 +263,8 @@ A window is accepted when every running channel's scaler output is at most 2.0x 
 
 The per-frame colour-temperature detection has three implementations: 0 = reference C, 1 = fast C, 2 = MXU2 (default). MXU2 is used only after a load-time selftest passed (bit-exact against the reference on random scenes); otherwise the fast C path runs. Writing `t31_awb_impl=0/1` switches MXU2 off. Measured on a T31X and a T31L: identical results, about 2.4x faster sweeps (96 sweeps: 1229 us in C, 504 us with MXU2).
 
+Note on CPM 0x10000034 (read-only `t31_mxu2_cpm`, 0x101 or 0x110): this is CPPSR, a clock-module part register (libimp uses it to tell full parts from "-L" parts). It is not an MXU or MXU2 enable flag and does not gate MXU2; MXU2 works on both values. On the T21N the CU2 bit can be set but MXU2 instructions are reserved (the vendor libimp never enables SIMD on T21), so this path is T31-only.
+
 ## Build and Check
 
 ```bash

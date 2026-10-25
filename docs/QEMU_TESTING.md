@@ -4,6 +4,7 @@ The `ingenic-txx` branch of [gtxaspec/qemu](https://github.com/gtxaspec/qemu) mo
 
 ## Setup
 
+- `qemu-bsp.sh` (gtxaspec/qemu) knows T40 and T41 since ingenic-0.6.18 (`-V t40n`, `-V t41nq`); T20 defaults to the `t20x` variant with 128 MiB.
 - Build only the MIPS target: `configure --target-list=mipsel-softmmu --disable-docs --enable-slirp`, then `ninja qemu-system-mipsel` (about 9 minutes with `nice`).
 - Boot a **copy** of the flash image (QEMU writes to the flash file). The flash starts through its SPL header, so no `-kernel` is needed: `-M ingenic-<soc> -m <RAM> -drive file=<copy>,format=raw,if=none,id=flash0`, the console is the second UART (`-serial null -serial <chardev>`), and the sensor is a device on the I2C bus the board uses: `-device image-sensor,model=<sensor>,bus=i2c<N>`.
 - To get a shell without the root password, set `debug=1` in the copy's U-Boot environment (the thingino inittab then runs `/bin/sh`).
@@ -18,7 +19,7 @@ The `ingenic-txx` branch of [gtxaspec/qemu](https://github.com/gtxaspec/qemu) mo
 | T21 | `ingenic-t21`, jxf23 on i2c0 | yes | yes | yes | first cycle after streaming locked up in `modprobe` (pending ISP IRQ); fixed by the IRQ quiesce, not re-run |
 | T23 | `ingenic-t23`, sc2336 on i2c0 | yes | yes | yes | no oops; `irq 38: nobody cared` each cycle before the IRQ quiesce fix |
 | T31 | `ingenic-t31`, 128 MB, sc2336 on i2c0 | yes | yes (1080p + 360p) | yes | no oops; same IRQ message before the fix |
-| T40 | `ingenic-t40`, 256 MB (512 MB does not boot), sc830ai on i2c1 | yes | yes | crashed in the ISR before the slot-index fix | first `rmmod` oopsed (fixed, see the T40 reload entry in the changelog) |
+| T40 | `ingenic-t40`, 256 MB or more (the old 512 MB boot failure is fixed upstream), sc830ai on i2c1 | yes | yes | crashed in the ISR before the slot-index fix | first `rmmod` oopsed (fixed, see the T40 reload entry in the changelog) |
 | T41 | `ingenic-t41`, 64 MB, gc5603 on i2c0 | yes, `eth0` present | yes | yes | 10 clean |
 
 ## Limits of the model
