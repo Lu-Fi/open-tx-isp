@@ -10338,7 +10338,9 @@ register_sensor:
 					break;
 				node = (void *)(((char *)*(void **)((char *)node + 0xe4)) - 0xe4);
 			}
-			if (!node) {
+			/* The search ends on the list head: no sensor of that name.  Unlinking
+			 * the head poisoned it and the next release oopsed on LIST_POISON2. */
+			if (!node || (char *)node + 0xe4 == (char *)file + 0xdc) {
 				private_mutex_unlock((char *)file + 0xe8);
 				return 0;
 			}
