@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-25 (8): T32 S2 frame path (`claude/t32-s2`; QEMU-tested only, not on a camera)
+
+- **T32: frames from the open driver.** VIC input setup at `S_INPUT`, interrupt enables + VIC run + MIPI CSI/D-PHY start at `STREAMON` (vendor trace values for the cv8001 RAW10 mode), MSCA channel setup and buffer pushes, the ISP frame-done interrupt draining the channel's done FIFO, and the framechan buffer ioctls (`REQBUFS`, `QBUF`/`DQBUF` with the 96-byte buffer, `STREAMON`/`STREAMOFF`, `LISTEN_BUF`). QEMU `-M ingenic-t32` with vendor libimp 2.2.0 and `sensor_cv8001_t32.ko`: FrameSource 10/10 frames at 1920x1080 (same colour-bar picture as the vendor run) and 5/5 at 1280x720; the vendor JPEG and H.264 encoders bound to channel 0 deliver 10/10 (H.264 decodes, 1920x1080); `DisableSensor`/`DelSensor` teardown returns 0; 3 x (rmmod both, modprobe both, run with frames) clean, no oops.
+- Not yet: tisp/3A and IQ bin parsing, image-pipeline programming, frame rate (the model sensor runs at its default rate without the vendor's AE/fps writes), channels 1/2.
+
 ## 2026-10-25 (7): T32 S1 driver skeleton (`claude/t32-s1`; QEMU-tested only, not on a camera)
 
 - **New `driver/t32` (`tx-isp-t32.ko`), a typed driver for the T32 (PRJ007).** Not a copy of the recovered T41 module: T32 keeps the T41 ISP core but its libimp/sensor ABI differs (sensor registration 116 bytes, framechan ioctls nr 131-140 with a 96-byte buffer, subdevice ops at 0x108, new DEFAULT_BIN/TIZIANO_PAR/MEMORY_MALLOC ioctls). Shared pieces come from `driver/common` (sensor registry with T32 offsets) and `driver/t23` (MSCA geometry rules); the T32 ABI, register map, MSCA channel layout, RCFG register-list format and the ISP working-memory size are in headers (`tx_isp_t32_abi.h`, `_regs.h`, `_msca.h`, `_rcfg.h`, `_mem.h`).

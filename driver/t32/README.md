@@ -1,4 +1,4 @@
-# T32 (PRJ007) open TX-ISP driver — S1 skeleton
+# T32 (PRJ007) open TX-ISP driver — S2 (frames)
 
 Status: **QEMU only** (`-M ingenic-t32`, kernel 4.4.94, vendor libimp 2.2.0,
 prebuilt `sensor_cv8001_t32.ko`). Not tested on a camera.
@@ -46,12 +46,32 @@ generation-shared come from the shared code instead:
 - Register lists (`tx_isp_t32_rcfg.h`): builder and walker for the RCFG list
   format, for S2 (the vendor driver runs one list at stream-on).
 
-## Not yet (S2/S3)
+## S2: frame path (`tx_isp_t32_hw.c`, `tx_isp_t32_fs.c`)
 
-No ISP register is written: no VIC/CSI/MSCA programming, no frames
-(`FrameSource_EnableChn` fails at `REQBUFS`), no tisp/3A, no IQ bin parsing
-(the bin's physical address is kept). Day/night, WDR, LDC, OSD, IVDC direct
-mode, AOV/RISC-V hand-over: off.
+- `S_INPUT` writes the VIC input configuration, `STREAMON` enables the ISP
+  interrupt block, runs the VIC and starts the MIPI CSI host and D-PHY
+  (values and order of the vendor trace; the VIC/CSI words are the cv8001
+  RAW10 MIPI ones, deriving them from the sensor attributes is S3).
+- `/dev/framechanN`: `REQBUFS`, `QBUF`/`DQBUF` (96-byte buffer, geometry from
+  QBUF word 19 and stride word 17), `STREAMON`/`STREAMOFF`, `LISTEN_BUF`
+  (`listen_timeout_ms`). Queued buffers go to the MSCA channel's push FIFOs;
+  the ISP interrupt (INTC 29, `isp_irq`) drains the done FIFO (UV read
+  before the Y pop) and wakes the listener. VIC interrupt: INTC 30
+  (`vic_irq`). Closing the channel stops it.
+- QEMU (vendor libimp 2.2.0, `sensor_cv8001_t32.ko`): FrameSource 10/10
+  frames at 1920x1080 and 5/5 at 1280x720 with the model's colour bars, JPEG
+  and H.264 encoders bound to channel 0 deliver 10/10, full teardown
+  (`DisableSensor`/`DelSensor`) returns 0, rmmod/modprobe cycles with frames
+  are clean.
+
+## Not yet (S3+)
+
+No tisp/3A, no IQ bin parsing (the bin's physical address is kept), no
+image-pipeline register programming (the QEMU model does not process pixels,
+so this needs a camera), no stream-on register list. The model runs the
+sensor at its own default rate (frames come faster than the 15 fps the vendor
+tisp programs). Channels 1/2, day/night, WDR, LDC, OSD, IVDC direct mode,
+AOV/RISC-V hand-over: off.
 
 ## Build
 
@@ -70,3 +90,5 @@ against a thingino T32 kernel 4.4.94 tree. Host test:
 | `driver_soc`, `driver_version` | `PRJ007`, `20251107a` | answered to `DRIVER_VERSION`; must match libimp |
 | `bin_version` | `1.00` | IQ bin format version answered to `DEFAULT_BIN` |
 | `t32_trace` | 1 | log every ioctl (bring-up) |
+| `isp_irq`, `vic_irq` | 37, 38 | Linux IRQs of INTC 29/30 (XBURST_SOC_IRQ_BASE 8) |
+| `listen_timeout_ms` | 2000 | `LISTEN_BUF` wait limit |
