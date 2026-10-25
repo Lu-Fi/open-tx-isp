@@ -72969,39 +72969,29 @@ int32_t tisp_ae_param_array_set(uint32_t a0, uint32_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a178 origin=fragment_seed original=api_ae_dn_par_refresh */
+/*
+ * Stock api_ae_dn_par_refresh (called by tisp_day_or_night_s_ctrl right after
+ * the bank copy): re-program the AE statistics block from the new bank, redo
+ * the deflicker table and set the "parameters changed" byte (+1281) of the
+ * channel's AE cache.  The next tisp_ae_calc_process then runs
+ * tisp_ae_par_update_trig, which re-derives the exposure limits, EV lists and
+ * targets from the night/day AE parameters.  The lifted body lost the
+ * ae_cache[channel] load and stored through the channel number.
+ */
 void* api_ae_dn_par_refresh(uint32_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    uint32_t channel = a0 & 255;
+    unsigned char *cache;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_set_hardware_param)(a0 & 255); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_clac_deflicker_cfg)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 3: ConstantLoad */
-    v0 = ((char *)&ae_cache);
-
-    /* fragment 4: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 0);
-    v1 = 1;
-    *(uint8_t *)((char *)v0 + 1281) = v1;
-    ra = local_14;
-    s0 = local_10;
-
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return (void*)v0;
+    if (channel >= ARRAY_SIZE(ae_info) || !ae_info[channel])
+        return NULL;
+    tisp_ae_set_hardware_param(channel);
+    tisp_ae_clac_deflicker_cfg(channel);
+    cache = (unsigned char *)(uintptr_t)*(uint32_t *)(void *)(ae_cache + channel * 4);
+    if (!cache)
+        cache = ae_cache_init + channel * 0x688;
+    WRITE_ONCE(cache[1281], 1);
+    return cache;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a1d4 origin=fragment_seed original=api_ae_long_process */

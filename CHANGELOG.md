@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (8): T41 api_ae_dn_par_refresh body repaired (`claude/t41-nightae1025`; host)
+
+- **T41 `api_ae_dn_par_refresh`**: the lifted body stored the "parameters changed" byte (+1281) through the channel number instead of
+  `ae_cache[channel]` (a write to a near-NULL address). Repaired as the stock function (AE statistics setup, deflicker table, flag in the
+  channel's AE cache). Its only caller is the lifted `tisp_day_or_night_event`; the open day/night bank worker does not run it (an opt-in
+  step was tried on .32 on 2026-10-25: no change of the converged night exposure, 15 guarded divisions by zero in the translated
+  `tisp_ae_par_update_trig`, so it was not kept). No runtime change.
+
 ## 2026-10-27 (7): T21/T30 MoveState through the SYSTEM_TAB block (`claude/movestate-t21-t30`; host, QEMU T21 + T30)
 
 - **T30 SYSTEM_TAB (0x800002c)**: the lifted `apical_isp_stab_s_attr` read the enable bytes from an uninitialised local and
