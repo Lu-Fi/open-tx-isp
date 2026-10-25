@@ -54,6 +54,9 @@ struct tx_isp_v4l2_sensor {
 	struct v4l2_ctrl *pixel_rate;
 
 	char name[TX_V4L2_NAME_LEN];
+	/* 1 while the V4L2 subdev is streaming: s_stream() must be paired, the
+	 * 7.x core warns (WARNING at v4l2-subdev.c) on an unpaired call. */
+	int streaming;
 	u32 width;
 	u32 height;
 	u32 hts;
@@ -239,6 +242,25 @@ static int tx_v4l2_sensor_reset(struct tx_isp_subdev *sd, int on)
 	return 0;
 }
 
+/* Single place that touches the sensor's s_stream and keeps it paired. */
+static int tx_v4l2_sensor_set_stream(struct tx_isp_v4l2_sensor *s, int enable)
+{
+	int ret;
+
+	if (!s || !s->vsd)
+		return -ENODEV;
+	enable = !!enable;
+	if (s->streaming == enable)
+		return 0;
+
+	ret = v4l2_subdev_call(s->vsd, video, s_stream, enable);
+	if (ret == -ENOIOCTLCMD)
+		ret = 0;
+	if (!ret)
+		s->streaming = enable;
+	return ret;
+}
+
 static int tx_v4l2_sensor_s_stream(struct tx_isp_subdev *sd, int enable)
 {
 	struct tx_isp_v4l2_sensor *s = sd_to_v4l2_sensor(sd);
@@ -247,17 +269,13 @@ static int tx_v4l2_sensor_s_stream(struct tx_isp_subdev *sd, int enable)
 	if (!s)
 		return -ENODEV;
 
-	if (enable) {
+	if (enable && !s->streaming) {
 		ret = tx_v4l2_sensor_update(s);
 		if (ret)
 			return ret;
 	}
 
-	ret = v4l2_subdev_call(s->vsd, video, s_stream, enable);
-	if (ret == -ENOIOCTLCMD)
-		ret = 0;
-
-	return ret;
+	return tx_v4l2_sensor_set_stream(s, enable);
 }
 
 static int tx_v4l2_sensor_set_fps(struct tx_isp_subdev *sd, int fps)
@@ -362,16 +380,12 @@ static int tx_v4l2_sensor_ioctl(struct tx_isp_subdev *sd, unsigned int cmd,
 		return arg ? tx_v4l2_sensor_set_vflip(sd, *(int *)arg) : 0;
 	case TX_ISP_EVENT_SENSOR_RESIZE:
 		return tx_v4l2_sensor_update(s);
-	case TX_ISP_EVENT_SENSOR_PREPARE_CHANGE: {
-		int ret = v4l2_subdev_call(s->vsd, video, s_stream, 0);
-
-		return ret == -ENOIOCTLCMD ? 0 : ret;
-	}
-	case TX_ISP_EVENT_SENSOR_FINISH_CHANGE: {
-		int ret = v4l2_subdev_call(s->vsd, video, s_stream, 1);
-
-		return ret == -ENOIOCTLCMD ? 0 : ret;
-	}
+	case TX_ISP_EVENT_SENSOR_PREPARE_CHANGE:
+		/* Only stops a stream that is actually running; a stop without a
+		 * start used to reach the sensor and tripped the 7.x warning. */
+		return tx_v4l2_sensor_set_stream(s, 0);
+	case TX_ISP_EVENT_SENSOR_FINISH_CHANGE:
+		return tx_v4l2_sensor_set_stream(s, 1);
 	default:
 		return 0;
 	}

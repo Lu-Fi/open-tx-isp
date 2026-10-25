@@ -862,6 +862,14 @@ static void tx_isp_sinfo_vendor_files_create(struct proc_dir_entry *dir,
 #else
 		ctx = &slot->files[key];
 #endif
+		/*
+		 * Reloading the module (or publishing twice) left the old entry in
+		 * place: proc_create_data() then warns "proc_dir_entry '%s' already
+		 * registered" (fs/proc/generic.c). Removing a stale entry first makes
+		 * the publish idempotent, which the comment above already promises.
+		 */
+		/* remove_proc_entry() warns when absent; subtree variant is silent */
+		remove_proc_subtree(tx_isp_sinfo_vendor_files[n].name, dir);
 		proc_create_data(tx_isp_sinfo_vendor_files[n].name, 0444, dir,
 				 version ? &tx_isp_sinfo_vendor_version_fops :
 					   &tx_isp_sinfo_vendor_fops, ctx);

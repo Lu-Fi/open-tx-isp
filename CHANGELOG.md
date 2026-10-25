@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-25 (7): Linux 7.x runtime warnings: proc re-publish and unpaired `s_stream` (`claude/k72-warn-next`; builds only, not device-tested)
+
+Ported from the 7.2 bring-up (`k72-warn`), only the parts that are valid on 3.10/4.4 as well. No behaviour change on a clean run.
+
+- **`tx_isp_sinfo`**: the vendor proc files are removed (`remove_proc_subtree`, silent when absent) before `proc_create_data`, so a second publish no longer triggers "proc_dir_entry already registered".
+- **`tx_isp_v4l2_sensor` (T31 bridge)**: the sensor's `s_stream` is tracked and kept paired (a stop without a start, or a double start, no longer reaches the sensor driver; 7.x warns about it).
+- **Not ported**: the IRQ-depth change in `tx_isp_enable_irq` (it was reverted on the 7.2 branch because it kept the ISP IRQ masked, no frames).
+- Compiler warnings: unchanged on T21/T23/T30/T31/T40/T41 (3.10/4.4 builds) and on the 7.2 T31 objects touched; T10/T20 cannot be built here (external/ingenic-sdk not populated).
+
 ## 2026-10-25: T30 in QEMU: six oops/lockup fixes (`claude/t30-qemu`; QEMU-tested, not yet on a camera)
 
 First run of the recovered T30 driver on the QEMU `ingenic-t30` machine with the thingino `qemu_t30x` image (kernel 3.10.14, sc4236 model on i2c0, `sensor_sc4236_t30.ko`). Before: the image oopsed during boot, `rmmod` of the sensor panicked, the first reload hung in `modprobe`, no-sensor tuning calls oopsed. After: 10 x (register sensor, 37 tuning cases, `DelSensor`, `rmmod` both modules, `modprobe` both) without oops, lockup or "nobody cared"; 74 tuning cases without a sensor: 0 oopses. All fixes are lift errors in `tx_isp_t30_recovered.c` (plus one missing export).
