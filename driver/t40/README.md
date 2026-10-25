@@ -783,3 +783,19 @@ ISP digital gain is 1x there. `SetModule_Ratio` defog -> literal `tisp_s_defog_r
 ## Testing in QEMU
 
 The modules can be loaded, unloaded and exercised without a camera in the `ingenic-t40` machine of the [gtxaspec/qemu](https://github.com/gtxaspec/qemu) `ingenic-txx` branch (boots the thingino image to a shell with the sc830ai sensor model, all modules load; it reproduced the `rmmod` oops and the frame-slot index crash of the ISR (both fixed) and is the bench for the reload tests). It is a crash-test bench, not a picture-quality bench: the ISP is a register-file model with a modelled frame path (synthetic colour-bar frames), there are no 3A statistics, and timing and image quality cannot be tested. Setup, per-SoC status and limits: [docs/QEMU_TESTING.md](../../docs/QEMU_TESTING.md).
+
+## Literal chains rebuilt as plain C (2026-10-25, `claude/t40-c-chains`)
+
+The literal mips2c chains (`tx_isp_t40_*_lit.inc`, one emulated MIPS stack and a call dispatcher per chain) are being
+replaced by readable C written from the OEM flow, one header per block. Each replacement is compared on the host with
+the literal chain it replaces (`tests/t40/c_chains_host`, literal source taken from git `6d63667b`): every register
+write and the whole chain state, 26 SDK 1.3.1 + 5 Eufy tuning bins, day/night banks, gain walks, random bins.
+
+- `tx_isp_t40_intp.h`: the OEM 11-knot table interpolation (`tisp_simple_intp_int8/16`: bit-15 rounding, unsigned
+  index compare) for the C chains.
+- `tx_isp_t40_dpc.h` (TOP bit 4): bank section +11960 (1074 bytes), linear/WDR table set, 23 gain tables, static and
+  gain registers 0x7000..0x70a0, refresh when the total gain moved by 1/256. Parameter `t40_dpc_on` as before.
+- `tx_isp_t40_lce.h` (TOP bit 21): bank section +0x10c84 (984 bytes), 5x9 statistics cells, IRQ 8 (ping/pong RAM) and
+  event 0x10, global + 32 local histogram curves, 32x16 LUT via 0x501e0/0x501e4. Parameter `t40_lce_on` as before.
+  The session end resets the LCE session state as the OEM `tisp_slake_all -> tisp_lce_remove` does.
+- The `dpclit_*` / `lcelit_*` diagnostic counters are gone; an init failure is logged as an error.

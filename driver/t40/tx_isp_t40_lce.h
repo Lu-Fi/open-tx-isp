@@ -923,7 +923,9 @@ static int t40_lce_init(uint32_t width, uint32_t height)
 	ret = 0;
 out:
 	regtrace_t40_lce_active = !ret;
-	printk(KERN_INFO "tx_isp_t40_recovered: lce init %ux%u ret=%d\n", width, height, ret);
+	if (ret)	/* KERN_INFO lines of this driver are dropped (t40_printk) */
+		printk(KERN_ERR "tx_isp_t40_recovered: lce init %ux%u failed (%d), TOP bit 21 stays bypassed\n",
+		       width, height, ret);
 	return ret;
 }
 

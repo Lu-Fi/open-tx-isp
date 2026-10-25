@@ -227,7 +227,8 @@ static int t40_dpc_init(void)
 		t40_dpc_gain_step(d, 0x10000, 0x10000);
 	}
 	regtrace_t40_dpc_active = !ret;
-	printk(KERN_INFO "tx_isp_t40_recovered: dpc init ret=%d\n", ret);
+	if (ret)	/* KERN_INFO lines of this driver are dropped (t40_printk) */
+		printk(KERN_ERR "tx_isp_t40_recovered: dpc init failed (%d), TOP bit 4 stays bypassed\n", ret);
 	return ret;
 }
 
