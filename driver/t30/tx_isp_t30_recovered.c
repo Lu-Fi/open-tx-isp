@@ -44853,6 +44853,11 @@ apical_api_calibration0x1a0:
     goto apical_api_calibration0x1c8;
 
 apical_api_calibration0x1ac:
+    /* The lift chains two loads here (v0 = *(a0 + 5352); byte at v0 + 5412); v0 is a small
+     * integer when the per-set table is not populated yet, and the byte read oopsed at
+     * 0x1526 (QEMU, tuning control on a stale sensor).  Report "not available". */
+    if ((uintptr_t)v0 < PAGE_SIZE)
+        return 5;
     /* fragment 52: MemoryAccess */
     a0 = *(uint8_t *)((char *)v0 + 5412);
     v0 = (uintptr_t *)&apical_switch_wdr_mode;
