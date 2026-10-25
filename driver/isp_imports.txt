@@ -57,6 +57,7 @@ t23 tx_isp_sinfo_sensor_bind ko:sensor_sc2336_t23.ko
 t23 tx_isp_sinfo_sensor_unbind ko:sensor_sc2336_t23.ko
 t23 tx_isp_subdev_deinit ko:sensor_sc2336_t23.ko
 t23 tx_isp_subdev_init ko:sensor_sc2336_t23.ko
+t30 isp_printf ko:sensor_sc4236_t30.ko
 t30 log2_fixed_to_fixed sdk:common/sensor/t30/ov2732.c
 t30 math_exp2 sdk:common/sensor/t30/ov2732.c
 t30 private_capable sdk:common/sensor/t30/jxf22.c
