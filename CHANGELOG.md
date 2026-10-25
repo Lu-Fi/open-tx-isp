@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-25 (3): T40 SetISPRunningMode no longer reports a false error (`claude/t40-lit1025`; Eufy T40 device-tested on a test ko)
+
+- **T40: the running-mode ioctl returned the day/night refresh status (1) after a successful switch**, so libimp/timps logged `SetISPRunningMode(day) failed (rc=1)` on every day/night change although the mode was applied (isp-m0 and the kernel log showed the new mode). The ioctl now returns 0 unless the status is negative. Device (.184): running_mode 1 then 0 through the streamer, no `failed` line in the log, mode follows, 0 oops.
+
 ## 2026-10-25 (b): `t31_mxu2_cpm` parameter text reworded
 
 - **T31: no longer calls CPM 0x10000034 an MXU2 gate.** The `MODULE_PARM_DESC` of `t31_mxu2_cpm` now says "CPM 0x10000034 read by the selftest, information only; it is a clock/part register". Text only, no code change (builds as before; host tests unchanged).
