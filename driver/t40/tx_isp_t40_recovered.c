@@ -10865,7 +10865,7 @@ static void regtrace_t40_dmsc_day_shadow_switch(bool lit_on);
 static bool regtrace_t40_dmsc_day_valid;
 #include "tx_isp_t40_clm_lit.inc"
 #include "tx_isp_t40_lsc_lit.inc"
-#include "tx_isp_t40_sdns_lit.inc"
+#include "tx_isp_t40_sdns.h"
 #include "tx_isp_t40_cdns_lit.inc"
 #include "tx_isp_t40_adr_lit.inc"
 #include "tx_isp_t40_defog_lit.inc"
@@ -16915,7 +16915,7 @@ static int regtrace_isp_block_init_once(const char *where)
     }
 
     if (regtrace_enable_sdns) {
-        int sdns_ret = (int)regtrace_sdns_main_init_lit();
+        int sdns_ret = t40_sdns_init();
 
         regtrace_sdns_dbg_init_ret = sdns_ret;
         printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init sdns ret=%d\n",
@@ -24573,7 +24573,7 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
         regtrace_t40_ysp_top_bit(subret);
     }
     if (regtrace_enable_sdns)
-        REGTRACE_T40_DN_STEP(regtrace_sdns_main_init_lit());
+        REGTRACE_T40_DN_STEP(t40_sdns_init());
     if (regtrace_enable_cdns) {
         REGTRACE_T40_DN_STEP(regtrace_cdns_main_init_lit());
         regtrace_t40_cdns_top_bit(subret);
@@ -51278,10 +51278,8 @@ static void regtrace_frame_done_tuning_follow(void)
                 !regtrace_mdns_dbg_init_ret)
                 (void)tisp_mdns_par_refresh_lit(
                     0, dns_ev, 256);
-            if (regtrace_enable_sdns && main_sdns &&
-                !regtrace_sdns_dbg_init_ret)
-                (void)tisp_sdns_par_refresh_lit(
-                    0, dns_ev, 256);
+            if (regtrace_enable_sdns)
+                t40_sdns_refresh(dns_ev, 256);
             if (regtrace_enable_cdns && main_cdns &&
                 !regtrace_cdns_dbg_init_ret)
                 (void)tisp_cdns_par_refresh_lit(
@@ -175834,7 +175832,7 @@ int32_t tisp_s_module_ratio_attr(uint32_t a0, uintptr_t a1)
             /* T40-QUALITY3: the setter scales the bank tables, the literal SDNS chain works on
              * its own copies taken at init: reload them and replay the live gain. */
             if (a0 == 0 && regtrace_enable_sdns) {
-                (void)regtrace_sdns_main_init_lit();
+                (void)t40_sdns_init();
                 WRITE_ONCE(regtrace_dns_ev_applied, 0xffffffffU);
             }
         } else if (i == 1 && a0 == 0) {

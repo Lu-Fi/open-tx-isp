@@ -798,4 +798,8 @@ write and the whole chain state, 26 SDK 1.3.1 + 5 Eufy tuning bins, day/night ba
 - `tx_isp_t40_lce.h` (TOP bit 21): bank section +0x10c84 (984 bytes), 5x9 statistics cells, IRQ 8 (ping/pong RAM) and
   event 0x10, global + 32 local histogram curves, 32x16 LUT via 0x501e0/0x501e4. Parameter `t40_lce_on` as before.
   The session end resets the LCE session state as the OEM `tisp_slake_all -> tisp_lce_remove` does.
+- `tx_isp_t40_sdns.h` (TOP bit 18, `enable_sdns`): bank section +0x17b00 (2900 bytes), 125 fields (linear/WDR
+  half), 123 interpolated at the denoise EV, static and gain registers 0x14000..0x14200, 0x14054 latch. The init runs
+  at block init, on a bank switch and after SetModule_Ratio (as the literal glue did); the recovered `main_sdns*`
+  globals point at the C state, so the recovered helpers (ratio scaling, WDR switch, tuning get/set) see the same data.
 - The `dpclit_*` / `lcelit_*` diagnostic counters are gone; an init failure is logged as an error.

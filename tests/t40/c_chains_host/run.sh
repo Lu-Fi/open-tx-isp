@@ -12,6 +12,7 @@ mkdir -p "$OUT/lit"
 case "$CHAIN" in
 dpc) git -C "$REPO" show "$LIT_REF:driver/t40/tx_isp_t40_dpc_lit.inc" | sed 's/regtrace_t40_dpc_on/lit_t40_dpc_on/g' > "$OUT/lit/dpc_lit.inc" ;;
 lce) git -C "$REPO" show "$LIT_REF:driver/t40/tx_isp_t40_lce_lit.inc" | sed 's/regtrace_t40_lce_on/lit_t40_lce_on/g' > "$OUT/lit/lce_lit.inc" ;;
+sdns) git -C "$REPO" show "$LIT_REF:driver/t40/tx_isp_t40_sdns_lit.inc" > "$OUT/lit/sdns_lit.inc" ;;
 *) echo "unknown chain $CHAIN"; exit 2 ;;
 esac
 # count inputs where the OEM code is undefined: divisions by zero (MIPS result unpredictable),
