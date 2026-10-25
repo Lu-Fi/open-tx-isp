@@ -392,6 +392,13 @@ static inline void t31_awb_assign_mxu2(const u32 *zr, const u32 *zb,
 #include <asm/cpu-features.h>
 #include <linux/sched.h>
 
+/* Ingenic 3.10/4.4 kernels define cpu_has_mxu_v2; mainline (7.x) has no
+ * XBurst MXU2 ASE flag. Without it the CPU is treated as "no MXU2" so the
+ * selftest keeps the fast C path. No effect where the macro exists. */
+#ifndef cpu_has_mxu_v2
+#define cpu_has_mxu_v2 0
+#endif
+
 /* true: CU2 is on and the VPRs are ours until t31_mxu2_end() */
 static inline bool t31_mxu2_begin(unsigned long *st)
 {

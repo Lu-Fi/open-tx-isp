@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-25 (8): T31 builds on Linux 7.2 again: `cpu_has_mxu_v2` fallback (`claude/k72-t31-mxu`; build-verified, no device test needed)
+
+- The MXU2 AWB code (24.10.) used `cpu_has_mxu_v2`, which only exists in the Ingenic 3.10/4.4 kernels; the 7.2 T31 build failed with "undeclared". `tx_isp_t31_awb_simd.h` now defines it to 0 when the kernel has no such macro (`#ifndef`), so on 7.x the selftest reports "no MXU2" and the C path is used.
+- 3.10 unchanged: the macro exists there, so the `#ifndef` is skipped; T31 3.10 `objdump -d` before/after is identical (101753 lines, 0 diff). 7.2 T31 build completes (578 warning lines, rc=0).
+
 ## 2026-10-25 (7): Linux 7.x runtime warnings: proc re-publish and unpaired `s_stream` (`claude/k72-warn-next`; sinfo part device-tested on T31 .26, pairing part >=5.0 only and untested)
 
 Ported from the 7.2 bring-up (`k72-warn`), only the parts that are valid on 3.10/4.4 as well. No behaviour change on a clean run.
