@@ -23769,6 +23769,14 @@ int private_i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num
 
 void private_i2c_del_driver(struct i2c_driver *driver)
 {
+    /*
+     * The core keeps the sensor attribute pointer, which lives in the sensor
+     * module's data.  The AE interrupt path reads it, so drop it before the
+     * sensor module goes away (rmmod of a bound sensor oopsed in
+     * tx_isp_t30_simple_ae_update with the pointer into freed module memory).
+     */
+    if (ispcore)
+        ((struct tx_isp_t30_core_sensor_view *)ispcore)->sensor_attr = 0;
     i2c_del_driver(driver);
 }
 
@@ -44526,7 +44534,7 @@ int32_t apical_sensor_calibration_update(int32_t sensor_id, char mode, void *buf
 	}
 
 	for (i = 0; (uintptr_t)i != len; i = (uintptr_t)i + 1)
-		((void **)(uintptr_t)dst)[(uintptr_t)i] = src[(uintptr_t)i];
+		dst[i] = src[i];
 
 	*status = 0;
 	ret = 0;
@@ -44665,7 +44673,7 @@ apical_api_calibration0x84:
     if (_bc_s0_12) { goto apical_api_calibration0x20c; }
 
     /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(int32_t *)apical_sensor_calibration_update)(s0, s2, s4); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)apical_sensor_calibration_update((int32_t)s0, (char)s2, (void *)(uintptr_t)s4, (int32_t)a3, (int32_t *)(uintptr_t)arg4); /* len and status were dropped by the lift: the callee wrote its status through a stale register */
 
     /* fragment 14: Branch */
     s1 = v0;
