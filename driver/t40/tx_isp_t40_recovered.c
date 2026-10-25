@@ -9181,7 +9181,7 @@ static bool regtrace_enable_awb_set_gain = true;
 static bool regtrace_enable_awb_grayworld;
 static void regtrace_awb_grayworld_apply(uint32_t rgain, uint32_t bgain);
 static void regtrace_awb_grayworld_update(void);
-static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys);
+static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_phys);
 static uint regtrace_awb_grayworld_interval = 2;
 static uint32_t regtrace_awb_grayworld_updates;
 static uint32_t regtrace_awb_grayworld_irqs;
@@ -51181,6 +51181,22 @@ out:
  * EXPO write) to its own work item.
  */
 static uint32_t regtrace_frame_3a_work_y, regtrace_frame_3a_work_uv;
+static int regtrace_frame_3a_work_chn;
+/*
+ * T40-DN1025: the frame 3A (AE/AWB/EV fan-out) samples completed main-channel
+ * frames.  With the FrameSource on demand (Eufy: framesource.keepalive=0) a
+ * sub-stream-only consumer left channel 0 idle and the AE frozen at the last
+ * exposure (.184: 20 s ch1 RTSP, frame_3a_samples 834 -> 834), so a night->day
+ * check read the IR-lit exposure (554) until a main-stream client came.  The
+ * vendor AE runs on every ISP frame regardless of the consumer.  Channel 1
+ * therefore feeds the same loop whenever channel 0 has not completed a frame
+ * for frame_3a_ch1_idle_ms.
+ */
+static unsigned long regtrace_frame_3a_ch0_last;
+static uint regtrace_frame_3a_ch1_idle_ms = 300;
+module_param_named(frame_3a_ch1_idle_ms, regtrace_frame_3a_ch1_idle_ms, uint, 0644);
+static uint regtrace_frame_3a_ch1_samples;
+module_param_named(frame_3a_ch1_samples, regtrace_frame_3a_ch1_samples, uint, 0444);
 static uint32_t regtrace_frame_3a_work_runs, regtrace_frame_3a_work_busy;
 static atomic_t regtrace_frame_3a_work_pending = ATOMIC_INIT(0);
 module_param_named(frame_3a_work_runs, regtrace_frame_3a_work_runs, uint, 0444);
@@ -51326,19 +51342,22 @@ static void regtrace_frame_3a_workfn(struct work_struct *work)
 {
     uint32_t y = READ_ONCE(regtrace_frame_3a_work_y);
     uint32_t uv = READ_ONCE(regtrace_frame_3a_work_uv);
+    int chn = READ_ONCE(regtrace_frame_3a_work_chn);
 
     (void)work;
     atomic_set(&regtrace_frame_3a_work_pending, 0);
     regtrace_frame_3a_work_runs++;
     if (!regtrace_enable_frame_3a || !y || !uv)
         return;
-    regtrace_frame_3a_sample(y, uv);
+    if (chn)
+        regtrace_frame_3a_ch1_samples++;
+    regtrace_frame_3a_sample(chn, y, uv);
     regtrace_ae_sensor_apply_maybe(0, "frame-3a-work");
     regtrace_frame_done_tuning_follow();
 }
 static DECLARE_WORK(regtrace_frame_3a_work, regtrace_frame_3a_workfn);
 
-static void regtrace_frame_3a_tick(uint32_t y, uint32_t uv)
+static void regtrace_frame_3a_tick(int channel, uint32_t y, uint32_t uv)
 {
     static uint32_t f3a_tick;
 
@@ -51351,6 +51370,7 @@ static void regtrace_frame_3a_tick(uint32_t y, uint32_t uv)
         regtrace_frame_3a_work_busy++;
         return;
     }
+    WRITE_ONCE(regtrace_frame_3a_work_chn, channel);
     WRITE_ONCE(regtrace_frame_3a_work_y, y);
     WRITE_ONCE(regtrace_frame_3a_work_uv, uv);
     schedule_work(&regtrace_frame_3a_work);
@@ -51388,7 +51408,13 @@ static long regtrace_irq_frame_done_send(int channel, uint32_t source,
         regtrace_frame_3a_completed_uv_phys = regtrace_untag_phys(uv);
         wmb();
         regtrace_frame_3a_completed_seq++;
-        regtrace_frame_3a_tick(regtrace_untag_phys(y), regtrace_untag_phys(uv));
+        WRITE_ONCE(regtrace_frame_3a_ch0_last, jiffies);
+        regtrace_frame_3a_tick(0, regtrace_untag_phys(y), regtrace_untag_phys(uv));
+    } else if (channel == 1 && regtrace_frame_3a_ch1_idle_ms &&
+               regtrace_phys_is_dram(y) && regtrace_phys_is_dram(uv) &&
+               time_after(jiffies, READ_ONCE(regtrace_frame_3a_ch0_last) +
+                          msecs_to_jiffies(regtrace_frame_3a_ch1_idle_ms))) {
+        regtrace_frame_3a_tick(1, regtrace_untag_phys(y), regtrace_untag_phys(uv));
     }
 
     if (regtrace_irq_frame_done_delivery_mode ==
@@ -97326,7 +97352,7 @@ static uint32_t regtrace_t40_ae_max_it(void)
     return it;
 }
 
-static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
+static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_phys)
 {
     static void __iomem *win;
     static uint32_t win_base;
@@ -97342,10 +97368,10 @@ static void regtrace_frame_3a_sample(uint32_t y_phys, uint32_t uv_phys)
     uint32_t highlight_level = min_t(uint32_t,
                                      regtrace_frame_3a_highlight_level, 255U);
 
-    regtrace_get_framechan_format(0, &format);
+    regtrace_get_framechan_format(channel, &format);
     width = format.pix.width;
     height = format.pix.height;
-    if (!width || !height)
+    if (channel == 0 && (!width || !height))
         regtrace_sensor_dimensions(0, &width, &height);
     if (!width || !height)
         return;

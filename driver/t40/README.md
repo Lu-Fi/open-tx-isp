@@ -661,6 +661,12 @@ night picture 69 % darker than the vendor. Findings and fixes, all device-tested
   4K). Day edge energy 2.89 -> 3.76 (vendor 5.23); the remaining sharpness gap is open.
 - The open timps stops the framesource without a viewer (`framesource.keepalive=0`), so the ISP idles at 0 IRQ/s and the
   3A only runs in snapshot bursts; the A/B runs therefore keep a stream consumer open. Not a driver difference.
+- Frame 3A without a main-stream consumer (2026-10-25): the sampler took only channel-0 completions, so a sub-stream-only
+  consumer (ch1 RTSP, 20 s: `frame_3a_samples` 834 -> 834) left the AE frozen at the last exposure. After an IR-off day
+  switch a streamer then read the IR-lit exposure for seconds (timps: 554 after 8 s, 22117 14 s later) and kept a
+  wrong "day". Channel 1 now feeds the same loop when channel 0 has not completed a frame for
+  `frame_3a_ch1_idle_ms` (default 300, 0 = old behaviour; `frame_3a_ch1_samples` counts them). Device (.184, dark, ch1
+  only, IR off): EV 3375 -> 286830 (max) in ~3 s, back to 3375 ~4 s after the streamer returned to night (stock: frozen).
 
 ## Eufy sc830ai: defog, LCE, DPC and the GIB gain follow (2026-10-24, `claude/t40-quality2`)
 
