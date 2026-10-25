@@ -4,12 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
-## 2026-10-25 (7): Linux 7.x runtime warnings: proc re-publish and unpaired `s_stream` (`claude/k72-warn-next`; builds only, not device-tested)
+## 2026-10-25 (7): Linux 7.x runtime warnings: proc re-publish and unpaired `s_stream` (`claude/k72-warn-next`; sinfo part device-tested on T31 .26, pairing part >=5.0 only and untested)
 
 Ported from the 7.2 bring-up (`k72-warn`), only the parts that are valid on 3.10/4.4 as well. No behaviour change on a clean run.
 
 - **`tx_isp_sinfo`**: the vendor proc files are removed (`remove_proc_subtree`, silent when absent) before `proc_create_data`, so a second publish no longer triggers "proc_dir_entry already registered".
-- **`tx_isp_v4l2_sensor` (T31 bridge)**: the sensor's `s_stream` is tracked and kept paired (a stop without a start, or a double start, no longer reaches the sensor driver; 7.x warns about it).
+- **`tx_isp_v4l2_sensor` (T31 bridge, kernel >= 5.0 only; not compiled on 3.10/4.4)**: the sensor's `s_stream` is tracked and kept paired (a stop without a start, or a double start, no longer reaches the sensor driver; 7.x warns about it).
+- Device test (T31L .26, agg46, 3.10): test ko reloaded 2x, 5x timps restart, 2x day/night, 5 min stream (10 snapshots): every snapshot 200, 0 oops/WARNING, no "already registered", stock ko restored. The s_stream pairing is >=5.0 only: device test on 7.2 pending.
 - **Not ported**: the IRQ-depth change in `tx_isp_enable_irq` (it was reverted on the 7.2 branch because it kept the ISP IRQ masked, no frames).
 - Compiler warnings: unchanged on T21/T23/T30/T31/T40/T41 (3.10/4.4 builds) and on the 7.2 T31 objects touched; T10/T20 cannot be built here (external/ingenic-sdk not populated).
 
