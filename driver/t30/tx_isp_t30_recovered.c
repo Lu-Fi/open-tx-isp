@@ -44603,6 +44603,17 @@ out:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000024ed0 origin=fragment_seed original=apical_api_calibration */
 int32_t apical_api_calibration(uint32_t a0, uint32_t a1, uintptr_t a2, uint32_t a3, uintptr_t arg4)
 {
+    /*
+     * Before the first sensor is initialised the firmware instance and its
+     * calibration tables do not exist (core + 0x19c is set by the core init
+     * event together with apical_init).  Tuning controls that reach this
+     * function then followed null table pointers (QEMU, no sensor: oops in
+     * the t30-tune smoke test); report "not available" like the other
+     * invalid-argument exits.
+     */
+    if (!ispcore || !*(void **)((char *)ispcore + 0x19c))
+        return 5;
+    {
     uint32_t *local_10 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_24 = 0;
@@ -44893,6 +44904,7 @@ apical_api_calibration0x210:
     /* function epilogue: restore registers and return */
 
     return 0;
+    }
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000025110 origin=model_output original=cmos_store_frame_exposure_set */
