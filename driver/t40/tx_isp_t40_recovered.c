@@ -9066,11 +9066,14 @@ MODULE_PARM_DESC(t40_dmsc_follow, "1 (default): DMSC follows the active day/nigh
  * its TotalGainDb 75639 bit for bit, tests/t40/dmsc_night_host).  Profile 1 keeps the static day block because the
  * 10-24 day test of the literal chain showed chroma 0.38; that run was taken after a night cycle, in the
  * day-return desaturation state that was later also seen with t40_dmsc_follow=0 and on stock (S 15 vs 44), so the
- * evidence is confounded.  1 = vendor behaviour in day as well (takes effect at the next day/night refresh).
+ * evidence is confounded (the desaturation was the AWB1 re-enable, see t40_dn_keep_awb1).  .184 2026-10-25, lit
+ * 255/3649K, fresh load each: day edge energy 4.22 -> 4.95 (+17 %, vendor/open ratio on 10-24 was 1.22), chart
+ * chroma 1.06 -> 1.05, dE00 5.7 -> 5.4.  Default 1 since then (vendor behaviour in day as well); 0 = static day
+ * DMSC block (takes effect at the next day/night refresh).
  */
-static bool regtrace_t40_dmsc_day_follow;
+static bool regtrace_t40_dmsc_day_follow T40C2 = true;   /* own section: keeps .bss/.data at the base size */
 module_param_named(t40_dmsc_day_follow, regtrace_t40_dmsc_day_follow, bool, 0644);
-MODULE_PARM_DESC(t40_dmsc_day_follow, "1: with t40_dmsc_follow the literal DMSC chain also runs in day mode (OEM behaviour); 0 (default): static day DMSC block");
+MODULE_PARM_DESC(t40_dmsc_day_follow, "1 (default): with t40_dmsc_follow the literal DMSC chain also runs in day mode (OEM behaviour); 0: static day DMSC block");
 /*
  * Eufy T40XP/sc830ai 2026-10-13: quality profile 0 plus the individually
  * verified blocks (MDNS, SDNS, YDNS, ADR, CCM, gamma, BLC, LSC, GIB) streams
@@ -12753,6 +12756,24 @@ static void regtrace_t40_ysp_top_bit(int init_ret)
     }
 }
 
+/*
+ * T40-DN-AWB1 (2026-10-25): the sc830ai night bank bypasses AWB1 (TOP bit 6),
+ * the day bank enables it.  Re-enabling AWB1 on a running pipe leaves the
+ * day picture grey with green/magenta hues (HSV S 11 instead of 41, chart
+ * chroma 0.40 instead of 1.17) in about half of the night->day switches,
+ * until some later TOP change happens to heal it.  On .184 a bare devmem
+ * bit-6 toggle reproduced it 5/10, other bits 0/18; writing TOP at a frame
+ * end did not help (7/15), re-triggering the AWB1 gains (0x5000) or
+ * rewriting every differing ISP register did not heal it.  With AWB1 left
+ * active through the night 0 of 30 day returns were bad (stock / earlier
+ * test kos: about 50 %).  Night stays monochrome (BCSH saturation 0); the
+ * lit night luma was unchanged (122.1 vs 122.2).
+ * t40_dn_keep_awb1=0 follows the night bank flag again.
+ */
+static bool regtrace_t40_dn_keep_awb1 T40C2 = true;   /* own section: keeps .bss/.data at the base size */
+module_param_named(t40_dn_keep_awb1, regtrace_t40_dn_keep_awb1, bool, 0644);
+MODULE_PARM_DESC(t40_dn_keep_awb1, "1 (default): keep AWB1 (TOP bit 6) at the day-bank state at night, avoids the grey/green-magenta day picture after night->day; 0: follow the night bank");
+
 static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
 {
     uint32_t gate_off = (regtrace_t40_gates_oem_offset &&
@@ -12819,7 +12840,13 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
             regtrace_t40_quality_top40_final |= BIT(2);
         else
             regtrace_t40_quality_top40_final &= ~BIT(2);
-        if (flags[6])
+        bool awb1_bypass = flags[6] != 0;
+
+        /* T40-DN-AWB1: keep AWB1 at its day-bank state (see t40_dn_keep_awb1) */
+        if (awb1_bypass && regtrace_t40_dn_keep_awb1 && tparams_day &&
+            !((const uint8_t *)(uintptr_t)(tparams_day + gate_off))[6])
+            awb1_bypass = false;
+        if (awb1_bypass)
             regtrace_t40_quality_top40_final |= BIT(6);
         else
             regtrace_t40_quality_top40_final &= ~BIT(6);

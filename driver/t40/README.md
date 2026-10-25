@@ -763,6 +763,13 @@ ISP digital gain is 1x there. `SetModule_Ratio` defog -> literal `tisp_s_defog_r
   digital gain, re-interpolated per frame). The day block (static table + OEM init) is saved on the switch and written
   back with the trigger 0xa19c on the return (`t40_dmsc_day_restores` counts the restores). Host check:
   `tests/t40/dmsc_night_host` (bit-exact against the vendor night dump). `t40_dmsc_follow=0` = old static DMSC.
+- Since 2026-10-25 `t40_dmsc_day_follow=1` (default): the literal chain runs in day too (vendor behaviour; .184 day
+  edge energy +17 %, chroma unchanged). 0 = static day block, saved/restored around the night as above.
+
+## Day/night TOP bit 6 (AWB1, 2026-10-25, `t40_dn_keep_awb1`)
+- The night bank bypasses AWB1 (TOP bit 6). Re-enabling it on a running pipe broke the day colour in about half of the
+  night->day switches (grey, green/magenta hues; registers unchanged, healed only by a later TOP change). Default 1
+  keeps AWB1 at the day-bank state at night; night stays monochrome through BCSH saturation 0. 0 = follow the bank.
 
 ## Tuning controls and guards of the lifted bodies (2026-10-24, evening)
 
