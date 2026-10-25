@@ -7485,6 +7485,8 @@ static u32 t40_wdr_out_mode[2];  /* SetWdrOutputMode shadow (linear sensor: flag
  * ~700 bytes of new statics in .bss delivered no frames at all).  State added after the lift lives in its own
  * section, outside .bss/.data. */
 #define T40C2 __attribute__((section(".t40c2")))
+/* T40-LAYOUT: OEM tv_frame_start/_next/_end[2] (frame VB measurement timevals), outside .bss */
+static uint32_t t40_tv_frame_start[2][2] T40C2, t40_tv_frame_start_next[2][2] T40C2, t40_tv_frame_end[2][2] T40C2;
 
 /*
  * vmalloc tracker (reload leak): the lifted block inits (ae/awb/ysp/ydns/defog/lce/... main_init,
@@ -183252,7 +183254,7 @@ int64_t ispcore_irqstatusSec_func(uintptr_t a0)
     /* fragment 2: StackAccess */
     local_1c = s0;
     local_24 = ra;
-    s1 = s1 + 22000;
+    s1 = (uintptr_t *)((char *)&frame_vb_measure);   /* T40-LAYOUT: OEM frame_vb_measure (the lift read/wrote isp_memopt + 88001) */
     v1 = *(uint8_t *)((char *)s1 + 1);
     v0 = 2;
 
@@ -183261,7 +183263,7 @@ int64_t ispcore_irqstatusSec_func(uintptr_t a0)
     if (v1 != v0) { goto ispcore_irqstatusSec_func0x44; }
 
     /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&t40_tv_frame_end[1]); /* T40-LAYOUT: OEM tv_frame_* (the lift wrote the timeval over isp_memopt) */
 
     /* fragment 5: Arithmetic */
     v0 = 3;
@@ -186051,7 +186053,7 @@ ispcore_interrupt_service_routine0x198:
     if (_bc_v1_25) { goto ispcore_interrupt_service_routine0x1f0; }
 
     /* fragment 26: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&t40_tv_frame_start[0]); /* T40-LAYOUT: OEM tv_frame_* (the lift wrote the timeval over isp_memopt) */
 
     /* fragment 27: Arithmetic */
     v0 = 2;
@@ -186068,7 +186070,7 @@ ispcore_interrupt_service_routine0x1f0:
     if (_bc_v1_29) { goto ispcore_interrupt_service_routine0x218; }
 
     /* fragment 30: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&t40_tv_frame_start_next[0]); /* T40-LAYOUT: OEM tv_frame_* (the lift wrote the timeval over isp_memopt) */
 
     /* fragment 31: CallSetup */
     v0 = 4;
@@ -186115,7 +186117,7 @@ ispcore_interrupt_service_routine0x24c:
     if (_bc_v1_41) { goto ispcore_interrupt_service_routine0x290; }
 
     /* fragment 42: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&t40_tv_frame_start[1]); /* T40-LAYOUT: OEM tv_frame_* (the lift wrote the timeval over isp_memopt) */
 
     /* fragment 43: Arithmetic */
     v0 = 2;
@@ -186132,7 +186134,7 @@ ispcore_interrupt_service_routine0x290:
     if (_bc_v1_45) { goto ispcore_interrupt_service_routine0x2b8; }
 
     /* fragment 46: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&t40_tv_frame_start_next[1]); /* T40-LAYOUT: OEM tv_frame_* (the lift wrote the timeval over isp_memopt) */
 
     /* fragment 47: CallSetup */
     v0 = 4;
@@ -186173,60 +186175,27 @@ ispcore_interrupt_service_routine0x2e4:
     /* fragment 55: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&defog_static_tmp));
     a1 = *(uint32_t *)((char *)s0 + 232);
-    a3 = (uint32_t *)&isp_memopt;
     v0 = v0 + 1;
     *(uint32_t *)((char *)((char *)&defog_static_tmp)) = v0;
     v0 = 65536;
     v0 = (uintptr_t)a1 + (uintptr_t)v0;
     a2 = *(uint32_t *)((char *)v0 + 24584);
-    v1 = (int32_t *)&isp_memopt;
-    v1 = v1 + 22060;
-    a0 = 0;
-    a3 = a3 + 22052;
-    t1 = 1;
-    t0 = 3;
+    /* T40-LAYOUT: OEM loop over frame_use_num_tmp[0..2] / frame_use_num[0..2] (bytes).  The lift reached
+     * them as isp_memopt + 4 * {22060, 22052} and stepped the counter pointer by 4 bytes, so every
+     * frame-done with bit 8 wrote bytes ~88 KB behind isp_memopt into whatever object sits there. */
+    {
+        uint8_t *tmp = (uint8_t *)&frame_use_num_tmp, *use = (uint8_t *)&frame_use_num;
+        uint32_t ch;
 
-ispcore_interrupt_service_routine0x328:
-    /* fragment 56: MemoryAccess */
-    v0 = *(uint8_t *)((char *)v1 + 0);
-
-    /* fragment 57: Branch */
-    int _bc_v0_57 = v0 == 0;
-    v0 = v0 - 1;
-    if (_bc_v0_57) { goto ispcore_interrupt_service_routine0x358; }
-
-    /* fragment 58: Arithmetic */
-    v0 = (uintptr_t)v0 & 255;
-
-    /* fragment 59: Branch */
-    int _bc_v0_59 = v0 != 0;
-    *(uint8_t *)((char *)v1 + 0) = v0;
-    if (_bc_v0_59) { goto ispcore_interrupt_service_routine0x358; }
-
-    /* fragment 60: Arithmetic */
-    v0 = a3 + a0;
-
-    /* fragment 61: MemoryAccess */
-    t2 = *(uint8_t *)((char *)v0 + 0);
-
-    /* fragment 62: Branch */
-    int _bc_t2_62 = t2 == 0;
-    t2 = (uintptr_t)t1 << a0;
-    if (_bc_t2_62) { goto ispcore_interrupt_service_routine0x358; }
-
-    /* fragment 63: Arithmetic */
-    a2 = (uintptr_t)a2 | (uintptr_t)t2;
-
-    /* fragment 64: MemoryAccess */
-    *(uint8_t *)((char *)v0 + 0) = 0;
-
-ispcore_interrupt_service_routine0x358:
-    /* fragment 65: Arithmetic */
-    a0 = a0 + 1;
-
-    /* fragment 66: Branch */
-    v1 = v1 + 1;
-    if (a0 != t0) { goto ispcore_interrupt_service_routine0x328; }
+        for (ch = 0; ch < 3; ch++) {
+            if (!tmp[ch] || --tmp[ch])
+                continue;
+            if (use[ch]) {
+                a2 = (uintptr_t)a2 | (1U << ch);
+                use[ch] = 0;
+            }
+        }
+    }
 
     /* fragment 67: Arithmetic */
     v0 = 65536;
@@ -186312,7 +186281,7 @@ ispcore_interrupt_service_routine0x3dc:
     if (_bc_a0_83) { goto ispcore_interrupt_service_routine0x434; }
 
     /* fragment 84: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&isp_memopt); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_do_gettimeofday)(&t40_tv_frame_end[0]); /* T40-LAYOUT: OEM tv_frame_* (the lift wrote the timeval over isp_memopt) */
 
     /* fragment 85: Arithmetic */
     v0 = 3;
