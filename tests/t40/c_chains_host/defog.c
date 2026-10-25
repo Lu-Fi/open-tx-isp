@@ -141,6 +141,100 @@ static void patch(uint8_t *bank, unsigned var)
     }
 }
 
+/* ---- the better-than-OEM fixes (C side only; the comparison above runs with them off) ---- */
+static uint8_t ref_curve(const struct t40_dfg_soft *s, uint32_t v)
+{
+    int32_t a = s->curve[v >> 4], b = s->curve[(v >> 4) + 1], x = a + (((b - a) * (int32_t)(v & 15) + 8) >> 4);
+    uint32_t y = (uint32_t)x * (uint32_t)(s->ctl[3] - s->ctl[2]) + 127;
+    return (y * 257 + ((uint32_t)s->ctl[2] << 16)) >> 16 & 0xff;
+}
+static uint8_t ref_trans(const uint8_t *t, int32_t y)
+{
+    const uint8_t *kn = t + DFG_T_YKNOTS, *lv = t + DFG_T_CUR; int j;
+    if (y < kn[0]) return lv[0];
+    for (j = 0; j < 4; j++)
+        if (y < kn[j + 1]) return lv[j] + ((y - kn[j]) * (lv[j + 1] - lv[j]) + ((kn[j + 1] - kn[j]) >> 1)) / (kn[j + 1] - kn[j]);
+    return lv[4];
+}
+/* cached values that no longer match the current curves (stale entries) */
+static unsigned stale(void)
+{
+    const struct t40_dfg_soft *s = &t40_dfg->soft; unsigned v, n = 0;
+    for (v = 0; v < 256; v++) {
+        if ((s->flags[v] & 1) && s->cache_curve[v] != ref_curve(s, v)) n++;
+        if ((s->flags[v] & 0x10) && s->cache_trans[v] != ref_trans(t40_dfg->tool, v)) n++;
+    }
+    return n;
+}
+static void c_frames(unsigned n, uint32_t mode)
+{
+    unsigned i, na;
+    side = 1;
+    for (i = 0; i < n; i++) {
+        uint32_t e0 = ev_pushed;
+        st_seed = lcg() | 1; st_slot = i % 4; st_mode = mode; st_fill();
+        ((int32_t (*)(void))irq_cbs[1][10])();
+        if (ev_pushed != e0) ((int32_t (*)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t))ev_cbs[1][0][4])(0, 0, 0, 0, 0);
+    }
+    free(snap(&na));
+}
+/* motion weights with the window variance computed independently */
+static unsigned motion_ref_diff(void)
+{
+    struct t40_dfg_ctx *c = t40_dfg; const struct t40_dfg_soft *s = &c->soft;
+    int32_t off = s->ctl[6] << 4, lo = s->ctl[7] << 2, hi = s->ctl[8] << 6; int r, q, y, x; unsigned bad = 0;
+    t40_dfg_motion(c);
+    for (r = 0; r < 10; r++) for (q = 0; q < 18; q++) {
+        int64_t sum = 0, asum = 0, var = 0; int n = 0, mean; int64_t v; uint8_t w;
+        for (y = r - 2; y <= r + 2; y++) for (x = q - 2; x <= q + 2; x++)
+            if (y >= 0 && y < 10 && x >= 0 && x < 18) { int d = c->dy[y * 18 + x]; sum += d; asum += d < 0 ? -d : d; n++; }
+        mean = (int)(sum / n);
+        for (y = r - 2; y <= r + 2; y++) for (x = q - 2; x <= q + 2; x++)
+            if (y >= 0 && y < 10 && x >= 0 && x < 18) { int d = c->dy[y * 18 + x] - mean; var += d * d; }
+        v = (int32_t)((uint32_t)(var / n + off) * (uint32_t)((asum << 6) / n)) / off;
+        w = v > hi ? 255 : v < lo ? 0 : ((v - lo) << 8) / (hi - lo);
+        if (c->motion[r * 18 + q] != w) bad++;
+    }
+    return bad;
+}
+static unsigned better_tests(const char *path)
+{
+    uint8_t *bin = load_bin(path), *day = BANK_DAY(bin), *night = BANK_NIGHT(bin), *td, *tn;
+    unsigned fail = 0, on, st[2][3], i;
+    patch(day, 1); patch(night, 1);
+    td = day + T40_DFG_TOOL_OFFSET; tn = night + T40_DFG_TOOL_OFFSET;
+    for (i = 0; i < 17; i++) tn[DFG_T_CURVE + i] = 255 - td[DFG_T_CURVE + i] / 2;	/* night curve differs */
+    for (i = 0; i < 5; i++) tn[DFG_T_YKNOTS + i] = td[DFG_T_YKNOTS + i] / 2 + 10 * i;
+    for (i = 0; i < 9; i++) {	/* day levels that follow the EV, knots 0..8000 */
+        t40_dfg_put32(td, DFG_T_KNOTS + 4 * i, 1000 * i);
+        for (unsigned j = 0; j < 5; j++) td[DFG_T_LEVELS + 9 * j + i] = 40 + 20 * i + 3 * j;
+    }
+    td[DFG_T_MANUAL] = 0;
+    for (on = 0; on < 2; on++) {
+        t40_defog_dn_cache_reset = t40_defog_trans_reset_all = t40_defog_motion_var = on;
+        side = 1; tparamsN[0] = (uintptr_t)day; lcg_state = 4242;
+        t40_defog_init(1920, 1080); c_frames(6, 1); c_frames(4, 3);	/* fills curve and transmission caches up to 255 */
+        /* 1: night bank arrives */
+        tparamsN[0] = (uintptr_t)night; t40_defog_dn_refresh(1920, 1080); c_frames(1, 2);
+        st[on][0] = stale();
+        /* 2: EV jump to another knot (levels change), bright cells cached before */
+        tparamsN[0] = (uintptr_t)day; t40_defog_dn_refresh(1920, 1080); c_frames(4, 3);
+        t40_defog_ev_update(500ull << 10); c_frames(4, 3);
+        t40_defog_ev_update(7500ull << 10); c_frames(1, 2);
+        st[on][1] = stale();
+        /* 3: motion weights against an independent window variance */
+        for (i = 0; i < 180; i++) t40_dfg->dy[i] = (int16_t)(lcg() % 120) - 60;
+        if (!t40_dfg->soft.ctl[6]) t40_dfg->soft.ctl[6] = 1;
+        st[on][2] = motion_ref_diff();
+        t40_defog_cleanup();
+    }
+    printf("better: stale caches after day/night OEM %u fixed %u; after EV change OEM %u fixed %u; motion cells off the window variance OEM %u fixed %u\n",
+           st[0][0], st[1][0], st[0][1], st[1][1], st[0][2], st[1][2]);
+    for (i = 0; i < 3; i++) if (st[1][i] || !st[0][i]) fail++;	/* fixed must be clean, the OEM case must show the flaw */
+    t40_defog_dn_cache_reset = t40_defog_trans_reset_all = t40_defog_motion_var = 0;
+    return fail;
+}
+
 static int chain_main(int argc, char **argv)
 {
     static const uint32_t res[][2] = { { 1920, 1080 }, { 3840, 2160 }, { 2560, 1440 }, { 1280, 720 }, { 2592, 1944 }, { 640, 360 }, { 658, 814 } };	/* 658x814: H*W/2025 rounds at the edge */
@@ -151,6 +245,8 @@ static int chain_main(int argc, char **argv)
     *(uint32_t *)(tispinfo + 60) = (uint32_t)(uintptr_t)st_buf;
     *(uint32_t *)(tispinfo + 64) = ST_PHYS;
     tune = arena_alloc(4096); memset(tune, 0, 4096);
+    /* OEM-exact comparison: the better-than-OEM fixes off */
+    t40_defog_dn_cache_reset = t40_defog_trans_reset_all = t40_defog_motion_var = 0;
     for (k = 1; k < (unsigned)argc; k++) {
         size_t mark = used;	/* everything of a bin is gone after its final cleanup (kfree is a no-op here) */
         uint8_t *bin0 = load_bin(argv[k]), *bin = arena_alloc(BIN_BYTES); unsigned bad = 0, r, f, stop = 0, var;
@@ -198,6 +294,7 @@ static int chain_main(int argc, char **argv)
         total += bad;
         used = mark;
     }
+    if (argc > 1) { size_t m = used; total += better_tests(argv[1]); used = m; }
     printf("defog: %d bins, %u steps, %lu register writes compared, %u differences, %u bins stopped at undefined OEM behaviour\n", argc - 1, nsteps, nwr, total, degenerate);
     return total != 0;
 }

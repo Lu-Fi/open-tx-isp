@@ -25,11 +25,10 @@
  *
  * This replaces the literal mips2c chain (tx_isp_t40_defog_lit.inc up to
  * open-tx-isp next 1bc9b8e2); tests/t40/c_chains_host compares both.
- * Only the main channel (sensor 0) exists here.  OEM behaviour kept on
- * purpose (bit-exact): the curve cache (flag bit 0) is never invalidated
- * after a day/night refresh, the EV/strength path drops only the first 180
- * of the 256 transmission cache entries, the motion "variance" is the
- * squared deviation of the last cell of the window.
+ * Only the main channel (sensor 0) exists here.  Three OEM flaws are fixed
+ * behind parameters (default on, 0 = OEM-exact): caches kept across a
+ * day/night refresh, 180 of 256 transmission cache entries dropped on an
+ * EV/strength change, motion "variance" from the last window cell only.
  */
 #ifndef TX_ISP_T40_DEFOG_H
 #define TX_ISP_T40_DEFOG_H
@@ -124,6 +123,21 @@ static uint32_t t40_dfg_wdr T40C2;	/* OEM defog_wdr_en: nothing sets it on this 
 static uint8_t t40_dfg_zoomk T40C2;
 static uint8_t t40_dfg_strength T40C2 = 0x80;
 
+/* Better than the OEM (default on; 0 = OEM-exact, bit-identical to the vendor chain):
+ * the OEM keeps the per-value caches across a day/night bank switch (air light curve and
+ * transmission of the old bank stay in use), drops only 180 of the 256 transmission cache
+ * entries after an EV/strength change (values 180..255 keep the old level) and takes the
+ * squared deviation of the last window cell as the motion "variance". */
+static bool t40_defog_dn_cache_reset T40C2 = true;
+module_param(t40_defog_dn_cache_reset, bool, 0644);
+MODULE_PARM_DESC(t40_defog_dn_cache_reset, "defog: 1 (default) drops the curve/transmission caches on a day/night refresh, 0 = OEM (old bank values stay cached)");
+static bool t40_defog_trans_reset_all T40C2 = true;
+module_param(t40_defog_trans_reset_all, bool, 0644);
+MODULE_PARM_DESC(t40_defog_trans_reset_all, "defog: 1 (default) drops all 256 transmission cache entries on an EV/strength change, 0 = OEM (only 180)");
+static bool t40_defog_motion_var T40C2 = true;
+module_param(t40_defog_motion_var, bool, 0644);
+MODULE_PARM_DESC(t40_defog_motion_var, "defog: 1 (default) motion weighting uses the variance over the 5x5 window, 0 = OEM (last cell only)");
+
 static const uint16_t t40_dfg_w24_base[24] = {
 	255, 521, 799, 1090, 1395, 1717, 2057, 2417, 2799, 3207, 3643, 4114,
 	4624, 5180, 5792, 6471, 7237, 8111, 9133, 10359, 11896, 13953, 17075, 23792
@@ -195,7 +209,7 @@ static void t40_dfg_relevel(struct t40_dfg_ctx *c, uint32_t ev)
 	memcpy(old, c->tool + DFG_T_CUR, 5);
 	t40_dfg_interp_levels(c, ev);
 	if (memcmp(old, c->tool + DFG_T_CUR, 5))
-		for (i = 0; i < T40_DFG_CELLS; i++)	/* OEM: 180 of the 256 entries */
+		for (i = 0; i < (t40_defog_trans_reset_all ? 256U : T40_DFG_CELLS); i++)	/* OEM: 180 of the 256 */
 			c->soft.flags[i] &= 0x0f;
 }
 
@@ -293,10 +307,23 @@ static void t40_dfg_write_reg2(const struct t40_dfg_ctx *c)
 	system_reg_write(0xc004, 0xf);
 }
 
+/* diagnostics: sums of the last table written (air light outputs, transmission) */
+static uint32_t t40_dfg_sum_air T40C2, t40_dfg_sum_trans T40C2;
+module_param_named(t40_defog_sum_air, t40_dfg_sum_air, uint, 0444);
+module_param_named(t40_defog_sum_trans, t40_dfg_sum_trans, uint, 0444);
+
 /* OEM tisp_defog_write_reg_para3: the four outputs per cell into the 0x500a4 table */
 static void t40_dfg_write_table(const struct t40_dfg_soft *s)
 {
+	uint32_t air = 0, trans = 0;
 	unsigned int i;
+
+	for (i = 0; i < T40_DFG_CELLS; i++) {
+		air += s->out[0][i] + s->out[1][i] + s->out[2][i];
+		trans += s->out[3][i];
+	}
+	t40_dfg_sum_air = air;
+	t40_dfg_sum_trans = trans;
 
 	system_reg_write(0xc2ac, 0);
 	system_reg_write(0x500a0, 0x101);
@@ -421,9 +448,19 @@ static void t40_dfg_motion(struct t40_dfg_ctx *c)
 				}
 			mean = sum / n;
 			amean = (asum << 6) / n;
-			/* OEM: the "variance" keeps only the last cell of the window */
-			dev = c->dy[y1 * T40_DFG_COLS + x1] - mean;
-			dev *= dev;
+			if (t40_defog_motion_var) {
+				dev = 0;
+				for (y = y0; y <= y1; y++)
+					for (x = x0; x <= x1; x++) {
+						int32_t d = c->dy[y * T40_DFG_COLS + x] - mean;
+
+						dev += d * d;
+					}
+			} else {
+				/* OEM: the "variance" keeps only the last cell of the window */
+				dev = c->dy[y1 * T40_DFG_COLS + x1] - mean;
+				dev *= dev;
+			}
 			/* 32-bit product as in the OEM; off = 0 is undefined there */
 			v = off ? (int32_t)((uint32_t)(dev / n + off) * (uint32_t)amean) / off : 0;
 			if (v > hi)
@@ -794,6 +831,8 @@ static int t40_defog_dn_refresh(uint32_t width, uint32_t height)
 	} else {
 		memcpy(c->tool + DFG_T_W24, keep, sizeof(keep));
 	}
+	if (t40_defog_dn_cache_reset)	/* the cached values belong to the old bank's curves */
+		memset(c->soft.flags, 0, sizeof(c->soft.flags));
 	t40_dfg_apply(c);
 	return t40_defog_ratio_apply(c);
 }

@@ -35,7 +35,12 @@ for all channels; the simple luma mode; manual levels with zoomed position weigh
 through IRQ 10 (the four DMA slots and a foreign address; garbage, realistic, dark and saturated 21-bit
 sums) and event 4, EV walks (small steps, jumps, exactly on the knots, huge values), IMP strength
 changes (0..255, enable off/on), day/night refreshes, the WDR table switch and session cleanups.
-Compared: every register write and the parameter block, soft state and register image.
+Compared: every register write and the parameter block, soft state and register image. The comparison
+runs with the three better-than-OEM fixes off (`t40_defog_dn_cache_reset`, `t40_defog_trans_reset_all`,
+`t40_defog_motion_var` = 0); a separate C-only test turns them on and checks that no cached curve or
+transmission value is stale after a day/night switch and after an EV change, and that the motion weights
+equal an independently computed 5x5 window variance (with the fixes off the same test must find the
+OEM flaws).
 
 `run.sh` instruments the literal code: a division by zero (the MIPS result is unpredictable)
 or an LCE histogram knot past bin 31 (the OEM writes past its stack array) counts as undefined
