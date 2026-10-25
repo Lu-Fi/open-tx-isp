@@ -24650,7 +24650,11 @@ static int regtrace_t40_tuning_set_running_mode(uint32_t mode)
            previous ? "night" : "day", mode ? "night" : "day",
            regtrace_day_awb_rgain, regtrace_day_awb_bgain, ret);
     mutex_unlock(&regtrace_t40_running_mode_lock);
-    return ret;
+    /* The mode is applied at this point.  The block initializers return a
+     * positive status (1) on success paths; the ioctl must report only real
+     * errors, otherwise libimp/timps log "SetISPRunningMode failed (rc=1)"
+     * for every successful day/night switch. */
+    return ret > 0 ? 0 : ret;
 }
 
 static int regtrace_t40_tuning_copy_ae_expr(uintptr_t user_ptr)
