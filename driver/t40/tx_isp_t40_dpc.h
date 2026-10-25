@@ -18,6 +18,7 @@
  */
 #ifndef TX_ISP_T40_DPC_H
 #define TX_ISP_T40_DPC_H
+#include "tx_isp_t40_intp.h"
 
 #define T40_DPC_PAR_OFFSET 11960U	/* DPC section inside a tuning bank */
 #define T40_DPC_PAR_BYTES  1074U
@@ -77,18 +78,13 @@ static void t40_dpc_select(struct t40_dpc_state *d, uint32_t wdr)
 /* tisp_dpc_intp: every table at total gain (16.16 log2); value i at cur + 2 * i */
 static void t40_dpc_interpolate(struct t40_dpc_state *d, uint32_t gain)
 {
-	int32_t idx = (int32_t)gain >> 16;
-	int32_t frac = gain & 0xffff;
 	unsigned int i;
 
 	for (i = 0; i < T40_DPC_TABLES; i++) {
-		void *t = (void *)d->tab[i];
-
 		if (i == T40_DPC_TAB_U8) {
-			/* OEM: unsigned index compare, so a negative index takes the last knot */
-			d->cur[2 * i] = (uint32_t)idx >= 10 ? d->tab[i][10] : tisp_simple_intp_int8(idx, frac, t);
+			d->cur[2 * i] = t40_intp_u8_at(gain, d->tab[i]);
 		} else {
-			uint32_t v = tisp_simple_intp_int16(idx, frac, t);
+			uint32_t v = t40_intp_u16_at(gain, d->tab[i]);
 
 			d->cur[2 * i] = v;
 			d->cur[2 * i + 1] = v >> 8;

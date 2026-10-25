@@ -15,6 +15,21 @@ small moves around the refresh threshold and jumps, a day/night bank switch afte
 and the WDR table set where the chain has one.
 
     ./run.sh dpc <sensor-t40.bin>... [fuzz:<seed>...]
+    ./run.sh lce <sensor-t40.bin>... [fuzz:<seed>...]
+
+LCE runs whole frames: init at six resolutions (3840x2160 ... 640x360, the last one below the
+OEM minimum cell area, so init must fail on both sides), 160 frames each through the statistics
+IRQ (ping, pong, both, none) and the event, with synthetic statistics read from the RAM ports
+(realistic cells whose counts sum to half the cell area, flat, random up to the area, zero and
+full 32-bit garbage), total gain changes, bank switches, WDR light lock on/off with changing
+`wdr_lce_para`, session cleanup. Before the frames, 20000 random calls of every helper
+(smoothing, head/tail, shaping, CDF, converge, light correction, light lock, normalisation,
+distance) compare the helpers alone.
+
+`run.sh` instruments the literal code: a division by zero (the MIPS result is unpredictable)
+or an LCE histogram knot past bin 31 (the OEM writes past its stack array) counts as undefined
+OEM behaviour and stops that bin; the C code has a defined result there. Only garbage statistics
+reach those inputs (for example a first bin heavier than the whole histogram).
 
 `fuzz:<seed>` is a bin of random bytes: it drives fields that every real bin leaves equal
 (e.g. DPC black levels 26 and 28, check modes above 4).
@@ -27,3 +42,9 @@ The literal code keeps addresses in `uint32_t`: everything lives below 4 GiB (`-
 | chain | driver code | bins | steps | writes compared | differences |
 |-------|-------------|------|-------|-----------------|-------------|
 | DPC | `tx_isp_t40_dpc.h` | 26 SDK 1.3.1 + 5 Eufy + 8 fuzz | 58890 | 2835126 | 0 |
+| LCE | `tx_isp_t40_lce.h` | 26 SDK 1.3.1 + 5 Eufy + 8 fuzz | 46309 + 2 x 10 x 20000 helper calls | 17155278 | 0 (1 fuzz bin stopped at undefined OEM behaviour) |
+
+Mutation check (a deliberate one-character change in the C code must be detected): DPC black
+level / threshold compare; LCE converge rounding, WDR lock step, light-correction ratio and
+limit, head/tail compare, lock strength, filter remainder and excess, normalisation quirk,
+peak/median, reset stepping, `wdr_lce_para` use: all detected.
