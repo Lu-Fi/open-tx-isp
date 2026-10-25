@@ -6470,7 +6470,7 @@ void tx_isp_free_irq(struct tx_isp_t30_irq_device *irqdev);
 int32_t ncu_core_ops_ioctl(void *subdev, uint32_t event, void *data);
 int32_t ncu_link_setup(void);
 int32_t ncu_core_interrupt_service_routine(void *arg1);
-int32_t tx_isp_ncu_open(uint32_t a0, uint32_t a1);
+int tx_isp_ncu_open(struct inode *inode, struct file *file);
 int tx_isp_ncu_show(struct seq_file *m);
 int32_t ncu_frame_channel_streamoff(void *arg1);
 int32_t ncu_core_ops_init(void *arg1, int32_t arg2);
@@ -6482,7 +6482,7 @@ int64_t ncu_pad_event_handle(uintptr_t a0, uint32_t a1, uintptr_t a2);
 int64_t tx_isp_sync_ncu(void);
 int32_t ldc_core_ops_ioctl(void *subdev, uint32_t event, void *data);
 int32_t ldc_link_setup(void);
-int32_t tx_isp_ldc_open(uint32_t a0, uint32_t a1);
+int tx_isp_ldc_open(struct inode *inode, struct file *file);
 int tx_isp_ldc_show(struct seq_file *m);
 int ldc_frame_channel_streamoff(void *arg1);
 int64_t ldc_core_ops_init(uintptr_t a0, uint32_t a1);
@@ -7553,18 +7553,21 @@ static struct file_operations isp_core_tunning_fops = {
 };
 static struct file_operations isp_info_proc_fops = {
     .owner = THIS_MODULE,
+    .open = (int (*)(struct inode *, struct file *))dump_isp_info_open,
     .llseek = (loff_t (*)(struct file *, loff_t, int))seq_lseek,
     .read = (ssize_t (*)(struct file *, char __user *, size_t, loff_t *))seq_read,
     .release = (int (*)(struct inode *, struct file *))single_release,
 };
 static struct file_operations ldc_proc_fops = {
     .owner = THIS_MODULE,
+    .open = (int (*)(struct inode *, struct file *))tx_isp_ldc_open,
     .llseek = (loff_t (*)(struct file *, loff_t, int))seq_lseek,
     .read = (ssize_t (*)(struct file *, char __user *, size_t, loff_t *))seq_read,
     .release = (int (*)(struct inode *, struct file *))single_release,
 };
 static struct file_operations ncu_proc_fops = {
     .owner = THIS_MODULE,
+    .open = (int (*)(struct inode *, struct file *))tx_isp_ncu_open,
     .llseek = (loff_t (*)(struct file *, loff_t, int))seq_lseek,
     .read = (ssize_t (*)(struct file *, char __user *, size_t, loff_t *))seq_read,
     .release = (int (*)(struct inode *, struct file *))single_release,
@@ -24657,45 +24660,10 @@ int32_t ncu_core_interrupt_service_routine(void *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012408 origin=fragment_seed original=tx_isp_ncu_open */
-int32_t tx_isp_ncu_open(uint32_t a0, uint32_t a1)
+int tx_isp_ncu_open(struct inode *inode, struct file *file)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t t9 = 0;
-    uint32_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a1;
-    v0 = (uintptr_t *)PDE_DATA((void *)(int32_t *)a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    a1 = 65536;
-    a0 = s0;
-    t9 = (uintptr_t)&private_single_open_size;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 5: Arithmetic */
-    a3 = 2048;
-    a2 = v0;
-    a1 = a1 + 9296;
-    t9 = t9;
-
-    /* fragment 6: IndirectTailCall */
-    return private_single_open_size(a0, a1, a2, a3);
-
-    return 0;
+    /* the decompiled body passed the show function as a text offset and the inode as the file */
+    return private_single_open_size(file, (int (*)(struct seq_file *, void *))tx_isp_ncu_show, PDE_DATA(inode), 2048);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012450 origin=model_output original=tx_isp_ncu_show */
@@ -26256,45 +26224,10 @@ int32_t ldc_link_setup(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000139f0 origin=fragment_seed original=tx_isp_ldc_open */
-int32_t tx_isp_ldc_open(uint32_t a0, uint32_t a1)
+int tx_isp_ldc_open(struct inode *inode, struct file *file)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t t9 = 0;
-    uint32_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a1;
-    v0 = (uintptr_t *)PDE_DATA((void *)(int32_t *)a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    a1 = 65536;
-    a0 = s0;
-    t9 = (uintptr_t)&private_single_open_size;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 5: Arithmetic */
-    a3 = 2048;
-    a2 = v0;
-    a1 = a1 + 14904;
-    t9 = t9;
-
-    /* fragment 6: IndirectTailCall */
-    return private_single_open_size(a0, a1, a2, a3);
-
-    return 0;
+    /* the decompiled body passed the show function as a text offset and the inode as the file */
+    return private_single_open_size(file, (int (*)(struct seq_file *, void *))tx_isp_ldc_show, PDE_DATA(inode), 2048);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000013a38 origin=model_output original=tx_isp_ldc_show */
