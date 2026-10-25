@@ -38,7 +38,7 @@ static uint32_t tisp_simple_intp_int8(int32_t i, int32_t f, void *t)
     if (a == b) return b;
     d = a >= b ? a - b : b - a;
     s = (uint32_t)((int32_t)(d * (uint32_t)f) >> 16);
-    s = (s & 0xff) + ((s >> 15) & 1);
+    s = (s + (((d * (uint32_t)f) >> 15) & 1)) & 0xff;   /* OEM: rounding bit = bit 15 of the product */
     return (a >= b ? a - s : a + s) & 0xff;
 }
 static uint32_t tisp_simple_intp_int16(int32_t i, int32_t f, void *t)

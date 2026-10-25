@@ -9,3 +9,9 @@ gain. With a register dump (32768 words from 0x13300000, as `devmem` prints them
 
 Result 2026-10-24 (vendor .184 night dump, dark scene, 32x sensor x 4x ISP gain): 5 of 160 words differ, all of
 them status/trigger words 0xa18c..0xa19c. Everything else is bit-exact.
+
+Result 2026-10-25 (vendor .184 day dump `vab2/vendor/isp_regs_day.txt`, day bank at the vendor TotalGainDb 75639):
+5 of 160 words differ, again only 0xa18c..0xa19c. This needed the OEM rounding in `tisp_simple_intp_int8` (bit 15 of
+the product); with the old truncating helper 10 further words were one interpolation step off.
+
+    ./run.sh sc830ai-t40.bin isp_regs_day.txt 0 75639

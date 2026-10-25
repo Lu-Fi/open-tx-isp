@@ -9062,6 +9062,16 @@ static bool regtrace_t40_dmsc_follow = true;
 module_param_named(t40_dmsc_follow, regtrace_t40_dmsc_follow, bool, 0644);
 MODULE_PARM_DESC(t40_dmsc_follow, "1 (default): DMSC follows the active day/night bank and the total gain like the OEM (literal chain); 0 = old profile-1 behaviour (static DMSC)");
 /*
+ * The OEM runs the literal DMSC chain in day mode too (the vendor .184 day dump of 2026-10-24 equals the day bank at
+ * its TotalGainDb 75639 bit for bit, tests/t40/dmsc_night_host).  Profile 1 keeps the static day block because the
+ * 10-24 day test of the literal chain showed chroma 0.38; that run was taken after a night cycle, in the
+ * day-return desaturation state that was later also seen with t40_dmsc_follow=0 and on stock (S 15 vs 44), so the
+ * evidence is confounded.  1 = vendor behaviour in day as well (takes effect at the next day/night refresh).
+ */
+static bool regtrace_t40_dmsc_day_follow;
+module_param_named(t40_dmsc_day_follow, regtrace_t40_dmsc_day_follow, bool, 0644);
+MODULE_PARM_DESC(t40_dmsc_day_follow, "1: with t40_dmsc_follow the literal DMSC chain also runs in day mode (OEM behaviour); 0 (default): static day DMSC block");
+/*
  * Eufy T40XP/sc830ai 2026-10-13: quality profile 0 plus the individually
  * verified blocks (MDNS, SDNS, YDNS, ADR, CCM, gamma, BLC, LSC, GIB) streams
  * 4K at 20 fps; YSP panics and profiles >= 1 (GC4653 literal tables) give a
@@ -12412,6 +12422,10 @@ static noinline int t40_csc_attr_get_user(uint32_t vinum, uintptr_t user)
  * the busy byte (*ctx[2]) is set, tisp_ccm_params_refresh re-seeds the CT matrices and
  * tisp_ccm_ev_ct_update applies them.  The lift stored the 40 bytes over a 4-byte int and
  * read them back from address 0.  Needs the literal CCM chain (quality profile >= 1, enable_ccm).
+ * Vendor differences (1.3.1, checked 2026-10-25): OEM tisp_ccm_params_refresh copies only 4 bytes of the manual
+ * matrix per CT matrix (only R->R takes effect on the vendor stack; the lit copy here copies 36), and the wrapper
+ * tisp_s_ccm_attr 0x718f8 clears SatEn for the CCM and passes {ManualEn, SatEn, identity} to tisp_bcsh_set_attr
+ * when neither CCM (TOP bit 9) nor BCSH (bit 15) is bypassed.  Here SatEn stays with the CCM, BCSH is untouched.
  */
 /* regtrace_is_kernel_ptr() demands 4-byte alignment; ctx[16]/ctx[17] point at u8 flags (inter+0xb0/+0xb1), so check the range only */
 static uint8_t t40_ccm_ctrl[40] T40C2;
@@ -12845,7 +12859,8 @@ static void regtrace_t40_apply_raw_tuning_gates(uint32_t nbuf)
      */
     regtrace_enable_dmsc_lit =
         (regtrace_t40_quality_profile >= 2U ||
-         (regtrace_t40_dmsc_follow && READ_ONCE(regtrace_running_mode))) &&
+         (regtrace_t40_dmsc_follow &&
+          (READ_ONCE(regtrace_running_mode) || regtrace_t40_dmsc_day_follow))) &&
         !regtrace_disable_dmsc_lit && !flags[13];
 
     if (regtrace_enable_soft_gamma)
@@ -66649,7 +66664,9 @@ uint32_t tisp_simple_intp_int8(int32_t arg1, int32_t arg2, void* arg3)
     }
     
     int32_t a1 = (int32_t)(diff * (uint32_t)arg2);
-    uint32_t v0_3 = ((uint32_t)(a1 >> 16) & 0xff) + (((uint32_t)(a1 >> 16) >> 15) & 1);
+    /* OEM 0x16634: sra v0,a1,16; ext a1,a1,15,1; addu; andi 0xff - the rounding bit is bit 15 of the
+     * product (round half up), not bit 15 of the shifted value (always 0, i.e. truncation). */
+    uint32_t v0_3 = ((uint32_t)(a1 >> 16) + (((uint32_t)a1 >> 15) & 1)) & 0xff;
     
     uint32_t *result;
     if (flag == 0) {
