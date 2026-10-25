@@ -5174,6 +5174,19 @@ static void regtrace_lce_lit_cleanup(void)
     system_irq_func_set(8, 0);
     tisp_event_set_cb(0, 0x10, 0);
     (void)tisp_lce_deinit_lit(0, 0, 0, 0, LCELIT_SP(lcelit_stack_ctl), NULL, 0);
+    /*
+     * OEM tisp_slake_all -> tisp_lce_remove: the session state starts over.  Without it the frame
+     * counter stays > 0, the next tisp_lce_init leaves the parameter table pointers 21..35 unset
+     * (tisp_lce_tool_to_awdr fills them only while lce_frm_num is 0) and tisp_lce_awdr_to_used
+     * copied through them: oops in timpsd on a streamer restart with a core reset (.184 2026-10-25).
+     */
+    memset(lcelit_lce_wdr_en, 0, sizeof(lcelit_lce_wdr_en));
+    memset(lcelit_lce_frm_num, 0, sizeof(lcelit_lce_frm_num));
+    memset(lcelit_lce_data_refresh_flag, 0, sizeof(lcelit_lce_data_refresh_flag));
+    memset(lcelit_lce_tgain, 0, sizeof(lcelit_lce_tgain));
+    ((uint32_t *)lcelit_lce_wdr_save_duan)[0] = 31;
+    ((uint32_t *)lcelit_lce_wdr_save_duan)[1] = 31;
+    ((uint32_t *)lcelit_lce_sensor_tolal_num)[0] = 1;
     printk(KERN_INFO "tx_isp_t40_recovered: lce-lit deinit done\n");
 }
 
