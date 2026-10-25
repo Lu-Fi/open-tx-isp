@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-25 (4): T31 `isp_memopt` defaults to 1 (`claude/t31-memopt-default`; T31L fleet and T31X device-tested)
+
+- **T31: `isp_memopt=1` is now the module default** (`0` = off, as before). Until now every T31 board needed `isp_memopt=1` on the module line to get the smaller ISP memory layout (MDNS allocation `0x2f8740`, fits `rmem=22M`); without it the module ran the larger OEM layout. Device evidence: the T31L fleet (.26 and others) has run `isp_memopt=1` since the stripe fix; additionally the T31X Wuuk (.21, sc4336p, 2560x1440 sensor, agg46) was reloaded from `isp_memopt=0` to `1` (rmmod sensor + ISP, insmod with `isp_clk=200000000 print_level=1 isp_memopt=1`, streamer restarted): 10 min, snapshot always 200, 0 oops, no VIC/ISP error in dmesg, row/column-mean discontinuities of the 1920x1080 snapshot identical to the `isp_memopt=0` frame of the same scene (rows max 18 vs 17, columns max 21 vs 20-21), day -> night once through `image.running_mode` without error. The module line `isp_memopt=1` in images stays valid; boards that want the old layout set `isp_memopt=0`.
+
 ## 2026-10-25 (3): T40 SetISPRunningMode no longer reports a false error (`claude/t40-lit1025`; Eufy T40 device-tested on a test ko)
 
 - **T40: the running-mode ioctl returned the day/night refresh status (1) after a successful switch**, so libimp/timps logged `SetISPRunningMode(day) failed (rc=1)` on every day/night change although the mode was applied (isp-m0 and the kernel log showed the new mode). The ioctl now returns 0 unless the status is negative. Device (.184): running_mode 1 then 0 through the streamer, no `failed` line in the log, mode follows, 0 oops.

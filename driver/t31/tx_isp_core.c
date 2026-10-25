@@ -850,9 +850,9 @@ TX_LS_TIMED_WORK(t31_daynight_work_timed, t31_daynight_work_fn, T31_LS_WORK_DAYN
 static DECLARE_WORK(t31_daynight_work, t31_daynight_work_timed);
 static DEFINE_SPINLOCK(t31_daynight_lock);
 
-int isp_memopt;
+int isp_memopt = 1;
 module_param(isp_memopt, int, S_IRUGO);
-MODULE_PARM_DESC(isp_memopt, "isp memory optimize");
+MODULE_PARM_DESC(isp_memopt, "isp memory optimize, default 1 (0 = off)");
 
 extern struct tx_isp_dev *ourISPdev;
 

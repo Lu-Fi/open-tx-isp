@@ -280,3 +280,7 @@ stack while the sensor and Ingenic userspace hold its objects.
 ## Testing in QEMU
 
 The modules can be loaded, unloaded and exercised without a camera in the `ingenic-t31` machine of the [gtxaspec/qemu](https://github.com/gtxaspec/qemu) `ingenic-txx` branch (boots the thingino image (128 MB, sc2336 sensor model), the ISP comes up with 1080p + 360p and the streamer runs; 10 reload cycles showed no oops but a pending-interrupt message on every cycle (`irq 38: nobody cared`) until the interrupt status was masked and acknowledged before `request_irq`). It is a crash-test bench, not a picture-quality bench: the ISP is a register-file model with a modelled frame path (synthetic colour-bar frames), there are no 3A statistics, and timing and image quality cannot be tested. Setup, per-SoC status and limits: [docs/QEMU_TESTING.md](../../docs/QEMU_TESTING.md).
+
+## Module parameter `isp_memopt`
+
+`isp_memopt` selects the smaller ISP memory layout (the MDNS allocation is `0x2f8740`, which fits `rmem=22M`). Default `1`; `isp_memopt=0` loads the larger OEM layout. Device-tested with `1` on the T31L and the T31X (sc4336p).
