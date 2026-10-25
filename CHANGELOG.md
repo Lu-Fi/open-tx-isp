@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-25 (9): T41 night NR/sharpen host check (`claude/t41-night-sharp`; host-tested, no driver change)
+
+- **New `tests/t41/night_nr_host`**: runs the driver's MDNS/SDNS/YSP/DMSC interpolation and packing on a tuning-bin bank at a given total gain and compares the result with ISP core dumps (`scan` mode prints the gains that reproduce a dump). It maps the bank offsets `tisp_params_copy` uses (YSP at bank+0x1cc74, not +0x16dcc).
+- Result for the .32 night edge gap (open 5.94 vs vendor 7.02): the open dump equals the computed registers at its gain 38519 word for word (317 words). Rounding (bit 15 of the product, the T40 bug fixed in 4d9951e4) and the bank/gain axis match the OEM. The vendor dumps match the night bank at lower gains (MDNS/SDNS/YSP 0-3840, DMSC ~35k). In its night run the vendor sat at 1x analog gain most of the time (4 of 6 samples), the open stack at 1.28-1.5x (58 of 60). The remaining gap is the night AE operating point (a higher gain moves NR towards gain knot 1), not the NR blocks.
+
 ## 2026-10-25 (9): T23/T31 unused ISP IRQ sources masked (`claude/irq-t23-t31`, device-tested on T23 .30 and T31 .26)
 
 - **T23: `t23_isr_enable` (0xb0 interrupt enable word), default masks the unused sources 12, 13, 16.** The core ISR consumes status bits 0 (frame done), 18 (ADR), 20 (defog), 26/27 (AE), 30 (AWB) and 31 (AF); 12, 13 and 16 each raised an interrupt of their own once per frame that the ISR only acknowledged. 78 -> 45 IRQ/s at 15 fps (5.4 -> 3 per frame); `0xffffffff` restores the stock value, writable at run time.
