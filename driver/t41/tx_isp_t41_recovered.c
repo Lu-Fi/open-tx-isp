@@ -35,6 +35,7 @@ bool t41_dfg_ready(void);
 #include "tx_isp_t41_tuning_ctl.h"
 #include "tx_isp_t41_msca_shadow.h"
 #include "tx_isp_t41_msca_ctl.h"
+#include "tx_isp_t41_osd.h"
 #include "tx_isp_t41_switchbin.h"
 #include "tx_isp_t41_gib.h"
 #include "../include/tx_isp/tx_isp_top.h"
@@ -1281,6 +1282,10 @@ static unsigned char t41_msca_zoom_req[T41_MSCA_ZOOM_BYTES]
     __attribute__((section(".data")));
 static struct t41_msca_mask_state t41_msca_mask
     __attribute__((section(".data")));
+/* ISP-drawn OSD (tx_isp_t41_osd.h), written by the per-frame shadow commit */
+static struct t41_osd_state t41_osd __attribute__((section(".data")));
+static unsigned int t41_osd_commits __attribute__((section(".data")));
+module_param_named(osd_commits, t41_osd_commits, uint, 0444);
 static struct t41_msca_scaler_lv t41_msca_lv[3]
     __attribute__((section(".data")));
 static int t41_msca_mask_flush(unsigned int chan_mask, int restart);
@@ -22711,6 +22716,10 @@ static int t41_tuning_mask_block(unsigned int vinum, unsigned int is_get,
                                  uintptr_t user_ptr);
 static int t41_tuning_scaler_lv(unsigned int vinum, unsigned int is_get,
                                 uintptr_t user_ptr);
+static int t41_tuning_osd_attr(unsigned int vinum, unsigned int is_get,
+                               uintptr_t user_ptr);
+static int t41_tuning_osd_block(unsigned int vinum, unsigned int is_get,
+                                uintptr_t user_ptr);
 
 int64_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
@@ -22813,6 +22822,12 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_SCALER_LV, T41_MSCA_SCALER_LV_BYTES,
               TX_ISP_TUNING_DIR_SET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_OSD_ATTR, T41_OSD_ATTR_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_OSD_BLOCK, T41_OSD_BLOCK_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_SWITCH_BIN,
               TX_ISP_TUNING_T41_SWITCH_BIN_BYTES,
               TX_ISP_TUNING_DIR_SET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -23102,6 +23117,14 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
                                          request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_SCALER_LV)
             return t41_tuning_scaler_lv(request.channel, request.is_get,
+                                        request.value_or_ptr);
+        /* ISP-drawn OSD: stored here, written by the next frame's MSCA
+         * shadow commit (README "ISP OSD"). */
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_OSD_ATTR)
+            return t41_tuning_osd_attr(request.channel, request.is_get,
+                                       request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_OSD_BLOCK)
+            return t41_tuning_osd_block(request.channel, request.is_get,
                                         request.value_or_ptr);
         /*
          * Public tuning IDs with no open implementation yet: report it
@@ -55096,6 +55119,16 @@ int32_t tisp_channel_main_start(uint32_t a0)
      * outside the live envelope) go out with its start. */
     if (a0 < 3)
         t41_msca_mask_flush(1U << a0, 1);
+    /* ISP OSD pictures go out again with the next frame's shadow commit. */
+    if (a0 == 0) {
+        unsigned long osd_flags = 0;
+
+        __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                    (uintptr_t)&osd_flags);
+        t41_osd_mark_enabled(&t41_osd);
+        private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock,
+                                       osd_flags);
+    }
 
     /* fragment 1: Epilogue */
     /* function epilogue: restore registers and return */
@@ -162782,11 +162815,21 @@ int32_t sub_6f378(void)
     return 0;
 }
 
+static int t41_osd_pair(void *ctx, unsigned int value, unsigned int reg)
+{
+	int ret;
+
+	(void)ctx;
+	ret = system_reg_write(0x0f8004U, value);
+	return ret ? ret : system_reg_write(0x0f8004U, reg);
+}
+
 static int t41_msca_commit_frame_shadow(void)
 {
 	unsigned long flags = 0;
 	uint32_t status;
 	unsigned int trace;
+	int pairs;
 	int ret;
 	int subret;
 
@@ -162798,9 +162841,17 @@ static int t41_msca_commit_frame_shadow(void)
 		return -EBUSY;
 	}
 	ret = system_reg_write(0x0f8000U, 0x00000101U);
+	/* stock tisp_msca_cfg_shd_ram -> tisp_msca_set_osd */
+	pairs = ret ? 0 : t41_osd_emit(&t41_osd, t41_osd_pair, NULL);
+	if (pairs < 0)
+		ret = pairs;
 	subret = system_reg_write(0x0f8000U, 0x01010102U);
 	if (!ret)
 		ret = subret;
+	if (!ret && pairs >= 2)
+		ret = system_reg_write(0x0f8100U, ((pairs - 1) << 4) | 1U);
+	if (!ret && pairs > 0)
+		t41_osd_commits++;
 	private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
 
 	trace = t41_msca_frame_shadow_trace++ & 0x7fffffffU;
@@ -164598,6 +164649,68 @@ static int t41_tuning_mask_block(unsigned int vinum, unsigned int is_get,
         return private_copy_to_user((void __user *)user_ptr, req,
                                     sizeof(req)) ? -EFAULT : 0;
     t41_msca_ctl_apply(req[0], "MaskBlock", 1);
+    return 0;
+}
+
+/* 0x080000a1, IMPISPOSDAttr (12 bytes); stock tisp_s/g_osd_attr */
+static int t41_tuning_osd_attr(unsigned int vinum, unsigned int is_get,
+                               uintptr_t user_ptr)
+{
+    unsigned char req[T41_OSD_ATTR_BYTES];
+    unsigned long flags = 0;
+
+    if (vinum != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (!is_get &&
+        private_copy_from_user(req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    if (is_get)
+        t41_osd_attr_get(&t41_osd, req);
+    else
+        t41_osd_attr_set(&t41_osd, req);
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    if (is_get)
+        return private_copy_to_user((void __user *)user_ptr, req,
+                                    sizeof(req)) ? -EFAULT : 0;
+    return 0;
+}
+
+/*
+ * 0x080000a2, IMPISPOSDBlockAttr (20 bytes); stock tisp_s/g_osd_block_attr.
+ * The limits are the output-crop size of MSCA output 0 (stock msca +22/+24,
+ * set by tisp_channel_main_attr_set), i.e. the main stream.
+ */
+static int t41_tuning_osd_block(unsigned int vinum, unsigned int is_get,
+                                uintptr_t user_ptr)
+{
+    unsigned char req[T41_OSD_BLOCK_BYTES];
+    const unsigned char *desc = (const unsigned char *)(const void *)&msca;
+    unsigned long flags = 0;
+    int ret;
+
+    if (vinum != 0 || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (private_copy_from_user(req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+    __private_spin_lock_irqsave((uint32_t)(uintptr_t)&msca_slock,
+                                (uintptr_t)&flags);
+    ret = is_get ? t41_osd_block_get(&t41_osd, req) :
+                   t41_osd_block_set(&t41_osd, req, t41_msca_rd16(desc + 22),
+                                     t41_msca_rd16(desc + 24));
+    private_spin_unlock_irqrestore((void *)(uintptr_t)&msca_slock, flags);
+    if (ret == -T41_OSD_ERANGE)
+        printk(KERN_INFO
+               "t41: ISP OSD block %u %ux%u at %u,%u is outside the %ux%u main stream\n",
+               req[0], t41_osd_rd16(req + 6), t41_osd_rd16(req + 8),
+               t41_osd_rd16(req + 2), t41_osd_rd16(req + 4),
+               t41_msca_rd16(desc + 22), t41_msca_rd16(desc + 24));
+    if (ret)
+        return ret == -T41_OSD_ERANGE ? -ERANGE : -EINVAL;
+    if (is_get)
+        return private_copy_to_user((void __user *)user_ptr, req,
+                                    sizeof(req)) ? -EFAULT : 0;
     return 0;
 }
 

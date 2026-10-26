@@ -875,6 +875,61 @@ step and do not continue with larger sizes.
   (143/138 -> 125/122 in two alternations). Mode 2: no change, ret 0.
   ret -1 for level 129.
 
+## ISP OSD (branch `claude/t41-isp-osd`, 2026-10-26)
+
+The ISP draws up to 8 ARGB pictures into MSCA output 0 (the main stream, and
+everything taken from it: H.264/H.265, JPEG, NV12 frames). Controls (libimp
+`IMP_ISP_Tuning_Set/GetOSDAttr`, `Set/GetOSDBlock`, sent by the region API
+`IMP_ISP_Tuning_*OsdRgn` / `IMP_OSD_*_ISP` on every Show):
+
+- `0x080000a1` OSD attribute, 12 bytes: osd_type (0 ARGB8888, 1 ARGB1555),
+  osd_argb_type (component order), osd_pixel_alpha_disable.
+- `0x080000a2` OSD block, 20 bytes: pinum 0..7, enable, left, top, width,
+  height, physical picture address, stride in bytes.
+
+Clean C in `tx_isp_t41_osd.h` (state, request decoding, register image; host
+test `tests/tx_isp_t41_osd_test.c`), rebuilt from the behaviour of the stock
+`tisp_s/g_osd_attr`, `tisp_s/g_osd_block_attr` and `tisp_msca_set_osd`
+(1.2.6). The ioctl stores the request; the next frame's MSCA shadow commit
+(`t41_msca_commit_frame_shadow`, the per-frame transaction stock does in
+`tisp_msca_cfg_shd_ram`) writes the dirty pictures as value/register pairs
+through 0xf8004:
+
+| register | value |
+|---|---|
+| 0xf0064 | component order |
+| 0xf0600 + 16n / +4 / +8 / +12 | left << 16 \| top, width << 16 \| height, address, stride |
+| 0xf0018 | enable bit per picture |
+| 0xf0060 | osd_type \| 0x70 \| alpha_disable << 8 |
+
+then `0xf8100 = ((pairs - 1) << 4) | 1`. A picture must fit the output-0 crop
+size (stock msca +22/+24). Output start of channel 0 marks the shown pictures
+dirty again (an ISP reset may have cleared them). Read-only counter:
+`osd_commits`. T40 has the same register block at 0x16000 (stock
+`Tzn_Msca_Shd_osd`), programmed per output channel with one combined control.
+
+Differences to stock: pinum >= 8 refused; a picture outside the limits
+returns -ERANGE (stock: 0, nothing stored); stock first checks the stored
+(old) size; the enable word follows the pictures (stock only ORs bits in, so a
+hidden picture kept its enable bit); GetOSDBlock reports the requested block
+(stock clears the request before it reads pinum and always reports block 0).
+
+Device results 2026-10-26 (.34 sc5336 and .32 gc5603, ch0 1920x1080, ch1
+640x360, the usual streamer call sequence, `tests/t41/devtest/isp_osd_devtest.c` in
+OpenIMP): the pictures appear at the requested place in ch0 NV12 and ch0 JPEG
+with exact colours (red 251,0,0 / green 0,252,0 / blue 0,0,251 / yellow
+252,253,0 in NV12; 50 % alpha blends), move/update, a second region, hide and
+destroy work (background restored to within 1-2 levels), fps unchanged (ch1
+30.1-30.6 on .34, 25.2-25.6 on .32), 0 oops; the stock module was restored
+after each run. Not drawn into ch1 (the scaled output): the hardware OSD
+belongs to output 0 (vendor: "ISPOSD supports one channel"). Component
+order: the hardware takes the order from the most significant byte of the
+little-endian word, so a bitmap with the bytes B,G,R,A in memory needs
+`IMP_ISP_ARGB_TYPE_ARGB` (0); with `BGRA` (13) byte 0
+(blue) is the alpha and only blue/white parts are visible. The registers are
+the stock ones, so the vendor stack should show the same (not compared on the
+vendor stack).
+
 ## Known issues (2026-10-10)
 
 - **Heap overwrite across module reloads.** `rmmod tx_isp_t41` sometimes

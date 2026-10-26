@@ -4,6 +4,19 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-26 (8): T41 ISP-drawn OSD (`claude/t41-isp-osd`; host test, .34 and .32)
+
+- **OSD attribute (0x080000a1) and OSD block (0x080000a2)** are implemented in clean C
+  (`driver/t41/tx_isp_t41_osd.h`, host test `tests/tx_isp_t41_osd_test.c`): the request is stored and the next frame's
+  MSCA shadow commit writes the MSCA OSD registers (0xf0064 order, 0xf0600 + 16n geometry/address/stride, 0xf0018
+  enables, 0xf0060 format) like stock `tisp_msca_set_osd`. Before, both controls returned -EPERM (the recovered
+  `tisp_s_osd_block_attr` was a fragment with placeholder bases). Beyond stock: pinum checked, out-of-range pictures
+  refused with -ERANGE, the enable word clears hidden pictures, GetOSDBlock reports the requested block.
+- Device (.34 sc5336, .32 gc5603; region API call sequence through OpenIMP): pictures at the right place and in exact
+  colours in ch0 NV12 and JPEG, move/update/second region/hide/destroy, fps unchanged, 0 oops; ch1 is not drawn
+  (hardware OSD on output 0 only, as the vendor's one ISPOSD channel). A B,G,R,A byte bitmap needs component order
+  ARGB (0); BGRA (13) takes byte 0 as the alpha. README "ISP OSD".
+
 ## 2026-10-26 (7): T40 AE tuning API on the frame-3A AE (`claude/t40-ae-api`; host test, .184 under timps)
 
 - **GetAeStatistics** returns the hardware AE statistics with the OEM arithmetic (`tisp_ae_main_long_process_api`):

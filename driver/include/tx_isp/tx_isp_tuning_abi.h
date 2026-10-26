@@ -77,6 +77,9 @@ typedef uint64_t u64;
 #define TX_ISP_TUNING_CMD_T41_MODULE_RATIO	0x080000a4U
 /* IMP_ISP_Tuning_SwitchBin: IMPISPBinAttr {u32 enable; char bname[128]} (132 bytes), set only. */
 #define TX_ISP_TUNING_CMD_T41_SWITCH_BIN	0x080000a5U
+/* ISP-drawn OSD (T41 libimp 1.2.x): IMPISPOSDAttr (12 bytes), IMPISPOSDBlockAttr (20 bytes). */
+#define TX_ISP_TUNING_CMD_T41_OSD_ATTR		0x080000a1U
+#define TX_ISP_TUNING_CMD_T41_OSD_BLOCK		0x080000a2U
 #define TX_ISP_TUNING_T41_SWITCH_BIN_BYTES	132U
 /* T41 libimp: AF weight table (15x15 bytes); other SoCs use this ID for AE_IT_MAX. */
 #define TX_ISP_TUNING_CMD_T41_AF_WEIGHT		0x08000032U
