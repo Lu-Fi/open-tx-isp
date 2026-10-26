@@ -4,6 +4,28 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-26 (5): T40 unused lifted OEM AE removed (`claude/t40-drop-oem-ae`; host chains bit-exact, QEMU reload x5, .184 picture/AE/tuning readbacks equal to next)
+
+- **T40: the lifted OEM AE is gone.** `tisp_ae_main_process` / `tisp_ae_sec_process` (event 1 / 24) and their closure
+  (long/short algorithm, weight means, target, tune, tune2, EV alloc, Pweight, IspDg, short exposure, flicker detect,
+  EV list, the OEM sensor gain/fps setters; 32 function bodies, about 9300 source lines) only ran with `t40_oem_ae=1`,
+  which oopsed in `tisp_ae_long_tune2`. The parameter, both event registrations and the ISR pushes are removed.
+  Exposure stays with the frame-3A AE (`ae_soft_*`); AE init (hardware zones), the statistics/histogram interrupts,
+  the tuning getters/setters and AWB are unchanged. Removed is only what the `--gc-sections` listing drops and no
+  remaining source line references.
+- `tisp_ae_g_luma` and `tisp_ae_{main,sec}_get_antiflicker_step` read fixed `.bss` offsets through `%hi(.bss)` inline
+  asm (layout dependent; g_luma also had main/sec swapped and summed context words instead of the histogram): now on
+  `pstMainAeOri` / `pstSecAeOri` like the OEM. `tisp_ae_g_comp` now writes its result (the lift returned before the
+  store). For sensor 0 the user-visible luma/comp in `GetAeScenceAttr` still come from the frame-3A AE.
+- Module (stripped): 1375932 -> 1312024 bytes (xz 386512 -> 367348), `.text` 911296 -> 872180, `.bss` -82 KB
+  (AE-only and write-only objects dropped by the compiler).
+- Host: `tests/t40/c_chains_host` all 7 chains on 31 bins 0 differences, `dmsc_night_host` output identical to next,
+  `mdns_ratio_host` PASS. QEMU reload x5: snapshots 200, 0 oops, vmalloc 25 (same as next). .184 next / removed / next
+  (lamp 3649 K): settled edge 4.68/4.66/4.66, noise 5.60/5.60/5.59, S 40.1/39.6/39.6, chroma .79/.79/.78,
+  dE00 9.7/9.7/9.6, AE point 37630/3336 for all; after forced night (`running_mode`) and back x2 the AE holds the
+  same point; devtest AE readbacks (scene attr comp 60/200, ExprInfo limits, getters, AE statistics) identical;
+  0 oops, stock back.
+
 ## 2026-10-26 (5): T41 night AE vs vendor, analysis only (`claude/t41-night-ae`; no code change, .32 run open32n1026k0)
 
 - Same translated vendor AE on both stacks; undisturbed night state open 2092 lines / AGain 1536 / ISP dgain ~1.0 (1.50x) vs vendor 2092 / 1312 / 1176 (1.47x): +0.03 EV, luma 102 vs 99. The vendor reference's 1x AGain samples and its low-gain MDNS/SDNS/YSP registers come from the vendor image's timps running with `fs_keepalive` off: every FrameSource enable restarts the vendor AE at 1x, and its dumps were taken with the pipeline idle. With `fs_keepalive=0` the open stack keeps AGain 1536 across every cycle (no restart from 1x). The night edge gap is therefore not an AE target/allocation difference; a valid A/B needs the vendor run with keepalive on.

@@ -643,7 +643,7 @@ night picture 69 % darker than the vendor. Findings and fixes, all device-tested
   `t40_vawb_frames=0`; the 10-19/20 basement runs all carried `=1` on the insmod line. With it: R/G 1.03, B/G 1.00,
   grey cabinet/tiles channel deviation 12 %/10 % (vendor 12 %/11 %), saturation 53 (vendor 51).
 - The OEM ISR also pushes event 1 to the lifted OEM AE, which oopses (`tisp_ae_long_tune2`, BadVA 0x1774); it is now
-  behind `t40_oem_ae` (default 0). The ISR delivers frames itself (leg A, hard IRQ), so the frame-3A sampler that only
+  behind `t40_oem_ae` (default 0). (2026-10-26: the lifted OEM AE and `t40_oem_ae` are removed, see below.) The ISR delivers frames itself (leg A, hard IRQ), so the frame-3A sampler that only
   lived in the FIFO frame-done work item never ran; the tick moved to `regtrace_irq_frame_done_send` with its own work
   item (`frame_3a_work_runs`).
 - AE: integration ceiling from the sensor attribute (`ae_soft_max_it_from_sensor`, sc830ai boot 4 = 2241), target
@@ -779,6 +779,17 @@ ISP digital gain is 1x there. `SetModule_Ratio` defog -> literal `tisp_s_defog_r
 - **GetGamma.** Answers `{mode 0, 129 nodes}` from the last programmed LUT (production uses the soft-gamma writer, not the lifted gamma context).
 - **Probe parameters.** `t40_ev_follow=0` switches the AE EV fan-out off (A/B), `t40_adr_ev_shift` scales the EV fed to the ADR chain (diagnosis only, 0 = OEM unit).
 - **Reload.** `t40_rmmod_skip_slake=1` stays the default (the slake step is skipped; the core remove passed every time); the unload order is frame source first, then core.
+
+## Lifted OEM AE removed (2026-10-26, `claude/t40-drop-oem-ae`)
+
+- Exposure is owned by the driver's frame-3A AE (`enable_frame_3a`, `ae_soft_*`, `enable_ae_sensor_apply`). The lifted
+  OEM AE process (`tisp_ae_main_process` event 1, `tisp_ae_sec_process` event 24) and its algorithm closure are removed
+  together with `t40_oem_ae`; the OEM AE init still programs the AE statistics hardware, the AE statistics and
+  histogram interrupts still fill `pstMainAeOri` (histogram, zones) for the tuning getters and the AE statistics API.
+- `tisp_ae_g_luma`, `tisp_ae_{main,sec}_get_antiflicker_step` and `tisp_ae_g_comp` work on `pstMainAeOri` /
+  `pstSecAeOri` (no `%hi(.bss)` asm).
+- Method for further dead-code removal: link listing with `--print-gc-sections`, delete only bodies the listing drops
+  and no remaining source line references (gcc inlines some gc'd bodies into live callers), nm/size before and after.
 
 ## Testing in QEMU
 
