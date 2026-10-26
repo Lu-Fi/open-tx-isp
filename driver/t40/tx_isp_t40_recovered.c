@@ -75773,33 +75773,27 @@ tisp_hardware_reg_refresh0x1f4:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000020490 origin=model_output original=tisp_push_frame_count */
+/*
+ * T40-BSS-STRAY: the lift addressed the OEM per-channel 64-bit frame counter as
+ * ".bss + 6792" (the OEM module's .bss layout).  In this module that offset lands
+ * on whatever object the linker put there (pstMainBcshOri_lit once the literal ADR
+ * was removed: saturation 32 instead of 40 for 20-60 s after load), and the counter
+ * was incremented into it every frame.  Own object, same semantics (lo/hi pair with
+ * carry), returns the new high word like the OEM.
+ */
+static uint32_t t40_tisp_frame_count[2][2];
+
 int32_t tisp_push_frame_count(int32_t arg1)
 {
-    int32_t idx = arg1 * 2;
-    int32_t *v0;
-    int32_t *a1;
-    int32_t *v1;
-    int32_t overflow;
-    int32_t *result;
-    int32_t *base;
-    
-    // Compute base = &.bss[6792] using inline assembly to generate .bss relocations
-    __asm__ volatile(
-        "lui %0, %%hi(.bss + 6792)\n\t"
-        "addiu %0, %0, %%lo(.bss + 6792)"
-        : "=r"(base)
-    );
-    
-    v0 = base[idx];
-    a1 = base[idx + 1];
-    v1 = v0 + 1;
-    overflow = (v1 < v0) ? 1 : 0;
-    result = a1 + overflow;
-    
-    ((void **)base)[idx] = v1;
-    ((void **)base)[idx + 1] = result;
-    
-    return result;
+    uint32_t *c;
+
+    if ((uint32_t)arg1 > 1u)
+        return 0;
+    c = t40_tisp_frame_count[arg1];
+    c[0]++;
+    if (c[0] == 0)
+        c[1]++;
+    return (int32_t)c[1];
 }
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
