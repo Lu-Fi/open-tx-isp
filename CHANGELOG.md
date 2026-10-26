@@ -4,6 +4,39 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-26 (7): T40 AE tuning API on the frame-3A AE (`claude/t40-ae-api`; host test, .184 under timps)
+
+- **GetAeStatistics** returns the hardware AE statistics with the OEM arithmetic (`tisp_ae_main_long_process_api`):
+  256-bin histogram = hardware bins x4 with bin 0 the rest of width x height (sum 8294400 at 3840x2160), 5-bin
+  histogram over the SetStatisConfig histThresh (default 13/64/144/192) scaled to 65535, 15x15 zone Y =
+  (sum0+sum1+sum2)/(row height x column width). Before: one count in the bin of the mean luma (sum 1) and the
+  mean in every zone. Frame-grid fallback (and YUV hist domain) from the frame-3A sample. `tisp_ae_set_hist_bin`
+  had main/sec swapped (histThresh of sensor 0 went to the sec copy): fixed.
+- **AeTargetComp** with the OEM `tisp_ae_s_comp` factor (comp <= 128: comp/128; above: (128 + comp*300/127 - 302)/128)
+  and enable semantics (DISABLE -> 128, ROI/GLOBAL -> comp, AUTO keeps; readback 1 for 128 else 3). Before, DISABLE (1)
+  enabled the compensation and ROI (2) was ignored. ScenceAttr also reports luma, stable, target and ae_mean.
+- **GetAeExprInfo** in the T40 1.3.1 layout (220 bytes, ExposureValue @212, EVLog2 @216). The T41 packer used before
+  wrote 232 bytes, 12 past the caller's structure, with ExposureValue 0. Modes and caps read back as set.
+- **SetAeExprInfo**: AeMode freeze, manual integration time / analog gain / ISP digital gain, minimum analog gain act
+  on the frame AE (before only the max caps did); us units converted like the OEM.
+- **AeWeight** meters the frame AE (OEM order: word 0 + bytes 8..232); **HLC/BLC** strength 0..10 weigh the brighter/
+  darker zones; **FaceAe** meters the face zones to its target; **AeSpeed** (step_s lowering, step_d raising, 128 =
+  default, 1/8x..8x) scales the AE steps. The lifted FaceAe/AeSpeed getters copied uninitialised kernel stack.
+- **Antiflicker** (SetAntiFlickerAttr) now reaches the AE: integration time in whole half mains periods once it
+  reaches one (2250 lines x 20 fps: 450 @ 50 Hz, 375 @ 60 Hz), NORMAL never below one period. `t40_ae_af_enable=0`
+  switches it off. Changes the default exposure when the streamer enables antiflicker (timps on .184: 60 Hz AUTO).
+- All new state in `.t40c2` (a first build with ~5 KB new `.bss` delivered no frames). Diagnostic parameter
+  `t40_ae_api`. Host test `tests/tx_isp_t40_ae_api_test` (5-bin histogram against an instruction transcription of
+  the OEM loop, 2000 random cases; comp factor for all 256 values; layouts).
+- .184 (timps streaming, `t40_aetune` beside it): stats sum 8294400 / 255 bins / 5-bin sum 65535 / zones 3..159;
+  histThresh 32/64/96/128 moves bin 4 to the value computed from the 256 bins; ExprInfo canary intact, EV = IT x AG x
+  ISPDG; comp 60 -> target 57, AE lowers gain and IT; comp 200 raises; BLC 10 metered 98 vs mean 129 (AE brightens),
+  HLC 10 metered 147 vs 119 (AE darkens); manual IT 937 held; freeze holds IT/AG through a comp change; min AG 8x ->
+  gain index 13; top/bottom weights meter 129/111; speed 16 vs 1024: luma change 1 s after comp 60 2 vs 51; antiflicker
+  50 Hz IT 1800 (4 x 450), 60 Hz IT 1500 (4 x 375); 0 oops. Not device-proved: the devtest's own pipeline delivered no
+  frames today (also with next), and the frame-3A AE samples only ~0.4/s under timps (stock too), so convergence
+  takes far longer than the vendor's 2-3 s (separate item).
+
 ## 2026-10-26 (6): T32 S3: VIC/CSI from the sensor attributes, sensor frame rate, channels 1 and 2, stream-on register list (`claude/t32-s3`; QEMU-tested only, not on a camera)
 
 - **T32: VIC and MIPI CSI/D-PHY values come from the sensor attributes** instead of cv8001 constants (`driver/t32/tx_isp_t32_vic.h`): line length in words from bits per pixel x `image_twidth`, `csi_fmt`, the `mipi_sc` control word, crop starts, frame mode (linear, WDR 2/3 frames), Sony/other MIPI mode; CSI lanes, lane mask and the D-PHY settle value `115 * clk / 4000 - 3` from the lane clock. DVP sensors and the second CSI host are refused (no reference yet). Host test `tests/tx_isp_t32_vic_test` against the vendor trace; in QEMU the VIC/CSI/D-PHY writes of `AddSensor` + `EnableSensor` are identical to the vendor stack's (67 of 67, in order; the rest are the vendor's own interrupt clears). `STREAMON` follows the vendor order (interrupt enables, stream-on list, core run bits, VIC interrupt setup, both VICs reset and run, CSI).

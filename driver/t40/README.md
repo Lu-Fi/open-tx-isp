@@ -814,3 +814,12 @@ write and the whole chain state, 26 SDK 1.3.1 + 5 Eufy tuning bins, day/night ba
   at block init, on a bank switch and after SetModule_Ratio (as the literal glue did); the recovered `main_sdns*`
   globals point at the C state, so the recovered helpers (ratio scaling, WDR switch, tuning get/set) see the same data.
 - The `dpclit_*` / `lcelit_*` diagnostic counters are gone; an init failure is logged as an error.
+
+## AE tuning API (2026-10-26, T40-AE-API)
+
+The vendor T40 1.3.1 AE calls are served by the frame-3A AE: GetAeStatistics (hardware AE statistics, OEM
+arithmetic), AeTargetComp/HLC/BLC (ScenceAttr), AeExprInfo (T40 220-byte layout; freeze, manual IT/AG/ISPDG, min AG,
+caps), AeWeight, FaceAe, AeSpeed and antiflicker. Plain-data part and OEM formulas: `tx_isp_t40_ae_api.h`
+(host test `tests/tx_isp_t40_ae_api_test.c`). Diagnostics: `/sys/module/tx_isp_t40/parameters/t40_ae_api`;
+`t40_ae_stats_src` 0 auto / 1 hardware / 2 frame grid; `t40_ae_af_enable`, `t40_ae_af_step_now`.
+Not acting on the AE: AeExpList (stored, read back), AeStartEv (stored), SetAeAlgoFunc (not offered).
