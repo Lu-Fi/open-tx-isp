@@ -1,4 +1,4 @@
-# T32 (PRJ007) open TX-ISP driver — S2 (frames)
+# T32 (PRJ007) open TX-ISP driver — S3 (3 channels, sensor fps)
 
 Status: **QEMU only** (`-M ingenic-t32`, kernel 4.4.94, vendor libimp 2.2.0,
 prebuilt `sensor_cv8001_t32.ko`). Not tested on a camera.
@@ -50,8 +50,8 @@ generation-shared come from the shared code instead:
 
 - `S_INPUT` writes the VIC input configuration, `STREAMON` enables the ISP
   interrupt block, runs the VIC and starts the MIPI CSI host and D-PHY
-  (values and order of the vendor trace; the VIC/CSI words are the cv8001
-  RAW10 MIPI ones, deriving them from the sensor attributes is S3).
+  (values and order of the vendor trace; derived from the sensor attributes
+  since S3).
 - `/dev/framechanN`: `REQBUFS`, `QBUF`/`DQBUF` (96-byte buffer, geometry from
   QBUF word 19 and stride word 17), `STREAMON`/`STREAMOFF`, `LISTEN_BUF`
   (`listen_timeout_ms`). Queued buffers go to the MSCA channel's push FIFOs;
@@ -64,22 +64,43 @@ generation-shared come from the shared code instead:
   (`DisableSensor`/`DelSensor`) returns 0, rmmod/modprobe cycles with frames
   are clean.
 
-## Not yet (S3+)
+## S3: sensor attributes, frame rate, channels 1/2, register lists
+
+- VIC and CSI/D-PHY values derived from the sensor attributes
+  (`tx_isp_t32_vic.h`; formulas in the header): line words, `csi_fmt`,
+  `mipi_sc` control word, crops, frame mode; lanes and the D-PHY settle value
+  from the lane clock. Identical to the vendor's writes for the cv8001 (67/67).
+  DVP sensors and CSI host 1: refused (not referenced yet).
+- Sensor frame rate: isp-m0 tuning id `0x08000070` (`num << 16 | den`); GET
+  answers the sensor's rate, SET calls the sensor's
+  `TX_ISP_EVENT_SENSOR_FPS` (frame length over I2C), as tisp does.
+- `/dev/framechan0-2`: each channel gets size, crop, scaler steps (input /
+  output in Q14) and its parameter words at `STREAMON`; no upscaling.
+- Register lists (`tx_isp_t32_rcfg.h`): both command kinds (consecutive
+  registers, bit 31 set; one table port, bit 31 clear). The stream-on list
+  (table word 49, `0x22014` bit 17) runs at `STREAMON`; it is empty until
+  tisp fills it (S4).
+- QEMU (vendor libimp 2.2.0, our QEMU build with the cv8001 frame timing from
+  its HTS/VTS registers): ch0 1080p + ch1 640x360 + ch2 720p at 14.7 fps
+  (sensor 15/1), `SetSensorFPS(10/1)` -> 9.9 fps, 5 reload cycles clean.
+
+## Not yet (S4+)
 
 No tisp/3A, no IQ bin parsing (the bin's physical address is kept), no
 image-pipeline register programming (the QEMU model does not process pixels,
-so this needs a camera), no stream-on register list. The model runs the
-sensor at its own default rate (frames come faster than the 15 fps the vendor
-tisp programs). Channels 1/2, day/night, WDR, LDC, OSD, IVDC direct mode,
-AOV/RISC-V hand-over: off.
+so this needs a camera); the stream-on list is empty. MSCA polyphase filter
+curves (vendor: shadow port 0xf0820 + ch * 0xa0, computed per scale ratio)
+and the per-channel filter select are not loaded; the channel parameter words
+are the vendor's cv8001/PRJ007 values until the bin parser provides them.
+Day/night, WDR, LDC, OSD, IVDC direct mode, AOV/RISC-V hand-over: off.
 
 ## Build
 
 ```sh
 make -C $KDIR M=$PWD/driver/t32 ARCH=mips CROSS_COMPILE=mipsel-linux- modules
 ```
-against a thingino T32 kernel 4.4.94 tree. Host test:
-`make -C tests tx_isp_t32_mem_rcfg_test`.
+against a thingino T32 kernel 4.4.94 tree. Host tests:
+`make -C tests tx_isp_t32_mem_rcfg_test tx_isp_t32_vic_test`.
 
 ## Module parameters
 
