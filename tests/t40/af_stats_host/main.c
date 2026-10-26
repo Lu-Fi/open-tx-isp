@@ -68,12 +68,15 @@ int main(void)
                 CHECK(got[i * 225 + r * 15 + c] == want[i][r][c], "field %u zone %u,%u: %u != %u",
                       i, r, c, got[i * 225 + r * 15 + c], want[i][r][c]);
 
-    {   /* newest buffer by the 8-bit frame counter, wrap included */
+    {   /* newest complete buffer by the 8-bit frame counter, wrap included; a buffer in progress is skipped */
         const uint8_t a[4] = { 184, 181, 182, 183 }, b[4] = { 254, 255, 0, 1 }, z[4] = { 0, 0, 0, 0 };
+        const uint8_t all[4] = { 1, 1, 1, 1 }, inprog0[4] = { 0, 1, 1, 1 }, none[4] = { 0, 0, 0, 0 };
 
-        CHECK(t40_af_pick_newest(a) == 0, "pick a %d", t40_af_pick_newest(a));
-        CHECK(t40_af_pick_newest(b) == 3, "pick b %d", t40_af_pick_newest(b));
-        CHECK(t40_af_pick_newest(z) == 0, "pick z %d", t40_af_pick_newest(z));
+        CHECK(t40_af_pick_newest(a, all) == 0, "pick a %d", t40_af_pick_newest(a, all));
+        CHECK(t40_af_pick_newest(b, all) == 3, "pick b %d", t40_af_pick_newest(b, all));
+        CHECK(t40_af_pick_newest(z, all) == 0, "pick z %d", t40_af_pick_newest(z, all));
+        CHECK(t40_af_pick_newest(a, inprog0) == 3, "pick in progress %d", t40_af_pick_newest(a, inprog0));
+        CHECK(t40_af_pick_newest(a, none) == -1, "pick none %d", t40_af_pick_newest(a, none));
     }
 
     {   /* metrics: flat FIR = IIR = v, weight 1, p2 + p3 = one -> metric = 225 * v */

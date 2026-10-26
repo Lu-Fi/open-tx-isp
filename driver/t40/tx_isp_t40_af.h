@@ -72,15 +72,18 @@ static uint8_t t40_af_unpack(const uint8_t *raw, uint32_t *out)
     return raw[T40_AF_ROW_STRIDE - 1U];
 }
 
-/* the newest completed ring buffer: its frame counter is ahead of (or equal to) all others
- * (mod 256); -1 if none qualifies */
-static int t40_af_pick_newest(const uint8_t cnt[4])
+/* complete[b]: all row trailers of buffer b carry the same frame counter (the hardware writes the rows in
+ * order, so a buffer in progress has the new counter in its first rows only).  The newest complete buffer
+ * is the one whose counter is ahead of (or equal to) every other complete one (mod 256); -1 if none. */
+static int t40_af_pick_newest(const uint8_t cnt[4], const uint8_t complete[4])
 {
     int b, x;
 
     for (b = 0; b < 4; b++) {
+        if (!complete[b])
+            continue;
         for (x = 0; x < 4; x++)
-            if ((uint8_t)(cnt[b] - cnt[x]) >= 128U)
+            if (complete[x] && (uint8_t)(cnt[b] - cnt[x]) >= 128U)
                 break;
         if (x == 4)
             return b;

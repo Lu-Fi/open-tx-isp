@@ -24519,7 +24519,7 @@ static int t40_af_stats_read(uint32_t *out, uint8_t *frame)
 {
     uint8_t *v = (uint8_t *)regtrace_tisp_dma_bufs[4].virt;
     uint8_t *raw;
-    uint8_t cnt[4];
+    uint8_t cnt[4], complete[4];
     int b, best, r;
 
     memset(out, 0, T40_AF_STAT_BYTES);
@@ -24531,14 +24531,21 @@ static int t40_af_stats_read(uint32_t *out, uint8_t *frame)
     if (!raw)
         return -ENOMEM;
     dma_cache_sync(NULL, v, 4U * T40_AF_RAW_BYTES, DMA_FROM_DEVICE);
-    for (b = 0; b < 4; b++)
-        cnt[b] = v[b * T40_AF_RAW_BYTES + T40_AF_ROW_STRIDE - 1U];
-    best = t40_af_pick_newest(cnt);
+    for (b = 0; b < 4; b++) {
+        const uint8_t *buf = v + b * T40_AF_RAW_BYTES;
+
+        cnt[b] = buf[T40_AF_ZONES * T40_AF_ROW_STRIDE - 1U];   /* last row: written last */
+        complete[b] = 1;
+        for (r = 0; r < (int)T40_AF_ZONES - 1; r++)
+            if (buf[r * T40_AF_ROW_STRIDE + T40_AF_ROW_STRIDE - 1U] != cnt[b])
+                complete[b] = 0;
+    }
+    best = t40_af_pick_newest(cnt, complete);
     if (best >= 0) {
         memcpy(raw, v + best * T40_AF_RAW_BYTES, T40_AF_RAW_BYTES);
-        /* every row trailer carries the same frame counter in a completed buffer */
-        for (r = 1; r < (int)T40_AF_ZONES; r++)
-            if (raw[r * T40_AF_ROW_STRIDE + T40_AF_ROW_STRIDE - 1U] != raw[T40_AF_ROW_STRIDE - 1U])
+        /* re-check after the copy: the buffer must not have been rewritten meanwhile */
+        for (r = 0; r < (int)T40_AF_ZONES; r++)
+            if (raw[r * T40_AF_ROW_STRIDE + T40_AF_ROW_STRIDE - 1U] != cnt[best])
                 break;
         if (r == (int)T40_AF_ZONES) {
             uint8_t fn = t40_af_unpack(raw, out);

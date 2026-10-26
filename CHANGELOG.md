@@ -4,7 +4,7 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
-## 2026-10-26 (9): T40 release-gate oopses (`claude/gate-1026`; host tests; device proof pending)
+## 2026-10-26 (9): T40 release-gate oopses (`claude/gate-1026`; host tests, .184)
 
 - **Awb_Get/SetRgbCoefft (0x0800009b)** no longer oopses (agg47: Oops, epc c03d1920): the lifted `tisp_g_coefft_wb` /
   `tisp_s_coefft_wb` dropped the buffer argument and the getter looped while the WDR byte was set. Rebuilt with the OEM
@@ -22,8 +22,12 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - **SetSensorFPS** with the current rate returned -1 (sc830ai streams 20/1 but its set_fps range check refuses 20/1):
   like OEM `sensor_set_fps` the same rate is now a no-op; a pending rate the sensor refuses no longer stays as the
   read-back (GetSensorFPS reports the sensor's own rate again).
-- Device proof on .184 still to do: the module cannot be swapped until the camera is rebooted (refcount leaked by the
-  old oopses).
+- AF buffer pick: newest buffer whose 15 row trailers all carry the same counter (the hardware writes rows in order;
+  picking by the first row hit the buffer in progress and returned zeros 40 % of the time on the first device run).
+- Device (.184 sc830ai, test ko next to timps, 2026-10-26 16:2x): GetRgbCoefft x100 1024/1024/1024, Set 1040/1024/1032
+  read back equal and restored; GetAfStatistics x100 all non-zero (Fir0 mean ~3000, YSum mean ~50000), GetAFMetricesInfo
+  x100 metric 448425..1674000, frame counter advancing; SetSensorFPS(20/1 current) x100 ret 0; apitest sys,fs,enc,isp
+  PASS 187 FAIL 0; 0 oops.
 
 ## 2026-10-26 (8): T41 ISP-drawn OSD (`claude/t41-isp-osd`; host test, .34 and .32)
 
