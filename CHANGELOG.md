@@ -36,6 +36,15 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
   swap): same value 0 PASS; bypass 1 before AddSensor returns 0 but the picture is identical to bypass 0 (Y 97.3 vs
   97.6), so the VIC internal input routing has no effect in the open driver yet (open gap, see issue 106).
 
+## 2026-10-26 (13): T41 user gamma curve reaches the LUT (`claude/issue-114`; QEMU T41, .34)
+
+- **IMP_ISP_Tuning_SetGammaAttr (0x08000025)** with a fixed curve (sRGB, Rec709, HDR or user) had no picture effect
+  (issue #114): `tisp_gamma_strength_transform` answers 1 for a fixed curve ("curve already in info+0x21c"), and the
+  set path wrote the LUT only on 0, so the stored curve never reached the gamma LUT registers. The LUT is now written
+  for any non-negative result. The exposure-driven worker keeps skipping fixed curves. QEMU T41 (gc5603): type 4 now
+  logs `ret=0` (was `ret=1`), 4 runs, frames flow afterwards, no oops (QEMU does not model gamma); on cam .34 (sc5336, runtime ko swap) the
+  user curve x^0.3 gives mean Y 129.7, the linear curve 67.3 (base 95.6); before the fix both stayed at ~97.5.
+
 ## 2026-10-26 (9): T40 release-gate oopses (`claude/gate-1026`; host tests, .184)
 
 - **Awb_Get/SetRgbCoefft (0x0800009b)** no longer oopses (agg47: Oops, epc c03d1920): the lifted `tisp_g_coefft_wb` /
