@@ -270,6 +270,13 @@ static void patch(uint8_t *bank, unsigned var)
     pv(bank, 49, 15, var & 1);				/* gauss weights */
     *(int16_t *)(void *)(bank + T40_ADR_PAR_OFFSET + 0x60) = var % 6;	/* debug readout selection */
     *(int16_t *)(void *)(bank + T40_ADR_PAR_OFFSET + 0x62) = var % 3;
+    if (var >= 6) {	/* full strength, equalisation curve against the rate limit and its clamps, fade index edges */
+        unsigned i;
+        pv(bank, 53, 0, 3); for (i = 5; i < 29; i++) pv(bank, 53, i, 32000);
+        pv(bank, 6, 0, 200); pv(bank, 64, 5, 1); pv(bank, 61, 9, 0);
+        for (i = 0; i < 11; i++) pv(bank, 28, i, 3000 + 100 * i);
+        pv(bank, 65, 1, var == 6 ? 512 : 3); pv(bank, 65, 4, 1); pv(bank, 65, 5, 0); pv(bank, 65, 6, 20000); pv(bank, 65, 7, var == 6 ? 511 : 700);
+    }
 }
 
 static int chain_main(int argc, char **argv)
@@ -286,7 +293,7 @@ static int chain_main(int argc, char **argv)
         size_t mark = used;
         uint8_t *bin0 = load_bin(argv[k]), *bin = arena_alloc(BIN_BYTES); unsigned bad = 0, r, f, stop = 0;
         char tag[96];
-        for (var = 0; var < 6 && !stop; var++) {
+        for (var = 0; var < 8 && !stop; var++) {
             memcpy(bin, bin0, BIN_BYTES);
             patch(BANK_DAY(bin), var); patch(BANK_NIGHT(bin), var);
             lcg_state = 31 + 7 * k + var;
