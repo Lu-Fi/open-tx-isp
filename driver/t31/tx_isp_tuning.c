@@ -9249,12 +9249,18 @@ static int apical_isp_core_ops_g_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
             uint32_t wdr_mode = 0;
             int size = sizeof(tool);
 
-            /* word 0 of the WDR tool control block (parameter 0x431) */
+            /* word 0 of the WDR tool control block (parameter 0x431).
+             * Stock only logs a word that is not 8/1/2 and returns 0;
+             * that is the case on a linear sensor (issue 118).  Report
+             * the default mode 0 (FUS_FRAME) then instead of failing. */
             ret = t31_wdr_param_get(0x431, tool, &size);
-            if (!ret)
-                ret = t31_wdr_output_mode_from_tool(tool[0], &wdr_mode);
             if (ret)
                 break;
+            if (t31_wdr_output_mode_from_tool(tool[0], &wdr_mode)) {
+                pr_debug("tisp_get_wdr_output_mode: tool word %u, mode 0\n",
+                         tool[0]);
+                wdr_mode = 0;
+            }
             if (copy_to_user((void __user *)(unsigned long)ctrl->value, &wdr_mode, 4))
                 ret = -EFAULT;
             break;
