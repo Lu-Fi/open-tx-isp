@@ -4,6 +4,27 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-26 (9): T40 release-gate oopses (`claude/gate-1026`; host tests; device proof pending)
+
+- **Awb_Get/SetRgbCoefft (0x0800009b)** no longer oopses (agg47: Oops, epc c03d1920): the lifted `tisp_g_coefft_wb` /
+  `tisp_s_coefft_wb` dropped the buffer argument and the getter looped while the WDR byte was set. Rebuilt with the OEM
+  semantics (1.3.1 `tisp_bcsh_get/set_offset_rgb`): the RGB offset vector of the BCSH outer block (WDR half when
+  selected) as three u16; Set writes both halves and reruns the BCSH EV and CT paths. vinum 0 only; before the BCSH
+  init the getter reads the tuning bank.
+- **GetAfStatistics (0x08000031)** and **GetAFMetricesInfo (0x08000034)** no longer oops (epc 801bf570 memcpy from an
+  absolute address, epc c03b49d4 on the never-built AF context). The AF block and its DMA ring run (Eufy .184:
+  index cycles, frame counter in every row trailer); the getters unpack the newest completed ring buffer on demand
+  (OEM `tisp_af_get_statistics` layout: 15x15 zones, 256-byte rows, 136 bits per zone) and compute the metrics like
+  `tisp_af_alogrithm` (AF zone weights and parameters from the tuning bank). Clean C in `driver/t40/tx_isp_t40_af.h`,
+  host test `tests/t40/af_stats_host` (independent bit packer, newest-buffer pick, metrics). Read-only probe of the
+  live ring on .184: Fir/Iir/YSum zone maps smooth and consistent, edges raise FIR/IIR together, HighLuma 0 except
+  at a light.
+- **SetSensorFPS** with the current rate returned -1 (sc830ai streams 20/1 but its set_fps range check refuses 20/1):
+  like OEM `sensor_set_fps` the same rate is now a no-op; a pending rate the sensor refuses no longer stays as the
+  read-back (GetSensorFPS reports the sensor's own rate again).
+- Device proof on .184 still to do: the module cannot be swapped until the camera is rebooted (refcount leaked by the
+  old oopses).
+
 ## 2026-10-26 (8): T41 ISP-drawn OSD (`claude/t41-isp-osd`; host test, .34 and .32)
 
 - **OSD attribute (0x080000a1) and OSD block (0x080000a2)** are implemented in clean C

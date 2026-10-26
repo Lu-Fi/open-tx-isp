@@ -8408,7 +8408,7 @@ int64_t tisp_g_ae_scence_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_s_ae_exprinfo_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_g_ae_exprinfo_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_g_ae_statis_attr(uint32_t a0, uintptr_t a1);
-int32_t tisp_g_af_statis_attr(void);
+int32_t tisp_g_af_statis_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_s_ae_weight_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_g_ae_weight_attr(uint32_t a0, uintptr_t a1);
 int tisp_s_statis_config_attr(int arg1, int *arg2);
@@ -21435,6 +21435,26 @@ static bool regtrace_proc_jz_sensor_dimensions(uint32_t *width,
     return false;
 }
 
+/* T40-FPS-SAME: set when an accepted SetSensorFPS left the rate different from the sensor's
+ * video.fps (the sc830ai applies some rates through the AE/VTS path without updating it) */
+static bool regtrace_t40_fps_changed;
+/* T40-FPS-SAME: the bound sensor's own frame rate (tx_isp_sensor video.fps, subdev + 0x314: what
+ * GetSensorAttr reports as fps on the Eufy sc830ai), 0 when unknown */
+static uint32_t regtrace_t40_sensor_fps_current(void)
+{
+    uintptr_t sd = (uintptr_t)regtrace_sensor_subdev;
+    uint32_t v, num, den;
+
+    if (!regtrace_is_kernel_ptr((void *)sd))
+        return 0;
+    v = regtrace_get_u32(sd, 0x314);
+    num = v >> 16;
+    den = v & 0xffffU;
+    if (!num || !den || num > 120U * den)
+        return 0;
+    return v;
+}
+
 static int regtrace_t40_sensor_fps_get(uint32_t *packed_fps)
 {
     uint32_t value;
@@ -21455,6 +21475,11 @@ static int regtrace_t40_sensor_fps_get(uint32_t *packed_fps)
         return 0;
     }
 
+    value = regtrace_t40_sensor_fps_current();
+    if (value) {
+        *packed_fps = value;
+        return 0;
+    }
     ret = regtrace_read_proc_u32("/proc/jz/sensor/sensor0/fps", &value);
     if (ret)
         ret = regtrace_read_proc_u32("/proc/jz/sensor/fps", &value);
@@ -21497,6 +21522,14 @@ static int regtrace_t40_sensor_fps_set(uint32_t packed_fps)
 
     if (!numerator || !denominator || numerator > 120U * denominator)
         return -EINVAL;
+    /* T40-FPS-SAME: OEM sensor_set_fps (1.3.1 0x10098) returns at once when the rate equals the
+     * sensor's current one (no pending update, no sensor call).  The Eufy sc830ai streams 20/1 but
+     * its set_fps range check refuses 20/1, so SetSensorFPS(current) returned -1 here. */
+    if (!READ_ONCE(regtrace_t40_fps_changed) && packed_fps == regtrace_t40_sensor_fps_current()) {
+        WRITE_ONCE(regtrace_t40_sensor_fps_pending, 0);
+        WRITE_ONCE(regtrace_sensor_fps_packed, packed_fps);
+        return 0;
+    }
     if (!READ_ONCE(regtrace_core_isr_frame_deliver_count)) {
         WRITE_ONCE(regtrace_t40_sensor_fps_pending, packed_fps);
         WRITE_ONCE(regtrace_sensor_fps_packed, packed_fps);
@@ -21512,7 +21545,14 @@ static void regtrace_t40_sensor_fps_apply_pending(void)
     if (!packed || !READ_ONCE(regtrace_core_isr_frame_deliver_count))
         return;
     WRITE_ONCE(regtrace_t40_sensor_fps_pending, 0);
-    regtrace_t40_sensor_fps_send(packed);
+    if (regtrace_t40_sensor_fps_send(packed) && READ_ONCE(regtrace_sensor_fps_packed) == packed) {
+        /* T40-FPS-REJECT: the sensor refused the pending rate (sc830ai Eufy: "fps(20/1) not in range",
+         * 2026-10-26).  The vendor GetSensorFPS reports the sensor's rate, not the refused request:
+         * drop the recorded request so the read-back comes from the sensor again. */
+        WRITE_ONCE(regtrace_sensor_fps_packed, 0);
+        printk(KERN_INFO "tx_isp_t40_recovered: sensor refused fps %u/%u, read-back from the sensor\n",
+               packed >> 16, packed & 0xffffU);
+    }
 }
 static int regtrace_t40_sensor_fps_send(uint32_t packed_fps)
 {
@@ -21536,6 +21576,8 @@ static int regtrace_t40_sensor_fps_send(uint32_t packed_fps)
      * delivered on the Eufy), so the request is recorded for GetSensorFPS all the same. */
     if (ret == -ENOIOCTLCMD)
         WRITE_ONCE(regtrace_sensor_fps_packed, packed_fps);
+    if (!ret || ret == -ENOIOCTLCMD)
+        WRITE_ONCE(regtrace_t40_fps_changed, packed_fps != regtrace_t40_sensor_fps_current());
     if (ret)
         return ret;
     WRITE_ONCE(regtrace_sensor_fps_packed, packed_fps);
@@ -24386,6 +24428,192 @@ static int regtrace_isp_m0_set_hue(uint8_t hue)
         ret = regtrace_isp_m0_apply_hue(hue);
     mutex_unlock(&regtrace_t40_running_mode_lock);
     return ret;
+}
+
+/*
+ * T40-COEFFT-WB: Awb_Get/SetRgbCoefft (CID 0x800009b, IMPISPCoefftWb = u16 r, g, b).
+ * OEM tisp_g_coefft_wb(vinum, buf) -> tisp_bcsh_get_offset_rgb(vinum, buf): the BCSH RGB offset
+ * vector of the outer block, WDR half (+0x480) when the inter WDR byte is set, else the linear
+ * half (+0x248), each u32 word stored as u16.  tisp_s_coefft_wb -> tisp_bcsh_set_offset_rgb: both
+ * halves = the three u16, busy = 1, tisp_bcsh_ev_update + ct_update, busy = 0.  The lifts dropped
+ * the buffer argument (store through a stale register: kernel oops on the first GetRgbCoefft,
+ * Eufy .184 2026-10-26) and the getter looped while the WDR byte was set.  Only vinum 0 has a BCSH
+ * state here; before the BCSH init the getter reads the tuning bank section.
+ */
+static int t40_coefft_wb_get(uint32_t vinum, uint16_t *rgb)
+{
+    const uint32_t *vec;
+    const uint8_t *bank;
+    unsigned int i;
+
+    if (vinum != 0 || !rgb)
+        return -EINVAL;
+    mutex_lock(&regtrace_t40_running_mode_lock);
+    if (t40_bcsh.ready) {
+        vec = t40_bcsh_out32(BO_OFFSET_VEC + (t40_bcsh.in[BI_WDR] ? T40_BCSH_WDR_HALF : 0));
+    } else {
+        bank = (const uint8_t *)(uintptr_t)tparamsN[0];
+        if (!regtrace_is_kernel_ptr((void *)bank)) {
+            mutex_unlock(&regtrace_t40_running_mode_lock);
+            return -ENODEV;
+        }
+        vec = (const uint32_t *)(bank + T40_BCSH_PAR_OFFSET + BO_OFFSET_VEC);
+    }
+    for (i = 0; i < 3; i++)
+        rgb[i] = (uint16_t)vec[i];
+    mutex_unlock(&regtrace_t40_running_mode_lock);
+    return 0;
+}
+
+static int t40_coefft_wb_set(uint32_t vinum, const uint16_t *rgb)
+{
+    uint32_t *lin, *wdr;
+    unsigned int i;
+    int ret;
+
+    if (vinum != 0 || !rgb)
+        return -EINVAL;
+    mutex_lock(&regtrace_t40_running_mode_lock);
+    if (!t40_bcsh.ready) {
+        mutex_unlock(&regtrace_t40_running_mode_lock);
+        return -ENODEV;
+    }
+    lin = t40_bcsh_out32(BO_OFFSET_VEC);
+    wdr = t40_bcsh_out32(BO_OFFSET_VEC + T40_BCSH_WDR_HALF);
+    for (i = 0; i < 3; i++)
+        lin[i] = wdr[i] = rgb[i];
+    t40_bcsh.in[BI_BUSY] = 1U;
+    ret = t40_bcsh_ev_update(0);
+    if (!ret)
+        ret = t40_bcsh_ct_update(0);
+    t40_bcsh.in[BI_BUSY] = 0U;
+    mutex_unlock(&regtrace_t40_running_mode_lock);
+    return ret;
+}
+
+/*
+ * T40-AF-STATS: GetAfStatistics (CID 0x8000031, IMPISPAFStatisInfo = 6 x u32[15][15]: Fir0, Fir1,
+ * Iir0, Iir1, YSum, HighLumaCnt) and GetAFMetricesInfo (CID 0x8000034, 20 bytes).
+ * OEM: tisp_af_main_interrupt_static (AF done IRQ 6) reads the buffer index 0x1a0e0, syncs that
+ * 4 KB of the AF DMA ring (0x1a0cc..0x1a0d8) and unpacks it with tisp_af_get_statistics into the
+ * inter block (+16, 5400 bytes); tisp_af_alogrithm turns the zones into the metrics.  The lifts
+ * called tisp_af_get_statis_info(0, NULL) (memcpy from an absolute address: oops in memcpy, epc
+ * 801bf570) and tisp_af_get_metric on the AF context this build never sets up (oops, epc
+ * c03b49d4).  This build registers no AF IRQ; the AF block and its DMA ring run (Eufy .184:
+ * index cycles 0..3, every row trailer carries the frame counter), so the getters unpack the
+ * newest completed ring buffer on demand, picked by that counter (no ISP register access).
+ * Layout (OEM tisp_af_get_statistics, 15 x 15 zones): row stride 256 bytes (2 * 32 words,
+ * .rodata width table for 15 columns), 136 bits per zone (four zones in 17 words: 23-bit FIR/IIR,
+ * 24-bit Y sum, 16-bit high-luma count), the row trailer byte is the AF frame counter.
+ * Metrics (OEM tisp_af_alogrithm, linear half): per zone a = mix(Iir0, Fir0, p0), b = mix(Iir1,
+ * Fir1, p1), weighted with the AF zone weights (bank + 0x188b8, as GetAfWeight); then
+ * metric = R * C * mix(avg a, avg b), alt = mix(sum a / 8, sum b / 8), wl = R * C * avg a,
+ * wh = R * C * avg b, all >> the attribute shift (vendor default 0).  Parameters: bank + 0x18674
+ * (OEM AF outer image) + 806: p0, p1, p2, p3, fixed-point bits.
+ */
+#include "tx_isp_t40_af.h"
+static DEFINE_MUTEX(t40_af_lock);
+
+/* newest completed AF ring buffer -> out (u32[6][15][15]); 0 = no AF statistics yet (zeros) */
+static int t40_af_stats_read(uint32_t *out, uint8_t *frame)
+{
+    uint8_t *v = (uint8_t *)regtrace_tisp_dma_bufs[4].virt;
+    uint8_t *raw;
+    uint8_t cnt[4];
+    int b, best, r;
+
+    memset(out, 0, T40_AF_STAT_BYTES);
+    if (frame)
+        *frame = 0;
+    if (!v || regtrace_tisp_dma_bufs[4].size < 4U * T40_AF_RAW_BYTES)
+        return 0;   /* AF ring not set up yet: zeros, as the OEM before the first AF frame */
+    raw = kmalloc(T40_AF_RAW_BYTES, GFP_KERNEL);
+    if (!raw)
+        return -ENOMEM;
+    dma_cache_sync(NULL, v, 4U * T40_AF_RAW_BYTES, DMA_FROM_DEVICE);
+    for (b = 0; b < 4; b++)
+        cnt[b] = v[b * T40_AF_RAW_BYTES + T40_AF_ROW_STRIDE - 1U];
+    best = t40_af_pick_newest(cnt);
+    if (best >= 0) {
+        memcpy(raw, v + best * T40_AF_RAW_BYTES, T40_AF_RAW_BYTES);
+        /* every row trailer carries the same frame counter in a completed buffer */
+        for (r = 1; r < (int)T40_AF_ZONES; r++)
+            if (raw[r * T40_AF_ROW_STRIDE + T40_AF_ROW_STRIDE - 1U] != raw[T40_AF_ROW_STRIDE - 1U])
+                break;
+        if (r == (int)T40_AF_ZONES) {
+            uint8_t fn = t40_af_unpack(raw, out);
+
+            if (frame)
+                *frame = fn;
+        }
+    }
+    kfree(raw);
+    return 0;
+}
+
+static int t40_af_statis_get(uint32_t vinum, void *buf)
+{
+    int ret;
+
+    if (vinum != 0 || !buf)
+        return -EINVAL;
+    mutex_lock(&t40_af_lock);
+    ret = t40_af_stats_read((uint32_t *)buf, NULL);
+    mutex_unlock(&t40_af_lock);
+    return ret;
+}
+
+struct t40_af_metrics_wire {
+    uint32_t af_metrics;
+    uint32_t af_metrics_alt;
+    uint8_t af_frame_num;
+    uint8_t pad[3];
+    uint32_t af_wl;
+    uint32_t af_wh;
+};
+
+static int t40_af_metric_get(uint32_t vinum, void *buf)
+{
+    struct t40_af_metrics_wire *m = buf;
+    const uint8_t *bank = (const uint8_t *)(uintptr_t)tparamsN[0];
+    const uint16_t *prm;
+    const uint8_t *wt;
+    uint32_t *st, sw;
+    uint8_t frame;
+    int ret;
+
+    BUILD_BUG_ON(sizeof(struct t40_af_metrics_wire) != 20U);
+    if (vinum != 0 || !buf)
+        return -EINVAL;
+    if (!regtrace_is_kernel_ptr((void *)bank))
+        return -ENODEV;
+    st = kmalloc(T40_AF_STAT_BYTES, GFP_KERNEL);
+    if (!st)
+        return -ENOMEM;
+    mutex_lock(&t40_af_lock);
+    ret = t40_af_stats_read(st, &frame);
+    mutex_unlock(&t40_af_lock);
+    if (ret) {
+        kfree(st);
+        return ret;
+    }
+    prm = (const uint16_t *)(bank + T40_AF_BANK_OUTER + 806U);
+    wt = bank + T40_AF_BANK_OUTER + 580U;
+    sw = t40_af_metrics_calc(st, wt, prm, &m->af_metrics, &m->af_metrics_alt, &m->af_wl, &m->af_wh);
+    kfree(st);
+    m->af_frame_num = frame;
+    memset(m->pad, 0, sizeof(m->pad));
+    {
+        static bool once;
+
+        if (!once) {
+            once = true;
+            printk(KERN_INFO "tx_isp_t40_recovered: AF metrics p=%u/%u/%u/%u bits %u zones %ux%u weight sum %u frame %u\n",
+                   prm[0], prm[1], prm[2], prm[3], prm[4], *(const uint16_t *)(bank + T40_AF_BANK_OUTER + 2U),
+                   *(const uint16_t *)(bank + T40_AF_BANK_OUTER + 6U), sw, frame);
+        }
+    }
+    return 0;
 }
 
 static int regtrace_t40_apply_dmsc_sharpness(uint8_t sharpness)
@@ -45674,6 +45902,9 @@ static int regtrace_t40_g_ctrl_attr(uint32_t vinum, uint32_t cmd, uint32_t user,
     case 0x8000025: G(264, tisp_g_Gamma, "gamma_g"); break;
     case 0x8000032: G(225, tisp_g_af_weight_attr, "af_weight_g"); break;
     case 0x80000a4: G(128, tisp_g_module_ratio_attr, "module_ratio_g"); break;
+    case 0x800009b: G(6, tisp_g_coefft_wb, "coefft_g_wb"); break;   /* T40-COEFFT-WB */
+    case 0x8000031: G(T40_AF_STAT_BYTES, t40_af_statis_get, "af_statis_g"); break;   /* T40-AF-STATS */
+    case 0x8000034: G(20, t40_af_metric_get, "af_metrics_g"); break;
     default: return 1;
     }
 #undef G
@@ -48135,10 +48366,8 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
             int v0_64 = copy_from_user(&var_88, (void __user *)arg3[1], 6);
             s1_1 = v0_64;
 
-            if (v0_64 == 0) {
-                tisp_s_coefft_wb(arg1, &var_88);
-                return 0;
-            }
+            if (v0_64 == 0)
+                return tisp_s_coefft_wb(arg1, (uintptr_t)&var_88);
 
             a2_2 = "tx_isp_coefft_s_wb";
             goto label_b3e8;
@@ -48635,13 +48864,9 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
                     if (cmd != 0x8000034) {
                         return 0xffffffff;
                     }
-                    tisp_g_af_metric_attr(arg1, __p_80);
-                    result = private_copy_to_user(arg3[1], __p_80, 0x14);
-                    if (result == 0) {
-                        return result;
-                    }
-                    a2_str = "tx_isp_af_metrics_g_attr";
-                    goto label_c33c;
+                    /* T40-AF-STATS: answered by regtrace_t40_g_ctrl_attr before this dispatcher */
+                    return regtrace_t40_g_attr_copy(arg1, (uint32_t)arg3[1], 20,
+                                                    t40_af_metric_get, "af_metrics_g");
                 }
 
                 {
@@ -48683,15 +48908,10 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
                 return 0xffffffff;
             }
 
-            s3_ptr = private_vmalloc();
-            tisp_g_af_statis_attr();
-            result = private_copy_to_user(arg3[1], s3_ptr, 0x1518);
-            if (result == 0) {
-                private_vfree();
-                return result;
-            }
-            a2_str2 = "tx_isp_af_statis_g_attr";
-            goto label_c33c_vfree;
+            /* T40-AF-STATS: answered by regtrace_t40_g_ctrl_attr before this dispatcher
+             * (the lift vmalloc'ed without a size and called the getter without arguments) */
+            return regtrace_t40_g_attr_copy(arg1, (uint32_t)arg3[1], T40_AF_STAT_BYTES,
+                                            t40_af_statis_get, "af_statis_g");
         } else {
             if (cmd == 0x8000012) {
                 return tx_isp_awb_weight_g_attr_isra_40(arg1, arg3[1]);
@@ -48772,13 +48992,9 @@ label_c33c_vfree:
 
     if (cmd >= 0x8000097) {
         if (cmd == 0x800009b) {
-            tisp_g_coefft_wb(arg1, __p_80);
-            result = private_copy_to_user(arg3[1], __p_80, 6);
-            if (result == 0) {
-                return result;
-            }
-            a2_str = "tx_isp_coefft_g_wb";
-            goto label_c33c;
+            /* T40-COEFFT-WB: answered by regtrace_t40_g_ctrl_attr before this dispatcher */
+            return regtrace_t40_g_attr_copy(arg1, (uint32_t)arg3[1], 6,
+                                            (int (*)(uint32_t, void *))(uintptr_t)tisp_g_coefft_wb, "coefft_g_wb");
         }
 
         if (cmd >= 0x800009c) {
@@ -87448,23 +87664,11 @@ int32_t tisp_af_sec_tg_update(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f14c origin=model_output original=tisp_af_get_statis_info */
 int32_t tisp_af_get_statis_info(int32_t arg1, void *arg2)
 {
-    void *dest = arg2;
-    void *src;
-    int32_t size = 5400;
-    
-    /* Two different .data addresses based on arg1 */
-    /* Address 1: 0x10000 - 11668 + 16 = 0xFFC84 */
-    /* Address 2: 0x10000 - 17088 + 16 = 0xFCF84 */
-    
-    if (arg1 != 0) {
-        src = (void *)0xFCF84;
-    } else {
-        src = (void *)0xFFC84;
-    }
-    
-    memcpy(dest, src, size);
-    
-    return (int32_t)arg2;
+    /* OEM 0x2e6bc: memcpy(buf, AF inter block + 16, 5400); the lift copied from an absolute
+     * address.  T40-AF-STATS: unpack the newest AF ring buffer instead. */
+    if (t40_af_statis_get((uint32_t)arg1, arg2))
+        return 0;
+    return (int32_t)(uintptr_t)arg2;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002f180 origin=fragment_seed original=tisp_af_get_attr */
@@ -166136,10 +166340,10 @@ tisp_g_ae_statis_attr0x120:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074bfc origin=model_output original=tisp_g_af_statis_attr */
-int32_t tisp_g_af_statis_attr(void)
+int32_t tisp_g_af_statis_attr(uint32_t a0, uintptr_t a1)
 {
-    tisp_af_get_statis_info(0, (void *)0);
-    return 0;
+    /* OEM 0x7416c: tisp_af_get_statis_info(vinum, buf) (T40-AF-STATS) */
+    return t40_af_statis_get(a0, (void *)a1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074c24 origin=fragment_seed original=tisp_s_ae_weight_attr */
@@ -166376,16 +166580,8 @@ int32_t tisp_g_module_ratio_attr(int32_t arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000751a8 origin=model_output original=tisp_g_af_metric_attr */
 int32_t tisp_g_af_metric_attr(int32_t arg1, uint32_t* arg2)
 {
-    uint32_t* local_1;
-    uint32_t* local_2;
-    int32_t *result;
-    
-    local_1 = arg2 + 3;
-    local_2 = arg2 + 4;
-    
-    result = tisp_af_get_metric(arg1, arg2, arg2 + 1, arg2 + 2, local_1, local_2);
-    
-    return 0;
+    /* OEM 0x74718: tisp_af_get_metric(vinum, &m->metrics, &alt, &frame, &wl, &wh) (T40-AF-STATS) */
+    return t40_af_metric_get((uint32_t)arg1, arg2);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000751e4 origin=fragment_seed original=tisp_ae_face_get */
@@ -167086,51 +167282,15 @@ int32_t tisp_g_ae_step(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000759f4 origin=fragment_seed original=tisp_s_coefft_wb */
 int32_t tisp_s_coefft_wb(uint32_t a0, uintptr_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_bcsh_set_offset_rgb)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    v0 = 0;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    /* OEM: tisp_bcsh_set_offset_rgb(vinum, buf) (T40-COEFFT-WB) */
+    return t40_coefft_wb_set(a0, (const uint16_t *)a1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000075a1c origin=fragment_seed original=tisp_g_coefft_wb */
 int32_t tisp_g_coefft_wb(uint32_t a0, uintptr_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_bcsh_get_offset_rgb)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    v0 = 0;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    /* OEM 0x74f8c: tisp_bcsh_get_offset_rgb(vinum, buf) (T40-COEFFT-WB) */
+    return t40_coefft_wb_get(a0, (uint16_t *)a1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000075a50 origin=fragment_seed original=ispcore_irq_thread_handle */

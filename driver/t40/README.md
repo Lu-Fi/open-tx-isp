@@ -823,3 +823,11 @@ caps), AeWeight, FaceAe, AeSpeed and antiflicker. Plain-data part and OEM formul
 (host test `tests/tx_isp_t40_ae_api_test.c`). Diagnostics: `/sys/module/tx_isp_t40/parameters/t40_ae_api`;
 `t40_ae_stats_src` 0 auto / 1 hardware / 2 frame grid; `t40_ae_af_enable`, `t40_ae_af_step_now`.
 Not acting on the AE: AeExpList (stored, read back), AeStartEv (stored), SetAeAlgoFunc (not offered).
+
+## AF statistics, RGB coefficients (2026-10-26, `claude/gate-1026`)
+
+GetAfStatistics / GetAFMetricesInfo read the AF DMA ring (buffer 4 of the tisp DMA set, 0x1a0cc..0x1a0d8) on demand:
+the newest completed buffer is the one whose row-trailer frame counter is ahead of the others; unpack (15x15 zones,
+OEM `tisp_af_get_statistics` bit layout) and metrics (OEM `tisp_af_alogrithm`, bank + 0x18674: weights +580,
+parameters +806) are plain C in `tx_isp_t40_af.h` (host test `tests/t40/af_stats_host`). No AF IRQ and no AF
+algorithm/lens control. Awb_Get/SetRgbCoefft act on the BCSH RGB offset vector (outer block +0x248 / WDR +0x480).
