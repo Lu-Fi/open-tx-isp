@@ -2590,8 +2590,17 @@ static int apical_isp_gamma_g_attr(struct tx_isp_core_device *core, struct v4l2_
 
 	memset(&attr, 0, sizeof(attr));
 
-	for (i = 0; i < 129; i++) {
-		attr.gamma[i] = APICAL_READ_32(0x10400+4*i);
+	/* The gamma LUT at 0x10400 reads back as zeros on the T20 (issue 121):
+	 * report the curve from the linear gamma calibration table, which
+	 * apical_isp_gamma_s_attr writes (COMMAND_SET) and the LUT is
+	 * programmed from.  The register read stays as the fallback. */
+	apical_api_calibration(CALIBRATION_GAMMA_LINEAR, COMMAND_GET, attr.gamma,
+			       sizeof(attr.gamma), &ret);
+	if (ret != ISP_SUCCESS) {
+		ret = ISP_SUCCESS;
+		for (i = 0; i < 129; i++) {
+			attr.gamma[i] = APICAL_READ_32(0x10400+4*i);
+		}
 	}
 	if (copy_to_user((void __user*)control->value, (const void *)&attr, sizeof(attr)))
 		return -EFAULT;

@@ -4,6 +4,16 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (3): T20 GetGamma reports the curve in use (`claude/issue-121`; QEMU T20, .107)
+
+- **IMP_ISP_Tuning_GetGamma (0x800002b)** returned 129 zeros on the T20 (issue #121): the getter read the gamma LUT
+  back from the registers at 0x10400, which read as zeros on the hardware (QEMU returns the values). It now
+  reports the linear gamma calibration table (`CALIBRATION_GAMMA_LINEAR`, `COMMAND_GET`), which SetGamma writes
+  and the LUT is programmed from; the register read stays as fallback. Cam .107 (jxf23, runtime ko swap): 0 -> 128
+  of 129 points non-zero (g[64]=3101); writing the read curve back leaves the picture unchanged (mean Y 72.9 for
+  8 s before and after), SetGamma x^0.3 vs linear Y 131.6 vs 42.3. apitest's "picture restored" check missed its
+  7.6 s window there because AE was still settling in the dark scene (Y ~48-75), not because of the curve.
+
 ## 2026-10-27 (1): T31 WDR output mode getter on a linear sensor (`claude/issue-118`; QEMU T31, .26)
 
 - **IMP_ISP_Tuning_GetWdr_OutputMode (0x80000ea)** returned -1 when word 0 of the WDR tool control block (parameter
