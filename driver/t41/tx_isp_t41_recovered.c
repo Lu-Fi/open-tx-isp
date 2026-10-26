@@ -21537,8 +21537,10 @@ static int t41_tuning_gamma(unsigned int channel, unsigned int is_get,
         if (ret < 0)
             goto out;
     }
+    /* strength_transform answers 1 for a fixed curve (types 1..4): the
+     * curve is already in info+0x21c and must still reach the LUT */
     ret = tisp_gamma_strength_transform(0);
-    if (!ret)
+    if (ret >= 0)
         ret = tisp_gamma_write_lut_rgb(0);
     printk(KERN_WARNING "t41: gamma attr type=%u fixed=%u ret=%d\n",
            *(uint32_t *)(void *)buf, info[T41_GAMMA_INFO_FIXED], ret);
