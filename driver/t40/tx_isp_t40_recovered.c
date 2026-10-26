@@ -9369,19 +9369,64 @@ static uint regtrace_frame_3a_target = 122; /* T40-QUALITY3: vendor day luma 122
 static uint regtrace_ae_user_max_it;
 static uint regtrace_ae_user_max_again_x1024;
 static uint regtrace_ae_user_max_isp_dgain_x1024;
-static uint regtrace_ae_target_comp = 128;
-static uint regtrace_ae_target_comp_en;
+static uint regtrace_ae_target_comp = 128;   /* mirror of t40_ae_sc.comp (read-only parameter) */
 module_param_named(ae_user_max_it, regtrace_ae_user_max_it, uint, 0444);
 module_param_named(ae_user_max_again_x1024, regtrace_ae_user_max_again_x1024, uint, 0444);
 module_param_named(ae_user_max_isp_dgain_x1024, regtrace_ae_user_max_isp_dgain_x1024, uint, 0444);
 module_param_named(ae_target_comp, regtrace_ae_target_comp, uint, 0444);
+
+/*
+ * T40-AE-API (2026-10-26): the vendor 1.3.1 AE tuning calls served by the
+ * frame-3A AE.  Wire layouts and the OEM arithmetic: tx_isp_t40_ae_api.h.
+ * State written by the tuning handlers (process context, t40_ae_api_lock)
+ * and read by the frame-3A worker; the worker publishes the frame
+ * statistics (zone means, 256-bin histogram) under the same lock.
+ */
+#include "tx_isp_t40_ae_api.h"
+/* T40-LAYOUT: all AE API state lives in .t40c2 (new .bss objects shift the lifted &isp_memopt+N strays:
+ * a first build with ~5 KB of new .bss delivered no frames on .184) */
+static spinlock_t t40_ae_api_lock T40C2 = __SPIN_LOCK_UNLOCKED(t40_ae_api_lock);
+static struct t40_ae_scence t40_ae_sc T40C2 = {
+    .hlc_en = T40_AE_SC_DISABLE, .blc_en = T40_AE_SC_DISABLE,
+    .comp = T40_AE_COMP_NEUTRAL, .start_en = T40_AE_SC_DISABLE,
+};
+static struct t40_ae_expr t40_ae_ex T40C2;            /* last SetAeExprInfo (parsed) */
+static uint32_t t40_ae_ex_manual_it_lines T40C2;      /* manual IT converted to lines */
+static uint32_t t40_ae_ex_manual_again_idx T40C2;     /* manual / min analog gain as ladder index */
+static uint32_t t40_ae_ex_min_again_idx T40C2;
+static uint8_t t40_ae_weight[T40_AE_ZONES] T40C2;     /* SetAeWeight global weights (metering) */
+static bool t40_ae_weight_on T40C2;
+static uint8_t t40_ae_weight_attr[T40_AE_WEIGHT_BYTES] T40C2;   /* last SetAeWeight, for GetAeWeight */
+static bool t40_ae_weight_attr_set T40C2;
+static uint8_t t40_ae_face[T40_AE_FACE_BYTES] T40C2;  /* SetFaceAe, read back as set */
+static uint16_t t40_ae_speed[2] T40C2 = { T40_AE_SPEED_NEUTRAL, T40_AE_SPEED_NEUTRAL };  /* step_s, step_d */
+/* published by the frame-3A worker */
+static uint32_t t40_ae_fzone[T40_AE_ZONES] T40C2;     /* 15x15 zone means of the sampled Y grid */
+static uint32_t t40_ae_fhist[T40_AE_BINS] T40C2;      /* 256-bin histogram of the sampled Y grid */
+static uint32_t t40_ae_fhist_n T40C2;                 /* samples in t40_ae_fhist */
+static uint32_t t40_ae_fw T40C2, t40_ae_fh T40C2;           /* sampled frame size */
+static uint32_t t40_ae_metered T40C2;                 /* luma the AE regulated on (0 = plain mean) */
+static uint32_t t40_ae_stable T40C2;
+/* hardware AE statistics interrupts (diagnostic: the getter takes them only while they run) */
+static uint32_t t40_ae_hw_hist_irqs T40C2, t40_ae_hw_zone_irqs T40C2;
+static uint32_t t40_ae_hw_hist_jif T40C2, t40_ae_hw_zone_jif T40C2;
+/* 0 auto (hardware statistics while they run, else the sampled frame), 1 hardware, 2 frame */
+static uint t40_ae_stats_src T40C2;
+module_param_named(t40_ae_stats_src, t40_ae_stats_src, uint, 0644);
+static uint t40_ae_af_step_now T40C2;          /* integration lines per half mains period in use, 0 = off */
+module_param_named(t40_ae_af_step_now, t40_ae_af_step_now, uint, 0444);
+
+static uint32_t regtrace_t40_ae_max_it(void);
+static uint32_t regtrace_t40_lines_to_us(uint32_t lines);
+static uint32_t regtrace_t40_us_to_lines(uint32_t us);
+static uint32_t regtrace_t40_lines_per_s(void);
+
 static uint32_t regtrace_t40_frame_3a_target_eff(void)
 {
     uint32_t t = READ_ONCE(regtrace_frame_3a_target);
 
-    if (regtrace_ae_target_comp_en)
-        t = (t * clamp_t(uint32_t, regtrace_ae_target_comp, 1U, 255U)) >> 7;
-    return clamp_t(uint32_t, t, 8U, 250U);
+    /* OEM tisp_ae_s_comp factor (128 = 1.0, 255 = 3.34x) */
+    return t40_ae_comp_target(t, READ_ONCE(t40_ae_sc.comp), 8U, 250U);
 }
 static uint32_t regtrace_t40_ae_isp_dgain_max_eff(void)
 {
@@ -24662,18 +24707,23 @@ static int regtrace_t40_tuning_set_running_mode(uint32_t mode)
     return ret > 0 ? 0 : ret;
 }
 
+/* T40-AE-API: GetAeExprInfo in the vendor T40 1.3.1 layout (220 bytes; the T41 1.2 packer used
+ * before wrote 232 bytes - 12 past the caller's structure - with the exposure value at the EVLog2
+ * offset).  Live exposure of the frame AE, the user modes/caps as set, times in the set unit. */
 static int regtrace_t40_tuning_copy_ae_expr(uintptr_t user_ptr)
 {
-    struct tx_isp_tuning_t41_ae_expr_values values;
-    uint8_t response[TX_ISP_TUNING_T41_AE_EXPR_BYTES];
-    uint32_t again_index;
-    uint32_t again_log2;
-    uint32_t again_x1024;
+    uint8_t response[T40_AE_EXPR_BYTES];
+    struct t40_ae_expr e;
+    struct t40_ae_expr_live l;
+    unsigned long flags;
+    uint32_t again_index, again_log2, again_x1024, dg, max_it, max_ag;
     uint64_t exposure;
-    int ret;
 
     if (!user_ptr)
         return -EINVAL;
+    spin_lock_irqsave(&t40_ae_api_lock, flags);
+    e = t40_ae_ex;
+    spin_unlock_irqrestore(&t40_ae_api_lock, flags);
 
     again_index = min_t(uint32_t, READ_ONCE(regtrace_ae_soft_cur_again),
                         regtrace_t40_ae_max_again_index());
@@ -24681,59 +24731,132 @@ static int regtrace_t40_tuning_copy_ae_expr(uintptr_t user_ptr)
     again_x1024 = tx_isp_exp2_u32(again_log2, 16, 10);
     if (!again_x1024)
         again_x1024 = 1024U;
+    dg = clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur), 1024U, 32767U);
     exposure = (uint64_t)READ_ONCE(regtrace_ae_soft_cur_it) * again_x1024;
-    exposure = div64_u64(exposure * clamp_t(uint32_t, READ_ONCE(regtrace_ae_isp_dgain_cur), 1024U, 32767U),
-                         1024U * 1024U);   /* T40-AE-ISPDGAIN */
+    exposure = div64_u64(exposure * dg, 1024U * 1024U);   /* T40-AE-ISPDGAIN */
+    max_it = regtrace_t40_ae_max_it();
+    max_ag = tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(regtrace_t40_ae_max_again_index()), 16, 10);
 
-    memset(&values, 0, sizeof(values));
-    values.integration_time = READ_ONCE(regtrace_ae_soft_cur_it);
-    values.analog_gain_x1024 = again_x1024;
-    values.min_integration_time = READ_ONCE(regtrace_ae_soft_min_it);
-    values.max_integration_time = READ_ONCE(regtrace_ae_soft_max_it);
-    values.max_analog_gain_x1024 = tx_isp_exp2_u32(
-        regtrace_gc4653_again_log2_gain(
-            regtrace_t40_ae_max_again_index()), 16, 10);
-    values.total_gain_db = again_log2 + regtrace_t40_ae_isp_dgain_log2();
-    values.max_dgain = regtrace_t40_ae_isp_dgain_max_eff();
-    values.exposure_value = exposure;
-    values.ev_log2 = exposure ?
-        tx_isp_log2_int_u64(exposure, 16, 0) : 0;
-
-    ret = tx_isp_tuning_t41_ae_expr_pack(response, sizeof(response),
-                                          &values);
-    if (ret)
-        return ret;
+    memset(&l, 0, sizeof(l));
+    l.it = READ_ONCE(regtrace_ae_soft_cur_it);
+    l.again = again_x1024;
+    l.dgain = e.dgain_manual ? e.dgain : 1024U;
+    l.ispdgain = dg;
+    l.min_it = READ_ONCE(regtrace_ae_soft_min_it);
+    l.min_again = tx_isp_exp2_u32(regtrace_gc4653_again_log2_gain(READ_ONCE(t40_ae_ex_min_again_idx)), 16, 10);
+    l.max_it = max_it;
+    l.max_again = max_ag ? max_ag : 1024U;
+    l.max_dgain = e.max_dgain_mode ? e.max_dgain : 1024U;
+    l.max_ispdgain = regtrace_t40_ae_isp_dgain_max_eff();
+    l.total_gain_db = again_log2 + regtrace_t40_ae_isp_dgain_log2();
+    l.exposure_value = (uint32_t)min_t(uint64_t, exposure, 0xffffffffULL);
+    l.ev_log2 = exposure ? tx_isp_log2_int_u64(exposure, 16, 0) : 0;
+    if (e.unit) {
+        l.it = regtrace_t40_lines_to_us(l.it);
+        l.min_it = regtrace_t40_lines_to_us(l.min_it);
+        l.max_it = regtrace_t40_lines_to_us(l.max_it);
+    }
+    t40_ae_expr_pack(response, &e, &l);
     return copy_to_user((void __user *)user_ptr, response,
                         sizeof(response)) ? -EFAULT : 0;
 }
 
+/*
+ * T40-AE-API: GetAeStatistics (vendor IMPISPAEStatisInfo, 1934 bytes; OEM tisp_g_ae_statis_attr ->
+ * tisp_ae_main_long_process_api arithmetic, tx_isp_t40_ae_api.h).  Sources:
+ *   hardware - the AE statistics the ISP still delivers (hist interrupt -> pstMainAeOri+104, zone
+ *              interrupt -> +80/+84/+88, geometry +284) while they run (an interrupt in the last
+ *              second): RAW-domain histogram (bins << 2, bin 0 = rest of width*height), zone Y;
+ *   frame    - the frame-3A sample grid of the finished NV12 frame (YUV domain), scaled to
+ *              width*height; also for hist_domain YUV (SetStatisConfig).
+ * The 5-bin histogram uses the AE histThresh of SetStatisConfig (default 13/64/144/192).
+ * Before the first statistics of the running stream: -EAGAIN (libimp: -1, errno EAGAIN).
+ * Replaces a placeholder that put a single count into the bin of the mean luma (hist sum 1)
+ * and the mean into every zone.
+ */
 static int regtrace_t40_tuning_copy_ae_stats(uintptr_t user_ptr)
 {
-    const unsigned int response_bytes = TX_ISP_TUNING_T41_AE_STATS_BYTES;
-    const unsigned int histogram_offset = ALIGN(response_bytes, sizeof(uint32_t));
-    const unsigned int allocation_bytes = histogram_offset +
-        TX_ISP_TUNING_T41_AE_HIST_BINS * sizeof(uint32_t);
-    uint8_t *allocation;
-    uint32_t *histogram;
-    uint32_t luma;
-    int ret;
+    const uint8_t *ori = pstMainAeOri_storage;
+    const uint8_t *tattr = (const uint8_t *)(uintptr_t)tisp_tattr;
+    uint8_t *resp;
+    uint32_t *hist, *raw, *zones;
+    uint8_t thr[4];
+    unsigned long flags;
+    uint32_t w = 0, h = 0, n, src = READ_ONCE(t40_ae_stats_src);
+    bool yuv = regtrace_is_kernel_ptr((void *)tattr) && *(const uint32_t *)(tattr + 1232) != 0;
+    bool hw_hist, hw_zone;
+    uint32_t now = (uint32_t)jiffies;
+    int ret = 0;
 
     if (!user_ptr)
         return -EINVAL;
-    allocation = kzalloc(allocation_bytes, GFP_KERNEL);
-    if (!allocation)
+    resp = kzalloc(T40_AE_STATS_BYTES + 3U * T40_AE_BINS * sizeof(uint32_t), GFP_KERNEL);
+    if (!resp)
         return -ENOMEM;
+    hist = (uint32_t *)(void *)(resp + ALIGN(T40_AE_STATS_BYTES, 4U));
+    raw = hist + T40_AE_BINS;
+    zones = raw + T40_AE_BINS;   /* 225 <= 256 */
 
-    histogram = (uint32_t *)(void *)(allocation + histogram_offset);
-    luma = min_t(uint32_t, READ_ONCE(regtrace_frame_3a_last_luma), 255U);
-    histogram[luma] = 1U;
-    ret = tx_isp_tuning_t41_ae_stats_pack(
-        allocation, response_bytes, histogram,
-        TX_ISP_TUNING_T41_AE_HIST_BINS, NULL);
-    if (!ret && copy_to_user((void __user *)user_ptr, allocation,
-                             response_bytes))
-        ret = -EFAULT;
-    kfree(allocation);
+    hw_hist = src != 2U && !yuv && READ_ONCE(t40_ae_hw_hist_irqs) &&
+              now - READ_ONCE(t40_ae_hw_hist_jif) < (uint32_t)HZ &&
+              regtrace_is_kernel_ptr((void *)(uintptr_t)*(const uint32_t *)(ori + 104));
+    hw_zone = src != 2U && READ_ONCE(t40_ae_hw_zone_irqs) &&
+              now - READ_ONCE(t40_ae_hw_zone_jif) < (uint32_t)HZ &&
+              regtrace_is_kernel_ptr((void *)(uintptr_t)*(const uint32_t *)(ori + 80)) &&
+              regtrace_is_kernel_ptr((void *)(uintptr_t)*(const uint32_t *)(ori + 84)) &&
+              regtrace_is_kernel_ptr((void *)(uintptr_t)*(const uint32_t *)(ori + 88)) &&
+              regtrace_is_kernel_ptr((void *)(uintptr_t)*(const uint32_t *)(ori + 284));
+    if (src == 1U && (!hw_hist || !hw_zone)) {
+        kfree(resp);
+        return -EAGAIN;
+    }
+
+    local_irq_save(flags);   /* the OEM hist lock (main_slock_hist) is a no-op here; keep the ISR off */
+    memcpy(thr, tisp_ae_main_hist_last + 1044, sizeof(thr));
+    if (hw_hist) {
+        const uint32_t *hb = (const uint32_t *)(uintptr_t)*(const uint32_t *)(ori + 104);
+        unsigned int i;
+
+        for (i = 0; i < T40_AE_BINS; i++)
+            raw[i] = hb[i] & 0x1fffffU;
+    }
+    local_irq_restore(flags);
+
+    spin_lock_irqsave(&t40_ae_api_lock, flags);
+    n = t40_ae_fhist_n;
+    w = t40_ae_fw;
+    h = t40_ae_fh;
+    if (!hw_hist)
+        memcpy(raw, t40_ae_fhist, sizeof(t40_ae_fhist));
+    if (!hw_zone)
+        memcpy(zones, t40_ae_fzone, sizeof(t40_ae_fzone));
+    spin_unlock_irqrestore(&t40_ae_api_lock, flags);
+    if (!w || !h)
+        regtrace_sensor_dimensions(0, &w, &h);
+
+    if (hw_zone) {
+        const uint16_t *tbl = (const uint16_t *)(uintptr_t)*(const uint32_t *)(ori + 284);
+
+        local_irq_save(flags);
+        t40_ae_hw_zones((const uint32_t *)(uintptr_t)*(const uint32_t *)(ori + 80),
+                        (const uint32_t *)(uintptr_t)*(const uint32_t *)(ori + 84),
+                        (const uint32_t *)(uintptr_t)*(const uint32_t *)(ori + 88),
+                        tbl + 19, tbl + 4, tbl[1], tbl[3], zones);
+        local_irq_restore(flags);
+    }
+    if (hw_hist)
+        t40_ae_hist_scale(raw, 4U, 1U, w * h, hist);
+    else if (n)
+        t40_ae_hist_scale(raw, w * h, n, w * h, hist);
+    else
+        ret = -EAGAIN;   /* no statistics of this stream yet */
+
+    if (!ret) {
+        t40_ae_stats_pack(resp, hist, thr, zones);
+        if (copy_to_user((void __user *)user_ptr, resp, T40_AE_STATS_BYTES))
+            ret = -EFAULT;
+    }
+    kfree(resp);
     return ret;
 }
 
@@ -45483,17 +45606,43 @@ static noinline int regtrace_t40_g_attr_copy(uint32_t vinum, uint32_t user_ptr, 
 
 static int regtrace_t40_g_ae_scence(uint32_t vinum, void *buf)
 {
-    uint32_t *w = (uint32_t *)buf;
+    struct t40_ae_scence sc;
+    unsigned long flags;
+    uint32_t luma, metered, target;
 
-    (void)tisp_g_ae_scence_attr(vinum, (uintptr_t)buf);   /* OEM returns 0 */
-    if (vinum == 0 && w) {
-        /* the lifted context does not hold our compensation / target: report the open AE's */
-        w[4] = regtrace_ae_target_comp_en ? 1U : 0U;
-        w[5] = regtrace_ae_target_comp;
-        w[8] = READ_ONCE(regtrace_frame_3a_last_luma);
-        w[11] = regtrace_t40_frame_3a_target_eff();
+    if (vinum != 0 || !buf) {
+        (void)tisp_g_ae_scence_attr(vinum, (uintptr_t)buf);   /* OEM returns 0 */
+        return 0;
     }
+    /* T40-AE-API: the OEM context is not the AE any more; report the frame AE's state
+     * (OEM tisp_g_ae_scence_attr field meaning: luma, scene luma, stable, target, ae_mean). */
+    spin_lock_irqsave(&t40_ae_api_lock, flags);
+    sc = t40_ae_sc;
+    metered = t40_ae_metered;
+    spin_unlock_irqrestore(&t40_ae_api_lock, flags);
+    luma = READ_ONCE(regtrace_frame_3a_last_luma);
+    target = regtrace_t40_frame_3a_target_eff();
+    t40_ae_scence_pack((uint8_t *)buf, &sc, luma, luma, READ_ONCE(t40_ae_stable),
+                       target, metered ? metered : luma);
     return 0;
+}
+
+/* T40-AE-API: GetAeWeight - the weights last set (the frame AE meters with them), else the OEM tables */
+static int regtrace_t40_g_ae_weight(uint32_t vinum, void *buf)
+{
+    unsigned long flags;
+    bool mine;
+
+    if (vinum == 0) {
+        spin_lock_irqsave(&t40_ae_api_lock, flags);
+        mine = t40_ae_weight_attr_set;
+        if (mine)
+            memcpy(buf, t40_ae_weight_attr, T40_AE_WEIGHT_BYTES);
+        spin_unlock_irqrestore(&t40_ae_api_lock, flags);
+        if (mine)
+            return 0;
+    }
+    return (int)tisp_g_ae_weight_attr(vinum, (uintptr_t)buf);
 }
 
 /* T40-G-CTRL: GET dispatch of the tuning attrs (IDs as in our libimp / s_ctrl), rebuilt from
@@ -45505,7 +45654,7 @@ static int regtrace_t40_g_ctrl_attr(uint32_t vinum, uint32_t cmd, uint32_t user,
     case 0x8000000: G(124, tisp_g_statis_config_attr, "statis_config_g"); break;
     case 0x8000010: G(76, tisp_g_awb_attr, "awb_attr_g"); break;
     case 0x8000012: G(225, tisp_g_awb_weight_attr, "awb_weight_g"); break;
-    case 0x8000021: G(460, tisp_g_ae_weight_attr, "ae_weight_g"); break;
+    case 0x8000021: G(460, regtrace_t40_g_ae_weight, "ae_weight_g"); break;
     case 0x8000023: G(220, tisp_g_ae_exprinfo_attr, "ae_expoinfo_g"); break;
     case 0x8000024: G(52, regtrace_t40_g_ae_scence, "ae_scence_g"); break;
     case 0x8000025: G(264, tisp_g_Gamma, "gamma_g"); break;
@@ -45839,34 +45988,90 @@ int32_t tx_isp_awb_attr_s_attr_isra_15(uint32_t a0, uint32_t a1)
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t tx_isp_ae_expoinfo_s_attr_isra_17(uint32_t a0, uint32_t a1) __asm__("tx_isp_ae_expoinfo_s_attr.isra.17");
 #endif
-/* T40-QUALITY3: OEM setter first (lifted AE context), then the user caps for the open AE.
- * IMPISPAEExprInfo words: [0] time unit (0 lines, else us), [14..17] max IT/again/dgain/ispdgain
- * mode (1 = cap on), [22..25] the values (IT lines or us, gains x1024). */
+/* T40-AE-API: microseconds <-> integration lines from tisp_par_info (OEM tisp_ae_set_exprinfo_attr):
+ * fps word par+44 = num << 16 | den, frame length par+70 (lines). */
+static uint32_t regtrace_t40_lines_per_s(void)
+{
+    const unsigned char *pi = tisp_par_info;
+    uint32_t p44 = *(const uint32_t *)(pi + 44);
+    uint32_t vts = *(const uint16_t *)(pi + 70);
+    uint32_t num = p44 >> 16, den = p44 & 0xffffU;
+
+    if (!num || !den || !vts)
+        return 0;
+    return (uint32_t)div64_u64((uint64_t)vts * num, den);
+}
+
+static uint32_t regtrace_t40_us_to_lines(uint32_t us)
+{
+    uint32_t lps = regtrace_t40_lines_per_s();
+
+    return lps ? (uint32_t)div64_u64((uint64_t)us * lps + 500000U, 1000000U) : 0;
+}
+
+static uint32_t regtrace_t40_lines_to_us(uint32_t lines)
+{
+    uint32_t lps = regtrace_t40_lines_per_s();
+
+    return lps ? (uint32_t)div64_u64((uint64_t)lines * 1000000U + lps / 2U, lps) : 0;
+}
+
+/* Analog gain x1024 -> index of the AE gain ladder (nearest in log2, within the sensor maximum). */
+static uint32_t regtrace_t40_again_index_of(uint32_t x1024)
+{
+    uint32_t max_idx = regtrace_t40_ae_max_again_index();
+    uint32_t want = x1024 > 1024U ? (uint32_t)tx_isp_log2_int_u64(x1024, 16, 0) - (10U << 16) : 0;
+    uint32_t i = 0;
+
+    while (i < max_idx &&
+           regtrace_gc4653_again_log2_gain(i + 1U) <= want)
+        i++;
+    if (i < max_idx &&
+        regtrace_gc4653_again_log2_gain(i + 1U) - want < want - regtrace_gc4653_again_log2_gain(i))
+        i++;
+    return i;
+}
+
+/* T40-AE-API: SetAeExprInfo on the frame AE (vendor 1.3.1 IMPISPAEExprInfo, 220 bytes):
+ * AeMode (freeze), manual integration time / analog gain / ISP digital gain, minimum analog
+ * gain and the max caps.  Integration times in us (unit 1) are converted to lines like the OEM
+ * tisp_ae_set_exprinfo_attr.  Sensor digital gain: the sc830ai has none; a manual or capped
+ * value is accepted and read back (always met at 1x).  Invalid modes / gains below 1x: -EINVAL. */
 static int regtrace_t40_s_ae_exprinfo_hook(uint32_t vinum, void *buf)
 {
-    const uint32_t *A = (const uint32_t *)buf;
-    int ret = (int)tisp_s_ae_exprinfo_attr(vinum, (uintptr_t)buf);
+    struct t40_ae_expr e;
+    unsigned long flags;
+    uint32_t it_max = 0, it_manual = 0;
+    int ret;
 
-    if (vinum == 0 && A) {
-        uint32_t it = A[22];
-
-        if (A[0] && it) {
-            /* us -> lines, as the OEM tisp_ae_set_exprinfo_attr does */
-            const unsigned char *pi = tisp_par_info;
-            uint32_t p44 = *(const uint32_t *)(pi + 44);
-            uint32_t den = ((uint32_t)*(const uint16_t *)(pi + 70) * p44) >> 16;
-            uint32_t div = den ? ((p44 & 0xffffU) * 1000000U) / den : 0;
-
-            it = div ? it / div : 0;
-        }
-        regtrace_ae_user_max_it = (A[14] == 1U) ? it : 0;
-        regtrace_ae_user_max_again_x1024 = (A[15] == 1U) ? A[23] : 0;
-        regtrace_ae_user_max_isp_dgain_x1024 = (A[17] == 1U) ? A[25] : 0;
-        printk(KERN_INFO "tx_isp_t40_recovered: ae user caps it=%u again=%u ispdg=%u (modes %u/%u/%u)\n",
-               regtrace_ae_user_max_it, regtrace_ae_user_max_again_x1024,
-               regtrace_ae_user_max_isp_dgain_x1024, A[14], A[15], A[17]);
-    }
-    return ret;
+    if (vinum != 0)
+        return (int)tisp_s_ae_exprinfo_attr(vinum, (uintptr_t)buf);
+    ret = t40_ae_expr_parse((const uint8_t *)buf, &e);
+    if (ret)
+        return ret;
+    if (e.max_it_mode)
+        it_max = e.unit ? regtrace_t40_us_to_lines(e.max_it) : e.max_it;
+    if (e.it_manual)
+        it_manual = e.unit ? regtrace_t40_us_to_lines(e.it) : e.it;
+    if ((e.max_it_mode && !it_max) || (e.it_manual && !it_manual))
+        return -EINVAL;
+    spin_lock_irqsave(&t40_ae_api_lock, flags);
+    t40_ae_ex = e;
+    t40_ae_ex_manual_it_lines = it_manual;
+    spin_unlock_irqrestore(&t40_ae_api_lock, flags);
+    regtrace_ae_user_max_it = it_max;
+    regtrace_ae_user_max_again_x1024 = e.max_again_mode ? e.max_again : 0;
+    regtrace_ae_user_max_isp_dgain_x1024 = e.max_ispdgain_mode ? e.max_ispdgain : 0;
+    /* indices after the caps: the ladder maximum follows the user cap */
+    WRITE_ONCE(t40_ae_ex_manual_again_idx, e.again_manual ? regtrace_t40_again_index_of(e.again) : 0);
+    WRITE_ONCE(t40_ae_ex_min_again_idx, e.min_again_mode ? regtrace_t40_again_index_of(e.min_again) : 0);
+    printk(KERN_INFO "tx_isp_t40_recovered: ae exprinfo freeze=%u manual it=%u(%u lines)/ag=%u(idx %u)/ispdg=%u min ag=%u(idx %u) caps it=%u ag=%u ispdg=%u\n",
+           e.freeze, e.it_manual ? e.it : 0, it_manual, e.again_manual ? e.again : 0,
+           t40_ae_ex_manual_again_idx, e.ispdgain_manual ? e.ispdgain : 0,
+           e.min_again_mode ? e.min_again : 0, t40_ae_ex_min_again_idx,
+           regtrace_ae_user_max_it, regtrace_ae_user_max_again_x1024,
+           regtrace_ae_user_max_isp_dgain_x1024);
+    return 0;
 }
 
 int32_t tx_isp_ae_expoinfo_s_attr_isra_17(uint32_t a0, uint32_t a1)
@@ -45876,6 +46081,39 @@ int32_t tx_isp_ae_expoinfo_s_attr_isra_17(uint32_t a0, uint32_t a1)
      * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
      * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
     return regtrace_t40_s_attr_copy(a0, a1, 220, regtrace_t40_s_ae_exprinfo_hook, "tx_isp_ae_expoinfo_s_attr_isra_17");
+}
+
+/* T40-AE-API: SetAeWeight.  The OEM setter keeps the GetAeWeight readback (OEM tisp_ae_set_weight:
+ * word 0 == 1 -> metering weights from byte 8, word 1 == 1 -> ROI weights from byte 233; 0 ->
+ * the bin defaults); the frame AE meters with the weights while word 0 is 1 (tx_isp_t40_ae_api.h). */
+static int regtrace_t40_s_ae_weight_hook(uint32_t vinum, void *buf)
+{
+    const uint8_t *b = (const uint8_t *)buf;
+    uint32_t en = t40_ae_ld32(b, 0);
+    unsigned long flags;
+    unsigned int i;
+    int ret;
+
+    if (vinum == 0) {
+        if (en > 1U || t40_ae_ld32(b, 4) > 1U)
+            return -EINVAL;
+        for (i = 0; i < T40_AE_ZONES; i++)
+            if (b[8 + i] > 8U || b[233 + i] > 8U)
+                return -EINVAL;
+    }
+    ret = tisp_s_ae_weight_attr(vinum, (uintptr_t)buf);
+    if (vinum != 0)
+        return ret;
+    /* the frame AE does not depend on the OEM weight tables: keep our own copy for metering and
+     * the readback (word 0/1 == 0 report the OEM bin defaults again) */
+    spin_lock_irqsave(&t40_ae_api_lock, flags);
+    if (en == 1U)
+        memcpy(t40_ae_weight, b + 8, T40_AE_ZONES);
+    t40_ae_weight_on = en == 1U;
+    memcpy(t40_ae_weight_attr, b, T40_AE_WEIGHT_BYTES);
+    t40_ae_weight_attr_set = en == 1U || t40_ae_ld32(b, 4) == 1U;
+    spin_unlock_irqrestore(&t40_ae_api_lock, flags);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009de0 origin=fragment_seed original=tx_isp_ae_weight_s_attr.isra.18 */
@@ -45888,7 +46126,7 @@ int32_t tx_isp_ae_weight_s_attr_isra_18(uint32_t a0, uint32_t a1)
      * tisp_s_ae_weight_attr(vinum, buf).  The lift lost the size and source of the copy
      * (copy_from_user(&4-byte local) with stale a1/a2: kernel stack overwrite ->
      * hard hang, e.g. IMP_ISP_Tuning_SetAeExprInfo). */
-    return regtrace_t40_s_attr_copy(a0, a1, 460, (int (*)(uint32_t, void *))(uintptr_t)tisp_s_ae_weight_attr, "tx_isp_ae_weight_s_attr_isra_18");
+    return regtrace_t40_s_attr_copy(a0, a1, 460, regtrace_t40_s_ae_weight_hook, "tx_isp_ae_weight_s_attr_isra_18");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009e74 origin=fragment_seed original=tx_isp_statis_config_s_attr.isra.19 */
@@ -47852,16 +48090,20 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
 
         if ((unsigned int)v1 < 0x80000a2) {
             if (v1 == 0x800009a) {
-                int v0_63 = copy_from_user(&var_88, (void __user *)arg3[1], 4);
-                s1_1 = v0_63;
+                /* T40-AE-API: SetAeSpeed {u16 step_s (lowering), u16 step_d (raising)} drives the
+                 * frame AE step size (128 = default speed, 1/8x..8x); the lifted OEM setter was an
+                 * empty tail call. */
+                uint16_t sp[2];
 
-                if (v0_63 != 0) {
-                    a2_2 = "tx_isp_ae_s_step";
-                    goto label_b3e8;
-                }
-
-                tisp_s_ae_step(arg1, &var_88);
-                return s1_1;
+                if (copy_from_user(sp, (void __user *)arg3[1], sizeof(sp)))
+                    return -EFAULT;
+                if ((uintptr_t)arg1 != 0)
+                    return -EINVAL;
+                if (!sp[0] || !sp[1] || sp[0] > 8U * T40_AE_SPEED_NEUTRAL || sp[1] > 8U * T40_AE_SPEED_NEUTRAL)
+                    return -EINVAL;
+                WRITE_ONCE(t40_ae_speed[0], sp[0]);
+                WRITE_ONCE(t40_ae_speed[1], sp[1]);
+                return 0;
             }
 
             if ((unsigned int)v1 < 0x800009a) {
@@ -48003,17 +48245,29 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
             goto label_b3e8;
         }
 
-        tisp_s_ae_scence_attr(arg1, &var_88);
         if (arg1 == 0) {
-            const uint32_t *w = (const uint32_t *)&var_88;
+            /* T40-AE-API: OEM tisp_s_ae_scence_attr semantics on the frame AE (AeTargetComp:
+             * DISABLE -> 128, ROI/GLOBAL -> comp, AUTO keeps; HLC/BLC strength 0..10 meter the
+             * zones, tx_isp_t40_ae_api.h).  The lifted OEM setter only fed the removed OEM AE. */
+            struct t40_ae_scence sc;
+            unsigned long flags;
+            int r;
 
-            /* IMPISPAEScenceAttr words: [4] AeTargetCompEn, [5] AeTargetComp (128 = unchanged) */
-            regtrace_ae_target_comp_en = (w[4] == 1U || w[4] == 3U) ? 1U : 0U;
-            regtrace_ae_target_comp = w[5] ? w[5] : 128U;
-            printk(KERN_INFO "tx_isp_t40_recovered: ae target comp en=%u comp=%u -> target %u\n",
-                   regtrace_ae_target_comp_en, regtrace_ae_target_comp,
+            spin_lock_irqsave(&t40_ae_api_lock, flags);
+            sc = t40_ae_sc;
+            r = t40_ae_scence_parse((const uint8_t *)&var_88, &sc);
+            if (!r)
+                t40_ae_sc = sc;
+            spin_unlock_irqrestore(&t40_ae_api_lock, flags);
+            if (r)
+                return r;
+            regtrace_ae_target_comp = sc.comp;
+            printk(KERN_INFO "tx_isp_t40_recovered: ae scence comp=%u hlc=%u/%u blc=%u/%u -> target %u\n",
+                   sc.comp, sc.hlc_en, sc.hlc_str, sc.blc_en, sc.blc_str,
                    regtrace_t40_frame_3a_target_eff());
+            return 0;
         }
+        tisp_s_ae_scence_attr(arg1, &var_88);
         return s1_1;
     }
 
@@ -48211,6 +48465,20 @@ label_b660:
         s1_1 = v0_58;
 
         if (v0_58 == 0) {
+            /* T40-AE-API: SetFaceAe {enable, left, top, right, bottom, target}: the frame AE meters the
+             * face zones and regulates them to target (1..255 luma, 0 = the AE target); rectangle in
+             * pixels of the main stream.  Read back as set. */
+            if ((uintptr_t)arg1 == 0) {
+                const uint32_t *f = (const uint32_t *)&var_88;
+                unsigned long flags;
+
+                if (f[0] > 1U || (f[0] == 1U && (f[3] <= f[1] || f[4] <= f[2] || f[5] > 255U)))
+                    return -EINVAL;
+                spin_lock_irqsave(&t40_ae_api_lock, flags);
+                memcpy(t40_ae_face, &var_88, sizeof(t40_ae_face));
+                spin_unlock_irqrestore(&t40_ae_api_lock, flags);
+                return 0;
+            }
             tisp_ae_face_set(arg1, &var_88);
             return 0;
         }
@@ -48286,6 +48554,12 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
     }
 
     if (cmd == 0x8000035) {
+        /* T40-AE-API: the stored face AE attribute (the lifted getter copied an uninitialised stack slot) */
+        unsigned long flags;
+
+        spin_lock_irqsave(&t40_ae_api_lock, flags);
+        memcpy(__p_80, t40_ae_face, sizeof(t40_ae_face));
+        spin_unlock_irqrestore(&t40_ae_api_lock, flags);
         result = private_copy_to_user(arg3[1], __p_80, 0x18);
         if (result == 0) {
             return result;
@@ -48516,7 +48790,10 @@ label_c33c_vfree:
         }
 
         if (cmd >= 0x800009a) {
-            tisp_g_ae_step(arg1, __p_80);
+            /* T40-AE-API: the frame AE speed (the lifted getter left the stack slot uninitialised) */
+            uint16_t sp[2] = { READ_ONCE(t40_ae_speed[0]), READ_ONCE(t40_ae_speed[1]) };
+
+            memcpy(__p_80, sp, sizeof(sp));
             result = private_copy_to_user(arg3[1], __p_80, 4);
             if (result == 0) {
                 return result;
@@ -81021,6 +81298,8 @@ int32_t tisp_ae_main_interrupt_static(void)
 
     dma_cache_sync(NULL, (void *)ptr, 4096, DMA_BIDIRECTIONAL);   /* OEM 0x24c90: private_dma_cache_sync(0, ptr, 4096, 0) */
     tisp_ae_get_statistics((uintptr_t)ptr, (uintptr_t)&pstMainAeOri); /* OEM 0x24cac: a1 = .bss+15280 = pstMainAeOri */
+    t40_ae_hw_zone_irqs++;   /* T40-AE-API: GetAeStatistics takes the hardware zones while they run */
+    WRITE_ONCE(t40_ae_hw_zone_jif, (uint32_t)jiffies);
 
     return 1;
 }
@@ -81139,6 +81418,8 @@ int32_t tisp_ae_main_interrupt_hist(void)
 
     /* fragment 3: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_get_hist)(s0, (uintptr_t)&pstMainAeOri) /* OEM 0x24e58: a1 = pstMainAeOri */; /* jalr target resolved by relocation */
+    t40_ae_hw_hist_irqs++;   /* T40-AE-API */
+    WRITE_ONCE(t40_ae_hw_hist_jif, (uint32_t)jiffies);
 
     /* fragment 4: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_ai_main_interrupt_static)(a0); /* jalr target resolved by relocation */
@@ -83696,7 +83977,9 @@ int32_t tisp_ae_set_hist_bin(int32_t arg1, int32_t arg2)
     int32_t *s1;
     int32_t *var_18;
 
-    if (arg1 == 0) {
+    /* T40-AE-API: OEM 0x2acd4 branches on a0 != 0 to the SECOND channel; the lift had main/sec
+     * swapped, so SetStatisConfig histThresh of the main sensor landed in the sec copy. */
+    if (arg1 != 0) {
         s0 = &sec_slock_hist;
         s1 = &tisp_ae_sec_hist_last;
     } else {
@@ -88409,6 +88692,76 @@ static uint32_t regtrace_t40_ae_max_it(void)
     return it;
 }
 
+/* T40-AE-API diagnostic (read-only parameter t40_ae_api): AE API state and statistics sources. */
+static int t40_ae_api_get(char *buf, const struct kernel_param *kp)
+{
+    struct t40_ae_scence sc;
+    struct t40_ae_expr e;
+    unsigned long flags;
+    uint32_t z77, hn, hsum = 0, i;
+    const uint32_t *hb = (const uint32_t *)(uintptr_t)*(const uint32_t *)(pstMainAeOri_storage + 104);
+    const uint16_t *tbl = (const uint16_t *)(uintptr_t)*(const uint32_t *)(pstMainAeOri_storage + 284);
+
+    (void)kp;
+    spin_lock_irqsave(&t40_ae_api_lock, flags);
+    sc = t40_ae_sc;
+    e = t40_ae_ex;
+    z77 = t40_ae_fzone[7 * T40_AE_ZONE_N + 7];
+    hn = t40_ae_fhist_n;
+    spin_unlock_irqrestore(&t40_ae_api_lock, flags);
+    if (regtrace_is_kernel_ptr((void *)hb))
+        for (i = 0; i < T40_AE_BINS; i++)
+            hsum += hb[i] & 0x1fffffU;
+    return scnprintf(buf, PAGE_SIZE,
+        "comp=%u target=%u luma=%u metered=%u stable=%u hlc=%u/%u blc=%u/%u weight=%u face=%u speed=%u/%u\n"
+        "expr freeze=%u it_man=%u(%u lines) ag_man=%u(idx %u) ispdg_man=%u min_ag_idx=%u caps it=%u ag=%u ispdg=%u af_step=%u\n"
+        "cur it=%u again=%u ispdg=%u frame zone77=%u hist_n=%u %ux%u\n"
+        "hw hist irqs=%u age=%ums sum=%u zone irqs=%u age=%ums tbl rows=%u cols=%u colw0=%u rowh0=%u src=%u\n",
+        sc.comp, regtrace_t40_frame_3a_target_eff(), READ_ONCE(regtrace_frame_3a_last_luma),
+        READ_ONCE(t40_ae_metered), READ_ONCE(t40_ae_stable), sc.hlc_en, sc.hlc_str, sc.blc_en, sc.blc_str,
+        t40_ae_weight_on ? 1U : 0U, t40_ae_ld32(t40_ae_face, 0), t40_ae_speed[0], t40_ae_speed[1],
+        e.freeze, e.it_manual ? e.it : 0U, t40_ae_ex_manual_it_lines, e.again_manual ? e.again : 0U,
+        t40_ae_ex_manual_again_idx, e.ispdgain_manual ? e.ispdgain : 0U, t40_ae_ex_min_again_idx,
+        regtrace_ae_user_max_it, regtrace_ae_user_max_again_x1024, regtrace_ae_user_max_isp_dgain_x1024,
+        t40_ae_af_step_now,
+        regtrace_ae_soft_cur_it, regtrace_ae_soft_cur_again, READ_ONCE(regtrace_ae_isp_dgain_cur),
+        z77, hn, t40_ae_fw, t40_ae_fh,
+        t40_ae_hw_hist_irqs, jiffies_to_msecs((uint32_t)jiffies - t40_ae_hw_hist_jif), hsum,
+        t40_ae_hw_zone_irqs, jiffies_to_msecs((uint32_t)jiffies - t40_ae_hw_zone_jif),
+        regtrace_is_kernel_ptr((void *)tbl) ? tbl[1] : 0U, regtrace_is_kernel_ptr((void *)tbl) ? tbl[3] : 0U,
+        regtrace_is_kernel_ptr((void *)tbl) ? tbl[4] : 0U, regtrace_is_kernel_ptr((void *)tbl) ? tbl[19] : 0U,
+        t40_ae_stats_src);
+}
+static const struct kernel_param_ops t40_ae_api_ops = { .get = t40_ae_api_get };
+module_param_cb(t40_ae_api, &t40_ae_api_ops, NULL, 0444);
+
+/* T40-AE-API scratch of the frame-3A worker (one sample at a time: regtrace_frame_3a_work_pending) */
+static uint32_t f3a_zsum[T40_AE_ZONES] T40C2;
+static uint32_t f3a_zcnt[T40_AE_ZONES] T40C2;
+static uint32_t f3a_hist[T40_AE_BINS] T40C2;
+static uint32_t f3a_zmean[T40_AE_ZONES] T40C2;
+static uint8_t f3a_zc[256] T40C2;     /* sample column -> zone column */
+static uint32_t f3a_zc_w T40C2;
+static uint8_t f3a_weight[T40_AE_ZONES] T40C2;
+static uint32_t f3a_face_target T40C2;
+static bool t40_ae_af_enable T40C2 = true;     /* antiflicker in the frame AE (SetAntiFlickerAttr) */
+module_param_named(t40_ae_af_enable, t40_ae_af_enable, bool, 0644);
+
+/* Antiflicker state as SetAntiFlickerAttr left it (OEM tisp_s_antiflick: ctx+312 -> u16 {enable, normal},
+ * ctx+316 -> u32 {freq, ...}); returns the integration lines of one half mains period, 0 = off. */
+static uint32_t regtrace_t40_ae_af_step(bool *normal)
+{
+    const uint8_t *p = pstMainAeOri_storage;
+    const uint16_t *fl = (const uint16_t *)(uintptr_t)*(const uint32_t *)(p + 312);
+    const uint32_t *fq = (const uint32_t *)(uintptr_t)*(const uint32_t *)(p + 316);
+
+    if (!t40_ae_af_enable || !regtrace_is_kernel_ptr((void *)fl) ||
+        !regtrace_is_kernel_ptr((void *)fq) || !fl[0])
+        return 0;
+    *normal = fl[1] != 0;
+    return t40_ae_af_lines(regtrace_t40_lines_per_s(), fq[0]);
+}
+
 static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_phys)
 {
     static void __iomem *win;
@@ -88475,14 +88828,39 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
     yp = (const uint8_t *)win + (y_phys - win_base);
     uvp = (const uint8_t *)win + (uv_phys - win_base);
 
+    /* T40-AE-API: the same grid also gives the 15x15 zone means and a 256-bin histogram
+     * (GetAeStatistics, AE weights / HLC / BLC / face metering) of whichever channel the AE
+     * samples (ch1 while ch0 idles: timps on the Eufy). */
+    {
+        memset(f3a_zsum, 0, sizeof(f3a_zsum));
+        memset(f3a_zcnt, 0, sizeof(f3a_zcnt));
+        memset(f3a_hist, 0, sizeof(f3a_hist));
+        if (f3a_zc_w != width) {
+            uint32_t k;
+
+            for (k = 0; k < ARRAY_SIZE(f3a_zc); k++)
+                f3a_zc[k] = (uint8_t)min_t(uint32_t, (16U + 32U * k) * T40_AE_ZONE_N / width,
+                                           T40_AE_ZONE_N - 1U);
+            f3a_zc_w = width;
+        }
+    }
     for (row = 12; row < height; row += 24U) {
         const uint8_t *line = yp + row * width;
+        uint32_t zr = row * T40_AE_ZONE_N / height * T40_AE_ZONE_N;
+        uint32_t k = 0;
 
-        for (col = 16; col < width; col += 32U) {
+        for (col = 16; col < width; col += 32U, k++) {
             ysum += line[col];
             if (line[col] >= highlight_level)
                 yhigh++;
             yn++;
+            if (k < ARRAY_SIZE(f3a_zc)) {
+                uint32_t z = zr + f3a_zc[k];
+
+                f3a_zsum[z] += line[col];
+                f3a_zcnt[z]++;
+                f3a_hist[line[col]]++;
+            }
         }
     }
     for (row = 6; row < uv_height; row += 12U) {
@@ -88514,6 +88892,70 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
      * downward trim, but only while the scene mean is already at target, so
      * a local lamp or window cannot drive the rest of the frame underexposed.
      */
+    /* T40-AE-API: publish the frame statistics, meter (weights / HLC / BLC / face AE) */
+    {
+        struct t40_ae_meter_in mi;
+        unsigned long flags;
+        uint32_t z, hn = 0, metered, sw = 0, sh = 0;
+        bool face_on;
+
+        /* pixel totals and the face rectangle refer to the sensor (main stream) frame */
+        regtrace_sensor_dimensions(0, &sw, &sh);
+        if (!sw || !sh) {
+            sw = width;
+            sh = height;
+        }
+
+        for (z = 0; z < T40_AE_ZONES; z++) {
+            f3a_zmean[z] = f3a_zcnt[z] ? f3a_zsum[z] / f3a_zcnt[z] : luma;
+            hn += f3a_zcnt[z];
+        }
+        memset(&mi, 0, sizeof(mi));
+        spin_lock_irqsave(&t40_ae_api_lock, flags);
+        memcpy(t40_ae_fzone, f3a_zmean, sizeof(t40_ae_fzone));
+        memcpy(t40_ae_fhist, f3a_hist, sizeof(t40_ae_fhist));
+        t40_ae_fhist_n = hn;
+        t40_ae_fw = sw;
+        t40_ae_fh = sh;
+        if (t40_ae_weight_on) {
+            memcpy(f3a_weight, t40_ae_weight, sizeof(f3a_weight));
+            mi.weight = f3a_weight;
+        }
+        if (t40_ae_sc.hlc_en >= T40_AE_SC_ROI)
+            mi.hlc_str = t40_ae_sc.hlc_str;
+        if (t40_ae_sc.blc_en >= T40_AE_SC_ROI)
+            mi.blc_str = t40_ae_sc.blc_str;
+        face_on = t40_ae_ld32(t40_ae_face, 0) == 1U;
+        if (face_on &&
+            !t40_ae_face_zones(t40_ae_ld32(t40_ae_face, 4), t40_ae_ld32(t40_ae_face, 8),
+                               t40_ae_ld32(t40_ae_face, 12), t40_ae_ld32(t40_ae_face, 16),
+                               sw, sh, &mi.fx0, &mi.fx1, &mi.fy0, &mi.fy1)) {
+            mi.face_on = 1;
+            f3a_face_target = t40_ae_ld32(t40_ae_face, 20);
+        } else {
+            f3a_face_target = 0;
+        }
+        spin_unlock_irqrestore(&t40_ae_api_lock, flags);
+        mi.zone_mean = f3a_zmean;
+        metered = t40_ae_meter(&mi);
+        WRITE_ONCE(t40_ae_metered, metered);
+    }
+
+    /*
+     * AE: proportional, slew-limited integration trim before analog gain.
+     * The old +/-25% ladder and asymmetric deadband made daylight alternate
+     * between 193 and 257 lines.  A sampled highlight guard can request a
+     * downward trim, but only while the scene mean is already at target, so
+     * a local lamp or window cannot drive the rest of the frame underexposed.
+     *
+     * T40-AE-API: the vendor AE API acts here - AeMode freeze, manual
+     * integration time / analog gain / ISP digital gain, minimum analog gain,
+     * the max caps, AeTargetComp, AeSpeed (step_d raising, step_s lowering
+     * the exposure, 128 = default) and antiflicker (integration time in
+     * whole half mains periods once it reaches one; NORMAL mode never below
+     * one period, AUTO may go below in bright light).  With none of them set
+     * the loop is the tuned default.
+     */
     if (regtrace_enable_ae_sensor_apply) {
         uint32_t it = regtrace_ae_soft_cur_it;
         uint32_t again = regtrace_ae_soft_cur_again;
@@ -88525,6 +88967,27 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
                                      1024U, 32767U);
         uint32_t deadband = max_t(uint32_t, regtrace_ae_soft_hyst, 2U);
         bool dgain_clamped = dgain > dgain_max;   /* ae_isp_dgain_max lowered at runtime */
+        uint32_t luma_ae = READ_ONCE(t40_ae_metered) ? READ_ONCE(t40_ae_metered) : luma;
+        struct t40_ae_expr ex;
+        uint32_t man_it, man_ag, min_again, it_cap, it_floor, af_step, speed;
+        bool af_normal = false, it_fixed, ag_fixed, dg_fixed, up;
+        unsigned long flags;
+
+        spin_lock_irqsave(&t40_ae_api_lock, flags);
+        ex = t40_ae_ex;
+        man_it = t40_ae_ex_manual_it_lines;
+        spin_unlock_irqrestore(&t40_ae_api_lock, flags);
+        man_ag = min_t(uint32_t, READ_ONCE(t40_ae_ex_manual_again_idx), max_again);
+        min_again = min_t(uint32_t, READ_ONCE(t40_ae_ex_min_again_idx), max_again);
+        it_fixed = ex.it_manual && man_it;
+        ag_fixed = ex.again_manual != 0;
+        dg_fixed = ex.ispdgain_manual != 0;
+        af_step = regtrace_t40_ae_af_step(&af_normal);
+        if (af_step > max_it)
+            af_step = 0;
+        it_cap = af_step ? t40_ae_af_floor(max_it, af_step) : max_it;
+        it_floor = (af_step && af_normal) ? af_step : regtrace_ae_soft_min_it;
+        WRITE_ONCE(t40_ae_af_step_now, af_step);
 
         if (dgain_clamped)
             dgain = dgain_max;
@@ -88533,12 +88996,46 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
             highlight_permille > regtrace_frame_3a_highlight_limit_permille &&
             luma >= regtrace_t40_frame_3a_target_eff();
         bool changed = false;
-        bool dgain_changed = false;
+        bool dgain_changed = dgain_clamped;
 
-        /* a user IT cap (SetAeExprInfo) below the running exposure time pulls it down */
-        if (it > max_it && max_it > regtrace_ae_soft_min_it) {
-            it = max_it;
+        if (it_fixed) {
+            uint32_t m = clamp_t(uint32_t, man_it, regtrace_ae_soft_min_it, max_it);
+
+            if (it != m) {
+                it = m;
+                changed = true;
+            }
+        } else {
+            /* a user IT cap (SetAeExprInfo) below the running exposure time pulls it down */
+            if (it > it_cap && it_cap > regtrace_ae_soft_min_it) {
+                it = it_cap;
+                changed = true;
+            }
+            if (af_step && it > af_step && it % af_step) {
+                it = t40_ae_af_floor(it, af_step);
+                changed = true;
+            }
+            if (it < it_floor) {
+                it = it_floor;
+                changed = true;
+            }
+        }
+        if (ag_fixed) {
+            if (again != man_ag) {
+                again = man_ag;
+                changed = true;
+            }
+        } else if (again < min_again) {
+            again = min_again;
             changed = true;
+        }
+        if (dg_fixed) {
+            uint32_t d = clamp_t(uint32_t, ex.ispdgain, 1024U, 32767U);
+
+            if (dgain != d) {
+                dgain = d;
+                dgain_changed = true;
+            }
         }
         /*
          * T40-AE-BIGSTEP: far from target (half / double) the gain stages
@@ -88546,9 +89043,11 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
          * vendor's 2-3 s with frame_3a_interval=3 at 20 fps.  Integration
          * steps are already proportional to the error and stay single.
          */
-        uint32_t target = regtrace_t40_frame_3a_target_eff();
-        unsigned int moves = (luma * 2U < target ||
-                              luma > target * 2U) ? 2U : 1U;
+        uint32_t target = f3a_face_target ?
+                          clamp_t(uint32_t, f3a_face_target, 8U, 250U) :
+                          regtrace_t40_frame_3a_target_eff();
+        unsigned int moves = (luma_ae * 2U < target ||
+                              luma_ae > target * 2U) ? 2U : 1U;
         unsigned int n;
         /*
          * T40-AE-GAINBAND: a sensor gain step is 1.17x (14995/65536 log2),
@@ -88565,28 +89064,57 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
         uint32_t dgain_band = max_t(uint32_t, deadband,
                                     target * 5U / 100U);
 
+        up = luma_ae + deadband < target;
+        speed = READ_ONCE(t40_ae_speed[up ? 1 : 0]);
+        if (speed != T40_AE_SPEED_NEUTRAL)
+            moves = clamp_t(uint32_t, t40_ae_speed_scale(moves, speed), 1U, 8U);
+        if (ex.freeze)
+            moves = 0;
+        WRITE_ONCE(t40_ae_stable, luma_ae + again_band >= target &&
+                                  luma_ae <= target + again_band);
+
         for (n = 0; n < moves; n++) {
         if (!protect_highlights &&
-            luma + deadband < target) {
-            if (it < max_it) {
-                uint32_t error = target - luma;
-                uint32_t step = (uint32_t)div64_u64(
-                    (uint64_t)max_t(uint32_t, it, 64U) * error,
-                    max_t(uint32_t, target * 2U, 1U));
-                uint32_t limit = max_t(uint32_t, it / 4U, 8U);
+            luma_ae + deadband < target) {
+            uint32_t next_it = it;
 
-                step = clamp_t(uint32_t, step, 8U, limit);
-                it += step;
-                if (it > max_it)
-                    it = max_it;
+            if (!it_fixed && it < it_cap) {
+                if (af_step && it >= af_step) {
+                    /* whole flicker steps; one that overshoots more than it gains is left to the gain stages */
+                    uint64_t pred_x_it = (uint64_t)luma_ae * min_t(uint32_t, it + af_step, it_cap);
+
+                    next_it = min_t(uint32_t, it + af_step, it_cap);
+                    if (pred_x_it > (uint64_t)(target + again_band) * it &&
+                        (((!ag_fixed && again < max_again) || (!dg_fixed && dgain < dgain_max)) ||
+                         pred_x_it - (uint64_t)target * it > (uint64_t)(target - luma_ae) * it))
+                        next_it = it;
+                } else {
+                    uint32_t error = target - luma_ae;
+                    uint32_t step = (uint32_t)div64_u64(
+                        (uint64_t)max_t(uint32_t, it, 64U) * error,
+                        max_t(uint32_t, target * 2U, 1U));
+                    uint32_t limit = max_t(uint32_t, it / 4U, 8U);
+
+                    if (speed != T40_AE_SPEED_NEUTRAL) {
+                        step = t40_ae_speed_scale(step, speed);
+                        limit = t40_ae_speed_scale(limit, speed);
+                    }
+                    step = clamp_t(uint32_t, step, 8U, max_t(uint32_t, limit, 8U));
+                    next_it = min_t(uint32_t, it + step, it_cap);
+                    if (af_step && it < af_step && next_it > af_step)
+                        next_it = af_step;   /* land on the first flicker multiple */
+                }
+            }
+            if (next_it != it) {
+                it = next_it;
                 changed = true;
                 break;
-            } else if (again < max_again &&
-                       luma + again_band < target) {
+            } else if (!ag_fixed && again < max_again &&
+                       luma_ae + again_band < target) {
                 again++;
                 changed = true;
-            } else if (dgain < dgain_max &&
-                       luma + dgain_band < target) {
+            } else if (!dg_fixed && dgain < dgain_max &&
+                       luma_ae + dgain_band < target) {
                 /* T40-AE-ISPDGAIN: ~1.08x per step */
                 dgain = min_t(uint32_t, dgain + dgain / 12U, dgain_max);
                 dgain_changed = true;
@@ -88594,38 +89122,46 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
                 break;
             }
         } else if (protect_highlights ||
-                   luma > target + deadband) {
-            if (dgain > 1024U &&
+                   luma_ae > target + deadband) {
+            if (!dg_fixed && dgain > 1024U &&
                 (protect_highlights ||
-                 luma > target + dgain_band)) {
+                 luma_ae > target + dgain_band)) {
                 dgain = max_t(uint32_t, dgain - dgain / 13U, 1024U);
                 dgain_changed = true;
-            } else if (again > 0 &&
+            } else if (!ag_fixed && again > min_again &&
                        (protect_highlights ||
-                        luma > target + again_band)) {
+                        luma_ae > target + again_band)) {
                 again--;
                 changed = true;
-            } else if (dgain > 1024U || again > 0) {
+            } else if ((!dg_fixed && dgain > 1024U) ||
+                       (!ag_fixed && again > min_again)) {
                 break;
-            } else if (it > regtrace_ae_soft_min_it) {
-                uint32_t error = luma > target ?
-                    luma - target : deadband;
-                uint32_t step = (uint32_t)div64_u64(
-                    (uint64_t)max_t(uint32_t, it, 64U) * error,
-                    max_t(uint32_t, target * 2U, 1U));
-                uint32_t limit = max_t(uint32_t, it / 4U, 8U);
+            } else if (!it_fixed && it > it_floor) {
+                if (af_step && it > af_step) {
+                    it = max_t(uint32_t, it - af_step, af_step);
+                } else {
+                    uint32_t error = luma_ae > target ?
+                        luma_ae - target : deadband;
+                    uint32_t step = (uint32_t)div64_u64(
+                        (uint64_t)max_t(uint32_t, it, 64U) * error,
+                        max_t(uint32_t, target * 2U, 1U));
+                    uint32_t limit = max_t(uint32_t, it / 4U, 8U);
 
-                step = clamp_t(uint32_t, step, 8U, limit);
-                it = it > step ? it - step : regtrace_ae_soft_min_it;
-                if (it < regtrace_ae_soft_min_it)
-                    it = regtrace_ae_soft_min_it;
+                    if (speed != T40_AE_SPEED_NEUTRAL) {
+                        step = t40_ae_speed_scale(step, speed);
+                        limit = t40_ae_speed_scale(limit, speed);
+                    }
+                    step = clamp_t(uint32_t, step, 8U, max_t(uint32_t, limit, 8U));
+                    it = it > step ? it - step : it_floor;
+                    if (it < it_floor)
+                        it = it_floor;
+                }
                 changed = true;
                 break;
             }
         }
         }
-        if (dgain_changed || dgain_clamped) {
-            dgain_changed = true;
+        if (dgain_changed) {
             WRITE_ONCE(regtrace_ae_isp_dgain_cur, dgain);
             regtrace_ae_isp_dgain_updates++;
             (void)regtrace_t40_ae_isp_dgain_apply();
