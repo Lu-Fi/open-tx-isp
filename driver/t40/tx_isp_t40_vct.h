@@ -6,7 +6,7 @@
  * from tx_isp_t40_vawb_gen.inc (tools/t40_vawb/gen.sh, same asm2c.py and runtime as the
  * vendor AWB) replace the driver's hand-written "literal" follow-ups in t40_vawb_ct_follow /
  * t40_vawb_ev_follow.  The OEM functions run on the literal chains' contexts, which have the
- * OEM pointer-table layout (pstMainCcmOri_lit[26], pstMainBcshOri_lit[72], LSC tool/real
+ * OEM pointer-table layout (pstMainCcmOri_lit[26], t40_bcsh_oem_ctx[72] of the C BCSH, LSC tool/real
  * para of lsc_lit_banks[0]); their init stays with the literal code.
  *
  * Findings from the OEM module (Eufy T8416 tx-isp-t40.ko):
@@ -105,7 +105,7 @@ static bool t40_vct_bind(void)
 			vct_lsc_real_para[i] = vct_lsc_awdr_para[i] = 0;
 		}
 	}
-	return stMainCcmOuter_lit && stMainBcshOuter_lit && pstMainCcmOri_lit[6] && pstMainBcshOri_lit[41];
+	return stMainCcmOuter_lit && t40_bcsh.ready && pstMainCcmOri_lit[6];
 }
 
 /* OEM event 13 handler: tisp_ct_update(ct, 0); the deferred LSC LUT write of tisp_hardware_reg_refresh

@@ -17,11 +17,11 @@
 "tparamsN": "tparamsN",
 "awb_algo_comp": "awb_algo_comp",
 "tispinfo": "tispinfo",
-"pstMainBcshOri": "pstMainBcshOri_lit",
+"pstMainBcshOri": "t40_bcsh_oem_ctx",
 "pstMainCcmOri": "pstMainCcmOri_lit",
-"s_bcsh_mjpeg_mode": "s_bcsh_mjpeg_mode_lit",
-"s_bcsh_mjpeg_y_range_low": "s_bcsh_mjpeg_y_range_low_lit",
-"s_bcsh_mjpeg_y_range_high": "s_bcsh_mjpeg_y_range_high_lit",
+"s_bcsh_mjpeg_mode": "t40_bcsh.mjpeg_mode",
+"s_bcsh_mjpeg_y_range_low": "t40_bcsh.mjpeg_y_low",
+"s_bcsh_mjpeg_y_range_high": "t40_bcsh.mjpeg_y_high",
 "fnum": "vct_fnum",
 "lsc_ct": "&vct_lsc_ct",
 "lsc_ct_flag": "vct_lsc_ct_flag",
@@ -40,5 +40,5 @@
 "lsc_height": "vct_lsc_height",
 "lsc_wdr_en": "&vct_lsc_wdr_en",
 "stMainCcmOuter": "&stMainCcmOuter_lit",
-"stMainBcshOuter": "&stMainBcshOuter_lit"
+"stMainBcshOuter": "&t40_bcsh_oem_ctx[0]"
 }

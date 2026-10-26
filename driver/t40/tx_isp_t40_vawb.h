@@ -560,7 +560,6 @@ static u32 t40_vawb_ev_now(void)
 static void t40_vawb_ev_follow(void)
 {
 	u32 ev = t40_vawb_ev_now(), e10 = ev >> 10;
-	u32 *b = pstMainBcshOri_lit;
 
 	t40_vawb_ev = e10;
 	if (!e10 || ev == t40_vawb_ev_sent)
@@ -574,24 +573,13 @@ static void t40_vawb_ev_follow(void)
 	}
 	if (regtrace_enable_ccm && regtrace_ccm_ct_track)
 		regtrace_ccm_ev = e10;	/* CCM by EV: the frame-done block below re-interpolates on change */
-	/* OEM tisp_bcsh_main_ev_update 0x6aac0: [38] cur, [39] last, [40] threshold, [6] dirty */
-	if (stMainBcshOuter_lit && vawb_ok(b[38], 3) && vawb_ok(b[39], 3) && vawb_ok(b[40], 3) && b[6]) {
-		u32 last = *(u32 *)(uintptr_t)b[39];
-
-		*(u32 *)(uintptr_t)b[38] = e10;
-		if (*(u8 *)(uintptr_t)b[6] == 1 ||
-		    (last > e10 ? last - e10 : e10 - last) > *(u32 *)(uintptr_t)b[40]) {
-			(void)tisp_bcsh_ev_update_lit((u32)(uintptr_t)b, 0);
-			*(u8 *)(uintptr_t)b[6] = 0;
-			*(u32 *)(uintptr_t)b[39] = e10;
-		}
-	}
+	/* OEM tisp_bcsh_main_ev_update 0x6aac0 */
+	t40_bcsh_main_ev_update(e10);
 }
 
 static void t40_vawb_ct_follow(void)
 {
 	u32 ct = vawb_ok(pstMainAwbOri[7], 3) ? *(u32 *)(uintptr_t)pstMainAwbOri[7] : 0;
-	u32 *b = pstMainBcshOri_lit;
 
 	t40_vawb_ev_follow();
 
@@ -612,18 +600,8 @@ static void t40_vawb_ct_follow(void)
 		regtrace_lsc_lit_ct_now = ct;
 		t40_vawb_lsc_ct = ct;
 	}
-	/* OEM tisp_bcsh_main_ct_update 0x6ab68: [41] cur, [42] last, [43] threshold, [6] dirty */
-	if (stMainBcshOuter_lit && vawb_ok(b[41], 1) && vawb_ok(b[42], 1) && vawb_ok(b[43], 1) && b[6]) {
-		u16 last = *(u16 *)(uintptr_t)b[42];
-
-		*(u16 *)(uintptr_t)b[41] = (u16)ct;
-		if (*(u8 *)(uintptr_t)b[6] == 1 ||
-		    (last > ct ? last - ct : ct - last) > *(u16 *)(uintptr_t)b[43]) {
-			(void)tisp_bcsh_ct_update_lit((u32)(uintptr_t)b, 0);
-			*(u8 *)(uintptr_t)b[6] = 0;
-			*(u16 *)(uintptr_t)b[42] = (u16)ct;
-		}
-	}
+	/* OEM tisp_bcsh_main_ct_update 0x6ab68 */
+	t40_bcsh_main_ct_update(ct);
 }
 
 static uint32_t t40_vawb_dn_params_refresh(uint32_t a0)

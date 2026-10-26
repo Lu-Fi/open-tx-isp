@@ -20,6 +20,7 @@ and the WDR table set where the chain has one.
     ./run.sh defog <sensor-t40.bin>... [fuzz:<seed>...]
     ./run.sh adr <sensor-t40.bin>... [fuzz:<seed>...]
     ./run.sh cdns <sensor-t40.bin>... [fuzz:<seed>...]
+    ./run.sh bcsh <sensor-t40.bin>... [fuzz:<seed>...]
 
 LCE runs whole frames: init at six resolutions (3840x2160 ... 640x360, the last one below the
 OEM minimum cell area, so init must fail on both sides), 160 frames each through the statistics
@@ -60,6 +61,12 @@ refresh, tuning set with a random or bank section, WDR switch without init), `cd
 Compared: register writes, interpolated values, section copy, selected field offsets, remembered gain, WDR flag,
 threshold and counters.
 
+BCSH (literal from `LIT_REF_BCSH`, default `e96b92ea`; the CSC tables come from the driver at the same commit):
+the driver flows per bin (init in every CSC mode and with WDR + user CCM, AE EV follow, CT update, the four user
+controls, CSC switch, day/night re-init, the vendor-AWB EV/CT follow at and around its thresholds), then 3000 calls
+on random inter/outer images (unordered knots, EV/CT on the knots, brightness at its clamp, contrast curve off).
+Compared: register writes, both OEM byte images and the OEM pointer table (field by field).
+
 `run.sh` instruments the literal code: a division by zero (the MIPS result is unpredictable)
 or an LCE histogram knot past bin 31 (the OEM writes past its stack array) counts as undefined
 OEM behaviour and stops that bin; the C code has a defined result there. Only garbage statistics
@@ -77,6 +84,7 @@ The literal code keeps addresses in `uint32_t`: everything lives below 4 GiB (`-
 |-------|-------------|------|-------|-----------------|-------------|
 | DPC | `tx_isp_t40_dpc.h` | 26 SDK 1.3.1 + 5 Eufy + 8 fuzz | 58890 | 2835126 | 0 |
 | SDNS | `tx_isp_t40_sdns.h` | 26 SDK 1.3.1 + 5 Eufy + 8 fuzz | 48009 (init, EV walks with 1/256 and 1.0 thresholds, re-init on bank switch) | 844137 | 0 |
+| BCSH | `tx_isp_t40_bcsh.h` | 26 SDK 1.3.1 + 5 Eufy + 8 fuzz | 210834 | 3502575 | 0 |
 | CDNS | `tx_isp_t40_cdns.h` | 26 SDK 1.3.1 + 5 Eufy + 8 fuzz | 155220 | 1726959 | 0 |
 | LCE | `tx_isp_t40_lce.h` | 26 SDK 1.3.1 + 5 Eufy + 8 fuzz | 46309 + 2 x 10 x 20000 helper calls | 17155278 | 0 (1 fuzz bin stopped at undefined OEM behaviour) |
 

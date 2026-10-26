@@ -2476,7 +2476,7 @@ u64 noinline vawb_tisp_bcsh_main_ct_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 c
 	s0 = a0 & 65535U;
 	a0 = 0;
 	vf_sw((sp + 20U), s1);
-	s1 = a0 + ((u32)(uintptr_t)(pstMainBcshOri_lit) + 0U);
+	s1 = a0 + ((u32)(uintptr_t)(t40_bcsh_oem_ctx) + 0U);
 	v0 = vawb_lw((s1 + (u32)172), 437120U);
 	v1 = vawb_lw((s1 + (u32)164), 437124U);
 	vf_sw((sp + 24U), s2);
@@ -2499,7 +2499,7 @@ L_68:
 	v0 = 0;
 	v0 = v0 + ((u32)(uintptr_t)vawb_tisp_bcsh_ct_update + 0U);
 	a1 = 0U;
-	tg = v0; a0 = a0 + ((u32)(uintptr_t)(pstMainBcshOri_lit) + 0U); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 437212U); v0 = (u32)rv; } vawb_rf_load();
+	tg = v0; a0 = a0 + ((u32)(uintptr_t)(t40_bcsh_oem_ctx) + 0U); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 437212U); v0 = (u32)rv; } vawb_rf_load();
 	v0 = vawb_lw((s1 + (u32)24), 437220U);
 	vawb_sb((v0 + (u32)0), 0U, 437224U);
 	vawb_sh((s2 + (u32)0), s0, 437228U);
@@ -2528,7 +2528,7 @@ u64 noinline vawb_tisp_bcsh_main_ev_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 c
 	s0 = a1 | a0;
 	a0 = 0;
 	vf_sw((sp + 20U), s1);
-	s1 = a0 + ((u32)(uintptr_t)(pstMainBcshOri_lit) + 0U);
+	s1 = a0 + ((u32)(uintptr_t)(t40_bcsh_oem_ctx) + 0U);
 	v0 = vawb_lw((s1 + (u32)160), 436960U);
 	vf_sw((sp + 24U), s2);
 	vf_sw((sp + 28U), ra);
@@ -2550,7 +2550,7 @@ L_64:
 L_70:
 	v0 = v0 + ((u32)(uintptr_t)vawb_tisp_bcsh_ev_update + 0U);
 	a1 = 0U;
-	tg = v0; a0 = a0 + ((u32)(uintptr_t)(pstMainBcshOri_lit) + 0U); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 437048U); v0 = (u32)rv; } vawb_rf_load();
+	tg = v0; a0 = a0 + ((u32)(uintptr_t)(t40_bcsh_oem_ctx) + 0U); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 437048U); v0 = (u32)rv; } vawb_rf_load();
 	v0 = vawb_lw((s1 + (u32)24), 437056U);
 	vawb_sb((v0 + (u32)0), 0U, 437060U);
 	vawb_sw((s2 + (u32)0), s0, 437064U);
@@ -7881,7 +7881,7 @@ L_284:
 	s7 = a3;
 L_288:
 	v0 = 0;
-	v0 = v0 + ((u32)(uintptr_t)(s_bcsh_mjpeg_mode_lit) + 0U);
+	v0 = v0 + ((u32)(uintptr_t)(t40_bcsh.mjpeg_mode) + 0U);
 	v0 = s2 + v0;
 	v0 = vawb_lbu((v0 + (u32)0), 428724U);
 	a0 = (u32)1;
@@ -7891,14 +7891,14 @@ L_288:
 	c = (v0 != a0); vawb_sw((s5 + (u32)16), t7, 428748U); if (c) goto L_2f4;
 	vawb_sw((s5 + (u32)0), v0, 428752U);
 	v0 = 0;
-	v0 = v0 + ((u32)(uintptr_t)(s_bcsh_mjpeg_y_range_low_lit) + 0U);
+	v0 = v0 + ((u32)(uintptr_t)(t40_bcsh.mjpeg_y_low) + 0U);
 	v0 = s2 + v0;
 	v0 = vawb_lbu((v0 + (u32)0), 428768U);
 	vawb_sw((s5 + (u32)12), 0U, 428772U);
 	v0 = v0 << 2;
 	vawb_sw((s5 + (u32)4), v0, 428780U);
 	v0 = 0;
-	v0 = v0 + ((u32)(uintptr_t)(s_bcsh_mjpeg_y_range_high_lit) + 0U);
+	v0 = v0 + ((u32)(uintptr_t)(t40_bcsh.mjpeg_y_high) + 0U);
 	s2 = s2 + v0;
 	v0 = vawb_lbu((s2 + (u32)0), 428796U);
 	v0 = v0 << 2;

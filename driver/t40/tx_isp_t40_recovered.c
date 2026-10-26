@@ -10847,7 +10847,7 @@ static void regtrace_soft_gamma_write(void)
     printk(KERN_INFO "tx_isp_t40_recovered: soft-gamma 2.2 LUT written\n");
 }
 
-#include "tx_isp_t40_bcsh_lit.inc"
+#include "tx_isp_t40_bcsh.h"
 #include "tx_isp_t40_dmsc_lit.inc"
 
 static int regtrace_t40_apply_dmsc_sharpness(uint8_t sharpness);
@@ -12304,7 +12304,6 @@ static inline uint32_t t40_csc_abs(int32_t v) { return v < 0 ? (uint32_t)(-v) : 
  */
 static int t40_csc_bcsh_apply(uint32_t vinum, uint32_t gamut)
 {
-    uint8_t *modep, *busy;
     uint32_t nbuf = (uint32_t)tparamsN[0];
     int ret = 0;
 
@@ -12312,21 +12311,11 @@ static int t40_csc_bcsh_apply(uint32_t vinum, uint32_t gamut)
         return 0;
     mutex_lock(&regtrace_t40_running_mode_lock);
     regtrace_bcsh_mode = gamut & 0xffU;
-    if (!regtrace_enable_bcsh || !stMainBcshOuter_lit || !nbuf ||
-        !regtrace_is_kernel_ptr_any((void *)(uintptr_t)pstMainBcshOri_lit[27]) ||
-        !regtrace_is_kernel_ptr_any((void *)(uintptr_t)pstMainBcshOri_lit[6])) {
+    if (!regtrace_enable_bcsh || !t40_bcsh.ready || !nbuf) {
         ret = -ENODEV;   /* stored, applied by the next BCSH init */
         goto out;
     }
-    modep = (uint8_t *)(uintptr_t)pstMainBcshOri_lit[27];
-    busy = (uint8_t *)(uintptr_t)pstMainBcshOri_lit[6];
-    *modep = (uint8_t)gamut;
-    *busy = 1U;
-    (void)tisp_bcsh_params_refresh_lit((uint32_t)(uintptr_t)pstMainBcshOri_lit,
-                                       (uint32_t)stMainBcshOuter_lit, nbuf + 0x11e38U);
-    (void)tisp_bcsh_ev_update_lit((uint32_t)(uintptr_t)pstMainBcshOri_lit, 0);
-    (void)tisp_bcsh_ct_update_lit((uint32_t)(uintptr_t)pstMainBcshOri_lit, 0);
-    *busy = 0U;
+    t40_bcsh_set_csc(gamut);
 out:
     mutex_unlock(&regtrace_t40_running_mode_lock);
     return ret;
@@ -13215,7 +13204,7 @@ static void regtrace_t40_ev_fanout(uint32_t again_log2)
     if (regtrace_t40_ev_follow) {
         regtrace_ccm_ev = regtrace_t40_ev_now;
         if (regtrace_enable_bcsh)
-            regtrace_bcsh_ev_follow_lit(regtrace_t40_ev_now);
+            t40_bcsh_ev_follow(regtrace_t40_ev_now);
     }
 }
 
@@ -16841,7 +16830,7 @@ static int regtrace_isp_block_init_once(const char *where)
     }
 
     if (regtrace_enable_bcsh) {
-        int bcsh_ret = (int)regtrace_bcsh_main_init_lit(regtrace_bcsh_mode);
+        int bcsh_ret = t40_bcsh_init(regtrace_bcsh_mode);
 
         printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init bcsh ret=%d\n",
                bcsh_ret);
@@ -24295,65 +24284,49 @@ static long regtrace_isp_m0_ctrl_ioctl(unsigned int cmd, unsigned long arg)
     return 0;
 }
 
-static int regtrace_isp_m0_apply_bcsh_ev(unsigned int pointer_slot,
-                                         uint8_t value)
+static int regtrace_isp_m0_apply_bcsh_ev(unsigned int field, uint8_t value)
 {
-    uint8_t *control;
-
-    if (!stMainBcshOuter_lit ||
-        pointer_slot >= ARRAY_SIZE(pstMainBcshOri_lit) ||
-        !pstMainBcshOri_lit[pointer_slot])
+    if (!t40_bcsh.ready)
         return -ENODEV;
-
-    control = (uint8_t *)(uintptr_t)pstMainBcshOri_lit[pointer_slot];
-    *control = value;
-    return tisp_bcsh_ev_update_lit(
-        (uint32_t)(uintptr_t)pstMainBcshOri_lit, 0);
+    t40_bcsh.in[field] = value;
+    return t40_bcsh_ev_update(0);
 }
 
 static int regtrace_isp_m0_apply_brightness(uint8_t brightness)
 {
     /* OEM tisp_bcsh_brightness stores through pstBcsh + 184. */
-    return regtrace_isp_m0_apply_bcsh_ev(46U, brightness);
+    return regtrace_isp_m0_apply_bcsh_ev(BI_BRIGHTNESS, brightness);
 }
 
 static int regtrace_isp_m0_apply_contrast(uint8_t contrast)
 {
     /* OEM tisp_bcsh_contrast stores through pstBcsh + 188. */
-    return regtrace_isp_m0_apply_bcsh_ev(47U, contrast);
+    return regtrace_isp_m0_apply_bcsh_ev(BI_CONTRAST, contrast);
 }
 
 static int regtrace_isp_m0_apply_saturation(uint8_t saturation)
 {
     /* OEM tisp_bcsh_saturation stores through pstBcsh + 192. */
-    return regtrace_isp_m0_apply_bcsh_ev(48U, saturation);
+    return regtrace_isp_m0_apply_bcsh_ev(BI_SATURATION, saturation);
 }
 
 static int regtrace_isp_m0_apply_hue(uint8_t hue)
 {
-    uint8_t *dirty;
-    uint8_t *angle;
-    uint8_t *raw;
     uint32_t degrees;
     int ret;
 
-    if (!stMainBcshOuter_lit || !pstMainBcshOri_lit[6] ||
-        !pstMainBcshOri_lit[25] || !pstMainBcshOri_lit[26])
+    if (!t40_bcsh.ready)
         return -ENODEV;
 
     /* Match OEM tisp_bcsh_s_hue: map 0..255 onto 0..120 degrees, mark
      * the CT transform dirty, update it, retain the unscaled user value. */
     degrees = ((uint32_t)hue * 120U + 255U) >> 8;
     degrees = min_t(uint32_t, degrees, 120U);
-    dirty = (uint8_t *)(uintptr_t)pstMainBcshOri_lit[6];
-    angle = (uint8_t *)(uintptr_t)pstMainBcshOri_lit[25];
-    raw = (uint8_t *)(uintptr_t)pstMainBcshOri_lit[26];
-    *dirty = 1U;
-    *angle = (uint8_t)degrees;
-    ret = tisp_bcsh_ct_update_lit(
-        (uint32_t)(uintptr_t)pstMainBcshOri_lit, 0);
-    *raw = hue;
-    *dirty = 0U;
+    t40_bcsh.in[BI_BUSY] = 1U;
+    t40_bcsh.in[BI_HUE] = (uint8_t)degrees;
+    ret = t40_bcsh_ct_update(0);
+    t40_bcsh.in[BI_HUE_RAW] = hue;
+    t40_bcsh.in[BI_BUSY] = 0U;
     return ret;
 }
 
@@ -24363,7 +24336,7 @@ static int regtrace_isp_m0_set_brightness(uint8_t brightness)
 
     mutex_lock(&regtrace_t40_running_mode_lock);
     regtrace_bcsh_brightness = brightness;
-    if (stMainBcshOuter_lit && pstMainBcshOri_lit[46])
+    if (t40_bcsh.ready)
         ret = regtrace_isp_m0_apply_brightness(brightness);
     mutex_unlock(&regtrace_t40_running_mode_lock);
     return ret;
@@ -24375,7 +24348,7 @@ static int regtrace_isp_m0_set_contrast(uint8_t contrast)
 
     mutex_lock(&regtrace_t40_running_mode_lock);
     regtrace_bcsh_contrast = contrast;
-    if (stMainBcshOuter_lit && pstMainBcshOri_lit[47])
+    if (t40_bcsh.ready)
         ret = regtrace_isp_m0_apply_contrast(contrast);
     mutex_unlock(&regtrace_t40_running_mode_lock);
     return ret;
@@ -24387,7 +24360,7 @@ static int regtrace_isp_m0_set_saturation(uint8_t saturation)
 
     mutex_lock(&regtrace_t40_running_mode_lock);
     regtrace_bcsh_saturation = saturation;
-    if (stMainBcshOuter_lit && pstMainBcshOri_lit[48])
+    if (t40_bcsh.ready)
         ret = regtrace_isp_m0_apply_saturation(
             READ_ONCE(regtrace_running_mode) ? 0U : saturation);
     mutex_unlock(&regtrace_t40_running_mode_lock);
@@ -24400,7 +24373,7 @@ static int regtrace_isp_m0_set_hue(uint8_t hue)
 
     mutex_lock(&regtrace_t40_running_mode_lock);
     regtrace_bcsh_hue = hue;
-    if (stMainBcshOuter_lit && pstMainBcshOri_lit[25])
+    if (t40_bcsh.ready)
         ret = regtrace_isp_m0_apply_hue(hue);
     mutex_unlock(&regtrace_t40_running_mode_lock);
     return ret;
@@ -24582,7 +24555,7 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
     }
     if (regtrace_enable_bcsh) {
         REGTRACE_T40_DN_STEP(
-            regtrace_bcsh_main_init_lit(regtrace_bcsh_mode));
+            t40_bcsh_init(regtrace_bcsh_mode));
         if (!subret) {
             REGTRACE_T40_DN_STEP(regtrace_isp_m0_apply_brightness(
                 min_t(uint32_t, regtrace_bcsh_brightness, 255U)));
@@ -24689,7 +24662,7 @@ static int regtrace_t40_tuning_set_running_mode(uint32_t mode)
          * Keep the live pipeline and only follow the mode where it is
          * independent of the bank: night = no colour. */
         ret = 0;
-        if (regtrace_enable_bcsh && stMainBcshOuter_lit && pstMainBcshOri_lit[48])
+        if (regtrace_enable_bcsh && t40_bcsh.ready)
             ret = regtrace_isp_m0_apply_saturation(
                 mode ? 0U : min_t(uint32_t, regtrace_bcsh_saturation, 255U));
         printk(KERN_INFO
@@ -75763,7 +75736,7 @@ tisp_hardware_reg_refresh0x1f4:
 /*
  * T40-BSS-STRAY: the lift addressed the OEM per-channel 64-bit frame counter as
  * ".bss + 6792" (the OEM module's .bss layout).  In this module that offset lands
- * on whatever object the linker put there (pstMainBcshOri_lit once the literal ADR
+ * on whatever object the linker put there (the literal BCSH pointer table once the literal ADR
  * was removed: saturation 32 instead of 40 for 20-60 s after load), and the counter
  * was incremented into it every frame.  Own object, same semantics (lo/hi pair with
  * carry), returns the new high word like the OEM.
