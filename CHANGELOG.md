@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (1): T31 WDR output mode getter on a linear sensor (`claude/issue-118`; QEMU T31, .26)
+
+- **IMP_ISP_Tuning_GetWdr_OutputMode (0x80000ea)** returned -1 when word 0 of the WDR tool control block (parameter
+  0x431) is not 8/1/2 (issue #118), e.g. on a linear sc2336 after `IMP_ISP_WDR_ENABLE(0)` and in the QEMU image.
+  Stock `tisp_get_wdr_output_mode` (1.1.6 tx-isp-t31.ko 0x662a8) only logs such a word and returns 0; the getter
+  now reports the default mode 0 (FUS_FRAME) with 0. Cam .26: `wdr` then `wdrout` gave Get -1 before, 0 (PASS)
+  after; QEMU T31 standalone -1 -> 0; frames flow, no oops.
+
 ## 2026-10-26 (11): T21 integration time and WaitFrame (`claude/issue-110`, issue Lu-Fi/openimp#110)
 
 - **IMP_ISP_Tuning_GetIntegrationTime on T21** read mode 0 / it 0 / max 0: the stock dispatcher leaves the
