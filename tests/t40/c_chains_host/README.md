@@ -19,6 +19,7 @@ and the WDR table set where the chain has one.
     ./run.sh sdns <sensor-t40.bin>... [fuzz:<seed>...]
     ./run.sh defog <sensor-t40.bin>... [fuzz:<seed>...]
     ./run.sh adr <sensor-t40.bin>... [fuzz:<seed>...]
+    ./run.sh cdns <sensor-t40.bin>... [fuzz:<seed>...]
 
 LCE runs whole frames: init at six resolutions (3840x2160 ... 640x360, the last one below the
 OEM minimum cell area, so init must fail on both sides), 160 frames each through the statistics
@@ -53,6 +54,12 @@ realistic, empty and saturated statistics) and event 2, EV and total gain walks,
 day/night refreshes, session cleanups. The module-lifetime words (frame counter, `adr_kneepoint_x`,
 Gaussian weights, cut points, change flags) are compared as well.
 
+CDNS (literal from `LIT_REF_CDNS`, default `e96b92ea`): both channels, linear and WDR half, init, fixed EVs,
+8 x 120 random steps per mode (EV walks with 1/256, 1.0 and random thresholds, the tgain refresh, day/night
+refresh, tuning set with a random or bank section, WDR switch without init), `cdns_remove` and re-init.
+Compared: register writes, interpolated values, section copy, selected field offsets, remembered gain, WDR flag,
+threshold and counters.
+
 `run.sh` instruments the literal code: a division by zero (the MIPS result is unpredictable)
 or an LCE histogram knot past bin 31 (the OEM writes past its stack array) counts as undefined
 OEM behaviour and stops that bin; the C code has a defined result there. Only garbage statistics
@@ -70,6 +77,7 @@ The literal code keeps addresses in `uint32_t`: everything lives below 4 GiB (`-
 |-------|-------------|------|-------|-----------------|-------------|
 | DPC | `tx_isp_t40_dpc.h` | 26 SDK 1.3.1 + 5 Eufy + 8 fuzz | 58890 | 2835126 | 0 |
 | SDNS | `tx_isp_t40_sdns.h` | 26 SDK 1.3.1 + 5 Eufy + 8 fuzz | 48009 (init, EV walks with 1/256 and 1.0 thresholds, re-init on bank switch) | 844137 | 0 |
+| CDNS | `tx_isp_t40_cdns.h` | 26 SDK 1.3.1 + 5 Eufy + 8 fuzz | 155220 | 1726959 | 0 |
 | LCE | `tx_isp_t40_lce.h` | 26 SDK 1.3.1 + 5 Eufy + 8 fuzz | 46309 + 2 x 10 x 20000 helper calls | 17155278 | 0 (1 fuzz bin stopped at undefined OEM behaviour) |
 
 Mutation check (a deliberate one-character change in the C code must be detected): DPC black

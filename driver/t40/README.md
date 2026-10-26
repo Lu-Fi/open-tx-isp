@@ -606,7 +606,7 @@ TOP 0x40 bit map (from the OEM update callbacks): 0 BLC, 1 LSC, 2 WBG/AWB stage,
 
 Colour: with the OEM gate offset BLC is bypassed and the black level is left to GIB, which sits behind the white-balance gains, so the pedestal is amplified per channel before it is subtracted (green/yellow cast, violet shadows). `t40_gates_day_blc=1` keeps BLC active in day mode with the GIB black level `t40_gates_day_gib_blc` (default 0); night keeps the bin mask. Colour-saturation index on the board: 7.9 (day_blc) against 20 (offset only) and 8..9 (defaults).
 
-Opt-in vendor blocks: `enable_cdns` (CDNS), `t40_ysp_on` (YSP), `t40_adr_on` (ADR, needs `t40_gates_oem_offset=1`; the per-frame part runs once the core interrupt dispatches IRQ 9 / event 2). Desk notes: `audit/chroma_gap.md`, `audit/ysp_gap.md`, `audit/adr_gap.md`.
+Opt-in vendor blocks: `enable_cdns` (CDNS, plain C in `tx_isp_t40_cdns.h`; the vendor stack keeps it bypassed on the Eufy sc830ai), `t40_ysp_on` (YSP), `t40_adr_on` (ADR, needs `t40_gates_oem_offset=1`; the per-frame part runs once the core interrupt dispatches IRQ 9 / event 2). Desk notes: `audit/chroma_gap.md`, `audit/ysp_gap.md`, `audit/adr_gap.md`.
 
 Recommended line for colour work on this board:
 

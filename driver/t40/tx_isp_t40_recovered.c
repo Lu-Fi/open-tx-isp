@@ -1185,7 +1185,6 @@ static uintptr_t bss_accessor;
 static uintptr_t bss_data1;
 static uintptr_t bss_data2;
 static uintptr_t ccm_main_ctrl;
-static uintptr_t cdns_wdr_en;
 static uintptr_t clm_para;
 static uintptr_t clm_wlut_flag;
 static uintptr_t clm_wlut_times;
@@ -1359,9 +1358,6 @@ t40_bringup_parm_desc(isr_wlut_trace, "W-LUT pending-handshake trace: counts the
 t40_bringup_param_array_named(isr_wlut_trace_regs, regtrace_wlut_trace_regs, uint, &regtrace_wlut_trace_n, 0444);
 static uintptr_t main_adr_gamma;
 static uintptr_t main_adr_paras;
-static uintptr_t main_cdns;
-static uintptr_t main_cdns_comb;
-static uintptr_t main_cdns_intp;
 static uintptr_t main_dmsc;
 static uintptr_t main_dmsc_comb;
 static uintptr_t main_dmsc_intp;
@@ -1437,9 +1433,6 @@ static uintptr_t saveflag;
 static uintptr_t savenum;
 static uintptr_t sec_adr_gamma;
 static uintptr_t sec_adr_paras;
-static uintptr_t sec_cdns;
-static uintptr_t sec_cdns_comb;
-static uintptr_t sec_cdns_intp;
 static uintptr_t sec_dmsc;
 static uintptr_t sec_dmsc_comb;
 static uintptr_t sec_dmsc_intp;
@@ -8214,9 +8207,6 @@ int32_t tisp_ydns_sec_init(void);
 int32_t tisp_ydns_dn_params_refresh(uint32_t a0);
 int64_t tisp_ydns_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2);
 int32_t tisp_ydns_param_array_set(uint32_t a0, uint32_t a1);
-int64_t tisp_cdns_reg_cfg(uint32_t a0);
-int32_t tisp_cdns_reg_trig(uint32_t a0);
-int32_t tisp_cdns_intp(int32_t arg1, int32_t arg2);
 int64_t tisp_cdns_wdr_en(uint32_t a0, uint32_t a1);
 int32_t tisp_cdns_all_reg_refresh(uint32_t a0, uint32_t a1);
 int32_t tisp_cdns_intp_reg_refresh(uint32_t a0, uint32_t a1);
@@ -10866,7 +10856,7 @@ static bool regtrace_t40_dmsc_day_valid;
 #include "tx_isp_t40_clm_lit.inc"
 #include "tx_isp_t40_lsc_lit.inc"
 #include "tx_isp_t40_sdns.h"
-#include "tx_isp_t40_cdns_lit.inc"
+#include "tx_isp_t40_cdns.h"
 #include "tx_isp_t40_adr.h"
 #include "tx_isp_t40_defog.h"
 #include "tx_isp_t40_lce.h"
@@ -16923,7 +16913,7 @@ static int regtrace_isp_block_init_once(const char *where)
     }
 
     if (regtrace_enable_cdns) {
-        int cdns_ret = (int)regtrace_cdns_main_init_lit();
+        int cdns_ret = t40_cdns_init(0);
 
         regtrace_t40_cdns_top_bit(cdns_ret);
         printk(KERN_INFO "tx_isp_t40_recovered: isp-block-init cdns ret=%d\n",
@@ -24612,7 +24602,7 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
     if (regtrace_enable_sdns)
         REGTRACE_T40_DN_STEP(t40_sdns_init());
     if (regtrace_enable_cdns) {
-        REGTRACE_T40_DN_STEP(regtrace_cdns_main_init_lit());
+        REGTRACE_T40_DN_STEP(t40_cdns_init(0));
         regtrace_t40_cdns_top_bit(subret);
     }
     if (regtrace_enable_mdns) {
@@ -51318,10 +51308,8 @@ static void regtrace_frame_done_tuning_follow(void)
                     0, dns_ev, 256);
             if (regtrace_enable_sdns)
                 t40_sdns_refresh(dns_ev, 256);
-            if (regtrace_enable_cdns && main_cdns &&
-                !regtrace_cdns_dbg_init_ret)
-                (void)tisp_cdns_par_refresh_lit(
-                    0, dns_ev, regtrace_cdns_thresh);
+            if (regtrace_enable_cdns && !regtrace_cdns_dbg_init_ret)
+                (void)t40_cdns_par_refresh(0, dns_ev, regtrace_cdns_thresh);
         }
         if (regtrace_enable_ysp &&
             ysp_ev != READ_ONCE(regtrace_ysp_ev_applied)) {
@@ -153166,1122 +153154,91 @@ tisp_ydns_param_array_set0x64:
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000060fd0 origin=fragment_seed original=tisp_cdns_reg_cfg */
-int64_t tisp_cdns_reg_cfg(uint32_t a0)
-{
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    if (a0 == 0) { goto tisp_cdns_reg_cfg0x25c; }
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)&sec_cdns;
-    v1 = (int32_t *)&sec_cdns_intp;
-    v0 = *(uint32_t *)((char *)((char *)&sec_cdns));
-    s0 = *(uint32_t *)((char *)((char *)&sec_cdns_intp));
-
-tisp_cdns_reg_cfg0x2c:
-    /* fragment 3: CallSetup */
-    s1 = (a0 + 896) << 7;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(((a0 + 896) << 7) + 8, *(uint8_t *)((char *)((uintptr_t)v0) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    s3 = 16711680;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 16, *(uint8_t *)((char *)((uintptr_t)s0) + 0) & 15); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 32, ((*(uint8_t *)((char *)((uintptr_t)s0) + 2)) << 8) | (((*(uint8_t *)((char *)((uintptr_t)s0) + 3)) << 16) & (uintptr_t)s3) | (*(uint8_t *)((char *)((uintptr_t)s0) + 1))); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 36, ((*(uint8_t *)((char *)((uintptr_t)s0) + 5)) << 8) | (((*(uint8_t *)((char *)((uintptr_t)s0) + 6)) << 16) & (uintptr_t)s3) | (*(uint8_t *)((char *)((uintptr_t)s0) + 4))); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 40, ((*(uint8_t *)((char *)((uintptr_t)s0) + 8)) << 8) | (((*(uint8_t *)((char *)((uintptr_t)s0) + 9)) << 16) & (uintptr_t)s3) | (*(uint8_t *)((char *)((uintptr_t)s0) + 7))); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 44, ((*(uint8_t *)((char *)((uintptr_t)s0) + 11)) << 8) | (((*(uint8_t *)((char *)((uintptr_t)s0) + 12)) << 16) & (uintptr_t)s3) | (*(uint8_t *)((char *)((uintptr_t)s0) + 10))); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 48, ((*(uint8_t *)((char *)((uintptr_t)s0) + 14)) << 8) | (((*(uint8_t *)((char *)((uintptr_t)s0) + 15)) << 16) & (uintptr_t)s3) | (*(uint8_t *)((char *)((uintptr_t)s0) + 13))); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 52, ((*(uint8_t *)((char *)((uintptr_t)s0) + 17)) << 8) | (((*(uint8_t *)((char *)((uintptr_t)s0) + 18)) << 16) & (uintptr_t)s3) | (*(uint8_t *)((char *)((uintptr_t)s0) + 16))); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 56, ((*(uint8_t *)((char *)((uintptr_t)s0) + 20)) << 8) | (((*(uint8_t *)((char *)((uintptr_t)s0) + 21)) << 16) & (uintptr_t)s3) | (*(uint8_t *)((char *)((uintptr_t)s0) + 19))); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 60, ((*(uint8_t *)((char *)((uintptr_t)s0) + 23)) << 8) | (((*(uint8_t *)((char *)((uintptr_t)s0) + 24)) << 16) & (uintptr_t)s3) | (*(uint8_t *)((char *)((uintptr_t)s0) + 22))); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    s3 = ((*(uint8_t *)((char *)((uintptr_t)s0) + 27)) << 16) & (uintptr_t)s3;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 64, ((*(uint8_t *)((char *)((uintptr_t)s0) + 26)) << 8) | (((*(uint8_t *)((char *)((uintptr_t)s0) + 27)) << 16) & (uintptr_t)s3) | (*(uint8_t *)((char *)((uintptr_t)s0) + 25)) | (((*(uint8_t *)((char *)((uintptr_t)s0) + 28)) << 24) & 50331648) | (((*(uint8_t *)((char *)((uintptr_t)s0) + 29)) << 28) & 805306368)); /* jalr target resolved by relocation */
-
-    /* fragment 14: MemoryAccess */
-    a1 = *(uint8_t *)((char *)s0 + 30);
-    v0 = *(uint8_t *)((char *)s0 + 31);
-    v1 = v0 < a1;
-
-    /* fragment 15: Branch */
-    if (v1 != 0) { goto tisp_cdns_reg_cfg0x270; }
-
-    /* fragment 16: Branch */
-    v1 = 0;
-    if (a1 == v0) { goto tisp_cdns_reg_cfg0x218; }
-
-    /* fragment 17: Arithmetic */
-    v1 = (uintptr_t)v0 - (uintptr_t)a1;
-    a0 = 4080;
-
-    /* fragment 18: Unknown */
-    /* unmatched fragment 18 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 611e0:	0083001a 	div	zero,a0,v1 */
-
-    /* fragment 19: Arithmetic */
-    /* unmatched fragment 19 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 611e4:	00001812 	mflo	v1 */
-
-tisp_cdns_reg_cfg0x218:
-    /* fragment 20: Arithmetic */
-    a0 = 268369920;
-    v0 = (uintptr_t)v0 << 8;
-    v1 = (uintptr_t)v1 << 16;
-    v1 = (uintptr_t)v1 & a0;
-
-    /* fragment 21: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 22: Arithmetic */
-    v0 = (uintptr_t)v0 & 65535;
-    a0 = s1 + 80;
-    t9 = s2;
-
-    /* fragment 23: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 24: Arithmetic */
-    v0 = (uintptr_t)v0 | (uintptr_t)v1;
-    a1 = (uintptr_t)a1 & 255;
-    a1 = (uintptr_t)v0 | (uintptr_t)a1;
-
-    /* fragment 25: Unknown */
-    /* unmatched fragment 25 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 61224:	03200408 	jr.hb	t9 */
-
-    /* fragment 26: Arithmetic */
-    /* unmatched fragment 26 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 61228:	27bd0028 	addiu	sp,sp,40 */
-
-tisp_cdns_reg_cfg0x25c:
-    /* fragment 27: Arithmetic */
-    v0 = (uintptr_t *)&main_cdns;
-    v1 = (int32_t *)&main_cdns_intp;
-
-    /* fragment 28: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&main_cdns));
-
-    /* fragment 29: Branch */
-    s0 = *(uint32_t *)((char *)((char *)&main_cdns_intp));
-    goto tisp_cdns_reg_cfg0x2c;
-
-tisp_cdns_reg_cfg0x270:
-    /* fragment 30: Arithmetic */
-    v0 = a1;
-
-    /* fragment 31: Branch */
-    v1 = 0;
-    goto tisp_cdns_reg_cfg0x218;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_000000000006124c origin=fragment_seed original=tisp_cdns_reg_trig */
-int32_t tisp_cdns_reg_trig(uint32_t a0)
-{
-    uint32_t *a1 = 0;
-    uint32_t t9 = 0;
-
-    /* fragment 0: Arithmetic */
-    a0 = a0 + 896;
-    a0 = a0 << 7;
-    t9 = (uintptr_t)&system_reg_write;
-    a1 = 1;
-    t9 = t9;
-
-    /* fragment 1: Unknown */
-    /* unmatched fragment 1 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 61260:	03200408 	jr.hb	t9 */
-
-    /* fragment 2: Arithmetic */
-    a0 = a0 + 4;
-
-    return 0;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000061268 origin=model_output original=tisp_cdns_intp */
-int32_t tisp_cdns_intp(int32_t arg1, int32_t arg2)
-{
-    char *s2;
-    int32_t *s4;
-    void *s5;
-    int32_t *s3;
-    int32_t *s0;
-    char *result;
-
-    if (arg1 == 0) {
-        s5 = (void *)(_bss_start + 18160);
-        s2 = _bss_start + 18144;
-        s4 = (int32_t *)(_bss_start + 18152);
-    } else {
-        s5 = (void *)(_bss_start + 18156);
-        s2 = _bss_start + 18140;
-        s4 = (int32_t *)(_bss_start + 18148);
-    }
-
-    s3 = arg2 >> 16;
-    s0 = arg2 & 0xffff;
-
-    ((void **)s2)[0x1a] = tisp_simple_intp_int8(s3, s0, (char *)s5 + 0x11f);
-    ((void **)s2)[0x1b] = tisp_simple_intp_int8(s3, s0, (char *)s5 + 0x12a);
-    ((void **)s2)[0] = tisp_simple_intp_int8(s3, s0, s4[0]);
-    ((void **)s2)[1] = tisp_simple_intp_int8(s3, s0, s4[1]);
-    ((void **)s2)[2] = tisp_simple_intp_int8(s3, s0, s4[2]);
-    ((void **)s2)[3] = tisp_simple_intp_int8(s3, s0, s4[3]);
-    ((void **)s2)[4] = tisp_simple_intp_int8(s3, s0, s4[4]);
-    ((void **)s2)[5] = tisp_simple_intp_int8(s3, s0, s4[5]);
-    ((void **)s2)[6] = tisp_simple_intp_int8(s3, s0, s4[6]);
-    ((void **)s2)[7] = tisp_simple_intp_int8(s3, s0, s4[7]);
-    ((void **)s2)[8] = tisp_simple_intp_int8(s3, s0, s4[8]);
-    ((void **)s2)[9] = tisp_simple_intp_int8(s3, s0, s4[9]);
-    ((void **)s2)[10] = tisp_simple_intp_int8(s3, s0, s4[10]);
-    ((void **)s2)[11] = tisp_simple_intp_int8(s3, s0, s4[11]);
-    ((void **)s2)[12] = tisp_simple_intp_int8(s3, s0, s4[12]);
-    ((void **)s2)[13] = tisp_simple_intp_int8(s3, s0, s4[13]);
-    ((void **)s2)[14] = tisp_simple_intp_int8(s3, s0, s4[14]);
-    ((void **)s2)[15] = tisp_simple_intp_int8(s3, s0, s4[15]);
-    ((void **)s2)[16] = tisp_simple_intp_int8(s3, s0, s4[16]);
-    ((void **)s2)[17] = tisp_simple_intp_int8(s3, s0, s4[17]);
-    ((void **)s2)[18] = tisp_simple_intp_int8(s3, s0, s4[18]);
-    ((void **)s2)[19] = tisp_simple_intp_int8(s3, s0, s4[19]);
-    ((void **)s2)[20] = tisp_simple_intp_int8(s3, s0, s4[20]);
-    ((void **)s2)[21] = tisp_simple_intp_int8(s3, s0, s4[21]);
-    ((void **)s2)[22] = tisp_simple_intp_int8(s3, s0, s4[22]);
-    ((void **)s2)[23] = tisp_simple_intp_int8(s3, s0, s4[23]);
-    ((void **)s2)[24] = tisp_simple_intp_int8(s3, s0, s4[24]);
-    ((void **)s2)[25] = tisp_simple_intp_int8(s3, s0, s4[25]);
-    ((void **)s2)[26] = tisp_simple_intp_int8(s3, s0, s4[26]);
-    ((void **)s2)[27] = tisp_simple_intp_int8(s3, s0, s4[27]);
-    ((void **)s2)[28] = tisp_simple_intp_int8(s3, s0, s4[28]);
-    ((void **)s2)[29] = tisp_simple_intp_int8(s3, s0, s4[29]);
-    ((void **)s2)[30] = tisp_simple_intp_int8(s3, s0, s4[30]);
-    result = tisp_simple_intp_int8(s3, s0, s4[31]);
-    ((void **)s2)[31] = result;
-
-    return result;
-}
-
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000061574 origin=fragment_seed original=tisp_cdns_wdr_en */
+/*
+ * OEM tisp_cdns_* entry points (0x60fd0..0x61d60): the CDNS chain is plain C in
+ * tx_isp_t40_cdns.h; these keep the OEM call interface for the recovered
+ * callers (tgain update, WDR switch, tuning ioctl, init/deinit).  The broken
+ * lifts that were here (unmatched jr.hb tail calls, the gain-old word through
+ * &sclk_name - 14092, cdns_remove writing cdns_wdr_en + 18172) are gone.
+ */
 int64_t tisp_cdns_wdr_en(uint32_t a0, uint32_t a1)
 {
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Branch */
-    v0 = (uintptr_t *)&sec_cdns_comb;
-    if (a0 == 0) { goto tisp_cdns_wdr_en0x124; }
-
-    /* fragment 1: Arithmetic */
-    v0 = (uintptr_t *)&sec_cdns_comb;
-
-    /* fragment 2: MemoryAccess */
-    v1 = *(uint32_t *)((char *)((char *)&sec_cdns_comb));
-    v0 = (uintptr_t *)&sec_cdns;
-    v0 = *(uint32_t *)((char *)((char *)&sec_cdns));
-
-tisp_cdns_wdr_en0x18:
-    /* fragment 3: Arithmetic */
-    a2 = (uint32_t *)&cdns_wdr_en;
-    a0 = a0 << 2;
-    a2 = a2 + 18168;
-    a0 = a0 + (uintptr_t)a2;
-
-    /* fragment 4: Branch */
-    int _bc_a1_4 = a1 != 0;
-    *(uint32_t *)((char *)a0 + 0) = a1;
-    if (_bc_a1_4) { goto tisp_cdns_wdr_en0x134; }
-
-    /* fragment 5: Arithmetic */
-    a0 = v0 + 1;
-
-    /* fragment 6: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 0) = a0;
-    a0 = v0 + 12;
-    *(uint32_t *)((char *)v1 + 4) = a0;
-    a0 = v0 + 23;
-    *(uint32_t *)((char *)v1 + 8) = a0;
-    a0 = v0 + 34;
-    *(uint32_t *)((char *)v1 + 12) = a0;
-    a0 = v0 + 45;
-    *(uint32_t *)((char *)v1 + 16) = a0;
-    a0 = v0 + 56;
-    *(uint32_t *)((char *)v1 + 20) = a0;
-    a0 = v0 + 67;
-    *(uint32_t *)((char *)v1 + 24) = a0;
-    a0 = v0 + 78;
-    *(uint32_t *)((char *)v1 + 28) = a0;
-    a0 = v0 + 89;
-    *(uint32_t *)((char *)v1 + 32) = a0;
-    a0 = v0 + 100;
-    *(uint32_t *)((char *)v1 + 36) = a0;
-    a0 = v0 + 111;
-    *(uint32_t *)((char *)v1 + 40) = a0;
-    a0 = v0 + 122;
-    *(uint32_t *)((char *)v1 + 44) = a0;
-    a0 = v0 + 133;
-    *(uint32_t *)((char *)v1 + 48) = a0;
-    a0 = v0 + 144;
-    *(uint32_t *)((char *)v1 + 52) = a0;
-    a0 = v0 + 155;
-    *(uint32_t *)((char *)v1 + 56) = a0;
-    a0 = v0 + 166;
-
-    /* fragment 7: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 60) = a0;
-    a0 = v0 + 177;
-    *(uint32_t *)((char *)v1 + 64) = a0;
-    a0 = v0 + 188;
-    *(uint32_t *)((char *)v1 + 68) = a0;
-    a0 = v0 + 199;
-    *(uint32_t *)((char *)v1 + 72) = a0;
-    a0 = v0 + 210;
-    *(uint32_t *)((char *)v1 + 76) = a0;
-    a0 = v0 + 221;
-    *(uint32_t *)((char *)v1 + 80) = a0;
-    a0 = v0 + 232;
-    *(uint32_t *)((char *)v1 + 84) = a0;
-    a0 = v0 + 243;
-    *(uint32_t *)((char *)v1 + 88) = a0;
-    a0 = v0 + 254;
-    *(uint32_t *)((char *)v1 + 92) = a0;
-    a0 = v0 + 265;
-    *(uint32_t *)((char *)v1 + 96) = a0;
-    a0 = v0 + 276;
-    *(uint32_t *)((char *)v1 + 100) = a0;
-    a0 = v0 + 309;
-    *(uint32_t *)((char *)v1 + 104) = a0;
-    a0 = v0 + 320;
-    *(uint32_t *)((char *)v1 + 108) = a0;
-    a0 = v0 + 331;
-    *(uint32_t *)((char *)v1 + 112) = a0;
-    v0 = v0 + 342;
-
-tisp_cdns_wdr_en0x11c:
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-    /* fragment 9: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 116) = v0;
-
-tisp_cdns_wdr_en0x124:
-    /* fragment 10: MemoryAccess */
-    v1 = *(uint32_t *)((char *)((char *)&main_cdns_comb));
-    v0 = (uintptr_t *)&main_cdns;
-
-    /* fragment 11: Branch */
-    v0 = *(uint32_t *)((char *)((char *)&main_cdns));
-    goto tisp_cdns_wdr_en0x18;
-
-tisp_cdns_wdr_en0x134:
-    /* fragment 12: Arithmetic */
-    a0 = v0 + 353;
-
-    /* fragment 13: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 0) = a0;
-    a0 = v0 + 364;
-    *(uint32_t *)((char *)v1 + 4) = a0;
-    a0 = v0 + 375;
-    *(uint32_t *)((char *)v1 + 8) = a0;
-    a0 = v0 + 386;
-    *(uint32_t *)((char *)v1 + 12) = a0;
-    a0 = v0 + 397;
-    *(uint32_t *)((char *)v1 + 16) = a0;
-    a0 = v0 + 408;
-    *(uint32_t *)((char *)v1 + 20) = a0;
-    a0 = v0 + 419;
-    *(uint32_t *)((char *)v1 + 24) = a0;
-    a0 = v0 + 430;
-    *(uint32_t *)((char *)v1 + 28) = a0;
-    a0 = v0 + 441;
-    *(uint32_t *)((char *)v1 + 32) = a0;
-    a0 = v0 + 452;
-    *(uint32_t *)((char *)v1 + 36) = a0;
-    a0 = v0 + 463;
-    *(uint32_t *)((char *)v1 + 40) = a0;
-    a0 = v0 + 474;
-    *(uint32_t *)((char *)v1 + 44) = a0;
-    a0 = v0 + 485;
-    *(uint32_t *)((char *)v1 + 48) = a0;
-    a0 = v0 + 496;
-    *(uint32_t *)((char *)v1 + 52) = a0;
-    a0 = v0 + 507;
-    *(uint32_t *)((char *)v1 + 56) = a0;
-    a0 = v0 + 518;
-
-    /* fragment 14: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 60) = a0;
-    a0 = v0 + 529;
-    *(uint32_t *)((char *)v1 + 64) = a0;
-    a0 = v0 + 540;
-    *(uint32_t *)((char *)v1 + 68) = a0;
-    a0 = v0 + 551;
-    *(uint32_t *)((char *)v1 + 72) = a0;
-    a0 = v0 + 562;
-    *(uint32_t *)((char *)v1 + 76) = a0;
-    a0 = v0 + 573;
-    *(uint32_t *)((char *)v1 + 80) = a0;
-    a0 = v0 + 584;
-    *(uint32_t *)((char *)v1 + 84) = a0;
-    a0 = v0 + 595;
-    *(uint32_t *)((char *)v1 + 88) = a0;
-    a0 = v0 + 606;
-    *(uint32_t *)((char *)v1 + 92) = a0;
-    a0 = v0 + 617;
-    *(uint32_t *)((char *)v1 + 96) = a0;
-    a0 = v0 + 628;
-    *(uint32_t *)((char *)v1 + 100) = a0;
-    a0 = v0 + 639;
-    *(uint32_t *)((char *)v1 + 104) = a0;
-    a0 = v0 + 650;
-    *(uint32_t *)((char *)v1 + 108) = a0;
-    a0 = v0 + 661;
-    *(uint32_t *)((char *)v1 + 112) = a0;
-
-    /* fragment 15: Branch */
-    v0 = v0 + 672;
-    goto tisp_cdns_wdr_en0x11c;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    t40_cdns_set_wdr(a0, a1);
+    return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000061798 origin=fragment_seed original=tisp_cdns_all_reg_refresh */
 int32_t tisp_cdns_all_reg_refresh(uint32_t a0, uint32_t a1)
 {
-    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
-     * scaling); forwards to the source-derived CDNS chain in
-     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
-    if (!(a0 ? sec_cdns : main_cdns))
-        return 0;
-    return tisp_cdns_all_reg_refresh_lit(a0, a1);
-#if 0
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_cdns_intp)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_cdns_reg_cfg)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 4: Arithmetic */
-    a0 = s0;
-
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 6: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 7: Unknown */
-    /* unmatched fragment 7 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 617d8:	03200408 	jr.hb	t9 */
-
-    /* fragment 8: Arithmetic */
-    /* unmatched fragment 8 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 617dc:	27bd0018 	addiu	sp,sp,24 */
-
-    return 0;
-#endif
+    return t40_cdns_pack(a0, a1);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000617e0 origin=fragment_seed original=tisp_cdns_intp_reg_refresh */
 int32_t tisp_cdns_intp_reg_refresh(uint32_t a0, uint32_t a1)
 {
-    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
-     * scaling); forwards to the source-derived CDNS chain in
-     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
-    /* OEM 0x61870 is a plain tail call to all_reg_refresh */
-    if (!(a0 ? sec_cdns : main_cdns))
-        return 0;
-    return tisp_cdns_all_reg_refresh_lit(a0, a1);
-#if 0
-    uint32_t t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: Unknown */
-    /* unmatched fragment 1 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 617e8:	03200408 	jr.hb	t9 */
-
-    /* fragment 2: Unknown */
-    /* unmatched fragment 2 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 617ec:	00000000 	nop */
-
-    return 0;
-#endif
+    return t40_cdns_pack(a0, a1);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000617f0 origin=fragment_seed original=tisp_cdns_par_refresh */
 int32_t tisp_cdns_par_refresh(uint32_t a0, uint32_t a1, uint32_t a2)
 {
-    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
-     * scaling); forwards to the source-derived CDNS chain in
-     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
-    if (!(a0 ? sec_cdns : main_cdns))
-        return 0;
-    return tisp_cdns_par_refresh_lit(a0, a1, a2);
-#if 0
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t t0 = 0;
-    uint32_t *t1 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&sclk_name;
-    t1 = a0 << 2;
-    v0 = v0 - 14092;
-    v1 = (uintptr_t)t1 + (uintptr_t)v0;
-
-    /* fragment 1: MemoryAccess */
-    a3 = *(uint32_t *)((char *)v1 + 0);
-    v1 = -1;
-
-    /* fragment 2: Branch */
-    t0 = a1 < a3;
-    if (a3 != v1) { goto tisp_cdns_par_refresh0x34; }
-
-    /* fragment 3: Arithmetic */
-    t9 = (uintptr_t)&tisp_cdns_all_reg_refresh;
-
-tisp_cdns_par_refresh0x24:
-    /* fragment 4: Arithmetic */
-    v0 = (uintptr_t)v0 + (uintptr_t)t1;
-    t9 = t9;
-
-    /* fragment 5: Unknown */
-    /* unmatched fragment 5 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6181c:	03200408 	jr.hb	t9 */
-
-    /* fragment 6: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 0) = a1;
-
-tisp_cdns_par_refresh0x34:
-    /* fragment 7: Branch */
-    v1 = a3 - a1;
-    if (t0 != 0) { goto tisp_cdns_par_refresh0x40; }
-
-    /* fragment 8: Arithmetic */
-    v1 = a1 - (uintptr_t)a3;
-
-tisp_cdns_par_refresh0x40:
-    /* fragment 9: Arithmetic */
-    v1 = v1 < a2;
-
-    /* fragment 10: Branch */
-    t9 = (uintptr_t)&tisp_cdns_all_reg_refresh;
-    if (v1 == 0) { goto tisp_cdns_par_refresh0x24; }
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 12: Unknown */
-    /* unmatched fragment 12 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 61840:	00000000 	nop */
-
-    return 0;
-#endif
+    return t40_cdns_par_refresh(a0, a1, a2);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000061844 origin=model_output original=tisp_cdns_params_refresh */
 int32_t tisp_cdns_params_refresh(int32_t arg1)
 {
-    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
-     * scaling); forwards to the source-derived CDNS chain in
-     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
-    return tisp_cdns_params_refresh_lit((uint32_t)arg1);
-#if 0
-    unsigned int *dest;
-    unsigned int src_val;
-    unsigned int temp;
-
-    if (arg1 == 0) {
-        temp = data_a8a64;
-        dest = &tparamsN[0];
-    } else {
-        temp = data_a8a60;
-        dest = &tparamsN[arg1];
-    }
-
-    src_val = *dest;
-    src_val += 73771;
-    memcpy(dest, &src_val, 683);
-    return 0;
-#endif
+    return t40_cdns_load((uint32_t)arg1) ? -1 : 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000061890 origin=fragment_seed original=tisp_cdns_refresh */
 int32_t tisp_cdns_refresh(uint32_t a0, uint32_t a1)
 {
-    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
-     * scaling); forwards to the source-derived CDNS chain in
-     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
-    /* OEM 0x61920: par_refresh(ch, gain, thresh), then an unconditional
-     * all_reg_refresh at the stored gain. */
-    if (!(a0 ? sec_cdns : main_cdns))
-        return 0;
-    (void)tisp_cdns_par_refresh_lit(a0, a1, regtrace_cdns_thresh);
-    return tisp_cdns_all_reg_refresh_lit(a0, regtrace_cdns_gain_old[a0 & 1U]);
-#if 0
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_cdns_par_refresh)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 1: Arithmetic */
-    v1 = (int32_t *)&sclk_name;
-    v0 = (uintptr_t)s0 << 2;
-    v1 = v1 - 14092;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: MemoryAccess */
-    a1 = *(uint32_t *)((char *)v0 + 0);
-    a0 = s0;
-    s0 = local_10;
-    t9 = (uintptr_t)&tisp_cdns_all_reg_refresh;
-    t9 = t9;
-
-    /* fragment 4: Unknown */
-    /* unmatched fragment 4 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 618dc:	03200408 	jr.hb	t9 */
-
-    /* fragment 5: Arithmetic */
-    /* unmatched fragment 5 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 618e0:	27bd0018 	addiu	sp,sp,24 */
-
-    return 0;
-#endif
+    return t40_cdns_refresh(a0, a1);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000618e4 origin=fragment_seed original=tisp_cdns_main_init */
 int32_t tisp_cdns_main_init(void)
 {
-    /* Broken lift (unmatched jr.hb tail calls / wrong copy / pointer
-     * scaling); forwards to the source-derived CDNS chain in
-     * tx_isp_t40_cdns_lit.inc.  Lift kept below as reference. */
     int32_t ret;
 
     if (!regtrace_enable_cdns)
         return 0;
-    ret = regtrace_cdns_main_init_lit();
+    ret = t40_cdns_init(0);
     regtrace_t40_cdns_top_bit(ret);
     return ret;
-#if 0
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t *a0 = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(683); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    *(uint32_t *)((char *)((char *)&main_cdns)) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(120); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    *(uint32_t *)((char *)&main_cdns_comb) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(32); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    *(uint32_t *)((char *)((char *)&main_cdns_intp)) = v0;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&main_cdns))), 0, 683); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&main_cdns_comb))), 0, 120); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&main_cdns_intp))), 0, 32); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_cdns_params_refresh)(0); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_cdns_wdr_en)(0, *(uint32_t *)((char *)((char *)&cdns_wdr_en))); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    *(uint32_t *)((char *)&sclk_name + -14092) = (-1);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_cdns_refresh)(0, 65536); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_cdns_par_refresh)(0, 65536, 65536); /* jalr target resolved by relocation */
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 12: Arithmetic */
-    v0 = 0;
-
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
-#endif
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000619ec origin=fragment_seed original=tisp_cdns_main_deinit */
 int32_t tisp_cdns_main_deinit(void)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a0 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s0 = (uintptr_t *)&main_cdns;
-
-    /* fragment 2: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&main_cdns));
-
-    /* fragment 3: Branch */
-    if (a0 == 0) { goto tisp_cdns_main_deinit0x2c; }
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&main_cdns)) = 0;
-
-tisp_cdns_main_deinit0x2c:
-    /* fragment 6: Arithmetic */
-    s0 = (uintptr_t *)&main_cdns_comb;
-
-    /* fragment 7: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&main_cdns_comb));
-
-    /* fragment 8: Branch */
-    v0 = (uintptr_t *)&private_vfree;
-    if (a0 == 0) { goto tisp_cdns_main_deinit0x4c; }
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 10: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&main_cdns_comb)) = 0;
-
-tisp_cdns_main_deinit0x4c:
-    /* fragment 11: Arithmetic */
-    s0 = (uintptr_t *)&main_cdns_intp;
-
-    /* fragment 12: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&main_cdns_intp));
-
-    /* fragment 13: Branch */
-    v0 = (uintptr_t *)&private_vfree;
-    if (a0 == 0) { goto tisp_cdns_main_deinit0x6c; }
-
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 15: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&main_cdns_intp)) = 0;
-
-tisp_cdns_main_deinit0x6c:
-    /* fragment 16: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    t40_cdns_deinit(0);
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000061a68 origin=fragment_seed original=tisp_cdns_sec_deinit */
 int32_t tisp_cdns_sec_deinit(void)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a0 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s0 = (uintptr_t *)&sec_cdns;
-
-    /* fragment 2: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&sec_cdns));
-
-    /* fragment 3: Branch */
-    if (a0 == 0) { goto tisp_cdns_sec_deinit0x2c; }
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&sec_cdns)) = 0;
-
-tisp_cdns_sec_deinit0x2c:
-    /* fragment 6: Arithmetic */
-    s0 = (uintptr_t *)&sec_cdns_comb;
-
-    /* fragment 7: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&sec_cdns_comb));
-
-    /* fragment 8: Branch */
-    v0 = (uintptr_t *)&private_vfree;
-    if (a0 == 0) { goto tisp_cdns_sec_deinit0x4c; }
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 10: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&sec_cdns_comb)) = 0;
-
-tisp_cdns_sec_deinit0x4c:
-    /* fragment 11: Arithmetic */
-    s0 = (uintptr_t *)&sec_cdns_intp;
-
-    /* fragment 12: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&sec_cdns_intp));
-
-    /* fragment 13: Branch */
-    v0 = (uintptr_t *)&private_vfree;
-    if (a0 == 0) { goto tisp_cdns_sec_deinit0x6c; }
-
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 15: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&sec_cdns_intp)) = 0;
-
-tisp_cdns_sec_deinit0x6c:
-    /* fragment 16: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    t40_cdns_deinit(1);
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000061ae4 origin=fragment_seed original=tisp_cdns_sec_init */
 int32_t tisp_cdns_sec_init(void)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t *a0 = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(683); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    *(uint32_t *)((char *)((char *)&sec_cdns)) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(120); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    *(uint32_t *)((char *)&sec_cdns_comb) = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(32); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    *(uint32_t *)((char *)((char *)&sec_cdns_intp)) = v0;
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&sec_cdns))), 0, 683); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&sec_cdns_comb))), 0, 120); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&sec_cdns_intp))), 0, 32); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_cdns_params_refresh)(1); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_cdns_wdr_en)(1, *(uint32_t *)((char *)((char *)&cdns_wdr_en + 0x4))); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    *(uint32_t *)((char *)&sclk_name + -14088) = (-1);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_cdns_refresh)(1, 65536); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_cdns_par_refresh)(1, 65536, 65536); /* jalr target resolved by relocation */
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 12: Arithmetic */
-    v0 = 0;
-
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    return regtrace_enable_cdns ? t40_cdns_init(1) : 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000061bec origin=fragment_seed original=tisp_cdns_dn_params_refresh */
 int32_t tisp_cdns_dn_params_refresh(uint32_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a1 = 0;
-    uintptr_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_cdns_params_refresh)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_cdns_wdr_en)((uintptr_t)s0, *(uint32_t *)((char *)(((uintptr_t)s0 << 2) + &isp_memopt) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 3: ConstantLoad */
-    v0 = ((char *)&gain_old);
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 5: MemoryAccess */
-    a1 = *(uint32_t *)((char *)&isp_memopt);
-    a0 = s0;
-    s0 = local_10;
-    t9 = (uintptr_t)&tisp_cdns_all_reg_refresh;
-    t9 = t9;
-
-    /* fragment 6: Unknown */
-    /* unmatched fragment 6 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 61c50:	03200408 	jr.hb	t9 */
-
-    /* fragment 7: Arithmetic */
-    /* unmatched fragment 7 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 61c54:	27bd0018 	addiu	sp,sp,24 */
-
-    return 0;
+    return t40_cdns_dn_refresh(a0);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000061c58 origin=fragment_seed original=tisp_cdns_param_array_get */
 int64_t tisp_cdns_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = a1;
-
-    /* fragment 2: StackAccess */
-    local_10 = s0;
-    local_14 = ra;
-
-    /* fragment 3: Branch */
-    s0 = a2;
-    if (a0 == 0) { goto tisp_cdns_param_array_get0x50; }
-
-    /* fragment 4: CallSetup */
-    v1 = (int32_t *)&sec_cdns;
-    a1 = *(uint32_t *)((char *)((char *)&sec_cdns));
-
-tisp_cdns_param_array_get0x20:
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)v0, (void *)(uintptr_t)a1, 683); /* jalr target resolved by relocation */
-
-    /* fragment 6: Arithmetic */
-    v0 = 683;
-
-    /* fragment 7: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 0) = v0;
-    ra = local_14;
-    s0 = local_10;
-    v0 = 0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_cdns_param_array_get0x50:
-    /* fragment 9: Arithmetic */
-    v1 = (int32_t *)&main_cdns;
-
-    /* fragment 10: Branch */
-    a1 = *(uint32_t *)((char *)((char *)&main_cdns));
-    goto tisp_cdns_param_array_get0x20;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    return t40_cdns_param_get(a0, (void *)a1, (uint32_t *)a2);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000061cb4 origin=fragment_seed original=tisp_cdns_param_array_set */
 int32_t tisp_cdns_param_array_set(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    s0 = a0;
-    if (a0 == 0) { goto tisp_cdns_param_array_set0x64; }
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)&isp_memopt;
-    a0 = *(uint32_t *)((char *)((char *)&sec_cdns));
-
-tisp_cdns_param_array_set0x1c:
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)a1, 683); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_cdns_all_reg_refresh)((uintptr_t)s0, *(uint32_t *)((char *)(((uintptr_t)s0 << 2) + &sclk_name) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 6: Arithmetic */
-    v0 = 0;
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_cdns_param_array_set0x64:
-    /* fragment 8: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 9: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&main_cdns));
-    goto tisp_cdns_param_array_set0x1c;
-
-    return 0;
+    return t40_cdns_param_set(a0, (const void *)(uintptr_t)a1);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000061d24 origin=fragment_seed original=cdns_remove */
 int cdns_remove(struct platform_device *pdev)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v1 = -1;
-    v0 = (uintptr_t *)&sclk_name;
-
-    /* fragment 1: MemoryAccess */
-    *(uint32_t *)((char *)&sclk_name + -14092) = v1;
-    v0 = v0 - 14092;
-    *(uint32_t *)((char *)v0 + 4) = v1;
-    v0 = (uintptr_t *)&sclk_name;
-    v1 = 256;
-    *(uint32_t *)((char *)&sclk_name + -14096) = v1;
-    v0 = (uintptr_t *)&cdns_wdr_en;
-    *(uint32_t *)((char *)((char *)&cdns_wdr_en)) = 0;
-    v0 = v0 + 18168;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 4) = 0;
-
+    (void)pdev;
+    t40_cdns_remove();
     return 0;
 }
 
