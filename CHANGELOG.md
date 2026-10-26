@@ -23,8 +23,13 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
   darker zones; **FaceAe** meters the face zones to its target; **AeSpeed** (step_s lowering, step_d raising, 128 =
   default, 1/8x..8x) scales the AE steps. The lifted FaceAe/AeSpeed getters copied uninitialised kernel stack.
 - **Antiflicker** (SetAntiFlickerAttr) now reaches the AE: integration time in whole half mains periods once it
-  reaches one (2250 lines x 20 fps: 450 @ 50 Hz, 375 @ 60 Hz), NORMAL never below one period. `t40_ae_af_enable=0`
-  switches it off. Changes the default exposure when the streamer enables antiflicker (timps on .184: 60 Hz AUTO).
+  reaches one (2250 lines x 20 fps: 450 @ 50 Hz, 375 @ 60 Hz), NORMAL never below one period. Only the
+  application's own SetAntiFlickerAttr (50/60 Hz) counts: the Eufy tuning bin's default (AUTO 60 Hz) does not, and
+  the streamer's early request (cached before the AE context exists) is recorded at the ioctl, so it is no longer
+  lost - on next GetAntiFlickerAttr read back the bin's AUTO/60 although timps sets NORMAL/50. .184 with timps
+  (image.anti_flicker = 1): readback NORMAL/50, IT 1800 = 4 x 450. Picture A/B under the 50 Hz LED cellar light
+  (8 snapshots each): no banding difference (row-mean residual 6.20 next, 6.31 50 Hz, 6.29 60 Hz, 6.28 off),
+  noise 5.6/5.5/5.5/5.5. `t40_ae_af_enable=0` switches it off.
 - All new state in `.t40c2` (a first build with ~5 KB new `.bss` delivered no frames). Diagnostic parameter
   `t40_ae_api`. Host test `tests/tx_isp_t40_ae_api_test` (5-bin histogram against an instruction transcription of
   the OEM loop, 2000 random cases; comp factor for all 256 values; layouts).

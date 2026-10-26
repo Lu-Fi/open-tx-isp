@@ -9413,6 +9413,8 @@ static uint32_t t40_ae_hw_hist_jif T40C2, t40_ae_hw_zone_jif T40C2;
 /* 0 auto (hardware statistics while they run, else the sampled frame), 1 hardware, 2 frame */
 static uint t40_ae_stats_src T40C2;
 module_param_named(t40_ae_stats_src, t40_ae_stats_src, uint, 0644);
+static uint32_t t40_ae_af_req_mode T40C2, t40_ae_af_req_freq T40C2;   /* last SetAntiFlickerAttr */
+static bool t40_ae_af_req_set T40C2;
 static uint t40_ae_af_step_now T40C2;          /* integration lines per half mains period in use, 0 = off */
 module_param_named(t40_ae_af_step_now, t40_ae_af_step_now, uint, 0444);
 
@@ -25010,6 +25012,18 @@ static long regtrace_isp_m0_default_tuning_ioctl(unsigned int cmd, unsigned long
 
     if (ctrl.vinum >= ARRAY_SIZE(regtrace_isp_m0_hvflip))
         return -EINVAL;
+    if (ctrl.dir == 0 && ctrl.id == 0x08000026U && ctrl.vinum == 0) {
+        /* T40-AE-API: the frame AE follows the antiflicker the application asked for (not the tuning
+         * bin's default: the Eufy bin says AUTO 60 Hz, and the streamer's early 50 Hz request did not
+         * survive the AE/bank init on next either). */
+        uint32_t af[2];
+
+        if (copy_from_user(af, (const void __user *)(uintptr_t)(uint32_t)ctrl.value, sizeof(af)))
+            return -EFAULT;
+        WRITE_ONCE(t40_ae_af_req_mode, af[0]);
+        WRITE_ONCE(t40_ae_af_req_freq, af[1] & 0xffU);
+        WRITE_ONCE(t40_ae_af_req_set, true);
+    }
 
     core = regtrace_resolve_core_dev();
     tuning = regtrace_is_kernel_ptr((void *)core) ? regtrace_get_u32(core, 992) : 0;
@@ -48587,6 +48601,10 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
         } else if (cmd >= 0x8000023) {
             if (cmd == 0x8000026) {
                 tisp_g_antiflick(arg1, __p_80);
+                if ((uintptr_t)arg1 == 0 && READ_ONCE(t40_ae_af_req_set)) {   /* T40-AE-API: what the AE uses */
+                    __p_80[0] = READ_ONCE(t40_ae_af_req_mode);
+                    *((uint8_t *)__p_80 + 4) = (uint8_t)READ_ONCE(t40_ae_af_req_freq);
+                }
                 result = private_copy_to_user(arg3[1], __p_80, 8);
                 if (result == 0) {
                     return result;
@@ -88747,19 +88765,20 @@ static uint32_t f3a_face_target T40C2;
 static bool t40_ae_af_enable T40C2 = true;     /* antiflicker in the frame AE (SetAntiFlickerAttr) */
 module_param_named(t40_ae_af_enable, t40_ae_af_enable, bool, 0644);
 
-/* Antiflicker state as SetAntiFlickerAttr left it (OEM tisp_s_antiflick: ctx+312 -> u16 {enable, normal},
- * ctx+316 -> u32 {freq, ...}); returns the integration lines of one half mains period, 0 = off. */
+/* Antiflicker as the application set it (SetAntiFlickerAttr); returns the integration lines of one half
+ * mains period, 0 = off.  The tuning bin's own antiflicker default does not act on the frame AE. */
 static uint32_t regtrace_t40_ae_af_step(bool *normal)
 {
-    const uint8_t *p = pstMainAeOri_storage;
-    const uint16_t *fl = (const uint16_t *)(uintptr_t)*(const uint32_t *)(p + 312);
-    const uint32_t *fq = (const uint32_t *)(uintptr_t)*(const uint32_t *)(p + 316);
+    uint32_t mode = READ_ONCE(t40_ae_af_req_mode);
 
-    if (!t40_ae_af_enable || !regtrace_is_kernel_ptr((void *)fl) ||
-        !regtrace_is_kernel_ptr((void *)fq) || !fl[0])
+    /* only an explicit SetAntiFlickerAttr quantises the integration time (mode 1 NORMAL, 2 AUTO) */
+    uint32_t freq = READ_ONCE(t40_ae_af_req_freq);
+
+    if (!t40_ae_af_enable || !READ_ONCE(t40_ae_af_req_set) || !mode || mode > 2U ||
+        (freq != 50U && freq != 60U))
         return 0;
-    *normal = fl[1] != 0;
-    return t40_ae_af_lines(regtrace_t40_lines_per_s(), fq[0]);
+    *normal = mode == 1U;
+    return t40_ae_af_lines(regtrace_t40_lines_per_s(), freq);
 }
 
 static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_phys)
