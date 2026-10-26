@@ -4,19 +4,24 @@
  * loads by itself.
  *
  * Format (QEMU model notes + the list the T32 vendor driver runs at stream-on,
- * dumped from guest RAM in S0 run r20):
+ * dumped from guest RAM in S0 run r20 and decoded completely):
  *   word 0             length of the list in words (not counting word 0)
- *   then commands:     bit 31 | (count - 1) << 18 | word offset of the first
- *                      register, followed by count values for consecutive
- *                      registers.
- * The table at T32_RDMA_TABLE holds one list pointer per list; the T32 driver
- * started list 0 at stream-on by writing bit 17 to 0x22014 and 0x2201c and
- * waits for 0x22014 bits 17:16 to clear.
+ *   then commands, each a header and count values:
+ *     bit 31 set:      (count - 1) << 18 | word offset of the first register;
+ *                      the values go to consecutive registers
+ *     bit 31 clear:    the same fields; all values go to the one register
+ *                      (a table port such as 0x32024 behind its select
+ *                      register 0x32020)
+ * The vendor's list: 0x5010 = 1, 13 values at 0x5040, 0x32020 = 0x101, 3456
+ * values into the port 0x32024, 0x32020 = 0, 0x2f4 = 0 (3479 words).  Its
+ * values come from the IQ bin through tisp (S4); the format, the table and
+ * the trigger are what S3 implements.
  *
- * Decoded so far: the first commands of the vendor list follow this format
- * (0x5010 = 1, 0x5040.. 13 values); a later part (a block at 0x32020) does
- * not, so the decoder stops at the first word without bit 31 and reports
- * where.  The builder only emits the documented format.
+ * Table: T32_RDMA_TABLE holds the physical address of a table of 64 list
+ * pointers.  Writing bit N of T32_RDMA_TRIG (0x22014) starts the list in
+ * table word 32 + N; the T32 vendor driver puts its stream-on list in word
+ * 49 (and word 0), starts it with bit 17 in 0x22014 and 0x2201c and reads
+ * 0x22014 back until bits 17:16 clear.
  */
 #ifndef TX_ISP_T32_RCFG_H
 #define TX_ISP_T32_RCFG_H
@@ -35,6 +40,9 @@ typedef uint32_t u32;
 #define T32_RCFG_COUNT_SHIFT		18
 #define T32_RCFG_COUNT_MAX		0x2000U		/* 13-bit count - 1 */
 #define T32_RCFG_OFFSET_MASK		0x3ffffU	/* word offset */
+#define T32_RCFG_TABLE_WORDS		64
+#define T32_RCFG_STREAM_ON_LIST		49		/* table word of the stream-on list */
+#define T32_RCFG_STREAM_ON_BIT		(1U << (T32_RCFG_STREAM_ON_LIST - 32))
 
 struct t32_rcfg_list {
 	u32 *words;		/* words[0] = length */
@@ -94,29 +102,53 @@ static inline void t32_rcfg_add(struct t32_rcfg_list *l, u32 reg, u32 val)
 }
 
 /*
+ * Append n writes to one register (a table port): its own command, bit 31
+ * clear.
+ */
+static inline void t32_rcfg_add_port(struct t32_rcfg_list *l, u32 reg,
+				     const u32 *vals, u32 n)
+{
+	u32 len = l->words[0], k;
+
+	if (l->overflow || !n)
+		return;
+	if (n > T32_RCFG_COUNT_MAX || len + 1 + n + 1 > l->cap || (reg & 3) ||
+	    (reg >> 2) > T32_RCFG_OFFSET_MASK) {
+		l->overflow = 1;
+		return;
+	}
+	l->words[len + 1] = ((n - 1) << T32_RCFG_COUNT_SHIFT) | (reg >> 2);
+	for (k = 0; k < n; k++)
+		l->words[len + 2 + k] = vals[k];
+	l->words[0] = len + 1 + n;
+	l->cmd = 0;		/* nothing extends a port command */
+}
+
+/*
  * Walk a list.  Calls fn(reg, val, priv) for every write and returns the
- * number of words consumed (excluding words[0]); if a word inside the list is
- * not a command, *stop is set to its index (0 otherwise).
+ * number of words consumed (excluding words[0]); *stop is set to the index
+ * of a command that runs past the end of the list (0 when the list is whole).
  */
 static inline u32 t32_rcfg_walk(const u32 *w, u32 avail,
 				void (*fn)(u32 reg, u32 val, void *priv),
 				void *priv, u32 *stop)
 {
-	u32 len = w[0], i = 1, k, cnt, off;
+	u32 len = w[0], i = 1, k, cnt, off, inc;
 
 	*stop = 0;
 	if (len + 1 > avail)
 		len = avail - 1;
 	while (i <= len) {
-		if (!(w[i] & T32_RCFG_CMD)) {
+		cnt = t32_rcfg_cmd_count(w[i]);
+		off = t32_rcfg_cmd_offset(w[i]);
+		inc = (w[i] & T32_RCFG_CMD) ? 4 : 0;
+		if (i + cnt > len) {
 			*stop = i;
 			break;
 		}
-		cnt = t32_rcfg_cmd_count(w[i]);
-		off = t32_rcfg_cmd_offset(w[i]);
-		for (k = 0; k < cnt && i + 1 + k <= len; k++)
+		for (k = 0; k < cnt; k++)
 			if (fn)
-				fn(off + 4 * k, w[i + 1 + k], priv);
+				fn(off + inc * k, w[i + 1 + k], priv);
 		i += 1 + cnt;
 	}
 	return i - 1;

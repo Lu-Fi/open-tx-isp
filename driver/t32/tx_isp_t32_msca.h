@@ -42,6 +42,24 @@
 #define T32_MSCA_UV_CLR			0x64
 #define T32_MSCA_UV_DONE_CLR		0x68
 
+#define T32_MSCA_CTRL			0x00	/* 0 at channel start */
+#define T32_MSCA_STEP_V			0x10	/* input / output height, Q14 */
+#define T32_MSCA_STEP_H			0x14	/* input / output width, Q14 */
+#define T32_MSCA_FILTER_SEL		0x28	/* pulse; filter choice from the IQ bin (S4) */
+#define T32_MSCA_PARAM0			0x70	/* tisp channel parameters (IQ bin, S4) */
+#define T32_MSCA_PARAM1			0x74
+#define T32_MSCA_PARAM2			0x78
+
+/*
+ * Channel parameter words the vendor tisp writes from its MSCA parameter
+ * block (tisp_msca_init_chx_cfg) when the channel starts.  Without tisp
+ * (S3) the driver writes the values the vendor wrote for cv8001 + PRJ007
+ * bin on all three channels (S3 runs v1/v2); S4 takes them from the bin.
+ */
+#define T32_MSCA_PARAM0_DEFAULT		0x025800c8U	/* (600 << 16) | 200 */
+#define T32_MSCA_PARAM1_DEFAULT		0x80008080U
+#define T32_MSCA_PARAM2_DEFAULT		0x00000f00U
+
 #define T32_MSCA_FIFO_EMPTY		(1U << 0)
 #define T32_MSCA_FIFO_COUNT(v)		(((v) >> 8) & 0xf)
 
@@ -59,6 +77,18 @@
 static inline u32 t32_msca_size_word(u32 w, u32 h)
 {
 	return (w << 16) | h;		/* MSCA order: width high */
+}
+
+/*
+ * Scaler step of one axis: input over output in Q14, as the vendor writes
+ * it (3840 -> 1920: 0x8000, -> 1280: 0xc000, -> 640: 0x18000; 2160 -> 480:
+ * 0x12000 vertical).  19 bits (the vendor masks 0x7ffff); 0 for no output.
+ */
+static inline u32 t32_msca_step(u32 in, u32 out)
+{
+	if (!out || in >= (1U << 18))	/* in << 14 stays in 32 bits */
+		return 0;
+	return ((in << 14) / out) & 0x7ffff;
 }
 
 #endif /* TX_ISP_T32_MSCA_H */

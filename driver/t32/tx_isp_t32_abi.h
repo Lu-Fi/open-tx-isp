@@ -43,8 +43,11 @@
 
 /* ---- /dev/isp-m0 ---------------------------------------------------------- */
 #define T32_IOC_TUNING_DEFAULT		0xc0105467U	/* RW {dir, ?, cmd id, ptr/value} */
-#define T32_TUNING_ID_VERSION		0x08000070U	/* libimp GET at EnableTuning; vendor answers 0x000f0001 */
-#define T32_TUNING_VERSION_VALUE	0x000f0001U
+#define T32_TUNING_DIR_SET		0
+#define T32_TUNING_DIR_GET		1
+#define T32_TUNING_ID_SENSOR_FPS	0x08000070U	/* value fps_num << 16 | fps_den; libimp GETs it
+							 * at EnableTuning (vendor: 0x000f0001 for cv8001)
+							 * and SETs it from IMP_ISP_Tuning_SetSensorFPS */
 
 /* ---- /dev/misc-ivdc ------------------------------------------------------- */
 #define T32_IOC_IVDC_GET_DIRECT		0xc0045471U	/* RW int; 0 = not in direct mode */
@@ -147,6 +150,8 @@ struct t32_sensor_reginfo {
 #define T32_VIDEO_FPS			0x44
 #define T32_VIDEO_STATE			0x64
 
+#include "tx_isp_t32_abi_attr.h"
+
 /* struct tx_isp_subdev_ops: core, video, pad, sensor, internal */
 #define T32_OPS_CORE			0x00
 #define T32_OPS_VIDEO			0x04
@@ -168,5 +173,9 @@ struct t32_sensor_reginfo {
 /* tx_isp_call_subdev_notify() events seen from sensors */
 #define T32_EVENT_SUBDEV_INIT		0x01000000U
 #define T32_EVENT_SYNC_SENSOR_ATTR	0x01000001U
+
+/* sensor ops ioctl events (NOTIFICATION_TYPE_SENSOR_OPS 0x02000000 + n) with a
+ * struct { int vinum; int value; } argument */
+#define T32_EVENT_SENSOR_FPS		0x0200000aU	/* value fps_num << 16 | fps_den */
 
 #endif /* TX_ISP_T32_ABI_H */

@@ -61,8 +61,12 @@ TESTS += tx_isp_t23_crumbs_test
 TESTS += tx_isp_t23_scratch_test
 TESTS += tx_isp_t23_mdns_hold_test
 TESTS += tx_isp_t32_mem_rcfg_test
+TESTS += tx_isp_t32_vic_test
 
 tx_isp_t32_mem_rcfg_test: tx_isp_t32_mem_rcfg_test.c ../driver/t32/tx_isp_t32_mem.h ../driver/t32/tx_isp_t32_rcfg.h
+	$(CC) $(CFLAGS) -o $@ $<
+
+tx_isp_t32_vic_test: tx_isp_t32_vic_test.c ../driver/t32/tx_isp_t32_vic.h ../driver/t32/tx_isp_t32_abi_attr.h ../driver/t32/tx_isp_t32_msca.h
 	$(CC) $(CFLAGS) -o $@ $<
 
 TESTS += tx_isp_t23_msca_geom_test
