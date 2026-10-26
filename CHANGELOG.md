@@ -11,6 +11,17 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
   TX_ISP_EVENT_SENSOR_G/S_REGISTER handler got -ENOIOCTLCMD, the ioctl (0xc0385650 / 0x8038564f) still returned 0,
   reads gave back the caller's uninitialised buffer (sc2336 chip id 0x0404 instead of 0xcb3a) and writes were
   dropped. Both now delegate to the sensor driver's own handlers under `sensor_ops_call_mutex`.
+## 2026-10-26 (11): T41 default bin path ioctl (`claude/issue-116`; QEMU T41, .34)
+
+- **IMP_ISP_SetDefaultBinPath (0xc004542a)** is served (issue #116; it fell through to the disabled recovered
+  dispatch and answered -ENOTTY, so OpenIMP's AddSensor failed after SetDefaultBinPath). Like stock
+  `tx_isp_set_default_bin_path` the 132-byte record `{vinum, path[128]}` goes to core+736+vinum*132, the path
+  `ispcore_core_ops_init` hands to `tisp_init`, which loads it instead of `/etc/sensor/<sensor>-t41.bin`. As on
+  stock, vinum >= 2 is logged and answered 0 (the T41 1.2.5 vendor libimp sends only its path buffer); unlike stock an
+  unterminated path is refused (-ENAMETOOLONG). Serialized with SwitchBin, which reads the same path. QEMU T41
+  (gc5603): `/tmp/at/alt.bin` is the file loaded, a missing file fails `tisp_init` (-2) without an oops, frames flow
+  afterwards; the older libimp with the 68-byte record also works. Cam .34 (sc5336, runtime ko swap with the
+  OpenIMP `claude/issue-116` libimp): AddSensor after SetDefaultBinPath -1 -> 0, apitest binpath PASS.
 
 ## 2026-10-26 (9): T40 release-gate oopses (`claude/gate-1026`; host tests, .184)
 

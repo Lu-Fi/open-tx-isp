@@ -558,7 +558,7 @@ node, and `/dev/isp-m0`:
   and with a NULL / unmapped / short user buffer must return `-EFAULT` or
   `-EINVAL`, never corrupt state.
 - A sweep of unsupported/legacy command numbers (e.g. `0x80045413`,
-  `0xc004541c`, `0xc004542a`, the legacy frame `0xc07056c3` group, and random
+  `0xc004541c`, the legacy frame `0xc07056c3` group, and random
   `_IOC` encodings) must return `-ENOTTY` with no log flood and no crash.
 - Repeat each case a few thousand times during live capture and confirm the
   stream, encoder and `dmesg` stay clean (watch for the one-shot

@@ -37717,6 +37717,46 @@ static int t41_ioctl_sensor_register(uintptr_t file, bool write,
     return 0;
 }
 
+/*
+ * Default bin path (0xc004542a, IMP_ISP_SetDefaultBinPath; stock
+ * tx_isp_set_default_bin_path).  The request is 132 bytes {vinum, path[128]}
+ * although the command number says 4.  Stock copies it to core+736+vinum*132;
+ * ispcore_core_ops_init hands core+740 to tisp_init, which loads that file
+ * instead of /etc/sensor/<sensor>-t41.bin when it is not empty.  Stock
+ * logs and answers 0 for vinum >= 2, and so does this handler: the T41 1.2.5
+ * vendor libimp passes only its 64-byte path buffer, so the driver reads the
+ * path text as vinum and drops the request.  Unlike stock, an unterminated
+ * path is refused instead of being stored.  The write is serialized with
+ * SwitchBin, which reads the same path.
+ */
+#define T41_BIN_PATH_RECORD 132U
+
+static int t41_ioctl_set_default_bin_path(uintptr_t file, uint32_t user_arg)
+{
+    unsigned char req[T41_BIN_PATH_RECORD];
+    unsigned char *core = (unsigned char *)(uintptr_t)ispcore_sd;
+    uint32_t vinum;
+
+    if (!file || !user_arg || !t41_load_ptr(file, 136))
+        return -EINVAL;
+    if (!t41_kernel_data_ptr(core))
+        return -ENODEV;
+    if (private_copy_from_user(req, (const void __user *)(uintptr_t)user_arg,
+                               sizeof(req)))
+        return -EFAULT;
+    memcpy(&vinum, req, sizeof(vinum));
+    if (vinum >= 2) {
+        pr_warn_ratelimited("t41: default bin path vinum %u ignored\n", vinum);
+        return 0;
+    }
+    if (strnlen((const char *)req + 4, sizeof(req) - 4) >= sizeof(req) - 4)
+        return -ENAMETOOLONG;
+    mutex_lock(&t41_switch_bin_lock);
+    memcpy(core + 736 + vinum * T41_BIN_PATH_RECORD, req, sizeof(req));
+    mutex_unlock(&t41_switch_bin_lock);
+    return 0;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000014474 origin=fragment_seed original=tx_isp_unlocked_ioctl */
 int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
@@ -37864,6 +37904,14 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     }
     if (a1 == 0xc0085404U) {
         regtrace_ret = t41_ioctl_set_sensor_input(a0, a2);
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               a1, regtrace_ret);
+        return regtrace_ret;
+    }
+    if (a1 == 0xc004542aU) {
+        regtrace_ret = t41_ioctl_set_default_bin_path(a0, a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
                "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
