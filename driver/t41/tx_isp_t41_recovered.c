@@ -21537,8 +21537,10 @@ static int t41_tuning_gamma(unsigned int channel, unsigned int is_get,
         if (ret < 0)
             goto out;
     }
+    /* strength_transform answers 1 for a fixed curve (types 1..4): the
+     * curve is already in info+0x21c and must still reach the LUT */
     ret = tisp_gamma_strength_transform(0);
-    if (!ret)
+    if (ret >= 0)
         ret = tisp_gamma_write_lut_rgb(0);
     printk(KERN_WARNING "t41: gamma attr type=%u fixed=%u ret=%d\n",
            *(uint32_t *)(void *)buf, info[T41_GAMMA_INFO_FIXED], ret);
@@ -37757,6 +37759,60 @@ static int t41_ioctl_set_default_bin_path(uintptr_t file, uint32_t user_arg)
     return 0;
 }
 
+/*
+ * ISP bypass (0x80085418, IMP_ISP_SetISPBypass; stock tx_isp_unlocked_ioctl
+ * case 0x80085418, T41 1.2.5 tx-isp-t41.ko).  The request is 8 bytes
+ * {value, sensor}; stock uses only the value.  It copies the 16-byte input
+ * record of the three frame channels (channel+0xd8: input index, ...), sets
+ * channel 0 to input 4 (the VIC internal input, i.e. the ISP is bypassed,
+ * byte 4 = 0, byte 12 = 1) for a non-zero value or to input 0 otherwise, and
+ * sends the core events 0x01000004 (VIC copies its internal input
+ * descriptors to core+0x2a4) and 0x01000005 (core points channel+0xd4 at the
+ * input descriptor, VIC programs its internal input entry for inputs >= 4).
+ * The vendor header requires the call before IMP_ISP_AddSensor.  Value 0 on
+ * a channel that was never bypassed changes nothing (inputs < 3 are left
+ * alone by both handlers), as on stock.  The stock result is the sum of the
+ * two event results; -ENOIOCTLCMD from a child counts as 0 here.
+ */
+#define T41_EVENT_BYPASS_FILL   0x01000004U
+#define T41_EVENT_BYPASS_INPUT  0x01000005U
+#define T41_CHANNEL_STRIDE      232U
+
+static int t41_ioctl_isp_bypass(uintptr_t file, uint32_t user_arg)
+{
+    uint32_t req[2];
+    uint32_t inputs[12];
+    unsigned char *core = (unsigned char *)(uintptr_t)ispcore_sd;
+    unsigned char *channels;
+    unsigned int i;
+    int ret;
+
+    if (!file || !user_arg || !t41_load_ptr(file, 136))
+        return -EINVAL;
+    if (private_copy_from_user(req, (const void __user *)(uintptr_t)user_arg,
+                               sizeof(req)))
+        return -EFAULT;
+    if (!t41_kernel_data_ptr(core))
+        return -ENODEV;
+    channels = *(unsigned char **)(core + 0x1ac);
+    if (!t41_kernel_data_ptr(channels))
+        return -ENODEV;
+    for (i = 0; i < 3; i++)
+        memcpy(&inputs[i * 4], channels + i * T41_CHANNEL_STRIDE + 0xd8, 16);
+    if (req[0]) {
+        inputs[0] = 4;
+        ((unsigned char *)inputs)[4] = 0;
+        ((unsigned char *)inputs)[12] = 1;
+    } else {
+        inputs[0] = 0;
+    }
+    ret = ispcore_core_ops_ioctl((uintptr_t)core, T41_EVENT_BYPASS_FILL, 0);
+    if (ret)
+        return ret;
+    return ispcore_core_ops_ioctl((uintptr_t)core, T41_EVENT_BYPASS_INPUT,
+                                  (uintptr_t)inputs);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000014474 origin=fragment_seed original=tx_isp_unlocked_ioctl */
 int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
@@ -37912,6 +37968,14 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     }
     if (a1 == 0xc004542aU) {
         regtrace_ret = t41_ioctl_set_default_bin_path(a0, a2);
+        if (t41_runtime_trace)
+            printk(KERN_WARNING
+               "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",
+               a1, regtrace_ret);
+        return regtrace_ret;
+    }
+    if (a1 == 0x80085418U) {
+        regtrace_ret = t41_ioctl_isp_bypass(a0, a2);
         if (t41_runtime_trace)
             printk(KERN_WARNING
                "t41: tx-isp ioctl exit cmd=0x%x ret=%d\n",

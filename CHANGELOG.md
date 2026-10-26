@@ -23,6 +23,19 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
   afterwards; the older libimp with the 68-byte record also works. Cam .34 (sc5336, runtime ko swap with the
   OpenIMP `claude/issue-116` libimp): AddSensor after SetDefaultBinPath -1 -> 0, apitest binpath PASS.
 
+## 2026-10-26 (12): T41 ISP bypass ioctl (`claude/issue-115`; QEMU T41, .34)
+
+- **IMP_ISP_SetISPBypass (0x80085418)** is served (issue #115; it answered -ENOTTY, so OpenIMP returned -4095).
+  Ported from stock `tx_isp_unlocked_ioctl` (T41 1.2.5): the 16-byte input records of the three frame channels
+  (channel+0xd8) are copied, channel 0 is set to input 4 (VIC internal input = ISP bypassed) for a non-zero value or
+  input 0 otherwise, then the core events 0x01000004 and 0x01000005 go through `ispcore_core_ops_ioctl` (core
+  points channel+0xd4 at the input descriptor, VIC programs its internal input entry). The vendor header requires
+  the call before AddSensor; as on stock, value 0 leaves channels that were never bypassed alone. QEMU T41
+  (gc5603): same value 0 on a running ISP returns 0 and frames keep flowing; bypass 1 before AddSensor, Add/Enable/
+  Disable/DelSensor and bypass 0 return 0 without an oops, frames flow afterwards. Cam .34 (sc5336, runtime ko
+  swap): same value 0 PASS; bypass 1 before AddSensor returns 0 but the picture is identical to bypass 0 (Y 97.3 vs
+  97.6), so the VIC internal input routing has no effect in the open driver yet (open gap, see issue 106).
+
 ## 2026-10-26 (9): T40 release-gate oopses (`claude/gate-1026`; host tests, .184)
 
 - **Awb_Get/SetRgbCoefft (0x0800009b)** no longer oopses (agg47: Oops, epc c03d1920): the lifted `tisp_g_coefft_wb` /
