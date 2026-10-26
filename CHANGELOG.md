@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-26 (10): T31 sensor register access (`claude/issue-113`, issue Lu-Fi/openimp#113)
+
+- **IMP_ISP_Get/SetSensorRegister on T31** did not reach the sensor: the attached sensor subdev runs with the
+  driver's delegating `sensor_subdev_ops`, whose core ops had no `g_register`/`s_register`, so the
+  TX_ISP_EVENT_SENSOR_G/S_REGISTER handler got -ENOIOCTLCMD, the ioctl (0xc0385650 / 0x8038564f) still returned 0,
+  reads gave back the caller's uninitialised buffer (sc2336 chip id 0x0404 instead of 0xcb3a) and writes were
+  dropped. Both now delegate to the sensor driver's own handlers under `sensor_ops_call_mutex`.
+
 ## 2026-10-26 (9): T40 release-gate oopses (`claude/gate-1026`; host tests, .184)
 
 - **Awb_Get/SetRgbCoefft (0x0800009b)** no longer oopses (agg47: Oops, epc c03d1920): the lifted `tisp_g_coefft_wb` /

@@ -5383,11 +5383,56 @@ static int sensor_subdev_core_reset(struct tx_isp_subdev *sd, int reset);
 static int sensor_subdev_core_g_chip_ident(struct tx_isp_subdev *sd, struct tx_isp_chip_ident *chip);
 static int sensor_subdev_video_s_stream(struct tx_isp_subdev *sd, int enable);
 
+/*
+ * Sensor register access (IMP_ISP_Get/SetSensorRegister, ioctls 0xc0385650 /
+ * 0x8038564f).  The attached sensor's subdev runs with sensor_subdev_ops, so
+ * isp-m0's TX_ISP_EVENT_SENSOR_G/S_REGISTER handler looks up
+ * sd->ops->core->g_register/s_register here.  Without these two delegators
+ * both events ended in -ENOIOCTLCMD, the ioctl still returned 0 and libimp
+ * handed back whatever was in its stack buffer (issue Lu-Fi/openimp#113:
+ * sc2336 chip id read as 0x0404) and a write never reached the sensor.
+ * Same lock as the other paths into the sensor driver: the sensor can be
+ * removed while /dev/tx-isp stays open.
+ */
+static int sensor_subdev_core_g_register(struct tx_isp_subdev *sd,
+                                         struct tx_isp_dbg_register *reg)
+{
+    struct tx_isp_subdev_ops *ops;
+    int ret = -ENODEV;
+
+    mutex_lock(&sensor_ops_call_mutex);
+    ops = stored_sensor_ops.original_ops;
+    if (ops && ops->core && ops->core->g_register && stored_sensor_ops.sensor_sd)
+        ret = ops->core->g_register(stored_sensor_ops.sensor_sd, reg);
+    else if (ops && ops->core)
+        ret = -ENOIOCTLCMD;
+    mutex_unlock(&sensor_ops_call_mutex);
+    return ret;
+}
+
+static int sensor_subdev_core_s_register(struct tx_isp_subdev *sd,
+                                         const struct tx_isp_dbg_register *reg)
+{
+    struct tx_isp_subdev_ops *ops;
+    int ret = -ENODEV;
+
+    mutex_lock(&sensor_ops_call_mutex);
+    ops = stored_sensor_ops.original_ops;
+    if (ops && ops->core && ops->core->s_register && stored_sensor_ops.sensor_sd)
+        ret = ops->core->s_register(stored_sensor_ops.sensor_sd, reg);
+    else if (ops && ops->core)
+        ret = -ENOIOCTLCMD;
+    mutex_unlock(&sensor_ops_call_mutex);
+    return ret;
+}
+
 /* Sensor subdev core operations */
 static struct tx_isp_subdev_core_ops sensor_subdev_core_ops = {
     .init = sensor_subdev_core_init,
     .reset = sensor_subdev_core_reset,
     .g_chip_ident = sensor_subdev_core_g_chip_ident,
+    .g_register = sensor_subdev_core_g_register,
+    .s_register = sensor_subdev_core_s_register,
 };
 
 /* Sensor subdev video operations */
