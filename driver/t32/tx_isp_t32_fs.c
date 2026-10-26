@@ -165,7 +165,10 @@ static int t32_fs_streamon(struct t32_fchan *f)
 {
 	unsigned long flags;
 	int i, first = -1;
+	u32 in_w, in_h;
 
+	if (t32_core_sensor_size(&in_w, &in_h))
+		return -ENODEV;
 	spin_lock_irqsave(&f->lock, flags);
 	if (f->streaming) {
 		spin_unlock_irqrestore(&f->lock, flags);
@@ -183,10 +186,18 @@ static int t32_fs_streamon(struct t32_fchan *f)
 	f->width = f->buf[first].w[T32_QBUF_SIZE_WORD] & 0xffff;
 	f->height = f->buf[first].w[T32_QBUF_SIZE_WORD] >> 16;
 	f->stride = f->buf[first].w[T32_QBUF_STRIDE_WORD];
+	if (!f->width || !f->height || f->width > in_w || f->height > in_h ||
+	    f->stride < f->width) {
+		/* no upscaling (T23 MSCA rule), and the buffer holds the picture */
+		spin_unlock_irqrestore(&f->lock, flags);
+		isp_printf(2, "tx-isp-t32: framechan%d %ux%u stride %u refused (input %ux%u)\n",
+			   f->ch, f->width, f->height, f->stride, in_w, in_h);
+		return -EINVAL;
+	}
 	for (i = 0; i < f->nbufs; i++)
 		if (f->buf[i].state == BUF_QUEUED)
 			t32_fs_push_locked(f, i);
-	t32_hw_msca_start(f->ch, f->width, f->height, f->stride);
+	t32_hw_msca_start(f->ch, f->width, f->height, f->stride, in_w, in_h);
 	f->streaming = 1;
 	spin_unlock_irqrestore(&f->lock, flags);
 	isp_printf(0, "tx-isp-t32: framechan%d on %ux%u stride %u\n", f->ch,

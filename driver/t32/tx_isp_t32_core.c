@@ -490,8 +490,13 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 			}
 			vi->width = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_MBUS_WIDTH, u32);
 			vi->height = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_MBUS_HEIGHT, u32);
-			if (!vi->input_on)
-				t32_hw_input_setup(vi->width, vi->height);
+			if (!vi->input_on) {
+				void *attr = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_ATTR, void *);
+
+				ret = attr ? t32_hw_input_setup(attr, vi->width, vi->height) : -ENODEV;
+				if (ret)
+					break;
+			}
 			vi->input_on = 1;
 			ia.vinum = (s32)((vi->width << 16) | vi->height);
 		} else {
@@ -584,21 +589,59 @@ static struct miscdevice t32_isp_misc = {
 /* ------------------------------------------------------------------ */
 /* /dev/isp-m0 (tuning), /dev/misc-ivdc, /dev/framechanN              */
 
+/*
+ * Sensor frame rate (isp-m0 tuning id 0x08000070, value num << 16 | den), as
+ * the vendor tisp does it: GET answers the sensor's current rate, SET hands
+ * the rate to the sensor driver (TX_ISP_EVENT_SENSOR_FPS), which reprograms
+ * its frame length over I2C and updates video.fps.
+ */
+static long t32_sensor_fps_set(struct t32_vi *vi, u32 fps)
+{
+	struct { s32 vinum, value; } sv = { 0, (s32)fps };
+	int (*ioctl)(void *sd, unsigned int cmd, void *arg);
+	void *ops, *grp;
+	long ret;
+
+	if (!vi->registered || !vi->sd)
+		return -ENODEV;
+	if (!(fps >> 16) || !(fps & 0xffff))
+		return -EINVAL;
+	ops = T32_AT(vi->sd, T32_SD_OPS, void *);
+	grp = ops ? T32_AT(ops, T32_OPS_SENSOR, void *) : NULL;
+	ioctl = grp ? T32_AT(grp, T32_SENSOR_OPS_IOCTL, void *) : NULL;
+	if (!ioctl)
+		return -ENOIOCTLCMD;
+	ret = ioctl(vi->sd, T32_EVENT_SENSOR_FPS, &sv);
+	isp_printf(ret ? 2 : 1, "tx-isp-t32: sensor fps %u/%u -> %ld (now %#x)\n",
+		   fps >> 16, fps & 0xffff, ret,
+		   T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_FPS, u32));
+	return ret ? -EINVAL : 0;
+}
+
 static long t32_m0_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+	struct t32_vi *vi = &core.vi[0];
 	u32 w[4];
 	long ret = -ENOTTY;
 
 	if (cmd == T32_IOC_TUNING_DEFAULT) {
 		if (copy_from_user(w, (void __user *)arg, sizeof(w)))
 			return -EFAULT;
-		if (w[2] == T32_TUNING_ID_VERSION) {
-			w[3] = T32_TUNING_VERSION_VALUE;
-			ret = copy_to_user((void __user *)arg, w, sizeof(w)) ? -EFAULT : 0;
+		mutex_lock(&core.lock);
+		if (w[2] == T32_TUNING_ID_SENSOR_FPS && w[1] == T32_TUNING_DIR_GET) {
+			if (vi->registered && vi->sd) {
+				w[3] = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_FPS, u32);
+				ret = copy_to_user((void __user *)arg, w, sizeof(w)) ? -EFAULT : 0;
+			} else {
+				ret = -ENODEV;
+			}
+		} else if (w[2] == T32_TUNING_ID_SENSOR_FPS && w[1] == T32_TUNING_DIR_SET) {
+			ret = t32_sensor_fps_set(vi, w[3]);
 		}
+		mutex_unlock(&core.lock);
 		if (t32_trace || ret)
-			isp_printf(ret ? 1 : 0, "tx-isp-t32: isp-m0 tuning dir %u id %#x -> %ld\n",
-				   w[0], w[2], ret);
+			isp_printf(ret ? 1 : 0, "tx-isp-t32: isp-m0 tuning %s id %#x %#x -> %ld\n",
+				   w[1] ? "get" : "set", w[2], w[3], ret);
 		return ret;
 	}
 	isp_printf(1, "tx-isp-t32: isp-m0 ioctl %#x not handled\n", cmd);
@@ -646,7 +689,7 @@ static int t32_proc_show(struct seq_file *m, void *v)
 {
 	struct t32_vi *vi = &core.vi[0];
 
-	seq_printf(m, "tx-isp-t32 (open, S2: frames, no tisp)\n");
+	seq_printf(m, "tx-isp-t32 (open, S3: frames on 3 channels, sensor fps, no tisp)\n");
 	seq_printf(m, "sensor: %s registered %d input %d streaming %d %ux%u\n",
 		   vi->registered ? vi->info.name : "-", vi->registered,
 		   vi->input_on, vi->streaming, vi->width, vi->height);
@@ -656,6 +699,8 @@ static int t32_proc_show(struct seq_file *m, void *v)
 	seq_printf(m, "irqs isp %u vic %u frame ends %u stream ons %u\n",
 		   t32_hw_stats.isp_irqs, t32_hw_stats.vic_irqs,
 		   t32_hw_stats.frame_ends, t32_hw_stats.stream_ons);
+	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
+		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
 	t32_fs_show(m);
 	return 0;
 }
@@ -667,6 +712,18 @@ u32 t32_core_sensor_fps(void)
 	if (!vi->registered || !vi->sd)
 		return 0;
 	return T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_FPS, u32);
+}
+
+/* the MSCA input: the sensor picture of the running input */
+int t32_core_sensor_size(u32 *w, u32 *h)
+{
+	struct t32_vi *vi = &core.vi[0];
+
+	if (!vi->registered || !vi->input_on || !vi->width || !vi->height)
+		return -ENODEV;
+	*w = vi->width;
+	*h = vi->height;
+	return 0;
 }
 
 static int t32_proc_open(struct inode *inode, struct file *file)
@@ -711,7 +768,7 @@ int tx_isp_t32_core_init(void)
 		proc_create("isp-m0", 0444, core.proc, &t32_proc_fops);
 		proc_create("isp-w02", 0444, core.proc, &t32_proc_fops);
 	}
-	pr_info("tx-isp-t32: open driver loaded (S2: frames, no tisp) (memopt %u)\n", isp_memopt);
+	pr_info("tx-isp-t32: open driver loaded (S3: 3 channels, sensor fps, no tisp) (memopt %u)\n", isp_memopt);
 	return 0;
 
 err_hw:

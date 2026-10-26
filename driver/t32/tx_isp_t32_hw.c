@@ -1,25 +1,29 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * T32 ISP hardware access for S2: VIC + MIPI CSI start/stop, the interrupt
- * block, MSCA channel programming and the frame-done path.
+ * T32 ISP hardware access (S2/S3): VIC + MIPI CSI start/stop from the sensor
+ * attributes, the stream-on register list, the interrupt block, MSCA
+ * channel programming (three channels) and the frame-done path.
  *
  * Register values and their order follow the vendor stack's QEMU trace
  * (S0 runs r10/r11, audit/T32_S0_1025.md): VIC input configuration at
  * S_INPUT, IRQ enables + VIC run + CSI/D-PHY at STREAMON, MSCA channel setup
  * and buffer pushes at FRAME_STREAMON/QBUF, done-FIFO drain in the ISP
- * interrupt.  The VIC/CSI words are the ones the vendor wrote for the cv8001
- * RAW10 MIPI mode; deriving them from the sensor attributes is S3 work
- * (no tisp / no image pipeline programming yet).
+ * interrupt.  The VIC/CSI words are derived from the sensor attributes
+ * (tx_isp_t32_vic.h, checked against the cv8001 trace).  No tisp / no image
+ * pipeline programming yet (S4).
  */
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/io.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
+#include <linux/gfp.h>
 
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_regs.h"
 #include "tx_isp_t32_msca.h"
+#include "tx_isp_t32_vic.h"
+#include "tx_isp_t32_rcfg.h"
 
 /* Linux IRQ numbers: INTC source + XBURST_SOC_IRQ_BASE (8) on PRJ007 */
 static int isp_irq = 8 + T32_IRQ_ISP_M0;
@@ -88,11 +92,16 @@ static irqreturn_t t32_vic_irq(int irq, void *dev)
 {
 	u32 s0 = readl(isp_base + T32_VIC_BASE(0) + T32_VIC_INT_STA);
 	u32 s1 = readl(isp_base + T32_VIC_BASE(0) + T32_VIC_INT_STA2);
+	u32 t0 = readl(isp_base + T32_VIC_BASE(1) + T32_VIC_INT_STA);
+	u32 t1 = readl(isp_base + T32_VIC_BASE(1) + T32_VIC_INT_STA2);
 
-	if (!(s0 | s1))
+	if (!(s0 | s1 | t0 | t1))
 		return IRQ_NONE;
+	/* both VICs share the line; the vendor clears both each time */
 	writel(s0, isp_base + T32_VIC_BASE(0) + T32_VIC_INT_CLR);
 	writel(s1, isp_base + T32_VIC_BASE(0) + T32_VIC_INT_CLR2);
+	writel(t0, isp_base + T32_VIC_BASE(1) + T32_VIC_INT_CLR);
+	writel(t1, isp_base + T32_VIC_BASE(1) + T32_VIC_INT_CLR2);
 	t32_hw_stats.vic_irqs++;
 	return IRQ_HANDLED;
 }
@@ -105,11 +114,83 @@ static void t32_vic_wr(int n, u32 off, u32 v)
 	writel(v, isp_base + T32_VIC_BASE(n) + off);
 }
 
-/* VIC input configuration, written by the vendor at S_INPUT (tisp init) */
-void t32_hw_input_setup(u32 w, u32 h)
-{
-	u32 size = (w << 16) | h;
+/* ------------------------------------------------------------------ */
+/* register lists (RCFG, tx_isp_t32_rcfg.h)                          */
 
+#define T32_RCFG_LIST_WORDS	1024
+static unsigned long rcfg_pages;	/* table (256 B) + list */
+static u32 rcfg_pa;
+u32 t32_rcfg_runs, t32_rcfg_timeouts, t32_rcfg_last_len;
+
+/*
+ * The stream-on list.  What the vendor's list carries is tisp state from
+ * the IQ bin (S4); S3 runs the list mechanism with what the driver itself
+ * puts there, which is nothing yet.
+ */
+static void t32_rcfg_stream_on_fill(struct t32_rcfg_list *l)
+{
+}
+
+void t32_hw_rcfg_run_stream_on(void)
+{
+	u32 *table, *list;
+	struct t32_rcfg_list l;
+	u32 list_pa;
+
+	if (!rcfg_pages)
+		return;
+	/* the core reads both through DMA: write them uncached */
+	table = (u32 *)CKSEG1ADDR(rcfg_pa);
+	list = table + T32_RCFG_TABLE_WORDS;
+	list_pa = rcfg_pa + T32_RCFG_TABLE_WORDS * 4;
+	t32_rcfg_init(&l, list, T32_RCFG_LIST_WORDS);
+	t32_rcfg_stream_on_fill(&l);
+	if (l.overflow) {
+		isp_printf(2, "tx-isp-t32: stream-on register list overflow\n");
+		t32_rcfg_init(&l, list, T32_RCFG_LIST_WORDS);
+	}
+	memset(table, 0, T32_RCFG_TABLE_WORDS * 4);
+	table[0] = list_pa;
+	table[T32_RCFG_STREAM_ON_LIST] = list_pa;
+	wmb();
+	isp_wr(T32_RDMA_TABLE, rcfg_pa);
+	isp_wr(T32_RDMA_TRIG, T32_RCFG_STREAM_ON_BIT);
+	isp_wr(T32_RDMA_TRIG2, T32_RCFG_STREAM_ON_BIT);
+	if (t32_wait_clear(T32_RDMA_TRIG, T32_RDMA_BUSY_MASK, 1000)) {
+		t32_rcfg_timeouts++;
+		isp_printf(2, "tx-isp-t32: stream-on register list did not finish\n");
+	}
+	t32_rcfg_runs++;
+	t32_rcfg_last_len = list[0];
+}
+
+static struct t32_csi_cfg csi_cfg;
+static int csi_reset_done;
+
+/*
+ * VIC input configuration, written by the vendor at S_INPUT (tisp init):
+ * both VICs reset, then VIC0 programmed from the sensor attributes
+ * (tx_isp_t32_vic.h), then the MSCA input size.
+ */
+int t32_hw_input_setup(const void *attr, u32 w, u32 h)
+{
+	struct t32_reg_seq seq;
+	u32 size = (w << 16) | h;
+	unsigned int i;
+	int ret;
+
+	ret = t32_vic_input_seq(attr, w, h, &seq);
+	if (!ret)
+		ret = t32_csi_cfg_from_attr(attr, &csi_cfg);
+	if (ret) {
+		isp_printf(2, "tx-isp-t32: sensor interface not supported (dbus %u, csi %u, fmt %u): %d\n",
+			   t32_attr_u32(attr, T32_ATTR_DBUS_TYPE),
+			   t32_attr_u8(attr, T32_ATTR_MIPI_INDEX),
+			   t32_attr_u32(attr, T32_ATTR_SC_CSI_FMT), ret);
+		return ret;
+	}
+	isp_wr(T32_RDMA_IRQ_EN, 0xffffffff);
+	isp_wr(T32_RDMA_IRQ_CLR, 0xffffffff);
 	isp_wr(T32_CORE_IDLE_REQ, 1);
 	isp_wr(0x0024, 0x40000001);
 	isp_wr(0x0070, size);
@@ -118,7 +199,11 @@ void t32_hw_input_setup(u32 w, u32 h)
 	isp_wr(0x0088, 0x100);
 	t32_vic_wr(0, 0x1a8, 0x4444);
 	t32_vic_wr(1, 0x1a8, 0x4444);
+	/* interrupts off (the vendor's reset and its interrupt disable both
+	 * write it: twice, as in the reference trace) */
 	t32_vic_wr(0, T32_VIC_INT_CFG, 0);
+	t32_vic_wr(0, T32_VIC_INT_CFG, 0);
+	t32_vic_wr(1, T32_VIC_INT_CFG, 0);
 	t32_vic_wr(1, T32_VIC_INT_CFG, 0);
 	t32_vic_wr(0, 0x018, 0);
 	t32_vic_wr(1, 0x018, 0);
@@ -126,24 +211,8 @@ void t32_hw_input_setup(u32 w, u32 h)
 	t32_vic_wr(1, T32_VIC_CTRL, 4);
 	if (t32_wait_clear(T32_VIC_RESET_BUSY, 0xf, 1000))
 		isp_printf(2, "tx-isp-t32: VIC reset did not finish\n");
-	t32_vic_wr(0, 0x1a4, 0x000a000a);
-	t32_vic_wr(0, 0x100, 0x4b0);		/* MIPI input, RAW10 (cv8001) */
-	t32_vic_wr(0, 0x01c, 2);
-	t32_vic_wr(0, 0x024, 1);
-	t32_vic_wr(0, 0x014, size);
-	t32_vic_wr(0, 0x10c, 0x2b000);
-	t32_vic_wr(0, 0x110, w << 16);
-	t32_vic_wr(0, 0x114, 0);
-	t32_vic_wr(0, 0x118, 0);
-	t32_vic_wr(0, 0x11c, 0);
-	t32_vic_wr(0, T32_VIC_INT_CFG, 0x80000011);
-	t32_vic_wr(0, 0x204, 0);
-	t32_vic_wr(0, 0x1ac, 0x20000);
-	t32_vic_wr(0, 0x1a8, 0x4440);
-	t32_vic_wr(0, 0x1b0, 0x10);
-	t32_vic_wr(0, 0x1a0, 0);
-	t32_vic_wr(0, 0x104, 0);
-	t32_vic_wr(0, 0x108, 0);
+	for (i = 0; i < seq.n; i++)
+		t32_vic_wr(0, seq.w[i].off, seq.w[i].val);
 	/* MSCA input size and channel defaults */
 	isp_wr(0xf0404, size);
 	isp_wr(0xf0090, 0);
@@ -152,18 +221,25 @@ void t32_hw_input_setup(u32 w, u32 h)
 	isp_wr(T32_MSCA_CH_EN, 0);
 	isp_wr(T32_MSCA_UPDATE, 1);
 	isp_wr(T32_CORE_IDLE_REQ, 0);
+	isp_printf(0, "tx-isp-t32: VIC %ux%u fmt %u line %u words, CSI %u lanes settle %#x\n",
+		   w, h, t32_attr_u32(attr, T32_ATTR_SC_CSI_FMT), seq.w[1].val,
+		   csi_cfg.lanes_m1 + 1, csi_cfg.settle);
+	return 0;
 }
 
 static void t32_csi_start(void)
 {
-	static const u32 lanes[] = { 0x128, 0x1a8, 0x228, 0x2a8, 0x328, 0x3a8 };
-	static const u32 lanes2[] = { 0x160, 0x1e0, 0x260, 0x2e0, 0x360 };
 	int i;
 
-	writel(0, csi_base + 0x0c);
-	writel(1, csi_base + 0x0c);
-	writel(1, csi_base + 0x04);		/* lanes - 1 (2 lanes) */
-	writel(3, csi_base + 0x100);
+	/* the host is reset once per load (vendor: first stream-on only) */
+	if (!csi_reset_done) {
+		writel(0, csi_base + 0x0c);
+		msleep(1);
+		writel(1, csi_base + 0x0c);
+		csi_reset_done = 1;
+	}
+	writel(csi_cfg.lanes_m1, csi_base + 0x04);
+	writel(csi_cfg.host_100, csi_base + 0x100);
 	writel(0, csi_base + 0x08);
 	writel(0, csi_base + 0x10);
 	writel(1, csi_base + 0x10);
@@ -171,20 +247,23 @@ static void t32_csi_start(void)
 	writel(0xffffffff, csi_base + 0x2c);
 	writel(0x7d, dphy_base + 0x000);
 	writel(0, csi_base + 0x80);
-	writel(0x1f, dphy_base + 0x080);
-	for (i = 0; i < ARRAY_SIZE(lanes); i++)
-		writel(0x3f, dphy_base + lanes[i]);
-	for (i = 0; i < ARRAY_SIZE(lanes2); i++)
-		writel(0x19, dphy_base + lanes2[i]);
+	writel(csi_cfg.phy_80, dphy_base + 0x080);
+	for (i = 0; i < 6; i++)
+		writel(csi_cfg.phy_lane, dphy_base + 0x128 + i * 0x80);
+	for (i = 0; i < 5; i++)
+		writel(csi_cfg.settle, dphy_base + 0x160 + i * 0x80);
 }
 
 static void t32_csi_stop(void)
 {
 	writel(0, csi_base + 0x10);
-	writel(0, csi_base + 0x0c);
 }
 
-/* STREAMON: interrupts on, VIC running, CSI up */
+/*
+ * STREAMON in the vendor's order: interrupts on, the stream-on register
+ * list, core run bits, VIC interrupt setup, both VICs reset and run, then
+ * the CSI host and D-PHY.
+ */
 void t32_hw_stream_on(void)
 {
 	isp_wr(T32_INT_EN, 0xffffffff);
@@ -193,9 +272,22 @@ void t32_hw_stream_on(void)
 	isp_wr(T32_MSCADONE_EN, 0xffffffff);
 	isp_wr(T32_INT3_EN, 0xffffffff);
 	isp_wr(T32_INT4_EN, 0xffffffff);
+	t32_hw_rcfg_run_stream_on();
+	isp_wr(0x002c, 2);
+	isp_wr(0x1040, 1);
 	t32_vic_wr(0, T32_VIC_INT_MSK, 0);
 	t32_vic_wr(0, T32_VIC_INT_MSK2, 0);
+	t32_vic_wr(0, T32_VIC_INT_CFG, 0);
+	t32_vic_wr(0, T32_VIC_INT_CFG, 0x80000011);
+	t32_vic_wr(1, T32_VIC_INT_CFG, 0);
+	t32_vic_wr(1, T32_VIC_INT_CFG, 0);
+	t32_vic_wr(0, 0x018, 0);
+	t32_vic_wr(1, 0x018, 0);
+	t32_vic_wr(0, T32_VIC_CTRL, 4);
+	t32_vic_wr(1, T32_VIC_CTRL, 4);
+	t32_wait_clear(T32_VIC_RESET_BUSY, 0xf, 1000);
 	t32_vic_wr(0, T32_VIC_CTRL, 1);
+	t32_vic_wr(1, T32_VIC_CTRL, 1);
 	t32_csi_start();
 	t32_hw_stats.stream_ons++;
 }
@@ -242,16 +334,33 @@ void t32_hw_msca_push(int ch, u32 y, u32 uv)
 	ch_wr(ch, T32_MSCA_UV_CLR, 0);
 }
 
-void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride)
+/*
+ * Channel start in the vendor's order (S3 runs v1/v2, three channels):
+ * the buffers are already pushed; strides, then the channel's size, crop
+ * and scaler steps, then the update and the enable.  in_w x in_h is the
+ * MSCA input (the sensor picture).  The polyphase filter curves the vendor
+ * loads through the shadow port (0xf0820 + ch * 0xa0) are tisp work (S4).
+ */
+void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 {
 	u32 size = t32_msca_size_word(w, h);
 
 	ch_wr(ch, T32_MSCA_Y_STRIDE, stride);
 	ch_wr(ch, T32_MSCA_UV_STRIDE, stride);
-	ch_wr(ch, 0x00, 0);
+	isp_wr(T32_MSCA_CH_EN2, 0);
+	isp_wr(T32_MSCA_UPDATE, 1);
+	ch_wr(ch, T32_MSCA_CTRL, 0);
 	ch_wr(ch, T32_MSCA_SCL_SIZE, size);
+	ch_wr(ch, T32_MSCA_PARAM2, T32_MSCA_PARAM2_DEFAULT);
 	ch_wr(ch, T32_MSCA_CROP_POS, 0);
 	ch_wr(ch, T32_MSCA_CROP_SIZE, size);
+	ch_wr(ch, T32_MSCA_PARAM0, T32_MSCA_PARAM0_DEFAULT);
+	ch_wr(ch, T32_MSCA_PARAM1, T32_MSCA_PARAM1_DEFAULT);
+	ch_wr(ch, T32_MSCA_STEP_H, t32_msca_step(in_w, w));
+	ch_wr(ch, T32_MSCA_STEP_V, t32_msca_step(in_h, h));
+	isp_wr(T32_MSCA_UPDATE, 1);
+	ch_wr(ch, T32_MSCA_Y_CLR, 0);
+	ch_wr(ch, T32_MSCA_UV_CLR, 0);
 	isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) | (1U << ch));
 	isp_wr(T32_MSCA_UPDATE, 1);
 }
@@ -289,6 +398,13 @@ int t32_hw_init(void)
 		ret = -ENOMEM;
 		goto err;
 	}
+	rcfg_pages = __get_free_pages(GFP_KERNEL | __GFP_ZERO,
+				      get_order((T32_RCFG_TABLE_WORDS + T32_RCFG_LIST_WORDS) * 4));
+	if (!rcfg_pages) {
+		ret = -ENOMEM;
+		goto err;
+	}
+	rcfg_pa = virt_to_phys((void *)rcfg_pages);
 	/* nothing latched from an earlier load may fire before we are ready */
 	isp_wr(T32_INT_EN, 0);
 	isp_wr(T32_CHDONE_EN, 0);
@@ -309,6 +425,9 @@ int t32_hw_init(void)
 	return 0;
 err:
 	isp_printf(2, "tx-isp-t32: hardware init failed (%d)\n", ret);
+	if (rcfg_pages)
+		free_pages(rcfg_pages, get_order((T32_RCFG_TABLE_WORDS + T32_RCFG_LIST_WORDS) * 4));
+	rcfg_pages = 0;
 	if (dphy_base)
 		iounmap(dphy_base);
 	if (csi_base)
@@ -321,17 +440,24 @@ err:
 
 void t32_hw_exit(void)
 {
+	int i;
+
 	if (!isp_base)
 		return;
 	t32_hw_stream_off();
-	t32_hw_msca_stop(0);
+	for (i = 0; i < T32_MSCA_CHANNELS; i++)
+		t32_hw_msca_stop(i);
 	if (irqs_requested) {
 		free_irq(vic_irq, &csi_base);
 		free_irq(isp_irq, &isp_base);
 		irqs_requested = 0;
 	}
+	writel(0, csi_base + 0x0c);		/* CSI host back into reset */
+	csi_reset_done = 0;
 	iounmap(dphy_base);
 	iounmap(csi_base);
 	iounmap(isp_base);
 	isp_base = csi_base = dphy_base = NULL;
+	free_pages(rcfg_pages, get_order((T32_RCFG_TABLE_WORDS + T32_RCFG_LIST_WORDS) * 4));
+	rcfg_pages = 0;
 }

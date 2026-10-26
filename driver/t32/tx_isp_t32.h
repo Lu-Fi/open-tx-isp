@@ -20,6 +20,7 @@ int tx_isp_subdev_init(struct platform_device *pdev, void *sd, void *ops);
 void tx_isp_subdev_deinit(void *sd);
 
 u32 t32_core_sensor_fps(void);
+int t32_core_sensor_size(u32 *w, u32 *h);
 
 /* tx_isp_t32_hw.c */
 struct t32_hw_stats {
@@ -28,11 +29,13 @@ struct t32_hw_stats {
 extern struct t32_hw_stats t32_hw_stats;
 int t32_hw_init(void);
 void t32_hw_exit(void);
-void t32_hw_input_setup(u32 w, u32 h);
+int t32_hw_input_setup(const void *attr, u32 w, u32 h);
+void t32_hw_rcfg_run_stream_on(void);
+extern u32 t32_rcfg_runs, t32_rcfg_timeouts, t32_rcfg_last_len;
 void t32_hw_stream_on(void);
 void t32_hw_stream_off(void);
 void t32_hw_msca_push(int ch, u32 y, u32 uv);
-void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride);
+void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h);
 void t32_hw_msca_stop(int ch);
 int t32_hw_msca_pop_done(int ch, u32 *y, u32 *uv);
 
