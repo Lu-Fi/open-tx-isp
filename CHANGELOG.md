@@ -4,6 +4,21 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-26 (11): T21 integration time and WaitFrame (`claude/issue-110`, issue Lu-Fi/openimp#110)
+
+- **IMP_ISP_Tuning_GetIntegrationTime on T21** read mode 0 / it 0 / max 0: the stock dispatcher leaves the
+  0x0800002c block untouched on get, and the driver hook filled only the sinter bytes. The get now also fills the
+  bytes the legacy getter reads: [0x03] manual, u16 [0x18] the integration time in use (live AE value, or the fixed
+  one), u16 [0x1a] the AE exposure ceiling (sensor maximum or the RANGE cap).
+- **SetIntegrationTime MANUAL/AUTO on T21** were no-ops (only RANGE worked): MANUAL now fixes the exposure the way
+  the stock SetExpr MANUAL path does (`tisp_ae_manual_set`: lines at `tisp_ae_ctrls` 0x0c, manual-IT flag 0x34;
+  the AE then only moves the gain), clamped to the sensor limits; AUTO clears the flag. Works with the stock
+  T21 1.0.33 libimp as well as OpenIMP (same block). Beyond vendor (stock oem-t21 ignores the block).
+- **IMP_ISP_Tuning_WaitFrame on T21** returned 0 with the frame count stuck at 0: tuning control 0x08000162 was
+  not handled (stock acknowledges it without writing). Added a 64-bit frame-done count ticked by the VIC
+  frame-done interrupt; the call waits for the next frame (timeout in ms) and returns the count in words 2-3,
+  also on a timeout (-ETIMEDOUT), as the T20 SDK. Host test `t21_it_block_host_test`.
+
 ## 2026-10-26 (10): T31 sensor register access (`claude/issue-113`, issue Lu-Fi/openimp#113)
 
 - **IMP_ISP_Get/SetSensorRegister on T31** did not reach the sensor: the attached sensor subdev runs with the

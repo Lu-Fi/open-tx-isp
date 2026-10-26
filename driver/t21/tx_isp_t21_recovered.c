@@ -3984,7 +3984,12 @@ struct t21_ae_ctrls_view {
 	u32 ev_q10;
 	u32 total_gain_log2;
 	u32 again_log2;
-	u8 reserved[0x40 - 0x30];
+	u32 reserved_30;
+	/* 0x34: integration time fixed (stock tisp_ae_manual_set, SetExpr
+	 * MANUAL): tisp_set_sensor_integration_time then writes the lines at
+	 * 0x0c instead of the AE's value, and ae_tune2 moves only the gain. */
+	u32 it_manual;
+	u8 reserved[0x40 - 0x38];
 };
 
 struct t21_ev_sensor_info_view {
@@ -5677,6 +5682,7 @@ int32_t tisp_s_af_weight(uint32_t a0);
 int32_t tisp_g_af_weight(uint32_t a0);
 int32_t tisp_g_ev_attr(uintptr_t a0);
 static int t21_g_expr(void __user *dst);
+static void t21_ae_it_limits(u32 *min_it, u32 *max_it);
 int32_t tisp_g_wb_attr(void *a0);
 int32_t tisp_s_wb_attr(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6);
 int32_t tisp_g_ae_hist(uint32_t a0);
@@ -7791,6 +7797,8 @@ int32_t isp_vic_interrupt_service_routine(void *arg1)
         else {
             *(uint32_t *)((uintptr_t)s0 + 0x15c) += 1;
             frame_id = *(uint32_t *)((char *)s0 + 0x15c);
+            /* one tick per captured frame for IMP WaitFrame (0x8000162) */
+            t21_frame_done_wakeup();
         }
         vic_frame_id = frame_id;
     }
@@ -32885,6 +32893,7 @@ int32_t tisp_g_ev_attr(uintptr_t a0)
 	BUILD_BUG_ON(offsetof(struct t21_ae_ctrls_view, max_isp_dgain) != 0x20);
 	BUILD_BUG_ON(offsetof(struct t21_ae_ctrls_view, ev_q10) != 0x24);
 	BUILD_BUG_ON(offsetof(struct t21_ae_ctrls_view, total_gain_log2) != 0x28);
+	BUILD_BUG_ON(offsetof(struct t21_ae_ctrls_view, it_manual) != 0x34);
 	BUILD_BUG_ON(offsetof(struct t21_ev_sensor_info_view, fps) != 0x2c);
 	BUILD_BUG_ON(offsetof(struct t21_ev_sensor_info_view, total_lines) != 0x3e);
 	BUILD_BUG_ON(sizeof(struct t21_ev_attr_view) != 0x30);

@@ -35,7 +35,18 @@
  *  - IntegrationTime (same 0x800002c block, [0x52] RANGE): u16 [0x1a]
  *    becomes the AE exposure ceiling (tisp_ae_ctrls max_integration_time,
  *    re-seeded from the sensor by tisp_set_fps), as the T20 3.12.0 AE
- *    caps at stab.global_max_integration_time.  AUTO/MANUAL stay no-ops.
+ *    caps at stab.global_max_integration_time.  MANUAL fixes the
+ *    exposure at u16 [0x18] lines through the stock manual-IT flag
+ *    (tisp_ae_ctrls 0x34, what SetExpr MANUAL sets; the AE then only moves
+ *    the gain), AUTO clears it.  The get side fills [0x03] (manual),
+ *    u16 [0x18] (integration time in use) and u16 [0x1a] (AE ceiling), as
+ *    the T20 3.12.0 libimp reads them back; the stock get left the block
+ *    untouched, so GetIntegrationTime read mode 0 / it 0 / max 0.
+ *  - WaitFrame (0x8000162, get, 0x18-byte isp_frame_done_info): not in the
+ *    stock dispatcher (acknowledged, count never written).  A 64-bit
+ *    frame-done count is ticked by the VIC frame-done interrupt; the call
+ *    waits for the next tick (timeout in ms in word 0) and returns the
+ *    count in words 2-3, also on a timeout (-ETIMEDOUT), as the T20 SDK.
  *  - Temper (3D NR): MANUAL applies the strength through the stock
  *    0x8000085 path, tisp_s_3dns_ratio (128 = tuning file), AUTO puts the
  *    ratio last set through 0x8000085 back (128 if none), DISABLE applies 0.
@@ -83,6 +94,16 @@
 #define T21_IT_B_AUTO		0x3f
 #define T21_IT_B_RANGE		0x52
 #define T21_IT_B_MAX		0x1a	/* u16, RANGE max_integration_time */
+#define T21_IT_B_MANUAL		0x03	/* manual flag (set and get) */
+#define T21_IT_B_TIME		0x18	/* u16, MANUAL integration_time */
+#define T21_IT_B_MANUAL2	0x51
+#define T21_CID_WAIT_FRAME	0x08000162	/* IMP_ISP_Tuning_WaitFrame */
+#define T21_WAIT_FRAME_BYTES	0x18		/* isp_frame_done_info */
+
+#define T21_IT_NONE		(-1)
+#define T21_IT_AUTO		0
+#define T21_IT_MANUAL		1
+#define T21_IT_RANGE		2
 
 static uint32_t t21_scene_mode;			/* V4L2 scene, 0 = auto */
 static uint32_t t21_colorfx = T21_COLORFX_AUTO;
@@ -178,9 +199,94 @@ static inline uint32_t t21_sinter_px(uint32_t v, uint32_t ratio)
 	return s > cap ? cap : s;
 }
 
+/*
+ * Legacy integration-time block on 0x800002c (stock T20 3.12.0 / T21
+ * 1.0.33 libimp, OpenIMP IMP_ISP_Tuning_SetIntegrationTime): which mode a
+ * set block carries.  A sinter block ([70] set), MoveState's plain value
+ * and an empty block are not one (T21_IT_NONE).  MANUAL also carries the
+ * AUTO byte, so it is checked first.
+ */
+static inline int t21_it_block_mode(const uint8_t *blk)
+{
+	if (blk[T21_SINTER_B_VALID])
+		return T21_IT_NONE;
+	if (blk[T21_IT_B_MANUAL])
+		return T21_IT_MANUAL;
+	if (blk[T21_IT_B_RANGE])
+		return T21_IT_RANGE;
+	if (blk[T21_IT_B_AUTO])
+		return T21_IT_AUTO;
+	return T21_IT_NONE;
+}
+
+static inline uint32_t t21_it_block_u16(const uint8_t *blk, unsigned int off)
+{
+	return (uint32_t)blk[off] | ((uint32_t)blk[off + 1] << 8);
+}
+
+/* Get side: the bytes the legacy GetIntegrationTime reads ([0x03] manual,
+ * u16 [0x18] time, u16 [0x1a] maximum); all other bytes stay as given. */
+static inline void t21_it_block_fill(uint8_t *blk, int manual, uint32_t it,
+				     uint32_t max)
+{
+	if (it > 0xffff)
+		it = 0xffff;
+	if (max > 0xffff)
+		max = 0xffff;
+	blk[T21_IT_B_MANUAL] = manual ? 1 : 0;
+	blk[T21_IT_B_TIME] = (uint8_t)it;
+	blk[T21_IT_B_TIME + 1] = (uint8_t)(it >> 8);
+	blk[T21_IT_B_MAX] = (uint8_t)max;
+	blk[T21_IT_B_MAX + 1] = (uint8_t)(max >> 8);
+}
+
 #ifndef T21_TUNING_CTL_HOST_TEST
 
 /* ---- hooks called from the hand-written T21 code ------------------- */
+
+/*
+ * WaitFrame.  The count only ever grows (64 bit, written from the VIC
+ * interrupt only); a waiter sleeps until it differs from the value it
+ * saw on entry, so a frame between two calls is never lost and two
+ * waiters cannot steal each other's wake-up.
+ */
+static atomic64_t t21_frame_done_cnt = ATOMIC64_INIT(0);
+static DECLARE_WAIT_QUEUE_HEAD(t21_frame_done_wq);
+
+static void t21_frame_done_wakeup(void)
+{
+	atomic64_inc(&t21_frame_done_cnt);
+	wake_up_all(&t21_frame_done_wq);
+}
+
+static int t21_wait_frame(void __user *uptr)
+{
+	uint32_t info[T21_WAIT_FRAME_BYTES / 4];
+	unsigned long jif;
+	u64 start, cnt;
+	long w;
+	int ret;
+
+	if (private_copy_from_user(info, uptr, sizeof(info)))
+		return -EFAULT;
+	if ((int32_t)info[0] < 0)
+		return -EINVAL;
+	jif = msecs_to_jiffies(info[0]);
+	if (jif > MAX_SCHEDULE_TIMEOUT - 1)
+		jif = MAX_SCHEDULE_TIMEOUT - 1;
+	start = atomic64_read(&t21_frame_done_cnt);
+	w = wait_event_interruptible_timeout(t21_frame_done_wq,
+		atomic64_read(&t21_frame_done_cnt) != start, jif);
+	if (w == -ERESTARTSYS)
+		return w;
+	ret = w ? 0 : -ETIMEDOUT;
+	cnt = atomic64_read(&t21_frame_done_cnt);
+	info[2] = (uint32_t)cnt;
+	info[3] = (uint32_t)(cnt >> 32);
+	if (private_copy_to_user(uptr, info, sizeof(info)))
+		return -EFAULT;
+	return ret;
+}
 
 /* tiziano_ccm_params_refresh just loaded cm_sat_list from tparams. */
 static void t21_colorfx_after_ccm_refresh(void)
@@ -290,6 +396,39 @@ static void t21_ae_set_it_max(uint32_t lines)
 	if (hi && lines > hi)
 		lines = hi;
 	ACCESS_ONCE(ae->max_integration_time) = lines;
+}
+
+/*
+ * SetIntegrationTime(MODE_MANUAL / MODE_AUTO).  MANUAL does what the stock
+ * tisp_ae_manual_set does for SetExpr MANUAL: the lines go to
+ * tisp_ae_ctrls 0x0c and the manual-IT flag (0x34) is set, so
+ * tisp_set_sensor_integration_time writes them instead of the AE's value
+ * and the AE keeps only the gain; trig_cal = 0 as there.  Clamped to the
+ * sensor's limits (the libimp already rejects 256 lines or more).  AUTO
+ * clears the flag, the AE takes the exposure back with its next frame.
+ */
+static void t21_ae_set_it_manual(uint32_t lines)
+{
+	const struct t21_sensor_ctrl_view *sctrl =
+		(const struct t21_sensor_ctrl_view *)sensor_ctrl;
+	struct t21_ae_ctrls_view *ae = (struct t21_ae_ctrls_view *)tisp_ae_ctrls;
+	uint32_t lo = sctrl->min_integration_time ? sctrl->min_integration_time : 1;
+	uint32_t hi = sctrl->max_integration_time;
+
+	if (lines < lo)
+		lines = lo;
+	if (hi && lines > hi)
+		lines = hi;
+	ACCESS_ONCE(ae->integration_time) = lines;
+	ACCESS_ONCE(ae->it_manual) = 1;
+	*(volatile uint32_t *)trig_cal = 0;
+}
+
+static void t21_ae_set_it_auto(void)
+{
+	struct t21_ae_ctrls_view *ae = (struct t21_ae_ctrls_view *)tisp_ae_ctrls;
+
+	ACCESS_ONCE(ae->it_manual) = 0;
 }
 
 /*
@@ -682,14 +821,21 @@ static int t21_tuning_ctl_s(int32_t *ctl, int32_t *ret)
 		if (private_copy_from_user(blk, (const void __user *)(uintptr_t)v,
 					   sizeof(blk)))
 			return 0;
-		if (!blk[T21_SINTER_B_VALID] && blk[T21_IT_B_RANGE]) {
-			t21_ae_set_it_max(blk[T21_IT_B_MAX] |
-					  (blk[T21_IT_B_MAX + 1] << 8));
+		switch (t21_it_block_mode(blk)) {
+		case T21_IT_RANGE:
+			t21_ae_set_it_max(t21_it_block_u16(blk, T21_IT_B_MAX));
+			*ret = 0;
+			return 1;
+		case T21_IT_MANUAL:
+			t21_ae_set_it_manual(t21_it_block_u16(blk, T21_IT_B_TIME));
+			*ret = 0;
+			return 1;
+		case T21_IT_AUTO:
+			t21_ae_set_it_auto();
 			*ret = 0;
 			return 1;
 		}
-		if (!blk[T21_SINTER_B_VALID] || blk[T21_IT_B_AUTO] ||
-		    blk[T21_IT_B_RANGE])
+		if (!blk[T21_SINTER_B_VALID])
 			return 0;
 		if (blk[T21_SINTER_B_MANUAL]) {
 			t21_sinter_type = 1;
@@ -770,12 +916,23 @@ static int t21_tuning_ctl_g(int32_t *ctl, int32_t *ret)
 		 * an integration-time cap with. */
 		*ret = t21_g_expr((void __user *)(uintptr_t)v);
 		return 1;
-	case T21_CID_SINTER_DNS:
-		/* fill only the sinter bytes; the integration-time getter
-		 * reads other bytes of the same block, which stay as given */
+	case T21_CID_WAIT_FRAME:
+		*ret = t21_wait_frame((void __user *)(uintptr_t)v);
+		return 1;
+	case T21_CID_SINTER_DNS: {
+		const struct t21_ae_ctrls_view *ae =
+			(const struct t21_ae_ctrls_view *)tisp_ae_ctrls;
+		u32 min_it, max_it;
+
+		/* One getter block for both: the sinter getter reads [10],
+		 * [43], [70] and [98], the integration-time getter [0x03],
+		 * u16 [0x18] and u16 [0x1a]; both sets are filled. */
 		if (private_copy_from_user(blk, (const void __user *)(uintptr_t)v,
 					   sizeof(blk)))
 			return 0;
+		t21_ae_it_limits(&min_it, &max_it);
+		t21_it_block_fill(blk, ae->it_manual || ae->manual_mode,
+				  ae->integration_time, max_it);
 		blk[T21_SINTER_B_VALID] = 1;
 		blk[T21_SINTER_B_MANUAL] = t21_sinter_type ? 1 : 0;
 		blk[T21_SINTER_B_MANUAL2] = t21_sinter_type ? 1 : 0;
@@ -783,6 +940,7 @@ static int t21_tuning_ctl_g(int32_t *ctl, int32_t *ret)
 		*ret = private_copy_to_user((void __user *)(uintptr_t)v, blk,
 					    sizeof(blk)) ? -14 : 0;
 		return 1;
+	}
 	default:
 		return 0;
 	}
