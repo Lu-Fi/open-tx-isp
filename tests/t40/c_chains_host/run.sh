@@ -13,6 +13,7 @@ case "$CHAIN" in
 dpc) git -C "$REPO" show "$LIT_REF:driver/t40/tx_isp_t40_dpc_lit.inc" | sed 's/regtrace_t40_dpc_on/lit_t40_dpc_on/g' > "$OUT/lit/dpc_lit.inc" ;;
 lce) git -C "$REPO" show "$LIT_REF:driver/t40/tx_isp_t40_lce_lit.inc" | sed 's/regtrace_t40_lce_on/lit_t40_lce_on/g' > "$OUT/lit/lce_lit.inc" ;;
 sdns) git -C "$REPO" show "$LIT_REF:driver/t40/tx_isp_t40_sdns_lit.inc" > "$OUT/lit/sdns_lit.inc" ;;
+adr) git -C "$REPO" show "${LIT_REF_ADR:-7471ad73}:driver/t40/tx_isp_t40_adr_lit.inc" | sed 's/regtrace_t40_adr_on/lit_t40_adr_on/g' > "$OUT/lit/adr_lit.inc" ;;
 defog) git -C "$REPO" show "${LIT_REF_DEFOG:-1bc9b8e2}:driver/t40/tx_isp_t40_defog_lit.inc" | sed 's/regtrace_t40_defog_on/lit_t40_defog_on/g' > "$OUT/lit/defog_lit.inc" ;;
 *) echo "unknown chain $CHAIN"; exit 2 ;;
 esac

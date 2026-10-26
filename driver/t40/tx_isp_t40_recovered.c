@@ -10867,7 +10867,7 @@ static bool regtrace_t40_dmsc_day_valid;
 #include "tx_isp_t40_lsc_lit.inc"
 #include "tx_isp_t40_sdns.h"
 #include "tx_isp_t40_cdns_lit.inc"
-#include "tx_isp_t40_adr_lit.inc"
+#include "tx_isp_t40_adr.h"
 #include "tx_isp_t40_defog.h"
 #include "tx_isp_t40_lce.h"
 #include "tx_isp_t40_dpc.h"
@@ -13219,7 +13219,7 @@ static void regtrace_t40_ev_fanout(uint32_t again_log2)
     t40_defog_ev_update(ev_q10);
     /* T40-QUALITY4: EV unit probe for the ADR chain (night pedestal): the OEM AE pushes its
      * own 64-bit EV with event 8; t40_adr_ev_shift scales ours by 2^shift (runtime, default 0). */
-    regtrace_adr_ev_update_lit(regtrace_t40_adr_ev_shift >= 0 ?
+    t40_adr_ev_update(regtrace_t40_adr_ev_shift >= 0 ?
                                ev_q10 << regtrace_t40_adr_ev_shift :
                                ev_q10 >> (-regtrace_t40_adr_ev_shift));
     if (regtrace_t40_ev_follow) {
@@ -13256,7 +13256,7 @@ static void regtrace_gc4653_tuning_again_update(uint32_t again_index)
      */
     t40_lce_tgain_update(total);
     t40_dpc_refresh(total);
-    regtrace_adr_tgain_update_lit(total);
+    t40_adr_tgain_update(total);
     /*
      * T40-QUALITY2: with the OEM GIB flow (t40_gib_real) nobody re-ran
      * tisp_gib_a_gian_update, so the GIB black level stayed at the init
@@ -16772,7 +16772,7 @@ static int regtrace_isp_block_init_once(const char *where)
 
     if (regtrace_t40_adr_on && regtrace_t40_gates_oem_offset) {
         regtrace_isp_block_init_adr_ret =
-            regtrace_adr_main_init_lit(adr_width, adr_height);
+            t40_adr_init(adr_width, adr_height);
         /* TOP bit 7 = ADR bypass: clear only after a successful init */
         if (!regtrace_isp_block_init_adr_ret &&
             !(regtrace_t40_force_bypass & BIT(7)))
@@ -24625,9 +24625,8 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
     if (regtrace_enable_ydns)
         REGTRACE_T40_DN_STEP(tisp_ydns_main_init());
     /* OEM tisp_day_or_night_s_ctrl also refreshes ADR from the new bank */
-    if (regtrace_t40_adr_lit_active)
-        REGTRACE_T40_DN_STEP(regtrace_adr_dn_refresh_lit(
-            READ_ONCE(regtrace_running_mode)));
+    if (regtrace_t40_adr_active)
+        REGTRACE_T40_DN_STEP(t40_adr_dn_refresh());
     /* ... and defog (tisp_defog_dn_params_refresh(sensor, width, height)) */
     if (regtrace_t40_defog_active)
         REGTRACE_T40_DN_STEP(t40_defog_dn_refresh(width, height));
@@ -52493,11 +52492,11 @@ static void regtrace_isp_irq_post_dispatch_ack(int32_t irq, void *dev_id)
                     regtrace_isp_stats_fanout_bit_count[__b]++;
                 }
             }
-            if (regtrace_t40_adr_lit_active &&
+            if (regtrace_t40_adr_active &&
                 regtrace_isp_stats_fanout_adr_status0_mask &&
                 (status0 & regtrace_isp_stats_fanout_adr_status0_mask) &&
                 !(status0 & (1U << 9)))
-                regtrace_adr_lit_forced_blocked++;	/* ADR runs only on its own bit 9 */
+                t40_adr_blocked++;	/* ADR runs only on its own bit 9 */
             else if (regtrace_isp_stats_fanout_adr_status0_mask &&
                 (status0 & regtrace_isp_stats_fanout_adr_status0_mask) &&
                 !(status0 & (1U << 9)) && irq_func_cb[9]) {
@@ -175855,7 +175854,7 @@ int32_t tisp_s_module_ratio_attr(uint32_t a0, uintptr_t a1)
             isp_printf(1, "%s: temper ratio %u -> mdns ret=%d\n", "tisp_s_module_ratio_attr", r, mret);
         } else if (i == 2 && a0 == 0) {
             /* DRC ratio -> literal OEM tisp_s_drc_ratio on the private ADR state */
-            int dret = regtrace_adr_drc_ratio_lit();
+            int dret = t40_adr_drc_ratio();
 
             isp_printf(1, "%s: drc ratio %u -> adr ret=%d\n", "tisp_s_module_ratio_attr", r, dret);
         } else if (i == 4 && a0 == 0) {
@@ -188514,7 +188513,7 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
             cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
             cancel_work_sync(&regtrace_isp_block_init_work);
             break;
-        case 3: regtrace_tisp_event_threads_stop(); regtrace_adr_lit_cleanup(); t40_defog_cleanup(); t40_lce_cleanup(); t40_dpc_cleanup(); t40_vawb_cleanup(); break;
+        case 3: regtrace_tisp_event_threads_stop(); t40_adr_cleanup(); t40_defog_cleanup(); t40_lce_cleanup(); t40_dpc_cleanup(); t40_vawb_cleanup(); break;
         case 4: regtrace_dmsc_lit_cleanup(); break;
         case 5: regtrace_lsc_lit_cleanup(); break;
         case 6: regtrace_tisp_main_init_param_free(); tisp_disable_tuning(); break;

@@ -18,6 +18,7 @@ and the WDR table set where the chain has one.
     ./run.sh lce <sensor-t40.bin>... [fuzz:<seed>...]
     ./run.sh sdns <sensor-t40.bin>... [fuzz:<seed>...]
     ./run.sh defog <sensor-t40.bin>... [fuzz:<seed>...]
+    ./run.sh adr <sensor-t40.bin>... [fuzz:<seed>...]
 
 LCE runs whole frames: init at six resolutions (3840x2160 ... 640x360, the last one below the
 OEM minimum cell area, so init must fail on both sides), 160 frames each through the statistics
@@ -41,6 +42,16 @@ runs with the three better-than-OEM fixes off (`t40_defog_dn_cache_reset`, `t40_
 transmission value is stale after a day/night switch and after an EV change, and that the motion weights
 equal an independently computed 5x5 window variance (with the fixes off the same test must find the
 OEM flaws).
+
+ADR (literal from `LIT_REF_ADR`, default `7471ad73`): 200000 random calls of every arithmetic and
+table helper first (bit-serial divisions, split multiply, exp2, table interpolation, resampling,
+knee search, Gaussian weights, curve shaping, curve smoothing), then per bin six parameter variants
+(local light modes 0..3, curve selections 0..4 with mixing weights, the three curve filters, EV
+overrides, rate limit and fade, envelope, luma gains, tone curve, Gaussian weighting, debug readout)
+at four resolutions with frames through IRQ 9 (four DMA slots and a foreign address; garbage,
+realistic, empty and saturated statistics) and event 2, EV and total gain walks, DRC strength 0..255,
+day/night refreshes, session cleanups. The module-lifetime words (frame counter, `adr_kneepoint_x`,
+Gaussian weights, cut points, change flags) are compared as well.
 
 `run.sh` instruments the literal code: a division by zero (the MIPS result is unpredictable)
 or an LCE histogram knot past bin 31 (the OEM writes past its stack array) counts as undefined
