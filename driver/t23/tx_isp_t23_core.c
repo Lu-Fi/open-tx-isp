@@ -93656,8 +93656,9 @@ int32_t tisp_cust_mode_s_ctrl(uint32_t arg1, uint32_t arg2)
 
     mutex_lock(&regtrace_t23_bank_mutex);
     if (!tparams_cust) {
+        /* no custom bank: DISABLE is a no-op (issue 122), ENABLE fails */
         mutex_unlock(&regtrace_t23_bank_mutex);
-        return -1;
+        return (arg2 == 0 && !cust_mode) ? 0 : -1;
     }
 
     if (arg2 == 1) {
@@ -93704,7 +93705,9 @@ int32_t tisp_cust_mode_s_ctrl(uint32_t arg1, uint32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006519c origin=fragment_seed original=tisp_cust_mode_g_ctrl */
 uint32_t tisp_cust_mode_g_ctrl(void)
 {
-    return tparams_cust ? (uint32_t)cust_mode : (uint32_t)-1;
+    /* DISABLE (0) until a custom bank is active; the old answer without a
+     * *-cust-t23.bin was 0xffffffff, not an IMPISPTuningOpsMode (issue 122) */
+    return (uint32_t)cust_mode;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000651bc origin=fragment_seed original=tisp_day_or_night_g_ctrl */

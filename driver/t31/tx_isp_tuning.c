@@ -9701,6 +9701,14 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
 			ret = -ENODEV;
 			break;
 		}
+		/* DISABLE while disabled and no custom bank: nothing to switch
+		 * or re-stage (issue 117; stock fails here, see
+		 * tisp_cust_mode_s_ctrl_locked) */
+		if (ctrl->value == 0 && !tparams_cust &&
+		    tisp_cust_mode_g_ctrl() == 0) {
+			ret = 0;
+			break;
+		}
             ret = tisp_cust_mode_s_ctrl(ctrl->value);
 		if (ret)
 			break;
@@ -16204,8 +16212,12 @@ static int tisp_cust_mode_s_ctrl_locked(uint32_t mode)
 {
 	int ret;
 
+    /* Stock returns -1 for any mode without a *-cust-t31.bin ("make sure
+     * xxx-cust-t31.bin exist"), DISABLE included.  Beyond stock: DISABLE
+     * while the custom bank is not active is a no-op returning 0, so a
+     * streamer writing back the value it read does not fail (issue 117). */
     if (!tparams_cust)
-        return -1;
+        return (mode == 0 && cust_mode == 0) ? 0 : -1;
 
     if (mode == 1) {
         ret = tisp_set_active_param_block(tparams_cust, "custom");

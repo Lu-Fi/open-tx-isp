@@ -4,6 +4,20 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (2): T31/T23 ISP custom mode without a custom bin (`claude/issue-117`; QEMU T31/T23, .26/.30)
+
+- **T31 IMP_ISP_Tuning_SetISPCustomMode(DISABLE)** returned -1 when no `/etc/sensor/<sensor>-cust-t31.bin` is loaded
+  (issue #117). Stock `tisp_cust_mode_s_ctrl` (1.1.6 tx-isp-t31.ko 0x6263c) does the same for every mode ("make sure
+  xxx-cust-t31.bin exist"); beyond stock, DISABLE while the custom bank is not active is now a no-op returning 0
+  (no bank switch, no day/night re-stage), so a streamer writing back the value it read does not fail. ENABLE without
+  a custom bank still fails (-1) without touching the ISP.
+- **T23 IMP_ISP_Tuning_GetISPCustomMode** returned 0xffffffff without a custom bank and writing it back failed
+  (issue #122): the getter now reports the custom state (0 = DISABLE until a custom bank is active), DISABLE without
+  a bank is a no-op returning 0 like on T31.
+- QEMU T31 (sc2336) and T23 (sc2336), apitest `custom`: Set of the value just read -1 -> 0 (T31), Get 4294967295 -> 0
+  and Set -1 -> 0 (T23); frames flow afterwards, no oops. Cam .26 (T31 sc2336) and .30 (T23 sc1a4t), runtime
+  ko swap: the same before/after, apitest `custom` PASS 26 / FAIL 0.
+
 ## 2026-10-26 (11): T21 integration time and WaitFrame (`claude/issue-110`, issue Lu-Fi/openimp#110)
 
 - **IMP_ISP_Tuning_GetIntegrationTime on T21** read mode 0 / it 0 / max 0: the stock dispatcher leaves the
