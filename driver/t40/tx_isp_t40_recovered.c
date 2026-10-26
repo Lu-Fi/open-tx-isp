@@ -135679,43 +135679,19 @@ tisp_defog_wdr_en0x54:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000527c0 origin=model_output original=tisp_defog_param_array_get */
+/*
+ * T40-BSS-STRAY: the lift read the parameter pointer from ".bss + 17424/17420" (the
+ * OEM defog_main/seco_tool_para in the OEM .bss layout; here whatever object the linker
+ * put there), called memcpy through an asm jalr without its arguments and stored
+ * through arg3 unchecked (the tuning-get switch passes NULL).  The parameter block
+ * lives in the C defog now: copy its 812 bytes like the OEM, sensor 0 only.
+ */
 int32_t tisp_defog_param_array_get(int32_t arg1, int32_t arg2, int32_t *arg3)
 {
-    int32_t *data_ptr;
-    uint32_t bss_addr;
-    uint32_t memcpy_addr;
-    
-    /* Use inline assembly to match original relocation pattern for data access */
-    if (arg1 == 0) {
-        __asm__ volatile (
-            "lui $v1, %%hi(.bss + 17424)\n\t"
-            "lw $v0, %%lo(.bss + 17424)($v1)\n\t"
-            : "=r" (data_ptr)
-            :
-            : "$v1", "$v0"
-        );
-    } else {
-        __asm__ volatile (
-            "lui $v1, %%hi(.bss + 17420)\n\t"
-            "lw $v0, %%lo(.bss + 17420)($v1)\n\t"
-            : "=r" (data_ptr)
-            :
-            : "$v1", "$v0"
-        );
-    }
-    
-    /* Use inline assembly to match original memcpy call pattern */
-    __asm__ volatile (
-        "lui $v0, %%hi(memcpy)\n\t"
-        "addiu $v0, $v0, %%lo(memcpy)\n\t"
-        "jalr $v0\n\t"
-        :
-        : "r" (arg2), "r" (data_ptr), "r" (812)
-        : "$v0", "memory"
-    );
-    
-    *arg3 = 812;
-    
+    if (arg1 != 0 || !arg2 || !arg3 || !regtrace_t40_defog_active || !t40_dfg)
+        return -1;
+    memcpy((void *)(uintptr_t)arg2, t40_dfg->tool, T40_DFG_TOOL_BYTES);
+    *arg3 = T40_DFG_TOOL_BYTES;
     return 0;
 }
 
