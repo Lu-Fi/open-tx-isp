@@ -17676,7 +17676,7 @@ struct regtrace_tisp_event_node {
 };
 
 struct regtrace_tisp_event_channel {
-    struct completion done;
+    wait_queue_head_t wq;	/* the event thread sleeps here until an event is queued */
     spinlock_t lock;
     bool initialized;
     struct regtrace_tisp_event_node free_head;
@@ -27564,10 +27564,10 @@ static int regtrace_tisp_event_thread(void *data)
         regtrace_tisp_event_thread_loop_count[channel]++;
         regtrace_tisp_event_thread_last_channel = channel;
         regtrace_tisp_event_thread_last_ret = ret;
+        /* -ENOENT (woken without an event) needs no sleep: the next
+         * tisp_event_process waits on the queue again */
         if (ret == -EAGAIN || ret == -EINVAL)
             msleep(10);
-        else if (ret == -ENOENT)
-            msleep(1);
     }
 
     return 0;
@@ -76282,7 +76282,7 @@ int32_t tisp_event_init(uint32_t a0)
     }
 
     ch = &regtrace_tisp_events[a0];
-    init_completion(&ch->done);
+    init_waitqueue_head(&ch->wq);
     spin_lock_init(&ch->lock);
     ch->initialized = true;
     regtrace_tisp_event_list_init(&ch->free_head);
@@ -76468,8 +76468,8 @@ int64_t tisp_event_push(uint32_t a0, uintptr_t a1)
     node->reserved = 0;
     memcpy(node->args, &src[4], sizeof(node->args));
     regtrace_tisp_event_list_add_tail(&ch->used_head, node);
-    complete(&ch->done);
     spin_unlock_irqrestore(&ch->lock, flags);
+    wake_up(&ch->wq);
 
     regtrace_tisp_event_push_last_event = node->event;
     regtrace_tisp_event_push_last_ret = 0;
@@ -76724,8 +76724,13 @@ int64_t tisp_event_process(uint32_t a0)
     }
 
     if (!in_interrupt() && !irqs_disabled()) {
-        wait_ret = wait_for_completion_timeout(&ch->done, msecs_to_jiffies(20));
-        if (!wait_ret) {
+        /* issue 81: sleep interruptibly until an event is queued (or the
+         * thread is asked to stop) instead of a 20 ms completion poll in D
+         * state plus a 1 ms retry loop on an empty list */
+        wait_ret = wait_event_interruptible_timeout(ch->wq,
+                READ_ONCE(ch->used_head.next) != &ch->used_head ||
+                kthread_should_stop(), HZ);
+        if (wait_ret <= 0) {
             regtrace_tisp_event_process_timeout_count++;
             regtrace_tisp_event_process_last_ret = 0;
             return 0;

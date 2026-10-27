@@ -4,6 +4,16 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (7): T40 tisp event thread sleeps until an event is queued (`claude/issue-81`; QEMU T40)
+
+- **regtrace_tisp_event_thread** (issue #81) polled: `tisp_event_process` waited on a completion with a 20 ms timeout
+  (uninterruptible, the thread sat in D state and counted into the load average) and the loop retried an empty
+  list after `msleep(1)`. The channel now has a wait queue: `tisp_event_push` wakes it after queueing the node
+  (also from the ISR), the thread waits interruptibly for "list not empty or kthread_should_stop()" with a 1 s
+  safety timeout, and the 1 ms retry is gone. QEMU T40 (Eufy image, timpsd running, no ISP frames in the model):
+  50 -> 1 wake-ups per second of tisp-event-0, state D -> S, no oops. The dispatch path with frames (event wake-up
+  latency, AE/AWB per frame) still needs the .184.
+
 ## 2026-10-27 (5): T40 BCSH day/night host test builds again (`claude/issue-87`; host)
 
 - **tests/t40/bcsh_dn_host** (issue #87) included the removed `tx_isp_t40_bcsh_lit.inc`; it now runs the C chain
