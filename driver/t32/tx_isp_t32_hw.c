@@ -22,6 +22,7 @@
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_regs.h"
 #include "tx_isp_t32_msca.h"
+#include "tx_isp_t32_msca_curve.h"
 #include "tx_isp_t32_vic.h"
 #include "tx_isp_t32_rcfg.h"
 
@@ -334,21 +335,74 @@ void t32_hw_msca_push(int ch, u32 y, u32 uv)
 	ch_wr(ch, T32_MSCA_UV_CLR, 0);
 }
 
+/* scaling of the channels whose curves are loaded (others: the flat box) */
+static struct {
+	u32 in_w, in_h, w, h;
+	bool on;
+} curve_geom[T32_MSCA_CHANNELS];
+
+static void curve_words(int ch, bool vertical, unsigned int words[T32_CURVE_WORDS])
+{
+	int c[T32_CURVE_TAPS];
+
+	if (!curve_geom[ch].on)
+		t32_msca_curve_box(c);
+	else if (vertical)
+		t32_msca_curve(curve_geom[ch].in_h, curve_geom[ch].h, c);
+	else
+		t32_msca_curve(curve_geom[ch].in_w, curve_geom[ch].w, c);
+	t32_msca_curve_pack(c, words);
+}
+
+/*
+ * Polyphase curves of all channels through the shadow port, as the vendor
+ * tisp loads them at every channel start (tisp_msca_ch_curve_write):
+ * BEGIN, (value, offset) pairs, the tail field, END, the pair count.
+ */
+static void t32_hw_msca_load_curves(void)
+{
+	unsigned int words[T32_CURVE_WORDS], tail = 0;
+	int ch, v, i, pairs = 0;
+
+	isp_wr(T32_MSCA_SHADOW_OPEN, T32_MSCA_SHADOW_BEGIN);
+	for (ch = 0; ch < T32_MSCA_CHANNELS; ch++)
+		for (v = 0; v < 2; v++) {
+			u32 base = T32_MSCA_CURVE(ch) + (v ? T32_MSCA_CURVE_V : 0);
+
+			curve_words(ch, v, words);
+			for (i = 0; i < T32_CURVE_WORDS; i++, pairs++) {
+				isp_wr(T32_MSCA_SHADOW_DATA, words[i]);
+				isp_wr(T32_MSCA_SHADOW_DATA, base + i * 4);
+			}
+			tail = words[T32_CURVE_WORDS - 1];
+		}
+	isp_wr(T32_MSCA_SHADOW_DATA, (tail & 0xffff) | T32_MSCA_CURVE_TAIL_FIELD);
+	isp_wr(T32_MSCA_SHADOW_DATA, T32_MSCA_CURVE_TAIL);
+	isp_wr(T32_MSCA_SHADOW_OPEN, T32_MSCA_SHADOW_END);
+	isp_wr(T32_MSCA_SHADOW_COUNT, pairs << 4 | 1);
+}
+
 /*
  * Channel start in the vendor's order (S3 runs v1/v2, three channels):
- * the buffers are already pushed; strides, then the channel's size, crop
- * and scaler steps, then the update and the enable.  in_w x in_h is the
- * MSCA input (the sensor picture).  The polyphase filter curves the vendor
- * loads through the shadow port (0xf0820 + ch * 0xa0) are tisp work (S4).
+ * the buffers are already pushed; strides, the polyphase curves (S4,
+ * tx_isp_t32_msca_curve.h), then the channel's size, crop and scaler steps,
+ * the filter select pulse, the update and the enable.  in_w x in_h is the
+ * MSCA input (the sensor picture).
  */
 void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 {
 	u32 size = t32_msca_size_word(w, h);
 
+	curve_geom[ch].in_w = in_w;
+	curve_geom[ch].in_h = in_h;
+	curve_geom[ch].w = w;
+	curve_geom[ch].h = h;
+	curve_geom[ch].on = true;
 	ch_wr(ch, T32_MSCA_Y_STRIDE, stride);
 	ch_wr(ch, T32_MSCA_UV_STRIDE, stride);
 	isp_wr(T32_MSCA_CH_EN2, 0);
 	isp_wr(T32_MSCA_UPDATE, 1);
+	t32_hw_msca_load_curves();
 	ch_wr(ch, T32_MSCA_CTRL, 0);
 	ch_wr(ch, T32_MSCA_SCL_SIZE, size);
 	ch_wr(ch, T32_MSCA_PARAM2, T32_MSCA_PARAM2_DEFAULT);
@@ -358,6 +412,8 @@ void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 	ch_wr(ch, T32_MSCA_PARAM1, T32_MSCA_PARAM1_DEFAULT);
 	ch_wr(ch, T32_MSCA_STEP_H, t32_msca_step(in_w, w));
 	ch_wr(ch, T32_MSCA_STEP_V, t32_msca_step(in_h, h));
+	ch_wr(ch, T32_MSCA_FILTER_SEL, T32_MSCA_FILTER_SEL_DEFAULT(ch));
+	ch_wr(ch, T32_MSCA_FILTER_SEL, 0);
 	isp_wr(T32_MSCA_UPDATE, 1);
 	ch_wr(ch, T32_MSCA_Y_CLR, 0);
 	ch_wr(ch, T32_MSCA_UV_CLR, 0);
@@ -367,6 +423,7 @@ void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 
 void t32_hw_msca_stop(int ch)
 {
+	curve_geom[ch].on = false;
 	isp_wr(T32_MSCA_CH_EN, isp_rd(T32_MSCA_CH_EN) & ~(1U << ch));
 	isp_wr(T32_MSCA_UPDATE, 1);
 	ch_wr(ch, T32_MSCA_Y_CLR, 1);

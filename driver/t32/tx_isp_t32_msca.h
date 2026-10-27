@@ -45,7 +45,7 @@
 #define T32_MSCA_CTRL			0x00	/* 0 at channel start */
 #define T32_MSCA_STEP_V			0x10	/* input / output height, Q14 */
 #define T32_MSCA_STEP_H			0x14	/* input / output width, Q14 */
-#define T32_MSCA_FILTER_SEL		0x28	/* pulse; filter choice from the IQ bin (S4) */
+#define T32_MSCA_FILTER_SEL		0x28	/* pulse at channel start, value from the IQ bin */
 #define T32_MSCA_PARAM0			0x70	/* tisp channel parameters (IQ bin, S4) */
 #define T32_MSCA_PARAM1			0x74
 #define T32_MSCA_PARAM2			0x78
@@ -59,6 +59,9 @@
 #define T32_MSCA_PARAM0_DEFAULT		0x025800c8U	/* (600 << 16) | 200 */
 #define T32_MSCA_PARAM1_DEFAULT		0x80008080U
 #define T32_MSCA_PARAM2_DEFAULT		0x00000f00U
+/* +0x28 pulse per channel (written, then 0): the cv8001/PRJ007 values of
+ * the vendor runs until the IQ bin parser provides them */
+#define T32_MSCA_FILTER_SEL_DEFAULT(ch)	((ch) == 0 ? 0x41U : (ch) == 1 ? 0x01U : 0x00U)
 
 #define T32_MSCA_FIFO_EMPTY		(1U << 0)
 #define T32_MSCA_FIFO_COUNT(v)		(((v) >> 8) & 0xf)

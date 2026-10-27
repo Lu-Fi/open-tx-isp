@@ -81,5 +81,16 @@
 #define T32_MSCA_CH(n)			(0xf0100 + (n) * 0x100)
 #define T32_MSCA_SHADOW_OPEN		0xf8000	/* (value, offset) pair port */
 #define T32_MSCA_SHADOW_DATA		0xf8004
+#define T32_MSCA_SHADOW_COUNT		0xf8100	/* pairs << 4 | 1 after a block */
+#define T32_MSCA_SHADOW_BEGIN		0x00000101U	/* to SHADOW_OPEN, before the pairs */
+#define T32_MSCA_SHADOW_END		0x01010102U	/* to SHADOW_OPEN, after them */
+/* polyphase curves (shadow port targets): channel n at 0xf0820 + n * 0xa0,
+ * 13 words horizontal, then 13 words vertical at +0x50 */
+#define T32_MSCA_CURVE(n)		(0xf0820 + (n) * 0xa0)
+#define T32_MSCA_CURVE_V		0x50
+/* the last vertical word of channel 2 also holds a field the vendor sets to
+ * 0x5a (bits 22:16) with one more pair after the curves, not counted */
+#define T32_MSCA_CURVE_TAIL		0xf09e0
+#define T32_MSCA_CURVE_TAIL_FIELD	(0x5aU << 16)
 
 #endif /* TX_ISP_T32_REGS_H */

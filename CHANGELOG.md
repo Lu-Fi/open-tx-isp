@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (10): T32 S4 step 1: MSCA polyphase filter curves (`claude/t32-s4`; host, QEMU T32)
+
+- **MSCA filter curves** (issue #97): each channel start loads the curves of all three channels through the shadow port, as
+  the vendor tisp does (ratio out/in Q14, 25 kernel samples, 8 phases x 6 taps normalised to 2048, 13 words per direction).
+  Own computed kernel table (`tools/t32_msca_sinc_tab.py`); 6 of 75 coefficients differ from the vendor's by 1/2048. The
+  `+0x28` filter-select pulse is written as the vendor does. Host test `tx_isp_t32_msca_curve_test` (vendor coefficients
+  from our QEMU traces). QEMU: 3 channels 8/8 frames, MSCA writes as the vendor run v1 apart from the curve LSBs.
+
 ## 2026-10-27 (8): T40 vendor AWB: colour-temperature detector in C (`claude/issue-133`; host + QEMU T40, not yet on the device)
 
 - **tisp-event-0 CPU** (issue #133): the event thread of the Eufy T40 used ~30 ms CPU per frame (~60 % of one core at

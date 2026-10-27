@@ -84,13 +84,30 @@ generation-shared come from the shared code instead:
   its HTS/VTS registers): ch0 1080p + ch1 640x360 + ch2 720p at 14.7 fps
   (sensor 15/1), `SetSensorFPS(10/1)` -> 9.9 fps, 5 reload cycles clean.
 
+## S4 (in progress): MSCA polyphase curves
+
+- At every channel start the driver loads the polyphase filter curves of all
+  three channels through the MSCA shadow port (`tx_isp_t32_msca_curve.h`,
+  flow of the vendor `tisp_msca_curve_calc` / `tisp_msca_ch_curve_write`):
+  ratio out/in in Q14 (limit 27306), 25 samples of a Lanczos-2 shaped kernel,
+  8 phases x 6 taps normalised to 2048, 13 words per direction at
+  `0xf0820 + ch * 0xa0` (vertical +0x50), the tail field 0x5a at `0xf09e0`,
+  the pair count to `0xf8100`. Unused channels get the flat 6-tap box.
+  The kernel table is computed (`tools/t32_msca_sinc_tab.py`), not the
+  vendor's: against the vendor's QEMU writes (3840x2160 to 1080p, 720p,
+  640x360) 6 of 75 coefficients differ by 1 of 2048, the 1:6 curve is
+  identical. The vendor leaves a not yet used channel 2 out of the first
+  blocks; the driver always loads all three.
+- `+0x28` filter-select pulse per channel (cv8001/PRJ007 values 0x41, 0x01,
+  0x00 until the IQ bin parser provides them), as the vendor.
+- QEMU (run s4a, vendor libimp 2.2.0): 3 channels 1080p/640x360/720p 8/8
+  frames each, 14.7 fps; MSCA writes = vendor run v1 except the curve LSBs.
+
 ## Not yet (S4+)
 
 No tisp/3A, no IQ bin parsing (the bin's physical address is kept), no
 image-pipeline register programming (the QEMU model does not process pixels,
-so this needs a camera); the stream-on list is empty. MSCA polyphase filter
-curves (vendor: shadow port 0xf0820 + ch * 0xa0, computed per scale ratio)
-and the per-channel filter select are not loaded; the channel parameter words
+so this needs a camera); the stream-on list is empty. The channel parameter words
 are the vendor's cv8001/PRJ007 values until the bin parser provides them.
 Day/night, WDR, LDC, OSD, IVDC direct mode, AOV/RISC-V hand-over: off.
 
@@ -100,7 +117,7 @@ Day/night, WDR, LDC, OSD, IVDC direct mode, AOV/RISC-V hand-over: off.
 make -C $KDIR M=$PWD/driver/t32 ARCH=mips CROSS_COMPILE=mipsel-linux- modules
 ```
 against a thingino T32 kernel 4.4.94 tree. Host tests:
-`make -C tests tx_isp_t32_mem_rcfg_test tx_isp_t32_vic_test`.
+`make -C tests tx_isp_t32_mem_rcfg_test tx_isp_t32_vic_test tx_isp_t32_msca_curve_test`.
 
 ## Module parameters
 
