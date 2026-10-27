@@ -106,6 +106,13 @@ without writing the MSCA), `osd_commits` and `osd_busy_skips` (0444).
 The draw blocks (`SetDrawBlock`, stock `tisp_msca_api_set_line`) and the
 mask blocks (`tisp_msca_api_set_mask`) are still stored only.
 
+Beyond stock (stability guard): `SetOSDBlock` with enable = 1 and an odd
+picture width returns `-EINVAL` and stores nothing (stock takes it). With
+an odd width written into the MSCA the ISP stops delivering frames (QEMU
+T23 model: an odd-width picture shown through the region API stopped both
+frame channels; with the guard the call fails and frames keep flowing at
+the same rate). Disabling a block (enable != 1) is not checked.
+
 ## MSCA geometry check (crop hang)
 
 A front crop window smaller than a channel output (the MSCA cannot

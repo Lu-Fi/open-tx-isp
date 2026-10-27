@@ -356,6 +356,7 @@ static void test_autozoom(void)
 static void test_osd_draw(void)
 {
 	uint8_t m[T23X_MSCA_BYTES], msca[168], in[32], out[32];
+	static uint8_t snap[T23X_MSCA_BYTES];
 	uint8_t *d;
 	int quirk;
 
@@ -402,6 +403,12 @@ static void test_osd_draw(void)
 	assert(t23x_osd_block_set(m, msca, in, &quirk) == 0 && quirk == 1);
 	assert(t23x_le16_get(t23x_osd_geo(m, 2) + 4) == 2000);
 	t23x_le16_put(t23x_osd_geo(m, 2) + 4, 640);
+	/* odd picture width: refused before anything is written (beyond stock) */
+	memcpy(snap, m, T23X_MSCA_BYTES);
+	t23x_le16_put(in + 6, 101);
+	assert(t23x_osd_block_set(m, msca, in, &quirk) == -EINVAL && !quirk);
+	assert(memcmp(snap, m, T23X_MSCA_BYTES) == 0);
+	t23x_le16_put(in + 6, 100);
 	in[1] = 0;                                      /* disable */
 	assert(t23x_osd_block_set(m, msca, in, &quirk) == 0);
 	d = t23x_osd_dat(m, 2);

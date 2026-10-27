@@ -533,7 +533,10 @@ static inline int t23x_mask_block_get(const uint8_t *msca, const uint8_t *in,
  *
  * Stock checks no block / entry index; here an OSD block above 7 and a draw
  * block above 5 (the 8 and 6 entries the MSCA update walks) are refused with
- * -EINVAL, nothing written.  Stock Get passes an uninitialised stack local,
+ * -EINVAL, nothing written.  Stock also takes an enabled OSD block with an
+ * odd picture width, which stops the ISP (no more frame-done interrupts in
+ * the T23 QEMU model); here such a block is refused with -EINVAL before
+ * anything is compared or written (stability guard, beyond stock).  Stock Get passes an uninitialised stack local,
  * so it neither knows the index nor defines the bytes it leaves; here the
  * user's block is read first (index) and the bytes stock leaves out are 0 /
  * the user's.  The stored OSD pictures are written into the MSCA by the
@@ -604,7 +607,7 @@ static inline uint8_t *t23x_osd_dat(uint8_t *m, unsigned int n)
 
 /*
  * tisp_s_osd_block_attr.  msca: the stock msca object (channel 0 limits).
- * Returns 0, -EINVAL (index refused, beyond stock) or -ERANGE (x + w or
+ * Returns 0, -EINVAL (index or odd picture width refused, beyond stock) or -ERANGE (x + w or
  * y + h beyond the limits: the stock helper logs and returns -1, but the
  * stock s_ctrl discards that result, so the user call still returns 0 and
  * nothing is stored).  *quirk is set to 1 when the stock code logged the
@@ -627,6 +630,9 @@ static inline int t23x_osd_block_set(uint8_t *m, const uint8_t *msca,
 	lim_w = t23x_le32_get(msca + T23X_MSCA_LIMIT_W_OFF);
 	lim_h = t23x_le32_get(msca + T23X_MSCA_LIMIT_H_OFF);
 	if (in[1] == 1U) {
+		/* beyond stock: an odd picture width stops the ISP (QEMU T23) */
+		if (t23x_le16_get(in + 6) & 1U)
+			return -EINVAL;
 		if (lim_w < t23x_le16_get(g + 4) || lim_h < t23x_le16_get(g + 6)) {
 			if (quirk)
 				*quirk = 1;

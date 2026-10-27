@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (7): T23 ISP OSD: odd picture width refused (`claude/t23-osd-oddwidth`; host test, QEMU T23)
+
+- **SetOSDBlock** (0x08000182) with enable = 1 and an odd picture width now returns `-EINVAL` before anything is
+  compared or stored (beyond stock: the stock handler takes it). Reason: an odd width written into the MSCA stops the
+  T23 ISP. QEMU T23 (sc2336, `isp_osd_devtest` phase p5oddw): next without the guard stored the 127-pixel block,
+  showed it and both frame channels stopped (devtest stuck, "2 of 2 buffers still queued" at stream off); with the
+  guard the direct SetOSDBlock fails, the region show returns -1, block 2 stays disabled, ch1 20.4 fps before and after.
+  Host test: `tests/tx_isp_t23_tuning_ext_test.c` (refused, mscaler byte-identical); `make -C tests check` 104 passed.
+
 ## 2026-10-27 (6): T41 AE tuning API: statistics, histThresh, FaceAe, AeExpList (`claude/issue-90`; host test, QEMU T41, .34 by runtime swap)
 
 - **GetAeStatistics** (0x08000022) now answers like the stock `tisp_g_ae_statis_attr` from what the vendor AE computed for the
