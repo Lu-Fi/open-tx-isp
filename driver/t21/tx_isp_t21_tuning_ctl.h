@@ -32,6 +32,11 @@
  *    (MANUAL; AUTO = 128), at most up to the 8-bit field limit.  The
  *    stren factors themselves are small integers (0..8 in the jxf23
  *    tuning), too coarse to scale.
+ *  - MoveState (same 0x800002c block, vendor T20/T21/T31 libimp logic):
+ *    the day block caps the AE exposure at u16 [26] (3/5 of the ceiling
+ *    in use) as RANGE does, DisableMovestate's block puts the captured
+ *    ceiling back.  Its sinter/temper/sharpening bytes (system_tab
+ *    thresholds of the Apical T20 ISP, no T21 equivalent) are not applied.
  *  - IntegrationTime (same 0x800002c block, [0x52] RANGE): u16 [0x1a]
  *    becomes the AE exposure ceiling (tisp_ae_ctrls max_integration_time,
  *    re-seeded from the sensor by tisp_set_fps), as the T20 3.12.0 AE
@@ -85,7 +90,9 @@
 /* IMPISPSinterDenoiseAttr as the T21 1.0.33 libimp sends it on 0x800002c:
  * a zeroed 0x70-byte block, [70] = 1, MANUAL also [10] = [98] = 1 and
  * [43] = strength.  The same CID carries the legacy integration-time
- * block ([0x3f]/[0x52] set, never [70]) and MoveState (a plain 0/1). */
+ * block ([0x3f]/[0x52] set, never [70]) and MoveState (the T20 system_tab
+ * motion block, recognised by its sinter/temper/sharpening enable bytes;
+ * older libimps sent a plain 0/1). */
 #define T21_SINTER_BLOCK	0x70
 #define T21_SINTER_B_MANUAL	10
 #define T21_SINTER_B_STRENGTH	43
@@ -97,6 +104,9 @@
 #define T21_IT_B_MANUAL		0x03	/* manual flag (set and get) */
 #define T21_IT_B_TIME		0x18	/* u16, MANUAL integration_time */
 #define T21_IT_B_MANUAL2	0x51
+/* enable bytes every MoveState block carries (Enable day/night, Disable):
+ * manual temper, sinter max/min strength, temper target */
+static const uint8_t t21_move_b_enable[] = { 71, 99, 100, 101 };
 #define T21_CID_WAIT_FRAME	0x08000162	/* IMP_ISP_Tuning_WaitFrame */
 #define T21_WAIT_FRAME_BYTES	0x18		/* isp_frame_done_info */
 
@@ -104,6 +114,7 @@
 #define T21_IT_AUTO		0
 #define T21_IT_MANUAL		1
 #define T21_IT_RANGE		2
+#define T21_IT_MOVE		3	/* MoveState block */
 
 static uint32_t t21_scene_mode;			/* V4L2 scene, 0 = auto */
 static uint32_t t21_colorfx = T21_COLORFX_AUTO;
@@ -202,12 +213,19 @@ static inline uint32_t t21_sinter_px(uint32_t v, uint32_t ratio)
 /*
  * Legacy integration-time block on 0x800002c (stock T20 3.12.0 / T21
  * 1.0.33 libimp, OpenIMP IMP_ISP_Tuning_SetIntegrationTime): which mode a
- * set block carries.  A sinter block ([70] set), MoveState's plain value
- * and an empty block are not one (T21_IT_NONE).  MANUAL also carries the
- * AUTO byte, so it is checked first.
+ * set block carries.  A MoveState block (T21_IT_MOVE) also sets [70] and
+ * [82], so it is checked first.  A sinter block ([70] set) and an empty
+ * block are not one (T21_IT_NONE).  MANUAL also carries the AUTO byte, so
+ * it is checked before AUTO.
  */
 static inline int t21_it_block_mode(const uint8_t *blk)
 {
+	unsigned int i, move = 1;
+
+	for (i = 0; i < sizeof(t21_move_b_enable); i++)
+		move &= blk[t21_move_b_enable[i]] != 0;
+	if (move)
+		return T21_IT_MOVE;
 	if (blk[T21_SINTER_B_VALID])
 		return T21_IT_NONE;
 	if (blk[T21_IT_B_MANUAL])
@@ -816,12 +834,19 @@ static int t21_tuning_ctl_s(int32_t *ctl, int32_t *ret)
 		*ret = 0;
 		return 1;
 	case T21_CID_SINTER_DNS:
-		/* MoveState passes 0/1, not a pointer: the copy fails and the
-		 * stock no-op answers, as before. */
+		/* an old MoveState passes 0/1, not a pointer: the copy fails
+		 * and the stock no-op answers */
 		if (private_copy_from_user(blk, (const void __user *)(uintptr_t)v,
 					   sizeof(blk)))
 			return 0;
 		switch (t21_it_block_mode(blk)) {
+		case T21_IT_MOVE:
+			/* day block / restore: [82] RANGE with the ceiling in
+			 * u16 [26]; the night block carries no exposure */
+			if (blk[T21_IT_B_RANGE] && t21_it_block_u16(blk, T21_IT_B_MAX))
+				t21_ae_set_it_max(t21_it_block_u16(blk, T21_IT_B_MAX));
+			*ret = 0;
+			return 1;
 		case T21_IT_RANGE:
 			t21_ae_set_it_max(t21_it_block_u16(blk, T21_IT_B_MAX));
 			*ret = 0;

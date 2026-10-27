@@ -2,7 +2,8 @@
  * (tx_isp_t21_tuning_ctl.h, issue openimp#110).  The set blocks are built
  * as the T20 3.12.0 / T21 1.0.33 libimp (and OpenIMP) send them; the get
  * fill must give GetIntegrationTime its mode/time/maximum back and leave
- * the sinter bytes alone. */
+ * the sinter bytes alone.  MoveState blocks (vendor T20/T21/T31 libimp
+ * logic, OpenIMP openimp_t31_movestate_block) are recognised as such. */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -31,6 +32,20 @@ static void it_set_block(uint8_t *ae, int mode, uint16_t it, uint16_t max)
 	}
 }
 
+/* the enable bytes the MoveState blocks carry (day, night, restore) */
+static void move_block(uint8_t *ae, int day, uint16_t max)
+{
+	memset(ae, 0, T21_SINTER_BLOCK);
+	ae[11] = 1;
+	if (day) {
+		memcpy(ae + 26, &max, 2);
+		ae[43] = 1;
+		ae[10] = ae[70] = ae[82] = ae[98] = 1;
+	}
+	ae[71] = ae[101] = ae[99] = ae[100] = 1;
+	ae[90] = ae[91] = ae[93] = ae[94] = 1;
+}
+
 int main(void)
 {
 	uint8_t b[T21_SINTER_BLOCK];
@@ -56,6 +71,25 @@ int main(void)
 	b[T21_SINTER_B_MANUAL] = b[T21_SINTER_B_MANUAL2] = 1;
 	b[T21_SINTER_B_STRENGTH] = 200;
 	bad += t21_it_block_mode(b) != T21_IT_NONE;
+
+	/* MoveState: day (exposure cap in u16 [26] with [82]), night (none),
+	 * the restore block (get block + enable bytes) */
+	move_block(b, 1, 720);
+	bad += t21_it_block_mode(b) != T21_IT_MOVE;
+	bad += !b[T21_IT_B_RANGE] || t21_it_block_u16(b, T21_IT_B_MAX) != 720;
+	move_block(b, 0, 0);
+	bad += t21_it_block_mode(b) != T21_IT_MOVE || b[T21_IT_B_RANGE];
+	memset(b, 0, sizeof(b));
+	t21_it_block_fill(b, 0, 300, 1200);
+	b[T21_SINTER_B_VALID] = 1;
+	b[71] = b[82] = b[70] = b[101] = b[99] = 1;
+	b[100] = b[90] = b[91] = b[93] = b[94] = 1;
+	bad += t21_it_block_mode(b) != T21_IT_MOVE || t21_it_block_u16(b, T21_IT_B_MAX) != 1200;
+	/* a sinter MANUAL block is no MoveState block */
+	memset(b, 0, sizeof(b));
+	b[T21_SINTER_B_VALID] = b[T21_SINTER_B_MANUAL] = b[T21_SINTER_B_MANUAL2] = 1;
+	b[T21_SINTER_B_STRENGTH] = 200;
+	bad += t21_it_block_mode(b) == T21_IT_MOVE;
 
 	/* get: the bytes GetIntegrationTime reads, nothing else */
 	for (i = 0; i < (int)sizeof(b); i++)
