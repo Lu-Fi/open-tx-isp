@@ -4,6 +4,25 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (10): T40 tisp-event-0: ADR knee search + per-event profile (`claude/issue-133b`; host + QEMU T40, not yet on the device)
+
+- **Device status after (8)** (issue #133): on the Eufy T40 the thread went from ~35 to ~27-29 ms CPU per frame, less
+  than the QEMU gain. QEMU only runs event 14 (AWB) there; the Eufy also runs ADR (event 2), defog (4) and LCE (0x10)
+  every frame, which the earlier profile had not measured with the device tuning.
+- **ADR knee search** (`tx_isp_t40_adr.h`): `subsection_map` scanned all 512 entries of the cumulative histogram for the
+  nearest value, 6 times per block, 24 blocks per frame (~80 % of the ADR event). The histogram is normally
+  non-decreasing: `t40_adr_fpga` checks that once per frame (and that no distance can overflow) and then a binary search
+  plus the run of equal values gives the same count and index sum; the gamma knot lookups (`t40_adr_lookup`) use a
+  binary search the same way. Unsorted or out-of-range tables take the old scan. Bit-exact: `c_chains_host adr` against
+  the literal OEM chain (Eufy bin + 6 random bins, 0 differences) and 7.6 M random sorted/unsorted tables with ties and
+  distance-10000 edges (fast vs scan: 0 differences). Host (Eufy bin): ADR event 163 -> 85 us.
+- **Profile build** (`TX_ISP_LOAD_STATS=y` only, off by default): work slots 70..72 time the translated AWB process, its
+  EV follow-up and its CT follow-up inside event 14; `t40_ls_reg_w`/`t40_ls_reg_r` count the register accesses of the
+  event thread per event and `t40_ls_reg_cyc` the CP0 Count cycles inside `system_reg_read/write`; reading `t40_ls_bench`
+  times readl / `system_reg_read` / flight-recorder mark / wmb (reads ISP reg 0x20 only). QEMU T40: event 14 =
+  10.4 ms, of which the translated AWB process 10.37 ms, EV/CT follow-ups 25/13 us, ~17 register writes; ADR/defog/LCE
+  do not run in QEMU. Host register writes per event: ADR 194, defog 184, LCE 132.
+
 ## 2026-10-28: T32 S4 step 3: AE/AWB statistics engines from the IQ bin (`claude/t32-s4`; host, QEMU T32)
 
 - **AE/AWB statistics** (issue #97): the engines are initialised as the vendor does (reverse engineered tisp_ae_malloc_cfg,

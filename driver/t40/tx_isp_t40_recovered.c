@@ -7478,6 +7478,31 @@ static unsigned int regtrace_t40_ev_cur_n;      /* callbacks dispatched */
 t40_bringup_param_named(t40_awb_step, regtrace_t40_awb_step, uint, 0444);
 t40_bringup_param_named(t40_ev_cur, regtrace_t40_ev_cur, uint, 0444);
 t40_bringup_param_named(t40_ev_cur_n, regtrace_t40_ev_cur_n, uint, 0444);
+#ifdef TX_ISP_LOAD_STATS
+#include <asm/mipsregs.h>
+/*
+ * Issue 133 profile (TX_ISP_LOAD_STATS=y only): register accesses of the tisp event
+ * thread per event (t40_ls_reg_w/_r, index = T40_LS_WORK_EVENT) and the CP0 Count
+ * cycles spent inside system_reg_read/write (t40_ls_reg_cyc; t40_ls_bench gives the
+ * Count rate and the cost of the single steps).
+ */
+static struct task_struct *t40_ls_ev_task;
+static unsigned int t40_ls_ev_slot;
+static unsigned int t40_ls_reg_w[64], t40_ls_reg_r[64], t40_ls_reg_cyc[64];
+static unsigned int t40_ls_reg_num = 64;
+module_param_array_named(t40_ls_reg_w, t40_ls_reg_w, uint, &t40_ls_reg_num, 0444);
+module_param_array_named(t40_ls_reg_r, t40_ls_reg_r, uint, &t40_ls_reg_num, 0444);
+module_param_array_named(t40_ls_reg_cyc, t40_ls_reg_cyc, uint, &t40_ls_reg_num, 0444);
+#define T40_LS_REG_IN(arr) \
+	bool t40_ls_on = READ_ONCE(t40_ls_ev_task) == current && t40_ls_ev_slot < 64; \
+	u32 t40_ls_c0 = 0; \
+	if (t40_ls_on) { arr[t40_ls_ev_slot]++; t40_ls_c0 = read_c0_count(); }
+#define T40_LS_REG_OUT() \
+	do { if (t40_ls_on) t40_ls_reg_cyc[t40_ls_ev_slot] += read_c0_count() - t40_ls_c0; } while (0)
+#else
+#define T40_LS_REG_IN(arr)
+#define T40_LS_REG_OUT() do { } while (0)
+#endif
 static bool regtrace_t40_ct_update;             /* run the event-13 colour-temperature updates (CCM/LSC/BCSH/CLM); needs their init */
 module_param_named(t40_ct_update, regtrace_t40_ct_update, bool, 0644);
 static bool regtrace_t40_ev_updates;            /* run events 6..13 (tgain/again/ev/ct module updates pushed by the 3A); needs the module inits */
@@ -76819,10 +76844,17 @@ int64_t tisp_event_process(uint32_t a0)
         {
             u64 ls_start = tx_ls_work_begin();
 
+#ifdef TX_ISP_LOAD_STATS
+            t40_ls_ev_slot = (a0 < 2 && event < 32) ? T40_LS_WORK_EVENT(a0, event) : 64;
+            WRITE_ONCE(t40_ls_ev_task, current);
+#endif
             cb_ret = cb(node->args[0], node->args[1],
                         node->args[2], node->args[3],
                         node->args[4], node->args[5],
                         node->args[6], node->args[7]);
+#ifdef TX_ISP_LOAD_STATS
+            WRITE_ONCE(t40_ls_ev_task, NULL);
+#endif
             if (a0 < 2 && event < 32)
                 tx_ls_work_end(T40_LS_WORK_EVENT(a0, event), ls_start);
         }
@@ -173223,6 +173255,8 @@ int32_t system_reg_write(uint32_t a0, uint32_t a1)
     if (!regtrace_is_kernel_ptr(base))
         return -ENODEV;
 
+    {
+    T40_LS_REG_IN(t40_ls_reg_w)
     if (!regtrace_fr_big || regtrace_fr_regs)
         regtrace_fr_mark(0x31, a0);
     watched = regtrace_core_top_watch_index(a0) >= 0;
@@ -173242,6 +173276,8 @@ int32_t system_reg_write(uint32_t a0, uint32_t a1)
         after = readl(base + a0);
     regtrace_core_top_write_note(REGTRACE_CORE_TOP_PATH_SYSTEM, a0, a1,
                                  before, after, 0, caller);
+    T40_LS_REG_OUT();
+    }
     return 0;
 #else
     uint32_t ra = 0;
@@ -173650,13 +173686,17 @@ int32_t system_reg_read(uint32_t a0)
     if (!regtrace_is_kernel_ptr(base))
         return 0;
 
-    if (!regtrace_fr_big || regtrace_fr_regs)
-        regtrace_fr_mark(0x30, a0);
     {
-        void *fr2 = regtrace_fr2_reg_pre(0x30U, a0, 0);
-        uint32_t fr2_val = readl(base + a0);
+        T40_LS_REG_IN(t40_ls_reg_r)
+        void *fr2;
+        uint32_t fr2_val;
 
+        if (!regtrace_fr_big || regtrace_fr_regs)
+            regtrace_fr_mark(0x30, a0);
+        fr2 = regtrace_fr2_reg_pre(0x30U, a0, 0);
+        fr2_val = readl(base + a0);
         regtrace_fr2_reg_post(fr2, fr2_val);
+        T40_LS_REG_OUT();
         return fr2_val;
     }
 #else
@@ -173682,6 +173722,55 @@ int32_t system_reg_read(uint32_t a0)
     return 0;
 #endif
 }
+
+#ifdef TX_ISP_LOAD_STATS
+/*
+ * Issue 133 profile: reading t40_ls_bench times 1000 x each step of a register access
+ * (no register is written; ISP reg 0x20 is read) and prints ns per step and the CP0
+ * Count ticks per microsecond (to convert t40_ls_reg_cyc).
+ */
+static int t40_ls_bench_get(char *buf, const struct kernel_param *kp)
+{
+    uintptr_t sd = (uintptr_t)ispcore_sd;
+    void __iomem *base;
+    unsigned long flags;
+    u64 t[6];
+    u32 c0, c1, i, sink = 0;
+
+    if (!regtrace_is_kernel_ptr((void *)sd))
+        return scnprintf(buf, PAGE_SIZE, "no isp\n");
+    base = (void __iomem *)(uintptr_t)regtrace_get_u32(sd, REGTRACE_TX_ISP_MODULE_BASE_OFFSET);
+    if (!regtrace_is_kernel_ptr(base))
+        return scnprintf(buf, PAGE_SIZE, "no base\n");
+    local_irq_save(flags);
+    c0 = read_c0_count();
+    t[0] = ktime_to_ns(ktime_get());
+    for (i = 0; i < 1000; i++)
+        sink += readl(base + 0x20);
+    t[1] = ktime_to_ns(ktime_get());
+    for (i = 0; i < 1000; i++)
+        sink += system_reg_read(0x20);
+    t[2] = ktime_to_ns(ktime_get());
+    for (i = 0; i < 1000; i++)
+        regtrace_fr_mark(0x7e, i);
+    t[3] = ktime_to_ns(ktime_get());
+    for (i = 0; i < 1000; i++)
+        wmb();
+    t[4] = ktime_to_ns(ktime_get());
+    for (i = 0; i < 1000; i++)
+        sink += regtrace_core_top_watch_index(0x9000 + i);
+    t[5] = ktime_to_ns(ktime_get());
+    c1 = read_c0_count();
+    local_irq_restore(flags);
+    return scnprintf(buf, PAGE_SIZE,
+                     "ns/op readl=%llu system_reg_read=%llu fr_mark=%llu wmb=%llu watch=%llu c0_per_us=%llu (%u)\n",
+                     div_u64(t[1] - t[0], 1000), div_u64(t[2] - t[1], 1000), div_u64(t[3] - t[2], 1000),
+                     div_u64(t[4] - t[3], 1000), div_u64(t[5] - t[4], 1000),
+                     div_u64((u64)(c1 - c0) * 1000, (u32)max_t(u64, 1, t[5] - t[0])), sink & 1);
+}
+static const struct kernel_param_ops t40_ls_bench_ops = { .get = t40_ls_bench_get };
+module_param_cb(t40_ls_bench, &t40_ls_bench_ops, NULL, 0444);
+#endif
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000079ba0 origin=model_output original=tx_isp_enable_irq */
 #ifndef REGTRACE_KERNEL_TREE_BUILD

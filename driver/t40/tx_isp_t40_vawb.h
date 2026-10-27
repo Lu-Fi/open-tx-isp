@@ -507,6 +507,7 @@ static void vawb_dump_take(int after)
 }
 
 static void t40_vawb_ct_follow(void);
+static void t40_vawb_ct_follow_ct(u32 ct);
 static int64_t t40_vawb_process(void)
 {
 	u32 argarea[16] __aligned(8) = { 0 };
@@ -524,7 +525,10 @@ static int64_t t40_vawb_process(void)
 
 		if (dump)
 			vawb_dump_take(0);
+		u64 ls = tx_ls_work_begin();
+
 		ret = vawb_run_on(vawb_stk_proc, vawb_tisp_awb_main_process, 0, 0, 0, 0, (u32)(uintptr_t)argarea);
+		tx_ls_work_end(T40_LS_WORK_VAWB_PROC, ls);
 		if (dump) {
 			vawb_dump_take(1);
 			t40_vawb_dump_req = 0;
@@ -591,8 +595,17 @@ static void t40_vawb_ev_follow(void)
 static void t40_vawb_ct_follow(void)
 {
 	u32 ct = vawb_ok(pstMainAwbOri[7], 3) ? *(u32 *)(uintptr_t)pstMainAwbOri[7] : 0;
+	u64 ls = tx_ls_work_begin();
 
 	t40_vawb_ev_follow();
+	tx_ls_work_end(T40_LS_WORK_VAWB_EV, ls);
+	ls = tx_ls_work_begin();
+	t40_vawb_ct_follow_ct(ct);
+	tx_ls_work_end(T40_LS_WORK_VAWB_CT, ls);
+}
+
+static void t40_vawb_ct_follow_ct(u32 ct)
+{
 
 	if (ct < 1500U || ct > 15000U || READ_ONCE(regtrace_running_mode))
 		return;
