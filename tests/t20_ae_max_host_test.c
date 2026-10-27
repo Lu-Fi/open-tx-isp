@@ -28,6 +28,17 @@ int main(void)
 	bad += t20_ae_request_log2_16(324678, 200) != 324678; /* sensor max exact */
 	bad += t20_ae_request_log2_16(324678, 0) != 324678;
 	bad += t20_ae_plateau_log2_5(158, 324678) != 158; /* top step, not 157 */
+	/* #128 manual integration time: table value, clamped to the window */
+	bad += t20_ae_manual_lines(0, 30, 2, 2246) != 0;     /* AUTO: AE owns it */
+	bad += t20_ae_manual_lines(1, 30, 2, 2246) != 30;
+	bad += t20_ae_manual_lines(1, 240, 2, 2246) != 240;
+	bad += t20_ae_manual_lines(1, 0, 2, 2246) != 2;      /* below sensor min */
+	bad += t20_ae_manual_lines(1, 5000, 2, 2246) != 2246; /* above ceiling */
+	/* total exposure stays in [time, time + gain cap] (no PI wind-up) */
+	bad += t20_ae_manual_total(100, 200, 50) != 200;
+	bad += t20_ae_manual_total(300, 200, 50) != 250;
+	bad += t20_ae_manual_total(220, 200, 50) != 220;
+	bad += t20_ae_manual_total(-1, 200, 0) != 200;
 	printf("t20_ae_max_host_test: %s (%d bad)\n", bad ? "FAIL" : "PASS", bad);
 	return bad != 0;
 }

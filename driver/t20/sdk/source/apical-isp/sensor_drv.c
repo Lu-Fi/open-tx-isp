@@ -24,6 +24,7 @@
 #include "apical_modulation.h"
 #include <apical-isp/system_isp_io.h>
 #include "sensor_init.h"
+#include "../../../tx_isp_t20_ae_max.h"
 #include <apical-isp/apical_math.h>
 #include <apical-isp/apical.h>
 
@@ -146,6 +147,7 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	uint32_t lines_per_second;
 	uint32_t anti_flicker_lines;
 	uint32_t again_code = 0;
+	uint32_t manual_lines;
 	int32_t min_log2;
 	int32_t integration_log2;
 	int32_t partition_integration_log2 = 0;
@@ -180,6 +182,24 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	}
 	*total_exposure_log2 = clamp_t(int32_t, *total_exposure_log2,
 					 min_log2, max_exposure_log2);
+
+	/*
+	 * Manual integration time (#128): the OEM AE takes the time from
+	 * stab.global_integration_time while stab.global_manual_integration_time
+	 * is set and only allocates gain; the compact AE overwrote it every
+	 * frame, so SetIntegrationTime(MANUAL) and SetExpr(MANUAL) had no effect.
+	 */
+	manual_lines = t20_ae_manual_lines(stab.global_manual_integration_time,
+		stab.global_integration_time, min_integration, max_integration);
+	if (manual_lines) {
+		integration = manual_lines;
+		integration_log2 = log2_fixed_to_fixed(integration, 0,
+			LOG2_GAIN_SHIFT);
+		*total_exposure_log2 = t20_ae_manual_total(*total_exposure_log2,
+			integration_log2, (int32_t)t20_ae_request_log2_16(
+				attr->max_again, stab.global_max_sensor_analog_gain));
+		goto allocate_gain;
+	}
 
 	/*
 	 * Reproduce the OEM balanced exposure partitioner.  Each packed step is
@@ -249,6 +269,7 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 			(integration / anti_flicker_lines) * anti_flicker_lines);
 	integration_log2 = log2_fixed_to_fixed(integration, 0,
 		LOG2_GAIN_SHIFT);
+allocate_gain:
 	requested_again = clamp_t(int32_t,
 		*total_exposure_log2 - integration_log2, 0, attr->max_again);
 	/*

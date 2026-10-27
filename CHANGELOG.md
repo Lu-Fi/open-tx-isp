@@ -4,6 +4,20 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (4): T20 manual integration time takes effect (`claude/issue-128`; QEMU T20, .107)
+
+- **IMP_ISP_Tuning_SetIntegrationTime(MANUAL)** and **SetExpr(MANUAL)** had no exposure effect on the T20 (issue
+  #128): the request was right (system tab: `global_manual_integration_time` + `global_integration_time`, read back
+  by GetIntegrationTime), but the compact AE (`tx_isp_t20_simple_ae_apply`, sensor_drv.c) ignored the manual flag,
+  wrote its own time to the sensor and overwrote the table every frame (GetExpr after a 30-line set: 2022). Like the
+  OEM 3.12.0 `cmos_alloc_integration_time`, the AE now takes the table time while the flag is set (clamped to the
+  sensor window and the AE ceiling) and only allocates the gain; the total exposure is kept inside
+  [time, time + reachable gain] so the loop cannot wind up (helpers in tx_isp_t20_ae_max.h, host test extended).
+  Cam .107 (night scene, runtime ko swap), gains pinned to 1: stock ko Y 51.6 -> 51.6 for 30 -> 240 lines, GetExpr
+  2022; test ko Y 5.6 -> 37.3 (apitest inttime PASS), GetIT/GetExpr read 30/240; gain freed: AE brings Y back to
+  ~87 at 240 lines; AUTO again: Y 87.9, AE time 1028. QEMU: GetExpr after the manual set 2022 -> held; no oops.
+  T10 (own AE) unchanged.
+
 ## 2026-10-27 (3): T20 GetGamma reports the curve in use (`claude/issue-121`; QEMU T20, .107)
 
 - **IMP_ISP_Tuning_GetGamma (0x800002b)** returned 129 zeros on the T20 (issue #121): the getter read the gamma LUT

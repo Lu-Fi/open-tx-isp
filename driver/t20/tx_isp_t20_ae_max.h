@@ -49,4 +49,38 @@ static inline uint32_t t20_ae_plateau_log2_5(uint32_t cap_log2_5,
 	return (applied_log2_16 && a < cap_log2_5) ? a : cap_log2_5;
 }
 
+/*
+ * Manual integration time (SetIntegrationTime MODE_MANUAL / SetExpr manual:
+ * stab.global_manual_integration_time = stab[3], lines in
+ * stab.global_integration_time = stab+0x18).  The OEM 3.12.0
+ * cmos_alloc_integration_time() takes the time from the table instead of the
+ * AE, clamped to the sensor window [min, min(sensor max, AE ceiling)]; the
+ * AE keeps steering the gain.  Returns the lines to use, 0 = AE owns it.
+ */
+static inline uint32_t t20_ae_manual_lines(uint8_t manual, uint32_t lines,
+					   uint32_t min_lines,
+					   uint32_t max_lines)
+{
+	if (!manual)
+		return 0;
+	if (lines < min_lines)
+		lines = min_lines;
+	if (lines > max_lines)
+		lines = max_lines;
+	return lines;
+}
+
+/* With a manual time only the gain is free: keep the AE total exposure
+ * (log2 <<16) inside [time, time + reachable gain] so the PI loop cannot
+ * wind up while the gain is pinned (and AUTO resumes from a real value). */
+static inline int32_t t20_ae_manual_total(int32_t total, int32_t time_log2,
+					  int32_t gain_max_log2)
+{
+	if (total < time_log2)
+		return time_log2;
+	if (total > time_log2 + gain_max_log2)
+		return time_log2 + gain_max_log2;
+	return total;
+}
+
 #endif
