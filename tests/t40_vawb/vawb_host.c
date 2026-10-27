@@ -5,6 +5,12 @@
  * (every zone the same R/G/B), prints the gains (ctx[9]), CT (*ctx[7]) and the register writes.
  * 64-bit non-PIE build, data below 4 GB (.vdata at 0x30000000), MAP_32BIT stack.
  *   vawb_host <tuning.bin> <inter_seed.bin> <R> <G> <B> [frames] [trace]
+ *   vawb_host replay <dump> [trace]      device dump, result compared with the device
+ * Replay environment: REPS=n times the process n times on the dump state (CONSEC=1: state
+ * carried from call to call) and prints the time per process.  Built with CTD_REF (t40_vawb_host.sh),
+ * every tisp_awb_ct_detect call runs both the driver's C translation and the translated OEM
+ * code from that git ref on the same state and compares all outputs; FUZZ=seed replaces the
+ * zone statistics, FUZZM=seed the ct_detect tuning switches before each call (issue 133).
  */
 #define _GNU_SOURCE
 #include <stdint.h>
@@ -15,6 +21,7 @@
 #include <stdbool.h>
 #include <ucontext.h>
 #include <sys/mman.h>
+#include <time.h>
 
 typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32; typedef uint64_t u64;
 typedef int8_t s8; typedef int16_t s16; typedef int32_t s32; typedef int64_t s64;
@@ -46,6 +53,8 @@ static u32 tparamsN[4] VD, awb_algo_comp[64] VD;
 static u8 tispinfo[64] VD;
 /* colour contexts of the CT chains (unused by the AWB run, referenced by the generated code) */
 static u32 pstMainCcmOri_lit[26] VD, pstMainBcshOri_lit[72] VD;
+static u32 t40_bcsh_oem_ctx[72] VD;
+static struct { u8 mjpeg_mode[2], mjpeg_y_low[2], mjpeg_y_high[2]; } t40_bcsh VD;
 static u8 s_bcsh_mjpeg_mode_lit[2] VD, s_bcsh_mjpeg_y_range_low_lit[2] VD, s_bcsh_mjpeg_y_range_high_lit[16] VD;
 static u8 inter[0x10000] __aligned(16) VD, outer[0x2000] __aligned(16) VD, bank[0x19000] __aligned(16) VD;
 static u8 stats[0x10000] __aligned(16) VD;
@@ -70,12 +79,84 @@ static u32 harness_ok(u32 a, u32 align)
 	if (a >= (u32)(uintptr_t)stk_lo && a < (u32)(uintptr_t)stk_lo + 0x40000) return 1;
 	return a >= 0x30000000U && a < 0x30400000U;
 }
+/* driver C code the generated chain calls: tisp_awb_ct_detect (tx_isp_t40_awb_ctd.inc) and its fix-point helpers */
+static int regtrace_is_kernel_ptr(const void *p) { return p != 0; }
+static int regtrace_is_kernel_ptr_any(const void *p) { return p != 0; }
+static bool regtrace_enable_isp_3a_diag;
+#include CFIX_INC
+#include CTD_INC
 #include VAWB_TOP
 /* CT-chain externals (tx_isp_t40_vct.h on the device), unused by the AWB run */
 static u64 vawb_x___private_spin_lock_irqsave(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp) { return 0; }
 static u64 vawb_x_private_spin_unlock_irqrestore(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp) { return 0; }
 static u64 vawb_s_tisp_clm_ct_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp) { return 0; }
+#ifdef CTD_REF_INC
+static u64 vawb_s_tisp_awb_ct_detect(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
+#endif
 #include VAWB_INC
+#ifdef CTD_REF_INC
+#include CTD_REF_INC
+static unsigned long ctd_n, ctd_bad;
+static u8 ctd_si[60328], ctd_so[4752], ctd_ti[60328], ctd_to[4752];
+static u32 fz_x, fz_y;
+#define FZ(v) (v ^= v << 13, v ^= v >> 17, v ^= v << 5, v)
+static void ctd_fuzz(u32 *o)
+{
+	if (getenv("FUZZ")) {	/* plausible zone statistics: scattered, one or two clusters, mostly empty */
+		u32 *rat = (u32 *)(uintptr_t)o[22], *cnt = (u32 *)(uintptr_t)o[23], *sat = (u32 *)(uintptr_t)o[24], z, k, cr, cb, sp;
+		if (!fz_x) fz_x = atoi(getenv("FUZZ")) | 1;
+		k = FZ(fz_x) % 4; cr = 150 + FZ(fz_x) % 300; cb = 120 + FZ(fz_x) % 280; sp = 2 + FZ(fz_x) % 40;
+		for (z = 0; z < 225; z++) {
+			u32 r, b, c2 = (k == 2 && (FZ(fz_x) & 1)) ? 60 : 0;
+			if (k == 0) { r = 80 + FZ(fz_x) % 520; b = 80 + FZ(fz_x) % 520; }
+			else { r = cr + c2 + FZ(fz_x) % sp - sp / 2; b = cb + c2 + FZ(fz_x) % sp - sp / 2; }
+			rat[z] = (r << 8) | (FZ(fz_x) & 255); rat[z + 225] = (b << 8) | (FZ(fz_x) & 255);
+			cnt[z] = (k == 3 && FZ(fz_x) % 8) ? 0 : FZ(fz_x) % 1000;
+			sat[z] = FZ(fz_x) % 1024;
+		}
+	}
+	if (getenv("FUZZM")) {	/* gray-world modes, saturation weight, cluster mode, prior, refine, special lights */
+		static u16 m14[4], m15; static u32 m16[6], m3[2], m10; static u8 m18[10]; static int saved;
+		u16 *gw = (u16 *)(uintptr_t)o[14], *sm = (u16 *)(uintptr_t)o[15];
+		u32 *cp = (u32 *)(uintptr_t)o[16], *pr = (u32 *)(uintptr_t)o[3], *rf = (u32 *)(uintptr_t)o[10], i;
+		u8 *sl = (u8 *)(uintptr_t)o[18];
+		if (!saved) { memcpy(m14, gw, 8); m15 = *sm; memcpy(m16, cp, 24); memcpy(m3, pr, 8); m10 = rf[0]; memcpy(m18, sl, 10); saved = 1; }
+		if (!fz_y) fz_y = atoi(getenv("FUZZM")) | 1;
+		memcpy(gw, m14, 8); *sm = m15; memcpy(cp, m16, 24); memcpy(pr, m3, 8); rf[0] = m10; memcpy(sl, m18, 10);
+		if (FZ(fz_y) & 1) { gw[0] = FZ(fz_y) % 2; gw[1] = FZ(fz_y) % 3; gw[2] = FZ(fz_y) % 2; gw[3] = FZ(fz_y) % 2; }
+		if (FZ(fz_y) & 1) *sm = FZ(fz_y) % 3;
+		if (FZ(fz_y) & 1) cp[0] = FZ(fz_y) % 3;
+		if (FZ(fz_y) & 1) pr[0] = FZ(fz_y) % 2;
+		if (FZ(fz_y) & 1) ((u8 *)rf)[0] = FZ(fz_y) % 2;
+		if ((FZ(fz_y) & 3) == 0) for (i = 0; i < 10; i++) sl[i] = FZ(fz_y) % 3;
+	}
+}
+/* both ct_detect versions on the same state: inter/outer images, gains and flags must match */
+static u64 vawb_s_tisp_awb_ct_detect(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
+{
+	u32 g[4], f[4], tg[4], tf[4], di = 0, dout = 0, i;
+	u64 rv;
+
+	ctd_fuzz((u32 *)(uintptr_t)a0);
+	memcpy(ctd_si, inter, sizeof(ctd_si)); memcpy(ctd_so, outer, sizeof(ctd_so));
+	memcpy(g, (void *)(uintptr_t)a1, 16); memcpy(f, (void *)(uintptr_t)a2, 16);
+	rv = vref_tisp_awb_ct_detect(a0, a1, a2, a3, csp);
+	memcpy(ctd_ti, inter, sizeof(ctd_ti)); memcpy(ctd_to, outer, sizeof(ctd_to));
+	memcpy(tg, (void *)(uintptr_t)a1, 16); memcpy(tf, (void *)(uintptr_t)a2, 16);
+	memcpy(inter, ctd_si, sizeof(ctd_si)); memcpy(outer, ctd_so, sizeof(ctd_so));
+	memcpy((void *)(uintptr_t)a1, g, 16); memcpy((void *)(uintptr_t)a2, f, 16);
+	(void)vawb_s_ctd_c(a0, a1, a2, a3, csp);
+	ctd_n++;
+	for (i = 0; i < sizeof(ctd_ti); i++) di += inter[i] != ctd_ti[i];
+	for (i = 0; i < sizeof(ctd_to); i++) dout += outer[i] != ctd_to[i];
+	if (di || dout || memcmp(tg, (void *)(uintptr_t)a1, 8) || memcmp(tf, (void *)(uintptr_t)a2, 8))
+		if (ctd_bad++ < 10)
+			printf("CTD DIFF call %lu: inter %u B outer %u B gains OEM %u/%u C %u/%u flags OEM %u/%u C %u/%u\n", ctd_n, di, dout,
+			       tg[0], tg[1], ((u32 *)(uintptr_t)a1)[0], ((u32 *)(uintptr_t)a1)[1], tf[0], tf[1], ((u32 *)(uintptr_t)a2)[0], ((u32 *)(uintptr_t)a2)[1]);
+	return rv;
+}
+#endif
+
 
 #define VAWB_CSP ((u32)(uintptr_t)vawb_argarea)
 #define VAWB_TOP() (vawb_loop_n = 0)
@@ -142,6 +223,25 @@ static void replay(void)
 	VAWB_TOP();
 	vawb_tisp_awb_main_process(0, 0, 0, 0, VAWB_CSP);
 	vawb_tarmed = 0;
+	if (getenv("REPS")) {	/* time per process on this state (CONSEC=1: carried on), result restored afterwards */
+		static u8 ri[60328], ro[4752];
+		int r, n = atoi(getenv("REPS"));
+		struct timespec t0, t1;
+
+		memcpy(ri, inter, sizeof(ri)); memcpy(ro, outer, sizeof(ro));
+		clock_gettime(CLOCK_MONOTONIC, &t0);
+		for (r = 0; r < n; r++) {
+			if (!getenv("CONSEC")) { memcpy(inter, d, 60328); memcpy(outer, d + 60328, 4752); }
+			VAWB_TOP();
+			vawb_tisp_awb_main_process(0, 0, 0, 0, VAWB_CSP);
+		}
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		printf("REPS %d: %.1f us per process\n", n, ((t1.tv_sec - t0.tv_sec) * 1e9 + (t1.tv_nsec - t0.tv_nsec)) / 1e3 / n);
+		memcpy(inter, ri, sizeof(ri)); memcpy(outer, ro, sizeof(ro));
+	}
+#ifdef CTD_REF_INC
+	printf("ct_detect C vs OEM: %lu calls, %lu differ\n", ctd_n, ctd_bad);
+#endif
 	for (i = 0; i < 60328; i++) if (inter[i] != g_dump[VAWB_ONE + i]) { d_in++; if (first == ~0U) first = i; }
 	for (i = 0; i < 60328; i += 4)	/* the differing words: host vs device, and the ctx slot that owns them */
 		if (*(u32 *)(inter + i) != *(u32 *)(g_dump + VAWB_ONE + i)) {

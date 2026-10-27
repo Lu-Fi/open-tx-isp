@@ -14,9 +14,11 @@ OUT=$HERE/../../driver/t40/tx_isp_t40_vawb_gen.inc
 ADAPT="system_reg_read div64_u64 __lshrdi3 __ashldi3"
 # AWB chain (per frame) + the event-13/8 colour chains: tisp_ct_update (TOP-gated CCM/LSC/BCSH/CLM),
 # ccm/bcsh main_ct/main_ev_update, lsc_ct_update + real_write_lut; tisp_clm_ct_update stays the
-# driver's literal CLM (VAE_STOP -> vawb_s_ adapter).
+# driver's literal CLM (VAE_STOP -> vawb_s_ adapter).  tisp_awb_ct_detect (with its helpers ~65 % of
+# the translated per-frame AWB work, issue 133) is the driver's C translation tx_isp_t40_awb_ctd.inc,
+# bit-exact with the OEM code (tests/t40_vawb/vawb_host.c ctd mode).
 VAE_IN=$W VAE_OUT=$W/gen.inc VAE_DATA=$HERE/data.json VAE_TRACE="${VAE_TRACE:-tisp_awb_long_alogrithm}" \
-VAE_ADAPT="$ADAPT" VAE_STOP="tisp_clm_ct_update" python3 -I "$HERE/asm2c.py" \
+VAE_ADAPT="$ADAPT" VAE_STOP="tisp_clm_ct_update tisp_awb_ct_detect" python3 -I "$HERE/asm2c.py" \
 	tisp_awb_main_process tisp_awb_get_statistics tisp_awb_params_transmit tisp_awb_params_refresh \
 	tisp_awb_set_hardware_param tisp_awb_set_gain tisp_awb_dn_params_refresh tisp_awb_main_ev_update \
 	tisp_awb_tgain_update \

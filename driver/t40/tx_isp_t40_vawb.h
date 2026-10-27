@@ -284,6 +284,17 @@ static u32 vct_lsc_awdr_para[2];	/* OEM lsc_main_awdr_para, lsc_seco_awdr_para *
 static u64 vawb_x___private_spin_lock_irqsave(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 static u64 vawb_x_private_spin_unlock_irqrestore(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 static u64 vawb_s_tisp_clm_ct_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
+/*
+ * Issue 133: OEM tisp_awb_ct_detect (2065 insns + six helpers, ~0.45 M OEM instructions per
+ * frame) costs about 65 % of the translated AWB process, where every OEM load/store is a guarded
+ * call.  The driver's C translation (tx_isp_t40_awb_ctd.inc, same results bit for bit:
+ * tests/t40_vawb_host.sh ctd) runs in its place.  Same o32 arguments: a0 = pstMainAwbCtDetectOri,
+ * a1 = gains[2], a2 = flags[2]; the caller does not use the return value.
+ */
+static u64 vawb_s_tisp_awb_ct_detect(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
+{
+	return (u64)tisp_awb_ct_detect(a0, a1, a2);
+}
 
 #include "tx_isp_t40_vawb_gen.inc"
 

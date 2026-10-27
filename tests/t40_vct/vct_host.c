@@ -54,6 +54,12 @@ static u32 pstMainCcmOri_lit[26] VD, pstMainBcshOri_lit[72] VD;
 static u32 stMainCcmOuter_lit VD, stMainBcshOuter_lit VD;
 static u8 s_bcsh_mjpeg_mode_lit[2] VD, s_bcsh_mjpeg_y_range_low_lit[2] VD;
 static u8 s_bcsh_mjpeg_y_range_high_lit[16] VD = { 0xff, 0xff };
+/* names of the BCSH context in the driver since the C BCSH chain (tx_isp_t40_bcsh.h): same OEM layout */
+#define t40_bcsh_oem_ctx pstMainBcshOri_lit
+static const struct { u8 *mjpeg_mode, *mjpeg_y_low, *mjpeg_y_high; } t40_bcsh = {
+	s_bcsh_mjpeg_mode_lit, s_bcsh_mjpeg_y_range_low_lit, s_bcsh_mjpeg_y_range_high_lit };
+/* the AWB chain's ct_detect is the driver's C code (issue 133); the colour chains never call it */
+static int64_t tisp_awb_ct_detect(uintptr_t a0, uintptr_t a1, uint32_t a2) { abort(); }
 /* host-only objects of the OEM LSC init */
 static u32 vct_lsc_tool_para[2] VD, vct_lsc_gain[2] VD, vct_lsc_width[2] VD, vct_lsc_height[2] VD;
 static u16 vct_lsc_wdr_en VD;

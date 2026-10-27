@@ -4,6 +4,23 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (8): T40 vendor AWB: colour-temperature detector in C (`claude/issue-133`; host + QEMU T40, not yet on the device)
+
+- **tisp-event-0 CPU** (issue #133): the event thread of the Eufy T40 used ~30 ms CPU per frame (~60 % of one core at
+  20 fps; system CPU ~35 %). Host profile of the translated OEM AWB process (`t40_vawb`, replay of a device dump):
+  ~0.7 M OEM instructions per frame, every OEM load/store a guarded call (~15 MIPS instructions each, the cross-built
+  ct_detect is 4.7x the OEM code size); `tisp_awb_ct_detect` with its helpers is ~65 % of it, `long_alogrithm` ~25 %.
+  ADR/defog/LCE (plain C) cost a fraction of that. The vendor AWB code runs the same work natively, every frame.
+- The translated chain now calls the driver's C translation of `tisp_awb_ct_detect` (`tx_isp_t40_awb_ctd.inc`) in its
+  place (`tools/t40_vawb/gen.sh`: VAE_STOP, adapter `vawb_s_tisp_awb_ct_detect`). Bit-exact: `tests/t40_vawb_host.sh`
+  with `CTD_REF=f2c180f7` runs both on every call (2 device dumps, 30 x 1000 calls with random zone statistics and
+  tuning switches: 0 differences); the replay of both device dumps stays identical to the device result.
+  Host: 660 -> 270 us per AWB process. QEMU T40 (Eufy image, timpsd, model AWB statistics): tisp-event-0 27.3 -> 8.0 ms
+  CPU per AWB frame (-71 %), same CT (4996), no fault, no oops. Module text -65 KB. The periodic AWBCTD diag lines now
+  need `enable_isp_3a_diag`.
+- tests: `t40_vawb_host.sh` and `t40_vct_host.sh` build again (BCSH symbols since the C BCSH chain); `REPS`/`CONSEC`
+  timing in the replay. Camera proof open (T40 test flash: tisp-event-0 stime per frame before/after).
+
 ## 2026-10-27 (9): T41 RAW input: RDMA block at the OEM addresses (`claude/isp-rawinput-rdmafix`; host build, not on the device)
 
 - **`tisp_ddr_to_isp_raw`** (RAW injection path, opt-in): the lift declared the RDMA page base as `uintptr_t *`, so every
