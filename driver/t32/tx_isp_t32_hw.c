@@ -18,6 +18,7 @@
 #include <linux/interrupt.h>
 #include <linux/delay.h>
 #include <linux/gfp.h>
+#include <linux/workqueue.h>
 
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_regs.h"
@@ -27,6 +28,8 @@
 #include "tx_isp_t32_rcfg.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
+
+static void t32_bringup_ae_kick(void);
 
 /* Linux IRQ numbers: INTC source + XBURST_SOC_IRQ_BASE (8) on PRJ007 */
 static int isp_irq = 8 + T32_IRQ_ISP_M0;
@@ -90,8 +93,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t32_hw_stats.awb_irqs++;
 	if (sta & T32_INT_AE)
 		t32_hw_stats.ae_irqs++;
-	if (sta & T32_INT_AE_HIST)
+	if (sta & T32_INT_AE_HIST) {
 		t32_hw_stats.ae_hist_irqs++;
+		t32_bringup_ae_kick();
+	}
 	if (done)
 		t32_fs_done_irq(done);
 	return IRQ_HANDLED;
@@ -179,6 +184,51 @@ static void t32_stats_init(void)
 	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
 		isp_wr(w[i].reg, w[i].val);
 	t32_hw_stats.stats_inits++;
+}
+
+/*
+ * Bring-up controller, NOT the vendor AE: with bringup_ae=1 every AE
+ * histogram interrupt schedules one proportional integration time step
+ * towards bringup_target (mean histogram bin, 0..255), gain untouched.  It
+ * exists only to see the statistics close a loop through the sensor until
+ * the vendor AE flow is reimplemented; no tuning goes into it.
+ */
+static unsigned int bringup_ae;
+module_param(bringup_ae, uint, 0644);
+MODULE_PARM_DESC(bringup_ae, "1: bring-up exposure controller (not the vendor AE), default 0");
+static unsigned int bringup_target = 64;
+module_param(bringup_target, uint, 0644);
+MODULE_PARM_DESC(bringup_target, "bring-up controller target mean AE histogram bin (0..255)");
+
+static void t32_bringup_ae_work(struct work_struct *w)
+{
+	u32 idx = isp_rd(T32_AE_CUR) & 3, vts = t32_core_sensor_vts(), it, mean16;
+	unsigned long pa;
+	const u8 *h;
+
+	if (!ae_buf || vts < 8)
+		return;
+	pa = virt_to_phys((void *)ae_buf) + 0x4000 + idx * 0x800 + T32_AE_HIST_HEAD;
+#ifdef CONFIG_MIPS
+	h = (const u8 *)CKSEG1ADDR(pa);		/* uncached: the engine writes by DMA */
+#else
+	h = phys_to_virt(pa);
+#endif
+	mean16 = t32_ae_hist_mean16(h);
+	it = t32_hw_stats.bringup_it ? t32_hw_stats.bringup_it : vts / 2;
+	it = t32_bringup_ae_step(it, mean16, min(bringup_target, 255U) * 16, vts - 4);
+	t32_hw_stats.bringup_mean16 = mean16;
+	if (it != t32_hw_stats.bringup_it && !t32_core_sensor_expo(it)) {
+		t32_hw_stats.bringup_it = it;
+		t32_hw_stats.bringup_steps++;
+	}
+}
+static DECLARE_WORK(t32_bringup_ae_w, t32_bringup_ae_work);
+
+static void t32_bringup_ae_kick(void)
+{
+	if (bringup_ae)
+		schedule_work(&t32_bringup_ae_w);
 }
 
 /*
@@ -584,6 +634,7 @@ void t32_hw_exit(void)
 		free_irq(isp_irq, &isp_base);
 		irqs_requested = 0;
 	}
+	cancel_work_sync(&t32_bringup_ae_w);	/* it reads registers and the AE buffer */
 	writel(0, csi_base + 0x0c);		/* CSI host back into reset */
 	csi_reset_done = 0;
 	iounmap(dphy_base);

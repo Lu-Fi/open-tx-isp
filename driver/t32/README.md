@@ -128,8 +128,17 @@ generation-shared come from the shared code instead:
   QEMU run s4g). The AE block sits at tparams + 0x6c, 4 bytes past what
   `tisp_ae_init`'s constant suggests (open question); AWB at tparams + 0xd44.
   The engines are switched off before their buffers are freed (#132 lesson).
-  Statistics interrupts (0x30028 bits 3/4/5) are counted (proc); nothing reads
-  the statistics yet (vendor AE/AWB chains: next).
+  Statistics interrupts (0x30028 bits 3/4/5) are counted (proc).
+
+- **Bring-up controller, not the vendor AE/AWB** (`bringup_ae=1`, default off):
+  scaffolding only, until the vendor AE flow is reimplemented. Every AE
+  histogram interrupt schedules a work item that reads the histogram buffer
+  written last (0x1708c bits 1:0; 256 bins of 24 bits, two per 64-bit word),
+  takes the mean bin and scales the integration time by `bringup_target` /
+  mean (at most x4 / x0.25 per step, 1 .. VTS - 4 lines, gain unchanged)
+  through the sensor's EXPO event (0x02000017). No AWB, no tuning. QEMU run
+  s4h: 13 histogram interrupts, 5 steps, the sensor ioctl accepted each; proc
+  shows steps, last mean and integration time.
 
 ## Not yet (S4+)
 
@@ -160,3 +169,5 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `isp_irq`, `vic_irq` | 37, 38 | Linux IRQs of INTC 29/30 (XBURST_SOC_IRQ_BASE 8) |
 | `listen_timeout_ms` | 2000 | `LISTEN_BUF` wait limit |
 | `lsc_ct` | 5000 | colour temperature for the LSC mesh at stream-on |
+| `bringup_ae` | 0 | 1 = bring-up exposure controller (not the vendor AE) |
+| `bringup_target` | 64 | its target mean histogram bin (0..255) |

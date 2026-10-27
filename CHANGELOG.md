@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-28 (2): T32 S4 step 3b: bring-up exposure controller, not the vendor AE (`claude/t32-s4`; host, QEMU T32)
+
+- **Bring-up controller, not the vendor AE/AWB** (issue #97), module parameter `bringup_ae` (default 0), target
+  `bringup_target`: scaffolding to close a loop through the statistics until the vendor AE flow is reimplemented. On each
+  AE histogram interrupt a work item takes the mean bin of the histogram written last and steps the integration time
+  proportionally (x0.25..x4 per step, 1 .. VTS - 4 lines, gain unchanged) through the sensor EXPO event 0x02000017. No
+  AWB, no tuning. Host test: histogram decoding and step limits (`tx_isp_t32_stats_test`). QEMU: 13 histogram
+  interrupts, 5 steps accepted by the sensor, 3 channels 8/8 frames, no oops. Off by default, nothing changes without it.
+
 ## 2026-10-28: T32 S4 step 3: AE/AWB statistics engines from the IQ bin (`claude/t32-s4`; host, QEMU T32)
 
 - **AE/AWB statistics** (issue #97): the engines are initialised as the vendor does (reverse engineered tisp_ae_malloc_cfg,
