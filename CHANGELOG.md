@@ -4,6 +4,25 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (6): T40 remaining .bss strays replaced by the OEM objects (`claude/issue-86`; host)
+
+- **%hi(.bss+N) inline asm** (issue #86): the last 36 lines of lifted code that addressed fixed offsets of the OEM
+  .bss layout (in this module they hit whatever lies there) now use the objects the OEM tx-isp-t40.ko resolves them
+  to (its symbol table, cross-checked: .bss+17424 = defog_main_tool_para as in 6e9b4983):
+  `sensor_alloc_analog_gain_short` (g_ispcore, the lift read .bss+0), `tisp_awb_get_mode` (pst{Main,Sec}AwbOri
+  pointer fields -> tisp_wb_attr_{main,sec}), `tisp_wdr_sec_long_ev_update` (wdr_ev_changed[1], ev_wdr_l[2..3];
+  ev_wdr_l is now the OEM 16 bytes, it was read at +8 out of bounds), `tisp_defog_get_data` (sensor 1: the three
+  21-bit tables behind defog_seco_soft_para; the lift jumped to a fixed address), `tisp_adr_ev_update`
+  (adr_ev_changed[arg3], adr_ev_top[arg3]), `adr_remove` (ADR state words and adr_version_num; the lift wrote the
+  .data start), `tisp_sdns_params_refresh` (copies the bank into the block behind main_sdns/sec_sdns; the lift
+  copied the other way into the bank), `tisp_clm_prepare_write_lut` (clm_wlut_times[arg1]++), `tisp_gsm_main_init`
+  (pstMainGsmOri = stMainGsmInterOri, main_gsm_slock_hist). `tisp_af_get_statistics` is inert: the C AF unpacks the
+  statistics, the lifted body wrote the .bss start and cleared 4 KB from `&isp_memopt`. Missing objects are added
+  with the OEM sizes. tests/t40/c_chains_host (dpc, lce, sdns, adr, defog, cdns, bcsh; 31 bins) identical before and
+  after: 0 differences. Own commits (to revert one by one): `sensor_alloc_analog_gain{,_short}` load the
+  sensor attr like the OEM (content of g_ispcore, then the attr pointer), `tisp_gsm_sec_init` like the OEM,
+  `tisp_af_main_init` registers the AF IRQ handler instead of calling it once.
+
 ## 2026-10-27 (5): T40 BCSH day/night host test builds again (`claude/issue-87`; host)
 
 - **tests/t40/bcsh_dn_host** (issue #87) included the removed `tx_isp_t40_bcsh_lit.inc`; it now runs the C chain

@@ -1123,6 +1123,20 @@ static uintptr_t adr_block_coord_n_main;
 static uintptr_t adr_block_coord_n_sec;
 static uintptr_t adr_ctc1_y_change;
 static uintptr_t adr_ev_changed;
+/* T40-BSS-STRAY (issue 86): OEM objects the lifted code addressed by .bss
+ * offset (sizes from the OEM tx-isp-t40.ko symbol table). */
+static uint32_t adr_ev_top[2];
+static uint32_t adr_ev[2];
+static uint32_t adr_tg_f_top[2];
+static uint32_t adr_tgain_top[2];
+static uint32_t wdr_en_adr[2];
+static uint32_t adr_tgain_changed;
+static uint32_t adr_version_num;
+static uint32_t tisp_wb_attr_main[7];
+static uint32_t tisp_wb_attr_sec[7];
+static uintptr_t pstMainGsmOri;
+static uint32_t stMainGsmInterOri[256];
+static int32_t main_gsm_slock_hist;
 static uintptr_t adr_init;
 static uintptr_t adr_local_b_light10_main;
 static uintptr_t adr_local_b_light10_sec;
@@ -1215,7 +1229,7 @@ static uintptr_t ev_change_switch;
 static uintptr_t ev_last;
 static uintptr_t ev_last_switch;
 static uintptr_t ev_short_last;
-static uintptr_t ev_wdr_l;
+static uint32_t ev_wdr_l[4];	/* OEM 16 bytes: tisp_wdr_*_long_ev_update write [2..3] */
 static uintptr_t ev_wdr_s;
 static uintptr_t fix_y_tmp;
 static uintptr_t fliker_info;
@@ -57540,19 +57554,21 @@ int32_t sensor_alloc_analog_gain(int32_t arg1, int32_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000105d0 origin=model_output original=sensor_alloc_analog_gain_short */
 int32_t sensor_alloc_analog_gain_short(int32_t arg1, int32_t *arg2)
 {
-    int32_t ispcore_val;
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "lw $v1, %%lo(.bss)($v0)\n\t"
-        "move %0, $v1"
-        : "=r" (ispcore_val)
-        :
-        : "$v0", "$v1"
-    );
-    int32_t a2_val = *arg2 * 96;
+    /* T40-BSS-STRAY (issue 86): OEM 0x10660 loads the core pointer from
+     * g_ispcore (.bss+1568); the lift read .bss+0 instead. */
+    uint32_t ispcore_val = regtrace_get_u32((uintptr_t)g_ispcore, 0);
+    uint32_t base, fn;
     int32_t var_10 = 0;
-    int32_t result = ((int32_t (*)(int32_t, int32_t, int32_t *))(*(int32_t *)(a2_val + ispcore_val + 0x170) + 0xc8))(arg1, 16, &var_10);
-    ((void **)arg2)[5] = var_10;
+    int32_t result;
+
+    if (!ispcore_val || !arg2)
+        return -1;
+    base = (uint32_t)(*arg2 * 96) + ispcore_val + 0x170;
+    fn = *(uint32_t *)(uintptr_t)(base + 0xc8);
+    if (!fn)
+        return -1;
+    result = ((int32_t (*)(int32_t, int32_t, int32_t *))(uintptr_t)fn)(arg1, 16, &var_10);
+    ((void **)arg2)[5] = (void *)(uintptr_t)var_10;
     return result;
 }
 
@@ -86611,163 +86627,12 @@ int32_t tisp_af_sec_init(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e2cc origin=model_output original=tisp_af_get_statistics */
 int32_t tisp_af_get_statistics(void* arg1, int32_t* arg2, int32_t arg3, char arg4)
 {
-    int *i = 0;
-    void* v0 = *(void**)arg2;
-    uint32_t s2 = *(uint16_t*)((char*)v0 + 6);
-    uint32_t v0_1 = *(uint16_t*)((char*)v0 + 2);
-    int32_t v1 = (s2 - 1) & 0xffff;
-    uint32_t *a2 = 0x20;
-
-    /* Access .rodata at offset 5584 for switch table using inline assembly */
-    if ((uint32_t)v1 < 0xf) {
-        uint32_t switch_val;
-        __asm__ volatile (
-            "lui $t9, %%hi(.rodata)\n\t"
-            "addiu $t9, $t9, %%lo(.rodata)\n\t"
-            "addiu $t9, $t9, 5584\n\t"
-            "lw %0, 0($t9)\n\t"
-            : "=r" (switch_val)
-            :
-            : "$t9"
-        );
-        a2 = switch_val;
-    }
-
-    uint32_t v1_2 = (uintptr_t)a2 << 1;
-    int32_t *s1 = 0;
-    int32_t *t2 = 0;
-    int32_t var_34 = 0xfff000;
-    int32_t var_30 = 0x7ff800;
-    uint32_t t7_1 = ((s2 - 1) % 4) & 0xff;
-    int32_t* t1_3 = (int32_t*)((char*)arg1 + (((s2 - 1) / 4) << 2) + ((s2 - 1) << 4) + 0x14);
-    int32_t *var_2c = 0x7ffc00;
-
-    while ((uint32_t)t2 < v0_1) {
-        for (int32_t i = 0; (uint32_t)i < s2; i = (void *)(uintptr_t)((uintptr_t)i + 1)) {
-            int32_t* v0_10 = (void *)((int32_t*)((char*)arg1 + (((((uintptr_t)i << 2) + (uintptr_t)s1) << 2) + ((uintptr_t)i & 0xfffffffc))));
-            int32_t t0_1 = *v0_10;
-            int32_t a3_1 = v0_10[1];
-            int32_t v1_5 = v0_10[2];
-            int32_t a2_1 = v0_10[3];
-            arg3 = v0_10[4];
-            int32_t v0_12 = ((uintptr_t)t2 * 0xf + (uintptr_t)i) << 2;
-            int32_t t9_1 = (uintptr_t)i & 3;
-            int32_t* t8_2 = (int32_t*)((char*)arg2 + 0xd * 4 + v0_12);
-
-            if (t9_1 == 0) {
-                *t8_2 = t0_1 & 0x7fffff;
-                *(int32_t*)((char*)arg2 + 0xe * 4 + v0_12) = ((a3_1 << 9) & 0x7ffe00) | (t0_1 >> 0x17);
-                *(int32_t*)((char*)arg2 + 0xf * 4 + v0_12) = ((v1_5 << 0x12) & 0x7c0000) | (a3_1 >> 0xe);
-                *(int32_t*)((char*)arg2 + 0x10 * 4 + v0_12) = (v1_5 >> 5) & 0x7fffff;
-                *(int32_t*)((char*)arg2 + 0x11 * 4 + v0_12) = ((a2_1 << 4) & 0xfffff0) | (v1_5 >> 0x1c);
-                *(int32_t*)((char*)arg2 + 0x12 * 4 + v0_12) = ((arg3 << 0xc) & 0xffffffff) | (a2_1 >> 0x14);
-            } else if (t9_1 != 1) {
-                int32_t* v0_19;
-                int32_t v1_23;
-
-                if (t9_1 != 2) {
-                    *t8_2 = ((a3_1 << 8) & 0x7fff00) | (t0_1 >> 0x18);
-                    *(int32_t*)((char*)arg2 + 0xe * 4 + v0_12) = ((v1_5 << 0x11) & 0x7e0000) | (a3_1 >> 0xf);
-                    *(int32_t*)((char*)arg2 + 0xf * 4 + v0_12) = (v1_5 >> 6) & 0x7fffff;
-                    *(int32_t*)((char*)arg2 + 0x10 * 4 + v0_12) = ((a2_1 << 3) & 0x7ffff8) | (v1_5 >> 0x1d);
-                    *(int32_t*)((char*)arg2 + 0x11 * 4 + v0_12) = ((arg3 << 0xc) & var_34) | (a2_1 >> 0x14);
-                    v0_19 = (int32_t*)((char*)arg2 + 0x12 * 4 + v0_12);
-                    v1_23 = (arg3 >> 0xc) & 0xffff;
-                } else {
-                    *t8_2 = ((a3_1 << 0x10) & 0x7f0000) | (t0_1 >> 0x10);
-                    *(int32_t*)((char*)arg2 + 0xe * 4 + v0_12) = (a3_1 >> 7) & 0x7fffff;
-                    *(int32_t*)((char*)arg2 + 0xf * 4 + v0_12) = ((v1_5 << 2) & 0x7ffffc) | (a3_1 >> 0x1e);
-                    *(int32_t*)((char*)arg2 + 0x10 * 4 + v0_12) = ((a2_1 << 0xb) & var_30) | (v1_5 >> 0x15);
-                    *(int32_t*)((char*)arg2 + 0x11 * 4 + v0_12) = ((arg3 << 0x14) & 0xf00000) | (a2_1 >> 0xc);
-                    v0_19 = (int32_t*)((char*)arg2 + 0x12 * 4 + v0_12);
-                    v1_23 = (arg3 >> 4) & 0xffff;
-                }
-
-                *v0_19 = v1_23;
-            } else {
-                *t8_2 = (t0_1 >> 8) & 0x7fffff;
-                *(int32_t*)((char*)arg2 + 0xe * 4 + v0_12) = ((a3_1 << 1) & 0x7ffffe) | (t0_1 >> 0x1f);
-                *(int32_t*)((char*)arg2 + 0xf * 4 + v0_12) = ((v1_5 << 0xa) & (uintptr_t)var_2c) | (a3_1 >> 0x16);
-                *(int32_t*)((char*)arg2 + 0x10 * 4 + v0_12) = ((a2_1 << 0x13) & 0x780000) | (v1_5 >> 0xd);
-                *(int32_t*)((char*)arg2 + 0x11 * 4 + v0_12) = (a2_1 >> 4) & 0xffffff;
-                *(int32_t*)((char*)arg2 + 0x12 * 4 + v0_12) = ((arg3 << 4) & 0xffffffff) | (a2_1 >> 0x1c);
-            }
-        }
-
-        char var_50[0x10];
-
-        if (s2 != 8) {
-            if (t7_1 == 0) {
-                ((void **)var_50)[(uintptr_t)t2] = (arg3 >> 8) & 0xff;
-            } else if (t7_1 == 1) {
-                ((void **)var_50)[(uintptr_t)t2] = (arg3 >> 0x10) & 0xff;
-            } else if (t7_1 == 2) {
-                ((void **)var_50)[(uintptr_t)t2] = (arg3 >> 0x18) & 0xff;
-            } else if (t7_1 == 3) {
-                arg3 = *t1_3;
-                ((void **)var_50)[(uintptr_t)t2] = arg3 & 0xff;
-            }
-
-            if (t2 == 0) {
-                arg4 = var_50[0];
-            }
-        } else {
-            ((void **)var_50)[(uintptr_t)t2] = (arg3 >> 0x1c) & 0xff;
-
-            if (t2 == 0) {
-                uint32_t frameNumTmp_1 = frameNumTmp;
-                uint32_t v1_30 = (uint32_t)(unsigned char)var_50[0];
-                arg4 = ((unsigned char)v1_30 + (unsigned char)(frameNumTmp_1 << 4)) & 0xff;
-
-                if (v1_30 == 0xf) {
-                    uint32_t v0_23 = (frameNumTmp_1 & 0xff) + 1;
-
-                    if (v0_23 == 0x10) {
-                        frameNumTmp = 0;
-                    } else {
-                        frameNumTmp = v0_23 & 0xff;
-                    }
-                }
-            }
-        }
-
-        t2 = (void *)(uintptr_t)((uintptr_t)t2 + (1));
-        s1 = (void *)(uintptr_t)((uintptr_t)s1 + (v1_2));
-        t1_3 = (int32_t*)((char*)(uintptr_t)t1_3 + (uintptr_t)a2 * 2 * 4);
-    }
-
-    /* Access .bss data using inline assembly */
-    char* data_b7f80;
-    char* data_b7ed8;
-    
-    __asm__ volatile (
-        "lui $t9, %%hi(.bss)\n\t"
-        "addiu $t9, $t9, %%lo(.bss)\n\t"
-        "move %0, $t9\n\t"
-        : "=r" (data_b7f80)
-        :
-        : "$t9"
-    );
-    
-    __asm__ volatile (
-        "lui $t9, %%hi(.bss)\n\t"
-        "addiu $t9, $t9, %%lo(.bss)\n\t"
-        "addiu $t9, $t9, 256\n\t"
-        "move %0, $t9\n\t"
-        : "=r" (data_b7ed8)
-        :
-        : "$t9"
-    );
-
-    if (data_b7f80 != 0) {
-        *data_b7f80 = arg4;
-    }
-
-    if (data_b7ed8 != 0) {
-        *data_b7ed8 = arg4;
-    }
-
-    memset(arg2, 0, 4096);
+    /* T40-BSS-STRAY (issue 86): AF statistics are unpacked by the C AF
+     * (tx_isp_t40_af.h) on demand.  The lifted OEM body wrote the frame byte
+     * into the .bss start of this module (OEM: through pst{Main,Sec}AfOri[41],
+     * a 168-byte pointer table this driver does not build) and cleared 4 KB
+     * from arg2, which its callers pass as &isp_memopt.  Inert. */
+    (void)arg1; (void)arg2; (void)arg3; (void)arg4;
     return 0;
 }
 
@@ -90938,79 +90803,25 @@ int64_t tisp_awb_get_attr(uint32_t a0, uintptr_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003428c origin=model_output original=tisp_awb_get_mode */
 int32_t tisp_awb_get_mode(int32_t arg1, int32_t arg2)
 {
-    uint8_t *a1;
-    uint8_t *v0;
-    uint32_t tmp_a1_hi, tmp_a1_lo, tmp_v0_hi, tmp_v0_lo;
-    
-    if (arg1 == 0) {
-        /* a1 = .bss + 16748 */
-        __asm__ volatile (
-            "lui %0, %%hi(.bss)\n\t"
-            "addiu %0, %0, %%lo(.bss)\n\t"
-            "addiu %0, %0, 16748"
-            : "=r" (tmp_a1_lo)
-            :
-            :
-        );
-        /* v0 = .bss + 16180 */
-        __asm__ volatile (
-            "lui %0, %%hi(.bss)\n\t"
-            "addiu %0, %0, %%lo(.bss)\n\t"
-            "addiu %0, %0, 16180"
-            : "=r" (tmp_v0_lo)
-            :
-            :
-        );
-        a1 = (uint8_t *)tmp_a1_lo;
-        v0 = (uint8_t *)tmp_v0_lo;
-    } else {
-        /* a1 = .bss + 16720 */
-        __asm__ volatile (
-            "lui %0, %%hi(.bss)\n\t"
-            "addiu %0, %0, %%lo(.bss)\n\t"
-            "addiu %0, %0, 16720"
-            : "=r" (tmp_a1_lo)
-            :
-            :
-        );
-        /* v0 = .bss + 15668 */
-        __asm__ volatile (
-            "lui %0, %%hi(.bss)\n\t"
-            "addiu %0, %0, %%lo(.bss)\n\t"
-            "addiu %0, %0, 15668"
-            : "=r" (tmp_v0_lo)
-            :
-            :
-        );
-        a1 = (uint8_t *)tmp_a1_lo;
-        v0 = (uint8_t *)tmp_v0_lo;
-    }
-    
-    /* Copy data from v0 to a1 based on assembly pattern */
-    /* Load from v0+480 (lw v1,480(v0)) and store to a1+0 */
-    *(uint32_t *)(a1 + 0) = *(uint32_t *)(v0 + 480);
-    
-    /* Load from v0+488 (lw v1,488(v0)) and store to a1+4 */
-    *(uint16_t *)(a1 + 4) = *(uint16_t *)(v0 + 488);
-    
-    /* Load from v0+490 (lhu v1,2(v1) where v1=v0+488) and store to a1+8 */
-    *(uint16_t *)(a1 + 8) = *(uint16_t *)(v0 + 490);
-    
-    /* Load from v0+492 (lw v1,492(v0)) and store to a1+12 */
-    *(uint16_t *)(a1 + 12) = *(uint16_t *)(v0 + 492);
-    
-    /* Load from v0+494 (lhu v1,2(v1) where v1=v0+492) and store to a1+16 */
-    *(uint16_t *)(a1 + 16) = *(uint16_t *)(v0 + 494);
-    
-    /* Load from v0+496 (lw v0,496(v0)) and store to a1+20 */
-    *(uint16_t *)(a1 + 20) = *(uint16_t *)(v0 + 496);
-    
-    /* Load from v0+498 (lhu v0,2(v0) where v0=v0+496) and store to a1+24 */
-    *(uint16_t *)(a1 + 24) = *(uint16_t *)(v0 + 498);
-    
-    /* Copy 28 bytes from a1 to arg2 */
-    memcpy((void *)arg2, (void *)a1, 28);
-    
+    /* T40-BSS-STRAY (issue 86): OEM 0x3431c.  pst{Main,Sec}AwbOri + 480/488/
+     * 492/496 point to the mode byte and three u16 pairs; they are widened
+     * into tisp_wb_attr_{main,sec} (7 words) and copied out.  The lift read
+     * and wrote fixed .bss offsets of the OEM layout. */
+    uint8_t *ori = arg1 ? (uint8_t *)pstSecAwbOri : (uint8_t *)pstMainAwbOri;
+    uint32_t *attr = arg1 ? tisp_wb_attr_sec : tisp_wb_attr_main;
+    const uint8_t *mode = (const uint8_t *)(uintptr_t)*(uint32_t *)(ori + 480);
+    const uint16_t *a = (const uint16_t *)(uintptr_t)*(uint32_t *)(ori + 488);
+    const uint16_t *b = (const uint16_t *)(uintptr_t)*(uint32_t *)(ori + 492);
+    const uint16_t *c = (const uint16_t *)(uintptr_t)*(uint32_t *)(ori + 496);
+
+    if (!arg2 || !regtrace_is_kernel_ptr(mode) || !regtrace_is_kernel_ptr(a) ||
+        !regtrace_is_kernel_ptr(b) || !regtrace_is_kernel_ptr(c))
+        return -1;
+    attr[0] = *mode;
+    attr[1] = a[0]; attr[2] = a[1];
+    attr[3] = b[0]; attr[4] = b[1];
+    attr[5] = c[0]; attr[6] = c[1];
+    memcpy((void *)(uintptr_t)arg2, attr, 28);
     return 0;
 }
 
@@ -96575,36 +96386,11 @@ int32_t tisp_wdr_main_long_ev_update(int32_t arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000039c54 origin=model_output original=tisp_wdr_sec_long_ev_update */
 int32_t tisp_wdr_sec_long_ev_update(int32_t arg1, int32_t arg2)
 {
-    uint32_t *v0;
-    uint32_t *v1;
-    uint32_t *a0;
-    uint32_t *a1;
-    
-    /* First .bss access: load base and store 1 at offset 16993 */
-    __asm__ volatile (
-        "lui %0, %%hi(.bss)\n\t"
-        "li %1, 1\n\t"
-        "sb %1, %%lo(.bss)+16993(%0)\n\t"
-        : "=&r" (v0), "=&r" (v1)
-        :
-        : "memory"
-    );
-    
-    /* Second .bss access: load base at offset 16976, then store computed values */
-    __asm__ volatile (
-        "lui %0, %%hi(.bss)\n\t"
-        "addiu %0, %0, %%lo(.bss)+16976\n\t"
-        "sll %1, %2, 22\n\t"
-        "srl %3, %2, 10\n\t"
-        "or %0, %0, %1\n\t"
-        "sw %0, 8(%0)\n\t"
-        "srl %1, %3, 10\n\t"
-        "sw %1, 12(%0)\n\t"
-        : "=&r" (v0), "=&r" (v1)
-        : "r" (arg1), "r" (arg2)
-        : "memory"
-    );
-    
+    /* T40-BSS-STRAY (issue 86): OEM 0x39ce4: wdr_ev_changed[1] = 1 and the
+     * 64-bit EV (arg2:arg1) >> 10 into ev_wdr_l[2..3]. */
+    ((uint8_t *)&wdr_ev_changed)[1] = 1;
+    ev_wdr_l[2] = ((uint32_t)arg1 >> 10) | ((uint32_t)arg2 << 22);
+    ev_wdr_l[3] = (uint32_t)arg2 >> 10;
     return 0;
 }
 
@@ -126544,47 +126330,27 @@ tisp_defog_seco_process0x74:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000051e4c origin=model_output original=tisp_defog_get_data */
 int32_t *tisp_defog_get_data(int32_t arg1, void *arg2)
 {
-    void *data_a876c;
-    int32_t *i;
-    int32_t *v1;
+    /* T40-BSS-STRAY (issue 86): OEM 0x51ed8.  Sensor 0 is
+     * tisp_defog_get_data.part.0; sensor 1 unpacks 180 entries of arg2 (two
+     * words each from +8) into the three 21-bit tables behind the pointer
+     * defog_seco_soft_para.  The lift jumped to a fixed address and wrote
+     * into stMainAwbInterOri. */
+    uint32_t *base = (uint32_t *)(uintptr_t)defog_seco_soft_para;
+    const uint32_t *src = arg2;
+    unsigned int k;
 
-    if (arg1 == 0) {
-        /* Tail call via indirect jump using .text section relocation */
-        register void *func_addr asm("t9");
-        __asm__ volatile (
-            "lui %0, %%hi(.text)\n\t"
-            "addiu %0, %0, %%lo(.text)\n\t"
-            : "=r"(func_addr)
-        );
-        /* This won't work - need to load actual function address */
-        func_addr = (void *)0x4d900;
-        asm volatile ("move $a0, %0" : : "r"(arg2));
-        asm volatile ("jr %0" : : "r"(func_addr));
-        asm volatile ("nop");
-        return NULL; /* Unreachable */
+    if (arg1 == 0)
+        return tisp_defog_get_data_part_0((uintptr_t)arg2);
+    if (!src || !regtrace_is_kernel_ptr(base))
+        return NULL;
+    for (k = 0; k < 180; k++) {
+        uint32_t w0 = src[2 + 2 * k], w1 = src[3 + 2 * k];
+
+        base[k] = (w1 >> 10) & 0x1fffff;
+        base[180 + k] = ((w1 << 11) | (w0 >> 21)) & 0x1fffff;
+        base[360 + k] = w0 & 0x1fffff;
     }
-
-    /* Load data_a876c from .bss section using section-based relocation */
-    __asm__ volatile (
-        "lui %0, %%hi(.bss)\n\t"
-        "addiu %0, %0, %%lo(.bss)\n\t"
-        : "=r"(data_a876c)
-    );
-    /* This won't work either - need actual address 0xa876c */
-    data_a876c = (void *)((char *)&stMainAwbInterOri + 0x5624);
-    
-    i = (int32_t *)((char *)arg2 + 8);
-
-    do {
-        v1 = *i;
-        i = (int32_t *)((char *)i + 8);
-        data_a876c = (void *)((char *)data_a876c + 4);
-        *((int32_t *)((uintptr_t)data_a876c + 0x59c)) = (uintptr_t)v1 & 0x1fffff;
-        *((int32_t *)((uintptr_t)data_a876c + 0x2cc)) = (((*(uintptr_t *)((uintptr_t)i - 4) << 0xb) | ((*(uintptr_t *)((uintptr_t)i - 8)) >> 0x15)) & 0x1fffff);
-        *((int32_t *)((uintptr_t)data_a876c - 4)) = (*(uintptr_t *)((uintptr_t)i - 4) >> 0xa) & 0x1fffff;
-    } while (i != (int32_t *)((char *)arg2 + 0x5a8));
-
-    return (int32_t *)i;
+    return (int32_t *)((char *)arg2 + 0x5a8);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000051eb8 origin=fragment_seed original=tisp_defog_seco_interrupt_static */
@@ -129066,30 +128832,14 @@ int32_t tiziano_adr_params_refresh(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000053bbc origin=model_output original=tisp_adr_ev_update */
 int32_t tisp_adr_ev_update(int32_t arg1, int32_t arg2, int32_t arg3)
 {
-    unsigned int value = ((unsigned int)arg2 << 0x16) | ((unsigned int)arg1 >> 0xa);
-    
-    /* Use inline assembly with .bss relocations */
-    /* Escape % as %% for GCC inline assembly */
-    asm volatile (
-        "lui $v1, %%hi(.bss)\n\t"
-        "addiu $v1, $v1, %%lo(.bss) + 0x45e4\n\t"
-        "sll $t0, %2, 1\n\t"
-        "addu $t0, $t0, $v1\n\t"
-        "li $v1, 1\n\t"
-        "sh $v1, 0($t0)\n\t"
-        "lui $v0, %%hi(.bss)\n\t"
-        "addiu $v0, $v0, %%lo(.bss) + 0x4610\n\t"
-        "sll $t1, %2, 2\n\t"
-        "addu $t1, $t1, $v0\n\t"
-        "sll $t2, %1, 0x16\n\t"
-        "srl $t3, %0, 0xa\n\t"
-        "or $t2, $t2, $t3\n\t"
-        "sw $t2, 0($t1)\n\t"
-        :
-        : "r"(arg1), "r"(arg2), "r"(arg3)
-        : "v0", "v1", "t0", "t1", "t2", "t3", "memory"
-    );
-    
+    /* T40-BSS-STRAY (issue 86): OEM 0x53c4c: adr_ev_changed (u16[2])[arg3] = 1
+     * and adr_ev_top[arg3] = 64-bit EV (arg2:arg1) >> 10. */
+    uint32_t value = ((uint32_t)arg2 << 22) | ((uint32_t)arg1 >> 10);
+
+    if ((uint32_t)arg3 >= 2)
+        return -1;
+    ((uint16_t *)&adr_ev_changed)[arg3] = 1;
+    adr_ev_top[arg3] = value;
     return (int32_t)value;
 }
 
@@ -139645,156 +139395,24 @@ tisp_adr_param_array_set0xb0:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000005c7a4 origin=model_output original=adr_remove */
 int adr_remove(struct platform_device *pdev)
 {
-    /* Use inline assembly to generate .bss relocations */
-    /* 15 blocks, each generating 2 relocations (HI16 and LO16) = 30 .bss relocations */
-    
-    /* Access .bss at offset 17952 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17952)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17956 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17956)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17944 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17944)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17948 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17948)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17936 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17936)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17940 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17940)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17928 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17928)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17932 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17932)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17920 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17920)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17924 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17924)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17912 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17912)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17916 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17916)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17904 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17904)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17908 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17908)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Access .bss at offset 17896 */
-    __asm__ volatile (
-        "lui $v0, %%hi(.bss)\n\t"
-        "sw $zero, %%lo(.bss + 17896)($v0)\n\t"
-        :
-        :
-        : "$v0", "memory"
-    );
-    
-    /* Set version number in .data using inline assembly with .data section */
-    /* The version number 0x7d3f01c8 needs to be stored to .data */
-    __asm__ volatile (
-        "lui $v0, 0x7d3f\n\t"
-        "addiu $v0, $v0, 456\n\t"
-        "lui $v1, %%hi(.data)\n\t"
-        "sw $v0, %%lo(.data)($v1)\n\t"
-        :
-        :
-        : "$v0", "$v1", "memory"
-    );
-    
+    /* T40-BSS-STRAY (issue 86): OEM 0x5c834 (adr deinit from tisp_slake_all)
+     * clears the ADR state words and resets adr_version_num.  The lift wrote
+     * into fixed .bss offsets and into the .data start of this module.
+     * width_adr / height_adr / count_adr_test are one word here (the OEM
+     * keeps two, the second sensor's is not used by this driver). */
+    (void)pdev;
+    count_adr_test = 0;
+    adr_version_num = 0x7d3f01c8;
+    memset(adr_ev, 0, sizeof(adr_ev));
+    memset(adr_ev_top, 0, sizeof(adr_ev_top));
+    memset(adr_tg_f_top, 0, sizeof(adr_tg_f_top));
+    memset(adr_tgain_top, 0, sizeof(adr_tgain_top));
+    width_adr = 0;
+    height_adr = 0;
+    memset(wdr_en_adr, 0, sizeof(wdr_en_adr));
+    adr_ev_changed = 0;
+    adr_tgain_changed = 0;
+    adr_ctc1_y_change = 0;
     return 0;
 }
 
@@ -146810,38 +146428,19 @@ int32_t tisp_sdns_refresh(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000063a10 origin=model_output original=tisp_sdns_params_refresh */
 int32_t tisp_sdns_params_refresh(int32_t arg1)
 {
-    unsigned char *ptr;
-    unsigned char *src;
-    unsigned char *dest;
-    unsigned int offset;
-    unsigned char *bss_ptr1;
-    unsigned char *bss_ptr2;
-    
-    /* Use inline assembly to reference .bss symbol twice to generate 4 relocations */
-    __asm__ volatile (
-        "lui %0, %%hi(.bss)\n\t"
-        "addiu %0, %0, %%lo(.bss)\n\t"
-        : "=r" (bss_ptr1)
-        :
-    );
-    __asm__ volatile (
-        "lui %0, %%hi(.bss)\n\t"
-        "addiu %0, %0, %%lo(.bss)\n\t"
-        : "=r" (bss_ptr2)
-        :
-    );
-    
-    if (arg1 == 0) {
-        src = bss_ptr2 + 18196;
-    } else {
-        src = bss_ptr1 + 18192;
-    }
-    
-    offset = (unsigned int)arg1 << 2;
-    ptr = (unsigned char *)tparamsN + offset;
-    dest = (unsigned char *)*(unsigned int *)ptr;
-    dest = (unsigned char *)((unsigned long)dest + 0x17b00);
-    memcpy((void *)dest, (void *)src, 2900);
+    /* T40-BSS-STRAY (issue 86): OEM 0x63aa0 copies 2900 bytes of the tuning
+     * bank (tparamsN[arg1] + 0x17b00) into the parameter block that
+     * main_sdns / sec_sdns point to.  The lift copied the other way round,
+     * from fixed .bss offsets into the bank. */
+    uint8_t *dst = (uint8_t *)(uintptr_t)(arg1 == 0 ? main_sdns : sec_sdns);
+    uint32_t bank;
+
+    if ((uint32_t)arg1 >= 2)
+        return -1;
+    bank = *(uint32_t *)((uint8_t *)tparamsN + ((uint32_t)arg1 << 2));
+    if (!bank || !regtrace_is_kernel_ptr(dst))
+        return -1;
+    memcpy(dst, (const uint8_t *)(uintptr_t)(bank + 0x17b00), 2900);
     return 0;
 }
 
@@ -158772,30 +158371,10 @@ int32_t tisp_clm_set_wlut_frequency(uint32_t a0, uintptr_t a1)
 int32_t tisp_clm_prepare_write_lut(int32_t arg1)
 {
     if (regtrace_isr_oem_hw_refresh) { return t40_writer_clm_prepare((unsigned int)arg1); }
-    unsigned char *ptr;
-    #ifndef REGTRACE_KERNEL_TREE_BUILD
-    register unsigned long base __asm__("v0");
-    #endif
-    #ifndef REGTRACE_KERNEL_TREE_BUILD
-    register unsigned long offset __asm__("a0") = arg1;
-    #endif
-    
-    __asm__ volatile (
-        ".set push\n\t"
-        ".set noreorder\n\t"
-        "lui %0, %%hi(.bss)\n\t"
-        "addiu %0, %0, %%lo(.bss)\n\t"
-        "addu %1, %0, %1\n\t"
-        "lbu %0, 0(%1)\n\t"
-        "addiu %0, %0, 1\n\t"
-        "sb %0, 0(%1)\n\t"
-        "move %0, $zero\n\t"
-        ".set pop"
-        : "=&r"(base), "+r"(offset)
-        :
-        : "memory"
-    );
-    
+    /* T40-BSS-STRAY (issue 86): OEM 0x6e44c increments the u8 counter
+     * clm_wlut_times[arg1]; the lift incremented a byte at .bss + arg1. */
+    if ((uint32_t)arg1 < 2)
+        ((uint8_t *)&clm_wlut_times)[arg1]++;
     return 0;
 }
 
@@ -161178,30 +160757,13 @@ int32_t tisp_gsm_params_transmit(uintptr_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000070708 origin=model_output original=tisp_gsm_main_init */
 int32_t tisp_gsm_main_init(void)
 {
-    unsigned int tmp;
-    __asm__ volatile (
-        "lui %0, %%hi(.bss)\n\t"
-        "addiu %0, %0, %%lo(.bss) + 20312\n\t"
-        "lui $v1, %%hi(.bss)\n\t"
-        "addiu $v1, $v1, %%lo(.bss)\n\t"
-        "sw %0, 19284($v1)\n\t"
-        : "=&r" (tmp)
-        :
-        : "v1", "memory"
-    );
+    /* T40-BSS-STRAY (issue 86): OEM 0x70798 points pstMainGsmOri at
+     * stMainGsmInterOri and initialises main_gsm_slock_hist; the lift wrote
+     * fixed .bss offsets of the OEM layout. */
+    pstMainGsmOri = (uintptr_t)stMainGsmInterOri;
     system_irq_func_set(7, tisp_gsm_interrupt_hist);
     tisp_event_set_cb(0, 20, tisp_gsm_main_process);
-    {
-        unsigned int arg;
-        __asm__ volatile (
-            "lui %0, %%hi(.bss)\n\t"
-            "addiu %0, %0, %%lo(.bss) + 21340\n\t"
-            : "=&r" (arg)
-            :
-            : "memory"
-        );
-        private_spin_lock_init(arg);
-    }
+    private_spin_lock_init(&main_gsm_slock_hist);
     system_reg_write(0x1b020, 0x4080);
     system_reg_write(0x1b060, 0x4080);
     return 0;
