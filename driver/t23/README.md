@@ -77,6 +77,35 @@ The subdevice adapter supplies T23's graph table and legacy pad-slot offsets
 to the shared name/type/index resolver. Its recovered graph descriptor reads
 also use the common 8-byte endpoint wire positions.
 
+## ISP OSD
+
+The ISP-drawn OSD (libimp `IMP_ISP_Tuning_*OsdRgn` / `IMP_OSD_*_ISP`, used by
+raptor and prudynt) is drawn by the MSCA into output 0 from ARGB pictures in
+rmem. libimp sends `SetOSDAttr` (0x08000181, 12 bytes: type, byte order,
+alpha disable) and `SetOSDBlock` (0x08000182, 20 bytes: slot 0..7, enable,
+position, size, physical address, stride); `tx_isp_t23_tuning_ext.h` stores
+them in the stock mscaler object and marks the slot dirty.
+
+The core frame-done interrupt (`t23_osd_commit`) writes the dirty slots into
+the MSCA, like stock `ispcore_irq_thread_handle -> tisp_msca_Shd_ctrl ->
+tisp_msca_set_omi_api -> tisp_msca_api_set_osd`: inside `0xe000 = 0x101 /
+0x01010102`, (value, register) pairs on the shadow port `0xe004` (order
+`0x754`; per slot n `0x760 + 16n` left/top, `+4` width/height, `+8` address,
+`+12` stride; enable `0x048`; format `0x750` = type | 0x70 | alpha << 8),
+then `0xe100 = (pairs - 1) << 4 | 1`. Helpers and register map:
+`tx_isp_t23_osd.h`; emulator audit against the stock code
+`audit/osd_commit_emu.py` (bit-exact but for the enable word); host test
+`tests/tx_isp_t23_osd_test.c`.
+
+Beyond stock: the enable word follows the stored slots (stock only ORs bits
+in, so a hidden picture kept its bit), a busy shadow port (`0xe100` /
+`0xe00c` bit 1, or the MSCA curve loader writing the same port) defers the
+update to the next frame, and a channel 0 start sends the shown pictures
+again. Parameters: `isp_osd` (0644, default 1; 0 stores the requests
+without writing the MSCA), `osd_commits` and `osd_busy_skips` (0444).
+The draw blocks (`SetDrawBlock`, stock `tisp_msca_api_set_line`) and the
+mask blocks (`tisp_msca_api_set_mask`) are still stored only.
+
 ## MSCA geometry check (crop hang)
 
 A front crop window smaller than a channel output (the MSCA cannot

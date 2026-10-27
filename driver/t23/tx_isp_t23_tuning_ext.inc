@@ -547,10 +547,11 @@ static long t23x_mask_block(bool get, uint32_t uptr)
 /*
  * Set/Get OSDAttr (0x08000181, 12 bytes), OSDBlock (0x08000182, 20 bytes)
  * and DrawBlock (0x08000180, 32 bytes) on the stock mscaler object, see
- * tx_isp_t23_tuning_ext.h (emulator audit: audit/osd_draw_emu.py).  Like
- * the mask blocks, a stored block has no image effect yet: the MSCA update
- * that programs it (tisp_msca_Shd_ctrl -> tisp_msca_api_set_osd / _set_line)
- * is not run by this driver.  Host build only, device test pending.
+ * tx_isp_t23_tuning_ext.h (emulator audit: audit/osd_draw_emu.py).  The
+ * OSD pictures (attribute + blocks) are written into the MSCA by the next
+ * frame-done interrupt (t23_osd_commit, tx_isp_t23_osd.h, stock
+ * tisp_msca_api_set_osd).  Like the mask blocks, a stored draw block has
+ * no image effect yet (stock tisp_msca_api_set_line is not run).
  * Shares the mask mutex: the three controls and the mask blocks work on
  * the same object.
  */
@@ -561,6 +562,7 @@ static long t23x_osd_draw(bool get, uint32_t id, uint32_t uptr)
 	size_t n = id == T23X_CID_OSD_ATTR ? T23X_OSD_ATTR_BYTES :
 		   id == T23X_CID_OSD_BLOCK ? T23X_OSD_BLOCK_BYTES :
 					      T23X_DRAW_BLOCK_BYTES;
+	unsigned long flags;
 	long ret = 0;
 	int quirk = 0;
 
@@ -575,6 +577,8 @@ static long t23x_osd_draw(bool get, uint32_t id, uint32_t uptr)
 			return ret;
 	}
 	mutex_lock(&t23x_mask_mutex);
+	/* the OSD state is also read by the frame-done interrupt (t23_osd_commit) */
+	spin_lock_irqsave(&t23_osd_lock, flags);
 	switch (id) {
 	case T23X_CID_OSD_ATTR:
 		if (get)
@@ -591,6 +595,7 @@ static long t23x_osd_draw(bool get, uint32_t id, uint32_t uptr)
 			    t23x_draw_block_set(mscaler, blk);
 		break;
 	}
+	spin_unlock_irqrestore(&t23_osd_lock, flags);
 	mutex_unlock(&t23x_mask_mutex);
 	if (quirk)
 		printk(KERN_WARNING

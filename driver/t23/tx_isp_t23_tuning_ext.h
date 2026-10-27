@@ -536,8 +536,9 @@ static inline int t23x_mask_block_get(const uint8_t *msca, const uint8_t *in,
  * -EINVAL, nothing written.  Stock Get passes an uninitialised stack local,
  * so it neither knows the index nor defines the bytes it leaves; here the
  * user's block is read first (index) and the bytes stock leaves out are 0 /
- * the user's.  Like the mask blocks, a stored OSD or draw block has no image
- * effect yet in this driver (the MSCA update that consumes it is not run).
+ * the user's.  The stored OSD pictures are written into the MSCA by the
+ * frame-done interrupt (tx_isp_t23_osd.h, README "ISP OSD"); like the mask
+ * blocks, a stored draw block has no image effect yet.
  */
 #define T23X_OSD_ATTR_BYTES 12U
 #define T23X_OSD_BLOCK_BYTES 20U

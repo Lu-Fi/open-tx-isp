@@ -4,6 +4,25 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (5): T23 ISP-drawn OSD pictures appear in the picture (`claude/issue-127`; QEMU T23, .30)
+
+- **IMP_ISP_Tuning_SetOsdRgnAttr / ShowOsdRgn** (ISP OSD, raptor/prudynt) drew nothing on the T23 (issue #127):
+  SetOSDAttr / SetOSDBlock (0x08000181/182) were stored in the mscaler object, but nothing wrote them into the
+  MSCA. The core frame-done interrupt now does what stock `ispcore_irq_thread_handle -> tisp_msca_Shd_ctrl ->
+  tisp_msca_set_omi_api -> tisp_msca_api_set_osd` does: (value, register) pairs on the MSCA shadow port 0xe004
+  inside 0xe000 = 0x101 / 0x01010102 (order 0x754; per picture 0x760 + 16n position, size, address, stride;
+  enable 0x048; format 0x750), kick 0xe100 = (pairs - 1) << 4 | 1 (`tx_isp_t23_osd.h`, README "ISP OSD").
+  Emulator audit against the stock libt23-firmware 1.3.0 code (`audit/osd_commit_emu.py`, 300 random states):
+  identical writes except the enable word, which here follows the stored pictures (stock only ORs bits in, so a
+  hidden picture kept its bit: beyond stock). Busy shadow port or running curve loader: retried next frame;
+  channel 0 start resends the shown pictures; `isp_osd=0` switches the writes off; counters `osd_commits`,
+  `osd_busy_skips`. Host test `tests/tx_isp_t23_osd_test.c`. QEMU T23: apitest isposd FAIL -> PASS (black
+  picture Y 180 -> 16 exactly in its 128x64 cells), ISP OSD devtest 7 phases, no oops, rmmod clean. Cam .30
+  (sc1a4t, runtime ko swap): isposd Y 111.3 -> 234.0 (stock agg47 ko: 110.7 -> 110.7), hide back to 111.2,
+  destroy, frames flow; devtest: picture A/D/B/C at their positions in the right colours (BGRA bytes, order 0),
+  move, second region, hide, destroy all as requested, ch1 15.0 fps throughout, 8 commits, 0 busy skips, no oops.
+  Draw blocks (SetDrawBlock) and mask blocks are still stored only.
+
 ## 2026-10-27 (5): T40 BCSH day/night host test builds again (`claude/issue-87`; host)
 
 - **tests/t40/bcsh_dn_host** (issue #87) included the removed `tx_isp_t40_bcsh_lit.inc`; it now runs the C chain
