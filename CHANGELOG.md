@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (12): T41 defog ratio set no longer returns the OEM's leftover v0 as an error (`claude/issue-135`; QEMU T41, .34)
+
+- **Defog ratio** (issue #135): `t41_dfg_ratio_apply` passed the return value of the translated `tisp_s_defog_ratio` through
+  as a status. That routine leaves whatever was in v0 (seen as -2111087330); the ratio is applied. Now only a trapped access
+  in the translated code is a failure. `SetModule_Ratio` with the defog entry returns 0 (QEMU T41 and the T41 camera).
+- The "bypass-defog leaves the key unchanged" part is not a driver defect: the sc5336 calibration keeps the defog block in
+  bypass, so setting the bit changes nothing; clearing it (`unbypass-defog`, apitest) runs the defog chain (frames counted,
+  picture changes: mean abs diff 1.78 against 0.5 drift).
+
 ## 2026-10-27 (11): T32 S4 step 2: stream-on register list = LSC from the IQ bin (`claude/t32-s4`; host, QEMU T32)
 
 - **LSC** (issue #97): the stream-on list now carries the lens shading block as the vendor's does, computed from the IQ bin

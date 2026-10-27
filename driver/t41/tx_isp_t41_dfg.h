@@ -167,7 +167,14 @@ int32_t t41_dfg_ratio_apply(void)
 {
 	if (!READ_ONCE(t41_dfg_live))
 		return -EOPNOTSUPP;
-	return (int)vae_tisp_s_defog_ratio(0, 0, 0, 0, 0);
+	/* The OEM tisp_s_defog_ratio is a void-style routine: v0 on return is
+	 * whatever the last instruction left there (a pointer-like value seen
+	 * as -2111087330 by the caller), not a status.  Only a trapped access
+	 * in the translated code counts as failure. */
+	u32 faults0 = vae_faults;
+
+	vae_tisp_s_defog_ratio(0, 0, 0, 0, 0);
+	return vae_faults != faults0 ? -EFAULT : 0;
 }
 
 void t41_dfg_irq(void)
