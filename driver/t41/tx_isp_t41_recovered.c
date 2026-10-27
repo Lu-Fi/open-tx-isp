@@ -156725,7 +156725,7 @@ int32_t tisp_ddr_to_isp_raw(uint32_t a0, uintptr_t a1)
     uint32_t ra = 0;
     uint32_t *s0 = 0;
     uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
+    uintptr_t s2 = 0;   /* T41-RDMA: was uintptr_t *: s2 + 4104 etc. scaled by 4 (0x24020 instead of 0x21008) */
     uintptr_t *v0 = 0;
     uintptr_t *v1 = 0;
 
@@ -156741,7 +156741,7 @@ int32_t tisp_ddr_to_isp_raw(uint32_t a0, uintptr_t a1)
     v1 = *(uint32_t *)((char *)v1 + 4);
     s0 = (unsigned int *)&system_reg_write;
     s1 = a1;
-    s2 = v0;
+    s2 = (uintptr_t)v0;
 
     /* fragment 2: Branch */
     s0 = (unsigned int *)&system_reg_write;
@@ -156778,7 +156778,7 @@ tisp_ddr_to_isp_raw0x84:
     if (v0 == 0) { goto tisp_ddr_to_isp_raw0x138; }
 
     /* fragment 11: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)a0, (uintptr_t)a1);   /* T41-RDMA: value argument was dropped (OEM a1) */ /* jalr target resolved by relocation */
 
     /* fragment 12: CallSetup */
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 4104, (*(uint32_t *)((char *)(s1) + 20)) + 6); /* jalr target resolved by relocation */
@@ -156798,7 +156798,7 @@ tisp_ddr_to_isp_raw0x84:
 
 tisp_ddr_to_isp_raw0xf4:
     /* fragment 17: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)a0, (uintptr_t)a1);   /* T41-RDMA: value argument was dropped (OEM a1) */ /* jalr target resolved by relocation */
 
     /* fragment 18: CallSetup */
     /* Was LC1 (six conversions) with two arguments: "%s" read an
@@ -156817,7 +156817,7 @@ tisp_ddr_to_isp_raw0xf4:
 
 tisp_ddr_to_isp_raw0x138:
     /* fragment 22: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)a0, (uintptr_t)a1);   /* T41-RDMA: value argument was dropped (OEM a1) */ /* jalr target resolved by relocation */
 
     /* fragment 23: CallSetup */
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 4104, *(uint32_t *)((char *)(s1) + 20)); /* jalr target resolved by relocation */

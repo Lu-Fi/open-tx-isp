@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (9): T41 RAW input: RDMA block at the OEM addresses (`claude/isp-rawinput-rdmafix`; host build, not on the device)
+
+- **`tisp_ddr_to_isp_raw`** (RAW injection path, opt-in): the lift declared the RDMA page base as `uintptr_t *`, so every
+  `s2 + off` scaled the offset by 4 (0x21008/0x2100c/0x21010/0x21024 went to 0x24020/0x24030/0x24040/0x24090), and two
+  writes lost their value through a one-argument cast. Now the OEM addresses and values (vendor tx-isp-t41.ko 0x6b300..0x6b468).
+  Candidate cause for "RDMA done" (irq 69) never firing; device proof open (RAW inject on a T41).
+
 ## 2026-10-27 (8): T41 api_ae_dn_par_refresh body repaired (`claude/t41-nightae1025`; host)
 
 - **T41 `api_ae_dn_par_refresh`**: the lifted body stored the "parameters changed" byte (+1281) through the channel number instead of
