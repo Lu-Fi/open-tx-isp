@@ -57534,20 +57534,24 @@ int32_t sensor_hw_reset_enable(void)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000010578 origin=model_output original=sensor_alloc_analog_gain */
 int32_t sensor_alloc_analog_gain(int32_t arg1, int32_t *arg2)
 {
-    uint32_t ispcore_val;
-    int32_t *a2;
-    int32_t var_10;
-    int32_t *result;
-    uint32_t *v0_ptr;
-    int32_t (*func_ptr)(int32_t, int32_t, int32_t *);
+    /* OEM 0x105d8: the core pointer is the content of g_ispcore (.bss+1568);
+     * the lift took the address of g_ispcore instead. */
+    uint32_t ispcore_val = regtrace_get_u32((uintptr_t)g_ispcore, 0);
+    uint32_t base, fn;
+    int32_t var_10 = 0;
+    int32_t result;
 
-    ispcore_val = g_ispcore;
-    a2 = *arg2 * 96;
-    var_10 = 0;
-    v0_ptr = (uint32_t *)((uint32_t)a2 + ispcore_val + 0x170);
-    func_ptr = (int32_t (*)(int32_t, int32_t, int32_t *))v0_ptr[0xc4 / sizeof(uint32_t)];
-    result = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))func_ptr)((int32_t *)(arg1), (uintptr_t)(16), (uintptr_t)(&var_10));
-    ((void **)arg2)[1] = var_10;
+    if (!ispcore_val || !arg2)
+        return -1;
+    /* OEM: lw 368(core + idx * 96) -> sensor attr, then the callback at +0xc4 */
+    base = *(uint32_t *)(uintptr_t)((uint32_t)(*arg2 * 96) + ispcore_val + 0x170);
+    if (!base)
+        return -1;
+    fn = *(uint32_t *)(uintptr_t)(base + 0xc4);
+    if (!fn)
+        return -1;
+    result = ((int32_t (*)(int32_t, int32_t, int32_t *))(uintptr_t)fn)(arg1, 16, &var_10);
+    ((void **)arg2)[1] = (void *)(uintptr_t)var_10;
     return result;
 }
 
@@ -57563,7 +57567,10 @@ int32_t sensor_alloc_analog_gain_short(int32_t arg1, int32_t *arg2)
 
     if (!ispcore_val || !arg2)
         return -1;
-    base = (uint32_t)(*arg2 * 96) + ispcore_val + 0x170;
+    /* OEM: lw 368(core + idx * 96) -> sensor attr, then the callback at +0xc8 */
+    base = *(uint32_t *)(uintptr_t)((uint32_t)(*arg2 * 96) + ispcore_val + 0x170);
+    if (!base)
+        return -1;
     fn = *(uint32_t *)(uintptr_t)(base + 0xc8);
     if (!fn)
         return -1;
