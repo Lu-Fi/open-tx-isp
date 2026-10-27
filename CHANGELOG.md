@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-28: T32 S4 step 3: AE/AWB statistics engines from the IQ bin (`claude/t32-s4`; host, QEMU T32)
+
+- **AE/AWB statistics** (issue #97): the engines are initialised as the vendor does (reverse engineered tisp_ae_malloc_cfg,
+  set_hardware_param, roi_point; tisp_awb_malloc_cfg, set_hardware_param, set_regional_threshold, set_lum_th_freq):
+  zone grid, centre ROI, EV dependent thresholds, statistics buffers. Host test `tx_isp_t32_stats_test`: 24 AE and 26 AWB
+  writes identical to the vendor's (with `T32_IQ_BIN`). QEMU: the writes as the vendor's apart from the buffer addresses,
+  statistics interrupts arrive, 3 channels 8/8 frames over 2 load cycles; the engines are switched off before the buffers
+  are freed. No AE/AWB control loop yet.
+
 ## 2026-10-27 (12): T41 defog ratio set no longer returns the OEM's leftover v0 as an error (`claude/issue-135`; QEMU T41, .34)
 
 - **Defog ratio** (issue #135): `t41_dfg_ratio_apply` passed the return value of the translated `tisp_s_defog_ratio` through

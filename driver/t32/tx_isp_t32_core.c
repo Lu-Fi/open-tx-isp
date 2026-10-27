@@ -699,6 +699,9 @@ static int t32_proc_show(struct seq_file *m, void *v)
 	seq_printf(m, "irqs isp %u vic %u frame ends %u stream ons %u\n",
 		   t32_hw_stats.isp_irqs, t32_hw_stats.vic_irqs,
 		   t32_hw_stats.frame_ends, t32_hw_stats.stream_ons);
+	seq_printf(m, "statistics: inits %u, irqs ae %u ae-hist %u awb %u\n",
+		   t32_hw_stats.stats_inits, t32_hw_stats.ae_irqs, t32_hw_stats.ae_hist_irqs,
+		   t32_hw_stats.awb_irqs);
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
 	t32_fs_show(m);

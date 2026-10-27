@@ -26,6 +26,7 @@
 #include "tx_isp_t32_vic.h"
 #include "tx_isp_t32_rcfg.h"
 #include "tx_isp_t32_lsc.h"
+#include "tx_isp_t32_stats.h"
 
 /* Linux IRQ numbers: INTC source + XBURST_SOC_IRQ_BASE (8) on PRJ007 */
 static int isp_irq = 8 + T32_IRQ_ISP_M0;
@@ -85,6 +86,12 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	t32_hw_stats.isp_irqs++;
 	if (sta & 1)
 		t32_hw_stats.frame_ends++;
+	if (sta & T32_INT_AWB)
+		t32_hw_stats.awb_irqs++;
+	if (sta & T32_INT_AE)
+		t32_hw_stats.ae_irqs++;
+	if (sta & T32_INT_AE_HIST)
+		t32_hw_stats.ae_hist_irqs++;
 	if (done)
 		t32_fs_done_irq(done);
 	return IRQ_HANDLED;
@@ -128,6 +135,51 @@ static unsigned int lsc_ct = 5000;
 module_param(lsc_ct, uint, 0644);
 MODULE_PARM_DESC(lsc_ct, "colour temperature for the LSC mesh at stream-on (vendor init: 5000)");
 static u32 lsc_scratch[T32_LSC_WORDS];
+
+/*
+ * AE and AWB statistics engines (tx_isp_t32_stats.h), initialised from the IQ
+ * bin as the vendor does at AddSensor; here at stream-on, when the sensor size
+ * and the bin are known.  The buffers live as long as the module, and the
+ * engines are switched off before they are freed (t32_hw_exit).
+ */
+#define T32_AE_BUF_ORDER	3	/* 32 KiB >= 0x6000 */
+#define T32_AWB_BUF_ORDER	5	/* 128 KiB >= 0x1c000 */
+static unsigned long ae_buf, awb_buf;
+
+static void t32_stats_off(void)
+{
+	isp_wr(T32_AE_TRIG, 0);
+	isp_wr(0x17088, 0);
+	isp_wr(T32_AWB_TRIG, 0);
+	isp_wr(0x16088, 0);
+}
+
+static void t32_stats_init(void)
+{
+	struct t32_stats_write w[T32_STATS_MAX_WRITES];
+	const u8 *bin;
+	u32 bytes, width, height;
+	unsigned int n, i;
+
+	if (t32_core_iq_bin(&bin, &bytes) || t32_core_sensor_size(&width, &height) ||
+	    bytes < T32_AWB_PARAM + 5000)
+		return;
+	if (!ae_buf)
+		ae_buf = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_AE_BUF_ORDER);
+	if (!awb_buf)
+		awb_buf = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_AWB_BUF_ORDER);
+	if (!ae_buf || !awb_buf) {
+		isp_printf(2, "tx-isp-t32: no memory for the statistics buffers\n");
+		return;
+	}
+	n = t32_ae_stats_init(bin, width, height, virt_to_phys((void *)ae_buf), w);
+	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
+		isp_wr(w[i].reg, w[i].val);
+	n = t32_awb_stats_init(bin, virt_to_phys((void *)awb_buf), T32_AWB_INIT_EV, w);
+	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
+		isp_wr(w[i].reg, w[i].val);
+	t32_hw_stats.stats_inits++;
+}
 
 /*
  * The stream-on list: the LSC block from the IQ bin (tx_isp_t32_lsc.h), as
@@ -294,6 +346,7 @@ void t32_hw_stream_on(void)
 	isp_wr(T32_MSCADONE_EN, 0xffffffff);
 	isp_wr(T32_INT3_EN, 0xffffffff);
 	isp_wr(T32_INT4_EN, 0xffffffff);
+	t32_stats_init();
 	t32_hw_rcfg_run_stream_on();
 	isp_wr(0x002c, 2);
 	isp_wr(0x1040, 1);
@@ -525,6 +578,7 @@ void t32_hw_exit(void)
 	t32_hw_stream_off();
 	for (i = 0; i < T32_MSCA_CHANNELS; i++)
 		t32_hw_msca_stop(i);
+	t32_stats_off();	/* no statistics DMA into the buffers freed below */
 	if (irqs_requested) {
 		free_irq(vic_irq, &csi_base);
 		free_irq(isp_irq, &isp_base);
@@ -536,6 +590,11 @@ void t32_hw_exit(void)
 	iounmap(csi_base);
 	iounmap(isp_base);
 	isp_base = csi_base = dphy_base = NULL;
+	if (ae_buf)
+		free_pages(ae_buf, T32_AE_BUF_ORDER);
+	if (awb_buf)
+		free_pages(awb_buf, T32_AWB_BUF_ORDER);
+	ae_buf = awb_buf = 0;
 	free_pages(rcfg_pages, get_order((T32_RCFG_TABLE_WORDS + T32_RCFG_LIST_WORDS) * 4));
 	rcfg_pages = 0;
 }
