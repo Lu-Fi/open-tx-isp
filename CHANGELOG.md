@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (6): T40 BCSH user CSC tables and user CCM whole (`claude/issue-83`; host, not yet on the device)
+
+- **CSC gamut 4 (user tables) and the BCSH user CCM** took only the first word of each table, like the OEM
+  (`tisp_bcsh_params_refresh` copies 4 bytes): the rest of the RGB->YUV matrix, its inverse, the clips and the three
+  CT matrices stayed from the previous gamut or the bank (issue #83). New module parameter `bcsh_user_full` (default 1,
+  beyond stock) copies the whole tables into both WDR halves; `bcsh_user_full=0` keeps the OEM behaviour.
+  c_chains_host bcsh: 31 bins bit-exact against the literal OEM chain with 0, new check for 1 (whole tables, register
+  writes change; fails with the old copy). Camera proof open (T40 test flash).
+
 ## 2026-10-27 (7): T40 tisp event thread sleeps until an event is queued (`claude/issue-81`; QEMU T40)
 
 - **regtrace_tisp_event_thread** (issue #81) polled: `tisp_event_process` waited on a completion with a 20 ms timeout
