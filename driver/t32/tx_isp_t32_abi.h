@@ -177,5 +177,6 @@ struct t32_sensor_reginfo {
 /* sensor ops ioctl events (NOTIFICATION_TYPE_SENSOR_OPS 0x02000000 + n) with a
  * struct { int vinum; int value; } argument */
 #define T32_EVENT_SENSOR_FPS		0x0200000aU	/* value fps_num << 16 | fps_den */
+#define T32_EVENT_SENSOR_EXPO		0x02000017U	/* value again << 16 | integration lines (cv8001: arg + 4) */
 
 #endif /* TX_ISP_T32_ABI_H */

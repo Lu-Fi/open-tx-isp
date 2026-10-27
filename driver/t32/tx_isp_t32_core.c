@@ -618,6 +618,37 @@ static long t32_sensor_fps_set(struct t32_vi *vi, u32 fps)
 	return ret ? -EINVAL : 0;
 }
 
+/* sensor exposure (TX_ISP_EVENT_SENSOR_EXPO, T32 0x02000017): value =
+ * analog gain index << 16 | integration time in lines, as tisp hands it */
+int t32_core_sensor_expo(u32 packed)
+{
+	struct t32_vi *vi = &core.vi[0];
+	struct { s32 vinum, value; } sv = { 0, (s32)packed };
+	int (*ioctl)(void *sd, unsigned int cmd, void *arg);
+	void *ops, *grp;
+
+	if (!vi->registered || !vi->sd)
+		return -ENODEV;
+	ops = T32_AT(vi->sd, T32_SD_OPS, void *);
+	grp = ops ? T32_AT(ops, T32_OPS_SENSOR, void *) : NULL;
+	ioctl = grp ? T32_AT(grp, T32_SENSOR_OPS_IOCTL, void *) : NULL;
+	if (!ioctl)
+		return -ENOIOCTLCMD;
+	return ioctl(vi->sd, T32_EVENT_SENSOR_EXPO, &sv);
+}
+
+/* the sensor's frame length (VTS) from its attributes, 0 when unknown */
+u32 t32_core_sensor_vts(void)
+{
+	struct t32_vi *vi = &core.vi[0];
+	void *attr;
+
+	if (!vi->registered || !vi->sd)
+		return 0;
+	attr = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_ATTR, void *);
+	return attr ? T32_AT(attr, T32_ATTR_TOTAL_HEIGHT, u16) : 0;
+}
+
 static long t32_m0_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct t32_vi *vi = &core.vi[0];
@@ -702,6 +733,8 @@ static int t32_proc_show(struct seq_file *m, void *v)
 	seq_printf(m, "statistics: inits %u, irqs ae %u ae-hist %u awb %u\n",
 		   t32_hw_stats.stats_inits, t32_hw_stats.ae_irqs, t32_hw_stats.ae_hist_irqs,
 		   t32_hw_stats.awb_irqs);
+	seq_printf(m, "bring-up controller (not the vendor AE): steps %u, mean %u/16, it %u lines\n",
+		   t32_hw_stats.bringup_steps, t32_hw_stats.bringup_mean16, t32_hw_stats.bringup_it);
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
 	t32_fs_show(m);

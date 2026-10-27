@@ -177,4 +177,67 @@ static inline unsigned int t32_awb_stats_init(const u8 *bin, u32 buf_pa, u32 ev,
 	return n;
 }
 
+/*
+ * Bring-up controller helpers (NOT the vendor AE): the AE histogram as the
+ * statistics engine writes it (8 bytes after the buffer start, 256 bins of
+ * 24 bits, two per 64-bit word) and one proportional exposure step.
+ */
+#ifdef __KERNEL__
+#include <linux/math64.h>
+#else
+static inline unsigned long long div_u64(unsigned long long a, u32 b) { return a / b; }
+#endif
+
+#define T32_AE_HIST_HEAD	8
+#define T32_AE_HIST_BINS	256
+#define T32_AE_CUR		0x1708c	/* bits 1:0 histogram buffer written last */
+
+static inline u32 t32_ae_hist_bin(const u8 *h, unsigned int i)
+{
+	unsigned int bit = i * 24 + i / 2 * 16, k;
+	u32 v = 0;
+
+	for (k = 0; k < 24; k++, bit++)
+		v |= (u32)((h[bit / 8] >> (bit % 8)) & 1) << k;
+	return v;
+}
+
+/* mean bin (0..255) times 16, 0 when the histogram is empty */
+static inline u32 t32_ae_hist_mean16(const u8 *h)
+{
+	unsigned long long sum = 0;
+	u32 n = 0;
+	unsigned int i;
+
+	for (i = 0; i < T32_AE_HIST_BINS; i++) {
+		u32 c = t32_ae_hist_bin(h, i);
+
+		sum += (unsigned long long)c * i;
+		n += c;
+	}
+	if (!n)
+		return 0;
+	return (u32)div_u64(sum * 16 + n / 2, n);
+}
+
+/* next integration time: proportional to target / mean, limited to a
+ * quarter / four times per step and to 1 .. max lines */
+static inline u32 t32_bringup_ae_step(u32 it, u32 mean16, u32 target16, u32 max)
+{
+	u32 next;
+
+	if (!mean16 || !target16 || !it)
+		return it;
+	next = (u32)div_u64((unsigned long long)it * target16, mean16);
+	if (next > it * 4)
+		next = it * 4;
+	if (next < it / 4)
+		next = it / 4;
+	if (next < 1)
+		next = 1;
+	if (next > max)
+		next = max;
+	return next;
+}
+
 #endif /* TX_ISP_T32_STATS_H */
