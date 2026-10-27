@@ -38,6 +38,9 @@
 #define T32_INT_EN			0x30020
 #define T32_INT_CLR			0x30024
 #define T32_INT_STA			0x30028	/* bit 0: frame end */
+#define T32_INT_AWB			(1U << 3)	/* AWB statistics written */
+#define T32_INT_AE			(1U << 4)	/* AE zone statistics */
+#define T32_INT_AE_HIST			(1U << 5)	/* AE histogram */
 #define T32_CHDONE_EN			0x30030
 #define T32_CHDONE_CLR			0x30034
 #define T32_CHDONE_STA			0x30038	/* bit N: MSCA channel N done */

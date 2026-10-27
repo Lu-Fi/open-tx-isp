@@ -26,6 +26,7 @@ int t32_core_iq_bin(const u8 **bin, u32 *bytes);
 /* tx_isp_t32_hw.c */
 struct t32_hw_stats {
 	u32 isp_irqs, vic_irqs, frame_ends, stream_ons;
+	u32 ae_irqs, ae_hist_irqs, awb_irqs, stats_inits;
 };
 extern struct t32_hw_stats t32_hw_stats;
 int t32_hw_init(void);

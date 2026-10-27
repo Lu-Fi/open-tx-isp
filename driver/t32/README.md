@@ -117,6 +117,20 @@ generation-shared come from the shared code instead:
   does not execute T32 lists: QEMU shows the list built and run (run s4c,
   3 channels 8/8 frames), the picture effect needs a camera.
 
+- AE and AWB statistics engines initialised from the IQ bin at stream-on
+  (`tx_isp_t32_stats.h`, flow of the vendor `tisp_ae_malloc_cfg`,
+  `tisp_ae_set_hardware_param`, `tisp_ae_roi_point`, `tisp_awb_malloc_cfg`,
+  `tisp_awb_set_hardware_param`, `tisp_awb_set_regional_threshold`,
+  `tisp_awb_set_lum_th_freq`): zone grid, ROI, thresholds (EV 1024 as
+  `tisp_awb_init`), buffers (AE 4 x 4 KiB zones + 4 x 2 KiB histograms, AWB
+  4 x 0x7000). Against the vendor's AddSensor writes (cv8001 bin, 3840x2160):
+  50 of 50 identical apart from the buffer addresses (host test with the bin;
+  QEMU run s4g). The AE block sits at tparams + 0x6c, 4 bytes past what
+  `tisp_ae_init`'s constant suggests (open question); AWB at tparams + 0xd44.
+  The engines are switched off before their buffers are freed (#132 lesson).
+  Statistics interrupts (0x30028 bits 3/4/5) are counted (proc); nothing reads
+  the statistics yet (vendor AE/AWB chains: next).
+
 ## Not yet (S4+)
 
 No tisp/3A, no IQ bin parsing (the bin's physical address is kept), no
@@ -131,7 +145,7 @@ Day/night, WDR, LDC, OSD, IVDC direct mode, AOV/RISC-V hand-over: off.
 make -C $KDIR M=$PWD/driver/t32 ARCH=mips CROSS_COMPILE=mipsel-linux- modules
 ```
 against a thingino T32 kernel 4.4.94 tree. Host tests:
-`make -C tests tx_isp_t32_mem_rcfg_test tx_isp_t32_vic_test tx_isp_t32_msca_curve_test tx_isp_t32_lsc_test`
+`make -C tests tx_isp_t32_mem_rcfg_test tx_isp_t32_vic_test tx_isp_t32_msca_curve_test tx_isp_t32_lsc_test tx_isp_t32_stats_test`
 (`T32_IQ_BIN` / `T32_RCFG_REF` for the comparison with the vendor list).
 
 ## Module parameters
