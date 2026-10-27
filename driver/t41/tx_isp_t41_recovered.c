@@ -37972,6 +37972,14 @@ static int t41_ioctl_isp_bypass(uintptr_t file, uint32_t user_arg)
         return -EFAULT;
     if (!t41_kernel_data_ptr(core))
         return -ENODEV;
+    /* The real bypass routes channel 0 to the VIC frame-channel ops (input
+     * 4, core+0x2a4 <- vic+0x39c), but the open VIC frame-channel path is
+     * not functional: vic_frame_channel_set_fmt answers -EINVAL (no VIC
+     * device in dump_vsd), so FrameSource_EnableChn fails and no frame
+     * flows (issue 125, QEMU T41).  Refuse it until the VIC MDMA capture
+     * path works; value 0 (ISP processing, the normal state) stays served. */
+    if (req[0])
+        return -EOPNOTSUPP;
     channels = *(unsigned char **)(core + 0x1ac);
     if (!t41_kernel_data_ptr(channels))
         return -ENODEV;

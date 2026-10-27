@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (4): T41 real ISP bypass refused until the VIC path works (`claude/issue-125`; QEMU T41)
+
+- **IMP_ISP_SetISPBypass(1)** (issue #125): with OpenIMP `claude/issue-125` the request now reaches the driver in
+  the vendor order (before AddSensor) and routes frame channel 0 to the VIC frame-channel ops (input 4, core+0x2a4).
+  The open VIC frame-channel path is not functional (`vic_frame_channel_set_fmt` answers -EINVAL, no VIC device in
+  `dump_vsd`), so FrameSource_EnableChn failed and no frame flowed (QEMU T41). Until the VIC MDMA capture path works
+  the driver refuses value != 0 with -EOPNOTSUPP (libimp -4095) without touching the routing; value 0 (ISP
+  processing, the normal state) stays served. QEMU T41: bypass 1 -4095 with frames flowing, bypass 0 / apitest
+  `ispbypass` PASS, no oops.
 ## 2026-10-27 (6): T40 BCSH user CSC tables and user CCM whole (`claude/issue-83`; host, not yet on the device)
 
 - **CSC gamut 4 (user tables) and the BCSH user CCM** took only the first word of each table, like the OEM
