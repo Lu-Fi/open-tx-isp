@@ -1137,6 +1137,8 @@ static uint32_t tisp_wb_attr_sec[7];
 static uintptr_t pstMainGsmOri;
 static uint32_t stMainGsmInterOri[256];
 static int32_t main_gsm_slock_hist;
+static uint32_t stSecGsmInterOri[256];
+static int32_t sec_gsm_slock_hist;
 static uintptr_t adr_init;
 static uintptr_t adr_local_b_light10_main;
 static uintptr_t adr_local_b_light10_sec;
@@ -160779,30 +160781,13 @@ int32_t tisp_gsm_main_init(void)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000707ac origin=fragment_seed original=tisp_gsm_sec_init */
 int32_t tisp_gsm_sec_init(void)
 {
-    uint32_t local_14 = 0;
-    uint32_t *a0 = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: CallSetup */
-    *(uint32_t *)((char *)((char *)&pstSecGsmOri)) = ((uintptr_t)&isp_memopt);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_gsm_sec_process)(1, 21, &tisp_gsm_sec_process); /* jalr target resolved by relocation */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_lock_init)(&isp_memopt); /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    v0 = 0;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    /* OEM 0x70838: pstSecGsmOri = &stSecGsmInterOri, register the sec GSM
+     * process as event 21 of channel 1, init sec_gsm_slock_hist.  The lift
+     * pointed pstSecGsmOri at isp_memopt, called the process function
+     * directly and zeroed isp_memopt as the "spinlock". */
+    pstSecGsmOri = (uintptr_t)stSecGsmInterOri;
+    tisp_event_set_cb(1, 21, (int32_t)(uintptr_t)tisp_gsm_sec_process);
+    private_spin_lock_init(&sec_gsm_slock_hist);
     return 0;
 }
 
