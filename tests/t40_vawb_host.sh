@@ -1,6 +1,10 @@
 #!/bin/bash
 # Host run of the generated T40 vendor AWB: tests/t40_vawb_host.sh <tuning.bin> <oem data.bin> R G B [frames] [trace]
 # (oem data.bin = objcopy -O binary --only-section=.data of the OEM tx-isp-t40.ko)
+#   tests/t40_vawb_host.sh replay <device dump> [trace]     (REPS=n [CONSEC=1]: time per process)
+# CTD_REF=<git ref>: tisp_awb_ct_detect C (tx_isp_t40_awb_ctd.inc) vs the translated OEM code of that
+# ref (the last one that generated it, e.g. f2c180f7) on every call; FUZZ=seed / FUZZM=seed vary
+# the statistics / tuning switches (issue 133).
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd); D=$HERE/../driver/t40; W=$(mktemp -d); trap 'rm -rf $W' EXIT
 sed -n '/^#include "tx_isp_t40_vawb_gen.inc"/q;p' $D/tx_isp_t40_vawb.h > $W/top.h
@@ -12,7 +16,26 @@ sed -i -e 's/a >= 0x80000000U \&\& a < 0xfffff000U \&\& !(a \& align)/harness_ok
        -e 's/^static u32 vawb_converge_tele_gain = /static u32 vawb_converge_tele_gain VD = /' \
        -e 's/^static u32 vawb_wide_tele_awb_gain\[3\] = /static u32 vawb_wide_tele_awb_gain[3] VD = /' $W/top.h
 echo '#endif' >> $W/top.h
+# the C fix-point helpers of the driver (used by tx_isp_t40_awb_ctd.inc)
+for f in fix_point_div_32 fix_point_div fix_point_mult2_32 fix_point_mult3_32; do
+	awk -v f="$f" '!p && $0 ~ "^int(32|64)_t " f "\\(" && $0 !~ /;$/ {p=1} p {print} p && /^}/ {exit}' $D/tx_isp_t40_recovered.c
+done > $W/cfix.inc
+XDEF=
+if [ -n "$CTD_REF" ]; then
+	# reference: the translated OEM ct_detect closure of $CTD_REF, renamed vref_*
+	FNS="tisp_awb_ct_detect ISPAWBInterpolation1 ISPAWBInterpolation2 Tiziano_Awb_Ct_Cal Tiziano_Awb_Ct_Detect_GrayWorld
+	     Tiziano_Awb_Ct_Detect_GrayWorld_mode func_zone_ct_weight fix_point_div_32 fix_point_div_64 fix_point_mult3_32"
+	git -C $HERE/.. show $CTD_REF:driver/t40/tx_isp_t40_vawb_gen.inc > $W/ref_all.inc
+	: > $W/ref.inc
+	for f in $FNS; do echo "u64 vref_$f(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);" >> $W/ref.inc; done
+	for f in $FNS; do awk -v f="$f" '!p && $0 ~ "^u64 noinline vawb_" f "\\(" {p=1} p {print} p && /^}/ {exit}' $W/ref_all.inc; done > $W/ref_fns.inc
+	SED=; for f in $FNS; do SED="$SED -e s/\\bvawb_$f\\b/vref_$f/g"; done
+	sed $SED $W/ref_fns.inc >> $W/ref.inc
+	sed -i 's/^static u64 vawb_s_tisp_awb_ct_detect(/static u64 vawb_s_ctd_c(/' $W/top.h
+	XDEF="-DCTD_REF_INC=\"$W/ref.inc\""
+fi
 sed -e 's/^static const u8 vawb_rodata\(\[[0-9]*\]\) __aligned(8)/static u8 vawb_rodata\1 __aligned(8) VD/' ${GEN:-$D/tx_isp_t40_vawb_gen.inc} > $W/gen.inc
 gcc -O1 -g0 -falign-functions=16 -no-pie -fno-pie -w -fno-strict-aliasing -Wl,--section-start=.vdata=0x30000000 \
-	-DVAWB_TOP="\"$W/top.h\"" -DVAWB_INC="\"$W/gen.inc\"" $HERE/t40_vawb/vawb_host.c -o $W/vawb_host
+	-DVAWB_TOP="\"$W/top.h\"" -DVAWB_INC="\"$W/gen.inc\"" -DCFIX_INC="\"$W/cfix.inc\"" \
+	-DCTD_INC="\"$D/tx_isp_t40_awb_ctd.inc\"" $XDEF $HERE/t40_vawb/vawb_host.c -o $W/vawb_host
 $W/vawb_host "$@"

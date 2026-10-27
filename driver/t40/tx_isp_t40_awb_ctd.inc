@@ -385,7 +385,7 @@ int64_t tisp_awb_ct_detect(uintptr_t a0, uintptr_t a1, uint32_t a2)
     uint64_t sum_r = 0, sum_b = 0, sum_w = 0;
     uint32_t st[5] = { 0, 0, 0, 0, 0 };
     unsigned int n = regtrace_t40_awb_ctd_calls++;
-    int diag = n < 10 || (n % 300) == 0;
+    int diag = n < 10 || (regtrace_enable_isp_3a_diag && (n % 300) == 0);	/* issue 133: per frame with t40_vawb, periodic lines only with enable_isp_3a_diag */
 
     if (!regtrace_is_kernel_ptr(out) || !regtrace_is_kernel_ptr(gains) || !regtrace_is_kernel_ptr(flags)) return 0;
     for (i = 0; i < 34; i++)
