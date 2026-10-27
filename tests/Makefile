@@ -3,7 +3,7 @@ CC ?= cc
 CFLAGS ?= -O2
 CFLAGS += -std=c99 -Wall -Wextra -Werror
 
-.PHONY: all check clean t30_storage_audit t40_vct_host t40_af_stats_host
+.PHONY: all check clean t30_storage_audit t40_vct_host t40_af_stats_host t40_bcsh_dn_host
 
 # Every host test binary.  A new test is registered with "TESTS += name"
 # (plus its build rule); `check` builds and runs all of them, keeps going
@@ -12,7 +12,7 @@ CFLAGS += -std=c99 -Wall -Wextra -Werror
 # so a test cannot be added and then silently never run.
 TESTS :=
 # Further check steps, run as "$(MAKE) <target>" after the binaries.
-CHECK_TARGETS := t30_storage_audit t41_dfg_host t40_vct_host t40_af_stats_host
+CHECK_TARGETS := t30_storage_audit t41_dfg_host t40_vct_host t40_af_stats_host t40_bcsh_dn_host
 # Sources that only run on the camera (not built on the host).
 TARGET_TESTS := $(basename $(wildcard t41_v4l2_*_test.c)) t41_antiflicker_ioctl_test
 TEST_TIMEOUT ?= 600
@@ -521,6 +521,10 @@ t40_vct_host:
 # AF statistics unpack + metrics (driver/t40/tx_isp_t40_af.h)
 t40_af_stats_host:
 	./t40/af_stats_host/run.sh
+
+# T40 BCSH day -> night -> day (C chain, needs a T40 tuning bin, else SKIP)
+t40_bcsh_dn_host:
+	./t40/bcsh_dn_host/run.sh
 
 clean:
 	$(RM) $(TESTS)

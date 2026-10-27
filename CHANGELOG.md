@@ -4,6 +4,16 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (5): T40 BCSH day/night host test builds again (`claude/issue-87`; host)
+
+- **tests/t40/bcsh_dn_host** (issue #87) included the removed `tx_isp_t40_bcsh_lit.inc`; it now runs the C chain
+  (`driver/t40/tx_isp_t40_bcsh.h`) in the order of `regtrace_t40_refresh_daynight_pipeline` (init, brightness,
+  contrast, hue, saturation; night with saturation 0) and checks the BCSH registers after three day -> night -> day
+  cycles against the first day. New guards against a vacuous pass: the day registers must be written and the night
+  bank must change them. Part of `make -C tests check` (target `t40_bcsh_dn_host`); the bin comes from
+  `T40_TUNING_BIN`, else the pinned SDK submodule `sensor-iq/t40/gc2053.bin`, else SKIP. PASS with the SDK gc2053,
+  gc4653, imx327, gc5603 and the Eufy sc830ai bins (EV 286830 and 3375).
+
 ## 2026-10-27 (4): T20 manual integration time takes effect (`claude/issue-128`; QEMU T20, .107)
 
 - **IMP_ISP_Tuning_SetIntegrationTime(MANUAL)** and **SetExpr(MANUAL)** had no exposure effect on the T20 (issue

@@ -1,6 +1,6 @@
-# T40 BCSH literal chain: day -> night -> day host check
+# T40 BCSH chain: day -> night -> day host check
 
-Runs `driver/t40/tx_isp_t40_bcsh_lit.inc` on an x86-64 host in the order of `regtrace_t40_refresh_daynight_pipeline`
+Runs `driver/t40/tx_isp_t40_bcsh.h` (the C BCSH chain; the literal `tx_isp_t40_bcsh_lit.inc` was removed) on an x86-64 host in the order of `regtrace_t40_refresh_daynight_pipeline`
 (init from the bank, brightness, contrast, hue, saturation; night with saturation 0) and checks that the BCSH registers
 0x11000..0x110fc after three day -> night -> day cycles equal the first day init.
 

@@ -121,27 +121,25 @@ static unsigned char __attribute__((aligned(4))) as32BT709FullMinvMatrix[36] = {
     0x0e, 0xd0, 0xff, 0xff, 0x29, 0x88, 0xff, 0xff, 0x00, 0x00, 0x01, 0x00, 0x09, 0xdb, 0x01, 0x00, 
     0x07, 0x00, 0x00, 0x00, 
 };
-/* OEM function symbols whose address the literal code loads (HI16/LO16 pairs) but never calls through */
-static char tisp_bcsh_ct_interpolation, tisp_bcsh_ct_set_parameter, tisp_bcsh_ev_set_parameter, tisp_bcsh_ev_update_TransitParam, tisp_bcsh_para2reg, tisp_bcsh_reg2para, tisp_bcsh_StrenCal, tisp_bcsh_Tccm_Comp2Orig, tisp_bcsh_Tccm_RGB2YUV, tisp_bcsh_Tccm_RGBYUV, tisp_bcsh_Toffset_RGB2YUV, tisp_bcsh_Toffset_RGBYUV;
-#include "../../../driver/t40/tx_isp_t40_bcsh_lit.inc"
+#define T40C2	/* driver: own section outside .bss/.data */
+#define min_t(t, a, b) ((t)(a) < (t)(b) ? (t)(a) : (t)(b))
+#include "../../../driver/t40/tx_isp_t40_bcsh.h"
 
 static uint8_t *bin;
 static void init_bank(int night, uint8_t sat)
 {
-    tparamsN[0] = (uint32_t)(uintptr_t)(bin + 0x18 + (night ? 0x18ff4 : 0));
-    uint32_t ctx = (uint32_t)(uintptr_t)pstMainBcshOri_lit;
+    uint32_t deg = (128U * 120U + 255U) >> 8;
 
-    /* the same order as regtrace_t40_refresh_daynight_pipeline: init, brightness, contrast, hue, saturation */
-    regtrace_bcsh_main_init_lit(2);
-    *(uint8_t *)(uintptr_t)pstMainBcshOri_lit[46] = 128; tisp_bcsh_ev_update_lit(ctx, 0);
-    *(uint8_t *)(uintptr_t)pstMainBcshOri_lit[47] = 128; tisp_bcsh_ev_update_lit(ctx, 0);
-    *(uint8_t *)(uintptr_t)pstMainBcshOri_lit[6] = 1;    /* regtrace_isp_m0_apply_hue(128) */
-    *(uint8_t *)(uintptr_t)pstMainBcshOri_lit[25] = (128 * 120 + 255) >> 8;
-    tisp_bcsh_ct_update_lit(ctx, 0);
-    *(uint8_t *)(uintptr_t)pstMainBcshOri_lit[26] = 128;
-    *(uint8_t *)(uintptr_t)pstMainBcshOri_lit[6] = 0;
-    *(uint8_t *)(uintptr_t)pstMainBcshOri_lit[48] = sat;
-    tisp_bcsh_ev_update_lit(ctx, 0);
+    tparamsN[0] = (uint32_t)(uintptr_t)(bin + 0x18 + (night ? 0x18ff4 : 0));
+    /* the same order as regtrace_t40_refresh_daynight_pipeline: init, brightness, contrast, hue, saturation
+     * (the driver glue regtrace_isp_m0_apply_*) */
+    t40_bcsh_init(2);
+    t40_bcsh.in[BI_BRIGHTNESS] = 128; t40_bcsh_ev_update(0);
+    t40_bcsh.in[BI_CONTRAST] = 128; t40_bcsh_ev_update(0);
+    t40_bcsh.in[BI_BUSY] = 1; t40_bcsh.in[BI_HUE] = (uint8_t)deg;
+    t40_bcsh_ct_update(0);
+    t40_bcsh.in[BI_HUE_RAW] = 128; t40_bcsh.in[BI_BUSY] = 0;
+    t40_bcsh.in[BI_SATURATION] = sat; t40_bcsh_ev_update(0);
 }
 static int run(int argc, char **argv)
 {
@@ -153,10 +151,17 @@ static int run(int argc, char **argv)
     bin = (uint8_t *)private_vmalloc(204800);
     f = fopen(argv[1], "rb"); assert(f && fread(bin, 1, 204800, f) == 204800); fclose(f);
     regtrace_bcsh_ev = argc > 2 ? strtoul(argv[2], 0, 0) : 286830;
+    unsigned nz = 0, night_diff = 0;
+
     init_bank(0, 128);
     memcpy(boot, &regs[0x11000 / 4], sizeof(boot));
+    for (o = 0; o < 0x100; o += 4)
+        nz += boot[o / 4] != 0;
     for (cyc = 1; cyc <= 3; cyc++) {
         init_bank(1, 0);
+        if (cyc == 1)
+            for (o = 0; o < 0x100; o += 4)
+                night_diff += regs[(0x11000 + o) / 4] != boot[o / 4];
         init_bank(0, 128);
         for (o = 0; o < 0x100; o += 4)
             if (regs[(0x11000 + o) / 4] != boot[o / 4]) {
@@ -164,9 +169,12 @@ static int run(int argc, char **argv)
                 printf("  cycle %u %05x boot %08x now %08x\n", cyc, 0x11000 + o, boot[o / 4], regs[(0x11000 + o) / 4]);
             }
     }
-    printf("BCSH day after day->night->day x3 (EV %u): %u words differ from the boot day -> %s\n",
-           regtrace_bcsh_ev, diff, diff ? "FAIL" : "PASS");
-    return diff ? 1 : 0;
+    /* guard against a vacuous pass: the chain must have written the day
+     * registers, and the night bank with saturation 0 must change them */
+    printf("BCSH day after day->night->day x3 (EV %u): %u words differ from the boot day "
+           "(%u boot words non-zero, %u differ at night) -> %s\n",
+           regtrace_bcsh_ev, diff, nz, night_diff, diff || !nz || !night_diff ? "FAIL" : "PASS");
+    return diff || !nz || !night_diff ? 1 : 0;
 }
 static int g_argc; static char **g_argv;
 static void *worker(void *a) { (void)a; return (void *)(intptr_t)run(g_argc, g_argv); }
