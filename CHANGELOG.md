@@ -4,6 +4,17 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (7): T21/T30 MoveState through the SYSTEM_TAB block (`claude/movestate-t21-t30`; host, QEMU T21 + T30)
+
+- **T30 SYSTEM_TAB (0x800002c)**: the lifted `apical_isp_stab_s_attr` read the enable bytes from an uninitialised local and
+  the values 0x10 bytes off, and the tuning get had no arm for the control (-1). New `tx_isp_t30_stab.h`: item table of the
+  60-byte system table, an item is copied when its enable byte (0x3c + item) is set, as the T20; the get returns the table.
+  Host test `t30_stab_host_test`. QEMU T30 with the OpenIMP MoveState: exposure ceiling 1916 -> 1149 -> 1916 (image ko: get -1).
+- **T21 MoveState block**: the motion block of the vendor libimp logic (enable bytes 71/99/100/101) used to read as a sinter
+  block ([70] set: manual sinter at strength 1). It is now recognised first and applies only its exposure cap (u16 [26] with
+  [82], 3/5 of the ceiling in use; the Disable block puts the captured ceiling back); the Apical sinter/temper/sharpening
+  bytes have no T21 equivalent and are not applied (beyond stock, the stock driver ignores the control). Host test
+  `t21_it_block_host_test` extended. QEMU T21: ceiling 2246 -> 1347 -> 2246, frames flow, no oops. Camera proof open (T21).
 ## 2026-10-27 (6): T40 BCSH user CSC tables and user CCM whole (`claude/issue-83`; host, not yet on the device)
 
 - **CSC gamut 4 (user tables) and the BCSH user CCM** took only the first word of each table, like the OEM

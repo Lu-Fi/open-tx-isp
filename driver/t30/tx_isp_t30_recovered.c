@@ -79,6 +79,7 @@
 #include "tx_isp_t30_videobuf.h"
 #endif
 #include "tx_isp_t30_v4l2.h"
+#include "tx_isp_t30_stab.h"
 
 #ifndef __regtrace_stringify
 #define __regtrace_stringify_1(x) #x
@@ -11801,122 +11802,13 @@ uint32_t apical_isp_stab_s_attr_isra_0(int32_t arg1) __asm__("apical_isp_stab_s_
 #endif
 uint32_t apical_isp_stab_s_attr(int32_t arg1)
 {
-    char buf[0x70];
-    char mask[0x70];
-    uint32_t *result;
+    uint8_t blk[T30_STAB_BLOCK];
 
-    if ((((arg1 + 0x70) | arg1) & *(uint32_t *)(entry_gp + 0x18)) == 0) {
-        __might_sleep("include/linux/kernel.h", 0xc9, 0);
-        copy_from_user(buf, (const void __user *)(uintptr_t)((void *)arg1), 0x70);
-    }
-
-    if (mask[0x3c])
-        *(char *)stab = buf[0x10];
-    if (mask[0x3b])
-        *(char *)(stab + 1) = buf[0x11];
-    if (mask[0x3a])
-        *(char *)(stab + 2) = buf[0x12];
-    if (mask[0x39])
-        *(char *)(stab + 3) = buf[0x13];
-    if (mask[0x38])
-        *(char *)(stab + 4) = buf[0x14];
-    if (mask[0x37])
-        *(char *)(stab + 5) = buf[0x15];
-    if (mask[0x36])
-        *(char *)(stab + 6) = buf[0x16];
-    if (mask[0x35])
-        *(char *)(stab + 7) = buf[0x17];
-    if (mask[0x34])
-        *(char *)(stab + 8) = buf[0x18];
-    if (mask[0x33])
-        *(char *)(stab + 9) = buf[0x19];
-    if (mask[0x32])
-        *(char *)(stab + 10) = buf[0x1a];
-    if (mask[0x31])
-        *(char *)(stab + 11) = buf[0x1b];
-    if (mask[0x30])
-        *(char *)(stab + 12) = buf[0x1c];
-    if (mask[0x2f])
-        *(char *)(stab + 13) = buf[0x1d];
-    if (mask[0x2e])
-        *(char *)(stab + 14) = buf[0x1e];
-    if (mask[0x2d])
-        *(char *)(stab + 15) = buf[0x1f];
-    if (mask[0x2c])
-        *(int32_t *)(stab + 16) = *(int32_t *)(buf + 0x20);
-    if (mask[0x2b])
-        *(char *)(stab + 20) = buf[0x24];
-    if (mask[0x2a])
-        *(char *)(stab + 21) = buf[0x25];
-    if (mask[0x29])
-        *(char *)(stab + 22) = buf[0x26];
-    if (mask[0x28])
-        *(char *)(stab + 23) = buf[0x27];
-    if (mask[0x27])
-        *(int16_t *)(stab + 24) = *(int16_t *)(buf + 0x28);
-    if (mask[0x26])
-        *(int16_t *)(stab + 26) = *(int16_t *)(buf + 0x2a);
-    if (mask[0x25])
-        *(char *)(stab + 28) = buf[0x2c];
-    if (mask[0x24])
-        *(char *)(stab + 29) = buf[0x2d];
-    if (mask[0x23])
-        *(char *)(stab + 30) = buf[0x2e];
-    if (mask[0x22])
-        *(char *)(stab + 31) = buf[0x2f];
-    if (mask[0x21])
-        *(char *)(stab + 32) = buf[0x30];
-    if (mask[0x20])
-        *(char *)(stab + 33) = buf[0x31];
-    if (mask[0x1f])
-        *(char *)(stab + 34) = buf[0x32];
-    if (mask[0x1e])
-        *(char *)(stab + 35) = buf[0x33];
-    if (mask[0x1d])
-        *(char *)(stab + 36) = buf[0x34];
-    if (mask[0x1c])
-        *(char *)(stab + 37) = buf[0x35];
-    if (mask[0x1b])
-        *(char *)(stab + 38) = buf[0x36];
-    if (mask[0x1a])
-        *(char *)(stab + 39) = buf[0x37];
-    if (mask[0x19])
-        *(char *)(stab + 40) = buf[0x38];
-    if (mask[0x18])
-        *(char *)(stab + 41) = buf[0x39];
-    if (mask[0x17])
-        *(char *)(stab + 42) = buf[0x3a];
-    if (mask[0x16])
-        *(char *)(stab + 43) = buf[0x3b];
-    if (mask[0x15])
-        *(char *)(stab + 44) = buf[0x3c];
-    if (mask[0x14])
-        *(char *)(stab + 45) = buf[0x3d];
-    if (mask[0x13])
-        *(char *)(stab + 46) = buf[0x3e];
-    if (mask[0x12])
-        *(char *)(stab + 47) = buf[0x3f];
-    if (mask[0x11])
-        *(char *)(stab + 48) = buf[0x40];
-    if (mask[0x10])
-        *(char *)(stab + 49) = buf[0x41];
-    if (mask[0x0f])
-        *(char *)(stab + 50) = buf[0x42];
-    if (mask[0x0e])
-        *(char *)(stab + 51) = buf[0x43];
-    if (mask[0x0d])
-        *(char *)(stab + 52) = buf[0x44];
-    if (mask[0x0c])
-        *(char *)(stab + 53) = buf[0x45];
-    if (mask[0x0b])
-        *(char *)(stab + 54) = buf[0x46];
-    if (mask[0x0a])
-        *(int16_t *)(stab + 56) = *(int16_t *)(buf + 0x48);
-    if (mask[0x09])
-        *(int16_t *)(stab + 58) = *(int16_t *)(buf + 0x4a);
-
-    result = 0;
-    return result;
+    /* SYSTEM_TAB block: copy the items whose enable byte is set (tx_isp_t30_stab.h) */
+    if (copy_from_user(blk, (const void __user *)(uintptr_t)arg1, sizeof(blk)))
+        return (uint32_t)-EFAULT;
+    t30_stab_apply(stab, blk);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000004384 origin=model_output original=apical_isp_stab_g_attr.isra.0 */
@@ -14882,6 +14774,20 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 					       system_gain->isp_digital_gain,
 					       default_control.control.value);
 				ret = 0;
+			} else if (default_control.control.id == 0x0800002c) {
+				/*
+				 * IMAGE_TUNING_CID_SYSTEM_TAB get (OEM apical_isp_stab_g_attr):
+				 * the system table, enable bytes 0.  The recovered g_ctrl
+				 * switch has no arm for it (-1), so the libimp's MoveState and
+				 * GetIntegrationTime never got the block.
+				 */
+				uint8_t blk[T30_STAB_BLOCK];
+
+				memset(blk, 0, sizeof(blk));
+				memcpy(blk, stab, T30_STAB_BYTES);
+				ret = copy_to_user((void __user *)(uintptr_t)
+						   default_control.control.value,
+						   blk, sizeof(blk)) ? -EFAULT : 0;
 			} else {
 				ret = apical_isp_core_ops_g_ctrl((uintptr_t)tuning,
 						(uintptr_t)&default_control.control);
