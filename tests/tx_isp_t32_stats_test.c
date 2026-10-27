@@ -6,6 +6,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include "../driver/t32/tx_isp_t32_stats.h"
+#include "../driver/t32/tx_isp_t32_iq.h"
+#include "../driver/t32/tx_isp_t32_lsc.h"
 
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
@@ -96,6 +98,15 @@ int main(void)
 
 		fclose(f);
 		CHECK(len > T32_AWB_PARAM + 5000);
+		{
+			u32 l = 0;
+
+			/* the section walk lands on the blocks the vendor values were matched with */
+			CHECK(t32_iq_section(bin, len, T32_IQ_SEC_AE, &l) == T32_AE_PARAM && l == 3288);
+			CHECK(t32_iq_section(bin, len, T32_IQ_SEC_AWB, &l) == T32_AWB_PARAM && l == 6740);
+			CHECK(t32_iq_section(bin, len, T32_IQ_SEC_LSC, &l) == T32_IQ_TPARAMS + T32_LSC_PARAM && l == 120);
+			CHECK(t32_iq_section(bin, len, 28, &l) == 0 && t32_iq_section(bin, 0x100, T32_IQ_SEC_AWB, &l) == 0);
+		}
 		n = t32_ae_stats_init(bin, 3840, 2160, 0x02d40000, w);
 		compare("AE", w, n, ae_vendor, sizeof(ae_vendor) / sizeof(ae_vendor[0]));
 		n = t32_awb_stats_init(bin, 0x02c80000, T32_AWB_INIT_EV, w);

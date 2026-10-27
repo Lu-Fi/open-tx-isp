@@ -28,6 +28,7 @@
 #include "tx_isp_t32_rcfg.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_stats.h"
+#include "tx_isp_t32_iq.h"
 
 static void t32_bringup_ae_kick(void);
 
@@ -166,9 +167,14 @@ static void t32_stats_init(void)
 	u32 bytes, width, height;
 	unsigned int n, i;
 
-	if (t32_core_iq_bin(&bin, &bytes) || t32_core_sensor_size(&width, &height) ||
-	    bytes < T32_AWB_PARAM + 5000)
+	if (t32_core_iq_bin(&bin, &bytes) || t32_core_sensor_size(&width, &height))
 		return;
+	/* the AE/AWB blocks where this bin's section table puts them */
+	if (t32_iq_section(bin, bytes, T32_IQ_SEC_AE, NULL) != T32_AE_PARAM ||
+	    t32_iq_section(bin, bytes, T32_IQ_SEC_AWB, NULL) != T32_AWB_PARAM) {
+		isp_printf(1, "tx-isp-t32: IQ bin AE/AWB sections not at the known offsets, statistics off\n");
+		return;
+	}
 	if (!ae_buf)
 		ae_buf = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_AE_BUF_ORDER);
 	if (!awb_buf)

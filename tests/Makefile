@@ -77,7 +77,7 @@ TESTS += tx_isp_t32_msca_curve_test
 TESTS += tx_isp_t32_lsc_test
 TESTS += tx_isp_t32_stats_test
 
-tx_isp_t32_stats_test: tx_isp_t32_stats_test.c ../driver/t32/tx_isp_t32_stats.h
+tx_isp_t32_stats_test: tx_isp_t32_stats_test.c ../driver/t32/tx_isp_t32_stats.h ../driver/t32/tx_isp_t32_iq.h ../driver/t32/tx_isp_t32_lsc.h
 	$(CC) $(CFLAGS) -o $@ $<
 
 

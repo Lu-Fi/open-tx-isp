@@ -125,8 +125,12 @@ generation-shared come from the shared code instead:
   `tisp_awb_init`), buffers (AE 4 x 4 KiB zones + 4 x 2 KiB histograms, AWB
   4 x 0x7000). Against the vendor's AddSensor writes (cv8001 bin, 3840x2160):
   50 of 50 identical apart from the buffer addresses (host test with the bin;
-  QEMU run s4g). The AE block sits at tparams + 0x6c, 4 bytes past what
-  `tisp_ae_init`'s constant suggests (open question); AWB at tparams + 0xd44.
+  QEMU run s4g). The blocks are IQ bin sections 1 (AE, bin + 0x104) and 2
+  (AWB, bin + 0xddc) of the section table the vendor's `tisp_bin_data_parse`
+  walks (`tx_isp_t32_iq.h`: 28 x { enable, length } at 0x14, sections packed
+  from 0xa0); the vendor copies each to its own tparamsP offset (AE + 0x68,
+  AWB + 0xd40, LSC + 0x68c4), which explains the former 4-byte AE question.
+  Stream-on checks that the bin's table puts them there.
   The engines are switched off before their buffers are freed (#132 lesson).
   Statistics interrupts (0x30028 bits 3/4/5) are counted (proc).
 

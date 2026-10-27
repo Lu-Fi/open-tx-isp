@@ -11,11 +11,11 @@
  * Checked against the vendor's writes in the QEMU trace (run v1, cv8001
  * PRJ007 bin, 3840x2160).
  *
- * Parameter blocks in the IQ bin: AWB at tparams + 0xd44, AE at
- * tparams + 0x6c.  The AE offset is the one the vendor's register values
- * fit; tisp_ae_init adds 104 (0x68) to its parameter pointer, so the
- * vendor's AE pointer is 4 bytes further than that constant suggests (open
- * question, the LSC block fits tparams + 0x68c4 exactly).
+ * Parameter blocks: IQ bin sections 1 (AE, bin + 0x104) and 2 (AWB,
+ * bin + 0xddc), found by the vendor's section walk (tx_isp_t32_iq.h).  The
+ * vendor copies them to tparamsP + 0x68 / + 0xd40; the 4 bytes between the
+ * bin and tparamsP offsets come from its per-section copy, not from a
+ * different pointer (the former open question).
  */
 #ifndef TX_ISP_T32_STATS_H
 #define TX_ISP_T32_STATS_H
@@ -32,8 +32,9 @@ typedef uint16_t u16;
 #endif
 #endif
 
-#define T32_AE_PARAM		(0x98U + 0x6cU)		/* in the IQ bin */
-#define T32_AWB_PARAM		(0x98U + 0xd44U)
+/* IQ bin sections 1 and 2 (tx_isp_t32_iq.h; the vendor's tparamsP + 0x68 / + 0xd40) */
+#define T32_AE_PARAM		0x104U
+#define T32_AWB_PARAM		0xddcU
 #define T32_AE_BUF_BYTES	0x6000U		/* 4 zone buffers of 4 KiB + 4 histograms of 2 KiB */
 #define T32_AWB_BUF_BYTES	0x1c000U	/* 4 buffers of 0x7000 */
 #define T32_STATS_ID		0x0134da11U

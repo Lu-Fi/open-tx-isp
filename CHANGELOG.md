@@ -4,6 +4,16 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-28 (3): T32 S5 step 1: IQ bin section table, AE offset question resolved (`claude/t32-s4`; host)
+
+- **IQ bin sections** (issue #97): `tx_isp_t32_iq.h` walks the section table as the vendor's tisp_bin_data_parse does
+  (28 x { enable, length } at 0x14, enabled sections packed from 0xa0). AE = section 1 (bin + 0x104, 3288 bytes), AWB =
+  section 2 (bin + 0xddc, 6740), LSC = section 7 (bin + 0x695c, 120): exactly the offsets the bit-exact matches used. The
+  vendor copies each section to a fixed tparamsP offset (AE + 0x68, AWB + 0xd40, LSC + 0x68c4), so the 4-byte AE
+  "offset question" was the per-section copy, not a second pointer (confirmed in a vendor QEMU RAM dump: the tparamsP
+  pages hold bin content at two different shifts). Stream-on now checks the bin's table before starting the statistics.
+  Host test with the cv8001 bin.
+
 ## 2026-10-28 (2): T32 S4 step 3b: bring-up exposure controller, not the vendor AE (`claude/t32-s4`; host, QEMU T32)
 
 - **Bring-up controller, not the vendor AE/AWB** (issue #97), module parameter `bringup_ae` (default 0), target
