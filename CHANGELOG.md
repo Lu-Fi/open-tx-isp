@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (5): T23 AutoZoom Get and crop off (`claude/rc3-gaps2`; QEMU T23, .30 by runtime swap)
+
+- **IMP_ISP_Tuning_GetAutoZoom** returned -1 (the driver answered cid 0x80000e8 Get with -EINVAL): now served from the channel record of the MSCA (scaler enable and
+  output, crop enable and window; same fields the Set writes, channel above 2 refused).
+- **Crop off** reset the window to the channel's own output size, which as an input window shows the top-left corner of the sensor picture (a SetAutoZoom with crop
+  off after a zoom left the corner on ch1); now the whole sensor picture, and a disabled scaler keeps the channel size. Beyond stock. Host test updated.
+  Camera .30: zoom shows the centre half (layout distance 0.03), crop off shows the whole picture again (0.000).
+
 ## 2026-10-27 (4): T20 manual integration time takes effect (`claude/issue-128`; QEMU T20, .107)
 
 - **IMP_ISP_Tuning_SetIntegrationTime(MANUAL)** and **SetExpr(MANUAL)** had no exposure effect on the T20 (issue

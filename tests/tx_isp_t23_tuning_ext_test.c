@@ -315,8 +315,10 @@ static void test_autozoom(void)
 	assert(t23x_u32_get(out + 0x20) == 640 && t23x_u32_get(out + 0x24) == 360);
 	/* the input record is untouched */
 	assert(cfg[3] == 0 && t23x_u32_get(cfg + 0x18) == 1920);
-	/* crop off: full window from the mscaler words, lock byte as it was;
-	 * scaler off: only the height follows (the width is stock-stale) */
+	/* crop off: the window is the whole sensor picture (the stock code takes
+	 * the channel's output size, which shows the top-left corner), lock byte
+	 * as it was; scaler off: the height is the channel's (mscaler words),
+	 * the width is stock-stale */
 	cfg[3] = 1;
 	blk[1] = 0; blk[4] = 0;
 	memcpy(&r, blk, sizeof(r));
@@ -324,8 +326,15 @@ static void test_autozoom(void)
 	assert(t23x_autozoom_apply(out, cfg, 1280, 720, &r, 1920, 1080) == 0);
 	assert(out[3] == 1 && out[4] == 0);
 	assert(t23x_u32_get(out + 0x10) == 0 && t23x_u32_get(out + 0x14) == 0);
-	assert(t23x_u32_get(out + 0x18) == 1280 && t23x_u32_get(out + 0x1c) == 720);
+	assert(t23x_u32_get(out + 0x18) == 1920 && t23x_u32_get(out + 0x1c) == 1080);
 	assert(t23x_u32_get(out + 0x20) == 1280 && t23x_u32_get(out + 0x24) == 720);
+	/* crop on, scaler off: the output height follows the window (stock) */
+	blk[4] = 1; blk[5] = 100; blk[6] = 50; blk[7] = 1280; blk[8] = 720;
+	memcpy(&r, blk, sizeof(r));
+	assert(t23x_autozoom_apply(out, cfg, 640, 360, &r, 1920, 1080) == 0);
+	assert(t23x_u32_get(out + 0x24) == 720);
+	blk[4] = 0; blk[5] = 100; blk[6] = 50; blk[7] = 1280; blk[8] = 720;
+	memcpy(&r, blk, sizeof(r));
 	/* refused: nothing written */
 	blk[0] = 3;
 	memcpy(&r, blk, sizeof(r));
