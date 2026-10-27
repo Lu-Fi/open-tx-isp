@@ -385,7 +385,7 @@ static int t32_set_tiziano_par(u32 pa)
 	core.tiziano_pa = pa;
 	/* libimp wrote the bin through an uncached /dev/mem mapping */
 	w = (const u32 *)CKSEG1ADDR(pa);
-	isp_printf(0, "tx-isp-t32: IQ parameters at pa %#x: %08x %08x %08x %08x (tisp not in S1)\n",
+	isp_printf(0, "tx-isp-t32: IQ parameters at pa %#x: %08x %08x %08x %08x \n",
 		   pa, w[0], w[1], w[2], w[3]);
 	return 0;
 }
@@ -712,6 +712,23 @@ u32 t32_core_sensor_fps(void)
 	if (!vi->registered || !vi->sd)
 		return 0;
 	return T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_FPS, u32);
+}
+
+/* the IQ bin libimp loaded (SET_TIZIANO_PAR): uncached view and the bytes
+ * up to the end of its buffer; -ENOENT when there is none */
+int t32_core_iq_bin(const u8 **bin, u32 *bytes)
+{
+	struct t32_alloc *a;
+
+	if (!core.tiziano_pa)
+		return -ENOENT;
+	list_for_each_entry(a, &core.allocs, node)
+		if (core.tiziano_pa >= a->pa && core.tiziano_pa < a->pa + a->size) {
+			*bin = (const u8 *)CKSEG1ADDR(core.tiziano_pa);
+			*bytes = a->pa + a->size - core.tiziano_pa;
+			return 0;
+		}
+	return -ENOENT;
 }
 
 /* the MSCA input: the sensor picture of the running input */

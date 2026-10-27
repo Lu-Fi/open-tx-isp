@@ -102,12 +102,26 @@ generation-shared come from the shared code instead:
   0x00 until the IQ bin parser provides them), as the vendor.
 - QEMU (run s4a, vendor libimp 2.2.0): 3 channels 1080p/640x360/720p 8/8
   frames each, 14.7 fps; MSCA writes = vendor run v1 except the curve LSBs.
+- Stream-on register list = the LSC block from the IQ bin
+  (`tx_isp_t32_lsc.h`, flow of the vendor `tisp_lsc_init`,
+  `tisp_lsc_calc_para_refresh`, `tisp_lsc_interp_by_tgain`,
+  `tisp_lsc_write_all_reg`): parameters at bin + 0x98 + 0x68c4 (block id
+  0x0134da11, also written to 0x5000), grid from the sensor size and the
+  cell size, the 13 control registers 0x5040..0x5070, the mesh (1152 cells,
+  3 words each) through the port 0x32020/0x32024, 0x2f4 = 0. Built from the
+  cv8001 PRJ007 bin at 3850 K it is identical to the vendor's list (3479 of
+  3479 words, host test with the bin and the r20 dump). Stage 1: between two
+  colour temperature tables the nearer one is used (the vendor blends them;
+  `tisp_lsc_interp_by_ct` is stage 2), the colour temperature is the module
+  parameter `lsc_ct` (vendor init 5000, no AWB yet), gain 0. The QEMU model
+  does not execute T32 lists: QEMU shows the list built and run (run s4c,
+  3 channels 8/8 frames), the picture effect needs a camera.
 
 ## Not yet (S4+)
 
 No tisp/3A, no IQ bin parsing (the bin's physical address is kept), no
 image-pipeline register programming (the QEMU model does not process pixels,
-so this needs a camera); the stream-on list is empty. The channel parameter words
+so this needs a camera); the stream-on list carries the LSC block only. The channel parameter words
 are the vendor's cv8001/PRJ007 values until the bin parser provides them.
 Day/night, WDR, LDC, OSD, IVDC direct mode, AOV/RISC-V hand-over: off.
 
@@ -117,7 +131,8 @@ Day/night, WDR, LDC, OSD, IVDC direct mode, AOV/RISC-V hand-over: off.
 make -C $KDIR M=$PWD/driver/t32 ARCH=mips CROSS_COMPILE=mipsel-linux- modules
 ```
 against a thingino T32 kernel 4.4.94 tree. Host tests:
-`make -C tests tx_isp_t32_mem_rcfg_test tx_isp_t32_vic_test tx_isp_t32_msca_curve_test`.
+`make -C tests tx_isp_t32_mem_rcfg_test tx_isp_t32_vic_test tx_isp_t32_msca_curve_test tx_isp_t32_lsc_test`
+(`T32_IQ_BIN` / `T32_RCFG_REF` for the comparison with the vendor list).
 
 ## Module parameters
 
@@ -130,3 +145,4 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `t32_trace` | 1 | log every ioctl (bring-up) |
 | `isp_irq`, `vic_irq` | 37, 38 | Linux IRQs of INTC 29/30 (XBURST_SOC_IRQ_BASE 8) |
 | `listen_timeout_ms` | 2000 | `LISTEN_BUF` wait limit |
+| `lsc_ct` | 5000 | colour temperature for the LSC mesh at stream-on |

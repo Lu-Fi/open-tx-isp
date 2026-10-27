@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (11): T32 S4 step 2: stream-on register list = LSC from the IQ bin (`claude/t32-s4`; host, QEMU T32)
+
+- **LSC** (issue #97): the stream-on list now carries the lens shading block as the vendor's does, computed from the IQ bin
+  (`tx_isp_t32_lsc.h`; reverse engineered flow of tisp_lsc_init / calc_para_refresh / interp_by_tgain / write_all_reg):
+  grid and control registers 0x5040..0x5070, the 1152-cell mesh through 0x32020/0x32024, block id to 0x5000. Built from
+  the cv8001 PRJ007 bin it equals the vendor's list word for word (3479/3479, host test `tx_isp_t32_lsc_test` with
+  `T32_IQ_BIN`/`T32_RCFG_REF`). Stage 1: no blend between colour temperature tables (nearer table), CT = module
+  parameter `lsc_ct`, gain 0. QEMU: list built and run, frames unchanged (the model does not execute T32 lists).
+
 ## 2026-10-27 (10): T32 S4 step 1: MSCA polyphase filter curves (`claude/t32-s4`; host, QEMU T32)
 
 - **MSCA filter curves** (issue #97): each channel start loads the curves of all three channels through the shadow port, as

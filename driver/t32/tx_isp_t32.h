@@ -21,6 +21,7 @@ void tx_isp_subdev_deinit(void *sd);
 
 u32 t32_core_sensor_fps(void);
 int t32_core_sensor_size(u32 *w, u32 *h);
+int t32_core_iq_bin(const u8 **bin, u32 *bytes);
 
 /* tx_isp_t32_hw.c */
 struct t32_hw_stats {

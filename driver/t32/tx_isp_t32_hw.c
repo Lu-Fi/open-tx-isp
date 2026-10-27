@@ -25,6 +25,7 @@
 #include "tx_isp_t32_msca_curve.h"
 #include "tx_isp_t32_vic.h"
 #include "tx_isp_t32_rcfg.h"
+#include "tx_isp_t32_lsc.h"
 
 /* Linux IRQ numbers: INTC source + XBURST_SOC_IRQ_BASE (8) on PRJ007 */
 static int isp_irq = 8 + T32_IRQ_ISP_M0;
@@ -118,18 +119,38 @@ static void t32_vic_wr(int n, u32 off, u32 v)
 /* ------------------------------------------------------------------ */
 /* register lists (RCFG, tx_isp_t32_rcfg.h)                          */
 
-#define T32_RCFG_LIST_WORDS	1024
+#define T32_RCFG_LIST_WORDS	4096	/* the vendor's stream-on list: 3479 words */
 static unsigned long rcfg_pages;	/* table (256 B) + list */
 static u32 rcfg_pa;
 u32 t32_rcfg_runs, t32_rcfg_timeouts, t32_rcfg_last_len;
 
+static unsigned int lsc_ct = 5000;
+module_param(lsc_ct, uint, 0644);
+MODULE_PARM_DESC(lsc_ct, "colour temperature for the LSC mesh at stream-on (vendor init: 5000)");
+static u32 lsc_scratch[T32_LSC_WORDS];
+
 /*
- * The stream-on list.  What the vendor's list carries is tisp state from
- * the IQ bin (S4); S3 runs the list mechanism with what the driver itself
- * puts there, which is nothing yet.
+ * The stream-on list: the LSC block from the IQ bin (tx_isp_t32_lsc.h), as
+ * the vendor's list carries it (identical word for word for the cv8001
+ * PRJ007 bin).  Without a bin, or one without an LSC block, it stays empty.
  */
 static void t32_rcfg_stream_on_fill(struct t32_rcfg_list *l)
 {
+	const u8 *bin, *p;
+	struct t32_lsc s;
+	u32 bytes, w, h;
+
+	if (t32_core_iq_bin(&bin, &bytes) || t32_core_sensor_size(&w, &h))
+		return;
+	p = t32_lsc_block(bin, bytes);
+	if (!p || t32_lsc_setup(p, &s, w, h, lsc_ct)) {
+		isp_printf(1, "tx-isp-t32: no usable LSC block in the IQ bin, LSC off\n");
+		return;
+	}
+	isp_wr(T32_LSC_ID_REG, T32_LSC_ID);
+	if (t32_lsc_fill_list(p, &s, l, lsc_scratch) == 0)
+		isp_printf(0, "tx-isp-t32: LSC %ux%u cells %u table %u/%u at %u K\n",
+			   s.cols, s.rows, s.cells, s.table_lo, s.table_hi, lsc_ct);
 }
 
 void t32_hw_rcfg_run_stream_on(void)
