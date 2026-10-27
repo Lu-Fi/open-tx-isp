@@ -2986,13 +2986,15 @@ static int apical_isp_expr_s_ctrl(struct tx_isp_core_device *core, struct v4l2_c
 		mode = 1;
 	}
 
-	if ((expr_attr.s_attr.unit == ISP_CORE_EXPR_UNIT_US)&&(1 == mode)) {
-		if (attr->one_line_expr_in_us != 0)
-			integration_time = expr_attr.s_attr.time/attr->one_line_expr_in_us;
-		else {
-			printk("err: %s,%d one_line_expr_in_us = %d \n", __func__, __LINE__, attr->one_line_expr_in_us);
-			goto err_one_line_expr_in_us;
-		}
+	/* beyond the SDK: UNIT_LINE took no time (0 lines), UNIT_US needed
+	 * attr->one_line_expr_in_us (0 on jxf23 and most T20 sensors);
+	 * see tx-isp-expr-time.h */
+	if (1 == mode && t20_expr_time_to_lines(expr_attr.s_attr.unit == ISP_CORE_EXPR_UNIT_US ?
+						T20_EXPR_UNIT_US : T20_EXPR_UNIT_LINE,
+						expr_attr.s_attr.time, attr->one_line_expr_in_us,
+						attr->total_height, core->vin.fps, &integration_time)) {
+		printk("err: %s,%d one_line_expr_in_us = %d \n", __func__, __LINE__, attr->one_line_expr_in_us);
+		goto err_one_line_expr_in_us;
 	}
 
 	api.type = TSYSTEM;

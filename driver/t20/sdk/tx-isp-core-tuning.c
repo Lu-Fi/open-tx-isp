@@ -9,8 +9,10 @@
  * current timing instead (line time = 1e6 / (fps * vts), matching the
  * lines_per_second convention already used by the compact AE in
  * sensor_drv.c) and patch just that field in the copy already sent to
- * userspace.
+ * userspace.  The setter (SetExpr MANUAL) converts its time with the same
+ * line rate, see tx-isp-expr-time.h.
  */
+#include "tx-isp-expr-time.h"
 #define isp_core_ops_g_ctrl isp_core_ops_g_ctrl_vendor
 #include "source/apical-isp/tx-isp-core-tuning.c"
 #undef isp_core_ops_g_ctrl
