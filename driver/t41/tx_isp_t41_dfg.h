@@ -174,7 +174,7 @@ int32_t t41_dfg_ratio_apply(void)
 	u32 faults0 = vae_faults;
 
 	vae_tisp_s_defog_ratio(0, 0, 0, 0, 0);
-	return vae_faults != faults0 ? -EFAULT : 0;
+	return vae_faults != faults0 ? -EINVAL : 0;
 }
 
 void t41_dfg_irq(void)
