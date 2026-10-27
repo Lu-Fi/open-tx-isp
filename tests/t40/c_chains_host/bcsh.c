@@ -183,10 +183,68 @@ static void randomize(int keep_controls)
     if (t40_bcsh.ready) t40_bcsh_build_ctx();
 }
 
+/* bcsh_user_full=1 (issue 83): CSC mode 4 and the user CCM take the whole user tables, in both
+ * WDR halves; =0 is the OEM (compared bit-exact by chain_main) */
+static unsigned user_full_check(uint8_t *bank)
+{
+    static const struct { uint16_t in, out, len; } t[] = {
+        { BI_USER_OFF, BO_Y_OFFSET, 4 }, { BI_USER_CLIP0, BO_CLIP0, 8 }, { BI_USER_CLIP1, BO_CLIP1, 8 },
+        { BI_USER_CLIP2, BO_CLIP2, 8 }, { BI_USER_M, BO_M, 36 }, { BI_USER_MINV, BO_MINV, 36 },
+    };
+    static const uint16_t ccm[3] = { BO_CCM0, BO_CCM1, BO_CCM2 };
+    unsigned bad = 0, i, h, en, full, nw[2] = { 0, 0 };
+    struct wr *w[2] = { NULL, NULL };
+
+    tparamsN[0] = (uintptr_t)bank;
+    for (full = 0; full < 2; full++)
+        for (en = 0; en < 2; en++) {
+            regtrace_bcsh_user_full = full;
+            for (i = BI_USER_OFF; i < BI_USER_CCM_EN; i++)
+                t40_bcsh.in[i] = (uint8_t)(i * 7 + 3);
+            t40_bcsh.in[BI_USER_CCM_EN] = en;
+            t40_bcsh.in[BI_USER_CCM_B] = 1;
+            memset(t40_bcsh.out, 0x5a, T40_BCSH_OUT_BYTES);
+            free(snap(&i));
+            t40_bcsh_init(4);
+            if (en)
+                w[full] = snap(&nw[full]);
+            for (i = 0; i < sizeof(t) / sizeof(t[0]); i++) {
+                unsigned n = full ? t[i].len : 4;
+                if (memcmp(t40_bcsh.out + t[i].out, t40_bcsh.in + t[i].in, n)) {
+                    printf("  user_full=%u: CSC table @0x%x not copied (%u bytes)\n", full, t[i].out, n);
+                    bad++;
+                }
+                if (!full && t[i].len > 4 && !memcmp(t40_bcsh.out + t[i].out, t40_bcsh.in + t[i].in, t[i].len)) {
+                    printf("  user_full=0: CSC table @0x%x copied past the first word\n", t[i].out);
+                    bad++;
+                }
+            }
+            for (h = 0; en && h <= T40_BCSH_WDR_HALF; h += T40_BCSH_WDR_HALF)
+                for (i = 0; i < 3; i++) {
+                    int same = !memcmp(t40_bcsh.out + h + ccm[i], t40_bcsh.in + BI_USER_CCM, 36);
+                    if (same != (int)full || memcmp(t40_bcsh.out + h + ccm[i], t40_bcsh.in + BI_USER_CCM, 4)) {
+                        printf("  user_full=%u: user CCM %u half 0x%x wrong\n", full, i, h);
+                        bad++;
+                    }
+                }
+        }
+    /* the whole tables change what reaches the BCSH registers */
+    if (nw[0] == nw[1] && !memcmp(w[0], w[1], nw[0] * sizeof(*w[0]))) {
+        printf("  user_full=1: register writes identical to the OEM copy\n");
+        bad++;
+    }
+    free(w[0]);
+    free(w[1]);
+    regtrace_bcsh_user_full = false;
+    printf("bcsh user_full: %s\n", bad ? "FAIL" : "ok (mode 4 tables and user CCM whole, OEM first word only)");
+    return bad;
+}
+
 static int chain_main(int argc, char **argv)
 {
     unsigned total = 0;
     char tag[96];
+    regtrace_bcsh_user_full = false;	/* the OEM comparison */
     for (int k = 1; k < argc; k++) {
         uint8_t *bin = load_bin(argv[k]); unsigned bad = 0, i, r;
         int night = 0;
@@ -237,6 +295,8 @@ static int chain_main(int argc, char **argv)
         printf("%s: %s\n", argv[k], bad ? "DIFF" : "bit-exact");
         total += bad;
     }
+    if (argc > 1)
+        total += user_full_check(bank_of(load_bin(argv[1]), 0));
     printf("bcsh: %d bins, %lu steps, %lu register writes compared, %u differences\n", argc - 1, nsteps, nwr, total);
     return total != 0;
 }

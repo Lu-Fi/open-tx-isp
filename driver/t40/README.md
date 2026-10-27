@@ -748,6 +748,9 @@ ISP digital gain is 1x there. `SetModule_Ratio` defog -> literal `tisp_s_defog_r
   4 user tables) selects the matrix/offset/clip set in `tisp_bcsh_params_refresh` (bank + 0x11e38). Implemented in
   `t40_csc_bcsh_apply()` (vinum 0, under the running-mode lock): gamut byte, busy flag, params refresh, EV/CT update.
   `bcsh_mode` (module parameter, OEM init value 2) follows the gamut so a day/night BCSH re-init keeps it.
+  Gamut 4 and the BCSH user CCM (`*ctx[28..30]`, enable byte `*ctx[35]`): the OEM refresh copies only the first word
+  of each user table (offset, clips, M, Minv, CCM; the rest stays from the previous gamut / the bank). `bcsh_user_full`
+  (module parameter, default 1, beyond stock) takes the whole tables; 0 = OEM, bit-exact (c_chains_host bcsh).
   `tisp_set_csc_version` is literal now (tables for standards 0..3). Device 2026-10-24: BCSH 0x11000..0x11014 follow
   the gamut, 0xd010.. read back the BT709-full init values after every write and 0xd000 reads 0; the ch0 picture is
   unchanged between gamuts (open, vendor register dump needed).

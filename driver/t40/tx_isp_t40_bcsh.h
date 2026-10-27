@@ -103,6 +103,11 @@ module_param_named(enable_bcsh, regtrace_enable_bcsh, bool, 0644);
 module_param_named(bcsh_mode, regtrace_bcsh_mode, uint, 0644);
 module_param_named(bcsh_ev, regtrace_bcsh_ev, uint, 0644);
 module_param_named(bcsh_ct, regtrace_bcsh_ct, uint, 0644);
+/* CSC mode 4 and the user CCM: the OEM copies only the first word of each
+ * user table (a 4-byte memcpy), the rest of the matrix stays from the previous
+ * CSC mode / the bank.  1 (default) takes the whole tables, 0 = OEM. */
+static bool regtrace_bcsh_user_full = true;
+module_param_named(bcsh_user_full, regtrace_bcsh_user_full, bool, 0644);
 
 static struct t40_bcsh_state {
 	uint8_t in[T40_BCSH_IN_BYTES] __attribute__((aligned(4)));
@@ -541,19 +546,20 @@ static void t40_bcsh_load(const uint8_t *bank)
 	};
 	uint8_t *o = t40_bcsh.out, *in = t40_bcsh.in;
 	uint32_t mode = in[BI_CSC_MODE], h;
+	bool full = regtrace_bcsh_user_full;
 	/* the bank copy skips the 2-byte pads after the u16[9] tables */
 	static const struct { uint16_t off, len; } sect[] = {
 		{ 0x1c, 0xbe - 0x1c }, { 0xc0, 0x254 - 0xc0 },
 	};
 
 	if (mode == 4) {
-		/* user tables: the OEM copies only the first word of each */
+		/* user tables: the OEM copies only the first word of each (bcsh_user_full=0) */
 		memcpy(o + BO_Y_OFFSET, in + BI_USER_OFF, 4);
-		memcpy(o + BO_CLIP0, in + BI_USER_CLIP0, 4);
-		memcpy(o + BO_CLIP1, in + BI_USER_CLIP1, 4);
-		memcpy(o + BO_CLIP2, in + BI_USER_CLIP2, 4);
-		memcpy(o + BO_M, in + BI_USER_M, 4);
-		memcpy(o + BO_MINV, in + BI_USER_MINV, 4);
+		memcpy(o + BO_CLIP0, in + BI_USER_CLIP0, full ? 8 : 4);
+		memcpy(o + BO_CLIP1, in + BI_USER_CLIP1, full ? 8 : 4);
+		memcpy(o + BO_CLIP2, in + BI_USER_CLIP2, full ? 8 : 4);
+		memcpy(o + BO_M, in + BI_USER_M, full ? 36 : 4);
+		memcpy(o + BO_MINV, in + BI_USER_MINV, full ? 36 : 4);
 	} else {
 		unsigned int s = mode == 0 ? 0 : mode == 1 ? 1 : mode == 3 ? 3 : 2;
 
@@ -570,11 +576,11 @@ static void t40_bcsh_load(const uint8_t *bank)
 	}
 	memcpy(o + 0x4d4, bank + 0x4d4, 0x574 - 0x4d4);
 	if (in[BI_USER_CCM_EN] == 1) {
-		/* user CCM: again only the first word of each CT matrix */
+		/* user CCM: the OEM again only the first word of each CT matrix */
 		for (h = 0; h <= T40_BCSH_WDR_HALF; h += T40_BCSH_WDR_HALF) {
-			memcpy(o + h + BO_CCM0, in + BI_USER_CCM, 4);
-			memcpy(o + h + BO_CCM1, in + BI_USER_CCM, 4);
-			memcpy(o + h + BO_CCM2, in + BI_USER_CCM, 4);
+			memcpy(o + h + BO_CCM0, in + BI_USER_CCM, full ? 36 : 4);
+			memcpy(o + h + BO_CCM1, in + BI_USER_CCM, full ? 36 : 4);
+			memcpy(o + h + BO_CCM2, in + BI_USER_CCM, full ? 36 : 4);
 		}
 		if (!in[BI_USER_CCM_B]) {
 			*t40_bcsh_out32(BO_GAIN_RANGE) = 0;
