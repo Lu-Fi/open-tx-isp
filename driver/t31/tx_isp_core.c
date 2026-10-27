@@ -16,6 +16,7 @@
 #include "include/tx_isp.h"
 #include "include/tx_isp_core.h"
 #include "tx_isp_t31_autozoom.h"
+#include "../common/tx_isp_isr_enable.h"
 #include "include/tx_isp_core_device.h"
 #include "include/tx_isp_debug.h"
 #include "include/tx_isp_sysfs.h"
@@ -1096,18 +1097,29 @@ TX_LS_TIMED_WORK(ispcore_irq_fs_work_timed, ispcore_irq_fs_work, T31_LS_WORK_FS)
 #define T31_ISR_UNUSED BIT(16)
 static unsigned int t31_isr_enable = 0xffffffffU & ~T31_ISR_UNUSED;
 
+/* 0xb0 is written under this lock by ispcore_video_s_stream and the
+ * parameter; the old "readl(0xb0) != 0, then write" could re-enable the
+ * sources after a concurrent stream disable (issue 108) */
+static DEFINE_SPINLOCK(t31_isr_enable_lock);
+static struct tx_isp_isr_word t31_isr_word;
+
 static int t31_isr_enable_set(const char *value, const struct kernel_param *kp)
 {
     int ret = param_set_uint(value, kp);
     struct tx_isp_dev *isp_dev = ourISPdev;
     void __iomem *core;
+    unsigned long flags;
+    u32 reg;
 
     if (ret || !isp_dev)
         return ret;
     core = isp_dev->core_regs;
-    /* only while the core interrupts are enabled (0xb0 != 0) */
-    if (core && readl(core + 0xb0))
-        writel(READ_ONCE(t31_isr_enable), core + 0xb0);
+    if (!core)
+        return 0;
+    spin_lock_irqsave(&t31_isr_enable_lock, flags);
+    if (tx_isp_isr_word_update(&t31_isr_word, READ_ONCE(t31_isr_enable), &reg))
+        writel(reg, core + 0xb0);
+    spin_unlock_irqrestore(&t31_isr_enable_lock, flags);
     return 0;
 }
 
@@ -1287,12 +1299,19 @@ int ispcore_video_s_stream(struct tx_isp_subdev *sd, int enable)
     {
         void __iomem *core_base = sd->base ? sd->base : isp_dev->core_regs;
         if (core_base) {
-            if (enable == 0 || ispcore_bypass_enabled(isp_dev)) {
-                writel(0x00000000, core_base + 0xb0);
+            bool on = !(enable == 0 || ispcore_bypass_enabled(isp_dev));
+            unsigned long flags;
+            u32 word;
+
+            spin_lock_irqsave(&t31_isr_enable_lock, flags);
+            word = tx_isp_isr_word_switch(&t31_isr_word, on,
+                                          READ_ONCE(t31_isr_enable));
+            writel(word, core_base + 0xb0);
+            spin_unlock_irqrestore(&t31_isr_enable_lock, flags);
+            if (!on) {
                 pr_info("ispcore_s_stream: reg[0xb0]=0x0 (disable, en=%d byp=%d)\n",
                     enable, ispcore_bypass_enabled(isp_dev));
             } else {
-                writel(READ_ONCE(t31_isr_enable), core_base + 0xb0);
                 pr_info("ispcore_s_stream: reg[0xb0]=0x%08x (enable, en=%d byp=%d) readback=0x%08x\n",
                     READ_ONCE(t31_isr_enable), enable, ispcore_bypass_enabled(isp_dev), readl(core_base + 0xb0));
             }

@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (8): T23/T31 ISR enable parameter cannot re-enable the core interrupts after a disable (`claude/issue-108`; host)
+
+- **t23_isr_enable / t31_isr_enable** (issue #108): the run-time parameter wrote register 0xb0 after an unlocked
+  "core interrupts on?" check (T23: the enabled flag, T31: `readl(0xb0) != 0`), so a write racing with the stream
+  disable could switch the sources back on after the driver had cleared 0xb0. The stream path and the parameter now
+  decide under one spinlock per SoC with a shared state helper (`driver/common/tx_isp_isr_enable.h`); a value
+  written while the interrupts are off is applied at the next enable. Not the cause of the reboot in #108 (nobody
+  writes the parameter at run time on the fleet), found while checking e72efa2a for races. New host test
+  `tx_isp_isr_enable_test` (both orders of disable vs. parameter write); T23/T31 build clean.
 ## 2026-10-27 (6): T40 BCSH user CSC tables and user CCM whole (`claude/issue-83`; host, not yet on the device)
 
 - **CSC gamut 4 (user tables) and the BCSH user CCM** took only the first word of each table, like the OEM

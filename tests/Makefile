@@ -412,6 +412,11 @@ tx_isp_scaler_test: tx_isp_scaler_test.c \
 		../driver/t23/tx_isp_t23_scaler.c \
 		../driver/t41/tx_isp_t41_scaler.c
 
+TESTS += tx_isp_isr_enable_test
+
+tx_isp_isr_enable_test: tx_isp_isr_enable_test.c ../driver/common/tx_isp_isr_enable.h
+	$(CC) $(CFLAGS) -I../driver/common -o $@ $<
+
 TESTS += tx_isp_csc_test
 
 tx_isp_csc_test: tx_isp_csc_test.c ../driver/common/tx_isp_csc.h

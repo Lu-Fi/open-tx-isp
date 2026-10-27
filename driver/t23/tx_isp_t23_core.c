@@ -3112,6 +3112,7 @@ static uint8_t bcsh_contrast = 0x80;
 static uint8_t bcsh_saturation = 0x80;
 /* Scene mode / colour effect (beyond vendor, see tx_isp_scene_colorfx.h) */
 #include "../common/tx_isp_scene_colorfx.h"
+#include "../common/tx_isp_isr_enable.h"
 static uint32_t t23_scene_mode;
 static uint32_t t23_colorfx = TX_ISP_COLORFX_AUTO;
 static uint8_t bcsh_hue_user = 0x80;
@@ -11343,18 +11344,28 @@ static void regtrace_t23_enable_stream_clks(void)
  */
 #define T23_ISR_UNUSED (BIT(12) | BIT(13) | BIT(16))
 static unsigned int t23_isr_enable = 0xffffffffU & ~T23_ISR_UNUSED;
+/* 0xb0 is written under this lock by the stream path and the parameter, so a
+ * parameter write cannot re-enable the sources after a disable (issue 108) */
+static DEFINE_SPINLOCK(t23_isr_enable_lock);
+static struct tx_isp_isr_word t23_isr_word;
 
 static int t23_isr_enable_set(const char *value, const struct kernel_param *kp)
 {
     int ret = param_set_uint(value, kp);
     unsigned char *sd = regtrace_t23_core_sd;
     void __iomem *base;
+    unsigned long flags;
+    u32 reg;
 
-    if (ret || !sd || !ACCESS_ONCE(regtrace_t23_core_irq_enabled))
+    if (ret || !sd)
         return ret;
     base = (void __iomem *)(uintptr_t)*(uint32_t *)(sd + 184);
-    if (base)
-        writel(ACCESS_ONCE(t23_isr_enable), base + 0xb0);
+    if (!base)
+        return 0;
+    spin_lock_irqsave(&t23_isr_enable_lock, flags);
+    if (tx_isp_isr_word_update(&t23_isr_word, ACCESS_ONCE(t23_isr_enable), &reg))
+        writel(reg, base + 0xb0);
+    spin_unlock_irqrestore(&t23_isr_enable_lock, flags);
     return 0;
 }
 
@@ -11388,9 +11399,15 @@ static void regtrace_t23_set_irq_enabled(const char *name,
 
     base = (void __iomem *)(uintptr_t)*(uint32_t *)(sd + 184);
     if (sd == regtrace_t23_core_sd && base) {
-        writel(enable ? ACCESS_ONCE(t23_isr_enable) : 0, base + 0xb0);
+        unsigned long flags;
+
+        spin_lock_irqsave(&t23_isr_enable_lock, flags);
+        writel(tx_isp_isr_word_switch(&t23_isr_word, enable,
+                                      ACCESS_ONCE(t23_isr_enable)),
+               base + 0xb0);
         wmb();
         hw_mask = readl(base + 0xb0);
+        spin_unlock_irqrestore(&t23_isr_enable_lock, flags);
     }
 
     if (enable) {
