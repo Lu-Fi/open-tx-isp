@@ -741,6 +741,42 @@ static long t23x_autozoom_set(uint32_t uptr)
 	return err;
 }
 
+/*
+ * GetAutoZoom (stock apical_isp_autozoom_g_attr + tisp_g_autozoom_control):
+ * the 36-byte IMPISPAutoZoom of the channel named in its first word comes
+ * back from the channel record of the MSCA, the fields the Set writes: scaler
+ * enable (+4), scaler output width/height (+0x20/+0x24), crop enable (+3),
+ * crop window (+0x10, +0x14, +0x18, +0x1c).  The stock code answers a channel
+ * above 2 with zeros; here it is refused like the Set (-EINVAL).
+ */
+static long t23x_autozoom_get(uint32_t uptr)
+{
+	uint8_t blk[T23X_AUTOZOOM_BYTES];
+	unsigned long flags;
+	uint8_t *cfg;
+	uint32_t chan;
+	long ret;
+
+	ret = regtrace_t23_copy_in(blk, uptr, sizeof(blk));
+	if (ret)
+		return ret;
+	chan = t23x_u32_get(blk);
+	if (chan > 2U)
+		return -EINVAL;
+	cfg = msca + chan * 56U;
+	spin_lock_irqsave(&regtrace_t23_msca_lock, flags);
+	t23x_u32_put(blk + 4, cfg[4]);
+	t23x_u32_put(blk + 8, t23x_u32_get(cfg + 0x20));
+	t23x_u32_put(blk + 12, t23x_u32_get(cfg + 0x24));
+	t23x_u32_put(blk + 16, cfg[3]);
+	t23x_u32_put(blk + 20, t23x_u32_get(cfg + 0x10));
+	t23x_u32_put(blk + 24, t23x_u32_get(cfg + 0x14));
+	t23x_u32_put(blk + 28, t23x_u32_get(cfg + 0x18));
+	t23x_u32_put(blk + 32, t23x_u32_get(cfg + 0x1c));
+	spin_unlock_irqrestore(&regtrace_t23_msca_lock, flags);
+	return regtrace_t23_copy_out(uptr, blk, sizeof(blk));
+}
+
 /* ---- Gamma ------------------------------------------------------------- */
 
 #define T23X_CID_GAMMA 0x0800002bU
@@ -860,7 +896,7 @@ static long regtrace_t23_tuning_ext(bool get, uint32_t id, uint32_t *value)
 	}
 	switch (id) {
 	case T23X_CID_AUTO_ZOOM:
-		return get ? -EINVAL : t23x_autozoom_set(*value);
+		return get ? t23x_autozoom_get(*value) : t23x_autozoom_set(*value);
 	case T23X_CID_MASK_BLOCK:
 		return t23x_mask_block(get, *value);
 	case T23X_CID_DRAW_BLOCK:

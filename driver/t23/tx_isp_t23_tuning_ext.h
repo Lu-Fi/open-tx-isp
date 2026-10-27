@@ -759,10 +759,12 @@ static inline int t23x_draw_block_get(uint8_t *m, const uint8_t *in, uint8_t *ou
  *   crop enabled      cfg[3] = 1 (locks the crop against the channel
  *                     attributes), +0x10 left, +0x14 top, +0x18 width,
  *                     +0x1c height;
- *   crop not enabled  window (0, 0, full_width, full_height), the lock byte
- *                     is left as it was;
+ *   crop not enabled  window (0, 0, full_width, full_height) in the stock
+ *                     code; here the whole sensor picture (see the code), the
+ *                     lock byte is left as it was;
  *   scaler enabled    cfg[4] = 1 (lock), +0x20 out width, +0x24 out height;
- *   scaler not enabled only +0x24 = +0x1c (the stock code leaves +0x20).
+ *   scaler not enabled only +0x24 = +0x1c (the stock code leaves +0x20; here
+ *                     the channel size when crop is off too).
  * full_width/height are the 16-bit words the stock code reads at
  * mscaler + 2 * chan and + 2 * (chan + 3).  The stock code then runs
  * tisp_msca_crop_api for the channel.
@@ -821,8 +823,14 @@ static inline int t23x_autozoom_apply(uint8_t *out, const uint8_t *cfg,
 		t23x_u32_put(out + 0x18, crop_w);
 		t23x_u32_put(out + 0x1c, crop_h);
 	} else {
-		crop_w = full_w;
-		crop_h = full_h;
+		/* beyond stock: the stock code resets the window to the channel's
+		 * own output size (full_w x full_h), which, as an input window,
+		 * shows the top-left corner of the sensor picture once the zoom is
+		 * switched off (measured on a T23: the picture after SetAutoZoom
+		 * with crop off was the corner, not the whole picture).  Crop off
+		 * means the whole sensor picture. */
+		crop_w = sensor_w;
+		crop_h = sensor_h;
 		t23x_u32_put(out + 0x10, 0);
 		t23x_u32_put(out + 0x14, 0);
 		t23x_u32_put(out + 0x18, crop_w);
@@ -838,7 +846,15 @@ static inline int t23x_autozoom_apply(uint8_t *out, const uint8_t *cfg,
 		t23x_u32_put(out + 0x20, r->scaler_w);
 		t23x_u32_put(out + 0x24, r->scaler_h);
 	} else {
-		t23x_u32_put(out + 0x24, t23x_u32_get(out + 0x1c));
+		/* scaler off: stock output height = window height; with the
+		 * whole-picture window of "crop off" that would be the sensor
+		 * height, so the channel's own size stays then */
+		if (r->crop_en == 1U) {
+			t23x_u32_put(out + 0x24, crop_h);
+		} else {
+			t23x_u32_put(out + 0x20, full_w);
+			t23x_u32_put(out + 0x24, full_h);
+		}
 	}
 	/* the width the stock code leaves must not end up above the window */
 	if (t23x_u32_get(out + 0x20) > crop_w ||
