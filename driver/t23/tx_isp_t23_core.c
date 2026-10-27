@@ -15699,6 +15699,73 @@ static bool regtrace_isp_m0_is_image_control(u32 id)
 static long regtrace_t23_tuning_cid(bool get, uint32_t id, uint32_t *value);
 
 #include "tx_isp_t23_tuning_ext.h"
+#include "tx_isp_t23_osd.h"
+
+/*
+ * ISP-drawn OSD (tx_isp_t23_osd.h, README "ISP OSD"): SetOSDAttr /
+ * SetOSDBlock store the pictures in mscaler under t23_osd_lock, the core
+ * frame-done interrupt writes the dirty ones into the MSCA (stock:
+ * ispcore_irq_thread_handle -> tisp_msca_Shd_ctrl -> tisp_msca_set_omi_api
+ * -> tisp_msca_api_set_osd).  isp_osd=0 switches the register writes off
+ * (the requests are still stored).
+ */
+static DEFINE_SPINLOCK(t23_osd_lock);
+static bool t23_isp_osd = 1;
+module_param_named(isp_osd, t23_isp_osd, bool, 0644);
+MODULE_PARM_DESC(isp_osd, "write ISP OSD pictures into the MSCA per frame (1, default) or only store them (0)");
+static unsigned int t23_osd_commits;
+module_param_named(osd_commits, t23_osd_commits, uint, 0444);
+static unsigned int t23_osd_busy_skips;
+module_param_named(osd_busy_skips, t23_osd_busy_skips, uint, 0444);
+/* set while the MSCA curve loader owns the shadow port 0xe004 */
+static int t23_msca_port_owned;
+
+static int t23_osd_pair(void *ctx, unsigned int value, unsigned int reg)
+{
+    (void)ctx;
+    system_reg_write(T23_MSCA_SHD_PORT, value);
+    system_reg_write(T23_MSCA_SHD_PORT, reg);
+    return 0;
+}
+
+/* Core frame-done interrupt (hard IRQ, core running). */
+static void t23_osd_commit(void)
+{
+    int pairs;
+
+    if (!ACCESS_ONCE(t23_isp_osd))
+        return;
+    spin_lock(&t23_osd_lock);
+    if (!t23_osd_dirty(mscaler))
+        goto out;
+    if (ACCESS_ONCE(t23_msca_port_owned) ||
+        ((system_reg_read(T23_MSCA_SHD_KICK) |
+          system_reg_read(T23_MSCA_SHD_STATUS)) & 2U)) {
+        /* dirty bits stay: the next frame retries */
+        t23_osd_busy_skips++;
+        goto out;
+    }
+    system_reg_write(T23_MSCA_SHD_CTRL, T23_MSCA_SHD_OPEN);
+    pairs = t23_osd_emit(mscaler, t23_osd_pair, NULL);
+    system_reg_write(T23_MSCA_SHD_CTRL, T23_MSCA_SHD_CLOSE);
+    if (pairs > 0) {
+        system_reg_write(T23_MSCA_SHD_KICK,
+                         (((uint32_t)pairs - 1U) << 4) | 1U);
+        t23_osd_commits++;
+    }
+out:
+    spin_unlock(&t23_osd_lock);
+}
+
+/* Channel 0 start: send the shown pictures again with the next frame. */
+static void t23_osd_restart(void)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&t23_osd_lock, flags);
+    t23_osd_mark_enabled(mscaler);
+    spin_unlock_irqrestore(&t23_osd_lock, flags);
+}
 /* tx_isp_t23_tuning_ext.inc */
 static long t23x_switch_bin_prelock(uint32_t uptr);
 static int regtrace_t23_switch_bin_prepare(const char *path,
@@ -34881,6 +34948,9 @@ static int32_t isp_irq_handle_body(int32_t irq, void *dev_id)
         /* stock: frame done (bit 0) -> isp_frame_done_wakeup */
         if (status0 & 1U)
             t23x_frame_done_wakeup();
+        /* stock irq thread: tisp_msca_Shd_ctrl -> ISP OSD pictures */
+        if ((status0 & 1U) && ACCESS_ONCE(regtrace_t23_core_started))
+            t23_osd_commit();
         regtrace_t23_source_ae_stats_irq(status0,
                                          regtrace_t23_core_irq_count);
         regtrace_t23_source_awb_stats_irq(status0,
@@ -42727,6 +42797,9 @@ static int32_t tisp_fw_process(void)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000167a4 origin=model_output original=tisp_channel_start */
 int32_t tisp_channel_start(int32_t arg1)
 {
+	/* the MSCA may have lost the ISP OSD registers since the last start */
+	if (arg1 == 0)
+		t23_osd_restart();
 	/* v1 = 608 (0x260), a1 = arg1 * 608, v0 = &mscaler, v0 = a1 + &mscaler */
 	/* sb v1, 12(v0) -> *(uint8_t*)(&mscaler + arg1 * 608 + 12) = 1 */
 	*(uint8_t *)(mscaler + arg1 * 608 + 12) = 1;
@@ -45573,14 +45646,20 @@ int32_t tisp_msca_ch_curve_write_ctrl(uint32_t path)
         return -EBUSY;
     }
 
+    /* the frame-done ISP OSD update uses the same shadow port */
+    ACCESS_ONCE(t23_msca_port_owned) = 1;
+    barrier();
     system_reg_write(0xe000U, 0x101U);
     ret = tisp_msca_ch_curve_write(path, (uintptr_t)&count);
-    if (ret)
-        return ret;
-    if (!count)
-        return -EINVAL;
+    if (ret || !count) {
+        barrier();
+        ACCESS_ONCE(t23_msca_port_owned) = 0;
+        return ret ? ret : -EINVAL;
+    }
     system_reg_write(0xe000U, 0x1010102U);
     system_reg_write(0xe100U, (((uint32_t)count - 1U) << 4) | 1U);
+    barrier();
+    ACCESS_ONCE(t23_msca_port_owned) = 0;
     printk(KERN_WARNING "t23: T23 MSCA curve load path=%u entries=%u ctrl=0x%x\n",
            path, count, (((uint32_t)count - 1U) << 4) | 1U);
     return 0;

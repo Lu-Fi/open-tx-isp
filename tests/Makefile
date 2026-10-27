@@ -49,6 +49,10 @@ tx_isp_t41_tuning_ctl_test: tx_isp_t41_tuning_ctl_test.c ../driver/t41/tx_isp_t4
 TESTS += tx_isp_t31_wdr_test tx_isp_t31_wdr_runtime_test
 TESTS += tx_isp_t21_open_test
 TESTS += tx_isp_t23_tuning_ext_test
+TESTS += tx_isp_t23_osd_test
+
+tx_isp_t23_osd_test: tx_isp_t23_osd_test.c ../driver/t23/tx_isp_t23_osd.h ../driver/t23/tx_isp_t23_tuning_ext.h
+	$(CC) $(CFLAGS) -o $@ $<
 TESTS += tx_isp_t23_awb_cluster_test
 TESTS += tx_isp_t31_autozoom_test
 TESTS += tx_isp_t31_af_test
