@@ -86538,7 +86538,9 @@ int32_t tisp_af_main_init(uint32_t a0, uint32_t a1)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_af_set_hardware_param)(s0, 0); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_af_main_interrupt_static)(6, &tisp_af_main_interrupt_static); /* jalr target resolved by relocation */
+    /* OEM 0x2e1e4: system_irq_func_set(6, tisp_af_main_interrupt_static).  The
+     * lift called the IRQ handler once instead of registering it. */
+    v0 = (uintptr_t *)(uintptr_t)system_irq_func_set(6, (int32_t)(uintptr_t)&tisp_af_main_interrupt_static);
 
     /* fragment 8: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_af_main_process)(0, 18, &tisp_af_main_process); /* jalr target resolved by relocation */
