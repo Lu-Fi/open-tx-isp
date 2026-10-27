@@ -44,7 +44,7 @@ tx_isp_t41_msca_shadow_test: tx_isp_t41_msca_shadow_test.c ../driver/t41/tx_isp_
 tx_isp_t41_msca_start_test: tx_isp_t41_msca_start_test.c ../driver/t41/tx_isp_t41_msca_shadow.h
 	$(CC) $(CFLAGS) -o $@ $<
 
-tx_isp_t41_tuning_ctl_test: tx_isp_t41_tuning_ctl_test.c ../driver/t41/tx_isp_t41_tuning_ctl.h ../driver/t41/tx_isp_t41_tmo.h
+tx_isp_t41_tuning_ctl_test: tx_isp_t41_tuning_ctl_test.c ../driver/t41/tx_isp_t41_tuning_ctl.h ../driver/t41/tx_isp_t41_tmo.h ../driver/t41/tx_isp_t41_ae.h
 	$(CC) $(CFLAGS) -o $@ $<
 TESTS += tx_isp_t31_wdr_test tx_isp_t31_wdr_runtime_test
 TESTS += tx_isp_t21_open_test

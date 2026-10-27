@@ -241,6 +241,21 @@ int32_t t41_vae_calc_process(uint32_t channel)
 		t41_module_ratio_apply(0, xchg(&t41_ratio_pending, 0));
 	/* zone bank copy in process context (OEM: hist/static IRQ pair) */
 	tisp_ae_interrupt_static(channel);
+	/* ROI-window ("ai") statistics, the face AE's luma source: OEM
+	 * tisp_ae_ai_interrupt_static (ISP IRQ 61) copies 0x19060..0x19074 to
+	 * AE state +7448..+7468, which tisp_ae_weight_mean divides by the ROI
+	 * area.  The open dispatcher skips IRQ 61 and its recovered body is a
+	 * guarded no-op (wrong table anchor), so these stayed 0: face AE metered
+	 * luma 0 (division guards in fix_point_div_32, no face effect).  Read
+	 * them here per frame in process context instead (issue 90). */
+	if (channel == 0 && t41_ae_roi_stats > 0) {
+		unsigned char *st = (unsigned char *)(uintptr_t)info[1];
+		unsigned int i;
+
+		for (i = 0; i < 6; ++i)
+			*(u32 *)(void *)(st + 7448 + 4 * i) =
+				system_reg_read(0x19060 + 4 * i);
+	}
 	{
 		/* EV fixed-point precision of the calibration (AE params +0x6c0):
 		 * the tone consumers need it to strip the shift again. */
@@ -253,6 +268,8 @@ int32_t t41_vae_calc_process(uint32_t channel)
 	faults0 = vae_faults;
 	ret = vae_tisp_ae_calc_process(channel, 0, 0, 0, (u32)(uintptr_t)argarea);
 	vae_frames++;
+	if (channel < ARRAY_SIZE(t41_vae_hist_frames))
+		WRITE_ONCE(t41_vae_hist_frames[channel], t41_vae_hist_frames[channel] + 1);
 	{
 		/* realized total gain (again * dgain, Q10 linear) -> log2 Q16,
 		 * with the OEM's own tisp_log2_fixed_to_fixed */

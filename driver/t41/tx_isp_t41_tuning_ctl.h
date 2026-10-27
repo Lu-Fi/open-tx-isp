@@ -7,6 +7,7 @@
 #ifndef TX_ISP_T41_TUNING_CTL_H
 #define TX_ISP_T41_TUNING_CTL_H
 #include "tx_isp_t41_tmo.h"
+#include "tx_isp_t41_ae.h"
 
 /*
  * IMPISPSENSORAttr { hts, vts, fps, width, height } (stock g_ctrl 0x08000033):
@@ -345,6 +346,211 @@ static inline void t41_statis_config_store(unsigned char *rec,
 			dst[0] = dst[1] = dst[2] = dst[3] = 0;
 		}
 	}
+}
+
+/*
+ * AE tuning API (issue 90), as the stock T41 driver (libt41-firmware 1.2.5
+ * and the module the open driver was recovered from: tisp_g_ae_statis_attr,
+ * api_ae_set_hist_bin, tisp_ae_sepc_area / tisp_ae_api_get_faceae,
+ * tisp_ae_api_set/get_exp_list).  Plain data only; the driver supplies the
+ * per-channel blocks: tisp_ae_hist_last (1052 bytes per channel, written by
+ * the vendor AE's api_ae_long_process every frame), the AE params/state of
+ * ae_info[ch] and the AE cache of ae_cache[ch].
+ */
+#define T41_AE_HIST_LAST_BYTES 1052U
+#define T41_AE_HIST_LAST_HIST5 1024U	/* five u32, 65535 = whole frame */
+#define T41_AE_HIST_LAST_THRESH 1044U	/* u8[4] histThresh */
+#define T41_AE_STATE_YZONE 7648U	/* u32[225] zone Y (tisp_ae_weight_mean) */
+#define T41_AE_STATE_WIDTH 8548U	/* u16 frame width / height */
+#define T41_AE_STATE_HEIGHT 8550U
+#define T41_AE_STATS_REPLY_BYTES 1934U	/* IMPISPAEStatisInfo */
+
+/* IMPISPAEStatisInfo { u16 hist5[5]; u32 hist256[256]; u32 zone[15][15]; }:
+ * stock copies the 256 bins as they are, the low half of each 5-bin word
+ * and the 900 zone bytes of the AE state. */
+static inline int t41_ae_stats_reply(unsigned char *out,
+		const unsigned char *hist_last, const unsigned char *state,
+		unsigned int state_bytes)
+{
+	unsigned int i;
+
+	if (!out || !hist_last || !state ||
+	    state_bytes < T41_AE_STATE_YZONE + 900U)
+		return -1;
+	for (i = 0; i < 5; ++i) {
+		out[2 * i] = hist_last[T41_AE_HIST_LAST_HIST5 + 4 * i];
+		out[2 * i + 1] = hist_last[T41_AE_HIST_LAST_HIST5 + 4 * i + 1];
+	}
+	for (i = 0; i < 1024; ++i)
+		out[10 + i] = hist_last[i];
+	for (i = 0; i < 900; ++i)
+		out[1034 + i] = state[T41_AE_STATE_YZONE + i];
+	return 0;
+}
+
+/*
+ * IMPISPFaceAttr { enable; left; top; right; bottom; target; } (24 bytes,
+ * stock 0x08000035).  Stock tisp_ae_sepc_area: a changed enable is stored
+ * at cache+1516 with the parameter-update flag cache+1281; the rectangle is
+ * clamped to [20, width - 20] x [10, height - 10] and handed to
+ * tisp_ae_roi_point (hardware ROI window, ROI area cache+1284 and the face
+ * flag cache+1293 from the enable); the target is limited to 10..200 and
+ * stored (u8) at cache+1292; the caller's rectangle and the clamped target
+ * go to cache+1496..1512.  Beyond stock: an enable other than 0/1, or an
+ * enabled face whose clamped rectangle is empty (tisp_ae_roi_point refuses
+ * it, stock then still switched the face AE on with the old window), is
+ * refused before anything changes.
+ */
+#define T41_FACE_AE_BYTES 24U
+#define T41_AE_CACHE_BYTES 0x688U
+#define T41_AE_CACHE_TRIG 1281U
+#define T41_AE_CACHE_FACE_TARGET 1292U
+#define T41_AE_CACHE_FACE_ON 1293U
+#define T41_AE_CACHE_FACE_RECT 1496U
+#define T41_AE_CACHE_FACE_EN 1516U
+
+struct t41_face_ae {
+	unsigned int enable, left, top, right, bottom, target;
+	unsigned int roi[4];	/* clamped left, top, right, bottom */
+	int roi_ok;
+};
+
+static inline int t41_face_ae_plan(const unsigned char *req,
+		unsigned int width, unsigned int height, struct t41_face_ae *f)
+{
+	unsigned int wmax = width > 20U ? width - 20U : 0U;
+	unsigned int hmax = height > 10U ? height - 10U : 0U;
+
+	if (!req || !f)
+		return -1;
+	f->enable = t41_tmo_le32(req);
+	f->left = t41_tmo_le32(req + 4);
+	f->top = t41_tmo_le32(req + 8);
+	f->right = t41_tmo_le32(req + 12);
+	f->bottom = t41_tmo_le32(req + 16);
+	f->target = t41_tmo_le32(req + 20);
+	if (f->enable > 1U)
+		return -1;
+	if (f->target > 200U)
+		f->target = 200U;
+	else if (f->target < 10U)
+		f->target = 10U;
+	f->roi[0] = f->left < 20U ? 20U : f->left;
+	f->roi[1] = f->top < 10U ? 10U : f->top;
+	f->roi[2] = f->right < wmax ? f->right : wmax;
+	f->roi[3] = f->bottom < hmax ? f->bottom : hmax;
+	f->roi_ok = width && height && f->roi[2] > f->roi[0] &&
+		f->roi[3] > f->roi[1] && f->roi[2] <= 0xffffU &&
+		f->roi[3] <= 0xffffU;
+	if (f->enable && !f->roi_ok)
+		return -1;
+	return 0;
+}
+
+/* Before tisp_ae_roi_point (it derives the face flag from cache+1516). */
+static inline void t41_face_ae_store_enable(unsigned char *cache,
+		const struct t41_face_ae *f)
+{
+	if (t41_tmo_le32(cache + T41_AE_CACHE_FACE_EN) != f->enable) {
+		t41_ae_put32(cache + T41_AE_CACHE_FACE_EN, f->enable);
+		cache[T41_AE_CACHE_TRIG] = 1;
+	}
+}
+
+static inline void t41_face_ae_store(unsigned char *cache,
+		const struct t41_face_ae *f)
+{
+	cache[T41_AE_CACHE_FACE_TARGET] = (unsigned char)f->target;
+	t41_ae_put32(cache + T41_AE_CACHE_FACE_RECT, f->left);
+	t41_ae_put32(cache + T41_AE_CACHE_FACE_RECT + 4, f->top);
+	t41_ae_put32(cache + T41_AE_CACHE_FACE_RECT + 8, f->right);
+	t41_ae_put32(cache + T41_AE_CACHE_FACE_RECT + 12, f->bottom);
+	t41_ae_put32(cache + T41_AE_CACHE_FACE_RECT + 16, f->target);
+}
+
+/* GET.  Stock tisp_ae_api_get_faceae: zeros for a disabled face, else
+ * cache+1496..1512, whose first word the vendor AE's face-history ring
+ * (cache+1376..1496) overwrites every frame, and it never fills the enable
+ * word (kernel stack).  Here: the last accepted request (rectangle as the
+ * caller gave it, clamped target) and the enable. */
+static inline void t41_face_ae_report(unsigned char *out,
+		const struct t41_face_ae *f)
+{
+	unsigned int i;
+
+	for (i = 0; i < T41_FACE_AE_BYTES; ++i)
+		out[i] = 0;
+	t41_ae_put32(out, f->enable);
+	if (!f->enable)
+		return;
+	t41_ae_put32(out + 4, f->left);
+	t41_ae_put32(out + 8, f->top);
+	t41_ae_put32(out + 12, f->right);
+	t41_ae_put32(out + 16, f->bottom);
+	t41_ae_put32(out + 20, f->target);
+}
+
+/*
+ * IMPISPAeExpListAttr { mode; u32 elist[16][5]; } (324 bytes, stock
+ * 0x08000027; columns reserve | integration time (us) | again | dgain |
+ * reserve).  Stock tisp_ae_api_set_exp_list: state+7536 = 1, +7540 = 0,
+ * params+1732 = mode (the vendor AE's tisp_ae_tune switches to
+ * tisp_ae_ev_list_alloc_calc while it is 1); for mode 1 columns 0..3 of
+ * the 16 rows go to params+580 + 16 * row and the parameter-update flag
+ * cache+1281 is set.  Beyond stock: a mode other than 0/1 is refused.
+ * GET: stock returns the mode, column 1 from the params and columns 2/3
+ * from cache+680 + 16 * row (sensor limit words of the AE cache, not the
+ * list); here columns 1..3 are the stored list.
+ */
+#define T41_AE_EXPLIST_BYTES 324U
+#define T41_AE_PARAM_EXPLIST 580U
+#define T41_AE_PARAM_EXPLIST_MODE 1732U
+#define T41_AE_STATE_EXPLIST_A 7536U
+#define T41_AE_STATE_EXPLIST_B 7540U
+
+static inline int t41_ae_explist_set(unsigned char *params,
+		unsigned int param_bytes, unsigned char *state,
+		unsigned int state_bytes, unsigned char *cache,
+		const unsigned char *req)
+{
+	unsigned int mode, i, k;
+
+	if (!params || !state || !cache || !req ||
+	    param_bytes < T41_AE_PARAM_EXPLIST_MODE + 4U ||
+	    state_bytes < T41_AE_STATE_EXPLIST_B + 4U)
+		return -1;
+	mode = t41_tmo_le32(req);
+	if (mode > 1U)
+		return -1;
+	t41_ae_put32(state + T41_AE_STATE_EXPLIST_A, 1);
+	t41_ae_put32(state + T41_AE_STATE_EXPLIST_B, 0);
+	t41_ae_put32(params + T41_AE_PARAM_EXPLIST_MODE, mode);
+	if (mode != 1U)
+		return 0;
+	for (i = 0; i < 16; ++i)
+		for (k = 0; k < 4; ++k)
+			t41_ae_put32(params + T41_AE_PARAM_EXPLIST + 16 * i + 4 * k,
+				     t41_tmo_le32(req + 4 + 20 * i + 4 * k));
+	cache[T41_AE_CACHE_TRIG] = 1;
+	return 0;
+}
+
+static inline int t41_ae_explist_get(const unsigned char *params,
+		unsigned int param_bytes, unsigned char *out)
+{
+	unsigned int i, k;
+
+	if (!params || !out || param_bytes < T41_AE_PARAM_EXPLIST_MODE + 4U)
+		return -1;
+	for (i = 0; i < T41_AE_EXPLIST_BYTES; ++i)
+		out[i] = 0;
+	t41_ae_put32(out, t41_tmo_le32(params + T41_AE_PARAM_EXPLIST_MODE));
+	for (i = 0; i < 16; ++i)
+		for (k = 1; k < 4; ++k)
+			t41_ae_put32(out + 4 + 20 * i + 4 * k,
+				     t41_tmo_le32(params + T41_AE_PARAM_EXPLIST +
+						  16 * i + 4 * k));
+	return 0;
 }
 
 #endif

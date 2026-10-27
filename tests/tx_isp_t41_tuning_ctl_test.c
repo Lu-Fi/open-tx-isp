@@ -222,8 +222,130 @@ static void statis_config(void)
 	assert(t41_statis_config_check(NULL) == -1);
 }
 
+static unsigned int get32(const unsigned char *p)
+{
+	return p[0] | p[1] << 8 | p[2] << 16 | (unsigned int)p[3] << 24;
+}
+
+/* issue 90: GetAeStatistics reply from tisp_ae_hist_last + the AE state */
+static void ae_stats_reply(void)
+{
+	static unsigned char hist[T41_AE_HIST_LAST_BYTES], state[0x2618],
+		out[T41_AE_STATS_REPLY_BYTES + 8];
+	unsigned int i;
+
+	for (i = 0; i < 256; ++i)
+		put32(hist + 4 * i, i * 1000 + 7);
+	for (i = 0; i < 5; ++i)
+		put32(hist + 1024 + 4 * i, 0xabcd0000U | (i * 13107));
+	for (i = 0; i < 225; ++i)
+		put32(state + T41_AE_STATE_YZONE + 4 * i, i + 3);
+	memset(out, 0xee, sizeof(out));
+	assert(!t41_ae_stats_reply(out, hist, state, sizeof(state)));
+	for (i = 0; i < 5; ++i)
+		assert((unsigned int)(out[2 * i] | out[2 * i + 1] << 8) == i * 13107);
+	for (i = 0; i < 256; ++i)
+		assert(get32(out + 10 + 4 * i) == i * 1000 + 7);
+	for (i = 0; i < 225; ++i)
+		assert(get32(out + 1034 + 4 * i) == i + 3);
+	assert(out[T41_AE_STATS_REPLY_BYTES] == 0xee);	/* 1934 bytes, no more */
+	assert(t41_ae_stats_reply(out, hist, state, T41_AE_STATE_YZONE + 899) == -1);
+	assert(t41_ae_stats_reply(NULL, hist, state, sizeof(state)) == -1);
+}
+
+static void face_req(unsigned char *r, unsigned int en, unsigned int l,
+		unsigned int t, unsigned int rt, unsigned int b, unsigned int tg)
+{
+	put32(r, en); put32(r + 4, l); put32(r + 8, t);
+	put32(r + 12, rt); put32(r + 16, b); put32(r + 20, tg);
+}
+
+/* issue 90: Set/GetFaceAe (stock tisp_ae_sepc_area / tisp_ae_api_get_faceae) */
+static void face_ae(void)
+{
+	unsigned char req[T41_FACE_AE_BYTES], out[T41_FACE_AE_BYTES];
+	static unsigned char cache[T41_AE_CACHE_BYTES];
+	struct t41_face_ae f;
+
+	/* clamping as stock: left >= 20, top >= 10, right <= w-20, bottom <= h-10, target 10..200 */
+	face_req(req, 1, 5, 2, 3000, 1700, 250);
+	assert(!t41_face_ae_plan(req, 2880, 1620, &f));
+	assert(f.roi[0] == 20 && f.roi[1] == 10 && f.roi[2] == 2860 && f.roi[3] == 1610);
+	assert(f.roi_ok && f.target == 200 && f.left == 5 && f.right == 3000);
+	face_req(req, 1, 1000, 500, 1400, 900, 3);
+	assert(!t41_face_ae_plan(req, 2880, 1620, &f) && f.target == 10);
+	assert(f.roi[0] == 1000 && f.roi[3] == 900);
+	/* stores: changed enable sets the update flag; rect as given, clamped target */
+	memset(cache, 0, sizeof(cache));
+	t41_face_ae_store_enable(cache, &f);
+	assert(get32(cache + T41_AE_CACHE_FACE_EN) == 1 && cache[T41_AE_CACHE_TRIG] == 1);
+	cache[T41_AE_CACHE_TRIG] = 0;
+	t41_face_ae_store_enable(cache, &f);
+	assert(cache[T41_AE_CACHE_TRIG] == 0);		/* unchanged enable: no flag */
+	t41_face_ae_store(cache, &f);
+	assert(cache[T41_AE_CACHE_FACE_TARGET] == 10);
+	assert(get32(cache + 1496) == 1000 && get32(cache + 1500) == 500 &&
+	       get32(cache + 1504) == 1400 && get32(cache + 1508) == 900 &&
+	       get32(cache + 1512) == 10);
+	t41_face_ae_report(out, &f);
+	assert(get32(out) == 1 && get32(out + 4) == 1000 && get32(out + 16) == 900 &&
+	       get32(out + 20) == 10);
+	/* beyond stock: bad enable, empty enabled window refused */
+	face_req(req, 2, 100, 100, 200, 200, 50);
+	assert(t41_face_ae_plan(req, 2880, 1620, &f) == -1);
+	face_req(req, 1, 300, 100, 200, 200, 50);
+	assert(t41_face_ae_plan(req, 2880, 1620, &f) == -1);
+	face_req(req, 1, 100, 100, 200, 200, 50);
+	assert(t41_face_ae_plan(req, 0, 0, &f) == -1);
+	/* disable with a zero window is fine (no ROI programmed); GET zeros the rest */
+	face_req(req, 0, 0, 0, 0, 0, 0);
+	assert(!t41_face_ae_plan(req, 2880, 1620, &f) && !f.roi_ok && f.target == 10);
+	t41_face_ae_report(out, &f);
+	assert(get32(out) == 0 && get32(out + 4) == 0 && get32(out + 20) == 0);
+}
+
+/* issue 90: Set/GetAeExpList (stock tisp_ae_api_set/get_exp_list) */
+static void ae_explist(void)
+{
+	static unsigned char params[0x910], state[0x2618], cache[T41_AE_CACHE_BYTES];
+	unsigned char req[T41_AE_EXPLIST_BYTES], out[T41_AE_EXPLIST_BYTES];
+	unsigned int i, k;
+
+	memset(req, 0, sizeof(req));
+	put32(req, 1);
+	for (i = 0; i < 16; ++i)
+		for (k = 0; k < 5; ++k)
+			put32(req + 4 + 20 * i + 4 * k, 100 * i + k + 1);
+	memset(params, 0x11, sizeof(params));
+	assert(!t41_ae_explist_set(params, sizeof(params), state, sizeof(state), cache, req));
+	assert(get32(params + 1732) == 1 && get32(state + 7536) == 1 && get32(state + 7540) == 0);
+	assert(cache[T41_AE_CACHE_TRIG] == 1);
+	for (i = 0; i < 16; ++i)
+		for (k = 0; k < 4; ++k)
+			assert(get32(params + 580 + 16 * i + 4 * k) == 100 * i + k + 1);
+	assert(params[580 + 256] == 0x11);		/* column 4 not stored */
+	assert(!t41_ae_explist_get(params, sizeof(params), out));
+	assert(get32(out) == 1);
+	for (i = 0; i < 16; ++i) {
+		assert(get32(out + 4 + 20 * i) == 0 && get32(out + 4 + 20 * i + 16) == 0);
+		for (k = 1; k < 4; ++k)
+			assert(get32(out + 4 + 20 * i + 4 * k) == 100 * i + k + 1);
+	}
+	/* mode 0: only the mode (and the state flags) change */
+	cache[T41_AE_CACHE_TRIG] = 0;
+	put32(req, 0); put32(req + 8, 9999);
+	assert(!t41_ae_explist_set(params, sizeof(params), state, sizeof(state), cache, req));
+	assert(get32(params + 1732) == 0 && get32(params + 584) == 2 && !cache[T41_AE_CACHE_TRIG]);
+	put32(req, 2);
+	assert(t41_ae_explist_set(params, sizeof(params), state, sizeof(state), cache, req) == -1);
+	assert(t41_ae_explist_set(params, 1735, state, sizeof(state), cache, req) == -1);
+}
+
 int main(void)
 {
+	ae_stats_reply();
+	face_ae();
+	ae_explist();
 	ae_converge();
 	ae_lists();
 	tmo_curve();

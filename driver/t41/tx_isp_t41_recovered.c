@@ -942,6 +942,15 @@ module_param(t41_ae_diag, uint, 0644);
 MODULE_PARM_DESC(t41_ae_diag, "safe AE: log every sensor write (1)");
 static int t41_sensor_limits_error = -EAGAIN;
 static int t41_ae_ready[2] __attribute__((section(".data"))) = { 0, 0 };
+/* Frames the vendor AE (t41_vendor_ae) has run per channel: its
+ * api_ae_long_process fills tisp_ae_hist_last and the zone Y of the AE
+ * state that IMP_ISP_Tuning_GetAeStatistics reports (issue 90). */
+static unsigned int t41_vae_hist_frames[2] __attribute__((section(".data"))) = { 0, 0 };
+/* Face AE luma source: copy the ROI-window statistics (0x19060..0x19074) to
+ * the AE state per frame (the stock driver does it in ISP IRQ 61). */
+static int t41_ae_roi_stats = 1;
+module_param(t41_ae_roi_stats, int, 0644);
+MODULE_PARM_DESC(t41_ae_roi_stats, "copy the ROI-window AE statistics per frame for the face AE (default 1; 0 = off)");
 static int t41_awb_ready[2] __attribute__((section(".data"))) = { 0, 0 };
 t41_bringup_param(t41_sensor_limits_error, int, 0444);
 module_param(t41_ae_zone_mean, uint, 0444);
@@ -21859,6 +21868,29 @@ static int t41_tuning_copy_ae_stats(unsigned int channel, uintptr_t user_ptr)
     if (!allocation)
         return -ENOMEM;
     response = allocation;
+    /*
+     * Vendor AE running (the default): reply like the stock
+     * tisp_g_ae_statis_attr from what the vendor AE computed for the last
+     * frame: tisp_ae_hist_last (256 bins x4, bin 0 = width x height minus
+     * the rest, the 5-bin histogram over the histThresh limits scaled to
+     * 65535) and the 15x15 zone Y of the AE state (tisp_ae_weight_mean).
+     * The vendor AE updates both with interrupts off (single core); copy
+     * them the same way.  Without the vendor AE the raw hardware histogram
+     * path below (fixed fifths, mean zones) remains.
+     */
+    if (t41_vendor_ae > 0 && channel < ARRAY_SIZE(t41_vae_hist_frames) &&
+        READ_ONCE(t41_vae_hist_frames[channel])) {
+        local_irq_save(flags);
+        ret = t41_ae_stats_reply(response,
+            tisp_ae_hist_last + channel * T41_AE_HIST_LAST_BYTES,
+            (const unsigned char *)state, T41_AE_STATE_BYTES);
+        local_irq_restore(flags);
+        if (!ret && private_copy_to_user((void __user *)user_ptr, response,
+                                         TX_ISP_TUNING_T41_AE_STATS_BYTES))
+            ret = -EFAULT;
+        kfree(allocation);
+        return ret ? (ret == -EFAULT ? ret : -EINVAL) : 0;
+    }
     histogram = (u32 *)(void *)(allocation +
         ALIGN(TX_ISP_TUNING_T41_AE_STATS_BYTES, sizeof(u32)));
     lock = (spinlock_t *)(void *)(slock_hist_storage +
@@ -22574,6 +22606,128 @@ static int t41_tuning_ae_params(unsigned int channel, uint32_t id,
                                 sizeof(payload)) ? -EFAULT : 0;
 }
 
+/* ae_cache[ch] as the vendor AE sets it up on its first frame. */
+static unsigned char *t41_ae_cache_ptr(unsigned int channel)
+{
+    uint32_t *slot = (uint32_t *)(void *)(ae_cache + channel * 4);
+
+    if (channel * T41_AE_CACHE_BYTES + T41_AE_CACHE_BYTES >
+        sizeof(ae_cache_init))
+        return NULL;
+    if (!*slot)
+        *slot = (uint32_t)(uintptr_t)(ae_cache_init +
+                                      channel * T41_AE_CACHE_BYTES);
+    return (unsigned char *)(uintptr_t)*slot;
+}
+
+/*
+ * IMPISPFaceAttr (stock 0x08000035, 24 bytes; tisp_ae_sepc_area /
+ * tisp_ae_api_get_faceae): the face window and target the vendor AE meters
+ * (layout and checks: t41_face_ae_plan in tx_isp_t41_tuning_ctl.h).  The
+ * last accepted request is kept for GET.  Without the vendor AE the values
+ * are stored only (no ROI window is programmed).
+ */
+static struct t41_face_ae t41_face_ae_last[2];
+
+static int t41_tuning_face_ae(unsigned int channel, unsigned int is_get,
+                              uintptr_t user_ptr)
+{
+    unsigned char req[T41_FACE_AE_BYTES];
+    struct t41_face_ae f;
+    unsigned char *state, *cache;
+    uint32_t *info;
+    spinlock_t *lock;
+    unsigned long flags;
+
+    if (channel >= ARRAY_SIZE(t41_face_ae_last) ||
+        channel >= ARRAY_SIZE(ae_info) || is_get > 1 || !user_ptr)
+        return -EINVAL;
+    if (is_get) {
+        t41_face_ae_report(req, &t41_face_ae_last[channel]);
+        return private_copy_to_user((void __user *)user_ptr, req,
+                                    sizeof(req)) ? -EFAULT : 0;
+    }
+    if (!smp_load_acquire(&t41_ae_ready[channel]))
+        return -EAGAIN;
+    info = (uint32_t *)(uintptr_t)ae_info[channel];
+    if (!t41_kernel_data_ptr(info))
+        return -ENODEV;
+    state = (unsigned char *)(uintptr_t)info[1];
+    cache = t41_ae_cache_ptr(channel);
+    if (!t41_kernel_data_ptr(state) || !cache)
+        return -ENODEV;
+    if (private_copy_from_user(req, (void __user *)user_ptr, sizeof(req)))
+        return -EFAULT;
+    if (t41_face_ae_plan(req, t41_tmo_le16(state + T41_AE_STATE_WIDTH),
+                         t41_tmo_le16(state + T41_AE_STATE_HEIGHT), &f))
+        return -EINVAL;
+    lock = (spinlock_t *)(void *)(slock_hist_storage +
+                                  channel * sizeof(uint32_t));
+    spin_lock_irqsave(lock, flags);
+    t41_face_ae_store_enable(cache, &f);
+    if (t41_vendor_ae > 0 && f.roi_ok)
+        tisp_ae_roi_point(channel, f.roi[0], f.roi[1], f.roi[2], f.roi[3]);
+    else
+        cache[T41_AE_CACHE_FACE_ON] = (unsigned char)(t41_vendor_ae > 0 ?
+                                                      0 : f.enable);
+    t41_face_ae_store(cache, &f);
+    spin_unlock_irqrestore(lock, flags);
+    t41_face_ae_last[channel] = f;
+    return 0;
+}
+
+/*
+ * IMPISPAeExpListAttr (stock 0x08000027, 324 bytes;
+ * tisp_ae_api_set/get_exp_list): see t41_ae_explist_set/get.
+ */
+static int t41_tuning_ae_explist(unsigned int channel, unsigned int is_get,
+                                 uintptr_t user_ptr)
+{
+    unsigned char *payload, *params, *state, *cache;
+    uint32_t *info;
+    spinlock_t *lock;
+    unsigned long flags;
+    int ret = 0;
+
+    if (channel >= ARRAY_SIZE(ae_info) || channel >= 2 || is_get > 1 ||
+        !user_ptr)
+        return -EINVAL;
+    if (!smp_load_acquire(&t41_ae_ready[channel]))
+        return -EAGAIN;
+    info = (uint32_t *)(uintptr_t)ae_info[channel];
+    if (!t41_kernel_data_ptr(info))
+        return -ENODEV;
+    params = (unsigned char *)(uintptr_t)info[0];
+    state = (unsigned char *)(uintptr_t)info[1];
+    cache = t41_ae_cache_ptr(channel);
+    if (!t41_kernel_data_ptr(params) || !t41_kernel_data_ptr(state) ||
+        !cache)
+        return -ENODEV;
+    payload = private_kmalloc(T41_AE_EXPLIST_BYTES, GFP_KERNEL);
+    if (!payload)
+        return -ENOMEM;
+    lock = (spinlock_t *)(void *)(slock_hist_storage +
+                                  channel * sizeof(uint32_t));
+    if (is_get) {
+        spin_lock_irqsave(lock, flags);
+        ret = t41_ae_explist_get(params, T41_AE_PARAM_BYTES, payload);
+        spin_unlock_irqrestore(lock, flags);
+        if (!ret && private_copy_to_user((void __user *)user_ptr, payload,
+                                         T41_AE_EXPLIST_BYTES))
+            ret = -EFAULT;
+    } else if (private_copy_from_user(payload, (void __user *)user_ptr,
+                                      T41_AE_EXPLIST_BYTES)) {
+        ret = -EFAULT;
+    } else {
+        spin_lock_irqsave(lock, flags);
+        ret = t41_ae_explist_set(params, T41_AE_PARAM_BYTES, state,
+                                 T41_AE_STATE_BYTES, cache, payload);
+        spin_unlock_irqrestore(lock, flags);
+    }
+    private_kfree(payload);
+    return ret ? (ret == -EFAULT ? ret : -EINVAL) : 0;
+}
+
 /*
  * IMPISPTmoCurve (stock 0x08000063, 404 bytes): one of the ten EV curves
  * in the TMO params, under the TMO map lock; the per-frame TMO map
@@ -22619,9 +22773,11 @@ out:
  * IMPISPStatisConfig (stock 0x08000000, 72 bytes, tisp_s/g_statis_config_attr
  * on tisp_tattr+568).  GET returns the stored record.  SET: an enabled AWB
  * part moves the AWB zone grid (native AWB T41_AWB_LOCATION, refused with
- * -EBUSY while the stream runs and the geometry changes); the AE histogram
- * thresholds and the AF part are stored only (stock reprogrammed the global
- * statistics block from an uninitialised buffer, and this build has no AF).
+ * -EBUSY while the stream runs and the geometry changes); an enabled AE part
+ * sets the histogram thresholds of the vendor AE's 5-bin histogram (stock
+ * api_ae_set_hist_bin, issue 90); the AF part is stored only (stock also
+ * reprogrammed the global statistics block from an uninitialised buffer,
+ * and this build has no AF).
  */
 static int t41_tuning_statis_config(unsigned int channel, unsigned int is_get,
                                     uintptr_t user_ptr)
@@ -22654,6 +22810,16 @@ static int t41_tuning_statis_config(unsigned int channel, unsigned int is_get,
         ret = t41_native_awb_control(0, T41_AWB_LOCATION, loc, sizeof(loc), 0);
         if (ret)
             return ret;
+    }
+    if (parts & 1) {
+        unsigned long flags;
+
+        /* stock api_ae_set_hist_bin: the four limits the vendor AE's
+         * 5-bin histogram uses from the next frame */
+        local_irq_save(flags);
+        memcpy(tisp_ae_hist_last + channel * T41_AE_HIST_LAST_BYTES +
+               T41_AE_HIST_LAST_THRESH, req + T41_STATIS_AE + 20, 4);
+        local_irq_restore(flags);
     }
     t41_statis_config_store(attrs + 568, req);
     return 0;
@@ -22883,6 +23049,12 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_AE_AT_LIST, T41_AE_LIST_BYTES,
               TX_ISP_TUNING_DIR_GET, TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_FACE_AE, T41_FACE_AE_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
+            { TX_ISP_TUNING_CMD_T41_AE_EXP_LIST, T41_AE_EXPLIST_BYTES,
+              TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
+              TX_ISP_TUNING_PAYLOAD_USER_PTR },
             { TX_ISP_TUNING_CMD_T41_TMO_CURVE, T41_TMO_CURVE_BYTES,
               TX_ISP_TUNING_DIR_GET | TX_ISP_TUNING_DIR_SET,
               TX_ISP_TUNING_PAYLOAD_USER_PTR },
@@ -23102,6 +23274,12 @@ static int64_t isp_core_tunning_unlocked_ioctl_body(uintptr_t a0, uint32_t a1, u
                       route->id == TX_ISP_TUNING_CMD_T41_AE_AT_LIST))
             return t41_tuning_ae_params(request.channel, route->id,
                                         request.is_get, request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_FACE_AE)
+            return t41_tuning_face_ae(request.channel, request.is_get,
+                                      request.value_or_ptr);
+        if (route && route->id == TX_ISP_TUNING_CMD_T41_AE_EXP_LIST)
+            return t41_tuning_ae_explist(request.channel, request.is_get,
+                                         request.value_or_ptr);
         if (route && route->id == TX_ISP_TUNING_CMD_T41_TMO_CURVE)
             return t41_tuning_tmo_curve(request.channel, request.is_get,
                                         request.value_or_ptr);

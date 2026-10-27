@@ -4,6 +4,30 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-27 (6): T41 AE tuning API: statistics, histThresh, FaceAe, AeExpList (`claude/issue-90`; host test, QEMU T41, .34 by runtime swap)
+
+- **GetAeStatistics** (0x08000022) now answers like the stock `tisp_g_ae_statis_attr` from what the vendor AE computed for the
+  last frame: `tisp_ae_hist_last` (256 bins x4, bin 0 = width x height minus the rest; the 5-bin histogram over the
+  histThresh limits, scaled to 65535) and the 15x15 zone Y of the AE state (+7648, `tisp_ae_weight_mean`). Before: raw
+  hardware bins, fixed fifths for the 5-bin histogram and the frame mean in every zone. Without the vendor AE
+  (`t41_vendor_ae=0`) the old path remains.
+- **SetStatisConfig histThresh**: an enabled AE part sets the four limits of the vendor AE's 5-bin histogram (stock
+  `api_ae_set_hist_bin`); before they were only stored in the record.
+- **Set/GetFaceAe** (0x08000035, 24 bytes): stock `tisp_ae_sepc_area` stores (enable + update flag, window clamped to
+  [20, w-20] x [10, h-10] through `tisp_ae_roi_point`, target 10..200); GET returns the last accepted request (stock
+  returned the first word from the face-history ring and never filled the enable). Beyond stock: enable > 1 and an enabled
+  empty window are refused.
+- **Face AE luma source**: the ROI-window statistics 0x19060..0x19074 are copied to AE state +7448..+7468 every frame (stock:
+  ISP IRQ 61, `tisp_ae_ai_interrupt_static`; the open dispatcher skips IRQ 61 and the recovered body was a no-op). Without
+  them the face AE metered 0 (division guard faults in `fix_point_div_32`, no effect). Parameter `t41_ae_roi_stats` (default 1).
+- **Set/GetAeExpList** (0x08000027, 324 bytes): stock `tisp_ae_api_set/get_exp_list` stores (params +1732 mode, +580 list,
+  state flags, update flag); GET returns the stored list (stock took columns 2/3 from unrelated AE cache words). Mode > 1 refused.
+- Host test `tests/tx_isp_t41_tuning_ctl_test` (reply packing, face clamps/stores, list layout). .34 (sc5336, OpenIMP
+  `claude/issue-90`): 256-bin sum 4665600 = 2880 x 1620, 5-bin split of bins 1..4 equal to the 256 bins over 13/64/144/192 and
+  after 32/64/96/128 (bin 4 5342 -> 14239), zones 1..226; face window centre target 40 -> frame Y 88.4, target 180 -> 105.8
+  (base 98.2, 9 s each; the vendor AE's face path converges slowly), back after off; list mode on/off with the calibration's
+  own list: frames flow, Y 100.5 -> 97.0 -> 96.9; 0 guard faults, 0 oops. QEMU T41: same cases, 3 reloads of the test ko clean.
+
 ## 2026-10-27 (5): T23 AutoZoom Get and crop off (`claude/rc3-gaps2`; QEMU T23, .30 by runtime swap)
 
 - **IMP_ISP_Tuning_GetAutoZoom** returned -1 (the driver answered cid 0x80000e8 Get with -EINVAL): now served from the channel record of the MSCA (scaler enable and

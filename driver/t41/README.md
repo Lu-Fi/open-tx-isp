@@ -1063,3 +1063,17 @@ A 24-patch chart was measured on both T41 cameras against the vendor stack in th
 ## Testing in QEMU
 
 The modules can be loaded, unloaded and exercised without a camera in the `ingenic-t41` machine of the [gtxaspec/qemu](https://github.com/gtxaspec/qemu) `ingenic-txx` branch (boots the thingino image (64 MB, gc5603 sensor model, `eth0` present), all modules load, the streamer starts and 10 reload cycles are clean; frames and encoder output are not verified there). It is a crash-test bench, not a picture-quality bench: the ISP is a register-file model with a modelled frame path (synthetic colour-bar frames), there are no 3A statistics, and timing and image quality cannot be tested. Setup, per-SoC status and limits: [docs/QEMU_TESTING.md](../../docs/QEMU_TESTING.md).
+
+## AE tuning API (2026-10-27, issue 90)
+
+With the vendor AE running (`t41_vendor_ae=1`, the default) the AE tuning calls use the vendor AE's own data:
+
+- `GetAeStatistics`: `tisp_ae_hist_last` (256 bins x4 with bin 0 the remainder of width x height, 5-bin histogram over
+  histThresh) and the zone Y of AE state +7648, copied with interrupts off like the vendor AE writes them.
+- `SetStatisConfig` with the AE part enabled: histThresh to `tisp_ae_hist_last` +1044 (used from the next frame).
+- `Set/GetFaceAe`, `Set/GetAeExpList`: stock layouts and stores (`tx_isp_t41_tuning_ctl.h`, host test
+  `tests/tx_isp_t41_tuning_ctl_test.c`); the face window is programmed through `tisp_ae_roi_point`.
+- The ROI-window statistics (0x19060..0x19074, stock IRQ 61) are copied to AE state +7448.. in `t41_vae_calc_process`
+  (`t41_ae_roi_stats`, default 1); the face AE meters them. The face AE converges slowly (vendor AE steps): on .34 a
+  centre window moved the frame mean 98 -> 88 (target 40) and -> 106 (target 180) within 9 s.
+
