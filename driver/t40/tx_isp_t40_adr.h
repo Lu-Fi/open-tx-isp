@@ -164,11 +164,34 @@ next:		;
 
 /* inverse table lookup: first knot above t, linear between it and the one before
  * (OEM: reads xs[-1]/ys[-1] when t is below the first knot, kept) */
+static const int16_t *t40_adr_sorted_xs[2];	/* knot tables checked non-decreasing this frame (issue 133) */
+static const int16_t *t40_adr_check_sorted16(const int16_t *xs)
+{
+	int32_t j;
+
+	for (j = 1; j < 129; j++)
+		if (xs[j] < xs[j - 1])
+			return NULL;
+	return xs;
+}
 static int32_t t40_adr_lookup(int32_t t, const int16_t *xs, const int16_t *ys, uint32_t sh, int32_t rnd)
 {
 	int32_t j, d;
 
-	for (j = 0; j < 129; j++)
+	j = 0;
+	if (xs == t40_adr_sorted_xs[0] || xs == t40_adr_sorted_xs[1]) {
+		int32_t b = 129;	/* first knot above t, as the scan below finds it */
+
+		while (j < b) {
+			int32_t mid = (j + b) >> 1;
+
+			if (t < xs[mid])
+				b = mid;
+			else
+				j = mid + 1;
+		}
+	}
+	for (; j < 129; j++)
 		if (t < xs[j]) {
 			d = t40_adr_mul32(sh, t40_adr_div32(sh, (uint32_t)(ys[j] - ys[j - 1]) << sh,
 							    (uint32_t)(xs[j] - xs[j - 1]) << sh),
@@ -176,6 +199,64 @@ static int32_t t40_adr_lookup(int32_t t, const int16_t *xs, const int16_t *ys, u
 			return ys[j] - ((int32_t)(d + rnd) >> sh);
 		}
 	return ys[128];
+}
+
+/*
+ * Issue 133: the 512-entry nearest-value scan of subsection_map ran 6 x 24 times per
+ * frame (~80 % of the ADR event).  The table is the cumulative histogram, so it is
+ * normally non-decreasing: t40_adr_fpga checks that once per frame (and that no
+ * distance can overflow) and then the nearest entries are found by binary search.
+ * In a sorted table the entries at the minimum distance are one contiguous run
+ * (value x - d just below the first entry >= x, value x + d from it on), so count
+ * and index sum are the same as the scan's.  Any other table takes the scan.
+ */
+static const int32_t *t40_adr_sorted_tab;
+#define T40_ADR_TAB_LIM 0x3fffffff
+static const int32_t *t40_adr_check_sorted(const int32_t *tab)
+{
+	int32_t i;
+
+	if (tab[0] < 0 || tab[511] > T40_ADR_TAB_LIM)
+		return NULL;
+	for (i = 1; i < 512; i++)
+		if (tab[i] < tab[i - 1])
+			return NULL;
+	return tab;
+}
+/* nearest entries of a sorted tab: run [lo, hi] of the values at the minimum distance (<= 10000) */
+static void t40_adr_nearest_sorted(int32_t x, const int32_t *tab, int32_t *cnt, int32_t *sum)
+{
+	int32_t a = 0, b = 512, lo, hi, dl, dr, best;
+
+	while (a < b) {		/* first index with tab[] >= x */
+		int32_t mid = (a + b) >> 1;
+
+		if (tab[mid] < x)
+			a = mid + 1;
+		else
+			b = mid;
+	}
+	dl = a > 0 ? x - tab[a - 1] : 0x7fffffff;
+	dr = a < 512 ? tab[a] - x : 0x7fffffff;
+	best = dl < dr ? dl : dr;
+	*cnt = 0;
+	*sum = 0;
+	if (best > 10000)	/* the scan starts at best = 10000 and counts ties with it */
+		return;
+	lo = a;
+	hi = a - 1;
+	if (dl == best) {	/* run of tab[a - 1] */
+		lo = a - 1;
+		while (lo > 0 && tab[lo - 1] == tab[a - 1])
+			lo--;
+	}
+	if (dr == best) {	/* run of tab[a] */
+		hi = a;
+		while (hi < 511 && tab[hi + 1] == tab[a])
+			hi++;
+	}
+	*cnt = hi - lo + 1;
+	*sum = (lo + hi) * (hi - lo + 1) / 2;
 }
 
 /* one knee from the histogram target (OEM subsection_map): the mean index of
@@ -186,15 +267,19 @@ static int32_t t40_adr_subsection_map(int32_t x, int32_t c6, int32_t c2, const i
 	int32_t best = 10000, cnt = 0, sum = 0, i, d, half, y;
 	uint32_t q;
 
-	for (i = 0; i < 512; i++) {
-		d = x < tab[i] ? tab[i] - x : x - tab[i];
-		if (d < best) {
-			cnt = 1;
-			sum = i;
-			best = d;
-		} else if (d == best) {
-			cnt++;
-			sum += i;
+	if (tab == t40_adr_sorted_tab && x >= -T40_ADR_TAB_LIM && x <= T40_ADR_TAB_LIM) {
+		t40_adr_nearest_sorted(x, tab, &cnt, &sum);
+	} else {
+		for (i = 0; i < 512; i++) {
+			d = x < tab[i] ? tab[i] - x : x - tab[i];
+			if (d < best) {
+				cnt = 1;
+				sum = i;
+				best = d;
+			} else if (d == best) {
+				cnt++;
+				sum += i;
+			}
 		}
 	}
 	if (cnt <= 0)
@@ -1071,6 +1156,9 @@ static void t40_adr_fpga(struct t40_adr_ctx *c, const struct t40_adr_fpga_in *f)
 	}
 
 	/* one 14-knot curve per block */
+	t40_adr_sorted_tab = t40_adr_check_sorted(f->cdf);
+	t40_adr_sorted_xs[0] = t40_adr_check_sorted16(t40_adr_top_gam_x);
+	t40_adr_sorted_xs[1] = t40_adr_check_sorted16(f->f43);
 	wsum = p34_6 + p34_7 + p34_8;
 	if (wsum <= 0)
 		wsum = 1;
@@ -1152,6 +1240,9 @@ static void t40_adr_fpga(struct t40_adr_ctx *c, const struct t40_adr_fpga_in *f)
 		for (j = 0; j < 14; j++)
 			row[j] = o14[j];
 	}
+
+	t40_adr_sorted_tab = NULL;
+	t40_adr_sorted_xs[0] = t40_adr_sorted_xs[1] = NULL;
 
 	/* rate limit against the last frame */
 	if (f->f35[0] != 1) {
