@@ -432,6 +432,11 @@ TESTS += t21_sepia_host_test
 t21_sepia_host_test: t21_sepia_host_test.c ../driver/t21/tx_isp_t21_tuning_ctl.h ../driver/common/tx_isp_csc.h
 	$(CC) $(CFLAGS) -Wno-unused-variable -I../driver/common -o $@ $<
 
+TESTS += t20_expr_time_host_test
+
+t20_expr_time_host_test: t20_expr_time_host_test.c ../driver/t20/sdk/tx-isp-expr-time.h
+	$(CC) $(CFLAGS) -o $@ $<
+
 TESTS += t21_it_block_host_test
 
 t21_it_block_host_test: t21_it_block_host_test.c ../driver/t21/tx_isp_t21_tuning_ctl.h ../driver/common/tx_isp_csc.h
@@ -539,7 +544,7 @@ clean:
 	$(RM) tx_isp_t41_awb_runtime_test
 	$(RM) tx_isp_t41_awb_detect_test
 	$(RM) tx_isp_t41_awb_long_test
-	$(RM) t31_awb_simd_host_test t31_awb_defs.inc t31_awb_region.inc tx_isp_t41_tuning_ctl_test t21_sepia_host_test t21_it_block_host_test t31_sharpness_host_test t31_ae_step_host_test sinfo_vendor_host_test
+	$(RM) t31_awb_simd_host_test t31_awb_defs.inc t31_awb_region.inc tx_isp_t41_tuning_ctl_test t21_sepia_host_test t21_it_block_host_test t20_expr_time_host_test t31_sharpness_host_test t31_ae_step_host_test sinfo_vendor_host_test
 	$(RM) tx_isp_t41_awb_stats_test
 	$(RM) tx_isp_math_test tx_isp_modulation_test \
 		tx_isp_awb_mesh_test \
