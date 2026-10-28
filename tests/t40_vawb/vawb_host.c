@@ -21,6 +21,9 @@
 #include <stdbool.h>
 #include <ucontext.h>
 #include <sys/mman.h>
+#ifndef MAP_32BIT
+#define MAP_32BIT 0
+#endif
 #include <time.h>
 
 typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32; typedef uint64_t u64;
@@ -77,6 +80,9 @@ static u32 harness_ok(u32 a, u32 align)
 {
 	if (a & align) return 0;
 	if (a >= (u32)(uintptr_t)stk_lo && a < (u32)(uintptr_t)stk_lo + 0x40000) return 1;
+#ifdef VAWB_ANYADDR	/* 32-bit target build (mipsel): every user address fits */
+	return a >= 0x1000U;
+#endif
 	return a >= 0x30000000U && a < 0x30400000U;
 }
 /* driver C code the generated chain calls: tisp_awb_ct_detect (tx_isp_t40_awb_ctd.inc) and its fix-point helpers */

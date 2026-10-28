@@ -66653,6 +66653,26 @@ int32_t fix_point_div_32(int32_t arg1, int32_t arg2, int32_t arg3)
     quotient = numerator / denominator;
     remainder = numerator % denominator;
 
+    /*
+     * #133: the same bits by long division in steps of clz(denominator)
+     * bits (remainder < denominator, so remainder << step fits), one
+     * 32-bit divide per step instead of one loop round per bit.  The
+     * bitwise loop below stays for denominators >= 2^31, where its
+     * remainder << 1 wraps.
+     */
+    if (denominator < 0x80000000U) {
+        uint32_t lim = (uint32_t)__builtin_clz(denominator), left = precision;
+
+        while (left) {
+            uint32_t step = left < lim ? left : lim, t = remainder << step;
+
+            fractional = (fractional << step) | (t / denominator);
+            remainder = t % denominator;
+            left -= step;
+        }
+        return (int32_t)(fractional | (quotient << precision));
+    }
+
     while (bit != precision) {
         remainder <<= 1;
         fractional <<= 1;
