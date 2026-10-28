@@ -15534,12 +15534,27 @@ static int t41_call_sensor_core_register(uintptr_t sensor_sd, uintptr_t arg,
 		(sensor_sd, arg));
 }
 
+/*
+ * Issue #134: wait for every sensor operation in flight.  The frame-sync /
+ * frame-done works (ispcore_sensor_ops_ioctl, under t41_sensor_ops_mutex)
+ * look up the VIN's active sensor and then run several I2C writes through
+ * it.  IMP_ISP_DisableSensor clears the active slot and IMP_ISP_DelSensor
+ * frees the sensor's i2c_client and object without that mutex, so a work
+ * that started just before stream-off kept writing through a freed client
+ * (QEMU T41: i2c_transfer(adapter=0x4) in a kworker).  Callers make the
+ * sensor unreachable first (active slot cleared, off the VIN list); after
+ * this barrier no work can still hold it.  Must not be called with
+ * t41_sensor_ops_mutex held.
+ */
+static void t41_sensor_ops_quiesce(void);
+
 static void t41_unregister_i2c_sensor(uintptr_t sensor_sd)
 {
 	struct i2c_client *client;
 
 	if (!sensor_sd)
 		return;
+	t41_sensor_ops_quiesce();
 	client = (struct i2c_client *)t41_load_ptr(sensor_sd,
 						   T41_SUBDEV_CLIENT_OFF);
 	if (client) {
@@ -15577,6 +15592,8 @@ static void t41_detach_sensor(void *sensor_sd)
 			t41_store_ptr(vin, T41_VIN_ACTIVE_SENSOR_OFF +
 					   id * sizeof(uintptr_t), 0);
 	private_mutex_unlock((void *)(vin + T41_VIN_SENSOR_LOCK_OFF));
+	/* #134: the object is freed after this returns */
+	t41_sensor_ops_quiesce();
 	t41_unsync_stale_sensor(sensor);
 }
 
@@ -162780,6 +162797,12 @@ ispcore_sensor_ops_release_all_sensor0x84:
  * (the sensor ioctls do I2C and sleep anyway).
  */
 static DEFINE_MUTEX(t41_sensor_ops_mutex);
+
+static void t41_sensor_ops_quiesce(void)
+{
+	mutex_lock(&t41_sensor_ops_mutex);
+	mutex_unlock(&t41_sensor_ops_mutex);
+}
 
 int32_t ispcore_sensor_ops_ioctl(uintptr_t core_sd, uint32_t cmd,
 				 uintptr_t arg)
