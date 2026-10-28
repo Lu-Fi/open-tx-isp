@@ -1,3 +1,4 @@
+#include <time.h>
 /* T40 ADR: literal OEM chain (lit/adr_lit.inc) vs readable driver/t40/tx_isp_t40_adr.h.
  * Helper-level random tests first, then whole frames per bin.
  * ./adr <bin>... (run.sh adr <bins>) */
@@ -279,8 +280,50 @@ static void patch(uint8_t *bank, unsigned var)
     }
 }
 
+/* ADRBENCH=<frames>: only the driver chain, one bin, 3840x2160, statistics slots filled once (#133 profile) */
+static int adr_bench(const char *path, unsigned n)
+{
+    struct timespec t0, t1; unsigned f, w0 = 0;
+    uint8_t *bin;
+    reg_read_hook = st_read;
+    st_buf = arena_alloc(4 * 0x1000);
+    *(uint32_t *)(tispinfo + 48) = (uint32_t)(uintptr_t)st_buf;
+    *(uint32_t *)(tispinfo + 52) = ST_PHYS;
+    tune = arena_alloc(4096); memset(tune, 0, 4096);
+    bin = load_bin(path);
+    tparamsN[0] = (uintptr_t)BANK_DAY(bin);
+    side = 1; st_n = 3840 * 2160 / 4; st_mode = 1;
+    for (st_slot = 0; st_slot < 4; st_slot++) { st_seed = 2 * st_slot + 1; st_fill(); }
+    if (getenv("ADRSTATS")) {	/* camera dumps: "a.bin,b.bin,c.bin" (4 KiB slots) */
+        char list[512], *t, *sv = NULL; unsigned k = 0;
+        snprintf(list, sizeof(list), "%s", getenv("ADRSTATS"));
+        for (t = strtok_r(list, ",", &sv); t && k < 4; t = strtok_r(NULL, ",", &sv), k++) {
+            FILE *fs = fopen(t, "rb");
+            if (!fs || fread(st_buf + k * 0x1000, 1, 0x1000, fs) != 0x1000) { fprintf(stderr, "bad stats %s\n", t); return 2; }
+            fclose(fs);
+        }
+        for (; k < 4; k++) memcpy(st_buf + k * 0x1000, st_buf, 0x1000);
+    }
+    t40_adr_init(3840, 2160);
+    nlog = 0;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (f = 0; f < n; f++) {
+        unsigned e0 = ev_pushed;
+        st_slot = f % 4;
+        if (irq_cb[9]) { ((int32_t (*)(void))irq_cb[9])(); if (ev_pushed != e0 && ev_type == 2 && ev_cb[0][2]) ((int32_t (*)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t))ev_cb[0][2])(0, 0, 0, 0, 0); }
+        if (!f) w0 = nlog;
+        nlog = 0;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    printf("adr bench: %u frames, %.1f us/frame, %u register writes in frame 0\n", n,
+           ((t1.tv_sec - t0.tv_sec) * 1e9 + (t1.tv_nsec - t0.tv_nsec)) / 1e3 / (n ? n : 1), w0);
+    return 0;
+}
+
 static int chain_main(int argc, char **argv)
 {
+    if (getenv("ADRBENCH") && argc > 1)
+        return adr_bench(argv[1], strtoul(getenv("ADRBENCH"), 0, 0));
     static const uint32_t res[][2] = { { 3840, 2160 }, { 1920, 1080 }, { 2560, 1440 }, { 1280, 720 } };
     unsigned total = 0, nsteps = 0, k, var;
     total += unit_tests(argc > 1 ? 20000 : 200000);

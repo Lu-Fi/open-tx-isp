@@ -13,6 +13,9 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include <pthread.h>
+#ifndef MAP_32BIT
+#define MAP_32BIT 0
+#endif
 typedef unsigned int uint;
 typedef unsigned int gfp_t;
 typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32; typedef int32_t s32;
