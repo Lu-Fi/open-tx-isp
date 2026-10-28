@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-28 (4): T41 failed isp_malloc_buffer() no longer leaves a bogus buffer (`claude/issue-134`; host tests only, not device/QEMU-verified)
+
+- Issue #134: with no ISP private pool (`ispmem` unset, e.g. QEMU 64M) `isp_malloc_buffer()` returns 0. t41_rawinject already
+  handled that (stays disabled, logs once). Two other callers did not: the VIC snapraw buffer (`+424/+428` got
+  `phys_to_virt(0)`) and `tisp_vic_mmap` (stored/remapped 0). Both now fail cleanly (-ENOMEM / buffer left clear).
+  The reported kworker oops itself was not reproduced here; if it persists, send the oops text.
+
 ## 2026-10-28 (3): T32 S5 step 1: IQ bin section table, AE offset question resolved (`claude/t32-s4`; host)
 
 - **IQ bin sections** (issue #97): `tx_isp_t32_iq.h` walks the section table as the vendor's tisp_bin_data_parse does

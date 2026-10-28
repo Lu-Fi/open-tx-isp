@@ -10379,6 +10379,12 @@ tisp_vic_mmap0x180:
     /* fragment 34: CallSetup */
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)isp_malloc_buffer)(*(uint32_t *)((char *)(s1) + 8)); /* jalr target resolved by relocation */
 
+    /* issue #134: failed allocation must not be remapped/stored */
+    if (v0 == 0) {
+        v0 = -12;
+        goto tisp_vic_mmap0xb0;
+    }
+
     /* fragment 35: CallSetup */
     local_10 = v0;
     *(uint32_t *)((char *)s2 + 128) = v0;
@@ -11636,6 +11642,16 @@ isp_vic_cmd_set0x3e8:
 
     /* fragment 85: CallSetup */
     v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)isp_malloc_buffer)(v1); /* jalr target resolved by relocation */
+
+    /* issue #134: pool empty/absent (no ispmem) -> isp_malloc_buffer()==0;
+     * keep +424/+428 clear instead of phys_to_virt(0) garbage. */
+    if (v0 == 0) {
+        pr_err("t41: isp_malloc_buffer failed, snapraw buffer disabled\n");
+        *(uint32_t *)((char *)s0 + 424) = 0;
+        *(uint32_t *)((char *)s0 + 428) = 0;
+        s2 = 1;
+        goto isp_vic_cmd_set0x32c;
+    }
 
     /* fragment 86: CallSetup */
     *(uint32_t *)((char *)s0 + 424) = v0;
