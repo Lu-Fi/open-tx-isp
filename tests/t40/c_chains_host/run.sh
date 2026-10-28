@@ -25,7 +25,7 @@ esac
 sed -i -E 's/if \((r_[a-z0-9]+)\) \{ mips_lo =/if (!\1) lit_ub++; if (\1) { mips_lo =/' "$OUT/lit/"*.inc
 [ "$CHAIN" = lce ] && sed -i -E '/^static int32_t lce_hist_method_lit\(uint32_t a0_in.*\)$/{n;s/^\{$/{ if (((uint32_t *)(uintptr_t)a2_in)[2] > 31) lit_ub++;/}' "$OUT/lit/lce_lit.inc"
 
-cc -O0 -g -no-pie -fno-pie -w -pthread -I"$OUT" -o "$OUT/t" "$HERE/$CHAIN.c"
+cc -O0 -g -no-pie -fno-pie -w -pthread $XCFLAGS -I"$OUT" -o "$OUT/t" "$HERE/$CHAIN.c"
 rc=0
 "$OUT/t" "$@" || rc=1
 [ -n "$KEEP" ] && echo "kept $OUT" || rm -rf "$OUT"

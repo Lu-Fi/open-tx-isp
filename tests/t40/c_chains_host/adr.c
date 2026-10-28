@@ -1,8 +1,8 @@
-#include <time.h>
 /* T40 ADR: literal OEM chain (lit/adr_lit.inc) vs readable driver/t40/tx_isp_t40_adr.h.
  * Helper-level random tests first, then whole frames per bin.
  * ./adr <bin>... (run.sh adr <bins>) */
 #include "common.h"
+#include <time.h>
 #define EINVAL 22
 #define ENOMEM 12
 #define ENODEV 19
@@ -315,6 +315,22 @@ static int adr_bench(const char *path, unsigned n)
         nlog = 0;
     }
     clock_gettime(CLOCK_MONOTONIC, &t1);
+    if (getenv("ADRPHASE")) {	/* the steps of event 2 one by one */
+        double ph[4] = { 0 }; struct timespec a, b;
+#define PH(i, call) do { clock_gettime(CLOCK_MONOTONIC, &a); call; clock_gettime(CLOCK_MONOTONIC, &b); \
+        ph[i] += (b.tv_sec - a.tv_sec) * 1e9 + (b.tv_nsec - a.tv_nsec); } while (0)
+        for (f = 0; f < n; f++) {
+            st_slot = f % 4;
+            t40_adr_read_data(t40_adr, st_buf + st_slot * 0x1000);
+            PH(0, t40_adr_stat_calc(t40_adr));
+            PH(1, t40_adr_ev_func(t40_adr));
+            PH(2, t40_adr_algorithm(t40_adr));
+            PH(3, t40_adr_write_curves(t40_adr));
+            nlog = 0;
+        }
+        printf("adr phases us/frame: stat_calc %.1f ev_func %.1f algorithm %.1f write_curves %.1f\n",
+               ph[0] / 1e3 / n, ph[1] / 1e3 / n, ph[2] / 1e3 / n, ph[3] / 1e3 / n);
+    }
     printf("adr bench: %u frames, %.1f us/frame, %u register writes in frame 0\n", n,
            ((t1.tv_sec - t0.tv_sec) * 1e9 + (t1.tv_nsec - t0.tv_nsec)) / 1e3 / (n ? n : 1), w0);
     return 0;

@@ -38,8 +38,8 @@ typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32; typedef int32_t 
      ((uint32_t)*(const uint8_t *)(uintptr_t)((b) + (o) + 2) << 16) | \
      ((uint32_t)*(const uint8_t *)(uintptr_t)((b) + (o) + 3) << 24))
 
-static uint8_t *arena; static size_t used;
-static void *arena_alloc(size_t n) { void *p = arena + used; used += (n + 15) & ~15UL; assert(used < (256u << 20)); return p; }
+static uint8_t *arena; static size_t used, arena_bytes = 256u << 20;	/* ARENA_MB on small targets */
+static void *arena_alloc(size_t n) { void *p = arena + used; used += (n + 15) & ~15UL; assert(used < arena_bytes); return p; }
 static void *kmalloc(size_t n, gfp_t f) { void *p = arena_alloc(n); (void)f; memset(p, 0xa5, n); return p; } /* not zeroed, like the kernel */
 static void *kzalloc(size_t n, gfp_t f) { void *p = arena_alloc(n); (void)f; memset(p, 0, n); return p; }
 static void *vzalloc(size_t n) { return kzalloc(n, 0); }
@@ -131,11 +131,34 @@ static uint32_t lcg(void) { lcg_state = lcg_state * 1103515245u + 12345u; return
 static int chain_main(int argc, char **argv);
 static int g_argc; static char **g_argv;
 static void *worker(void *a) { (void)a; return (void *)(intptr_t)chain_main(g_argc, g_argv); }
+#ifdef ALIGN_TRAP	/* -fsanitize=alignment -fsanitize-trap=alignment: count the trapping PCs, step over ud2 */
+#include <signal.h>
+#include <ucontext.h>
+static uintptr_t at_pc[512]; static unsigned long at_n[512];
+static void at_handler(int sig, siginfo_t *si, void *uc_)
+{
+    ucontext_t *uc = uc_; uintptr_t pc = uc->uc_mcontext.gregs[REG_RIP]; unsigned i;
+    (void)sig; (void)si;
+    for (i = 0; i < 512 && at_pc[i] && at_pc[i] != pc; i++) ;
+    if (i < 512) { at_pc[i] = pc; at_n[i]++; }
+    uc->uc_mcontext.gregs[REG_RIP] += 2;
+}
+static void at_report(void)
+{
+    unsigned i; FILE *f = fopen(getenv("ALIGN_TRAP_OUT") ? getenv("ALIGN_TRAP_OUT") : "/dev/stderr", "w");
+    for (i = 0; i < 512 && at_pc[i]; i++) fprintf(f, "%#lx %lu\n", (unsigned long)at_pc[i], at_n[i]);
+    fclose(f);
+}
+#endif
 int main(int argc, char **argv)
 {
-    pthread_attr_t at; pthread_t t; void *rv; size_t ss = 16u << 20;
+#ifdef ALIGN_TRAP
+    { struct sigaction sa; memset(&sa, 0, sizeof(sa)); sa.sa_sigaction = at_handler; sa.sa_flags = SA_SIGINFO; sigaction(SIGILL, &sa, NULL); atexit(at_report); }
+#endif
+    pthread_attr_t at; pthread_t t; void *rv; size_t ss = getenv("ARENA_MB") ? 1u << 20 : 16u << 20;
     void *stk = mmap(NULL, ss, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
-    arena = mmap(NULL, 256u << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
+    if (getenv("ARENA_MB")) arena_bytes = (size_t)atoi(getenv("ARENA_MB")) << 20;
+    arena = mmap(NULL, arena_bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
     assert(stk != MAP_FAILED && arena != MAP_FAILED);
     wlog = malloc(LOGMAX * sizeof(*wlog));
     setvbuf(stdout, NULL, _IONBF, 0);

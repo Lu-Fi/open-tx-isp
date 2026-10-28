@@ -678,7 +678,9 @@ struct t40_adr_ctx {
 	int16_t gamma[258];			/* OEM main_adr_gamma */
 	int16_t map_y_old[T40_ADR_BLOCKS][14];	/* last block curves (rate limit) */
 	int16_t ctc1_y_tmp[23];
-	uint8_t stat[T40_ADR_STAT_BYTES];
+	/* read as s32/u32 (ADR_S32): 4-byte aligned, otherwise every access is an
+	 * address-error exception fixed up by the kernel (~1 us each on XBurst2) */
+	uint8_t stat[T40_ADR_STAT_BYTES] __attribute__((aligned(8)));
 	uint8_t lut20[32], lut02[32], lut12[32], lut22[32], lut21[32];	/* computed weight tables, restored after a bank refresh */
 	int16_t dis5x5[31], coord_m[5], coord_n[7];
 	int16_t light[8][11];			/* OEM adr_local_b_light3..10 */
