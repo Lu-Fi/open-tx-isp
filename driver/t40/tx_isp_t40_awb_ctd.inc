@@ -261,6 +261,80 @@ static void t40_awb_ctd_fallback(uint32_t *out, uint32_t *gains, uint32_t *flags
     (void)Tiziano_Awb_Ct_Detect_GrayWorld(out[22], out[23], (uintptr_t)out, (uintptr_t)gains, (uintptr_t)flags);
 }
 
+/*
+ * Zone search window for the distance tests of (d) and (f) (#133): the zone
+ * coordinates (round + ratio) >> f once per call, the zones sorted by the red
+ * coordinate, and per centre only the zones with |zr - cr| <= isqrt(limit)
+ * tested (dr * dr > limit excludes the rest).  The sums are integer and the
+ * counts order-free, so the result equals the full scan; with coordinates or
+ * centres >= 32768 (dr * dr + db * db could wrap) the full scan runs.
+ */
+struct t40_awb_ctd_win {
+	uint32_t zr[225], zb[225];
+	uint16_t idx[225];
+	uint32_t n;
+	bool ok;
+};
+static struct t40_awb_ctd_win t40_awb_ctd_w;
+
+static uint32_t t40_awb_ctd_isqrt(uint32_t v)
+{
+	uint32_t r = 0, b = 1U << 30;
+
+	while (b > v)
+		b >>= 2;
+	while (b) {
+		if (v >= r + b) {
+			v -= r + b;
+			r = (r >> 1) + b;
+		} else {
+			r >>= 1;
+		}
+		b >>= 2;
+	}
+	return r;
+}
+
+static void t40_awb_ctd_win_init(struct t40_awb_ctd_win *wn, const uint32_t *ratio, uint32_t rows, uint32_t cols,
+				 uint32_t f, uint32_t round)
+{
+	uint32_t r, c, k;
+
+	wn->n = 0;
+	wn->ok = rows <= 15 && cols <= 15;
+	for (r = 0; r < rows && r < 15; r++)
+		for (c = 0; c < cols && c < 15; c++) {
+			uint32_t w = r * 15 + c, v;
+
+			wn->zr[w] = (round + ratio[w]) >> f;
+			wn->zb[w] = (round + ratio[225 + w]) >> f;
+			if (wn->zr[w] >= 32768 || wn->zb[w] >= 32768)
+				wn->ok = false;
+			/* insertion by zr */
+			v = wn->zr[w];
+			for (k = wn->n; k > 0 && wn->zr[wn->idx[k - 1]] > v; k--)
+				wn->idx[k] = wn->idx[k - 1];
+			wn->idx[k] = (uint16_t)w;
+			wn->n++;
+		}
+}
+
+/* first sorted position with zr >= v */
+static uint32_t t40_awb_ctd_win_lb(const struct t40_awb_ctd_win *wn, uint32_t v)
+{
+	uint32_t lo = 0, hi = wn->n;
+
+	while (lo < hi) {
+		uint32_t m = (lo + hi) >> 1;
+
+		if (wn->zr[wn->idx[m]] < v)
+			lo = m + 1;
+		else
+			hi = m;
+	}
+	return lo;
+}
+
 /* OEM 0x19844..0x1a048: cluster mode 1.  H = 14x14 histogram, B = bin maxima, C = candidates, D = clusters. */
 static void t40_awb_ctd_clusters(const uint32_t *out, uint32_t rows, uint32_t cols, uint32_t f, uint32_t round)
 {
@@ -272,6 +346,7 @@ static void t40_awb_ctd_clusters(const uint32_t *out, uint32_t rows, uint32_t co
     uint32_t *wtw = (uint32_t *)(uintptr_t)out[30];
     uint32_t blend = *(const uint16_t *)((uintptr_t)out[0] + 38);
     uint32_t k, i, j, r, c, maxsum = 0, maxc = 0;
+    struct t40_awb_ctd_win *wn = &t40_awb_ctd_w;
     /* (a) the 12 largest bins, each removed from the histogram once taken */
     for (k = 0; k < 12; k++) {
         for (r = 0; r < 14; r++) for (c = 0; c < 14; c++) {
@@ -298,16 +373,29 @@ static void t40_awb_ctd_clusters(const uint32_t *out, uint32_t rows, uint32_t co
             if (C[j] == C[i] && C[60 + j] == C[60 + i]) { C[j] = 0; C[60 + j] = 0; }
     }
     /* (d) mean shift of every candidate over the zones within prm[1] */
+    t40_awb_ctd_win_init(wn, ratio, rows, cols, f, round);
     for (i = 0; i < 60; i++) {
         uint32_t iter = 0;
         if (!C[i] || !C[60 + i]) continue;
         for (;;) {
             uint32_t sr = 0, sb = 0, n = 0, nr, nb, dr, db;
             iter++;
-            for (r = 0; r < rows; r++) for (c = 0; c < cols; c++) {
-                uint32_t w = r * 15 + c;
-                uint32_t d = t40_awb_ctd_dist((round + ratio[w]) >> f, (round + ratio[225 + w]) >> f, C[i], C[60 + i]);
-                if (d <= prm[1]) { sr += ratio[w]; sb += ratio[225 + w]; n++; }
+            if (wn->ok && C[i] < 32768 && C[60 + i] < 32768) {
+                uint32_t rad = t40_awb_ctd_isqrt(prm[1]), q, hi = C[i] + rad;
+
+                for (q = t40_awb_ctd_win_lb(wn, C[i] > rad ? C[i] - rad : 0); q < wn->n; q++) {
+                    uint32_t w = wn->idx[q];
+
+                    if (wn->zr[w] > hi)
+                        break;
+                    if (t40_awb_ctd_dist(wn->zr[w], wn->zb[w], C[i], C[60 + i]) <= prm[1]) { sr += ratio[w]; sb += ratio[225 + w]; n++; }
+                }
+            } else {
+                for (r = 0; r < rows; r++) for (c = 0; c < cols; c++) {
+                    uint32_t w = r * 15 + c;
+                    uint32_t d = t40_awb_ctd_dist((round + ratio[w]) >> f, (round + ratio[225 + w]) >> f, C[i], C[60 + i]);
+                    if (d <= prm[1]) { sr += ratio[w]; sb += ratio[225 + w]; n++; }
+                }
             }
             if (!n) break;
             nr = (((n >> 1) + sr) / n) >> f; nb = (((n >> 1) + sb) / n) >> f;
@@ -336,6 +424,21 @@ static void t40_awb_ctd_clusters(const uint32_t *out, uint32_t rows, uint32_t co
     for (i = 0; i < 60; i++) {
         if (!D[i] || !D[60 + i]) continue;
         D[120 + i] = 0; D[180 + i] = 0;
+        if (wn->ok && D[i] < 32768 && D[60 + i] < 32768) {
+            uint32_t rad = t40_awb_ctd_isqrt(prm[3]), q, hi = D[i] + rad;
+
+            for (q = t40_awb_ctd_win_lb(wn, D[i] > rad ? D[i] - rad : 0); q < wn->n; q++) {
+                uint32_t w = wn->idx[q];
+
+                if (wn->zr[w] > hi)
+                    break;
+                if (!wt[w]) continue;
+                if (t40_awb_ctd_dist(wn->zr[w], wn->zb[w], D[i], D[60 + i]) <= prm[3]) {
+                    D[120 + i]++; D[180 + i] += wt[w];
+                }
+            }
+            continue;
+        }
         for (r = 0; r < rows; r++) for (c = 0; c < cols; c++) {
             uint32_t w = r * 15 + c;
             if (!wt[w]) continue;
