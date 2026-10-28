@@ -47708,6 +47708,24 @@ static int t40_az_get(uint32_t vinum, void __user *uptr)
     return copy_to_user(uptr, req, sizeof(req)) ? -EFAULT : 0;
 }
 
+/*
+ * Face AWB attribute (control 0x8000014, IMPISPFaceAttr, 0x18 bytes).  The
+ * OEM tisp_awb_face_set/get are empty 8-byte stubs and its getter copies an
+ * uninitialised stack slot to user space.  Keep the last set value per ISP
+ * channel so Get returns what Set stored (zero before the first Set).
+ */
+static u32 t40_faceawb_attr[2][6];
+
+static void t40_faceawb_set(int ch, const u32 *attr)
+{
+    memcpy(t40_faceawb_attr[(unsigned int)ch & 1], attr, sizeof(t40_faceawb_attr[0]));
+}
+
+static void t40_faceawb_get(int ch, u32 *attr)
+{
+    memcpy(attr, t40_faceawb_attr[(unsigned int)ch & 1], sizeof(t40_faceawb_attr[0]));
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000b024 origin=fragment_seed original=tx_isp_core_ops_s_ctrl */
 int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
 {
@@ -48017,6 +48035,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
             s1_1 = v0_59;
 
             if (v0_59 == 0) {
+                t40_faceawb_set((int)(uintptr_t)arg1, (const u32 *)&var_88);
                 return 0;
             }
 
@@ -48472,6 +48491,7 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
 
             if (cmd >= 0x8000013) {
                 if (cmd == 0x8000014) {
+                    t40_faceawb_get((int)(uintptr_t)arg1, __p_80);
                     result = private_copy_to_user(arg3[1], __p_80, 0x18);
                     if (result == 0) {
                         return result;

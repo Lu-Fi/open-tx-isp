@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-29: T40 face AWB attribute round trip (`claude/issue-138`; QEMU T40)
+
+- **T40: `IMP_ISP_Tuning_GetFaceAwb` returned stale stack words instead of the stored attribute** (control 0x8000014). The OEM `tisp_awb_face_set/get` are empty 8-byte stubs and its getter copies an uninitialised stack slot to user space, so SetFaceAwb stored nothing. The driver now keeps the last 0x18-byte attribute per ISP channel and Get returns it (zero before the first Set). The OEM leaves the value without effect on the AWB; so does this.
+
 ## 2026-10-26 (3): T40 CDNS in plain C instead of the literal mips2c chain (`claude/t40-cdns-c`; host bit-exact, QEMU reload x5, .184 registers and picture equal to next)
 
 - **T40: CDNS (chroma denoise, TOP bit 19, opt-in `enable_cdns`) rebuilt as readable C** (`driver/t40/tx_isp_t40_cdns.h`): bank section +0x11b8b (683 bytes), 30 gain tables from the linear or WDR half plus two fixed tables, interpolated at the denoise EV and packed into 0x1c008..0x1c050, 0x1c004 latches; init, day/night refresh, EV follow (`cdns_thresh`), tgain refresh, WDR switch, tuning get/set, remove. `tx_isp_t40_cdns_lit.inc` is removed; the state (both channels, static buffers instead of three vmallocs each) lives in `.t40c2`. The broken recovered `tisp_cdns_*` lifts are replaced by forwarders: they read and wrote the OEM gain word as `&sclk_name - 14092`, `cdns_remove` wrote `cdns_wdr_en + 18172`, and `tisp_cdns_param_array_get/set` memcpy'd through NULL when called without a buffer (now -EINVAL). The globals `main_cdns*`, `sec_cdns*`, `cdns_wdr_en` are gone.
