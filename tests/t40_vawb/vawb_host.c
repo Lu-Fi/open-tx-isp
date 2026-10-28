@@ -269,8 +269,30 @@ static void load(const char *fn, u8 *dst, long off, u32 n)
 	fclose(f);
 }
 
+#ifdef ALIGN_TRAP	/* -fsanitize=alignment -fsanitize-trap=alignment: count trapping PCs, step over ud2 */
+#include <signal.h>
+#include <ucontext.h>
+static uintptr_t at_pc[512]; static unsigned long at_n[512];
+static void at_handler(int sig, siginfo_t *si, void *uc_)
+{
+	ucontext_t *uc = uc_; uintptr_t pc = uc->uc_mcontext.gregs[REG_RIP]; unsigned i;
+	(void)sig; (void)si;
+	for (i = 0; i < 512 && at_pc[i] && at_pc[i] != pc; i++) ;
+	if (i < 512) { at_pc[i] = pc; at_n[i]++; }
+	uc->uc_mcontext.gregs[REG_RIP] += 2;
+}
+static void at_report(void)
+{
+	unsigned i; FILE *f = fopen(getenv("ALIGN_TRAP_OUT") ? getenv("ALIGN_TRAP_OUT") : "/dev/stderr", "w");
+	for (i = 0; i < 512 && at_pc[i]; i++) fprintf(f, "%#lx %lu\n", (unsigned long)at_pc[i], at_n[i]);
+	fclose(f);
+}
+#endif
 int main(int argc, char **argv)
 {
+#ifdef ALIGN_TRAP
+	{ struct sigaction sa; memset(&sa, 0, sizeof(sa)); sa.sa_sigaction = at_handler; sa.sa_flags = SA_SIGINFO; sigaction(SIGILL, &sa, NULL); atexit(at_report); }
+#endif
 	if (argc >= 3 && !strcmp(argv[1], "replay")) {
 		FILE *f = fopen(argv[2], "rb");
 		static u8 buf[VAWB_ONE + 60328 + 4752];

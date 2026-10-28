@@ -678,7 +678,9 @@ struct t40_adr_ctx {
 	int16_t gamma[258];			/* OEM main_adr_gamma */
 	int16_t map_y_old[T40_ADR_BLOCKS][14];	/* last block curves (rate limit) */
 	int16_t ctc1_y_tmp[23];
-	uint8_t stat[T40_ADR_STAT_BYTES];
+	/* read as s32/u32 (ADR_S32): 4-byte aligned, otherwise every access is an
+	 * address-error exception fixed up by the kernel (~1 us each on XBurst2) */
+	uint8_t stat[T40_ADR_STAT_BYTES] __attribute__((aligned(8)));
 	uint8_t lut20[32], lut02[32], lut12[32], lut22[32], lut21[32];	/* computed weight tables, restored after a bank refresh */
 	int16_t dis5x5[31], coord_m[5], coord_n[7];
 	int16_t light[8][11];			/* OEM adr_local_b_light3..10 */
@@ -698,6 +700,36 @@ static uint32_t t40_adr_ev_top T40C2, t40_adr_ev T40C2, t40_adr_tgain_top T40C2,
 static uint32_t t40_adr_width T40C2, t40_adr_height T40C2, t40_adr_frames T40C2;
 static uint32_t t40_adr_wdr T40C2;		/* OEM wdr_en_adr: nothing sets it on this driver */
 static DEFINE_MUTEX(t40_adr_lock);
+
+#ifdef TX_ISP_LOAD_STATS
+/*
+ * #133 profile: CP0 Count ticks per step of event 2 (stat_calc, ev_func,
+ * algorithm, write_curves, whole event) and of the IRQ 9 statistics read,
+ * summed; t40_adr_lowmem=1 makes the next ADR init take the state from
+ * kmalloc (unmapped kseg0) instead of vmalloc (TLB-mapped) for an A/B.
+ */
+static unsigned int t40_adr_cyc[6], t40_adr_cyc_num = 6;
+module_param_array_named(t40_adr_cyc, t40_adr_cyc, uint, &t40_adr_cyc_num, 0444);
+static bool t40_adr_lowmem;
+module_param_named(t40_adr_lowmem, t40_adr_lowmem, bool, 0644);
+static bool t40_adr_ctx_low;
+#define ADR_PROF_T(v)		((v) = read_c0_count())
+#define ADR_PROF_ADD(i, t0)	(t40_adr_cyc[i] += read_c0_count() - (t0))
+#else
+#define ADR_PROF_T(v)		((v) = 0)
+#define ADR_PROF_ADD(i, t0)	((void)(t0))
+#endif
+
+static void t40_adr_free(struct t40_adr_ctx *c)
+{
+#ifdef TX_ISP_LOAD_STATS
+	if (t40_adr_ctx_low) {
+		kfree(c);
+		return;
+	}
+#endif
+	vfree(c);
+}
 
 #define ADR_P16(p) ((int16_t *)(void *)(p))
 
@@ -1470,7 +1502,13 @@ static int32_t t40_adr_isr(void)
 			continue;
 		b += slot * 0x1000U;
 		dma_cache_sync(NULL, b, 0x1000, (enum dma_data_direction)0);
-		t40_adr_read_data(c, b);
+		{
+			uint32_t t0;
+
+			ADR_PROF_T(t0);
+			t40_adr_read_data(c, b);
+			ADR_PROF_ADD(5, t0);
+		}
 	}
 	memset(ev, 0, sizeof(ev));
 	ev[2] = 2;
@@ -1482,19 +1520,30 @@ static int32_t t40_adr_isr(void)
 static int32_t t40_adr_process(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4)
 {
 	struct t40_adr_ctx *c = t40_adr;
+	uint32_t t0, t1;
 
 	(void)a0; (void)a1; (void)a2; (void)a3; (void)a4;
 	if (!c)
 		return 0;
 	mutex_lock(&t40_adr_lock);
+	ADR_PROF_T(t0);
 	if (t40_adr_frames < 0x10000)
 		t40_adr_frames++;
+	ADR_PROF_T(t1);
 	t40_adr_stat_calc(c);
+	ADR_PROF_ADD(0, t1);
+	ADR_PROF_T(t1);
 	t40_adr_ev_func(c);
+	ADR_PROF_ADD(1, t1);
 	if (t40_adr_tgain_changed == 1)	/* OEM tiziano_adr_tgain_func: nothing uses the gain yet */
 		t40_adr_tgain_changed = 0;
+	ADR_PROF_T(t1);
 	t40_adr_algorithm(c);
+	ADR_PROF_ADD(2, t1);
+	ADR_PROF_T(t1);
 	t40_adr_write_curves(c);
+	ADR_PROF_ADD(3, t1);
+	ADR_PROF_ADD(4, t0);
 	mutex_unlock(&t40_adr_lock);
 	return 0;
 }
@@ -1519,7 +1568,12 @@ static int t40_adr_init(uint32_t width, uint32_t height)
 		memcpy(t40_adr_knee_x, t40_adr_knee_x_init, sizeof(t40_adr_knee_x));
 		t40_adr_knee_x_set = 1;
 	}
+#ifdef TX_ISP_LOAD_STATS
+	t40_adr_ctx_low = t40_adr_lowmem;
+	c = t40_adr_ctx_low ? kzalloc(sizeof(*c), GFP_KERNEL) : vzalloc(sizeof(*c));
+#else
 	c = vzalloc(sizeof(*c));
+#endif
 	if (!c)
 		goto out;
 	t40_adr_height = height;
@@ -1534,7 +1588,7 @@ static int t40_adr_init(uint32_t width, uint32_t height)
 		wh[1] = height;
 		ret = t40_adr_base_pars(c, width, height);
 		if (ret) {
-			vfree(c);
+			t40_adr_free(c);
 			goto out;
 		}
 	}
@@ -1661,7 +1715,7 @@ static void t40_adr_cleanup(void)
 	mutex_lock(&t40_adr_lock);
 	t40_adr = NULL;
 	mutex_unlock(&t40_adr_lock);
-	vfree(c);
+	t40_adr_free(c);
 }
 
 #endif
