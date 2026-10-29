@@ -1645,9 +1645,6 @@ static unsigned char data_b76d4[4];   /* T40-BSS-SHRINK: unreferenced lifter pla
 static unsigned char data_b76d8[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
 static unsigned char data_b76fc[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
 static unsigned char data_b7728[4];   /* T40-BSS-SHRINK: unreferenced lifter placeholder (was [16384]) */
-static uintptr_t data_b7d3c;
-static uintptr_t data_b76b4;
-static uintptr_t data_b7708;
 static int32_t main_slock;
 static int32_t main_slock_hist;
 static unsigned char __attribute__((aligned(4))) tisp_ae_main_hist[1052] = {
@@ -1795,22 +1792,6 @@ static unsigned char data_91080[16384];
 static unsigned char data_91081[16384];
 static unsigned char data_91082[16384];
 static unsigned char data_91083[16384];
-static unsigned char data_b7604[16384];
-static unsigned char data_b7608[16384];
-static unsigned char data_b760c[16384];
-static unsigned char data_b7610[16384];
-static unsigned char data_b7640[16384];
-static unsigned char data_b7644[16384];
-static unsigned char data_b7648[16384];
-static unsigned char data_b764c[16384];
-static unsigned char data_b7660[16384];
-static unsigned char data_b7664[16384];
-static unsigned char data_b7668[16384];
-static unsigned char data_b766c[16384];
-static unsigned char data_b7670[16384];
-static unsigned char data_b7674[16384];
-static unsigned char data_b7678[16384];
-static unsigned char data_b767c[16384];
 static uintptr_t data_b7bd8;
 static int32_t sec_slock;
 static int32_t sec_slock_hist;
@@ -2981,20 +2962,6 @@ static unsigned char __attribute__((aligned(4))) snapraw_mode[4] = {
     0x02, 0x00, 0x00, 0x00, 
 };
 static unsigned char g_abs_b436c[16384];
-static uintptr_t data_b771c;
-static uintptr_t data_b7720;
-static uintptr_t data_b76a8;
-static uintptr_t data_b76ac;
-static uintptr_t data_b76b0;
-static uintptr_t data_b76e4;
-static uintptr_t data_b76e8;
-static uintptr_t data_b76ec;
-static uintptr_t data_b76f0;
-static uintptr_t data_b7704;
-static uintptr_t data_b770c;
-static uintptr_t data_b7710;
-static uintptr_t data_b7714;
-static uintptr_t data_b7718;
 static int32_t awb_num;
 /* Recovered initialized object stMainAwbInterOri: full 60328 byte(s) from OEM .data+0x1d3d8. */
 static unsigned char __attribute__((aligned(4))) stMainAwbInterOri[60328] = {
@@ -7790,7 +7757,7 @@ char tisp_ae_g_comp(uint32_t a0, uintptr_t a1);
 int32_t tisp_ae_main_get_antiflicker_step(int32_t arg1, int16_t *arg2);
 int tisp_ae_main_manual_set(const uint32_t *w);
 int32_t tisp_ae_main_manual_get(uint32_t a0);
-int32_t tisp_ae_main_min_max_set(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6, int32_t arg7, int32_t arg8, int32_t arg9, int32_t arg10, int32_t arg11, int32_t arg12, int32_t arg13, int32_t arg14, int32_t arg15, int32_t arg16);
+int tisp_ae_main_min_max_set(const uint32_t *w);
 int32_t* tisp_ae_ev_start_set(uint32_t a0, uint32_t a1, uint32_t a2);
 int64_t tisp_ae_main_s_max_again(uint32_t a0);
 int32_t tisp_ae_main_s_max_isp_dgain(uint32_t a0);
@@ -7802,7 +7769,7 @@ int64_t tisp_ae_sec_mean_update(uintptr_t a0, uintptr_t a1);
 int32_t tisp_ae_sec_get_antiflicker_step(int32_t arg1, int16_t *arg2);
 int32_t tisp_ae_sec_manual_set(const uint32_t *w);
 int32_t tisp_ae_sec_manual_get(uint32_t a0);
-int tisp_ae_sec_min_max_set(int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16);
+int tisp_ae_sec_min_max_set(const uint32_t *w);
 int64_t tisp_ae_sec_s_max_again(uint32_t a0);
 int32_t tisp_ae_sec_s_max_isp_dgain(int32_t arg1);
 int32_t tisp_ae_sec_g_min(uintptr_t a0);
@@ -48594,7 +48561,9 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
         s3_2 = (char *)arg3[1];
         s1_1 = 0;
 
-        if ((uintptr_t)s3_2 != *(char **)((char *)*(int **)((char **)arg2 + 0x10c / sizeof(uintptr_t)) + (int)arg1 * 0x60 + 0x180)) {
+        /* T40-0x10C (#139b): OEM adb4/adbc: lw a0,0(s2); lw v1,268(a0) = *(*arg2 + 0x10c).  Unreached: the isp-m0
+         * tuning ioctl answers 0x8000070 (regtrace_t40_sensor_fps_set) before this dispatcher. */
+        if ((uintptr_t)s3_2 != *(char **)((char *)*(int **)((char *)*arg2 + 0x10c) + (int)arg1 * 0x60 + 0x180)) {
             *(int *)&var_88 = (int)arg1;
             __sframe[1] = (uint32_t)(uintptr_t)s3_2;   /* OEM var_84: the fps word the sensor ioctl reads at +4 */
 
@@ -48635,7 +48604,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
         }
 
         if ((unsigned int)v1 < 0x8000072) {
-            void *s4_2 = *(void **)((char **)arg2 + 0x10c / sizeof(void *));
+            void *s4_2 = *(void **)((char *)*arg2 + 0x10c);   /* T40-0x10C (#139b): OEM ae54/ae60 *(*arg2 + 0x10c); unreached (0x8000071 = running mode, answered before) */
             *(int *)&var_88 = 0;
             __sframe[1] = 0;   /* OEM var_84 */
             s1_1 = copy_from_user(&var_2c, (void __user *)arg3[1], 4);
@@ -48946,7 +48915,9 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
 
                 {
                     int32_t a0_val = arg3[1];
-                    uint32_t slots = *(uint32_t*)((char*)arg2 + 0x10c);
+                    /* T40-0x10C (#139b): OEM ba1c/ba28: lw v0,0(a1); lw v1,268(v0) = *(*arg2 + 0x10c) (was arg2 + 0x10c) */
+                    uint32_t core = *(uint32_t *)arg2;
+                    uint32_t slots = regtrace_is_kernel_ptr((void *)(uintptr_t)core) ? *(uint32_t *)((char *)(uintptr_t)core + 0x10c) : 0;
                     void *s2_ptr = (void *)((uint32_t)arg1 * 0x60 + slots);
                     void *v0_ptr = regtrace_is_kernel_ptr((void *)(uintptr_t)slots) ? *(void**)((char*)s2_ptr + 0x170) : NULL;
                     uint32_t attr_out[5];
@@ -49143,7 +49114,7 @@ label_c33c_vfree:
             uint32_t fps_set = READ_ONCE(regtrace_sensor_fps_packed);
 
             ((void **)arg3)[1] = fps_set ? (void *)(uintptr_t)fps_set :
-                (void *)(uintptr_t)*(int32_t*)((uint32_t)arg1 * 0x60 + *(uint32_t*)((char*)arg2 + 0x10c) + 0x180);
+                (void *)(uintptr_t)*(int32_t*)((uint32_t)arg1 * 0x60 + *(uint32_t*)((char*)(uintptr_t)*(uint32_t*)arg2 + 0x10c) + 0x180);   /* T40-0x10C (#139b): OEM ba00/ba04 *(*arg2 + 0x10c); unreached (0x8000070 get answered before) */
             return 0;
         }
 
@@ -67751,138 +67722,51 @@ int32_t tisp_set_ae_info(void *arg1)
 
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000179b8 origin=model_output original=tisp_get_awb_info */
+/*
+ * T40-TISP-NODE (#139b): hand translations of the tuning node AWB/AE info handlers.
+ * OEM tisp_get_awb_info 0x16f28: tisp_awb_get_mode(p[3], sp+16); p[1] = 28; memcpy(p + 4, sp+16, 28).
+ * OEM tisp_set_awb_info 0x16f80: p[1] = 28; memcpy(sp+16, p + 4, 28); tisp_awb_set_mode(p[3], sp+16).
+ * The 28-byte buffer is a 7-word stack struct (mode + 3 gain pairs); the lifted set copied it into a
+ * 4-byte pointer local (stack overflow).  Both return 0.
+ */
 int32_t tisp_get_awb_info(void* arg1)
 {
-    /*
-     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
-     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
-     * the OEM code passes a slot as the start of a WHOLE STRUCT
-     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
-     * as separate scalars, such a copy overwrites whatever the compiler placed next
-     * to the scalar - including saved registers and the return address.
-     * Backing 0x28..0x44 (68 bytes) with one buffer and aliasing each slot at its
-     * OEM offset makes every copy land exactly where the OEM's copy landed.
-     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
-     * alias carries the width of its OEM access:
-     *   all slots are 4-byte.
-     * the slots were uninitialised and stay so.
-     */
-    uint32_t __frame[0x11];
-    int32_t **const __p_28 = (int32_t **)(void *)((char *)__frame + 0x28);
-    
-    tisp_awb_get_mode(*(int32_t*)((char*)arg1 + 0xc), __p_28);
-    *(int32_t*)((char*)arg1 + 4) = 28;
-    memcpy((char*)arg1 + 0x10, __p_28, 28);
-    
+    uint32_t *p = arg1;
+    uint32_t attr[7] = { 0 };
+
+    tisp_awb_get_mode((int32_t)p[3], (int32_t)(uintptr_t)attr);
+    p[1] = 28;
+    memcpy(&p[4], attr, 28);
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000017a10 origin=fragment_seed original=tisp_set_awb_info */
 int32_t tisp_set_awb_info(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
+    uint32_t *p = (uint32_t *)a0;
+    uint32_t attr[7];
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    *(uint32_t *)((char *)a0 + 4) = 28;
-    s0 = a0;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_10, (void *)(uintptr_t)(a0 + 16), 28); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_set_mode)(*(uint32_t *)((char *)(s0) + 12), &local_10); /* jalr target resolved by relocation */
-
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 4: Arithmetic */
-    v0 = 0;
-
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    p[1] = 28;
+    memcpy(attr, &p[4], 28);
+    tisp_awb_set_mode((int32_t)p[3], (int32_t *)attr);
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000017a68 origin=model_output original=tisp_set_ae_minmax */
+/*
+ * OEM tisp_set_ae_minmax 0x16fd8: p[1] = 164; the 164-byte block p + 4 is passed BY VALUE to
+ * tisp_ae_main_min_max_set (p[3] == 0) or tisp_ae_sec_min_max_set (words 0..3 in a0..a3, words 4..40 copied
+ * byte-wise to the outgoing stack area).  Here the callees take the 41 words as an array.  Returns 0.
+ */
 int32_t tisp_set_ae_minmax(void* arg1)
 {
-    /*
-     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
-     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
-     * the OEM code passes a slot as the start of a WHOLE STRUCT
-     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
-     * as separate scalars, such a copy overwrites whatever the compiler placed next
-     * to the scalar - including saved registers and the return address.
-     * Backing 0xa0..0x1e0 (480 bytes) with one buffer and aliasing each slot at its
-     * OEM offset makes every copy land exactly where the OEM's copy landed.
-     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
-     * alias carries the width of its OEM access:
-     *   var_a0 [152] @0xa0 -> 152 byte(s): 152 x char = 152 byte(s)
-     *   var_148 [152] @0x148 -> 152 byte(s): 152 x char = 152 byte(s)
-     * the slots were uninitialised and stay so.
-     */
-    uint32_t __frame[0x78];
-    int32_t *const __p_b0 = (int32_t *)(void *)((char *)__frame + 0xb0);
-    char *const __p_a0 = (char *)(void *)((char *)__frame + 0xa0);
-    char *const __p_148 = (char *)(void *)((char *)__frame + 0x148);
-    int32_t *const __p_ac = (int32_t *)(void *)((char *)__frame + 0xac);
-    int32_t *const __p_a8 = (int32_t *)(void *)((char *)__frame + 0xa8);
-    int32_t *const __p_a4 = (int32_t *)(void *)((char *)__frame + 0xa4);
-    int32_t *i = 0;
-    int32_t (*func_ptr)(int32_t, int32_t, int32_t, int32_t);
-    int32_t a0_3;
-    int32_t a1_1;
-    int32_t *a2;
-    int32_t *a3;
+    uint32_t *p = arg1;
+    uint32_t w[41];
 
-    /* Write 0xa4 to arg1 + 4 */
-    *((uint32_t*)((char*)arg1 + 4)) = 0xa4;
-
-    /* Call memcpy: memcpy(__p_b0, arg1 + 0x10, 0xa4) */
-    memcpy(__p_b0, (char*)arg1 + 0x10, 0xa4);
-
-    /* Check condition: *(arg1 + 0xc) != 0 */
-    if (*((uint32_t*)((char*)arg1 + 0xc)) != 0) {
-        /* Branch: true path - loop with break */
-        while (1) {
-            a0_3 = (*__p_b0);
-            if (i >= 0x94) {
-                break;
-            }
-            /* Copy byte from __p_a0[i] to __p_148[i] */
-            ((void **)__p_148)[(uintptr_t)i] = __p_a0[(uintptr_t)i];
-            i = (void *)(uintptr_t)((uintptr_t)i + (1));
-        }
-        a1_1 = (*__p_ac);
-        a2 = (*__p_a8);
-        a3 = (*__p_a4);
-        func_ptr = tisp_ae_sec_min_max_set;
-    } else {
-        /* Branch: false path - loop with condition */
-        while (i < 0x94) {
-            /* Copy byte from __p_a0[i] to __p_148[i] */
-            ((void **)__p_148)[(uintptr_t)i] = __p_a0[(uintptr_t)i];
-            i = (void *)(uintptr_t)((uintptr_t)i + (1));
-        }
-        a0_3 = (*__p_b0);
-        a1_1 = (*__p_ac);
-        a2 = (*__p_a8);
-        a3 = (*__p_a4);
-        func_ptr = tisp_ae_main_min_max_set;
-    }
-
-    /* Call the selected function with 4 arguments */
-    ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))func_ptr)((uintptr_t)(a0_3), (uintptr_t)(a1_1), (uintptr_t)(a2), (uintptr_t)(a3));
-
+    p[1] = 0xa4;
+    memcpy(w, &p[4], sizeof(w));
+    if (p[3] != 0)
+        tisp_ae_sec_min_max_set(w);
+    else
+        tisp_ae_main_min_max_set(w);
     return 0;
 }
 
@@ -68177,6 +68061,98 @@ tisp_data_info_get0x108:
     return 0;
 }
 
+/*
+ * T40-TISP-NODE (#139b): tisp_get_par_process / tisp_set_par_process of the tuning node, inlined in OEM
+ * tisp_code_tuning_ioctl (libt40-firmware 0x17514 / 0x177fc; jump tables .rodata+0x12e4, 26 entries, and
+ * .rodata+0x134c, 24 entries, resolved to the callees below).  Block p = tisp_par_ioctl: p[0] module id,
+ * p[1] size (out), p[2] parameter id (ae, data info, reg map), p[3] sensor (0 main, 1 sec), p + 4 data.
+ * OEM arguments:
+ *   get: top(&p[4], &p[1]); ids 1..0x14, 0x16, 0x17: X_get(p[3], &p[4], &p[1]);
+ *        ae / data_info(p[3], p[2], &p[4], &p[1]); reg_map_get(p[2], p, &p[1]);
+ *   set: ids 1, 3..0x14, 0x16, 0x17: X_set(p[3], &p[4]); lsc(p[3], p[2], &p[4]); ae(p[3], &p[4]);
+ *        reg_map_set(p[3], p).
+ * Unknown ids print "Have no this ID" and return 0 (the get still copies the block out).  The lift passed 0
+ * for every argument except lsc / ae get / reg map.  Deviation: tisp_ae_param_array_set is the hand version
+ * (param id, buffer, size out), so it gets &p[1] as third argument (OEM a2 = 1, unused by the OEM body).
+ */
+/* T40-TISP-NODE (#139b): QEMU T40 (2026-10-29) reset the guest silently (no oops) during the get/write-back
+ * sweep over all module ids (case tisppar_t40); the faulting id is not bisected yet.  The par commands stay off
+ * unless t40_tisp_par=1 (for that bisection); off they fail like before (-EFAULT path). */
+static int t40_tisp_par;
+module_param(t40_tisp_par, int, 0644);
+
+static void t40_tisp_get_par(uint32_t *p)
+{
+    uint32_t s = p[3], d = (uint32_t)(uintptr_t)&p[4], l = (uint32_t)(uintptr_t)&p[1];
+
+    switch (p[0]) {
+    case 0x00: tisp_top_param_array_get((int32_t)d, (int32_t *)&p[1]); break;
+    case 0x01: tisp_blc_param_array_get(s, d, l); break;
+    case 0x02: tisp_lsc_param_array_get(s, d, l); break;
+    case 0x03: tisp_wdr_param_array_get(s, d, l); break;
+    case 0x04: tisp_dpc_param_array_get(s, d, l); break;
+    case 0x05: tisp_gib_param_array_get(s, d, l); break;
+    case 0x06: tisp_adr_param_array_get(s, d, l); break;
+    case 0x07: tisp_dmsc_param_array_get(s, d, l); break;
+    case 0x08: tisp_ccm_param_array_get(s, d, l); break;
+    case 0x09: tisp_gamma_param_array_get(s, d, l); break;
+    case 0x0a: tisp_defog_param_array_get((int32_t)s, (int32_t)d, (int32_t *)&p[1]); break;
+    case 0x0b: tisp_lce_param_array_get(s, d, l); break;
+    case 0x0c: tisp_mdns_param_array_get(s, d, l); break;
+    case 0x0d: tisp_ydns_param_array_get(s, d, l); break;
+    case 0x0e: tisp_cdns_param_array_get(s, d, l); break;
+    case 0x0f: tisp_bcsh_param_array_get(s, d, l); break;
+    case 0x10: tisp_clm_param_array_get(s, d, l); break;
+    case 0x11: tisp_ysp_param_array_get(s, d, l); break;
+    case 0x12: tisp_sdns_param_array_get(s, d, l); break;
+    case 0x13: tisp_af_param_array_get(s, d, l); break;
+    case 0x14: tisp_hldc_param_array_get(s, d, l); break;
+    case 0x15: tisp_ae_param_array_get(s, p[2], d, l); break;
+    case 0x16: tisp_awb_param_array_get(s, d, l); break;
+    case 0x17: tisp_tstp_param_array_get(s, d, l); break;
+    case 0x18: tisp_reg_map_get((int32_t)p[2], (int32_t)(uintptr_t)p, (int32_t *)&p[1]); break;
+    case 0x19: tisp_data_info_get(s, p[2], d, l); break;
+    default:
+        isp_printf(2, "[%s %d] [ %s:%d ] Have no this ID(%d)\n", "tisp_get_par_process", 377, "tisp_get_par_process", 377, p[0]);
+        break;
+    }
+}
+
+static void t40_tisp_set_par(uint32_t *p)
+{
+    uint32_t s = p[3], d = (uint32_t)(uintptr_t)&p[4];
+
+    switch (p[0]) {
+    case 0x01: tisp_blc_param_array_set(s, d); break;
+    case 0x02: tisp_lsc_param_array_set(s, p[2], d); break;
+    case 0x03: tisp_wdr_param_array_set(s, d); break;
+    case 0x04: tisp_dpc_param_array_set(s, d); break;
+    case 0x05: tisp_gib_param_array_set(s, d); break;
+    case 0x06: tisp_adr_param_array_set(s, d); break;
+    case 0x07: tisp_dmsc_param_array_set(s, d); break;
+    case 0x08: tisp_ccm_param_array_set(s, d); break;
+    case 0x09: tisp_gamma_param_array_set(s, d); break;
+    case 0x0a: tisp_defog_param_array_set(s, d); break;
+    case 0x0b: tisp_lce_param_array_set(s, d); break;
+    case 0x0c: tisp_mdns_param_array_set(s, d); break;
+    case 0x0d: tisp_ydns_param_array_set(s, d); break;
+    case 0x0e: tisp_cdns_param_array_set(s, d); break;
+    case 0x0f: tisp_bcsh_param_array_set(s, d); break;
+    case 0x10: tisp_clm_param_array_set(s, d); break;
+    case 0x11: tisp_ysp_param_array_set(s, d); break;
+    case 0x12: tisp_sdns_param_array_set(s, d); break;
+    case 0x13: tisp_af_param_array_set(s, d); break;
+    case 0x14: tisp_hldc_param_array_set(s, d); break;
+    case 0x15: tisp_ae_param_array_set((int)s, &p[4], (int *)&p[1]); break;
+    case 0x16: tisp_awb_param_array_set(s, d); break;
+    case 0x17: tisp_tstp_param_array_set(s, d); break;
+    case 0x18: tisp_reg_map_set(s, (uint32_t)(uintptr_t)p); break;
+    default:
+        isp_printf(2, "[%s %d] [ %s:%d ] Have no this ID(%d)\n", "tisp_set_par_process", 467, "tisp_set_par_process", 467, p[0]);
+        break;
+    }
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017e64 origin=fragment_seed original=tisp_code_tuning_ioctl */
 int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
 {
@@ -68187,9 +68163,6 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
     uint32_t *entry_gp_ptr = entry_gp;
     uint32_t mask = *entry_gp_ptr;
     uint32_t *s0;
-    uint32_t v1_2;
-    uint32_t a0_val;
-    uint32_t *v0_7;
 
     if (type == 0x74) {
         if (nr < 0x33) {
@@ -68198,238 +68171,34 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
             }
 
             switch (cmd) {
+                /* T40-TISP-NODE (#139b): get/set parameter process (tisp_get/set_par_process, inlined in OEM
+                 * tisp_code_tuning_ioctl 0x17514 / 0x177fc): copy the block in, run the module getter/setter with
+                 * the OEM arguments (t40_tisp_{get,set}_par), copy it out (get).  The lift passed 0 for every
+                 * argument and tested the asm __copy_user's C return value (never 0). */
                 case 0x20007400:
-                    s0 = (arg3 + 0x5010) | arg3;
-                    if (((uintptr_t)s0 & mask) != 0) {
-                        memset(tisp_par_ioctl_2, 0, 0x5010);
-                    } else if (__copy_user(tisp_par_ioctl_2, (void *)arg3, 0x5010) == 0) {
-                        uint32_t *tisp_par_ioctl_1 = tisp_par_ioctl;
-                        v1_2 = *tisp_par_ioctl_1;
-                        a0_val = tisp_par_ioctl_1[3];
-
-                        if (v1_2 >= 0x1a) {
-                            isp_printf(2, "[%s %d] [ %s:%d ] Have no this ID(%d)\n", "tisp_get_par_process");
-                            v0_7 = mask;
-                        } else {
-                            switch (v1_2) {
-                                case 0:
-                                    tisp_top_param_array_get(&tisp_par_ioctl_1[4], &tisp_par_ioctl_1[1]);
-                                    v0_7 = mask;
-                                    break;
-                                case 1:
-                                    tisp_blc_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 2:
-                                    tisp_lsc_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 3:
-                                    tisp_wdr_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 4:
-                                    tisp_dpc_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 5:
-                                    tisp_gib_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 6:
-                                    tisp_adr_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 7:
-                                    tisp_dmsc_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 8:
-                                    tisp_ccm_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 9:
-                                    tisp_gamma_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0xa:
-                                    tisp_defog_param_array_get(0, 0, (int32_t *)0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0xb:
-                                    tisp_lce_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0xc:
-                                    tisp_mdns_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0xd:
-                                    tisp_ydns_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0xe:
-                                    tisp_cdns_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0xf:
-                                    tisp_bcsh_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0x10:
-                                    tisp_clm_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0x11:
-                                    tisp_ysp_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0x12:
-                                    tisp_sdns_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0x13:
-                                    tisp_af_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0x14:
-                                    tisp_hldc_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0x15:
-                                    tisp_ae_param_array_get((void *)a0_val, (void *)tisp_par_ioctl_1[2], &tisp_par_ioctl_1[4], &tisp_par_ioctl_1[1]);
-                                    v0_7 = mask;
-                                    break;
-                                case 0x16:
-                                    tisp_awb_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0x17:
-                                    tisp_tstp_param_array_get(0, 0, 0);
-                                    v0_7 = mask;
-                                    break;
-                                case 0x18:
-                                    tisp_reg_map_get((void *)tisp_par_ioctl_1[2], tisp_par_ioctl_1, &tisp_par_ioctl_1[1]);
-                                    v0_7 = mask;
-                                    break;
-                                case 0x19:
-                                    tisp_data_info_get((void *)a0_val, (void *)tisp_par_ioctl_1[2], &tisp_par_ioctl_1[4], &tisp_par_ioctl_1[1]);
-                                    v0_7 = mask;
-                                    break;
-                                default:
-                                    v0_7 = mask;
-                                    break;
-                            }
-                        }
-
-                        if (((uintptr_t)s0 & (uintptr_t)v0_7) == 0 && __copy_user((void *)arg3, tisp_par_ioctl, 0x5010) == 0) {
-                            return 0;
-                        }
-                    }
+                    if (!t40_tisp_par)
+                        break;
+                    if (copy_from_user(tisp_par_ioctl_2, (const void __user *)arg3, 0x5010) != 0)
+                        break;
+                    t40_tisp_get_par(tisp_par_ioctl);
+                    if (copy_to_user((void __user *)arg3, tisp_par_ioctl, 0x5010) == 0)
+                        return 0;
                     break;
 
                 case 0x20007401:
-                    s0 = (arg3 + 0x5010) | arg3;
-                    if (((uintptr_t)s0 & mask) != 0) {
-                        memset(tisp_par_ioctl_2, 0, 0x5010);
-                    } else {
-                        int a2_5 = __copy_user(tisp_par_ioctl_2, (void *)arg3, 0x5010);
-                        uint32_t *tisp_par_ioctl_5 = tisp_par_ioctl;
-
-                        if (a2_5 == 0) {
-                            uint32_t v1_6 = *tisp_par_ioctl_5;
-                            void *a0_4 = (void *)tisp_par_ioctl_5[3];
-
-                            if ((v1_6 - 1) >= 0x18) {
-                                isp_printf(2, "[%s %d] [ %s:%d ] Have no this ID(%d)\n", "tisp_set_par_process");
-                                return 0;
-                            }
-
-                            switch (v1_6) {
-                                case 1:
-                                    tisp_blc_param_array_set(0, 0);
-                                    return 0;
-                                case 2:
-                                    tisp_lsc_param_array_set(a0_4, (void *)tisp_par_ioctl_5[2], &tisp_par_ioctl_5[4]);
-                                    return 0;
-                                case 3:
-                                    tisp_wdr_param_array_set(0, 0);
-                                    return 0;
-                                case 4:
-                                    tisp_dpc_param_array_set(0, 0);
-                                    return 0;
-                                case 5:
-                                    tisp_gib_param_array_set(0, 0);
-                                    return 0;
-                                case 6:
-                                    tisp_adr_param_array_set(0, 0);
-                                    return 0;
-                                case 7:
-                                    tisp_dmsc_param_array_set(0, 0);
-                                    return 0;
-                                case 8:
-                                    tisp_ccm_param_array_set(0, 0);
-                                    return 0;
-                                case 9:
-                                    tisp_gamma_param_array_set(0, 0);
-                                    return 0;
-                                case 0xa:
-                                    tisp_defog_param_array_set(0, 0);
-                                    return 0;
-                                case 0xb:
-                                    tisp_lce_param_array_set(0, 0);
-                                    return 0;
-                                case 0xc:
-                                    tisp_mdns_param_array_set(0, 0);
-                                    return 0;
-                                case 0xd:
-                                    tisp_ydns_param_array_set(0, 0);
-                                    return 0;
-                                case 0xe:
-                                    tisp_cdns_param_array_set(0, 0);
-                                    return 0;
-                                case 0xf:
-                                    tisp_bcsh_param_array_set(0, 0);
-                                    return 0;
-                                case 0x10:
-                                    tisp_clm_param_array_set(0, 0);
-                                    return 0;
-                                case 0x11:
-                                    tisp_ysp_param_array_set(0, 0);
-                                    return 0;
-                                case 0x12:
-                                    tisp_sdns_param_array_set(0, 0);
-                                    return 0;
-                                case 0x13:
-                                    tisp_af_param_array_set(0, 0);
-                                    return 0;
-                                case 0x14:
-                                    tisp_hldc_param_array_set(0, 0);
-                                    return 0;
-                                case 0x15:
-                                    tisp_ae_param_array_set(0, (void *)0, (int *)0);
-                                    return 0;
-                                case 0x16:
-                                    tisp_awb_param_array_set(0, 0);
-                                    return 0;
-                                case 0x17:
-                                    tisp_tstp_param_array_set(0, 0);
-                                    return 0;
-                                case 0x18:
-                                    tisp_reg_map_set(a0_4, tisp_par_ioctl_5);
-                                    return 0;
-                                default:
-                                    return 0;
-                            }
-                        }
+                    if (!t40_tisp_par)
+                        break;
+                    if (copy_from_user(tisp_par_ioctl_2, (const void __user *)arg3, 0x5010) != 0) {
+                        isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl");
+                        return 0xfffffff2;
                     }
-                    break;
+                    t40_tisp_set_par(tisp_par_ioctl);
+                    return 0;
 
                 /* T40-TISP-NODE (#139): the OEM calls the kernel's __copy_user, which returns the number of bytes
                  * NOT copied in a2; the lift tested its C return value (v0, never 0), so every command failed with
-                 * "copy_to_user error" before its handler ran.  copy_{from,to}_user for the reviewed commands
-                 * 0x20007402..0x20007405 (version, ISP version, AE info get/set); 0x20007400/01/06/07/08 keep the
-                 * old call until their handlers are reviewed (tisp_set_awb_info copies 28 bytes into a 4-byte local). */
+                 * "copy_to_user error" before its handler ran.  copy_{from,to}_user for all commands (0x20007400/01/06/07/08
+                 * since #139b, with their handlers rewritten from the OEM). */
                 case 0x20007402:
                     s0 = (arg3 + 0x5010) | arg3;
                     if (((uintptr_t)s0 & mask) != 0) {
@@ -68484,7 +68253,7 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                     s0 = (arg3 + 0x5010) | arg3;
                     if (((uintptr_t)s0 & mask) != 0) {
                         memset(tisp_par_ioctl_2, 0, 0x5010);
-                    } else if (__copy_user(tisp_par_ioctl_2, (void *)arg3, 0x5010) == 0) {
+                    } else if (copy_from_user(tisp_par_ioctl_2, (const void __user *)arg3, 0x5010) == 0) {
                         tisp_set_ae_minmax(tisp_par_ioctl);
                         return 0;
                     }
@@ -68495,7 +68264,7 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                     tisp_get_awb_info(tisp_par_ioctl_2);
                     if (((arg3 + 0x5010) | arg3) & mask) {
                         /* do nothing */
-                    } else if (__copy_user((void *)arg3, tisp_par_ioctl, 0x5010) == 0) {
+                    } else if (copy_to_user((void __user *)arg3, tisp_par_ioctl, 0x5010) == 0) {
                         return 0;
                     }
                     break;
@@ -68504,7 +68273,7 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                     s0 = (arg3 + 0x5010) | arg3;
                     if (((uintptr_t)s0 & mask) != 0) {
                         memset(tisp_par_ioctl_2, 0, 0x5010);
-                    } else if (__copy_user(tisp_par_ioctl_2, (void *)arg3, 0x5010) == 0) {
+                    } else if (copy_from_user(tisp_par_ioctl_2, (const void __user *)arg3, 0x5010) == 0) {
                         tisp_set_awb_info(tisp_par_ioctl);
                         return 0;
                     }
@@ -82957,72 +82726,35 @@ int32_t tisp_ae_main_manual_get(uint32_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029cd4 origin=fragment_seed original=tisp_ae_main_min_max_set */
-int32_t tisp_ae_main_min_max_set(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6, int32_t arg7, int32_t arg8, int32_t arg9, int32_t arg10, int32_t arg11, int32_t arg12, int32_t arg13, int32_t arg14, int32_t arg15, int32_t arg16)
+/*
+ * T40-TISP-NODE (#139b): hand translation of OEM tisp_ae_main_min_max_set 0x29244 / tisp_ae_sec_min_max_set
+ * (0x2a3f0), the AE min/max block of the tuning node (tisp_set_ae_minmax).  The OEM takes the 164-byte block
+ * BY VALUE: words 0..3 in a0..a3, word k >= 4 at caller sp+16+4(k-4) = callee sp+144+4k.  It loads callee
+ * sp+164..176, 224..236, 256..284 = words 5..8, 20..23, 28..35 and stores each to tisp_ae_{main,sec}_ctrls at
+ * byte offset 4k (sw t5,20(v0) ... sw s0,140(v0)), prints the words, then clears the AE re-sync byte
+ * *(u8 *)*(pst{Main,Sec}AeOri + 0xac) (OEM .bss+14780 / +14424 = ori +0xac, as in tisp_ae_*_manual_set).
+ * The lift took 16 int arguments and wrote them as bytes into unused stand-in variables.
+ */
+static int t40_ae_min_max_set(uint32_t *c, unsigned char *ori, const uint32_t *w, int sec)
 {
-    int32_t *s0;
-    int32_t *s1;
-    int32_t *s2;
-    int32_t *s3;
-    int32_t *s4;
-    int32_t s5;
-    int32_t s6;
-    int32_t s7;
-    int32_t s8;
-    int32_t t0;
-    int32_t *t1;
-    int32_t *t2;
-    int32_t *t3;
-    int32_t *t4;
-    int32_t *t5;
-    int32_t *v1;
+    static const unsigned char idx[] = { 5, 6, 7, 8, 20, 21, 22, 23, 28, 29, 30, 31, 32, 33, 34, 35 };
+    uint8_t *flag;
+    unsigned int i;
 
-    /* Load saved registers from stack (simulated) */
-    s0 = 0; s1 = 0; s2 = 0; s3 = 0; s4 = 0; s5 = 0; s6 = 0; s7 = 0; s8 = 0;
-    t0 = 0; t1 = 0; t2 = 0; t3 = 0; t4 = 0; t5 = 0; v1 = 0;
-
-    /* Call isp_printf with format string and arg1 */
-    isp_printf(0, "Main:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", arg1);
-
-    /* Store arguments to global data variables as shown in decompiled pseudocode */
-    data_b771c = (uint8_t)arg15;
-    data_b7720 = (uint8_t)arg16;
-    data_b76a8 = (uint8_t)arg1;
-    data_b76ac = (uint8_t)arg2;
-    data_b76b0 = (uint8_t)arg3;
-    data_b76b4 = (uint8_t)arg4;
-    data_b76e4 = (uint8_t)arg5;
-    data_b76e8 = (uint8_t)arg6;
-    data_b76ec = (uint8_t)arg7;
-    data_b76f0 = (uint8_t)arg8;
-    data_b7704 = (uint8_t)arg9;
-    data_b7708 = (uint8_t)arg10;
-    data_b770c = (uint8_t)arg11;
-    data_b7710 = (uint8_t)arg12;
-    data_b7714 = (uint8_t)arg13;
-    data_b7718 = (uint8_t)arg14;
-
-    /* Store values to tisp_ae_main_ctrls at specific offsets */
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x88)) = s1;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x8c)) = s0;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x14)) = t5;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x18)) = t4;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x1c)) = t3;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x20)) = t2;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x50)) = t1;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x54)) = t0;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x58)) = v1;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x5c)) = s8;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x70)) = s7;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x74)) = s6;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x78)) = s5;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x7c)) = s4;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x80)) = s3;
-    *(uint32_t *)((char *)((char *)&tisp_ae_main_ctrls + 0x84)) = s2;
-
-    /* Set byte at .bss + 14796 to 0 */
-    data_b7d3c = 0;
-
+    isp_printf(0, "%s:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", sec ? "Sec" : "Main",
+               w[5], w[6], w[7], w[8], w[20], w[21], w[22], w[23], w[28], w[29], w[30], w[31],
+               w[32], w[33], w[34], w[35]);
+    for (i = 0; i < sizeof(idx); i++)
+        c[idx[i]] = w[idx[i]];
+    flag = *(uint8_t **)(ori + 0xac);
+    if (flag)
+        *flag = 0;
     return 0;
+}
+
+int tisp_ae_main_min_max_set(const uint32_t *w)
+{
+    return t40_ae_min_max_set(tisp_ae_main_ctrls_storage, pstMainAeOri_storage, w, 0);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029e68 origin=fragment_seed original=tisp_ae_ev_start_set */
@@ -83739,110 +83471,9 @@ int32_t tisp_ae_sec_manual_get(uint32_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ae88 origin=fragment_seed original=tisp_ae_sec_min_max_set */
-int tisp_ae_sec_min_max_set(int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16)
+int tisp_ae_sec_min_max_set(const uint32_t *w)
 {
-    int *s0;
-    int *s1;
-    int *s2;
-    int *s3;
-    int *s4;
-    int s5;
-    int s6;
-    int s7;
-    int s8;
-    int t0;
-    int *t1;
-    int *t2;
-    int *t3;
-    int *t4;
-    int *t5;
-    int *v1;
-    unsigned int *ctrls = &tisp_ae_sec_ctrls;
-
-    /* Load saved registers from stack (simulated - these come from caller's stack) */
-    /* In the actual assembly, these are loaded from sp+104 to sp+284 */
-    /* For the C version, we treat the arguments as the values that would be in those registers */
-    
-    /* The assembly loads:
-     * t5 = arg1 (from sp+164)
-     * t4 = arg2 (from sp+168)
-     * t3 = arg3 (from sp+172)
-     * t2 = arg4 (from sp+176)
-     * t1 = arg5 (from sp+224)
-     * t0 = arg6 (from sp+228)
-     * v1 = arg7 (from sp+232)
-     * s8 = arg8 (from sp+236)
-     * s7 = arg9 (from sp+256)
-     * s6 = arg10 (from sp+260)
-     * s5 = arg11 (from sp+264)
-     * s4 = arg12 (from sp+268)
-     * s3 = arg13 (from sp+272)
-     * s2 = arg14 (from sp+276)
-     * s0 = arg16 (from sp+284)
-     * s1 = arg15 (from sp+280)
-     */
-    
-    t5 = arg1;
-    t4 = arg2;
-    t3 = arg3;
-    t2 = arg4;
-    t1 = arg5;
-    t0 = arg6;
-    v1 = arg7;
-    s8 = arg8;
-    s7 = arg9;
-    s6 = arg10;
-    s5 = arg11;
-    s4 = arg12;
-    s3 = arg13;
-    s2 = arg14;
-    s0 = arg16;
-    s1 = arg15;
-
-    /* Call isp_printf(0, "second: %d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", arg1) */
-    isp_printf(0, "second: %d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", arg1);
-
-    /* Store values into tisp_ae_sec_ctrls at various offsets */
-    ((void **)ctrls)[34] = s1;      /* offset 136 = 34 * 4 */
-    ((void **)ctrls)[35] = s0;      /* offset 140 = 35 * 4 */
-    ((void **)ctrls)[5] = t5;       /* offset 20 = 5 * 4 */
-    ((void **)ctrls)[6] = t4;       /* offset 24 = 6 * 4 */
-    ((void **)ctrls)[7] = t3;       /* offset 28 = 7 * 4 */
-    ((void **)ctrls)[8] = t2;       /* offset 32 = 8 * 4 */
-    ((void **)ctrls)[20] = t1;      /* offset 80 = 20 * 4 */
-    ((void **)ctrls)[21] = t0;      /* offset 84 = 21 * 4 */
-    ((void **)ctrls)[22] = v1;      /* offset 88 = 22 * 4 */
-    ((void **)ctrls)[23] = s8;      /* offset 92 = 23 * 4 */
-    ((void **)ctrls)[28] = s7;      /* offset 112 = 28 * 4 */
-    ((void **)ctrls)[29] = s6;      /* offset 116 = 29 * 4 */
-    ((void **)ctrls)[30] = s5;      /* offset 120 = 30 * 4 */
-    ((void **)ctrls)[31] = s4;      /* offset 124 = 31 * 4 */
-    ((void **)ctrls)[32] = s3;      /* offset 128 = 32 * 4 */
-    ((void **)ctrls)[33] = s2;      /* offset 132 = 33 * 4 */
-
-    /* Store global data variables */
-    /* data_b7678 = arg15 -> s1 */
-    /* data_b767c = arg16 -> s0 */
-    /* data_b7604 = arg1 -> t5 */
-    /* data_b7608 = arg2 -> t4 */
-    /* data_b760c = arg3 -> t3 */
-    /* data_b7610 = arg4 -> t2 */
-    /* data_b7640 = arg5 -> t1 */
-    /* data_b7644 = arg6 -> t0 */
-    /* data_b7648 = arg7 -> v1 */
-    /* data_b764c = arg8 -> s8 */
-    /* data_b7660 = arg9 -> s7 */
-    /* data_b7664 = arg10 -> s6 */
-    /* data_b7668 = arg11 -> s5 */
-    /* data_b766c = arg12 -> s4 */
-    /* data_b7670 = arg13 -> s3 */
-    /* data_b7674 = arg14 -> s2 */
-    /* These are global variables that we don't have declarations for, so we skip them */
-
-    /* *data_b7bd8 = 0 */
-    data_b7bd8 = 0;
-
-    return 0;
+    return t40_ae_min_max_set(tisp_ae_sec_ctrls_storage, pstSecAeOri_storage, w, 1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002b01c origin=fragment_seed original=tisp_ae_sec_s_max_again */
@@ -90925,90 +90556,55 @@ tisp_awb_set_start0x88:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000344cc origin=model_output original=tisp_awb_set_mode */
+/*
+ * T40-TISP-NODE (#139b): hand translation of OEM tisp_awb_set_mode 0x33a3c (jump table .rodata+0x1570).
+ * ch 0: ori = pstMainAwbOri (.bss+16164), attr = tisp_wb_attr_main (.bss+16732); else pstSecAwbOri
+ * (.bss+15652) / tisp_wb_attr_sec (.bss+16704) - the same pair tisp_awb_get_mode reads.
+ *   mode 0: attr[0] = 0;  mode 1 and 9 (manual/custom): attr[0..2] = mode, a1[1], a1[2];
+ *   mode 2..8: attr[0] = mode, attr[1/2] = fix_point_mult2_32(10, gain[0/1], k) with gain = *(ori + 36) and
+ *   k = 256/256, 351/168, 158/433, 205/332, 177/400, 312/203, 133/477;
+ *   mode >= 10: "Can not support this mode" and the current attr is written again.
+ * Then *(u8 *)*(ori + 480) = attr[0], *(u16 *)*(ori + 488) = attr[1], [+2] = attr[2], *(u8 *)*(ori + 472) = 1.
+ * The lift addressed stMainAwbInterOri + 0x515c/0x5394 (a different object) for both channels.
+ * Pointers of a not yet initialised AWB context are skipped (returns -1), as in tisp_awb_get_mode.
+ */
 int32_t tisp_awb_set_mode(int32_t arg1, int32_t *arg2)
 {
-    int32_t *s0;
-    int32_t *s1;
-    int32_t *v0;
-    int32_t *v0_8;
-    int32_t *v0_3;
+    static const uint16_t k[7][2] = {
+        { 256, 256 }, { 351, 168 }, { 158, 433 }, { 205, 332 }, { 177, 400 }, { 312, 203 }, { 133, 477 },
+    };
+    uint8_t *ori = arg1 ? (uint8_t *)pstSecAwbOri : (uint8_t *)pstMainAwbOri;
+    uint32_t *attr = arg1 ? tisp_wb_attr_sec : tisp_wb_attr_main;
+    uint8_t *mode_p = (uint8_t *)(uintptr_t)*(uint32_t *)(ori + 480);
+    uint16_t *gain_p = (uint16_t *)(uintptr_t)*(uint32_t *)(ori + 488);
+    uint8_t *upd_p = (uint8_t *)(uintptr_t)*(uint32_t *)(ori + 472);
+    const uint32_t *ref = (const uint32_t *)(uintptr_t)*(uint32_t *)(ori + 36);
+    uint32_t mode;
 
-    if (arg1 == 0) {
-        s1 = (int32_t *)((char *)&stMainAwbInterOri + 0x515c);
-        s0 = (int32_t *)((char *)&stMainAwbInterOri + 0x5394);
+    if (!arg2)
+        return -1;
+    mode = (uint32_t)arg2[0];
+    if (mode >= 10) {
+        isp_printf(2, "[%s %d] %s:%d::Can not support this mode!!!\n", "tisp_awb_set_mode", 3855, "tisp_awb_set_mode", 3855);
+    } else if (mode == 0) {
+        attr[0] = 0;
+    } else if (mode == 1 || mode == 9) {
+        attr[0] = mode;
+        attr[1] = (uint32_t)arg2[1];
+        attr[2] = (uint32_t)arg2[2];
     } else {
-        s1 = (int32_t *)((char *)&stMainAwbInterOri + 0x4f5c);
-        s0 = (int32_t *)((char *)&stMainAwbInterOri + 0x5378);
+        if (!regtrace_is_kernel_ptr(ref))
+            return -1;
+        attr[0] = mode;
+        attr[1] = (uint32_t)fix_point_mult2_32(10, (int32_t)ref[0], k[mode - 2][0]);
+        attr[2] = (uint32_t)fix_point_mult2_32(10, (int32_t)ref[1], k[mode - 2][1]);
     }
-
-    v0 = arg2[0];
-
-    if ((uint32_t)v0 >= 10) {
-        int32_t var_14_1 = 0xf0f;
-        const char *var_18_1 = "tisp_awb_set_mode";
-        isp_printf(2, "[%s %d] %s:%d::Can not support this mode!!!\n", "tisp_awb_set_mode");
-        v0_3 = (int32_t *)((char *)s1 + 0x78);
-    } else {
-        switch ((uintptr_t)v0) {
-            case 0:
-                ((void **)s0)[0] = 0;
-                break;
-            case 1:
-                v0_8 = 1;
-                goto label_34584;
-            case 2:
-                ((void **)s0)[0] = 2;
-                ((void **)s0)[1] = fix_point_mult2_32_ptr(0xa, s1[9], 0x100);
-                ((void **)s0)[2] = fix_point_mult2_32_ptr(0xa, s1[9] + 4, 0x100);
-                break;
-            case 3:
-                ((void **)s0)[0] = 3;
-                ((void **)s0)[1] = fix_point_mult2_32_ptr(0xa, s1[9], 0x15f);
-                ((void **)s0)[2] = fix_point_mult2_32_ptr(0xa, s1[9] + 4, 0xa8);
-                break;
-            case 4:
-                ((void **)s0)[0] = 4;
-                ((void **)s0)[1] = fix_point_mult2_32_ptr(0xa, s1[9], 0x9e);
-                ((void **)s0)[2] = fix_point_mult2_32_ptr(0xa, s1[9] + 4, 0x1b1);
-                break;
-            case 5:
-                ((void **)s0)[0] = 5;
-                ((void **)s0)[1] = fix_point_mult2_32_ptr(0xa, s1[9], 0xcd);
-                ((void **)s0)[2] = fix_point_mult2_32_ptr(0xa, s1[9] + 4, 0x14c);
-                break;
-            case 6:
-                ((void **)s0)[0] = 6;
-                ((void **)s0)[1] = fix_point_mult2_32_ptr(0xa, s1[9], 0xb1);
-                ((void **)s0)[2] = fix_point_mult2_32_ptr(0xa, s1[9] + 4, 0x190);
-                break;
-            case 7:
-                ((void **)s0)[0] = 7;
-                ((void **)s0)[1] = fix_point_mult2_32_ptr(0xa, s1[9], 0x138);
-                ((void **)s0)[2] = fix_point_mult2_32_ptr(0xa, s1[9] + 4, 0xcb);
-                break;
-            case 8:
-                ((void **)s0)[0] = 8;
-                ((void **)s0)[1] = fix_point_mult2_32_ptr(0xa, s1[9], 0x85);
-                ((void **)s0)[2] = fix_point_mult2_32_ptr(0xa, s1[9] + 4, 0x1dd);
-                break;
-            case 9:
-                v0_8 = 9;
-                goto label_34584;
-            default:
-                v0_3 = (int32_t *)((char *)s1 + 0x78);
-                goto end;
-        }
-        v0_3 = (int32_t *)((char *)s1 + 0x78);
-    }
-
-label_34584:
-    v0_3 = (int32_t *)((char *)s1 + 0x78);
-
-end:
-    ((void **)v0_3)[0] = s0[0];
-    ((int16_t *)v0_3)[1] = (int16_t)s0[1];
-    ((int16_t *)(v0_3 + 1))[1] = (int16_t)s0[2];
-    ((int8_t *)((char *)s1 + 0x76))[0] = 1;
+    if (!regtrace_is_kernel_ptr(mode_p) || !regtrace_is_kernel_ptr(gain_p) || !regtrace_is_kernel_ptr(upd_p))
+        return -1;
+    *mode_p = (uint8_t)attr[0];
+    gain_p[0] = (uint16_t)attr[1];
+    gain_p[1] = (uint16_t)attr[2];
+    *upd_p = 1;
     return 0;
 }
 
