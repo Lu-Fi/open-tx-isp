@@ -7783,7 +7783,7 @@ int32_t tisp_ae_wdr_en(uint32_t a0, uint32_t a1);
 int32_t tisp_ae_dn_params_refresh(uint32_t a0);
 char tisp_ae_g_comp(uint32_t a0, uintptr_t a1);
 int32_t tisp_ae_main_get_antiflicker_step(int32_t arg1, int16_t *arg2);
-int tisp_ae_main_manual_set(int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16, int arg17, int arg18);
+int tisp_ae_main_manual_set(const uint32_t *w);
 int32_t tisp_ae_main_manual_get(uint32_t a0);
 int32_t tisp_ae_main_min_max_set(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6, int32_t arg7, int32_t arg8, int32_t arg9, int32_t arg10, int32_t arg11, int32_t arg12, int32_t arg13, int32_t arg14, int32_t arg15, int32_t arg16);
 int32_t* tisp_ae_ev_start_set(uint32_t a0, uint32_t a1, uint32_t a2);
@@ -7795,7 +7795,7 @@ int32_t tisp_ae_g_luma(int32_t arg1, uint8_t *arg2);
 uint32_t tisp_ae_g_scene_luma(uint32_t a0, uintptr_t a1);
 int64_t tisp_ae_sec_mean_update(uintptr_t a0, uintptr_t a1);
 int32_t tisp_ae_sec_get_antiflicker_step(int32_t arg1, int16_t *arg2);
-int32_t tisp_ae_sec_manual_set(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6, int32_t arg7, int32_t arg8, int32_t arg9, int32_t arg10, int32_t arg11, int32_t arg12, int32_t arg13, int32_t arg14, int32_t arg15, int32_t arg16, int32_t arg17, int32_t arg18);
+int32_t tisp_ae_sec_manual_set(const uint32_t *w);
 int32_t tisp_ae_sec_manual_get(uint32_t a0);
 int tisp_ae_sec_min_max_set(int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16);
 int64_t tisp_ae_sec_s_max_again(uint32_t a0);
@@ -46540,8 +46540,9 @@ tx_isp_switch_bin_isra_220xa8:
     if (s1 != 0) { goto tx_isp_switch_bin_isra_220x11c; }
 
     /* fragment 16: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (uint32_t)v0;
+    /* T40-SWITCH-BIN (#139): OEM 0x955c returns s1 (the tisp_switch_bin result, 0 here); the lift
+     * returned the 1 it had just stored at state + 720, so a good switch failed in libimp. */
+    return (uint32_t)s1;
 
 tx_isp_switch_bin_isra_220xe4:
     /* fragment 17: Arithmetic */
@@ -63792,13 +63793,12 @@ tx_isp_unlocked_ioctl0x2918:
 
 tx_isp_unlocked_ioctl0x2970:
     /* fragment 687: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_set_frame_drop)((*__p_20), 0); /* jalr target resolved by relocation */
-
-    /* fragment 688: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_set_frame_drop)((*__p_20), 1, __p_30); /* jalr target resolved by relocation */
-
-    /* fragment 689: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_set_frame_drop)((*__p_20), 2, __p_3c); /* jalr target resolved by relocation */
+    /* T40-FRAME-DROP (#139): OEM 0x141e8: request = { u8 channel (+3 pad); 3 x 12-byte entry } at sp+32;
+     * tisp_set_frame_drop(channel byte, n, sp+36+12n).  The lift lost the entry pointer of the first call
+     * (the callee read through a stale register) and used the channel word. */
+    v0 = (uintptr_t *)(uintptr_t)tisp_set_frame_drop(*(uint8_t *)__p_20, 0, (uintptr_t)__p_24);
+    v0 = (uintptr_t *)(uintptr_t)tisp_set_frame_drop(*(uint8_t *)__p_20, 1, (uintptr_t)__p_30);
+    v0 = (uintptr_t *)(uintptr_t)tisp_set_frame_drop(*(uint8_t *)__p_20, 2, (uintptr_t)__p_3c);
 
     /* fragment 690: Branch */
     s0 = v0;
@@ -63823,13 +63823,12 @@ tx_isp_unlocked_ioctl0x29ac:
 
 tx_isp_unlocked_ioctl0x2a04:
     /* fragment 695: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_get_frame_drop)((*__p_20), 0); /* jalr target resolved by relocation */
-
-    /* fragment 696: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_get_frame_drop)((*__p_20), 1, __p_30); /* jalr target resolved by relocation */
-
-    /* fragment 697: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_get_frame_drop)((*__p_20), 2, __p_3c); /* jalr target resolved by relocation */
+    /* T40-FRAME-DROP (#139): OEM 0x1427c: request = { u8 channel (+3 pad); 3 x 12-byte entry } at sp+32;
+     * tisp_get_frame_drop(channel byte, n, sp+36+12n).  The lift lost the entry pointer of the first call
+     * (the callee stored 12 bytes through a stale register) and used the channel word. */
+    v0 = (uintptr_t *)(uintptr_t)tisp_get_frame_drop(*(uint8_t *)__p_20, 0, (int32_t *)__p_24);
+    v0 = (uintptr_t *)(uintptr_t)tisp_get_frame_drop(*(uint8_t *)__p_20, 1, (int32_t *)__p_30);
+    v0 = (uintptr_t *)(uintptr_t)tisp_get_frame_drop(*(uint8_t *)__p_20, 2, (int32_t *)__p_3c);
 
     /* fragment 698: CallSetup */
     s0 = v0;
@@ -67558,9 +67557,11 @@ isp_tunning_read0x80:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017658 origin=model_output original=tisp_code_tuning_release */
 int32_t tisp_code_tuning_release(void)
 {
+    /* T40-TISP-NODE (#139): OEM 0x16bc8 kfree's the parameter block; the lift passed NULL (20 KB leak per
+     * open/close of /dev/tisp; found while adding the tuning-node AE info case) */
     void *ptr = (void *)tisp_par_ioctl;
-    private_kfree(NULL);
     tisp_par_ioctl = 0;
+    private_kfree(ptr);
     return 0;
 }
 
@@ -67673,129 +67674,34 @@ tisp_get_ae_info0x48:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001778c origin=model_output original=tisp_set_ae_info */
+/*
+ * T40-AE-INFO (#139): hand translation of OEM tisp_set_ae_info (libt40-firmware 0x16cfc), tuning node
+ * ioctl 0x20007405.  arg1 = the tuning parameter block: size word +4 := 0xa4, +0xc selects the sensor
+ * (0 main, else sec), +0x10 holds the 164-byte AE manual block (41 words), which goes BY VALUE to
+ * tisp_ae_{main,sec}_manual_set after one debug print of all 41 words.  The lift copied the words into
+ * never-assigned local pointers (var_14[0] = ..., kernel oops on every call) and passed 4 of them.
+ * Returns 0 (OEM).
+ */
 int32_t tisp_set_ae_info(void *arg1)
 {
-    int32_t local_buf[44];  // 0xa4 / 4 = 44 integers for memcpy target
-    int32_t var_10;
-    int32_t *var_14;
-    int32_t *var_18;
-    int32_t var_1c;
-    int32_t var_20;
-    int32_t var_24;
-    int32_t *var_28;
-    int32_t *var_2c;
-    int32_t var_30;
-    int32_t var_34;
-    int32_t var_38;
-    int32_t var_3c;
-    int32_t *var_40;
-    int32_t var_44;
-    int32_t var_48;
-    int32_t var_4c;
-    int32_t *var_50;
-    int32_t var_54;
-    int32_t *var_58;
-    int32_t var_5c;
-    int32_t var_60;
-    int32_t var_64;
-    int32_t var_68;
-    int32_t var_6c;
-    int32_t *var_70;
-    int32_t var_74;
-    int32_t *var_78;
-    int32_t var_7c;
-    int32_t var_80;
-    int32_t var_84;
-    int32_t *var_88;
-    int32_t var_8c;
-    int32_t var_90;
-    int32_t var_94;
-    int32_t *var_98;
-    int32_t var_9c;
-    int32_t *var_a0;
-    int32_t var_a4;
-    int32_t var_a8;
-    int32_t var_ac;
-    int32_t *i;
-    int32_t (*func_ptr)(int32_t, int32_t, int32_t, int32_t);
+    uint32_t *p = (uint32_t *)arg1;
+    uint32_t w[T40_AE_CTRLS_BYTES / 4];
 
-    // Store 0xa4 at arg1+4
-    ((uint32_t *)arg1)[1] = 0xa4;
-
-    // Copy 0xa4 bytes from arg1+0x10 to local_buf
-    memcpy(local_buf, (char *)arg1 + 0x10, 0xa4);
-
-    // Map local_buf elements to individual variables (as per decompiler)
-    var_10 = local_buf[0];
-    var_14[0] = local_buf[1];
-    var_18[0] = local_buf[2];
-    var_1c = local_buf[3];
-    var_20 = local_buf[4];
-    var_24 = local_buf[5];
-    var_28[0] = local_buf[6];
-    var_2c = local_buf[7];
-    var_30 = local_buf[8];
-    var_34 = local_buf[9];
-    var_38 = local_buf[10];
-    var_3c = local_buf[11];
-    var_40[0] = local_buf[12];
-    var_44 = local_buf[13];
-    var_48 = local_buf[14];
-    var_4c = local_buf[15];
-    var_50 = local_buf[16];
-    var_54 = local_buf[17];
-    var_58[0] = local_buf[18];
-    var_5c = local_buf[19];
-    var_60 = local_buf[20];
-    var_64 = local_buf[21];
-    var_68 = local_buf[22];
-    var_6c = local_buf[23];
-    var_70[0] = local_buf[24];
-    var_74 = local_buf[25];
-    var_78[0] = local_buf[26];
-    var_7c = local_buf[27];
-    var_80 = local_buf[28];
-    var_84 = local_buf[29];
-    var_88[0] = local_buf[30];
-    var_8c = local_buf[31];
-    var_90 = local_buf[32];
-    var_94 = local_buf[33];
-    var_98[0] = local_buf[34];
-    var_9c = local_buf[35];
-    var_a0[0] = local_buf[36];
-    var_a4 = local_buf[37];
-    var_a8 = local_buf[38];
-    var_ac = local_buf[39];
-
-    // Print debug info with var_10 (which is local_buf[0])
-    isp_printf(0, "####ae manual is %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d\n", var_10);
-
-    i = 0;
-
-    if (*(int32_t *)((char *)arg1 + 0xc) != 0) {
-        // Branch 1: arg1+0xc is non-zero
-        while (1) {
-            if (i >= 0x94) {
-                break;
-            }
-            // Copy from var_a0 array to var_a8 array
-            ((char *)&var_a8)[(uintptr_t)i] = ((char *)&var_a0)[(uintptr_t)i];
-            i++;
-        }
-        func_ptr = tisp_ae_sec_manual_set;
-    } else {
-        // Branch 2: arg1+0xc is zero
-        while (i < 0x94) {
-            // Copy from var_a0 array to var_a8 array
-            ((char *)&var_a8)[(uintptr_t)i] = ((char *)&var_a0)[(uintptr_t)i];
-            i++;
-        }
-        func_ptr = tisp_ae_main_manual_set;
-    }
-
-    // Call the selected function with var_10, var_ac, var_a8, var_a4
-    return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))func_ptr)((uintptr_t)(var_10), (uintptr_t)(var_ac), (uintptr_t)(var_a8), (uintptr_t)(var_a4));
+    p[1] = T40_AE_CTRLS_BYTES;
+    memcpy(w, (const char *)arg1 + 0x10, sizeof(w));
+    isp_printf(0, "####ae manual is %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, "
+               "%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d\n",
+               w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[8], w[9], w[10], w[11], w[12], w[13],
+               w[14], w[15], w[16], w[17], w[18], w[19], w[20], w[21], w[22], w[23], w[24], w[25], w[26],
+               w[27], w[28], w[29], w[30], w[31], w[32], w[33], w[34], w[35], w[36], w[37], w[38], w[39],
+               w[40]);
+    if (p[3] != 0)
+        tisp_ae_sec_manual_set(w);
+    else
+        tisp_ae_main_manual_set(w);
+    return 0;
 }
+
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000179b8 origin=model_output original=tisp_get_awb_info */
 int32_t tisp_get_awb_info(void* arg1)
@@ -68472,16 +68378,21 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                     }
                     break;
 
+                /* T40-TISP-NODE (#139): the OEM calls the kernel's __copy_user, which returns the number of bytes
+                 * NOT copied in a2; the lift tested its C return value (v0, never 0), so every command failed with
+                 * "copy_to_user error" before its handler ran.  copy_{from,to}_user for the reviewed commands
+                 * 0x20007402..0x20007405 (version, ISP version, AE info get/set); 0x20007400/01/06/07/08 keep the
+                 * old call until their handlers are reviewed (tisp_set_awb_info copies 28 bytes into a 4-byte local). */
                 case 0x20007402:
                     s0 = (arg3 + 0x5010) | arg3;
                     if (((uintptr_t)s0 & mask) != 0) {
                         memset(tisp_par_ioctl_2, 0, 0x5010);
-                    } else if (__copy_user(tisp_par_ioctl_2, (void *)arg3, 0x5010) == 0) {
+                    } else if (copy_from_user(tisp_par_ioctl_2, (const void __user *)arg3, 0x5010) == 0) {
                         uint32_t *tisp_par_ioctl_3 = tisp_par_ioctl;
                         ((void **)tisp_par_ioctl_3)[1] = 0xb;
                         memcpy(tisp_par_ioctl_3 + 4, "V-20230809", 0xb);
 
-                        if (((uintptr_t)s0 & mask) == 0 && __copy_user((void *)arg3, tisp_par_ioctl, 0x5010) == 0) {
+                        if (((uintptr_t)s0 & mask) == 0 && copy_to_user((void __user *)arg3, tisp_par_ioctl, 0x5010) == 0) {
                             return 0;
                         }
                     }
@@ -68491,12 +68402,12 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                     s0 = (arg3 + 0x5010) | arg3;
                     if (((uintptr_t)s0 & mask) != 0) {
                         memset(tisp_par_ioctl_2, 0, 0x5010);
-                    } else if (__copy_user(tisp_par_ioctl_2, (void *)arg3, 0x5010) == 0) {
+                    } else if (copy_from_user(tisp_par_ioctl_2, (const void __user *)arg3, 0x5010) == 0) {
                         uint32_t *tisp_par_ioctl_4 = tisp_par_ioctl;
                         ((void **)tisp_par_ioctl_4)[1] = 0xf;
                         memcpy(tisp_par_ioctl_4 + 4, "V-ISP-20230809", 0xf);
 
-                        if (((uintptr_t)s0 & mask) == 0 && __copy_user((void *)arg3, tisp_par_ioctl, 0x5010) == 0) {
+                        if (((uintptr_t)s0 & mask) == 0 && copy_to_user((void __user *)arg3, tisp_par_ioctl, 0x5010) == 0) {
                             return 0;
                         }
                     }
@@ -68506,7 +68417,7 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                     tisp_get_ae_info(tisp_par_ioctl_2);
                     if (((arg3 + 0x5010) | arg3) & mask) {
                         /* do nothing */
-                    } else if (__copy_user((void *)arg3, tisp_par_ioctl, 0x5010) == 0) {
+                    } else if (copy_to_user((void __user *)arg3, tisp_par_ioctl, 0x5010) == 0) {
                         return 0;
                     }
                     break;
@@ -68515,7 +68426,7 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                     s0 = (arg3 + 0x5010) | arg3;
                     if (((uintptr_t)s0 & mask) != 0) {
                         memset(tisp_par_ioctl_2, 0, 0x5010);
-                    } else if (__copy_user(tisp_par_ioctl_2, (void *)arg3, 0x5010) == 0) {
+                    } else if (copy_from_user(tisp_par_ioctl_2, (const void __user *)arg3, 0x5010) == 0) {
                         tisp_set_ae_info(tisp_par_ioctl);
                         return 0;
                     }
@@ -75740,70 +75651,60 @@ tisp_sec_init0xc88:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001fe80 origin=fragment_seed original=tisp_core_switch_bin */
+/* T40-SWITCH-BIN (#139): hand translation of OEM tisp_core_switch_bin (libt40-firmware 0x1f3f0).
+ * OEM: tiziano_load_parameters(vinum, mask, attr) fills mask[2] (sp+24/+28) with the module masks of
+ * the new bin (bit 31 = TOP); bit 21 is dropped from both unless the running status has it; then
+ *   load failed -> "no bin file", return the load result;
+ *   mask without TOP -> -1;  a module the running status lacks -> -1;
+ *   status bit 21 clear -> byte +0x15 and +0x35 of tparamsN/tparams_day/tparams_night[vinum] := 1;
+ *   re-init the top-level pipeline of the sensor (tisp_tstp_{main,sec}_deinit + _init; not done here,
+ *   see the end of the function), return 0.
+ * The lift declared the two mask words as never-assigned pointers (var_14[0] = 0: kernel oops on every
+ * SwitchBin), read the status pointer itself instead of the status word and had the branches inverted.
+ * Deviation: the open loader (regtrace_tiziano_load_parameters_safe) has no per-bin module masks; it
+ * marks every module in the status block, so the masks are taken from the status words it wrote.  It
+ * also loads the configured bin path, not attr->name (gap of the open loader, see the README). */
 uint32_t tisp_core_switch_bin(int32_t arg1, int32_t *arg2)
 {
-    volatile int32_t *var_18;
-    volatile int32_t *var_14;
-    volatile uint32_t *result;
-    volatile int32_t a1_shifted;
-    volatile int32_t *status_ptr;
-    volatile int32_t *v0_8;
-    volatile int32_t *v1_1;
-    volatile int32_t s1_val;
-    volatile int32_t s0_val;
+    const uint32_t *st;
+    uint32_t mask[2] = { 0, 0 };
+    uint32_t ret;
 
-    s1_val = arg1;
-    result = tiziano_load_parameters(arg1, (int32_t *)&var_18, arg2);
-    s0_val = result;
-    a1_shifted = s1_val << 2;
-    status_ptr = (int32_t *)((char *)&tparams_status + a1_shifted);
-    var_14[0] = 0;
-
-    if (((*status_ptr >> 21) & 1) == 0) {
-        var_18 = (void *)(uintptr_t)((uintptr_t)var_18 & (0xffdfffff));
-        var_14 = (void *)(uintptr_t)((uintptr_t)var_14 & (0xffdfffff));
+    ret = tiziano_load_parameters((uint32_t)arg1, 0, (uintptr_t)arg2);
+    st = (const uint32_t *)(uintptr_t)(arg1 == 0 ? tparams_status : 0);   /* tparams_status[vinum] */
+    if (ret != 0 || !st) {
+        isp_printf(2, "[%s %d] [[ %s:%d ]] no bin file on the system!!!\n", "tisp_core_switch_bin", 1059);
+        return ret ? ret : 0xffffffffU;
     }
-
-    v0_8 = var_18;
-
-    if (s0_val == 0) {
-        if (v0_8 >= 0 || var_14 >= 0) {
-            ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(2), (uintptr_t)("[%s %d] The Bin file must contain TOP!\n"), (uintptr_t)("tisp_core_switch_bin"), (uintptr_t)(1059));
-            return 0xffffffff;
-        }
-
-        v1_1 = *status_ptr;
-
-        if ((~(uintptr_t)v1_1 & (uintptr_t)v0_8) != 0 || (~(status_ptr[1]) & (uintptr_t)var_14) != 0) {
-            ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(2), (uintptr_t)("[%s %d] Some modules in the bin file are not initialized!\n"), (uintptr_t)("tisp_core_switch_bin"), (uintptr_t)(1070));
-            return 0xffffffff;
-        }
-
-        if ((((uintptr_t)v1_1 >> 21) & 1) == 0) {
-            void *a2_3 = *(void **)((char *)&tparamsN + a1_shifted);
-            void *a0_2 = *(void **)((char *)&tparams_day + a1_shifted);
-            void *v1_4 = *(void **)((char *)&tparams_night + a1_shifted);
-            *(uint8_t *)((char *)a2_3 + 0x15) = 1;
-            *(uint8_t *)((char *)a0_2 + 0x15) = 1;
-            *(uint8_t *)((char *)v1_4 + 0x15) = 1;
-            *(uint8_t *)((char *)a2_3 + 0x35) = 1;
-            *(uint8_t *)((char *)a0_2 + 0x35) = 1;
-            *(uint8_t *)((char *)v1_4 + 0x35) = 1;
-        }
-
-        if (s1_val != 0) {
-            tisp_tstp_sec_deinit();
-            tisp_tstp_sec_init();
-        } else {
-            s0_val = 0;
-            tisp_tstp_main_deinit();
-            tisp_tstp_main_init();
-        }
-    } else {
-        ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(2), (uintptr_t)("[%s %d] [[ %s:%d ]] no bin file on the system!!!\n"), (uintptr_t)("tisp_core_switch_bin"), (uintptr_t)(1064));
+    mask[0] = st[0];
+    mask[1] = st[1];
+    if (!((st[0] >> 21) & 1U)) {
+        mask[0] &= ~(1U << 21);
+        mask[1] &= ~(1U << 21);
     }
+    if ((int32_t)mask[0] >= 0 && (int32_t)mask[1] >= 0) {
+        isp_printf(2, "[%s %d] The Bin file must contain TOP!\n", "tisp_core_switch_bin", 1064);
+        return 0xffffffffU;
+    }
+    if ((~st[0] & mask[0]) != 0 || (~st[1] & mask[1]) != 0) {
+        isp_printf(2, "[%s %d] Some modules in the bin file are not initialized!\n", "tisp_core_switch_bin", 1070);
+        return 0xffffffffU;
+    }
+    if (!((st[0] >> 21) & 1U)) {
+        uint8_t *n = (uint8_t *)tparamsN[0];
+        uint8_t *d = (uint8_t *)(uintptr_t)tparams_day;
+        uint8_t *nt = (uint8_t *)(uintptr_t)tparams_night;
 
-    return s0_val;
+        if (n && d && nt) {
+            n[0x15] = d[0x15] = nt[0x15] = 1;
+            n[0x35] = d[0x35] = nt[0x35] = 1;
+        }
+    }
+    /* OEM: tisp_tstp_{main,sec}_deinit() + _init() re-program the pipeline top from the new bin.  Not
+     * called here: the lifted tisp_tstp_main_init oopses when run a second time (system_reg_write from
+     * tisp_tstp_reg_cfg, BadVA 0x5bd8a000, QEMU T40 2026-10-29), so SwitchBin keeps the running top until
+     * that chain is translated (#139 follow-up). */
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000020054 origin=fragment_seed original=tiziano_sync_sensor_attr */
@@ -82886,96 +82787,100 @@ int32_t tisp_ae_main_get_antiflicker_step(int32_t arg1, int16_t *arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029980 origin=fragment_seed original=tisp_ae_main_manual_set */
-int tisp_ae_main_manual_set(int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16, int arg17, int arg18)
+/*
+ * T40-AE-INFO (#139): hand translation of OEM tisp_ae_main_manual_set / tisp_ae_sec_manual_set
+ * (libt40-firmware 0x28ef0 / 0x2a0d4).  The OEM takes the 164-byte manual block of the tuning tool BY
+ * VALUE (words 0..3 in a0..a3, words 4..40 on the stack); the lift declared 18 int arguments, mapped
+ * them to the wrong words and wrote through OEM .bss offsets (main: stubbed out; sec: store to 0x3868).
+ * Here: w = the 41 words, c = tisp_ae_{main,sec}_ctrls (word index = OEM byte offset / 4).
+ *   long frame:  w[0] ae_manual (all four), else flags w[13] it, w[14] ag, w[15] isp dg, w[36] sensor dg
+ *                with the values w[3] it, w[1] ag, w[4] isp dg, w[2] sensor dg;
+ *   short frame: w[24] ae_manual (all four), else flags w[16] it, w[17] ag, w[26] isp dg, w[37] sensor dg
+ *                with the values w[19] it, w[18] ag, w[27] isp dg, w[25] sensor dg.
+ * Flags and ae_manual are stored as given; a value only when its flag is on.  "On" is == 1 in the main
+ * and != 0 in the sec block (OEM).  Last, the AE re-sync byte *(u8 *)pst{Main,Sec}AeOri[+0xac] is cleared
+ * as in tisp_ae_set_exprinfo_attr (NULL-checked here: the sec context of a single-sensor setup has none).
+ * Same word layout as tisp_ae_set_exprinfo_attr's ctrl block.
+ */
+static int t40_ae_manual_set(uint32_t *c, unsigned char *ori, const uint32_t *w, int sec)
 {
-#ifdef REGTRACE_KERNEL_TREE_BUILD
-    return 0;
-#else
+#define T40_ON(v) (sec ? (v) != 0U : (v) == 1U)
+    uint8_t *flag;
 
-    int *v0;
-    int *s4 = arg2;
-    int s6;
-    int *a2;
-    int *t2;
-    int s8;
-    int *s2;
-    int *s3;
-    int *s0;
-    int *s1;
-    int s7;
-    int *t1 = arg2;
-    int *a1 = 1;
-    int *s5 = &tisp_ae_main_ctrls;
-
-    tisp_ae_main_ctrls = arg1;
-
-    if (arg1 != 1) {
-        if (arg6 == 1) {
-            data_b76a0 = (uintptr_t (*)())(uintptr_t)arg4;
-            isp_printf(0, "it_manual is %d:it is %d\n", 1);
-        }
-
-        if (arg7 == 1) {
-            data_b7698 = (uintptr_t (*)())(uintptr_t)arg2;
-            isp_printf(0, "ag_manual is %d:ag is %d\n", 1);
-        }
-
-        if (arg8 == 1) {
-            data_b76a4 = (uintptr_t (*)())(uintptr_t)arg5;
-            isp_printf(0, "dg_manual is %d:isp dg is %d\n", 1);
-        }
-
-        if (arg17 != 1) {
-            v0 = arg13;
-        } else {
-            data_b769c = (uintptr_t (*)())(uintptr_t)arg3;
-            isp_printf(0, "sdg_manual is %d:sensor dg is %d\n", 1);
-            v0 = arg13;
-        }
+    c[0] = w[0];
+    if (T40_ON(w[0])) {
+        c[3] = w[3];
+        c[1] = w[1];
+        c[4] = w[4];
+        c[2] = w[2];
+        isp_printf(0, "ae_manual is %d:it is %d,ag is %d,sensor dgain is %d,isp dgain is %d\n",
+                   w[0], w[3], w[1], w[2], w[4]);
     } else {
-        data_b76a0 = (uintptr_t (*)())(uintptr_t)arg4;
-        data_b7698 = (uintptr_t (*)())(uintptr_t)arg2;
-        data_b76a4 = (uintptr_t (*)())(uintptr_t)arg5;
-        data_b769c = (uintptr_t (*)())(uintptr_t)arg3;
-        isp_printf(0, "ae_manual is %d:it is %d,ag is %d,sensor dgain is %d,isp dgain is %d\n", 1);
-        v0 = arg13;
+        c[13] = w[13];
+        if (T40_ON(w[13])) {
+            isp_printf(0, "it_manual is %d:it is %d\n", w[13], w[3]);
+            c[3] = w[3];
+        }
+        c[14] = w[14];
+        if (T40_ON(w[14])) {
+            isp_printf(0, "ag_manual is %d:ag is %d\n", w[14], w[1]);
+            c[1] = w[1];
+        }
+        c[15] = w[15];
+        if (T40_ON(w[15])) {
+            isp_printf(0, "dg_manual is %d:isp dg is %d\n", w[15], w[4]);
+            c[4] = w[4];
+        }
+        c[36] = w[36];
+        if (T40_ON(w[36])) {
+            isp_printf(0, "sdg_manual is %d:sensor dg is %d\n", w[36], w[2]);
+            c[2] = w[2];
+        }
     }
 
-    data_b76f4 = (uintptr_t (*)())(uintptr_t)v0;
-
-    if (arg13 != 1) {
-        if (arg9 == 1) {
-            data_b76e0 = (uintptr_t (*)())(uintptr_t)arg12;
-            isp_printf(0, "short it_manual is %d:it is %d\n", 1);
-        }
-
-        if (arg10 == 1) {
-            data_b76dc = (uintptr_t (*)())(uintptr_t)arg11;
-            isp_printf(0, "short ag_manual is %d:ag is %d\n", 1);
-        }
-
-        if (arg15 == 1) {
-            data_b7700 = (uintptr_t (*)())(uintptr_t)arg16;
-            isp_printf(0, "short dg_manual is %d:isp dg is %d\n", 1);
-        }
-
-        if (arg18 == 1) {
-            data_b76f8 = (uintptr_t (*)())(uintptr_t)arg14;
-            isp_printf(0, " short sdg_manual is %d:sensor dg is %d\n", 1);
-        }
+    c[24] = w[24];
+    if (T40_ON(w[24])) {
+        isp_printf(0, "short ae_manual is %d:it is %d,ag is %d,sensor dgain is %d,isp dgain is %d\n",
+                   w[24], w[19], w[18], w[25], w[27]);
+        c[19] = w[19];
+        c[18] = w[18];
+        c[27] = w[27];
+        c[25] = w[25];
     } else {
-        data_b76e0 = (uintptr_t (*)())(uintptr_t)arg12;
-        data_b76dc = (uintptr_t (*)())(uintptr_t)arg11;
-        data_b7700 = (uintptr_t (*)())(uintptr_t)arg16;
-        data_b76f8 = (uintptr_t (*)())(uintptr_t)arg14;
-        isp_printf(0, "short ae_manual is %d:it is %d,ag is %d,sensor dgain is %d,isp dgain is %d\n", 1);
+        c[16] = w[16];
+        if (T40_ON(w[16])) {
+            isp_printf(0, "short it_manual is %d:it is %d\n", w[16], w[19]);
+            c[19] = w[19];
+        }
+        c[17] = w[17];
+        if (T40_ON(w[17])) {
+            isp_printf(0, "short ag_manual is %d:ag is %d\n", w[17], w[18]);
+            c[18] = w[18];
+        }
+        c[26] = w[26];
+        if (T40_ON(w[26])) {
+            isp_printf(0, "short dg_manual is %d:isp dg is %d\n", w[26], w[27]);
+            c[27] = w[27];
+        }
+        c[37] = w[37];
+        if (T40_ON(w[37])) {
+            isp_printf(0, " short sdg_manual is %d:sensor dg is %d\n", w[37], w[25]);
+            c[25] = w[25];
+        }
     }
+#undef T40_ON
 
-    *data_b7d3c = 0;
+    flag = *(uint8_t **)(ori + 0xac);
+    if (flag)
+        *flag = 0;
     return 0;
-
-#endif
 }
+
+int tisp_ae_main_manual_set(const uint32_t *w)
+{
+    return t40_ae_manual_set(tisp_ae_main_ctrls_storage, pstMainAeOri_storage, w, 0);
+}
+
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029ca4 origin=fragment_seed original=tisp_ae_main_manual_get */
 int32_t tisp_ae_main_manual_get(uint32_t a0)
@@ -83753,66 +83658,10 @@ int32_t tisp_ae_sec_get_antiflicker_step(int32_t arg1, int16_t *arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ab64 origin=fragment_seed original=tisp_ae_sec_manual_set */
-int32_t tisp_ae_sec_manual_set(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, int32_t arg5, int32_t arg6, int32_t arg7, int32_t arg8, int32_t arg9, int32_t arg10, int32_t arg11, int32_t arg12, int32_t arg13, int32_t arg14, int32_t arg15, int32_t arg16, int32_t arg17, int32_t arg18)
+/* T40-AE-INFO (#139): OEM 0x2a0d4, see t40_ae_manual_set.  The lift ended in a store to address 0x3868. */
+int32_t tisp_ae_sec_manual_set(const uint32_t *w)
 {
-    int32_t *v1 = &tisp_ae_sec_ctrls;
-    
-    *v1 = arg1;
-    
-    if (arg1 == 0) {
-        if (arg6 != 0) {
-            *(int32_t *)((char *)v1 + 0x5c) = arg4;
-            isp_printf(0, "it_manual is %d:it is %d\n", arg6);
-        }
-        if (arg7 != 0) {
-            *(int32_t *)((char *)v1 + 0x54) = arg2;
-            isp_printf(0, "ag_manual is %d:ag is %d\n", arg7);
-        }
-        if (arg8 != 0) {
-            *(int32_t *)((char *)v1 + 0x60) = arg5;
-            isp_printf(0, "dg_manual is %d:isp dg is %d\n", arg8);
-        }
-        if (arg17 != 0) {
-            *(int32_t *)((char *)v1 + 0x58) = arg3;
-            isp_printf(0, "sdg_manual is %d:sensor dg is %d\n", arg17);
-        }
-    } else {
-        *(int32_t *)((char *)v1 + 0x5c) = arg4;
-        *(int32_t *)((char *)v1 + 0x54) = arg2;
-        *(int32_t *)((char *)v1 + 0x60) = arg5;
-        *(int32_t *)((char *)v1 + 0x58) = arg3;
-        isp_printf(0, "ae_manual is %d:it is %d,ag is %d,sensor dgain is %d,isp dgain is %d\n", arg1);
-    }
-    
-    *(int32_t *)((char *)v1 + 0x50) = arg13;
-    
-    if (arg13 == 0) {
-        if (arg9 != 0) {
-            *(int32_t *)((char *)v1 + 0x6c) = arg12;
-            isp_printf(0, "short it_manual is %d:it is %d\n", arg9);
-        }
-        if (arg10 != 0) {
-            *(int32_t *)((char *)v1 + 0x68) = arg11;
-            isp_printf(0, "short ag_manual is %d:ag is %d\n", arg10);
-        }
-        if (arg15 != 0) {
-            *(int32_t *)((char *)v1 + 0x7c) = arg16;
-            isp_printf(0, "short dg_manual is %d:isp dg is %d\n", arg15);
-        }
-        if (arg18 != 0) {
-            *(int32_t *)((char *)v1 + 0x74) = arg14;
-            isp_printf(0, " short sdg_manual is %d:sensor dg is %d\n", arg18);
-        }
-    } else {
-        *(int32_t *)((char *)v1 + 0x6c) = arg12;
-        *(int32_t *)((char *)v1 + 0x68) = arg11;
-        *(int32_t *)((char *)v1 + 0x7c) = arg16;
-        *(int32_t *)((char *)v1 + 0x74) = arg14;
-        isp_printf(0, "short ae_manual is %d:it is %d,ag is %d,sensor dgain is %d,isp dgain is %d\n", arg13);
-    }
-    
-    *(int32_t *)0x3868 = 0;
-    return 0;
+    return t40_ae_manual_set(tisp_ae_sec_ctrls_storage, pstSecAeOri_storage, w, 1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002ae58 origin=fragment_seed original=tisp_ae_sec_manual_get */
@@ -166255,58 +166104,18 @@ int32_t tisp_awb_face_set(void)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000075224 origin=fragment_seed original=tisp_switch_bin */
+/* T40-SWITCH-BIN (#139): OEM 0x74794.  a1 = the kernel copy of IMPISPBinAttr {enable, name[64]} and goes
+ * through to tisp_core_switch_bin unchanged (the lift called it with one argument: stale path register);
+ * on success the 80-byte bin info of tsbin[vinum] is copied to tisp_tattr + 3228 + 80 * vinum (the lift
+ * applied that offset twice). */
 uint32_t tisp_switch_bin(uint32_t a0, uintptr_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    uint32_t ret = tisp_core_switch_bin((int32_t)a0, (int32_t *)a1);
+    uintptr_t src = a0 == 0 ? (uintptr_t)tsbin : 0;   /* tsbin[] has one (main) slot here */
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_core_switch_bin)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    s1 = v0;
-    if (v0 != 0) { goto tisp_switch_bin0x68; }
-
-    /* fragment 3: Arithmetic */
-    v1 = (int32_t *)&tsbin;
-    v0 = (uintptr_t)s0 << 2;
-    v1 = v1;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-
-    /* fragment 4: MemoryAccess */
-    a1 = *(uint32_t *)((char *)v0 + 0);
-
-    /* fragment 5: Branch */
-    v0 = (uintptr_t *)&tisp_tattr;
-    if (a1 == 0) { goto tisp_switch_bin0x68; }
-
-    /* fragment 6: CallSetup */
-    s0 = (uintptr_t)s0 * 80;
-    s0 = s0 + 3228;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((*(uint32_t *)((char *)(uintptr_t)&tisp_tattr)) + (((uintptr_t)s0 * 80) + 3228)), (void *)(uintptr_t)a1, 80); /* jalr target resolved by relocation */
-
-tisp_switch_bin0x68:
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 8: Arithmetic */
-    v0 = s1;
-
-    /* fragment 9: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return (uint32_t)v0;
+    if (ret == 0 && src && tisp_tattr)
+        memcpy((char *)(uintptr_t)tisp_tattr + a0 * 80U + 3228U, (const void *)src, 80);
+    return ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000752a4 origin=fragment_seed original=tisp_get_antiflicker_step */
@@ -166655,8 +166464,9 @@ int32_t tisp_get_frame_drop(int32_t arg1, int32_t arg2, int32_t *arg3)
     val1 = system_reg_read(addr1);
     val2 = system_reg_read(addr2);
 
+    /* T40-FRAME-DROP (#139): OEM 0x74b18 stores enable word, lsize BYTE at +4, fmark word at +8 */
     ((void **)arg3)[0] = 1;
-    ((void **)arg3)[1] = (int32_t)(uint8_t)val1;
+    *((uint8_t *)arg3 + 4) = (uint8_t)val1;
     ((void **)arg3)[2] = val2;
 
     return 0;

@@ -4,6 +4,23 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-29: T40 lifted ioctl handlers swept for uninitialised-pointer stores and lost arguments (`claude/issue-139`; host + QEMU T40, not device-tested)
+
+- Issue #139. New static checks: `tools/t40_uninit_gcc.sh` (the recovered file once more with
+  `-Wuninitialized -Wmaybe-uninitialized -O2`) and `tools/t40_uninit_scan.py` (stores through never-assigned local
+  pointers or frame slots, copies to user space from never-written slots, calls that lost arguments, each with its
+  call depth from the control/tuning ioctl handlers).
+- Fixed from the OEM disassembly: tuning-node AE manual set (`tisp_set_ae_info`, ioctl 0x20007405, oopsed on every call)
+  with `tisp_ae_{main,sec}_manual_set` (164-byte block by value; the sec lift ended in a store to 0x3868);
+  Get/SetFrameDrop (first entry pointer lost, channel byte); SwitchBin (`tisp_core_switch_bin` stored through
+  never-assigned pointers, `tisp_switch_bin` lost the attribute, the wrapper returned 1 on success; the pipeline-top
+  re-init is skipped because the lifted `tisp_tstp_main_init` oopses on a second run); `/dev/tisp` commands
+  0x20007402..05 (the lift tested the C return of the asm `__copy_user`, so every command failed) and its release
+  (freed NULL instead of the 20 KB parameter block). QEMU T40: SwitchBin oopsed on next (NULL store), the tuning-node
+  AE set never ran; with the fix all four cases pass, frames flow.
+- Not changed (dead code, not reached from the streamer API, or kept apart from the unmerged OSD branch): see the
+  issue. The class of lost arguments in per-frame fragments (about 380 call sites) is left for a follow-up.
+
 ## 2026-10-28 (4): T41 failed isp_malloc_buffer() no longer leaves a bogus buffer (`claude/issue-134`; host tests only, not device/QEMU-verified)
 
 - Issue #134: with no ISP private pool (`ispmem` unset, e.g. QEMU 64M) `isp_malloc_buffer()` returns 0. t41_rawinject already
