@@ -107584,7 +107584,7 @@ int32_t tisp_dpc_all_reg_refresh(uint32_t a0, uint32_t a1)
 
     /* fragment 1: CallSetup */
     s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_dpc_intp)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_dpc_intp)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_dpc_noref_reg_cfg)(s0); /* jalr target resolved by relocation */
@@ -107630,7 +107630,7 @@ int32_t tisp_dpc_intp_reg_refresh(uint32_t a0, uint32_t a1)
 
     /* fragment 1: CallSetup */
     s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_dpc_intp)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_dpc_intp)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_dpc_ref_reg_cfg)(s0); /* jalr target resolved by relocation */
@@ -107758,7 +107758,7 @@ int32_t tisp_dpc_refresh(uint32_t a0, uint32_t a1)
 
     /* fragment 0: CallSetup */
     s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_dpc_par_refresh)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_dpc_par_refresh(a0, a1, 256); /* OEM 0x435f8: a2 = .data+0x2bfb0 (DPC gain threshold, 256 from .data init and dpc_remove); a1 = caller gain */
 
     /* fragment 1: Arithmetic */
     v1 = (int32_t *)&sclk_name;
@@ -111340,7 +111340,7 @@ int32_t tisp_dmsc_all_reg_refresh(uint32_t a0, uint32_t a1)
 
     /* fragment 1: CallSetup */
     s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_dmsc_intp)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_dmsc_intp)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_dmsc_noref_reg_cfg)(s0); /* jalr target resolved by relocation */
@@ -142678,7 +142678,7 @@ int32_t tisp_mdns_all_reg_refresh(uint32_t a0, uint32_t a1)
 
     /* fragment 1: CallSetup */
     s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_mdns_intp)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_mdns_intp)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 2: Epilogue */
     /* function epilogue: restore registers and return */
@@ -146163,7 +146163,7 @@ int32_t tisp_sdns_all_reg_refresh(uint32_t a0, uint32_t a1)
 
     /* fragment 1: CallSetup */
     s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_sdns_intp)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_sdns_intp)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_sdns_noref_reg_cfg)(s0); /* jalr target resolved by relocation */
@@ -146209,7 +146209,7 @@ int32_t tisp_sdns_intp_reg_refresh(uint32_t a0, uint32_t a1)
 
     /* fragment 1: CallSetup */
     s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_sdns_intp)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_sdns_intp)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_sdns_ref_reg_cfg)(s0); /* jalr target resolved by relocation */
@@ -146340,7 +146340,7 @@ int32_t tisp_sdns_refresh(uint32_t a0, uint32_t a1)
 
     /* fragment 1: CallSetup */
     s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_sdns_par_refresh)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_sdns_par_refresh(a0, a1, 256); /* OEM 0x62f44: li a2,256; a1 = caller gain */
 
     /* fragment 2: Arithmetic */
     v1 = (int32_t *)&sclk_name;
