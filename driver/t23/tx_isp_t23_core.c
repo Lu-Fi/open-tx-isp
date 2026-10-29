@@ -15732,6 +15732,9 @@ module_param_named(isp_osd, t23_isp_osd, bool, 0644);
 MODULE_PARM_DESC(isp_osd, "write ISP OSD pictures into the MSCA per frame (1, default) or only store them (0)");
 static unsigned int t23_osd_commits;
 module_param_named(osd_commits, t23_osd_commits, uint, 0444);
+static unsigned int t23_mask_word;      /* stock mask_en: channel bits, never cleared */
+static unsigned int t23_mask_commits;
+module_param_named(mask_commits, t23_mask_commits, uint, 0444);
 static unsigned int t23_osd_busy_skips;
 module_param_named(osd_busy_skips, t23_osd_busy_skips, uint, 0444);
 /* set while the MSCA curve loader owns the shadow port 0xe004 */
@@ -15753,7 +15756,7 @@ static void t23_osd_commit(void)
     if (!ACCESS_ONCE(t23_isp_osd))
         return;
     spin_lock(&t23_osd_lock);
-    if (!t23_osd_dirty(mscaler))
+    if (!t23_osd_dirty(mscaler) && !t23_mask_dirty(mscaler) && !t23_draw_dirty(mscaler))
         goto out;
     if (ACCESS_ONCE(t23_msca_port_owned) ||
         ((system_reg_read(T23_MSCA_SHD_KICK) |
@@ -15763,7 +15766,20 @@ static void t23_osd_commit(void)
         goto out;
     }
     system_reg_write(T23_MSCA_SHD_CTRL, T23_MSCA_SHD_OPEN);
+    /* stock tisp_msca_set_omi_api: OSD pictures, mask blocks, draw blocks */
     pairs = t23_osd_emit(mscaler, t23_osd_pair, NULL);
+    if (pairs >= 0) {
+        int mpairs = t23_mask_emit(mscaler, t23_osd_pair, NULL, &t23_mask_word);
+
+        if (mpairs > 0)
+            t23_mask_commits++;
+        pairs = mpairs < 0 ? mpairs : pairs + mpairs;
+    }
+    if (pairs >= 0) {
+        int dpairs = t23_draw_emit(mscaler, t23_osd_pair, NULL);
+
+        pairs = dpairs < 0 ? dpairs : pairs + dpairs;
+    }
     system_reg_write(T23_MSCA_SHD_CTRL, T23_MSCA_SHD_CLOSE);
     if (pairs > 0) {
         system_reg_write(T23_MSCA_SHD_KICK,
@@ -15781,6 +15797,7 @@ static void t23_osd_restart(void)
 
     spin_lock_irqsave(&t23_osd_lock, flags);
     t23_osd_mark_enabled(mscaler);
+    t23_mask_mark_enabled(mscaler);
     spin_unlock_irqrestore(&t23_osd_lock, flags);
 }
 /* tx_isp_t23_tuning_ext.inc */

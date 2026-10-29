@@ -187,4 +187,229 @@ static inline int t23_osd_emit(uint8_t *m, t23_osd_pair_fn write, void *ctx)
 	return pairs;
 }
 
+/*
+ * Mask (cover) blocks, stored by SetMaskBlock (0x08000183,
+ * tx_isp_t23_tuning_ext.h): mscaler @1836 + 16 (4 c + i), channel c 0..2,
+ * block i 0..3: u8 enable, u16 left @2, top @4, width @6, height @8,
+ * u32 colour @12 (Y << 16 | U << 8 | V); dirty word @2308, bit 4 c + i.
+ *
+ * stock tisp_msca_api_set_mask (libt23-firmware 1.3.0, called by
+ * tisp_msca_set_omi_api after the OSD pictures when the dirty word is not
+ * zero) emits, per channel c and per dirty block i, the pairs
+ *   left << 16 | top                      -> 0x400 + 64 c + 16 i
+ *   colour                                -> 0x408 + 64 c + 16 i
+ *   width << 16 | height (0 if disabled)  -> 0x404 + 64 c + 16 i
+ * and after the four blocks of each channel the mask word -> 0x044: the
+ * channel bits (bit c = one of the channel's blocks enabled) OR-ed into a
+ * word that is never cleared.  Kept as stock (audit/mask_commit_emu.py: the
+ * write list is identical): a block is removed by its zero size, which on
+ * the camera removes the cover (.30, 2026-10-29: 123 -> 235 shown, 123 off).
+ */
+#define T23_MASK_OFF		1836U
+#define T23_MASK_STRIDE		16U
+#define T23_MASK_DIRTY_OFF	2308U
+#define T23_MASK_CHANNELS	3U
+#define T23_MASK_PER_CHANNEL	4U
+#define T23_MASK_REG_BLOCK	0x400U
+#define T23_MASK_REG_ENABLE	0x044U
+/* the most pairs one mask update emits: 12 blocks x 3 + 3 enable words */
+#define T23_MASK_MAX_PAIRS	(3U * T23_MASK_CHANNELS * T23_MASK_PER_CHANNEL + T23_MASK_CHANNELS)
+
+static inline const uint8_t *t23_mask_block(const uint8_t *m, unsigned int idx)
+{
+	return m + T23_MASK_OFF + T23_MASK_STRIDE * idx;
+}
+
+static inline unsigned int t23_mask_dirty(const uint8_t *m)
+{
+	return t23_osd_rd32(m + T23_MASK_DIRTY_OFF) &
+	       ((1U << (T23_MASK_CHANNELS * T23_MASK_PER_CHANNEL)) - 1U);
+}
+
+static inline unsigned int t23_mask_channel_on(const uint8_t *m, unsigned int c)
+{
+	unsigned int i;
+
+	for (i = 0; i < T23_MASK_PER_CHANNEL; ++i)
+		if (t23_mask_block(m, c * T23_MASK_PER_CHANNEL + i)[0] == 1U)
+			return 1U;
+	return 0U;
+}
+
+/* Output start: an ISP reset may have cleared the mask registers. */
+static inline void t23_mask_mark_enabled(uint8_t *m)
+{
+	unsigned int idx, mask = 0;
+
+	for (idx = 0; idx < T23_MASK_CHANNELS * T23_MASK_PER_CHANNEL; ++idx)
+		if (t23_mask_block(m, idx)[0] == 1U)
+			mask |= 1U << idx;
+	if (mask)
+		t23_osd_wr32(m + T23_MASK_DIRTY_OFF,
+			     t23_osd_rd32(m + T23_MASK_DIRTY_OFF) | mask);
+}
+
+/*
+ * tisp_msca_api_set_mask: nothing when no block is dirty, else the pairs
+ * above in the stock order; *word is the static mask word (stock mask_en);
+ * the dirty bits are cleared when all went out.
+ * Returns the number of pairs, 0 for nothing to do, or a negative write
+ * error (dirty bits kept).
+ */
+static inline int t23_mask_emit(uint8_t *m, t23_osd_pair_fn write, void *ctx,
+				unsigned int *word)
+{
+	unsigned int dirty = t23_mask_dirty(m);
+	unsigned int c, i;
+	int pairs = 0;
+	int ret;
+
+	if (!dirty)
+		return 0;
+	for (c = 0; c < T23_MASK_CHANNELS; ++c) {
+		for (i = 0; i < T23_MASK_PER_CHANNEL; ++i) {
+			unsigned int idx = c * T23_MASK_PER_CHANNEL + i;
+			unsigned int reg = T23_MASK_REG_BLOCK + 64U * c + 16U * i;
+			const uint8_t *b = t23_mask_block(m, idx);
+
+			if (!(dirty & (1U << idx)))
+				continue;
+			ret = write(ctx, (t23_osd_rd16(b + 2) << 16) | t23_osd_rd16(b + 4), reg);
+			if (!ret)
+				ret = write(ctx, t23_osd_rd32(b + 12), reg + 8U);
+			if (!ret)
+				ret = write(ctx, b[0] ? (t23_osd_rd16(b + 6) << 16) | t23_osd_rd16(b + 8) : 0U,
+					    reg + 4U);
+			if (ret)
+				return ret;
+			pairs += 3;
+		}
+		*word |= t23_mask_channel_on(m, c) << c;
+		ret = write(ctx, *word, T23_MASK_REG_ENABLE);
+		if (ret)
+			return ret;
+		pairs++;
+	}
+	t23_osd_wr32(m + T23_MASK_DIRTY_OFF, t23_osd_rd32(m + T23_MASK_DIRTY_OFF) & ~dirty);
+	return pairs;
+}
+
+/*
+ * Draw blocks (lines / windows), stored by SetDrawBlock (0x08000180,
+ * tx_isp_t23_tuning_ext.h): six 24-byte entries at mscaler @2028 + 24 n:
+ *   +0 u8 type (0 window, 1 range window, 2 line), +4 u8 flags,
+ *   +6 u16 x0, +8 y0, +10 x1, +12 y1, +16 u32 colour (24 bit), +20 u8 alpha
+ *   (line: also the thickness of a horizontal / vertical line), +21 u8 line
+ *   width, +22 u16 extra (type 1); dirty word @2312, bit n.
+ *
+ * stock tisp_msca_api_set_line (libt23-firmware 1.3.0, after the masks in
+ * tisp_msca_set_omi_api) emits per dirty block n of type 0..2 four pairs
+ *   start x << 16 | y          -> 0x4c0 + 16 n
+ *   end / size                 -> 0x4c4 + 16 n
+ *   colour | alpha << 24       -> 0x4c8 + 16 n
+ *   control                    -> 0x4cc + 16 n
+ * type 0: (x0,y0), (x1,y1), control = width << 8 | flags;
+ * type 1: the same points, control = extra << 16 | width << 8 |
+ *         type << 4 | flags;
+ * type 2: start = (smaller-x end point's x, min y), size = |dx| << 16 |
+ *         dy (16-bit signed; for a horizontal or vertical line |dx| / |dy|
+ *         with a zero replaced by the alpha byte, control = width << 8 |
+ *         flags); a sloped line: control = (flags | 0x20) | width << 8 |
+ *         (octant << 9 | slope * 256) << 16, octant / slope 0 and dy
+ *         unsigned-folded only when the flag byte is not 0.  Other types: the dirty bit is cleared,
+ *         nothing written (stock).
+ */
+#define T23_DRAW_OFF		2028U
+#define T23_DRAW_STRIDE		24U
+#define T23_DRAW_DIRTY_OFF	2312U
+#define T23_DRAW_BLOCKS		6U
+#define T23_DRAW_REG_BLOCK	0x4c0U
+#define T23_DRAW_MAX_PAIRS	(4U * T23_DRAW_BLOCKS)
+
+static inline unsigned int t23_draw_dirty(const uint8_t *m)
+{
+	return t23_osd_rd32(m + T23_DRAW_DIRTY_OFF) & ((1U << T23_DRAW_BLOCKS) - 1U);
+}
+
+static inline int t23_draw_emit(uint8_t *m, t23_osd_pair_fn write, void *ctx)
+{
+	unsigned int dirty = t23_draw_dirty(m), n;
+	int pairs = 0;
+
+	if (!dirty)
+		return 0;
+	for (n = 0; n < T23_DRAW_BLOCKS; ++n) {
+		const uint8_t *e = m + T23_DRAW_OFF + T23_DRAW_STRIDE * n;
+		unsigned int reg = T23_DRAW_REG_BLOCK + 16U * n;
+		unsigned int x0 = t23_osd_rd16(e + 6), y0 = t23_osd_rd16(e + 8);
+		unsigned int x1 = t23_osd_rd16(e + 10), y1 = t23_osd_rd16(e + 12);
+		unsigned int colour = (t23_osd_rd32(e + 16) & 0xffffffU) | ((unsigned int)e[20] << 24);
+		unsigned int start, size, ctrl;
+		int ret;
+
+		if (!(dirty & (1U << n)))
+			continue;
+		t23_osd_wr32(m + T23_DRAW_DIRTY_OFF, t23_osd_rd32(m + T23_DRAW_DIRTY_OFF) & ~(1U << n));
+		if (e[0] == 0U) {
+			start = x0 << 16 | y0;
+			size = x1 << 16 | y1;
+			ctrl = (unsigned int)e[21] << 8 | e[4];
+		} else if (e[0] == 1U) {
+			start = x0 << 16 | y0;
+			size = x1 << 16 | y1;
+			ctrl = t23_osd_rd16(e + 22) << 16 | (unsigned int)e[21] << 8 |
+			       (unsigned int)e[0] << 4 | e[4];
+		} else if (e[0] == 2U) {
+			int32_t dx = (int16_t)(uint16_t)(x1 - x0), dy = (int16_t)(uint16_t)(y1 - y0);
+			unsigned int sx = x0, sy = y1 < y0 ? y1 : y0;
+
+			if (x1 < x0) {
+				/* stock negates the 16-bit masked differences */
+				dx = (int16_t)(uint16_t)(0U - ((x1 - x0) & 0xffffU));
+				dy = (int16_t)(uint16_t)(0U - ((y1 - y0) & 0xffffU));
+				sx = x1;
+			}
+			if (dy == 0 || dx == 0) {
+				dy = (int16_t)(dy < 0 ? -dy : dy);
+				if (dy == 0)
+					dy = e[20];
+				if (dx == 0)
+					dx = e[20];
+				ctrl = (unsigned int)e[21] << 8 | e[4];
+			} else {
+				unsigned int oct = 0, slope = 0;
+
+				if (e[4] == 0U)
+					;       /* stock: no octant / slope, dy keeps its sign */
+				else if (dy < 0) {
+					dy = (int16_t)-dy;
+					if (dx < dy) { slope = (unsigned int)((dx << 8) / dy); oct = 3; }
+					else { slope = (unsigned int)((dy << 8) / dx); oct = 1; }
+				} else if (dx < dy) {
+					slope = (unsigned int)((dx << 8) / dy); oct = 2;
+				} else {
+					slope = (unsigned int)((dy << 8) / dx); oct = 0;
+				}
+				ctrl = ((e[4] | 0x20U) & 0xffU) | (unsigned int)e[21] << 8 |
+				       ((oct << 9 | (slope & 0xffffU)) << 16);
+			}
+			start = sx << 16 | (sy & 0xffffU);
+			size = ((unsigned int)dx << 16) | (unsigned int)dy;
+		} else {
+			continue;
+		}
+		ret = write(ctx, start, reg);
+		if (!ret)
+			ret = write(ctx, size, reg + 4U);
+		if (!ret)
+			ret = write(ctx, colour, reg + 8U);
+		if (!ret)
+			ret = write(ctx, ctrl, reg + 12U);
+		if (ret)
+			return ret;
+		pairs += 4;
+	}
+	return pairs;
+}
+
 #endif /* TX_ISP_T23_OSD_H */

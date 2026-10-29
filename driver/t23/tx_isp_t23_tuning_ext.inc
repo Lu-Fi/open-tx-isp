@@ -515,9 +515,10 @@ static long t23x_awb_control(bool get, uint32_t id, uint32_t *value)
 /*
  * Set/GetMaskBlock (0x08000183) on the stock mscaler table, see
  * tx_isp_t23_tuning_ext.h.  The user block is exactly the public struct (20
- * bytes).  Set stores the block and marks it for the mscaler update; this
- * driver does not run that update (tisp_msca_Shd_ctrl of the stock IRQ
- * thread), so a stored mask has no image effect yet.
+ * bytes).  Set stores the block and marks it dirty; the core frame-done
+ * interrupt writes it into the MSCA (t23_osd_commit -> t23_mask_emit,
+ * tx_isp_t23_osd.h; stock tisp_msca_Shd_ctrl -> tisp_msca_set_omi_api ->
+ * tisp_msca_api_set_mask), so the table is changed under t23_osd_lock.
  */
 static DEFINE_MUTEX(t23x_mask_mutex);
 
@@ -532,10 +533,16 @@ static long t23x_mask_block(bool get, uint32_t uptr)
 	if (ret)
 		return ret;
 	mutex_lock(&t23x_mask_mutex);
-	if (get)
-		ret = t23x_mask_block_get(mscaler, blk, out);
-	else
-		ret = t23x_mask_block_set(mscaler, blk);
+	{
+		unsigned long flags;
+
+		spin_lock_irqsave(&t23_osd_lock, flags);
+		if (get)
+			ret = t23x_mask_block_get(mscaler, blk, out);
+		else
+			ret = t23x_mask_block_set(mscaler, blk);
+		spin_unlock_irqrestore(&t23_osd_lock, flags);
+	}
 	mutex_unlock(&t23x_mask_mutex);
 	if (ret)
 		return ret;
@@ -550,8 +557,9 @@ static long t23x_mask_block(bool get, uint32_t uptr)
  * tx_isp_t23_tuning_ext.h (emulator audit: audit/osd_draw_emu.py).  The
  * OSD pictures (attribute + blocks) are written into the MSCA by the next
  * frame-done interrupt (t23_osd_commit, tx_isp_t23_osd.h, stock
- * tisp_msca_api_set_osd).  Like the mask blocks, a stored draw block has
- * no image effect yet (stock tisp_msca_api_set_line is not run).
+ * tisp_msca_api_set_osd); the draw blocks and the mask blocks go out in
+ * the same update (t23_draw_emit / t23_mask_emit, stock
+ * tisp_msca_api_set_line / _set_mask).
  * Shares the mask mutex: the three controls and the mask blocks work on
  * the same object.
  */
