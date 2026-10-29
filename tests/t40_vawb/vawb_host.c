@@ -226,7 +226,7 @@ static u64 vawb_s_tisp_awb_long_alogrithm(u32 a0, u32 a1, u32 a2, u32 a3, u32 cs
 	la_fuzz((u32 *)(uintptr_t)a0);
 	memcpy(la_si, inter, sizeof(la_si)); memcpy(la_so, outer, sizeof(la_so));
 	f0 = vawb_faults;
-	rv = vref_tisp_awb_long_alogrithm(a0, a1, a2, a3, csp);
+	rv = vlref_tisp_awb_long_alogrithm(a0, a1, a2, a3, csp);
 	fr = vawb_faults - f0;
 	memcpy(la_ti, inter, sizeof(la_ti)); memcpy(la_to, outer, sizeof(la_to));
 	memcpy(inter, la_si, sizeof(la_si)); memcpy(outer, la_so, sizeof(la_so));

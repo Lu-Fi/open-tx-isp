@@ -7,6 +7,7 @@
 # the statistics / tuning switches (issue 133).
 # LA_REF=<git ref>: tisp_awb_long_alogrithm C (tx_isp_t40_awb_long.inc) vs the translated OEM code of
 # that ref (the last one that generated it, e.g. 316259cb) on every call; FUZZL=seed varies its state.
+# (Not together with FUZZ: that one re-randomises the ct_detect inputs on each of the two calls.)
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd); D=$HERE/../driver/t40; W=$(mktemp -d); trap 'rm -rf $W' EXIT
 sed -n '/^#include "tx_isp_t40_vawb_gen.inc"/q;p' $D/tx_isp_t40_vawb.h > $W/top.h
@@ -19,15 +20,15 @@ sed -i -e 's/a >= 0x80000000U \&\& a < 0xfffff000U \&\& !(a \& align)/harness_ok
        -e 's/^static u32 vawb_wide_tele_awb_gain\[3\] = /static u32 vawb_wide_tele_awb_gain[3] VD = /' $W/top.h
 echo '#endif' >> $W/top.h
 if [ -n "$LA_REF" ]; then
-	# reference: the translated OEM long_alogrithm closure of $LA_REF, renamed vref_* (ct_detect: the C one)
+	# reference: the translated OEM long_alogrithm closure of $LA_REF, renamed vlref_* (ct_detect: the C one)
 	FNS="tisp_awb_long_alogrithm tisp_awb_sat_weight fix_point_div fix_point_mult2_32"
 	git -C $HERE/.. show $LA_REF:driver/t40/tx_isp_t40_vawb_gen.inc > $W/laref_all.inc
 	: > $W/laref.inc
-	for f in $FNS; do echo "u64 vref_$f(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);" >> $W/laref.inc; done
+	for f in $FNS; do echo "u64 vlref_$f(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);" >> $W/laref.inc; done
 	for f in $FNS; do awk -v f="$f" '!p && $0 ~ "^u64 noinline vawb_" f "\\(" {p=1} p {print} p && /^}/ {exit}' $W/laref_all.inc; done > $W/laref_fns.inc
-	SED=; for f in $FNS; do SED="$SED -e s/\\bvawb_$f\\b/vref_$f/g"; done
+	SED=; for f in $FNS; do SED="$SED -e s/\\bvawb_$f\\b/vlref_$f/g"; done
 	sed $SED $W/laref_fns.inc >> $W/laref.inc
-	grep -q "^u64 noinline vref_tisp_awb_long_alogrithm" $W/laref.inc || { echo "LA_REF $LA_REF has no translated long_alogrithm"; exit 2; }
+	grep -q "^u64 noinline vlref_tisp_awb_long_alogrithm" $W/laref.inc || { echo "LA_REF $LA_REF has no translated long_alogrithm"; exit 2; }
 fi
 # the C fix-point helpers of the driver (used by tx_isp_t40_awb_ctd.inc)
 for f in fix_point_div_32 fix_point_div fix_point_mult2_32 fix_point_mult3_32; do
@@ -38,7 +39,7 @@ XDEF=
 if [ -n "$CTD_REF" ]; then
 	# reference: the translated OEM ct_detect closure of $CTD_REF, renamed vref_*
 	FNS="tisp_awb_ct_detect ISPAWBInterpolation1 ISPAWBInterpolation2 Tiziano_Awb_Ct_Cal Tiziano_Awb_Ct_Detect_GrayWorld
-	     Tiziano_Awb_Ct_Detect_GrayWorld_mode func_zone_ct_weight fix_point_div_32 fix_point_div_64 fix_point_mult3_32"
+	     Tiziano_Awb_Ct_Detect_GrayWorld_mode func_zone_ct_weight fix_point_div_32 fix_point_div_64 fix_point_mult3_32 fix_point_div"
 	git -C $HERE/.. show $CTD_REF:driver/t40/tx_isp_t40_vawb_gen.inc > $W/ref_all.inc
 	: > $W/ref.inc
 	for f in $FNS; do echo "u64 vref_$f(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);" >> $W/ref.inc; done
