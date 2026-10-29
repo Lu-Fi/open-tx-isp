@@ -1594,6 +1594,11 @@ static struct class *cls;
 #define REGTRACE_SENSOR_CTRL_MAIN_BYTES 0x1a8
 static int16_t mscaler_s0[REGTRACE_MSCA_STATE_BYTES / sizeof(int16_t)];
 static int16_t mscaler_s1[REGTRACE_MSCA_STATE_BYTES / sizeof(int16_t)];
+static inline char *t40_osd_state(int sel)
+{
+    return (char *)(sel ? mscaler_s1 : mscaler_s0);
+}
+
 static unsigned char tispSecdInfo[REGTRACE_TISP_INFO_SIZE] __attribute__((aligned(4)));
 static unsigned char tispinfo[REGTRACE_TISP_INFO_SIZE] __attribute__((aligned(4)));
 static uint32_t tiziano_enable;
@@ -8426,9 +8431,8 @@ int64_t tisp_s_autozoom_control(uint32_t a0, uintptr_t a1);
 int32_t tisp_g_autozoom_control(int32_t arg1, uint32_t* arg2);
 int32_t tisp_s_mscaler_mask_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_g_mscaler_mask_attr(int32_t arg1, char *arg2);
-int32_t tisp_s_osd_attr(uint32_t a0, uintptr_t a1, uint32_t a2, uint32_t a3);
+int32_t tisp_s_osd_attr(int32_t chn, void *attr);
 int32_t tisp_g_osd_attr(int32_t arg1, uint32_t *arg2);
-int tisp_s_osd_single_pic(int arg1, int arg2, int arg3, char *arg4);
 int32_t tisp_g_osd_single_pic(int32_t arg1, int32_t arg2, int32_t arg3, uint8_t *arg4);
 int32_t tisp_s_osd_single_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_g_osd_single_attr(uint32_t a0, uintptr_t a1);
@@ -46943,7 +46947,8 @@ tx_isp_osd_g_attr_isra_360x78:
 
 tx_isp_osd_g_attr_isra_360x8c:
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), __p_18); /* jalr target resolved by relocation */
+    /* T40-OSD-G: the OEM sets a2 = length in the delay slot; the lift dropped it and copy_to_user ran with a stale a2 */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), (uintptr_t)__p_18, 408);
 
     /* fragment 9: Branch */
     s0 = v0;
@@ -47028,7 +47033,8 @@ tx_isp_single_osd_g_attr_isra_370x78:
 
 tx_isp_single_osd_g_attr_isra_370x8c:
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), __p_18); /* jalr target resolved by relocation */
+    /* T40-OSD-G: the OEM sets a2 = length in the delay slot; the lift dropped it and copy_to_user ran with a stale a2 */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), (uintptr_t)__p_18, 44);
 
     /* fragment 9: Branch */
     s0 = v0;
@@ -47113,7 +47119,8 @@ tx_isp_draw_g_attr_isra_380x78:
 
 tx_isp_draw_g_attr_isra_380x8c:
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), __p_18); /* jalr target resolved by relocation */
+    /* T40-OSD-G: the OEM sets a2 = length in the delay slot; the lift dropped it and copy_to_user ran with a stale a2 */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(*(uint32_t *)((char *)(s1) + 0), (uintptr_t)__p_18, 896);
 
     /* fragment 9: Branch */
     s0 = v0;
@@ -48375,7 +48382,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
                 return -1;
             }
 
-            int s2_1 = *(int *)((char **)arg2 + 0x10c / sizeof(uintptr_t));
+            int s2_1 = *(int *)((char *)*arg2 + 0x10c);   /* T40-OSD-S: OEM a7b4: lw v0,0(s2); lw s2,268(v0) = *(*arg2 + 0x10c), not arg2 + 0x10c */
             int v0_7 = copy_from_user(&var_88, (void __user *)arg3[1], 0xa);
             s1_1 = v0_7;
 
@@ -48451,7 +48458,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
                 return -1;
             }
 
-            void *s2_2 = *(void **)((char **)arg2 + 0x10c / sizeof(void *));
+            void *s2_2 = *(void **)((char *)*arg2 + 0x10c);   /* T40-OSD-S: OEM a7b4: lw v0,0(s2); lw s2,268(v0) = *(*arg2 + 0x10c), not arg2 + 0x10c */
             memset(&var_88, 0, 0x2c);
             int v0_9 = copy_from_user(&var_88, (void __user *)arg3[1], 0x2c);
             s1_1 = v0_9;
@@ -49068,18 +49075,18 @@ label_c33c_vfree:
 
         if (cmd >= 0x800009c) {
             if (cmd == 0x80000a1) {
-                return tx_isp_osd_g_attr_isra_36(arg1, arg3[1]);
+                return tx_isp_osd_g_attr_isra_36(arg1, (uintptr_t)&arg3[1]);   /* T40-OSD-G: OEM passes &wire[1]; the isra loads the user pointer from it */
             }
 
             if (cmd < 0x80000a2) {
                 if (cmd != 0x80000a0) {
                     return 0xffffffff;
                 }
-                return tx_isp_draw_g_attr_isra_38(arg1, arg3[1]);
+                return tx_isp_draw_g_attr_isra_38(arg1, (uintptr_t)&arg3[1]);
             }
 
             if (cmd == 0x80000a2) {
-                return tx_isp_single_osd_g_attr_isra_37(arg1, arg3[1]);
+                return tx_isp_single_osd_g_attr_isra_37(arg1, (uintptr_t)&arg3[1]);
             }
 
             if (cmd != 0x80000a4) {
@@ -164001,819 +164008,308 @@ int32_t tisp_g_mscaler_mask_attr(int32_t arg1, char *arg2)
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000733e8 origin=fragment_seed original=tisp_s_osd_attr */
-int32_t tisp_s_osd_attr(uint32_t a0, uintptr_t a1, uint32_t a2, uint32_t a3)
+static uint8_t t40_osd_img_owned[2][2][8];   /* [mscaler sel][chx][pic]: the slot image was kmalloc'ed by tisp_s_osd_attr */
+static void t40_osd_img_release(int sel, int ch, int p, char *ent)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_a4 = 0;
-    uint32_t local_a8 = 0;
-    uint32_t local_ac = 0;
-    uint32_t *local_b0 = 0;
-    uint32_t local_b4 = 0;
-    uint32_t local_b8 = 0;
-    uint32_t local_bc = 0;
-    uint32_t local_c0 = 0;
-    uint32_t local_c8 = 0;
-    uint32_t local_cc = 0;
-    uint32_t local_d0 = 0;
-    uint32_t local_d4 = 0;
-    uint32_t local_d8 = 0;
-    uint32_t local_dc = 0;
-    uint32_t local_e0 = 0;
-    uint32_t local_e4 = 0;
-    uint32_t local_e8 = 0;
-    uint32_t local_ec = 0;
-    uint32_t at = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uintptr_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uintptr_t s8 = 0;
-    uint32_t *t1 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    if (a0 == 0) { goto tisp_s_osd_attr0x12c; }
-
-    /* fragment 2: ConstantLoad */
-    s0 = 0x0;
-
-tisp_s_osd_attr0x38:
-    /* fragment 3: ConstantLoad */
-    v0 = 0x0;
-
-    /* fragment 4: StackAccess */
-    local_ac = v0;
-    v0 = (uintptr_t *)&isp_printf;
-    v0 = v0;
-    s3 = a1;
-    s5 = 0;
-    local_a4 = 0;
-    local_b8 = v0;
-
-tisp_s_osd_attr0x5c:
-    /* fragment 5: Arithmetic */
-    v0 = (uintptr_t *)&__param_str_isp_dual_buf;
-    s1 = s3;
-    s8 = s0;
-
-    /* fragment 6: StackAccess */
-    local_a8 = 0;
-    s6 = 0;
-    local_bc = v0;
-
-tisp_s_osd_attr0x74:
-    /* fragment 7: MemoryAccess */
-    s7 = *(uint32_t *)((char *)s8 + 492);
-    v0 = *(uint32_t *)((char *)s1 + 28);
-    a0 = *(uint8_t *)((char *)s1 + 12);
-    a1 = 1;
-    t1 = s7;
-
-    /* fragment 8: Branch */
-    v0 = v0 < 2;
-    if (a0 != a1) { goto tisp_s_osd_attr0x43c; }
-
-    /* fragment 9: Branch */
-    int _bc_v0_9 = v0 == 0;
-    v0 = local_a4;
-    if (_bc_v0_9) { goto tisp_s_osd_attr0x444; }
-
-    /* fragment 10: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s8 + 488);
-    a1 = *(uint16_t *)((char *)s0 + 32);
-    v0 = a1 < v0;
-
-    /* fragment 11: Branch */
-    a2 = local_a4;
-    if (v0 != 0) { goto tisp_s_osd_attr0xc0; }
-
-    /* fragment 12: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s8 + 490);
-    a1 = *(uint16_t *)((char *)s0 + 34);
-    v0 = a1 < v0;
-
-    /* fragment 13: Branch */
-    if (v0 == 0) { goto tisp_s_osd_attr0x138; }
-
-tisp_s_osd_attr0xc0:
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC9); /* jalr target resolved by relocation */
-
-tisp_s_osd_attr0xd8:
-    /* fragment 15: Arithmetic */
-    s6 = s6 + 1;
-    v0 = 8;
-    s8 = s8 + 16;
-
-    /* fragment 16: Branch */
-    s1 = s1 + 24;
-    if (s6 != v0) { goto tisp_s_osd_attr0x74; }
-
-    /* fragment 17: StackAccess */
-    v0 = local_a8;
-
-    /* fragment 18: Branch */
-    int _bc_v0_18 = v0 <= 0;
-    v0 = local_a4;
-    if (_bc_v0_18) { goto tisp_s_osd_attr0x114; }
-
-    /* fragment 19: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s3 + 0);
-    *(uint8_t *)((char *)s0 + 612) = v0;
-    v0 = *(uint32_t *)((char *)s3 + 4);
-    *(uint8_t *)((char *)s0 + 613) = v0;
-    v0 = *(uint32_t *)((char *)s3 + 8);
-    *(uint8_t *)((char *)s0 + 614) = v0;
-    v0 = local_a4;
-
-tisp_s_osd_attr0x114:
-    /* fragment 20: Arithmetic */
-    s3 = s3 + 204;
-
-    /* fragment 21: Branch */
-    s0 = s0 + 616;
-    if (v0 != 0) { goto tisp_s_osd_attr0x4a0; }
-
-    /* fragment 22: Arithmetic */
-    v0 = 1;
-
-    /* fragment 23: Branch */
-    local_a4 = v0;
-    goto tisp_s_osd_attr0x5c;
-
-tisp_s_osd_attr0x12c:
-    /* fragment 24: Arithmetic */
-    s0 = (uintptr_t *)&mscaler_s0;
-
-    /* fragment 25: Branch */
-    s0 = (uintptr_t *)&mscaler_s0;
-    goto tisp_s_osd_attr0x38;
-
-tisp_s_osd_attr0x138:
-    /* fragment 26: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 24);
-
-    /* fragment 27: Branch */
-    if (v0 == 0) { goto tisp_s_osd_attr0xd8; }
-
-    /* fragment 28: MemoryAccess */
-    *(uint8_t *)((char *)s8 + 498) = a0;
-    a3 = *(uint16_t *)((char *)s1 + 14);
-    *(uint16_t *)((char *)s8 + 484) = a3;
-    a2 = *(uint16_t *)((char *)s1 + 16);
-    *(uint16_t *)((char *)s8 + 486) = a2;
-    a0 = *(uint16_t *)((char *)s1 + 18);
-    *(uint16_t *)((char *)s8 + 488) = a0;
-    v0 = *(uint16_t *)((char *)s1 + 20);
-    a0 = a3 + a0;
-    *(uint16_t *)((char *)s8 + 490) = v0;
-    a1 = *(uint16_t *)((char *)s0 + 32);
-    a0 = a1 < a0;
-
-    /* fragment 29: Branch */
-    a1 = a1 - a3;
-    if (a0 == 0) { goto tisp_s_osd_attr0x180; }
-
-    /* fragment 30: MemoryAccess */
-    *(uint16_t *)((char *)s8 + 488) = a1;
-
-tisp_s_osd_attr0x180:
-    /* fragment 31: MemoryAccess */
-    a0 = *(uint16_t *)((char *)s0 + 34);
-    v0 = a2 + (uintptr_t)v0;
-    v0 = a0 < v0;
-
-    /* fragment 32: Branch */
-    a0 = a0 - a2;
-    if (v0 == 0) { goto tisp_s_osd_attr0x198; }
-
-    /* fragment 33: MemoryAccess */
-    *(uint16_t *)((char *)s8 + 490) = a0;
-
-tisp_s_osd_attr0x198:
-    /* fragment 34: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 28);
-
-    /* fragment 35: Branch */
-    if (v0 != 0) { goto tisp_s_osd_attr0x390; }
-
-    /* fragment 36: Arithmetic */
-    s2 = (uintptr_t *)&local_20;
-    a0 = s2;
-
-    /* fragment 37: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s1 + 24);
-
-tisp_s_osd_attr0x1b0:
-    /* fragment 38: MemoryAccess */
-    at = *(uint8_t *)((char *)v0 + 0);
-    v0 = v0 + 1;
-    *(uint8_t *)((char *)a0 + 0) = at;
-
-    /* fragment 39: Branch */
-    a0 = a0 + 1;
-    if (at != 0) { goto tisp_s_osd_attr0x1b0; }
-
-    /* fragment 40: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_filp_open)(s2, 0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 41: Arithmetic */
-    s5 = v0;
-    v0 = v0 < -4095;
-
-    /* fragment 42: Branch */
-    int _bc_v0_42 = v0 != 0;
-    v0 = 920;
-    if (_bc_v0_42) { goto tisp_s_osd_attr0x250; }
-
-    /* fragment 43: CallSetup */
-    local_14 = v0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC10, &__param_str_isp_dual_buf, 920); /* jalr target resolved by relocation */
-
-    /* fragment 44: Arithmetic */
-    v0 = -1;
-
-tisp_s_osd_attr0x220:
-    /* fragment 45: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_s_osd_attr0x250:
-    /* fragment 46: CallSetup */
-    s2 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s5) + 16)) + 48);
-    s4 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s5) + 16)) + 52);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_get_fs)(&local_a0); /* jalr target resolved by relocation */
-
-    /* fragment 47: CallSetup */
-    local_b0 = local_a0;
-    local_b4 = (uintptr_t)&private_set_fs;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)(0); /* jalr target resolved by relocation */
-
-    /* fragment 48: Arithmetic */
-    v0 = s5 + 56;
-
-    /* fragment 49: Branch */
-    local_c0 = v0;
-    if (s7 == 0) { goto tisp_s_osd_attr0x2a0; }
-
-    /* fragment 50: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_kfree)(s7); /* jalr target resolved by relocation */
-
-tisp_s_osd_attr0x2a0:
-    /* fragment 51: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(s2, 37748736 + 192); /* jalr target resolved by relocation */
-
-    /* fragment 52: Branch */
-    a3 = s5 + 56;
-    if (v0 != 0) { goto tisp_s_osd_attr0x334; }
-
-    /* fragment 53: CallSetup */
-    v0 = (uintptr_t)s4 << 22;
-    s2 = (uintptr_t)s2 >> 10;
-    a2 = (uint32_t *)&__param_str_isp_dual_buf;
-    s2 = (uintptr_t)v0 | (uintptr_t)s2;
-    s4 = (uintptr_t *)((uintptr_t)s4 >> 10);
-    v0 = 936;
-    a2 = a2 + 9020;
-    local_18 = s2;
-    local_1c = s4;
-    local_14 = v0;
-    local_10 = a2;
-    a3 = 936;
-
-tisp_s_osd_attr0x2f0:
-    /* fragment 54: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC11); /* jalr target resolved by relocation */
-
-    /* fragment 55: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_filp_close)(s5, 0); /* jalr target resolved by relocation */
-
-    /* fragment 56: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)(local_b0); /* jalr target resolved by relocation */
-
-    /* fragment 57: Branch */
-    v0 = -1;
-    goto tisp_s_osd_attr0x220;
-
-tisp_s_osd_attr0x334:
-    /* fragment 58: CallSetup */
-    local_c0 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_vfs_read)(s5, v0, s2); /* jalr target resolved by relocation */
-
-    /* fragment 59: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_filp_close)(s5, 0); /* jalr target resolved by relocation */
-
-    /* fragment 60: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_set_fs)(local_b0); /* jalr target resolved by relocation */
-
-    /* fragment 61: StackAccess */
-    t1 = local_c0;
-
-tisp_s_osd_attr0x374:
-    /* fragment 62: MemoryAccess */
-    *(uint32_t *)((char *)s8 + 492) = t1;
-    v0 = *(uint16_t *)((char *)s1 + 32);
-    *(uint16_t *)((char *)s8 + 496) = v0;
-    v0 = local_a8;
-    v0 = v0 + 1;
-
-    /* fragment 63: Branch */
-    local_a8 = v0;
-    goto tisp_s_osd_attr0xd8;
-
-tisp_s_osd_attr0x390:
-    /* fragment 64: Arithmetic */
-    a0 = 1;
-
-    /* fragment 65: Branch */
-    if (v0 != a0) { goto tisp_s_osd_attr0x374; }
-
-    /* fragment 66: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s1 + 20);
-    a2 = *(uint16_t *)((char *)s1 + 32);
-
-    /* fragment 67: Branch */
-    a2 = (uintptr_t)v0 * a2;
-    if (s7 == 0) { goto tisp_s_osd_attr0x3c0; }
-
-    /* fragment 68: CallSetup */
-    local_b4 = a2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_kfree)(s7); /* jalr target resolved by relocation */
-
-    /* fragment 69: CallSetup */
-    a2 = local_b4;
-
-tisp_s_osd_attr0x3c0:
-    /* fragment 70: CallSetup */
-    local_b4 = a2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(a2, 37748736 + 192, a2); /* jalr target resolved by relocation */
-
-    /* fragment 71: Branch */
-    a2 = local_b4;
-    if (v0 != 0) { goto tisp_s_osd_attr0x418; }
-
-    /* fragment 72: Arithmetic */
-    v0 = (uintptr_t)s4 << 22;
-    s2 = (uintptr_t)s2 >> 10;
-    a2 = (uint32_t *)&__param_str_isp_dual_buf;
-    s2 = (uintptr_t)v0 | (uintptr_t)s2;
-    s4 = (uintptr_t *)((uintptr_t)s4 >> 10);
-    v0 = 952;
-    a2 = a2 + 9020;
-
-    /* fragment 73: StackAccess */
-    local_18 = s2;
-    local_1c = s4;
-    local_14 = v0;
-    local_10 = a2;
-
-    /* fragment 74: Branch */
-    a3 = 952;
-    goto tisp_s_osd_attr0x2f0;
-
-tisp_s_osd_attr0x418:
-    /* fragment 75: CallSetup */
-    local_b4 = v0;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)v0, (void *)(uintptr_t)(*(uint32_t *)((char *)(s1) + 24)), a2); /* jalr target resolved by relocation */
-
-    /* fragment 76: Branch */
-    t1 = local_b4;
-    goto tisp_s_osd_attr0x374;
-
-tisp_s_osd_attr0x43c:
-    /* fragment 77: Branch */
-    int _bc_v0_77 = v0 != 0;
-    v0 = local_a4;
-    if (_bc_v0_77) { goto tisp_s_osd_attr0x46c; }
-
-tisp_s_osd_attr0x444:
-    /* fragment 78: CallSetup */
-    local_10 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC12, &__param_str_isp_dual_buf, 965); /* jalr target resolved by relocation */
-
-tisp_s_osd_attr0x46c:
-    /* fragment 79: Branch */
-    v0 = local_ac;
-    if (s7 == 0) { goto tisp_s_osd_attr0x47c; }
-
-    /* fragment 80: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_kfree)(s7); /* jalr target resolved by relocation */
-
-tisp_s_osd_attr0x47c:
-    /* fragment 81: MemoryAccess */
-    *(uint8_t *)((char *)s8 + 498) = 0;
-    *(uint16_t *)((char *)s8 + 484) = 0;
-    *(uint16_t *)((char *)s8 + 486) = 0;
-    *(uint16_t *)((char *)s8 + 488) = 0;
-    *(uint16_t *)((char *)s8 + 490) = 0;
-    *(uint32_t *)((char *)s8 + 492) = 0;
-    *(uint16_t *)((char *)s8 + 496) = 0;
-
-    /* fragment 82: Branch */
-    *(uint8_t *)((char *)s8 + 499) = 0;
-    goto tisp_s_osd_attr0xd8;
-
-tisp_s_osd_attr0x4a0:
-    /* fragment 83: Branch */
-    v0 = 0;
-    goto tisp_s_osd_attr0x220;
-
+    if (t40_osd_img_owned[sel ? 1 : 0][ch][p]) {
+        private_kfree((void *)(uintptr_t)*(uint32_t *)(ent + 8));
+        t40_osd_img_owned[sel ? 1 : 0][ch][p] = 0;
+    }
+}
+
+/* T40-OSD-ATTR: tisp_s_osd_attr rewritten from the OEM firmware (libt40-firmware.a 1.3.1, 0x72958..0x72dfc).
+ * The previous fragment lift kept the OEM stack slots as uninitialised locals and crashed in kfree/memcpy.
+ *
+ * attr = IMPISPOSDAttr (408 bytes) = 2 x IMPISPOSDChxAttr (204): u32 osd_type@0, osd_argb_type@4,
+ * osd_pixel_alpha_disable@8, IMPISPOSDPicAttr pic[8]@12 (24 each: u8 enable@0, u16 left@2, top@4, width@6,
+ * height@8, char *image@12, u32 image_type@16 (0 = file path, 1 = pixel array), u16 stride@20).
+ * State (mscaler_s0/s1, selected by chn): per channel 616 bytes, u16 full width@0x20, height@0x22; per pic
+ * 16 bytes at 0x1e4 + 16*pic: u16 left@0, top@2, width@4, height@6, void *image@8 (kmalloc'ed copy),
+ * u16 stride@12, u8 enable@14, u8 shown@15; u8 type/argb/alpha@0x264..0x266 (written when >= 1 pic was set).
+ *
+ * OEM semantics kept bit for bit: enable != 1 or image_type >= 2 clears the slot (and frees the old image),
+ * a slot whose stored width/height exceeds the channel size is skipped with a message, a NULL image is skipped,
+ * width/height are clipped to the channel size, a file image is read whole into a kmalloc buffer, an array
+ * image (height * stride bytes) is copied into one; the type/argb/alpha bytes are stored once a pic was set.
+ * Deviations (all on paths where the OEM reads unchecked user pointers or crashes):
+ *  - the image pointer of the user structure is a user-space address (the vendor libimp passes the structure
+ *    through, control 0x80000a1): the path and the pixel array are fetched with strncpy_from_user /
+ *    copy_from_user and a fault returns -1 (the OEM strcpy/memcpy's the user address and oopses on a bad one);
+ *  - the file is read with kernel_read (the OEM switches to KERNEL_DS and calls vfs_read on f_pos);
+ *  - a failed kmalloc returns -1 with the slot's image cleared (the OEM leaves the freed pointer in the slot
+ *    and, in the array case, calls filp_close(NULL));
+ *  - only images this function allocated are kfree'd (t40_osd_img_owned); a slot filled by
+ *    tisp_s_osd_single_pic holds the raw pointer of the IMP_OSD ISP pool, which the OEM kfree's (crash). */
+#define T40_OSD_ATTR_PATH_MAX 128   /* OEM stack buffer sp+32..sp+160 */
+int32_t tisp_s_osd_attr(int32_t chn, void *attr)
+{
+    char *st = t40_osd_state(chn);
+    const char *u = (const char *)attr;
+    int ch, p;
+
+    for (ch = 0; ch < 2; ch++, u += 204, st += 616) {
+        unsigned int full_w = *(uint16_t *)(st + 0x20), full_h = *(uint16_t *)(st + 0x22);
+        int n = 0;
+
+        for (p = 0; p < 8; p++) {
+            const char *pa = u + 12 + 24 * p;
+            char *ent = st + 0x1e4 + 16 * p;
+            unsigned int en = *(const uint8_t *)pa;
+            uint32_t type = *(const uint32_t *)(pa + 16);
+            const char __user *img = (const char __user *)(uintptr_t)*(const uint32_t *)(pa + 12);
+            unsigned int left = *(const uint16_t *)(pa + 2), top = *(const uint16_t *)(pa + 4);
+            unsigned int width = *(const uint16_t *)(pa + 6), height = *(const uint16_t *)(pa + 8);
+            void *buf;
+
+            if (en != 1 || type >= 2) {
+                if (en != 1 ? type == 0 : 1)
+                    isp_printf(1, " %s:%d chx:%d, pic_num:%d This mode is not supported!\n", "tisp_s_osd_attr", 965, ch, p);
+                t40_osd_img_release(chn, ch, p, ent);
+                *(uint8_t *)(ent + 14) = 0;
+                *(uint16_t *)(ent + 0) = 0;
+                *(uint16_t *)(ent + 2) = 0;
+                *(uint16_t *)(ent + 4) = 0;
+                *(uint16_t *)(ent + 6) = 0;
+                *(uint32_t *)(ent + 8) = 0;
+                *(uint16_t *)(ent + 12) = 0;
+                *(uint8_t *)(ent + 15) = 0;
+                continue;
+            }
+            if (full_w < *(uint16_t *)(ent + 4) || full_h < *(uint16_t *)(ent + 6)) {
+                /* OEM passes (chx, pic) in the %s/%d slots of this format */
+                isp_printf(1, "[[ %s:%d ]] ISP: The width or height of the image(ch:%d, osd:%d) exceeds the original image!\n",
+                           "tisp_s_osd_attr", 0, ch, p);
+                continue;
+            }
+            if (img == NULL)
+                continue;
+            *(uint8_t *)(ent + 14) = 1;
+            *(uint16_t *)(ent + 0) = left;
+            *(uint16_t *)(ent + 2) = top;
+            *(uint16_t *)(ent + 4) = width;
+            *(uint16_t *)(ent + 6) = height;
+            if ((int)full_w < (int)(left + width))
+                *(uint16_t *)(ent + 4) = full_w - left;
+            if ((int)full_h < (int)(top + height))
+                *(uint16_t *)(ent + 6) = full_h - top;
+            if (type == 1) {
+                unsigned int size = height * *(const uint16_t *)(pa + 20);
+
+                t40_osd_img_release(chn, ch, p, ent);
+                buf = private_kmalloc(size, GFP_KERNEL);
+                if (buf == NULL) {
+                    isp_printf(2, "[%s %d] [[ %s:%d ]]: Failed to alloc %lld KB buffer!\n", "tisp_s_osd_attr", 952,
+                               (long long)(size >> 10));
+                    *(uint32_t *)(ent + 8) = 0;
+                    return -1;
+                }
+                if (copy_from_user(buf, img, size) != 0) {
+                    isp_printf(2, "[%s %d] [[ %s:%d ]] copy error!!!\n", "tisp_s_osd_attr", 962);
+                    private_kfree(buf);
+                    *(uint32_t *)(ent + 8) = 0;
+                    return -1;
+                }
+            } else {
+                char path[T40_OSD_ATTR_PATH_MAX];
+                struct file *f;
+                loff_t fsize;
+                unsigned int size;
+
+                if (strncpy_from_user(path, img, sizeof(path)) < 0) {
+                    isp_printf(2, "[%s %d] [[ %s:%d ]] copy error!!!\n", "tisp_s_osd_attr", 915);
+                    return -1;
+                }
+                path[sizeof(path) - 1] = 0;
+                f = private_filp_open(path, O_RDONLY, 0);
+                if (IS_ERR(f)) {
+                    isp_printf(2, "[%s %d] [[ %s:%d ]] ISP: open %s pic failed\n", "tisp_s_osd_attr", 920, path);
+                    return -1;
+                }
+                fsize = i_size_read(file_inode(f));
+                size = (unsigned int)fsize;   /* OEM: low word of i_size */
+                t40_osd_img_release(chn, ch, p, ent);
+                buf = private_kmalloc(size, GFP_KERNEL);
+                if (buf == NULL) {
+                    isp_printf(2, "[%s %d] [[ %s:%d ]]: Failed to alloc %lld KB buffer!\n", "tisp_s_osd_attr", 936,
+                               (long long)(fsize >> 10));
+                    private_filp_close(f, NULL);
+                    *(uint32_t *)(ent + 8) = 0;
+                    return -1;
+                }
+                kernel_read(f, 0, buf, size);   /* OEM: vfs_read result unchecked */
+                private_filp_close(f, NULL);
+            }
+            *(uint32_t *)(ent + 8) = (uint32_t)(uintptr_t)buf;
+            t40_osd_img_owned[chn ? 1 : 0][ch][p] = 1;
+            *(uint16_t *)(ent + 12) = *(const uint16_t *)(pa + 20);
+            n++;
+        }
+        if (n > 0) {
+            *(uint8_t *)(st + 0x264) = (uint8_t)*(const uint32_t *)(u + 0);
+            *(uint8_t *)(st + 0x265) = (uint8_t)*(const uint32_t *)(u + 4);
+            *(uint8_t *)(st + 0x266) = (uint8_t)*(const uint32_t *)(u + 8);
+        }
+    }
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000073890 origin=model_output original=tisp_g_osd_attr */
+/* T40-OSD-G: tisp_g_osd_attr rewritten from the OEM (libt40-firmware 0x72e00).  Layout: IMPISPOSDAttr = 2 x 204 bytes
+ * {type, argb, alpha, pic[8] x 24}; state per channel 616 bytes, per pic 16 bytes.  The previous lift indexed the
+ * state with the wrong strides and read past the end of the module's mscaler_s0 object (oops BadVA = module end). */
 int32_t tisp_g_osd_attr(int32_t arg1, uint32_t *arg2)
 {
-    int16_t *s0;
-    int16_t *s1;
-    int16_t *v1;
-    uint32_t *i;
-    int16_t *a0_1;
-    int32_t t0_1;
-    int32_t j;
-    int8_t *a2;
-    int16_t *t1;
-    int32_t *t2;
-    int32_t *t3;
-    int32_t *t4;
-    int32_t *a3;
-    int32_t *v0;
-    int32_t loop_var;
-
-    s0 = (arg1 != 0) ? mscaler_s1 : mscaler_s0;
-    s1 = s0;
+    char *st = t40_osd_state(arg1);
+    char *u = (char *)arg2;
+    int ch, p;
 
     memset(arg2, 0, 408);
-
-    v1 = s1;
-    i = arg2;
-    a2 = (int8_t *)&arg2[3];
-
-    while (1) {
-        t0_1 = 0;
-        j = 0;
-
-        while (1) {
-            a0_1 = v1;
-            t1 = a0_1[498];
-
-            if (t1 != 1) {
-                ((void **)a2)[0] = 0;
-                ((int16_t *)i)[14] = 0;
-                ((void **)i)[4] = 0;
-                ((int16_t *)i)[16] = 0;
-                ((int16_t *)i)[18] = 0;
-                ((int16_t *)i)[20] = 0;
-                ((void **)i)[6] = 0;
-                ((int16_t *)i)[32] = 0;
+    for (ch = 0; ch < 2; ch++, u += 204, st += 616) {
+        int n = 0;
+        for (p = 0; p < 8; p++) {
+            char *ent = st + 0x1e0 + 16 * p;     /* pic geometry/state block */
+            char *o = u + 12 + 24 * p;
+            if (*(uint8_t *)(ent + 0x12) == 1) {
+                *(uint8_t *)o = 1;
+                *(uint16_t *)(o + 2) = *(uint16_t *)(ent + 4);
+                *(uint16_t *)(o + 4) = *(uint16_t *)(ent + 6);
+                *(uint16_t *)(o + 6) = *(uint16_t *)(ent + 8);
+                *(uint16_t *)(o + 8) = *(uint16_t *)(ent + 10);
+                *(uint32_t *)(o + 12) = *(uint32_t *)(ent + 12) + 0x80000000u;
+                *(uint16_t *)(o + 20) = *(uint16_t *)(ent + 16);
+                n++;
             } else {
-                ((void **)a2)[0] = 1;
-                t0_1 = t0_1 + 1;
-                ((int16_t *)i)[14] = a0_1[484];
-                ((void **)i)[4] = a0_1[486];
-                ((int16_t *)i)[16] = a0_1[488];
-                ((int16_t *)i)[18] = a0_1[490];
-                ((int16_t *)i)[20] = a0_1[492];
-                ((void **)i)[6] = a0_1[496];
-            }
-
-            j = j + 1;
-            a0_1 = &a0_1[8];
-            i = &i[6];
-
-            if (j == 8) {
-                break;
+                *(uint8_t *)o = 0;
+                *(uint16_t *)(o + 2) = *(uint16_t *)(o + 4) = *(uint16_t *)(o + 6) = *(uint16_t *)(o + 8) = 0;
+                *(uint32_t *)(o + 12) = 0;
+                *(uint16_t *)(o + 20) = 0;
             }
         }
-
-        if (!((int32_t)t0_1 > 0)) {
-            ((void **)i)[0] = 0;
-            ((void **)i)[1] = 0;
-            ((void **)i)[2] = 0;
-        } else {
-            ((void **)i)[0] = (uint32_t)((int8_t)v1[612]);
-            ((void **)i)[1] = (uint32_t)((int8_t)v1[613]);
-            ((void **)i)[2] = (uint32_t)((int8_t)v1[614]);
-        }
-
-        i = &i[51];
-        v1 = &v1[292];
-        a2 = &a2[228];
-
-        if (i == &arg2[102]) {
-            break;
+        if (n > 0) {
+            *(uint32_t *)(u + 0) = *(uint8_t *)(st + 612);
+            *(uint32_t *)(u + 4) = *(uint8_t *)(st + 613);
+            *(uint32_t *)(u + 8) = *(uint8_t *)(st + 614);
         }
     }
-
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000739d0 origin=fragment_seed original=tisp_s_osd_single_pic */
-int tisp_s_osd_single_pic(int arg1, int arg2, int arg3, char *arg4)
+/* T40-OSD-SINGLE: tisp_s/g_osd_single_pic and tisp_s/g_osd_single_attr rewritten from the OEM firmware
+ * (libt40-firmware.a 0x72f40..0x733dc).  The lifted fragments passed the 5th argument (the pic attr
+ * pointer, a stack argument) through uninitialised NULL locals (store to address 0 -> kernel oops),
+ * read the u8 enable and the u16 geometry as u32 and called the pic helper with one argument.
+ * State layout (per channel 616 bytes, per pic 16 bytes): pic enable @(0x1e0+16*pic)+... see OEM. */
+/* attr = IMPISPOSDPicAttr: u8 enable@0, u16 left@2, top@4, width@6, height@8, ptr image@12, type@16, u16 stride@20 */
+int tisp_s_osd_single_pic(int arg1, int arg2, int arg3, int arg4, const char *arg5);
+int tisp_s_osd_single_pic(int arg1, int arg2, int arg3, int arg4, const char *arg5)
 {
-    int16_t *s2;
-    uint32_t var_20;
-    int32_t var_24;
-    uint32_t *var_28;
-    uint32_t *var_2c;
-    uint32_t var_30;
-    uint32_t var_34;
-    int32_t var_3c;
-    int32_t *var_40;
-    uint32_t var_38;
-    uint32_t *a3;
-    int32_t *v1;
-    int32_t s3_2;
-    void *s1_6;
-    void *s3_5;
-    int32_t *a1;
-    void *v0_8;
-    void *a2_ptr;
-    void *a0_6;
-    uint32_t a2_val;
-    uint32_t a0_7;
-    uint32_t a2_2;
-    void *v1_2;
-    uint32_t a0_9;
-    uint32_t a1_16;
-    s2 = (arg1 != 0) ? &mscaler_s1 : &mscaler_s0;
+    char *st = t40_osd_state(arg1);
+    char *chp = st + arg2 * 0x268;                 /* channel block */
+    char *ent = st + ((arg3 + 0x1e) << 4) + arg2 * 0x268;   /* pic entry: +0x12 enable, +0x13 shown, +0xc image, +0x10 stride */
+    char *geo = st + (arg3 << 4) + arg2 * 0x268;   /* pic geometry: +0x1e4 left, +0x1e6 top, +0x1e8 width, +0x1ea height */
+    unsigned int en = *(const uint8_t *)arg5;
+    unsigned int left = *(const uint16_t *)(arg5 + 2), top = *(const uint16_t *)(arg5 + 4);
+    unsigned int width = *(const uint16_t *)(arg5 + 6), height = *(const uint16_t *)(arg5 + 8);
+    unsigned int full_w = *(uint16_t *)(chp + 0x20), full_h = *(uint16_t *)(chp + 0x22);
 
-    s2 = (arg1 != 0) ? &mscaler_s1 : &mscaler_s0;
-
-    var_20 = *(uint32_t *)(arg4 + 0x14);
-    var_24 = *(int32_t *)(arg4 + 0xc);
-    var_28[0] = *(uint32_t *)(arg4 + 8);
-    var_2c = *(uint32_t *)(arg4 + 6);
-    var_30 = *(uint32_t *)(arg4 + 4);
-    var_34 = *(uint32_t *)(arg4 + 2);
-    var_3c = arg3;
-    var_40[0] = arg2;
-    var_38 = *(uint32_t *)arg4;
-
-    isp_printf(0, " [%s:%d] ch:%d, pic:%d, enable:%d, left:%d, top:%d, width:%d, height:%d, image:%d, stride:%d\n", "tisp_s_osd_single_pic");
-
-    a3 = *(uint32_t *)arg4;
-    v1 = arg3 << 4;
-
-    if (a3 != 1) {
-        s3_2 = arg2 * 0x268;
-        s1_6 = (void *)((uintptr_t)s2 + ((arg3 + 0x1e) << 4) + s3_2);
-        s3_5 = (void *)((uintptr_t)s2 + s3_2 + (uintptr_t)v1 + 0x1e0);
-        *(uint8_t *)(s1_6 + 0x12) = 0;
-        *(uint32_t *)((char *)s3_5 + 4) = 0;
-        *(uint32_t *)((char *)s3_5 + 8) = 0;
-        *(uint32_t *)(s1_6 + 0xc) = 0;
-        *(uint16_t *)(s1_6 + 0x10) = 0;
-        *(uint8_t *)(s1_6 + 0x13) = 0;
-    } else {
-        a1 = arg2 * 0x268;
-        v0_8 = (void *)((uintptr_t)s2 + (uintptr_t)v1 + (uintptr_t)a1);
-        a2_ptr = (void *)&s2[arg2 * 0x134];
-
-        if (*(uint32_t *)((char *)a2_ptr + 0x20) < *(uint32_t *)((char *)v0_8 + 0x1e8) ||
-            *(uint32_t *)((char *)a2_ptr + 0x22) < *(uint32_t *)((char *)v0_8 + 0x1ea)) {
-            isp_printf(1, "[[ %s:%d ]] ISP: The width or height of the image(ch:%d, osd:%d) exceeds the original image!\n", arg2);
-            return 0;
-        }
-
-        a0_6 = (void *)((uintptr_t)s2 + ((arg3 + 0x1e) << 4) + (uintptr_t)a1);
-        *(uint8_t *)(a0_6 + 0x12) = (uint8_t)a3;
-        *(uint16_t *)((char *)v0_8 + 0x1e4) = *(uint16_t *)(arg4 + 2);
-        *(uint16_t *)((char *)v0_8 + 0x1e6) = *(uint16_t *)(arg4 + 4);
-        *(uint16_t *)((char *)v0_8 + 0x1e8) = *(uint16_t *)(arg4 + 6);
-        *(uint16_t *)((char *)v0_8 + 0x1ea) = *(uint16_t *)(arg4 + 8);
-        *(uint32_t *)(a0_6 + 0xc) = *(uint32_t *)(arg4 + 0xc);
-        *(uint16_t *)(a0_6 + 0x10) = *(uint16_t *)(arg4 + 0x14);
-
-        a0_7 = *(uint32_t *)((char *)a2_ptr + 0x20);
-
-        if (a0_7 >= *(uint32_t *)(arg4 + 2) + *(uint32_t *)(arg4 + 6)) {
-            a2_val = *(uint32_t *)((char *)a2_ptr + 0x22);
-        } else {
-            a2_val = *(uint32_t *)((char *)a2_ptr + 0x22);
-        }
-
-        if (a0_7 < *(uint32_t *)(arg4 + 2) + *(uint32_t *)(arg4 + 6) ||
-            a2_val < *(uint32_t *)(arg4 + 4) + *(uint32_t *)(arg4 + 8)) {
-            isp_printf(1, "The image overflows the OSD boundary !!!", 0);
-            return -1;
-        }
-
-        a2_2 = *(uint32_t *)((char *)v0_8 + 0x1e4);
-
-        if (a0_7 < *(uint32_t *)((char *)v0_8 + 0x1e8) + a2_2) {
-            *(uint16_t *)((char *)v0_8 + 0x1e8) = (uint16_t)(a0_7 - a2_2);
-        }
-
-        v1_2 = (void *)((uintptr_t)s2 + (uintptr_t)v1 + arg2 * 0x268);
-        a0_9 = *(uint32_t *)((char *)&s2[arg2 * 0x134] + 0x11);
-        a1_16 = *(uint32_t *)((char *)v1_2 + 0x1e6);
-
-        if (a0_9 < *(uint32_t *)((char *)v1_2 + 0x1ea) + a1_16) {
-            *(uint16_t *)((char *)v1_2 + 0x1ea) = (uint16_t)(a0_9 - a1_16);
-        }
-
-        *(uint8_t *)((uintptr_t)s2 + arg2 * 0x268 + ((arg3 + 0x1e) << 4) + 0x13) = 1;
+    (void)arg4;
+    if (arg2 < 0 || arg2 > 1 || arg3 < 0 || arg3 > 7)   /* stability: the OEM does not check the user-supplied indices */
+        return -1;
+    isp_printf(0, " [%s:%d] ch:%d, pic:%d, enable:%d, left:%d, top:%d, width:%d, height:%d, image:%d, stride:%d\n",
+               "tisp_s_osd_single_pic", 1070, arg2, arg3, en, left, top, width, height,
+               *(const uint32_t *)(arg5 + 12), *(const uint16_t *)(arg5 + 20));
+    if (en != 1) {
+        *(uint8_t *)(ent + 0x12) = 0;
+        *(uint32_t *)(geo + 0x1e4) = 0;
+        *(uint32_t *)(geo + 0x1e8) = 0;
+        t40_osd_img_release(arg1, arg2, arg3, ent + 4);   /* T40-OSD-ATTR: free a tisp_s_osd_attr image before dropping the slot */
+        *(uint32_t *)(ent + 0xc) = 0;
+        *(uint16_t *)(ent + 0x10) = 0;
+        *(uint8_t *)(ent + 0x13) = 0;
+        return 0;
     }
-
+    if (full_w < *(uint16_t *)(geo + 0x1e8) || full_h < *(uint16_t *)(geo + 0x1ea)) {
+        isp_printf(1, "[[ %s:%d ]] ISP: The width or height of the image(ch:%d, osd:%d) exceeds the original image!\n",
+                   "tisp_s_osd_single_pic", 1076, arg2, arg3);
+        return 0;
+    }
+    *(uint8_t *)(ent + 0x12) = 1;
+    *(uint16_t *)(geo + 0x1e4) = left;
+    *(uint16_t *)(geo + 0x1e6) = top;
+    *(uint16_t *)(geo + 0x1e8) = width;
+    *(uint16_t *)(geo + 0x1ea) = height;
+    t40_osd_img_release(arg1, arg2, arg3, ent + 4);   /* T40-OSD-ATTR: free a tisp_s_osd_attr image before overwriting the slot */
+    *(uint32_t *)(ent + 0xc) = *(const uint32_t *)(arg5 + 12);
+    *(uint16_t *)(ent + 0x10) = *(const uint16_t *)(arg5 + 20);
+    if (full_w < left + width || full_h < top + height) {
+        isp_printf(1, "The image overflows the OSD boundary !!!\n");
+        return -1;
+    }
+    if (full_w < *(uint16_t *)(geo + 0x1e8) + *(uint16_t *)(geo + 0x1e4))
+        *(uint16_t *)(geo + 0x1e8) = full_w - *(uint16_t *)(geo + 0x1e4);
+    if (full_h < *(uint16_t *)(geo + 0x1ea) + *(uint16_t *)(geo + 0x1e6))
+        *(uint16_t *)(geo + 0x1ea) = full_h - *(uint16_t *)(geo + 0x1e6);
+    *(uint8_t *)(ent + 0x13) = 1;
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000073c40 origin=model_output original=tisp_g_osd_single_pic */
+int32_t tisp_g_osd_single_pic(int32_t arg1, int32_t arg2, int32_t arg3, uint8_t *arg4);
 int32_t tisp_g_osd_single_pic(int32_t arg1, int32_t arg2, int32_t arg3, uint8_t *arg4)
 {
-    int16_t *s1;
-    int32_t *v1;
-    uint8_t *v0_3;
-    uint32_t *a0_1;
-    uint8_t *a1_2;
-
-    if (arg1 != 0) {
-        s1 = &mscaler_s1[0];
-    } else {
-        s1 = &mscaler_s0[0];
-    }
+    char *st = t40_osd_state(arg1);
+    char *ent = st + ((arg3 + 0x1e) << 4) + arg2 * 0x268;
+    char *geo = st + (arg3 << 4) + arg2 * 0x268;
 
     memset(arg4, 0, 24);
-
-    v1 = arg2 * 616;
-    v0_3 = (uint8_t *)((uintptr_t)s1 + ((arg3 + 30) << 4) + (uintptr_t)v1);
-
-    a0_1 = *(uint32_t *)(v0_3 + 18);
-
-    if (a0_1 != 1) {
-        ((void **)arg4)[0] = 0;
-        *(uint16_t *)(arg4 + 2) = 0;
-        *(uint16_t *)(arg4 + 4) = 0;
-        *(uint16_t *)(arg4 + 6) = 0;
-        *(uint16_t *)(arg4 + 8) = 0;
-        *(uint32_t *)(arg4 + 12) = 0;
-        *(uint16_t *)(arg4 + 20) = 0;
-        ((void **)v0_3)[19] = 0;
-    } else {
-        ((void **)arg4)[0] = (uint8_t)a0_1;
-        a1_2 = (uint8_t *)((uintptr_t)s1 + (arg3 << 4) + (uintptr_t)v1);
-        *(uint16_t *)(arg4 + 2) = *(uint16_t *)(a1_2 + 484);
-        *(uint16_t *)(arg4 + 4) = *(uint16_t *)(a1_2 + 486);
-        *(uint16_t *)(arg4 + 6) = *(uint16_t *)(a1_2 + 488);
-        *(uint16_t *)(arg4 + 8) = *(uint16_t *)(a1_2 + 490);
-        *(uint32_t *)(arg4 + 12) = *(uint32_t *)(v0_3 + 12) - 0x80000000;
-        *(uint16_t *)(arg4 + 20) = *(uint16_t *)(v0_3 + 16);
-        ((void **)v0_3)[19] = (uint8_t)a0_1;
+    if (arg2 < 0 || arg2 > 1 || arg3 < 0 || arg3 > 7)
+        return -1;
+    if (*(uint8_t *)(ent + 0x12) != 1) {
+        *(uint8_t *)(ent + 0x13) = 0;
+        return 0;
     }
-
+    arg4[0] = 1;
+    *(uint16_t *)(arg4 + 2) = *(uint16_t *)(geo + 0x1e4);
+    *(uint16_t *)(arg4 + 4) = *(uint16_t *)(geo + 0x1e6);
+    *(uint16_t *)(arg4 + 6) = *(uint16_t *)(geo + 0x1e8);
+    *(uint16_t *)(arg4 + 8) = *(uint16_t *)(geo + 0x1ea);
+    *(uint32_t *)(arg4 + 12) = *(uint32_t *)(ent + 0xc) + 0x80000000u;
+    *(uint16_t *)(arg4 + 20) = *(uint16_t *)(ent + 0x10);
+    *(uint8_t *)(ent + 0x13) = 1;
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000073d48 origin=fragment_seed original=tisp_s_osd_single_attr */
+/* IMPISPSingleOSDAttr: u32 chx@0, u32 pic_num@4, u32 osd_type@8, u32 argb_type@12, u32 alpha_disable@16, pic@20 */
+int32_t tisp_s_osd_single_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_s_osd_single_attr(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *v0 = 0;
-    uintptr_t *v1 = 0;
+    const char *u = (const char *)a1;
+    uint32_t chx = *(const uint32_t *)u, pic = *(const uint32_t *)(u + 4);
+    char *st = t40_osd_state(a0);
+    int ret;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s0 = a1;
-
-    /* fragment 2: Branch */
-    local_18 = 0;
-    if (a0 != 0) { goto tisp_s_osd_single_attr0x98; }
-
-    /* fragment 3: CallSetup */
-    s1 = (uintptr_t *)&mscaler_s0;
-    s1 = s1;
-
-tisp_s_osd_single_attr0x24:
-    /* fragment 4: CallSetup */
-    local_10 = s0 + 20;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_s_osd_single_pic)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 0);
-    a0 = 616;
-    a1 = (uintptr_t)v1 * a0;
-    v1 = a1 + (uintptr_t)s1;
-    a1 = *(uint32_t *)((char *)s0 + 8);
-    *(uint8_t *)((char *)v1 + 612) = a1;
-    v1 = *(uint32_t *)((char *)s0 + 0);
-    a1 = (uintptr_t)v1 * a0;
-    v1 = a1 + (uintptr_t)s1;
-    a1 = *(uint32_t *)((char *)s0 + 12);
-    *(uint8_t *)((char *)v1 + 613) = a1;
-    v1 = *(uint32_t *)((char *)s0 + 0);
-    a1 = (uintptr_t)v1 * a0;
-    v1 = *(uint32_t *)((char *)s0 + 16);
-    s1 = a1 + (uintptr_t)s1;
-    *(uint8_t *)((char *)s1 + 614) = v1;
-    ra = local_2c;
-    s1 = local_28;
-    s0 = local_24;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_s_osd_single_attr0x98:
-    /* fragment 7: Arithmetic */
-    s1 = (uintptr_t *)&mscaler_s1;
-
-    /* fragment 8: Branch */
-    s1 = (uintptr_t *)&mscaler_s1;
-    goto tisp_s_osd_single_attr0x24;
-
-    return 0;
+    if (chx > 1 || pic > 7)
+        return -1;
+    ret = tisp_s_osd_single_pic(a0, chx, pic, 0, u + 20);
+    *(uint8_t *)(st + chx * 616 + 612) = *(const uint32_t *)(u + 8);
+    *(uint8_t *)(st + chx * 616 + 613) = *(const uint32_t *)(u + 12);
+    *(uint8_t *)(st + chx * 616 + 614) = *(const uint32_t *)(u + 16);
+    return ret;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000073dec origin=fragment_seed original=tisp_g_osd_single_attr */
+int32_t tisp_g_osd_single_attr(uint32_t a0, uintptr_t a1);
 int32_t tisp_g_osd_single_attr(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *v0 = 0;
-    uint32_t *v1 = 0;
+    char *u = (char *)a1;
+    uint32_t chx = *(const uint32_t *)u, pic = *(const uint32_t *)(u + 4);
+    char *st = t40_osd_state(a0);
+    int ret;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s0 = a1;
-
-    /* fragment 2: Branch */
-    local_18 = 0;
-    if (a0 != 0) { goto tisp_g_osd_single_attr0x80; }
-
-    /* fragment 3: CallSetup */
-    s1 = (uintptr_t *)&mscaler_s0;
-    s1 = s1;
-
-tisp_g_osd_single_attr0x24:
-    /* fragment 4: CallSetup */
-    local_10 = s0 + 20;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_g_osd_single_pic)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 0);
-    a0 = 616;
-    a1 = (uintptr_t)v1 * a0;
-    s1 = a1 + (uintptr_t)s1;
-    v1 = *(uint8_t *)((char *)s1 + 612);
-    *(uint32_t *)((char *)s0 + 8) = v1;
-    v1 = *(uint8_t *)((char *)s1 + 613);
-    *(uint32_t *)((char *)s0 + 12) = v1;
-    v1 = *(uint8_t *)((char *)s1 + 614);
-    *(uint32_t *)((char *)s0 + 16) = v1;
-    ra = local_2c;
-    s1 = local_28;
-    s0 = local_24;
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_g_osd_single_attr0x80:
-    /* fragment 7: Arithmetic */
-    s1 = (uintptr_t *)&mscaler_s1;
-
-    /* fragment 8: Branch */
-    s1 = (uintptr_t *)&mscaler_s1;
-    goto tisp_g_osd_single_attr0x24;
-
-    return 0;
+    if (chx > 1 || pic > 7)
+        return -1;
+    ret = tisp_g_osd_single_pic(a0, chx, pic, (uint8_t *)(u + 20));
+    *(uint32_t *)(u + 8) = *(uint8_t *)(st + chx * 616 + 612);
+    *(uint32_t *)(u + 12) = *(uint8_t *)(st + chx * 616 + 613);
+    *(uint32_t *)(u + 16) = *(uint8_t *)(st + chx * 616 + 614);
+    return ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000073e78 origin=model_output original=tisp_s_draw_attr */
