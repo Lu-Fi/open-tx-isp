@@ -162803,7 +162803,7 @@ tisp_set_fps0x8c:
 
     /* fragment 11: CallSetup */
     local_10 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_long_deflicker_tune)(s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_ae_long_deflicker_tune((uint32_t)(uintptr_t)s0, (uint32_t)a1, (uint32_t)(uintptr_t)a2, (uint32_t)(uintptr_t)a3 & 0xffffU, (uint32_t)(uintptr_t)a0 & 0xffffU); /* OEM 0x71648: a1=flag byte, a2=cb result, a3=lhu 28(sp), arg4=lhu 26(sp) */
 
     /* fragment 12: Branch */
     goto tisp_set_fps0x78;
@@ -162835,7 +162835,7 @@ int32_t tisp_set_brightness(uint32_t a0, uint32_t a1)
     s1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
     s0 = a0;
     local_24 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_bcsh_brightness)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_brightness)(a0, a1); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + (s0 + 9)), (void *)(uintptr_t)&local_24, 1); /* jalr target resolved by relocation */
@@ -162905,7 +162905,7 @@ int32_t tisp_set_saturation(uint32_t a0, uint32_t a1)
     s1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
     s0 = a0;
     local_24 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_bcsh_saturation)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_saturation)(a0, a1); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((uintptr_t)s1 + (uintptr_t)s0), (void *)(uintptr_t)(uintptr_t)(uintptr_t)&local_24, 1); /* jalr target resolved by relocation */
@@ -162940,7 +162940,7 @@ int32_t tisp_set_contrast(uint32_t a0, uint32_t a1)
     s1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
     s0 = a0;
     local_24 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_bcsh_contrast)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_contrast)(a0, a1); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + (s0 + 3)), (void *)(uintptr_t)&local_24, 1); /* jalr target resolved by relocation */
@@ -162972,7 +162972,7 @@ int32_t tisp_set_csc_attr(uint32_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s1 = a1;
     s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_csc_set_attr)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_csc_set_attr)(a0, a1); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
     local_10 = v0;
@@ -163197,7 +163197,7 @@ tisp_s_ccm_attr0xd8:
 
 tisp_s_ccm_attr0xec:
     /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_bcsh_set_attr)(s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_set_attr)(s1, a1); /* jalr target resolved by relocation */
 
     /* fragment 20: Branch */
     goto tisp_s_ccm_attr0x74;
@@ -163530,7 +163530,7 @@ int32_t tisp_set_bcsh_hue(uint32_t a0, uint32_t a1)
     s1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
     s0 = a0;
     local_24 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_bcsh_s_hue)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_s_hue)(a0, a1); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s1 + (s0 + 12)), (void *)(uintptr_t)&local_24, 1); /* jalr target resolved by relocation */
