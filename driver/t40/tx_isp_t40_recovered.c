@@ -68075,6 +68075,12 @@ tisp_data_info_get0x108:
  * for every argument except lsc / ae get / reg map.  Deviation: tisp_ae_param_array_set is the hand version
  * (param id, buffer, size out), so it gets &p[1] as third argument (OEM a2 = 1, unused by the OEM body).
  */
+/* T40-TISP-NODE (#139b): QEMU T40 (2026-10-29) reset the guest silently (no oops) during the get/write-back
+ * sweep over all module ids (case tisppar_t40); the faulting id is not bisected yet.  The par commands stay off
+ * unless t40_tisp_par=1 (for that bisection); off they fail like before (-EFAULT path). */
+static int t40_tisp_par;
+module_param(t40_tisp_par, int, 0644);
+
 static void t40_tisp_get_par(uint32_t *p)
 {
     uint32_t s = p[3], d = (uint32_t)(uintptr_t)&p[4], l = (uint32_t)(uintptr_t)&p[1];
@@ -68170,6 +68176,8 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                  * the OEM arguments (t40_tisp_{get,set}_par), copy it out (get).  The lift passed 0 for every
                  * argument and tested the asm __copy_user's C return value (never 0). */
                 case 0x20007400:
+                    if (!t40_tisp_par)
+                        break;
                     if (copy_from_user(tisp_par_ioctl_2, (const void __user *)arg3, 0x5010) != 0)
                         break;
                     t40_tisp_get_par(tisp_par_ioctl);
@@ -68178,6 +68186,8 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                     break;
 
                 case 0x20007401:
+                    if (!t40_tisp_par)
+                        break;
                     if (copy_from_user(tisp_par_ioctl_2, (const void __user *)arg3, 0x5010) != 0) {
                         isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl");
                         return 0xfffffff2;
