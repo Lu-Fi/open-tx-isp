@@ -794,6 +794,18 @@ ISP digital gain is 1x there. `SetModule_Ratio` defog -> literal `tisp_s_defog_r
 - Method for further dead-code removal: link listing with `--print-gc-sections`, delete only bodies the listing drops
   and no remaining source line references (gcc inlines some gc'd bodies into live callers), nm/size before and after.
 
+## Static checks for lift artefacts (2026-10-29, `claude/issue-139`)
+
+- `tools/t40_uninit_gcc.sh` (after a `SOC=t40` build, `KDIR=` the kernel build dir): the recovered file once more
+  with `-Wuninitialized -Wmaybe-uninitialized -O2` instead of `-w`.
+- `python3 tools/t40_uninit_scan.py [--ioctl]`: STORE (store through a never-assigned local pointer or pointer frame
+  slot), LEAK/ZERO (copy to user space from a never-written slot), ARITY (call through a cast with fewer arguments than
+  the prototype: the callee reads stale registers), with the call depth from the control/tuning ioctl handlers.
+- Fixed with it: tuning-node AE manual set (0x20007405) with `tisp_ae_{main,sec}_manual_set`, Get/SetFrameDrop,
+  SwitchBin, `/dev/tisp` release. SwitchBin still reloads the configured bin, not `bname` (the open loader takes no
+  path), and does not re-initialise the pipeline top (the lifted `tisp_tstp_main_init` oopses when run a second
+  time; follow-up).
+
 ## Testing in QEMU
 
 The modules can be loaded, unloaded and exercised without a camera in the `ingenic-t40` machine of the [gtxaspec/qemu](https://github.com/gtxaspec/qemu) `ingenic-txx` branch (boots the thingino image to a shell with the sc830ai sensor model, all modules load; it reproduced the `rmmod` oops and the frame-slot index crash of the ISR (both fixed) and is the bench for the reload tests). It is a crash-test bench, not a picture-quality bench: the ISP is a register-file model with a modelled frame path (synthetic colour-bar frames), there are no 3A statistics, and timing and image quality cannot be tested. Setup, per-SoC status and limits: [docs/QEMU_TESTING.md](../../docs/QEMU_TESTING.md).
