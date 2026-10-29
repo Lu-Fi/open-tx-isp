@@ -24193,6 +24193,43 @@ static int t40_c2_state_get(char *buf, const struct kernel_param *kp)
 static const struct kernel_param_ops t40_c2_state_ops = { .get = t40_c2_state_get };
 module_param_cb(t40_c2_state, &t40_c2_state_ops, NULL, 0444);
 
+/*
+ * T40-FRAME-DROP: IMP_ISP_SetFrameDrop / GetFrameDrop (0xc004542c / 0xc004542d), hand
+ * translation of the OEM tx_isp_unlocked_ioctl cases at 0x14190 (set) and 0x14224 (get):
+ * copy_from_user(sp+32, arg, 40) (-EFAULT and isp_printf on failure), then for n = 0..2
+ * tisp_set/get_frame_drop(lbu 32(sp) = vinum byte, n, sp+36+12n); set returns the last
+ * callee result (0x14220 move s0,v0), get copies the 40 bytes back (0x142c4, -EFAULT on
+ * failure) and returns the last callee result.
+ * The lifted dispatcher compares the command against constants built with uintptr_t *
+ * arithmetic (scaled by 4: 0xc005a4cc / 0xc005a4d0 in the compiled code), so neither
+ * command ever reached these cases: the ioctl returned 0 without touching the request,
+ * and libimp read back the zeroed request (enable 0, lsize 0, fmark 0).
+ */
+static long regtrace_t40_frame_drop_ioctl(unsigned int cmd, unsigned long arg)
+{
+    uint32_t reqw[10];              /* OEM sp+32, word aligned: the callees store words */
+    uint8_t *req = (uint8_t *)reqw;
+    long ret = 0;
+    unsigned int n;
+
+    if (copy_from_user(reqw, (const void __user *)(uintptr_t)arg, sizeof(reqw))) {
+        isp_printf(2, "[%s %d] copy_from_user failed\n", "tx_isp_unlocked_ioctl",
+                   cmd == 0xc004542cU ? 1863 : 1880);
+        return -EFAULT;
+    }
+    for (n = 0; n < 3; n++) {
+        if (cmd == 0xc004542cU)
+            ret = (long)(int32_t)tisp_set_frame_drop(req[0], n, (uintptr_t)(req + 4 + 12 * n));
+        else
+            ret = tisp_get_frame_drop(req[0], n, (int32_t *)(void *)(req + 4 + 12 * n));
+    }
+    if (cmd == 0xc004542dU && copy_to_user((void __user *)(uintptr_t)arg, reqw, sizeof(reqw))) {
+        isp_printf(2, "[%s %d] copy_to_user failed\n", "tx_isp_unlocked_ioctl", 1887);
+        return -EFAULT;
+    }
+    return ret;
+}
+
 static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     int __maybe_unused __fr = regtrace_fr_mark(0x02, cmd);
@@ -24252,6 +24289,11 @@ static long regtrace_tx_isp_ioctl(struct file *file, unsigned int cmd, unsigned 
         cmd == REGTRACE_TISP_VIDIOC_SET_WDR_BUF_INFO ||
         cmd == REGTRACE_TISP_VIDIOC_GET_WDR_BUF_INFO) {
         ret = regtrace_tx_isp_buf_info_ioctl(cmd, arg);
+        printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x ret=%ld\n", cmd, ret);
+        return ret;
+    }
+    if (cmd == 0xc004542cU || cmd == 0xc004542dU) {
+        ret = regtrace_t40_frame_drop_ioctl(cmd, arg);
         printk(KERN_INFO "tx_isp_t40_recovered: tx-isp ioctl cmd=0x%x ret=%ld\n", cmd, ret);
         return ret;
     }
@@ -165484,106 +165526,39 @@ int32_t tisp_get_wdr_output_mode(int32_t arg1, uint32_t *arg2)
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_00000000000754e4 origin=fragment_seed original=tisp_set_frame_drop */
+/* WHOLE_DRIVER_CANDIDATE fn_00000000000754e4 origin=hand original=tisp_set_frame_drop */
+/*
+ * T40-FRAME-DROP: hand translation of the OEM tisp_set_frame_drop (libt40-firmware 0x74a54).
+ * a0 = vinum byte, a1 = MSCA channel 0..2, a2 = { u32 enable; u8 lsize; u32 fmark }.
+ * Registers: vinum 0 -> 0x16130/0x16134, else 0x17130/0x17134, + (channel << 8)
+ * (0x74a74 lui s0,0x1; 0x74a78/0x74acc addiu 28976/24880; 0x74a80/0x74ad8 +4).
+ * lsize >= 32 -> isp_printf(1, $LC18) and -1 (0x74a8c sltiu 32), checked before enable.
+ * enable == 1: write lsize then fmark (0x74aec, 0x74af4 lw a1,8(s2)); otherwise lsize 0
+ * (0x74b0c move a1,zero) and fmark 0xffffffff (0x74b14 li a1,-1).  Returns 0.
+ * The lifted body did its base arithmetic on uint32_t pointers: the constants were
+ * scaled by 4 (0x284c0/0x2c4c0 instead of 0x16130/0x17130), i.e. it wrote an unrelated
+ * ISP register and never the frame-drop registers.
+ */
 int64_t tisp_set_frame_drop(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    const uint8_t *req = (const uint8_t *)a2;
+    uint32_t base = (a0 == 0) ? 0x16130 : 0x17130;
+    uint32_t lsize_reg = (a1 << 8) + base;
+    uint32_t mark_reg = (a1 << 8) + base + 4;
+    uint32_t lsize = req[4];
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    a1 = a1 << 8;
-
-    /* fragment 2: StackAccess */
-    local_18 = s2;
-    local_10 = s0;
-    local_1c = ra;
-    local_14 = s1;
-    s2 = a2;
-
-    /* fragment 3: Branch */
-    s0 = 65536;
-    if (a0 == 0) { goto tisp_set_frame_drop0x78; }
-
-    /* fragment 4: Arithmetic */
-    a0 = s0 + 28976;
-    a0 = a1 + a0;
-    s0 = s0 + 28980;
-
-tisp_set_frame_drop0x30:
-    /* fragment 5: Arithmetic */
-    s0 = a1 + (uintptr_t)s0;
-
-    /* fragment 6: MemoryAccess */
-    a1 = *(uint8_t *)((char *)s2 + 4);
-    v0 = a1 < 32;
-
-    /* fragment 7: Branch */
-    s1 = (uintptr_t *)&system_reg_write;
-    if (v0 != 0) { goto tisp_set_frame_drop0x88; }
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC18); /* jalr target resolved by relocation */
-
-    /* fragment 9: Arithmetic */
-    v0 = -1;
-
-tisp_set_frame_drop0x60:
-    /* fragment 10: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_set_frame_drop0x78:
-    /* fragment 11: Arithmetic */
-    a0 = s0 + 24880;
-    a0 = a1 + a0;
-
-    /* fragment 12: Branch */
-    s0 = s0 + 24884;
-    goto tisp_set_frame_drop0x30;
-
-tisp_set_frame_drop0x88:
-    /* fragment 13: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s2 + 0);
-    v0 = 1;
-
-    /* fragment 14: Branch */
-    s1 = (uintptr_t *)&system_reg_write;
-    if (v1 != v0) { goto tisp_set_frame_drop0xb4; }
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, (uintptr_t)a1); /* OEM 0x74aec: a1 = lbu 4(a2) */
-
-    /* fragment 16: CallSetup */
-    a1 = *(uint32_t *)((char *)s2 + 8);
-
-tisp_set_frame_drop0xa4:
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s0, a1); /* jalr target resolved by relocation */
-
-    /* fragment 18: Branch */
-    v0 = 0;
-    goto tisp_set_frame_drop0x60;
-
-tisp_set_frame_drop0xb4:
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, 0); /* OEM 0x74b08: delay slot move a1,zero (a1 = -1 after) */
-
-    /* fragment 20: Branch */
-    a1 = -1;
-    goto tisp_set_frame_drop0xa4;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    if (lsize >= 32) {
+        isp_printf(1, "FPS over 32 in the numerator or denominator!!! Setup failed!!!\n");
+        return -1;
+    }
+    if (*(const uint32_t *)req == 1) {
+        system_reg_write(lsize_reg, lsize);
+        system_reg_write(mark_reg, *(const uint32_t *)(req + 8));
+    } else {
+        system_reg_write(lsize_reg, 0);
+        system_reg_write(mark_reg, 0xffffffffu);
+    }
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000755a8 origin=model_output original=tisp_get_frame_drop */
