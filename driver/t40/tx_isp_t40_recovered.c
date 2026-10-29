@@ -48594,7 +48594,9 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
         s3_2 = (char *)arg3[1];
         s1_1 = 0;
 
-        if ((uintptr_t)s3_2 != *(char **)((char *)*(int **)((char **)arg2 + 0x10c / sizeof(uintptr_t)) + (int)arg1 * 0x60 + 0x180)) {
+        /* T40-0x10C (#139b): OEM adb4/adbc: lw a0,0(s2); lw v1,268(a0) = *(*arg2 + 0x10c).  Unreached: the isp-m0
+         * tuning ioctl answers 0x8000070 (regtrace_t40_sensor_fps_set) before this dispatcher. */
+        if ((uintptr_t)s3_2 != *(char **)((char *)*(int **)((char *)*arg2 + 0x10c) + (int)arg1 * 0x60 + 0x180)) {
             *(int *)&var_88 = (int)arg1;
             __sframe[1] = (uint32_t)(uintptr_t)s3_2;   /* OEM var_84: the fps word the sensor ioctl reads at +4 */
 
@@ -48635,7 +48637,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
         }
 
         if ((unsigned int)v1 < 0x8000072) {
-            void *s4_2 = *(void **)((char **)arg2 + 0x10c / sizeof(void *));
+            void *s4_2 = *(void **)((char *)*arg2 + 0x10c);   /* T40-0x10C (#139b): OEM ae54/ae60 *(*arg2 + 0x10c); unreached (0x8000071 = running mode, answered before) */
             *(int *)&var_88 = 0;
             __sframe[1] = 0;   /* OEM var_84 */
             s1_1 = copy_from_user(&var_2c, (void __user *)arg3[1], 4);
@@ -48946,7 +48948,9 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
 
                 {
                     int32_t a0_val = arg3[1];
-                    uint32_t slots = *(uint32_t*)((char*)arg2 + 0x10c);
+                    /* T40-0x10C (#139b): OEM ba1c/ba28: lw v0,0(a1); lw v1,268(v0) = *(*arg2 + 0x10c) (was arg2 + 0x10c) */
+                    uint32_t core = *(uint32_t *)arg2;
+                    uint32_t slots = regtrace_is_kernel_ptr((void *)(uintptr_t)core) ? *(uint32_t *)((char *)(uintptr_t)core + 0x10c) : 0;
                     void *s2_ptr = (void *)((uint32_t)arg1 * 0x60 + slots);
                     void *v0_ptr = regtrace_is_kernel_ptr((void *)(uintptr_t)slots) ? *(void**)((char*)s2_ptr + 0x170) : NULL;
                     uint32_t attr_out[5];
@@ -49143,7 +49147,7 @@ label_c33c_vfree:
             uint32_t fps_set = READ_ONCE(regtrace_sensor_fps_packed);
 
             ((void **)arg3)[1] = fps_set ? (void *)(uintptr_t)fps_set :
-                (void *)(uintptr_t)*(int32_t*)((uint32_t)arg1 * 0x60 + *(uint32_t*)((char*)arg2 + 0x10c) + 0x180);
+                (void *)(uintptr_t)*(int32_t*)((uint32_t)arg1 * 0x60 + *(uint32_t*)((char*)(uintptr_t)*(uint32_t*)arg2 + 0x10c) + 0x180);   /* T40-0x10C (#139b): OEM ba00/ba04 *(*arg2 + 0x10c); unreached (0x8000070 get answered before) */
             return 0;
         }
 
