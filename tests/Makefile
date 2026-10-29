@@ -3,7 +3,7 @@ CC ?= cc
 CFLAGS ?= -O2
 CFLAGS += -std=c99 -Wall -Wextra -Werror
 
-.PHONY: all check clean t30_storage_audit t40_vct_host t40_af_stats_host t40_bcsh_dn_host
+.PHONY: all check clean t30_storage_audit t40_vct_host t40_af_stats_host t40_bcsh_dn_host t40_tstp_host
 
 # Every host test binary.  A new test is registered with "TESTS += name"
 # (plus its build rule); `check` builds and runs all of them, keeps going
@@ -12,7 +12,7 @@ CFLAGS += -std=c99 -Wall -Wextra -Werror
 # so a test cannot be added and then silently never run.
 TESTS :=
 # Further check steps, run as "$(MAKE) <target>" after the binaries.
-CHECK_TARGETS := t30_storage_audit t41_dfg_host t40_vct_host t40_af_stats_host t40_bcsh_dn_host
+CHECK_TARGETS := t30_storage_audit t41_dfg_host t40_vct_host t40_af_stats_host t40_bcsh_dn_host t40_tstp_host
 # Sources that only run on the camera (not built on the host).
 TARGET_TESTS := $(basename $(wildcard t41_v4l2_*_test.c)) t41_antiflicker_ioctl_test
 TEST_TIMEOUT ?= 600
@@ -559,6 +559,10 @@ t40_af_stats_host:
 # T40 BCSH day -> night -> day (C chain, needs a T40 tuning bin, else SKIP)
 t40_bcsh_dn_host:
 	./t40/bcsh_dn_host/run.sh
+
+# T40 tisp_tstp_reg_cfg (driver/t40/tx_isp_t40_tstp.h) vs the OEM register writes (#142)
+t40_tstp_host:
+	./t40/tstp_host/run.sh
 
 clean:
 	$(RM) $(TESTS)

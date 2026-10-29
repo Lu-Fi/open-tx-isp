@@ -75515,8 +75515,7 @@ tisp_sec_init0xc88:
  *   load failed -> "no bin file", return the load result;
  *   mask without TOP -> -1;  a module the running status lacks -> -1;
  *   status bit 21 clear -> byte +0x15 and +0x35 of tparamsN/tparams_day/tparams_night[vinum] := 1;
- *   re-init the top-level pipeline of the sensor (tisp_tstp_{main,sec}_deinit + _init; not done here,
- *   see the end of the function), return 0.
+ *   re-init the top-level pipeline of the sensor (tisp_tstp_{main,sec}_deinit + _init), return 0.
  * The lift declared the two mask words as never-assigned pointers (var_14[0] = 0: kernel oops on every
  * SwitchBin), read the status pointer itself instead of the status word and had the branches inverted.
  * Deviation: the open loader (regtrace_tiziano_load_parameters_safe) has no per-bin module masks; it
@@ -75558,10 +75557,18 @@ uint32_t tisp_core_switch_bin(int32_t arg1, int32_t *arg2)
             n[0x35] = d[0x35] = nt[0x35] = 1;
         }
     }
-    /* OEM: tisp_tstp_{main,sec}_deinit() + _init() re-program the pipeline top from the new bin.  Not
-     * called here: the lifted tisp_tstp_main_init oopses when run a second time (system_reg_write from
-     * tisp_tstp_reg_cfg, BadVA 0x5bd8a000, QEMU T40 2026-10-29), so SwitchBin keeps the running top until
-     * that chain is translated (#139 follow-up). */
+    /* OEM 0x1f570..0x1f5bc: vinum 0 -> tisp_tstp_main_deinit + tisp_tstp_main_init, else
+     * tisp_tstp_sec_deinit + tisp_tstp_sec_init (fresh zeroed block, tisp_tstp_reg_cfg), return 0.
+     * #142: possible again since tisp_tstp_reg_cfg is a hand translation (the lift never returned:
+     * it looped with a0 = (a0 + 0x600) << 8 + 0x2a0 until the 4th pass wrote ISP base + 0xa8a8a000 =
+     * 0x5bd8a000) and the deinits clear their pointer. */
+    if (arg1 == 0) {
+        tisp_tstp_main_deinit();
+        tisp_tstp_main_init();
+    } else {
+        tisp_tstp_sec_deinit();
+        tisp_tstp_sec_init();
+    }
     return 0;
 }
 
@@ -156925,192 +156932,33 @@ int32_t Tzn_Msca_addr_fifo_have_read(int32_t arg1, int32_t arg2)
 #endif
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000006d730 origin=fragment_seed original=tisp_tstp_reg_cfg */
+#include "tx_isp_t40_tstp.h"
+/* WHOLE_DRIVER_CANDIDATE fn_000000000006d730 origin=hand original=tisp_tstp_reg_cfg */
+/*
+ * T40-TSTP (#142): hand translation of the OEM tisp_tstp_reg_cfg (libt40-firmware 0x6cca0).
+ * a0 = vinum: 0 -> main_tstp (.bss+18916, 0x6d088), else sec_tstp (.bss+18912, 0x6ccc8).
+ * The 31 register writes and values are t40_tstp_regs() (tx_isp_t40_tstp.h, host-checked against
+ * the OEM instruction stream in tests/t40/tstp_host); the last one is the OEM tail call
+ * (0x6d078 jr.hb t9 = system_reg_write), whose result is returned.
+ * The lifted body passed a stale a1 to 22 of the writes (every lwl/lwr word and +16/+32 were
+ * "a1" from the previous call), did its offsets on a uint32_t pointer (s1 + 16 = +64 bytes ...)
+ * and dropped the tail write; it ran at boot (tisp_main_init -> tisp_tstp_main_init).
+ * Better than the OEM: a NULL parameter block (init not run / after deinit) is refused (-1)
+ * instead of dereferenced.
+ */
 int32_t tisp_tstp_reg_cfg(uint32_t a0)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    const uint8_t *p = (const uint8_t *)(a0 == 0 ? main_tstp : sec_tstp);
+    uint32_t reg[T40_TSTP_NREGS], val[T40_TSTP_NREGS];
+    unsigned int i, n;
+    int32_t ret = 0;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    if (a0 == 0) { goto tisp_tstp_reg_cfg0x3e0; }
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)&sec_tstp;
-    s0 = *(uint32_t *)((char *)((char *)&sec_tstp));
-
-tisp_tstp_reg_cfg0x2c:
-    /* fragment 3: CallSetup */
-    s1 = (a0 + 1536) << 8;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((a0 + 1536) << 8, (uintptr_t)a1); /* jalr target resolved by relocation */
-
-    /* fragment 4: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s0 + 6);
-    v1 = *(uint16_t *)((char *)s0 + 8);
-    a1 = *(uint16_t *)((char *)s0 + 4);
-    v0 = (uintptr_t)v0 << 4;
-    v1 = (uintptr_t)v1 << 8;
-    v1 = (uintptr_t)v1 & 3840;
-    v0 = (uintptr_t)v0 & 255;
-    v0 = (uintptr_t)v0 | (uintptr_t)v1;
-    a1 = (uintptr_t)a1 & 15;
-    v0 = (uintptr_t)v0 | (uintptr_t)a1;
-    a1 = *(uint16_t *)((char *)s0 + 10);
-    s4 = 458752;
-    s3 = 7340032;
-    a1 = (uintptr_t)a1 << 12;
-    a1 = (uintptr_t)a1 & 4096;
-    v0 = (uintptr_t)v0 | (uintptr_t)a1;
-    a1 = *(uint16_t *)((char *)s0 + 12);
-    v1 = 16777216;
-    a0 = s1 + 4;
-    a1 = (uintptr_t)a1 << 16;
-    a1 = (uintptr_t)a1 & (uintptr_t)s4;
-    v0 = (uintptr_t)v0 | (uintptr_t)a1;
-    a1 = *(uint16_t *)((char *)s0 + 14);
-    s5 = 16711680;
-    a1 = (uintptr_t)a1 << 20;
-    a1 = (uintptr_t)a1 & (uintptr_t)s3;
-    v0 = (uintptr_t)v0 | (uintptr_t)a1;
-    a1 = *(uint16_t *)((char *)s0 + 16);
-    a1 = (uintptr_t)a1 << 24;
-    a1 = (uintptr_t)a1 & (uintptr_t)v1;
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, a1); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 8, (*(uint8_t *)((char *)((uintptr_t)s0) + 18)) | ((*(uint16_t *)((char *)((uintptr_t)s0) + 24)) << 24) | ((*(uint16_t *)((char *)((uintptr_t)s0) + 20)) << 8 & 65535) | (((*(uint16_t *)((char *)((uintptr_t)s0) + 22)) << 16) & s5)); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 12, (*(uint8_t *)((char *)((uintptr_t)s0) + 26)) | ((*(uint16_t *)((char *)((uintptr_t)s0) + 32)) << 24) | ((*(uint16_t *)((char *)((uintptr_t)s0) + 28)) << 8 & 65535) | (((*(uint16_t *)((char *)((uintptr_t)s0) + 30)) << 16) & s5)); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 16, a1); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 20, ((*(uint16_t *)((char *)((uintptr_t)s0) + 40)) << 8 & 3840) | ((*(uint16_t *)((char *)((uintptr_t)s0) + 42)) << 12 & 4096) | (*(uint16_t *)((char *)((uintptr_t)s0) + 38) & 15) | (((*(uint16_t *)((char *)((uintptr_t)s0) + 44)) << 16) & (uintptr_t)s4) | (((*(uint16_t *)((char *)((uintptr_t)s0) + 46)) << 20) & (uintptr_t)s3)); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 32, a1); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 36, ((*(uint16_t *)((char *)((uintptr_t)s0) + 54)) << 8 & 3840) | ((*(uint16_t *)((char *)((uintptr_t)s0) + 56)) << 12 & 4096) | (*(uint16_t *)((char *)((uintptr_t)s0) + 52) & 15) | (((*(uint16_t *)((char *)((uintptr_t)s0) + 58)) << 16) & (uintptr_t)s4) | (((*(uint16_t *)((char *)((uintptr_t)s0) + 60)) << 20) & (uintptr_t)s3)); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 40, ((*(uint16_t *)((char *)((uintptr_t)s0) + 64)) << 4 & 48) | ((*(uint16_t *)((char *)((uintptr_t)s0) + 66)) << 8 & 768) | (*(uint16_t *)((char *)((uintptr_t)s0) + 62) & 1)); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 48, ((*(uint16_t *)((char *)((uintptr_t)s0) + 70)) << 4 & 16) | ((*(uint16_t *)((char *)((uintptr_t)s0) + 72)) << 8 & 256) | (*(uint16_t *)((char *)((uintptr_t)s0) + 68) & 1)); /* jalr target resolved by relocation */
-
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 64, ((*(uint16_t *)((char *)((uintptr_t)s0) + 76)) << 4 & 48) | (*(uint16_t *)((char *)((uintptr_t)s0) + 74) & 7)); /* jalr target resolved by relocation */
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 80, a1); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 84, a1); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 88, a1); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 92, a1); /* jalr target resolved by relocation */
-
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 96, a1); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 100, a1); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 104, a1); /* jalr target resolved by relocation */
-
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 108, a1); /* jalr target resolved by relocation */
-
-    /* fragment 23: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 112, a1); /* jalr target resolved by relocation */
-
-    /* fragment 24: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 116, a1); /* jalr target resolved by relocation */
-
-    /* fragment 25: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 120, a1); /* jalr target resolved by relocation */
-
-    /* fragment 26: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 124, a1); /* jalr target resolved by relocation */
-
-    /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 128, a1); /* jalr target resolved by relocation */
-
-    /* fragment 28: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 132, a1); /* jalr target resolved by relocation */
-
-    /* fragment 29: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 136, a1); /* jalr target resolved by relocation */
-
-    /* fragment 30: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 140, a1); /* jalr target resolved by relocation */
-
-    /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 144, *(uint16_t *)((char *)((uintptr_t)s0) + 142) & 3); /* jalr target resolved by relocation */
-
-    /* fragment 32: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 160, a1); /* jalr target resolved by relocation */
-
-    /* fragment 33: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 164, a1); /* jalr target resolved by relocation */
-
-    /* fragment 34: MemoryAccess */
-    a1 = *(uint16_t *)((char *)s0 + 152);
-    ra = local_2c;
-    s5 = local_28;
-    s4 = local_24;
-    s3 = local_20;
-    s0 = local_14;
-    a0 = s1 + 168;
-    t9 = s2;
-    s1 = local_18;
-    s2 = local_1c;
-    a1 = (uintptr_t)a1 & 3;
-
-    /* fragment 35: Unknown */
-    /* unmatched fragment 35 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6db08:	03200408 	jr.hb	t9 */
-
-    /* fragment 36: Arithmetic */
-    /* unmatched fragment 36 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 6db0c:	27bd0030 	addiu	sp,sp,48 */
-
-tisp_tstp_reg_cfg0x3e0:
-    /* fragment 37: Arithmetic */
-    v0 = (uintptr_t *)&main_tstp;
-
-    /* fragment 38: Branch */
-    s0 = *(uint32_t *)((char *)((char *)&main_tstp));
-    goto tisp_tstp_reg_cfg0x2c;
-
-    return 0;
+    if (!p)
+        return -1;
+    n = t40_tstp_regs(a0, p, reg, val);
+    for (i = 0; i < n; i++)
+        ret = system_reg_write(reg[i], val[i]);
+    return ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006db1c origin=fragment_seed original=tisp_tstp_mark1_func */
@@ -157414,74 +157262,26 @@ int32_t tisp_tstp_main_init(void)
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000006de94 origin=fragment_seed original=tisp_tstp_main_deinit */
+/* WHOLE_DRIVER_CANDIDATE fn_000000000006de94 origin=hand original=tisp_tstp_main_deinit */
+/* T40-TSTP (#142): OEM tisp_tstp_main_deinit (0x6d404): vfree the parameter block and clear the pointer
+ * (0x6d42c sw zero; the lift dropped that store, so a later reg_cfg / re-init used a freed block). */
 void tisp_tstp_main_deinit(void)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a0 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s0 = (uintptr_t *)&main_tstp;
-
-    /* fragment 2: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&main_tstp));
-
-    /* fragment 3: Branch */
-    if (a0 == 0) { goto tisp_tstp_main_deinit0x2c; }
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&main_tstp)) = 0;
-
-tisp_tstp_main_deinit0x2c:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return;
-
+    if (main_tstp) {
+        ((int (*)(uintptr_t))(uintptr_t)private_vfree)(main_tstp);   /* reads the block from a0 */
+        main_tstp = 0;
+    }
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000006ded0 origin=fragment_seed original=tisp_tstp_sec_deinit */
+/* WHOLE_DRIVER_CANDIDATE fn_000000000006ded0 origin=hand original=tisp_tstp_sec_deinit */
+/* T40-TSTP (#142): OEM tisp_tstp_sec_deinit (0x6d440): vfree the parameter block and clear the pointer
+ * (0x6d468 sw zero; the lift dropped that store, so a later reg_cfg / re-init used a freed block). */
 void tisp_tstp_sec_deinit(void)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a0 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s0 = (uintptr_t *)&sec_tstp;
-
-    /* fragment 2: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&sec_tstp));
-
-    /* fragment 3: Branch */
-    if (a0 == 0) { goto tisp_tstp_sec_deinit0x2c; }
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&sec_tstp)) = 0;
-
-tisp_tstp_sec_deinit0x2c:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return;
-
+    if (sec_tstp) {
+        ((int (*)(uintptr_t))(uintptr_t)private_vfree)(sec_tstp);    /* reads the block from a0 */
+        sec_tstp = 0;
+    }
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006df0c origin=fragment_seed original=tisp_tstp_sec_init */
