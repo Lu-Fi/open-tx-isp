@@ -109,6 +109,31 @@ VAWB_ST(sw, u32, 3)
 VAWB_ST(sh, u16, 1)
 VAWB_ST(sb, u8, 0)
 
+/*
+ * The same guards inline, for the per-frame hot path (gen.sh VAE_INLINE:
+ * tisp_awb_long_alogrithm, #133): identical checks and results, no call
+ * per access.  Faults still go through the noinline note above.
+ */
+#define VAWB_LDI(name, type, align) \
+static __always_inline u32 vawb_##name##_i(u32 a, u32 pc) \
+{ \
+	if (unlikely(!vawb_ok(a, align))) { vawb_fault_note(a, pc); return 0; } \
+	return (u32)*(volatile type *)(uintptr_t)a; \
+}
+VAWB_LDI(lw, u32, 3)
+VAWB_LDI(lhu, u16, 1)
+VAWB_LDI(lbu, u8, 0)
+#define VAWB_STI(name, type, align) \
+static __always_inline void vawb_##name##_i(u32 a, u32 v, u32 pc) \
+{ \
+	if (unlikely(!vawb_ok(a, align))) { vawb_fault_note(a, pc); return; } \
+	if (unlikely(t40_vawb_debug >= 2) && vawb_st_wild(a, pc)) return; \
+	*(volatile type *)(uintptr_t)a = (type)v; \
+}
+VAWB_STI(sw, u32, 3)
+VAWB_STI(sh, u16, 1)
+VAWB_STI(sb, u8, 0)
+
 /* accesses to the function's own frame array vframe[] (generated "sp + N"): always valid and aligned */
 #define vf_lw(a)  (*(volatile u32 *)(uintptr_t)(a))
 #define vf_lhu(a) ((u32)*(volatile u16 *)(uintptr_t)(a))

@@ -35,8 +35,9 @@ if [ -n "$CTD_REF" ]; then
 	XDEF="-DCTD_REF_INC=\"$W/ref.inc\""
 fi
 sed -e 's/^static const u8 vawb_rodata\(\[[0-9]*\]\) __aligned(8)/static u8 vawb_rodata\1 __aligned(8) VD/' ${GEN:-$D/tx_isp_t40_vawb_gen.inc} > $W/gen.inc
-gcc -O1 ${XCFLAGS:--g0} -falign-functions=16 -no-pie -fno-pie -w -fno-strict-aliasing -Wl,--section-start=.vdata=0x30000000 \
+${VCC:-gcc} ${VOPT:--O1} ${XCFLAGS:--g0} -falign-functions=16 ${VPIE--no-pie -fno-pie} -w -fno-strict-aliasing ${VLD--Wl,--section-start=.vdata=0x30000000} \
 	-DVAWB_TOP="\"$W/top.h\"" -DVAWB_INC="\"$W/gen.inc\"" -DCFIX_INC="\"$W/cfix.inc\"" \
 	-DCTD_INC="\"$D/tx_isp_t40_awb_ctd.inc\"" $XDEF $HERE/t40_vawb/vawb_host.c -o $W/vawb_host
 [ -n "$KEEPBIN" ] && cp $W/vawb_host $KEEPBIN
+[ -n "$NORUN" ] && exit 0
 $W/vawb_host "$@"

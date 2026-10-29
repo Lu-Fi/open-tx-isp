@@ -26,7 +26,14 @@ VAE_ADAPT="$ADAPT" VAE_STOP="tisp_clm_ct_update tisp_awb_ct_detect" python3 -I "
 	tisp_lsc_ct_update tisp_lsc_real_write_lut tisp_bcsh_main_ct_update tisp_bcsh_main_ev_update \
 	tisp_bcsh_ct_update tisp_bcsh_ev_update 2> $W/gen.err
 cat $W/gen.err >&2
-sed -e 's/\bvae_/vawb_/g' $W/gen.inc > $OUT
+# VAE_INLINE: functions whose guarded accesses use the inline guards (vawb_lw_i ..., same checks; #133)
+VAE_INLINE=${VAE_INLINE-tisp_awb_long_alogrithm}
+sed -e 's/\bvae_/vawb_/g' $W/gen.inc | awk -v fns="$VAE_INLINE" '
+	BEGIN { n = split(fns, f, " "); for (i = 1; i <= n; i++) want["vawb_" f[i]] = 1 }
+	/^u64 noinline vawb_[a-zA-Z0-9_]*\(/ { name = $3; sub(/\(.*/, "", name); inl = (name in want) }
+	inl { $0 = gensub(/\<vawb_(lw|lhu|lbu|sw|sh|sb)\(/, "vawb_\\1_i(", "g") }
+	{ print }
+	/^}/ { inl = 0 }' > $OUT
 # host-only OEM init of the colour contexts (tests/t40_vct_host.sh); everything already in the
 # device set is a VAE_STOP reference (vae_s_X -> vawb_X in the harness)
 DONE=$(sed -n 's/^functions [0-9]*: //p' $W/gen.err)
