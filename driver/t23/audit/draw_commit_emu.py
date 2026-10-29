@@ -9,7 +9,9 @@ Per case: six random draw entries @2028 (type 0..3, points with x1 < x0,
 equal x or y, flag byte 0 / not 0) and a random draw dirty word @2312 (OSD /
 mask dirty 0), stock run with 0xe100 / 0xe00c not busy; the open side is the
 same bracket as t23_osd_commit (gcc build of tx_isp_t23_osd.h).  Every write
-and the mscaler bytes afterwards must be identical.  Prints "bad 0" when clean.
+and the mscaler bytes afterwards must be identical, except that an update whose
+dirty blocks all have a type > 2 (0 pairs) is not kicked here (stock writes
+0xe100 = (0 - 1) << 4 | 1).  Prints "bad 0" when clean.
 """
 import os, sys, subprocess, tempfile, random, struct
 HERE = os.path.dirname(os.path.abspath(__file__))
