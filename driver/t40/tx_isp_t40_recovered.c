@@ -91754,7 +91754,20 @@ int32_t tisp_awb_algo_handle(uint32_t a0, uintptr_t a1)
     local_24 = 0;
     local_18 = *(uint32_t *)((char *)(a1) + 16);
     local_20 = *(uint32_t *)((char *)(a1) + 20);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_s_awb_attr)(a0); /* jalr target resolved by relocation */
+    {
+        /* OEM 0x343f8..0x3442c: tisp_s_awb_attr(a0, a1 = sp+16), an 84-byte
+         * frame struct: +0 = 1 (a1[8]), +4 = a1[12], +8 = a1[16], +12 = 0,
+         * +16 = a1[20], +20 = 0, +64 = 0 (sw zero,80(sp)); the rest is
+         * uninitialised stack in OEM and zero here.  tisp_s_awb_attr reads
+         * +0/+4/+8/+12/+16/+20/+64 and passes +68 on. */
+        uint32_t awb_attr[21] = { 0 };
+
+        awb_attr[0] = (uint32_t)(uintptr_t)local_10;
+        awb_attr[1] = (uint32_t)(uintptr_t)local_14;
+        awb_attr[2] = (uint32_t)(uintptr_t)local_18;
+        awb_attr[4] = (uint32_t)(uintptr_t)local_20;
+        v0 = (uintptr_t *)(uintptr_t)tisp_s_awb_attr(a0, (uintptr_t)awb_attr);
+    }
 
     /* fragment 4: Epilogue */
     /* function epilogue: restore registers and return */
@@ -164696,7 +164709,7 @@ int32_t tisp_s_awb_attr(uint32_t a0, uintptr_t a1)
     local_10 = *(uint32_t *)((char *)(a1) + 0);
     local_14 = *(uint32_t *)((char *)(a1) + 4);
     local_18 = *(uint32_t *)((char *)(a1) + 8);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_awb_set_mode)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_set_mode)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 2: MemoryAccess */
     v1 = *(uint32_t *)((char *)s0 + 64);
