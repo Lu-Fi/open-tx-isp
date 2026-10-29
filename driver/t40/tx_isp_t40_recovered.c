@@ -77463,7 +77463,7 @@ tisp_ae_roi_point0x198:
 
 tisp_ae_roi_point0x1a0:
     /* fragment 24: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 | 37460); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 | 37460, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 25: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 | 37464, (uintptr_t)s0); /* jalr target resolved by relocation */
@@ -164864,7 +164864,7 @@ tisp_s_ae_scence_attr0x98:
 
 tisp_s_ae_scence_attr0xbc:
     /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_s_comp)(s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_s_comp)(s1, (uintptr_t)a1); /* jalr target resolved by relocation */
 
 tisp_s_ae_scence_attr0xcc:
     /* fragment 17: MemoryAccess */
@@ -164883,7 +164883,7 @@ tisp_s_ae_scence_attr0xcc:
 
 tisp_s_ae_scence_attr0xec:
     /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_ev_start_set)(s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_ev_start_set)(s1, (uintptr_t)a1, (uintptr_t)a2); /* jalr target resolved by relocation */
 
     /* fragment 21: Epilogue */
     /* function epilogue: restore registers and return */
@@ -165267,7 +165267,7 @@ int32_t tisp_g_ae_statis_attr(uint32_t a0, uintptr_t a1)
 
 tisp_g_ae_statis_attr0x70:
     /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_get_hist_bin)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_get_hist_bin)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s4, (void *)(uintptr_t)s1, 1024); /* jalr target resolved by relocation */
@@ -165298,7 +165298,7 @@ tisp_g_ae_statis_attr0x70:
     v0 = v0;
 
     /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_get_y_zone)(s2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_get_y_zone)(s2, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 10: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(s1); /* jalr target resolved by relocation */
@@ -165595,7 +165595,7 @@ int32_t tisp_ae_face_set(uint32_t a0, uintptr_t a1)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_sepc_area)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_sepc_area)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 2: Epilogue */
     /* function epilogue: restore registers and return */
