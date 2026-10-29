@@ -15948,6 +15948,8 @@ static long regtrace_isp_m0_ext_control_unlocked(unsigned long arg)
           TX_ISP_TUNING_PAYLOAD_USER_PTR },
         { REGTRACE_TISP_CTRL_GET_EV_ATTR, 24, TX_ISP_TUNING_DIR_GET,
           TX_ISP_TUNING_PAYLOAD_USER_PTR },
+        { 0x8000084, 0x14, TX_ISP_TUNING_DIR_GET,
+          TX_ISP_TUNING_PAYLOAD_USER_PTR },
     };
     struct tx_isp_tuning_t23_ext_control ctrl;
     const struct tx_isp_tuning_cmd_desc *route;
@@ -16051,6 +16053,21 @@ static long regtrace_isp_m0_ext_control_unlocked(unsigned long arg)
                                   info.isp_dgain, info.tgain_log2);
             if (copy_to_user((void __user *)(uintptr_t)ctrl.value_or_ptr,
                              &ev, sizeof(ev)))
+                return -EFAULT;
+        }
+        break;
+    case 0x8000084:
+        /*
+         * IMP_ISP_Tuning_GetNCUInfo: the OEM g_ctrl hands tisp_g_ncuinfo a
+         * 0x14-byte stack buffer that it never fills (it only checks the
+         * pointer) and copies that buffer out; zeros here, like the T31
+         * driver.
+         */
+        if (ctrl.value_or_ptr) {
+            static const uint32_t ncu[5];
+
+            if (copy_to_user((void __user *)(uintptr_t)ctrl.value_or_ptr,
+                             ncu, sizeof(ncu)))
                 return -EFAULT;
         }
         break;

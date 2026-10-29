@@ -9196,6 +9196,11 @@ static int apical_isp_core_ops_g_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
             ret = apical_isp_af_zone_g_ctrl(dev, ctrl);
             break;
 
+        case 0x800003a:  /* libimp 1.1.5-zrt IMP_ISP_Tuning_GetEvStart: the AE start exposure (4 bytes to the pointer) */
+            if (copy_to_user((void __user *)(unsigned long)ctrl->value, &ae_ev_init_strict, sizeof(ae_ev_init_strict)))
+                ret = -EFAULT;
+            break;
+
         case 0x8000084: { /* OEM: tisp_g_ncuinfo (0x14 bytes) */
             uint32_t ncu[5] = {0};
             if (copy_to_user((void __user *)(unsigned long)ctrl->value, ncu, 0x14))
@@ -9690,6 +9695,7 @@ static int apical_isp_core_ops_s_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
         }
 
         case 0x80000e6:  /* OEM: tisp_s_ev_start — kickstart AE exposure init */
+        case 0x800003a:  /* libimp 1.1.5-zrt IMP_ISP_Tuning_SetEvStart: the same through the tuning node (stock 1.1.6 kernel: none) */
             tisp_s_ev_start(ctrl->value);
             break;
 
