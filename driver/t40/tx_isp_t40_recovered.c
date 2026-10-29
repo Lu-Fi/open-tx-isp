@@ -68026,7 +68026,7 @@ tisp_reg_map_set0x118:
 
 tisp_reg_map_set0x11c:
     /* fragment 25: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, (uintptr_t)a1); /* OEM 0x17268: a0 = lw 20(sp), a1 = lw 16(sp) on every path */
 
     /* fragment 26: Branch */
     goto tisp_reg_map_set0xbc;
@@ -165966,7 +165966,7 @@ tisp_set_frame_drop0x88:
     if (v1 != v0) { goto tisp_set_frame_drop0xb4; }
 
     /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, (uintptr_t)a1); /* OEM 0x74aec: a1 = lbu 4(a2) */
 
     /* fragment 16: CallSetup */
     a1 = *(uint32_t *)((char *)s2 + 8);
@@ -165981,7 +165981,7 @@ tisp_set_frame_drop0xa4:
 
 tisp_set_frame_drop0xb4:
     /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, a1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, 0); /* OEM 0x74b08: delay slot move a1,zero (a1 = -1 after) */
 
     /* fragment 20: Branch */
     a1 = -1;
