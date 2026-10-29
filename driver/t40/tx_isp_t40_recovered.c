@@ -151571,7 +151571,7 @@ tisp_bcsh_ev_set_parameter0x298:
     local_74 = t7;
     local_70 = t8;
     local_6c = t9;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, (uintptr_t)v0); /* OEM 0x68600: move a1,v0 (v0 = lhu a3[0] << 16 | lhu a3[2]) */
 
     /* fragment 19: CallSetup */
     t9 = local_6c;
@@ -151812,7 +151812,7 @@ tisp_bcsh_ev_update0xe0:
 
 tisp_bcsh_ev_update0xe4:
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_bcsh_ev_update_TransitParam)(s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_ev_update_TransitParam)(s0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 8: StackAccess */
     a1 = local_18;
