@@ -12,6 +12,7 @@ u64 vawb_tisp_awb_set_gain(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_awb_dn_params_refresh(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_awb_main_ev_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_awb_tgain_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
+u64 vawb_tisp_awb_sat_weight(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_ct_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_ccm_main_ct_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_ccm_main_ev_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
@@ -22,7 +23,6 @@ u64 vawb_tisp_bcsh_main_ct_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_bcsh_main_ev_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_bcsh_ct_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_bcsh_ev_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
-u64 vawb_tisp_awb_long_alogrithm(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_awb_long_par_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_awb_spec_calculate(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_awb_set_lum_th_freq(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
@@ -45,8 +45,6 @@ u64 vawb_tisp_bcsh_ct_interpolation(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_bcsh_ct_set_parameter(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_bcsh_ev_set_parameter(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_bcsh_ev_update_TransitParam(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
-u64 vawb_fix_point_div(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
-u64 vawb_tisp_awb_sat_weight(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_ae_main_mean_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_ae_sec_mean_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
 u64 vawb_tisp_simple_intp_int16(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
@@ -84,7 +82,7 @@ u64 noinline vawb_tisp_awb_main_process(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
 	v0 = v0 + ((u32)(uintptr_t)vawb_tisp_awb_spec_calculate + 0U);
 	tg = v0; a0 = s0 + ((u32)(uintptr_t)(pstMainAwbOri) + 0U); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 212808U); v0 = (u32)rv; } vawb_rf_load();
 	v0 = 0;
-	v0 = v0 + ((u32)(uintptr_t)vawb_tisp_awb_long_alogrithm + 0U);
+	v0 = v0 + ((u32)(uintptr_t)vawb_s_tisp_awb_long_alogrithm + 0U);
 	a2 = 0U;
 	a1 = s1 + ((u32)(uintptr_t)(pstMainAwbCtDetectOri) + 0U);
 	tg = v0; a0 = s0 + ((u32)(uintptr_t)(pstMainAwbOri) + 0U); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 212832U); v0 = (u32)rv; } vawb_rf_load();
@@ -2024,6 +2022,130 @@ L_60:
 	vawb_rf_save(); return ((u64)v1 << 32) | v0;
 }
 
+/* OEM tisp_awb_sat_weight (.text+0x325b8, 115 insns, frame 56) */
+u64 noinline vawb_tisp_awb_sat_weight(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
+{
+	u32 at = 0, v0 = 0, v1 = 0, t0 = 0, t1 = 0, t2 = 0, t3 = 0, t4 = 0, t5 = 0, t6 = 0, t7 = 0, s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0, s7 = 0, t8 = 0, t9 = 0, k0 = 0, k1 = 0, gp = 0, s8 = 0, ra = 0;
+	u32 tg = 0, c = 0; u64 acc = 0;
+	u32 vframe[15] __aligned(8);
+	u32 sp = (u32)(uintptr_t)vframe;
+	(void)tg; (void)c; (void)acc; (void)sp; (void)csp; (void)at; (void)k0; (void)k1; (void)gp; (void)ra;
+	vawb_fn_enter(); vawb_rf_load();
+	v0 = vawb_lw((csp + 24U), 206268U);
+	vf_sw((sp + 52U), s8);
+	vf_sw((sp + 28U), s2);
+	vf_sw((sp + 24U), s1);
+	vf_sw((sp + 48U), s7);
+	vf_sw((sp + 44U), s6);
+	vf_sw((sp + 40U), s5);
+	vf_sw((sp + 36U), s4);
+	vf_sw((sp + 32U), s3);
+	vf_sw((sp + 20U), s0);
+	v1 = vawb_lw((v0 + (u32)0), 206308U);
+	t0 = vawb_lw((v0 + (u32)4), 206312U);
+	s5 = vawb_lw((v0 + (u32)96), 206316U);
+	v0 = vawb_lw((v0 + (u32)12), 206320U);
+	s1 = vawb_lw((csp + 20U), 206324U);
+	s4 = vawb_lw((t0 + (u32)0), 206328U);
+	t8 = vawb_lhu((v0 + (u32)0), 206332U);
+	s6 = vawb_lhu((v1 + (u32)6), 206336U);
+	s7 = vawb_lhu((v1 + (u32)2), 206340U);
+	t5 = vawb_lw((csp + 16U), 206344U);
+	t2 = 0U;
+	t4 = 0U;
+	s8 = (u32)60;
+	t9 = (u32)1;
+	s2 = (u32)3;
+L_68:
+	v0 = t4 < s7;
+	c = (v0 == 0); v1 = (u32)((s32)t4 * (s32)s8); if (c) goto L_1a0;
+	v0 = vawb_lw((csp + 16U), 206380U);
+	t0 = 0U;
+	t7 = 0U;
+	s3 = v1 + v0;
+	v0 = a3 + t2;
+	vf_sw((sp + 0U), v0);
+	v0 = a0 + t2;
+	vf_sw((sp + 4U), v0);
+	v0 = a2 + t2;
+	vf_sw((sp + 8U), v0);
+	v0 = vawb_lw((csp + 16U), 206420U);
+	v0 = v0 + t2;
+	c = 1; vf_sw((sp + 12U), v0); if (c) goto L_e0;
+L_ac:
+	t3 = vawb_lw((v0 + (u32)0), 206436U);
+	c = (t3 == 0); v0 = t5 + t0; if (c) goto L_d4;
+	v0 = vf_lw((sp + 0U));
+	v0 = v0 + t0;
+	v0 = vawb_lw((v0 + (u32)0), 206456U);
+	v0 = s4 < v0;
+	c = (v0 != 0); v0 = vf_lw((sp + 4U)); if (c) goto L_100;
+L_d0:
+	v0 = t5 + t0;
+L_d4:
+	vawb_sw((v0 + (u32)0), t9, 206476U);
+L_d8:
+	t7 = t7 + (u32)1;
+	t0 = t0 + (u32)4;
+L_e0:
+	v0 = t7 < s6;
+	c = (v0 != 0); v0 = a1 + t0; if (c) { if (unlikely(vawb_loop_guard(206492U))) return 0; goto L_ac; }
+	t4 = t4 + (u32)1;
+	t5 = t5 + (u32)60;
+	a1 = a1 + (u32)60;
+	c = 1; t2 = t2 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(206512U))) return 0; goto L_68; }
+L_100:
+	v1 = vawb_lw((s1 + (u32)0), 206520U);
+	v0 = v0 + t0;
+	v0 = vawb_lw((v0 + (u32)0), 206528U);
+	v0 = (u32)((s32)v0 * (s32)v1);
+	v1 = vf_lw((sp + 8U));
+	v1 = v1 + t0;
+	t1 = vawb_lw((v1 + (u32)0), 206544U);
+	v1 = vawb_lw((s1 + (u32)4), 206548U);
+	t1 = (u32)((s32)t1 * (s32)v1);
+	v0 = v0 >> (t8 & 31);
+	t1 = t1 >> (t8 & 31);
+	t6 = t1 < v0;
+	v1 = t1;
+	if (t6 == 0) v1 = v0;
+	t6 = v1;
+	v1 = t3 < v1;
+	if (v1 != 0) t6 = t3;
+	c = (t6 == 0); v1 = t6 << (t8 & 31); if (c) { if (unlikely(vawb_loop_guard(206588U))) return 0; goto L_d0; }
+	t6 = vawb_lhu((s5 + (u32)0), 206596U);
+	c = (t6 != t9); t6 = vf_lw((sp + 12U)); if (c) goto L_17c;
+	t6 = v0 < t1;
+	if (t6 != 0) v0 = t1;
+	t1 = v0 < t3;
+	if (t1 == 0) t3 = v0;
+	acc = vawb_divu(v1, t3, 206624U);
+	s0 = s3 + t0;
+	t1 = (u32)acc;
+	c = 1; vawb_sw((s0 + (u32)0), t1, 206640U); if (c) { if (unlikely(vawb_loop_guard(206636U))) return 0; goto L_d8; }
+L_17c:
+	v0 = v0 + t1;
+	v0 = v0 + t3;
+	acc = vawb_divu(v0, s2, 206652U);
+	t6 = t6 + t0;
+	v0 = (u32)acc;
+	acc = vawb_divu(v1, v0, 206664U);
+	v1 = (u32)acc;
+	c = 1; vawb_sw((t6 + (u32)0), v1, 206676U); if (c) { if (unlikely(vawb_loop_guard(206672U))) return 0; goto L_d8; }
+L_1a0:
+	s8 = vf_lw((sp + 52U));
+	s7 = vf_lw((sp + 48U));
+	s6 = vf_lw((sp + 44U));
+	s5 = vf_lw((sp + 40U));
+	s4 = vf_lw((sp + 36U));
+	s3 = vf_lw((sp + 32U));
+	s2 = vf_lw((sp + 28U));
+	s1 = vf_lw((sp + 24U));
+	s0 = vf_lw((sp + 20U));
+	 vawb_rf_save(); return ((u64)v1 << 32) | v0;
+	vawb_rf_save(); return ((u64)v1 << 32) | v0;
+}
+
 /* OEM tisp_ct_update (.text+0x1b648, 62 insns, frame 40) */
 u64 noinline vawb_tisp_ct_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
 {
@@ -3090,1142 +3212,6 @@ L_7e0:
 	a3 = (u32)8;
 	c = (v1 != a3); a0 = t0; if (c) { if (unlikely(vawb_loop_guard(433220U))) return 0; goto L_19c; }
 	c = 1; a1 = vf_lw((sp + 24U)); if (c) { if (unlikely(vawb_loop_guard(433228U))) return 0; goto L_e4; }
-	vawb_rf_save(); return ((u64)v1 << 32) | v0;
-}
-
-/* OEM tisp_awb_long_alogrithm (.text+0x32784, 1087 insns, frame 184) */
-u64 noinline vawb_tisp_awb_long_alogrithm(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
-{
-	u32 at = 0, v0 = 0, v1 = 0, t0 = 0, t1 = 0, t2 = 0, t3 = 0, t4 = 0, t5 = 0, t6 = 0, t7 = 0, s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0, s7 = 0, t8 = 0, t9 = 0, k0 = 0, k1 = 0, gp = 0, s8 = 0, ra = 0;
-	u32 tg = 0, c = 0; u64 acc = 0;
-	u32 vframe[47] __aligned(8);
-	u32 sp = (u32)(uintptr_t)vframe;
-	(void)tg; (void)c; (void)acc; (void)sp; (void)csp; (void)at; (void)k0; (void)k1; (void)gp; (void)ra;
-	vawb_fn_enter(); vawb_rf_load();
-	vf_sw((sp + 176U), s8);
-	vf_sw((sp + 144U), s0);
-	vf_sw((sp + 180U), ra);
-	vf_sw((sp + 172U), s7);
-	vf_sw((sp + 168U), s6);
-	vf_sw((sp + 164U), s5);
-	vf_sw((sp + 160U), s4);
-	vf_sw((sp + 156U), s3);
-	vf_sw((sp + 152U), s2);
-	vf_sw((sp + 148U), s1);
-	s6 = vawb_lw((a0 + (u32)20), 206768U);
-	s8 = a0;
-	v1 = vawb_lw((a0 + (u32)16), 206776U);
-	v0 = vawb_lw((a0 + (u32)4), 206780U);
-	vawb_sw((csp + 4U), a1, 206784U);
-	s5 = vawb_lw((a0 + (u32)36), 206788U);
-	a1 = vawb_lw((a0 + (u32)0), 206792U);
-	a0 = vawb_lw((a0 + (u32)12), 206796U);
-	t2 = (u32)1;
-	v0 = vawb_lw((v0 + (u32)0), 206804U);
-	s1 = vawb_lhu((a0 + (u32)0), 206808U);
-	s3 = vawb_lhu((a0 + (u32)2), 206812U);
-	vf_sw((sp + 32U), 0U);
-	a0 = t2 << (s1 & 31);
-	vf_sw((sp + 48U), a0);
-	vf_sw((sp + 52U), a0);
-	vf_sw((sp + 40U), a0);
-	vf_sw((sp + 44U), a0);
-	vf_sw((sp + 36U), 0U);
-	a2 = vawb_lw((s8 + (u32)96), 206844U);
-	a0 = vawb_lhu((a1 + (u32)6), 206848U);
-	vf_sw((sp + 96U), v0);
-	vf_sw((sp + 104U), a2);
-	v0 = vawb_lw((s8 + (u32)92), 206860U);
-	vf_sw((sp + 56U), a0);
-	a0 = vawb_lhu((a1 + (u32)2), 206868U);
-	s0 = vawb_lhu((v1 + (u32)0), 206872U);
-	a1 = vawb_lhu((v0 + (u32)2), 206876U);
-	vf_sw((sp + 60U), a0);
-	a0 = vawb_lw((s6 + (u32)0), 206884U);
-	a2 = vawb_lhu((v0 + (u32)4), 206888U);
-	a3 = vawb_lhu((v0 + (u32)6), 206892U);
-	vf_sw((sp + 108U), a0);
-	a0 = vawb_lw((s6 + (u32)4), 206900U);
-	t3 = vawb_lhu((v0 + (u32)10), 206904U);
-	t4 = vawb_lhu((v0 + (u32)12), 206908U);
-	vf_sw((sp + 100U), a0);
-	a0 = vawb_lhu((v1 + (u32)2), 206916U);
-	t6 = vawb_lhu((v0 + (u32)14), 206920U);
-	vf_sw((sp + 112U), a0);
-	a0 = vawb_lhu((v1 + (u32)4), 206928U);
-	v1 = vawb_lhu((v1 + (u32)6), 206932U);
-	vf_sw((sp + 116U), a0);
-	a0 = vawb_lw((s8 + (u32)88), 206940U);
-	vf_sw((sp + 120U), v1);
-	v1 = vawb_lw((s8 + (u32)220), 206948U);
-	t7 = vawb_lhu((a0 + (u32)18), 206952U);
-	a0 = vawb_lw((s8 + (u32)412), 206956U);
-	vf_sw((sp + 92U), a0);
-	a0 = vawb_lw((s6 + (u32)8), 206964U);
-	vf_sw((sp + 72U), a0);
-	a0 = vawb_lw((s6 + (u32)12), 206972U);
-	vf_sw((sp + 76U), a0);
-	a0 = vawb_lw((s6 + (u32)16), 206980U);
-	vf_sw((sp + 64U), a0);
-	a0 = vawb_lw((s6 + (u32)20), 206988U);
-	c = (t7 != t2); vf_sw((sp + 68U), a0); if (c) goto L_13c;
-	a0 = vawb_lhu((v1 + (u32)0), 207000U);
-	t2 = a0;
-L_11c:
-	vawb_trace(207008U);
-	t7 = 0U;
-L_120:
-	vawb_trace(207012U);
-	ra = (u32)60;
-L_124:
-	vawb_trace(207016U);
-	v0 = vf_lw((sp + 60U));
-	v0 = t7 < v0;
-	c = (v0 == 0); v0 = (u32)((s32)t7 * (s32)ra); if (c) goto L_588;
-	c = 1; t8 = 0U; if (c) goto L_570;
-L_13c:
-	vawb_trace(207040U);
-	a0 = vawb_lhu((v0 + (u32)0), 207040U);
-	t2 = vawb_lhu((v0 + (u32)8), 207044U);
-	v0 = (u32)2;
-	c = (t7 != v0); v0 = (u32)3; if (c) goto L_15c;
-	a1 = vawb_lhu((v1 + (u32)2), 207060U);
-	c = 1; t3 = a1; if (c) { if (unlikely(vawb_loop_guard(207064U))) return 0; goto L_11c; }
-L_15c:
-	vawb_trace(207072U);
-	c = (t7 != v0); v0 = (u32)4; if (c) goto L_170;
-	a2 = vawb_lhu((v1 + (u32)4), 207080U);
-	c = 1; t4 = a2; if (c) { if (unlikely(vawb_loop_guard(207084U))) return 0; goto L_11c; }
-L_170:
-	vawb_trace(207092U);
-	c = (t7 != v0); t7 = 0U; if (c) { if (unlikely(vawb_loop_guard(207092U))) return 0; goto L_120; }
-	a3 = vawb_lhu((v1 + (u32)6), 207100U);
-	c = 1; t6 = a3; if (c) { if (unlikely(vawb_loop_guard(207104U))) return 0; goto L_120; }
-L_184:
-	vawb_trace(207112U);
-	s2 = vawb_lw((s8 + (u32)256), 207112U);
-	t9 = vawb_lw((s8 + (u32)236), 207116U);
-	v1 = vawb_lw((s8 + (u32)156), 207120U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207128U);
-	t9 = t9 + v0;
-	t9 = vawb_lw((t9 + (u32)0), 207136U);
-	acc = (u64)((s64)(s32)a1 * (s64)(s32)s2);
-	v1 = v1 + v0;
-	t8 = t8 + (u32)1;
-	acc += (u64)((s64)(s32)a0 * (s64)(s32)t9);
-	t9 = (u32)acc;
-	vawb_sw((v1 + (u32)0), t9, 207160U);
-	s2 = vawb_lw((s8 + (u32)260), 207164U);
-	t9 = vawb_lw((s8 + (u32)240), 207168U);
-	v1 = vawb_lw((s8 + (u32)160), 207172U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207180U);
-	t9 = t9 + v0;
-	t9 = vawb_lw((t9 + (u32)0), 207188U);
-	acc = (u64)((s64)(s32)a1 * (s64)(s32)s2);
-	v1 = v1 + v0;
-	acc += (u64)((s64)(s32)a0 * (s64)(s32)t9);
-	t9 = (u32)acc;
-	vawb_sw((v1 + (u32)0), t9, 207208U);
-	s2 = vawb_lw((s8 + (u32)264), 207212U);
-	t9 = vawb_lw((s8 + (u32)244), 207216U);
-	v1 = vawb_lw((s8 + (u32)164), 207220U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207228U);
-	t9 = t9 + v0;
-	t9 = vawb_lw((t9 + (u32)0), 207236U);
-	acc = (u64)((s64)(s32)a1 * (s64)(s32)s2);
-	v1 = v1 + v0;
-	acc += (u64)((s64)(s32)a0 * (s64)(s32)t9);
-	t9 = (u32)acc;
-	vawb_sw((v1 + (u32)0), t9, 207256U);
-	s2 = vawb_lw((s8 + (u32)272), 207260U);
-	t9 = vawb_lw((s8 + (u32)252), 207264U);
-	v1 = vawb_lw((s8 + (u32)168), 207268U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207276U);
-	t9 = t9 + v0;
-	t9 = vawb_lw((t9 + (u32)0), 207284U);
-	acc = (u64)((s64)(s32)a1 * (s64)(s32)s2);
-	v1 = v1 + v0;
-	acc += (u64)((s64)(s32)a0 * (s64)(s32)t9);
-	t9 = (u32)acc;
-	vawb_sw((v1 + (u32)0), t9, 207304U);
-	s2 = vawb_lw((s8 + (u32)296), 207308U);
-	t9 = vawb_lw((s8 + (u32)276), 207312U);
-	v1 = vawb_lw((s8 + (u32)156), 207316U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207324U);
-	t9 = t9 + v0;
-	t9 = vawb_lw((t9 + (u32)0), 207332U);
-	acc = (u64)((s64)(s32)a3 * (s64)(s32)s2);
-	v1 = v1 + v0;
-	s4 = vawb_lw((v1 + (u32)0), 207344U);
-	acc += (u64)((s64)(s32)a2 * (s64)(s32)t9);
-	t9 = (u32)acc;
-	t9 = s4 + t9;
-	vawb_sw((v1 + (u32)0), t9, 207360U);
-	v1 = vawb_lw((s8 + (u32)160), 207364U);
-	t9 = vawb_lw((s8 + (u32)280), 207368U);
-	s2 = vawb_lw((s8 + (u32)300), 207372U);
-	v1 = v1 + v0;
-	t9 = t9 + v0;
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207388U);
-	t9 = vawb_lw((t9 + (u32)0), 207392U);
-	s4 = vawb_lw((v1 + (u32)0), 207396U);
-	acc = (u64)((s64)(s32)a3 * (s64)(s32)s2);
-	acc += (u64)((s64)(s32)a2 * (s64)(s32)t9);
-	t9 = (u32)acc;
-	t9 = s4 + t9;
-	vawb_sw((v1 + (u32)0), t9, 207416U);
-	s2 = vawb_lw((s8 + (u32)304), 207420U);
-	t9 = vawb_lw((s8 + (u32)284), 207424U);
-	v1 = vawb_lw((s8 + (u32)164), 207428U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207436U);
-	t9 = t9 + v0;
-	t9 = vawb_lw((t9 + (u32)0), 207444U);
-	acc = (u64)((s64)(s32)a3 * (s64)(s32)s2);
-	v1 = v1 + v0;
-	s4 = vawb_lw((v1 + (u32)0), 207456U);
-	acc += (u64)((s64)(s32)a2 * (s64)(s32)t9);
-	t9 = (u32)acc;
-	t9 = s4 + t9;
-	vawb_sw((v1 + (u32)0), t9, 207472U);
-	s2 = vawb_lw((s8 + (u32)312), 207476U);
-	t9 = vawb_lw((s8 + (u32)292), 207480U);
-	v1 = vawb_lw((s8 + (u32)168), 207484U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207492U);
-	t9 = t9 + v0;
-	t9 = vawb_lw((t9 + (u32)0), 207500U);
-	acc = (u64)((s64)(s32)a3 * (s64)(s32)s2);
-	v1 = v1 + v0;
-	s4 = vawb_lw((v1 + (u32)0), 207512U);
-	acc += (u64)((s64)(s32)a2 * (s64)(s32)t9);
-	t9 = (u32)acc;
-	t9 = s4 + t9;
-	vawb_sw((v1 + (u32)0), t9, 207528U);
-	v1 = vawb_lw((s8 + (u32)156), 207532U);
-	v1 = v1 + v0;
-	t9 = vawb_lw((v1 + (u32)0), 207540U);
-	t9 = t9 >> 3;
-	vawb_sw((v1 + (u32)0), t9, 207548U);
-	v1 = vawb_lw((s8 + (u32)160), 207552U);
-	v1 = v1 + v0;
-	t9 = vawb_lw((v1 + (u32)0), 207560U);
-	t9 = t9 >> 3;
-	vawb_sw((v1 + (u32)0), t9, 207568U);
-	v1 = vawb_lw((s8 + (u32)164), 207572U);
-	v1 = v1 + v0;
-	t9 = vawb_lw((v1 + (u32)0), 207580U);
-	t9 = t9 >> 3;
-	vawb_sw((v1 + (u32)0), t9, 207588U);
-	v1 = vawb_lw((s8 + (u32)168), 207592U);
-	v1 = v1 + v0;
-	t9 = vawb_lw((v1 + (u32)0), 207600U);
-	t9 = t9 >> 3;
-	vawb_sw((v1 + (u32)0), t9, 207608U);
-	s4 = vawb_lw((s8 + (u32)156), 207612U);
-	s2 = vawb_lw((s8 + (u32)336), 207616U);
-	t9 = vawb_lw((s8 + (u32)316), 207620U);
-	v1 = v0 + (u32)900;
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207632U);
-	t9 = t9 + v0;
-	t9 = vawb_lw((t9 + (u32)0), 207640U);
-	acc = (u64)((s64)(s32)t3 * (s64)(s32)s2);
-	s4 = s4 + v1;
-	acc += (u64)((s64)(s32)t2 * (s64)(s32)t9);
-	t9 = (u32)acc;
-	vawb_sw((s4 + (u32)0), t9, 207660U);
-	s2 = vawb_lw((s8 + (u32)340), 207664U);
-	t9 = vawb_lw((s8 + (u32)320), 207668U);
-	s4 = vawb_lw((s8 + (u32)160), 207672U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207680U);
-	t9 = t9 + v0;
-	t9 = vawb_lw((t9 + (u32)0), 207688U);
-	acc = (u64)((s64)(s32)t3 * (s64)(s32)s2);
-	s4 = s4 + v1;
-	acc += (u64)((s64)(s32)t2 * (s64)(s32)t9);
-	t9 = (u32)acc;
-	vawb_sw((s4 + (u32)0), t9, 207708U);
-	s2 = vawb_lw((s8 + (u32)344), 207712U);
-	t9 = vawb_lw((s8 + (u32)324), 207716U);
-	s4 = vawb_lw((s8 + (u32)164), 207720U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207728U);
-	t9 = t9 + v0;
-	t9 = vawb_lw((t9 + (u32)0), 207736U);
-	acc = (u64)((s64)(s32)t3 * (s64)(s32)s2);
-	s4 = s4 + v1;
-	acc += (u64)((s64)(s32)t2 * (s64)(s32)t9);
-	t9 = (u32)acc;
-	vawb_sw((s4 + (u32)0), t9, 207756U);
-	s2 = vawb_lw((s8 + (u32)352), 207760U);
-	t9 = vawb_lw((s8 + (u32)332), 207764U);
-	s4 = vawb_lw((s8 + (u32)168), 207768U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207776U);
-	t9 = t9 + v0;
-	t9 = vawb_lw((t9 + (u32)0), 207784U);
-	acc = (u64)((s64)(s32)t3 * (s64)(s32)s2);
-	s4 = s4 + v1;
-	acc += (u64)((s64)(s32)t2 * (s64)(s32)t9);
-	t9 = (u32)acc;
-	vawb_sw((s4 + (u32)0), t9, 207804U);
-	s2 = vawb_lw((s8 + (u32)356), 207808U);
-	t9 = vawb_lw((s8 + (u32)156), 207812U);
-	s2 = s2 + v0;
-	s4 = vawb_lw((s2 + (u32)0), 207820U);
-	s2 = vawb_lw((s8 + (u32)376), 207824U);
-	t9 = t9 + v1;
-	s7 = vawb_lw((t9 + (u32)0), 207832U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207840U);
-	acc = (u64)((s64)(s32)t6 * (s64)(s32)s2);
-	acc += (u64)((s64)(s32)t4 * (s64)(s32)s4);
-	s4 = (u32)acc;
-	s4 = s7 + s4;
-	vawb_sw((t9 + (u32)0), s4, 207860U);
-	t9 = vawb_lw((s8 + (u32)160), 207864U);
-	s2 = vawb_lw((s8 + (u32)360), 207868U);
-	t9 = t9 + v1;
-	s2 = s2 + v0;
-	s4 = vawb_lw((s2 + (u32)0), 207880U);
-	s2 = vawb_lw((s8 + (u32)380), 207884U);
-	s7 = vawb_lw((t9 + (u32)0), 207888U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207896U);
-	acc = (u64)((s64)(s32)t6 * (s64)(s32)s2);
-	acc += (u64)((s64)(s32)t4 * (s64)(s32)s4);
-	s4 = (u32)acc;
-	s4 = s7 + s4;
-	vawb_sw((t9 + (u32)0), s4, 207916U);
-	s2 = vawb_lw((s8 + (u32)364), 207920U);
-	t9 = vawb_lw((s8 + (u32)164), 207924U);
-	s2 = s2 + v0;
-	s4 = vawb_lw((s2 + (u32)0), 207932U);
-	s2 = vawb_lw((s8 + (u32)384), 207936U);
-	t9 = t9 + v1;
-	s7 = vawb_lw((t9 + (u32)0), 207944U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 207952U);
-	acc = (u64)((s64)(s32)t6 * (s64)(s32)s2);
-	acc += (u64)((s64)(s32)t4 * (s64)(s32)s4);
-	s4 = (u32)acc;
-	s4 = s7 + s4;
-	vawb_sw((t9 + (u32)0), s4, 207972U);
-	s2 = vawb_lw((s8 + (u32)372), 207976U);
-	t9 = vawb_lw((s8 + (u32)168), 207980U);
-	s2 = s2 + v0;
-	s4 = vawb_lw((s2 + (u32)0), 207988U);
-	s2 = vawb_lw((s8 + (u32)392), 207992U);
-	t9 = t9 + v1;
-	s7 = vawb_lw((t9 + (u32)0), 208000U);
-	s2 = s2 + v0;
-	s2 = vawb_lw((s2 + (u32)0), 208008U);
-	v0 = v0 + (u32)4;
-	acc = (u64)((s64)(s32)t6 * (s64)(s32)s2);
-	acc += (u64)((s64)(s32)t4 * (s64)(s32)s4);
-	s4 = (u32)acc;
-	s4 = s7 + s4;
-	vawb_sw((t9 + (u32)0), s4, 208032U);
-	t9 = vawb_lw((s8 + (u32)156), 208036U);
-	t9 = t9 + v1;
-	s2 = vawb_lw((t9 + (u32)0), 208044U);
-	s2 = s2 >> 3;
-	vawb_sw((t9 + (u32)0), s2, 208052U);
-	t9 = vawb_lw((s8 + (u32)160), 208056U);
-	t9 = t9 + v1;
-	s2 = vawb_lw((t9 + (u32)0), 208064U);
-	s2 = s2 >> 3;
-	vawb_sw((t9 + (u32)0), s2, 208072U);
-	t9 = vawb_lw((s8 + (u32)164), 208076U);
-	t9 = t9 + v1;
-	s2 = vawb_lw((t9 + (u32)0), 208084U);
-	s2 = s2 >> 3;
-	vawb_sw((t9 + (u32)0), s2, 208092U);
-	t9 = vawb_lw((s8 + (u32)168), 208096U);
-	v1 = t9 + v1;
-	t9 = vawb_lw((v1 + (u32)0), 208104U);
-	t9 = t9 >> 3;
-	vawb_sw((v1 + (u32)0), t9, 208112U);
-L_570:
-	vawb_trace(208116U);
-	v1 = vf_lw((sp + 56U));
-	v1 = t8 < v1;
-	c = (v1 != 0);  if (c) { if (unlikely(vawb_loop_guard(208124U))) return 0; goto L_184; }
-	c = 1; t7 = t7 + (u32)1; if (c) { if (unlikely(vawb_loop_guard(208132U))) return 0; goto L_124; }
-L_588:
-	vawb_trace(208140U);
-	a2 = vawb_lw((s5 + (u32)0), 208140U);
-	s4 = (u32)1;
-	v0 = s4 << (s1 & 31);
-	s7 = s1 + (u32)-10;
-	s2 = 0;
-	a2 = a2 << (s7 & 31);
-	a1 = v0;
-	a0 = s1;
-	s2 = s2 + ((u32)(uintptr_t)vawb_fix_point_mult2_32 + 0U);
-	tg = s2; vf_sw((sp + 80U), v0); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 208176U); v0 = (u32)rv; } vawb_rf_load();
-	a2 = vawb_lw((s5 + (u32)4), 208184U);
-	a1 = vf_lw((sp + 80U));
-	a0 = s1;
-	a2 = a2 << (s7 & 31);
-	tg = s2; vf_sw((sp + 84U), v0); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 208200U); v0 = (u32)rv; } vawb_rf_load();
-	v1 = vf_lw((sp + 60U));
-	vf_sw((sp + 88U), v0);
-	v0 = (u32)60;
-	v0 = (u32)((s32)v1 * (s32)v0);
-	t2 = 0U;
-	vf_sw((sp + 124U), v0);
-L_5e4:
-	vawb_trace(208232U);
-	v0 = vf_lw((sp + 124U));
-	c = (v0 != t2); s4 = t2; if (c) goto L_810;
-	v0 = vf_lw((sp + 60U));
-	v1 = vf_lw((sp + 56U));
-	t5 = 0U;
-	a2 = 0U;
-	t3 = (u32)((s32)v0 * (s32)v1);
-	t2 = (u32)60;
-	v0 = 0U;
-	s7 = t3;
-L_610:
-	vawb_trace(208276U);
-	v1 = vf_lw((sp + 60U));
-	v1 = v0 < v1;
-	c = (v1 == 0); a1 = (u32)((s32)v0 * (s32)t2); if (c) goto L_864;
-	c = 1; a0 = 0U; if (c) goto L_84c;
-L_628:
-	vawb_trace(208300U);
-	v0 = vawb_lw((s8 + (u32)160), 208300U);
-	t4 = vawb_lw((s8 + (u32)172), 208304U);
-	v0 = v0 + s4;
-	v0 = vawb_lw((v0 + (u32)0), 208312U);
-	c = (v0 != 0); t4 = t4 + s4; if (c) goto L_6b8;
-	vawb_sw((t4 + (u32)0), 0U, 208324U);
-	v0 = vawb_lw((s8 + (u32)172), 208328U);
-	v0 = v0 + s5;
-	vawb_sw((v0 + (u32)0), 0U, 208336U);
-	v0 = vawb_lw((s8 + (u32)176), 208340U);
-	v0 = v0 + s4;
-	vawb_sw((v0 + (u32)0), 0U, 208348U);
-L_65c:
-	vawb_trace(208352U);
-	v0 = vawb_lw((s8 + (u32)160), 208352U);
-	a0 = vawb_lw((s8 + (u32)172), 208356U);
-	t4 = s4 + (u32)1800;
-	v0 = v0 + s5;
-	v0 = vawb_lw((v0 + (u32)0), 208368U);
-	t5 = s4 + (u32)2700;
-	c = (v0 != 0); t4 = a0 + t4; if (c) goto L_760;
-	vawb_sw((t4 + (u32)0), 0U, 208384U);
-	v0 = vawb_lw((s8 + (u32)172), 208388U);
-	t5 = v0 + t5;
-	vawb_sw((t5 + (u32)0), 0U, 208396U);
-	v0 = vawb_lw((s8 + (u32)176), 208400U);
-	a3 = v0 + s5;
-	vawb_sw((a3 + (u32)0), 0U, 208408U);
-L_698:
-	vawb_trace(208412U);
-	t3 = t3 + (u32)1;
-	s4 = s4 + (u32)4;
-L_6a0:
-	vawb_trace(208420U);
-	v0 = vf_lw((sp + 56U));
-	v0 = t3 < v0;
-	c = (v0 != 0); s5 = s4 + (u32)900; if (c) { if (unlikely(vawb_loop_guard(208428U))) return 0; goto L_628; }
-	c = 1; t2 = t2 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(208436U))) return 0; goto L_5e4; }
-L_6b8:
-	vawb_trace(208444U);
-	a0 = vawb_lw((s8 + (u32)156), 208444U);
-	a2 = vf_lw((sp + 84U));
-	vf_sw((sp + 136U), t2);
-	a0 = a0 + s4;
-	a1 = vawb_lw((a0 + (u32)0), 208460U);
-	a0 = s1;
-	vf_sw((sp + 132U), t3);
-	a1 = a1 << 10;
-	acc = vawb_divu(a1, v0, 208476U);
-	vf_sw((sp + 128U), t4);
-	a1 = (u32)acc;
-	tg = s2; a1 = a1 << (s7 & 31); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 208488U); v0 = (u32)rv; } vawb_rf_load();
-	t4 = vf_lw((sp + 128U));
-	a2 = vf_lw((sp + 88U));
-	a0 = s1;
-	vawb_sw((t4 + (u32)0), v0, 208508U);
-	v0 = vawb_lw((s8 + (u32)164), 208512U);
-	t4 = vawb_lw((s8 + (u32)172), 208516U);
-	v0 = v0 + s4;
-	a1 = vawb_lw((v0 + (u32)0), 208524U);
-	v0 = vawb_lw((s8 + (u32)160), 208528U);
-	t4 = t4 + s5;
-	a1 = a1 << 10;
-	v0 = v0 + s4;
-	v0 = vawb_lw((v0 + (u32)0), 208544U);
-	vf_sw((sp + 128U), t4);
-	acc = vawb_divu(a1, v0, 208552U);
-	a1 = (u32)acc;
-	tg = s2; a1 = a1 << (s7 & 31); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 208560U); v0 = (u32)rv; } vawb_rf_load();
-	t4 = vf_lw((sp + 128U));
-	t2 = vf_lw((sp + 136U));
-	t3 = vf_lw((sp + 132U));
-	vawb_sw((t4 + (u32)0), v0, 208580U);
-	v0 = vawb_lw((s8 + (u32)168), 208584U);
-	v0 = v0 + s4;
-	a0 = vawb_lw((v0 + (u32)0), 208592U);
-	v0 = vawb_lw((s8 + (u32)176), 208596U);
-	v0 = v0 + s4;
-	c = 1; vawb_sw((v0 + (u32)0), a0, 208608U); if (c) { if (unlikely(vawb_loop_guard(208604U))) return 0; goto L_65c; }
-L_760:
-	vawb_trace(208612U);
-	a0 = vawb_lw((s8 + (u32)156), 208612U);
-	a2 = vf_lw((sp + 84U));
-	vf_sw((sp + 136U), t2);
-	a0 = a0 + s5;
-	a1 = vawb_lw((a0 + (u32)0), 208628U);
-	a0 = s1;
-	vf_sw((sp + 132U), t3);
-	a1 = a1 << 10;
-	acc = vawb_divu(a1, v0, 208644U);
-	vf_sw((sp + 140U), t4);
-	vf_sw((sp + 128U), t5);
-	a1 = (u32)acc;
-	tg = s2; a1 = a1 << (s7 & 31); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 208660U); v0 = (u32)rv; } vawb_rf_load();
-	t4 = vf_lw((sp + 140U));
-	t5 = vf_lw((sp + 128U));
-	a2 = vf_lw((sp + 88U));
-	vawb_sw((t4 + (u32)0), v0, 208680U);
-	v0 = vawb_lw((s8 + (u32)172), 208684U);
-	a0 = s1;
-	t5 = v0 + t5;
-	v0 = vawb_lw((s8 + (u32)164), 208696U);
-	vf_sw((sp + 128U), t5);
-	v0 = v0 + s5;
-	a1 = vawb_lw((v0 + (u32)0), 208708U);
-	v0 = vawb_lw((s8 + (u32)160), 208712U);
-	a1 = a1 << 10;
-	v0 = v0 + s5;
-	v0 = vawb_lw((v0 + (u32)0), 208724U);
-	acc = vawb_divu(a1, v0, 208728U);
-	a1 = (u32)acc;
-	tg = s2; a1 = a1 << (s7 & 31); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 208736U); v0 = (u32)rv; } vawb_rf_load();
-	t5 = vf_lw((sp + 128U));
-	t2 = vf_lw((sp + 136U));
-	t3 = vf_lw((sp + 132U));
-	vawb_sw((t5 + (u32)0), v0, 208756U);
-	v0 = vawb_lw((s8 + (u32)168), 208760U);
-	v0 = v0 + s5;
-	a0 = vawb_lw((v0 + (u32)0), 208768U);
-	v0 = vawb_lw((s8 + (u32)176), 208772U);
-	a3 = v0 + s5;
-	c = 1; vawb_sw((a3 + (u32)0), a0, 208784U); if (c) { if (unlikely(vawb_loop_guard(208780U))) return 0; goto L_698; }
-L_810:
-	vawb_trace(208788U);
-	c = 1; t3 = 0U; if (c) { if (unlikely(vawb_loop_guard(208788U))) return 0; goto L_6a0; }
-L_818:
-	vawb_trace(208796U);
-	v1 = vawb_lw((s8 + (u32)172), 208796U);
-	v1 = v1 + a1;
-	a3 = vawb_lw((v1 + (u32)1800), 208804U);
-	v1 = vawb_lw((v1 + (u32)2700), 208808U);
-	a2 = a2 + a3;
-	c = (a3 != 0); t5 = t5 + v1; if (c) goto L_838;
-	t3 = t3 + (u32)-1;
-L_838:
-	vawb_trace(208828U);
-	c = (v1 != 0);  if (c) goto L_844;
-	s7 = s7 + (u32)-1;
-L_844:
-	vawb_trace(208840U);
-	a0 = a0 + (u32)1;
-	a1 = a1 + (u32)4;
-L_84c:
-	vawb_trace(208848U);
-	v1 = vf_lw((sp + 56U));
-	v1 = a0 < v1;
-	c = (v1 != 0);  if (c) { if (unlikely(vawb_loop_guard(208856U))) return 0; goto L_818; }
-	c = 1; v0 = v0 + (u32)1; if (c) { if (unlikely(vawb_loop_guard(208864U))) return 0; goto L_610; }
-L_864:
-	vawb_trace(208872U);
-	v0 = vf_lw((sp + 84U));
-	s2 = 0;
-	a3 = 0U;
-	a0 = s1;
-	s2 = s2 + ((u32)(uintptr_t)vawb_fix_point_div + 0U);
-	vf_sw((sp + 16U), v0);
-	vf_sw((sp + 20U), 0U);
-	vf_sw((sp + 132U), t3);
-	tg = s2; vf_sw((sp + 136U), t5); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 208904U); v0 = (u32)rv; } vawb_rf_load();
-	t2 = (u32)1;
-	t2 = t2 << (s3 & 31);
-	a1 = (u32)2;
-	acc = vawb_divs(t2, a1, 208924U);
-	t5 = vf_lw((sp + 136U));
-	vf_sw((sp + 128U), v0);
-	v0 = vf_lw((sp + 88U));
-	a2 = t5;
-	a3 = 0U;
-	vf_sw((sp + 16U), v0);
-	vf_sw((sp + 20U), 0U);
-	a0 = s1;
-	vf_sw((sp + 124U), v1);
-	t2 = (u32)acc;
-	s4 = (u32)((s32)t2 >> 31);
-	tg = s2; vf_sw((sp + 84U), t2); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 208972U); v0 = (u32)rv; } vawb_rf_load();
-	a3 = v0;
-	v0 = vawb_lw((s8 + (u32)492), 208984U);
-	t5 = v1;
-	t3 = vf_lw((sp + 132U));
-	v1 = vawb_lhu((v0 + (u32)0), 208996U);
-	t2 = vf_lw((sp + 84U));
-	t8 = vf_lw((sp + 124U));
-	vawb_sh((v0 + (u32)4), v1, 209008U);
-	v0 = vawb_lw((s8 + (u32)492), 209012U);
-	t7 = vf_lw((sp + 128U));
-	v1 = vawb_lhu((v0 + (u32)2), 209020U);
-	vawb_sh((v0 + (u32)6), v1, 209024U);
-	c = (t3 != 0); t6 = vawb_lw((s8 + (u32)492), 209032U); if (c) goto L_940;
-	v0 = (u32)256;
-	vawb_sh((t6 + (u32)0), v0, 209040U);
-L_910:
-	vawb_trace(209044U);
-	c = (s7 != 0); t3 = vawb_lw((s8 + (u32)492), 209048U); if (c) goto L_9a0;
-	v0 = (u32)256;
-L_91c:
-	vawb_trace(209056U);
-	vawb_sh((t3 + (u32)2), v0, 209056U);
-	a0 = 0U;
-	t3 = (u32)60;
-L_928:
-	vawb_trace(209068U);
-	v0 = vf_lw((sp + 60U));
-	v0 = a0 < v0;
-	c = (v0 == 0); v0 = (u32)((s32)a0 * (s32)t3); if (c) goto L_b54;
-	c = 1; t2 = 0U; if (c) goto L_a18;
-L_940:
-	vawb_trace(209092U);
-	a0 = t7 + t2;
-	t7 = a0 < t7;
-	a1 = t8 + s4;
-	v0 = 0;
-	vf_sw((sp + 132U), t6);
-	vf_sw((sp + 128U), t5);
-	vf_sw((sp + 124U), a3);
-	vf_sw((sp + 88U), t3);
-	vf_sw((sp + 84U), t2);
-	a2 = s3;
-	v0 = v0 + ((u32)(uintptr_t)vawb_x___lshrdi3 + 0U);
-	tg = v0; a1 = t7 + a1; vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 209136U); v0 = (u32)rv; } vawb_rf_load();
-	t3 = vf_lw((sp + 88U));
-	t6 = vf_lw((sp + 132U));
-	t5 = vf_lw((sp + 128U));
-	v1 = t3 >> 1;
-	v0 = v1 + v0;
-	acc = vawb_divu(v0, t3, 209164U);
-	a3 = vf_lw((sp + 124U));
-	t2 = vf_lw((sp + 84U));
-	v0 = (u32)acc;
-	c = 1; vawb_sh((t6 + (u32)0), v0, 209184U); if (c) { if (unlikely(vawb_loop_guard(209180U))) return 0; goto L_910; }
-L_9a0:
-	vawb_trace(209188U);
-	a0 = t2 + a3;
-	t2 = a0 < t2;
-	a1 = s4 + t5;
-	v0 = 0;
-	vf_sw((sp + 84U), t3);
-	a2 = s3;
-	v0 = v0 + ((u32)(uintptr_t)vawb_x___lshrdi3 + 0U);
-	tg = v0; a1 = t2 + a1; vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 209216U); v0 = (u32)rv; } vawb_rf_load();
-	v1 = s7 >> 1;
-	v0 = v1 + v0;
-	acc = vawb_divu(v0, s7, 209232U);
-	t3 = vf_lw((sp + 84U));
-	c = 1; v0 = (u32)acc; if (c) { if (unlikely(vawb_loop_guard(209240U))) return 0; goto L_91c; }
-L_9dc:
-	vawb_trace(209248U);
-	a1 = vawb_lw((s8 + (u32)168), 209248U);
-	a1 = a1 + v1;
-	a3 = vawb_lw((a1 + (u32)0), 209256U);
-	a1 = vawb_lw((s8 + (u32)500), 209260U);
-	c = (a3 != 0); a1 = a1 + v0; if (c) goto L_a30;
-	vawb_sw((a1 + (u32)0), 0U, 209272U);
-	v1 = vawb_lw((s8 + (u32)504), 209276U);
-	v1 = v1 + v0;
-	vawb_sw((v1 + (u32)0), 0U, 209284U);
-	v1 = vawb_lw((s8 + (u32)508), 209288U);
-	v1 = v1 + v0;
-	vawb_sw((v1 + (u32)0), 0U, 209296U);
-L_a10:
-	vawb_trace(209300U);
-	t2 = t2 + (u32)1;
-	v0 = v0 + (u32)4;
-L_a18:
-	vawb_trace(209308U);
-	v1 = vf_lw((sp + 56U));
-	v1 = t2 < v1;
-	c = (v1 != 0); v1 = v0 + (u32)900; if (c) { if (unlikely(vawb_loop_guard(209316U))) return 0; goto L_9dc; }
-	c = 1; a0 = a0 + (u32)1; if (c) { if (unlikely(vawb_loop_guard(209324U))) return 0; goto L_928; }
-L_a30:
-	vawb_trace(209332U);
-	a2 = vawb_lw((s8 + (u32)156), 209332U);
-	a2 = a2 + v1;
-	a2 = vawb_lw((a2 + (u32)0), 209340U);
-	acc = vawb_divu(a2, a3, 209344U);
-	a2 = (u32)acc;
-	vawb_sw((a1 + (u32)0), a2, 209352U);
-	a1 = vawb_lw((s8 + (u32)160), 209356U);
-	a3 = vawb_lw((s8 + (u32)168), 209360U);
-	a2 = vawb_lw((s8 + (u32)504), 209364U);
-	a1 = a1 + v1;
-	a3 = a3 + v1;
-	a1 = vawb_lw((a1 + (u32)0), 209376U);
-	a3 = vawb_lw((a3 + (u32)0), 209380U);
-	a2 = a2 + v0;
-	acc = vawb_divu(a1, a3, 209388U);
-	a1 = (u32)acc;
-	vawb_sw((a2 + (u32)0), a1, 209396U);
-	a1 = vawb_lw((s8 + (u32)168), 209400U);
-	a3 = vawb_lw((s8 + (u32)164), 209404U);
-	a2 = vawb_lw((s8 + (u32)508), 209408U);
-	a3 = a3 + v1;
-	v1 = a1 + v1;
-	v1 = vawb_lw((v1 + (u32)0), 209420U);
-	a1 = vawb_lw((a3 + (u32)0), 209424U);
-	a2 = a2 + v0;
-	acc = vawb_divu(a1, v1, 209432U);
-	a1 = (u32)acc;
-	c = 1; vawb_sw((a2 + (u32)0), a1, 209444U); if (c) { if (unlikely(vawb_loop_guard(209440U))) return 0; goto L_a10; }
-L_aa4:
-	vawb_trace(209448U);
-	a1 = vawb_lw((s8 + (u32)168), 209448U);
-	a1 = a1 + v0;
-	a1 = vawb_lw((a1 + (u32)0), 209456U);
-	a1 = t0 < a1;
-	c = (a1 != 0); a2 = v0 + (u32)900; if (c) goto L_ae0;
-	a1 = vawb_lw((s8 + (u32)172), 209472U);
-	a1 = a1 + v0;
-	vawb_sw((a1 + (u32)0), 0U, 209480U);
-	a1 = vawb_lw((s8 + (u32)172), 209484U);
-	a1 = a1 + a2;
-	vawb_sw((a1 + (u32)0), 0U, 209492U);
-	a1 = vawb_lw((s8 + (u32)176), 209496U);
-	a1 = a1 + v0;
-	vawb_sw((a1 + (u32)0), 0U, 209504U);
-L_ae0:
-	vawb_trace(209508U);
-	a1 = vawb_lw((s8 + (u32)168), 209508U);
-	t0 = vf_lw((sp + 96U));
-	a1 = a1 + a2;
-	a1 = vawb_lw((a1 + (u32)0), 209520U);
-	a1 = t0 < a1;
-	c = (a1 != 0);  if (c) goto L_b20;
-	a1 = vawb_lw((s8 + (u32)172), 209536U);
-	a1 = a1 + v0;
-	vawb_sw((a1 + (u32)1800), 0U, 209544U);
-	a1 = vawb_lw((s8 + (u32)172), 209548U);
-	a1 = a1 + v0;
-	vawb_sw((a1 + (u32)2700), 0U, 209556U);
-	a1 = vawb_lw((s8 + (u32)176), 209560U);
-	a1 = a1 + a2;
-	vawb_sw((a1 + (u32)0), 0U, 209568U);
-L_b20:
-	vawb_trace(209572U);
-	a0 = a0 + (u32)1;
-	v0 = v0 + (u32)4;
-L_b28:
-	vawb_trace(209580U);
-	a1 = vf_lw((sp + 56U));
-	a1 = a0 < a1;
-	c = (a1 != 0); t0 = vf_lw((sp + 96U)); if (c) { if (unlikely(vawb_loop_guard(209588U))) return 0; goto L_aa4; }
-	v1 = v1 + (u32)1;
-L_b3c:
-	vawb_trace(209600U);
-	v0 = vf_lw((sp + 60U));
-	v0 = v1 < v0;
-	c = (v0 == 0); v0 = (u32)((s32)v1 * (s32)a3); if (c) goto L_b60;
-	c = 1; a0 = 0U; if (c) { if (unlikely(vawb_loop_guard(209616U))) return 0; goto L_b28; }
-L_b54:
-	vawb_trace(209624U);
-	v1 = 0U;
-	c = 1; a3 = (u32)60; if (c) { if (unlikely(vawb_loop_guard(209628U))) return 0; goto L_b3c; }
-L_b60:
-	vawb_trace(209636U);
-	v0 = vf_lw((sp + 104U));
-	v0 = vawb_lhu((v0 + (u32)0), 209640U);
-	v0 = v0 + (u32)-1;
-	v0 = v0 < (u32)2;
-	c = (v0 == 0); v0 = sp + 40U; if (c) goto L_ba4;
-	vf_sw((sp + 24U), s8);
-	vf_sw((sp + 20U), v0);
-	v0 = vawb_lw((s8 + (u32)180), 209668U);
-	vf_sw((sp + 16U), v0);
-	a3 = vawb_lw((s8 + (u32)168), 209676U);
-	a2 = vawb_lw((s8 + (u32)164), 209680U);
-	a1 = vawb_lw((s8 + (u32)160), 209684U);
-	v0 = 0;
-	v0 = v0 + ((u32)(uintptr_t)vawb_tisp_awb_sat_weight + 0U);
-	tg = v0; a0 = vawb_lw((s8 + (u32)156), 209700U); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 209696U); v0 = (u32)rv; } vawb_rf_load();
-L_ba4:
-	vawb_trace(209704U);
-	v0 = vawb_lw((s8 + (u32)400), 209704U);
-	a0 = vawb_lw((s8 + (u32)492), 209708U);
-	v1 = vawb_lbu((v0 + (u32)0), 209712U);
-	v0 = (u32)1;
-	c = (v1 != v0); a2 = vawb_lhu((a0 + (u32)0), 209724U); if (c) goto L_c34;
-	v0 = vawb_lhu((a0 + (u32)8), 209728U);
-	v1 = v0 < a2;
-	c = (v1 == 0);  if (c) goto L_e78;
-	v0 = a2 - v0;
-L_bd0:
-	vawb_trace(209748U);
-	a1 = vawb_lhu((a0 + (u32)2), 209748U);
-	v1 = vawb_lhu((a0 + (u32)10), 209752U);
-	a3 = v1 < a1;
-	c = (a3 == 0); v0 = v0 & 65535U; if (c) goto L_e80;
-	v1 = a1 - v1;
-L_be8:
-	vawb_trace(209772U);
-	a1 = vf_lw((sp + 92U));
-	a3 = vawb_lbu((a1 + (u32)0), 209776U);
-	a1 = (u32)1;
-	c = (a3 != a1); v1 = v1 & 65535U; if (c) goto L_c34;
-	v0 = v0 + v1;
-	v1 = vf_lw((sp + 120U));
-	v0 = v0 & 65535U;
-	v0 = v0 < v1;
-	c = (v0 == 0);  if (c) goto L_c34;
-	v0 = vawb_lw((s8 + (u32)480), 209816U);
-	v0 = vawb_lbu((v0 + (u32)0), 209820U);
-	c = (v0 != 0);  if (c) goto L_c34;
-	v0 = vawb_lw((s8 + (u32)472), 209832U);
-	v0 = vawb_lbu((v0 + (u32)0), 209836U);
-	c = (v0 == 0); ra = vf_lw((sp + 180U)); if (c) goto L_e4c;
-L_c34:
-	vawb_trace(209848U);
-	vawb_sh((a0 + (u32)8), a2, 209848U);
-	v0 = vawb_lw((s8 + (u32)492), 209852U);
-	a0 = vawb_lw((csp + 4U), 209856U);
-	a1 = sp + 48U;
-	v1 = vawb_lhu((v0 + (u32)2), 209864U);
-	vawb_sh((v0 + (u32)10), v1, 209868U);
-	v0 = 0;
-	v0 = v0 + ((u32)(uintptr_t)vawb_s_tisp_awb_ct_detect + 0U);
-	tg = v0; a2 = sp + 32U; vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 209880U); v0 = (u32)rv; } vawb_rf_load();
-	v0 = vawb_lw((s8 + (u32)400), 209888U);
-	v1 = (u32)1;
-	a0 = (u32)60;
-	a1 = vawb_lbu((v0 + (u32)0), 209900U);
-	c = (a1 != v1); v0 = 0U; if (c) goto L_e98;
-	v0 = (u32)4;
-	a2 = (u32)60;
-L_c7c:
-	vawb_trace(209920U);
-	a0 = vawb_lw((s8 + (u32)416), 209920U);
-	a1 = v0 + (u32)-4;
-	v1 = a0 + v0;
-	v1 = vawb_lw((v1 + (u32)0), 209932U);
-	a0 = a0 + a1;
-	vawb_sw((a0 + (u32)0), v1, 209940U);
-	a0 = vawb_lw((s8 + (u32)420), 209944U);
-	v1 = a0 + v0;
-	v1 = vawb_lw((v1 + (u32)0), 209952U);
-	a0 = a0 + a1;
-	vawb_sw((a0 + (u32)0), v1, 209960U);
-	v1 = vawb_lw((s8 + (u32)424), 209964U);
-	a0 = v1 + v0;
-	a0 = vawb_lw((a0 + (u32)0), 209972U);
-	v1 = v1 + a1;
-	v0 = v0 + (u32)4;
-	c = (v0 != a2); vawb_sw((v1 + (u32)0), a0, 209988U); if (c) { if (unlikely(vawb_loop_guard(209984U))) return 0; goto L_c7c; }
-	v0 = vawb_lw((s8 + (u32)416), 209992U);
-	v1 = vf_lw((sp + 48U));
-	vawb_sw((v0 + (u32)56), v1, 210000U);
-	v0 = vawb_lw((s8 + (u32)420), 210004U);
-	v1 = vf_lw((sp + 52U));
-	vawb_sw((v0 + (u32)56), v1, 210012U);
-	v1 = vawb_lw((s8 + (u32)28), 210016U);
-	v0 = vawb_lw((s8 + (u32)424), 210020U);
-	v1 = vawb_lw((v1 + (u32)0), 210024U);
-	vawb_sw((v0 + (u32)56), v1, 210028U);
-	v0 = s0 < (u32)16;
-	c = (v0 == 0);  if (c) goto L_e88;
-	c = (s0 == 0);  if (c) goto L_e90;
-L_d00:
-	vawb_trace(210052U);
-	v0 = (u32)15;
-	t8 = vawb_lw((s8 + (u32)416), 210056U);
-	t7 = vawb_lw((s8 + (u32)420), 210060U);
-	t5 = vawb_lw((s8 + (u32)424), 210064U);
-	v0 = v0 - s0;
-	t9 = v0 << 2;
-	t4 = 0U;
-	v1 = 0U;
-	a3 = 0U;
-	a0 = 0U;
-	t2 = 0U;
-	a1 = 0U;
-	t3 = 0U;
-	s5 = (u32)15;
-L_d38:
-	vawb_trace(210108U);
-	a2 = t9 + t4;
-	t6 = t8 + a2;
-	t6 = vawb_lw((t6 + (u32)0), 210116U);
-	v0 = v0 + (u32)1;
-	a1 = a1 + v0;
-	t0 = (u32)((s32)v0 * (s32)t6);
-	t6 = t7 + a2;
-	t6 = vawb_lw((t6 + (u32)0), 210136U);
-	a2 = t5 + a2;
-	a2 = vawb_lw((a2 + (u32)0), 210144U);
-	a0 = a0 + v0;
-	v1 = v1 + v0;
-	t4 = t4 + (u32)4;
-	t3 = t0 + t3;
-	t0 = (u32)((s32)v0 * (s32)t6);
-	t2 = t0 + t2;
-	t0 = (u32)((s32)v0 * (s32)a2);
-	c = (v0 != s5); a3 = t0 + a3; if (c) { if (unlikely(vawb_loop_guard(210176U))) return 0; goto L_d38; }
-	v0 = a1 >> 1;
-	t3 = v0 + t3;
-	acc = vawb_divu(t3, a1, 210192U);
-	v0 = a0 >> 1;
-	t2 = v0 + t2;
-	v0 = v1 >> 1;
-	a3 = v0 + a3;
-	t3 = (u32)acc;
-	vf_sw((sp + 48U), t3);
-	acc = vawb_divu(t2, a0, 210220U);
-	a0 = vawb_lw((s8 + (u32)28), 210224U);
-	t2 = (u32)acc;
-	vf_sw((sp + 52U), t2);
-	acc = vawb_divu(a3, v1, 210236U);
-	a3 = (u32)acc;
-	vawb_sw((a0 + (u32)0), a3, 210244U);
-	v0 = vawb_lw((s8 + (u32)400), 210248U);
-L_dc8:
-	vawb_trace(210252U);
-	v1 = (u32)1;
-	a0 = vawb_lbu((v0 + (u32)0), 210256U);
-	c = (a0 != v1);  if (c) goto L_edc;
-	v0 = vawb_lw((s8 + (u32)416), 210268U);
-	v1 = vawb_lw((v0 + (u32)52), 210272U);
-	v0 = vawb_lw((v0 + (u32)56), 210276U);
-	c = (v1 != v0); v0 = vf_lw((sp + 48U)); if (c) goto L_ef0;
-	v0 = vawb_lw((s8 + (u32)420), 210288U);
-	v1 = vawb_lw((v0 + (u32)52), 210292U);
-	v0 = vawb_lw((v0 + (u32)56), 210296U);
-	c = (v1 != v0); v0 = vf_lw((sp + 48U)); if (c) goto L_ef0;
-	v0 = vawb_lw((s8 + (u32)480), 210308U);
-	v0 = vawb_lbu((v0 + (u32)0), 210312U);
-	c = (v0 != 0); v0 = vf_lw((sp + 48U)); if (c) goto L_ef0;
-	v0 = vawb_lw((s8 + (u32)472), 210324U);
-	v0 = vawb_lbu((v0 + (u32)0), 210328U);
-	c = (v0 != 0); v0 = vf_lw((sp + 48U)); if (c) goto L_ef0;
-	v1 = vawb_lw((s6 + (u32)8), 210340U);
-	v0 = vawb_lw((s6 + (u32)16), 210344U);
-	c = (v1 != v0); v0 = vf_lw((sp + 48U)); if (c) goto L_ef0;
-	v1 = vawb_lw((s6 + (u32)12), 210356U);
-	v0 = vawb_lw((s6 + (u32)20), 210360U);
-	c = (v1 != v0); v0 = vf_lw((sp + 48U)); if (c) goto L_ef0;
-	v0 = vf_lw((sp + 92U));
-	vawb_sb((v0 + (u32)0), a0, 210376U);
-L_e48:
-	vawb_trace(210380U);
-	ra = vf_lw((sp + 180U));
-L_e4c:
-	vawb_trace(210384U);
-	s8 = vf_lw((sp + 176U));
-	s7 = vf_lw((sp + 172U));
-	s6 = vf_lw((sp + 168U));
-	s5 = vf_lw((sp + 164U));
-	s4 = vf_lw((sp + 160U));
-	s3 = vf_lw((sp + 156U));
-	s2 = vf_lw((sp + 152U));
-	s1 = vf_lw((sp + 148U));
-	s0 = vf_lw((sp + 144U));
-	 vawb_rf_save(); return ((u64)v1 << 32) | v0;
-L_e78:
-	vawb_trace(210428U);
-	c = 1; v0 = v0 - a2; if (c) { if (unlikely(vawb_loop_guard(210428U))) return 0; goto L_bd0; }
-L_e80:
-	vawb_trace(210436U);
-	c = 1; v1 = v1 - a1; if (c) { if (unlikely(vawb_loop_guard(210436U))) return 0; goto L_be8; }
-L_e88:
-	vawb_trace(210444U);
-	c = 1; s0 = (u32)15; if (c) { if (unlikely(vawb_loop_guard(210444U))) return 0; goto L_d00; }
-L_e90:
-	vawb_trace(210452U);
-	c = 1; s0 = (u32)1; if (c) { if (unlikely(vawb_loop_guard(210452U))) return 0; goto L_d00; }
-L_e98:
-	vawb_trace(210460U);
-	v1 = vawb_lw((s8 + (u32)416), 210460U);
-	a1 = vf_lw((sp + 48U));
-	v1 = v1 + v0;
-	vawb_sw((v1 + (u32)0), a1, 210472U);
-	v1 = vawb_lw((s8 + (u32)420), 210476U);
-	a1 = vf_lw((sp + 52U));
-	v1 = v1 + v0;
-	vawb_sw((v1 + (u32)0), a1, 210488U);
-	v1 = vawb_lw((s8 + (u32)28), 210492U);
-	a1 = vawb_lw((v1 + (u32)0), 210496U);
-	v1 = vawb_lw((s8 + (u32)424), 210500U);
-	v1 = v1 + v0;
-	v0 = v0 + (u32)4;
-	c = (v0 != a0); vawb_sw((v1 + (u32)0), a1, 210516U); if (c) { if (unlikely(vawb_loop_guard(210512U))) return 0; goto L_e98; }
-	c = 1; v0 = vawb_lw((s8 + (u32)400), 210524U); if (c) { if (unlikely(vawb_loop_guard(210520U))) return 0; goto L_dc8; }
-L_edc:
-	vawb_trace(210528U);
-	vawb_sb((v0 + (u32)0), v1, 210528U);
-	v0 = vf_lw((sp + 92U));
-	s0 = (u32)1;
-	vawb_sb((v0 + (u32)0), 0U, 210540U);
-	v0 = vf_lw((sp + 48U));
-L_ef0:
-	vawb_trace(210548U);
-	a2 = vf_lw((sp + 80U));
-	a3 = 0U;
-	a0 = s1;
-	vf_sw((sp + 16U), v0);
-	tg = s2; vf_sw((sp + 20U), 0U); vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 210564U); v0 = (u32)rv; } vawb_rf_load();
-	vf_sw((sp + 40U), v0);
-	v0 = vf_lw((sp + 52U));
-	a2 = vf_lw((sp + 80U));
-	a0 = s1;
-	vf_sw((sp + 16U), v0);
-	vf_sw((sp + 20U), 0U);
-	tg = s2; a3 = 0U; vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 210596U); v0 = (u32)rv; } vawb_rf_load();
-	a0 = s3 + (u32)-1;
-	v1 = (u32)1;
-	v1 = v1 << (a0 & 31);
-	a0 = vf_lw((sp + 40U));
-	v0 = v1 + v0;
-	a0 = v1 + a0;
-	a0 = a0 >> (s3 & 31);
-	s3 = v0 >> (s3 & 31);
-	v0 = vf_lw((sp + 72U));
-	vf_sw((sp + 40U), a0);
-	vf_sw((sp + 44U), s3);
-	v1 = v0 < a0;
-	c = (v1 == 0); v0 = v0 - a0; if (c) goto L_f68;
-	v0 = vf_lw((sp + 72U));
-	v0 = a0 - v0;
-L_f68:
-	vawb_trace(210668U);
-	v1 = vf_lw((sp + 76U));
-	a0 = vf_lw((sp + 76U));
-	v1 = v1 < s3;
-	c = (v1 == 0); a0 = a0 - s3; if (c) goto L_f84;
-	v1 = vf_lw((sp + 76U));
-	a0 = s3 - v1;
-L_f84:
-	vawb_trace(210696U);
-	v1 = vf_lw((sp + 108U));
-	c = (v1 != 0); v0 = v0 + a0; if (c) goto L_100c;
-	v1 = vf_lw((sp + 116U));
-	v0 = v1 < v0;
-	c = (v0 == 0); v1 = vf_lw((sp + 32U)); if (c) goto L_fac;
-	v0 = (u32)1;
-	c = (v1 != v0);  if (c) goto L_fb8;
-L_fac:
-	vawb_trace(210736U);
-	vawb_sw((s6 + (u32)0), 0U, 210736U);
-	c = 1; vawb_sw((s6 + (u32)4), 0U, 210744U); if (c) { if (unlikely(vawb_loop_guard(210740U))) return 0; goto L_e48; }
-L_fb8:
-	vawb_trace(210748U);
-	vawb_sw((s6 + (u32)0), v0, 210748U);
-	vawb_sw((s6 + (u32)4), v0, 210752U);
-	v1 = vf_lw((sp + 40U));
-	a0 = vf_lw((sp + 72U));
-	vawb_sw((s6 + (u32)8), v1, 210764U);
-	v1 = v1 - a0;
-	acc = vawb_divs(v1, s0, 210772U);
-	a0 = vf_lw((sp + 64U));
-	v0 = vf_lw((sp + 44U));
-	vawb_sw((s6 + (u32)12), v0, 210784U);
-	v1 = (u32)acc;
-	s8 = v1 + a0;
-	v1 = vf_lw((sp + 76U));
-	vawb_sw((s6 + (u32)16), s8, 210800U);
-	v0 = v0 - v1;
-	acc = vawb_divs(v0, s0, 210808U);
-	v0 = vf_lw((sp + 68U));
-	s0 = (u32)acc;
-L_1000:
-	vawb_trace(210820U);
-	s0 = s0 + v0;
-	c = 1; vawb_sw((s6 + (u32)20), s0, 210828U); if (c) { if (unlikely(vawb_loop_guard(210824U))) return 0; goto L_e48; }
-L_100c:
-	vawb_trace(210832U);
-	v1 = vf_lw((sp + 112U));
-	v0 = v1 < v0;
-	c = (v0 == 0); v0 = vf_lw((sp + 100U)); if (c) goto L_1030;
-	v1 = vf_lw((sp + 32U));
-	v0 = (u32)1;
-	c = (v1 != v0);  if (c) goto L_10b0;
-	v0 = vf_lw((sp + 100U));
-L_1030:
-	vawb_trace(210868U);
-	v0 = v0 + (u32)1;
-	c = (v0 == s0); v0 = (u32)1; if (c) goto L_1044;
-	c = (s0 != v0);  if (c) goto L_1068;
-L_1044:
-	vawb_trace(210888U);
-	v0 = vawb_lw((s6 + (u32)8), 210888U);
-	vawb_sw((s6 + (u32)0), 0U, 210892U);
-	vawb_sw((s6 + (u32)16), v0, 210896U);
-	v0 = vawb_lw((s6 + (u32)12), 210900U);
-L_1054:
-	vawb_trace(210904U);
-	vawb_sw((s6 + (u32)20), v0, 210904U);
-	v0 = vawb_lw((s6 + (u32)4), 210908U);
-	v0 = v0 + (u32)1;
-	c = 1; vawb_sw((s6 + (u32)4), v0, 210920U); if (c) { if (unlikely(vawb_loop_guard(210916U))) return 0; goto L_e48; }
-L_1068:
-	vawb_trace(210924U);
-	vawb_sw((s6 + (u32)0), v0, 210924U);
-	v0 = vf_lw((sp + 100U));
-	v1 = vf_lw((sp + 64U));
-	s0 = s0 - v0;
-	v0 = vf_lw((sp + 40U));
-	v0 = v0 - v1;
-	acc = vawb_divs(v0, s0, 210948U);
-	v1 = vf_lw((sp + 64U));
-	v0 = (u32)acc;
-	s8 = v0 + v1;
-	v1 = vf_lw((sp + 68U));
-	v0 = vf_lw((sp + 44U));
-	vawb_sw((s6 + (u32)16), s8, 210972U);
-	v0 = v0 - v1;
-	acc = vawb_divs(v0, s0, 210980U);
-	v0 = (u32)acc;
-	c = 1; v0 = v0 + v1; if (c) { if (unlikely(vawb_loop_guard(210988U))) return 0; goto L_1054; }
-L_10b0:
-	vawb_trace(210996U);
-	vawb_sw((s6 + (u32)0), v0, 210996U);
-	vawb_sw((s6 + (u32)4), v0, 211000U);
-	v1 = vf_lw((sp + 40U));
-	a0 = vf_lw((sp + 64U));
-	vawb_sw((s6 + (u32)8), v1, 211012U);
-	v1 = v1 - a0;
-	acc = vawb_divs(v1, s0, 211020U);
-	a0 = vf_lw((sp + 64U));
-	v0 = vf_lw((sp + 44U));
-	vawb_sw((s6 + (u32)12), v0, 211032U);
-	v1 = (u32)acc;
-	s8 = v1 + a0;
-	v1 = vf_lw((sp + 68U));
-	vawb_sw((s6 + (u32)16), s8, 211048U);
-	v0 = v0 - v1;
-	acc = vawb_divs(v0, s0, 211056U);
-	v0 = v1;
-	c = 1; s0 = (u32)acc; if (c) { if (unlikely(vawb_loop_guard(211064U))) return 0; goto L_1000; }
 	vawb_rf_save(); return ((u64)v1 << 32) | v0;
 }
 
@@ -8174,226 +7160,6 @@ L_774:
 	v0 = vf_lw((sp + 56U));
 	v1 = (u32)acc;
 	c = 1; vawb_sw((v0 + (u32)0), v1, 429996U); if (c) { if (unlikely(vawb_loop_guard(429992U))) return 0; goto L_3d4; }
-	vawb_rf_save(); return ((u64)v1 << 32) | v0;
-}
-
-/* OEM fix_point_div (.text+0x15ad0, 91 insns, frame 48) */
-u64 noinline vawb_fix_point_div(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
-{
-	u32 at = 0, v0 = 0, v1 = 0, t0 = 0, t1 = 0, t2 = 0, t3 = 0, t4 = 0, t5 = 0, t6 = 0, t7 = 0, s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0, s7 = 0, t8 = 0, t9 = 0, k0 = 0, k1 = 0, gp = 0, s8 = 0, ra = 0;
-	u32 tg = 0, c = 0; u64 acc = 0;
-	u32 vframe[13] __aligned(8);
-	u32 sp = (u32)(uintptr_t)vframe;
-	(void)tg; (void)c; (void)acc; (void)sp; (void)csp; (void)at; (void)k0; (void)k1; (void)gp; (void)ra;
-	vawb_fn_enter(); vawb_rf_load();
-	vf_sw((sp + 28U), s3);
-	vf_sw((sp + 24U), s2);
-	s3 = vawb_lw((csp + 20U), 88796U);
-	s2 = vawb_lw((csp + 16U), 88800U);
-	vf_sw((sp + 20U), s1);
-	vf_sw((sp + 16U), s0);
-	s1 = a2;
-	s0 = a3;
-	v0 = 0;
-	vf_sw((sp + 40U), s6);
-	vf_sw((sp + 36U), s5);
-	vf_sw((sp + 32U), s4);
-	a3 = s3;
-	a1 = s0;
-	vf_sw((sp + 44U), ra);
-	s5 = a0;
-	a2 = s2;
-	v0 = v0 + ((u32)(uintptr_t)vawb_x_div64_u64 + 0U);
-	tg = v0; a0 = s1; vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 88860U); v0 = (u32)rv; } vawb_rf_load();
-	acc = (u64)((s64)(s32)v1 * (s64)(s32)s2);
-	s4 = v0;
-	s6 = v1;
-	acc += (u64)((s64)(s32)s3 * (s64)(s32)v0);
-	a0 = (u32)acc;
-	acc = (u64)s2 * (u64)v0;
-	v0 = (u32)acc;
-	t0 = s1 - v0;
-	s1 = s1 < t0;
-	v1 = (u32)(acc >> 32);
-	v1 = a0 + v1;
-	a3 = s0 - v1;
-	a3 = a3 - s1;
-	v1 = 0U;
-	s0 = 0U;
-	s1 = 0U;
-L_94:
-	c = (v1 == s5); a0 = t0 >> 31; if (c) goto L_124;
-	v0 = a3 << 1;
-	v0 = a0 | v0;
-	a1 = s1 << 1;
-	a0 = s0 >> 31;
-	a1 = a0 | a1;
-	a0 = s3 < v0;
-	t0 = t0 << 1;
-	a3 = v0;
-	s0 = s0 << 1;
-	c = (a0 != 0); s1 = a1; if (c) goto L_d8;
-	c = (v0 != s3); a0 = s2 < t0; if (c) goto L_f8;
-	c = (a0 == 0);  if (c) goto L_f8;
-L_d8:
-	a0 = t0 - s2;
-	a3 = t0 < a0;
-	v0 = v0 - s3;
-	s0 = s0 | 1U;
-	t0 = a0;
-	a3 = v0 - a3;
-L_f0:
-	c = 1; v1 = v1 + (u32)1; if (c) { if (unlikely(vawb_loop_guard(89024U))) return 0; goto L_94; }
-L_f8:
-	c = (s2 != t0);  if (c) { if (unlikely(vawb_loop_guard(89032U))) return 0; goto L_f0; }
-	c = (s3 != v0); a2 = s5 + (u32)-1; if (c) { if (unlikely(vawb_loop_guard(89040U))) return 0; goto L_f0; }
-	v0 = 0;
-	a0 = s0 | 1U;
-	v0 = v0 + ((u32)(uintptr_t)vawb_x___ashldi3 + 0U);
-	tg = v0; a2 = a2 - v1; vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 89060U); v0 = (u32)rv; } vawb_rf_load();
-	s0 = v0;
-	s1 = v1;
-L_124:
-	v0 = 0;
-	a2 = s5;
-	a0 = s4;
-	v0 = v0 + ((u32)(uintptr_t)vawb_x___ashldi3 + 0U);
-	tg = v0; a1 = s6; vawb_rf_save(); { u64 rv = vawb_call(tg, a0, a1, a2, a3, sp, 89092U); v0 = (u32)rv; } vawb_rf_load();
-	ra = vf_lw((sp + 44U));
-	v1 = v1 | s1;
-	v0 = v0 | s0;
-	s6 = vf_lw((sp + 40U));
-	s5 = vf_lw((sp + 36U));
-	s4 = vf_lw((sp + 32U));
-	s3 = vf_lw((sp + 28U));
-	s2 = vf_lw((sp + 24U));
-	s1 = vf_lw((sp + 20U));
-	s0 = vf_lw((sp + 16U));
-	 vawb_rf_save(); return ((u64)v1 << 32) | v0;
-	vawb_rf_save(); return ((u64)v1 << 32) | v0;
-}
-
-/* OEM tisp_awb_sat_weight (.text+0x325b8, 115 insns, frame 56) */
-u64 noinline vawb_tisp_awb_sat_weight(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
-{
-	u32 at = 0, v0 = 0, v1 = 0, t0 = 0, t1 = 0, t2 = 0, t3 = 0, t4 = 0, t5 = 0, t6 = 0, t7 = 0, s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0, s7 = 0, t8 = 0, t9 = 0, k0 = 0, k1 = 0, gp = 0, s8 = 0, ra = 0;
-	u32 tg = 0, c = 0; u64 acc = 0;
-	u32 vframe[15] __aligned(8);
-	u32 sp = (u32)(uintptr_t)vframe;
-	(void)tg; (void)c; (void)acc; (void)sp; (void)csp; (void)at; (void)k0; (void)k1; (void)gp; (void)ra;
-	vawb_fn_enter(); vawb_rf_load();
-	v0 = vawb_lw((csp + 24U), 206268U);
-	vf_sw((sp + 52U), s8);
-	vf_sw((sp + 28U), s2);
-	vf_sw((sp + 24U), s1);
-	vf_sw((sp + 48U), s7);
-	vf_sw((sp + 44U), s6);
-	vf_sw((sp + 40U), s5);
-	vf_sw((sp + 36U), s4);
-	vf_sw((sp + 32U), s3);
-	vf_sw((sp + 20U), s0);
-	v1 = vawb_lw((v0 + (u32)0), 206308U);
-	t0 = vawb_lw((v0 + (u32)4), 206312U);
-	s5 = vawb_lw((v0 + (u32)96), 206316U);
-	v0 = vawb_lw((v0 + (u32)12), 206320U);
-	s1 = vawb_lw((csp + 20U), 206324U);
-	s4 = vawb_lw((t0 + (u32)0), 206328U);
-	t8 = vawb_lhu((v0 + (u32)0), 206332U);
-	s6 = vawb_lhu((v1 + (u32)6), 206336U);
-	s7 = vawb_lhu((v1 + (u32)2), 206340U);
-	t5 = vawb_lw((csp + 16U), 206344U);
-	t2 = 0U;
-	t4 = 0U;
-	s8 = (u32)60;
-	t9 = (u32)1;
-	s2 = (u32)3;
-L_68:
-	v0 = t4 < s7;
-	c = (v0 == 0); v1 = (u32)((s32)t4 * (s32)s8); if (c) goto L_1a0;
-	v0 = vawb_lw((csp + 16U), 206380U);
-	t0 = 0U;
-	t7 = 0U;
-	s3 = v1 + v0;
-	v0 = a3 + t2;
-	vf_sw((sp + 0U), v0);
-	v0 = a0 + t2;
-	vf_sw((sp + 4U), v0);
-	v0 = a2 + t2;
-	vf_sw((sp + 8U), v0);
-	v0 = vawb_lw((csp + 16U), 206420U);
-	v0 = v0 + t2;
-	c = 1; vf_sw((sp + 12U), v0); if (c) goto L_e0;
-L_ac:
-	t3 = vawb_lw((v0 + (u32)0), 206436U);
-	c = (t3 == 0); v0 = t5 + t0; if (c) goto L_d4;
-	v0 = vf_lw((sp + 0U));
-	v0 = v0 + t0;
-	v0 = vawb_lw((v0 + (u32)0), 206456U);
-	v0 = s4 < v0;
-	c = (v0 != 0); v0 = vf_lw((sp + 4U)); if (c) goto L_100;
-L_d0:
-	v0 = t5 + t0;
-L_d4:
-	vawb_sw((v0 + (u32)0), t9, 206476U);
-L_d8:
-	t7 = t7 + (u32)1;
-	t0 = t0 + (u32)4;
-L_e0:
-	v0 = t7 < s6;
-	c = (v0 != 0); v0 = a1 + t0; if (c) { if (unlikely(vawb_loop_guard(206492U))) return 0; goto L_ac; }
-	t4 = t4 + (u32)1;
-	t5 = t5 + (u32)60;
-	a1 = a1 + (u32)60;
-	c = 1; t2 = t2 + (u32)60; if (c) { if (unlikely(vawb_loop_guard(206512U))) return 0; goto L_68; }
-L_100:
-	v1 = vawb_lw((s1 + (u32)0), 206520U);
-	v0 = v0 + t0;
-	v0 = vawb_lw((v0 + (u32)0), 206528U);
-	v0 = (u32)((s32)v0 * (s32)v1);
-	v1 = vf_lw((sp + 8U));
-	v1 = v1 + t0;
-	t1 = vawb_lw((v1 + (u32)0), 206544U);
-	v1 = vawb_lw((s1 + (u32)4), 206548U);
-	t1 = (u32)((s32)t1 * (s32)v1);
-	v0 = v0 >> (t8 & 31);
-	t1 = t1 >> (t8 & 31);
-	t6 = t1 < v0;
-	v1 = t1;
-	if (t6 == 0) v1 = v0;
-	t6 = v1;
-	v1 = t3 < v1;
-	if (v1 != 0) t6 = t3;
-	c = (t6 == 0); v1 = t6 << (t8 & 31); if (c) { if (unlikely(vawb_loop_guard(206588U))) return 0; goto L_d0; }
-	t6 = vawb_lhu((s5 + (u32)0), 206596U);
-	c = (t6 != t9); t6 = vf_lw((sp + 12U)); if (c) goto L_17c;
-	t6 = v0 < t1;
-	if (t6 != 0) v0 = t1;
-	t1 = v0 < t3;
-	if (t1 == 0) t3 = v0;
-	acc = vawb_divu(v1, t3, 206624U);
-	s0 = s3 + t0;
-	t1 = (u32)acc;
-	c = 1; vawb_sw((s0 + (u32)0), t1, 206640U); if (c) { if (unlikely(vawb_loop_guard(206636U))) return 0; goto L_d8; }
-L_17c:
-	v0 = v0 + t1;
-	v0 = v0 + t3;
-	acc = vawb_divu(v0, s2, 206652U);
-	t6 = t6 + t0;
-	v0 = (u32)acc;
-	acc = vawb_divu(v1, v0, 206664U);
-	v1 = (u32)acc;
-	c = 1; vawb_sw((t6 + (u32)0), v1, 206676U); if (c) { if (unlikely(vawb_loop_guard(206672U))) return 0; goto L_d8; }
-L_1a0:
-	s8 = vf_lw((sp + 52U));
-	s7 = vf_lw((sp + 48U));
-	s6 = vf_lw((sp + 44U));
-	s5 = vf_lw((sp + 40U));
-	s4 = vf_lw((sp + 36U));
-	s3 = vf_lw((sp + 32U));
-	s2 = vf_lw((sp + 28U));
-	s1 = vf_lw((sp + 24U));
-	s0 = vf_lw((sp + 20U));
-	 vawb_rf_save(); return ((u64)v1 << 32) | v0;
 	vawb_rf_save(); return ((u64)v1 << 32) | v0;
 }
 

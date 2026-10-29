@@ -11,6 +11,9 @@
  * every tisp_awb_ct_detect call runs both the driver's C translation and the translated OEM
  * code from that git ref on the same state and compares all outputs; FUZZ=seed replaces the
  * zone statistics, FUZZM=seed the ct_detect tuning switches before each call (issue 133).
+ * Built with LA_REF, every tisp_awb_long_alogrithm call runs both the driver's C translation
+ * (tx_isp_t40_awb_long.inc) and the translated OEM code of that ref on the same state and
+ * compares inter/outer; FUZZL=seed randomises the state long_alogrithm reads before each call.
  */
 #define _GNU_SOURCE
 #include <stdint.h>
@@ -21,6 +24,9 @@
 #include <stdbool.h>
 #include <ucontext.h>
 #include <sys/mman.h>
+#ifndef MAP_32BIT
+#define MAP_32BIT 0
+#endif
 #include <time.h>
 
 typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32; typedef uint64_t u64;
@@ -28,6 +34,7 @@ typedef int8_t s8; typedef int16_t s16; typedef int32_t s32; typedef int64_t s64
 #define noinline __attribute__((noinline))
 #define __aligned(x) __attribute__((aligned(x)))
 #define unlikely(x) __builtin_expect(!!(x), 0)
+#define likely(x) __builtin_expect(!!(x), 1)
 #define KERN_WARNING ""
 #define KERN_INFO ""
 #define BIT(n) (1U << (n))
@@ -77,6 +84,9 @@ static u32 harness_ok(u32 a, u32 align)
 {
 	if (a & align) return 0;
 	if (a >= (u32)(uintptr_t)stk_lo && a < (u32)(uintptr_t)stk_lo + 0x40000) return 1;
+#ifdef VAWB_ANYADDR	/* 32-bit target build (mipsel): every user address fits */
+	return a >= 0x1000U;
+#endif
 	return a >= 0x30000000U && a < 0x30400000U;
 }
 /* driver C code the generated chain calls: tisp_awb_ct_detect (tx_isp_t40_awb_ctd.inc) and its fix-point helpers */
@@ -85,7 +95,14 @@ static int regtrace_is_kernel_ptr_any(const void *p) { return p != 0; }
 static bool regtrace_enable_isp_3a_diag;
 #include CFIX_INC
 #include CTD_INC
+#ifdef LA_REF_INC
+#define vawb_s_tisp_awb_long_alogrithm vawb_s_la_c
+#endif
 #include VAWB_TOP
+#ifdef LA_REF_INC
+#undef vawb_s_tisp_awb_long_alogrithm
+static u64 vawb_s_tisp_awb_long_alogrithm(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);
+#endif
 /* CT-chain externals (tx_isp_t40_vct.h on the device), unused by the AWB run */
 static u64 vawb_x___private_spin_lock_irqsave(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp) { return 0; }
 static u64 vawb_x_private_spin_unlock_irqrestore(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp) { return 0; }
@@ -157,6 +174,80 @@ static u64 vawb_s_tisp_awb_ct_detect(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
 }
 #endif
 
+#ifdef LA_REF_INC
+#include LA_REF_INC
+static unsigned long la_n, la_bad;
+static u8 la_si[60328], la_so[4752], la_ti[60328], la_to[4752];
+static u32 fl_x;
+#define FL(v) (v ^= v << 13, v ^= v >> 17, v ^= v << 5, v)
+static u32 fl_val(void)	/* 0, small, or any width up to 2^27 */
+{
+	u32 k = FL(fl_x) % 8;
+	return k == 0 ? 0 : k == 1 ? FL(fl_x) % 4 : FL(fl_x) & ((1U << (FL(fl_x) % 28)) - 1);
+}
+/* the state tisp_awb_long_alogrithm reads: statistics, weights, thresholds, precision, state machine, history, flags */
+static void la_fuzz(u32 *c)
+{
+	u32 i, z;
+	u16 *w23 = (u16 *)(uintptr_t)c[23], *w55 = (u16 *)(uintptr_t)c[55], *v4 = (u16 *)(uintptr_t)c[4], *p3 = (u16 *)(uintptr_t)c[3];
+	u16 *g = (u16 *)(uintptr_t)c[123];
+	u32 *s6 = (u32 *)(uintptr_t)c[5];
+
+	if (!getenv("FUZZL")) return;
+	if (!fl_x) fl_x = atoi(getenv("FUZZL")) | 1;
+	for (i = 59; i <= 98; i++)
+		for (z = 0; z < 225; z++) ((u32 *)(uintptr_t)c[i])[z] = fl_val();
+	if (FL(fl_x) & 1) for (i = 0; i < 8; i++) w23[i] = FL(fl_x) % 17;
+	if (FL(fl_x) & 1) for (i = 0; i < 4; i++) w55[i] = FL(fl_x) % 17;
+	*(u16 *)((uintptr_t)c[22] + 18) = FL(fl_x) % 6;
+	if (FL(fl_x) & 1) *(u32 *)(uintptr_t)c[1] = FL(fl_x) % 400;
+	if ((FL(fl_x) & 3) == 0) { p3[0] = 10 + FL(fl_x) % 7; p3[1] = FL(fl_x) % 13; }
+	if (FL(fl_x) & 1) { v4[0] = FL(fl_x) % 20; v4[1] = FL(fl_x) % 600; v4[2] = FL(fl_x) % 600; v4[3] = FL(fl_x) % 64; }
+	if (FL(fl_x) & 1) { s6[0] = FL(fl_x) % 3; s6[1] = FL(fl_x) % 20; for (i = 2; i < 6; i++) s6[i] = FL(fl_x) % 2048; }
+	if ((FL(fl_x) & 3) == 0) { s6[4] = s6[2]; s6[5] = s6[3]; }
+	*(u8 *)(uintptr_t)c[100] = FL(fl_x) % 3; *(u8 *)(uintptr_t)c[103] = FL(fl_x) % 3;
+	*(u8 *)(uintptr_t)c[118] = (FL(fl_x) & 3) == 0; *(u8 *)(uintptr_t)c[120] = (FL(fl_x) & 3) == 0;
+	if (FL(fl_x) & 1) for (i = 0; i < 6; i++) g[i] = FL(fl_x) % 600;
+	if (FL(fl_x) & 1)
+		for (i = 104; i <= 106; i++)
+			for (z = 0; z < 15; z++) ((u32 *)(uintptr_t)c[i])[z] = FL(fl_x) % 70000;
+	if (FL(fl_x) & 1) { ((u32 *)(uintptr_t)c[104])[13] = ((u32 *)(uintptr_t)c[104])[14]; ((u32 *)(uintptr_t)c[105])[13] = ((u32 *)(uintptr_t)c[105])[14]; }
+	if (FL(fl_x) & 1) { ((u32 *)(uintptr_t)c[9])[0] = FL(fl_x) % 4096; ((u32 *)(uintptr_t)c[9])[1] = FL(fl_x) % 4096; }
+	*(u16 *)(uintptr_t)c[24] = FL(fl_x) % 4;
+	if ((FL(fl_x) & 7) == 0) { *(u16 *)((uintptr_t)c[0] + 2) = 1 + FL(fl_x) % 15; *(u16 *)((uintptr_t)c[0] + 6) = 1 + FL(fl_x) % 15; }
+	else { *(u16 *)((uintptr_t)c[0] + 2) = 15; *(u16 *)((uintptr_t)c[0] + 6) = 15; }
+}
+/* both long_alogrithm versions on the same state: inter and outer must match */
+static u64 vawb_s_tisp_awb_long_alogrithm(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
+{
+	u32 di = 0, dout = 0, i, f0, fr, fc, first = ~0U;
+	u64 rv;
+
+	la_fuzz((u32 *)(uintptr_t)a0);
+	memcpy(la_si, inter, sizeof(la_si)); memcpy(la_so, outer, sizeof(la_so));
+	f0 = vawb_faults;
+	rv = vref_tisp_awb_long_alogrithm(a0, a1, a2, a3, csp);
+	fr = vawb_faults - f0;
+	memcpy(la_ti, inter, sizeof(la_ti)); memcpy(la_to, outer, sizeof(la_to));
+	memcpy(inter, la_si, sizeof(la_si)); memcpy(outer, la_so, sizeof(la_so));
+	f0 = vawb_faults;
+	(void)vawb_s_la_c(a0, a1, a2, a3, csp);
+	fc = vawb_faults - f0;
+	la_n++;
+	for (i = 0; i < sizeof(la_ti); i++) if (inter[i] != la_ti[i]) { di++; if (first == ~0U) first = i; }
+	for (i = 0; i < sizeof(la_to); i++) dout += outer[i] != la_to[i];
+	if (di || dout || fr != fc)
+		if (la_bad++ < 10) {
+			u32 k, own = ~0U, *c = pstMainAwbOri;
+			for (k = 0; k < 128 && first != ~0U; k++)
+				if (c[k] >= (u32)(uintptr_t)inter && c[k] - (u32)(uintptr_t)inter <= first && (own == ~0U || c[k] > c[own])) own = k;
+			printf("LA DIFF call %lu: inter %u B (first +%#x ctx[%u]+%u OEM %#x C %#x) outer %u B faults OEM %u C %u\n", la_n, di, first, own,
+			       own == ~0U ? 0 : first - (c[own] - (u32)(uintptr_t)inter), first == ~0U ? 0 : *(u32 *)(la_ti + (first & ~3U)),
+			       first == ~0U ? 0 : *(u32 *)(inter + (first & ~3U)), dout, fr, fc);
+		}
+	return rv;
+}
+#endif
 
 #define VAWB_CSP ((u32)(uintptr_t)vawb_argarea)
 #define VAWB_TOP() (vawb_loop_n = 0)
@@ -241,6 +332,9 @@ static void replay(void)
 	}
 #ifdef CTD_REF_INC
 	printf("ct_detect C vs OEM: %lu calls, %lu differ\n", ctd_n, ctd_bad);
+#endif
+#ifdef LA_REF_INC
+	printf("long_alogrithm C vs OEM: %lu calls, %lu differ\n", la_n, la_bad);
 #endif
 	for (i = 0; i < 60328; i++) if (inter[i] != g_dump[VAWB_ONE + i]) { d_in++; if (first == ~0U) first = i; }
 	for (i = 0; i < 60328; i += 4)	/* the differing words: host vs device, and the ctx slot that owns them */

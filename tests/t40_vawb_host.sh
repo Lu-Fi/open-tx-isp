@@ -5,6 +5,8 @@
 # CTD_REF=<git ref>: tisp_awb_ct_detect C (tx_isp_t40_awb_ctd.inc) vs the translated OEM code of that
 # ref (the last one that generated it, e.g. f2c180f7) on every call; FUZZ=seed / FUZZM=seed vary
 # the statistics / tuning switches (issue 133).
+# LA_REF=<git ref>: tisp_awb_long_alogrithm C (tx_isp_t40_awb_long.inc) vs the translated OEM code of
+# that ref (the last one that generated it, e.g. 316259cb) on every call; FUZZL=seed varies its state.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd); D=$HERE/../driver/t40; W=$(mktemp -d); trap 'rm -rf $W' EXIT
 sed -n '/^#include "tx_isp_t40_vawb_gen.inc"/q;p' $D/tx_isp_t40_vawb.h > $W/top.h
@@ -16,11 +18,23 @@ sed -i -e 's/a >= 0x80000000U \&\& a < 0xfffff000U \&\& !(a \& align)/harness_ok
        -e 's/^static u32 vawb_converge_tele_gain = /static u32 vawb_converge_tele_gain VD = /' \
        -e 's/^static u32 vawb_wide_tele_awb_gain\[3\] = /static u32 vawb_wide_tele_awb_gain[3] VD = /' $W/top.h
 echo '#endif' >> $W/top.h
+if [ -n "$LA_REF" ]; then
+	# reference: the translated OEM long_alogrithm closure of $LA_REF, renamed vref_* (ct_detect: the C one)
+	FNS="tisp_awb_long_alogrithm tisp_awb_sat_weight fix_point_div fix_point_mult2_32"
+	git -C $HERE/.. show $LA_REF:driver/t40/tx_isp_t40_vawb_gen.inc > $W/laref_all.inc
+	: > $W/laref.inc
+	for f in $FNS; do echo "u64 vref_$f(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp);" >> $W/laref.inc; done
+	for f in $FNS; do awk -v f="$f" '!p && $0 ~ "^u64 noinline vawb_" f "\\(" {p=1} p {print} p && /^}/ {exit}' $W/laref_all.inc; done > $W/laref_fns.inc
+	SED=; for f in $FNS; do SED="$SED -e s/\\bvawb_$f\\b/vref_$f/g"; done
+	sed $SED $W/laref_fns.inc >> $W/laref.inc
+	grep -q "^u64 noinline vref_tisp_awb_long_alogrithm" $W/laref.inc || { echo "LA_REF $LA_REF has no translated long_alogrithm"; exit 2; }
+fi
 # the C fix-point helpers of the driver (used by tx_isp_t40_awb_ctd.inc)
 for f in fix_point_div_32 fix_point_div fix_point_mult2_32 fix_point_mult3_32; do
 	awk -v f="$f" '!p && $0 ~ "^int(32|64)_t " f "\\(" && $0 !~ /;$/ {p=1} p {print} p && /^}/ {exit}' $D/tx_isp_t40_recovered.c
 done > $W/cfix.inc
 XDEF=
+[ -n "$LA_REF" ] && XDEF="-DLA_REF_INC=\"$W/laref.inc\""
 if [ -n "$CTD_REF" ]; then
 	# reference: the translated OEM ct_detect closure of $CTD_REF, renamed vref_*
 	FNS="tisp_awb_ct_detect ISPAWBInterpolation1 ISPAWBInterpolation2 Tiziano_Awb_Ct_Cal Tiziano_Awb_Ct_Detect_GrayWorld
@@ -32,11 +46,12 @@ if [ -n "$CTD_REF" ]; then
 	SED=; for f in $FNS; do SED="$SED -e s/\\bvawb_$f\\b/vref_$f/g"; done
 	sed $SED $W/ref_fns.inc >> $W/ref.inc
 	sed -i 's/^static u64 vawb_s_tisp_awb_ct_detect(/static u64 vawb_s_ctd_c(/' $W/top.h
-	XDEF="-DCTD_REF_INC=\"$W/ref.inc\""
+	XDEF="$XDEF -DCTD_REF_INC=\"$W/ref.inc\""
 fi
 sed -e 's/^static const u8 vawb_rodata\(\[[0-9]*\]\) __aligned(8)/static u8 vawb_rodata\1 __aligned(8) VD/' ${GEN:-$D/tx_isp_t40_vawb_gen.inc} > $W/gen.inc
-gcc -O1 ${XCFLAGS:--g0} -falign-functions=16 -no-pie -fno-pie -w -fno-strict-aliasing -Wl,--section-start=.vdata=0x30000000 \
+${VCC:-gcc} ${VOPT:--O1} ${XCFLAGS:--g0} -falign-functions=16 ${VPIE--no-pie -fno-pie} -w -fno-strict-aliasing ${VLD--Wl,--section-start=.vdata=0x30000000} \
 	-DVAWB_TOP="\"$W/top.h\"" -DVAWB_INC="\"$W/gen.inc\"" -DCFIX_INC="\"$W/cfix.inc\"" \
-	-DCTD_INC="\"$D/tx_isp_t40_awb_ctd.inc\"" $XDEF $HERE/t40_vawb/vawb_host.c -o $W/vawb_host
+	-DCTD_INC="\"$D/tx_isp_t40_awb_ctd.inc\"" -I$D $XDEF $HERE/t40_vawb/vawb_host.c -o $W/vawb_host
 [ -n "$KEEPBIN" ] && cp $W/vawb_host $KEEPBIN
+[ -n "$NORUN" ] && exit 0
 $W/vawb_host "$@"

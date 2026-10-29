@@ -16,12 +16,14 @@ ADAPT="system_reg_read div64_u64 __lshrdi3 __ashldi3"
 # ccm/bcsh main_ct/main_ev_update, lsc_ct_update + real_write_lut; tisp_clm_ct_update stays the
 # driver's literal CLM (VAE_STOP -> vawb_s_ adapter).  tisp_awb_ct_detect (with its helpers ~65 % of
 # the translated per-frame AWB work, issue 133) is the driver's C translation tx_isp_t40_awb_ctd.inc,
-# bit-exact with the OEM code (tests/t40_vawb/vawb_host.c ctd mode).
-VAE_IN=$W VAE_OUT=$W/gen.inc VAE_DATA=$HERE/data.json VAE_TRACE="${VAE_TRACE:-tisp_awb_long_alogrithm}" \
-VAE_ADAPT="$ADAPT" VAE_STOP="tisp_clm_ct_update tisp_awb_ct_detect" python3 -I "$HERE/asm2c.py" \
+# bit-exact with the OEM code (tests/t40_vawb/vawb_host.c ctd mode).  tisp_awb_long_alogrithm (the
+# per-frame zone pass that calls ct_detect) is the C translation tx_isp_t40_awb_long.inc (LA_REF mode,
+# issue 133); its callee tisp_awb_sat_weight stays translated (root below).
+VAE_IN=$W VAE_OUT=$W/gen.inc VAE_DATA=$HERE/data.json VAE_TRACE="${VAE_TRACE:-}" \
+VAE_ADAPT="$ADAPT" VAE_STOP="tisp_clm_ct_update tisp_awb_ct_detect tisp_awb_long_alogrithm" python3 -I "$HERE/asm2c.py" \
 	tisp_awb_main_process tisp_awb_get_statistics tisp_awb_params_transmit tisp_awb_params_refresh \
 	tisp_awb_set_hardware_param tisp_awb_set_gain tisp_awb_dn_params_refresh tisp_awb_main_ev_update \
-	tisp_awb_tgain_update \
+	tisp_awb_tgain_update tisp_awb_sat_weight \
 	tisp_ct_update tisp_ccm_main_ct_update tisp_ccm_main_ev_update tisp_ccm_ev_ct_update \
 	tisp_lsc_ct_update tisp_lsc_real_write_lut tisp_bcsh_main_ct_update tisp_bcsh_main_ev_update \
 	tisp_bcsh_ct_update tisp_bcsh_ev_update 2> $W/gen.err

@@ -296,6 +296,7 @@ static u64 vawb_s_tisp_awb_ct_detect(u32 a0, u32 a1, u32 a2, u32 a3, u32 csp)
 	return (u64)tisp_awb_ct_detect(a0, a1, a2);
 }
 
+#include "tx_isp_t40_awb_long.inc"
 #include "tx_isp_t40_vawb_gen.inc"
 
 
