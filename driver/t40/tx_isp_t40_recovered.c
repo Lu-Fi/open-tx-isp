@@ -86124,7 +86124,7 @@ tisp_af_set_hardware_param0x8c:
 
     /* fragment 13: CallSetup */
     local_cc = a3;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, (uintptr_t)a1); /* OEM 0x2ce8c: a0 = s0-196, a1 = composed lhu fields */
 
     /* fragment 14: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(local_cc, a1); /* jalr target resolved by relocation */
@@ -86213,7 +86213,7 @@ tisp_af_set_hardware_param0x3e8:
     local_20 = t8;
     local_1c = t0;
     local_14 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write_af)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write_af)(a0, (uintptr_t)a1, (uintptr_t)a2, (uintptr_t)a3); /* jalr target resolved by relocation */
 
     /* fragment 29: MemoryAccess */
     v0 = *(uint8_t *)((char *)s2 + 12);
@@ -86240,7 +86240,7 @@ tisp_af_set_hardware_param0x3e8:
     a1 = a1 << 4;
 
     /* fragment 30: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, (uintptr_t)v0 | (uintptr_t)a1); /* OEM 0x2d0dc/0x2d4b8: delay slot or a1,v0,a1 */
 
     /* fragment 31: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(local_44, a1); /* jalr target resolved by relocation */
@@ -86360,7 +86360,7 @@ tisp_af_set_hardware_param0x3e8:
     a1 = a1 << 4;
 
     /* fragment 60: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, (uintptr_t)v0 | (uintptr_t)a1); /* OEM 0x2d0dc/0x2d4b8: delay slot or a1,v0,a1 */
 
     /* fragment 61: CallSetup */
     t3 = local_34;
@@ -103548,7 +103548,7 @@ tisp_wdr_direct_reg_refresh0x60:
     *(uint16_t *)((char *)s0 + 1288) = v0;
     s2 = (uintptr_t)s2 << 11;
     s1 = (uintptr_t *)&system_reg_write;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)((*(uint16_t *)((char *)(s0) + 1296)) - (*(uint16_t *)((char *)(s0) + 1294))); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_wdr_log2((*(uint16_t *)((char *)(s0) + 1296)) - (*(uint16_t *)((char *)(s0) + 1294))); /* OEM 0x3dba4: jalr t1 = tisp_wdr_log2, not s1 (system_reg_write) */
 
     /* fragment 13: CallSetup */
     *(uint16_t *)((char *)s0 + 1298) = v0;
@@ -106576,7 +106576,7 @@ int32_t tisp_wdr_param_array_set(uint32_t a0, uint32_t a1)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_wdr_param_array_set_intel)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_wdr_param_array_set_intel)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 2: Epilogue */
     /* function epilogue: restore registers and return */
@@ -121768,7 +121768,7 @@ int32_t tisp_lce_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 
 tisp_lce_param_array_get0x38:
     /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lce_get_show_data)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_lce_get_show_data)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
 
     /* fragment 5: CallSetup */
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s2, (void *)(uintptr_t)s0, 984); /* jalr target resolved by relocation */
