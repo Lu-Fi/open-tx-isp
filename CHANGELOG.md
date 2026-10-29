@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-29: T40 face AWB attribute round trip (`claude/issue-138`; QEMU T40)
+
+- **T40: `IMP_ISP_Tuning_GetFaceAwb` returned stale stack words instead of the stored attribute** (control 0x8000014). The OEM `tisp_awb_face_set/get` are empty 8-byte stubs and its getter copies an uninitialised stack slot to user space, so SetFaceAwb stored nothing. The driver now keeps the last 0x18-byte attribute per ISP channel and Get returns it (zero before the first Set). The OEM leaves the value without effect on the AWB; so does this.
+
 ## 2026-10-29: T40 lifted ioctl handlers swept for uninitialised-pointer stores and lost arguments (`claude/issue-139`; host + QEMU T40, not device-tested)
 
 - Issue #139. New static checks: `tools/t40_uninit_gcc.sh` (the recovered file once more with
