@@ -61058,10 +61058,10 @@ tx_isp_unlocked_ioctl0xeb4:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, (uintptr_t)s0 >> 8); /* #agg50: OEM passes a1=s0>>8 (0x12784 delay slot) here (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 310: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 64, (*__p_24)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 64, (*__p_24)); /* #agg50: byte add (OEM addiu a0,s3,64), was scaled x4 */ /* jalr target resolved by relocation */
 
     /* fragment 311: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 68, s6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 68, s6); /* #agg50: byte add (OEM addiu a0,s3,68), was scaled x4 */ /* jalr target resolved by relocation */
 
     /* fragment 312: StackAccess */
     v0 = (*__p_28);
@@ -61094,7 +61094,7 @@ tx_isp_unlocked_ioctl0xf64:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 72, (uintptr_t)s0 + (uintptr_t)(*__p_24)); /* jalr target resolved by relocation */
 
     /* fragment 318: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 76, s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 76, s1); /* #agg50: byte add (OEM addiu a0,s3,76), was scaled x4 */ /* jalr target resolved by relocation */
 
     /* fragment 319: StackAccess */
     v0 = (*__p_28);
@@ -61127,7 +61127,7 @@ tx_isp_unlocked_ioctl0xff8:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 80, (uintptr_t)s1 + (uintptr_t)(*__p_24), a2); /* jalr target resolved by relocation */
 
     /* fragment 324: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 84, s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 84, s0); /* #agg50: byte add (OEM addiu a0,s3,84), was scaled x4 */ /* jalr target resolved by relocation */
 
     /* fragment 325: StackAccess */
     v0 = (*__p_28);
@@ -61179,7 +61179,7 @@ tx_isp_unlocked_ioctl0x10c8:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 88, s6 + (uintptr_t)(*__p_24)); /* jalr target resolved by relocation */
 
     /* fragment 334: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 92, s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 92, s0); /* #agg50: byte add (OEM addiu a0,s3,92), was scaled x4 */ /* jalr target resolved by relocation */
 
     /* fragment 335: StackAccess */
     v0 = (*__p_28);
@@ -61225,7 +61225,7 @@ tx_isp_unlocked_ioctl0x1134:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 96, (uintptr_t)s0 + (uintptr_t)(*__p_24)); /* jalr target resolved by relocation */
 
     /* fragment 344: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 100, s6); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s3 + 100, s6); /* #agg50: byte add (OEM addiu a0,s3,100), was scaled x4 */ /* jalr target resolved by relocation */
 
     /* fragment 345: CallSetup */
     s0 = (((uintptr_t)s1 >> 2) + 1023) & (-1024) + (uintptr_t)s0;
@@ -62031,7 +62031,7 @@ tx_isp_unlocked_ioctl0x1af8:
 
 tx_isp_unlocked_ioctl0x1b58:
     /* fragment 507: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(s0 + 744), (void *)(uintptr_t)__p_20, 24); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((uintptr_t)s0 + 744), (void *)(uintptr_t)__p_20, 24); /* #agg50: byte add (OEM 0x133d0 addiu a0,s0,744), was s0+2976 */ /* jalr target resolved by relocation */
 
     /* fragment 508: Branch */
     s0 = 0;
