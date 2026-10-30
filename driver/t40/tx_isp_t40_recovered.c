@@ -55398,48 +55398,36 @@ frame_channel_reqbufs0x3c4:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000eaa4 origin=model_output original=__fill_tisp_buffer */
+/*
+ * OEM 0xe014: copy the driver buffer object (52 bytes + 0x3c/0x40) into the
+ * 68-byte user struct and derive the user flags from the queue word at
+ * queue+0x18 and the buffer state (1/3 queued -> 0x2, 4 done -> 0x4,
+ * 5 error -> 0x44).  The earlier lift took &buf+0x44 instead of the queue
+ * pointer stored there and ORed the list node at buf+0x5c into the flags.
+ */
 int32_t __fill_tisp_buffer(void *arg1, void *arg2)
 {
-    int32_t *s2;
-    int32_t *v0;
-    int32_t *v1;
-    int32_t *result;
-    
-    s2 = (int32_t *)((char *)arg1 + 0x44);
-    
-    memcpy(arg2, arg1, 0x34);
-    
-    *(int32_t *)((char *)arg2 + 0x3c) = *(int32_t *)((char *)arg1 + 0x3c);
-    *(int32_t *)((char *)arg2 + 0x40) = *(int32_t *)((char *)arg1 + 0x40);
-    
-    v0 = *(int32_t *)((char *)arg2 + 0xc);
-    v1 = (int32_t *)0xffff1bb8;
-    v0 = (uintptr_t)v0 & (uintptr_t)v1;
-    *(int32_t *)((char *)arg2 + 0xc) = v0;
-    
-    result = (uintptr_t)v0 | *(int32_t *)((uintptr_t)s2 + 0x18);
-    *(int32_t *)((char *)arg2 + 0xc) = result;
-    
-    v1 = *(int32_t *)((char *)arg1 + 0x48);
-    
-    if (v1 == 3) {
-        result = (uintptr_t)result | 2;
-        *(int32_t *)((char *)arg2 + 0xc) = result;
-    } else if (v1 == 4) {
-        result = *(int32_t *)((char *)arg2 + 0xc) | 4;
-        *(int32_t *)((char *)arg2 + 0xc) = result;
-    } else if (v1 == 5) {
-        *(int32_t *)((char *)arg2 + 0xc) = (uintptr_t)result | 0x40;
-        result = *(int32_t *)((char *)arg2 + 0xc) | 4;
-        *(int32_t *)((char *)arg2 + 0xc) = result;
-    }
-    
-    if (v1 == 1) {
-        result = (uintptr_t)result | 2;
-        *(int32_t *)((char *)arg2 + 0xc) = result;
-    }
-    
-    return result;
+    unsigned char *buf = arg1;
+    uint32_t *user = arg2;
+    uintptr_t queue = *(uint32_t *)(buf + 0x44);
+    uint32_t state = *(uint32_t *)(buf + 0x48);
+    uint32_t flags;
+
+    memcpy(user, buf, 0x34);
+    user[0x3c / 4] = *(uint32_t *)(buf + 0x3c);
+    user[0x40 / 4] = *(uint32_t *)(buf + 0x40);
+
+    flags = user[3] & 0xffff1bb8U;
+    if (regtrace_is_kernel_ptr((void *)queue))
+        flags |= *(uint32_t *)(queue + 0x18);
+    if (state == 1 || state == 3)
+        flags |= 0x2;
+    else if (state == 4)
+        flags |= 0x4;
+    else if (state == 5)
+        flags |= 0x44;
+    user[3] = flags;
+    return (int32_t)flags;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000eb78 origin=fragment_seed original=frame_chan_event */
