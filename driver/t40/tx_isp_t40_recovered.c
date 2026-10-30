@@ -59242,180 +59242,56 @@ tx_isp_driver_version_isra_150x80:
 #endif
 }
 
+/* #agg51: tx_isp_get_ae_algo_handle{,_sec}.isra.25/26 re-translated from OEM 0x112bc / 0x11458.
+ * The lift dropped the copy_to_user source and length (a1 = ae_info_mine[idx], a2 = 2002), passed the
+ * 4-byte &local_18 as the exposure-info buffer (OEM: 224 bytes at sp+24 -> kernel stack overwrite),
+ * waited on ae_algo_comp[0] for both indices and lost the 14 unaligned (swl/swr) stores into the
+ * block.  OEM: wait for ae_algo_comp[idx] (16-byte completion), clear info+8 (1994 bytes), fill the AE
+ * statistics at info+8, then the exposure words at info+1946..2001 and copy 2002 bytes to user. */
+static int32_t t40_get_ae_algo_handle(uintptr_t a0, uint32_t user, uint32_t idx)
+{
+    static const uint16_t cur_off[2] = { 732, 736 }, attr_off[2] = { 368, 464 };
+    static const uint16_t win_off[2] = { 384, 480 };
+    uint32_t ei[56];            /* OEM sp+24..sp+247 */
+    uint32_t w[14];
+    char *core = (char *)(uintptr_t)*(uint32_t *)((char *)a0 + 268);
+    char *info;
+    char *attr;
+    int k;
+
+    private_wait_for_completion_interruptible((uintptr_t)((char *)ae_algo_comp + idx * 16));
+    info = (char *)(uintptr_t)ae_info_mine[idx];
+    if (info == NULL)           /* not opened (tx_isp_set_ae_algo_open): OEM would fault */
+        return -22;
+    memset(info + 8, 0, 1994);
+    tisp_g_ae_statis_attr(idx, (uintptr_t)(info + 8));
+    memset(ei, 0, sizeof(ei));
+    tisp_g_ae_exprinfo_attr(idx, (uintptr_t)ei);
+    attr = (char *)(uintptr_t)*(uint32_t *)(core + attr_off[idx]);
+    w[0] = ei[6]; w[1] = ei[7]; w[2] = ei[8]; w[3] = ei[9];          /* sp+48..60 */
+    w[4] = ei[31]; w[5] = ei[32]; w[6] = ei[33]; w[7] = ei[34];      /* sp+148..160 */
+    w[8] = *(uint32_t *)(core + cur_off[idx]);
+    w[9] = *(uint16_t *)(attr + 180);
+    w[10] = *(uint16_t *)(attr + 182);
+    w[11] = *(uint32_t *)(core + win_off[idx]);
+    w[12] = *(uint32_t *)(core + win_off[idx] - 8);
+    w[13] = *(uint32_t *)(core + win_off[idx] - 4);
+    for (k = 0; k < 14; k++)
+        memcpy(info + 1946 + 4 * k, &w[k], 4);   /* swl/swr pairs: unaligned */
+    if (private_copy_to_user((int32_t)user, (int32_t)(uintptr_t)info, 2002) != 0) {
+        isp_printf(2, "%s[%d] copy_to_user failed\n", __func__, idx ? 1500 : 1456);
+        return -14;
+    }
+    return 0;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000011d4c origin=fragment_seed original=tx_isp_get_ae_algo_handle.isra.25 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t tx_isp_get_ae_algo_handle_isra_25(uintptr_t a0, uint32_t a1) __asm__("tx_isp_get_ae_algo_handle.isra.25");
 #endif
 int32_t tx_isp_get_ae_algo_handle_isra_25(uintptr_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t *local_94 = 0;
-    uint32_t local_98 = 0;
-    uint32_t local_9c = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_f8 = 0;
-    uint32_t local_fc = 0;
-    uint32_t local_100 = 0;
-    uint32_t local_104 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = *(uint32_t *)((char *)(a0) + 268);
-    s2 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_wait_for_completion_interruptible)(&ae_algo_comp); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)((*(uint32_t *)((char *)((char *)&ae_info_mine))) + 8), 0, 1994); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_ae_statis_attr)(0, (*(uint32_t *)((char *)((char *)&ae_info_mine))) + 8); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_ae_exprinfo_attr)(0, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    a1 = *(uint32_t *)((char *)((char *)&ae_info_mine));
-    v0 = local_30;
-    a2 = 2002;
-
-    /* fragment 6: Unknown */
-    /* unmatched fragment 6 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11dd4:	a8a2079d 	swl	v0,1949(a1) */
-
-    /* fragment 7: Unknown */
-    /* unmatched fragment 7 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11dd8:	b8a2079a 	swr	v0,1946(a1) */
-
-    /* fragment 8: StackAccess */
-    v0 = local_34;
-
-    /* fragment 9: Unknown */
-    /* unmatched fragment 9 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11de0:	a8a207a1 	swl	v0,1953(a1) */
-
-    /* fragment 10: Unknown */
-    /* unmatched fragment 10 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11de4:	b8a2079e 	swr	v0,1950(a1) */
-
-    /* fragment 11: StackAccess */
-    v0 = local_38;
-
-    /* fragment 12: Unknown */
-    /* unmatched fragment 12 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11dec:	a8a207a5 	swl	v0,1957(a1) */
-
-    /* fragment 13: Unknown */
-    /* unmatched fragment 13 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11df0:	b8a207a2 	swr	v0,1954(a1) */
-
-    /* fragment 14: StackAccess */
-    v0 = local_3c;
-
-    /* fragment 15: Unknown */
-    /* unmatched fragment 15 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11df8:	a8a207a9 	swl	v0,1961(a1) */
-
-    /* fragment 16: Unknown */
-    /* unmatched fragment 16 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11dfc:	b8a207a6 	swr	v0,1958(a1) */
-
-    /* fragment 17: StackAccess */
-    v0 = local_94;
-
-    /* fragment 18: Unknown */
-    /* unmatched fragment 18 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11e04:	a8a207ad 	swl	v0,1965(a1) */
-
-    /* fragment 19: Unknown */
-    /* unmatched fragment 19 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11e08:	b8a207aa 	swr	v0,1962(a1) */
-
-    /* fragment 20: StackAccess */
-    v0 = local_98;
-
-    /* fragment 21: Unknown */
-    /* unmatched fragment 21 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11e10:	a8a207b1 	swl	v0,1969(a1) */
-
-    /* fragment 22: Unknown */
-    /* unmatched fragment 22 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11e14:	b8a207ae 	swr	v0,1966(a1) */
-
-    /* fragment 23: StackAccess */
-    v0 = local_9c;
-
-    /* fragment 24: Unknown */
-    /* unmatched fragment 24 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11e1c:	a8a207b5 	swl	v0,1973(a1) */
-
-    /* fragment 25: Unknown */
-    /* unmatched fragment 25 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11e20:	b8a207b2 	swr	v0,1970(a1) */
-
-    /* fragment 26: StackAccess */
-    v0 = local_a0;
-
-    /* fragment 27: Unknown */
-    /* unmatched fragment 27 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11e28:	a8a207b9 	swl	v0,1977(a1) */
-
-    /* fragment 28: Unknown */
-    /* unmatched fragment 28 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11e2c:	b8a207b6 	swr	v0,1974(a1) */
-
-    /* fragment 29: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 732);
-
-    /* fragment 30: Unknown */
-    /* unmatched fragment 30 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11e34:	a8a207bd 	swl	v0,1981(a1) */
-
-    /* fragment 31: Unknown */
-    /* unmatched fragment 31 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11e38:	b8a207ba 	swr	v0,1978(a1) */
-
-    /* fragment 32: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_to_user)(s2); /* jalr target resolved by relocation */
-
-    /* fragment 33: Branch */
-    v1 = 0;
-    if (v0 == 0) { goto tx_isp_get_ae_algo_handle_isra_250x180; }
-
-    /* fragment 34: CallSetup */
-    local_14 = 1456;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC8, &__param_str_isp_dual_buf, 1456); /* jalr target resolved by relocation */
-
-    /* fragment 35: Arithmetic */
-    v1 = -14;
-
-tx_isp_get_ae_algo_handle_isra_250x180:
-    /* fragment 36: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 37: Arithmetic */
-    v0 = v1;
-
-    /* fragment 38: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    return t40_get_ae_algo_handle(a0, a1, 0);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000011ee8 origin=fragment_seed original=tx_isp_get_ae_algo_handle_sec.isra.26 */
@@ -59424,174 +59300,7 @@ int32_t tx_isp_get_ae_algo_handle_sec_isra_26(uintptr_t a0, uint32_t a1) __asm__
 #endif
 int32_t tx_isp_get_ae_algo_handle_sec_isra_26(uintptr_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t *local_94 = 0;
-    uint32_t local_98 = 0;
-    uint32_t local_9c = 0;
-    uint32_t local_a0 = 0;
-    uint32_t local_f8 = 0;
-    uint32_t local_fc = 0;
-    uint32_t local_100 = 0;
-    uint32_t local_104 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = *(uint32_t *)((char *)(a0) + 268);
-    s2 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_wait_for_completion_interruptible)(&ae_algo_comp); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)((*(uint32_t *)((char *)(s1) + 4)) + 8), 0, 1994); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_ae_statis_attr)(1, (*(uint32_t *)((char *)(s1) + 4)) + 8); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_g_ae_exprinfo_attr)(1, &local_18); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    a1 = *(uint32_t *)((char *)((char *)&isp_memopt + 0x4));
-    v0 = local_30;
-    a2 = 2002;
-
-    /* fragment 6: Unknown */
-    /* unmatched fragment 6 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11f74:	a8a2079d 	swl	v0,1949(a1) */
-
-    /* fragment 7: Unknown */
-    /* unmatched fragment 7 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11f78:	b8a2079a 	swr	v0,1946(a1) */
-
-    /* fragment 8: StackAccess */
-    v0 = local_34;
-
-    /* fragment 9: Unknown */
-    /* unmatched fragment 9 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11f80:	a8a207a1 	swl	v0,1953(a1) */
-
-    /* fragment 10: Unknown */
-    /* unmatched fragment 10 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11f84:	b8a2079e 	swr	v0,1950(a1) */
-
-    /* fragment 11: StackAccess */
-    v0 = local_38;
-
-    /* fragment 12: Unknown */
-    /* unmatched fragment 12 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11f8c:	a8a207a5 	swl	v0,1957(a1) */
-
-    /* fragment 13: Unknown */
-    /* unmatched fragment 13 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11f90:	b8a207a2 	swr	v0,1954(a1) */
-
-    /* fragment 14: StackAccess */
-    v0 = local_3c;
-
-    /* fragment 15: Unknown */
-    /* unmatched fragment 15 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11f98:	a8a207a9 	swl	v0,1961(a1) */
-
-    /* fragment 16: Unknown */
-    /* unmatched fragment 16 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11f9c:	b8a207a6 	swr	v0,1958(a1) */
-
-    /* fragment 17: StackAccess */
-    v0 = local_94;
-
-    /* fragment 18: Unknown */
-    /* unmatched fragment 18 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11fa4:	a8a207ad 	swl	v0,1965(a1) */
-
-    /* fragment 19: Unknown */
-    /* unmatched fragment 19 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11fa8:	b8a207aa 	swr	v0,1962(a1) */
-
-    /* fragment 20: StackAccess */
-    v0 = local_98;
-
-    /* fragment 21: Unknown */
-    /* unmatched fragment 21 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11fb0:	a8a207b1 	swl	v0,1969(a1) */
-
-    /* fragment 22: Unknown */
-    /* unmatched fragment 22 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11fb4:	b8a207ae 	swr	v0,1966(a1) */
-
-    /* fragment 23: StackAccess */
-    v0 = local_9c;
-
-    /* fragment 24: Unknown */
-    /* unmatched fragment 24 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11fbc:	a8a207b5 	swl	v0,1973(a1) */
-
-    /* fragment 25: Unknown */
-    /* unmatched fragment 25 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11fc0:	b8a207b2 	swr	v0,1970(a1) */
-
-    /* fragment 26: StackAccess */
-    v0 = local_a0;
-
-    /* fragment 27: Unknown */
-    /* unmatched fragment 27 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11fc8:	a8a207b9 	swl	v0,1977(a1) */
-
-    /* fragment 28: Unknown */
-    /* unmatched fragment 28 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11fcc:	b8a207b6 	swr	v0,1974(a1) */
-
-    /* fragment 29: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 736);
-
-    /* fragment 30: Unknown */
-    /* unmatched fragment 30 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11fd4:	a8a207bd 	swl	v0,1981(a1) */
-
-    /* fragment 31: Unknown */
-    /* unmatched fragment 31 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 11fd8:	b8a207ba 	swr	v0,1978(a1) */
-
-    /* fragment 32: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_to_user)(s2); /* jalr target resolved by relocation */
-
-    /* fragment 33: Branch */
-    v1 = 0;
-    if (v0 == 0) { goto tx_isp_get_ae_algo_handle_sec_isra_260x184; }
-
-    /* fragment 34: CallSetup */
-    local_14 = 1500;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC8, &__param_str_isp_dual_buf, 1500); /* jalr target resolved by relocation */
-
-    /* fragment 35: Arithmetic */
-    v1 = -14;
-
-tx_isp_get_ae_algo_handle_sec_isra_260x184:
-    /* fragment 36: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 37: Arithmetic */
-    v0 = v1;
-
-    /* fragment 38: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    return t40_get_ae_algo_handle(a0, a1, 1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012088 origin=model_output original=tx_isp_set_ae_algo_open.isra.28 */
