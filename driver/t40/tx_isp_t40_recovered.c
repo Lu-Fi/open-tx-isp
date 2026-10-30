@@ -59169,7 +59169,7 @@ tx_isp_release0xc4:
     if (v0 == 0) { goto tx_isp_release0xd8; }
 
     /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_video_link_destroy_isra_5)(s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tx_isp_video_link_destroy_isra_5)(s3, (uintptr_t)s0); /* #agg50: OEM passes a1=link index s0 here (the lift dropped it) */ /* jalr target resolved by relocation */
 
 tx_isp_release0xd8:
     /* fragment 22: Arithmetic */
@@ -60535,7 +60535,7 @@ tx_isp_unlocked_ioctl0x5f8:
     /* fragment 134: CallSetup */
     s0 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s2) + 48)) + 268);
     (*__p_20) = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_20, s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_20, s1, 4); /* #agg50: OEM passes a2=4 here (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 135: Branch */
     int _bc_v0_135 = v0 == 0;
@@ -60562,7 +60562,7 @@ tx_isp_unlocked_ioctl0x690:
 
     /* fragment 140: CallSetup */
     s2 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s2) + 48)) + 268);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_20, s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_20, s1, 12); /* #agg50: OEM passes a2=12 (0x11f14) here (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 141: Branch */
     int _bc_v0_141 = v0 == 0;
@@ -60923,7 +60923,7 @@ tx_isp_unlocked_ioctl0xd2c:
 
 tx_isp_unlocked_ioctl0xd84:
     /* fragment 280: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_video_link_destroy_isra_5)(s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tx_isp_video_link_destroy_isra_5)(s3, (uintptr_t)(*__p_24)); /* #agg50: OEM passes a1=lw 36(sp) (0x125c0) here (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 281: Branch */
     s0 = v0;
@@ -61055,7 +61055,7 @@ tx_isp_unlocked_ioctl0xeb4:
     s0 = (uintptr_t)v0 & s8;
 
     /* fragment 309: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, (uintptr_t)s0 >> 8); /* #agg50: OEM passes a1=s0>>8 (0x12784 delay slot) here (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 310: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s3 + 64, (*__p_24)); /* jalr target resolved by relocation */
@@ -61576,7 +61576,7 @@ tx_isp_unlocked_ioctl0x15dc:
     if (s3 != 0) { goto tx_isp_unlocked_ioctl0x1614; }
 
     /* fragment 411: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(4144); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4144, (uintptr_t)(*__p_24)); /* #agg50: OEM passes a1=lw 36(sp) (0x12d60) here (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 412: CallSetup */
     a1 = s0;
@@ -61585,7 +61585,7 @@ tx_isp_unlocked_ioctl0x15dc:
 tx_isp_unlocked_ioctl0x15f8:
     /* fragment 413: CallSetup */
     s0 = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, (uintptr_t)a1); /* #agg50: OEM passes a1=old s0 (0x12e68/0x12e94) here (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 414: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4140, 0); /* jalr target resolved by relocation */
@@ -61595,7 +61595,7 @@ tx_isp_unlocked_ioctl0x15f8:
 
 tx_isp_unlocked_ioctl0x1614:
     /* fragment 416: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(4152); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4152, (uintptr_t)(*__p_24)); /* #agg50: OEM passes a1=lw 36(sp) (0x12d60) here (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 417: Arithmetic */
     a1 = s0;
@@ -62165,7 +62165,7 @@ tx_isp_unlocked_ioctl0x1cc4:
 
 tx_isp_unlocked_ioctl0x1d38:
     /* fragment 538: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(4120); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4120, 0); /* #agg50: OEM passes a1=0 (0x1356c) here (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 539: Branch */
     s0 = 0;
@@ -62215,7 +62215,7 @@ tx_isp_unlocked_ioctl0x1d38:
 tx_isp_unlocked_ioctl0x1df0:
     /* fragment 546: CallSetup */
     s2 = (uintptr_t)s0 >> 9;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(4148); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4148, (uintptr_t)(*__p_24)); /* #agg50: OEM passes a1=lw 36(sp) (0x13624) here (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 547: CallSetup */
     s2 = (uintptr_t *)((uintptr_t)s2 - 10);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
@@ -62276,7 +62276,7 @@ tx_isp_unlocked_ioctl0x1df0:
     v0 = *(uint16_t *)((char *)s4 + 2);
 
     /* fragment 558: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(a0, (uintptr_t)(*__p_24)); /* #agg50: OEM passes a1=lw 36(sp) (0x13720) here (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 559: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4164, s3); /* jalr target resolved by relocation */
@@ -62344,7 +62344,7 @@ tx_isp_unlocked_ioctl0x1df0:
 
 tx_isp_unlocked_ioctl0x2008:
     /* fragment 570: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(4172); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4172, (uintptr_t)s0); /* #agg50: OEM passes a1=s0 (0x13848) here (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 571: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4136, ((uintptr_t)s0 >> 9) - 10); /* jalr target resolved by relocation */
