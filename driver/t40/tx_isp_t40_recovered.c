@@ -50035,21 +50035,21 @@ isp_core_tuning_init0x70:
 
     /* fragment 8: CallSetup */
     *(uint32_t *)((char *)s0 + 0) = s1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_lock_init)(s0 + 100); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_lock_init)((uintptr_t)s0 + 100); /* #agg51: byte offset (OEM 0xc388 addiu a0,s0,100); s0 + 100 scaled x4 = +400, past the 132-byte kmalloc */ /* jalr target resolved by relocation */
 
     /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_raw_mutex_init)(s0 + 104, &LC25, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_raw_mutex_init)((uintptr_t)s0 + 104, &LC25, 0); /* #agg51: byte offset (OEM 0xc3b4); scaled x4 = +416 heap overflow */ /* jalr target resolved by relocation */
 
     /* fragment 10: Arithmetic */
     v0 = 1;
 
     /* fragment 11: MemoryAccess */
     *(uint32_t *)((char *)s0 + 120) = v0;
-    v0 = (uintptr_t *)&sclk_name;
-    v0 = v0 + 3872;
-    *(uint32_t *)((char *)s0 + 124) = v0;
-    v0 = 65536;
-    v0 = v0 - 13108;
+    /* #agg51: OEM 0xc3c0..0xc3d8: +124 = &isp_core_tunning_fops (.data+0xf00), +128 = isp_core_tuning_event
+     * (.text 0xc23c); the lift stored sclk_name + 3872*4 and the constant 52428. */
+    *(uint32_t *)((char *)s0 + 124) = (uint32_t)(uintptr_t)&isp_core_tunning_fops;
+    v0 = (uintptr_t *)(uintptr_t)isp_core_tuning_event;
+
 
     /* fragment 12: Branch */
     *(uint32_t *)((char *)s0 + 128) = v0;
