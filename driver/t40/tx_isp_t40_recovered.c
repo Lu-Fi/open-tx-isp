@@ -26385,6 +26385,31 @@ static int regtrace_sync_sensor_video_to_csi(void *video, int forced_channel)
 }
 
 /*
+ * T40-SENSOR-ATTR (#147): OEM ispcore_sync_sensor_attr (libt40-firmware.a 0x75e1c..0x75e54):
+ *   memcpy(sp+176, video, 96); ...; memcpy(tisp_core + 316 + ch*96, video, 96)
+ * copies the sensor's whole 96-byte tx_isp_video_in block (mbus, mbus_change, attr +0x34,
+ * info, vi_max_width +0x3c, vi_max_height +0x40, fps +0x44, ...) into the core.  Its readers
+ * (tx_isp_core_ops_g_ctrl 0x8000033 at 0xba1c..0xba5c: lw 368/384/376/380(s2); sensor_get_normal_fps
+ * 0xffbc; sensor_set_fps 0x100dc writes +0x180) take fps and size from that copy.  The open
+ * path only stored the attr pointer, so GetSensorAttr returned fps 0 and 0x0.
+ * Keep a valid attr pointer the caller already resolved when the video block has none.
+ */
+static void t40_core_sync_sensor_video(uintptr_t core, uint32_t channel, uintptr_t video)
+{
+    uint32_t base, keep_attr;
+
+    if (!regtrace_is_kernel_ptr((void *)core) || !regtrace_is_kernel_ptr((void *)video) ||
+        !regtrace_vic_channel_valid(channel))
+        return;
+    base = 0x13c + channel * 96U;
+    keep_attr = regtrace_get_u32(core, base + REGTRACE_TX_ISP_VIDEO_ATTR_OFFSET);
+    memcpy((void *)(core + base), (const void *)video, 96);
+    if (!regtrace_is_kernel_ptr((void *)(uintptr_t)regtrace_get_u32(core, base + REGTRACE_TX_ISP_VIDEO_ATTR_OFFSET)) &&
+        regtrace_is_kernel_ptr((void *)(uintptr_t)keep_attr))
+        regtrace_put_u32(core, base + REGTRACE_TX_ISP_VIDEO_ATTR_OFFSET, keep_attr);
+}
+
+/*
  * Seed the VIC/CSI attribute caches from the bound sensor's own
  * tx_isp_sensor.video (attr pointer at +0x304, mbus at +0x2d0) as soon as a
  * stream starts.  The external attribute otherwise arrives only through the
@@ -49393,9 +49418,12 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
                             return -ENODEV;
                         attr_out[0] = regtrace_get_u16(attr, 0xb4);
                         attr_out[1] = regtrace_get_u16(attr, 0xb6);
-                        attr_out[2] = regtrace_get_u32(sd, 0x314);
-                        attr_out[3] = regtrace_get_u32(sd, 0x2d0);
-                        attr_out[4] = regtrace_get_u32(sd, 0x2d4);
+                        /* T40-SENSOR-ATTR (#147): same fields the OEM reads from the core copy of the
+                         * video block (0xba4c..0xba5c: +0x44 fps, +0x3c vi_max_width, +0x40 vi_max_height),
+                         * here from the source block at subdev+0x2d0 (was mbus width/height +0x0/+0x4) */
+                        attr_out[2] = regtrace_get_u32(sd, 0x2d0 + 0x44);
+                        attr_out[3] = regtrace_get_u32(sd, 0x2d0 + 0x3c);
+                        attr_out[4] = regtrace_get_u32(sd, 0x2d0 + 0x40);
                     } else {
                         attr_out[0] = *(uint16_t*)((char*)v0_ptr + 0xb4);
                         attr_out[1] = *(uint16_t*)((char*)v0_ptr + 0xb6);
@@ -58004,8 +58032,22 @@ int32_t tx_isp_notify(int32_t arg1, int32_t arg2, int32_t arg3)
     int32_t s1 = (int32_t)(globe_ispdev_1 + 0x7c);
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
-    if ((uint32_t)arg2 == REGTRACE_TX_ISP_EVENT_SYNC_SENSOR_ATTR)
+    if ((uint32_t)arg2 == REGTRACE_TX_ISP_EVENT_SYNC_SENSOR_ATTR) {
+        /* T40-SENSOR-ATTR (#147): the OEM notify reaches ispcore_sync_sensor_attr, whose first
+         * step is memcpy(core+316+ch*96, video, 96) (0x75e40..0x75e54); refresh the core copy so a
+         * sensor fps/mode change (sensor_set_fps -> SYNC_SENSOR_ATTR) shows in GetSensorAttr. */
+        uintptr_t video = (uintptr_t)arg3;
+        uintptr_t core = regtrace_resolve_core_dev();
+
+        /* only once tisp_main_init seeded the core copy (attr set), as the open init order needs */
+        if (regtrace_is_kernel_ptr((void *)video) && regtrace_is_kernel_ptr((void *)core) &&
+            regtrace_is_kernel_ptr((void *)(uintptr_t)regtrace_get_u32(core, 0x13c + 0x34))) {
+            uint32_t ch = regtrace_get_u32(video, REGTRACE_TX_ISP_VIDEO_VIC_ID_OFFSET);
+
+            t40_core_sync_sensor_video(core, ch < 2U ? ch : 0U, video);
+        }
         return regtrace_sync_sensor_video_to_vic((void *)(uintptr_t)arg3, -1);
+    }
 #endif
 
     while (1) {
@@ -71629,6 +71671,11 @@ static uintptr_t regtrace_tisp_main_init_seed_core_sensor_attr(uint32_t channel)
 
     sync_base = 0x13c + channel * 96U;
     memset((void *)(core + sync_base), 0, 96);
+    /* T40-SENSOR-ATTR (#147): OEM ispcore_sync_sensor_attr copies the sensor's video block here
+     * (0x75e54 memcpy core+316+ch*96); the bound sensor's video is at subdev+0x2d0. */
+    if (channel == 0 && regtrace_is_kernel_ptr(regtrace_sensor_subdev))
+        t40_core_sync_sensor_video(core, channel,
+                                   (uintptr_t)regtrace_sensor_subdev + REGTRACE_SENSOR_SUBDEV_VIDEO_OFFSET);
     regtrace_put_u32(core, sync_base + 0x34, (uint32_t)attr);
     regtrace_put_u32(core, 0x3c + channel * sizeof(uint32_t),
                      (uint32_t)(uintptr_t)regtrace_sensor_subdev);
