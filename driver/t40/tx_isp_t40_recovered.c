@@ -49233,165 +49233,65 @@ label_c33c:
     return result;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000000ca04 origin=fragment_seed original=isp_core_tunning_unlocked_ioctl */
+/*
+ * isp_core_tunning_unlocked_ioctl - re-translated from the OEM tx-isp-t40.ko
+ * (isp_core_tunning_unlocked_ioctl at 0xbf74, lifted copy was fn 0xca04; #145).
+ *
+ * The lifted version built its two request constants with typed-pointer
+ * arithmetic (0xc0080000 + 0x5433 scaled x4), so neither request matched.
+ * OEM behaviour, byte-exact:
+ *   - core = file->private_data(+0x88) -> +0x100 -> +0x3e0; core->state(+0x78)
+ *     must be 3 (running), else -1.
+ *   - 0xc0085433 / 0xc0085434: copy 8 bytes in (and back out for 0x5434) and
+ *     return 0; the OEM does not act on them (S_CTRL/G_CTRL are served on
+ *     /dev/isp-m0 by regtrace_isp_m0_ctrl_ioctl).
+ *   - any other request: 16-byte { vinum, dir, id, value } from user;
+ *     dir == 0 -> tx_isp_core_ops_s_ctrl(vinum, core, &id),
+ *     dir != 0 -> tx_isp_core_ops_g_ctrl(vinum, core, &id) and the struct is
+ *     copied back; -ENOIOCTLCMD (-515) from either is reported as 0.
+ * Only reachable through isp_core_tunning_fops (misc "ptr", not registered
+ * by this driver); kept OEM-equal for completeness.
+ */
+#define T40_TUNNING_REQ_S_CTRL 0xc0085433U   /* OEM 0xbfa4/0xbfac: lui 0xc008; addiu 21555 */
+#define T40_TUNNING_REQ_G_CTRL 0xc0085434U   /* OEM 0xbfbc: addiu 21556 */
 int32_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    uint32_t ctrl[4];   /* OEM sp+0x10: { vinum, dir, id, value } */
+    char *priv, *core;
+    int32_t ret;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
+    priv = *(char **)((char *)a0 + 0x88);
+    priv = *(char **)(priv + 0x100);
+    core = *(char **)(priv + 0x3e0);
+    if (*(uint32_t *)(core + 0x78) != 3)
+        return -1;
 
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 136);
-    v0 = *(uint32_t *)((char *)v0 + 256);
-    s2 = *(uint32_t *)((char *)v0 + 992);
-    v0 = 3;
-    v1 = *(uint32_t *)((char *)s2 + 120);
+    if (a1 == T40_TUNNING_REQ_S_CTRL) {
+        if (private_copy_from_user((int32_t)(uintptr_t)ctrl, (int32_t)a2, 8))
+            return -EFAULT;
+        return 0;
+    }
+    if (a1 == T40_TUNNING_REQ_G_CTRL) {
+        if (private_copy_from_user((int32_t)(uintptr_t)ctrl, (int32_t)a2, 8))
+            return -EFAULT;
+        if (private_copy_to_user((int32_t)a2, (int32_t)(uintptr_t)ctrl, 8))
+            return -EFAULT;
+        return 0;
+    }
 
-    /* fragment 2: Branch */
-    s0 = -1;
-    if (v1 != v0) { goto isp_core_tunning_unlocked_ioctl0xc0; }
-
-    /* fragment 3: Arithmetic */
-    v1 = 3221749760;
-    v0 = (uintptr_t *)&private_copy_from_user;
-    a0 = v1 + 21555;
-    s1 = a2;
-
-    /* fragment 4: Branch */
-    v0 = (uintptr_t *)&private_copy_from_user;
-    if (a1 == a0) { goto isp_core_tunning_unlocked_ioctl0xa4; }
-
-    /* fragment 5: Arithmetic */
-    v1 = v1 + 21556;
-
-    /* fragment 6: Branch */
-    a2 = 8;
-    if (a1 == v1) { goto isp_core_tunning_unlocked_ioctl0xdc; }
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_10, s1, 16); /* jalr target resolved by relocation */
-
-    /* fragment 8: Branch */
-    int _bc_v0_8 = v0 != 0;
-    v0 = local_14;
-    if (_bc_v0_8) { goto isp_core_tunning_unlocked_ioctl0xf0; }
-
-    /* fragment 9: StackAccess */
-    a0 = local_10;
-    a2 = (uint32_t *)&local_18;
-
-    /* fragment 10: Branch */
-    a1 = s2;
-    if (v0 != 0) { goto isp_core_tunning_unlocked_ioctl0x11c; }
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_core_ops_s_ctrl)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 12: Arithmetic */
-    s0 = v0;
-    v0 = -515;
-
-isp_core_tunning_unlocked_ioctl0x94:
-    /* fragment 13: Branch */
-    if (s0 == v0) { goto isp_core_tunning_unlocked_ioctl0xbc; }
-
-    /* fragment 14: Branch */
-    v0 = s0;
-    goto isp_core_tunning_unlocked_ioctl0xc8;
-
-isp_core_tunning_unlocked_ioctl0xa4:
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_10, s1, 8); /* jalr target resolved by relocation */
-
-    /* fragment 16: Branch */
-    s0 = -14;
-    if (v0 != 0) { goto isp_core_tunning_unlocked_ioctl0xc0; }
-
-isp_core_tunning_unlocked_ioctl0xbc:
-    /* fragment 17: Arithmetic */
-    s0 = 0;
-
-isp_core_tunning_unlocked_ioctl0xc0:
-    /* fragment 18: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-isp_core_tunning_unlocked_ioctl0xc4:
-    /* fragment 19: Arithmetic */
-    v0 = s0;
-
-isp_core_tunning_unlocked_ioctl0xc8:
-    /* fragment 20: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-isp_core_tunning_unlocked_ioctl0xdc:
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(&local_10, s1); /* jalr target resolved by relocation */
-
-    /* fragment 22: Branch */
-    int _bc_v0_22 = v0 == 0;
-    v0 = (uintptr_t *)&private_copy_to_user;
-    if (_bc_v0_22) { goto isp_core_tunning_unlocked_ioctl0xf8; }
-
-isp_core_tunning_unlocked_ioctl0xf0:
-    /* fragment 23: Branch */
-    s0 = -14;
-    goto isp_core_tunning_unlocked_ioctl0xc0;
-
-isp_core_tunning_unlocked_ioctl0xf8:
-    /* fragment 24: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &local_10, 8); /* jalr target resolved by relocation */
-
-    /* fragment 25: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto isp_core_tunning_unlocked_ioctl0xc0; }
-
-    /* fragment 26: Branch */
-    s0 = -14;
-    goto isp_core_tunning_unlocked_ioctl0xc0;
-
-isp_core_tunning_unlocked_ioctl0x11c:
-    /* fragment 27: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_core_ops_g_ctrl)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 28: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto isp_core_tunning_unlocked_ioctl0x140; }
-
-    /* fragment 29: Arithmetic */
-    v0 = -515;
-
-    /* fragment 30: Branch */
-    if (s0 != v0) { goto isp_core_tunning_unlocked_ioctl0xc4; }
-
-isp_core_tunning_unlocked_ioctl0x140:
-    /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_to_user)(s1, &local_10, 16); /* jalr target resolved by relocation */
-
-    /* fragment 32: Branch */
-    int _bc_v0_32 = v0 == 0;
-    v0 = -515;
-    if (_bc_v0_32) { goto isp_core_tunning_unlocked_ioctl0x94; }
-
-    /* fragment 33: Branch */
-    s0 = -14;
-    goto isp_core_tunning_unlocked_ioctl0xc0;
-
-    return 0;
+    if (private_copy_from_user((int32_t)(uintptr_t)ctrl, (int32_t)a2, 16))
+        return -EFAULT;
+    if (ctrl[1] == 0) {
+        ret = tx_isp_core_ops_s_ctrl((void *)(uintptr_t)ctrl[0], (void **)core,
+                                     (int *)&ctrl[2], 0);
+    } else {
+        ret = tx_isp_core_ops_g_ctrl(ctrl[0], (int32_t *)core, (int32_t *)&ctrl[2]);
+        if (ret != 0 && ret != -ENOIOCTLCMD)
+            return ret;
+        if (private_copy_to_user((int32_t)a2, (int32_t)(uintptr_t)ctrl, 16))
+            return -EFAULT;
+    }
+    return ret == -ENOIOCTLCMD ? 0 : ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000cb6c origin=fragment_seed original=isp_frame_done_wakeup */
