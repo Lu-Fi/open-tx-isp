@@ -60542,6 +60542,107 @@ print_error_and_return:
     return 0xfffffff2;
 }
 
+/*
+ * Link setup, request 0x80085409 (IMP_ISP_EnableSensor) - re-translated from the
+ * OEM tx-isp-t40.ko tx_isp_unlocked_ioctl+0xab8 (0x12330..0x125a0; #145).
+ *
+ * arg: 8 bytes { u32 unused; u32 config }.  config 0..2 selects one of the OEM
+ * link configurations (OEM .rodata+0x11d8: {link1,3} {link2,3} {link3,1}, each
+ * entry 20 bytes { src pad desc[8], dst pad desc[8], u32 flags }).  For every
+ * entry whose two pads resolve, both pads are (re)linked to each other with
+ * flags|1 and state 3 (linked); an existing link of either pad to another pad
+ * is destroyed first.  priv(+0x118 + 4*config) remembers a finished config so a
+ * repeated call is a no-op.  The lifted copy took the table base from the wrong
+ * symbol (&__param_str_isp_dual_buf + 4680, scaled x4) and oopsed (BadVA
+ * 0x646f4d91); it also scaled s1 + 8 and dropped the second argument of the
+ * first find_subdev_link_pad call.
+ */
+static const struct {
+    const unsigned char *links;
+    int count;
+} t40_link_configs[3] = {
+    { link1, 3 },   /* OEM .rodata+0x11d8 -> .data+0x1298 (link1) */
+    { link2, 3 },   /* OEM .rodata+0x11e0 -> .data+0x125c (link2) */
+    { link3, 1 },   /* OEM .rodata+0x11e8 -> .data+0x1248 (link3) */
+};
+
+#define T40_PAD_LINK(pad)        ((pad) + 8)   /* struct link inside the pad */
+#define T40_PAD_TYPE(pad)        (*(uint8_t *)((pad) + 6))
+#define T40_PAD_STATE(pad)       (*(uint8_t *)((pad) + 7))
+#define T40_PAD_REMOTE(pad)      (*(char **)((pad) + 12))
+#define T40_PAD_STATE_LINKED     3
+#define T40_PAD_STATE_BUSY       4
+
+static long t40_ioctl_link_setup(char *priv, unsigned long arg)
+{
+    uint32_t req[2];
+    char *graph = priv - 12;          /* OEM 0x118c4: addiu s3,s2,-12 */
+    uint32_t *done;
+    const unsigned char *e;
+    int i;
+
+    if (private_copy_from_user((int32_t)(uintptr_t)req, (int32_t)arg, 8)) {
+        printk(KERN_ERR "tx_isp_t40_recovered: link setup: copy_from_user failed\n");
+        return -EFAULT;
+    }
+    if (req[1] >= ARRAY_SIZE(t40_link_configs)) {
+        printk(KERN_ERR "tx_isp_t40_recovered: link setup: invalid config %u\n", req[1]);
+        return -EINVAL;
+    }
+    done = (uint32_t *)(priv + 0x118 + 4 * req[1]);
+    if (*done)
+        return 0;
+
+    e = t40_link_configs[req[1]].links;
+    for (i = 0; i < t40_link_configs[req[1]].count; i++, e += 20) {
+        char *src = (char *)(uintptr_t)find_subdev_link_pad((uintptr_t)graph, (uintptr_t)e);
+        char *dst = (char *)(uintptr_t)find_subdev_link_pad((uintptr_t)graph, (uintptr_t)(e + 8));
+        uint32_t flags = *(const uint32_t *)(e + 16);
+        long ret;
+
+        if (!src || !dst)
+            continue;
+        if (!(T40_PAD_TYPE(src) & T40_PAD_TYPE(dst) & flags)) {
+            printk(KERN_ERR "tx_isp_t40_recovered: link setup: pad types do not match (config %u entry %d)\n",
+                   req[1], i);
+            return -1;
+        }
+        if (T40_PAD_STATE(src) == T40_PAD_STATE_BUSY || T40_PAD_STATE(dst) == T40_PAD_STATE_BUSY) {
+            printk(KERN_ERR "tx_isp_t40_recovered: link setup: pad is streaming (config %u entry %d)\n",
+                   req[1], i);
+            return -1;
+        }
+        if (T40_PAD_STATE(src) == T40_PAD_STATE_LINKED && T40_PAD_REMOTE(src) != dst) {
+            ret = subdev_video_destroy_link((uintptr_t)T40_PAD_LINK(src));
+            if (ret == -ENOIOCTLCMD)
+                continue;
+            if (ret)
+                return ret;
+        }
+        if (T40_PAD_STATE(dst) == T40_PAD_STATE_LINKED && T40_PAD_REMOTE(dst) != src) {
+            ret = subdev_video_destroy_link((uintptr_t)T40_PAD_LINK(dst));
+            if (ret == -ENOIOCTLCMD)
+                continue;
+            if (ret)
+                return ret;
+        }
+        flags |= 1;
+        /* link = { source pad, sink pad, reverse link, flags } at pad + 8 */
+        *(char **)(src + 8) = src;
+        *(char **)(src + 12) = dst;
+        *(char **)(src + 16) = T40_PAD_LINK(dst);
+        *(uint32_t *)(src + 20) = flags;
+        T40_PAD_STATE(src) = T40_PAD_STATE_LINKED;
+        *(char **)(dst + 8) = dst;
+        *(char **)(dst + 12) = src;
+        *(char **)(dst + 16) = T40_PAD_LINK(src);
+        *(uint32_t *)(dst + 20) = flags;
+        T40_PAD_STATE(dst) = T40_PAD_STATE_LINKED;
+    }
+    *done = 1;
+    return 0;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012308 origin=fragment_seed original=tx_isp_unlocked_ioctl */
 int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
@@ -60787,11 +60888,11 @@ tx_isp_unlocked_ioctl0x160:
 
     /* fragment 35: Branch */
     v0 = (uintptr_t *)((uintptr_t)v0 + 21528);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
-    /* T40-IOCTL-LINK-SETUP (#145): request 0x80085409 (OEM 0x12330, copy 8 bytes, walk the link table).  With the
-     * compare constants fixed this lifted handler became reachable; it walks a table whose base the lifter bound to
-     * the wrong symbol (&__param_str_isp_dual_buf + 4680, a string) and oopses (BadVA 646f4d91).  Until it is
-     * re-translated from the OEM, keep the previous behaviour (return 0): the link set-up is done by the boot code. */
-    if (a0 != 0) { s0 = 0; goto tx_isp_unlocked_ioctl0x834; }
+    /* request 0x80085409 (OEM 0x119e0 bnez a0 -> 0x12330): link setup, re-translated (#145) */
+    if (a0 != 0) {
+        s0 = (uintptr_t *)(long)t40_ioctl_link_setup((char *)s2, (unsigned long)s1);
+        goto tx_isp_unlocked_ioctl0x834;
+    }
 
     /* fragment 36: Branch */
     v1 = (uintptr_t *)((uintptr_t)v1 + 21519);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
@@ -61548,228 +61649,7 @@ tx_isp_unlocked_ioctl0xa9c:
     s0 = v0;
     goto tx_isp_unlocked_ioctl0x834;
 
-tx_isp_unlocked_ioctl0xab8:
-    /* fragment 225: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_20, s1, 8); /* jalr target resolved by relocation */
-
-    /* fragment 226: Branch */
-    v1 = (*__p_24);
-    if (v0 == 0) { goto tx_isp_unlocked_ioctl0xb10; }
-
-    /* fragment 227: CallSetup */
-    (*__p_14) = 288;
-    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 288); /* jalr target resolved by relocation */
-
-    /* fragment 228: Branch */
-    s0 = -14;
-    goto tx_isp_unlocked_ioctl0x834;
-
-tx_isp_unlocked_ioctl0xb10:
-    /* fragment 229: Arithmetic */
-    v0 = v1 < 3;
-
-    /* fragment 230: Branch */
-    int _bc_v0_230 = v0 != 0;
-    v0 = (uintptr_t)v1 << 2;
-    if (_bc_v0_230) { goto tx_isp_unlocked_ioctl0xb58; }
-
-    /* fragment 231: CallSetup */
-    (*__p_14) = 294;
-    (*__p_18) = v1;
-    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC11, &__param_str_isp_dual_buf, 294); /* jalr target resolved by relocation */
-
-    /* fragment 232: Branch */
-    s0 = -22;
-    goto tx_isp_unlocked_ioctl0x834;
-
-tx_isp_unlocked_ioctl0xb58:
-    /* fragment 233: Arithmetic */
-    s2 = (uintptr_t)s2 + (uintptr_t)v0;
-
-    /* fragment 234: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s2 + 280);
-
-    /* fragment 235: Branch */
-    s0 = 0;
-    if (v0 != 0) { goto tx_isp_unlocked_ioctl0x834; }
-
-    /* fragment 236: Arithmetic */
-    v0 = (uintptr_t *)&__param_str_isp_dual_buf;
-    v1 = (uintptr_t)v1 << 3;
-    v0 = v0 + 4680;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-
-    /* fragment 237: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v0 + 4);
-    s1 = *(uint32_t *)((char *)v0 + 0);
-    s4 = 65536;
-    s5 = 65536;
-    (*__p_80) = v1;
-    s6 = 0;
-    s4 = s4 + 4156;
-    s7 = 4;
-    s5 = s5 + 6496;
-
-tx_isp_unlocked_ioctl0xb9c:
-    /* fragment 238: StackAccess */
-    v0 = (*__p_80);
-    v0 = s6 < v0;
-
-    /* fragment 239: Branch */
-    a1 = s1;
-    if (v0 != 0) { goto tx_isp_unlocked_ioctl0xbbc; }
-
-    /* fragment 240: Arithmetic */
-    v0 = 1;
-
-    /* fragment 241: MemoryAccess */
-    *(uint32_t *)((char *)s2 + 280) = v0;
-
-    /* fragment 242: Branch */
-    s0 = 0;
-    goto tx_isp_unlocked_ioctl0x834;
-
-tx_isp_unlocked_ioctl0xbbc:
-    /* fragment 243: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)find_subdev_link_pad)(s3); /* jalr target resolved by relocation */
-
-    /* fragment 244: CallSetup */
-    s8 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)find_subdev_link_pad)(s3, s1 + 8); /* jalr target resolved by relocation */
-
-    /* fragment 245: Branch */
-    t0 = v0;
-    if (s8 == 0) { goto tx_isp_unlocked_ioctl0xcf0; }
-
-    /* fragment 246: Branch */
-    if (v0 == 0) { goto tx_isp_unlocked_ioctl0xcf0; }
-
-    /* fragment 247: MemoryAccess */
-    v0 = *(uint8_t *)((char *)s8 + 6);
-    a0 = *(uint8_t *)((char *)t0 + 6);
-    a2 = *(uint32_t *)((char *)s1 + 16);
-    v0 = (uintptr_t)v0 & a0;
-    v0 = (uintptr_t)v0 & a2;
-
-    /* fragment 248: Branch */
-    int _bc_v0_248 = v0 != 0;
-    v0 = 234;
-    if (_bc_v0_248) { goto tx_isp_unlocked_ioctl0xc34; }
-
-    /* fragment 249: CallSetup */
-    (*__p_14) = v0;
-    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC12, &__param_str_isp_dual_buf, 234); /* jalr target resolved by relocation */
-
-    /* fragment 250: Branch */
-    s0 = -1;
-    goto tx_isp_unlocked_ioctl0x834;
-
-tx_isp_unlocked_ioctl0xc34:
-    /* fragment 251: MemoryAccess */
-    v0 = *(uint8_t *)((char *)s8 + 7);
-
-    /* fragment 252: Branch */
-    if (v0 == s7) { goto tx_isp_unlocked_ioctl0xc4c; }
-
-    /* fragment 253: MemoryAccess */
-    a0 = *(uint8_t *)((char *)t0 + 7);
-
-    /* fragment 254: Branch */
-    if (a0 != s7) { goto tx_isp_unlocked_ioctl0xc84; }
-
-tx_isp_unlocked_ioctl0xc4c:
-    /* fragment 255: CallSetup */
-    (*__p_14) = 240;
-    (*__p_10) = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC13, &__param_str_isp_dual_buf, 240); /* jalr target resolved by relocation */
-
-    /* fragment 256: Branch */
-    s0 = -1;
-    goto tx_isp_unlocked_ioctl0x834;
-
-tx_isp_unlocked_ioctl0xc84:
-    /* fragment 257: Arithmetic */
-    a0 = 3;
-
-    /* fragment 258: Branch */
-    if (v0 == a0) { goto tx_isp_unlocked_ioctl0xcfc; }
-
-tx_isp_unlocked_ioctl0xc90:
-    /* fragment 259: MemoryAccess */
-    a0 = *(uint8_t *)((char *)t0 + 7);
-    v0 = 3;
-
-    /* fragment 260: Branch */
-    a3 = t0 + 8;
-    if (a0 != v0) { goto tx_isp_unlocked_ioctl0xcbc; }
-
-    /* fragment 261: MemoryAccess */
-    v0 = *(uint32_t *)((char *)t0 + 12);
-
-    /* fragment 262: Branch */
-    if (s8 == v0) { goto tx_isp_unlocked_ioctl0xcbc; }
-
-    /* fragment 263: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)subdev_video_destroy_link)(a3); /* jalr target resolved by relocation */
-
-    /* fragment 264: Branch */
-    s0 = v0;
-    if (v0 != 0) { goto tx_isp_unlocked_ioctl0xd18; }
-
-tx_isp_unlocked_ioctl0xcbc:
-    /* fragment 265: Arithmetic */
-    a2 = a2 | 1;
-    v0 = 3;
-    v1 = s8 + 8;
-
-    /* fragment 266: MemoryAccess */
-    *(uint32_t *)((char *)s8 + 8) = s8;
-    *(uint32_t *)((char *)s8 + 12) = t0;
-    *(uint32_t *)((char *)s8 + 16) = a3;
-    *(uint32_t *)((char *)s8 + 20) = a2;
-    *(uint8_t *)((char *)s8 + 7) = v0;
-    *(uint32_t *)((char *)t0 + 8) = t0;
-    *(uint32_t *)((char *)t0 + 12) = s8;
-    *(uint32_t *)((char *)t0 + 16) = v1;
-    *(uint32_t *)((char *)t0 + 20) = a2;
-    *(uint8_t *)((char *)t0 + 7) = v0;
-
-tx_isp_unlocked_ioctl0xcf0:
-    /* fragment 267: Arithmetic */
-    s6 = s6 + 1;
-
-tx_isp_unlocked_ioctl0xcf4:
-    /* fragment 268: Branch */
-    s1 = s1 + 20;
-    goto tx_isp_unlocked_ioctl0xb9c;
-
-tx_isp_unlocked_ioctl0xcfc:
-    /* fragment 269: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s8 + 12);
-
-    /* fragment 270: Branch */
-    if (t0 == v0) { goto tx_isp_unlocked_ioctl0xc90; }
-
-    /* fragment 271: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)subdev_video_destroy_link)(s8 + 8); /* jalr target resolved by relocation */
-
-    /* fragment 272: Branch */
-    s0 = v0;
-    if (v0 == 0) { goto tx_isp_unlocked_ioctl0xc90; }
-
-tx_isp_unlocked_ioctl0xd18:
-    /* fragment 273: Arithmetic */
-    v0 = -515;
-
-    /* fragment 274: Branch */
-    s6 = s6 + 1;
-    if (s0 == v0) { goto tx_isp_unlocked_ioctl0xcf4; }
-
-    /* fragment 275: Branch */
-    goto tx_isp_unlocked_ioctl0x838;
+    /* OEM 0x12330..0x125a0 (link setup, 0x80085409) is t40_ioctl_link_setup() above (#145). */
 
 tx_isp_unlocked_ioctl0xd2c:
     /* fragment 276: CallSetup */
