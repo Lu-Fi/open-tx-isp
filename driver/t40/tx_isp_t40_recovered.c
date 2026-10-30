@@ -162977,10 +162977,10 @@ tisp_g_ae_scence_attr0xa4:
 
     /* fragment 14: CallSetup */
     *(uint32_t *)((char *)s0 + 32) = local_11;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_g_scene_luma)(s2, s0 + 36); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_g_scene_luma)(s2, (uintptr_t)s0 + 36); /* #agg51: byte offset (OEM 0x73c10 addiu a1,s0,36); x4 = +144 overran the 52-byte attribute */ /* jalr target resolved by relocation */
 
     /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_get_state)(s2, s0 + 40, s0 + 44, s0 + 48); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_ae_get_state)(s2, (uintptr_t)s0 + 40, (uintptr_t)s0 + 44, (uintptr_t)s0 + 48); /* #agg51: byte offsets (OEM 0x73c30..), x4 wrote +160..+192 */ /* jalr target resolved by relocation */
 
     /* fragment 16: Epilogue */
     /* function epilogue: restore registers and return */
