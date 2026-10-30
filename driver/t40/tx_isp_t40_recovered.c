@@ -58929,134 +58929,21 @@ subdev_video_destroy_link0x54:
     return 0;
 }
 
+static int32_t t40_video_link_destroy(uintptr_t graph, uint32_t config);
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000119bc origin=fragment_seed original=tx_isp_video_link_destroy.isra.5 */
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t tx_isp_video_link_destroy_isra_5(uintptr_t a0, uint32_t a1) __asm__("tx_isp_video_link_destroy.isra.5");
 #endif
 int32_t tx_isp_video_link_destroy_isra_5(uintptr_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s1 = a1 << 2;
-
-    /* fragment 2: StackAccess */
-    local_34 = ra;
-    local_30 = s8;
-    local_2c = s7;
-    local_28 = s6;
-    local_24 = s5;
-    local_20 = s4;
-    local_1c = s3;
-    local_18 = s2;
-    local_10 = s0;
-    s1 = a0 + (uintptr_t)s1;
-    v1 = *(uint32_t *)((char *)s1 + 292);
-
-    /* fragment 3: Branch */
-    v0 = 0;
-    if (v1 <= 0) { goto tx_isp_video_link_destroy_isra_50xe0; }
-
-    /* fragment 4: Arithmetic */
-    v0 = (uintptr_t *)&__param_str_isp_dual_buf;
-    v1 = a1 << 3;
-    a1 = v0 + 4680;
-    a1 = a1 + (uintptr_t)v1;
-
-    /* fragment 5: MemoryAccess */
-    s6 = *(uint32_t *)((char *)a1 + 4);
-    s2 = *(uint32_t *)((char *)a1 + 0);
-    s3 = 65536;
-    s4 = 65536;
-    s0 = a0;
-    s5 = 0;
-    s3 = s3 + 4156;
-    s4 = s4 + 6496;
-    s7 = -515;
-
-tx_isp_video_link_destroy_isra_50x74:
-    /* fragment 6: Arithmetic */
-    v0 = s5 < s6;
-
-    /* fragment 7: Branch */
-    a1 = s2;
-    if (v0 != 0) { goto tx_isp_video_link_destroy_isra_50x8c; }
-
-    /* fragment 8: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 292) = 0;
-
-    /* fragment 9: Branch */
-    v0 = 0;
-    goto tx_isp_video_link_destroy_isra_50xe0;
-
-tx_isp_video_link_destroy_isra_50x8c:
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)find_subdev_link_pad)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 11: CallSetup */
-    s8 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)find_subdev_link_pad)(s0, s2 + 8); /* jalr target resolved by relocation */
-
-    /* fragment 12: Branch */
-    a2 = v0;
-    if (s8 != 0) { goto tx_isp_video_link_destroy_isra_50xb8; }
-
-tx_isp_video_link_destroy_isra_50xac:
-    /* fragment 13: Arithmetic */
-    s5 = s5 + 1;
-
-tx_isp_video_link_destroy_isra_50xb0:
-    /* fragment 14: Branch */
-    s2 = s2 + 20;
-    goto tx_isp_video_link_destroy_isra_50x74;
-
-tx_isp_video_link_destroy_isra_50xb8:
-    /* fragment 15: Branch */
-    if (v0 == 0) { goto tx_isp_video_link_destroy_isra_50xac; }
-
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)subdev_video_destroy_link)(s8 + 8); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)subdev_video_destroy_link)(a2 + 8); /* jalr target resolved by relocation */
-
-    /* fragment 18: Branch */
-    if (v0 == 0) { goto tx_isp_video_link_destroy_isra_50xac; }
-
-    /* fragment 19: Branch */
-    s5 = s5 + 1;
-    if (v0 == s7) { goto tx_isp_video_link_destroy_isra_50xb0; }
-
-tx_isp_video_link_destroy_isra_50xe0:
-    /* fragment 20: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    /*
+     * Re-translated from OEM tx-isp-t40.ko tx_isp_video_link_destroy.isra.5 (0x10f2c..0x11038)
+     * for agg50: the ioctl 0x8008540a (STOP_SENSOR, IMP_ISP_DisableSensor) case became reachable
+     * with the byte-exact dispatch (#145) and the lifted body oopsed (it took the link table from
+     * &__param_str_isp_dual_buf + 4680 scaled x4 and dropped the pad argument of the first
+     * find_subdev_link_pad call).  The body is in t40_video_link_destroy() below the link tables.
+     */
+    return t40_video_link_destroy(a0, a1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000011acc origin=fragment_seed original=tx_isp_release */
@@ -59825,6 +59712,42 @@ static const struct {
 #define T40_PAD_REMOTE(pad)      (*(char **)((pad) + 12))
 #define T40_PAD_STATE_LINKED     3
 #define T40_PAD_STATE_BUSY       4
+
+/*
+ * OEM tx_isp_video_link_destroy.isra.5 (0x10f2c): graph = priv - 12, done flag at graph+0x124+4*config
+ * (= priv+0x118, the flag t40_ioctl_link_setup sets).  If the config is linked: for every entry whose
+ * two pads resolve, destroy the link of the source pad (result ignored, OEM 0x10fec) and of the sink
+ * pad; 0 or -ENOIOCTLCMD (-515) continue, any other error is returned with the flag still set.  At the
+ * end the flag is cleared.  Bound check of config added (OEM indexes unchecked; the value is the
+ * second word of the user argument).
+ */
+static int32_t t40_video_link_destroy(uintptr_t graph, uint32_t config)
+{
+    uint32_t *done;
+    const unsigned char *e;
+    int i;
+
+    if (config >= ARRAY_SIZE(t40_link_configs))
+        return -EINVAL;
+    done = (uint32_t *)(graph + 0x124 + 4 * config);
+    if ((int32_t)*done <= 0)
+        return 0;
+    e = t40_link_configs[config].links;
+    for (i = 0; i < t40_link_configs[config].count; i++, e += 20) {
+        char *src = (char *)(uintptr_t)find_subdev_link_pad(graph, (uintptr_t)e);
+        char *dst = (char *)(uintptr_t)find_subdev_link_pad(graph, (uintptr_t)(e + 8));
+        int32_t ret;
+
+        if (!src || !dst)
+            continue;
+        subdev_video_destroy_link((uintptr_t)T40_PAD_LINK(src));
+        ret = subdev_video_destroy_link((uintptr_t)T40_PAD_LINK(dst));
+        if (ret && ret != -ENOIOCTLCMD)
+            return ret;
+    }
+    *done = 0;
+    return 0;
+}
 
 static long t40_ioctl_link_setup(char *priv, unsigned long arg)
 {
