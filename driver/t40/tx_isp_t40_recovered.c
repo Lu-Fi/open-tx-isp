@@ -163382,6 +163382,14 @@ int32_t tisp_s_osd_attr(int32_t chn, void *attr)
             }
             if (img == NULL)
                 continue;
+            if (left >= full_w || top >= full_h) {
+                /* M2 (review-week-1030): the clip below (full_w - left) wraps the u16 width/height to ~65k
+                 * when the origin lies outside the frame (OEM edge case); reject like the single-pic
+                 * overflow check does */
+                isp_printf(1, "[[ %s:%d ]] ISP: osd(ch:%d, pic:%d) origin %u,%u outside %ux%u\n",
+                           "tisp_s_osd_attr", __LINE__, ch, p, left, top, full_w, full_h);
+                return -1;
+            }
             *(uint8_t *)(ent + 14) = 1;
             *(uint16_t *)(ent + 0) = left;
             *(uint16_t *)(ent + 2) = top;
@@ -163394,11 +163402,13 @@ int32_t tisp_s_osd_attr(int32_t chn, void *attr)
             if (type == 1) {
                 unsigned int size = height * *(const uint16_t *)(pa + 20);
 
+                if (size == 0)          /* M2: kmalloc(0) = ZERO_SIZE_PTR would be stored as the image */
+                    return -1;
                 t40_osd_img_release(chn, ch, p, ent);
                 buf = private_kmalloc(size, GFP_KERNEL);
                 if (buf == NULL) {
                     isp_printf(2, "[%s %d] [[ %s:%d ]]: Failed to alloc %lld KB buffer!\n", "tisp_s_osd_attr", 952,
-                               (long long)(size >> 10));
+                               "tisp_s_osd_attr", 952, (long long)(size >> 10));
                     *(uint32_t *)(ent + 8) = 0;
                     return -1;
                 }
@@ -163426,11 +163436,15 @@ int32_t tisp_s_osd_attr(int32_t chn, void *attr)
                 }
                 fsize = i_size_read(file_inode(f));
                 size = (unsigned int)fsize;   /* OEM: low word of i_size */
+                if (size == 0) {        /* M2: empty file -> kmalloc(0) */
+                    private_filp_close(f, NULL);
+                    return -1;
+                }
                 t40_osd_img_release(chn, ch, p, ent);
                 buf = private_kmalloc(size, GFP_KERNEL);
                 if (buf == NULL) {
                     isp_printf(2, "[%s %d] [[ %s:%d ]]: Failed to alloc %lld KB buffer!\n", "tisp_s_osd_attr", 936,
-                               (long long)(fsize >> 10));
+                               "tisp_s_osd_attr", 936, (long long)(fsize >> 10));
                     private_filp_close(f, NULL);
                     *(uint32_t *)(ent + 8) = 0;
                     return -1;
