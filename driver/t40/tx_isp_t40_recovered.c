@@ -58747,10 +58747,14 @@ int32_t tx_isp_video_link_stream(uintptr_t a0, uint32_t a1)
 
     /* fragment 1: CallSetup */
     s2 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
+    { /* #agg51: OEM 0x10d54..0x10d80 copy_from_user(sp+24, a1, 8); the lift passed only the destination
+       * (the callee took a stale a1/a2 as source/length) and local_18 is 4 bytes. */
+      uint32_t __ls_en[2] = { 0, 0 };
+      v0 = (uintptr_t *)(uintptr_t)private_copy_from_user((int32_t)(uintptr_t)__ls_en, (int32_t)a1, 8);
+      local_18 = (uint32_t *)(uintptr_t)__ls_en[0]; }
 
     /* fragment 2: Branch */
-    s3 = s2 + 60;
+    s3 = (uintptr_t *)((uintptr_t)s2 + 60);  /* #agg51: byte add (OEM 0x10d88 addiu s3,s2,60) */
     if (v0 != 0) { goto tx_isp_video_link_stream0x6c; }
 
     /* fragment 3: Arithmetic */
@@ -58767,10 +58771,10 @@ tx_isp_video_link_stream0x4c:
 
 tx_isp_video_link_stream0x58:
     /* fragment 6: Arithmetic */
-    s0 = s0 + 1;
+    s0 = (uintptr_t *)((uintptr_t)s0 + 1);   /* #agg51: loop index (OEM 0x10da4 addiu s0,s0,1), not a typed-pointer step */
 
     /* fragment 7: Branch */
-    s3 = s3 + 4;
+    s3 = (uintptr_t *)((uintptr_t)s3 + 4);   /* #agg51: byte add (OEM 0x10dac) */
     if (s0 != s5) { goto tx_isp_video_link_stream0x4c; }
 
     /* fragment 8: Branch */
@@ -58789,7 +58793,7 @@ tx_isp_video_link_stream0x6c:
 tx_isp_video_link_stream0xa0:
     /* fragment 11: Epilogue */
     /* function epilogue: restore registers and return */
-    return (int32_t)v0;
+    return (int32_t)(uintptr_t)s1;  /* #agg51: OEM 0x10df0 move v0,s1 (0 or -14), not the stale v0 */
 
 tx_isp_video_link_stream0xa4:
     /* fragment 12: Arithmetic */
@@ -58861,7 +58865,7 @@ tx_isp_video_link_stream0x10c:
 
 tx_isp_video_link_stream0x144:
     /* fragment 31: Branch */
-    s0 = s0 - 4;
+    s0 = (uintptr_t *)((uintptr_t)s0 - 4);   /* #agg51: byte step back (OEM 0x10e94) */
     goto tx_isp_video_link_stream0x10c;
 
     return 0;
