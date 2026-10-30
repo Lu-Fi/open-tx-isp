@@ -24870,8 +24870,11 @@ static int regtrace_t40_refresh_daynight_pipeline(void)
         REGTRACE_T40_DN_STEP(tisp_ysp_main_init());
         regtrace_t40_ysp_top_bit(subret);
     }
-    if (regtrace_enable_sdns)
+    if (regtrace_enable_sdns) {
         REGTRACE_T40_DN_STEP(t40_sdns_init());
+        /* OEM tisp_sdns_dn_params_refresh re-applies the module ratio after the bank copy */
+        (void)tisp_s_sdns_ratio(0);
+    }
     if (regtrace_enable_cdns) {
         REGTRACE_T40_DN_STEP(t40_cdns_init(0));
         regtrace_t40_cdns_top_bit(subret);
@@ -107319,129 +107322,35 @@ int32_t tisp_dpc_intp_reg_refresh(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000044014 origin=fragment_seed original=tisp_dpc_par_refresh */
 int32_t tisp_dpc_par_refresh(uint32_t a0, uint32_t a1, uint32_t a2)
 {
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t t0 = 0;
-    uint32_t *t1 = 0;
-    uintptr_t *t2 = 0;
-    uint32_t *t3 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v1 = (int32_t *)&sclk_name;
-    t1 = a0 << 2;
-    v1 = v1 - 16428;
-    t2 = (uintptr_t)t1 + (uintptr_t)v1;
-
-    /* fragment 1: MemoryAccess */
-    a3 = *(uint32_t *)((char *)t2 + 0);
-    t3 = -1;
-    t0 = a0;
-
-    /* fragment 2: Branch */
-    v0 = a1;
-    if (a3 != t3) { goto tisp_dpc_par_refresh0x38; }
-
-    /* fragment 3: Arithmetic */
-    t9 = (uintptr_t)&tisp_dpc_all_reg_refresh;
-
-    /* fragment 4: MemoryAccess */
-    *(uint32_t *)((char *)t2 + 0) = a1;
-    t9 = t9;
-
-tisp_dpc_par_refresh0x30:
-    /* fragment 5: Unknown */
-    /* unmatched fragment 5 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 44044:	03200408 	jr.hb	t9 */
-
-    /* fragment 6: Unknown */
-    /* unmatched fragment 6 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 44048:	00000000 	nop */
-
-tisp_dpc_par_refresh0x38:
-    /* fragment 7: Arithmetic */
-    a1 = a1 < a3;
-
-    /* fragment 8: Branch */
-    a0 = (uintptr_t)a3 - (uintptr_t)v0;
-    if (a1 != 0) { goto tisp_dpc_par_refresh0x48; }
-
-    /* fragment 9: Arithmetic */
-    a0 = (uintptr_t)v0 - (uintptr_t)a3;
-
-tisp_dpc_par_refresh0x48:
-    /* fragment 10: Arithmetic */
-    a0 = a0 < a2;
-
-    /* fragment 11: Branch */
-    v1 = (uintptr_t)v1 + (uintptr_t)t1;
-    if (a0 != 0) { goto tisp_dpc_par_refresh0x6c; }
-
-    /* fragment 12: Arithmetic */
-    t9 = (uintptr_t)&tisp_dpc_intp_reg_refresh;
-
-    /* fragment 13: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 0) = v0;
-    a1 = v0;
-    a0 = t0;
-
-    /* fragment 14: Branch */
-    t9 = (uintptr_t)&tisp_dpc_intp_reg_refresh;
-    goto tisp_dpc_par_refresh0x30;
-
-tisp_dpc_par_refresh0x6c:
-    /* fragment 15: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 16: Unknown */
-    /* unmatched fragment 16 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 44084:	00000000 	nop */
-
+    /*
+     * T40-C1-REFRESH: hand translation of OEM tisp_dpc_par_refresh (Eufy 0x43584).  OEM: slot =
+     * dpc_gain_old[vinum] (.data+0x2bfb4); slot == -1 -> slot = gain, tail call
+     * tisp_dpc_all_reg_refresh; |gain - slot| < thres -> return; else slot = gain, tail call
+     * tisp_dpc_intp_reg_refresh.  The lift dropped both jr.hb tail calls and read the slot through
+     * the wrong anchor (&sclk_name - 16428 words): the compiled body was an endless store loop
+     * ("b .-4; sw a1,0(v0)") once the slot differed from the gain by >= thres.  The main channel
+     * is the DPC C chain (t40_dpc_gain_step = the same compare on t40_dpc.gain_old plus the two
+     * packs); the second-sensor DPC unit (0x7100) is not driven on this driver.
+     */
+    if (a0 >= 2)
+        return -EINVAL;
+    if (a0 == 0 && regtrace_t40_dpc_active)
+        t40_dpc_gain_step(&t40_dpc, a1, a2);
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000044088 origin=fragment_seed original=tisp_dpc_refresh */
 int32_t tisp_dpc_refresh(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t *)(uintptr_t)tisp_dpc_par_refresh(a0, a1, 256); /* OEM 0x435f8: a2 = .data+0x2bfb0 (DPC gain threshold, 256 from .data init and dpc_remove); a1 = caller gain */
-
-    /* fragment 1: Arithmetic */
-    v1 = (int32_t *)&sclk_name;
-    v0 = (uintptr_t)s0 << 2;
-    v1 = v1 - 16428;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: MemoryAccess */
-    a1 = *(uint32_t *)((char *)v0 + 0);
-    a0 = s0;
-    s0 = local_10;
-    t9 = (uintptr_t)&tisp_dpc_all_reg_refresh;
-    t9 = t9;
-
-    /* fragment 4: Unknown */
-    /* unmatched fragment 4 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 440d4:	03200408 	jr.hb	t9 */
-
-    /* fragment 5: Arithmetic */
-    /* unmatched fragment 5 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 440d8:	27bd0018 	addiu	sp,sp,24 */
-
+    /*
+     * T40-C1-REFRESH: OEM tisp_dpc_refresh (Eufy 0x435f8): tisp_dpc_par_refresh(vinum, gain,
+     * dpc_gain_thres) then tisp_dpc_all_reg_refresh(vinum, dpc_gain_old[vinum]) =
+     * t40_dpc_gain_refresh on the main channel.
+     */
+    if (a0 >= 2)
+        return -EINVAL;
+    if (a0 == 0 && regtrace_t40_dpc_active)
+        t40_dpc_gain_refresh(&t40_dpc, a1);
     return 0;
 }
 
@@ -145896,134 +145805,51 @@ int32_t tisp_sdns_intp_reg_refresh(uint32_t a0, uint32_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006394c origin=fragment_seed original=tisp_sdns_par_refresh */
+static uint32_t t40_sdns_gain_old1 = 0xffffffffU;	/* OEM sdns_gain_old[1] */
 int32_t tisp_sdns_par_refresh(uint32_t a0, uint32_t a1, uint32_t a2)
 {
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t t0 = 0;
-    uint32_t *t1 = 0;
-    uintptr_t *t2 = 0;
-    uint32_t *t3 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v1 = (int32_t *)&sclk_name;
-    t1 = a0 << 2;
-    v1 = v1 - 14080;
-    t2 = (uintptr_t)t1 + (uintptr_t)v1;
-
-    /* fragment 1: MemoryAccess */
-    a3 = *(uint32_t *)((char *)t2 + 0);
-    t3 = -1;
-    t0 = a0;
-
-    /* fragment 2: Branch */
-    v0 = a1;
-    if (a3 != t3) { goto tisp_sdns_par_refresh0x38; }
-
-    /* fragment 3: Arithmetic */
-    t9 = (uintptr_t)&tisp_sdns_all_reg_refresh;
-
-    /* fragment 4: MemoryAccess */
-    *(uint32_t *)((char *)t2 + 0) = a1;
-    t9 = t9;
-
-tisp_sdns_par_refresh0x30:
-    /* fragment 5: Unknown */
-    /* unmatched fragment 5 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6397c:	03200408 	jr.hb	t9 */
-
-    /* fragment 6: Unknown */
-    /* unmatched fragment 6 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 63980:	00000000 	nop */
-
-tisp_sdns_par_refresh0x38:
-    /* fragment 7: Arithmetic */
-    a1 = a1 < a3;
-
-    /* fragment 8: Branch */
-    a0 = (uintptr_t)a3 - (uintptr_t)v0;
-    if (a1 != 0) { goto tisp_sdns_par_refresh0x48; }
-
-    /* fragment 9: Arithmetic */
-    a0 = (uintptr_t)v0 - (uintptr_t)a3;
-
-tisp_sdns_par_refresh0x48:
-    /* fragment 10: Arithmetic */
-    a0 = a0 < a2;
-
-    /* fragment 11: Branch */
-    v1 = (uintptr_t)v1 + (uintptr_t)t1;
-    if (a0 != 0) { goto tisp_sdns_par_refresh0x6c; }
-
-    /* fragment 12: Arithmetic */
-    t9 = (uintptr_t)&tisp_sdns_intp_reg_refresh;
-
-    /* fragment 13: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 0) = v0;
-    a1 = v0;
-    a0 = t0;
-
-    /* fragment 14: Branch */
-    t9 = (uintptr_t)&tisp_sdns_intp_reg_refresh;
-    goto tisp_sdns_par_refresh0x30;
-
-tisp_sdns_par_refresh0x6c:
-    /* fragment 15: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 16: Unknown */
-    /* unmatched fragment 16 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 639bc:	00000000 	nop */
-
+    /*
+     * T40-C1-REFRESH: hand translation of OEM tisp_sdns_par_refresh (Eufy 0x62ebc).  OEM: slot =
+     * sdns_gain_old[vinum] (.data+0x2c8e0); slot == -1 -> slot = gain, tail call
+     * tisp_sdns_all_reg_refresh; |gain - slot| < thres -> return; else slot = gain, tail call
+     * tisp_sdns_intp_reg_refresh.  The lift dropped both jr.hb tail calls and read the slot through
+     * the wrong anchor (&sclk_name - 14080 words = t40_ae_fhist[157] in the 9542bf12 layout): the
+     * compiled body was an endless store loop ("b .-4; sw a1,0(v0)") unless that word was -1 or
+     * >= 0xffffff00 (review-week-1030 C1).  The main channel is the SDNS C chain
+     * (t40_sdns_refresh = the same compare on t40_sdns.ev_old plus the two packs); the second
+     * channel only keeps its slot (no second SDNS unit is driven on this driver).
+     */
+    if (a0 >= 2)
+        return -EINVAL;
+    if (a0 == 0) {
+        t40_sdns_refresh(a1, a2);
+        return 0;
+    }
+    if (t40_sdns_gain_old1 == 0xffffffffU ||
+        (a1 > t40_sdns_gain_old1 ? a1 - t40_sdns_gain_old1 : t40_sdns_gain_old1 - a1) >= a2)
+        t40_sdns_gain_old1 = a1;
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000639c0 origin=fragment_seed original=tisp_sdns_refresh */
 int32_t tisp_sdns_refresh(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    /*
+     * T40-C1-REFRESH: OEM tisp_sdns_refresh (Eufy 0x62f30): tisp_sdns_par_refresh(vinum, gain, 256)
+     * then tisp_sdns_all_reg_refresh(vinum, sdns_gain_old[vinum]) = full repack at the remembered
+     * gain (C chain).  A remembered gain of -1 (nothing packed since t40_sdns_init) packs at EV 1.0
+     * like the OEM main_init does.
+     */
+    struct t40_sdns_state *s = &t40_sdns;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t *)(uintptr_t)tisp_sdns_par_refresh(a0, a1, 256); /* OEM 0x62f44: li a2,256; a1 = caller gain */
-
-    /* fragment 2: Arithmetic */
-    v1 = (int32_t *)&sclk_name;
-    v0 = (uintptr_t)s0 << 2;
-    v1 = v1 - 14080;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 4: MemoryAccess */
-    a1 = *(uint32_t *)((char *)v0 + 0);
-    a0 = s0;
-    s0 = local_10;
-    t9 = (uintptr_t)&tisp_sdns_all_reg_refresh;
-    t9 = t9;
-
-    /* fragment 5: Unknown */
-    /* unmatched fragment 5 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 63a08:	03200408 	jr.hb	t9 */
-
-    /* fragment 6: Arithmetic */
-    /* unmatched fragment 6 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 63a0c:	27bd0018 	addiu	sp,sp,24 */
-
+    if (a0 >= 2)
+        return -EINVAL;
+    (void)tisp_sdns_par_refresh(a0, a1, 256);
+    if (a0 == 0 && t40_sdns_live(s)) {
+        if (s->ev_old == 0xffffffffU)
+            s->ev_old = 0x10000U;
+        t40_sdns_pack(s, s->ev_old, true);
+    }
     return 0;
 }
 
@@ -146427,8 +146253,11 @@ int64_t tisp_s_sdns_ratio(uint32_t a0)
      * (bank + last + i) are scaled into the comb tables (*(comb + 56 + 4j))[i] / (*(comb + 340))[i]:
      * ratio <= 128: x = (x * ratio) >> 7; ratio > 128: x += ((ratio - 128) * (lim - x)) >> 7 for
      * x < lim (lim 16, 200 for the 17th).  bank = tparamsN[vinum]; base/last 0x17bf5/0x17f20
-     * linear, 0x18190/0x1849a WDR.  Then tisp_sdns_refresh(vinum, gain_old).  The lift kept the
-     * loop index as a pointer (Oops tisp_s_sdns_ratio+0x20c on SetModule_Ratio, proof p7). */
+     * linear, 0x18190/0x1849a WDR.  Then tisp_sdns_refresh(vinum, sdns_gain_old[vinum]).  The lift
+     * kept the loop index as a pointer (Oops tisp_s_sdns_ratio+0x20c on SetModule_Ratio, proof p7).
+     * The comb entries are byte pointers into the SDNS section copy (par + 245, ...): they are
+     * checked with regtrace_is_kernel_ptr_any; the aligned check returned -EAGAIN for every
+     * call, so SetModule_Ratio(sinter) never scaled anything (review-week-1030 C1). */
     const uint8_t *tt = (const uint8_t *)(uintptr_t)tisp_get_tuning();
     const uint8_t *bank = (const uint8_t *)(uintptr_t)tparamsN[a0 ? 1 : 0];
     uint8_t *comb = (uint8_t *)(uintptr_t)(a0 ? sec_sdns_comb : main_sdns_comb);
@@ -146441,9 +146270,9 @@ int64_t tisp_s_sdns_ratio(uint32_t a0)
     if (!regtrace_is_kernel_ptr(bank) || !regtrace_is_kernel_ptr(comb))
         return -EAGAIN;
     for (j = 0; j < 16; j++)
-        if (!regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)(comb + 56 + 4 * j)))
+        if (!regtrace_is_kernel_ptr_any((void *)(uintptr_t)*(uint32_t *)(comb + 56 + 4 * j)))
             return -EAGAIN;
-    if (!regtrace_is_kernel_ptr((void *)(uintptr_t)*(uint32_t *)(comb + 340)))
+    if (!regtrace_is_kernel_ptr_any((void *)(uintptr_t)*(uint32_t *)(comb + 340)))
         return -EAGAIN;
     wdr = t40_sdns_wdr_en[a0] != 0;
     base = wdr ? 0x18190 : 0x17bf5;
@@ -146461,7 +146290,9 @@ int64_t tisp_s_sdns_ratio(uint32_t a0)
         }
     }
 #undef T40_SDNS_SCALE
-    return tisp_sdns_refresh(a0, *(const uint32_t *)(gain_old + 0));
+    /* OEM tail: tisp_sdns_refresh(vinum, sdns_gain_old[vinum]) = repack at the remembered gain.
+     * (The lift passed gain_old[0], an unrelated never-written word = -1.) */
+    return tisp_sdns_refresh(a0, a0 ? t40_sdns_gain_old1 : t40_sdns.ev_old);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000648b8 origin=fragment_seed original=tisp_sdns_dn_params_refresh */
@@ -164977,13 +164808,16 @@ int32_t tisp_s_module_ratio_attr(uint32_t a0, uintptr_t a1)
         *(uint32_t *)(t + 832 + 8 * i) = en;
         t[836 + 8 * i] = en ? r : 128;
         if (i == 0) {
-            tisp_s_sdns_ratio(a0);
-            /* T40-QUALITY3: the setter scales the bank tables, the literal SDNS chain works on
-             * its own copies taken at init: reload them and replay the live gain. */
-            if (a0 == 0 && regtrace_enable_sdns) {
+            /* T40-QUALITY3 / C1: the setter reads the bank tables and writes the scaled values
+             * through the comb field pointers into the SDNS section copy of the C chain, then
+             * repacks at the remembered gain (OEM).  Reload the copy from the bank FIRST (a
+             * ratio back to 128 must restore the originals; reloading afterwards wiped the
+             * scaling), then scale, then let the frame-done step replay the live gain. */
+            if (a0 == 0 && regtrace_enable_sdns)
                 (void)t40_sdns_init();
+            tisp_s_sdns_ratio(a0);
+            if (a0 == 0 && regtrace_enable_sdns)
                 WRITE_ONCE(regtrace_dns_ev_applied, 0xffffffffU);
-            }
         } else if (i == 1 && a0 == 0) {
             /* temper (MDNS) ratio -> literal OEM tisp_s_mdns_ratio on the private MDNS state */
             int mret = regtrace_mdns_ratio_lit();
