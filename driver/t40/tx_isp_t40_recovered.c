@@ -46098,7 +46098,11 @@ tx_isp_mask_s_attr_isra_90x84:
 
     /* fragment 8: Arithmetic */
     a0 = (uintptr_t)s1 << 2;
-    a0 = s0 + a0;
+    /* M1 (review-week-1030): byte offset (OEM addu a0,s0,a0 after sll 2); the uint32_t *s0 lift moved the
+     * +668 counter of vinum 1 by 16 instead of 4 bytes.  The slot table (core + 268) may not exist yet. */
+    if (!regtrace_is_kernel_ptr(s0))
+        return 0;
+    a0 = (uintptr_t)s0 + a0;
 
     /* fragment 9: MemoryAccess */
     v0 = *(uint32_t *)((char *)a0 + 668);
@@ -46184,7 +46188,11 @@ tx_isp_osd_s_attr_isra_100xa4:
 
     /* fragment 9: Arithmetic */
     a0 = (uintptr_t)s1 << 2;
-    a0 = s0 + a0;
+    /* M1 (review-week-1030): byte offset (OEM addu a0,s0,a0 after sll 2); the uint32_t *s0 lift moved the
+     * +656 counter of vinum 1 by 16 instead of 4 bytes.  The slot table (core + 268) may not exist yet. */
+    if (!regtrace_is_kernel_ptr(s0))
+        return 0;
+    a0 = (uintptr_t)s0 + a0;
 
     /* fragment 10: MemoryAccess */
     v0 = *(uint32_t *)((char *)a0 + 656);
@@ -46270,7 +46278,11 @@ tx_isp_draw_s_attr_isra_120xa4:
 
     /* fragment 9: Arithmetic */
     a0 = (uintptr_t)s1 << 2;
-    a0 = s0 + a0;
+    /* M1 (review-week-1030): byte offset (OEM addu a0,s0,a0 after sll 2); the uint32_t *s0 lift moved the
+     * +680 counter of vinum 1 by 16 instead of 4 bytes.  The slot table (core + 268) may not exist yet. */
+    if (!regtrace_is_kernel_ptr(s0))
+        return 0;
+    a0 = (uintptr_t)s0 + a0;
 
     /* fragment 10: MemoryAccess */
     v0 = *(uint32_t *)((char *)a0 + 680);
@@ -48511,7 +48523,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
 
             int v0_56 = tisp_s_osd_single_attr(arg1, &var_88);
 
-            if (v0_56 == 0) {
+            if (v0_56 == 0 && regtrace_is_kernel_ptr(s2_2)) {   /* M1: slot table may not exist yet */
                 *(int *)((uintptr_t)s2_2 + ((int)arg1 + 0xa4) * 4) = 1;
             }
 
