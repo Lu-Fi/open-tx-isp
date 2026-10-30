@@ -41937,7 +41937,7 @@ vic_core_ops_ioctl0x58:
     if (v0 == 0) { goto vic_core_ops_ioctl0x80; }
 
     /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)v0)(a0, (uintptr_t)a1); /* #agg51: OEM 0x5910 jalr v0 (sensor core op), a0 = sd, a1 = arg */
 
     /* fragment 14: Arithmetic */
     v1 = -515;
@@ -41962,7 +41962,7 @@ vic_core_ops_ioctl0x88:
 
 vic_core_ops_ioctl0x90:
     /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_subdev_pipo)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tx_isp_subdev_pipo)(a0, (uintptr_t)a1); /* #agg51: OEM 0x58b0 a1 = arg (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 20: Branch */
     v1 = -515;
@@ -42059,7 +42059,7 @@ vic_core_ops_ioctl0x88:
 
 vic_core_ops_ioctl0x90:
     /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tx_isp_subdev_pipo)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tx_isp_subdev_pipo)(a0, (uintptr_t)a1); /* #agg51: OEM 0x58b0 a1 = arg (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 20: Branch */
     v1 = -515;
