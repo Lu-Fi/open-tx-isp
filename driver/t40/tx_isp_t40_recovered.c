@@ -34297,7 +34297,7 @@ int tx_isp_vic_probe(struct platform_device *pdev)
 
     vsd = private_kmalloc(0x800, GFP_KERNEL);
     if (vsd == NULL) {
-        isp_printf(2, "[%s %d] Failed to allocate vic device\n", "tx_isp_vic_probe");
+        isp_printf(2, "[%s %d] Failed to allocate vic device\n", "tx_isp_vic_probe", __LINE__);
         return -1;
     }
 
@@ -34308,7 +34308,7 @@ int tx_isp_vic_probe(struct platform_device *pdev)
     if (result != 0) {
         var_1c = *(uint8_t *)((char *)s2 + 3);
         var_20 = *(uint8_t *)((char *)s2 + 2);
-        isp_printf(2, "[%s %d] Failed to init isp module(%d.%d)\n", "tx_isp_vic_probe");
+        isp_printf(2, "[%s %d] Failed to init isp module(%d.%d)\n", "tx_isp_vic_probe", __LINE__, 0, 0);
         private_kfree(vsd);
         return -12;
     }
@@ -34360,7 +34360,7 @@ int32_t isp_vic_frd_show(void *arg1)
     }
 
     if (v0 == NULL || (unsigned long)v0 >= 0xfffff001UL || s0_1 == NULL || (unsigned long)s0_1 >= 0xfffff001UL) {
-        isp_printf(2, "[%s %d] The parameter is invalid!\n", "isp_vic_frd_show");
+        isp_printf(2, "[%s %d] The parameter is invalid!\n", "isp_vic_frd_show", __LINE__);
         return 0;
     }
 
@@ -34432,13 +34432,13 @@ int32_t vic_sensor_ops_sync_sensor_attr(void *arg1, int32_t arg2)
     int32_t *result;
 
     if (arg1 == NULL || (uint32_t)arg1 >= 0xfffff001) {
-        isp_printf(2, "[%s %d] The parameter is invalid!\n", "vic_sensor_ops_sync_sensor_attr");
+        isp_printf(2, "[%s %d] The parameter is invalid!\n", "vic_sensor_ops_sync_sensor_attr", __LINE__);
         return 0xffffffea;
     }
 
     s0 = *(void **)((char *)arg1 + 0x10c);
     if (s0 == NULL || (uint32_t)s0 >= 0xfffff001) {
-        isp_printf(2, "[%s %d] The parameter is invalid!\n", "vic_sensor_ops_sync_sensor_attr");
+        isp_printf(2, "[%s %d] The parameter is invalid!\n", "vic_sensor_ops_sync_sensor_attr", __LINE__);
         return 0xffffffea;
     }
 
@@ -37945,8 +37945,8 @@ label_4264:
                    if (s5_2 == v0_15) {
                         var_40_1 = *(int *)((char *)s6 + 0x24);
                         var_44_1 = 0x30f;
-                        isp_printf(2, "[%s %d] [%s,%d] ; vic dma addrrss error, ch:%d !!!\n", "vic_mdma_irq_function0");
-                        return isp_printf(2, "[%s %d] VIC_ADDR_DMA_CONFIGURE(0) : 0x%x\n", "vic_mdma_irq_function0");
+                        isp_printf(2, "[%s %d] [%s,%d] ; vic dma addrrss error, ch:%d !!!\n", "vic_mdma_irq_function0", __LINE__, "vic_mdma_irq_function0", __LINE__, 0);
+                        return isp_printf(2, "[%s %d] VIC_ADDR_DMA_CONFIGURE(0) : 0x%x\n", "vic_mdma_irq_function0", __LINE__, 0);
                     }
                     v0_20 = pop_buffer_fifo(s4_2);
                     v0_20 = pop_buffer_fifo(s4_2);
@@ -37955,7 +37955,7 @@ label_4264:
                         var_40_2 = v0_21;
                         var_44_2 = v0_15;
                         var_48_3 = s5_2;
-                        isp_printf(1, "[%s %d], i=%d ;num = %d;busy_buf_count %d\n", "vic_mdma_irq_function0");
+                        isp_printf(1, "[%s %d], i=%d ;num = %d;busy_buf_count %d\n", "vic_mdma_irq_function0", __LINE__, 0, 0, 0);
                     } else {
                         *(int *)((char *)s7_1 + 0x7c8) = v0_21 - 1;
                         (*(void (*)(void *, int, int *))((char *)s6 + 4))(*(void **)((char *)s6 + 0x14), s0, v0_20);
@@ -42737,7 +42737,7 @@ int32_t subdev_sensor_ops_release_all_sensor(void *arg1)
     
     if (v1 == v0) {
         v0 = 229;
-        isp_printf(2, "[%s %d] [ %s:%d ] the devnode does't have been opened.\n", "subdev_sensor_ops_release_all_sensor");
+        isp_printf(2, "[%s %d] [ %s:%d ] the devnode does't have been opened.\n", "subdev_sensor_ops_release_all_sensor", __LINE__, "subdev_sensor_ops_release_all_sensor", __LINE__);
         return -1;
     }
     
@@ -42781,7 +42781,7 @@ int32_t subdev_sensor_ops_release_all_sensor(void *arg1)
     } while (i == 2);
     
     v0 = 229;
-    isp_printf(2, "[%s %d] [ %s:%d ] the type of sensor SBUS hasn't been defined.\n", "subdev_sensor_ops_release_all_sensor");
+    isp_printf(2, "[%s %d] [ %s:%d ] the type of sensor SBUS hasn't been defined.\n", "subdev_sensor_ops_release_all_sensor", __LINE__, "subdev_sensor_ops_release_all_sensor", __LINE__);
     return -22;
 }
 
@@ -44112,7 +44112,7 @@ int tx_isp_csi_probe(struct platform_device *pdev)
 
     csi_dev = private_kmalloc(0x288, GFP_KERNEL);
     if (csi_dev == NULL) {
-        isp_printf(2, "[%s %d] Failed to allocate csi device\n", "tx_isp_csi_probe");
+        isp_printf(2, "[%s %d] Failed to allocate csi device\n", "tx_isp_csi_probe", __LINE__);
         return 0xfffffff4;
     }
 
@@ -44149,7 +44149,7 @@ int tx_isp_csi_probe(struct platform_device *pdev)
             dump_csd = csi_dev;
             result = 0;
         } else {
-            isp_printf(2, "[%s %d] %s[%d] Not enough memory for resources\n", "tx_isp_csi_probe");
+            isp_printf(2, "[%s %d] %s[%d] Not enough memory for resources\n", "tx_isp_csi_probe", __LINE__, "?", 0);
             tx_isp_subdev_deinit(csi_dev);
             result = 0xfffffff0;
             private_kfree(csi_dev);
@@ -44157,7 +44157,7 @@ int tx_isp_csi_probe(struct platform_device *pdev)
     } else {
         var_1c = *(uint8_t *)((char *)res_ptr + 3);
         var_20 = *(uint8_t *)((char *)res_ptr + 2);
-        isp_printf(2, "[%s %d] Failed to init isp module(%d.%d)\n", "tx_isp_csi_probe");
+        isp_printf(2, "[%s %d] Failed to init isp module(%d.%d)\n", "tx_isp_csi_probe", __LINE__, 0, 0);
         result = 0xfffffff4;
         private_kfree(csi_dev);
     }
@@ -44187,14 +44187,14 @@ int isp_csi_show(void *arg1)
     v0 = *(void **)((char *)arg1 + 0x4c);
 
     if (v0 == NULL || (unsigned long)v0 >= 0xfffff001UL) {
-        isp_printf(2, "[%s %d] The parameter is invalid!\n", "isp_csi_show");
+        isp_printf(2, "[%s %d] The parameter is invalid!\n", "isp_csi_show", __LINE__);
         return 0;
     }
 
     s2 = *(void **)((char *)v0 + 0x10c);
 
     if (s2 == NULL || (unsigned long)s2 >= 0xfffff001UL) {
-        isp_printf(2, "[%s %d] The parameter is invalid!\n", "isp_csi_show");
+        isp_printf(2, "[%s %d] The parameter is invalid!\n", "isp_csi_show", __LINE__);
         return 0;
     }
 
@@ -45460,7 +45460,7 @@ int32_t csi_video_s_stream(void *arg1, int32_t *arg2)
     int32_t *field_14;
 
     if (arg1 == NULL || (uintptr_t)arg1 >= 0xfffff001) {
-        isp_printf(2, "[%s %d] The parameter is invalid!\n", "csi_video_s_stream");
+        isp_printf(2, "[%s %d] The parameter is invalid!\n", "csi_video_s_stream", __LINE__);
         return 0xffffffea;
     }
 
@@ -48664,13 +48664,13 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
             s1_1 = copy_from_user(&var_2c, (void __user *)arg3[1], 4);
 
             if (s1_1 != 0) {
-                isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", "tx_isp_day_or_night_s_ctrl");
+                isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", "tx_isp_day_or_night_s_ctrl", __LINE__, "tx_isp_day_or_night_s_ctrl", __LINE__);
                 return s1_1;
             }
 
             void *s5_3 = &((char **)arg2)[(int)arg1 * 8];
             int var_90_1 = *(int *)((char *)s5_3 + 0x20);
-            isp_printf(0, "%s:%d:@@@@ vinum is %d, dn is %d, ctrl is %d\n", "tx_isp_day_or_night_s_ctrl");
+            isp_printf(0, "%s:%d:@@@@ vinum is %d, dn is %d, ctrl is %d\n", "tx_isp_day_or_night_s_ctrl", __LINE__, 0, 0, 0);
             int v0_44 = var_2c;
 
             if (*(int *)((char *)s5_3 + 0x20) == v0_44) {
@@ -48708,7 +48708,7 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
         int a1_18;
 
         if ((unsigned int)a1_17 >= 9) {
-            isp_printf(1, "[%s:%d] This mode is not supported!\n", "tx_isp_hvflip_s_attr");
+            isp_printf(1, "[%s:%d] This mode is not supported!\n", "tx_isp_hvflip_s_attr", __LINE__);
             v0_22 = *(int *)&var_88;
         } else {
             switch (a1_17) {
@@ -48851,15 +48851,15 @@ label_b660:
     }
 
 label_b3e8:
-    isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", a2_2);
+    isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", "?", __LINE__, "?", __LINE__);
     return s1_1;
 
 label_b280:
-    isp_printf(2, "[%s %d] [ %s:%d] copy error!!!\n", a2_2);
+    isp_printf(2, "[%s %d] [ %s:%d] copy error!!!\n", "?", __LINE__, "?", __LINE__);
     return s1_1;
 
 label_b8bc:
-    isp_printf(1, "Failed to set sensor fps=%u, ret=%d\n", (unsigned int)(long)s3_2);
+    isp_printf(1, "Failed to set sensor fps=%u, ret=%d\n", (unsigned int)(long)s3_2, 0);
     return s1_1;
 #undef var_88
 }
@@ -49073,7 +49073,7 @@ int32_t tx_isp_core_ops_g_ctrl(uint32_t arg1, int32_t* arg2, int32_t* arg3)
         }
 
 label_c33c_vfree:
-        isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", a2_str2);
+        isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", "?", __LINE__, "?", __LINE__);
         private_vfree();
         return result;
     }
@@ -49087,7 +49087,7 @@ label_c33c_vfree:
         if (private_copy_to_user(arg3[1], __p_80, 0x5c) == 0) {
             return 0;
         }
-        isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", "tx_isp_csc_g_attr");
+        isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", "tx_isp_csc_g_attr", __LINE__, "tx_isp_csc_g_attr", __LINE__);
         return 0;
     }
 
@@ -49241,7 +49241,7 @@ label_c33c_vfree:
    }
 
 label_c33c:
-    isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", a2_str);
+    isp_printf(2, "[%s %d] [ %s:%d ] copy error!!!\n", "?", __LINE__, "?", __LINE__);
     return result;
 }
 
@@ -54527,7 +54527,7 @@ int32_t frame_channel_open(uint32_t a0, void *arg2)
 
     if (*(int32_t *)((char *)s0 + 0x2e4) < 2) {
         private_mutex_unlock();
-        isp_printf(2, "[%s %d] Frame channel%d is slake now, Please activate it firstly!\n", "frame_channel_open");
+        isp_printf(2, "[%s %d] Frame channel%d is slake now, Please activate it firstly!\n", "frame_channel_open", __LINE__, 0);
         return -1;
     }
 
@@ -54575,12 +54575,12 @@ int32_t frame_channel_vidioc_set_fmt(void *arg1, int32_t arg2)
     result = -22;
 
     if (private_copy_from_user(__p_80, arg2, 112) != 0) {
-        isp_printf(2, "[%s %d] Failed to copy from user\n", "frame_channel_vidioc_set_fmt");
+        isp_printf(2, "[%s %d] Failed to copy from user\n", "frame_channel_vidioc_set_fmt", __LINE__);
         return -12;
     }
 
     if ((*__p_80) != 1) {
-        isp_printf(2, "[%s %d] The frame type is invalid!\n", "frame_channel_vidioc_set_fmt");
+        isp_printf(2, "[%s %d] The frame type is invalid!\n", "frame_channel_vidioc_set_fmt", __LINE__);
         return -22;
     }
 
@@ -54590,7 +54590,7 @@ int32_t frame_channel_vidioc_set_fmt(void *arg1, int32_t arg2)
     if ((*__p_70) != 0) {
         v1_2 = (*__p_64);
         if ((*__p_70) != 4) {
-            isp_printf(2, "[%s %d] The field is invalid!\n", "frame_channel_vidioc_set_fmt");
+            isp_printf(2, "[%s %d] The field is invalid!\n", "frame_channel_vidioc_set_fmt", __LINE__);
             return -22;
         }
     } else {
@@ -54599,7 +54599,7 @@ int32_t frame_channel_vidioc_set_fmt(void *arg1, int32_t arg2)
     }
 
     if (v1_2 != 8) {
-        isp_printf(2, "[%s %d] The colorspace is invalid!\n", "frame_channel_vidioc_set_fmt");
+        isp_printf(2, "[%s %d] The colorspace is invalid!\n", "frame_channel_vidioc_set_fmt", __LINE__);
         return -22;
     }
 
@@ -54611,7 +54611,7 @@ int32_t frame_channel_vidioc_set_fmt(void *arg1, int32_t arg2)
         result = result_2;
 
         if (result_2 != 0) {
-            isp_printf(2, "[%s %d] Failed to copy to user\n", "frame_channel_vidioc_set_fmt");
+            isp_printf(2, "[%s %d] Failed to copy to user\n", "frame_channel_vidioc_set_fmt", __LINE__);
             return -12;
         }
 
@@ -55733,7 +55733,7 @@ int tx_isp_fs_probe(struct platform_device *pdev)
     v0 = private_kmalloc(0x124, GFP_KERNEL);
 
     if (v0 == 0) {
-        isp_printf(2, "[%s %d] Failed to allocate csi device\n", "tx_isp_fs_probe");
+        isp_printf(2, "[%s %d] Failed to allocate csi device\n", "tx_isp_fs_probe", __LINE__);
         return 0xfffffff4;
     }
 
@@ -55821,7 +55821,7 @@ label_f2b8:
     } else {
         var_34_1 = *(uint32_t *)((char *)s5_1 + 3);
         var_38_1 = *(uint32_t *)((char *)s5_1 + 2);
-        isp_printf(2, "[%s %d] Failed to init isp module(%d.%d)\n", "tx_isp_fs_probe");
+        isp_printf(2, "[%s %d] Failed to init isp module(%d.%d)\n", "tx_isp_fs_probe", __LINE__, 0, 0);
         result = 0xfffffff4;
         private_kfree(v0);
     }
@@ -59353,7 +59353,7 @@ int32_t tx_isp_sensor_register_sensor(void *arg1, int32_t arg2)
     if (private_copy_from_user(var_78, arg2, 100) != 0) {
         var_7c_1 = 456;
         var_80_1 = "tx_isp_sensor_register_sensor";
-        isp_printf(2, "[%s %d] [ %s:%d ] copy from user error\n", var_80_1);
+        isp_printf(2, "[%s %d] [ %s:%d ] copy from user error\n", "?", __LINE__, "?", __LINE__);
         return 0xfffffff2;
     }
 
@@ -59524,7 +59524,7 @@ int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
     int32_t *v0_7;
 
     if (private_copy_from_user(&var_28, arg2, 8) != 0) {
-        isp_printf(2, "[%s %d] [ %s:%d ] copy from user error\n", LC5);
+        isp_printf(2, "[%s %d] [ %s:%d ] copy from user error\n", "?", __LINE__, "?", __LINE__);
         return 0xfffffff2;
     }
 
@@ -59542,7 +59542,7 @@ int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
                     result = ((int32_t (*)(void *, int32_t *))v0_4)(a0_1, &var_28);
                     
                     if (result != 0 && result != 0xfffffdfd) {
-                        isp_printf(2, "[%s %d] s_stream error\n", LC6);
+                        isp_printf(2, "[%s %d] s_stream error\n", "?", __LINE__);
                         j = (char *)arg1 + ((uintptr_t)i << 2);
                         __sframe[0] = 0;   /* OEM: initarg.enable = 0 for the unwind */
                         
@@ -60602,7 +60602,7 @@ int32_t tx_isp_set_ae_algo_open_isra_28(void* arg1, int32_t arg2)
     if ((*__p_a0) != (int32_t)&data_336ac) {
         int32_t var_a4_2 = 0x609;
         char const* var_a8_2 = "tx_isp_set_ae_algo_open";
-        isp_printf(2, "[%s %d] [ %s:%d ] Ae Algo Function register version error\n", "tx_isp_set_ae_algo_open");
+        isp_printf(2, "[%s %d] [ %s:%d ] Ae Algo Function register version error\n", "tx_isp_set_ae_algo_open", __LINE__, "tx_isp_set_ae_algo_open", __LINE__);
         return 0xffffffff;
     }
     
@@ -67098,13 +67098,13 @@ int32_t fix_point_intp(int32_t arg1, int32_t arg2, int32_t arg3, int32_t arg4, i
         if (arg4 != arg5) {
             int32_t var_1c_1 = 0x102;
             char const* const var_20_1 = "fix_point_intp";
-            isp_printf(2, "[%s %d] %s,%d: error\n", "fix_point_intp");
+            isp_printf(2, "[%s %d] %s,%d: error\n", "fix_point_intp", __LINE__, "fix_point_intp", __LINE__);
             return 0;
         }
     } else {
         int32_t var_1c = 0xfd;
         char const* const var_20 = "fix_point_intp";
-        isp_printf(2, "[%s %d] %s,%d: error\n", "fix_point_intp");
+        isp_printf(2, "[%s %d] %s,%d: error\n", "fix_point_intp", __LINE__, "fix_point_intp", __LINE__);
     }
     
 label_16e40:
@@ -68243,7 +68243,7 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                     if (!t40_tisp_par)
                         break;
                     if (copy_from_user(tisp_par_ioctl_2, (const void __user *)arg3, 0x5010) != 0) {
-                        isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl");
+                        isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl", __LINE__, "tisp_code_tuning_ioctl", __LINE__);
                         return 0xfffffff2;
                     }
                     t40_tisp_set_par(tisp_par_ioctl);
@@ -68300,7 +68300,7 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                         tisp_set_ae_info(tisp_par_ioctl);
                         return 0;
                     }
-                    isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl");
+                    isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl", __LINE__, "tisp_code_tuning_ioctl", __LINE__);
                     return 0xfffffff2;
 
                 case 0x20007406:
@@ -68311,7 +68311,7 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                         tisp_set_ae_minmax(tisp_par_ioctl);
                         return 0;
                     }
-                    isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl");
+                    isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl", __LINE__, "tisp_code_tuning_ioctl", __LINE__);
                     return 0xfffffff2;
 
                 case 0x20007407:
@@ -68331,22 +68331,22 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                         tisp_set_awb_info(tisp_par_ioctl);
                         return 0;
                     }
-                    isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl");
+                    isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl", __LINE__, "tisp_code_tuning_ioctl", __LINE__);
                     return 0xfffffff2;
 
                 default:
                     break;
             }
 
-            isp_printf(2, "[%s %d] get ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl");
+            isp_printf(2, "[%s %d] get ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl", __LINE__);
             return 0xfffffff2;
         }
     }
 
     if (type == 0x74) {
-        isp_printf(2, "[%s %d] _IOC_NR error !!! cmd is %d\n", "tisp_code_tuning_ioctl");
+        isp_printf(2, "[%s %d] _IOC_NR error !!! cmd is %d\n", "tisp_code_tuning_ioctl", __LINE__, cmd);
     } else {
-        isp_printf(2, "[%s %d] _IOC_TYPE error !!! cmd is %d\n", "tisp_code_tuning_ioctl");
+        isp_printf(2, "[%s %d] _IOC_TYPE error !!! cmd is %d\n", "tisp_code_tuning_ioctl", __LINE__, cmd);
     }
     return 0xffffffea;
 }
@@ -75542,7 +75542,7 @@ uint32_t tisp_core_switch_bin(int32_t arg1, int32_t *arg2)
     ret = tiziano_load_parameters((uint32_t)arg1, 0, (uintptr_t)arg2);
     st = (const uint32_t *)(uintptr_t)(arg1 == 0 ? tparams_status : 0);   /* tparams_status[vinum] */
     if (ret != 0 || !st) {
-        isp_printf(2, "[%s %d] [[ %s:%d ]] no bin file on the system!!!\n", "tisp_core_switch_bin", 1059);
+        isp_printf(2, "[%s %d] [[ %s:%d ]] no bin file on the system!!!\n", "tisp_core_switch_bin", 1059, "tisp_core_switch_bin", 1059);
         return ret ? ret : 0xffffffffU;
     }
     mask[0] = st[0];
@@ -91446,7 +91446,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
         i_3 = (char *)((char *)&gib_seco_tool_para);
     }
 
-    isp_printf(1, "\n ---- < %s > --- [ %d ] ----\n", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n ---- < %s > --- [ %d ] ----\n", "?", 0);
 
     i = i_3;
     a2_val2 = 0;
@@ -91458,7 +91458,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
    isp_printf(1, &LC5, a2_val2);
 
     /* Section 2: gib_dgain_para */
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     i = i_3;
     a2_val4 = 0;
     do {
@@ -91468,7 +91468,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
     isp_printf(1, &LC5, a2_val4);
 
     /* Section 3: gib_deir_para */
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_val6 = 0;
     do {
         a2_val6 = isp_printf(1, " %7d", (uint32_t)*(uint16_t *)i);
@@ -91477,7 +91477,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
     isp_printf(1, &LC5, a2_val6);
 
     /* Section 4: gib_blc_r */
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_val8 = 0;
     do {
         a2_val8 = isp_printf(1, " %7d", (uint32_t)*(uint16_t *)i);
@@ -91486,7 +91486,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
     isp_printf(1, &LC5, a2_val8);
 
     /* Section 5: gib_blc_gr */
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_val10 = 0;
     do {
         a2_val10 = isp_printf(1, " %7d", (uint32_t)*(uint16_t *)i);
@@ -91495,7 +91495,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
     isp_printf(1, &LC5, a2_val10);
 
     /* Section 6: gib_blc_gb */
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_val12 = 0;
     do {
         a2_val12 = isp_printf(1, " %7d", (uint32_t)*(uint16_t *)i);
@@ -91504,7 +91504,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
     isp_printf(1, &LC5, a2_val12);
 
     /* Section 7: gib_blc_b */
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_val14 = 0;
     do {
         a2_val14 = isp_printf(1, " %7d", (uint32_t)*(uint16_t *)i);
@@ -91513,7 +91513,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
     isp_printf(1, &LC5, a2_val14);
 
     /* Section 8: gib_blc_ir */
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_val16 = 0;
     do {
         a2_val16 = isp_printf(1, " %7d", (uint32_t)*(uint16_t *)i);
@@ -91522,7 +91522,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
     isp_printf(1, &LC5, a2_val16);
 
     /* Section 9: gib_ir_point */
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_val18 = 0;
     do {
         a2_val18 = isp_printf(1, " %7d", (uint32_t)*(uint16_t *)i);
@@ -91531,7 +91531,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
     isp_printf(1, &LC5, a2_val18);
 
     /* Section 10: gib_deir_preserved */
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     i_1 = (int16_t *)(i_3 + 0x9e);
     a2_val20 = 0;
     do {
@@ -91541,7 +91541,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
     isp_printf(1, &LC5, a2_val20);
 
     /* Section 11: gib_deir_matrix_H */
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     s0 = (int16_t *)(i_3 + 0x30e);
     s7 = (int16_t *)(i_3 + 0x32c);
     a2_val22 = 0;
@@ -91552,7 +91552,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
     isp_printf(1, &LC5, a2_val22);
 
     /* Section 12: gib_deir_matrix_M */
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     i_2 = (int16_t *)(i_3 + 0x34a);
     a2_val24 = 0;
     do {
@@ -91562,7 +91562,7 @@ int32_t tisp_gib_print_tool_para(uint32_t arg1)
     isp_printf(1, &LC5, a2_val24);
 
     /* Section 13: gib_deir_matrix_L */
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_gib_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_val26 = 0;
     do {
         a2_val26 = isp_printf(1, " %7d", (int32_t)*i_2);
@@ -91608,7 +91608,7 @@ int32_t tisp_gib_print_real_para(int32_t arg1)
         s1 = (char *)data_a8500;
     }
 
-    isp_printf(1, "\n ---- < %s > --- [ %d ] ----\n", "tisp_gib_print_real_para");
+    isp_printf(1, "\n ---- < %s > --- [ %d ] ----\n", "?", 0);
 
     var_2c = *(uint32_t *)s1;
     ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(1), (uintptr_t)("\n < %20s %5d > %20s  value is %10d "), (uintptr_t)("tisp_gib_print_real_para"), (uintptr_t)(var_2c), (uintptr_t)("p->blc_en"), (uintptr_t)(0));
@@ -94501,13 +94501,13 @@ int32_t tisp_blc_print_tool_para(int32_t arg1)
 
     var_2c = 2;
     var_30 = "blc_ttp->blc_d_gain_bsft";
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     isp_printf(1, " %7d", (int32_t)(unsigned char)s2[0]);
     isp_printf(1, (const char *)((char *)&__func___39426), isp_printf(1, " %7d", (int32_t)(unsigned char)s2[1]));
     
     var_2c = 4;
     var_30 = "blc_ttp->blc_d_gain_l";
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     i = (int16_t *)(s2 + 4);
     a2_4 = 0;
     do {
@@ -94519,7 +94519,7 @@ int32_t tisp_blc_print_tool_para(int32_t arg1)
 
     var_2c = 4;
     var_30 = "blc_ttp->blc_d_gain_s";
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_6 = 0;
     do {
         a2_5 = (int32_t)*i;
@@ -94530,7 +94530,7 @@ int32_t tisp_blc_print_tool_para(int32_t arg1)
 
     var_2c = 0xb;
     var_30 = "blc_ttp->blc_r_array";
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_8 = 0;
     do {
         a2_7 = (uint32_t)*i;
@@ -94541,7 +94541,7 @@ int32_t tisp_blc_print_tool_para(int32_t arg1)
 
     var_2c = 0xb;
     var_30 = "blc_ttp->blc_gr_array";
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_10 = 0;
     do {
         a2_9 = (uint32_t)*i;
@@ -94552,7 +94552,7 @@ int32_t tisp_blc_print_tool_para(int32_t arg1)
 
     var_2c = 0xb;
     var_30 = "blc_ttp->blc_gb_array";
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_12 = 0;
     do {
         a2_11 = (uint32_t)*i;
@@ -94563,7 +94563,7 @@ int32_t tisp_blc_print_tool_para(int32_t arg1)
 
     var_2c = 0xb;
     var_30 = "blc_ttp->blc_b_array";
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_14 = 0;
     do {
         a2_13 = (uint32_t)*i;
@@ -94574,7 +94574,7 @@ int32_t tisp_blc_print_tool_para(int32_t arg1)
 
     var_2c = 0xb;
     var_30 = "blc_ttp->blc_i_array";
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_16 = 0;
     do {
         a2_15 = (uint32_t)*i;
@@ -94585,13 +94585,13 @@ int32_t tisp_blc_print_tool_para(int32_t arg1)
 
     var_2c = 2;
     var_30 = "blc_ttp->blc_min_en";
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     isp_printf(1, " %7d", (int32_t)(unsigned char)s2[0x92]);
     isp_printf(1, (const char *)((char *)&__func___39426), isp_printf(1, " %7d", (int32_t)(unsigned char)s2[0x93]));
 
     var_2c = 0xb;
     var_30 = "blc_ttp->blc_min_value";
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     i = (int16_t *)(s2 + 0x94);
     a2_21 = 0;
     do {
@@ -94603,7 +94603,7 @@ int32_t tisp_blc_print_tool_para(int32_t arg1)
 
     var_2c = 0xa;
     var_30 = "blc_ttp->blc_preserved_l";
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     s7_8 = (int32_t *)(s2 + 0xac);
     i_2 = (int32_t *)(s2 + 0xd4);
     a2_23 = 0;
@@ -94616,7 +94616,7 @@ int32_t tisp_blc_print_tool_para(int32_t arg1)
 
     var_2c = 0xa;
     var_30 = "blc_ttp->blc_preserved_s";
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_tool_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
     a2_25 = 0;
     do {
         a2_24 = *i_2;
@@ -94649,7 +94649,7 @@ int32_t tisp_blc_print_hard_para(int32_t arg1)
         i_4 = (int16_t *)((char *)&stMainAwbInterOri + 0x542c);
     }
 
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_hard_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
 
     i = i_4;
     do {
@@ -94661,15 +94661,15 @@ int32_t tisp_blc_print_hard_para(int32_t arg1)
     isp_printf(1, (char *)0x3, a2_2);
 
     val = (uint32_t)i_4[4];
-    isp_printf(1, "\n < %20s %5d > %20s  value is %10d ", "tisp_blc_print_hard_para");
+    isp_printf(1, "\n < %20s %5d > %20s  value is %10d ", "?", 0, "?", 0);
 
     val = (uint32_t)i_4[5];
-    isp_printf(1, "\n < %20s %5d > %20s  value is %10d ", "tisp_blc_print_hard_para");
+    isp_printf(1, "\n < %20s %5d > %20s  value is %10d ", "?", 0, "?", 0);
 
     val = (uint32_t)((unsigned char)i_4[6]);
-    isp_printf(1, "\n < %20s %5d > %20s  value is %10d ", "tisp_blc_print_hard_para");
+    isp_printf(1, "\n < %20s %5d > %20s  value is %10d ", "?", 0, "?", 0);
 
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_hard_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
 
     i_1 = &i_4[8];
     do {
@@ -94680,7 +94680,7 @@ int32_t tisp_blc_print_hard_para(int32_t arg1)
 
     isp_printf(1, (char *)0x3, a2_4);
 
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_hard_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
 
     i_1 = &i_4[0x11];
     do {
@@ -94691,7 +94691,7 @@ int32_t tisp_blc_print_hard_para(int32_t arg1)
 
     isp_printf(1, (char *)0x3, a2_6);
 
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_hard_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
 
     i_2 = &i_4[0x12];
     do {
@@ -94703,15 +94703,15 @@ int32_t tisp_blc_print_hard_para(int32_t arg1)
     isp_printf(1, (char *)0x3, a2_8);
 
     val = (uint32_t)i_4[0x16];
-    isp_printf(1, "\n < %20s %5d > %20s  value is %10d ", "tisp_blc_print_hard_para");
+    isp_printf(1, "\n < %20s %5d > %20s  value is %10d ", "?", 0, "?", 0);
 
     val = (uint32_t)i_4[0x17];
-    isp_printf(1, "\n < %20s %5d > %20s  value is %10d ", "tisp_blc_print_hard_para");
+    isp_printf(1, "\n < %20s %5d > %20s  value is %10d ", "?", 0, "?", 0);
 
     val = (uint32_t)((unsigned char)i_4[0x18]);
-    isp_printf(1, "\n < %20s %5d > %20s  value is %10d ", "tisp_blc_print_hard_para");
+    isp_printf(1, "\n < %20s %5d > %20s  value is %10d ", "?", 0, "?", 0);
 
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_hard_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
 
     i_3 = &i_4[0x1a];
     do {
@@ -94722,7 +94722,7 @@ int32_t tisp_blc_print_hard_para(int32_t arg1)
 
     isp_printf(1, (char *)0x3, a2_10);
 
-    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "tisp_blc_print_hard_para");
+    isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : ", "?", 0, "?", 0);
 
     i_3 = &i_4[0x20];
     do {
@@ -119646,7 +119646,7 @@ int tisp_lce_init(int arg1, int arg2, int arg3, uint32_t arg4)
     void *s4_1 = (void *)(lo * v0_1);
 
     if ((uint32_t)s4_1 < 0x4000) {
-        isp_printf(0, " ISP-LCE[%s:%d]: The image resolution must not be less than 720P.The LCE module is bypass!!!\n", "tisp_lce_init");
+        isp_printf(0, " ISP-LCE[%s:%d]: The image resolution must not be less than 720P.The LCE module is bypass!!!\n", "tisp_lce_init", __LINE__);
         return 0xffffffff;
     }
 
@@ -162561,7 +162561,7 @@ int tisp_s_wdr_en(char *arg1, int arg2, int arg3)
     }
 
     if ((fp | (uintptr_t)v0_9) != 0xffffffff) {
-        isp_printf(2, "[%s %d] [%s:%d] The open module is partially uninitialized!!!\n", "tisp_s_wdr_en");
+        isp_printf(2, "[%s %d] [%s:%d] The open module is partially uninitialized!!!\n", "tisp_s_wdr_en", __LINE__, "tisp_s_wdr_en", __LINE__);
         return 0xffffffff;
     }
 
@@ -162569,7 +162569,7 @@ int tisp_s_wdr_en(char *arg1, int arg2, int arg3)
     system_reg_write(0x6c - ((int)arg1 << 4), (uintptr_t)s4 & 0xffffff);
     var_34_1 = arg2;
     var_38_1 = arg1;
-    isp_printf(0, "[[ %s:%d ]] vinum is %d wdr en is %d top is 0x%x\n", "tisp_s_wdr_en");
+    isp_printf(0, "[[ %s:%d ]] vinum is %d wdr en is %d top is 0x%x\n", "tisp_s_wdr_en", __LINE__, 0, 0, 0);
     a1_6 = (uint32_t)arg3;
 
     if (a1_6 == 2) {
@@ -162582,7 +162582,7 @@ int tisp_s_wdr_en(char *arg1, int arg2, int arg3)
         } else if ((int)a1_6 >= 0x14) {
             var_34_1 = 0x244;
             var_38_1 = "tisp_s_wdr_en";
-            isp_printf(2, "[%s %d] [[ %s:%d ]] Not support this bayer!!!\n", "tisp_s_wdr_en");
+            isp_printf(2, "[%s %d] [[ %s:%d ]] Not support this bayer!!!\n", "tisp_s_wdr_en", __LINE__, "tisp_s_wdr_en", __LINE__);
         } else {
             system_reg_write(0x88, a1_6 + 4);
             *(int *)0x1000 = 1;
@@ -162594,7 +162594,7 @@ int tisp_s_wdr_en(char *arg1, int arg2, int arg3)
         if (a1_6 != 1) {
             var_34_1 = 0x244;
             var_38_1 = "tisp_s_wdr_en";
-            isp_printf(2, "[%s %d] [[ %s:%d ]] Not support this bayer!!!\n", "tisp_s_wdr_en");
+            isp_printf(2, "[%s %d] [[ %s:%d ]] Not support this bayer!!!\n", "tisp_s_wdr_en", __LINE__, "tisp_s_wdr_en", __LINE__);
         } else {
             system_reg_write(0x88, 1);
             *(int *)0x1000 = 0;
@@ -163365,7 +163365,7 @@ int32_t tisp_s_osd_attr(int32_t chn, void *attr)
                     return -1;
                 }
                 if (copy_from_user(buf, img, size) != 0) {
-                    isp_printf(2, "[%s %d] [[ %s:%d ]] copy error!!!\n", "tisp_s_osd_attr", 962);
+                    isp_printf(2, "[%s %d] [[ %s:%d ]] copy error!!!\n", "tisp_s_osd_attr", 962, "tisp_s_osd_attr", 962);
                     private_kfree(buf);
                     *(uint32_t *)(ent + 8) = 0;
                     return -1;
@@ -163377,13 +163377,13 @@ int32_t tisp_s_osd_attr(int32_t chn, void *attr)
                 unsigned int size;
 
                 if (strncpy_from_user(path, img, sizeof(path)) < 0) {
-                    isp_printf(2, "[%s %d] [[ %s:%d ]] copy error!!!\n", "tisp_s_osd_attr", 915);
+                    isp_printf(2, "[%s %d] [[ %s:%d ]] copy error!!!\n", "tisp_s_osd_attr", 915, "tisp_s_osd_attr", 915);
                     return -1;
                 }
                 path[sizeof(path) - 1] = 0;
                 f = private_filp_open(path, O_RDONLY, 0);
                 if (IS_ERR(f)) {
-                    isp_printf(2, "[%s %d] [[ %s:%d ]] ISP: open %s pic failed\n", "tisp_s_osd_attr", 920, path);
+                    isp_printf(2, "[%s %d] [[ %s:%d ]] ISP: open %s pic failed\n", "tisp_s_osd_attr", 920, "tisp_s_osd_attr", 920, path);
                     return -1;
                 }
                 fsize = i_size_read(file_inode(f));
