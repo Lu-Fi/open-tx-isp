@@ -15547,6 +15547,7 @@ static int t41_call_sensor_core_register(uintptr_t sensor_sd, uintptr_t arg,
  * t41_sensor_ops_mutex held.
  */
 static void t41_sensor_ops_quiesce(void);
+static struct mutex t41_sensor_ops_mutex;	/* defined (DEFINE_MUTEX) with ispcore_sensor_ops_ioctl */
 
 static void t41_unregister_i2c_sensor(uintptr_t sensor_sd)
 {
@@ -15918,18 +15919,24 @@ int32_t subdev_sensor_ops_ioctl(uintptr_t vin, uint32_t cmd, uintptr_t arg)
 		if (!vin || !arg)
 			return -EINVAL;
 		vinum = *(uint32_t *)(arg + 32);
+		/* review-week-1030 M4: user sensor register access under the #134 barrier mutex, so
+		 * IMP_ISP_DelSensor's quiesce waits for it before the i2c client is freed */
+		mutex_lock(&t41_sensor_ops_mutex);
 		sensor = t41_vin_active_sensor(vin, vinum);
-		if (!sensor)
-			return -1;
-		return t41_call_sensor_core_register(sensor, arg, 7);
+		ret = sensor ? t41_call_sensor_core_register(sensor, arg, 7) : -1;
+		mutex_unlock(&t41_sensor_ops_mutex);
+		return ret;
 	case T41_EVENT_SENSOR_G_REGISTER:
 		if (!vin || !arg)
 			return -EINVAL;
 		vinum = *(uint32_t *)(arg + 32);
+		/* review-week-1030 M4: user sensor register access under the #134 barrier mutex, so
+		 * IMP_ISP_DelSensor's quiesce waits for it before the i2c client is freed */
+		mutex_lock(&t41_sensor_ops_mutex);
 		sensor = t41_vin_active_sensor(vin, vinum);
-		if (!sensor)
-			return -1;
-		return t41_call_sensor_core_register(sensor, arg, 4);
+		ret = sensor ? t41_call_sensor_core_register(sensor, arg, 4) : -1;
+		mutex_unlock(&t41_sensor_ops_mutex);
+		return ret;
 	case T41_EVENT_DUAL_MODE:
 		if (!vin || !arg)
 			return -EINVAL;
