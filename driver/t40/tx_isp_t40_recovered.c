@@ -25217,12 +25217,16 @@ static const struct file_operations regtrace_bootstrap_fops = {
     .release = regtrace_bootstrap_release,
 };
 
+static DEFINE_MUTEX(regtrace_tisp_lock);
+
 static int regtrace_tisp_open(struct inode *inode, struct file *file)
 {
     (void)inode;
     (void)file;
     printk(KERN_INFO "tx_isp_t40_recovered: open /dev/tisp pid=%d comm=%s\n", current->pid, current->comm);
-    return tisp_code_tuning_open();
+    /* #155: per-open parameter buffer (the OEM global was shared and, once freed, a UAF) */
+    file->private_data = kzalloc(0x5010, GFP_KERNEL);
+    return file->private_data ? 0 : -ENOMEM;
 }
 
 static int regtrace_tisp_release(struct inode *inode, struct file *file)
@@ -25230,7 +25234,9 @@ static int regtrace_tisp_release(struct inode *inode, struct file *file)
     (void)inode;
     (void)file;
     printk(KERN_INFO "tx_isp_t40_recovered: release /dev/tisp pid=%d comm=%s\n", current->pid, current->comm);
-    return tisp_code_tuning_release();
+    kfree(file->private_data);
+    file->private_data = NULL;
+    return 0;
 }
 
 static ssize_t regtrace_tisp_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
@@ -25257,7 +25263,17 @@ static long regtrace_tisp_ioctl(struct file *file, unsigned int cmd, unsigned lo
         regtrace_fr_mark(0xc4, fr_w[2] ^ (fr_w[1] << 31));   /* FR: tuning control | dir<<31 */
     printk(KERN_INFO "tx_isp_t40_recovered: tisp ioctl cmd=0x%x arg=0x%lx pid=%d comm=%s\n",
            cmd, arg, current->pid, current->comm);
+    /* #155: the lifted body works on the global tisp_par_ioctl; point it at this opener's buffer
+     * and serialise, so no other opener can free or reuse it meanwhile */
+    mutex_lock(&regtrace_tisp_lock);
+    if (!file->private_data) {
+        mutex_unlock(&regtrace_tisp_lock);
+        return -ENODEV;
+    }
+    tisp_par_ioctl = file->private_data;
     ret = tisp_code_tuning_ioctl((int)(uintptr_t)file, (int)cmd, (int)arg);
+    tisp_par_ioctl = NULL;
+    mutex_unlock(&regtrace_tisp_lock);
     regtrace_fr_mark(0xc5, (uint32_t)ret);
     return ret;
 }
