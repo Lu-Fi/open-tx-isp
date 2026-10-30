@@ -77270,7 +77270,9 @@ int32_t tisp_ae_init_par_calc(uint32_t a0, uintptr_t a1)
 
     printk(KERN_INFO "tx_isp_t40_recovered: AECHK ipcA pre-div\n");
     /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)fix_point_div_32)(a0); /* jalr target resolved by relocation */
+    /* #agg51: OEM 0x212d0..0x212e8: fix_point_div_32(shift, (x >> 16) << shift, (x & 0xffff) << shift) with
+     * x = *(attr + 20); the lift passed only a0 and lost the delay-slot sllv a1,a1,a0. */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(a0, (uintptr_t)a1 << a0, (uintptr_t)a2); /* jalr target resolved by relocation */
 
     printk(KERN_INFO "tx_isp_t40_recovered: AECHK ipcB pre-fps a1+4=0x%x a1+316=0x%x\n", *(uint32_t *)((char *)s2 + 4), *(uint32_t *)((char *)s2 + 316));
     /* fragment 4: CallSetup */
