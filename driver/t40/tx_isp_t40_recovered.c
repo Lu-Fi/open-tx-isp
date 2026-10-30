@@ -58560,16 +58560,20 @@ int32_t tx_isp_sensor_release_sensor(uintptr_t a0, uint32_t a1)
 
     /* fragment 1: CallSetup */
     s1 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_copy_from_user)(&local_18); /* jalr target resolved by relocation */
+    { /* #agg51: OEM 0x10af8..0x10b1c copy_from_user(sp+24, a1, 100); the lift passed only the destination
+       * (stale a1/a2 as source/length into the 4-byte local_18).  The buffer goes to the subdevs' core
+       * ioctl (0x2000001), which stays a regtrace_unresolved_jalr no-op as before. */
+      uint8_t __rs_buf[100];   /* OEM sp+24..sp+123 */
+      v0 = (uintptr_t *)(uintptr_t)private_copy_from_user((int32_t)(uintptr_t)__rs_buf, (int32_t)a1, 100); }
 
     /* fragment 2: Branch */
     s2 = 33554432;
     if (v0 != 0) { goto tx_isp_sensor_release_sensor0x68; }
 
     /* fragment 3: Arithmetic */
-    s0 = s1 + 60;
+    s0 = (uintptr_t)s1 + 60;   /* #agg51: byte adds (OEM 0x10b28..0x10b30, 0x10b44) */
     s2 = s2 + 1;
-    s1 = s1 + 124;
+    s1 = (uintptr_t)s1 + 124;
     s3 = -515;
 
 tx_isp_sensor_release_sensor0x48:
@@ -58581,7 +58585,7 @@ tx_isp_sensor_release_sensor0x48:
 
 tx_isp_sensor_release_sensor0x54:
     /* fragment 6: Arithmetic */
-    s0 = s0 + 4;
+    s0 = (uintptr_t)s0 + 4;
 
 tx_isp_sensor_release_sensor0x58:
     /* fragment 7: Branch */
@@ -58634,7 +58638,7 @@ tx_isp_sensor_release_sensor0xb8:
     if (v0 != s3) { goto tx_isp_sensor_release_sensor0xa0; }
 
     /* fragment 20: Branch */
-    s0 = s0 + 4;
+    s0 = (uintptr_t)s0 + 4;
     goto tx_isp_sensor_release_sensor0x58;
 
     return 0;
