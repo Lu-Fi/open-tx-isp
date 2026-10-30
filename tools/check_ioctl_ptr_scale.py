@@ -11,6 +11,14 @@ and, with --oem-dis, checks INTENDED against the constants the OEM function buil
 
 usage: check_ioctl_ptr_scale.py driver/t40/tx_isp_t40_recovered.c
          [--func tx_isp_unlocked_ioctl ...] [--all-ioctl] [--oem-dis oem_ko.dis --oem-func NAME]
+       check_ioctl_ptr_scale.py driver/t40/tx_isp_t40_recovered.c --call-args [--baseline FILE] [--write-baseline FILE]
+
+--call-args (agg50/agg51): every call argument of the form `ptr + N` / `ptr - N` where ptr is a typed pointer
+(uintptr_t * / uint32_t * ...) is compiled as ptr + N*sizeof(*ptr), not the OEM byte offset (agg50:
+system_reg_write(s3 + 64) wrote base+0x100, memcpy(s0 + 744) wrote 2976 bytes past s0).  It also reports calls
+that pass fewer arguments than the callee's prototype in the same file (the lift dropped arguments set in
+branch delay slots: agg50 link destroy, copy_from_user without length).  With --baseline the known (audited,
+dead-code) findings are accepted and only new ones fail (exit 1); keys are line-number free.
 """
 import re, sys, argparse
 
@@ -95,6 +103,66 @@ def oem_seq(path, fname):
             pass
     return seq
 
+CALL_RE = re.compile(r'\(\*\)\(([^()]*)\)\)\(uintptr_t\)(\w+)\)\(')
+PROTO_RE = re.compile(r'^(?:static\s+)?(?:inline\s+)?[A-Za-z_][\w\s\*]*?\b(\w+)\s*\(([^;{)]*)\)\s*(?:__asm__\("[^"]*"\))?\s*[;{]?\s*$')
+
+def split_args(s, i):
+    """s[i] == '(' -> (list of top-level args, index after ')')"""
+    depth, cur, out = 0, '', []
+    while i < len(s):
+        c = s[i]
+        if c == '(':
+            depth += 1
+            if depth > 1: cur += c
+        elif c == ')':
+            depth -= 1
+            if depth == 0:
+                if cur.strip(): out.append(cur.strip())
+                return out, i + 1
+            cur += c
+        elif c == ',' and depth == 1:
+            out.append(cur.strip()); cur = ''
+        else:
+            cur += c
+        i += 1
+    return out, i
+
+def call_args(lines):
+    """findings: (func, line, key, text).  kind scaled: typed-pointer +/- N in a call argument;
+    kind argc: fewer arguments than the prototype (variadic and unknown callees skipped)."""
+    protos = {}
+    for ln in lines:
+        m = PROTO_RE.match(ln)
+        if m and m.group(1) not in ('if', 'while', 'for', 'switch', 'return', 'sizeof'):
+            p = m.group(2).strip()
+            protos.setdefault(m.group(1), set()).add(-1 if '...' in p else (0 if p in ('', 'void') else p.count(',') + 1))
+    funcs = split_funcs(lines)
+    out = []
+    for f, (lo, hi) in funcs.items():
+        ptr = {}
+        for ln in lines[lo - 1:hi]:
+            for m in re.finditer(r'\b(\w+)\s*(\*+)\s*(?:const\s+)?(\w+)\s*(?:=|;|,|\))', ln):
+                if m.group(1) in PTR_SIZE:
+                    ptr[m.group(3)] = 4 if m.group(2) != '*' else PTR_SIZE[m.group(1)]
+        for n in range(lo, hi + 1):
+            s = re.sub(r'/\*.*?\*/', '', lines[n - 1])
+            for m in CALL_RE.finditer(s):
+                callee = m.group(2)
+                args, _ = split_args(s, m.end() - 1)
+                for a in args:
+                    mm = re.match(r'^\(?\s*(\w+)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\s*\)?$', a)
+                    if mm and ptr.get(mm.group(1), 1) > 1 and num(mm.group(3)) != 0:
+                        out.append((f, n, f"scaled {f} {callee} {re.sub(r'\\s+', '', a)}",
+                                    f"{callee}(... {a} ...): x{ptr[mm.group(1)]} typed-pointer scale"))
+                pc = protos.get(callee)
+                if pc and -1 not in pc:
+                    t = m.group(1).strip()
+                    c = 0 if t in ('', 'void') else t.count(',') + 1
+                    if c < max(pc):
+                        out.append((f, n, f"argc {f} {callee} {c}/{max(pc)}",
+                                    f"{callee}: {c} of {max(pc)} arguments"))
+    return out
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('src')
@@ -102,8 +170,39 @@ def main():
     ap.add_argument('--all-ioctl', action='store_true')
     ap.add_argument('--oem-dis')
     ap.add_argument('--fix', action='store_true', help='rewrite scaled additions as byte-exact (OEM addiu) arithmetic in place')
+    ap.add_argument('--call-args', action='store_true', help='typed-pointer adds and missing arguments in calls')
+    ap.add_argument('--baseline', help='accepted findings (one key per line, # comments)')
+    ap.add_argument('--write-baseline', help='write the current findings as baseline')
+    ap.add_argument('--skip-callee', action='append', default=['regtrace_unresolved_jalr'])
     a = ap.parse_args()
     lines = open(a.src).read().split('\n')
+    if a.call_args:
+        found = [x for x in call_args(lines) if x[2].split()[2] not in a.skip_callee]
+        if a.write_baseline:
+            keys = sorted(k for (_, _, k, _) in found)   # one line per occurrence (count-aware)
+            with open(a.write_baseline, 'w') as fh:
+                fh.write('# check_ioctl_ptr_scale.py --call-args baseline: audited findings in dead or verified code\n')
+                fh.write('# (agg51 audit, S/audit/agg51-argaudit/REPORT.md).  Only NEW findings fail make check.\n')
+                for k in keys:
+                    fh.write(k + '\n')
+            print(f"# wrote {len(keys)} keys to {a.write_baseline}")
+            return 0
+        import collections
+        base = collections.Counter()
+        if a.baseline:
+            base = collections.Counter(l.strip() for l in open(a.baseline) if l.strip() and not l.startswith('#'))
+        left, new = collections.Counter(base), []
+        for x in found:
+            if left[x[2]] > 0:
+                left[x[2]] -= 1
+            else:
+                new.append(x)
+        for (f, n, k, t) in (new if a.baseline else found):
+            print(f"{'NEW ' if a.baseline else ''}{f} | {n} | {t}")
+        stale = +left
+        print(f"# call-args: {len(found)} findings, {len(found) - len(new)} in baseline, {len(new)} new, "
+              f"{sum(stale.values())} baseline entries no longer found (fixed: regenerate with --write-baseline)", file=sys.stderr)
+        return 1 if (a.baseline and new) else 0
     funcs = split_funcs(lines)
     names = list(a.func)
     if a.all_ioctl:
@@ -135,4 +234,4 @@ def main():
     print(f"# checked {tot}, wrong {bad}", file=sys.stderr)
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main() or 0)

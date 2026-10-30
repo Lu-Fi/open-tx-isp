@@ -1,0 +1,538 @@
+# check_ioctl_ptr_scale.py --call-args baseline: audited findings in dead or verified code
+# (agg51 audit, S/audit/agg51-argaudit/REPORT.md).  Only NEW findings fail make check.
+argc Tisp_lce_soft lce_16bit_data_converge 4/7
+argc Tisp_lce_soft lce_16bit_data_converge 4/7
+argc Tisp_lce_soft lce_hist_filter_and_judge 2/4
+argc Tisp_lce_soft lce_light_lock_adjust_hist 2/4
+argc Tisp_lce_soft lce_self_light_correct 4/5
+argc Tisp_lce_soft lce_self_light_correct 4/5
+argc Tisp_lce_soft lce_wdr_light_lock 4/6
+argc Tiziano_adr_fpga func_adr_map_curve1 1/3
+argc Tiziano_adr_fpga func_adr_map_curve1 1/3
+argc Tiziano_adr_fpga func_interp1_short 1/6
+argc Tiziano_adr_fpga func_interp1_short 4/6
+argc Tiziano_adr_fpga func_interp1_short 4/6
+argc Tiziano_adr_fpga func_interp1_short 4/6
+argc Tiziano_adr_fpga func_interp1_short 4/6
+argc Tiziano_adr_fpga func_interp1_short 4/6
+argc Tiziano_adr_fpga func_interp1_short 4/6
+argc Tiziano_adr_fpga func_interp1_short 4/6
+argc Tiziano_adr_fpga func_interp1_short 4/6
+argc Tiziano_adr_fpga func_local_info 3/5
+argc Tiziano_adr_fpga func_map_y_filter_sp 2/3
+argc Tiziano_adr_fpga ispint_adr_16 2/4
+argc Tiziano_adr_fpga subsection_up 4/9
+argc Tiziano_defog_soft tisp_defog_img_filter25 1/3
+argc Tiziano_defog_soft tisp_defog_img_filter25 1/3
+argc Tiziano_defog_soft tisp_defog_img_filter25 2/3
+argc Tiziano_defog_soft tisp_defog_img_filter25 2/3
+argc Tiziano_defog_soft tisp_defog_img_filter9 1/3
+argc Tiziano_wdr_deghost_fpga tisp_wdr_degweight_ev 4/5
+argc Tiziano_wdr_deghost_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_deghost_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_deghost_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_get_lum_s 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_get_lum_s 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_get_lum_s 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 1/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 1/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 1/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 1/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 1/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc Tiziano_wdr_fusion_fpga tisp_wdr_interplate 4/5
+argc csi_sensor_ops_ioctl csi_phy_start 1/2
+argc frame_channel_reqbufs __vb2_queue_free 1/2
+argc frame_channel_reqbufs private_copy_from_user 1/3
+argc frame_channel_vidioc_get_fmt private_copy_from_user 1/3
+argc func_adr_reg_write_every system_reg_write 1/2
+argc func_adr_reg_write_sometimes system_reg_write 1/2
+argc func_map_y_filter_sp fix_point_div 1/6
+argc func_map_y_filter_sp func_interp1_short 4/6
+argc func_map_y_filter_sp func_interp1_short 4/6
+argc isp_framesource_show private_seq_printf 1/3
+argc isp_framesource_show private_seq_printf 1/3
+argc isp_framesource_show private_seq_printf 2/3
+argc isp_framesource_show private_seq_printf 2/3
+argc isp_framesource_show private_seq_printf 2/3
+argc isp_framesource_show private_seq_printf 2/3
+argc isp_framesource_show private_seq_printf 2/3
+argc isp_framesource_show private_seq_printf 2/3
+argc isp_framesource_show private_seq_printf 2/3
+argc isp_framesource_show private_seq_printf 2/3
+argc isp_i2c_new_subdev_board private_request_module 1/3
+argc isp_info_show_isra_4 private_seq_printf 1/3
+argc isp_info_show_isra_4 private_seq_printf 2/3
+argc isp_info_show_isra_4 private_seq_printf 2/3
+argc isp_info_show_isra_4 private_seq_printf 2/3
+argc isp_info_show_isra_4 private_seq_printf 2/3
+argc isp_info_show_isra_4 private_seq_printf 2/3
+argc isp_main_pre_frame_dequeue tx_isp_send_event_to_remote 1/3
+argc isp_save_cmd_set private_copy_from_user 1/3
+argc isp_subdev_init_clks private_clk_set_rate 1/2
+argc isp_vic_cmd_set private_seq_printf 2/3
+argc isp_vic_cmd_set private_seq_printf 2/3
+argc isp_vic_cmd_set private_seq_printf 2/3
+argc isp_vic_cmd_set tisp_s_module_control 1/2
+argc isp_vic_cmd_set vic_mdma_enable 3/7
+argc isp_vic_interrupt_service_routine vic_mdma_irq_function0 2/3
+argc isp_vic_interrupt_service_routine vic_mdma_irq_function1 2/3
+argc isp_vic_interrupt_service_routine vic_mdma_irq_function1 2/3
+argc isp_vic_interrupt_service_routine vic_mdma_irq_function2 2/3
+argc ispcore_frame_channel_dqbuf tx_isp_send_event_to_remote 2/3
+argc ispcore_interrupt_service_routine Tzn_Msca_addr_fifo_write 2/4
+argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 1/4
+argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 1/4
+argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 1/4
+argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 1/4
+argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 1/4
+argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 2/4
+argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 2/4
+argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 2/4
+argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 2/4
+argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 3/4
+argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 3/4
+argc subdev_sensor_ops_ioctl subdev_sensor_ops_enum_input 1/2
+argc subsection_up fix_point_div_32 1/3
+argc subsection_up subsection_map 4/10
+argc subsection_up subsection_map 4/10
+argc subsection_up subsection_map 4/10
+argc subsection_up subsection_map 4/10
+argc subsection_up subsection_map 4/10
+argc subsection_up subsection_map 4/10
+argc table_intp fix_point_intp 1/5
+argc tisp_ae_algo_handle fix_point_mult2_32 2/3
+argc tisp_ae_algo_handle tisp_blc_ae_write_dgain 2/5
+argc tisp_ae_algo_handle tisp_blc_ae_write_dgain 4/5
+argc tisp_ae_dn_params_refresh tisp_ae_params_refresh 1/3
+argc tisp_ae_dn_params_refresh tisp_ae_params_transmit 1/2
+argc tisp_ae_g_scene_luma fix_point_div_32 2/3
+argc tisp_ae_main_s_max_again tisp_math_exp2 1/3
+argc tisp_ae_main_s_max_isp_dgain tisp_math_exp2 1/3
+argc tisp_ae_sec_s_max_again tisp_math_exp2 1/3
+argc tisp_ae_sensor_inform tisp_math_exp2 2/3
+argc tisp_ae_sensor_inform tisp_math_exp2 2/3
+argc tisp_ae_sepc_area tisp_ae_roi_point 1/5
+argc tisp_ae_wdr_en tisp_ae_params_refresh 1/3
+argc tisp_ae_wdr_en tisp_ae_params_transmit 1/2
+argc tisp_af_alogrithm fix_point_mult2_32 1/3
+argc tisp_af_dn_params_refresh tisp_af_params_transmit 2/3
+argc tisp_af_main_init tisp_af_params_refresh 1/3
+argc tisp_af_main_interrupt_static tisp_af_get_statistics 2/4
+argc tisp_af_sec_init tisp_af_params_refresh 1/3
+argc tisp_af_sec_interrupt_static tisp_af_get_statistics 2/4
+argc tisp_awb_dn_params_refresh tisp_awb_params_refresh 1/3
+argc tisp_bcsh_Tccm_RGB2YUV tisp_bcsh_Tccm_RGBYUV 4/5
+argc tisp_bcsh_dn_params_refresh tisp_bcsh_params_transmit 2/3
+argc tisp_bcsh_ev_update_TransitParam tisp_bcsh_StrenCal_part_0 3/5
+argc tisp_bcsh_ev_update_TransitParam tisp_bcsh_StrenCal_part_0 4/5
+argc tisp_bcsh_ev_update_TransitParam tisp_bcsh_StrenCal_part_0 4/5
+argc tisp_bcsh_ev_update_TransitParam tisp_bcsh_StrenCal_part_0 4/5
+argc tisp_bcsh_ev_update_TransitParam tisp_bcsh_StrenCal_part_0 4/5
+argc tisp_bcsh_wdr_en tisp_bcsh_ev_update 1/2
+argc tisp_bcsh_wdr_en tisp_bcsh_params_transmit 2/3
+argc tisp_blc_ae_write_dgain tisp_blc_calc_digital_gain 1/2
+argc tisp_blc_ag_long_frame_update tisp_blc_ag_interp 1/4
+argc tisp_blc_ag_short_frame_update tisp_blc_ag_interp 1/4
+argc tisp_blc_dn_params_refresh tisp_blc_write_reg 2/3
+argc tisp_blc_param_array_set tisp_blc_write_reg 2/3
+argc tisp_ccm_dn_params_refresh tisp_ccm_ev_ct_update 2/4
+argc tisp_ccm_dn_params_refresh tisp_ccm_params_transmit 2/3
+argc tisp_ccm_param_array_set tisp_ccm_ev_ct_update 2/4
+argc tisp_ccm_sec_ct_update tisp_ccm_ev_ct_update 2/4
+argc tisp_ccm_sec_ev_update tisp_ccm_ev_ct_update 2/4
+argc tisp_ccm_sec_init tisp_ccm_ev_ct_update 2/4
+argc tisp_ccm_set_attr tisp_ccm_ev_ct_update 2/4
+argc tisp_ccm_wdr_en tisp_ccm_ev_ct_update 1/4
+argc tisp_ccm_wdr_en tisp_ccm_params_transmit 2/3
+argc tisp_channel_main_attr_set Tzn_Msca_cfg_load 1/2
+argc tisp_channel_sec_attr_set Tzn_Msca_cfg_load 1/2
+argc tisp_clm_write_csc_para system_reg_write 1/2
+argc tisp_clm_write_csc_para tisp_round_int64 1/3
+argc tisp_defog_dn_params_refresh defog_count_weight35abc 3/10
+argc tisp_defog_init defog_count_weight35abc 2/10
+argc tisp_defog_init system_reg_write 1/2
+argc tisp_defog_init tisp_event_set_cb 1/3
+argc tisp_defog_param_array_set defog_count_weight35abc 1/10
+argc tisp_defog_param_array_set tisp_defog_interp_trans_k 4/8
+argc tisp_defog_update_trans_k tisp_defog_interp_trans_k 4/8
+argc tisp_defog_write_reg_para3 system_reg_write 1/2
+argc tisp_dmsc_intp_reg_refresh tisp_dmsc_intp 1/2
+argc tisp_dmsc_refresh tisp_dmsc_par_refresh 1/3
+argc tisp_gamma_dn_params_refresh tisp_gamma_interp_by_ev 1/5
+argc tisp_gamma_param_array_set tisp_gamma_interp_by_ev 1/5
+argc tisp_gamma_wdr_en tisp_gamma_interp_by_ev 4/5
+argc tisp_get_antiflicker_step tisp_ae_main_get_antiflicker_step 1/2
+argc tisp_gsm_interrupt_hist tisp_gsm_dual_get_hist 1/2
+argc tisp_gsm_main_long_process_api fix_point_div 1/6
+argc tisp_gsm_main_long_process_api fix_point_mult2 4/6
+argc tisp_hldc_set_attr tisp_hldc_calc_para 4/7
+argc tisp_hldc_set_attr tisp_hldc_calc_para 4/7
+argc tisp_hldc_set_attr tisp_hldc_par_refresh 1/2
+argc tisp_lce_get_show_data lce_compress_data 1/3
+argc tisp_lce_get_show_data lce_compress_data 2/3
+argc tisp_lce_get_show_data lce_compress_data 2/3
+argc tisp_lce_get_show_data lce_compress_data 2/3
+argc tisp_lce_get_show_data lce_compress_data 2/3
+argc tisp_lce_get_show_data lce_compress_data 2/3
+argc tisp_lce_get_show_data lce_compress_data 2/3
+argc tisp_lce_get_show_data lce_compress_data 2/3
+argc tisp_lce_get_show_data lce_compress_data 2/3
+argc tisp_lce_get_show_data lce_compress_data 2/3
+argc tisp_lce_get_show_data lce_compress_data 2/3
+argc tisp_log2_fixed_to_fixed_64 tisp_log2_int_to_fixed_64 1/4
+argc tisp_lsc_ct_update tisp_lsc_interp_by_ct 1/4
+argc tisp_lsc_dn_params_refresh tisp_lsc_interp_by_ct 1/4
+argc tisp_lsc_dn_params_refresh tisp_lsc_interp_by_gain 1/4
+argc tisp_lsc_dn_params_refresh tisp_lsc_mirror_flip 4/5
+argc tisp_lsc_gain_update tisp_lsc_interp_by_gain 1/4
+argc tisp_lsc_init private_kmalloc 1/2
+argc tisp_lsc_init private_kmalloc 1/2
+argc tisp_lsc_init tisp_lsc_interp_by_ct 1/4
+argc tisp_lsc_init tisp_lsc_interp_by_gain 1/4
+argc tisp_lsc_mirror_flip tisp_lsc_interp_by_ct 1/4
+argc tisp_lsc_mirror_flip tisp_lsc_interp_by_gain 1/4
+argc tisp_lsc_param_array_set tisp_lsc_interp_by_ct 1/4
+argc tisp_lsc_param_array_set tisp_lsc_interp_by_ct 1/4
+argc tisp_lsc_param_array_set tisp_lsc_interp_by_gain 1/4
+argc tisp_lsc_param_array_set tisp_lsc_interp_by_gain 1/4
+argc tisp_lsc_param_array_set tisp_lsc_mirror_flip 4/5
+argc tisp_lsc_wdr_en tisp_lsc_interp_by_ct 1/4
+argc tisp_lsc_wdr_en tisp_lsc_interp_by_gain 1/4
+argc tisp_main_init tisp_defog_init 3/7
+argc tisp_main_init tiziano_load_parameters 1/3
+argc tisp_main_long_ev_update tisp_defog_ev_update 1/4
+argc tisp_main_long_tgain_update tisp_awb_tgain_update 1/3
+argc tisp_main_long_tgain_update tisp_lsc_gain_update 1/4
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_mdns_reg_cfg system_reg_write 1/2
+argc tisp_s_defog_ratio tisp_defog_interp_trans_k 4/8
+argc tisp_s_defog_ratio tisp_defog_strength_itp 1/3
+argc tisp_s_defog_ratio tisp_defog_strength_itp 2/3
+argc tisp_s_defog_ratio tisp_defog_strength_itp 2/3
+argc tisp_s_defog_str_internal tisp_defog_strength_itp 1/3
+argc tisp_s_defog_str_internal tisp_defog_strength_itp 1/3
+argc tisp_sec_init tisp_defog_init 3/7
+argc tisp_sec_init tiziano_load_parameters 1/3
+argc tisp_sec_long_ev_update tisp_defog_ev_update 1/4
+argc tisp_sec_long_tgain_update tisp_awb_tgain_update 1/3
+argc tisp_sec_long_tgain_update tisp_lsc_gain_update 1/4
+argc tisp_set_sharpness tisp_dmsc_sharpness_set 1/2
+argc tisp_set_wdr_output_mode tisp_wdr_param_array_get 1/3
+argc tisp_stream_on tisp_event_set_cb 2/3
+argc tisp_stream_on tisp_event_set_cb 2/3
+argc tisp_stream_on tisp_event_set_cb 2/3
+argc tisp_wdr_quicksort tisp_wdr_quicksort 1/3
+argc tisp_wdr_softout_reg_refresh system_reg_write 1/2
+argc tiziano_adr_5x5_init tiziano_adr_5x5_out 3/5
+argc tiziano_adr_5x5_init tiziano_adr_5x5_out 3/5
+argc tiziano_adr_5x5_init tiziano_adr_5x5_out 3/5
+argc tiziano_adr_5x5_init tiziano_adr_5x5_out 3/5
+argc tiziano_adr_5x5_init tiziano_adr_5x5_out 4/5
+argc tiziano_adr_5x5_init tiziano_adr_5x5_out 4/5
+argc tiziano_adr_5x5_init tiziano_adr_5x5_out 4/5
+argc tiziano_adr_5x5_init tiziano_adr_5x5_out 4/5
+argc tiziano_adr_algorithm Tiziano_adr_fpga 1/2
+argc tiziano_adr_algorithm func_interp1_short 4/6
+argc tiziano_isp_ccm_attr_g_ctrl_isra_31 tisp_g_ccm_attr 1/2
+argc tiziano_load_parameters tiziano_parse_regs 2/3
+argc tiziano_load_parameters tiziano_parse_regs 2/3
+argc tiziano_load_parameters tiziano_save_to_local 1/4
+argc tiziano_sync_sensor_attr tisp_math_exp2 1/3
+argc tx_isp_ae_expoinfo_g_attr_isra_45 private_copy_to_user 2/3
+argc tx_isp_ae_expoinfo_g_attr_isra_45 tisp_g_ae_exprinfo_attr 1/2
+argc tx_isp_ae_scence_g_attr_isra_44 private_copy_to_user 2/3
+argc tx_isp_ae_scence_g_attr_isra_44 tisp_g_ae_scence_attr 1/2
+argc tx_isp_ae_weight_g_attr_isra_48 private_copy_to_user 2/3
+argc tx_isp_ae_weight_g_attr_isra_48 tisp_g_ae_weight_attr 1/2
+argc tx_isp_autozoom_g_attr_isra_34 private_copy_to_user 2/3
+argc tx_isp_autozoom_g_attr_isra_34 tisp_g_autozoom_control 1/2
+argc tx_isp_awb_attr_g_attr_isra_41 private_copy_to_user 2/3
+argc tx_isp_awb_attr_g_attr_isra_41 tisp_g_awb_attr 1/2
+argc tx_isp_awb_weight_g_attr_isra_40 private_copy_to_user 2/3
+argc tx_isp_awb_weight_g_attr_isra_40 tisp_g_awb_weight_attr 1/2
+argc tx_isp_gamma_g_attr_isra_32 private_copy_to_user 2/3
+argc tx_isp_gamma_g_attr_isra_32 tisp_g_Gamma 1/2
+argc tx_isp_mask_g_attr_isra_35 tisp_g_mscaler_mask_attr 1/2
+argc tx_isp_module_ratio_g_attr_isra_50 tisp_g_module_ratio_attr 1/2
+argc tx_isp_statis_config_g_attr_isra_49 private_copy_to_user 2/3
+argc tx_isp_statis_config_g_attr_isra_49 tisp_g_statis_config_attr 1/2
+argc tx_isp_vin_slake_subdev subdev_sensor_ops_set_input 1/3
+argc tx_isp_vin_slake_subdev tx_isp_vin_init 1/2
+argc video_input_cmd_set private_seq_printf 2/3
+scaled Tzn_Msca_init_cfg private_spin_lock_init s1 + 1856
+scaled __frame_channel_vb2_streamoff __vb2_queue_cancel s0 + 44
+scaled csi_phy_start __private_spin_lock_irqsave s0 + 592
+scaled csi_phy_start __private_spin_lock_irqsave s0 + 592
+scaled frame_chan_event __private_spin_lock_irqsave s0 + 720
+scaled frame_chan_event private_complete s0 + 744
+scaled frame_chan_event private_wake_up s0 + 568
+scaled frame_channel_release __vb2_queue_free s0 + 44
+scaled fs_core_ops_ioctl tx_isp_frame_chan_misc_register s1 + 5400
+scaled fs_slake_module __vb2_queue_free s0 + 44
+scaled func_adr_reg_write_sometimes system_reg_write s0 + 24
+scaled isp_framesource_show __private_spin_lock_irqsave s0 + 720
+scaled isp_save_cmd_set isp_printf s0 - 1
+scaled ispcore_interrupt_service_routine system_reg_read a2 + 24968
+scaled ispcore_interrupt_service_routine system_reg_read a2 + 26612
+scaled ispcore_pad_event_handle __private_spin_lock_irqsave s0 + 164
+scaled ispcore_pad_event_handle __private_spin_lock_irqsave s2 + 164
+scaled ispcore_pad_event_handle __private_spin_lock_irqsave s4 + 164
+scaled ispvic_frame_get_raw private_wait_for_completion_timeout s0 + 672
+scaled tisp_blc_ag_interp tisp_simple_intp_int16 s1 + 102
+scaled tisp_blc_ag_interp tisp_simple_intp_int16 s1 + 58
+scaled tisp_blc_ag_interp tisp_simple_intp_int16 s1 + 80
+scaled tisp_clm_write_csc_para system_reg_write s4 + 8200
+scaled tisp_clm_write_csc_para system_reg_write s4 + 8204
+scaled tisp_clm_write_csc_para system_reg_write s4 + 8208
+scaled tisp_clm_write_csc_para system_reg_write s4 + 8212
+scaled tisp_clm_write_csc_para system_reg_write s4 + 8216
+scaled tisp_clm_write_csc_para system_reg_write s4 + 8328
+scaled tisp_clm_write_csc_para system_reg_write s4 + 8332
+scaled tisp_clm_write_csc_para system_reg_write s4 + 8336
+scaled tisp_clm_write_csc_para system_reg_write s4 + 8340
+scaled tisp_clm_write_csc_para system_reg_write s4 + 8344
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 108
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 112
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 336
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 340
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 344
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 348
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 352
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 356
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 360
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 364
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 368
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 372
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 376
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 380
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 452
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 464
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 476
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 480
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 500
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 512
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 84
+scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 88
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 440
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 444
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 456
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 468
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 548
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 56
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 564
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 588
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 592
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 596
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 600
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 604
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 608
+scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 612
+scaled tisp_gsm_single_get_hist system_reg_write s4 + 432
+scaled tisp_hldc_con_par_cfg system_reg_write s1 + 12
+scaled tisp_hldc_con_par_cfg system_reg_write s1 + 16
+scaled tisp_hldc_con_par_cfg system_reg_write s1 + 20
+scaled tisp_hldc_con_par_cfg system_reg_write s1 + 24
+scaled tisp_hldc_con_par_cfg system_reg_write s1 + 28
+scaled tisp_hldc_con_par_cfg system_reg_write s1 + 32
+scaled tisp_hldc_con_par_cfg system_reg_write s1 + 36
+scaled tisp_hldc_con_par_cfg system_reg_write s1 + 4
+scaled tisp_hldc_con_par_cfg system_reg_write s1 + 40
+scaled tisp_hldc_con_par_cfg system_reg_write s1 + 8
+scaled tisp_lce_get_show_data lce_compress_data s0 + 15000
+scaled tisp_lce_get_show_data lce_compress_data s0 + 15128
+scaled tisp_lce_get_show_data lce_compress_data s0 + 15384
+scaled tisp_lce_get_show_data lce_compress_data s0 + 15512
+scaled tisp_lce_get_show_data lce_compress_data_part_1 s0 + 10740
+scaled tisp_lsc_mirror_flip tisp_lsc_upside_down_lut s0 + 14116
+scaled tisp_lsc_mirror_flip tisp_lsc_upside_down_lut s0 + 27940
+scaled tisp_lsc_mirror_flip tisp_lsc_upside_down_lut s0 + 292
+scaled tisp_main_init system_reg_write s1 + 24724
+scaled tisp_main_init system_reg_write s1 + 24728
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 256
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 340
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 344
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 348
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 352
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 356
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 360
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 364
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 404
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 436
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 464
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 468
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 484
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 488
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 492
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 500
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 504
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 516
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 520
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 524
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 576
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 584
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 600
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 604
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 608
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 620
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 624
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 628
+scaled tisp_mdns_reg_cfg system_reg_write s0 + 676
+scaled tisp_s_defog_ratio tisp_defog_strength_itp s3 + 104
+scaled tisp_s_defog_ratio tisp_defog_strength_itp s3 + 113
+scaled tisp_s_defog_ratio tisp_defog_strength_itp s3 + 122
+scaled tisp_s_defog_ratio tisp_defog_strength_itp s3 + 131
+scaled tisp_s_defog_ratio tisp_defog_strength_itp s3 + 764
+scaled tisp_s_defog_ratio tisp_defog_strength_itp s3 + 773
+scaled tisp_s_defog_ratio tisp_defog_strength_itp s3 + 782
+scaled tisp_s_defog_ratio tisp_defog_strength_itp s3 + 791
+scaled tisp_s_defog_str_internal tisp_defog_strength_itp s0 + 113
+scaled tisp_s_defog_str_internal tisp_defog_strength_itp s0 + 122
+scaled tisp_s_defog_str_internal tisp_defog_strength_itp s0 + 131
+scaled tisp_s_defog_str_internal tisp_defog_strength_itp s0 + 773
+scaled tisp_s_defog_str_internal tisp_defog_strength_itp s0 + 782
+scaled tisp_s_defog_str_internal tisp_defog_strength_itp s0 + 791
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 140
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 144
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 152
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 352
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 356
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 404
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 408
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 428
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 432
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 468
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 472
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 476
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 480
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 484
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 488
+scaled tisp_sdns_noref_reg_cfg system_reg_write s1 + 492
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 156
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 16
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 20
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 320
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 324
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 328
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 332
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 336
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 340
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 344
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 348
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 364
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 368
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 372
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 412
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 416
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 420
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 424
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 500
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 508
+scaled tisp_sdns_ref_reg_cfg system_reg_write s1 + 64
+scaled tisp_sec_init system_reg_write s1 + 28816
+scaled tisp_sec_init system_reg_write s1 + 28820
+scaled tisp_sec_init system_reg_write s1 + 28824
+scaled tisp_tstp_mark1_func system_reg_write s1 + 100
+scaled tisp_tstp_mark1_func system_reg_write s1 + 104
+scaled tisp_tstp_mark1_func system_reg_write s1 + 108
+scaled tisp_tstp_mark1_func system_reg_write s1 + 112
+scaled tisp_tstp_mark1_func system_reg_write s1 + 116
+scaled tisp_tstp_mark1_func system_reg_write s1 + 120
+scaled tisp_tstp_mark1_func system_reg_write s1 + 124
+scaled tisp_tstp_mark1_func system_reg_write s1 + 128
+scaled tisp_tstp_mark1_func system_reg_write s1 + 132
+scaled tisp_tstp_mark1_func system_reg_write s1 + 136
+scaled tisp_tstp_mark1_func system_reg_write s1 + 140
+scaled tisp_tstp_mark1_func system_reg_write s1 + 80
+scaled tisp_tstp_mark1_func system_reg_write s1 + 84
+scaled tisp_tstp_mark1_func system_reg_write s1 + 88
+scaled tisp_tstp_mark1_func system_reg_write s1 + 92
+scaled tisp_tstp_mark1_func system_reg_write s1 + 96
+scaled tisp_wdr_direct_reg_refresh system_reg_write s1 + 1040
+scaled tisp_wdr_direct_reg_refresh system_reg_write s2 + 892
+scaled tisp_wdr_process_init private_kmalloc a1 + 192
+scaled tisp_wdr_process_init private_kmalloc a1 + 192
+scaled tisp_wdr_process_init private_kmalloc a1 + 192
+scaled tisp_wdr_process_init private_kmalloc a1 + 192
+scaled tisp_wdr_process_init private_kmalloc a1 + 192
+scaled tisp_wdr_process_init private_kmalloc a1 + 192
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 1012
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 1016
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 1020
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 1024
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 752
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 756
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 760
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 764
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 768
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 772
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 776
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 780
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 784
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 788
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 792
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 796
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 800
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 804
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 808
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 812
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 816
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 820
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 824
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 828
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 832
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 836
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 840
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 844
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 848
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 852
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 856
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 904
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 908
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 928
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 936
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 940
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 944
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 952
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 960
+scaled tisp_wdr_softout_reg_refresh system_reg_write s1 + 988
+scaled tisp_yuv_input_set_csc_version system_reg_write s1 + 32
+scaled tiziano_save_to_local tiziano_load_custom s3 + 8
+scaled tx_isp_create_graph_and_nodes private_misc_deregister v0 + 12
+scaled tx_isp_create_graph_and_nodes private_misc_register s0 + 12
+scaled tx_isp_csi_activate_subdev private_mutex_unlock s0 + 576
+scaled tx_isp_probe private_misc_register s0 + 12
+scaled tx_isp_probe private_spin_lock_init s0 + 284
+scaled tx_isp_subdev_deinit tx_isp_free_irq s0 + 132
+scaled tx_isp_subdev_init private_iounmap s0 + 232
+scaled tx_isp_vin_probe private_raw_mutex_init s0 + 296
+scaled tx_isp_vin_slake_subdev private_mutex_lock s0 + 296
