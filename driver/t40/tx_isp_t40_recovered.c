@@ -29967,14 +29967,18 @@ static long t40_framechan_qbuf(int channel, unsigned char *ctx, unsigned long ar
     *(uint32_t *)(buf + REGTRACE_FRAMECHAN_BUFFER_TIMESTAMP1_OFFSET) = words[6];
     *(uint32_t *)(buf + REGTRACE_FRAMECHAN_BUFFER_FLAGS_OFFSET) = words[3] & 0xffff1bb8U;
 
-    /* OEM: mips_dma_map_ops->sync_single_for_device(NULL, phys, length, DMA_FROM_DEVICE) */
-    if (phys && length)
-        dma_sync_single_for_device(NULL, phys, length, DMA_FROM_DEVICE);
+    /*
+     * OEM: mips_dma_map_ops->sync_single_for_device(NULL, phys, length,
+     * DMA_FROM_DEVICE) here.  The cache maintenance of this driver happens
+     * where the frame is handed to the MSCA FIFO (regtrace_core_program_qbuf,
+     * framechan_dma_sync_qbuf), i.e. once per queued frame as in the OEM.
+     */
 
     /* OEM: channel 0 with isp_ch0_pre_dequeue_time set marks the frame start */
     if (isp_ch0_pre_dequeue_time &&
-        *(uint32_t *)(ctx + REGTRACE_FRAMECHAN_INDEX_OFFSET) == 0 && phys)
-        *(volatile uint32_t *)CKSEG1ADDR(phys) = 0x12345678U;
+        *(uint32_t *)(ctx + REGTRACE_FRAMECHAN_INDEX_OFFSET) == 0 &&
+        phys && regtrace_phys_is_dram(phys))
+        *(volatile uint32_t *)CKSEG1ADDR(regtrace_untag_phys(phys)) = 0x12345678U;
 
     *(uint32_t *)(buf + REGTRACE_FRAMECHAN_BUFFER_EVENT_PAYLOAD_OFFSET) =
         (uint32_t)(uintptr_t)(buf + REGTRACE_FRAMECHAN_BUFFER_EVENT_PAYLOAD_OFFSET);
