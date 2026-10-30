@@ -30310,8 +30310,9 @@ static long regtrace_framechan_ioctl(struct file *file, unsigned int cmd, unsign
         return ret;
     }
     /* not a frame-channel request the regtrace layer knows: OEM unknown exit */
-    ret = t40_framechan_oem_ioctl(channel, ctx ? ctx : regtrace_framechan_context[channel],
-                                  cmd, arg);
+    if (!ctx && channel >= 0 && channel < 4)
+        ctx = regtrace_framechan_context[channel];
+    ret = t40_framechan_oem_ioctl(channel, ctx, cmd, arg);
     regtrace_framechan_note_ret(channel, ret);
     printk(KERN_INFO "tx_isp_t40_recovered: framechan%d ioctl cmd=0x%x ret=%ld\n",
            channel, cmd, ret);
