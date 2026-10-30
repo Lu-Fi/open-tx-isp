@@ -60666,6 +60666,21 @@ print_error_and_return:
     return 0xfffffff2;
 }
 
+/* #154: the ISP error-mask word the 0x5413/0x5414 (WDR switch) ioctls save, zero and restore:
+ * *(core + 232) + 0x40000 + 0x60 in the OEM, unchecked.  On the Eufy T40XP the WDR enable step oopsed at
+ * BadVA 0x40060 (core regs window pointer NULL on that path); NULL here = skip the save/restore. */
+static uintptr_t t40_ioctl_errmask_reg(uintptr_t core)
+{
+    uintptr_t regs;
+
+    if (!regtrace_is_kernel_ptr((void *)core))
+        return 0;
+    regs = regtrace_get_u32(core, 232);
+    if (!regtrace_is_kernel_ptr((void *)regs))
+        return 0;
+    return regs + 0x40000;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000012308 origin=fragment_seed original=tx_isp_unlocked_ioctl */
 int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
@@ -62797,11 +62812,12 @@ tx_isp_unlocked_ioctl0x1884:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x187c; }
 
     /* fragment 461: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 232);
-    v1 = 262144;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-    s2 = *(uint32_t *)((char *)v0 + 96);
-    *(uint32_t *)((char *)v0 + 96) = 0;
+    v0 = (uintptr_t *)t40_ioctl_errmask_reg((uintptr_t)s0);   /* #154: NULL-safe (OEM *(core+232) + 0x40000) */
+    s2 = 0;
+    if (v0) {
+        s2 = *(uint32_t *)((char *)v0 + 96);
+        *(uint32_t *)((char *)v0 + 96) = 0;
+    }
 
     /* fragment 462: Branch */
     v0 = (*__p_70);
@@ -62864,10 +62880,10 @@ tx_isp_unlocked_ioctl0x195c:
     *(uint32_t *)((char *)v0 + 160) = 0;
     *(uint32_t *)((char *)v0 + 280) = 0;
     *(uint32_t *)((char *)v0 + 164) = 0;
-    v0 = *(uint32_t *)((char *)s0 + 232);
+    v0 = (uintptr_t *)t40_ioctl_errmask_reg((uintptr_t)s0);
     s0 = 0;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-    *(uint32_t *)((char *)v0 + 96) = s2;
+    if (v0)
+        *(uint32_t *)((char *)v0 + 96) = s2;
 
     /* fragment 477: Branch */
     goto tx_isp_unlocked_ioctl0x838;
@@ -62926,11 +62942,12 @@ tx_isp_unlocked_ioctl0x1a20:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1a18; }
 
     /* fragment 488: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 232);
-    v1 = 262144;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-    s2 = *(uint32_t *)((char *)v0 + 96);
-    *(uint32_t *)((char *)v0 + 96) = 0;
+    v0 = (uintptr_t *)t40_ioctl_errmask_reg((uintptr_t)s0);   /* #154: NULL-safe (OEM *(core+232) + 0x40000) */
+    s2 = 0;
+    if (v0) {
+        s2 = *(uint32_t *)((char *)v0 + 96);
+        *(uint32_t *)((char *)v0 + 96) = 0;
+    }
 
     /* fragment 489: Branch */
     if (s0 == 0) { goto tx_isp_unlocked_ioctl0x1ac8; }
@@ -62981,11 +62998,10 @@ tx_isp_unlocked_ioctl0x1ac8:
     *(uint32_t *)((char *)s1 + 160) = 0;
     *(uint32_t *)((char *)s1 + 280) = 0;
     *(uint32_t *)((char *)s1 + 164) = 0;
-    v0 = *(uint32_t *)((char *)s0 + 232);
-    v1 = 262144;
+    v0 = (uintptr_t *)t40_ioctl_errmask_reg((uintptr_t)s0);
     s0 = 0;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-    *(uint32_t *)((char *)v0 + 96) = s2;
+    if (v0)
+        *(uint32_t *)((char *)v0 + 96) = s2;
 
     /* fragment 502: Branch */
     goto tx_isp_unlocked_ioctl0x838;
