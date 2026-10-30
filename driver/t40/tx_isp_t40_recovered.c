@@ -25210,6 +25210,7 @@ struct regtrace_t40_awb_custom_wire {
     uint32_t ct_node[4];
 };
 
+static uint32_t t40_awb_set_ct, t40_awb_set_start_en, t40_awb_set_start[2];   /* H2: last SetAwbAttr ct / start (ch 0) */
 struct regtrace_t40_awb_attr_wire {
     uint32_t mode;
     struct regtrace_t40_awb_gain_wire gain;
@@ -25229,6 +25230,14 @@ static void regtrace_t40_awb_attr_snapshot(
     attr->gain.bgain = READ_ONCE(regtrace_awb_grayworld_last_bgain);
     attr->frozen = READ_ONCE(regtrace_awb_control_frozen) ? 1U : 0U;
     attr->start = attr->gain;
+    /* H2: ct and start gains as last set through tisp_s_awb_attr (OEM keeps them in the AWB
+     * context and the tuning attr block); before any set: ct 0, start = current gains */
+    attr->ct = READ_ONCE(t40_awb_set_ct);
+    attr->start_enabled = READ_ONCE(t40_awb_set_start_en);
+    if (attr->start_enabled == 1U) {
+        attr->start.rgain = READ_ONCE(t40_awb_set_start[0]);
+        attr->start.bgain = READ_ONCE(t40_awb_set_start[1]);
+    }
 }
 
 static int regtrace_t40_tuning_get_awb_attr(uintptr_t user_ptr)
@@ -90547,64 +90556,32 @@ int32_t *tisp_awb_get_zone(int32_t arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034438 origin=fragment_seed original=tisp_awb_set_start */
 int32_t tisp_awb_set_start(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *a2 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+    /*
+     * H2 (review-week-1030): hand translation of OEM tisp_awb_set_start (Eufy 0x339a8).
+     * ori = pst{Main,Sec}AwbOri; the convergence state *(ori + 20) gets the start gains
+     * {r, b, r, b} at +8/+12/+16/+20, the day bank tparams_day[vinum] the same four words at
+     * +4420..+4432, then tail call tisp_awb_set_gain(ori, vinum & 0xff).  The lift dropped the
+     * jr.hb tail call and stored through unchecked pointers; an AWB context that the vendor AWB
+     * chain has not set up yet is skipped (returns -1).
+     */
+    uint8_t *ori = a0 ? (uint8_t *)pstSecAwbOri : (uint8_t *)pstMainAwbOri;
+    uint32_t *st = (uint32_t *)(uintptr_t)*(uint32_t *)(ori + 20);
+    const uint32_t *g = (const uint32_t *)a1;
+    uint8_t *bank = a0 ? NULL : (uint8_t *)(uintptr_t)tparams_day;   /* tparams_day[1] does not exist here */
 
-    /* fragment 0: Branch */
-    if (a0 != 0) { goto tisp_awb_set_start0x88; }
-
-    /* fragment 1: ConstantLoad */
-    v0 = ((char *)&pstMainAwbOri);
-
-tisp_awb_set_start0x10:
-    /* fragment 2: MemoryAccess */
-    a2 = *(uint32_t *)((char *)a1 + 0);
-    v1 = *(uint32_t *)((char *)v0 + 20);
-    t9 = (uintptr_t)&tisp_awb_set_gain;
-    t9 = t9;
-    *(uint32_t *)((char *)v1 + 8) = a2;
-    a2 = *(uint32_t *)((char *)a1 + 4);
-    v1 = *(uint32_t *)((char *)v0 + 20);
-    *(uint32_t *)((char *)v1 + 12) = a2;
-    a2 = *(uint32_t *)((char *)a1 + 0);
-    v1 = *(uint32_t *)((char *)v0 + 20);
-    *(uint32_t *)((char *)v1 + 16) = a2;
-    a2 = *(uint32_t *)((char *)a1 + 4);
-    v1 = *(uint32_t *)((char *)v0 + 20);
-    *(uint32_t *)((char *)v1 + 20) = a2;
-    a2 = (uint32_t *)&tparams_day;
-    v1 = a0 << 2;
-    a2 = a2;
-    v1 = (uintptr_t)v1 + (uintptr_t)a2;
-    v1 = *(uint32_t *)((char *)v1 + 0);
-    a2 = *(uint32_t *)((char *)a1 + 0);
-    *(uint32_t *)((char *)v1 + 4420) = a2;
-    a2 = *(uint32_t *)((char *)a1 + 4);
-    *(uint32_t *)((char *)v1 + 4424) = a2;
-    a2 = *(uint32_t *)((char *)a1 + 0);
-    *(uint32_t *)((char *)v1 + 4428) = a2;
-    a1 = *(uint32_t *)((char *)a1 + 4);
-    *(uint32_t *)((char *)v1 + 4432) = a1;
-    a1 = a0 & 255;
-
-    /* fragment 3: Unknown */
-    /* unmatched fragment 3 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 344b8:	03200408 	jr.hb	t9 */
-
-    /* fragment 4: Arithmetic */
-    a0 = v0;
-
-tisp_awb_set_start0x88:
-    /* fragment 5: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 6: Branch */
-    v0 = (uintptr_t *)((char *)&pstSecAwbOri);
-    goto tisp_awb_set_start0x10;
-
-    return 0;
+    if (!g || !regtrace_is_kernel_ptr(st))
+        return -1;
+    st[2] = g[0];
+    st[3] = g[1];
+    st[4] = g[0];
+    st[5] = g[1];
+    if (regtrace_is_kernel_ptr(bank)) {
+        *(uint32_t *)(bank + 4420) = g[0];
+        *(uint32_t *)(bank + 4424) = g[1];
+        *(uint32_t *)(bank + 4428) = g[0];
+        *(uint32_t *)(bank + 4432) = g[1];
+    }
+    return (int32_t)tisp_awb_set_gain((uintptr_t)ori, a0 & 0xffU);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000344cc origin=model_output original=tisp_awb_set_mode */
@@ -90715,35 +90692,17 @@ tisp_awb_get_frz0x20:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000347a0 origin=fragment_seed original=tisp_awb_set_ct */
 int64_t tisp_awb_set_ct(uint32_t a0, uintptr_t a1)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    /*
+     * H2 (review-week-1030): OEM tisp_awb_set_ct (Eufy 0x33d10): *(u32 *)*(ori + 484) = *(u32 *)a1
+     * with ori = pst{Main,Sec}AwbOri.  The lift returned before the store (the ct never landed).
+     */
+    uint8_t *ori = a0 ? (uint8_t *)pstSecAwbOri : (uint8_t *)pstMainAwbOri;
+    uint32_t *ct = (uint32_t *)(uintptr_t)*(uint32_t *)(ori + 484);
 
-    /* fragment 0: Branch */
-    v0 = (uintptr_t *)&isp_memopt;
-    if (a0 != 0) { goto tisp_awb_set_ct0x20; }
-
-    /* fragment 1: ConstantLoad */
-    v0 = ((char *)&pstMainAwbOri);
-
-tisp_awb_set_ct0x10:
-    /* fragment 2: MemoryAccess */
-    v0 = *(uint32_t *)((char *)v0 + 484);
-    v1 = *(uint32_t *)((char *)a1 + 0);
-
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-    /* fragment 4: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 0) = v1;
-
-tisp_awb_set_ct0x20:
-    /* fragment 5: Branch */
-    v0 = (uintptr_t *)((char *)&pstSecAwbOri);
-    goto tisp_awb_set_ct0x10;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    if (!a1 || !regtrace_is_kernel_ptr(ct))
+        return -1;
+    *ct = *(const uint32_t *)a1;
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000347c8 origin=fragment_seed original=tisp_awb_set_statis_localtion */
@@ -163979,6 +163938,13 @@ int32_t tisp_s_awb_attr(uint32_t a0, uintptr_t a1)
     local_14 = *(uint32_t *)((char *)(a1) + 4);
     local_18 = *(uint32_t *)((char *)(a1) + 8);
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_set_mode)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
+    if (a0 == 0 && a1) {
+        /* H2: remember ct / start for GetAwbAttr (regtrace_t40_awb_attr_snapshot) */
+        WRITE_ONCE(t40_awb_set_ct, *(const uint32_t *)((const char *)a1 + 16));
+        WRITE_ONCE(t40_awb_set_start_en, *(const uint32_t *)((const char *)a1 + 64));
+        WRITE_ONCE(t40_awb_set_start[0], *(const uint32_t *)((const char *)a1 + 68));
+        WRITE_ONCE(t40_awb_set_start[1], *(const uint32_t *)((const char *)a1 + 72));
+    }
 
     /* fragment 2: MemoryAccess */
     v1 = *(uint32_t *)((char *)s0 + 64);
@@ -163990,7 +163956,7 @@ int32_t tisp_s_awb_attr(uint32_t a0, uintptr_t a1)
     if (_bc_v1_3) { goto tisp_s_awb_attr0x6c; }
 
     /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_set_start)(s1, s0 + 68); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_set_start)(s1, (uintptr_t)s0 + 68); /* OEM 0x7384c addiu a1,s0,68 (byte offset; the uintptr_t* lift added 272) */
 
 tisp_s_awb_attr0x6c:
     /* fragment 5: CallSetup */
@@ -164006,7 +163972,7 @@ tisp_s_awb_attr0x6c:
     if (_bc_v1_7) { goto tisp_s_awb_attr0xa0; }
 
     /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_set_ct)(s1, s0 + 16); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_awb_set_ct)(s1, (uintptr_t)s0 + 16); /* OEM 0x73880 addiu a1,s0,16 (byte offset; the lift added 64) */
 
 tisp_s_awb_attr0xa0:
     /* fragment 9: CallSetup */
