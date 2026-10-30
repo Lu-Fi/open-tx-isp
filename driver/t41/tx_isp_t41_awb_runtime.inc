@@ -338,8 +338,8 @@ static int t41_native_awb_deinit(unsigned int channel)
     ((uint32_t *)(void *)tpm_cb_storage)[3]=0;
     ((uint32_t *)(void *)tpm_cb_storage)[4]=0;
     ((uint32_t *)(void *)tpm_cb_storage)[5]=0;
-    /* Review2 M3: stop the AWB statistics DMA before its ring is freed. */
-    if (s) { system_reg_write(0x1804c,0); private_kfree(s->dma); vfree(s); }
+    /* As the OEM: 0x1804c is not cleared (0 = one buffer, not off). */
+    if (s) { private_kfree(s->dma); vfree(s); }
 #ifdef __KERNEL__
     if (t41_awb_dump_buf) { remove_proc_entry("t41_awb_dump",NULL); vfree(t41_awb_dump_buf); t41_awb_dump_buf=NULL; }
 #endif
