@@ -164789,8 +164789,8 @@ ispcore_frame_channel_streamoff0x104:
     if (s6 != v0) { goto ispcore_frame_channel_streamoff0xd8; }
 
     /* fragment 26: CallSetup */
-    s5 = s0 + 164;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s0 + 164, &local_10); /* jalr target resolved by relocation */
+    s5 = (uintptr_t)s0 + 164;  /* #agg51: byte (OEM addiu s5,s0,164) */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)((uintptr_t)s0 + 164, &local_10); /* #agg51: byte offset, the channel lock of tx_isp_core_probe */ /* jalr target resolved by relocation */
 
     /* fragment 27: MemoryAccess */
     v1 = *(uint32_t *)((char *)s0 + 124);
@@ -164803,14 +164803,14 @@ ispcore_frame_channel_streamoff0x104:
     if (v1 == s6) { goto ispcore_frame_channel_streamoff0x154; }
 
     /* fragment 29: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(a0, (uintptr_t)a1); /* #agg51: OEM 0x75814 a1 = saved flags (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 30: Branch */
     goto ispcore_frame_channel_streamoff0xdc;
 
 ispcore_frame_channel_streamoff0x154:
     /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_spin_unlock_irqrestore)(a0, (uintptr_t)a1); /* #agg51: OEM 0x75814 a1 = saved flags (the lift dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 32: MemoryAccess */
     v0 = *(uint32_t *)((char *)s0 + 112);
@@ -171053,10 +171053,10 @@ int64_t ispcore_video_s_stream(uintptr_t a0, uintptr_t a1)
     /* fragment 1: CallSetup */
     s1 = *(uint32_t *)((char *)(a0) + 268);
     s7 = a1;
-    s4 = s1 + 276;
+    s4 = (uintptr_t)s1 + 276;  /* #agg51: byte (OEM addiu) */
     s0 = a0;
     local_1c = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)(s1 + 276, &local_1c); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)__private_spin_lock_irqsave)((uintptr_t)s1 + 276, &local_1c); /* #agg51: byte offset, the core lock of tx_isp_core_probe */ /* jalr target resolved by relocation */
 
     /* fragment 2: MemoryAccess */
     v0 = *(uint32_t *)((char *)s7 + 4);
@@ -172822,10 +172822,10 @@ tx_isp_core_probe0x13c:
 
 tx_isp_core_probe0x154:
     /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_lock_init)(s0 + 276); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_spin_lock_init)((uintptr_t)s0 + 276); /* #agg51: byte offset (OEM 0x7a458 addiu a0,s0,276), was x4 = +1104 */ /* jalr target resolved by relocation */
 
     /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_raw_mutex_init)(s0 + 280, &LC178, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_raw_mutex_init)((uintptr_t)s0 + 280, &LC178, 0); /* #agg51: byte offset, was x4 = +1120 */ /* jalr target resolved by relocation */
 
     /* fragment 17: CallSetup */
     s8 = 216;
@@ -172974,7 +172974,7 @@ tx_isp_core_probe0x344:
     local_28 = a1;
     local_24 = a2;
     local_20 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_spin_lock_init)(s1 + 164, a1, a2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_spin_lock_init)((uintptr_t)s1 + 164, a1, a2); /* #agg51: byte offset (OEM 0x7a64c addiu a0,s1,164), was x4 = +656 */ /* jalr target resolved by relocation */
 
     /* fragment 47: MemoryAccess */
     *(uint32_t *)((char *)s1 + 132) = s0;
