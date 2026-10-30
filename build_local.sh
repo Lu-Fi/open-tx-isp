@@ -86,5 +86,10 @@ if [ "$GOAL" = modules ]; then
 	if [ -f "$ko" ]; then
 		"$HERE/tests/check_isp_exports.sh" "${SOC:-t31}" "$ko" "${CROSS}readelf" ||
 			{ echo "ko export check FAILED"; exit 1; }
+		# T40/T41 only for now (the other SoCs' lifts were not swept for self loops yet)
+		case "${SOC:-t31}" in t40|t41)
+			"$HERE/tests/check_ko_selfloops.sh" "${CROSS}objdump" "$ko" ||
+				{ echo "ko self-loop check FAILED"; exit 1; } ;;
+		esac
 	fi
 fi
