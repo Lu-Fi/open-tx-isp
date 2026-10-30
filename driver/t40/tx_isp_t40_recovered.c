@@ -68031,7 +68031,8 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                         tisp_set_ae_info(tisp_par_ioctl);
                         return 0;
                     }
-                    isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl");
+                    isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n",
+                               "tisp_code_tuning_ioctl", __LINE__, "tisp_code_tuning_ioctl", __LINE__);
                     return 0xfffffff2;
 
                 case 0x20007406:
@@ -68042,7 +68043,8 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                         tisp_set_ae_minmax(tisp_par_ioctl);
                         return 0;
                     }
-                    isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl");
+                    isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n",
+                               "tisp_code_tuning_ioctl", __LINE__, "tisp_code_tuning_ioctl", __LINE__);
                     return 0xfffffff2;
 
                 case 0x20007407:
@@ -68062,22 +68064,23 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                         tisp_set_awb_info(tisp_par_ioctl);
                         return 0;
                     }
-                    isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl");
+                    isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n",
+                               "tisp_code_tuning_ioctl", __LINE__, "tisp_code_tuning_ioctl", __LINE__);
                     return 0xfffffff2;
 
                 default:
                     break;
             }
 
-            isp_printf(2, "[%s %d] get ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl");
+            isp_printf(2, "[%s %d] get ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl", __LINE__);
             return 0xfffffff2;
         }
     }
 
     if (type == 0x74) {
-        isp_printf(2, "[%s %d] _IOC_NR error !!! cmd is %d\n", "tisp_code_tuning_ioctl");
+        isp_printf(2, "[%s %d] _IOC_NR error !!! cmd is %d\n", "tisp_code_tuning_ioctl", __LINE__, cmd);
     } else {
-        isp_printf(2, "[%s %d] _IOC_TYPE error !!! cmd is %d\n", "tisp_code_tuning_ioctl");
+        isp_printf(2, "[%s %d] _IOC_TYPE error !!! cmd is %d\n", "tisp_code_tuning_ioctl", __LINE__, cmd);
     }
     return 0xffffffea;
 }
