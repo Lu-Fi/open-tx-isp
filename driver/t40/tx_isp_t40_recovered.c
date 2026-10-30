@@ -170659,7 +170659,7 @@ ispcore_irqstatus_func0xe4:
 
 ispcore_irqstatus_func0x10c:
     /* fragment 26: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_hv_flip_enable)(0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_hv_flip_enable)(0, (uintptr_t)a1); /* #agg51: OEM 0x78ea8 a1 = vflip<<1 | hflip (the lift computed it and dropped it) */ /* jalr target resolved by relocation */
 
     /* fragment 27: Branch */
     a0 = *(uint32_t *)((char *)(s0) + 992);
