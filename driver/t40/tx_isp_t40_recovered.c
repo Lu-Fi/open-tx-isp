@@ -25291,6 +25291,18 @@ static int regtrace_t40_tuning_set_awb_attr(uintptr_t user_ptr)
         WRITE_ONCE(regtrace_awb_manual_rgain, 0U);
         WRITE_ONCE(regtrace_awb_manual_bgain, 0U);
     }
+    /* H2 (review-week-1030): this is the live SetAwbAttr path (isp-m0 pointer tuning ioctl); it
+     * dropped the frozen CT and the start gains.  Apply them like OEM tisp_s_awb_attr does
+     * (awb_frz == 1 -> tisp_awb_set_ct(+16), awb_start_en == 1 -> tisp_awb_set_start(+68); both
+     * skip an AWB context the vendor chain has not set up) and remember them for GetAwbAttr. */
+    WRITE_ONCE(t40_awb_set_ct, attr.ct);
+    WRITE_ONCE(t40_awb_set_start_en, attr.start_enabled);
+    WRITE_ONCE(t40_awb_set_start[0], attr.start.rgain);
+    WRITE_ONCE(t40_awb_set_start[1], attr.start.bgain);
+    if (attr.frozen == 1U)
+        (void)tisp_awb_set_ct(0, (uintptr_t)&attr.ct);
+    if (attr.start_enabled == 1U)
+        (void)tisp_awb_set_start(0, (uintptr_t)&attr.start);
     mutex_unlock(&regtrace_t40_running_mode_lock);
     return 0;
 }
