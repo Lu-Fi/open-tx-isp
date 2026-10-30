@@ -60750,7 +60750,7 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     v1 = a1 < v1;
 
     /* fragment 5: Branch */
-    s3 = s2 - 12;
+    s3 = (uintptr_t *)((uintptr_t)s2 - 12);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     if (v1 == 0) { goto tx_isp_unlocked_ioctl0x3b0; }
 
     /* fragment 6: ConstantLoad */
@@ -60839,10 +60839,10 @@ tx_isp_unlocked_ioctl0xb8:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_20, s1, 8); /* jalr target resolved by relocation */
 
     /* fragment 23: Arithmetic */
-    s3 = s2 + 48;
+    s3 = (uintptr_t *)((uintptr_t)s2 + 48);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
 
     /* fragment 24: Branch */
-    s2 = s2 + 112;
+    s2 = (uintptr_t *)((uintptr_t)s2 + 112);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0x97c; }
 
     /* fragment 25: ConstantLoad */
@@ -60857,7 +60857,7 @@ tx_isp_unlocked_ioctl0xf4:
 
 tx_isp_unlocked_ioctl0x100:
     /* fragment 28: Arithmetic */
-    s3 = s3 + 4;
+    s3 = (uintptr_t *)((uintptr_t)s3 + 4);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
 
 tx_isp_unlocked_ioctl0x104:
     /* fragment 29: Branch */
@@ -60965,10 +60965,10 @@ tx_isp_unlocked_ioctl0x1e8:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_20, s1, 64); /* jalr target resolved by relocation */
 
     /* fragment 54: Arithmetic */
-    s3 = s2 + 48;
+    s3 = (uintptr_t *)((uintptr_t)s2 + 48);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
 
     /* fragment 55: Branch */
-    s2 = s2 + 112;
+    s2 = (uintptr_t *)((uintptr_t)s2 + 112);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0xe2c; }
 
     /* fragment 56: ConstantLoad */
@@ -60983,7 +60983,7 @@ tx_isp_unlocked_ioctl0x258:
 
 tx_isp_unlocked_ioctl0x264:
     /* fragment 59: Arithmetic */
-    s3 = s3 + 4;
+    s3 = (uintptr_t *)((uintptr_t)s3 + 4);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
 
 tx_isp_unlocked_ioctl0x268:
     /* fragment 60: Branch */
@@ -61034,10 +61034,10 @@ tx_isp_unlocked_ioctl0x2c4:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_20, s1, 80); /* jalr target resolved by relocation */
 
     /* fragment 72: Arithmetic */
-    s3 = s2 + 48;
+    s3 = (uintptr_t *)((uintptr_t)s2 + 48);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
 
     /* fragment 73: Branch */
-    s2 = s2 + 112;
+    s2 = (uintptr_t *)((uintptr_t)s2 + 112);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0x908; }
 
     /* fragment 74: ConstantLoad */
@@ -61052,7 +61052,7 @@ tx_isp_unlocked_ioctl0x318:
 
 tx_isp_unlocked_ioctl0x324:
     /* fragment 77: Arithmetic */
-    s3 = s3 + 4;
+    s3 = (uintptr_t *)((uintptr_t)s3 + 4);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
 
 tx_isp_unlocked_ioctl0x328:
     /* fragment 78: Branch */
@@ -61352,10 +61352,10 @@ tx_isp_unlocked_ioctl0x6fc:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_20, s1, 8); /* jalr target resolved by relocation */
 
     /* fragment 150: Arithmetic */
-    s3 = s2 + 48;
+    s3 = (uintptr_t *)((uintptr_t)s2 + 48);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
 
     /* fragment 151: Branch */
-    s2 = s2 + 112;
+    s2 = (uintptr_t *)((uintptr_t)s2 + 112);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0x9f0; }
 
     /* fragment 152: ConstantLoad */
@@ -61370,7 +61370,7 @@ tx_isp_unlocked_ioctl0x750:
 
 tx_isp_unlocked_ioctl0x75c:
     /* fragment 155: Arithmetic */
-    s3 = s3 + 4;
+    s3 = (uintptr_t *)((uintptr_t)s3 + 4);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
 
 tx_isp_unlocked_ioctl0x760:
     /* fragment 156: Branch */
@@ -61415,10 +61415,10 @@ tx_isp_unlocked_ioctl0x7bc:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_20, s1, 64); /* jalr target resolved by relocation */
 
     /* fragment 166: Arithmetic */
-    s1 = s2 + 48;
+    s1 = (uintptr_t *)((uintptr_t)s2 + 48);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
 
     /* fragment 167: Branch */
-    s2 = s2 + 112;
+    s2 = (uintptr_t *)((uintptr_t)s2 + 112);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     if (v0 != 0) { goto tx_isp_unlocked_ioctl0xdb8; }
 
     /* fragment 168: ConstantLoad */
@@ -61433,7 +61433,7 @@ tx_isp_unlocked_ioctl0x804:
 
 tx_isp_unlocked_ioctl0x810:
     /* fragment 171: Arithmetic */
-    s1 = s1 + 4;
+    s1 = (uintptr_t *)((uintptr_t)s1 + 4);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
 
 tx_isp_unlocked_ioctl0x814:
     /* fragment 172: Branch */
@@ -61541,7 +61541,7 @@ tx_isp_unlocked_ioctl0x940:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x324; }
 
     /* fragment 197: Branch */
-    s3 = s3 + 4;
+    s3 = (uintptr_t *)((uintptr_t)s3 + 4);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     if (v0 == s5) { goto tx_isp_unlocked_ioctl0x328; }
 
     /* fragment 198: Branch */
@@ -61583,7 +61583,7 @@ tx_isp_unlocked_ioctl0x9b4:
     if (v0 != s5) { goto tx_isp_unlocked_ioctl0x838; }
 
     /* fragment 208: Branch */
-    s3 = s3 + 4;
+    s3 = (uintptr_t *)((uintptr_t)s3 + 4);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     goto tx_isp_unlocked_ioctl0x104;
 
 tx_isp_unlocked_ioctl0x9f0:
@@ -61622,7 +61622,7 @@ tx_isp_unlocked_ioctl0xa28:
     if (v0 != s5) { goto tx_isp_unlocked_ioctl0x838; }
 
     /* fragment 218: Branch */
-    s3 = s3 + 4;
+    s3 = (uintptr_t *)((uintptr_t)s3 + 4);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     goto tx_isp_unlocked_ioctl0x760;
 
 tx_isp_unlocked_ioctl0xa64:
@@ -61720,7 +61720,7 @@ tx_isp_unlocked_ioctl0xdf0:
     if (v0 != s4) { goto tx_isp_unlocked_ioctl0x838; }
 
     /* fragment 293: Branch */
-    s1 = s1 + 4;
+    s1 = (uintptr_t *)((uintptr_t)s1 + 4);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     goto tx_isp_unlocked_ioctl0x814;
 
 tx_isp_unlocked_ioctl0xe2c:
@@ -61759,7 +61759,7 @@ tx_isp_unlocked_ioctl0xe64:
     if (v0 != s5) { goto tx_isp_unlocked_ioctl0x838; }
 
     /* fragment 303: Branch */
-    s3 = s3 + 4;
+    s3 = (uintptr_t *)((uintptr_t)s3 + 4);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     goto tx_isp_unlocked_ioctl0x268;
 
 tx_isp_unlocked_ioctl0xea0:
@@ -61782,7 +61782,7 @@ tx_isp_unlocked_ioctl0xeb4:
     /* fragment 308: MemoryAccess */
     v0 = *(uint32_t *)((char *)s2 + 48);
     s8 = -1024;
-    s3 = s4 + 30;
+    s3 = (uintptr_t *)((uintptr_t)s4 + 30);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v0 = *(uint32_t *)((char *)v0 + 268);
     s3 = (uintptr_t)s3 << 11;
     s2 = (uintptr_t *)&system_reg_write;
@@ -61791,12 +61791,12 @@ tx_isp_unlocked_ioctl0xeb4:
     s5 = a0 + (uintptr_t)v0;
     s6 = *(uint32_t *)((char *)s5 + 316);
     v0 = -16;
-    a0 = s3 + 112;
+    a0 = (uintptr_t)s3 + 112;  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s6 = s6 + 15;
     s6 = s6 & (uintptr_t)v0;
     v0 = *(uint32_t *)((char *)s5 + 320);
     v0 = s6 * (uintptr_t)v0;
-    s0 = v0 + 1023;
+    s0 = (uintptr_t *)((uintptr_t)v0 + 1023);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v0 = (uintptr_t)v0 >> 5;
     v0 = (uintptr_t)s0 + (uintptr_t)v0;
     s0 = (uintptr_t)v0 & s8;
@@ -61828,7 +61828,7 @@ tx_isp_unlocked_ioctl0xeb4:
 tx_isp_unlocked_ioctl0xf64:
     /* fragment 316: CallSetup */
     s1 = *(uint32_t *)((char *)(s5) + 316);
-    s1 = s1 + 31;
+    s1 = (uintptr_t *)((uintptr_t)s1 + 31);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s1 = (uintptr_t)s1 & a2;
     (*__p_84) = a2;
     s6 = ((uintptr_t)s1 * (*(uint32_t *)((char *)(s5) + 320))) >> 1;
@@ -61845,7 +61845,7 @@ tx_isp_unlocked_ioctl0xf64:
 
     /* fragment 319: StackAccess */
     v0 = (*__p_28);
-    s1 = s0 + s6;
+    s1 = (uintptr_t *)((uintptr_t)s0 + (uintptr_t)s6);  /* byte addu (OEM), not typed-pointer scale (#145) */
     v0 = v0 < s1;
 
     /* fragment 320: Branch */
@@ -61863,11 +61863,11 @@ tx_isp_unlocked_ioctl0xff8:
     /* fragment 323: CallSetup */
     s0 = *(uint32_t *)((char *)(s5) + 316);
     s6 = *(uint32_t *)((char *)(s5) + 320);
-    s0 = s0 + 7;
+    s0 = (uintptr_t *)((uintptr_t)s0 + 7);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s0 = (uintptr_t)s0 >> 3;
-    s0 = s0 + 1;
+    s0 = (uintptr_t *)((uintptr_t)s0 + 1);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s0 = (uintptr_t)s0 >> 1;
-    s0 = s0 + 7;
+    s0 = (uintptr_t *)((uintptr_t)s0 + 7);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s0 = (uintptr_t)s0 & (-8);
     s6 = (uintptr_t)s0 * s6;
     (*__p_84) = a2;
@@ -61914,11 +61914,11 @@ tx_isp_unlocked_ioctl0x108c:
 tx_isp_unlocked_ioctl0x10ac:
     /* fragment 332: CallSetup */
     s1 = *(uint32_t *)((char *)s5 + 320);
-    s0 = s0 + 31;
+    s0 = (uintptr_t *)((uintptr_t)s0 + 31);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s0 = (uintptr_t)s0 & a2;
     s1 = (uintptr_t)s0 * (uintptr_t)s1;
     s1 = (uintptr_t)s1 >> 1;
-    s1 = s1 + 1023;
+    s1 = (uintptr_t *)((uintptr_t)s1 + 1023);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s1 = (uintptr_t)s1 & s8;
 
 tx_isp_unlocked_ioctl0x10c8:
@@ -62045,29 +62045,29 @@ tx_isp_unlocked_ioctl0x1264:
     t0 = t0 * (uintptr_t)a3;
     v0 = (uintptr_t)v0 * (uintptr_t)a3;
     t2 = t0 >> 1;
-    t2 = t2 + 1023;
+    t2 = (uintptr_t *)((uintptr_t)t2 + 1023);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     t0 = t0 >> 7;
     t0 = t0 + (uintptr_t)t2;
     v1 = (uintptr_t)v0 >> 5;
-    v0 = v0 + 1023;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1023);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v1 = (uintptr_t)v1 + (uintptr_t)v0;
     v0 = -1024;
     v1 = (uintptr_t)v1 & (uintptr_t)v0;
     t0 = t0 & (uintptr_t)v0;
-    t0 = v1 + t0;
+    t0 = (uintptr_t)v1 + (uintptr_t)t0;  /* byte addu (OEM), not typed-pointer scale (#145) */
     v1 = a0 + 7;
 
     /* fragment 358: Arithmetic */
     v1 = (uintptr_t)v1 >> 3;
-    v1 = v1 + 1;
+    v1 = (uintptr_t *)((uintptr_t)v1 + 1);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v1 = (uintptr_t)v1 >> 1;
-    v1 = v1 + 7;
+    v1 = (uintptr_t *)((uintptr_t)v1 + 7);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v1 = (uintptr_t)v1 & (uintptr_t)t3;
     v1 = (uintptr_t)v1 * (uintptr_t)a3;
     v1 = (uintptr_t)v1 >> 3;
-    v1 = v1 + 1023;
+    v1 = (uintptr_t *)((uintptr_t)v1 + 1023);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v1 = (uintptr_t)v1 & (uintptr_t)v0;
-    v1 = v1 + t0;
+    v1 = (uintptr_t *)((uintptr_t)v1 + (uintptr_t)t0);  /* byte addu (OEM), not typed-pointer scale (#145) */
     t0 = 1;
 
     /* fragment 359: Branch */
@@ -62090,7 +62090,7 @@ tx_isp_unlocked_ioctl0x1338:
     a2 = a2 < 2;
 
     /* fragment 362: Branch */
-    v1 = v1 + a0;
+    v1 = (uintptr_t *)((uintptr_t)v1 + (uintptr_t)a0);  /* byte addu (OEM), not typed-pointer scale (#145) */
     if (a2 != 0) { goto tx_isp_unlocked_ioctl0x1368; }
 
     /* fragment 363: CallSetup */
@@ -62099,7 +62099,7 @@ tx_isp_unlocked_ioctl0x1338:
     v0 = (uintptr_t)v0 * (uintptr_t)a3;
     a0 = -1024;
     v0 = (uintptr_t)v0 >> 2;
-    v0 = v0 + 1023;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 1023);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v0 = (uintptr_t)v0 & a0;
     v1 = (uintptr_t)v1 + (uintptr_t)v0;
 
@@ -62177,7 +62177,7 @@ tx_isp_unlocked_ioctl0x1438:
     v1 = (uintptr_t)v0 + (uintptr_t)s1;
     s0 = *(uint32_t *)((char *)v1 + 324);
     v0 = 12;
-    s0 = s0 - 21000;
+    s0 = (uintptr_t *)((uintptr_t)s0 - 21000);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s0 = s0 < 4;
     s0 = v0;
     v0 = (uintptr_t)s1 + (uintptr_t)s3;
@@ -62217,7 +62217,7 @@ tx_isp_unlocked_ioctl0x14a8:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC14, &__param_str_isp_dual_buf, 884); /* jalr target resolved by relocation */
 
     /* fragment 386: Arithmetic */
-    v0 = s3 + 182;
+    v0 = (uintptr_t *)((uintptr_t)s3 + 182);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v0 = (uintptr_t)v0 << 2;
     v0 = (uintptr_t)s1 + (uintptr_t)v0;
 
@@ -62401,11 +62401,11 @@ tx_isp_unlocked_ioctl0x16b0:
     v0 = (uintptr_t)v1 * a1;
     t0 = 10;
     a3 = 12;
-    a1 = v0 + a0;
+    a1 = (uintptr_t)v0 + (uintptr_t)a0;  /* byte addu (OEM), not typed-pointer scale (#145) */
 
     /* fragment 429: MemoryAccess */
     v0 = *(uint32_t *)((char *)a1 + 324);
-    v0 = v0 - 21000;
+    v0 = (uintptr_t *)((uintptr_t)v0 - 21000);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v0 = v0 < 4;
     v0 = a3;
     a3 = a0 + (uintptr_t)v1;
@@ -62494,7 +62494,7 @@ tx_isp_unlocked_ioctl0x17b0:
     v0 = (uintptr_t)v0 >> 3;
 
     /* fragment 448: Branch */
-    v0 = v0 + a0;
+    v0 = (uintptr_t *)((uintptr_t)v0 + (uintptr_t)a0);  /* byte addu (OEM), not typed-pointer scale (#145) */
     goto tx_isp_unlocked_ioctl0x1714;
 
 tx_isp_unlocked_ioctl0x17cc:
@@ -62527,7 +62527,7 @@ tx_isp_unlocked_ioctl0x17f8:
 tx_isp_unlocked_ioctl0x1858:
     /* fragment 455: MemoryAccess */
     s0 = *(uint32_t *)((char *)s2 + 48);
-    v0 = v1 + 182;
+    v0 = (uintptr_t *)((uintptr_t)v1 + 182);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v0 = (uintptr_t)v0 << 2;
     s1 = *(uint32_t *)((char *)s0 + 268);
     s2 = 1;
@@ -62550,7 +62550,7 @@ tx_isp_unlocked_ioctl0x1884:
 
     /* fragment 459: StackAccess */
     v0 = (*__p_70);
-    v1 = v0 + 182;
+    v1 = (uintptr_t *)((uintptr_t)v0 + 182);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v1 = (uintptr_t)v1 << 2;
     v1 = (uintptr_t)s1 + (uintptr_t)v1;
     *(uint32_t *)((char *)v1 + 4) = s2;
@@ -62662,7 +62662,7 @@ tx_isp_unlocked_ioctl0x19fc:
     s0 = *(uint32_t *)((char *)s2 + 48);
     a0 = (uintptr_t)v1 << 2;
     v0 = *(uint32_t *)((char *)s0 + 268);
-    a0 = v0 + a0;
+    a0 = (uintptr_t)v0 + (uintptr_t)a0;  /* byte addu (OEM), not typed-pointer scale (#145) */
     a1 = *(uint32_t *)((char *)a0 + 732);
 
     /* fragment 483: Branch */
@@ -62847,7 +62847,7 @@ tx_isp_unlocked_ioctl0x1c38:
 
     /* fragment 523: CallSetup */
     v0 = 65536;
-    v0 = v0 + 2;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 2);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     *(uint32_t *)((char *)((char *)&isp_dual_buf)) = v0;
 
 tx_isp_unlocked_ioctl0x1c70:
@@ -62922,14 +62922,14 @@ tx_isp_unlocked_ioctl0x1d38:
     v0 = *(uint32_t *)((char *)s6 + 324);
     s0 = 10;
     a0 = 12;
-    v0 = v0 - 21000;
+    v0 = (uintptr_t *)((uintptr_t)v0 - 21000);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v0 = v0 < 4;
     v1 = *(uint32_t *)((char *)s6 + 376);
     v0 = *(uint32_t *)((char *)s6 + 380);
     v0 = (uintptr_t)v1 * (uintptr_t)v0;
     s0 = (uintptr_t)v0 >> 5;
     v0 = (uintptr_t)v0 * a0;
-    s0 = s0 + 7;
+    s0 = (uintptr_t *)((uintptr_t)s0 + 7);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v0 = (uintptr_t)v0 >> 3;
     s0 = (uintptr_t)s0 + (uintptr_t)v0;
     v0 = -8;
@@ -62965,7 +62965,7 @@ tx_isp_unlocked_ioctl0x1df0:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(4148); /* jalr target resolved by relocation */
 
     /* fragment 547: CallSetup */
-    s2 = s2 - 10;
+    s2 = (uintptr_t *)((uintptr_t)s2 - 10);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(4164, s0); /* jalr target resolved by relocation */
 
     /* fragment 548: CallSetup */
@@ -63000,7 +63000,7 @@ tx_isp_unlocked_ioctl0x1df0:
     s3 = *(uint32_t *)((char *)s6 + 324);
     s0 = 12;
     s8 = 10;
-    s3 = s3 - 21000;
+    s3 = (uintptr_t *)((uintptr_t)s3 - 21000);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s3 = s3 < 4;
     v0 = s0;
     v1 = *(uint32_t *)((char *)s6 + 380);
@@ -63014,7 +63014,7 @@ tx_isp_unlocked_ioctl0x1df0:
     a0 = 4148;
     s3 = (uintptr_t)v0 * (uintptr_t)s3;
     v0 = (uintptr_t)v0 >> 5;
-    v0 = v0 + 7;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 7);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s3 = (uintptr_t)s3 >> 3;
     s3 = (uintptr_t)s3 + (uintptr_t)v0;
     v0 = *(uint16_t *)((char *)((char *)&isp_dual_buf));
@@ -63044,17 +63044,17 @@ tx_isp_unlocked_ioctl0x1df0:
     /* fragment 564: MemoryAccess */
     v0 = *(uint32_t *)((char *)s6 + 472);
     v1 = *(uint32_t *)((char *)s6 + 476);
-    s1 = s1 - 21000;
+    s1 = (uintptr_t *)((uintptr_t)s1 - 21000);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s1 = s1 < 4;
     v0 = (uintptr_t)v0 * (uintptr_t)v1;
     a1 = *(uint16_t *)((char *)((char *)&isp_dual_buf));
     s1 = (uintptr_t *)&__param_str_isp_dual_buf;
     a3 = 1062;
-    a2 = s1 + 3920;
+    a2 = (uintptr_t *)"tx_isp_unlocked_ioctl";  /* OEM .rodata __func__ string; lifted base was the wrong symbol (#145) */
     a0 = 0;
     s0 = (uintptr_t)v0 * (uintptr_t)s0;
     v0 = (uintptr_t)v0 >> 5;
-    v0 = v0 + 7;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 7);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s0 = (uintptr_t)s0 >> 3;
     s0 = (uintptr_t)s0 + (uintptr_t)v0;
     s0 = (uintptr_t)s0 & s7;
@@ -63178,14 +63178,14 @@ tx_isp_unlocked_ioctl0x2160:
     v1 = *(uint32_t *)((char *)a2 + 324);
     v0 = 10;
     a1 = 12;
-    v1 = v1 - 21000;
+    v1 = (uintptr_t *)((uintptr_t)v1 - 21000);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v1 = v1 < 4;
     a0 = *(uint32_t *)((char *)a2 + 376);
     v1 = *(uint32_t *)((char *)a2 + 380);
     v1 = a0 * (uintptr_t)v1;
     v0 = (uintptr_t)v1 >> 5;
     v1 = (uintptr_t)v1 * a1;
-    v0 = v0 + 7;
+    v0 = (uintptr_t *)((uintptr_t)v0 + 7);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v1 = (uintptr_t)v1 >> 3;
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
     v1 = -8;
@@ -63243,7 +63243,7 @@ tx_isp_unlocked_ioctl0x2218:
     a3 = a3;
     a3 = *(uint16_t *)((char *)a3 + 2);
     v1 = *(uint32_t *)((char *)a2 + 420);
-    v1 = v1 - 21000;
+    v1 = (uintptr_t *)((uintptr_t)v1 - 21000);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     v1 = v1 < 4;
     a0 = a1 * a0;
     a1 = a1 >> 5;
@@ -63265,7 +63265,7 @@ tx_isp_unlocked_ioctl0x2218:
     a1 = a1 >> 5;
     a1 = a1 + 7;
     v1 = (uintptr_t)v1 >> 3;
-    v1 = v1 + a1;
+    v1 = (uintptr_t *)((uintptr_t)v1 + (uintptr_t)a1);  /* byte addu (OEM), not typed-pointer scale (#145) */
     v1 = (uintptr_t)v1 & t0;
     v0 = (uintptr_t)v1 * (uintptr_t)v0;
 
@@ -63278,7 +63278,7 @@ tx_isp_unlocked_ioctl0x2218:
     /* asm: 145bc:	00001012 	mflo	v0 */
 
     /* fragment 604: Branch */
-    v0 = v0 + a0;
+    v0 = (uintptr_t *)((uintptr_t)v0 + (uintptr_t)a0);  /* byte addu (OEM), not typed-pointer scale (#145) */
     goto tx_isp_unlocked_ioctl0x21bc;
 
 tx_isp_unlocked_ioctl0x22c0:
@@ -63770,7 +63770,7 @@ tx_isp_unlocked_ioctl0x2ba4:
     s0 = (uintptr_t *)__p_20;
     s4 = 0;
     s7 = 0;
-    s3 = s3 + 3416;
+    s3 = (uintptr_t *)((uintptr_t)s3 + 3416);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
     s6 = (uintptr_t)&LC28;
     s5 = s5;
 
@@ -63811,7 +63811,7 @@ tx_isp_unlocked_ioctl0x2c0c:
 
 tx_isp_unlocked_ioctl0x2c38:
     /* fragment 731: Arithmetic */
-    s4 = s4 + 1;
+    s4 = (uintptr_t *)((uintptr_t)s4 + 1);  /* byte add (OEM addiu), not typed-pointer scale (#145) */
 
 tx_isp_unlocked_ioctl0x2c3c:
     /* fragment 732: MemoryAccess */
