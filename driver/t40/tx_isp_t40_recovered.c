@@ -58517,7 +58517,7 @@ int32_t tx_isp_sensor_register_sensor(void *arg1, int32_t arg2)
         a0_1 = *(void **)loop_ptr;
 
         if (a0_1 != NULL) {
-            v0_2 = *(void **)((char *)a0_1 + 0xfc + 0xc);
+            v0_2 = *(void **)((char *)*(void **)((char *)a0_1 + 0xfc) + 0xc);   /* OEM: ops = *(sd+252); sensor ops = ops[3] */
 
             if (v0_2 == NULL) {
                 loop_ptr++;
@@ -58658,6 +58658,20 @@ tx_isp_sensor_release_sensor0xb8:
     return 0;
 }
 
+#ifdef REGTRACE_KERNEL_TREE_BUILD
+/* #154: slot 0 is the ISP core subdev now (as in the OEM).  The OEM slot loops (s_stream / link_stream) would call
+ * ispcore_video_s_stream here, but in this driver the ISP core bring-up and streaming are driven by the regtrace
+ * layer (core activate + framechan stream), and the lifted core s_stream fails its "device hasn't been inited"
+ * check when the libimp AddSensor ioctl runs it (camera Oops, agg52).  Skip the core in these slot loops, exactly
+ * what happened implicitly while the sensor sat in slot 0 (its video-ops pointer was never reached). */
+static inline int regtrace_slot_is_core(const void *sd)
+{
+    return sd && sd == regtrace_core_subdev;
+}
+#else
+#define regtrace_slot_is_core(sd) 0
+#endif
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000011674 origin=model_output original=tx_isp_video_s_stream */
 int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
 {
@@ -58691,8 +58705,8 @@ int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
     for (i = 0; i != 16; ) {
         a0_1 = (void *)*s3;
         
-        if (a0_1 != NULL) {
-            v0_3 = (uintptr_t)*(uintptr_t *)((uintptr_t)((char *)a0_1 + 0xfc) + 4);
+        if (a0_1 != NULL && !regtrace_slot_is_core(a0_1)) {
+            v0_3 = (int32_t *)(uintptr_t)*(uintptr_t *)((char *)*(void **)((char *)a0_1 + 0xfc) + 4);   /* OEM: ops = *(sd+252); video = ops[1] (was sd+256: the pad counts) */
             
             if (v0_3 != NULL) {
                 v0_4 = *v0_3;
@@ -58709,8 +58723,8 @@ int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
                             j = (char *)j - 4;
                             a0_2 = (void *)*((int32_t *)((char *)j + 0x3c));
                             
-                            if (a0_2 != NULL) {
-                                v0_6 = (uintptr_t)*(uintptr_t *)((uintptr_t)((char *)a0_2 + 0xfc) + 4);
+                            if (a0_2 != NULL && !regtrace_slot_is_core(a0_2)) {
+                                v0_6 = (int32_t *)(uintptr_t)*(uintptr_t *)((char *)*(void **)((char *)a0_2 + 0xfc) + 4);   /* OEM: ops = *(sd+252); video = ops[1] (was sd+256: the pad counts) */
                                 
                                 if (v0_6 != NULL) {
                                     v0_7 = *v0_6;
@@ -58785,7 +58799,7 @@ tx_isp_video_link_stream0x4c:
     a0 = *(uint32_t *)((char *)s3 + 0);
 
     /* fragment 5: Branch */
-    if (a0 != 0) { goto tx_isp_video_link_stream0xc8; }
+    if (a0 != 0 && !regtrace_slot_is_core((const void *)(uintptr_t)a0)) { goto tx_isp_video_link_stream0xc8; }   /* #154: core streams via regtrace */
 
 tx_isp_video_link_stream0x58:
     /* fragment 6: Arithmetic */
@@ -58863,7 +58877,7 @@ tx_isp_video_link_stream0x10c:
     a0 = *(uint32_t *)((char *)s0 + 60);
 
     /* fragment 25: Branch */
-    if (a0 == 0) { goto tx_isp_video_link_stream0x144; }
+    if (a0 == 0 || regtrace_slot_is_core((const void *)(uintptr_t)a0)) { goto tx_isp_video_link_stream0x144; }
 
     /* fragment 26: MemoryAccess */
     v0 = *(uint32_t *)((char *)a0 + 252);
