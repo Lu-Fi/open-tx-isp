@@ -17102,6 +17102,10 @@ static void regtrace_isp_block_init_retry(const char *where)
 #define REGTRACE_ISP_M0_TUNING_STATE_OFFSET 0x78
 #define REGTRACE_ISP_M0_TUNING_STATE_ENABLED 3
 #define REGTRACE_TX_ISP_SUBDEV_SLOT0 0x3c
+/* OEM tx_isp_create_graph_and_nodes: child subdev k sits at module+0x3c+4*(pdata[3]&0xf); the ISP core's pdata[3] is
+ * 0x10, so SLOT0 is the ispcore subdev (the lifted ioctl reads *(slot0+232) regs, *(slot0+268) core priv). The
+ * external sensor has no OEM slot (the VIN owns it); it keeps the last free one so the slot loops still reach it. */
+#define REGTRACE_TX_ISP_SUBDEV_SLOT_SENSOR (REGTRACE_TX_ISP_SUBDEV_SLOT0 + 15 * 4)
 #define REGTRACE_TX_ISP_SUBDEV_OPS_OFFSET TX_ISP_ABI_T40_SUBDEV_OPS_OFFSET
 #define REGTRACE_TX_ISP_SENSOR_INFO_OFFSET 0x128
 #define REGTRACE_TX_ISP_VIDEO_WIDTH_OFFSET 0x00
@@ -18433,15 +18437,23 @@ static int regtrace_framechan_index(struct file *file)
     return 0;
 }
 
+/* #154: slot0 = ispcore subdev (OEM), sensor in the spare slot.  The first T40 workspace put the sensor in slot0,
+ * so every lifted ioctl that reads slot0 as the core (WDR switch 0x5413/0x5414: *(slot0+232)+0x40000 error mask,
+ * AE/AWB algo open, ...) ran on the sensor subdev: no register window -> NULL+0x40060 oops on the Eufy T40XP. */
+static void regtrace_sync_tx_isp_slots(void)
+{
+    *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT0) =
+        (uint32_t)(uintptr_t)regtrace_core_subdev;
+    *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT_SENSOR) =
+        (uint32_t)(uintptr_t)regtrace_sensor_subdev;
+}
+
 static void regtrace_prepare_tx_isp_context(void)
 {
     memset(regtrace_tx_isp_context, 0, sizeof(regtrace_tx_isp_context));
     memset(regtrace_tx_isp_file_shadow, 0, sizeof(regtrace_tx_isp_file_shadow));
     *(uint32_t *)(regtrace_tx_isp_file_shadow + 0x88) = (uint32_t)(uintptr_t)(regtrace_tx_isp_context + 0x0c);
-    if (regtrace_sensor_subdev) {
-        *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT0) =
-            (uint32_t)(uintptr_t)regtrace_sensor_subdev;
-    }
+    regtrace_sync_tx_isp_slots();
 }
 
 static void regtrace_prepare_isp_m0_context(void)
@@ -18499,7 +18511,7 @@ static int regtrace_capture_sensor_subdev(uintptr_t pdev, uintptr_t sd, uintptr_
     *(uint32_t *)((char *)(uintptr_t)sd + REGTRACE_TX_ISP_SUBDEV_OPS_OFFSET) = (uint32_t)ops;
     regtrace_sensor_subdev = (void *)(uintptr_t)sd;
     regtrace_sensor_ops = (void *)(uintptr_t)ops;
-    *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT0) = (uint32_t)sd;
+    regtrace_sync_tx_isp_slots();
 
     printk(KERN_INFO "tx_isp_t40_recovered: captured external sensor subdev name=%s sd=%p ops=%p\n",
            name, regtrace_sensor_subdev, regtrace_sensor_ops);
@@ -18516,7 +18528,7 @@ static int regtrace_release_sensor_subdev(uintptr_t sd)
            regtrace_sensor_subdev);
     regtrace_sensor_subdev = NULL;
     regtrace_sensor_ops = NULL;
-    *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT0) = 0;
+    regtrace_sync_tx_isp_slots();
     return 1;
 }
 
@@ -18560,8 +18572,10 @@ static void regtrace_subdev_cleanup_internal(unsigned char *sd)
     /* the removes free sd right after this: drop the global aliases first */
     if (regtrace_vic_subdev == (void *)sd)
         regtrace_vic_subdev = NULL;
-    if (regtrace_core_subdev == (void *)sd)
+    if (regtrace_core_subdev == (void *)sd) {
         regtrace_core_subdev = NULL;
+        regtrace_sync_tx_isp_slots();
+    }
     if (regtrace_fs_subdev == (void *)sd)
         regtrace_fs_subdev = NULL;
     if (ispcore_sd == (uint32_t)(uintptr_t)sd)
@@ -18747,6 +18761,7 @@ static int regtrace_subdev_init_internal(uintptr_t pdev_addr, uintptr_t sd_addr,
         regtrace_vic_subdev = sd;
     } else if (!strcmp(pdev->name, "isp-m0")) {
         regtrace_core_subdev = sd;
+        regtrace_sync_tx_isp_slots();
         ispcore_sd = (uint32_t)(uintptr_t)sd;
         {   /* RC2: /proc/jz/isp/isp-m0 - the lifted tx_isp_probe/create_graph_and_nodes path is not
              * used by the controlled child registration, so create the node here (OEM: jz_proc_mkdir("isp")
@@ -23904,8 +23919,7 @@ static long regtrace_tx_isp_sensor_register_ioctl(unsigned long arg)
         return -ENODEV;
     }
 
-    *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT0) =
-        (uint32_t)(uintptr_t)regtrace_sensor_subdev;
+    regtrace_sync_tx_isp_slots();
     regtrace_seed_sensor_register_info(&sensor_info);
     ret = regtrace_sensor_call_g_chip_ident();
     if (ret) {
