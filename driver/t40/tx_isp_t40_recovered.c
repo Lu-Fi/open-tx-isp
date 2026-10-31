@@ -41667,7 +41667,7 @@ ispvic_frame_get_raw0xfc:
     /* fragment 23: CallSetup */
     *(uint32_t *)((char *)((*(uint32_t *)((char *)((uintptr_t)s0) + 232)) + (uintptr_t)a2) + 0) = (*(uint32_t *)((char *)((uintptr_t)s0) + 664));
     *(uint32_t *)((char *)((*(uint32_t *)((char *)((uintptr_t)s0) + 232)) + (uintptr_t)v0) + 0) = (((*(uint32_t *)((char *)(uintptr_t)&vic_mdma_ch0_sub_get_num)) << 16) | (2147483648 + 32) | (uintptr_t)s3);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_wait_for_completion_timeout)(s0 + 672, 300); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_wait_for_completion_timeout)((uintptr_t)s0 + 672, 300); /* jalr target resolved by relocation */
 
     /* fragment 24: Branch */
     a1 = (uint32_t *)&LC79;
