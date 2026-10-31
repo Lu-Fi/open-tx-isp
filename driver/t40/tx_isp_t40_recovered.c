@@ -57673,7 +57673,13 @@ int32_t tx_isp_open(int32_t arg1, void* arg2)
 int32_t tx_isp_notify(int32_t arg1, int32_t arg2, int32_t arg3)
 {
     /* Access .bss global via the section variable */
+#ifdef REGTRACE_KERNEL_TREE_BUILD
+    /* #jalr-batch3: OEM 0x10f3c `lw s1, globe_ispdev` (.bss+0x670); the lift's bss_accessor is never assigned (NULL+0x3c oops on the
+     * first real notify).  This driver keeps the device context (subdev slots at +0x3c..+0x7c) in regtrace_tx_isp_context. */
+    uint32_t globe_ispdev_1 = (uint32_t)(uintptr_t)regtrace_tx_isp_context;
+#else
     uint32_t globe_ispdev_1 = bss_accessor;
+#endif
     int32_t *s0 = (int32_t *)(globe_ispdev_1 + 0x3c);
     int32_t *result = 0;
     int32_t *s2 = arg2 & 0xff000000;
