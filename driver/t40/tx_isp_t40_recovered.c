@@ -29492,6 +29492,35 @@ static long regtrace_framechan_repair_qbuf_event(int channel,
     return ret;
 }
 
+/*
+ * Blocking DQBUF (#149 part 2).  The stock driver sleeps in DQBUF until a frame is done (or STREAMOFF); the open
+ * driver answered an empty queue at once (ENODATA), so libimp had to probe it, one worker wake-up and nap per
+ * millisecond.  With t40_dqbuf_wait_ms > 0 an EMPTY done-queue is waited for up to that many milliseconds on
+ * the frame-done wait queue (queue checked first, then the wait: the frame-done edge is never waited for when a
+ * frame is already queued, unlike WAIT_FRAME's wait-then-check which halves the frame rate), STREAMOFF wakes
+ * the sleeper.  After the timeout DQBUF still returns ENODATA, so callers that retry (OpenIMP) are unchanged and
+ * a stalled sensor never blocks the caller beyond the limit.  0 (default) keeps the old non-blocking answer.
+ */
+static uint t40_dqbuf_wait_ms;
+module_param(t40_dqbuf_wait_ms, uint, 0644);
+MODULE_PARM_DESC(t40_dqbuf_wait_ms, "frame channel DQBUF waits up to this many ms for a done frame (0 = return ENODATA at once)");
+
+static long t40_framechan_dqbuf_wait(int channel)
+{
+    uint32_t ms = t40_dqbuf_wait_ms;
+    long left;
+
+    if (!ms || channel < 0 || channel >= 4)
+        return 0;
+    if (ms > 1000)
+        ms = 1000;
+    left = wait_event_interruptible_timeout(
+        regtrace_irq_frame_done_waitq[channel],
+        READ_ONCE(regtrace_irq_frame_done_queue_count[channel]) != 0,
+        msecs_to_jiffies(ms));
+    return left < 0 ? -EINTR : 0;       /* timeout or woken: DQBUF pops (or answers ENODATA) */
+}
+
 static long regtrace_framechan_repair_dqbuf_event(int channel,
                                                   unsigned long arg,
                                                   const char *source)
@@ -30252,8 +30281,10 @@ static long regtrace_framechan_ioctl(struct file *file, unsigned int cmd, unsign
              * repaired T31 path likewise perform one state transition before
              * waking/returning the completed buffer.
              */
-            ret = regtrace_framechan_repair_dqbuf_event(channel, arg,
-                                                        "irq-dqbuf");
+            ret = t40_framechan_dqbuf_wait(channel);
+            if (!ret)
+                ret = regtrace_framechan_repair_dqbuf_event(channel, arg,
+                                                            "irq-dqbuf");
         } else if (regtrace_delegate_framechan_ioctl &&
             ctx && ctx == regtrace_real_framechan_context(channel)) {
             used_oem_private = 1;
@@ -30331,6 +30362,8 @@ static long regtrace_framechan_ioctl(struct file *file, unsigned int cmd, unsign
                        channel, dqret, ret);
             }
         }
+        if (cmd == REGTRACE_TISP_VIDIOC_STREAMOFF && channel >= 0 && channel < 4)
+            wake_up_interruptible(&regtrace_irq_frame_done_waitq[channel]);   /* a DQBUF sleeping in t40_framechan_dqbuf_wait */
         if (cmd == REGTRACE_TISP_VIDIOC_STREAMON ||
             cmd == REGTRACE_TISP_VIDIOC_STREAMOFF) {
             unsigned char *active_ctx = regtrace_active_framechan_context(channel);
