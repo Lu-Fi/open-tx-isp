@@ -7510,6 +7510,9 @@ static void *t40_seed_sec_inter(void *dst, const void *src, size_t n)
     memcpy(dst, src, n);
     return dst;
 }
+/* #140 anchors: OEM vic_dir_buf (.data+0xbdc, 64 bytes, initial "/tmp"): the snapshot-raw directory set by the VIC command "dir=".  The lift
+ * memset/memcpy'd and printed it at &sclk_name (a 16-byte table): an ioctl string of up to 63 bytes overran into the following driver data. */
+static char t40_vic_dir_buf[64] T40C2 = "/tmp";
 static uint16_t t40_wdr_maxvalue_16bit_tmp T40C2;   /* OEM maxvalue_16bit_tmp (.data+0x2bfa2): WDR fusion scratch */
 static uint32_t t40_tv_frame_start[2][2] T40C2, t40_tv_frame_start_next[2][2] T40C2, t40_tv_frame_end[2][2] T40C2;
 
@@ -37902,13 +37905,13 @@ isp_vic_cmd_set0x7d0:
 
 isp_vic_cmd_set0x80c:
     /* fragment 170: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)&sclk_name, 0, a2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)t40_vic_dir_buf, 0, a2); /* jalr target resolved by relocation */
 
     /* fragment 171: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&sclk_name, (void *)(uintptr_t)s5, s4 - 5); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)t40_vic_dir_buf, (void *)(uintptr_t)s5, s4 - 5); /* jalr target resolved by relocation */
 
     /* fragment 172: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC53, &sclk_name); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC53, t40_vic_dir_buf); /* jalr target resolved by relocation */
 
     /* fragment 173: Branch */
     a0 = *(uint32_t *)((char *)(s0) + 664);
@@ -38012,7 +38015,7 @@ isp_vic_cmd_set0x948:
 isp_vic_cmd_set0x970:
     /* fragment 198: MemoryAccess */
     v0 = *(uint32_t *)((char *)s6 + 328);
-    a3 = (uint32_t *)&sclk_name;
+    a3 = (uint32_t *)t40_vic_dir_buf;   /* #140: OEM vic_dir_buf (.data+0xbdc), the lift used &sclk_name */
     a0 = *(uint32_t *)((char *)v0 + 128);
     v0 = 7;
 
