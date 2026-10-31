@@ -7499,6 +7499,7 @@ static u32 t40_wdr_out_mode[2];  /* SetWdrOutputMode shadow (linear sensor: flag
  * ~700 bytes of new statics in .bss delivered no frames at all).  State added after the lift lives in its own
  * section, outside .bss/.data. */
 #define T40C2 __attribute__((section(".t40c2")))
+static uint32_t t40_ae_sec_showpar T40C2;   /* OEM aeShowPar[1]: sec AE show-par buffer (vmalloc(612)) */
 /* T40-LAYOUT: OEM tv_frame_start/_next/_end[2] (frame VB measurement timevals), outside .bss */
 /* #140 anchors: OEM AF .data objects the lift reached through &sclk_name - N.  stMainAfInterOri / stSecAfInterOri (.data+0xd24c /
  * 0xbd20, 5420 bytes each, identical; only the first four bytes 80 07 38 04 are non-zero) are the AF "inter" state blocks
@@ -33964,12 +33965,12 @@ int32_t *private_ktime_set(int32_t *arg1, int32_t arg2, int32_t arg3)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000a38 origin=model_output original=private_set_current_state */
+/* T40-ZEROBASE (#161): OEM private_set_current_state = current->state = arg1.  The lift read `current` from a NULL
+ * gp pointer (lw v0,0(zero); sw a0,0(v0)); used before schedule_hrtimeout in isp_main_pre_frame_dequeue. */
 int32_t *private_set_current_state(int32_t arg1)
 {
-    int32_t **gp_ptr = (int32_t **)0;
-    int32_t *result = *gp_ptr;
-    *result = arg1;
-    return result;
+    set_current_state(arg1);
+    return NULL;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000000a48 origin=model_output original=private_schedule_hrtimeout */
@@ -34644,7 +34645,7 @@ ispvic_frame_channel_s_stream0x50:
     s4 = (uintptr_t)s0 + (uintptr_t)s4;
     s8 = *(uint32_t *)((char *)(s4) + 812);
     s6 = a1;
-    s3 = *(uint32_t *)((char *)(uintptr_t) + 40);
+    s3 = *(uint32_t *)((char *)(uintptr_t)s8 + 40);   /* #161: OEM *(*(vic + chn*4 + 0x32c) + 0x28); the lift dropped s8 (NULL + 40) */
     s5 = a2;
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tx_isp_vic_index_cal)(s0, s3); /* jalr target resolved by relocation */
 
@@ -41011,7 +41012,7 @@ isp_vic_interrupt_service_routine0xa80:
     if (v0 == 0) { goto isp_vic_interrupt_service_routine0x538; }
 
     /* fragment 282: ConstantLoad */
-    v0 = 0x48;
+    v0 = (uintptr_t *)&isp_memopt + 0x48;   /* #161: the lift kept only the +0x48 words of &isp_memopt (counter at NULL + 0x10c) */
 
     /* fragment 283: MemoryAccess */
     v1 = *(uint32_t *)((char *)v0 + 196);
@@ -44970,89 +44971,31 @@ csi_core_ops_init0x124:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000008638 origin=fragment_seed original=csi_sensor_ops_sync_sensor_attr */
+/* T40-ZEROBASE (#161): hand translation of OEM csi_sensor_ops_sync_sensor_attr (tx-isp-t40.ko 0x19058).  The lift
+ * copied the 96-byte attr into a 4-byte stack scalar (stack smash), read the copy's pointer field from a stale local
+ * (NULL: "lhu 84(zero)") and scaled the memset offsets (uint32_t * + 372/468 = 1488/1872 bytes).  OEM: attr == NULL
+ * clears the three 96-byte slots at +0x114/+0x174/+0x1d4; else the attr goes to slot [*(u16 *)(attr->ptr@0x38 + 0x54)]. */
 int64_t csi_sensor_ops_sync_sensor_attr(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_48 = 0;
-    uint32_t local_70 = 0;
-    uint32_t local_74 = 0;
-    uint32_t local_78 = 0;
-    uint32_t local_7c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    uint8_t cp[96];
+    uintptr_t info;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    if (a0 == 0) { goto csi_sensor_ops_sync_sensor_attr0x60; }
-
-    /* fragment 2: Arithmetic */
-    v0 = a0 < -4095;
-
-    /* fragment 3: Branch */
-    s0 = a0;
-    if (v0 == 0) { goto csi_sensor_ops_sync_sensor_attr0x60; }
-
-    /* fragment 4: Branch */
-    s2 = a1;
-    if (a1 != 0) { goto csi_sensor_ops_sync_sensor_attr0xa0; }
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(a0 + 276), a1, 96); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(s0 + 372), 0, 96); /* jalr target resolved by relocation */
-
-    /* fragment 7: Arithmetic */
-    a2 = 96;
-    a1 = 0;
-
-    /* fragment 8: Branch */
-    a0 = s0 + 468;
-    goto csi_sensor_ops_sync_sensor_attr0xd4;
-
-csi_sensor_ops_sync_sensor_attr0x60:
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC5, &__param_str_isp_dual_buf, 442); /* jalr target resolved by relocation */
-
-    /* fragment 10: Arithmetic */
-    v0 = -22;
-
-csi_sensor_ops_sync_sensor_attr0x88:
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-csi_sensor_ops_sync_sensor_attr0xa0:
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_10, (void *)(uintptr_t)a1, 96); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    v0 = local_48;
-    a2 = 96;
-    a1 = s2;
-    a0 = *(uint16_t *)((char *)v0 + 84);
-    v0 = 96;
-    v1 = a0 * (uintptr_t)v0;
-    a0 = (uintptr_t)v1 + (uintptr_t)s0;
-    a0 = a0 + 276;
-
-csi_sensor_ops_sync_sensor_attr0xd4:
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)a1, a2); /* jalr target resolved by relocation */
-
-    /* fragment 15: Branch */
-    v0 = 0;
-    goto csi_sensor_ops_sync_sensor_attr0x88;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    if (a0 == 0 || a0 >= (uint32_t)-4095) {
+        isp_printf(2, "[%s %d] The parameter is invalid!\n", "csi_sensor_ops_sync_sensor_attr", 442);
+        return -22;
+    }
+    if (!a1) {
+        memset((void *)(uintptr_t)(a0 + 0x114), 0, 96);
+        memset((void *)(uintptr_t)(a0 + 0x174), 0, 96);
+        memset((void *)(uintptr_t)(a0 + 0x1d4), 0, 96);
+        return 0;
+    }
+    memcpy(cp, (const void *)(uintptr_t)a1, sizeof(cp));
+    info = *(uint32_t *)(cp + 0x38);
+    if (!regtrace_is_kernel_ptr((void *)info))
+        return -22;
+    memcpy((void *)(uintptr_t)((uint32_t)*(uint16_t *)(info + 0x54) * 96U + a0 + 0x114), (const void *)(uintptr_t)a1, 96);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000871c origin=model_output original=settle_time_cal */
@@ -63554,6 +63497,7 @@ int32_t tx_isp_subdev_deinit(uintptr_t a0)
         regtrace_subdev_cleanup_internal((unsigned char *)(uintptr_t)a0);
         return 0;
     }
+    return 0;   /* #161: NULL subdev: the lifted body below would run with a0 == 0 (compiled loads/stores at 52(zero) ... 252(zero)) */
 #endif
 
     /* fragment 0: Prologue */
@@ -68850,6 +68794,10 @@ int64_t tisp_deinit(uint32_t a0)
         printk(KERN_INFO "tx_isp_t40_recovered: tisp_deinit skipped (regtrace frees its own tisp resources)\n");
         return 0;
     }
+    /* #161: the vinum 1 half frees the second sensor's tisp state (tparamsN[1] ... and the sec module inits), none of which the
+     * open driver allocates; the lift reached it through NULL bases (5 compiled stores to 4(zero)).  Nothing to free. */
+    if (a0 != 0)
+        return 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -72981,6 +72929,14 @@ tisp_main_init0xf68:
 int64_t tisp_sec_init(uintptr_t a0, uint32_t a1)
 {
     t40_cnt_sec_init++;
+    /* T40-ZEROBASE (#161): the lifted second-sensor module-init sequence stores through 19 lost bases (compiled
+     * "sw rX,4(zero)" ... "76(zero)": sec AE/AWB/BLC/... init, bcsh_sec_init).  Its only caller ispcore_core_ops_init is not
+     * entered in the default flow (cnt_core_ops_init / cnt_sec_init stay 0, QEMU and device) and the open driver runs
+     * no second sensor pipeline: refuse instead of oopsing if it ever is entered. */
+    if (1) {
+        printk_once(KERN_WARNING "tx_isp_t40_recovered: tisp_sec_init: second sensor pipeline is not supported, skipped\n");
+        return 0;
+    }
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -77206,10 +77162,11 @@ tisp_ae_sec_deinit0x2c:
 
 tisp_ae_sec_deinit0x4c:
     /* fragment 11: ConstantLoad */
-    s0 = 0x0;
+    s0 = (uintptr_t *)&t40_ae_sec_showpar;   /* #161: OEM third sec-AE buffer (vmalloc(612) of tisp_ae_sec_init; OEM aeShowPar[1]). It lived at &aeShowPar + 4,
+     * past the 4-byte variable of the lift: a NULL base here, a foreign word otherwise. */
 
     /* fragment 12: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s0 + 4);
+    a0 = *(uint32_t *)((char *)s0);
 
     /* fragment 13: Branch */
     v0 = (uintptr_t *)&private_vfree;
@@ -77219,7 +77176,7 @@ tisp_ae_sec_deinit0x4c:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(a0); /* jalr target resolved by relocation */
 
     /* fragment 15: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 4) = 0;
+    *(uint32_t *)((char *)s0) = 0;
 
 tisp_ae_sec_deinit0x70:
     /* fragment 16: Epilogue */
@@ -79514,14 +79471,14 @@ int64_t tisp_ae_sec_init(uint32_t a0, uint32_t a1)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(612); /* jalr target resolved by relocation */
 
     /* fragment 4: CallSetup */
-    *(uint32_t *)((char *)((char *)&aeShowPar + 0x4)) = v0;
+    t40_ae_sec_showpar = v0;
     v0 = (uintptr_t *)memset((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&stSecAeOuter))), 0, 4); /* jalr target resolved by relocation */
 
     /* fragment 5: CallSetup */
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&stSecAeInter))), stMainAeInterOri, 17772); /* #140: OEM stSecAeInterOri (SDK 1.3.1 .data+0x17b0) is byte-identical to stMainAeInterOri; the lift passed &sclk_name */
 
     /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(*(uint32_t *)((char *)&aeShowPar + 4)), 0, 612); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memset((void *)(uintptr_t)(t40_ae_sec_showpar), 0, 612); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_params_transmit)(&pstSecAeOri, 1); /* jalr target resolved by relocation */
@@ -90645,11 +90602,11 @@ tisp_lsc_init0x25c:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_kmalloc)(a0); /* jalr target resolved by relocation */
 
     /* fragment 31: CallSetup */
-    *(uint32_t *)((char *)s8 + 16832) = v0;
+    *(uint32_t *)((char *)&lsc_seco_tool_para) = v0;   /* #161: OEM lsc_seco_tool_para; the lift lost the base (NULL + 16832) */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(48, s5 | 192); /* jalr target resolved by relocation */
 
     /* fragment 32: CallSetup */
-    *(uint32_t *)((char *)s7 + 16824) = v0;
+    *(uint32_t *)((char *)&lsc_seco_awdr_para) = v0;   /* #161: OEM lsc_seco_awdr_para (NULL + 16824) */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(27656, s5 | 192); /* jalr target resolved by relocation */
 
     /* fragment 33: Arithmetic */
@@ -92044,7 +92001,7 @@ tisp_blc_ag_interp0x168:
     a0 = ((char *)&s_blc_bayer_type);
 
     /* fragment 30: MemoryAccess */
-    a0 = *(uint8_t *)((char *)s1 + 0);
+    a0 = *(uint8_t *)((char *)&s_blc_bayer_type + (uintptr_t)local_10);   /* #161: OEM s_blc_bayer_type[vinum] (local_10 = vinum, saved at entry); s1 was NULL here */
 
     /* fragment 31: Branch */
     a1 = 1;
@@ -120632,11 +120589,11 @@ tisp_defog_init0x4ec:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(3948, (uintptr_t)s1 | 192); /* jalr target resolved by relocation */
 
     /* fragment 77: CallSetup */
-    *(uint32_t *)((char *)s7 + 17404) = v0;
+    *(uint32_t *)((char *)&defog_seco_soft_para) = v0;   /* #161: OEM defog_seco_soft_para (NULL + 17404) */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(136, (uintptr_t)s1 | 192); /* jalr target resolved by relocation */
 
     /* fragment 78: CallSetup */
-    *(uint32_t *)((char *)s3 + 17412) = v0;
+    *(uint32_t *)((char *)&defog_seco_used_para) = v0;   /* #161: OEM defog_seco_used_para (NULL + 17412) */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)private_kmalloc)(220, (uintptr_t)s1 | 192); /* jalr target resolved by relocation */
 
     /* fragment 79: Arithmetic */
@@ -145443,9 +145400,11 @@ int32_t tisp_bcsh_Tccm_Comp2Orig(uintptr_t a0)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_reg2para)(*(uint32_t *)((char *)(a0) + 28), *(uint32_t *)((char *)(a0) + 196)); /* jalr target resolved by relocation */
 
     /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_reg2para)(*(uint32_t *)((char *)(a3) + 32), *(uint32_t *)((char *)(a3) + 200)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_reg2para)(*(uint32_t *)((char *)(a0) + 32), *(uint32_t *)((char *)(a0) + 200)); /* jalr target resolved by relocation */
 
-    /* fragment 3: MemoryAccess */
+    /* fragment 3: #161: OEM 0x7a51c tail call tisp_bcsh_reg2para(*(a0 + 0x24), *(a0 + 0xcc)) (the jr.hb was lost; the lift
+     * also took the second/third pointer pair from a never-assigned register, NULL + 32/200) */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_bcsh_reg2para)(*(uint32_t *)((char *)(a0) + 36), *(uint32_t *)((char *)(a0) + 204));
     a1 = *(uint32_t *)((char *)((char *)&vic_err + 0x84));
     ra = local_14;
     a0 = *(uint32_t *)((char *)&vic_cmd_buf);
@@ -154241,7 +154200,7 @@ tisp_day_or_night_s_ctrl0xd4:
     if (v0 != a0) { goto tisp_day_or_night_s_ctrl0xd4; }
 
     /* fragment 15: ConstantLoad */
-    s4 = 0x0;
+    s4 = (uintptr_t *)&day_night;   /* #161: day path, same base as the night path (0x198 branch); was NULL */
 
 tisp_day_or_night_s_ctrl0xfc:
     /* fragment 16: Arithmetic */
@@ -154303,10 +154262,10 @@ tisp_day_or_night_s_ctrl0x198:
     if (a1 != v0) { goto tisp_day_or_night_s_ctrl0x1d0; }
 
     /* fragment 29: ConstantLoad */
-    v0 = 0x0;
+    v0 = (uintptr_t *)&day_night;
 
     /* fragment 30: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 0) = a1;
+    *(uint32_t *)((char *)v0 + 0) = a1;   /* #161: OEM day_night[vinum] = 1 (the lift stored through NULL); one word: main channel only */
     v0 = 152;
     v1 = a0 * (uintptr_t)v0;
     v0 = v1 + s5;
@@ -159470,163 +159429,59 @@ isp_save_cmd_set0x3b8:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000076828 origin=fragment_seed original=ispcore_sync_sensor_attr */
+/* T40-ZEROBASE (#161): hand translation of OEM ispcore_sync_sensor_attr (tx-isp-t40.ko 0x87248).  The lift copied the
+ * 96-byte attr into a scalar (stack smash), took the copy's fields (+0x34 attr info, +0x38 index holder, +0x3c/+0x40/+0x44)
+ * from never-assigned locals (NULL: "lhu 84(zero)", "sw 0(zero)"), passed tiziano_sync_sensor_attr a scalar instead of the
+ * 128-byte block and scaled the memset offsets.  The block is built at the OEM offsets (sp-0x108 based). */
 int64_t ispcore_sync_sensor_attr(uintptr_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_44 = 0;
-    uint32_t local_50 = 0;
-    uint32_t local_52 = 0;
-    uint32_t local_54 = 0;
-    uint32_t local_56 = 0;
-    uint32_t local_5c = 0;
-    uint32_t local_5e = 0;
-    uint32_t local_60 = 0;
-    uint32_t local_62 = 0;
-    uint32_t local_64 = 0;
-    uint32_t local_66 = 0;
-    uint32_t local_68 = 0;
-    uint32_t local_6a = 0;
-    uint32_t local_6c = 0;
-    uint32_t local_74 = 0;
-    uint32_t *local_94 = 0;
-    uint32_t *local_b0 = 0;
-    uint32_t local_e4 = 0;
-    uint32_t local_e8 = 0;
-    uint32_t local_ec = 0;
-    uint32_t local_f0 = 0;
-    uint32_t local_f4 = 0;
-    uint32_t *local_110 = 0;
-    uint32_t *local_114 = 0;
-    uint32_t local_118 = 0;
-    uint32_t local_11c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    uint8_t cp[96];
+    uint32_t st[32] = { 0 };
+    uintptr_t core, info, idxh;
+    uint8_t *b = (uint8_t *)st;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    if (a0 == 0) { goto ispcore_sync_sensor_attr0x38; }
-
-    /* fragment 2: Arithmetic */
-    v0 = a0 < -4095;
-
-    /* fragment 3: Branch */
-    int _bc_v0_3 = v0 == 0;
-    v0 = 2945;
-    if (_bc_v0_3) { goto ispcore_sync_sensor_attr0x3c; }
-
-    /* fragment 4: MemoryAccess */
-    s0 = *(uint32_t *)((char *)a0 + 268);
-
-    /* fragment 5: Branch */
-    v0 = s0 < -4095;
-    if (s0 == 0) { goto ispcore_sync_sensor_attr0x38; }
-
-    /* fragment 6: Branch */
-    s2 = a1;
-    if (v0 != 0) { goto ispcore_sync_sensor_attr0x84; }
-
-ispcore_sync_sensor_attr0x38:
-    /* fragment 7: CallSetup */
-    v0 = 2945;
-
-ispcore_sync_sensor_attr0x3c:
-    /* fragment 8: CallSetup */
-    local_14 = v0;
-    local_10 = (uint32_t *)&__param_str_isp_dual_buf;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC12, &__param_str_isp_dual_buf, 2945); /* jalr target resolved by relocation */
-
-    /* fragment 9: Arithmetic */
-    v0 = -22;
-
-ispcore_sync_sensor_attr0x6c:
-    /* fragment 10: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-ispcore_sync_sensor_attr0x84:
-    /* fragment 11: Branch */
-    a2 = 96;
-    if (a1 == 0) { goto ispcore_sync_sensor_attr0x180; }
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_b0, (void *)(uintptr_t)a1, a2); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)((((*(uint16_t *)((char *)(local_e8) + 84)) * 96) + (uintptr_t)s0) + 316), (uintptr_t)s2, 96); /* jalr target resolved by relocation */
-
-    /* fragment 14: StackAccess */
-    v0 = local_e8;
-    v0 = *(uint16_t *)((char *)v0 + 84);
-    local_94 = v0;
-    v0 = local_ec;
-    local_18 = v0;
-    v0 = local_f0;
-    local_1c = v0;
-    v0 = local_e4;
-    v1 = *(uint32_t *)((char *)v0 + 152);
-    local_34 = v1;
-    v1 = *(uint32_t *)((char *)v0 + 156);
-    local_38 = v1;
-    v1 = local_f4;
-    local_44 = v1;
-    v1 = *(uint16_t *)((char *)v0 + 168);
-    local_50 = v1;
-    v1 = *(uint16_t *)((char *)v0 + 268);
-    local_6a = v1;
-    v1 = *(uint16_t *)((char *)v0 + 270);
-    local_6c = v1;
-    v1 = *(uint16_t *)((char *)v0 + 170);
-    local_52 = v1;
-    v1 = *(uint16_t *)((char *)v0 + 172);
-    local_54 = v1;
-    v1 = *(uint16_t *)((char *)v0 + 174);
-    local_56 = v1;
-    v1 = *(uint16_t *)((char *)v0 + 180);
-    local_5c = v1;
-    v1 = *(uint16_t *)((char *)v0 + 182);
-    local_5e = v1;
-
-    /* fragment 15: CallSetup */
-    local_60 = *(uint16_t *)((char *)(v0) + 184);
-    local_62 = *(uint16_t *)((char *)(v0) + 186);
-    local_64 = *(uint16_t *)((char *)(v0) + 188);
-    local_66 = *(uint16_t *)((char *)(v0) + 190);
-    local_68 = *(uint16_t *)((char *)(v0) + 192);
-    local_74 = *(uint32_t *)((char *)(v0) + 276);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tiziano_sync_sensor_attr)(&local_18); /* jalr target resolved by relocation */
-
-    /* fragment 16: Branch */
-    v0 = 0;
-    goto ispcore_sync_sensor_attr0x6c;
-
-ispcore_sync_sensor_attr0x180:
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(s0 + 316), a1, a2); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(s0 + 412), 0, 96); /* jalr target resolved by relocation */
-
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)memset((void *)(uintptr_t)(s0 + 508), 0, 96); /* jalr target resolved by relocation */
-
-    /* fragment 20: Branch */
-    v0 = 0;
-    goto ispcore_sync_sensor_attr0x6c;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    if (a0 == 0 || a0 >= (uintptr_t)-4095)
+        goto bad;
+    core = *(uint32_t *)(a0 + 268);
+    if (core == 0 || core >= (uintptr_t)-4095)
+        goto bad;
+    if (!a1) {
+        memset((void *)(core + 0x13c), 0, 96);
+        memset((void *)(core + 0x19c), 0, 96);
+        memset((void *)(core + 0x1fc), 0, 96);
+        return 0;
+    }
+    memcpy(cp, (const void *)(uintptr_t)a1, sizeof(cp));
+    info = *(uint32_t *)(cp + 0x34);
+    idxh = *(uint32_t *)(cp + 0x38);
+    if (!regtrace_is_kernel_ptr((void *)info) || !regtrace_is_kernel_ptr((void *)idxh))
+        return -22;
+    memcpy((void *)(uintptr_t)((uint32_t)*(uint16_t *)(idxh + 0x54) * 96U + core + 0x13c), (const void *)(uintptr_t)a1, 96);
+    *(uint32_t *)(b + 0x7c) = *(uint16_t *)(idxh + 0x54);
+    *(uint32_t *)(b + 0x00) = *(uint32_t *)(cp + 0x3c);
+    *(uint32_t *)(b + 0x04) = *(uint32_t *)(cp + 0x40);
+    *(uint32_t *)(b + 0x1c) = *(uint32_t *)(info + 0x98);
+    *(uint32_t *)(b + 0x20) = *(uint32_t *)(info + 0x9c);
+    *(uint32_t *)(b + 0x2c) = *(uint32_t *)(cp + 0x44);
+    *(uint16_t *)(b + 0x38) = *(uint16_t *)(info + 0xa8);
+    *(uint16_t *)(b + 0x52) = *(uint16_t *)(info + 0x10c);
+    *(uint16_t *)(b + 0x54) = *(uint16_t *)(info + 0x10e);
+    *(uint16_t *)(b + 0x3a) = *(uint16_t *)(info + 0xaa);
+    *(uint16_t *)(b + 0x3c) = *(uint16_t *)(info + 0xac);
+    *(uint16_t *)(b + 0x3e) = *(uint16_t *)(info + 0xae);
+    *(uint16_t *)(b + 0x44) = *(uint16_t *)(info + 0xb4);
+    *(uint16_t *)(b + 0x46) = *(uint16_t *)(info + 0xb6);
+    *(uint16_t *)(b + 0x48) = *(uint16_t *)(info + 0xb8);
+    *(uint16_t *)(b + 0x4a) = *(uint16_t *)(info + 0xba);
+    *(uint16_t *)(b + 0x4c) = *(uint16_t *)(info + 0xbc);
+    *(uint16_t *)(b + 0x4e) = *(uint16_t *)(info + 0xbe);
+    *(uint16_t *)(b + 0x50) = *(uint16_t *)(info + 0xc0);
+    *(uint32_t *)(b + 0x5c) = *(uint32_t *)(info + 0x114);
+    tiziano_sync_sensor_attr((uintptr_t)st);
+    return 0;
+bad:
+    isp_printf(2, "[%s %d] [ %s:%d ] The parameter is invalid!\n", "ispcore_sync_sensor_attr", 2945, "ispcore_sync_sensor_attr", 2945);
+    return -22;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000769e0 origin=fragment_seed original=isp_mbus_to_bayer.isra.0 */
