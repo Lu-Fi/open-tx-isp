@@ -66805,7 +66805,7 @@ tisp_sec_long_tgain_update0xdc:
     if (_bc_v0_18) { goto tisp_sec_long_tgain_update0x100; }
 
     /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_gain_update)(1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_gain_update)(1, 0, s1, s2); /* jalr target resolved by relocation */
 
     /* fragment 20: Arithmetic */
     v0 = (uintptr_t)s0 & 128;
@@ -66897,7 +66897,7 @@ tisp_sec_long_tgain_update0x1d4:
     if (_bc_s0_41) { goto tisp_sec_long_tgain_update0x1f8; }
 
     /* fragment 42: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_awb_tgain_update)(1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_tgain_update)(1, 0, s1); /* jalr target resolved by relocation */
 
 tisp_sec_long_tgain_update0x1f8:
     /* fragment 43: Epilogue */
@@ -67004,7 +67004,7 @@ tisp_main_long_tgain_update0xdc:
     if (_bc_v0_18) { goto tisp_main_long_tgain_update0x100; }
 
     /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_gain_update)(0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_gain_update)(0, 0, s1, s2); /* jalr target resolved by relocation */
 
     /* fragment 20: Arithmetic */
     v0 = (uintptr_t)s0 & 128;
@@ -67107,7 +67107,7 @@ tisp_main_long_tgain_update0x1f4:
     if (_bc_s0_44) { goto tisp_main_long_tgain_update0x218; }
 
     /* fragment 45: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_awb_tgain_update)(0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_awb_tgain_update)(0, 0, s1); /* jalr target resolved by relocation */
 
 tisp_main_long_tgain_update0x218:
     /* fragment 46: Epilogue */
