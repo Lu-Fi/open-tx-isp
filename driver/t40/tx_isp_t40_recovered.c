@@ -1582,6 +1582,14 @@ static uint32_t tisp_ae_main_ctrls_storage[T40_AE_CTRLS_BYTES / 4];
 static uint32_t tisp_ae_sec_ctrls_storage[T40_AE_CTRLS_BYTES / 4];
 #define tisp_ae_main_ctrls (tisp_ae_main_ctrls_storage[0])
 #define tisp_ae_sec_ctrls (tisp_ae_sec_ctrls_storage[0])
+/* T40-AE-CTRLS-LOCK (#165): the tuning node (process context: tisp_set_ae_info -> tisp_ae_{main,sec}_manual_set,
+ * tisp_set_ae_minmax -> *_min_max_set, *_manual_get) and the frame-3A AE (tisp_ae_sensor_inform reads the ctrl
+ * block) shared tisp_ae_*_ctrls without any lock: a set could be seen half-applied (min/max of one call mixed
+ * with the old values).  OEM: no lock (libt40-firmware tisp_ae_main_manual_set / min_max_set / set_ae_info
+ * call only isp_printf/memcpy); this is a hardening.  Leaf lock: nothing is called under it that takes another
+ * lock or sleeps (isp_printf, memcpy, tisp_math_exp2); irqsave because the 3A reader may run in softirq/IRQ
+ * work.  Not nested with t40_ae_api_lock or t40_tisp_mutex (the node mutex is taken first, this lock last). */
+static DEFINE_SPINLOCK(t40_ae_ctrls_lock);
 static struct file_operations tisp_fops;
 static struct cdev tisp_cdev;
 static uint32_t major;
@@ -76328,8 +76336,21 @@ int32_t tisp_ae_ai_sec_interrupt_static(void)
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_0000000000021474 origin=fragment_seed original=tisp_ae_sensor_inform */
+static int32_t t40_ae_sensor_inform_unlocked(uint32_t a0, uintptr_t a1, uintptr_t a2);
+/* #165: the frame-3A / init readers of the ctrl block take the same leaf lock as the tuning-node setters. */
 int32_t tisp_ae_sensor_inform(uint32_t a0, uintptr_t a1, uintptr_t a2)
+{
+    unsigned long lflags;
+    int32_t ret;
+
+    spin_lock_irqsave(&t40_ae_ctrls_lock, lflags);
+    ret = t40_ae_sensor_inform_unlocked(a0, a1, a2);
+    spin_unlock_irqrestore(&t40_ae_ctrls_lock, lflags);
+    return ret;
+}
+
+/* WHOLE_DRIVER_CANDIDATE fn_0000000000021474 origin=fragment_seed original=tisp_ae_sensor_inform */
+static int32_t t40_ae_sensor_inform_unlocked(uint32_t a0, uintptr_t a1, uintptr_t a2)
 {
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -80702,6 +80723,9 @@ static int t40_ae_manual_set(uint32_t *c, unsigned char *ori, const uint32_t *w,
 {
 #define T40_ON(v) (sec ? (v) != 0U : (v) == 1U)
     uint8_t *flag;
+    unsigned long lflags;
+
+    spin_lock_irqsave(&t40_ae_ctrls_lock, lflags);   /* #165 */
 
     c[0] = w[0];
     if (T40_ON(w[0])) {
@@ -80769,6 +80793,7 @@ static int t40_ae_manual_set(uint32_t *c, unsigned char *ori, const uint32_t *w,
     flag = *(uint8_t **)(ori + 0xac);
     if (flag)
         *flag = 0;
+    spin_unlock_irqrestore(&t40_ae_ctrls_lock, lflags);
     return 0;
 }
 
@@ -80791,7 +80816,13 @@ int32_t tisp_ae_main_manual_get(uint32_t a0)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)&tisp_ae_main_ctrls, 164); /* jalr target resolved by relocation */
+    {   /* #165: consistent snapshot against a concurrent set */
+        unsigned long lflags;
+
+        spin_lock_irqsave(&t40_ae_ctrls_lock, lflags);
+        v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)&tisp_ae_main_ctrls, 164);
+        spin_unlock_irqrestore(&t40_ae_ctrls_lock, lflags);
+    }
 
     /* fragment 2: Epilogue */
     /* function epilogue: restore registers and return */
@@ -80820,15 +80851,18 @@ static int t40_ae_min_max_set(uint32_t *c, unsigned char *ori, const uint32_t *w
     static const unsigned char idx[] = { 5, 6, 7, 8, 20, 21, 22, 23, 28, 29, 30, 31, 32, 33, 34, 35 };
     uint8_t *flag;
     unsigned int i;
+    unsigned long lflags;
 
     isp_printf(0, "%s:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", sec ? "Sec" : "Main",
                w[5], w[6], w[7], w[8], w[20], w[21], w[22], w[23], w[28], w[29], w[30], w[31],
                w[32], w[33], w[34], w[35]);
+    spin_lock_irqsave(&t40_ae_ctrls_lock, lflags);   /* #165: the 16 words are applied as one set */
     for (i = 0; i < sizeof(idx); i++)
         c[idx[i]] = w[idx[i]];
     flag = *(uint8_t **)(ori + 0xac);
     if (flag)
         *flag = 0;
+    spin_unlock_irqrestore(&t40_ae_ctrls_lock, lflags);
     return 0;
 }
 
@@ -81396,7 +81430,13 @@ int32_t tisp_ae_sec_manual_get(uint32_t a0)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)&tisp_ae_sec_ctrls, 164); /* jalr target resolved by relocation */
+    {   /* #165: consistent snapshot against a concurrent set */
+        unsigned long lflags;
+
+        spin_lock_irqsave(&t40_ae_ctrls_lock, lflags);
+        v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)&tisp_ae_sec_ctrls, 164);
+        spin_unlock_irqrestore(&t40_ae_ctrls_lock, lflags);
+    }
 
     /* fragment 2: Epilogue */
     /* function epilogue: restore registers and return */
