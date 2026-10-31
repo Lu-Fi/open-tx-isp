@@ -90373,153 +90373,27 @@ int32_t tisp_lsc_prepare_write_lut(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037564 origin=fragment_seed original=tisp_lsc_ct_update */
 int32_t tisp_lsc_ct_update(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t arg4, uint32_t arg5)
 {
-    if (regtrace_isr_oem_hw_refresh) {
-    /* OEM 0x37964 reads the 64-bit cadence pair from the caller stack
-           (sp+56/sp+60) and hard-codes force = 0 (0x37984 sw zero,16(sp)). */
-        return t40_writer_lsc_frame(a0, a2,
-                                    ((uint64_t)arg5 << 32) | (uint64_t)arg4);
-    }
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    /* OEM 0x37980..0x37990: the 64-bit frame number arrives as the two O32
-       stack arguments the caller stored at its sp+16/sp+20, so this callee
-       reads them back at its own sp+56/sp+60 (56 = its 40-byte frame + 16):
-       s0 = frame low, s1 = frame high.  The reconstruction read them out of
-       local_38 / local_3c, which were declared, initialised to 0 and never
-       written, so the cadence compare below degenerated to "frame > next" and
-       the two stores at 0x379d8/0x379dc landed on &isp_memopt + 16848/16852,
-       i.e. .bss+0x41d0 lsc_gain / lsc_mirror_en - two 4-byte writes outside any
-       object this function owns, on the frame path. */
-    local_10 = 0;
-    s2 = a0;
-    s0 = (uint32_t *)(uintptr_t)arg4;
-    s1 = (uint32_t *)(uintptr_t)arg5;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_interp_by_ct)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    /* OEM 0x379a4: addiu v1,v1,16816 with R_MIPS_LO16 .bss == lsc_frm_num_saved
-       (OEM symtab .bss+0x41b0, 2 x u64).  The reconstruction used
-       &isp_memopt + 16848 == .bss+0x41d0 == lsc_gain: the 0x20 drift again, so
-       the cadence reference was read from lsc_gain and written back into it.
-       &isp_memopt is .bss+0x0, so the OEM offset is the literal 16816, not
-       16848. */
-    v1 = (int32_t *)(void *)&lsc_frm_num_saved;
-    if (v0 != 0) { goto tisp_lsc_ct_update0xa4; }
-
-    /* fragment 3: Arithmetic */
-    /* OEM 0x3799c/0x379a8: lui v0,0x3 / addiu v0,v0,-16144 == .data+0x2c0f0 ==
-       lsc_wlut_frequency, one u8 per sensor (0x379b4 lbu v0,0(v0)). */
-    v0 = (uintptr_t *)(void *)&lsc_wlut_frequency;
-    a1 = (uintptr_t)s2 << 3;
-    a2 = a1 + (uintptr_t)v1;
-    v0 = (uintptr_t)s2 + (uintptr_t)v0;
-
-    /* fragment 4: MemoryAccess */
-    v0 = *(uint8_t *)((char *)v0 + 0);
-    a0 = *(uint32_t *)((char *)a2 + 0);
-    a2 = *(uint32_t *)((char *)a2 + 4);
-    a0 = v0 + a0;
-    v0 = a0 < v0;
-    v0 = v0 + a2;
-    a2 = v0 < s1;
-
-    /* fragment 5: Branch */
-    if (a2 != 0) { goto tisp_lsc_ct_update0x88; }
-
-    /* fragment 6: Branch */
-    if (s1 != v0) { goto tisp_lsc_ct_update0xa8; }
-
-    /* fragment 7: Arithmetic */
-    a0 = a0 < s0;
-
-    /* fragment 8: Branch */
-    if (a0 == 0) { goto tisp_lsc_ct_update0xa8; }
-
-tisp_lsc_ct_update0x88:
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_prepare_write_lut)(s2); /* jalr target resolved by relocation */
-
-    /* fragment 10: Arithmetic */
-    v1 = v1 + a1;
-
-    /* fragment 11: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 0) = s0;
-    *(uint32_t *)((char *)v1 + 4) = s1;
-
-tisp_lsc_ct_update0xa4:
-    /* fragment 12: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_lsc_ct_update0xa8:
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 14: Arithmetic */
-    v0 = 0;
-
-    /* fragment 15: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    /* #agg54: the lifted body (decompiler artifacts: wrong LUT ports, dropped quotient, missing 5th
+     * stack argument of interp_by_ct/gain, x4 offsets) is no longer reachable.  Default mode routes to
+     * the lsc_lit chain (tx_isp_t40_lsc_lit.inc), isr_oem_hw_refresh=1 to the t40_writer chain. */
+    if (regtrace_isr_oem_hw_refresh)
+        /* OEM 0x37964 reads the 64-bit cadence pair from the caller stack (sp+56/sp+60), force = 0. */
+        return t40_writer_lsc_frame(a0, a2, ((uint64_t)arg5 << 32) | (uint64_t)arg4);
+    if (regtrace_enable_lsc_lit && a0 < 2)
+        regtrace_lsc_lit_ct_update(a0, a2);
     return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037624 origin=fragment_seed original=tisp_lsc_gain_update */
 int32_t tisp_lsc_gain_update(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
-    if (regtrace_isr_oem_hw_refresh) {
-    /* OEM 0x37a24 passes force = 0 and the gain in a2. */
-        return t40_writer_lsc_gain(a0, a2);
-    }
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    local_10 = 0;
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_interp_by_gain)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: Branch */
-    if (v0 != 0) { goto tisp_lsc_gain_update0x3c; }
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_write_reg)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_lsc_gain_update0x3c:
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 6: Arithmetic */
-    v0 = 0;
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    /* #agg54: the lifted body (decompiler artifacts: wrong LUT ports, dropped quotient, missing 5th
+     * stack argument of interp_by_ct/gain, x4 offsets) is no longer reachable.  Default mode routes to
+     * the lsc_lit chain (tx_isp_t40_lsc_lit.inc), isr_oem_hw_refresh=1 to the t40_writer chain. */
+    if (regtrace_isr_oem_hw_refresh)
+        return t40_writer_lsc_gain(a0, a2);   /* OEM 0x37a24: gain in a2, force 0 */
+    if (regtrace_enable_lsc_lit && a0 < 2)
+        regtrace_lsc_lit_gain_update(a0, a2);
     return 0;
 }
 
@@ -90560,49 +90434,23 @@ int32_t tisp_lsc_tool_to_awdr(int32_t arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037750 origin=fragment_seed original=tisp_lsc_wdr_en */
 int32_t tisp_lsc_wdr_en(uint32_t a0, uint32_t a1)
 {
-    if (regtrace_isr_oem_hw_refresh) {
-    return t40_writer_lsc_wdr(a0, a1);
-    }
-    uint32_t *local_10 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    /* #agg54: the lifted body (decompiler artifacts: wrong LUT ports, dropped quotient, missing 5th
+     * stack argument of interp_by_ct/gain, x4 offsets) is no longer reachable.  Default mode routes to
+     * the lsc_lit chain (tx_isp_t40_lsc_lit.inc), isr_oem_hw_refresh=1 to the t40_writer chain. */
+    struct lsc_lit_bank *b;
 
-    /* fragment 0: CallSetup */
-    *(uint8_t *)((char *)(a0 + &isp_memopt) + 0) = a1;
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_tool_to_awdr)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 1: CallSetup */
-    s1 = 1;
-    local_10 = s1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_interp_by_ct)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_interp_by_gain)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_write_reg)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_prepare_write_lut)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 6: Arithmetic */
-    v0 = 0;
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    if (regtrace_isr_oem_hw_refresh)
+        return t40_writer_lsc_wdr(a0, a1);
+    if (!regtrace_enable_lsc_lit || a0 > 1 || !lsc_lit_banks[a0].alive)
+        return 0;
+    /* OEM 0x37b50: lsc_wdr_en = en; tool_to_awdr; interp_by_ct/gain(force 1); write_reg; prepare_write_lut */
+    b = &lsc_lit_banks[a0];
+    b->wdr = a1 ? 1 : 0;
+    lsc_lit_refresh_nodes(b);
+    (void)lsc_lit_interp_by_ct(a0, b->last_ct, 1);
+    (void)lsc_lit_interp_by_gain(a0, b->last_gain, 1);
+    lsc_lit_write_reg(a0);
+    lsc_lit_real_write_lut(a0);
     return 0;
 }
 
@@ -90917,61 +90765,18 @@ tisp_lsc_deinit0xa8:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037b8c origin=fragment_seed original=tisp_lsc_param_array_get */
 int64_t tisp_lsc_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
-    if (regtrace_isr_oem_hw_refresh) {
-    return t40_writer_lsc_param_get(a0, (void *)(uintptr_t)a1,
-                                        (uint32_t *)(uintptr_t)a2);
-    }
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = a1;
-
-    /* fragment 2: StackAccess */
-    local_10 = s0;
-    local_14 = ra;
-
-    /* fragment 3: Branch */
-    s0 = a2;
-    if (a0 == 0) { goto tisp_lsc_param_array_get0x50; }
-
-    /* fragment 4: CallSetup */
-    v1 = (int32_t *)&lsc_seco_tool_para;
-    a1 = *(uint32_t *)((char *)((char *)&lsc_seco_tool_para));
-
-tisp_lsc_param_array_get0x20:
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)v0, (void *)(uintptr_t)a1, 292); /* jalr target resolved by relocation */
-
-    /* fragment 6: Arithmetic */
-    v0 = 292;
-
-    /* fragment 7: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 0) = v0;
-    ra = local_14;
-    s0 = local_10;
-    v0 = 0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_lsc_param_array_get0x50:
-    /* fragment 9: Arithmetic */
-    v1 = (int32_t *)&lsc_main_tool_para;
-
-    /* fragment 10: Branch */
-    a1 = *(uint32_t *)((char *)((char *)&lsc_main_tool_para));
-    goto tisp_lsc_param_array_get0x20;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    /* #agg54: the lifted body (decompiler artifacts: wrong LUT ports, dropped quotient, missing 5th
+     * stack argument of interp_by_ct/gain, x4 offsets) is no longer reachable.  Default mode routes to
+     * the lsc_lit chain (tx_isp_t40_lsc_lit.inc), isr_oem_hw_refresh=1 to the t40_writer chain. */
+    if (regtrace_isr_oem_hw_refresh)
+        return t40_writer_lsc_param_get(a0, (void *)(uintptr_t)a1, (uint32_t *)(uintptr_t)a2);
+    /* OEM 0x370fc: memcpy(dst, tool, 292); *len = 292 */
+    if (!regtrace_enable_lsc_lit || a0 > 1 || !lsc_lit_banks[a0].alive || !a1)
+        return -1;
+    memcpy((void *)(uintptr_t)a1, lsc_lit_banks[a0].tool, 292);
+    if (a2)
+        *(uint32_t *)a2 = 292;
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037be8 origin=model_output original=lsc_remove */
@@ -91754,200 +91559,44 @@ tisp_lsc_dn_params_refresh0x110:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000038458 origin=fragment_seed original=tisp_lsc_param_array_set */
 int32_t tisp_lsc_param_array_set(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
-    if (regtrace_isr_oem_hw_refresh) {
-    return t40_writer_lsc_param_set((unsigned int)a0,
-                                        (const void *)(uintptr_t)a1, a2);
+    /* #agg54: the lifted body (decompiler artifacts: wrong LUT ports, dropped quotient, missing 5th
+     * stack argument of interp_by_ct/gain, x4 offsets) is no longer reachable.  Default mode routes to
+     * the lsc_lit chain (tx_isp_t40_lsc_lit.inc), isr_oem_hw_refresh=1 to the t40_writer chain. */
+    /* OEM 0x379c8: a1 = mode (move v0,a1), a2 = source (move a1,a2).  The writer route had them swapped. */
+    const void *src = (const void *)(uintptr_t)a2;
+    struct lsc_lit_bank *b;
+
+    if (regtrace_isr_oem_hw_refresh)
+        return t40_writer_lsc_param_set((unsigned int)a0, src, a1);
+    if (!regtrace_enable_lsc_lit || a0 > 1 || !lsc_lit_banks[a0].alive || !src)
+        return 0;
+    b = &lsc_lit_banks[a0];
+    switch (a1) {
+    case 0:   /* tool header: tool_to_awdr, interp_by_ct/gain(force 1), write_reg */
+        memcpy(b->tool, src, 292);
+        lsc_lit_refresh_nodes(b);
+        (void)lsc_lit_interp_by_ct(a0, b->last_ct, 1);
+        (void)lsc_lit_interp_by_gain(a0, b->last_gain, 1);
+        lsc_lit_write_reg(a0);
+        break;
+    case 1:
+        memcpy(b->tool + LSC_LIT_T_LUT0, src, 13824);
+        break;
+    case 2:
+        memcpy(b->tool + LSC_LIT_T_LUT1, src, 13824);
+        break;
+    case 3:   /* last LUT: apply (OEM re-runs tisp_lsc_mirror_flip instead when mirror/flip is on) */
+        memcpy(b->tool + LSC_LIT_T_LUT2, src, 13824);
+        lsc_lit_refresh_nodes(b);
+        (void)lsc_lit_interp_by_ct(a0, b->last_ct, 1);
+        (void)lsc_lit_interp_by_gain(a0, b->last_gain, 1);
+        lsc_lit_write_reg(a0);
+        lsc_lit_real_write_lut(a0);   /* OEM prepare_write_lut; lsc_lit flushes directly */
+        break;
+    default:
+        isp_printf(1, "%s,%d: lsc not support param id %d\n", __func__, __LINE__, a1);
+        break;
     }
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = a1;
-    a1 = a2;
-
-    /* fragment 2: StackAccess */
-    local_18 = s0;
-    local_34 = ra;
-    local_30 = s6;
-    local_2c = s5;
-    local_28 = s4;
-    local_24 = s3;
-    local_20 = s2;
-    local_1c = s1;
-
-    /* fragment 3: Branch */
-    s0 = a0;
-    if (a0 == 0) { goto tisp_lsc_param_array_set0x9c; }
-
-    /* fragment 4: Arithmetic */
-    v1 = (int32_t *)&isp_memopt;
-
-    /* fragment 5: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&lsc_seco_tool_para));
-
-tisp_lsc_param_array_set0x3c:
-    /* fragment 6: ConstantLoad */
-    s3 = ((char *)&lsc_flip_en);
-
-    /* fragment 7: MemoryAccess */
-    s5 = *(uint8_t *)((char *)v1 + 0);
-    s1 = 1;
-    v1 = (uintptr_t)s0 + (uintptr_t)s2;
-
-    /* fragment 8: Branch */
-    s6 = *(uint8_t *)((char *)(v1) + 0);
-    if (v0 == s1) { goto tisp_lsc_param_array_set0x13c; }
-
-    /* fragment 9: Branch */
-    v1 = 2;
-    if (v0 == 0) { goto tisp_lsc_param_array_set0xa8; }
-
-    /* fragment 10: Branch */
-    int _bc_v0_10 = v0 == v1;
-    v1 = 3;
-    if (_bc_v0_10) { goto tisp_lsc_param_array_set0x180; }
-
-    /* fragment 11: Branch */
-    int _bc_v0_11 = v0 == v1;
-    v0 = (uintptr_t *)&memcpy;
-    if (_bc_v0_11) { goto tisp_lsc_param_array_set0x18c; }
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)isp_printf)(1, &LC8); /* jalr target resolved by relocation */
-
-    /* fragment 13: Branch */
-    goto tisp_lsc_param_array_set0x158;
-
-tisp_lsc_param_array_set0x9c:
-    /* fragment 14: Arithmetic */
-    v1 = (int32_t *)&isp_memopt;
-
-    /* fragment 15: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&lsc_main_tool_para));
-    goto tisp_lsc_param_array_set0x3c;
-
-tisp_lsc_param_array_set0xa8:
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)a1, 292); /* jalr target resolved by relocation */
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_tool_to_awdr)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 18: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_interp_by_ct)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_interp_by_gain)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)&tisp_lsc_write_reg;
-    a0 = s0;
-    v0 = v0;
-
-tisp_lsc_param_array_set0x12c:
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_write_reg)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 22: Branch */
-    goto tisp_lsc_param_array_set0x158;
-
-tisp_lsc_param_array_set0x13c:
-    /* fragment 23: CallSetup */
-    a2 = 13824;
-    a0 = a0 + 292;
-
-tisp_lsc_param_array_set0x144:
-    /* fragment 24: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)a1, a2); /* jalr target resolved by relocation */
-
-    /* fragment 25: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_lsc_param_array_set0x158:
-    /* fragment 26: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 27: Arithmetic */
-    v0 = 0;
-
-    /* fragment 28: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_lsc_param_array_set0x180:
-    /* fragment 29: Arithmetic */
-    a2 = 13824;
-
-    /* fragment 30: Branch */
-    a0 = a0 + 14116;
-    goto tisp_lsc_param_array_set0x144;
-
-tisp_lsc_param_array_set0x18c:
-    /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(a0 + 27940), (void *)(uintptr_t)a1, 13824); /* jalr target resolved by relocation */
-
-    /* fragment 32: Branch */
-    s4 = (uintptr_t)s0 << 2;
-    if (s5 != s1) { goto tisp_lsc_param_array_set0x1f4; }
-
-tisp_lsc_param_array_set0x1a4:
-    /* fragment 33: CallSetup */
-    s3 = (uintptr_t)s3 + (uintptr_t)s0;
-    s2 = (uintptr_t)s2 + (uintptr_t)s0;
-    *(uint8_t *)((char *)s3 + 0) = 0;
-    *(uint8_t *)((char *)s2 + 0) = 0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_lsc_mirror_flip)((uintptr_t)s0, *(uint32_t *)((char *)&sclk_name + (uintptr_t)s4 + 0), *(uint32_t *)((char *)&sclk_name + (uintptr_t)s4 + 0), s5); /* jalr target resolved by relocation */
-
-    /* fragment 34: Branch */
-    goto tisp_lsc_param_array_set0x158;
-
-tisp_lsc_param_array_set0x1f4:
-    /* fragment 35: Branch */
-    v0 = (uintptr_t *)&tisp_lsc_tool_to_awdr;
-    if (s6 == s1) { goto tisp_lsc_param_array_set0x1a4; }
-
-    /* fragment 36: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_tool_to_awdr)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 37: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_interp_by_ct)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 38: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_interp_by_gain)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 39: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_lsc_write_reg)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 40: Arithmetic */
-    v0 = (uintptr_t *)&tisp_lsc_prepare_write_lut;
-    a0 = s0;
-
-    /* fragment 41: Branch */
-    v0 = (uintptr_t *)&tisp_lsc_prepare_write_lut;
-    goto tisp_lsc_param_array_set0x12c;
-
     return 0;
 }
 
