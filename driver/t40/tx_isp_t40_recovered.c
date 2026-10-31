@@ -40207,7 +40207,7 @@ isp_vic_interrupt_service_routine0x460:
 
     /* fragment 126: CallSetup */
     *(uint32_t *)((char *)s0 + 764) = ((*(uint32_t *)((char *)(s0) + 764)) + 1);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)vic_mdma_irq_function0)(s0, *(uint32_t *)((char *)(s0) + 588)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)vic_mdma_irq_function0)(s0, *(uint32_t *)((char *)(s0) + 588), 0); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x490:
     /* fragment 127: StackAccess */
@@ -40861,7 +40861,7 @@ isp_vic_interrupt_service_routine0x9e8:
 
     /* fragment 273: CallSetup */
     *(uint32_t *)((char *)s0 + 772) = ((*(uint32_t *)((char *)(s0) + 772)) + 1);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)vic_mdma_irq_function1)(s0, *(uint32_t *)((char *)(s0) + 592)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)vic_mdma_irq_function1)(s0, *(uint32_t *)((char *)(s0) + 592), 0); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0xa18:
     /* fragment 274: StackAccess */
@@ -40874,7 +40874,7 @@ isp_vic_interrupt_service_routine0xa18:
 
     /* fragment 276: CallSetup */
     *(uint32_t *)((char *)s0 + 776) = ((*(uint32_t *)((char *)(s0) + 776)) + 1);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)vic_mdma_irq_function1)(s0, *(uint32_t *)((char *)(s0) + 592)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)vic_mdma_irq_function1)(s0, *(uint32_t *)((char *)(s0) + 592), 1); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0xa48:
     /* fragment 277: StackAccess */
@@ -41490,7 +41490,7 @@ isp_vic_interrupt_service_routine0xf20:
 
     /* fragment 414: CallSetup */
     *(uint32_t *)((char *)s0 + 780) = ((*(uint32_t *)((char *)(s0) + 780)) + 1);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)vic_mdma_irq_function2)(s0, *(uint32_t *)((char *)(s0) + 596)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)vic_mdma_irq_function2)(s0, *(uint32_t *)((char *)(s0) + 596), 0); /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0xf50:
     /* fragment 415: StackAccess */
