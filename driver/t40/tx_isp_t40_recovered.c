@@ -49243,17 +49243,25 @@ label_c33c_vfree:
     }
 
   {
+        /* T40-AGG52-FD: OEM 0xb6c0..0xb768 (WaitFrameDone): 24-byte block at sp+24 from the user;
+         * isp_frame_done_wait(vinum, block[0] = timeout, &u64 cnt (sp+120, zeroed), block[4] = ISP/VIC);
+         * block[2..3] = cnt; block back to the user; the wait result is not returned (the caller
+         * compares the counts).  The lift passed sp+0x20 (outside the copied block) as the count
+         * and an uninitialised slot as the ISP/VIC selector. */
         int32_t a1_val = arg3[1];
+        uint32_t wf_blk[6];
+        uint64_t wf_cnt = 0;
 
-        if (copy_from_user(__p_80, (void __user *)a1_val, 0x18) != 0) {
+        if (copy_from_user(wf_blk, (void __user *)a1_val, 0x18) != 0) {
             result = 0x18;
         } else {
             result = 0;
             if (result == 0) {
-                isp_frame_done_wait(arg1, (*__p_80), __p_20, (*__p_70));
+                (void)isp_frame_done_wait(arg1, wf_blk[0], (uintptr_t)&wf_cnt, wf_blk[4]);
+                memcpy(&wf_blk[2], &wf_cnt, sizeof(wf_cnt));
                 int32_t a0_val = arg3[1];
 
-                if (copy_to_user((void __user *)a0_val, __p_80, 0x18) != 0) {
+                if (copy_to_user((void __user *)a0_val, wf_blk, 0x18) != 0) {
                     result = 0x18;
                 } else {
                     result = 0;
