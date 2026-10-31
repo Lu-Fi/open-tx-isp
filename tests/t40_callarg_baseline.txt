@@ -92,7 +92,6 @@ argc isp_vic_cmd_set private_seq_printf 2/3
 argc isp_vic_cmd_set tisp_s_module_control 1/2
 argc isp_vic_cmd_set vic_mdma_enable 3/7
 argc ispcore_frame_channel_dqbuf tx_isp_send_event_to_remote 2/3
-argc ispcore_interrupt_service_routine Tzn_Msca_addr_fifo_write 2/4
 argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 1/4
 argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 1/4
 argc ispcore_pad_event_handle Tzn_Msca_addr_fifo_write 1/4
@@ -116,11 +115,6 @@ argc table_intp fix_point_intp 1/5
 argc tisp_ae_dn_params_refresh tisp_ae_params_refresh 1/3
 argc tisp_ae_dn_params_refresh tisp_ae_params_transmit 1/2
 argc tisp_ae_g_scene_luma fix_point_div_32 2/3
-argc tisp_ae_main_s_max_again tisp_math_exp2 1/3
-argc tisp_ae_main_s_max_isp_dgain tisp_math_exp2 1/3
-argc tisp_ae_sec_s_max_again tisp_math_exp2 1/3
-argc tisp_ae_sensor_inform tisp_math_exp2 2/3
-argc tisp_ae_sensor_inform tisp_math_exp2 2/3
 argc tisp_ae_sepc_area tisp_ae_roi_point 1/5
 argc tisp_af_alogrithm fix_point_mult2_32 1/3
 argc tisp_af_dn_params_refresh tisp_af_params_transmit 2/3
@@ -156,8 +150,6 @@ argc tisp_defog_param_array_set defog_count_weight35abc 1/10
 argc tisp_defog_param_array_set tisp_defog_interp_trans_k 4/8
 argc tisp_defog_update_trans_k tisp_defog_interp_trans_k 4/8
 argc tisp_defog_write_reg_para3 system_reg_write 1/2
-argc tisp_gamma_dn_params_refresh tisp_gamma_interp_by_ev 1/5
-argc tisp_gamma_param_array_set tisp_gamma_interp_by_ev 1/5
 argc tisp_gamma_wdr_en tisp_gamma_interp_by_ev 4/5
 argc tisp_get_antiflicker_step tisp_ae_main_get_antiflicker_step 1/2
 argc tisp_gsm_interrupt_hist tisp_gsm_dual_get_hist 1/2
@@ -178,9 +170,6 @@ argc tisp_lsc_mirror_flip tisp_lsc_interp_by_ct 1/4
 argc tisp_lsc_mirror_flip tisp_lsc_interp_by_gain 1/4
 argc tisp_main_init tisp_defog_init 3/7
 argc tisp_main_init tiziano_load_parameters 1/3
-argc tisp_main_long_ev_update tisp_defog_ev_update 1/4
-argc tisp_main_long_tgain_update tisp_awb_tgain_update 1/3
-argc tisp_main_long_tgain_update tisp_lsc_gain_update 1/4
 argc tisp_mdns_reg_cfg system_reg_write 1/2
 argc tisp_mdns_reg_cfg system_reg_write 1/2
 argc tisp_mdns_reg_cfg system_reg_write 1/2
@@ -204,9 +193,6 @@ argc tisp_s_defog_str_internal tisp_defog_strength_itp 1/3
 argc tisp_s_defog_str_internal tisp_defog_strength_itp 1/3
 argc tisp_sec_init tisp_defog_init 3/7
 argc tisp_sec_init tiziano_load_parameters 1/3
-argc tisp_sec_long_ev_update tisp_defog_ev_update 1/4
-argc tisp_sec_long_tgain_update tisp_awb_tgain_update 1/3
-argc tisp_sec_long_tgain_update tisp_lsc_gain_update 1/4
 argc tisp_set_sharpness tisp_dmsc_sharpness_set 1/2
 argc tisp_set_wdr_output_mode tisp_wdr_param_array_get 1/3
 argc tisp_stream_on tisp_event_set_cb 2/3
@@ -228,7 +214,6 @@ argc tiziano_isp_ccm_attr_g_ctrl_isra_31 tisp_g_ccm_attr 1/2
 argc tiziano_load_parameters tiziano_parse_regs 2/3
 argc tiziano_load_parameters tiziano_parse_regs 2/3
 argc tiziano_load_parameters tiziano_save_to_local 1/4
-argc tiziano_sync_sensor_attr tisp_math_exp2 1/3
 argc tx_isp_ae_expoinfo_g_attr_isra_45 private_copy_to_user 2/3
 argc tx_isp_ae_expoinfo_g_attr_isra_45 tisp_g_ae_exprinfo_attr 1/2
 argc tx_isp_ae_scence_g_attr_isra_44 private_copy_to_user 2/3
@@ -263,12 +248,9 @@ scaled fs_slake_module __vb2_queue_free s0 + 44
 scaled func_adr_reg_write_sometimes system_reg_write s0 + 24
 scaled isp_framesource_show __private_spin_lock_irqsave s0 + 720
 scaled isp_save_cmd_set isp_printf s0 - 1
-scaled ispcore_interrupt_service_routine system_reg_read a2 + 24968
-scaled ispcore_interrupt_service_routine system_reg_read a2 + 26612
 scaled ispcore_pad_event_handle __private_spin_lock_irqsave s0 + 164
 scaled ispcore_pad_event_handle __private_spin_lock_irqsave s2 + 164
 scaled ispcore_pad_event_handle __private_spin_lock_irqsave s4 + 164
-scaled ispvic_frame_get_raw private_wait_for_completion_timeout s0 + 672
 scaled tisp_blc_ag_interp tisp_simple_intp_int16 s1 + 102
 scaled tisp_blc_ag_interp tisp_simple_intp_int16 s1 + 58
 scaled tisp_blc_ag_interp tisp_simple_intp_int16 s1 + 80
