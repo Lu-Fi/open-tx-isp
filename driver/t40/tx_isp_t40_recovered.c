@@ -92039,9 +92039,16 @@ tisp_lsc_deinit0xa8:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000037b8c origin=fragment_seed original=tisp_lsc_param_array_get */
 int64_t tisp_lsc_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
-    if (regtrace_isr_oem_hw_refresh) {
-    return t40_writer_lsc_param_get(a0, (void *)(uintptr_t)a1,
-                                        (uint32_t *)(uintptr_t)a2);
+    /* T40-LSC-PAR (#139): the writer is the only LSC tool block of the open driver.  The lifted body below
+     * copied from lsc_{main,seco}_tool_para, which nothing allocates (the lifted tisp_lsc_init is not used):
+     * a read from address 0, the silent guest/camera reset at /dev/tisp GET id 2 (t40_tisp_par=1).  Without a
+     * writer context (isr_oem_hw_refresh off) the block is empty: length 0. */
+    {
+        int ret = t40_writer_lsc_param_get(a0, (void *)(uintptr_t)a1, (uint32_t *)(uintptr_t)a2);
+
+        if (ret)
+            *(uint32_t *)(uintptr_t)a2 = 0;
+        return ret;
     }
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
@@ -92876,10 +92883,10 @@ tisp_lsc_dn_params_refresh0x110:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000038458 origin=fragment_seed original=tisp_lsc_param_array_set */
 int32_t tisp_lsc_param_array_set(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
-    if (regtrace_isr_oem_hw_refresh) {
-    return t40_writer_lsc_param_set((unsigned int)a0,
-                                        (const void *)(uintptr_t)a1, a2);
-    }
+    /* T40-LSC-PAR (#139): arguments in the order the tuning node passes them (OEM: lsc(sensor, mode, &data));
+     * the wrapper had mode and data swapped (copy from address "mode").  No writer context: -EINVAL, nothing
+     * written (the lifted body below uses the never-allocated lsc_*_tool_para). */
+    return t40_writer_lsc_param_set((unsigned int)a0, (const void *)(uintptr_t)a2, a1);
     uint32_t *local_10 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -104056,6 +104063,13 @@ tisp_wdr_seco_process0x60:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000422b0 origin=fragment_seed original=tisp_wdr_param_array_get */
 int32_t tisp_wdr_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
+    /* T40-TISP-PAR (#139): the OEM WDR tool/used block(s) are never allocated in the open driver (the lifted tisp_wdr_init is not
+     * used), the lift below reads/writes through NULL: the silent reset at /dev/tisp GET id 0x3 (t40_tisp_par=1).
+     * No block: length 0 / -ENODEV, nothing touched. */
+    if (!(a0 ? (seco_wdr_tool_para && seco_wdr_used_para) : (main_wdr_tool_para && main_wdr_used_para))) {
+        *(uint32_t *)a2 = 0;
+        return -ENODEV;
+    }
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -119772,6 +119786,14 @@ tisp_lce_tgain_update0x40:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004d8e0 origin=fragment_seed original=tisp_lce_param_array_get */
 int32_t tisp_lce_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
+    /* T40-TISP-PAR (#139): the OEM LCE tool/awdr/save block(s) are never allocated in the open driver (the lifted tisp_lce_init is not
+     * used), the lift below reads/writes through NULL: the silent reset at /dev/tisp GET id 0xb (t40_tisp_par=1).
+     * No block: length 0 / -ENODEV, nothing touched. */
+    if (!(a0 ? (lce_seco_tool_para && lce_seco_awdr_para && lce_seco_save_para)
+             : (lce_main_tool_para && lce_main_awdr_para && lce_main_save_para))) {
+        *(uint32_t *)a2 = 0;
+        return -ENODEV;
+    }
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -119842,6 +119864,12 @@ tisp_lce_param_array_get0x84:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004d980 origin=fragment_seed original=tisp_lce_param_array_set */
 int32_t tisp_lce_param_array_set(uint32_t a0, uint32_t a1)
 {
+    /* T40-TISP-PAR (#139): the OEM LCE tool/awdr/save block(s) are never allocated in the open driver (the lifted tisp_lce_init is not
+     * used), the lift below reads/writes through NULL: the silent reset at /dev/tisp GET id 0xb (set) (t40_tisp_par=1).
+     * No block: length 0 / -ENODEV, nothing touched. */
+    if (!(a0 ? (lce_seco_tool_para && lce_seco_awdr_para && lce_seco_save_para)
+             : (lce_main_tool_para && lce_main_awdr_para && lce_main_save_para)))
+        return -ENODEV;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -125180,6 +125208,11 @@ int32_t tisp_defog_param_array_get(int32_t arg1, int32_t arg2, int32_t *arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000005281c origin=fragment_seed original=tisp_defog_param_array_set */
 int32_t tisp_defog_param_array_set(uintptr_t a0, uint32_t a1)
 {
+    /* T40-TISP-PAR (#139): the OEM defog tool block(s) are never allocated in the open driver (the lifted tisp_defog_init is not
+     * used), the lift below reads/writes through NULL: the silent reset at /dev/tisp GET id 0xa (set) (t40_tisp_par=1).
+     * No block: length 0 / -ENODEV, nothing touched. */
+    if (!(a0 ? defog_seco_tool_para : defog_main_tool_para))
+        return -ENODEV;
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     return 0;
 #else
