@@ -51856,7 +51856,7 @@ static void regtrace_frame_done_tuning_follow(void)
 
 }
 
-static void regtrace_frame_3a_workfn(struct work_struct *work)
+static void regtrace_frame_3a_workfn_run(struct work_struct *work)
 {
     uint32_t y = READ_ONCE(regtrace_frame_3a_work_y);
     uint32_t uv = READ_ONCE(regtrace_frame_3a_work_uv);
@@ -51873,7 +51873,8 @@ static void regtrace_frame_3a_workfn(struct work_struct *work)
     regtrace_ae_sensor_apply_maybe(0, "frame-3a-work");
     regtrace_frame_done_tuning_follow();
 }
-static DECLARE_WORK(regtrace_frame_3a_work, regtrace_frame_3a_workfn);
+TX_LS_TIMED_WORK(regtrace_frame_3a_work_timed, regtrace_frame_3a_workfn_run, T40_LS_WORK_FRAME3A)
+static DECLARE_WORK(regtrace_frame_3a_work, regtrace_frame_3a_work_timed);
 
 static void regtrace_frame_3a_tick(int channel, uint32_t y, uint32_t uv)
 {
@@ -86195,23 +86196,35 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
         uint32_t k = 0;
 
         for (col = 16; col < width; col += 32U, k++) {
-            ysum += line[col];
-            if (line[col] >= highlight_level)
+            /* one uncached read per sample point: the stores to f3a_* may alias
+             * the char-typed line[], so the compiler reloaded line[col] after each
+             * of them (up to 4 uncached reads per point; issue 133) */
+            uint32_t v = line[col];
+
+            ysum += v;
+            if (v >= highlight_level)
                 yhigh++;
             yn++;
             if (k < ARRAY_SIZE(f3a_zc)) {
                 uint32_t z = zr + f3a_zc[k];
 
-                f3a_zsum[z] += line[col];
+                f3a_zsum[z] += v;
                 f3a_zcnt[z]++;
-                f3a_hist[line[col]]++;
+                f3a_hist[v]++;
             }
         }
     }
-    for (row = 6; row < uv_height; row += 12U) {
+    /*
+     * Issue 133: the U/V means only feed the read-only frame_3a_last_u/_v
+     * diagnostics (AE and AWB do not use them), but every sample is one
+     * uncached DRAM read (~0.1 us): at 4K the old 12 x 32 grid was ~10.8k
+     * reads per sample, as many as the Y grid.  A 1/4-density grid (48 x 64
+     * of the UV plane: ~2.7k reads) gives the same diagnostic mean.
+     */
+    for (row = 6; row < uv_height; row += 48U) {
         const uint8_t *line = uvp + row * width;
 
-        for (col = 16; col + 1U < width; col += 32U) {
+        for (col = 16; col + 1U < width; col += 64U) {
             usum += line[col & ~1U];
             vsum += line[(col & ~1U) + 1];
             uvn++;

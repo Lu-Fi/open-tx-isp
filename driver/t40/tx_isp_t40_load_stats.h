@@ -13,11 +13,12 @@
  * [32..63] channel 1, [64] main fs work, [65] sec fs work, [66] main fd
  * work, [67] sec fd work, [68] frame-done work (all channels), [69] ADR
  * process work, [70] translated vendor AWB process (inside event 14), [71] its EV
- * follow-up, [72] its CT follow-up (CCM/LSC/BCSH).
+ * follow-up, [72] its CT follow-up (CCM/LSC/BCSH), [73] frame-3A sampler work
+ * (kworker: Y/UV plane sampling through an uncached window + AE; not part of any tisp event thread).
  */
 #define TX_LS_PREFIX		t40_
 #define TX_LS_ISR_WORDS		3
-#define TX_LS_WORKS		73
+#define TX_LS_WORKS		74
 
 #define T40_LS_WORK_EVENT(ch, ev)	((ch) * 32 + (ev))
 #define T40_LS_WORK_MAIN_FS	64
@@ -29,6 +30,7 @@
 #define T40_LS_WORK_VAWB_PROC	70
 #define T40_LS_WORK_VAWB_EV	71
 #define T40_LS_WORK_VAWB_CT	72
+#define T40_LS_WORK_FRAME3A	73
 
 #include "../include/tx_isp/tx_isp_load_stats.h"
 
