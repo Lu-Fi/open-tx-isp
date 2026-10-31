@@ -1895,9 +1895,7 @@ static unsigned char data_a8368[16384];
 static uintptr_t data_a836c;
 static uintptr_t data_a847c;
 static uint8_t main_face_en_cnt;
-static unsigned char data_a80a4[16384];
-static unsigned char data_a82a4[16384];
-static unsigned char data_a84b8[16384];
+static int32_t awb_algo_enable[2];   /* OEM .bss+16696: custom AWB algorithm registered, per sensor */
 static unsigned char data_a8500[16384];
 static unsigned char data_a8504[16384];
 static unsigned short bss_data[16];
@@ -54893,85 +54891,49 @@ int32_t frame_channel_open(uint32_t a0, void *arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000e374 origin=model_output original=frame_channel_vidioc_set_fmt */
+/* T40-SET-FMT (#139): OEM frame_channel_vidioc_set_fmt (0xd8e4).  The user's 112-byte format lives at sp+24
+ * (type w0, field w4 = sp+40, colorspace w7 = sp+52).  The lift put the struct at frame +0x80 but the field and
+ * colorspace at frame +0x70/+0x64 and wrote the field through the (never assigned) slot as a pointer.  Now a
+ * plain local struct: type must be 1, field 0 -> 4 or already 4, colorspace 8. */
 int32_t frame_channel_vidioc_set_fmt(void *arg1, int32_t arg2)
 {
-    int32_t *result = -22;
-    /*
-     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
-     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
-     * the OEM code passes a slot as the start of a WHOLE STRUCT
-     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
-     * as separate scalars, such a copy overwrites whatever the compiler placed next
-     * to the scalar - including saved registers and the return address.
-     * Backing 0x64..0xf0 (240 bytes) with one buffer and aliasing each slot at its
-     * OEM offset makes every copy land exactly where the OEM's copy landed.
-     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
-     * alias carries the width of its OEM access:
-     *   all slots are 4-byte.
-     * the slots were uninitialised and stay so.
-     */
-    uint32_t __frame[0x3c];
-    int32_t *const __p_80 = (int32_t *)(void *)((char *)__frame + 0x80);
-    int32_t **const __p_70 = (int32_t **)(void *)((char *)__frame + 0x70);
-    int32_t *const __p_64 = (int32_t *)(void *)((char *)__frame + 0x64);
-    int32_t v1_2;
-    int32_t *result_1;
-    int32_t result_2;
-    int32_t var_88_1;
+    uint32_t fmt[28];
+    int32_t result;
 
     if (arg1 == NULL || (uint32_t)arg1 >= 0xfffff001) {
-        return result;
+        return -22;
     }
-
-    result = -22;
-
-    if (private_copy_from_user(__p_80, arg2, 112) != 0) {
-        isp_printf(2, "[%s %d] Failed to copy from user\n", "frame_channel_vidioc_set_fmt", __LINE__);
+    if (private_copy_from_user(fmt, arg2, 112) != 0) {
+        isp_printf(2, "[%s %d] Failed to copy from user\n", "frame_channel_vidioc_set_fmt", 280);
         return -12;
     }
-
-    if ((*__p_80) != 1) {
-        isp_printf(2, "[%s %d] The frame type is invalid!\n", "frame_channel_vidioc_set_fmt", __LINE__);
+    if (fmt[0] != 1) {
+        isp_printf(2, "[%s %d] The frame type is invalid!\n", "frame_channel_vidioc_set_fmt", 285);
+        return -22;
+    }
+    if (fmt[4] == 0) {
+        fmt[4] = 4;
+    } else if (fmt[4] != 4) {
+        isp_printf(2, "[%s %d] The field is invalid!\n", "frame_channel_vidioc_set_fmt", 292);
+        return -22;
+    }
+    if (fmt[7] != 8) {
+        isp_printf(2, "[%s %d] The colorspace is invalid!\n", "frame_channel_vidioc_set_fmt", 297);
         return -22;
     }
 
-    (*__p_70)[0] = *(int32_t *)((char *)arg1 + 40);
-    (*__p_64) = *(int32_t *)((char *)arg1 + 52);
-
-    if ((*__p_70) != 0) {
-        v1_2 = (*__p_64);
-        if ((*__p_70) != 4) {
-            isp_printf(2, "[%s %d] The field is invalid!\n", "frame_channel_vidioc_set_fmt", __LINE__);
-            return -22;
-        }
-    } else {
-        (*__p_70)[0] = 4;
-        v1_2 = (*__p_64);
-    }
-
-    if (v1_2 != 8) {
-        isp_printf(2, "[%s %d] The colorspace is invalid!\n", "frame_channel_vidioc_set_fmt", __LINE__);
-        return -22;
-    }
-
-    result_1 = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((int32_t *)(*(int32_t *)((char *)arg1 + 712)), (uintptr_t)(0x3000002), (uintptr_t)(__p_80));
-    result = result_1;
-
-    if (result_1 == 0 || result == -515) {
-        result_2 = private_copy_to_user(arg2, __p_80, 112);
-        result = result_2;
-
-        if (result_2 != 0) {
-            isp_printf(2, "[%s %d] Failed to copy to user\n", "frame_channel_vidioc_set_fmt", __LINE__);
+    result = ((int32_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)(
+        (uintptr_t)*(int32_t *)((char *)arg1 + 712), 0x3000002, (uintptr_t)fmt);
+    if (result == 0 || result == -515) {
+        if (private_copy_to_user(arg2, fmt, 112) != 0) {
+            isp_printf(2, "[%s %d] Failed to copy to user\n", "frame_channel_vidioc_set_fmt", 309);
             return -12;
         }
-
-        memcpy((char *)arg1 + 584, __p_80, 112);
+        memcpy((char *)arg1 + 584, fmt, 112);
     } else {
-        var_88_1 = *(int32_t *)((char *)arg1 + 716);
-        ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(2), (uintptr_t)("[%s %d] Failed to set fmt to frame chan%d!\n"), (uintptr_t)("frame_channel_vidioc_set_fmt"), (uintptr_t)(var_88_1));
+        isp_printf(2, "[%s %d] Failed to set fmt to frame chan%d!\n", "frame_channel_vidioc_set_fmt", 303,
+                   *(int32_t *)((char *)arg1 + 716));
     }
-
     return result;
 }
 
@@ -89928,102 +89890,37 @@ int32_t tisp_awb_sec_ev_update(uint32_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034dd8 origin=model_output original=tisp_awb_algo_init */
+/* T40-AWB-ALGO-INIT (#139): hand translation of OEM tisp_awb_algo_init (libt40-firmware 0x34348), the
+ * registration step of the custom AWB algorithm (tx_isp_unlocked_ioctl, request 0x800456xx family).
+ *   awb_algo_enable[vinum] := enable;  if (enable == 1) pack five words from the AWB outer buffer
+ *   (first four u16 of the main/sec AWB pointer table entry 0 = outer buffer base) and
+ *   memcpy(dst + 8, pack, 20).
+ * The lift stored through two never-assigned frame-slot pointers (kernel oops on every registration),
+ * returned the address of 16 KB stand-in arrays and did nothing for the sec sensor.  OEM pack layout
+ * (sp+16..): w0 = enable, w1 = info[2], w2 = info[0], b12 = info[3], b13 = info[1], w4 = enable.
+ * Deviation: a NULL outer buffer (vendor AWB engine live, no OEM pointer table) or a NULL dst leaves dst
+ * untouched instead of dereferencing it. */
 int32_t *tisp_awb_algo_init(int32_t arg1, int32_t arg2, int32_t arg3)
 {
-    int32_t *result;
-    int16_t *v0;
-    /*
-     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
-     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
-     * the OEM code passes a slot as the start of a WHOLE STRUCT
-     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
-     * as separate scalars, such a copy overwrites whatever the compiler placed next
-     * to the scalar - including saved registers and the return address.
-     * Backing 0x10..0x34 (52 bytes) with one buffer and aliasing each slot at its
-     * OEM offset makes every copy land exactly where the OEM's copy landed.
-     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
-     * alias carries the width of its OEM access:
-     *   var_13 @0x13 -> uint8_t: declared char = 1 byte(s) of the slot shared with its other view
-     *   local_1c @0x1c -> uint16_t: declared int16_t = 2 byte(s) of the slot shared with its other view
-     *   local_14 @0x14 -> uint8_t: declared char = 1 byte(s) of the slot shared with its other view
-     *   local_13 @0x13 -> uint8_t: declared char = 1 byte(s) of the slot shared with its other view
-     *   local_11 @0x11 -> uint8_t: alignment only (offset 0x11)
-     * These overlap the 4-byte slots in the OEM frame, so they
-     * overlap here too: that sharing is the OEM's own semantics.
-     *   0x10 has two names (local_10, var_10): one OEM slot, two views, and
-     *     each name keeps its own alias of its own declared width.
-     *   0x13 has two names (local_13, var_13): one OEM slot, two views, and
-     *     each name keeps its own alias of its own declared width.
-     *   0x14 has two names (local_14, var_14): one OEM slot, two views, and
-     *     each name keeps its own alias of its own declared width.
-     *   0x18 has two names (local_18, var_18): one OEM slot, two views, and
-     *     each name keeps its own alias of its own declared width.
-     *   0x1c has two names (local_1c, var_1c): one OEM slot, two views, and
-     *     each name keeps its own alias of its own declared width.
-     *   0x20 has two names (local_20, var_20): one OEM slot, two views, and
-     *     each name keeps its own alias of its own declared width.
-     * the slots were uninitialised and stay so.
-     */
-    uint32_t __frame[0xd];
-    int32_t *const __p_var_20 = (int32_t *)(void *)((char *)__frame + 0x20);
-    uint32_t *const __p_var_1c = (uint32_t *)(void *)((char *)__frame + 0x1c);
-    uint32_t **const __p_var_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
-    char **const __p_var_14 = (char **)(void *)((char *)__frame + 0x14);
-    int32_t *const __p_var_10 = (int32_t *)(void *)((char *)__frame + 0x10);
-    uint8_t *const __p_var_13 = (uint8_t *)(void *)((char *)__frame + 0x13);
-    int16_t **const __p_local_20 = (int16_t **)(void *)((char *)__frame + 0x20);
-    uint16_t *const __p_local_1c = (uint16_t *)(void *)((char *)__frame + 0x1c);
-    int16_t **const __p_local_18 = (int16_t **)(void *)((char *)__frame + 0x18);
-    uint8_t *const __p_local_14 = (uint8_t *)(void *)((char *)__frame + 0x14);
-    uint8_t *const __p_local_13 = (uint8_t *)(void *)((char *)__frame + 0x13);
-    int32_t **const __p_local_10 = (int32_t **)(void *)((char *)__frame + 0x10);
-    uint8_t *const __p_11 = (uint8_t *)(void *)((char *)__frame + 0x11);
-    
-    /* First conditional: if arg1 != 0, jump to 0x34e60 */
-    if (arg1 != 0) {
-        goto label_34e60;
-    }
-    
-    /* arg1 == 0 path: result = &data_a80a4 */
-    result = (int32_t *)&data_a80a4[0];
-    
-    /* Store arg2 to (&data_a84b8)[arg1] */
-    ((int32_t *)&data_a84b8[0])[arg1] = arg2;
-    
-    /* Check if arg2 != 1 */
-    if (arg2 != 1) {
-        return result;
-    }
-    
-    /* arg2 == 1 path: continue */
-    v0 = (int16_t *)result;
-    (*__p_var_20) = arg2;
-    
-    /* Read from v0 and store to stack */
-    (*__p_var_1c) = (uint32_t)v0[2];
-    (*__p_var_18)[0] = (uint32_t)*v0;
-    (*__p_var_14)[0] = ((char *)v0)[3];
-    (*__p_var_10) = arg2;
-    (*__p_var_13) = ((char *)v0)[1];
-    
-    /* Setup stack frame and save values */
-    (*__p_local_20) = v0[2];
-    (*__p_local_1c) = *v0;
-    (*__p_local_18) = v0[1];
-    (*__p_local_14) = ((char *)v0)[3];
-    (*__p_local_13) = ((char *)v0)[1];
-    (*__p_local_10) = arg2;
-    (*__p_11) = ((char *)v0)[2];
-    
-    /* Call memcpy(arg3 + 8, __p_var_20, 0x14) */
-    memcpy((void *)(arg3 + 8), __p_var_20, 0x14);
-    
-    return result;
-    
-label_34e60:
-    /* arg1 != 0 path: result = &data_a82a4 */
-    result = (int32_t *)&data_a82a4[0];
-    return result;
+    const int sec = arg1 != 0;
+    const uint16_t *info;
+    uint32_t pack[5];
+
+    awb_algo_enable[sec] = arg2;
+    if (arg2 != 1 || !arg3)
+        return NULL;
+    info = (const uint16_t *)(uintptr_t)(sec ? pstSecAwbOri[0] : pstMainAwbOri[0]);
+    if (!info)
+        return NULL;
+    memset(pack, 0, sizeof(pack));
+    pack[0] = (uint32_t)arg2;
+    pack[1] = info[2];
+    pack[2] = info[0];
+    ((uint8_t *)pack)[12] = (uint8_t)info[3];
+    ((uint8_t *)pack)[13] = (uint8_t)info[1];
+    pack[4] = (uint32_t)arg2;
+    memcpy((void *)(uintptr_t)((uint32_t)arg3 + 8), pack, sizeof(pack));
+    return NULL;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034e70 origin=fragment_seed original=tisp_awb_algo_handle */
@@ -94396,139 +94293,48 @@ tisp_blc_dn_params_refresh0x17c:
 #endif
 }
 
+/* T40-BLC-PAR (#139): tuning-node BLC parameter block (/dev/tisp ids 1, 0x20007400/01), OEM
+ * tisp_blc_param_array_get 0x38f4c / tisp_blc_param_array_set 0x38fa8.
+ *   get(vinum, dst, len): memcpy(dst, blc_{main,seco}_tool_para, 252); *len = 252; return 0.
+ *   set(vinum, src):      memcpy(blc_{main,seco}_tool_para, src, 252); re-interpolate both gain tables
+ *                         (tisp_blc_ag_interp x2), digital gain (x2), write regs (x4).
+ * The lift read/wrote through blc_{main,seco}_tool_para, which nothing in the open driver allocates (the
+ * lifted tisp_blc_init is dead: it stores to the wrong objects and is not called), i.e. memcpy from/to
+ * address 0: the camera hang at GET id 1 (t40_tisp_par=1), and the set used the wrong table base too.
+ * The OEM tool block is the 252-byte copy of the bin's BLC block at tparamsN[vinum] + 0x2350 and the
+ * open BLC path (regtrace_blc_main_gain_update_lit) reads exactly that block, so get/set work on it
+ * directly; set then re-applies the BLC registers at the current gain when the lit path is active. */
+static uint8_t *t40_blc_tool_block(uint32_t vinum)
+{
+    uintptr_t nbuf = vinum < 2 ? tparamsN[vinum] : 0;
+
+    return nbuf ? (uint8_t *)(nbuf + 0x2350) : NULL;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000399dc origin=fragment_seed original=tisp_blc_param_array_get */
 int64_t tisp_blc_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+    const uint8_t *tool = t40_blc_tool_block(a0);
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = a1;
-
-    /* fragment 2: StackAccess */
-    local_10 = s0;
-    local_14 = ra;
-
-    /* fragment 3: Branch */
-    s0 = a2;
-    if (a0 == 0) { goto tisp_blc_param_array_get0x50; }
-
-    /* fragment 4: CallSetup */
-    v1 = (int32_t *)&blc_seco_tool_para;
-    a1 = *(uint32_t *)((char *)((char *)&blc_seco_tool_para));
-
-tisp_blc_param_array_get0x20:
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)v0, (void *)(uintptr_t)a1, 252); /* jalr target resolved by relocation */
-
-    /* fragment 6: Arithmetic */
-    v0 = 252;
-
-    /* fragment 7: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 0) = v0;
-    ra = local_14;
-    s0 = local_10;
-    v0 = 0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_blc_param_array_get0x50:
-    /* fragment 9: Arithmetic */
-    v1 = (int32_t *)&blc_main_tool_para;
-
-    /* fragment 10: Branch */
-    a1 = *(uint32_t *)((char *)((char *)&blc_main_tool_para));
-    goto tisp_blc_param_array_get0x20;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    if (tool)
+        memcpy((void *)(uintptr_t)a1, tool, 252);
+    else
+        memset((void *)(uintptr_t)a1, 0, 252);
+    *(uint32_t *)a2 = 252;
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000039a38 origin=fragment_seed original=tisp_blc_param_array_set */
 int32_t tisp_blc_param_array_set(uintptr_t a0, uint32_t a1)
 {
-#ifdef REGTRACE_KERNEL_TREE_BUILD
+    uint8_t *tool = t40_blc_tool_block((uint32_t)a0);
+
+    if (!tool)
+        return -ENOENT;
+    memcpy(tool, (const void *)(uintptr_t)a1, 252);
+    if (a0 == 0 && regtrace_enable_blc_lit)
+        (void)regtrace_blc_main_gain_update_lit(regtrace_blc_lit_gain_now, false);
     return 0;
-#else
-
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *t5 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    s0 = a0;
-    if (a0 == 0) { goto tisp_blc_param_array_set0xd8; }
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)&isp_memopt;
-    a0 = *(uint32_t *)((char *)((char *)&blc_seco_tool_para));
-
-tisp_blc_param_array_set0x24:
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)a1, 252); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    s2 = (uintptr_t)s0 << 3;
-    s2 = s2 + &sclk_name;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_blc_ag_interp)(s0, 0, *(uint32_t *)((char *)(s2) + 0), 1); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_blc_ag_interp)(s0, 1, *(uint32_t *)((char *)(s2) + 4), 1); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_blc_calc_digital_gain)(s0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    s1 = (uintptr_t *)&tisp_blc_write_reg;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_blc_write_reg)(s0, 1); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_blc_write_reg)(s0, 0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_blc_write_reg)(s0, 1, 0); /* jalr target resolved by relocation */
-
-    /* fragment 10: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 11: Arithmetic */
-    v0 = 0;
-
-    /* fragment 12: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_blc_param_array_set0xd8:
-    /* fragment 13: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 14: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&blc_main_tool_para));
-    goto tisp_blc_param_array_set0x24;
-
-    return 0;
-
-#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000039b1c origin=fragment_seed original=tisp_blc_ae_write_dgain */
@@ -130572,11 +130378,11 @@ int func_adr_map_curve1(int *arg1, int arg2, int arg3)
     int *v0_13;
     int var_c0;
     int var_bc;
-    int *var_b8;
+    int var_b8;
     int var_b0;
     int var_a8;
-    int *var_98;
-    int *var_88;
+    int var_98;
+    int var_88;
     int var_68;
     int *result;
 
@@ -130686,16 +130492,16 @@ int func_adr_map_curve1(int *arg1, int arg2, int arg3)
     ((void **)arg1)[6] = (var_c0 * 0xfff) / 0xffff;
     var_bc = *(int *)((char *)arg1 + 0x44);
     ((void **)arg1)[7] = (var_bc * 0xfff) / 0xffff;
-    var_b8[0] = *(int *)((char *)arg1 + 0x48);
-    ((void **)arg1)[8] = (var_b8[0] * 0xfff) / 0xffff;
+    var_b8 = *(int *)((char *)arg1 + 0x48);
+    ((void **)arg1)[8] = (var_b8 * 0xfff) / 0xffff;
     var_b0 = *(int *)((char *)arg1 + 0x4c);
     ((void **)arg1)[9] = (var_b0 * 0xfff) / 0xffff;
     var_a8 = *(int *)((char *)arg1 + 0x50);
     ((void **)arg1)[10] = (var_a8 * 0xfff) / 0xffff;
-    var_98[0] = *(int *)((char *)arg1 + 0x54);
-    ((void **)arg1)[11] = (var_98[0] * 0xfff) / 0xffff;
-    var_88[0] = *(int *)((char *)arg1 + 0x58);
-    ((void **)arg1)[12] = (var_88[0] * 0xfff) / 0xffff;
+    var_98 = *(int *)((char *)arg1 + 0x54);
+    ((void **)arg1)[11] = (var_98 * 0xfff) / 0xffff;
+    var_88 = *(int *)((char *)arg1 + 0x58);
+    ((void **)arg1)[12] = (var_88 * 0xfff) / 0xffff;
     var_68 = *(int *)((char *)arg1 + 0x5c);
     result = (var_68 * 0xfff) / 0xffff;
     ((void **)arg1)[13] = result;
@@ -153939,14 +153745,14 @@ int tisp_hldc_calc_para(int arg1, int arg2, int arg3, int arg4, int arg5, int ar
     int *a0 = lo_11 + lo_12;
     int v0_5 = (a0 < (unsigned)lo_11 ? 1 : 0) + lo_10 + hi_10 + hi_11;
     
-    int *var_28;
+    int var_28;   /* #139: low word of the 64-bit pair (was an int * that the stores went through) */
     int var_24;
     
     if (v0_5 < v1_6 || (v1_6 == v0_5 && a0 < (unsigned)t7)) {
-        var_28[0] = t7;
+        var_28 = t7;
         var_24 = v1_6;
     } else {
-        var_28[0] = a0;
+        var_28 = (int)(uintptr_t)a0;
         var_24 = v0_5;
     }
     
