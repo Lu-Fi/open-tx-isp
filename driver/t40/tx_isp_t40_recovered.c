@@ -1895,7 +1895,11 @@ static unsigned char data_a8368[16384];
 static uintptr_t data_a836c;
 static uintptr_t data_a847c;
 static uint8_t main_face_en_cnt;
-static int32_t awb_algo_enable[2];   /* OEM .bss+16696: custom AWB algorithm registered, per sensor */
+static unsigned char data_a80a4[16384] __attribute__((used));   /* unreferenced stand-ins: kept, the .bss layout is
+                                                                  * load-bearing (inline-asm .bss+N sites, #86) */
+static unsigned char data_a82a4[16384];
+static unsigned char data_a84b8[16384];                          /* [0..1]: OEM .bss+16696 custom AWB algorithm registered, per sensor */
+#define awb_algo_enable ((int32_t *)data_a84b8)
 static unsigned char data_a8500[16384];
 static unsigned char data_a8504[16384];
 static unsigned short bss_data[16];
