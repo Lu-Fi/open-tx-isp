@@ -66789,9 +66789,46 @@ tisp_data_info_get0x108:
 static int t40_tisp_par;
 module_param(t40_tisp_par, int, 0644);
 
+/* T40-TISP-PAR (#139): the module parameter blocks the node's getters/setters read and write live in
+ * pointers that the module's init allocates (OEM).  The open driver runs only some of those inits (the others
+ * are lifted but unused): a getter/setter on a never-allocated block reads/writes address 0 - the silent
+ * reset at /dev/tisp GET id 4 (DPC) in QEMU, the camera hang at id 1 (BLC) before.  Ids whose block pointer is
+ * NULL are answered with length 0 (get) / ignored (set). */
+static const uintptr_t *t40_tisp_par_block(uint32_t id, uint32_t sensor)
+{
+    switch (id) {
+    case 0x04: return sensor ? &sec_dpc : &main_dpc;
+    case 0x06: return sensor ? &sec_adr_paras : &main_adr_paras;
+    case 0x07: return sensor ? &sec_dmsc : &main_dmsc;
+    case 0x08: return sensor ? &stSecCcmOuter : &stMainCcmOuter;
+    case 0x0c: return sensor ? &sec_mdns : &main_mdns;
+    case 0x0d: return sensor ? &sec_ydns : &main_ydns;
+    case 0x0f: return sensor ? &stSecBcshOuter : &stMainBcshOuter;
+    case 0x11: return sensor ? &sec_ysp : &main_ysp;
+    case 0x12: return sensor ? &sec_sdns : &main_sdns;
+    case 0x13: return sensor ? &stSecAfOuter : &stMainAfOuter;
+    case 0x14: return sensor ? &sec_hldc_para : &main_hldc_para;
+    case 0x16: return sensor ? &stSecAwbOuter : &stMainAwbOuter;
+    case 0x17: return sensor ? &sec_tstp : &main_tstp;
+    default: return NULL;
+    }
+}
+
+static bool t40_tisp_par_absent(uint32_t id, uint32_t sensor)
+{
+    const uintptr_t *blk = t40_tisp_par_block(id, sensor > 1 ? 1 : sensor);
+
+    return blk && !*blk;
+}
+
 static void t40_tisp_get_par(uint32_t *p)
 {
     uint32_t s = p[3], d = (uint32_t)(uintptr_t)&p[4], l = (uint32_t)(uintptr_t)&p[1];
+
+    if (t40_tisp_par_absent(p[0], s)) {
+        p[1] = 0;
+        return;
+    }
 
     switch (p[0]) {
     case 0x00: tisp_top_param_array_get((int32_t)d, (int32_t *)&p[1]); break;
@@ -66829,6 +66866,9 @@ static void t40_tisp_get_par(uint32_t *p)
 static void t40_tisp_set_par(uint32_t *p)
 {
     uint32_t s = p[3], d = (uint32_t)(uintptr_t)&p[4];
+
+    if (t40_tisp_par_absent(p[0], s))
+        return;
 
     switch (p[0]) {
     case 0x01: tisp_blc_param_array_set(s, d); break;
