@@ -38635,7 +38635,8 @@ vic_mdma_irq_function10xb0:
     *(uint32_t *)((char *)t0 + 1992) = ((*(uint32_t *)((char *)(t0) + 1992)) - 1);
     local_20 = t0;
     s5 = s1 + 1972;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, s3); /* jalr target resolved by relocation */
+    { uintptr_t __cb = *(uint32_t *)((char *)s2 + 4); /* #jalr-batch2: OEM channel callback (s2+4)(s2[5], ch, buf), as vic_mdma_irq_function0 */
+      if (__cb) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))__cb)(*(uint32_t *)((char *)(s2) + 20), s0, s3); } /* jalr target resolved by relocation */
 
     /* fragment 21: StackAccess */
     t0 = local_20;
@@ -38740,7 +38741,8 @@ vic_mdma_irq_function10x210:
 
     /* fragment 41: CallSetup */
     t1 = local_30;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); /* jalr target resolved by relocation */
+    { uintptr_t __cb = *(uint32_t *)((char *)s2 + 4); /* #jalr-batch2: OEM channel callback (s2+4)(s2[5], ch, buf), as vic_mdma_irq_function0 */
+      if (__cb) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))__cb)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); } /* jalr target resolved by relocation */
 
     /* fragment 42: MemoryAccess */
     v0 = *(uint32_t *)((char *)s3 + 1976);
@@ -39193,7 +39195,8 @@ vic_mdma_irq_function20xb0:
     *(uint32_t *)((char *)t0 + 1992) = ((*(uint32_t *)((char *)(t0) + 1992)) - 1);
     local_20 = t0;
     s5 = s1 + 1972;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, s3); /* jalr target resolved by relocation */
+    { uintptr_t __cb = *(uint32_t *)((char *)s2 + 4); /* #jalr-batch2: OEM channel callback (s2+4)(s2[5], ch, buf), as vic_mdma_irq_function0 */
+      if (__cb) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))__cb)(*(uint32_t *)((char *)(s2) + 20), s0, s3); } /* jalr target resolved by relocation */
 
     /* fragment 21: StackAccess */
     t0 = local_20;
@@ -39298,7 +39301,8 @@ vic_mdma_irq_function20x210:
 
     /* fragment 41: CallSetup */
     t1 = local_30;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); /* jalr target resolved by relocation */
+    { uintptr_t __cb = *(uint32_t *)((char *)s2 + 4); /* #jalr-batch2: OEM channel callback (s2+4)(s2[5], ch, buf), as vic_mdma_irq_function0 */
+      if (__cb) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))__cb)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); } /* jalr target resolved by relocation */
 
     /* fragment 42: MemoryAccess */
     v0 = *(uint32_t *)((char *)s3 + 1976);
