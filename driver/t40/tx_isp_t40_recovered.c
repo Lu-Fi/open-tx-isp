@@ -167699,10 +167699,10 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(65536 + 24944); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(a2 + 24968); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(65536 + 24968); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_read)(a2 + 26612, v0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_read)(65536 + 26612, v0); /* jalr target resolved by relocation */
 
     /* fragment 8: Branch */
     s4 = (uintptr_t)s2 & 1;
@@ -169231,7 +169231,7 @@ ispcore_interrupt_service_routine0xdb4:
 
 ispcore_interrupt_service_routine0xde4:
     /* fragment 307: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_write)(0, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)Tzn_Msca_addr_fifo_write)(0, 0, a2, a3); /* jalr target resolved by relocation */
 
     /* fragment 308: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&irq_count));
