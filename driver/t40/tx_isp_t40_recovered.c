@@ -104176,80 +104176,16 @@ tisp_dpc_intp0x234:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000043d94 origin=model_output original=tisp_dpc_wdr_en */
+/* T40-DPC-DISARM (#166): OEM tisp_dpc_wdr_en (Eufy 0x43d94) stores dpc_wdr_en[vinum] = en and rebuilds the table of
+ * pointers into the vinum's DPC parameter block (main_dpc / sec_dpc, WDR or linear layout).  The lift addressed that
+ * table at bss_data[17128..17250] (bss_data is a 32-byte object: a wild write 34 KB into unrelated driver data) and
+ * took the block from the same stray area.  The main DPC unit is the C chain (t40_dpc; its WDR layout is chosen by
+ * the section copy it works on), the table does not exist here: record the flag only. */
 void *tisp_dpc_wdr_en(int32_t arg1, int32_t arg2)
 {
-    void *v0;
-    int32_t *v1;
-    void *result;
-
-    if (arg1 == 0) {
-        v1 = (int32_t *)&bss_data[17132];
-        v0 = (void *)&bss_data[17140];
-    } else {
-        v1 = (int32_t *)&bss_data[17128];
-        v0 = (void *)&bss_data[17136];
-    }
-
-    *(int32_t *)&bss_data[17144 + arg1 * 4] = arg2;
-
-    if (arg2 != 0) {
-        *v1 = (int32_t)((char *)v0 + 0x234);
-        ((void **)v1)[1] = *(int32_t *)((char *)v0 + 0x238);
-        ((void **)v1)[2] = (int32_t)((char *)v0 + 0x3d2);
-        ((void **)v1)[3] = (int32_t)((char *)v0 + 0x266);
-        ((void **)v1)[4] = (int32_t)((char *)v0 + 0x27c);
-        ((void **)v1)[5] = (int32_t)((char *)v0 + 0x23a);
-        ((void **)v1)[6] = (int32_t)((char *)v0 + 0x250);
-        ((void **)v1)[7] = (int32_t)((char *)v0 + 0x292);
-        ((void **)v1)[8] = (int32_t)((char *)v0 + 0x2a8);
-        ((void **)v1)[9] = (int32_t)((char *)v0 + 0x2be);
-        ((void **)v1)[10] = (int32_t)((char *)v0 + 0x2ca);
-        ((void **)v1)[11] = (int32_t)((char *)v0 + 0x2e0);
-        ((void **)v1)[12] = (int32_t)((char *)v0 + 0x2f6);
-        ((void **)v1)[13] = (int32_t)((char *)v0 + 0x30c);
-        ((void **)v1)[14] = (int32_t)((char *)v0 + 0x322);
-        ((void **)v1)[15] = (int32_t)((char *)v0 + 0x338);
-        ((void **)v1)[16] = (int32_t)((char *)v0 + 0x34e);
-        ((void **)v1)[17] = (int32_t)((char *)v0 + 0x364);
-        ((void **)v1)[18] = (int32_t)((char *)v0 + 0x37a);
-        ((void **)v1)[19] = (int32_t)((char *)v0 + 0x390);
-        ((void **)v1)[20] = (int32_t)((char *)v0 + 0x3a6);
-        ((void **)v1)[21] = (int32_t)((char *)v0 + 0x3bc);
-        ((void **)v1)[22] = (int32_t)((char *)v0 + 0x3da);
-        ((void **)v1)[23] = (int32_t)((char *)v0 + 0x3f0);
-        ((void **)v1)[24] = (int32_t)((char *)v0 + 0x406);
-        result = (char *)v0 + 0x41c;
-    } else {
-        *v1 = (int32_t)v0;
-        ((void **)v1)[1] = *(int16_t *)((char *)v0 + 4);
-        ((void **)v1)[3] = (int32_t)((char *)v0 + 0x4a);
-        ((void **)v1)[4] = (int32_t)((char *)v0 + 0x60);
-        ((void **)v1)[5] = (int32_t)((char *)v0 + 0x1e);
-        ((void **)v1)[6] = (int32_t)((char *)v0 + 0x34);
-        ((void **)v1)[2] = (int32_t)((char *)v0 + 0x1b6);
-        ((void **)v1)[7] = (int32_t)((char *)v0 + 0x76);
-        ((void **)v1)[8] = (int32_t)((char *)v0 + 0x8c);
-        ((void **)v1)[9] = (int32_t)((char *)v0 + 0xa2);
-        ((void **)v1)[10] = (int32_t)((char *)v0 + 0xae);
-        ((void **)v1)[11] = (int32_t)((char *)v0 + 0xc4);
-        ((void **)v1)[12] = (int32_t)((char *)v0 + 0xda);
-        ((void **)v1)[13] = (int32_t)((char *)v0 + 0xf0);
-        ((void **)v1)[14] = (int32_t)((char *)v0 + 0x106);
-        ((void **)v1)[15] = (int32_t)((char *)v0 + 0x11c);
-        ((void **)v1)[16] = (int32_t)((char *)v0 + 0x132);
-        ((void **)v1)[17] = (int32_t)((char *)v0 + 0x148);
-        ((void **)v1)[18] = (int32_t)((char *)v0 + 0x15e);
-        ((void **)v1)[19] = (int32_t)((char *)v0 + 0x174);
-        ((void **)v1)[20] = (int32_t)((char *)v0 + 0x18a);
-        ((void **)v1)[21] = (int32_t)((char *)v0 + 0x1a0);
-        ((void **)v1)[22] = (int32_t)((char *)v0 + 0x1bc);
-        ((void **)v1)[23] = (int32_t)((char *)v0 + 0x1d2);
-        ((void **)v1)[24] = (int32_t)((char *)v0 + 0x1e8);
-        result = (char *)v0 + 0x1fe;
-    }
-
-    ((void **)v1)[25] = (int32_t)result;
-    return result;
+    if (arg1 == 0)
+        dpc_wdr_en = (uintptr_t)(uint32_t)arg2;
+    return NULL;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000043f74 origin=fragment_seed original=tisp_dpc_all_reg_refresh */
@@ -104379,6 +104315,10 @@ int32_t tisp_dpc_refresh(uint32_t a0, uint32_t a1)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000440dc origin=fragment_seed original=tisp_dpc_params_refresh */
 int64_t tisp_dpc_params_refresh(uint32_t a0)
 {
+    /* T40-DPC-DISARM (#166): the OEM unit blocks (main_dpc / sec_dpc) are allocated by tisp_dpc_main_init / sec_init only; the
+     * main DPC here is the C chain, so without them the memcpy below would write through NULL. */
+    if (!(a0 ? sec_dpc : main_dpc))
+        return -ENODEV;
     uint32_t local_14 = 0;
     uint32_t *a1 = 0;
     uint32_t *a2 = 0;
@@ -104675,49 +104615,16 @@ tisp_dpc_sec_deinit0x6c:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000443d0 origin=fragment_seed original=tisp_dpc_dn_params_refresh */
+/* T40-DPC-DISARM (#166): OEM tisp_dpc_dn_params_refresh (Eufy 0x43c60) = tisp_dpc_params_refresh(vinum);
+ * tisp_dpc_wdr_en(vinum, wdr[vinum]); tail tisp_dpc_refresh(vinum, dpc_gain_old[vinum]).  The lift read the WDR flag
+ * from &isp_memopt + 4 * vinum and the gain from a lost anchor and dropped the tail call.  The main channel is the DPC C
+ * chain (t40_dpc): the day/night bank copy is done there (regtrace_t40_refresh_daynight_pipeline), what is left is the
+ * OEM's re-application at the remembered gain. */
 int32_t tisp_dpc_dn_params_refresh(uint32_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a1 = 0;
-    uintptr_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_dpc_params_refresh)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_dpc_wdr_en)((uintptr_t)s0, *(uint32_t *)((char *)(((uintptr_t)s0 << 2) + &isp_memopt) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 3: ConstantLoad */
-    v0 = ((char *)&gain_old);
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 5: MemoryAccess */
-    a1 = *(uint32_t *)((char *)&isp_memopt);
-    a0 = s0;
-    s0 = local_10;
-    t9 = (uintptr_t)&tisp_dpc_refresh;
-    t9 = t9;
-
-    /* fragment 6: Unknown */
-    /* unmatched fragment 6 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 44434:	03200408 	jr.hb	t9 */
-
-    /* fragment 7: Arithmetic */
-    /* unmatched fragment 7 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 44438:	27bd0018 	addiu	sp,sp,24 */
-
-    return 0;
+    if (a0 >= 2)
+        return -EINVAL;
+    return tisp_dpc_refresh(a0, a0 ? t40_dpc_gain_old1 : t40_dpc.gain_old);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004443c origin=fragment_seed original=tisp_dpc_param_array_get */
