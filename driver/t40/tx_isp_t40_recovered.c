@@ -18260,6 +18260,11 @@ static uint32_t regtrace_irq_frame_done_queue_empty_pop_count[4];
 static uint32_t regtrace_irq_frame_done_queue_last_pop_phys[4];
 static uint32_t regtrace_irq_frame_done_queue_last_pop_uv[4];
 static uint32_t regtrace_irq_frame_done_queue_last_pop_index[4];
+/* #168: done-ring resets at STREAMON/STREAMOFF (count, entries discarded in total / at the last reset) */
+static uint32_t regtrace_irq_frame_done_queue_reset_count[4];
+static uint32_t regtrace_irq_frame_done_queue_reset_discard_total[4];
+static uint32_t regtrace_irq_frame_done_queue_reset_discard_last[4];
+static uint32_t regtrace_irq_frame_done_queue_reset_off_count[4];
 static uint32_t regtrace_irq_frame_done_defer_queue_count[4];
 static uint32_t regtrace_irq_frame_done_defer_merge_count[4];
 static uint32_t regtrace_irq_frame_done_work_count[4];
@@ -23330,6 +23335,44 @@ static void regtrace_framechan_qbuf_sample_print(struct seq_file *m,
                uv->phys, uv->len, uv->ret, uv->words, uv->nonzero,
                uv->changes, uv->first, uv->last, uv->min, uv->max,
                uv->sum, uv->xorfold);
+}
+
+/*
+ * #168: drop every completed-but-undequeued frame of the done ring.  The OEM
+ * __vb2_queue_cancel (STREAMOFF) reinitialises the vb2 done list; this ring is
+ * the repaired DQBUF path's equivalent and was never cleared by STREAMON /
+ * STREAMOFF, so a DQBUF right after a ch DisableChn/EnableChn cycle returned a
+ * pre-cycle completion whose buffer had just been re-queued (stale picture).
+ * Returns the number of discarded entries.  The dmesg line is KERN_NOTICE on
+ * purpose: t40_printk() drops KERN_INFO unless runtime trace is on, and these
+ * counters are for a later camera dump (rare event: once per STREAMON/OFF).
+ */
+static uint32_t regtrace_irq_frame_done_ring_reset(int channel, const char *why)
+{
+    unsigned long flags;
+    uint32_t dropped;
+
+    if (channel < 0 || channel >= 4)
+        return 0;
+
+    spin_lock_irqsave(&regtrace_irq_frame_done_queue_lock[channel], flags);
+    dropped = regtrace_irq_frame_done_queue_count[channel];
+    regtrace_irq_frame_done_queue_head[channel] = 0;
+    regtrace_irq_frame_done_queue_tail[channel] = 0;
+    regtrace_irq_frame_done_queue_count[channel] = 0;
+    regtrace_irq_frame_done_queue_reset_count[channel]++;
+    regtrace_irq_frame_done_queue_reset_discard_total[channel] += dropped;
+    regtrace_irq_frame_done_queue_reset_discard_last[channel] = dropped;
+    spin_unlock_irqrestore(&regtrace_irq_frame_done_queue_lock[channel], flags);
+    regtrace_irq_frame_done_local_done_index[channel] = 0xffffffffU;
+    printk(KERN_NOTICE "tx_isp_t40_recovered: framechan%d done-ring reset (%s) discarded=%u push=%u pop=%u empty_pop=%u overflow=%u resets=%u\n",
+           channel, why, dropped,
+           regtrace_irq_frame_done_queue_push_count[channel],
+           regtrace_irq_frame_done_queue_pop_count[channel],
+           regtrace_irq_frame_done_queue_empty_pop_count[channel],
+           regtrace_irq_frame_done_queue_overflow_count[channel],
+           regtrace_irq_frame_done_queue_reset_count[channel]);
+    return dropped;
 }
 
 static void regtrace_framechan_shadow_reset(int channel)
@@ -28915,6 +28958,7 @@ static long regtrace_framechan_stream_ioctl(int channel, unsigned int cmd, unsig
     remote = *(uint32_t *)(ctx + REGTRACE_FRAMECHAN_REMOTE_OFFSET);
 
     if (enable) {
+        regtrace_irq_frame_done_ring_reset(channel, "streamon-legacy");
         *(uint8_t *)(ctx + REGTRACE_FRAMECHAN_STREAMING_FLAG_OFFSET) |= 1U;
         *(uint32_t *)(ctx + REGTRACE_FRAMECHAN_STATE_OFFSET) = REGTRACE_FRAMECHAN_STATE_STREAMING;
     } else {
@@ -28938,6 +28982,7 @@ static long regtrace_framechan_stream_ioctl(int channel, unsigned int cmd, unsig
         regtrace_vic_frame_mdma_stream(channel, 0);
         regtrace_t40_vic_frame_output_enable(channel, 0);
         regtrace_core_channel_stream(channel, 0);
+        regtrace_irq_frame_done_ring_reset(channel, "streamoff-legacy");
     }
 
     ret = regtrace_framechan_call_vic_stream(channel, enable);
@@ -29716,6 +29761,8 @@ static long regtrace_framechan_oem_event_stream_ioctl(int channel,
             if (regtrace_t40_stock_host_init_mask)
                 regtrace_t40_apply_stock_csi_phy_overrides_for_channel(
                     (uint32_t)channel, "remote-pre-streamon");
+            /* #168: no completion from before this STREAMON may reach DQBUF */
+            regtrace_irq_frame_done_ring_reset(channel, "streamon");
             regtrace_framechan_enqueue_queued(channel, ctx);
             ret = tx_isp_send_event_to_remote((void *)(uintptr_t)remote,
                                               REGTRACE_TX_ISP_EVENT_FRAME_STREAMON,
@@ -29725,6 +29772,7 @@ static long regtrace_framechan_oem_event_stream_ioctl(int channel,
                 regtrace_t40_apply_stock_vic_overrides_for_channel(
                     (uint32_t)channel, "remote-streamon");
         } else {
+            regtrace_irq_frame_done_ring_reset(channel, "streamon");
             ret = regtrace_core_channel_stream(channel, 1);
         }
         if (ret == 0 || ret == -ENOIOCTLCMD) {
@@ -29758,6 +29806,20 @@ static long regtrace_framechan_oem_event_stream_ioctl(int channel,
             *(uint32_t *)(ctx + REGTRACE_FRAMECHAN_STATE_OFFSET) =
                 REGTRACE_FRAMECHAN_STATE_READY;
             ret = 0;
+            /*
+             * #168: OEM __frame_channel_vb2_streamoff -> __vb2_queue_cancel
+             * (tx-isp-t40.ko 0xd094, SDK 1.3.1): STREAM_OFF event (done above),
+             * clear the streaming flag, reinit the queued and done lists, then
+             * the FREE_BUFFER event 0x03000007, which ispcore_pad_event_handle
+             * turns into tisp_channel_{main,sec}_fifo_clear (MSCA address FIFO
+             * clear regs 0x1619c..0x161a8 + ch*0x100).  The streaming flag is
+             * already clear here, so the lifted cancel sends no second
+             * STREAM_OFF.  The repaired path's done ring is reset as well.
+             */
+            if (regtrace_is_kernel_ptr((void *)(uintptr_t)remote))
+                __vb2_queue_cancel(ctx + REGTRACE_FRAMECHAN_VB2_QUEUE_OFFSET);
+            regtrace_irq_frame_done_ring_reset(channel, "streamoff");
+            regtrace_irq_frame_done_queue_reset_off_count[channel]++;
         }
     }
 
@@ -32158,6 +32220,24 @@ static int regtrace_debug_proc_show(struct seq_file *m, void *v)
                regtrace_irq_frame_done_queue_last_pop_index[2],
                regtrace_irq_frame_done_queue_last_pop_phys[3],
                regtrace_irq_frame_done_queue_last_pop_index[3]);
+    seq_printf(m,
+               "irq_frame_done_ring_reset count=%u,%u,%u,%u off=%u,%u,%u,%u discard_total=%u,%u,%u,%u discard_last=%u,%u,%u,%u\n",
+               regtrace_irq_frame_done_queue_reset_count[0],
+               regtrace_irq_frame_done_queue_reset_count[1],
+               regtrace_irq_frame_done_queue_reset_count[2],
+               regtrace_irq_frame_done_queue_reset_count[3],
+               regtrace_irq_frame_done_queue_reset_off_count[0],
+               regtrace_irq_frame_done_queue_reset_off_count[1],
+               regtrace_irq_frame_done_queue_reset_off_count[2],
+               regtrace_irq_frame_done_queue_reset_off_count[3],
+               regtrace_irq_frame_done_queue_reset_discard_total[0],
+               regtrace_irq_frame_done_queue_reset_discard_total[1],
+               regtrace_irq_frame_done_queue_reset_discard_total[2],
+               regtrace_irq_frame_done_queue_reset_discard_total[3],
+               regtrace_irq_frame_done_queue_reset_discard_last[0],
+               regtrace_irq_frame_done_queue_reset_discard_last[1],
+               regtrace_irq_frame_done_queue_reset_discard_last[2],
+               regtrace_irq_frame_done_queue_reset_discard_last[3]);
     seq_printf(m,
                "vic_irq_ack_filter_param=%u count=%u frame=%u mdma0=%u mdma1=%u other=%u last_irq=%u last_idx=%u status=0x%x/0x%x mask=0x%x/0x%x pending=0x%x/0x%x\n",
                regtrace_enable_vic_irq_ack_filter ? 1U : 0U,
