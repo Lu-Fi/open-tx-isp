@@ -66879,6 +66879,19 @@ static void t40_tisp_set_par(uint32_t *p)
 
     if (t40_tisp_par_absent(p[0], s))
         return;
+    /* Only the setters checked against the OEM and run in QEMU (BLC 1, GIB 5) are enabled.  The others copy the
+     * block in and then call the module refresh with a gain taken from `&sclk_name + vinum * 4` (a wrong-relocation
+     * anchor of the lift: BadVA 0xa8a1d in tisp_mdns refresh, QEMU 2026-10-31) or run lifted writers that have not
+     * been reviewed; they stay off until the module is re-translated (#140). */
+    if (p[0] != 0x01 && p[0] != 0x05) {
+        static bool warned[0x20];
+
+        if (p[0] < ARRAY_SIZE(warned) && !warned[p[0]]) {
+            warned[p[0]] = true;
+            printk(KERN_INFO "tx_isp_t40_recovered: /dev/tisp set id 0x%x not enabled (lifted setter unreviewed, #139)\n", p[0]);
+        }
+        return;
+    }
 
     switch (p[0]) {
     case 0x01: tisp_blc_param_array_set(s, d); break;
