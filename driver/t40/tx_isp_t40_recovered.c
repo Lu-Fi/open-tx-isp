@@ -1892,9 +1892,11 @@ static unsigned char data_a8368[16384];
 static uintptr_t data_a836c;
 static uintptr_t data_a847c;
 static uint8_t main_face_en_cnt;
-static unsigned char data_a80a4[16384];
+static unsigned char data_a80a4[16384] __attribute__((used));   /* unreferenced stand-ins: kept, the .bss layout is
+                                                                  * load-bearing (inline-asm .bss+N sites, #86) */
 static unsigned char data_a82a4[16384];
-static unsigned char data_a84b8[16384];
+static unsigned char data_a84b8[16384];                          /* [0..1]: OEM .bss+16696 custom AWB algorithm registered, per sensor */
+#define awb_algo_enable ((int32_t *)data_a84b8)
 static unsigned char data_a8500[16384];
 static unsigned char data_a8504[16384];
 static unsigned short bss_data[16];
@@ -54376,85 +54378,49 @@ int32_t frame_channel_open(uint32_t a0, void *arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000e374 origin=model_output original=frame_channel_vidioc_set_fmt */
+/* T40-SET-FMT (#139): OEM frame_channel_vidioc_set_fmt (0xd8e4).  The user's 112-byte format lives at sp+24
+ * (type w0, field w4 = sp+40, colorspace w7 = sp+52).  The lift put the struct at frame +0x80 but the field and
+ * colorspace at frame +0x70/+0x64 and wrote the field through the (never assigned) slot as a pointer.  Now a
+ * plain local struct: type must be 1, field 0 -> 4 or already 4, colorspace 8. */
 int32_t frame_channel_vidioc_set_fmt(void *arg1, int32_t arg2)
 {
-    int32_t *result = -22;
-    /*
-     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
-     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
-     * the OEM code passes a slot as the start of a WHOLE STRUCT
-     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
-     * as separate scalars, such a copy overwrites whatever the compiler placed next
-     * to the scalar - including saved registers and the return address.
-     * Backing 0x64..0xf0 (240 bytes) with one buffer and aliasing each slot at its
-     * OEM offset makes every copy land exactly where the OEM's copy landed.
-     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
-     * alias carries the width of its OEM access:
-     *   all slots are 4-byte.
-     * the slots were uninitialised and stay so.
-     */
-    uint32_t __frame[0x3c];
-    int32_t *const __p_80 = (int32_t *)(void *)((char *)__frame + 0x80);
-    int32_t **const __p_70 = (int32_t **)(void *)((char *)__frame + 0x70);
-    int32_t *const __p_64 = (int32_t *)(void *)((char *)__frame + 0x64);
-    int32_t v1_2;
-    int32_t *result_1;
-    int32_t result_2;
-    int32_t var_88_1;
+    uint32_t fmt[28];
+    int32_t result;
 
     if (arg1 == NULL || (uint32_t)arg1 >= 0xfffff001) {
-        return result;
+        return -22;
     }
-
-    result = -22;
-
-    if (private_copy_from_user(__p_80, arg2, 112) != 0) {
-        isp_printf(2, "[%s %d] Failed to copy from user\n", "frame_channel_vidioc_set_fmt", __LINE__);
+    if (private_copy_from_user(fmt, arg2, 112) != 0) {
+        isp_printf(2, "[%s %d] Failed to copy from user\n", "frame_channel_vidioc_set_fmt", 280);
         return -12;
     }
-
-    if ((*__p_80) != 1) {
-        isp_printf(2, "[%s %d] The frame type is invalid!\n", "frame_channel_vidioc_set_fmt", __LINE__);
+    if (fmt[0] != 1) {
+        isp_printf(2, "[%s %d] The frame type is invalid!\n", "frame_channel_vidioc_set_fmt", 285);
+        return -22;
+    }
+    if (fmt[4] == 0) {
+        fmt[4] = 4;
+    } else if (fmt[4] != 4) {
+        isp_printf(2, "[%s %d] The field is invalid!\n", "frame_channel_vidioc_set_fmt", 292);
+        return -22;
+    }
+    if (fmt[7] != 8) {
+        isp_printf(2, "[%s %d] The colorspace is invalid!\n", "frame_channel_vidioc_set_fmt", 297);
         return -22;
     }
 
-    (*__p_70)[0] = *(int32_t *)((char *)arg1 + 40);
-    (*__p_64) = *(int32_t *)((char *)arg1 + 52);
-
-    if ((*__p_70) != 0) {
-        v1_2 = (*__p_64);
-        if ((*__p_70) != 4) {
-            isp_printf(2, "[%s %d] The field is invalid!\n", "frame_channel_vidioc_set_fmt", __LINE__);
-            return -22;
-        }
-    } else {
-        (*__p_70)[0] = 4;
-        v1_2 = (*__p_64);
-    }
-
-    if (v1_2 != 8) {
-        isp_printf(2, "[%s %d] The colorspace is invalid!\n", "frame_channel_vidioc_set_fmt", __LINE__);
-        return -22;
-    }
-
-    result_1 = ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)((int32_t *)(*(int32_t *)((char *)arg1 + 712)), (uintptr_t)(0x3000002), (uintptr_t)(__p_80));
-    result = result_1;
-
-    if (result_1 == 0 || result == -515) {
-        result_2 = private_copy_to_user(arg2, __p_80, 112);
-        result = result_2;
-
-        if (result_2 != 0) {
-            isp_printf(2, "[%s %d] Failed to copy to user\n", "frame_channel_vidioc_set_fmt", __LINE__);
+    result = ((int32_t (*)(uintptr_t, uintptr_t, uintptr_t))tx_isp_send_event_to_remote)(
+        (uintptr_t)*(int32_t *)((char *)arg1 + 712), 0x3000002, (uintptr_t)fmt);
+    if (result == 0 || result == -515) {
+        if (private_copy_to_user(arg2, fmt, 112) != 0) {
+            isp_printf(2, "[%s %d] Failed to copy to user\n", "frame_channel_vidioc_set_fmt", 309);
             return -12;
         }
-
-        memcpy((char *)arg1 + 584, __p_80, 112);
+        memcpy((char *)arg1 + 584, fmt, 112);
     } else {
-        var_88_1 = *(int32_t *)((char *)arg1 + 716);
-        ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))isp_printf)((uintptr_t)(2), (uintptr_t)("[%s %d] Failed to set fmt to frame chan%d!\n"), (uintptr_t)("frame_channel_vidioc_set_fmt"), (uintptr_t)(var_88_1));
+        isp_printf(2, "[%s %d] Failed to set fmt to frame chan%d!\n", "frame_channel_vidioc_set_fmt", 303,
+                   *(int32_t *)((char *)arg1 + 716));
     }
-
     return result;
 }
 
@@ -65997,6 +65963,13 @@ int32_t tisp_reg_map_get(int32_t arg1, int32_t arg2, int32_t *arg3)
     char stack_buf[40];
     
     local_arg1 = arg1;
+    /* T40-REG-MAP (#139): the node passes the PHYSICAL register address; 0xecd00000 + phys (mod 2^32) is the
+     * offset in the ISP window (OEM: unchecked).  A value outside the window read through the ISP base into
+     * unrelated memory/MMIO (the sweep id 0x18 with address 0): refused. */
+    if ((uint32_t)(0xecd00000u + (uint32_t)arg1) >= 0x100000u) {
+        *arg3 = 0;
+        return -EINVAL;
+    }
     reg_value = system_reg_read(0xecd00000 + arg1);
     
     isp_printf(0, "regValue is 0x%x\n", reg_value);
@@ -66012,6 +65985,9 @@ int32_t tisp_reg_map_get(int32_t arg1, int32_t arg2, int32_t *arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017bdc origin=fragment_seed original=tisp_reg_map_set */
 int64_t tisp_reg_map_set(uint32_t a0, uint32_t a1)
 {
+    /* T40-REG-MAP (#139): see tisp_reg_map_get; the OEM writes any address, we only the ISP window. */
+    if ((uint32_t)(0xecd00000u + ((const uint32_t *)(uintptr_t)a1)[4]) >= 0x100000u)
+        return -EINVAL;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -66300,9 +66276,46 @@ tisp_data_info_get0x108:
 static int t40_tisp_par;
 module_param(t40_tisp_par, int, 0644);
 
+/* T40-TISP-PAR (#139): the module parameter blocks the node's getters/setters read and write live in
+ * pointers that the module's init allocates (OEM).  The open driver runs only some of those inits (the others
+ * are lifted but unused): a getter/setter on a never-allocated block reads/writes address 0 - the silent
+ * reset at /dev/tisp GET id 4 (DPC) in QEMU, the camera hang at id 1 (BLC) before.  Ids whose block pointer is
+ * NULL are answered with length 0 (get) / ignored (set). */
+static const uintptr_t *t40_tisp_par_block(uint32_t id, uint32_t sensor)
+{
+    switch (id) {
+    case 0x04: return sensor ? &sec_dpc : &main_dpc;
+    case 0x06: return sensor ? &sec_adr_paras : &main_adr_paras;
+    case 0x07: return sensor ? &sec_dmsc : &main_dmsc;
+    case 0x08: return sensor ? &stSecCcmOuter : &stMainCcmOuter;
+    case 0x0c: return sensor ? &sec_mdns : &main_mdns;
+    case 0x0d: return sensor ? &sec_ydns : &main_ydns;
+    case 0x0f: return sensor ? &stSecBcshOuter : &stMainBcshOuter;
+    case 0x11: return sensor ? &sec_ysp : &main_ysp;
+    case 0x12: return sensor ? &sec_sdns : &main_sdns;
+    case 0x13: return sensor ? &stSecAfOuter : &stMainAfOuter;
+    case 0x14: return sensor ? &sec_hldc_para : &main_hldc_para;
+    case 0x16: return sensor ? &stSecAwbOuter : &stMainAwbOuter;
+    case 0x17: return sensor ? &sec_tstp : &main_tstp;
+    default: return NULL;
+    }
+}
+
+static bool t40_tisp_par_absent(uint32_t id, uint32_t sensor)
+{
+    const uintptr_t *blk = t40_tisp_par_block(id, sensor > 1 ? 1 : sensor);
+
+    return blk && !*blk;
+}
+
 static void t40_tisp_get_par(uint32_t *p)
 {
     uint32_t s = p[3], d = (uint32_t)(uintptr_t)&p[4], l = (uint32_t)(uintptr_t)&p[1];
+
+    if (t40_tisp_par_absent(p[0], s)) {
+        p[1] = 0;
+        return;
+    }
 
     switch (p[0]) {
     case 0x00: tisp_top_param_array_get((int32_t)d, (int32_t *)&p[1]); break;
@@ -66340,6 +66353,22 @@ static void t40_tisp_get_par(uint32_t *p)
 static void t40_tisp_set_par(uint32_t *p)
 {
     uint32_t s = p[3], d = (uint32_t)(uintptr_t)&p[4];
+
+    if (t40_tisp_par_absent(p[0], s))
+        return;
+    /* Only the setters checked against the OEM and run in QEMU (BLC 1, GIB 5) are enabled.  The others copy the
+     * block in and then call the module refresh with a gain taken from `&sclk_name + vinum * 4` (a wrong-relocation
+     * anchor of the lift: BadVA 0xa8a1d in tisp_mdns refresh, QEMU 2026-10-31) or run lifted writers that have not
+     * been reviewed; they stay off until the module is re-translated (#140). */
+    if (p[0] != 0x01 && p[0] != 0x05) {
+        static bool warned[0x20];
+
+        if (p[0] < ARRAY_SIZE(warned) && !warned[p[0]]) {
+            warned[p[0]] = true;
+            printk(KERN_INFO "tx_isp_t40_recovered: /dev/tisp set id 0x%x not enabled (lifted setter unreviewed, #139)\n", p[0]);
+        }
+        return;
+    }
 
     switch (p[0]) {
     case 0x01: tisp_blc_param_array_set(s, d); break;
@@ -81791,7 +81820,16 @@ int32_t tisp_ae_get_y_zone(uint32_t a0, uint32_t a1)
     }
 
     __private_spin_lock_irqsave((uint32_t)s0, &var_18);
-    memcpy((void *)a1, (void *)(*(uint32_t *)(s1 + 140)), 900);
+    /* T40-AE-STATIS (#139): OEM 0x2b0a8 lw a1,140(s1): byte offset 140 of pst{Main,Sec}AeOri (s1 is a
+     * uintptr_t *, so the lifted s1 + 140 read +560).  The pointer is checked (OEM unchecked). */
+    {
+        void *zone = (void *)(uintptr_t)*(uint32_t *)((char *)s1 + 140);
+
+        if (regtrace_is_kernel_ptr(zone))
+            memcpy((void *)a1, zone, 900);
+        else
+            memset((void *)a1, 0, 900);
+    }
     private_spin_unlock_irqrestore();
 
     return 0;
@@ -88743,102 +88781,37 @@ int32_t tisp_awb_sec_ev_update(uint32_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034dd8 origin=model_output original=tisp_awb_algo_init */
+/* T40-AWB-ALGO-INIT (#139): hand translation of OEM tisp_awb_algo_init (libt40-firmware 0x34348), the
+ * registration step of the custom AWB algorithm (tx_isp_unlocked_ioctl, request 0x800456xx family).
+ *   awb_algo_enable[vinum] := enable;  if (enable == 1) pack five words from the AWB outer buffer
+ *   (first four u16 of the main/sec AWB pointer table entry 0 = outer buffer base) and
+ *   memcpy(dst + 8, pack, 20).
+ * The lift stored through two never-assigned frame-slot pointers (kernel oops on every registration),
+ * returned the address of 16 KB stand-in arrays and did nothing for the sec sensor.  OEM pack layout
+ * (sp+16..): w0 = enable, w1 = info[2], w2 = info[0], b12 = info[3], b13 = info[1], w4 = enable.
+ * Deviation: a NULL outer buffer (vendor AWB engine live, no OEM pointer table) or a NULL dst leaves dst
+ * untouched instead of dereferencing it. */
 int32_t *tisp_awb_algo_init(int32_t arg1, int32_t arg2, int32_t arg3)
 {
-    int32_t *result;
-    int16_t *v0;
-    /*
-     * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
-     * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
-     * the OEM code passes a slot as the start of a WHOLE STRUCT
-     * (`copy_from_user(sp + 0x20, arg, 68)`, `memcpy(..., sp + 0x10, 40)`).  Declared
-     * as separate scalars, such a copy overwrites whatever the compiler placed next
-     * to the scalar - including saved registers and the return address.
-     * Backing 0x10..0x34 (52 bytes) with one buffer and aliasing each slot at its
-     * OEM offset makes every copy land exactly where the OEM's copy landed.
-     * `__frame` is uint32_t[] so the aliases are at worst 4-byte aligned; each
-     * alias carries the width of its OEM access:
-     *   var_13 @0x13 -> uint8_t: declared char = 1 byte(s) of the slot shared with its other view
-     *   local_1c @0x1c -> uint16_t: declared int16_t = 2 byte(s) of the slot shared with its other view
-     *   local_14 @0x14 -> uint8_t: declared char = 1 byte(s) of the slot shared with its other view
-     *   local_13 @0x13 -> uint8_t: declared char = 1 byte(s) of the slot shared with its other view
-     *   local_11 @0x11 -> uint8_t: alignment only (offset 0x11)
-     * These overlap the 4-byte slots in the OEM frame, so they
-     * overlap here too: that sharing is the OEM's own semantics.
-     *   0x10 has two names (local_10, var_10): one OEM slot, two views, and
-     *     each name keeps its own alias of its own declared width.
-     *   0x13 has two names (local_13, var_13): one OEM slot, two views, and
-     *     each name keeps its own alias of its own declared width.
-     *   0x14 has two names (local_14, var_14): one OEM slot, two views, and
-     *     each name keeps its own alias of its own declared width.
-     *   0x18 has two names (local_18, var_18): one OEM slot, two views, and
-     *     each name keeps its own alias of its own declared width.
-     *   0x1c has two names (local_1c, var_1c): one OEM slot, two views, and
-     *     each name keeps its own alias of its own declared width.
-     *   0x20 has two names (local_20, var_20): one OEM slot, two views, and
-     *     each name keeps its own alias of its own declared width.
-     * the slots were uninitialised and stay so.
-     */
-    uint32_t __frame[0xd];
-    int32_t *const __p_var_20 = (int32_t *)(void *)((char *)__frame + 0x20);
-    uint32_t *const __p_var_1c = (uint32_t *)(void *)((char *)__frame + 0x1c);
-    uint32_t **const __p_var_18 = (uint32_t **)(void *)((char *)__frame + 0x18);
-    char **const __p_var_14 = (char **)(void *)((char *)__frame + 0x14);
-    int32_t *const __p_var_10 = (int32_t *)(void *)((char *)__frame + 0x10);
-    uint8_t *const __p_var_13 = (uint8_t *)(void *)((char *)__frame + 0x13);
-    int16_t **const __p_local_20 = (int16_t **)(void *)((char *)__frame + 0x20);
-    uint16_t *const __p_local_1c = (uint16_t *)(void *)((char *)__frame + 0x1c);
-    int16_t **const __p_local_18 = (int16_t **)(void *)((char *)__frame + 0x18);
-    uint8_t *const __p_local_14 = (uint8_t *)(void *)((char *)__frame + 0x14);
-    uint8_t *const __p_local_13 = (uint8_t *)(void *)((char *)__frame + 0x13);
-    int32_t **const __p_local_10 = (int32_t **)(void *)((char *)__frame + 0x10);
-    uint8_t *const __p_11 = (uint8_t *)(void *)((char *)__frame + 0x11);
-    
-    /* First conditional: if arg1 != 0, jump to 0x34e60 */
-    if (arg1 != 0) {
-        goto label_34e60;
-    }
-    
-    /* arg1 == 0 path: result = &data_a80a4 */
-    result = (int32_t *)&data_a80a4[0];
-    
-    /* Store arg2 to (&data_a84b8)[arg1] */
-    ((int32_t *)&data_a84b8[0])[arg1] = arg2;
-    
-    /* Check if arg2 != 1 */
-    if (arg2 != 1) {
-        return result;
-    }
-    
-    /* arg2 == 1 path: continue */
-    v0 = (int16_t *)result;
-    (*__p_var_20) = arg2;
-    
-    /* Read from v0 and store to stack */
-    (*__p_var_1c) = (uint32_t)v0[2];
-    (*__p_var_18)[0] = (uint32_t)*v0;
-    (*__p_var_14)[0] = ((char *)v0)[3];
-    (*__p_var_10) = arg2;
-    (*__p_var_13) = ((char *)v0)[1];
-    
-    /* Setup stack frame and save values */
-    (*__p_local_20) = v0[2];
-    (*__p_local_1c) = *v0;
-    (*__p_local_18) = v0[1];
-    (*__p_local_14) = ((char *)v0)[3];
-    (*__p_local_13) = ((char *)v0)[1];
-    (*__p_local_10) = arg2;
-    (*__p_11) = ((char *)v0)[2];
-    
-    /* Call memcpy(arg3 + 8, __p_var_20, 0x14) */
-    memcpy((void *)(arg3 + 8), __p_var_20, 0x14);
-    
-    return result;
-    
-label_34e60:
-    /* arg1 != 0 path: result = &data_a82a4 */
-    result = (int32_t *)&data_a82a4[0];
-    return result;
+    const int sec = arg1 != 0;
+    const uint16_t *info;
+    uint32_t pack[5];
+
+    awb_algo_enable[sec] = arg2;
+    if (arg2 != 1 || !arg3)
+        return NULL;
+    info = (const uint16_t *)(uintptr_t)(sec ? pstSecAwbOri[0] : pstMainAwbOri[0]);
+    if (!info)
+        return NULL;
+    memset(pack, 0, sizeof(pack));
+    pack[0] = (uint32_t)arg2;
+    pack[1] = info[2];
+    pack[2] = info[0];
+    ((uint8_t *)pack)[12] = (uint8_t)info[3];
+    ((uint8_t *)pack)[13] = (uint8_t)info[1];
+    pack[4] = (uint32_t)arg2;
+    memcpy((void *)(uintptr_t)((uint32_t)arg3 + 8), pack, sizeof(pack));
+    return NULL;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000034e70 origin=fragment_seed original=tisp_awb_algo_handle */
@@ -92860,139 +92833,48 @@ tisp_blc_dn_params_refresh0x17c:
 #endif
 }
 
+/* T40-BLC-PAR (#139): tuning-node BLC parameter block (/dev/tisp ids 1, 0x20007400/01), OEM
+ * tisp_blc_param_array_get 0x38f4c / tisp_blc_param_array_set 0x38fa8.
+ *   get(vinum, dst, len): memcpy(dst, blc_{main,seco}_tool_para, 252); *len = 252; return 0.
+ *   set(vinum, src):      memcpy(blc_{main,seco}_tool_para, src, 252); re-interpolate both gain tables
+ *                         (tisp_blc_ag_interp x2), digital gain (x2), write regs (x4).
+ * The lift read/wrote through blc_{main,seco}_tool_para, which nothing in the open driver allocates (the
+ * lifted tisp_blc_init is dead: it stores to the wrong objects and is not called), i.e. memcpy from/to
+ * address 0: the camera hang at GET id 1 (t40_tisp_par=1), and the set used the wrong table base too.
+ * The OEM tool block is the 252-byte copy of the bin's BLC block at tparamsN[vinum] + 0x2350 and the
+ * open BLC path (regtrace_blc_main_gain_update_lit) reads exactly that block, so get/set work on it
+ * directly; set then re-applies the BLC registers at the current gain when the lit path is active. */
+static uint8_t *t40_blc_tool_block(uint32_t vinum)
+{
+    uintptr_t nbuf = vinum < 2 ? tparamsN[vinum] : 0;
+
+    return nbuf ? (uint8_t *)(nbuf + 0x2350) : NULL;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000399dc origin=fragment_seed original=tisp_blc_param_array_get */
 int64_t tisp_blc_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+    const uint8_t *tool = t40_blc_tool_block(a0);
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = a1;
-
-    /* fragment 2: StackAccess */
-    local_10 = s0;
-    local_14 = ra;
-
-    /* fragment 3: Branch */
-    s0 = a2;
-    if (a0 == 0) { goto tisp_blc_param_array_get0x50; }
-
-    /* fragment 4: CallSetup */
-    v1 = (int32_t *)&blc_seco_tool_para;
-    a1 = *(uint32_t *)((char *)((char *)&blc_seco_tool_para));
-
-tisp_blc_param_array_get0x20:
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)v0, (void *)(uintptr_t)a1, 252); /* jalr target resolved by relocation */
-
-    /* fragment 6: Arithmetic */
-    v0 = 252;
-
-    /* fragment 7: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 0) = v0;
-    ra = local_14;
-    s0 = local_10;
-    v0 = 0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_blc_param_array_get0x50:
-    /* fragment 9: Arithmetic */
-    v1 = (int32_t *)&blc_main_tool_para;
-
-    /* fragment 10: Branch */
-    a1 = *(uint32_t *)((char *)((char *)&blc_main_tool_para));
-    goto tisp_blc_param_array_get0x20;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    if (tool)
+        memcpy((void *)(uintptr_t)a1, tool, 252);
+    else
+        memset((void *)(uintptr_t)a1, 0, 252);
+    *(uint32_t *)a2 = 252;
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000039a38 origin=fragment_seed original=tisp_blc_param_array_set */
 int32_t tisp_blc_param_array_set(uintptr_t a0, uint32_t a1)
 {
-#ifdef REGTRACE_KERNEL_TREE_BUILD
+    uint8_t *tool = t40_blc_tool_block((uint32_t)a0);
+
+    if (!tool)
+        return -ENOENT;
+    memcpy(tool, (const void *)(uintptr_t)a1, 252);
+    if (a0 == 0 && regtrace_enable_blc_lit)
+        (void)regtrace_blc_main_gain_update_lit(regtrace_blc_lit_gain_now, false);
     return 0;
-#else
-
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *t5 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    s0 = a0;
-    if (a0 == 0) { goto tisp_blc_param_array_set0xd8; }
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)&isp_memopt;
-    a0 = *(uint32_t *)((char *)((char *)&blc_seco_tool_para));
-
-tisp_blc_param_array_set0x24:
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)a1, 252); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    s2 = (uintptr_t)s0 << 3;
-    s2 = s2 + &sclk_name;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_blc_ag_interp)(s0, 0, *(uint32_t *)((char *)(s2) + 0), 1); /* jalr target resolved by relocation */
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_blc_ag_interp)(s0, 1, *(uint32_t *)((char *)(s2) + 4), 1); /* jalr target resolved by relocation */
-
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_blc_calc_digital_gain)(s0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    s1 = (uintptr_t *)&tisp_blc_write_reg;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_blc_write_reg)(s0, 1); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_blc_write_reg)(s0, 0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_blc_write_reg)(s0, 1, 0); /* jalr target resolved by relocation */
-
-    /* fragment 10: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 11: Arithmetic */
-    v0 = 0;
-
-    /* fragment 12: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_blc_param_array_set0xd8:
-    /* fragment 13: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 14: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&blc_main_tool_para));
-    goto tisp_blc_param_array_set0x24;
-
-    return 0;
-
-#endif
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000039b1c origin=fragment_seed original=tisp_blc_ae_write_dgain */
@@ -102710,6 +102592,13 @@ tisp_wdr_seco_process0x60:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000422b0 origin=fragment_seed original=tisp_wdr_param_array_get */
 int32_t tisp_wdr_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
+    /* T40-TISP-PAR (#139): the OEM WDR tool/used block(s) are never allocated in the open driver (the lifted tisp_wdr_init is not
+     * used), the lift below reads/writes through NULL: the silent reset at /dev/tisp GET id 0x3 (t40_tisp_par=1).
+     * No block: length 0 / -ENODEV, nothing touched. */
+    if (!(a0 ? (seco_wdr_tool_para && seco_wdr_used_para) : (main_wdr_tool_para && main_wdr_used_para))) {
+        *(uint32_t *)a2 = 0;
+        return -ENODEV;
+    }
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -109859,7 +109748,16 @@ int32_t tisp_gamma_deinit(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000048f48 origin=fragment_seed original=tisp_gamma_param_array_get */
 int32_t tisp_gamma_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
-    if (regtrace_isr_oem_hw_refresh) return t40_writer_gamma_control(a0, 1, a1, a2);
+    /* T40-GAMMA-PAR (#139): the writer holds the only gamma parameter block of the open driver; the lifted body
+     * below indexes &isp_memopt + vinum * 4 (a wrong base: BadVA 0 oops at /dev/tisp GET id 9, t40_tisp_par=1).
+     * Without a writer context (isr_oem_hw_refresh off) the block is empty: length 0. */
+    {
+        int ret = t40_writer_gamma_control(a0, 1, a1, a2);
+
+        if (ret && a2)
+            *(uint32_t *)a2 = 0;
+        return ret;
+    }
 
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
@@ -109890,7 +109788,8 @@ int32_t tisp_gamma_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000048fa4 origin=fragment_seed original=tisp_gamma_param_array_set */
 int32_t tisp_gamma_param_array_set(uint32_t a0, uint32_t a1)
 {
-    if (regtrace_isr_oem_hw_refresh) return t40_writer_gamma_control(a0, 2, a1, 0);
+    /* T40-GAMMA-PAR (#139): see tisp_gamma_param_array_get; -EAGAIN without a writer context. */
+    return t40_writer_gamma_control(a0, 2, a1, 0);
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     return 0;
@@ -121449,6 +121348,11 @@ int32_t tisp_defog_param_array_get(int32_t arg1, int32_t arg2, int32_t *arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000005281c origin=fragment_seed original=tisp_defog_param_array_set */
 int32_t tisp_defog_param_array_set(uintptr_t a0, uint32_t a1)
 {
+    /* T40-TISP-PAR (#139): the OEM defog tool block(s) are never allocated in the open driver (the lifted tisp_defog_init is not
+     * used), the lift below reads/writes through NULL: the silent reset at /dev/tisp GET id 0xa (set) (t40_tisp_par=1).
+     * No block: length 0 / -ENODEV, nothing touched. */
+    if (!(a0 ? defog_seco_tool_para : defog_main_tool_para))
+        return -ENODEV;
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     return 0;
 #else
@@ -126651,11 +126555,11 @@ int func_adr_map_curve1(int *arg1, int arg2, int arg3)
     int *v0_13;
     int var_c0;
     int var_bc;
-    int *var_b8;
+    int var_b8;
     int var_b0;
     int var_a8;
-    int *var_98;
-    int *var_88;
+    int var_98;
+    int var_88;
     int var_68;
     int *result;
 
@@ -126765,16 +126669,16 @@ int func_adr_map_curve1(int *arg1, int arg2, int arg3)
     ((void **)arg1)[6] = (var_c0 * 0xfff) / 0xffff;
     var_bc = *(int *)((char *)arg1 + 0x44);
     ((void **)arg1)[7] = (var_bc * 0xfff) / 0xffff;
-    var_b8[0] = *(int *)((char *)arg1 + 0x48);
-    ((void **)arg1)[8] = (var_b8[0] * 0xfff) / 0xffff;
+    var_b8 = *(int *)((char *)arg1 + 0x48);
+    ((void **)arg1)[8] = (var_b8 * 0xfff) / 0xffff;
     var_b0 = *(int *)((char *)arg1 + 0x4c);
     ((void **)arg1)[9] = (var_b0 * 0xfff) / 0xffff;
     var_a8 = *(int *)((char *)arg1 + 0x50);
     ((void **)arg1)[10] = (var_a8 * 0xfff) / 0xffff;
-    var_98[0] = *(int *)((char *)arg1 + 0x54);
-    ((void **)arg1)[11] = (var_98[0] * 0xfff) / 0xffff;
-    var_88[0] = *(int *)((char *)arg1 + 0x58);
-    ((void **)arg1)[12] = (var_88[0] * 0xfff) / 0xffff;
+    var_98 = *(int *)((char *)arg1 + 0x54);
+    ((void **)arg1)[11] = (var_98 * 0xfff) / 0xffff;
+    var_88 = *(int *)((char *)arg1 + 0x58);
+    ((void **)arg1)[12] = (var_88 * 0xfff) / 0xffff;
     var_68 = *(int *)((char *)arg1 + 0x5c);
     result = (var_68 * 0xfff) / 0xffff;
     ((void **)arg1)[13] = result;
@@ -148920,14 +148824,14 @@ int tisp_hldc_calc_para(int arg1, int arg2, int arg3, int arg4, int arg5, int ar
     int *a0 = lo_11 + lo_12;
     int v0_5 = (a0 < (unsigned)lo_11 ? 1 : 0) + lo_10 + hi_10 + hi_11;
     
-    int *var_28;
+    int var_28;   /* #139: low word of the 64-bit pair (was an int * that the stores went through) */
     int var_24;
     
     if (v0_5 < v1_6 || (v1_6 == v0_5 && a0 < (unsigned)t7)) {
-        var_28[0] = t7;
+        var_28 = t7;
         var_24 = v1_6;
     } else {
-        var_28[0] = a0;
+        var_28 = (int)(uintptr_t)a0;
         var_24 = v0_5;
     }
     
@@ -152348,7 +152252,9 @@ int32_t tisp_clm_deinit(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f124 origin=fragment_seed original=tisp_clm_param_array_get */
 int32_t tisp_clm_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
-    if (regtrace_isr_oem_hw_refresh) { return t40_writer_clm_control(a0, 1U, (uintptr_t)a1, a2); }
+    /* T40-CLM-PAR (#139): the writer holds the only CLM block of the open driver (no context: -EAGAIN, nothing
+     * copied); the lifted body below is not used. */
+    return t40_writer_clm_control(a0, 1U, (uintptr_t)a1, a2);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -152465,7 +152371,8 @@ tisp_clm_param_array_get0x128:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f2c0 origin=fragment_seed original=tisp_clm_param_array_set */
 int32_t tisp_clm_param_array_set(uint32_t a0, uint32_t a1)
 {
-    if (regtrace_isr_oem_hw_refresh) { return t40_writer_clm_control(a0, 2U, (uintptr_t)a1, 0); }
+    /* T40-CLM-PAR (#139): see tisp_clm_param_array_get. */
+    return t40_writer_clm_control(a0, 2U, (uintptr_t)a1, 0);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -158157,111 +158064,37 @@ int32_t tisp_g_ae_exprinfo_attr(uint32_t a0, uintptr_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074ad0 origin=fragment_seed original=tisp_g_ae_statis_attr */
+/* T40-AE-STATIS (#139): hand translation of OEM tisp_g_ae_statis_attr (libt40-firmware 0x74040).  Output
+ * (IMPISPAEStatisInfo, 1934 bytes): [0..9] five u16 from tmp + 1024/1028/1032/1036/1040, [10..1033] the 1024-byte
+ * histogram, [1034..1933] the 900-byte y zone.  tmp (1052 bytes) comes from the AE histogram (main/gsm choice by
+ * tisp_tattr[vinum].+1232).  The lift did the byte offsets 10 and 1034 on word pointers (x4): the y-zone copy
+ * landed 4136 bytes into a 1934-byte buffer, a heap overwrite and, from the /dev/tisp data-info id 0x19, a copy
+ * into module memory (QEMU Oops, __copy_user_common store fault, 2026-10-31). */
 int32_t tisp_g_ae_statis_attr(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    uint8_t *out = (uint8_t *)a1;
+    uint8_t *tmp;
+    uintptr_t tattr = *(uint32_t *)&tisp_tattr;
+    uint32_t gsm = tattr ? *(uint32_t *)(tattr + a0 * 124 + 1232) : 0;
+    static const uint16_t off[5] = { 1024, 1028, 1032, 1036, 1040 };
+    unsigned int i;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s2 = a0;
-    s0 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(1052); /* jalr target resolved by relocation */
-
-    /* fragment 2: Arithmetic */
-    s1 = v0;
-    v0 = (uintptr_t *)&tisp_tattr;
-
-    /* fragment 3: MemoryAccess */
-    v1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    v0 = 124;
-    a0 = (uintptr_t)s2 * (uintptr_t)v0;
-    s3 = (uint32_t *)&memcpy;
-    s4 = s0 + 10;
-    s3 = s3;
-    a1 = s1;
-    v0 = a0 + (uintptr_t)v1;
-    v0 = *(uint32_t *)((char *)v0 + 1232);
-
-    /* fragment 4: Branch */
-    a0 = s2;
-    if (v0 != 0) { goto tisp_g_ae_statis_attr0x120; }
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)&tisp_ae_get_hist_bin;
-    v0 = v0;
-
-tisp_g_ae_statis_attr0x70:
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_get_hist_bin)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s4, (void *)(uintptr_t)s1, 1024); /* jalr target resolved by relocation */
-
-    /* fragment 8: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s1 + 1024);
-    a1 = s0 + 1034;
-    *(uint8_t *)((char *)s0 + 0) = v0;
-    v0 = (uintptr_t)v0 >> 8;
-    *(uint8_t *)((char *)s0 + 1) = v0;
-    v0 = *(uint16_t *)((char *)s1 + 1028);
-    *(uint8_t *)((char *)s0 + 2) = v0;
-    v0 = (uintptr_t)v0 >> 8;
-    *(uint8_t *)((char *)s0 + 3) = v0;
-    v0 = *(uint16_t *)((char *)s1 + 1032);
-    *(uint8_t *)((char *)s0 + 4) = v0;
-    v0 = (uintptr_t)v0 >> 8;
-    *(uint8_t *)((char *)s0 + 5) = v0;
-    v0 = *(uint16_t *)((char *)s1 + 1036);
-    *(uint8_t *)((char *)s0 + 6) = v0;
-    v0 = (uintptr_t)v0 >> 8;
-    *(uint8_t *)((char *)s0 + 7) = v0;
-    v0 = *(uint16_t *)((char *)s1 + 1040);
-    *(uint8_t *)((char *)s0 + 8) = v0;
-    v0 = (uintptr_t)v0 >> 8;
-    *(uint8_t *)((char *)s0 + 9) = v0;
-    v0 = (uintptr_t *)&tisp_ae_get_y_zone;
-    v0 = v0;
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_get_y_zone)(s2, (uintptr_t)a1); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(s1); /* jalr target resolved by relocation */
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 12: Arithmetic */
-    v0 = 0;
-
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_g_ae_statis_attr0x120:
-    /* fragment 14: Arithmetic */
-    v0 = (uintptr_t *)&tisp_gsm_get_hist_bin;
-
-    /* fragment 15: Branch */
-    v0 = (uintptr_t *)&tisp_gsm_get_hist_bin;
-    goto tisp_g_ae_statis_attr0x70;
-
+    if (!out)
+        return -EINVAL;
+    tmp = (uint8_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(1052);
+    if (!tmp)
+        return -ENOMEM;
+    if (gsm)
+        tisp_gsm_get_hist_bin(a0, (uintptr_t)tmp);
+    else
+        tisp_ae_get_hist_bin(a0, (uintptr_t)tmp);
+    memcpy(out + 10, tmp, 1024);
+    for (i = 0; i < 5; i++) {
+        out[2 * i] = tmp[off[i]];
+        out[2 * i + 1] = tmp[off[i] + 1];
+    }
+    tisp_ae_get_y_zone(a0, (uintptr_t)(out + 1034));
+    ((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)((uintptr_t)tmp);
     return 0;
 }
 
