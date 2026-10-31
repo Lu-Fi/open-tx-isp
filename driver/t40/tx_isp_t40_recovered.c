@@ -60068,7 +60068,7 @@ tx_isp_unlocked_ioctl0x940:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x324; }
 
     /* fragment 195: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(a0, (uintptr_t)s4, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0x95c subdev->ops->sensor->ioctl(sd, 0x2000002): ENUMINPUT 0xc0045402 */ /* jalr target resolved by relocation */
 
     /* fragment 196: Branch */
     s0 = v0;
@@ -60107,7 +60107,7 @@ tx_isp_unlocked_ioctl0x9b4:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x100; }
 
     /* fragment 205: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(a0, (uintptr_t)s4, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0x9d0 (sd, 0x2000003): G_INPUT 0x80085403 */ /* jalr target resolved by relocation */
 
     /* fragment 206: Branch */
     s0 = v0;
@@ -60146,7 +60146,7 @@ tx_isp_unlocked_ioctl0xa28:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x75c; }
 
     /* fragment 215: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(a0, (uintptr_t)s4, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0xa44 (sd, 0x2000004): S_INPUT 0xc0085404 */ /* jalr target resolved by relocation */
 
     /* fragment 216: Branch */
     s0 = v0;
@@ -60244,7 +60244,7 @@ tx_isp_unlocked_ioctl0xdf0:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x810; }
 
     /* fragment 290: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(a0, (uintptr_t)s3, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0xe0c (sd, 0x2000011): SET_SENSOR_REGISTER 0xc040540d */ /* jalr target resolved by relocation */
 
     /* fragment 291: Branch */
     s0 = v0;
@@ -60283,7 +60283,7 @@ tx_isp_unlocked_ioctl0xe64:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x264; }
 
     /* fragment 300: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(a0, (uintptr_t)s4, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0xe80 (sd, 0x2000012): GET_SENSOR_REGISTER 0x8040540e */ /* jalr target resolved by relocation */
 
     /* fragment 301: Branch */
     s0 = v0;
