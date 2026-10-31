@@ -40,6 +40,7 @@ struct t40_dpc_state {
 
 /* T40C2: state of the C chains lives outside .bss/.data (see T40-LAYOUT in tx_isp_t40_recovered.c) */
 static struct t40_dpc_state t40_dpc T40C2 = { .gain_old = 0xffffffffU, .gain_thres = 256 };
+static uint32_t t40_dpc_gain_old1 T40C2 = 0xffffffffU;	/* OEM dpc_gain_old[1]: second-sensor unit (0x7100) is not driven */
 
 /* Table offsets in the DPC section (OEM tisp_dpc_wdr_en), linear and WDR.
  * Table 6 is an 8-bit table (11 bytes + pad), all others are 11 x u16. */

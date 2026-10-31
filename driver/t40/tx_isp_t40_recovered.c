@@ -105590,7 +105590,7 @@ int32_t tisp_dpc_main_init(void)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_dpc_wdr_en)(0, *(uint32_t *)((char *)((char *)&dpc_wdr_en))); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
-    *(uint32_t *)((char *)&sclk_name + -16428) = (-1);
+    t40_dpc.gain_old = 0xffffffffU;   /* OEM dpc_gain_old[0] (.data+0x2bfb4); the lift stored through &sclk_name - 16428 */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_dpc_refresh)(0, 65536); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
@@ -105715,7 +105715,7 @@ int32_t tisp_dpc_sec_init(void)
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_dpc_wdr_en)(1, *(uint32_t *)((char *)((char *)&dpc_wdr_en + 0x4))); /* jalr target resolved by relocation */
 
     /* fragment 6: CallSetup */
-    *(uint32_t *)((char *)&sclk_name + -16424) = (-1);
+    t40_dpc_gain_old1 = 0xffffffffU;   /* OEM dpc_gain_old[1] (.data+0x2bfb8); the lift stored through &sclk_name - 16424 */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_dpc_refresh)(1, 65536); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
@@ -105907,81 +105907,38 @@ tisp_dpc_param_array_get0x50:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000044498 origin=fragment_seed original=tisp_dpc_param_array_set */
 int32_t tisp_dpc_param_array_set(uint32_t a0, uint32_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Branch */
-    s0 = a0;
-    if (a0 == 0) { goto tisp_dpc_param_array_set0x64; }
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t *)&isp_memopt;
-    a0 = *(uint32_t *)((char *)((char *)&sec_dpc));
-
-tisp_dpc_param_array_set0x1c:
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)a1, 1074); /* jalr target resolved by relocation */
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_dpc_refresh)((uintptr_t)s0, *(uint32_t *)((char *)(((uintptr_t)s0 << 2) + &sclk_name) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 6: Arithmetic */
-    v0 = 0;
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_dpc_param_array_set0x64:
-    /* fragment 8: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 9: Branch */
-    a0 = *(uint32_t *)((char *)((char *)&main_dpc));
-    goto tisp_dpc_param_array_set0x1c;
-
-    return 0;
+    /*
+     * #140 anchors: OEM tisp_dpc_param_array_set (0x43a08): memcpy(dpc[vinum], src, 1074);
+     * tisp_dpc_refresh(vinum, dpc_gain_old[vinum]) (.data+0x2bfb4); return 0.  The lift read the gain
+     * slot at &sclk_name + vinum * 4 (unrelated data) and copied into main_dpc, which the DPC C chain
+     * never allocates (NULL).  The main channel is the C chain section copy; the second-sensor unit
+     * is not driven.
+     */
+    if (!a1)
+        return -EINVAL;
+    if (a0 >= 2)
+        return -EINVAL;
+    if (a0 != 0 || !regtrace_t40_dpc_active)
+        return a0 ? 0 : -ENODEV;
+    memcpy(t40_dpc.par, (const void *)(uintptr_t)a1, T40_DPC_PAR_BYTES);
+    return tisp_dpc_refresh(0, t40_dpc.gain_old);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000044508 origin=fragment_seed original=dpc_remove */
 int dpc_remove(struct platform_device *pdev)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v1 = -1;
-    v0 = (uintptr_t *)&sclk_name;
-
-    /* fragment 1: MemoryAccess */
-    *(uint32_t *)((char *)&sclk_name + -16428) = v1;
-    v0 = v0 - 16428;
-    *(uint32_t *)((char *)v0 + 4) = v1;
-    v0 = (uintptr_t *)&sclk_name;
-    v1 = 256;
-    *(uint32_t *)((char *)&sclk_name + -16432) = v1;
-    v0 = (uintptr_t *)&dpc_wdr_en;
-    *(uint32_t *)((char *)((char *)&dpc_wdr_en)) = 0;
-    v0 = v0 + 17144;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 4) = 0;
-
+    /*
+     * #140 anchors: OEM dpc_remove (0x43a78) = dpc_gain_old[0..1] = -1 (.data+0x2bfb4), dpc_gain_thres
+     * = 256 (.data+0x2bfb0), dpc_wdr_en[0..1] = 0 (.bss+0x42e8).  The lift stored through
+     * &sclk_name - 16428/16432 (16 KB below the clock-name table: unrelated driver data, written at
+     * every last close by ispcore_slake_module -> tisp_slake_all) and through &dpc_wdr_en + 17144
+     * words.  Now the DPC C chain state (t40_dpc) and the lifted dpc_wdr_en word.
+     */
+    (void)pdev;
+    t40_dpc.gain_old = 0xffffffffU;
+    t40_dpc.gain_thres = 256;
+    t40_dpc_gain_old1 = 0xffffffffU;
+    dpc_wdr_en = 0;
     return 0;
 }
 
@@ -110998,35 +110955,21 @@ tisp_gamma_param_array_set0x70:
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000490b0 origin=fragment_seed original=gamma_remove */
 int gamma_remove(struct platform_device *pdev)
 {
-    uint32_t *a0 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&gamma_frame_num_saved;
-    a0 = 0;
-    a1 = 0;
-
-    /* fragment 1: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&gamma_frame_num_saved)) = a0;
-    *(uint32_t *)((char *)((char *)&gamma_frame_num_saved + 0x4)) = a1;
-    v0 = v0 + 17200;
-    *(uint32_t *)((char *)v0 + 8) = a0;
-    *(uint32_t *)((char *)v0 + 12) = a1;
-    v0 = (uintptr_t *)&gamma_wlut_times;
-    *(uint16_t *)((char *)((char *)&gamma_wlut_times)) = 0;
-    v1 = 1285;
-    v0 = (uintptr_t *)&sclk_name;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: MemoryAccess */
-    *(uint16_t *)((char *)&sclk_name + -16400) = v1;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    /*
+     * #140 anchors: OEM gamma_remove (0x48620) = gamma_frame_num_saved[0..1] = 0 (.bss+0x4320, 2 x u64),
+     * gamma_wlut_times (u16, .bss+0x4318) = 0, gamma_wlut_frequency (u16, .data+0x2bfd0) = 0x0505.
+     * The lift scaled `v0 + 17200` by 4 (stores 69 KB past the symbol) and wrote the frequency through
+     * &sclk_name - 16400 (unrelated data) at every last close (tisp_slake_all).
+     */
+    (void)pdev;
+    gamma_frame_num_saved[0] = 0;
+    gamma_frame_num_saved[1] = 0;
+    t40_writer_gamma_saved_frame[0] = 0;   /* the hand-translated writer keeps its own cadence reference */
+    t40_writer_gamma_saved_frame[1] = 0;
+    *(uint16_t *)((char *)&gamma_wlut_times) = 0;
+    gamma_wlut_frequency[0] = 5;
+    gamma_wlut_frequency[1] = 5;
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000490e8 origin=fragment_seed original=tisp_gamma_set_attr */
@@ -116371,44 +116314,28 @@ tisp_lce_deinit0x184:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004cb9c origin=fragment_seed original=tisp_lce_remove */
 int tisp_lce_remove(struct platform_device *pdev)
 {
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Arithmetic */
-    v0 = (uintptr_t *)&lce_wdr_en;
-
-    /* fragment 1: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&lce_wdr_en)) = 0;
-    v0 = v0 + 17304;
-    *(uint32_t *)((char *)v0 + 4) = 0;
-    v1 = 31;
-    v0 = (uintptr_t *)&sclk_name;
-    *(uint32_t *)((char *)&sclk_name + -16380) = v1;
-    v0 = v0 - 16380;
-    *(uint32_t *)((char *)v0 + 4) = v1;
-    v0 = (uintptr_t *)&lce_frm_num;
-    *(uint32_t *)((char *)((char *)&lce_frm_num)) = 0;
-    v0 = v0 + 17296;
-    *(uint32_t *)((char *)v0 + 4) = 0;
-    v0 = (uintptr_t *)&lce_data_refresh_flag;
-    *(uint32_t *)((char *)((char *)&lce_data_refresh_flag)) = 0;
-    v0 = v0 + 17288;
-    *(uint32_t *)((char *)v0 + 4) = 0;
-    v0 = (uintptr_t *)&lce_tgain;
-    *(uint32_t *)((char *)((char *)&lce_tgain)) = 0;
-    v0 = v0 + 17280;
-    *(uint32_t *)((char *)v0 + 4) = 0;
-    v1 = 1;
-    v0 = (uintptr_t *)&lce_sensor_tolal_num;
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: MemoryAccess */
-    *(uint32_t *)((char *)&sclk_name + -16384) = v1;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    /*
+     * #140 anchors: OEM tisp_lce_remove (0x4c10c) = lce_wdr_en[0..1], lce_frm_num, lce_data_refresh_flag,
+     * lce_tgain = 0 (.bss+0x4388/0x4380/0x4378/0x4370, 2 words each), lce_wdr_save_duan[0..1] = 31
+     * (.data+0x2bfe4), lce_sensor_tolal_num = 1 (.data+0x2bfe0).  The lift scaled each `v0 + 17xxx` by 4 and
+     * stored duan/num through &sclk_name - 16380/16384 (32 bytes off the OEM slots, unrelated data) at every
+     * last close.  The LCE C chain is reset by t40_lce_cleanup() with the same values (only while it is
+     * hooked, which also frees the context), so its words are left alone here.
+     */
+    (void)pdev;
+    lce_wdr_en = 0;
+    lce_frm_num = 0;
+    lce_data_refresh_flag = 0;
+    lce_tgain = 0;
+    lce_sensor_tolal_num = 1;
+    if (!regtrace_t40_lce_active) {
+        t40_lce_wdr_on = 0;
+        t40_lce_frames = 0;
+        t40_lce_refresh = 0;
+        t40_lce_tgain = 0;
+        t40_lce_wdr_duan = 0x1f;
+    }
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000004cc00 origin=fragment_seed original=tisp_lce_get_data */
