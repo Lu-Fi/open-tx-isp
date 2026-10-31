@@ -170206,6 +170206,10 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
             cancel_work_sync(&regtrace_irq_frame_done_work[2].work);
             cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
             cancel_work_sync(&regtrace_isp_block_init_work);
+            /* queued by the frame-done work / the ADR statistics IRQ; both run module code (the 3A work
+             * also calls into the sensor module, which is gone by now) */
+            cancel_work_sync(&regtrace_frame_3a_work);
+            cancel_work_sync(&regtrace_adr_process_work);
             WRITE_ONCE(regtrace_t40_dn_event_off, true);
             cancel_work_sync(&regtrace_t40_dn_event_work);
             break;
@@ -170553,6 +170557,8 @@ int tx_isp_core_remove(struct platform_device *pdev)
     cancel_work_sync(&regtrace_irq_frame_done_work[2].work);
     cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
     cancel_work_sync(&regtrace_isp_block_init_work);
+    cancel_work_sync(&regtrace_frame_3a_work);
+    cancel_work_sync(&regtrace_adr_process_work);
 
     /* the object itself (OEM: kfree(core); the lift freed NULL); global aliases were dropped by subdev_deinit */
     private_platform_set_drvdata((void *)arg1, NULL);
