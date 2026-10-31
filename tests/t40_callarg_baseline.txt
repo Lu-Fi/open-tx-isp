@@ -117,9 +117,6 @@ argc subsection_up subsection_map 4/10
 argc subsection_up subsection_map 4/10
 argc subsection_up subsection_map 4/10
 argc table_intp fix_point_intp 1/5
-argc tisp_ae_algo_handle fix_point_mult2_32 2/3
-argc tisp_ae_algo_handle tisp_blc_ae_write_dgain 2/5
-argc tisp_ae_algo_handle tisp_blc_ae_write_dgain 4/5
 argc tisp_ae_dn_params_refresh tisp_ae_params_refresh 1/3
 argc tisp_ae_dn_params_refresh tisp_ae_params_transmit 1/2
 argc tisp_ae_g_scene_luma fix_point_div_32 2/3
@@ -129,8 +126,6 @@ argc tisp_ae_sec_s_max_again tisp_math_exp2 1/3
 argc tisp_ae_sensor_inform tisp_math_exp2 2/3
 argc tisp_ae_sensor_inform tisp_math_exp2 2/3
 argc tisp_ae_sepc_area tisp_ae_roi_point 1/5
-argc tisp_ae_wdr_en tisp_ae_params_refresh 1/3
-argc tisp_ae_wdr_en tisp_ae_params_transmit 1/2
 argc tisp_af_alogrithm fix_point_mult2_32 1/3
 argc tisp_af_dn_params_refresh tisp_af_params_transmit 2/3
 argc tisp_af_main_init tisp_af_params_refresh 1/3
@@ -183,36 +178,16 @@ argc tisp_gsm_main_long_process_api fix_point_mult2 4/6
 argc tisp_hldc_set_attr tisp_hldc_calc_para 4/7
 argc tisp_hldc_set_attr tisp_hldc_calc_para 4/7
 argc tisp_hldc_set_attr tisp_hldc_par_refresh 1/2
-argc tisp_lce_get_show_data lce_compress_data 1/3
-argc tisp_lce_get_show_data lce_compress_data 2/3
-argc tisp_lce_get_show_data lce_compress_data 2/3
-argc tisp_lce_get_show_data lce_compress_data 2/3
-argc tisp_lce_get_show_data lce_compress_data 2/3
-argc tisp_lce_get_show_data lce_compress_data 2/3
-argc tisp_lce_get_show_data lce_compress_data 2/3
-argc tisp_lce_get_show_data lce_compress_data 2/3
-argc tisp_lce_get_show_data lce_compress_data 2/3
-argc tisp_lce_get_show_data lce_compress_data 2/3
-argc tisp_lce_get_show_data lce_compress_data 2/3
 argc tisp_log2_fixed_to_fixed_64 tisp_log2_int_to_fixed_64 1/4
-argc tisp_lsc_ct_update tisp_lsc_interp_by_ct 1/4
 argc tisp_lsc_dn_params_refresh tisp_lsc_interp_by_ct 1/4
 argc tisp_lsc_dn_params_refresh tisp_lsc_interp_by_gain 1/4
 argc tisp_lsc_dn_params_refresh tisp_lsc_mirror_flip 4/5
-argc tisp_lsc_gain_update tisp_lsc_interp_by_gain 1/4
 argc tisp_lsc_init private_kmalloc 1/2
 argc tisp_lsc_init private_kmalloc 1/2
 argc tisp_lsc_init tisp_lsc_interp_by_ct 1/4
 argc tisp_lsc_init tisp_lsc_interp_by_gain 1/4
 argc tisp_lsc_mirror_flip tisp_lsc_interp_by_ct 1/4
 argc tisp_lsc_mirror_flip tisp_lsc_interp_by_gain 1/4
-argc tisp_lsc_param_array_set tisp_lsc_interp_by_ct 1/4
-argc tisp_lsc_param_array_set tisp_lsc_interp_by_ct 1/4
-argc tisp_lsc_param_array_set tisp_lsc_interp_by_gain 1/4
-argc tisp_lsc_param_array_set tisp_lsc_interp_by_gain 1/4
-argc tisp_lsc_param_array_set tisp_lsc_mirror_flip 4/5
-argc tisp_lsc_wdr_en tisp_lsc_interp_by_ct 1/4
-argc tisp_lsc_wdr_en tisp_lsc_interp_by_gain 1/4
 argc tisp_main_init tisp_defog_init 3/7
 argc tisp_main_init tiziano_load_parameters 1/3
 argc tisp_main_long_ev_update tisp_defog_ev_update 1/4
@@ -330,11 +305,6 @@ scaled tisp_hldc_con_par_cfg system_reg_write s1 + 36
 scaled tisp_hldc_con_par_cfg system_reg_write s1 + 4
 scaled tisp_hldc_con_par_cfg system_reg_write s1 + 40
 scaled tisp_hldc_con_par_cfg system_reg_write s1 + 8
-scaled tisp_lce_get_show_data lce_compress_data s0 + 15000
-scaled tisp_lce_get_show_data lce_compress_data s0 + 15128
-scaled tisp_lce_get_show_data lce_compress_data s0 + 15384
-scaled tisp_lce_get_show_data lce_compress_data s0 + 15512
-scaled tisp_lce_get_show_data lce_compress_data_part_1 s0 + 10740
 scaled tisp_lsc_mirror_flip tisp_lsc_upside_down_lut s0 + 14116
 scaled tisp_lsc_mirror_flip tisp_lsc_upside_down_lut s0 + 27940
 scaled tisp_lsc_mirror_flip tisp_lsc_upside_down_lut s0 + 292
