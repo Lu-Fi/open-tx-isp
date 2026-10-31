@@ -80899,7 +80899,7 @@ tisp_ae_main_s_max_again0x4c:
 
 tisp_ae_main_s_max_again0x58:
     /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_math_exp2)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(a0, 5, 10); /* jalr target resolved by relocation */
 
     /* fragment 7: Arithmetic */
     v1 = (int32_t *)&tisp_ae_main_ctrls;
@@ -80931,7 +80931,7 @@ int32_t tisp_ae_main_s_max_isp_dgain(uint32_t a0)
     /* function prologue: stack frame and callee-saved register setup */
 
     /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_math_exp2)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(a0, 5, 10); /* jalr target resolved by relocation */
 
     /* fragment 2: Arithmetic */
     v1 = (int32_t *)&tisp_ae_main_ctrls;
@@ -81559,7 +81559,7 @@ tisp_ae_sec_s_max_again0x4c:
 
 tisp_ae_sec_s_max_again0x58:
     /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_math_exp2)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(a0, 5, 10); /* jalr target resolved by relocation */
 
     /* fragment 7: Arithmetic */
     v1 = (int32_t *)&tisp_ae_sec_ctrls;
