@@ -4,6 +4,21 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-31: T40 review-fix, argument-audit and re-translation bundle (`next` 24c2c556, agg57)
+
+Issue numbers refer to https://github.com/Lu-Fi/openimp/issues. Device proof: T40XP test camera, test module swapped in at run time, apitest all areas plus 28 cases PASS 262 / FAIL 8, 0 oopses, real sensor frames (the harness now sends the board information first; earlier runs without it saw only fallback frames). Items marked QEMU were not run on a camera.
+
+- **Core in slot 0 (device):** the channel slot loops treat slot 0 as the core (ops dereference and the `s_stream`/`link_stream` loops fixed); the agg54 oops at AddSensor/MDNS is gone. Frame-channel mapping from `slot+112` instead of the OEM pipeline word (fix of agg55).
+- **Ioctl dispatch (#145, device):** scaled request constants, link setup 0x80085409, tuning ioctl and the frame-channel QUERYBUF/QBUF/SET_BANKS handlers re-translated from the OEM; the lifted frame-channel dispatcher is removed.
+- **Re-translated from the OEM:** AE zone geometry and scratch copies, second-sensor ISR frame-use countdown, custom-AE chain, LSC entry points, LCE tuning par get/set (device run clean; their individual effects are not measured separately).
+- **GetSensorAttr (#147, device):** fps and size from the core copy of the sensor video block (3840x2160, fps 20).
+- **SDNS/DPC refresh and `SetModule_Ratio(sinter)` (#154), `SetAwbAttr` live path (#156):** OEM offsets and stored CT/start gains; the critical hang is fixed.
+- **`/dev/tisp` (#155, #157, QEMU):** one parameter block per open file, ioctls serialised, every single-line `isp_printf` has the arguments its format needs; nodes skip modules whose block was never allocated; only the reviewed setters (BLC, GIB) are enabled for parameter set (#139c, not behaviour-checked on a camera).
+- **Anchor sweep (#140, QEMU/device run clean, effects unmeasured):** DMSC/MDNS/YDNS/YSP/SDNS, LCE/WDR/ADR/AF/second-sensor seeds, BCSH/CCM refresh, MJPEG range, HLDC and the VIC snapshot buffer use the OEM objects instead of `&sclk_name` offsets.
+- **Optional blocking frame-channel DQBUF (#149 part 2):** module parameter `t40_dqbuf_wait_ms`, default 0 (off); not measured on a camera.
+- **T41 (#134, QEMU/host):** sensor register access from user space under the quiesce mutex; failed `isp_malloc_buffer()` no longer leaves a bogus buffer.
+- **Still open on the T40:** `SetGammaAttr` without picture effect (#167, fix on a branch, QEMU only), stale frame after a pause in the full test run (#168), `SetScalerLv` channel 1 without effect (#169).
+
 ## 2026-10-29: T40 face AWB attribute round trip (`claude/issue-138`; QEMU T40)
 
 - **T40: `IMP_ISP_Tuning_GetFaceAwb` returned stale stack words instead of the stored attribute** (control 0x8000014). The OEM `tisp_awb_face_set/get` are empty 8-byte stubs and its getter copies an uninitialised stack slot to user space, so SetFaceAwb stored nothing. The driver now keeps the last 0x18-byte attribute per ISP channel and Get returns it (zero before the first Set). The OEM leaves the value without effect on the AWB; so does this.
