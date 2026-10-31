@@ -82628,7 +82628,16 @@ int32_t tisp_ae_get_y_zone(uint32_t a0, uint32_t a1)
     }
 
     __private_spin_lock_irqsave((uint32_t)s0, &var_18);
-    memcpy((void *)a1, (void *)(*(uint32_t *)(s1 + 140)), 900);
+    /* T40-AE-STATIS (#139): OEM 0x2b0a8 lw a1,140(s1): byte offset 140 of pst{Main,Sec}AeOri (s1 is a
+     * uintptr_t *, so the lifted s1 + 140 read +560).  The pointer is checked (OEM unchecked). */
+    {
+        void *zone = (void *)(uintptr_t)*(uint32_t *)((char *)s1 + 140);
+
+        if (regtrace_is_kernel_ptr(zone))
+            memcpy((void *)a1, zone, 900);
+        else
+            memset((void *)a1, 0, 900);
+    }
     private_spin_unlock_irqrestore();
 
     return 0;
@@ -163095,111 +163104,37 @@ int32_t tisp_g_ae_exprinfo_attr(uint32_t a0, uintptr_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000074ad0 origin=fragment_seed original=tisp_g_ae_statis_attr */
+/* T40-AE-STATIS (#139): hand translation of OEM tisp_g_ae_statis_attr (libt40-firmware 0x74040).  Output
+ * (IMPISPAEStatisInfo, 1934 bytes): [0..9] five u16 from tmp + 1024/1028/1032/1036/1040, [10..1033] the 1024-byte
+ * histogram, [1034..1933] the 900-byte y zone.  tmp (1052 bytes) comes from the AE histogram (main/gsm choice by
+ * tisp_tattr[vinum].+1232).  The lift did the byte offsets 10 and 1034 on word pointers (x4): the y-zone copy
+ * landed 4136 bytes into a 1934-byte buffer, a heap overwrite and, from the /dev/tisp data-info id 0x19, a copy
+ * into module memory (QEMU Oops, __copy_user_common store fault, 2026-10-31). */
 int32_t tisp_g_ae_statis_attr(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uint32_t *s4 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    uint8_t *out = (uint8_t *)a1;
+    uint8_t *tmp;
+    uintptr_t tattr = *(uint32_t *)&tisp_tattr;
+    uint32_t gsm = tattr ? *(uint32_t *)(tattr + a0 * 124 + 1232) : 0;
+    static const uint16_t off[5] = { 1024, 1028, 1032, 1036, 1040 };
+    unsigned int i;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s2 = a0;
-    s0 = a1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(1052); /* jalr target resolved by relocation */
-
-    /* fragment 2: Arithmetic */
-    s1 = v0;
-    v0 = (uintptr_t *)&tisp_tattr;
-
-    /* fragment 3: MemoryAccess */
-    v1 = *(uint32_t *)((char *)((char *)&tisp_tattr));
-    v0 = 124;
-    a0 = (uintptr_t)s2 * (uintptr_t)v0;
-    s3 = (uint32_t *)&memcpy;
-    s4 = s0 + 10;
-    s3 = s3;
-    a1 = s1;
-    v0 = a0 + (uintptr_t)v1;
-    v0 = *(uint32_t *)((char *)v0 + 1232);
-
-    /* fragment 4: Branch */
-    a0 = s2;
-    if (v0 != 0) { goto tisp_g_ae_statis_attr0x120; }
-
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)&tisp_ae_get_hist_bin;
-    v0 = v0;
-
-tisp_g_ae_statis_attr0x70:
-    /* fragment 6: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_get_hist_bin)(a0, (uintptr_t)a1); /* jalr target resolved by relocation */
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)s4, (void *)(uintptr_t)s1, 1024); /* jalr target resolved by relocation */
-
-    /* fragment 8: MemoryAccess */
-    v0 = *(uint16_t *)((char *)s1 + 1024);
-    a1 = s0 + 1034;
-    *(uint8_t *)((char *)s0 + 0) = v0;
-    v0 = (uintptr_t)v0 >> 8;
-    *(uint8_t *)((char *)s0 + 1) = v0;
-    v0 = *(uint16_t *)((char *)s1 + 1028);
-    *(uint8_t *)((char *)s0 + 2) = v0;
-    v0 = (uintptr_t)v0 >> 8;
-    *(uint8_t *)((char *)s0 + 3) = v0;
-    v0 = *(uint16_t *)((char *)s1 + 1032);
-    *(uint8_t *)((char *)s0 + 4) = v0;
-    v0 = (uintptr_t)v0 >> 8;
-    *(uint8_t *)((char *)s0 + 5) = v0;
-    v0 = *(uint16_t *)((char *)s1 + 1036);
-    *(uint8_t *)((char *)s0 + 6) = v0;
-    v0 = (uintptr_t)v0 >> 8;
-    *(uint8_t *)((char *)s0 + 7) = v0;
-    v0 = *(uint16_t *)((char *)s1 + 1040);
-    *(uint8_t *)((char *)s0 + 8) = v0;
-    v0 = (uintptr_t)v0 >> 8;
-    *(uint8_t *)((char *)s0 + 9) = v0;
-    v0 = (uintptr_t *)&tisp_ae_get_y_zone;
-    v0 = v0;
-
-    /* fragment 9: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_get_y_zone)(s2, (uintptr_t)a1); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(s1); /* jalr target resolved by relocation */
-
-    /* fragment 11: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 12: Arithmetic */
-    v0 = 0;
-
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tisp_g_ae_statis_attr0x120:
-    /* fragment 14: Arithmetic */
-    v0 = (uintptr_t *)&tisp_gsm_get_hist_bin;
-
-    /* fragment 15: Branch */
-    v0 = (uintptr_t *)&tisp_gsm_get_hist_bin;
-    goto tisp_g_ae_statis_attr0x70;
-
+    if (!out)
+        return -EINVAL;
+    tmp = (uint8_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vmalloc)(1052);
+    if (!tmp)
+        return -ENOMEM;
+    if (gsm)
+        tisp_gsm_get_hist_bin(a0, (uintptr_t)tmp);
+    else
+        tisp_ae_get_hist_bin(a0, (uintptr_t)tmp);
+    memcpy(out + 10, tmp, 1024);
+    for (i = 0; i < 5; i++) {
+        out[2 * i] = tmp[off[i]];
+        out[2 * i + 1] = tmp[off[i] + 1];
+    }
+    tisp_ae_get_y_zone(a0, (uintptr_t)(out + 1034));
+    ((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)((uintptr_t)tmp);
     return 0;
 }
 
