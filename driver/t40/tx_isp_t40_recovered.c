@@ -7485,6 +7485,16 @@ static u32 t40_wdr_out_mode[2];  /* SetWdrOutputMode shadow (linear sensor: flag
  * section, outside .bss/.data. */
 #define T40C2 __attribute__((section(".t40c2")))
 /* T40-LAYOUT: OEM tv_frame_start/_next/_end[2] (frame VB measurement timevals), outside .bss */
+/* #140 anchors: OEM AF .data objects the lift reached through &sclk_name - N.  stMainAfInterOri / stSecAfInterOri (.data+0xd24c /
+ * 0xbd20, 5420 bytes each, identical; only the first four bytes 80 07 38 04 are non-zero) are the AF "inter" state blocks
+ * tisp_af_params_transmit builds its pointer table in; af_main_attr / af_sec_attr (.data+0xe7c4 / 0xe778, 76 bytes each) are the AF
+ * attribute structs (SDK 1.3.1 initial values) read and written by tisp_af_{get,set}_attr and tisp_af_set_attr_refresh. */
+static unsigned char t40_af_inter_ori[2][5420] __attribute__((aligned(4))) T40C2 = { { 0x80, 0x07, 0x38, 0x04 }, { 0x80, 0x07, 0x38, 0x04 } };
+static unsigned char t40_af_attr[2][76] __attribute__((aligned(4))) T40C2 = {
+    { 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x00, 0x2a, 0x00, 0x16, 0x00, 0xc8, 0x00, 0x13, 0x00, 0x01, 0x03, 0x0f, 0x0f, 0x3a, 0x00 },
+    { 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x00, 0x2a, 0x00, 0x16, 0x00, 0xc8, 0x00, 0x13, 0x00, 0x01, 0x03, 0x0f, 0x0f, 0x3a, 0x00 },
+};
+static uint16_t t40_wdr_maxvalue_16bit_tmp T40C2;   /* OEM maxvalue_16bit_tmp (.data+0x2bfa2): WDR fusion scratch */
 static uint32_t t40_tv_frame_start[2][2] T40C2, t40_tv_frame_start_next[2][2] T40C2, t40_tv_frame_end[2][2] T40C2;
 
 /*
@@ -79376,7 +79386,7 @@ int64_t tisp_ae_sec_init(uint32_t a0, uint32_t a1)
     v0 = (uintptr_t *)memset((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&stSecAeOuter))), 0, 4); /* jalr target resolved by relocation */
 
     /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&stSecAeInter))), (void *)(uintptr_t)&sclk_name, 17772); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&stSecAeInter))), stMainAeInterOri, 17772); /* #140: OEM stSecAeInterOri (SDK 1.3.1 .data+0x17b0) is byte-identical to stMainAeInterOri; the lift passed &sclk_name */
 
     /* fragment 6: CallSetup */
     v0 = (uintptr_t *)memset((void *)(uintptr_t)(*(uint32_t *)((char *)&aeShowPar + 4)), 0, 612); /* jalr target resolved by relocation */
@@ -84322,7 +84332,7 @@ int32_t tisp_af_main_init(uint32_t a0, uint32_t a1)
     v0 = (uintptr_t *)memset((void *)(uintptr_t)v0, 0, 4); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_af_params_transmit)(&isp_memopt, *(uint32_t *)((char *)((char *)&stMainAfOuter)), &sclk_name); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_af_params_transmit)(&isp_memopt, *(uint32_t *)((char *)((char *)&stMainAfOuter)), t40_af_inter_ori[0]); /* jalr target resolved by relocation */
 
     /* fragment 4: MemoryAccess */
     v0 = *(uint32_t *)((char *)&vic_mdma_bypass_onoff);
@@ -84402,7 +84412,7 @@ int32_t tisp_af_sec_init(uint32_t a0, uint32_t a1)
     v0 = (uintptr_t *)memset((void *)(uintptr_t)v0, 0, 4); /* jalr target resolved by relocation */
 
     /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_af_params_transmit)(&isp_memopt, *(uint32_t *)((char *)((char *)&stSecAfOuter)), &sclk_name); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_af_params_transmit)(&isp_memopt, *(uint32_t *)((char *)((char *)&stSecAfOuter)), t40_af_inter_ori[1]); /* jalr target resolved by relocation */
 
     /* fragment 4: MemoryAccess */
     v0 = *(uint32_t *)((char *)&vic_mdma_bypass_onoff);
@@ -85052,7 +85062,7 @@ int64_t tisp_af_set_attr_refresh(uint32_t a0)
     v1 = (int32_t *)&isp_memopt;
     v0 = (uintptr_t *)&sclk_name;
     v1 = v1 + 15044;
-    v0 = v0 - 6248;
+    v0 = (void *)t40_af_attr[1];   /* #140: OEM af_sec_attr (.data+0xe778); the lift used (uintptr_t *)&sclk_name - 6248 words */
 
 tisp_af_set_attr_refresh0x18:
     /* fragment 2: MemoryAccess */
@@ -85212,7 +85222,7 @@ tisp_af_set_attr_refresh0x238:
     v1 = v1 + 15212;
 
     /* fragment 10: Branch */
-    v0 = (uintptr_t *)&sclk_name - 6172;
+    v0 = (void *)t40_af_attr[0];   /* #140: OEM af_main_attr (.data+0xe7c4); the lift used (uintptr_t *)&sclk_name - 6172 words */
     goto tisp_af_set_attr_refresh0x18;
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
@@ -85249,7 +85259,7 @@ char* tisp_af_dn_params_refresh(uint32_t a0)
     s0 = s0 + 15212;
 
     /* fragment 4: Branch */
-    a2 = (uintptr_t)&sclk_name - 11668;
+    a2 = (uintptr_t)t40_af_inter_ori[0];   /* #140: OEM stMainAfInterOri (.data+0xd24c); the lift used &sclk_name - 11668 */
     goto tisp_af_dn_params_refresh0x4c;
 
 tisp_af_dn_params_refresh0x34:
@@ -85259,7 +85269,7 @@ tisp_af_dn_params_refresh0x34:
     s0 = (uintptr_t *)&isp_memopt;
     a2 = (uint32_t *)&sclk_name;
     s0 = s0 + 15044;
-    a2 = a2 - 17088;
+    a2 = (void *)t40_af_inter_ori[1];   /* #140: OEM stSecAfInterOri (.data+0xbd20); the lift used (uint32_t *)&sclk_name - 17088 words */
 
 tisp_af_dn_params_refresh0x4c:
     /* fragment 6: CallSetup */
@@ -85387,7 +85397,7 @@ int64_t tisp_af_get_attr(uint32_t a0, uintptr_t a1)
     v0 = (uintptr_t *)&isp_memopt;
     v1 = (int32_t *)&sclk_name;
     v0 = v0 + 15044;
-    v1 = v1 - 6248;
+    v1 = (void *)t40_af_attr[1];   /* #140: OEM af_sec_attr (.data+0xe778) */
 
 tisp_af_get_attr0x18:
     /* fragment 2: MemoryAccess */
@@ -85446,7 +85456,7 @@ tisp_af_get_attr0xc4:
     v0 = ((char *)&pstMainAfOri);
 
     /* fragment 7: Branch */
-    v1 = (uintptr_t)&sclk_name - 6172;
+    v1 = (void *)t40_af_attr[0];   /* #140: OEM af_main_attr (.data+0xe7c4) */
     goto tisp_af_get_attr0x18;
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
@@ -85476,7 +85486,7 @@ int32_t tisp_af_set_attr(uint32_t a0, uint32_t a1)
     s0 = (uintptr_t *)&isp_memopt;
     a0 = (uint32_t *)&sclk_name;
     s0 = s0 + 15044;
-    a0 = a0 - 6248;
+    a0 = (void *)t40_af_attr[1];   /* #140: OEM af_sec_attr (.data+0xe778) */
 
 tisp_af_set_attr0x28:
     /* fragment 3: CallSetup */
@@ -85505,7 +85515,7 @@ tisp_af_set_attr0x88:
     s0 = s0 + 15212;
 
     /* fragment 9: Branch */
-    a0 = (uintptr_t)&sclk_name - 6172;
+    a0 = (void *)t40_af_attr[0];   /* #140: OEM af_main_attr (.data+0xe7c4) */
     goto tisp_af_set_attr0x28;
 
     return 0;
@@ -85564,7 +85574,7 @@ int64_t tisp_af_get_metric(uint32_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3
     v0 = (uintptr_t *)&isp_memopt;
     v1 = (int32_t *)&sclk_name;
     v0 = v0 + 15044;
-    v1 = v1 - 6248;
+    v1 = (void *)t40_af_attr[1];   /* #140: OEM af_sec_attr (.data+0xe778) */
 
 tisp_af_get_metric0x18:
     /* fragment 2: MemoryAccess */
@@ -85605,7 +85615,7 @@ tisp_af_get_metric0x84:
     v0 = ((char *)&pstMainAfOri);
 
     /* fragment 6: Branch */
-    v1 = (uintptr_t)&sclk_name - 6172;
+    v1 = (void *)t40_af_attr[0];   /* #140: OEM af_main_attr (.data+0xe7c4) */
     goto tisp_af_get_metric0x18;
 
     return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
@@ -86463,7 +86473,7 @@ int32_t tisp_awb_sec_init(uint32_t a0, uint32_t a1)
 
     /* fragment 5: CallSetup */
     *(uint32_t *)((char *)s3 + 16692) = v0;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)v0, (void *)(uintptr_t)&sclk_name, 60328); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)v0, stMainAwbInterOri, 60328); /* #140: OEM stSecAwbInterOri (SDK 1.3.1 .data+0xe810) is byte-identical to stMainAwbInterOri; the lift passed &sclk_name */
 
 tisp_awb_sec_init0x5c:
     /* fragment 6: CallSetup */
@@ -89371,7 +89381,7 @@ void* tisp_awb_sec_sel_en(uint32_t a0)
 
     /* fragment 5: CallSetup */
     *(uint32_t *)((char *)s0 + 16692) = v0;
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)v0, (void *)(uintptr_t)&sclk_name, 60328); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)v0, stMainAwbInterOri, 60328); /* #140: OEM stSecAwbInterOri (SDK 1.3.1 .data+0xe810) is byte-identical to stMainAwbInterOri; the lift passed &sclk_name */
 
 tisp_awb_sec_sel_en0x50:
     /* fragment 6: MemoryAccess */
@@ -97230,7 +97240,7 @@ Tiziano_wdr_fusion_fpga0x11bc:
 
     /* fragment 361: StackAccess */
     v1 = (*__p_2fc);
-    *(uint16_t *)((char *)&sclk_name + -16446) = v0;
+    t40_wdr_maxvalue_16bit_tmp = (uint16_t)(uintptr_t)v0;   /* #140: OEM maxvalue_16bit_tmp (.data+0x2bfa2); the lift used &sclk_name - 16446 */
 
 Tiziano_wdr_fusion_fpga0x1300:
     /* fragment 362: Arithmetic */
@@ -97255,7 +97265,7 @@ Tiziano_wdr_fusion_fpga0x130c:
 Tiziano_wdr_fusion_fpga0x1320:
     /* fragment 367: StackAccess */
     v0 = (*__p_2f4);
-    t1 = *(uint16_t *)((char *)&sclk_name + -16446);
+    t1 = t40_wdr_maxvalue_16bit_tmp;   /* #140: OEM maxvalue_16bit_tmp (.data+0x2bfa2) */
     *(uint16_t *)((char *)((char *)&ev_change_switch)) = a0;
     v0 = *(uint8_t *)((char *)((char *)&frameSum));
     a0 = *(uint32_t *)((char *)s8 + 13960);
@@ -102572,7 +102582,7 @@ int64_t tisp_wdr_main_process(void)
     a0 = *(uint8_t *)((char *)v0 + 1314);
     v1 = (int32_t *)&sclk_name;
     s1 = (uintptr_t *)&wdr_frm_num;
-    *(uint8_t *)((char *)&sclk_name + -16448) = a0;
+    stat_en[0] = (uint8_t)(uintptr_t)a0;   /* #140: OEM stat_en[0] (.data+0x2bfa0); the lift used &sclk_name - 16448 */
     s4 = (uintptr_t *)&main_wdr_used_para;
     v1 = (int32_t *)&wdr_ev_changed;
     v0 = *(uint8_t *)((char *)v0 + 1313);
@@ -104670,7 +104680,7 @@ int32_t tisp_wdr_main_init(uint32_t a0, uint32_t a1)
     *(uint16_t *)((char *)a1 + 12616) = a2;
     t1 = *(uint8_t *)((char *)a3 + 1314);
     *(uint16_t *)((char *)((char *)&d_width_wdr_main)) = v1;
-    *(uint8_t *)((char *)&sclk_name + -16448) = t1;
+    stat_en[0] = (uint8_t)(uintptr_t)t1;   /* #140: OEM stat_en[0] (.data+0x2bfa0) */
     t0 = *(uint8_t *)((char *)a3 + 1313);
     a3 = (uint32_t *)&deghost_en;
     *(uint8_t *)((char *)((char *)&deghost_en)) = t0;
@@ -104814,7 +104824,7 @@ int32_t tisp_wdr_seco_init(uint32_t a0, uint32_t a1)
     a3 = *(uint8_t *)((char *)a1 + 1314);
     a2 = (uint32_t *)&sclk_name;
     s0 = (uintptr_t)s0 * (uintptr_t)s2;
-    *(uint8_t *)((char *)&sclk_name + -16447) = a3;
+    stat_en[1] = (uint8_t)(uintptr_t)a3;   /* #140: OEM stat_en[1] (.data+0x2bfa1) */
     a2 = *(uint8_t *)((char *)a1 + 1313);
     a1 = (uint32_t *)&isp_memopt;
     a3 = 14;
@@ -114431,7 +114441,7 @@ int32_t tisp_lce_clear_stat_ram(uint32_t a0)
     v0 = (uintptr_t *)&lce_sensor_tolal_num;
 
     /* fragment 1: MemoryAccess */
-    v1 = *(uint32_t *)((char *)&sclk_name + -16384);
+    v1 = (uintptr_t)lce_sensor_tolal_num /* #140: OEM lce_sensor_tolal_num (.data+0x2bfe0); the lift read &sclk_name - 16384 */;
     v0 = 1;
 
     /* fragment 2: Branch */
@@ -114617,7 +114627,7 @@ int32_t tisp_lce_main_process(void)
     /* fragment 1: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&wdr_lce_para));
     v1 = (int32_t *)&sclk_name;
-    a0 = *(uint32_t *)((char *)&sclk_name + -16380);
+    a0 = (uintptr_t)t40_lce_wdr_duan;   /* #140: OEM lce_wdr_save_duan[0] (.data+0x2bfe4); the lift used &sclk_name - 16380 */
     v0 = (uintptr_t *)((uintptr_t)v0 >> 7);
     local_20 = s3;
     local_18 = s1;
@@ -114631,7 +114641,7 @@ int32_t tisp_lce_main_process(void)
     if (v0 == a0) { goto tisp_lce_main_process0x68; }
 
     /* fragment 3: MemoryAccess */
-    *(uint32_t *)((char *)&sclk_name + -16380) = v0;
+    t40_lce_wdr_duan = (uint32_t)(uintptr_t)v0;   /* #140: OEM lce_wdr_save_duan[0] */
     v1 = *(uint32_t *)((char *)((char *)&lce_main_used_para));
     a0 = 1;
     a1 = *(uint16_t *)((char *)v1 + 302);
@@ -114731,8 +114741,7 @@ int32_t tisp_lce_seco_process(void)
     local_24 = ra;
     local_1c = s2;
     local_18 = s1;
-    v1 = v1 - 16380;
-    a0 = *(uint32_t *)((char *)v1 + 4);
+    a0 = (uintptr_t)t40_lce_wdr_duan1;   /* #140: OEM lce_wdr_save_duan[1] (.data+0x2bfe8); the lift used (int32_t *)&sclk_name - 16380 words */
     s0 = (uintptr_t *)&lce_data_refresh_flag;
     v0 = (uintptr_t *)((uintptr_t)v0 >> 7);
     s3 = (uint32_t *)&lce_seco_used_para;
@@ -114742,7 +114751,7 @@ int32_t tisp_lce_seco_process(void)
     if (v0 == a0) { goto tisp_lce_seco_process0x70; }
 
     /* fragment 4: MemoryAccess */
-    *(uint32_t *)((char *)v1 + 4) = v0;
+    t40_lce_wdr_duan1 = (uint32_t)(uintptr_t)v0;   /* #140: OEM lce_wdr_save_duan[1] */
     v1 = *(uint32_t *)((char *)((char *)&lce_seco_used_para));
     a0 = 1;
     a1 = *(uint16_t *)((char *)v1 + 302);
@@ -116058,6 +116067,7 @@ int tisp_lce_remove(struct platform_device *pdev)
     lce_data_refresh_flag = 0;
     lce_tgain = 0;
     lce_sensor_tolal_num = 1;
+    t40_lce_wdr_duan1 = 0x1f;
     if (!regtrace_t40_lce_active) {
         t40_lce_wdr_on = 0;
         t40_lce_frames = 0;
@@ -116100,7 +116110,7 @@ int32_t tisp_lce_get_data(uint32_t a0, uint32_t a1)
     v0 = (uintptr_t *)&lce_sensor_tolal_num;
 
     /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)&sclk_name + -16384);
+    v0 = (uintptr_t)lce_sensor_tolal_num /* #140: OEM lce_sensor_tolal_num (.data+0x2bfe0); the lift read &sclk_name - 16384 */;
     local_3c = ra;
     v0 = v0 < 2;
     local_38 = s8;
@@ -116279,7 +116289,7 @@ int64_t tisp_lce_main_interrupt_static(void)
     a0 = (uint32_t *)&lce_sensor_tolal_num;
 
     /* fragment 3: MemoryAccess */
-    a1 = *(uint32_t *)((char *)&sclk_name + -16384);
+    a1 = (uintptr_t)lce_sensor_tolal_num /* #140: OEM lce_sensor_tolal_num (.data+0x2bfe0); the lift read &sclk_name - 16384 */;
     a0 = 1;
 
     /* fragment 4: Branch */
@@ -134589,7 +134599,7 @@ int32_t tisp_adr_main_process(void)
     if (v0 != 0) { goto tisp_adr_main_process0xb0; }
 
     /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC28, *(uint32_t *)((char *)&sclk_name + -14160)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(0, &LC28, adr_version_num) /* #140: OEM adr_version_num (.data+0x2c890); the lift read &sclk_name - 14160 */; /* jalr target resolved by relocation */
 
     /* fragment 20: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&count_adr_test));
@@ -134672,7 +134682,7 @@ int32_t tisp_adr_sec_process(void)
     v0 = *(uint32_t *)((char *)s0 + 4);
 
     if (v0 == 0) {
-        isp_printf(0, &LC28, *(uint32_t *)((char *)&sclk_name + -14160));
+        isp_printf(0, &LC28, adr_version_num) /* #140: OEM adr_version_num (.data+0x2c890); the lift read &sclk_name - 14160 */;
         v0 = *(uint32_t *)((char *)s0 + 4);
     }
 

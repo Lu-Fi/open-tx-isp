@@ -100,6 +100,7 @@ static uint32_t t40_lce_tgain T40C2;		/* OEM lce_tgain[0] */
 static uint32_t t40_lce_refresh T40C2;	/* OEM lce_data_refresh_flag[0] */
 static uint32_t t40_lce_frames T40C2;		/* OEM lce_frm_num[0] */
 static uint32_t t40_lce_wdr_duan T40C2 = 0x1f;	/* OEM lce_wdr_save_duan[0] */
+static uint32_t t40_lce_wdr_duan1 T40C2 = 0x1f;	/* OEM lce_wdr_save_duan[1] (second-sensor LCE is not in the C chain) */
 static uint32_t t40_lce_idle_irqs T40C2, t40_lce_dual_irqs T40C2;	/* OEM lce_debug[0..1] */
 
 static inline int32_t t40_lce_mul(int32_t a, int32_t b)
