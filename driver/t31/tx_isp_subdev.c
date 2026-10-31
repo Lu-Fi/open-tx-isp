@@ -111,12 +111,103 @@ int vic_core_ops_ioctl(struct tx_isp_subdev *sd, unsigned int cmd, void *arg);
 int vic_event_handler(void *subdev, int event_type, void *data);
 int tx_isp_module_notify_handler(struct tx_isp_module *module, unsigned int cmd, void *arg);
 
+/*
+ * Disable-depth gate.  The T31 stream path is not paired one to one: libimp
+ * issues TX_ISP_VIDEO_LINK_STREAM_ON and STREAMON, each reaching
+ * ispcore_video_s_stream(1) and so tx_isp_enable_irq(), while the line was
+ * left at disable depth 1 by tx_isp_request_irq().  Linux 3.10 tolerated the
+ * extra enable; newer kernels WARN "Unbalanced enable for IRQ".  Track per
+ * IRQ whether this driver currently holds a disable and only issue the
+ * matching enable_irq()/disable_irq() on a transition, so the depth never
+ * leaves 0..1.  Observable result is the same as before: unmasked while
+ * streaming, masked otherwise.
+ */
+void t31_irq_gate_enable(int irq);
+void t31_irq_gate_disable(int irq);
+#define T31_IRQ_GATES 4
+static struct {
+	int irq;
+	atomic_t masked;
+} t31_irq_gate[T31_IRQ_GATES];
+static DEFINE_SPINLOCK(t31_irq_gate_lock);
+
+static atomic_t *t31_irq_gate_get(int irq)
+{
+	unsigned long flags;
+	atomic_t *ret = NULL;
+	int i;
+
+	spin_lock_irqsave(&t31_irq_gate_lock, flags);
+	for (i = 0; i < T31_IRQ_GATES; i++) {
+		if (t31_irq_gate[i].irq == irq) {
+			ret = &t31_irq_gate[i].masked;
+			goto out;
+		}
+	}
+	for (i = 0; i < T31_IRQ_GATES; i++) {
+		if (!t31_irq_gate[i].irq) {
+			t31_irq_gate[i].irq = irq;
+			atomic_set(&t31_irq_gate[i].masked, 0);
+			ret = &t31_irq_gate[i].masked;
+			break;
+		}
+	}
+out:
+	spin_unlock_irqrestore(&t31_irq_gate_lock, flags);
+	return ret;
+}
+
+void t31_irq_gate_disable(int irq)
+{
+	atomic_t *m;
+
+	if (irq <= 0)
+		return;
+	m = t31_irq_gate_get(irq);
+	if (!m) {
+		disable_irq(irq);	/* table full: legacy behaviour */
+		return;
+	}
+	if (atomic_xchg(m, 1) == 0)
+		disable_irq(irq);
+}
+
+void t31_irq_gate_enable(int irq)
+{
+	atomic_t *m;
+
+	if (irq <= 0)
+		return;
+	m = t31_irq_gate_get(irq);
+	if (!m) {
+		enable_irq(irq);	/* table full: legacy behaviour */
+		return;
+	}
+	if (atomic_xchg(m, 0) == 1)
+		enable_irq(irq);
+}
+
+static void t31_irq_gate_forget(int irq)
+{
+	unsigned long flags;
+	int i;
+
+	spin_lock_irqsave(&t31_irq_gate_lock, flags);
+	for (i = 0; i < T31_IRQ_GATES; i++) {
+		if (t31_irq_gate[i].irq == irq) {
+			t31_irq_gate[i].irq = 0;
+			atomic_set(&t31_irq_gate[i].masked, 0);
+		}
+	}
+	spin_unlock_irqrestore(&t31_irq_gate_lock, flags);
+}
+
 static void tx_isp_irq_info_enable(struct tx_isp_irq_info *irq_info)
 {
 	if (!irq_info || irq_info->irq <= 0)
 		return;
 
-	enable_irq(irq_info->irq);
+	t31_irq_gate_enable(irq_info->irq);
 }
 
 static void tx_isp_irq_info_disable(struct tx_isp_irq_info *irq_info)
@@ -124,7 +215,7 @@ static void tx_isp_irq_info_disable(struct tx_isp_irq_info *irq_info)
 	if (!irq_info || irq_info->irq <= 0)
 		return;
 
-	disable_irq(irq_info->irq);
+	t31_irq_gate_disable(irq_info->irq);
 }
 
 /* Binary Ninja interrupt handlers - EXACT reference implementation */
@@ -774,6 +865,7 @@ void tx_isp_free_irq(struct tx_isp_irq_info *irq_info)
     }
 
 	free_irq(irq_info->irq, irq_info);
+    t31_irq_gate_forget(irq_info->irq);
     irq_info->irq = 0;
     irq_info->handler = NULL;
     irq_info->data = NULL;

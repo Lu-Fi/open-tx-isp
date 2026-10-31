@@ -776,6 +776,8 @@ void tx_isp_remove_proc_entries(void);
 int tx_isp_create_vic_device(struct tx_isp_dev *isp_dev);
 void isp_process_frame_statistics(struct tx_isp_dev *dev);
 void tx_isp_enable_irq(struct tx_isp_dev *isp_dev);
+void t31_irq_gate_enable(int irq);
+void t31_irq_gate_disable(int irq);
 void tx_isp_disable_irq(struct tx_isp_dev *isp_dev);
 int tisp_init(void *sensor_info, char *param_name);
 int ispcore_link_setup(struct tx_isp_dev* isp_dev, u32 flags);
@@ -3367,7 +3369,7 @@ void tx_isp_enable_irq(struct tx_isp_dev *isp_dev)
 
     /* Binary Ninja: return private_enable_irq(*arg1) __tailcall
      * This means: enable_irq(isp_dev->isp_irq) */
-    enable_irq(isp_dev->isp_irq);
+    t31_irq_gate_enable(isp_dev->isp_irq);
 
     pr_info("*** tx_isp_enable_irq: Kernel IRQ %d ENABLED ***\n", isp_dev->isp_irq);
 }
@@ -3385,7 +3387,7 @@ void tx_isp_disable_irq(struct tx_isp_dev *isp_dev)
 
     /* Binary Ninja: return private_disable_irq(*arg1) __tailcall
      * This means: disable_irq(isp_dev->isp_irq) */
-    disable_irq(isp_dev->isp_irq);
+    t31_irq_gate_disable(isp_dev->isp_irq);
 
     pr_info("*** tx_isp_disable_irq: Kernel IRQ %d DISABLED ***\n", isp_dev->isp_irq);
 }
@@ -7466,7 +7468,7 @@ static void tx_vic_irq_slot_enable(struct tx_isp_irq_info *irq_info)
         irq = 38;
 
     irq_info->irq = irq;
-    enable_irq(irq);
+    t31_irq_gate_enable(irq);
 }
 
 static void tx_vic_irq_slot_disable(struct tx_isp_irq_info *irq_info)
@@ -7483,7 +7485,7 @@ static void tx_vic_irq_slot_disable(struct tx_isp_irq_info *irq_info)
         irq = 38;
 
     irq_info->irq = irq;
-    disable_irq(irq);
+    t31_irq_gate_disable(irq);
 }
 
 static void tx_vic_seed_irq_slots(struct tx_isp_vic_device *vic_dev, int irq)
