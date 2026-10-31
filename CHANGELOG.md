@@ -12,6 +12,12 @@ Device proof: apitest all areas plus 28 cases PASS 270 / FAIL 0, 0 oopses, 0 `un
 - **CPU (device):** the ISP is vendor-like on the T40: busy 1.6 % against 1.4 % (#133); `t40_dqbuf_wait_ms` stays at its default 0 (#149).
 - **T31X (device):** `isp_memopt=1` (the driver default) ran 5 days plus a 10 min check without stripes or errors (#92); the AE-zone stack fix has its long-term evidence (#93).
 - **Resets (#94, #108, open):** the last panic record is kept in the RTC scratch register, which survives a reset (proven on the T31L and the T31X); the T23 has no store that survives a reset; DRAM pstore does not work; the kernel symbol table (KALLSYMS) must match the module ABI. SD-card autoupdate recovery of a boot-looping camera is proven. #88 (not reproducible) and #96 (full tmpfs of a test tool, not the driver) are closed.
+## 2026-10-31, T40 hardening (`claude/t40-hardening`, not merged)
+
+- **#164:** the `/dev/tisp` parameter get/set (generic block and ISP register read/write) is compiled only with `TX_ISP_T40_TISP_PAR=y` (debug), default off; it also needs `CAP_SYS_RAWIO`. The `(vinum + 16) << 2` compare in `tisp_reg_map_set` used a scaled pointer.
+- **#165:** the tuning-node AE setters/getters and the frame-3A `tisp_ae_sensor_inform` share one leaf spinlock (OEM has none).
+- **#166:** `tisp_dpc_wdr_en` no longer writes 34 KB past `bss_data`; `tisp_dpc_dn_params_refresh` / `tisp_dpc_params_refresh` work on the DPC C chain.
+- **#161:** NULL-based stores/loads fixed OEM-correct where the OEM was read (vic ISR error counter, `ispvic_frame_channel_s_stream`, both `*_sync_sensor_attr`, `tisp_ae_sec_deinit`, lsc/defog second-sensor inits, day/night, BLC bayer type, BCSH Comp2Orig, `private_set_current_state`), fail-closed for the unused second-sensor sequences; build check `tests/check_ko_zerobase.sh` (3 functions baselined).
 
 ## 2026-10-31, evening (`next` 71d00b99 = agg59-combo; Eufy T40XP, ko 176f0f5b)
 
