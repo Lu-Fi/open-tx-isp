@@ -60037,7 +60037,7 @@ tx_isp_unlocked_ioctl0x8c8:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 187: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 24, __p_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(s2, a1 + 24, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0x118f8 module->notify(s2, 0x2000018, &arg): BYPASS_SENSOR 0x80085418 */ /* jalr target resolved by relocation */
 
     /* fragment 188: Branch */
     goto tx_isp_unlocked_ioctl0x838;
@@ -60778,7 +60778,7 @@ tx_isp_unlocked_ioctl0x14a8:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x154c; }
 
     /* fragment 393: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s5, a1 + 3, __p_70); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(s5, a1 + 3, (uintptr_t)__p_70); /* #jalr-batch3: OEM 0x1544 core ioctl(s5, 0x1000003, {0,ch}): buffer-size error path of 0x800c5411 */ /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x154c:
     /* fragment 394: Branch */
@@ -61115,7 +61115,7 @@ tx_isp_unlocked_ioctl0x1884:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1910; }
 
     /* fragment 465: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 19, __p_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(s0, a1 + 19, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0x1908 notify(s0, 0x2000013): WDR enable 0x80045413 */ /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1910:
     /* fragment 466: MemoryAccess */
@@ -61133,7 +61133,7 @@ tx_isp_unlocked_ioctl0x1910:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x193c; }
 
     /* fragment 470: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 3, __p_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(s0, a1 + 3, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0x1934 core ioctl(s0, 0x1000003): WDR enable 0x80045413 */ /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x193c:
     /* fragment 471: MemoryAccess */
@@ -61144,7 +61144,7 @@ tx_isp_unlocked_ioctl0x193c:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1958; }
 
     /* fragment 473: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 12, __p_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(s0, a1 + 12, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0x1950 notify(s0, 0x200000c): WDR enable 0x80045413 */ /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1958:
     /* fragment 474: StackAccess */
@@ -61243,7 +61243,7 @@ tx_isp_unlocked_ioctl0x1a20:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1a80; }
 
     /* fragment 492: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 19, __p_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(s0, a1 + 19, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0x1a78 notify(s0, 0x2000013): WDR disable 0x80045414 */ /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1a80:
     /* fragment 493: MemoryAccess */
@@ -61261,7 +61261,7 @@ tx_isp_unlocked_ioctl0x1a80:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1aac; }
 
     /* fragment 497: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 3, __p_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(s0, a1 + 3, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0x1aa4 core ioctl(s0, 0x1000003): WDR disable 0x80045414 */ /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1aac:
     /* fragment 498: MemoryAccess */
@@ -61272,7 +61272,7 @@ tx_isp_unlocked_ioctl0x1aac:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1ac8; }
 
     /* fragment 500: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0, a1 + 12, __p_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(s0, a1 + 12, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0x1ac0 notify(s0, 0x200000c): WDR disable 0x80045414 */ /* jalr target resolved by relocation */
 
 tx_isp_unlocked_ioctl0x1ac8:
     /* fragment 501: MemoryAccess */
@@ -61326,7 +61326,7 @@ tx_isp_unlocked_ioctl0x1b58:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 511: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 23, __p_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(s2, a1 + 23, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0x1b88 notify(s2, 0x2000017): SET_CAMERA_INPUT_MODE 0xc0045415 */ /* jalr target resolved by relocation */
 
     /* fragment 512: Branch */
     goto tx_isp_unlocked_ioctl0x838;
@@ -62260,7 +62260,7 @@ tx_isp_unlocked_ioctl0x2b08:
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x834; }
 
     /* fragment 712: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, 33554432 + 25, __p_20); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(s2, 33554432 + 25, (uintptr_t)__p_20); /* #jalr-batch3: OEM 0x2b28 notify(s2, 0x2000019): GET_RAW 0xc004542f */ /* jalr target resolved by relocation */
 
     /* fragment 713: Branch */
     s0 = v0;
