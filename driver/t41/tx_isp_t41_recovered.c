@@ -55327,18 +55327,15 @@ int tisp_deinit(int channel)
            channel);
 
     /*
-     * The statistics engines (AE 0x1904c, AF 0x1a0dc, AWB 0x1804c, WDR
-     * 0x6030, TMO 0x1e020) DMA into kmalloc'd buffers.  Only the AWB
-     * deinit ever switched its engine off; the others freed the buffer
-     * with the DMA still armed, so the ISP kept writing statistics into
-     * pages the allocator had already handed out again (rmmod oops in
-     * module_param_sysfs_remove(): stray small integers in the module's
-     * kmalloc'd param attribute array).  Disable them all here, then give
-     * a frame already in flight time to finish before anything is freed.
+     * The statistics engines (AE, AF 0x1a0dc, AWB, WDR 0x6030, TMO
+     * 0x1e020) DMA into kmalloc'd buffers.  Disable AF, WDR and TMO here,
+     * then give a frame already in flight time to finish before anything
+     * is freed.  AE/AWB +0x4c (0x1904c, 0x1804c) are left alone as in the
+     * OEM 1.2.5/1.2.6 tisp_deinit: that word is the buffer setup (0 means
+     * one buffer, not off), so clearing it does not stop the DMA; the ISP
+     * clock gate and reset in the core close path do.
      */
-    system_reg_write(0x1904c, 0);
     system_reg_write(0x1a0dc, 0);
-    system_reg_write(0x1804c, 0);
     system_reg_write(24624, 0);
     system_reg_write(0x1e020, 0);
     if (t41_isp_stream_started == 1)
@@ -71382,11 +71379,8 @@ int32_t tisp_ae_deinit(uint32_t a0)
 
     dma_info = (uint32_t *)(uintptr_t)ae_buf_info[a0];
     if (dma_info) {
-        /* The AE statistics DMA (0x1902c..0x19048, enabled by 0x1904c in
-         * tisp_ae_malloc_cfg()) targets this kmalloc'd buffer and keeps
-         * writing every frame while the ISP runs: switch it off before the
-         * pages go back to the allocator (heap corruption otherwise). */
-        system_reg_write(0x1904c, 0);
+        /* As the OEM: no write to 0x1904c (buffer setup, 0 = one
+         * buffer, not off); the ISP clock gate stops the DMA. */
         if (dma_info[1])
             private_kfree((void *)(uintptr_t)dma_info[1]);
         private_kfree(dma_info);
@@ -79330,11 +79324,8 @@ int tisp_awb_deinit(int arg1) {
     }
 
     info = (uint8_t *)(uintptr_t)awb_info[arg1];
-    /* Review2 M3: stop the AWB statistics DMA before its ring is freed. */
-    if (info && *(uint32_t *)(void *)(info + 20)) {
-        system_reg_write(0x1804c, 0);
-        wmb();
-    }
+    /* As the OEM: no write to 0x1804c (buffer setup, 0 = one buffer,
+     * not off); the ISP clock gate stops the DMA. */
     if (info) {
         static const unsigned int owned_offsets[] = { 4, 8, 12, 20 };
         unsigned int i;

@@ -641,7 +641,10 @@ TMO statistics engines DMA into `kmalloc`'d buffers (`tisp_ae_malloc_cfg`
 `tisp_tmo_init` 0x1e020) and their deinit freed the buffer without switching
 the engine off (only `tisp_awb_deinit` clears 0x1804c), so the ISP kept
 writing statistics into freed pages every frame; `tisp_deinit()` now
-disables all five engines and waits one frame before freeing. Untested on
+disables all five engines and waits one frame before freeing. (2026-10-30: the
+AE/AWB +0x4c writes were dropped again, as in the OEM 1.2.5/1.2.6: that
+word is the buffer setup, 0 = one buffer, not off; the ISP clock gate and
+reset in the core close path stop the DMA.) Untested on
 the device at the time of writing. At 1280x720 the encoder also fails an order-9 DMA allocation (`avpu:
 Can't alloc DMA buffer`, ch1 RTSP 503) when ch0 started first.
 
