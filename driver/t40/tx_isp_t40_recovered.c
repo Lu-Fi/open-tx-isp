@@ -73936,7 +73936,7 @@ tiziano_sync_sensor_attr0x30:
     *(uint16_t *)((char *)s0 + 80) = v0;
     *(uint16_t *)((char *)s0 + 82) = (*(uint16_t *)((char *)(s1) + 82));
     *(uint16_t *)((char *)s0 + 84) = (*(uint16_t *)((char *)(s1) + 84));
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_math_exp2)(*(uint32_t *)((char *)(s1) + 92)); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(*(uint32_t *)((char *)(s1) + 92), 16, 10); /* jalr target resolved by relocation */
 
     /* fragment 8: CallSetup */
     *(uint32_t *)((char *)s0 + 92) = v0;
@@ -76321,7 +76321,7 @@ tisp_ae_sensor_inform0xa0:
     s7 = *(uint32_t *)((char *)sensor_info + 108);
     *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 32) = (*(uint32_t *)((char *)sensor_info + 104));
     s6 = *(uint32_t *)((char *)(*(uint32_t *)((char *)(s0) + 0)) + 36);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(s7, 16); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(s7, 16, 10); /* jalr target resolved by relocation */
 
     /* fragment 11: Arithmetic */
     v0 = v0 < s6;
@@ -76332,7 +76332,7 @@ tisp_ae_sensor_inform0xa0:
 
     /* fragment 13: CallSetup */
     s6 = *(uint32_t *)((char *)(s0) + 0);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(s7, 16); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_math_exp2)(s7, 16, 10); /* jalr target resolved by relocation */
 
     /* fragment 14: MemoryAccess */
     *(uint32_t *)((char *)s6 + 36) = v0;
