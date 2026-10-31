@@ -1234,8 +1234,8 @@ static uintptr_t fliker_para;
 static uintptr_t fnum;
 static uintptr_t frameSum;
 static uintptr_t frameSum_fix_y;
-static uintptr_t frame_use_num;
-static uintptr_t frame_use_num_tmp;
+static uint8_t frame_use_num[6];      /* OEM .bss 6-byte object, [0..2] main, [3..5] sec sensor */
+static uint8_t frame_use_num_tmp[6];  /* OEM .bss 6-byte object */
 static uintptr_t frame_vb_measure;
 static uintptr_t ftune_wmeans_40861;
 /* OEM gamma_frame_num_saved (.bss+0x4310): 2 x u64, written hi/lo by
@@ -170860,65 +170860,30 @@ ispcore_interrupt_service_routine0xb28:
     /* fragment 246: MemoryAccess */
     v1 = *(uint32_t *)((char *)v0 + 4);
     a1 = *(uint32_t *)((char *)s0 + 232);
-    a3 = (uint32_t *)&isp_memopt;
     v1 = (uintptr_t)v1 + 1; /* #agg52: byte add (OEM addiu v1,v1,1), was x4 */
     *(uint32_t *)((char *)v0 + 4) = v1;
     v0 = 65536;
     v0 = (uintptr_t)a1 + (uintptr_t)v0;
     a2 = *(uint32_t *)((char *)v0 + 28680);
-    v1 = (int32_t *)&isp_memopt;
-    v1 = v1 + 22060;
-    a0 = 0;
-    a3 = a3 + 22052;
-    t1 = 1;
-    t0 = 3;
+    /* #agg54: OEM 0x7b364..0x7b3c4 (SDK 1.3.1): second-sensor frame-use countdown over
+     * frame_use_num_tmp[3..5] / frame_use_num[3..5] (.bss+22044+3 / .bss+22036+3, both 6-byte OEM
+     * objects; the first sensor uses [0..2]). The lift reached them as isp_memopt + 4 * {22060, 22052}
+     * (wrong anchor, x4 pointer scaling), i.e. ~88 KB behind isp_memopt. */
+    {
+        uint8_t *tmp = frame_use_num_tmp + 3, *use = frame_use_num + 3;
+        uint32_t ch;
 
-ispcore_interrupt_service_routine0xb70:
-    /* fragment 247: MemoryAccess */
-    v0 = *(uint8_t *)((char *)v1 + 3);
-
-    /* fragment 248: Branch */
-    int _bc_v0_248 = v0 == 0;
-    v0 = (uintptr_t)v0 - 1; /* #agg52: byte add (OEM addiu v0,v0,-1), was x4 */
-    if (_bc_v0_248) { goto ispcore_interrupt_service_routine0xba4; }
-
-    /* fragment 249: Arithmetic */
-    v0 = (uintptr_t)v0 & 255;
-
-    /* fragment 250: Branch */
-    int _bc_v0_250 = v0 != 0;
-    *(uint8_t *)((char *)v1 + 3) = v0;
-    if (_bc_v0_250) { goto ispcore_interrupt_service_routine0xba4; }
-
-    /* fragment 251: Arithmetic */
-    v0 = a3 + a0;
-
-    /* fragment 252: MemoryAccess */
-    t2 = *(uint8_t *)((char *)v0 + 3);
-
-    /* fragment 253: Branch */
-    if (t2 == 0) { goto ispcore_interrupt_service_routine0xba4; }
-
-    /* fragment 254: Arithmetic */
-    t2 = (uintptr_t)t1 << a0;
-    a2 = (uintptr_t)a2 | (uintptr_t)t2;
-
-    /* fragment 255: MemoryAccess */
-    *(uint8_t *)((char *)v0 + 3) = 0;
-
-ispcore_interrupt_service_routine0xba4:
-    /* fragment 256: Arithmetic */
-    a0 = a0 + 1;
-
-    /* fragment 257: Branch */
-    v1 = (uintptr_t)v1 + 1; /* #agg52: byte add (OEM addiu v1,v1,1), was x4 */
-    if (a0 != t0) { goto ispcore_interrupt_service_routine0xb70; }
-
-    /* fragment 258: Arithmetic */
+        for (ch = 0; ch < 3; ch++) {
+            if (!tmp[ch] || --tmp[ch])
+                continue;
+            if (use[ch]) {
+                a2 = (uintptr_t)a2 | (1U << ch);
+                use[ch] = 0;
+            }
+        }
+    }
     v0 = 65536;
     a1 = (uintptr_t)a1 + (uintptr_t)v0;
-
-    /* fragment 259: MemoryAccess */
     *(uint32_t *)((char *)a1 + 28680) = a2;
     v0 = (uintptr_t)s1 & 32;
 
