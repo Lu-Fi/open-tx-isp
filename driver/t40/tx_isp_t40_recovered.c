@@ -7016,6 +7016,8 @@ void * const vic_mdma_irq_function0(void * arg1, int arg2, int arg3);
 void* vic_mdma_irq_function1(uintptr_t a0, uint32_t a1, uint32_t a2);
 void* vic_mdma_irq_function2(uintptr_t a0, uint32_t a1, uint32_t a2);
 int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1);
+static void regtrace_t40_tuning_event_call_arg(uintptr_t tuning, uint32_t event, uintptr_t arg);
+static void regtrace_t40_vic_notify_frame_done(uintptr_t vic, uint32_t ch);
 int64_t ispvic_frame_get_raw(uintptr_t a0, uintptr_t a1);
 int32_t vic_sensor_ops_ioctl(void *arg1, int32_t arg2, int32_t *arg3);
 int64_t tx_isp_subdev_pipo(uintptr_t a0, uintptr_t a1);
@@ -38725,7 +38727,8 @@ vic_mdma_irq_function10xb0:
     *(uint32_t *)((char *)t0 + 1992) = ((*(uint32_t *)((char *)(t0) + 1992)) - 1);
     local_20 = t0;
     s5 = s1 + 1972;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, s3); /* jalr target resolved by relocation */
+    { uintptr_t __cb = *(uint32_t *)((char *)s2 + 4); /* #jalr-batch2: OEM channel callback (s2+4)(s2[5], ch, buf), as vic_mdma_irq_function0 */
+      if (__cb) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))__cb)(*(uint32_t *)((char *)(s2) + 20), s0, s3); } /* jalr target resolved by relocation */
 
     /* fragment 21: StackAccess */
     t0 = local_20;
@@ -38830,7 +38833,8 @@ vic_mdma_irq_function10x210:
 
     /* fragment 41: CallSetup */
     t1 = local_30;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); /* jalr target resolved by relocation */
+    { uintptr_t __cb = *(uint32_t *)((char *)s2 + 4); /* #jalr-batch2: OEM channel callback (s2+4)(s2[5], ch, buf), as vic_mdma_irq_function0 */
+      if (__cb) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))__cb)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); } /* jalr target resolved by relocation */
 
     /* fragment 42: MemoryAccess */
     v0 = *(uint32_t *)((char *)s3 + 1976);
@@ -39283,7 +39287,8 @@ vic_mdma_irq_function20xb0:
     *(uint32_t *)((char *)t0 + 1992) = ((*(uint32_t *)((char *)(t0) + 1992)) - 1);
     local_20 = t0;
     s5 = s1 + 1972;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, s3); /* jalr target resolved by relocation */
+    { uintptr_t __cb = *(uint32_t *)((char *)s2 + 4); /* #jalr-batch2: OEM channel callback (s2+4)(s2[5], ch, buf), as vic_mdma_irq_function0 */
+      if (__cb) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))__cb)(*(uint32_t *)((char *)(s2) + 20), s0, s3); } /* jalr target resolved by relocation */
 
     /* fragment 21: StackAccess */
     t0 = local_20;
@@ -39388,7 +39393,8 @@ vic_mdma_irq_function20x210:
 
     /* fragment 41: CallSetup */
     t1 = local_30;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); /* jalr target resolved by relocation */
+    { uintptr_t __cb = *(uint32_t *)((char *)s2 + 4); /* #jalr-batch2: OEM channel callback (s2+4)(s2[5], ch, buf), as vic_mdma_irq_function0 */
+      if (__cb) v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))__cb)(*(uint32_t *)((char *)(s2) + 20), s0, local_30); } /* jalr target resolved by relocation */
 
     /* fragment 42: MemoryAccess */
     v0 = *(uint32_t *)((char *)s3 + 1976);
@@ -39814,7 +39820,7 @@ int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1)
     if (v0 == 0) { goto isp_vic_interrupt_service_routine0xdc; }
 
     /* fragment 14: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    (void)0; regtrace_t40_vic_notify_frame_done((uintptr_t)a0, 0); /* #jalr-batch2: OEM 0x44c0 vic->notify(vic, 0x1000004, {?, 0}) */ /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0xdc:
     /* fragment 15: StackAccess */
@@ -40462,7 +40468,7 @@ isp_vic_interrupt_service_routine0x578:
     if (v0 == 0) { goto isp_vic_interrupt_service_routine0x658; }
 
     /* fragment 160: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    (void)0; regtrace_t40_vic_notify_frame_done((uintptr_t)a0, 1); /* #jalr-batch2: OEM 0x4a3c vic->notify(vic, 0x1000004, {?, 1}) */ /* jalr target resolved by relocation */
 
 isp_vic_interrupt_service_routine0x658:
     /* fragment 161: StackAccess */
@@ -49633,13 +49639,40 @@ int32_t isp_core_tuning_event(uintptr_t a0, uint32_t a1, uintptr_t a2)
 /* ispcore_irqstatus_func: OEM "lw v0,128(tuning); jalr v0" with a2 = an 8-byte stack block whose
  * word 1 is 0 (vinum 0, "sw zero,20(sp)" at entry).  Only the handler isp_core_tuning_init
  * installs is called. */
-static void regtrace_t40_tuning_event_call(uintptr_t tuning, uint32_t event)
+static void regtrace_t40_tuning_event_call_ch(uintptr_t tuning, uint32_t event, uint32_t ch)
 {
-	uint32_t arg[2] = { 0, 0 };
+	uint32_t arg[2] = { 0, ch };
 
 	if (!tuning || *(uintptr_t *)(tuning + 128) != (uintptr_t)&isp_core_tuning_event)
 		return;
 	(void)isp_core_tuning_event(tuning, event, (uintptr_t)arg);
+}
+
+static void regtrace_t40_tuning_event_call(uintptr_t tuning, uint32_t event)
+{
+	regtrace_t40_tuning_event_call_ch(tuning, event, 0);
+}
+
+/* #jalr-batch2: tuning->event with the caller's own argument block (ispcore_core_ops_ioctl 0x1000004). */
+static void regtrace_t40_tuning_event_call_arg(uintptr_t tuning, uint32_t event, uintptr_t arg)
+{
+	if (!tuning || *(uintptr_t *)(tuning + 128) != (uintptr_t)&isp_core_tuning_event)
+		return;
+	(void)isp_core_tuning_event(tuning, event, arg);
+}
+
+/* #jalr-batch2: VIC frame-done ISR, OEM 0x44ac..0x44c4 / 0x4a24..0x4a3c: `if (vic->notify) vic->notify(vic,
+ * 0x1000004, {?, ch})`; vic->notify (module+128) is tx_isp_notify, which hands event class 1 to every subdev's
+ * core ioctl; the only OEM handler of 0x1000004 is ispcore_core_ops_ioctl (0x7bc04..0x7bc34), which calls
+ * tuning->event(tuning, 0x4000004, arg) = vic_frame_done_wakeup(ch).  Done directly on the core's tuning object. */
+static void regtrace_t40_vic_notify_frame_done(uintptr_t vic, uint32_t ch)
+{
+	uintptr_t core = regtrace_resolve_core_dev();
+	uint32_t arg[2] = { 0, ch };
+
+	if (!vic || !*(uint32_t *)(vic + 128) || !core)
+		return;
+	regtrace_t40_tuning_event_call_arg((uintptr_t)regtrace_get_u32(core, 992), 0x4000004, (uintptr_t)arg);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000cd8c origin=fragment_seed original=isp_core_tuning_init */
@@ -57681,7 +57714,8 @@ int32_t tx_isp_notify(int32_t arg1, int32_t arg2, int32_t arg3)
         }
 
         if (s2 == s5) {
-            void *v0_1 = *(void **)((char *)a0 + 0xfc);
+            /* #jalr-batch2: OEM 0x10504..0x10534: ops (a0+252) -> core ops (*(ops+0)) -> +32 ioctl; the lift read ops+0x20 */
+            void *v0_1 = *(void **)((char *)*(void **)((char *)a0 + 0xfc) + 0x0);
             if (v0_1 == NULL) {
                 result = s6;
             } else {
@@ -165215,7 +165249,7 @@ ispcore_irqstatusSec_func0xc4:
     if (a0 == 0) { goto ispcore_irqstatusSec_func0xf8; }
 
     /* fragment 23: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    (void)0; regtrace_t40_tuning_event_call_ch((uintptr_t)a0, 0x4000003, 1); /* #jalr-unresolved: OEM 0x79050 tuning->event(0x4000003), arg = {?, 1} (sw 1,20(sp)) */
 
     /* fragment 24: Arithmetic */
     v0 = 1;
@@ -165234,7 +165268,7 @@ ispcore_irqstatusSec_func0x100:
     if (a0 == 0) { goto ispcore_irqstatusSec_func0x11c; }
 
     /* fragment 28: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    (void)0; regtrace_t40_tuning_event_call_ch((uintptr_t)a0, 0x4000002, 1); /* #jalr-unresolved: OEM 0x79078 tuning->event(0x4000002) = isp_frame_done_wakeup(chan 1) */
 
 ispcore_irqstatusSec_func0x11c:
     /* fragment 29: CallSetup */
@@ -169692,7 +169726,7 @@ ispcore_core_ops_ioctl0x12c:
      * reconstructed with confidence.  Left routed to the counting no-op so the
      * residual is still observable via /sys/module/.../unresolved_jalr_count.
      */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    (void)0; regtrace_t40_tuning_event_call_arg((uintptr_t)a0, 0x4000004, (uintptr_t)s3); v0 = 0; /* #jalr-batch2: OEM 0x7bb3c..0x7bb44 lw v0,128(tuning); lui a1,0x400; addiu a1,a1,4; a2 = s3 */ /* jalr target resolved by relocation */
 
     /* fragment 28: Branch */
     s0 = 0;
