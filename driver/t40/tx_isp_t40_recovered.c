@@ -109275,7 +109275,7 @@ tisp_gamma_dn_params_refresh0xfc:
     /* fragment 11: CallSetup */
     s0 = (uintptr_t)s0 + (uintptr_t)s4;
     local_10 = 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gamma_interp_by_ev)(s3); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_gamma_interp_by_ev((uint32_t)(uintptr_t)s3, 0, *(uint32_t *)(uintptr_t)*(uint32_t *)((char *)(uintptr_t)*(uint32_t *)((char *)s0 + 0) + 16), 0, 1);   /* #140 OEM args: a2 = *ctx[16], a3 = 0, 16(sp) = 1 */
 
     /* fragment 12: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gamma_strength_transform)(s3); /* jalr target resolved by relocation */
@@ -109592,7 +109592,7 @@ tisp_gamma_param_array_set0x70:
 
     /* fragment 6: CallSetup */
     local_10 = 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gamma_interp_by_ev)(s1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)(uintptr_t)tisp_gamma_interp_by_ev((uint32_t)(uintptr_t)s1, 0, *(uint32_t *)(uintptr_t)*(uint32_t *)((char *)(uintptr_t)*(uint32_t *)((char *)s0 + 0) + 16), 0, 1);   /* #140 OEM args: a2 = *ctx[16], a3 = 0, 16(sp) = 1 */
 
     /* fragment 7: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_gamma_strength_transform)(s1); /* jalr target resolved by relocation */
