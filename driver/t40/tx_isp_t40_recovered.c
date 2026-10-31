@@ -66486,6 +66486,13 @@ int32_t tisp_reg_map_get(int32_t arg1, int32_t arg2, int32_t *arg3)
     char stack_buf[40];
     
     local_arg1 = arg1;
+    /* T40-REG-MAP (#139): the node passes the PHYSICAL register address; 0xecd00000 + phys (mod 2^32) is the
+     * offset in the ISP window (OEM: unchecked).  A value outside the window read through the ISP base into
+     * unrelated memory/MMIO (the sweep id 0x18 with address 0): refused. */
+    if ((uint32_t)(0xecd00000u + (uint32_t)arg1) >= 0x100000u) {
+        *arg3 = 0;
+        return -EINVAL;
+    }
     reg_value = system_reg_read(0xecd00000 + arg1);
     
     isp_printf(0, "regValue is 0x%x\n", reg_value);
@@ -66501,6 +66508,9 @@ int32_t tisp_reg_map_get(int32_t arg1, int32_t arg2, int32_t *arg3)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000017bdc origin=fragment_seed original=tisp_reg_map_set */
 int64_t tisp_reg_map_set(uint32_t a0, uint32_t a1)
 {
+    /* T40-REG-MAP (#139): see tisp_reg_map_get; the OEM writes any address, we only the ISP window. */
+    if ((uint32_t)(0xecd00000u + ((const uint32_t *)(uintptr_t)a1)[4]) >= 0x100000u)
+        return -EINVAL;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -113159,7 +113169,16 @@ int32_t tisp_gamma_deinit(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000048f48 origin=fragment_seed original=tisp_gamma_param_array_get */
 int32_t tisp_gamma_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
-    if (regtrace_isr_oem_hw_refresh) return t40_writer_gamma_control(a0, 1, a1, a2);
+    /* T40-GAMMA-PAR (#139): the writer holds the only gamma parameter block of the open driver; the lifted body
+     * below indexes &isp_memopt + vinum * 4 (a wrong base: BadVA 0 oops at /dev/tisp GET id 9, t40_tisp_par=1).
+     * Without a writer context (isr_oem_hw_refresh off) the block is empty: length 0. */
+    {
+        int ret = t40_writer_gamma_control(a0, 1, a1, a2);
+
+        if (ret && a2)
+            *(uint32_t *)a2 = 0;
+        return ret;
+    }
 
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
@@ -113190,7 +113209,8 @@ int32_t tisp_gamma_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000048fa4 origin=fragment_seed original=tisp_gamma_param_array_set */
 int32_t tisp_gamma_param_array_set(uint32_t a0, uint32_t a1)
 {
-    if (regtrace_isr_oem_hw_refresh) return t40_writer_gamma_control(a0, 2, a1, 0);
+    /* T40-GAMMA-PAR (#139): see tisp_gamma_param_array_get; -EAGAIN without a writer context. */
+    return t40_writer_gamma_control(a0, 2, a1, 0);
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
     return 0;
@@ -157250,7 +157270,9 @@ int32_t tisp_clm_deinit(uint32_t a0)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f124 origin=fragment_seed original=tisp_clm_param_array_get */
 int32_t tisp_clm_param_array_get(uint32_t a0, uint32_t a1, uintptr_t a2)
 {
-    if (regtrace_isr_oem_hw_refresh) { return t40_writer_clm_control(a0, 1U, (uintptr_t)a1, a2); }
+    /* T40-CLM-PAR (#139): the writer holds the only CLM block of the open driver (no context: -EAGAIN, nothing
+     * copied); the lifted body below is not used. */
+    return t40_writer_clm_control(a0, 1U, (uintptr_t)a1, a2);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -157367,7 +157389,8 @@ tisp_clm_param_array_get0x128:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006f2c0 origin=fragment_seed original=tisp_clm_param_array_set */
 int32_t tisp_clm_param_array_set(uint32_t a0, uint32_t a1)
 {
-    if (regtrace_isr_oem_hw_refresh) { return t40_writer_clm_control(a0, 2U, (uintptr_t)a1, 0); }
+    /* T40-CLM-PAR (#139): see tisp_clm_param_array_get. */
+    return t40_writer_clm_control(a0, 2U, (uintptr_t)a1, 0);
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
