@@ -109810,6 +109810,11 @@ int32_t tisp_gamma_set_attr(uint32_t a0, uintptr_t a1)
         regtrace_soft_gamma_write();
         mutex_unlock(&t40_gamma_user_mutex);
         printk(KERN_WARNING "tx_isp_t40_recovered: gamma attr mode=%u soft-writer applied\n", A[0]);
+        /* #167 read-only readback: TOP bit10 must be 0 (gamma active) and the three LUT unit control regs show
+         * whether the commit (0x7f0102) stuck; compare with a devmem dump at 0x13300000+reg */
+        printk(KERN_WARNING "tx_isp_t40_recovered: gamma readback top40=0x%08x ctl40=0x%08x ctl60=0x%08x ctl80=0x%08x\n",
+               (unsigned int)system_reg_read(0x40), (unsigned int)system_reg_read(0x50040),
+               (unsigned int)system_reg_read(0x50060), (unsigned int)system_reg_read(0x50080));
         return 0;
     }
     p0 = (uint8_t *)(uintptr_t)*(uint32_t *)(ctx + 0);
