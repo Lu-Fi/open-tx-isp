@@ -27580,10 +27580,10 @@ static unsigned char *regtrace_core_event_channel_data(void *pad_arg)
         if (!regtrace_is_kernel_ptr((void *)channels))
             return NULL;
         data = channels + index * 216U;
-        /* same semantics the resolver below expects: frame index, tisp id */
+        /* OEM tx_isp_core_probe slot words (0x7a5d8..0x7a5ec): +112 = i, +116 = i % 3, +120 = i / 3 */
         *(uint32_t *)(data + REGTRACE_CORE_CH_TISP_INDEX_OFFSET) = index;
         *(uint32_t *)(data + REGTRACE_CORE_CH_TISP_ID_OFFSET) = index % 3U;
-        *(uint32_t *)(data + REGTRACE_CORE_CH_FRAME_INDEX_OFFSET) = index;
+        *(uint32_t *)(data + REGTRACE_CORE_CH_FRAME_INDEX_OFFSET) = index / 3U;
         *(uint32_t *)(pad + REGTRACE_CORE_PAD_CHANNEL_OFFSET) = (uint32_t)data;
         if (log_count < 8)
             printk(KERN_INFO "tx_isp_t40_recovered: core pad %u bound late to channel data %p (core=%p)\n",
@@ -27594,18 +27594,20 @@ static unsigned char *regtrace_core_event_channel_data(void *pad_arg)
     return (unsigned char *)data;
 }
 
+/*
+ * T40-AGG55-CH: framechan number of a core channel slot.  OEM tx_isp_core_probe (0x7a5d8..0x7a5ec)
+ * stores slot+112 = outpad index i, +116 = i % 3 and +120 = i / 3 (the pipeline / sensor index the
+ * ISR uses); since 7e56ca12 every enabled slot carries these OEM words.  Reading +120 as the frame
+ * channel mapped outpads 1 and 2 to channel 0 (i / 3 == 0): framechan1 qbuf/streamon events were
+ * programmed on channel 0 and ch1 never delivered a frame (GetFrame/SnapFrame/IVS 0 frames).  The
+ * channel is i for the main pipeline and i - 3 for the second one.
+ */
 static int regtrace_core_event_frame_channel(unsigned char *channel_data)
 {
-    uint32_t frame_index;
     uint32_t tisp_index;
 
     if (!regtrace_is_kernel_ptr(channel_data))
         return -EINVAL;
-
-    frame_index = *(uint32_t *)(channel_data +
-        REGTRACE_CORE_CH_FRAME_INDEX_OFFSET);
-    if (frame_index < 4)
-        return (int)frame_index;
 
     tisp_index = *(uint32_t *)(channel_data +
         REGTRACE_CORE_CH_TISP_INDEX_OFFSET);
