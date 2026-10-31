@@ -846,3 +846,12 @@ the newest completed buffer is the one whose row-trailer frame counter is ahead 
 OEM `tisp_af_get_statistics` bit layout) and metrics (OEM `tisp_af_alogrithm`, bank + 0x18674: weights +580,
 parameters +806) are plain C in `tx_isp_t40_af.h` (host test `tests/t40/af_stats_host`). No AF IRQ and no AF
 algorithm/lens control. Awb_Get/SetRgbCoefft act on the BCSH RGB offset vector (outer block +0x248 / WDR +0x480).
+
+## `/dev/tisp` parameter get/set is a debug build only (#164, 2026-10-31)
+
+The `/dev/tisp` commands 0x20007400 (get) and 0x20007401 (set) read and write the module parameter blocks and, with id 0x18, ISP
+registers (window-limited since #139). They are not part of the release module: the default build has no `t40_tisp_par` parameter and
+the two commands fail with `-EFAULT`. For the apitest case `tisppar_t40` and for bisecting build a debug module with
+`make ... TX_ISP_T40_TISP_PAR=y` and load it with `t40_tisp_par=1` (read-only parameter, every call also needs `CAP_SYS_RAWIO`).
+`build_local.sh` fails a default build that still carries the parameter (`tests/check_t40_tisp_par_gate.sh`). Never ship the debug
+module in a firmware image.

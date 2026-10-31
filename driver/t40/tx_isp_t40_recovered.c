@@ -16,6 +16,7 @@
 
 #ifdef REGTRACE_KERNEL_TREE_BUILD
 #include <linux/module.h>
+#include <linux/capability.h>
 #include <linux/notifier.h>
 #include <asm/addrspace.h>
 #include <linux/moduleparam.h>
@@ -66219,8 +66220,7 @@ int64_t tisp_reg_map_set(uint32_t a0, uint32_t a1)
     a0 = 3973054464;
     s0 = (uintptr_t *)&system_reg_write;
     a0 = a0 + (uintptr_t)v0;
-    v0 = s1 + 16;
-    v0 = (uintptr_t)v0 << 2;
+    v0 = (uintptr_t *)(((uintptr_t)s1 + 16) << 2);   /* OEM (vinum + 16) << 2: s1 is the vinum, not a scaled pointer */
     local_14 = a0;
 
     /* fragment 4: Branch */
@@ -66474,8 +66474,18 @@ tisp_data_info_get0x108:
 /* T40-TISP-NODE (#139b): QEMU T40 (2026-10-29) reset the guest silently (no oops) during the get/write-back
  * sweep over all module ids (case tisppar_t40); the faulting id is not bisected yet.  The par commands stay off
  * unless t40_tisp_par=1 (for that bisection); off they fail like before (-EFAULT path). */
+/* T40-TISP-PAR-GATE (#164): the get/set commands give root a generic read/write of the module parameter blocks and (id 0x18)
+ * of ISP registers.  Debug only: compiled in only with TX_ISP_T40_TISP_PAR=y (Kbuild), then still off until the module is
+ * loaded with t40_tisp_par=1, and every call needs CAP_SYS_RAWIO.  Release images do not define it: the commands
+ * fail with -EFAULT as on any build without the parameter.  Not runtime-switchable (perm 0444). */
+#ifdef TX_ISP_T40_TISP_PAR
 static int t40_tisp_par;
-module_param(t40_tisp_par, int, 0644);
+module_param(t40_tisp_par, int, 0444);
+MODULE_PARM_DESC(t40_tisp_par, "1 enables /dev/tisp parameter get/set (debug build only, needs CAP_SYS_RAWIO)");
+#define t40_tisp_par_enabled() (t40_tisp_par && capable(CAP_SYS_RAWIO))
+#else
+#define t40_tisp_par_enabled() 0
+#endif
 
 /* T40-TISP-PAR (#139): the module parameter blocks the node's getters/setters read and write live in
  * pointers that the module's init allocates (OEM).  The open driver runs only some of those inits (the others
@@ -66628,7 +66638,7 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                  * the OEM arguments (t40_tisp_{get,set}_par), copy it out (get).  The lift passed 0 for every
                  * argument and tested the asm __copy_user's C return value (never 0). */
                 case 0x20007400:
-                    if (!t40_tisp_par)
+                    if (!t40_tisp_par_enabled())
                         break;
                     if (copy_from_user(tisp_par_ioctl_2, (const void __user *)arg3, 0x5010) != 0)
                         break;
@@ -66638,7 +66648,7 @@ int tisp_code_tuning_ioctl(int arg1, int arg2, int arg3)
                     break;
 
                 case 0x20007401:
-                    if (!t40_tisp_par)
+                    if (!t40_tisp_par_enabled())
                         break;
                     if (copy_from_user(tisp_par_ioctl_2, (const void __user *)arg3, 0x5010) != 0) {
                         isp_printf(2, "[%s %d] %s:%d:set ioctl par copy_to_user error!!!\n", "tisp_code_tuning_ioctl", __LINE__, "tisp_code_tuning_ioctl", __LINE__);

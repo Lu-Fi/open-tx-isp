@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-31, T40 hardening (`claude/t40-hardening`, not merged)
+
+- **#164:** the `/dev/tisp` parameter get/set (generic block and ISP register read/write) is compiled only with `TX_ISP_T40_TISP_PAR=y` (debug), default off; it also needs `CAP_SYS_RAWIO`. The `(vinum + 16) << 2` compare in `tisp_reg_map_set` used a scaled pointer.
+- **#165:** the tuning-node AE setters/getters and the frame-3A `tisp_ae_sensor_inform` share one leaf spinlock (OEM has none).
+- **#166:** `tisp_dpc_wdr_en` no longer writes 34 KB past `bss_data`; `tisp_dpc_dn_params_refresh` / `tisp_dpc_params_refresh` work on the DPC C chain.
+- **#161:** NULL-based stores/loads fixed OEM-correct where the OEM was read (vic ISR error counter, `ispvic_frame_channel_s_stream`, both `*_sync_sensor_attr`, `tisp_ae_sec_deinit`, lsc/defog second-sensor inits, day/night, BLC bayer type, BCSH Comp2Orig, `private_set_current_state`), fail-closed for the unused second-sensor sequences; build check `tests/check_ko_zerobase.sh` (3 functions baselined).
+
 ## 2026-10-31, evening (`next` 71d00b99 = agg59-combo; Eufy T40XP, ko 176f0f5b)
 
 Device proof: apitest all areas plus 28 cases PASS 270 / FAIL 0, 0 oopses, 0 `unresolved jalr` (agg58: 268 / 2).

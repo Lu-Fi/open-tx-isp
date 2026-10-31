@@ -91,5 +91,9 @@ if [ "$GOAL" = modules ]; then
 			"$HERE/tests/check_ko_selfloops.sh" "${CROSS}objdump" "$ko" ||
 				{ echo "ko self-loop check FAILED"; exit 1; } ;;
 		esac
+		if [ "${SOC:-t31}" = t40 ]; then
+			"$HERE/tests/check_t40_tisp_par_gate.sh" "$ko" "${TX_ISP_T40_TISP_PAR:-n}" ||
+				{ echo "ko tisp_par gate check FAILED"; exit 1; }
+		fi
 	fi
 fi
