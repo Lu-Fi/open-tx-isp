@@ -32760,6 +32760,13 @@ err_unregister:
  * first symbol (private_i2c_set_clientdata), which then wrote its second
  * argument into memory at its first argument. Call a counting no-op instead.
  */
+/* #140: call counters (readable in /sys/module/tx_isp_t40/parameters) to prove whether the baseline entries
+ * (ispcore_core_ops_init -> 28 sec-init entries, tisp_main_long_tgain_update -> 10 AE event callbacks) are
+ * ever entered in the default flow. */
+static uint32_t t40_cnt_core_ops_init, t40_cnt_sec_init, t40_cnt_main_long_tgain_update;
+module_param_named(cnt_core_ops_init, t40_cnt_core_ops_init, uint, 0444);
+module_param_named(cnt_sec_init, t40_cnt_sec_init, uint, 0444);
+module_param_named(cnt_main_long_tgain_update, t40_cnt_main_long_tgain_update, uint, 0444);
 static uint32_t regtrace_unresolved_jalr_count;
 module_param_named(unresolved_jalr_count, regtrace_unresolved_jalr_count, uint, 0444);
 static uintptr_t regtrace_unresolved_jalr(uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3)
@@ -67040,6 +67047,7 @@ tisp_sec_long_tgain_update0x1f8:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001bbd0 origin=fragment_seed original=tisp_main_long_tgain_update */
 int32_t tisp_main_long_tgain_update(uint32_t a0, uint32_t a1)
 {
+    t40_cnt_main_long_tgain_update++;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
     uint32_t local_1c = 0;
@@ -72948,6 +72956,7 @@ tisp_main_init0xf68:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000001f1e4 origin=fragment_seed original=tisp_sec_init */
 int64_t tisp_sec_init(uintptr_t a0, uint32_t a1)
 {
+    t40_cnt_sec_init++;
     uint32_t *local_10 = 0;
     uint32_t local_14 = 0;
     uint32_t *local_18 = 0;
@@ -80184,159 +80193,46 @@ tisp_ae_ir_en_update0x1c:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000029278 origin=fragment_seed original=tisp_ae_sepc_area */
 int64_t tisp_ae_sepc_area(uint32_t a0, uintptr_t a1)
 {
-    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
-    uint32_t *local_10 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t t0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    /* #140 batch 4: rewritten from the OEM 1.3.1 disassembly (0x287e8).  The lift dropped the movn/movz window
+     * clamps, the cache table (.rodata+5460 = ae_cache) and 4 of the 5 roi_point arguments. */
+    uint32_t *f = (uint32_t *)a1;
+    uintptr_t ctx = a0 ? (uintptr_t)&pstSecAeOri : (uintptr_t)&pstMainAeOri;
+    uintptr_t dim, cache;
+    uint32_t x0, y0, x1, y1, w, h, tgt;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s0 = a1;
-
-    /* fragment 2: MemoryAccess */
-    a1 = *(uint32_t *)((char *)a1 + 4);
-    s1 = a0;
-    a2 = *(uint32_t *)((char *)s0 + 8);
-    v0 = a1 & 1;
-    t0 = *(uint32_t *)((char *)s0 + 12);
-
-    /* fragment 3: Branch */
-    v1 = *(uint32_t *)((char *)(s0) + 16);
-    if (v0 == 0) { goto tisp_ae_sepc_area0x34; }
-
-    /* fragment 4: Arithmetic */
-    a1 = a1 - 1;
-
-tisp_ae_sepc_area0x34:
-    /* fragment 5: Arithmetic */
-    v0 = (uintptr_t)a2 & 1;
-
-    /* fragment 6: Branch */
-    int _bc_v0_6 = v0 == 0;
-    v0 = t0 & 1;
-    if (_bc_v0_6) { goto tisp_ae_sepc_area0x44; }
-
-    /* fragment 7: Arithmetic */
-    a2 = a2 - 1;
-
-tisp_ae_sepc_area0x44:
-    /* fragment 8: Branch */
-    int _bc_v0_8 = v0 == 0;
-    v0 = (uintptr_t)v1 & 1;
-    if (_bc_v0_8) { goto tisp_ae_sepc_area0x50; }
-
-    /* fragment 9: Arithmetic */
-    a1 = a1 - 1;
-
-tisp_ae_sepc_area0x50:
-    /* fragment 10: Branch */
-    if (v0 == 0) { goto tisp_ae_sepc_area0x5c; }
-
-    /* fragment 11: Arithmetic */
-    v1 = v1 - 1;
-
-tisp_ae_sepc_area0x5c:
-    /* fragment 12: Branch */
-    v0 = (uintptr_t *)&isp_memopt;
-    if (s1 != 0) { goto tisp_ae_sepc_area0x13c; }
-
-    /* fragment 13: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 14: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&pstMainAeOri + 0x3c));
-
-tisp_ae_sepc_area0x6c:
-    /* fragment 15: MemoryAccess */
-    a3 = *(uint16_t *)((char *)v0 + 0);
-    v0 = *(uint16_t *)((char *)v0 + 2);
-    a3 = a3 - 100;
-    a0 = t0 < a3;
-    t0 = 100;
-    a0 = a2 < 100;
-    a0 = a1 < 100;
-    a0 = v0 - 100;
-    v0 = v1 < a0;
-    v0 = (uintptr_t)v1 & 65535;
-    local_10 = v0;
-    v0 = (uintptr_t *)&tisp_ae_roi_point;
-    a3 = (uintptr_t)a3 & 65535;
-    a2 = (uintptr_t)a2 & 65535;
-    a1 = a1 & 65535;
-    v0 = v0;
-
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_ae_roi_point)((uintptr_t)s1 & 255); /* jalr target resolved by relocation */
-
-    /* fragment 17: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 20);
-    v1 = v0 < 201;
-
-    /* fragment 18: Branch */
-    v0 = v0 < 10;
-    if (v1 != 0) { goto tisp_ae_sepc_area0x144; }
-
-    /* fragment 19: Arithmetic */
-    v0 = 200;
-
-    /* fragment 20: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 20) = v0;
-
-tisp_ae_sepc_area0xdc:
-    /* fragment 21: ConstantLoad */
-    v0 = ((char *)&LC29);
-
-    /* fragment 22: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 20);
-    v0 = *(uint32_t *)((char *)s1 + 0);
-    *(uint8_t *)((char *)v0 + 476) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 4);
-    *(uint32_t *)((char *)v0 + 680) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 8);
-    *(uint32_t *)((char *)v0 + 684) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 12);
-    *(uint32_t *)((char *)v0 + 688) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 16);
-    *(uint32_t *)((char *)v0 + 692) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 20);
-    *(uint32_t *)((char *)v0 + 696) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 0);
-    *(uint32_t *)((char *)v0 + 700) = v1;
-    ra = local_24;
-    s1 = local_20;
-    s0 = local_1c;
-
-    /* fragment 23: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_ae_sepc_area0x13c:
-    /* fragment 24: Branch */
-    v0 = *(uint32_t *)((char *)((char *)&pstSecAeOri + 0x3c));
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sepc_area", "0x6c"); else { __lg--; goto tisp_ae_sepc_area0x6c; } }
-
-tisp_ae_sepc_area0x144:
-    /* fragment 25: Branch */
-    int _bc_v0_25 = v0 == 0;
-    v0 = 10;
-    if (_bc_v0_25) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_sepc_area", "0xdc"); else { __lg--; goto tisp_ae_sepc_area0xdc; } } }
-
-    /* fragment 26: Branch */
-    *(uint32_t *)((char *)s0 + 20) = v0;
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_sepc_area", "0xdc"); else { __lg--; goto tisp_ae_sepc_area0xdc; } }
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    if (a0 >= 2 || !f)
+        return -EINVAL;
+    dim = regtrace_get_u32(ctx, 0x3c);
+    if (!regtrace_is_kernel_ptr((void *)dim))
+        return -EINVAL;
+    x0 = f[1]; y0 = f[2]; x1 = f[3]; y1 = f[4];
+    if (x0 & 1) x0--;
+    if (y0 & 1) y0--;
+    if (x1 & 1) x0--;	/* OEM 0x28834: an odd right edge decrements the LEFT edge again (right stays raw) */
+    if (y1 & 1) y1--;
+    w = regtrace_get_u16(dim, 0);
+    h = regtrace_get_u16(dim, 2);
+    if (x1 > w - 100) x1 = w - 100;	/* OEM 0x28860..0x28884: right/bottom clamped to size-100, left/top to >= 100 */
+    if (y0 < 100) y0 = 100;
+    if (x0 < 100) x0 = 100;
+    if (y1 > h - 100) y1 = h - 100;
+    /* OEM 0x288a4: tisp_ae_roi_point(vinum & 0xff, left, top, right, bottom); bottom is the 5th (stack) argument */
+    tisp_ae_roi_point(a0 & 0xff, x0 & 0xffff, y0 & 0xffff, x1 & 0xffff, y1 & 0xffff);
+    tgt = f[5];
+    if (tgt > 200) tgt = 200;
+    else if (tgt < 10) tgt = 10;
+    f[5] = tgt;
+    cache = regtrace_ae_cache_for_channel(a0);
+    if (!regtrace_is_kernel_ptr((void *)cache))
+        return -EINVAL;
+    *(uint8_t *)(cache + 476) = (uint8_t)tgt;
+    regtrace_put_u32(cache, 680, f[1]);
+    regtrace_put_u32(cache, 684, f[2]);
+    regtrace_put_u32(cache, 688, f[3]);
+    regtrace_put_u32(cache, 692, f[4]);
+    regtrace_put_u32(cache, 696, tgt);
+    regtrace_put_u32(cache, 700, f[0]);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000293cc origin=fragment_seed original=tisp_ae_main_mean_update */
@@ -81327,180 +81223,40 @@ int32_t tisp_ae_g_luma(int32_t arg1, uint8_t *arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002a1ec origin=fragment_seed original=tisp_ae_g_scene_luma */
 uint32_t tisp_ae_g_scene_luma(uint32_t a0, uintptr_t a1)
 {
-    uint32_t __lg = REGTRACE_LOOPGUARD_BUDGET;
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t *local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t *t5 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+    /* #140 batch 4: rewritten from the OEM 1.3.1 disassembly (0x2975c); the lift passed 2 of 3 arguments to
+     * fix_point_div_32 (both calls) and lost the shift/accumulate tail. */
+    uintptr_t ctx = a0 ? (uintptr_t)&pstSecAeOri : (uintptr_t)&pstMainAeOri;
+    uintptr_t p_sh = regtrace_get_u32(ctx, 4), p_wr = regtrace_get_u32(ctx, 288), p_dm = regtrace_get_u32(ctx, 284);
+    uintptr_t p_hist = regtrace_get_u32(ctx, 104), ring = regtrace_get_u32(ctx, 56), tbl = regtrace_get_u32(ctx, 208);
+    uint32_t sh, idx, hsum, area, num, q, t5, acc = 0, i;
+    uint32_t *r = (uint32_t *)ring;
+    uint8_t lum = 0;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s3 = a0;
-
-    /* fragment 2: Branch */
-    s4 = a1;
-    if (a0 == 0) { goto tisp_ae_g_scene_luma0x198; }
-
-    /* fragment 3: ConstantLoad */
-    v0 = ((char *)&pstSecAeOri);
-
-tisp_ae_g_scene_luma0x38:
-    /* fragment 4: MemoryAccess */
-    v1 = *(uint32_t *)((char *)v0 + 4);
-    s2 = *(uint32_t *)((char *)v0 + 208);
-    s1 = *(uint32_t *)((char *)v0 + 56);
-    s5 = *(uint16_t *)((char *)v1 + 0);
-    v1 = *(uint32_t *)((char *)v0 + 288);
-    s6 = (uintptr_t)&fix_point_div_32;
-    s6 = s6;
-    s0 = *(uint16_t *)((char *)v1 + 20);
-    v1 = *(uint32_t *)((char *)v0 + 284);
-    v0 = *(uint32_t *)((char *)v0 + 104);
-    a0 = *(uint16_t *)((char *)v1 + 6);
-    a1 = *(uint32_t *)((char *)v0 + 0);
-    v0 = *(uint32_t *)((char *)v0 + 1020);
-    v0 = a1 + (uintptr_t)v0;
-    a1 = *(uint16_t *)((char *)v1 + 2);
-    a1 = a1 * a0;
-    a0 = *(uint16_t *)((char *)v1 + 8);
-    v1 = *(uint16_t *)((char *)v1 + 38);
-    a1 = a1 * a0;
-    a1 = a1 * (uintptr_t)v1;
-    v1 = v0 < a1;
-    a2 = a1 << s5;
-
-    /* fragment 5: Branch */
-    a1 = a1 - (uintptr_t)v0;
-    if (v1 != 0) { goto tisp_ae_g_scene_luma0xa4; }
-
-    /* fragment 6: CallSetup */
-    a1 = 1;
-
-tisp_ae_g_scene_luma0xa4:
-    /* fragment 7: CallSetup */
-    s0 = s0 + 1;
-    s0 = (uintptr_t)s0 << 2;
-    s0 = (uintptr_t)s2 + (uintptr_t)s0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s5, a1 << s5); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_mult2_32)(s5, *(uint32_t *)((char *)(s0) + 0), v0); /* jalr target resolved by relocation */
-
-    /* fragment 9: Branch */
-    t5 = v0;
-    if (v0 != 0) { goto tisp_ae_g_scene_luma0xe0; }
-
-    /* fragment 10: CallSetup */
-    t5 = 1;
-
-tisp_ae_g_scene_luma0xe0:
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_ae_g_luma)(s3, &local_10); /* jalr target resolved by relocation */
-
-    /* fragment 12: StackAccess */
-    v0 = local_10;
-
-    /* fragment 13: Branch */
-    s0 = s1;
-    if (v0 != 0) { goto tisp_ae_g_scene_luma0x108; }
-
-    /* fragment 14: Arithmetic */
-    v0 = 1;
-
-    /* fragment 15: StackAccess */
-    local_10 = v0;
-
-tisp_ae_g_scene_luma0x108:
-    /* fragment 16: Arithmetic */
-    v0 = (uintptr_t *)((char *)s1 + 56);  /* T6: loop end in bytes, OEM 0x29570 `addiu v0,s1,56` */
-    v1 = s1;
-
-tisp_ae_g_scene_luma0x110:
-    /* fragment 17: MemoryAccess */
-    a0 = *(uint32_t *)((char *)v1 + 4);
-    v1 = (uintptr_t *)((char *)v1 + 4);
-
-    /* fragment 18: Branch */
-    *(uint32_t *)((char *)v1 + -4) = a0;
-    if (v0 != v1) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_g_scene_luma", "0x110"); else { __lg--; goto tisp_ae_g_scene_luma0x110; } } }
-
-    /* fragment 19: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)fix_point_div_32)(s5, (uintptr_t)t5, (uintptr_t)local_10 << s5); /* jalr target resolved by relocation */
-
-    /* fragment 20: Arithmetic */
-    v0 = (uintptr_t)v0 >> 2;
-
-    /* fragment 21: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 56) = v0;
-    v1 = 0;
-    v0 = 0;
-    a0 = 8;
-
-tisp_ae_g_scene_luma0x148:
-    /* fragment 22: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s0 + 0);
-    v1 = v1 + 1;
-    s0 = s0 + 4;
-    a2 = (uintptr_t)v1 * a1;
-
-    /* fragment 23: Branch */
-    v0 = (uintptr_t)a2 + (uintptr_t)v0;
-    if (v1 != a0) { { if (__lg == 0U) regtrace_loopguard("tisp_ae_g_scene_luma", "0x148"); else { __lg--; goto tisp_ae_g_scene_luma0x148; } } }
-
-    /* fragment 24: Arithmetic */
-    v1 = 36;
-
-    /* fragment 25: Unknown */
-    /* unmatched fragment 25 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 2a350:	0043001b 	divu	zero,v0,v1 */
-
-    /* fragment 26: Arithmetic */
-    /* unmatched fragment 26 (Arithmetic): arithmetic fragment did not contain supported register operations */
-    /* asm: 2a354:	00001012 	mflo	v0 */
-
-    /* fragment 27: MemoryAccess */
-    *(uint32_t *)((char *)s4 + 0) = v0;
-    ra = local_34;
-    s6 = local_30;
-    s5 = local_2c;
-    s4 = local_28;
-    s3 = local_24;
-    s2 = local_20;
-    s1 = local_1c;
-    s0 = local_18;
-
-    /* fragment 28: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (uint32_t)v0;
-
-tisp_ae_g_scene_luma0x198:
-    /* fragment 29: Arithmetic */
-    v0 = (uintptr_t *)&isp_memopt;
-
-    /* fragment 30: Branch */
-    v0 = (uintptr_t *)((char *)&pstMainAeOri);
-    { if (__lg == 0U) regtrace_loopguard("tisp_ae_g_scene_luma", "0x38"); else { __lg--; goto tisp_ae_g_scene_luma0x38; } }
-
-    return (uint32_t)v0;
+    if (!a1 || !regtrace_is_kernel_ptr((void *)p_sh) || !regtrace_is_kernel_ptr((void *)p_wr) ||
+        !regtrace_is_kernel_ptr((void *)p_dm) || !regtrace_is_kernel_ptr((void *)p_hist) ||
+        !regtrace_is_kernel_ptr((void *)ring) || !regtrace_is_kernel_ptr((void *)tbl))
+        return 0;
+    sh = regtrace_get_u16(p_sh, 0);
+    idx = regtrace_get_u16(p_wr, 20);
+    hsum = ((regtrace_get_u32(p_hist, 0) >> 1) & 0x3fffffffU) + (regtrace_get_u32(p_hist, 1020) & 0x3fffffffU);
+    area = (uint32_t)regtrace_get_u16(p_dm, 2) * regtrace_get_u16(p_dm, 6) * regtrace_get_u16(p_dm, 8) *
+           regtrace_get_u16(p_dm, 38);
+    num = hsum < area ? area - hsum : 1;
+    q = (uint32_t)fix_point_div_32(sh, num << sh, area << sh);
+    t5 = (uint32_t)fix_point_mult2_32(sh, regtrace_get_u32(tbl, (idx + 1) * 4), q);
+    if (!t5)
+        t5 = 1;
+    tisp_ae_g_luma(a0, &lum);
+    if (!lum)
+        lum = 1;
+    for (i = 0; i < 14; i++)
+        r[i] = r[i + 1];
+    r[14] = (uint32_t)fix_point_div_32(sh, t5, (uint32_t)lum << sh) >> 2;
+    for (i = 1; i <= 8; i++)
+        acc += i * r[i - 1];
+    acc /= 36;
+    *(uint32_t *)a1 = acc;
+    return acc;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002aa74 origin=fragment_seed original=tisp_ae_sec_mean_update */
@@ -165941,6 +165697,7 @@ ispcore_video_s_stream0x3f4:
 /* WHOLE_DRIVER_CANDIDATE fn_000000000007a0b8 origin=fragment_seed original=ispcore_core_ops_init */
 int64_t ispcore_core_ops_init(uintptr_t a0, uintptr_t a1)
 {
+    t40_cnt_core_ops_init++;
     /*
      * T40-STACK-FRAMES: the OEM stack area, as ONE byte buffer.
      * The OEM frame slots are named after their offset (local_20 = sp + 0x20) and
