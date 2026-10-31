@@ -4,6 +4,15 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-31, late evening (`next` = agg60; Eufy T40XP)
+
+Device proof: apitest all areas plus 28 cases PASS 270 / FAIL 0, 0 oopses, 0 `unresolved jalr`; the call counters of the former lost-argument sites (`cnt_core_ops_init`, `cnt_sec_init`, `cnt_main_long_tgain_update`) stay 0; raw ioctl probe ok.
+
+- **T40, lifted calls with lost arguments (#140, device):** all batches are in, including 19 sensor/WDR ioctl sites and 2 AE sites; clean on the camera.
+- **CPU (device):** the ISP is vendor-like on the T40: busy 1.6 % against 1.4 % (#133); `t40_dqbuf_wait_ms` stays at its default 0 (#149).
+- **T31X (device):** `isp_memopt=1` (the driver default) ran 5 days plus a 10 min check without stripes or errors (#92); the AE-zone stack fix has its long-term evidence (#93).
+- **Resets (#94, #108, open):** the last panic record is kept in the RTC scratch register, which survives a reset (proven on the T31L and the T31X); the T23 has no store that survives a reset; DRAM pstore does not work; the kernel symbol table (KALLSYMS) must match the module ABI. SD-card autoupdate recovery of a boot-looping camera is proven. #88 (not reproducible) and #96 (full tmpfs of a test tool, not the driver) are closed.
+
 ## 2026-10-31, evening (`next` 71d00b99 = agg59-combo; Eufy T40XP, ko 176f0f5b)
 
 Device proof: apitest all areas plus 28 cases PASS 270 / FAIL 0, 0 oopses, 0 `unresolved jalr` (agg58: 268 / 2).
