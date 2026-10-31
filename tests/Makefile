@@ -3,7 +3,7 @@ CC ?= cc
 CFLAGS ?= -O2
 CFLAGS += -std=c99 -Wall -Wextra -Werror
 
-.PHONY: all check clean t30_storage_audit t40_vct_host t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_bitexact_host t40_callarg_check
+.PHONY: all check clean t30_storage_audit t40_vct_host t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_bitexact_host t40_callarg_check t41_sensor_barrier_check
 
 # Every host test binary.  A new test is registered with "TESTS += name"
 # (plus its build rule); `check` builds and runs all of them, keeps going
@@ -12,7 +12,7 @@ CFLAGS += -std=c99 -Wall -Wextra -Werror
 # so a test cannot be added and then silently never run.
 TESTS :=
 # Further check steps, run as "$(MAKE) <target>" after the binaries.
-CHECK_TARGETS := t30_storage_audit t41_dfg_host t40_vct_host t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_bitexact_host t40_callarg_check
+CHECK_TARGETS := t30_storage_audit t41_dfg_host t40_vct_host t40_af_stats_host t40_bcsh_dn_host t40_tstp_host t40_bitexact_host t40_callarg_check t41_sensor_barrier_check
 # Sources that only run on the camera (not built on the host).
 TARGET_TESTS := $(basename $(wildcard t41_v4l2_*_test.c)) t41_antiflicker_ioctl_test
 TEST_TIMEOUT ?= 600
@@ -573,6 +573,10 @@ t40_bitexact_host:
 # Known findings in dead or audited code are in t40_callarg_baseline.txt; a new one fails.
 t40_callarg_check:
 	python3 ../tools/check_ioctl_ptr_scale.py ../driver/t40/tx_isp_t40_recovered.c --call-args --baseline t40_callarg_baseline.txt
+
+# T41 user sensor register ioctl must run under the #134 sensor-release barrier mutex (#162)
+t41_sensor_barrier_check:
+	python3 ./t41_sensor_barrier_check.py
 
 clean:
 	$(RM) $(TESTS)
