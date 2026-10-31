@@ -17090,6 +17090,10 @@ static void regtrace_isp_block_init_retry(const char *where)
 #define REGTRACE_ISP_M0_TUNING_STATE_OFFSET 0x78
 #define REGTRACE_ISP_M0_TUNING_STATE_ENABLED 3
 #define REGTRACE_TX_ISP_SUBDEV_SLOT0 0x3c
+/* OEM tx_isp_create_graph_and_nodes: child subdev k sits at module+0x3c+4*(pdata[3]&0xf); the ISP core's pdata[3] is
+ * 0x10, so SLOT0 is the ispcore subdev (the lifted ioctl reads *(slot0+232) regs, *(slot0+268) core priv). The
+ * external sensor has no OEM slot (the VIN owns it); it keeps the last free one so the slot loops still reach it. */
+#define REGTRACE_TX_ISP_SUBDEV_SLOT_SENSOR (REGTRACE_TX_ISP_SUBDEV_SLOT0 + 15 * 4)
 #define REGTRACE_TX_ISP_SUBDEV_OPS_OFFSET TX_ISP_ABI_T40_SUBDEV_OPS_OFFSET
 #define REGTRACE_TX_ISP_SENSOR_INFO_OFFSET 0x128
 #define REGTRACE_TX_ISP_VIDEO_WIDTH_OFFSET 0x00
@@ -18421,15 +18425,23 @@ static int regtrace_framechan_index(struct file *file)
     return 0;
 }
 
+/* #154: slot0 = ispcore subdev (OEM), sensor in the spare slot.  The first T40 workspace put the sensor in slot0,
+ * so every lifted ioctl that reads slot0 as the core (WDR switch 0x5413/0x5414: *(slot0+232)+0x40000 error mask,
+ * AE/AWB algo open, ...) ran on the sensor subdev: no register window -> NULL+0x40060 oops on the Eufy T40XP. */
+static void regtrace_sync_tx_isp_slots(void)
+{
+    *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT0) =
+        (uint32_t)(uintptr_t)regtrace_core_subdev;
+    *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT_SENSOR) =
+        (uint32_t)(uintptr_t)regtrace_sensor_subdev;
+}
+
 static void regtrace_prepare_tx_isp_context(void)
 {
     memset(regtrace_tx_isp_context, 0, sizeof(regtrace_tx_isp_context));
     memset(regtrace_tx_isp_file_shadow, 0, sizeof(regtrace_tx_isp_file_shadow));
     *(uint32_t *)(regtrace_tx_isp_file_shadow + 0x88) = (uint32_t)(uintptr_t)(regtrace_tx_isp_context + 0x0c);
-    if (regtrace_sensor_subdev) {
-        *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT0) =
-            (uint32_t)(uintptr_t)regtrace_sensor_subdev;
-    }
+    regtrace_sync_tx_isp_slots();
 }
 
 static void regtrace_prepare_isp_m0_context(void)
@@ -18487,7 +18499,7 @@ static int regtrace_capture_sensor_subdev(uintptr_t pdev, uintptr_t sd, uintptr_
     *(uint32_t *)((char *)(uintptr_t)sd + REGTRACE_TX_ISP_SUBDEV_OPS_OFFSET) = (uint32_t)ops;
     regtrace_sensor_subdev = (void *)(uintptr_t)sd;
     regtrace_sensor_ops = (void *)(uintptr_t)ops;
-    *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT0) = (uint32_t)sd;
+    regtrace_sync_tx_isp_slots();
 
     printk(KERN_INFO "tx_isp_t40_recovered: captured external sensor subdev name=%s sd=%p ops=%p\n",
            name, regtrace_sensor_subdev, regtrace_sensor_ops);
@@ -18504,7 +18516,7 @@ static int regtrace_release_sensor_subdev(uintptr_t sd)
            regtrace_sensor_subdev);
     regtrace_sensor_subdev = NULL;
     regtrace_sensor_ops = NULL;
-    *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT0) = 0;
+    regtrace_sync_tx_isp_slots();
     return 1;
 }
 
@@ -18548,8 +18560,10 @@ static void regtrace_subdev_cleanup_internal(unsigned char *sd)
     /* the removes free sd right after this: drop the global aliases first */
     if (regtrace_vic_subdev == (void *)sd)
         regtrace_vic_subdev = NULL;
-    if (regtrace_core_subdev == (void *)sd)
+    if (regtrace_core_subdev == (void *)sd) {
         regtrace_core_subdev = NULL;
+        regtrace_sync_tx_isp_slots();
+    }
     if (regtrace_fs_subdev == (void *)sd)
         regtrace_fs_subdev = NULL;
     if (ispcore_sd == (uint32_t)(uintptr_t)sd)
@@ -18735,6 +18749,7 @@ static int regtrace_subdev_init_internal(uintptr_t pdev_addr, uintptr_t sd_addr,
         regtrace_vic_subdev = sd;
     } else if (!strcmp(pdev->name, "isp-m0")) {
         regtrace_core_subdev = sd;
+        regtrace_sync_tx_isp_slots();
         ispcore_sd = (uint32_t)(uintptr_t)sd;
         {   /* RC2: /proc/jz/isp/isp-m0 - the lifted tx_isp_probe/create_graph_and_nodes path is not
              * used by the controlled child registration, so create the node here (OEM: jz_proc_mkdir("isp")
@@ -23892,8 +23907,7 @@ static long regtrace_tx_isp_sensor_register_ioctl(unsigned long arg)
         return -ENODEV;
     }
 
-    *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT0) =
-        (uint32_t)(uintptr_t)regtrace_sensor_subdev;
+    regtrace_sync_tx_isp_slots();
     regtrace_seed_sensor_register_info(&sensor_info);
     ret = regtrace_sensor_call_g_chip_ident();
     if (ret) {
@@ -57982,7 +57996,7 @@ int32_t tx_isp_sensor_register_sensor(void *arg1, int32_t arg2)
         a0_1 = *(void **)loop_ptr;
 
         if (a0_1 != NULL) {
-            v0_2 = *(void **)((char *)a0_1 + 0xfc + 0xc);
+            v0_2 = *(void **)((char *)*(void **)((char *)a0_1 + 0xfc) + 0xc);   /* OEM: ops = *(sd+252); sensor ops = ops[3] */
 
             if (v0_2 == NULL) {
                 loop_ptr++;
@@ -58123,6 +58137,20 @@ tx_isp_sensor_release_sensor0xb8:
     return 0;
 }
 
+#ifdef REGTRACE_KERNEL_TREE_BUILD
+/* #154: slot 0 is the ISP core subdev now (as in the OEM).  The OEM slot loops (s_stream / link_stream) would call
+ * ispcore_video_s_stream here, but in this driver the ISP core bring-up and streaming are driven by the regtrace
+ * layer (core activate + framechan stream), and the lifted core s_stream fails its "device hasn't been inited"
+ * check when the libimp AddSensor ioctl runs it (camera Oops, agg52).  Skip the core in these slot loops, exactly
+ * what happened implicitly while the sensor sat in slot 0 (its video-ops pointer was never reached). */
+static inline int regtrace_slot_is_core(const void *sd)
+{
+    return sd && sd == regtrace_core_subdev;
+}
+#else
+#define regtrace_slot_is_core(sd) 0
+#endif
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000011674 origin=model_output original=tx_isp_video_s_stream */
 int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
 {
@@ -58156,8 +58184,8 @@ int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
     for (i = 0; i != 16; ) {
         a0_1 = (void *)*s3;
         
-        if (a0_1 != NULL) {
-            v0_3 = (uintptr_t)*(uintptr_t *)((uintptr_t)((char *)a0_1 + 0xfc) + 4);
+        if (a0_1 != NULL && !regtrace_slot_is_core(a0_1)) {
+            v0_3 = (int32_t *)(uintptr_t)*(uintptr_t *)((char *)*(void **)((char *)a0_1 + 0xfc) + 4);   /* OEM: ops = *(sd+252); video = ops[1] (was sd+256: the pad counts) */
             
             if (v0_3 != NULL) {
                 v0_4 = *v0_3;
@@ -58174,8 +58202,8 @@ int32_t tx_isp_video_s_stream(void *arg1, int32_t arg2)
                             j = (char *)j - 4;
                             a0_2 = (void *)*((int32_t *)((char *)j + 0x3c));
                             
-                            if (a0_2 != NULL) {
-                                v0_6 = (uintptr_t)*(uintptr_t *)((uintptr_t)((char *)a0_2 + 0xfc) + 4);
+                            if (a0_2 != NULL && !regtrace_slot_is_core(a0_2)) {
+                                v0_6 = (int32_t *)(uintptr_t)*(uintptr_t *)((char *)*(void **)((char *)a0_2 + 0xfc) + 4);   /* OEM: ops = *(sd+252); video = ops[1] (was sd+256: the pad counts) */
                                 
                                 if (v0_6 != NULL) {
                                     v0_7 = *v0_6;
@@ -58250,7 +58278,7 @@ tx_isp_video_link_stream0x4c:
     a0 = *(uint32_t *)((char *)s3 + 0);
 
     /* fragment 5: Branch */
-    if (a0 != 0) { goto tx_isp_video_link_stream0xc8; }
+    if (a0 != 0 && !regtrace_slot_is_core((const void *)(uintptr_t)a0)) { goto tx_isp_video_link_stream0xc8; }   /* #154: core streams via regtrace */
 
 tx_isp_video_link_stream0x58:
     /* fragment 6: Arithmetic */
@@ -58328,7 +58356,7 @@ tx_isp_video_link_stream0x10c:
     a0 = *(uint32_t *)((char *)s0 + 60);
 
     /* fragment 25: Branch */
-    if (a0 == 0) { goto tx_isp_video_link_stream0x144; }
+    if (a0 == 0 || regtrace_slot_is_core((const void *)(uintptr_t)a0)) { goto tx_isp_video_link_stream0x144; }
 
     /* fragment 26: MemoryAccess */
     v0 = *(uint32_t *)((char *)a0 + 252);
