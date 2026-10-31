@@ -4,15 +4,38 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
-## 2026-10-31: T40 user gamma curve reaches the LUT (`claude/issue-167-gamma`; QEMU T40, camera not touched)
+## 2026-10-31, evening (`next` 71d00b99 = agg59-combo; Eufy T40XP, ko 176f0f5b)
+
+Device proof: apitest all areas plus 28 cases PASS 270 / FAIL 0, 0 oopses, 0 `unresolved jalr` (agg58: 268 / 2).
+
+- **Stale frame after a pause (#168, device):** STREAMOFF now runs `__vb2_queue_cancel`, FREE_BUFFER and clears the MSCA FIFO. A/B with the old libimp: agg57 fails 6/6, agg58 passes 49/0.
+- **Clean on the camera, effect not measured:** #139c `/dev/tisp` parameter handlers; #140 batch 3, anchor sweep and jalr batches 1 and 2 (7 class-A sites; 58 left and classified in the issue); #149b `t40_dqbuf_wait_ms` (default 0); #133 CPU branch (`claude/issue-133-cpu`; CPU effect not measured yet).
+- **rmmod (QEMU only, 10 of 10 reload cycles):** fix for two work items. Unloading only the vendor module is dangerous; ours reloads cleanly since 2026-10-24.
+- **Reboot diagnostics (#94, #108):** DRAM pstore proved useless on a T31L (the pattern is lost on reset); the diagnostic now uses RTCSAR, which survives a reset (proven on the T31L); not yet in a fleet image.
+
+## 2026-10-31: T40 user gamma curve reaches the LUT (`claude/issue-167-gamma`; QEMU T40, camera-proven in agg59)
 
 - **IMP_ISP_Tuning_SetGammaAttr (0x08000025)** had no picture effect on T40 (issue #167, Eufy .184): production has no
   lifted gamma context (the soft-gamma writer owns the LUT), so `tisp_gamma_set_attr` returned -EAGAIN and
   `tisp_s_Gamma` (lifted as "return 0") hid it. Now the set path programs the 129-node LUT through the soft-gamma
   writer for mode 1 (sRGB), 2 (HDR) and 3 (user, nodes validated monotone <= 4095); mode 0 restores the tuning-bin
   curve. The choice is kept and re-applied at every writer re-init; GetGammaAttr reports the mode. `tisp_s_Gamma` now
-  returns the real result. QEMU T40: set/get round trip for modes 0..3, no oops; QEMU has no picture model, so the
-  effect on the image needs the camera.
+  returns the real result. QEMU T40: set/get round trip for modes 0..3, no oops; QEMU has no picture model; on the Eufy T40XP (agg59) the soft-writer set path works: Y 156 against 64 at 250 ms.
+
+## 2026-10-31: T40 review-fix, argument-audit and re-translation bundle (`next` 24c2c556, agg57)
+
+Issue numbers refer to https://github.com/Lu-Fi/openimp/issues. Device proof: T40XP test camera, test module swapped in at run time, apitest all areas plus 28 cases PASS 262 / FAIL 8, 0 oopses, real sensor frames (the harness now sends the board information first; earlier runs without it saw only fallback frames). Items marked QEMU were not run on a camera.
+
+- **Core in slot 0 (device):** the channel slot loops treat slot 0 as the core (ops dereference and the `s_stream`/`link_stream` loops fixed); the agg54 oops at AddSensor/MDNS is gone. Frame-channel mapping from `slot+112` instead of the OEM pipeline word (fix of agg55).
+- **Ioctl dispatch (#145, device):** scaled request constants, link setup 0x80085409, tuning ioctl and the frame-channel QUERYBUF/QBUF/SET_BANKS handlers re-translated from the OEM; the lifted frame-channel dispatcher is removed.
+- **Re-translated from the OEM:** AE zone geometry and scratch copies, second-sensor ISR frame-use countdown, custom-AE chain, LSC entry points, LCE tuning par get/set (device run clean; their individual effects are not measured separately).
+- **GetSensorAttr (#147, device):** fps and size from the core copy of the sensor video block (3840x2160, fps 20).
+- **SDNS/DPC refresh and `SetModule_Ratio(sinter)` (#154), `SetAwbAttr` live path (#156):** OEM offsets and stored CT/start gains; the critical hang is fixed.
+- **`/dev/tisp` (#155, #157, QEMU):** one parameter block per open file, ioctls serialised, every single-line `isp_printf` has the arguments its format needs; nodes skip modules whose block was never allocated; only the reviewed setters (BLC, GIB) are enabled for parameter set (#139c, not behaviour-checked on a camera).
+- **Anchor sweep (#140, QEMU/device run clean, effects unmeasured):** DMSC/MDNS/YDNS/YSP/SDNS, LCE/WDR/ADR/AF/second-sensor seeds, BCSH/CCM refresh, MJPEG range, HLDC and the VIC snapshot buffer use the OEM objects instead of `&sclk_name` offsets.
+- **Optional blocking frame-channel DQBUF (#149 part 2):** module parameter `t40_dqbuf_wait_ms`, default 0 (off); not measured on a camera.
+- **T41 (#134, QEMU/host):** sensor register access from user space under the quiesce mutex; failed `isp_malloc_buffer()` no longer leaves a bogus buffer.
+- **Open at agg57, closed in agg59 (see the entry above):** `SetGammaAttr` (#167), stale frame after a pause (#168), `SetScalerLv` channel 1 (#169, test fix).
 
 ## 2026-10-29: T40 face AWB attribute round trip (`claude/issue-138`; QEMU T40)
 
