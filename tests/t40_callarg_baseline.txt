@@ -173,8 +173,6 @@ argc tisp_defog_param_array_set defog_count_weight35abc 1/10
 argc tisp_defog_param_array_set tisp_defog_interp_trans_k 4/8
 argc tisp_defog_update_trans_k tisp_defog_interp_trans_k 4/8
 argc tisp_defog_write_reg_para3 system_reg_write 1/2
-argc tisp_dmsc_intp_reg_refresh tisp_dmsc_intp 1/2
-argc tisp_dmsc_refresh tisp_dmsc_par_refresh 1/3
 argc tisp_gamma_dn_params_refresh tisp_gamma_interp_by_ev 1/5
 argc tisp_gamma_param_array_set tisp_gamma_interp_by_ev 1/5
 argc tisp_gamma_wdr_en tisp_gamma_interp_by_ev 4/5
@@ -321,42 +319,6 @@ scaled tisp_clm_write_csc_para system_reg_write s4 + 8332
 scaled tisp_clm_write_csc_para system_reg_write s4 + 8336
 scaled tisp_clm_write_csc_para system_reg_write s4 + 8340
 scaled tisp_clm_write_csc_para system_reg_write s4 + 8344
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 108
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 112
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 336
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 340
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 344
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 348
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 352
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 356
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 360
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 364
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 368
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 372
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 376
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 380
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 452
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 464
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 476
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 480
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 500
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 512
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 84
-scaled tisp_dmsc_noref_reg_cfg system_reg_write s1 + 88
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 440
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 444
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 456
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 468
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 548
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 56
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 564
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 588
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 592
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 596
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 600
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 604
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 608
-scaled tisp_dmsc_ref_reg_cfg system_reg_write s1 + 612
 scaled tisp_gsm_single_get_hist system_reg_write s4 + 432
 scaled tisp_hldc_con_par_cfg system_reg_write s1 + 12
 scaled tisp_hldc_con_par_cfg system_reg_write s1 + 16
