@@ -169933,7 +169933,7 @@ ispcore_interrupt_service_routine0xec:
     v0 = (uintptr_t *)((uintptr_t)v0 + s8);   /* T40-ISR-WIN-SCALE: win+0x40000 byte add (OEM 0x7be04 error ack 0x40064) */
     *(uint32_t *)((char *)v0 + 100) = s5;
     v0 = *(uint32_t *)((char *)((char *)&isp_err));
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
     *(uint32_t *)((char *)((char *)&isp_err)) = v0;
     v0 = s5 & 32;
 
@@ -169956,7 +169956,7 @@ ispcore_interrupt_service_routine0x180:
 
     /* fragment 20: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&isp_breakfrm));
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
     *(uint32_t *)((char *)((char *)&isp_breakfrm)) = v0;
 
 ispcore_interrupt_service_routine0x198:
@@ -170091,7 +170091,7 @@ ispcore_interrupt_service_routine0x2c8:
 
     /* fragment 52: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&adr_static_tmp));
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
     *(uint32_t *)((char *)((char *)&adr_static_tmp)) = v0;
     v0 = (uintptr_t)s2 & 1024;
 
@@ -170107,7 +170107,7 @@ ispcore_interrupt_service_routine0x2e4:
     /* fragment 55: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&defog_static_tmp));
     a1 = *(uint32_t *)((char *)s0 + 232);
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
     *(uint32_t *)((char *)((char *)&defog_static_tmp)) = v0;
     v0 = 65536;
     v0 = (uintptr_t)a1 + (uintptr_t)v0;
@@ -170148,7 +170148,7 @@ ispcore_interrupt_service_routine0x374:
 
     /* fragment 71: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&lce_static_tmp));
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
     *(uint32_t *)((char *)((char *)&lce_static_tmp)) = v0;
     v0 = (uintptr_t)s2 & 16;
 
@@ -170163,7 +170163,7 @@ ispcore_interrupt_service_routine0x390:
 
     /* fragment 74: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&ae_static_tmp));
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
     *(uint32_t *)((char *)((char *)&ae_static_tmp)) = v0;
     v0 = (uintptr_t)s2 & 32;
 
@@ -170178,7 +170178,7 @@ ispcore_interrupt_service_routine0x3ac:
 
     /* fragment 77: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&ae_hist_tmp));
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
     *(uint32_t *)((char *)((char *)&ae_hist_tmp)) = v0;
     v0 = (uintptr_t)s2 & 8;
 
@@ -170189,7 +170189,7 @@ ispcore_interrupt_service_routine0x3c8:
 
     /* fragment 79: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&awb_static_tmp));
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
     *(uint32_t *)((char *)((char *)&awb_static_tmp)) = v0;
 
 ispcore_interrupt_service_routine0x3dc:
@@ -170255,7 +170255,7 @@ ispcore_interrupt_service_routine0x434:
 ispcore_interrupt_service_routine0x474:
     /* fragment 94: MemoryAccess */
     v0 = *(uint8_t *)((char *)s7 + 210);
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
     v0 = (uintptr_t)v0 & 255;
 
     /* fragment 95: Branch */
@@ -170328,7 +170328,7 @@ ispcore_interrupt_service_routine0x4ec:
 
     /* fragment 106: MemoryAccess */
     v0 = *(uint8_t *)((char *)s7 + 210);
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1; /* #agg52: byte add (OEM addiu v0,v0,-1), was x4 */
     *(uint8_t *)((char *)s7 + 210) = v0;
     v0 = *(uint8_t *)((char *)s7 + 212);
     v0 = v0 < 2;
@@ -170340,7 +170340,7 @@ ispcore_interrupt_service_routine0x4ec:
 
     /* fragment 108: CallSetup */
     v0 = *(uint8_t *)((char *)s4 + 210);
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1; /* #agg52: byte add (OEM addiu v0,v0,-1), was x4 */
     *(uint8_t *)((char *)s4 + 210) = v0;
 
 ispcore_interrupt_service_routine0x548:
@@ -170443,7 +170443,7 @@ ispcore_interrupt_service_routine0x5a0:
 ispcore_interrupt_service_routine0x5f0:
     /* fragment 127: MemoryAccess */
     v0 = *(uint8_t *)((char *)s4 + 426);
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
     v0 = (uintptr_t)v0 & 255;
 
     /* fragment 128: Branch */
@@ -170472,7 +170472,7 @@ ispcore_interrupt_service_routine0x5f0:
     if (v0 == 0) { goto ispcore_interrupt_service_routine0x62c; }
 
     /* fragment 134: Arithmetic */
-    s6 = s4 + 216;
+    s6 = (uintptr_t)s4 + 216; /* #agg52: OEM addiu s6,s4,216 (slot + 216 bytes), was x4 */
 
 ispcore_interrupt_service_routine0x62c:
     /* fragment 135: MemoryAccess */
@@ -170525,7 +170525,7 @@ ispcore_interrupt_service_routine0x690:
 
     /* fragment 146: MemoryAccess */
     v0 = *(uint8_t *)((char *)s4 + 426);
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1; /* #agg52: byte add (OEM addiu v0,v0,-1), was x4 */
     *(uint8_t *)((char *)s4 + 426) = v0;
     v0 = *(uint8_t *)((char *)s4 + 428);
     v0 = v0 < 2;
@@ -170537,7 +170537,7 @@ ispcore_interrupt_service_routine0x690:
 
     /* fragment 148: MemoryAccess */
     v0 = *(uint8_t *)((char *)s8 + 210);
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1; /* #agg52: byte add (OEM addiu v0,v0,-1), was x4 */
     *(uint8_t *)((char *)s8 + 210) = v0;
 
 ispcore_interrupt_service_routine0x6ec:
@@ -170628,7 +170628,7 @@ ispcore_interrupt_service_routine0x77c:
 ispcore_interrupt_service_routine0x7d0:
     /* fragment 166: MemoryAccess */
     v0 = *(uint8_t *)((char *)s7 + 858);
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
     v0 = (uintptr_t)v0 & 255;
 
     /* fragment 167: Branch */
@@ -170700,7 +170700,7 @@ ispcore_interrupt_service_routine0x840:
 
     /* fragment 181: MemoryAccess */
     v0 = *(uint8_t *)((char *)s7 + 858);
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1; /* #agg52: byte add (OEM addiu v0,v0,-1), was x4 */
     *(uint8_t *)((char *)s7 + 858) = v0;
     v0 = *(uint8_t *)((char *)s7 + 860);
     v0 = v0 < 2;
@@ -170712,7 +170712,7 @@ ispcore_interrupt_service_routine0x840:
 
     /* fragment 183: CallSetup */
     v0 = *(uint8_t *)((char *)s4 + 210);
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1; /* #agg52: byte add (OEM addiu v0,v0,-1), was x4 */
     *(uint8_t *)((char *)s4 + 210) = v0;
 
 ispcore_interrupt_service_routine0x89c:
@@ -170791,7 +170791,7 @@ ispcore_interrupt_service_routine0x8ec:
 ispcore_interrupt_service_routine0x93c:
     /* fragment 201: MemoryAccess */
     v0 = *(uint8_t *)((char *)s4 + 1074);
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
     v0 = (uintptr_t)v0 & 255;
 
     /* fragment 202: Branch */
@@ -170820,7 +170820,7 @@ ispcore_interrupt_service_routine0x93c:
     if (v0 == 0) { goto ispcore_interrupt_service_routine0x978; }
 
     /* fragment 208: Arithmetic */
-    s6 = s4 + 864;
+    s6 = (uintptr_t)s4 + 864; /* #agg52: OEM addiu s6,s4,864 (slot + 864 bytes), was x4 */
 
 ispcore_interrupt_service_routine0x978:
     /* fragment 209: MemoryAccess */
@@ -170873,7 +170873,7 @@ ispcore_interrupt_service_routine0x9dc:
 
     /* fragment 220: MemoryAccess */
     v0 = *(uint8_t *)((char *)s4 + 1074);
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1; /* #agg52: byte add (OEM addiu v0,v0,-1), was x4 */
     *(uint8_t *)((char *)s4 + 1074) = v0;
     v0 = *(uint8_t *)((char *)s4 + 1076);
     v0 = v0 < 2;
@@ -170885,7 +170885,7 @@ ispcore_interrupt_service_routine0x9dc:
 
     /* fragment 222: MemoryAccess */
     v0 = *(uint8_t *)((char *)s8 + 210);
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1; /* #agg52: byte add (OEM addiu v0,v0,-1), was x4 */
     *(uint8_t *)((char *)s8 + 210) = v0;
 
 ispcore_interrupt_service_routine0xa38:
@@ -170952,7 +170952,7 @@ ispcore_interrupt_service_routine0xac8:
 
     /* fragment 237: MemoryAccess */
     v1 = *(uint32_t *)((char *)v0 + 4);
-    v1 = v1 + 1;
+    v1 = (uintptr_t)v1 + 1; /* #agg52: byte add (OEM addiu v1,v1,1), was x4 */
     *(uint32_t *)((char *)v0 + 4) = v1;
     v0 = (uintptr_t)s1 & 1024;
 
@@ -170967,7 +170967,7 @@ ispcore_interrupt_service_routine0xae8:
 
     /* fragment 240: MemoryAccess */
     v1 = *(uint32_t *)((char *)v0 + 4);
-    v1 = v1 + 1;
+    v1 = (uintptr_t)v1 + 1; /* #agg52: byte add (OEM addiu v1,v1,1), was x4 */
     *(uint32_t *)((char *)v0 + 4) = v1;
     v0 = (uintptr_t)s1 & 256;
 
@@ -170982,7 +170982,7 @@ ispcore_interrupt_service_routine0xb08:
 
     /* fragment 243: MemoryAccess */
     v1 = *(uint32_t *)((char *)v0 + 4);
-    v1 = v1 + 1;
+    v1 = (uintptr_t)v1 + 1; /* #agg52: byte add (OEM addiu v1,v1,1), was x4 */
     *(uint32_t *)((char *)v0 + 4) = v1;
     v0 = (uintptr_t)s1 & 16;
 
@@ -170999,7 +170999,7 @@ ispcore_interrupt_service_routine0xb28:
     v1 = *(uint32_t *)((char *)v0 + 4);
     a1 = *(uint32_t *)((char *)s0 + 232);
     a3 = (uint32_t *)&isp_memopt;
-    v1 = v1 + 1;
+    v1 = (uintptr_t)v1 + 1; /* #agg52: byte add (OEM addiu v1,v1,1), was x4 */
     *(uint32_t *)((char *)v0 + 4) = v1;
     v0 = 65536;
     v0 = (uintptr_t)a1 + (uintptr_t)v0;
@@ -171017,7 +171017,7 @@ ispcore_interrupt_service_routine0xb70:
 
     /* fragment 248: Branch */
     int _bc_v0_248 = v0 == 0;
-    v0 = v0 - 1;
+    v0 = (uintptr_t)v0 - 1; /* #agg52: byte add (OEM addiu v0,v0,-1), was x4 */
     if (_bc_v0_248) { goto ispcore_interrupt_service_routine0xba4; }
 
     /* fragment 249: Arithmetic */
@@ -171049,7 +171049,7 @@ ispcore_interrupt_service_routine0xba4:
     a0 = a0 + 1;
 
     /* fragment 257: Branch */
-    v1 = v1 + 1;
+    v1 = (uintptr_t)v1 + 1; /* #agg52: byte add (OEM addiu v1,v1,1), was x4 */
     if (a0 != t0) { goto ispcore_interrupt_service_routine0xb70; }
 
     /* fragment 258: Arithmetic */
@@ -171071,7 +171071,7 @@ ispcore_interrupt_service_routine0xbc0:
 
     /* fragment 262: MemoryAccess */
     v1 = *(uint32_t *)((char *)v0 + 4);
-    v1 = v1 + 1;
+    v1 = (uintptr_t)v1 + 1; /* #agg52: byte add (OEM addiu v1,v1,1), was x4 */
     *(uint32_t *)((char *)v0 + 4) = v1;
     v0 = (uintptr_t)s1 & 8;
 
@@ -171085,7 +171085,7 @@ ispcore_interrupt_service_routine0xbe0:
 
     /* fragment 265: MemoryAccess */
     v1 = *(uint32_t *)((char *)v0 + 4);
-    v1 = v1 + 1;
+    v1 = (uintptr_t)v1 + 1; /* #agg52: byte add (OEM addiu v1,v1,1), was x4 */
     *(uint32_t *)((char *)v0 + 4) = v1;
 
 ispcore_interrupt_service_routine0xbfc:
@@ -171463,7 +171463,7 @@ ispcore_interrupt_service_routine0xde4:
 
     /* fragment 308: MemoryAccess */
     v0 = *(uint32_t *)((char *)((char *)&irq_count));
-    v0 = v0 + 1;
+    v0 = (uintptr_t)v0 + 1; /* #agg52: byte add (OEM addiu v0,v0,1), was x4 */
 
     /* fragment 309: Branch */
     *(uint32_t *)((char *)s4 + 22076) = v0;
