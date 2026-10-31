@@ -9418,9 +9418,14 @@ module_param_named(ae_target_comp, regtrace_ae_target_comp, uint, 0444);
  * statistics (zone means, 256-bin histogram) under the same lock.
  */
 #include "tx_isp_t40_ae_api.h"
+#include "tx_isp_t40_osd_slot.h"
 /* T40-LAYOUT: all AE API state lives in .t40c2 (new .bss objects shift the lifted &isp_memopt+N strays:
  * a first build with ~5 KB of new .bss delivered no frames on .184) */
 static spinlock_t t40_ae_api_lock T40C2 = __SPIN_LOCK_UNLOCKED(t40_ae_api_lock);
+/* #160: the OSD slot table (mscaler_s0/s1 + 0x1e4..) is rewritten by the OSD setters and read by Tzn_Msca_Shd_osd (frame
+ * done).  The OEM spin lock at mscaler + 0x740 is a no-op in this driver (private_spin_* stubs), so the swap of an
+ * image and the emitter's read shared no lock. */
+static spinlock_t t40_osd_slot_lock T40C2 = __SPIN_LOCK_UNLOCKED(t40_osd_slot_lock);
 static struct t40_ae_scence t40_ae_sc T40C2 = {
     .hlc_en = T40_AE_SC_DISABLE, .blc_en = T40_AE_SC_DISABLE,
     .comp = T40_AE_COMP_NEUTRAL, .start_en = T40_AE_SC_DISABLE,
@@ -46666,19 +46671,15 @@ tx_isp_mask_s_attr_isra_90x84:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_mscaler_mask_attr)(s1, __p_18); /* jalr target resolved by relocation */
 
     /* fragment 8: Arithmetic */
-    a0 = (uintptr_t)s1 << 2;
-    /* M1 (review-week-1030): byte offset (OEM addu a0,s0,a0 after sll 2); the uint32_t *s0 lift moved the
-     * +668 counter of vinum 1 by 16 instead of 4 bytes.  The slot table (core + 268) may not exist yet. */
-    if (!regtrace_is_kernel_ptr(s0))
-        return 0;
-    a0 = (uintptr_t)s0 + a0;
+    /* M1 (review-week-1030): the OEM adds (vinum << 2) in BYTES to the slot table (core + 268); the lift's
+     * uint32_t * arithmetic moved the +668 counter of vinum 1 by 16 bytes.  The table may not exist yet and
+     * the sensor index comes from the ioctl: t40_osd_counter() gives NULL for both (no bump). */
+    {
+        u32 *cnt = t40_osd_counter(regtrace_is_kernel_ptr(s0) ? (void *)s0 : NULL, (u32)s1, 668);
 
-    /* fragment 9: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 668);
-    v0 = v0 + 1;
-
-    /* fragment 10: Branch */
-    *(uint32_t *)((char *)a0 + 668) = v0;
+        if (cnt)
+            *cnt += 1;
+    }
     goto tx_isp_mask_s_attr_isra_90x6c;
 
     return 0;
@@ -46756,19 +46757,15 @@ tx_isp_osd_s_attr_isra_100xa4:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_osd_attr)(s1, __p_18); /* jalr target resolved by relocation */
 
     /* fragment 9: Arithmetic */
-    a0 = (uintptr_t)s1 << 2;
-    /* M1 (review-week-1030): byte offset (OEM addu a0,s0,a0 after sll 2); the uint32_t *s0 lift moved the
-     * +656 counter of vinum 1 by 16 instead of 4 bytes.  The slot table (core + 268) may not exist yet. */
-    if (!regtrace_is_kernel_ptr(s0))
-        return 0;
-    a0 = (uintptr_t)s0 + a0;
+    /* M1 (review-week-1030): the OEM adds (vinum << 2) in BYTES to the slot table (core + 268); the lift's
+     * uint32_t * arithmetic moved the +656 counter of vinum 1 by 16 bytes.  The table may not exist yet and
+     * the sensor index comes from the ioctl: t40_osd_counter() gives NULL for both (no bump). */
+    {
+        u32 *cnt = t40_osd_counter(regtrace_is_kernel_ptr(s0) ? (void *)s0 : NULL, (u32)s1, 656);
 
-    /* fragment 10: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 656);
-    v0 = v0 + 1;
-
-    /* fragment 11: Branch */
-    *(uint32_t *)((char *)a0 + 656) = v0;
+        if (cnt)
+            *cnt += 1;
+    }
     goto tx_isp_osd_s_attr_isra_100x88;
 
     return 0;
@@ -46846,19 +46843,15 @@ tx_isp_draw_s_attr_isra_120xa4:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_s_draw_attr)(s1, __p_18); /* jalr target resolved by relocation */
 
     /* fragment 9: Arithmetic */
-    a0 = (uintptr_t)s1 << 2;
-    /* M1 (review-week-1030): byte offset (OEM addu a0,s0,a0 after sll 2); the uint32_t *s0 lift moved the
-     * +680 counter of vinum 1 by 16 instead of 4 bytes.  The slot table (core + 268) may not exist yet. */
-    if (!regtrace_is_kernel_ptr(s0))
-        return 0;
-    a0 = (uintptr_t)s0 + a0;
+    /* M1 (review-week-1030): the OEM adds (vinum << 2) in BYTES to the slot table (core + 268); the lift's
+     * uint32_t * arithmetic moved the +680 counter of vinum 1 by 16 bytes.  The table may not exist yet and
+     * the sensor index comes from the ioctl: t40_osd_counter() gives NULL for both (no bump). */
+    {
+        u32 *cnt = t40_osd_counter(regtrace_is_kernel_ptr(s0) ? (void *)s0 : NULL, (u32)s1, 680);
 
-    /* fragment 10: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 680);
-    v0 = v0 + 2;
-
-    /* fragment 11: Branch */
-    *(uint32_t *)((char *)a0 + 680) = v0;
+        if (cnt)
+            *cnt += 2;
+    }
     goto tx_isp_draw_s_attr_isra_120x88;
 
     return 0;
@@ -48696,8 +48689,11 @@ int tx_isp_core_ops_s_ctrl(void *arg1, void **arg2, int *arg3, int arg4)
 
             int v0_56 = tisp_s_osd_single_attr(arg1, &var_88);
 
-            if (v0_56 == 0 && regtrace_is_kernel_ptr(s2_2)) {   /* M1: slot table may not exist yet */
-                *(int *)((uintptr_t)s2_2 + ((int)arg1 + 0xa4) * 4) = 1;
+            if (v0_56 == 0) {   /* M1: slot table may not exist yet, sensor index from the ioctl */
+                u32 *cnt = t40_osd_counter(regtrace_is_kernel_ptr(s2_2) ? s2_2 : NULL, (u32)(uintptr_t)arg1, 656);
+
+                if (cnt)
+                    *cnt = 1;
             }
 
             return v0_56;
@@ -149228,6 +149224,7 @@ int32_t Tzn_Msca_Shd_mask(uint32_t arg1, void *arg2)
 int32_t Tzn_Msca_Shd_osd(int32_t arg1, void* arg2)
 {
     uint32_t var_48 = 0;
+    unsigned long t40_osd_fl;
     int32_t *v0_1;
     int32_t *a2;
     uint32_t v0_3;	/* integer (register address / counter), not a pointer: host-diff fix */
@@ -149261,6 +149258,8 @@ int32_t Tzn_Msca_Shd_osd(int32_t arg1, void* arg2)
     if (v0_1 != 0) {
         return isp_printf(1, "[Tzn Msca Err] : SHD dma is busy, write reg value is err\n", a2);
     }
+
+    spin_lock_irqsave(&t40_osd_slot_lock, t40_osd_fl);   /* #160: slot reads vs the setters' image swap */
 
    /* system_reg_write(0x50320, 0x101) */
     system_reg_write(0x50320, 0x101);
@@ -149326,6 +149325,7 @@ int32_t Tzn_Msca_Shd_osd(int32_t arg1, void* arg2)
     system_reg_write(0x50320, 0x102);
     /* OEM Tzn_Msca_Shd_osd @0x6cf2c: a0 = 0x50000 + 0x420 (shadow kick), not 0x414834 */
     system_reg_write(0x50420, 0x41000001);
+    spin_unlock_irqrestore(&t40_osd_slot_lock, t40_osd_fl);
 
     return private_spin_unlock_irqrestore();
 }
@@ -156459,13 +156459,39 @@ int32_t tisp_g_mscaler_mask_attr(int32_t arg1, char *arg2)
     return 0;
 }
 
-static uint8_t t40_osd_img_owned[2][2][8];   /* [mscaler sel][chx][pic]: the slot image was kmalloc'ed by tisp_s_osd_attr */
-static void t40_osd_img_release(int sel, int ch, int p, char *ent)
+static uint8_t t40_osd_img_owned[2][2][8];   /* [mscaler sel][chx][pic]: the slot image was kmalloc'ed by tisp_s_osd_attr (slot holds its PHYSICAL address) */
+
+/* Write one pic slot (ent = state + 0x1e4 + 16 * pic: u16 left@0, top@2, width@4, height@6, u32 image@8 (physical),
+ * u16 stride@12, u8 enable@14, u8 shown@15) under t40_osd_slot_lock, the lock of the frame-done emitter
+ * (Tzn_Msca_Shd_osd), and free the replaced image after the lock (#160: the OEM kfree's it while the HW may still be
+ * programmed with it).  owned_buf = a kmalloc'ed buffer this call hands over (slot image = its physical address),
+ * NULL = the image is the given physical address (pool memory of libimp, never freed here).  shown < 0 keeps it. */
+static void t40_osd_slot_set(int sel, int ch, int p, char *ent, int enable, unsigned int left, unsigned int top,
+                             unsigned int width, unsigned int height, uint32_t image, unsigned int stride,
+                             void *owned_buf, int shown)
 {
-    if (t40_osd_img_owned[sel ? 1 : 0][ch][p]) {
-        private_kfree((void *)(uintptr_t)*(uint32_t *)(ent + 8));
-        t40_osd_img_owned[sel ? 1 : 0][ch][p] = 0;
-    }
+    uint8_t *owned = &t40_osd_img_owned[sel ? 1 : 0][ch][p];
+    void *old = NULL;
+    unsigned long fl;
+
+    if (owned_buf)
+        image = (uint32_t)virt_to_phys(owned_buf);
+    spin_lock_irqsave(&t40_osd_slot_lock, fl);
+    if (*owned)
+        old = phys_to_virt(*(uint32_t *)(ent + 8));
+    *(uint8_t *)(ent + 14) = enable;
+    *(uint16_t *)(ent + 0) = left;
+    *(uint16_t *)(ent + 2) = top;
+    *(uint16_t *)(ent + 4) = width;
+    *(uint16_t *)(ent + 6) = height;
+    *(uint32_t *)(ent + 8) = image;
+    *(uint16_t *)(ent + 12) = stride;
+    if (shown >= 0)
+        *(uint8_t *)(ent + 15) = shown;
+    *owned = owned_buf ? 1 : 0;
+    spin_unlock_irqrestore(&t40_osd_slot_lock, fl);
+    if (old)
+        private_kfree(old);
 }
 
 /* T40-OSD-ATTR: tisp_s_osd_attr rewritten from the OEM firmware (libt40-firmware.a 1.3.1, 0x72958..0x72dfc).
@@ -156510,20 +156536,13 @@ int32_t tisp_s_osd_attr(int32_t chn, void *attr)
             const char __user *img = (const char __user *)(uintptr_t)*(const uint32_t *)(pa + 12);
             unsigned int left = *(const uint16_t *)(pa + 2), top = *(const uint16_t *)(pa + 4);
             unsigned int width = *(const uint16_t *)(pa + 6), height = *(const uint16_t *)(pa + 8);
+            unsigned int size;
             void *buf;
 
             if (en != 1 || type >= 2) {
                 if (en != 1 ? type == 0 : 1)
                     isp_printf(1, " %s:%d chx:%d, pic_num:%d This mode is not supported!\n", "tisp_s_osd_attr", 965, ch, p);
-                t40_osd_img_release(chn, ch, p, ent);
-                *(uint8_t *)(ent + 14) = 0;
-                *(uint16_t *)(ent + 0) = 0;
-                *(uint16_t *)(ent + 2) = 0;
-                *(uint16_t *)(ent + 4) = 0;
-                *(uint16_t *)(ent + 6) = 0;
-                *(uint32_t *)(ent + 8) = 0;
-                *(uint16_t *)(ent + 12) = 0;
-                *(uint8_t *)(ent + 15) = 0;
+                t40_osd_slot_set(chn, ch, p, ent, 0, 0, 0, 0, 0, 0, 0, NULL, 0);
                 continue;
             }
             if (full_w < *(uint16_t *)(ent + 4) || full_h < *(uint16_t *)(ent + 6)) {
@@ -156534,7 +156553,7 @@ int32_t tisp_s_osd_attr(int32_t chn, void *attr)
             }
             if (img == NULL)
                 continue;
-            if (left >= full_w || top >= full_h) {
+            if (!t40_osd_origin_ok(left, top, full_w, full_h)) {
                 /* M2 (review-week-1030): the clip below (full_w - left) wraps the u16 width/height to ~65k
                  * when the origin lies outside the frame (OEM edge case); reject like the single-pic
                  * overflow check does */
@@ -156542,39 +156561,28 @@ int32_t tisp_s_osd_attr(int32_t chn, void *attr)
                            "tisp_s_osd_attr", __LINE__, ch, p, left, top, full_w, full_h);
                 return -1;
             }
-            *(uint8_t *)(ent + 14) = 1;
-            *(uint16_t *)(ent + 0) = left;
-            *(uint16_t *)(ent + 2) = top;
-            *(uint16_t *)(ent + 4) = width;
-            *(uint16_t *)(ent + 6) = height;
-            if ((int)full_w < (int)(left + width))
-                *(uint16_t *)(ent + 4) = full_w - left;
-            if ((int)full_h < (int)(top + height))
-                *(uint16_t *)(ent + 6) = full_h - top;
+            /* The new image is built first and swapped in under the emitter's lock; a failure leaves the slot as it was
+             * (the OEM frees the old image first and leaves the freed pointer in an enabled slot). */
             if (type == 1) {
-                unsigned int size = height * *(const uint16_t *)(pa + 20);
+                size = height * *(const uint16_t *)(pa + 20);
 
                 if (size == 0)          /* M2: kmalloc(0) = ZERO_SIZE_PTR would be stored as the image */
                     return -1;
-                t40_osd_img_release(chn, ch, p, ent);
                 buf = private_kmalloc(size, GFP_KERNEL);
                 if (buf == NULL) {
                     isp_printf(2, "[%s %d] [[ %s:%d ]]: Failed to alloc %lld KB buffer!\n", "tisp_s_osd_attr", 952,
                                "tisp_s_osd_attr", 952, (long long)(size >> 10));
-                    *(uint32_t *)(ent + 8) = 0;
                     return -1;
                 }
                 if (copy_from_user(buf, img, size) != 0) {
                     isp_printf(2, "[%s %d] [[ %s:%d ]] copy error!!!\n", "tisp_s_osd_attr", 962, "tisp_s_osd_attr", 962);
                     private_kfree(buf);
-                    *(uint32_t *)(ent + 8) = 0;
                     return -1;
                 }
             } else {
                 char path[T40_OSD_ATTR_PATH_MAX];
                 struct file *f;
                 loff_t fsize;
-                unsigned int size;
 
                 if (strncpy_from_user(path, img, sizeof(path)) < 0) {
                     isp_printf(2, "[%s %d] [[ %s:%d ]] copy error!!!\n", "tisp_s_osd_attr", 915, "tisp_s_osd_attr", 915);
@@ -156592,21 +156600,24 @@ int32_t tisp_s_osd_attr(int32_t chn, void *attr)
                     private_filp_close(f, NULL);
                     return -1;
                 }
-                t40_osd_img_release(chn, ch, p, ent);
                 buf = private_kmalloc(size, GFP_KERNEL);
                 if (buf == NULL) {
                     isp_printf(2, "[%s %d] [[ %s:%d ]]: Failed to alloc %lld KB buffer!\n", "tisp_s_osd_attr", 936,
                                "tisp_s_osd_attr", 936, (long long)(fsize >> 10));
                     private_filp_close(f, NULL);
-                    *(uint32_t *)(ent + 8) = 0;
                     return -1;
                 }
                 kernel_read(f, 0, buf, size);   /* OEM: vfs_read result unchecked */
                 private_filp_close(f, NULL);
             }
-            *(uint32_t *)(ent + 8) = (uint32_t)(uintptr_t)buf;
-            t40_osd_img_owned[chn ? 1 : 0][ch][p] = 1;
-            *(uint16_t *)(ent + 12) = *(const uint16_t *)(pa + 20);
+            /* #141: the draw block fetches the picture by DMA from RAM with a PHYSICAL address (the slot holds the
+             * address libimp passes for the pool pictures); the OEM stores the kmalloc KSEG0 pointer and never
+             * writes the cache back (inferred from the camera: no picture, needs a device check) */
+            dma_cache_sync(NULL, buf, size, DMA_TO_DEVICE);
+            t40_osd_slot_set(chn, ch, p, ent, 1, left, top,
+                             (full_w < left + width) ? full_w - left : width,
+                             (full_h < top + height) ? full_h - top : height,
+                             0, *(const uint16_t *)(pa + 20), buf, -1);
             n++;
         }
         if (n > 0) {
@@ -156667,57 +156678,47 @@ int32_t tisp_g_osd_attr(int32_t arg1, uint32_t *arg2)
 int tisp_s_osd_single_pic(int arg1, int arg2, int arg3, int arg4, const char *arg5);
 int tisp_s_osd_single_pic(int arg1, int arg2, int arg3, int arg4, const char *arg5)
 {
-    char *st = t40_osd_state(arg1);
-    char *chp = st + arg2 * 0x268;                 /* channel block */
-    char *ent = st + ((arg3 + 0x1e) << 4) + arg2 * 0x268;   /* pic entry: +0x12 enable, +0x13 shown, +0xc image, +0x10 stride */
-    char *geo = st + (arg3 << 4) + arg2 * 0x268;   /* pic geometry: +0x1e4 left, +0x1e6 top, +0x1e8 width, +0x1ea height */
-    unsigned int en = *(const uint8_t *)arg5;
-    unsigned int left = *(const uint16_t *)(arg5 + 2), top = *(const uint16_t *)(arg5 + 4);
-    unsigned int width = *(const uint16_t *)(arg5 + 6), height = *(const uint16_t *)(arg5 + 8);
-    unsigned int full_w = *(uint16_t *)(chp + 0x20), full_h = *(uint16_t *)(chp + 0x22);
+    char *st, *chp, *ent;
+    unsigned int en, left, top, width, height, full_w, full_h;
 
     (void)arg4;
     if (arg2 < 0 || arg2 > 1 || arg3 < 0 || arg3 > 7)   /* stability: the OEM does not check the user-supplied indices */
         return -1;
+    st = t40_osd_state(arg1);
+    chp = st + arg2 * 0x268;                     /* channel block */
+    ent = chp + 0x1e4 + 16 * arg3;               /* pic slot: left@0 top@2 width@4 height@6 image@8 stride@12 enable@14 shown@15 */
+    en = *(const uint8_t *)arg5;
+    left = *(const uint16_t *)(arg5 + 2);
+    top = *(const uint16_t *)(arg5 + 4);
+    width = *(const uint16_t *)(arg5 + 6);
+    height = *(const uint16_t *)(arg5 + 8);
+    full_w = *(uint16_t *)(chp + 0x20);
+    full_h = *(uint16_t *)(chp + 0x22);
     isp_printf(0, " [%s:%d] ch:%d, pic:%d, enable:%d, left:%d, top:%d, width:%d, height:%d, image:%d, stride:%d\n",
                "tisp_s_osd_single_pic", 1070, arg2, arg3, en, left, top, width, height,
                *(const uint32_t *)(arg5 + 12), *(const uint16_t *)(arg5 + 20));
     if (en != 1) {
-        *(uint8_t *)(ent + 0x12) = 0;
-        *(uint32_t *)(geo + 0x1e4) = 0;
-        *(uint32_t *)(geo + 0x1e8) = 0;
-        t40_osd_img_release(arg1, arg2, arg3, ent + 4);   /* T40-OSD-ATTR: free a tisp_s_osd_attr image before dropping the slot */
-        *(uint32_t *)(ent + 0xc) = 0;
-        *(uint16_t *)(ent + 0x10) = 0;
-        *(uint8_t *)(ent + 0x13) = 0;
+        t40_osd_slot_set(arg1, arg2, arg3, ent, 0, 0, 0, 0, 0, 0, 0, NULL, 0);
         return 0;
     }
-    if (full_w < *(uint16_t *)(geo + 0x1e8) || full_h < *(uint16_t *)(geo + 0x1ea)) {
+    if (full_w < *(uint16_t *)(ent + 4) || full_h < *(uint16_t *)(ent + 6)) {
         isp_printf(1, "[[ %s:%d ]] ISP: The width or height of the image(ch:%d, osd:%d) exceeds the original image!\n",
                    "tisp_s_osd_single_pic", 1076, arg2, arg3);
         return 0;
     }
-    *(uint8_t *)(ent + 0x12) = 1;
-    *(uint16_t *)(geo + 0x1e4) = left;
-    *(uint16_t *)(geo + 0x1e6) = top;
-    *(uint16_t *)(geo + 0x1e8) = width;
-    *(uint16_t *)(geo + 0x1ea) = height;
-    t40_osd_img_release(arg1, arg2, arg3, ent + 4);   /* T40-OSD-ATTR: free a tisp_s_osd_attr image before overwriting the slot */
-    *(uint32_t *)(ent + 0xc) = *(const uint32_t *)(arg5 + 12);
-    *(uint16_t *)(ent + 0x10) = *(const uint16_t *)(arg5 + 20);
     if (full_w < left + width || full_h < top + height) {
+        /* OEM: the slot is already enabled with the unclipped geometry when this is reported (-1); nothing is
+         * stored here, so the draw block never sees a rectangle outside the channel (#160) */
         isp_printf(1, "The image overflows the OSD boundary !!!\n");
         return -1;
     }
-    if (full_w < *(uint16_t *)(geo + 0x1e8) + *(uint16_t *)(geo + 0x1e4))
-        *(uint16_t *)(geo + 0x1e8) = full_w - *(uint16_t *)(geo + 0x1e4);
-    if (full_h < *(uint16_t *)(geo + 0x1ea) + *(uint16_t *)(geo + 0x1e6))
-        *(uint16_t *)(geo + 0x1ea) = full_h - *(uint16_t *)(geo + 0x1e6);
-    *(uint8_t *)(ent + 0x13) = 1;
+    /* #141: GetSingleOSDAttr returns the picture as KSEG0 virtual (stored + 0x80000000); an application writing
+     * that value back hands in the KSEG0 form, the draw block needs the physical one */
+    t40_osd_slot_set(arg1, arg2, arg3, ent, 1, left, top, width, height,
+                     t40_osd_phys(*(const uint32_t *)(arg5 + 12)), *(const uint16_t *)(arg5 + 20), NULL, 1);
     return 0;
 }
 
-int32_t tisp_g_osd_single_pic(int32_t arg1, int32_t arg2, int32_t arg3, uint8_t *arg4);
 int32_t tisp_g_osd_single_pic(int32_t arg1, int32_t arg2, int32_t arg3, uint8_t *arg4)
 {
     char *st = t40_osd_state(arg1);

@@ -58,6 +58,10 @@ TESTS += tx_isp_t31_autozoom_test
 TESTS += tx_isp_t31_af_test
 TESTS += tx_isp_t31_framedrop_test
 TESTS += tx_isp_t40_ae_api_test
+TESTS += tx_isp_t40_osd_slot_test
+
+tx_isp_t40_osd_slot_test: tx_isp_t40_osd_slot_test.c ../driver/t40/tx_isp_t40_osd_slot.h
+	$(CC) $(CFLAGS) -o $@ $<
 
 tx_isp_t40_ae_api_test: tx_isp_t40_ae_api_test.c ../driver/t40/tx_isp_t40_ae_api.h
 	$(CC) $(CFLAGS) -o $@ $<
