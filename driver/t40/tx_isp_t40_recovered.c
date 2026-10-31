@@ -169333,28 +169333,57 @@ tx_isp_core_probe0x204:
     goto tx_isp_core_probe0x13c;
 
 tx_isp_core_probe0x21c:
-    /* fragment 23: CallSetup */
-    s2 = 0;
-    s4 = 1;
-    memset((void *)(uintptr_t)s6, 0, (*(uint16_t *)((char *)((uintptr_t)s0) + 256)) * s8);
-    v0 = (uintptr_t *)s6;
+    /*
+     * T40-AGG52-PROBE: channel slot loop, hand translation of OEM 0x7a514..0x7a6ec.  The lift kept
+     * the index in a uint32_t * (s2 += 1 = +4, i < count compared 4*i) and the slot cursor in a
+     * uintptr_t * (s1 += 216 = +864): only slot 0 was set up (slots 1.. stayed zero, pad->priv of
+     * the outpads 1.. NULL), slot+116/120 needed a /4 patch, the i == 1/3/4 legs never ran, and
+     * pad+28 got the unrelocated constant 0x7e668 (OEM .text+0x773d8 = ispcore_pad_event_handle).
+     * OEM per outpad i < core+632: slot = core+628 array + 216*i, pad = core+260 array + 36*i;
+     * slot+112 = i, +116 = i % 3, +120 = i / 3, +128 = pad; pad[5] == 0 -> slot+124 = 0, next;
+     * else default sizes (i 0/3: 2624x2048, 152/153 = 1/0; i 1/4: 1920x1080, 1/1), +144/+148 =
+     * 128, +124 = 1, spinlock +164, +132 = core, pad+28 = pad event handler, pad+32 = slot.
+     * The pad event handler is this driver's regtrace_ispcore_pad_event_handle (the one
+     * regtrace_patch_core_pad_callbacks installs anyway; no window with a wild pointer).
+     */
+    {
+        uint32_t n = *(uint16_t *)((char *)s0 + 256);
+        uint32_t i;
 
-    /* fragment 24: Arithmetic */
-    a1 = 458752;
-    s1 = s6;
-    v1 = 3;
-    a2 = 36;
-    a1 = a1 + 32360;
+        memset((void *)(uintptr_t)s6, 0, n * 216U);
+        for (i = 0; i < *(uint32_t *)((char *)s0 + 632); i++) {
+            uint8_t *slot = (uint8_t *)(uintptr_t)s6 + i * 216U;
+            uint8_t *pad = (uint8_t *)(uintptr_t)*(uint32_t *)((char *)s0 + 260) + i * 36U;
 
-tx_isp_core_probe0x24c:
-    /* fragment 25: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 632);
-    v0 = s2 < v0;
-
-    /* fragment 26: Branch */
-    int _bc_v0_26 = v0 != 0;
+            *(uint32_t *)(slot + 112) = i;
+            *(uint32_t *)(slot + 116) = i % 3U;
+            *(uint32_t *)(slot + 120) = i / 3U;
+            *(uint32_t *)(slot + 128) = (uint32_t)(uintptr_t)pad;
+            if (pad[5] == 0) {
+                *(uint32_t *)(slot + 124) = 0;
+                continue;
+            }
+            if (i == 0 || i == 3) {
+                *(uint32_t *)(slot + 136) = 2624;
+                *(uint32_t *)(slot + 140) = 2048;
+                slot[152] = 1;
+                slot[153] = 0;
+            } else if (i == 1 || i == 4) {
+                *(uint32_t *)(slot + 136) = 1920;
+                *(uint32_t *)(slot + 140) = 1080;
+                slot[152] = 1;
+                slot[153] = 1;
+            }
+            *(uint32_t *)(slot + 144) = 128;
+            *(uint32_t *)(slot + 148) = 128;
+            *(uint32_t *)(slot + 124) = 1;
+            private_spin_lock_init((int32_t *)(slot + 164));
+            *(uint32_t *)(slot + 132) = (uint32_t)(uintptr_t)s0;
+            *(uint32_t *)(pad + 28) = (uint32_t)(uintptr_t)regtrace_ispcore_pad_event_handle;
+            *(uint32_t *)(pad + 32) = (uint32_t)(uintptr_t)slot;
+        }
+    }
     v0 = (uintptr_t *)&isp_core_tuning_init;
-    if (_bc_v0_26) { goto tx_isp_core_probe0x2e0; }
 
     /* fragment 27: CallSetup */
     *(uint32_t *)((char *)s0 + 628) = s6;
@@ -169395,128 +169424,6 @@ tx_isp_core_probe0x2c0:
     /* fragment 36: Branch */
     *(uint32_t *)((char *)s0 + 628) = 0;
     goto tx_isp_core_probe0x204;
-
-tx_isp_core_probe0x2e0:
-    /* fragment 37: Unknown */
-    /* unmatched fragment 37 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 7b068:	0243001a 	div	zero,s2,v1 */
-
-    /* fragment 38: MemoryAccess */
-    /* T40-SLOT-DIV: OEM 0x7a5d8 `div s2,v1(=3)`; mfhi -> slot+116, mflo -> slot+120 (OEM 0x7a5e4/0x7a5ec).
-     * The lift dropped the div and stored the stale v0 (here &isp_core_tuning_init, a module pointer)
-     * in both words; the ISR drain leg then used slot+120 as the pipeline index (idx*96 + 0x17c) and
-     * loaded from a wild address (QEMU: bus error, silicon: unmapped read returns junk). */
-    *(uint32_t *)((char *)s1 + 112) = s2;
-    *(uint32_t *)((char *)s1 + 116) = (uint32_t)(((uintptr_t)s2 / 4U) % 3U);   /* s2 is a uint32_t* here: counts in 4-byte steps (see below) */
-    *(uint32_t *)((char *)s1 + 120) = (uint32_t)(((uintptr_t)s2 / 4U) / 3U);
-    v0 = *(uint32_t *)((char *)s0 + 260);
-    s8 = (uintptr_t)s2 * (uintptr_t)a2;
-    v0 = v0 + s8;
-    *(uint32_t *)((char *)s1 + 128) = v0;
-    v0 = *(uint32_t *)((char *)s0 + 260);
-    v0 = v0 + s8;
-    v0 = *(uint8_t *)((char *)v0 + 5);
-
-    /* fragment 39: Branch */
-    if (v0 != 0) { goto tx_isp_core_probe0x32c; }
-
-    /* fragment 40: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 124) = 0;
-
-tx_isp_core_probe0x320:
-    /* fragment 41: Arithmetic */
-    s2 = s2 + 1;
-
-    /* fragment 42: Branch */
-    s1 = s1 + 216;
-    goto tx_isp_core_probe0x24c;
-
-tx_isp_core_probe0x32c:
-    /* fragment 43: Branch */
-    v0 = s2 < 2;
-    if (s2 == s4) { goto tx_isp_core_probe0x3c0; }
-
-    /* fragment 44: Branch */
-    if (v0 == 0) { goto tx_isp_core_probe0x394; }
-
-    /* fragment 45: Branch */
-    v0 = 2624;
-    if (s2 == 0) { goto tx_isp_core_probe0x3e0; }
-
-tx_isp_core_probe0x344:
-    /* fragment 46: CallSetup */
-    *(uint32_t *)((char *)s1 + 144) = 128;
-    *(uint32_t *)((char *)s1 + 148) = 128;
-    *(uint32_t *)((char *)s1 + 124) = s4;
-    local_28 = a1;
-    local_24 = a2;
-    local_20 = v1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_spin_lock_init)((uintptr_t)s1 + 164, a1, a2); /* #agg51: byte offset (OEM 0x7a64c addiu a0,s1,164), was x4 = +656 */ /* jalr target resolved by relocation */
-
-    /* fragment 47: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 132) = s0;
-    v0 = *(uint32_t *)((char *)s0 + 260);
-    a1 = local_28;
-    a2 = local_24;
-    v0 = v0 + s8;
-    *(uint32_t *)((char *)v0 + 28) = a1;
-    v0 = *(uint32_t *)((char *)s0 + 260);
-    v1 = local_20;
-    s8 = v0 + s8;
-
-    /* fragment 48: Branch */
-    *(uint32_t *)((char *)s8 + 32) = s1;
-    goto tx_isp_core_probe0x320;
-
-tx_isp_core_probe0x394:
-    /* fragment 49: Branch */
-    v0 = 4;
-    if (s2 == v1) { goto tx_isp_core_probe0x3dc; }
-
-    /* fragment 50: Branch */
-    int _bc_s2_50 = s2 != v0;
-    v0 = 1920;
-    if (_bc_s2_50) { goto tx_isp_core_probe0x344; }
-
-    /* fragment 51: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 136) = v0;
-    v0 = 1080;
-    *(uint32_t *)((char *)s1 + 140) = v0;
-    v0 = 1;
-    *(uint8_t *)((char *)s1 + 152) = s4;
-
-    /* fragment 52: Branch */
-    *(uint8_t *)((char *)s1 + 153) = v0;
-    goto tx_isp_core_probe0x344;
-
-tx_isp_core_probe0x3c0:
-    /* fragment 53: Arithmetic */
-    v0 = 1920;
-
-    /* fragment 54: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 136) = v0;
-    v0 = 1080;
-    *(uint32_t *)((char *)s1 + 140) = v0;
-    *(uint8_t *)((char *)s1 + 152) = s2;
-
-    /* fragment 55: Branch */
-    *(uint8_t *)((char *)s1 + 153) = s2;
-    goto tx_isp_core_probe0x344;
-
-tx_isp_core_probe0x3dc:
-    /* fragment 56: Arithmetic */
-    v0 = 2624;
-
-tx_isp_core_probe0x3e0:
-    /* fragment 57: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 136) = v0;
-    v0 = 2048;
-    *(uint32_t *)((char *)s1 + 140) = v0;
-    *(uint8_t *)((char *)s1 + 152) = s4;
-
-    /* fragment 58: Branch */
-    *(uint8_t *)((char *)s1 + 153) = 0;
-    goto tx_isp_core_probe0x344;
 
 tx_isp_core_probe0x3f8:
     /* fragment 59: CallSetup */
