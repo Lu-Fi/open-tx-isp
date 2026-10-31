@@ -49543,13 +49543,18 @@ int32_t isp_core_tuning_event(uintptr_t a0, uint32_t a1, uintptr_t a2)
 /* ispcore_irqstatus_func: OEM "lw v0,128(tuning); jalr v0" with a2 = an 8-byte stack block whose
  * word 1 is 0 (vinum 0, "sw zero,20(sp)" at entry).  Only the handler isp_core_tuning_init
  * installs is called. */
-static void regtrace_t40_tuning_event_call(uintptr_t tuning, uint32_t event)
+static void regtrace_t40_tuning_event_call_ch(uintptr_t tuning, uint32_t event, uint32_t ch)
 {
-	uint32_t arg[2] = { 0, 0 };
+	uint32_t arg[2] = { 0, ch };
 
 	if (!tuning || *(uintptr_t *)(tuning + 128) != (uintptr_t)&isp_core_tuning_event)
 		return;
 	(void)isp_core_tuning_event(tuning, event, (uintptr_t)arg);
+}
+
+static void regtrace_t40_tuning_event_call(uintptr_t tuning, uint32_t event)
+{
+	regtrace_t40_tuning_event_call_ch(tuning, event, 0);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000cd8c origin=fragment_seed original=isp_core_tuning_init */
@@ -165115,7 +165120,7 @@ ispcore_irqstatusSec_func0xc4:
     if (a0 == 0) { goto ispcore_irqstatusSec_func0xf8; }
 
     /* fragment 23: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    (void)0; regtrace_t40_tuning_event_call_ch((uintptr_t)a0, 0x4000003, 1); /* #jalr-unresolved: OEM 0x79050 tuning->event(0x4000003), arg = {?, 1} (sw 1,20(sp)) */
 
     /* fragment 24: Arithmetic */
     v0 = 1;
@@ -165134,7 +165139,7 @@ ispcore_irqstatusSec_func0x100:
     if (a0 == 0) { goto ispcore_irqstatusSec_func0x11c; }
 
     /* fragment 28: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    (void)0; regtrace_t40_tuning_event_call_ch((uintptr_t)a0, 0x4000002, 1); /* #jalr-unresolved: OEM 0x79078 tuning->event(0x4000002) = isp_frame_done_wakeup(chan 1) */
 
 ispcore_irqstatusSec_func0x11c:
     /* fragment 29: CallSetup */
