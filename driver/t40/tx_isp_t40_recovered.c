@@ -58816,8 +58816,14 @@ int32_t tx_isp_set_ae_algo_open_isra_28(void* arg1, int32_t arg2)
         return -1;
     }
     ch = u[1];                                          /* lw s0,28(sp) */
-    if (ch >= T40_ALGO_IDX_COUNT || !regtrace_is_kernel_ptr((void *)core))
+    if (ch >= T40_ALGO_IDX_COUNT)
         return -1;                                      /* OEM indexes unchecked */
+    /* OEM s4 = *(dev+268) is the ISP core object that sensor_init reads as .bss+1552; this driver
+     * keeps it in g_ispcore[0] (as sensor_init); with dev+268 QEMU open returned -1. */
+    if (regtrace_is_kernel_ptr((void *)(uintptr_t)regtrace_get_u32((uintptr_t)g_ispcore, 0)))
+        core = regtrace_get_u32((uintptr_t)g_ispcore, 0);
+    if (!regtrace_is_kernel_ptr((void *)core))
+        return -1;
     slot = core + ch * 96;
     attr = *(uint32_t *)(slot + 368);
     if (!regtrace_is_kernel_ptr((void *)attr))
