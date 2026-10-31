@@ -848,24 +848,19 @@ static unsigned char __attribute__((aligned(4))) csi_subdev_ops[20] = {
 };
 static unsigned char isp_csi_fops[16384];
 static void *dump_csd;
-static uint32_t frame_done_cnt;
+/* T40-AGG52-FD: OEM frame_done_cnt / vic_frame_done_cnt are u64[2] (isp_frame_done_wakeup 0xc0dc
+ * indexes them with ch << 3); the lift declared one u32 (the ch 0 increment wrote 8 bytes into
+ * frame_done_cond) and the wait queues as raw byte arrays initialised by hand. */
+static uint64_t frame_done_cnt[2];
 static uint32_t frame_done_cond;
 static uint32_t frame_done_cond_sec;
-static unsigned char __attribute__((aligned(4))) frame_done_wq[16] = {
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-};
-static unsigned char __attribute__((aligned(4))) frame_done_wq_sec[12] = {
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-};
-static uint32_t vic_frame_done_cnt;
+static DECLARE_WAIT_QUEUE_HEAD(frame_done_wq);
+static DECLARE_WAIT_QUEUE_HEAD(frame_done_wq_sec);
+static uint64_t vic_frame_done_cnt[2];
 static uint32_t vic_frame_done_cond;
 static uint32_t vic_frame_done_cond_sec;
-static unsigned char __attribute__((aligned(4))) vic_frame_done_wq[12] = {
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-};
-static unsigned char __attribute__((aligned(4))) vic_frame_done_wq_sec[12] = {
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-};
+static DECLARE_WAIT_QUEUE_HEAD(vic_frame_done_wq);
+static DECLARE_WAIT_QUEUE_HEAD(vic_frame_done_wq_sec);
 static char ispmem[16];
 static unsigned char data_b486c[16384];
 static uint32_t pre_queue_attr;
@@ -8881,14 +8876,7 @@ static void regtrace_patch_relocated_data(void)
     *(const void **)((char *)csi_core_ops + 0x4) = (const void *)&csi_core_ops_init;
     *(const void **)((char *)csi_subdev_internal_ops + 0x0) = (const void *)&tx_isp_csi_activate_subdev;
     *(const void **)((char *)csi_subdev_internal_ops + 0x4) = (const void *)&tx_isp_csi_slake_subdev;
-    *(const void **)((char *)vic_frame_done_wq_sec + 0x4) = (const void *)((char *)((char *)&vic_frame_done_wq_sec + 0x4));
-    *(const void **)((char *)vic_frame_done_wq_sec + 0x8) = (const void *)((char *)((char *)&vic_frame_done_wq_sec + 0x4));
-    *(const void **)((char *)frame_done_wq_sec + 0x4) = (const void *)((char *)((char *)&frame_done_wq_sec + 0x4));
-    *(const void **)((char *)frame_done_wq_sec + 0x8) = (const void *)((char *)((char *)&frame_done_wq_sec + 0x4));
-    *(const void **)((char *)vic_frame_done_wq + 0x4) = (const void *)((char *)((char *)&vic_frame_done_wq + 0x4));
-    *(const void **)((char *)vic_frame_done_wq + 0x8) = (const void *)((char *)((char *)&vic_frame_done_wq + 0x4));
-    *(const void **)((char *)frame_done_wq + 0x4) = (const void *)((char *)((char *)&frame_done_wq + 0x4));
-    *(const void **)((char *)frame_done_wq + 0x8) = (const void *)((char *)((char *)&frame_done_wq + 0x4));
+    /* frame_done_wq{,_sec} / vic_frame_done_wq{,_sec}: DECLARE_WAIT_QUEUE_HEAD (T40-AGG52-FD) */
     *(const void **)((char *)fs_subdev_ops + 0x0) = (const void *)&fs_core_ops;
     *(const void **)((char *)fs_subdev_ops + 0x10) = (const void *)&fs_internal_ops;
     *(const void **)((char *)fs_internal_ops + 0x0) = (const void *)&fs_activate_module;
@@ -48094,438 +48082,42 @@ int32_t tx_isp_ae_g_explist_isra_56(uint32_t a0, uintptr_t a1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000ac7c origin=fragment_seed original=isp_frame_done_wait */
+/*
+ * T40-AGG52-FD: hand translation of OEM isp_frame_done_wait (SDK 1.3.1 0xa1ec), the
+ * tx_isp_core_ops_g_ctrl 0x8000091 (IMP_ISP_Tuning_WaitFrameDone) and day/night s_ctrl wait.
+ * a0 = vinum, a1 = timeout (jiffies), a2 = u64 frame count out, a3 = 0 ISP / 1 VIC frame done.
+ * OEM: cond = 0; wait_event_interruptible_timeout(wq, cond == 1, timeout); copy cnt[vinum];
+ * -ERESTARTSYS stays, a timeout returns -ETIMEDOUT (-145), else 0.  The OEM VIC leg clears the
+ * ISP cond of channel 0 instead of the VIC one (then a stale VIC cond ends the wait at once);
+ * here every leg clears the cond it waits for.  The lift kept one u32 counter and a hand-made
+ * wait queue layout and was never reached with a woken queue (the frame-done event was an
+ * unresolved jalr in ispcore_irqstatus_func).
+ */
 int64_t isp_frame_done_wait(uint32_t a0, uint32_t a1, uintptr_t a2, uint32_t a3)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_44 = 0;
-    uint32_t local_48 = 0;
-    uint32_t local_4c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *s4 = 0;
-    uintptr_t s5 = 0;
-    uintptr_t s6 = 0;
-    uint32_t s7 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s1 = a0;
-    s0 = a1;
-
-    /* fragment 2: Branch */
-    s4 = a2;
-    if (a3 != 0) { goto isp_frame_done_wait0x1c4; }
-
-    /* fragment 3: Branch */
-    v0 = (uintptr_t *)&frame_done_cond_sec;
-    if (a0 != 0) { goto isp_frame_done_wait0x140; }
-
-    /* fragment 4: Arithmetic */
-    v0 = (uintptr_t *)&frame_done_cond;
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&frame_done_cond)) = 0;
-    a0 = *(uint32_t *)((char *)((char *)&frame_done_cond));
-    v1 = 1;
-
-    /* fragment 6: Branch */
-    s5 = v0;
-    if (a0 != v1) { goto isp_frame_done_wait0x308; }
-
-isp_frame_done_wait0x58:
-    /* fragment 7: Branch */
-    if (s0 != 0) { goto isp_frame_done_wait0x64; }
-
-    /* fragment 8: Arithmetic */
-    s0 = 1;
-
-isp_frame_done_wait0x64:
-    /* fragment 9: Arithmetic */
-    v0 = (uintptr_t *)&frame_done_cnt;
-
-isp_frame_done_wait0x68:
-    /* fragment 10: Arithmetic */
-    s1 = (uintptr_t)s1 << 3;
-    v0 = v0;
-
-isp_frame_done_wait0x70:
-    /* fragment 11: Arithmetic */
-    s1 = (uintptr_t)s1 + (uintptr_t)v0;
-
-    /* fragment 12: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 4);
-    v0 = *(uint32_t *)((char *)s1 + 0);
-    *(uint32_t *)((char *)s4 + 4) = v1;
-    v1 = -512;
-    *(uint32_t *)((char *)s4 + 0) = v0;
-
-    /* fragment 13: Branch */
-    v0 = s0;
-    if (s0 == v1) { goto isp_frame_done_wait0x98; }
-
-    /* fragment 14: Arithmetic */
-    v0 = -145;
-    if (s0 != 0) { v0 = 0; }
-
-isp_frame_done_wait0x98:
-    /* fragment 15: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-isp_frame_done_wait0xc4:
-    /* fragment 16: CallSetup */
-    v0 = (uintptr_t *)&local_1c;
-    s2 = (uintptr_t *)&prepare_to_wait_event;
-    s3 = (uint32_t *)&schedule_timeout;
-    local_1c = v0;
-    local_20 = v0;
-    local_10 = 0;
-    s7 = s6;
-    s2 = s2;
-    s3 = s3;
-
-isp_frame_done_wait0xe8:
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)prepare_to_wait_event((void *)(uintptr_t)s7, (void *)(uintptr_t)&local_10, 1); /* jalr target resolved by relocation */
-
-    /* fragment 18: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&frame_done_cond));
-    v1 = 1;
-
-    /* fragment 19: Branch */
-    if (a0 != v1) { goto isp_frame_done_wait0x318; }
-
-    /* fragment 20: Branch */
-    if (s0 == 0) { goto isp_frame_done_wait0x130; }
-
-isp_frame_done_wait0x110:
-    /* fragment 21: CallSetup */
-    a1 = (uint32_t *)&local_10;
-
-isp_frame_done_wait0x114:
-    /* fragment 22: CallSetup */
-    a0 = s6;
-
-isp_frame_done_wait0x118:
-    /* fragment 23: CallSetup */
-    finish_wait((void *)(uintptr_t)a0, (void *)(uintptr_t)a1); /* jalr target resolved by relocation */
-
-    /* fragment 24: Branch */
-    v0 = (uintptr_t *)&frame_done_cnt;
-    goto isp_frame_done_wait0x68;
-
-isp_frame_done_wait0x130:
-    /* fragment 25: Branch */
-    s0 = 1;
-    goto isp_frame_done_wait0x110;
-
-isp_frame_done_wait0x138:
-    /* fragment 26: Branch */
-    s0 = v0;
-    goto isp_frame_done_wait0x110;
-
-isp_frame_done_wait0x140:
-    /* fragment 27: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&frame_done_cond_sec)) = 0;
-    a0 = *(uint32_t *)((char *)((char *)&frame_done_cond_sec));
-    v1 = 1;
-
-    /* fragment 28: Branch */
-    s2 = v0;
-    if (a0 == v1) { goto isp_frame_done_wait0x58; }
-
-    /* fragment 29: Branch */
-    s6 = (uintptr_t)&frame_done_wq_sec;
-    if (a1 == 0) { goto isp_frame_done_wait0x310; }
-
-    /* fragment 30: CallSetup */
-    v0 = (uintptr_t *)&local_1c;
-    s3 = (uint32_t *)&prepare_to_wait_event;
-    s5 = (uintptr_t)&schedule_timeout;
-    local_1c = v0;
-    local_20 = v0;
-    local_10 = 0;
-    s7 = s6;
-    s3 = s3;
-    s5 = s5;
-
-isp_frame_done_wait0x180:
-    /* fragment 31: CallSetup */
-    v0 = (uintptr_t *)prepare_to_wait_event((void *)(uintptr_t)s7, (void *)(uintptr_t)&local_10, 1); /* jalr target resolved by relocation */
-
-    /* fragment 32: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&frame_done_cond_sec));
-    v1 = 1;
-
-    /* fragment 33: Branch */
-    if (a0 != v1) { goto isp_frame_done_wait0x338; }
-
-    /* fragment 34: Branch */
-    if (s0 == 0) { goto isp_frame_done_wait0x1b4; }
-
-isp_frame_done_wait0x1a8:
-    /* fragment 35: Arithmetic */
-    a1 = (uint32_t *)&local_10;
-
-isp_frame_done_wait0x1ac:
-    /* fragment 36: Branch */
-    a0 = (uint32_t *)&frame_done_wq_sec;
-    goto isp_frame_done_wait0x118;
-
-isp_frame_done_wait0x1b4:
-    /* fragment 37: Branch */
-    s0 = 1;
-    goto isp_frame_done_wait0x1a8;
-
-isp_frame_done_wait0x1bc:
-    /* fragment 38: Branch */
-    s0 = v0;
-    goto isp_frame_done_wait0x1a8;
-
-isp_frame_done_wait0x1c4:
-    /* fragment 39: Branch */
-    v0 = (uintptr_t *)&frame_done_cond_sec;
-    if (a0 != 0) { goto isp_frame_done_wait0x280; }
-
-    /* fragment 40: Arithmetic */
-    v0 = (uintptr_t *)&frame_done_cond;
-
-    /* fragment 41: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&frame_done_cond)) = 0;
-    v0 = (uintptr_t *)&vic_frame_done_cond;
-    a0 = *(uint32_t *)((char *)((char *)&vic_frame_done_cond));
-    v1 = 1;
-
-    /* fragment 42: Branch */
-    s6 = v0;
-    if (a0 != v1) { goto isp_frame_done_wait0x358; }
-
-isp_frame_done_wait0x1e8:
-    /* fragment 43: Branch */
-    if (s0 != 0) { goto isp_frame_done_wait0x1f4; }
-
-    /* fragment 44: Arithmetic */
-    s0 = 1;
-
-isp_frame_done_wait0x1f4:
-    /* fragment 45: Arithmetic */
-    v0 = (uintptr_t *)&vic_frame_done_cnt;
-
-isp_frame_done_wait0x1f8:
-    /* fragment 46: Arithmetic */
-    s1 = (uintptr_t)s1 << 3;
-
-    /* fragment 47: Branch */
-    v0 = (uintptr_t *)&vic_frame_done_cnt;
-    goto isp_frame_done_wait0x70;
-
-isp_frame_done_wait0x204:
-    /* fragment 48: CallSetup */
-    v0 = (uintptr_t *)&local_1c;
-    s2 = (uintptr_t *)&prepare_to_wait_event;
-    s3 = (uint32_t *)&schedule_timeout;
-    local_1c = v0;
-    local_20 = v0;
-    local_10 = 0;
-    s7 = s5;
-    s2 = s2;
-    s3 = s3;
-
-isp_frame_done_wait0x228:
-    /* fragment 49: CallSetup */
-    v0 = (uintptr_t *)prepare_to_wait_event((void *)(uintptr_t)s7, (void *)(uintptr_t)&local_10, 1); /* jalr target resolved by relocation */
-
-    /* fragment 50: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&vic_frame_done_cond));
-    v1 = 1;
-
-    /* fragment 51: Branch */
-    if (a0 != v1) { goto isp_frame_done_wait0x368; }
-
-    /* fragment 52: Branch */
-    if (s0 == 0) { goto isp_frame_done_wait0x270; }
-
-isp_frame_done_wait0x250:
-    /* fragment 53: CallSetup */
-    a1 = (uint32_t *)&local_10;
-
-isp_frame_done_wait0x254:
-    /* fragment 54: CallSetup */
-    a0 = s5;
-
-isp_frame_done_wait0x258:
-    /* fragment 55: CallSetup */
-    finish_wait((void *)(uintptr_t)a0, (void *)(uintptr_t)a1); /* jalr target resolved by relocation */
-
-    /* fragment 56: Branch */
-    v0 = (uintptr_t *)&vic_frame_done_cnt;
-    goto isp_frame_done_wait0x1f8;
-
-isp_frame_done_wait0x270:
-    /* fragment 57: Branch */
-    s0 = 1;
-    goto isp_frame_done_wait0x250;
-
-isp_frame_done_wait0x278:
-    /* fragment 58: Branch */
-    s0 = v0;
-    goto isp_frame_done_wait0x250;
-
-isp_frame_done_wait0x280:
-    /* fragment 59: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&frame_done_cond_sec)) = 0;
-    v0 = (uintptr_t *)&vic_frame_done_cond_sec;
-    a0 = *(uint32_t *)((char *)((char *)&vic_frame_done_cond_sec));
-    v1 = 1;
-
-    /* fragment 60: Branch */
-    s2 = v0;
-    if (a0 == v1) { goto isp_frame_done_wait0x1e8; }
-
-    /* fragment 61: Branch */
-    s6 = (uintptr_t)&vic_frame_done_wq_sec;
-    if (a1 == 0) { goto isp_frame_done_wait0x360; }
-
-    /* fragment 62: CallSetup */
-    v0 = (uintptr_t *)&local_1c;
-    s3 = (uint32_t *)&prepare_to_wait_event;
-    s5 = (uintptr_t)&schedule_timeout;
-    local_1c = v0;
-    local_20 = v0;
-    local_10 = 0;
-    s7 = s6;
-    s3 = s3;
-    s5 = s5;
-
-isp_frame_done_wait0x2c4:
-    /* fragment 63: CallSetup */
-    v0 = (uintptr_t *)prepare_to_wait_event((void *)(uintptr_t)s7, (void *)(uintptr_t)&local_10, 1); /* jalr target resolved by relocation */
-
-    /* fragment 64: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&vic_frame_done_cond_sec));
-    v1 = 1;
-
-    /* fragment 65: Branch */
-    if (a0 != v1) { goto isp_frame_done_wait0x388; }
-
-    /* fragment 66: Branch */
-    if (s0 == 0) { goto isp_frame_done_wait0x2f8; }
-
-isp_frame_done_wait0x2ec:
-    /* fragment 67: Arithmetic */
-    a1 = (uint32_t *)&local_10;
-
-isp_frame_done_wait0x2f0:
-    /* fragment 68: Branch */
-    a0 = (uint32_t *)&vic_frame_done_wq_sec;
-    goto isp_frame_done_wait0x258;
-
-isp_frame_done_wait0x2f8:
-    /* fragment 69: Branch */
-    s0 = 1;
-    goto isp_frame_done_wait0x2ec;
-
-isp_frame_done_wait0x300:
-    /* fragment 70: Branch */
-    s0 = v0;
-    goto isp_frame_done_wait0x2ec;
-
-isp_frame_done_wait0x308:
-    /* fragment 71: Branch */
-    s6 = (uintptr_t)&frame_done_wq;
-    if (a1 != 0) { goto isp_frame_done_wait0xc4; }
-
-isp_frame_done_wait0x310:
-    /* fragment 72: Branch */
-    s0 = 0;
-    goto isp_frame_done_wait0x64;
-
-isp_frame_done_wait0x318:
-    /* fragment 73: Branch */
-    a1 = (uint32_t *)&local_10;
-    if (s0 == 0) { goto isp_frame_done_wait0x114; }
-
-    /* fragment 74: Branch */
-    if (v0 != 0) { goto isp_frame_done_wait0x138; }
-
-    /* fragment 75: CallSetup */
-    v0 = (uintptr_t *)prepare_to_wait_event((void *)(uintptr_t)s0, (void *)(uintptr_t)a1, a2); /* jalr target resolved by relocation */
-
-    /* fragment 76: Branch */
-    s0 = v0;
-    goto isp_frame_done_wait0xe8;
-
-isp_frame_done_wait0x338:
-    /* fragment 77: Branch */
-    a1 = (uint32_t *)&local_10;
-    if (s0 == 0) { goto isp_frame_done_wait0x1ac; }
-
-    /* fragment 78: Branch */
-    if (v0 != 0) { goto isp_frame_done_wait0x1bc; }
-
-    /* fragment 79: CallSetup */
-    v0 = (uintptr_t *)schedule_timeout(s0); /* jalr target resolved by relocation */
-
-    /* fragment 80: Branch */
-    s0 = v0;
-    goto isp_frame_done_wait0x180;
-
-isp_frame_done_wait0x358:
-    /* fragment 81: Branch */
-    s5 = (uintptr_t)&vic_frame_done_wq;
-    if (a1 != 0) { goto isp_frame_done_wait0x204; }
-
-isp_frame_done_wait0x360:
-    /* fragment 82: Branch */
-    s0 = 0;
-    goto isp_frame_done_wait0x1f4;
-
-isp_frame_done_wait0x368:
-    /* fragment 83: Branch */
-    a1 = (uint32_t *)&local_10;
-    if (s0 == 0) { goto isp_frame_done_wait0x254; }
-
-    /* fragment 84: Branch */
-    if (v0 != 0) { goto isp_frame_done_wait0x278; }
-
-    /* fragment 85: CallSetup */
-    v0 = (uintptr_t *)prepare_to_wait_event((void *)(uintptr_t)s0, (void *)(uintptr_t)a1, a2); /* jalr target resolved by relocation */
-
-    /* fragment 86: Branch */
-    s0 = v0;
-    goto isp_frame_done_wait0x228;
-
-isp_frame_done_wait0x388:
-    /* fragment 87: Branch */
-    a1 = (uint32_t *)&local_10;
-    if (s0 == 0) { goto isp_frame_done_wait0x2f0; }
-
-    /* fragment 88: Branch */
-    if (v0 != 0) { goto isp_frame_done_wait0x300; }
-
-    /* fragment 89: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)vic_frame_done_wq)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 90: Branch */
-    s0 = v0;
-    goto isp_frame_done_wait0x2c4;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+	uint32_t *cond;
+	wait_queue_head_t *wq;
+	uint64_t *cnt;
+	long ret;
+
+	if (a0 >= 2)
+		return -EINVAL;
+	if (!a3) {
+		cond = a0 ? &frame_done_cond_sec : &frame_done_cond;
+		wq = a0 ? &frame_done_wq_sec : &frame_done_wq;
+		cnt = frame_done_cnt;
+	} else {
+		cond = a0 ? &vic_frame_done_cond_sec : &vic_frame_done_cond;
+		wq = a0 ? &vic_frame_done_wq_sec : &vic_frame_done_wq;
+		cnt = vic_frame_done_cnt;
+	}
+	WRITE_ONCE(*cond, 0);
+	ret = wait_event_interruptible_timeout(*wq, READ_ONCE(*cond) == 1, (long)a1);
+	if (a2)
+		memcpy((void *)a2, &cnt[a0], sizeof(cnt[a0]));
+	if (ret == -ERESTARTSYS)
+		return ret;
+	return ret ? 0 : -ETIMEDOUT;
 }
 
 /*
@@ -49746,248 +49338,127 @@ int32_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000cb6c origin=fragment_seed original=isp_frame_done_wakeup */
 int64_t isp_frame_done_wakeup(uint32_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+	/* OEM 0xc0dc: arg = 8-byte block, word 1 = vinum; cnt[vinum]++, cond = 1, wake_up(wq) */
+	uint32_t ch = a0 ? ((const uint32_t *)(uintptr_t)a0)[1] : 0;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_10, (void *)(uintptr_t)a0, 8); /* jalr target resolved by relocation */
-
-    /* fragment 2: StackAccess */
-    a1 = local_14;
-    v1 = (int32_t *)&frame_done_cnt;
-    v1 = v1;
-    v0 = (uintptr_t)a1 << 3;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-    v1 = *(uint32_t *)((char *)v0 + 0);
-    a3 = *(uint32_t *)((char *)v0 + 4);
-    a0 = 1;
-    a2 = v1 + 1;
-    v1 = a2 < v1;
-    v1 = (uintptr_t)v1 + (uintptr_t)a3;
-    *(uint32_t *)((char *)v0 + 0) = a2;
-    *(uint32_t *)((char *)v0 + 4) = v1;
-    v0 = (uintptr_t *)&__wake_up;
-
-    /* fragment 3: Branch */
-    v0 = (uintptr_t *)&__wake_up;
-    if (a1 != 0) { goto isp_frame_done_wakeup0x90; }
-
-    /* fragment 4: CallSetup */
-    v1 = (int32_t *)&frame_done_cond;
-    *(uint32_t *)((char *)((char *)&frame_done_cond)) = a0;
-    a0 = (uint32_t *)&frame_done_wq;
-    a3 = 0;
-    a2 = 1;
-    a1 = 3;
-    a0 = a0;
-
-isp_frame_done_wakeup0x7c:
-    /* fragment 5: CallSetup */
-    __wake_up((void *)(uintptr_t)a0, a1, a2, (void *)(uintptr_t)a3); /* jalr target resolved by relocation */
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-isp_frame_done_wakeup0x90:
-    /* fragment 7: Arithmetic */
-    v1 = (int32_t *)&frame_done_cond_sec;
-
-    /* fragment 8: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&frame_done_cond_sec)) = a0;
-    a0 = (uint32_t *)&frame_done_wq_sec;
-    a3 = 0;
-    a2 = 1;
-    a1 = 3;
-
-    /* fragment 9: Branch */
-    a0 = (uint32_t *)&frame_done_wq_sec;
-    goto isp_frame_done_wakeup0x7c;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+	if (ch >= 2)
+		return 0;
+	frame_done_cnt[ch]++;
+	if (ch == 0) {
+		WRITE_ONCE(frame_done_cond, 1);
+		wake_up(&frame_done_wq);
+	} else {
+		WRITE_ONCE(frame_done_cond_sec, 1);
+		wake_up(&frame_done_wq_sec);
+	}
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000cc1c origin=fragment_seed original=vic_frame_done_wakeup */
 int64_t vic_frame_done_wakeup(uint32_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *a1 = 0;
-    uint32_t *a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+	/* OEM 0xc18c: as isp_frame_done_wakeup on the vic_frame_done_* set */
+	uint32_t ch = a0 ? ((const uint32_t *)(uintptr_t)a0)[1] : 0;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    v0 = (uintptr_t *)memcpy((void *)(uintptr_t)&local_10, (void *)(uintptr_t)a0, 8); /* jalr target resolved by relocation */
-
-    /* fragment 2: StackAccess */
-    a1 = local_14;
-    v1 = (int32_t *)&vic_frame_done_cnt;
-    v1 = v1;
-    v0 = (uintptr_t)a1 << 3;
-    v0 = (uintptr_t)v0 + (uintptr_t)v1;
-    v1 = *(uint32_t *)((char *)v0 + 0);
-    a3 = *(uint32_t *)((char *)v0 + 4);
-    a0 = 1;
-    a2 = v1 + 1;
-    v1 = a2 < v1;
-    v1 = (uintptr_t)v1 + (uintptr_t)a3;
-    *(uint32_t *)((char *)v0 + 0) = a2;
-    *(uint32_t *)((char *)v0 + 4) = v1;
-    v0 = (uintptr_t *)&__wake_up;
-
-    /* fragment 3: Branch */
-    v0 = (uintptr_t *)&__wake_up;
-    if (a1 != 0) { goto vic_frame_done_wakeup0x90; }
-
-    /* fragment 4: CallSetup */
-    v1 = (int32_t *)&vic_frame_done_cond;
-    *(uint32_t *)((char *)((char *)&vic_frame_done_cond)) = a0;
-    a0 = (uint32_t *)&vic_frame_done_wq;
-    a3 = 0;
-    a2 = 1;
-    a1 = 3;
-    a0 = a0;
-
-vic_frame_done_wakeup0x7c:
-    /* fragment 5: CallSetup */
-    __wake_up((void *)(uintptr_t)a0, a1, a2, (void *)(uintptr_t)a3); /* jalr target resolved by relocation */
-
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-vic_frame_done_wakeup0x90:
-    /* fragment 7: Arithmetic */
-    v1 = (int32_t *)&vic_frame_done_cond_sec;
-
-    /* fragment 8: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&vic_frame_done_cond_sec)) = a0;
-    a0 = (uint32_t *)&vic_frame_done_wq_sec;
-    a3 = 0;
-    a2 = 1;
-    a1 = 3;
-
-    /* fragment 9: Branch */
-    a0 = (uint32_t *)&vic_frame_done_wq_sec;
-    goto vic_frame_done_wakeup0x7c;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+	if (ch >= 2)
+		return 0;
+	vic_frame_done_cnt[ch]++;
+	if (ch == 0) {
+		WRITE_ONCE(vic_frame_done_cond, 1);
+		wake_up(&vic_frame_done_wq);
+	} else {
+		WRITE_ONCE(vic_frame_done_cond_sec, 1);
+		wake_up(&vic_frame_done_wq_sec);
+	}
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000cccc origin=fragment_seed original=isp_core_tuning_event */
+/*
+ * T40-AGG52-EV: OEM isp_core_tuning_event (SDK 1.3.1 0xc23c, tuning->event at tuning+128,
+ * jump table .rodata+0x3a4): 0x4000000 -> tuning+120 = 2, 0x4000001 -> tuning+120 = 1,
+ * 0x4000002 -> isp_frame_done_wakeup(arg), 0x4000003 -> tisp_day_or_night_s_ctrl(arg[1],
+ * tuning[8 + 8 * arg[1]]) (ispcore_irqstatus_func after a core+720 request, set by
+ * tx_isp_switch_bin and the core day/night s_ctrl), 0x4000004 -> vic_frame_done_wakeup(arg);
+ * returns 0.  The lift lost the jump table (jr.hb v1 unmatched) and returned the tuning pointer.
+ * 0x4000003 runs in the ISR: the lifted tisp_day_or_night_s_ctrl is not this driver's day/night
+ * path (its bank switch and every module re-init are regtrace_t40_tuning_set_running_mode /
+ * regtrace_t40_refresh_daynight_pipeline, under a mutex), so the event queues a work item that
+ * re-applies the current running mode from the loaded bin (OEM: the bank of tuning[8], which this
+ * driver never writes; the running mode is the real state).  Channel 1: no second pipeline.
+ */
+static void regtrace_t40_dn_event_work_fn(struct work_struct *work);
+static DECLARE_WORK(regtrace_t40_dn_event_work, regtrace_t40_dn_event_work_fn);
+static uint regtrace_t40_dn_event_runs;
+module_param_named(t40_dn_event_runs, regtrace_t40_dn_event_runs, uint, 0444);
+static int regtrace_t40_dn_event_last_ret;
+static bool regtrace_t40_dn_event_off;	/* module exit: no new work */
+module_param_named(t40_dn_event_last_ret, regtrace_t40_dn_event_last_ret, int, 0444);
+
+static void regtrace_t40_dn_event_work_fn(struct work_struct *work)
+{
+	uint32_t mode;
+	void *active, *selected;
+	int ret = 0;
+
+	(void)work;
+	mutex_lock(&regtrace_t40_running_mode_lock);
+	mode = READ_ONCE(regtrace_running_mode);
+	active = (void *)(uintptr_t)tparamsN[0];
+	selected = (void *)(uintptr_t)(mode ? tparams_night : tparams_day);
+	if (!active || !selected)
+		ret = -ENODEV;
+	else if (!memchr_inv(selected, 0, REGTRACE_T40_TUNING_BANK_BYTES))
+		ret = 0;	/* no calibrated bank: keep the live pipeline (as set_running_mode) */
+	else {
+		if (active != selected)
+			memcpy(active, selected, REGTRACE_T40_TUNING_BANK_BYTES);
+		ret = regtrace_t40_refresh_daynight_pipeline();
+	}
+	regtrace_t40_dn_event_runs++;
+	regtrace_t40_dn_event_last_ret = ret;
+	mutex_unlock(&regtrace_t40_running_mode_lock);
+	printk(KERN_INFO "tx_isp_t40_recovered: core day/night event: %s bank re-applied ret=%d\n",
+	       mode ? "night" : "day", ret);
+}
+
 int32_t isp_core_tuning_event(uintptr_t a0, uint32_t a1, uintptr_t a2)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+	if (!a0)
+		return 0;
+	switch (a1) {
+	case 0x4000000:
+		*(uint32_t *)(a0 + 120) = 2;
+		break;
+	case 0x4000001:
+		*(uint32_t *)(a0 + 120) = 1;
+		break;
+	case 0x4000002:
+		(void)isp_frame_done_wakeup((uint32_t)a2);
+		break;
+	case 0x4000003:
+		if (a2 && ((const uint32_t *)a2)[1] == 0 && !READ_ONCE(regtrace_t40_dn_event_off))
+			schedule_work(&regtrace_t40_dn_event_work);
+		break;
+	case 0x4000004:
+		(void)vic_frame_done_wakeup((uint32_t)a2);
+		break;
+	default:
+		break;
+	}
+	return 0;
+}
 
-    /* fragment 0: Arithmetic */
-    v1 = 4227858432;
-    a1 = a1 + (uintptr_t)v1;
-    v1 = a1 < 5;
+/* ispcore_irqstatus_func: OEM "lw v0,128(tuning); jalr v0" with a2 = an 8-byte stack block whose
+ * word 1 is 0 (vinum 0, "sw zero,20(sp)" at entry).  Only the handler isp_core_tuning_init
+ * installs is called. */
+static void regtrace_t40_tuning_event_call(uintptr_t tuning, uint32_t event)
+{
+	uint32_t arg[2] = { 0, 0 };
 
-    /* fragment 1: Branch */
-    if (v1 == 0) { goto isp_core_tuning_event0xb8; }
-
-    /* fragment 2: ConstantLoad */
-    v1 = 0x414;
-
-    /* fragment 3: MemoryAccess */
-    v1 = *(uint32_t *)((char *)a1 + 0);
-    v0 = a0;
-    a0 = a2;
-    local_1c = ra;
-    local_18 = s1;
-
-    /* fragment 4: Unknown */
-    /* unmatched fragment 4 (Unknown): no deterministic matcher for Unknown */
-    /* asm: cd08:	00600408 	jr.hb	v1 */
-
-    /* fragment 5: StackAccess */
-    local_14 = s0;
-    v1 = 2;
-
-isp_core_tuning_event0x48:
-    /* fragment 6: MemoryAccess */
-    *(uint32_t *)((char *)v0 + 120) = v1;
-
-isp_core_tuning_event0x4c:
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-isp_core_tuning_event0x50:
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 9: Arithmetic */
-    v0 = 0;
-
-    /* fragment 10: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 11: Branch */
-    v1 = 1;
-    goto isp_core_tuning_event0x48;
-
-    /* fragment 12: CallSetup */
-    v0 = (uintptr_t *)&isp_frame_done_wakeup;
-    v0 = v0;
-
-isp_core_tuning_event0x74:
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)isp_frame_done_wakeup)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 14: Branch */
-    goto isp_core_tuning_event0x50;
-
-    /* fragment 15: CallSetup */
-    s0 = (*(uint32_t *)((char *)(a2) + 4)) << 5;
-    s0 = (uintptr_t)v0 + (uintptr_t)s0;
-    s1 = *(uint32_t *)((char *)(s0) + 32);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_day_or_night_s_ctrl)(*(uint32_t *)((char *)(a2) + 4), s1); /* jalr target resolved by relocation */
-
-    /* fragment 16: Branch */
-    *(uint32_t *)((char *)s0 + 32) = s1;
-    goto isp_core_tuning_event0x4c;
-
-    /* fragment 17: Arithmetic */
-    v0 = (uintptr_t *)&vic_frame_done_wakeup;
-
-    /* fragment 18: Branch */
-    v0 = (uintptr_t *)&vic_frame_done_wakeup;
-    goto isp_core_tuning_event0x74;
-
-isp_core_tuning_event0xb8:
-    /* fragment 19: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 20: Arithmetic */
-    v0 = 0;
-
-    return 0;
+	if (!tuning || *(uintptr_t *)(tuning + 128) != (uintptr_t)&isp_core_tuning_event)
+		return;
+	(void)isp_core_tuning_event(tuning, event, (uintptr_t)arg);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000cd8c origin=fragment_seed original=isp_core_tuning_init */
@@ -167617,7 +167088,7 @@ ispcore_irqstatus_func0x90:
     if (a0 == 0) { goto ispcore_irqstatus_func0xb8; }
 
     /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    (void)0; regtrace_t40_tuning_event_call((uintptr_t)a0, 0x4000003); /* #agg52: day/night request (core+720): tuning->event(0x4000003) = OEM 0x78e54 */
 
 ispcore_irqstatus_func0xb8:
     /* fragment 18: Arithmetic */
@@ -167719,7 +167190,7 @@ ispcore_irqstatus_func0x174:
     if (a0 == 0) { goto ispcore_irqstatus_func0x18c; }
 
     /* fragment 40: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    (void)0; regtrace_t40_tuning_event_call((uintptr_t)a0, 0x4000002); /* #agg52: frame done: tuning->event(0x4000002) = OEM 0x78f28 */
 
 ispcore_irqstatus_func0x18c:
     /* fragment 41: CallSetup */
@@ -173056,6 +172527,8 @@ static int regtrace_core_exit_steps(int upto, int from_proc)
             cancel_work_sync(&regtrace_irq_frame_done_work[2].work);
             cancel_work_sync(&regtrace_irq_frame_done_work[3].work);
             cancel_work_sync(&regtrace_isp_block_init_work);
+            WRITE_ONCE(regtrace_t40_dn_event_off, true);
+            cancel_work_sync(&regtrace_t40_dn_event_work);
             break;
         case 3: regtrace_tisp_event_threads_stop(); t40_adr_cleanup(); t40_defog_cleanup(); t40_lce_cleanup(); t40_dpc_cleanup(); t40_vawb_cleanup(); break;
         case 4: regtrace_dmsc_lit_cleanup(); break;
