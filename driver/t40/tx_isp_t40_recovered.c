@@ -67359,7 +67359,7 @@ tisp_main_long_ev_update0xf0:
     if (_bc_v0_21) { goto tisp_main_long_ev_update0x114; }
 
     /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_defog_ev_update)(0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_defog_ev_update)(0, 0, s1, s0); /* jalr target resolved by relocation */
 
     /* fragment 23: Arithmetic */
     v0 = (uintptr_t)s2 & 32768;
@@ -67513,7 +67513,7 @@ tisp_sec_long_ev_update0xf0:
     if (_bc_v0_21) { goto tisp_sec_long_ev_update0x114; }
 
     /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)tisp_defog_ev_update)(1); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)tisp_defog_ev_update)(1, 0, s1, s0); /* jalr target resolved by relocation */
 
     /* fragment 23: Arithmetic */
     v0 = (uintptr_t)s2 & 32768;
