@@ -4,6 +4,16 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-10-31: T40 user gamma curve reaches the LUT (`claude/issue-167-gamma`; QEMU T40, camera not touched)
+
+- **IMP_ISP_Tuning_SetGammaAttr (0x08000025)** had no picture effect on T40 (issue #167, Eufy .184): production has no
+  lifted gamma context (the soft-gamma writer owns the LUT), so `tisp_gamma_set_attr` returned -EAGAIN and
+  `tisp_s_Gamma` (lifted as "return 0") hid it. Now the set path programs the 129-node LUT through the soft-gamma
+  writer for mode 1 (sRGB), 2 (HDR) and 3 (user, nodes validated monotone <= 4095); mode 0 restores the tuning-bin
+  curve. The choice is kept and re-applied at every writer re-init; GetGammaAttr reports the mode. `tisp_s_Gamma` now
+  returns the real result. QEMU T40: set/get round trip for modes 0..3, no oops; QEMU has no picture model, so the
+  effect on the image needs the camera.
+
 ## 2026-10-29: T40 face AWB attribute round trip (`claude/issue-138`; QEMU T40)
 
 - **T40: `IMP_ISP_Tuning_GetFaceAwb` returned stale stack words instead of the stored attribute** (control 0x8000014). The OEM `tisp_awb_face_set/get` are empty 8-byte stubs and its getter copies an uninitialised stack slot to user space, so SetFaceAwb stored nothing. The driver now keeps the last 0x18-byte attribute per ISP channel and Get returns it (zero before the first Set). The OEM leaves the value without effect on the AWB; so does this.

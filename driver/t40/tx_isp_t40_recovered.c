@@ -10827,6 +10827,12 @@ static void regtrace_dmsc_static_write(void)
  * gamma ctx does not exist, which is the production state) */
 static uint16_t t40_gamma_live[129] T40C2;
 static bool t40_gamma_live_valid T40C2;
+/* T40-GAMMA-USER (#167): fixed/user curve set through SetGammaAttr while the soft-gamma writer owns the LUT.
+ * mode 0 = default (tuning bin), 1 sRGB, 2 HDR, 3 user.  The soft writer re-applies it on every init / day-night
+ * step so the user choice survives. */
+static uint32_t t40_gamma_user_mode T40C2;
+static uint16_t t40_gamma_user_lut[129] T40C2;
+static DEFINE_MUTEX(t40_gamma_user_mutex);
 
 static void regtrace_soft_gamma_write(void)
 {
@@ -10865,8 +10871,12 @@ static void regtrace_soft_gamma_write(void)
         if (valid)
             active_lut = bin_lut;
     }
+    if (t40_gamma_user_mode) {
+        memcpy(bin_lut, t40_gamma_user_lut, sizeof(bin_lut));
+        active_lut = bin_lut;
+    }
     printk(KERN_INFO "tx_isp_t40_recovered: gamma source=%s nodes=%u/%u/%u/%u/%u\n",
-           active_lut == bin_lut ? "active-bin" : "fallback",
+           t40_gamma_user_mode ? "user" : active_lut == bin_lut ? "active-bin" : "fallback",
            active_lut[0], active_lut[1], active_lut[11],
            active_lut[64], active_lut[128]);
 
@@ -109647,7 +109657,34 @@ int32_t tisp_gamma_set_attr(uint32_t a0, uintptr_t a1)
     if (regtrace_isr_oem_hw_refresh) return t40_writer_gamma_control(a0, 4, a1, 0);
     if (a0 > 1 || !A) return -EINVAL;
     ctx = (uint8_t *)(uintptr_t)*(uint32_t *)(T40_GAMMA_CTX_BASE + (a0 << 2));
-    if (!regtrace_is_kernel_ptr(ctx)) return -EAGAIN;
+    if (!regtrace_is_kernel_ptr(ctx)) {
+        /* T40-GAMMA-USER (#167): production has no lifted gamma ctx (soft-gamma writer owns the LUT), so the
+         * attr was dropped with -EAGAIN (and tisp_s_Gamma then returned 0).  Apply it through the soft writer. */
+        uint16_t lut[129];
+        unsigned int i;
+        if (a0 != 0 || !regtrace_enable_soft_gamma) return -EAGAIN;
+        switch (A[0]) {
+        case 0: break;
+        case 1: case 2: case 3:
+            memcpy(lut, A[0] == 1 ? static_srgb_gamma : A[0] == 2 ? static_hdr_gamma : (const uint8_t *)A + 4, 258);
+            break;
+        default:
+            isp_printf(1, "%s: bad gamma mode %u\n", "tisp_gamma_set_attr", A[0]);
+            return -1;
+        }
+        if (A[0]) {
+            for (i = 0; i < 129; i++) {
+                if (lut[i] > 4095U || (i && lut[i] < lut[i - 1U])) return -EINVAL;
+            }
+        }
+        mutex_lock(&t40_gamma_user_mutex);
+        t40_gamma_user_mode = A[0];
+        if (A[0]) memcpy(t40_gamma_user_lut, lut, sizeof(lut));
+        regtrace_soft_gamma_write();
+        mutex_unlock(&t40_gamma_user_mutex);
+        printk(KERN_WARNING "tx_isp_t40_recovered: gamma attr mode=%u soft-writer applied\n", A[0]);
+        return 0;
+    }
     p0 = (uint8_t *)(uintptr_t)*(uint32_t *)(ctx + 0);
     p8 = (uint8_t *)(uintptr_t)*(uint32_t *)(ctx + 8);
     p12 = (uint8_t *)(uintptr_t)*(uint32_t *)(ctx + 12);
@@ -109697,6 +109734,7 @@ int32_t tisp_gamma_get_attr(int32_t arg1, int32_t arg2)
          * 129 x u16 nodes (+2 pad): mode 0 (default), nodes = the programmed LUT. */
         if (arg1 == 0 && t40_gamma_live_valid) {
             memset((void *)(uintptr_t)arg2, 0, 264);
+            *(uint32_t *)(uintptr_t)arg2 = t40_gamma_user_mode;
             memcpy((uint8_t *)(uintptr_t)arg2 + 4, t40_gamma_live, sizeof(t40_gamma_live));
             return 0;
         }
@@ -155487,26 +155525,8 @@ tisp_s_ccm_attr0xec:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000072484 origin=fragment_seed original=tisp_s_Gamma */
 int32_t tisp_s_Gamma(uint32_t a0, uintptr_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t ra = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    (void)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_gamma_set_attr)((uintptr_t)a0, (uintptr_t)a1); /* T40: OEM passes a1 through */ /* jalr target resolved by relocation */
-
-    /* fragment 2: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 3: Arithmetic */
-    v0 = 0;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    /* OEM 0x72484 returns tisp_gamma_set_attr(vinum, buf); the lift forced 0, hiding the -EAGAIN of #167. */
+    return tisp_gamma_set_attr(a0, a1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000724ac origin=fragment_seed original=tisp_g_Gamma */
