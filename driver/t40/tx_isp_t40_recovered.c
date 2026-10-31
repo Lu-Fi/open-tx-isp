@@ -44085,7 +44085,7 @@ subdev_sensor_ops_ioctl0x360:
     if (v0 == 0) { goto subdev_sensor_ops_ioctl0x30c; }
 
     /* fragment 69: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)v0)((uintptr_t)s0, (uintptr_t)s0 + 180); /* #jalr-batch3: OEM 0x37c sensor core->g_chip_ident(sd, sd+0xb4) after REGISTER_SENSOR memcpy */ /* jalr target resolved by relocation */
 
     /* fragment 70: Branch */
     s4 = s2 + 296;
@@ -44160,7 +44160,7 @@ subdev_sensor_ops_ioctl0x44c:
 
 subdev_sensor_ops_ioctl0x454:
     /* fragment 86: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(s2, a1 + 2, __p_54); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(s2, a1 + 2, (uintptr_t)__p_54); /* #jalr-batch3: OEM 0x45c s2->notify(s2, 0x1000002, &sensor_type) after REGISTER_SENSOR */ /* jalr target resolved by relocation */
 
     /* fragment 87: Branch */
     int _bc_v0_87 = v0 == 0;
@@ -44373,7 +44373,7 @@ subdev_sensor_ops_ioctl0x650:
     if (v0 == 0) { goto subdev_sensor_ops_ioctl0xc4; }
 
     /* fragment 135: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)v0)(a0, s1); /* #jalr-batch3: OEM 0x658 sensor core op (+0x1c s_register / +0x10 g_register)(sd, arg): 0x2000011/12 */ /* jalr target resolved by relocation */
 
     /* fragment 136: Branch */
     s0 = v0;
@@ -44461,7 +44461,7 @@ subdev_sensor_ops_ioctl0x6c4:
 
 subdev_sensor_ops_ioctl0x72c:
     /* fragment 156: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)regtrace_unresolved_jalr)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)v0)(a0, a1, a2); /* #jalr-batch3: OEM 0x72c sensor ops ioctl(sd, 0x2000013, arg) */ /* jalr target resolved by relocation */
 
     /* fragment 157: Branch */
     s0 = v0;
