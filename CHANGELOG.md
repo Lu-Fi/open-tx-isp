@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-04: T30 core CSC mode register as the vendor (lost value of a lifted call; desk-verified, T30X device test pending)
+
+- The set-format path wrote the channel CSC register (`0x570` FR, `0x6b0` DS1, `0x7b0` DS2) with a fixed `0x0f`. The vendor writes `0x08` when the sensor bus code (`core+0xf4`) is `YUYV8_1X16` (`0x2011`), else `0x0f` (SDK `tx-isp-core.c:800-834`, `:929-937`). The lift lost both the value argument of that `APICAL_WRITE_32` and the conditional move that picks `0x08`.
+- Fixed in the live `tx_isp_t30_ispcore_config_dma` and in the (unreachable) lifted `ispcore_pad_event_handle` body. Verified by a Unicorn oracle (SDK-built `tx-isp-t30.ko` vs ours, 500 random cases, call log identical; old driver differs in 149/500, a wrong-constant mutant too). Bayer sensors (all current T30 test cameras) are unchanged (`0x0f`); only YUYV-bus sensors change.
+- The other two reported lost-argument sites are dead code: the lifted ISR body (unreachable after the early return to `tx_isp_t30_ispcore_interrupt`) and `noise_reduction_update_recovered` (static, never referenced). Baseline `tests/t30_callarg_baseline.txt` updated.
+
 ## 2026-11-04: T30 day/night switch reloads the night parameter set as the vendor (QEMU T30; T30X device test pending)
 
 - `IMP_ISP_Tuning_SetISPRunningMode(NIGHT)` / `DAY` (DAY_OR_NIGHT, `0x80000e1`) only set a flag: the open interrupt handler never raised tuning event `0x4000003`, which the OEM frame-end case sends to reload the day or night set (T30X b19-b21: night not monochrome, vendor U = V = 128.00).

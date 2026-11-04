@@ -1,6 +1,8 @@
 # check_ioctl_ptr_scale.py --call-args baseline for the lifted T30 driver: findings present when the
 # apical_api_calibration status argument was restored (gamma s_ctrl NULL write).  NOT audited yet:
-# the APICAL_WRITE_32 1/2 keys still need a per-site OEM check.  Only NEW findings fail make check.
+# the APICAL_WRITE_32 1/2 keys: apical_custom_initialization fixed on claude/t30-sharpen; ispcore_pad_event_handle fixed
+# (dead lifted set_fmt body, live csc write fixed in tx_isp_t30_ispcore_config_dma); the ISR (unreachable after the early
+# return to tx_isp_t30_ispcore_interrupt) and noise_reduction_update_recovered (static, unreferenced) are DEAD code, kept as is.
 argc apical_custom_initialization APICAL_WRITE_32 1/2
 argc apical_custom_initialization APICAL_WRITE_32 1/2
 argc apical_custom_initialization APICAL_WRITE_32 1/2
@@ -16,7 +18,6 @@ argc ispcore_interrupt_service_routine tx_isp_send_event_to_remote 1/3
 argc ispcore_interrupt_service_routine tx_isp_send_event_to_remote 1/3
 argc ispcore_interrupt_service_routine tx_isp_send_event_to_remote 1/3
 argc ispcore_interrupt_service_routine tx_isp_send_event_to_remote 1/3
-argc ispcore_pad_event_handle APICAL_WRITE_32 1/2
 argc ispcore_pad_event_handle apical_command 1/5
 argc ispcore_pad_event_handle isp_core_config_top_ctl_register 1/2
 argc ispcore_pad_event_handle isp_core_config_top_ctl_register 1/2
