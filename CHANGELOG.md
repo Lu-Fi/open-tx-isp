@@ -4,6 +4,17 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-08: six small fixes from Paul Philippov's kernel-7 patch set (branch `claude/paul-k7-fixes`, not merged, no device test yet)
+
+- Taken only where correct for the 3.10 kernels too (review `audit/paul-k7/REVIEW.md`); each commit credits Paul (Co-authored-by).
+- T31 (0015): `IS_ERR_OR_NULL(client)` after `i2c_new_client_device()` (ERR_PTR on >= 5.5 was dereferenced; 3.10 unchanged).
+- T20 (0021): sinfo offsets via `offsetof()`; on the 3.10 build the old numbers are `_Static_assert` checks (they match).
+- T20 (0035, generic parts): frame channel `dma_sync_single_for_device` gets the buffer manager's device, buf_finish payload `min(sizeimage, plane)`, `stop_streaming` returns the still-active buffers with `VB2_BUF_STATE_ERROR`. The 7.x vb2 memops ABI part is not taken.
+- T31 bridge (0007): HFLIP/VFLIP of a mainline sensor are optional.
+- sinfo (0025): new `TX_ISP_SINFO_FPS_RANGE` flag (min/max fps without the wiring attributes); no adapter uses it yet, his index-as-min_fps is not taken.
+- sinfo (0013): `remove_proc_subtree()` before `proc_mkdir()` of `/proc/jz/sensor`, also on 3.10.
+- Checks: `make -C tests check`, T20/T31/T41 3.10.14 modules build, symbol checks pass.
+
 ## 2026-11-07: RC3 `v2026.11.07-rc3` released; docs brought to the released state (no driver change)
 
 - RC3 tagged in open-tx-isp and OpenIMP and released on GitHub (Lu-Fi and opensensor); RC3 gate green (2017 of 2017 application-used function cells, 0 blocking issues). thingino-firmware: the Lu-Fi `aperto` branch pins the tag `v2026.11.07-rc3` (upstream pull request themactep/thingino-firmware#1945).
