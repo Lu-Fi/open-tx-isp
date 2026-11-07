@@ -21,7 +21,8 @@
  * A nonzero +0x38 word selects the fixed matrix of the section (+0x3c, nine
  * s32) instead of the knots, as tisp_ccm_interp_by_ct does.
  * Refused: sections whose +0x35f byte is 0 (that path keeps compiled-in
- * defaults of the vendor driver) and an empty knot table.
+ * defaults of the vendor driver) and an empty knot table.  The exposure knot
+ * interpolation (also with a zero first threshold) is t32_ccm_ev_knots.
  *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
  * by tests/t32_oracle (t32_ccm_oracle).
@@ -44,10 +45,13 @@ static inline int t32_ccm_i32(const u8 *p)
 	return (int)(p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24);
 }
 
-/* tisp_ccm_sub_interp: a + round((b - a) * f / 4096) */
-static inline int t32_ccm_sub(int f, int a, int b)
+/*
+ * tisp_ccm_sub_interp: a + round((b - a) * f / 4096).  The vendor forms the
+ * product in 32 bit (sign-extended) before the rounding shift.
+ */
+static inline int t32_ccm_sub(u32 f, int a, int b)
 {
-	long long v = (long long)(b - a) * f;
+	long long v = (int)((u32)(b - a) * f);
 
 	return a + (int)((v >> 12) + ((v >> 11) & 1));
 }
@@ -70,6 +74,67 @@ static inline u32 t32_ccm_bucket(int d, u8 *shift)
 
 /* section u16 */
 #define T32_CCM_S16(s, o)	t32_tp_le16((s) + (o))
+
+/*
+ * The exposure-dependent values of the section: twelve exposure knots (the
+ * thresholds are u32 at +4, ascending) each carrying 22 u16 values, stored as
+ * 22 arrays of 12 entries.  { offset in cp, offset of knot 0 in the section }.
+ */
+static const u16 t32_ccm_ev_map[22][2] = {
+	{ 0x4c, 0x316 }, { 0x4e, 0x32e },
+	{ 0x50, 0xe0 }, { 0x52, 0xf8 }, { 0x54, 0x110 }, { 0x56, 0x128 }, { 0x58, 0x140 }, { 0x5a, 0x158 },
+	{ 0x5c, 0x170 }, { 0x5e, 0x188 }, { 0x60, 0x1a0 }, { 0x62, 0x1b8 }, { 0x64, 0x1d0 }, { 0x66, 0x1e8 },
+	{ 0x3c, 0x2b6 }, { 0x3e, 0x2ce }, { 0x40, 0x2e6 }, { 0x42, 0x2fe },
+	{ 0x44, 0x24a }, { 0x46, 0x262 }, { 0x48, 0x27e }, { 0x4a, 0x296 },
+};
+
+/*
+ * tisp_ccm_interp_by_ev, knot part: ev = exposure >> 10 (the init flow passes
+ * 0).  Below the first threshold the values of knot 0 are taken, at or above
+ * the last (12th) threshold those of knot 11, in between the two neighbouring
+ * knots are blended with f = ((ev - lo) * 4096 + (hi - lo) / 2) / (hi - lo)
+ * (signed 32 bit operands, unsigned 64 bit division, as the vendor does).
+ * The vendor's equal-threshold exit (returns 2) cannot be reached: the walk only
+ * gets here with thr[k - 1] <= ev < thr[k].
+ */
+static inline void t32_ccm_ev_knots(const u8 *sec, u8 *cp, u32 ev)
+{
+	int k, i;
+
+	for (k = 0; k < 12; k++) {
+		u32 thr = t32_front_le32(sec + 4 + 4 * k);
+
+		if (ev >= thr) {
+			if (k != 11)
+				continue;
+			for (i = 0; i < 22; i++)
+				t32_tp_put16(cp + t32_ccm_ev_map[i][0], T32_CCM_S16(sec, t32_ccm_ev_map[i][1] + 22));
+			return;
+		}
+		if (k == 0) {
+			for (i = 0; i < 22; i++)
+				t32_tp_put16(cp + t32_ccm_ev_map[i][0], T32_CCM_S16(sec, t32_ccm_ev_map[i][1]));
+			return;
+		}
+		{
+			u32 prev = t32_front_le32(sec + 4 * k);
+			u32 delta = thr - prev;
+			long long num, den;
+			u32 f;
+
+			den = (int)delta;
+			num = (long long)(int)(ev - prev) * 4096 + (den >> 1);
+			f = (u32)t32_tp_div64((unsigned long long)num, (unsigned long long)den);
+			for (i = 0; i < 22; i++) {
+				u32 o = t32_ccm_ev_map[i][1] + 2 * (k - 1);
+
+				t32_tp_put16(cp + t32_ccm_ev_map[i][0],
+					     t32_ccm_sub(f, T32_CCM_S16(sec, o), T32_CCM_S16(sec, o + 2)));
+			}
+			return;
+		}
+	}
+}
 
 /*
  * sec: writable copy of section 12, lut: the payload behind it (lutbytes
@@ -145,9 +210,7 @@ static inline int t32_ccm_init(u8 *sec, const u8 *lut, u32 lutbytes, struct t32_
 	 * tisp_ccm_interp_by_ev at exposure 0.  +0x38 = 1: the fixed set of the
 	 * section (the four 0x44..0x4a limits are not written there and keep
 	 * the vendor's compiled-in defaults 0x40, 0x80, 0, 0).  Otherwise the
-	 * values of the first exposure knot (exposure 0 is below the first
-	 * threshold +4; a zero threshold would need the knot interpolation,
-	 * not built).
+	 * exposure knots (t32_ccm_ev_knots with exposure 0).
 	 */
 	if (t32_front_le32(sec + 0x38) == 1) {
 		t32_tp_put16(cp + 0x4c, T32_CCM_S16(sec, 0x346));
@@ -159,20 +222,7 @@ static inline int t32_ccm_init(u8 *sec, const u8 *lut, u32 lutbytes, struct t32_
 		t32_tp_put16(cp + 0x44, 0x40);
 		t32_tp_put16(cp + 0x46, 0x80);
 	} else {
-		if (t32_front_le32(sec + 4) == 0)
-			return -1;
-		t32_tp_put16(cp + 0x4c, T32_CCM_S16(sec, 0x316));
-		t32_tp_put16(cp + 0x4e, T32_CCM_S16(sec, 0x32e));
-		for (i = 0; i < 12; i++)
-			t32_tp_put16(cp + 0x50 + 2 * i, T32_CCM_S16(sec, 0xe0 + 0x18 * i));
-		t32_tp_put16(cp + 0x3c, T32_CCM_S16(sec, 0x2b6));
-		t32_tp_put16(cp + 0x3e, T32_CCM_S16(sec, 0x2ce));
-		t32_tp_put16(cp + 0x40, T32_CCM_S16(sec, 0x2e6));
-		t32_tp_put16(cp + 0x42, T32_CCM_S16(sec, 0x2fe));
-		t32_tp_put16(cp + 0x44, T32_CCM_S16(sec, 0x24a));
-		t32_tp_put16(cp + 0x46, T32_CCM_S16(sec, 0x262));
-		t32_tp_put16(cp + 0x48, T32_CCM_S16(sec, 0x27e));
-		t32_tp_put16(cp + 0x4a, T32_CCM_S16(sec, 0x296));
+		t32_ccm_ev_knots(sec, cp, 0);
 	}
 
 	/* tisp_ccm_calc_para_refresh: { hi, lo, scale, shift } of five ranges */

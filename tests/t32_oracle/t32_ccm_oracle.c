@@ -14,7 +14,7 @@
  * ../external/ingenic-sdk/sensor-iq/t32).
  *
  * Sections our driver refuses on purpose (t32_ccm_init returns -1: id,
- * +0x35f = 0, +0x38 = 1, no knots, +4 = 0) are counted, not compared.
+ * +0x35f = 0, no knots) are counted, not compared.
  *
  * Exit 0 = all compared cases equal; 1 = mismatch; 2 = strict and no bins.
  */
@@ -41,7 +41,47 @@ static void put32(u8 *p, u32 v)
 	p[0] = (u8)v; p[1] = (u8)(v >> 8); p[2] = (u8)(v >> 16); p[3] = (u8)(v >> 24);
 }
 
-static unsigned int compared, refused, failed;
+static unsigned int compared, refused, failed, ev_compared;
+
+/*
+ * The exposure knots at other exposures: after the init the vendor's own
+ * state (e28f0[0] -> { section, exposure state, parameter block, ..., flags })
+ * is live, so call tisp_ccm_interp_by_ev again with a forced update (arg4 = 1)
+ * and compare the parameter block with t32_ccm_ev_knots(ev = hi << 22 | lo >> 10).
+ * Only for the knot path (+0x38 != 1).
+ */
+static int ev_cases(const u8 *sec, const u8 *osec, const u8 *lut)
+{
+	u32 *st = T32O_HOST(t32_data_e28f0[0]);
+	u8 *cpv = T32O_HOST(st[2]);
+	unsigned int c;
+
+	(void)lut;
+	if (t32_front_le32(osec + 0x38) == 1)
+		return 0;
+	for (c = 0; c < 6; c++) {
+		u32 lo = rnd(), hi = rnd() % 4 ? rnd() & 0x3ff : rnd(), ev, ret;
+		u8 cp[0x68];
+
+		if (c < 4) {	/* on / around a threshold */
+			u32 thr = t32_front_le32(sec + 4 + 4 * (rnd() % 12)) + (rnd() % 3) - 1;
+
+			hi = thr >> 22;
+			lo = thr << 10 | (rnd() & 0x3ff);
+		}
+		ev = hi << 22 | lo >> 10;
+		memcpy(cp, cpv, sizeof(cp));
+		t32_ccm_ev_knots(osec, cp, ev);
+		ret = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_ccm_interp_by_ev, 0, 0, lo, hi, 1);
+		ev_compared++;
+		if (ret || memcmp(cp, cpv, sizeof(cp))) {
+			if (failed < 5)
+				printf("MISMATCH ev: ev %08x vendor ret %u\n", ev, ret);
+			return 1;
+		}
+	}
+	return 0;
+}
 
 /* one case; returns 0 equal, 1 mismatch */
 static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes)
@@ -76,6 +116,8 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 		if (t32o_log.w[i].reg != ow[i].reg || t32o_log.w[i].val != ow[i].val)
 			goto bad;
 	if (memcmp(base + SEC_OFF, osec, SECB))
+		goto bad;
+	if (ev_cases(sec, osec, lut) )
 		goto bad;
 	return 0;
 bad:
@@ -124,8 +166,19 @@ static void random_cases(unsigned int n)
 		else
 			sec[0x35f] = 0;
 		put32(sec + 0x38, rnd() % 8 ? rnd() % 4 + 2 : rnd() % 2);	/* sometimes 0/1 */
-		if (!(rnd() % 32))
-			put32(sec + 4, 0);
+		/*
+		 * exposure knots: the vendor walks the 12 thresholds (+4) for the first
+		 * one above exposure 0.  Force leading zeros (0..12 of them), then
+		 * small / huge / sign-bit values for the first non-zero one.
+		 */
+		if (rnd() % 3 == 0) {
+			static const u32 first[] = { 1, 2, 3, 0x7fffffff, 0x80000000u, 0xffffffffu, 4096, 0x1000 };
+			int zeros = (int)(rnd() % 13);
+
+			for (i = 0; i < 12; i++)
+				put32(sec + 4 + 4 * i, (int)i < zeros ? 0 :
+				      (int)i == zeros && rnd() % 2 ? first[rnd() % 8] : rnd());
+		}
 		knots = c % 50 == 7 ? (int)(rnd() % 255) + 1 : (int)(rnd() % 10) + 1;
 		hyst = rnd() % 4 ? (int)(rnd() % 400) & 0xff : (int)(rnd() % 8);
 		sec[0x364] = (u8)knots;
@@ -197,8 +250,8 @@ int main(void)
 	rc_r = compared;
 	rf_r = refused;
 	nbins = bin_cases(dir ? dir : "../external/ingenic-sdk/sensor-iq/t32");
-	printf("t32_ccm_oracle: random %u compared (%u refused by ours), IQ bins %d (%u compared), %u mismatches\n",
-	       rc_r, rf_r, nbins, compared - rc_r, failed);
+	printf("t32_ccm_oracle: random %u compared (%u refused by ours), IQ bins %d (%u compared), %u exposure-knot calls, %u mismatches\n",
+	       rc_r, rf_r, nbins, compared - rc_r, ev_compared, failed);
 	if (failed)
 		return 1;
 	if (!nbins) {

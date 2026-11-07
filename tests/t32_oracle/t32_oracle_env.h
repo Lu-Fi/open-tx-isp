@@ -36,7 +36,9 @@ u64 t32o_call(t32o_fn fn, u32 a0, u32 a1, u32 a2, u32 a3, u32 a4);
 
 /* reference functions (ref/, o32 shape) */
 u64 tisp_ccm_init(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_ccm_interp_by_ev(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4);
 
+#define T32O_HOST(v)	((void *)(uintptr_t)(v))
 #define T32O_PTR(p)	((u32)(uintptr_t)(p))
 
 #endif
