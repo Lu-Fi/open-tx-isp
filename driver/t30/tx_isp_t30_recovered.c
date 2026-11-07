@@ -902,7 +902,7 @@ static const uint16_t resize_height_write_table[5] = {
 static const uint16_t resize_height_read_table[5] = {
 	0x14b4, 0x14c2, 0x14cc, 0x14d6, 0x14e0
 };
-static const uint8_t awb_idx_table[6] = { 0, 1, 2, 3, 4, 5 };
+#include "tx_isp_t30_awb_preset.h"	/* get_awb_idx table (ko .rodata 0xdec) */
 static uint32_t fifo_rg_avg;
 static uint32_t fifo_gb_avg;
 static int32_t iir_state[16];
@@ -42215,22 +42215,16 @@ int32_t ae_integrator_set(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000222e8 origin=model_output original=get_awb_idx */
 uint32_t get_awb_idx(int32_t arg1)
 {
-	uint32_t idx = (uint32_t)arg1 - 53;
-
-	if (idx < 6)
-		return 0;
-
-	return awb_idx_table[idx - 6];
+	/* ko 0x21a08: modes 53..58 -> awb_idx_table { 1..6 }, else 0 (tx_isp_t30_awb_preset.h) */
+	return t30_get_awb_idx(arg1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000022310 origin=model_output original=awb_mode */
 int32_t awb_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 {
     uint32_t mode = (uint32_t)(uint8_t)arg3;
-    int32_t ret;
-    int16_t *lut;
-    uint32_t idx;
-    uint16_t val0, val1;
+    const uint16_t *lut;
+    uint8_t red, blue;
 
     *arg4 = 0;
 
@@ -42255,16 +42249,18 @@ int32_t awb_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
     if ((uint32_t)arg2 >= 0x34) {
         if ((uint32_t)arg2 >= 0x3b)
             return 2;
-        lut = (int16_t *)_GET_MOD_ENTRY16_PTR(0xff);
-        idx = get_awb_idx(arg2) << 2;
+        /* ko 0x21acc-0x21b20: row get_awb_idx(mode) of table 255 (awb_scene_presets),
+         * two u16 per row (byte offset idx << 2), >> 1 into stab[0x31]/[0x32].
+         * Row guard against a short bin table 255 (no-op for the 7-row table). */
+        lut = (const uint16_t *)(uintptr_t)_GET_MOD_ENTRY16_PTR(0xff);
+        if (!lut || t30_get_awb_idx(arg2) >= _GET_ROWS(0xff))
+            return 2;
+        t30_awb_preset_gains(lut, arg2, &red, &blue);
         *(volatile uint8_t *)((char *)arg1 + 0x75a) = 0;
         *(volatile uint8_t *)((char *)&stab + 0xc) = 1;
-        lut = lut + idx;
-        val0 = lut[0];
-        val1 = lut[1];
         *(int32_t *)((char *)arg1 + 0xec8) = arg2;
-        *(volatile uint8_t *)((char *)&stab + 0x31) = (uint8_t)(val0 >> 1);
-        *(volatile uint8_t *)((char *)&stab + 0x32) = (uint8_t)(val1 >> 1);
+        *(volatile uint8_t *)((char *)&stab + 0x31) = red;
+        *(volatile uint8_t *)((char *)&stab + 0x32) = blue;
         return 0;
     }
 

@@ -151,6 +151,18 @@ callback as a byte (jump to address 0 on the first fps change), its fps id table
 `5,10,15,20,25,30` instead of the stock `5,15,25,30,50,60`, and `apical_command` had no
 type 6 (the exposure/gain log2 readout of `GetEVAttr`).
 
+A fourth one (2026-11-07, Lu-Fi/openimp#202): the AWB scene presets (`SetWB` modes 2..8 =
+AWB mode ids 0x34..0x3a) all read row 0 of calibration table 255 (`awb_scene_presets`), so
+every preset gave neutral gains 128/128. The lifted `get_awb_idx` had its range test
+inverted and `awb_mode` stepped four u16 per row. `tx_isp_t30_awb_preset.h` now does what
+the SDK-built ko does (get_awb_idx 0x21a08: modes 53..58 -> `awb_idx_table` {1..6} at
+.rodata 0xdec, else 0; awb_mode 0x21a30: two u16 per row, `>> 1` into stab 0x31/0x32):
+cloudy 146/101, incandescent 73/230, shade 156/93 with the default table. Oracle:
+`tools/ko_emu/diff_t30_awb_mode.py` (Unicorn on the vendor ko) -> `tests/t30_awb_mode_oracle.h`;
+host test `tests/t30_awb_preset_host_test.c`, guard `tests/check_t30_awb_preset.sh`
+(4 mutations incl. the old lift). One addition: a preset row past `_GET_ROWS(255)` (a short
+bin table) returns 2 instead of reading past the table; no effect on the 7-row table.
+
 ## Validation boundary
 
 This remains recovery-grade code, but it is no longer static-only. The August

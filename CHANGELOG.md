@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-07: T30 AWB scene presets take their own row of table 255 (#202; desk + Unicorn oracle, device check pending)
+
+- `SetWB` presets (daylight, cloudy, incandescent, fluorescent, twilight, shade, warm) had no effect on the open T30 driver: the lifted `get_awb_idx` returned 0 for every preset (inverted range test) and `awb_mode` stepped 4 u16 per row, so all presets read row 0 of `awb_scene_presets` >> 1 = 128/128 (T30X b26/b27/b29: `mode N r=128 b=128`; stock: cloudy 146/101, incandescent 73/230). Now `tx_isp_t30_awb_preset.h` as in the SDK-built ko (get_awb_idx 0x21a08, awb_idx_table {1..6} at .rodata 0xdec; awb_mode 0x21a30, two u16 per row). A row past `_GET_ROWS(255)` returns 2 (guard for a short bin table, no effect on the 7-row default).
+- New oracle `tools/ko_emu/diff_t30_awb_mode.py` (vendor ko in Unicorn: get_awb_idx for inputs -64..191, awb_mode for ids 0x28..0x48) -> `tests/t30_awb_mode_oracle.h`; host test `t30_awb_preset_host_test` and check `t30_awb_preset_check` (4 mutations incl. the old lift detected).
+- RawDRC (#202): the Iridix ratio fix d3857f46 is already in `next` (merged 2026-11-05 via e2c2ee24, with the strength input trace d09dc553); the unlimit gap 221-247 vs 149-154 is in the AE inputs, to be compared on the device (GetEVAttr / GetAeHist before GetRawDRC). No driver change.
+
 ## 2026-11-07: RC3 `v2026.11.07-rc3` released; docs brought to the released state (no driver change)
 
 - RC3 tagged in open-tx-isp and OpenIMP and released on GitHub (Lu-Fi and opensensor); RC3 gate green (2017 of 2017 application-used function cells, 0 blocking issues). thingino-firmware: the Lu-Fi `aperto` branch pins the tag `v2026.11.07-rc3` (upstream pull request themactep/thingino-firmware#1945).
