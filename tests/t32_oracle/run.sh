@@ -1,0 +1,47 @@
+#!/bin/sh
+# T32 host oracle runner (see audit/t32pr/HOWTO_ORACLE.md in the Lu-Fi tree
+# and tests/README.oracles.md).  Builds the reference functions of ref/
+# (Matt Davis' recovered C, PR #15 @ 2e2e06bc) once, links them with env.c
+# and the oracle main, runs it, then rebuilds the oracle against one-token
+# mutations of our driver header: every mutation must be detected.
+#   usage: run.sh <oracle>      e.g. run.sh t32_ccm_oracle
+set -e
+H=$(cd "$(dirname "$0")" && pwd)
+D=$H/../../driver/t32
+O=${T32O_OUT:-$H/out}
+CC=${HOSTCC:-cc}
+NAME=$1
+. "$H/$NAME.conf"		# REFS="fn_..c ...", HDR=tx_isp_t32_xxx.h, MUTATIONS (one sed expression per line)
+mkdir -p "$O/ref"
+RF="-O1 -fno-pie -fwrapv -fno-strict-aliasing -w"
+objs=
+for f in $REFS; do
+	o=$O/ref/${f%.c}.o
+	if [ ! -f "$o" ] || [ "$H/ref/$f" -nt "$o" ]; then
+		$CC $RF -c "$H/ref/$f" -o "$o"
+		objcopy --redefine-sym memcpy=t32o_memcpy --redefine-sym __ashrdi3=t32o___ashrdi3 "$o"
+	fi
+	objs="$objs $o"
+done
+$CC -O1 -fno-pie -Wall -Wextra -Werror -c "$H/env.c" -o "$O/env.o"
+link() {	# $1 = header dir in front of driver/t32, $2 = output
+	$CC -O1 -fno-pie -Wall -Wextra -Werror -Wno-unused-function -I"$1" -I"$D" -I"$H" \
+		"$H/$NAME.c" "$O/env.o" $objs -no-pie -o "$2"
+}
+link "$D" "$O/$NAME"
+"$O/$NAME"
+rc=$?
+[ $rc -eq 0 ] || exit $rc
+# mutation check
+n=0; caught=0; M=$O/mut; mkdir -p "$M"
+echo "$MUTATIONS" | while IFS= read -r m; do
+	[ -n "$m" ] || continue
+	sed "$m" "$D/$HDR" > "$M/$HDR"
+	if cmp -s "$M/$HDR" "$D/$HDR"; then echo "$NAME: mutation did not apply: $m"; exit 1; fi
+	if ! link "$M" "$O/$NAME.mut" 2>/dev/null; then echo "$NAME: mutation does not build: $m"; exit 1; fi
+	if T32_IQ_DIR="${T32_IQ_DIR:-}" T40_ORACLE_STRICT=0 "$O/$NAME.mut" >/dev/null; then
+		echo "$NAME: mutation NOT detected: $m"; exit 1
+	fi
+done
+nm=$(echo "$MUTATIONS" | grep -c .)
+echo "$NAME: PASS, $nm/$nm mutations of $HDR detected"

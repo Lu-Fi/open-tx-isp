@@ -18,9 +18,13 @@
  * Built: the init flow with the vendor's initial state (colour temperature
  * 5000, exposure 0, no API override, no tuning array: section bytes
  * +0x360/+0x361 are cleared as the vendor does, so pass a writable copy).
+ * A nonzero +0x38 word selects the fixed matrix of the section (+0x3c, nine
+ * s32) instead of the knots, as tisp_ccm_interp_by_ct does.
  * Refused: sections whose +0x35f byte is 0 (that path keeps compiled-in
- * defaults of the vendor driver) and +0x38 = 1 (fixed matrix from the
- * section).
+ * defaults of the vendor driver) and an empty knot table.
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_ccm_oracle).
  */
 #ifndef TX_ISP_T32_CCM_H
 #define TX_ISP_T32_CCM_H
@@ -81,7 +85,7 @@ static inline int t32_ccm_init(u8 *sec, const u8 *lut, u32 lutbytes, struct t32_
 	u8 sh;
 	int d;
 
-	if (t32_front_le32(sec) != T32_CCM_ID || !sec[0x35f] || t32_front_le32(sec + 0x38) == 1)
+	if (t32_front_le32(sec) != T32_CCM_ID || !sec[0x35f])
 		return -1;
 	memset(cp, 0, sizeof(cp));
 	sec[0x360] = 0;
@@ -91,41 +95,43 @@ static inline int t32_ccm_init(u8 *sec, const u8 *lut, u32 lutbytes, struct t32_
 	if (knots < 1 || lutbytes < (u32)knots * 40U)
 		return -1;
 
-	/* tisp_ccm_interp_by_ct at 5000 K */
-	if (knots == 1) {
+	/*
+	 * tisp_ccm_interp_by_ct at 5000 K.  The vendor compares the knot
+	 * temperatures unsigned and forms the weighted sum in 32 bit (the low
+	 * word of its 64-bit multiply-accumulate).
+	 */
+	if (t32_front_le32(sec + 0x38)) {
+		/* fixed matrix: the section's own nine coefficients at +0x3c */
+		for (i = 0; i < 9; i++)
+			mat[i] = t32_ccm_i32(sec + 0x3c + 4 * i);
+	} else if (knots == 1 || t32_front_le32(lut) >= T32_CCM_CT) {
 		for (i = 0; i < 9; i++)
 			mat[i] = t32_ccm_i32(lut + 4 + 4 * i);
-	} else if (t32_ccm_i32(lut) >= T32_CCM_CT) {
-		for (i = 0; i < 9; i++)
-			mat[i] = t32_ccm_i32(lut + 4 + 4 * i);
-	} else if (t32_ccm_i32(lut + 40 * (knots - 1)) <= T32_CCM_CT) {
+	} else if (t32_front_le32(lut + 40 * (knots - 1)) <= T32_CCM_CT) {
 		for (i = 0; i < 9; i++)
 			mat[i] = t32_ccm_i32(lut + 40 * (knots - 1) + 4 + 4 * i);
 	} else {
-		for (idx = 1; idx < knots && t32_ccm_i32(lut + 40 * idx) < T32_CCM_CT; idx++)
+		/* first knot at or above 5000 K (exists: the last one is above) */
+		for (idx = 1; idx < knots && t32_front_le32(lut + 40 * idx) < T32_CCM_CT; idx++)
 			;
-		if (idx >= knots)
-			return -1;
 		{
 			const u8 *lo = lut + 40 * (idx - 1), *hi = lut + 40 * idx;
-			int clo = t32_ccm_i32(lo), chi = t32_ccm_i32(hi);
+			u32 clo = t32_front_le32(lo), chi = t32_front_le32(hi);
 
-			if (clo + hyst < T32_CCM_CT && T32_CCM_CT < chi - hyst) {
-				int den = chi - clo - 2 * hyst, num = T32_CCM_CT - clo - hyst;
+			if (clo + (u32)hyst < T32_CCM_CT && T32_CCM_CT < chi - (u32)hyst) {
+				int den = (int)(chi - clo - 2U * (u32)hyst), num = (int)(T32_CCM_CT - clo - (u32)hyst);
 
 				for (i = 0; i < 9; i++) {
-					int a = t32_ccm_i32(lo + 4 + 4 * i), b = t32_ccm_i32(hi + 4 + 4 * i);
-					int s = (den - num) * a + num * b;
-					int r = den >> 1;
+					u32 a = t32_front_le32(lo + 4 + 4 * i), b = t32_front_le32(hi + 4 + 4 * i);
+					int s = (int)((u32)(den - num) * a + (u32)num * b);
+					u32 r = (u32)(den >> 1);
 
-					if (s < 1)
-						r = -r;
-					s = (s + r) / den;
+					s = (int)(s < 1 ? (u32)s - r : (u32)s + r) / den;
 					mat[i] = s < -0x2000 ? -0x2000 : s > 0x1fff ? 0x1fff : s;
 				}
 			} else {
 				/* within the hysteresis of a knot: that knot's matrix */
-				const u8 *k = clo + hyst < T32_CCM_CT ? hi : lo;
+				const u8 *k = clo + (u32)hyst < T32_CCM_CT ? hi : lo;
 
 				for (i = 0; i < 9; i++)
 					mat[i] = t32_ccm_i32(k + 4 + 4 * i);
@@ -135,21 +141,39 @@ static inline int t32_ccm_init(u8 *sec, const u8 *lut, u32 lutbytes, struct t32_
 	for (i = 0; i < 9; i++)
 		t32_tp_put32(cp + 4 * i, (u32)mat[i]);
 
-	/* tisp_ccm_interp_by_ev at exposure 0 (below the first threshold) */
-	if (t32_front_le32(sec + 4) == 0)
-		return -1;
-	t32_tp_put16(cp + 0x4c, T32_CCM_S16(sec, 0x316));
-	t32_tp_put16(cp + 0x4e, T32_CCM_S16(sec, 0x32e));
-	for (i = 0; i < 12; i++)
-		t32_tp_put16(cp + 0x50 + 2 * i, T32_CCM_S16(sec, 0xe0 + 0x18 * i));
-	t32_tp_put16(cp + 0x3c, T32_CCM_S16(sec, 0x2b6));
-	t32_tp_put16(cp + 0x3e, T32_CCM_S16(sec, 0x2ce));
-	t32_tp_put16(cp + 0x40, T32_CCM_S16(sec, 0x2e6));
-	t32_tp_put16(cp + 0x42, T32_CCM_S16(sec, 0x2fe));
-	t32_tp_put16(cp + 0x44, T32_CCM_S16(sec, 0x24a));
-	t32_tp_put16(cp + 0x46, T32_CCM_S16(sec, 0x262));
-	t32_tp_put16(cp + 0x48, T32_CCM_S16(sec, 0x27e));
-	t32_tp_put16(cp + 0x4a, T32_CCM_S16(sec, 0x296));
+	/*
+	 * tisp_ccm_interp_by_ev at exposure 0.  +0x38 = 1: the fixed set of the
+	 * section (the four 0x44..0x4a limits are not written there and keep
+	 * the vendor's compiled-in defaults 0x40, 0x80, 0, 0).  Otherwise the
+	 * values of the first exposure knot (exposure 0 is below the first
+	 * threshold +4; a zero threshold would need the knot interpolation,
+	 * not built).
+	 */
+	if (t32_front_le32(sec + 0x38) == 1) {
+		t32_tp_put16(cp + 0x4c, T32_CCM_S16(sec, 0x346));
+		t32_tp_put16(cp + 0x4e, T32_CCM_S16(sec, 0x348));
+		for (i = 0; i < 12; i++)
+			t32_tp_put16(cp + 0x50 + 2 * i, T32_CCM_S16(sec, 0x200 + 2 * i));
+		for (i = 0; i < 4; i++)
+			t32_tp_put16(cp + 0x3c + 2 * i, T32_CCM_S16(sec, 0x2ae + 2 * i));
+		t32_tp_put16(cp + 0x44, 0x40);
+		t32_tp_put16(cp + 0x46, 0x80);
+	} else {
+		if (t32_front_le32(sec + 4) == 0)
+			return -1;
+		t32_tp_put16(cp + 0x4c, T32_CCM_S16(sec, 0x316));
+		t32_tp_put16(cp + 0x4e, T32_CCM_S16(sec, 0x32e));
+		for (i = 0; i < 12; i++)
+			t32_tp_put16(cp + 0x50 + 2 * i, T32_CCM_S16(sec, 0xe0 + 0x18 * i));
+		t32_tp_put16(cp + 0x3c, T32_CCM_S16(sec, 0x2b6));
+		t32_tp_put16(cp + 0x3e, T32_CCM_S16(sec, 0x2ce));
+		t32_tp_put16(cp + 0x40, T32_CCM_S16(sec, 0x2e6));
+		t32_tp_put16(cp + 0x42, T32_CCM_S16(sec, 0x2fe));
+		t32_tp_put16(cp + 0x44, T32_CCM_S16(sec, 0x24a));
+		t32_tp_put16(cp + 0x46, T32_CCM_S16(sec, 0x262));
+		t32_tp_put16(cp + 0x48, T32_CCM_S16(sec, 0x27e));
+		t32_tp_put16(cp + 0x4a, T32_CCM_S16(sec, 0x296));
+	}
 
 	/* tisp_ccm_calc_para_refresh: { hi, lo, scale, shift } of five ranges */
 	{

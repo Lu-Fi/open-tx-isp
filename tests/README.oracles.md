@@ -44,6 +44,17 @@ Function-level diff (instructions with relocations compared by symbol, `jr`/`jr.
 - Different elsewhere: AE (25 functions, flicker detect / AE step API only in one build each), CLM parameter get/set and `ct_interp`,
   GIB/BLC print helpers, MSCA, VIC/ISP core glue.
 
+## T32 host oracles (tests/t32_oracle, planned work)
+
+Reference = Matt Davis' mechanical MIPS-to-C recovery of the vendor T32 module (opensensor/open-tx-isp PR #15, branch
+`t32/recovered-baseline` 2e2e06bc), the needed functions copied unchanged into `t32_oracle/ref/` by `t32_oracle/import_ref.sh`
+(provenance header). They build for the host with `ref_compat.h` + `env.c` (non-PIE, all memory below 4 GiB, o32-shaped stubs; memcpy
+and __ashrdi3 renamed by objcopy). `t32_oracle/run.sh <name>` builds `<name>.c` with `<name>.conf` (REFS, HDR, MUTATIONS), compares
+every register write and memory output with our `driver/t32` header, then requires every listed one-token mutation of HDR to be detected.
+
+- `t32_ccm_oracle`: `t32_ccm_init` vs `tisp_ccm_init` chain. Random inputs always run; the IQ-bin part needs
+  `T32_IQ_DIR=<dir of T32 *.bin>` (e.g. `ingenic-sdk/sensor-iq/t32` of a thingino build dir), else it prints `SKIP (` (counted as skipped).
+
 ## t40_bcsh_dn_host
 
 - `t40_vct_host` (host run of the mechanically translated CT/EV chain) was removed on 2026-11-03 together with that translation
