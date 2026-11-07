@@ -46,6 +46,9 @@ u32 t32_data_e17c0[4];			/* per-channel context { section ptr, params, work bloc
 u8 t32_data_e1710[16];
 u32 t32_data_e1720[6], t32_data_e1738[1], t32_data_e173c[33];
 
+/* DPC context pointers per channel (.bss) */
+u32 t32_data_e35f0[4];
+
 /* ---- .data objects ---- */
 /* CSC / CSCCR: mode tables (92 B x 6 for CSC, 12 B x 3 for CSCCR) and defaults */
 /* data.c:26937 (92 B) */
@@ -89,6 +92,8 @@ u32 t32_data_bf460[20] = { 0x42838, 0x424fc, 0x42544, 0x42590, 0x42838, 0x42838,
 /* data.c:25525 (d6820, 20 B): initial gain state */
 u32 t32_data_d6820[5] = { 0x400, 0x400, 0, 0, 0 };
 char t32_data_c9474[4] = "f";
+/* function-name / printf strings of the DPC (content irrelevant) */
+char t32_data_c0a80[4] = "f", t32_data_c0a90[4] = "f", t32_data_ca63c[4] = "f", t32_data_ca624[4] = "f";
 char t32_data_ca2b4[4] = "f", t32_data_ca2e0[4] = "f", t32_data_ca314[4] = "f";
 
 /* data.c:19093 (+0x2180) = 1: tisp_reg_write queues into the shadow buffer.
@@ -117,6 +122,8 @@ u32 t32_data_d6d7c[26] = { 0x400, 0, 0, 0, 0x400, 0, 0, 0, 0x400, 0, 0, 0, 0, 0,
 u32 t32_data_d6de8[4] = { 0, 0, 0x1388, 0xff };
 /* printf format strings: content irrelevant */
 char t32_data_bfe60[4] = "f", t32_data_ca1b4[4] = "f", t32_data_ca1f8[4] = "f";
+
+u32 t32o_reg88;
 
 /* ---- log ---- */
 struct t32o_log t32o_log;
@@ -158,6 +165,7 @@ void t32o_reset(void)
 	memset(t32_data_e3110, 0, sizeof(t32_data_e3110));
 	memset(t32_data_e3120, 0, sizeof(t32_data_e3120));
 	memset(t32_data_e3130, 0, sizeof(t32_data_e3130));
+	memset(t32_data_e35f0, 0, sizeof(t32_data_e35f0));
 	memset(t32_data_e17c0, 0, sizeof(t32_data_e17c0));
 	memset(t32_data_e1710, 0, sizeof(t32_data_e1710));
 	memset(t32_data_e1720, 0, sizeof(t32_data_e1720));
@@ -214,6 +222,8 @@ u64 system_reg_write(u32 a0, u32 a1, u32 a2, u32 a3)
 u64 system_reg_read(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a1; (void)a2; (void)a3;
+	if (a0 == 0x88)
+		return t32o_reg88;	/* the Bayer/format register the DPC init tests */
 	return 0x5a000000u | a0;	/* only the second pipeline reads back */
 }
 

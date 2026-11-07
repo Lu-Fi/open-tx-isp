@@ -13,6 +13,9 @@
  * the vendor's flow; the tables come from the bin.  "wide" selects the extra
  * 0x29144.. words of the short exposure (the vendor tests the ISP top
  * format register, bit field above 4).
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_dpc_oracle).
  */
 #ifndef TX_ISP_T32_DPC_H
 #define TX_ISP_T32_DPC_H
