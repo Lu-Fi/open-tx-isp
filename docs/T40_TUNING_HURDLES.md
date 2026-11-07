@@ -820,7 +820,7 @@ saturated chroma noise, i.e. raw 10-bit Bayer rendered as NV12. Ruled out in
 order: LSC CT tracking (A/B vs pre-tracking HEAD identical), runtime LUT
 rewrites (pattern survives with tracking off and the 3A killed), and the MDNS
 buffer/rmem collision (relocating to nmem changed nothing — though the
-collision is real and the default now lives at 0xc000000 in nmem; rvd maps all
+collision is real and the default now lives at 0xc000000 in nmem; the video daemon maps all
 96M of rmem and 0x8000000 was 32MB into it).
 
 Root cause: the harness still defaulted
@@ -1358,11 +1358,11 @@ Follow-up: `logs/20260609-142438-t40-awb-cb-neutraluv-242` reproduced the same
 failure signature while stopping the active recovered stream. The log again ends
 inside `<app-init> stop` after consumer daemons stop and before any new `insmod`,
 so this is not an AWB-code result. Treat it as a recovered-driver
-release/stream-stop blocker: killing the active `rvd` stream can take the camera
+release/stream-stop blocker: killing the active video-daemon stream can take the camera
 off-LAN before the module reload starts.
 
 Safety change: `tools/t40_safe_qbuf_dump_probe.sh` now refuses to stop an active
-`rvd` stream by default. Use one of these paths instead:
+video-daemon stream by default. Use one of these paths instead:
 
 - Preferred: power-cycle first, wait for the camera to return, then run the
   probe from a no-stream boot state.
@@ -1380,7 +1380,7 @@ the local recovered MSCA/VIC/CSI shutdown path instead of
 `TX_ISP_EVENT_FRAME_STREAMOFF`. The release crash needs a deliberate live test
 later with `ALLOW_ACTIVE_STREAM_STOP=1`, but default probe behavior should no
 longer arm a recovered module that uses the suspected remote streamoff callback
-on `rvd` exit.
+on the video daemon exit.
 
 ## 2026-06-09 AWB reconstruction repairs verified against OEM binary
 
@@ -1527,7 +1527,7 @@ callback chain unconditionally).
   the packed (again_idx<<16)|it word from arg+4. With the fix, gain index
   10 vs 0 swings scene luma 10x. The mystery -290 = two -145 I2C write
   failures summed (transient bus timeouts).
-- The AWB stats engine input dies after rvd's second streamon (banks cycle,
+- The AWB stats engine input dies after the video daemon's second streamon (banks cycle,
   config intact, all zone counts zero; thresholds/windows ruled out by live
   permissive writes). Under investigation; the gray-world IRQ loop freezes
   with it. Workarounds in place: stats watchdog re-arm from frame-done +
@@ -1761,7 +1761,7 @@ What it took, in dependency order:
    tracking runs from the frame-done dns_gain_ev hook via
    tisp_mdns_par_refresh_lit(0, ev, 256) (process context).
 5. **Block-init timing.** The tuning blob often arrives after the
-   streamon that calls isp_block_init_once, and retriggering via an rvd
+   streamon that calls isp_block_init_once, and retriggering via a video-daemon
    restart crashes the camera (pre-existing second-streamon fragility —
    confirmed by an ENABLE_MDNS=0 control crashing identically).
    isp_block_init_once is now retried from frame-done until the blob
@@ -1888,7 +1888,7 @@ Bench incident first: `<app-config>` was found truncated to 0 bytes
 (mtime 17:38, likely a casualty of one of the CLM stage-14 oops/power-cut
 cycles). Symptoms of the empty conf: stock `tx-isp-t40.ko` + sensor insmod
 fails with `Failed to get I2C adapter 0, deferring probe` (the conf's
-`[sensor] i2c_adapter = 1` is what points rvd at the right bus) and rvd dies
+`[sensor] i2c_adapter = 1` is what points the video daemon at the right bus) and the video daemon dies
 with `IMP_ISP_AddSensor failed`. Restored from the squashfs copy
 (`cp /rom<app-config> <app-config>`), then re-applied ONLY the
 `[ircut] enabled = true / mode = day` lines (321/322). NOTE: the factory conf
@@ -2138,7 +2138,7 @@ MDNS as previously noted)**, bit14=YDNS, bit17=YSP, **bit18=SDNS**,
 bit19=CDNS, bit21=LCE. Reg 0x44 is a second bank (identical stock vs ours
 tonight). NOTE: these bits gate the OEM SOFTWARE paths; clearing bit18 alone
 changed nothing measurable on our driver, and clearing arbitrary bits is
-dangerous -- clearing bit22 stalled the video pipeline entirely (rvd fell
+dangerous -- clearing bit22 stalled the video pipeline entirely (the video daemon fell
 back to COLOR BARS; texture metrics measured 0.40 on the bars -- always eyeball
 a frame before trusting a metric).
 
@@ -2175,7 +2175,7 @@ Measurement: the logo region pulses with PERIOD 4 (autocorr 0.95 at lag 4)
 and the logo is fully ABSENT in the dim frames
 (`logs/20260611-osd-flicker/logo-{lo,hi}.png`). The top-left timestamp never
 blinks. Geometry is the tell: the logo occupies the LAST rows the MSCA
-writes; rvd draws OSD at frame-done, and with
+writes; the video daemon draws OSD at frame-done, and with
 `irq_frame_done_delay_ms=20` (the bring-up profile hardcode) the OSD draw
 landed inside the MSCA write window of the rotating buffer — the write tail
 erased the freshly drawn logo on a 4-buffer cadence.
@@ -2206,7 +2206,7 @@ in smooth gradients). Full phase sweep, measuring all three OSD regions
     delay=38ms: ts 0.27  uptime 0.11  logo 4.68
     delay=45ms: STREAM STALLS, then watchdog reboot (delay > frame period)
 
-No phase is fully clean -> rvd's OSD draw ALWAYS overlaps an active MSCA
+No phase is fully clean -> the video daemon's OSD draw ALWAYS overlaps an active MSCA
 write. Conclusion: our MSCA rearm free-runs over the whole buffer ring,
 including buffers userspace has dequeued (stock only writes queued
 buffers). The delay knob merely chooses WHICH rows the overlapping write
@@ -2244,7 +2244,7 @@ Buffer-ownership work (the OSD-blink/tearing root cause):
    pushed every IRQ, and the 4-deep hardware FIFO overflowed -> wedge.
 2. v2 (shadow-state violations, all-states): drop any pop whose shadow
    state is not ACTIVE and arm the spare. WRONG: startup pops are
-   unknown/QUEUED (same priming bypass), every frame got dropped, rvd
+   unknown/QUEUED (same priming bypass), every frame got dropped, the video daemon
    starved, thingino watchdog rebooted.
 3. v3 (current, `enable_msca_spare`, default OFF): enforce only on
    DONE/FREE pops (definitive "userspace holds this buffer"), pass
@@ -2257,7 +2257,7 @@ Buffer-ownership work (the OSD-blink/tearing root cause):
    absorbed, stream healthy through a 74-frame burst. BUT the
    timestamp-region flicker persisted at delay=0 with only that single
    violation -- so the top-row clobber does NOT pop stale DONE/FREE
-   entries; the engine's overwrite during rvd's hold produces a
+   entries; the engine's overwrite during the video daemon's hold produces a
    normal-looking ACTIVE pop later. The detector as designed cannot see
    it; the next idea is pairing push/pop sequence numbers per buffer.
 
@@ -2441,7 +2441,7 @@ Evidence:
 - Capture: `logs/20260611-072903-fast-rtsp-ag2-it1440-r1500-b2000/rtsp-frame.jpg`
 - Liveness: `logs/20260611-072934-ag2-it1440-liveness-monitor.txt`
 - It survived the scheduled SSH-only checks at 1, 2, 4, 7, and 12 minutes
-  uptime with `rvd` alive, `tx_isp_t40_recovered` loaded, and IRQ38/39 moving.
+  uptime with the video daemon alive, `tx_isp_t40_recovered` loaded, and IRQ38/39 moving.
 - Frame metrics vs stored stock-night reference:
   - stable compromise: mean `27533.9`, RGB `0.4227/0.4137/0.4241`
   - stock reference: mean `30142.7`, RGB `0.4775/0.4481/0.4543`

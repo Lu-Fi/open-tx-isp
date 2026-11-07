@@ -103,7 +103,7 @@ the channel until one of two things happens:
 - the channel's next pool of the same size takes it back, or
 - `DestroyChn` frees it.
 
-With raptor, prudynt and timps, `DestroyChn` comes only at process exit,
+With the common streamers, `DestroyChn` comes only at process exit,
 after the last close. The input stops with the tx-isp STREAMOFF of that
 exit.
 
@@ -112,15 +112,15 @@ itself. STREAMOFF queues a scratch address behind the stream's buffers, so
 the kept output writes into a scratch area at the end of the ISP buffer
 instead of the stream's last buffer (`msca_scratch`, see `MSCA_SCRATCH.md`).
 
-## Device test (Jooan A6M .30, T23N + sc1a4t, raptor)
+## Device test (Jooan A6M .30, T23N + sc1a4t, a streamer)
 
 See the commit message of the drain-wait commit and the CHANGELOG entry for
 the numbers. Method: the module was loaded into RAM (rmmod/insmod, same
-parameters as `/etc/modules.d/20-isp`), and raptor was started with the
+parameters as `/etc/modules.d/20-isp`), and the application was started with the
 openimp `claude/release-t23-vbm` libimp from `/tmp` (LD_LIBRARY_PATH).
 Then three tests ran:
 
-- Cold starts: stop raptor, wait 20 s, start it, and time the first
-  snapshot of ch0 and ch1 (`raptorctl rvd save jpeg`, 15 s limit).
-- `rvd` restarts without idle time.
+- Cold starts: stop the application, wait 20 s, start it, and time the first
+  snapshot of ch0 and ch1 (the application's snapshot command, 15 s limit).
+- application restarts without idle time.
 - An ISP day/night switch.

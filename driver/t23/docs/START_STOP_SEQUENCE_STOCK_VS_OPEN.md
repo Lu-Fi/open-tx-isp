@@ -1,7 +1,7 @@
 # T23 start/stop sequences: stock `tx-isp-t23.ko` vs. the open driver
 
 Purpose: find the timing/ordering deviation behind the cam-B hard hang
-(Galayou Y4, T23N + sc2336, timps): with the default module the SoC dies
+(Galayou Y4, T23N + sc2336, a streamer): with the default module the SoC dies
 ~0.5 s after the second `EnsureLinkStreamOn` (second frame-channel enable
 while the tx-isp stream is already on); with the stock-like knob set
 (`chan_stop_keep_input=1 msca_keep_enabled=2 msca_fifo_rearm=0
@@ -446,15 +446,15 @@ input) and kmsg streamed to the host. ≥ 5 min and ≥ 10 wakes each.
 
 | run | change vs. baseline | dies → | survives → |
 |---|---|---|---|
-| B0 | none (repeat `2354-stocklike2`) | environment/timps, stop | baseline confirmed |
+| B0 | none (repeat `2354-stocklike2`) | environment/application, stop | baseline confirmed |
 | B1 | `msca_fifo_rearm=1` | **rank 1 confirmed**: FIFO clear under live input | rank 1 cleared |
 | B2 | `chan_stop_keep_input=0` (with `msca_fifo_rearm=0`) | rank 3 (input/core restart) | cleared |
 | B3 | `msca_keep_enabled=1` | rank 4 (mid-stream disable) / kept bit across input stop | cleared |
 | B4 | default module, only `msca_fifo_rearm=0` | rank 1 is not the only trigger, go to B2/B3 | default + rearm off is a usable interim default |
 
 All switches are 0644, so B1-B3 can also be flipped at run time between
-timps restarts, but a cold start per run is cleaner (the hang lives in
-the minutes after a timps start).
+application restarts, but a cold start per run is cleaner (the hang lives in
+the minutes after an application start).
 
 Code changes for after the bisect (one build, each behind a knob, default
 stock): STREAMOFF drain wait (rank 2), FIFO writes only while streaming +

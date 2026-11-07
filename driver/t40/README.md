@@ -36,7 +36,7 @@ and the local frame-done fallback also remain in the recovered driver.
 The first shared-subdevice device cycle ran on a T40XP/GC4653 camera on
 2026-07-31.  A later 2026-08-31 cycle restored sensor-owned geometry and
 rational frame rate reporting, producing the GC4653's native 2560x1440 stream
-through both OpenIMP and direct V4L2 without a Raptor resolution override.
+through both OpenIMP and direct V4L2 without an application resolution override.
 The open module registered one sensor, accepted forced day/night transitions,
 kept IRQ 38/39 active, and supplied valid H.264 frames without a kernel-fatal
 signature during the sustained checks.
@@ -62,7 +62,7 @@ with behavior checked against the T40 OEM disassembly:
 
 The batch builds against the Thingino T40XP/GC4653 Linux 4.4.94 tree. A smoke
 run on the `.242` test camera completed block initialization, produced a valid
-1920x1080 RTSP frame, kept Raptor and both ISP interrupt lines active, and
+1920x1080 RTSP frame, kept the application and both ISP interrupt lines active, and
 returned the camera to a clean boot. Evidence is in
 `logs/20260718-t40-parity-batch1-final2-smoke/`.
 
@@ -208,7 +208,7 @@ FIFO (`Tzn_Msca_addr_fifo_read`) only at that cadence.
   now skipped by default (`skip_tisp_deinit=1`), untested.
 - The kernel has no netconsole (CONFIG_NETCONSOLE/NETPOLL unset); panic
   logs need the serial console.
-- the streamer did not start on one vendor restore boot (no log line); manual
+- The streamer did not start on one vendor restore boot (no log line); manual
   `start` of the streamer init script worked.  Keep the streamer init script at mode 0755 when restoring.
 
 ### Round 3, 2026-10-12 night (A/B register oracle, commits f25ce716..0855c953)
@@ -429,7 +429,7 @@ module built against the Eufy 4.4.94 tree, `tests/check_ko_symbols.sh` OK):
 
 - 4K and scaled 1080p/720p/360p frames, 20 fps, both frame channels (the streamer
   video0 1920x1080 + video1 640x360).
-- the streamer 30 min soak clean (t9b), 15/15 stop/start cycles + 3/3 framesource
+- The streamer 30 min soak clean (t9b), 15/15 stop/start cycles + 3/3 framesource
   idle off/on cycles clean (c10) after 1284cb0e.
 - Forensics: panic log copy and flight recorder in the rmem tail
   (`panic_dump_phys=0xe9f0000`), reader `t40prod/panicdump.sh`.
@@ -680,11 +680,11 @@ night picture 69 % darker than the vendor. Findings and fixes, all device-tested
   the BCSH saturation is re-applied on a day/night change (it stayed at the night value after the return).
 - `t40_ysp_on` defaults to 1: the bin gates enable YSP like the vendor TOP word (TOP 0x7FF9089D, init ok, 0 oops at
   4K). Day edge energy 2.89 -> 3.76 (vendor 5.23); the remaining sharpness gap is open.
-- The open timps stops the framesource without a viewer (`framesource.keepalive=0`), so the ISP idles at 0 IRQ/s and the
+- The application of the open stack stops the framesource without a viewer (`framesource.keepalive=0`), so the ISP idles at 0 IRQ/s and the
   3A only runs in snapshot bursts; the A/B runs therefore keep a stream consumer open. Not a driver difference.
 - Frame 3A without a main-stream consumer (2026-10-25): the sampler took only channel-0 completions, so a sub-stream-only
   consumer (ch1 RTSP, 20 s: `frame_3a_samples` 834 -> 834) left the AE frozen at the last exposure. After an IR-off day
-  switch a streamer then read the IR-lit exposure for seconds (timps: 554 after 8 s, 22117 14 s later) and kept a
+  switch a streamer then read the IR-lit exposure for seconds (the application: 554 after 8 s, 22117 14 s later) and kept a
   wrong "day". Channel 1 now feeds the same loop when channel 0 has not completed a frame for
   `frame_3a_ch1_idle_ms` (default 300, 0 = old behaviour; `frame_3a_ch1_samples` counts them). Device (.184, dark, ch1
   only, IR off): EV 3375 -> 286830 (max) in ~3 s, back to 3375 ~4 s after the streamer returned to night (stock: frozen).

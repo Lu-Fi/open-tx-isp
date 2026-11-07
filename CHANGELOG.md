@@ -2,7 +2,13 @@
 
 Condensed from the open-stack campaign changelog; only open-tx-isp (kernel driver) changes.
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
-marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
+marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
+
+## 2026-11-07: RC3 `v2026.11.07-rc3` released; docs brought to the released state (no driver change)
+
+- RC3 tagged in open-tx-isp and OpenIMP and released on GitHub (Lu-Fi and opensensor); RC3 gate green (2017 of 2017 application-used function cells, 0 blocking issues). thingino-firmware: the Lu-Fi `aperto` branch pins the tag `v2026.11.07-rc3` (upstream pull request themactep/thingino-firmware#1945).
+- README: status, per-SoC table and completeness as of RC3 (T30, T40 and T41 are gate SoCs; the T23 crop hang is fixed; T31 `fcrop_upscale_pct` default 100), thingino pin by tag, wiki links to the Lu-Fi wikis.
+- Documentation and driver READMEs no longer name particular streamers ("the application" / "a streamer"); `docs/AGG39_TESTPLAN.md` marked obsolete; the RC1 release note points to the newer release notes.
 
 ## 2026-11-07: unexplained resets #94 (T31L) and #108 (T23) closed, T23 reset #229 explained (no driver change)
 
@@ -87,7 +93,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 
 ## 2026-11-06: T31 review follow-up: "ch0 done" counted once, no idle IRQ threads, dead ISR/WDR code gone (#223)
 
-- D1 / M4: `isp_dev->frame_count` was incremented by the VIC frame done (tx_isp_module.c) and by the core channel 0 drain, so `/proc/jz/isp/isp-m0` "ch0 done"/"ip done" and isp-w00/w01 showed about twice the frame count. Now only channel 0 completions count (core drain, bypass graph). No consumer in openimp/timps parses the value.
+- D1 / M4: `isp_dev->frame_count` was incremented by the VIC frame done (tx_isp_module.c) and by the core channel 0 drain, so `/proc/jz/isp/isp-m0` "ch0 done"/"ip done" and isp-w00/w01 showed about twice the frame count. Now only channel 0 completions count (core drain, bypass graph). No consumer in OpenIMP or the application parses the value.
 - M2: the two ISP IRQs (isp-m0, isp-w02) are requested without a thread handler; the top halves never returned `IRQ_WAKE_THREAD`, so the `irq/37-isp-m0` and `irq/38-isp-w02` kthreads only slept. Same handler, flags and name.
 - M6: the core ISR walks only the set status bits (`__ffs`) instead of 32 iterations; same callbacks in the same ascending order.
 - D2: CSI ISR returns `IRQ_NONE` before touching `ourISPdev` when the ISP device is not there (shared line).
@@ -437,7 +443,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 
 ## 2026-11-03, T40 lifted code: lost call arguments (class arity; Lu-Fi/openimp#193, from the old #140 branch) - Eufy T40 day-scene proof
 
-- **Scanner:** `tests/lifted_ptr_scale_check.py` has a new class `arity` (a cast call with fewer parameters than the callee's prototype, T40 only). 187 call sites in 71 functions on next, each function carries a status in `tests/lifted_ptr_scale_baseline.txt` (compared with the vendor `tx-isp-t40.ko`, headless Ghidra + objdump). Reach was measured: function-entry marks in QEMU T40 (3 reload cycles, timps start/stop) enter only `tx_isp_unlocked_ioctl` and `tx_isp_video_link_stream`; the Eufy sysfs counters (`unresolved_jalr_count`, `cnt_core_ops_init`, `cnt_sec_init`, `cnt_main_long_tgain_update`) are 0.
+- **Scanner:** `tests/lifted_ptr_scale_check.py` has a new class `arity` (a cast call with fewer parameters than the callee's prototype, T40 only). 187 call sites in 71 functions on next, each function carries a status in `tests/lifted_ptr_scale_baseline.txt` (compared with the vendor `tx-isp-t40.ko`, headless Ghidra + objdump). Reach was measured: function-entry marks in QEMU T40 (3 reload cycles, application start/stop) enter only `tx_isp_unlocked_ioctl` and `tx_isp_video_link_stream`; the Eufy sysfs counters (`unresolved_jalr_count`, `cnt_core_ops_init`, `cnt_sec_init`, `cnt_main_long_tgain_update`) are 0.
 - **Fixed (none is entered in the default flow, so no visible effect is expected):** `tisp_get_antiflicker_step` (second argument lost; the vinum 1 leg called the main getter), `subdev_sensor_ops_ioctl` (enum_input argument), `csi_sensor_ops_ioctl` (csi_phy_start got the event id instead of the lane argument), `tx_isp_vin_slake_subdev` (argument block `{0, index}` as one array), `isp_main_pre_frame_dequeue` (event id and payload were not passed), `subdev_sensor_ops_set_input` (two parameters like the OEM).
 - **Not fixed, tracked:** the 8 `regtrace_unresolved_jalr` sites (ispcore_activate_module, ispcore_video_s_stream, ispcore_frame_channel_streamoff, tx_isp_sensor_release_sensor, tx_isp_video_link_stream, tx_isp_vin_init/reset) are a lost *callee* (counting no-op), not a lost argument; they need the real subdev op call and a camera proof. All other entries are `dead` / `shim` / `ok` / `unreach` with the reason in the baseline.
 - **Tests:** `make -C tests check` 144 passed; `--expect-clean ...:arity` for the five fixed functions (mutation check: restoring the dropped argument fails it). QEMU T40: 6 reload cycles, 0 oops, snapshots 200. **Not device-tested** (the Eufy was in ISP night mode): needs apitest 398/0, t40dev, 6 reload cycles and a picture check.
@@ -1504,7 +1510,7 @@ Release note with the full per-SoC text: [OpenIMP docs/RELEASE_NOTES_RC2.md](htt
 
 ## 2026-10-24 (3): T41 day/night idle apply only without frame-completion IRQs (`claude/t41-ab-fixes3`; device re-test pending)
 
-- The AE-statistics-interrupt apply of `t41_dn_apply_ae_irq` now runs only while no frame-completion interrupt (bit 0) arrived for 250 ms (idle camera); with a consumer the bit-0 path alone applies, exactly as before ab-fixes2. A/B on .32 showed the parameter itself changes neither the auto day return (about 35 s with 0 and 1) nor the day saturation after a night cycle; the reported misses came from the shared test light (.34 run in the same room) and from the timps reference timing.
+- The AE-statistics-interrupt apply of `t41_dn_apply_ae_irq` now runs only while no frame-completion interrupt (bit 0) arrived for 250 ms (idle camera); with a consumer the bit-0 path alone applies, exactly as before ab-fixes2. A/B on .32 showed the parameter itself changes neither the auto day return (about 35 s with 0 and 1) nor the day saturation after a night cycle; the reported misses came from the shared test light (.34 run in the same room) and from the application's reference timing.
 - The night/day bank work waits up to 3 s for a first AE exposure before computing CCM/BCSH/TMO (an idle boot with a persisted night mode applied the bank with ev=0).
 
 ## 2026-10-24 (2): T41 day/night switch without a stream consumer (`claude/t41-ab-fixes2`; device re-test pending)
@@ -1747,7 +1753,7 @@ Host tests and a module build against the agg-36 T41 kernel only; not run on a c
 - T23 AF statistics on by default (`source_af=1`, as in stock: `tisp_init` always runs `tiziano_af_init` and registers the AF interrupt). Tested on a T23 camera (sc1a4t 720p15, streamer running, module loaded in RAM):
   - No measurable cost. CPU busy was 47.8 % with `source_af=0` and 48.1 % with `source_af=1` (3 x 60 s each, both within noise). The core IRQ rate was 88.7/s in both cases: the AF interrupt is a status bit of the core interrupt.
   - apitest GetAfHist (8x8), GetAFMetrices, GetAfWeight and GetAfZone: PASS, with live values.
-  - 20 `rvd` restarts and an ISP day/night switch: every snapshot OK, 0 oopses.
+  - 20 application restarts and an ISP day/night switch: every snapshot OK, 0 oopses.
 - T23 MSCA scratch area (`msca_scratch`, default 1; docs in `driver/t23/docs/MSCA_SCRATCH.md`).
   - Before, a channel stopped with its output kept enabled and the input running made the MSCA write every further frame into the stream's last buffer, which user space frees after the close.
   - Now STREAMOFF queues a scratch address behind the stream's buffers. The scratch area is the tail of the ISP buffer in rmem (GET_BUF asks for one Y plane at sensor size, 900 KiB for 720p). The kernel heap has no contiguous block of that size: the largest free block is 256 KiB, even after compaction.
@@ -1755,7 +1761,7 @@ Host tests and a module build against the agg-36 T41 kernel only; not run on a c
   - The input waits until each parked channel's scratch address has been consumed before it stops. A first build without this wait hung the camera at the next session start (3 of about 35 cold starts).
   - Counters `msca_scratch_parks/frames/deferred/skips/settle_timeouts/settle_ticks_max`; host test `tests/tx_isp_t23_scratch_test.c`.
   - Tested on the same T23 camera:
-    - 20 cold starts and 20 `rvd` restarts: all snapshots OK.
+    - 20 cold starts and 20 application restarts: all snapshots OK.
     - An ISP day/night switch: OK.
     - 80 parks, 81 scratch completions, 0 settle or drain timeouts, longest settle 30 ms.
     - The apitest FrameSource disable/enable cycle: PASS.
@@ -1765,7 +1771,7 @@ Host tests and a module build against the agg-36 T41 kernel only; not run on a c
   - The cold-start snapshot 503 is now prevented as stock does it, without the FIFO rearm: STREAMOFF waits up to 21 x 10 ms until the channel's buffers have left the hardware, and QBUF invalidates the buffer's cache lines (`chan_stop_drain`, `qbuf_cache_inv`, docs in `driver/t23/docs/STREAMOFF_DRAIN_WAIT.md`).
   - Tested on the same T23 camera (sc1a4t, streamer running, module loaded in RAM, openimp `claude/release-t23-vbm`):
     - 20 cold starts (20 s idle): every snapshot OK (ch0 1.8-2.1 s, ch1 2.8-3.2 s after start).
-    - 20 `rvd` restarts: every snapshot OK.
+    - 20 application restarts: every snapshot OK.
     - 44 drains (at most 70 ms), 0 drain timeouts.
     - An ISP day/night switch: OK.
     - 0 oopses.
@@ -1857,13 +1863,13 @@ open-tx-isp 191be6c5 (tag v2026.10.11-rc1 = soaked agg-35 6e464ac7 + docs), pair
   - Tested on the Jooan A6M (module loaded in RAM, streamer running):
     - Crop batch 10x: `fcrop-mid50`, `fcrop-topleft50` and `fs1-crop-mid50` were refused, `fs1-crop-topleft50` (crop = scaler output) ran. No hang, the base-end picture was OK each time.
     - Full imgfx run: 33/33 batches, no hang.
-    - 20 `rvd` restarts: all snapshots OK, no "still queued".
+    - 20 application restarts: all snapshots OK, no "still queued".
     - 0 oopses.
   - Tested on a T31 camera (sc2336 1080p, streamer running, module loaded in RAM): crop batch 3x, no hang (`fs1-crop-*` 960x540 into a 640x360 buffer refused), 0 oopses.
 - T23 AF statistics on by default (`source_af=1`, as in stock: `tisp_init` always runs `tiziano_af_init` and registers the AF interrupt). Tested on the Jooan A6M (sc1a4t 720p15, streamer running, module loaded in RAM):
   - No measurable cost. CPU busy was 47.8 % with `source_af=0` and 48.1 % with `source_af=1` (3 x 60 s each, both within noise). The core IRQ rate was 88.7/s in both cases: the AF interrupt is a status bit of the core interrupt.
   - apitest GetAfHist (8x8), GetAFMetrices, GetAfWeight and GetAfZone: PASS, with live values.
-  - 20 `rvd` restarts and an ISP day/night switch: every snapshot OK, 0 oopses.
+  - 20 application restarts and an ISP day/night switch: every snapshot OK, 0 oopses.
 - T23 MSCA scratch area (`msca_scratch`, default 1; docs in `driver/t23/docs/MSCA_SCRATCH.md`).
   - Before, a channel stopped with its output kept enabled and the input running made the MSCA write every further frame into the stream's last buffer, which user space frees after the close.
   - Now STREAMOFF queues a scratch address behind the stream's buffers. The scratch area is the tail of the ISP buffer in rmem (GET_BUF asks for one Y plane at sensor size, 900 KiB for 720p). The kernel heap has no contiguous block of that size: the largest free block is 256 KiB, even after compaction.
@@ -1871,7 +1877,7 @@ open-tx-isp 191be6c5 (tag v2026.10.11-rc1 = soaked agg-35 6e464ac7 + docs), pair
   - The input waits until each parked channel's scratch address has been consumed before it stops. A first build without this wait hung the camera at the next session start (3 of about 35 cold starts).
   - Counters `msca_scratch_parks/frames/deferred/skips/settle_timeouts/settle_ticks_max`; host test `tests/tx_isp_t23_scratch_test.c`.
   - Tested on the Jooan A6M:
-    - 20 cold starts and 20 `rvd` restarts: all snapshots OK.
+    - 20 cold starts and 20 application restarts: all snapshots OK.
     - An ISP day/night switch: OK.
     - 80 parks, 81 scratch completions, 0 settle or drain timeouts, longest settle 30 ms.
     - The apitest FrameSource disable/enable cycle: PASS.
@@ -1889,7 +1895,7 @@ open-tx-isp 191be6c5 (tag v2026.10.11-rc1 = soaked agg-35 6e464ac7 + docs), pair
   - The cold-start snapshot 503 is now prevented as stock does it, without the FIFO rearm: STREAMOFF waits up to 21 x 10 ms until the channel's buffers have left the hardware, and QBUF invalidates the buffer's cache lines (`chan_stop_drain`, `qbuf_cache_inv`, docs in `driver/t23/docs/STREAMOFF_DRAIN_WAIT.md`).
   - Tested on the Jooan A6M (sc1a4t, streamer running, module loaded in RAM, openimp `claude/release-t23-vbm`):
     - 20 cold starts (20 s idle): every snapshot OK (ch0 1.8-2.1 s, ch1 2.8-3.2 s after start).
-    - 20 `rvd` restarts: every snapshot OK.
+    - 20 application restarts: every snapshot OK.
     - 44 drains (at most 70 ms), 0 drain timeouts.
     - An ISP day/night switch: OK.
     - 0 oopses.

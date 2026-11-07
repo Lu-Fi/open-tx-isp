@@ -33,7 +33,7 @@ HAL `2084274` defaults the serial V4L2 encode bridge to one output buffer,
 keeping two capture buffers and explicit output-count overrides. The old
 fourth buffer spilled into uncached memory and periodically stalled IDRs.
 The repair passed a cold-boot 900-second decode with 22,489 frames and no
-FFmpeg warnings, plus reconnect and cadence checks. RVD is persistently
+FFmpeg warnings, plus reconnect and cadence checks. The video daemon is persistently
 staged; no the application configuration or Neo audio library was changed.
 
 ## Required before calling the normal daytime path finished

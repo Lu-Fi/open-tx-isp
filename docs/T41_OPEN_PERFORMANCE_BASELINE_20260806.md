@@ -22,7 +22,7 @@ Exact file identities:
 |---|---:|---|
 | open `tx_isp_t41` module | 756,320 | `cf838ed8f4dfc612389fdee5aeb2377a16636818298b6087da278025a55e8814` |
 | mapped OpenIMP `libimp.so` | 315,676 | `768898c86f36cecaa3c7fb065a545b41f57be7d54ebd31f298bc313b4fd91804` |
-| RVD executable | 150,192 | `0ff407b97e890f88359889ce383483d39ecd073d8c9cc7d51b5a336431046acc` |
+| video daemon executable | 150,192 | `0ff407b97e890f88359889ce383483d39ecd073d8c9cc7d51b5a336431046acc` |
 
 The module occupied 829,941 bytes according to `/proc/modules`. This loaded
 image count is distinct from the ELF file size and does not include every
@@ -35,8 +35,8 @@ runtime allocation made by the driver.
 | whole-system CPU, mean | 22.441% of two-core capacity |
 | whole-system CPU, min / max | 20.768% / 24.320% |
 | named pipeline-process CPU, mean | 21.554% of two-core capacity |
-| RVD CPU, mean / max | 19.324% / 20.245% |
-| RVD RSS, mean / max | 3,944 / 3,944 KiB |
+| video daemon CPU, mean / max | 19.324% / 20.245% |
+| video daemon RSS, mean / max | 3,944 / 3,944 KiB |
 | all named daemons, individual RSS sum | 13,340 KiB |
 | MemAvailable, start / end / minimum | 58,224 / 58,120 / 58,088 KiB |
 | MemAvailable drift | -104 KiB |
@@ -47,8 +47,8 @@ runtime allocation made by the driver.
 | delivered-rate window standard deviation | 0.074 fps |
 | new ISP overflows / kernel fatals / userspace faults | 0 / 0 / 0 |
 
-Individual daemon CPU means were RVD 19.324%, RAD 2.093%, RSD 0.120%, RIC
-0.013%, and RWD 0.004% of total machine capacity. The RSS sum is shown only as
+Individual daemon CPU means were video 19.324%, audio 2.093%, streaming 0.120%, image control
+0.013%, and web 0.004% of total machine capacity. The RSS sum is shown only as
 an inventory; it is not unique memory because shared mappings may be counted
 in more than one process.
 
@@ -140,15 +140,15 @@ The committed artifacts are open-tx-isp `bcf6d1df` and OpenIMP `b313479`:
 The 60-second QHD run delivered 24.996 fps with 0.041 fps window standard
 deviation, +112 KiB `MemAvailable` drift, and zero ISP-overflow, kernel-fatal,
 or userspace-fault deltas. Named pipeline CPU was 7.474% of total two-core
-capacity; RVD was 0.809%.
+capacity; the video daemon was 0.809%.
 
 The immediately preceding full-rate run measured 7.866% named pipeline CPU
-and 1.047% RVD CPU, so the directional changes are -5.0% and -22.7%,
+and 1.047% video-daemon CPU, so the directional changes are -5.0% and -22.7%,
 respectively. The whole-system figures are not compared: the earlier client
 snapshot showed one established WebRTC peer, while the final bundle's detailed
-client list was empty even though RWD retained the same live-worker CPU/RSS
+client list was empty even though the web daemon retained the same live-worker CPU/RSS
 signature and reported a client immediately after the run. Benchmark version
-2 now records daemon-level RWD/RSD status and before/after client lists so
+2 now records daemon-level web/streaming daemon status and before/after client lists so
 future comparisons cannot hide that ambiguity behind a single snapshot.
 
 The loaded open module is 1,409 bytes (0.21%) larger than OEM and its ELF file

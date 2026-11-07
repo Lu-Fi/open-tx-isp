@@ -1,5 +1,7 @@
 # open-tx-isp v2026.10.11-rc1: first release candidate
 
+> Historic release note. Newer: RC2 `v2026.10.25-rc2` and RC3 `v2026.11.07-rc3` (2026-11-07); release notes of both repositories: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md), RC3: [docs/releases/RC3.md](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/RC3.md).
+
 **open-tx-isp** is an open replacement for Ingenic's proprietary ISP kernel driver (`tx-isp-<soc>.ko`: sensor input, VIC/CSI, ISP core and tuning, MSCA scaler/frame channels, statistics). Together with **OpenIMP** (the open `libimp`) it forms a fully open camera stack for Ingenic T-series SoCs. Release together with [OpenIMP v2026.10.11-rc1](https://github.com/Lu-Fi/openimp/releases/tag/v2026.10.11-rc1); the shared parts (soak, release gate, beyond-vendor list, upgrade notes) are described there in full. Always use matching tags.
 
 | Read more (pinned to this tag) | |

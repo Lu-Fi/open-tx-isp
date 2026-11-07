@@ -384,7 +384,7 @@ The sensor registry owns slots, bind/unbind lifecycle, exported registry entry
 points, and procfs representation. Each SoC supplies a typed configuration
 that describes its recovered object layout and lifecycle side effects.
 
-T31 additionally makes the userspace `AddSensor` path idempotent. If `rvd`
+T31 additionally makes the userspace `AddSensor` path idempotent. If the video daemon
 exits without its normal IMP teardown, a replacement producer reuses the
 existing I2C client and sensor subdevice instead of trying to create a second
 client at the same address and failing with `-EBUSY`. This recovery ownership
@@ -412,7 +412,7 @@ still-recovered indirect call targets; its macro form produces the exact
 accepted load image while sharing one tested algorithm. T31 retains
 size-neutral local copies in its recovered AE object, and T23 retains its
 recovered multiply bodies after an adapter extraction reproducibly terminated
-`rvd` during startup.
+the video daemon during startup.
 
 ### Proprietary tuning ABI
 

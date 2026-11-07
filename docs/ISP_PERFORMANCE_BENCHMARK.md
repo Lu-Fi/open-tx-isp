@@ -20,7 +20,7 @@ the encoder, and the application. Results therefore keep these measurements sepa
 
 Raw interrupt rate is never reported as FPS. A 25 fps T41 stream can generate
 roughly 50 `isp-w02` and 160 `isp-m0` interrupts per second. Delivered FPS is
-derived from the ring's `write_seq`, which RVD increments once per encoded
+derived from the ring's `write_seq`, which the video daemon increments once per encoded
 frame, without registering another ring reader or copying frame data.
 
 ## Run on a device
@@ -62,7 +62,7 @@ The application status:
 5. exact ISP module and `libimp` identities, with `-m` supplied explicitly
 6. multiple runs in alternating order when the expected difference is small
 
-The bundle records RWD/RSD daemon status and client lists both before and
+The bundle records web and streaming daemon status and client lists both before and
 after sampling. Use both: an empty detailed client list is not sufficient to
 label a run idle if the daemon-level status still reports an active client,
 and a client that connects mid-run invalidates a nominal no-client label.

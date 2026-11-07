@@ -17,7 +17,7 @@ The source was salvaged from the June 2026 `tx-isp-t41-v1` reconstruction
 workspace. All 1,510 function candidates were emitted and 1,508 compiled in
 isolation, but only 157 were normalized exact matches. A later manual cleanup
 made the whole driver build. It now has staged hardware coverage through the
-OS04D10 sensor and Raptor consumer, but it remains recovery-grade code rather
+OS04D10 sensor and application consumer, but it remains recovery-grade code rather
 than a production-equivalent replacement.
 
 ## Build
@@ -78,7 +78,7 @@ as similar in instruction count.
 
 The T41 module now reuses the common day/night state machine,
 interpolation/fixed-point helpers, checked exposure and scaler arithmetic, and
-the T23/T31/T41 typed sensor-registry implementation. Full sensor/Raptor smoke
+the T23/T31/T41 typed sensor-registry implementation. Full sensor/application smoke
 tests pass, both MSCA streams run, and ISP interrupts advance. The static AWB
 safety fallback is now `R=1800, B=3000`; both shadow banks retain those values
 across forced day/night transitions. It runs with the exact active OEM OS04D10
@@ -131,7 +131,7 @@ OpenIMP owns gain-threshold hysteresis and the sensor-specific trims; the
 driver owns only the validated register transaction.
 
 The August correctness cycle also restores the T41 1.2 tuning responses used
-by RIC: running-mode GET, AE expression, the 256-bin/225-zone AE statistics
+by the application's image-control daemon: running-mode GET, AE expression, the 256-bin/225-zone AE statistics
 envelope, and AWB global statistics. Their packed layouts are implemented in
 the common tuning-ABI unit and covered by host tests rather than being open
 coded in the recovered ioctl dispatcher. The earlier AE target `17600`, profile
@@ -162,7 +162,7 @@ REQBUFS path also consumes the common five-word count/type/memory positions
 while retaining T41's local allocation, queue-free, and remote-event policy. The
 deterministic sequential build's fail-safe boot reports both 1920x1080 and
 640x360 streams at 25 fps and saved a fresh 379,001-byte main-stream JPEG.
-ISP IRQs advanced, forced day mode applied, and kernel, Raptor, and Android
+ISP IRQs advanced, forced day mode applied, and kernel, application and Android
 fault scans were clean. The active module SHA-256 is
 `cf79410cf59b3140b4df3eb67b00d69f6fa99e6455b2181ad220cc1d5e73129a`.
 The scene was darkening during a storm, so this cycle validates transport and
@@ -274,7 +274,7 @@ now live in the math adapter as official `(pointpos, u64, ...)` MIPS O32
 interfaces. Their common limb implementation retains the full low word of the
 128-bit product after the requested Q-format shift without compiler 128-bit
 support. The active candidate decoded 152 main frames in six seconds and 75
-substream frames in three, passed night/auto/day, kept `rvd` responsive, and
+substream frames in three, passed night/auto/day, kept the video daemon responsive, and
 reported zero ISP interrupt errors. Its module SHA-256 is
 `03e9f68a3740c03f51caae9269fa339d8d971d2c8566b1a8463daf7ffe1f904e`.
 
@@ -284,7 +284,7 @@ one literal jump-to-null stub without introducing `__udivdi3` or 128-bit
 compiler helpers. Ten thousand randomized host cases match a `__uint128_t`
 oracle. The fail-safe device boot decoded 150 main frames in six seconds, 77
 substream frames in three, and 125 post-day frames in five; night/auto/day,
-`rvd`, and both ISP cores remained healthy with `error=0`. The validated
+the video daemon, and both ISP cores remained healthy with `error=0`. The validated
 module SHA-256 is
 `bc1a798d0dac2909657b87f11f65938aa1af849d0a12291bf58fcc3e1e010100`.
 
@@ -303,7 +303,7 @@ The complementary `tisp_math_exp2` entry point now delegates to the common
 table ranges instead of inheriting masked MIPS shifts. The active tuning paths
 use valid Q5/Q16 inputs. The device cycle decoded 150 main frames in six
 seconds, 75 substream frames in three, and 125 post-day frames in five;
-night/auto/day, `rvd`, image color/detail, and zero-error ISP interrupts all
+night/auto/day, the video daemon, image color/detail, and zero-error ISP interrupts all
 held. The validated module SHA-256 is
 `b55cc521890fe4f37d4b19f67d59113784ed176e40fd7ab11a4e2e95a6044741`.
 
@@ -311,7 +311,7 @@ The live DMSC/SDNS `tisp_ratio` strength blend now comes from the common
 three-segment Q7 primitive. All 256 ratio values are host-tested across both
 increasing and decreasing output ranges. T41 must keep this entry in its
 original recovered text slot: moving the body shifted unresolved indirect
-targets and made Raptor stop during `IMP_ISP_AddSensor`. The shared return-body
+targets and made the application stop during `IMP_ISP_AddSensor`. The shared return-body
 form preserves the complete accepted `.ko` byte-for-byte. With
 `tx_isp_bringup_level=3` retained in the one-shot argument file, the device
 again passed night/auto/day, decoded 151 main frames in six seconds and 75
@@ -469,7 +469,7 @@ tuning/debug node hooks, and failure cleanup. The linked probe is classified
 similar at 289 instructions against OEM 321. The insertion-only level-3 run at
 `logs/20260720-level3-core-channels-117` registers AISP, creates `/dev/isp-m0`,
 keeps core/VIC/IVDC IRQs 39/38/21 active, and reports no kernel warning or fatal
-signature. Live unload and a sensor/Raptor consumer remain gated on repair of
+signature. Live unload and a sensor/application consumer remain gated on repair of
 the shorter recovered TISP deinitializer and review of the stream-init path.
 
 Stream-init review found that several OEM firmware objects had been recovered
@@ -618,7 +618,7 @@ hang within 1-6 cycles; a 30-60 min two-client mix hung in 10-15 min.
 
 Evidence: a diagnostic build wrote step markers, a per-CPU register history
 and IRQ/lock state uncached into the last page of rmem; after the watchdog
-reset the tripped boot guard kept timps (which clears rmem) from starting,
+reset the tripped boot guard kept the application (which clears rmem) from starting,
 so the markers were read back with `devmem`. Every hang came right after an
 output was enabled/reprogrammed by `tisp_msca_chx_cfg_load()` while the
 input ran; no CPU was inside the ISR or waiting on a lock. Most hangs were
@@ -728,19 +728,19 @@ So the 960x540/1280x720 hang does not reproduce with the frame source
 alone; it needs the full streamer path (encoder running, client-driven
 start), which was not run here.
 
-Streamer run 2026-10-13 (same camera and module, timps with a /tmp copy
+Streamer run 2026-10-13 (same camera and module, the application with a /tmp copy
 of its configuration, `general.fs_keepalive = 1`, gate off; local
 snapshot status codes, logs and counters only):
 - ch1 960x540: 30 min, every minute both snapshots 200, no oops, no
-  "latch not seen", no encoder errors in the log; then 10 timps
+  "latch not seen", no encoder errors in the log; then 10 application
   stop/start cycles, each start latched and served both snapshots.
-- ch1 1280x720: 10 min the same, then 5 timps stop/start cycles, clean.
+- ch1 1280x720: 10 min the same, then 5 application stop/start cycles, clean.
 - defaults candidate (`cfg_update=2`, `stop_disable=1`, gate 1280x720,
-  loaded with the boot parameters only, unchanged timps configuration,
+  loaded with the boot parameters only, unchanged application configuration,
   ch1 640x360): 98 alternating ch0/ch1 snapshot rounds in 10 min, all
-  200, clean. timps kept both channels running during these rounds, so
+  200, clean. The application kept both channels running during these rounds, so
   the client-driven idle-stop/restart of the old repro was not exercised
-  (no RTSP client was used); the restarts were covered by the timps
+  (no RTSP client was used); the restarts were covered by the application
   stop/start cycles above.
 Defaults since then: `t41_msca_cfg_update=2`, `t41_msca_stop_disable=1`,
 ch1 SET_FMT gate 1280x720 (`t41_msca_ch1_max_w/h`); the old behaviour is
@@ -756,7 +756,7 @@ The 2024 Cinnado stock module never clears that FIFO.
 `t41_msca_freebufs_fifo_clear=0` (new default) skips it: ch0 1920x1080 +
 ch1 1280x720 AutoZoom restart (zr0+zr1) 10/10 and 3/3 cycles, ch1 1600x900
 and 1920x1080 5/5 each, 60/60 frames per channel and cycle, ch1 picture
-matches ch0, then timps 10 min clean; with the clear the same test hung 3/3
+matches ch0, then the application 10 min clean; with the clear the same test hung 3/3
 (twice at the first ch0+ch1 start). The ch1 SET_FMT gate is now 1920x1080.
 
 ## MSCA zoom, mask and scaler level (branch `claude/t41-zoom-mask`)
@@ -874,7 +874,7 @@ step and do not continue with larger sizes.
    before/after), both streams unaffected. GetAutoZoom returns the windows.
    Invalid window (left = 2000, width = 1000 on a 2880 sensor) -> -1 from
    libimp (-EINVAL), nothing stored.
-2. Same with `t41_msca_cfg_update=1`: stop and restart ch0 (prudynt
+2. Same with `t41_msca_cfg_update=1`: stop and restart ch0 (a streamer
    restart); ch0 now shows the zoomed centre. Snapshot before/after
    (collage). Then en = 0: full picture after the next restart.
 3. `t41_msca_cfg_update=2`, `t41_msca_stop_disable=1` (reload module),
@@ -898,7 +898,7 @@ step and do not continue with larger sizes.
    level 129 -> -1, mode 1, mode 2 (no change, 0). Mode-3 setup: LIVE,
    one-frame blip; default modes: applies at the next ch1 start and stays
    after further restarts.
-7. Mixed soak 30 min (mode-3 setup, ch1 640x360): prudynt idle-stop
+7. Mixed soak 30 min (mode-3 setup, ch1 640x360): the streamer's idle stop
    cycles plus one AutoZoom/MaskBlock/ScalerLv call every 10 s from a
    script. Pass: no reset, `msca_ctl_failed` = 0, `msca_latch_timeouts`
    unchanged, both streams 25 fps at the end.
@@ -1066,7 +1066,7 @@ ISP-device ioctls (all follow the 1.2.5 `tx_isp_unlocked_ioctl`,
   pointer that survives a module reload. Suspects are the sensor module and
   the i2c client. It is not statistics DMA: switching AE/AF/AWB/WDR/TMO DMA
   off before their buffers are freed did not change it, and no ISP register
-  points near the hit. Not seen in 30 timps stop/start cycles without a
+  points near the hit. Not seen in 30 application stop/start cycles without a
   reload; it shows up in about every 5th to 12th load/stop/unload cycle.
   Diagnostics: `t41_heap_watch=1` (checks and repairs the array every jiffy,
   prints a step trail), reading `t41_heap_census` lists ISP registers that

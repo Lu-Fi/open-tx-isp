@@ -324,7 +324,7 @@ and restoration of the original attributes/weights. The kernel and library
 cross-builds, complete host suite and adapter/control sanitizers pass.
 
 The preceding `f15bee01` kernel with OpenIMP `851486f` passed a one-shot boot
-on T41NQ/OS04D10, followed by forced `ric mode day`, six TCP/UDP H.264/AAC
+on T41NQ/OS04D10, followed by forced the application's day-mode command, six TCP/UDP H.264/AAC
 reconnects and a 120-second decode (2968 video frames, no decoder/timestamp/
 timeout warnings). Native AWB rejected no frames, and all scalar-block error
 counters remained zero. Exact-Q10 manual gains held while estimation continued;

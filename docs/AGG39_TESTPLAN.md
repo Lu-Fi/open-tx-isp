@@ -1,6 +1,8 @@
-# agg-39 device and soak plan (draft)
+# agg-39 device and soak plan (draft, obsolete)
 
-Status: plan only. Nothing has been flashed; the user decides when (and whether) the images go on the
+**Obsolete (2026-11-07):** this plan was never run; the later images agg46 to agg65 and the release candidates RC2 (`v2026.10.25-rc2`) and RC3 (`v2026.11.07-rc3`) replaced it. Kept for history.
+
+Status at the time: plan only. Nothing had been flashed; the user decides when (and whether) the images go on the
 cameras. Device runs follow the usual rules: one camera at a time per lock file
 (`locks/<camera>.lock`, the T41 uses `locks/t41.lock`), no pictures leave the machine, no audio tests,
 no credentials in logs, kill processes only by PID, and every run ends with the restore check below.

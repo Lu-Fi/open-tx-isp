@@ -68,7 +68,7 @@ and they show up as `unmatched MSCA completion`.
    the driver waits until the MSCA has consumed the scratch address of every
    parked channel. That is one or two frames, at most `chan_stop_drain`
    x 10 ms, and only while frames arrive.
-   - Without this wait, a raptor exit stops the input a few ms after the
+   - Without this wait, an application exit stops the input a few ms after the
      last channel close. The scratch address stayed in the FIFO, and the
      next session start found a non-empty address FIFO, which
      `msca_session_release` clears.
@@ -124,14 +124,14 @@ STREAMOFF, `unparked, N held buffers queued` at STREAMON.
 
 ## Device test (2026-10-06)
 
-Jooan A6M .30: T23N, sc1a4t 1280x720 at 15 fps, raptor, flashed openimp.
+Jooan A6M .30: T23N, sc1a4t 1280x720 at 15 fps, a streamer, flashed OpenIMP.
 The module was loaded into RAM with the parameters of
 `/etc/modules.d/20-isp`, with `source_af=1` (default).
 
-- **20 cold starts** (raptor stop, 20 s idle, start): all 40 snapshots OK,
+- **20 cold starts** (application stop, 20 s idle, start): all 40 snapshots OK,
   no hang. 40 parks, 41 scratch completions, 0 settle timeouts, longest
   settle 30 ms.
-- **20 `rvd` restarts, then an ISP day/night switch** (night, then day):
+- **20 application restarts, then an ISP day/night switch** (night, then day):
   all snapshots OK. After that run, 80 parks and 81 scratch completions
   in total; 0 settle timeouts, 0 drain timeouts, longest drain 70 ms.
 - **apitest sys,fs,isp:** the FrameSource disable/enable cycle passed. It

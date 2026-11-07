@@ -112,7 +112,7 @@ August 29, 2026:
 
 1. stock `libimp.so` produced a clean processed frame;
 2. OpenIMP produced clean 640x360 H.264 at 25 fps; and
-3. Raptor captured the ISP V4L2 nodes directly and produced clean 640x360
+3. The application captured the ISP V4L2 nodes directly and produced clean 640x360
    H.264 at 25 fps.
 
 The direct-V4L2 and OpenIMP reference frames measured SSIM 0.985870 in the
@@ -120,7 +120,7 @@ tested scene. Every cycle preserved the stock module and sensor module, staged
 the open components under `/tmp`, captured bounded logs and frames, and
 rebooted to restore the stock stack.
 
-The subsequent full-resolution Raptor gate used the repository-owned T20
+The subsequent full-resolution application gate used the repository-owned T20
 driver and the generic two-buffer V4L2 handoff. It captured 120/120 H.264 High
 frames at 1920x1080 and 25.2 fps over IPv6 RTSP/TCP, passed strict decode with
 zero source or publish drops and zero ISP IRQ errors, and sustained 3.06 Mbps
