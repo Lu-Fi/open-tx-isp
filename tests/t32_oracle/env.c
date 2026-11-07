@@ -41,6 +41,11 @@ u32 t32_data_e1820[4];					/* gamma payload size per channel */
 /* CSC / CSCCR working state (.bss) */
 u32 t32_data_e3110[4], t32_data_e3120[4], t32_data_e3130[4];
 
+/* GIB working state (.bss) */
+u32 t32_data_e17c0[4];			/* per-channel context { section ptr, params, work block, flag, 24 B } */
+u8 t32_data_e1710[16];
+u32 t32_data_e1720[6], t32_data_e1738[1], t32_data_e173c[33];
+
 /* ---- .data objects ---- */
 /* CSC / CSCCR: mode tables (92 B x 6 for CSC, 12 B x 3 for CSCCR) and defaults */
 /* data.c:26937 (92 B) */
@@ -77,6 +82,13 @@ u8 t32_data_bfeb8[8] = { 1, 1, 1, 1, 1, 1, 0, 0 };
 u32 t32_data_bfec0[6];
 u8 t32_data_bfee0[4] = { 1, 1, 1, 0 };
 u32 t32_data_bfee4[3];
+/* data.c:2363 (bf460): MIPS jump table of tisp_gib_init (code addresses) per Bayer pattern */
+u32 t32_data_bf460[20] = { 0x42838, 0x424fc, 0x42544, 0x42590, 0x42838, 0x42838, 0x42838, 0x42838, 0x42838,
+			   0x42838, 0x42838, 0x42838, 0x425d4, 0x42624, 0x42670, 0x426bc, 0x42700, 0x4274c,
+			   0x4279c, 0x427e8 };
+/* data.c:25525 (d6820, 20 B): initial gain state */
+u32 t32_data_d6820[5] = { 0x400, 0x400, 0, 0, 0 };
+char t32_data_c9474[4] = "f";
 char t32_data_ca2b4[4] = "f", t32_data_ca2e0[4] = "f", t32_data_ca314[4] = "f";
 
 /* data.c:19093 (+0x2180) = 1: tisp_reg_write queues into the shadow buffer.
@@ -146,6 +158,11 @@ void t32o_reset(void)
 	memset(t32_data_e3110, 0, sizeof(t32_data_e3110));
 	memset(t32_data_e3120, 0, sizeof(t32_data_e3120));
 	memset(t32_data_e3130, 0, sizeof(t32_data_e3130));
+	memset(t32_data_e17c0, 0, sizeof(t32_data_e17c0));
+	memset(t32_data_e1710, 0, sizeof(t32_data_e1710));
+	memset(t32_data_e1720, 0, sizeof(t32_data_e1720));
+	memset(t32_data_e1738, 0, sizeof(t32_data_e1738));
+	memset(t32_data_e173c, 0, sizeof(t32_data_e173c));
 	t32_data_bfec0[0] = T32O_PTR(t32_data_d7ffc);
 	t32_data_bfec0[1] = T32O_PTR(t32_data_d7fa0);
 	t32_data_bfec0[2] = T32O_PTR(t32_data_d7f44);

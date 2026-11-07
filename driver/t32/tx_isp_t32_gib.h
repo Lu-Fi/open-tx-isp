@@ -7,12 +7,14 @@
  *
  * IQ bin section 8 (548 bytes).  The vendor keeps the interpolated values
  * in a working block (here "cp", 0x84 bytes) and a table of 16 pointers to
- * them, which depends on the Bayer pattern; the pattern with RGGB first (the
- * vendor's default case) is built, the others are refused.  The vendor's
+ * them, which depends on the Bayer pattern (t32_gib_ptr_tab).  The vendor's
  * initial state (all-zero working block, gain words 0x400, no copy-back
  * mode, normal black level path) is reproduced.  The interpolated black
  * levels are also copied back into the section (the vendor does so when
  * section byte 0x223 is 0), so pass a writable copy.
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_gib_oracle).
  */
 #ifndef TX_ISP_T32_GIB_H
 #define TX_ISP_T32_GIB_H
@@ -25,15 +27,56 @@
 #define T32_GIB_ID		0x0134da11U
 #define T32_GIB_MAX_WRITES	128
 
-/* The vendor's pointer table: the working block offset each of the 16 black level words reads (Bayer RGGB first). */
-static const u8 t32_gib_ptr[16] = { 0x40, 0x42, 0x40, 0x42, 0x44, 0x46, 0x44, 0x46,
-				    0x4c, 0x4e, 0x4c, 0x4e, 0x50, 0x52, 0x50, 0x52 };
-#define T32_GIB_GP(i)	t32_tp_le16(cp + t32_gib_ptr[i])
+/*
+ * The vendor's pointer table: the working block offset each of the 16 black
+ * level words reads, chosen by the Bayer pattern index (word 2 of the init
+ * block & 0x1f) through a jump table.  Rows: 0 = patterns 0 and 4..11 and
+ * >= 20 (the default, RGGB first), then patterns 1, 2, 3, 12, 13, 14, 16, 17,
+ * 18, 19.  Pattern 15 leaves two entries unset in the vendor (a null pointer
+ * it would read) and is refused.
+ */
+static const u8 t32_gib_ptr_tab[11][16] = {
+	{ 0x40, 0x42, 0x40, 0x42, 0x44, 0x46, 0x44, 0x46, 0x4c, 0x4e, 0x4c, 0x4e, 0x50, 0x52, 0x50, 0x52 },
+	{ 0x46, 0x44, 0x46, 0x44, 0x42, 0x40, 0x42, 0x40, 0x52, 0x50, 0x52, 0x50, 0x4e, 0x4c, 0x4e, 0x4c },
+	{ 0x42, 0x40, 0x42, 0x40, 0x46, 0x44, 0x46, 0x44, 0x4e, 0x4c, 0x4e, 0x4c, 0x52, 0x50, 0x52, 0x50 },
+	{ 0x44, 0x46, 0x44, 0x46, 0x40, 0x42, 0x40, 0x42, 0x50, 0x52, 0x50, 0x52, 0x4c, 0x4e, 0x4c, 0x4e },
+	{ 0x40, 0x42, 0x46, 0x42, 0x46, 0x48, 0x42, 0x48, 0x4c, 0x42, 0x52, 0x4e, 0x52, 0x48, 0x4e, 0x54 },
+	{ 0x46, 0x42, 0x40, 0x42, 0x42, 0x48, 0x42, 0x48, 0x52, 0x4e, 0x4c, 0x4e, 0x4e, 0x54, 0x4e, 0x54 },
+	{ 0x42, 0x40, 0x42, 0x46, 0x48, 0x42, 0x48, 0x42, 0x4e, 0x4c, 0x4e, 0x52, 0x54, 0x4e, 0x54, 0x4e },
+	{ 0x42, 0x48, 0x42, 0x48, 0x40, 0x42, 0x46, 0x42, 0x4e, 0x54, 0x4e, 0x54, 0x4c, 0x4e, 0x52, 0x4e },
+	{ 0x42, 0x48, 0x42, 0x48, 0x46, 0x42, 0x40, 0x42, 0x4e, 0x54, 0x4e, 0x54, 0x52, 0x4e, 0x4c, 0x4e },
+	{ 0x48, 0x42, 0x48, 0x42, 0x42, 0x40, 0x42, 0x46, 0x54, 0x4e, 0x54, 0x4e, 0x4e, 0x4c, 0x4e, 0x52 },
+	{ 0x48, 0x42, 0x48, 0x42, 0x42, 0x46, 0x42, 0x40, 0x54, 0x4e, 0x54, 0x4e, 0x4e, 0x52, 0x4e, 0x4c },
+};
+
+/* row of t32_gib_ptr_tab for a Bayer pattern index, -1 when not built */
+static inline int t32_gib_ptr_row(u32 bayer)
+{
+	bayer &= 0x1f;
+	if (bayer >= 1 && bayer <= 3)
+		return (int)bayer;
+	if (bayer >= 12 && bayer <= 19)
+		return bayer == 15 ? -1 : (int)bayer - (bayer < 15 ? 8 : 9);
+	return 0;
+}
+
+#define T32_GIB_GP(i)	t32_tp_le16(cp + pt[i])
 
 /* tisp_round_int64(x, 0, 1) */
 static inline u32 t32_gib_round1(u32 x)
 {
 	return (x >> 1) + (x & 1);
+}
+
+/*
+ * The vendor divides without a zero check; on the MIPS core a zero divisor gives
+ * the quotient 1 for a negative and -1 for a non-negative dividend.  C would trap.
+ */
+static inline u32 t32_gib_div(int num, int den)
+{
+	if (!den)
+		return num < 0 ? 1 : ~0U;
+	return (u32)(num / den);
 }
 
 /* tisp_gib_calc_slope: slopes (x 256) between five knots, 0 when the knots are not ordered */
@@ -52,10 +95,10 @@ static inline void t32_gib_slope(const u8 *xs, const u8 *ys, u8 *out)
 		return;
 	if (y1 < y0 || y2 < y1 || y3 < y2 || y3 > y4)
 		return;
-	s0 = (u32)((int)((y1 - y0) * 0x100) / (int)(x1 - x0));
-	s1 = (u32)((int)((y2 - y1) * 0x100) / (int)(x2 - x1));
-	s2 = (u32)((int)((y3 - y2) * 0x100) / (int)(x3 - x2));
-	s3 = (u32)((int)((y4 - y3) * 0x100) / (int)(x4 - x3));
+	s0 = t32_gib_div((int)((y1 - y0) * 0x100), (int)(x1 - x0));
+	s1 = t32_gib_div((int)((y2 - y1) * 0x100), (int)(x2 - x1));
+	s2 = t32_gib_div((int)((y3 - y2) * 0x100), (int)(x3 - x2));
+	s3 = t32_gib_div((int)((y4 - y3) * 0x100), (int)(x4 - x3));
 	t32_tp_put16(out, (s0 & 0xffff) > 0xfff ? 0xfff : s0);
 	t32_tp_put16(out + 2, (s1 & 0xffff) > 0xfff ? 0xfff : s1);
 	t32_tp_put16(out + 4, (s2 & 0xffff) > 0xfff ? 0xfff : s2);
@@ -80,7 +123,7 @@ static inline u32 t32_gib_gain(const u8 *p)
 #endif
 
 /* tisp_gib_write_reg(0): the black level words, then the section words */
-static inline void t32_gib_write_reg(const u8 *sec, const u8 *cp, int ip10, struct t32_front_write *w, unsigned int *np)
+static inline void t32_gib_write_reg(const u8 *sec, const u8 *cp, const u8 *pt, int ip10, struct t32_front_write *w, unsigned int *np)
 {
 	unsigned int n = *np;
 
@@ -204,7 +247,7 @@ static inline void t32_gib_write_reg(const u8 *sec, const u8 *cp, int ip10, stru
 }
 
 /* tisp_gib_write_blc_s_reg (the normal black level path) */
-static inline void t32_gib_write_blc_s(const u8 *sec, const u8 *cp, struct t32_front_write *w, unsigned int *np)
+static inline void t32_gib_write_blc_s(const u8 *sec, const u8 *cp, const u8 *pt, struct t32_front_write *w, unsigned int *np)
 {
 	unsigned int n = *np;
 
@@ -228,20 +271,23 @@ static inline void t32_gib_write_blc_s(const u8 *sec, const u8 *cp, struct t32_f
  * sec: writable copy of section 8 (T32_GIB_SEC_BYTES); bayer: the init
  * parameter's pattern (word 2 of the AddSensor init block, & 0x1f; 0 = RGGB
  * first).  The writes go to w (T32_GIB_MAX_WRITES entries).  Returns their
- * number, -1 for a Bayer pattern whose pointer table is not built.
+ * number, -1 for Bayer pattern 15 (unset entries in the vendor).
  */
 static inline int t32_gib_init(u8 *sec, u32 bayer, struct t32_front_write *w)
 {
 	u8 cp[T32_GIB_VALUES];
 	unsigned int n = 0, k;
+	const u8 *pt;
+	int row;
 	static const u8 src[5] = { 0x24, 0x3a, 0x50, 0x66, 0x7c };
 	static const u8 srcs[5] = { 0x9c, 0xb2, 0xc8, 0xde, 0xf4 };
 	static const u16 slx[5] = { 0x114, 0x128, 0x13c, 0x150, 0x164 };
 	u32 f = 0x400;	/* the vendor's gain words: index 0, fraction 0x400 */
 
-	bayer &= 0x1f;
-	if (bayer == 1 || (bayer >= 0xe && bayer <= 0x13))
+	row = t32_gib_ptr_row(bayer);
+	if (row < 0)
 		return -1;
+	pt = t32_gib_ptr_tab[row];
 	for (k = 0; k < T32_GIB_VALUES; k++)
 		cp[k] = 0;
 	sec[0x220] = 0;
@@ -261,7 +307,7 @@ static inline int t32_gib_init(u8 *sec, u32 bayer, struct t32_front_write *w)
 	/* tisp_gib_slope_update */
 	for (k = 0; k < 5; k++)
 		t32_gib_slope(sec + slx[k], sec + slx[k] + 10, cp + 0x58 + 8 * k);
-	t32_gib_write_reg(sec, cp, 0, w, &n);
+	t32_gib_write_reg(sec, cp, pt, 0, w, &n);
 	/* tisp_gib_interp_by_again_s */
 	for (k = 0; k < 5; k++) {
 		if (!t32_front_le32(sec + 4))
@@ -273,7 +319,7 @@ static inline int t32_gib_init(u8 *sec, u32 bayer, struct t32_front_write *w)
 		for (k = 0; k < 5; k++)
 			t32_tp_put16(sec + 0x10a + 2 * k, t32_tp_le16(cp + 0x4c + 2 * k));
 	t32_tp_put16(cp + 0x56, t32_gib_gain(cp + 0x4c));
-	t32_gib_write_blc_s(sec, cp, w, &n);
+	t32_gib_write_blc_s(sec, cp, pt, w, &n);
 	T32_FWR(w, n, 0x3000, T32_GIB_ID);
 	return (int)n;
 }
