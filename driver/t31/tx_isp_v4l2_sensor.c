@@ -350,13 +350,18 @@ static int tx_v4l2_sensor_set_vflip(struct tx_isp_subdev *sd, int enable)
 	if (!s)
 		return -ENODEV;
 
-	ret = v4l2_ctrl_s_ctrl(s->hflip, !!(enable & 0x1));
-	if (ret)
-		return ret;
+	/* The flip controls are optional (some mainline sensors have none). */
+	if (s->hflip) {
+		ret = v4l2_ctrl_s_ctrl(s->hflip, !!(enable & 0x1));
+		if (ret)
+			return ret;
+	}
 
-	ret = v4l2_ctrl_s_ctrl(s->vflip, !!(enable & 0x2));
-	if (ret)
-		return ret;
+	if (s->vflip) {
+		ret = v4l2_ctrl_s_ctrl(s->vflip, !!(enable & 0x2));
+		if (ret)
+			return ret;
+	}
 
 	sensor = &s->sensor;
 	return tx_isp_call_subdev_notify(sd, TX_ISP_EVENT_SYNC_SENSOR_ATTR,
@@ -538,7 +543,7 @@ struct tx_isp_subdev *tx_isp_v4l2_sensor_get(struct i2c_adapter *adapter,
 				       V4L2_CID_PIXEL_RATE);
 
 	if (!s->exposure || !s->gain || !s->hblank || !s->vblank ||
-	    !s->hflip || !s->vflip || !s->link_freq || !s->pixel_rate) {
+	    !s->link_freq || !s->pixel_rate) {
 		dev_err(&s->client->dev, "missing controls: exp=%p gain=%p hb=%p vb=%p hf=%p vf=%p lf=%p pr=%p\n",
 			s->exposure, s->gain, s->hblank, s->vblank,
 			s->hflip, s->vflip, s->link_freq, s->pixel_rate);
