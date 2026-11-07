@@ -48,7 +48,9 @@ u32 t32_data_e1720[6], t32_data_e1738[1], t32_data_e173c[33];
 
 /* DPC context pointers per channel (.bss) */
 u32 t32_data_e35f0[4];
-u32 t32_data_e23c0[4];	/* YDNS context per channel */
+u32 t32_data_e23c0[4];
+u32 t32_data_e23d0[4];	/* CDNS context per channel */
+u8 t32_data_e23e0[64];	/* CDNS value block */	/* YDNS context per channel */
 
 /* ---- .data objects ---- */
 /* CSC / CSCCR: mode tables (92 B x 6 for CSC, 12 B x 3 for CSCCR) and defaults */
@@ -94,6 +96,7 @@ u32 t32_data_bf460[20] = { 0x42838, 0x424fc, 0x42544, 0x42590, 0x42838, 0x42838,
 u32 t32_data_d6820[5] = { 0x400, 0x400, 0, 0, 0 };
 char t32_data_c9474[4] = "f";
 /* function-name / printf strings of the DPC (content irrelevant) */
+char t32_data_bfbc0[4] = "f", t32_data_c9e34[4] = "f";
 char t32_data_bfbb0[4] = "f", t32_data_c9e1c[4] = "f";
 char t32_data_c0a80[4] = "f", t32_data_c0a90[4] = "f", t32_data_ca63c[4] = "f", t32_data_ca624[4] = "f";
 char t32_data_ca2b4[4] = "f", t32_data_ca2e0[4] = "f", t32_data_ca314[4] = "f";
@@ -167,6 +170,8 @@ void t32o_reset(void)
 	memset(t32_data_e3110, 0, sizeof(t32_data_e3110));
 	memset(t32_data_e3120, 0, sizeof(t32_data_e3120));
 	memset(t32_data_e3130, 0, sizeof(t32_data_e3130));
+	memset(t32_data_e23d0, 0, sizeof(t32_data_e23d0));
+	memset(t32_data_e23e0, 0, sizeof(t32_data_e23e0));
 	memset(t32_data_e23c0, 0, sizeof(t32_data_e23c0));
 	memset(t32_data_e35f0, 0, sizeof(t32_data_e35f0));
 	memset(t32_data_e17c0, 0, sizeof(t32_data_e17c0));

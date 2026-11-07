@@ -6,6 +6,9 @@
  * 0x12010 trigger).  There is no block id write.
  *
  * IQ bin section 18 (436 bytes): tables of 11 bytes from +6, a flag at +0x1a6.
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_cdns_oracle).
  */
 #ifndef TX_ISP_T32_CDNS_H
 #define TX_ISP_T32_CDNS_H
