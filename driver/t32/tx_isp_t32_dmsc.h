@@ -13,6 +13,9 @@
  * flag is off, so the section is modified: the caller passes a copy).  The
  * sharpness ratio (tisp_ratio) of the vendor's value block is 0x80 at init,
  * which leaves the values unchanged.
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_dmsc_oracle).
  */
 #ifndef TX_ISP_T32_DMSC_H
 #define TX_ISP_T32_DMSC_H
@@ -139,7 +142,7 @@ static inline void t32_dmsc_noref(u8 *sec, struct t32_front_write *w, unsigned i
 	T32_FWR(w, n, 0x80dc, (u32)sec[0x824] << 4 | (u32)sec[0x823] << 8 | (u32)sec[0x825] |
 			(u32)sec[0x822] << 0x10 | (u32)sec[0x821] << 0x18 |
 			(u32)sec[0x820] << 0x1b);
-	T32_FWR(w, n, 0x8140, t32_tp_le16(sec + 0x694) << 8 | t32_tp_le16(sec + 0x694) >> 8);
+	T32_FWR(w, n, 0x8140, (t32_tp_le16(sec + 0x694) << 8 | t32_tp_le16(sec + 0x694) >> 8) & 0xffff);
 	T32_FWR(w, n, 0x814c, t32_front_le32(sec + 0x54));
 	T32_FWR(w, n, 0x8150, t32_front_le32(sec + 0x58));
 	T32_FWR(w, n, 0x8154, t32_front_le32(sec + 0x5c));
