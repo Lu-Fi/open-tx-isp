@@ -8,6 +8,9 @@
  * IQ bin section 22 (628 bytes): +4 / +5 enable fields, tables of 11 bytes
  * from +6 (a few are 12 or 20 bytes apart), single bytes at +0xcc, +0xe3,
  * +0x147, +0x153, +0x16a.. +0x172, +0x189.
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_sdns_oracle).
  */
 #ifndef TX_ISP_T32_SDNS_H
 #define TX_ISP_T32_SDNS_H
