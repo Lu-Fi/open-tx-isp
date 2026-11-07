@@ -163,6 +163,11 @@ host test `tests/t30_awb_preset_host_test.c`, guard `tests/check_t30_awb_preset.
 (4 mutations incl. the old lift). One addition: a preset row past `_GET_ROWS(255)` (a short
 bin table) returns 2 instead of reading past the table; no effect on the 7-row table.
 
+fd close (2026-11-07, #2): `ispcore_slake_module` is plain C after the SDK-built ko 0xe688 (the lift ran only for an
+error pointer and called the child slake with NULL), so closing /dev/tx-isp after a killed process stops the core and
+releases the sensor i2c client as on the vendor stack; the vic/csi child slakes got their clock array / stream-off
+argument fixed. Oracle: `tools/ko_emu/diff_t30_core_slake.py` (`tests/t30_core_slake_oracle.sh`).
+
 Temper (2026-11-07, #202): the 0x8000083 arm also writes the SDK system-table items (manual flag 11,
 target 46, max/min 47/48, `tx_isp_t30_temper.h`) and has a get arm; the 0x8000084 arm sets the Temper
 frame buffer. OpenIMP T30 enables Temper AUTO at EnableTuning as the vendor libimp does (stock 0x2c0 = 0x83).

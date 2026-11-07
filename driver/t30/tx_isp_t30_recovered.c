@@ -9189,7 +9189,8 @@ int tx_isp_vic_slake_subdev(void *arg1)
 
 	if (state == 2) {
 		*(int *)((char *)vic + 0x124) = 1;
-		clk_array = (int *)((char *)arg1 + 0xbc);
+		/* vendor 0x1540: lw s3,188(s0) = the clock array pointer */
+		clk_array = *(int **)((char *)arg1 + 0xbc);
 		clk_count = *(int *)((char *)arg1 + 0xc0);
 
 		for (i = clk_count - 1; i >= 0; i--)
@@ -11166,7 +11167,8 @@ int32_t tx_isp_csi_slake_subdev(uintptr_t a0)
     if (_bc_v1_10) { goto tx_isp_csi_slake_subdev0x64; }
 
     /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)csi_video_s_stream)(a0); /* jalr target resolved by relocation */
+    /* vendor 0x34c0: csi_video_s_stream(sd, 0) (a1 = 0 in the delay slot) */
+    v0 = (uintptr_t *)(uintptr_t)csi_video_s_stream((void *)a0, 0, 0);
 
     /* fragment 12: MemoryAccess */
     v1 = *(uint32_t *)((char *)s1 + 292);
@@ -20763,82 +20765,66 @@ int32_t ispcore_core_ops_init(void *arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000e688 origin=model_output original=ispcore_slake_module */
 int32_t ispcore_slake_module(void *arg1)
 {
-    int *i = 0;
-    int32_t ret = -22;
+	/*
+	 * SDK-built ko 0xe688..0xe828.  The lift had the IS_ERR tests inverted
+	 * (it only ran for an error pointer, so fd close never stopped the core
+	 * or released the sensor: a killed process left the sc4236 i2c client
+	 * registered, #2) and called the child slake as fn(0) (vendor 0xe780:
+	 * a0 = child subdev).
+	 */
+	char *sd = arg1;
+	char *core;
+	int32_t state, count, i;
+	void **child, **child_end;
+	struct clk **clks;
+	char *dev;
 
-    if (arg1 != NULL && (uintptr_t)arg1 >= 0xfffff001u) {
-        void *s0_1 = *(void **)((char *)arg1 + 0xd4);
+	if (sd == NULL || IS_ERR(sd))
+		return -EINVAL;
+	core = *(char **)(sd + 0xd4);
+	if (core == NULL || IS_ERR(core))
+		return -EINVAL;
+	state = *(int32_t *)(core + 0xe8);
+	if (state == 1)
+		return 0;
+	if (state >= 3)
+		ispcore_core_ops_init(sd, 0);
+	count = *(int32_t *)(core + 0x158);
+	for (i = 0; i < count; i++)
+		*(int32_t *)(*(char **)(core + 0x154) + i * 0xa0 + 0x50) = 1;
+	dev = *(char **)(core + 0x1a0);
+	(*(void (**)(void *, uint32_t, uint32_t))(dev + 0x40d4))(dev, 0x4000001, 0);
+	*(int32_t *)(core + 0xe8) = 1;
 
-        if (s0_1 != NULL && (uintptr_t)s0_1 >= 0xfffff001u) {
-            int32_t state = *(int32_t *)((char *)s0_1 + 0xe8);
+	child = (void **)(core + 0x38);
+	child_end = (void **)(core + 0x78);
+	for (; child != child_end; child++) {
+		char *c = *child;
+		char *ops, *internal;
+		int32_t (*slake)(void *);
+		int32_t r;
 
-            if (state != 1) {
-                if (state >= 3)
-                    ispcore_core_ops_init(arg1, 0);
+		if (c == NULL || IS_ERR(c))
+			continue;
+		ops = *(char **)(c + 0xc4);
+		*(int32_t *)(c + 0x80) = 0;
+		internal = *(char **)(ops + 0x10);
+		if (internal == NULL)
+			continue;
+		slake = *(int32_t (**)(void *))(internal + 4);
+		if (slake == NULL)
+			continue;
+		r = slake(c);
+		if (r != 0 && r != -ENOIOCTLCMD) {
+			isp_printf(2, "Failed to slake %s\n", *(char **)(c + 8));
+			break;
+		}
+	}
 
-                int32_t i = 0;
-                int32_t count = *(int32_t *)((char *)s0_1 + 0x158);
-
-                while (i < count) {
-                    void *base = *(void **)((char *)s0_1 + 0x154);
-                    *(int32_t *)((uintptr_t)base + (uintptr_t)i * 0xa0 + 0x50) = 1;
-                    i++;
-                }
-
-                void *dev = *(void **)((char *)s0_1 + 0x1a0);
-                void (*release_fn)(void *, uint32_t, uint32_t) =
-                    *(void (**)(void *, uint32_t, uint32_t))((char *)dev + 0x40d4);
-                release_fn(dev, 0x4000001, 0);
-                *(int32_t *)((char *)s0_1 + 0xe8) = 1;
-
-                int32_t *s2_1 = (int32_t *)((char *)s0_1 + 0x38);
-                int32_t *s0_end = (int32_t *)((char *)s0_1 + 0x78);
-                int32_t s0_3 = 0;
-
-                while (1) {
-                    void *a0_1 = (void *)*s2_1;
-
-                    if (a0_1 != NULL && (uintptr_t)a0_1 >= 0xfffff001u) {
-                        void *v0_7 = *(void **)((char *)a0_1 + 0xc4);
-                        *(int32_t *)((char *)a0_1 + 0x80) = 0;
-                        void *v0_8 = *(void **)((char *)v0_7 + 0x10);
-
-                        if (v0_8 != NULL) {
-							int32_t (*fn)(int) = *(int32_t (**)(int))((char *)v0_8 + 4);
-
-                            if (fn != NULL) {
-                                int32_t r = fn(0);
-
-                                if (r != 0 && r != -515) {
-                                    isp_printf(2, "Failed to slake %s\n", *(char **)((char *)a0_1 + 8));
-                                    s0_3 = *(int32_t *)((char *)arg1 + 0xc0);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    s2_1++;
-
-                    if (s2_1 == s0_end) {
-                        s0_3 = *(int32_t *)((char *)arg1 + 0xc0);
-                        break;
-                    }
-                }
-
-                void *clk_base = *(void **)((char *)arg1 + 0xbc);
-                int32_t i_1 = s0_3 - 1;
-
-                while (i_1 >= 0) {
-                    int32_t *clk_ptr = (int32_t *)((char *)clk_base + (i_1 << 2));
-                    i_1--;
-                    private_clk_disable(*(void **)clk_ptr);
-                }
-            }
-            ret = 0;
-        }
-    }
-    return ret;
+	clks = *(struct clk ***)(sd + 0xbc);
+	for (i = *(int32_t *)(sd + 0xc0) - 1; i >= 0; i--)
+		private_clk_disable(clks[i]);
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000e82c origin=model_output original=tx_isp_core_probe */
