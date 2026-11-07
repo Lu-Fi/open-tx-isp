@@ -201,7 +201,9 @@ static bool tx_isp_sinfo_key_supported(enum tx_isp_sinfo_key key)
 	switch (key) {
 	case TX_ISP_SINFO_MIN_FPS:
 	case TX_ISP_SINFO_MAX_FPS:
-		return config_flags & TX_ISP_SINFO_EXTENDED_ATTRS;
+		return config_flags &
+		       (TX_ISP_SINFO_EXTENDED_ATTRS |
+			TX_ISP_SINFO_FPS_RANGE);
 	case TX_ISP_SINFO_MCLK:
 	case TX_ISP_SINFO_BOOT:
 	case TX_ISP_SINFO_VIDEO_INTERFACE:
@@ -462,7 +464,8 @@ static void tx_isp_sinfo_show_key(struct seq_file *m,
 		break;
 	case TX_ISP_SINFO_MIN_FPS:
 		if (!(config_flags &
-		      TX_ISP_SINFO_EXTENDED_ATTRS))
+		      (TX_ISP_SINFO_EXTENDED_ATTRS |
+		       TX_ISP_SINFO_FPS_RANGE)))
 			break;
 		if (slot->subdev) {
 			fps = tx_isp_sinfo_u32_at(
@@ -476,7 +479,8 @@ static void tx_isp_sinfo_show_key(struct seq_file *m,
 		break;
 	case TX_ISP_SINFO_MAX_FPS:
 		if (!(config_flags &
-		      TX_ISP_SINFO_EXTENDED_ATTRS))
+		      (TX_ISP_SINFO_EXTENDED_ATTRS |
+		       TX_ISP_SINFO_FPS_RANGE)))
 			break;
 		if (slot->subdev) {
 			fps = tx_isp_sinfo_u32_at(
