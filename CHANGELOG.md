@@ -7,8 +7,7 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 ## 2026-11-08: T30 module reload no longer hangs in the first ISP interrupt (#2 reload; QEMU T30 20/20, device check pending)
 
 - After rmmod the VIC kept its APICAL interrupt mask (0xffff) and the sensor kept streaming, so a reloaded module took a frame-end IRQ before its own init. `system_hw_interrupts_disable` then cleared the mask and `tx_isp_disable_irq` called `disable_irq()` on the line whose handler was running: `synchronize_irq` waited for itself with interrupts off (hard hang, QEMU T30 rmem 42M, cycle 2 of 20). `tx_isp_disable_irq` now uses `disable_irq_nosync()` in interrupt context (the vendor helper is the same `disable_irq`, safe there only because the vendor module is never unloaded).
-- Beyond the vendor (its core/vic remove, SDK-built ko 0x1dc / 0x0, write no register): `tx_isp_unregister_platforms` now writes 0 to VIC 0x20014 and pulses the APICAL 0xa4 event clear after the IRQs are freed, with core/VIC clocks switched on around the writes if the slake had gated them. The next load enables both again.
-- QEMU T30, 20 x (t30-tune, rmmod sensor + isp, modprobe): fix A alone 20/20, fix A + B 20/20, no oops or warning. Before: hang in cycle 2.
+- QEMU T30, 20 x (t30-tune, rmmod sensor + isp, modprobe): 20/20, no oops or warning. Before: hang in cycle 2. The remove path stays as the vendor (no register writes on rmmod); masking the VIC there was tried and gave no measured benefit.
 
 ## 2026-11-07: T30 fd close hung in the vin slake: vin activate/slake and csi slake as plain C (#2 follow-up; QEMU T30 reproduced and fixed, device check pending)
 
