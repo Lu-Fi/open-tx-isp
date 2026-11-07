@@ -9268,50 +9268,19 @@ int32_t vin_s_stream(void *arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000016a4 origin=fragment_seed original=tx_isp_vin_activate_subdev */
 int32_t tx_isp_vin_activate_subdev(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	/*
+	 * SDK-built ko 0x16a4.  Plain C: the register lift declared s0/v0 as
+	 * `uintptr_t *`, so the open count at +0xf8 stepped by 4 (the slake
+	 * stepped back by 4, which hid it).
+	 */
+	char *vin = (char *)a0;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    local_10 = a0 + 232;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_mutex_lock)(a0 + 232); /* jalr target resolved by relocation */
-
-    /* fragment 2: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 244);
-    v0 = 1;
-
-    /* fragment 3: Branch */
-    a0 = local_10;
-    if (v1 != v0) { goto tx_isp_vin_activate_subdev0x3c; }
-
-    /* fragment 4: CallSetup */
-    v0 = 2;
-    *(uint32_t *)((char *)s0 + 244) = v0;
-
-tx_isp_vin_activate_subdev0x3c:
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_unlock)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 6: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 248);
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)s0 + 248) = v0;
-    ra = local_1c;
-    s0 = local_18;
-    v0 = 0;
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	private_mutex_lock((struct mutex *)(vin + 0xe8));
+	if (*(int32_t *)(vin + 0xf4) == 1)
+		*(int32_t *)(vin + 0xf4) = 2;
+	private_mutex_unlock((struct mutex *)(vin + 0xe8));
+	(*(uint32_t *)(vin + 0xf8))++;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001710 origin=model_output original=tx_isp_vin_init */
@@ -10048,120 +10017,34 @@ int32_t subdev_sensor_ops_release_all_sensor(void *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000002100 origin=fragment_seed original=tx_isp_vin_slake_subdev */
 int32_t tx_isp_vin_slake_subdev(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	/*
+	 * SDK-built ko 0x2100..0x21f0.  Plain C: the register lift kept the
+	 * byte offsets on `uintptr_t *s0`, so the list-head test compared
+	 * against vin + 0x370 (always "not empty") and the mutex taken at the
+	 * end was vin + 0x3a0 instead of vin->mlock (+0xe8): the first fd close
+	 * that reached this function (#2 fix of ispcore_slake_module) hung in
+	 * mutex_lock (QEMU T30, 2026-11-07: D state in tx_isp_release).
+	 */
+	char *vin = (char *)a0;
+	int input = -1;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 248);
-
-    /* fragment 2: Branch */
-    s0 = a0;
-    if (v0 == 0) { goto tx_isp_vin_slake_subdev0x24; }
-
-    /* fragment 3: Arithmetic */
-    v0 = v0 - 1;
-
-    /* fragment 4: Branch */
-    int _bc_v0_4 = v0 != 0;
-    *(uint32_t *)((char *)a0 + 248) = v0;
-    if (_bc_v0_4) { goto tx_isp_vin_slake_subdev0xe0; }
-
-tx_isp_vin_slake_subdev0x24:
-    /* fragment 5: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 244);
-    v0 = 4;
-
-    /* fragment 6: Branch */
-    int _bc_v1_6 = v1 != v0;
-    v0 = 0;
-    if (_bc_v1_6) { goto tx_isp_vin_slake_subdev0x48; }
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)vin_s_stream)(s0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 8: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 244);
-
-tx_isp_vin_slake_subdev0x48:
-    /* fragment 9: Arithmetic */
-    v0 = 3;
-
-    /* fragment 10: Branch */
-    int _bc_v1_10 = v1 != v0;
-    v0 = 0;
-    if (_bc_v1_10) { goto tx_isp_vin_slake_subdev0x64; }
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)tx_isp_vin_init)(s0, 0); /* jalr target resolved by relocation */
-
-tx_isp_vin_slake_subdev0x64:
-    /* fragment 12: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 228);
-
-    /* fragment 13: Branch */
-    int _bc_v0_13 = v0 == 0;
-    v0 = -1;
-    if (_bc_v0_13) { goto tx_isp_vin_slake_subdev0x88; }
-
-    /* fragment 14: CallSetup */
-    local_10 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)subdev_sensor_ops_set_input)(s0, &local_10); /* jalr target resolved by relocation */
-
-tx_isp_vin_slake_subdev0x88:
-    /* fragment 15: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 220);
-    v0 = s0 + 220;
-
-    /* fragment 16: Branch */
-    int _bc_v1_16 = v1 == v0;
-    v0 = 0;
-    if (_bc_v1_16) { goto tx_isp_vin_slake_subdev0xa4; }
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)subdev_sensor_ops_release_all_sensor)(s0); /* jalr target resolved by relocation */
-
-tx_isp_vin_slake_subdev0xa4:
-    /* fragment 18: CallSetup */
-    local_18 = s0 + 232;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_mutex_lock)(s0 + 232); /* jalr target resolved by relocation */
-
-    /* fragment 19: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 244);
-    v0 = 2;
-
-    /* fragment 20: Branch */
-    a0 = local_18;
-    if (v1 != v0) { goto tx_isp_vin_slake_subdev0xd0; }
-
-    /* fragment 21: CallSetup */
-    v0 = 1;
-    *(uint32_t *)((char *)s0 + 244) = v0;
-
-tx_isp_vin_slake_subdev0xd0:
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_unlock)(a0); /* jalr target resolved by relocation */
-
-tx_isp_vin_slake_subdev0xe0:
-    /* fragment 23: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 24: Arithmetic */
-    v0 = 0;
-
-    /* fragment 25: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	if (*(uint32_t *)(vin + 0xf8)) {
+		if (--*(uint32_t *)(vin + 0xf8) != 0)
+			return 0;
+	}
+	if (*(int32_t *)(vin + 0xf4) == 4)
+		vin_s_stream(vin, 0);
+	if (*(int32_t *)(vin + 0xf4) == 3)
+		tx_isp_vin_init(vin, 0);
+	if (*(void **)(vin + 0xe4))
+		subdev_sensor_ops_set_input(vin, &input);
+	if (*(void **)(vin + 0xdc) != (void *)(vin + 0xdc))
+		subdev_sensor_ops_release_all_sensor(vin);
+	private_mutex_lock((struct mutex *)(vin + 0xe8));
+	if (*(int32_t *)(vin + 0xf4) == 2)
+		*(int32_t *)(vin + 0xf4) = 1;
+	private_mutex_unlock((struct mutex *)(vin + 0xe8));
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000021f4 origin=model_output original=isp_i2c_new_subdev_board */
@@ -11111,150 +10994,36 @@ csi_core_ops_init0x2a4:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000003468 origin=fragment_seed original=tx_isp_csi_slake_subdev */
 int32_t tx_isp_csi_slake_subdev(uintptr_t a0)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	/*
+	 * SDK-built ko 0x3468..0x358c.  Plain C: the register lift kept the
+	 * byte offsets on `uintptr_t *` registers (mutex at csd + 0x4a0 instead
+	 * of +0x128, the clock index stepped by 4) and called
+	 * csi_video_s_stream without the enable argument (vendor 0x34c4 a1 = 0).
+	 */
+	struct tx_isp_t30_subdev *sd = (void *)a0;
+	char *csd;
+	struct clk **clks;
+	int32_t i;
 
-    /* fragment 0: Branch */
-    if (a0 == 0) { goto tx_isp_csi_slake_subdev0x124; }
-
-    /* fragment 1: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 2: Arithmetic */
-    v0 = a0 < -4095;
-
-    /* fragment 3: StackAccess */
-    local_14 = s0;
-    local_24 = ra;
-    local_20 = s3;
-    local_1c = s2;
-    local_18 = s1;
-
-    /* fragment 4: Branch */
-    s0 = a0;
-    if (v0 == 0) { goto tx_isp_csi_slake_subdev0x11c; }
-
-    /* fragment 5: MemoryAccess */
-    s1 = *(uint32_t *)((char *)a0 + 212);
-
-    /* fragment 6: Branch */
-    if (s1 == 0) { goto tx_isp_csi_slake_subdev0x11c; }
-
-    /* fragment 7: Arithmetic */
-    v0 = s1 < -4095;
-
-    /* fragment 8: Branch */
-    if (v0 == 0) { goto tx_isp_csi_slake_subdev0x11c; }
-
-    /* fragment 9: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 292);
-    v0 = 4;
-
-    /* fragment 10: Branch */
-    int _bc_v1_10 = v1 != v0;
-    v0 = 0;
-    if (_bc_v1_10) { goto tx_isp_csi_slake_subdev0x64; }
-
-    /* fragment 11: CallSetup */
-    /* vendor 0x34c0: csi_video_s_stream(sd, 0) (a1 = 0 in the delay slot) */
-    v0 = (uintptr_t *)(uintptr_t)csi_video_s_stream((void *)a0, 0, 0);
-
-    /* fragment 12: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 292);
-
-tx_isp_csi_slake_subdev0x64:
-    /* fragment 13: Arithmetic */
-    v0 = 3;
-
-    /* fragment 14: Branch */
-    s3 = s1 + 296;
-    if (v1 != v0) { goto tx_isp_csi_slake_subdev0x88; }
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)csi_core_ops_init)(s0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    s3 = s1 + 296;
-
-tx_isp_csi_slake_subdev0x88:
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_lock)(s3); /* jalr target resolved by relocation */
-
-    /* fragment 18: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 292);
-    v0 = 2;
-
-    /* fragment 19: Branch */
-    int _bc_v1_19 = v1 == v0;
-    v0 = 1;
-    if (_bc_v1_19) { goto tx_isp_csi_slake_subdev0xd8; }
-
-tx_isp_csi_slake_subdev0xa8:
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_unlock)(s3); /* jalr target resolved by relocation */
-
-    /* fragment 21: Arithmetic */
-    v0 = 0;
-
-tx_isp_csi_slake_subdev0xbc:
-    /* fragment 22: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_csi_slake_subdev0xd8:
-    /* fragment 23: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 292) = v0;
-    s1 = *(uint32_t *)((char *)s0 + 188);
-
-    /* fragment 24: Branch */
-    v0 = s1 < -4095;
-    if (s1 == 0) { goto tx_isp_csi_slake_subdev0xa8; }
-
-    /* fragment 25: Branch */
-    s2 = (uint32_t *)&private_clk_disable;
-    if (v0 == 0) { goto tx_isp_csi_slake_subdev0xa8; }
-
-    /* fragment 26: MemoryAccess */
-    s0 = *(uint32_t *)((char *)s0 + 192);
-    s0 = s0 - 1;
-    s2 = s2;
-
-tx_isp_csi_slake_subdev0xfc:
-    /* fragment 27: Branch */
-    v0 = (uintptr_t)s0 << 2;
-    if (s0 < 0) { goto tx_isp_csi_slake_subdev0xa8; }
-
-    /* fragment 28: CallSetup */
-    s0 = s0 - 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_clk_disable)(*(uint32_t *)((char *)((uintptr_t)s1 + (uintptr_t)v0) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 29: Branch */
-    goto tx_isp_csi_slake_subdev0xfc;
-
-tx_isp_csi_slake_subdev0x11c:
-    /* fragment 30: Branch */
-    v0 = -22;
-    goto tx_isp_csi_slake_subdev0xbc;
-
-tx_isp_csi_slake_subdev0x124:
-    /* fragment 31: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 32: Arithmetic */
-    v0 = -22;
-
-    return 0;
+	if (sd == NULL || IS_ERR(sd))
+		return -EINVAL;
+	csd = *(char **)((char *)sd + 0xd4);
+	if (csd == NULL || IS_ERR(csd))
+		return -EINVAL;
+	if (*(int32_t *)(csd + 0x124) == 4)
+		csi_video_s_stream(sd, 0, 0);
+	if (*(int32_t *)(csd + 0x124) == 3)
+		csi_core_ops_init(a0, 0);
+	private_mutex_lock((struct mutex *)(csd + 0x128));
+	if (*(int32_t *)(csd + 0x124) == 2) {
+		*(int32_t *)(csd + 0x124) = 1;
+		clks = *(struct clk ***)((char *)sd + 0xbc);
+		if (clks != NULL && !IS_ERR(clks))
+			for (i = *(int32_t *)((char *)sd + 0xc0) - 1; i >= 0; i--)
+				private_clk_disable(clks[i]);
+	}
+	private_mutex_unlock((struct mutex *)(csd + 0x128));
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000035a0 origin=fragment_seed original=isp_core_tunning_open */
@@ -57053,6 +56822,7 @@ int tx_isp_core_remove(struct platform_device *pdev)
 	struct tx_isp_t30_core_video_view *core;
 	struct tx_isp_t30_core_tuning_view *tuning;
 	unsigned int index;
+	bool was_active;
 
 	if (IS_ERR_OR_NULL(sd))
 		return 0;
@@ -57075,12 +56845,21 @@ int tx_isp_core_remove(struct platform_device *pdev)
 		tuning->tuning = NULL;
 	}
 
+	/*
+	 * The vendor remove (SDK-built ko 0x1dc) disables no clock: the last fd
+	 * close already did, in ispcore_slake_module (state back to SLAKE).
+	 * Since that slake runs (#2), disabling here again unbalanced the clock
+	 * counts and the next insmod ran the ISP with its clock gated (QEMU T30:
+	 * hang in the first frame interrupt of the reloaded module).  Only a
+	 * core that is still active (no slake ran) gets its clocks off here.
+	 */
+	was_active = core->state != TX_ISP_T30_MODULE_SLAKE;
 	kfree(core->channels);
 	core->channels = NULL;
 	core->channel_state = TX_ISP_T30_MODULE_SLAKE;
 	core->state = TX_ISP_T30_MODULE_SLAKE;
 	free_tx_isp_priv_param_manage();
-	if (sd->clks) {
+	if (sd->clks && was_active) {
 		for (index = sd->clk_num; index-- > 0;)
 			private_clk_disable(sd->clks[index]);
 	}
