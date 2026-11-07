@@ -89,7 +89,7 @@ int main(void)
 		compare("CSCCR", w, r > 0 ? (unsigned int)r : 0, csccr_vendor, sizeof(csccr_vendor) / sizeof(csccr_vendor[0]));
 		off = t32_iq_section(bin, len, T32_IQ_SEC_TOP, &l);
 		CHECK(off && l == T32_TOP_BYTES);
-		n = t32_top_init(bin + off, 3840, 2160, (u32)t32_mbus_to_bayer(0x5207), w);
+		n = t32_top_init(bin + off, 3840, 2160, (u32)t32_mbus_to_bayer(0x5207), 0, w);
 		compare("TOP", w, n, top_vendor, sizeof(top_vendor) / sizeof(top_vendor[0]));
 	} else {
 		printf("  (no T32_IQ_BIN: vendor comparison skipped)\n");

@@ -27,6 +27,8 @@ extern struct t32o_log t32o_log;
 
 extern u32 t32_data_e28f0[4], t32_data_dd0a4[4], t32_data_dc274[4], t32_data_da844[4];
 extern u8 t32_data_d03a0[4];
+extern u8 t32_data_e1460[8], t32_data_dc284[1808];
+extern u32 t32_data_e1464[4], t32_data_e1474[4], t32_data_e1484[4];
 
 typedef u64 (*t32o_fn)(u32, u32, u32, u32, u32);
 
@@ -35,6 +37,7 @@ void t32o_reset(void);
 u64 t32o_call(t32o_fn fn, u32 a0, u32 a1, u32 a2, u32 a3, u32 a4);
 
 /* reference functions (ref/, o32 shape) */
+u64 tisp_top_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_ccm_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_ccm_interp_by_ev(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4);
 

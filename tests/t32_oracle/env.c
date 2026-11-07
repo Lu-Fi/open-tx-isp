@@ -25,11 +25,20 @@ u32 t32_data_dd0a4[4] __attribute__((aligned(16)));	/* per-channel tuning-parame
 u32 t32_data_dc274[4] __attribute__((aligned(16)));	/* per-channel LUT info (stLutInfo), +24 = CCM knots */
 u32 t32_data_da844[4] __attribute__((aligned(16)));	/* register shadow (tisp_reg_write mode 1) */
 
+/* top block (tisp_top_init / tisp_top_reg_cfg) */
+u8 t32_data_e1460[8] __attribute__((aligned(4)));	/* per-channel "configured" flags */
+u32 t32_data_e1464[4];		/* per-channel top enable word */
+u32 t32_data_e1474[4];		/* per-pipeline-parity DE-IR flag */
+u32 t32_data_e1484[4];		/* per-channel copy of the tuning base */
+u8 t32_data_dc284[1808] __attribute__((aligned(4)));	/* 2 x 904 B channel state, +900 = pipeline count */
+
 /* ---- .data objects ---- */
 /* data.c:19093 (+0x2180) = 1: tisp_reg_write queues into the shadow buffer.
  * The oracle sets mode 0 (direct system_reg_write) so it sees each write;
  * the mode is a transport choice and not part of the block's arithmetic. */
 u8 t32_data_d03a0[4] __attribute__((aligned(4))) = { 0 };
+/* data.c:19437.. (+0x26e0, 128 B): colour-order map of tisp_top_init */
+u32 t32_data_d0900[32] = { 0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23 };
 /* data.c:25849 (+0x8b10, 40 B): API matrix default, unity, flag byte 0 */
 u32 t32_data_d6d30[10] = { 0, 0x400, 0, 0, 0, 0x400, 0, 0, 0, 0x400 };
 /* data.c:25859 (+0x8b38, 36 B): matrix default, unity */
@@ -71,6 +80,11 @@ void t32o_reset(void)
 	memset(t32_data_dd0a4, 0, sizeof(t32_data_dd0a4));
 	memset(t32_data_dc274, 0, sizeof(t32_data_dc274));
 	memset(t32_data_da844, 0, sizeof(t32_data_da844));
+	memset(t32_data_e1460, 0, sizeof(t32_data_e1460));
+	memset(t32_data_e1464, 0, sizeof(t32_data_e1464));
+	memset(t32_data_e1474, 0, sizeof(t32_data_e1474));
+	memset(t32_data_e1484, 0, sizeof(t32_data_e1484));
+	memset(t32_data_dc284, 0, sizeof(t32_data_dc284));
 }
 
 /* ---- kernel / driver stubs (o32 shape) ---- */
@@ -89,6 +103,12 @@ u64 system_reg_write(u32 a0, u32 a1, u32 a2, u32 a3)
 	}
 	t32o_log.n++;
 	return 0;
+}
+
+u64 system_reg_read(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a1; (void)a2; (void)a3;
+	return 0x5a000000u | a0;	/* only the second pipeline reads back */
 }
 
 u64 isp_printf(u32 a0, u32 a1, u32 a2, u32 a3)

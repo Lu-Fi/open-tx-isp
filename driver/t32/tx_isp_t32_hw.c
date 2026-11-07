@@ -241,7 +241,7 @@ static void t32_front_init(void)
 	}
 	off = t32_iq_section(bin, bytes, T32_IQ_SEC_TOP, &len);
 	if (off && len >= T32_TOP_BYTES) {
-		n = t32_top_init(bin + off, width, height, (u32)bayer, w);
+		n = t32_top_init(bin + off, width, height, (u32)bayer, 0, w);
 		for (i = 0; i < n; i++)
 			isp_wr(w[i].reg, w[i].val);
 	}

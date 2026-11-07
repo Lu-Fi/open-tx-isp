@@ -187,15 +187,26 @@ static inline int t32_csccr_init(const u8 *sec, struct t32_front_write *w)
 
 /*
  * tisp_top_init (+ tisp_top_reg_cfg): sec = IQ section 0 (100 bytes), bayer
- * from t32_mbus_to_bayer.  Pipeline 0, single pipeline, no WDR.
+ * from t32_mbus_to_bayer (colour order in bits 0..4, depth class in bits
+ * 16..17), info36 = bit 0 of byte 36 of the sensor info the vendor passes
+ * (bit 16 of the two Bayer registers).  Pipeline 0, single pipeline, direct
+ * register path, no WDR (info byte 39 = 0).  The vendor maps the colour order
+ * through a table (identity below 4, +4 up to 19, 0 above) and flags the
+ * DE-IR variants (order >= 4).
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_top_oracle).
  */
-static inline unsigned int t32_top_init(const u8 *sec, u32 width, u32 height, u32 bayer,
+static inline unsigned int t32_top_init(const u8 *sec, u32 width, u32 height, u32 bayer, u32 info36,
 					struct t32_front_write *w)
 {
 	u32 size = width << 16 | height, en = 0, ctl = 0, sta = 0;
 	u32 idx = bayer & 0x1f, deir = idx < 4 ? 0 : 1;
+	u32 order = idx < 4 ? idx : idx < 20 ? idx + 4 : 0;
+	u32 depth = (bayer >> 16 & 3) << 8, bit16 = (info36 & 1) << 16;
 	unsigned int n = 0, i;
 
+	/* tisp_top_reg_cfg: module enables (+4), control (+0x24), state (+0x44) */
 	for (i = 0; i < 32; i++) {
 		en |= (u32)(sec[4 + i] & 1) << i;
 		ctl |= (u32)(sec[0x24 + i] & 1) << i;
@@ -206,8 +217,8 @@ static inline unsigned int t32_top_init(const u8 *sec, u32 width, u32 height, u3
 		sta |= 4;
 	T32_FW(w, n, 0x70, size);
 	T32_FW(w, n, 0x80, size);
-	T32_FW(w, n, 0x78, deir << 20 | idx | ((bayer & 0x3ffff) >> 16) << 8);
-	T32_FW(w, n, 0x88, deir << 20 | ((bayer & 0x3ffff) >> 16) << 8);
+	T32_FW(w, n, 0x78, deir << 20 | bit16 | depth | order);
+	T32_FW(w, n, 0x88, deir << 20 | bit16 | depth);
 	T32_FW(w, n, 0x48, 0xffffffff);
 	T32_FW(w, n, 0x48, 0xfff7ffff);
 	T32_FW(w, n, 0x100, 4);
