@@ -33568,61 +33568,6 @@ fail:
 	return ret;
 }
 
-static void tx_isp_t30_clocks(struct tx_isp_t30_subdev *sd, bool on)
-{
-	int i;
-
-	if (!sd->clks)
-		return;
-	if (on)
-		for (i = 0; i < sd->clk_num; i++)
-			private_clk_enable(sd->clks[i]);
-	else
-		for (i = sd->clk_num; i-- > 0;)
-			private_clk_disable(sd->clks[i]);
-}
-
-/*
- * Beyond the vendor: its tx_isp_core_remove (SDK-built ko 0x1dc) and
- * tx_isp_vic_remove (0x0) write no register, and it never unloads the
- * module.  The fd close slake only clears the VIC bits 0x5310000
- * (vic_core_ops_init); the APICAL bits 0xffff that apical_fw_init enabled
- * stay set in VIC 0x20014 and the sensor keeps feeding frames, so a reloaded
- * module took a frame-end IRQ before its own init (QEMU T30 reload hang).
- * Mask the whole VIC interrupt register and clear the pending APICAL events
- * (0xa4 clear inputs, the same edge as core stream-on).  The next load sets
- * both again: apical_fw_init (0xffff), vic_core_ops_init (0x5310000) and
- * the stream-on clear of 0xa4.  Called after every ISP IRQ is freed; a
- * slaked core/VIC has its clocks off, so they are switched on around the
- * writes and back off (balanced).
- */
-static void tx_isp_t30_quiesce_events(struct tx_isp_t30_subdev *core_sd,
-				      bool core_clocks_on)
-{
-	struct tx_isp_t30_subdev *vic = tx_isp_t30_vic_sd;
-	bool vic_clocks_on;
-
-	if (IS_ERR_OR_NULL(vic) || !vic->base)
-		return;
-	/* VIC state at +0x124: 1 = slaked (clocks off), >= 2 = clocks on. */
-	vic_clocks_on = *(int *)((char *)vic + 0x124) >= 2;
-
-	if (!core_clocks_on)
-		tx_isp_t30_clocks(core_sd, true);
-	if (!vic_clocks_on)
-		tx_isp_t30_clocks(vic, true);
-
-	writel(0, vic->base + 0x20014);
-	*(uint32_t *)((char *)vic + 0x138) = 0;	/* line state: off */
-	APICAL_WRITE_32(0xa4, APICAL_READ_32(0xa4) & 0xffff0000U);
-	APICAL_WRITE_32(0xa4, APICAL_READ_32(0xa4) | 0x0000ffffU);
-
-	if (!vic_clocks_on)
-		tx_isp_t30_clocks(vic, false);
-	if (!core_clocks_on)
-		tx_isp_t30_clocks(core_sd, false);
-}
-
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000019c38 origin=model_output original=tx_isp_unregister_platforms */
 void *tx_isp_unregister_platforms(int32_t *arg1)
 {
@@ -33680,9 +33625,6 @@ void *tx_isp_unregister_platforms(int32_t *arg1)
 		sd = container_of(module, struct tx_isp_t30_subdev, module);
 		tx_isp_free_irq(&sd->irqdev);
 	}
-
-	if (core)
-		tx_isp_t30_quiesce_events(&core->sd, hardware_active);
 
 	/*
 	 * A normal close leaves the T30 ISP core programmed even after its IRQs
