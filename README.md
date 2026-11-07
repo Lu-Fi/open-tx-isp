@@ -158,7 +158,7 @@ interfaces, `docs/` notes, `tests/` host tests and oracle checks, `tools/` on-de
 
 ## Reporting problems
 
-Open an issue at [opensensor/open-tx-isp](https://github.com/opensensor/open-tx-isp/issues) (kernel driver, ISP, memory) or [opensensor/openimp](https://github.com/opensensor/openimp/issues) when unsure. Please include the SoC and sensor, the revisions of open-tx-isp, OpenIMP and the camera application, `dmesg` (including any shortfall line such as `set ispmem >= N KB`), the application log, the stream set and the `rmem`/`ispmem` values. Do not post addresses, credentials or location names. Details: [Troubleshooting](https://github.com/opensensor/openimp/wiki/Troubleshooting#reporting-a-problem).
+Open an issue at [opensensor/open-tx-isp](https://github.com/opensensor/open-tx-isp/issues) (kernel driver, ISP, memory) or [opensensor/openimp](https://github.com/opensensor/openimp/issues) when unsure. Please include the SoC and sensor, the revisions of open-tx-isp, OpenIMP and the camera application, `dmesg` (including any shortfall line such as `set ispmem >= N KB`), the application log, the stream set and the `rmem`/`ispmem` values. Do not post addresses, credentials or location names. Details: [Troubleshooting](https://github.com/Lu-Fi/openimp/wiki/Troubleshooting#reporting-a-problem).
 
 ## Contributing
 
