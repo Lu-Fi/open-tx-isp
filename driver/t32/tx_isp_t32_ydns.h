@@ -8,6 +8,9 @@
  *
  * IQ bin section 17 (248 bytes): +4 / +5 enable bits, then 22 tables of 11
  * bytes from +6, 11 bytes apart (table k at +6 + 11 k).
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_ydns_oracle).
  */
 #ifndef TX_ISP_T32_YDNS_H
 #define TX_ISP_T32_YDNS_H
