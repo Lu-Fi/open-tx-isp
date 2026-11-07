@@ -903,6 +903,7 @@ static const uint16_t resize_height_read_table[5] = {
 	0x14b4, 0x14c2, 0x14cc, 0x14d6, 0x14e0
 };
 #include "tx_isp_t30_awb_preset.h"	/* get_awb_idx table (ko .rodata 0xdec) */
+#include "tx_isp_t30_temper.h"	/* Temper attr system-table items (SDK s/g_attr) */
 static uint32_t fifo_rg_avg;
 static uint32_t fifo_gb_avg;
 static int32_t iir_state[16];
@@ -14254,6 +14255,11 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 						APICAL_WRITE_32(0x0a24,
 							video_core->control.input_width * 4);
 					}
+					/* SDK apical_isp_temper_dns_s_attr: system-table items */
+					t30_temper_s_attr_stab(stab, temper_attr.mode,
+							       temper_attr.manual_strength,
+							       tuning->temper_max,
+							       tuning->temper_min);
 					temper_ctrl = APICAL_READ_32(0x0a28);
 					APICAL_WRITE_32(0x0a28, temper_ctrl | 1);
 					temper_ctrl = APICAL_READ_32(0x0040);
@@ -14317,6 +14323,23 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 					       system_gain->isp_digital_gain,
 					       default_control.control.value);
 				ret = 0;
+			} else if (default_control.control.id == 0x08000083) {
+				/*
+				 * IMAGE_TUNING_CID_TEMPER_ATTR get (SDK
+				 * apical_isp_temper_dns_g_attr): mode from the temper
+				 * bypass bit and the manual flag, strength = target.
+				 * The lifted g_ctrl switch has no arm for it.
+				 */
+				int tmode;
+				uint8_t tstr;
+
+				t30_temper_g_attr(stab, APICAL_READ_32(0x0040), &tmode, &tstr);
+				memset(&temper_attr, 0, sizeof(temper_attr));
+				temper_attr.mode = tmode;
+				temper_attr.manual_strength = tstr;
+				ret = copy_to_user((void __user *)(uintptr_t)
+						   default_control.control.value,
+						   &temper_attr, sizeof(temper_attr)) ? -EFAULT : 0;
 			} else if (default_control.control.id == 0x0800002c) {
 				/*
 				 * IMAGE_TUNING_CID_SYSTEM_TAB get (OEM apical_isp_stab_g_attr):

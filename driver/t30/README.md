@@ -163,6 +163,10 @@ host test `tests/t30_awb_preset_host_test.c`, guard `tests/check_t30_awb_preset.
 (4 mutations incl. the old lift). One addition: a preset row past `_GET_ROWS(255)` (a short
 bin table) returns 2 instead of reading past the table; no effect on the 7-row table.
 
+Temper (2026-11-07, #202): the 0x8000083 arm also writes the SDK system-table items (manual flag 11,
+target 46, max/min 47/48, `tx_isp_t30_temper.h`) and has a get arm; the 0x8000084 arm sets the Temper
+frame buffer. OpenIMP T30 enables Temper AUTO at EnableTuning as the vendor libimp does (stock 0x2c0 = 0x83).
+
 ## Validation boundary
 
 This remains recovery-grade code, but it is no longer static-only. The August
