@@ -1426,9 +1426,18 @@ int tx_isp_sinfo_init(void)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
 	/* Mainline procfs no longer accepts a slash in a single entry name. */
 	tx_isp_sinfo_jz_root = tx_isp_get_jz_proc_root();
-	if (tx_isp_sinfo_jz_root)
+	if (tx_isp_sinfo_jz_root) {
+		/* A previous tx-isp instance may have left the tree behind. */
+		remove_proc_subtree("sensor", tx_isp_sinfo_jz_root);
 		tx_isp_sinfo_root = proc_mkdir("sensor", tx_isp_sinfo_jz_root);
+	}
 #else
+	/*
+	 * Same on 3.10: proc_mkdir() fails (-EEXIST) over a leftover tree.
+	 * remove_proc_subtree() is available since 3.9 (the exit path uses it)
+	 * and returns -ENOENT silently when nothing is there.
+	 */
+	remove_proc_subtree("jz/sensor", NULL);
 	tx_isp_sinfo_root = proc_mkdir("jz/sensor", NULL);
 #endif
 	if (!tx_isp_sinfo_root) {
