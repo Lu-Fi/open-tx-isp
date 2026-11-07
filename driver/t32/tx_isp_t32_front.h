@@ -101,7 +101,11 @@ static const struct t32_csc_mode t32_csc_modes[6] = {
 	{ { 14786, 38160, 3338, -8038, -20746, 28784, 28784, -26469, -2315 }, { 0x80, 0x10, 0xeb, 0x10, 0xf0 } },
 };
 
-/* tisp_csc_init: sec = IQ section 9 (104 bytes); 8 writes plus the block id, 0 for a mode above 5 */
+/*
+ * tisp_csc_init: sec = IQ section 9 (104 bytes); 8 writes plus the block id, 0 for a mode above 5.
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15) by
+ * tests/t32_oracle (t32_csc_oracle).
+ */
 static inline unsigned int t32_csc_init(const u8 *sec, struct t32_front_write *w)
 {
 	short p[14];	/* the vendor's csc_cp: s16 at byte offsets 0 .. 0x1a */
@@ -154,7 +158,11 @@ static const u8 t32_csccr_modes[3][8] = {
 	{ 0x00, 0xff, 0x10, 0xeb, 0x00, 0xff, 0x10, 0xf0 },
 };
 
-/* tisp_csccr_init: sec = IQ section 10 (20 bytes, mode in byte 4); -1 for modes not built / bad ranges */
+/*
+ * tisp_csccr_init: sec = IQ section 10 (20 bytes, mode in byte 4); -1 for modes not built / bad ranges.
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15) by
+ * tests/t32_oracle (t32_csccr_oracle).
+ */
 static inline int t32_csccr_init(const u8 *sec, struct t32_front_write *w)
 {
 	const u8 *m;
