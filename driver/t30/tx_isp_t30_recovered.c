@@ -16838,8 +16838,14 @@ static int tx_isp_t30_ispcore_config_dma(void *chan,
 	apical_command(4, 0x73 + index, 0x57, 0, &command_ret);
 	pr_err("tx-isp-t30: core fmt ch=%u output command complete ret=%d\n",
 	       index, command_ret);
+	/*
+	 * CSC mode of the channel (SDK tx-isp-core.c:800-834, :929-937, OEM
+	 * ispcore_pad_event_handle xori 0x2011 / movz at 0xcb98/0xcc78/0xcc98):
+	 * 0x08 when the sensor delivers YUYV8_1X16 (core+0xf4 = mbus code
+	 * 0x2011), else 0x0f.  Was hard-coded 0x0f.
+	 */
 	APICAL_WRITE_32(index == 0 ? 0x570 : index == 1 ? 0x6b0 : 0x7b0,
-			0x0f);
+			*(u32 *)((char *)core + 0xf4) == 0x2011 ? 0x08 : 0x0f);
 	return 0;
 }
 
@@ -17843,6 +17849,8 @@ ispcore_pad_event_handle0x598:
     v0 = *(uint32_t *)((char *)s5 + 244);
     v1 = 8;
     v0 = (uintptr_t)v0 ^ 8209;
+    /* lost movz s2,v1,v0 (OEM 0xcb9c/0xcc80/0xcca0): csc 8 for YUYV8_1X16 */
+    if (v0 == 0) { s2 = (uint32_t *)(uintptr_t)v1; }
     a1 = 0;
     a0 = 22;
 
@@ -17910,6 +17918,8 @@ ispcore_pad_event_handle0x694:
     s2 = 15;
     v0 = (uintptr_t)v0 ^ 8209;
     v1 = 8;
+    /* lost movz s2,v1,v0 (OEM 0xcb9c/0xcc80/0xcca0): csc 8 for YUYV8_1X16 */
+    if (v0 == 0) { s2 = (uint32_t *)(uintptr_t)v1; }
     a1 = 0;
 
     /* fragment 159: Branch */
@@ -17922,6 +17932,8 @@ ispcore_pad_event_handle0x6b4:
     s2 = 15;
     v0 = (uintptr_t)v0 ^ 8209;
     v1 = 8;
+    /* lost movz s2,v1,v0 (OEM 0xcb9c/0xcc80/0xcca0): csc 8 for YUYV8_1X16 */
+    if (v0 == 0) { s2 = (uint32_t *)(uintptr_t)v1; }
 
     /* fragment 161: Branch */
     a0 = 36;
@@ -18680,7 +18692,7 @@ ispcore_pad_event_handle0xd9c:
 
 ispcore_pad_event_handle0xdbc:
     /* fragment 341: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)APICAL_WRITE_32)(a0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)APICAL_WRITE_32)(a0, (uintptr_t)s2); /* csc value was lost by the lift (OEM 0xd390 move a1,s2) */
 
 ispcore_pad_event_handle0xdcc:
     /* fragment 342: CallSetup */
