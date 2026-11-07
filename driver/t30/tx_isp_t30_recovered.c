@@ -24241,7 +24241,17 @@ void tx_isp_enable_irq(struct tx_isp_t30_irq_device *irqdev)
 
 void tx_isp_disable_irq(struct tx_isp_t30_irq_device *irqdev)
 {
-	private_disable_irq(irqdev->irq);
+	/*
+	 * tx_vic_disable_irq() reaches this from the ISP ISR itself (frame end ->
+	 * apical_isp_raise_event -> system_hw_interrupts_disable with the VIC mask
+	 * at 0xffff only, i.e. before vic_core_ops_init set 0x5310000).  A
+	 * synchronous disable_irq() then spins in synchronize_irq() on its own
+	 * in-progress line with interrupts off: hard hang (QEMU T30 reload).
+	 */
+	if (in_interrupt())
+		disable_irq_nosync(irqdev->irq);
+	else
+		private_disable_irq(irqdev->irq);
 }
 
 int tx_isp_request_irq(struct platform_device *pdev,
