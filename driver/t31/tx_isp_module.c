@@ -968,7 +968,7 @@ static struct tx_isp_subdev *isp_i2c_new_subdev_board(struct i2c_adapter *adapte
 #else
     client = i2c_new_client_device(adapter, info);
 #endif
-    if (!client)
+    if (IS_ERR_OR_NULL(client))
         return NULL;
 
     /* Stock: dev = *(client + 0x1c) - get client->dev */
