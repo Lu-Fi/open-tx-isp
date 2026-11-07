@@ -32,11 +32,25 @@ u32 t32_data_e1474[4];		/* per-pipeline-parity DE-IR flag */
 u32 t32_data_e1484[4];		/* per-channel copy of the tuning base */
 u8 t32_data_dc284[1808] __attribute__((aligned(4)));	/* 2 x 904 B channel state, +900 = pipeline count */
 
+/* IQ bin parser (tisp_bin_data_parse), per-channel state, all .bss */
+u8 t32_data_da850[704] __attribute__((aligned(4)));	/* 336 B per channel, +224 channel count, +232 14 B copy */
+u8 t32_data_dd114[224] __attribute__((aligned(4)));	/* 112 B per channel: copy of the bin's section table */
+u8 t32_data_dc1a4[56] __attribute__((aligned(4)));	/* 28 B per channel: largest payload sizes seen */
+u32 t32_data_e1820[4];					/* gamma payload size per channel */
+
 /* ---- .data objects ---- */
 /* data.c:19093 (+0x2180) = 1: tisp_reg_write queues into the shadow buffer.
  * The oracle sets mode 0 (direct system_reg_write) so it sees each write;
  * the mode is a transport choice and not part of the block's arithmetic. */
 u8 t32_data_d03a0[4] __attribute__((aligned(4))) = { 0 };
+/* data.c (bf2d0): first 8 words of the table the parser's checksum uses (the standard CRC-32 table start) */
+u32 t32_data_bf2d0[8] = { 0, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f, 0xe963a535, 0x9e6495a3 };
+/* data.c (c8064 "1.00", c806c "%s", c8070 "PRJ007"): version tag, format, project name checked in the bin header */
+char t32_data_c8064[8] = "1.00", t32_data_c806c[4] = "%s", t32_data_c8070[8] = "PRJ007";
+/* printf format strings of the parser: content irrelevant */
+char t32_data_bf23c[4] = "f", t32_data_c7ff8[4] = "f", t32_data_c8030[4] = "f", t32_data_c8078[4] = "f",
+     t32_data_c80b8[4] = "f", t32_data_c80f4[4] = "f", t32_data_c8134[4] = "f", t32_data_c8174[4] = "f",
+     t32_data_c81a4[4] = "f";
 /* data.c:19437.. (+0x26e0, 128 B): colour-order map of tisp_top_init */
 u32 t32_data_d0900[32] = { 0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23 };
 /* data.c:25849 (+0x8b10, 40 B): API matrix default, unity, flag byte 0 */
@@ -85,13 +99,36 @@ void t32o_reset(void)
 	memset(t32_data_e1474, 0, sizeof(t32_data_e1474));
 	memset(t32_data_e1484, 0, sizeof(t32_data_e1484));
 	memset(t32_data_dc284, 0, sizeof(t32_data_dc284));
+	memset(t32_data_da850, 0, sizeof(t32_data_da850));
+	memset(t32_data_dd114, 0, sizeof(t32_data_dd114));
+	memset(t32_data_dc1a4, 0, sizeof(t32_data_dc1a4));
+	memset(t32_data_e1820, 0, sizeof(t32_data_e1820));
 }
 
 /* ---- kernel / driver stubs (o32 shape) ---- */
 u64 private_vmalloc(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a1; (void)a2; (void)a3;
-	return (u32)(uintptr_t)t32o_alloc(a0);
+	return a0 ? (u32)(uintptr_t)t32o_alloc(a0) : 0;
+}
+
+/* kernel allocators: vmalloc(0) and kmalloc(0) return NULL as in the kernel's callers expect an error */
+u64 private_kmalloc(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a1; (void)a2; (void)a3;
+	return a0 ? (u32)(uintptr_t)t32o_alloc(a0) : 0;
+}
+
+u64 private_kfree(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a0; (void)a1; (void)a2; (void)a3;
+	return 0;
+}
+
+u64 private_vfree(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a0; (void)a1; (void)a2; (void)a3;
+	return 0;
 }
 
 u64 system_reg_write(u32 a0, u32 a1, u32 a2, u32 a3)

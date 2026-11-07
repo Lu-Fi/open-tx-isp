@@ -10,6 +10,10 @@
  * constant: that is why the AE block is at tparamsP + 0x68 in the code but at
  * bin + 0x104, while the LSC block happens to sit at bin + 0x98 + 0x68c4.
  * Sections used here: 1 AE (3288 bytes), 2 AWB (6740), 7 LSC (120).
+ *
+ * Checked against the vendor flow (Matt Davis' recovered C, PR #15) by
+ * tests/t32_oracle (t32_iq_oracle): section and payload positions equal what
+ * the vendor's tisp_bin_data_parse copies, on generated bins and all 67 T32 bins.
  */
 #ifndef TX_ISP_T32_IQ_H
 #define TX_ISP_T32_IQ_H
