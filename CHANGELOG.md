@@ -4,7 +4,7 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
-## 2026-11-08: six small fixes from Paul Philippov's kernel-7 patch set (branch `claude/paul-k7-fixes`, not merged, no device test yet)
+## 2026-11-08: six small fixes from Paul Philippov's kernel-7 patch set (device-proven by runtime module swap on T20 Wyze Cam v2 and T31X Wuuk: 300/296 frames decoded, no oops, two streamer restarts)
 
 - Taken only where correct for the 3.10 kernels too (review `audit/paul-k7/REVIEW.md`); each commit credits Paul (Co-authored-by).
 - T31 (0015): `IS_ERR_OR_NULL(client)` after `i2c_new_client_device()` (ERR_PTR on >= 5.5 was dereferenced; 3.10 unchanged).
