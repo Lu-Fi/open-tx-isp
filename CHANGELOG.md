@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-08: AGENTS.md for AI assistants
+
+- New `AGENTS.md`: short guide for support assistants; it points to the open-stack AI documentation in OpenIMP (`AGENTS.md`, `docs/ai/`) and the live feature matrix. Honest answers first, also where the vendor driver is better.
+
 ## 2026-11-08: T31 exports `tx_isp_sinfo_sensor_bind/unbind` for sensor modules from the older ingenic-sdk (openimp #241; WUUK Y0510 T31X sc4336p on the thingino master tree 2026-11-08: sensor module loads, 0 unknown symbols, ISP runs at ~28 fps, raptor streams)
 
 - The thingino master tree builds its sensor modules from thingino/ingenic-sdk (d93ddb9), whose sensors import `tx_isp_sinfo_sensor_bind` and `tx_isp_sinfo_sensor_unbind`. open-tx-isp did not export them, so `insmod` of the sensor failed with "Unknown symbol" and the open stack on master had no picture. Both symbols are now on the T31 export whitelist (`driver/t31/tx_isp_t31_exports.h`, `driver/isp_imports.txt`). The aperto/ciao sensors do not use them; behaviour there is unchanged. No other SoC module has missing symbols against that SDK (T10/T20/T23/T41 checked offline, T21 from source).
