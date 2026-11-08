@@ -11,6 +11,9 @@
  * values are 0x40 minus the table); the register functions then combine
  * section bytes and values.  They are a mechanical transcription of the
  * vendor's flow.
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_ysp_oracle).
  */
 #ifndef TX_ISP_T32_YSP_H
 #define TX_ISP_T32_YSP_H
