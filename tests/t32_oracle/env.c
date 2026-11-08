@@ -370,6 +370,7 @@ void t32o_reset(void)
 	memset(&t32o_log, 0, sizeof(t32o_log));
 	memset(t32_data_e28f0, 0, sizeof(t32_data_e28f0));
 	memset(t32_data_dd0a4, 0, sizeof(t32_data_dd0a4));
+	memset(t32o_ctbss, 0, sizeof(t32o_ctbss));
 	memset(t32_data_dc274, 0, sizeof(t32_data_dc274));
 	memset(t32_data_da844, 0, sizeof(t32_data_da844));
 	memset(t32_data_e1460, 0, sizeof(t32_data_e1460));
@@ -587,3 +588,60 @@ u64 t32o_call(t32o_fn fn, u32 a0, u32 a1, u32 a2, u32 a3, u32 a4)
 	swapcontext(&ctx_main, &ctx_ref);
 	return call_ret;
 }
+
+/* ---- tisp_awb_ct_detect_simd_3 (0x209b8) data ---- */
+/* rodata data.c:2167..2173 (bf150): index bytes 0..9, then u16 {10,20,40,80}, u16 {0,0,102,1024} */
+u32 t32_data_bf150[7] = { 0x03020100, 0x07060504, 0x00000908, 0x0014000a, 0x00500028, 0x00000000, 0x04000066 };
+__asm__(".globl t32_data_bf15c, t32_data_bf164\n.set t32_data_bf15c, t32_data_bf150+12\n.set t32_data_bf164, t32_data_bf150+20");
+/* data.c:16887 (ce130): table indexed by zone class, 240 B up to the end of the rodata section (the table length is fixed by the phase that reads it) */
+u32 t32_data_ce130[60] = { 0x01010100,0x03030302,0x05050504,0x07070706,0x01010100,0x03030302,0x05050504,0x07070706,0x01010108,0x0303030a,0x0505050c,0x0707070e,0x01010110,0x03030312,0x05050514,0x07070716,0x01010118,0x0303031a,0x0505051c,0x0707071e,0x18100800,0x19110901,0x01010101,0x01010101,0x06040200,0x0e0c0a08,0x07050301,0x0f0d0b09,0x0c080400,0x1c181410,0x0d090501,0x1d191511,0x01020100,0x01060104,0x010a0108,0x010e010c,0x01120110,0x01160114,0x011a0118,0x011e011c,0x0a080200,0x1a181210,0x0b090301,0x1b191311,0x01011210,0x05051614,0x09091a18,0x0d0d1e1c,0x01010200,0x05050604,0x09090a08,0x0d0d0e0c,0x00010001,0x00010001,0x00010001,0x00010001,0x18100800,0x19110901,0x02020202,0x02020202 };
+/* printk format "%d\n" (c7d34, data.c:11122) */
+u32 t32_data_c7d34[1] = { 0x000a6425 };
+/* .bss scratch of the colour temperature detection, dadf0 .. dc054: one block, every OEM symbol is an offset */
+u8 t32o_ctbss[0x1270] __attribute__((aligned(16)));
+__asm__(".globl t32_data_dadf0\n.set t32_data_dadf0, t32o_ctbss + 0x0");
+__asm__(".globl t32_data_dae00\n.set t32_data_dae00, t32o_ctbss + 0x10");
+__asm__(".globl t32_data_dae10\n.set t32_data_dae10, t32o_ctbss + 0x20");
+__asm__(".globl t32_data_dae20\n.set t32_data_dae20, t32o_ctbss + 0x30");
+__asm__(".globl t32_data_dae30\n.set t32_data_dae30, t32o_ctbss + 0x40");
+__asm__(".globl t32_data_dae40\n.set t32_data_dae40, t32o_ctbss + 0x50");
+__asm__(".globl t32_data_dae50\n.set t32_data_dae50, t32o_ctbss + 0x60");
+__asm__(".globl t32_data_dae60\n.set t32_data_dae60, t32o_ctbss + 0x70");
+__asm__(".globl t32_data_dae70\n.set t32_data_dae70, t32o_ctbss + 0x80");
+__asm__(".globl t32_data_dae98\n.set t32_data_dae98, t32o_ctbss + 0xa8");
+__asm__(".globl t32_data_daec0\n.set t32_data_daec0, t32o_ctbss + 0xd0");
+__asm__(".globl t32_data_daee8\n.set t32_data_daee8, t32o_ctbss + 0xf8");
+__asm__(".globl t32_data_daf10\n.set t32_data_daf10, t32o_ctbss + 0x120");
+__asm__(".globl t32_data_daf24\n.set t32_data_daf24, t32o_ctbss + 0x134");
+__asm__(".globl t32_data_daf30\n.set t32_data_daf30, t32o_ctbss + 0x140");
+__asm__(".globl t32_data_daf58\n.set t32_data_daf58, t32o_ctbss + 0x168");
+__asm__(".globl t32_data_daf80\n.set t32_data_daf80, t32o_ctbss + 0x190");
+__asm__(".globl t32_data_dafa8\n.set t32_data_dafa8, t32o_ctbss + 0x1b8");
+__asm__(".globl t32_data_dafd0\n.set t32_data_dafd0, t32o_ctbss + 0x1e0");
+__asm__(".globl t32_data_db000\n.set t32_data_db000, t32o_ctbss + 0x210");
+__asm__(".globl t32_data_db010\n.set t32_data_db010, t32o_ctbss + 0x220");
+__asm__(".globl t32_data_db020\n.set t32_data_db020, t32o_ctbss + 0x230");
+__asm__(".globl t32_data_db030\n.set t32_data_db030, t32o_ctbss + 0x240");
+__asm__(".globl t32_data_db040\n.set t32_data_db040, t32o_ctbss + 0x250");
+__asm__(".globl t32_data_db050\n.set t32_data_db050, t32o_ctbss + 0x260");
+__asm__(".globl t32_data_db060\n.set t32_data_db060, t32o_ctbss + 0x270");
+__asm__(".globl t32_data_db150\n.set t32_data_db150, t32o_ctbss + 0x360");
+__asm__(".globl t32_data_db1d0\n.set t32_data_db1d0, t32o_ctbss + 0x3e0");
+__asm__(".globl t32_data_db250\n.set t32_data_db250, t32o_ctbss + 0x460");
+__asm__(".globl t32_data_db2d0\n.set t32_data_db2d0, t32o_ctbss + 0x4e0");
+__asm__(".globl t32_data_db3c0\n.set t32_data_db3c0, t32o_ctbss + 0x5d0");
+__asm__(".globl t32_data_db4b0\n.set t32_data_db4b0, t32o_ctbss + 0x6c0");
+__asm__(".globl t32_data_db5a0\n.set t32_data_db5a0, t32o_ctbss + 0x7b0");
+__asm__(".globl t32_data_db690\n.set t32_data_db690, t32o_ctbss + 0x8a0");
+__asm__(".globl t32_data_db710\n.set t32_data_db710, t32o_ctbss + 0x920");
+__asm__(".globl t32_data_dbf10\n.set t32_data_dbf10, t32o_ctbss + 0x1120");
+__asm__(".globl t32_data_dbf14\n.set t32_data_dbf14, t32o_ctbss + 0x1124");
+__asm__(".globl t32_data_dbf28\n.set t32_data_dbf28, t32o_ctbss + 0x1138");
+__asm__(".globl t32_data_dbf3c\n.set t32_data_dbf3c, t32o_ctbss + 0x114c");
+__asm__(".globl t32_data_dbf64\n.set t32_data_dbf64, t32o_ctbss + 0x1174");
+__asm__(".globl t32_data_dbf8c\n.set t32_data_dbf8c, t32o_ctbss + 0x119c");
+__asm__(".globl t32_data_dbfb4\n.set t32_data_dbfb4, t32o_ctbss + 0x11c4");
+__asm__(".globl t32_data_dbfdc\n.set t32_data_dbfdc, t32o_ctbss + 0x11ec");
+__asm__(".globl t32_data_dc004\n.set t32_data_dc004, t32o_ctbss + 0x1214");
+__asm__(".globl t32_data_dc02c\n.set t32_data_dc02c, t32o_ctbss + 0x123c");
+u32 t32o_ct_stop, t32o_ct_stack[208];	/* set by the truncated ct_detect reference (trunc_ct3.sh) */
