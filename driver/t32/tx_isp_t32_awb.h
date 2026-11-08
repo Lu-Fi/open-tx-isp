@@ -75,6 +75,9 @@ struct t32_awb_par {
 		T32_AWB_AT(3080, u32 cold_off[2]);	/* ... for ct <= ct_lo */
 		T32_AWB_AT(3088, u32 ct_lo);
 		T32_AWB_AT(3092, u32 ct_hi);
+		T32_AWB_AT(296, u32 cand_r2);		/* ct_detect: squared radius (in axis units) of a point's zone cloud */
+		T32_AWB_AT(308, u32 cand_tol);		/* ... a point has converged when the mean moved by at most this */
+		T32_AWB_AT(312, u32 cand_iter);		/* ... passes allowed per point */
 		T32_AWB_AT(292, u32 cand_mode);	/* ct_detect: 1 = candidate points from the 12 fullest cells */
 		T32_AWB_AT(5126, u16 ct_lim[20]);	/* ct_detect: 10 entries of (value, unused), those before the first zero count */
 		T32_AWB_AT(3186, u16 zones_h);		/* statistics zone grid: rows ... */
@@ -101,6 +104,7 @@ struct t32_awb_state {
 		T32_AWB_AT(81284, u32 top_n[12]);	/* ... count (kept between frames) */
 		T32_AWB_AT(81332, u32 pt_r[60]);	/* five (r, b) points per cell: corners and centre */
 		T32_AWB_AT(81572, u32 pt_b[60]);
+		T32_AWB_AT(81812, u32 pt_n[60]);	/* zones near each point at its last refinement pass */
 		T32_AWB_AT(37992, u16 lim_a[7]);	/* ct_detect: 3 + 4 entries, copied to its working set */
 		T32_AWB_AT(38012, u16 lim_b[7]);
 		T32_AWB_AT(28672, u32 out_id);		/* copies of the four par values, out_w / in_w scaled */
@@ -194,6 +198,10 @@ T32_AWB_CHK(struct t32_awb_state, top_y, 81236);
 T32_AWB_CHK(struct t32_awb_state, top_n, 81284);
 T32_AWB_CHK(struct t32_awb_state, pt_r, 81332);
 T32_AWB_CHK(struct t32_awb_state, pt_b, 81572);
+T32_AWB_CHK(struct t32_awb_state, pt_n, 81812);
+T32_AWB_CHK(struct t32_awb_par, cand_r2, 296);
+T32_AWB_CHK(struct t32_awb_par, cand_tol, 308);
+T32_AWB_CHK(struct t32_awb_par, cand_iter, 312);
 T32_AWB_CHK(struct t32_awb_par, cand_mode, 292);
 T32_AWB_CHK(struct t32_awb_state, lim_a, 37992);
 T32_AWB_CHK(struct t32_awb_state, cell_r, 79228);

@@ -29,6 +29,8 @@
  * Phase 4 (L_21b04 .. L_21f18, cand_mode 1 only): the 12 fullest cells of the ct grid, five
  * (r, b) points for each, duplicates removed (t32_awb_ct_detect_cand).  The other branch
  * (cand_mode != 1, L_22924) is not ported.
+ * Phase 5 (L_21f18 .. L_22184): every candidate point moves to the mean of the zone statistics
+ * around it until it stops moving (t32_awb_ct_detect_refine).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -409,6 +411,62 @@ static inline int t32_awb_ct_detect_cand(struct t32_awb *a)
 		for (j = i + 1; j < 60; j++)
 			if (st->pt_r[i] == st->pt_r[j] && st->pt_b[i] == st->pt_b[j])
 				st->pt_r[j] = st->pt_b[j] = 0;
+	}
+	return 0;
+}
+
+/*
+ * Phase 5 (L_21f18 .. L_22184, MXU2 in the vendor).  Every candidate point (r, b) of the
+ * 60 (empty when either is 0) is moved to the mean of the zones whose statistics (rounded,
+ * in axis units) lie within cand_r2 of it (squared distance, 32 bit): with n such zones
+ * the new point is ((sum + n / 2) / n) >> out_shift per axis.  n == 0 leaves the point.
+ * The point has converged when both axes moved by at most cand_tol; otherwise, as long as
+ * the pass count (1 for the first) does not exceed cand_iter, it is replaced and the zones
+ * are taken again.  pt_n gets n of the last pass.  The vendor sums four lanes at a time
+ * with the tail lanes masked, which is every zone of rows x cols.  A cand_iter above
+ * 65534 would let the vendor's 16 bit pass count wrap: -1, as for a grid over 32.
+ */
+static inline int t32_awb_ct_detect_refine(struct t32_awb *a)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u32 os = par->out_shift & 31, half = 1u << ((par->out_shift - 1) & 31);
+	u32 rows = par->zones_h, cols = par->zones_w;
+	u32 k, row, col, pass;
+
+	if (rows > 32 || cols > 32 || par->cand_iter > 0xfffe)
+		return -1;
+	for (k = 0; k < 60; k++) {
+		if (!st->pt_r[k] || !st->pt_b[k])
+			continue;
+		for (pass = 1;; pass++) {
+			u32 sr = 0, sb = 0, n = 0, nr, nb;
+
+			for (row = 0; row < rows; row++) {
+				for (col = 0; col < cols; col++) {
+					u32 z = row * 32 + col, r = st->zstat[0][0][z], b = st->zstat[0][1][z];
+					u32 dr = t32_awb_absdiff(st->pt_r[k], (u32)((int)(half + r) >> os));
+					u32 db = t32_awb_absdiff(st->pt_b[k], (u32)((int)(half + b) >> os));
+
+					if (db * db + dr * dr <= par->cand_r2) {
+						sr += r;
+						sb += b;
+						n++;
+					}
+				}
+			}
+			if (!n)
+				break;
+			nr = ((sr + (n >> 1)) / n) >> os;
+			nb = ((sb + (n >> 1)) / n) >> os;
+			st->pt_n[k] = n;
+			if (t32_awb_absdiff(st->pt_r[k], nr) <= par->cand_tol && t32_awb_absdiff(st->pt_b[k], nb) <= par->cand_tol)
+				break;
+			if (par->cand_iter < pass)
+				break;
+			st->pt_r[k] = nr;
+			st->pt_b[k] = nb;
+		}
 	}
 	return 0;
 }
