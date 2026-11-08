@@ -21,6 +21,12 @@
  *  - a cell packs the 6 values (2 per plane, 12 bits) into 3 words;
  *  - gain dependent strength p[101 + i] interpolated over the log2 gain
  *    (Q16) as tisp_simple_intp_uint8 does.
+ *
+ * Checked against the vendor flow (Matt Davis' recovered C, PR #15) by tests/t32_oracle
+ * (t32_lsc_oracle): the enable, the 13 control registers, the port select and the cell
+ * count (t32_lsc_cell_count) are bit-exact for all 67 bins at three sizes and random
+ * sections.  The mesh words are NOT yet equal (stage 2: the colour temperature blend of
+ * tisp_lsc_interp_by_ct, and the ring interpolation); the oracle reports the difference.
  */
 #ifndef TX_ISP_T32_LSC_H
 #define TX_ISP_T32_LSC_H
@@ -186,6 +192,18 @@ static inline void t32_lsc_registers(const u8 *p, struct t32_lsc *s, int wdr)
 	r[12] = wdr ? (u32)p[64] << 8 | (u32)p[62] << 31 | p[63] | (s->inv_wdr & 0x3ffU) << 16 : r[2];
 }
 
+/*
+ * Number of mesh cells the vendor's tisp_lsc_write_all_reg loads: with the section's
+ * mode byte p[65] set, a fixed 1152 for the IR Bayer patterns (index >= 4) and 576
+ * otherwise; with it clear, the grid of tisp_lsc_calc_para_refresh (rows * cols * 2).
+ */
+static inline u32 t32_lsc_cell_count(const u8 *p, const struct t32_lsc *s, u32 bayer)
+{
+	if (p[65])
+		return (bayer & 0x1f) >= 4 ? 1152 : 576;
+	return s->cells;
+}
+
 /* the mesh words of one cell from the chosen table (stage 1: no blend) */
 static inline void t32_lsc_cell(const u8 *p, const struct t32_lsc *s, unsigned int i, u32 w[3])
 {
@@ -202,20 +220,20 @@ static inline void t32_lsc_cell(const u8 *p, const struct t32_lsc *s, unsigned i
 
 /*
  * The stream-on list as the vendor's: enable, the control registers, the
- * mesh through the port (always all 1152 cells), the tail register.
+ * mesh through the port (t32_lsc_cell_count cells), the tail register.
  */
 static inline int t32_lsc_fill_list(const u8 *p, struct t32_lsc *s, struct t32_rcfg_list *l,
-				    u32 *scratch)
+				    u32 *scratch, u32 bayer)
 {
-	unsigned int i, k;
+	unsigned int i, k, cells = t32_lsc_cell_count(p, s, bayer);
 
 	t32_rcfg_add(l, T32_LSC_EN, 1);
 	for (k = 0; k < 13; k++)
 		t32_rcfg_add(l, T32_LSC_CTRL0 + 4 * k, s->regs[k]);
 	t32_rcfg_add(l, T32_LSC_PORT_SEL, 0x101);
-	for (i = 0; i < T32_LSC_CELLS; i++)
+	for (i = 0; i < cells; i++)
 		t32_lsc_cell(p, s, i, scratch + i * 3);
-	t32_rcfg_add_port(l, T32_LSC_PORT_DATA, scratch, T32_LSC_WORDS);
+	t32_rcfg_add_port(l, T32_LSC_PORT_DATA, scratch, cells * 3);
 	t32_rcfg_add(l, T32_LSC_PORT_SEL, 0);
 	t32_rcfg_add(l, T32_LSC_LIST_TAIL, 0);
 	return l->overflow ? -1 : 0;

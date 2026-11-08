@@ -100,7 +100,7 @@ int main(void)
 		if (p) {
 			CHECK(t32_lsc_setup(p, &s, 3840, 2160, 3850) == 0);
 			t32_rcfg_init(&l, words, 4096);
-			CHECK(t32_lsc_fill_list(p, &s, &l, scratch) == 0);
+			CHECK(t32_lsc_fill_list(p, &s, &l, scratch, 4) == 0);
 			/* the vendor list carries two empty commands after its end */
 			for (i = 0; i <= words[0] && i < n; i++)
 				diff += words[i] != want[i];

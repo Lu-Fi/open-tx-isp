@@ -208,6 +208,14 @@ u64 tisp_single_lsc_reg_lut_write(u32 a0, u32 a1, u32 a2, u32 a3)
 	return 0;
 }
 
+/* tisp_get_system_sensor_num: "lbu v0, stIspInitPar + 900" (0x28cd8); Matt's recovered file is empty */
+u8 t32o_sensor_num = 1;
+u64 tisp_get_system_sensor_num(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a0; (void)a1; (void)a2; (void)a3;
+	return t32o_sensor_num;
+}
+
 u64 private_complete(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 u64 private_init_completion(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 u64 private_mutex_lock(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }

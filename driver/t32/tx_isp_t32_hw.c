@@ -459,9 +459,13 @@ static void t32_rcfg_stream_on_fill(struct t32_rcfg_list *l)
 {
 	const u8 *bin, *p;
 	struct t32_lsc s;
-	u32 bytes, w, h;
+	u32 bytes, w, h, code;
+	int bayer;
 
-	if (t32_core_iq_bin(&bin, &bytes) || t32_core_sensor_size(&w, &h))
+	if (t32_core_iq_bin(&bin, &bytes) || t32_core_sensor_size(&w, &h) || t32_core_sensor_mbus(&code))
+		return;
+	bayer = t32_mbus_to_bayer(code);
+	if (bayer < 0)
 		return;
 	p = t32_lsc_block(bin, bytes);
 	if (!p || t32_lsc_setup(p, &s, w, h, lsc_ct)) {
@@ -469,7 +473,7 @@ static void t32_rcfg_stream_on_fill(struct t32_rcfg_list *l)
 		return;
 	}
 	isp_wr(T32_LSC_ID_REG, T32_LSC_ID);
-	if (t32_lsc_fill_list(p, &s, l, lsc_scratch) == 0)
+	if (t32_lsc_fill_list(p, &s, l, lsc_scratch, (u32)bayer) == 0)
 		isp_printf(0, "tx-isp-t32: LSC %ux%u cells %u table %u/%u at %u K\n",
 			   s.cols, s.rows, s.cells, s.table_lo, s.table_hi, lsc_ct);
 }
