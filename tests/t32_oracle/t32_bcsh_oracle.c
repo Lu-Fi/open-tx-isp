@@ -45,6 +45,10 @@ static void put32(u8 *p, u32 v)
 }
 
 static unsigned int compared, refused, failed;
+#define NBASE 80
+static u8 base_sec[NBASE][T32_BCSH_SEC_BYTES], base_lut[NBASE][10 * 40], base_csc[NBASE][104];
+static u32 base_lutlen[NBASE];
+static int nbase, quiet;
 
 static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc)
 {
@@ -58,6 +62,11 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 		return 0;
 	memcpy(osec, sec, SECB);
 	on = t32_bcsh_init(osec, lut, lutbytes, csc, ow);
+	if (sec[0x4b1] && on >= 0) {	/* the exposure mode keyed by +0x4b1 is not built: ours must refuse */
+		if (failed++ < 5)
+			printf("MISMATCH %s: ours accepted sec[0x4b1] = %u\n", what, sec[0x4b1]);
+		return 1;
+	}
 	if (on < 0) {
 		refused++;
 		return 0;
@@ -86,6 +95,8 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 		goto bad;
 	return 0;
 bad:
+	if (quiet)
+		return 1;
 	if (failed++ < 5) {
 		if (getenv("T32O_DBG")) {
 			u32 *ctx = T32O_HOST(t32_data_e2450[0]);
@@ -145,6 +156,14 @@ static int bin_cases(const char *dir)
 		if (!off || len < SECB || !coff || clen < 104)
 			continue;
 		nbins++;
+		if (nbase < NBASE) {
+			u32 ll = bin[off + 0x4af] * 40U;
+
+			memcpy(base_sec[nbase], bin + off, SECB);
+			memcpy(base_lut[nbase], bin + off + len, ll > 400 ? 400 : ll);
+			memcpy(base_csc[nbase], bin + coff, 104);
+			base_lutlen[nbase++] = ll > 400 ? 400 : ll;
+		}
 		run_case(e->d_name, bin + off, bin + off + len, (u32)bytes - off - len, bin + coff);
 	}
 	closedir(d);
@@ -158,6 +177,44 @@ int main(void)
 	unsigned int c, i, k, rc_r, n = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 6000;
 	int nbins;
 
+	/* the bins first (fills the bases), then perturbed copies of them, then fully random sections */
+	nbins = bin_cases(dir ? dir : "../external/ingenic-sdk/sensor-iq/t32");
+	rc_r = compared;
+	for (c = 0; c < n && nbase; c++) {
+		static u8 sec[SECB], lut[10 * 40], csc[104];
+		unsigned int b = rnd() % nbase, np = 1 + rnd() % 6;
+
+		memcpy(sec, base_sec[b], SECB);
+		memcpy(lut, base_lut[b], base_lutlen[b]);
+		memcpy(csc, base_csc[b], 104);
+		while (np--) {
+			unsigned int r = rnd() % (SECB + 104);
+
+			if (r < SECB && r >= 4)
+				sec[r] = (u8)(rnd() % 3 ? sec[r] + (rnd() % 5) - 2 : rnd());
+			else if (r >= SECB && r - SECB != 0x5b)
+				csc[r - SECB] = (u8)(rnd() % 3 ? csc[r - SECB] + (rnd() % 5) - 2 : rnd());
+		}
+		sec[0x4b1] = (u8)(rnd() % 16 ? 0 : 1 + rnd() % 3);
+		csc[0x5b] = base_csc[b][0x5b];
+		if (run_case("perturbed", sec, lut, base_lutlen[b], csc) && getenv("T32O_MIN")) {
+			unsigned int q;
+
+			quiet = 1;
+			for (q = 0; q < SECB + 104; q++) {
+				u8 *pb = q < SECB ? &sec[q] : &csc[q - SECB];
+				u8 orig = q < SECB ? base_sec[b][q] : base_csc[b][q - SECB], cur = *pb;
+
+				if (cur == orig)
+					continue;
+				*pb = orig;
+				if (!run_case("min", sec, lut, base_lutlen[b], csc))	/* reverting fixes it: this byte matters */
+					printf("  culprit %s+0x%x: %02x -> %02x\n", q < SECB ? "sec" : "csc", q < SECB ? q : q - SECB, orig, cur);
+				*pb = cur;
+			}
+			quiet = 0;
+		}
+	}
 	for (c = 0; c < n; c++) {
 		static u8 sec[SECB], lut[10 * 40], csc[104];
 		unsigned int knots = 1 + rnd() % 10;
@@ -168,7 +225,7 @@ int main(void)
 		put32(sec, 0x0134dae2);
 		sec[0x4af] = (u8)knots;
 		sec[0x4b0] = (u8)(rnd() % 4 ? rnd() % 255 : rnd() % 6);
-		sec[0x4b1] = 0;
+		sec[0x4b1] = (u8)(rnd() % 16 ? 0 : 1 + rnd() % 3);
 		sec[0x492] = (u8)(rnd() % 3);
 		for (k = 0; k < knots; k++) {
 			u32 t = rnd() % 3 ? ct : 5000 + (rnd() % 2 ? 1 : -1) * (sec[0x4b0] + rnd() % 3);
@@ -187,10 +244,8 @@ int main(void)
 		csc[0x63] = (u8)(rnd() % 3);
 		run_case("random", sec, lut, knots * 40, csc);
 	}
-	rc_r = compared;
-	nbins = bin_cases(dir ? dir : "../external/ingenic-sdk/sensor-iq/t32");
 	printf("t32_bcsh_oracle: random %u compared (%u refused by ours), IQ bins %d (%u compared), %u mismatches\n",
-	       rc_r, refused, nbins, compared - rc_r, failed);
+	       compared - rc_r, refused, nbins, rc_r, failed);
 	if (failed)
 		return 1;
 	if (!nbins) {

@@ -15,10 +15,15 @@
  * Built: the init flow of the vendor.  The transcription keeps the vendor's
  * buffer layout (parameter set "cp" of 300 bytes, user/csc set "ap") so each
  * line can be compared with the decompiled function; offsets are in bytes.
+ * The colour space data comes from the mode table the vendor applies to its copy
+ * of the CSC section (t32_bcsh_csc_apply), and tisp_bcsh_interp_by_ct leaves the
+ * matrix zero at init (see below), so the hue matrix register is zero.
  * Refused: sections that select the exposure mode keyed by the section byte
- * +0x4b1 (thresholds in a different unit; not seen in a bin), a colour space
- * section whose +0x62/+0x63 select the other vendor path, and a matrix mode
- * byte (+0x492) above 2.
+ * +0x4b1 (thresholds in a different unit; not seen in a bin) and a colour space
+ * mode above 5.
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_bcsh_oracle).
  */
 #ifndef TX_ISP_T32_BCSH_H
 #define TX_ISP_T32_BCSH_H
@@ -37,6 +42,7 @@ struct t32_bcsh {
 	u8 cp[300];
 	u8 ap[0x90];
 	u8 p5[48];
+	u8 cs[T32_BCSH_CSC_BYTES];	/* the vendor's colour space section copy */
 };
 
 static inline int t32_bcsh_s16(const u8 *p, u32 o)
@@ -172,6 +178,70 @@ static inline void t32_bcsh_hue(u32 h, const int *ccm, const int *m1, const int 
 }
 
 /*
+ * The vendor's tisp_csc_para_refresh_by_mode overwrites the colour space section
+ * copy with the table of the mode (92 bytes, data.c d7ffc, d7fa0, d7f44, d7ee8,
+ * d7e8c, d7e30 for the modes 0..5): the mode byte at +0x5b, the bytes +0x52..0x57
+ * and +0x5c..0x61, the first matrix at +4 and the second at +0x28.  What the block
+ * reads through tisp_csc_api_get comes from that overwritten copy, not from the bin.
+ */
+static const u32 t32_bcsh_csc_tab[6][23] = {
+	{ /* d7ffc */
+		0x00000000, 0x00004c8b, 0x00009646, 0x00001d2f, 0xffffd4ce, 0xffffab32,
+		0x00008000, 0x00008000, 0xffff94d1, 0xffffeb2f, 0xff008000, 0x0000ff00,
+		0x00010000, 0x00000000, 0x000166e9, 0x00010000, 0xffffa7e7, 0xffff492e,
+		0x00010000, 0x0001c5a2, 0x00000000, 0xff008000, 0x0000ff00,
+	},
+	{ /* d7fa0 */
+		0x00000001, 0x000041bd, 0x0000810f, 0x00001910, 0xffffda0e, 0xffffb581,
+		0x00007070, 0x00007070, 0xffffa1d9, 0xffffedb7, 0xeb108010, 0x0000f010,
+		0x00012a15, 0x00000000, 0x00019895, 0x00012a15, 0xffff9bb5, 0xffff2fe1,
+		0x00012a15, 0x00020469, 0x00000000, 0xeb108010, 0x0000f010,
+	},
+	{ /* d7f44 */
+		0x00000002, 0x0000366d, 0x0000b717, 0x0000127c, 0xffffe2ab, 0xffff9d55,
+		0x00008000, 0x00008000, 0xffff8bbd, 0xfffff443, 0xff008000, 0x0000ff00,
+		0x00010000, 0x00000000, 0x00019326, 0x00010000, 0xffffd00c, 0xffff8829,
+		0x00010000, 0x0001db09, 0x00000000, 0xff008000, 0x0000ff00,
+	},
+	{ /* d7ee8 */
+		0x00000003, 0x00002ebe, 0x00009d3e, 0x00000fe0, 0xffffe63c, 0xffffa953,
+		0x00007070, 0x00007070, 0xffff99df, 0xfffff5b1, 0xeb108010, 0x0000f010,
+		0x00012a15, 0x00000000, 0x0001caf1, 0x00012a15, 0xffffc969, 0xffff7793,
+		0x00012a15, 0x00021cc6, 0x00000000, 0xeb108010, 0x0000f010,
+	},
+	{ /* d7e8c */
+		0x00000004, 0x00004340, 0x0000ad91, 0x00000f2e, 0xffffdc41, 0xffffa3bf,
+		0x00008000, 0x00008000, 0xffff8a4b, 0xfffff5b5, 0xff008000, 0x0000ff00,
+		0x00010000, 0x00000000, 0x0001797f, 0x00010000, 0xffffd5e0, 0xffff6dbc,
+		0x00010000, 0x0001e1a3, 0x00000000, 0xff008000, 0x0000ff00,
+	},
+	{ /* d7e30 */
+		0x00000005, 0x000039c2, 0x00009510, 0x00000d0a, 0xffffe09a, 0xffffaef6,
+		0x00007070, 0x00007070, 0xffff989b, 0xfffff6f5, 0xeb108010, 0x0000f010,
+		0x00012a15, 0x00000000, 0x0001adbe, 0x00012a15, 0xffffd00b, 0xffff597e,
+		0x00012a15, 0x0002244b, 0x00000000, 0xeb108010, 0x0000f010,
+	},
+};
+
+/* apply the table of mode (0..5) to the colour space section copy cs (T32_BCSH_CSC_BYTES) */
+static inline void t32_bcsh_csc_apply(u8 *cs, unsigned int mode)
+{
+#define T32_BCSH_TB(i)	((u8)(t32_bcsh_csc_tab[mode][(i) / 4] >> (8 * ((i) % 4))))
+	unsigned int i;
+
+	cs[0x5b] = T32_BCSH_TB(0);
+	for (i = 0; i < 6; i++) {
+		cs[0x52 + i] = T32_BCSH_TB(40 + i);
+		cs[0x5c + i] = T32_BCSH_TB(84 + i);
+	}
+	for (i = 0; i < 36; i++) {
+		cs[4 + i] = T32_BCSH_TB(4 + i);
+		cs[0x28 + i] = T32_BCSH_TB(48 + i);
+	}
+#undef T32_BCSH_TB
+}
+
+/*
  * sec: writable copy of section 19 (the block clears ten of its bytes), lut:
  * the knots behind it (lutbytes long), csc: the colour space section.
  * Returns the number of writes (49), -1 on a refused section.
@@ -186,24 +256,25 @@ T32_BCSH_FN t32_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, s
 	static const u16 clear[] = { 0x49e, 0x49f, 0x467, 0x468, 0x461, 0x462, 0x498, 0x499, 0x493, 0x494 };
 	struct t32_bcsh st;
 	u8 *cp = st.cp, *ap = st.ap, *p5 = st.p5;
-	int knots, hy, ct = T32_BCSH_CT, i17 = 0, i18 = 0, a, b, i, k;
+	int i17 = 0, i18 = 0, a, b, i, k;
 	const int f = 0;
 	int mat[9], m1[9], m2[9], hm[9];
 	unsigned int n = 0;
 
-	if (t32_front_le32(sec) != T32_BCSH_ID)
+	if (sec[0x4b1])
 		return -1;
-	if (sec[0x4b1] || sec[0x492] > 2)
-		return -1;
-	if (!(csc[0x62] == 1 || (csc[0x62] == 0 && csc[0x63] < 2)))
-		return -1;
-	knots = sec[0x4af];
-	hy = sec[0x4b0];
-	if (knots < 1 || lutbytes < (u32)knots * 40U)
-		return -1;
+	(void)lut;		/* the colour temperature knots are not read at init, see below */
+	(void)lutbytes;
 	memset(&st, 0, sizeof(st));
 
 	/* tisp_csc_api_get into the user/csc set; the four user settings start neutral */
+	memcpy(st.cs, csc, T32_BCSH_CSC_BYTES);
+	st.cs[0x62] = 0;		/* tisp_csc_init clears the two path bytes of its copy */
+	st.cs[0x63] = 0;
+	if (st.cs[0x5b] > 5)
+		return -1;
+	t32_bcsh_csc_apply(st.cs, st.cs[0x5b]);
+	csc = st.cs;
 	memset(ap, 0x80, 4);
 	t32_bcsh_p32(ap, 0x2c, csc[0x5b]);
 	memcpy(ap + 0x54, csc + 0x52, 6);
@@ -356,50 +427,15 @@ T32_BCSH_FN t32_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, s
 	}
 #undef SIH
 
-	/* tisp_bcsh_interp_by_ct at 5000 K */
-#define L(i, j)	t32_bcsh_s32(lut, 40 * (i) + 4 * (j))
-	if (sec[0x492] == 0) {
-		for (i = 0; i < 9; i++)
-			mat[i] = (i % 4) ? 0 : 0x400;
-	} else if (sec[0x492] == 2) {
-		for (i = 0; i < 9; i++)
-			mat[i] = t32_bcsh_s32(sec, 0x68 + 4 * i);
-	} else if (knots == 1 || L(0, 0) >= ct) {
-		for (i = 0; i < 9; i++)
-			mat[i] = L(0, 1 + i);
-	} else if (ct >= L(knots - 1, 0)) {
-		for (i = 0; i < 9; i++)
-			mat[i] = L(knots - 1, 1 + i);
-	} else {
-		for (k = 1; k < knots && ct > L(k, 0); k++)
-			;
-		if (k >= knots)
-			return -1;
-		k--;
-		{
-			int c0 = L(k, 0), c1 = L(k + 1, 0);
-
-			if (ct <= hy + c0) {
-				for (i = 0; i < 9; i++)
-					mat[i] = L(k, 1 + i);
-			} else if (ct < c1 - hy) {
-				int d = c1 - c0 - 2 * hy, nn = ct - c0 - hy;
-
-				for (i = 0; i < 9; i++) {
-					int s = (d - nn) * L(k, 1 + i) + nn * L(k + 1, 1 + i);
-					int r = d >> 1;
-
-					if (s < 1)
-						r = -r;
-					mat[i] = t32_bcsh_clip((s + r) / d, -0x2000, 0x1fff);
-				}
-			} else {
-				for (i = 0; i < 9; i++)
-					mat[i] = L(k + 1, 1 + i);
-			}
-		}
-	}
-#undef L
+	/*
+	 * tisp_bcsh_interp_by_ct is called at init with the update flag 0 and the stored
+	 * colour temperature already 5000: the difference to the new one is 0, not above
+	 * the section's threshold (+0x9c), so the vendor returns without filling the
+	 * matrix, which stays zero (the first per-frame update fills it).  The hue
+	 * matrix below is therefore computed from a zero CCM.
+	 */
+	for (i = 0; i < 9; i++)
+		mat[i] = 0;
 	for (i = 0; i < 9; i++)
 		t32_bcsh_p32(cp, 0xb8 + 4 * i, (u32)mat[i]);
 
