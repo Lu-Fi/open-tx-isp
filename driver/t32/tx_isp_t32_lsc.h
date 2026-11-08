@@ -311,8 +311,8 @@ static inline u32 t32_lsc_radial(const u8 *p, const struct t32_lsc *s, unsigned 
 	       (u32)level + (u32)t32_lsc_round((long long)d * gain, 8);
 }
 
-/* element e of plane `plane` after the table choice / blend and, for byte 65 clear, the radial correction */
-static inline u32 t32_lsc_elem(const u8 *p, const struct t32_lsc *s, unsigned int plane, unsigned int e)
+/* element e of plane `plane` straight from the chosen table(s) (copy or tisp_lsc_mesh_itp blend) */
+static inline u32 t32_lsc_raw_elem(const u8 *p, const struct t32_lsc *s, unsigned int plane, unsigned int e)
 {
 	const u8 *pa = p + T32_LSC_TABLES + s->table_lo * T32_LSC_TABLE_STRIDE + 2 + plane * T32_LSC_PLANE;
 	const u8 *pb = p + T32_LSC_TABLES + s->table_hi * T32_LSC_TABLE_STRIDE + 2 + plane * T32_LSC_PLANE;
@@ -327,8 +327,6 @@ static inline u32 t32_lsc_elem(const u8 *p, const struct t32_lsc *s, unsigned in
 
 		v = (a + (((b - a) * s->fraction) >> 12)) & 0xffff;
 	}
-	if (!p[65])
-		v = t32_lsc_radial(p, s, plane, e, v);
 	return v;
 }
 
@@ -356,20 +354,61 @@ static inline u32 t32_lsc_ring_elem(const u8 *p, const struct t32_lsc *s, unsign
 }
 
 /*
- * the mesh words of one cell.  Byte 65 clear: its 6 values (two elements of each plane, 12 bits
- * packed).  Byte 65 set: the vendor's two blocks of 576 cells; cells 0..575 pack one element of
- * each plane and its neighbour, cells 576.. get the top byte of plane 1 and the packed plane 1
- * neighbours only (as the vendor's loop stores them).
+ * The vendor keeps the planes of the mesh in a work buffer between updates.  Each update
+ * (tisp_lsc_interp_by_ct) with a new colour temperature copies or blends the chosen tables
+ * into it, or leaves it as it is when no table applies, and for byte 65 clear then applies
+ * the radial correction in place.
  */
-static inline void t32_lsc_cell(const u8 *p, const struct t32_lsc *s, unsigned int i, u32 w[3])
+struct t32_lsc_work {
+	u16 pl[3][2304];
+	u32 old_ct;
+};
+
+/*
+ * tisp_lsc_interp_by_ct.  A non-forced call returns 0 without touching anything unless the
+ * colour temperature moved by more than the section's threshold u32 p[12].  Otherwise the
+ * table choice (t32_lsc_ct) is made: a copy fills the planes completely (2304 elements, or
+ * 577 in the ring format), a blend only the first 2 * (grid cells) elements (the rest is never read, so all are done), no applicable
+ * table keeps the old planes.  Returns 1 when the planes were updated.
+ */
+static inline int t32_lsc_update(const u8 *p, struct t32_lsc *s, struct t32_lsc_work *wk, u32 ct, int force)
+{
+	unsigned int plane, e, n;
+	u32 diff = ct > wk->old_ct ? ct - wk->old_ct : wk->old_ct - ct;
+
+	if (!force && !(t32_le32(p + 12) < diff))
+		return 0;
+	wk->old_ct = ct;
+	t32_lsc_ct(p, s, ct);
+	if (!s->none) {
+		n = p[65] ? T32_LSC_RING_ELEMS : 2304U;
+		for (plane = 0; plane < 3; plane++)
+			for (e = 0; e < n; e++)
+				wk->pl[plane][e] = (u16)(p[65] ? t32_lsc_ring_elem(p, s, plane, e) :
+							 t32_lsc_raw_elem(p, s, plane, e));
+	}
+	if (!p[65])
+		for (plane = 0; plane < 3; plane++)
+			for (e = 0; e < 4 * (unsigned int)s->rows * s->cols && e < 2304; e++)
+				wk->pl[plane][e] = (u16)t32_lsc_radial(p, s, plane, e, wk->pl[plane][e]);
+	return 1;
+}
+
+/*
+ * the mesh words of one cell from the work planes.  Byte 65 clear: its 6 values (two elements of
+ * each plane, 12 bits packed).  Byte 65 set: the vendor's two blocks of 576 cells; cells 0..575
+ * pack one element of each plane and its neighbour, cells 576.. get the top byte of plane 1 and
+ * the packed plane 1 neighbours only (as the vendor's loop stores them).
+ */
+static inline void t32_lsc_cell(const u8 *p, const struct t32_lsc_work *wk, unsigned int i, u32 w[3])
 {
 	u32 v[6], k;
 
 	if (p[65]) {
 		unsigned int n = i < 576 ? i : i - 576;
-		u32 p0 = t32_lsc_ring_elem(p, s, 0, n), p0n = t32_lsc_ring_elem(p, s, 0, n + 1);
-		u32 p1 = t32_lsc_ring_elem(p, s, 1, n), p1n = t32_lsc_ring_elem(p, s, 1, n + 1);
-		u32 p2 = t32_lsc_ring_elem(p, s, 2, n), p2n = t32_lsc_ring_elem(p, s, 2, n + 1);
+		u32 p0 = wk->pl[0][n], p0n = wk->pl[0][n + 1];
+		u32 p1 = wk->pl[1][n], p1n = wk->pl[1][n + 1];
+		u32 p2 = wk->pl[2][n], p2n = wk->pl[2][n + 1];
 
 		if (i < 576) {
 			w[0] = (p0 & 4095) | (p0n & 4095) << 12 | p1 << 24;
@@ -383,7 +422,7 @@ static inline void t32_lsc_cell(const u8 *p, const struct t32_lsc *s, unsigned i
 		return;
 	}
 	for (k = 0; k < 6; k++)
-		v[k] = t32_lsc_elem(p, s, k / 2, i * 2 + (k & 1)) & 4095;
+		v[k] = wk->pl[k / 2][i * 2 + (k & 1)] & 4095;
 	w[0] = v[0] | v[1] << 12 | v[2] << 24;
 	w[1] = (v[2] >> 8) | v[3] << 4 | v[4] << 16 | v[5] << 28;
 	w[2] = v[5] >> 4;
@@ -393,8 +432,8 @@ static inline void t32_lsc_cell(const u8 *p, const struct t32_lsc *s, unsigned i
  * The stream-on list as the vendor's: enable, the control registers, the
  * mesh through the port (t32_lsc_cell_count cells), the tail register.
  */
-static inline int t32_lsc_fill_list(const u8 *p, struct t32_lsc *s, struct t32_rcfg_list *l,
-				    u32 *scratch, u32 bayer)
+static inline int t32_lsc_fill_list(const u8 *p, struct t32_lsc *s, const struct t32_lsc_work *wk,
+				    struct t32_rcfg_list *l, u32 *scratch, u32 bayer)
 {
 	unsigned int i, k, cells = t32_lsc_cell_count(p, s, bayer);
 
@@ -403,7 +442,7 @@ static inline int t32_lsc_fill_list(const u8 *p, struct t32_lsc *s, struct t32_r
 		t32_rcfg_add(l, T32_LSC_CTRL0 + 4 * k, s->regs[k]);
 	t32_rcfg_add(l, T32_LSC_PORT_SEL, 0x101);
 	for (i = 0; i < cells; i++)
-		t32_lsc_cell(p, s, i, scratch + i * 3);
+		t32_lsc_cell(p, wk, i, scratch + i * 3);
 	t32_rcfg_add_port(l, T32_LSC_PORT_DATA, scratch, cells * 3);
 	t32_rcfg_add(l, T32_LSC_PORT_SEL, 0);
 	t32_rcfg_add(l, T32_LSC_LIST_TAIL, 0);
@@ -411,12 +450,13 @@ static inline int t32_lsc_fill_list(const u8 *p, struct t32_lsc *s, struct t32_r
 }
 
 /* everything for a stream-on list at colour temperature ct and gain 0 */
-static inline int t32_lsc_setup(const u8 *p, struct t32_lsc *s, u32 width, u32 height, u32 ct)
+static inline int t32_lsc_setup(const u8 *p, struct t32_lsc *s, struct t32_lsc_work *wk, u32 width, u32 height, u32 ct)
 {
 	if (t32_lsc_geometry(p, s, width, height))
 		return -1;
 	t32_lsc_gain(p, s, 0);
-	t32_lsc_ct(p, s, ct);
+	memset(wk, 0, sizeof(*wk));
+	t32_lsc_update(p, s, wk, ct, 1);
 	t32_lsc_registers(p, s, 0);
 	return 0;
 }

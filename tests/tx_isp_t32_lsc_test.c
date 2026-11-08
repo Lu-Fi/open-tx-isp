@@ -82,7 +82,16 @@ static void synthetic(void)
 			pl[(k / 2) * T32_LSC_PLANE + (k & 1) * 2 + 1] = v[k] >> 8;
 		}
 	}
-	t32_lsc_cell(p, &s, 0, w);
+	{
+		static struct t32_lsc_work wk;
+		unsigned int pl, e;
+
+		memset(&wk, 0, sizeof(wk));
+		for (pl = 0; pl < 3; pl++)
+			for (e = 0; e < 2; e++)
+				wk.pl[pl][e] = (u16)t32_lsc_raw_elem(p, &s, pl, e);
+		t32_lsc_cell(p, &wk, 0, w);
+	}
 	CHECK(w[0] == (0x123 | 0x456 << 12 | 0x89u << 24) && w[1] == (0x7 | 0xabc << 4 | 0xdef << 16 | 0xdu << 28) &&
 	      w[2] == 0xfe);
 }
@@ -98,6 +107,7 @@ int main(void)
 		const u8 *p = t32_lsc_block(bin, blen);
 		struct t32_rcfg_list l;
 		struct t32_lsc s;
+		static struct t32_lsc_work wk;
 		u32 n = 0, i, diff = 0;
 		char *tok = strtok((char *)ref, " \n");
 
@@ -107,9 +117,9 @@ int main(void)
 		}
 		CHECK(p != NULL);
 		if (p) {
-			CHECK(t32_lsc_setup(p, &s, 3840, 2160, 3850) == 0);
+			CHECK(t32_lsc_setup(p, &s, &wk, 3840, 2160, 3850) == 0);
 			t32_rcfg_init(&l, words, 4096);
-			CHECK(t32_lsc_fill_list(p, &s, &l, scratch, 4) == 0);
+			CHECK(t32_lsc_fill_list(p, &s, &wk, &l, scratch, 4) == 0);
 			/* the vendor list carries two empty commands after its end */
 			for (i = 0; i <= words[0] && i < n; i++)
 				diff += words[i] != want[i];

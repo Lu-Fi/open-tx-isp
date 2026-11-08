@@ -156,6 +156,7 @@ static unsigned int lsc_ct = 5000;
 module_param(lsc_ct, uint, 0644);
 MODULE_PARM_DESC(lsc_ct, "colour temperature for the LSC mesh at stream-on (vendor init: 5000)");
 static u32 lsc_scratch[T32_LSC_WORDS];
+static struct t32_lsc_work lsc_work;
 
 /*
  * AE and AWB statistics engines (tx_isp_t32_stats.h), initialised from the IQ
@@ -468,12 +469,12 @@ static void t32_rcfg_stream_on_fill(struct t32_rcfg_list *l)
 	if (bayer < 0)
 		return;
 	p = t32_lsc_block(bin, bytes);
-	if (!p || t32_lsc_setup(p, &s, w, h, lsc_ct)) {
+	if (!p || t32_lsc_setup(p, &s, &lsc_work, w, h, lsc_ct)) {
 		isp_printf(1, "tx-isp-t32: no usable LSC block in the IQ bin, LSC off\n");
 		return;
 	}
 	isp_wr(T32_LSC_ID_REG, T32_LSC_ID);
-	if (t32_lsc_fill_list(p, &s, l, lsc_scratch, (u32)bayer) == 0)
+	if (t32_lsc_fill_list(p, &s, &lsc_work, l, lsc_scratch, (u32)bayer) == 0)
 		isp_printf(0, "tx-isp-t32: LSC %ux%u cells %u table %u/%u at %u K\n",
 			   s.cols, s.rows, s.cells, s.table_lo, s.table_hi, lsc_ct);
 }
