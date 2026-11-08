@@ -17,8 +17,18 @@ RF="-O1 -fno-pie -fwrapv -fno-strict-aliasing -w"
 objs=
 for f in $REFS; do
 	o=$O/ref/${f%.c}.o
+	src=$H/ref/$f
+	case " $REFFIX " in	# REFFIX="file=script ..." : a build-time fix of one reference copy
+	*" $f="*)
+		fix=${REFFIX#*"$f="}; fix=${fix%% *}
+		mkdir -p "$O/refp"
+		sh "$H/$fix" < "$H/ref/$f" > "$O/refp/$f"
+		src=$O/refp/$f
+		rm -f "$o"
+		;;
+	esac
 	if [ ! -f "$o" ] || [ "$H/ref/$f" -nt "$o" ]; then
-		$CC $RF -c "$H/ref/$f" -o "$o"
+		$CC $RF -I"$H/ref" -c "$src" -o "$o"
 		objcopy --redefine-sym memcpy=t32o_memcpy --redefine-sym __ashrdi3=t32o___ashrdi3 --redefine-sym __ashldi3=t32o___ashldi3 --redefine-sym __lshrdi3=t32o___lshrdi3 "$o"
 	fi
 	objs="$objs $o"

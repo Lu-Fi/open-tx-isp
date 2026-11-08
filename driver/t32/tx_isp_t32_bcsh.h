@@ -12,18 +12,18 @@
  * the block.  The block's own user settings (brightness, contrast,
  * saturation, hue) start at 128 each, the neutral value.
  *
- * Built: the init flow of the vendor.  The transcription keeps the vendor's
- * buffer layout (parameter set "cp" of 300 bytes, user/csc set "ap") so each
- * line can be compared with the decompiled function; offsets are in bytes.
- * The colour space data comes from the mode table the vendor applies to its copy
- * of the CSC section (t32_bcsh_csc_apply), and tisp_bcsh_interp_by_ct leaves the
- * matrix zero at init (see below), so the hue matrix register is zero.
- * Refused: sections that select the exposure mode keyed by the section byte
- * +0x4b1 (thresholds in a different unit; not seen in a bin) and a colour space
- * mode above 5.
+ * Built: the init flow of the vendor and the per-frame updates on the state it
+ * keeps (struct t32_bcsh): t32_bcsh_ev_update / t32_bcsh_ct_update (interp, counters,
+ * calc_para_refresh modes 1 and 2, write request) and t32_bcsh_frame_done (the write at the
+ * frame end).  The transcription keeps the vendor's buffer layout (parameter set "cp" of
+ * 300 bytes, user/csc set "ap") so each line can be compared with the decompiled function;
+ * offsets are in bytes.  The colour space data comes from the mode table the vendor applies
+ * to its copy of the CSC section (t32_bcsh_csc_apply).  The init forces the matrix
+ * (tisp_bcsh_interp_by_ct) before the hue matrix is computed from it.
+ * Refused: a colour space mode above 5 and a knot table shorter than the knot count says.
  *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
- * by tests/t32_oracle (t32_bcsh_oracle).
+ * by tests/t32_oracle (t32_bcsh_oracle: init, t32_bcshf_oracle: per frame).
  */
 #ifndef TX_ISP_T32_BCSH_H
 #define TX_ISP_T32_BCSH_H
@@ -38,11 +38,38 @@
 #define T32_BCSH_WRITES		49
 #define T32_BCSH_MAX_WRITES	49
 
+/*
+ * The vendor's per-channel state of the block (tisp_bcsh_init allocates it).
+ * cp: parameter set (300 bytes, zero at start), ap: user/csc set (144 bytes,
+ * compiled-in defaults d6c80), p5: the 12 exposure bands (48 bytes), m112: the
+ * handed-out matrix block, and the 24-byte block of caches and counters
+ * (d6d10): last exposure, last colour temperature and its band, the update
+ * counters of the two paths and the write request.
+ */
 struct t32_bcsh {
+	u8 *sec;			/* section 19, live */
+	const u8 *lut;			/* colour temperature knots behind it */
+	u32 lutbytes;
 	u8 cp[300];
 	u8 ap[0x90];
 	u8 p5[48];
+	u8 m112[112];
 	u8 cs[T32_BCSH_CSC_BYTES];	/* the vendor's colour space section copy */
+	u32 ev_lo, ev_hi;		/* exposure of the last strength update */
+	u32 ct, ct_code;		/* colour temperature of the last matrix update, its band */
+	u8 ctr_ev, ctr_ct;		/* update counters (wrap at 255 -> 0) */
+	u8 pend;			/* write request (1..16) */
+	u8 b19;				/* 1: take the user hue settings ap[136..141] */
+};
+
+/* d6c80 (data.c:25805): the user/csc set before tisp_csc_api_get overwrites its parts */
+static const u32 t32_bcsh_ap_default[36] = {
+	0x80808080, 0x00000100, 0x00010000, 0x00000000, 0x00000000, 0x00000000,
+	0x00010000, 0x00000000, 0x00000000, 0x00000000, 0x00010000, 0x00000000,
+	0x00004c8b, 0x00009646, 0x00001d2f, 0xffffd4ce, 0xffffab32, 0x00008000,
+	0x00008000, 0xffff94d1, 0xffffeb2f, 0xff008000, 0x0000ff00, 0x00010000,
+	0x00000000, 0x000166e9, 0x00010000, 0xffffa7e7, 0xffff492e, 0x00010000,
+	0x0001c5a2, 0x00000000, 0xff008000, 0x0000ff00, 0x00000000, 0x00000000,
 };
 
 static inline int t32_bcsh_s16(const u8 *p, u32 o)
@@ -242,49 +269,14 @@ static inline void t32_bcsh_csc_apply(u8 *cs, unsigned int mode)
 }
 
 /*
- * sec: writable copy of section 19 (the block clears ten of its bytes), lut:
- * the knots behind it (lutbytes long), csc: the colour space section.
- * Returns the number of writes (49), -1 on a refused section.
+ * tisp_bcsh_get_new_para: the exposure band table p5 from section words and
+ * the neutral limits.
  */
-#ifdef __KERNEL__
-#define T32_BCSH_FN	static noinline_for_stack int
-#else
-#define T32_BCSH_FN	static inline int
-#endif
-T32_BCSH_FN t32_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, struct t32_front_write *w)
+static inline void t32_bcsh_new_para(struct t32_bcsh *st)
 {
-	static const u16 clear[] = { 0x49e, 0x49f, 0x467, 0x468, 0x461, 0x462, 0x498, 0x499, 0x493, 0x494 };
-	struct t32_bcsh st;
-	u8 *cp = st.cp, *ap = st.ap, *p5 = st.p5;
-	int i17 = 0, i18 = 0, a, b, i, k;
-	const int f = 0;
-	int mat[9], m1[9], m2[9], hm[9];
-	unsigned int n = 0;
+	u8 *sec = st->sec, *p5 = st->p5;
+	int k;
 
-	if (sec[0x4b1])
-		return -1;
-	(void)lut;		/* the colour temperature knots are not read at init, see below */
-	(void)lutbytes;
-	memset(&st, 0, sizeof(st));
-
-	/* tisp_csc_api_get into the user/csc set; the four user settings start neutral */
-	memcpy(st.cs, csc, T32_BCSH_CSC_BYTES);
-	st.cs[0x62] = 0;		/* tisp_csc_init clears the two path bytes of its copy */
-	st.cs[0x63] = 0;
-	if (st.cs[0x5b] > 5)
-		return -1;
-	t32_bcsh_csc_apply(st.cs, st.cs[0x5b]);
-	csc = st.cs;
-	memset(ap, 0x80, 4);
-	t32_bcsh_p32(ap, 0x2c, csc[0x5b]);
-	memcpy(ap + 0x54, csc + 0x52, 6);
-	memcpy(ap + 0x80, csc + 0x5c, 6);
-	memcpy(ap + 0x30, csc + 4, 0x24);
-	memcpy(ap + 0x5c, csc + 0x28, 0x24);
-	for (k = 0; k < (int)(sizeof(clear) / sizeof(clear[0])); k++)
-		sec[clear[k]] = 0;
-
-	/* tisp_bcsh_get_new_para */
 	if (t32_tp_le16(sec + 0x108) <= t32_tp_le16(sec + 0x106)) {
 		t32_bcsh_p16(sec, 0x106, 0);
 		t32_bcsh_p16(sec, 0x108, 1);
@@ -302,38 +294,61 @@ T32_BCSH_FN t32_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, s
 		t32_bcsh_p16(p5, 2 * k, lo);
 		t32_bcsh_p16(p5, 2 * k + 0x18, hi);
 	}
+}
 
-	/*
-	 * tisp_bcsh_interp_by_ev at exposure 0: the threshold search finds the
-	 * first threshold above 0; with the lower ones 0 as well the fraction
-	 * between index i18 and i17 is 0 (the pair is only a source of the two
-	 * values), and past the last threshold both are the last index.
-	 */
-	{
-		int found = 0;
+/*
+ * tisp_bcsh_interp_by_ev: the exposure dependent parameters.  The exposure
+ * (hi:lo) must have moved by more than the section's threshold u32 +0x64 (64 bit
+ * distance, limited to 32 bit) unless forced.  The bands: section byte 0x4b1
+ * clear: ascending thresholds at +4 against hi << 22 | lo >> 10; set:
+ * descending thresholds at +0x34 against lo.  i18 / i17 are the two neighbouring
+ * entries and f the weight (12 bit) of the second; below the first threshold and
+ * past the last both are the same entry.  Returns 0 when updated, 1 when not.
+ */
+static inline u32 t32_bcsh_ev_interp(struct t32_bcsh *st, u32 lo, u32 hi, u32 force)
+{
+	u8 *sec = st->sec, *cp = st->cp, *ap = st->ap, *p5 = st->p5;
+	unsigned long long now = (unsigned long long)hi << 32 | lo;
+	unsigned long long old = (unsigned long long)st->ev_hi << 32 | st->ev_lo, d;
+	u32 dv, ev = hi << 22 | lo >> 10;
+	int i17 = 0, i18 = 0, f = 0, a, b, k;
 
-		for (k = 0; k < 12; k++) {
-			if (t32_front_le32(sec + 4 + 4 * k) > 0) {
-				found = 1;
-				if (k) {
-					if (t32_front_le32(sec + 4 + 4 * (k - 1)))
-						return -1;
-					i18 = k - 1;
-					i17 = k;
+	d = ((int)hi < (int)st->ev_hi || (hi == st->ev_hi && lo < st->ev_lo)) ? old - now : now - old;
+	dv = (int)(u32)(d >> 32) < 1 ? (u32)d : 0xffffffffU;
+	if (!(t32_front_le32(sec + 100) < dv) && !(force & 0xff))
+		return 1;
+
+	for (k = 0; k < 12; k++) {
+		u32 t = t32_front_le32(sec + (sec[0x4b1] ? 0x34 : 4) + 4 * k), prev;
+		int w;
+
+		if (sec[0x4b1] ? t < lo : ev < t) {
+			if (k) {
+				prev = t32_front_le32(sec + (sec[0x4b1] ? 0x34 : 4) + 4 * (k - 1));
+				i18 = k - 1;
+				i17 = k;
+				w = (int)(sec[0x4b1] ? prev - t : t - prev);
+				if (w > 0) {
+					int dist = (int)(sec[0x4b1] ? prev - lo : ev - prev);
+
+					f = (int)t32_tp_div64((unsigned long long)((long long)dist * 4096 + (w >> 1)),
+							      (unsigned long long)(long long)w);
 				}
-				break;
 			}
+			break;
 		}
-		if (!found)
+		if (k == 11)
 			i18 = i17 = 11;
 	}
 	a = i18 * 2;
 	b = i17 * 2;
 #define SIH(dst, o, mask) \
 	t32_bcsh_p16(cp, 2 * (dst), t32_bcsh_si(f, t32_tp_le16(sec + a + (o)) & (mask), t32_tp_le16(sec + b + (o)) & (mask)))
-	SIH(0x81, 0x412, 0xffff);
-	SIH(0x82, 0x42a, 0xffff);
-	SIH(0x83, 0x442, 0xffff);
+#define SIS(dst, o) \
+	t32_bcsh_p16(cp, 2 * (dst), t32_bcsh_si(f, (s16)t32_tp_le16(sec + a + (o)), (s16)t32_tp_le16(sec + b + (o))))
+	SIS(0x81, 0x412);
+	SIS(0x82, 0x42a);
+	SIS(0x83, 0x442);
 	SIH(0x25, 0x262, 0x3ff);
 	SIH(0x26, 0x27a, 0x3ff);
 	for (k = 0; k < 7; k++)
@@ -397,7 +412,7 @@ T32_BCSH_FN t32_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, s
 			break;
 		case 1:
 			cp[0x48] = 1;
-			cp[0x49] = (u8)t32_bcsh_si(f, sec[a + 0x46c], sec[b + 0x46c]);
+			cp[0x49] = (u8)t32_bcsh_si(f, sec[i18 + 0x46c], sec[i17 + 0x46c]);
 			break;
 		case 2:
 			cp[0x48] = 1;
@@ -408,15 +423,15 @@ T32_BCSH_FN t32_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, s
 		cp[0x48] = 1;
 		cp[0x49] = ap[1];
 	}
-	cp[0xb2] = (u8)t32_bcsh_si(f, sec[a + 0x47a], sec[b + 0x47a]);
-	cp[0xb3] = (u8)t32_bcsh_si(f, sec[a + 0x486], sec[b + 0x486]);
+	cp[0xb2] = (u8)t32_bcsh_si(f, sec[i18 + 0x47a], sec[i17 + 0x47a]);
+	cp[0xb3] = (u8)t32_bcsh_si(f, sec[i18 + 0x486], sec[i17 + 0x486]);
 	if (sec[0x49e] == 1 || (sec[0x49e] == 0 && sec[0x49f] != 2)) {
 		switch (sec[0x49d]) {
 		case 0:
 			cp[0x100] = 0x80;
 			break;
 		case 1:
-			cp[0x100] = (u8)t32_bcsh_si(f, sec[a + 0x4a3], sec[b + 0x4a3]);
+			cp[0x100] = (u8)t32_bcsh_si(f, sec[i18 + 0x4a3], sec[i17 + 0x4a3]);
 			break;
 		case 2:
 			cp[0x100] = sec[0x4a2];
@@ -426,96 +441,240 @@ T32_BCSH_FN t32_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, s
 		cp[0x100] = ap[0];
 	}
 #undef SIH
+#undef SIS
+	st->ev_lo = lo;
+	st->ev_hi = hi;
+	return 0;
+}
 
-	/*
-	 * tisp_bcsh_interp_by_ct is called at init with the update flag 0 and the stored
-	 * colour temperature already 5000: the difference to the new one is 0, not above
-	 * the section's threshold (+0x9c), so the vendor returns without filling the
-	 * matrix, which stays zero (the first per-frame update fills it).  The hue
-	 * matrix below is therefore computed from a zero CCM.
-	 */
-	for (i = 0; i < 9; i++)
-		mat[i] = 0;
-	for (i = 0; i < 9; i++)
-		t32_bcsh_p32(cp, 0xb8 + 4 * i, (u32)mat[i]);
+/* the matrix at colour temperature ct from the knots, signed compares (tisp_bcsh_interp_by_ct) */
+static inline void t32_bcsh_knot_matrix(const u8 *lut, int knots, int hyst, int ct, int *mat)
+{
+	int i, idx;
 
-	/* tisp_bcsh_calc_para_refresh(0) */
-	{
-		int m[9], in[3], o[3], d, v, p;
-		u32 x[9], y[9], ox[9], oy[9], u7, u5, hue;
-
+	if (knots == 1 || !((int)t32_front_le32(lut) < ct)) {
 		for (i = 0; i < 9; i++)
-			m[i] = t32_bcsh_s32(ap, 0x30 + 4 * i);
-		for (i = 0; i < 3; i++)
-			in[i] = t32_bcsh_s16(cp, 2 * (0x81 + i));
-		for (i = 0; i < 3; i++)
-			o[i] = (int)t32_bcsh_rnd((long long)in[0] * m[3 * i] + (long long)in[1] * m[3 * i + 1] +
-						 (long long)in[2] * m[3 * i + 2], 16);
-		t32_bcsh_p16(cp, 2 * 0x87, o[0] + ap[0x54] * 4 + ((int)cp[0x100] - 0x80) * 8);
-		t32_bcsh_p16(cp, 2 * 0x88, o[1]);
-		t32_bcsh_p16(cp, 2 * 0x89, o[2]);
-		d = (int)t32_tp_le16(cp + 0x28) - (int)t32_tp_le16(cp + 0x26);
-		t32_bcsh_p16(cp, 2 * 0x15, t32_bcsh_clip(d > 0 ? ((d >> 1) + 0x1000) / d : 0, 0, 0x3ff));
-		p = sec[0x466] ? 0x2e : 0x25;
-		for (i = 0; i < 9; i++) {
-			x[i] = t32_tp_le16(cp + 2 * (0x25 + i));
-			y[i] = t32_tp_le16(cp + 2 * (p + i));
-		}
-		for (i = 0; i < 9; i++) {
-			ox[i] = 0;
-			oy[i] = 0;
-		}
-		t32_bcsh_contrast(cp[0x49], x, y, ox, oy);
-		for (i = 0; i < 9; i++) {
-			t32_bcsh_p16(cp, 2 * (0x3f + i), ox[i]);
-			t32_bcsh_p16(cp, 2 * (0x48 + i), oy[i]);
-		}
-		for (p = 0x40; p < 0x48; p++) {
-			d = (int)t32_tp_le16(cp + 2 * p) - (int)t32_tp_le16(cp + 2 * (p - 1));
-			v = 0;
-			if (d > 0)
-				v = ((int)t32_tp_le16(cp + 2 * (p + 9)) - (int)t32_tp_le16(cp + 2 * (p + 8))) * 0x400;
-			if (d > 0)
-				v = (v + (d >> 1)) / d;
-			t32_bcsh_p16(cp, 2 * (p + 0x11), t32_bcsh_clip(v, 0, 0x7fff));
-		}
-		u7 = cp[0x3a];
-		if (sec[0x460] && cp[0x49] < 0x80)
-			u7 = (u8)t32_bcsh_rnd(u7 * cp[0x49], 7);
-		if (sec[0x45f] && cp[0x100] < 0x80)
-			u7 = (u8)t32_bcsh_rnd(u7 * cp[0x100], 7);
-		u5 = t32_tp_le16(cp + 2 * 0x19);
-		t32_bcsh_p16(cp, 2 * 0x1e, t32_bcsh_rnd(u5 * u7, 7));
-		t32_bcsh_p16(cp, 2 * 0x1f, t32_bcsh_rnd(t32_tp_le16(cp + 2 * 0x1a) * u7, 7));
-		t32_bcsh_p16(cp, 2 * 0x20, t32_bcsh_rnd(t32_tp_le16(cp + 2 * 0x1b) * u7, 7));
-		u7 = (u16)t32_bcsh_rnd(t32_tp_le16(cp + 2 * 0x1c) * u7, 7);
-		t32_bcsh_p16(cp, 2 * 0x21, u7);
-		d = (int)t32_tp_le16(cp + 2 * 0x18) - (int)t32_tp_le16(cp + 2 * 0x17);
-		if (d < 1) {
-			t32_bcsh_p16(cp, 2 * 0x22, 0);
-			t32_bcsh_p16(cp, 2 * 0x23, 0);
-		} else {
-			int d1 = (int)t32_tp_le16(cp + 2 * 0x1f) - (int)t32_tp_le16(cp + 2 * 0x1e);
-			int d2 = (int)u7 - (int)t32_tp_le16(cp + 2 * 0x20);
+			mat[i] = t32_bcsh_s32(lut, 4 + 4 * i);
+	} else if (!(ct < (int)t32_front_le32(lut + 40 * (knots - 1)))) {
+		for (i = 0; i < 9; i++)
+			mat[i] = t32_bcsh_s32(lut, 40 * (knots - 1) + 4 + 4 * i);
+	} else {
+		for (idx = 1; idx < knots && (int)t32_front_le32(lut + 40 * idx) < ct; idx++)
+			;
+		{
+			const u8 *lo = lut + 40 * (idx - 1), *hi = lut + 40 * idx;
+			int clo = (int)t32_front_le32(lo), chi = (int)t32_front_le32(hi);
 
-			t32_bcsh_p16(cp, 2 * 0x22, ((d1 < 0 ? -d1 : d1) + (d >> 1)) / d);
-			t32_bcsh_p16(cp, 2 * 0x23, ((d2 < 0 ? -d2 : d2) + (d >> 1)) / d);
-		}
-		v = cp[0xb3];
-		t32_bcsh_p16(cp, 2 * 0x5a, t32_bcsh_clip(v ? ((v >> 1) + 0x400) / v : 0, 0, 0x3ff));
-		d = (int)t32_tp_le16(cp + 2) - (int)t32_tp_le16(cp);
-		t32_bcsh_p16(cp, 4, t32_bcsh_clip(d > 0 ? ((d >> 1) + 0x1000) / d : 0, 0, 0x3ff));
-		for (p = 5; p < 9; p++) {
-			d = (int)t32_tp_le16(cp + 2 * p) - (int)t32_tp_le16(cp + 2 * (p - 1));
-			v = 0;
-			if (d > 0) {
-				v = (int)t32_tp_le16(cp + 2 * (p + 5)) - (int)t32_tp_le16(cp + 2 * (p + 4));
-				v = ((v < 0 ? -v : v) * 0x400 + (d >> 1)) / d;
+			if ((int)((u32)hyst + (u32)clo) < ct && ct < (int)((u32)chi - (u32)hyst)) {
+				int den = chi - clo - 2 * hyst, num = ct - clo - hyst;
+
+				for (i = 0; i < 9; i++) {
+					u32 a = t32_front_le32(lo + 4 + 4 * i), b = t32_front_le32(hi + 4 + 4 * i);
+					int s = (int)((u32)(den - num) * a + (u32)num * b);
+					u32 r = (u32)(den >> 1);
+
+					s = (int)(s < 1 ? (u32)s - r : (u32)s + r) / den;
+					mat[i] = s < -0x2000 ? -0x2000 : s > 0x1fff ? 0x1fff : s;
+				}
+			} else {
+				const u8 *k = (int)((u32)hyst + (u32)clo) < ct ? hi : lo;
+
+				for (i = 0; i < 9; i++)
+					mat[i] = t32_bcsh_s32(k, 4 + 4 * i);
 			}
-			t32_bcsh_p16(cp, 2 * (p + 9), t32_bcsh_clip(v, 0, 0x7fff));
 		}
+	}
+}
 
-		/* hue */
+/*
+ * tisp_bcsh_interp_by_ct: the matrix at 0xb8 for the colour temperature ct.  The
+ * switches mirror the CCM's: section bytes 0x493 / 0x494 and the API flag
+ * ap[4] choose between the tuning and the API matrix (ap +8, 6 bit fraction).
+ * Tuned: the same cache rule as the CCM (even band done, odd band and band
+ * changes need |dct| > u16 +0x9c), then byte 0x492 selects 0 unit gains,
+ * 1 the knots, 2 the section's own matrix at +0x68, other: unchanged.  Byte 0x496
+ * = 1 publishes the matrix to the API (shifted left 6).  Returns 0 or 1.
+ */
+static inline u32 t32_bcsh_ct_interp(struct t32_bcsh *st, u32 ct, u32 force)
+{
+	u8 *sec = st->sec, *cp = st->cp, *ap = st->ap;
+	int knots = sec[1199], hyst = sec[1200], i, tuned;
+	u32 band, m;
+
+	force &= 0xff;
+	tuned = sec[0x493] == 1 || (sec[0x493] == 0 && sec[0x494] < 2) || (s8)ap[4] == 0;
+	if (!tuned) {
+		if (force != 1)
+			return 1;
+		for (i = 0; i < 9; i++)
+			t32_bcsh_p32(cp, 0xb8 + 4 * i, (u32)t32_bcsh_rnd((long long)t32_bcsh_s32(ap, 8 + 4 * i), 6));
+		memcpy(st->m112, cp + 0xb8, 36);
+		return 0;
+	}
+	{
+		/* band of ct: 0 below the first knot, 2k on a knot, 2k + 1 between, signed compares */
+		const u8 *lut = st->lut;
+
+		band = knots;
+		if (!((int)((u32)hyst + t32_front_le32(lut)) < (int)ct)) {
+			band = 0;
+		} else if (!((int)ct < (int)(t32_front_le32(lut + 40 * (knots - 1)) - (u32)hyst))) {
+			band = 2U * (u32)(knots - 1);
+		} else {
+			for (i = 1; i < knots; i++) {
+				u32 c = t32_front_le32(lut + 40 * i);
+
+				if ((int)ct < (int)(c - (u32)hyst)) {
+					if ((int)((u32)hyst + t32_front_le32(lut + 40 * (i - 1))) < (int)ct) {
+						band = 2U * (u32)(i - 1) + 1;
+						break;
+					}
+				} else if (!((int)((u32)hyst + c) < (int)ct)) {
+					band = 2U * (u32)i;
+					break;
+				}
+			}
+		}
+	}
+	if (!force) {
+		if (band == st->ct_code && !(band & 1))
+			return 1;
+		m = (u32)((int)(ct - st->ct) >> 31);
+		if (!((int)t32_tp_le16(sec + 156) < (int)(((ct - st->ct) ^ m) - m)))
+			return 1;
+	}
+	st->ct = ct;
+	st->ct_code = band;
+	switch (sec[0x492]) {
+	case 0:
+		memset(cp + 0xb8, 0, 36);
+		t32_bcsh_p32(cp, 0xb8, 1024);
+		t32_bcsh_p32(cp, 0xb8 + 16, 1024);
+		t32_bcsh_p32(cp, 0xb8 + 32, 1024);
+		break;
+	case 1: {
+		int mat[9];
+
+		t32_bcsh_knot_matrix(st->lut, knots, hyst, (int)ct, mat);
+		for (i = 0; i < 9; i++)
+			t32_bcsh_p32(cp, 0xb8 + 4 * i, (u32)mat[i]);
+		break;
+	}
+	case 2:
+		memcpy(cp + 0xb8, sec + 0x68, 36);
+		break;
+	}
+	memcpy(st->m112, cp + 0xb8, 36);
+	if (sec[0x496] == 1)
+		for (i = 0; i < 9; i++)
+			t32_bcsh_p32(st->ap, 8 + 4 * i, t32_front_le32(cp + 0xb8 + 4 * i) << 6);
+	return 0;
+}
+
+/*
+ * tisp_bcsh_calc_para_refresh(mode): derived parameters.  Mode 0 all parts, 1 the
+ * exposure part (gains, curves; with ap[136..141] taken first when b19 is 1), 2 the
+ * colour temperature part (hue matrix from the matrix at 0xb8 only), 3 the tail
+ * (limits, 0x8a..0x95 pairs); anything else does nothing.
+ */
+static inline void t32_bcsh_calc(struct t32_bcsh *st, u32 mode)
+{
+	u8 *sec = st->sec, *cp = st->cp, *ap = st->ap;
+	int i;
+
+	mode &= 0xff;
+	if (mode < 2) {
+		if (st->b19 == 1) {
+			t32_bcsh_p16(cp, 258, t32_tp_le16(ap + 136));
+			t32_bcsh_p16(cp, 260, t32_tp_le16(ap + 138));
+			t32_bcsh_p16(cp, 262, t32_tp_le16(ap + 140));
+		}
+		{
+			int m[9], in[3], o[3], d, v, p;
+			u32 x[9], y[9], ox[9], oy[9], u7, u5;
+
+			for (i = 0; i < 9; i++)
+				m[i] = t32_bcsh_s32(ap, 0x30 + 4 * i);
+			for (i = 0; i < 3; i++)
+				in[i] = t32_bcsh_s16(cp, 2 * (0x81 + i));
+			for (i = 0; i < 3; i++)
+				o[i] = (int)t32_bcsh_rnd((long long)in[0] * m[3 * i] + (long long)in[1] * m[3 * i + 1] +
+							 (long long)in[2] * m[3 * i + 2], 16);
+			t32_bcsh_p16(cp, 2 * 0x87, o[0] + ap[0x54] * 4 + ((int)cp[0x100] - 0x80) * 8);
+			t32_bcsh_p16(cp, 2 * 0x88, o[1]);
+			t32_bcsh_p16(cp, 2 * 0x89, o[2]);
+			d = (int)t32_tp_le16(cp + 0x28) - (int)t32_tp_le16(cp + 0x26);
+			t32_bcsh_p16(cp, 2 * 0x15, t32_bcsh_clip(d > 0 ? ((d >> 1) + 0x1000) / d : 0, 0, 0x3ff));
+			p = sec[0x466] ? 0x2e : 0x25;
+			for (i = 0; i < 9; i++) {
+				x[i] = t32_tp_le16(cp + 2 * (0x25 + i));
+				y[i] = t32_tp_le16(cp + 2 * (p + i));
+			}
+			for (i = 0; i < 9; i++) {
+				ox[i] = 0;
+				oy[i] = 0;
+			}
+			t32_bcsh_contrast(cp[0x49], x, y, ox, oy);
+			for (i = 0; i < 9; i++) {
+				t32_bcsh_p16(cp, 2 * (0x3f + i), ox[i]);
+				t32_bcsh_p16(cp, 2 * (0x48 + i), oy[i]);
+			}
+			for (p = 0x40; p < 0x48; p++) {
+				d = (int)t32_tp_le16(cp + 2 * p) - (int)t32_tp_le16(cp + 2 * (p - 1));
+				v = 0;
+				if (d > 0)
+					v = ((int)t32_tp_le16(cp + 2 * (p + 9)) - (int)t32_tp_le16(cp + 2 * (p + 8))) * 0x400;
+				if (d > 0)
+					v = (v + (d >> 1)) / d;
+				t32_bcsh_p16(cp, 2 * (p + 0x11), t32_bcsh_clip(v, 0, 0x7fff));
+			}
+			u7 = cp[0x3a];
+			if (sec[0x460] && cp[0x49] < 0x80)
+				u7 = (u8)t32_bcsh_rnd(u7 * cp[0x49], 7);
+			if (sec[0x45f] && cp[0x100] < 0x80)
+				u7 = (u8)t32_bcsh_rnd(u7 * cp[0x100], 7);
+			u5 = t32_tp_le16(cp + 2 * 0x19);
+			t32_bcsh_p16(cp, 2 * 0x1e, t32_bcsh_rnd(u5 * u7, 7));
+			t32_bcsh_p16(cp, 2 * 0x1f, t32_bcsh_rnd(t32_tp_le16(cp + 2 * 0x1a) * u7, 7));
+			t32_bcsh_p16(cp, 2 * 0x20, t32_bcsh_rnd(t32_tp_le16(cp + 2 * 0x1b) * u7, 7));
+			u7 = (u16)t32_bcsh_rnd(t32_tp_le16(cp + 2 * 0x1c) * u7, 7);
+			t32_bcsh_p16(cp, 2 * 0x21, u7);
+			d = (int)t32_tp_le16(cp + 2 * 0x18) - (int)t32_tp_le16(cp + 2 * 0x17);
+			if (d < 1) {
+				t32_bcsh_p16(cp, 2 * 0x22, 0);
+				t32_bcsh_p16(cp, 2 * 0x23, 0);
+			} else {
+				int d1 = (int)t32_tp_le16(cp + 2 * 0x1f) - (int)t32_tp_le16(cp + 2 * 0x1e);
+				int d2 = (int)u7 - (int)t32_tp_le16(cp + 2 * 0x20);
+
+				t32_bcsh_p16(cp, 2 * 0x22, ((d1 < 0 ? -d1 : d1) + (d >> 1)) / d);
+				t32_bcsh_p16(cp, 2 * 0x23, ((d2 < 0 ? -d2 : d2) + (d >> 1)) / d);
+			}
+			v = cp[0xb3];
+			t32_bcsh_p16(cp, 2 * 0x5a, t32_bcsh_clip(v ? ((v >> 1) + 0x400) / v : 0, 0, 0x3ff));
+			d = (int)t32_tp_le16(cp + 2) - (int)t32_tp_le16(cp);
+			t32_bcsh_p16(cp, 4, t32_bcsh_clip(d > 0 ? ((d >> 1) + 0x1000) / d : 0, 0, 0x3ff));
+			for (p = 5; p < 9; p++) {
+				d = (int)t32_tp_le16(cp + 2 * p) - (int)t32_tp_le16(cp + 2 * (p - 1));
+				v = 0;
+				if (d > 0) {
+					v = (int)t32_tp_le16(cp + 2 * (p + 5)) - (int)t32_tp_le16(cp + 2 * (p + 4));
+					v = ((v < 0 ? -v : v) * 0x400 + (d >> 1)) / d;
+				}
+				t32_bcsh_p16(cp, 2 * (p + 9), t32_bcsh_clip(v, 0, 0x7fff));
+			}
+
+
+		}
+	}
+	if (mode == 0 || mode == 2) {
+		int mat[9], m1[9], m2[9], hm[9], i, v, d;
+		u32 hue;
+
+		(void)v;
+		(void)d;
+		for (i = 0; i < 9; i++)
+			mat[i] = t32_bcsh_s32(cp, 0xb8 + 4 * i);
 		if (sec[0x498] == 1 || (sec[0x498] == 0 && sec[0x499] != 2))
 			hue = sec[0x497] ? sec[0x49c] : 0x80;
 		else
@@ -528,6 +687,10 @@ T32_BCSH_FN t32_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, s
 		t32_bcsh_hue(hue, mat, m1, m2, hm);
 		for (i = 0; i < 9; i++)
 			t32_bcsh_p32(cp, 0xdc + 4 * i, (u32)hm[i]);
+	}
+	if (mode == 0 || mode == 3) {
+		int v, d;
+
 		d = (int)t32_tp_le16(sec + 0xd0) - (int)t32_tp_le16(sec + 0xce);
 		t32_bcsh_p16(cp, 6, t32_bcsh_clip(d > 0 ? ((d >> 1) + 0x1000) / d : 0, 0, 0x3ff));
 		t32_bcsh_p16(cp, 2 * 0x8a, (u32)ap[0x56] << 2);
@@ -548,6 +711,15 @@ T32_BCSH_FN t32_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, s
 		t32_bcsh_p16(cp, 2 * 0x85, 0);
 		t32_bcsh_p16(cp, 2 * 0x86, 0);
 	}
+	(void)i;
+}
+
+/* tisp_bcsh_write_reg: all registers of the block; returns the number of writes */
+static inline unsigned int t32_bcsh_write(const struct t32_bcsh *st, struct t32_front_write *w)
+{
+	const u8 *sec = st->sec, *cp = st->cp;
+	unsigned int n = 0;
+	int k;
 
 	/* tisp_bcsh_write_reg */
 #define P(i)		t32_tp_le16(cp + 2 * (i))
@@ -594,10 +766,125 @@ T32_BCSH_FN t32_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, s
 	T32_FWR(w, n, 0xf0f4, t32_front_le32(cp + 0x1c));
 	T32_FWR(w, n, 0xf0f8, t32_front_le32(cp + 0x20));
 	T32_FWR(w, n, 0xf0fc, (cp[0xb3] & 0x3fU) << 4 | (P(0x5a) & 0x3ffU) << 16 | (cp[0xb2] & 3U));
-	T32_FWR(w, n, 0xf000, T32_BCSH_ID);
 #undef P
 #undef HM
+	return n;
+}
+
+/*
+ * tisp_bcsh_set_write_reg_event: a write is requested once both update paths ran
+ * (their counters have the same parity).
+ */
+static inline void t32_bcsh_set_write_event(struct t32_bcsh *st)
+{
+	if ((st->ctr_ev ^ st->ctr_ct) & 1)
+		return;
+	st->pend = st->pend < 16 ? st->pend + 1 : 1;
+}
+
+/* tisp_bcsh_irq_frame_down: the pending request is written at the frame end */
+static inline int t32_bcsh_frame_done(struct t32_bcsh *st, struct t32_front_write *w)
+{
+	if (!st->pend)
+		return 0;
+	st->pend = 0;
+	return (int)t32_bcsh_write(st, w);
+}
+
+/*
+ * tisp_bcsh_ev_update: the exposure changed.  Exposure limited to 256 << 32; with
+ * section byte 0x4b1 set the caller's raw lo2:hi2 is interpolated, forced.  The
+ * counter of this path counts every call; a recomputation refreshes the derived
+ * parameters (mode 1) and requests a write.
+ */
+static inline void t32_bcsh_ev_update(struct t32_bcsh *st, u32 lo, u32 hi, u32 lo2, u32 hi2)
+{
+	u32 rc;
+
+	if (hi > 256 || (hi == 256 && lo != 0)) {
+		lo = 0;
+		hi = 256;
+	}
+	rc = st->sec[0x4b1] ? t32_bcsh_ev_interp(st, lo2, hi2, 1) : t32_bcsh_ev_interp(st, lo, hi, 0);
+	st->ctr_ev = st->ctr_ev != 255 ? st->ctr_ev + 1 : 0;
+	if (rc)
+		return;
+	t32_bcsh_calc(st, 1);
+	t32_bcsh_set_write_event(st);
+}
+
+/* tisp_bcsh_ct_update: the colour temperature changed (not forced), mode 2 refresh */
+static inline void t32_bcsh_ct_update(struct t32_bcsh *st, u32 ct)
+{
+	u32 rc = t32_bcsh_ct_interp(st, ct, 0);
+
+	st->ctr_ct = st->ctr_ct != 255 ? st->ctr_ct + 1 : 0;
+	if (rc)
+		return;
+	t32_bcsh_calc(st, 2);
+	t32_bcsh_set_write_event(st);
+}
+
+/*
+ * tisp_bcsh_init with the state kept.  sec: writable copy of section 19 (the block
+ * clears ten of its bytes), lut: the knots behind it (lutbytes long), csc: the colour
+ * space section.  Returns the number of writes (49), -1 on a refused section.
+ */
+static inline int t32_bcsh_start(struct t32_bcsh *st, u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc,
+				 struct t32_front_write *w)
+{
+	static const u16 clear[] = { 0x49e, 0x49f, 0x467, 0x468, 0x461, 0x462, 0x498, 0x499, 0x493, 0x494 };
+	u8 *ap = st->ap;
+	unsigned int n;
+	int k;
+
+	if (!sec[0x4af] || lutbytes < (u32)sec[0x4af] * 40U)
+		return -1;	/* the vendor would read beyond the knot table */
+	memset(st, 0, sizeof(*st));
+	st->sec = sec;
+	st->lut = lut;
+	st->lutbytes = lutbytes;
+	for (k = 0; k < 36; k++)
+		t32_bcsh_p32(ap, 4 * k, t32_bcsh_ap_default[k]);
+	st->ct = T32_BCSH_CT;
+	st->ct_code = 255;
+
+	/* tisp_csc_api_get into the user/csc set; the four user settings start neutral */
+	memcpy(st->cs, csc, T32_BCSH_CSC_BYTES);
+	st->cs[0x62] = 0;		/* tisp_csc_init clears the two path bytes of its copy */
+	st->cs[0x63] = 0;
+	if (st->cs[0x5b] > 5)
+		return -1;
+	t32_bcsh_csc_apply(st->cs, st->cs[0x5b]);
+	csc = st->cs;
+	memset(ap, 0x80, 4);
+	t32_bcsh_p32(ap, 0x2c, csc[0x5b]);
+	memcpy(ap + 0x54, csc + 0x52, 6);
+	memcpy(ap + 0x80, csc + 0x5c, 6);
+	memcpy(ap + 0x30, csc + 4, 0x24);
+	memcpy(ap + 0x5c, csc + 0x28, 0x24);
+	for (k = 0; k < (int)(sizeof(clear) / sizeof(clear[0])); k++)
+		sec[clear[k]] = 0;
+
+	t32_bcsh_new_para(st);
+	t32_bcsh_ev_interp(st, 0, 0, 1);
+	t32_bcsh_ct_interp(st, st->ct, 1);
+	t32_bcsh_calc(st, 0);
+	n = t32_bcsh_write(st, w);
+	T32_FWR(w, n, 0xf000, T32_BCSH_ID);
 	return (int)n;
+}
+
+#ifdef __KERNEL__
+#define T32_BCSH_FN	static noinline_for_stack int
+#else
+#define T32_BCSH_FN	static inline int
+#endif
+T32_BCSH_FN t32_bcsh_init(u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, struct t32_front_write *w)
+{
+	struct t32_bcsh st;
+
+	return t32_bcsh_start(&st, sec, lut, lutbytes, csc, w);
 }
 
 #endif /* TX_ISP_T32_BCSH_H */

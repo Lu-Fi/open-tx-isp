@@ -33,6 +33,7 @@ extern u32 t32_data_e17c0[4], t32_data_e2450[4];
 extern u8 t32_data_e1460[8], t32_data_dc284[1808];
 extern u32 t32_data_e1464[4], t32_data_e1474[4], t32_data_e1484[4];
 
+extern u32 t32o_arg5;
 typedef u64 (*t32o_fn)(u32, u32, u32, u32, u32);
 
 void *t32o_alloc(u32 size);
@@ -52,6 +53,13 @@ extern u32 t32_data_e2768[4], t32_data_e28ac[4];
 extern u8 t32_data_e2898[16];
 u64 tisp_mdns_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_bcsh_init(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_bcsh_ct_update(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_bcsh_ev_update(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5);
+u64 tisp_bcsh_irq_frame_down(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_bcsh_interp_by_ev(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4);
+u64 tisp_bcsh_interp_by_ct(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4);
+u64 tisp_bcsh_calc_para_refresh(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_bcsh_write_reg(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_ysp_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_clm_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_gamma_init(u32 a0, u32 a1, u32 a2, u32 a3);

@@ -62,11 +62,6 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 		return 0;
 	memcpy(osec, sec, SECB);
 	on = t32_bcsh_init(osec, lut, lutbytes, csc, ow);
-	if (sec[0x4b1] && on >= 0) {	/* the exposure mode keyed by +0x4b1 is not built: ours must refuse */
-		if (failed++ < 5)
-			printf("MISMATCH %s: ours accepted sec[0x4b1] = %u\n", what, sec[0x4b1]);
-		return 1;
-	}
 	if (on < 0) {
 		refused++;
 		return 0;
@@ -109,7 +104,7 @@ bad:
 				printf(" %08x", c2[0xdc + 4 * q] | c2[0xdd + 4 * q] << 8 | c2[0xde + 4 * q] << 16 | (u32)c2[0xdf + 4 * q] << 24);
 			printf("\n");
 		}
-		printf("MISMATCH %s: knots %u writes vendor %u ours %d\n", what, sec[0x4af], t32o_log.n, on);
+		printf("MISMATCH %s: knots %u writes vendor %u ours %d (4b1=%u 492=%u)\n", what, sec[0x4af], t32o_log.n, on, sec[0x4b1], sec[0x492]);
 		for (i = 0; i < t32o_log.n || (int)i < on; i++)
 			if (i >= t32o_log.n || (int)i >= on || t32o_log.w[i].reg != ow[i].reg ||
 			    t32o_log.w[i].val != ow[i].val) {
