@@ -28,7 +28,7 @@
  * divided by its maximum (t32_awb_ct_detect_norm).
  * Phase 4 (L_21b04 .. L_21f18, cand_mode 1 only): the 12 fullest cells of the ct grid, five
  * (r, b) points for each, duplicates removed (t32_awb_ct_detect_cand).  The other branch
- * (cand_mode != 1, L_22924) is not ported.
+ * (cand_mode != 1) skips phases 4 to 9.
  * Phase 5 (L_21f18 .. L_22184): every candidate point moves to the mean of the zone statistics
  * around it until it stops moving (t32_awb_ct_detect_refine).
  * Phase 6 (L_22184 .. L_22468): candidate points within a radius of the best one are merged
@@ -38,6 +38,8 @@
  * Phase 8 (L_22688 .. L_227ac): mean zone weights, counts scaled by them (t32_awb_ct_detect_weigh).
  * Phase 9 (L_227ac .. L_21d24): each zone's weight scaled by its strongest merged point
  * (t32_awb_ct_detect_nearest).
+ * Phase 10 (L_22924 .. L_22af8; also the whole cand_mode != 1 branch, which skips phases 4..9):
+ * the spec samples lower the weights near them (t32_awb_ct_detect_spec).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -374,7 +376,7 @@ static inline int t32_awb_ct_detect_norm(struct t32_awb *a, struct t32_awb_ctd *
 }
 
 /*
- * Phase 4.  cand_mode must be 1 (else 1 is returned: the other branch is not ported).
+ * Phase 4.  cand_mode must be 1 (else 1 is returned: phases 4 to 9 are skipped).
  * Twelve times the fullest cell of the 14 x 14 grid (cell_n, strictly more than the stored
  * count of this slot, which is kept from the previous frame) is taken into top_x / top_y / top_n and
  * its counter cleared.  Each slot gives five points (cell corners (x, y), (x, y+1), centre,
@@ -599,7 +601,7 @@ static inline int t32_awb_ct_detect_zonesum(struct t32_awb *a, struct t32_awb_ct
  * weight (rounded), cl_n the zone count scaled by cl_w / (largest cl_w) (rounded; as is when that is
  * 0), then blended with the count before the scaling, cl_mix : 256 - cl_mix, >> 8.  The
  * unscaled counts are kept in cn0.  Returns 1 when no point is left (all cl_n 0): the vendor
- * then continues at L_21d28 (the cand_mode != 1 branch, not ported).
+ * then continues at L_21d28 (phase 10 directly).
  */
 static inline int t32_awb_ct_detect_weigh(struct t32_awb *a, struct t32_awb_ctd *d)
 {
@@ -664,6 +666,63 @@ static inline int t32_awb_ct_detect_nearest(struct t32_awb *a, const struct t32_
 		}
 	}
 	return 0;
+}
+
+/*
+ * Phase 10 (L_22924 .. L_22af8; entered after phase 9, and straight after phase 3 when cand_mode
+ * is not 1).  With few = (fewer than two merged points have cl_n >= 5) and for every spec sample
+ * i (st.spec_flags[i] == 2; ratios spec_r0[i] / spec_b0[i], control par+324 + 4 * i) each zone's
+ * gw_map is lowered to (256 - c) << out_shift: d = squared distance of the zone statistics (rounded,
+ * axis units, logical shift) from the sample; c = 0 for d >= 615, 3 / 4 / 5 for d >= 572 / 540 /
+ * 514, and below 514 gw_tab[d], or 256 when d < ctl^2, the latter when cand_mode is 1 and few is 0
+ * or cand_mode is 0 (gw_tab otherwise).  Returns 1 when all gw_map entries are 0 (the vendor then ends
+ * in the gray world fallback), -1 for a grid over 32, else 0.
+ */
+static inline int t32_awb_ct_detect_spec(struct t32_awb *a, const struct t32_awb_ctd *d)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	const u32 *ctl = (const u32 *)(par->raw + 324);
+	const u16 *sr = (const u16 *)(st->raw + 28718), *sb = (const u16 *)(st->raw + 28738);
+	u32 os = par->out_shift & 31, rows = par->zones_h, cols = par->zones_w;
+	u32 big = 0, few, i, row, col, sum = 0;
+
+	if (rows > 32 || cols > 32)
+		return -1;
+	for (i = 0; i < 60; i++)
+		big += st->cl_n[i] >= 5;
+	few = big < 2;
+	for (i = 0; i < 10; i++) {
+		if (st->spec_flags[i] != 2)
+			continue;
+		for (row = 0; row < rows; row++) {
+			for (col = 0; col < cols; col++) {
+				u32 z = row * 32 + col;
+				u32 dr = t32_awb_absdiff((d->half + st->zstat[0][0][z]) >> os, sr[i]);
+				u32 db = t32_awb_absdiff((d->half + st->zstat[0][1][z]) >> os, sb[i]);
+				u32 dd = db * db + dr * dr, c;
+
+				if (dd >= 615)
+					c = 0;
+				else if (dd >= 572)
+					c = 3;
+				else if (dd >= 540)
+					c = 4;
+				else if (dd >= 514)
+					c = 5;
+				else if (par->cand_mode == 1 ? !few && dd < ctl[i] * ctl[i] : par->cand_mode == 0 && dd < ctl[i] * ctl[i])
+					c = 256;
+				else
+					c = st->gw_tab[dd];
+				if ((256 - c) << os < st->gw_map[z])
+					st->gw_map[z] = (256 - c) << os;
+			}
+		}
+	}
+	for (row = 0; row < rows; row++)
+		for (col = 0; col < cols; col++)
+			sum += st->gw_map[row * 32 + col];
+	return sum == 0;
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */
