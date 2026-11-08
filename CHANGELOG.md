@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-08: T20/T10 SetMaxAgain(0) caps the analog gain at 1x like the vendor (openimp #238; device proof pending)
+
+- The compact AE (`driver/t20/sdk/source/apical-isp/sensor_drv.c`, also built into the T10 module) skipped the SetMaxAgain ceiling `stab[29]` when it was 0 ("0 = no cap"), so `max_again 0` let the gain run to the sensor maximum (158 on jxf23). The OEM 3.12.0 `cmos_alloc_sensor_analog_gain()` clamps unconditionally, `min(stab[29] << 11, request)`, so 0 means 1x. The clamp is now unconditional, the AE total-exposure ceiling uses the same reachable gain (no PI wind-up), and the `tx_isp_t20_ae_max.h` helpers (isp-m0 cap, manual-IT path) follow the same rule. Default behaviour is unchanged (stab[29] is 117/128 unless the user sets it). T21 uses the lifted OEM AE and is not affected.
+- Checks: `make -C tests check` (t20_ae_max_host_test: ceilings 0/32/64/96/128/160/255 against the OEM formula), `lifted_ptr_scale_check`, T20 and T10 3.10.14 modules build. Not device-tested yet.
+
 ## 2026-11-08: T30 Temper (3DNR) history buffer packing as the vendor (openimp #236; T30X: 0xa00 0x30005 like the vendor, P/I 0.668 -> 0.148 at FixQP35 on the lab scene, vendor 0.061; 10/10 reloads clean)
 
 - Device trace: the ISP init sequence reaches the hardware (the 14 sequence-only registers equal the vendor after sequence 2), but between sequence 2 (0xa00 = 0x20005) and the Temper buffer setup something rewrites 0xa00 to 2 (not found yet); the TEMPER_BUF arm now restores the vendor packing 5. The remaining P/I gap (2.4x) is tracked in #236 (AE gain, #202).

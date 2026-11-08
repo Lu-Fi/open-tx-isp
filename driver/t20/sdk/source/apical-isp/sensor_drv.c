@@ -171,7 +171,13 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	min_log2 = log2_fixed_to_fixed(min_integration, 0, LOG2_GAIN_SHIFT);
 	integration_log2 = log2_fixed_to_fixed(max_integration, 0,
 					       LOG2_GAIN_SHIFT);
-	max_exposure_log2 = integration_log2 + attr->max_again;
+	/*
+	 * The reachable total stops at IT max + min(sensor max, SetMaxAgain
+	 * ceiling): the gain is clamped to that below, so the PI loop must not
+	 * wind up beyond it (#238).
+	 */
+	max_exposure_log2 = integration_log2 + (int32_t)t20_ae_request_log2_16(
+		attr->max_again, stab.global_max_sensor_analog_gain);
 	if (*total_exposure_log2 < 0) {
 		integration = attr->integration_time;
 		if (integration < min_integration || integration > max_integration)
@@ -273,18 +279,15 @@ allocate_gain:
 	requested_again = clamp_t(int32_t,
 		*total_exposure_log2 - integration_log2, 0, attr->max_again);
 	/*
-	 * stab.global_max_sensor_analog_gain is the user ceiling set through
-	 * SetMaxAgain (and defaulted by init_stab()); the vendor 3.12.0
-	 * firmware applies it as an additional AE gain cap on top of the
-	 * sensor's hardware max_again.  The compact AE used to skip this
-	 * entirely, so SetMaxAgain had no effect.  Units match stab[28]/
-	 * cmos_alloc_sensor_analog_gain: an 8-bit value in the same <<11
-	 * (of LOG2_GAIN_SHIFT=16) fixed-point gain-log2 format; 0 means no
-	 * user cap has been configured.
+	 * stab.global_max_sensor_analog_gain (stab[29]) is the user ceiling
+	 * set through SetMaxAgain (init_stab() seeds 117, the customer block
+	 * 128), an 8-bit gain log2 <<5, i.e. <<11 of LOG2_GAIN_SHIFT=16.
+	 * The OEM 3.12.0 cmos_alloc_sensor_analog_gain()
+	 * (tx_isp_t20_firmware.c) applies it unconditionally as
+	 * min(stab[29] << 11, request): 0 means 1x, not "no cap" (#238).
 	 */
-	if (stab.global_max_sensor_analog_gain)
-		requested_again = clamp_t(int32_t, requested_again, 0,
-			(int32_t)stab.global_max_sensor_analog_gain << 11);
+	requested_again = clamp_t(int32_t, requested_again, 0,
+		(int32_t)stab.global_max_sensor_analog_gain << 11);
 	applied_again = attr->sensor_ctrl.alloc_again(requested_again,
 		LOG2_GAIN_SHIFT, &again_code);
 

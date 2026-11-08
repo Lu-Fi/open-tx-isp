@@ -3,9 +3,10 @@
  * T20/T10 compact AE: the analog gain ceiling the AE can really reach.
  *
  * sensor_drv.c clamps the requested analog gain to the sensor maximum
- * (attr->max_again, log2 <<16) and, when set, to the SetMaxAgain ceiling
+ * (attr->max_again, log2 <<16) and to the SetMaxAgain ceiling
  * stab.global_max_sensor_analog_gain (8-bit, log2 <<5, i.e. the same value
- * <<11).  /proc/jz/isp/isp-m0 must publish the lower of the two in the
+ * <<11).  Like the OEM 3.12.0 cmos_alloc_sensor_analog_gain() the ceiling
+ * always applies: 0 means 1x, not "no cap" (#238).  /proc/jz/isp/isp-m0 must publish the lower of the two in the
  * "MAX SENSOR analog gain" line (log2 <<5): streamers read it as the
  * exposure cap.  Before, the dump showed only the sensor maximum (158 on
  * jxf22/jxf23) while the AE stopped at the tuning ceiling (128), so timps
@@ -16,14 +17,15 @@
 
 #include <linux/types.h>
 
-/* sensor_max_log2_16: attr->max_again; user_max: stab ceiling, 0 = none.
+/* sensor_max_log2_16: attr->max_again; user_max: stab[29] ceiling (log2
+ * <<5, 0 = 1x as in the OEM cmos_alloc_sensor_analog_gain, #238).
  * Returns the reachable maximum in log2 <<5 units. */
 static inline uint32_t t20_ae_max_again_log2_5(uint32_t sensor_max_log2_16,
 					       uint32_t user_max)
 {
 	uint32_t m = sensor_max_log2_16 >> 11;
 
-	return (user_max && user_max < m) ? user_max : m;
+	return user_max < m ? user_max : m;
 }
 
 /* The gain the compact AE hands to the sensor allocator at its limit, in
@@ -33,7 +35,7 @@ static inline uint32_t t20_ae_request_log2_16(uint32_t sensor_max_log2_16,
 {
 	uint32_t u = user_max << 11;
 
-	return (user_max && u < sensor_max_log2_16) ? u : sensor_max_log2_16;
+	return u < sensor_max_log2_16 ? u : sensor_max_log2_16;
 }
 
 /* The sensor gain tables are stepped: alloc_again() rounds the request
