@@ -15,6 +15,9 @@
  * twelve strength bytes, +0x5a number of curves in the payload.
  * Only the single curve form (block id below 0x134ff91, 0x102 bytes of curve
  * payload) is built; the multi-curve form selected by EV is refused.
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_gamma_oracle).
  */
 #ifndef TX_ISP_T32_GAMMA_H
 #define TX_ISP_T32_GAMMA_H

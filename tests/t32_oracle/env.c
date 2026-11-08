@@ -50,6 +50,8 @@ u32 t32_data_e1720[6], t32_data_e1738[1], t32_data_e173c[33];
 u32 t32_data_e35f0[4];
 u32 t32_data_e2410[4];	/* SDNS context per channel */
 u32 t32_data_e1810[4];	/* DMSC context per channel */
+u32 t32_data_e1824[4], t32_data_e1834[4];	/* gamma context per channel */
+u8 t32_data_e1848[8];
 u32 t32_data_e23c0[4];
 u32 t32_data_e23d0[4];	/* CDNS context per channel */
 u8 t32_data_e23e0[64];	/* CDNS value block */	/* YDNS context per channel */
@@ -101,6 +103,14 @@ char t32_data_c9474[4] = "f";
 char t32_data_bfbc0[4] = "f", t32_data_c9e34[4] = "f";
 char t32_data_bfbd0[4] = "f", t32_data_c9e4c[4] = "f";
 char t32_data_bf520[4] = "f", t32_data_c95d4[4] = "f";
+/* gamma: default curves (data.c) */
+/* data.c:25533 (260 B) */
+u32 t32_data_d6840[65] = { 0x00000000, 0x00900000, 0x01aa0120, 0x0281021d, 0x032c02da, 0x03bd0377, 0x043e0400, 0x04b3047a, 0x051e04e9, 0x05810550, 0x05de05b0, 0x0636060b, 0x06890660, 0x06d906b1, 0x072506ff, 0x076e074a, 0x07b40791, 0x07f807d6, 0x083a0819, 0x0879085a, 0x08b70898, 0x08f308d5, 0x092d0910, 0x0966094a, 0x099e0982, 0x09d409b9, 0x0a0909ef, 0x0a3d0a23, 0x0a700a57, 0x0aa20a89, 0x0ad30aba, 0x0b030aeb, 0x0b320b1a, 0x0b600b49, 0x0b8e0b77, 0x0bbb0ba4, 0x0be70bd1, 0x0c120bfc, 0x0c3d0c28, 0x0c670c52, 0x0c910c7c, 0x0cb90ca5, 0x0ce20cce, 0x0d0a0cf6, 0x0d310d1e, 0x0d580d45, 0x0d7e0d6b, 0x0da40d92, 0x0dca0db7, 0x0def0ddd, 0x0e140e01, 0x0e380e26, 0x0e5c0e4a, 0x0e7f0e6e, 0x0ea20e91, 0x0ec50eb4, 0x0ee70ed6, 0x0f0a0ef9, 0x0f2b0f1a, 0x0f4d0f3c, 0x0f6e0f5d, 0x0f8f0f7e, 0x0faf0f9f, 0x0fcf0fbf, 0x0fef0fdf };
+/* data.c:25599 (8 B) */
+u32 t32_data_d6948[2] = { 0x0000ff00, 0x01200090 };
+/* data.c:25664 (264 B) */
+u32 t32_data_d6a4c[66] = { 0x000000ff, 0x01200090, 0x021d01aa, 0x02da0281, 0x0377032c, 0x040003bd, 0x047a043e, 0x04e904b3, 0x0550051e, 0x05b00581, 0x060b05de, 0x06600636, 0x06b10689, 0x06ff06d9, 0x074a0725, 0x0791076e, 0x07d607b4, 0x081907f8, 0x085a083a, 0x08980879, 0x08d508b7, 0x091008f3, 0x094a092d, 0x09820966, 0x09b9099e, 0x09ef09d4, 0x0a230a09, 0x0a570a3d, 0x0a890a70, 0x0aba0aa2, 0x0aeb0ad3, 0x0b1a0b03, 0x0b490b32, 0x0b770b60, 0x0ba40b8e, 0x0bd10bbb, 0x0bfc0be7, 0x0c280c12, 0x0c520c3d, 0x0c7c0c67, 0x0ca50c91, 0x0cce0cb9, 0x0cf60ce2, 0x0d1e0d0a, 0x0d450d31, 0x0d6b0d58, 0x0d920d7e, 0x0db70da4, 0x0ddd0dca, 0x0e010def, 0x0e260e14, 0x0e4a0e38, 0x0e6e0e5c, 0x0e910e7f, 0x0eb40ea2, 0x0ed60ec5, 0x0ef90ee7, 0x0f1a0f0a, 0x0f3c0f2b, 0x0f5d0f4d, 0x0f7e0f6e, 0x0f9f0f8f, 0x0fbf0faf, 0x0fdf0fcf, 0x0fff0fef, 0x18100800 };
+char t32_data_c95ec[4] = "f";
 char t32_data_bfbb0[4] = "f", t32_data_c9e1c[4] = "f";
 char t32_data_c0a80[4] = "f", t32_data_c0a90[4] = "f", t32_data_ca63c[4] = "f", t32_data_ca624[4] = "f";
 char t32_data_ca2b4[4] = "f", t32_data_ca2e0[4] = "f", t32_data_ca314[4] = "f";
@@ -178,6 +188,9 @@ void t32o_reset(void)
 	memset(t32_data_e23e0, 0, sizeof(t32_data_e23e0));
 	memset(t32_data_e2410, 0, sizeof(t32_data_e2410));
 	memset(t32_data_e1810, 0, sizeof(t32_data_e1810));
+	memset(t32_data_e1824, 0, sizeof(t32_data_e1824));
+	memset(t32_data_e1834, 0, sizeof(t32_data_e1834));
+	memset(t32_data_e1848, 0, sizeof(t32_data_e1848));
 	memset(t32_data_e23c0, 0, sizeof(t32_data_e23c0));
 	memset(t32_data_e35f0, 0, sizeof(t32_data_e35f0));
 	memset(t32_data_e17c0, 0, sizeof(t32_data_e17c0));
@@ -217,6 +230,24 @@ u64 private_kfree(u32 a0, u32 a1, u32 a2, u32 a3)
 }
 
 u64 private_vfree(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a0; (void)a1; (void)a2; (void)a3;
+	return 0;
+}
+
+u64 private_spin_lock_init(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a0; (void)a1; (void)a2; (void)a3;
+	return 0;
+}
+
+u64 __private_spin_lock_irqsave(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a0; (void)a1; (void)a2; (void)a3;
+	return 0;	/* saved flags */
+}
+
+u64 private_spin_unlock_irqrestore(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a0; (void)a1; (void)a2; (void)a3;
 	return 0;
