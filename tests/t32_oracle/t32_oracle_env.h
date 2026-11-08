@@ -25,7 +25,7 @@ struct t32o_log {
 };
 extern struct t32o_log t32o_log;
 
-extern u32 t32_data_e28f0[4], t32_data_dd0a4[4], t32_data_dc274[4], t32_data_da844[4];
+extern u32 t32_data_e28f0[4], t32_data_dd0a4[4], t32_data_dc274[4], t32_data_da844[0x100];
 extern u8 t32_data_d03a0[4];
 extern u8 t32_data_da850[704], t32_data_dd114[224], t32_data_dc1a4[56];
 extern u32 t32_data_e1820[4];
@@ -42,6 +42,7 @@ u64 t32o_call(t32o_fn fn, u32 a0, u32 a1, u32 a2, u32 a3, u32 a4);
 /* reference functions (ref/, o32 shape) */
 u64 tisp_gib_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_dpc_init(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_lsc_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_ae_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_awb_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_msca_curve_calc(u32 a0, u32 a1, u32 a2, u32 a3);

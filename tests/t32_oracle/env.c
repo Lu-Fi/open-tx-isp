@@ -23,7 +23,7 @@
 u32 t32_data_e28f0[4] __attribute__((aligned(16)));	/* per-channel CCM buffers (tisp_ccm_init) */
 u32 t32_data_dd0a4[4] __attribute__((aligned(16)));	/* per-channel tuning-parameter base */
 u32 t32_data_dc274[4] __attribute__((aligned(16)));	/* per-channel LUT info (stLutInfo), +24 = CCM knots */
-u32 t32_data_da844[4] __attribute__((aligned(16)));	/* register shadow (tisp_reg_write mode 1) */
+u32 t32_data_da844[0x100] __attribute__((aligned(16)));	/* register shadow (tisp_reg_write mode 1) */
 
 /* top block (tisp_top_init / tisp_top_reg_cfg) */
 u8 t32_data_e1460[8] __attribute__((aligned(4)));	/* per-channel "configured" flags */
@@ -169,6 +169,52 @@ u64 __div64_32(u32 a0, u32 a1, u32 a2, u32 a3)
 u64 tisp_ae_calc_process(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 u64 tisp_ae_interrupt_hist(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 u64 tisp_ae_interrupt_static(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+
+/* LSC state (.bss): neighbouring objects kept as one block with offsets */
+u8 t32_data_e17d0[0x80] __attribute__((aligned(16)));
+__asm__(".globl t32_data_e17e0\n.set t32_data_e17e0, t32_data_e17d0 + 0x10");
+__asm__(".globl t32_data_e17f0\n.set t32_data_e17f0, t32_data_e17d0 + 0x20");
+__asm__(".globl t32_data_e17f4\n.set t32_data_e17f4, t32_data_e17d0 + 0x24");
+__asm__(".globl t32_data_e1800\n.set t32_data_e1800, t32_data_e17d0 + 0x30");
+__asm__(".globl t32_data_e180c\n.set t32_data_e180c, t32_data_e17d0 + 0x3c");
+char t32_data_bf504[4] = "f", t32_data_c94d8[4] = "f", t32_data_c94f8[4] = "f", t32_data_c953c[4] = "f", t32_data_c9544[4] = "f";
+
+/*
+ * The LSC shadow writers.  Matt's recovered C of tisp_single_lsc_reg_write and
+ * tisp_single_lsc_reg_lut_write lost the load of the shadow base pointer (the
+ * MIPS has "lui v0,%hi(.bss); lw v0,0x1844(v0)", the C only keeps the hi part), so
+ * they are written here from the disassembly (0x1c800, 0x1c84c):
+ *   base = *(u32 *)da844;  buf = *(u32 *)(base + (ch << 8) + 204);
+ *   reg_write:     buf[idx] = val
+ *   reg_lut_write: buf[idx + off] = val
+ */
+static u32 *lsc_shadow(u32 ch)
+{
+	u32 *base = T32O_HOST(t32_data_da844[0]);
+
+	return T32O_HOST(*(u32 *)((u8 *)base + (ch << 8) + 204));
+}
+
+u64 tisp_single_lsc_reg_write(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a3;
+	lsc_shadow(a0)[a1] = a2;
+	return 0;
+}
+
+u64 tisp_single_lsc_reg_lut_write(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	lsc_shadow(a0)[a1 + a3] = a2;
+	return 0;
+}
+
+u64 private_complete(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+u64 private_init_completion(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+u64 private_mutex_lock(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+u64 private_mutex_unlock(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+/* the wait returns the remaining time: nonzero = the frame-done completion arrived */
+u64 private_wait_for_completion_timeout(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 1; }
+u64 tisp_single_lsc_rcfg_cfg_trig(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 
 /* ---- .data objects ---- */
 /* CSC / CSCCR: mode tables (92 B x 6 for CSC, 12 B x 3 for CSCCR) and defaults */
@@ -333,6 +379,7 @@ void t32o_reset(void)
 	memset(t32_data_dd6c0, 0, sizeof(t32_data_dd6c0));
 	memset(t32_data_e1514, 0, sizeof(t32_data_e1514));
 	memset(t32_data_dd2d4, 0, sizeof(t32_data_dd2d4));
+	memset(t32_data_e17d0, 0, sizeof(t32_data_e17d0));
 	memset(t32_data_e23c0, 0, sizeof(t32_data_e23c0));
 	memset(t32_data_e35f0, 0, sizeof(t32_data_e35f0));
 	memset(t32_data_e17c0, 0, sizeof(t32_data_e17c0));
