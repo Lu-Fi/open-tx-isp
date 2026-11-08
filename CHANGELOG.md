@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-08: T20 picture stayed monochrome after a streamer restart from night (openimp #244; Wyze Cam v2 T20X jxf23, light box 5000 K: before the fix 4 of 5 restarts from night ended in Day without colour (NV12 U=V=128, top 0x40 bits 24/29 set); with the fix 0/3 from night and 0/3 in day, colour back within 2-3 s, dmesg clean)
+
+- The day/night switch (`apical_isp_day_or_night_s_ctrl_internal`, run from the daynight work) read the ISP top register 0x40 into `tmp_top`, ran about 400 calibration writes and wrote the stale value back. A streamer start arms that switch while the channel set_fmt/crop path clears the DS1 cs_conv and crop bypass bits (24, 29) in the same register; the stale write set them again. DS1 then delivered no chroma while the driver reported Day, and later switches never touch those two bits, so only a new streamer start helped.
+- One spinlock (`t20_isp_top_lock`) now covers every read-modify-write of 0x40/0x44 (top-ctl helper, crop bypass writers, the frame-end mirror write) and the day/night path, which re-reads 0x40 under the lock and applies only its own set/clear masks. Vendor note: the OEM driver runs the switch synchronously in the frame-end ISR, so it cannot interleave with set_fmt; the workqueue move made the race possible.
+
 ## 2026-11-08: AGENTS.md for AI assistants
 
 - New `AGENTS.md`: short guide for support assistants; it points to the open-stack AI documentation in OpenIMP (`AGENTS.md`, `docs/ai/`) and the live feature matrix. Honest answers first, also where the vendor driver is better.
