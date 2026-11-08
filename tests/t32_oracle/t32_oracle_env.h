@@ -65,6 +65,10 @@ u64 tisp_csccr_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_bin_data_parse(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_top_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_ccm_init(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_ccm_write_reg(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_ccm_ct_update(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_ccm_ev_update(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_ccm_interp_by_ct(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_ccm_interp_by_ev(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4);
 
 #define T32O_HOST(v)	((void *)(uintptr_t)(v))
