@@ -201,7 +201,7 @@ static void t32_stats_init(void)
 	n = t32_ae_stats_init(bin, width, height, virt_to_phys((void *)ae_buf), w);
 	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
 		isp_wr(w[i].reg, w[i].val);
-	n = t32_awb_stats_init(bin, virt_to_phys((void *)awb_buf), T32_AWB_INIT_EV, w);
+	n = t32_awb_stats_init(bin, width, height, virt_to_phys((void *)awb_buf), T32_AWB_INIT_EV, w);
 	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
 		isp_wr(w[i].reg, w[i].val);
 	t32_hw_stats.stats_inits++;

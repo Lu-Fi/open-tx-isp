@@ -16,6 +16,11 @@
  * vendor copies them to tparamsP + 0x68 / + 0xd40; the 4 bytes between the
  * bin and tparamsP offsets come from its per-section copy, not from a
  * different pointer (the former open question).
+ *
+ * The AWB part is checked against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_awb_oracle): the vendor tisp_awb_init's writes to the AWB
+ * block (0x16xxx) equal t32_awb_stats_init's, including the section fields that
+ * tisp_awb_params_refresh rewrites from the sensor size.
  */
 #ifndef TX_ISP_T32_STATS_H
 #define TX_ISP_T32_STATS_H
@@ -137,28 +142,81 @@ static inline unsigned int t32_ae_stats_init(const u8 *bin, u32 width, u32 heigh
 }
 
 /* AWB: buffers at buf_pa (T32_AWB_BUF_BYTES), thresholds for the EV (log2 Q16) */
-static inline unsigned int t32_awb_stats_init(const u8 *bin, u32 buf_pa, u32 ev,
+/*
+ * tisp_awb_params_refresh: the vendor rewrites fields of its section copy before
+ * the hardware setup, from the sensor size: it raises the u16 divisors at +3190 and
+ * +3186 until (width - [+3188] + 1) / 2 / divisor and (height - [+3184] + 1) / 2 /
+ * divisor are below 127, stores the divisors back, fills the two 15-entry u16
+ * tables at +3192 and +3222 with the quotients and keeps them at +3290 / +3292.
+ * loc is the section region from +3184 (128 bytes, copied by the caller); the
+ * offsets below are relative to +3184.  Divisions follow the MIPS core (zero
+ * divisor: quotient 1 / -1).
+ */
+static inline int t32_awb_div(int a, int b)
+{
+	if (!b)
+		return a < 0 ? 1 : -1;
+	if (b == -1)
+		return (int)(0U - (u32)a);
+	return a / b;
+}
+
+static inline void t32_awb_params_refresh(u8 *loc, u32 width, u32 height)
+{
+	u32 x0 = t32_st16(loc, 0), x1 = t32_st16(loc, 2), x2 = t32_st16(loc, 4), x3 = t32_st16(loc, 6);
+	int a0 = t32_awb_div((int)(width - x2 + 1), 2), v1;
+	u32 a3, q0, i;
+
+	for (;;) {
+		a3 = (u32)t32_awb_div(a0, (int)x3) & 0xffff;
+		if (a3 < 127)
+			break;
+		x3 = (x3 + 1) & 0xffff;
+	}
+	v1 = t32_awb_div((int)(height - x0 + 1), 2);
+	for (;;) {
+		q0 = (u32)t32_awb_div(v1, (int)x1) & 0xffff;
+		if (q0 < 127)
+			break;
+		x1 = (x1 + 1) & 0xffff;
+	}
+	loc[2] = (u8)x1; loc[3] = (u8)(x1 >> 8);
+	loc[6] = (u8)x3; loc[7] = (u8)(x3 >> 8);
+	for (i = 0; i < 15; i++) {
+		loc[8 + 2 * i] = (u8)a3; loc[9 + 2 * i] = (u8)(a3 >> 8);
+		loc[38 + 2 * i] = (u8)q0; loc[39 + 2 * i] = (u8)(q0 >> 8);
+	}
+	loc[106] = (u8)a3; loc[107] = (u8)(a3 >> 8);
+	loc[108] = (u8)q0; loc[109] = (u8)(q0 >> 8);
+}
+
+static inline unsigned int t32_awb_stats_init(const u8 *bin, u32 width, u32 height, u32 buf_pa, u32 ev,
 					      struct t32_stats_write *w)
 {
 	static const u16 thr[8] = { 4588, 4610, 4632, 4654, 4676, 4698, 4720, 4742 };
 	const u8 *p = bin + T32_AWB_PARAM;
+	u8 loc[128];		/* section region +3184 .. +3311, refreshed below; offsets here are minus 3184 */
 	u32 i = ev >> 16, f = ev & 0xffff, q[8], l[11], k;
 	unsigned int n = 0;
+
+	for (k = 0; k < sizeof(loc); k++)
+		loc[k] = p[3184 + k];
+	t32_awb_params_refresh(loc, width, height);
 
 	for (k = 0; k < 4; k++)
 		n = t32_stats_add(w, n, 0x16078 + 4 * k, buf_pa + k * 0x7000);
 	n = t32_stats_add(w, n, 0x16088, 3);
-	n = t32_stats_add(w, n, 0x16040, t32_st16(p, 3188) << 16 | t32_st16(p, 3184));
-	n = t32_stats_add(w, n, 0x16044, t32_st_bytes4(p, 3192));
-	n = t32_stats_add(w, n, 0x16048, t32_st_bytes4(p, 3200));
-	n = t32_stats_add(w, n, 0x1604c, t32_st_bytes4(p, 3208));
-	n = t32_stats_add(w, n, 0x16050, t32_st16(p, 3190) << 24 | (t32_st_bytes4(p, 3214) >> 8));
-	n = t32_stats_add(w, n, 0x16054, t32_st_bytes4(p, 3222));
-	n = t32_stats_add(w, n, 0x16058, t32_st_bytes4(p, 3230));
-	n = t32_stats_add(w, n, 0x1605c, t32_st_bytes4(p, 3238));
-	n = t32_stats_add(w, n, 0x16060, t32_st16(p, 3186) << 24 | (t32_st_bytes4(p, 3244) >> 8));
-	n = t32_stats_add(w, n, 0x16088, 0x01010103 | (u32)p[3276] << 12);
-	n = t32_stats_add(w, n, 0x160f4, p[3290] | p[3291] << 8 | p[3292] << 16 | (u32)p[3293] << 24);
+	n = t32_stats_add(w, n, 0x16040, t32_st16(loc, 4) << 16 | t32_st16(loc, 0));
+	n = t32_stats_add(w, n, 0x16044, t32_st_bytes4(loc, 8));
+	n = t32_stats_add(w, n, 0x16048, t32_st_bytes4(loc, 16));
+	n = t32_stats_add(w, n, 0x1604c, t32_st_bytes4(loc, 24));
+	n = t32_stats_add(w, n, 0x16050, t32_st16(loc, 6) << 24 | (t32_st_bytes4(loc, 30) >> 8));
+	n = t32_stats_add(w, n, 0x16054, t32_st_bytes4(loc, 38));
+	n = t32_stats_add(w, n, 0x16058, t32_st_bytes4(loc, 46));
+	n = t32_stats_add(w, n, 0x1605c, t32_st_bytes4(loc, 54));
+	n = t32_stats_add(w, n, 0x16060, t32_st16(loc, 2) << 24 | (t32_st_bytes4(loc, 60) >> 8));
+	n = t32_stats_add(w, n, 0x16088, 0x01010103 | (u32)loc[92] << 12);
+	n = t32_stats_add(w, n, 0x160f4, loc[106] | loc[107] << 8 | loc[108] << 16 | (u32)loc[109] << 24);
 	/* tisp_awb_set_regional_threshold */
 	for (k = 0; k < 8; k++)
 		q[k] = t32_intp_u16(i, f, p + thr[k]);
@@ -171,8 +229,8 @@ static inline unsigned int t32_awb_stats_init(const u8 *bin, u32 buf_pa, u32 ev,
 	for (k = 0; k < 11; k++)
 		l[k] = t32_intp_u16(i, f, p + 4764 + 22 * k);
 	n = t32_stats_add(w, n, 0x160f0, (l[3] & 15) | (l[4] & 15) << 8 | (l[5] & 15) << 16 | (l[6] & 15) << 24);
-	n = t32_stats_add(w, n, 0x16074, t32_st16(p, 3274) << 24 | l[2] << 16 | l[1] << 8 | l[0]);
-	n = t32_stats_add(w, n, 0x160ec, (t32_st16(p, 3280) & 3) << 16 | (t32_st16(p, 3278) & 1));
+	n = t32_stats_add(w, n, 0x16074, t32_st16(loc, 90) << 24 | l[2] << 16 | l[1] << 8 | l[0]);
+	n = t32_stats_add(w, n, 0x160ec, (t32_st16(loc, 96) & 3) << 16 | (t32_st16(loc, 94) & 1));
 	n = t32_stats_add(w, n, 0x160f8, (l[7] & 15) | (l[8] & 15) << 8 | (l[9] & 15) << 16 | (l[10] & 15) << 24);
 	n = t32_stats_add(w, n, T32_AWB_TRIG, 1);
 	return n;

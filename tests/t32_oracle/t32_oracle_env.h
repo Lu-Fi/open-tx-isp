@@ -42,6 +42,7 @@ u64 t32o_call(t32o_fn fn, u32 a0, u32 a1, u32 a2, u32 a3, u32 a4);
 /* reference functions (ref/, o32 shape) */
 u64 tisp_gib_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_dpc_init(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_awb_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_msca_curve_calc(u32 a0, u32 a1, u32 a2, u32 a3);
 extern u32 t32_data_e2768[4], t32_data_e28ac[4];
 extern u8 t32_data_e2898[16];
