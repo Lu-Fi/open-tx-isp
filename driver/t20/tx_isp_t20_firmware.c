@@ -13036,15 +13036,15 @@ int32_t matrix_yuv_recompute(void *arg1)
 	uint8_t *base = arg1;
 	int16_t *mode_matrix = (int16_t *)(base + 0x70);
 	int16_t *brightness_matrix = (int16_t *)(base + 0x40);
-	int16_t *saturation_matrix = (int16_t *)(base + 0x28);
-	int16_t *contrast_matrix = (int16_t *)(base + 0x10);
-	const int16_t *contrast_src = (const int16_t *)(v_filter + 0x508);
+	int16_t *contrast_matrix = (int16_t *)(base + 0x28);
+	int16_t *saturation_matrix = (int16_t *)(base + 0x10);
+	const int16_t *saturation_src = (const int16_t *)(v_filter + 0x508);
 	uint16_t selector = *(uint16_t *)(base + 0xf6);
 	uint8_t brightness = base[0xa4];
-	uint8_t saturation = base[0xa3];
-	uint8_t contrast = base[0xa2];
+	uint8_t contrast = base[0xa3];	/* contrast_strength() writes ctx+0x2e17 = base+0xa3 */
+	uint8_t saturation = base[0xa2];	/* saturation_strength() writes ctx+0x2e16 = base+0xa2 */
 	int32_t brightness_offset;
-	int32_t contrast_scale;
+	int32_t saturation_scale;
 	unsigned int row, i;
 
 	memcpy(mode_matrix, t20_matrix_yuv_src,
@@ -13093,23 +13093,23 @@ int32_t matrix_yuv_recompute(void *arg1)
 	brightness_matrix[10] = (int16_t)brightness_offset;
 	brightness_matrix[11] = (int16_t)brightness_offset;
 
-	memset(saturation_matrix, 0, sizeof(t20_matrix_yuv_src));
-	saturation_matrix[0] = (uint16_t)saturation << 1;
-	saturation_matrix[4] = (uint16_t)saturation << 1;
-	saturation_matrix[8] = (uint16_t)saturation << 1;
-	saturation_matrix[9] = ((int32_t)0x80 - saturation) << 2;
-	saturation_matrix[10] = ((int32_t)0x80 - saturation) << 2;
-	saturation_matrix[11] = ((int32_t)0x80 - saturation) << 2;
+	memset(contrast_matrix, 0, sizeof(t20_matrix_yuv_src));
+	contrast_matrix[0] = (uint16_t)contrast << 1;
+	contrast_matrix[4] = (uint16_t)contrast << 1;
+	contrast_matrix[8] = (uint16_t)contrast << 1;
+	contrast_matrix[9] = ((int32_t)0x80 - contrast) << 2;
+	contrast_matrix[10] = ((int32_t)0x80 - contrast) << 2;
+	contrast_matrix[11] = ((int32_t)0x80 - contrast) << 2;
 
-	contrast_scale = ((int32_t)contrast - 0x80) << 1;
+	saturation_scale = ((int32_t)saturation - 0x80) << 1;
 	for (i = 0; i < 12; i++)
-		contrast_matrix[i] =
-			((int32_t)contrast_src[i] * contrast_scale) >> 8;
-	contrast_matrix[0] += 0x100;
-	contrast_matrix[4] += 0x100;
-	contrast_matrix[8] += 0x100;
+		saturation_matrix[i] =
+			((int32_t)saturation_src[i] * saturation_scale) >> 8;
+	saturation_matrix[0] += 0x100;
+	saturation_matrix[4] += 0x100;
+	saturation_matrix[8] += 0x100;
 
-	matrix_compute_hue_saturation(*(uint16_t *)(base + 0xa0),
+	matrix_compute_hue_contrast(*(uint16_t *)(base + 0xa0),
 				      (int16_t *)(base + 0x58));
 	compute_transfrom_matrix(base, base + 0xaa, base[0xa8]);
 	compute_transfrom_matrix(base, base + 0xc4, base[0xc2]);

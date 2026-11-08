@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-08: T20 matrix_yuv_recompute variable names (openimp #247, no behaviour change)
+
+- The active `matrix_yuv_recompute()` called the byte at base+0xa3 "saturation" and the one at base+0xa2 "contrast"; `contrast_strength()` writes base+0xa3 and `saturation_strength()` base+0xa2. The arithmetic was already identical to the vendor tx-isp-t20.ko (0x23d90: byte 0xa3 -> diagonal x2 and (0x80-x)<<2; 0x23dd8: byte 0xa2 -> (x-0x80)<<1 x coefficient table), only the names were swapped. Renamed; generated code unchanged.
+
 ## 2026-11-08: T20 picture stayed monochrome after a streamer restart from night (openimp #244; Wyze Cam v2 T20X jxf23, light box 5000 K: before the fix 4 of 5 restarts from night ended in Day without colour (NV12 U=V=128, top 0x40 bits 24/29 set); with the fix 0/3 from night and 0/3 in day, colour back within 2-3 s, dmesg clean)
 
 - The day/night switch (`apical_isp_day_or_night_s_ctrl_internal`, run from the daynight work) read the ISP top register 0x40 into `tmp_top`, ran about 400 calibration writes and wrote the stale value back. A streamer start arms that switch while the channel set_fmt/crop path clears the DS1 cs_conv and crop bypass bits (24, 29) in the same register; the stale write set them again. DS1 then delivered no chroma while the driver reported Day, and later switches never touch those two bits, so only a new streamer start helped.
