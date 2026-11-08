@@ -902,7 +902,8 @@ static const uint16_t resize_height_write_table[5] = {
 static const uint16_t resize_height_read_table[5] = {
 	0x14b4, 0x14c2, 0x14cc, 0x14d6, 0x14e0
 };
-static const uint8_t awb_idx_table[6] = { 0, 1, 2, 3, 4, 5 };
+#include "tx_isp_t30_awb_preset.h"	/* get_awb_idx table (ko .rodata 0xdec) */
+#include "tx_isp_t30_temper.h"	/* Temper attr system-table items (SDK s/g_attr) */
 static uint32_t fifo_rg_avg;
 static uint32_t fifo_gb_avg;
 static int32_t iir_state[16];
@@ -9188,7 +9189,8 @@ int tx_isp_vic_slake_subdev(void *arg1)
 
 	if (state == 2) {
 		*(int *)((char *)vic + 0x124) = 1;
-		clk_array = (int *)((char *)arg1 + 0xbc);
+		/* vendor 0x1540: lw s3,188(s0) = the clock array pointer */
+		clk_array = *(int **)((char *)arg1 + 0xbc);
 		clk_count = *(int *)((char *)arg1 + 0xc0);
 
 		for (i = clk_count - 1; i >= 0; i--)
@@ -9266,50 +9268,19 @@ int32_t vin_s_stream(void *arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000016a4 origin=fragment_seed original=tx_isp_vin_activate_subdev */
 int32_t tx_isp_vin_activate_subdev(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	/*
+	 * SDK-built ko 0x16a4.  Plain C: the register lift declared s0/v0 as
+	 * `uintptr_t *`, so the open count at +0xf8 stepped by 4 (the slake
+	 * stepped back by 4, which hid it).
+	 */
+	char *vin = (char *)a0;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    local_10 = a0 + 232;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_mutex_lock)(a0 + 232); /* jalr target resolved by relocation */
-
-    /* fragment 2: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 244);
-    v0 = 1;
-
-    /* fragment 3: Branch */
-    a0 = local_10;
-    if (v1 != v0) { goto tx_isp_vin_activate_subdev0x3c; }
-
-    /* fragment 4: CallSetup */
-    v0 = 2;
-    *(uint32_t *)((char *)s0 + 244) = v0;
-
-tx_isp_vin_activate_subdev0x3c:
-    /* fragment 5: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_unlock)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 6: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 248);
-    v0 = v0 + 1;
-    *(uint32_t *)((char *)s0 + 248) = v0;
-    ra = local_1c;
-    s0 = local_18;
-    v0 = 0;
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	private_mutex_lock((struct mutex *)(vin + 0xe8));
+	if (*(int32_t *)(vin + 0xf4) == 1)
+		*(int32_t *)(vin + 0xf4) = 2;
+	private_mutex_unlock((struct mutex *)(vin + 0xe8));
+	(*(uint32_t *)(vin + 0xf8))++;
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000001710 origin=model_output original=tx_isp_vin_init */
@@ -10046,120 +10017,34 @@ int32_t subdev_sensor_ops_release_all_sensor(void *arg1)
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000002100 origin=fragment_seed original=tx_isp_vin_slake_subdev */
 int32_t tx_isp_vin_slake_subdev(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	/*
+	 * SDK-built ko 0x2100..0x21f0.  Plain C: the register lift kept the
+	 * byte offsets on `uintptr_t *s0`, so the list-head test compared
+	 * against vin + 0x370 (always "not empty") and the mutex taken at the
+	 * end was vin + 0x3a0 instead of vin->mlock (+0xe8): the first fd close
+	 * that reached this function (#2 fix of ispcore_slake_module) hung in
+	 * mutex_lock (QEMU T30, 2026-11-07: D state in tx_isp_release).
+	 */
+	char *vin = (char *)a0;
+	int input = -1;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: MemoryAccess */
-    v0 = *(uint32_t *)((char *)a0 + 248);
-
-    /* fragment 2: Branch */
-    s0 = a0;
-    if (v0 == 0) { goto tx_isp_vin_slake_subdev0x24; }
-
-    /* fragment 3: Arithmetic */
-    v0 = v0 - 1;
-
-    /* fragment 4: Branch */
-    int _bc_v0_4 = v0 != 0;
-    *(uint32_t *)((char *)a0 + 248) = v0;
-    if (_bc_v0_4) { goto tx_isp_vin_slake_subdev0xe0; }
-
-tx_isp_vin_slake_subdev0x24:
-    /* fragment 5: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 244);
-    v0 = 4;
-
-    /* fragment 6: Branch */
-    int _bc_v1_6 = v1 != v0;
-    v0 = 0;
-    if (_bc_v1_6) { goto tx_isp_vin_slake_subdev0x48; }
-
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)vin_s_stream)(s0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 8: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 244);
-
-tx_isp_vin_slake_subdev0x48:
-    /* fragment 9: Arithmetic */
-    v0 = 3;
-
-    /* fragment 10: Branch */
-    int _bc_v1_10 = v1 != v0;
-    v0 = 0;
-    if (_bc_v1_10) { goto tx_isp_vin_slake_subdev0x64; }
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)tx_isp_vin_init)(s0, 0); /* jalr target resolved by relocation */
-
-tx_isp_vin_slake_subdev0x64:
-    /* fragment 12: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 228);
-
-    /* fragment 13: Branch */
-    int _bc_v0_13 = v0 == 0;
-    v0 = -1;
-    if (_bc_v0_13) { goto tx_isp_vin_slake_subdev0x88; }
-
-    /* fragment 14: CallSetup */
-    local_10 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)subdev_sensor_ops_set_input)(s0, &local_10); /* jalr target resolved by relocation */
-
-tx_isp_vin_slake_subdev0x88:
-    /* fragment 15: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 220);
-    v0 = s0 + 220;
-
-    /* fragment 16: Branch */
-    int _bc_v1_16 = v1 == v0;
-    v0 = 0;
-    if (_bc_v1_16) { goto tx_isp_vin_slake_subdev0xa4; }
-
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)subdev_sensor_ops_release_all_sensor)(s0); /* jalr target resolved by relocation */
-
-tx_isp_vin_slake_subdev0xa4:
-    /* fragment 18: CallSetup */
-    local_18 = s0 + 232;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_mutex_lock)(s0 + 232); /* jalr target resolved by relocation */
-
-    /* fragment 19: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 244);
-    v0 = 2;
-
-    /* fragment 20: Branch */
-    a0 = local_18;
-    if (v1 != v0) { goto tx_isp_vin_slake_subdev0xd0; }
-
-    /* fragment 21: CallSetup */
-    v0 = 1;
-    *(uint32_t *)((char *)s0 + 244) = v0;
-
-tx_isp_vin_slake_subdev0xd0:
-    /* fragment 22: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_unlock)(a0); /* jalr target resolved by relocation */
-
-tx_isp_vin_slake_subdev0xe0:
-    /* fragment 23: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 24: Arithmetic */
-    v0 = 0;
-
-    /* fragment 25: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+	if (*(uint32_t *)(vin + 0xf8)) {
+		if (--*(uint32_t *)(vin + 0xf8) != 0)
+			return 0;
+	}
+	if (*(int32_t *)(vin + 0xf4) == 4)
+		vin_s_stream(vin, 0);
+	if (*(int32_t *)(vin + 0xf4) == 3)
+		tx_isp_vin_init(vin, 0);
+	if (*(void **)(vin + 0xe4))
+		subdev_sensor_ops_set_input(vin, &input);
+	if (*(void **)(vin + 0xdc) != (void *)(vin + 0xdc))
+		subdev_sensor_ops_release_all_sensor(vin);
+	private_mutex_lock((struct mutex *)(vin + 0xe8));
+	if (*(int32_t *)(vin + 0xf4) == 2)
+		*(int32_t *)(vin + 0xf4) = 1;
+	private_mutex_unlock((struct mutex *)(vin + 0xe8));
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000021f4 origin=model_output original=isp_i2c_new_subdev_board */
@@ -11109,149 +10994,36 @@ csi_core_ops_init0x2a4:
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000003468 origin=fragment_seed original=tx_isp_csi_slake_subdev */
 int32_t tx_isp_csi_slake_subdev(uintptr_t a0)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	/*
+	 * SDK-built ko 0x3468..0x358c.  Plain C: the register lift kept the
+	 * byte offsets on `uintptr_t *` registers (mutex at csd + 0x4a0 instead
+	 * of +0x128, the clock index stepped by 4) and called
+	 * csi_video_s_stream without the enable argument (vendor 0x34c4 a1 = 0).
+	 */
+	struct tx_isp_t30_subdev *sd = (void *)a0;
+	char *csd;
+	struct clk **clks;
+	int32_t i;
 
-    /* fragment 0: Branch */
-    if (a0 == 0) { goto tx_isp_csi_slake_subdev0x124; }
-
-    /* fragment 1: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 2: Arithmetic */
-    v0 = a0 < -4095;
-
-    /* fragment 3: StackAccess */
-    local_14 = s0;
-    local_24 = ra;
-    local_20 = s3;
-    local_1c = s2;
-    local_18 = s1;
-
-    /* fragment 4: Branch */
-    s0 = a0;
-    if (v0 == 0) { goto tx_isp_csi_slake_subdev0x11c; }
-
-    /* fragment 5: MemoryAccess */
-    s1 = *(uint32_t *)((char *)a0 + 212);
-
-    /* fragment 6: Branch */
-    if (s1 == 0) { goto tx_isp_csi_slake_subdev0x11c; }
-
-    /* fragment 7: Arithmetic */
-    v0 = s1 < -4095;
-
-    /* fragment 8: Branch */
-    if (v0 == 0) { goto tx_isp_csi_slake_subdev0x11c; }
-
-    /* fragment 9: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 292);
-    v0 = 4;
-
-    /* fragment 10: Branch */
-    int _bc_v1_10 = v1 != v0;
-    v0 = 0;
-    if (_bc_v1_10) { goto tx_isp_csi_slake_subdev0x64; }
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)csi_video_s_stream)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 12: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 292);
-
-tx_isp_csi_slake_subdev0x64:
-    /* fragment 13: Arithmetic */
-    v0 = 3;
-
-    /* fragment 14: Branch */
-    s3 = s1 + 296;
-    if (v1 != v0) { goto tx_isp_csi_slake_subdev0x88; }
-
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(int32_t *)csi_core_ops_init)(s0, 0); /* jalr target resolved by relocation */
-
-    /* fragment 16: CallSetup */
-    s3 = s1 + 296;
-
-tx_isp_csi_slake_subdev0x88:
-    /* fragment 17: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_lock)(s3); /* jalr target resolved by relocation */
-
-    /* fragment 18: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s1 + 292);
-    v0 = 2;
-
-    /* fragment 19: Branch */
-    int _bc_v1_19 = v1 == v0;
-    v0 = 1;
-    if (_bc_v1_19) { goto tx_isp_csi_slake_subdev0xd8; }
-
-tx_isp_csi_slake_subdev0xa8:
-    /* fragment 20: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)private_mutex_unlock)(s3); /* jalr target resolved by relocation */
-
-    /* fragment 21: Arithmetic */
-    v0 = 0;
-
-tx_isp_csi_slake_subdev0xbc:
-    /* fragment 22: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int32_t)v0;
-
-tx_isp_csi_slake_subdev0xd8:
-    /* fragment 23: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 292) = v0;
-    s1 = *(uint32_t *)((char *)s0 + 188);
-
-    /* fragment 24: Branch */
-    v0 = s1 < -4095;
-    if (s1 == 0) { goto tx_isp_csi_slake_subdev0xa8; }
-
-    /* fragment 25: Branch */
-    s2 = (uint32_t *)&private_clk_disable;
-    if (v0 == 0) { goto tx_isp_csi_slake_subdev0xa8; }
-
-    /* fragment 26: MemoryAccess */
-    s0 = *(uint32_t *)((char *)s0 + 192);
-    s0 = s0 - 1;
-    s2 = s2;
-
-tx_isp_csi_slake_subdev0xfc:
-    /* fragment 27: Branch */
-    v0 = (uintptr_t)s0 << 2;
-    if (s0 < 0) { goto tx_isp_csi_slake_subdev0xa8; }
-
-    /* fragment 28: CallSetup */
-    s0 = s0 - 1;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_clk_disable)(*(uint32_t *)((char *)((uintptr_t)s1 + (uintptr_t)v0) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 29: Branch */
-    goto tx_isp_csi_slake_subdev0xfc;
-
-tx_isp_csi_slake_subdev0x11c:
-    /* fragment 30: Branch */
-    v0 = -22;
-    goto tx_isp_csi_slake_subdev0xbc;
-
-tx_isp_csi_slake_subdev0x124:
-    /* fragment 31: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 32: Arithmetic */
-    v0 = -22;
-
-    return 0;
+	if (sd == NULL || IS_ERR(sd))
+		return -EINVAL;
+	csd = *(char **)((char *)sd + 0xd4);
+	if (csd == NULL || IS_ERR(csd))
+		return -EINVAL;
+	if (*(int32_t *)(csd + 0x124) == 4)
+		csi_video_s_stream(sd, 0, 0);
+	if (*(int32_t *)(csd + 0x124) == 3)
+		csi_core_ops_init(a0, 0);
+	private_mutex_lock((struct mutex *)(csd + 0x128));
+	if (*(int32_t *)(csd + 0x124) == 2) {
+		*(int32_t *)(csd + 0x124) = 1;
+		clks = *(struct clk ***)((char *)sd + 0xbc);
+		if (clks != NULL && !IS_ERR(clks))
+			for (i = *(int32_t *)((char *)sd + 0xc0) - 1; i >= 0; i--)
+				private_clk_disable(clks[i]);
+	}
+	private_mutex_unlock((struct mutex *)(csd + 0x128));
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000035a0 origin=fragment_seed original=isp_core_tunning_open */
@@ -14254,6 +14026,11 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 						APICAL_WRITE_32(0x0a24,
 							video_core->control.input_width * 4);
 					}
+					/* SDK apical_isp_temper_dns_s_attr: system-table items */
+					t30_temper_s_attr_stab(stab, temper_attr.mode,
+							       temper_attr.manual_strength,
+							       tuning->temper_max,
+							       tuning->temper_min);
 					temper_ctrl = APICAL_READ_32(0x0a28);
 					APICAL_WRITE_32(0x0a28, temper_ctrl | 1);
 					temper_ctrl = APICAL_READ_32(0x0040);
@@ -14317,6 +14094,23 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 					       system_gain->isp_digital_gain,
 					       default_control.control.value);
 				ret = 0;
+			} else if (default_control.control.id == 0x08000083) {
+				/*
+				 * IMAGE_TUNING_CID_TEMPER_ATTR get (SDK
+				 * apical_isp_temper_dns_g_attr): mode from the temper
+				 * bypass bit and the manual flag, strength = target.
+				 * The lifted g_ctrl switch has no arm for it.
+				 */
+				int tmode;
+				uint8_t tstr;
+
+				t30_temper_g_attr(stab, APICAL_READ_32(0x0040), &tmode, &tstr);
+				memset(&temper_attr, 0, sizeof(temper_attr));
+				temper_attr.mode = tmode;
+				temper_attr.manual_strength = tstr;
+				ret = copy_to_user((void __user *)(uintptr_t)
+						   default_control.control.value,
+						   &temper_attr, sizeof(temper_attr)) ? -EFAULT : 0;
 			} else if (default_control.control.id == 0x0800002c) {
 				/*
 				 * IMAGE_TUNING_CID_SYSTEM_TAB get (OEM apical_isp_stab_g_attr):
@@ -20740,82 +20534,66 @@ int32_t ispcore_core_ops_init(void *arg1, int32_t arg2)
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000e688 origin=model_output original=ispcore_slake_module */
 int32_t ispcore_slake_module(void *arg1)
 {
-    int *i = 0;
-    int32_t ret = -22;
+	/*
+	 * SDK-built ko 0xe688..0xe828.  The lift had the IS_ERR tests inverted
+	 * (it only ran for an error pointer, so fd close never stopped the core
+	 * or released the sensor: a killed process left the sc4236 i2c client
+	 * registered, #2) and called the child slake as fn(0) (vendor 0xe780:
+	 * a0 = child subdev).
+	 */
+	char *sd = arg1;
+	char *core;
+	int32_t state, count, i;
+	void **child, **child_end;
+	struct clk **clks;
+	char *dev;
 
-    if (arg1 != NULL && (uintptr_t)arg1 >= 0xfffff001u) {
-        void *s0_1 = *(void **)((char *)arg1 + 0xd4);
+	if (sd == NULL || IS_ERR(sd))
+		return -EINVAL;
+	core = *(char **)(sd + 0xd4);
+	if (core == NULL || IS_ERR(core))
+		return -EINVAL;
+	state = *(int32_t *)(core + 0xe8);
+	if (state == 1)
+		return 0;
+	if (state >= 3)
+		ispcore_core_ops_init(sd, 0);
+	count = *(int32_t *)(core + 0x158);
+	for (i = 0; i < count; i++)
+		*(int32_t *)(*(char **)(core + 0x154) + i * 0xa0 + 0x50) = 1;
+	dev = *(char **)(core + 0x1a0);
+	(*(void (**)(void *, uint32_t, uint32_t))(dev + 0x40d4))(dev, 0x4000001, 0);
+	*(int32_t *)(core + 0xe8) = 1;
 
-        if (s0_1 != NULL && (uintptr_t)s0_1 >= 0xfffff001u) {
-            int32_t state = *(int32_t *)((char *)s0_1 + 0xe8);
+	child = (void **)(core + 0x38);
+	child_end = (void **)(core + 0x78);
+	for (; child != child_end; child++) {
+		char *c = *child;
+		char *ops, *internal;
+		int32_t (*slake)(void *);
+		int32_t r;
 
-            if (state != 1) {
-                if (state >= 3)
-                    ispcore_core_ops_init(arg1, 0);
+		if (c == NULL || IS_ERR(c))
+			continue;
+		ops = *(char **)(c + 0xc4);
+		*(int32_t *)(c + 0x80) = 0;
+		internal = *(char **)(ops + 0x10);
+		if (internal == NULL)
+			continue;
+		slake = *(int32_t (**)(void *))(internal + 4);
+		if (slake == NULL)
+			continue;
+		r = slake(c);
+		if (r != 0 && r != -ENOIOCTLCMD) {
+			isp_printf(2, "Failed to slake %s\n", *(char **)(c + 8));
+			break;
+		}
+	}
 
-                int32_t i = 0;
-                int32_t count = *(int32_t *)((char *)s0_1 + 0x158);
-
-                while (i < count) {
-                    void *base = *(void **)((char *)s0_1 + 0x154);
-                    *(int32_t *)((uintptr_t)base + (uintptr_t)i * 0xa0 + 0x50) = 1;
-                    i++;
-                }
-
-                void *dev = *(void **)((char *)s0_1 + 0x1a0);
-                void (*release_fn)(void *, uint32_t, uint32_t) =
-                    *(void (**)(void *, uint32_t, uint32_t))((char *)dev + 0x40d4);
-                release_fn(dev, 0x4000001, 0);
-                *(int32_t *)((char *)s0_1 + 0xe8) = 1;
-
-                int32_t *s2_1 = (int32_t *)((char *)s0_1 + 0x38);
-                int32_t *s0_end = (int32_t *)((char *)s0_1 + 0x78);
-                int32_t s0_3 = 0;
-
-                while (1) {
-                    void *a0_1 = (void *)*s2_1;
-
-                    if (a0_1 != NULL && (uintptr_t)a0_1 >= 0xfffff001u) {
-                        void *v0_7 = *(void **)((char *)a0_1 + 0xc4);
-                        *(int32_t *)((char *)a0_1 + 0x80) = 0;
-                        void *v0_8 = *(void **)((char *)v0_7 + 0x10);
-
-                        if (v0_8 != NULL) {
-							int32_t (*fn)(int) = *(int32_t (**)(int))((char *)v0_8 + 4);
-
-                            if (fn != NULL) {
-                                int32_t r = fn(0);
-
-                                if (r != 0 && r != -515) {
-                                    isp_printf(2, "Failed to slake %s\n", *(char **)((char *)a0_1 + 8));
-                                    s0_3 = *(int32_t *)((char *)arg1 + 0xc0);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    s2_1++;
-
-                    if (s2_1 == s0_end) {
-                        s0_3 = *(int32_t *)((char *)arg1 + 0xc0);
-                        break;
-                    }
-                }
-
-                void *clk_base = *(void **)((char *)arg1 + 0xbc);
-                int32_t i_1 = s0_3 - 1;
-
-                while (i_1 >= 0) {
-                    int32_t *clk_ptr = (int32_t *)((char *)clk_base + (i_1 << 2));
-                    i_1--;
-                    private_clk_disable(*(void **)clk_ptr);
-                }
-            }
-            ret = 0;
-        }
-    }
-    return ret;
+	clks = *(struct clk ***)(sd + 0xbc);
+	for (i = *(int32_t *)(sd + 0xc0) - 1; i >= 0; i--)
+		private_clk_disable(clks[i]);
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000000e82c origin=model_output original=tx_isp_core_probe */
@@ -24463,7 +24241,17 @@ void tx_isp_enable_irq(struct tx_isp_t30_irq_device *irqdev)
 
 void tx_isp_disable_irq(struct tx_isp_t30_irq_device *irqdev)
 {
-	private_disable_irq(irqdev->irq);
+	/*
+	 * tx_vic_disable_irq() reaches this from the ISP ISR itself (frame end ->
+	 * apical_isp_raise_event -> system_hw_interrupts_disable with the VIC mask
+	 * at 0xffff only, i.e. before vic_core_ops_init set 0x5310000).  A
+	 * synchronous disable_irq() then spins in synchronize_irq() on its own
+	 * in-progress line with interrupts off: hard hang (QEMU T30 reload).
+	 */
+	if (in_interrupt())
+		disable_irq_nosync(irqdev->irq);
+	else
+		private_disable_irq(irqdev->irq);
 }
 
 int tx_isp_request_irq(struct platform_device *pdev,
@@ -42215,22 +42003,16 @@ int32_t ae_integrator_set(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000222e8 origin=model_output original=get_awb_idx */
 uint32_t get_awb_idx(int32_t arg1)
 {
-	uint32_t idx = (uint32_t)arg1 - 53;
-
-	if (idx < 6)
-		return 0;
-
-	return awb_idx_table[idx - 6];
+	/* ko 0x21a08: modes 53..58 -> awb_idx_table { 1..6 }, else 0 (tx_isp_t30_awb_preset.h) */
+	return t30_get_awb_idx(arg1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000022310 origin=model_output original=awb_mode */
 int32_t awb_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
 {
     uint32_t mode = (uint32_t)(uint8_t)arg3;
-    int32_t ret;
-    int16_t *lut;
-    uint32_t idx;
-    uint16_t val0, val1;
+    const uint16_t *lut;
+    uint8_t red, blue;
 
     *arg4 = 0;
 
@@ -42255,16 +42037,18 @@ int32_t awb_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
     if ((uint32_t)arg2 >= 0x34) {
         if ((uint32_t)arg2 >= 0x3b)
             return 2;
-        lut = (int16_t *)_GET_MOD_ENTRY16_PTR(0xff);
-        idx = get_awb_idx(arg2) << 2;
+        /* ko 0x21acc-0x21b20: row get_awb_idx(mode) of table 255 (awb_scene_presets),
+         * two u16 per row (byte offset idx << 2), >> 1 into stab[0x31]/[0x32].
+         * Row guard against a short bin table 255 (no-op for the 7-row table). */
+        lut = (const uint16_t *)(uintptr_t)_GET_MOD_ENTRY16_PTR(0xff);
+        if (!lut || t30_get_awb_idx(arg2) >= _GET_ROWS(0xff))
+            return 2;
+        t30_awb_preset_gains(lut, arg2, &red, &blue);
         *(volatile uint8_t *)((char *)arg1 + 0x75a) = 0;
         *(volatile uint8_t *)((char *)&stab + 0xc) = 1;
-        lut = lut + idx;
-        val0 = lut[0];
-        val1 = lut[1];
         *(int32_t *)((char *)arg1 + 0xec8) = arg2;
-        *(volatile uint8_t *)((char *)&stab + 0x31) = (uint8_t)(val0 >> 1);
-        *(volatile uint8_t *)((char *)&stab + 0x32) = (uint8_t)(val1 >> 1);
+        *(volatile uint8_t *)((char *)&stab + 0x31) = red;
+        *(volatile uint8_t *)((char *)&stab + 0x32) = blue;
         return 0;
     }
 
@@ -57048,6 +56832,7 @@ int tx_isp_core_remove(struct platform_device *pdev)
 	struct tx_isp_t30_core_video_view *core;
 	struct tx_isp_t30_core_tuning_view *tuning;
 	unsigned int index;
+	bool was_active;
 
 	if (IS_ERR_OR_NULL(sd))
 		return 0;
@@ -57070,12 +56855,21 @@ int tx_isp_core_remove(struct platform_device *pdev)
 		tuning->tuning = NULL;
 	}
 
+	/*
+	 * The vendor remove (SDK-built ko 0x1dc) disables no clock: the last fd
+	 * close already did, in ispcore_slake_module (state back to SLAKE).
+	 * Since that slake runs (#2), disabling here again unbalanced the clock
+	 * counts and the next insmod ran the ISP with its clock gated (QEMU T30:
+	 * hang in the first frame interrupt of the reloaded module).  Only a
+	 * core that is still active (no slake ran) gets its clocks off here.
+	 */
+	was_active = core->state != TX_ISP_T30_MODULE_SLAKE;
 	kfree(core->channels);
 	core->channels = NULL;
 	core->channel_state = TX_ISP_T30_MODULE_SLAKE;
 	core->state = TX_ISP_T30_MODULE_SLAKE;
 	free_tx_isp_priv_param_manage();
-	if (sd->clks) {
+	if (sd->clks && was_active) {
 		for (index = sd->clk_num; index-- > 0;)
 			private_clk_disable(sd->clks[index]);
 	}
