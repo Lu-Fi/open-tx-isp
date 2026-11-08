@@ -35,6 +35,7 @@
  * into a weighted mean, slot by slot (t32_awb_ct_detect_cluster).
  * Phase 7 (L_22468 .. L_22688): count and weigh the zones around each merged point
  * (t32_awb_ct_detect_zonesum).
+ * Phase 8 (L_22688 .. L_227ac): mean zone weights, counts scaled by them (t32_awb_ct_detect_weigh).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -60,6 +61,8 @@ struct t32_awb_ctd {
 	u32 m;			/* number of valid entries of those four */
 	u32 zx[32], zy[32], zw[32];	/* t32_data_db250 / db1d0 / db150: the zones of a row with a gw_map weight (phase 7) */
 	u32 m2;			/* number of valid entries of those three */
+	u32 cn0[60];		/* t32_data_db060: cl_n before the weighting (phase 8) */
+	u32 maxn;		/* largest cl_n after it, local s8+64 (0 when none) */
 };
 
 /*
@@ -587,6 +590,40 @@ static inline int t32_awb_ct_detect_zonesum(struct t32_awb *a, struct t32_awb_ct
 		}
 	}
 	return 0;
+}
+
+/*
+ * Phase 8 (L_22688 .. L_227ac).  Weights of the merged points.  cl_w becomes the mean zone
+ * weight (rounded), cl_n the zone count scaled by cl_w / (largest cl_w) (rounded; as is when that is
+ * 0), then blended with the count before the scaling, cl_mix : 256 - cl_mix, >> 8.  The
+ * unscaled counts are kept in cn0.  Returns 1 when no point is left (all cl_n 0): the vendor
+ * then continues at L_21d28 (the cand_mode != 1 branch, not ported).
+ */
+static inline int t32_awb_ct_detect_weigh(struct t32_awb *a, struct t32_awb_ctd *d)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u32 mix = par->cl_mix, mx = 0, i;
+
+	for (i = 0; i < 60; i++)
+		if (st->cl_n[i])
+			st->cl_w[i] = (st->cl_w[i] + (st->cl_n[i] >> 1)) / st->cl_n[i];
+	for (i = 0; i < 60; i++)
+		if (st->cl_w[i] && mx < st->cl_w[i])
+			mx = st->cl_w[i];
+	for (i = 0; i < 60; i++) {
+		u32 n = st->cl_n[i];
+
+		d->cn0[i] = n;
+		if (mx && n)
+			st->cl_n[i] = (n * st->cl_w[i] + (mx >> 1)) / mx;
+		st->cl_n[i] = (mix * n + (256 - mix) * st->cl_n[i]) >> 8;
+	}
+	d->maxn = 0;
+	for (i = 0; i < 60; i++)
+		if (st->cl_n[i] && d->maxn < st->cl_n[i])
+			d->maxn = st->cl_n[i];
+	return d->maxn == 0;
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */
