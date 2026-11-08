@@ -51,6 +51,7 @@ u64 tisp_lsc_ct_update(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_lsc_tgain_update(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_ae_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_awb_init(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_awb_set_gain(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_msca_curve_calc(u32 a0, u32 a1, u32 a2, u32 a3);
 extern u32 t32_data_e2768[4], t32_data_e28ac[4];
 extern u8 t32_data_e2898[16];
