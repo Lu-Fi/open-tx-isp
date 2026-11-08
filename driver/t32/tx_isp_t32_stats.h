@@ -17,8 +17,10 @@
  * bin and tparamsP offsets come from its per-section copy, not from a
  * different pointer (the former open question).
  *
- * The AWB part is checked against the vendor flow (Matt Davis' recovered C, PR #15)
- * by tests/t32_oracle (t32_awb_oracle): the vendor tisp_awb_init's writes to the AWB
+ * The AE and AWB parts are checked against the vendor flow (Matt Davis' recovered C,
+ * PR #15) by tests/t32_oracle (t32_ae_oracle, t32_awb_oracle).  AE: the vendor writes one
+ * zone u16 per counted zone into a 16-entry table without a bound; ours stops at 15
+ * (the oracle uses the real range, counts <= 15).  AWB: the vendor tisp_awb_init's writes to the AWB
  * block (0x16xxx) equal t32_awb_stats_init's, including the section fields that
  * tisp_awb_params_refresh rewrites from the sensor size.
  */
