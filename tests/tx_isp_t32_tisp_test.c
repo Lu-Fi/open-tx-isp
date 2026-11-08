@@ -303,7 +303,7 @@ int main(void)
 			CHECK(r == T32_LCE_WRITES);
 			if (wk && cu)
 				vs_vendor("lce", w, r);
-			CHECK(t32_lce_init(lc, 1920, 1080, 0, 0, w) == -1);
+			CHECK(t32_lce_init(lc, 1920, 1080, 0, 0, w) == T32_LCE_WRITES);	/* the vendor's table grid equals the formula */
 		}
 		if (tr_n)
 			printf("tx_isp_t32_tisp_test: %u of %u vendor AddSensor writes covered by this test\n",

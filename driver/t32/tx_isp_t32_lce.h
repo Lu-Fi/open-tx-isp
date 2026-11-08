@@ -18,6 +18,11 @@
  * address registers 0xc090 .. 0xc09c at +0, +0x9900, +0x13200, +0x1cb00)
  * and the curve buffer (0x5a00 bytes, register 0xc0a4); their physical
  * addresses are arguments.
+ *
+ * Refused: section byte +0x1fb set (the gain dependent strength tables are then interpolated
+ * in two dimensions, tisp_lce_tgain_interp_strength; not built) and a grid of 0.
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15) by
+ * tests/t32_oracle (t32_lce_oracle).
  */
 #ifndef TX_ISP_T32_LCE_H
 #define TX_ISP_T32_LCE_H
@@ -105,7 +110,7 @@ static inline int t32_lce_init(const u8 *sec, u32 width, u32 height, u32 work_pa
 	u16 g[15];
 	unsigned int n = 0, i, j;
 
-	if (t32_front_le32(sec) != T32_LCE_ID || sec[0x1fb] || (width == 1920 && height == 1080) ||
+	if (t32_front_le32(sec) != T32_LCE_ID || sec[0x1fb] ||
 	    !c2 || !c5)
 		return -1;
 	n44[0] = v ? c2 + 2 : c2;

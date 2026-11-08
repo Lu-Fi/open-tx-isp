@@ -324,6 +324,30 @@ u32 t32o_reg88;
 /* ---- log ---- */
 struct t32o_log t32o_log;
 
+
+/* ---- LCE init chain (tisp_lce_init) ---- */
+/* rodata 0x2500..0x2570: size tables (bf920 4 B, bf924 16 B, bf934 40 B, bf95c 16 B, bf96c 4 B) and strings (data.c:2667) */
+u32 t32_data_bf920[28] = { 0x3c3c0000, 0x00000e10, 0x00000e10, 0x00000e10, 0x00000e10, 0x00001234, 0x00001234, 0x00001234, 0x00001234, 0x00001234, 0x00001234, 0x00001234, 0x00001234, 0x00001234, 0x00000006, 0x00002469, 0x00002469, 0x00002469, 0x00002469, 0x38383838, 0x70736974, 0x65636c5f, 0x696e695f, 0x00000074, 0x70736974, 0x65636c5f, 0x6c616d5f, 0x5f636f6c };
+__asm__(".globl t32_data_bf924, t32_data_bf934, t32_data_bf95c, t32_data_bf96c, t32_data_bf970, t32_data_bf980\n"
+	".set t32_data_bf924, t32_data_bf920+4\n.set t32_data_bf934, t32_data_bf920+20\n.set t32_data_bf95c, t32_data_bf920+60\n"
+	".set t32_data_bf96c, t32_data_bf920+76\n.set t32_data_bf970, t32_data_bf920+80\n.set t32_data_bf980, t32_data_bf920+96");
+/* rodata.str 0x5f84.. (data.c:12746): printk formats, only handed to isp_printf */
+u32 t32_data_c9694[24] = { 0x5053495b, 0x73255b5d, 0x6425202c, 0x6b203a5d, 0x6c6c616d, 0x6520636f, 0x726f7272, 0x0a212121, 0x00000000, 0x5053495b, 0x73255b5d, 0x6425202c, 0x76203a5d, 0x6c6c616d, 0x6520636f, 0x726f7272, 0x0a212121, 0x00000000, 0x2d2d2d0a, 0x2d2d2d2d, 0x2d2d2d2d, 0x2d2d2d2d, 0x2d2d2d2d, 0x2d2d2d2d };
+__asm__(".globl t32_data_c96b8, t32_data_c96dc\n.set t32_data_c96b8, t32_data_c9694+36\n.set t32_data_c96dc, t32_data_c9694+72");
+/* data 0x8a44 (data.c:25798): size_para_calc tables; d6c65 / d6c67 are bytes inside it */
+u32 t32_data_d6c64[4] = { 0x14140c0b, 0x00000000, 0x00000000, 0x00000080 };
+__asm__(".globl t32_data_d6c65, t32_data_d6c67\n.set t32_data_d6c65, t32_data_d6c64+1\n.set t32_data_d6c67, t32_data_d6c64+3");
+u8 t32_data_e188c[64] __attribute__((aligned(4)));	/* 4 x 3 u16 band table */
+u8 t32_data_e1d74[8];					/* per channel "curve written" flag */
+u8 t32_data_e1d80[64] __attribute__((aligned(4)));	/* 40 B copy of the bf934 table */
+u32 t32_data_e1da8[4];					/* per channel LCE state (0x2850 B) */
+u8 t32_data_e1db8[4 * 36] __attribute__((aligned(4)));	/* per channel buffer set (36 B) */
+void tisp_lce_interrupt_static(void) {}
+void tisp_lsf_interrupt_static(void) {}
+void tisp_lce_par(void) {}
+u64 tisp_event_set_cb(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+u64 private_dma_cache_sync(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+
 /* ---- heap pool for private_vmalloc and the oracle's own buffers ---- */
 static u8 pool[8u << 20] __attribute__((aligned(64)));
 static u32 pool_used;
@@ -358,6 +382,11 @@ void t32o_reset(void)
 	memset(t32_data_dd114, 0, sizeof(t32_data_dd114));
 	memset(t32_data_dc1a4, 0, sizeof(t32_data_dc1a4));
 	memset(t32_data_e1820, 0, sizeof(t32_data_e1820));
+	memset(t32_data_e188c, 0, sizeof(t32_data_e188c));
+	memset(t32_data_e1d74, 0, sizeof(t32_data_e1d74));
+	memset(t32_data_e1d80, 0, sizeof(t32_data_e1d80));
+	memset(t32_data_e1da8, 0, sizeof(t32_data_e1da8));
+	memset(t32_data_e1db8, 0, sizeof(t32_data_e1db8));
 	memset(t32_data_e3110, 0, sizeof(t32_data_e3110));
 	memset(t32_data_e3120, 0, sizeof(t32_data_e3120));
 	memset(t32_data_e3130, 0, sizeof(t32_data_e3130));
