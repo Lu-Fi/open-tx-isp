@@ -50,7 +50,7 @@ analysis, `libimp` ABI work and recovery of tuning data.
 **Completeness** of the vendor API on 2026-11-07 (vendor IMP/SU functions that work, from the "All areas" coverage summary of the OpenIMP feature matrix): T10 304/329 (92.4 %), T20 304/329 (92.4 %), T21 308/333 (92.5 %), T23 419/457 (91.7 %), T30 286/350 (81.7 %), T31 365/406 (89.9 %), T40 349/389 (89.7 %), T41 392/427 (91.8 %). Table: [OpenIMP README, Completeness](https://github.com/Lu-Fi/openimp/blob/next/README.md#completeness).
 
 Per feature and SoC:
-the rendered **[feature matrix](https://lu-fi.github.io/openimp/feature-matrix.html)** (source: [FEATURE_MATRIX](https://github.com/Lu-Fi/openimp/blob/next/docs/FEATURE_MATRIX.md)).
+the **[website](https://lu-fi.github.io/openimp/)** (status per SoC, light-box protocols open vs vendor, trend per camera), the rendered **[feature matrix](https://lu-fi.github.io/openimp/feature-matrix.html)** (source: [FEATURE_MATRIX](https://github.com/Lu-Fi/openimp/blob/next/docs/FEATURE_MATRIX.md)).
 History: [CHANGELOG.md](CHANGELOG.md).
 
 ## T23 module parameters (release candidate defaults)
