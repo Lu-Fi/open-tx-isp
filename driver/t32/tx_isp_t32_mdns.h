@@ -20,6 +20,10 @@
  * the frame compression (the memory ratio is the value * 100 in 1/1000, the
  * driver's isp_memopt), 10 is off; the same value as the ISP memory size
  * uses (tx_isp_t32_mem.h).
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_mdns_oracle).  The vendor divides without a zero
+ * check (t32_mdns_sdiv etc.): ours returns what the MIPS core returns.
  */
 #ifndef TX_ISP_T32_MDNS_H
 #define TX_ISP_T32_MDNS_H
@@ -33,6 +37,39 @@
 #define T32_MDNS_CMP_WRITES	31
 /* cmp setup + func_en 3 + regs + start 2 + trigger + regs + trigger + enable */
 #define T32_MDNS_MAX_WRITES	(T32_MDNS_CMP_WRITES + 3 + T32_MDNS_REG_WRITES + 3 + T32_MDNS_REG_WRITES + 2)
+
+/*
+ * The vendor divides without a zero check.  The MIPS core returns, for a zero
+ * divisor, the quotient 1 (negative dividend) or -1 and the dividend as remainder
+ * (unsigned: -1 and the dividend); C would trap in the kernel.  INT_MIN / -1 gives
+ * INT_MIN with remainder 0.
+ */
+static inline int t32_mdns_sdiv(int a, int b)
+{
+	if (!b)
+		return a < 0 ? 1 : -1;
+	if (b == -1)
+		return (int)(0U - (u32)a);
+	return a / b;
+}
+
+static inline int t32_mdns_srem(int a, int b)
+{
+	if (!b)
+		return a;
+	if (b == -1)
+		return 0;
+	return a % b;
+}
+
+static inline u32 t32_mdns_udiv(u32 a, u32 b)
+{
+	return b ? a / b : 0xffffffffU;
+}
+
+#define T32_MDNS_SDIV(a, b)	t32_mdns_sdiv((int)(a), (int)(b))
+#define T32_MDNS_SREM(a, b)	t32_mdns_srem((int)(a), (int)(b))
+#define T32_MDNS_UDIV(a, b)	t32_mdns_udiv((u32)(a), (u32)(b))
 
 /* { kind (8: u8 -> u8, 16: u16 -> u16, 24: u8 -> u16), table offset in the section, offset in the value block } */
 static const u16 t32_mdns_map[1631][3] = {
@@ -366,7 +403,7 @@ static inline void t32_mdns_eq_dif(struct t32_mdns_eq *e, int p1, int p2, int p3
 		p2 = e->cutval + 1;
 	a = (unsigned int)(p4 - p3) * 0x2000;
 	a = (int)a < 0 ? -a : a;
-	d = (int)a / (p2 - e->cutval);
+	d = T32_MDNS_SDIV((int)a, p2 - e->cutval);
 	step = (0x100 - p1) / 7;
 	e->y[0] = p3;
 	for (k = 1; k < 8; k++)
@@ -400,7 +437,7 @@ static inline void t32_mdns_eq_smp15(struct t32_mdns_eq *e, int p1, int p2, int 
 		p2 = 0xf;
 	for (k = 0; k < 15; k++) {
 		if (p1 < k) {
-			v = (acc - p1 * d) / (p2 - p1) + p3;
+			v = T32_MDNS_SDIV(acc - p1 * d, p2 - p1) + p3;
 			e->grp[k] = (d > 0 ? v < p4 : p4 < v) ? v : p4;
 		} else {
 			e->grp[k] = p3;
@@ -462,16 +499,16 @@ static __attribute__((__noinline__)) void t32_mdns_regs(u8 *sec, const u8 *o, u3
 	T32_FWR(w, n, 0xd100,o[4]);
 	uVar31 = (u32)(u8)o[4];
 	iVar24 = (int)width;
-	iVar21 = (u8)o[5] * uVar31 + iVar24 % (int)uVar31;
+	iVar21 = (u8)o[5] * uVar31 + T32_MDNS_SREM(iVar24, (int)uVar31);
 	iVar23 = (int)height;
 	uVar32 = iVar24 - iVar21;
-	iVar20 = (u8)o[6] * uVar31 + iVar23 % (int)uVar31;
+	iVar20 = (u8)o[6] * uVar31 + T32_MDNS_SREM(iVar23, (int)uVar31);
 	iVar23 = iVar23 - iVar20;
 	T32_FWR(w, n, 0xd104,(iVar20 / 2 & 0xffU) << 8 | iVar21 / 2 & 0xffU);
 	T32_FWR(w, n, 0xd108,uVar32 & 0xffff | iVar23 * 0x10000);
-	T32_FWR(w, n, 0xd10c,(int)uVar32 / (int)uVar31 & 0xffffU | iVar23 / (int)uVar31 << 0x10);
+	T32_FWR(w, n, 0xd10c,T32_MDNS_SDIV((int)uVar32, (int)uVar31) & 0xffffU | T32_MDNS_SDIV(iVar23, (int)uVar31) << 0x10);
 	T32_FWR(w, n, 0xd110, ((u8)o[7] & 3) << 8 | ((u8)o[8] & 3) << 0x10 |
-			(uVar31 + 0x800) / (uVar31 << 1) & 0xff);
+			T32_MDNS_UDIV(uVar31 + 0x800, uVar31 << 1) & 0xff);
 	T32_FWR(w, n, 0xd114, (u32)(u8)o[3] << 0x18 | (u32)(u8)o[1] | ((u8)o[0x1b] & 1) << 0x17);
 	T32_FWR(w, n, 0xd118, (u32)(u8)o[0xd] << 0x18 | (u32)(u8)o[10] | ((u8)o[0xe] & 1) << 0x17);
 	T32_FWR(w, n, 0xd11c, (u32)(u8)o[0x19] << 0x18 | (u32)(u8)o[0x16] |
@@ -507,7 +544,7 @@ static __attribute__((__noinline__)) void t32_mdns_regs(u8 *sec, const u8 *o, u3
 			(uVar31 & 0xff) << 0x10);
 	T32_FWR(w, n, 0xd13c, ((u8)o[0x1e] & 0xf) << 0x10 | ((u8)o[0x1f] & 7) << 0x14 |
 			(u32)t32_tp_le16(o + 0x1c));
-	T32_FWR(w, n, 0xd140,o[0x18] << 4 | o[0xc] & 0xf);
+	T32_FWR(w, n, 0xd140, (o[0x18] & 0xfU) << 4 | (o[0xc] & 0xfU));
 	T32_FWR(w, n, 0xd144,o[2]);
 	T32_FWR(w, n, 0xd148,(u32)(u8)o[0x17] << 0x10 | (u32)(u8)o[0xb]);
 	T32_FWR(w, n, 0xd14c,(u32)(u8)o[0x49] << 0x10 | 0xff00);
@@ -792,9 +829,9 @@ static __attribute__((__noinline__)) void t32_mdns_regs(u8 *sec, const u8 *o, u3
 			(u32)(u8)o[0x78]);
 	T32_FWR(w, n, 0xd2a4,t32_front_le32(o + 0x7b));
 	T32_FWR(w, n, 0xd2a8, uVar27 << 8 | uVar32 |
-			(0x400 / (int)(uVar27 - uVar32) & 0xffU) << 0x10);
+			(T32_MDNS_SDIV(0x400, (int)(uVar27 - uVar32)) & 0xffU) << 0x10);
 	T32_FWR(w, n, 0xd2ac, uVar28 << 8 | uVar31 |
-			(0x400 / (int)(uVar28 - uVar31) & 0xffU) << 0x10);
+			(T32_MDNS_SDIV(0x400, (int)(uVar28 - uVar31)) & 0xffU) << 0x10);
 	T32_FWR(w, n, 0xd2b0,t32_front_le32(o + 0x83));
 	T32_FWR(w, n, 0xd364, ((u8)o[0x90] & 3) << 4 | ((u8)o[0x91] & 3) << 8 | (u8)o[0x8f] & 3 |
 			((u8)o[0x92] & 3) << 0xc);
@@ -1032,14 +1069,14 @@ static __attribute__((__noinline__)) void t32_mdns_regs(u8 *sec, const u8 *o, u3
 	if (uVar13 < 2) {
 		uVar33 = 0x2000;
 	} else {
-		uVar33 = (u16)(((uVar13 >> 1) + 0x2000) / (u32)uVar13);
+		uVar33 = (u16)(T32_MDNS_UDIV((uVar13 >> 1) + 0x2000, (u32)uVar13));
 	}
 	t32_tp_put16(sec + 0xb4, uVar33);
 	uVar13 = t32_tp_le16(o + 0x1e8);
 	if (uVar13 < 2) {
 		uVar33 = 0x2000;
 	} else {
-		uVar33 = (u16)(((uVar13 >> 1) + 0x2000) / (u32)uVar13);
+		uVar33 = (u16)(T32_MDNS_UDIV((uVar13 >> 1) + 0x2000, (u32)uVar13));
 	}
 	t32_tp_put16(sec + 0xb6, uVar33);
 	T32_FWR(w, n, 0xd66c, (t32_tp_le16(sec + 0xb6) & 0x3fff) << 0x10 |
@@ -1415,7 +1452,7 @@ static __attribute__((__noinline__)) void t32_mdns_regs(u8 *sec, const u8 *o, u3
 	T32_FWR(w, n, 0xd96c, (sec[0x2c86] & 0xf) << 8 | (sec[0x2c87] & 0xf) << 0xc |
 			(u32)(u8)o[0x42f] | (sec[0x2c88] & 0xf) << 0x10 |
 			(sec[0x2c89] & 0xf) << 0x14 | (sec[0x2c8a] & 0xf) << 0x18);
-	T32_FWR(w, n, 0xd970,((s8)sec[0x2c8c]) << 4 | sec[0x2c8b] & 0xf);
+	T32_FWR(w, n, 0xd970, (sec[0x2c8c] & 0xfU) << 4 | (sec[0x2c8b] & 0xfU));
 	T32_FWR(w, n, 0xd978, (u32)(u8)o[0x431] << 8 | (u32)(u8)o[0x432] << 0x10 |
 			(u32)(u8)o[0x430]);
 	T32_FWR(w, n, 0xd97c, (u32)(u8)o[0x434] << 8 | (u32)(u8)o[0x435] << 0x10 |
@@ -1443,14 +1480,14 @@ static __attribute__((__noinline__)) void t32_mdns_regs(u8 *sec, const u8 *o, u3
 	if (uVar13 < 2) {
 		uVar33 = 0x2000;
 	} else {
-		uVar33 = (u16)(((uVar13 >> 1) + 0x2000) / (u32)uVar13);
+		uVar33 = (u16)(T32_MDNS_UDIV((uVar13 >> 1) + 0x2000, (u32)uVar13));
 	}
 	t32_tp_put16(sec + 0x1ec0, uVar33);
 	uVar13 = t32_tp_le16(o + 0x44c);
 	if (uVar13 < 2) {
 		uVar33 = 0x2000;
 	} else {
-		uVar33 = (u16)(((uVar13 >> 1) + 0x2000) / (u32)uVar13);
+		uVar33 = (u16)(T32_MDNS_UDIV((uVar13 >> 1) + 0x2000, (u32)uVar13));
 	}
 	t32_tp_put16(sec + 0x1ec2, uVar33);
 	T32_FWR(w, n, 0xd9a8, (t32_tp_le16(sec + 0x1ec2) & 0x3fff) << 0x10 |
@@ -1896,8 +1933,8 @@ static inline void t32_mdns_cmp(u32 width, u32 height, u32 ratio_k, struct t32_f
 	u32 r30, r34, r3c, r40, r44, r48, r4c, r50, r54;
 	int bVar1;
 
-	r30 = (u32)((int)((0x5dc00 / uVar9) * iVar2 + 0x3f) / 0x40);
-	uVar5 = 0x2000 - (width * 16000) / uVar9;
+	r30 = (u32)((int)(T32_MDNS_UDIV(0x5dc00, uVar9) * iVar2 + 0x3f) / 0x40);
+	uVar5 = 0x2000 - T32_MDNS_UDIV(width * 16000, uVar9);
 	r34 = (height - 1) << 16 | (width - 1U);
 	if ((int)uVar5 < 0xc00) {
 		if (0x4b0 < uVar9) {
@@ -1910,8 +1947,8 @@ static inline void t32_mdns_cmp(u32 width, u32 height, u32 ratio_k, struct t32_f
 		if (!bVar1)
 			uVar8 = uVar5;
 	}
-	iVar10 = (int)(0x2000 - uVar8) / iVar2;
-	uVar5 = 0x5dc00 / uVar9 - iVar10;
+	iVar10 = T32_MDNS_SDIV((int)(0x2000 - uVar8), iVar2);
+	uVar5 = T32_MDNS_UDIV(0x5dc00, uVar9) - iVar10;
 	if ((int)uVar5 < 100)
 		uVar5 = 100;
 	uVar4 = (int)uVar5 < 0x181 ? uVar5 : 0x180;
@@ -1926,7 +1963,7 @@ static inline void t32_mdns_cmp(u32 width, u32 height, u32 ratio_k, struct t32_f
 	iVar10 = (0x2000 - uVar8) - iVar2 * iVar10;
 	if (iVar10 < 1)
 		iVar10 = 1;
-	uVar11 = (u32)(iVar2 / iVar10);
+	uVar11 = (u32)T32_MDNS_SDIV(iVar2, iVar10);
 	uVar5 = 0xff;
 	if ((int)uVar11 < 0xff) {
 		uVar5 = 1;

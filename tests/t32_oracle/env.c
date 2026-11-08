@@ -60,6 +60,36 @@ u32 t32_data_e23c0[4];
 u32 t32_data_e23d0[4];	/* CDNS context per channel */
 u8 t32_data_e23e0[64];	/* CDNS value block */	/* YDNS context per channel */
 
+/* MDNS state (.bss): the vendor's neighbouring objects are kept as one block each, the other symbols are offsets into it */
+u8 t32_data_e2150[0x180] __attribute__((aligned(16)));
+u8 t32_data_e22c8[0x200] __attribute__((aligned(16)));
+u8 t32_data_e4100[0x10000] __attribute__((aligned(16)));
+u8 t32_data_f0900[0x10000] __attribute__((aligned(16)));
+u32 t32_data_dc074[8];
+char t32_data_bfb4c[4] = "f", t32_data_c9c80[4] = "f", t32_data_c9cb4[4] = "f", t32_data_c9cf4[4] = "f";
+__asm__(".globl t32_data_e2154\n.set t32_data_e2154, t32_data_e2150 + 0x4");
+__asm__(".globl t32_data_e2158\n.set t32_data_e2158, t32_data_e2150 + 0x8");
+__asm__(".globl t32_data_e215c\n.set t32_data_e215c, t32_data_e2150 + 0xc");
+__asm__(".globl t32_data_e2160\n.set t32_data_e2160, t32_data_e2150 + 0x10");
+__asm__(".globl t32_data_e2164\n.set t32_data_e2164, t32_data_e2150 + 0x14");
+__asm__(".globl t32_data_e2168\n.set t32_data_e2168, t32_data_e2150 + 0x18");
+__asm__(".globl t32_data_e216c\n.set t32_data_e216c, t32_data_e2150 + 0x1c");
+__asm__(".globl t32_data_e2170\n.set t32_data_e2170, t32_data_e2150 + 0x20");
+__asm__(".globl t32_data_e2174\n.set t32_data_e2174, t32_data_e2150 + 0x24");
+__asm__(".globl t32_data_e2178\n.set t32_data_e2178, t32_data_e2150 + 0x28");
+__asm__(".globl t32_data_e217c\n.set t32_data_e217c, t32_data_e2150 + 0x2c");
+__asm__(".globl t32_data_e2180\n.set t32_data_e2180, t32_data_e2150 + 0x30");
+__asm__(".globl t32_data_e2184\n.set t32_data_e2184, t32_data_e2150 + 0x34");
+__asm__(".globl t32_data_e2188\n.set t32_data_e2188, t32_data_e2150 + 0x38");
+__asm__(".globl t32_data_e218c\n.set t32_data_e218c, t32_data_e2150 + 0x3c");
+__asm__(".globl t32_data_e2190\n.set t32_data_e2190, t32_data_e2150 + 0x40");
+__asm__(".globl t32_data_e2194\n.set t32_data_e2194, t32_data_e2150 + 0x44");
+__asm__(".globl t32_data_e22d8\n.set t32_data_e22d8, t32_data_e22c8 + 0x10");
+__asm__(".globl t32_data_e2304\n.set t32_data_e2304, t32_data_e22c8 + 0x3c");
+__asm__(".globl t32_data_e2330\n.set t32_data_e2330, t32_data_e22c8 + 0x68");
+__asm__(".globl t32_data_e235c\n.set t32_data_e235c, t32_data_e22c8 + 0x94");
+__asm__(".globl t32_data_e2388\n.set t32_data_e2388, t32_data_e22c8 + 0xc0");
+
 /* ---- .data objects ---- */
 /* CSC / CSCCR: mode tables (92 B x 6 for CSC, 12 B x 3 for CSCCR) and defaults */
 /* data.c:26937 (92 B) */
@@ -211,6 +241,11 @@ void t32o_reset(void)
 	memset(t32_data_e2450, 0, sizeof(t32_data_e2450));
 	memset(t32_data_e2460, 0, sizeof(t32_data_e2460));
 	memset(t32_data_e24d0, 0, sizeof(t32_data_e24d0));
+	memset(t32_data_e2150, 0, sizeof(t32_data_e2150));
+	memset(t32_data_e22c8, 0, sizeof(t32_data_e22c8));
+	memset(t32_data_e4100, 0, sizeof(t32_data_e4100));
+	memset(t32_data_f0900, 0, sizeof(t32_data_f0900));
+	memset(t32_data_dc074, 0, sizeof(t32_data_dc074));
 	memset(t32_data_e23c0, 0, sizeof(t32_data_e23c0));
 	memset(t32_data_e35f0, 0, sizeof(t32_data_e35f0));
 	memset(t32_data_e17c0, 0, sizeof(t32_data_e17c0));
@@ -268,6 +303,21 @@ u64 __private_spin_lock_irqsave(u32 a0, u32 a1, u32 a2, u32 a3)
 }
 
 u64 private_spin_unlock_irqrestore(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a0; (void)a1; (void)a2; (void)a3;
+	return 0;
+}
+
+u8 t32_small_bss[64] __attribute__((aligned(16)));
+
+u64 printk(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a0; (void)a1; (void)a2; (void)a3;
+	t32o_log.printfs++;
+	return 0;
+}
+
+u64 private_raw_mutex_init(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a0; (void)a1; (void)a2; (void)a3;
 	return 0;
