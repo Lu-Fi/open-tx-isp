@@ -1611,6 +1611,8 @@ int apical_isp_day_or_night_s_ctrl_internal(struct tx_isp_core_device *core)
 	LookupTable** table = NULL;
 	TXispPrivCustomerParamer *customer = NULL;
 	unsigned int tmp_top = 0;
+	unsigned int top_set = 0, top_clr = 0, top_or = 0;
+	unsigned long top_flags;
 	apical_api_control_t api;
 	unsigned int reason = 0;
 	unsigned int status = 0;
@@ -1652,9 +1654,14 @@ int apical_isp_day_or_night_s_ctrl_internal(struct tx_isp_core_device *core)
 			/* tmp_top |= param->customer[TX_ISP_PRIV_PARAM_DAY_MODE].top; */
 		}
 		if(table && customer){
-			tmp_top = (tmp_top | 0x0c02da6c) & (~(customer->top));
+			/* #244: only the mask bits are applied, to a fresh read of 0x40
+			 * at the write below: the ~400 calibration writes in between
+			 * can race with channel set_fmt/crop clearing the DS1 CSC/crop
+			 * bypass bits, and a stale tmp_top would set them again. */
+			top_set = 0x0c02da6c;
+			top_clr = customer->top;
 			if(TX_ISP_EXIST_FR_CHANNEL == 0)
-				tmp_top |= 0x00fc0000;
+				top_or = 0x00fc0000;
 			/* dynamic calibration */
 			apical_api_calibration(CALIBRATION_NP_LUT_MEAN,COMMAND_SET, table[_CALIBRATION_NP_LUT_MEAN]->ptr,
 					       table[_CALIBRATION_NP_LUT_MEAN]->rows * table[_CALIBRATION_NP_LUT_MEAN]->cols
@@ -2053,6 +2060,8 @@ int apical_isp_day_or_night_s_ctrl_internal(struct tx_isp_core_device *core)
 			stab.global_minimum_iridix_strength = *(uint8_t *)(table[_CALIBRATION_IRIDIX_MIN_MAX_STR]->ptr);
 			apical_isp_nr_reapply(table);
 
+			spin_lock_irqsave(&t20_isp_top_lock, top_flags);
+			tmp_top = ((APICAL_READ_32(0x40) | top_set) & ~top_clr) | top_or;
 			APICAL_WRITE_32(0x40, tmp_top);
 			/* if it is T20,the FR is corresponding to DS2 in bin file. */
 			if (customer->top & (1 << 19)){
@@ -2098,6 +2107,7 @@ int apical_isp_day_or_night_s_ctrl_internal(struct tx_isp_core_device *core)
 				apical_isp_ds1_sharpen_enable_write(1);
 			else
 				apical_isp_ds1_sharpen_enable_write(0);
+			spin_unlock_irqrestore(&t20_isp_top_lock, top_flags);
 		}
 		ctrls->daynight = dn;
 		t2x_csc_reapply(core);

@@ -151,4 +151,8 @@ struct tx_isp_core_device {
 #define sd_to_tx_isp_core_device(x) (container_of((x), struct tx_isp_core_device, sd))
 int register_tx_isp_core_device(struct platform_device *pdev, struct v4l2_device *v4l2_dev);
 void release_tx_isp_core_device(struct v4l2_subdev *sd);
+/* Serialises read-modify-writes of ISP top 0x40/0x44 (bypass bits): the
+ * day/night work, channel format/crop setup and the frame-end IRQ (mirror)
+ * all update single bits of the same registers (openimp #244). */
+extern spinlock_t t20_isp_top_lock;
 #endif /* __TX_ISP_CORE_H__  */
