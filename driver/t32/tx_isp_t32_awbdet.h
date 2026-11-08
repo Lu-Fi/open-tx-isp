@@ -33,6 +33,8 @@
  * around it until it stops moving (t32_awb_ct_detect_refine).
  * Phase 6 (L_22184 .. L_22468): candidate points within a radius of the best one are merged
  * into a weighted mean, slot by slot (t32_awb_ct_detect_cluster).
+ * Phase 7 (L_22468 .. L_22688): count and weigh the zones around each merged point
+ * (t32_awb_ct_detect_zonesum).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -56,6 +58,8 @@ struct t32_awb_ctd {
 	u32 prod[32];		/* t32_data_db690: products of one row (phase 3) */
 	u32 tx[60], ty[60], tn[60], tidx[60];	/* t32_data_db5a0 / db4b0 / db3c0 / db2d0: the non-empty candidate points (phase 6) */
 	u32 m;			/* number of valid entries of those four */
+	u32 zx[32], zy[32], zw[32];	/* t32_data_db250 / db1d0 / db150: the zones of a row with a gw_map weight (phase 7) */
+	u32 m2;			/* number of valid entries of those three */
 };
 
 /*
@@ -530,6 +534,59 @@ static inline void t32_awb_ct_detect_cluster(struct t32_awb *a, struct t32_awb_c
 		st->cl_x[k] = (sx + (sn >> 1)) / sn;
 		st->cl_y[k] = (sy + (sn >> 1)) / sn;
 	}
+}
+
+/*
+ * Phase 7 (L_22468 .. L_22688, MXU2 in the vendor).  For every merged point (cl_x and cl_y both
+ * non-zero): over the rows of the zone grid the zones with a non-zero gw_map weight (zx, zy, zw:
+ * the zone statistics and the weight) are taken, and those whose statistics, rounded and in axis
+ * units, lie within zr2 (squared) of the point are counted into cl_n (which restarts at 0) and
+ * their weights summed into cl_w.  Returns -1 for a grid over 32.
+ */
+static inline int t32_awb_ct_detect_zonesum(struct t32_awb *a, struct t32_awb_ctd *d)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u32 os = par->out_shift & 31, half = 1u << ((par->out_shift - 1) & 31);
+	u32 rows = par->zones_h, cols = par->zones_w;
+	u32 k, row, col, j;
+
+	if (rows > 32 || cols > 32)
+		return -1;
+	d->m2 = 0;
+	for (k = 0; k < 60; k++) {
+		if (!st->cl_x[k] || !st->cl_y[k])
+			continue;
+		st->cl_n[k] = 0;
+		st->cl_w[k] = 0;
+		for (row = 0; row < rows; row++) {
+			u32 n = 0, cnt = 0, sw = 0;
+
+			for (col = 0; col < cols; col++) {
+				u32 z = row * 32 + col;
+
+				if (!st->gw_map[z])
+					continue;
+				d->zx[n] = st->zstat[0][0][z];
+				d->zy[n] = st->zstat[0][1][z];
+				d->zw[n] = st->gw_map[z];
+				n++;
+			}
+			d->m2 = n;
+			for (j = 0; j < n; j++) {
+				u32 dy = t32_awb_absdiff(st->cl_y[k], (u32)((int)(half + d->zy[j]) >> os));
+				u32 dx = t32_awb_absdiff(st->cl_x[k], (u32)((int)(half + d->zx[j]) >> os));
+
+				if (dy * dy + dx * dx <= par->zr2) {
+					cnt++;
+					sw += d->zw[j];
+				}
+			}
+			st->cl_n[k] += cnt;
+			st->cl_w[k] += sw;
+		}
+	}
+	return 0;
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */
