@@ -113,6 +113,51 @@ static int run_case(const char *what, const u8 *blk, u32 n1, u32 n2, u32 w_, u32
 			printf("MISMATCH %s: cell count %u, vendor wrote more\n", what, ocount);
 		return 1;
 	}
+	if (getenv("T32O_DIAG") && bad && bad < ocount) {
+		unsigned int shown = 0;
+
+		printf("  differing cells:");
+		for (i = 0; i < ocount && shown < 24; i++) {
+			u32 ow[3];
+
+			t32_lsc_cell(blk, &s, i, ow);
+			if (ow[0] != sh[20 + 3 * i] || ow[1] != sh[21 + 3 * i] || ow[2] != sh[22 + 3 * i]) {
+				printf(" %u", i);
+				shown++;
+			}
+		}
+		printf("  (cols %u rows %u)\n", s.cols, s.rows);
+		{
+			u32 ow[3], c0 = 0, k;
+
+			t32_lsc_cell(blk, &s, c0, ow);
+			printf("  cell 0 ours %08x %08x %08x vendor %08x %08x %08x; raw lo/hi:", ow[0], ow[1], ow[2], sh[20], sh[21], sh[22]);
+			for (k = 0; k < 6; k++) {
+				u32 o = (k / 2) * T32_LSC_PLANE + c0 * 4 + (k & 1) * 2;
+
+				printf(" %04x/%04x", t32_le16(blk + T32_LSC_TABLES + s.table_lo * T32_LSC_TABLE_STRIDE + 2 + o), t32_le16(blk + T32_LSC_TABLES + s.table_hi * T32_LSC_TABLE_STRIDE + 2 + o));
+			}
+			printf("\n");
+			for (c0 = 0; c0 < ocount && c0 < 60; c0++) {
+				u32 j, found = 9999;
+
+				for (j = 0; j < 1152; j++) {
+					struct t32_lsc t3 = s;
+					u32 w3[3];
+					const u8 *save = blk;
+
+					/* cell j of the same tables */
+					t32_lsc_cell(save, &t3, j, w3);
+					if (w3[0] == sh[20 + 3 * c0] && w3[1] == sh[21 + 3 * c0] && w3[2] == sh[22 + 3 * c0]) {
+						found = j;
+						break;
+					}
+				}
+				printf(" %u->%d", c0, found == 9999 ? -1 : (int)found);
+			}
+			printf("\n");
+		}
+	}
 	if (getenv("T32O_DIAG") && bad)
 		printf("DIAG %s %ux%u bay %u: %u of %u cells differ (tables %u/%u, weight %u)\n", what, w_, h_, bayer, bad, ocount,
 		       s.table_lo, s.table_hi, s.fraction);

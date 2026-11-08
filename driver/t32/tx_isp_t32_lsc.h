@@ -25,10 +25,10 @@
  * Checked against the vendor flow (Matt Davis' recovered C, PR #15) by tests/t32_oracle
  * (t32_lsc_oracle): the enable, the 13 control registers, the port select and the cell
  * count (t32_lsc_cell_count) are bit-exact for all 67 bins at three sizes and random
- * sections.  The mesh words: the vendor blends the two tables whose colour temperature tags
- * enclose ct (not by the breakpoints), with a Q12 weight; that reproduces about 80 % of the
- * values; the rest comes from tisp_lsc_mesh_itp (per-plane shifts) and the hysteresis path of
- * tisp_lsc_interp_by_ct, still open (oracle: T32O_WORDS=1 makes them fail, T32O_DIAG=1 lists).
+ * sections.  The mesh words: the table choice and blend follow tisp_lsc_interp_by_ct and
+ * tisp_lsc_mesh_itp (tags, hysteresis, Q12 weight, 16-bit elements); they are equal for the
+ * cells the vendor's radial correction (section byte 65 clear) and the ring path (byte 65
+ * set: 1154-byte planes of the first payload) do not touch.  Open, see T32O_WORDS=1 / T32O_DIAG=1.
  */
 #ifndef TX_ISP_T32_LSC_H
 #define TX_ISP_T32_LSC_H
@@ -69,6 +69,7 @@ struct t32_lsc {
 	u8 rows, cols;
 	u8 zone;		/* far corner distance class 0..4 */
 	u8 flags[6];		/* p[69..74] */
+	u8 none;		/* no table applies: the vendor's buffer stays zero */
 	u16 inv_main, inv_wdr;	/* 1024 / (p[115] - p[114]), 1024 / (p[64] - p[63]) */
 	u8 strength, strength_wdr;
 	unsigned int table_lo, table_hi, fraction;	/* CT choice (fraction Q12) */
@@ -151,28 +152,60 @@ static inline void t32_lsc_gain(const u8 *p, struct t32_lsc *s, u32 gain)
 }
 
 /*
- * table(s) for the colour temperature: each of the three mesh tables starts with the
- * colour temperature it was measured at (u16 tag).  Below the first tag the first table
- * is used, above the last one the last, in between the two tables whose tags enclose
- * ct are blended with the weight (ct - tag_lo) / (tag_hi - tag_lo) in Q12.
+ * table(s) for the colour temperature (tisp_lsc_interp_by_ct, forced update, section byte
+ * p[116] = number of tables, at most three): each mesh table starts with the colour
+ * temperature it was measured at (u16 tag).  The hysteresis h is the u16 at p[48], lowered
+ * to a quarter of the smallest tag distance when that is smaller.  Then
+ *  - ct <= tag[0] + h: the first table; ct >= tag[last] - h: the last table;
+ *  - otherwise the tag pairs are walked: ct within h of the upper tag of a pair: that
+ *    table; between tag_lo + h and tag_hi - h: the pair is blended with the weight
+ *    (ct - (tag_lo + h)) / ((tag_hi - h) - (tag_lo + h)) in Q12 (a later pair replaces an
+ *    earlier one); if no pair applies the vendor leaves its buffer untouched (zero).
  */
 static inline void t32_lsc_ct(const u8 *p, struct t32_lsc *s, u32 ct)
 {
-	u32 tag[T32_LSC_NTABLES], k;
+	u32 tag[T32_LSC_NTABLES], k, n = p[116], h = t32_le16(p + 48), md = 0x10000;
 
-	for (k = 0; k < T32_LSC_NTABLES; k++)
+	if (n < 1)
+		n = 1;
+	if (n > T32_LSC_NTABLES)
+		n = T32_LSC_NTABLES;
+	for (k = 0; k < n; k++)
 		tag[k] = t32_le16(p + T32_LSC_TABLES + k * T32_LSC_TABLE_STRIDE);
-	s->table_lo = s->table_hi = 0;
+	for (k = 1; k < n; k++) {
+		u32 d = tag[k] - tag[k - 1];
+
+		if (d < md)
+			md = d;
+		if (md < (h << 2))
+			h = md >> 2;
+	}
+	s->none = 0;
 	s->fraction = 0;
-	if (ct > tag[0]) {
-		s->table_lo = s->table_hi = T32_LSC_NTABLES - 1;
-		for (k = 1; k < T32_LSC_NTABLES; k++)
-			if (ct < tag[k]) {
+	s->table_lo = s->table_hi = 0;
+	if (!(tag[0] + h < ct)) {
+		/* first table */
+	} else if (!(ct < tag[n - 1] - h)) {
+		s->table_lo = s->table_hi = n - 1;
+	} else {
+		s->none = 1;
+		for (k = 1; k < n; k++) {
+			u32 hi = tag[k] - h, lo = tag[k - 1] + h;
+
+			if (ct < hi) {
+				if (!(lo < ct))
+					continue;
+				s->none = 0;
 				s->table_lo = k - 1;
 				s->table_hi = k;
-				s->fraction = ((ct - tag[k - 1]) << 12) / (tag[k] - tag[k - 1]);
+				s->fraction = ((ct - lo) << 12) / (hi - lo);
+			} else if (!(tag[k] + h < ct)) {
+				s->none = 0;
+				s->table_lo = s->table_hi = k;
+				s->fraction = 0;
 				break;
 			}
+		}
 	}
 	s->flags[0] = p[69];
 	s->flags[1] = p[70];
@@ -217,7 +250,11 @@ static inline u32 t32_lsc_cell_count(const u8 *p, const struct t32_lsc *s, u32 b
 	return s->cells;
 }
 
-/* the mesh words of one cell: the 6 values (12 bit) of the chosen table, blended when two are chosen */
+/*
+ * the mesh words of one cell: the 6 values of the chosen table (16-bit elements, 12 bits
+ * packed), the two tables blended element by element when a pair is chosen
+ * (tisp_lsc_mesh_itp: a + ((b - a) * w >> 12)).
+ */
 static inline void t32_lsc_cell(const u8 *p, const struct t32_lsc *s, unsigned int i, u32 w[3])
 {
 	const u8 *pa = p + T32_LSC_TABLES + s->table_lo * T32_LSC_TABLE_STRIDE + 2;
@@ -226,9 +263,14 @@ static inline void t32_lsc_cell(const u8 *p, const struct t32_lsc *s, unsigned i
 
 	for (k = 0; k < 6; k++) {
 		u32 o = (k / 2) * T32_LSC_PLANE + i * 4 + (k & 1) * 2;
-		int a = (int)(t32_le16(pa + o) & 4095), b = (int)(t32_le16(pb + o) & 4095);
+		u32 a = t32_le16(pa + o), b = t32_le16(pb + o);
 
-		v[k] = (u32)(a + (((b - a) * (int)s->fraction) >> 12)) & 4095;
+		if (s->none)
+			v[k] = 0;
+		else if (s->table_lo == s->table_hi)
+			v[k] = a & 4095;
+		else
+			v[k] = (a + (((b - a) * s->fraction) >> 12)) & 4095;
 	}
 	w[0] = v[0] | v[1] << 12 | v[2] << 24;
 	w[1] = (v[2] >> 8) | v[3] << 4 | v[4] << 16 | v[5] << 28;

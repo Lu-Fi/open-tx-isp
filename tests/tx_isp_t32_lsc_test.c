@@ -51,6 +51,7 @@ static void synthetic(void)
 	CHECK(s.inv_main == 256 && s.inv_wdr == 1023 && s.zone == 4);
 	p[66] = p[67] = 16;	/* 16x16 cells: too many cells */
 	CHECK(t32_lsc_geometry(p, &s, 3840, 2160) == -1);
+	p[116] = 3;		/* three tables, hysteresis p[48] = 0 */
 	/* the three mesh tables carry their colour temperature (2850, 3850, 6200 K) as a u16 tag */
 	p[T32_LSC_TABLES + 0 * T32_LSC_TABLE_STRIDE] = 2850 & 255; p[T32_LSC_TABLES + 0 * T32_LSC_TABLE_STRIDE + 1] = 2850 >> 8;
 	p[T32_LSC_TABLES + 1 * T32_LSC_TABLE_STRIDE] = 3850 & 255; p[T32_LSC_TABLES + 1 * T32_LSC_TABLE_STRIDE + 1] = 3850 >> 8;
@@ -58,7 +59,13 @@ static void synthetic(void)
 	t32_lsc_ct(p, &s, 2000);
 	CHECK(s.table_lo == 0 && s.table_hi == 0);
 	t32_lsc_ct(p, &s, 3850);
-	CHECK(s.table_lo == 1 && s.table_hi == 2 && s.fraction == 0);
+	CHECK(s.table_lo == 1 && s.table_hi == 1 && s.fraction == 0);
+	p[48] = 20;		/* hysteresis 20 K (below a quarter of the smallest tag distance): 3850 +- 20 sticks to table 1 */
+	t32_lsc_ct(p, &s, 3860);
+	CHECK(s.table_lo == 1 && s.table_hi == 1 && !s.none);
+	t32_lsc_ct(p, &s, 5000);
+	CHECK(s.table_lo == 1 && s.table_hi == 2 && s.fraction == ((5000 - 3870) << 12) / ((6200 - 20) - (3850 + 20)));
+	p[48] = 0;
 	t32_lsc_ct(p, &s, 5000);
 	CHECK(s.table_lo == 1 && s.table_hi == 2 && s.fraction == ((5000 - 3850) << 12) / (6200 - 3850));
 	t32_lsc_ct(p, &s, 7000);
