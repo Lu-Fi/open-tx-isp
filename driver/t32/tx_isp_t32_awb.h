@@ -8,6 +8,7 @@
  *   t32_awb_set_gain        tisp_awb_set_gain 0x3c514 (with tisp_awb_gain_reg
  *                           0x3c4e0 and the fixed point helper fix_point_mult2_32
  *                           0x1db58)
+ *   t32_awb_sat_weight      tisp_awb_sat_weight 0x3d6f4
  *
  * Every leaf is checked against the vendor flow (Matt Davis' recovered C, PR #15)
  * by its own oracle in tests/t32_oracle (t32_awbg_oracle for set_gain).
@@ -39,7 +40,8 @@
 /* IQ section 2, the vendor's "par" (offsets in the section) */
 struct t32_awb_par {
 	union {
-		u8 raw[3310];
+		u8 raw[3440];
+		T32_AWB_AT(4, u32 sat_thr);		/* zones above this reference value are weighted */
 		T32_AWB_AT(24, u32 wb_r);	/* measured red balance, scaled by cal_r */
 		T32_AWB_AT(28, u32 wb_b);	/* measured blue balance, scaled by cal_b */
 		T32_AWB_AT(44, u32 ct);		/* current colour temperature */
@@ -50,8 +52,11 @@ struct t32_awb_par {
 		T32_AWB_AT(3080, u32 cold_off[2]);	/* ... for ct <= ct_lo */
 		T32_AWB_AT(3088, u32 ct_lo);
 		T32_AWB_AT(3092, u32 ct_hi);
+		T32_AWB_AT(3186, u16 zones_h);		/* statistics zone grid: rows ... */
+		T32_AWB_AT(3190, u16 zones_w);		/* ... and columns (32 per row in the tables) */
 		T32_AWB_AT(3306, u16 fp_shift);		/* fixed point shift of the calibration product */
 		T32_AWB_AT(3308, u16 out_shift);	/* shift between the product and the gain */
+		T32_AWB_AT(3438, u16 sat_mode);		/* 1: weight by the larger zone value, else by the mean */
 	};
 };
 
@@ -100,6 +105,10 @@ struct t32_awb {
 
 #define T32_AWB_CHK(type, member, off) \
 	_Static_assert(offsetof(type, member) == (off), #type "." #member " offset")
+T32_AWB_CHK(struct t32_awb_par, sat_thr, 4);
+T32_AWB_CHK(struct t32_awb_par, zones_h, 3186);
+T32_AWB_CHK(struct t32_awb_par, zones_w, 3190);
+T32_AWB_CHK(struct t32_awb_par, sat_mode, 3438);
 T32_AWB_CHK(struct t32_awb_par, wb_r, 24);
 T32_AWB_CHK(struct t32_awb_par, wb_b, 28);
 T32_AWB_CHK(struct t32_awb_par, ct, 44);
@@ -252,6 +261,60 @@ static inline unsigned int t32_awb_set_gain(struct t32_awb *a, struct t32_stats_
 	}
 	st->update = 0;
 	return n;
+}
+
+/*
+ * tisp_awb_sat_weight (0x3d6f4): per statistics zone weight, a 16.fp ratio.
+ * Zones are numbered row * 32 + column (16 bit wrap as in the vendor).  For a zone
+ * with limit[z] == 0, or with ref[z] not above par->sat_thr, the weight is 1.
+ * Otherwise p = stat_a[z] * gain[0] >> fp_shift and q = stat_b[z] * gain[1] >>
+ * fp_shift, s = min(p, q, limit[z]); s == 0 gives weight 1, else
+ *   weight = (s << fp_shift) / d,  d = max(p, q, limit[z])        (sat_mode 1)
+ *                                  d = (p + q + limit[z]) / 3     (otherwise)
+ * A zero divisor gives 0xffffffff (the vendor's DIVU result as recovered; assumption
+ * of the recovered C, the manual leaves it undefined).
+ */
+static inline u32 t32_awb_udiv(u32 a, u32 b)
+{
+	return b ? a / b : 0xffffffffU;
+}
+
+static inline void t32_awb_sat_weight(const struct t32_awb_par *par, const u32 *stat_a, const u32 *limit,
+				      const u32 *stat_b, const u32 *ref, u32 *weight, const u32 gain[2])
+{
+	u32 sh = par->fp_shift & 31;
+	u32 row, col;
+	u16 row_first = 0, z;
+
+	for (row = 0; row < par->zones_h; row++) {
+		z = row_first;
+		for (col = 0; col < par->zones_w; col++, z++) {
+			u32 p, q, lim = limit[z], s, d;
+
+			if (!lim || !(par->sat_thr < ref[z])) {
+				weight[z] = 1;
+				continue;
+			}
+			p = stat_a[z] * gain[0] >> sh;
+			q = stat_b[z] * gain[1] >> sh;
+			s = p < q ? p : q;
+			if (s > lim)
+				s = lim;
+			if (!s) {
+				weight[z] = 1;
+				continue;
+			}
+			if (par->sat_mode == 1) {
+				d = p < q ? q : p;
+				if (d < lim)
+					d = lim;
+			} else {
+				d = t32_awb_udiv(p + q + lim, 3);
+			}
+			weight[z] = t32_awb_udiv(s << sh, d);
+		}
+		row_first += 32;
+	}
 }
 
 #endif /* TX_ISP_T32_AWB_H */
