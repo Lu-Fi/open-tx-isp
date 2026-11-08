@@ -75,6 +75,7 @@ struct t32_awb_par {
 		T32_AWB_AT(3080, u32 cold_off[2]);	/* ... for ct <= ct_lo */
 		T32_AWB_AT(3088, u32 ct_lo);
 		T32_AWB_AT(3092, u32 ct_hi);
+		T32_AWB_AT(292, u32 cand_mode);	/* ct_detect: 1 = candidate points from the 12 fullest cells */
 		T32_AWB_AT(5126, u16 ct_lim[20]);	/* ct_detect: 10 entries of (value, unused), those before the first zero count */
 		T32_AWB_AT(3186, u16 zones_h);		/* statistics zone grid: rows ... */
 		T32_AWB_AT(3190, u16 zones_w);		/* ... and columns (32 per row in the tables) */
@@ -95,6 +96,11 @@ struct t32_awb_state {
 		T32_AWB_AT(79228, u32 cell_r[196]);	/* ct_detect: per cell of the 14 x 14 ct grid, sum of the zones' r, */
 		T32_AWB_AT(80012, u32 cell_b[196]);	/* ... of their b */
 		T32_AWB_AT(80796, u16 cell_n[196]);	/* ... and their count */
+		T32_AWB_AT(81188, u32 top_x[12]);	/* ct_detect: the 12 fullest cells of the ct grid: column, ... */
+		T32_AWB_AT(81236, u32 top_y[12]);	/* ... row, ... */
+		T32_AWB_AT(81284, u32 top_n[12]);	/* ... count (kept between frames) */
+		T32_AWB_AT(81332, u32 pt_r[60]);	/* five (r, b) points per cell: corners and centre */
+		T32_AWB_AT(81572, u32 pt_b[60]);
 		T32_AWB_AT(37992, u16 lim_a[7]);	/* ct_detect: 3 + 4 entries, copied to its working set */
 		T32_AWB_AT(38012, u16 lim_b[7]);
 		T32_AWB_AT(28672, u32 out_id);		/* copies of the four par values, out_w / in_w scaled */
@@ -183,6 +189,12 @@ T32_AWB_CHK(struct t32_awb_state, zstat, 0);
 T32_AWB_CHK(struct t32_awb_state, zw_raw, 16384);
 T32_AWB_CHK(struct t32_awb_state, zw_norm, 99396);
 T32_AWB_CHK(struct t32_awb_state, zt2, 24576);
+T32_AWB_CHK(struct t32_awb_state, top_x, 81188);
+T32_AWB_CHK(struct t32_awb_state, top_y, 81236);
+T32_AWB_CHK(struct t32_awb_state, top_n, 81284);
+T32_AWB_CHK(struct t32_awb_state, pt_r, 81332);
+T32_AWB_CHK(struct t32_awb_state, pt_b, 81572);
+T32_AWB_CHK(struct t32_awb_par, cand_mode, 292);
 T32_AWB_CHK(struct t32_awb_state, lim_a, 37992);
 T32_AWB_CHK(struct t32_awb_state, cell_r, 79228);
 T32_AWB_CHK(struct t32_awb_state, cell_b, 80012);

@@ -26,6 +26,9 @@
  * it to 256 minus the class (t32_awb_ct_detect_refs), up to L_21a78 where the MXU2 part starts.
  * Phase 3 (L_21a78 .. L_21b04): with sat_mode 1 or 2 the gw_map entries are multiplied by zt2 and
  * divided by its maximum (t32_awb_ct_detect_norm).
+ * Phase 4 (L_21b04 .. L_21f18, cand_mode 1 only): the 12 fullest cells of the ct grid, five
+ * (r, b) points for each, duplicates removed (t32_awb_ct_detect_cand).  The other branch
+ * (cand_mode != 1, L_22924) is not ported.
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -351,6 +354,61 @@ static inline int t32_awb_ct_detect_norm(struct t32_awb *a, struct t32_awb_ctd *
 		}
 		for (col = 0; col < cols; col++)
 			gw[row * 32 + col] = t32_awb_fixdiv(fp, d->prod[col], zmax);
+	}
+	return 0;
+}
+
+/*
+ * Phase 4.  cand_mode must be 1 (else 1 is returned: the other branch is not ported).
+ * Twelve times the fullest cell of the 14 x 14 grid (cell_n, strictly more than the stored
+ * count of this slot, which is kept from the previous frame) is taken into top_x / top_y / top_n and
+ * its counter cleared.  Each slot gives five points (cell corners (x, y), (x, y+1), centre,
+ * (x+1, y), (x+1, y+1)) from the ct axes; a point equal to an earlier one is cleared to
+ * (0, 0).  Stale slots with x or y over 13 would index behind the axes: -1.
+ */
+static inline int t32_awb_ct_detect_cand(struct t32_awb *a)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	const u32 *ar = par->ct_axis_r, *ab = par->ct_axis_b;
+	u32 k, x, y, i, j;
+
+	if (par->cand_mode != 1)
+		return 1;
+	for (k = 0; k < 12; k++)
+		if (st->top_x[k] > 13 || st->top_y[k] > 13)
+			return -1;
+	for (k = 0; k < 12; k++) {
+		for (y = 0; y < 14; y++) {
+			for (x = 0; x < 14; x++) {
+				u32 n = st->cell_n[y * 14 + x];
+
+				if (n && st->top_n[k] < n) {
+					st->top_x[k] = x;
+					st->top_y[k] = y;
+					st->top_n[k] = n;
+				}
+			}
+		}
+		st->cell_n[(st->top_y[k] * 14 + st->top_x[k]) & 0xffff] = 0;
+	}
+	for (k = 0; k < 12; k++) {
+		u32 *r = &st->pt_r[5 * k], *b = &st->pt_b[5 * k];
+
+		x = st->top_x[k];
+		y = st->top_y[k];
+		r[0] = ar[x];			b[0] = ab[y];
+		r[1] = ar[x];			b[1] = ab[y + 1];
+		r[2] = (ar[x] + 1 + ar[x + 1]) >> 1;	b[2] = (ab[y] + 1 + ab[y + 1]) >> 1;
+		r[3] = ar[x + 1];		b[3] = ab[y];
+		r[4] = ar[x + 1];		b[4] = ab[y + 1];
+	}
+	for (i = 0; i < 60; i++) {
+		if (!st->pt_r[i] || !st->pt_b[i])
+			continue;
+		for (j = i + 1; j < 60; j++)
+			if (st->pt_r[i] == st->pt_r[j] && st->pt_b[i] == st->pt_b[j])
+				st->pt_r[j] = st->pt_b[j] = 0;
 	}
 	return 0;
 }
