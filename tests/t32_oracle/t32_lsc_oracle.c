@@ -113,6 +113,9 @@ static int run_case(const char *what, const u8 *blk, u32 n1, u32 n2, u32 w_, u32
 			printf("MISMATCH %s: cell count %u, vendor wrote more\n", what, ocount);
 		return 1;
 	}
+	if (getenv("T32O_DIAG") && bad)
+		printf("DIAG %s %ux%u bay %u: %u of %u cells differ (tables %u/%u, weight %u)\n", what, w_, h_, bayer, bad, ocount,
+		       s.table_lo, s.table_hi, s.fraction);
 	if (bad) {
 		word_diffs += bad;
 		cases_with_word_diffs++;
