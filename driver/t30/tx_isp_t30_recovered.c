@@ -14095,18 +14095,12 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 						default_control.control.value);
 					tx_isp_t30_trace_seq_regs("temper_buf");
 					/*
-					 * #236: Temper frame-buffer format.  Bits [3:0] =
-					 * base DMA packing mode, bits [7:6] = plane select
-					 * (SDK apical_isp_config.h "Temper Frame Buffer").
-					 * The OEM ISP init sequence group 2 sets mode 5
-					 * (record 0xa00 RMW values 05 00 02 00, masks
-					 * cf 00 03 03); the open stack was measured at
-					 * mode 2 (RGB310 lanes), so the history was
-					 * packed wrong and Temper saw all motion.
-					 * Force mode 5 / plane 0 before enabling the DMA.
+					 * #236: bits [3:0] (packing mode 5) come from the
+					 * ISP init sequence and are kept as in the vendor
+					 * arm; only the DMA enable bits change here.
 					 */
 					temper_fmt = APICAL_READ_32(0x0a00);
-					temper_ctrl = (temper_fmt & ~0x000000cfU) | 0x05;
+					temper_ctrl = temper_fmt;
 					temper_ctrl &= ~0x03000000;
 					temper_ctrl |= 0x00030000;
 					APICAL_WRITE_32(0x0a00, temper_ctrl);
@@ -36849,7 +36843,13 @@ int32_t disable_all_frame_buffers(void)
 
 	v = APICAL_READ_32(0x2c0);
 	APICAL_WRITE_32(0x2c0, v & 0xfffffffe);
-	v = APICAL_READ_32(0x2c0);
+	/*
+	 * #236: read-modify-write of 0xa00 itself (vendor ko 0x1b880:
+	 * `li a0,2560` before the read).  The lift re-read 0x2c0 here and
+	 * wrote 0x2c0 & ~1 (= 0x2) into the Temper frame-buffer format, which
+	 * replaced the sequence packing mode 5 with mode 2 and broke 3DNR.
+	 */
+	v = APICAL_READ_32(0xa00);
 	return APICAL_WRITE_32(0xa00, v & 0xfffeffff);
 }
 
