@@ -24,6 +24,8 @@
  * Phase 2: the reference points - zones near one of the sel_a points (par+3322) raise their
  * gw_map entry to the class of the distance, near one of the sel_b points (par+3362) lower
  * it to 256 minus the class (t32_awb_ct_detect_refs), up to L_21a78 where the MXU2 part starts.
+ * Phase 3 (L_21a78 .. L_21b04): with sat_mode 1 or 2 the gw_map entries are multiplied by zt2 and
+ * divided by its maximum (t32_awb_ct_detect_norm).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -44,6 +46,7 @@ struct t32_awb_ctd {
 	u32 half;		/* 1 << (out_shift - 1) */
 	u32 w;			/* t32_data_dbf10: weight of the last zone, 1.0 at 16 bits when none */
 	u16 zwt[1024];		/* t32_data_db710: weight of each zone >> 6 */
+	u32 prod[32];		/* t32_data_db690: products of one row (phase 3) */
 };
 
 /*
@@ -296,6 +299,58 @@ static inline int t32_awb_ct_detect_refs(struct t32_awb *a, const struct t32_awb
 				}
 			}
 		}
+	}
+	return 0;
+}
+
+/* the vendor's vector fixed point product of one lane: (x * y) with s fraction bits */
+static inline u32 t32_awb_lane_mul(u32 s, u32 x, u32 y)
+{
+	u32 m = 0xffffffffu >> ((0u - s) & 31), sh = s & 31;
+	u32 xh = x >> sh, yh = y >> sh, xl = x & m, yl = y & m;
+
+	return ((xh * yh) << sh) + xh * yl + xl * yh + ((xl * yl) >> sh);
+}
+
+/*
+ * Phase 3 (MXU2 in the vendor, four lanes at a time).  Only for sat_mode 1 and 2.  The largest
+ * zt2 entry of the grid is found; when it is at least 2 every gw_map entry becomes
+ * gw_map * zt2 / max (the product in fixed point, the division fix_point_div_32).  The vendor
+ * computes the products of a row in groups of four lanes, the last group starting at
+ * cols & ~3: it also stores the lanes behind the row, which for a 32 column grid land in the
+ * first eight zwt entries (the tables are adjacent).  Returns -1 for a grid over 32, else 0.
+ */
+static inline int t32_awb_ct_detect_norm(struct t32_awb *a, struct t32_awb_ctd *d)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u32 fp = par->fp_shift, rows = par->zones_h, cols = par->zones_w;
+	u32 zmax = 0, row, col, tail = cols & ~3u;
+	u32 *gw = (u32 *)(st->raw + 87108), *t2 = (u32 *)(st->raw + 24576);
+
+	if ((u16)(par->sat_mode - 1) >= 2)
+		return 0;
+	if (rows > 32 || cols > 32)
+		return -1;
+	for (row = 0; row < rows; row++)
+		for (col = 0; col < cols; col++)
+			if (zmax < t2[row * 32 + col])
+				zmax = t2[row * 32 + col];
+	if (zmax < 2)
+		return 0;
+	for (row = 0; row < rows; row++) {
+		for (col = 0; col < tail + 4; col++) {
+			u32 z = row * 32 + col, v = t32_awb_lane_mul(fp, gw[z], t2[z]);
+
+			if (col < 32)
+				d->prod[col] = v;
+			else {			/* lands in zwt (db710 follows db690) */
+				d->zwt[2 * (col - 32)] = (u16)v;
+				d->zwt[2 * (col - 32) + 1] = (u16)(v >> 16);
+			}
+		}
+		for (col = 0; col < cols; col++)
+			gw[row * 32 + col] = t32_awb_fixdiv(fp, d->prod[col], zmax);
 	}
 	return 0;
 }

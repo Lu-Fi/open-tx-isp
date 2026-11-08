@@ -90,6 +90,7 @@ struct t32_awb_state {
 		u8 raw[0x1d48c];
 		T32_AWB_AT(0, u32 zstat[2][2][1024]);	/* zone statistics [mode][r, b][row * 32 + col] */
 		T32_AWB_AT(16384, u32 zw_raw[1024]);	/* ct_detect input: per zone value, normalised to zw_norm */
+		T32_AWB_AT(24576, u32 zt2[1024]);	/* ct_detect: second per zone table (weights the gw_map entries in phase 3) */
 		T32_AWB_AT(99396, u32 zw_norm[1024]);
 		T32_AWB_AT(79228, u32 cell_r[196]);	/* ct_detect: per cell of the 14 x 14 ct grid, sum of the zones' r, */
 		T32_AWB_AT(80012, u32 cell_b[196]);	/* ... of their b */
@@ -181,6 +182,7 @@ T32_AWB_CHK(struct t32_awb_state, out_id, 28672);
 T32_AWB_CHK(struct t32_awb_state, zstat, 0);
 T32_AWB_CHK(struct t32_awb_state, zw_raw, 16384);
 T32_AWB_CHK(struct t32_awb_state, zw_norm, 99396);
+T32_AWB_CHK(struct t32_awb_state, zt2, 24576);
 T32_AWB_CHK(struct t32_awb_state, lim_a, 37992);
 T32_AWB_CHK(struct t32_awb_state, cell_r, 79228);
 T32_AWB_CHK(struct t32_awb_state, cell_b, 80012);
