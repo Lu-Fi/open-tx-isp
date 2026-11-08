@@ -711,7 +711,13 @@ t32_gammaf_oracle:
 	sh ./t32_oracle/run.sh t32_gammaf_oracle
 
 t32_bcshf_oracle:
-	sh ./t32_oracle/run.sh t32_bcshf_oracle t32_mxu2
+	sh ./t32_oracle/run.sh t32_bcshf_oracle
+
+t32_mxu2:
+	sh ./t32_oracle/mxu2/run.sh
+
+t32_lce_oracle:
+	sh ./t32_oracle/run.sh t32_lce_oracle
 
 t32_ae_oracle:
 	sh ./t32_oracle/run.sh t32_ae_oracle
