@@ -24,6 +24,10 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - sinfo (0013): `remove_proc_subtree()` before `proc_mkdir()` of `/proc/jz/sensor`, also on 3.10.
 - Checks: `make -C tests check`, T20/T31/T41 3.10.14 modules build, symbol checks pass.
 
+## 2026-11-08: note on the T30 reload entries below
+
+- "#2" in these T30 reload/fd-close entries and commits (7a476901, 3b62fece, b61c6531, 0501c3e1, 19c1f25a, 20fa22ae, 074a2ce2) is item 2 of the T30 gaps list (audit FABLE_T30_GAPS.md), not GitHub issue #2. The GitHub tracking issue is Lu-Fi/openimp#177 (T30X device proof 2026-11-08 posted there). Fix B (0501c3e1, VIC mask on rmmod) was reverted in 19c1f25a because it is beyond the vendor remove path and gave no measured benefit (the early IRQ came with and without it).
+
 ## 2026-11-08: T30 module reload no longer hangs in the first ISP interrupt (#2 reload; QEMU T30 20/20; T30X 2026-11-08: kill -9 releases the sensor, 10/10 rmmod/insmod + stream clean)
 
 - After rmmod the VIC kept its APICAL interrupt mask (0xffff) and the sensor kept streaming, so a reloaded module took a frame-end IRQ before its own init. `system_hw_interrupts_disable` then cleared the mask and `tx_isp_disable_irq` called `disable_irq()` on the line whose handler was running: `synchronize_irq` waited for itself with interrupts off (hard hang, QEMU T30 rmem 42M, cycle 2 of 20). `tx_isp_disable_irq` now uses `disable_irq_nosync()` in interrupt context (the vendor helper is the same `disable_irq`, safe there only because the vendor module is never unloaded).
