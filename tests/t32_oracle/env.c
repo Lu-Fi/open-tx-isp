@@ -54,6 +54,8 @@ u32 t32_data_e1824[4], t32_data_e1834[4];	/* gamma context per channel */
 u8 t32_data_e1848[8];
 u32 t32_data_e28d0[4];	/* CLM context per channel */
 u32 t32_data_e2420[4], t32_data_e2424[4];	/* YSP context per channel */
+u32 t32_data_e2440[4], t32_data_e2450[4];	/* BCSH context per channel */
+u8 t32_data_e2460[112], t32_data_e24d0[300];
 u32 t32_data_e23c0[4];
 u32 t32_data_e23d0[4];	/* CDNS context per channel */
 u8 t32_data_e23e0[64];	/* CDNS value block */	/* YDNS context per channel */
@@ -115,6 +117,13 @@ u32 t32_data_d6a4c[66] = { 0x000000ff, 0x01200090, 0x021d01aa, 0x02da0281, 0x037
 char t32_data_c95ec[4] = "f";
 char t32_data_ca188[4] = "f";
 char t32_data_bfbe0[4] = "f", t32_data_c9e64[4] = "f";
+/* data.c:2847 (20 B) */
+u32 t32_data_bfbf0[5] = { 0x00000000, 0x000061f8, 0x0000b505, 0x0000ec83, 0x00010000 };
+/* data.c:25841 (24 B) */
+u32 t32_data_d6d10[6] = { 0x00000000, 0x00000000, 0x00001388, 0x000000ff, 0x00000000, 0x00000000 };
+/* data.c:25805 (144 B) */
+u32 t32_data_d6c80[36] = { 0x80808080, 0x00000100, 0x00010000, 0x00000000, 0x00000000, 0x00000000, 0x00010000, 0x00000000, 0x00000000, 0x00000000, 0x00010000, 0x00000000, 0x00004c8b, 0x00009646, 0x00001d2f, 0xffffd4ce, 0xffffab32, 0x00008000, 0x00008000, 0xffff94d1, 0xffffeb2f, 0xff008000, 0x0000ff00, 0x00010000, 0x00000000, 0x000166e9, 0x00010000, 0xffffa7e7, 0xffff492e, 0x00010000, 0x0001c5a2, 0x00000000, 0xff008000, 0x0000ff00, 0x00000000, 0x00000000 };
+char t32_data_c9e7c[4] = "f";
 char t32_data_bfbb0[4] = "f", t32_data_c9e1c[4] = "f";
 char t32_data_c0a80[4] = "f", t32_data_c0a90[4] = "f", t32_data_ca63c[4] = "f", t32_data_ca624[4] = "f";
 char t32_data_ca2b4[4] = "f", t32_data_ca2e0[4] = "f", t32_data_ca314[4] = "f";
@@ -198,6 +207,10 @@ void t32o_reset(void)
 	memset(t32_data_e28d0, 0, sizeof(t32_data_e28d0));
 	memset(t32_data_e2420, 0, sizeof(t32_data_e2420));
 	memset(t32_data_e2424, 0, sizeof(t32_data_e2424));
+	memset(t32_data_e2440, 0, sizeof(t32_data_e2440));
+	memset(t32_data_e2450, 0, sizeof(t32_data_e2450));
+	memset(t32_data_e2460, 0, sizeof(t32_data_e2460));
+	memset(t32_data_e24d0, 0, sizeof(t32_data_e24d0));
 	memset(t32_data_e23c0, 0, sizeof(t32_data_e23c0));
 	memset(t32_data_e35f0, 0, sizeof(t32_data_e35f0));
 	memset(t32_data_e17c0, 0, sizeof(t32_data_e17c0));
