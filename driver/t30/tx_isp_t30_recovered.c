@@ -13888,6 +13888,33 @@ static int tx_isp_t30_tuning_set_isp_process(
 	return 0;
 }
 
+/*
+ * #236 debug trace: registers written ONLY by the ISP init sequence
+ * (group 2, tx_isp_t30_isp_config_seq.h), never by driver code, plus the
+ * Temper frame-buffer format 0xa00.  Printed after load_isp_sequence(2)
+ * and at IMAGE_TUNING_CID_TEMPER_BUF so one device run shows whether the
+ * sequence values reach the hardware (all equal to the sequence) or are
+ * lost (reset values).  Expected from the sequence: 0x28=0x20 0x7c=0x1
+ * 0x108=0xf0f 0x1c0=0x5 0x1d0=0xaa 0x240=0xc043 0x270=0xffff 0x2ac=0xff
+ * 0x2b8=0xff 0x340=0x6 0x400=0xbd 0x444=0xa0 0x4a4=0x1 0xa00=0x..0005
+ * 0xa40=0x..0005.
+ */
+static void tx_isp_t30_trace_seq_regs(const char *where)
+{
+	static const u16 regs[] = {
+		0x028, 0x07c, 0x108, 0x1c0, 0x1d0, 0x240, 0x270,
+		0x2ac, 0x2b8, 0x340, 0x400, 0x444, 0x4a4, 0xa00, 0xa40,
+	};
+	char line[16 * ARRAY_SIZE(regs) + 1];
+	unsigned int i;
+	int pos = 0;
+
+	for (i = 0; i < ARRAY_SIZE(regs); i++)
+		pos += scnprintf(line + pos, sizeof(line) - pos, " %x=%x",
+				 regs[i], APICAL_READ_32(regs[i]));
+	pr_err("tx-isp-t30: seqregs %s:%s\n", where, line);
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009ddc origin=model_output original=isp_core_tunning_unlocked_ioctl */
 long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
@@ -13903,6 +13930,7 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 	struct v4l2_control control;
 	long ret;
 	u32 temper_ctrl;
+	u32 temper_fmt;
 	struct tx_isp_t30_temper_attr temper_attr;
 	struct tx_isp_t30_core_video_view *video_core;
 	struct tx_isp_t30_system_gain_view *system_gain;
@@ -14065,10 +14093,25 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 						default_control.control.value);
 					APICAL_WRITE_32(0x0a1c,
 						default_control.control.value);
-					temper_ctrl = APICAL_READ_32(0x0a00);
+					tx_isp_t30_trace_seq_regs("temper_buf");
+					/*
+					 * #236: Temper frame-buffer format.  Bits [3:0] =
+					 * base DMA packing mode, bits [7:6] = plane select
+					 * (SDK apical_isp_config.h "Temper Frame Buffer").
+					 * The OEM ISP init sequence group 2 sets mode 5
+					 * (record 0xa00 RMW values 05 00 02 00, masks
+					 * cf 00 03 03); the open stack was measured at
+					 * mode 2 (RGB310 lanes), so the history was
+					 * packed wrong and Temper saw all motion.
+					 * Force mode 5 / plane 0 before enabling the DMA.
+					 */
+					temper_fmt = APICAL_READ_32(0x0a00);
+					temper_ctrl = (temper_fmt & ~0x000000cfU) | 0x05;
 					temper_ctrl &= ~0x03000000;
 					temper_ctrl |= 0x00030000;
 					APICAL_WRITE_32(0x0a00, temper_ctrl);
+					pr_err("tx-isp-t30: temper_buf 0xa00 %#x -> %#x\n",
+					       temper_fmt, APICAL_READ_32(0x0a00));
 				}
 				ret = 0;
 			} else {
@@ -37516,6 +37559,8 @@ char *load_isp_sequence(uint32_t arg1)
 	}
 	pr_err("tx-isp-t30: ISP sequence %u applied (%u bytes written)\n",
 	       arg1 & 0xff, writes);
+	if ((arg1 & 0xff) == 2)
+		tx_isp_t30_trace_seq_regs("after_seq2");
 	return (char *)tx_isp_t30_isp_sequence;
 }
 

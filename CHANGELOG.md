@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-08: T30 Temper (3DNR) history buffer packing as the vendor (openimp #236; device proof pending)
+
+- T30X run 3: every Temper register equal on both stacks except the Temper frame-buffer format 0xa00: vendor 0x00030005, open 0x00030002. Bits [3:0] are the base DMA packing mode (SDK `apical_isp_config.h`, "Temper Frame Buffer"); the vendor gets 5 from the ISP init sequence group 2 (record `0xa00` values `05 00 02 00`, masks `cf 00 03 03`), the open stack had 2 (RGB310 lanes), so the history was packed wrong, Temper saw all motion and filtered almost nothing (P pictures as large as I pictures).
+- The `IMAGE_TUNING_CID_TEMPER_BUF` arm now sets mode 5 / plane 0 (`0xa00 = (rd & ~0xcf) | 0x05`) before enabling the frame-buffer DMA and logs `temper_buf 0xa00 old -> new`.
+- Debug trace (temporary, #236 root cause): `seqregs after_seq2` / `seqregs temper_buf` print the 13 registers written only by the init sequence plus 0xa00/0xa40, to decide whether the sequence writes reach the hardware.
+- Checks: `make -C tests check` (173 passed), `lifted_ptr_scale_check`, T30 3.10.14 module builds. Not device-tested yet.
+
 ## 2026-11-08: six small fixes from Paul Philippov's kernel-7 patch set (device-proven by runtime module swap on T20 Wyze Cam v2 and T31X Wuuk: 300/296 frames decoded, no oops, two streamer restarts)
 
 - Taken only where correct for the 3.10 kernels too (review `audit/paul-k7/REVIEW.md`); each commit credits Paul (Co-authored-by).
