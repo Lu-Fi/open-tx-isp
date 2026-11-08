@@ -31,6 +31,8 @@
  * (cand_mode != 1, L_22924) is not ported.
  * Phase 5 (L_21f18 .. L_22184): every candidate point moves to the mean of the zone statistics
  * around it until it stops moving (t32_awb_ct_detect_refine).
+ * Phase 6 (L_22184 .. L_22468): candidate points within a radius of the best one are merged
+ * into a weighted mean, slot by slot (t32_awb_ct_detect_cluster).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -52,6 +54,8 @@ struct t32_awb_ctd {
 	u32 w;			/* t32_data_dbf10: weight of the last zone, 1.0 at 16 bits when none */
 	u16 zwt[1024];		/* t32_data_db710: weight of each zone >> 6 */
 	u32 prod[32];		/* t32_data_db690: products of one row (phase 3) */
+	u32 tx[60], ty[60], tn[60], tidx[60];	/* t32_data_db5a0 / db4b0 / db3c0 / db2d0: the non-empty candidate points (phase 6) */
+	u32 m;			/* number of valid entries of those four */
 };
 
 /*
@@ -469,6 +473,63 @@ static inline int t32_awb_ct_detect_refine(struct t32_awb *a)
 		}
 	}
 	return 0;
+}
+
+/*
+ * Phase 6 (L_22184 .. L_22468, MXU2 in the vendor).  Merging the candidate points.  For up to
+ * 60 slots k of cl_x / cl_y / cl_n: the candidate with the largest pt_n that exceeds cl_n[k]
+ * (cl_n is kept from the previous frame; the first one wins a tie) is taken into the slot; a
+ * slot still at 0 ends the pass.  The candidates with a non-zero pt_n are listed (tx, ty, tn,
+ * tidx) and those within cl_r2 (squared) of the slot's point are combined: weight sum, and the
+ * mean of their r and b weighted by pt_n, rounded, becomes the slot's point and cl_n[k] is
+ * cleared; the merged candidates get pt_n 0.  When none is within reach the slot keeps the
+ * candidate and its weight.
+ */
+static inline void t32_awb_ct_detect_cluster(struct t32_awb *a, struct t32_awb_ctd *d)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u32 k, i, j;
+
+	d->m = 0;
+	for (k = 0; k < 60; k++) {
+		u32 sn = 0, sx = 0, sy = 0;
+
+		for (i = 0; i < 60; i++) {
+			if (st->pt_n[i] && st->cl_n[k] < st->pt_n[i]) {
+				st->cl_x[k] = st->pt_r[i];
+				st->cl_y[k] = st->pt_b[i];
+				st->cl_n[k] = st->pt_n[i];
+			}
+		}
+		if (!st->cl_n[k])
+			return;
+		d->m = 0;
+		for (i = 0; i < 60; i++) {
+			if (!st->pt_n[i])
+				continue;
+			d->tx[d->m] = st->pt_r[i];
+			d->ty[d->m] = st->pt_b[i];
+			d->tn[d->m] = st->pt_n[i];
+			d->tidx[d->m] = i;
+			d->m++;
+		}
+		for (j = 0; j < d->m; j++) {
+			u32 dx = t32_awb_absdiff(st->cl_x[k], d->tx[j]), dy = t32_awb_absdiff(st->cl_y[k], d->ty[j]);
+
+			if (dy * dy + dx * dx <= par->cl_r2) {
+				sn += d->tn[j];
+				sx += d->tn[j] * d->tx[j];
+				sy += d->tn[j] * d->ty[j];
+				st->pt_n[d->tidx[j]] = 0;
+			}
+		}
+		if (!sn)
+			continue;
+		st->cl_n[k] = 0;
+		st->cl_x[k] = (sx + (sn >> 1)) / sn;
+		st->cl_y[k] = (sy + (sn >> 1)) / sn;
+	}
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */
