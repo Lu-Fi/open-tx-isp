@@ -34,6 +34,7 @@ extern u8 t32_data_e1460[8], t32_data_dc284[1808];
 extern u32 t32_data_e1464[4], t32_data_e1474[4], t32_data_e1484[4];
 
 extern u32 t32o_arg5, t32o_arg6;
+extern u32 (*t32o_rd_hook)(u32 reg);
 typedef u64 (*t32o_fn)(u32, u32, u32, u32, u32);
 
 void *t32o_alloc(u32 size);
@@ -52,6 +53,7 @@ u64 tisp_lsc_tgain_update(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_ae_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_awb_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_awb_set_gain(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_awb_spec_calculate(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_awb_long_par_update(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_awb_sat_weight(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5, u32 a6);
 u64 tisp_msca_curve_calc(u32 a0, u32 a1, u32 a2, u32 a3);

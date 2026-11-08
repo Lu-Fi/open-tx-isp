@@ -504,9 +504,13 @@ u64 system_reg_write(u32 a0, u32 a1, u32 a2, u32 a3)
 	return 0;
 }
 
+u32 (*t32o_rd_hook)(u32 reg);	/* set by an oracle that scripts register reads */
+
 u64 system_reg_read(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a1; (void)a2; (void)a3;
+	if (t32o_rd_hook)
+		return t32o_rd_hook(a0);
 	if (a0 == 0x88)
 		return t32o_reg88;	/* the Bayer/format register the DPC init tests */
 	return 0x5a000000u | a0;	/* only the second pipeline reads back */

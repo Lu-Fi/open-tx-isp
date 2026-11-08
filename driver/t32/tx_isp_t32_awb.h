@@ -10,6 +10,7 @@
  *                           0x1db58)
  *   t32_awb_sat_weight      tisp_awb_sat_weight 0x3d6f4
  *   t32_awb_long_par_update tisp_awb_long_par_update 0x3d158
+ *   t32_awb_spec_calculate  tisp_awb_spec_calculate 0x3e5e4
  *
  * Every leaf is checked against the vendor flow (Matt Davis' recovered C, PR #15)
  * by its own oracle in tests/t32_oracle (t32_awbg_oracle for set_gain).
@@ -58,6 +59,12 @@ struct t32_awb_par {
 		T32_AWB_AT(240, u32 in_w);
 		T32_AWB_AT(5702, u8 sel_a);
 		T32_AWB_AT(5703, u8 sel_b);
+		T32_AWB_AT(324, u32 spec_ctl);		/* spec_calculate: register word of the current sample */
+		T32_AWB_AT(344, u32 spec_slot_ctl[5]);	/* ... and of the five stored samples */
+		T32_AWB_AT(3460, u16 spec_r[10]);	/* ratios: [0] current, [5..9] stored samples */
+		T32_AWB_AT(3480, u16 spec_b[10]);
+		T32_AWB_AT(5704, u8 spec_en);		/* sample enable; 1: use the raw values */
+		T32_AWB_AT(5709, u8 spec_slot_en[5]);	/* stored sample used / valid */
 		T32_AWB_AT(3064, u32 hot_off[2]);	/* gain offsets (r, b) for ct >= ct_hi */
 		T32_AWB_AT(3072, u32 mid_off[2]);	/* ... for ct_lo < ct < ct_hi */
 		T32_AWB_AT(3080, u32 cold_off[2]);	/* ... for ct <= ct_lo */
@@ -81,6 +88,14 @@ struct t32_awb_state {
 		T32_AWB_AT(28684, u32 in_w);
 		T32_AWB_AT(28688, u8 sel_a);
 		T32_AWB_AT(28689, u8 sel_b);
+		T32_AWB_AT(28706, u8 spec_run);		/* sampling active */
+		T32_AWB_AT(28707, u8 spec_cnt);		/* frames sampled, saturates at 2 */
+		T32_AWB_AT(28708, u8 spec_flags[10]);	/* copy of par 5704..5713 */
+		T32_AWB_AT(28718, u16 spec_r0);		/* calibrated current ratios */
+		T32_AWB_AT(28738, u16 spec_b0);
+		T32_AWB_AT(28728, u16 spec_rs[5]);	/* calibrated stored ratios */
+		T32_AWB_AT(28748, u16 spec_bs[5]);
+		T32_AWB_AT(119944, int spec_ring);	/* last stored sample slot */
 		T32_AWB_AT(28760, u32 last_ct);		/* ct of the last offset selection */
 		T32_AWB_AT(38032, u32 vec[4]);		/* long_par_update: blended four-value set */
 		T32_AWB_AT(38048, u32 pair[2]);		/* ... and (id, weight) */
@@ -148,6 +163,20 @@ T32_AWB_CHK(struct t32_awb_state, sel_b, 28689);
 T32_AWB_CHK(struct t32_awb_state, vec, 38032);
 T32_AWB_CHK(struct t32_awb_state, pair, 38048);
 T32_AWB_CHK(struct t32_awb_state, ev, 107588);
+T32_AWB_CHK(struct t32_awb_par, spec_ctl, 324);
+T32_AWB_CHK(struct t32_awb_par, spec_slot_ctl, 344);
+T32_AWB_CHK(struct t32_awb_par, spec_r, 3460);
+T32_AWB_CHK(struct t32_awb_par, spec_b, 3480);
+T32_AWB_CHK(struct t32_awb_par, spec_en, 5704);
+T32_AWB_CHK(struct t32_awb_par, spec_slot_en, 5709);
+T32_AWB_CHK(struct t32_awb_state, spec_run, 28706);
+T32_AWB_CHK(struct t32_awb_state, spec_cnt, 28707);
+T32_AWB_CHK(struct t32_awb_state, spec_flags, 28708);
+T32_AWB_CHK(struct t32_awb_state, spec_r0, 28718);
+T32_AWB_CHK(struct t32_awb_state, spec_b0, 28738);
+T32_AWB_CHK(struct t32_awb_state, spec_rs, 28728);
+T32_AWB_CHK(struct t32_awb_state, spec_bs, 28748);
+T32_AWB_CHK(struct t32_awb_state, spec_ring, 119944);
 T32_AWB_CHK(struct t32_awb_par, wb_r, 24);
 T32_AWB_CHK(struct t32_awb_par, wb_b, 28);
 T32_AWB_CHK(struct t32_awb_par, ct, 44);
@@ -184,7 +213,7 @@ T32_AWB_CHK(struct t32_awb_hw, gain_r, 4282);
 T32_AWB_CHK(struct t32_awb_hw, gain_b, 4284);
 T32_AWB_CHK(struct t32_awb_hw, ct_out, 4290);
 
-#define T32_AWB_MAX_WRITES	8
+#define T32_AWB_MAX_WRITES	24
 
 /*
  * fix_point_mult2_32 (0x1db58): x * y in fixed point with s fraction bits,
@@ -480,6 +509,126 @@ static inline void t32_awb_long_par_update(struct t32_awb *a, struct t32_awb_lp 
 		t32_awb_copy4(dst, midset);
 		pair[1] = t32_awb_udiv(st->out_w * span + (0x10000 - st->out_w) * (ev - hi), span);
 	}
+}
+
+/*
+ * tisp_awb_spec_calculate (0x3e5e4): the "spec" sample of the AWB hardware.  Reads
+ * three statistics registers (0x16190 a, 0x16194 b, 0x16198 c), forms the ratios
+ * r = (a << 8) / b and bb = (c << 8) / b (0 when b is 0), keeps up to five samples in a
+ * ring (slots 5..9 of par->spec_r / spec_b, valid byte par->spec_slot_en) and writes
+ * the sample registers.  Per sample, enable byte 1 writes the raw values, any other
+ * non-zero value stores the calibrated values (fixed point, times cal_r / cal_b) in the
+ * state.  The slots 6/7 and 8/9 write the same value registers (0x1609c / 0x160b0 and
+ * 0x160a0 / 0x160b4) from the same par words, as the vendor does.  The vendor's shadow
+ * register variant (data d03a0 != 0) is not ported (always direct writes).
+ * rd reads a statistics register.  w gets the register writes in order.
+ */
+static inline u32 t32_awb_u32at(const u8 *raw, u32 off)
+{
+	return raw[off] | (u32)raw[off + 1] << 8 | (u32)raw[off + 2] << 16 | (u32)raw[off + 3] << 24;
+}
+
+static inline void t32_awb_put16at(u8 *raw, u32 off, u32 v)
+{
+	raw[off] = (u8)v;
+	raw[off + 1] = (u8)(v >> 8);
+}
+
+static inline u16 t32_awb_calibrate(u32 ratio, u32 cal)
+{
+	return (u16)((t32_awb_fixmul(10, ratio << 2, cal) + 2) >> 2);
+}
+
+static inline unsigned int t32_awb_spec_calculate(struct t32_awb *a, u32 (*rd)(void *, u32), void *rdp,
+						  struct t32_stats_write *w)
+{
+	static const u32 reg_r[5] = { 0x16098, 0x1609c, 0x1609c, 0x160a0, 0x160a0 };
+	static const u32 reg_b[5] = { 0x160ac, 0x160b0, 0x160b0, 0x160b4, 0x160b4 };
+	static const u32 reg_ctl[5] = { 0x160cc, 0x160d0, 0x160d4, 0x160d8, 0x160dc };
+	static const u32 off_r[5] = { 3468, 3472, 3472, 3476, 3476 };	/* u32 reads of par */
+	static const u32 off_b[5] = { 3488, 3492, 3492, 3496, 3496 };
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u32 s5 = 0, s6 = 0, v_a, v_b, v_c, ctl;
+	unsigned int n = 0, k;
+
+	memcpy(st->spec_flags, par->raw + 5704, 10);
+	if (st->spec_run == 1 && st->spec_cnt < 2)
+		st->spec_cnt++;
+
+	if (par->spec_en && st->spec_run == 1 && st->spec_cnt) {
+		v_a = rd(rdp, 0x16190);
+		v_b = rd(rdp, 0x16194);
+		v_c = rd(rdp, 0x16198);
+		if (v_b) {
+			s5 = (v_a << 8) / v_b;
+			s6 = (v_c << 8) / v_b;
+		}
+		par->spec_r[0] = (u16)s5;
+		par->spec_b[0] = (u16)s6;
+		if (par->spec_en == 1) {
+			w[n].reg = 0x16090; w[n++].val = (u32)par->spec_r[1] << 16 | (s5 & 0xffff);
+			w[n].reg = 0x160a4; w[n++].val = t32_awb_u32at(par->raw, 3480);
+			ctl = (u32)st->spec_flags[0] << 16 | par->spec_ctl;
+		} else {
+			st->spec_r0 = t32_awb_calibrate(s5, par->cal_r);
+			st->spec_b0 = t32_awb_calibrate(s6, par->cal_b);
+			ctl = par->spec_ctl;
+		}
+	} else {
+		if (par->spec_en)
+			st->spec_flags[0] = 0;
+		ctl = par->spec_ctl;
+	}
+	w[n].reg = 0x160b8; w[n++].val = ctl;
+
+	for (k = 0; k < 5; k++)
+		if (par->spec_slot_en[k])
+			break;
+	if (k < 5) {		/* a stored sample is in use: take a new one into the ring */
+		u32 slot, i;
+		int ring = st->spec_ring;
+
+		v_a = rd(rdp, 0x16190);
+		v_b = rd(rdp, 0x16194);
+		v_c = rd(rdp, 0x16198);
+		if (v_b) {
+			s5 = (v_a << 8) / v_b;
+			s6 = (v_c << 8) / v_b;
+		}
+		slot = 0;
+		for (i = 1; i <= 5; i++) {
+			slot = (u32)((ring + (int)i) % 5) + 5;
+			if (par->raw[5704 + slot])
+				break;
+		}
+		if (i > 5) {
+			for (slot = 5; slot != 10 && par->raw[5704 + slot] != 1; slot++)
+				;
+			if (slot == 10)
+				slot = (u32)((ring + 1) % 5) + 5;
+		}
+		st->spec_ring = (int)slot;
+		par->raw[5704 + slot] = 1;
+		t32_awb_put16at(par->raw, 3460 + 2 * slot, s5);
+		t32_awb_put16at(par->raw, 3480 + 2 * slot, s6);
+	}
+
+	for (k = 0; k < 5; k++) {
+		u8 en = par->spec_slot_en[k];
+
+		ctl = t32_awb_u32at(par->raw, 344 + 4 * k);
+		if (en == 1) {
+			w[n].reg = reg_r[k]; w[n++].val = t32_awb_u32at(par->raw, off_r[k]);
+			w[n].reg = reg_b[k]; w[n++].val = t32_awb_u32at(par->raw, off_b[k]);
+			ctl |= (u32)st->spec_flags[5 + k] << 16;
+		} else if (en) {
+			st->spec_rs[k] = t32_awb_calibrate(par->spec_r[5 + k], par->cal_r);
+			st->spec_bs[k] = t32_awb_calibrate(par->spec_b[5 + k], par->cal_b);
+		}
+		w[n].reg = reg_ctl[k]; w[n++].val = ctl;
+	}
+	return n;
 }
 
 #endif /* TX_ISP_T32_AWB_H */
