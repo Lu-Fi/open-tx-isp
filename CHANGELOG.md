@@ -4,7 +4,9 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
-## 2026-11-08: T30 Temper (3DNR) history buffer packing as the vendor (openimp #236; device proof pending)
+## 2026-11-08: T30 Temper (3DNR) history buffer packing as the vendor (openimp #236; T30X: 0xa00 0x30005 like the vendor, P/I 0.668 -> 0.148 at FixQP35 on the lab scene, vendor 0.061; 10/10 reloads clean)
+
+- Device trace: the ISP init sequence reaches the hardware (the 14 sequence-only registers equal the vendor after sequence 2), but between sequence 2 (0xa00 = 0x20005) and the Temper buffer setup something rewrites 0xa00 to 2 (not found yet); the TEMPER_BUF arm now restores the vendor packing 5. The remaining P/I gap (2.4x) is tracked in #236 (AE gain, #202).
 
 - T30X run 3: every Temper register equal on both stacks except the Temper frame-buffer format 0xa00: vendor 0x00030005, open 0x00030002. Bits [3:0] are the base DMA packing mode (SDK `apical_isp_config.h`, "Temper Frame Buffer"); the vendor gets 5 from the ISP init sequence group 2 (record `0xa00` values `05 00 02 00`, masks `cf 00 03 03`), the open stack had 2 (RGB310 lanes), so the history was packed wrong, Temper saw all motion and filtered almost nothing (P pictures as large as I pictures).
 - The `IMAGE_TUNING_CID_TEMPER_BUF` arm now sets mode 5 / plane 0 (`0xa00 = (rd & ~0xcf) | 0x05`) before enabling the frame-buffer DMA and logs `temper_buf 0xa00 old -> new`.
