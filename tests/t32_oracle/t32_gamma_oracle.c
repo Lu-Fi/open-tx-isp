@@ -53,8 +53,8 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 	on = t32_gamma_init(sec, lut, lutbytes, ow);
 	if (on < 0) {
 		refused++;
-		/* ours may refuse only the multi-curve form or an unusable strength (> 0xff) */
-		if (t32_front_le32(sec) < 0x134ff91U && t32_gamma_strength(sec) <= 0xff) {
+		/* ours refuses only a payload too short for its form or a curve count of 0 */
+		if (t32_front_le32(sec) < 0x134ff91U && sec[0x5a] >= 1 && lutbytes >= T32_GAMMA_CURVE_BYTES) {
 			if (failed++ < 5)
 				printf("MISMATCH %s: ours refused a single-curve section\n", what);
 			return 1;

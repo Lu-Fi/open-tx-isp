@@ -52,6 +52,7 @@ Reference = Matt Davis' mechanical MIPS-to-C recovery of the vendor T32 module (
 and __ashrdi3 renamed by objcopy). `t32_oracle/run.sh <name>` builds `<name>.c` with `<name>.conf` (REFS, HDR, MUTATIONS), compares
 every register write and memory output with our `driver/t32` header, then requires every listed one-token mutation of HDR to be detected.
 
+- `t32_gammaf_oracle`: gamma per-frame (ev_update, frame done, single + multi-curve, API curve) vs the vendor functions; same IQ-bin rule as above.
 - `t32_ccmf_oracle`: CCM per-frame (ct_update / ev_update, cache, API override) vs the vendor functions; same IQ-bin rule as above.
 - `t32_ccm_oracle`: `t32_ccm_init` vs `tisp_ccm_init` chain. Random inputs always run; the IQ-bin part needs
   `T32_IQ_DIR=<dir of T32 *.bin>` (e.g. `ingenic-sdk/sensor-iq/t32` of a thingino build dir), else it prints `SKIP (` (counted as skipped).
