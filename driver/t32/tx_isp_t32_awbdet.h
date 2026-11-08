@@ -36,6 +36,8 @@
  * Phase 7 (L_22468 .. L_22688): count and weigh the zones around each merged point
  * (t32_awb_ct_detect_zonesum).
  * Phase 8 (L_22688 .. L_227ac): mean zone weights, counts scaled by them (t32_awb_ct_detect_weigh).
+ * Phase 9 (L_227ac .. L_21d24): each zone's weight scaled by its strongest merged point
+ * (t32_awb_ct_detect_nearest).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -624,6 +626,44 @@ static inline int t32_awb_ct_detect_weigh(struct t32_awb *a, struct t32_awb_ctd 
 		if (st->cl_n[i] && d->maxn < st->cl_n[i])
 			d->maxn = st->cl_n[i];
 	return d->maxn == 0;
+}
+
+/*
+ * Phase 9 (L_227ac .. L_21d24).  Every zone of the grid (rows x cols): among the first 16
+ * merged points the one with the largest cl_n (first on a tie) that lies within zr2 (squared) of
+ * the zone's statistics (rounded, in axis units, logical shift) decides the weight: gw_map becomes
+ * (cl_n * gw_map + maxn / 2) / maxn, and with no point in reach (gw_map + maxn / 2) / maxn.
+ * Needs maxn != 0 (phase 8 returned 0).  Returns -1 for a grid over 32.
+ */
+static inline int t32_awb_ct_detect_nearest(struct t32_awb *a, const struct t32_awb_ctd *d)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u32 os = par->out_shift & 31, rows = par->zones_h, cols = par->zones_w;
+	u32 row, col, j;
+
+	if (rows > 32 || cols > 32)
+		return -1;
+	for (row = 0; row < rows; row++) {
+		for (col = 0; col < cols; col++) {
+			u32 z = row * 32 + col, r = (d->half + st->zstat[0][0][z]) >> os, b = (d->half + st->zstat[0][1][z]) >> os;
+			u32 best = 0;
+
+			for (j = 0; j < 16; j++) {
+				u32 dx = t32_awb_absdiff(st->cl_x[j], r), dy = t32_awb_absdiff(st->cl_y[j], b);
+
+				if (!st->cl_x[j] || !st->cl_y[j] || dy * dy + dx * dx > par->zr2)
+					continue;
+				if (!best || st->cl_n[best - 1] < st->cl_n[j])
+					best = j + 1;
+			}
+			if (best)
+				st->gw_map[z] = (st->cl_n[best - 1] * st->gw_map[z] + (d->maxn >> 1)) / d->maxn;
+			else
+				st->gw_map[z] = (st->gw_map[z] + (d->maxn >> 1)) / d->maxn;
+		}
+	}
+	return 0;
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */
