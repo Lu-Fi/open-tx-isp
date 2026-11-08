@@ -9,6 +9,7 @@
  *                           0x3c4e0 and the fixed point helper fix_point_mult2_32
  *                           0x1db58)
  *   t32_awb_sat_weight      tisp_awb_sat_weight 0x3d6f4
+ *   t32_awb_long_par_update tisp_awb_long_par_update 0x3d158
  *
  * Every leaf is checked against the vendor flow (Matt Davis' recovered C, PR #15)
  * by its own oracle in tests/t32_oracle (t32_awbg_oracle for set_gain).
@@ -40,13 +41,23 @@
 /* IQ section 2, the vendor's "par" (offsets in the section) */
 struct t32_awb_par {
 	union {
-		u8 raw[3440];
+		u8 raw[6740];
 		T32_AWB_AT(4, u32 sat_thr);		/* zones above this reference value are weighted */
+		T32_AWB_AT(32, u32 ev_lo);		/* exposure range of the inner weights */
+		T32_AWB_AT(36, u32 ev_hi);
 		T32_AWB_AT(24, u32 wb_r);	/* measured red balance, scaled by cal_r */
 		T32_AWB_AT(28, u32 wb_b);	/* measured blue balance, scaled by cal_b */
 		T32_AWB_AT(44, u32 ct);		/* current colour temperature */
+		T32_AWB_AT(48, u32 ct_last);		/* copy of ct made by long_par_update */
 		T32_AWB_AT(52, u32 cal_r);
 		T32_AWB_AT(56, u32 cal_b);
+		T32_AWB_AT(180, u32 ev_set[3][4]);	/* four-value sets for low, mid, high exposure */
+		T32_AWB_AT(228, u32 out_id);		/* weight id / weight outside [ev_lo, ev_hi) */
+		T32_AWB_AT(232, u32 out_w);		/* (the weight is scaled by out_shift) */
+		T32_AWB_AT(236, u32 in_id);		/* ... and inside */
+		T32_AWB_AT(240, u32 in_w);
+		T32_AWB_AT(5702, u8 sel_a);
+		T32_AWB_AT(5703, u8 sel_b);
 		T32_AWB_AT(3064, u32 hot_off[2]);	/* gain offsets (r, b) for ct >= ct_hi */
 		T32_AWB_AT(3072, u32 mid_off[2]);	/* ... for ct_lo < ct < ct_hi */
 		T32_AWB_AT(3080, u32 cold_off[2]);	/* ... for ct <= ct_lo */
@@ -64,9 +75,18 @@ struct t32_awb_par {
 struct t32_awb_state {
 	union {
 		u8 raw[0x1d48c];
+		T32_AWB_AT(28672, u32 out_id);		/* copies of the four par values, out_w / in_w scaled */
+		T32_AWB_AT(28676, u32 out_w);
+		T32_AWB_AT(28680, u32 in_id);
+		T32_AWB_AT(28684, u32 in_w);
+		T32_AWB_AT(28688, u8 sel_a);
+		T32_AWB_AT(28689, u8 sel_b);
 		T32_AWB_AT(28760, u32 last_ct);		/* ct of the last offset selection */
+		T32_AWB_AT(38032, u32 vec[4]);		/* long_par_update: blended four-value set */
+		T32_AWB_AT(38048, u32 pair[2]);		/* ... and (id, weight) */
 		T32_AWB_AT(29792, u32 off_r);		/* selected gain offsets */
 		T32_AWB_AT(29796, u32 off_b);
+		T32_AWB_AT(107588, u32 ev);		/* exposure measure of the algorithm */
 		T32_AWB_AT(107596, u8 update);		/* force the offset selection, cleared by set_gain */
 		T32_AWB_AT(107597, u8 frz);		/* freeze: no register writes */
 		T32_AWB_AT(107598, u8 mode);		/* 0 auto, 1..8 fixed ct table, 9 scaled, 10 api ct */
@@ -109,6 +129,25 @@ T32_AWB_CHK(struct t32_awb_par, sat_thr, 4);
 T32_AWB_CHK(struct t32_awb_par, zones_h, 3186);
 T32_AWB_CHK(struct t32_awb_par, zones_w, 3190);
 T32_AWB_CHK(struct t32_awb_par, sat_mode, 3438);
+T32_AWB_CHK(struct t32_awb_par, ev_lo, 32);
+T32_AWB_CHK(struct t32_awb_par, ev_hi, 36);
+T32_AWB_CHK(struct t32_awb_par, ct_last, 48);
+T32_AWB_CHK(struct t32_awb_par, ev_set, 180);
+T32_AWB_CHK(struct t32_awb_par, out_id, 228);
+T32_AWB_CHK(struct t32_awb_par, out_w, 232);
+T32_AWB_CHK(struct t32_awb_par, in_id, 236);
+T32_AWB_CHK(struct t32_awb_par, in_w, 240);
+T32_AWB_CHK(struct t32_awb_par, sel_a, 5702);
+T32_AWB_CHK(struct t32_awb_par, sel_b, 5703);
+T32_AWB_CHK(struct t32_awb_state, out_id, 28672);
+T32_AWB_CHK(struct t32_awb_state, out_w, 28676);
+T32_AWB_CHK(struct t32_awb_state, in_id, 28680);
+T32_AWB_CHK(struct t32_awb_state, in_w, 28684);
+T32_AWB_CHK(struct t32_awb_state, sel_a, 28688);
+T32_AWB_CHK(struct t32_awb_state, sel_b, 28689);
+T32_AWB_CHK(struct t32_awb_state, vec, 38032);
+T32_AWB_CHK(struct t32_awb_state, pair, 38048);
+T32_AWB_CHK(struct t32_awb_state, ev, 107588);
 T32_AWB_CHK(struct t32_awb_par, wb_r, 24);
 T32_AWB_CHK(struct t32_awb_par, wb_b, 28);
 T32_AWB_CHK(struct t32_awb_par, ct, 44);
@@ -314,6 +353,132 @@ static inline void t32_awb_sat_weight(const struct t32_awb_par *par, const u32 *
 			weight[z] = t32_awb_udiv(s << sh, d);
 		}
 		row_first += 32;
+	}
+}
+
+/*
+ * tisp_awb_long_par_update (0x3d158): per frame preparation of the long algorithm's
+ * parameters from the exposure measure st->ev.  The vendor also fills a 192 byte
+ * table of 47 pointers into par / state / hw for tisp_awb_long_alogrithm; all of
+ * them are constants (field addresses) except slot 16, which names the parameter
+ * table the algorithm uses.  Ours addresses the fields directly, so only that
+ * choice is returned (lp->tbl: byte offset in par, 1264 or 364).
+ *
+ * What it computes: copies of out_id / out_w / in_id / in_w into the state, the
+ * ct copy, the flags sel_a / sel_b, the exposure blend of the three four-value
+ * sets into st->vec and the (id, weight) pair st->pair.  The outer values apply below ev_hi, the inner ones
+ * from ev_hi on; span = (ev_hi - ev_lo) / 3, is a third of it and the blend zone below ev_hi + span.
+ * Several branches overwrite earlier results (copy of the sets, pair) exactly as the
+ * vendor does; the order of the assignments is the vendor's.
+ */
+struct t32_awb_lp {
+	u32 tbl;
+};
+
+static inline void t32_awb_copy4(u32 *dst, const u32 *src)
+{
+	unsigned int i;
+
+	for (i = 0; i < 4; i++)
+		dst[i] = src[i];
+}
+
+/* dst = (a * span + (b - a) * w) / span, per element */
+static inline void t32_awb_blend4(u32 *dst, const u32 *a, const u32 *b, u32 w, u32 span)
+{
+	unsigned int i;
+
+	for (i = 0; i < 4; i++)
+		dst[i] = t32_awb_udiv(a[i] * span + (b[i] - a[i]) * w, span);
+}
+
+static inline void t32_awb_long_par_update(struct t32_awb *a, struct t32_awb_lp *lp)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	const u32 *lowset = par->ev_set[0], *midset = par->ev_set[1], *highset = par->ev_set[2];
+	u32 ev = st->ev, lo = par->ev_lo, hi = par->ev_hi;
+	u32 span, edge, kind_out, kind_in;
+	u32 *dst = st->vec, *pair = st->pair;
+
+	par->ct_last = par->ct;
+	st->out_id = par->out_id;
+	st->out_w = par->out_w << (par->out_shift & 31);
+	st->in_id = par->in_id;
+	st->in_w = par->in_w << (par->out_shift & 31);
+	kind_out = par->out_id & 0xffff;
+	kind_in = par->in_id & 0xffff;
+
+	if (ev < lo || ev < hi) {
+		st->sel_a = 0;
+		st->sel_b = par->sel_b;
+		lp->tbl = 1264;
+		pair[0] = kind_out;
+		pair[1] = st->out_w;
+	} else {
+		st->sel_a = par->sel_a;
+		st->sel_b = par->sel_b;
+		lp->tbl = 364;
+		pair[0] = kind_in;
+		pair[1] = st->in_w;
+	}
+	span = (u32)((int)(hi - lo) / 3);
+	edge = hi + span;
+
+	if (kind_out != 1) {
+		if (kind_out)
+			return;
+		t32_awb_copy4(dst, highset);
+		pair[1] = 0x10000;
+		if (kind_in != 1)
+			return;
+		if (ev < hi) {
+			if (!(ev < edge))
+				pair[1] = st->in_w;
+		} else if (!(ev < edge)) {
+			pair[1] = st->in_w;
+		} else {
+			pair[1] = t32_awb_udiv((span << 16) - (0x10000 - st->in_w) * (ev - hi), span);
+		}
+		return;
+	}
+
+	if (ev < lo) {
+		t32_awb_copy4(dst, lowset);
+	} else if (ev < lo + span) {
+		t32_awb_blend4(dst, lowset, midset, ev - lo, span);
+	} else if (ev < hi) {
+		t32_awb_copy4(dst, midset);
+	} else if (!(ev < edge)) {		/* beyond the blend zone */
+		t32_awb_copy4(dst, highset);
+		if (!kind_in) {
+			pair[0] = kind_in;
+			t32_awb_copy4(dst, midset);
+			pair[1] = 0x10000;
+		}
+		return;
+	} else {				/* hi <= ev < edge */
+		t32_awb_blend4(dst, midset, highset, ev - hi, span);
+		pair[1] = t32_awb_udiv(span * st->out_w + (st->in_w - st->out_w) * (ev - hi), span);
+		if (!kind_in) {
+			pair[0] = kind_out;
+			t32_awb_copy4(dst, midset);
+			pair[1] = t32_awb_udiv(st->out_w * span + (0x10000 - st->out_w) * (ev - hi), span);
+		}
+		return;
+	}
+
+	/* ev below hi (or the zones overlap): the inner weight when the inner id is 0 */
+	if (kind_in)
+		return;
+	if (!(ev < edge)) {
+		pair[0] = kind_in;
+		t32_awb_copy4(dst, midset);
+		pair[1] = 0x10000;
+	} else if (!(ev < hi)) {
+		pair[0] = kind_out;
+		t32_awb_copy4(dst, midset);
+		pair[1] = t32_awb_udiv(st->out_w * span + (0x10000 - st->out_w) * (ev - hi), span);
 	}
 }
 
