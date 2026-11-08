@@ -177,4 +177,118 @@ static inline void t32_awb_ct_cal(struct t32_awb_par *par, u32 r, u32 b)
 	par->ct = (q + (1U << ((par->out_shift - 1) & 31))) >> s;
 }
 
+/*
+ * Tiziano_Awb_Ct_Detect_GrayWorld_mode (0x20360) and Tiziano_Awb_Ct_Detect_GrayWorld
+ * (0x20908): colour temperature by the gray world assumption.  stats holds, per mode,
+ * 2048 words: the red sum of zone (row, col) at row * 32 + col and the blue sum 1024
+ * words further.  Mode m runs when par->gw_en[m] == 1 and *valid == 1.
+ *  1. weight of each zone: 1.0 outside the r/b window [axis[0], axis[14]] (scaled by
+ *     out_shift), 4.0 inside (1.0 again above the blue window top), times the zone flag;
+ *     weighted sums of r, b and the weight.
+ *  2. a zero sum gives *valid = 1, ct 5000 and the gains (1.0, 1.0); otherwise
+ *     *valid = 0 and r = sum_r / sum_w, b = sum_b / sum_w.
+ *  3. gw_en[2] == 1 refines: every zone gets a class by the squared distance of its
+ *     (r, b) from the mean (thresholds 818 .. 514, below that a table), the sums are
+ *     taken again with the class as weight.  A zero sum there keeps the first r, b
+ *     (with *valid = 1).
+ *  4. ct from (r, b) by t32_awb_ct_cal; out = (r, b).
+ */
+static inline void t32_awb_grayworld_mode(struct t32_awb_par *par, struct t32_awb_state *st, const u32 *stats,
+					  u32 mode, u32 *valid, u32 out[2])
+{
+	u32 fp = par->fp_shift, os = par->out_shift, o31 = os & 31, f31 = fp & 31;
+	u32 one = 1U << f31, w4 = 4U << f31;
+	u32 lo_r = par->ct_axis_r[0] << o31, hi_r = par->ct_axis_r[14] << o31;
+	u32 lo_b = par->ct_axis_b[0] << o31, hi_b = par->ct_axis_b[14] << o31;
+	u32 rows = par->zones_h, cols = par->zones_w;
+	u32 sum_r = 0, sum_b = 0, sum_w = 0, r, b, row, col;
+
+	if (par->gw_en[mode] != 1 || *valid != 1)
+		return;
+
+	for (row = 0; row < rows; row++) {
+		for (col = 0; col < cols; col++) {
+			const u32 *zs = stats + mode * 2048 + row * 32 + col;
+			u32 sr = zs[0], sb = zs[1024], w, flag = (u32)par->zone_flag[row * 32 + col] << f31;
+
+			if (sr < lo_r || hi_r < sr || sb < lo_b)
+				w = one;
+			else
+				w = hi_b < sb ? one : w4;
+			sum_r += t32_awb_fixmul3(fp, sr, flag, w);
+			sum_b += t32_awb_fixmul3(fp, sb, flag, w);
+			sum_w += t32_awb_fixmul(fp, flag, w);
+		}
+	}
+	if (!sum_w || !sum_r || !sum_b) {
+		*valid = 1;
+		par->ct = 5000;
+		out[0] = out[1] = one;
+		return;
+	}
+	*valid = 0;
+	r = t32_awb_fixdiv(fp, sum_r, sum_w);
+	b = t32_awb_fixdiv(fp, sum_b, sum_w);
+
+	if (par->gw_en[2] == 1) {
+		u32 half = 1U << ((os - 1) & 31), mr = (r + half) >> o31, mb = (b + half) >> o31;
+
+		for (row = 0; row < rows; row++) {
+			for (col = 0; col < cols; col++) {
+				const u32 *zs = stats + mode * 2048 + row * 32 + col;
+				u32 vr = ((zs[0] + half) >> o31), vb = ((zs[1024] + half) >> o31), d, cls;
+
+				vr = vr < mr ? mr - vr : vr - mr;
+				vb = vb < mb ? mb - vb : vb - mb;
+				d = vr * vr + vb * vb;
+				if (d >= 818)
+					cls = 0;
+				else if (d >= 679)
+					cls = 1;
+				else if (d >= 615)
+					cls = 2;
+				else if (d >= 572)
+					cls = 3;
+				else if (d >= 540)
+					cls = 4;
+				else if (d >= 514)
+					cls = 5;
+				else
+					cls = st->gw_tab[d];
+				st->gw_map[row * 32 + col] = cls << o31;
+			}
+		}
+		sum_r = sum_b = sum_w = 0;
+		for (row = 0; row < rows; row++) {
+			for (col = 0; col < cols; col++) {
+				const u32 *zs = stats + mode * 2048 + row * 32 + col;
+				u32 flag = (u32)par->zone_flag[row * 32 + col] << f31, cw = st->gw_map[row * 32 + col];
+
+				sum_r += t32_awb_fixmul3(fp, zs[0], flag, cw);
+				sum_b += t32_awb_fixmul3(fp, zs[1024], flag, cw);
+				sum_w += t32_awb_fixmul(fp, flag, cw);
+			}
+		}
+		if (!sum_w || !sum_r || !sum_b) {
+			*valid = 1;
+			par->ct = 5000;
+		} else {
+			r = t32_awb_fixdiv(fp, sum_r, sum_w);
+			b = t32_awb_fixdiv(fp, sum_b, sum_w);
+		}
+	}
+	t32_awb_ct_cal(par, r, b);
+	out[0] = r;
+	out[1] = b;
+}
+
+static inline void t32_awb_grayworld(struct t32_awb_par *par, struct t32_awb_state *st, const u32 *stats,
+				     u32 *valid, u32 out[2])
+{
+	if (par->gw_en[0] == 1)
+		t32_awb_grayworld_mode(par, st, stats, 0, valid, out);
+	if (par->gw_en[1] == 1)
+		t32_awb_grayworld_mode(par, st, stats, 1, valid, out);
+}
+
 #endif /* TX_ISP_T32_AWBCT_H */

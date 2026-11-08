@@ -55,6 +55,8 @@ struct t32_awb_par {
 		T32_AWB_AT(60, u32 ct_axis_r[15]);	/* colour temperature grid: red axis (x of the r/g ratio) */
 		T32_AWB_AT(120, u32 ct_axis_b[15]);	/* ... blue axis */
 		T32_AWB_AT(2164, u32 ct_grid[15][15]);	/* 1e6 / ct at the grid points, row = blue */
+		T32_AWB_AT(3448, u16 gw_en[3]);		/* gray world modes 0, 1 enable; [2]: refine pass */
+		T32_AWB_AT(5714, u8 zone_flag[1024]);	/* per zone weight, 32 per row */
 		T32_AWB_AT(180, u32 ev_set[3][4]);	/* four-value sets for low, mid, high exposure */
 		T32_AWB_AT(228, u32 out_id);		/* weight id / weight outside [ev_lo, ev_hi) */
 		T32_AWB_AT(232, u32 out_w);		/* (the weight is scaled by out_shift) */
@@ -99,6 +101,8 @@ struct t32_awb_state {
 		T32_AWB_AT(28728, u16 spec_rs[5]);	/* calibrated stored ratios */
 		T32_AWB_AT(28748, u16 spec_bs[5]);
 		T32_AWB_AT(119944, int spec_ring);	/* last stored sample slot */
+		T32_AWB_AT(28764, u16 gw_tab[514]);	/* gray world: class by squared distance */
+		T32_AWB_AT(87108, u32 gw_map[1024]);	/* gray world: zone class weights, 32 per row */
 		T32_AWB_AT(28760, u32 last_ct);		/* ct of the last offset selection */
 		T32_AWB_AT(38032, u32 vec[4]);		/* long_par_update: blended four-value set */
 		T32_AWB_AT(38048, u32 pair[2]);		/* ... and (id, weight) */
@@ -151,6 +155,10 @@ T32_AWB_CHK(struct t32_awb_par, ev_lo, 32);
 T32_AWB_CHK(struct t32_awb_par, ev_hi, 36);
 T32_AWB_CHK(struct t32_awb_par, ct_last, 48);
 T32_AWB_CHK(struct t32_awb_par, ev_set, 180);
+T32_AWB_CHK(struct t32_awb_par, gw_en, 3448);
+T32_AWB_CHK(struct t32_awb_par, zone_flag, 5714);
+T32_AWB_CHK(struct t32_awb_state, gw_tab, 28764);
+T32_AWB_CHK(struct t32_awb_state, gw_map, 87108);
 T32_AWB_CHK(struct t32_awb_par, ct_axis_r, 60);
 T32_AWB_CHK(struct t32_awb_par, ct_axis_b, 120);
 T32_AWB_CHK(struct t32_awb_par, ct_grid, 2164);

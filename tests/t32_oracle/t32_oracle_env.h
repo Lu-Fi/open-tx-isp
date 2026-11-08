@@ -53,6 +53,7 @@ u64 tisp_lsc_tgain_update(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_ae_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_awb_init(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_awb_set_gain(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 Tiziano_Awb_Ct_Detect_GrayWorld(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4);
 u64 Tiziano_Awb_Ct_Cal(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 fix_point_mult3_32(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 fix_point_div_32(u32 a0, u32 a1, u32 a2, u32 a3);
