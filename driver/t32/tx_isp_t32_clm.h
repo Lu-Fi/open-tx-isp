@@ -19,6 +19,13 @@
  * second matrix) is computed from the primaries (Kr, Kb) and the range scale
  * instead of being copied: it equals the vendor's six matrices (BT.601,
  * BT.709, BT.2020, full and limited range).
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_clm_oracle) for 5000 K clamped to the first or last
+ * zone, a single zone, and the 67 real bins.  Between two zones the recovered
+ * vendor code (tisp_clm_ct_interp at 0x8a6d8) tests a signed table byte where a
+ * colour temperature is expected, and the oracle does not agree with ours there:
+ * open, to be confirmed against the vendor binary before relying on that range.
  */
 #ifndef TX_ISP_T32_CLM_H
 #define TX_ISP_T32_CLM_H
