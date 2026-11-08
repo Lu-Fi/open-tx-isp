@@ -40,6 +40,7 @@
  * (t32_awb_ct_detect_nearest).
  * Phase 10 (L_22924 .. L_22af8; also the whole cand_mode != 1 branch, which skips phases 4..9):
  * the spec samples lower the weights near them (t32_awb_ct_detect_spec).
+ * Phase 11 (L_22af8 .. L_22e34): the weighted sums over the zones (t32_awb_ct_detect_sums).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -67,6 +68,8 @@ struct t32_awb_ctd {
 	u32 m2;			/* number of valid entries of those three */
 	u32 cn0[60];		/* t32_data_db060: cl_n before the weighting (phase 8) */
 	u32 maxn;		/* largest cl_n after it, local s8+64 (0 when none) */
+	u32 tw[4], tb[4], tr[4];	/* t32_data_db000 / db010 / db020: lane sums of W, B * W, R * W (phase 11) */
+	u32 sw, sb, sr;		/* their totals, locals s8+68 / s8+72 / s8+76 */
 };
 
 /*
@@ -723,6 +726,71 @@ static inline int t32_awb_ct_detect_spec(struct t32_awb *a, const struct t32_awb
 		for (col = 0; col < cols; col++)
 			sum += st->gw_map[row * 32 + col];
 	return sum == 0;
+}
+
+/* (1 << n) - 1 as the vendor builds it: -1 >> (-n & 31) (all ones for n = 0) */
+static inline u32 t32_awb_lowmask(u32 n)
+{
+	return 0xffffffffu >> ((-n) & 31);
+}
+
+/*
+ * Phase 11 (L_22af8 .. L_22e34).  Clears valid[0] and sums the zones of the grid, four columns
+ * at a time (the last group of a row runs past the columns when they are no multiple of 4; those
+ * lanes are summed too, as in the vendor).  Per zone z: with m = gw_map[z] >> 8 and g = zw_norm[z]
+ * >> 8 the product P = m * g >> out_shift, the weight W = (P * flag[z]) >> out_shift, all in
+ * 32 bit halves of out_shift bits each (the MXU2 has no 64 bit multiply), and then, as 32 bit
+ * halves of fp_shift bits, R * (W << 8) and B * (W << 8) >> fp_shift for the zone statistics R, B.
+ * The lane sums of W, R * W and B * W are added up to sw, sr, sb.  Returns 1 when sw is 0 (the
+ * vendor then ends in the gray world fallback), -1 for a grid over 32, else 0.
+ */
+static inline int t32_awb_ct_detect_sums(struct t32_awb *a, struct t32_awb_ctd *d, u32 valid[2])
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u32 fp = par->fp_shift & 0xffff, os = par->out_shift & 0xffff;
+	u32 fm = t32_awb_lowmask(fp), om = t32_awb_lowmask(os);
+	u32 rows = par->zones_h, cols = par->zones_w;
+	u32 row, col, l;
+
+	if (rows > 32 || cols > 32)
+		return -1;
+	valid[0] = 0;
+	for (l = 0; l < 4; l++)
+		d->tw[l] = d->tb[l] = d->tr[l] = 0;
+	for (row = 0; row < rows; row++) {
+		for (col = 0; col < cols; col += 4) {
+			for (l = 0; l < 4; l++) {
+				u32 z = row * 32 + col + l;
+				u32 m = st->gw_map[z] >> 8, g = st->zw_norm[z] >> 8;
+				u32 mo = m >> (os & 31), go = g >> (os & 31), mr = m & om, gr = g & om;
+				u32 f = par->zone_flag[z], fs = f << (os & 31), fl = fs & om, f2 = fs >> (os & 31);
+				u32 p, ph, pl, w, ws, wh, wl, r, rw, b, bw;
+
+				p = mr * go + mo * gr + ((mo * go) << (os & 31)) + ((mr * gr) >> (os & 31));
+				ph = p >> (os & 31);
+				pl = p & om;
+				w = pl * f2 + ph * fl + ((ph * f2) << (os & 31)) + ((pl * fl) >> (os & 31));
+				ws = w << 8;
+				wh = ws >> (fp & 31);
+				wl = ws & fm;
+				r = st->zstat[0][0][z];
+				b = st->zstat[0][1][z];
+				rw = (r & fm) * wh + (r >> (fp & 31)) * wl + (((r >> (fp & 31)) * wh) << (fp & 31)) + (((r & fm) * wl) >> (fp & 31));
+				bw = (b & fm) * wh + (b >> (fp & 31)) * wl + (((b >> (fp & 31)) * wh) << (fp & 31)) + (((b & fm) * wl) >> (fp & 31));
+				d->tw[l] += w;
+				d->tr[l] += rw;
+				d->tb[l] += bw;
+			}
+		}
+	}
+	d->sw = d->sb = d->sr = 0;
+	for (l = 0; l < 4; l++) {
+		d->sr += d->tr[l];
+		d->sb += d->tb[l];
+		d->sw += d->tw[l];
+	}
+	return d->sw == 0;
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */
