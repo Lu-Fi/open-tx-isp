@@ -71,6 +71,7 @@ static void synthetic(void)
 	t32_lsc_ct(p, &s, 7000);
 	CHECK(s.table_lo == 2 && s.table_hi == 2);
 	/* cell packing: 6 x 12 bits into 3 words (a single table: below the first tag) */
+	memset(&s, 0, sizeof(s));		/* no grid: no radial correction */
 	t32_lsc_ct(p, &s, 2000);
 	{
 		unsigned char *pl = p + T32_LSC_TABLES + 2;

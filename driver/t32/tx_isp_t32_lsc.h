@@ -25,10 +25,8 @@
  * Checked against the vendor flow (Matt Davis' recovered C, PR #15) by tests/t32_oracle
  * (t32_lsc_oracle): the enable, the 13 control registers, the port select and the cell
  * count (t32_lsc_cell_count) are bit-exact for all 67 bins at three sizes and random
- * sections.  The mesh words: the table choice and blend follow tisp_lsc_interp_by_ct and
- * tisp_lsc_mesh_itp (tags, hysteresis, Q12 weight, 16-bit elements); they are equal for the
- * cells the vendor's radial correction (section byte 65 clear) and the ring path (byte 65
- * set: 1154-byte planes of the first payload) do not touch.  Open, see T32O_WORDS=1 / T32O_DIAG=1.
+ * sections.  The mesh words are bit-exact too: table choice and blend (tags, hysteresis, Q12 weight,
+ * 16-bit elements), the radial correction (byte 65 clear) and the ring format (byte 65 set).
  */
 #ifndef TX_ISP_T32_LSC_H
 #define TX_ISP_T32_LSC_H
@@ -164,7 +162,7 @@ static inline void t32_lsc_gain(const u8 *p, struct t32_lsc *s, u32 gain)
  */
 static inline void t32_lsc_ct(const u8 *p, struct t32_lsc *s, u32 ct)
 {
-	u32 tag[T32_LSC_NTABLES], k, n = p[116], h = t32_le16(p + 48), md = 0x10000;
+	u32 tag[T32_LSC_NTABLES + 1], k, n = p[116], h = t32_le16(p + 48), md = 0x10000;
 
 	if (n < 1)
 		n = 1;
@@ -172,7 +170,9 @@ static inline void t32_lsc_ct(const u8 *p, struct t32_lsc *s, u32 ct)
 		n = T32_LSC_NTABLES;
 	for (k = 0; k < n; k++)
 		tag[k] = t32_le16(p + T32_LSC_TABLES + k * T32_LSC_TABLE_STRIDE);
-	for (k = 1; k < n; k++) {
+	/* the vendor's distance loop runs one step past the last table; the tag there is read as 0 */
+	tag[n] = n < T32_LSC_NTABLES ? t32_le16(p + T32_LSC_TABLES + n * T32_LSC_TABLE_STRIDE) : 0;
+	for (k = 1; k <= n; k++) {
 		u32 d = tag[k] - tag[k - 1];
 
 		if (d < md)
@@ -250,28 +250,140 @@ static inline u32 t32_lsc_cell_count(const u8 *p, const struct t32_lsc *s, u32 b
 	return s->cells;
 }
 
+/* round(x / 2^n) as tisp_round_int64 does: arithmetic shift, the bit below added */
+static inline long long t32_lsc_round(long long x, unsigned int n)
+{
+	return (x >> n) + ((x >> (n - 1)) & 1);
+}
+
 /*
- * the mesh words of one cell: the 6 values of the chosen table (16-bit elements, 12 bits
- * packed), the two tables blended element by element when a pair is chosen
- * (tisp_lsc_mesh_itp: a + ((b - a) * w >> 12)).
+ * The vendor's radial correction (tisp_lsc_interp_by_ct, section byte 65 clear, after the
+ * blend): the plane is a (2 rows) x (2 cols) grid of 16-bit elements, rows / cols being
+ * the grid of tisp_lsc_calc_para_refresh; an element at the quadrant distance (dx, dy) in
+ * half cells (1, 3, 5 ...) from the centre gets the gain of its normalised squared radius
+ * r = (dx^2 + dy^2) * 2^24 / ((2 cols + 1)^2 + (2 rows + 1)^2): the eight thresholds are the
+ * squares of the u16 at p[32 + 2 k], the gains the bytes p[77 + k] (plane 0), p[85 + k]
+ * (plane 1) and p[93 + k] (plane 2), interpolated linearly between two levels.  A gain
+ * (plus its bit 7) below 256 pulls the element towards the black level 2048 >> p[72 + plane]:
+ * level + round((element - level) * gain / 256).
+ */
+static inline u32 t32_lsc_radial(const u8 *p, const struct t32_lsc *s, unsigned int plane, unsigned int e, u32 v)
+{
+	unsigned int rows = s->rows, cols = s->cols, x, y;
+	int thr[9], r, k, lvl = 0, g, level;
+	long long dx, dy;
+	u32 gain, d;
+
+	if (!rows || !cols)
+		return v;
+	x = e % (2 * cols);
+	y = e / (2 * cols);
+	if (y >= 2 * rows)
+		return v;
+	dy = y < rows ? 2 * (rows - 1 - y) + 1 : 2 * (y - rows) + 1;
+	dx = x < cols ? 2 * (cols - 1 - x) + 1 : 2 * (x - cols) + 1;
+	for (k = 0; k < 8; k++) {
+		int t = (int)t32_le16(p + 32 + 2 * k);
+
+		thr[k] = t * t;
+	}
+	thr[8] = 0x1000000;
+	r = (int)((dx * dx + dy * dy) * (0x1000000 / ((int)((2 * cols + 1) * (2 * cols + 1) + (2 * rows + 1) * (2 * rows + 1)))));
+	while (lvl < 9 && !(r < thr[lvl]))
+		lvl++;
+	if (lvl == 0) {
+		g = p[77 + 8 * plane];
+	} else if (lvl >= 8) {
+		g = p[84 + 8 * plane];
+	} else if (thr[lvl] - thr[lvl - 1] <= 0) {
+		g = p[77 + 8 * plane + lvl];
+	} else {
+		int span = thr[lvl] - thr[lvl - 1], pos = r - thr[lvl - 1];
+
+		g = (p[77 + 8 * plane + lvl - 1] * (span - pos) + p[77 + 8 * plane + lvl] * pos) / span;
+	}
+	gain = (u32)g + (((u32)g >> 7) & 1);
+	if (gain >= 256)
+		return v;
+	level = 2048 >> p[72 + plane];
+	d = (int)v > level ? v - level : 0;
+	return (u32)level + (u32)t32_lsc_round((long long)d * gain, 8) > 4095 ? 4095 :
+	       (u32)level + (u32)t32_lsc_round((long long)d * gain, 8);
+}
+
+/* element e of plane `plane` after the table choice / blend and, for byte 65 clear, the radial correction */
+static inline u32 t32_lsc_elem(const u8 *p, const struct t32_lsc *s, unsigned int plane, unsigned int e)
+{
+	const u8 *pa = p + T32_LSC_TABLES + s->table_lo * T32_LSC_TABLE_STRIDE + 2 + plane * T32_LSC_PLANE;
+	const u8 *pb = p + T32_LSC_TABLES + s->table_hi * T32_LSC_TABLE_STRIDE + 2 + plane * T32_LSC_PLANE;
+	u32 v;
+
+	if (s->none) {
+		v = 0;
+	} else if (s->table_lo == s->table_hi) {
+		v = t32_le16(pa + 2 * e);
+	} else {
+		u32 a = t32_le16(pa + 2 * e), b = t32_le16(pb + 2 * e);
+
+		v = (a + (((b - a) * s->fraction) >> 12)) & 0xffff;
+	}
+	if (!p[65])
+		v = t32_lsc_radial(p, s, plane, e, v);
+	return v;
+}
+
+/*
+ * Section byte 65 set: the mesh is the ring format of the first payload (three tables of
+ * 3464 bytes: a u16 tag and three planes of 577 u16 elements); the chosen table(s) are
+ * blended element by element (tisp_lsc_ring_itp).
+ */
+#define T32_LSC_RING_TABLES	120U		/* first payload, behind the 120-byte section */
+#define T32_LSC_RING_STRIDE	3464U
+#define T32_LSC_RING_PLANE	1154U
+#define T32_LSC_RING_ELEMS	577U
+
+static inline u32 t32_lsc_ring_elem(const u8 *p, const struct t32_lsc *s, unsigned int plane, unsigned int e)
+{
+	const u8 *pa = p + T32_LSC_RING_TABLES + s->table_lo * T32_LSC_RING_STRIDE + 2 + plane * T32_LSC_RING_PLANE;
+	const u8 *pb = p + T32_LSC_RING_TABLES + s->table_hi * T32_LSC_RING_STRIDE + 2 + plane * T32_LSC_RING_PLANE;
+	u32 a, b;
+
+	if (s->none || e >= T32_LSC_RING_ELEMS)
+		return 0;
+	a = t32_le16(pa + 2 * e);
+	b = t32_le16(pb + 2 * e);
+	return s->table_lo == s->table_hi ? a : (a + (((b - a) * s->fraction) >> 12)) & 0xffff;
+}
+
+/*
+ * the mesh words of one cell.  Byte 65 clear: its 6 values (two elements of each plane, 12 bits
+ * packed).  Byte 65 set: the vendor's two blocks of 576 cells; cells 0..575 pack one element of
+ * each plane and its neighbour, cells 576.. get the top byte of plane 1 and the packed plane 1
+ * neighbours only (as the vendor's loop stores them).
  */
 static inline void t32_lsc_cell(const u8 *p, const struct t32_lsc *s, unsigned int i, u32 w[3])
 {
-	const u8 *pa = p + T32_LSC_TABLES + s->table_lo * T32_LSC_TABLE_STRIDE + 2;
-	const u8 *pb = p + T32_LSC_TABLES + s->table_hi * T32_LSC_TABLE_STRIDE + 2;
 	u32 v[6], k;
 
-	for (k = 0; k < 6; k++) {
-		u32 o = (k / 2) * T32_LSC_PLANE + i * 4 + (k & 1) * 2;
-		u32 a = t32_le16(pa + o), b = t32_le16(pb + o);
+	if (p[65]) {
+		unsigned int n = i < 576 ? i : i - 576;
+		u32 p0 = t32_lsc_ring_elem(p, s, 0, n), p0n = t32_lsc_ring_elem(p, s, 0, n + 1);
+		u32 p1 = t32_lsc_ring_elem(p, s, 1, n), p1n = t32_lsc_ring_elem(p, s, 1, n + 1);
+		u32 p2 = t32_lsc_ring_elem(p, s, 2, n), p2n = t32_lsc_ring_elem(p, s, 2, n + 1);
 
-		if (s->none)
-			v[k] = 0;
-		else if (s->table_lo == s->table_hi)
-			v[k] = a & 4095;
-		else
-			v[k] = (a + (((b - a) * s->fraction) >> 12)) & 4095;
+		if (i < 576) {
+			w[0] = (p0 & 4095) | (p0n & 4095) << 12 | p1 << 24;
+			w[1] = ((p1 >> 8) & 15) | ((p1n << 4) & 0xffff) | (p2 & 4095) << 16 | p2n << 28;
+			w[2] = (p2n >> 4) & 0xff;
+		} else {
+			w[0] = p1 << 24;
+			w[1] = ((p1 >> 8) & 15) | ((p1n << 4) & 0xffff);
+			w[2] = 0;
+		}
+		return;
 	}
+	for (k = 0; k < 6; k++)
+		v[k] = t32_lsc_elem(p, s, k / 2, i * 2 + (k & 1)) & 4095;
 	w[0] = v[0] | v[1] << 12 | v[2] << 24;
 	w[1] = (v[2] >> 8) | v[3] << 4 | v[4] << 16 | v[5] << 28;
 	w[2] = v[5] >> 4;
