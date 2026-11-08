@@ -105,4 +105,76 @@ static inline u32 t32_awb_zone_ct_weight(u32 x, const u32 th[4], u32 base, u32 s
 	return t32_awb_fixmul(s, scale, *w);
 }
 
+/*
+ * Tiziano_Awb_Ct_Cal (0x20054): colour temperature from the red and blue ratios
+ * (r, b in fixed point with par->out_shift fraction bits).  Both ratios are limited to
+ * the axis ranges par->ct_axis_r / ct_axis_b (first .. last entry, scaled).  The
+ * cell of the 15x15 grid that contains them is found (index 15 = at or beyond the last
+ * axis point) and the grid value interpolated linearly: inside the grid in r then b
+ * (bilinear); at the last r point along b only; at the last b point along r only, using
+ * the last row of the grid (row 14).  The vendor reads the grid / axes with raw offsets
+ * so that index 15 reads the bytes behind the tables (they are part of the section).
+ * The value is 1e6 / ct in fixed point: ct = 1e6 / value, rounded; 0 gives 5000.
+ * The result goes to par->ct.
+ */
+static inline u32 t32_awb_axis_index(const u8 *raw, u32 axis_off, u32 v, u32 s)
+{
+	u32 i;
+
+	for (i = 0; i < 14; i++)
+		if (!(v < t32_awb_u32at(raw, axis_off + 4 * i) << s) &&
+		    v < t32_awb_u32at(raw, axis_off + 4 * (i + 1)) << s)
+			break;
+	return i + 1;
+}
+
+static inline void t32_awb_ct_cal(struct t32_awb_par *par, u32 r, u32 b)
+{
+	const u8 *raw = par->raw;
+	u32 fp = par->fp_shift, s = par->out_shift & 31;
+	u32 rlo = par->ct_axis_r[0] << s, rhi = par->ct_axis_r[14] << s;
+	u32 blo = par->ct_axis_b[0] << s, bhi = par->ct_axis_b[14] << s;
+	u32 ir, ib, v, q;
+	u32 x0, x1;
+
+	(void)fp;
+	if (r > rhi)
+		r = rhi;
+	else if (r < rlo)
+		r = rlo;
+	if (b > bhi)
+		b = bhi;
+	else if (b < blo)
+		b = blo;
+
+	ir = r == rhi ? 15 : t32_awb_axis_index(raw, 60, r, s);
+	ib = b == bhi ? 15 : t32_awb_axis_index(raw, 120, b, s);
+
+	if (ir == 15) {			/* along b at the last red point */
+		x0 = t32_awb_u32at(raw, 120 + 4 * (ib - 1));
+		x1 = t32_awb_u32at(raw, 120 + 4 * ib);
+		v = t32_awb_interp1(s, b, x0, x1, t32_awb_u32at(raw, 2164 + 60 * ib - 4),
+				    t32_awb_u32at(raw, 2164 + 60 * ib + 56));
+	} else if (ib == 15) {		/* along r in the last row (row 14) */
+		x0 = t32_awb_u32at(raw, 60 + 4 * (ir - 1));
+		x1 = t32_awb_u32at(raw, 60 + 4 * ir);
+		v = t32_awb_interp1(s, r, x0, x1, t32_awb_u32at(raw, 2164 + 4 * (ir - 1 + 210)),
+				    t32_awb_u32at(raw, 2164 + 4 * (ir - 1 + 211)));
+	} else {			/* bilinear */
+		u32 cell = 2164 + 4 * (15 * (ib - 1) + (ir - 1)), lo, hi;
+
+		x0 = t32_awb_u32at(raw, 60 + 4 * (ir - 1));
+		x1 = t32_awb_u32at(raw, 60 + 4 * ir);
+		lo = t32_awb_interp1(s, r, x0, x1, t32_awb_u32at(raw, cell), t32_awb_u32at(raw, cell + 4));
+		hi = t32_awb_interp1(s, r, x0, x1, t32_awb_u32at(raw, cell + 60), t32_awb_u32at(raw, cell + 64));
+		v = t32_awb_interp2(s, b, t32_awb_u32at(raw, 120 + 4 * (ib - 1)), t32_awb_u32at(raw, 120 + 4 * ib), lo, hi);
+	}
+	if (!v) {
+		par->ct = 5000;
+		return;
+	}
+	q = t32_awb_fixdiv(par->out_shift, 1000000U << s, v);	/* the vendor passes the unmasked shift */
+	par->ct = (q + (1U << ((par->out_shift - 1) & 31))) >> s;
+}
+
 #endif /* TX_ISP_T32_AWBCT_H */

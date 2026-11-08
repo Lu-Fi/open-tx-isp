@@ -52,6 +52,9 @@ struct t32_awb_par {
 		T32_AWB_AT(48, u32 ct_last);		/* copy of ct made by long_par_update */
 		T32_AWB_AT(52, u32 cal_r);
 		T32_AWB_AT(56, u32 cal_b);
+		T32_AWB_AT(60, u32 ct_axis_r[15]);	/* colour temperature grid: red axis (x of the r/g ratio) */
+		T32_AWB_AT(120, u32 ct_axis_b[15]);	/* ... blue axis */
+		T32_AWB_AT(2164, u32 ct_grid[15][15]);	/* 1e6 / ct at the grid points, row = blue */
 		T32_AWB_AT(180, u32 ev_set[3][4]);	/* four-value sets for low, mid, high exposure */
 		T32_AWB_AT(228, u32 out_id);		/* weight id / weight outside [ev_lo, ev_hi) */
 		T32_AWB_AT(232, u32 out_w);		/* (the weight is scaled by out_shift) */
@@ -148,6 +151,9 @@ T32_AWB_CHK(struct t32_awb_par, ev_lo, 32);
 T32_AWB_CHK(struct t32_awb_par, ev_hi, 36);
 T32_AWB_CHK(struct t32_awb_par, ct_last, 48);
 T32_AWB_CHK(struct t32_awb_par, ev_set, 180);
+T32_AWB_CHK(struct t32_awb_par, ct_axis_r, 60);
+T32_AWB_CHK(struct t32_awb_par, ct_axis_b, 120);
+T32_AWB_CHK(struct t32_awb_par, ct_grid, 2164);
 T32_AWB_CHK(struct t32_awb_par, out_id, 228);
 T32_AWB_CHK(struct t32_awb_par, out_w, 232);
 T32_AWB_CHK(struct t32_awb_par, in_id, 236);

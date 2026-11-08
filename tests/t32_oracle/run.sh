@@ -43,7 +43,7 @@ link "$D" "$O/$NAME"
 rc=$?
 [ $rc -eq 0 ] || exit $rc
 # mutation check
-n=0; caught=0; M=$O/mut; mkdir -p "$M"
+n=0; caught=0; M=$O/mut; rm -rf "$M"; mkdir -p "$M"
 echo "$MUTATIONS" | while IFS= read -r m; do
 	[ -n "$m" ] || continue
 	sed "$m" "$D/$HDR" > "$M/$HDR"
