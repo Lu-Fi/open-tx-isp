@@ -17,11 +17,6 @@
  * ../external/ingenic-sdk/sensor-iq/t32, with its own section 9 mode).
  * Sections ours refuses (-1) are counted, not compared.
  *
- * Known vendor quirk, outside the generated domain: when 5000 K is within the
- * hysteresis band of a zone's colour temperature, the vendor's tisp_clm_ct_interp
- * can return -1 without filling the tables (they stay zero); ours takes the zone
- * table as documented.  The 67 real bins never come near that band.
- *
  * Exit 0 = all compared cases equal; 1 = mismatch; 2 = strict and no bins.
  */
 #include <dirent.h>
@@ -190,29 +185,33 @@ int main(void)
 		}
 		sec[0x24] = (u8)(rnd() % 4 ? rnd() % 600 : rnd() % 8);
 		/*
-		 * Domain: 5000 K outside all zones by more than the hysteresis (clamped to the
-		 * first or the last zone), or a single zone.  Between two zones the vendor's
-		 * code (0x8a6d8) tests a signed byte of the byte table where one expects a
-		 * colour temperature; this is not reproduced by ours and not generated.
+		 * zone colour temperatures ascending from a random start, often right around 5000 K
+		 * (hysteresis band, lower/upper neighbour), byte tables random, in a third of the
+		 * cases with the first byte of each zone steered around the hysteresis value
+		 * (the vendor tests that byte, see tx_isp_t32_clm.h).
 		 */
 		{
-			int below = rnd() & 1, h = sec[0x24];
+			int h = sec[0x24];
 
-			ct = below ? 5000 - h - 2 - (int)(rnd() % 3000) : 5000 + h + 2 + (int)(rnd() % 100);
-			if (below)
-				ct = ct < 5000 - h - 2 - 4000 ? 1000 : ct;
+			ct = rnd() % 3 ? 5000 - (int)(rnd() % 1200) - h : 1000 + (int)(rnd() % 6000);
 			for (k = 0; k < zones; k++) {
-				int t = below ? ct + (int)(k * (rnd() % 3 ? 1 : 0)) : ct + (int)k * (1 + (int)(rnd() % 400));
+				int t = ct;
 
-				if (below && t > 5000 - h - 2)
-					t = 5000 - h - 2;
+				if (!(rnd() % 4))
+					t = 5000 + (rnd() & 1 ? 1 : -1) * (h + (int)(rnd() % 4) - 1);
+				if (t < ct)
+					t = ct;
 				put16(lut + 2102 * k, t);
+				ct = t + (int)(rnd() % 1500);
 				for (i = 0; i < 1050; i++)
 					put16(lut + 2102 * k + 2 + 2 * i, (c % 4 == 0) ? (int)(rnd() % 65536) - 32768 : (int)(rnd() % 4096) - 2048);
 			}
 		}
 		for (i = 0; i < zones * 1050; i++)
 			lut[zones * 2102 + i] = (u8)rnd();
+		if (c % 3 == 0)
+			for (k = 0; k < zones; k++)
+				lut[zones * 2102 + 1050 * k] = (u8)(sec[0x24] + (int)(rnd() % 7) - 3 + (rnd() % 2 ? 0 : 128));
 		for (i = 0; i < 104; i++)
 			csc[i] = (u8)rnd();
 		csc[0x5b] = (u8)(rnd() % 6);

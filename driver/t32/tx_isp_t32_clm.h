@@ -21,11 +21,8 @@
  * BT.709, BT.2020, full and limited range).
  *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
- * by tests/t32_oracle (t32_clm_oracle) for 5000 K clamped to the first or last
- * zone, a single zone, and the 67 real bins.  Between two zones the recovered
- * vendor code (tisp_clm_ct_interp at 0x8a6d8) tests a signed table byte where a
- * colour temperature is expected, and the oracle does not agree with ours there:
- * open, to be confirmed against the vendor binary before relying on that range.
+ * by tests/t32_oracle (t32_clm_oracle), including the blend range; the vendor
+ * binary was disassembled to confirm the byte compare of t32_clm_ct (0x8a6e4).
  */
 #ifndef TX_ISP_T32_CLM_H
 #define TX_ISP_T32_CLM_H
@@ -152,34 +149,59 @@ static inline s16 t32_clm_s16(const u8 *p)
 }
 
 /* the 2 x 420 word table: out[0..1049] shorts, ob[0..1049] bytes at the colour temperature */
+/*
+ * tisp_clm_ct_interp at the forced init update.  The recovered flow, with its
+ * unsigned compares of the sign-extended s16 colour temperatures:
+ *  - one zone, or 5000 K not above the first zone: zone 0 as it is;
+ *  - 5000 K not below the last zone: the last zone as it is;
+ *  - else the first zone v above 5000 K and its lower neighbour v-1: within the
+ *    hysteresis of the lower one (ct <= z[v-1] + hyst): zone v-1;
+ *    otherwise the vendor tests the first signed byte of the byte table of zone v
+ *    against the hysteresis (0x8a6e4: lb, subu, sltu; a colour temperature may
+ *    have been meant, the binary reads the byte): ct >= byte - hyst takes zone v,
+ *    else the blend runs for ct < z[v] - hyst with the weight
+ *    4096 * (ct - lo) / (hi - lo), and for a larger ct the tables stay unchanged
+ *    (zero at init).
+ */
 static inline int t32_clm_ct(const u8 *sec, const u8 *lut, u32 lutbytes, int ct, s16 *tab, u8 *tb)
 {
-	unsigned int count = sec[0x23], hyst = sec[0x24], z, i, z0 = 0, z1 = 0;
+	unsigned int count = sec[0x23], hyst = sec[0x24], v, i, z0 = 0, z1 = 0;
 	const u8 *bytes;
-	int w = -1;
+	u32 w = 0;
+	u32 uct = (u32)ct;
 
 	if (count < 1 || lutbytes < count * (T32_CLM_ZONE_BYTES + T32_CLM_TABLE))
 		return -1;
+	for (i = 0; i < T32_CLM_TABLE; i++) {
+		tab[i] = 0;
+		tb[i] = 0;
+	}
 	bytes = lut + count * T32_CLM_ZONE_BYTES;
-	if (count == 1 || ct <= t32_clm_s16(lut)) {
+	if (count == 1 || !((u32)(int)t32_clm_s16(lut) < uct)) {
 		z0 = z1 = 0;
-	} else if (ct >= t32_clm_s16(lut + (count - 1) * T32_CLM_ZONE_BYTES)) {
+	} else if (!(uct < (u32)(int)t32_clm_s16(lut + (count - 1) * T32_CLM_ZONE_BYTES))) {
 		z0 = z1 = count - 1;
 	} else {
-		for (z = 1; z < count && ct > t32_clm_s16(lut + z * T32_CLM_ZONE_BYTES); z++)
+		for (v = 1; v < count && (u32)(int)t32_clm_s16(lut + v * T32_CLM_ZONE_BYTES) < uct; v++)
 			;
-		z0 = z - 1;
-		z1 = z;
+		if (v >= count)
+			return 0;
+		z0 = v - 1;
+		z1 = v;
 		{
-			int lo = t32_clm_s16(lut + z0 * T32_CLM_ZONE_BYTES) + (int)hyst;
-			int hi = t32_clm_s16(lut + z1 * T32_CLM_ZONE_BYTES) - (int)hyst;
+			u32 lo = (u32)(int)t32_clm_s16(lut + z0 * T32_CLM_ZONE_BYTES) + hyst;
 
-			if (ct <= lo) {
+			if (!(lo < uct)) {
 				z1 = z0;
-			} else if (ct >= hi) {
+			} else if (!(uct < (u32)((int)(signed char)bytes[v * T32_CLM_TABLE] - (int)hyst))) {
 				z0 = z1;
 			} else {
-				w = (int)(((u32)(ct - lo) * 0x1000U) / (u32)(hi - lo));
+				u32 hi = (u32)(int)t32_clm_s16(lut + z1 * T32_CLM_ZONE_BYTES) - hyst;
+
+				if (!(uct < hi))
+					return 0;
+				/* lo < ct < hi here, so the divisor is not zero */
+				w = ((uct - lo) << 12) / (hi - lo);
 			}
 		}
 	}
@@ -189,8 +211,8 @@ static inline int t32_clm_ct(const u8 *sec, const u8 *lut, u32 lutbytes, int ct,
 		int ba = (signed char)bytes[z0 * T32_CLM_TABLE + i];
 		int bb = (signed char)bytes[z1 * T32_CLM_TABLE + i];
 
-		tab[i] = (s16)(w < 0 ? a : t32_clm_itp(a, b, w));
-		tb[i] = (u8)(w < 0 ? ba : t32_clm_itp(ba, bb, w));
+		tab[i] = (s16)(z0 == z1 ? a : t32_clm_itp(a, b, (int)w));
+		tb[i] = (u8)(z0 == z1 ? ba : t32_clm_itp(ba, bb, (int)w));
 	}
 	return 0;
 }
