@@ -84,6 +84,8 @@ struct t32_awb_par {
 		T32_AWB_AT(244, u8 var_en);		/* ct_detect: 1 = weight the zones down by their distance from the weighted mean */
 		T32_AWB_AT(248, u32 var_hi);		/* ... normalised distance (<< 6) from which a zone gets weight 0 ... */
 		T32_AWB_AT(252, u32 var_lo);		/* ... below which it keeps its weight */
+		T32_AWB_AT(316, u32 lim_en);		/* ct_detect: low 16 bits 1 = take the ct limit rectangles ct_lim / ct_lim2 into account */
+		T32_AWB_AT(5166, u16 ct_lim2[20]);	/* ... second half of the rectangles (same layout as ct_lim) */
 		T32_AWB_AT(292, u32 cand_mode);	/* ct_detect: 1 = candidate points from the 12 fullest cells */
 		T32_AWB_AT(5126, u16 ct_lim[20]);	/* ct_detect: 10 entries of (value, unused), those before the first zero count */
 		T32_AWB_AT(3186, u16 zones_h);		/* statistics zone grid: rows ... */
@@ -104,6 +106,8 @@ struct t32_awb_state {
 		T32_AWB_AT(91204, u32 zdist[1024]);	/* ct_detect: squared distance of each zone's r, b from the weighted mean */
 		T32_AWB_AT(95300, u32 zwt3[1024]);	/* ct_detect: gw_map weight reduced by that distance */
 		T32_AWB_AT(99396, u32 zw_norm[1024]);
+		T32_AWB_AT(29800, u32 zs2[2][1024]);	/* ct_detect: second per zone statistics r, b for the limit rectangles */
+		T32_AWB_AT(103492, u32 zlim[1024]);	/* ct_detect: rectangle of each zone (nlim = none, kept between frames) */
 		T32_AWB_AT(79228, u32 cell_r[196]);	/* ct_detect: per cell of the 14 x 14 ct grid, sum of the zones' r, */
 		T32_AWB_AT(80012, u32 cell_b[196]);	/* ... of their b */
 		T32_AWB_AT(80796, u16 cell_n[196]);	/* ... and their count */
@@ -227,6 +231,10 @@ T32_AWB_CHK(struct t32_awb_par, cand_r2, 296);
 T32_AWB_CHK(struct t32_awb_par, cand_tol, 308);
 T32_AWB_CHK(struct t32_awb_par, cand_iter, 312);
 T32_AWB_CHK(struct t32_awb_par, cand_mode, 292);
+T32_AWB_CHK(struct t32_awb_par, lim_en, 316);
+T32_AWB_CHK(struct t32_awb_par, ct_lim2, 5166);
+T32_AWB_CHK(struct t32_awb_state, zs2, 29800);
+T32_AWB_CHK(struct t32_awb_state, zlim, 103492);
 T32_AWB_CHK(struct t32_awb_state, lim_a, 37992);
 T32_AWB_CHK(struct t32_awb_state, cell_r, 79228);
 T32_AWB_CHK(struct t32_awb_state, cell_b, 80012);

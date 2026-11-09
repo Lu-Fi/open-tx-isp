@@ -43,6 +43,8 @@
  * Phase 11 (L_22af8 .. L_22e34): the weighted sums over the zones (t32_awb_ct_detect_sums).
  * Phase 12 (L_22e34 .. L_23398): mean r, b, and with par+244 == 1 the zones far from it weighted
  * down and the mean taken again (t32_awb_ct_detect_mean).
+ * Phase 13 (L_23398 .. L_236d8): with par+316 == 1 the zones are sorted into the ct limit rectangles
+ * (t32_awb_ct_detect_limits); otherwise, or when ended, Ct_Cal and the output (t32_awb_ct_detect_finish).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -74,6 +76,7 @@ struct t32_awb_ctd {
 	u32 sw, sb, sr;		/* their totals, locals s8+68 / s8+72 / s8+76 */
 	u32 mr, mb;		/* mean r, b (s8+116 / s8+120) */
 	u32 var, vr, vb;	/* mean squared distance (s8+248) and the weighted r, b sums of the second pass (s8+144 / s8+156) */
+	u32 nb_hi, nr_hi, nrb;	/* phase 13 counters, locals s8+112 / s8+124 / s8+108 */
 	u32 ran;		/* 0: no variance pass, 1: first pass only (var 0), 2: both */
 };
 
@@ -870,6 +873,73 @@ static inline int t32_awb_ct_detect_mean(struct t32_awb *a, struct t32_awb_ctd *
 		d->mb = t32_awb_fixdiv(os, d->vb, s0);
 	}
 	return 0;
+}
+
+/*
+ * Phase 13 (L_23398 .. L_236d8), only when the low 16 bits of par+316 (lim_en) are 1, else
+ * returns 1 (the vendor then goes to Ct_Cal and the output, t32_awb_ct_detect_finish).
+ * ct_lim (par+5126, u16 pairs, value and unused half) and ct_lim2 (par+5166) describe, for
+ * k < nlim, the rectangle ct_lim[2k] <= r < ct_lim[2k+1], ct_lim2[2k+1] <= b < ct_lim2[2k]
+ * (nlim: phase 0; all ten entries non-zero gives 0).  Per zone, with (r, b) = zs2 (st+29800):
+ *  - counters over all zones: nb_hi += ct_lim2[3] < b; nr_hi += ct_lim[2 nlim - 4] < r;
+ *    nrb += b != 0 when that holds or r != 0;
+ *  - a zone outside the hull ct_lim2[0] >= b > ct_lim2[2 nlim - 1], ct_lim[0] < r <= ct_lim[2 nlim - 1]
+ *    gets zlim = nlim; inside it the first rectangle that holds (r, b) gives zlim = k and adds to
+ *    acc[0][k] the count, acc[1][k] r, acc[2][k] b, acc[4][k] fixmul(10, zw_norm >> 6, flag << 10),
+ *    acc[5][k] gw_map >> 6, acc[6][k] zwt; a zone in the hull without a rectangle keeps its zlim.
+ * Returns -1 for a grid over 32 (not compared).
+ */
+static inline int t32_awb_ct_detect_limits(struct t32_awb *a, struct t32_awb_ctd *d)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	const u16 *l1 = (const u16 *)(par->raw + 5126), *l2 = (const u16 *)(par->raw + 5166);	/* ct_lim, ct_lim2; indexed below the start for nlim 0 as the vendor does */
+	int n = (int)d->nlim;
+	u32 rows = par->zones_h, cols = par->zones_w;
+	u32 row, col, k;
+
+	if ((par->lim_en & 0xffff) != 1)
+		return 1;
+	if (rows > 32 || cols > 32)
+		return -1;
+	d->nb_hi = d->nr_hi = d->nrb = 0;
+	for (row = 0; row < rows; row++) {
+		for (col = 0; col < cols; col++) {
+			u32 z = row * 32 + col, r = st->zs2[0][z], b = st->zs2[1][z];
+			int above = l1[2 * n - 4] < r;
+
+			d->nb_hi += l2[3] < b;
+			d->nr_hi += above;
+			if (above || r)
+				d->nrb += b != 0;
+			if (l2[0] < b || !(l2[2 * n - 1] < b) || !(l1[0] < r) || l1[2 * n - 1] < r) {
+				st->zlim[z] = n;
+				continue;
+			}
+			for (k = 0; k < (u32)n; k++)
+				if (!(r < l1[2 * k]) && r < l1[2 * k + 1] && !(b < l2[2 * k + 1]) && b < l2[2 * k])
+					break;
+			if (k == (u32)n)
+				continue;
+			st->zlim[z] = k;
+			d->acc[0][k]++;
+			d->acc[1][k] += r;
+			d->acc[2][k] += b;
+			d->acc[4][k] += t32_awb_fixmul(10, st->zw_norm[z] >> 6, (u32)par->zone_flag[z] << 10);
+			d->acc[5][k] += st->gw_map[z] >> 6;
+			d->acc[6][k] += d->zwt[z];
+		}
+	}
+	return 0;
+}
+
+/* L_24508 .. L_24550: the colour temperature of the mean (Ct_Cal) and the output */
+static inline void t32_awb_ct_detect_finish(struct t32_awb *a, const struct t32_awb_ctd *d, u32 out[2], u32 valid[2])
+{
+	t32_awb_ct_cal(a->par, d->mr, d->mb);
+	out[0] = d->mr;
+	out[1] = d->mb;
+	valid[0] = valid[1] = 0;
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */
