@@ -185,4 +185,284 @@ static inline int t32_lce_init(const u8 *sec, u32 width, u32 height, u32 work_pa
 	return (int)n;
 }
 
+/*
+ * Per-frame helpers (no register writes): tisp_lce_hist_adjust,
+ * tisp_lce_16bit_data_converge, tisp_lce_pdf_to_cdf, tisp_lce_hist_method,
+ * tisp_lce_thres_search, tisp_lce_std_hist_transform.  The vendor reads a few
+ * constant tables (t32_data_d6b50, d6c64/d6c65/d6c67, bf9ec, d6be4, d6b64);
+ * the caller fills struct t32_lce_tab from data.c.  Checked by
+ * tests/t32_oracle (t32_lceh_oracle).
+ */
+struct t32_lce_tab {
+	u8 adj_base[20];	/* t32_data_d6b50 */
+	u8 pdf_shift;		/* t32_data_d6c67 */
+	u8 pdf_rnd;		/* t32_data_d6c64 */
+	u8 pdf_sh;		/* t32_data_d6c65 */
+	u16 w[32];		/* t32_data_bf9ec */
+	u32 up[32];		/* t32_data_d6be4 */
+	u32 down[32];		/* t32_data_d6b64 */
+};
+
+/* tisp_lce_hist_adjust: cur[20] moves towards the base table, scaled by up/down */
+static inline void t32_lce_hist_adjust(u8 *cur, const u8 *up, const u8 *down,
+				       const struct t32_lce_tab *tab)
+{
+	unsigned int i;
+
+	for (i = 0; i < 20; i++) {
+		u32 base = tab->adj_base[i];
+		u32 d = (cur[i] - base) & 0xffff;
+		int adj = 0;
+
+		if ((short)d > 0)
+			adj = (short)(d * up[i]);
+		else if ((short)d < 0)
+			adj = (short)(d * down[i]);
+		cur[i] = (u8)(((base << 8) + 128 + (u32)adj) >> 8);
+	}
+}
+
+static inline u32 t32_lce_round7(u32 v)
+{
+	return ((v >> 6) & 1) + ((int)v >> 7);
+}
+
+/* tisp_lce_16bit_data_converge: cur[20] follows target[20], step limited to lo..hi */
+static inline void t32_lce_16bit_data_converge(u32 gain, u32 lo, u32 hi, const u8 *target, u8 *cur)
+{
+	unsigned int i;
+
+	gain &= 0xff;
+	lo &= 0xff;
+	hi &= 0xff;
+	for (i = 0; i < 20; i++) {
+		u32 t = target[i], c = cur[i], d;
+
+		if ((int)(t + lo) < (int)c) {
+			d = t32_lce_round7(((c - t) & 0xffff) * gain) & 0xffff;
+			if (d < lo)
+				cur[i] = (u8)(t + lo);
+			else if (hi < d)
+				cur[i] = (u8)(t + hi);
+			else
+				cur[i] = (u8)(t + d);
+		} else if ((int)(lo + c) < (int)t) {
+			d = t32_lce_round7(((t - c) & 0xffff) * gain) & 0xffff;
+			if (d < lo)
+				cur[i] = (u8)(t - lo);
+			else if (hi < d)
+				cur[i] = (u8)(t - hi);
+			else
+				cur[i] = (u8)(t - d);
+		}
+	}
+}
+
+static inline u32 t32_lce_cdf_val(u32 v, const struct t32_lce_tab *tab)
+{
+	return ((v >> (tab->pdf_rnd & 31)) & 1) + (v >> (tab->pdf_sh & 31));
+}
+
+/* tisp_lce_pdf_to_cdf: 32 bin pdf -> 20 byte cdf; -1 (vendor logs an error, writes nothing) for a zero total */
+static inline int t32_lce_pdf_to_cdf(const u16 *pdf, u8 *out, const struct t32_lce_tab *tab)
+{
+	u16 cum[32];
+	u32 sum = 0, k, i;
+
+	for (i = 0; i < 32; i++) {
+		cum[i] = (u16)sum;
+		sum = (sum + pdf[i]) & 0xffff;
+	}
+	if (!sum)
+		return -1;
+	k = (u32)((int)(1U << (tab->pdf_shift & 31)) / (int)sum);
+	for (i = 0; i < 8; i++)
+		out[i] = (u8)t32_lce_cdf_val(cum[i] * k, tab);
+	for (i = 0; i < 12; i++)
+		out[8 + i] = (u8)t32_lce_cdf_val(cum[9 + 2 * i] * k, tab);
+	return 0;
+}
+
+static inline u32 t32_lce_w(const struct t32_lce_tab *tab, u32 idx, int *bad)
+{
+	if (idx > 31) {
+		*bad = 1;
+		return 0;
+	}
+	return tab->w[idx];
+}
+
+/*
+ * tisp_lce_hist_method: clip the 32 bin histogram at thr[0], spread the clipped
+ * mass with ramps; par = { lo, mid, hi }.  Returns -1 (hist untouched) where the
+ * vendor would overflow its stack (a parameter above 32) or read before the
+ * weight table (negative index).
+ */
+static inline int t32_lce_hist_method(u16 *hist, const u8 *thr, const u8 *par,
+				      const struct t32_lce_tab *tab)
+{
+	u16 h[32];
+	u32 w[32];
+	u8 b[32];
+	u32 lo = par[0], mid = par[1], hi = par[2];
+	u32 exc = 0, half = 0, quart = 0, quart2 = 0, rem = 0, rest = 0, x, i;
+	int narrow, ramp, bad = 0;
+
+	if (lo > 32 || mid > 32 || hi > 32)
+		return -1;
+	for (i = 0; i < 32; i++) {
+		h[i] = hist[i];
+		w[i] = 0;
+		b[i] = 0;
+		if (thr[0] < h[i]) {
+			exc = (exc - thr[0] + h[i]) & 0xffff;
+			h[i] = thr[0];
+		}
+	}
+	narrow = (int)(mid - lo) < 3;
+	if (narrow)
+		half = ((exc + 1) >> 1) & 0xffff;
+	else
+		quart = ((exc + 2) >> 2) & 0xffff;
+	if ((int)(hi - mid) < 3) {
+		ramp = 0;
+		if (narrow)
+			rem = (exc - half) & 0xffff;
+		else
+			rem = (exc - 2 * quart) & 0xffff;
+	} else {
+		ramp = 1;
+		quart2 = ((exc + 2) >> 2) & 0xffff;
+		if (narrow)
+			rest = (exc - half - quart2) & 0xffff;
+		else
+			rest = (exc - 2 * quart - quart2) & 0xffff;
+	}
+
+	if (narrow) {
+		if (hi == 0) {
+			hi = 1;
+			mid = 1;
+		}
+		x = t32_lce_w(tab, mid - 1, &bad) * half;
+		if (bad)
+			return -1;
+		for (i = 0; i < mid; i++) {
+			w[i] = x;
+			b[i] = (u8)tab->up[i];
+		}
+	} else {
+		if (hi == 0) {
+			hi = 1;
+			mid = 1;
+			lo = 1;
+		}
+		x = t32_lce_w(tab, lo - 1, &bad) * quart;
+		if (bad)
+			return -1;
+		for (i = 0; i < lo; i++) {
+			w[i] = x;
+			b[i] = (u8)tab->down[32 - lo + i];
+		}
+		x = t32_lce_w(tab, mid - lo - 1, &bad) * quart;
+		if (bad)
+			return -1;
+		for (i = lo; i < mid; i++) {
+			w[i] = x;
+			b[i] = (u8)tab->up[i - lo];
+		}
+	}
+
+	if (!ramp) {
+		x = t32_lce_w(tab, 31 - mid, &bad) * rem;
+		if (bad)
+			return -1;
+		for (i = mid; i < 32; i++) {
+			w[i] = x;
+			b[i] = (u8)tab->down[i];
+		}
+	} else {
+		x = t32_lce_w(tab, hi - mid - 1, &bad) * quart2;
+		if (bad)
+			return -1;
+		for (i = mid; i < hi; i++) {
+			w[i] = x;
+			b[i] = (u8)tab->down[32 - hi + i];
+		}
+		x = t32_lce_w(tab, 31 - hi, &bad) * rest;
+		if (bad)
+			return -1;
+		for (i = hi; i < 32; i++) {
+			w[i] = x;
+			b[i] = (u8)tab->up[i - hi];
+		}
+	}
+
+	for (i = 0; i < 32; i++) {
+		u32 v = (u32)b[i] * w[i];
+
+		hist[i] = (u16)(h[i] + (((v >> 14) & 1) + (v >> 15)));
+	}
+	return 0;
+}
+
+/* tisp_lce_thres_search: bins where the running sum reaches thr[0..2] -> out[3] (8, 16, 24 when not found) */
+static inline void t32_lce_thres_search(const u16 *hist, const u16 *thr, u8 *out)
+{
+	u32 cum = 0, i = 0;
+
+	for (;;) {
+		cum = (cum + hist[i]) & 0xffff;
+		if (cum >= thr[0])
+			break;
+		if (++i == 32) {
+			out[0] = 8;
+			out[1] = 16;
+			out[2] = 24;
+			return;
+		}
+	}
+	out[0] = (u8)i;
+	while (cum < thr[1]) {
+		if (i == 31) {
+			out[1] = 16;
+			out[2] = 24;
+			return;
+		}
+		i++;
+		cum = (cum + hist[i]) & 0xffff;
+	}
+	out[1] = (u8)i;
+	while (cum < thr[2] && i < 31) {
+		i++;
+		cum = (cum + hist[i]) & 0xffff;
+	}
+	out[2] = (u8)i;
+}
+
+/* tisp_lce_std_hist_transform: scale the 32 bins, then bring their sum to 0x8000 (or report the excess in *over) */
+static inline void t32_lce_std_hist_transform(u16 *h, u32 mult, u32 shift, u16 *over)
+{
+	u32 sum = 0, i;
+
+	for (i = 0; i < 32; i++) {
+		u32 v = ((u32)h[i] * mult) >> (shift & 31);
+
+		h[i] = (u16)v;
+		sum += v;
+	}
+	if ((int)sum < 0x8000) {
+		u32 d = 0x8000 - sum;
+		u32 add = ((int)d >> 5) & 0xffff;
+		u32 rem = d & 0x1f;
+
+		for (i = 0; i < rem; i++)
+			h[i] = (u16)(h[i] + 1);
+		for (i = 0; i < 32; i++)
+			h[i] = (u16)(h[i] + add);
+	} else if (sum != 0x8000) {
+		*over = (u16)(sum - 0x8000);
+	}
+}
+
 #endif /* TX_ISP_T32_LCE_H */
