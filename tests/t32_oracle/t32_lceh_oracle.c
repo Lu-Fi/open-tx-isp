@@ -4,7 +4,9 @@
  * unmodified vendor functions (Matt Davis' recovered C, PR #15 @ 2e2e06bc):
  * tisp_lce_hist_adjust, _16bit_data_converge, _pdf_to_cdf, _hist_method, _thres_search,
  * _std_hist_transform.  None of them writes a register; the compared state is every
- * output byte the vendor changes (arrays, the excess word of std_hist_transform).
+ * output byte the vendor changes (arrays, the excess word of std_hist_transform), the
+ * untouched tail of the cdf output, and that the inputs (up/down, target, pdf, thr/par,
+ * histogram) stay unchanged.  The vendor return values are not used by its callers.
  *
  * The vendor tables (t32_data_d6b50, d6c64/65/67, bf9ec, d6be4, d6b64) and the printk
  * error path data (bf994, c9660, printk) are not provided by env.c; they are defined
@@ -107,6 +109,8 @@ static int case_adjust(void)
 	memcpy(vc, cur, 20); memcpy(vp, pos, 20); memcpy(vn, neg, 20);
 	CALL5(tisp_lce_hist_adjust, T32O_PTR(vc), T32O_PTR(vp), T32O_PTR(vn), 0, 0);
 	compared++;
+	if (memcmp(vp, pos, 20) || memcmp(vn, neg, 20))
+		return bad("hist_adjust: vendor changed up/down");
 	return memcmp(vc, oc, 20) ? bad("hist_adjust") : 0;
 }
 
@@ -130,6 +134,8 @@ static int case_converge(void)
 	memcpy(vt, target, 20); memcpy(vc, cur, 20);
 	CALL5(tisp_lce_16bit_data_converge, gain, lo, hi, T32O_PTR(vt), T32O_PTR(vc));
 	compared++;
+	if (memcmp(vt, target, 20))
+		return bad("16bit_data_converge: vendor changed target");
 	return memcmp(vc, oc, 20) ? bad("16bit_data_converge") : 0;
 }
 
@@ -169,7 +175,9 @@ static int case_cdf(void)
 	memcpy(vo, sent, 32);
 	CALL5(tisp_lce_pdf_to_cdf, T32O_PTR(vp), T32O_PTR(vo), 0, 0, 0);
 	compared++;
-	return memcmp(vo, oo, 20) ? bad("pdf_to_cdf") : 0;
+	if (memcmp(vp, pdf, 64))
+		return bad("pdf_to_cdf: vendor changed the pdf");
+	return memcmp(vo, oo, 32) ? bad("pdf_to_cdf") : 0;
 }
 
 static int case_method(void)
@@ -214,6 +222,8 @@ static int case_method(void)
 	memcpy(vq, par, 4);
 	CALL5(tisp_lce_hist_method, T32O_PTR(vh), T32O_PTR(vt), T32O_PTR(vq), 0, 0);
 	compared++;
+	if (vt[0] != thr[0] || memcmp(vq, par, 4))
+		return bad("hist_method: vendor changed thr/par");
 	return memcmp(vh, oh, 64) ? bad("hist_method") : 0;
 }
 
@@ -245,6 +255,8 @@ static int case_thres(void)
 	vo[0] = vo[1] = vo[2] = 0xee;
 	CALL5(tisp_lce_thres_search, T32O_PTR(vh), T32O_PTR(vt), T32O_PTR(vo), 0, 0);
 	compared++;
+	if (memcmp(vh, h, 64) || memcmp(vt, thr, 8))
+		return bad("thres_search: vendor changed hist/thr");
 	return memcmp(vo, oo, 3) ? bad("thres_search") : 0;
 }
 
