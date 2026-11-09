@@ -1304,4 +1304,78 @@ static inline void t32_awb_ct_detect_tail(struct t32_awb *a, struct t32_awb_ctd 
 	}
 }
 
+/*
+ * The whole vendor tisp_awb_ct_detect_simd_3: the 20 phases chained.  tbl is the parameter table (context slot 16, the
+ * 15 x 15 grid with 4-byte entries inside par), out the two result gains and valid the two validity flags.  Returns 0 when
+ * the detection ran like the vendor (output written), -1 when the vendor would run past one of its tables (grids over 32,
+ * more than ten reference points, a stale candidate slot, a pass count over 16 bits ...); out / valid are then not
+ * meaningful.  The working set d is cleared as the vendor clears its .bss scratch on every call.
+ */
+static inline int t32_awb_ct_detect(struct t32_awb *a, struct t32_awb_ctd *d, const u32 *tbl, u32 out[2], u32 valid[2])
+{
+	int r, cr;
+
+	memset(d, 0, sizeof(*d));
+	r = t32_awb_ct_detect_prep(a, d, out, valid);
+	if (r < 0)
+		return -1;
+	if (!r)
+		return 0;		/* gray world fallback done in prep */
+	if (t32_awb_ct_detect_zones(a, d, tbl) || t32_awb_ct_detect_refs(a, d) || t32_awb_ct_detect_norm(a, d))
+		return -1;
+	cr = t32_awb_ct_detect_cand(a);
+	if (cr < 0)
+		return -1;
+	if (!cr) {
+		if (t32_awb_ct_detect_refine(a))
+			return -1;
+		t32_awb_ct_detect_cluster(a, d);
+		if (t32_awb_ct_detect_zonesum(a, d))
+			return -1;
+		if (!t32_awb_ct_detect_weigh(a, d) && t32_awb_ct_detect_nearest(a, d))
+			return -1;
+	}
+	r = t32_awb_ct_detect_spec(a, d);
+	if (r < 0)
+		return -1;
+	if (!r) {
+		r = t32_awb_ct_detect_sums(a, d, valid);
+		if (r < 0)
+			return -1;
+	}
+	if (!r) {
+		r = t32_awb_ct_detect_mean(a, d);
+		if (r < 0)
+			return -1;
+	}
+	if (!r) {
+		r = t32_awb_ct_detect_limits(a, d);
+		if (r < 0)
+			return -1;
+		if (r == 1) {		/* no limit pass: Ct_Cal and the output */
+			t32_awb_ct_detect_finish(a, d, out, valid);
+			return 0;
+		}
+		r = t32_awb_ct_detect_cells(a, d);
+		if (r < 0)
+			return -1;
+		if (r == 1) {
+			t32_awb_ct_detect_finish(a, d, out, valid);
+			return 0;
+		}
+		if (!r) {
+			t32_awb_ct_detect_ramps(a, d);
+			if (t32_awb_ct_detect_pick(a, d))
+				return -1;
+			t32_awb_ct_detect_blend(a, d);
+			if (!t32_awb_ct_detect_rects(a, d))
+				t32_awb_ct_detect_tail(a, d);
+			t32_awb_ct_detect_finish(a, d, out, valid);
+			return 0;
+		}
+	}
+	t32_awb_ct_detect_fallback(a, out, valid);
+	return 0;
+}
+
 #endif /* TX_ISP_T32_AWBDET_H */

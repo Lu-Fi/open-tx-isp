@@ -45,6 +45,7 @@ for f in $REFS; do
 		mkdir -p "$O/refp"
 		sh "$H/$fix" < "$H/ref/$f" > "$O/refp/$f"
 		src=$O/refp/$f
+		o=$O/refp/${f%.c}.o	# a fixed / truncated build never shares its object with the plain one
 		rm -f "$o"
 		;;
 	esac
