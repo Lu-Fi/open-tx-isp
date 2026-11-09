@@ -1,0 +1,211 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * T32 AWB long algorithm, the vendor tisp_awb_long_alogrithm (0x3d85c, 1077 lines of recovered C), ported phase by phase.
+ * Each phase is checked against Matt Davis' recovered C (PR #15) by its own oracle in tests/t32_oracle, which stops the
+ * vendor function at the phase boundary (trunc_long.sh, env T32O_STOP=label) and compares the state there.
+ *
+ * Vendor arguments: a0 = the table of 47 context pointers (all constant field addresses, see tx_isp_t32_awbdet.h), a1 = the
+ * channel.  Ours takes the three context areas (struct t32_awb) directly.
+ *
+ * Phase 1 (L_3d85c .. L_3dbfc): entry values, per zone the group 0 / group 1 statistics converted to the red / blue
+ * ratios at the calibration gains (t32_awb_lg_zones).
+ * Phase 2 (L_3dbfc .. L_3de3c): sums over group 1, mean red / blue of the zones with their inverses (t32_awb_lg_means).
+ */
+#ifndef TX_ISP_T32_AWBLONG_H
+#define TX_ISP_T32_AWBLONG_H
+
+#include "tx_isp_t32_awbdet.h"
+
+/* The locals of the vendor function that outlive a phase (vendor stack slot in the comment) */
+struct t32_awb_lg {
+	u32 fp;			/* s3: par fp_shift */
+	u32 os;			/* sp60: par out_shift */
+	u32 rows, cols;		/* sp68, sp64: zone grid */
+	u32 one;		/* sp56 (and sp40 .. sp52 at entry): 1 << fp */
+	u32 s7;			/* fp - 10 */
+	u32 mr, mb;		/* sp88, sp92: the calibration gains cal_r / cal_b << (fp - 10) times 1.0 in fp bits */
+	u32 sat_thr;		/* sp96: par sat_thr */
+	u32 p8, p12, p16, p20, p24, p28;	/* sp108, sp100, sp80, sp84, sp72, sp76: par +8 .. +28 at entry */
+	u32 win, w3312, small, still;	/* s2, sp112, sp116, sp120 */
+	u32 area;		/* sp104: lg_dim_a * lg_dim_b & 0xffff */
+	u32 gain[2];		/* sp40, sp44 */
+	u32 valid[2];		/* sp32, sp36 */
+	u32 out[2];		/* sp48, sp52 */
+	u32 sumr, sumb;		/* phase 2: sums of the group 1 red / blue ratios */
+	u32 cntr, cntb;		/* ... and the number of non-zero ones */
+	u32 half_hi;		/* sp88 after phase 2: sign word of half = (1 << os) / 2 */
+	u32 half;		/* s8 of phase 2 */
+	u64 xr, xb;		/* sp124/sp128, t3/t6: the two 64 bit quotients of phase 2 */
+};
+
+/* signed division as the vendor's DIV: x / 0 is 1 (x < 0) or 0xffffffff, INT_MIN / -1 is INT_MIN */
+static inline u32 t32_awb_sdiv(u32 x, u32 y)
+{
+	if (x == 0x80000000U && y == 0xffffffffU)
+		return 0x80000000U;
+	if (y)
+		return (u32)((int)x / (int)y);
+	return (int)x < 0 ? 1 : 0xffffffffU;
+}
+
+/*
+ * fix_point_div (0x1d52c): (num << s) / den with 64 bit operands, the integer quotient shifted up and the s fraction
+ * bits found by long division of the remainder (as t32_awb_fixdiv).  A zero divisor: the host oracle's div64_u64
+ * gives 0 (the kernel would trap), the vendor prints an error first.
+ */
+static inline u64 t32_awb_fixdiv64(u32 s, u64 num, u64 den)
+{
+	u64 q = den ? num / den : 0;
+	u64 r = num - den * q, frac = 0, qs = q << (s & 63);
+	u32 i = 0;
+
+	while (i != s) {
+		r <<= 1;
+		frac <<= 1;
+		if (den < r) {
+			frac |= 1;
+			r -= den;
+		} else if (den == r) {
+			frac = (frac | 1) << ((s - 1 - i) & 63);
+			break;
+		}
+		i++;
+	}
+	return frac | qs;
+}
+
+/* Entry: the values the vendor loads before anything is written */
+static inline void t32_awb_lg_entry(struct t32_awb *a, struct t32_awb_lg *l)
+{
+	const struct t32_awb_par *par = a->par;
+	u32 i;
+
+	l->fp = par->fp_shift;
+	l->os = par->out_shift;
+	l->rows = par->zones_h;
+	l->cols = par->zones_w;
+	l->one = 1u << (l->fp & 31);
+	l->s7 = l->fp - 10;
+	l->sat_thr = par->sat_thr;
+	l->p8 = par->lg_cnt_a;
+	l->p12 = par->lg_cnt_b;
+	l->p16 = par->lg_gr;
+	l->p20 = par->lg_gb;
+	l->p24 = par->wb_r;
+	l->p28 = par->wb_b;
+	l->win = par->lg_win;
+	l->w3312 = par->lg_p3312;
+	l->small = par->lg_small;
+	l->still = par->lg_still;
+	l->area = (par->lg_dim_a * par->lg_dim_b) & 0xffff;
+	for (i = 0; i < 2; i++) {
+		l->gain[i] = l->one;
+		l->valid[i] = 0;
+	}
+	l->gain[0] = l->gain[1] = l->one;
+	l->out[0] = l->out[1] = l->one;
+}
+
+/*
+ * Phase 1 (L_3d85c .. L_3dbfc).  mr / mb are the cal_r / cal_b gains << (fp - 10) in fp bits.  Group 0 zones with a divisor:
+ * the ratios (n << 10) / den become the zone statistics zstat[0] (at the calibration gains) and the 16 bit hardware tables,
+ * group 1 likewise in zstat[1]; a zero divisor clears the zone.  Returns -1 for a grid over 32 x 32 (not compared).
+ */
+static inline int t32_awb_lg_zones(struct t32_awb *a, struct t32_awb_lg *l)
+{
+	const struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	struct t32_awb_hw *hw = a->hw;
+	u32 row, col, z, fp = l->fp, s7 = l->s7 & 31;
+
+	if (l->rows > 32 || l->cols > 32)
+		return -1;
+	l->mr = t32_awb_fixmul(fp, l->one, par->cal_r << s7);
+	l->mb = t32_awb_fixmul(fp, l->one, par->cal_b << s7);
+	for (row = 0; row < l->rows; row++) {
+		for (col = 0; col < l->cols; col++) {
+			z = row * 32 + col;
+			if (!st->g0_den[z]) {
+				st->zstat[0][0][z] = 0;
+				st->zstat[0][1][z] = 0;
+				st->zw_raw[z] = 0;
+				hw->lg_ra[z] = 0;
+				hw->lg_ba[z] = 0;
+			} else {
+				u32 d = st->g0_den[z];
+
+				st->zstat[0][0][z] = t32_awb_fixmul(fp, t32_awb_udiv(st->g0_n_r[z] << 10, d) << s7, l->mr);
+				st->zstat[0][1][z] = t32_awb_fixmul(fp, t32_awb_udiv(st->g0_n_b[z] << 10, d) << s7, l->mb);
+				st->zw_raw[z] = st->g0_w[z];
+				hw->lg_ra[z] = (u16)t32_awb_udiv(st->g0_n_r[z] << 10, d);
+				hw->lg_ba[z] = (u16)t32_awb_udiv(st->g0_n_b[z] << 10, d);
+			}
+			st->zs2[0][z] = hw->lg_ra[z];
+			st->zs2[1][z] = hw->lg_ba[z];
+			if (!st->g1_den[z]) {
+				st->zstat[1][0][z] = 0;
+				st->zstat[1][1][z] = 0;
+				st->zw_raw2[z] = 0;
+			} else {
+				u32 d = st->g1_den[z];
+
+				st->zstat[1][0][z] = t32_awb_fixmul(fp, t32_awb_udiv(st->g1_n_r[z] << 10, d) << s7, l->mr);
+				st->zstat[1][1][z] = t32_awb_fixmul(fp, t32_awb_udiv(st->g1_n_b[z] << 10, d) << s7, l->mb);
+				st->zw_raw2[z] = st->g1_w[z];
+			}
+		}
+	}
+	return 0;
+}
+
+/*
+ * Phase 2 (L_3dbfc .. L_3de3c).  The group 1 statistics zstat[1] are summed over the grid and counted (non-zero zones), the
+ * sums divided by the calibration gains in fp bits (64 bit, t32_awb_fixdiv64); the mean red / blue is that quotient plus half,
+ * shifted down by out_shift, rounded by the count and cut to 16 bits (256 when no zone counted).  The previous mean moves to
+ * avg[2..3]; hw gets the means and 65536 / them.
+ */
+static inline void t32_awb_lg_means(struct t32_awb *a, struct t32_awb_lg *l)
+{
+	struct t32_awb_state *st = a->st;
+	struct t32_awb_hw *hw = a->hw;
+	u32 row, col, z, nz;
+	u64 half64;
+
+	l->sumr = l->sumb = 0;
+	nz = l->rows * l->cols;
+	l->cntr = l->cntb = nz;
+	for (row = 0; row < l->rows; row++) {
+		for (col = 0; col < l->cols; col++) {
+			z = row * 32 + col;
+			l->sumr += st->zstat[1][0][z];
+			l->sumb += st->zstat[1][1][z];
+			l->cntr -= st->zstat[1][0][z] == 0;
+			l->cntb -= st->zstat[1][1][z] == 0;
+		}
+	}
+	l->xr = t32_awb_fixdiv64(l->fp, l->sumr, l->mr);
+	l->half = t32_awb_sdiv(1u << (l->os & 31), 2);
+	l->half_hi = (u32)((int)l->half >> 31);
+	l->xb = t32_awb_fixdiv64(l->fp, l->sumb, l->mb);
+	half64 = (u64)l->half_hi << 32 | l->half;
+	st->avg[2] = st->avg[0];
+	st->avg[3] = st->avg[1];
+	if (!l->cntr) {
+		st->avg[0] = hw->avg_r = 256;
+	} else {
+		u32 q = (u32)((l->xr + half64) >> (l->os & 63));
+
+		st->avg[0] = hw->avg_r = (u16)(((l->cntr >> 1) + q) / l->cntr);
+	}
+	if (!l->cntb) {
+		st->avg[1] = hw->avg_b = 256;
+	} else {
+		u32 q = (u32)((l->xb + half64) >> (l->os & 63));
+
+		st->avg[1] = hw->avg_b = (u16)(((l->cntb >> 1) + q) / l->cntb);
+	}
+	hw->avg_ir = t32_awb_inverse(hw->avg_r);
+	hw->avg_ib = t32_awb_inverse(hw->avg_b);
+}
+
+#endif /* TX_ISP_T32_AWBLONG_H */

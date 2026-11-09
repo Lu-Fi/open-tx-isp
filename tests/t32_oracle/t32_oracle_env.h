@@ -41,6 +41,7 @@ void *t32o_alloc(u32 size);
 void t32o_reset(void);
 extern u8 t32o_ctbss[0x1270];
 extern u32 t32o_ct_stop, t32o_ct_stack[208], t32o_ct_reg[28];
+extern u32 t32o_lg_stop, t32o_lg_stack[116], t32o_lg_reg[28];
 u64 t32o_call(t32o_fn fn, u32 a0, u32 a1, u32 a2, u32 a3, u32 a4);
 
 /* reference functions (ref/, o32 shape) */
