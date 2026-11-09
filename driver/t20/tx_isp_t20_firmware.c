@@ -850,6 +850,9 @@ static unsigned int t20_awb_last_gain_11 = 0x100;
 module_param(t20_awb_last_gain_11, uint, 0444);
 static unsigned int t20_awb_last_color_temperature = 5000;
 module_param(t20_awb_last_color_temperature, uint, 0444);
+/* CCM light source in use (ccm ctx +92: 1 = A, 2 = D40, 3 = D50, 0 = identity at high gain), openimp #246 */
+static unsigned int t20_ccm_last_light_source = 3;
+module_param(t20_ccm_last_light_source, uint, 0444);
 
 /* WHOLE_DRIVER_PLATFORM_DERIVATION
  * platform: linux_kernel_module
@@ -11341,7 +11344,7 @@ int32_t color_matrix_change_CCMs(int32_t *arg1)
 	else if (mode == 1)
 		src = (int16_t *)(base + 0x62);
 	else
-		src = (int16_t *)(base + 0x74);
+		src = (int16_t *)(base + 0x98);	/* OEM 0x128c-0x1298: identity (+152) */
 
 	for (i = 0; i != 0x12; i += 2)
 		*(int16_t *)(base + i + 0x38) = *(int16_t *)((uint8_t *)src + i);
@@ -19036,9 +19039,27 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 			t20_simple_awb_color_temperature = min_t(u32,
 				1000000U / mired, 0xffff);
 	}
-	if (awb_fsm[0])
+	if (awb_fsm[0]) {
 		*(s32 *)((u8 *)(uintptr_t)awb_fsm[0] + 0xec0) =
 			t20_simple_awb_color_temperature;
+		/*
+		 * openimp #246: pick the CCM pair for this CT like the OEM AWB
+		 * state machine (AWB_fsm_process_state steps 9/0xa):
+		 * awb_detect_light_source (libt20-firmware 0x25a0: CT at fsm+1912
+		 * < 3426 -> A, < 4501 -> D40, else D50) and
+		 * awb_process_light_source (0x25d0: after fsm+1944 = 15 stable
+		 * calls it writes the CCM ctx dev+3908..3913 = ccm +92..+97:
+		 * new/old light, to/from matrix, 35-step blend).  The compact AWB
+		 * skipped both, so the CCM stayed on the D50 matrix of
+		 * color_matrix_fsm_clear() (ccm +94 = 3) at every CT.
+		 */
+		*(s32 *)((u8 *)awb_fsm + 1912) =
+			t20_simple_awb_color_temperature;
+		awb_detect_light_source(awb_fsm);
+		awb_process_light_source(awb_fsm);
+		t20_ccm_last_light_source =
+			*((u8 *)(uintptr_t)awb_fsm[0] + 0xee8 + 92);
+	}
 
 	desired_red_scale = clamp_t(u32,
 		0xffffU / max_t(u32, 1, average_rg), 0x40, 0x400);
