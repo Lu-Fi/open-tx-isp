@@ -1189,5 +1189,159 @@ static inline unsigned int t32_ae_long_ev_alloc(u32 ch, u8 *tune, u8 *buf, u8 *s
 	ops->event(ch, ev);
 	return n;
 }
+/*
+ * Per-frame AE paths tisp_ae_get_bv, tisp_ae_calc_process and
+ * tisp_ae_interrupt_static (Matt Davis' recovered C, PR #15 @ 2e2e06bc),
+ * checked by tests/t32_oracle (t32_aeb_oracle).  Fixed point maths, the
+ * algorithm / long process / completion calls, the exposure allocators and
+ * events are hooks.  Register writes of calc_process go to w[] (direct
+ * addresses, vendor t32_data_d03a0 == 0).  The printk-only debug block of
+ * calc_process (dbg set and dbg_max >= frame count) changes no state and is
+ * not ported.
+ */
+struct t32_ae_bv_ops {
+	u32 (*div32)(u32 shift, u32 a, u32 b);
+	u32 (*log2)(u32 v, u32 in_frac, u32 out_frac);
+	u32 (*log2_64)(t32_u64 v, u32 in_frac, u32 out_frac);
+	t32_u64 (*mult3_64)(u32 shift, t32_u64 a, t32_u64 b, t32_u64 c);
+};
+
+/* tune: AE section, buf: vendor e15a8[ch] + 4 buffer, st: vendor e1588[ch] */
+static inline u32 t32_ae_get_bv(const u8 *tune, u8 *buf, const u8 *st, const struct t32_ae_bv_ops *ops)
+{
+	u32 e[16][3], k, s, gain, sum, l3, l4, bv;
+	t32_u64 t[16], x;
+
+	gain = t32_st16(buf, 12366);
+	for (k = 0; k < 16; k++) {
+		u32 d = ops->div32(16, t32_ld32(tune, 4 * (453 + 3 * k)) << 6, 0x440000U);
+
+		e[k][0] = t32_ld32(tune, 4 * (452 + 3 * k));
+		e[k][1] = ops->log2(d, 16, 16) + 0x180000U;
+		e[k][2] = t32_ld32(tune, 4 * (454 + 3 * k));
+	}
+	x = ops->mult3_64(10, t32_ld32(st, 576) << 10, t32_ld32(st, 580), t32_ld32(st, 588));
+	for (k = 0; k < 16; k++)
+		t[k] = (t32_u64)e[k][0] << 10;
+	if (!(t[0] < x)) {
+		s = 0;
+	} else if (!(x < t[15])) {
+		s = 15;
+	} else {
+		for (s = 0; s != 15; s++)
+			if (!(x < t[s]) && !(t[s + 1] < x))
+				break;
+		if (s == 15)
+			s = 0;
+	}
+	sum = ops->log2(gain << 16, 16, 16);
+	sum += ops->log2_64(t[s] << 6, 16, 16) + e[s][1];
+	l3 = ops->log2(e[s][2] << 16, 16, 16);
+	l4 = ops->log2_64(x << 6, 16, 16);
+	bv = (l3 + l4 < sum) ? sum - (l3 + l4) : 0;
+	t32_wr32(buf, 11792, bv);
+	return bv;
+}
+
+struct t32_ae_cp_ops {
+	u32 (*reg_read)(u32 ch, u32 reg);
+	void (*algorithm)(u32 ch);
+	void (*par_update_trig)(u32 ch);
+	void (*long_process)(u32 ch);
+	void (*complete)(void *done);
+};
+
+struct t32_ae_cp_glob {
+	u32 *stop;		/* vendor e15b8[ch] */
+	u32 *frame_cnt;		/* e1578[ch] */
+	u32 dbg;		/* e1500[ch] */
+	u32 dbg_max;		/* e14f0[ch] */
+	u32 trace;		/* d9008 */
+};
+
+static inline u32 t32_ae_pair(u32 v)
+{
+	return (v & 0xffff) | v << 16;
+}
+
+/* flag: e15a8[ch] + 8, done: e15a8[ch] + 2008; returns the number of writes */
+static inline unsigned int t32_ae_calc_process(u32 ch, const struct t32_ae_ctx *c, u8 *st, u32 flag,
+					       const struct t32_ae_cp_glob *g, void *done,
+					       const struct t32_ae_cp_ops *ops,
+					       struct t32_stats_write *w)
+{
+	u32 idx = t32_st16(c->tune, 1656), k, v, p;
+	unsigned int n = 0;
+
+	if (st[2182] == 1 && st[1297])
+		return 0;
+	v = ops->reg_read(ch, T32_AE_REG_A) >> 16;
+	ops->reg_read(ch, T32_AE_REG_C);	/* result unused by the vendor */
+	if (v != t32_ld32(st, 288 + 4 * idx))
+		t32_wr16(st, 1698, t32_st16(st, 1698) + 1);
+	if (!st[1696]) {
+		for (k = idx; k >= 2; k--) {
+			t32_wr32(st, 288 + 4 * k, t32_ld32(st, 288 + 4 * (k - 1)));
+			if (flag == 1)
+				t32_wr32(st, 488 + 4 * k, t32_ld32(st, 488 + 4 * (k - 1)));
+		}
+		p = t32_ae_pair(t32_ld32(st, 288 + 4 * idx));
+		n = t32_stats_add(w, n, T32_AE_REG_A, p);
+		n = t32_stats_add(w, n, T32_AE_REG_B, p);
+		p = t32_ae_pair(t32_ld32(st, 488 + 4 * idx));
+		n = t32_stats_add(w, n, T32_AE_REG_C, p);
+		n = t32_stats_add(w, n, T32_AE_REG_D, p);
+		n = t32_stats_add(w, n, T32_AE_REG_E, 0xffffffffU);
+		return n;
+	}
+	if (st[1285])
+		st[1286] = 1;
+	if (!*g->stop && st[1285])
+		ops->par_update_trig(ch);
+	ops->algorithm(ch & 0xff);
+	if (st[1286] == 1) {
+		st[1285] = 0;
+		st[1286] = 0;
+	}
+	ops->long_process(ch);
+	if (g->trace)
+		*g->frame_cnt = *g->frame_cnt + 1;
+	if (*g->stop == 1)
+		ops->complete(done);
+	return n;
+}
+
+struct t32_ae_irq_ops {
+	void (*long_alloc)(u32 ch);
+	void (*short_alloc)(u32 ch);
+	u32 (*sys_read)(u32 reg);
+	void (*cache_sync)(const u8 *p, u32 len);
+	void (*event)(u32 ch, const u32 *w);
+};
+
+/*
+ * stopped: e15b8[ch], mode: e1510[ch], flag: e15a8[ch] + 8 (read after the long
+ * allocation), bufs: the zone buffers (vendor e1598[ch] + 4).
+ */
+static inline u32 t32_ae_interrupt_static(u32 ch, const struct t32_ae_ctx *c, const u32 *flag,
+					  u32 stopped, u32 mode, const u8 *bufs,
+					  const struct t32_ae_irq_ops *ops)
+{
+	u32 ev[8] = { 0 }, v;
+	const u8 *src;
+
+	if (!stopped && mode == 1) {
+		ops->long_alloc(ch & 0xff);
+		if (*flag == 1)
+			ops->short_alloc(ch & 0xff);
+	}
+	v = ops->sys_read(T32_AE_CUR);
+	src = bufs + (((v >> 4) & 3) << 12);
+	ops->cache_sync(src, 4096);
+	t32_ae_get_statistics(c->tune, c->buf, src);
+	ev[2] = 1;
+	ops->event(ch, ev);
+	return 1;
+}
 
 #endif /* TX_ISP_T32_STATS_H */
