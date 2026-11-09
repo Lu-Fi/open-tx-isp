@@ -548,4 +548,208 @@ static inline u32 t32_ae_weight_mean(const struct t32_ae_ctx *c, u8 *stat, u8 *s
 	return 1;
 }
 
+/*
+ * Per-frame AWB paths (vendor tisp_awb_get_global_statis, _get_attr,
+ * _set_weight, _get_weight, _get_zone, _set_start, _get_mode, _set_mode,
+ * _set_frz, _get_frz, _set_ct, _api_set_ct, _set_statis_localtion; Matt Davis'
+ * recovered C, PR #15), checked by tests/t32_oracle (t32_awba_oracle).
+ *
+ * Vendor e16b4[ch] = { par, st, scr }: par = section copy (weights at +5714,
+ * window at +3184), st = runtime state, scr = 28 byte mode scratch.  base is the
+ * tuning base dd0a4[ch].  tisp_awb_set_start ends in a tail call to
+ * tisp_awb_set_gain, which is a hook here.
+ */
+#define T32_AWB_ST_FLAG		107596U
+#define T32_AWB_ST_FRZ		107597U
+#define T32_AWB_ST_MODE		107598U
+#define T32_AWB_ST_CT		107600U
+#define T32_AWB_ST_MA		107604U
+#define T32_AWB_ST_MB		107606U
+#define T32_AWB_ST_MC		107608U
+#define T32_AWB_ST_MD		107610U
+#define T32_AWB_ST_ME		107620U
+#define T32_AWB_ST_MF		107622U
+#define T32_AWB_ST_ZONE		0x1a46cU
+#define T32_AWB_ST_APICT	119916U
+#define T32_AWB_ST_CLR		79036U
+#define T32_AWB_PAR_WEIGHT	5714U
+#define T32_AWB_PAR_LOC		3184U
+#define T32_AWB_BASE_START	3408U
+
+struct t32_awb_ctx {
+	u8 *par;
+	u8 *st;
+	u8 *scr;
+	u8 *base;
+};
+
+struct t32_awb_ops {
+	void (*set_gain)(u32 ch, const u8 *win, u32 w1, u32 w0);
+};
+
+static inline void t32_awb_copy(u8 *d, const u8 *s, u32 n)
+{
+	u32 i;
+
+	for (i = 0; i < n; i++)
+		d[i] = s[i];
+}
+
+static inline u32 t32_awb_rcp(const u8 *st, u32 o)
+{
+	return (u32)t32_awb_div(0x10000, (int)t32_st16(st, o));
+}
+
+static inline void t32_awb_get_global_statis(const struct t32_awb_ctx *c, u32 *out)
+{
+	out[0] = t32_awb_rcp(c->st, T32_AWB_ST_ME);
+	out[1] = t32_awb_rcp(c->st, T32_AWB_ST_MF);
+	out[2] = t32_st16(c->st, T32_AWB_ST_MC);
+	out[3] = t32_st16(c->st, T32_AWB_ST_MD);
+}
+
+/* out: 19 words */
+static inline void t32_awb_get_attr(const struct t32_awb_ctx *c, u32 *out)
+{
+	u32 mode = c->st[T32_AWB_ST_MODE], k;
+
+	out[3] = 0;
+	out[4] = t32_ld32(c->par, 44);
+	out[5] = 0;
+	out[6] = 0;
+	out[0] = mode;
+	for (k = 7; k < 16; k++)
+		out[k] = 0;
+	out[16] = 1;
+	out[17] = t32_ld32(c->par, 24);
+	out[18] = t32_ld32(c->par, 28);
+	if (mode == 9) {
+		out[0] = 0;
+		out[5] = 1;
+	} else {
+		out[1] = t32_st16(c->st, T32_AWB_ST_MA);
+		out[2] = t32_st16(c->st, T32_AWB_ST_MB);
+	}
+	if (out[0] == 0) {
+		out[1] = t32_st16(c->st, T32_AWB_ST_ME);
+		out[2] = t32_st16(c->st, T32_AWB_ST_MF);
+	}
+}
+
+static inline void t32_awb_set_weight(const struct t32_awb_ctx *c, const u8 *w)
+{
+	u32 k;
+
+	for (k = 0; k < 1024; k++)
+		c->par[T32_AWB_PAR_WEIGHT + k] = w[k];
+	c->st[T32_AWB_ST_CLR] = 0;
+}
+
+static inline void t32_awb_get_weight(const struct t32_awb_ctx *c, u8 *out)
+{
+	u32 k;
+
+	for (k = 0; k < 1024; k++)
+		out[k] = c->par[T32_AWB_PAR_WEIGHT + k];
+}
+
+static inline void t32_awb_get_zone(const struct t32_awb_ctx *c, u8 *out)
+{
+	u32 k;
+
+	for (k = 0; k < 3; k++)
+		t32_awb_copy(out + 4096 * k, c->st + T32_AWB_ST_ZONE + 4096 * k, 4096);
+}
+
+/* win: two u32 (x, y) */
+static inline void t32_awb_set_start(const struct t32_awb_ctx *c, u32 ch, const u8 *win,
+				     const struct t32_awb_ops *ops)
+{
+	u32 w0 = t32_ld32(win, 0), w1 = t32_ld32(win, 4);
+
+	t32_wr32(c->par, 16, w0);
+	t32_wr32(c->par, 20, w1);
+	t32_wr32(c->par, 24, w0);
+	t32_wr32(c->par, 28, w1);
+	t32_wr32(c->base, T32_AWB_BASE_START, w0);
+	t32_wr32(c->base, T32_AWB_BASE_START + 4, w1);
+	t32_wr32(c->base, T32_AWB_BASE_START + 8, w0);
+	t32_wr32(c->base, T32_AWB_BASE_START + 12, w1);
+	ops->set_gain(ch, win, w1, w0);
+}
+
+/* out: 28 bytes */
+static inline void t32_awb_get_mode(const struct t32_awb_ctx *c, u8 *out)
+{
+	u8 *s = c->scr;
+
+	t32_wr32(s, 0, c->st[T32_AWB_ST_MODE]);
+	t32_wr32(s, 4, t32_st16(c->st, T32_AWB_ST_MA));
+	t32_wr32(s, 8, t32_st16(c->st, T32_AWB_ST_MB));
+	t32_wr32(s, 12, t32_awb_rcp(c->st, T32_AWB_ST_MC));
+	t32_wr32(s, 16, t32_awb_rcp(c->st, T32_AWB_ST_MD));
+	t32_wr32(s, 20, t32_st16(c->st, T32_AWB_ST_ME));
+	t32_wr32(s, 24, t32_st16(c->st, T32_AWB_ST_MF));
+	t32_awb_copy(out, s, 28);
+}
+
+/* arg: mode, x, y (u32); modes >= 10: the vendor only prints an error */
+static inline void t32_awb_set_mode(const struct t32_awb_ctx *c, const u8 *arg)
+{
+	static const u16 pre[7][2] = {
+		{ 384, 384 }, { 438, 303 }, { 219, 690 }, { 240, 564 },
+		{ 315, 459 }, { 468, 279 }, { 240, 376 }
+	};
+	u32 mode = t32_ld32(arg, 0);
+	u8 *s = c->scr;
+
+	if (mode == 0) {
+		t32_wr32(s, 0, 0);
+	} else if (mode == 1 || mode == 9) {
+		t32_wr32(s, 0, mode);
+		t32_wr32(s, 4, t32_ld32(arg, 4));
+		t32_wr32(s, 8, t32_ld32(arg, 8));
+	} else if (mode >= 2 && mode <= 8) {
+		t32_wr32(s, 0, mode);
+		t32_wr32(s, 4, pre[mode - 2][0]);
+		t32_wr32(s, 8, pre[mode - 2][1]);
+	}
+	c->st[T32_AWB_ST_MODE] = (u8)t32_ld32(s, 0);
+	t32_wr16(c->st, T32_AWB_ST_MA, t32_ld32(s, 4));
+	t32_wr16(c->st, T32_AWB_ST_MB, t32_ld32(s, 8));
+	c->st[T32_AWB_ST_FLAG] = 1;
+}
+
+static inline void t32_awb_set_frz(const struct t32_awb_ctx *c, u8 v)
+{
+	c->st[T32_AWB_ST_FRZ] = v;
+}
+
+static inline u8 t32_awb_get_frz(const struct t32_awb_ctx *c)
+{
+	return c->st[T32_AWB_ST_FRZ];
+}
+
+static inline void t32_awb_set_ct(const struct t32_awb_ctx *c, u32 ct)
+{
+	t32_wr32(c->st, T32_AWB_ST_CT, ct);
+}
+
+static inline void t32_awb_api_set_ct(const struct t32_awb_ctx *c, u8 a1, u32 ct)
+{
+	if (a1 == 1)
+		c->st[T32_AWB_ST_MODE] = 10;
+	t32_wr32(c->st, T32_AWB_ST_APICT, ct);
+}
+
+/* a: x (u32 at 0), y (u32 at 4), u8 at 8, u8 at 9 */
+static inline void t32_awb_set_statis_localtion(const struct t32_awb_ctx *c, const u8 *a)
+{
+	t32_wr16(c->par, T32_AWB_PAR_LOC, t32_ld32(a, 4));
+	t32_wr16(c->par, T32_AWB_PAR_LOC + 2, a[9]);
+	t32_wr16(c->par, T32_AWB_PAR_LOC + 4, t32_ld32(a, 0));
+	t32_wr16(c->par, T32_AWB_PAR_LOC + 6, a[8]);
+	c->st[T32_AWB_ST_CLR] = 0;
+}
+
 #endif /* TX_ISP_T32_STATS_H */
