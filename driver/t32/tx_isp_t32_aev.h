@@ -611,7 +611,7 @@ static inline void t32_aev_list_alloc_calc(const u8 *ctune, u8 *buf, u8 *st, u32
 				ehi = t32_ld32(st, 84);
 				elo = t32_ld32(st, 80);
 				s5 = 0;
-				if (a3 < ehi || (ehi == a3 && a2 < elo)) {
+				if (ehi != a3 || elo != a2) {	/* entry 0 is >= x here, so x < entry 0 unless equal */
 					s7 = t32_ld32(L, 4) << sx;
 					s4 = t32_ld32(L, 8);
 					s2 = t32_ld32(L, 12);

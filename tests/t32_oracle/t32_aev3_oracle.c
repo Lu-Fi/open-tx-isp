@@ -218,10 +218,13 @@ static void gen_list(struct par *p, u32 sh, u32 sx)
 		memcpy(img + E + 8 * (s5 + 1), img + E + 8 * s5, 8);
 		if (rnd() % 3 == 0)	/* same low word, other high word */
 			put32(img + E + 8 * (s5 + 1) + 4, ld(E + 8 * s5 + 4) + 1 + rnd() % 2);
-	} else if (rnd() % 8 == 0) {	/* X below / equal to the first entry */
-		put64(img + E, X + rnd() % 3 - (rnd() & 1));
-		if (rnd() & 1)
-			put64(img + E, X);
+	} else if (rnd() % 5 == 0) {	/* X below / equal to the first entry */
+		switch (rnd() % 4) {
+		case 0: put64(img + E, X); break;
+		case 1: put64(img + E, X + 1 + rnd() % 3); break;
+		case 2: put64(img + E, X + ((t32_u64)1 << 32)); break;
+		default: put64(img + E, X + rnd() % 3 - (rnd() & 1)); break;
+		}
 	}
 	if (s5 == 0 && rnd() % 3 == 0)
 		put64(img + E, X - (rnd() % 2));
