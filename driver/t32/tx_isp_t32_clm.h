@@ -20,9 +20,16 @@
  * instead of being copied: it equals the vendor's six matrices (BT.601,
  * BT.709, BT.2020, full and limited range).
  *
+ * Per-frame path: tisp_clm_dn_params_refresh re-reads the section pointer at
+ * tuning base + 0xd608 (tisp_csc_api_get, tisp_clm_write_csc_para, the tables
+ * at 5000 K, tisp_clm_write_lut, tisp_clm_calc_para_refresh, tisp_clm_write_reg)
+ * and tisp_clm_wake_up rewrites the register set and the cached tables; both
+ * work on the per-channel block state (struct t32_clm_ctx).
+ *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
- * by tests/t32_oracle (t32_clm_oracle), including the blend range; the vendor
- * binary was disassembled to confirm the byte compare of t32_clm_ct (0x8a6e4).
+ * by tests/t32_oracle (t32_clm_oracle, t32_clmf_oracle), including the blend
+ * range; the vendor binary was disassembled to confirm the byte compare of
+ * t32_clm_ct (0x8a6e4).
  */
 #ifndef TX_ISP_T32_CLM_H
 #define TX_ISP_T32_CLM_H
@@ -290,6 +297,156 @@ static inline int t32_clm_init(const u8 *sec, const u8 *lut, u32 lutbytes, unsig
 	T32_FWR(w, n, 0x100ac, (shift2 & 0xf) << 8 | (shift1 & 0xf));
 	T32_FWR(w, n, 0x10010, 1);
 	T32_FWR(w, n, 0x10000, T32_CLM_ID);
+	return (int)n;
+}
+
+/* tuning base offset of section 20 (the vendor's dd0a4[ch] + 0xd608) */
+#define T32_CLM_SEC_OFF		0xd608U
+/*
+ * The framing path interpolates the tables at colour temperature 1, i.e. below
+ * the first zone: the recovered flow's tisp_clm_ct_interp(ch, lut, 1) restores
+ * the tables of zone 0 (the forced init update uses 5000 K, T32_CLM_CT).
+ */
+#define T32_CLM_FRAME_CT	1
+
+/*
+ * Per-frame path.  The vendor keeps one block state per channel behind
+ * t32_data_e28d0[ch]: the section pointer (+0), the YCbCr -> RGB matrix of
+ * tisp_csc_api_get (+4), the payload pointer (+0x60) and the range ratios of
+ * tisp_clm_calc_para_refresh.  Our struct holds the same values.
+ */
+struct t32_clm_ctx {
+	u8 *sec;			/* section 20: tuning base + 0xd608 */
+	int csc[9];			/* YCbCr -> RGB matrix of the mode */
+	u8 *lut;			/* payload behind section 20 */
+	u32 lutbytes;
+	unsigned int mode;		/* colour space mode of the front end */
+	u32 ratio[2], shift[2];		/* tisp_clm_calc_para_refresh */
+	s16 tab[T32_CLM_TABLE];		/* tisp_clm_ct_interp: 2 x 420 words */
+	u8 tb[T32_CLM_TABLE];
+};
+
+/* tisp_clm_write_csc_para: matrix, trigger and the saturation range of the mode */
+static inline void t32_clm_csc_para(const struct t32_clm_ctx *ctx, const int m1[9],
+				    struct t32_front_write *w, unsigned int *n)
+{
+	u32 lo = 0, hi = 0;
+
+	t32_clm_sat_limits(ctx->mode, &lo, &hi);
+	T32_FWR(w, *n, 0x10044, (t32_clm_abs6(ctx->csc[7]) & 0x7ff) << 16 |
+		(t32_clm_abs6(ctx->csc[2]) & 0x7ff));
+	T32_FWR(w, *n, 0x10048, (t32_clm_abs6(ctx->csc[4]) & 0x1ff) << 16 |
+		(t32_clm_abs6(ctx->csc[5]) & 0x3ff));
+	T32_FWR(w, *n, 0x1004c, (t32_clm_abs6(m1[1]) & 0x3ff) << 16 | (t32_clm_abs6(m1[0]) & 0x1ff));
+	T32_FWR(w, *n, 0x10050, t32_clm_abs6(m1[2]) & 0xff);
+	T32_FWR(w, *n, 0x10054, (hi & 0x3ff) << 16 | (lo & 0x3ff));
+	T32_FWR(w, *n, 0x10010, 1);
+}
+
+/* tisp_clm_write_lut: the 2 x 420 word table through the two LUT ports */
+static inline void t32_clm_lut(const struct t32_clm_ctx *ctx, struct t32_front_write *w,
+			       unsigned int *n)
+{
+	const s16 *tab = ctx->tab;
+	const u8 *tb = ctx->tb;
+	int port, o, i;
+
+	for (port = 0; port < 2; port++) {
+		u32 pl = 0x320c0 + (u32)port * 0x40, pd = 0x320c4 + (u32)port * 0x40;
+
+		T32_FWR(w, *n, pl, 0x101);
+		for (o = 0; o < 15; o++) {
+			for (i = 0; i < 7; i++) {
+				const u8 *p = tb + port * 35 + o * 70 + i * 5;
+				const s16 *q = tab + port * 35 + o * 70 + i * 5;
+				u32 q1 = (u16)q[1] & 0x1ff, q3 = (u16)q[3];
+
+				T32_FWR(w, *n, pd, (u32)(p[1] & 0x7f) << 7 | (u32)(p[2] & 0x7f) << 14 |
+					(p[0] & 0x7fU) | (u32)(p[3] & 0x7f) << 21 | (u32)p[4] << 28);
+				T32_FWR(w, *n, pd, (p[4] & 0x7fU) >> 4);
+				T32_FWR(w, *n, pd, ((u32)(u16)q[2] & 0x1ff) << 18 | q1 << 9 | q1 | q3 << 27);
+				T32_FWR(w, *n, pd, ((q3 & 0x1ff) >> 5) | ((u32)(u16)q[4] & 0x1ff) << 4);
+			}
+		}
+		T32_FWR(w, *n, pl, 0x680102);
+	}
+	T32_FWR(w, *n, 0x10040, t32_tp_le16(ctx->sec + 4) & 0x7ff);
+	T32_FWR(w, *n, 0x10010, 1);
+}
+
+/* tisp_clm_write_reg: section fields, the range ratios and the trigger */
+static inline void t32_clm_regs(const struct t32_clm_ctx *ctx, const int m1[9],
+				struct t32_front_write *w, unsigned int *n)
+{
+	const u8 *sec = ctx->sec;
+	u32 lo = 0, hi = 0;
+
+	t32_clm_sat_limits(ctx->mode, &lo, &hi);
+	T32_FWR(w, *n, 0x10040, t32_tp_le16(sec + 4) & 0x7ff);
+	T32_FWR(w, *n, 0x10044, (t32_clm_abs6(ctx->csc[7]) & 0x7ff) << 16 |
+		(t32_clm_abs6(ctx->csc[2]) & 0x7ff));
+	T32_FWR(w, *n, 0x10048, (t32_clm_abs6(ctx->csc[4]) & 0x1ff) << 16 |
+		(t32_clm_abs6(ctx->csc[5]) & 0x3ff));
+	T32_FWR(w, *n, 0x1004c, (t32_clm_abs6(m1[1]) & 0x3ff) << 16 | (t32_clm_abs6(m1[0]) & 0x1ff));
+	T32_FWR(w, *n, 0x10050, t32_clm_abs6(m1[2]) & 0xff);
+	T32_FWR(w, *n, 0x10054, (hi & 0x3ff) << 16 | (lo & 0x3ff));
+	T32_FWR(w, *n, 0x10090, (u32)(sec[0x22] & 1) << 12 | (sec[0x25] & 1U) | (u32)(sec[0x26] & 1) << 4 |
+		(u32)(sec[0x27] & 1) << 8);
+	T32_FWR(w, *n, 0x10094, (t32_tp_le16(sec + 0x10) & 0x3ff) << 16 |
+		(t32_tp_le16(sec + 0xe) & 0x3ff));
+	T32_FWR(w, *n, 0x10098, (t32_tp_le16(sec + 0x14) & 0x3ff) << 16 |
+		(t32_tp_le16(sec + 0x12) & 0x3ff));
+	T32_FWR(w, *n, 0x1009c, (t32_tp_le16(sec + 0x18) & 0x3ff) << 16 |
+		(t32_tp_le16(sec + 0x16) & 0x3ff));
+	T32_FWR(w, *n, 0x100a0, (t32_tp_le16(sec + 0x1c) & 0x7ff) << 16 |
+		(t32_tp_le16(sec + 0x1a) & 0x7ff));
+	T32_FWR(w, *n, 0x100a4, (t32_tp_le16(sec + 0x20) & 0x7ff) << 16 |
+		(t32_tp_le16(sec + 0x1e) & 0x7ff));
+	T32_FWR(w, *n, 0x100a8, (ctx->ratio[1] & 0x3ff) << 16 | (ctx->ratio[0] & 0x3ff));
+	T32_FWR(w, *n, 0x100ac, (ctx->shift[1] & 0xf) << 8 | (ctx->shift[0] & 0xf));
+	T32_FWR(w, *n, 0x10010, 1);
+}
+
+/*
+ * tisp_clm_dn_params_refresh: the framing path re-reads the section pointer,
+ * refreshes the CSC matrix and the tables at 5000 K, then rewrites the tables
+ * and every register.  mode / m1 are the colour space mode and the front end's
+ * RGB -> YCbCr matrix the CSC module holds (tisp_csc_api_get).  The vendor
+ * takes the indirect LUT port variant when t32_data_d03a0[0] is set; the T32
+ * ISP runs the direct path modelled here (the init path above).
+ */
+static inline int t32_clm_dn_params_refresh(struct t32_clm_ctx *ctx, u8 ch, u8 *tuning_base,
+					    unsigned int mode, const int m1[9],
+					    struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	ctx->sec = tuning_base + T32_CLM_SEC_OFF;
+	ctx->mode = mode;
+	if (t32_csc_inverse(mode, ctx->csc))
+		return -1;
+	t32_clm_csc_para(ctx, m1, w, &n);
+	if (t32_clm_ct(ctx->sec, ctx->lut, ctx->lutbytes, T32_CLM_FRAME_CT, ctx->tab, ctx->tb))
+		return -1;
+	t32_clm_lut(ctx, w, &n);
+	t32_clm_ratio((int)t32_tp_le16(ctx->sec + 0x1c) - (int)t32_tp_le16(ctx->sec + 0x1a),
+		      &ctx->ratio[0], &ctx->shift[0]);
+	t32_clm_ratio((int)t32_tp_le16(ctx->sec + 0x20) - (int)t32_tp_le16(ctx->sec + 0x1e),
+		      &ctx->ratio[1], &ctx->shift[1]);
+	t32_clm_regs(ctx, m1, w, &n);
+	return (int)n;
+}
+
+/* tisp_clm_wake_up: the register set and the tables cached in the state */
+static inline int t32_clm_wake_up(struct t32_clm_ctx *ctx, u8 ch, const int m1[9],
+				  struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	t32_clm_regs(ctx, m1, w, &n);
+	t32_clm_lut(ctx, w, &n);
 	return (int)n;
 }
 
