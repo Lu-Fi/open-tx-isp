@@ -5,8 +5,82 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#include <stdlib.h>
+#include <math.h>
+
 #define _LINUX_TYPES_H
 #include "../driver/t20/tx_isp_t20_ae_max.h"
+#include "../driver/include/tx_isp/tx_isp_math.h"
+
+static int32_t lg(uint32_t v)
+{
+	return tx_isp_log2_fixed_u32(v ? v : 1, 0, 16);
+}
+
+/*
+ * #252 closed loop: a linear scene (mean = k * 2^exposure, clipped at 255),
+ * the exposure applied with a 2-frame sensor latency, an update every
+ * T20_AE_UPDATE_FRAMES frames (cooldown 2) as AE_fsm_process_interrupt().
+ * linear = 1: the old step |target - mean| * 4096 / K.
+ * Returns the frames until the mean stays within max(2 %, 1 LSB) of the
+ * target for 30 frames, or -1;
+ * *over = the worst overshoot in % of the target.
+ */
+static int settle_frames(double target, double start_ratio, int linear,
+			 double *over)
+{
+	int32_t exp_log2 = 0, applied[3] = { 0, 0, 0 };
+	double k = target * start_ratio, worst = 0;
+	int f, cooldown = 0, inside = 0, first = -1;
+	int above_start = start_ratio > 1.0;
+
+	for (f = 0; f < 2000; f++) {
+		double m = k * pow(2.0, applied[0] / 65536.0);
+		/* the OEM/compact mean is an integer (div64, floored) */
+		uint32_t mean = m > 255 ? 255 : (uint32_t)m;
+		uint32_t t = (uint32_t)(target + 0.5);
+
+		if (cooldown == 0) {
+			if (linear) {
+				int32_t e = (int32_t)t - (int32_t)mean;
+
+				if (e > 1 || e < -1) {
+					int32_t c = (abs(e) * 4096 + 9) / 10;
+
+					exp_log2 += e > 0 ? c : -c;
+				}
+			} else {
+				exp_log2 += t20_ae_log2_correction(
+					lg(t) - lg(mean), 10);
+			}
+			cooldown = T20_AE_UPDATE_FRAMES - 1;
+		} else {
+			cooldown--;
+		}
+		applied[0] = applied[1];
+		applied[1] = applied[2];
+		applied[2] = exp_log2;
+		if (above_start ? m < target : m > target) {
+			double o = fabs(m - target) * 100.0 / target;
+
+			if (o > worst)
+				worst = o;
+		}
+		/* 2 % or the 1-LSB quantisation of the 8-bit mean */
+		if (fabs(m - target) <= (target * 0.02 > 1.0 ?
+					  target * 0.02 : 1.0)) {
+			if (!inside++)
+				first = f;
+			if (inside >= 30)
+				break;
+		} else {
+			inside = 0;
+			first = -1;
+		}
+	}
+	*over = worst;
+	return inside >= 30 ? first : -1;
+}
 
 /* OEM 3.12.0 cmos_alloc_sensor_analog_gain() (tx_isp_t20_firmware.c):
  * max = stab[29] << 11; if (max >= request) max = request; -> unconditional
@@ -140,6 +214,57 @@ int main(void)
 				bad += it + ag + t20_ae_isp_dgain_fill(it + ag + d,
 					it, ag, 0, 0, 64, hw) != it + ag + d;
 		}
+	}
+	/* #252 log2 AE step: K = AE_PI_COEFF 10 (jxf23.bin), x3 per update */
+	bad += t20_ae_log2_correction(0, 10) != 0;
+	bad += t20_ae_log2_correction(T20_AE_LOG2_DEADBAND, 10) != 0;
+	bad += t20_ae_log2_correction(-T20_AE_LOG2_DEADBAND, 10) != 0;
+	bad += t20_ae_log2_correction(T20_AE_LOG2_DEADBAND + 1, 10) !=
+		(T20_AE_LOG2_DEADBAND + 1) * 3 / 10;
+	bad += t20_ae_log2_correction(1 << 16, 10) != (3 << 16) / 10;
+	bad += t20_ae_log2_correction(-(1 << 16), 10) != -((3 << 16) / 10);
+	bad += t20_ae_log2_correction(8 << 16, 10) != T20_AE_LOG2_STEP_MAX;
+	bad += t20_ae_log2_correction(-(8 << 16), 10) != -T20_AE_LOG2_STEP_MAX;
+	bad += t20_ae_log2_correction(0x7fffffff, 10) != T20_AE_LOG2_STEP_MAX;
+	bad += t20_ae_log2_correction(1 << 16, 0) != 0; /* malformed IQ */
+	bad += !t20_ae_log2_stable(0) || t20_ae_log2_stable(513);
+	/* the step depends on the ratio only, not on the level (OEM) */
+	bad += t20_ae_log2_correction(lg(20) - lg(10), 10) !=
+		t20_ae_log2_correction(lg(200) - lg(100), 10);
+	/* deadband 1/128 stop: 80 vs 79 (-1.25 %) is corrected now */
+	bad += t20_ae_log2_correction(lg(80) - lg(79), 10) <= 0;
+	bad += t20_ae_log2_stable(lg(80) - lg(79));
+	/* closed loop: metered targets of comp 40..200 (RCA table), 1 stop
+	 * away in both directions; the log2 loop settles in about the same
+	 * frames at every level and overshoots by <= 2 % */
+	{
+		static const double tg[] = { 10, 17, 34, 68, 136, 200 };
+		unsigned i;
+		int fmin = 1 << 30, fmax = 0;
+
+		for (i = 0; i < sizeof(tg) / sizeof(tg[0]); i++) {
+			double o_new, o_new2, o_old;
+			int n = settle_frames(tg[i], 0.5, 0, &o_new);
+			int n2 = settle_frames(tg[i], 2.0, 0, &o_new2);
+			int old = settle_frames(tg[i], 0.5, 1, &o_old);
+
+			printf("  target %5.1f: log2 %3d/%3d frames (over %.1f/%.1f %%), "
+			       "linear %4d frames (over %.1f %%)\n", tg[i], n, n2,
+			       o_new, o_new2, old, o_old);
+			bad += n < 0 || n2 < 0 || n > 60 || n2 > 60;
+			bad += o_new > 2.0 || o_new2 > 2.0;
+			if (n < fmin)
+				fmin = n;
+			if (n > fmax)
+				fmax = n;
+			/* the old law was slower at the dark targets */
+			if (tg[i] <= 17)
+				bad += old >= 0 && old <= n;
+		}
+		bad += fmax > 2 * fmin + 6; /* level-independent bandwidth */
+		/* a black frame (mean 0) is metered as 1: full stop, no hang */
+		bad += t20_ae_log2_correction(lg(68) - lg(0), 10) !=
+			T20_AE_LOG2_STEP_MAX;
 	}
 	printf("t20_ae_max_host_test: %s (%d bad)\n", bad ? "FAIL" : "PASS", bad);
 	return bad != 0;

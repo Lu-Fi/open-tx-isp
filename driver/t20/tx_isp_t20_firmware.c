@@ -58,6 +58,7 @@
 
 #include "../include/tx_isp/tx_isp_math.h"
 #include "../include/tx_isp/tx_isp_modulation.h"
+#include "tx_isp_t20_ae_max.h"
 
 #ifndef __regtrace_stringify
 #define __regtrace_stringify_1(x) #x
@@ -17778,9 +17779,9 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 		uint32_t highlight_tail = 0;
 		uint32_t pi_coefficient = 0;
 		uint32_t gain_accuracy = 0;
-		uint32_t correction;
+		int32_t correction;
 		u8 curve_value = 0x80;
-		int32_t error;
+		int32_t error = 0;
 		int target_table;
 		bool tuning_feedback = false;
 
@@ -17814,16 +17815,23 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 		if (result == 0 && raw_target && pi_coefficient && gain_accuracy)
 			target = t20_ae_corrected_target(raw_target,
 				simple_exposure_log2, owner->wdr_mode, &curve_value);
+		/*
+		 * #252: the error is log2(target) - log2(mean) in Q16 like the
+		 * OEM ae_calculate_target() (ae_balanced_func.c.o 0x37c-0x820),
+		 * integrated with K = AE_PI_COEFF like ae_calculate_exposure()
+		 * (0x928-0x9e8, (err + acc) / K per frame); the step per
+		 * update, the 1-stop clamp and the deadband are in
+		 * t20_ae_log2_correction() (tx_isp_t20_ae_max.h).  A black
+		 * frame (mean 0) meters as 1.
+		 */
+		if (result == 0 && target)
+			error = (int32_t)log2_fixed_to_fixed(target, 0, 16) -
+				(int32_t)log2_fixed_to_fixed(max_t(u32, mean, 1),
+					0, 16);
 		if (result == 0 && target && simple_cooldown == 0) {
-			error = (int32_t)target - (int32_t)mean;
-			if (error > 1 || error < -1) {
-				correction = DIV_ROUND_UP((u32)abs(error) *
-					gain_accuracy, pi_coefficient);
-				if (error > 0)
-					simple_exposure_log2 += correction;
-				else
-					simple_exposure_log2 -= correction;
-			}
+			correction = t20_ae_log2_correction(error,
+				pi_coefficient);
+			simple_exposure_log2 += correction;
 			result = tx_isp_t20_simple_ae_apply(
 				&simple_exposure_log2, &integration,
 				&again_log2, &again_code, &isp_dgain_log2,
@@ -17957,9 +17965,9 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 		t20_ae_last_exposure_log2 = simple_exposure_log2;
 		t20_ae_last_isp_dgain_log2 = isp_dgain_log2;
 		if (!t20_awb_feedback_ready) {
-			s32 stable_error = (s32)target - (s32)mean;
-
-			if (target && mean && stable_error >= -1 && stable_error <= 1) {
+			/* #252: "AE stable" = inside the log2 deadband (was
+			 * +-1 linear, i.e. +-10 % at comp 40, +-1.25 % at night) */
+			if (target && mean && t20_ae_log2_stable(error)) {
 				if (t20_awb_stable_ae_frames < 4)
 					t20_awb_stable_ae_frames++;
 				if (t20_awb_stable_ae_frames >= 4)

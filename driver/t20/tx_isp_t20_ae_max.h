@@ -122,4 +122,56 @@ static inline int32_t t20_ae_manual_total(int32_t total, int32_t time_log2,
 	return total;
 }
 
+/*
+ * #252: compact AE step on the log2 error, with the bandwidth of the OEM
+ * 3.12.0 AE.  The OEM ae_calculate_target() (ae_balanced_func.c.o
+ * 0x37c-0x820) forms the error in log2 Q16 (log2(target) - log2(mean)) and
+ * ae_calculate_exposure() (0x82c-0xa70) integrates it with
+ * K = AE_BALANCED[0] (AE_PI_COEFF, 10 on jxf23):
+ * exposure = (err + acc) / K per AE-stats frame (integrator 0x928-0x9e8,
+ * div64 0x9b4-0x9e4), an integral gain of 1/K per frame independent of
+ * the metered level.  The compact AE updates every T20_AE_UPDATE_FRAMES
+ * frames (sensor latency), so it takes err * T20_AE_UPDATE_FRAMES / K per
+ * update: the same 0.1/frame.  Before, the step was |target - mean|
+ * (linear 0..255) * gain_accuracy / K, a loop gain proportional to the
+ * target: 0.04 at comp 40 (crawl), 1.4 at comp 200 (ringing).
+ *
+ * Not OEM, kept on purpose: one update is clamped to 1 stop (the measured
+ * 0.1 % lamp-step overshoot stays) and |err| <= 1/128 stop is a deadband.
+ * The OEM has no deadband; its per-frame dither changes the exposure every
+ * frame, which makes iridix_fsm_process_interrupt (OEM 0x21740) skip the
+ * 0x3c4 strength commit (0x3dc != 0x100).  With the deadband the compact
+ * exposure freezes in steady state and Iridix commits as before.
+ * All values log2 Q16.
+ */
+#define T20_AE_UPDATE_FRAMES	3
+#define T20_AE_LOG2_DEADBAND	512		/* 1/128 stop = 0.54 % */
+#define T20_AE_LOG2_STEP_MAX	(1 << 16)	/* 1 stop per update */
+
+static inline int t20_ae_log2_stable(int32_t err_log2)
+{
+	return err_log2 >= -T20_AE_LOG2_DEADBAND &&
+	       err_log2 <= T20_AE_LOG2_DEADBAND;
+}
+
+static inline int32_t t20_ae_log2_correction(int32_t err_log2,
+					     uint32_t pi_coefficient)
+{
+	int32_t c;
+
+	if (!pi_coefficient || t20_ae_log2_stable(err_log2))
+		return 0;
+	/* |err| <= 8 stops (8-bit mean), no overflow in err * 3 */
+	if (err_log2 > 16 * T20_AE_LOG2_STEP_MAX)
+		err_log2 = 16 * T20_AE_LOG2_STEP_MAX;
+	if (err_log2 < -16 * T20_AE_LOG2_STEP_MAX)
+		err_log2 = -16 * T20_AE_LOG2_STEP_MAX;
+	c = err_log2 * T20_AE_UPDATE_FRAMES / (int32_t)pi_coefficient;
+	if (c > T20_AE_LOG2_STEP_MAX)
+		c = T20_AE_LOG2_STEP_MAX;
+	if (c < -T20_AE_LOG2_STEP_MAX)
+		c = -T20_AE_LOG2_STEP_MAX;
+	return c;
+}
+
 #endif

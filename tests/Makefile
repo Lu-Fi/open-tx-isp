@@ -581,8 +581,8 @@ t31_ae_step_host_test: t31_ae_step_host_test.c ../driver/t31/tx_isp_t31_ae_step.
 
 TESTS += t20_ae_max_host_test
 
-t20_ae_max_host_test: t20_ae_max_host_test.c ../driver/t20/tx_isp_t20_ae_max.h
-	$(CC) $(CFLAGS) -o $@ $<
+t20_ae_max_host_test: t20_ae_max_host_test.c ../driver/t20/tx_isp_t20_ae_max.h ../driver/include/tx_isp/tx_isp_math.h
+	$(CC) $(CFLAGS) -o $@ $< -lm
 
 TESTS += t31_awb_simd_host_test
 
