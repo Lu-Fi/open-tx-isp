@@ -52,6 +52,8 @@
  * first lim_a / lim_b entries extended or shifted accordingly (t32_awb_ct_detect_pick).
  * Phase 17 (L_23f70 .. L_24140): the two limit tables blended by the ramp results, the par+5684 flag, sums over
  * the taken rectangles, their original indices sorted (t32_awb_ct_detect_blend).
+ * Phase 18 (L_24140 .. L_244ac): the weight of each taken rectangle and the weighted sums of its mean
+ * r and b (t32_awb_ct_detect_rects).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -93,6 +95,8 @@ struct t32_awb_ctd {
 	u32 omax, omin;		/* phase 16: largest / smallest original index among them (registers v1 / a0; 0 / 12 when not computed) */
 	u16 bl[10];		/* t32_data_daf10: lim_a / lim_b blended by ct_a, then by ct_b (phase 17) */
 	u32 sums[5];		/* phase 17: over the s0 rectangles the sums of acc[3], acc[0], cm[2], cm[3], cm[4] (registers v1, a3, t0, t1, t2) */
+	u32 w2[10], w3[10], q3[10], q4[10];	/* t32_data_dae70 / daee8 / daec0 / dae98: per rectangle blend weight, near share, cm[3] share, cm[4] share (phase 18) */
+	u32 wr, wb, ww, wl;	/* phase 18: sum of weight * cm[0] (t5), weight * cm[1] (s8+104), weights (s7), last weight (v0) */
 };
 
 /*
@@ -1224,6 +1228,61 @@ static inline void t32_awb_ct_detect_blend(struct t32_awb *a, struct t32_awb_ctd
 			t = d->idx[j]; d->idx[j] = d->idx[j + 1]; d->idx[j + 1] = t;
 		}
 	}
+}
+
+/*
+ * Phase 18 (L_24140 .. L_244ac).  Zeroes sb / sr (s8+72 / 76).  When one of the sums[] is 0 returns 1
+ * (the vendor then goes to Ct_Cal and the output, t32_awb_ct_detect_finish).  Shares with ten fixed
+ * bits and rounding: w3[i] = (acc[3][i] << 10 + N / 2) / N, sh0 = acc[0][i] share of C, sh2 = cm[2][i]
+ * share of S2, q3[i], q4[i] = cm[3][i], cm[4][i] shares of S3, S4 (N, C, S2, S3, S4 = sums[0..4]);
+ * w2[idx[m] == i] = bl[m].  The u16 par+5696 == 0 sets every w3 to 1024, par+5698 == 0 every w2.
+ * The weight w (carried over from the previous rectangle when the low byte of par+5682 is none of
+ * 1 .. 4): 1: sh0 * 4;  2: w2 * 4;  3: fixmul(20, (sh0 * w3 + 8) >> 4, (sh2 * w2 + 8) >> 4);
+ * 4: fixmul(12, that, q3 * 4);  then w = (w * q4 + 512) >> 10.  ww += w, wr += w * cm[0][i],
+ * wb += w * cm[1][i].  wl = the last weight.
+ */
+static inline int t32_awb_ct_detect_rects(struct t32_awb *a, struct t32_awb_ctd *d)
+{
+	struct t32_awb_par *par = a->par;
+	u32 n = d->sums[0], c = d->sums[1], s2 = d->sums[2], s3 = d->sums[3], s4 = d->sums[4];
+	u32 s0 = d->s0, sel = par->raw[5682], p1 = *(const u16 *)(par->raw + 5696), p2 = *(const u16 *)(par->raw + 5698);
+	u32 i, m, w = 0;
+
+	d->sb = d->sr = 0;
+	if (!n || !c || !s2 || !s3 || !s4)
+		return 1;
+	d->wr = d->wb = d->ww = 0;
+	for (i = 0; i < s0; i++) {
+		u32 sh0 = (d->acc[0][i] << 10) + (c >> 1), sh2 = (d->cm[2][i] << 10) + (s2 >> 1);
+
+		sh0 /= c;
+		sh2 /= s2;
+		d->w3[i] = ((d->acc[3][i] << 10) + (n >> 1)) / n;
+		d->q3[i] = ((d->cm[3][i] << 10) + (s3 >> 1)) / s3;
+		d->q4[i] = ((d->cm[4][i] << 10) + (s4 >> 1)) / s4;
+		for (m = 0; m < s0; m++)
+			if (d->idx[m] == i)
+				d->w2[i] = d->bl[m];
+		if (!p1)
+			d->w3[i] = 1024;
+		if (!p2)
+			d->w2[i] = 1024;
+		if (sel == 1) {
+			w = sh0 << 2;
+		} else if (sel == 2) {
+			w = d->w2[i] << 2;
+		} else if (sel == 3 || sel == 4) {
+			w = t32_awb_fixmul(20, (sh0 * d->w3[i] + 8) >> 4, (sh2 * d->w2[i] + 8) >> 4);
+			if (sel == 4)
+				w = t32_awb_fixmul(12, w, d->q3[i] << 2);
+		}
+		w = (w * d->q4[i] + 512) >> 10;
+		d->ww += w;
+		d->wr += w * d->cm[0][i];
+		d->wb += w * d->cm[1][i];
+	}
+	d->wl = w;
+	return 0;
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */
