@@ -548,4 +548,219 @@ static inline u32 t32_ae_weight_mean(const struct t32_ae_ctx *c, u8 *stat, u8 *s
 	return 1;
 }
 
+/*
+ * Per-frame AE paths tisp_ae_algo_handle, tisp_ae_sleep, tisp_ae_wake_up
+ * (Matt Davis' recovered C, PR #15), checked by tests/t32_oracle (t32_aew_oracle).
+ * Registers are the direct addresses (vendor t32_data_d03a0 == 0).  The vendor's
+ * dd2d4 + ch * 232 function table is the hook set; each hook gets a pointer to
+ * a small block the vendor keeps on its stack (fa = sp + 16, fc = sp + 432).
+ * Quirk kept: the last event of tisp_ae_algo_handle compares bf404[ch] but
+ * stores into e1548[ch].
+ */
+#define T32_AE_REG_A 0x3058
+#define T32_AE_REG_B 0x305c
+#define T32_AE_REG_C 0x3208
+#define T32_AE_REG_D 0x320c
+#define T32_AE_REG_E 0x3010
+#define T32_AE_REG_F 0x26048
+#define T32_AE_REG_G 0x2603c
+
+struct t32_ae_algo_in {
+	u32 pad[4];
+	u32 x16, x20, x24, x28, x32, x36, x40, x44;
+};
+
+struct t32_ae_algo_hooks {
+	u32 (*h124)(u32 v, u8 *blk);	/* table offsets in dd2d4 + ch * 232 */
+	u32 (*h128)(u32 v, u8 *blk);
+	u32 (*h132)(u32 v, u8 *blk);
+	u32 (*h136)(u32 v, u8 *blk);
+	u32 (*h140)(u32 v, u8 *blk);
+	u32 (*h148)(u32 v, u8 *blk);
+	u32 (*h168)(u32 v, u8 *blk);
+	u32 (*h172)(u32 v, u8 *blk);
+	u32 (*h184)(u32 v, u8 *blk);
+	u32 (*h188)(u32 v, u8 *blk);
+	u32 (*h192)(u32 v, u8 *blk);
+	u32 (*h196)(u32 v, u8 *blk);
+	u32 (*log2)(u32 v, u32 in_frac, u32 out_frac);
+	u32 (*exp2)(u32 v, u32 in_frac, u32 out_frac);
+	void (*event_push)(u32 ch, u32 *ev);
+};
+
+/* buf = e15a8[ch] + 4, flag = e15a8[ch] + 8, the others the per-channel words */
+struct t32_ae_algo_state {
+	u8 *buf;
+	u32 flag;
+	u32 *e1568, *e1558, *e1548, *e1560, *e1550, *bf404;
+};
+
+static inline u32 t32_ae_curve(const struct t32_ae_algo_hooks *h, u32 (*curve)(u32, u8 *), u32 v, u8 *fc)
+{
+	return h->exp2(curve(h->log2(v << 6, 16, 16), fc), 16, 16) >> 6;
+}
+
+static inline void t32_ae_push(const struct t32_ae_algo_hooks *h, u32 ch, u32 type, u32 val, u8 *buf,
+			       u32 off, int reload)
+{
+	u32 ev[6] = { 0 };
+
+	ev[2] = type;
+	ev[4] = val;
+	h->event_push(ch, ev);
+	t32_wr32(buf, off, reload ? ev[4] : val);
+	t32_wr32(buf, off + 4, reload ? ev[5] : 0);
+}
+
+static inline unsigned int t32_ae_algo_handle(u32 ch, const struct t32_ae_algo_in *in,
+					      const struct t32_ae_algo_hooks *h,
+					      const struct t32_ae_ops *ops,
+					      struct t32_ae_algo_state *st,
+					      struct t32_stats_write *w)
+{
+	u8 fa[64] = { 0 }, fc[32] = { 0 };
+	u8 *blk = fa + 8, *buf = st->buf;
+	u32 r140, r148 = 0, s2 = in->x36, s3 = 0, s4 = 0, s5 = 0, s6, s7, s8 = in->x20, x1, regv, l;
+	unsigned int n = 0;
+
+	t32_wr32(blk, 0, ch);
+	r140 = h->h140(in->x16, blk);
+	if (in->x16 != r140)
+		s8 = ops->div32(10, ops->mult2_32(10, s8, in->x16 << 10), r140 << 10);
+	h->h168(t32_st16(fa, 24), fa);
+	t32_wr32(buf, 8608, r140);
+	t32_wr32(fc, 0, ch);
+	x1 = t32_ae_curve(h, h->h124, s8, fc);
+	h->h184(t32_st16(fc, 4), fc);
+	t32_wr32(buf, 8612, x1);
+	t32_wr32(fc, 0, ch);
+	s6 = t32_ae_curve(h, h->h132, in->x24, fc);
+	h->h192(t32_st16(fc, 6), fc);
+	t32_wr32(buf, 8616, s6);
+	regv = in->x28 << 16 | (in->x28 & 0xffff);
+	n = t32_stats_add(w, n, T32_AE_REG_A, regv);
+	n = t32_stats_add(w, n, T32_AE_REG_B, regv);
+	n = t32_stats_add(w, n, T32_AE_REG_E, 0xffffffffU);
+	n = t32_stats_add(w, n, T32_AE_TRIG, 1);
+	t32_wr32(buf, 8620, in->x28);
+	s7 = ops->mult2_32(10, ops->mult3_32(10, r140 << 10, x1, s6), in->x28);
+	s6 = ops->mult3_32(10, x1, s6, in->x28);
+	if (st->flag == 1) {
+		t32_wr32(blk, 0, ch);
+		r148 = h->h148(in->x32, blk);
+		if (in->x32 != r148)
+			s2 = ops->div32(10, ops->mult2_32(10, s2, in->x32 << 10), r148 << 10);
+		h->h172(t32_st16(fa, 26), fa);
+		t32_wr32(buf, 8624, r148);
+		t32_wr32(fc, 0, ch);
+		s2 = t32_ae_curve(h, h->h128, s2, fc);
+		h->h188(t32_st16(fc, 14), fc);
+		t32_wr32(buf, 8628, s2);
+		t32_wr32(fc, 0, ch);
+		s4 = t32_ae_curve(h, h->h136, in->x40, fc);
+		h->h196(t32_st16(fc, 20), fc);
+		t32_wr32(buf, 8632, s4);
+		s3 = ops->mult2_32(10, in->x36, in->x40);
+		s3 = ops->mult2_32(10, in->x44, ops->div32(10, s3, ops->mult2_32(10, s2, s4)));
+		n = t32_stats_add(w, n, T32_AE_TRIG, 1);
+		t32_wr32(buf, 8636, s3);
+		s5 = ops->mult2_32(10, ops->mult3_32(10, r148 << 10, s2, s4), s3);
+		s3 = ops->mult3_32(10, s2, s4, s3);
+	}
+	if (*st->e1568 != s7) {
+		t32_ae_push(h, ch, 6, s7, buf, 7472, 1);
+		*st->e1568 = s7;
+	}
+	if (*st->e1558 != s6) {
+		l = h->log2(s6 << 6, 16, 16);
+		t32_ae_push(h, ch, 4, l, buf, 7480, 0);
+		*st->e1558 = s6;
+	}
+	if (*st->e1548 != x1) {
+		l = h->log2(x1 << 6, 16, 16);
+		t32_ae_push(h, ch, 5, l, buf, 7488, 0);
+		*st->e1548 = x1;
+		t32_wr32(buf, 8612, x1);
+	}
+	if (*st->e1560 != s5) {
+		t32_ae_push(h, ch, 10, s5, buf, 7504, 1);
+		*st->e1560 = s5;
+	}
+	if (*st->e1550 != s3) {
+		l = h->log2(s3 << 6, 16, 16);
+		t32_ae_push(h, ch, 8, l, buf, 7512, 0);
+		*st->e1550 = s3;
+	}
+	if (*st->bf404 != s2) {
+		l = h->log2(s2 << 6, 16, 16);
+		t32_ae_push(h, ch, 9, l, buf, 7520, 0);
+		*st->e1548 = s2;
+		t32_wr32(buf, 8628, s2);
+	}
+	return n;
+}
+
+/* tisp_ae_sleep: e153c[3] and e1528[5] are the vendor's saved registers */
+struct t32_ae_sleep_state {
+	u32 e153c[3];
+	u32 e1528[5];
+};
+
+static inline void t32_ae_sleep(struct t32_ae_sleep_state *s, u32 (*rd)(u32 reg))
+{
+	s->e153c[0] = rd(0x17098);
+	s->e153c[1] = rd(0x170b4);
+	s->e153c[2] = rd(0x170b8);
+	s->e1528[0] = rd(T32_AE_REG_A);
+	s->e1528[1] = rd(T32_AE_REG_B);
+	s->e1528[2] = rd(T32_AE_REG_C);
+	s->e1528[3] = rd(T32_AE_REG_D);
+	s->e1528[4] = rd(T32_AE_REG_F);
+}
+
+static inline void t32_ae_copy_regs(struct t32_stats_write *w, unsigned int *n,
+				    const struct t32_stats_write *t, unsigned int m, u32 lo, u32 hi)
+{
+	unsigned int i;
+
+	for (i = 0; i < m; i++)
+		if (t[i].reg >= lo && t[i].reg <= hi)
+			*n = t32_stats_add(w, *n, t[i].reg, t[i].val);
+}
+
+/*
+ * tisp_ae_wake_up: the zone, buffer and ROI registers of tisp_ae_set_hardware_param
+ * are taken from t32_ae_stats_init (same width / height / buffer inputs), the
+ * rest are the vendor's direct writes.  tune is the AE section (bin + T32_AE_PARAM),
+ * buf the vendor's e15a8[ch] + 4 buffer, buf_pa the e1598[ch] + 8 word.
+ */
+static inline unsigned int t32_ae_wake_up(const u8 *tune, const u8 *buf, u32 buf_pa,
+					  const struct t32_ae_sleep_state *sv,
+					  struct t32_stats_write *w)
+{
+	struct t32_stats_write t[T32_STATS_MAX_WRITES];
+	unsigned int n = 0, m, k;
+
+	m = t32_ae_stats_init(tune - T32_AE_PARAM, t32_st16(buf, 8548), t32_st16(buf, 8550), buf_pa, t);
+	if (m > T32_STATS_MAX_WRITES)
+		m = T32_STATS_MAX_WRITES;
+	t32_ae_copy_regs(w, &n, t, m, 0x17040, 0x17064);
+	n = t32_stats_add(w, n, T32_AE_REG_A, sv->e1528[0]);
+	n = t32_stats_add(w, n, T32_AE_REG_B, sv->e1528[1]);
+	n = t32_stats_add(w, n, T32_AE_REG_C, sv->e1528[2]);
+	n = t32_stats_add(w, n, T32_AE_REG_D, sv->e1528[3]);
+	n = t32_stats_add(w, n, T32_AE_REG_E, 0xffffffffU);
+	n = t32_stats_add(w, n, T32_AE_REG_F, sv->e1528[4]);
+	n = t32_stats_add(w, n, T32_AE_REG_G, 1);
+	t32_ae_copy_regs(w, &n, t, m, 0x17068, 0x17088);
+	n = t32_stats_add(w, n, 0x17098, sv->e153c[0]);
+	n = t32_stats_add(w, n, 0x170b4, sv->e153c[1]);
+	n = t32_stats_add(w, n, 0x170b8, sv->e153c[2]);
+	t32_ae_copy_regs(w, &n, t, m, 0x17090, 0x17094);
+	for (k = 0; k < 6; k++)
+		n = t32_stats_add(w, n, 0x1709c + 4 * k, t32_ld32(buf, 7448 + 4 * k));
+	n = t32_stats_add(w, n, T32_AE_TRIG, 1);
+	return n;
+}
+
 #endif /* TX_ISP_T32_STATS_H */
