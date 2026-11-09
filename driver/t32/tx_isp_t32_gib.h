@@ -13,8 +13,12 @@
  * levels are also copied back into the section (the vendor does so when
  * section byte 0x223 is 0), so pass a writable copy.
  *
+ * Per-frame paths: tisp_gib_dn_params_refresh (re-interpolate at the stored
+ * gain, optional copy-back) and tisp_gib_wake_up (write the working block
+ * and the normal black level path).
+ *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
- * by tests/t32_oracle (t32_gib_oracle).
+ * by tests/t32_oracle (t32_gib_oracle, t32_gibf_oracle).
  */
 #ifndef TX_ISP_T32_GIB_H
 #define TX_ISP_T32_GIB_H
@@ -262,7 +266,6 @@ static inline void t32_gib_write_blc_s(const u8 *sec, const u8 *cp, const u8 *pt
 	*np = n;
 }
 
-
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
@@ -321,6 +324,121 @@ static inline int t32_gib_init(u8 *sec, u32 bayer, struct t32_front_write *w)
 	t32_tp_put16(cp + 0x56, t32_gib_gain(cp + 0x4c));
 	t32_gib_write_blc_s(sec, cp, pt, w, &n);
 	T32_FWR(w, n, 0x3000, T32_GIB_ID);
+	return (int)n;
+}
+
+/* Context for the per-frame paths: the vendor's block per channel holds +0
+ * the section pointer, +4 a pointer to the two gain words (index << 16 |
+ * fraction) used by tisp_gib_interp_by_again (+0) and
+ * tisp_gib_interp_by_again_s (+4), +8 the working block pointer and +16 the
+ * held black levels (u16 flag, then 5 levels at +2 and 5 at +14).
+ */
+struct t32_gib_ctx {
+	u8 *sec;		/* IQ bin section 8 */
+	u8 *cp;			/* 0x84-byte working block */
+	u8 *gw;			/* two gain words */
+	u8 *hold;		/* T32_GIB_HOLD_BYTES: flag + held black levels */
+};
+
+#define T32_GIB_HOLD_BYTES	24
+
+/*
+ * tisp_gib_interp_by_again (set 0) / tisp_gib_interp_by_again_s (set 1):
+ * black levels at gain word gw into cp + cpo, the gain into cp + cpo + 10.
+ * sec[0x220] / sec[0x221] select whether the held levels (hold flag 1) are
+ * used; sec[0x223] == 1 with sec[0x220] 2 (or 0 and sec[0x221] 2) writes the
+ * held levels back into the section.  Set 0 also sets cp[0x80].
+ */
+static inline void t32_gib_interp_set(struct t32_gib_ctx *ctx, u32 gw, int set)
+{
+	static const u8 src[2][5] = { { 0x24, 0x3a, 0x50, 0x66, 0x7c }, { 0x9c, 0xb2, 0xc8, 0xde, 0xf4 } };
+	u8 *sec = ctx->sec, *cp = ctx->cp, *hold = ctx->hold;
+	u32 cpo = set ? 0x4c : 0x40, so = set ? 0x10a : 0x92, ho = set ? 14 : 2;
+	u32 m = sec[0x220], m2 = sec[0x221], held = t32_tp_le16(hold);
+	unsigned int k;
+
+	if (m != 1 && (m != 0 || m2 >= 2) && held == 1) {
+		for (k = 0; k < 5; k++)
+			t32_tp_put16(cp + cpo + 2 * k, t32_tp_le16(hold + ho + 2 * k));
+	} else {
+		for (k = 0; k < 5; k++) {
+			if (!t32_front_le32(sec + 4))
+				t32_tp_put16(cp + cpo + 2 * k, t32_tp_intp_u16(gw >> 16, gw & 0xffff, sec + src[set][k]));
+			else
+				t32_tp_put16(cp + cpo + 2 * k, t32_tp_le16(sec + so + 2 * k));
+		}
+		if (!t32_front_le32(sec + 4) && !sec[0x223])
+			for (k = 0; k < 5; k++)
+				t32_tp_put16(sec + so + 2 * k, t32_tp_le16(cp + cpo + 2 * k));
+		if (held != 1) {
+			for (k = 0; k < 5; k++)
+				t32_tp_put16(hold + ho + 2 * k, t32_tp_le16(cp + cpo + 2 * k));
+			held = 0;	/* skip the write back below */
+		}
+	}
+	if (held == 1 && sec[0x223] == 1 && (m == 2 || (m == 0 && m2 == 2)))
+		for (k = 0; k < 5; k++)
+			t32_tp_put16(sec + so + 2 * k, t32_tp_le16(hold + ho + 2 * k));
+	if (!set)
+		cp[0x80] = !t32_front_le32(sec + 4) ? t32_tp_intp_u8(gw >> 16, gw & 0xffff, sec + 0x207) : sec[0x212];
+	t32_tp_put16(cp + cpo + 10, t32_gib_gain(cp + cpo));
+}
+
+/* tisp_gib_slope_update: five slope tables into the working block */
+static inline void t32_gib_slope_update(struct t32_gib_ctx *ctx)
+{
+	static const u16 slx[5] = { 0x114, 0x128, 0x13c, 0x150, 0x164 };
+	u8 *sec = ctx->sec;
+	u8 *cp = ctx->cp;
+	unsigned int k;
+
+	for (k = 0; k < 5; k++)
+		t32_gib_slope(sec + slx[k], sec + slx[k] + 10, cp + 0x58 + 8 * k);
+}
+
+/* tisp_gib_dn_params_refresh: re-interpolate at the stored gain, then write.
+ * With mode 1 the vendor clears three section bytes first.  bayer is the
+ * pattern given to the init (it selects the pointer table row). */
+static inline int t32_gib_dn_params_refresh(struct t32_gib_ctx *ctx, u8 ch, u32 mode, u32 bayer,
+					    struct t32_front_write *w)
+{
+	const u8 *pt;
+	int row;
+	unsigned int n = 0;
+
+	(void)ch;
+	row = t32_gib_ptr_row(bayer);
+	if (row < 0)
+		return -1;
+	pt = t32_gib_ptr_tab[row];
+	if (mode == 1) {
+		ctx->sec[0x206] = 0;
+		ctx->sec[0x21e] = 0;
+		ctx->sec[0x21f] = 0;
+	}
+	t32_gib_interp_set(ctx, t32_front_le32(ctx->gw), 0);
+	t32_gib_slope_update(ctx);
+	t32_gib_write_reg(ctx->sec, ctx->cp, pt, 0, w, &n);
+	t32_gib_interp_set(ctx, t32_front_le32(ctx->gw + 4), 1);
+	t32_gib_write_blc_s(ctx->sec, ctx->cp, pt, w, &n);
+	return (int)n;
+}
+
+/* tisp_gib_wake_up: write the working block and the normal black level path */
+static inline int t32_gib_wake_up(struct t32_gib_ctx *ctx, u8 ch, u32 bayer,
+				  struct t32_front_write *w)
+{
+	const u8 *pt;
+	int row;
+	unsigned int n = 0;
+
+	(void)ch;
+	row = t32_gib_ptr_row(bayer);
+	if (row < 0)
+		return -1;
+	pt = t32_gib_ptr_tab[row];
+	t32_gib_write_reg(ctx->sec, ctx->cp, pt, 0, w, &n);
+	t32_gib_write_blc_s(ctx->sec, ctx->cp, pt, w, &n);
 	return (int)n;
 }
 
