@@ -9090,6 +9090,7 @@ void tx_vic_disable_irq(int irq)
 	void (*disable)(void *);
 	unsigned long flags;
 	uint32_t reg;
+	unsigned int sync_irq = 0;
 
 	if (IS_ERR_OR_NULL(vic))
 		return;
@@ -9103,10 +9104,17 @@ void tx_vic_disable_irq(int irq)
 	if (reg == 0 && *(uint32_t *)(vic + 0x138) != 0) {
 		*(uint32_t *)(vic + 0x138) = 0;
 		disable = *(void (**)(void *))(vic + 0x88);
-		if (disable)
+		if (disable) {
+			/* irqs are off here: the hook takes the nosync path */
 			disable(vic + 0x80);
+			sync_irq = ((struct tx_isp_t30_irq_device *)(vic + 0x80))->irq;
+		}
 	}
 	spin_unlock_irqrestore((spinlock_t *)(vic + 0x12c), flags);
+	/* process-context callers (apical_change_resolution, i2c_io_read_sample,
+	 * vic_core_ops_init) still wait for a running handler, now without the lock */
+	if (sync_irq && !in_interrupt())
+		synchronize_irq(sync_irq);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000013b4 origin=model_output original=vic_core_ops_init */
@@ -24284,8 +24292,11 @@ void tx_isp_disable_irq(struct tx_isp_t30_irq_device *irqdev)
 	 * at 0xffff only, i.e. before vic_core_ops_init set 0x5310000).  A
 	 * synchronous disable_irq() then spins in synchronize_irq() on its own
 	 * in-progress line with interrupts off: hard hang (QEMU T30 reload).
+	 * The same applies to process context under the VIC spinlock (irqs off,
+	 * threaded line: synchronize_irq() may sleep); tx_vic_disable_irq()
+	 * synchronizes after its unlock (openimp #250).
 	 */
-	if (in_interrupt())
+	if (in_interrupt() || irqs_disabled())
 		disable_irq_nosync(irqdev->irq);
 	else
 		private_disable_irq(irqdev->irq);
