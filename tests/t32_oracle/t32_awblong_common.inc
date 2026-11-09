@@ -28,7 +28,7 @@ extern u32 t32_data_e16b4[4];
 #include "t32_awbgen.inc"
 
 static unsigned int cases, failed, nrefused, nstop, nearly;
-static unsigned int cov[16];
+static unsigned int cov[16], npath[8];
 
 #if LG_PHASE >= 5
 /*
@@ -78,6 +78,80 @@ static void aim_axes(u8 *par, u8 *stt, u8 *hw)
 		for (i = 0; i < 15; i++)
 			p32(par, ax + 4 * i, lo + i * step + rnd() % (step / 2 + 1));
 	}
+}
+#endif
+
+#if LG_PHASE >= 6
+/*
+ * A history whose newest entry equals this frame's detection, so that the algorithm sees a calm frame: our phases 1 .. 5 on
+ * a copy give the detection (the axes are aimed after this, so the numbers are only a guess; the oracle does not care).
+ */
+static void aim_calm(u8 *par, u8 *stt, u8 *hw, u32 tbl)
+{
+	static u8 spar[PARB], sst[STB], shw[HWB];
+	static struct t32_awb_ctd sd;
+	struct t32_awb sa = { (struct t32_awb_par *)spar, (struct t32_awb_state *)sst, (struct t32_awb_hw *)shw };
+	struct t32_awb_lg sl;
+
+	memcpy(spar, par, PARB);
+	memcpy(sst, stt, STB);
+	memcpy(shw, hw, HWB);
+	sst[79036] = 1;
+	t32_awb_lg_entry(&sa, &sl);
+	if (t32_awb_lg_zones(&sa, &sl))
+		return;
+	t32_awb_lg_means(&sa, &sl);
+	t32_awb_lg_shares(&sa, &sl);
+	t32_awb_lg_clear(&sa, &sl);
+	if (t32_awb_lg_gate(&sa, &sl) || t32_awb_lg_detect(&sa, &sl, &sd, tbl))
+		return;
+	stt[79036] = 1;
+	p32(stt, 79104, g32(sst, 79104));
+	p32(stt, 79164, g32(sst, 79164));
+	stt[107596] = rnd() % 4 == 0;
+	stt[107598] = rnd() % 4 == 0;
+	p32(par, 24, g32(par, 16));
+	p32(par, 28, g32(par, 20));
+	if (rnd() % 2) {	/* a picture that is not still: the gate does not leave */
+		stt[79044] = 0;
+	}
+}
+#endif
+
+#if LG_PHASE >= 6
+/*
+ * The previous gains (par+16 / +20) and the thresholds (lg_small, lg_p3312) right at the change the algorithm will measure:
+ * our phases 1 .. 5 on a copy give the new gains, the change is set to 0 .. 14 around the thresholds.
+ */
+static void aim_gain(u8 *par, u8 *stt, u8 *hw, u32 tbl)
+{
+	static u8 spar[PARB], sst[STB], shw[HWB];
+	static struct t32_awb_ctd sd;
+	struct t32_awb sa = { (struct t32_awb_par *)spar, (struct t32_awb_state *)sst, (struct t32_awb_hw *)shw };
+	struct t32_awb_lg sl;
+	u32 gr, gb, dr = rnd() % 8, db = rnd() % 8, d, half;
+
+	memcpy(spar, par, PARB);
+	memcpy(sst, stt, STB);
+	memcpy(shw, hw, HWB);
+	t32_awb_lg_entry(&sa, &sl);
+	if (t32_awb_lg_zones(&sa, &sl))
+		return;
+	t32_awb_lg_means(&sa, &sl);
+	t32_awb_lg_shares(&sa, &sl);
+	t32_awb_lg_clear(&sa, &sl);
+	if (t32_awb_lg_gate(&sa, &sl) || t32_awb_lg_detect(&sa, &sl, &sd, tbl))
+		return;
+	half = 1u << ((sl.os - 1) & 31);
+	gr = ((u32)t32_awb_fixdiv64(sl.fp, sl.one, sl.out[0]) + half) >> (sl.os & 31);
+	gb = ((u32)t32_awb_fixdiv64(sl.fp, sl.one, sl.out[1]) + half) >> (sl.os & 31);
+	p32(par, 16, gr + dr);
+	p32(par, 20, gb - db);
+	d = dr + db;
+	p16(par, 3314, d + rnd() % 3 - 1);
+	p16(par, 3312, d + rnd() % 3 - 1);
+	if (rnd() % 2)
+		p32(par, 8, 0);
 }
 #endif
 
@@ -198,6 +272,12 @@ static void gen_long(u8 *par, u8 *stt, u8 *hw, const u8 *sec, u32 tbl)
 	p32(par, 312, 1 + rnd() % 40);		/* ct_detect pass limit per point: the vendor's loop does not end for a huge one */
 	aim_axes(par, stt, hw);
 #endif
+#if LG_PHASE >= 6
+	if (rnd() % 2)
+		aim_calm(par, stt, hw, tbl);
+	if (rnd() % 2)
+		aim_gain(par, stt, hw, tbl);
+#endif
 }
 
 struct ours {
@@ -208,7 +288,16 @@ struct ours {
 /* our phases 1 .. LG_PHASE; returns -1 when the case is refused, 1 when the vendor leaves early */
 static int run_ours(struct t32_awb *a, struct ours *o, u32 tbl)
 {
-		t32_awb_lg_entry(a, &o->l);
+	#if LG_PHASE >= 6
+	{
+		int path = 0, rc = t32_awb_long_alogrithm(a, &o->d, tbl, &path);
+
+		if (rc == 0)
+			npath[path]++;
+		return rc;
+	}
+#endif
+	t32_awb_lg_entry(a, &o->l);
 #if LG_PHASE >= 1
 	if (t32_awb_lg_zones(a, &o->l))
 		return -1;
@@ -242,6 +331,7 @@ static int run_ours(struct t32_awb *a, struct ours *o, u32 tbl)
 		return -1;
 	cov[1] += o->l.valid[0] == 0;
 #endif
+
 	return 0;
 }
 
@@ -324,10 +414,15 @@ static int run_case(const char *what, const u8 *sec)
 		nstop++;
 	else
 		nearly++;
+#if LG_PHASE >= 6
+	if (t32o_lg_stop)
+		bad = "stopped";
+#else
 	if (LG_PHASE < 4 && !t32o_lg_stop)
 		bad = "vendor did not reach the label";
 	else if ((r == 1) == (t32o_lg_stop != 0))
 		bad = r == 1 ? "ours left early, vendor went on" : "ours went on, vendor left early";
+#endif
 	if (!bad && t32o_lg_stop)
 		bad = check_stack(&o, t32o_lg_stack);
 	if (!bad && memcmp(vpar, opar, PARB))
@@ -339,7 +434,8 @@ static int run_case(const char *what, const u8 *sec)
 	if (!bad)
 		return 0;
 	if (failed++ < 5) {
-		printf("MISMATCH %s: %s (rows %u cols %u)\n", what, bad, g16(par, 3186), g16(par, 3190));
+		printf("MISMATCH %s: %s (rows %u cols %u) lg: valid %u/%u p8 %u p12 %u p16 %u p20 %u p24 %u p28 %u win %u small %u gain %u/%u out %u/%u\n", what, bad, g16(par, 3186), g16(par, 3190),
+		       o.l.valid[0], o.l.valid[1], o.l.p8, o.l.p12, o.l.p16, o.l.p20, o.l.p24, o.l.p28, o.l.win, o.l.small, o.l.gain[0], o.l.gain[1], o.l.out[0], o.l.out[1]);
 		for (i = 0; i < PARB; i++)
 			if (vpar[i] != opar[i]) { printf("  par+%u vendor %02x ours %02x\n", i, vpar[i], opar[i]); break; }
 		for (i = 0; i < STB; i++)
@@ -413,6 +509,7 @@ int main(void)
 		run_case("random", 0);
 	rc_r = cases;
 	nbins = bin_cases(dir ? dir : "../external/ingenic-sdk/sensor-iq/t32");
+	printf("paths: calm %u, p8==0 off/on %u/%u, p8!=0 apply %u, hold %u, smooth %u\n", npath[1], npath[2], npath[3], npath[4], npath[5], npath[6]);
 	printf("t32_awblg%d_oracle: random %u, IQ bins %d (%u cases), refused %u, stopped at the label %u, vendor left earlier %u, coverage %u/%u/%u/%u, %u mismatches\n",
 	       LG_PHASE, rc_r, nbins, cases - rc_r, nrefused, nstop, nearly, cov[0], cov[1], cov[2], cov[3], failed);
 	if (failed)

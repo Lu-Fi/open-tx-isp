@@ -100,7 +100,7 @@ struct t32_awb_par {
 		T32_AWB_AT(3290, u16 lg_dim_a);	/* long algorithm: with lg_dim_b the divisor of the zone shares (taken & 0xffff) */
 		T32_AWB_AT(3292, u16 lg_dim_b);
 		T32_AWB_AT(3310, u16 lg_win);		/* long algorithm: length of the smoothing window over the last 15 detections */
-		T32_AWB_AT(3312, u16 lg_p3312);	/* ... (loaded at entry, not used by the ported part) */
+		T32_AWB_AT(3312, u16 lg_p3312);	/* ... change of the gains above which a settled algorithm (lg_cnt_a != 0) takes the new gains */
 		T32_AWB_AT(3314, u16 lg_small);	/* ... gain change below which the algorithm counts the gains as settled */
 		T32_AWB_AT(3316, u16 lg_still);	/* ... change of the zone averages below which the picture counts as still */
 	};

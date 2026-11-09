@@ -16,6 +16,8 @@
  * reference means refreshed and the group tables cleared (t32_awb_lg_gate).
  * Phase 5 (L_3e1bc .. L_3e348): the colour temperature detection (t32_awb_ct_detect) and the weighted mean of the
  * last 15 detections (t32_awb_lg_detect).
+ * Phase 6 (L_3e348 .. end): the gains from the detection, and the change state par+8 / +12 / +16 .. +28 with the
+ * smoothing of par+24 / +28 (t32_awb_lg_apply); t32_awb_long_alogrithm chains all phases.
  */
 #ifndef TX_ISP_T32_AWBLONG_H
 #define TX_ISP_T32_AWBLONG_H
@@ -361,6 +363,110 @@ static inline int t32_awb_lg_detect(struct t32_awb *a, struct t32_awb_lg *l, str
 			st->ring_ct[i] = par->ct;
 		}
 	}
+	return 0;
+}
+
+/*
+ * Phase 6 (L_3e348 .. end).  Without a history (lg_have != 1) the history is started (lg_have = 1, lg_calm = 0) and the
+ * window is 1.  With one, nothing changing (the newest two detections equal in r and b, update / mode byte clear, par +16 / +20
+ * equal to par +24 / +28) just marks the frame calm and ends.  Otherwise the detected gains out[0], out[1] become
+ * 1 / out in the out_shift fixed point: gR, gB (in l->gain); d = |gR - par+16| + |gB - par+20|.  Then the change state:
+ *   par+8 == 0:  if d > lg_small and the detection is valid (valid[0] != 1): par +8 / +12 = 1, +16 / +20 = gR / gB and
+ *                +24 / +28 += (gR - par+16, gB - par+20) / window (signed), else +8 / +12 = 0;
+ *   par+8 != 0:  if d > lg_p3312 and valid[0] != 1: +16 / +20 = gR / gB, +8 / +12 = 1, +24 / +28 += (gR - par+24, gB - par+28) / window;
+ *                else with +12 + 1 == window or window == 1: +8 = 0, +24 / +28 = +16 / +20, then +12 + 1;
+ *                else +8 = 1, +24 / +28 += (gR - par+24, gB - par+28) / (window - par+12), then +12 + 1.
+ * Returns which path ran (1 calm frame, 2 .. 6 the change states above in order), for coverage.
+ */
+static inline int t32_awb_lg_apply(struct t32_awb *a, struct t32_awb_lg *l)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u32 os = l->os & 31, half = 1u << ((l->os - 1) & 31), gr, gb, dr, db, d, win = l->win;
+	int path;
+
+	if (st->lg_have != 1) {
+		st->lg_have = 1;
+		st->lg_calm = 0;
+		win = l->win = 1;
+	} else if (st->ring_r[13] == st->ring_r[14] && st->ring_b[13] == st->ring_b[14] &&
+		   !(t32_awb_u32at(st->raw, 107596) & 0x00ff00ffU) && par->lg_gr == par->wb_r && par->lg_gb == par->wb_b) {
+		st->lg_calm = 1;
+		return 1;
+	}
+	gr = (u32)t32_awb_fixdiv64(l->fp, l->one, l->out[0]);
+	gb = (u32)t32_awb_fixdiv64(l->fp, l->one, l->out[1]);
+	gr = (half + gr) >> os;
+	gb = (half + gb) >> os;
+	l->gain[0] = gr;
+	l->gain[1] = gb;
+	dr = gr > l->p16 ? gr - l->p16 : l->p16 - gr;
+	db = gb > l->p20 ? gb - l->p20 : l->p20 - gb;
+	d = dr + db;
+	if (!l->p8) {
+		if (l->small < d && l->valid[0] != 1) {
+			par->lg_gb = gb;
+			par->lg_cnt_a = 1;
+			par->lg_cnt_b = 1;
+			par->lg_gr = gr;
+			par->wb_r = t32_awb_sdiv(gr - l->p16, win) + l->p24;
+			par->wb_b = t32_awb_sdiv(gb - l->p20, win) + l->p28;
+			return 3;
+		}
+		par->lg_cnt_a = 0;
+		par->lg_cnt_b = 0;
+		return 2;
+	}
+	if (l->w3312 < d && l->valid[0] != 1) {
+		par->lg_gr = gr;
+		par->lg_gb = gb;
+		par->lg_cnt_a = 1;
+		par->lg_cnt_b = 1;
+		par->wb_r = t32_awb_sdiv(gr - l->p24, win) + l->p24;
+		par->wb_b = t32_awb_sdiv(gb - l->p28, win) + l->p28;
+		return 4;
+	}
+	if (l->p12 + 1 == win || win == 1) {
+		par->lg_cnt_a = 0;
+		par->wb_r = par->lg_gr;
+		par->wb_b = par->lg_gb;
+		path = 5;
+	} else {
+		u32 n = win - l->p12;
+
+		par->lg_cnt_a = 1;
+		par->wb_r = t32_awb_sdiv(gr - l->p24, n) + l->p24;
+		par->wb_b = t32_awb_sdiv(gb - l->p28, n) + l->p28;
+		path = 6;
+	}
+	par->lg_cnt_b++;
+	return path;
+}
+
+/*
+ * The whole vendor tisp_awb_long_alogrithm: phases 1 .. 6.  tbl = the parameter table choice of tisp_awb_long_par_update
+ * (byte offset in par), d = the working set of the detection (about 40 kB).  Returns 0 when it ran, 1 when it left early
+ * (still picture), -1 when the vendor would run past one of its tables (not compared).  *path (if given) receives the
+ * path of t32_awb_lg_apply.
+ */
+static inline int t32_awb_long_alogrithm(struct t32_awb *a, struct t32_awb_ctd *d, u32 tbl, int *path)
+{
+	struct t32_awb_lg l;
+	int p;
+
+	t32_awb_lg_entry(a, &l);
+	if (t32_awb_lg_zones(a, &l))
+		return -1;
+	t32_awb_lg_means(a, &l);
+	t32_awb_lg_shares(a, &l);
+	t32_awb_lg_clear(a, &l);
+	if (t32_awb_lg_gate(a, &l))
+		return 1;
+	if (t32_awb_lg_detect(a, &l, d, tbl))
+		return -1;
+	p = t32_awb_lg_apply(a, &l);
+	if (path)
+		*path = p;
 	return 0;
 }
 
