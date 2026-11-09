@@ -8,7 +8,10 @@
  *
  * Fixed-seed random cases cover random gain/ev/day-night inputs and random
  * tuning bytes.  Boundary cases exercise the d03a0 mode switch and the
- * pending counter.
+ * pending counter.  With d03a0 == 1 the vendor writes the LUT through
+ * tisp_reg_write / tisp_reg_lut_write into the register shadow buffer
+ * (*(*(u32 *)da844 + (ch << 8) + 200)); the oracle maps a patterned buffer
+ * there and compares it with our shadow image.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,6 +23,7 @@
 #define SECB		T32_GAMMA_SEC_BYTES
 #define SEC_OFF		0x81a8u
 #define MAXW		T32_GAMMA_MAX_WRITES
+#define IMGW		T32_GAMMA_IMG_WORDS
 
 /* env.c globals the reference functions touch */
 extern u32 t32_data_e1834[4];
@@ -64,9 +68,11 @@ static int run_case(const char *what, int which, u32 ch, u32 d03a0,
 	unsigned int ref_n = 0, i;
 	int our_n = 0;
 
+	u8 *shblk;
+	u32 *shimg;
+	static u32 our_img[IMGW], ref_img[IMGW];
+
 	(void)what;
-	/* env.c has no buffer for the addr_write path: only direct mode (d03a0 = 0) can run */
-	d03a0 = 0;
 
 	/* Reference side: initialize with tisp_gamma_init (ignore writes), then
 	 * clear the write log so only the per-frame function's writes are captured. */
@@ -86,6 +92,17 @@ static int run_case(const char *what, int which, u32 ch, u32 d03a0,
 	t32_data_dd0a4[ch] = T32O_PTR(base_ref);
 	t32_data_dc274[ch] = T32O_PTR(info);
 	t32_data_e1820[0] = T32_GAMMA_CURVE_BYTES;
+	/* register shadow of tisp_reg_write mode 1: da844[0] -> block, block + (ch << 8) + 200 -> image */
+	shblk = t32o_alloc(4 * 256 + 64);
+	shimg = t32o_alloc(IMGW * 4);
+	if (!shblk || !shimg)
+		return 2;
+	memset(shblk, 0, 4 * 256 + 64);
+	for (i = 0; i < IMGW; i++)
+		shimg[i] = 0xa5a50000u ^ i;
+	put32(shblk + (ch << 8) + 200, T32O_PTR(shimg));
+	t32_data_da844[0] = T32O_PTR(shblk);
+	t32_data_d03a0[0] = 0;
 	t32o_call((t32o_fn)(void (*)(void))tisp_gamma_init, ch, 0, 0, 0, 0);
 	ctx_ref = (u8 *)(uintptr_t)t32_data_e1834[ch];
 	if (!ctx_ref)
@@ -134,6 +151,7 @@ static int run_case(const char *what, int which, u32 ch, u32 d03a0,
 		memcpy(refw + ref_n, t32o_log.w, m * sizeof(refw[0]));
 		ref_n += m;
 	}
+	memcpy(ref_img, shimg, sizeof(ref_img));
 
 	/* Our side: initialize with t32_gamma_start (ignore writes). */
 	t32o_reset();
@@ -152,6 +170,8 @@ static int run_case(const char *what, int which, u32 ch, u32 d03a0,
 	our_stp->ev_lo = ev_lo;
 	our_stp->ev_hi = ev_hi;
 	our_stp->pending = (u8)pending;
+	for (i = 0; i < IMGW; i++)
+		our_img[i] = 0xa5a50000u ^ i;
 	t32_data_d03a0[0] = (u8)d03a0;
 	our_ctx = our_stp;
 
@@ -159,19 +179,19 @@ static int run_case(const char *what, int which, u32 ch, u32 d03a0,
 	t32o_log.n = 0;
 	switch (which) {
 	case CASE_DN:
-		our_n = t32_gamma_dn_params_refresh(our_ctx, (u8)ch, base_our, ow);
+		our_n = t32_gamma_dn_params_refresh(our_ctx, (u8)ch, base_our, our_img);
 		break;
 	case CASE_WDR:
-		our_n = t32_gamma_wdr_en(our_ctx, (u8)ch, ow);
+		our_n = t32_gamma_wdr_en(our_ctx, (u8)ch, our_img);
 		break;
 	case CASE_WAKE:
-		our_n = t32_gamma_wake_up(our_ctx, ow);
+		our_n = t32_gamma_wake_up(our_ctx, our_img, ow);
 		break;
 	}
 	our_pending = our_ctx->pending;
 	our_sec_offset = (u32)((uintptr_t)our_ctx->sec - (uintptr_t)base_our);
 	if (which != CASE_WAKE)
-		our_n += t32_gamma_wake_up(our_ctx, ow + our_n);
+		our_n += t32_gamma_wake_up(our_ctx, our_img, ow + our_n);
 
 	compared++;
 	if (our_n < 0 || (unsigned int)our_n != ref_n)
@@ -182,6 +202,8 @@ static int run_case(const char *what, int which, u32 ch, u32 d03a0,
 	if (ref_pending != our_pending)
 		goto bad;
 	if (ref_sec_offset != our_sec_offset)
+		goto bad;
+	if (memcmp(ref_img, our_img, sizeof(ref_img)))
 		goto bad;
 	return 0;
 bad:
@@ -198,6 +220,11 @@ bad:
 			}
 		printf("  ctx pending ref %08x ours %08x, sec off ref %08x ours %08x\n",
 		       ref_pending, our_pending, ref_sec_offset, our_sec_offset);
+		for (i = 0; i < IMGW; i++)
+			if (ref_img[i] != our_img[i]) {
+				printf("  shadow[%u] vendor %08x ours %08x\n", i, ref_img[i], our_img[i]);
+				break;
+			}
 	}
 	return 1;
 }

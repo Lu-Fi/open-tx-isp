@@ -257,6 +257,29 @@ static inline int t32_gamma_write_lut(const struct t32_gamma *st, struct t32_fro
 }
 
 /*
+ * tisp_gamma_addr_write_lut_rgb (t32_data_d03a0 == 1): the same LUT through
+ * tisp_reg_write / tisp_reg_lut_write into the register shadow image (index ->
+ * value): per port the control word at T32_GAMMA_IMG_CTL[p], the 128 pairs at
+ * +2 + i and the end word at +131.  Ports in write_lut order (0x32040, 0x32080,
+ * 0x32060).
+ */
+#define T32_GAMMA_IMG_WORDS	2436U
+static inline void t32_gamma_addr_write_lut(const struct t32_gamma *st, u32 *img)
+{
+	static const u32 ctl[3] = { 2038, 2171, 2304 };
+	unsigned int i, p;
+
+	for (p = 0; p < 3; p++)
+		img[ctl[p]] = 0x101;
+	for (i = 0; i < 128; i++)
+		for (p = 0; p < 3; p++)
+			img[ctl[p] + 2 + i] = (t32_tp_le16(st->gs + 4 + 2 * i) & 0xfffU) << 12 |
+				(t32_tp_le16(st->gs + 2 + 2 * i) & 0xfff);
+	for (p = 0; p < 3; p++)
+		img[ctl[p] + 131] = 0x7f0102;
+}
+
+/*
  * tisp_gamma_ev_update: the exposure (hi:lo, limited to 256 << 32) changed.  Returns
  * 0 when a new curve is pending (written at the next frame done), 1 when the strength
  * did not change, -1 for knots that are not increasing.
@@ -325,44 +348,45 @@ static inline int t32_gamma_start(struct t32_gamma *st, u8 *sec, u8 *lut, u32 lu
  * Per-frame paths: tisp_gamma_dn_params_refresh / tisp_gamma_wdr_en /
  * tisp_gamma_wake_up.  The vendor state is reached through t32_data_e1834[ch]
  * (the struct t32_gamma pointer); the section is at tuning base + 0x81a8.
+ * With t32_data_d03a0 == 1 the LUT goes into the shadow image img
+ * (T32_GAMMA_IMG_WORDS); otherwise the new curve is left pending for the
+ * frame done.  Neither path writes a register directly (they return 0).
  */
 static inline int t32_gamma_dn_params_refresh(struct t32_gamma *st, u8 ch,
-					      u8 *tuning_base, struct t32_front_write *w)
+					      u8 *tuning_base, u32 *img)
 {
-	unsigned int n = 0;
-
 	(void)ch;
 	st->sec = tuning_base + 0x81a8;
 	t32_gamma_interp_ev(st, st->ev_lo, st->ev_hi, 1);
 	t32_gamma_update_curve(st, st->ev_lo, st->ev_hi);
 	t32_gamma_transform(st);
 	if (t32_data_d03a0[0] == 1)
-		n = (unsigned int)t32_gamma_write_lut(st, w);
+		t32_gamma_addr_write_lut(st, img);
 	else
 		st->pending++;
-	return (int)n;
+	return 0;
 }
 
-static inline int t32_gamma_wdr_en(struct t32_gamma *st, u8 ch, struct t32_front_write *w)
+static inline int t32_gamma_wdr_en(struct t32_gamma *st, u8 ch, u32 *img)
 {
-	unsigned int n = 0;
-
 	(void)ch;
 	t32_gamma_interp_ev(st, st->ev_lo, st->ev_hi, 1);
 	t32_gamma_update_curve(st, st->ev_lo, st->ev_hi);
 	t32_gamma_transform(st);
 	if (t32_data_d03a0[0] == 1)
-		n = (unsigned int)t32_gamma_write_lut(st, w);
+		t32_gamma_addr_write_lut(st, img);
 	else
 		st->pending++;
-	return (int)n;
+	return 0;
 }
 
 /* tisp_gamma_wake_up: tail call of addr_write_lut_rgb (d03a0 == 1) or write_lut_rgb; no pending check */
-static inline int t32_gamma_wake_up(struct t32_gamma *st, struct t32_front_write *w)
+static inline int t32_gamma_wake_up(struct t32_gamma *st, u32 *img, struct t32_front_write *w)
 {
-	if (t32_data_d03a0[0] == 1)
-		return t32_gamma_write_lut(st, w);
+	if (t32_data_d03a0[0] == 1) {
+		t32_gamma_addr_write_lut(st, img);
+		return 0;
+	}
 	return t32_gamma_write_lut(st, w);
 }
 
