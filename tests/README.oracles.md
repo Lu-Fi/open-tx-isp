@@ -51,6 +51,8 @@ Reference = Matt Davis' mechanical MIPS-to-C recovery of the vendor T32 module (
 (provenance header). They build for the host with `ref_compat.h` + `env.c` (non-PIE, all memory below 4 GiB, o32-shaped stubs; memcpy
 and __ashrdi3 renamed by objcopy). `t32_oracle/run.sh <name>` builds `<name>.c` with `<name>.conf` (REFS, HDR, MUTATIONS), compares
 every register write and memory output with our `driver/t32` header, then requires every listed one-token mutation of HDR to be detected.
+The mutants are independent and run in parallel (`T32O_JOBS`, default all CPUs); one that needs more than twice the time of the unmutated
+oracle plus 20 s is cut off and counts as detected (it no longer ends, the original does). Each oracle runs once in `make check`.
 
 - `t32_bcshf_oracle`: BCSH per-frame (ev/ct update, raw-exposure mode, frame-done write, calc modes) vs the vendor functions; uses REFFIX (a build-time fix of one reference copy, see fix_bcsh_adjust_hue.sh); same IQ-bin rule as above.
 - `t32_gammaf_oracle`: gamma per-frame (ev_update, frame done, single + multi-curve, API curve) vs the vendor functions; same IQ-bin rule as above.
