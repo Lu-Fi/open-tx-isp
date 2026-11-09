@@ -454,7 +454,8 @@ int32_t sensor_init(int32_t *arg)
 }
 
 int tx_isp_t20_simple_ae_apply(int32_t *total, uint32_t *it, int32_t *again_log2,
-			       uint32_t *again_code, const uint8_t *steps, uint32_t nsteps)
+			       uint32_t *again_code, int32_t *isp_dgain_log2,
+			       const uint8_t *steps, uint32_t nsteps)
 {
 	int32_t t, ilog, g;
 	uint32_t i;
@@ -477,6 +478,7 @@ int tx_isp_t20_simple_ae_apply(int32_t *total, uint32_t *it, int32_t *again_log2
 	if (it) *it = cur_int_time;
 	if (again_log2) *again_log2 = g;
 	if (again_code) *again_code = cur_again_code;
+	if (isp_dgain_log2) *isp_dgain_log2 = 0;
 	return 0;
 }
 

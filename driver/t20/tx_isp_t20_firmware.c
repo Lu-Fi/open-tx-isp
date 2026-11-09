@@ -763,6 +763,14 @@ static unsigned int t20_ae_last_population;
 module_param(t20_ae_last_population, uint, 0444);
 static int t20_ae_last_exposure_log2;
 module_param(t20_ae_last_exposure_log2, int, 0444);
+/* #246: ISP digital gain of the last compact AE frame (log2 <<16). */
+static int t20_ae_last_isp_dgain_log2;
+module_param(t20_ae_last_isp_dgain_log2, int, 0444);
+/* cmos FSM inside the firmware context (OEM apical_isp.c.o 0x70: s0 + 256)
+ * and the ISP-gain word of its sensor callback tuple at +0x4c (OEM
+ * cmos_fsm_process_interrupt 0xb8c memcpy, read back at 0xcbc). */
+#define T20_CMOS_FSM_OFFSET 0x100
+#define T20_CMOS_FRAME_ISP_DGAIN 0x58
 static int t20_iridix_last_hist_factor;
 module_param(t20_iridix_last_hist_factor, int, 0444);
 static int t20_iridix_last_exposure_factor;
@@ -2237,8 +2245,8 @@ uint32_t ae_read_full_histogram_data(uintptr_t a0);
 int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2);
 int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	uint32_t *integration_time, int32_t *analog_gain_log2,
-	uint32_t *analog_gain_code, const uint8_t *partition_steps,
-	uint32_t partition_step_count);
+	uint32_t *analog_gain_code, int32_t *isp_dgain_log2,
+	const uint8_t *partition_steps, uint32_t partition_step_count);
 uint32_t ae_calculate_exposure_ratio(int32_t *arg1);
 uint16_t* ae_calculate_target(uintptr_t a0);
 static int32_t set_integrator_ae(void *arg1, int32_t arg2, int32_t arg3, int32_t arg4);
@@ -17729,6 +17737,7 @@ static void t20_compact_ae_reset(void)
 	t20_ae_last_curve = 0;
 	t20_ae_last_population = 0;
 	t20_ae_last_exposure_log2 = 0;
+	t20_ae_last_isp_dgain_log2 = 0;
 	t20_ccm_awb_updates = 0;
 }
 
@@ -17759,6 +17768,7 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 		uint32_t integration = 0;
 		uint32_t again_code = 0;
 		int32_t again_log2 = 0;
+		int32_t isp_dgain_log2 = 0;
 		uint32_t mean = 0;
 		uint32_t target = 0;
 		uint32_t raw_target = 0;
@@ -17795,7 +17805,7 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 
 		/* Seed from the active sensor attribute before applying feedback. */
 		result = tx_isp_t20_simple_ae_apply(&simple_exposure_log2,
-			&integration, &again_log2, &again_code,
+			&integration, &again_log2, &again_code, &isp_dgain_log2,
 			exposure_partitions_balanced,
 			ARRAY_SIZE(exposure_partition_int_priority) / 2);
 		if (result == 0 && raw_target && pi_coefficient && gain_accuracy)
@@ -17813,7 +17823,7 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 			}
 			result = tx_isp_t20_simple_ae_apply(
 				&simple_exposure_log2, &integration,
-				&again_log2, &again_code,
+				&again_log2, &again_code, &isp_dgain_log2,
 				exposure_partitions_balanced,
 				ARRAY_SIZE(exposure_partition_int_priority) / 2);
 			tuning_feedback = result == 0;
@@ -17843,7 +17853,23 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 			 */
 			owner->sensor_analog_gain = again_log2;
 			owner->sensor_digital_gain = 0;
-			owner->isp_digital_gain = 0;
+			/*
+			 * #246: publish and apply the ISP digital gain like the
+			 * OEM cmos_digital_gain_update() + cmos_update_exposure_
+			 * history(): the owner view feeds the NR/sharpen/LSC/
+			 * saturation gain modulation, stab[32] is what isp-m0 and
+			 * GetTotalGain report (OEM only when not manual, stab[6]),
+			 * and the cmos frame-start interrupt writes register 0x1a0
+			 * (4.8) from the cmos+0x58 slot of the sensor callback
+			 * tuple (OEM cmos_func.c.o 0xcb8-0xd14; the interrupt-7
+			 * copy into that tuple is skipped in compact mode).
+			 */
+			owner->isp_digital_gain = isp_dgain_log2;
+			*(int32_t *)(isp + T20_CMOS_FSM_OFFSET +
+				T20_CMOS_FRAME_ISP_DGAIN) = isp_dgain_log2;
+			if (!stab[6])
+				stab[32] = (uint8_t)clamp_t(int32_t,
+					isp_dgain_log2 >> 11, 0, 255);
 			if (owner->wdr_mode == 0 && !owner->exposure_ratio)
 				owner->exposure_ratio = T20_EXPOSURE_RATIO_Q6_ONE;
 			if (t20_simple_nr) {
@@ -17926,6 +17952,7 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 		t20_ae_last_curve = curve_value;
 		t20_ae_last_population = total;
 		t20_ae_last_exposure_log2 = simple_exposure_log2;
+		t20_ae_last_isp_dgain_log2 = isp_dgain_log2;
 		if (!t20_awb_feedback_ready) {
 			s32 stable_error = (s32)target - (s32)mean;
 

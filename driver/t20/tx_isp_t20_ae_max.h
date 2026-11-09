@@ -52,6 +52,43 @@ static inline uint32_t t20_ae_plateau_log2_5(uint32_t cap_log2_5,
 }
 
 /*
+ * ISP digital gain fill (#246), as the OEM 3.12.0 cmos_digital_gain_update()
+ * (libt20-firmware cmos_func.c.o 0x139c-0x1430) with
+ * cmos_alloc_isp_digital_gain() (0x2ec-0x31c): the part of the requested
+ * total exposure that integration time and the (stepped, floored) analog
+ * gain do not cover goes to the ISP digital gain, capped by
+ * min(stab.global_max_isp_digital_gain << 11, hw_max_log2_16).  hw_max is
+ * cmos+0x1e4, which cmos_fsm_clear() (cmos_fsm.c.o 0x68-0x88) seeds with
+ * log2(4095/4096) + 4 = the 4.8 register maximum 0xfff.  A manual ISP gain
+ * (stab.global_manual_isp_digital_gain, cmos_get_manual_isp_dgain_log2()
+ * 0x378) replaces the remainder with stab.global_isp_digital_gain << 11.
+ * Negative requests give 0 (OEM bltz at 0x2ec).  All values log2 <<16.
+ */
+static inline int32_t t20_ae_isp_dgain_cap(uint8_t max_isp_dgain_q5,
+					   int32_t hw_max_log2_16)
+{
+	int32_t limit = (int32_t)max_isp_dgain_q5 << 11;
+
+	return hw_max_log2_16 < limit ? hw_max_log2_16 : limit;
+}
+
+static inline int32_t t20_ae_isp_dgain_fill(int32_t total_log2,
+					    int32_t integration_log2,
+					    int32_t applied_again_log2,
+					    uint8_t manual, uint8_t isp_dgain_q5,
+					    uint8_t max_isp_dgain_q5,
+					    int32_t hw_max_log2_16)
+{
+	int32_t limit = t20_ae_isp_dgain_cap(max_isp_dgain_q5, hw_max_log2_16);
+	int32_t request = manual ? (int32_t)isp_dgain_q5 << 11 :
+		total_log2 - integration_log2 - applied_again_log2;
+
+	if (request < 0)
+		return 0;
+	return request < limit ? request : limit;
+}
+
+/*
  * Manual integration time (SetIntegrationTime MODE_MANUAL / SetExpr manual:
  * stab.global_manual_integration_time = stab[3], lines in
  * stab.global_integration_time = stab+0x18).  The OEM 3.12.0

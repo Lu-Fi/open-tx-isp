@@ -2884,7 +2884,11 @@ static int isp_m0_show(struct seq_file *m, void *v)
 					16, &code));
 		}
 		max_dgain = 0;
-		max_isp_dgain = 0;
+		/* #246: the compact AE fills ISP digital gain up to
+		 * SetMaxDgain (stab[33]) and the 4.8 register maximum
+		 * (log2 just below 4.0, i.e. 127 in log2 <<5). */
+		max_isp_dgain = min_t(unsigned int,
+			stab.global_max_isp_digital_gain, 127);
 	} else {
 		max_it = stab.global_max_integration_time;
 		max_again = isp_m0_get(TSYSTEM, SYSTEM_MAX_SENSOR_ANALOG_GAIN);

@@ -137,8 +137,8 @@ uint32_t tx_isp_t20_ae_max_integration_time(void)
  */
 int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 		uint32_t *integration_time, int32_t *analog_gain_log2,
-		uint32_t *analog_gain_code, const uint8_t *partition_steps,
-		uint32_t partition_step_count)
+		uint32_t *analog_gain_code, int32_t *isp_dgain_log2,
+		const uint8_t *partition_steps, uint32_t partition_step_count)
 {
 	struct tx_isp_sensor_attribute *attr;
 	uint32_t min_integration;
@@ -156,6 +156,9 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	int32_t requested_again;
 	int32_t applied_again;
 	int32_t remaining_exposure;
+	int32_t isp_dgain_hw_max;
+	int32_t isp_dgain_cap;
+	int32_t isp_dgain;
 	uint32_t i;
 
 	if (!ispcore || !total_exposure_log2)
@@ -178,6 +181,17 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	 */
 	max_exposure_log2 = integration_log2 + (int32_t)t20_ae_request_log2_16(
 		attr->max_again, stab.global_max_sensor_analog_gain);
+	/*
+	 * #246: the OEM AE also plans with the ISP digital gain
+	 * (cmos_update_exposure_partitioning_lut: again + dgain + isp dgain
+	 * maxima), capped by SetMaxDgain (stab.global_max_isp_digital_gain)
+	 * and the 4.8 register maximum (cmos+0x1e4 = log2(4095/4096) + 4).
+	 */
+	isp_dgain_hw_max = log2_fixed_to_fixed(0xfff, 12, LOG2_GAIN_SHIFT) +
+		(4 << LOG2_GAIN_SHIFT);
+	isp_dgain_cap = t20_ae_isp_dgain_cap(stab.global_max_isp_digital_gain,
+		isp_dgain_hw_max);
+	max_exposure_log2 += isp_dgain_cap;
 	if (*total_exposure_log2 < 0) {
 		integration = attr->integration_time;
 		if (integration < min_integration || integration > max_integration)
@@ -203,7 +217,8 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 			LOG2_GAIN_SHIFT);
 		*total_exposure_log2 = t20_ae_manual_total(*total_exposure_log2,
 			integration_log2, (int32_t)t20_ae_request_log2_16(
-				attr->max_again, stab.global_max_sensor_analog_gain));
+				attr->max_again, stab.global_max_sensor_analog_gain) +
+			isp_dgain_cap);
 		goto allocate_gain;
 	}
 
@@ -290,6 +305,19 @@ allocate_gain:
 		(int32_t)stab.global_max_sensor_analog_gain << 11);
 	applied_again = attr->sensor_ctrl.alloc_again(requested_again,
 		LOG2_GAIN_SHIFT, &again_code);
+	/*
+	 * #246: OEM cmos_digital_gain_update(): the remainder the floored
+	 * analog gain and the quantised integration time leave goes to the ISP
+	 * digital gain.  Without it the applied exposure was always below the
+	 * request (by up to one gain-table step) and stopped at the analog cap,
+	 * while the vendor carries idg 2-4 and 13 at the cap.  The sensor
+	 * digital gain stays 0 like before (compact AE drives no sensor dgain).
+	 */
+	isp_dgain = t20_ae_isp_dgain_fill(*total_exposure_log2,
+		integration_log2, applied_again,
+		stab.global_manual_isp_digital_gain,
+		stab.global_isp_digital_gain,
+		stab.global_max_isp_digital_gain, isp_dgain_hw_max);
 
 	t20_sensor_reg_update(TX_ISP_I2C_SET_INTEGRATION,
 			      &attr->integration_time, integration);
@@ -301,6 +329,8 @@ allocate_gain:
 		*analog_gain_log2 = applied_again;
 	if (analog_gain_code)
 		*analog_gain_code = again_code;
+	if (isp_dgain_log2)
+		*isp_dgain_log2 = isp_dgain;
 	return 0;
 }
 

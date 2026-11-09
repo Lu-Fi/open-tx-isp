@@ -1,4 +1,5 @@
-/* Host test: T20/T10 reachable analog gain cap (tx_isp_t20_ae_max.h).
+/* Host test: T20/T10 reachable analog gain cap and ISP digital gain fill
+ * (tx_isp_t20_ae_max.h).
  * The isp-m0 "MAX SENSOR analog gain" must be min(sensor max, SetMaxAgain
  * ceiling), the same limit sensor_drv.c clamps the AE to. */
 #include <stdio.h>
@@ -102,6 +103,44 @@ int main(void)
 	bad += t20_ae_manual_total(300, 200, 50) != 250;
 	bad += t20_ae_manual_total(220, 200, 50) != 220;
 	bad += t20_ae_manual_total(-1, 200, 0) != 200;
+	/* #246 ISP digital gain fill, OEM cmos_digital_gain_update() +
+	 * cmos_alloc_isp_digital_gain(): remainder = total - IT - analog,
+	 * negative -> 0, capped by min(stab[33] << 11, cmos+0x1e4). */
+	{
+		const int32_t hw = (4 << 16) - 23; /* log2(4095/4096) + 4 */
+		const int32_t it = 8 << 16, ag = 37 << 11;
+
+		/* floored LUT step: the fractional remainder is filled */
+		bad += t20_ae_isp_dgain_fill(it + ag + 1000, it, ag, 0, 0, 64,
+					     hw) != 1000;
+		bad += t20_ae_isp_dgain_fill(it + ag, it, ag, 0, 0, 64, hw) != 0;
+		bad += t20_ae_isp_dgain_fill(it + ag - 5, it, ag, 0, 0, 64,
+					     hw) != 0; /* OEM bltz -> 0 */
+		/* SetMaxDgain cap (stab[33], log2 <<5) */
+		bad += t20_ae_isp_dgain_fill(it + ag + (40 << 11), it, ag, 0, 0,
+					     13, hw) != (13 << 11);
+		bad += t20_ae_isp_dgain_fill(it + ag + (40 << 11), it, ag, 0, 0,
+					     0, hw) != 0; /* SetMaxDgain 0: none */
+		/* 4.8 register maximum */
+		bad += t20_ae_isp_dgain_fill(it + ag + (200 << 11), it, ag, 0, 0,
+					     255, hw) != hw;
+		/* manual ISP gain: stab[32] << 11, same cap */
+		bad += t20_ae_isp_dgain_fill(it, it, ag, 1, 20, 64, hw) !=
+			(20 << 11);
+		bad += t20_ae_isp_dgain_fill(it, it, ag, 1, 20, 8, hw) !=
+			(8 << 11);
+		bad += t20_ae_isp_dgain_cap(64, hw) != (64 << 11);
+		bad += t20_ae_isp_dgain_cap(255, hw) != hw;
+		bad += t20_ae_isp_dgain_cap(0, hw) != 0;
+		/* applied total == request whenever the cap allows it */
+		{
+			int32_t d;
+
+			for (d = 0; d < (64 << 11); d += 977)
+				bad += it + ag + t20_ae_isp_dgain_fill(it + ag + d,
+					it, ag, 0, 0, 64, hw) != it + ag + d;
+		}
+	}
 	printf("t20_ae_max_host_test: %s (%d bad)\n", bad ? "FAIL" : "PASS", bad);
 	return bad != 0;
 }
