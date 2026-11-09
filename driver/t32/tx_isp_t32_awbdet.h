@@ -54,6 +54,8 @@
  * the taken rectangles, their original indices sorted (t32_awb_ct_detect_blend).
  * Phase 18 (L_24140 .. L_244ac): the weight of each taken rectangle and the weighted sums of its mean
  * r and b (t32_awb_ct_detect_rects).
+ * Phase 19 (L_244ac .. end): the weighted sums scaled by the calibration gains become the new mean r, b
+ * (t32_awb_ct_detect_tail), then Ct_Cal and the output (t32_awb_ct_detect_finish).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -1283,6 +1285,23 @@ static inline int t32_awb_ct_detect_rects(struct t32_awb *a, struct t32_awb_ctd 
 	}
 	d->wl = w;
 	return 0;
+}
+
+/*
+ * Phase 19 (L_244ac .. L_24510).  With the low byte of par+5682 non-zero and the weight sum ww != 0 the mean becomes
+ * r = fixmul(4, wr, par[52]) / ww, b = fixmul(4, wb, par[56]) / ww (both u32 words, unsigned division); otherwise
+ * mr, mb stay.  Followed by t32_awb_ct_detect_finish.
+ */
+static inline void t32_awb_ct_detect_tail(struct t32_awb *a, struct t32_awb_ctd *d)
+{
+	const struct t32_awb_par *par = a->par;
+	u32 r = t32_awb_fixmul(4, d->wr, *(const u32 *)(par->raw + 52));
+	u32 b = t32_awb_fixmul(4, d->wb, *(const u32 *)(par->raw + 56));
+
+	if (par->raw[5682] && d->ww) {
+		d->mr = r / d->ww;
+		d->mb = b / d->ww;
+	}
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */
