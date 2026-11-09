@@ -491,6 +491,42 @@ static inline int t32_ccm_start(struct t32_ccm *st, u8 *sec, const u8 *lut, u32 
 	return (int)n;
 }
 
+/*
+ * tisp_ccm_dn_params_refresh: the tuning section moved (day/night switch).
+ * The vendor points the state at the new section (+0x7e40 of the tuning
+ * block), clears the day/night byte +0x361, then forces both interpolations
+ * (colour temperature and exposure from the state), refreshes the derived
+ * parameters and writes all groups.
+ */
+static inline int t32_ccm_dn_params_refresh(struct t32_ccm *st, u8 *tuning_base,
+					    struct t32_front_write *w)
+{
+	st->sec = tuning_base + 0x7e40;
+	st->sec[0x361] = 0;
+	t32_ccm_ct_interp(st, st->ct, 1);
+	t32_ccm_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_ccm_calc_para(st);
+	return (int)t32_ccm_write(st, 0, w);
+}
+
+/*
+ * tisp_ccm_wdr_en: the WDR mode changed.  Forces both interpolations from
+ * the state and writes all groups.
+ */
+static inline int t32_ccm_wdr_en(struct t32_ccm *st, struct t32_front_write *w)
+{
+	t32_ccm_ct_interp(st, st->ct, 1);
+	t32_ccm_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_ccm_calc_para(st);
+	return (int)t32_ccm_write(st, 0, w);
+}
+
+/* tisp_ccm_wake_up: rewrite all groups from the current parameter block */
+static inline int t32_ccm_wake_up(struct t32_ccm *st, struct t32_front_write *w)
+{
+	return (int)t32_ccm_write(st, 0, w);
+}
+
 static inline int t32_ccm_init(u8 *sec, const u8 *lut, u32 lutbytes, struct t32_front_write *w)
 {
 	struct t32_ccm st;
