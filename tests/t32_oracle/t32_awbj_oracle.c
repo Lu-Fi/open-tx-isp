@@ -642,6 +642,12 @@ static int run_case(const char *what, const u8 *sec)
 			bad = "s8+248";
 		if (!bad && ret && (t32o_ct_reg[1] != d.ct_b || t32o_ct_reg[2] != d.ct_a))
 			bad = "ct_b / ct_a";
+		if (!bad && ret && t32o_ct_reg[4] != d.tot)
+			bad = "v0 (tot)";
+		if (!bad && ret && (t32o_ct_reg[5] != T32O_PTR(bss + 0x123c) || t32o_ct_reg[20] != T32O_PTR(bss + 0x123c)))
+			bad = "v1 / s4 (acc[0])";
+		if (!bad && ret && t32o_ct_reg[22] != d.nlim)
+			bad = "s6 (nlim)";
 		if (!bad && ret) {
 			static const u16 cmo[5] = { 0x1e0, 0x1b8, 0x190, 0x168, 0x140 };
 

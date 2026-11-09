@@ -48,6 +48,8 @@
  * Phase 14 (L_236d8 .. L_23a7c): mean of each rectangle, near-mean zone counts, rectangles sorted by
  * falling count (t32_awb_ct_detect_cells).  Phase 15 (L_23a7c .. L_23c10): two percentages of the
  * over-limit zones mapped through two ramps (t32_awb_ct_detect_ramps).
+ * Phase 16 (L_23c10 .. L_23f70): how many of the fullest rectangles are taken (par+5694 mode), and the
+ * first lim_a / lim_b entries extended or shifted accordingly (t32_awb_ct_detect_pick).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -85,6 +87,8 @@ struct t32_awb_ctd {
 	u32 ct_a, ct_b;		/* phase 15: ramps of the over-limit percentages (registers a2 / a1 at L_23c10) */
 	u32 nb_hi, nr_hi, nrb;	/* phase 13 counters, locals s8+112 / s8+124 / s8+108 */
 	u32 ran;		/* 0: no variance pass, 1: first pass only (var 0), 2: both */
+	u32 s0;			/* phase 16: number of rectangles taken (register s0) */
+	u32 omax, omin;		/* phase 16: largest / smallest original index among them (registers v1 / a0; 0 / 12 when not computed) */
 };
 
 /*
@@ -1090,6 +1094,87 @@ static inline void t32_awb_ct_detect_ramps(struct t32_awb *a, struct t32_awb_ctd
 	}
 	d->ct_a = t32_awb_ramp_down((const u16 *)(par->raw + 5226), (const u16 *)(par->raw + 5234), pb);
 	d->ct_b = t32_awb_ramp_up(d->tab_b, d->tab_c, pr);
+}
+
+/*
+ * Phase 16 (L_23c10 .. L_23f70).  s0 = number of the fullest rectangles (phase 14 order) that are
+ * taken, by the u16 par+5694 (mode):
+ *  - 0: s0 = 3;  1: the smallest s0 >= 2 such that the sum of the first s0 counts (16 bit) exceeds
+ *    (tot * par[5692 u16] + 50) / 100 (signed, 16 bit), or nlim when none does;  other: s0 = 3 and
+ *    nothing else happens (omax = 0, omin = 12);
+ *  - for mode 0 and 1, s0 drops while the count of rectangle s0 - 1 is 0 (phase 14 guarantees
+ *    acc[0][0] != 0), omax / omin are the largest / smallest ord[0 .. s0 - 1] (smallest start 12);
+ *  - with s0 < 3 (mode 0, 1): from the first three st.lim_a / lim_b entries hi_a, lo_a (start 0 / 1024)
+ *    and hi_b, lo_b: lim_a[0] = hi_a, lim_a[1] = lo_a, lim_b[0] = lo_b, lim_b[1] = hi_b;
+ *  - with s0 > 3 (mode 1): lim_a[3 .. s0 - 1] = lo_a, lim_b[0 .. s0 - 4] = lo_b and
+ *    lim_b[s0 - 3 .. s0 - 1] = st.lim_b[0 .. 2].
+ * Returns -1 when acc[0] is empty (cannot happen after phase 14; the vendor would read below the table).
+ */
+static inline int t32_awb_ct_detect_pick(struct t32_awb *a, struct t32_awb_ctd *d)
+{
+	const struct t32_awb_par *par = a->par;
+	const struct t32_awb_state *st = a->st;
+	u32 mode = *(const u16 *)(par->raw + 5694), pct = *(const u16 *)(par->raw + 5692);
+	u32 n = d->nlim, s0 = 3, i, omax = 0, omin = 12, hi_a = 0, lo_a = 1024, hi_b = 0, lo_b = 1024;
+
+	d->omax = 0;
+	d->omin = 12;
+	if (mode != 0 && mode != 1) {
+		d->s0 = 3;
+		return 0;
+	}
+	if (mode == 1) {
+		u32 sum = 0, thr = (u32)((int)(d->tot * pct + 50) / 100) & 0xffff;
+
+		s0 = 0;
+		for (i = 0; i < n; i++) {
+			s0++;
+			sum = (sum + d->acc[0][i]) & 0xffff;
+			if (thr < sum)
+				break;
+		}
+		if (s0 < 2)
+			s0 = 2;
+	}
+	while (s0 && !d->acc[0][s0 - 1])
+		s0--;
+	if (!s0)
+		return -1;
+	for (i = 0; i < s0; i++) {
+		if (omax < d->ord[i])
+			omax = d->ord[i];
+		if (d->ord[i] < omin)
+			omin = d->ord[i];
+	}
+	d->omax = omax;
+	d->omin = omin;
+	d->s0 = s0;
+	if (s0 == 3)
+		return 0;
+	for (i = 0; i < 3; i++) {
+		if (hi_a < st->lim_a[i])
+			hi_a = st->lim_a[i];
+		if (st->lim_a[i] < lo_a)
+			lo_a = st->lim_a[i];
+		if (hi_b < st->lim_b[i])
+			hi_b = st->lim_b[i];
+		if (st->lim_b[i] < lo_b)
+			lo_b = st->lim_b[i];
+	}
+	if (s0 < 3) {
+		d->lim_a[0] = (u16)hi_a;
+		d->lim_a[1] = (u16)lo_a;
+		d->lim_b[0] = (u16)lo_b;
+		d->lim_b[1] = (u16)hi_b;
+		return 0;
+	}
+	for (i = 3; i < s0; i++)
+		d->lim_a[i] = (u16)lo_a;
+	for (i = 0; i + 3 < s0; i++)
+		d->lim_b[i] = (u16)lo_b;
+	for (i = 0; i < 3; i++)
+		d->lim_b[s0 - 3 + i] = st->lim_b[i];
+	return 0;
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */
