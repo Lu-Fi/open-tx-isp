@@ -27,8 +27,10 @@ extern u32 t32_data_e16b4[4];
 
 #include "t32_awbgen.inc"
 
+#ifndef T32_LG_GEN_ONLY
 static unsigned int cases, failed, nrefused, nstop, nearly;
 static unsigned int cov[16], npath[8];
+#endif
 
 #if LG_PHASE >= 5
 /*
@@ -280,6 +282,7 @@ static void gen_long(u8 *par, u8 *stt, u8 *hw, const u8 *sec, u32 tbl)
 #endif
 }
 
+#ifndef T32_LG_GEN_ONLY
 struct ours {
 	struct t32_awb_lg l;
 	struct t32_awb_ctd d;
@@ -521,3 +524,4 @@ int main(void)
 	}
 	return 0;
 }
+#endif /* T32_LG_GEN_ONLY */

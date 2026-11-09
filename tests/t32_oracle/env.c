@@ -116,7 +116,7 @@ u64 tisp_awb_interrupt_static(u32 a0, u32 a1, u32 a2, u32 a3)
 	return 0;
 }
 
-u64 tisp_awb_process(u32 a0, u32 a1, u32 a2, u32 a3)
+__attribute__((weak)) u64 tisp_awb_process(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a0; (void)a1; (void)a2; (void)a3;
 	return 0;
@@ -216,7 +216,27 @@ u64 tisp_get_system_sensor_num(u32 a0, u32 a1, u32 a2, u32 a3)
 	return t32o_sensor_num;
 }
 
-u64 private_complete(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+/* the AWB frame-done completion: the oracle compares how often and with which object it was signalled */
+u32 t32o_complete_n, t32o_complete_arg;
+u64 private_complete(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a1; (void)a2; (void)a3;
+	t32o_complete_n++;
+	t32o_complete_arg = a0;
+	return 0;
+}
+
+/* tisp_event_push (event queue of the ISP core): records the channel and the first 8 words of the event */
+u32 t32o_ev_n, t32o_ev_ch, t32o_ev_w[8];
+u8 t32_data_e1690[4];		/* AWB process frame counter (u16) */
+u64 tisp_event_push(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a2; (void)a3;
+	t32o_ev_n++;
+	t32o_ev_ch = a0;
+	memcpy(t32o_ev_w, (const void *)(unsigned long)a1, sizeof(t32o_ev_w));
+	return 0;
+}
 u64 private_init_completion(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 u64 private_mutex_lock(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 u64 private_mutex_unlock(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
@@ -646,6 +666,7 @@ __asm__(".globl t32_data_dc004\n.set t32_data_dc004, t32o_ctbss + 0x1214");
 __asm__(".globl t32_data_dc02c\n.set t32_data_dc02c, t32o_ctbss + 0x123c");
 u32 t32o_ct_stop, t32o_ct_stack[208], t32o_ct_reg[28];	/* set by the truncated ct_detect reference (trunc_ct3.sh) */
 u32 t32o_lg_stop, t32o_lg_stack[116], t32o_lg_reg[28];	/* set by the truncated long_alogrithm reference (trunc_long.sh) */
+u32 t32o_pr_stop, t32o_pr_reg[28];	/* set by the truncated process reference (trunc_process.sh) */
 
 /* MXU context switches around ct_detect: nothing to do on the host */
 u64 kernel_mxu_begin_partial(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
