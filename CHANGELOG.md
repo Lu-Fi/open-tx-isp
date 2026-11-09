@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-09: T30 Temper trace lines are debug-only now (openimp #251 L1, #236; not device-tested, log level only)
+
+- The #236 diagnostics `seqregs after_seq2/temper_buf` and `temper_buf 0xa00` printed with pr_err on every TEMPER_BUF call; they are pr_debug now (dynamic debug can still turn them on). No register write changes.
+
 ## 2026-11-08: T20 matrix_yuv_recompute variable names (openimp #247, no behaviour change)
 
 - The active `matrix_yuv_recompute()` called the byte at base+0xa3 "saturation" and the one at base+0xa2 "contrast"; `contrast_strength()` writes base+0xa3 and `saturation_strength()` base+0xa2. The arithmetic was already identical to the vendor tx-isp-t20.ko (0x23d90: byte 0xa3 -> diagonal x2 and (0x80-x)<<2; 0x23dd8: byte 0xa2 -> (x-0x80)<<1 x coefficient table), only the names were swapped. Renamed; generated code unchanged.

@@ -13912,7 +13912,7 @@ static void tx_isp_t30_trace_seq_regs(const char *where)
 	for (i = 0; i < ARRAY_SIZE(regs); i++)
 		pos += scnprintf(line + pos, sizeof(line) - pos, " %x=%x",
 				 regs[i], APICAL_READ_32(regs[i]));
-	pr_err("tx-isp-t30: seqregs %s:%s\n", where, line);
+	pr_debug("tx-isp-t30: seqregs %s:%s\n", where, line);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000009ddc origin=model_output original=isp_core_tunning_unlocked_ioctl */
@@ -14104,7 +14104,7 @@ long isp_core_tunning_unlocked_ioctl(struct file *file, unsigned int cmd, unsign
 					temper_ctrl &= ~0x03000000;
 					temper_ctrl |= 0x00030000;
 					APICAL_WRITE_32(0x0a00, temper_ctrl);
-					pr_err("tx-isp-t30: temper_buf 0xa00 %#x -> %#x\n",
+					pr_debug("tx-isp-t30: temper_buf 0xa00 %#x -> %#x\n",
 					       temper_fmt, APICAL_READ_32(0x0a00));
 				}
 				ret = 0;
