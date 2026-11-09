@@ -461,4 +461,130 @@ static inline int t32_lsc_setup(const u8 *p, struct t32_lsc *s, struct t32_lsc_w
 	return 0;
 }
 
+/*
+ * Per-frame paths: tisp_lsc_dn_params_refresh, tisp_lsc_wdr_en, tisp_lsc_wake_up
+ * (Matt Davis' recovered C).  The output of the vendor's LSC block is a shadow image
+ * (tisp_single_lsc_reg_write / _reg_lut_write: index -> value): 2 = enable, 4..16 = the
+ * 13 control registers, 18 = port select, 20 + w = mesh word w.  Checked by
+ * tests/t32_oracle (t32_lscd_oracle).
+ */
+#define T32_LSC_TUNING_OFF 26820U	/* section 7 in the tuning block */
+#define T32_LSC_IMG_EN		2
+#define T32_LSC_IMG_REG0	4
+#define T32_LSC_IMG_SEL		18
+#define T32_LSC_IMG_MESH	20
+
+/* the current values the vendor keeps next to the section (offsets 8, 20, 24, 28) */
+struct t32_lsc_cur {
+	u32 rsvd0[2];
+	u32 ct;			/* colour temperature */
+	u32 rsvd1[2];
+	u32 tgain;		/* total gain, log2 Q16 */
+	u32 tgain_s;		/* short exposure total gain (wdr strength) */
+	u32 wdr;		/* tisp_lsc_wdr_en */
+};
+
+struct t32_lsc_dwr {
+	u32 reg, val;
+};
+
+struct t32_lsc_ctx {
+	const u8 *sec;			/* section 7 (contiguous with its payloads) */
+	struct t32_lsc_cur *cur;
+	struct t32_lsc s;
+	struct t32_lsc_work wk;
+	u32 *img;			/* shadow image */
+	u32 width, height, bayer;
+	u8 direct;			/* vendor flag t32_data_d03a0 */
+	struct t32_lsc_dwr *dlog;	/* direct register writes */
+	unsigned int ndlog;
+	void (*cfg_trig)(struct t32_lsc_ctx *ctx, u8 ch);	/* tisp_single_lsc_rcfg_cfg_trig */
+};
+
+static inline void t32_lsc_img_write(struct t32_lsc_ctx *ctx, u8 ch, u32 idx, u32 val)
+{
+	(void)ch;
+	ctx->img[idx] = val;
+}
+
+static inline void t32_lsc_reg_write(struct t32_lsc_ctx *ctx, u8 ch, u32 reg, u32 val)
+{
+	(void)ch;
+	ctx->dlog[ctx->ndlog].reg = reg;
+	ctx->dlog[ctx->ndlog].val = val;
+	ctx->ndlog++;
+}
+
+/* tisp_lsc_interp_by_tgain_s: the wdr strength from its own gain */
+static inline void t32_lsc_gain_s(const u8 *p, struct t32_lsc *s, u32 gain)
+{
+	struct t32_lsc t = *s;
+
+	t32_lsc_gain(p, &t, gain);
+	s->strength_wdr = t.strength_wdr;
+}
+
+/* tisp_lsc_write_all_reg: the constants 2, 7, 14, 15 are not part of it */
+static inline void t32_lsc_write_all_reg(struct t32_lsc_ctx *ctx, u8 ch)
+{
+	unsigned int i, j, k, cells = t32_lsc_cell_count(ctx->sec, &ctx->s, ctx->bayer);
+	u32 w[3];
+
+	/* wdr mode: 0x5050 = wdr strength << 16 | strength, 0x5070 the wdr range */
+	t32_lsc_registers(ctx->sec, &ctx->s, ctx->cur->wdr != 0);
+	for (k = 0; k < 13; k++)
+		if (k != 3 && k != 10 && k != 11)
+			t32_lsc_img_write(ctx, ch, 4 + k, ctx->s.regs[k]);
+	t32_lsc_img_write(ctx, ch, 18, 0x101);
+	for (i = 0; i < cells; i++) {
+		t32_lsc_cell(ctx->sec, &ctx->wk, i, w);
+		for (j = 0; j < 3; j++)
+			t32_lsc_img_write(ctx, ch, 20 + 3 * i + j, w[j]);
+	}
+}
+
+/* the common tail of dn_params_refresh and wdr_en */
+static inline int t32_lsc_refresh(struct t32_lsc_ctx *ctx, u8 ch)
+{
+	const u8 *p = ctx->sec;
+
+	if (t32_lsc_geometry(p, &ctx->s, ctx->width, ctx->height) < 0)
+		t32_lsc_geometry(p, &ctx->s, ctx->width, ctx->height);	/* the vendor retries once */
+	t32_lsc_update(p, &ctx->s, &ctx->wk, ctx->cur->ct, 1);
+	t32_lsc_gain(p, &ctx->s, ctx->cur->tgain);
+	t32_lsc_gain_s(p, &ctx->s, ctx->cur->tgain_s);
+	t32_lsc_write_all_reg(ctx, ch);
+	return 0;
+}
+
+static inline int t32_lsc_dn_params_refresh(struct t32_lsc_ctx *ctx, u8 ch, u8 *tuning_base)
+{
+	ctx->sec = tuning_base + T32_LSC_TUNING_OFF;
+	return t32_lsc_refresh(ctx, ch);
+}
+
+static inline int t32_lsc_wdr_en(struct t32_lsc_ctx *ctx, u8 ch, u32 en)
+{
+	ctx->cur->wdr = en;
+	return t32_lsc_refresh(ctx, ch);
+}
+
+static inline int t32_lsc_wake_up(struct t32_lsc_ctx *ctx, u8 ch)
+{
+	if (ctx->direct == 1) {
+		t32_lsc_reg_write(ctx, ch, 2763, 0);
+		t32_lsc_reg_write(ctx, ch, 2764, 0x04000400);
+		t32_lsc_reg_write(ctx, ch, 2756, 1);
+		t32_lsc_reg_write(ctx, ch, 2751, 1);
+	} else {
+		t32_lsc_img_write(ctx, ch, 14, 0);
+		t32_lsc_img_write(ctx, ch, 15, 0x04000400);
+		t32_lsc_img_write(ctx, ch, 7, 1);
+		t32_lsc_img_write(ctx, ch, 2, 1);
+	}
+	t32_lsc_write_all_reg(ctx, ch);
+	ctx->cfg_trig(ctx, ch);
+	return 0;
+}
+
 #endif /* TX_ISP_T32_LSC_H */
