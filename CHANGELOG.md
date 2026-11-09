@@ -4,6 +4,16 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-09: T20 compact AE fills ISP digital gain like the OEM (openimp #246; Wyze Cam v2 T20X jxf23, light box 3000 K, runtime insmod)
+
+- The compact AE floored the analog gain and dropped the remainder; ISP digital gain stayed 0 (isp-m0 "ISP digital gain 0 / MAX 0"). Like the OEM `cmos_digital_gain_update()` + `cmos_alloc_isp_digital_gain()` (libt20-firmware 3.12.0 cmos_func.c.o 0x139c, 0x2ec) the remainder of the requested exposure now goes to the ISP digital gain, capped by SetMaxDgain (stab[33]) and the 4.8 register maximum; the frame-start interrupt writes it to register 0x1a0 (OEM 0xcb8-0xd14) and it is published to the NR/sharpen/LSC/saturation gain input, stab[32] (isp-m0, GetTotalGain) and the parameter `t20_ae_last_isp_dgain_log2`. The #238 analog caps are unchanged; isp-m0 reports MAX ISP digital gain = stab[33] (32 on the Wyze).
+- Device: idg 0-2 at comp 40..200 (vendor 2-4), frame Y 76.0/77.5/88.2/106.0/142.6/198.2 (before 75.8/77.0/88.6/105.5/142.9/198.6, vendor 54.7/77.7/88.5/114.3/166.6/220.2), night 69.0 (before 67.6, vendor 78.6), noise curve unchanged (1.416..1.732). The fill is correct but small: the remaining AE offset at comp >= 128 and night is in the metering/settle point, not in the allocation.
+- Iridix exposure factor (RCA 2a): checked against the OEM, identical (no change), see the issue.
+
+## 2026-11-09: T20 module loads again: matrix_compute_hue_saturation call restored (openimp #253, regression of #247)
+
+- 6166006c renamed one call to the non-existent `matrix_compute_hue_contrast()`; the ko had an unresolved symbol. Call restored; symbol check OK.
+
 ## 2026-11-09: T30 no synchronous disable_irq under the VIC spinlock (openimp #250; T30X device-tested)
 
 - `tx_isp_disable_irq` used the synchronous `disable_irq()` for process-context callers of `tx_vic_disable_irq`, which holds the VIC spinlock with irqs off; on the threaded ISP line `synchronize_irq()` may sleep there ("scheduling while atomic", possible hang). The hook now uses `disable_irq_nosync()` whenever irqs are off, and `tx_vic_disable_irq` synchronizes after the unlock outside interrupt context. Found by the kernel review 2026-11-08 (M1).
