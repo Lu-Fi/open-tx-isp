@@ -13109,7 +13109,7 @@ int32_t matrix_yuv_recompute(void *arg1)
 	saturation_matrix[4] += 0x100;
 	saturation_matrix[8] += 0x100;
 
-	matrix_compute_hue_contrast(*(uint16_t *)(base + 0xa0),
+	matrix_compute_hue_saturation(*(uint16_t *)(base + 0xa0),
 				      (int16_t *)(base + 0x58));
 	compute_transfrom_matrix(base, base + 0xaa, base[0xa8]);
 	compute_transfrom_matrix(base, base + 0xc4, base[0xc2]);
