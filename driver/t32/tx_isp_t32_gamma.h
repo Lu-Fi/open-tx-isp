@@ -322,6 +322,51 @@ static inline int t32_gamma_start(struct t32_gamma *st, u8 *sec, u8 *lut, u32 lu
 }
 
 /*
+ * Per-frame paths: tisp_gamma_dn_params_refresh / tisp_gamma_wdr_en /
+ * tisp_gamma_wake_up.  The vendor state is reached through t32_data_e1834[ch]
+ * (the struct t32_gamma pointer); the section is at tuning base + 0x81a8.
+ */
+static inline int t32_gamma_dn_params_refresh(struct t32_gamma *st, u8 ch,
+					      u8 *tuning_base, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	st->sec = tuning_base + 0x81a8;
+	t32_gamma_interp_ev(st, st->ev_lo, st->ev_hi, 1);
+	t32_gamma_update_curve(st, st->ev_lo, st->ev_hi);
+	t32_gamma_transform(st);
+	if (t32_data_d03a0[0] == 1)
+		n = (unsigned int)t32_gamma_write_lut(st, w);
+	else
+		st->pending++;
+	return (int)n;
+}
+
+static inline int t32_gamma_wdr_en(struct t32_gamma *st, u8 ch, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	t32_gamma_interp_ev(st, st->ev_lo, st->ev_hi, 1);
+	t32_gamma_update_curve(st, st->ev_lo, st->ev_hi);
+	t32_gamma_transform(st);
+	if (t32_data_d03a0[0] == 1)
+		n = (unsigned int)t32_gamma_write_lut(st, w);
+	else
+		st->pending++;
+	return (int)n;
+}
+
+/* tisp_gamma_wake_up: tail call of addr_write_lut_rgb (d03a0 == 1) or write_lut_rgb; no pending check */
+static inline int t32_gamma_wake_up(struct t32_gamma *st, struct t32_front_write *w)
+{
+	if (t32_data_d03a0[0] == 1)
+		return t32_gamma_write_lut(st, w);
+	return t32_gamma_write_lut(st, w);
+}
+
+/*
  * sec: section 13, lut: payload behind it.  The payload is only written by the API path
  * (+0x59), which the init never takes (it clears +0x56/+0x57), so the const is kept.
  */
