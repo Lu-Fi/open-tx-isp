@@ -12,8 +12,12 @@
  * section bytes and values.  They are a mechanical transcription of the
  * vendor's flow.
  *
+ * The per-frame paths (tisp_ysp_par_refresh, tisp_ysp_refresh,
+ * tisp_ysp_dn_params_refresh, tisp_ysp_wake_up) run from a per-channel
+ * context: section pointer, interpolated value block, accepted gain.
+ *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
- * by tests/t32_oracle (t32_ysp_oracle).
+ * by tests/t32_oracle (t32_ysp_oracle, t32_yspf_oracle).
  */
 #ifndef TX_ISP_T32_YSP_H
 #define TX_ISP_T32_YSP_H
@@ -627,6 +631,160 @@ static inline int t32_ysp_init(u8 *sec, struct t32_front_write *w)
 	T32_FWR(w, n, 0xdd18, o[0x17d]);
 	T32_FWR(w, n, 0xd014, 1);
 	T32_FWR(w, n, 0x11000, T32_YSP_ID);
+	return (int)n;
+}
+
+/*
+ * Per-frame path.  The vendor keeps one context per channel in
+ * t32_data_e2424: the section pointer (+0), the interpolated value block
+ * (+4) and the gain of the last write (+8; -1 until the first refresh).
+ */
+struct t32_ysp_ctx {
+	u8 *sec;		/* IQ bin section 21 (vendor ctx +0) */
+	u8 *param;		/* T32_YSP_VALUES interpolated bytes (+4) */
+	u32 gain;		/* accepted gain, -1 = never refreshed (+8) */
+	u32 rsvd;		/* vendor ctx +12, not touched here */
+};
+
+/* tisp_ysp_intp: the 260 point tables of the section at a 16.16 gain */
+static inline void t32_ysp_intp(u8 *sec, u8 *o, u32 gain)
+{
+	unsigned int k;
+
+	for (k = 0; k < T32_YSP_VALUES; k++)
+		o[k] = 0;
+	for (k = 0; k < 260; k++) {
+		u32 v;
+
+		if (t32_ysp_map[k][0] == 16) {
+			t32_tp_put16(o + t32_ysp_map[k][2],
+				     t32_tp_intp_u16(gain >> 16, gain & 0xffff,
+						     sec + t32_ysp_map[k][1]));
+			continue;
+		}
+		v = t32_tp_intp_u8(gain >> 16, gain & 0xffff, sec + t32_ysp_map[k][1]);
+		o[t32_ysp_map[k][2]] = t32_ysp_map[k][0] == 9 ? (u8)(0x40 - v) : (u8)v;
+	}
+}
+
+/* tisp_ysp_reg_trig: the 0x11010 trigger of the block */
+static inline void t32_ysp_reg_trig(struct t32_front_write *w, unsigned int *np)
+{
+	T32_FWR(w, *np, 0x11010, 1);
+}
+
+/*
+ * The 0xdce0 words, the 0xdd18 byte and the 0xd014 trigger, all from the
+ * interpolated values: the tail of tisp_ysp_all_reg_refresh (and the output
+ * of tisp_mdns_decode_reg_cfg, which tisp_ysp_wake_up calls first).
+ */
+static inline void t32_ysp_dn_writes(u8 *o, struct t32_front_write *w,
+				     unsigned int *np)
+{
+	unsigned int k;
+
+	for (k = 0; k < 14; k++)
+		T32_FWR(w, *np, 0xdce0 + 4 * k, (u32)o[0x154 + 3 * k] << 8 |
+			(u32)o[0x155 + 3 * k] << 16 | o[0x153 + 3 * k]);
+	T32_FWR(w, *np, 0xdd18, o[0x17d]);
+	T32_FWR(w, *np, 0xd014, 1);
+}
+
+/* tisp_ysp_all_reg_refresh: interpolate at gain and write every register */
+static inline void t32_ysp_all_reg_refresh(struct t32_ysp_ctx *ctx, u8 ch, u32 gain,
+					   struct t32_front_write *w, unsigned int *np)
+{
+	(void)ch;
+	t32_ysp_intp(ctx->sec, ctx->param, gain);
+	t32_ysp_noref(ctx->sec, w, np);
+	t32_ysp_ref(ctx->sec, ctx->param, w, np);
+	t32_ysp_reg_trig(w, np);
+	t32_ysp_dn_writes(ctx->param, w, np);
+}
+
+/*
+ * tisp_ysp_intp_reg_refresh: used after the first refresh (gain already
+ * known and the non-interpolated registers are already written).  It omits
+ * tisp_ysp_noref_reg_cfg, matching the vendor's second entry.
+ */
+static inline void t32_ysp_intp_reg_refresh(struct t32_ysp_ctx *ctx, u8 ch, u32 gain,
+					    struct t32_front_write *w, unsigned int *np)
+{
+	(void)ch;
+	t32_ysp_intp(ctx->sec, ctx->param, gain);
+	t32_ysp_ref(ctx->sec, ctx->param, w, np);
+	t32_ysp_reg_trig(w, np);
+	t32_ysp_dn_writes(ctx->param, w, np);
+}
+
+/* tisp_ysp_par_refresh: refresh when the gain moved by at least threshold */
+static inline void t32_ysp_par_refresh_impl(struct t32_ysp_ctx *ctx, u8 ch, u32 gain,
+					    u32 threshold, struct t32_front_write *w,
+					    unsigned int *np)
+{
+	u32 old = ctx->gain;
+
+	if (old == (u32)-1) {
+		ctx->gain = gain;
+		t32_ysp_all_reg_refresh(ctx, ch, gain, w, np);
+	} else {
+		u32 diff = gain > old ? gain - old : old - gain;
+
+		if (diff >= threshold) {
+			ctx->gain = gain;
+			t32_ysp_intp_reg_refresh(ctx, ch, gain, w, np);
+		}
+	}
+}
+
+static inline int t32_ysp_par_refresh(struct t32_ysp_ctx *ctx, u8 ch, u32 gain,
+				      u32 threshold, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_ysp_par_refresh_impl(ctx, ch, gain, threshold, w, &n);
+	return (int)n;
+}
+
+static inline int t32_ysp_refresh(struct t32_ysp_ctx *ctx, u8 ch, u32 gain,
+				  struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	/* the vendor calls tisp_ysp_par_refresh(ch, gain, 256) */
+	t32_ysp_par_refresh_impl(ctx, ch, gain, 256U, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_ysp_dn_params_refresh: point the context at section 21 of the tuning
+ * base, copy it to the vendor's extra section buffer (t32_data_e2420[0],
+ * passed here as dn_copy) and write every register at the stored gain.
+ */
+static inline int t32_ysp_dn_params_refresh(struct t32_ysp_ctx *ctx, u8 ch,
+					    u8 *tuning_base, u8 *dn_copy,
+					    struct t32_front_write *w)
+{
+	unsigned int n = 0, k;
+
+	ctx->sec = tuning_base + 0xd630;
+	for (k = 0; k < T32_YSP_SEC_BYTES; k++)
+		dn_copy[k] = ctx->sec[k];
+	t32_ysp_all_reg_refresh(ctx, ch, ctx->gain, w, &n);
+	return (int)n;
+}
+
+/* tisp_ysp_wake_up: the denoise words, then the registers from the values */
+static inline int t32_ysp_wake_up(struct t32_ysp_ctx *ctx, u8 ch,
+				  struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	t32_ysp_dn_writes(ctx->param, w, &n);
+	t32_ysp_noref(ctx->sec, w, &n);
+	t32_ysp_ref(ctx->sec, ctx->param, w, &n);
+	t32_ysp_reg_trig(w, &n);
 	return (int)n;
 }
 
