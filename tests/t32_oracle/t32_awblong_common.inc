@@ -288,6 +288,7 @@ struct ours {
 /* our phases 1 .. LG_PHASE; returns -1 when the case is refused, 1 when the vendor leaves early */
 static int run_ours(struct t32_awb *a, struct ours *o, u32 tbl)
 {
+	(void)tbl;
 	#if LG_PHASE >= 6
 	{
 		int path = 0, rc = t32_awb_long_alogrithm(a, &o->d, tbl, &path);
