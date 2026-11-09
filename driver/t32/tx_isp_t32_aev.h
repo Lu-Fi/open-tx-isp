@@ -596,14 +596,13 @@ static inline void t32_aev_list_alloc_calc(const u8 *ctune, u8 *buf, u8 *st, u32
 				ehi = t32_ld32(p, 4);
 				elo = t32_ld32(p, 0);
 				if (!(ehi < a3 || (ehi == a3 && elo < a2))) {
-					cmp0 = s5 == (u32)-1 || s5 == 0;
+					cmp0 = s5 == (u32)-1;	/* the vendor also re-tests entry 0 for s5 == 0: it is below x then, no effect */
 					break;
 				}
 				s5 = (s5 + 1) & 0xff;
 				if (s5 == 15)
 					break;
 				if (t32_ld32(p, 8) == elo && t32_ld32(p, 12) == ehi) {
-					cmp0 = s5 == 0;
 					break;
 				}
 				p += 8;

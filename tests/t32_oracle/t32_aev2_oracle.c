@@ -86,7 +86,7 @@ static t32_u64 h_mult3_64(u32 sh, t32_u64 a, t32_u64 b, t32_u64 c)
 	t32o_arg5 = t32o_arg6 = t32o_arg7 = 0;
 	return r;
 }
-static const struct t32_aev_ops OPS = { h_div32, h_mult2_32, h_div64, h_mult2_64, h_mult3_64 };
+static const struct t32_aev_ops OPS = { h_div32, h_mult2_32, h_div64, h_mult2_64, h_mult3_64, 0, 0 };
 
 static u8 img[ARENA];
 static u8 *base_a;

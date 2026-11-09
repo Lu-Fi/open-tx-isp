@@ -264,6 +264,8 @@ static void gen(struct par *p)
 	sh = rnd() % 5 ? 4 + rnd() % 9 : rnd() % 17;
 	if (rnd() % 40 == 0)
 		sh = 31;
+	if (rnd() % 60 == 0)
+		sh = 32 + rnd() % 40;
 	sx = sh & 31;
 	put16(img + OFF_TUNE + 1736, sh);
 	put16(img + OFF_TUNE + 2920, rnd() % 6 ? 1 : rnd() % 3);
