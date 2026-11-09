@@ -23,7 +23,8 @@
  * Refused: a colour space mode above 5 and a knot table shorter than the knot count says.
  *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
- * by tests/t32_oracle (t32_bcsh_oracle: init, t32_bcshf_oracle: per frame).
+ * by tests/t32_oracle (t32_bcsh_oracle: init, t32_bcshf_oracle: per frame,
+ * t32_bcshd_oracle: dn_params_refresh / wdr_en / wake_up).
  */
 #ifndef TX_ISP_T32_BCSH_H
 #define TX_ISP_T32_BCSH_H
@@ -873,6 +874,45 @@ static inline int t32_bcsh_start(struct t32_bcsh *st, u8 *sec, const u8 *lut, u3
 	n = t32_bcsh_write(st, w);
 	T32_FWR(w, n, 0xf000, T32_BCSH_ID);
 	return (int)n;
+}
+
+/*
+ * tisp_bcsh_dn_params_refresh: the day/night switch.  The section pointer is
+ * re-pointed at tuning base + 0xd154, the exposure bands are rebuilt
+ * (get_new_para), the exposure is interpolated forced from the state's own
+ * lo:hi, the matrix forced at the state's colour temperature, the derived
+ * parameters refreshed (mode 0) and the write request set (byte +18 of the
+ * 24-byte block).
+ */
+static inline void t32_bcsh_dn_params_refresh(struct t32_bcsh *st, u8 ch, u8 *tuning_base)
+{
+	(void)ch;
+	st->sec = tuning_base + 0xd154;
+	t32_bcsh_new_para(st);
+	t32_bcsh_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_bcsh_ct_interp(st, st->ct, 1);
+	t32_bcsh_calc(st, 0);
+	st->pend = 1;
+}
+
+/*
+ * tisp_bcsh_wdr_en: the WDR switch.  The exposure is interpolated forced from
+ * the state's own lo:hi, the matrix forced at the state's colour temperature,
+ * the derived parameters refreshed (mode 0) and the write request set.
+ */
+static inline void t32_bcsh_wdr_en(struct t32_bcsh *st, u8 ch)
+{
+	(void)ch;
+	t32_bcsh_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_bcsh_ct_interp(st, st->ct, 1);
+	t32_bcsh_calc(st, 0);
+	st->pend = 1;
+}
+
+/* tisp_bcsh_wake_up: the whole register set is written again */
+static inline int t32_bcsh_wake_up(struct t32_bcsh *st, struct t32_front_write *w)
+{
+	return (int)t32_bcsh_write(st, w);
 }
 
 #ifdef __KERNEL__
