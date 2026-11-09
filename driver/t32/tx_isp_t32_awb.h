@@ -81,6 +81,9 @@ struct t32_awb_par {
 		T32_AWB_AT(296, u32 cand_r2);		/* ct_detect: squared radius (in axis units) of a point's zone cloud */
 		T32_AWB_AT(308, u32 cand_tol);		/* ... a point has converged when the mean moved by at most this */
 		T32_AWB_AT(312, u32 cand_iter);		/* ... passes allowed per point */
+		T32_AWB_AT(244, u8 var_en);		/* ct_detect: 1 = weight the zones down by their distance from the weighted mean */
+		T32_AWB_AT(248, u32 var_hi);		/* ... normalised distance (<< 6) from which a zone gets weight 0 ... */
+		T32_AWB_AT(252, u32 var_lo);		/* ... below which it keeps its weight */
 		T32_AWB_AT(292, u32 cand_mode);	/* ct_detect: 1 = candidate points from the 12 fullest cells */
 		T32_AWB_AT(5126, u16 ct_lim[20]);	/* ct_detect: 10 entries of (value, unused), those before the first zero count */
 		T32_AWB_AT(3186, u16 zones_h);		/* statistics zone grid: rows ... */
@@ -98,6 +101,8 @@ struct t32_awb_state {
 		T32_AWB_AT(0, u32 zstat[2][2][1024]);	/* zone statistics [mode][r, b][row * 32 + col] */
 		T32_AWB_AT(16384, u32 zw_raw[1024]);	/* ct_detect input: per zone value, normalised to zw_norm */
 		T32_AWB_AT(24576, u32 zt2[1024]);	/* ct_detect: second per zone table (weights the gw_map entries in phase 3) */
+		T32_AWB_AT(91204, u32 zdist[1024]);	/* ct_detect: squared distance of each zone's r, b from the weighted mean */
+		T32_AWB_AT(95300, u32 zwt3[1024]);	/* ct_detect: gw_map weight reduced by that distance */
 		T32_AWB_AT(99396, u32 zw_norm[1024]);
 		T32_AWB_AT(79228, u32 cell_r[196]);	/* ct_detect: per cell of the 14 x 14 ct grid, sum of the zones' r, */
 		T32_AWB_AT(80012, u32 cell_b[196]);	/* ... of their b */
@@ -199,6 +204,11 @@ T32_AWB_CHK(struct t32_awb_state, out_id, 28672);
 T32_AWB_CHK(struct t32_awb_state, zstat, 0);
 T32_AWB_CHK(struct t32_awb_state, zw_raw, 16384);
 T32_AWB_CHK(struct t32_awb_state, zw_norm, 99396);
+T32_AWB_CHK(struct t32_awb_state, zdist, 91204);
+T32_AWB_CHK(struct t32_awb_state, zwt3, 95300);
+T32_AWB_CHK(struct t32_awb_par, var_en, 244);
+T32_AWB_CHK(struct t32_awb_par, var_hi, 248);
+T32_AWB_CHK(struct t32_awb_par, var_lo, 252);
 T32_AWB_CHK(struct t32_awb_state, zt2, 24576);
 T32_AWB_CHK(struct t32_awb_state, top_x, 81188);
 T32_AWB_CHK(struct t32_awb_state, top_y, 81236);

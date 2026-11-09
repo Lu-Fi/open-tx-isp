@@ -41,6 +41,8 @@
  * Phase 10 (L_22924 .. L_22af8; also the whole cand_mode != 1 branch, which skips phases 4..9):
  * the spec samples lower the weights near them (t32_awb_ct_detect_spec).
  * Phase 11 (L_22af8 .. L_22e34): the weighted sums over the zones (t32_awb_ct_detect_sums).
+ * Phase 12 (L_22e34 .. L_23398): mean r, b, and with par+244 == 1 the zones far from it weighted
+ * down and the mean taken again (t32_awb_ct_detect_mean).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -70,6 +72,9 @@ struct t32_awb_ctd {
 	u32 maxn;		/* largest cl_n after it, local s8+64 (0 when none) */
 	u32 tw[4], tb[4], tr[4];	/* t32_data_db000 / db010 / db020: lane sums of W, B * W, R * W (phase 11) */
 	u32 sw, sb, sr;		/* their totals, locals s8+68 / s8+72 / s8+76 */
+	u32 mr, mb;		/* mean r, b (s8+116 / s8+120) */
+	u32 var, vr, vb;	/* mean squared distance (s8+248) and the weighted r, b sums of the second pass (s8+144 / s8+156) */
+	u32 ran;		/* 0: no variance pass, 1: first pass only (var 0), 2: both */
 };
 
 /*
@@ -791,6 +796,80 @@ static inline int t32_awb_ct_detect_sums(struct t32_awb *a, struct t32_awb_ctd *
 		d->sw += d->tw[l];
 	}
 	return d->sw == 0;
+}
+
+/*
+ * Phase 12 (L_22e34 .. L_23398).  Mean r, b = sums / sw (fixdiv with out_shift bits).  With
+ * var_en == 1: pass one stores per zone D = dr^2 + db^2 (fix_point_mult2, fp_shift bits; dr, db =
+ * distance of the zone statistics from the mean) in zdist and, for the zones with non-zero gw_map,
+ * zw_norm and zone_flag, adds D * gw_map * zw_norm * (flag << fp) to s1; var = s1 / sw.  Unless var
+ * is 0, pass two normalises Dn = D / var and sets zwt3 = 0 for Dn > var_hi << 6, gw_map for
+ * Dn < var_lo << 6, else gw_map * (1 - (Dn - (var_lo << 6)) / ((var_hi - var_lo) << 6));
+ * w3 = (zwt3 >> 8) * (zw_norm >> 8) * (flag << out_shift) with out_shift bits is summed to s0 and
+ * w3 << 8 weighs r and b into vr, vb; when s0 is not 0 the mean is vr / s0, vb / s0.
+ * The vendor prints a message for sw == 0 and var_hi == var_lo (then divides by 0); sw is not 0 here.
+ * Returns -1 for a grid over 32, else 0.
+ */
+static inline int t32_awb_ct_detect_mean(struct t32_awb *a, struct t32_awb_ctd *d)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u32 fp = par->fp_shift, os = par->out_shift;
+	u32 rows = par->zones_h, cols = par->zones_w;
+	u32 row, col, s1 = 0, s0 = 0, hi, lo, span, one;
+
+	if (rows > 32 || cols > 32)
+		return -1;
+	d->mr = t32_awb_fixdiv(os, d->sr, d->sw);
+	d->mb = t32_awb_fixdiv(os, d->sb, d->sw);
+	d->ran = 0;
+	if (par->var_en != 1)
+		return 0;
+	d->ran = 1;
+	for (row = 0; row < rows; row++) {
+		for (col = 0; col < cols; col++) {
+			u32 z = row * 32 + col;
+			u32 dr = t32_awb_absdiff(st->zstat[0][0][z], d->mr), db = t32_awb_absdiff(st->zstat[0][1][z], d->mb);
+			u32 dd = t32_awb_fixmul(fp, dr, dr) + t32_awb_fixmul(fp, db, db);
+
+			st->zdist[z] = dd;
+			if (!st->gw_map[z] || !st->zw_norm[z] || !par->zone_flag[z])
+				continue;
+			s1 += t32_awb_fixmul(fp, t32_awb_fixmul3(fp, dd, st->gw_map[z], st->zw_norm[z]), (u32)par->zone_flag[z] << (fp & 31));
+		}
+	}
+	d->var = t32_awb_fixdiv(fp, s1, d->sw);
+	if (!d->var)
+		return 0;
+	d->ran = 2;
+	hi = par->var_hi << 6;
+	lo = par->var_lo << 6;
+	span = (par->var_hi - par->var_lo) << 6;
+	one = 1u << (fp & 31);
+	d->vr = d->vb = 0;
+	for (row = 0; row < rows; row++) {
+		for (col = 0; col < cols; col++) {
+			u32 z = row * 32 + col;
+			u32 dn = t32_awb_fixdiv(fp, st->zdist[z], d->var), wt, w3;
+
+			if (hi < dn)
+				wt = 0;
+			else if (dn < lo)
+				wt = st->gw_map[z];
+			else
+				wt = t32_awb_fixmul(fp, st->gw_map[z], one - t32_awb_fixdiv(fp, dn - lo, span));
+			st->zwt3[z] = wt;
+			w3 = t32_awb_fixmul3(os, wt >> 8, st->zw_norm[z] >> 8, (u32)par->zone_flag[z] << (os & 31));
+			d->vr += t32_awb_fixmul(fp, st->zstat[0][0][z], w3 << 8);
+			d->vb += t32_awb_fixmul(fp, st->zstat[0][1][z], w3 << 8);
+			s0 += w3;
+		}
+	}
+	if (s0) {
+		d->mr = t32_awb_fixdiv(os, d->vr, s0);
+		d->mb = t32_awb_fixdiv(os, d->vb, s0);
+	}
+	return 0;
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */
