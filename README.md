@@ -150,7 +150,7 @@ driver cannot boot-loop the camera. thingino pins a release tag, not a commit SH
 - [`docs/V4L2_CAPTURE_PATH.md`](docs/V4L2_CAPTURE_PATH.md): V4L2 capture architecture
 - [`docs/INTERRUPT_DEBUG_GUIDE.md`](docs/INTERRUPT_DEBUG_GUIDE.md): interrupt debugging
 - [`docs/re/`](docs/re): reverse-engineering dumps (T31 vendor module HLIL)
-- Per SoC: `driver/t10/README.md`, `driver/t20/README.md`, `driver/t21/README.md` (+ `COMPARATIVE_ANALYSIS.md`), `driver/t23/README.md`, `driver/t30/README.md`, `driver/t31/README.md`, `driver/t40/README.md`, `driver/t41/README.md`
+- Per SoC: `driver/t10/README.md`, `driver/t20/README.md`, `driver/t21/README.md` (+ `COMPARATIVE_ANALYSIS.md`), `driver/t23/README.md`, `driver/t30/README.md`, `driver/t31/README.md`, `driver/t40/README.md`, `driver/t41/README.md`; T31 IPU (OSD blend, kernel 7): `driver/ipu/README.md`
 
 Layout: `driver/<soc>/` per-SoC driver, `driver/common/` and `driver/include/tx_isp/` shared code and
 interfaces, `docs/` notes, `tests/` host tests and oracle checks, `tools/` on-device probes and generators,
