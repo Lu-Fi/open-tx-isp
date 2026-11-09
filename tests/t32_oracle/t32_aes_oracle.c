@@ -5,6 +5,12 @@
  * Compared per case: return value, the buffers the vendor writes, the outputs and
  * the logged calls of the callee mocks (tisp_ae_fliker_detect, tisp_ae_lib_bilinear_intp,
  * whose sources are not in ref/).  fix_point_* run as the vendor refs on both sides.
+ * The whole work area (tuning, buffers, histograms, context, tables, outputs) is
+ * compared.  tisp_ae_interrupt_hist runs as the vendor ref (the env.c stub is weak):
+ * its return value, the cur register it reads and the two tisp_reg_read values of
+ * get_hist (independent, so every a/b combination is reached) are checked.
+ * get_hist / get_statistics are void in use: their vendor return is a leftover
+ * register (spin unlock result / loop value) no caller reads, so it is not compared.
  * Exit 0 = all equal, 1 = first mismatch.
  */
 #include <stdio.h>
@@ -42,7 +48,7 @@ u64 tisp_ae_calc_convergence_speed(u32, u32, u32, u32, u32, u32);
 u64 tisp_ae_weight_mean(u32, u32, u32, u32, u32, u32);
 u64 fix_point_mult2_32(u32, u32, u32, u32);
 
-static u32 rs = 0x51d3a7u, fs, g_base, g_rdval;
+static u32 rs = 0x51d3a7u, fs, g_base, g_rdval, g_rd[2], g_rdn, g_rdreg[4], g_cur, g_curreg;
 static u32 rnd(void)
 {
 	rs ^= rs << 13; rs ^= rs >> 17; rs ^= rs << 5;
@@ -75,9 +81,16 @@ static u64 bil_core(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5, u32 a6, u32 
 	return (u64)(h * 2654435761u) << 32 | h;
 }
 
-__attribute__((weak)) u64 tisp_reg_read(u32 a0, u32 a1, u32 a2, u32 a3)
+/* get_hist reads tisp_reg_read(ch, 96 or 4) twice: hand out g_rd[0], g_rd[1] and log ch / reg */
+u64 tisp_reg_read(u32 a0, u32 a1, u32 a2, u32 a3)
 {
-	(void)a0; (void)a1; (void)a2; (void)a3;
+	(void)a2; (void)a3;
+	if (g_rdn < 2) {
+		g_rdreg[2 * g_rdn] = a0;
+		g_rdreg[2 * g_rdn + 1] = a1;
+		return g_rd[g_rdn++];
+	}
+	g_rdn++;
 	return g_rdval;
 }
 __attribute__((weak)) u64 system_reg_read(u32 a0, u32 a1, u32 a2, u32 a3)
@@ -117,8 +130,8 @@ __attribute__((weak)) u64 tisp_ae_lib_bilinear_intp(u32 a0, u32 a1, u32 a2, u32 
 
 static u32 rd_hook(u32 reg)
 {
-	(void)reg;
-	return g_rdval;
+	g_curreg = reg;
+	return reg == 0x1708c ? g_cur : g_rdval;
 }
 
 /* hooks of our port: the vendor refs (fix_point_*) and the logging mocks */
@@ -146,7 +159,7 @@ static t32_u64 w_bil(t32_u64 x, t32_u64 e, t32_u64 en, u32 y0, u32 y1)
 static const struct t32_ae_ops ops = { w_div, w_mult2, w_mult3, w_flicker, w_bil };
 
 static struct {
-	u32 ch, seed, rdval, nx, ny, lum, divf, mode, shift, flick, rx0, rx1, ry0, ry1, qf, zarea;
+	u32 ch, seed, rdval, rda, rdb, cur, d03a0, nx, ny, lum, divf, mode, shift, flick, rx0, rx1, ry0, ry1, qf, zarea, zsum;
 	u64 tab[16];
 	u32 y[16], p0, p1, h1, h2;
 } g;
@@ -167,12 +180,22 @@ static u8 *build(void)
 	memset(m + O_OUT, 0, 0x100);
 	g_base = T32O_PTR(m);
 	g_rdval = g.rdval;
+	g_rd[0] = g.rda; g_rd[1] = g.rdb; g_rdn = 0; g_cur = g.cur; g_curreg = 0;
+	t32_data_d03a0[0] = (u8)g.d03a0;
 	t32o_rd_hook = rd_hook;
 	w16(m + O_TUNE, 2774, g.nx); w16(m + O_TUNE, 2770, g.ny); w16(m + O_TUNE, 2778, g.lum);
 	w16(m + O_TUNE, 2944, g.divf); w16(m + O_TUNE, 1736, g.shift);
 	w32(m + O_TUNE, 1684, g.mode); w32(m + O_TUNE, 1748, g.flick);
-	if (g.zarea)
+	/* zero zone areas: 1 = first row height, 2 = first column width, 3 = all row heights */
+	if (g.zarea == 1 || g.zarea == 3)
 		w16(m + O_BUF, 11796, 0);
+	if (g.zarea == 2)
+		w16(m + O_BUF, 11826, 0);
+	if (g.zarea == 3)
+		memset(m + O_BUF + 11796, 0, 30);
+	/* zero e1..e3 sums: non-empty ROI with vsum == 0 */
+	if (g.zsum)
+		memset(m + O_BUF + 2048, 0, 3 * 900);
 	m[O_Q + 1297] = (u8)g.qf;
 	for (i = 0; i < 16; i++) {
 		w32(m + O_TAB, 8 * i, (u32)g.tab[i]);
@@ -201,9 +224,7 @@ static void take(int s, u8 *m) { memcpy(snap[s], m, MEMSZ); }
 
 static void same(const char *what, unsigned c, u32 rv, u32 pv)
 {
-	unsigned i, bad = rv != pv || mn[0] != mn[1] ||
-		memcmp(snap[0] + O_BUF, snap[1] + O_BUF, O_CTX - O_BUF) ||
-		memcmp(snap[0] + O_OUT, snap[1] + O_OUT, 0x100);
+	unsigned i, bad = rv != pv || mn[0] != mn[1] || memcmp(snap[0], snap[1], MEMSZ);
 
 	for (i = 0; !bad && i < mn[0]; i++)
 		bad = mlog[0][i] != mlog[1][i];
@@ -221,8 +242,24 @@ static void gen_base(void)
 	g.ch = rnd() & 3;
 	g.seed = rnd();
 	g.rdval = rnd();
+	g.rda = rnd();
+	g.rdb = rnd();
+	g.cur = rnd();
+	g.d03a0 = rnd() % 3 == 0;
 	g.nx = rnd() % 16;
 	g.ny = rnd() % 16;
+}
+
+/* the caller contract of t32_ae_get_hist: two reads of (ch, d03a0 ? 4 : 96) */
+static void rdcheck(const char *what, unsigned c)
+{
+	u32 reg = g.d03a0 ? 4 : 96;
+
+	if (g_rdn != 2 || g_rdreg[0] != g.ch || g_rdreg[1] != reg || g_rdreg[2] != g.ch || g_rdreg[3] != reg) {
+		printf("MISMATCH %s case %u: vendor reads %u: (%u,%u) (%u,%u), expected 2 x (%u,%u)\n", what, c,
+		       g_rdn, g_rdreg[0], g_rdreg[1], g_rdreg[2], g_rdreg[3], g.ch, reg);
+		exit(1);
+	}
 }
 
 static void c_hist(unsigned c)
@@ -232,9 +269,10 @@ static void c_hist(unsigned c)
 	gen_base();
 	begin(0); m = build();
 	t32o_call((t32o_fn)(void (*)(void))tisp_ae_get_hist, g.ch, T32O_PTR(m + O_HB), 0, 0, 0);
+	rdcheck("get_hist", c);
 	take(0, m);
 	begin(1); m = build();
-	t32_ae_get_hist(m + O_BUF, m + O_HB, g.rdval, g.rdval);
+	t32_ae_get_hist(m + O_BUF, m + O_HB, g.rda, g.rdb);
 	take(1, m);
 	same("get_hist", c, 0, 0);
 }
@@ -246,12 +284,15 @@ static void c_inthist(unsigned c)
 
 	gen_base();
 	begin(0); m = build();
-	t32o_call((t32o_fn)(void (*)(void))tisp_ae_get_hist, g.ch,
-		  T32O_PTR(m + O_HB + ((g.rdval & 3) << 11)), 0, 0, 0);
-	r = 1;
+	r = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_ae_interrupt_hist, g.ch, 0, 0, 0, 0);
+	rdcheck("interrupt_hist", c);
+	if (g_curreg != 0x1708c) {
+		printf("MISMATCH interrupt_hist case %u: cur read from %x\n", c, g_curreg);
+		exit(1);
+	}
 	take(0, m);
 	begin(1); m = build();
-	p = t32_ae_interrupt_hist(m + O_HB, g.rdval, m + O_BUF, g.rdval, g.rdval);
+	p = t32_ae_interrupt_hist(m + O_HB, g.cur, m + O_BUF, g.rda, g.rdb);
 	take(1, m);
 	same("interrupt_hist", c, r, p);
 }
@@ -339,7 +380,8 @@ static void c_wmean(unsigned c)
 	g.shift = rnd() % 32;
 	g.rx0 = rnd() % 16; g.rx1 = rnd() % 16; g.ry0 = rnd() % 16; g.ry1 = rnd() % 16;
 	g.qf = rnd() & 0xff;
-	g.zarea = c % 11 == 0;
+	g.zarea = c % 11 == 0 ? 1 + (c / 11) % 3 : 0;
+	g.zsum = c % 7 == 3;
 	begin(0); m = build();
 	t32o_arg5 = T32O_PTR(m + O_OUT + 0x30);
 	r = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_ae_weight_mean, g.ch, T32O_PTR(m + O_OUT + 0x10),

@@ -168,7 +168,7 @@ u64 __div64_32(u32 a0, u32 a1, u32 a2, u32 a3)
 }
 
 u64 tisp_ae_calc_process(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
-u64 tisp_ae_interrupt_hist(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+__attribute__((weak)) u64 tisp_ae_interrupt_hist(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 u64 tisp_ae_interrupt_static(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 
 /* LSC state (.bss): neighbouring objects kept as one block with offsets */
