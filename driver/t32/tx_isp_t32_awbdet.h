@@ -50,6 +50,8 @@
  * over-limit zones mapped through two ramps (t32_awb_ct_detect_ramps).
  * Phase 16 (L_23c10 .. L_23f70): how many of the fullest rectangles are taken (par+5694 mode), and the
  * first lim_a / lim_b entries extended or shifted accordingly (t32_awb_ct_detect_pick).
+ * Phase 17 (L_23f70 .. L_24140): the two limit tables blended by the ramp results, the par+5684 flag, sums over
+ * the taken rectangles, their original indices sorted (t32_awb_ct_detect_blend).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -89,6 +91,8 @@ struct t32_awb_ctd {
 	u32 ran;		/* 0: no variance pass, 1: first pass only (var 0), 2: both */
 	u32 s0;			/* phase 16: number of rectangles taken (register s0) */
 	u32 omax, omin;		/* phase 16: largest / smallest original index among them (registers v1 / a0; 0 / 12 when not computed) */
+	u16 bl[10];		/* t32_data_daf10: lim_a / lim_b blended by ct_a, then by ct_b (phase 17) */
+	u32 sums[5];		/* phase 17: over the s0 rectangles the sums of acc[3], acc[0], cm[2], cm[3], cm[4] (registers v1, a3, t0, t1, t2) */
 };
 
 /*
@@ -1175,6 +1179,51 @@ static inline int t32_awb_ct_detect_pick(struct t32_awb *a, struct t32_awb_ctd *
 	for (i = 0; i < 3; i++)
 		d->lim_b[s0 - 3 + i] = st->lim_b[i];
 	return 0;
+}
+
+/*
+ * Phase 17 (L_23f70 .. L_24140).  bl[i] = (lim_a[i] * ct_a + lim_b[i] * (1024 - ct_a)) / 1024 for the ten
+ * entries (signed 32 bit as in the vendor, stored 16 bit).  omax - omin (8 bit, unsigned difference) below 2:
+ * every bl[i] = 1024; the u16 par+5684 gets 1 when it is 2 or more, else 0.  With the u16 par+5700 == 1 the
+ * result is blended again towards 1024 by ct_b: bl[i] = ((1024 - ct_b) * bl[i] + ct_b * 1024) / 1024.
+ * sums[] = sums of acc[3], acc[0], cm[2], cm[3], cm[4] over the first s0 rectangles; ord[0 .. s0 - 1] sorted
+ * ascending (bubble sort, strict) together with idx.
+ */
+static inline void t32_awb_ct_detect_blend(struct t32_awb *a, struct t32_awb_ctd *d)
+{
+	struct t32_awb_par *par = a->par;
+	u32 s0 = d->s0, i, j, diff, flag;
+
+	for (i = 0; i < 10; i++)
+		d->bl[i] = (u16)((int)((u32)d->lim_a[i] * d->ct_a + (u32)d->lim_b[i] * (1024 - d->ct_a)) / 1024);
+	diff = (d->omax < d->omin ? d->omin - d->omax : d->omax - d->omin) & 0xff;
+	flag = diff >= 2;
+	if (!flag)
+		for (i = 0; i < 10; i++)
+			d->bl[i] = 1024;
+	*(u16 *)(par->raw + 5684) = (u16)flag;
+	if (*(const u16 *)(par->raw + 5700) == 1)
+		for (i = 0; i < 10; i++)
+			d->bl[i] = (u16)((int)((1024 - d->ct_b) * d->bl[i] + (d->ct_b << 10)) / 1024);
+	for (i = 0; i < 5; i++)
+		d->sums[i] = 0;
+	for (i = 0; i < s0; i++) {
+		d->sums[0] += d->acc[3][i];
+		d->sums[1] += d->acc[0][i];
+		d->sums[2] += d->cm[2][i];
+		d->sums[3] += d->cm[3][i];
+		d->sums[4] += d->cm[4][i];
+	}
+	for (i = s0 - 1; i; i--) {
+		for (j = 0; j < i; j++) {
+			u8 t;
+
+			if (!(d->ord[j + 1] < d->ord[j]))
+				continue;
+			t = d->ord[j]; d->ord[j] = d->ord[j + 1]; d->ord[j + 1] = t;
+			t = d->idx[j]; d->idx[j] = d->idx[j + 1]; d->idx[j + 1] = t;
+		}
+	}
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */
