@@ -532,4 +532,110 @@ static inline int t32_dmsc_init(u8 *sec, struct t32_front_write *w)
 	return (int)n;
 }
 
+/*
+ * Per-frame path: tisp_dmsc_par_refresh / tisp_dmsc_refresh /
+ * tisp_dmsc_dn_params_refresh / tisp_dmsc_wake_up.
+ */
+struct t32_dmsc_ctx {
+	u8 *sec;		/* IQ bin section 11 (writable) */
+	u8 *param;		/* T32_DMSC_VALUES interpolated bytes */
+	u32 gain;		/* last accepted gain, -1 = none yet */
+};
+
+/* tisp_dmsc_intp at the gain index (gain >> 16, fraction gain & 0xffff) */
+static inline void t32_dmsc_intp(struct t32_dmsc_ctx *ctx, u32 gain)
+{
+	unsigned int k;
+
+	for (k = 0; k < 340; k++) {
+		if (t32_dmsc_map[k][0] == 8)
+			ctx->param[t32_dmsc_map[k][2]] =
+				t32_tp_intp_u8(gain >> 16, gain & 0xffff, ctx->sec + t32_dmsc_map[k][1]);
+		else
+			t32_tp_put16(ctx->param + t32_dmsc_map[k][2],
+				     t32_tp_intp_u16(gain >> 16, gain & 0xffff, ctx->sec + t32_dmsc_map[k][1]));
+	}
+}
+
+static inline void t32_dmsc_reg_trig(struct t32_front_write *w, unsigned int *n)
+{
+	T32_FWR(w, *n, 0x8010, 1);
+}
+
+/* tisp_dmsc_intp_reg_refresh: interpolated values only */
+static inline void t32_dmsc_intp_reg_refresh(struct t32_dmsc_ctx *ctx, u32 gain,
+					     struct t32_front_write *w, unsigned int *n)
+{
+	t32_dmsc_intp(ctx, gain);
+	t32_dmsc_ref(ctx->sec, ctx->param, w, n);
+	t32_dmsc_reg_trig(w, n);
+}
+
+/* tisp_dmsc_all_reg_refresh */
+static inline void t32_dmsc_all_reg_refresh(struct t32_dmsc_ctx *ctx, u32 gain,
+					    struct t32_front_write *w, unsigned int *n)
+{
+	t32_dmsc_intp(ctx, gain);
+	t32_dmsc_noref(ctx->sec, w, n);
+	t32_dmsc_ref(ctx->sec, ctx->param, w, n);
+	t32_dmsc_reg_trig(w, n);
+}
+
+static inline void t32_dmsc_par_refresh_impl(struct t32_dmsc_ctx *ctx, u32 gain,
+					     u32 threshold, struct t32_front_write *w,
+					     unsigned int *n)
+{
+	u32 old = ctx->gain;
+
+	if (old == (u32)-1) {
+		t32_dmsc_all_reg_refresh(ctx, gain, w, n);
+		ctx->gain = gain;
+	} else {
+		u32 diff = gain > old ? gain - old : old - gain;
+
+		if (diff >= threshold) {
+			t32_dmsc_intp_reg_refresh(ctx, gain, w, n);
+			ctx->gain = gain;
+		}
+	}
+}
+
+static inline int t32_dmsc_par_refresh(struct t32_dmsc_ctx *ctx, u32 gain, u32 threshold,
+				       struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_dmsc_par_refresh_impl(ctx, gain, threshold, w, &n);
+	return (int)n;
+}
+
+static inline int t32_dmsc_refresh(struct t32_dmsc_ctx *ctx, u32 gain,
+				   struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_dmsc_par_refresh_impl(ctx, gain, 256U, w, &n);
+	return (int)n;
+}
+
+static inline int t32_dmsc_dn_params_refresh(struct t32_dmsc_ctx *ctx, u8 *tuning_base,
+					     struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	ctx->sec = tuning_base + 27612;
+	t32_dmsc_all_reg_refresh(ctx, ctx->gain, w, &n);
+	return (int)n;
+}
+
+static inline int t32_dmsc_wake_up(struct t32_dmsc_ctx *ctx, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_dmsc_noref(ctx->sec, w, &n);
+	t32_dmsc_ref(ctx->sec, ctx->param, w, &n);
+	t32_dmsc_reg_trig(w, &n);
+	return (int)n;
+}
+
 #endif /* TX_ISP_T32_DMSC_H */
