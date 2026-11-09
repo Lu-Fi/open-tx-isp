@@ -14,6 +14,8 @@
  * cleared again (t32_awb_lg_shares, t32_awb_lg_clear).
  * Phase 4 (L_3dfe8 .. L_3e1bc): sat_weight for sat_mode 1 / 2, the early exit when the zone means are still, otherwise the
  * reference means refreshed and the group tables cleared (t32_awb_lg_gate).
+ * Phase 5 (L_3e1bc .. L_3e348): the colour temperature detection (t32_awb_ct_detect) and the weighted mean of the
+ * last 15 detections (t32_awb_lg_detect).
  */
 #ifndef TX_ISP_T32_AWBLONG_H
 #define TX_ISP_T32_AWBLONG_H
@@ -309,6 +311,56 @@ static inline int t32_awb_lg_gate(struct t32_awb *a, struct t32_awb_lg *l)
 	memset(st->raw + 95300, 0, 4096);
 	memset(st->raw + 99396, 0, 4096);
 	memset(st->raw + 103492, 0, 4096);
+	return 0;
+}
+
+/*
+ * Phase 5 (L_3e1bc .. L_3e348).  The detection runs on the zone statistics (out = the detected r / b gains, valid its flags);
+ * d is its working set (about 40 kB, the caller provides it).  With a history (lg_have == 1) the three rings of the last 15
+ * detections (r, b, ct) shift by one and take this frame's out[0], out[1], ct; the window length lg_win (1 .. 15) of the newest
+ * entries, weighted by their index + 1, gives the new out[0], out[1] and ct (rounded).  Without a history every ring entry
+ * becomes this frame's value (out and ct stay).  Returns -1 when the detection refuses the case (vendor out of bounds).
+ */
+static inline int t32_awb_lg_detect(struct t32_awb *a, struct t32_awb_lg *l, struct t32_awb_ctd *d, u32 tbl)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u32 i;
+
+	if (t32_awb_ct_detect(a, d, (const u32 *)(par->raw + tbl), l->out, l->valid))
+		return -1;
+	if (st->lg_have == 1) {
+		u32 w, sw = 0, sa = 0, sb = 0, sc = 0;
+
+		for (i = 0; i < 14; i++) {
+			st->ring_r[i] = st->ring_r[i + 1];
+			st->ring_b[i] = st->ring_b[i + 1];
+			st->ring_ct[i] = st->ring_ct[i + 1];
+		}
+		st->ring_r[14] = l->out[0];
+		st->ring_b[14] = l->out[1];
+		st->ring_ct[14] = par->ct;
+		if (l->win >= 16)
+			l->win = 15;
+		else if (l->win == 0)
+			l->win = 1;
+		for (i = 15 - l->win; i < 15; i++) {
+			w = i + 1;
+			sw += w;
+			sa += w * st->ring_r[i];
+			sb += w * st->ring_b[i];
+			sc += w * st->ring_ct[i];
+		}
+		l->out[0] = t32_awb_udiv(sa + (sw >> 1), sw);
+		l->out[1] = t32_awb_udiv(sb + (sw >> 1), sw);
+		par->ct = t32_awb_udiv(sc + (sw >> 1), sw);
+	} else {
+		for (i = 0; i < 15; i++) {
+			st->ring_r[i] = l->out[0];
+			st->ring_b[i] = l->out[1];
+			st->ring_ct[i] = par->ct;
+		}
+	}
 	return 0;
 }
 

@@ -6,7 +6,11 @@
  * Compared at the stop: every byte of par, state and hardware shadow, and the named local stack words of the vendor.
  * Exit 0 = equal; 1 = mismatch; 2 = strict and no bins.
  */
+#define _GNU_SOURCE
 #include <dirent.h>
+#include <signal.h>
+#include <ucontext.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +29,57 @@ extern u32 t32_data_e16b4[4];
 
 static unsigned int cases, failed, nrefused, nstop, nearly;
 static unsigned int cov[16];
+
+#if LG_PHASE >= 5
+/*
+ * Colour temperature axes around the statistics phases 1 .. 4 produce (our phases on a copy), so that the detection does
+ * not always end in its fallback.
+ */
+static void aim_axes(u8 *par, u8 *stt, u8 *hw)
+{
+	static u8 spar[PARB], sst[STB], shw[HWB];
+	struct t32_awb sa = { (struct t32_awb_par *)spar, (struct t32_awb_state *)sst, (struct t32_awb_hw *)shw };
+	struct t32_awb_lg sl;
+	u32 row, col, os, ax, mn[2] = { 0xffffffffu, 0xffffffffu }, mx[2] = { 0, 0 }, k, i;
+
+	memcpy(spar, par, PARB);
+	memcpy(sst, stt, STB);
+	memcpy(shw, hw, HWB);
+	t32_awb_lg_entry(&sa, &sl);
+	if (t32_awb_lg_zones(&sa, &sl))
+		return;
+	t32_awb_lg_means(&sa, &sl);
+	t32_awb_lg_shares(&sa, &sl);
+	t32_awb_lg_clear(&sa, &sl);
+	os = sl.os & 31;
+	for (row = 0; row < sl.rows; row++)
+		for (col = 0; col < sl.cols; col++)
+			for (k = 0; k < 2; k++) {
+				u32 v = g32(sst, 4 * (4096 / 4 * k + row * 32 + col));
+
+				if (v) {
+					if (v < mn[k]) mn[k] = v;
+					if (v > mx[k]) mx[k] = v;
+				}
+			}
+	if (rnd() % 8 == 0)
+		return;
+	for (k = 0; k < 2; k++) {
+		u32 lo, hi, step;
+
+		if (mx[k] < mn[k])
+			return;
+		lo = mn[k] >> os;
+		hi = (mx[k] >> os) + 1;
+		if (lo > 20)
+			lo -= rnd() % 20;
+		step = (hi - lo) / 14 + 1;
+		ax = 60 + 60 * k;
+		for (i = 0; i < 15; i++)
+			p32(par, ax + 4 * i, lo + i * step + rnd() % (step / 2 + 1));
+	}
+}
+#endif
 
 /* the inputs of the long algorithm on top of what gen() makes for ct_detect */
 static void gen_long(u8 *par, u8 *stt, u8 *hw, const u8 *sec, u32 tbl)
@@ -139,6 +194,10 @@ static void gen_long(u8 *par, u8 *stt, u8 *hw, const u8 *sec, u32 tbl)
 		p32(par, 24, g32(par, 16));
 		p32(par, 28, g32(par, 20));
 	}
+#if LG_PHASE >= 5
+	p32(par, 312, 1 + rnd() % 40);		/* ct_detect pass limit per point: the vendor's loop does not end for a huge one */
+	aim_axes(par, stt, hw);
+#endif
 }
 
 struct ours {
@@ -149,8 +208,7 @@ struct ours {
 /* our phases 1 .. LG_PHASE; returns -1 when the case is refused, 1 when the vendor leaves early */
 static int run_ours(struct t32_awb *a, struct ours *o, u32 tbl)
 {
-	(void)tbl;
-	t32_awb_lg_entry(a, &o->l);
+		t32_awb_lg_entry(a, &o->l);
 #if LG_PHASE >= 1
 	if (t32_awb_lg_zones(a, &o->l))
 		return -1;
@@ -178,6 +236,11 @@ static int run_ours(struct t32_awb *a, struct ours *o, u32 tbl)
 #if LG_PHASE >= 4
 	if (t32_awb_lg_gate(a, &o->l))
 		return 1;
+#endif
+#if LG_PHASE >= 5
+	if (t32_awb_lg_detect(a, &o->l, &o->d, tbl))
+		return -1;
+	cov[1] += o->l.valid[0] == 0;
 #endif
 	return 0;
 }
@@ -241,12 +304,16 @@ static int run_case(const char *what, const u8 *sec)
 	p32(vctx, 12, T32O_PTR(vhw));
 	t32_data_e16b4[ch] = T32O_PTR(vctx);
 	ctx_build(vtab, T32O_PTR(vpar), T32O_PTR(vst), T32O_PTR(vhw), tbl);
+	if (getenv("T32O_TRACE"))
+		fprintf(stderr, "case %u: vendor\n", cases + nrefused);
 	t32o_call((t32o_fn)(void (*)(void))tisp_awb_long_alogrithm, T32O_PTR(vtab), ch, 0, 0, 0);
 
 	a.par = (struct t32_awb_par *)opar;
 	a.st = (struct t32_awb_state *)ost;
 	a.hw = (struct t32_awb_hw *)ohw;
 	memset(&o, 0xa5, sizeof(o));
+	if (getenv("T32O_TRACE"))
+		fprintf(stderr, "case %u: ours\n", cases + nrefused);
 	r = run_ours(&a, &o, tbl);
 	if (r < 0) {
 		nrefused++;
@@ -317,8 +384,26 @@ static int bin_cases(const char *dir)
 	return nbins;
 }
 
+static void on_alarm(int sig, siginfo_t *si, void *uc_)
+{
+	ucontext_t *uc = uc_;
+
+	(void)sig; (void)si;
+	fprintf(stderr, "T32O_WATCHDOG: no progress, rip %llx\n", (unsigned long long)uc->uc_mcontext.gregs[REG_RIP]);
+	_exit(3);
+}
+
 int main(void)
 {
+	if (getenv("T32O_WATCHDOG")) {
+		struct sigaction sa;
+
+		memset(&sa, 0, sizeof(sa));
+		sa.sa_sigaction = on_alarm;
+		sa.sa_flags = SA_SIGINFO;
+		sigaction(SIGALRM, &sa, 0);
+		alarm((unsigned)atoi(getenv("T32O_WATCHDOG")));
+	}
 	const char *dir = getenv("T32_IQ_DIR");
 	int strict = getenv("T40_ORACLE_STRICT") && atoi(getenv("T40_ORACLE_STRICT"));
 	unsigned int c, rc_r, n = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 3000;
