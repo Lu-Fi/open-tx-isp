@@ -125,6 +125,10 @@ static int run_ours(struct t32_awb *a, struct ours *o, u32 tbl)
 	cov[2] += o->l.cntr == 0;
 	cov[3] += o->l.cntb == 0;
 #endif
+#if LG_PHASE >= 3
+	t32_awb_lg_shares(a, &o->l);
+	t32_awb_lg_clear(a, &o->l);
+#endif
 	return 0;
 }
 

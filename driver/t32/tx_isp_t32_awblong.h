@@ -10,6 +10,8 @@
  * Phase 1 (L_3d85c .. L_3dbfc): entry values, per zone the group 0 / group 1 statistics converted to the red / blue
  * ratios at the calibration gains (t32_awb_lg_zones).
  * Phase 2 (L_3dbfc .. L_3de3c): sums over group 1, mean red / blue of the zones with their inverses (t32_awb_lg_means).
+ * Phase 3 (L_3de3c .. L_3dfe8): the group 1 shares per weight, and the zones whose weight share of the area is too small
+ * cleared again (t32_awb_lg_shares, t32_awb_lg_clear).
  */
 #ifndef TX_ISP_T32_AWBLONG_H
 #define TX_ISP_T32_AWBLONG_H
@@ -206,6 +208,69 @@ static inline void t32_awb_lg_means(struct t32_awb *a, struct t32_awb_lg *l)
 	}
 	hw->avg_ir = t32_awb_inverse(hw->avg_r);
 	hw->avg_ib = t32_awb_inverse(hw->avg_b);
+}
+
+/*
+ * Phase 3a (L_3de3c .. L_3ded4): per zone of group 1 with a weight the three sums divided by it (k_r, k_d, k_b), else 0.
+ */
+static inline void t32_awb_lg_shares(struct t32_awb *a, const struct t32_awb_lg *l)
+{
+	struct t32_awb_state *st = a->st;
+	u32 row, col, z;
+
+	for (row = 0; row < l->rows; row++) {
+		for (col = 0; col < l->cols; col++) {
+			u32 w;
+
+			z = row * 32 + col;
+			w = st->g1_w[z];
+			if (!w) {
+				st->k_r[z] = 0;
+				st->k_d[z] = 0;
+				st->k_b[z] = 0;
+			} else {
+				st->k_r[z] = t32_awb_udiv(st->g1_n_r[z], w);
+				st->k_d[z] = t32_awb_udiv(st->g1_den[z], w);
+				st->k_b[z] = t32_awb_udiv(st->g1_n_b[z], w);
+			}
+		}
+	}
+}
+
+/*
+ * Phase 3b (L_3ded4 .. L_3dfe8): with area = lg_dim_a * lg_dim_b the share 1000 * weight / area (16 bit) of a zone must exceed
+ * sat_thr to keep its group 0 (zstat[0], weights, hardware ratios, zs2) and, by the group 1 weight, its group 1 (zstat[1],
+ * zw_raw2); otherwise they are cleared.
+ */
+static inline void t32_awb_lg_clear(struct t32_awb *a, const struct t32_awb_lg *l)
+{
+	struct t32_awb_state *st = a->st;
+	struct t32_awb_hw *hw = a->hw;
+	u32 row, col, z;
+
+	for (row = 0; row < l->rows; row++) {
+		for (col = 0; col < l->cols; col++) {
+			u32 s0, s1;
+
+			z = row * 32 + col;
+			s1 = t32_awb_udiv(1000 * st->g1_w[z], l->area) & 0xffff;
+			s0 = t32_awb_udiv(1000 * st->g0_w[z], l->area) & 0xffff;
+			if (!(l->sat_thr < s0)) {
+				st->zstat[0][0][z] = 0;
+				st->zstat[0][1][z] = 0;
+				st->zw_raw[z] = 0;
+				hw->lg_ra[z] = 0;
+				hw->lg_ba[z] = 0;
+				st->zs2[0][z] = 0;
+				st->zs2[1][z] = hw->lg_ba[z];
+			}
+			if (!(l->sat_thr < s1)) {
+				st->zstat[1][0][z] = 0;
+				st->zstat[1][1][z] = 0;
+				st->zw_raw2[z] = 0;
+			}
+		}
+	}
 }
 
 #endif /* TX_ISP_T32_AWBLONG_H */
