@@ -7,9 +7,10 @@
  * tune block, section block, tuning base, mode block and output buffer.
  *
  * Vendor layout: e16b4[ch] -> { tune, sec, mode }, dd0a4[ch] -> tuning base.
- * tisp_awb_set_start tail-calls tisp_awb_set_gain; our hook calls the vendor
- * tisp_awb_set_gain from our state, so the stores and the call arguments are
- * compared through its register writes.
+ * tisp_awb_set_start tail-calls tisp_awb_set_gain.  Here that is a recording
+ * stub on both sides (the real one needs the state tisp_awb_init builds; its
+ * body is checked by t32_awbg_oracle / t32_awb_oracle): the call count and
+ * every argument (a0..a3, in[0..2]) are compared.
  * Exit 0 = all equal, 1 = first mismatch, 2 = setup failure.
  */
 #include <stdio.h>
@@ -55,7 +56,7 @@ u32 t32_data_bf420[10] __asm__("t32_data_bf420") = {
 /* stand-in for the vendor tisp_awb_set_gain (tail call of set_start): records
  * its arguments; the real one needs state that tisp_awb_init builds. */
 struct gainrec {
-	u32 n, a0, a2, a3, in0, in1, in2;
+	u32 n, a0, a1, a2, a3, in0, in1, in2;
 };
 static struct gainrec g;
 
@@ -65,6 +66,7 @@ u64 tisp_awb_set_gain(u32 a0, u32 a1, u32 a2, u32 a3)
 
 	g.n++;
 	g.a0 = a0;
+	g.a1 = a1;	/* both runs allocate the same addresses */
 	g.a2 = a2;
 	g.a3 = a3;
 	g.in0 = in[0];
@@ -255,7 +257,7 @@ static void fill32(u8 *p, u32 bytes)
 
 static void gen_case(unsigned int which, u32 *flag, u32 *ct)
 {
-	static const u32 flags[4] = { 1, 0x101, 0x100, 0 };
+	static const u32 flags[6] = { 1, 0x101, 0x100, 0, 2, 0x1ff01 };
 	u32 r;
 
 	fill32(cd.tune, TUNEB);
@@ -282,8 +284,8 @@ static void gen_case(unsigned int which, u32 *flag, u32 *ct)
 		r = rnd() % 4;
 		cd.in[0] = r ? rnd() % 12 : rnd();
 	}
-	r = rnd() % 5;
-	*flag = r < 4 ? flags[r] : rnd();
+	r = rnd() % 7;
+	*flag = r < 6 ? flags[r] : rnd();
 	*ct = rnd();
 }
 
