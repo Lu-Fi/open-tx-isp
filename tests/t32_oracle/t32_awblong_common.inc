@@ -82,6 +82,43 @@ static void gen_long(u8 *par, u8 *stt, u8 *hw, const u8 *sec, u32 tbl)
 		p16(stt, 107616, rnd() % 3 ? r + rnd() % 21 - 10 : rnd());
 		p16(stt, 107618, rnd() % 3 ? b + rnd() % 21 - 10 : rnd());
 	}
+	{	/* the reference means next to the means phase 2 will compute: run our phases 1 and 2 on a copy */
+		static u8 spar[PARB], sst[STB], shw[HWB];
+		struct t32_awb sa = { (struct t32_awb_par *)spar, (struct t32_awb_state *)sst, (struct t32_awb_hw *)shw };
+		struct t32_awb_lg sl;
+		u32 m0, m1;
+
+		memcpy(spar, par, PARB);
+		memcpy(sst, stt, STB);
+		memcpy(shw, hw, HWB);
+		t32_awb_lg_entry(&sa, &sl);
+		if (!t32_awb_lg_zones(&sa, &sl)) {
+			t32_awb_lg_means(&sa, &sl);
+			m0 = g16(sst, 107608);
+			m1 = g16(sst, 107610);
+			switch (rnd() % 8) {
+			case 0:					/* the change exactly at the limit */
+				p16(stt, 107616, m0 + 5);
+				p16(stt, 107618, m1 - 3);
+				p16(par, 3316, 8);
+				break;
+			case 1:
+				p16(stt, 107616, m0 - 5);
+				p16(stt, 107618, m1 + 3);
+				p16(par, 3316, 9);
+				break;
+			case 2:					/* the change sum wraps at 16 bits */
+				p16(stt, 107616, m0 + 40000);
+				p16(stt, 107618, m1 + 30000);
+				p16(par, 3316, 5000);
+				break;
+			case 3:
+				p16(stt, 107616, m0 + rnd() % 5);
+				p16(stt, 107618, m1 - rnd() % 5);
+				break;
+			}
+		}
+	}
 	stt[79036] = rnd() % 3 ? 1 : (u8)rnd();
 	stt[79044] = rnd() % 3 ? 1 : (u8)rnd();
 	if (rnd() % 2) {
@@ -121,13 +158,26 @@ static int run_ours(struct t32_awb *a, struct ours *o, u32 tbl)
 #if LG_PHASE >= 2
 	t32_awb_lg_means(a, &o->l);
 	cov[0] += o->l.os == 31;
-	cov[1] += o->l.os == 31 && o->l.cntr && o->l.cntb;
-	cov[2] += o->l.cntr == 0;
-	cov[3] += o->l.cntb == 0;
+#if LG_PHASE >= 4
+	{
+		const struct t32_awb_state *s_ = a->st;
+		u32 dr_ = (u16)(s_->avg[4] > s_->avg[0] ? s_->avg[4] - s_->avg[0] : s_->avg[0] - s_->avg[4]);
+		u32 db_ = (u16)(s_->avg[5] > s_->avg[1] ? s_->avg[5] - s_->avg[1] : s_->avg[1] - s_->avg[5]);
+
+		cov[2] += s_->lg_have == 1 && s_->lg_calm == 1 && (u16)(dr_ + db_) == o->l.still && !(t32_awb_u32at(s_->raw, 107596) & 0x00ff00ffU);
+		cov[1] += s_->lg_have == 1 && s_->lg_calm == 1 && (u16)(dr_ + db_) < o->l.still && !(t32_awb_u32at(s_->raw, 107596) & 0x00ff00ffU);
+	}
+#endif
+	cov[3] += o->l.cntr == 0;
+
 #endif
 #if LG_PHASE >= 3
 	t32_awb_lg_shares(a, &o->l);
 	t32_awb_lg_clear(a, &o->l);
+#endif
+#if LG_PHASE >= 4
+	if (t32_awb_lg_gate(a, &o->l))
+		return 1;
 #endif
 	return 0;
 }
@@ -209,6 +259,8 @@ static int run_case(const char *what, const u8 *sec)
 		nearly++;
 	if (LG_PHASE < 4 && !t32o_lg_stop)
 		bad = "vendor did not reach the label";
+	else if ((r == 1) == (t32o_lg_stop != 0))
+		bad = r == 1 ? "ours left early, vendor went on" : "ours went on, vendor left early";
 	if (!bad && t32o_lg_stop)
 		bad = check_stack(&o, t32o_lg_stack);
 	if (!bad && memcmp(vpar, opar, PARB))

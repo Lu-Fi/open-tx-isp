@@ -12,6 +12,8 @@
  * Phase 2 (L_3dbfc .. L_3de3c): sums over group 1, mean red / blue of the zones with their inverses (t32_awb_lg_means).
  * Phase 3 (L_3de3c .. L_3dfe8): the group 1 shares per weight, and the zones whose weight share of the area is too small
  * cleared again (t32_awb_lg_shares, t32_awb_lg_clear).
+ * Phase 4 (L_3dfe8 .. L_3e1bc): sat_weight for sat_mode 1 / 2, the early exit when the zone means are still, otherwise the
+ * reference means refreshed and the group tables cleared (t32_awb_lg_gate).
  */
 #ifndef TX_ISP_T32_AWBLONG_H
 #define TX_ISP_T32_AWBLONG_H
@@ -271,6 +273,43 @@ static inline void t32_awb_lg_clear(struct t32_awb *a, const struct t32_awb_lg *
 			}
 		}
 	}
+}
+
+/*
+ * Phase 4 (L_3dfe8 .. L_3e1bc).  With sat_mode 1 or 2 sat_weight weighs the zones of group 0 into zt2.  With a history
+ * (lg_have == 1), a calm last frame (lg_calm == 1), a change of the zone means against the reference (avg[4], avg[5]) of
+ * less than lg_still and neither the update nor the mode byte set (st+107596 & 0x00ff00ff) the vendor returns here
+ * (this function returns 1, nothing more is written).  Otherwise the means become the reference and the detection tables
+ * (cell sums, top cells, points, clusters, gw_map, zdist, zwt3, zw_norm, zlim) are cleared; 0 = go on.
+ */
+static inline int t32_awb_lg_gate(struct t32_awb *a, struct t32_awb_lg *l)
+{
+	const struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+
+	if ((u16)(par->sat_mode - 1) < 2)
+		t32_awb_sat_weight(par, st->g0_n_r, st->g0_den, st->g0_n_b, st->g0_w, st->zt2, l->gain);
+	if (st->lg_have == 1) {
+		u32 dr = (u16)(st->avg[4] > st->avg[0] ? st->avg[4] - st->avg[0] : st->avg[0] - st->avg[4]);
+		u32 db = (u16)(st->avg[5] > st->avg[1] ? st->avg[5] - st->avg[1] : st->avg[1] - st->avg[5]);
+
+		if (st->lg_calm == 1 && (u16)(dr + db) < l->still && !(t32_awb_u32at(st->raw, 107596) & 0x00ff00ffU))
+			return 1;
+	}
+	st->avg[4] = st->avg[0];
+	st->avg[5] = st->avg[1];
+	memset(st->raw + 79228, 0, 784);
+	memset(st->raw + 80012, 0, 784);
+	memset(st->raw + 80796, 0, 784);
+	memset(st->raw + 81188, 0, 144);
+	memset(st->raw + 81332, 0, 720);
+	memset(st->raw + 82052, 0, 960);
+	memset(st->raw + 87108, 0, 4096);
+	memset(st->raw + 91204, 0, 4096);
+	memset(st->raw + 95300, 0, 4096);
+	memset(st->raw + 99396, 0, 4096);
+	memset(st->raw + 103492, 0, 4096);
+	return 0;
 }
 
 #endif /* TX_ISP_T32_AWBLONG_H */
