@@ -15,7 +15,7 @@
  * format register, bit field above 4).
  *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
- * by tests/t32_oracle (t32_dpc_oracle).
+ * by tests/t32_oracle (t32_dpc_oracle, t32_dpcf_oracle).
  */
 #ifndef TX_ISP_T32_DPC_H
 #define TX_ISP_T32_DPC_H
@@ -500,6 +500,79 @@ static inline int t32_dpc_init(const u8 *sec, int wide, struct t32_front_write *
 	t32_dpc_short(sec, o, w, &n);
 	t32_dpc_other(sec, wide, w, &n);
 	T32_FWR(w, n, 0x2000, T32_DPC_ID);
+	return (int)n;
+}
+
+/*
+ * Per-frame path: tisp_dpc_dn_params_refresh re-reads section 5, interpolates
+ * the 106 point tables at the fixed point gain and runs the three register
+ * functions; tisp_dpc_wake_up replays the value block without interpolating.
+ * The vendor keeps the section pointer, the gain, the value of the refresh
+ * and the 0xb4 byte value block in its context; those are the fields here.
+ */
+struct t32_dpc_ctx {
+	u8 *sec;		/* IQ bin section 5 */
+	u32 gain;		/* fixed point gain index of the point tables */
+	u32 rsvd[3];
+	u32 arg;		/* stored by t32_dpc_dn_params_refresh */
+	u8 o[T32_DPC_VALUES];	/* interpolated value block */
+};
+
+/* tisp_dpc_gain_interp: sel 0 the long exposure tables, sel 1 the short ones */
+static inline void t32_dpc_gain_interp(struct t32_dpc_ctx *ctx, int sel)
+{
+	u32 ip = ctx->gain >> 16, fp = ctx->gain & 0xffff;
+	unsigned int k = sel ? 53 : 0, last = sel ? 106 : 53;
+
+	for (; k < last; k++) {
+		if (t32_dpc_map[k][0] == 16)
+			t32_tp_put16(ctx->o + t32_dpc_map[k][2],
+				     t32_tp_intp_u16(ip, fp, ctx->sec + t32_dpc_map[k][1]));
+		else
+			ctx->o[t32_dpc_map[k][2]] =
+				t32_tp_intp_u8(ip, fp, ctx->sec + t32_dpc_map[k][1]);
+	}
+}
+
+/*
+ * tisp_dpc_dn_params_refresh: section 5 of the tuning base, the gain
+ * interpolation of both halves, tisp_dpc_write_reg (= the long, the short and
+ * the "other" register function); the vendor stores its second argument in the
+ * context.  wide is the ISP top format test of t32_dpc_other (see above), read
+ * once by the caller.
+ */
+static inline int t32_dpc_dn_params_refresh(struct t32_dpc_ctx *ctx, u8 ch,
+					    u8 *tuning_base, int wide, u32 arg,
+					    struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	ctx->sec = tuning_base + 0x59c0;
+	t32_dpc_gain_interp(ctx, 0);
+	t32_dpc_gain_interp(ctx, 1);
+	t32_dpc_long(ctx->sec, ctx->o, w, &n);
+	t32_dpc_short(ctx->sec, ctx->o, w, &n);
+	t32_dpc_other(ctx->sec, wide, w, &n);
+	ctx->arg = arg;
+	return (int)n;
+}
+
+/*
+ * tisp_dpc_wake_up: the value block as it is.  The vendor's copy of the
+ * "other" register function never writes the extra 0x2144.. / 0x29144.. words
+ * on this path (they belong to the long-exposure refresh), so only the base
+ * set goes out here.
+ */
+static inline int t32_dpc_wake_up(struct t32_dpc_ctx *ctx, u8 ch,
+				  struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	t32_dpc_long(ctx->sec, ctx->o, w, &n);
+	t32_dpc_short(ctx->sec, ctx->o, w, &n);
+	t32_dpc_other(ctx->sec, 0, w, &n);
 	return (int)n;
 }
 
