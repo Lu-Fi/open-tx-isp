@@ -44,4 +44,11 @@ static inline int t32_awb_proc_calc(struct t32_awb *a, struct t32_awb_ctd *d, u3
 	return p->rc < 0 ? -1 : 0;
 }
 
+/* phase 2: flag = the first word of e16c4 + 16 * ch */
+static inline void t32_awb_proc_gain(struct t32_awb *a, u32 flag, struct t32_awb_proc *p)
+{
+	p->complete = flag == 1;
+	p->nw += t32_awb_set_gain(a, p->w + p->nw);
+}
+
 #endif /* TX_ISP_T32_AWBPROC_H */
