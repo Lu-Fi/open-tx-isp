@@ -243,11 +243,11 @@ u64 tisp_event_push(u32 a0, u32 a1, u32 a2, u32 a3)
 	memcpy(t32o_ev_w, (const void *)(unsigned long)a1, sizeof(t32o_ev_w));
 	return 0;
 }
-u64 private_init_completion(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+__attribute__((weak)) u64 private_init_completion(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 u64 private_mutex_lock(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 u64 private_mutex_unlock(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 /* the wait returns the remaining time: nonzero = the frame-done completion arrived */
-u64 private_wait_for_completion_timeout(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 1; }
+__attribute__((weak)) u64 private_wait_for_completion_timeout(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 1; }
 u64 tisp_single_lsc_rcfg_cfg_trig(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 
 /* ---- .data objects ---- */
@@ -462,7 +462,7 @@ void t32o_reset(void)
 }
 
 /* ---- kernel / driver stubs (o32 shape) ---- */
-u64 private_vmalloc(u32 a0, u32 a1, u32 a2, u32 a3)
+__attribute__((weak)) u64 private_vmalloc(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a1; (void)a2; (void)a3;
 	return a0 ? (u32)(uintptr_t)t32o_alloc(a0) : 0;
@@ -481,7 +481,7 @@ u64 private_kfree(u32 a0, u32 a1, u32 a2, u32 a3)
 	return 0;
 }
 
-u64 private_vfree(u32 a0, u32 a1, u32 a2, u32 a3)
+__attribute__((weak)) u64 private_vfree(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a0; (void)a1; (void)a2; (void)a3;
 	return 0;

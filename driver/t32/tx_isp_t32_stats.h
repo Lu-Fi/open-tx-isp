@@ -1344,4 +1344,119 @@ static inline u32 t32_ae_interrupt_static(u32 ch, const struct t32_ae_ctx *c, co
 	return 1;
 }
 
+/*
+ * Per-frame AWB algorithm paths (vendor tisp_awb_algo_waitdone,
+ * tisp_awb_algo_getinfo, tisp_awb_algo_init, tisp_awb_sleep; Matt Davis'
+ * recovered C, PR #15), checked by tests/t32_oracle (t32_awbin_oracle).
+ *
+ * The vendor's e16b4[ch] block is struct t32_awb_algo_ctx (words 0 / 1 =
+ * tune / sec, the completion at +16, the zone copy buffer at +28), e16c4[ch]
+ * is struct t32_awb_algo_state (mode word and three location words).
+ * tisp_awb_set_lum_th_freq, the completion, vmalloc / vfree and the
+ * out-of-memory message are hooks.  Quirk kept: in getinfo the compare
+ * words are out[6] / out[7] against lum_a / lum_c, lum_b is only copied.
+ */
+#define T32_AWB_ALG_WAIT_MS		200U
+#define T32_AWB_ALG_ZONE_BYTES		12288U
+#define T32_AWB_ALG_ZONE_SRC		0xe4a8U
+
+struct t32_awb_algo_ctx {
+	u8 *tune;
+	u8 *sec;
+	u8 *completion;
+	u8 *zone;
+};
+
+struct t32_awb_algo_state {
+	u32 mode, lum_a, lum_b, lum_c;
+};
+
+struct t32_awb_algo_ops {
+	void (*init_completion)(u8 *c);
+	void *(*vmalloc)(u32 size);
+	void (*vfree)(void *p);
+	u32 (*wait_completion)(u8 *c, u32 ms);	/* 0 = timeout */
+	void (*lum_th_freq)(u32 ch, struct t32_awb_algo_state *st);	/* may rewrite the state words */
+	void (*no_memory)(void);
+};
+
+/* 0, or -62 when the statistics are not done within 200 ms */
+static inline int t32_awb_algo_waitdone(const struct t32_awb_algo_state *st,
+					const struct t32_awb_algo_ctx *c,
+					const struct t32_awb_algo_ops *ops)
+{
+	if (st->mode != 1)
+		return 0;
+	return ops->wait_completion(c->completion, T32_AWB_ALG_WAIT_MS) ? 0 : -62;
+}
+
+/* out: 9 words, out[1] = channel on input; returns the zone buffer or 0 */
+static inline u8 *t32_awb_algo_getinfo(struct t32_awb_algo_ctx *c, struct t32_awb_algo_state *st,
+				       u32 *out, const struct t32_awb_algo_ops *ops)
+{
+	u32 ch = out[1], k;
+
+	if (!c)
+		return 0;
+	if (!st->mode)
+		return 0;
+	out[2] = t32_st16(c->sec, T32_AWB_SEC_B0);
+	out[3] = t32_st16(c->sec, T32_AWB_SEC_B1);
+	out[4] = t32_st16(c->sec, T32_AWB_SEC_A0);
+	out[5] = t32_st16(c->sec, T32_AWB_SEC_A1);
+	if (out[6] != st->lum_a || out[7] != st->lum_c) {
+		st->lum_c = out[7];
+		st->lum_a = out[6];
+		ops->lum_th_freq(ch, st);
+	}
+	out[6] = st->lum_a;
+	out[7] = st->lum_c;
+	out[8] = st->lum_b;
+	if (c->zone)
+		for (k = 0; k < T32_AWB_ALG_ZONE_BYTES; k++)
+			c->zone[k] = c->sec[T32_AWB_ALG_ZONE_SRC + k];
+	return c->zone;
+}
+
+/* info: 20 bytes, the vendor's caller structure */
+static inline void t32_awb_algo_init(struct t32_awb_algo_ctx *c, struct t32_awb_algo_state *st,
+				     u32 mode, u8 *info, const struct t32_awb_algo_ops *ops)
+{
+	st->mode = mode;
+	if (mode != 1) {
+		if (c->zone) {
+			ops->vfree(c->zone);
+			c->zone = 0;
+		}
+		return;
+	}
+	ops->init_completion(c->completion);
+	t32_wr32(info, 0, mode);
+	t32_wr32(info, 4, t32_st16(c->tune, 3188));
+	t32_wr32(info, 8, t32_st16(c->tune, 3184));
+	info[12] = (u8)t32_st16(c->tune, 3190);
+	info[13] = (u8)t32_st16(c->tune, 3186);
+	t32_wr32(info, 16, 1);
+	c->zone = (u8 *)ops->vmalloc(T32_AWB_ALG_ZONE_BYTES);
+	if (!c->zone)
+		ops->no_memory();
+}
+
+/* tisp_awb_sleep: vendor e1670[ch] (2 words) and e1630[ch] (4 words) */
+struct t32_awb_sleep_state {
+	u32 e1670[2];
+	u32 e1630[4];
+};
+
+static inline void t32_awb_sleep(struct t32_awb_sleep_state *s, u32 (*rd)(u32 reg),
+				 u32 (*sys_rd)(u32 reg))
+{
+	s->e1670[0] = rd(0x160e0);
+	s->e1670[1] = rd(0x160e4);
+	s->e1630[0] = rd(0x6040);
+	s->e1630[1] = rd(0x6044);
+	s->e1630[2] = sys_rd(0x2a040);
+	s->e1630[3] = sys_rd(0x2a044);
+}
+
 #endif /* TX_ISP_T32_STATS_H */
