@@ -33,7 +33,7 @@ extern u32 t32_data_e17c0[4], t32_data_e2450[4];
 extern u8 t32_data_e1460[8], t32_data_dc284[1808];
 extern u32 t32_data_e1464[4], t32_data_e1474[4], t32_data_e1484[4];
 
-extern u32 t32o_arg5, t32o_arg6;
+extern u32 t32o_arg5, t32o_arg6, t32o_arg7;
 extern u32 (*t32o_rd_hook)(u32 reg);
 typedef u64 (*t32o_fn)(u32, u32, u32, u32, u32);
 
