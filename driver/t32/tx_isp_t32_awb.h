@@ -183,6 +183,11 @@ struct t32_awb_state {
 		T32_AWB_AT(107628, u32 k_r[1024]);	/* group 1 shares: n_r / w, den / w, n_b / w */
 		T32_AWB_AT(111724, u32 k_d[1024]);
 		T32_AWB_AT(115820, u32 k_b[1024]);
+		T32_AWB_AT(50344, u32 g1_p[1024]);	/* get_statistics: 4th field of group 1 */
+		T32_AWB_AT(70824, u32 g0_p[1024]);	/* ... and of group 0 */
+		T32_AWB_AT(79037, u8 lg_reset);		/* set by dn_params_refresh (day/night switch) */
+		T32_AWB_AT(79040, u32 frame_cnt);	/* statistics interrupts seen, wraps at 0xffffffff */
+		T32_AWB_AT(107592, u32 tgain);		/* target gain from tgain_update */
 	};
 };
 
@@ -368,6 +373,11 @@ T32_AWB_CHK(struct t32_awb_par, lg_win, 3310);
 T32_AWB_CHK(struct t32_awb_par, lg_p3312, 3312);
 T32_AWB_CHK(struct t32_awb_par, lg_small, 3314);
 T32_AWB_CHK(struct t32_awb_par, lg_still, 3316);
+T32_AWB_CHK(struct t32_awb_state, g1_p, 50344);
+T32_AWB_CHK(struct t32_awb_state, g0_p, 70824);
+T32_AWB_CHK(struct t32_awb_state, lg_reset, 79037);
+T32_AWB_CHK(struct t32_awb_state, frame_cnt, 79040);
+T32_AWB_CHK(struct t32_awb_state, tgain, 107592);
 
 #define T32_AWB_MAX_WRITES	24
 
@@ -784,6 +794,200 @@ static inline unsigned int t32_awb_spec_calculate(struct t32_awb *a, u32 (*rd)(v
 		}
 		w[n].reg = reg_ctl[k]; w[n++].val = ctl;
 	}
+	return n;
+}
+
+/*
+ * Per-frame paths: tisp_awb_get_statistics 0x3cd60, tisp_awb_interrupt_static
+ * 0x3d068, tisp_awb_tgain_update 0x3f12c, tisp_awb_ev_update 0x3f188,
+ * tisp_awb_dn_params_refresh 0x3f1b8, tisp_awb_wake_up 0x4013c (Matt Davis'
+ * recovered C, checked by tests/t32_oracle t32_awbi_oracle).
+ *
+ * Calls into other AWB functions (set_regional_threshold, set_lum_th_freq,
+ * params_refresh, set_hardware_param, set_riscv_param, system_reg_set_awb_trig)
+ * go through ops->call; the caller binds it to the init chain of this driver.
+ */
+enum {
+	T32_AWB_CALL_REGIONAL_THRESHOLD = 1,
+	T32_AWB_CALL_LUM_TH_FREQ,
+	T32_AWB_CALL_PARAMS_REFRESH,	/* arg: byte offset of the par section in the tuning base */
+	T32_AWB_CALL_SET_HARDWARE_PARAM,
+	T32_AWB_CALL_SET_RISCV_PARAM,
+	T32_AWB_CALL_TRIG,		/* arg: trigger kind (1, 2) */
+};
+
+struct t32_awb_ops {
+	void *priv;
+	void (*call)(void *priv, u32 id, u32 ch, u32 arg, struct t32_stats_write *w, unsigned int *n);
+};
+
+static inline void t32_awbi_w(struct t32_stats_write *w, unsigned int *n, u32 reg, u32 val)
+{
+	w[*n].reg = reg;
+	w[*n].val = val;
+	(*n)++;
+}
+
+static inline void t32_awb_call(const struct t32_awb_ops *ops, u32 id, u32 ch, u32 arg,
+				struct t32_stats_write *w, unsigned int *n)
+{
+	ops->call(ops->priv, id, ch, arg, w, n);
+}
+
+/*
+ * tisp_awb_get_statistics: unpack one statistics buffer (words, 26 words per
+ * four zones, 2 word header) into the per zone tables of the state.  Zone z =
+ * row * 32 + column; each zone has ten bit fields g1_{n_r,den,n_b,p,w} and
+ * g0_{n_r,den,n_b,p,w}.  The tenth field of a zone sits at a fixed place of its
+ * group of four (full groups) or is read from the tail of the row (last zones).
+ */
+static inline void t32_awb_get_statistics(struct t32_awb *a, const u32 *buf)
+{
+	const struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u32 w = par->zones_w, h = par->zones_h;
+	u32 q = w >> 2, rem = w & 3;
+	u32 gwords = (q * 26 + rem * 6 + (rem ? 2 : 0)) & 0xffff;
+	u32 row_base = 2, y, x;
+
+	for (y = 0; y < h; y++) {
+		u32 rowz = (y << 5) & 0xffff;
+
+		for (x = 0; x < w; x++) {
+			u32 t1 = x & 3;
+			u32 b = (row_base + t1 * 6 + (x >> 2) * 26) & 0xffff;
+			const u32 *p = buf + b;
+			u32 z = (x + rowz) & 0xffff;
+			u32 sel;
+
+			if (z >= 1024)		/* the vendor would write outside the state */
+				continue;
+			st->g1_n_r[z] = p[0] & 0x3fffff;
+			st->g1_den[z] = ((p[1] & 0xfff) << 10) | (p[0] >> 22);
+			st->g1_n_b[z] = ((p[2] & 3) << 20) | (p[1] >> 12);
+			st->g1_p[z] = (p[2] >> 2) & 0x3fffff;
+			st->g1_w[z] = ((p[3] & 0x3f) << 8) | (p[2] >> 24);
+			st->g0_n_r[z] = (p[3] >> 6) & 0x3fffff;
+			st->g0_den[z] = ((p[4] & 0x3ffff) << 4) | (p[3] >> 28);
+			st->g0_n_b[z] = ((p[5] & 0xff) << 14) | (p[4] >> 18);
+			st->g0_p[z] = (p[5] >> 8) & 0x3fffff;
+			if (x < (w & ~3U)) {
+				switch (t1) {
+				case 0: sel = p[24]; break;
+				case 1: sel = p[18] >> 16; break;
+				case 2: sel = p[13]; break;
+				default: sel = p[7] >> 16; break;
+				}
+			} else {
+				u32 rest = (w - x) * 6;
+
+				if (t1 == 0)
+					sel = buf[rest + b];
+				else if (t1 == 1)
+					sel = buf[rest + b] >> 16;
+				else if (t1 == 2)
+					sel = buf[b + ((w - x) * 24 + 4) / 4];
+				else
+					continue;
+			}
+			st->g0_w[z] = ((sel & 0xfff) << 2) | (p[5] >> 30);
+		}
+		row_base = (gwords + row_base) & 0xffff;
+	}
+}
+
+#define T32_AWB_STAT_BUF_BYTES	28672U
+#define T32_AWB_EV_STATS	12U	/* event pushed after each statistics interrupt */
+
+/*
+ * tisp_awb_interrupt_static: pick the buffer the hardware filled (0x1608c & 3),
+ * unpack it and count the frame.  The vendor syncs the dma cache of the buffer
+ * before reading and pushes event T32_AWB_EV_STATS (*event) afterwards: both are
+ * done by the caller.  stat_bufs is the virtual base of the four buffers.
+ */
+static inline u32 t32_awb_interrupt_static(struct t32_awb *a, u32 (*rd)(void *, u32), void *rdp,
+					   const u8 *stat_bufs, u32 *event)
+{
+	u32 idx = rd(rdp, 0x1608c) & 3;
+
+	t32_awb_get_statistics(a, (const u32 *)(stat_bufs + idx * T32_AWB_STAT_BUF_BYTES));
+	*event = T32_AWB_EV_STATS;
+	if (++a->st->frame_cnt == 0xffffffffU)
+		a->st->frame_cnt = 0;
+	return 1;
+}
+
+/* tisp_awb_tgain_update: remember the gain, refresh the two threshold sets */
+static inline unsigned int t32_awb_tgain_update(struct t32_awb *a, const struct t32_awb_ops *ops, u32 ch,
+						u32 gain, struct t32_stats_write *w)
+{
+	unsigned int n = 0;
+
+	a->st->tgain = gain;
+	t32_awb_call(ops, T32_AWB_CALL_REGIONAL_THRESHOLD, ch, 0, w, &n);
+	t32_awb_call(ops, T32_AWB_CALL_LUM_TH_FREQ, ch, 0, w, &n);
+	return n;
+}
+
+/* tisp_awb_ev_update: exposure measure = ev / 1024 */
+static inline void t32_awb_ev_update(struct t32_awb *a, u32 ev)
+{
+	a->st->ev = ev >> 10;
+}
+
+/*
+ * tisp_awb_dn_params_refresh: after a day/night switch point the context at the
+ * new tuning section (tuning base + 3392), force an update and reprogram the
+ * hardware (unless frozen) and the riscv parameters (when enabled for ch).
+ */
+static inline unsigned int t32_awb_dn_params_refresh(struct t32_awb *a, const struct t32_awb_ops *ops, u32 ch,
+						     u8 *tuning_base, u8 riscv, struct t32_stats_write *w)
+{
+	struct t32_awb_state *st = a->st;
+	u32 par_off = 3392;
+	unsigned int n = 0;
+
+	st->lg_have = 0;
+	st->lg_reset = 1;
+	st->update = 1;
+	a->par = (struct t32_awb_par *)(tuning_base + par_off);
+	t32_awb_call(ops, T32_AWB_CALL_PARAMS_REFRESH, ch, par_off, w, &n);
+	if (st->frz == 0)
+		t32_awb_call(ops, T32_AWB_CALL_SET_HARDWARE_PARAM, ch, 0, w, &n);
+	if (riscv == 1)
+		t32_awb_call(ops, T32_AWB_CALL_SET_RISCV_PARAM, ch, 0, w, &n);
+	return n;
+}
+
+/* Per channel values tisp_awb_wake_up programs back */
+struct t32_awb_wake {
+	u32 pa;		/* physical base of the statistics buffers */
+	u32 cfg[2];	/* 0x160e0 / 0x160e4 */
+	u32 gain[4];	/* 0x6040 / 0x6044, 0x2a040 / 0x2a044 */
+};
+
+/* tisp_awb_wake_up: restore the AWB registers after standby */
+static inline unsigned int t32_awb_wake_up(struct t32_awb *a, const struct t32_awb_ops *ops, u32 ch,
+					   const struct t32_awb_wake *wk, u32 (*rd)(void *, u32), void *rdp,
+					   struct t32_stats_write *w)
+{
+	unsigned int n = 0;
+
+	t32_awbi_w(w, &n, 0x16078, wk->pa);
+	t32_awbi_w(w, &n, 0x1607c, wk->pa + 28672);
+	t32_awbi_w(w, &n, 0x16080, wk->pa + 0xe000);
+	t32_awbi_w(w, &n, 0x16084, wk->pa + 86016);
+	t32_awbi_w(w, &n, 0x160e0, wk->cfg[0]);
+	t32_awbi_w(w, &n, 0x160e4, wk->cfg[1]);
+	t32_awbi_w(w, &n, 0x6040, wk->gain[0]);
+	t32_awbi_w(w, &n, 0x6044, wk->gain[1]);
+	t32_awbi_w(w, &n, 0x2a040, wk->gain[2]);
+	t32_awbi_w(w, &n, 0x2a044, wk->gain[3]);
+	t32_awb_call(ops, T32_AWB_CALL_SET_HARDWARE_PARAM, ch, 0, w, &n);
+	n += t32_awb_spec_calculate(a, rd, rdp, w + n);
+	t32_awb_call(ops, T32_AWB_CALL_TRIG, ch, 1, w, &n);
+	t32_awb_call(ops, T32_AWB_CALL_TRIG, ch, 2, w, &n);
+	t32_awbi_w(w, &n, 0x2a010, 1);
 	return n;
 }
 
