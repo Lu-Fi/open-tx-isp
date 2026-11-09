@@ -950,4 +950,244 @@ static inline void t32_awb_set_statis_localtion(const struct t32_awb_ctx *c, con
 	c->sec[T32_AWB_SEC_WCLR] = 0;
 }
 
+/*
+ * Per-frame AE exposure allocation (vendor tisp_ae_short_expt,
+ * tisp_ae_short_ev_alloc, tisp_ae_long_ev_alloc; Matt Davis' recovered C),
+ * checked by tests/t32_oracle (t32_aee_oracle).  Register writes go to w[]
+ * (direct addresses, the vendor's t32_data_d03a0 = 0 case); the fixed point
+ * maths, the sensor setters, events and the helpers are hooks.
+ */
+struct t32_ae_ev_ops {
+	u32 (*mult3_32)(u32 shift, u32 a, u32 b, u32 c);
+	u32 (*mult2_32)(u32 shift, u32 a, u32 b);
+	t32_u64 (*mult3_64)(u32 shift, t32_u64 a, t32_u64 b, t32_u64 c);
+	t32_u64 (*div_64)(u32 shift, t32_u64 a, t32_u64 b);
+	t32_u64 (*bilinear)(t32_u64 x, t32_u64 e0, t32_u64 e1, u32 y0, u32 y1);
+	u32 (*log2)(u32 v, u32 a, u32 b);
+	u32 (*reg_read)(u32 ch, u32 reg);
+	u32 (*running_mode)(const u8 *st0);
+	u32 (*get_bv)(u32 ch);
+	void (*short_calc)(u32 ch, t32_u64 v, u32 *o_a, u32 *o_b, u32 *o_c);
+	void (*set_it)(u32 ch, int long_exp);
+	void (*set_ag)(u32 ch, int long_exp);
+	void (*event)(u32 ch, const u32 *w);
+};
+
+static inline void t32_wr64(u8 *p, u32 o, t32_u64 v)
+{
+	t32_wr32(p, o, (u32)v);
+	t32_wr32(p, o + 4, (u32)(v >> 32));
+}
+
+static inline t32_u64 t32_ae_tab(const u8 *tune, u32 o, u32 sh)
+{
+	return t32_ld64(tune, o) << (sh & 63);
+}
+
+/* not below 1 << shift (sign extended like the vendor) */
+static inline t32_u64 t32_ae_exp_floor(t32_u64 v, u32 sh)
+{
+	t32_u64 lim = (t32_u64)(long long)(int)(1U << (sh & 31));
+
+	return v < lim ? lim : v;
+}
+
+static inline void t32_ae_short_expt(u32 ch, u8 *tune, u8 *st, const struct t32_ae_ev_ops *ops)
+{
+	u32 sh = t32_st16(tune, 1736), i, o_a = 1, o_b = 1024, o_c = 1024;
+	t32_u64 x, v;
+
+	x = ops->mult3_64(sh, (t32_u64)t32_ld32(st, 576) << (sh & 63), t32_ld32(st, 580),
+			  t32_ld32(st, 588));
+	if (t32_st16(tune, 1228)) {
+		v = ops->div_64(sh, x, (t32_u64)t32_st16(tune, 1230) << (sh & 63));
+	} else {
+		for (i = 0; i < 15; i++) {
+			t32_u64 in = t32_ld64(tune, 8 + 8 * i), out = in;
+
+			if (t32_st16(tune, 2956) == 1) {
+				t32_u64 pr = (in & 0xffffffffULL) * t32_st16(tune, 2962);
+				u32 hi = (u32)(pr >> 32) + (u32)(in >> 32) * t32_st16(tune, 2962);
+
+				out = ((t32_u64)hi << 32 | (u32)pr) >> 7;
+			}
+			if (!out)
+				out = 1;
+			t32_wr64(tune, 248 + 8 * i, out);
+		}
+		if (!(t32_ae_tab(tune, 128, sh) < x)) {
+			v = t32_ae_tab(tune, 248, sh);
+		} else if (!(x < t32_ae_tab(tune, 240, sh))) {
+			v = t32_ae_tab(tune, 360, sh);
+		} else {
+			u32 s = 0;
+
+			for (;;) {
+				if (x < t32_ae_tab(tune, 128 + 8 * s, sh))
+					s++;
+				else if (t32_ae_tab(tune, 136 + 8 * s, sh) < x)
+					s++;
+				else
+					break;
+				s &= 0xff;
+				if (s == 14) {
+					s = 0;
+					break;
+				}
+			}
+			v = (t32_u64)(u32)ops->bilinear(x >> (sh & 63), t32_ld64(tune, 128 + 8 * s),
+							t32_ld64(tune, 136 + 8 * s),
+							t32_ld32(tune, 248 + 8 * s),
+							t32_ld32(tune, 256 + 8 * s)) << (sh & 63);
+		}
+	}
+	v = t32_ae_exp_floor(v, sh);
+	ops->short_calc(ch, v, &o_a, &o_b, &o_c);
+	t32_wr32(st, 592, o_a);
+	t32_wr32(st, 596, o_b);
+	t32_wr32(st, 604, o_c);
+}
+
+static inline unsigned int t32_ae_short_ev_alloc(u32 ch, u8 *tune, u8 *buf, u8 *st, const u8 *st0,
+						 const u8 *dd2d4, const struct t32_ae_ev_ops *ops,
+						 struct t32_stats_write *w)
+{
+	u32 s1 = t32_ld32(tune, 1656) & 0xffff, sh, p, pc, lg, ev[8] = { 0 };
+	unsigned int n = 0;
+	int k;
+
+	if (st0[2183] == 1)
+		s1 = dd2d4[ch * 232 + 123];
+	if (t32_st16(buf, 8568) && !st[1285])
+		return 0;
+	sh = t32_ld32(tune, 1736) & 0xffff;
+	t32_ae_short_expt(ch, tune, st, ops);
+	ops->set_it(ch, 0);
+	ops->set_ag(ch, 0);
+	t32_wr32(buf, 7632, t32_ld32(st, 592));
+	t32_wr32(buf, 7636, t32_ld32(st, 596));
+	t32_wr32(buf, 7644, t32_ld32(st, 604));
+	for (k = (short)s1; k >= 0; k--) {
+		t32_wr32(st, 368 + 4 * (k + 1), t32_ld32(st, 368 + 4 * k));
+		t32_wr32(st, 528 + 4 * (k + 1), t32_ld32(st, 528 + 4 * k));
+		t32_wr32(st, 488 + 4 * (k + 1), t32_ld32(st, 488 + 4 * k));
+	}
+	t32_wr32(st, 368, ops->mult3_32(sh, t32_ld32(st, 592) << (sh & 31), t32_ld32(st, 596),
+					t32_ld32(st, 604)));
+	t32_wr32(st, 528, ops->mult2_32(sh, t32_ld32(st, 596), t32_ld32(st, 604)));
+	t32_wr32(st, 488, t32_ld32(st, 604));
+	p = t32_ld32(st, 488 + 4 * s1);
+	pc = (p & 0xffff) | p << 16;
+	n = t32_stats_add(w, n, 0x3208, pc);
+	n = t32_stats_add(w, n, 0x320c, pc);
+	n = t32_stats_add(w, n, 0x3010, 0xffffffffU);
+	p = t32_ld32(st, 368 + 4 * s1 + 4);
+	t32_wr32(buf, 7508, 0);
+	t32_wr32(buf, 7504, p);
+	ev[2] = 10;
+	ev[4] = p;
+	ev[6] = t32_ld32(buf, 11792);
+	ops->event(ch, ev);
+	lg = ops->log2(t32_ld32(st, 528 + 4 * s1 + 4) << 6, 16, 16);
+	t32_wr32(buf, 7512, lg);
+	t32_wr32(buf, 7516, 0);
+	memset(ev, 0, sizeof(ev));
+	ev[2] = 8;
+	ev[4] = lg;
+	ev[6] = t32_ld32(buf, 11792);
+	ops->event(ch, ev);
+	return n;
+}
+
+static inline unsigned int t32_ae_long_ev_alloc(u32 ch, u8 *tune, u8 *buf, u8 *st, u8 *st0,
+						const u8 *dd2d4, u32 ctx8,
+						const struct t32_ae_ev_ops *ops,
+						struct t32_stats_write *w)
+{
+	u32 sh = t32_ld32(tune, 1736) & 0xffff, s3 = t32_ld32(tune, 1656) & 0xffff;
+	u32 i, p, pc, bv, rd, lg, ev[8] = { 0 };
+	unsigned int n = 0;
+	t32_u64 e;
+	int k;
+
+	st0[2183] = (u8)ops->running_mode(st0);
+	if (st0[2183] == 1)
+		s3 = dd2d4[ch * 232 + 123];
+	ops->set_it(ch, 1);
+	ops->set_ag(ch, 1);
+	t32_wr32(buf, 7616, t32_ld32(st, 576));
+	t32_wr32(buf, 7620, t32_ld32(st, 580));
+	t32_wr32(buf, 7628, t32_ld32(st, 588));
+	for (i = 0; i < 255; i++)
+		t32_wr32(buf, 8700 + 4 * i, t32_ld32(buf, 8704 + 4 * i));
+	t32_wr32(buf, 9720, t32_ld32(st, 576));
+	for (i = 0; i < 255; i++)
+		t32_wr32(buf, 9724 + 4 * i, t32_ld32(buf, 9728 + 4 * i));
+	t32_wr32(buf, 10744, t32_ld32(st, 580));
+	for (i = 0; i < 255; i++)
+		t32_wr32(buf, 10748 + 4 * i, t32_ld32(buf, 10752 + 4 * i));
+	t32_wr32(buf, 11768, t32_ld32(st, 588));
+	for (k = (short)s3; k >= 0; k--) {
+		t32_wr32(st, 8 * (k + 1), t32_ld32(st, 8 * k));
+		t32_wr32(st, 8 * (k + 1) + 4, t32_ld32(st, 8 * k + 4));
+		t32_wr32(st, 328 + 4 * (k + 1), t32_ld32(st, 328 + 4 * k));
+	}
+	e = ops->mult3_64(sh, (t32_u64)t32_ld32(st, 576) << (sh & 63), t32_ld32(st, 580),
+			  t32_ld32(st, 588));
+	i = ops->mult2_32(sh, t32_ld32(st, 580), t32_ld32(st, 588));
+	t32_wr64(st, 0, e);
+	t32_wr32(st, 328, i);
+	for (k = (short)s3; k >= 0; k--) {
+		t32_wr32(st, 248 + 4 * (k + 1), t32_ld32(st, 248 + 4 * k));
+		t32_wr32(st, 288 + 4 * (k + 1), t32_ld32(st, 288 + 4 * k));
+	}
+	t32_wr32(st, 248, t32_ld32(st, 580));
+	t32_wr32(st, 288, t32_ld32(st, 588));
+	bv = ops->get_bv(ch);
+	p = t32_ld32(st, 288 + 4 * s3);
+	pc = (p & 0xffff) | p << 16;
+	n = t32_stats_add(w, n, 0x3058, pc);
+	n = t32_stats_add(w, n, 0x305c, pc);
+	if (!ctx8) {
+		n = t32_stats_add(w, n, 0x3208, pc);
+		n = t32_stats_add(w, n, 0x320c, pc);
+	}
+	n = t32_stats_add(w, n, 0x3010, 0xffffffffU);
+	rd = ops->reg_read(ch, 0x3044);
+	n = t32_stats_add(w, n, 0x26048, p << 16 | (rd & 0x1ff));
+	n = t32_stats_add(w, n, 0x2603c, 1);
+	t32_wr32(buf, 7472, t32_ld32(st, 8 * (s3 + 1)));
+	t32_wr32(buf, 7476, t32_ld32(st, 8 * (s3 + 1) + 4));
+	ev[2] = 6;
+	if (!st[1695]) {
+		ev[4] = t32_ld32(st, 8 * (s3 + 1));
+		ev[5] = t32_ld32(st, 8 * (s3 + 1) + 4);
+	} else {
+		st[1695]--;
+		ev[4] = t32_ld32(tune, 368) << 10;
+		ev[5] = t32_ld32(tune, 372) << 10 | t32_ld32(tune, 368) >> 22;
+	}
+	ev[6] = bv;
+	ops->event(ch, ev);
+	lg = ops->log2(t32_ld32(st, 328 + 4 * s3 + 4) << 6, 16, 16);
+	t32_wr32(buf, 7480, lg);
+	t32_wr32(buf, 7484, 0);
+	if (t32_ld32(buf, 11784) == 1)
+		lg = t32_ld32(buf, 11788);
+	memset(ev, 0, sizeof(ev));
+	ev[2] = 4;
+	ev[4] = lg;
+	ev[6] = bv;
+	ops->event(ch, ev);
+	t32_wr32(buf, 11788, lg);
+	lg = ops->log2(t32_ld32(st, 248 + 4 * s3 + 4) << 6, 16, 16);
+	t32_wr32(buf, 7488, lg);
+	t32_wr32(buf, 7492, 0);
+	memset(ev, 0, sizeof(ev));
+	ev[2] = 5;
+	ev[4] = lg;
+	ops->event(ch, ev);
+	return n;
+}
+
 #endif /* TX_ISP_T32_STATS_H */

@@ -42,6 +42,8 @@ void t32o_reset(void);
 extern u8 t32o_ctbss[0x1270];
 extern u32 t32o_ct_stop, t32o_ct_stack[208], t32o_ct_reg[28];
 extern u32 t32o_complete_n, t32o_complete_arg, t32o_ev_n, t32o_ev_ch, t32o_ev_w[8];
+#define T32O_EVLOG 16
+extern u32 t32o_evlog[T32O_EVLOG][9];
 extern u8 t32_data_e1690[4];
 extern u32 t32o_pr_stop, t32o_pr_reg[28];
 extern u32 t32o_lg_stop, t32o_lg_stack[116], t32o_lg_reg[28];
