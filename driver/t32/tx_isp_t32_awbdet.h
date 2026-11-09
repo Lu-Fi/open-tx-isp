@@ -45,6 +45,9 @@
  * down and the mean taken again (t32_awb_ct_detect_mean).
  * Phase 13 (L_23398 .. L_236d8): with par+316 == 1 the zones are sorted into the ct limit rectangles
  * (t32_awb_ct_detect_limits); otherwise, or when ended, Ct_Cal and the output (t32_awb_ct_detect_finish).
+ * Phase 14 (L_236d8 .. L_23a7c): mean of each rectangle, near-mean zone counts, rectangles sorted by
+ * falling count (t32_awb_ct_detect_cells).  Phase 15 (L_23a7c .. L_23c10): two percentages of the
+ * over-limit zones mapped through two ramps (t32_awb_ct_detect_ramps).
  */
 #ifndef TX_ISP_T32_AWBDET_H
 #define TX_ISP_T32_AWBDET_H
@@ -56,8 +59,8 @@
 struct t32_awb_ctd {
 	u32 acc[7][10];		/* ten accumulators each (filled by later phases) */
 	u8 idx[10];		/* 0 .. 9 (rodata bf150) */
-	u16 lim_a[3];		/* first three entries of st.lim_a (t32_data_dbf28) */
-	u16 lim_b[3];		/* first three entries of st.lim_b (t32_data_dbf14) */
+	u16 lim_a[10];		/* t32_data_dbf28: the first three entries of st.lim_a, the rest is left alone (.bss of the vendor) */
+	u16 lim_b[10];		/* t32_data_dbf14: the same for st.lim_b */
 	u16 tab_b[4];		/* the next four entries of lim_a / lim_b */
 	u16 tab_c[4];
 	u32 nlim;		/* number of leading non-zero ct_lim entries, 0 when all ten are */
@@ -76,6 +79,10 @@ struct t32_awb_ctd {
 	u32 sw, sb, sr;		/* their totals, locals s8+68 / s8+72 / s8+76 */
 	u32 mr, mb;		/* mean r, b (s8+116 / s8+120) */
 	u32 var, vr, vb;	/* mean squared distance (s8+248) and the weighted r, b sums of the second pass (s8+144 / s8+156) */
+	u32 cm[5][10];		/* t32_data_dafd0 / dafa8 / daf80 / daf58 / daf30: mean of acc[1], acc[2], acc[4], acc[5], acc[6] per rectangle (phase 14) */
+	u8 ord[10];		/* t32_data_daf24: original index of each (sorted) rectangle */
+	u32 tot;		/* sum of the counts, 16 bit */
+	u32 ct_a, ct_b;		/* phase 15: ramps of the over-limit percentages (registers a2 / a1 at L_23c10) */
 	u32 nb_hi, nr_hi, nrb;	/* phase 13 counters, locals s8+112 / s8+124 / s8+108 */
 	u32 ran;		/* 0: no variance pass, 1: first pass only (var 0), 2: both */
 };
@@ -940,6 +947,149 @@ static inline void t32_awb_ct_detect_finish(struct t32_awb *a, const struct t32_
 	out[0] = d->mr;
 	out[1] = d->mb;
 	valid[0] = valid[1] = 0;
+}
+
+/*
+ * Phase 14 (L_236d8 .. L_23a7c).  nlim rectangles (phase 13), their zone counts acc[0][k]:
+ *  - hw16[k] = 0 and the sum of the counts; no zone in any rectangle: returns 1 (Ct_Cal and
+ *    the output, t32_awb_ct_detect_finish);
+ *  - hw16[k] = count (16 bit) and the mean of each rectangle: cm[0] = r sum / count, cm[1] = b
+ *    sum / count, cm[2] = acc[4] / count, cm[3] = acc[5] / count, cm[4] = acc[6] / count (all 0
+ *    for an empty one);
+ *  - acc[3][k] counts the zones whose zlim is k and whose (r, b) lie within a squared distance
+ *    below 1000 of the mean of rectangle k (the vendor reads the mean tables of every zlim, a
+ *    zone outside the hull has zlim = nlim and sees the unwritten entry nlim: 0 here, as in the
+ *    cleared vendor tables);
+ *  - the rectangles sorted by falling count (bubble sort, equal counts keep their order) along
+ *    with the means, acc[3] (raised to 1 where 0) and ord (original index).
+ * hw16 is the u16 array at hw + 4246.  Returns -1 for a grid over 32 or a zlim above 9 (the
+ * vendor indexes its ten entry tables with it).
+ */
+static inline int t32_awb_ct_detect_cells(struct t32_awb *a, struct t32_awb_ctd *d)
+{
+	struct t32_awb_par *par = a->par;
+	struct t32_awb_state *st = a->st;
+	u16 *hw16 = (u16 *)(a->hw->raw + 4246);
+	u32 rows = par->zones_h, cols = par->zones_w;
+	u32 n = d->nlim, sum = 0, row, col, i, j, pass;
+
+	if (rows > 32 || cols > 32)
+		return -1;
+	for (i = 0; i < n; i++) {
+		hw16[i] = 0;
+		sum += d->acc[0][i];
+	}
+	if (!sum)
+		return 1;
+	for (row = 0; row < rows; row++)
+		for (col = 0; col < cols; col++)
+			if ((st->zlim[row * 32 + col] & 0xff) > 9)
+				return -1;
+	for (i = 0; i < n; i++) {
+		u32 c = d->acc[0][i];
+
+		hw16[i] = (u16)c;
+		d->cm[0][i] = c ? d->acc[1][i] / c : 0;
+		d->cm[1][i] = c ? d->acc[2][i] / c : 0;
+		d->cm[2][i] = c ? d->acc[4][i] / c : 0;
+		d->cm[3][i] = c ? d->acc[5][i] / c : 0;
+		d->cm[4][i] = c ? d->acc[6][i] / c : 0;
+	}
+	for (row = 0; row < rows; row++) {
+		for (col = 0; col < cols; col++) {
+			u32 z = row * 32 + col, k = st->zlim[z] & 0xff;
+			u32 dr = t32_awb_absdiff(d->cm[0][k], st->zs2[0][z]), db = t32_awb_absdiff(d->cm[1][k], st->zs2[1][z]);
+
+			if (db * db + dr * dr < 1000)
+				d->acc[3][k]++;
+		}
+	}
+	d->tot = 0;
+	for (i = 0; i < n; i++) {
+		d->ord[i] = (u8)i;
+		if (!d->acc[3][i])
+			d->acc[3][i] = 1;
+		d->tot = (d->tot + d->acc[0][i]) & 0xffff;
+	}
+	for (pass = n - 1; pass; pass--) {
+		for (j = 0; j < pass; j++) {
+			u32 t, c;
+			u8 o;
+
+			if (!(d->acc[0][j] < d->acc[0][j + 1]))
+				continue;
+			t = d->acc[0][j]; d->acc[0][j] = d->acc[0][j + 1]; d->acc[0][j + 1] = t;
+			for (c = 0; c < 5; c++) {
+				t = d->cm[c][j]; d->cm[c][j] = d->cm[c][j + 1]; d->cm[c][j + 1] = t;
+			}
+			t = d->acc[3][j]; d->acc[3][j] = d->acc[3][j + 1]; d->acc[3][j + 1] = t;
+			o = d->ord[j]; d->ord[j] = d->ord[j + 1]; d->ord[j + 1] = o;
+		}
+	}
+	return 0;
+}
+
+/* Ramp of four (x, y) points with falling x: y[0] above x[0], y[3] at or below x[3], else the line
+ * through the interval that holds v (signed 32 bit arithmetic as in the vendor; 0 when none does) */
+static inline u32 t32_awb_ramp_down(const u16 *x, const u16 *y, int v)
+{
+	u32 i, res = 0;
+
+	if ((int)x[0] < v)
+		return y[0];
+	if (!((int)x[3] < v))
+		return y[3];
+	for (i = 0; i < 3; i++) {
+		u32 w, p;
+
+		if (!((int)x[i + 1] < v) || (int)x[i] < v)
+			continue;
+		w = (u32)x[i] - x[i + 1];
+		p = (u32)y[i] * w + ((u32)y[i + 1] - y[i]) * ((u32)x[i] - (u32)v);
+		res = (u32)((int)p / (int)w) & 0xffff;
+	}
+	return res;
+}
+
+/* The same for rising x and an unsigned v. */
+static inline u32 t32_awb_ramp_up(const u16 *x, const u16 *y, u32 v)
+{
+	u32 i, res = 0;
+
+	if (v < x[0])
+		return y[0];
+	if (!(v < x[3]))
+		return y[3];
+	for (i = 0; i < 3; i++) {
+		u32 w, p;
+
+		if (!(v < x[i + 1]) || v < x[i])
+			continue;
+		w = (u32)x[i + 1] - x[i];
+		p = (u32)y[i] * w + ((u32)y[i + 1] - y[i]) * (v - x[i]);
+		res = (u32)((int)p / (int)w) & 0xffff;
+	}
+	return res;
+}
+
+/*
+ * Phase 15 (L_23a7c .. L_23c10).  Percentages of the zones over the limits, rounded:
+ * pb = (nb_hi * 100 + nrb / 2) / nrb as a signed 16 bit value, pr = (nr_hi * 100 + nrb / 2) / nrb
+ * as an unsigned 16 bit one (both 0 when nrb is 0).  ct_a = ramp_down(par+5226, par+5234, pb),
+ * ct_b = ramp_up(tab_b, tab_c, pr).
+ */
+static inline void t32_awb_ct_detect_ramps(struct t32_awb *a, struct t32_awb_ctd *d)
+{
+	struct t32_awb_par *par = a->par;
+	int pb = 0;
+	u32 pr = 0;
+
+	if (d->nrb) {
+		pb = (short)t32_awb_udiv(d->nb_hi * 100 + (d->nrb >> 1), d->nrb);
+		pr = t32_awb_udiv(d->nr_hi * 100 + (d->nrb >> 1), d->nrb) & 0xffff;
+	}
+	d->ct_a = t32_awb_ramp_down((const u16 *)(par->raw + 5226), (const u16 *)(par->raw + 5234), pb);
+	d->ct_b = t32_awb_ramp_up(d->tab_b, d->tab_c, pr);
 }
 
 #endif /* TX_ISP_T32_AWBDET_H */

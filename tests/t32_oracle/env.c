@@ -644,4 +644,4 @@ __asm__(".globl t32_data_dbfb4\n.set t32_data_dbfb4, t32o_ctbss + 0x11c4");
 __asm__(".globl t32_data_dbfdc\n.set t32_data_dbfdc, t32o_ctbss + 0x11ec");
 __asm__(".globl t32_data_dc004\n.set t32_data_dc004, t32o_ctbss + 0x1214");
 __asm__(".globl t32_data_dc02c\n.set t32_data_dc02c, t32o_ctbss + 0x123c");
-u32 t32o_ct_stop, t32o_ct_stack[208];	/* set by the truncated ct_detect reference (trunc_ct3.sh) */
+u32 t32o_ct_stop, t32o_ct_stack[208], t32o_ct_reg[28];	/* set by the truncated ct_detect reference (trunc_ct3.sh) */
