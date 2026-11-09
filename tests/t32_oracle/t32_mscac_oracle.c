@@ -7,7 +7,11 @@
  * block, the coefficient arrays, the shadow words (e2740), e2758, e2898 and
  * the u16 counter.  Exit 1 on the first mismatch.
  *
- * Direct register mode only (t32_data_d03a0 == 0).  t32_data_e2740 and
+ * Each case also runs the vendor with t32_data_d03a0 = 1 (the vendor default:
+ * writes queued as shadow index -> value) and checks that only the addresses
+ * change, through one fixed index <-> register mapping; our port models the
+ * direct addresses.  The other channels' e28ac / e2768 / e2898 slots point at
+ * decoy copies that must stay unchanged.  t32_data_e2740 and
  * t32_data_e2758 are not declared by t32_oracle_env.h; they are defined weak
  * here so an env.c definition wins if it exists.
  */
@@ -133,19 +137,42 @@ static void gen(struct cs *s)
 	s->pend = (u8)(rnd() % 3);
 }
 
-static int check(const char *what, int which, u32 chi, u32 arg0, u32 x, const struct cs *in)
+struct cap {
+	struct t32_front_write w[MAXW];
+	unsigned int n;
+	u8 p[PB], sets[SB];
+	u16 coef[T32_MSCA_COEFS], cnt;
+	u32 shadow[6], scale;
+	u8 pend;
+};
+
+/*
+ * tisp_reg_write (fn_1c790) is replaced here: mode 0 (t32_data_d03a0 != 1)
+ * is its system_reg_write tail call; in mode 1 the vendor queues
+ * (index, value) into the register shadow, logged as 0x80000000 | index.
+ */
+u64 system_reg_write(u32 a0, u32 a1, u32 a2, u32 a3);
+u64 tisp_reg_write(u32 a0, u32 a1, u32 a2, u32 a3)
 {
-	u8 *pb, *sb, *cx, *cp;
-	u8 rp[PB], rsets[SB];
-	u16 rcoef[T32_MSCA_COEFS], rcnt;
-	u32 rshadow[6], rscale;
-	u8 rpend;
-	struct t32_front_write rw[MAXW], ow[MAXW];
-	unsigned int rn, i;
-	int on = 0;
-	struct t32_msca_ch oc;
-	u8 op[PB], os[SB];
-	u16 ocnt;
+	(void)a0; (void)a3;
+	if (t32_data_d03a0[0] != 1)
+		return system_reg_write(a1, a2, 0, 0);
+	if (t32o_log.n < T32O_MAX_WRITES) {
+		t32o_log.w[t32o_log.n].reg = 0x80000000u | a1;
+		t32o_log.w[t32o_log.n].val = a2;
+		t32o_log.n++;
+	}
+	return 0;
+}
+
+/* shadow index <-> register, learnt over all cases: must stay one to one */
+static u32 idx2reg[4096], reg2idx[0x10000];
+
+/* run one vendor function from state in; the other channels point at decoy copies that must not change */
+static void ref_run(int which, u32 chi, u32 arg0, u32 x, const struct cs *in, u8 mode, struct cap *r)
+{
+	u8 *pb, *sb, *cx, *cp, *dpb, *dsb, *dcx;
+	unsigned int i;
 	u32 pv;
 
 	t32o_reset();
@@ -153,7 +180,10 @@ static int check(const char *what, int which, u32 chi, u32 arg0, u32 x, const st
 	sb = t32o_alloc(SB);
 	cx = t32o_alloc(4 + 300 + 16);
 	cp = t32o_alloc(8);
-	if (!pb || !sb || !cx || !cp) {
+	dpb = t32o_alloc(PB);
+	dsb = t32o_alloc(SB);
+	dcx = t32o_alloc(4 + 300 + 16);
+	if (!pb || !sb || !cx || !cp || !dpb || !dsb || !dcx) {
 		fprintf(stderr, "alloc failed\n");
 		exit(2);
 	}
@@ -163,9 +193,17 @@ static int check(const char *what, int which, u32 chi, u32 arg0, u32 x, const st
 	memcpy(cx, &pv, 4);
 	memcpy(cx + 4, in->coef, sizeof(in->coef));
 	memcpy(cp, &in->cnt, 2);
-	t32_data_e28ac[chi] = T32O_PTR(cx);
-	t32_data_e2768[chi] = T32O_PTR(sb);
-	t32_data_d03a0[0] = 0;
+	memcpy(dpb, pb, PB);
+	memcpy(dsb, sb, SB);
+	memcpy(dcx, cx, 4 + 300 + 16);
+	pv = T32O_PTR(dpb);
+	memcpy(dcx, &pv, 4);
+	for (i = 0; i < 4; i++) {
+		t32_data_e28ac[i] = T32O_PTR(i == chi ? cx : dcx);
+		t32_data_e2768[i] = T32O_PTR(i == chi ? sb : dsb);
+		t32_data_e2898[i] = 0x5a;
+	}
+	t32_data_d03a0[0] = mode;
 	t32_data_e2898[chi] = in->pend;
 	memcpy(t32_data_e2740, in->shadow, sizeof(in->shadow));
 	t32_data_e2758[0] = in->scale;
@@ -190,22 +228,80 @@ static int check(const char *what, int which, u32 chi, u32 arg0, u32 x, const st
 		t32o_call((t32o_fn)(void (*)(void))tisp_msca_params_update, chi, 0, 0, 0, 0);
 		break;
 	}
-	rn = t32o_log.n;
-	if (rn > MAXW) {
-		fprintf(stderr, "ref wrote %u > MAXW\n", rn);
+	r->n = t32o_log.n;
+	if (r->n > MAXW) {
+		fprintf(stderr, "ref wrote %u > MAXW\n", r->n);
 		exit(2);
 	}
-	for (i = 0; i < rn; i++) {
-		rw[i].reg = t32o_log.w[i].reg;
-		rw[i].val = t32o_log.w[i].val;
+	for (i = 0; i < r->n; i++) {
+		r->w[i].reg = t32o_log.w[i].reg;
+		r->w[i].val = t32o_log.w[i].val;
 	}
-	memcpy(rp, pb, PB);
-	memcpy(rsets, sb, SB);
-	memcpy(rcoef, cx + 4, sizeof(rcoef));
-	memcpy(&rcnt, cp, 2);
-	memcpy(rshadow, t32_data_e2740, sizeof(rshadow));
-	rscale = t32_data_e2758[0];
-	rpend = t32_data_e2898[chi];
+	memcpy(r->p, pb, PB);
+	memcpy(r->sets, sb, SB);
+	memcpy(r->coef, cx + 4, sizeof(r->coef));
+	memcpy(&r->cnt, cp, 2);
+	memcpy(r->shadow, t32_data_e2740, sizeof(r->shadow));
+	r->scale = t32_data_e2758[0];
+	r->pend = t32_data_e2898[chi];
+	for (i = 0; i < 4; i++)
+		if (i != chi && t32_data_e2898[i] != 0x5a) {
+			printf("MISMATCH: vendor changed the pending flag of channel %u (ch %u)\n", i, chi);
+			exit(1);
+		}
+	if (memcmp(dpb, in->p, PB) || memcmp(dsb, in->sets, SB) || memcmp(dcx + 4, in->coef, sizeof(in->coef))) {
+		printf("MISMATCH: vendor changed another channel's blocks (ch %u)\n", chi);
+		exit(1);
+	}
+}
+
+/* mode 1 must differ from mode 0 only in the addresses (shadow index instead of register) */
+static int transport_same(const char *what, const struct cap *a, const struct cap *b)
+{
+	unsigned int i;
+
+	if (a->n != b->n || memcmp(a->p, b->p, PB) || memcmp(a->sets, b->sets, SB) ||
+	    memcmp(a->coef, b->coef, sizeof(a->coef)) || a->cnt != b->cnt || a->pend != b->pend ||
+	    a->scale != b->scale || memcmp(a->shadow, b->shadow, sizeof(a->shadow))) {
+		printf("MISMATCH %s: shadow mode (d03a0 1) changes more than the addresses\n", what);
+		return 1;
+	}
+	for (i = 0; i < a->n; i++) {
+		u32 reg = a->w[i].reg, x = b->w[i].reg;
+
+		if (a->w[i].val != b->w[i].val) {
+			printf("MISMATCH %s: shadow mode write #%u value %08x / %08x\n", what, i, a->w[i].val, b->w[i].val);
+			return 1;
+		}
+		if (x == reg)
+			continue;	/* system_reg_write: direct in both modes */
+		x &= ~0x80000000u;
+		if (!(b->w[i].reg & 0x80000000u) || x >= 4096 || reg < 0xf0000 || reg >= 0x100000 ||
+		    (idx2reg[x] && idx2reg[x] != reg) || (reg2idx[reg - 0xf0000] && reg2idx[reg - 0xf0000] != x + 1)) {
+			printf("MISMATCH %s: shadow index %u <-> register %05x not one to one\n", what, x, reg);
+			return 1;
+		}
+		idx2reg[x] = reg;
+		reg2idx[reg - 0xf0000] = x + 1;
+	}
+	return 0;
+}
+
+static int check(const char *what, int which, u32 chi, u32 arg0, u32 x, const struct cs *in)
+{
+	static struct cap r, r1;
+	struct t32_front_write ow[MAXW];
+	unsigned int rn, i;
+	int on = 0;
+	struct t32_msca_ch oc;
+	u8 op[PB], os[SB];
+	u16 ocnt;
+
+	ref_run(which, chi, arg0, x, in, 0, &r);
+	ref_run(which, chi, arg0, x, in, 1, &r1);
+	if (transport_same(what, &r, &r1))
+		return 1;
+	rn = r.n;
 
 	memcpy(op, in->p, PB);
 	memcpy(os, in->sets, SB);
@@ -243,28 +339,28 @@ static int check(const char *what, int which, u32 chi, u32 arg0, u32 x, const st
 		return 1;
 	}
 	for (i = 0; i < rn; i++)
-		if (rw[i].reg != ow[i].reg || rw[i].val != ow[i].val) {
+		if (r.w[i].reg != ow[i].reg || r.w[i].val != ow[i].val) {
 			printf("MISMATCH %s: write #%u vendor %05x=%08x ours %05x=%08x\n", what, i,
-			       (unsigned int)rw[i].reg, (unsigned int)rw[i].val,
+			       (unsigned int)r.w[i].reg, (unsigned int)r.w[i].val,
 			       (unsigned int)ow[i].reg, (unsigned int)ow[i].val);
 			return 1;
 		}
-	if (memcmp(rp, op, PB)) {
+	if (memcmp(r.p, op, PB)) {
 		printf("MISMATCH %s: parameter block\n", what);
 		return 1;
 	}
-	if (memcmp(rsets, os, SB)) {
+	if (memcmp(r.sets, os, SB)) {
 		printf("MISMATCH %s: set block\n", what);
 		return 1;
 	}
-	if (memcmp(rcoef, oc.coef, sizeof(rcoef))) {
+	if (memcmp(r.coef, oc.coef, sizeof(r.coef))) {
 		printf("MISMATCH %s: coefficients\n", what);
 		return 1;
 	}
-	if (rcnt != ocnt || rpend != oc.pending || rscale != oc.scale_bits ||
-	    memcmp(rshadow, oc.shadow, sizeof(rshadow))) {
+	if (r.cnt != ocnt || r.pend != oc.pending || r.scale != oc.scale_bits ||
+	    memcmp(r.shadow, oc.shadow, sizeof(r.shadow))) {
 		printf("MISMATCH %s: state cnt %04x/%04x pend %u/%u scale %08x/%08x\n", what,
-		       rcnt, ocnt, rpend, oc.pending, rscale, oc.scale_bits);
+		       r.cnt, ocnt, r.pend, oc.pending, r.scale, oc.scale_bits);
 		return 1;
 	}
 	return 0;
@@ -297,6 +393,13 @@ int main(void)
 				return 1;
 		}
 	}
-	printf("t32_mscac_oracle: %u compared, 0 mismatches\n", compared);
+	for (c = 0, which = 0; c < 4096; c++)
+		which += idx2reg[c] != 0;
+	if (which < 64) {
+		printf("t32_mscac_oracle: only %d shadow indices seen in mode 1\n", which);
+		return 1;
+	}
+	printf("t32_mscac_oracle: %u compared, 0 mismatches, %d shadow index <-> register pairs one to one\n",
+	       compared, which);
 	return 0;
 }
