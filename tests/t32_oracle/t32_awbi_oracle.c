@@ -12,8 +12,10 @@
  * params_refresh, set_hardware_param, set_riscv_param, system_reg_set_awb_trig)
  * are replaced on both sides by marker writes (reg 0xf000000x, val ch | arg << 8)
  * so call order and arguments are compared; their bodies are covered by
- * t32_awb_oracle.  Not compared: the event pushed by interrupt_static and the
- * dma cache sync arguments.  Statistics zone dimensions are limited to 32 x 32.
+ * t32_awb_oracle.  Also compared: the event interrupt_static pushes (channel,
+ * kind), the mode block, the stat info, the statistics buffers and the
+ * channel globals the vendor reads (none may change).  Not compared: the dma
+ * cache sync arguments.  Statistics zone dimensions are limited to 32 x 32.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,6 +33,7 @@ extern u32 t32_data_e16b4[4], t32_data_e1694[4];
 u32 t32_data_e1670[8];
 u32 t32_data_e1630[16];
 extern u8 t32_data_f0900[8];
+extern u32 t32o_ev_n, t32o_ev_ch, t32o_ev_w[8];
 
 u64 tisp_awb_get_statistics(u32 a0, u32 a1, u32 a2, u32 a3);
 u64 tisp_awb_interrupt_static(u32 a0, u32 a1, u32 a2, u32 a3);
@@ -138,7 +141,8 @@ static int run_case(int kind, u32 ch, u32 zw, u32 zh, u32 fc, u32 arg, u8 riscv)
 	struct t32_awb a;
 	struct t32_awb_ops ops = { 0, ours_call };
 	struct t32_awb_wake wk;
-	u32 evt;
+	u32 evt = 0, ev_n0, mode_i[8], info_i[4], g_e1670[8], g_e1630[16], g_e16b4[4], g_e1694[4], g_dd0a4[4];
+	u8 g_f0900[8];
 	u8 ref_base_c[BASE_SZ];
 	size_t bufb = (kind == K_INT ? 4 : 1) * STB;
 
@@ -193,6 +197,17 @@ static int run_case(int kind, u32 ch, u32 zw, u32 zh, u32 fc, u32 arg, u8 riscv)
 		t32_data_e1630[ch * 4 + i] = gn[i];
 	t32_data_f0900[ch] = riscv;
 	t32o_rd_hook = rd_fn;
+	for (i = 0; i < 8; i++)
+		mode_i[i] = rnd();
+	memcpy(rmode, mode_i, sizeof(mode_i));
+	memcpy(info_i, info, sizeof(info_i));
+	memcpy(g_e1670, t32_data_e1670, sizeof(g_e1670));
+	memcpy(g_e1630, t32_data_e1630, sizeof(g_e1630));
+	memcpy(g_e16b4, t32_data_e16b4, sizeof(g_e16b4));
+	memcpy(g_e1694, t32_data_e1694, sizeof(g_e1694));
+	memcpy(g_dd0a4, t32_data_dd0a4, sizeof(g_dd0a4));
+	memcpy(g_f0900, t32_data_f0900, sizeof(g_f0900));
+	ev_n0 = t32o_ev_n;
 
 	switch (kind) {
 	case K_STAT: t32o_call((t32o_fn)(void (*)(void))tisp_awb_get_statistics, ch, T32O_PTR(rbuf), 0, 0, 0); break;
@@ -253,6 +268,23 @@ static int run_case(int kind, u32 ch, u32 zw, u32 zh, u32 fc, u32 arg, u8 riscv)
 		return fail("state", kind, "state differs");
 	if (memcmp(rhw, our_hw, sizeof(hw_i)))
 		return fail("hw", kind, "hw shadow differs");
+	if (memcmp(rmode, mode_i, sizeof(mode_i)) || memcmp(info, info_i, sizeof(info_i)))
+		return fail("mode/info", kind, "vendor changed the mode block or the stat info");
+	if (rbuf && memcmp(rbuf, buf_i, bufb))
+		return fail("stat buf", kind, "vendor changed the statistics buffer");
+	if (memcmp(g_e1670, t32_data_e1670, sizeof(g_e1670)) || memcmp(g_e1630, t32_data_e1630, sizeof(g_e1630)) ||
+	    memcmp(g_e16b4, t32_data_e16b4, sizeof(g_e16b4)) || memcmp(g_e1694, t32_data_e1694, sizeof(g_e1694)) ||
+	    memcmp(g_dd0a4, t32_data_dd0a4, sizeof(g_dd0a4)) || memcmp(g_f0900, t32_data_f0900, sizeof(g_f0900)))
+		return fail("globals", kind, "vendor changed a channel global");
+	if (kind == K_INT) {
+		if (t32o_ev_n != ev_n0 + 1 || t32o_ev_ch != ch)
+			return fail("event", kind, "event push count / channel differs");
+		if (t32o_ev_w[2] != evt) {
+			printf("  event vendor %u ours %u\n", t32o_ev_w[2], evt);
+			return fail("event", kind, "event kind differs");
+		}
+	} else if (t32o_ev_n != ev_n0)
+		return fail("event", kind, "unexpected event push");
 	return 0;
 }
 
@@ -267,10 +299,16 @@ int main(void)
 		u32 zh = (c & 2) ? rnd() % 33 : 1 + rnd() % 32;
 
 		for (k = 0; k < K_N; k++)
-			if (k != K_INT && run_case((int)k, ch, zw, zh, rnd(), rnd(), (u8)(rnd() % 3)))
+			if (run_case((int)k, ch, zw, zh, rnd(), rnd(), (u8)(rnd() % 3)))
 				return 1;
 	}
-	/* K_INT is not run: env.c already defines tisp_awb_interrupt_static, so the ref cannot be linked */
+	/* frame counter wrap: the vendor resets it when the increment reaches 0xffffffff */
+	for (k = 0; k < 4; k++) {
+		static const u32 fcs[4] = { 0xfffffffdu, 0xfffffffeu, 0xffffffffu, 0 };
+
+		if (run_case(K_INT, k, 1 + k * 7, 32 - k, fcs[k], 0, 0))
+			return 1;
+	}
 	for (k = 1; k <= 4; k++)
 		if (run_case(K_STAT, 0, k, 4, 0, 0, 0) || run_case(K_STAT, 1, 0, 3, 0, 0, 0) ||
 		    run_case(K_STAT, 2, 32, 0, 0, 0, 0))
