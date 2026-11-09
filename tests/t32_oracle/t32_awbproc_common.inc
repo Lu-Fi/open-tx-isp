@@ -326,7 +326,7 @@ int main(void)
 	nbins = bin_cases(dir ? dir : "../external/ingenic-sdk/sensor-iq/t32");
 	printf("paths: calm %u, p8==0 off/on %u/%u, p8!=0 apply %u, hold %u, smooth %u; long left early %u\n", npath[1], npath[2], npath[3],
 	       npath[4], npath[5], npath[6], nrc1);
-	printf("t32_awbpr%d_oracle: random %u, IQ bins %d (%u cases), refused %u, %u register writes, completions %u, counter wraps %u, %u mismatches\n",
+	printf("t32_awbpr%d_oracle: random %u, IQ bins %d (%u cases), refused %u, %u register writes, completions %u, counter zero %u, %u mismatches\n",
 	       PR_PHASE, rc_r, nbins, cases - rc_r, nrefused, nwr, ncompl, nwrap, failed);
 	if (failed)
 		return 1;

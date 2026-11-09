@@ -9,6 +9,10 @@
  *
  * Phase 1 (L_3ed34 .. L_3ed94): tisp_awb_long_par_update, tisp_awb_spec_calculate, tisp_awb_long_alogrithm with the
  * parameter table choice of the first (t32_awb_proc_calc).
+ * Phase 2 (L_3ed94 .. L_3ede0): private_complete(ctx + 16) when the flag word is 1, tisp_awb_set_gain
+ * (t32_awb_proc_gain).
+ * Phase 3 (L_3ede0 .. end): tisp_event_push(ch, {type 11, par->ct, 0}) and the counter (t32_awb_proc_event); the
+ * chained t32_awb_process runs all three.
  */
 #ifndef TX_ISP_T32_AWBPROC_H
 #define TX_ISP_T32_AWBPROC_H
@@ -49,6 +53,28 @@ static inline void t32_awb_proc_gain(struct t32_awb *a, u32 flag, struct t32_awb
 {
 	p->complete = flag == 1;
 	p->nw += t32_awb_set_gain(a, p->w + p->nw);
+}
+
+/* phase 3: the event and the frame counter (counts 0 .. 100) */
+static inline void t32_awb_proc_event(struct t32_awb *a, u16 *counter, struct t32_awb_proc *p)
+{
+	u32 next = *counter + 1;	/* the vendor masks with 0xffff; 65536 is not below 101 either way */
+
+	p->ev.type = 11;
+	p->ev.ct = a->par->ct;
+	p->ev.arg = 0;
+	*counter = next < 101 ? next : 0;
+}
+
+/* the whole tisp_awb_process; returns -1 when the long algorithm refuses the case */
+static inline int t32_awb_process(struct t32_awb *a, struct t32_awb_ctd *d, u32 (*rd)(void *, u32), void *rdp, u32 flag,
+				  u16 *counter, struct t32_awb_proc *p)
+{
+	if (t32_awb_proc_calc(a, d, rd, rdp, p))
+		return -1;
+	t32_awb_proc_gain(a, flag, p);
+	t32_awb_proc_event(a, counter, p);
+	return 0;
 }
 
 #endif /* TX_ISP_T32_AWBPROC_H */
