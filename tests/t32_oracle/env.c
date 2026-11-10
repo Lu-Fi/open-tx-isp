@@ -805,3 +805,14 @@ __asm__(".weak t32_data_d96b0\n.set t32_data_d96b0, t32o_op5_mem\n.weak t32_data
 u32 t32_data_d9850[8] __attribute__((weak));
 u32 t32_data_be330[1] __attribute__((weak)), t32_data_c521c[1] __attribute__((weak));
 u32 t32_data_c522c[1] __attribute__((weak)), t32_data_c525c[1] __attribute__((weak));
+/* frame-done / frame-start work (ispcore_irq_fd_work0..3, ispcore_irq_fs_work0..3), rodata:
+ * data.c:6219..6249 (c30a0 / c30c8 / c30e4 / c3100): the jump tables of the fd works (OEM code addresses)
+ * data.c:6361..6384 (c32d8 / c3308): the sensor command per frame-start work index (-1 = none) */
+u32 t32_data_c30a0[10] __attribute__((weak)) = { 0xb50ec, 0xb5144, 0xb5088, 0xb5150, 0xb5094, 0xb50c4, 0xb50a0, 0xb50ac, 0xb50d8, 0xb50b8 };
+u32 t32_data_c30c8[7] __attribute__((weak)) = { 0xb528c, 0xb52e8, 0xb5240, 0xb52f4, 0xb524c, 0xb5264, 0xb5258 };
+u32 t32_data_c30e4[7] __attribute__((weak)) = { 0xb5430, 0xb548c, 0xb53e4, 0xb5498, 0xb53f0, 0xb5408, 0xb53fc };
+u32 t32_data_c3100[7] __attribute__((weak)) = { 0xb55d4, 0xb5630, 0xb5588, 0xb563c, 0xb5594, 0xb55ac, 0xb55a0 };
+u32 t32_data_c32d8[12] __attribute__((weak)) = { 0x02000007, 0x02000008, 0x02000009, 0x02000005, 0x02000006, 0xffffffff,
+	0x02000017, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0x02000020 };
+u32 t32_data_c3308[12] __attribute__((weak)) = { 0x02000007, 0x02000008, 0x02000009, 0x02000005, 0x02000006, 0xffffffff,
+	0x02000017, 0x02000018, 0xffffffff, 0x0200000a, 0xffffffff, 0x02000020 };
