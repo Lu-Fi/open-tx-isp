@@ -2,7 +2,7 @@
 /*
  * T32 host oracle: our sensor control ops (driver/t32/tx_isp_t32_sensor_ops.h)
  * against the unmodified vendor functions sensor_init, sensor_early_init and
- * the 28 ops it installs (Matt Davis' recovered C, PR #15 @ 2e2e06bc).
+ * the 28 ops it installs and sensor_setting_init (Matt Davis' recovered C, PR #15 @ 2e2e06bc).
  *
  * One memory image (ISP core with 3 channels of video_in / update blocks,
  * 3 sensor attributes, names, value block, control block, register-access
@@ -44,6 +44,7 @@ REFS_LIST(DECL)
 void sensor_start_changes(void);
 int32_t sensor_read_black_pedestal(void);
 int32_t sensor_get_lines_per_second(void);
+int32_t sensor_setting_init(void);
 
 static u32 rng = 0x13579bdfu;
 static u32 rnd(void)
@@ -308,7 +309,8 @@ int main(void)
 				default:
 					t32_sensor_hw_reset_disable(); t32_sensor_hw_reset_enable(); t32_sensor_start_changes();
 					t32_sensor_end_changes(); t32_sensor_set_wdr_mode(); t32_sensor_disable_isp();
-					ro = (u32)t32_sensor_read_black_pedestal() << 8 | (u32)t32_sensor_get_lines_per_second();
+					ro = (u32)t32_sensor_read_black_pedestal() << 8 | (u32)t32_sensor_get_lines_per_second() |
+					     (u32)t32_sensor_setting_init() << 16;
 					break;
 				}
 			} else {
@@ -345,7 +347,8 @@ int main(void)
 					t32o_call(R(sensor_set_wdr_mode), 1, 2, 3, 4, 0);
 					t32o_call(R(sensor_disable_isp), 1, 2, 3, 4, 0);
 					rr = (u32)t32o_call(R(sensor_read_black_pedestal), 1, 2, 3, 4, 0) << 8 |
-					     (u32)t32o_call(R(sensor_get_lines_per_second), 1, 2, 3, 4, 0);
+					     (u32)t32o_call(R(sensor_get_lines_per_second), 1, 2, 3, 4, 0) |
+					     (u32)t32o_call(R(sensor_setting_init), 1, 2, 3, 4, 0) << 16;
 					break;
 				}
 			}

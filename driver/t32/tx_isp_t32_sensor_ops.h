@@ -9,7 +9,8 @@
  * sensor_set_mode, sensor_set_register, sensor_get_register and the empty ops
  * sensor_hw_reset_{enable,disable}, sensor_start_changes, sensor_end_changes,
  * sensor_set_wdr_mode, sensor_disable_isp (void) and sensor_read_black_pedestal,
- * sensor_get_lines_per_second (return 0).
+ * sensor_get_lines_per_second (return 0), plus sensor_setting_init (0xbccd0,
+ * return 0, not in the table).
  *
  * Objects (offsets as the vendor uses them; field names after the layout,
  * "max" / "delay" are assumed from the pattern value, ?, max, u16 delay):
@@ -209,6 +210,7 @@ static inline void t32_sensor_set_wdr_mode(void) {}
 static inline void t32_sensor_disable_isp(void) {}
 static inline int t32_sensor_read_black_pedestal(void) { return 0; }
 static inline int t32_sensor_get_lines_per_second(void) { return 0; }
+static inline int t32_sensor_setting_init(void) { return 0; }	/* 0xbccd0 */
 
 /* ---- alloc: the sensor driver rounds the value, the result goes to the value block ---- */
 static inline u32 t32_sensor_alloc_call(u32 value, u8 *val, u32 cb_off, u32 shift, u32 out_off)
