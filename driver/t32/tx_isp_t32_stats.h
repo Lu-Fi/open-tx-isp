@@ -2644,8 +2644,8 @@ static inline void t32_aea_set_exprinfo_attr(const struct t32_aea_ctx *c, const 
  * all return the copy result (level 2 when it failed).
  */
 struct t32_isra_ops {
-	int (*copy_from_user)(void *priv, u8 *dst, u32 user, u32 n);
-	int (*copy_to_user)(void *priv, u32 user, const u8 *src, u32 n);
+	int (*user_in)(void *priv, u8 *dst, u32 user, u32 n);
+	int (*user_out)(void *priv, u32 user, const u8 *src, u32 n);
 	void (*printk)(void *priv, u32 level);
 	int (*call)(void *priv, u32 ch, u8 *buf);	/* tisp_[sg]_xxx(ch, buf) of the function */
 	void *priv;
@@ -2659,7 +2659,7 @@ struct t32_isra_ops {
 
 static inline int t32_isra_set_stop(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *buf, u32 n)
 {
-	int r = o->copy_from_user(o->priv, buf, user, n);
+	int r = o->user_in(o->priv, buf, user, n);
 
 	if (r) {
 		o->printk(o->priv, 2);
@@ -2671,7 +2671,7 @@ static inline int t32_isra_set_stop(const struct t32_isra_ops *o, u32 ch, u32 us
 
 static inline int t32_isra_set_go_on(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *buf, u32 n)
 {
-	int r = o->copy_from_user(o->priv, buf, user, n);
+	int r = o->user_in(o->priv, buf, user, n);
 
 	if (r)
 		o->printk(o->priv, 2);
@@ -2689,7 +2689,7 @@ static inline int t32_isra_get_stop(const struct t32_isra_ops *o, u32 ch, u32 us
 		o->printk(o->priv, 1);
 		return r;
 	}
-	r = o->copy_to_user(o->priv, user, buf, n);
+	r = o->user_out(o->priv, user, buf, n);
 	if (r)
 		o->printk(o->priv, 2);
 	return r;
@@ -2701,7 +2701,7 @@ static inline int t32_isra_get_go_on(const struct t32_isra_ops *o, u32 ch, u32 u
 
 	if (r)
 		o->printk(o->priv, 1);
-	r = o->copy_to_user(o->priv, user, buf, n);
+	r = o->user_out(o->priv, user, buf, n);
 	if (r)
 		o->printk(o->priv, 2);
 	return r;
@@ -2760,7 +2760,7 @@ static inline int t32_isra_awb_attr_g(const struct t32_isra_ops *o, u32 ch, u32 
 	t32_aea_cpy(out, loc, T32_ISRA_AWB_SPLIT);
 	t32_aea_cpy(out + T32_ISRA_AWB_SPLIT, loc + T32_ISRA_AWB_SPLIT + T32_ISRA_AWB_SKIP,
 		    T32_ISRA_AWB_ATTR - T32_ISRA_AWB_SPLIT);
-	r = o->copy_to_user(o->priv, user, out, T32_ISRA_AWB_ATTR);
+	r = o->user_out(o->priv, user, out, T32_ISRA_AWB_ATTR);
 	if (r)
 		o->printk(o->priv, 2);
 	return r;
@@ -2771,7 +2771,7 @@ static inline int t32_isra_awb_only_read(const struct t32_isra_ops *o, u32 ch, u
 	int r;
 
 	o->call(o->priv, ch, loc);
-	r = o->copy_to_user(o->priv, user, loc + T32_ISRA_AWB_ONLY_OFF, T32_ISRA_AWB_ONLY);
+	r = o->user_out(o->priv, user, loc + T32_ISRA_AWB_ONLY_OFF, T32_ISRA_AWB_ONLY);
 	if (r)
 		o->printk(o->priv, 2);
 	return r;
@@ -2779,7 +2779,7 @@ static inline int t32_isra_awb_only_read(const struct t32_isra_ops *o, u32 ch, u
 
 static inline int t32_isra_awb_attr_s(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *in, u8 *loc)
 {
-	int r = o->copy_from_user(o->priv, in, user, T32_ISRA_AWB_ATTR);
+	int r = o->user_in(o->priv, in, user, T32_ISRA_AWB_ATTR);
 
 	if (r) {
 		o->printk(o->priv, 2);
@@ -2812,7 +2812,7 @@ static inline int t32_isra_awb_attr_s(const struct t32_isra_ops *o, u32 ch, u32 
 
 static inline int t32_isra_ae_expoinfo_s(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *in, u8 *loc)
 {
-	int r = o->copy_from_user(o->priv, in, user, T32_ISRA_AE_EXPOINFO);
+	int r = o->user_in(o->priv, in, user, T32_ISRA_AE_EXPOINFO);
 
 	if (r) {
 		o->printk(o->priv, 2);
@@ -2832,7 +2832,7 @@ static inline int t32_isra_ae_expoinfo_g(const struct t32_isra_ops *o, u32 ch, u
 		return r;
 	}
 	t32_aea_cpy(out, loc, T32_ISRA_AE_EXPOINFO);
-	r = o->copy_to_user(o->priv, user, out, T32_ISRA_AE_EXPOINFO);
+	r = o->user_out(o->priv, user, out, T32_ISRA_AE_EXPOINFO);
 	if (r)
 		o->printk(o->priv, 2);
 	return r;
@@ -2840,7 +2840,7 @@ static inline int t32_isra_ae_expoinfo_g(const struct t32_isra_ops *o, u32 ch, u
 
 static inline int t32_isra_ae_weight_s(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *in, u8 *loc)
 {
-	int r = o->copy_from_user(o->priv, in, user, T32_ISRA_AE_WEIGHT);
+	int r = o->user_in(o->priv, in, user, T32_ISRA_AE_WEIGHT);
 
 	if (r) {
 		o->printk(o->priv, 2);
@@ -2862,7 +2862,7 @@ static inline int t32_isra_ae_weight_g(const struct t32_isra_ops *o, u32 ch, u32
 	}
 	t32_aea_cpy(out, loc + T32_ISRA_AE_WEIGHT_WORD, 4);
 	t32_aea_cpy(out + 4, loc + T32_ISRA_AE_WEIGHT_LOC, T32_ISRA_AE_WEIGHT_W);
-	r = o->copy_to_user(o->priv, user, out, T32_ISRA_AE_WEIGHT);
+	r = o->user_out(o->priv, user, out, T32_ISRA_AE_WEIGHT);
 	if (r)
 		o->printk(o->priv, 2);
 	return r;
@@ -2923,7 +2923,7 @@ static inline int t32_isra_ae_hlc_or_blc_g(const struct t32_isra_ops *o, u32 ch,
 	} else {
 		o->printk(o->priv, 1);
 	}
-	r = o->copy_to_user(o->priv, user, out, T32_ISRA_HLC_BYTES);
+	r = o->user_out(o->priv, user, out, T32_ISRA_HLC_BYTES);
 	if (r)
 		o->printk(o->priv, 2);
 	return r;
@@ -2932,7 +2932,7 @@ static inline int t32_isra_ae_hlc_or_blc_g(const struct t32_isra_ops *o, u32 ch,
 static inline int t32_isra_ae_target_s(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *in, u8 *scn,
 				       u8 *at, u8 *ev)
 {
-	int r = o->copy_from_user(o->priv, in, user, T32_ISRA_TGT);
+	int r = o->user_in(o->priv, in, user, T32_ISRA_TGT);
 
 	if (r)
 		o->printk(o->priv, 2);
@@ -2974,7 +2974,7 @@ static inline int t32_isra_ae_target_g(const struct t32_isra_ops *o, u32 ch, u32
 	if (r)
 		goto fail;
 	t32_aea_cpy(out + T32_ISRA_TGT_EV, ev, T32_ISRA_TGT_LIST);
-	r = o->copy_to_user(o->priv, user, out, T32_ISRA_TGT);
+	r = o->user_out(o->priv, user, out, T32_ISRA_TGT);
 	if (!r)
 		return 0;
 	o->printk(o->priv, 2);
@@ -3007,7 +3007,7 @@ static inline int t32_isra_ae_only_read_g(const struct t32_isra_ops *o, u32 ch, 
 	t32_wr32(out, 28, t32_ld32(stable, 0));
 	t32_wr32(out, 32, t32_ld32(stable, 4));
 	t32_wr32(out, 36, t32_ld32(stable, 8));
-	r = o->copy_to_user(o->priv, user, out, T32_ISRA_OR_BYTES);
+	r = o->user_out(o->priv, user, out, T32_ISRA_OR_BYTES);
 	if (r)
 		o->printk(o->priv, 2);
 	return r;
