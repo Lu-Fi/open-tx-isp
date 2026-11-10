@@ -2789,4 +2789,79 @@ static inline int t32_isra_awb_attr_s(const struct t32_isra_ops *o, u32 ch, u32 
 	return 0;
 }
 
+/*
+ * AE exposure-info / weight attribute glue (vendor tx_isp_ae_expoinfo_s_attr /
+ * _g_attr, tx_isp_ae_weight_s_attr / _g_attr, *_isra_20 / 52 / 21 / 55), checked
+ * by t32_aeal_oracle.  expoinfo: the 204 byte user block is loc[0..204) (the
+ * working block of the tisp_[sg]_ae_exprinfo_attr call).  weight: the 232 byte
+ * user block is word 0 = loc + 4, then 225 weight bytes = loc + 233 (user bytes
+ * 229..231 are not part of the block: the get leaves them as they are in the
+ * caller's scratch block).  The set stops at a failed copy (level 2), calls
+ * the setter and returns 0; the get stops at a failed getter (level 1), then
+ * copies out and returns the copy result (level 2 when it failed).
+ */
+#define T32_ISRA_AE_EXPOINFO	204U
+#define T32_ISRA_AE_WEIGHT	232U
+#define T32_ISRA_AE_WEIGHT_W	225U
+#define T32_ISRA_AE_WEIGHT_LOC	233U
+#define T32_ISRA_AE_WEIGHT_WORD	4U
+
+static inline int t32_isra_ae_expoinfo_s(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *in, u8 *loc)
+{
+	int r = o->copy_from_user(o->priv, in, user, T32_ISRA_AE_EXPOINFO);
+
+	if (r) {
+		o->printk(o->priv, 2);
+		return r;
+	}
+	t32_aea_cpy(loc, in, T32_ISRA_AE_EXPOINFO);
+	o->call(o->priv, ch, loc);
+	return 0;
+}
+
+static inline int t32_isra_ae_expoinfo_g(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *loc, u8 *out)
+{
+	int r = o->call(o->priv, ch, loc);
+
+	if (r) {
+		o->printk(o->priv, 1);
+		return r;
+	}
+	t32_aea_cpy(out, loc, T32_ISRA_AE_EXPOINFO);
+	r = o->copy_to_user(o->priv, user, out, T32_ISRA_AE_EXPOINFO);
+	if (r)
+		o->printk(o->priv, 2);
+	return r;
+}
+
+static inline int t32_isra_ae_weight_s(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *in, u8 *loc)
+{
+	int r = o->copy_from_user(o->priv, in, user, T32_ISRA_AE_WEIGHT);
+
+	if (r) {
+		o->printk(o->priv, 2);
+		return r;
+	}
+	t32_aea_cpy(loc + T32_ISRA_AE_WEIGHT_WORD, in, 4);
+	t32_aea_cpy(loc + T32_ISRA_AE_WEIGHT_LOC, in + 4, T32_ISRA_AE_WEIGHT_W);
+	o->call(o->priv, ch, loc);
+	return 0;
+}
+
+static inline int t32_isra_ae_weight_g(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *loc, u8 *out)
+{
+	int r = o->call(o->priv, ch, loc);
+
+	if (r) {
+		o->printk(o->priv, 1);
+		return r;
+	}
+	t32_aea_cpy(out, loc + T32_ISRA_AE_WEIGHT_WORD, 4);
+	t32_aea_cpy(out + 4, loc + T32_ISRA_AE_WEIGHT_LOC, T32_ISRA_AE_WEIGHT_W);
+	r = o->copy_to_user(o->priv, user, out, T32_ISRA_AE_WEIGHT);
+	if (r)
+		o->printk(o->priv, 2);
+	return r;
+}
+
 #endif /* TX_ISP_T32_STATS_H */
