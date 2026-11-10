@@ -109,6 +109,15 @@ static u32 host_reg_read(u32 reg)
 	return reg * 0x9e3779b9u + 7;
 }
 
+/* recording register read hook: every address in order */
+static u32 rdlog[64], rdn;
+static u32 rec_read(u32 reg)
+{
+	if (rdn < 64)
+		rdlog[rdn++] = reg;
+	return host_reg_read(reg);
+}
+
 static void gen_section(u8 *sec)
 {
 	unsigned int i;
@@ -223,21 +232,21 @@ static void run_dn_par_refresh(const u8 *dn_sec, u8 inited)
 
 static void run_deinit(u32 ch)
 {
-	u8 ref_flag, our_flag;
+	u8 ref_all[8], our_all[8];
 	u32 ref_rc;
 	int our_rc;
 
 	t32o_reset();
-	t32_data_e1460[ch] = 0xaa;
+	memset(t32_data_e1460, 0xaa, 8);
 	ref_rc = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_top_deinit, ch, 0, 0, 0, 0);
-	ref_flag = t32_data_e1460[ch];
+	memcpy(ref_all, t32_data_e1460, 8);
 
 	t32o_reset();
-	t32_data_e1460[ch] = 0xaa;
+	memset(t32_data_e1460, 0xaa, 8);
 	our_rc = t32_top_deinit((u8)ch, t32_data_e1460);
-	our_flag = t32_data_e1460[ch];
+	memcpy(our_all, t32_data_e1460, 8);
 	compared++;
-	if (ref_flag != our_flag || ref_rc != (u32)our_rc)
+	if (memcmp(ref_all, our_all, 8) || ref_rc != (u32)our_rc || t32o_log.n)
 		fail("deinit");
 }
 
@@ -301,20 +310,26 @@ static void run_ipc_init(u32 state, const u8 *rnd_info, u32 w, u32 h, u32 b36, u
 
 static void run_sleep(u32 ch, u8 direct)
 {
-	u32 saved_our[14];
+	u32 saved_our[14], ref_rd[64], ref_rdn;
 	unsigned int ref_n;
 
 	t32o_reset();
-	t32o_rd_hook = host_reg_read;
+	t32o_rd_hook = rec_read;
+	rdn = 0;
 	memset(t32_data_e1494, 0, 56);
 	t32_data_d03a0[0] = direct;
 	t32o_call((t32o_fn)(void (*)(void))tisp_top_sleep, ch, 0, 0, 0, 0);
 	ref_n = t32o_log.n;
 	t32_data_d03a0[0] = 0;
+	ref_rdn = rdn;
+	memcpy(ref_rd, rdlog, sizeof(ref_rd));
 
 	memset(saved_our, 0, sizeof(saved_our));
-	t32_top_sleep((u8)ch, saved_our, direct, host_reg_read);
+	rdn = 0;
+	t32_top_sleep((u8)ch, saved_our, direct, rec_read);
 	compared++;
+	if (ref_rdn != rdn || memcmp(ref_rd, rdlog, ref_rdn * sizeof(u32)))
+		fail("sleep register read order/addresses");
 	if (ref_n || memcmp(t32_data_e1494, saved_our, sizeof(saved_our)))
 		fail(direct ? "sleep saved registers (direct)" : "sleep saved registers");
 }
