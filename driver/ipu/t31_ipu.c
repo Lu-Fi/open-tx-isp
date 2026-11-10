@@ -1183,6 +1183,10 @@ static int ipu_probe(struct platform_device *pdev)
 	}
 
 	ipu->irq = platform_get_irq(pdev, 0);
+	if (ipu->irq < 0) {
+		ret = ipu->irq;
+		goto err_req_irq;
+	}
 	if (request_irq(ipu->irq, ipu_irq_handler, IRQF_SHARED, ipu->name, ipu)) {
 		dev_err(&pdev->dev, "request irq failed\n");
 		ret = -EINVAL;
@@ -1227,6 +1231,7 @@ err_get_clk:
 err_req_irq:
 	iounmap(ipu->iomem);
 err_ioremap:
+	release_mem_region(ipu->res->start, resource_size(ipu->res));
 err_get_res:
 	kfree(ipu);
 

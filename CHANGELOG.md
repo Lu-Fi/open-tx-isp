@@ -5,6 +5,11 @@ Newest first, grouped by date. Everything listed was device-tested on the SoC na
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
 
+## 2026-11-10: t31_ipu probe error path and DT reg size (openimp #261; Wuuk Y0510 T31X, kernel 7.3.3, runtime insmod)
+
+- `ipu_probe` now releases the `request_mem_region` reservation when a later probe step fails and returns the `platform_get_irq` error instead of requesting a negative IRQ (vendor-derived leak, review note on thingino PR 1978). The documented DT reg size is `0x10000` like the vendor T31/T40/T41 map (the driver uses registers below 0x1b4 only).
+- Device: rmmod + insmod of the rebuilt module while streaming, `/dev/ipu` back, IPU IRQ counting (~30/s). The failure paths themselves were not exercised.
+
 ## 2026-11-09: T31 IPU module for /dev/ipu on mainline kernels (openimp #257; Wuuk Y0510 T31X, thingino kernel 7.3.3, boot-loaded)
 
 - New `driver/ipu/t31_ipu.ko`: port of the vendor 3.10 `jz_ipu_v13` (GPL, with the thingino wedge mitigation) so OpenIMP's T31 OSD backend can blend through `/dev/ipu` on kernel 7, where no IPU driver existed ("T31 IPU OSD backend disabled: cannot open /dev/ipu"). The vendor T31 kernel builds v13, whose `IPU_START` (`_IO('I',106)`) copies the same 0x98-byte parameter block OpenIMP passes. DT match `ingenic,t31-ipu` (reg 0x13080000/0x8000, INTC 6, clocks ipu + ahb1); shims for newer kernels (reinit_completion, clk_prepare_enable, void remove/misc_deregister, BUF_FLUSH_CACHE no-op without dma_cache_sync); vendor ahb1 clk_get error check fixed.

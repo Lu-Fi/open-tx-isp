@@ -9,7 +9,7 @@ frame with one ioctl, `IPU_START` (`_IO('I', 106)`, `struct ipu_param` in
   including the thingino wedge mitigation (100 ms timeout, stop/reset/retry,
   clock refcount fix). The vendor T31 kernel builds v13, not v12.
 - Kernels: for mainline-based kernels (thingino kernel 7). It binds to the DT
-  node `compatible = "ingenic,t31-ipu"` (reg `0x13080000`/`0x8000`, INTC 6,
+  node `compatible = "ingenic,t31-ipu"` (reg `0x13080000`/`0x10000` as in the vendor map, INTC 6,
   clocks `ipu` + `ahb1`). The vendor 3.10 kernel keeps its built-in IPU
   driver; there the `jz-ipu` platform device only exists together with it.
 - Not used by OpenIMP and kept as in the vendor driver: PBUFF (114/115),
