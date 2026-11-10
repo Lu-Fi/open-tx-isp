@@ -2,7 +2,7 @@
 /*
  * T32 host oracle: the file handlers of driver/t32/tx_isp_t32_fops.h against
  * Matt Davis' recovered vendor C (ref/, PR #15 @ 2e2e06bc; the read handlers
- * built through fix_op8_uaccess.sh): camera_mode_fops_read, vpuBs_fops_read,
+ * built through fix_op8_glue.sh): camera_mode_fops_read, vpuBs_fops_read,
  * ivdcbuf_fops_read, ispbuf_fops_read, proc_read, camera_mode_fops_open,
  * tisp_show_debug_info_open, video_input_cmd_open, proc_ivdc_open.
  *
