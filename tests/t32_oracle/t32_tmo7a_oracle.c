@@ -6,8 +6,7 @@
  * runs the vendor ev_interp / dark_ctr_interp / satcurve_ev_interp refs (ours: the ports), the register refresh callees
  * (tmoadr_default_reg_refresh, tmo_default_reg_refresh, ramY_vi0 / vi1_reg_refresh) are recording stubs on both sides
  * (call count and channel compared).  The whole arena, the record fields written and the vendor tables are compared.
- * api_get_curve: the vendor jump table t32_data_c04c8 is filled with the label addresses in index order (assumption, see
- * the header).  Return values are leftover registers (param_array_get: 0, compared).
+ * api_get_curve: the vendor jump table t32_data_c04c8 holds the module's label addresses (from data_relocations.json).  Return values are leftover registers (param_array_get: 0, compared).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -273,8 +272,8 @@ static u64 run_vendor(int f)
 	memcpy(t32_evblk, TB.pend, 8);
 	memcpy(t32_evblk + 8, TB.seed, 32);
 	t32_data_d03a0[0] = TB.d03a0;
-	{	/* jump table: label addresses of ctx + 4182 + 402 * k in index order */
-		static const u32 lab[10] = { 0x9e968, 0x9e978, 0x9e988, 0x9e998, 0x9e9a8, 0x9e9b8, 0x9e9c8, 0x9e9d8, 0x9e948, 0x9e958 };
+	{	/* jump table t32_data_c04c8 as in the module (driver/t32/data_relocations.json, .rodata 0x30a8) */
+		static const u32 lab[10] = { 0x9e948, 0x9e958, 0x9e968, 0x9e978, 0x9e988, 0x9e998, 0x9e9a8, 0x9e9b8, 0x9e9c8, 0x9e9d8 };
 
 		memcpy(t32_data_c04c8, lab, sizeof(lab));
 	}

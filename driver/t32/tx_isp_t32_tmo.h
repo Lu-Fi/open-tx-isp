@@ -1556,15 +1556,16 @@ static inline int t32_tmo_param_array_get(u8 *buf, const u8 *ctx, const u8 *out,
 }
 
 /*
- * tisp_tmo_api_get_curve: the 402 byte curve idx (< 10) of the channel's context, ctx + 4182 + 402 * idx, is copied to dst.
- * The vendor selects it through the jump table t32_data_c04c8 (10 label addresses); the table contents are not part of the
- * recovered tree: the ten bodies are ctx + 4182 .. 7800 in steps of 402, assumed (UNVERIFIED) to be in index order.  The
- * return value of the vendor is the memcpy result (dst) or leftover registers.
+ * tisp_tmo_api_get_curve: the 402 byte curve idx (< 10) of the channel's context is copied to dst.  The vendor selects it
+ * through the jump table t32_data_c04c8 (driver/t32/data_relocations.json, .rodata 0x30a8: labels 0x9e948 + 16 * idx):
+ * idx 0 -> ctx + 7398, idx 1 -> ctx + 7800, idx 2..9 -> ctx + 4182 + 402 * (idx - 2), i.e. the same curve order as
+ * t32_tmo_ev_interp (C[0] = +7398, C[1] = +7800, C[i] = +4182 + 402 (i - 2)).  The return value of the vendor is the
+ * memcpy result (dst) or leftover registers.
  */
 static inline void t32_tmo_api_get_curve(u8 *dst, const u8 *ctx, u32 idx)
 {
 	if (idx < 10)
-		memcpy(dst, ctx + 4182 + 402 * idx, 402);
+		memcpy(dst, ctx + (idx == 0 ? 7398 : idx == 1 ? 7800 : 4182 + 402 * (idx - 2)), 402);
 }
 
 /*
