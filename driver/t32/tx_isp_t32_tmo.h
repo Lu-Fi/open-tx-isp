@@ -14,6 +14,7 @@
  *  phase 3a (t32_tmo3a_oracle): tmo_ev_interp, drc_ctrl, adr_gamma_refresh, adr_params_refresh.
  *  phase 3b (t32_tmo3b_oracle): modechange_stat_refresh, tmo_params_hard_refresh.
  *  phase 3c (t32_tmo3c_oracle): timeratio_curve_adjust, adr_hardpars_ctl.
+ *  phase 4 (t32_tmo4_oracle): adr_5x5_init, adr_base_pars, adr_gauss_local, adr_local_info.
  *
  * The vendor addresses the per channel TMO state as t32_data_e35e0[ch] -> a
  * channel record {ctx, stat, ..., geom at +12}; the port takes the members it
@@ -970,6 +971,175 @@ static inline void t32_tmo_adr_hardpars_ctl(u8 *ctx, const u8 *tab, u16 *flag)
 		z = o[-1] + (rem < num ? 0 : 1);
 		*o = (u16)(qt + z);
 	}
+}
+
+/*
+ * ---- phase 4: adr_5x5_init, adr_base_pars, adr_gauss_local, adr_local_info ----
+ *
+ * tisp_math_exp2 (the shared fixed point math, not part of the TMO block) is taken as a function pointer.
+ */
+typedef u32 (*t32_tmo_exp2_fn)(u32 v, u32 in_frac, u32 out_frac);
+
+/*
+ * tisp_tmo_adr_5x5_init (w, h, tbl = the 31 s16 distance table, ctx): two (2P .. 3P) x (2Q .. 3Q) point loops, P = (w + 3) / 6,
+ * Q = (h + 2) / 4, histogram the 5x5 distance index of eight sample points (adr_5x5_out): three counters / sums pairs
+ * (cnt A with sums B, C, D; cnt E with sum F; cnt G with sum H), each 32 u32.  Every index i (0 .. 31) gives the rounded mean
+ * (cnt / 2 + sum) / cnt as a u8 (cnt == 0: the previous entry, entry 0: 0); the five 32 byte results go to ctx + 640 (G / H),
+ * 672 (E / F), 704 (A / B), 736 (A / C), 768 (A / D).  The vendor takes the eight 128 byte buffers from private_vmalloc (unchecked)
+ * and frees them again: a local array here (1 KiB of stack).
+ */
+static inline void t32_tmo_adr_5x5_init(u32 w, u32 h, const s16 *tbl, u8 *ctx)
+{
+	u32 cnt[3][32], sum[5][32];	/* cnt A / E / G; sum B, C, D (cnt A), F (cnt E), H (cnt G) */
+	u8 res[5][32];
+	int P = t32_tmo_sdiv((int)(w + 3U), 6), Q = t32_tmo_sdiv((int)(h + 2U), 4);
+	int hp = t32_tmo_sdiv(P + 1, 2), hq = t32_tmo_sdiv(Q + 1, 2);
+	int x0 = 2 * P, y0 = 2 * Q, xe = 3 * P, ye = 3 * Q, y, x, i, k;
+	int px[3] = { P + hp, hp, 2 * P + hp }, py[3] = { Q + hq, hq, 2 * Q + hq };
+
+	memset(cnt, 0, sizeof(cnt));
+	memset(sum, 0, sizeof(sum));
+	for (y = y0; y <= ye; y++)
+		for (x = x0; x <= xe; x++) {
+			u32 i1 = t32_tmo_adr_5x5_out(y, x, py[0], px[0], tbl), i5;
+			u32 i7;
+
+			cnt[0][i1]++;
+			sum[0][i1] += t32_tmo_adr_5x5_out(y, x, py[1], px[1], tbl);	/* (t4, t9) */
+			sum[1][i1] += t32_tmo_adr_5x5_out(y, x, py[0], px[1], tbl);	/* (t7, t9) */
+			sum[2][i1] += t32_tmo_adr_5x5_out(y, x, py[1], px[0], tbl);	/* (t4, t8) */
+			i5 = t32_tmo_adr_5x5_out(y, x, py[2], px[0], tbl);		/* (t0, t8) */
+			cnt[1][i5]++;
+			sum[3][i5] += t32_tmo_adr_5x5_out(y, x, py[2], px[1], tbl);	/* (t0, t9) */
+			i7 = t32_tmo_adr_5x5_out(y, x, py[0], px[2], tbl);		/* (t7, t3) */
+			cnt[2][i7]++;
+			sum[4][i7] += t32_tmo_adr_5x5_out(y, x, py[1], px[2], tbl);	/* (t4, t3) */
+		}
+	for (k = 0; k < 5; k++) {
+		static const u8 cs[5] = { 2, 1, 0, 0, 0 };	/* counter of result k (ctx 640, 672, 704, 736, 768): G, E, A, A, A */
+		static const u8 ss[5] = { 4, 3, 1, 0, 2 };	/* its sum */
+		const u32 *c = cnt[cs[k]], *sm = sum[ss[k]];
+
+		for (i = 0; i < 32; i++)
+			res[k][i] = c[i] ? (u8)t32_tmo_sdiv((int)(c[i] / 2 + sm[i]), (int)c[i]) : i ? res[k][i - 1] : 0;
+	}
+	for (k = 0; k < 5; k++)
+		memcpy(ctx + 640 + 32 * k, res[k], 32);
+}
+
+/*
+ * tisp_tmo_adr_base_pars (w, h, ctx, d8724 = the vendor table of 31 int factors): ctx + 320: five u16 (0, h4, 2 h4, 3 h4, h), h4 = h / 4 made
+ * even; ctx + 330: seven u16 (0, k w6 for k = 1 .. 5, w), w6 = w / 6 made even (all masked to 16 bit).  A table of 31 u16
+ * at ctx + 574: (m * m * d8724[i] + 0x20000) >> 18 (64 bit, wrapping), m = (3 * min((w6 + 1) / 2, (h4 + 1) / 2) + 1) / 2 (the vendor
+ * takes the smaller one: h4 < w6 -> the h one).  Then adr_5x5_init (w, h, that table, ctx).
+ */
+static inline void t32_tmo_adr_base_pars(u32 w, u32 h, u8 *ctx, const int *d8724)
+{
+	int w6 = t32_tmo_sdiv((int)w, 6), h4 = t32_tmo_sdiv((int)h, 4), mm, i;
+	u32 w16, h16;
+	u16 a[5], b[7], t[31];
+	u64 d;
+
+	h4 -= h4 & 1;
+	w6 -= w6 & 1;
+	h16 = (u32)h4 & 0xffffU;
+	w16 = (u32)w6 & 0xffffU;
+	a[0] = 0; a[1] = (u16)h4; a[2] = (u16)(2 * h16); a[3] = (u16)(3 * h16); a[4] = (u16)h;
+	b[0] = 0; b[1] = (u16)w6; b[2] = (u16)(2 * w16); b[3] = (u16)(3 * w16); b[4] = (u16)(4 * w16); b[5] = (u16)(5 * w16); b[6] = (u16)w;
+	memcpy(ctx + 320, a, 10);
+	memcpy(ctx + 330, b, 14);
+	w6 = t32_tmo_sdiv(w6 + 1, 2);
+	h4 = t32_tmo_sdiv(h4 + 1, 2);
+	mm = h4 < w6 ? 3 * h4 : 3 * w6;
+	mm = t32_tmo_sdiv(mm + 1, 2);
+	d = (u64)((long long)mm * mm);
+	for (i = 0; i < 31; i++)
+		t[i] = (u16)((d * (u64)(long long)d8724[i] + 0x20000ULL) >> 18);
+	memcpy(ctx + 574, t, 62);
+	t32_tmo_adr_5x5_init(w, h, (const s16 *)t, ctx);
+}
+
+/*
+ * tisp_tmo_adr_gauss_local (out = 24 int, ctx, cache = t32_data_e3210 (4 s16), tab = the 5 x 24 int vendor tables at t32_data_c00bc): the
+ * parameters V = ctx s16 [9898] + 80 limited to 80 .. 1104, t = [9900] to 0 .. 200, s = [9902] to 0 .. 320, k = [9904] to 0 .. 5; unchanged
+ * from the cache: nothing.  Else the 24 values exp(-((T0[i] - t + 100)^2 + (Tk[i] - s + off)^2) / (2 V^2)) * 10000 (fixed point: fixdiv,
+ * fixmul by 1 / ln 2, exp2) with Tk, off = (T1, 100), (T2, 120), (T3, 140), (T4, 160) for k = 0 .. 3 and (T2, 120) for 4, 5, then
+ * normalised to the maximum of entries 9 .. 12 (at least 0) * 10000 / max (max == 0: vendor UB, the emulation's 1 / -1 as in sdiv0).
+ */
+static inline void t32_tmo_adr_gauss_local(int *out, const u8 *ctx, s16 *cache, const int *tab, t32_tmo_exp2_fn exp2)
+{
+	u32 K = t32_awb_fixdiv(16, 0x385b0000U, 0x27100000U), den;
+	int V = t32_tmo_lds16(ctx, 9898) + 80, t = t32_tmo_lds16(ctx, 9900), s = t32_tmo_lds16(ctx, 9902), k = t32_tmo_lds16(ctx, 9904);
+	int i, mx;
+	const int *T;
+	int off;
+
+	V = V < 80 ? 80 : V;
+	V = V < 1105 ? V : 1104;
+	t = t < 0 ? 0 : t;
+	t = t < 201 ? t : 200;
+	s = s < 0 ? 0 : s;
+	s = s < 321 ? s : 320;
+	k = k < 0 ? 0 : k;
+	k = k < 6 ? k : 5;
+	if (cache[0] == V && cache[1] == t && cache[2] == s && cache[3] == k)
+		return;
+	cache[0] = (s16)V; cache[1] = (s16)t; cache[2] = (s16)s; cache[3] = (s16)k;
+	den = (u32)(2 * V) * (u32)V << 10;
+	switch (k) {
+	case 0: T = tab + 24; off = 100; break;
+	case 2: T = tab + 72; off = 140; break;
+	case 3: T = tab + 96; off = 160; break;
+	default: T = tab + 48; off = 120; break;	/* 1, 4, 5 */
+	}
+	for (i = 0; i < 24; i++) {
+		u32 a0 = (u32)tab[i] - (u32)(t - 100), w = (u32)T[i] - (u32)(s - off), d = w * w + a0 * a0, m, e, r;
+
+		d = (int)d < 500001 ? d : 500000U;
+		m = t32_awb_fixmul(16, t32_awb_fixdiv(10, d << 10, den) << 6, K);
+		m = (int)m < 0xf0000 ? m : 0xeffffU;
+		e = exp2(m, 16, 16);
+		r = t32_awb_fixdiv(16, 0x27100000U, e);
+		out[i] = (int)r >> 16;
+	}
+	mx = out[9] < out[10] ? out[10] : out[9];
+	mx = mx < 0 ? 0 : mx;
+	mx = out[11] < mx ? mx : out[11];
+	mx = mx < out[12] ? out[12] : mx;
+	for (i = 0; i < 24; i++)
+		out[i] = t32_tmo_sdiv0((int)(10000U * (u32)out[i]), mx);
+}
+
+/*
+ * tisp_tmo_adr_local_info (p0, p1, p2, p3, p4): a 10000 scaled value of a gaussian in the difference d = p1 - s, s = max(p4, 1) (p3 for
+ * p1 < s, p2 for p1 >= s as the sigma, e = exp(-d^2 / (2 sigma^2)) in the fixed point steps of gauss_local), centre p0:
+ * p1 < s: p0 * 65536 / e >> 16; else (p0 * 65536 - p0 * 65536 / e >> 16) + p0, limited to 10000, then * 1024 / 0x19000 (rounded, >> 10).
+ * A zero sigma / exp2 result is a vendor division by zero (not handled; the call sites never pass one).
+ */
+static inline int t32_tmo_adr_local_info(u32 p0, u32 p1, u32 p2, u32 p3, u32 p4, t32_tmo_exp2_fn exp2)
+{
+	u32 K = t32_awb_fixdiv(16, 0x385b0000U, 0x27100000U), s = (int)p4 > 0 ? p4 : 1U, s2 = p0 << 16, d, sg, m, e, r;
+	int a1;
+
+	if ((int)p1 < (int)s) {
+		d = s - p1;
+		sg = p3;
+	} else {
+		d = p1 - s;
+		sg = p2;
+	}
+	d = d * d;
+	d = (int)d < 0x3ffffd ? d : 0x3ffffcU;
+	m = t32_awb_fixmul(16, t32_awb_fixdiv(10, d << 10, (2U * sg * sg) << 10) << 6, K);
+	m = (int)m < 0xf0000 ? m : 0xeffffU;
+	e = exp2(m, 16, 16);
+	r = t32_awb_fixdiv(16, s2, e);
+	if ((int)p1 < (int)s)
+		a1 = (int)r >> 16;
+	else
+		a1 = ((int)(s2 - r) >> 16) + (int)p0;
+	a1 = a1 < 10001 ? a1 : 10000;
+	return ((int)t32_awb_fixdiv(10, (u32)a1 << 10, 0x19000U) + 512) >> 10;
 }
 
 #endif /* TX_ISP_T32_TMO_H */
