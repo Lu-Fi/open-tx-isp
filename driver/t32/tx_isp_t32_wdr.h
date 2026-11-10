@@ -16,6 +16,7 @@
  *  phase 5 (t32_wdr5_oracle): process_init, process_deinit, init, deinit.
  *  phase 6 (t32_wdr6_oracle): softout_reg_refresh, hardware_reg_refresh,
  *    dn_params_refresh, wake_up.
+ *  phase 7 (t32_wdr7_oracle): get_data, interrupt_static, process.
  *
  * The vendor reaches the per channel WDR parameter block (the tuning values
  * of the IQ bin plus the working state) as t32_data_e3b40[ch] -> record,
@@ -86,6 +87,10 @@ struct t32_wdr_ops {
 	void (*error)(u32 line);		/* isp_printf(2, ...) */
 	void (*irq_func_set)(u32 ch, u32 irq);	/* system_irq_func_set: hooks tisp_wdr_interrupt_static */
 	void (*event_set_cb)(u32 ch, u32 ev);	/* tisp_event_set_cb: hooks tisp_wdr_process */
+	void (*dma_sync)(const u8 *p, u32 size);	/* private_dma_cache_sync(NULL, p, size, 0) */
+	void (*event_push)(u32 ch, const u32 *ev);	/* tisp_event_push: 8 word event */
+	void (*deghost)(u32 ch);		/* Tiziano_wdr_deghost_fpga */
+	void (*fusion)(u32 ch);			/* Tiziano_wdr_fusion_fpga */
 };
 
 /* vendor .bss of the block */
@@ -102,6 +107,9 @@ struct t32_wdr_st {
 	u8 inited;		/* t32_data_e3a80 */
 	u32 soft_y;		/* t32_data_d8b40: blend level of the soft output (softout_reg_refresh) */
 	u32 wdr_en[4];		/* t32_data_f0918: WDR on per channel (ISP core) */
+	u8 lut_on;		/* t32_data_e3a99: par + 1832 at the last statistics / process run */
+	u8 ev_hold;		/* t32_data_e3a9a: 0 = take the long exposure as the previous one too (first run) */
+	u32 frame;		/* t32_data_e3b0c: frame counter 0 .. 29 */
 	u64 short_tgain;	/* t32_data_e3aa0 (low word) / e3aa4 (high word) */
 	u64 short_ev[2];	/* t32_data_e3ab0 */
 	u64 long_ev[2];		/* t32_data_e3ac0 */
@@ -838,6 +846,165 @@ static inline void t32_wdr_wake_up(struct t32_wdr_st *st, u32 ch)
 	for (i = 0; i < 4; i++)
 		o->reg_write(T32_WDR_REG_DMA0 + 4 * i, st->dma_save[i]);
 	o->reg_write(T32_WDR_REG_DMA_CTL, st->dma_save[4]);
+}
+
+/* ---- phase 7: statistics, interrupt, per frame process ---- */
+
+/* the proc[] buffers by role */
+#define T32_WDR_PROC_LUMA	0	/* 640 bytes: 160 luma histogram bins */
+#define T32_WDR_PROC_ODD	1	/* 900: the odd rows of the 15 x 30 block grid */
+#define T32_WDR_PROC_EVEN	2	/* 900: the even rows */
+#define T32_WDR_PROC_SUM	3	/* 8: two 23 bit sums */
+#define T32_WDR_PROC_MAX	4	/* 16: 4 x 4095 */
+#define T32_WDR_PROC_SUM_OLD	5	/* 8 */
+#define T32_WDR_PROC_MAX_OLD	6	/* 16 */
+#define T32_WDR_PROC_GRID	7	/* 1800: 450 block values */
+
+static inline void t32_wdr_zero(u8 *p, u32 n)
+{
+	while (n--)
+		*p++ = 0;
+}
+/* 24 bit little endian value at p */
+static inline u32 t32_wdr_r24(const u8 *p)
+{
+	return p[0] | (u32)p[1] << 8 | (u32)p[2] << 16;
+}
+
+/*
+ * tisp_wdr_get_data (ch, src): unpacks one statistics buffer: 450 packed 24 bit block
+ * values (src + 0, 8 per 24 bytes) into GRID and, row by row of 15, into EVEN / ODD;
+ * MAX = 4 x 4095; the two 23 bit sums at src + 1360 into SUM; 160 packed 24 bit luma bins
+ * (src + 1368) into LUMA; with the LUT switch (par + 1832 == 1) the 2 x 256 x 3 packed
+ * 21 bit curve values (src + 1848, src + 3896) into lut[5..3] and lut[2..0].  Then all of
+ * it into the work area (lut at + 56 .., MAX + 6200, SUM + 6216, EVEN + 6224, ODD + 7124,
+ * LUMA + 8024).  SUM_OLD / MAX_OLD end up zero (the vendor copies the freshly cleared
+ * buffers).
+ */
+static inline void t32_wdr_get_data(struct t32_wdr_st *st, u32 ch, const u8 *src)
+{
+	u8 **pb = st->proc, *work;
+	u32 i, k, ne = 0, no = 0;
+	int j;
+
+	for (j = 7; j >= 0; j--)
+		t32_wdr_zero(pb[j], t32_wdr_proc_sz[j]);
+	t32_wdr_cpy(pb[T32_WDR_PROC_MAX_OLD], pb[T32_WDR_PROC_MAX], 16);
+	t32_wdr_cpy(pb[T32_WDR_PROC_SUM_OLD], pb[T32_WDR_PROC_SUM], 8);
+	st->lut_on = st->rec[ch]->par[1832];
+	for (i = 0; i < 450; i++)
+		t32_wdr_w32(pb[T32_WDR_PROC_GRID], 4 * i, t32_wdr_r24(src + 3 * i));
+	for (i = 0; i < 450; i++) {
+		u32 v = t32_wdr_r32(pb[T32_WDR_PROC_GRID], 4 * i);
+
+		if ((i / 15) & 1)
+			t32_wdr_w32(pb[T32_WDR_PROC_ODD], 4 * no++, v);
+		else
+			t32_wdr_w32(pb[T32_WDR_PROC_EVEN], 4 * ne++, v);
+	}
+	for (i = 0; i < 4; i++)
+		t32_wdr_w32(pb[T32_WDR_PROC_MAX], 4 * i, 4095);
+	t32_wdr_w32(pb[T32_WDR_PROC_SUM], 0, t32_wdr_r32(src, 1360) & 0x7fffff);
+	t32_wdr_w32(pb[T32_WDR_PROC_SUM], 4, t32_wdr_r32(src, 1364) & 0x7fffff);
+	for (i = 0; i < 160; i++)
+		t32_wdr_w32(pb[T32_WDR_PROC_LUMA], 4 * i, t32_wdr_r24(src + 1368 + 3 * i));
+	if (st->lut_on == 1)
+		for (k = 0; k < 2; k++)
+			for (i = 0; i < 256; i++) {
+				const u8 *q = src + 1848 + 2048 * k + 8 * i;
+				u32 w0 = t32_wdr_r32(q, 0), w1 = t32_wdr_r32(q, 4);
+
+				t32_wdr_w32(st->lut[5 - 3 * k], 4 * i, w0 & 0x1fffff);
+				t32_wdr_w32(st->lut[4 - 3 * k], 4 * i, (w1 << 11 | w0 >> 21) & 0x1fffff);
+				t32_wdr_w32(st->lut[3 - 3 * k], 4 * i, (w1 >> 10) & 0x1fffff);
+			}
+	work = st->rec[ch]->work;
+	for (k = 0; k < 6; k++)
+		t32_wdr_cpy(work + 56 + T32_WDR_LUT_SZ * k, st->lut[5 - k], T32_WDR_LUT_SZ);
+	t32_wdr_cpy(work + 6200, pb[T32_WDR_PROC_MAX], 16);
+	t32_wdr_cpy(work + 6216, pb[T32_WDR_PROC_SUM], 8);
+	t32_wdr_cpy(work + 6224, pb[T32_WDR_PROC_EVEN], 900);
+	t32_wdr_cpy(work + 7124, pb[T32_WDR_PROC_ODD], 900);
+	t32_wdr_cpy(work + 8024, pb[T32_WDR_PROC_LUMA], 640);
+}
+
+/*
+ * tisp_wdr_interrupt_static (ch): the statistics buffer the DMA finished (0x28030) of
+ * channel 0's buffer set (the vendor always takes record 0), cache sync, unpack, event 13.
+ */
+static inline int t32_wdr_interrupt_static(struct t32_wdr_st *st, u32 ch)
+{
+	const struct t32_wdr_ops *o = st->ops;
+	u32 ev[8] = { 0, 0, 13, 0, 0, 0, 0, 0 };
+	const u8 *b = st->rec[0]->buf + o->reg_read(T32_WDR_REG_DMA_CTL) * T32_WDR_BUF_SZ;
+
+	o->dma_sync(b, T32_WDR_BUF_SZ);
+	t32_wdr_get_data(st, ch, b);
+	o->event_push(ch, ev);
+	return 1;
+}
+
+/*
+ * tisp_wdr_process (ch): per frame (event 13).  Frame counter, switches; on a new long
+ * exposure (channel 0's flag) the exposure record in the extension (+0 short EV, +4 long EV,
+ * +8 previous long EV, +12 short total gain); with fusion on deghost, then fusion, and the
+ * deghost strength par + 190 from the mode par + 494 (1: the smaller of par + 516 and the cap
+ * par + 504 when par + 506 or + 508 is 1, the short gain is >= 2^32 or par + 514 is below it,
+ * else the cap; 0: par + 516 under the same condition); the fusion results (extension) into
+ * the hardware image, the first-frame mode registers, then the image and soft output refresh.
+ */
+static inline int t32_wdr_process(struct t32_wdr_st *st, u32 ch)
+{
+	const struct t32_wdr_ops *o = st->ops;
+	struct t32_wdr_rec *r = st->rec[ch];
+	u8 *par = r->par, *ext = r->ext, *hw = r->hw;
+	u32 mode = 0, ga = 0, gb = 0, ref = 0, def = 0, cap = 0;
+	u32 tg_lo = (u32)st->short_tgain, tg_hi = (u32)(st->short_tgain >> 32);
+
+	st->frame = st->frame + 1 == 30 ? 0 : st->frame + 1;
+	st->lut_on = par[1832];
+	st->fusion_on = par[1831];
+	if (st->ev_changed[0] == 1) {
+		t32_wdr_w32(ext, 8, t32_wdr_r32(ext, 4));
+		t32_wdr_w32(ext, 12, tg_lo);
+		t32_wdr_w32(ext, 0, (u32)st->short_ev[0]);
+		t32_wdr_w32(ext, 4, (u32)st->long_ev[0]);
+		if (!st->ev_hold)
+			t32_wdr_w32(ext, 8, (u32)st->long_ev[0]);
+	}
+	if (par[1831] == 1) {
+		o->deghost(ch);
+		mode = t32_wdr_r16(par, 494);
+		ga = t32_wdr_r16(par, 506);
+		gb = t32_wdr_r16(par, 508);
+		ref = t32_wdr_r16(par, 514);
+		def = t32_wdr_r16(par, 516);
+		cap = t32_wdr_r16(par, 504);
+	}
+	o->fusion(ch);
+	if (st->fusion_on == 1) {
+		int cond = ga == 1 || gb == 1 || tg_hi != 0 || ref < tg_lo;
+		u32 v = t32_wdr_r16(par, 190);
+
+		if (mode == 1)
+			v = cond ? (cap < def ? cap : def) : cap;
+		else if (mode == 0 && cond)
+			v = def;
+		t32_wdr_w16(par, 190, v);
+	}
+	t32_wdr_cpy(hw + 700, ext + 36, 54);
+	t32_wdr_w16(hw, 776, t32_wdr_r16(ext, 90));
+	t32_wdr_w16(hw, 778, t32_wdr_r16(ext, 92));
+	t32_wdr_cpy(hw + 8, ext + 16, 20);
+	if (st->inited == 1) {
+		st->inited = 0;
+		o->reg_write(0x28008, 1);
+		o->reg_write(0x2800c, (hw[1033] & 1U) << 8 | (hw[1032] & 1U) << 4 | (par[1831] & 1U));
+	}
+	t32_wdr_params_hard_refresh(st, ch);
+	t32_wdr_softout_reg_refresh(st, ch);
+	st->ev_hold = st->ev_hold != 0xff;
+	return 0;
 }
 
 #endif
