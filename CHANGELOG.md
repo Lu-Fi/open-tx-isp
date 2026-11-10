@@ -15,6 +15,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `t32_txcsi_oracle`: `tx_isp_t32_txcsi.h` (tx_isp_csi_suspend/_resume_module, _core_ops_ioctl (PM stream on), _activate/_slake_subdev; 5 functions), 30000 random worlds, 23 mutations detected. Vendor quirk kept: activate_subdev ends with a mutex_unlock that has no matching lock.
 - `t32_txvic_oracle`: `tx_isp_t32_txvic.h` (tx_isp_vic_start, _index_cal, _reset, _activate/_slake_subdev, _suspend/_resume_module, _save_raw; 8 functions), 30000 random worlds, 32 mutations detected. Vendor quirks kept: vic slake switches the clocks off once per remaining input after the first 2 -> 1 change; vic_reset faults on a NULL subdevice (not reachable in the oracle); save_raw returns isp_printf's result on a parameter error (ours 0, not compared).
 - `t32_txremove_oracle`: `tx_isp_t32_txremove.h` (tx_isp_vic/vin/csi/ivdc/ldc/fs/core_remove, tx_isp_remove, tx_isp_frame_chan_deinit; 9 functions), 30000 random worlds, CSI PHY reset stores traced in order, 28 mutations detected. Vendor: csi/ivdc/ldc/fs/core/tx_isp_remove do not test the drvdata (not exercised with NULL).
+- `t32_txsinfo_oracle`: `tx_isp_t32_txsinfo.h` (tx_isp_sinfo_init/_exit/_driver_add/_driver_del/_sensor_bind/_sensor_unbind; 6 functions), 30000 random slot tables, 24 mutations detected.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
