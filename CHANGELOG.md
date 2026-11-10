@@ -8,6 +8,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 
 - New oracle helper `tests/t32_oracle/t32_op3_glue.h` + `op3_ren.sh` (REFFIX): the vendor glue functions (Matt Davis' recovered C) link every external symbol as `op3_*`, so each oracle records hook calls, prints (format, level, arguments) and stores to fixed hardware windows (mapped PROT_NONE at the vendor KSEG1 address, single-stepped) in one ordered log, without touching env.c. Hooks of our side: `driver/t32/tx_isp_t32_txos.h`.
 - `t32_txriscv_oracle`: `tx_isp_t32_txriscv.h` (tx_isp_riscv_stop/is_stop/is_run/stop_vic/switch_gpio/run/probe/remove, tx_isp_set_tiziano_param, tx_isp_get_tiziano_para, tx_isp_get_riscv_night_mode; 11 functions), 20000 random cases, 32 mutations detected. Vendor UB named: the "vinum invalid" print of tx_isp_get_tiziano_para passes a stale a3.
+- `t32_txirq_oracle`: `tx_isp_t32_txirq.h` (tx_isp_request_irq, tx_isp_free_irq, both tx_isp_enable_irq/disable_irq pairs, tx_vic_enable/disable_irq, tx_ldc_enable/disable_irq; 10 functions), 30000 random cases, 28 mutations detected. Vendor quirks kept: request_irq has no upper bound on the irq loop (irq[] and enabled[] overlap from the 4th irq); tx_vic_enable_irq only sets the flag for an index > 0.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 

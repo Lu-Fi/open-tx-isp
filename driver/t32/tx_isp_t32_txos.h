@@ -5,8 +5,8 @@
  * functions so that the host oracles (tests/t32_oracle/t32_op3_glue.h)
  * record them in order against the vendor flow.
  *
- * Kernel build: thin mappings to the kernel API.  Host build: the oracle
- * defines every t32_tx_os_* function as a recorder.
+ * The t32_tx_os_* hooks are provided by the driver glue (kernel build) or
+ * by the oracle as recorders (host build).
  *
  * Pointers the vendor keeps in its objects are 32-bit (MIPS o32); the glue
  * objects therefore hold them as u32 and convert with T32_TX_P().
@@ -62,15 +62,7 @@ static inline void t32_tx_wr(u32 a, u32 v)
 
 #define T32_EINVAL	22U
 
-#ifdef __KERNEL__
-#define t32_tx_os_printk(...)		printk(__VA_ARGS__)
-#define t32_tx_os_isp_printf(l, ...)	printk(__VA_ARGS__)
-#define t32_tx_os_msleep(ms)		msleep(ms)
-#define t32_tx_os_vmalloc(n)		T32_TX_A(vmalloc(n))
-#define t32_tx_os_vfree(a)		vfree(T32_TX_P(a))
-#define t32_tx_os_memset(a, c, n)	memset(T32_TX_P(a), c, n)
-#define t32_tx_os_memcpy(d, s, n)	memcpy(T32_TX_P(d), T32_TX_P(s), n)
-#else
+/* provided by the driver glue (kernel) or by the oracle (host) */
 void t32_tx_os_printk(const char *fmt, ...);
 void t32_tx_os_isp_printf(u32 level, const char *fmt, ...);
 void t32_tx_os_msleep(u32 ms);
@@ -78,6 +70,5 @@ u32 t32_tx_os_vmalloc(u32 n);
 void t32_tx_os_vfree(u32 a);
 void t32_tx_os_memset(u32 a, u32 c, u32 n);
 void t32_tx_os_memcpy(u32 d, u32 s, u32 n);
-#endif
 
 #endif

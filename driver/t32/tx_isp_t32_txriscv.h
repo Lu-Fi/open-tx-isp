@@ -64,13 +64,9 @@ struct t32_tx_riscv {
 	u32 fw;			/* address of the 2108 byte boot code */
 };
 
-#ifdef __KERNEL__
-#define t32_tx_os_fastpara_init(ch)		tiziano_fastpara_init(ch)
-#define t32_tx_os_g_riscv_info(ch, w, p)	tisp_g_riscv_info(ch, w, p)
-#else
+/* provided by the driver glue (kernel) or by the oracle (host) */
 void t32_tx_os_fastpara_init(u32 ch);
 void t32_tx_os_g_riscv_info(u32 ch, u32 which, u32 para);
-#endif
 
 /* tx_isp_riscv_stop: hold the core in reset */
 static inline int t32_tx_riscv_stop(void)
