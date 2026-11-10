@@ -5,6 +5,12 @@ Newest first, grouped by date. Everything listed was device-tested on the SoC na
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
 
+## 2026-11-10: t31_ipu: no NULL memset after a failed buffer allocation, module init reports a failed registration (openimp #264; build-tested against kernel 7.3.3)
+
+- `IOCTL_IPU_GET_PBUFF` returned -ENOMEM on a failed `kmalloc` but still ran `memset` on the NULL pointer (vendor code path): it now stops there (review finding M2).
+- `ipudev_init` returns the result of `platform_driver_register` instead of 0 (L1).
+- Not device-tested: both are error paths; a reload test on the kernel-7 T31X is pending.
+
 ## 2026-11-10: kernel 7 T31 bridge: sensor register access, sensor test pattern works (openimp #263; Wuuk Y0510 T31X sc4336p, kernel 7.3.3, runtime insmod)
 
 - The V4L2 sensor bridge (`driver/t31/tx_isp_v4l2_sensor.c`) now implements the core `g_register`/`s_register` ops behind the stock sensor register ioctl (`IMP_ISP_Get/SetSensorRegister`). A mainline sensor driver has no such ops, so the call ended in -ENOIOCTLCMD and OpenIMP refused the sensor test pattern. The bridge talks to the chip on its I2C client like the vendor sensor drivers: 16-bit register address and 8-bit value, 8-bit address for gc2053/gc2063/gc2093; CAP_SYS_ADMIN only.

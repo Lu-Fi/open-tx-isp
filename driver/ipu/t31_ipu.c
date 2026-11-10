@@ -1010,6 +1010,8 @@ static long ipu_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				if (!ipu->pbuf.vaddr_alloc) {
 					printk("ipu kmalloc is error\n");
 					ret = -ENOMEM;
+					/* openimp #264 M2: the vendor fell through to memset(NULL) */
+					break;
 				}
 				memset((void*)(ipu->pbuf.vaddr_alloc), 0x00, size);
 				ipu->pbuf.size = size;
@@ -1305,8 +1307,8 @@ static struct platform_driver jz_ipu_driver = {
 static int __init ipudev_init(void)
 {
 	IPU_DEBUG("%s\n", __func__);
-	platform_driver_register(&jz_ipu_driver);
-	return 0;
+	/* openimp #264 L1: report a failed registration instead of loading a dead module */
+	return platform_driver_register(&jz_ipu_driver);
 }
 
 static void __exit ipudev_exit(void)
