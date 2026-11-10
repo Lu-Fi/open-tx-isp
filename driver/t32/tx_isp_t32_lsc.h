@@ -543,7 +543,7 @@ static inline void t32_lsc_write_all_reg(struct t32_lsc_ctx *ctx, u8 ch)
 	u32 w[3];
 
 	/* wdr mode: 0x5050 = wdr strength << 16 | strength, 0x5070 the wdr range */
-	t32_lsc_registers(ctx->sec, &ctx->s, ctx->cur->wdr != 0);
+	t32_lsc_registers(ctx->sec, &ctx->s, ctx->cur->wdr == 1);
 	for (k = 0; k < 13; k++)
 		if (k != 3 && k != 10 && k != 11)
 			t32_lsc_img_write(ctx, ch, 4 + k, ctx->s.regs[k]);
@@ -613,8 +613,25 @@ static inline u32 t32_lsc_itp(u32 a, u32 b, u32 frac)
  */
 static inline int t32_lsc_tgain_update_s(struct t32_lsc_ctx *ctx, u8 ch, u32 gain)
 {
+	u32 val;
+
+	ctx->cur->tgain_s = gain;	/* the vendor stores it in cur + 24 */
 	t32_lsc_gain_s(ctx->sec, &ctx->s, gain);
-	t32_lsc_write_all_reg(ctx, ch);
+	/*
+	 * The vendor calls tisp_lsc_write_all_reg(ch, 1, 1, 0): only the strength register
+	 * (0x5050) is written: direct mode reg 2757 and the enable 2751, else the hardware
+	 * register 0x5050 (20560, logged when a log is attached) and shadow image 8.
+	 */
+	val = ctx->cur->wdr == 1 ? (u32)ctx->s.strength_wdr << 16 | ctx->s.strength :
+				   (u32)ctx->s.strength << 16 | ctx->s.strength;
+	if (ctx->direct == 1) {
+		t32_lsc_reg_write(ctx, ch, 2757, val);
+		t32_lsc_reg_write(ctx, ch, 2751, 1);
+	} else {
+		if (ctx->dlog)
+			t32_lsc_reg_write(ctx, ch, 20560, val);
+		t32_lsc_img_write(ctx, ch, 8, val);
+	}
 	return 0;
 }
 
@@ -656,6 +673,31 @@ static inline int t32_lsc_param_array_get(const struct t32_lsc_ctx *ctx, u8 *buf
 	memcpy(buf + 120, ctx->stats, 12);
 	*len = 132;
 	return 0;
+}
+
+/*
+ * The vendor's tisp_lsc_interp_by_ct lowers the hysteresis u16 at section byte 48 in place
+ * to a quarter of the smallest tag distance (more than one table only; the distance loop runs
+ * one step past the last table, whose tag reads as 0 for three tables).  p2 = mesh tables.
+ */
+static inline void t32_lsc_hyst_lower(u8 *sec, const u8 *p2)
+{
+	u32 n = sec[116], k, h = t32_le16(sec + 48), md = 0x10000, prev, cur;
+
+	if (n < 2) return;
+	if (n > T32_LSC_NTABLES)
+		n = T32_LSC_NTABLES;
+	prev = t32_le16(p2);
+	for (k = 1; k <= n; k++) {
+		cur = k < T32_LSC_NTABLES ? t32_le16(p2 + k * T32_LSC_TABLE_STRIDE) : 0;
+		if (cur - prev < md)
+			md = cur - prev;
+		if (md < (h << 2))
+			h = md >> 2;
+		prev = cur;
+	}
+	sec[48] = (u8)h;
+	sec[49] = (u8)(h >> 8);
 }
 
 /*
@@ -708,7 +750,12 @@ static inline int t32_lsc_param_array_set(struct t32_lsc_ctx *ctx, u8 ch, u32 id
 		if (idx != sec[116])
 			goto publish;
 	}
+	t32_lsc_hyst_lower(sec, lut->p2);
 	t32_lsc_refresh(ctx, ch);
+	/* the vendor's full write mode also sets the enable (image 2) and closes the mesh port select (3608) */
+	t32_lsc_img_write(ctx, ch, 2, 1);
+	t32_lsc_img_write(ctx, ch, 3608,
+			  (t32_lsc_cell_count(sec, &ctx->s, ctx->bayer) - 1) << 16 | 0x102);
 publish:
 	ctx->pub[0] = lut->size[0];
 	ctx->pub[1] = lut->size[1];
