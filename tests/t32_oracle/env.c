@@ -627,6 +627,9 @@ u32 t32_data_ce130[60] = { 0x01010100,0x03030302,0x05050504,0x07070706,0x0101010
 __asm__(".globl t32_data_ce140, t32_data_ce150, t32_data_ce160, t32_data_ce170, t32_data_ce180, t32_data_ce190, t32_data_ce1a0, t32_data_ce1b0, t32_data_ce1c0, t32_data_ce1d0, t32_data_ce1e0, t32_data_ce1f0\n.set t32_data_ce140, t32_data_ce130+16\n.set t32_data_ce150, t32_data_ce130+32\n.set t32_data_ce160, t32_data_ce130+48\n.set t32_data_ce170, t32_data_ce130+64\n.set t32_data_ce180, t32_data_ce130+80\n.set t32_data_ce190, t32_data_ce130+96\n.set t32_data_ce1a0, t32_data_ce130+112\n.set t32_data_ce1b0, t32_data_ce130+128\n.set t32_data_ce1c0, t32_data_ce130+144\n.set t32_data_ce1d0, t32_data_ce130+160\n.set t32_data_ce1e0, t32_data_ce130+176\n.set t32_data_ce1f0, t32_data_ce130+192\n");
 /* data.c:25729 (d6b50): 20 byte column offset table of lce_self_light_correct_local_simd_test (the 3 words after it belong to other tables) */
 u32 t32_data_d6b50[5] = { 0x18100800,0x38302820,0x70605040,0xb0a09080,0xf0e0d0c0 };
+/* data.c:2619 (bf860): 32 x 0x400 u16 table copied by lce_hist_method_16bit_simd into a buffer it overwrites before reading; data.c:2701 (bf9a8): 1024/n for n = 0..31 */
+u32 t32_data_bf860[16] = { 0x04000400,0x04000400,0x04000400,0x04000400,0x04000400,0x04000400,0x04000400,0x04000400,0x04000400,0x04000400,0x04000400,0x04000400,0x04000400,0x04000400,0x04000400,0x04000400 };
+u32 t32_data_bf9a8[16] = { 0x04000400,0x01550200,0x00cd0100,0x009200ab,0x00720080,0x005d0066,0x004f0055,0x00440049,0x003c0040,0x00360039,0x00310033,0x002d002f,0x0029002b,0x00260027,0x00230025,0x00210022 };
 /* printk format "%d\n" (c7d34, data.c:11122) */
 u32 t32_data_c7d34[1] = { 0x000a6425 };
 /* .bss scratch of the colour temperature detection, dadf0 .. dc054: one block, every OEM symbol is an offset */

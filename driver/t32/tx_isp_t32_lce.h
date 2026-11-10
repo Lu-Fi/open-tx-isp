@@ -421,6 +421,95 @@ static inline void t32_lce_self_light_correct_local_simd_test(const u8 *in, u8 *
 	}
 }
 
+#define T32_LCE_HM16_SHIFT 20	/* rodata d6c67 (0x14), already within 0..31 */
+
+/* lce_hist_method_16bit_simd: 1024 / n for n = 0..31 (rounded; rodata bf9a8, 32 u16) */
+static const u16 t32_lce_hm16_recip[32] = {
+	0x400, 0x400, 0x200, 0x155, 0x100, 0x0cd, 0x0ab, 0x092, 0x080, 0x072, 0x066, 0x05d, 0x055, 0x04f, 0x049, 0x044,
+	0x040, 0x03c, 0x039, 0x036, 0x033, 0x031, 0x02f, 0x02d, 0x02b, 0x029, 0x027, 0x026, 0x025, 0x023, 0x022, 0x021,
+};
+
+/* parameter block of lce_hist_method_16bit_simd (the vendor reads these words of its a2 argument) */
+struct t32_lce_hm16_par {
+	u32 r0;
+	u32 n;		/* +4: low 8 bits, centre bin, 0..31 */
+	u32 r2[3];
+	u32 c3;		/* +20: low 8 bits, offset of the b ramp */
+	u32 b;		/* +24: low 8 bits, slope of the b ramp (scaled by 1024 / n) */
+	u32 k8;		/* +28: low 8 bits, histogram gain (128 = 1.0) */
+	u32 c1;		/* +32: low 16 bits, offset of the a ramp */
+	u32 a;		/* +36: low 16 bits, slope of the a ramp (scaled by 1024 / n) */
+	u32 e1;		/* +40: low 16 bits, a at the centre bin */
+	u32 e2;		/* +44: low 16 bits, b at the centre bin */
+	u32 sh;		/* +48: low 8 bits (used & 31), shift of the over-full branch */
+};
+
+/*
+ * lce_hist_method_16bit_simd (0x54438): reshape a 32 bin histogram (u16) into out[32] (u16) with a tent:
+ * ramp a (offset c1, slope A) and ramp b (offset c3, slope B) rising to the centre bin n and falling again
+ * (mirrored, 31 - i), A = (a * 1024/n) >> 10, B = (b * 1024/n) >> 10 as 32 bit values, e1 / e2 at the centre.
+ * m[i] = (u16)min(a[i], g[i]) (unsigned), g[i] = (((hist[i] - 1024) * k8) >> 7) + 1024; S = sum m.  If S > 0x8000 only
+ * the high four of every eight bins are processed (vendor behaviour, the low four bins of each group are written
+ * from the same four inputs); else m[i] + b[i] * (0x8000 - S) / sum(b) (unsigned, ~0 for sum 0).  Finally the
+ * remaining 0x8000 - total is spread: h = (rem << 5) >> 10 on every bin and rem % 32 on bin 31.
+ * v = (sum << 5 >> 14) + 1 is at least 65 there (and sum < 2^26 for every parameter), so the vendor's divide-by-zero
+ * handling is never reached.  Only n <= 31 is supported (the vendor overflows its stack arrays above).  The vendor's memcpy of a 64 byte
+ * table into its scratch buffer (bf860) is overwritten completely before it is read and is not ported.
+ * Not related to t32_lce_hist_method (different algorithm).
+ */
+static inline void t32_lce_hist_method_16bit_simd(const u16 *hist, u16 *out, const struct t32_lce_hm16_par *p)
+{
+	u32 n = p->n & 0xff, c1 = p->c1 & 0xffff, c3 = p->c3 & 0xff, k8 = p->k8 & 0xff;
+	u32 ra = (p->a & 0xffff) * t32_lce_hm16_recip[n & 31], rb = (p->b & 0xff) * t32_lce_hm16_recip[n & 31];
+	u32 sa = (u32)((int)ra >> 10), sb = (u32)((int)rb >> 10);
+	u32 a[32], b[32], bsum = 0, sum = 0, tot = 0, rem, i;
+	u16 m[32];
+	u16 buf[32];
+	int h;
+
+	for (i = 0; i < 32; i++) {
+		u32 x = i < n ? i : 31 - i;
+
+		a[i] = i == n ? p->e1 & 0xffff : c1 + sa * x;
+		b[i] = i == n ? p->e2 & 0xffff : c3 + sb * x;
+		bsum += b[i];
+	}
+	for (i = 0; i < 32; i++) {
+		u32 g = (u32)(((int)((hist[i] - 1024U) * k8)) >> 7) + 1024U;
+
+		g = a[i] < g ? a[i] : g;
+		m[i] = (u16)g;
+		sum += g;
+	}
+	rem = 0x8000U - sum;
+	if ((int)rem < 0) {
+		u32 sh = 1U << T32_LCE_HM16_SHIFT, v = (u32)(((int)(sum << 5)) >> 14) + 1;
+		u32 r = (u32)((int)sh / (int)v), s = p->sh & 31, g4, j;
+
+		for (g4 = 0; g4 < 4; g4++) {
+			for (j = 0; j < 4; j++) {
+				u32 x = m[g4 * 8 + 4 + j], y = (u32)((int)(r * x) >> s), z = (u32)((int)x >> s);
+
+				buf[g4 * 8 + j] = (u16)y;
+				buf[g4 * 8 + 4 + j] = (u16)z;
+				tot += y + z;
+			}
+		}
+	} else {
+		for (i = 0; i < 32; i++) {
+			u32 q = bsum ? b[i] * rem / bsum : ~0U;
+
+			buf[i] = (u16)(m[i] + q);
+			tot += m[i] + q;
+		}
+	}
+	rem = 0x8000U - tot;
+	h = (int)(rem << 5) >> 10;
+	for (i = 0; i < 32; i++)
+		out[i] = (u16)(buf[i] + h);
+	out[31] = (u16)(out[31] + (int)rem % 32);
+}
+
 static inline u32 t32_lce_w(const struct t32_lce_tab *tab, u32 idx, int *bad)
 {
 	if (idx > 31) {
