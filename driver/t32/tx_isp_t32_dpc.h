@@ -518,6 +518,7 @@ struct t32_dpc_ctx {
 	u32 gain1;		/* the same for the short exposure tables (+16) */
 	u32 arg;		/* stored by tisp_dpc_write_reg (+20) */
 	u8 wdr;			/* WDR enable byte, tisp_dpc_wdr_en (+8) */
+	u8 wide;		/* +9: vendor tisp_dpc_write_reg_other writes the extra words when set */
 	u8 tbl[88];		/* four 11 point u16 tables read by tisp_dpc_gain_interp (+24) */
 };
 
@@ -653,7 +654,7 @@ static inline int t32_dpc_wdr_en(struct t32_dpc_ctx *ctx, u8 ch, u8 en,
 		t32_dpc_gain_interp(ctx, 1);
 		t32_dpc_short(ctx->sec, ctx->o, w, &n);
 	}
-	t32_dpc_other(ctx->sec, 0, w, &n);
+	t32_dpc_other(ctx->sec, ctx->wide, w, &n);
 	return (int)n;
 }
 
