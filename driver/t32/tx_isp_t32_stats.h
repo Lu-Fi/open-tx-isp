@@ -2647,6 +2647,7 @@ struct t32_isra_ops {
 	int (*call)(void *priv, u32 ch, u8 *buf);	/* tisp_[sg]_xxx(ch, buf) of the function */
 	void *priv;
 	int (*call2)(void *priv, u32 ch, u8 *buf);	/* the second call of awb_attr_s (tisp_s_awb_attr) */
+	int (*calln)(void *priv, u32 id, u32 ch, u8 *buf);	/* the numbered calls of the target / only_read glue */
 };
 
 #define T32_ISRA_AWB_WEIGHT	1024U
@@ -2859,6 +2860,151 @@ static inline int t32_isra_ae_weight_g(const struct t32_isra_ops *o, u32 ch, u32
 	t32_aea_cpy(out, loc + T32_ISRA_AE_WEIGHT_WORD, 4);
 	t32_aea_cpy(out + 4, loc + T32_ISRA_AE_WEIGHT_LOC, T32_ISRA_AE_WEIGHT_W);
 	r = o->copy_to_user(o->priv, user, out, T32_ISRA_AE_WEIGHT);
+	if (r)
+		o->printk(o->priv, 2);
+	return r;
+}
+
+/*
+ * AE scene / target / only-read attribute glue (vendor
+ * tx_isp_ae_hlc_or_blc_g_attr, tx_isp_ae_target_s_attr / _g_attr,
+ * tx_isp_ae_only_read_g_attr, *_isra_27 / 28 / 61 / 59), checked by
+ * t32_aeam_oracle.  Numbered calls (calln, buffers are the caller's zeroed
+ * scratch blocks): scene = tisp_g_ae_scence_attr 40 bytes (word at +16 / +20
+ * are the target words, +0 / +4 (byte) / +8 / +12 (byte) the hlc / blc
+ * state), at / ev = the 128 byte lists tisp_[sg]_at_list / _ev_list.
+ * hlc_or_blc_g: out = { word 0 = 0, 1 or 2; byte 4 }: both bytes 4 / 12 clear
+ * -> 0 / 0; word 0 == 3 with byte 12 clear -> 1 / byte 4; otherwise word 8 == 3
+ * with byte 4 clear -> 2 / byte 12; anything else prints level 1 and copies
+ * out the untouched block.
+ * target_s: a failed copy only prints (level 2, nothing is returned for it);
+ * the scene is read, its words +16 / +20 set from user words 0 / 1 and written
+ * back, then the at list (user + 8) and the ev list (user + 136) are written;
+ * every failing call prints level 1 and returns its result.  target_g mirrors
+ * it: scene, at, ev read, out = scene words +16 / +20, at (+8), ev (+136), 264
+ * bytes copied out.  only_read_g: exprinfo (220 bytes), scene and the byte
+ * channel's bv / ae_stable results fill a 48 byte block; failed reads of
+ * exprinfo and scene only print (level 1), the copy is the result.
+ */
+#define T32_ISRA_TGT		264U
+#define T32_ISRA_TGT_LIST	128U
+#define T32_ISRA_TGT_AT		8U
+#define T32_ISRA_TGT_EV		136U
+#define T32_ISRA_SCN_W0		16U
+#define T32_ISRA_SCN_W1		20U
+#define T32_ISRA_HLC_BYTES	8U
+#define T32_ISRA_OR_BYTES	48U
+
+static inline int t32_isra_ae_hlc_or_blc_g(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *loc, u8 *out)
+{
+	u32 a, m, b, k;
+	int r = o->calln(o->priv, 1, ch, loc);
+
+	if (r) {
+		o->printk(o->priv, 1);
+		return r;
+	}
+	a = t32_ld32(loc, 0);
+	m = loc[4];
+	b = t32_ld32(loc, 8);
+	k = loc[12];
+	if (!m && !k) {
+		t32_wr32(out, 0, 0);
+		out[4] = 0;
+	} else if (a == 3 && !k) {
+		t32_wr32(out, 0, 1);
+		out[4] = (u8)m;
+	} else if (b == 3 && !m) {
+		t32_wr32(out, 0, 2);
+		out[4] = (u8)k;
+	} else {
+		o->printk(o->priv, 1);
+	}
+	r = o->copy_to_user(o->priv, user, out, T32_ISRA_HLC_BYTES);
+	if (r)
+		o->printk(o->priv, 2);
+	return r;
+}
+
+static inline int t32_isra_ae_target_s(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *in, u8 *scn,
+				       u8 *at, u8 *ev)
+{
+	int r = o->copy_from_user(o->priv, in, user, T32_ISRA_TGT);
+
+	if (r)
+		o->printk(o->priv, 2);
+	r = o->calln(o->priv, 1, ch, scn);
+	if (r)
+		goto fail;
+	t32_wr32(scn, T32_ISRA_SCN_W0, t32_ld32(in, 0));
+	t32_wr32(scn, T32_ISRA_SCN_W1, t32_ld32(in, 4));
+	r = o->calln(o->priv, 2, ch, scn);
+	if (r)
+		goto fail;
+	t32_aea_cpy(at, in + T32_ISRA_TGT_AT, T32_ISRA_TGT_LIST);
+	r = o->calln(o->priv, 3, ch, at);
+	if (r)
+		goto fail;
+	t32_aea_cpy(ev, in + T32_ISRA_TGT_EV, T32_ISRA_TGT_LIST);
+	r = o->calln(o->priv, 4, ch, ev);
+	if (!r)
+		return 0;
+fail:
+	o->printk(o->priv, 1);
+	return r;
+}
+
+static inline int t32_isra_ae_target_g(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *scn, u8 *at,
+				       u8 *ev, u8 *out)
+{
+	int r = o->calln(o->priv, 1, ch, scn);
+
+	if (r)
+		goto fail;
+	t32_wr32(out, 0, t32_ld32(scn, T32_ISRA_SCN_W0));
+	t32_wr32(out, 4, t32_ld32(scn, T32_ISRA_SCN_W1));
+	r = o->calln(o->priv, 2, ch, at);
+	if (r)
+		goto fail;
+	t32_aea_cpy(out + T32_ISRA_TGT_AT, at, T32_ISRA_TGT_LIST);
+	r = o->calln(o->priv, 3, ch, ev);
+	if (r)
+		goto fail;
+	t32_aea_cpy(out + T32_ISRA_TGT_EV, ev, T32_ISRA_TGT_LIST);
+	r = o->copy_to_user(o->priv, user, out, T32_ISRA_TGT);
+	if (!r)
+		return 0;
+	o->printk(o->priv, 2);
+	return r;
+fail:
+	o->printk(o->priv, 1);
+	return r;
+}
+
+/* expo = 220 byte exprinfo block, scn = scene, stable = 3 words, bv = 1 word, out = 48 bytes */
+static inline int t32_isra_ae_only_read_g(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *expo, u8 *scn,
+					  u8 *stable, u8 *bv, u8 *out)
+{
+	int r;
+
+	if (o->calln(o->priv, 1, ch, expo))
+		o->printk(o->priv, 1);
+	t32_wr32(out, 0, t32_ld32(expo, 204));
+	t32_wr32(out, 4, t32_ld32(expo, 208));
+	t32_wr32(out, 8, t32_ld32(expo, 212));
+	t32_wr32(out, 12, 0);
+	t32_wr32(out, 16, t32_ld32(expo, 216));
+	if (o->calln(o->priv, 2, ch, scn))
+		o->printk(o->priv, 1);
+	t32_wr32(out, 20, t32_ld32(scn, 32));
+	t32_wr32(out, 24, t32_ld32(scn, 36));
+	o->calln(o->priv, 3, ch & 0xff, bv);
+	t32_wr32(out, 40, t32_ld32(bv, 0));
+	o->calln(o->priv, 4, ch & 0xff, stable);
+	t32_wr32(out, 28, t32_ld32(stable, 0));
+	t32_wr32(out, 32, t32_ld32(stable, 4));
+	t32_wr32(out, 36, t32_ld32(stable, 8));
+	r = o->copy_to_user(o->priv, user, out, T32_ISRA_OR_BYTES);
 	if (r)
 		o->printk(o->priv, 2);
 	return r;
