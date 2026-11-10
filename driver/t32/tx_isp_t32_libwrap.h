@@ -43,10 +43,16 @@
  *                                  76-byte MDNS channel block (t32_data_dc074) and returns
  *                                  tisp_mdns_get_mem_size(ch, width, height, cfg[4], state byte 43) with width /
  *                                  height the u16 at 0 / 4 of the channel state (t32_data_dc284)
+ * Group 5 (VIC start / stop / interrupt mask, IPC cache):
+ *   t32_lib_vic_stream_on / _stop  lib_tisp_vic_stream_on 0xadea0 / lib_tisp_vic_stop 0xad068: VIC 0 then VIC 1
+ *                                  register 0x10 = 1 / 0
+ *   t32_lib_vic_intp_enable / _disable  lib_tisp_vic_intp_enable 0xadee8 / _disable 0xadf38: VIC (ch & 0xff)
+ *                                  mask registers 0x1e8, 0x1ec = 0 / 0xffffffff
+ *   t32_lib_get_ipc_cache_data     lib_tisp_get_ipc_cache_data 0x2a1a8: (reg 0x1370 >> 16) + (reg 0x1374 >> 16)
  *   VIC n registers are at (0x80 + n) << 12 in the system register space.
  *
  * Hooks: struct t32_lib_hooks (the callees).  Checked bit-exact against the vendor flow (Matt Davis' recovered C,
- * PR #15) by tests/t32_oracle (t32_libwrap_oracle, t32_libst_oracle, t32_libtr_oracle, t32_libms_oracle).
+ * PR #15) by tests/t32_oracle (t32_libwrap_oracle, t32_libst_oracle, t32_libtr_oracle, t32_libms_oracle, t32_libvic_oracle).
  */
 #ifndef TX_ISP_T32_LIBWRAP_H
 #define TX_ISP_T32_LIBWRAP_H
@@ -230,6 +236,53 @@ static inline u32 t32_lib_get_isp_memory_space(const struct t32_lib_hooks *h, un
 	return h->mdns_get_mem_size(h->ctx, ch, *(const unsigned short *)(st + T32_CH_STATE_W),
 				    *(const unsigned short *)(st + T32_CH_STATE_H), cfg[T32_MEMSPACE_MODE],
 				    st[T32_CH_STATE_B43]);
+}
+
+/* ---- group 5: VIC start / stop / interrupt mask, IPC cache ---- */
+
+#define T32_VIC_INTP_MASK0	0x1e8U
+#define T32_VIC_INTP_MASK1	0x1ecU
+#define T32_IPC_CACHE_REG0	0x1370U
+#define T32_IPC_CACHE_REG1	0x1374U
+
+static inline u32 t32_lib_vic_run(const struct t32_lib_hooks *h, u32 on)
+{
+	h->sys_write(h->ctx, T32_VIC_BASE(0) + T32_VIC_STOP, on);
+	return h->sys_write(h->ctx, T32_VIC_BASE(1) + T32_VIC_STOP, on);
+}
+
+static inline u32 t32_lib_vic_stream_on(const struct t32_lib_hooks *h)
+{
+	return t32_lib_vic_run(h, 1);
+}
+
+static inline u32 t32_lib_vic_stop(const struct t32_lib_hooks *h)
+{
+	return t32_lib_vic_run(h, 0);
+}
+
+static inline u32 t32_lib_vic_intp_mask(const struct t32_lib_hooks *h, u32 ch, u32 mask)
+{
+	ch &= 0xff;
+	h->sys_write(h->ctx, T32_VIC_BASE(ch) + T32_VIC_INTP_MASK0, mask);
+	return h->sys_write(h->ctx, T32_VIC_BASE(ch) + T32_VIC_INTP_MASK1, mask);
+}
+
+static inline u32 t32_lib_vic_intp_enable(const struct t32_lib_hooks *h, u32 ch)
+{
+	return t32_lib_vic_intp_mask(h, ch, 0);
+}
+
+static inline u32 t32_lib_vic_intp_disable(const struct t32_lib_hooks *h, u32 ch)
+{
+	return t32_lib_vic_intp_mask(h, ch, 0xffffffffU);
+}
+
+static inline u32 t32_lib_get_ipc_cache_data(const struct t32_lib_hooks *h)
+{
+	u32 a = h->sys_read(h->ctx, T32_IPC_CACHE_REG0) >> 16;
+
+	return a + (h->sys_read(h->ctx, T32_IPC_CACHE_REG1) >> 16);
 }
 
 #endif
