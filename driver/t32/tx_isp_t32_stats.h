@@ -1399,6 +1399,114 @@ static inline void t32_aea_get_scene_par(const struct t32_aea_ctx *c, u8 *out, c
 }
 
 /*
+ * AE exposure / ev / at lists (vendor tisp_ae_api_set_exp_list / get_exp_list,
+ * tisp_ae_set_ev_list / get_ev_list / set_at_list / get_at_list), checked by
+ * t32_aead_oracle.  exp list: 16 entries of 20 bytes (4 words used); set stores
+ * 4 words per entry at tune + 588 (contiguous), get reads entry words 1..3 from
+ * tune + 592 + 16 i and st + 680 + 16 i / + 4 (the vendor is not symmetric).
+ * ev list: 15 entries of 8 bytes at tune + 1496 (or the default at st + 1544),
+ * at list: 15 u16 at tune + 2870 (or the default at st + 1664); flag byte at
+ * st + 2180 / 2181.  Setting with flag 1 stores the caller's list, any other
+ * flag copies the default list.
+ */
+#define T32_AEA_T_EXPEN		1740U
+#define T32_AEA_T_EXPL		588U
+#define T32_AEA_ST_EXPL		680U
+#define T32_AEA_T_EVL		1496U
+#define T32_AEA_ST_EVL		1544U
+#define T32_AEA_T_ATL		2870U
+#define T32_AEA_ST_ATL		1664U
+
+/* dcw: the channel word at dc284 + ch * 904 + 900 (>= 2: warning (hook), nothing else); returns 0 */
+static inline void t32_aea_set_exp_list(const struct t32_aea_ctx *c, u32 dcw, u32 flag, const u8 *in,
+					void (*warn)(void *priv), void *priv)
+{
+	u32 i, j;
+
+	if (dcw >= 2) {
+		warn(priv);
+		return;
+	}
+	t32_wr32(c->tune, T32_AEA_T_EXPEN, flag);
+	if (flag != 1)
+		return;
+	for (i = 0; i < 16; i++)
+		for (j = 0; j < 4; j++)
+			t32_wr32(c->tune, T32_AEA_T_EXPL + 16 * i + 4 * j, t32_ld32(in, 20 * i + 4 * j));
+	c->st[1285] = 1;
+}
+
+/* out: 16 entries of 5 words at out + 0 (word 0 and 4 stay 0), flag word at *flag */
+static inline void t32_aea_get_exp_list(const struct t32_aea_ctx *c, u8 *flag, u8 *out)
+{
+	u32 i;
+
+	for (i = 0; i < 16; i++) {
+		t32_wr32(out, 20 * i, 0);
+		t32_wr32(out, 20 * i + 4, t32_ld32(c->tune, T32_AEA_T_EXPL + 4 + 16 * i));
+		t32_wr32(out, 20 * i + 8, t32_ld32(c->st, T32_AEA_ST_EXPL + 16 * i));
+		t32_wr32(out, 20 * i + 12, t32_ld32(c->st, T32_AEA_ST_EXPL + 4 + 16 * i));
+		t32_wr32(out, 20 * i + 16, 0);
+	}
+	t32_wr32(flag, 0, t32_ld32(c->tune, T32_AEA_T_EXPEN));
+}
+
+static inline void t32_aea_set_ev_list(const struct t32_aea_ctx *c, u32 flag, const u8 *in)
+{
+	u32 i;
+
+	flag &= 0xff;
+	if (flag == 1) {
+		for (i = 0; i < 15; i++) {
+			t32_wr32(c->tune, T32_AEA_T_EVL + 8 * i, t32_ld32(in, 8 * i));
+			t32_wr32(c->tune, T32_AEA_T_EVL + 8 * i + 4, t32_ld32(in, 8 * i + 4));
+		}
+	} else {
+		t32_aea_cpy(c->tune + T32_AEA_T_EVL, c->st + T32_AEA_ST_EVL, 120);
+	}
+	c->st[1285] = 1;
+	c->st[2180] = (u8)flag;
+}
+
+/* out: word 0 = flag byte, then 15 entries of 8 bytes from out + 8 */
+static inline void t32_aea_get_ev_list(const struct t32_aea_ctx *c, u8 *out)
+{
+	u32 i;
+
+	for (i = 0; i < 15; i++) {
+		t32_wr32(out, 8 + 8 * i, t32_ld32(c->tune, T32_AEA_T_EVL + 8 * i));
+		t32_wr32(out, 12 + 8 * i, t32_ld32(c->tune, T32_AEA_T_EVL + 8 * i + 4));
+	}
+	t32_wr32(out, 0, c->st[2180]);
+}
+
+static inline void t32_aea_set_at_list(const struct t32_aea_ctx *c, u32 flag, const u8 *in)
+{
+	u32 i;
+
+	flag &= 0xff;
+	if (flag == 1) {
+		for (i = 0; i < 15; i++)
+			t32_wr16(c->tune, T32_AEA_T_ATL + 2 * i, t32_ld32(in, 8 * i));
+	} else {
+		t32_aea_cpy(c->tune + T32_AEA_T_ATL, c->st + T32_AEA_ST_ATL, 30);
+	}
+	c->st[2181] = (u8)flag;
+	c->st[1285] = 1;
+}
+
+static inline void t32_aea_get_at_list(const struct t32_aea_ctx *c, u8 *out)
+{
+	u32 i;
+
+	for (i = 0; i < 15; i++) {
+		t32_wr32(out, 8 + 8 * i, t32_st16(c->tune, T32_AEA_T_ATL + 2 * i));
+		t32_wr32(out, 12 + 8 * i, 0);
+	}
+	t32_wr32(out, 0, c->st[2181]);
+}
+
+/*
  * Per-frame AE exposure allocation (vendor tisp_ae_short_expt,
  * tisp_ae_short_ev_alloc, tisp_ae_long_ev_alloc; Matt Davis' recovered C),
  * checked by tests/t32_oracle (t32_aee_oracle).  Register writes go to w[]
