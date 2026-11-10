@@ -2646,6 +2646,7 @@ struct t32_isra_ops {
 	void (*printk)(void *priv, u32 level);
 	int (*call)(void *priv, u32 ch, u8 *buf);	/* tisp_[sg]_xxx(ch, buf) of the function */
 	void *priv;
+	int (*call2)(void *priv, u32 ch, u8 *buf);	/* the second call of awb_attr_s (tisp_s_awb_attr) */
 };
 
 #define T32_ISRA_AWB_WEIGHT	1024U
@@ -2725,6 +2726,67 @@ static inline int t32_isra_ae_explist_g(const struct t32_isra_ops *o, u32 ch, u3
 static inline int t32_isra_ae_scence_g(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *buf)
 {
 	return t32_isra_get_go_on(o, ch, user, buf, T32_ISRA_AE_SCENCE);
+}
+
+/*
+ * AWB attribute glue (vendor tx_isp_awb_attr_g_attr / _s_attr /
+ * tx_isp_awb_only_read_attr, *_isra_16 / 18 / 17), checked by t32_aeak_oracle.
+ * The 60 byte user block is the working block loc (the getter's result,
+ * tisp_g_awb_attr) without its word at +16: out = loc[0..16) + loc[20..64).
+ * The set reads the 60 bytes into in, calls the getter on loc, overlays
+ * loc[0..16) = in[0..16) and loc[20..64) = in[16..60) and calls
+ * tisp_s_awb_attr (call2); its result is not used.  only_read ignores the
+ * getter's result, prints only on a failed copy and copies the word at
+ * loc + 16 out.
+ */
+#define T32_ISRA_AWB_ATTR	60U
+#define T32_ISRA_AWB_SPLIT	16U
+#define T32_ISRA_AWB_SKIP	4U
+#define T32_ISRA_AWB_ONLY	4U
+#define T32_ISRA_AWB_ONLY_OFF	16U
+
+static inline int t32_isra_awb_attr_g(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *loc, u8 *out)
+{
+	int r = o->call(o->priv, ch, loc);
+
+	if (r) {
+		o->printk(o->priv, 1);
+		return r;
+	}
+	t32_aea_cpy(out, loc, T32_ISRA_AWB_SPLIT);
+	t32_aea_cpy(out + T32_ISRA_AWB_SPLIT, loc + T32_ISRA_AWB_SPLIT + T32_ISRA_AWB_SKIP,
+		    T32_ISRA_AWB_ATTR - T32_ISRA_AWB_SPLIT);
+	r = o->copy_to_user(o->priv, user, out, T32_ISRA_AWB_ATTR);
+	if (r)
+		o->printk(o->priv, 2);
+	return r;
+}
+
+static inline int t32_isra_awb_only_read(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *loc)
+{
+	int r;
+
+	o->call(o->priv, ch, loc);
+	r = o->copy_to_user(o->priv, user, loc + T32_ISRA_AWB_ONLY_OFF, T32_ISRA_AWB_ONLY);
+	if (r)
+		o->printk(o->priv, 2);
+	return r;
+}
+
+static inline int t32_isra_awb_attr_s(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *in, u8 *loc)
+{
+	int r = o->copy_from_user(o->priv, in, user, T32_ISRA_AWB_ATTR);
+
+	if (r) {
+		o->printk(o->priv, 2);
+		return r;
+	}
+	o->call(o->priv, ch, loc);
+	t32_aea_cpy(loc, in, T32_ISRA_AWB_SPLIT);
+	t32_aea_cpy(loc + T32_ISRA_AWB_SPLIT + T32_ISRA_AWB_SKIP, in + T32_ISRA_AWB_SPLIT,
+		    T32_ISRA_AWB_ATTR - T32_ISRA_AWB_SPLIT);
+	o->call2(o->priv, ch, loc);
+	return 0;
 }
 
 #endif /* TX_ISP_T32_STATS_H */
