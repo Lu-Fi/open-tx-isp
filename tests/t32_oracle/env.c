@@ -826,3 +826,8 @@ u32 t32_data_be6c4[1] __attribute__((weak)), t32_data_c6b7c[1] __attribute__((we
 u32 t32_data_c6ba8[1] __attribute__((weak)), t32_data_c6bd4[1] __attribute__((weak));
 /* ispcore_sync_sensor_attr: isp_printf format / function name, address only */
 u32 t32_data_c3500[1] __attribute__((weak)), t32_data_ccc38[1] __attribute__((weak));
+/* ispcore_prepare_module / isp_vic_set_dma_enable: bss f336c (busy event queue counter), isp_printf formats, address only */
+u32 t32_data_f336c[1] __attribute__((weak));
+u32 t32_data_c351c[1] __attribute__((weak)), t32_data_ccbb8[1] __attribute__((weak)), t32_data_ccbdc[1] __attribute__((weak));
+u32 t32_data_ccbfc[1] __attribute__((weak)), t32_data_ccc18[1] __attribute__((weak)), t32_data_bd778[1] __attribute__((weak));
+u32 t32_data_c3aa4[1] __attribute__((weak));
