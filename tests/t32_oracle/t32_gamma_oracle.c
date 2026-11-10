@@ -95,6 +95,14 @@ static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lut
 	for (i = 0; i < t32o_log.n; i++)
 		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
+	{
+		u8 e[SECB];
+
+		memcpy(e, sec, SECB);
+		e[86] = e[87] = 0;	/* tisp_gamma_init clears the API switches +0x56/+0x57 */
+		if (memcmp(base + SEC_OFF, e, SECB))
+			goto bad;
+	}
 	return 0;
 bad:
 	if (failed++ < 5) {

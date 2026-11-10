@@ -63,6 +63,16 @@ static int run_mode(const char *what, const u8 *sec, u8 mode)
 	for (i = 0; (int)i < on; i++)
 		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
+	{
+		u8 e[SECB];
+
+		memcpy(e, sec, SECB);
+		/* tisp_csccr_init stores the mode's range table in section bytes 5..12 and clears 13, 14 (ours keeps the section const) */
+		memcpy(e + 5, t32_csccr_modes[sec[4]], 8);
+		e[13] = e[14] = 0;
+		if (memcmp(base + SEC_OFF, e, SECB))
+			goto bad;
+	}
 	return 0;
 bad:
 	if (failed++ < 5) {

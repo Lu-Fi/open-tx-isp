@@ -57,6 +57,8 @@ static int run_case_mode(const char *what, const u8 *sec, u32 reg88, u8 mode)
 	for (i = 0; i < t32o_log.n; i++)
 		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
+	if (memcmp(base + SEC_OFF, sec, SECB))	/* ours takes the section const: the vendor must leave it unchanged */
+		goto bad;
 	return 0;
 bad:
 	if (failed++ < 5) {
