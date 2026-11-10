@@ -233,5 +233,54 @@ static inline int t32_sdns_wake_up(struct t32_sdns_ctx *ctx, u8 ch,
 	return (int)n;
 }
 
+/*
+ * Parameter accessors (tisp_sdns_param_array_get / _set / _deinit /
+ * _all_reg_refresh).  The vendor indexes the context array t32_data_e2410 by
+ * channel; the port takes the context (or its slot) directly.
+ */
+
+/* tisp_sdns_param_array_get: the section is copied out whole */
+static inline int t32_sdns_param_array_get(const struct t32_sdns_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->sec, T32_SDNS_SEC_BYTES);
+	*len = T32_SDNS_SEC_BYTES;
+	return 0;
+}
+
+/* tisp_sdns_all_reg_refresh: the interpolate + write path of the refresh */
+static inline int t32_sdns_all_reg_refresh(struct t32_sdns_ctx *ctx, u8 ch, u32 gain,
+					   struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_sdns_intp_reg_refresh(ctx, ch, gain, w, &n);
+	return (int)n;
+}
+
+/* tisp_sdns_param_array_set: replace the section, then tisp_sdns_refresh at the stored gain */
+static inline int t32_sdns_param_array_set(struct t32_sdns_ctx *ctx, u8 ch, const u8 *buf,
+					   struct t32_front_write *w)
+{
+	memcpy(ctx->sec, buf, T32_SDNS_SEC_BYTES);
+	return t32_sdns_refresh(ctx, ch, ctx->gain, w);
+}
+
+/* tisp_sdns_deinit: free the parameter block and the context, clear the slot */
+static inline int t32_sdns_deinit(void (*vfree)(void *p), void (*kfree)(void *p),
+				  struct t32_sdns_ctx **slot)
+{
+	struct t32_sdns_ctx *ctx = *slot;
+
+	if (ctx) {
+		if (ctx->param) {
+			vfree(ctx->param);
+			ctx->param = NULL;
+		}
+		kfree(*slot);
+		*slot = NULL;
+	}
+	return 0;
+}
+
 #endif /* TX_ISP_T32_SDNS_H */
 
