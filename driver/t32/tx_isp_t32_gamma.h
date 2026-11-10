@@ -23,7 +23,7 @@
  * request is pending (the vendor's d03a0 == 0 mode).
  *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
- * by tests/t32_oracle (t32_gamma_oracle).
+ * by tests/t32_oracle (t32_gamma_oracle, t32_gammax_oracle).
  */
 #ifndef TX_ISP_T32_GAMMA_H
 #define TX_ISP_T32_GAMMA_H
@@ -51,13 +51,17 @@
 struct t32_gamma {
 	u8 *sec;		/* section 13 (92 bytes), live: init clears +0x56/+0x57 */
 	u8 *pl;			/* payload behind the section (written back when +0x59 = 1) */
-	u32 plbytes;
+	u32 plbytes;		/* t32_data_e1820: bytes of one payload record */
 	u8 gs[260];		/* [0] strength, +2 the transformed curve (129 u16) */
 	u32 ev_lo, ev_hi;	/* exposure of the last strength update */
 	u8 b12[260];		/* [0] strength or 0, [1] strength or 0xff, +2 curve copy */
 	u8 cin[258];		/* curve before the strength transform */
 	u8 b20[264];		/* [0] u32, +4 curve kept for the API */
 	u8 pending;		/* write request counter (the byte at state + 24) */
+	u32 pl_cap;		/* capacity of the payload block (vendor dc1a4 + ch * 28 + 12) */
+	u16 info_sz;		/* payload size word of the look-up table info (dc274[ch] + 4) */
+	u16 last_sz;		/* t32_data_da93c: size of the last payload set */
+	void *own[5];		/* vendor allocations at state +4, +8, +12, +16, +20 */
 };
 
 /* d6840 (data.c:25533): the API curve block before the first transform */
@@ -391,6 +395,138 @@ static inline int t32_gamma_wake_up(struct t32_gamma *st, u32 *img, struct t32_f
 		return 0;
 	}
 	return t32_gamma_write_lut(st, w);
+}
+
+/*
+ * Parameter accessors and the API entry points (tisp_gamma_param_array_get /
+ * _set, tisp_gamma_api_set / _get, tisp_gamma_deinit).  The vendor reaches the
+ * state through t32_data_e1834[ch] and the payload through the look-up table
+ * info t32_data_dc274[ch] (+32 payload, +4 size word) and t32_data_dc1a4 (+12
+ * capacity); the port takes the state with those fields directly.
+ */
+
+/*
+ * tisp_gamma_param_array_get: section 13, then sec[0x5a] payload records of
+ * plbytes bytes each; the source records are plbytes rounded down to even apart.
+ */
+static inline int t32_gamma_param_array_get(const struct t32_gamma *st, u8 *buf, u32 *len)
+{
+	u32 n = st->sec[0x5a], stride = st->plbytes & ~1U, i;
+
+	memcpy(buf, st->sec, T32_GAMMA_SEC_BYTES);
+	for (i = 0; i < n; i++)
+		memcpy(buf + T32_GAMMA_SEC_BYTES + i * st->plbytes, st->pl + i * stride, st->plbytes);
+	*len = T32_GAMMA_SEC_BYTES + n * st->plbytes;
+	return 0;
+}
+
+/*
+ * tisp_gamma_param_array_set: replace the section and the payload (records of
+ * 266 bytes, the payload block grows when too small, the copy size is a u16),
+ * mark the API switch +0x57 = 1, then refresh the curve.
+ */
+static inline int t32_gamma_param_array_set(struct t32_gamma *st, u8 ch, const u8 *buf,
+					    void *(*valloc)(u32 size), void (*vfree)(void *p),
+					    u32 *img)
+{
+	u32 n, sz;
+
+	(void)ch;
+	memcpy(st->sec, buf, T32_GAMMA_SEC_BYTES);
+	st->plbytes = T32_GAMMA_REC_BYTES;
+	n = st->sec[0x5a];
+	sz = n * T32_GAMMA_REC_BYTES;
+	if (st->pl_cap < sz) {
+		if (st->pl) {
+			vfree(st->pl);
+			st->pl = NULL;
+		}
+		st->pl_cap = sz;
+		st->pl = valloc(sz);
+	}
+	st->info_sz = (u16)sz;
+	memcpy(st->pl, buf + T32_GAMMA_SEC_BYTES, (u16)sz);
+	st->last_sz = (u16)sz;
+	st->sec[T32_GAMMA_API_B] = 1;
+	t32_gamma_interp_ev(st, st->ev_lo, st->ev_hi, 1);
+	t32_gamma_update_curve(st, st->ev_lo, st->ev_hi);
+	t32_gamma_transform(st);
+	if (t32_data_d03a0[0] == 1)
+		t32_gamma_addr_write_lut(st, img);
+	else
+		st->pending++;
+	return 0;
+}
+
+/*
+ * tisp_gamma_api_set: api = { u32 mode, u8 curve[258] }.  Mode 0 returns to the
+ * tuned curve (clears +0x56/+0x57 when 2) and refreshes it; modes 1..3 take the
+ * compiled-in preset curves t32_data_bf754 / bf650 / bf54c (preset[0..2], 258
+ * bytes each), mode 4 the curve of the call; all set +0x57 = 2.  Other modes
+ * return -1 after storing the mode.
+ */
+static inline int t32_gamma_api_set(struct t32_gamma *st, u8 ch, const u8 *api,
+				    const u8 *const preset[3], u32 *img)
+{
+	u32 v = t32_front_le32(api);
+	const u8 *src;
+
+	(void)ch;
+	t32_tp_put32(st->b20, v);
+	if (v == 0) {
+		if (st->sec[T32_GAMMA_API_A] == 2)
+			st->sec[T32_GAMMA_API_A] = 0;
+		if (st->sec[T32_GAMMA_API_B] == 2)
+			st->sec[T32_GAMMA_API_B] = 0;
+		t32_gamma_interp_ev(st, st->ev_lo, st->ev_hi, 1);
+		t32_gamma_update_curve(st, st->ev_lo, st->ev_hi);
+	} else if (v <= 4) {
+		st->sec[T32_GAMMA_API_B] = 2;
+		if (v == 1)
+			src = preset[0];
+		else if (v == 2)
+			src = preset[1];
+		else if (v == 3)
+			src = preset[2];
+		else
+			src = api + 4;
+		memcpy(st->b20 + 4, src, 258);
+	} else {
+		return -1;
+	}
+	t32_gamma_transform(st);
+	if (t32_data_d03a0[0] == 1)
+		t32_gamma_addr_write_lut(st, img);
+	else
+		st->pending++;
+	return 0;
+}
+
+/* tisp_gamma_api_get: the API curve block (blk20) */
+static inline int t32_gamma_api_get(const struct t32_gamma *st, u8 *buf)
+{
+	memcpy(buf, st->b20, 264);
+	return 0;
+}
+
+/*
+ * tisp_gamma_deinit: free the state's blocks (state +4, +12, +8, +16, +20, each
+ * when set), then the state itself, and clear the slot.
+ */
+static inline int t32_gamma_deinit(void (*vfree)(void *p), struct t32_gamma **slot)
+{
+	static const u8 order[5] = { 0, 2, 1, 3, 4 };
+	struct t32_gamma *st = *slot;
+	unsigned int i;
+
+	if (!st)
+		return 0;
+	for (i = 0; i < 5; i++)
+		if (st->own[order[i]])
+			vfree(st->own[order[i]]);
+	vfree(*slot);
+	*slot = NULL;
+	return 0;
 }
 
 /*
