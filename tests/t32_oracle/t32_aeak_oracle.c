@@ -143,7 +143,7 @@ static void take(struct snap *s, const u8 *buf, u32 ret)
 
 static int run_case(unsigned int which, u32 ch)
 {
-	const struct t32_isra_ops ops = { h_cfu, h_ctu, h_printk, h_call, NULL, h_call2 };
+	const struct t32_isra_ops ops = { h_cfu, h_ctu, h_printk, h_call, NULL, h_call2, NULL };
 	u8 *buf, *argp, *loc;
 	u32 ret = 0;
 	const char *what = NULL;
