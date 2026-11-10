@@ -60,6 +60,7 @@ static u32 rnd(void)
 	return rs;
 }
 
+static u8 oblk[T32_DPC_VALUES], oinit[T32_DPC_VALUES];
 static unsigned int compared, failed, skipped;
 static sigjmp_buf fault_env;
 
@@ -113,7 +114,9 @@ static int run_dn(const char *what, const u8 *sec, u32 ch, u32 gain, u32 arg, u3
 	if (!base_ref || !ctx_ref || !block_ref)
 		return 2;
 	memset(ctx_ref, 0, CTXLEN);
-	memset(block_ref, 0, T32_DPC_VALUES);
+	for (i = 0; i < T32_DPC_VALUES; i++)
+		oinit[i] = (u8)rnd();
+	memcpy(block_ref, oinit, T32_DPC_VALUES);
 	memcpy(base_ref + SEC_OFF, sec, SECB);
 	*(u32 *)(ctx_ref + 0) = T32O_PTR(base_ref + SEC_OFF);
 	*(u32 *)(ctx_ref + 4) = T32O_PTR(block_ref);
@@ -147,8 +150,11 @@ static int run_dn(const char *what, const u8 *sec, u32 ch, u32 gain, u32 arg, u3
 		return 2;
 	memcpy(base_our + SEC_OFF, sec, SECB);
 	memset(&ours, 0, sizeof(ours));
+	memcpy(oblk, oinit, sizeof(oblk));
+	ours.o = oblk;
 	ours.sec = base_our + SEC_OFF;
 	ours.gain = gain;
+	ours.gain1 = gain;
 	our_n = t32_dpc_dn_params_refresh(&ours, (u8)ch, base_our, ref_wide, arg, ow);
 	our_sec_off = (u32)((uintptr_t)ours.sec - (uintptr_t)base_our);
 
@@ -187,7 +193,9 @@ static int run_wake(const char *what, const u8 *sec, u32 ch, u32 reg88)
 	if (!base_ref || !ctx_ref || !block_ref)
 		return 2;
 	memset(ctx_ref, 0, CTXLEN);
-	memset(block_ref, 0, T32_DPC_VALUES);
+	for (i = 0; i < T32_DPC_VALUES; i++)
+		oinit[i] = (u8)rnd();
+	memcpy(block_ref, oinit, T32_DPC_VALUES);
 	memcpy(base_ref + SEC_OFF, sec, SECB);
 	*(u32 *)(ctx_ref + 0) = T32O_PTR(base_ref + SEC_OFF);
 	*(u32 *)(ctx_ref + 4) = T32O_PTR(block_ref);
@@ -213,6 +221,8 @@ static int run_wake(const char *what, const u8 *sec, u32 ch, u32 reg88)
 		return 2;
 	memcpy(base_our + SEC_OFF, sec, SECB);
 	memset(&ours, 0, sizeof(ours));
+	memcpy(oblk, oinit, sizeof(oblk));
+	ours.o = oblk;
 	ours.sec = base_our + SEC_OFF;
 	our_n = t32_dpc_wake_up(&ours, (u8)ch, ow);
 

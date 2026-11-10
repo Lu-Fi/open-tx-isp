@@ -511,27 +511,50 @@ static inline int t32_dpc_init(const u8 *sec, int wide, struct t32_front_write *
  * and the 0xb4 byte value block in its context; those are the fields here.
  */
 struct t32_dpc_ctx {
-	u8 *sec;		/* IQ bin section 5 */
-	u32 gain;		/* fixed point gain index of the point tables */
-	u32 rsvd[3];
-	u32 arg;		/* stored by t32_dpc_dn_params_refresh */
-	u8 o[T32_DPC_VALUES];	/* interpolated value block */
+	u8 *sec;		/* IQ bin section 5 (vendor ctx +0) */
+	u8 *o;			/* interpolated value block, T32_DPC_VALUES bytes (+4) */
+	u32 rsvd0;		/* +8, not touched here */
+	u32 gain;		/* fixed point gain index of the long exposure tables (+12) */
+	u32 gain1;		/* the same for the short exposure tables (+16) */
+	u32 arg;		/* stored by tisp_dpc_write_reg (+20) */
+	u8 tbl[88];		/* four 11 point u16 tables read by tisp_dpc_gain_interp (+24) */
 };
 
 /* tisp_dpc_gain_interp: sel 0 the long exposure tables, sel 1 the short ones */
 static inline void t32_dpc_gain_interp(struct t32_dpc_ctx *ctx, int sel)
 {
-	u32 ip = ctx->gain >> 16, fp = ctx->gain & 0xffff;
+	u32 g = sel ? ctx->gain1 : ctx->gain;
+	u32 ip = g >> 16, fp = g & 0xffff;
 	unsigned int k = sel ? 53 : 0, last = sel ? 106 : 53;
 
 	for (; k < last; k++) {
+		const u8 *src = ctx->sec + t32_dpc_map[k][1];
+
+		/* the vendor reads these four tables from its context, not from the section */
+		if (k == 0)
+			src = ctx->tbl;
+		else if (k == 13)
+			src = ctx->tbl + 22;
+		else if (k == 1)
+			src = ctx->tbl + 44;
+		else if (k == 14)
+			src = ctx->tbl + 66;
 		if (t32_dpc_map[k][0] == 16)
 			t32_tp_put16(ctx->o + t32_dpc_map[k][2],
-				     t32_tp_intp_u16(ip, fp, ctx->sec + t32_dpc_map[k][1]));
+				     t32_tp_intp_u16(ip, fp, src));
 		else
 			ctx->o[t32_dpc_map[k][2]] =
-				t32_tp_intp_u8(ip, fp, ctx->sec + t32_dpc_map[k][1]);
+				t32_tp_intp_u8(ip, fp, src);
 	}
+}
+
+/* tisp_dpc_write_reg: the long, the short and the "other" register function from the value block */
+static inline void t32_dpc_write_reg(struct t32_dpc_ctx *ctx, int wide,
+				     struct t32_front_write *w, unsigned int *n)
+{
+	t32_dpc_long(ctx->sec, ctx->o, w, n);
+	t32_dpc_short(ctx->sec, ctx->o, w, n);
+	t32_dpc_other(ctx->sec, wide, w, n);
 }
 
 /*
@@ -549,11 +572,13 @@ static inline int t32_dpc_dn_params_refresh(struct t32_dpc_ctx *ctx, u8 ch,
 
 	(void)ch;
 	ctx->sec = tuning_base + 0x59c0;
+	memcpy(ctx->tbl, ctx->sec + 6, 22);
+	memcpy(ctx->tbl + 22, ctx->sec + 270, 22);
+	memcpy(ctx->tbl + 44, ctx->sec + 28, 22);
+	memcpy(ctx->tbl + 66, ctx->sec + 292, 22);
 	t32_dpc_gain_interp(ctx, 0);
 	t32_dpc_gain_interp(ctx, 1);
-	t32_dpc_long(ctx->sec, ctx->o, w, &n);
-	t32_dpc_short(ctx->sec, ctx->o, w, &n);
-	t32_dpc_other(ctx->sec, wide, w, &n);
+	t32_dpc_write_reg(ctx, wide, w, &n);
 	ctx->arg = arg;
 	return (int)n;
 }
@@ -574,6 +599,54 @@ static inline int t32_dpc_wake_up(struct t32_dpc_ctx *ctx, u8 ch,
 	t32_dpc_short(ctx->sec, ctx->o, w, &n);
 	t32_dpc_other(ctx->sec, 0, w, &n);
 	return (int)n;
+}
+
+/*
+ * Parameter accessors (tisp_dpc_param_array_get / _set / _deinit).  The vendor
+ * indexes the context array t32_data_e35f0 by channel; the port takes the
+ * context (or its slot) directly.
+ */
+
+/* tisp_dpc_param_array_get: the section is copied out whole */
+static inline int t32_dpc_param_array_get(const struct t32_dpc_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->sec, T32_DPC_SEC_BYTES);
+	*len = T32_DPC_SEC_BYTES;
+	return 0;
+}
+
+/*
+ * tisp_dpc_param_array_set: replace the section, interpolate both halves at the
+ * stored gain and write the registers (tisp_dpc_write_reg); the saved argument stays.
+ * wide: see t32_dpc_dn_params_refresh.
+ */
+static inline int t32_dpc_param_array_set(struct t32_dpc_ctx *ctx, const u8 *buf, int wide,
+					  struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	memcpy(ctx->sec, buf, T32_DPC_SEC_BYTES);
+	t32_dpc_gain_interp(ctx, 0);
+	t32_dpc_gain_interp(ctx, 1);
+	t32_dpc_write_reg(ctx, wide, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_dpc_deinit: free the value block (if any, the pointer stays) and the
+ * context, clear the slot.
+ */
+static inline int t32_dpc_deinit(void (*kfree)(void *p), struct t32_dpc_ctx **slot)
+{
+	struct t32_dpc_ctx *ctx = *slot;
+
+	if (ctx) {
+		if (ctx->o)
+			kfree(ctx->o);
+		kfree(*slot);
+		*slot = NULL;
+	}
+	return 0;
 }
 
 #endif /* TX_ISP_T32_DPC_H */
