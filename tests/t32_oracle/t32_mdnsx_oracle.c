@@ -651,6 +651,7 @@ static void t_set(void)
 		secb[0x13a] = (u8)(64 + (rnd() & 1) + 66 * (rnd() & 1));
 	xo_dn = rnd() & 1;
 	memset(rec, 0, 76);
+	rec[11] = (u8)(rnd() % 3);	/* flag11 / noref of the record: func_en mode field */
 	memcpy(rec + 8, &mo, 2);
 
 	t32o_reset();
@@ -683,6 +684,7 @@ static void t_set(void)
 	c.width = w;
 	c.height = h;
 	c.memopt = mo;
+	c.noref = rec[11];
 	dn = (int)(u32)tisp_day_or_night_g_ctrl(ch, 0, 0, 0);
 	on = t32_mdns_param_array_set(&c, part, inb, dn, ow);
 	if (on < 0) {
