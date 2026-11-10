@@ -9,12 +9,14 @@
  *    maxFun, log2, long_tgain_update, short_tgain_update, short_ev_update,
  *    ev_interp, long_ev_update, api_get_output_mode, degweight_ev.
  *  phase 2 (t32_wdr2_oracle): getVar, get_lum_s, quicksort, paixu.
+ *  phase 3 (t32_wdr3_oracle): params_hard_refresh, param_array_get, frame_out,
+ *    sleep, malloc_cfg.
  *
  * The vendor reaches the per channel WDR parameter block (the tuning values
  * of the IQ bin plus the working state) as t32_data_e3b40[ch] -> record,
- * record + 12 -> block; the port keeps the block pointer per channel in
- * struct t32_wdr_st (par[ch]) and addresses the members by the vendor
- * offsets below.  The block is little endian kernel memory: the accessors
+ * record + 12 -> block; the port keeps the record (struct t32_wdr_rec, the
+ * vendor's 28 byte layout as named pointers) per channel in struct
+ * t32_wdr_st and addresses the block members by the vendor offsets below.  The block is little endian kernel memory: the accessors
  * read and write it in place.
  *
  * Vendor UB that the port does not reproduce (the oracle never feeds it):
@@ -58,9 +60,30 @@ static inline void t32_wdr_w32(u8 *p, u32 off, u32 v)
 	p[off + 3] = (u8)(v >> 24);
 }
 
+/* per channel record (vendor: 28 bytes from kmalloc, t32_data_e3b40[ch]) */
+struct t32_wdr_rec {
+	u32 nbuf;		/* +0: number of statistics buffers (4) */
+	u8 *buf;		/* +4: 4 x 6144 byte statistics buffer (kmalloc) */
+	u32 buf_phys;		/* +8: its bus address */
+	u8 *par;		/* +12: parameter block = tuning base + 10132 */
+	u8 *ext;		/* +16: 112 byte extension of the parameter array */
+	u8 *hw;			/* +20: 1036 byte hardware parameter image */
+	u8 *work;		/* +24: 10200 byte work area */
+};
+
+/* OS / register hooks */
+struct t32_wdr_ops {
+	void (*reg_write)(u32 reg, u32 val);	/* system_reg_write */
+	u32 (*reg_read)(u32 reg);		/* system_reg_read */
+	u8 *(*kmalloc)(u32 size);		/* private_kmalloc(size, GFP 0x2400c0) */
+	u32 (*virt_to_phys)(const u8 *p);	/* vendor: p + 0x80000000 (KSEG0) */
+};
+
 /* vendor .bss of the block */
 struct t32_wdr_st {
-	u8 *par[4];		/* t32_data_e3b40[ch] -> record, + 12: parameter block */
+	const struct t32_wdr_ops *ops;
+	struct t32_wdr_rec *rec[4];	/* t32_data_e3b40 */
+	u32 dma_save[5];	/* t32_data_e3a84: 0x28010 .. 0x2801c, 0x28030 kept over sleep */
 	u64 short_tgain;	/* t32_data_e3aa0 (low word) / e3aa4 (high word) */
 	u64 short_ev[2];	/* t32_data_e3ab0 */
 	u64 long_ev[2];		/* t32_data_e3ac0 */
@@ -148,7 +171,7 @@ static inline int t32_wdr_short_ev_update(struct t32_wdr_st *st, u32 ch, u64 ev)
  */
 static inline void t32_wdr_ev_interp(struct t32_wdr_st *st, u64 ev, u32 ch)
 {
-	u8 *p = st->par[ch];
+	u8 *p = st->rec[ch]->par;
 	u32 y[10], i, e;
 
 	for (i = 0; i < 4; i++)
@@ -184,7 +207,7 @@ static inline int t32_wdr_long_ev_update(struct t32_wdr_st *st, u32 ch, u64 ev)
 /* tisp_wdr_api_get_output_mode (ch, out) */
 static inline int t32_wdr_api_get_output_mode(const struct t32_wdr_st *st, u32 ch, u32 *mode)
 {
-	*mode = t32_wdr_r16(st->par[ch], T32_WDR_P_OUT_MODE);
+	*mode = t32_wdr_r16(st->rec[ch]->par, T32_WDR_P_OUT_MODE);
 	return 0;
 }
 
@@ -334,6 +357,97 @@ static inline void t32_wdr_paixu(u16 *a, u32 n, u32 ascending)
 				a[j] = x;
 			}
 		}
+}
+
+/* ---- phase 3: parameter image, array get, DMA buffers ---- */
+
+#define T32_WDR_REG_DMA0	0x28010	/* .. 0x2801c: bus addresses of the 4 statistics buffers */
+#define T32_WDR_REG_DMA_CTL	0x28030
+#define T32_WDR_REG_FRAME	0x28040
+#define T32_WDR_REG_OUTSEL	0x2800c
+#define T32_WDR_BUF_SZ		6144
+#define T32_WDR_PAR_SZ		1840	/* parameter block bytes of the api array */
+#define T32_WDR_EXT_SZ		112
+
+static inline void t32_wdr_cpy(u8 *d, const u8 *s, u32 n)
+{
+	while (n--)
+		*d++ = *s++;
+}
+
+/*
+ * tisp_wdr_params_hard_refresh (ch): copies the parameter block members the hardware
+ * refresh uses into the hardware image (hw <- par, offsets of the vendor).
+ */
+static inline int t32_wdr_params_hard_refresh(struct t32_wdr_st *st, u32 ch)
+{
+	u8 *hw = st->rec[ch]->hw;
+	const u8 *par = st->rec[ch]->par;
+
+	t32_wdr_cpy(hw + 136, par + 168, 24);
+	t32_wdr_cpy(hw + 754, par + 246, 10);
+	t32_wdr_cpy(hw + 1022, par + 1778, 4);
+	t32_wdr_cpy(hw + 1026, par + 1818, 5);
+	t32_wdr_cpy(hw + 764, par + 256, 12);
+	t32_wdr_w32(hw, 0, t32_wdr_r32(par, 4));
+	t32_wdr_w32(hw, 4, t32_wdr_r32(par, 8));
+	t32_wdr_cpy(hw + 780, par + 268, 10);
+	t32_wdr_cpy(hw + 790, par + T32_WDR_P_OUT_MODE, 12);
+	t32_wdr_cpy(hw + 802, par + 290, 20);
+	t32_wdr_cpy(hw + 822, par + 310, 8);
+	t32_wdr_cpy(hw + 830, par + 318, 50);
+	hw[1031] = par[1831];
+	hw[1032] = par[1832];
+	hw[1033] = par[1825];
+	return 0;
+}
+
+/* tisp_wdr_param_array_get (ch, out, size): the parameter block and its extension, 1952 bytes */
+static inline int t32_wdr_param_array_get(const struct t32_wdr_st *st, u32 ch, u8 *out, u32 *size)
+{
+	t32_wdr_cpy(out, st->rec[ch]->par, T32_WDR_PAR_SZ);
+	t32_wdr_cpy(out + T32_WDR_PAR_SZ, st->rec[ch]->ext, T32_WDR_EXT_SZ);
+	*size = T32_WDR_PAR_SZ + T32_WDR_EXT_SZ;
+	return 0;
+}
+
+/* tisp_wdr_frame_out (ch): frame trigger, then the output select bit (par + 1832 bit 0) */
+static inline void t32_wdr_frame_out(const struct t32_wdr_st *st, u32 ch)
+{
+	st->ops->reg_write(T32_WDR_REG_FRAME, 1);
+	st->ops->reg_write(T32_WDR_REG_OUTSEL, (st->rec[ch]->par[1832] & 1U) << 4);
+}
+
+/* tisp_wdr_sleep: keeps the 4 buffer addresses and the DMA control word */
+static inline void t32_wdr_sleep(struct t32_wdr_st *st)
+{
+	u32 i;
+
+	for (i = 0; i < 4; i++)
+		st->dma_save[i] = st->ops->reg_read(T32_WDR_REG_DMA0 + 4 * i);
+	st->dma_save[4] = st->ops->reg_read(T32_WDR_REG_DMA_CTL);
+}
+
+/*
+ * tisp_wdr_malloc_cfg (ch): one 24576 byte buffer for the 4 statistics buffers, their bus
+ * addresses into 0x28010 .. 0x2801c, DMA control 3, recorded in the channel's record.
+ * The vendor's 10 debug prints are dropped.  Vendor: no check of the allocation (a failed
+ * kmalloc programs the bus addresses of NULL), kept.
+ */
+static inline int t32_wdr_malloc_cfg(struct t32_wdr_st *st, u32 ch)
+{
+	struct t32_wdr_rec *r;
+	u8 *buf = st->ops->kmalloc(4 * T32_WDR_BUF_SZ);
+	u32 phys = st->ops->virt_to_phys(buf), i;
+
+	for (i = 0; i < 4; i++)
+		st->ops->reg_write(T32_WDR_REG_DMA0 + 4 * i, phys + i * T32_WDR_BUF_SZ);
+	st->ops->reg_write(T32_WDR_REG_DMA_CTL, 3);
+	r = st->rec[ch];
+	r->nbuf = 4;
+	r->buf = buf;
+	r->buf_phys = phys;
+	return 0;
 }
 
 #endif

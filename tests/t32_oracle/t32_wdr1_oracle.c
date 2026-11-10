@@ -226,14 +226,17 @@ static u64 run_vendor(int f)
 }
 
 static struct t32_wdr_st ST;
+static struct t32_wdr_rec REC[4];
 static u64 run_ours(int f)
 {
 	u8 *b = OA;
 	u64 e = (u64)A[3] << 32 | A[2];
 	u32 i;
 
-	for (i = 0; i < 4; i++)
-		ST.par[i] = b + PAR[i];
+	for (i = 0; i < 4; i++) {
+		REC[i].par = b + PAR[i];
+		ST.rec[i] = &REC[i];
+	}
 	switch (f) {
 	case F_ABS: return t32_wdr_absfun(A[0], A[1]);
 	case F_INTERP: return (u32)t32_wdr_interplate((int)A[0], (int)A[1], (int)A[2], (int)A[3], (int)A[4]);
