@@ -9,6 +9,7 @@
  *    tmo_absfun, ramY_reg_read, tmo_reg_read, adr_5x5_out, adr_interp1_short,
  *    adr_ispint_adr_16 / _32 / _64, adr_subsection_map, tmo_size_update,
  *    adr_tgain_func.
+ *  phase 2a (t32_tmo2_oracle): tmo_dark_ctr_interp, tmo_detail_ev_interp, tmo_satcurve_ev_interp.
  *
  * The vendor addresses the per channel TMO state as t32_data_e35e0[ch] -> a
  * channel record {ctx, stat, ..., geom at +12}; the port takes the members it
@@ -339,6 +340,200 @@ static inline void t32_tmo_adr_tgain_func(struct t32_tmo_tgain *t, u32 ch)
 	t->b[0] = t->b[1] = 100;
 	if (t->flag[ch] == 1)
 		t->flag[ch] = 0;
+}
+
+/*
+ * ---- phase 2a: ev interpolation (tmo_dark_ctr_interp, tmo_detail_ev_interp, tmo_satcurve_ev_interp) ----
+ *
+ * All three read the big context (ctx, channel record +0) and an "exposure" value: ev0 / ev1 are the record words
+ * +24 / +28 (a 64 bit value, ev1 != 0 means "too large", mode 0) and ev1m the record word +32 (mode 1).  The
+ * context byte ctx[10931] selects the mode: 0 = ascending u32 table (the match is tbl[i] <= ev < tbl[i + 1]),
+ * otherwise descending (tbl[i] >= ev > tbl[i + 1]).  The search runs over 9 intervals, i = 9 means no match.
+ * The vendor's recovered code has v1 (the stat pointer) clobbered by the leaf call returns in dark_ctr_interp; the
+ * hardware leaf leaves v1 alone, so the oracle removes that artifact from the reference copy (REFFIX).
+ */
+#define T32_TMO_CTX_MODE 10931U
+static inline u32 t32_tmo_ld8(const u8 *b, u32 o) { return b[o]; }
+static inline int t32_tmo_lds8(const u8 *b, u32 o) { return (s8)b[o]; }
+static inline u32 t32_tmo_ld16(const u8 *b, u32 o) { return *(const u16 *)(b + o); }
+static inline u32 t32_tmo_ld32(const u8 *b, u32 o) { return *(const u32 *)(b + o); }
+
+/* the interval search shared by the three functions; w = ((end - ev) << 8) / span for the match (16 bit), else 0 */
+static inline u32 t32_tmo_ev_find(const u32 *tbl, u32 mode, u32 ev0, u32 ev1, u32 ev1m, u32 *w)
+{
+	u32 i;
+
+	*w = 0;
+	for (i = 0; i < 9; i++) {
+		u32 a = tbl[i], b = tbl[i + 1];
+
+		if (mode == 0) {
+			if (ev1 != 0 || ev0 < a || !(ev0 < b))
+				continue;
+			*w = (((b - ev0) << 8) / (b - a)) & 0xffffU;
+		} else {
+			if (a < ev1m || !(b < ev1m))
+				continue;
+			*w = (((a - ev1m) << 8) / (a - b)) & 0xffffU;
+		}
+		return i;
+	}
+	return 9;
+}
+
+/* "ev above the last table entry" (or too large) / "ev below the first one" of the vendor's range clamps */
+static inline int t32_tmo_ev_hi(const u32 *tbl, u32 mode, u32 ev0, u32 ev1, u32 ev1m)
+{
+	return mode == 0 ? (ev1 != 0 || !(ev0 < tbl[9])) : !(tbl[9] < ev1m);
+}
+static inline int t32_tmo_ev_lo(const u32 *tbl, u32 mode, u32 ev0, u32 ev1, u32 ev1m)
+{
+	return mode == 0 ? (ev1 == 0 && ev0 < tbl[0]) : (tbl[0] < ev1m);
+}
+
+/* the u16 outputs of tmo_dark_ctr_interp (stat record + 238 ..) */
+struct t32_tmo_dark_out {
+	u16 a238, a240, a242, a244, a246, a248;
+};
+
+/* tisp_tmo_tmo_dark_ctr_interp: six interpolations over the matching interval, clamps, the derived 240 / 248 / 244 */
+static inline void t32_tmo_dark_ctr_interp(const u8 *ctx, struct t32_tmo_dark_out *o, u32 ev0, u32 ev1, u32 ev1m)
+{
+	u32 mode = t32_tmo_ld8(ctx, T32_TMO_CTX_MODE) != 0, w, t2 = 0, t4 = 0, i;
+	const u32 *tbl = (const u32 *)(ctx + (mode ? 1008 : 888));
+	u32 v;
+
+	i = t32_tmo_ev_find(tbl, mode, ev0, ev1, ev1m, &w);
+	if (i < 9) {
+		u32 x = mode ? ev1m : ev0;
+		int (*ip)(int, int, int, int, int) = mode ? t32_tmo_interplate1 : t32_tmo_interplate;
+		int a = (int)tbl[i], b = (int)tbl[i + 1];
+
+		o->a246 = (u16)ip(a, b, t32_tmo_ld16(ctx, 2798 + 2 * i), t32_tmo_ld16(ctx, 2800 + 2 * i), (int)x);
+		t2 = ip(a, b, t32_tmo_ld16(ctx, 2820 + 2 * i), t32_tmo_ld16(ctx, 2822 + 2 * i), (int)x) & 0xffffU;
+		o->a238 = (u16)ip(a, b, t32_tmo_ld16(ctx, 2710 + 2 * i), t32_tmo_ld16(ctx, 2712 + 2 * i), (int)x);
+		t4 = ip(a, b, t32_tmo_ld16(ctx, 2732 + 2 * i), t32_tmo_ld16(ctx, 2734 + 2 * i), (int)x) & 0xffffU;
+		o->a242 = (u16)ip(a, b, t32_tmo_ld16(ctx, 2754 + 2 * i), t32_tmo_ld16(ctx, 2756 + 2 * i), (int)x);
+		o->a244 = (u16)ip(a, b, t32_tmo_ld16(ctx, 2776 + 2 * i), t32_tmo_ld16(ctx, 2778 + 2 * i), (int)x);
+	}
+	if (t32_tmo_ev_hi(tbl, mode, ev0, ev1, ev1m)) {
+		o->a246 = (u16)t32_tmo_ld16(ctx, 2816);
+		o->a238 = (u16)t32_tmo_ld16(ctx, 2728);
+		t2 = t32_tmo_ld16(ctx, 2838);
+		o->a242 = (u16)t32_tmo_ld16(ctx, 2772);
+		t4 = t32_tmo_ld16(ctx, 2750);
+		o->a244 = (u16)t32_tmo_ld16(ctx, 2794);
+	}
+	if (t32_tmo_ev_lo(tbl, mode, ev0, ev1, ev1m)) {
+		o->a246 = (u16)t32_tmo_ld16(ctx, 2798);
+		o->a238 = (u16)t32_tmo_ld16(ctx, 2710);
+		t2 = t32_tmo_ld16(ctx, 2820);
+		o->a242 = (u16)t32_tmo_ld16(ctx, 2754);
+		t4 = t32_tmo_ld16(ctx, 2732);
+		o->a244 = (u16)t32_tmo_ld16(ctx, 2776);
+	}
+	if (o->a238 < 128)
+		o->a238 = 128;
+	v = (1U << (t2 & 31)) & 0xffffU;
+	o->a248 = (u16)(v + o->a246);
+	o->a240 = (u16)((1U << (t4 & 31)) + o->a238);
+	if (o->a248 >= 4096) {
+		o->a248 = 4095;
+		o->a246 = (u16)(4095U - v);
+	}
+	if ((int)o->a240 - 128 < (int)o->a244)
+		o->a244 = (u16)(o->a240 - 128U);
+}
+
+/* tisp_tmo_tmo_detail_ev_interp: blend of the context's tables at weight w / 256 into the stat record (ctx tables +2530.. u16, +10932.. bytes) */
+static inline int t32_tmo_blend(int next, int cur, u32 w)
+{
+	return (int)((u32)next * (256U - w) + (u32)cur * w) / 256;
+}
+static inline void t32_tmo_detail_ev_interp(const u8 *ctx, u8 *st, u32 ev0, u32 ev1, u32 ev1m)
+{
+	static const u16 b8[14][3] = {	/* ctx offset, stat offset, signed */
+		{ 10932, 363, 1 }, { 10943, 364, 1 }, { 10954, 365, 1 }, { 10965, 366, 1 }, { 10053, 367, 0 },
+		{ 10064, 368, 0 }, { 10976, 369, 1 }, { 10987, 370, 1 }, { 10075, 379, 0 }, { 10086, 380, 0 },
+		{ 10097, 381, 0 }, { 10108, 382, 0 }, { 10119, 383, 0 }, { 10130, 384, 0 }
+	};
+	static const u16 b16[8][2] = {	/* ctx offset, stat offset */
+		{ 2530, 56 }, { 2552, 60 }, { 2574, 64 }, { 2596, 68 }, { 2618, 76 }, { 2640, 80 }, { 2662, 84 }, { 2684, 88 }
+	};
+	u32 mode = t32_tmo_ld8(ctx, T32_TMO_CTX_MODE) != 0, w, i, k, d, dv;
+	const u32 *tbl = (const u32 *)(ctx + (mode ? 1008 : 888));
+	u32 r[8];
+
+	i = t32_tmo_ev_find(tbl, mode, ev0, ev1, ev1m, &w);
+	if (t32_tmo_ev_hi(tbl, mode, ev0, ev1, ev1m)) {
+		w = 256;
+		i = 9;
+	}
+	if (t32_tmo_ev_lo(tbl, mode, ev0, ev1, ev1m)) {
+		w = 256;
+		i = 0;
+	}
+	for (k = 0; k < 14; k++) {
+		int c = b8[k][2] ? t32_tmo_lds8(ctx, b8[k][0] + i) : (int)t32_tmo_ld8(ctx, b8[k][0] + i);
+		int n = b8[k][2] ? t32_tmo_lds8(ctx, b8[k][0] + i + 1) : (int)t32_tmo_ld8(ctx, b8[k][0] + i + 1);
+
+		st[b8[k][1]] = (u8)t32_tmo_blend(n, c, w);
+	}
+	for (k = 0; k < 8; k++) {
+		r[k] = (u32)t32_tmo_blend((int)t32_tmo_ld16(ctx, b16[k][0] + 2 * i + 2), (int)t32_tmo_ld16(ctx, b16[k][0] + 2 * i), w);
+		*(u32 *)(st + b16[k][1]) = r[k];
+	}
+	d = r[2] - r[3];
+	dv = r[1] - r[0];
+	*(u32 *)(st + 72) = r[0] != r[1] ? ((d << 10) + (dv >> 1)) / dv : d << 10;
+	d = r[7] - r[6];
+	dv = r[5] - r[4];
+	*(u32 *)(st + 92) = r[4] != r[5] ? ((d << 7) + (dv >> 1)) / dv : d << 7;
+	*(u32 *)(st + 96) = t32_tmo_ld16(ctx, 2706);
+	*(u32 *)(st + 100) = t32_tmo_ld16(ctx, 2708);
+}
+
+/*
+ * tisp_tmo_tmo_satcurve_ev_interp: the first search (tables +888 / +1008) picks a pair of 25 entry u16 curves
+ * (ctx + 1136 + 50 * min(i, 8), next at +50) blended into stat + 268; the second one (tables +968 / +1048,
+ * range 0 on a miss instead of 256) picks 14 entry curve triples (+1652 / +1932 / +2212 + 28 * min(i, 8)) blended into
+ * stat + 154 / + 182 / + 210.  An ev below the first entry uses weight 256 and pair 0.
+ */
+static inline void t32_tmo_satcurve_ev_interp(const u8 *ctx, u8 *st, u32 ev0, u32 ev1, u32 ev1m)
+{
+	u32 mode = t32_tmo_ld8(ctx, T32_TMO_CTX_MODE) != 0, w, i, k, s;
+
+	for (s = 0; s < 2; s++) {
+		const u32 *tbl = (const u32 *)(ctx + (mode ? 1008 + 40 * s : 888 + 80 * s));
+		u32 m;
+
+		i = t32_tmo_ev_find(tbl, mode, ev0, ev1, ev1m, &w);
+		if (t32_tmo_ev_hi(tbl, mode, ev0, ev1, ev1m)) {
+			w = 0;
+			i = 9;
+		}
+		if (t32_tmo_ev_lo(tbl, mode, ev0, ev1, ev1m)) {
+			w = 256;
+			i = 0;
+		}
+		m = i > 8 ? 8 : i;
+		if (s == 0) {
+			for (k = 0; k < 25; k++)
+				*(u16 *)(st + 268 + 2 * k) = (u16)t32_tmo_blend((int)t32_tmo_ld16(ctx, 1186 + 50 * m + 2 * k),
+										(int)t32_tmo_ld16(ctx, 1136 + 50 * m + 2 * k), w);
+		} else {
+			static const u16 o[3][2] = { { 1652, 154 }, { 1932, 182 }, { 2212, 210 } };
+
+			for (k = 0; k < 14; k++) {
+				u32 j;
+
+				for (j = 0; j < 3; j++)
+					*(u16 *)(st + o[j][1] + 2 * k) = (u16)t32_tmo_blend(
+						(int)t32_tmo_ld16(ctx, o[j][0] + 28 + 28 * m + 2 * k),
+						(int)t32_tmo_ld16(ctx, o[j][0] + 28 * m + 2 * k), w);
+			}
+		}
+	}
 }
 
 #endif /* TX_ISP_T32_TMO_H */
