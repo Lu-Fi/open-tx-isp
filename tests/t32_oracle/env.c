@@ -824,3 +824,5 @@ u32 t32_data_cc908[1] __attribute__((weak)), t32_data_cc928[1] __attribute__((we
 /* subdev clocks (isp_subdev_init_clks): isp_printf formats / function name, address only */
 u32 t32_data_be6c4[1] __attribute__((weak)), t32_data_c6b7c[1] __attribute__((weak));
 u32 t32_data_c6ba8[1] __attribute__((weak)), t32_data_c6bd4[1] __attribute__((weak));
+/* ispcore_sync_sensor_attr: isp_printf format / function name, address only */
+u32 t32_data_c3500[1] __attribute__((weak)), t32_data_ccc38[1] __attribute__((weak));
