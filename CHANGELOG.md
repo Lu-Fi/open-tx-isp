@@ -5,6 +5,11 @@ Newest first, grouped by date. Everything listed was device-tested on the SoC na
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
 
+## 2026-11-10: T30 GetWDRAttr reads the WDR switch like the vendor (openimp #270; T30X lab camera, runtime insmod)
+
+- The tuning control handler had no get arm for CUSTOM_WDR (0x8000169), so `IMP_ISP_Tuning_GetWDRAttr` returned -1 on the open stack. The SDK driver (tx-isp-core-tuning.c g_ctrl) hands out the stored WDR flag; the open driver now returns the same field (the one the highlight control already checks). Guard: `tests/check_t30_tuning_ctl.sh` fails without the arm.
+- Device (b54, T30X, same boot as the vendor stack): GetWDRAttr 0 / mode 0 on both stacks (b53 before the fix: -1). 0 oops.
+
 ## 2026-11-10: t31_ipu: no NULL memset after a failed buffer allocation, module init reports a failed registration (openimp #264; build-tested against kernel 7.3.3)
 
 - `IOCTL_IPU_GET_PBUFF` returned -ENOMEM on a failed `kmalloc` but still ran `memset` on the NULL pointer (vendor code path): it now stops there (review finding M2).

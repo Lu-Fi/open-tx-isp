@@ -877,6 +877,9 @@ static int tx_isp_t30_tuning_ctl_get(void *tuning, void *core,
 	case V4L2_CID_SHARPNESS:
 		c->value = TCTL_U32(tuning, TCTL_OFF_SHARPNESS);
 		return 0;
+	case 0x08000169:	/* CUSTOM_WDR: SDK tx-isp-core-tuning.c g_ctrl hands out ctrls.wdr */
+		c->value = TCTL_U32(tuning, TCTL_OFF_WDR);
+		return 0;
 	case 0x08000001: {	/* AWB_CWF_SHIFT: first two words of the light source table */
 		struct tx_isp_t30_lookup_table *t = tctl_table(tuning, core,
 							       TCTL_TBL_LIGHT_SRC);

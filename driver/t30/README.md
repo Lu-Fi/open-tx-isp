@@ -133,7 +133,7 @@ switch only sees what the handlers do not serve):
 - getters: anti-flicker, WB (mode and gains), WB statistics, AWB/AE weights, AWB/AE/AF
   histograms, RGB coefficients, AE strategy/compensation/ROI, exposure (`Expr`), EV,
   max again/dgain, highlight depression, gamma, calibration tables, flip, colour effect,
-  brightness/contrast/saturation/sharpness, scene mode;
+  brightness/contrast/saturation/sharpness, scene mode, WDR switch (CUSTOM_WDR, openimp #270);
 - controls: sensor FPS, running mode (day/night), firmware freeze, WB attribute,
   weights/histograms/coefficients, highlight depression, calibration table write, flip,
   colour effect, the four picture levels (customer mid-node scaling and the contrast
