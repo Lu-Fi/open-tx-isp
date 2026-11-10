@@ -1016,6 +1016,134 @@ static inline u32 t32_awb_api_get_awb_stable(const struct t32_awb_ctx *c)
 }
 
 /*
+ * AE API accessors (vendor tisp_api_ae_get_tgain, tisp_ae_api_set_ev_start /
+ * get_luma / get_stable / get_flicker_flag / get_gobal_roi_luma /
+ * get_face_ae_tune_params / set_face_ae_tune_params / get_fps / set_fps /
+ * get_faceae, tisp_ae_get_reg_state), checked by t32_aeaa_oracle.
+ * Vendor layout: e15a8[ch] -> { tune, buf }, e1588[ch] -> st (state block),
+ * dd2d4 + ch * 232 -> per-channel fps / hook block.  The getters that return
+ * a leftover register in the vendor return nothing here (the value is unused).
+ */
+#define T32_AEA_BUF_TGAIN	7480U
+#define T32_AEA_T_EVSTART	368U
+#define T32_AEA_ST_FACE		1500U
+#define T32_AEA_ST_ROI		1524U
+#define T32_AEA_ST_TUNE		1532U
+#define T32_AEA_FPS_CUR		56U
+
+struct t32_aea_ctx {
+	u8 *tune;	/* e15a8[ch] + 0 */
+	u8 *buf;	/* e15a8[ch] + 4 */
+	u8 *st;		/* e1588[ch] */
+	u8 *fps;	/* dd2d4 + ch * 232 */
+};
+
+static inline u32 t32_aea_get_tgain(const struct t32_aea_ctx *c)
+{
+	return t32_ld32(c->buf, T32_AEA_BUF_TGAIN);
+}
+
+static inline void t32_aea_set_ev_start(const struct t32_aea_ctx *c, u32 a2, u32 a3)
+{
+	t32_wr32(c->tune, T32_AEA_T_EVSTART, a2);
+	t32_wr32(c->tune, T32_AEA_T_EVSTART + 4, a3);
+}
+
+/* mean of the 256-bin histogram (buf words 0..255) over the tune / buf size product;
+ * a zero product returns 0xff like the recovered C (the MIPS divide is undefined there). */
+static inline u8 t32_aea_get_luma(const struct t32_aea_ctx *c)
+{
+	u32 sum = 0, k, v;
+
+	for (k = 0; k < 256; k++)
+		sum += k * t32_ld32(c->buf, 4 * k);
+	v = t32_st16(c->tune, 2770) * t32_st16(c->tune, 2774) * t32_st16(c->buf, 11796) *
+	    t32_st16(c->buf, 11826);
+	return v ? (u8)(sum / v) : 0xffU;
+}
+
+static inline void t32_aea_get_stable(const struct t32_aea_ctx *c, u32 *out)
+{
+	out[0] = t32_st16(c->buf, 8568);
+	out[1] = t32_st16(c->buf, 8570);
+	out[2] = t32_st16(c->buf, 8572);
+}
+
+static inline u32 t32_aea_get_flicker_flag(const struct t32_aea_ctx *c)
+{
+	return c->st[1694];
+}
+
+static inline void t32_aea_get_gobal_roi_luma(const struct t32_aea_ctx *c, u32 *o1, u32 *o2)
+{
+	*o1 = t32_ld32(c->st, T32_AEA_ST_ROI);
+	*o2 = t32_ld32(c->st, T32_AEA_ST_ROI + 4);
+}
+
+static inline void t32_aea_get_face_ae_tune_params(const struct t32_aea_ctx *c, u32 *o1, u32 *o2,
+						   u32 *o3)
+{
+	*o1 = t32_ld32(c->st, T32_AEA_ST_TUNE);
+	*o2 = t32_ld32(c->st, T32_AEA_ST_TUNE + 4);
+	*o3 = t32_ld32(c->st, T32_AEA_ST_TUNE + 8);
+}
+
+/* a zero *p3 is replaced by 1 (written back to the caller) after a warning (hook) */
+static inline void t32_aea_set_face_ae_tune_params(const struct t32_aea_ctx *c, const u32 *p1,
+						   const u32 *p2, u32 *p3, void (*warn)(void *priv),
+						   void *priv)
+{
+	t32_wr32(c->st, T32_AEA_ST_TUNE, *p1);
+	t32_wr32(c->st, T32_AEA_ST_TUNE + 4, *p2);
+	if (!*p3) {
+		*p3 = 1;
+		warn(priv);
+	}
+	t32_wr32(c->st, T32_AEA_ST_TUNE + 8, *p3);
+	c->st[1285] = 1;
+}
+
+static inline u32 t32_aea_get_fps(const struct t32_aea_ctx *c)
+{
+	return t32_ld32(c->fps, T32_AEA_FPS_CUR);
+}
+
+/* out[1..5] = st + 1500.., out[0] = st + 1520 */
+static inline void t32_aea_get_faceae(const struct t32_aea_ctx *c, u32 *out)
+{
+	u32 k;
+
+	for (k = 0; k < 5; k++)
+		out[k + 1] = t32_ld32(c->st, T32_AEA_ST_FACE + 4 * k);
+	out[0] = t32_ld32(c->st, T32_AEA_ST_FACE + 20);
+}
+
+static inline void t32_aea_set_reg_state(const struct t32_aea_ctx *c, u32 v)
+{
+	c->st[1696] = (u8)v;
+}
+
+/*
+ * tisp_ae_api_set_fps: tune + 1740 == 1 warns (hook) and returns -1.  When the
+ * stored fps differs, the per-channel hook (dd2d4 + ch * 232 + 212) is called
+ * with (fps, ch); the vendor hands it a 128 byte stack buffer (ch at +8), the
+ * ch * 232 and the caller's a3.  Its result is ignored.
+ */
+typedef void (*t32_aea_fps_fn)(void *priv, u32 fps, u32 ch);
+
+static inline int t32_aea_set_fps(const struct t32_aea_ctx *c, u32 ch, u32 fps, t32_aea_fps_fn setfps,
+				  void (*warn)(void *priv), void *priv)
+{
+	if (t32_ld32(c->tune, 1740) == 1) {
+		warn(priv);
+		return -1;
+	}
+	if (t32_ld32(c->fps, T32_AEA_FPS_CUR) != fps)
+		setfps(priv, fps, ch);
+	return 0;
+}
+
+/*
  * Per-frame AE exposure allocation (vendor tisp_ae_short_expt,
  * tisp_ae_short_ev_alloc, tisp_ae_long_ev_alloc; Matt Davis' recovered C),
  * checked by tests/t32_oracle (t32_aee_oracle).  Register writes go to w[]
