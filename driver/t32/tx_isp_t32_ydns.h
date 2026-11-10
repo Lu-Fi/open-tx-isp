@@ -160,5 +160,54 @@ static inline int t32_ydns_wake_up(struct t32_ydns_ctx *ctx, u8 ch,
 	return (int)n;
 }
 
+/*
+ * Parameter accessors (tisp_ydns_param_array_get / _set / _deinit /
+ * _all_reg_refresh).  The vendor indexes the context array t32_data_e23c0 by
+ * channel; the port takes the context (or its slot) directly.
+ */
+
+/* tisp_ydns_param_array_get: the section is copied out whole */
+static inline int t32_ydns_param_array_get(const struct t32_ydns_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->sec, T32_YDNS_SEC_BYTES);
+	*len = T32_YDNS_SEC_BYTES;
+	return 0;
+}
+
+/* tisp_ydns_all_reg_refresh: the interpolate + write path of the refresh */
+static inline int t32_ydns_all_reg_refresh(struct t32_ydns_ctx *ctx, u8 ch, u32 gain,
+					   struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_ydns_intp_reg_refresh(ctx, ch, gain, w, &n);
+	return (int)n;
+}
+
+/* tisp_ydns_param_array_set: replace the section, then refresh at the stored gain */
+static inline int t32_ydns_param_array_set(struct t32_ydns_ctx *ctx, u8 ch, const u8 *buf,
+					   struct t32_front_write *w)
+{
+	memcpy(ctx->sec, buf, T32_YDNS_SEC_BYTES);
+	return t32_ydns_all_reg_refresh(ctx, ch, ctx->gain, w);
+}
+
+/* tisp_ydns_deinit: free the parameter block and the context, clear the slot */
+static inline int t32_ydns_deinit(void (*vfree)(void *p), void (*kfree)(void *p),
+				  struct t32_ydns_ctx **slot)
+{
+	struct t32_ydns_ctx *ctx = *slot;
+
+	if (ctx) {
+		if (ctx->param) {
+			vfree(ctx->param);
+			ctx->param = NULL;
+		}
+		kfree(*slot);
+		*slot = NULL;
+	}
+	return 0;
+}
+
 #endif /* TX_ISP_T32_YDNS_H */
 
