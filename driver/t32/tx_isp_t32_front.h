@@ -698,6 +698,250 @@ static inline unsigned int t32_top_frame_count(u8 ch, u32 *count, u32 *thr_cfg, 
 	return n;
 }
 
+/*
+ * CSC per-frame / control paths: tisp_csc_sync_api_para, _deinit,
+ * _param_array_get, _param_array_set, _api_set, _wake_up, _get_full_range.
+ * The vendor keeps a context per channel (t32_data_e3110[ch]) with three
+ * pointers: the 104 byte section copy (+0), the working block whose word at
+ * +36 is the full-range flag (+4) and the 92 byte API image (+8).  The port
+ * takes the context (or its slot) directly.
+ *
+ * The register path of set / api_set / wake_up is the vendor chain
+ * para_refresh_by_mode -> sync_api_para -> update_para -> write_reg:
+ * update_para builds the working block from section bytes 88..90 and
+ * 76..81; the matrix, range bytes and mode word come from the section when
+ * its byte +98 is 1 (Y offset 0, mode byte +91), else from the API image
+ * (matrix +4, range +40, mode word +0).  write_reg packs the working block into
+ * the 7 registers plus the 0xb010 trigger.  The inverse matrix and the
+ * second range group refresh_by_mode also writes (section +40 / 92..97, API
+ * +48 / 84..89) feed no register and are not built here.
+ * Checked by tests/t32_oracle (t32_cscx_oracle).
+ */
+#define T32_CSC_API_BYTES	92U
+
+struct t32_csc_ctx {
+	u8 *sec;	/* 104 byte section copy */
+	u8 *full;	/* working block, full-range flag at +36 */
+	u8 *api;	/* 92 byte API image */
+};
+
+static inline void t32_csc_copy(u8 *dst, const u8 *src, unsigned int n)
+{
+	unsigned int i;
+
+	for (i = 0; i < n; i++)
+		dst[i] = src[i];
+}
+
+/*
+ * tisp_csc_sync_api_para: to_api == 1 copies section -> API image when
+ * sec[100] == 1; any other value copies API image -> section when
+ * sec[101] == 1.  The mode word is API byte 0 (a u32 in the vendor).
+ */
+static inline void t32_csc_sync_api_para(struct t32_csc_ctx *ctx, u32 to_api)
+{
+	u8 *sec = ctx->sec;
+	u8 *api = ctx->api;
+	unsigned int i;
+
+	if (to_api == 1) {
+		if (sec[100] != 1)
+			return;
+		api[0] = sec[91];
+		api[1] = api[2] = api[3] = 0;
+		for (i = 0; i < 6; i++) {
+			api[40 + i] = sec[82 + i];
+			api[84 + i] = sec[92 + i];
+		}
+		t32_csc_copy(api + 4, sec + 4, 36);
+		t32_csc_copy(api + 48, sec + 40, 36);
+	} else {
+		if (sec[101] != 1)
+			return;
+		sec[91] = api[0];
+		for (i = 0; i < 6; i++) {
+			sec[82 + i] = api[40 + i];
+			sec[92 + i] = api[84 + i];
+		}
+		t32_csc_copy(sec + 4, api + 4, 36);
+		t32_csc_copy(sec + 40, api + 48, 36);
+	}
+}
+
+/* tisp_csc_deinit: free the three blocks, then the context, clear the slot */
+static inline int t32_csc_deinit(void (*vfree)(void *p), struct t32_csc_ctx **slot)
+{
+	struct t32_csc_ctx *ctx = *slot;
+
+	if (!ctx)
+		return 0;
+	if (ctx->full) {
+		vfree(ctx->full);
+		ctx->full = NULL;
+	}
+	if (ctx->api) {
+		vfree(ctx->api);
+		ctx->api = NULL;
+	}
+	if (ctx->sec) {
+		vfree(ctx->sec);
+		ctx->sec = NULL;
+	}
+	vfree(*slot);
+	*slot = NULL;
+	return 0;
+}
+
+/* tisp_csc_param_array_get: the section is copied out whole */
+static inline int t32_csc_param_array_get(const struct t32_csc_ctx *ctx, u8 *buf, u32 *len)
+{
+	t32_csc_copy(buf, ctx->sec, T32_CSC_BYTES);
+	*len = T32_CSC_BYTES;
+	return 0;
+}
+
+static inline void t32_csc_put16(u8 *p, u32 v)
+{
+	p[0] = (u8)v;
+	p[1] = (u8)(v >> 8);
+}
+
+static inline void t32_csc_put32(u8 *p, u32 v)
+{
+	p[0] = (u8)v;
+	p[1] = (u8)(v >> 8);
+	p[2] = (u8)(v >> 16);
+	p[3] = (u8)(v >> 24);
+}
+
+/*
+ * tisp_csc_para_refresh_by_mode: the Q16 matrix of the mode as s32 at +4 and
+ * the six range bytes (Y offset, C offset, Y min/max, C min/max) at +40 of
+ * the API image (to_api == 1) or +82 of the section.  The Y offset is the
+ * Y minimum of the mode (0 for full range, 0x10 for the limited range modes,
+ * vendor: bit 4 of 0xb054 in mode 1); update_para uses 0 instead when it
+ * reads the section (+98 is 1).  Modes above 5 are not built (left unchanged).
+ */
+static inline void t32_csc_refresh_by_mode(u32 mode, u32 to_api, u8 *dst)
+{
+	const struct t32_csc_mode *md;
+	u8 *r;
+	unsigned int i;
+
+	if (mode > 5)
+		return;
+	md = &t32_csc_modes[mode];
+	for (i = 0; i < 9; i++)
+		t32_csc_put32(dst + 4 + 4 * i, (u32)md->m[i]);
+	r = dst + (to_api == 1 ? 40 : 82);
+	r[0] = md->tail[1];
+	for (i = 0; i < 5; i++)
+		r[1 + i] = md->tail[i];
+}
+
+/* matrix coefficients stored negated (Cb and Cr rows, second and third) */
+static const u8 t32_csc_neg[9] = { 0, 0, 0, 1, 1, 0, 0, 1, 1 };
+
+/*
+ * tisp_csc_update_para: working block (ctx->full): bytes 0..2 = section
+ * 88..90, s16 at 4..8 = section 76..81.  Section byte 98 == 1: s16 at
+ * 10..26 = rounded section matrix (+4), byte 0x1c = 0, 0x1d..0x21 =
+ * section 83..87, +36 = section mode byte 91 as a word.  Otherwise the
+ * same from the API image: matrix +4, range bytes +40, mode word +0.
+ */
+static inline void t32_csc_update_para(struct t32_csc_ctx *ctx)
+{
+	u8 *w = ctx->full;
+	const u8 *sec = ctx->sec;
+	/* section when +98 is 1, or +98 is 0 and the last setter (+99) was not the API (< 2) */
+	const int use_sec = sec[98] == 1 || (sec[98] == 0 && sec[99] < 2);
+	const u8 *m = use_sec ? sec + 4 : ctx->api + 4;
+	unsigned int i;
+	int v;
+
+	w[0] = sec[88];
+	w[1] = sec[89];
+	w[2] = sec[90];
+	t32_csc_copy(w + 4, sec + 76, 6);
+	for (i = 0; i < 9; i++) {
+		v = t32_front_round6((int)t32_front_le32(m + 4 * i));
+		if (t32_csc_neg[i])
+			v = -v;
+		t32_csc_put16(w + 10 + 2 * i, (u32)v);
+	}
+	if (use_sec) {
+		w[0x1c] = 0;
+		t32_csc_copy(w + 0x1d, sec + 83, 5);
+		t32_csc_put32(w + 36, sec[91]);
+	} else {
+		t32_csc_copy(w + 0x1c, ctx->api + 40, 6);
+		t32_csc_copy(w + 36, ctx->api, 4);
+	}
+}
+
+/* tisp_csc_write_reg: pack the working block, then the 0xb010 trigger */
+static inline unsigned int t32_csc_write_reg(const struct t32_csc_ctx *ctx,
+					     struct t32_front_write *wr)
+{
+	const u8 *c = ctx->full;
+	int p[14];
+	unsigned int n = 0, i;
+
+	for (i = 2; i < 14; i++)
+		p[i] = t32_front_s16(c + 2 * i);
+	T32_FW(wr, n, 0xb040, (c[1] & 7U) << 4 | (c[2] & 7U) << 8 | (c[0] & 1U) |
+	       ((u32)p[2] & 0x1ff) << 16);
+	T32_FW(wr, n, 0xb044, ((u32)p[4] & 0x1ff) << 12 | ((u32)p[3] & 0x1ff));
+	T32_FW(wr, n, 0xb048, ((u32)p[6] & 0x3ff) << 10 | ((u32)p[7] & 0xff) << 20 | ((u32)p[5] & 0x1ff));
+	T32_FW(wr, n, 0xb04c, ((u32)p[9] & 0x1ff) << 10 | ((u32)p[10] & 0x3ff) << 20 | ((u32)p[8] & 0x1ff));
+	T32_FW(wr, n, 0xb050, ((u32)p[12] & 0x1ff) << 10 | ((u32)p[13] & 0x1ff) << 20 | ((u32)p[11] & 0x3ff));
+	T32_FW(wr, n, 0xb054, c[0x1c] | (u32)c[0x1d] << 8);
+	T32_FW(wr, n, 0xb058, t32_front_le32(c + 0x1e));
+	T32_FW(wr, n, 0xb010, 0xffffffff);
+	return n;
+}
+
+/* tisp_csc_param_array_set: new section, flag 1, refresh section, sync section -> API, rewrite */
+static inline int t32_csc_param_array_set(struct t32_csc_ctx *ctx, const u8 *buf,
+					  struct t32_front_write *w)
+{
+	t32_csc_copy(ctx->sec, buf, T32_CSC_BYTES);
+	ctx->sec[99] = 1;
+	t32_csc_refresh_by_mode(ctx->sec[91], 0, ctx->sec);
+	t32_csc_sync_api_para(ctx, 1);
+	t32_csc_update_para(ctx);
+	return (int)t32_csc_write_reg(ctx, w);
+}
+
+/* tisp_csc_api_set: flag 2, new API image, refresh API, sync API -> section, rewrite */
+static inline int t32_csc_api_set(struct t32_csc_ctx *ctx, const u8 *buf,
+				  struct t32_front_write *w)
+{
+	ctx->sec[99] = 2;
+	t32_csc_copy(ctx->api, buf, T32_CSC_API_BYTES);
+	t32_csc_refresh_by_mode(t32_front_le32(buf), 1, ctx->api);
+	t32_csc_sync_api_para(ctx, 0);
+	t32_csc_update_para(ctx);
+	return (int)t32_csc_write_reg(ctx, w);
+}
+
+/* tisp_csc_wake_up: tail call of tisp_csc_write_reg */
+static inline int t32_csc_wake_up(struct t32_csc_ctx *ctx, struct t32_front_write *w)
+{
+	return (int)t32_csc_write_reg(ctx, w);
+}
+
+/*
+ * tisp_csc_get_full_range: 0 without a context, else the word at +36 of the
+ * working block (the API mode word update_para copies there)
+ */
+static inline u32 t32_csc_get_full_range(const struct t32_csc_ctx *ctx)
+{
+	if (!ctx)
+		return 0;
+	return t32_front_le32(ctx->full + 36);
+}
+
 #undef T32_FW
 
 #endif /* TX_ISP_T32_FRONT_H */
