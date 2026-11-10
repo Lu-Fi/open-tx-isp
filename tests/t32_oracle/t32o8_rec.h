@@ -65,11 +65,14 @@ u8 t32o8_ti[64] __attribute__((aligned(8)));
  * of every %s argument; the other conversions go to a[1..5] as words.  w = the argument
  * words after the format (vendor: the o32 registers / stack words; ours: from va_list).
  */
+/* argument word index of w[0] (o32: isp_printf(level, fmt, ...) = 2, printk(fmt, ...) = 1) */
+static int t32o8_woff = 2;
+
 static void t32o8_rec_fmt(struct t32o8_log *l, u32 fn, u32 level, const char *fmt, const u32 *w, int nw)
 {
 	struct t32o8_call *r = t32o8_rec(l, fn, level, 0, 0, 0);
 	const char *p;
-	int k = 0, na = 1;
+	int k = 0, na = 1, ll;
 	size_t len;
 
 	snprintf(r->data, sizeof(r->data), "%s", fmt ? fmt : "(null)");
@@ -80,10 +83,22 @@ static void t32o8_rec_fmt(struct t32o8_log *l, u32 fn, u32 level, const char *fm
 			p++;
 			continue;
 		}
+		ll = 0;
 		while (*++p && strchr("-+ #0123456789.lhz", *p))
-			;
+			ll += *p == 'l';
 		if (!*p)
 			break;
+		if (ll >= 2) {	/* o32: a 64-bit argument starts on an even argument word */
+			k += (k + t32o8_woff) & 1;
+			if (k + 1 >= nw)
+				break;
+			if (na < 5) {
+				r->a[na++] = w[k];
+				r->a[na++] = w[k + 1];
+			}
+			k += 2;
+			continue;
+		}
 		if (*p == 's') {
 			len = strlen(r->data);
 			snprintf(r->data + len, sizeof(r->data) - len, "|%s", (const char *)T32O_HOST(w[k]));
@@ -99,7 +114,7 @@ static void t32o8_rec_fmt(struct t32o8_log *l, u32 fn, u32 level, const char *fm
 static int t32o8_va_words(const char *fmt, va_list ap, u32 *w, int max)
 {
 	const char *p;
-	int k = 0;
+	int k = 0, ll;
 
 	for (p = fmt; p && *p && k < max; p++) {
 		if (*p != '%')
@@ -108,10 +123,22 @@ static int t32o8_va_words(const char *fmt, va_list ap, u32 *w, int max)
 			p++;
 			continue;
 		}
+		ll = 0;
 		while (*++p && strchr("-+ #0123456789.lhz", *p))
-			;
+			ll += *p == 'l';
 		if (!*p)
 			break;
+		if (ll >= 2) {	/* the same word layout as the o32 caller: pad to an even word */
+			unsigned long long v = va_arg(ap, unsigned long long);
+
+			if ((k + t32o8_woff) & 1)
+				w[k++] = 0;
+			if (k + 2 > max)
+				break;
+			w[k++] = (u32)v;
+			w[k++] = (u32)(v >> 32);
+			continue;
+		}
 		w[k++] = *p == 's' ? T32O_PTR(va_arg(ap, const char *)) : va_arg(ap, u32);
 	}
 	return k;
