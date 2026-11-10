@@ -102,7 +102,7 @@ static void cmp(const char *what, u32 v, u32 o, unsigned int nargs)
 int main(void)
 {
 	unsigned int c, i, n = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 20000;
-	struct t32_lib_hooks h = { 0, o_lr, o_fsr, o_ep, o_ewe, o_dn, o_ev, o_loc, o_rd, 0, 0 };
+	struct t32_lib_hooks h = { 0, o_lr, o_fsr, o_ep, o_ewe, o_dn, o_ev, o_loc, o_rd, 0, 0, 0, 0 };
 	static const struct { const char *n; int (*f)(); } empty[] = {
 		{ "ldc_cmd_show", ldc_cmd_show }, { "ldc_slake_module", ldc_slake_module },
 		{ "ldc_activate_module", ldc_activate_module }, { "tisp_msca_state", tisp_msca_state },

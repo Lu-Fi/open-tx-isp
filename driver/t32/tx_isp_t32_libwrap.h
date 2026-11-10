@@ -36,10 +36,17 @@
  *                                  else nothing (returns 0)
  *   t32_lib_tmo_strength_ctrl      lib_tisp_api_tmo_strength_ctrl 0xb3458 -> tisp_tmo_api_strength_ctrl(ch & 0xff,
  *                                  strength & 0xffff)
+ * Group 4 (memory space):
+ *   t32_lib_set_isp_memory_space   lib_tisp_set_isp_memory_space 0x282c8: sets the "memory configured" byte
+ *                                  (t32_data_dd674) and forwards to tisp_mdns_set_mem_cfg(ch & 0xff, a1, a2, a3)
+ *   t32_lib_get_isp_memory_space   lib_tisp_get_isp_memory_space 0x28144: copies cfg byte 4 into byte 11 of the
+ *                                  76-byte MDNS channel block (t32_data_dc074) and returns
+ *                                  tisp_mdns_get_mem_size(ch, width, height, cfg[4], state byte 43) with width /
+ *                                  height the u16 at 0 / 4 of the channel state (t32_data_dc284)
  *   VIC n registers are at (0x80 + n) << 12 in the system register space.
  *
  * Hooks: struct t32_lib_hooks (the callees).  Checked bit-exact against the vendor flow (Matt Davis' recovered C,
- * PR #15) by tests/t32_oracle (t32_libwrap_oracle, t32_libst_oracle, t32_libtr_oracle).
+ * PR #15) by tests/t32_oracle (t32_libwrap_oracle, t32_libst_oracle, t32_libtr_oracle, t32_libms_oracle).
  */
 #ifndef TX_ISP_T32_LIBWRAP_H
 #define TX_ISP_T32_LIBWRAP_H
@@ -53,7 +60,8 @@ typedef uint32_t u32;
 #endif
 
 #define T32_IPC_OUTPUT_POS_REG	0x30200U
-#define T32_CH_STATE_RUNMODE	44U	/* t32_data_dc284 byte: running mode (day / night) */
+#define T32_CH_STATE_RUNMODE	44U
+#define T32_CH_STATE_SIZE_LW	904U	/* t32_data_dc284 channel block */	/* t32_data_dc284 byte: running mode (day / night) */
 
 struct t32_lib_hooks {
 	void *ctx;
@@ -67,6 +75,8 @@ struct t32_lib_hooks {
 	u32 (*sys_read)(void *ctx, u32 reg);				/* system_reg_read */
 	u32 (*sys_write)(void *ctx, u32 reg, u32 val);			/* system_reg_write */
 	u32 (*tmo_strength)(void *ctx, u32 ch, u32 strength);		/* tisp_tmo_api_strength_ctrl */
+	u32 (*mdns_set_mem_cfg)(void *ctx, u32 ch, u32 a1, u32 a2, u32 a3);	/* tisp_mdns_set_mem_cfg */
+	u32 (*mdns_get_mem_size)(void *ctx, u32 ch, u32 w, u32 h, u32 mode, u32 b43); /* tisp_mdns_get_mem_size */
 };
 
 static inline u32 t32_lib_remove(const struct t32_lib_hooks *h)
@@ -189,6 +199,37 @@ static inline u32 t32_lib_vic_stop_byindex(const struct t32_lib_hooks *h, u32 id
 static inline u32 t32_lib_tmo_strength_ctrl(const struct t32_lib_hooks *h, u32 ch, u32 strength)
 {
 	return h->tmo_strength(h->ctx, ch & 0xff, strength & 0xffff);
+}
+
+/* ---- group 4: memory space ---- */
+
+#define T32_MDNS_CH_SIZE	76U	/* t32_data_dc074 channel block */
+#define T32_MDNS_CH_MEMMODE	11U
+#define T32_MEMSPACE_MODE	4U	/* byte of the caller's config */
+#define T32_CH_STATE_W		0U	/* u16 */
+#define T32_CH_STATE_H		4U	/* u16 */
+#define T32_CH_STATE_B43	43U
+
+/* mem_set = t32_data_dd674 */
+static inline u32 t32_lib_set_isp_memory_space(const struct t32_lib_hooks *h, unsigned char *mem_set, u32 ch,
+					       u32 a1, u32 a2, u32 a3)
+{
+	*mem_set = 1;
+	return h->mdns_set_mem_cfg(h->ctx, ch & 0xff, a1, a2, a3);
+}
+
+/* mdns = t32_data_dc074, state = t32_data_dc284 */
+static inline u32 t32_lib_get_isp_memory_space(const struct t32_lib_hooks *h, unsigned char *mdns,
+					       const unsigned char *state, u32 ch, const unsigned char *cfg)
+{
+	const unsigned char *st;
+
+	ch &= 0xff;
+	st = state + ch * T32_CH_STATE_SIZE_LW;
+	mdns[ch * T32_MDNS_CH_SIZE + T32_MDNS_CH_MEMMODE] = cfg[T32_MEMSPACE_MODE];
+	return h->mdns_get_mem_size(h->ctx, ch, *(const unsigned short *)(st + T32_CH_STATE_W),
+				    *(const unsigned short *)(st + T32_CH_STATE_H), cfg[T32_MEMSPACE_MODE],
+				    st[T32_CH_STATE_B43]);
 }
 
 #endif
