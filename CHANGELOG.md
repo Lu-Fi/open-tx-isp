@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T32 tx_* kernel glue against the vendor flow (planned, host only, not device-tested)
+
+- New oracle helper `tests/t32_oracle/t32_op3_glue.h` + `op3_ren.sh` (REFFIX): the vendor glue functions (Matt Davis' recovered C) link every external symbol as `op3_*`, so each oracle records hook calls, prints (format, level, arguments) and stores to fixed hardware windows (mapped PROT_NONE at the vendor KSEG1 address, single-stepped) in one ordered log, without touching env.c. Hooks of our side: `driver/t32/tx_isp_t32_txos.h`.
+- `t32_txriscv_oracle`: `tx_isp_t32_txriscv.h` (tx_isp_riscv_stop/is_stop/is_run/stop_vic/switch_gpio/run/probe/remove, tx_isp_set_tiziano_param, tx_isp_get_tiziano_para, tx_isp_get_riscv_night_mode; 11 functions), 20000 random cases, 32 mutations detected. Vendor UB named: the "vinum invalid" print of tx_isp_get_tiziano_para passes a stale a3.
+
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
 - T32 is planned work (prio long-term, not a release gate). New `tests/t32_oracle/`: selected functions of Matt Davis' all-C recovery of the vendor T32 module (opensensor/open-tx-isp PR #15, our branch `t32/recovered-baseline` 2e2e06bc) are copied unchanged into `tests/t32_oracle/ref/` (provenance header, author credit) and built for the host as the reference: fake environment `env.c` (o32-shaped stubs for vmalloc/register write/printf/irq, OEM data objects with the values of `data.c`, a stack and heap below 4 GiB because the recovered C casts pointers through u32; non-PIE link). Runner `run.sh` + one `.conf` per oracle (reference files, our header, mutation list).
