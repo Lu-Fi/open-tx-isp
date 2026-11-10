@@ -18,6 +18,7 @@
  *  phase 5a (t32_tmo5a_oracle): adr_map_y_filter, adr_map_y_filter_sp.
  *  phase 5b (t32_tmo5b_oracle): adr_map_curve1.
  *  phase 5c (t32_tmo5c_oracle): adr_ev_func.
+ *  phase 6a (t32_tmo6a_oracle): adr_subsection_up, tisp_adr_faceae_curve_adjust (callee of adr_fpga).
  *
  * The vendor addresses the per channel TMO state as t32_data_e35e0[ch] -> a
  * channel record {ctx, stat, ..., geom at +12}; the port takes the members it
@@ -1404,6 +1405,107 @@ static inline void t32_tmo_adr_ev_func(int ch, u8 *c, u8 *ev, u64 *seed, u64 *cu
 #undef EV_S16
 #undef EV_U16
 #undef EV_LK
+}
+
+/*
+ * tisp_adr_faceae_curve_adjust (phase 6a): the face ae curve table.  blk = *(e35b0[ch] + 0); the 24 rows of 14 s16 at
+ * blk + 128 are raised to the s16 maximum with row i of tab[] (t32_data_e3248) when en[i] (t32_data_e34e8) is 1.
+ * *cnt (t32_data_e3244) counts the calls and wraps to 0 at 100001.  The vendor return value is leftover registers.
+ */
+static inline void t32_adr_faceae_curve_adjust(u8 *blk, u32 *cnt, const u8 *en, const s16 *tab)
+{
+	u32 n = *cnt + 1U;
+	int i, j;
+
+	*cnt = n < 100001U ? n : 0U;
+	for (i = 0; i < 24; i++) {
+		s16 *row = (s16 *)(blk + 128) + 14 * i;
+
+		if (en[i] != 1)
+			continue;
+		for (j = 0; j < 14; j++)
+			if (!(tab[14 * i + j] < row[j]))
+				row[j] = tab[14 * i + j];
+	}
+}
+
+/*
+ * tisp_tmo_adr_subsection_up (phase 6a): the 11 u32 curve points out[] of the subsection.  Fixed point with sh fraction
+ * bits (the shifts use the low 5 bits, fixdiv / fixmul get the full count), R(v) = (v + 512) >> sh (the vendor's constant
+ * rounding), y = x -> y lookup of the 129 point curve (x[] -> y[], an interpolation from the point above v, the point
+ * below it is read at k - 1: x[-1] / y[-1] for a hit on the first point, vendor read before the table; y[128] above the
+ * last).  tab[] is the 512 word table of adr_subsection_map (also read at R(..) of the ratios out / mul, any index);
+ * mul is the divisor scale (a zero mul divides by zero in fix_point_div_32: the vendor gets 0xffffffff, so do we).
+ * The chain: out[6] = lookup(map(5000, R(4095 / 2))), then out[4], out[2], out[5], out[1], out[3] from maps of the half
+ * sums of tab[] at the previous outputs; out[7..9] = out[6] + 1..3 (all four set to 4091..4094 when out[6] + 3 >= 4095).
+ * Dropped dead code: the vendor limit "out[10] >= 4096 -> 4095" (out[10] = 4095 here).  The vendor return value is
+ * leftover registers.  The vendor's s5 / s6 / s8 temporaries are named below as in its call order.
+ */
+static inline int t32_tmo_up_lookup(int v, const s16 *x, const s16 *y, u32 sh)
+{
+	int k;
+
+	for (k = 0; k < 129; k++) {
+		if (v < x[k]) {
+			u32 slope = t32_awb_fixdiv(sh, (u32)(y[k] - y[k - 1]) << (sh & 31U), (u32)(x[k] - x[k - 1]) << (sh & 31U));
+			u32 m = t32_awb_fixmul(sh, slope, (u32)(x[k] - v) << (sh & 31U));
+
+			return y[k] - ((int)(m + 512U) >> (sh & 31U));
+		}
+	}
+	return y[128];
+}
+
+static inline void t32_tmo_adr_subsection_up(u32 *out, int s1, const s16 *y, const s16 *x, const int *tab, int mul, u32 sh,
+					     u32 sh0, u32 mode)
+{
+#define UP_R(v) ((int)((u32)(v) + 512U) >> (sh & 31U))
+#define UP_SM(pos, s5) t32_tmo_adr_subsection_map((pos), (s5), s1, y, x, tab, mul, sh, sh0, mode)
+#define UP_LK(v) t32_tmo_up_lookup((v), x, y, sh)
+#define UP_HALF(i) t32_tmo_sdiv(tab[i], 2)
+	u32 two = 2U << (sh & 31U), s6;
+	int s8, s5, o6, o4, o2, o5, o1, o3, e, ia, ib, t;
+
+	out[10] = 4095;
+	out[0] = 0;
+	s8 = UP_SM(5000, UP_R(t32_awb_fixdiv(sh, 4095U << (sh & 31U), two)));
+	o6 = UP_LK(s8);
+	out[6] = (u32)o6;
+	s6 = (u32)mul << (sh & 31U);
+	t = UP_HALF(UP_R(t32_awb_fixdiv(sh, (u32)o6 << (sh & 31U), s6)));
+	s5 = UP_SM(t, UP_R(t32_awb_fixdiv(sh, (u32)s8 << (sh & 31U), two)));
+	o4 = UP_LK(s5);
+	out[4] = (u32)o4;
+	t = UP_HALF(UP_R(t32_awb_fixdiv(sh, (u32)o4 << (sh & 31U), s6)));
+	e = UP_SM(t, UP_R(t32_awb_fixdiv(sh, (u32)s5 << (sh & 31U), two)));
+	o2 = UP_LK(e);
+	out[2] = (u32)o2;
+	ia = UP_R(t32_awb_fixdiv(sh, (u32)o4 << (sh & 31U), s6));
+	ib = UP_R(t32_awb_fixdiv(sh, (u32)o6 << (sh & 31U), s6));
+	t = t32_tmo_sdiv((int)((u32)tab[ib] + (u32)tab[ia]), 2);
+	o5 = UP_LK(UP_SM(t, UP_R(t32_awb_fixdiv(sh, (u32)(s8 + s5) << (sh & 31U), two))));
+	out[5] = (u32)o5;
+	t = UP_HALF(UP_R(t32_awb_fixdiv(sh, (u32)o2 << (sh & 31U), s6)));
+	o1 = UP_LK(UP_SM(t, UP_R(t32_awb_fixdiv(sh, (u32)e << (sh & 31U), two))));
+	out[1] = (u32)o1;
+	ia = UP_R(t32_awb_fixdiv(sh, (u32)o2 << (sh & 31U), s6));
+	ib = UP_R(t32_awb_fixdiv(sh, (u32)o4 << (sh & 31U), s6));
+	t = t32_tmo_sdiv((int)((u32)tab[ib] + (u32)tab[ia]), 2);
+	o3 = UP_LK(UP_SM(t, UP_R(t32_awb_fixdiv(sh, (u32)(s5 + e) << (sh & 31U), two))));
+	out[3] = (u32)o3;
+	out[7] = (u32)o6 + 1U;
+	out[8] = (u32)o6 + 2U;
+	out[9] = (u32)o6 + 3U;
+	if (!((int)out[9] < 4095)) {
+		out[6] = 4091;
+		out[7] = 4092;
+		out[8] = 4093;
+		out[9] = 4094;
+	}
+#undef UP_R
+#undef UP_SM
+#undef UP_LK
+#undef UP_HALF
 }
 
 #endif /* TX_ISP_T32_TMO_H */
