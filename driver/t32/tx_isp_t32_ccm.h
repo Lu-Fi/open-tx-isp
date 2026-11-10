@@ -154,6 +154,11 @@ struct t32_ccm {
 	u32 ct, ct_code;	/* colour temperature and knot band of the last ct update */
 	u8 api_on, api_ev;	/* override switches of the API (d6d30 +0, +1) */
 	u32 api_mat[9];		/* API override matrix (d6d30 +4) */
+	u16 lut_size;		/* the vendor's t32_data_da93e: bytes of the last payload copy */
+	/* the pointers tisp_ccm_deinit frees: ctx +8 cp, +12 mat, +4 state, +16 api */
+	void *cp_owned, *mat_owned, *state_owned, *api_owned;
+	void *(*lut_alloc)(u32 size);
+	void (*lut_free)(void *p);
 };
 
 /* the compiled-in parameter block d6d7c (data.c:25868): identity matrix, limits, unit gains */
@@ -481,6 +486,13 @@ static inline int t32_ccm_start(struct t32_ccm *st, u8 *sec, const u8 *lut, u32 
 	st->ct_code = 255;
 	st->api_on = 0;
 	st->api_ev = 0;
+	st->cp_owned = NULL;
+	st->mat_owned = NULL;
+	st->state_owned = NULL;
+	st->api_owned = NULL;
+	st->lut_size = 0;
+	st->lut_alloc = NULL;
+	st->lut_free = NULL;
 
 	/* first calls forced: colour temperature 5000, exposure 0 */
 	t32_ccm_ct_interp(st, T32_CCM_CT, 1);
@@ -525,6 +537,127 @@ static inline int t32_ccm_wdr_en(struct t32_ccm *st, struct t32_front_write *w)
 static inline int t32_ccm_wake_up(struct t32_ccm *st, struct t32_front_write *w)
 {
 	return (int)t32_ccm_write(st, 0, w);
+}
+
+/*
+ * tisp_ccm_irq_frame_done: bump the per-channel frame counter (the vendor's
+ * u32 at t32_data_e28e0[ch], masked to 17 bits).  The port takes the counter
+ * slot directly.
+ */
+static inline u32 t32_ccm_irq_frame_done(u32 *frame)
+{
+	*frame = (*frame + 1) & 0x1ffffU;
+	return 1;
+}
+
+/*
+ * The API block of the vendor's context (ctx +16, 40 bytes, a copy of d6d30):
+ * { api_on, api_ev, 2 pad bytes, nine s32 } = api_on .. api_mat of the state.
+ */
+static inline u8 *t32_ccm_api_blob(const struct t32_ccm *st)
+{
+	return (u8 *)st + __builtin_offsetof(struct t32_ccm, api_on);
+}
+
+/*
+ * tisp_ccm_deinit: the vendor's context is { sec, state, cp, mat, api } (offsets
+ * 0, 4, 8, 12, 16).  Frees +8, +12, +4, +16 (each when set) and the context,
+ * then clears the slot.  The section copy (+0) is not freed.
+ */
+static inline int t32_ccm_deinit(void (*vfree)(void *p), struct t32_ccm **slot)
+{
+	struct t32_ccm *st = *slot;
+
+	if (st) {
+		if (st->cp_owned)
+			vfree(st->cp_owned);
+		if (st->mat_owned)
+			vfree(st->mat_owned);
+		if (st->state_owned)
+			vfree(st->state_owned);
+		if (st->api_owned)
+			vfree(st->api_owned);
+		vfree(*slot);
+		*slot = NULL;
+	}
+	return 0;
+}
+
+/*
+ * tisp_ccm_param_array_get: copy the section (872 bytes), the 36-byte matrix
+ * handed out last (ctx +12), then the knot payload (knots * 40 bytes) into buf; *len is
+ * 908 + knots * 40.  The vendor reads the knot count from sec[0x364] and the
+ * payload from t32_data_dc274[ch] + 24.
+ */
+static inline int t32_ccm_param_array_get(const struct t32_ccm *st, u8 *buf, u32 *len)
+{
+	u32 knots = st->sec[0x364];
+	u32 i;
+
+	memcpy(buf, st->sec, T32_CCM_SEC_BYTES);
+	memcpy(buf + T32_CCM_SEC_BYTES, st->mat_out, 36);
+	for (i = 0; i < knots; i++)
+		memcpy(buf + 908 + 40 * i, st->lut + 40 * i, 40);
+	*len = 908 + knots * 40;
+	return 0;
+}
+
+/*
+ * tisp_ccm_param_array_set: copy the section (872 bytes) in, grow the knot
+ * payload to knots * 40 bytes when needed, copy the payload, then force both
+ * interpolations (colour temperature from the state, exposure from the state)
+ * and write all groups.  The vendor sets sec[0x361] = 1 and the exposure
+ * cache to 255 before the forced calls.
+ */
+static inline int t32_ccm_param_array_set(struct t32_ccm *st, const u8 *buf,
+					  struct t32_front_write *w)
+{
+	u32 need;
+
+	memcpy(st->sec, buf, T32_CCM_SEC_BYTES);
+	need = (u32)st->sec[0x364] * 40U;
+	if (need > st->lutbytes) {
+		if (st->lut) {
+			st->lut_free((void *)st->lut);
+			st->lut = NULL;
+		}
+		st->lutbytes = need;
+		st->lut = st->lut_alloc(need);
+	}
+	st->lut_size = (u16)need;
+	memcpy((u8 *)st->lut, buf + 872, (u16)need);
+	st->sec[0x361] = 1;
+	st->ct_code = 255;
+	t32_ccm_ct_interp(st, st->ct, 1);
+	t32_ccm_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_ccm_calc_para(st);
+	return (int)t32_ccm_write(st, 0, w);
+}
+
+/*
+ * tisp_ccm_api_set: the API hands a 40-byte matrix.  The vendor sets
+ * sec[0x361] = 2, the exposure cache to 255, copies the matrix into the API
+ * slot, forces both interpolations and writes all groups.
+ */
+static inline int t32_ccm_api_set(struct t32_ccm *st, const u8 *mat,
+				  struct t32_front_write *w)
+{
+	st->sec[0x361] = 2;
+	st->ct_code = 255;
+	memcpy(t32_ccm_api_blob(st), mat, 40);
+	t32_ccm_ct_interp(st, st->ct, 1);
+	t32_ccm_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_ccm_calc_para(st);
+	return (int)t32_ccm_write(st, 0, w);
+}
+
+/* tisp_ccm_api_get: copy the 40-byte API matrix out; -1 when no context */
+static inline int t32_ccm_api_get(const struct t32_ccm *st, u8 *mat)
+{
+	if (!st)
+		return -1;
+	memcpy(mat, t32_ccm_api_blob(st), 40);
+	return 0;
 }
 
 static inline int t32_ccm_init(u8 *sec, const u8 *lut, u32 lutbytes, struct t32_front_write *w)
