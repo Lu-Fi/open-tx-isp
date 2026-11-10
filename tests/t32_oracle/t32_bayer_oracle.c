@@ -104,7 +104,7 @@ int main(void)
 {
 	unsigned int c, i, n = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 20000;
 	unsigned char mode;
-	struct t32_regio io = { &mode, 0, h_read, h_shadow, h_write, h_error };
+	struct t32_regio io = { &mode, 0, h_read, h_shadow, h_write, h_error, 0 };
 
 	t32o_rd_hook = rd;
 	for (c = 0; c < n; c++) {
