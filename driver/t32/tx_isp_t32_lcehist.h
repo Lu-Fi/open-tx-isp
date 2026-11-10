@@ -14,7 +14,16 @@
  *                                 the sum from the top exceeds (hi & 0xff) << 6 (31 if none); out[0] = head,
  *                                 out[1] = tail; returns head
  *
- * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15) by tests/t32_oracle (t32_lcehs_oracle).
+ *   t32_lce_compress_data         lce_compress_data 0x585e0: mode 0: 32 u16 bins >> 2 to u8; mode 1:
+ *                                 lce_compress_data_part_1 (u32 bins); other: 32 u16 bins >> 5 to u16;
+ *                                 returns the last unshortened value
+ *   t32_lce_converge_16bit        lce_16bit_data_converge_16bit 0x53dd8: moves each of the 20 target points
+ *                                 (5th argument, updated in place) toward the current curve point: unchanged
+ *                                 inside cur +- lo, else cur +- the gain-scaled distance ((d * gain + 64) >> 7
+ *                                 style rounding, 16 bits), clamped to [lo, hi]; gain, lo, hi are signed bytes.
+ *                                 The vendor's v0/v1 at return are leftovers (void function), not compared.
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15) by tests/t32_oracle (t32_lcehs_oracle, t32_lcecv_oracle).
  */
 #ifndef TX_ISP_T32_LCEHIST_H
 #define TX_ISP_T32_LCEHIST_H
@@ -105,6 +114,65 @@ static inline u32 t32_lce_head_tail_search(const u32 *hist, u32 lo, u32 hi, u32 
 static inline u32 t32_lce_head_tail_search_16bit(const unsigned short *hist, u32 lo, u32 hi, u32 *out)
 {
 	return t32_lce_head_tail_search_w(hist, 1, lo, hi, out);
+}
+
+/* ---- group 2: compress modes, curve convergence ---- */
+
+/* lce_compress_data(mode, src, dst) */
+static inline u32 t32_lce_compress_data(u32 mode, const void *src, void *dst)
+{
+	const unsigned short *s16 = src;
+	u32 v = 0;
+	int i;
+
+	if (mode == 1)
+		return t32_lce_compress_data_part_1(src, dst);
+	for (i = 0; i < T32_LCE_BINS; i++) {
+		if (mode == 0) {
+			v = s16[i] >> 2;
+			((unsigned char *)dst)[i] = (unsigned char)v;
+		} else {
+			v = s16[i] >> 5;
+			((unsigned short *)dst)[i] = (unsigned short)v;
+		}
+	}
+	return v;
+}
+
+/* gain-scaled distance: low 32 bits of d * gain, >> 7 rounded by bit 6, 16 bits */
+static inline int t32_lce_conv_step(u32 d, int gain)
+{
+	u32 p = (d & 0xffff) * (u32)gain;
+
+	return (int)((((p >> 6) & 1) + (p >> 7)) & 0xffff);	/* vendor sra; equal after the 16-bit mask */
+}
+
+/* lce_16bit_data_converge_16bit(gain, lo, hi, cur[20], tgt[20]) */
+static inline void t32_lce_converge_16bit(u32 gain, u32 lo, u32 hi, const unsigned char *cur, unsigned char *tgt)
+{
+	int g = (signed char)gain, l = (signed char)lo, h = (signed char)hi, i, c, t, d;
+
+	for (i = 0; i < 20; i++) {
+		c = cur[i];
+		t = tgt[i];
+		if (c + l < t) {
+			d = t32_lce_conv_step((u32)(t - c), g);
+			if (d < l)
+				tgt[i] = (unsigned char)(c + l);
+			else if (h < d)
+				tgt[i] = (unsigned char)(c + h);
+			else
+				tgt[i] = (unsigned char)(c + d);
+		} else if (l + t < c) {
+			d = t32_lce_conv_step((u32)(c - t), g);
+			if (d < l)
+				tgt[i] = (unsigned char)(c - l);
+			else if (h < d)
+				tgt[i] = (unsigned char)(c - h);
+			else
+				tgt[i] = (unsigned char)(c - d);
+		}
+	}
 }
 
 #endif
