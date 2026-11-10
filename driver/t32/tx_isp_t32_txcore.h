@@ -17,7 +17,8 @@
  *   subdevice: +4 pads, +8 name (char *), +52 / +56, +84..+147 cleared,
  *     +148 / +152 notify, +244 register base, +256 / +260 clocks / count,
  *     +264 ops.
- *   ops: +0 core ops (+32 notify), +12 video ops (+8 notify), +16 internal
+ *   ops (struct tx_isp_subdev_ops): +0 core (+32 ioctl), +4 video, +12 sensor
+ *     (+8 ioctl), +16 internal
  *     (PM) ops: +0 open, +8 prepare, +12 suspend, +16 resume_early,
  *     +20 resume, +24 complete.
  *
@@ -58,10 +59,10 @@
 #define T32_SD_INIT_BYTES	156U	/* module deinit clears this much */
 
 #define T32_OPS_CORE		0U
-#define T32_OPS_VIDEO		12U
+#define T32_OPS_SENSOR		12U
 #define T32_OPS_INTERNAL	16U
-#define T32_CORE_NOTIFY		32U
-#define T32_VIDEO_NOTIFY	8U
+#define T32_CORE_IOCTL		32U
+#define T32_SENSOR_IOCTL	8U
 #define T32_PM_OPEN		0U
 #define T32_PM_PREPARE		8U
 #define T32_PM_SUSPEND		12U
@@ -72,7 +73,7 @@
 #define T32_EV_DONE		0x1000011U
 #define T32_EV_CLASS(e)		((e) & 0xff000000U)
 #define T32_EV_CORE		0x1000000U
-#define T32_EV_VIDEO		0x2000000U
+#define T32_EV_SENSOR		0x2000000U
 #define T32_EV_CORE5		0x5000000U
 
 #define T32_PDEV_DATA		88U	/* platform device: 4 bytes copied to the subdevice */
@@ -149,7 +150,7 @@ static inline int t32_tx_isp_unlocked_ioctl_first(u32 a0, u32 a1, u32 x)
 	return t32_tx_os_unlocked_ioctl(0, a0, a1, x);
 }
 
-/* tx_isp_notify(sd, event, arg): forward to every subdevice (core / video ops) */
+/* tx_isp_notify(sd, event, arg): forward to every subdevice (core / sensor ops ioctl) */
 static inline int t32_tx_isp_notify(u32 sd, u32 event, u32 arg)
 {
 	u32 dev = t32_tx_isp_dev, k, cls = T32_EV_CLASS(event);
@@ -177,15 +178,15 @@ static inline int t32_tx_isp_notify(u32 sd, u32 event, u32 arg)
 				ret = -(int)T32_ENOIOCTLCMD;
 				continue;
 			}
-			fn = t32_tx_ld(core, T32_CORE_NOTIFY);
-		} else if (cls == T32_EV_VIDEO) {
-			u32 video = t32_tx_ld(ops, T32_OPS_VIDEO);
+			fn = t32_tx_ld(core, T32_CORE_IOCTL);
+		} else if (cls == T32_EV_SENSOR) {
+			u32 sops = t32_tx_ld(ops, T32_OPS_SENSOR);
 
-			if (!video) {
+			if (!sops) {
 				ret = -(int)T32_ENOIOCTLCMD;
 				continue;
 			}
-			fn = t32_tx_ld(video, T32_VIDEO_NOTIFY);
+			fn = t32_tx_ld(sops, T32_SENSOR_IOCTL);
 		} else {
 			ret = 0;
 			continue;

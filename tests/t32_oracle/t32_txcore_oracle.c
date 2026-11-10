@@ -184,10 +184,10 @@ static void build(u32 base)
 		sw(sd + T32_SD_NCLK, (m & 0x30) ? op3_rnd() % 6 : ((m & 0x40) ? 0xffffffffu : 0));
 		sw(sd + T32_SD_OPS, base + ops);
 		sw(ops + T32_OPS_CORE, (m & 1) ? base + core : 0);
-		sw(ops + T32_OPS_VIDEO, (m & 2) ? base + video : 0);
+		sw(ops + T32_OPS_SENSOR, (m & 2) ? base + video : 0);
 		sw(ops + T32_OPS_INTERNAL, (m & 4) ? 0 : base + pm);
-		sw(core + T32_CORE_NOTIFY, rfn(op3_rnd(), (void *)cb_cnot));
-		sw(video + T32_VIDEO_NOTIFY, rfn(op3_rnd(), (void *)cb_vnot));
+		sw(core + T32_CORE_IOCTL, rfn(op3_rnd(), (void *)cb_cnot));
+		sw(video + T32_SENSOR_IOCTL, rfn(op3_rnd(), (void *)cb_vnot));
 		sw(pm + T32_PM_OPEN, rfn(op3_rnd(), (void *)cb_open));
 		sw(pm + T32_PM_PREPARE, rfn(op3_rnd(), (void *)cb_prep));
 		sw(pm + T32_PM_SUSPEND, rfn(op3_rnd(), (void *)cb_susp));
