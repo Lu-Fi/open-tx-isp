@@ -48,6 +48,7 @@ static void gen_section(u8 *sec)
 static int run_case(const char *what, int which, u32 ch, u32 init_gain,
 		    u32 gain, u32 thr, const u8 *section)
 {
+	u32 ref_sharp;
 	u8 *base_ref, *par_ref, *ctx_ref, *base_our, *par_our;
 	struct t32_dmsc_ctx *oc;
 	u8 init_par[VALB];
@@ -111,6 +112,7 @@ static int run_case(const char *what, int which, u32 ch, u32 init_gain,
 	memcpy(refw, t32o_log.w, ref_n * sizeof(refw[0]));
 	memcpy(aft_ref_par, par_ref, VALB);
 	ref_gain = *(u32 *)(ctx_ref + 8);
+	ref_sharp = *(u32 *)(ctx_ref + 16);	/* vendor ctx +16: 0x80 from tisp_dmsc_init, read by tisp_dmsc_intp */
 	ref_so = *(u32 *)(ctx_ref + 0) - T32O_PTR(base_ref);
 	memcpy(aft_ref_sec, base_ref + SEC_OFF, SECB);
 
@@ -125,6 +127,7 @@ static int run_case(const char *what, int which, u32 ch, u32 init_gain,
 	oc->sec = base_our + SEC_OFF;
 	oc->param = par_our;
 	oc->gain = init_gain;
+	oc->sharpness = ref_sharp;
 
 	switch (which) {
 	case CASE_PAR:

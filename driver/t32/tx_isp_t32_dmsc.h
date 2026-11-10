@@ -540,7 +540,23 @@ struct t32_dmsc_ctx {
 	u8 *sec;		/* IQ bin section 11 (writable) */
 	u8 *param;		/* T32_DMSC_VALUES interpolated bytes */
 	u32 gain;		/* last accepted gain, -1 = none yet */
+	u32 rsvd;		/* vendor ctx +12, not touched here */
+	u32 sharpness;		/* vendor ctx +16: stored by tisp_dmsc_sharpness_set */
 };
+
+/*
+ * tisp_ratio: scale v by the sharpness byte r, 0x80 = unchanged; below 0x80 the
+ * value shrinks towards 0, above it grows towards the limit
+ */
+static inline u32 t32_dmsc_ratio(u32 r, u32 v, u32 limit)
+{
+	r &= 0xff;
+	if (r == 128)
+		return v;
+	if ((int8_t)r >= 0)
+		return (r * v) >> 7;
+	return ((r - 128) * (limit - v) >> 7) + v;
+}
 
 /* tisp_dmsc_intp at the gain index (gain >> 16, fraction gain & 0xffff) */
 static inline void t32_dmsc_intp(struct t32_dmsc_ctx *ctx, u32 gain)
@@ -554,6 +570,13 @@ static inline void t32_dmsc_intp(struct t32_dmsc_ctx *ctx, u32 gain)
 		else
 			t32_tp_put16(ctx->param + t32_dmsc_map[k][2],
 				     t32_tp_intp_u16(gain >> 16, gain & 0xffff, ctx->sec + t32_dmsc_map[k][1]));
+	}
+	/* the sharpness ratio of the context scales five of the u16 values (limit 600) */
+	for (k = 0; k < 5; k++) {
+		static const u8 sharp_off[5] = { 48, 50, 64, 66, 14 };
+		u8 *q = ctx->param + sharp_off[k];
+
+		t32_tp_put16(q, t32_dmsc_ratio(ctx->sharpness, t32_tp_le16(q), 600));
 	}
 }
 
@@ -636,6 +659,59 @@ static inline int t32_dmsc_wake_up(struct t32_dmsc_ctx *ctx, struct t32_front_wr
 	t32_dmsc_ref(ctx->sec, ctx->param, w, &n);
 	t32_dmsc_reg_trig(w, &n);
 	return (int)n;
+}
+
+/*
+ * Parameter accessors (tisp_dmsc_param_array_get / _set / _deinit /
+ * _sharpness_set).  The vendor indexes the context array t32_data_e1810 by
+ * channel; the port takes the context (or its slot) directly.
+ */
+
+/* tisp_dmsc_param_array_get: the section is copied out whole */
+static inline int t32_dmsc_param_array_get(const struct t32_dmsc_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->sec, T32_DMSC_SEC_BYTES);
+	*len = T32_DMSC_SEC_BYTES;
+	return 0;
+}
+
+/* tisp_dmsc_param_array_set: replace the section, then refresh everything at the stored gain */
+static inline int t32_dmsc_param_array_set(struct t32_dmsc_ctx *ctx, const u8 *buf,
+					   struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	memcpy(ctx->sec, buf, T32_DMSC_SEC_BYTES);
+	t32_dmsc_all_reg_refresh(ctx, ctx->gain, w, &n);
+	return (int)n;
+}
+
+/* tisp_dmsc_sharpness_set: store the low byte, then refresh everything at the stored gain */
+static inline int t32_dmsc_sharpness_set(struct t32_dmsc_ctx *ctx, u32 sharpness,
+					 struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	ctx->sharpness = sharpness & 0xff;
+	t32_dmsc_all_reg_refresh(ctx, ctx->gain, w, &n);
+	return (int)n;
+}
+
+/* tisp_dmsc_deinit: free the parameter block and the context, clear the slot */
+static inline int t32_dmsc_deinit(void (*vfree)(void *p), void (*kfree)(void *p),
+				  struct t32_dmsc_ctx **slot)
+{
+	struct t32_dmsc_ctx *ctx = *slot;
+
+	if (ctx) {
+		if (ctx->param) {
+			vfree(ctx->param);
+			ctx->param = NULL;
+		}
+		kfree(*slot);
+		*slot = NULL;
+	}
+	return 0;
 }
 
 #endif /* TX_ISP_T32_DMSC_H */
