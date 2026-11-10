@@ -16,6 +16,7 @@
  *  phase 3c (t32_tmo3c_oracle): timeratio_curve_adjust, adr_hardpars_ctl.
  *  phase 4 (t32_tmo4_oracle): adr_5x5_init, adr_base_pars, adr_gauss_local, adr_local_info.
  *  phase 5a (t32_tmo5a_oracle): adr_map_y_filter, adr_map_y_filter_sp.
+ *  phase 5b (t32_tmo5b_oracle): adr_map_curve1.
  *
  * The vendor addresses the per channel TMO state as t32_data_e35e0[ch] -> a
  * channel record {ctx, stat, ..., geom at +12}; the port takes the members it
@@ -1258,6 +1259,60 @@ static inline void t32_tmo_adr_map_y_filter_sp(s16 *xs, u32 *b, int iters, const
 	t32_tmo_adr_interp1_short(in, out, xs, ys, 33, 16);
 	for (k = 0; k < 14; k++)
 		b[k] = (u32)(int)ys[k + 1];
+}
+
+/*
+ * ---- phase 5b: adr_map_curve1 ----
+ *
+ * tisp_tmo_adr_map_curve1 (out = 14 u32, a1 / a2 limited to 0 .. 255 (curve index / position m), d8324 = the vendor table
+ * t32_data_d8324 of 256 s32): k = d8324[a1]; for i = 0 .. 32 the 33 samples Q[i] = x = 8 i (k >= 0) or 8 (32 - i) (k < 0),
+ * a = 256 - m - x, W = a^3 (256 - m) + m^4, N = W * v1, D = v0 * m^3, with (v1, v0) = ((k + 256) x, k + x) for k >= 0 or ((256 - k) x, x - k)
+ * for k < 0 (64 bit wrapping products as the vendor's register pairs), q = N / D by the unsigned fix_point_div (D == 0: 0, see
+ * fixdiv64), clamped to 0x10000 (a high word or a low word above 0x10000), for k < 0 mirrored (0x10000 - q).  out[0 .. 5] are
+ * the first 3 samples blended ((15 Q0 + Q1) / 1048560, (7 Q0 + Q1) / 524280, (3 Q0 + Q1) / 262140, (Q0 + Q1) / 131070,
+ * Q1 / 65535, (Q1 + Q2) / 131070, all * 4095), out[6 .. 13] = Q[2, 3, 4, 6, 8, 12, 16, 24] * 4095 / 65535.
+ */
+static inline void t32_tmo_adr_map_curve1(u32 *out, int a1, int a2, const int *d8324)
+{
+	static const u8 qi[8] = { 2, 3, 4, 6, 8, 12, 16, 24 };
+	u32 Q[33], m, s8, s5, s6;
+	int k, i;
+
+	a1 = a1 < 0 ? 0 : a1 < 256 ? a1 : 255;
+	a2 = a2 < 0 ? 0 : a2 < 256 ? a2 : 255;
+	m = (u32)a2;
+	s5 = m * m;
+	s6 = m * s5;
+	s8 = 256U - m;
+	k = d8324[a1];
+	for (i = 0; i < 33; i++) {
+		u32 x = (u32)(k >= 0 ? i : 32 - i) << 3, a3 = 256U - (m + x), v0, v1, lo;
+		u64 W, N, q;
+
+		if (k >= 0) {
+			v1 = (u32)(k + 256) * x;
+			v0 = (u32)k + x;
+		} else {
+			v1 = (u32)(256 - k) * x;
+			v0 = x - (u32)k;
+		}
+		W = (u64)((long long)(int)a3 * (int)a3);
+		W *= (u64)(long long)(int)s8;
+		W *= (u64)(long long)(int)a3;
+		W += (u64)((long long)(int)s5 * (int)s5);
+		N = W * (u64)(long long)(int)v1;
+		q = t32_awb_fixdiv64(0, N, (u64)((long long)(int)v0 * (int)s6));
+		lo = (q >> 32) || (u32)q > 0x10000U ? 0x10000U : (u32)q;
+		Q[i] = k >= 0 ? lo : 0x10000U - lo;
+	}
+	out[0] = (u32)t32_tmo_sdiv((int)((15U * Q[0] + Q[1]) * 4095U), 1048560);
+	out[1] = (u32)t32_tmo_sdiv((int)((7U * Q[0] + Q[1]) * 4095U), 524280);
+	out[2] = (u32)t32_tmo_sdiv((int)((3U * Q[0] + Q[1]) * 4095U), 262140);
+	out[3] = (u32)t32_tmo_sdiv((int)((Q[0] + Q[1]) * 4095U), 131070);
+	out[4] = (u32)t32_tmo_sdiv((int)(Q[1] * 4095U), 65535);
+	out[5] = (u32)t32_tmo_sdiv((int)((Q[1] + Q[2]) * 4095U), 131070);
+	for (i = 0; i < 8; i++)
+		out[6 + i] = (u32)t32_tmo_sdiv((int)(Q[qi[i]] * 4095U), 65535);
 }
 
 #endif /* TX_ISP_T32_TMO_H */
