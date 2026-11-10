@@ -4,13 +4,17 @@
  * functions (Matt Davis' recovered C, PR #15 @ 2e2e06bc) and our readable
  * t32_bcsh_api_* / refresh_by_csc / param_array_* / deinit from
  * driver/t32/tx_isp_t32_bcsh.h from the same initial state and compares
- * register writes, section, knots, ap, cp, p5, m112, counters, outputs.
+ * section + knot area (whole 64 KiB), ap, cp, p5, m112, state block, outputs
+ * (with guard bytes), return values and the register writes (the vendor
+ * API paths emit none: ref_n must be 0, ours has no write channel).
  *
  * Vendor context (t32_data_e2450[ch]): +0 sec, +4 state block (ev lo/hi, ct,
  * ct_code, ctr_ev, ctr_ct, pend, b19), +8 cp, +12 m112, +16 ap, +20 p5, +24
  * spin lock.  Knots: t32_data_dc274[ch] + 28, capacity t32_data_dc1a4[ch*28+16]
- * (set large: the realloc path is not exercised).  refresh_by_csc reads the
- * CSC state, so the oracle runs tisp_csc_init on random section 9 data first.
+ * (set large on the vendor side: its realloc/vfree/vmalloc and the spin lock
+ * calls are not compared, env.c behaviour unknown).  Our realloc branch of
+ * param_array_set is covered with counting callbacks (more knots, up to 24).
+ * refresh_by_csc reads the CSC state, so tisp_csc_init runs on random data.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,8 +31,11 @@ __attribute__((weak)) u64 private_spin_unlock_irqrestore(u32 a0, u32 a1, u32 a2,
 
 #define SECB		T32_BCSH_SEC_BYTES
 #define BIGB		(SECB + 400)
+#define MAXK		24
+#define ARGB		(SECB + 40 * MAXK + 8)
 #define MAXW		(T32_BCSH_MAX_WRITES + 16)
 #define CSC_OFF		27488u
+#define ALLB		0x10000
 
 extern u64 tisp_bcsh_deinit(u32 a0, u32 a1, u32 a2, u32 a3);
 extern u64 tisp_bcsh_param_array_get(u32 a0, u32 a1, u32 a2, u32 a3);
@@ -65,13 +72,13 @@ static u32 get32(const u8 *p)
 	return p[0] | p[1] << 8 | p[2] << 16 | (u32)p[3] << 24;
 }
 
-static unsigned int compared, failed;
+static unsigned int compared, failed, reallocs, nullslots;
 
 enum {
 	CASE_SET_BRIGHT, CASE_GET_BRIGHT, CASE_SET_CONTRAST, CASE_GET_CONTRAST,
 	CASE_SET_SAT, CASE_GET_SAT, CASE_SET_HUE, CASE_GET_HUE, CASE_REFRESH_CSC,
 	CASE_SET_CCM, CASE_GET_CCM, CASE_SET_OFFSET, CASE_GET_OFFSET,
-	CASE_PARAM_GET, CASE_PARAM_SET, CASE_DEINIT, CASE_COUNT
+	CASE_PARAM_GET, CASE_PARAM_SET, CASE_DEINIT, CASE_DEINIT_NULL, CASE_COUNT
 };
 
 struct vctx {
@@ -80,7 +87,7 @@ struct vctx {
 
 struct input {
 	const u8 *sec, *lut, *ap, *arg, *csc;
-	u32 arglen, lutbytes, ev_lo, ev_hi, ct, ct_code;
+	u32 arglen, lutbytes, our_lb, ev_lo, ev_hi, ct, ct_code;
 	u8 ctr_ev, ctr_ct, pend, b19;
 };
 
@@ -134,45 +141,55 @@ static void gen_knots(u8 *lut, u32 knots, u32 ct)
 	}
 }
 
-static unsigned int our_frees;
+static unsigned int our_frees, our_allocs;
+static u8 our_pool[40 * MAXK + 16];
 static void our_vfree(void *p)
 {
 	(void)p;
 	our_frees++;
 }
 
+static void *our_vmalloc(u32 n)
+{
+	our_allocs++;
+	memset(our_pool, 0xa5, sizeof(our_pool));
+	return n <= sizeof(our_pool) ? our_pool : NULL;
+}
+
+static u8 ref_all[ALLB];
+
 static int run_case(const char *what, int which, u32 ch, const struct input *in)
 {
 	u8 *base_ref, *cp_ref, *ap_ref, *p5_ref, *m112_ref, *ctx_ref, *st_ref, *arg_ref, *out_refp, *lenp;
 	u8 *base_our;
 	struct t32_bcsh *our_ctx, *slot;
-	struct t32_front_write refw[MAXW], ow[MAXW];
-	unsigned int ref_n, i;
+	struct t32_front_write refw[MAXW];
+	unsigned int ref_n, need = 0, realloc_exp = 0;
 	int our_n = 0;
 	u8 out_ref[BIGB], out_our[BIGB];
-	u8 after_ref_sec[BIGB], after_our_sec[BIGB];
 	u8 ref_ap[0x90], ref_cp[300], ref_p5[48], ref_m112[112];
 	u8 csc_blob[T32_BCSH_CSC_AP_BYTES];
-	u32 len_ref = 0, len_our = 0;
+	u8 tail[8], lentail[4];
+	u32 len_ref = 0, len_our = 0, rv = 0;
 	u32 r_lo, r_hi, r_ct, r_code;
 	u8 r_cev, r_cct, r_pend, r_b19;
 	struct vctx *v;
 	const u8 *arg = in->arg;
+	int arg_ok = 1;
 
 	memset(out_ref, 0, sizeof(out_ref));
 	memset(out_our, 0, sizeof(out_our));
-	memset(ow, 0, sizeof(ow));
 
 	/* reference side */
 	t32o_reset();
-	base_ref = t32o_alloc(0x10000);
+	base_ref = t32o_alloc(ALLB);
 	cp_ref = t32o_alloc(300);
 	ap_ref = t32o_alloc(0x90);
 	p5_ref = t32o_alloc(48);
 	m112_ref = t32o_alloc(112);
 	ctx_ref = t32o_alloc(32);
 	st_ref = t32o_alloc(24);
-	arg_ref = t32o_alloc(BIGB + 8);
+	arg_ref = t32o_alloc(ARGB);
 	out_refp = t32o_alloc(BIGB + 8);
 	lenp = t32o_alloc(8);
 	{
@@ -181,7 +198,7 @@ static int run_case(const char *what, int which, u32 ch, const struct input *in)
 		if (!base_ref || !cp_ref || !ap_ref || !p5_ref || !m112_ref || !ctx_ref || !st_ref ||
 		    !arg_ref || !out_refp || !lenp || !info)
 			return 2;
-		memset(base_ref, 0, 0x10000);
+		memset(base_ref, 0, ALLB);
 		memcpy(base_ref, in->sec, SECB);
 		memcpy(base_ref + SECB, in->lut, in->lutbytes);
 		memset(cp_ref, 0, 300);
@@ -192,7 +209,7 @@ static int run_case(const char *what, int which, u32 ch, const struct input *in)
 		memset(st_ref, 0, 24);
 		memset(out_refp, 0, BIGB + 8);
 		memset(lenp, 0, 8);
-		memset(arg_ref, 0, BIGB + 8);
+		memset(arg_ref, 0, ARGB);
 		if (arg)
 			memcpy(arg_ref, arg, in->arglen);
 		put32(st_ref, in->ev_lo);
@@ -230,10 +247,11 @@ static int run_case(const char *what, int which, u32 ch, const struct input *in)
 		t32o_call((t32o_fn)(void (*)(void))tisp_csc_api_get, ch, T32O_PTR(tmp + 44), 0, 0, 0);
 		memcpy(csc_blob, tmp + 44, T32_BCSH_CSC_AP_BYTES);
 		arg = csc_blob;
+		arg_ok = 0;
 	}
 	t32o_log.n = 0;
 
-#define CALL1(fn, a1)	t32o_call((t32o_fn)(void (*)(void))fn, ch, a1, 0, 0, 0)
+#define CALL1(fn, a1)	rv = (u32)t32o_call((t32o_fn)(void (*)(void))fn, ch, a1, 0, 0, 0)
 	switch (which) {
 	case CASE_SET_BRIGHT: CALL1(tisp_bcsh_api_set_brightness, T32O_PTR(arg_ref)); break;
 	case CASE_GET_BRIGHT: CALL1(tisp_bcsh_api_get_brightness, T32O_PTR(out_refp)); break;
@@ -249,10 +267,14 @@ static int run_case(const char *what, int which, u32 ch, const struct input *in)
 	case CASE_SET_OFFSET: CALL1(tisp_bcsh_api_set_offset_rgb, T32O_PTR(arg_ref)); break;
 	case CASE_GET_OFFSET: CALL1(tisp_bcsh_api_get_offset_rgb, T32O_PTR(out_refp)); break;
 	case CASE_PARAM_GET:
-		t32o_call((t32o_fn)(void (*)(void))tisp_bcsh_param_array_get, ch, T32O_PTR(out_refp), T32O_PTR(lenp), 0, 0);
+		rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_bcsh_param_array_get, ch, T32O_PTR(out_refp), T32O_PTR(lenp), 0, 0);
 		break;
 	case CASE_PARAM_SET: CALL1(tisp_bcsh_param_array_set, T32O_PTR(arg_ref)); break;
 	case CASE_DEINIT: CALL1(tisp_bcsh_deinit, 0); break;
+	case CASE_DEINIT_NULL:
+		t32_data_e2450[ch] = 0;
+		CALL1(tisp_bcsh_deinit, 0);
+		break;
 	}
 #undef CALL1
 	ref_n = t32o_log.n;
@@ -261,12 +283,14 @@ static int run_case(const char *what, int which, u32 ch, const struct input *in)
 		return 2;
 	}
 	memcpy(refw, t32o_log.w, ref_n * sizeof(refw[0]));
-	memcpy(after_ref_sec, base_ref, BIGB);
+	memcpy(ref_all, base_ref, ALLB);
 	memcpy(ref_ap, ap_ref, 0x90);
 	memcpy(ref_cp, cp_ref, 300);
 	memcpy(ref_p5, p5_ref, 48);
 	memcpy(ref_m112, m112_ref, 112);
 	memcpy(out_ref, out_refp, BIGB);
+	memcpy(tail, out_refp + BIGB, 8);
+	memcpy(lentail, lenp + 4, 4);
 	len_ref = get32(lenp);
 	r_lo = get32(st_ref);
 	r_hi = get32(st_ref + 4);
@@ -276,25 +300,30 @@ static int run_case(const char *what, int which, u32 ch, const struct input *in)
 	r_cct = st_ref[17];
 	r_pend = st_ref[18];
 	r_b19 = st_ref[19];
+	if (arg && arg_ok && which != CASE_DEINIT && which != CASE_DEINIT_NULL &&
+	    memcmp(arg_ref, arg, in->arglen))
+		goto bad;	/* the vendor must not modify its input */
 	if (which == CASE_DEINIT) {
 		/* the vendor clears the five pointers of the context and the slot */
 		if (v->state || v->cp || v->m112 || v->ap || v->p5 || t32_data_e2450[ch])
 			goto bad;
 	}
+	if (which == CASE_DEINIT_NULL && t32_data_e2450[ch])
+		goto bad;
 
 	/* our side */
 	t32o_reset();
-	base_our = t32o_alloc(0x10000);
+	base_our = t32o_alloc(ALLB);
 	our_ctx = t32o_alloc(sizeof(*our_ctx));
 	if (!base_our || !our_ctx)
 		return 2;
-	memset(base_our, 0, 0x10000);
+	memset(base_our, 0, ALLB);
 	memcpy(base_our, in->sec, SECB);
 	memcpy(base_our + SECB, in->lut, in->lutbytes);
 	memset(our_ctx, 0, sizeof(*our_ctx));
 	our_ctx->sec = base_our;
 	our_ctx->lut = base_our + SECB;
-	our_ctx->lutbytes = 400;
+	our_ctx->lutbytes = which == CASE_PARAM_SET ? in->our_lb : 400;
 	memcpy(our_ctx->ap, in->ap, 0x90);
 	our_ctx->ev_lo = in->ev_lo;
 	our_ctx->ev_hi = in->ev_hi;
@@ -304,8 +333,9 @@ static int run_case(const char *what, int which, u32 ch, const struct input *in)
 	our_ctx->ctr_ct = in->ctr_ct;
 	our_ctx->pend = in->pend;
 	our_ctx->b19 = in->b19;
-	slot = our_ctx;
+	slot = which == CASE_DEINIT_NULL ? NULL : our_ctx;
 	our_frees = 0;
+	our_allocs = 0;
 
 	switch (which) {
 	case CASE_SET_BRIGHT: t32_bcsh_api_set_brightness(our_ctx, arg[0]); break;
@@ -322,23 +352,53 @@ static int run_case(const char *what, int which, u32 ch, const struct input *in)
 	case CASE_SET_OFFSET: t32_bcsh_api_set_offset_rgb(our_ctx, arg); break;
 	case CASE_GET_OFFSET: t32_bcsh_api_get_offset_rgb(our_ctx, out_our); break;
 	case CASE_PARAM_GET: t32_bcsh_param_array_get(our_ctx, out_our, &len_our); break;
-	case CASE_PARAM_SET: t32_bcsh_param_array_set(our_ctx, arg, NULL, NULL); break;
+	case CASE_PARAM_SET:
+		need = (unsigned int)arg[1199] * 40U;
+		realloc_exp = our_ctx->lutbytes < need;
+		t32_bcsh_param_array_set(our_ctx, arg, our_vmalloc, our_vfree);
+		break;
 	case CASE_DEINIT:
 		t32_bcsh_deinit(our_vfree, &slot);
 		if (slot || our_frees != 1)
 			goto bad;
 		break;
+	case CASE_DEINIT_NULL:
+		t32_bcsh_deinit(our_vfree, &slot);
+		if (slot || our_frees != 0)
+			goto bad;
+		nullslots++;
+		break;
 	}
-	memcpy(after_our_sec, base_our, BIGB);
 
 	compared++;
-	if (our_n < 0 || (unsigned int)our_n != ref_n)
-		goto bad;
-	for (i = 0; i < ref_n; i++)
-		if (refw[i].reg != ow[i].reg || refw[i].val != ow[i].val)
+	if (rv)
+		goto bad;			/* every vendor function here returns 0 */
+	if (ref_n != 0 || our_n != 0)
+		goto bad;			/* no register writes on these paths, either side */
+	if (which == CASE_PARAM_SET) {
+		if (our_frees != realloc_exp || our_allocs != realloc_exp)
 			goto bad;
-	if (memcmp(after_ref_sec, after_our_sec, BIGB))
+		reallocs += realloc_exp;
+		if (our_ctx->lutbytes < need || !our_ctx->lut)
+			goto bad;
+	} else if (which != CASE_DEINIT && (our_frees || our_allocs)) {
 		goto bad;
+	}
+	{
+		unsigned int tailoff = SECB;
+
+		if (memcmp(ref_all, base_our, SECB))
+			goto bad;
+		if (which == CASE_PARAM_SET) {
+			need = (unsigned int)base_our[1199] * 40U;
+			if (memcmp(ref_all + SECB, our_ctx->lut, need))
+				goto bad;
+			tailoff = SECB + need;
+		}
+		if (memcmp(ref_all + tailoff, base_our + tailoff,
+			   (which == CASE_REFRESH_CSC ? BIGB : ALLB) - tailoff))
+			goto bad;
+	}
 	if (memcmp(ref_ap, our_ctx->ap, 0x90) && which != CASE_DEINIT)
 		goto bad;
 	if (which != CASE_DEINIT) {
@@ -353,10 +413,16 @@ static int run_case(const char *what, int which, u32 ch, const struct input *in)
 		goto bad;
 	if (memcmp(out_ref, out_our, sizeof(out_ref)) || len_ref != len_our)
 		goto bad;
+	{
+		static const u8 zero[8];
+
+		if (memcmp(tail, zero, 8) || memcmp(lentail, zero, 4))
+			goto bad;	/* guard bytes behind the outputs */
+	}
 	return 0;
 bad:
 	if (failed++ < 5)
-		printf("MISMATCH %s: ch %u writes ref %u\n", what, ch, ref_n);
+		printf("MISMATCH %s: ch %u writes ref %u rv %u\n", what, ch, ref_n, rv);
 	return 1;
 }
 
@@ -365,16 +431,16 @@ int main(void)
 	static const char *const names[CASE_COUNT] = {
 		"set-bright", "get-bright", "set-contrast", "get-contrast", "set-sat", "get-sat",
 		"set-hue", "get-hue", "refresh-csc", "set-ccm", "get-ccm", "set-offset", "get-offset",
-		"param-get", "param-set", "deinit"
+		"param-get", "param-set", "deinit", "deinit-null"
 	};
 	const unsigned int n = getenv("T32O_NRAND") ? (unsigned int)atoi(getenv("T32O_NRAND")) : 3000;
 	unsigned int c;
 
 	for (c = 0; c < n; c++) {
 		u8 sec[SECB], lut[400], ap[0x90], arg[64], csc[104];
-		u8 sec2[SECB], lut2[400], pbuf[BIGB];
+		u8 sec2[SECB], lut2[40 * MAXK], pbuf[SECB + 40 * MAXK];
 		struct input in;
-		u32 knots = 1 + rnd() % 10, knots2 = 1 + rnd() % 10;
+		u32 knots = 1 + rnd() % 10, knots2 = 1 + rnd() % MAXK;
 		u32 ct = 1500 + rnd() % 2500;
 		u32 ch = rnd() & 3;
 		unsigned int i, w;
@@ -386,7 +452,7 @@ int main(void)
 		gen_section(sec2, knots2);
 		gen_knots(lut2, knots2, ct);
 		memcpy(pbuf, sec2, SECB);
-		memcpy(pbuf + SECB, lut2, 400);
+		memcpy(pbuf + SECB, lut2, sizeof(lut2));
 		for (i = 0; i < 0x90; i++)
 			ap[i] = (u8)rnd();
 		for (i = 0; i < 64; i++)
@@ -400,6 +466,7 @@ int main(void)
 		in.sec = sec;
 		in.lut = lut;
 		in.lutbytes = knots * 40;
+		in.our_lb = rnd() % 2 ? 400 : knots * 40;
 		in.ap = ap;
 		in.csc = csc;
 		in.ev_lo = rnd() % 4 ? rnd() : 0;
@@ -417,6 +484,11 @@ int main(void)
 		}
 	}
 
-	printf("t32_bcshx_oracle: random %u compared, %u mismatches\n", compared, failed);
+	printf("t32_bcshx_oracle: random %u compared, %u mismatches (%u realloc, %u null slot)\n",
+	       compared, failed, reallocs, nullslots);
+	if (!reallocs || !nullslots) {
+		printf("t32_bcshx_oracle: branch not reached\n");
+		return 1;
+	}
 	return failed ? 1 : 0;
 }
