@@ -19,6 +19,7 @@
  *  phase 5b (t32_tmo5b_oracle): adr_map_curve1.
  *  phase 5c (t32_tmo5c_oracle): adr_ev_func.
  *  phase 6a (t32_tmo6a_oracle): adr_subsection_up, tisp_adr_faceae_curve_adjust (callee of adr_fpga).
+ *  phase 7a (t32_tmo7a_oracle): tgain_update, api_strength_ctrl, param_array_get, api_get_curve, ev_update.
  *
  * The vendor addresses the per channel TMO state as t32_data_e35e0[ch] -> a
  * channel record {ctx, stat, ..., geom at +12}; the port takes the members it
@@ -1506,6 +1507,89 @@ static inline void t32_tmo_adr_subsection_up(u32 *out, int s1, const s16 *y, con
 #undef UP_SM
 #undef UP_LK
 #undef UP_HALF
+}
+
+/* ---- phase 7a: the small api / update functions ---- */
+
+/*
+ * tisp_tmo_tgain_update (a0 = channel, a1 unused, a2, a3): rec36 = rec + 36 gets a2, the channel's flag (t32_data_e3520[ch])
+ * is set to 1, t32_data_e3590[ch] = a3 << 16 | a2 >> 16, t32_data_e35a0[ch] = a2 & 0xffff.
+ */
+static inline void t32_tmo_tgain_update(u32 *rec36, u16 *e3520, u32 *e3590, u32 *e35a0, u32 a2, u32 a3)
+{
+	*rec36 = a2;
+	*e3520 = 1;
+	*e3590 = (a3 << 16) | (a2 >> 16);
+	*e35a0 = a2 & 0xffffU;
+}
+
+/*
+ * tisp_tmo_api_strength_ctrl: record +54 (u16) = 1, +56 (u16) = strength; when the context's byte 10042 is 1 the
+ * register refresh of the ramY set (vi1 when the global byte t32_data_d03a0 is 1, else vi0) runs for the channel (a tail
+ * call in the vendor: refresh(ch) is the hook; the vendor's return value is only leftover registers).
+ */
+static inline void t32_tmo_api_strength_ctrl(u16 *rec54, const u8 *ctx, u8 d03a0, u32 strength, void (*vi1)(void *, int),
+					     void (*vi0)(void *, int), void *cb, int ch)
+{
+	rec54[0] = 1;
+	rec54[1] = (u16)strength;
+	if (ctx[10042] != 1)
+		return;
+	if (d03a0 == 1)
+		vi1(cb, ch);
+	else
+		vi0(cb, ch);
+}
+
+/*
+ * tisp_tmo_param_array_get: the whole parameter set of a channel into buf: the 11000 byte context, the 402 byte out
+ * curve (record +8) at +11000 and the 800 bytes at e35b0[ch]->+0 at +11402; *size = 12202.  Returns 0.
+ */
+static inline int t32_tmo_param_array_get(u8 *buf, const u8 *ctx, const u8 *out, const u8 *blk, u32 *size)
+{
+	memcpy(buf, ctx, 11000);
+	memcpy(buf + 11000, out, 402);
+	memcpy(buf + 11402, blk, 800);
+	*size = 12202;
+	return 0;
+}
+
+/*
+ * tisp_tmo_api_get_curve: the 402 byte curve idx (< 10) of the channel's context, ctx + 4182 + 402 * idx, is copied to dst.
+ * The vendor selects it through the jump table t32_data_c04c8 (10 label addresses); the table contents are not part of the
+ * recovered tree: the ten bodies are ctx + 4182 .. 7800 in steps of 402, assumed (UNVERIFIED) to be in index order.  The
+ * return value of the vendor is the memcpy result (dst) or leftover registers.
+ */
+static inline void t32_tmo_api_get_curve(u8 *dst, const u8 *ctx, u32 idx)
+{
+	if (idx < 10)
+		memcpy(dst, ctx + 4182 + 402 * idx, 402);
+}
+
+/*
+ * tisp_tmo_ev_update (ch, a2, a3, arg4): the record's ev values (rec +24 = low word of the 64 bit ev point a3:a2 >> 10 ...,
+ * +28 = a3 >> 10, +32 = arg4), then ev_interp, dark_ctr_interp (st + 238), satcurve_ev_interp, the adr default register
+ * refresh and, when the stat byte 385 is 1, the tmo default register refresh (hooks); finally the channel's pending flag
+ * (e3528[ch]) is set and seed[ch] (e3530) = { a2 >> 10 | a3 << 22, a3 >> 10 }.  Return value: leftover registers.
+ */
+static inline void t32_tmo_ev_update(struct t32_tmo_rec *r, u32 a2, u32 a3, u32 arg4, s16 *pend, u32 *seed,
+				     void (*adr_refresh)(void *, int), void (*tmo_refresh)(void *, int), void *cb, int ch)
+{
+	u32 lo = a2 >> 10, hi = a3 >> 10, flag = r->st[385];
+
+	r->ev1 = hi;
+	r->ev1m = arg4;
+	lo |= a3 << 22;
+	r->ev0 = lo;
+	t32_tmo_ev_interp(r);
+	t32_tmo_dark_ctr_interp(r->ctx, (struct t32_tmo_dark_out *)(r->st + 238), r->ev0, r->ev1, r->ev1m);
+	t32_tmo_satcurve_ev_interp(r->ctx, r->st, r->ev0, r->ev1, r->ev1m);
+	adr_refresh(cb, ch);
+	if (flag == 1)
+		tmo_refresh(cb, ch);
+	*pend = 1;
+	seed[0] = lo;
+	seed[1] = hi;
 }
 
 #endif /* TX_ISP_T32_TMO_H */
