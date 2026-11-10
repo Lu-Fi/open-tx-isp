@@ -31,17 +31,11 @@
 #define T32_YSP_WRITES		147
 #define T32_YSP_MAX_WRITES	148
 
-/* { kind (8: u8, 16: u16, 9: 0x40 - u8), table offset in the section, byte offset in the value block } */
+/* { kind (8: u8, 16: u16, 9: 0x40 - u8, 17: u8 table stored as u16), table offset in the section, byte offset in the value block } */
 static const u16 t32_ysp_map[260][3] = {
 	{8, 0x811, 0x0}, {16, 0x4, 0x2}, {8, 0x824, 0x4}, {8, 0x82f, 0x5}, {8, 0x83a, 0x6}, {8, 0x845, 
 	0x7}, {8, 0x850, 0x8}, {8, 0x85b, 0x9}, {8, 0x866, 0xa}, {8, 0x871, 0xb}, {8, 0x87c, 0xc}, {8, 
-	0x887, 0xd}, {8, 0x892, 0xe}, {16, 0x1a, 0x10}, {8, 0x89d, 0x12}, {8, 0x8a8, 0x14}, {8, 0x8b3, 
-	0x16}, {8, 0x8be, 0x18}, {8, 0x8c9, 0x1a}, {8, 0x8d4, 0x1c}, {8, 0x8df, 0x1e}, {8, 0x8ea, 
-	0x20}, {8, 0x8f5, 0x22}, {8, 0x900, 0x24}, {8, 0x90b, 0x26}, {8, 0x916, 0x28}, {8, 0x921, 
-	0x2a}, {8, 0x92c, 0x2c}, {8, 0x937, 0x2e}, {8, 0x942, 0x30}, {8, 0x94d, 0x32}, {8, 0x958, 
-	0x34}, {8, 0x963, 0x36}, {8, 0x96e, 0x38}, {8, 0x979, 0x3a}, {8, 0x984, 0x3c}, {8, 0x98f, 
-	0x3e}, {8, 0x99a, 0x40}, {8, 0x9a5, 0x42}, {8, 0x9b0, 0x44}, {8, 0x9bb, 0x46}, {8, 0x9c6, 
-	0x48}, {8, 0x9d1, 0x4a}, {8, 0x9dc, 0x4c}, {8, 0x9e7, 0x4e}, {8, 0x9f2, 0x50}, {16, 0x30, 
+	0x887, 0xd}, {8, 0x892, 0xe}, {16, 0x1a, 0x10}, {17, 0x89d, 0x12}, {17, 0x8a8, 0x14}, {17, 0x8b3, 0x16}, {17, 0x8be, 0x18}, {17, 0x8c9, 0x1a}, {17, 0x8d4, 0x1c}, {17, 0x8df, 0x1e}, {17, 0x8ea, 0x20}, {17, 0x8f5, 0x22}, {17, 0x900, 0x24}, {17, 0x90b, 0x26}, {17, 0x916, 0x28}, {17, 0x921, 0x2a}, {17, 0x92c, 0x2c}, {17, 0x937, 0x2e}, {17, 0x942, 0x30}, {17, 0x94d, 0x32}, {17, 0x958, 0x34}, {17, 0x963, 0x36}, {17, 0x96e, 0x38}, {17, 0x979, 0x3a}, {17, 0x984, 0x3c}, {17, 0x98f, 0x3e}, {17, 0x99a, 0x40}, {17, 0x9a5, 0x42}, {17, 0x9b0, 0x44}, {17, 0x9bb, 0x46}, {17, 0x9c6, 0x48}, {17, 0x9d1, 0x4a}, {17, 0x9dc, 0x4c}, {17, 0x9e7, 0x4e}, {17, 0x9f2, 0x50}, {16, 0x30, 
 	0x52}, {16, 0x46, 0x54}, {16, 0x5c, 0x56}, {8, 0x9fd, 0x58}, {8, 0xa08, 0x59}, {8, 0xa13, 
 	0x5a}, {8, 0xa1e, 0x5b}, {8, 0xa2f, 0x5c}, {8, 0xa3a, 0x5d}, {8, 0xa45, 0x5e}, {16, 0x72, 
 	0x60}, {8, 0xa50, 0x62}, {8, 0xa5b, 0x63}, {16, 0x88, 0x64}, {8, 0xa66, 0x66}, {8, 0xa71, 
@@ -646,13 +640,11 @@ struct t32_ysp_ctx {
 	u32 rsvd;		/* vendor ctx +12, not touched here */
 };
 
-/* tisp_ysp_intp: the 260 point tables of the section at a 16.16 gain */
+/* tisp_ysp_intp: the 260 point tables of the section at a 16.16 gain; the other value bytes keep their content */
 static inline void t32_ysp_intp(u8 *sec, u8 *o, u32 gain)
 {
 	unsigned int k;
 
-	for (k = 0; k < T32_YSP_VALUES; k++)
-		o[k] = 0;
 	for (k = 0; k < 260; k++) {
 		u32 v;
 
@@ -663,6 +655,10 @@ static inline void t32_ysp_intp(u8 *sec, u8 *o, u32 gain)
 			continue;
 		}
 		v = t32_tp_intp_u8(gain >> 16, gain & 0xffff, sec + t32_ysp_map[k][1]);
+		if (t32_ysp_map[k][0] == 17) {	/* an 8 bit table into a 16 bit slot */
+			t32_tp_put16(o + t32_ysp_map[k][2], v);
+			continue;
+		}
 		o[t32_ysp_map[k][2]] = t32_ysp_map[k][0] == 9 ? (u8)(0x40 - v) : (u8)v;
 	}
 }
@@ -786,6 +782,85 @@ static inline int t32_ysp_wake_up(struct t32_ysp_ctx *ctx, u8 ch,
 	t32_ysp_ref(ctx->sec, ctx->param, w, &n);
 	t32_ysp_reg_trig(w, &n);
 	return (int)n;
+}
+
+/*
+ * Parameter accessors (tisp_ysp_param_array_get / _set / _deinit /
+ * _sharpness_set).  The vendor indexes the context array t32_data_e2424 by
+ * channel; the port takes the context (or its slot) directly.  dn_copy is
+ * t32_data_e2420[0], the copy of the section made by tisp_ysp_dn_params_refresh.
+ */
+
+/* tisp_ysp_param_array_get: the section is copied out whole */
+static inline int t32_ysp_param_array_get(const struct t32_ysp_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->sec, T32_YSP_SEC_BYTES);
+	*len = T32_YSP_SEC_BYTES;
+	return 0;
+}
+
+/* tisp_ysp_param_array_set: replace the section, then refresh everything at the stored gain */
+static inline int t32_ysp_param_array_set(struct t32_ysp_ctx *ctx, u8 ch, const u8 *buf,
+					  struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	memcpy(ctx->sec, buf, T32_YSP_SEC_BYTES);
+	t32_ysp_all_reg_refresh(ctx, ch, ctx->gain, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_ysp_sharpness_set: store the sharpness byte (t32_data_d6c70), rebuild the
+ * 32 x 11 sharpness bytes at section +2205 (step 11, then the next of the 11
+ * columns) from the copy in dn_copy, scaled down below 0x80 and up towards 255
+ * above it, then refresh everything at the stored gain.
+ */
+static inline int t32_ysp_sharpness_set(struct t32_ysp_ctx *ctx, u8 ch, const u8 *dn_copy,
+					u32 *sharp_store, u32 sharpness,
+					struct t32_front_write *w)
+{
+	u32 sh = sharpness & 0xff;
+	unsigned int n = 0, i, j;
+
+	*sharp_store = sh;
+	for (j = 0; j < 11; j++) {
+		for (i = 0; i < 32; i++) {
+			unsigned int o = 2205 + 11 * i + j;
+			u32 b = dn_copy[o];
+
+			if ((int)sh < 129)
+				ctx->sec[o] = (u8)((int)(b * sh) >> 7);
+			else
+				ctx->sec[o] = (u8)(b + ((int)((255 - b) * (sh - 128)) >> 7));
+		}
+	}
+	t32_ysp_all_reg_refresh(ctx, ch, ctx->gain, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_ysp_deinit: free the parameter block and the context of the channel and
+ * clear the slot, then free the shared section copy (whatever the channel).
+ */
+static inline int t32_ysp_deinit(void (*vfree)(void *p), void (*kfree)(void *p),
+				 struct t32_ysp_ctx **slot, u8 **dn_copy)
+{
+	struct t32_ysp_ctx *ctx = *slot;
+
+	if (ctx) {
+		if (ctx->param) {
+			vfree(ctx->param);
+			ctx->param = NULL;
+		}
+		kfree(*slot);
+		*slot = NULL;
+	}
+	if (*dn_copy) {
+		vfree(*dn_copy);
+		*dn_copy = NULL;
+	}
+	return 0;
 }
 
 #endif /* TX_ISP_T32_YSP_H */

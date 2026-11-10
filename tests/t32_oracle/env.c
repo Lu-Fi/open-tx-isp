@@ -54,6 +54,7 @@ u32 t32_data_e1824[4], t32_data_e1834[4];	/* gamma context per channel */
 u8 t32_data_e1848[8];
 u32 t32_data_e28d0[4];	/* CLM context per channel */
 u32 t32_data_e2420[4], t32_data_e2424[4];	/* YSP context per channel */
+u32 t32_data_d6c70;	/* YSP sharpness byte stored by tisp_ysp_sharpness_set */
 u32 t32_data_e2440[4], t32_data_e2450[4];	/* BCSH context per channel */
 u8 t32_data_e2460[112], t32_data_e24d0[300];
 u32 t32_data_e23c0[4];
