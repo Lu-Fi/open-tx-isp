@@ -6,7 +6,7 @@
  * ivdc_resume_module (0xe64c), ivdc_resume_early_module (0xe9c4),
  * ivdc_suspend_module (0xea84), ivdc_slake_module (0xed18),
  * ivdc_isp_info_clear (0xfc5c), ivdc_enable_irq (0xeff8), ivdc_disable_irq
- * (0xf098) and the empty callbacks ivdc_link_setup, ivdc_misc_open,
+ * (0xf098), ivdc_core_ops_ioctl (0xe6bc) and the empty callbacks ivdc_link_setup, ivdc_misc_open,
  * ivdc_misc_release, ivdc_misc_read and ivdc_video_s_stream (return 0).
  *
  * Objects (vendor offsets): the IVDC subdev (struct tx_isp_subdev: clocks
@@ -80,6 +80,7 @@ struct t32_ivdc {
 	u32 saved[4];		/* t32_data_d98a0 .. d98ac */
 	u32 save_src[4];	/* t32_data_d98e8 .. d98f4 */
 	u32 flag[3];		/* t32_data_cf2dc .. cf2e4 */
+	u32 ioc_flag;		/* t32_data_d989c: 1 after ioctl 0x100000f, 0 after 0x100000e */
 	const struct t32_ivdc_os *os;
 };
 
@@ -255,6 +256,54 @@ static inline int t32_ivdc_isp_info_clear(struct t32_ivdc *d)
 	}
 	*t32_ivdc_reg(d->info_priv, T32_IVDC_REG_INFO) &= ~2U;
 	return 0;
+}
+
+/* ---- core ioctl ---- */
+#define T32_IVDC_IOC_INIT	0x1000000U	/* sensor-style core op +4 of the subdev ops */
+#define T32_IVDC_IOC_MODE	0x1000003U	/* register 0x64 = 7 (mode 1) / 3 (mode >= 2) */
+#define T32_IVDC_IOC_FLAG_CLR	0x100000eU
+#define T32_IVDC_IOC_FLAG_SET	0x100000fU
+#define T32_IVDC_SD_OPS		0x108U
+typedef int (*t32_ivdc_sd_fn)(u8 *sd, void *arg);
+
+static inline int t32_ivdc_core_ops_ioctl(struct t32_ivdc *d, u8 *sd, u32 cmd, void *arg)
+{
+	u8 *priv;
+	u32 core, fn;
+	int ret;
+
+	switch (cmd) {
+	case T32_IVDC_IOC_MODE:
+		priv = t32_ivdc_priv(sd);
+		if (!t32_ivdc_valid(priv)) {
+			isp_printf(2, "%s[%d]: invalid subdev\n", "ivdc_core_ops_ioctl", 537);
+			return -22;
+		}
+		if (d->mode == 1)
+			*t32_ivdc_reg(priv, T32_IVDC_REG_INFO) = 7;
+		else if ((int)d->mode >= 2)
+			*t32_ivdc_reg(priv, T32_IVDC_REG_INFO) = 3;
+		return 0;
+	case T32_IVDC_IOC_INIT:
+		if (!sd)
+			return -19;
+		core = t32_g_rd32(T32_PTR(t32_g_rd32(sd, T32_IVDC_SD_OPS)), 0);
+		if (!core)
+			return 0;
+		fn = t32_g_rd32(T32_PTR(core), 4);
+		if (!fn)
+			return 0;
+		ret = ((t32_ivdc_sd_fn)T32_PTR(fn))(sd, arg);
+		return ret == -515 ? 0 : ret;
+	case T32_IVDC_IOC_FLAG_CLR:
+		d->ioc_flag = 0;
+		return 0;
+	case T32_IVDC_IOC_FLAG_SET:
+		d->ioc_flag = 1;
+		return 0;
+	default:
+		return 0;
+	}
 }
 
 /* ---- irq enable / disable of the IVDC subdev ---- */

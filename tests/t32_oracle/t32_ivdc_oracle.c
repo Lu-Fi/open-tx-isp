@@ -4,7 +4,7 @@
  * (driver/t32/tx_isp_t32_ivdc.h) against the unmodified vendor functions
  * ivdc_core_ops_init, ivdc_{prepare,resume,resume_early,suspend,slake}_module,
  * ivdc_isp_info_clear, ivdc_enable_irq / _disable_irq and the empty callbacks
- * (Matt Davis' recovered C, PR #15 @ 2e2e06bc).
+ * and ivdc_core_ops_ioctl (Matt Davis' recovered C, PR #15 @ 2e2e06bc).
  *
  * One memory image (subdev, private data, registers, clock list, save
  * buffer, a decoy register block) and the IVDC globals start random per case;
@@ -32,8 +32,8 @@
 WEAK u32 t32_data_d9014, t32_data_d9894, t32_data_d9890, t32_data_d98b0, t32_data_d98b4;
 WEAK u32 t32_data_d98a0, t32_data_d98a4, t32_data_d98a8, t32_data_d98ac;
 WEAK u32 t32_data_d98e8, t32_data_d98ec, t32_data_d98f0, t32_data_d98f4;
-WEAK u32 t32_data_cf2dc, t32_data_cf2e0, t32_data_cf2e4;
-WEAK char t32_data_be3b4[4], t32_data_be3c8[4], t32_data_be3e4[4], t32_data_be3f8[4], t32_data_be454[4];
+WEAK u32 t32_data_cf2dc, t32_data_cf2e0, t32_data_cf2e4, t32_data_d989c;
+WEAK char t32_data_be390[4], t32_data_be3b4[4], t32_data_be3c8[4], t32_data_be3e4[4], t32_data_be3f8[4], t32_data_be454[4];
 WEAK char t32_data_c537c[4], t32_data_c53a0[4], t32_data_c53c4[4], t32_data_c5b5c[4], t32_data_c5b80[4];
 WEAK char t32_data_c5b9c[4], t32_data_c5bb8[4], t32_data_c5bd8[4], t32_data_c5bfc[4];
 
@@ -46,6 +46,7 @@ u64 ivdc_slake_module(u32, u32, u32, u32);
 u64 ivdc_isp_info_clear(u32, u32, u32, u32);
 u64 ivdc_enable_irq(u32, u32, u32, u32);
 u64 ivdc_disable_irq(u32, u32, u32, u32);
+u64 ivdc_core_ops_ioctl(u32, u32, u32, u32);
 int32_t ivdc_link_setup(void);
 int32_t ivdc_misc_open(void);
 int32_t ivdc_misc_release(void);
@@ -114,6 +115,10 @@ static void o_irqdis(u8 *dev, u32 z) { ev(E_IRQDIS, T32O_PTR(dev), z, 0); }
 static u64 r_irqen(u32 dev, u32 z, u32 a2, u32 a3) { (void)a2; (void)a3; ev(E_IRQEN, dev, z, 0); return 0; }
 static u64 r_irqdis(u32 dev, u32 z, u32 a2, u32 a3) { (void)a2; (void)a3; ev(E_IRQDIS, dev, z, 0); return 0; }
 
+static u32 sc_sdret;
+static int o_sdop(u8 *sd, void *a) { ev(E_IRQEN + 100, T32O_PTR(sd), T32O_PTR(a), 0); return (int)sc_sdret; }
+static u64 r_sdop(u32 sd, u32 a, u32 a2, u32 a3) { (void)a2; (void)a3; ev(E_IRQEN + 100, sd, a, 0); return sc_sdret; }
+
 /* isp_printf: level, the mode argument of the core start print, the vendor line argument */
 int isp_printf(unsigned int level, const char *fmt, ...)
 {
@@ -147,7 +152,7 @@ int isp_printf(unsigned int level, const char *fmt, ...)
 #define IMGSZ	0x1700u
 static u8 *img, save0[IMGSZ], save1[IMGSZ];
 
-struct glob { u32 w[16]; };
+struct glob { u32 w[17]; };
 static void glob_ours(const struct t32_ivdc *d, struct glob *g)
 {
 	g->w[0] = d->mode; g->w[1] = d->started_mode; g->w[2] = T32O_PTR(d->info_priv); g->w[3] = T32O_PTR(d->save_buf);
@@ -155,6 +160,7 @@ static void glob_ours(const struct t32_ivdc *d, struct glob *g)
 	memcpy(&g->w[5], d->saved, 16);
 	memcpy(&g->w[9], d->save_src, 16);
 	memcpy(&g->w[13], d->flag, 12);
+	g->w[16] = d->ioc_flag;
 }
 static void glob_vendor(struct glob *g)
 {
@@ -163,6 +169,7 @@ static void glob_vendor(struct glob *g)
 	g->w[5] = t32_data_d98a0; g->w[6] = t32_data_d98a4; g->w[7] = t32_data_d98a8; g->w[8] = t32_data_d98ac;
 	g->w[9] = t32_data_d98e8; g->w[10] = t32_data_d98ec; g->w[11] = t32_data_d98f0; g->w[12] = t32_data_d98f4;
 	g->w[13] = t32_data_cf2dc; g->w[14] = t32_data_cf2e0; g->w[15] = t32_data_cf2e4;
+	g->w[16] = t32_data_d989c;
 }
 static void glob_set_vendor(const struct glob *g)
 {
@@ -171,6 +178,7 @@ static void glob_set_vendor(const struct glob *g)
 	t32_data_d98a0 = g->w[5]; t32_data_d98a4 = g->w[6]; t32_data_d98a8 = g->w[7]; t32_data_d98ac = g->w[8];
 	t32_data_d98e8 = g->w[9]; t32_data_d98ec = g->w[10]; t32_data_d98f0 = g->w[11]; t32_data_d98f4 = g->w[12];
 	t32_data_cf2dc = g->w[13]; t32_data_cf2e0 = g->w[14]; t32_data_cf2e4 = g->w[15];
+	t32_data_d989c = g->w[16];
 }
 
 static int fail(const char *what, unsigned int c, unsigned int op)
@@ -188,11 +196,11 @@ static u32 pick_ptr(u32 good)
 	}
 }
 
-#define NOPS 10
+#define NOPS 11
 int main(void)
 {
 	static const u32 states[] = { 0, 1, 2, 3, 4, 0x80000000u };
-	unsigned int c, i, n = 40000, eff[NOPS] = { 0 };
+	unsigned int c, i, n = 66000, eff[NOPS] = { 0 };
 	volatile u32 *cpm;
 	u32 cpm0;
 
@@ -207,7 +215,7 @@ int main(void)
 		unsigned int op = c % NOPS;
 		struct t32_ivdc d;
 		struct glob g0, gr, go;
-		u32 sdw, ro = 0, rr = 0, on, cpm_o = 0, nud[2];
+		u32 sdw, ro = 0, rr = 0, on, cpm_o = 0, nud[2], ioc;
 		u8 *sd = img + O_SD, *priv = img + O_PRIV;
 
 		for (i = 0; i < IMGSZ; i++)
@@ -223,7 +231,7 @@ int main(void)
 		t32_g_wr32(sd, T32_IVDC_SD_CLK_NUM, rnd() % 8 == 0 ? 0xffffffffu : rnd() % 6);
 		t32_g_wr32(sd, T32_IVDC_SD_IRQ_ON, rnd() % 3);
 		t32_g_wr32(img + O_IPRIV, T32_IVDC_PRIV_REGS, T32O_PTR(img + O_IREGS));
-		for (i = 0; i < 16; i++)
+		for (i = 0; i < 17; i++)
 			g0.w[i] = rnd();
 		g0.w[0] = rnd() % 4 ? rnd() % 6 : rnd();
 		if (rnd() % 3 == 0)
@@ -233,10 +241,18 @@ int main(void)
 		on = rnd() % 2;
 		t32_g_wr32(img + O_SAVE + 0x6f0, 0, on);	/* the "on" word of core_ops_init */
 		sc_flags = rnd();
+		sc_sdret = rnd() % 3 == 0 ? (u32)-515 : rnd() % 2 ? 0 : rnd();
+		ioc = (u32[]){ T32_IVDC_IOC_INIT, T32_IVDC_IOC_MODE, T32_IVDC_IOC_FLAG_CLR, T32_IVDC_IOC_FLAG_SET,
+			       0x1000001u, 0x1000004u, 0x1000010u, 0 }[rnd() % 8];
+		if (op == 10 && ioc == T32_IVDC_IOC_INIT && sdw && !t32_ivdc_valid(T32O_HOST(sdw)))
+			sdw = T32O_PTR(sd);	/* the vendor dereferences an ERR_PTR subdev here */
+		t32_g_wr32(sd, T32_IVDC_SD_OPS, T32O_PTR(img + O_IPRIV + 0x100));
+		t32_g_wr32(img + O_IPRIV + 0x100, 0, rnd() % 4 ? T32O_PTR(img + O_IPRIV + 0x120) : 0);
 		sc_busy = 1 + rnd() % 700;
 		busy_reg = img + O_REGS;
 		t32_g_wr32(sd, T32_IVDC_SD_IRQ_EN, 0);	/* set per side, cleared after */
 		t32_g_wr32(sd, T32_IVDC_SD_IRQ_DIS, 0);
+		t32_g_wr32(img + O_IPRIV + 0x120, 4, 0);
 		memcpy(save0, img, IMGSZ);
 
 		{
@@ -248,11 +264,12 @@ int main(void)
 				memcpy(img, save0, IMGSZ);
 				*cpm = cpm0;
 				t32_g_wr32(sd, T32_IVDC_SD_IRQ_EN, (m & 1) ? 0 : side ? T32O_PTR(r_irqen) : T32O_PTR(o_irqen));
+				t32_g_wr32(img + O_IPRIV + 0x120, 4, (m & 4) ? 0 : side ? T32O_PTR(r_sdop) : T32O_PTR(o_sdop));
 				t32_g_wr32(sd, T32_IVDC_SD_IRQ_DIS, (m & 2) ? 0 : side ? T32O_PTR(r_irqdis) : T32O_PTR(o_irqdis));
 				if (!side) {
 					d.mode = g0.w[0]; d.started_mode = g0.w[1]; d.info_priv = T32O_HOST(g0.w[2]);
 					d.save_buf = T32O_HOST(g0.w[3]); d.d98b4 = g0.w[4];
-					memcpy(d.saved, &g0.w[5], 16); memcpy(d.save_src, &g0.w[9], 16); memcpy(d.flag, &g0.w[13], 12);
+					memcpy(d.saved, &g0.w[5], 16); memcpy(d.save_src, &g0.w[9], 16); memcpy(d.flag, &g0.w[13], 12); d.ioc_flag = g0.w[16];
 					d.os = &os;
 					switch (op) {
 					case 0: ro = (u32)t32_ivdc_core_ops_init(&d, T32O_HOST(sdw), (const u32 *)(img + O_SAVE + 0x6f0)); break;
@@ -264,6 +281,7 @@ int main(void)
 					case 6: ro = (u32)t32_ivdc_isp_info_clear(&d); break;
 					case 7: t32_ivdc_enable_irq(&d, T32O_HOST(sdw)); break;
 					case 8: t32_ivdc_disable_irq(&d, T32O_HOST(sdw)); break;
+					case 10: ro = (u32)t32_ivdc_core_ops_ioctl(&d, T32O_HOST(sdw), ioc, T32O_HOST(T32O_PTR(img + O_SAVE))); break;
 					default:
 						ro = (u32)(t32_ivdc_link_setup() | t32_ivdc_misc_open() << 1 | t32_ivdc_misc_release() << 2 |
 							   t32_ivdc_misc_read() << 3 | t32_ivdc_video_s_stream() << 4);
@@ -282,6 +300,7 @@ int main(void)
 					case 6: rr = (u32)t32o_call(R(ivdc_isp_info_clear), 0, 0, 0, 0, 0); break;
 					case 7: t32o_call(R(ivdc_enable_irq), sdw, 0, 0, 0, 0); break;
 					case 8: t32o_call(R(ivdc_disable_irq), sdw, 0, 0, 0, 0); break;
+					case 10: rr = (u32)t32o_call(R(ivdc_core_ops_ioctl), sdw, ioc, T32O_PTR(img + O_SAVE), 0, 0); break;
 					default:
 						rr = (u32)((u32)t32o_call(R(ivdc_link_setup), 1, 2, 3, 4, 0) |
 							   (u32)t32o_call(R(ivdc_misc_open), 1, 2, 3, 4, 0) << 1 |
@@ -294,6 +313,7 @@ int main(void)
 				}
 				t32_g_wr32(sd, T32_IVDC_SD_IRQ_EN, 0);
 				t32_g_wr32(sd, T32_IVDC_SD_IRQ_DIS, 0);
+				t32_g_wr32(img + O_IPRIV + 0x120, 4, 0);
 				nud[side] = nudelay;
 				if (!side) {
 					memcpy(save1, img, IMGSZ);
