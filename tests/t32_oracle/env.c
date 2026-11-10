@@ -816,3 +816,8 @@ u32 t32_data_c32d8[12] __attribute__((weak)) = { 0x02000007, 0x02000008, 0x02000
 	0x02000017, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0x02000020 };
 u32 t32_data_c3308[12] __attribute__((weak)) = { 0x02000007, 0x02000008, 0x02000009, 0x02000005, 0x02000006, 0xffffffff,
 	0x02000017, 0x02000018, 0xffffffff, 0x0200000a, 0xffffffff, 0x02000020 };
+/* core pm callbacks (ispcore_suspend/resume_early/complete_module): isp_printf formats / function names, address only */
+u32 t32_data_c3580[1] __attribute__((weak)), t32_data_cc83c[1] __attribute__((weak)), t32_data_cc858[1] __attribute__((weak));
+u32 t32_data_cc87c[1] __attribute__((weak)), t32_data_c354c[1] __attribute__((weak)), t32_data_cc89c[1] __attribute__((weak));
+u32 t32_data_cc8c4[1] __attribute__((weak)), t32_data_c3534[1] __attribute__((weak)), t32_data_cc8e4[1] __attribute__((weak));
+u32 t32_data_cc908[1] __attribute__((weak)), t32_data_cc928[1] __attribute__((weak));
