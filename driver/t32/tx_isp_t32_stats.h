@@ -1036,6 +1036,10 @@ struct t32_aea_ctx {
 	u8 *buf;	/* e15a8[ch] + 4 */
 	u8 *st;		/* e1588[ch] */
 	u8 *fps;	/* dd2d4 + ch * 232 */
+	u8 *hist;	/* d0950 + ch * 1052 */
+	u8 *wsel;	/* e1570 + ch * 2 */
+	u8 *base;	/* dd0a4[ch] */
+	u8 *comp;	/* d2a30 + ch * 1028 */
 };
 
 static inline u32 t32_aea_get_tgain(const struct t32_aea_ctx *c)
@@ -1141,6 +1145,143 @@ static inline int t32_aea_set_fps(const struct t32_aea_ctx *c, u32 ch, u32 fps, 
 	if (t32_ld32(c->fps, T32_AEA_FPS_CUR) != fps)
 		setfps(priv, fps, ch);
 	return 0;
+}
+
+/*
+ * AE API data blocks (vendor api_ae_get_hist_bin / set_hist_bin / get_y_zone /
+ * get_weight / set_weight / get_antiflicker_step, tisp_ae_api_get_antiflick /
+ * set_antiflick / set_comp), checked by t32_aeab_oracle.  The vendor takes the
+ * T32 spin lock around hist_bin / y_zone; that is left to the caller.  The
+ * weight block is { sel0, sel1, 225 bytes (tune + 1270), 225 bytes (tune + 3062) }
+ * (u32 / u32 / bytes at 8 and 233); set_weight also writes the 225 bytes inverted
+ * (8 - w) to buf + 12608.
+ */
+#define T32_AEA_HIST_BYTES	1052U
+#define T32_AEA_HIST_BIN	1044U
+#define T32_AEA_BUF_YZONE	7648U
+#define T32_AEA_YZONE_BYTES	900U
+#define T32_AEA_T_W0		1270U
+#define T32_AEA_T_W1		3062U
+#define T32_AEA_BUF_WINV	12608U
+#define T32_AEA_W_N		225U
+#define T32_AEA_T_AFEN		2920U
+#define T32_AEA_T_AFMODE	2922U
+#define T32_AEA_T_AFVAL		1660U
+#define T32_AEA_T_COMP		2960U
+#define T32_AEA_BUF_AFSTEP	12842U
+#define T32_AEA_ST_AFSTEP	1700U
+#define T32_AEA_BASE_AF		1764U
+
+static inline void t32_aea_cpy(u8 *dst, const u8 *src, u32 n)
+{
+	u32 k;
+
+	for (k = 0; k < n; k++)
+		dst[k] = src[k];
+}
+
+static inline void t32_aea_get_hist_bin(const struct t32_aea_ctx *c, u8 *out)
+{
+	t32_aea_cpy(out, c->hist, T32_AEA_HIST_BYTES);
+}
+
+static inline void t32_aea_set_hist_bin(const struct t32_aea_ctx *c, const u8 *in)
+{
+	t32_aea_cpy(c->hist + T32_AEA_HIST_BIN, in, 4);
+}
+
+static inline void t32_aea_get_y_zone(const struct t32_aea_ctx *c, u8 *out)
+{
+	t32_aea_cpy(out, c->buf + T32_AEA_BUF_YZONE, T32_AEA_YZONE_BYTES);
+}
+
+static inline void t32_aea_get_weight(const struct t32_aea_ctx *c, u8 *out)
+{
+	t32_wr32(out, 0, c->wsel[0]);
+	t32_wr32(out, 4, c->wsel[1]);
+	t32_aea_cpy(out + 8, c->tune + T32_AEA_T_W0, T32_AEA_W_N);
+	t32_aea_cpy(out + 233, c->tune + T32_AEA_T_W1, T32_AEA_W_N);
+}
+
+static inline void t32_aea_set_weight(const struct t32_aea_ctx *c, const u8 *in)
+{
+	u32 sel0 = t32_ld32(in, 0), sel1 = t32_ld32(in, 4), k;
+	u8 inv[T32_AEA_W_N];
+
+	c->wsel[0] = (u8)sel0;
+	c->wsel[1] = (u8)sel1;
+	if (sel0 == 1) {
+		t32_aea_cpy(c->tune + T32_AEA_T_W0, in + 8, T32_AEA_W_N);
+		for (k = 0; k < T32_AEA_W_N; k++)
+			inv[k] = (u8)(8 - in[8 + k]);
+		t32_aea_cpy(c->buf + T32_AEA_BUF_WINV, inv, T32_AEA_W_N);
+	}
+	if (sel1 == 1)
+		t32_aea_cpy(c->tune + T32_AEA_T_W1, in + 233, T32_AEA_W_N);
+}
+
+/* vendor args (ch, 4-byte out, u16 out). tisp_ae_clac_deflicker_cfg(ch) (hook) runs first; then -1 unless the anti-flicker
+ * enable word (tune + 2920) is 1; out1: u16, out2: 4 bytes */
+static inline int t32_aea_get_antiflicker_step(const struct t32_aea_ctx *c, u32 ch, u8 *out1, u8 *out2,
+					       void (*deflicker)(void *priv, u32 ch), void *priv)
+{
+	deflicker(priv, ch);
+	if (t32_st16(c->tune, T32_AEA_T_AFEN) != 1)
+		return -1;
+	t32_wr16(out1, 0, c->buf[T32_AEA_BUF_AFSTEP]);
+	t32_aea_cpy(out2, c->st + T32_AEA_ST_AFSTEP, 4);
+	return 0;
+}
+
+/* out: word 0 = 0 (off) / 1 / 2 (mode), byte 4 = value */
+static inline void t32_aea_get_antiflick(const struct t32_aea_ctx *c, u8 *out)
+{
+	if (!t32_st16(c->tune, T32_AEA_T_AFEN)) {
+		t32_wr32(out, 0, 0);
+		out[4] = 0;
+	} else if (t32_st16(c->tune, T32_AEA_T_AFMODE)) {
+		t32_wr32(out, 0, 1);
+		out[4] = (u8)t32_ld32(c->base, T32_AEA_BASE_AF);
+	} else {
+		t32_wr32(out, 0, 2);
+		out[4] = (u8)t32_ld32(c->tune, T32_AEA_T_AFVAL);
+	}
+}
+
+/* in: word 0 mode (0 off, 2 -> mode 0, else mode 1), byte 4 value;
+ * tisp_ae_clac_deflicker_cfg(ch) is a hook */
+static inline void t32_aea_set_antiflick(const struct t32_aea_ctx *c, u32 ch, const u8 *in,
+					 void (*deflicker)(void *priv, u32 ch), void *priv)
+{
+	u32 mode = t32_ld32(in, 0);
+
+	if (!mode) {
+		t32_wr16(c->tune, T32_AEA_T_AFEN, 0);
+	} else {
+		t32_wr16(c->tune, T32_AEA_T_AFEN, 1);
+		t32_wr16(c->tune, T32_AEA_T_AFMODE, mode == 2 ? 0 : 1);
+		t32_wr32(c->tune, T32_AEA_T_AFVAL, in[4]);
+	}
+	deflicker(priv, ch);
+	c->st[1285] = 1;
+}
+
+/* comp 0 / 1..128: tune + 2960 = (v * comp) >> 7 (comp 0 counts as 1);
+ * above 128: comp * 300 / 127 + v - 302 */
+static inline void t32_aea_set_comp(const struct t32_aea_ctx *c, u32 comp)
+{
+	u32 v = t32_st16(c->tune, T32_AEA_T_COMP), x;
+
+	comp &= 0xffff;
+	c->comp[1024] = (u8)comp;
+	if (comp == 0)
+		x = (u32)((int)v >> 7);
+	else if (comp <= 128)
+		x = (u32)((int)(v * comp) >> 7);
+	else
+		x = (u32)((int)(comp * 300) / 127) + v - 302;
+	t32_wr16(c->tune, T32_AEA_T_COMP, x);
+	c->st[1285] = 1;
 }
 
 /*
