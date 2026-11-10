@@ -25,6 +25,7 @@
 #include "t32_oracle_env.h"
 #include "tx_isp_t32_iq.h"
 #include "tx_isp_t32_gamma.h"
+#include "t32o_shadow.h"
 
 #define SECB	T32_GAMMA_SEC_BYTES
 #define SEC_OFF	0x81a8u
@@ -47,7 +48,7 @@ static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lut
 {
 	static struct t32_front_write ow[T32_GAMMA_MAX_WRITES];
 	u8 *base, *info, *vlut;
-	u32 *shimg = 0, exp[T32_GAMMA_IMG_WORDS], nv = 0;
+	u32 *shimg = 0;
 	int on;
 	unsigned int i;
 
@@ -74,55 +75,18 @@ static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lut
 	t32_data_e1820[0] = 258;	/* payload bytes of the single curve form */
 	t32_data_d03a0[0] = mode;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
 	if (mode) {	/* the LUT goes into the shadow image of channel 0: da844[0] -> block, block + 200 -> image */
-		u8 *shblk = t32o_alloc(4 * 256 + 64);
-
-		shimg = t32o_alloc(T32_GAMMA_IMG_WORDS * 4);
-		for (i = 0; i < T32_GAMMA_IMG_WORDS; i++)
-			shimg[i] = 0xa5a50000u ^ i;
-		put32(shblk + 200, T32O_PTR(shimg));
-		t32_data_da844[0] = T32O_PTR(shblk);
+		shimg = t32o_shadow_arm(T32_GAMMA_IMG_WORDS);
 	}
 	t32o_call((t32o_fn)(void (*)(void))tisp_gamma_init, 0, 0, 0, 0, 0);
 
 	compared += !mode;
 	if (mode) {
-		/* d03a0 = 1: the 128 LUT pairs of each port become image words (ctl 2038 / 2171 / 2304, pair i at ctl + 2 + i);
-		 * the control and end words and every other write stay (tagged) writes, in order; no other image word changes */
+		/* d03a0 = 1: the 128 LUT pairs of each port become image words (ctl 2038 / 2171 / 2304, pair i at ctl + 2 + i,
+		 * end word slot ctl + 131); everything else stays a tagged write (see t32o_shadow.h) */
 		static const u32 ports[3][2] = { { 0x32040, 0x32044 }, { 0x32080, 0x32084 }, { 0x32060, 0x32064 } };
 		static const u32 ctl[3] = { 2038, 2171, 2304 };
-		unsigned int p, cnt[3][2] = { { 0 } };
-		int k;
 
-		for (i = 0; i < T32_GAMMA_IMG_WORDS; i++)
-			exp[i] = 0xa5a50000u ^ i;
-		for (k = 0; k < on; k++) {
-			for (p = 0; p < 3; p++)
-				if (ow[k].reg == ports[p][1])
-					break;
-			if (p == 3) {
-				unsigned int q;
-
-				for (q = 0; q < 3; q++)
-					if (ow[k].reg == ports[q][0])
-						break;
-				if (q < 3) {	/* control word at the image slot ctl, end word at ctl + 131 (two slots of one register) */
-					u32 want = 0x80000000u | (ctl[q] + (cnt[q][0]++ ? 131 : 0));
-
-					if (nv >= t32o_log.n || (t32o_log.w[nv].reg & 0x80ffffffu) != want ||
-					    t32o_log.w[nv].val != ow[k].val)
-						goto bad;
-					nv++;
-					continue;
-				}
-				if (nv >= t32o_log.n || !t32o_reg_eq(t32o_log.w[nv].reg, ow[k].reg) ||
-				    t32o_log.w[nv].val != ow[k].val)
-					goto bad;
-				nv++;
-			} else {
-				exp[ctl[p] + 2 + cnt[p][1]++] = ow[k].val;
-			}
-		}
-		if (nv != t32o_log.n || memcmp(shimg, exp, sizeof(exp)))
+		if (t32o_lut_shadow_check(ow, on, 3, ports, ctl, 131, shimg, T32_GAMMA_IMG_WORDS))
 			goto bad;
 		return 0;
 	}

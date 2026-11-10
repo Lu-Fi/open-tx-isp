@@ -722,3 +722,16 @@ int t32o_reg_eq(u32 vendor, u32 ours)
 	reg2idx[ours] = idx + 1;
 	return 1;
 }
+
+u32 *t32o_shadow_arm(u32 words)
+{
+	u8 *blk = t32o_alloc(4 * 256 + 64);
+	u32 *img = t32o_alloc(words * 4), i, p;
+
+	for (i = 0; i < words; i++)
+		img[i] = 0xa5a50000u ^ i;
+	p = T32O_PTR(img);
+	memcpy(blk + 200, &p, 4);	/* da844[0] -> block, block + (ch << 8) + 200 -> image of channel ch */
+	t32_data_da844[0] = T32O_PTR(blk);
+	return img;
+}

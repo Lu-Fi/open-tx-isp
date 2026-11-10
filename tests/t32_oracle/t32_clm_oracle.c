@@ -27,6 +27,7 @@
 #include "tx_isp_t32_iq.h"
 #include "tx_isp_t32_front.h"
 #include "tx_isp_t32_clm.h"
+#include "t32o_shadow.h"
 
 #define SECB	T32_CLM_SEC_BYTES
 #ifndef MARGIN
@@ -50,10 +51,11 @@ static void put16(u8 *p, int v)
 static unsigned int compared, refused, failed;
 
 /* csc: the 104-byte section 9 (mode at +0x5b) */
-static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc)
+static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, u8 dsm)
 {
 	static struct t32_front_write ow[T32_CLM_MAX_WRITES];
 	u8 *base, *info, *vlut;
+	u32 *shimg = 0;
 	unsigned int mode = csc[0x5b], zones = sec[0x23];
 	int on;
 	unsigned int i;
@@ -62,7 +64,7 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 		return 0;
 	on = t32_clm_init(sec, lut, lutbytes, mode, t32_csc_modes[mode].m, ow);
 	if (on < 0) {
-		refused++;
+		refused += !dsm;
 		return 0;
 	}
 	t32o_reset();
@@ -80,15 +82,27 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 	}
 	t32_data_dd0a4[0] = T32O_PTR(base);
 	t32_data_dc274[0] = T32O_PTR(info);
+	if (dsm)
+		shimg = t32o_shadow_arm(0x8000);
+	t32_data_d03a0[0] = dsm;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
 	t32o_call((t32o_fn)(void (*)(void))tisp_csc_init, 0, 0, 0, 0, 0);
 	t32o_log.n = 0;
 	t32o_call((t32o_fn)(void (*)(void))tisp_clm_init, 0, 0, 0, 0, 0);
 
-	compared++;
+	compared += !dsm;
+	if (dsm) {
+		/* d03a0 = 1: the 840 LUT data words become image words (ctl 0x1fa2 / 0x214b, data at ctl + 2 + k, end slot ctl + 423) */
+		static const u32 ports[2][2] = { { 0x320c0, 0x320c4 }, { 0x32100, 0x32104 } };
+		static const u32 ctl[2] = { 0x1fa2, 0x214b };
+
+		if (t32o_lut_shadow_check(ow, on, 2, ports, ctl, 423, shimg, 0x8000))
+			goto bad;
+		return 0;
+	}
 	if (t32o_log.n != (unsigned int)on)
 		goto bad;
 	for (i = 0; i < t32o_log.n; i++)
-		if (t32o_log.w[i].reg != ow[i].reg || t32o_log.w[i].val != ow[i].val)
+		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
 	return 0;
 bad:
@@ -111,7 +125,7 @@ bad:
 			printf("\n");
 		}
 		for (i = 0; i < t32o_log.n || (int)i < on; i++)
-			if (i >= t32o_log.n || (int)i >= on || t32o_log.w[i].reg != ow[i].reg ||
+			if (i >= t32o_log.n || (int)i >= on || !t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) ||
 			    t32o_log.w[i].val != ow[i].val) {
 				printf("  #%u vendor %05x=%08x ours %05x=%08x\n", i,
 				       i < t32o_log.n ? t32o_log.w[i].reg : 0, i < t32o_log.n ? t32o_log.w[i].val : 0,
@@ -121,6 +135,15 @@ bad:
 			}
 	}
 	return 1;
+}
+
+static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc)
+{
+	int bad = run_case_mode(what, sec, lut, lutbytes, csc, 0);
+
+	bad += run_case_mode(what, sec, lut, lutbytes, csc, 1);	/* d03a0 = 1: only the write addresses may differ */
+	t32_data_d03a0[0] = 0;
+	return bad;
 }
 
 static int bin_cases(const char *dir)
@@ -204,7 +227,7 @@ int main(void)
 				put16(lut + 2102 * k, t);
 				ct = t + (int)(rnd() % 1500);
 				for (i = 0; i < 1050; i++)
-					put16(lut + 2102 * k + 2 + 2 * i, (c % 4 == 0) ? (int)(rnd() % 65536) - 32768 : (int)(rnd() % 4096) - 2048);
+					put16(lut + 2102 * k + 2 + 2 * i, (c % 4 == 0) ? (int)(rnd() % 65536) - 32768 : (int)(rnd() % 0x8000) - 2048);
 			}
 		}
 		for (i = 0; i < zones * 1050; i++)
