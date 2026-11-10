@@ -915,6 +915,187 @@ static inline int t32_bcsh_wake_up(struct t32_bcsh *st, struct t32_front_write *
 	return (int)t32_bcsh_write(st, w);
 }
 
+/*
+ * Per-frame API paths (tisp_bcsh_api_* / refresh_by_csc / param_array_* /
+ * deinit).  The vendor keeps the block state in t32_data_e2450[ch]; the port
+ * takes the state directly.  The user settings live in ap[0..3] (brightness,
+ * contrast, saturation, hue), the matrix in ap + 8, the offsets in ap + 136.
+ */
+
+/* tisp_bcsh_api_set_brightness: ap[0] = v, exposure forced, mode 0, request */
+static inline void t32_bcsh_api_set_brightness(struct t32_bcsh *st, u8 v)
+{
+	st->sec[0x49f] = 2;
+	st->ap[0] = v;
+	t32_bcsh_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_bcsh_calc(st, 0);
+	st->pend = 1;
+}
+
+/* tisp_bcsh_api_get_brightness */
+static inline u8 t32_bcsh_api_get_brightness(const struct t32_bcsh *st)
+{
+	return st->ap[0];
+}
+
+/* tisp_bcsh_api_set_contrast: ap[1] = v, exposure forced, mode 0, request */
+static inline void t32_bcsh_api_set_contrast(struct t32_bcsh *st, u8 v)
+{
+	st->sec[0x468] = 2;
+	st->ap[1] = v;
+	t32_bcsh_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_bcsh_calc(st, 0);
+	st->pend = 1;
+}
+
+/* tisp_bcsh_api_get_contrast */
+static inline u8 t32_bcsh_api_get_contrast(const struct t32_bcsh *st)
+{
+	return st->ap[1];
+}
+
+/* tisp_bcsh_api_set_saturation: ap[2] = v, exposure forced, mode 0, request */
+static inline void t32_bcsh_api_set_saturation(struct t32_bcsh *st, u8 v)
+{
+	st->sec[0x462] = 2;
+	st->ap[2] = v;
+	t32_bcsh_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_bcsh_calc(st, 0);
+	st->pend = 1;
+}
+
+/* tisp_bcsh_api_get_saturation */
+static inline u8 t32_bcsh_api_get_saturation(const struct t32_bcsh *st)
+{
+	return st->ap[2];
+}
+
+/* tisp_bcsh_api_set_hue: ap[3] = v, exposure forced, mode 0, request */
+static inline void t32_bcsh_api_set_hue(struct t32_bcsh *st, u8 v)
+{
+	st->sec[0x499] = 2;
+	st->ap[3] = v;
+	t32_bcsh_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_bcsh_calc(st, 0);
+	st->pend = 1;
+}
+
+/* tisp_bcsh_api_get_hue */
+static inline u8 t32_bcsh_api_get_hue(const struct t32_bcsh *st)
+{
+	return st->ap[3];
+}
+
+/*
+ * tisp_bcsh_refresh_by_csc: the CSC block changed.  tisp_csc_api_get fills
+ * ap + 44 (mode, matrices, offsets, up to the end of ap) from the CSC state;
+ * the caller passes that block (100 bytes).  Then exposure forced, matrix
+ * forced at the state's colour temperature, mode 0, request.
+ */
+#define T32_BCSH_CSC_AP_BYTES	100U
+static inline void t32_bcsh_refresh_by_csc(struct t32_bcsh *st, const u8 *csc_ap)
+{
+	memcpy(st->ap + 44, csc_ap, T32_BCSH_CSC_AP_BYTES);
+	t32_bcsh_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_bcsh_ct_interp(st, st->ct, 1);
+	t32_bcsh_calc(st, 0);
+	st->pend = 1;
+}
+
+/* tisp_bcsh_api_set_ccm: ap + 4 = the 40-byte matrix, matrix mode 2, forced */
+static inline void t32_bcsh_api_set_ccm(struct t32_bcsh *st, const u8 *ccm40)
+{
+	memcpy(st->ap + 4, ccm40, 40);
+	st->sec[0x494] = 2;
+	t32_bcsh_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_bcsh_ct_interp(st, st->ct, 1);
+	t32_bcsh_calc(st, 0);
+	st->pend = 1;
+}
+
+/* tisp_bcsh_api_get_ccm: copy ap + 4 (40 bytes) out */
+static inline void t32_bcsh_api_get_ccm(const struct t32_bcsh *st, u8 *out)
+{
+	memcpy(out, st->ap + 4, 40);
+}
+
+/* tisp_bcsh_api_set_offset_rgb: ap + 136 = 6 bytes, b19 = 1, mode 0, request */
+static inline void t32_bcsh_api_set_offset_rgb(struct t32_bcsh *st, const u8 *rgb6)
+{
+	memcpy(st->ap + 136, rgb6, 6);
+	st->b19 = 1;
+	t32_bcsh_calc(st, 0);
+	st->pend = 1;
+}
+
+/* tisp_bcsh_api_get_offset_rgb: copy ap + 136 (6 bytes) out */
+static inline void t32_bcsh_api_get_offset_rgb(const struct t32_bcsh *st, u8 *out)
+{
+	memcpy(out, st->ap + 136, 6);
+}
+
+/*
+ * tisp_bcsh_param_array_get: copy the section (1204 bytes) and the knot table
+ * (knots * 40 bytes) out; *len = 1204 + knots * 40.
+ */
+static inline int t32_bcsh_param_array_get(const struct t32_bcsh *st, u8 *buf, u32 *len)
+{
+	unsigned int knots = st->sec[1199], k;
+
+	memcpy(buf, st->sec, T32_BCSH_SEC_BYTES);
+	for (k = 0; k < knots; k++)
+		memcpy(buf + T32_BCSH_SEC_BYTES + 40 * k, st->lut + 40 * k, 40);
+	*len = T32_BCSH_SEC_BYTES + 40 * knots;
+	return 0;
+}
+
+/*
+ * tisp_bcsh_param_array_set: replace the section and the knots (reallocating
+ * the knot buffer when the new knot count needs more room), then the vendor's
+ * refresh: get_new_para, exposure forced, matrix forced, mode 0, write event, request.
+ */
+static inline int t32_bcsh_param_array_set(struct t32_bcsh *st, const u8 *buf,
+					   void *(*vmalloc)(u32), void (*vfree)(void *))
+{
+	unsigned int knots, need;
+
+	memcpy(st->sec, buf, T32_BCSH_SEC_BYTES);
+	knots = st->sec[1199];
+	need = knots * 40U;
+	if (st->lutbytes < need) {
+		if (st->lut)
+			vfree((void *)st->lut);
+		st->lut = vmalloc(need);
+		st->lutbytes = need;
+	}
+	memcpy((u8 *)st->lut, buf + T32_BCSH_SEC_BYTES, knots * 40U);
+	st->sec[0x49f] = 1;
+	st->sec[0x468] = 1;
+	st->sec[0x462] = 1;
+	st->sec[0x499] = 1;
+	st->sec[0x494] = 1;
+	st->b19 = 0;
+	t32_bcsh_new_para(st);
+	t32_bcsh_ev_interp(st, st->ev_lo, st->ev_hi, 1);
+	t32_bcsh_ct_interp(st, st->ct, 1);
+	t32_bcsh_calc(st, 0);
+	t32_bcsh_set_write_event(st);
+	st->pend = 1;
+	return 0;
+}
+
+/* tisp_bcsh_deinit: free the state (the knots live elsewhere), clear the slot */
+static inline int t32_bcsh_deinit(void (*vfree)(void *p), struct t32_bcsh **slot)
+{
+	struct t32_bcsh *st = *slot;
+
+	if (st) {
+		vfree(st);
+		*slot = NULL;
+	}
+	return 0;
+}
+
 #ifdef __KERNEL__
 #define T32_BCSH_FN	static noinline_for_stack int
 #else
