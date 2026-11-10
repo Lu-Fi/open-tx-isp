@@ -707,19 +707,26 @@ u8 t32_data_e275c[8] __attribute__((weak));	/* per channel refresh flag */
 /* shadow index <-> register map of the d03a0 = 1 runs (see t32o_reg_eq): must stay one to one */
 int t32o_reg_eq(u32 vendor, u32 ours)
 {
-	static u32 idx2reg[1u << 16], reg2idx[1u << 20];	/* value + 1; 0 = not seen */
-	u32 idx = vendor & 0xffffffu;
+	static u32 idx2reg[1u << 20], reg2idx[2][1u << 20];	/* value + 1; 0 = not seen; the slot is (tag, channel, index) */
+	u32 idx;
 
 	if (vendor == ours)
 		return 1;
-	if (!(vendor & 0x80000000u) || idx >= (1u << 16) || ours >= (1u << 20))
+	if (vendor & 0x80000000u) {	/* tisp_reg_write in shadow mode: tag, channel, index */
+		if ((vendor & 0xffffffu) >= (1u << 16))
+			return 0;
+		idx = (vendor & 0xffffu) | (vendor >> 24 & 7) << 16;
+	} else if (vendor < (1u << 16) && ours >= (1u << 16)) {
+		/* a vendor function that hands the shadow index to system_reg_write (tisp_ae_roi_point, the AE trigger):
+		 * a small bare address, learnt like an index in its own slot space */
+		idx = vendor | 1u << 19;
+	} else {
 		return 0;
-	if (idx2reg[idx] && idx2reg[idx] != ours + 1)
-		return 0;
-	if (reg2idx[ours] && reg2idx[ours] != idx + 1)
+	}
+	if (ours >= (1u << 20) || (idx2reg[idx] && idx2reg[idx] != ours + 1) || (reg2idx[idx >> 19][ours] && reg2idx[idx >> 19][ours] != idx + 1))
 		return 0;
 	idx2reg[idx] = ours + 1;
-	reg2idx[ours] = idx + 1;
+	reg2idx[idx >> 19][ours] = idx + 1;
 	return 1;
 }
 

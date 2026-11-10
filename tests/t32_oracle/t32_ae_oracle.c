@@ -35,7 +35,9 @@ static u32 rnd(void)
 
 static unsigned int compared, failed;
 
-static int run_case(const char *what, const u8 *sec, u32 w_, u32 h_)
+static struct t32o_log m0;
+
+static int run_case_mode(const char *what, const u8 *sec, u32 w_, u32 h_, u8 dsm)
 {
 	static u8 bin[T32_AE_PARAM + SECB + 16];
 	struct t32_stats_write ow[T32_STATS_MAX_WRITES + 64];
@@ -50,7 +52,26 @@ static int run_case(const char *what, const u8 *sec, u32 w_, u32 h_)
 	memcpy(base + SEC_OFF, sec, SECB);
 	info[0] = (u8)w_; info[1] = (u8)(w_ >> 8); info[4] = (u8)h_; info[5] = (u8)(h_ >> 8); info[12] = 25;
 	t32_data_dd0a4[0] = T32O_PTR(base);
+	t32_data_d03a0[0] = dsm;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
 	t32o_call((t32o_fn)(void (*)(void))tisp_ae_init, 0, T32O_PTR(info), 0, 0, 0);
+	if (dsm) {	/* shadow run: the same writes in the same order, only the addresses differ (ours was compared in the direct run) */
+		if (t32o_log.n != m0.n)
+			goto bad;
+		for (i = 0; i < m0.n; i++) {
+			/* (tisp_ae_roi_point and the AE trigger hand the shadow index to system_reg_write: t32o_reg_eq accepts that)
+			 * tisp_ae_malloc_cfg: with d03a0 != 0 the register 0x17088 gets 0x10010000, the direct path 0x10010033 */
+			u32 want = m0.w[i].reg == 0x17088 ? m0.w[i].val - 0x33 : m0.w[i].val;
+
+			if (!t32o_reg_eq(t32o_log.w[i].reg, m0.w[i].reg) || t32o_log.w[i].val != want) {
+				if (getenv("T32O_DBG"))
+					printf("shadow write #%u vendor %x=%x direct %x=%x\n", i, t32o_log.w[i].reg,
+					       t32o_log.w[i].val, m0.w[i].reg, m0.w[i].val);
+				goto bad;
+			}
+		}
+		return 0;
+	}
+	memcpy(&m0, &t32o_log, sizeof(m0));
 	for (i = 0; i < t32o_log.n && nv < 512; i++)
 		if ((t32o_log.w[i].reg >> 12) == 0x17) {
 			vw[nv].reg = t32o_log.w[i].reg;
@@ -63,7 +84,7 @@ static int run_case(const char *what, const u8 *sec, u32 w_, u32 h_)
 	memset(bin, 0, sizeof(bin));
 	memcpy(bin + T32_AE_PARAM, sec, SECB);
 	on = t32_ae_stats_init(bin, w_, h_, buf_pa, ow);
-	compared++;
+	compared += !dsm;
 	if (on != nv)
 		goto bad;
 	for (i = 0; i < nv; i++)
@@ -100,6 +121,15 @@ bad:
 			}
 	}
 	return 1;
+}
+
+static int run_case(const char *what, const u8 *sec, u32 w_, u32 h_)
+{
+	int bad = run_case_mode(what, sec, w_, h_, 0);
+
+	bad += run_case_mode(what, sec, w_, h_, 1);	/* d03a0 = 1: only the write addresses may differ */
+	t32_data_d03a0[0] = 0;
+	return bad;
 }
 
 static int bin_cases(const char *dir)

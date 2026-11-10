@@ -36,7 +36,7 @@ static unsigned int compared, refused, failed;
 static u32 badreg[8192], badbits[8192];
 static unsigned int nbad_total;
 
-static int run_case(const char *what, const u8 *sec, u32 w_, u32 h_, unsigned int cmpb)
+static int run_case_mode(const char *what, const u8 *sec, u32 w_, u32 h_, unsigned int cmpb, u8 dsm)
 {
 	struct t32_front_write ow[T32_MDNS_MAX_WRITES];
 	static u8 osec[SECB], oval[T32_MDNS_VALUES + 16];
@@ -47,7 +47,7 @@ static int run_case(const char *what, const u8 *sec, u32 w_, u32 h_, unsigned in
 	memcpy(osec, sec, SECB);
 	on = t32_mdns_init(osec, w_, h_, cmpb * 100, oval, ow);
 	if (on < 0) {
-		refused++;
+		refused += !dsm;
 		return 0;
 	}
 	t32o_reset();
@@ -57,13 +57,14 @@ static int run_case(const char *what, const u8 *sec, u32 w_, u32 h_, unsigned in
 	info[0] = (u8)w_; info[1] = (u8)(w_ >> 8); info[4] = (u8)h_; info[5] = (u8)(h_ >> 8); info[42] = (u8)cmpb;
 	memcpy(base + SEC_OFF, sec, SECB);
 	t32_data_dd0a4[0] = T32O_PTR(base);
+	t32_data_d03a0[0] = dsm;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
 	t32o_call((t32o_fn)(void (*)(void))tisp_mdns_init, 0, T32O_PTR(info), 0, 0, 0);
 
-	compared++;
+	compared += !dsm;
 	if (t32o_log.n != (unsigned int)on)
 		goto bad;
 	for (i = 0; i < t32o_log.n; i++)
-		if (t32o_log.w[i].reg != ow[i].reg || t32o_log.w[i].val != ow[i].val)
+		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
 	if (memcmp(base + SEC_OFF, osec, SECB))
 		goto bad;
@@ -80,7 +81,7 @@ bad:
 	if (failed++ < 5) {
 		printf("MISMATCH %s: writes vendor %u ours %d\n", what, t32o_log.n, on);
 		for (i = 0; i < t32o_log.n || (int)i < on; i++)
-			if (i >= t32o_log.n || (int)i >= on || t32o_log.w[i].reg != ow[i].reg ||
+			if (i >= t32o_log.n || (int)i >= on || !t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) ||
 			    t32o_log.w[i].val != ow[i].val) {
 				printf("  #%u vendor %05x=%08x ours %05x=%08x\n", i,
 				       i < t32o_log.n ? t32o_log.w[i].reg : 0, i < t32o_log.n ? t32o_log.w[i].val : 0,
@@ -95,6 +96,15 @@ bad:
 			}
 	}
 	return 1;
+}
+
+static int run_case(const char *what, const u8 *sec, u32 w_, u32 h_, unsigned int cmpb)
+{
+	int bad = run_case_mode(what, sec, w_, h_, cmpb, 0);
+
+	bad += run_case_mode(what, sec, w_, h_, cmpb, 1);	/* d03a0 = 1: only the write addresses may differ */
+	t32_data_d03a0[0] = 0;
+	return bad;
 }
 
 static int bin_cases(const char *dir)

@@ -50,7 +50,7 @@ static u8 base_sec[NBASE][T32_BCSH_SEC_BYTES], base_lut[NBASE][10 * 40], base_cs
 static u32 base_lutlen[NBASE];
 static int nbase, quiet;
 
-static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc)
+static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc, u8 dsm)
 {
 	static struct t32_front_write ow[T32_BCSH_MAX_WRITES + 16];
 	static u8 osec[SECB];
@@ -63,7 +63,7 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 	memcpy(osec, sec, SECB);
 	on = t32_bcsh_init(osec, lut, lutbytes, csc, ow);
 	if (on < 0) {
-		refused++;
+		refused += !dsm;
 		return 0;
 	}
 	t32o_reset();
@@ -76,15 +76,16 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 	put32(info + 28, T32O_PTR(vlut));
 	t32_data_dd0a4[0] = T32O_PTR(base);
 	t32_data_dc274[0] = T32O_PTR(info);
+	t32_data_d03a0[0] = dsm;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
 	t32o_call((t32o_fn)(void (*)(void))tisp_csc_init, 0, 0, 0, 0, 0);
 	t32o_log.n = 0;
 	t32o_call((t32o_fn)(void (*)(void))tisp_bcsh_init, 0, 0, 0, 0, 0);
 
-	compared++;
+	compared += !dsm;
 	if (t32o_log.n != (unsigned int)on)
 		goto bad;
 	for (i = 0; i < t32o_log.n; i++)
-		if (t32o_log.w[i].reg != ow[i].reg || t32o_log.w[i].val != ow[i].val)
+		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
 	if (memcmp(base + SEC_OFF, osec, SECB))
 		goto bad;
@@ -106,7 +107,7 @@ bad:
 		}
 		printf("MISMATCH %s: knots %u writes vendor %u ours %d (4b1=%u 492=%u)\n", what, sec[0x4af], t32o_log.n, on, sec[0x4b1], sec[0x492]);
 		for (i = 0; i < t32o_log.n || (int)i < on; i++)
-			if (i >= t32o_log.n || (int)i >= on || t32o_log.w[i].reg != ow[i].reg ||
+			if (i >= t32o_log.n || (int)i >= on || !t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) ||
 			    t32o_log.w[i].val != ow[i].val) {
 				printf("  #%u vendor %05x=%08x ours %05x=%08x\n", i,
 				       i < t32o_log.n ? t32o_log.w[i].reg : 0, i < t32o_log.n ? t32o_log.w[i].val : 0,
@@ -121,6 +122,15 @@ bad:
 			}
 	}
 	return 1;
+}
+
+static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes, const u8 *csc)
+{
+	int bad = run_case_mode(what, sec, lut, lutbytes, csc, 0);
+
+	bad += run_case_mode(what, sec, lut, lutbytes, csc, 1);	/* d03a0 = 1: only the write addresses may differ */
+	t32_data_d03a0[0] = 0;
+	return bad;
 }
 
 static int bin_cases(const char *dir)
