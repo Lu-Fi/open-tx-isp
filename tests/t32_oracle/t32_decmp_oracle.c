@@ -21,14 +21,20 @@
 __attribute__((weak)) u32 t32_data_e3f60[4] = {0};
 __attribute__((weak)) unsigned char t32_data_c2ef0[16] = {0};
 __attribute__((weak)) unsigned char t32_data_cb698[16] = {0};
+__attribute__((weak)) u32 t32o_km_n, t32o_km_size, t32o_km_flags, t32o_kf_n, t32o_kf_p;
 __attribute__((weak)) u64 private_kmalloc(u32 size, u32 flags, u32 a2, u32 a3)
 {
-	(void)flags; (void)a2; (void)a3;
+	(void)a2; (void)a3;
+	t32o_km_n++;
+	t32o_km_size = size;
+	t32o_km_flags = flags;
 	return T32O_PTR(t32o_alloc(size));
 }
 __attribute__((weak)) u64 private_kfree(u32 p, u32 a1, u32 a2, u32 a3)
 {
-	(void)p; (void)a1; (void)a2; (void)a3;
+	(void)a1; (void)a2; (void)a3;
+	t32o_kf_n++;
+	t32o_kf_p = p;
 	return 0;
 }
 __attribute__((weak)) u64 isp_printf(u32 a0, u32 a1, u32 a2, u32 a3)
@@ -83,6 +89,9 @@ struct snap {
 static struct input in;
 static struct snap R, O;
 static int kfree_calls;
+static u32 r_slot0, o_slot0, o_flags, o_kfp;
+static u32 vret[OP_N];
+static int vret_set[OP_N];
 static unsigned int compared;
 
 static void gen_params(u32 *p, int kind)
@@ -144,7 +153,7 @@ static void gen_input(int op, int ch, int kind)
 		memcpy(in.sbuf, p, NB);
 	}
 	for (i = 0; i < 4; i++) {
-		in.off0[i] = op == OP_DN ? (rnd() % 64) * 4 : PO;
+		in.off0[i] = (rnd() & 1) ? PO : (rnd() % 64) * 4;
 		in.w1[i] = rnd();
 	}
 }
@@ -170,6 +179,8 @@ static void side_ref(void)
 		t32_data_e3f60[in.ch] = 0;
 	if (in.op == OP_INIT)
 		t32_data_e3f60[in.ch] = 0x1234;
+	r_slot0 = t32_data_e3f60[in.ch];
+	t32o_km_n = t32o_kf_n = 0;
 	obuf = t32o_alloc(NB + 64);
 	memset(obuf, 0xc3, NB + 64);
 	lenp = t32o_alloc(4);
@@ -219,14 +230,14 @@ static void *our_alloc(u32 size, u32 flags)
 {
 	void *p = t32o_alloc(size);
 
-	(void)flags;
+	o_flags = flags;
 	memset(p, 0xa5, size);
 	return p;
 }
 
 static void our_kfree(void *p)
 {
-	(void)p;
+	o_kfp = T32O_PTR(p);
 	kfree_calls++;
 }
 
@@ -254,6 +265,8 @@ static void side_our(void)
 	lenp = t32o_alloc(4);
 	*lenp = 0x55555555u;
 	kfree_calls = 0;
+	o_kfp = o_flags = 0;
+	o_slot0 = T32O_PTR(sc[in.ch]);
 	O.ret = 0;
 	switch (in.op) {
 	case OP_REG: n = t32_decmp_ref_reg_cfg(sc[in.ch], ow); break;
@@ -265,6 +278,8 @@ static void side_our(void)
 	case OP_INIT: O.ret = (u32)t32_decmp_init(&sc[in.ch], our_alloc, ob); break;
 	default: O.ret = (u32)t32_decmp_deinit(our_kfree, &sc[in.ch]); break;
 	}
+	if (in.op == OP_REG || in.op == OP_ALL || in.op == OP_DN || in.op == OP_SET || in.op == OP_WAKE)
+		O.ret = (u32)n;
 	if (in.op == OP_DEINIT && kfree_calls != (in.nullslot ? 0 : 1)) {
 		printf("MISMATCH deinit kfree calls %d\n", kfree_calls);
 		exit(1);
@@ -305,8 +320,25 @@ static void run_case(int op, int ch, int kind)
 	for (i = 0; i < R.n; i++)
 		if (R.w[i].reg != O.w[i].reg || R.w[i].val != O.w[i].val)
 			bad("register write", i);
-	if (op != OP_REG && op != OP_ALL && op != OP_WAKE && R.ret != O.ret)
+	if (op == OP_REG || op == OP_ALL || op == OP_WAKE || op == OP_DN || op == OP_SET) {
+		/* port returns the write count; vendor returns the writer stub's value */
+		if (O.ret != R.n || O.ret != (u32)T32_DECMP_WRITES)
+			bad("port return value", 0);
+		if (!vret_set[op]) {
+			vret_set[op] = 1;
+			vret[op] = R.ret;
+		} else if (vret[op] != R.ret)
+			bad("vendor return value", 0);
+	} else if (R.ret != O.ret)
 		bad("return value", 0);
+	if (op == OP_INIT && t32o_km_n && (t32o_km_n != 1 || t32o_km_flags != o_flags)) {
+		printf("  vendor kmalloc n %u size %u flags %#x ours flags %#x\n", t32o_km_n,
+		       t32o_km_size, t32o_km_flags, o_flags);
+		bad("kmalloc flags", 0);
+	}
+	if (op == OP_DEINIT && !in.nullslot && t32o_kf_n &&
+	    (t32o_kf_n != 1 || t32o_kf_p != r_slot0 || o_kfp != o_slot0))
+		bad("kfree pointer", 0);
 	if (memcmp(R.mem, O.mem, BUFSZ)) {
 		for (i = 0; R.mem[i] == O.mem[i]; i++)
 			;
