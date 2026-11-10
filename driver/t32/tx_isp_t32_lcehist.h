@@ -23,7 +23,16 @@
  *                                 style rounding, 16 bits), clamped to [lo, hi]; gain, lo, hi are signed bytes.
  *                                 The vendor's v0/v1 at return are leftovers (void function), not compared.
  *
- * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15) by tests/t32_oracle (t32_lcehs_oracle, t32_lcecv_oracle).
+ *   t32_lce_std_hist_transform    lce_std_hist_transform 0x531c4: bins = bins * mul >> shift; if the (signed)
+ *                                 sum is below 0x8000 the deficit is spread: deficit / 32 (arithmetic) on all
+ *                                 bins, one more on the first deficit % 32 bins (a negative signed sum gives
+ *                                 a wrapped deficit, vendor flow kept); void, first argument unused
+ *   t32_lce_self_light_correct_local_test  lce_self_light_correct_local_test 0x53d54: per point of the 20-point
+ *                                 curve, out = base + (gain * (in - base) >> 7) with the up gain table when
+ *                                 in > base (cfg byte 8 enables), the down table when in < base (cfg byte 12),
+ *                                 else out = base; base = the fixed column table t32_data_d6b50
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15) by tests/t32_oracle (t32_lcehs_oracle, t32_lcecv_oracle, t32_lcest_oracle).
  */
 #ifndef TX_ISP_T32_LCEHIST_H
 #define TX_ISP_T32_LCEHIST_H
@@ -172,6 +181,57 @@ static inline void t32_lce_converge_16bit(u32 gain, u32 lo, u32 hi, const unsign
 			else
 				tgt[i] = (unsigned char)(c - d);
 		}
+	}
+}
+
+/* ---- group 3: histogram normalisation, local light correction ---- */
+
+/* lce_std_hist_transform(unused, hist u32[32], mul, shift) */
+static inline void t32_lce_std_hist_transform(u32 *hist, u32 mul, u32 shift)
+{
+	u32 sum = 0, deficit, rem;
+	int i, q;
+
+	for (i = 0; i < T32_LCE_BINS; i++) {
+		hist[i] = hist[i] * mul >> (shift & 31);
+		sum += hist[i];
+	}
+	if ((int32_t)sum >= 0x8000)
+		return;
+	deficit = 0x8000 - sum;
+	q = (int32_t)deficit >> 5;
+	rem = deficit & 0x1f;
+	for (i = 0; i < (int)rem; i++)
+		hist[i] += 1;
+	for (i = 0; i < T32_LCE_BINS; i++)
+		hist[i] += (u32)q;
+}
+
+/* t32_data_d6b50: column base of the 20 curve points */
+static const unsigned char t32_lce_curve_base[20] = {
+	0x00, 0x08, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x50,
+	0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf0,
+};
+
+#define T32_LCE_CFG_UP_EN	8	/* byte offsets in the config block */
+#define T32_LCE_CFG_DOWN_EN	12
+
+/* lce_self_light_correct_local_test(in[20], out[20], cfg, up[20], down[20]) */
+static inline void t32_lce_self_light_correct_local_test(const unsigned char *in, unsigned char *out,
+							 const unsigned char *cfg, const unsigned char *up,
+							 const unsigned char *down)
+{
+	int i, b, d, v;
+
+	for (i = 0; i < 20; i++) {
+		b = t32_lce_curve_base[i];
+		d = in[i] - b;
+		v = 0;
+		if (d > 0 && cfg[T32_LCE_CFG_UP_EN])
+			v = up[i] * d >> 7;
+		else if (d < 0 && cfg[T32_LCE_CFG_DOWN_EN])
+			v = down[i] * d >> 7;
+		out[i] = (unsigned char)(b + v);
 	}
 }
 
