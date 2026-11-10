@@ -777,3 +777,5 @@ int t32o_decoy_check(void)
 /* printk format strings of fix_point_sub / _sub_32 / _sub_64 (c79e8) and fix_point_intp (bee70 function name,
  * c7a2c format): only handed to isp_printf */
 char t32_data_c79e8[4] = "f", t32_data_bee70[4] = "f", t32_data_c7a2c[4] = "f";
+/* tisp_api_get/set_bayer_type: function names (bf328, bf310) and format (c84c4), only handed to isp_printf */
+char t32_data_bf328[4] = "f", t32_data_bf310[4] = "f", t32_data_c84c4[4] = "f";
