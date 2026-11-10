@@ -11,6 +11,8 @@
  *  phase 2 (t32_wdr2_oracle): getVar, get_lum_s, quicksort, paixu.
  *  phase 3 (t32_wdr3_oracle): params_hard_refresh, param_array_get, frame_out,
  *    sleep, malloc_cfg.
+ *  phase 4 (t32_wdr4_oracle): default_reg_refresh, direct_reg_refresh,
+ *    api_set_output_mode, param_array_set.
  *
  * The vendor reaches the per channel WDR parameter block (the tuning values
  * of the IQ bin plus the working state) as t32_data_e3b40[ch] -> record,
@@ -84,6 +86,7 @@ struct t32_wdr_st {
 	const struct t32_wdr_ops *ops;
 	struct t32_wdr_rec *rec[4];	/* t32_data_e3b40 */
 	u32 dma_save[5];	/* t32_data_e3a84: 0x28010 .. 0x2801c, 0x28030 kept over sleep */
+	u8 fusion_on;		/* t32_data_e3a98: par + 1831 at the last register refresh */
 	u64 short_tgain;	/* t32_data_e3aa0 (low word) / e3aa4 (high word) */
 	u64 short_ev[2];	/* t32_data_e3ab0 */
 	u64 long_ev[2];		/* t32_data_e3ac0 */
@@ -447,6 +450,121 @@ static inline int t32_wdr_malloc_cfg(struct t32_wdr_st *st, u32 ch)
 	r->nbuf = 4;
 	r->buf = buf;
 	r->buf_phys = phys;
+	return 0;
+}
+
+/* ---- phase 4: default / direct register refresh ---- */
+
+#define T32_WDR_HW_DEF_X	646	/* u16[27]: default curve knots (vendor .rodata t32_data_c2dc8) */
+#define T32_WDR_HW_DEF_S	996	/* u8[26]: default curve shifts (t32_data_c2e00) */
+
+static const u16 t32_wdr_def_x[27] = {
+	0x0000, 0x001f, 0x003f, 0x005f, 0x007f, 0x00bf, 0x00ff, 0x017f, 0x01ff, 0x027f, 0x02ff, 0x037f, 0x03ff, 0x047f,
+	0x04ff, 0x057f, 0x05ff, 0x067f, 0x06ff, 0x077f, 0x07ff, 0x087f, 0x08ff, 0x097f, 0x09ff, 0x0a7f, 0x0aff
+};
+static const u8 t32_wdr_def_s[26] = { 5, 5, 5, 5, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7 };
+
+/* two u16 members of the hardware image as one register: (hi & m) << 16 | (lo & m) */
+static inline u32 t32_wdr_pair(const u8 *hw, u32 lo, u32 hi, u32 m)
+{
+	return (t32_wdr_r16(hw, hi) & m) << 16 | (t32_wdr_r16(hw, lo) & m);
+}
+/* the same for two u8 members */
+static inline u32 t32_wdr_pair8(const u8 *hw, u32 lo, u32 m)
+{
+	return (hw[lo + 1] & m) << 16 | (hw[lo] & m);
+}
+
+/*
+ * tisp_wdr_default_reg_refresh (ch): loads the default curve (knots, shifts) into the
+ * hardware image; with fusion on (par + 1831 == 1) writes it to 0x2824c .. 0x282b4; always
+ * the output size word 0x2802c.
+ */
+static inline int t32_wdr_default_reg_refresh(struct t32_wdr_st *st, u32 ch)
+{
+	const struct t32_wdr_ops *o = st->ops;
+	u8 *hw = st->rec[ch]->hw;
+	u32 i;
+
+	for (i = 0; i < 27; i++)
+		t32_wdr_w16(hw, T32_WDR_HW_DEF_X + 2 * i, t32_wdr_def_x[i]);
+	t32_wdr_cpy(hw + T32_WDR_HW_DEF_S, t32_wdr_def_s, 26);
+	st->fusion_on = st->rec[ch]->par[1831];
+	if (st->fusion_on == 1) {
+		for (i = 0; i < 13; i++)
+			o->reg_write(0x2824c + 4 * i, t32_wdr_pair(hw, T32_WDR_HW_DEF_X + 4 * i, T32_WDR_HW_DEF_X + 4 * i + 2, 0xfff));
+		o->reg_write(0x28280, t32_wdr_r16(hw, T32_WDR_HW_DEF_X + 52) & 0xfff);
+		for (i = 0; i < 13; i++)
+			o->reg_write(0x28284 + 4 * i, t32_wdr_pair8(hw, T32_WDR_HW_DEF_S + 2 * i, 0xf));
+	}
+	o->reg_write(0x2802c, (t32_wdr_r16(hw, 828) & 0x1ff) << 16 | hw[826]);
+	return 0;
+}
+
+/*
+ * tisp_wdr_direct_reg_refresh (ch): with fusion on the shift of each of the 4 knot steps
+ * (hw + 1022 + k = log2 of knot k + 1 - knot k, knots u16 at hw + 754) and the fusion
+ * registers 0x2804c .. 0x2805c, 0x2835c .. 0x28378; always the mode / output / deghost
+ * registers 0x2800c, 0x28008, 0x28040, 0x28048, 0x28464 .. 0x2847c and the curve 0x28380 .. 0x283b0.
+ */
+static inline int t32_wdr_direct_reg_refresh(struct t32_wdr_st *st, u32 ch)
+{
+	const struct t32_wdr_ops *o = st->ops;
+	u8 *hw = st->rec[ch]->hw;
+	u32 i;
+
+	st->fusion_on = st->rec[ch]->par[1831];
+	if (st->fusion_on == 1) {
+		for (i = 0; i < 4; i++)
+			hw[1022 + i] = (u8)t32_wdr_log2((int)(t32_wdr_r16(hw, 756 + 2 * i) - t32_wdr_r16(hw, 754 + 2 * i)));
+		o->reg_write(0x2804c, t32_wdr_pair(hw, 146, 148, 0xfff));
+		o->reg_write(0x28050, (u32)hw[152] << 16 | (t32_wdr_r16(hw, 150) & 0xfff));
+		o->reg_write(0x28054, (t32_wdr_r16(hw, 156) & 0x3ff) << 16 | (t32_wdr_r16(hw, 154) & 0x1ff));
+		o->reg_write(0x28058, (t32_wdr_r16(hw, 144) & 0x3f) << 8 | (t32_wdr_r16(hw, 136) & 0x3f));
+		o->reg_write(0x2805c, (t32_wdr_r16(hw, 158) & 0x3f) << 24 | (t32_wdr_r16(hw, 142) & 0xf) << 16 |
+				      (t32_wdr_r16(hw, 140) & 0x1f) << 8 | hw[138]);
+		o->reg_write(0x2835c, t32_wdr_pair(hw, 754, 756, 0xfff));
+		o->reg_write(0x28360, t32_wdr_pair(hw, 758, 760, 0xfff));
+		o->reg_write(0x28364, t32_wdr_r16(hw, 762) & 0xfff);
+		o->reg_write(0x28368, t32_wdr_pair8(hw, 1022, 0xf));
+		o->reg_write(0x2836c, t32_wdr_pair8(hw, 1024, 0xf));
+		o->reg_write(0x28370, t32_wdr_pair8(hw, 1026, 0x1f));
+		o->reg_write(0x28374, t32_wdr_pair8(hw, 1028, 0x1f));
+		o->reg_write(0x28378, hw[1030] & 0x1f);
+	}
+	o->reg_write(0x2800c, (hw[1033] & 1U) << 8 | (hw[1032] & 1U) << 4 | (hw[1031] & 1U));
+	o->reg_write(0x28008, 1);
+	o->reg_write(0x28040, t32_wdr_r16(hw, 790) & 3);
+	o->reg_write(0x28048, t32_wdr_pair(hw, 824, 822, 0xfff));
+	o->reg_write(0x28464, t32_wdr_pair(hw, 780, 782, 0xfff));
+	o->reg_write(0x28468, t32_wdr_pair(hw, 784, 786, 0x7ff));
+	o->reg_write(0x2846c, t32_wdr_r16(hw, 788) & 0xf);
+	o->reg_write(0x28470, t32_wdr_r16(hw, 806) << 28 | t32_wdr_pair(hw, 802, 804, 0xfff));
+	o->reg_write(0x28474, (t32_wdr_r16(hw, 820) & 0x7f) << 16 | (t32_wdr_r16(hw, 818) & 0xf));
+	o->reg_write(0x28478, t32_wdr_pair(hw, 808, 810, 0x7f));
+	o->reg_write(0x2847c, t32_wdr_r16(hw, 816) << 28 | t32_wdr_pair(hw, 812, 814, 0xfff));
+	for (i = 0; i < 12; i++)
+		o->reg_write(0x28380 + 4 * i, t32_wdr_pair(hw, 830 + 4 * i, 832 + 4 * i, 0xfff));
+	o->reg_write(0x283b0, t32_wdr_r16(hw, 878) & 0xfff);
+	return 0;
+}
+
+/* tisp_wdr_api_set_output_mode (ch, mode) */
+static inline int t32_wdr_api_set_output_mode(struct t32_wdr_st *st, u32 ch, u32 mode)
+{
+	t32_wdr_w16(st->rec[ch]->par, T32_WDR_P_OUT_MODE, mode);
+	t32_wdr_params_hard_refresh(st, ch);
+	t32_wdr_direct_reg_refresh(st, ch);
+	return 0;
+}
+
+/* tisp_wdr_param_array_set (ch, src): the 1840 byte parameter block, EV curve at the last long exposure, refresh */
+static inline int t32_wdr_param_array_set(struct t32_wdr_st *st, u32 ch, const u8 *src)
+{
+	t32_wdr_cpy(st->rec[ch]->par, src, T32_WDR_PAR_SZ);
+	t32_wdr_ev_interp(st, st->long_ev[ch], ch);
+	t32_wdr_params_hard_refresh(st, ch);
+	t32_wdr_direct_reg_refresh(st, ch);
 	return 0;
 }
 
