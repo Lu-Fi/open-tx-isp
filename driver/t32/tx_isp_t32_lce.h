@@ -258,6 +258,37 @@ static inline void t32_lce_16bit_data_converge(u32 gain, u32 lo, u32 hi, const u
 	}
 }
 
+/*
+ * tisp_lce_16bit_data_converge_simd: the MXU2 variant of tisp_lce_16bit_data_converge.  Elements 0..15 run
+ * as 32 bit lanes, elements 16..19 as scalar code; lo and hi are masked to 8 bits once at the start for both,
+ * gain is not masked at all.  All compares are signed 32 bit, d = ((cur - target) * gain + 64) >> 7
+ * (arithmetic).  The lanes test hi < d before d < lo, the scalar tail the other way round (they differ only
+ * for hi < d < lo, i.e. hi < lo).
+ */
+static inline void t32_lce_16bit_data_converge_simd(u32 gain, u32 lo, u32 hi, const u8 *target, u8 *cur)
+{
+	unsigned int i;
+
+	for (i = 0; i < 20; i++) {
+		int vec = i < 16;
+		int l = lo & 0xff, h = hi & 0xff;
+		int t = target[i], c = cur[i], d, r, dir = 0;
+
+		if (t + l < c)
+			dir = 1;
+		else if (l + c < t)
+			dir = -1;
+		else
+			continue;
+		d = (int)((u32)(dir > 0 ? c - t : t - c) * gain + 64) >> 7;
+		if (vec)
+			r = h < d ? h : (d < l ? l : d);
+		else
+			r = d < l ? l : (h < d ? h : d);
+		cur[i] = (u8)(dir > 0 ? t + r : t - r);
+	}
+}
+
 static inline u32 t32_lce_cdf_val(u32 v, const struct t32_lce_tab *tab)
 {
 	return ((v >> (tab->pdf_rnd & 31)) & 1) + (v >> (tab->pdf_sh & 31));
