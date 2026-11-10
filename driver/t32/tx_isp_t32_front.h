@@ -27,6 +27,7 @@ typedef uint32_t u32;
 typedef uint8_t u8;
 typedef uint16_t u16;
 #endif
+#include <string.h>
 #endif
 
 #define T32_FRONT_ID		0x0134da11U
@@ -454,6 +455,247 @@ static inline int t32_csccr_deinit(struct t32_csccr_ctx **slot, void (*vfree)(vo
 	vfree(ctx);
 	*slot = NULL;
 	return 0;
+}
+
+/* tisp_top_reg_cfg: the section-dependent write part of tisp_top_init */
+static inline void t32_top_reg_cfg(const u8 *sec, u32 deir, struct t32_front_write *w,
+				   unsigned int *n)
+{
+	u32 en = 0, ctl = 0, sta = 0;
+	unsigned int i;
+
+	for (i = 0; i < 32; i++) {
+		en |= (u32)(sec[4 + i] & 1) << i;
+		ctl |= (u32)(sec[0x24 + i] & 1) << i;
+	}
+	for (i = 0; i < 10; i++)
+		sta |= (u32)sec[0x44 + i] << i;
+	if (deir)
+		sta |= 4;
+	T32_FW(w, *n, 0x40, en);
+	T32_FW(w, *n, 0x60, sta);
+	T32_FW(w, *n, 0x6c, ctl);
+}
+
+/*
+ * Per-frame / lifecycle paths of the top block (tisp_top_api_dn_par_refresh,
+ * tisp_top_deinit, tisp_top_ipc_*, tisp_top_sleep / _wake_up,
+ * tisp_top_param_array_get / _set, tisp_top_frame_count).
+ *
+ * The vendor keeps the top parameter section (100 bytes) per channel in
+ * t32_data_e1484[ch], the sensor info in t32_data_dd0a4[ch], the saved sleep
+ * registers in t32_data_e1494 (14 words), the IPC memory size in
+ * t32_data_dc0a8 and the IPC config in t32_data_dc074.  The frame counter,
+ * the two compare values and the MDNS day/night flag (byte 37 of the channel
+ * state) are plain per-channel words (t32_data_f32d8 / f32f8 / f32e8).  The
+ * port takes those objects directly.  "direct" is the vendor's
+ * t32_data_d03a0 byte.
+ *
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_topx_oracle).
+ */
+
+/*
+ * tisp_top_reg_cfg called outside tisp_top_init (day/night refresh, param
+ * set): the vendor writes the state register 0x60 only once tisp_top_init
+ * has run for the channel (inited); before that only 0x40 and 0x6c.
+ */
+static inline void t32_top_reg_cfg_run(const u8 *sec, u32 deir, u8 inited,
+				       struct t32_front_write *w, unsigned int *n)
+{
+	struct t32_front_write t[3];
+	unsigned int k = 0, i;
+
+	t32_top_reg_cfg(sec, deir, t, &k);
+	for (i = 0; i < k; i++)
+		if (inited || t[i].reg != 0x60)
+			w[(*n)++] = t[i];
+}
+
+/* tisp_top_api_dn_par_refresh: copy the day/night section into the channel's
+ * parameter block, then re-run tisp_top_reg_cfg */
+static inline unsigned int t32_top_api_dn_par_refresh(u8 ch, u8 *param, const u8 *dn_sec,
+						      u32 deir, u8 inited, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	memcpy(param, dn_sec, T32_TOP_BYTES);
+	t32_top_reg_cfg_run(param, deir, inited, w, &n);
+	return n;
+}
+
+/* tisp_top_deinit: clear the channel's deinit flag byte */
+static inline int t32_top_deinit(u8 ch, u8 *flag)
+{
+	flag[ch] = 0;
+	return 0;
+}
+
+/* tisp_top_ipc_get_mem_size: (w & 0xffff) * (h & 0xffff) * 3, + 1, signed
+ * divide by 2, stored in the IPC memory size word; returns the size */
+static inline u32 t32_top_ipc_get_mem_size(u32 width, u32 height, u32 *mem_size)
+{
+	u32 v = (width & 0xffff) * (height & 0xffff);
+
+	v = v * 3 + 1;
+	v = (u32)((int)v / 2);
+	*mem_size = v;
+	return v;
+}
+
+/* tisp_top_ipc_set_mem_cfg: cfg = the IPC config words (t32_data_dc074).
+ * Width goes to word 9; the memory size word 13 selects the registers. */
+static inline unsigned int t32_top_ipc_set_mem_cfg(u32 *cfg, u32 width,
+						   struct t32_front_write *w)
+{
+	u32 v = cfg[13] >> 13;
+	unsigned int n = 0;
+
+	cfg[9] = width;
+	T32_FW(w, n, 4244, width);
+	T32_FW(w, n, 4248, v);
+	T32_FW(w, n, 4292, (cfg[13] << 1) / 9);
+	T32_FW(w, n, 4296, (cfg[13] << 1) / 9);
+	if (!v) {
+		T32_FW(w, n, 4284, 0);
+		T32_FW(w, n, 4288, 0);
+	}
+	return n;
+}
+
+/* tisp_top_ipc_init: info = the channel's sensor info / state block: width
+ * +0, height +4, byte 36 bit 0 (IR), byte 41, pipeline mode word +900
+ * (1 = single, 3 = dual, else the other dual form) */
+static inline unsigned int t32_top_ipc_init(const u8 *info, struct t32_front_write *w)
+{
+	u32 width = t32_front_le32(info), height = t32_front_le32(info + 4);
+	u32 state = t32_front_le32(info + 900);
+	u32 size = width << 16 | height;
+	unsigned int n = 0;
+
+	if (state == 1) {
+		int ir = info[36] & 1;
+		u32 area = width * height / 6;
+
+		T32_FW(w, n, 4224, 0);
+		T32_FW(w, n, 4228, 0);
+		T32_FW(w, n, 4240, 1);
+		T32_FW(w, n, 4256, 0xffffffffU);
+		T32_FW(w, n, 4260, ir ? 17476 : 4);
+		T32_FW(w, n, 4264, 0);
+		T32_FW(w, n, 4272, 0xffffffffU);
+		T32_FW(w, n, 4276, 0);
+		T32_FW(w, n, 4280, 0);
+		T32_FW(w, n, 4284, ir ? 0x3ff0000U | 0xf000U : 0xffffffffU);
+		T32_FW(w, n, 4288, ir ? 0 : 0xffffffffU);
+		T32_FW(w, n, 4292, area);
+		T32_FW(w, n, 4296, area);
+	} else {
+		T32_FW(w, n, 4224, state == 3 ? 2 : 3);
+		T32_FW(w, n, 4228, state == 3 ? 2 : 10);
+		T32_FW(w, n, 4240, 1);
+		T32_FW(w, n, 4256, 0xffffffffU);
+		T32_FW(w, n, 4260, (info[41] == 1 || state == 4) ? 17476 : 8196);
+		T32_FW(w, n, 4264, 0);
+		T32_FW(w, n, 4272, 0xffffffffU);
+		T32_FW(w, n, 4276, 0);
+		T32_FW(w, n, 4280, 0);
+		T32_FW(w, n, 4284, 0xffffffffU);
+		T32_FW(w, n, 4288, 0xffffffffU);
+		T32_FW(w, n, 128, size);
+		T32_FW(w, n, 384, size);
+	}
+	return n;
+}
+
+/* registers saved / restored by sleep and wake_up; the 14th is 120 (9 on the direct path) */
+static const u16 t32_top_sleep_regs[13] = {
+	144, 528, 532, 536, 540, 736, 740, 744, 752, 1040, 44, 756, 760
+};
+
+static inline u32 t32_top_sleep_reg(unsigned int i, u8 direct)
+{
+	if (i == 13)
+		return direct ? 9 : 120;
+	return direct ? 16384 : t32_top_sleep_regs[i];
+}
+
+/* tisp_top_sleep: save the top registers into the sleep block (14 words) */
+static inline void t32_top_sleep(u8 ch, u32 *saved, u8 direct,
+				 u32 (*reg_read)(u32 reg))
+{
+	unsigned int i;
+
+	(void)ch;
+	for (i = 0; i < 14; i++)
+		saved[i] = reg_read(t32_top_sleep_reg(i, direct));
+}
+
+/* tisp_top_wake_up: restore the saved top registers */
+static inline unsigned int t32_top_wake_up(u8 ch, const u32 *saved, u8 direct,
+					   struct t32_front_write *w)
+{
+	unsigned int n = 0, i;
+
+	(void)ch;
+	for (i = 0; i < 14; i++)
+		T32_FW(w, n, t32_top_sleep_reg(i, direct), saved[i]);
+	return n;
+}
+
+/* tisp_top_param_array_set: replace the channel's parameter block, then
+ * re-run tisp_top_reg_cfg */
+static inline unsigned int t32_top_param_array_set(u8 ch, u8 *param, const u8 *buf,
+						   u32 deir, u8 inited, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	memcpy(param, buf, T32_TOP_BYTES);
+	t32_top_reg_cfg_run(param, deir, inited, w, &n);
+	return n;
+}
+
+/* tisp_top_param_array_get: copy the channel's parameter block out */
+static inline int t32_top_param_array_get(u8 ch, const u8 *param, u8 *buf, u32 *len)
+{
+	(void)ch;
+	memcpy(buf, param, T32_TOP_BYTES);
+	*len = T32_TOP_BYTES;
+	return 0;
+}
+
+/*
+ * tisp_top_frame_count: count = the channel's 24-bit frame counter,
+ * thr_cfg / thr_api = its two compare words.  When the counter reaches
+ * thr_cfg: MDNS api2, then (unless the channel is in the MDNS day/night
+ * state) the two frame-count registers, and thr_cfg is disarmed (-1).
+ * When it equals thr_api: MDNS api, thr_api disarmed.
+ */
+static inline unsigned int t32_top_frame_count(u8 ch, u32 *count, u32 *thr_cfg, u32 *thr_api,
+					       u8 mdns_dn, u8 direct,
+					       void (*mdns_api2)(u8 ch),
+					       void (*mdns_api)(u8 ch),
+					       struct t32_front_write *w)
+{
+	unsigned int n = 0;
+	u32 v = (*count + 1) & 0xffffff;
+
+	*count = v;
+	if (v == *thr_cfg) {
+		mdns_api2(ch);
+		if (!mdns_dn) {
+			T32_FW(w, n, direct ? 777 : 0x10000 + 16468, 0x7f0000 | 0xff80);
+			T32_FW(w, n, direct ? 771 : 0x10000 + 16400, 0xffffffffU);
+		}
+		*thr_cfg = 0xffffffffU;
+	}
+	if (*thr_api == *count) {
+		mdns_api(ch);
+		*thr_api = 0xffffffffU;
+	}
+	return n;
 }
 
 #undef T32_FW
