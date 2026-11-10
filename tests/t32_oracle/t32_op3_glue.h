@@ -248,6 +248,7 @@ static void op3_segv(int sig, siginfo_t *si, void *ucv)
 
 	(void)sig;
 	if (w < 0) {
+		fprintf(stderr, "op3: fault at %p, ip %llx\n", si->si_addr, (unsigned long long)uc->uc_mcontext.gregs[REG_RIP]);
 		signal(SIGSEGV, SIG_DFL);
 		return;		/* a real crash: refaults with the default action */
 	}
