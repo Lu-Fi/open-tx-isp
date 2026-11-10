@@ -18860,6 +18860,46 @@ static bool tx_isp_t20_awb_apply_static_gains(void)
 	return true;
 }
 
+/*
+ * openimp #246: pick the CCM pair for the colour temperature ct like the OEM
+ * AWB state machine (AWB_fsm_process_state steps 9/0xa):
+ * awb_detect_light_source (libt20-firmware 0x25a0: CT at fsm+1912 < 3426 -> A,
+ * < 4501 -> D40, else D50) and awb_process_light_source (0x25d0: after
+ * fsm+1944 = 15 stable calls it writes the CCM ctx dev+3908..3913 =
+ * ccm +92..+97: new/old light, to/from matrix, 35-step blend).  The compact
+ * AWB skipped both, so the CCM stayed on the D50 matrix of
+ * color_matrix_fsm_clear() (ccm +94 = 3) at every CT.
+ */
+static inline uint16_t *t20_awb_lut16(int32_t id);
+
+static void tx_isp_t20_awb_light_source(int32_t *awb_fsm, u32 ct)
+{
+	if (!awb_fsm[0])
+		return;
+	*(s32 *)((u8 *)(uintptr_t)awb_fsm[0] + 0xec0) = ct;
+	*(s32 *)((u8 *)awb_fsm + 1912) = ct;
+	awb_detect_light_source(awb_fsm);
+	awb_process_light_source(awb_fsm);
+	t20_ccm_last_light_source = *((u8 *)(uintptr_t)awb_fsm[0] + 0xee8 + 92);
+}
+
+/*
+ * openimp #262: colour temperature of the manual / preset gains as the OEM
+ * awb_calc_avg_weighted_gr_gb_mesh in MANUAL (libt20-firmware 0x248c..0x2524):
+ * CT = 1e6 / AWB_mesh(0xffff / R, 0xffff / B) over the RG_POS (226) / BG_POS
+ * (251) axes and the CT mesh (214), R/B = the manual gains in Q8
+ * (fsm+24/+26 = stab[49]/[50] << 1, awb_normalise), 0 -> 0xffff.
+ */
+static u32 tx_isp_t20_awb_manual_ct(u32 red_q8, u32 blue_q8)
+{
+	u32 red = red_q8 ? 0xffffU / red_q8 : 0xffffU;
+	u32 blue = blue_q8 ? 0xffffU / blue_q8 : 0xffffU;
+	int32_t mesh = AWB_mesh(red, blue, (int16_t *)t20_awb_lut16(226),
+				(int16_t *)t20_awb_lut16(251), t20_awb_lut16(214));
+
+	return mesh > 0 ? 1000000U / (u32)mesh : 0;
+}
+
 static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 {
 	const u16 *static_wb;
@@ -18911,6 +18951,9 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 		accepted_population = 0;
 		average_rg = 0;
 		average_bg = 0;
+		/* openimp #262: the CCM follows the CT of the manual gains (OEM) */
+		tx_isp_t20_awb_light_source(awb_fsm, tx_isp_t20_awb_manual_ct(
+			(u32)stab[49] << 1, (u32)stab[50] << 1));
 		goto apply_gains;
 	}
 	if (t20_simple_awb_manual_applied) {
@@ -19047,27 +19090,7 @@ static void tx_isp_t20_simple_awb_update(int32_t *awb_fsm)
 			t20_simple_awb_color_temperature = min_t(u32,
 				1000000U / mired, 0xffff);
 	}
-	if (awb_fsm[0]) {
-		*(s32 *)((u8 *)(uintptr_t)awb_fsm[0] + 0xec0) =
-			t20_simple_awb_color_temperature;
-		/*
-		 * openimp #246: pick the CCM pair for this CT like the OEM AWB
-		 * state machine (AWB_fsm_process_state steps 9/0xa):
-		 * awb_detect_light_source (libt20-firmware 0x25a0: CT at fsm+1912
-		 * < 3426 -> A, < 4501 -> D40, else D50) and
-		 * awb_process_light_source (0x25d0: after fsm+1944 = 15 stable
-		 * calls it writes the CCM ctx dev+3908..3913 = ccm +92..+97:
-		 * new/old light, to/from matrix, 35-step blend).  The compact AWB
-		 * skipped both, so the CCM stayed on the D50 matrix of
-		 * color_matrix_fsm_clear() (ccm +94 = 3) at every CT.
-		 */
-		*(s32 *)((u8 *)awb_fsm + 1912) =
-			t20_simple_awb_color_temperature;
-		awb_detect_light_source(awb_fsm);
-		awb_process_light_source(awb_fsm);
-		t20_ccm_last_light_source =
-			*((u8 *)(uintptr_t)awb_fsm[0] + 0xee8 + 92);
-	}
+	tx_isp_t20_awb_light_source(awb_fsm, t20_simple_awb_color_temperature);
 
 	desired_red_scale = clamp_t(u32,
 		0xffffU / max_t(u32, 1, average_rg), 0x40, 0x400);

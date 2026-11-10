@@ -5,6 +5,11 @@ Newest first, grouped by date. Everything listed was device-tested on the SoC na
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
 
+## 2026-11-10: T20/T10 colour matrix follows the manual / preset white balance like the OEM (openimp #262; Wyze Cam v2 T20X jxf23, light box 3000 K, runtime insmod)
+
+- With a manual WB or a WB preset (awb_mode, stab[12] != 0) the compact AWB wrote the gains and kept the colour matrix of the last AUTO light source. The OEM (awb_calc_avg_weighted_gr_gb_mesh in MANUAL) takes the colour temperature of the manual gains from the CT mesh (1e6 / AWB_mesh(0xffff/R, 0xffff/B), LUTs 226/251/214) and runs awb_detect_light_source / awb_process_light_source on it. The manual branch now does the same (shared helper with the AUTO path).
+- Device (both stacks, same session, presets 1-8): the CCM registers 0x480-0x4a0 now switch like the vendor's (presets 2/3/7 -> D50 matrix, the rest -> A); picture saturation preset 2 / 3 / 7: 66.9 / 95.3 / 101.8 before, 45.5 / 73.7 / 85.0 after, vendor 44.5 / 71.7 / 83.2. AUTO unchanged. T10 shares the code; not device-tested on a T10 yet. Host tests 173/0.
+
 ## 2026-11-10: t31_ipu probe error path and DT reg size (openimp #261; Wuuk Y0510 T31X, kernel 7.3.3, runtime insmod)
 
 - `ipu_probe` now releases the `request_mem_region` reservation when a later probe step fails and returns the `platform_get_irq` error instead of requesting a negative IRQ (vendor-derived leak, review note on thingino PR 1978). The documented DT reg size is `0x10000` like the vendor T31/T40/T41 map (the driver uses registers below 0x1b4 only).
