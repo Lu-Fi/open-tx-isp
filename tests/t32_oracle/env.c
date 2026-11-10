@@ -782,3 +782,7 @@ u8 t32_data_cb8a4[4] __attribute__((weak));
 u8 t32_data_ca048[4] __attribute__((weak)), t32_data_ca06c[4] __attribute__((weak));
 u32 t32_data_e2130[4] __attribute__((weak));	/* defog context per channel */
 u32 t32_data_dd0b4[24] __attribute__((weak));	/* per channel 6 bank tuning pointers */
+/* ---- op7-lib-rest (fix_point_*, log2, ae_lib, block leftovers) ---- */
+/* printk format strings of fix_point_sub / _sub_32 / _sub_64 (c79e8) and fix_point_intp (bee70 function name,
+ * c7a2c format): only handed to isp_printf */
+char t32_data_c79e8[4] = "f", t32_data_bee70[4] = "f", t32_data_c7a2c[4] = "f";
