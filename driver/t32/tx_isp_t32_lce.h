@@ -633,6 +633,155 @@ static inline int t32_lce_hist_method(u16 *hist, const u8 *thr, const u8 *par,
 	return 0;
 }
 
+/*
+ * lce_hist_filter_and_judge_16bit (0x53b40): running sum of the 32 u16 bins; the first bin where the sum
+ * reaches 16385 gives its index, else 0.  *out = index (u8).
+ */
+static inline void t32_lce_hist_filter_and_judge_16bit(const u16 *hist, u8 *out)
+{
+	u32 sum = 0, i;
+
+	for (i = 0; i < 32; i++) {
+		sum += hist[i];
+		if (sum >= 16385) {
+			*out = (u8)i;
+			return;
+		}
+	}
+	*out = 0;
+}
+
+/* lce_hist_filter_and_judge (0x53b7c): the same on 32 bit bins */
+static inline void t32_lce_hist_filter_and_judge(const u32 *hist, u8 *out)
+{
+	u32 sum = 0, i;
+
+	for (i = 0; i < 32; i++) {
+		sum += hist[i];
+		if (sum >= 16385) {
+			*out = (u8)i;
+			return;
+		}
+	}
+	*out = 0;
+}
+
+/*
+ * lce_pdf_to_cdf (0x53c3c): 32 u32 pdf bins -> 20 byte cdf, no normalisation.  Running 32 bit sum, clamped to
+ * 32767 when it reaches 32768, output = sum >> 7 (low byte).  Outputs 0..7 step one bin, 8..19 two bins.
+ */
+static inline void t32_lce_pdf_to_cdf_raw(const u32 *pdf, u8 *out)
+{
+	u32 sum = 0, i;
+
+	for (i = 0; i < 8; i++) {
+		if (sum >> 15)
+			sum = 32767;
+		out[i] = (u8)(sum >> 7);
+		sum += pdf[i];
+	}
+	for (i = 0; i < 12; i++) {
+		if (sum >> 15)
+			sum = 32767;
+		out[8 + i] = (u8)(sum >> 7);
+		sum += pdf[8 + 2 * i] + pdf[9 + 2 * i];
+	}
+}
+
+/*
+ * lce_self_light_correct_local (0x53cc0): 20 bytes in -> out.  ofs = t32_data_d6b50 (the 20 byte column
+ * offsets), d = in - ofs; d > 0 scales by up[j] (a3), d < 0 by down[j] (arg4), both only when the enable
+ * bytes a2[8] / a2[12] are non-zero; out = low byte of (d + ofs).
+ */
+static inline void t32_lce_self_light_correct_local(const u8 *in, u8 *out, const u8 *en, const u8 *up,
+						    const u8 *down)
+{
+	unsigned int j;
+
+	for (j = 0; j < 20; j++) {
+		int d = in[j] - t32_lce_slc_ofs[j];
+
+		if (d > 0) {
+			if (en[8])
+				d = d * up[j] >> 7;
+			else
+				d = 0;
+		} else if (d < 0) {
+			if (en[12])
+				d = d * down[j] >> 7;
+			else
+				d = 0;
+		}
+		out[j] = (u8)(d + t32_lce_slc_ofs[j]);
+	}
+}
+
+/* signed divide as the vendor's mechanical C does it (min / -1 and divide by zero cases) */
+static inline u32 t32_lce_sdiv(u32 n, u32 d)
+{
+	if (n == 0x80000000U && d == ~0U)
+		return 0x80000000U;
+	if (d)
+		return (u32)((int)n / (int)d);
+	return (int)n < 0 ? 1 : ~0U;
+}
+
+/*
+ * lce_hist_method (0x53690): 32 u32 bins in, 32 u32 bins out, parameters in the same block as
+ * t32_lce_hm16_par (n +4, c3 +20, b +24, k8 +28, c1 +32, a +36, e1 +40, e2 +44, sh +48).
+ * Tent ramps a / b as in the 16 bit variant, m = signed min(a, ((h - 1024) * k8 >> 7) + 1024).
+ * rem = 0x8000 - sum(m): rem >= 0 adds rem * b * q >> sh_b with q = (1 << sh_b) / sum(b) (sh_b = rodata d6c66);
+ * rem < 0 scales every bin by (1 << sh_a) / v >> p->sh, v = (sum << 5 >> 14) + 1 (sh_a = rodata d6c67).
+ * The rest of the 0x8000 total is spread over the bins, rem % 32 on bin 31.  Only n <= 31 (the vendor reads
+ * its 1024 / n table unchecked).
+ */
+static inline void t32_lce_hist_method32(const u32 *hist, u32 *out, const struct t32_lce_hm16_par *p,
+					 u32 sh_b, u32 sh_a)
+{
+	u32 n = p->n & 0xff, c1 = p->c1 & 0xffff, c3 = p->c3 & 0xff, k8 = p->k8 & 0xff;
+	u32 ra = (p->a & 0xffff) * t32_lce_hm16_recip[n & 31];
+	u32 rb = (p->b & 0xff) * t32_lce_hm16_recip[n & 31];
+	u32 sa = (u32)((int)ra >> 10), sb = (u32)((int)rb >> 10);
+	u32 a[32], b[32], m[32], buf[32], bsum = 0, sum = 0, tot = 0, rem, i;
+	int h;
+
+	for (i = 0; i < 32; i++) {
+		u32 x = i < n ? i : 31 - i;
+
+		a[i] = i == n ? p->e1 & 0xffff : c1 + sa * x;
+		b[i] = i == n ? p->e2 & 0xffff : c3 + sb * x;
+		bsum += b[i];
+	}
+	for (i = 0; i < 32; i++) {
+		u32 g = (u32)((int)((hist[i] - 1024U) * k8) >> 7) + 1024U;
+
+		m[i] = (int)a[i] < (int)g ? a[i] : g;
+		sum += m[i];
+	}
+	rem = 0x8000U - sum;
+	if ((int)rem < 0) {
+		u32 r = t32_lce_sdiv(1U << (sh_a & 31), (u32)((int)(sum << 5) >> 14) + 1);
+		u32 s = p->sh & 31;
+
+		for (i = 0; i < 32; i++) {
+			buf[i] = (r * m[i]) >> s;
+			tot += buf[i];
+		}
+	} else {
+		u32 q = t32_lce_sdiv(1U << (sh_b & 31), bsum);
+
+		for (i = 0; i < 32; i++) {
+			buf[i] = m[i] + ((rem * b[i] * q) >> (sh_b & 31));
+			tot += buf[i];
+		}
+	}
+	rem = 0x8000U - tot;
+	h = (int)(rem << 5) >> 10;
+	for (i = 0; i < 32; i++)
+		out[i] = buf[i] + (u32)h;
+	out[31] += (u32)((int)rem % 32);
+}
+
 /* tisp_lce_thres_search: bins where the running sum reaches thr[0..2] -> out[3] (8, 16, 24 when not found) */
 static inline void t32_lce_thres_search(const u16 *hist, const u16 *thr, u8 *out)
 {
