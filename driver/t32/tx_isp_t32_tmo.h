@@ -20,6 +20,7 @@
  *  phase 5c (t32_tmo5c_oracle): adr_ev_func.
  *  phase 6a (t32_tmo6a_oracle): adr_subsection_up, tisp_adr_faceae_curve_adjust (callee of adr_fpga).
  *  phase 7a (t32_tmo7a_oracle): tgain_update, api_strength_ctrl, param_array_get, api_get_curve, ev_update.
+ *  phase 8a (t32_tmo8a_oracle): adr_faceae_refresh, fbf_interrupt_calc, tmo_soft_process, adr_soft_process.
  *
  * The vendor addresses the per channel TMO state as t32_data_e35e0[ch] -> a
  * channel record {ctx, stat, ..., geom at +12}; the port takes the members it
@@ -1590,6 +1591,72 @@ static inline void t32_tmo_ev_update(struct t32_tmo_rec *r, u32 a2, u32 a3, u32 
 	*pend = 1;
 	seed[0] = lo;
 	seed[1] = hi;
+}
+
+/* ---- phase 8a: glue functions (callees of the register refresh set are hooks) ---- */
+
+/* tisp_adr_faceae_refresh: e3500 = flag, the 24 enable bytes (e34e8) and the 336 s16 table (e3248) are replaced.  The vendor returns the memcpy result. */
+static inline void t32_adr_faceae_refresh(u8 *e3500, u32 flag, u8 *e34e8, const u8 *en, s16 *e3248, const s16 *tab)
+{
+	*e3500 = (u8)flag;
+	memcpy(e34e8, en, 24);
+	memcpy(e3248, tab, 672);
+}
+
+/*
+ * tisp_tmo_fbf_interrupt_calc (ch): with the stat byte 385 of channel ch set to 1, tmo_soft_process of the current
+ * channel cur (t32_data_e3504) runs first.  Then, always, the record of cur: u16 +46 =
+ * (+46 + 1) & 0xffff, or 1 when that is 2 or more, u16 +44 = u16 +50 = 0, t32_data_d8b34 = 1, returns 1.
+ */
+static inline int t32_tmo_fbf_interrupt_calc(const u8 *st_ch, u8 *rec_cur, u32 *d8b34, void (*soft)(void *, u32), void *cb, u32 cur)
+{
+	u32 n;
+
+	if (st_ch[385] == 1)
+		soft(cb, cur);
+	n = ((u32)*(u16 *)(rec_cur + 46) + 1U) & 0xffffU;
+	if (!(n < 2U))
+		n = 1;
+	*(u16 *)(rec_cur + 46) = (u16)n;
+	*(u16 *)(rec_cur + 44) = 0;
+	*(u16 *)(rec_cur + 50) = 0;
+	*d8b34 = 1;
+	return 1;
+}
+
+/*
+ * tisp_tmo_tmo_soft_process (ch): the first time (flag byte t32_data_e3510[ch] 0) the 16 bytes ctx + 2514 are copied to
+ * st + 340, tmo_default_reg_refresh runs and the flag is set.  Then tmo_stat_limit and the register refreshes ramY / ramV
+ * of the set selected by the byte t32_data_d03a0 (1: vi1, else vi0) (hooks: ids 0 default, 1 stat_limit, 2 / 3 ramY / ramV vi1,
+ * 4 / 5 ramY / ramV vi0).
+ */
+static inline void t32_tmo_tmo_soft_process(u8 *flag, const u8 *ctx, u8 *st, u8 d03a0, void (*hook)(void *, int, int), void *cb, int ch)
+{
+	if (*flag == 0) {
+		memcpy(st + 340, ctx + 2514, 16);
+		hook(cb, 0, ch);
+		*flag = 1;
+	}
+	hook(cb, 1, ch);
+	if (d03a0 == 1) {
+		hook(cb, 2, ch);
+		hook(cb, 3, ch);
+	} else {
+		hook(cb, 4, ch);
+		hook(cb, 5, ch);
+	}
+}
+
+/*
+ * tisp_tmo_adr_soft_process (ch): adr_stat_calc, adr_ev_func, adr_tgain_func, adr_algorithm, adr_reg_write_every in this order
+ * (hook ids 0 .. 4).  Dropped: the vendor's isp_printf every 1000th call (counter t32_data_e3516, a u16 only read here).
+ */
+static inline void t32_tmo_adr_soft_process(void (*hook)(void *, int, int), void *cb, int ch)
+{
+	int i;
+
+	for (i = 0; i < 5; i++)
+		hook(cb, i, ch);
 }
 
 #endif /* TX_ISP_T32_TMO_H */
