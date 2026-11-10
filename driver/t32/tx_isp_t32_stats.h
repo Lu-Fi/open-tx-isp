@@ -1285,6 +1285,120 @@ static inline void t32_aea_set_comp(const struct t32_aea_ctx *c, u32 comp)
 }
 
 /*
+ * AE scene parameters (vendor tisp_ae_api_set_scene_par / get_scene_par /
+ * get_scene_luma), checked by t32_aeac_oracle.  The scene block is 10 words:
+ * [0] mode A (1, 2, 3), byte 4 value A, [2] mode B, byte 12 value B,
+ * [4] flag (comp != 128), [5] comp, [6] stable flag, [7] ev start, [8] luma,
+ * [9] scene luma.  A (2938..) and B (2940..) share the vendor's mode word at
+ * tune + 1684 (set: modes 2 and 3 write 1; get: 0, 1, 2 are read).
+ * fix_point_div_32 / mult2_32 are the hooks of struct t32_ae_ops.  Like the
+ * vendor, get_scene_luma reads st at 8 * ((tune[1656] & 0xffff) + 1).
+ */
+#define T32_AEA_T_SCMODE	1684U
+#define T32_AEA_T_SCA16		2942U
+#define T32_AEA_T_SCB16		2940U
+#define T32_AEA_T_SCFLAG	2956U
+#define T32_AEA_BUF_STABLE	8566U
+#define T32_AEA_ST_SCENE	1200U
+
+static inline void t32_aea_set_scene_par(const struct t32_aea_ctx *c, const u8 *in)
+{
+	u8 *t = c->tune;
+	u32 m = t32_ld32(in, 0), v;
+
+	if (m == 1) {
+		t32_wr16(t, T32_AEA_T_SCA16, 1);
+		t32_wr32(t, 1704, 1);
+		t32_wr32(t, 1708, 1);
+	} else if (m == 3) {
+		t32_wr32(t, T32_AEA_T_SCMODE, 1);
+		t32_wr16(t, T32_AEA_T_SCA16, in[4] + 1);
+	} else if (m == 2) {
+		t32_wr32(t, T32_AEA_T_SCMODE, 1);
+		t32_wr32(t, 1704, 1);
+		t32_wr32(t, 1708, in[4] + 1);
+	}
+	m = t32_ld32(in, 8);
+	if (m == 1) {
+		t32_wr16(t, T32_AEA_T_SCB16, 1);
+		t32_wr32(t, 1712, 1);
+		t32_wr32(t, 1716, 1);
+	} else if (m == 3) {
+		t32_wr32(t, T32_AEA_T_SCMODE, 1);
+		t32_wr16(t, T32_AEA_T_SCB16, in[12] + 1);
+	} else if (m == 2) {
+		t32_wr32(t, T32_AEA_T_SCMODE, 1);
+		t32_wr32(t, 1712, in[12] + 1);
+		t32_wr32(t, 1716, 1);
+	}
+	if (t32_ld32(in, 16)) {
+		t32_wr16(t, T32_AEA_T_SCFLAG, 1);
+		t32_wr16(t, T32_AEA_T_COMP, t32_ld32(in, 20));
+	} else {
+		t32_wr16(t, T32_AEA_T_SCFLAG, 0);
+	}
+	if (t32_ld32(in, 24)) {
+		v = t32_ld32(in, 28);
+		t32_wr32(t, T32_AEA_T_EVSTART, v);
+		t32_wr32(t, T32_AEA_T_EVSTART + 4, 0);
+		t32_wr16(c->buf, T32_AEA_BUF_STABLE, 0);
+	}
+}
+
+/* returns the scene luma (also the 9th word of get_scene_par) and shifts the luma history in st */
+static inline u32 t32_aea_get_scene_luma(const struct t32_aea_ctx *c, const struct t32_ae_ops *ops)
+{
+	const u8 *t = c->tune, *b = c->buf;
+	u8 *st = c->st;
+	u32 sh = t32_st16(t, 1736), sum, p, a1, m, t6, lum, k, acc = 0;
+
+	sum = ((t32_ld32(b, 0) >> 1) & 0x3fffffffU) + (t32_ld32(b, 1020) & 0x3fffffffU);
+	p = t32_st16(t, 2770) * t32_st16(t, 2774) * t32_st16(b, 11796) * t32_st16(b, 11826);
+	a1 = sum < p ? p - sum : 1;
+	m = ops->mult2_32(sh, t32_ld32(st, 8 * ((t32_ld32(t, 1656) & 0xffffU) + 1)),
+			  ops->div32(sh, a1 << sh, p << sh));
+	t6 = m ? m : 1;
+	lum = t32_aea_get_luma(c);
+	if (!lum)
+		lum = 1;
+	for (k = 0; k < 14; k++)
+		t32_wr32(st, T32_AEA_ST_SCENE + 4 * k, t32_ld32(st, T32_AEA_ST_SCENE + 4 + 4 * k));
+	t32_wr32(st, T32_AEA_ST_SCENE + 56, ops->div32(sh, t6, lum << sh) >> 2);
+	for (k = 1; k <= 8; k++)
+		acc += k * t32_ld32(st, T32_AEA_ST_SCENE + 4 * (k - 1));
+	return acc / 37;
+}
+
+static inline void t32_aea_get_scene_par(const struct t32_aea_ctx *c, u8 *out, const struct t32_ae_ops *ops)
+{
+	const u8 *t = c->tune;
+	u32 mode = t32_ld32(t, T32_AEA_T_SCMODE);
+
+	if (mode == 0) {
+		t32_wr32(out, 0, 1);
+		out[4] = 0;
+		t32_wr32(out, 8, 1);
+		out[12] = 0;
+	} else if (mode == 1) {
+		t32_wr32(out, 0, 3);
+		t32_wr32(out, 8, 3);
+		out[4] = (u8)(t[T32_AEA_T_SCA16] - 1);
+		out[12] = (u8)(t[T32_AEA_T_SCB16] - 1);
+	} else if (mode == 2) {
+		t32_wr32(out, 0, 2);
+		t32_wr32(out, 8, 2);
+		out[4] = (u8)(t32_ld32(t, 1708) - 1);
+		out[12] = (u8)(t32_ld32(t, 1712) - 1);
+	}
+	t32_wr32(out, 20, t32_st16(t, T32_AEA_T_COMP));
+	t32_wr32(out, 16, t32_st16(t, T32_AEA_T_COMP) != 128);
+	t32_wr32(out, 24, (t32_st16(c->buf, T32_AEA_BUF_STABLE) ^ 1) != 0);
+	t32_wr32(out, 28, t32_ld32(t, T32_AEA_T_EVSTART));
+	t32_wr32(out, 32, t32_aea_get_luma(c));
+	t32_wr32(out, 36, t32_aea_get_scene_luma(c, ops));
+}
+
+/*
  * Per-frame AE exposure allocation (vendor tisp_ae_short_expt,
  * tisp_ae_short_ev_alloc, tisp_ae_long_ev_alloc; Matt Davis' recovered C),
  * checked by tests/t32_oracle (t32_aee_oracle).  Register writes go to w[]
