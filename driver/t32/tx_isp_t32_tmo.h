@@ -11,6 +11,7 @@
  *    adr_tgain_func.
  *  phase 2a (t32_tmo2_oracle): tmo_dark_ctr_interp, tmo_detail_ev_interp, tmo_satcurve_ev_interp.
  *  phase 2b (t32_tmo2b_oracle): tmo_dark_protect, adr_stat_calc.
+ *  phase 3a (t32_tmo3a_oracle): tmo_ev_interp, drc_ctrl, adr_gamma_refresh, adr_params_refresh.
  *
  * The vendor addresses the per channel TMO state as t32_data_e35e0[ch] -> a
  * channel record {ctx, stat, ..., geom at +12}; the port takes the members it
@@ -645,6 +646,120 @@ static inline void t32_tmo_adr_stat_calc(u8 *b, u32 p, u32 q)
 			o[i] = (u32)((int)(v * 10000U) / d);
 		}
 	}
+}
+
+/*
+ * ---- phase 3a: tmo_ev_interp, drc_ctrl, adr_gamma_refresh, adr_params_refresh ----
+ *
+ * The channel record (t32_data_e35e0[ch]) as host pointers: +0 ctx, +4 stat, +8 out (201 u16 curve), +12 geom (u16 w, h),
+ * +16 big block, +24 / +28 / +32 the ev words, u16 at +54 "drc on" and at +56 the strength; dflt = vendor
+ * t32_data_c029c (the default curve), d89a0 / c0544 = the vendor strength curves (all 201 u16).
+ */
+struct t32_tmo_rec {
+	u8 *ctx;
+	u8 *st;
+	u16 *out;
+	u16 *geom;
+	u8 *big;
+	u32 ev0, ev1, ev1m;
+	u32 drc_on, strength;
+	const u16 *dflt, *d89a0, *c0544;
+};
+
+/*
+ * tisp_tmo_tmo_ev_interp: ctx16[4138] == 0: out = blend of two neighbouring curves of the 10 curve set
+ * (ctx + 7398, + 7800, then + 4182 + 402 n; the pair of interval i is (C[i], C[i + 1]), i <= 8) at weight w / 256 from the
+ * ev search (a miss above the table is w = 0 / i = 9, below it w = 256 / i = 0);
+ * == 1: out = (ctx curve + 7398 * w + dflt * (256 - w)) / 256 with w interpolated linearly (unsigned arithmetic, as the vendor's divu) in the 10 entry u16 table (ctx16[4138] is the selector)
+ * ctx + 4118 (a miss: entry 0 / 9); other values leave out alone.  Then tmo_detail_ev_interp and tmo_dark_protect run
+ * (the latter a tail call).
+ */
+static inline u32 t32_tmo_ev_interp_w1(const u8 *ctx, const u32 *tbl, u32 mode, u32 ev0, u32 ev1, u32 ev1m)
+{
+	u32 i, w = 0;
+
+	for (i = 0; i < 9; i++) {
+		u32 a = tbl[i], b = tbl[i + 1];
+		u32 cur = t32_tmo_ld16(ctx, 4118 + 2 * i), nxt = t32_tmo_ld16(ctx, 4120 + 2 * i);
+
+		if (mode == 0) {
+			if (ev1 != 0 || ev0 < a || !(ev0 < b))
+				continue;
+			w = (cur - (cur - nxt) * (ev0 - a) / (b - a)) & 0xffffU;
+		} else {
+			if (a < ev1m || !(b < ev1m))
+				continue;
+			w = (cur - (cur - nxt) * (a - ev1m) / (a - b)) & 0xffffU;
+		}
+		break;
+	}
+	if (t32_tmo_ev_hi(tbl, mode, ev0, ev1, ev1m))
+		w = t32_tmo_ld16(ctx, 4136);
+	if (t32_tmo_ev_lo(tbl, mode, ev0, ev1, ev1m))
+		w = t32_tmo_ld16(ctx, 4118);
+	return w;
+}
+static inline void t32_tmo_ev_interp(struct t32_tmo_rec *r)
+{
+	const u8 *ctx = r->ctx;
+	u32 sel = t32_tmo_ld16(ctx, 4138), mode = t32_tmo_ld8(ctx, T32_TMO_CTX_MODE) != 0, w, i, k;
+	const u32 *tbl = (const u32 *)(ctx + (mode ? 1008 : 888));
+
+	if (sel == 0) {
+		u32 ca, cb;
+
+		i = t32_tmo_ev_find(tbl, mode, r->ev0, r->ev1, r->ev1m, &w);
+		if (t32_tmo_ev_hi(tbl, mode, r->ev0, r->ev1, r->ev1m)) {
+			w = 0;
+			i = 9;
+		}
+		if (t32_tmo_ev_lo(tbl, mode, r->ev0, r->ev1, r->ev1m)) {
+			w = 256;
+			i = 0;
+		}
+		if (i > 8)
+			i = 8;
+		ca = i == 0 ? 7398 : i == 1 ? 7800 : 4182 + 402 * (i - 2);
+		cb = i == 0 ? 7800 : 4182 + 402 * (i - 1);
+		for (k = 0; k < 201; k++)
+			r->out[k] = (u16)t32_tmo_blend((int)t32_tmo_ld16(ctx, cb + 2 * k), (int)t32_tmo_ld16(ctx, ca + 2 * k), w);
+	} else if (sel == 1) {
+		w = t32_tmo_ev_interp_w1(ctx, tbl, mode, r->ev0, r->ev1, r->ev1m);
+		for (k = 0; k < 201; k++)
+			r->out[k] = (u16)t32_tmo_blend((int)r->dflt[k], (int)t32_tmo_ld16(ctx, 7398 + 2 * k), w);
+	}
+	t32_tmo_detail_ev_interp(ctx, r->st, r->ev0, r->ev1, r->ev1m);
+	t32_tmo_dark_protect(ctx, r->geom, r->big, r->out, r->dflt);
+}
+
+/* tisp_tmo_drc_ctrl: drc on (rec u16 +54 == 1) and ctx[10042] == 1: ev_interp, then the curve is moved towards d89a0 (strength < 128) or c0544 (> 128) */
+static inline void t32_tmo_drc_ctrl(struct t32_tmo_rec *r)
+{
+	u32 k, s = r->strength & 0xffffU;
+
+	if ((r->drc_on & 0xffffU) != 1 || t32_tmo_ld8(r->ctx, 10042) != 1)
+		return;
+	t32_tmo_ev_interp(r);
+	if (s < 128) {
+		for (k = 0; k < 201; k++)
+			r->out[k] = (u16)(((int)((u32)r->out[k] * s + (u32)r->d89a0[k] * (128U - s))) / 128);
+	} else if (s != 128) {
+		for (k = 0; k < 201; k++)
+			r->out[k] = (u16)(((int)((s - 128U) * r->c0544[k] + (256U - s) * (u32)r->out[k])) / 128);
+	}
+}
+
+/* tisp_tmo_adr_gamma_refresh: 258 bytes of the per channel gamma block (t32_data_dc274[ch] + 32) into ctx + 9272; adr_params_refresh is the same call */
+static inline void t32_tmo_adr_gamma_refresh(u8 *ctx, const u8 *gamma32)
+{
+	u32 k;
+
+	for (k = 0; k < 258; k++)
+		ctx[9272 + k] = gamma32[k];
+}
+static inline void t32_tmo_adr_params_refresh(u8 *ctx, const u8 *gamma32)
+{
+	t32_tmo_adr_gamma_refresh(ctx, gamma32);
 }
 
 #endif /* TX_ISP_T32_TMO_H */
