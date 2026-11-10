@@ -778,3 +778,4 @@ int t32o_decoy_check(void)
 u32 t32_data_f0904[4] __attribute__((weak, aligned(16)));
 /* printk format strings of the setters, only handed to isp_printf */
 u8 t32_data_cb770[4] __attribute__((weak)), t32_data_cb840[4] __attribute__((weak)), t32_data_cb864[4] __attribute__((weak));
+u8 t32_data_cb8a4[4] __attribute__((weak));
