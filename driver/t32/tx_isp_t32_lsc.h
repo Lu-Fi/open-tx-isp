@@ -27,6 +27,7 @@
  * count (t32_lsc_cell_count) are bit-exact for all 67 bins at three sizes and random
  * sections.  The mesh words are bit-exact too: table choice and blend (tags, hysteresis, Q12 weight,
  * 16-bit elements), the radial correction (byte 65 clear) and the ring format (byte 65 set).
+ * The per-frame accessors at the end are checked by t32_lscx_oracle.
  */
 #ifndef TX_ISP_T32_LSC_H
 #define TX_ISP_T32_LSC_H
@@ -488,6 +489,12 @@ struct t32_lsc_dwr {
 	u32 reg, val;
 };
 
+/* the vendor's payload info (t32_data_dc274[ch]): sizes of one table, the two payload buffers */
+struct t32_lsc_lut {
+	u16 size[2];		/* bytes of one table of payload 1 / payload 2 */
+	u8 *p1, *p2;
+};
+
 struct t32_lsc_ctx {
 	const u8 *sec;			/* section 7 (contiguous with its payloads) */
 	struct t32_lsc_cur *cur;
@@ -499,6 +506,11 @@ struct t32_lsc_ctx {
 	struct t32_lsc_dwr *dlog;	/* direct register writes */
 	unsigned int ndlog;
 	void (*cfg_trig)(struct t32_lsc_ctx *ctx, u8 ch);	/* tisp_single_lsc_rcfg_cfg_trig */
+	struct t32_lsc_lut *lut;	/* vendor t32_data_dc274[ch] */
+	u32 cap[2];			/* vendor t32_data_dc1a4[ch * 28 + 0 / 4]: payload buffer bytes */
+	u16 pub[2];			/* vendor t32_data_da850 + 232 / 234: published table sizes */
+	u8 *info;			/* vendor ctx + 8 (bytes 17 / 18: grid rows / columns) */
+	u8 *stats;			/* vendor ctx + 12: 12 bytes, [9] / [10] count flips */
 };
 
 static inline void t32_lsc_img_write(struct t32_lsc_ctx *ctx, u8 ch, u32 idx, u32 val)
@@ -584,6 +596,178 @@ static inline int t32_lsc_wake_up(struct t32_lsc_ctx *ctx, u8 ch)
 	}
 	t32_lsc_write_all_reg(ctx, ch);
 	ctx->cfg_trig(ctx, ch);
+	return 0;
+}
+
+/*
+ * tisp_lsc_itp: linear interpolation between a and b by frac / 4096, 16-bit result.
+ */
+static inline u32 t32_lsc_itp(u32 a, u32 b, u32 frac)
+{
+	return (((b - a) * frac >> 12) + a) & 0xffff;
+}
+
+/*
+ * tisp_lsc_tgain_update_s: the wdr strength from its own gain, then the whole register
+ * image (tisp_lsc_write_all_reg).
+ */
+static inline int t32_lsc_tgain_update_s(struct t32_lsc_ctx *ctx, u8 ch, u32 gain)
+{
+	t32_lsc_gain_s(ctx->sec, &ctx->s, gain);
+	t32_lsc_write_all_reg(ctx, ch);
+	return 0;
+}
+
+/*
+ * tisp_lsc_deinit: free the current values (vendor ctx + 4), the info (+ 8), the
+ * counters (+ 12) and the context itself, clear the slot.  The section (+ 0) points
+ * into the tuning block and is not freed.
+ */
+static inline int t32_lsc_deinit(void (*vfree)(void *p), struct t32_lsc_ctx **slot)
+{
+	struct t32_lsc_ctx *ctx = *slot;
+
+	if (ctx) {
+		if (ctx->cur) {
+			vfree(ctx->cur);
+			ctx->cur = NULL;
+		}
+		if (ctx->info) {
+			vfree(ctx->info);
+			ctx->info = NULL;
+		}
+		if (ctx->stats) {
+			vfree(ctx->stats);
+			ctx->stats = NULL;
+		}
+		vfree(ctx);
+		*slot = NULL;
+	}
+	return 0;
+}
+
+/*
+ * tisp_lsc_param_array_get: copy the 120-byte section and the 12-byte counter block
+ * (vendor ctx + 12) out of the context.
+ */
+static inline int t32_lsc_param_array_get(const struct t32_lsc_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->sec, 120);
+	memcpy(buf + 120, ctx->stats, 12);
+	*len = 132;
+	return 0;
+}
+
+/*
+ * tisp_lsc_param_array_set.  idx 0: replace the section and make sure the two payload
+ * buffers hold the number of tables the new section says (3464 / 13826 bytes each),
+ * then refresh.  idx 1..16: replace table idx of both payloads from buf (the payload
+ * data starts at buf, not behind the section); refresh only when idx equals the
+ * section's number of tables.  idx >= 17 copies nothing.  The table sizes are
+ * published (vendor t32_data_da850 + 232 / 234) at the end, except after an
+ * allocation failure (-1).
+ */
+static inline int t32_lsc_param_array_set(struct t32_lsc_ctx *ctx, u8 ch, u32 idx, const u8 *buf,
+					  void *(*vmalloc)(u32 n), void (*vfree)(void *p))
+{
+	struct t32_lsc_lut *lut = ctx->lut;
+	u8 *sec = (u8 *)ctx->sec;
+	u32 need1, need2;
+
+	lut->size[0] = T32_LSC_RING_STRIDE;
+	lut->size[1] = T32_LSC_TABLE_STRIDE;
+	if (!idx) {
+		memcpy(sec, buf, 120);
+		need1 = sec[116] * T32_LSC_RING_STRIDE;
+		need2 = sec[116] * T32_LSC_TABLE_STRIDE;
+		if (ctx->cap[0] < need1) {
+			if (lut->p1) {
+				vfree(lut->p1);
+				lut->p1 = NULL;
+			}
+			lut->p1 = vmalloc(need1);
+			if (!lut->p1)
+				return -1;
+			ctx->cap[0] = need1;
+		}
+		if (ctx->cap[1] < need2) {
+			if (lut->p2) {
+				vfree(lut->p2);
+				lut->p2 = NULL;
+			}
+			lut->p2 = vmalloc(need2);
+			if (!lut->p2)
+				return -1;
+			ctx->cap[1] = need2;
+		}
+	} else {
+		if (idx < 17) {
+			memcpy(lut->p1 + (idx - 1) * lut->size[0], buf, lut->size[0]);
+			memcpy(lut->p2 + (idx - 1) * lut->size[1], buf + lut->size[0], lut->size[1]);
+		}
+		if (idx != sec[116])
+			goto publish;
+	}
+	t32_lsc_refresh(ctx, ch);
+publish:
+	ctx->pub[0] = lut->size[0];
+	ctx->pub[1] = lut->size[1];
+	return 0;
+}
+
+/*
+ * tisp_lsc_mirror_flip's helpers (lsc_exchange_line / lsc_exchange_data): their source
+ * is not part of the port, so they are passed in.
+ */
+struct t32_lsc_xops {
+	void (*xline)(u8 *plane, u8 *buf, u32 a2, u32 a3, u32 stride);
+	void (*xdata)(u8 *plane, u32 a1, u32 a2);
+};
+
+/*
+ * tisp_lsc_mirror_flip: a3 == 1 exchanges the mesh lines of every table and plane, arg4 == 1
+ * exchanges the mesh elements; then the work planes are rebuilt (interp_by_ct forced with
+ * the current colour temperature) and written.  The vendor's spin lock around the
+ * exchange is left to the caller.  Not covered by the oracle (the helpers are not in env.c).
+ */
+static inline int t32_lsc_mirror_flip(struct t32_lsc_ctx *ctx, u8 ch, u32 a3, u32 arg4,
+				      const struct t32_lsc_xops *ops)
+{
+	u8 buf[256];
+	u32 rows = ctx->info[17], cols = ctx->info[18], ntab = ctx->sec[116];
+	u32 cols2 = cols * 2, last = (rows * 2 - 1) * cols2;
+	u32 y, x, t, k;
+	u8 *tab = ctx->lut->p2 + 2;
+
+	memset(buf, 0, sizeof(buf));
+	if (a3 == 1) {
+		for (y = 0; y < rows; y++)
+			for (t = 0; t < ntab; t++)
+				for (k = 0; k < 3; k++)
+					ops->xline(tab + t * T32_LSC_TABLE_STRIDE + k * T32_LSC_PLANE, buf,
+						   y * cols2, last - y * cols2, cols * 4);
+		ctx->stats[9]++;
+	}
+	if (arg4 == 1) {
+		for (y = 0; y != rows * 2; y++)
+			for (x = 0; x < cols; x++)
+				for (t = 0; t < ntab; t++)
+					for (k = 0; k < 3; k++)
+						ops->xdata(tab + t * T32_LSC_TABLE_STRIDE + k * T32_LSC_PLANE,
+							   x + y * cols2, y * cols2 + cols2 - 1 - x);
+		ctx->stats[10]++;
+	}
+	ctx->cur->rsvd1[0] = 5;
+	t32_lsc_update(ctx->sec, &ctx->s, &ctx->wk, ctx->cur->ct, 1);
+	t32_lsc_write_all_reg(ctx, ch);
+	return 0;
+}
+
+/* tisp_lsc_hvflip: the vendor's wrapper around tisp_lsc_mirror_flip, always 0 */
+static inline int t32_lsc_hvflip(struct t32_lsc_ctx *ctx, u8 ch, u32 a3, u32 arg4,
+				 const struct t32_lsc_xops *ops)
+{
+	t32_lsc_mirror_flip(ctx, ch, a3, arg4, ops);
 	return 0;
 }
 
