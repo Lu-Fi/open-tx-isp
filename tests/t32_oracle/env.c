@@ -840,3 +840,6 @@ u32 t32_data_c372c[2] __attribute__((weak)) = { 0x6c6c706d, 0x00000000 };
 u32 t32_data_c3734[2] __attribute__((weak)) = { 0x6c6c7076, 0x00000000 };
 __asm__(".section .data\n.weak t32_data_ce220\n.balign 4\nt32_data_ce220:\n.long t32_data_c3724, t32_data_c372c, t32_data_c3734\n.previous");
 u32 t32_data_ccd34[1] __attribute__((weak)), t32_data_ccd44[1] __attribute__((weak)), t32_data_ccd5c[1] __attribute__((weak));
+/* ispcore_frame_channel_streamoff: bss f334c (current MSCA pipe, u8) and d9004 (no-wait flag); formats by address only */
+u32 t32_data_f334c[1] __attribute__((weak)), t32_data_d9004[1] __attribute__((weak));
+u32 t32_data_cc960[1] __attribute__((weak)), t32_data_cc97c[1] __attribute__((weak));
