@@ -33,7 +33,7 @@ static u32 rnd(void)
 
 static unsigned int compared, failed;
 
-static int run_case(const char *what, const u8 *sec)
+static int run_mode(const char *what, const u8 *sec, u8 mode)
 {
 	struct t32_front_write ow[T32_YDNS_WRITES];
 	u8 *base;
@@ -45,20 +45,21 @@ static int run_case(const char *what, const u8 *sec)
 	base = t32o_alloc(SEC_OFF + SECB + 64);
 	memcpy(base + SEC_OFF, sec, SECB);
 	t32_data_dd0a4[0] = T32O_PTR(base);
+	t32_data_d03a0[0] = mode;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
 	t32o_call((t32o_fn)(void (*)(void))tisp_ydns_init, 0, 0, 0, 0, 0);
 
-	compared++;
+	compared += !mode;
 	if (on < 0 || t32o_log.n != (unsigned int)on)
 		goto bad;
 	for (i = 0; i < t32o_log.n; i++)
-		if (t32o_log.w[i].reg != ow[i].reg || t32o_log.w[i].val != ow[i].val)
+		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
 	return 0;
 bad:
 	if (failed++ < 5) {
 		printf("MISMATCH %s: writes vendor %u ours %d\n", what, t32o_log.n, on);
 		for (i = 0, compared = compared; i < t32o_log.n || (int)i < on; i++)
-			if (i >= t32o_log.n || (int)i >= on || t32o_log.w[i].reg != ow[i].reg ||
+			if (i >= t32o_log.n || (int)i >= on || !t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) ||
 			    t32o_log.w[i].val != ow[i].val) {
 				printf("  #%u vendor %05x=%08x ours %05x=%08x\n", i,
 				       i < t32o_log.n ? t32o_log.w[i].reg : 0, i < t32o_log.n ? t32o_log.w[i].val : 0,
@@ -68,6 +69,15 @@ bad:
 			}
 	}
 	return 1;
+}
+
+static int run_case(const char *what, const u8 *sec)
+{
+	int bad = run_mode(what, sec, 0);
+
+	bad += run_mode(what, sec, 1);	/* d03a0 = 1: only the write addresses may differ */
+	t32_data_d03a0[0] = 0;
+	return bad;
 }
 
 static int bin_cases(const char *dir)

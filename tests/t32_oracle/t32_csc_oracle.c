@@ -33,7 +33,7 @@ static u32 rnd(void)
 
 static unsigned int compared, refused, failed;
 
-static int run_case(const char *what, const u8 *sec)
+static int run_mode(const char *what, const u8 *sec, u8 mode)
 {
 	struct t32_front_write ow[16];
 	u8 *base;
@@ -41,7 +41,7 @@ static int run_case(const char *what, const u8 *sec)
 
 	on = t32_csc_init(sec, ow);
 	if (!on) {
-		refused++;
+		refused += !mode;
 		if (sec[0x5b] <= 5) {	/* refusal is only for modes above 5 */
 			if (failed++ < 5)
 				printf("MISMATCH %s: ours refused mode %u\n", what, sec[0x5b]);
@@ -53,26 +53,36 @@ static int run_case(const char *what, const u8 *sec)
 	base = t32o_alloc(SEC_OFF + 256);
 	memcpy(base + SEC_OFF, sec, SECB);
 	t32_data_dd0a4[0] = T32O_PTR(base);
+	t32_data_d03a0[0] = mode;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
 	t32o_call((t32o_fn)(void (*)(void))tisp_csc_init, 0, 0, 0, 0, 0);
 
-	compared++;
+	compared += !mode;
 	if (t32o_log.n != on)
 		goto bad;
 	for (i = 0; i < on; i++)
-		if (t32o_log.w[i].reg != ow[i].reg || t32o_log.w[i].val != ow[i].val)
+		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
 	return 0;
 bad:
 	if (failed++ < 5) {
 		printf("MISMATCH %s: writes vendor %u ours %u, mode %u\n", what, t32o_log.n, on, sec[0x5b]);
 		for (i = 0; i < t32o_log.n || i < on; i++)
-			if (i >= t32o_log.n || i >= on || t32o_log.w[i].reg != ow[i].reg ||
+			if (i >= t32o_log.n || i >= on || !t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) ||
 			    t32o_log.w[i].val != ow[i].val)
 				printf("  #%u vendor %04x=%08x ours %04x=%08x\n", i,
 				       i < t32o_log.n ? t32o_log.w[i].reg : 0, i < t32o_log.n ? t32o_log.w[i].val : 0,
 				       i < on ? ow[i].reg : 0, i < on ? ow[i].val : 0);
 	}
 	return 1;
+}
+
+static int run_case(const char *what, const u8 *sec)
+{
+	int bad = run_mode(what, sec, 0);
+
+	bad += run_mode(what, sec, 1);	/* d03a0 = 1: only the write addresses may differ */
+	t32_data_d03a0[0] = 0;
+	return bad;
 }
 
 static int bin_cases(const char *dir)
