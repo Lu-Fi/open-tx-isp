@@ -93,7 +93,7 @@ static u32 NW;
 static void o_wr(u32 reg, u32 val) { if (NW < 1024) { W[NW].reg = reg; W[NW].val = val; } NW++; }
 static u8 *o_kmalloc(u32 size) { (void)size; return kbuf; }
 static u32 o_v2p(const u8 *p) { return T32O_PTR(p) + 0x80000000u; }
-static const struct t32_wdr_ops OPS = { o_wr, rd, o_kmalloc, o_v2p, 0, 0, 0, 0 };
+static const struct t32_wdr_ops OPS = { .reg_write = o_wr, .reg_read = rd, .kmalloc = o_kmalloc, .virt_to_phys = o_v2p };
 
 static struct t32_wdr_st ST;
 static struct t32_wdr_rec REC[4];

@@ -163,7 +163,8 @@ static void o_kfree(void *p) { olog('F', 0, 0, o2v(p)); }
 static void o_error(u32 line) { olog('P', line, 0, 0); }
 static void o_irq(u32 ch, u32 irq) { olog('I', ch, irq, 1); }
 static void o_evcb(u32 ch, u32 ev) { olog('E', ch, ev, 1); }
-static const struct t32_wdr_ops OPS = { o_wr, o_rd, o_kmalloc, o_v2p, o_kfree, o_error, o_irq, o_evcb };
+static const struct t32_wdr_ops OPS = { .reg_write = o_wr, .reg_read = o_rd, .kmalloc = o_kmalloc, .virt_to_phys = o_v2p,
+	.kfree = o_kfree, .error = o_error, .irq_func_set = o_irq, .event_set_cb = o_evcb };
 
 static u32 F, CH, SZ[2], SOFF, cur, PRESET[4];
 static void lay_begin(void) { cur = 0; memset(IMG, CAN, sizeof(IMG)); }

@@ -112,7 +112,8 @@ static void o_sync(const u8 *p, u32 size) { SYNC_P = p; SYNC_N = size; }
 static void o_push(u32 ch, const u32 *ev) { EVN++; EVCH = ch; memcpy(EVW, ev, sizeof(EVW)); }
 static void o_deghost(u32 ch) { if (NOL < 4) OLOG[NOL] = 0x100 | ch; NOL++; scribble(OA, ch, 0); }
 static void o_fusion(u32 ch) { if (NOL < 4) OLOG[NOL] = 0x200 | ch; NOL++; scribble(OA, ch, 1); }
-static const struct t32_wdr_ops OPS = { o_wr, rd, 0, 0, 0, 0, 0, 0, o_sync, o_push, o_deghost, o_fusion };
+static const struct t32_wdr_ops OPS = { .reg_write = o_wr, .reg_read = rd, .dma_sync = o_sync, .event_push = o_push,
+	.deghost = o_deghost, .fusion = o_fusion };
 
 static struct t32_wdr_st ST;
 static struct t32_wdr_rec REC[4];
