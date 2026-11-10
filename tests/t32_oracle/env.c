@@ -678,3 +678,17 @@ u32 t32o_pr_stop, t32o_pr_reg[28];	/* set by the truncated process reference (tr
 /* MXU context switches around ct_detect: nothing to do on the host */
 u64 kernel_mxu_begin_partial(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 u64 kernel_mxu_end(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+/* MSCA printk format strings, only handed to isp_printf (weak: an oracle may define the real text) */
+char t32_data_c9ed0[4] __attribute__((weak)) = "f";
+char t32_data_c9ef8[4] __attribute__((weak)) = "f";
+char t32_data_c9f58[4] __attribute__((weak)) = "f";
+char t32_data_c9fa4[4] __attribute__((weak)) = "f";
+char t32_data_c9fd0[4] __attribute__((weak)) = "f";
+char t32_data_ca004[4] __attribute__((weak)) = "f";
+char t32_data_ca030[4] __attribute__((weak)) = "f";
+char t32_data_ca094[4] __attribute__((weak)) = "f";
+char t32_data_ca0c4[4] __attribute__((weak)) = "f";
+char t32_data_ca0f0[4] __attribute__((weak)) = "f";
+char t32_data_ca10c[4] __attribute__((weak)) = "f";
+char t32_data_ca154[4] __attribute__((weak)) = "f";
+char t32_data_bfe44[4] __attribute__((weak)) = "f";
