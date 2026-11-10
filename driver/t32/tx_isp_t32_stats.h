@@ -2140,4 +2140,91 @@ static inline void t32_awb_api_set_info(const struct t32_awb_ctx *c, u8 *blk)
 	t32_awb_set_mode(c, m);
 }
 
+/*
+ * AE parameter array (vendor tisp_ae_param_array_get / tisp_ae_param_array_set),
+ * checked by t32_aeag_oracle.  The array is { tune 3288 bytes, buf 12848 bytes }.
+ * get first gathers live state into the blocks (st + 1276 -> buf + 12833, 9
+ * bytes; st + 576 -> buf + 8608, 32 bytes; 16 word pairs st + 680 + 16 * k ->
+ * tune + 596 + 16 * k; st + 1260 -> tune + 1664; the current fps word of the
+ * channel split into buf + 11776 (high half) and buf + 11780 (low half)), then
+ * copies both blocks out and reports 16136 bytes.  set copies both blocks in,
+ * clears the exposure-list enable word when the channel's dc284 word is >= 2
+ * and flags st + 1285.
+ */
+#define T32_AEA_PA_TUNE		3288U
+#define T32_AEA_PA_BUF		12848U
+#define T32_AEA_PA_TOTAL	16136U
+#define T32_AEA_PA_ST9		1276U
+#define T32_AEA_PA_BUF9		12833U
+#define T32_AEA_PA_ST32		576U
+#define T32_AEA_PA_BUF32	8608U
+#define T32_AEA_PA_ST_PAIR	680U
+#define T32_AEA_PA_T_PAIR	596U
+#define T32_AEA_PA_ST_T1664	1260U
+#define T32_AEA_PA_T_T1664	1664U
+#define T32_AEA_PA_BUF_FPSH	11776U
+#define T32_AEA_PA_BUF_FPSL	11780U
+
+static inline void t32_aea_param_array_get(const struct t32_aea_ctx *c, u8 *out, u32 *len)
+{
+	u32 k, fps;
+
+	t32_aea_cpy(c->buf + T32_AEA_PA_BUF9, c->st + T32_AEA_PA_ST9, 9);
+	t32_aea_cpy(c->buf + T32_AEA_PA_BUF32, c->st + T32_AEA_PA_ST32, 32);
+	for (k = 0; k < 16; k++) {
+		t32_wr32(c->tune, T32_AEA_PA_T_PAIR + 16 * k, t32_ld32(c->st, T32_AEA_PA_ST_PAIR + 16 * k));
+		t32_wr32(c->tune, T32_AEA_PA_T_PAIR + 16 * k + 4, t32_ld32(c->st, T32_AEA_PA_ST_PAIR + 16 * k + 4));
+	}
+	t32_wr32(c->tune, T32_AEA_PA_T_T1664, t32_ld32(c->st, T32_AEA_PA_ST_T1664));
+	fps = t32_ld32(c->fps, T32_AEA_FPS_CUR);
+	t32_wr32(c->buf, T32_AEA_PA_BUF_FPSH, fps >> 16);
+	t32_wr32(c->buf, T32_AEA_PA_BUF_FPSL, fps & 0xffff);
+	t32_aea_cpy(out, c->tune, T32_AEA_PA_TUNE);
+	t32_aea_cpy(out + T32_AEA_PA_TUNE, c->buf, T32_AEA_PA_BUF);
+	*len = T32_AEA_PA_TOTAL;
+}
+
+static inline void t32_aea_param_array_set(const struct t32_aea_ctx *c, u32 dcw, const u8 *in)
+{
+	t32_aea_cpy(c->tune, in, T32_AEA_PA_TUNE);
+	t32_aea_cpy(c->buf, in + T32_AEA_PA_TUNE, T32_AEA_PA_BUF);
+	if (dcw >= 2)
+		t32_wr32(c->tune, T32_AEA_T_EXPEN, 0);
+	c->st[1285] = 1;
+}
+
+/*
+ * AWB parameter array (vendor tisp_awb_param_array_get / _set), checked by
+ * t32_awbab_oracle.  The array is { tune 6740 bytes, hw 4292 bytes }; get
+ * reports 11032 bytes.  set also flags the section, runs the refresh over the
+ * new tune block, programs the hardware unless the freeze byte is set and
+ * always calls the show-parameter update (hooks).
+ */
+#define T32_AWB_PA_TUNE		6740U
+#define T32_AWB_PA_HW		4292U
+#define T32_AWB_PA_TOTAL	11032U
+
+typedef void (*t32_awb_pa_fn)(void *priv, u32 ch);
+typedef void (*t32_awb_pa_refresh_fn)(void *priv, u32 ch, u8 *tune);
+
+static inline void t32_awb_param_array_get(const struct t32_awb_ctx *c, const u8 *hw, u8 *out, u32 *len)
+{
+	t32_aea_cpy(out, c->tune, T32_AWB_PA_TUNE);
+	t32_aea_cpy(out + T32_AWB_PA_TUNE, hw, T32_AWB_PA_HW);
+	*len = T32_AWB_PA_TOTAL;
+}
+
+static inline void t32_awb_param_array_set(const struct t32_awb_ctx *c, u8 *hw, u32 ch, const u8 *in,
+					   t32_awb_pa_refresh_fn refresh, t32_awb_pa_fn set_hw, t32_awb_pa_fn show,
+					   void *priv)
+{
+	c->sec[T32_AWB_SEC_FLAG] = 1;
+	t32_aea_cpy(c->tune, in, T32_AWB_PA_TUNE);
+	t32_aea_cpy(hw, in + T32_AWB_PA_TUNE, T32_AWB_PA_HW);
+	refresh(priv, ch, c->tune);
+	if (!c->sec[T32_AWB_SEC_FRZ])
+		set_hw(priv, ch);
+	show(priv, ch);
+}
+
 #endif /* TX_ISP_T32_STATS_H */
