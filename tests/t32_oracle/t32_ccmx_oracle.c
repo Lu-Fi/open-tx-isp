@@ -328,7 +328,7 @@ static int run_case(const char *what, int which, u32 ch, const struct cs *c)
 		return 0;
 	}
 	if (which == CASE_DEINIT) {
-		if (ret_ref != ret_our || t32_data_e28f0[ch] != 0 || our != NULL || nfreed != nexp)
+		if (ref_n || ret_ref != ret_our || t32_data_e28f0[ch] != 0 || our != NULL || nfreed != nexp)
 			goto bad;
 		for (i = 0; i < nexp; i++)
 			if (freed[i] != exp[i])
@@ -336,15 +336,25 @@ static int run_case(const char *what, int which, u32 ch, const struct cs *c)
 		return 0;
 	}
 	if (which == CASE_GET) {
-		if (ret_ref != ret_our || *lenp != len_our || len_our > 2048 || memcmp(buf, obuf, len_our))
+		if (ref_n || ret_ref != ret_our || *lenp != len_our || len_our > 2048 || memcmp(buf, obuf, 2048))
 			goto bad;
+		if (memcmp(base + SEC_OFF, c->sec, SECB) || memcmp(cpr, c->cp, 0x68) ||
+		    memcmp(matr, c->mat, 36) || memcmp(str, c->state, 16) || memcmp(apir, c->blob, 40)) {
+			why = "get side effect";
+			goto bad;
+		}
 		return 0;
 	}
 	if (which == CASE_APIGET) {
-		if (ret_ref != ret_our)
+		if (ref_n || ret_ref != ret_our)
 			goto bad;
-		if (!ret_ref && memcmp(buf, obuf, 40))
+		if (memcmp(buf, obuf, 2048))
 			goto bad;
+		if (memcmp(base + SEC_OFF, c->sec, SECB) || memcmp(cpr, c->cp, 0x68) ||
+		    memcmp(matr, c->mat, 36) || memcmp(str, c->state, 16) || memcmp(apir, c->blob, 40)) {
+			why = "apiget side effect";
+			goto bad;
+		}
 		return 0;
 	}
 	if (our_n < 0 || (unsigned int)our_n != ref_n)
