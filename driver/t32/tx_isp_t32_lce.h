@@ -969,4 +969,107 @@ static inline void t32_lce_std_hist_transform_simd32(u32 *h, u32 mult, u32 shift
 	}
 }
 
+/*
+ * Tisp_lce_soft_t41_simd (vendor 0x54ce4): the per frame LCE main path.  tisp_lce_par takes it when the byte at
+ * ctx + 10039 is non-zero; that byte is 13..25 on every normal path (written only by tisp_tmo_tmo_size_update),
+ * so this is the normal T32 per frame LCE path (the other one, Tisp_lce_soft_simd_v4, is taken only for a huge tile
+ * count).  Arguments: par = the parameter block (ctx + 9932), w = the working buffer, mode = ctx + 10288.
+ *
+ * Working buffer layout (byte offsets in w): 0 .. 0x9000 the 576 tile histograms (32 x u16 each, 18 groups of 32 tiles);
+ * LCE_A = 100931: the target cdf (20 bytes, the previous result), LCE_A + 21 / + 149 two 128 byte zero areas, + 277 the
+ * summed 32 bin u32 histogram, + 405 the pdf (32 x u32), + 533 the cdf (20 bytes), + 553 the corrected cdf (20 bytes).
+ *
+ * The six scalar leaves and the 0x54bd0 helper are ported above and reached through the hook table (the oracles
+ * run the vendor functions on one side and these ports on the other).
+ */
+#define T32_LCE_T41_A 100931U
+
+struct t32_lce_t41_ops {
+	void (*hfj)(const u32 *hist, u8 *out);
+	void (*hist_method)(const u32 *hist, u32 *out, const u32 *p);
+	void (*pdf_to_cdf)(const u32 *pdf, u8 *out);
+	void (*slc)(const u8 *in, u8 *out, const u8 *en, const u8 *up, const u8 *down);
+	void (*converge)(u32 gain, u32 lo, u32 hi, const u8 *target, u8 *cur);
+	void (*hfj16)(const u16 *hist, u8 *out);
+	void (*slc_simd_test)(const u8 *in, u8 *out, u32 enable, const u8 *up, const u8 *down);
+	u8 shift_byte;		/* rodata d6c67 */
+};
+
+static inline u32 t32_lce_t41_rd32(const u8 *p)
+{
+	u32 v;
+
+	memcpy(&v, p, 4);
+	return v;
+}
+
+/*
+ * blk1: set up, sum the 576 tile histograms into the 32 bin u32 histogram (which is not cleared first: the
+ * vendor adds onto what the buffer holds), scale (hist * par[4]) >> par[8] and spread the residual to 0x8000,
+ * judge the threshold, reshape (hist_method) -> pdf -> cdf, optional self light correction, converge the cdf
+ * towards the target (not in mode 4) and store it as the new target.
+ * Dropped: the vendor's 64 byte memcpy into its stack frame (bf860 -> sp + 96), overwritten before it is read.
+ */
+static inline void t32_lce_t41_blk1(const u8 *par, u8 *w, u32 mode, const struct t32_lce_t41_ops *ops)
+{
+	u8 *tgt = w + T32_LCE_T41_A, *z1 = w + T32_LCE_T41_A + 21, *z2 = w + T32_LCE_T41_A + 149;
+	u8 *histb = w + T32_LCE_T41_A + 277, *pdfb = w + T32_LCE_T41_A + 405, *cdf = w + T32_LCE_T41_A + 533;
+	u8 *cur = w + T32_LCE_T41_A + 553;
+	u32 hist[32], pdf[32], hm[18];
+	u32 mult = t32_lce_t41_rd32(par + 4), shift = t32_lce_t41_rd32(par + 8);
+	u32 p289 = par[289], p290 = par[290];
+	u32 tot = 0, rem, i, t, g, thr;
+	u8 thr8;
+
+	memset(z1, 0, 128);
+	memset(z2, 0, 128);
+	memcpy(hist, histb, 128);
+	for (g = 0; g < 18; g++)
+		for (t = 0; t < 32; t++) {
+			const u8 *src = w + g * 2048 + t * 64;
+
+			for (i = 0; i < 32; i++)
+				hist[i] += (u32)src[2 * i] | (u32)src[2 * i + 1] << 8;
+		}
+	for (i = 0; i < 32; i++) {
+		hist[i] = (u32)((int)(hist[i] * mult) >> (shift & 31));
+		tot += hist[i];
+	}
+	if ((int)tot < 0x8000) {
+		rem = 0x8000U - tot;
+		for (i = 0; i < (rem & 31); i++)
+			hist[i]++;
+		for (i = 0; i < 32; i++)
+			hist[i] += (u32)((int)rem >> 5);
+	}
+	memcpy(histb, hist, 128);
+	ops->hfj(hist, &thr8);
+	thr = thr8;
+	if (par[284] == 1)
+		thr = par[285];
+	w[T32_LCE_T41_A - 2] = (u8)thr;
+	memset(hm, 0, sizeof(hm));
+	hm[1] = thr;
+	/* words 3 / 4 (par[289], par[290]) are stored by the vendor but read by nobody (hist_method ignores them): dropped */
+	hm[5] = par[291];
+	hm[6] = par[292];
+	hm[7] = par[293];
+	hm[8] = p289 << 3;
+	hm[9] = p290 << 3;
+	hm[10] = (p289 + p290) << 3;
+	hm[11] = par[291] + par[292];
+	hm[12] = (u8)(ops->shift_byte - 6);
+	ops->hist_method(hist, pdf, hm);
+	memcpy(pdfb, pdf, 128);
+	ops->pdf_to_cdf(pdf, cdf);
+	if (par[294] == 1) {
+		hm[2] = par[297];	/* the vendor's en structure is the hist_method block, words 2 / 3 reused */
+		hm[3] = par[298];
+		ops->slc(cdf, cur, (const u8 *)hm, par + 299, par + 319);
+	}
+	if (mode != 4)
+		ops->converge(par[339], par[340], par[341], tgt, cur);
+	memcpy(tgt, cur, 20);
+}
+
 #endif /* TX_ISP_T32_LCE_H */
