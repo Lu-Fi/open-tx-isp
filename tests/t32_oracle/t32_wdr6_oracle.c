@@ -91,7 +91,7 @@ u64 private_kmalloc(u32 a0, u32 a1, u32 a2, u32 a3)
 static struct { u32 reg, val; } W[1024];
 static u32 NW;
 static void o_wr(u32 reg, u32 val) { if (NW < 1024) { W[NW].reg = reg; W[NW].val = val; } NW++; }
-static u8 *o_kmalloc(u32 size) { (void)size; return kbuf; }
+static u8 *o_kmalloc(u32 size, u32 gfp) { (void)size; (void)gfp; return kbuf; }
 static u32 o_v2p(const u8 *p) { return T32O_PTR(p) + 0x80000000u; }
 static const struct t32_wdr_ops OPS = { .reg_write = o_wr, .reg_read = rd, .kmalloc = o_kmalloc, .virt_to_phys = o_v2p };
 

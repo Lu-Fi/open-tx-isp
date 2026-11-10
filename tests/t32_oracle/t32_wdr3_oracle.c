@@ -73,9 +73,11 @@ static u32 rd(u32 reg) { return (reg * 2654435761u) ^ RDK; }
 
 /* private_kmalloc: the vendor's buffer, kept for our hook; NULL when KNULL */
 static u8 *kbuf;
+static u32 VGFP, KGFP;
 u64 private_kmalloc(u32 a0, u32 a1, u32 a2, u32 a3)
 {
-	(void)a1; (void)a2; (void)a3;
+	(void)a2; (void)a3;
+	VGFP = a1;
 	kbuf = KNULL ? 0 : t32o_alloc(a0);
 	return T32O_PTR(kbuf);
 }
@@ -84,7 +86,7 @@ u64 private_kmalloc(u32 a0, u32 a1, u32 a2, u32 a3)
 static struct { u32 reg, val; } W[64];
 static u32 NW;
 static void o_wr(u32 reg, u32 val) { if (NW < 64) { W[NW].reg = reg; W[NW].val = val; } NW++; }
-static u8 *o_kmalloc(u32 size) { (void)size; return kbuf; }
+static u8 *o_kmalloc(u32 size, u32 gfp) { (void)size; KGFP = gfp; return kbuf; }
 static u32 o_v2p(const u8 *p) { return T32O_PTR(p) + 0x80000000u; }
 static const struct t32_wdr_ops OPS = { .reg_write = o_wr, .reg_read = rd, .kmalloc = o_kmalloc, .virt_to_phys = o_v2p };
 
@@ -136,6 +138,7 @@ static void setup(void)
 	for (i = 0; i < 5; i++)
 		t32_data_e3a84[i] = ST.dma_save[i] = rnd();
 	NW = 0;
+	VGFP = KGFP = 0;
 	t32o_rd_hook = rd;
 }
 
@@ -203,7 +206,8 @@ int main(void)
 		ro = run_ours(f);
 		cases++;
 		hit[f]++;
-		d = (has_ret[f] && (u32)rv != (u32)ro) || memcmp(VA, OA, TOT) || rec_differ() || NW != t32o_log.n;
+		d = (has_ret[f] && (u32)rv != (u32)ro) || memcmp(VA, OA, TOT) || rec_differ() || NW != t32o_log.n ||
+		    VGFP != KGFP;
 		for (i = 0; !d && i < NW; i++)
 			d = W[i].reg != t32o_log.w[i].reg || W[i].val != t32o_log.w[i].val;
 		if (d && bad++ < 5)

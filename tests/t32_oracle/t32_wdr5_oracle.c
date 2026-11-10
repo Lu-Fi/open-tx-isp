@@ -114,7 +114,7 @@ u64 tisp_event_set_cb(u32 a0, u32 a1, u32 a2, u32 a3)
 static u8 OH[1u << 17] __attribute__((aligned(64)));
 static u32 ohu, NOA;
 static struct { u8 *p; u32 n; } OAL[NEV];
-static u8 *o_kmalloc(u32 size)
+static u8 *o_kmalloc(u32 size, u32 gfp)
 {
 	u8 *p;
 
@@ -124,7 +124,7 @@ static u8 *o_kmalloc(u32 size)
 	memset(p, 0xe7, size);
 	if (NOA < NEV) { OAL[NOA].p = p; OAL[NOA].n = size; }
 	NOA++;
-	olog('K', size == sizeof(struct t32_wdr_rec) ? 28 : size, 0x24000c0, (uintptr_t)p);
+	olog('K', size == sizeof(struct t32_wdr_rec) ? 28 : size, gfp, (uintptr_t)p);
 	return p;
 }
 

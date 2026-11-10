@@ -17,6 +17,7 @@
  *  phase 6 (t32_wdr6_oracle): softout_reg_refresh, hardware_reg_refresh,
  *    dn_params_refresh, wake_up.
  *  phase 7 (t32_wdr7_oracle): get_data, interrupt_static, process.
+ *  phase 8 (t32_wdr8_oracle): get_map.
  *
  * The vendor reaches the per channel WDR parameter block (the tuning values
  * of the IQ bin plus the working state) as t32_data_e3b40[ch] -> record,
@@ -77,11 +78,15 @@ struct t32_wdr_rec {
 	u8 *work;		/* +24: 10200 byte work area */
 };
 
+/* allocation flags the vendor passes to private_kmalloc */
+#define T32_WDR_GFP_KERNEL	0x24000c0
+#define T32_WDR_GFP_ATOMIC	0x2080020	/* tisp_wdr_get_map */
+
 /* OS / register hooks */
 struct t32_wdr_ops {
 	void (*reg_write)(u32 reg, u32 val);	/* system_reg_write */
 	u32 (*reg_read)(u32 reg);		/* system_reg_read */
-	u8 *(*kmalloc)(u32 size);		/* private_kmalloc(size, GFP 0x24000c0) */
+	u8 *(*kmalloc)(u32 size, u32 gfp);	/* private_kmalloc (gfp: T32_WDR_GFP_*) */
 	u32 (*virt_to_phys)(const u8 *p);	/* vendor: p + 0x80000000 (KSEG0) */
 	void (*kfree)(void *p);			/* private_kfree */
 	void (*error)(u32 line);		/* isp_printf(2, ...) */
@@ -463,7 +468,7 @@ static inline void t32_wdr_sleep(struct t32_wdr_st *st)
 static inline int t32_wdr_malloc_cfg(struct t32_wdr_st *st, u32 ch)
 {
 	struct t32_wdr_rec *r;
-	u8 *buf = st->ops->kmalloc(4 * T32_WDR_BUF_SZ);
+	u8 *buf = st->ops->kmalloc(4 * T32_WDR_BUF_SZ, T32_WDR_GFP_KERNEL);
 	u32 phys = st->ops->virt_to_phys(buf), i;
 
 	for (i = 0; i < 4; i++)
@@ -609,7 +614,7 @@ static inline void t32_wdr_process_init(struct t32_wdr_st *st)
 
 	for (i = 7; i >= 0; i--)
 		if (!st->proc[i])
-			st->proc[i] = st->ops->kmalloc(t32_wdr_proc_sz[i]);
+			st->proc[i] = st->ops->kmalloc(t32_wdr_proc_sz[i], T32_WDR_GFP_KERNEL);
 }
 
 /* tisp_wdr_process_deinit: frees the process buffers (e3af0 first) */
@@ -626,7 +631,7 @@ static inline void t32_wdr_process_deinit(struct t32_wdr_st *st)
 
 static inline u8 *t32_wdr_zalloc(const struct t32_wdr_ops *o, u32 size)
 {
-	u8 *p = o->kmalloc(size);
+	u8 *p = o->kmalloc(size, T32_WDR_GFP_KERNEL);
 	u32 i;
 
 	for (i = 0; i < size; i++)
@@ -649,7 +654,7 @@ static inline int t32_wdr_init(struct t32_wdr_st *st, u32 ch, const u32 *size)
 	struct t32_wdr_rec *r;
 	int i;
 
-	r = (struct t32_wdr_rec *)o->kmalloc(sizeof(*r));
+	r = (struct t32_wdr_rec *)o->kmalloc(sizeof(*r), T32_WDR_GFP_KERNEL);
 	st->rec[ch] = r;
 	if (!r)
 		o->error(3403);
@@ -667,7 +672,7 @@ static inline int t32_wdr_init(struct t32_wdr_st *st, u32 ch, const u32 *size)
 	r->work = t32_wdr_zalloc(o, T32_WDR_WORK_SZ);
 	t32_wdr_process_init(st);
 	for (i = 5; i >= 0; i--)
-		st->lut[i] = o->kmalloc(T32_WDR_LUT_SZ);
+		st->lut[i] = o->kmalloc(T32_WDR_LUT_SZ, T32_WDR_GFP_KERNEL);
 
 	ny = ((u32)t32_wdr_sdiv((int)h - 1, 15) + 1) & 0xffff;	/* 15 pixel blocks, the last one shorter */
 	nx = ((u32)t32_wdr_sdiv((int)w - 1, 15) + 1) & 0xffff;
@@ -1005,6 +1010,97 @@ static inline int t32_wdr_process(struct t32_wdr_st *st, u32 ch)
 	t32_wdr_softout_reg_refresh(st, ch);
 	st->ev_hold = st->ev_hold != 0xff;
 	return 0;
+}
+
+/* ---- phase 8: histogram matching maps ---- */
+
+/* running sums of the 256 entry histogram h into c */
+static inline void t32_wdr_cumsum(u32 *c, const u32 *h)
+{
+	u32 i;
+
+	c[0] = h[0];
+	for (i = 1; i < 256; i++)
+		c[i] = h[i] + c[i - 1];
+}
+
+/*
+ * For every entry of the cumulative histogram src the entry of ref closest to it (absolute
+ * difference, signed compare, the later one on a tie), searched upwards from the last match:
+ * idx[i] = match + 1, map[i] = (match + 1) * 16 - 1.
+ */
+static inline void t32_wdr_cdf_match(const u32 *src, const u32 *ref, u16 *idx, u16 *map)
+{
+	u32 i, k, j = 0;
+
+	for (i = 0; i < 256; i++) {
+		u32 x = src[i], best = t32_wdr_absfun(ref[j], x);
+
+		for (k = j + 1; k < 256; k++) {
+			u32 d = t32_wdr_absfun(ref[k], x);
+
+			if (!((int)best < (int)d)) {
+				j = k;
+				best = d;
+			}
+		}
+		idx[i] = (u16)(j + 1);
+		map[i] = (u16)(((j + 1) & 0xffff) << 4) - 1;
+	}
+}
+
+/* the 80 point form of a 256 entry map: [1..16] = map[0..15], [17..24] every 2nd from 17, [25..80] every 4th from 35 */
+static inline void t32_wdr_map_pick(u16 *dst, const u16 *map)
+{
+	u32 i;
+
+	for (i = 0; i < 16; i++)
+		dst[1 + i] = map[i];
+	for (i = 0; i < 8; i++)
+		dst[17 + i] = map[17 + 2 * i];
+	for (i = 0; i < 56; i++)
+		dst[25 + i] = map[35 + 4 * i];
+}
+
+/*
+ * tisp_wdr_get_map (h0 .. h5, c6, c7, c8, i9, i10, i11): three histogram matchings of the
+ * 256 bin histograms (cumulated): h3 onto h0 (indices i9, curve c6), h5 onto h2 (i11, c8),
+ * h4 onto h1 (i10, c7); the curves as 80 knots (c[1..80], c[0] untouched).  Returns the
+ * rounded sum of the first 4 bins of h4 / 2048.  9 temporary buffers from kmalloc(atomic),
+ * freed at the end; vendor: not checked (a failed allocation is written through).
+ */
+static inline u32 t32_wdr_get_map(const struct t32_wdr_ops *o, const u32 *const h[6], u16 *c6, u16 *c7, u16 *c8,
+				  u16 *i9, u16 *i10, u16 *i11)
+{
+	u32 *cum[6];	/* vendor order: h1, h4, h0, h3, h2, h5 */
+	u16 *map[3];	/* curves of h4 -> h1, h3 -> h0, h5 -> h2 */
+	static const u8 src[6] = { 1, 4, 0, 3, 2, 5 };
+	u32 i, ret;
+
+	for (i = 0; i < 6; i++)
+		cum[i] = (u32 *)o->kmalloc(1024, T32_WDR_GFP_ATOMIC);
+	for (i = 0; i < 3; i++)
+		map[i] = (u16 *)o->kmalloc(512, T32_WDR_GFP_ATOMIC);
+	for (i = 0; i < 6; i++)
+		t32_wdr_zero((u8 *)cum[i], 1024);
+	for (i = 0; i < 3; i++)
+		t32_wdr_zero((u8 *)map[i], 512);
+	for (i = 0; i < 6; i++)
+		t32_wdr_cumsum(cum[i], h[src[i]]);
+	ret = (cum[1][0] + cum[1][1] + 1024 + cum[1][2] + cum[1][3]) >> 11;
+
+	t32_wdr_cdf_match(cum[3], cum[2], i9, map[1]);
+	t32_wdr_cdf_match(cum[5], cum[4], i11, map[2]);
+	t32_wdr_cdf_match(cum[1], cum[0], i10, map[0]);
+	t32_wdr_map_pick(c6, map[1]);
+	t32_wdr_map_pick(c8, map[2]);
+	t32_wdr_map_pick(c7, map[0]);
+
+	for (i = 0; i < 6; i++)
+		o->kfree(cum[i]);
+	for (i = 0; i < 3; i++)
+		o->kfree(map[i]);
+	return ret;
 }
 
 #endif
