@@ -10,6 +10,7 @@
  *    adr_ispint_adr_16 / _32 / _64, adr_subsection_map, tmo_size_update,
  *    adr_tgain_func.
  *  phase 2a (t32_tmo2_oracle): tmo_dark_ctr_interp, tmo_detail_ev_interp, tmo_satcurve_ev_interp.
+ *  phase 2b (t32_tmo2b_oracle): tmo_dark_protect, adr_stat_calc.
  *
  * The vendor addresses the per channel TMO state as t32_data_e35e0[ch] -> a
  * channel record {ctx, stat, ..., geom at +12}; the port takes the members it
@@ -532,6 +533,116 @@ static inline void t32_tmo_satcurve_ev_interp(const u8 *ctx, u8 *st, u32 ev0, u3
 						(int)t32_tmo_ld16(ctx, o[j][0] + 28 + 28 * m + 2 * k),
 						(int)t32_tmo_ld16(ctx, o[j][0] + 28 * m + 2 * k), w);
 			}
+		}
+	}
+}
+
+/*
+ * ---- phase 2b: tmo_dark_protect, adr_stat_calc ----
+ */
+
+/* signed division as the vendor emulation reads it: a zero divisor (MIPS leaves HI / LO undefined) gives 1 / ~0 */
+static inline int t32_tmo_sdiv0(int n, int d)
+{
+	if (d == 0)
+		return n < 0 ? 1 : -1;
+	return t32_tmo_sdiv(n, d);
+}
+
+/*
+ * tisp_tmo_tmo_dark_protect: a 201 entry u16 curve (out, record +8) is pulled back to the default curve dflt
+ * (vendor t32_data_c029c, 402 bytes) the more the dark statistic exceeds a limit.
+ *   geom (record +12): u16 w, h; the cumulative histogram big + 30000 (512 u32, record +16) is clamped to
+ *   (w * h) / 4, scaled to 0 .. 10000 into big + 32048 (512 u32).  ctx[2842] != 1: nothing more.  Else
+ *   x = (u16)big32048[ctx16[2848]] (the index is not range checked by the vendor): below lo = ctx16[2844] nothing,
+ *   above hi = ctx16[2846] the default curve replaces out, in between out -= (out - dflt) * (x - lo) / (hi - lo)
+ *   (16 bit signed intermediates).  hi == lo with x == lo divides by zero: vendor UB, read as in t32_tmo_sdiv0.
+ */
+static inline void t32_tmo_dark_protect(const u8 *ctx, const u16 *geom, u8 *big, u16 *out, const u16 *dflt)
+{
+	u32 area = (u32)geom[0] * geom[1], k, acc = 0, lim, scale;
+	u32 lo = t32_tmo_ld16(ctx, 2844), hi = t32_tmo_ld16(ctx, 2846), x;
+	const u32 *hist = (const u32 *)(big + 30000);
+	u32 *cum = (u32 *)(big + 32048);
+	int w, span;
+
+	lim = (u32)t32_tmo_sdiv((int)area, 4);
+	scale = lim >> 8;
+	for (k = 0; k < 512; k++) {
+		acc += hist[k];
+		if (!(acc < lim))
+			acc = lim;
+		cum[k] = ((scale ? (acc << 8) / scale : ~0U) * 10000U) >> 16;
+	}
+	if (t32_tmo_ld8(ctx, 2842) != 1)
+		return;
+	x = (u16)cum[t32_tmo_ld16(ctx, 2848)];
+	if (x < lo)
+		return;
+	if (hi < x) {
+		for (k = 0; k < 201; k++)
+			out[k] = dflt[k];
+		return;
+	}
+	w = (s16)(x - lo);
+	span = (s16)(hi - lo);
+	for (k = 0; k < 201; k++) {
+		u32 o = out[k];
+		int d = (s16)(o - dflt[k]);
+
+		out[k] = (u16)(o - (u32)t32_tmo_sdiv0(d * w, span));
+	}
+}
+
+/*
+ * tisp_tmo_adr_stat_calc: statistics normalisation of the stat buffer b (record +8) with p, q = the per channel
+ * scalars t32_data_e3580 / e3570: N = max(p * q / 4, 5120), D = N / 24.
+ *   24 entries of the four u32 rows b + 5312 + 96 * r: rows 2 / 3 copied to b + 9856 / 9952, rows 0 / 1 / D to
+ *   b + 9664 / 9760; the sums of rows 0 / 1 / N to b + 10048 / 10052.
+ *   512 entry cumulative sum of b[0..511] clamped to N, (c << 8) / (N >> 8) * 10000 / 65536 to b + 5696.
+ *   24 groups of 20 u32 at b + 2048 + 80 j (some pairs summed) * 10000 / D to 14 u32 at b + 3968 + 56 j.
+ */
+static inline void t32_tmo_adr_stat_calc(u8 *b, u32 p, u32 q)
+{
+	u32 *w = (u32 *)b;
+	int n = t32_tmo_sdiv((int)(p * q), 4), d, k, j, c = 0;
+
+	u32 sa = 0, sb = 0;
+
+	if (n < 5120)
+		n = 5120;
+	d = n / 24;
+	for (k = 0; k < 24; k++) {
+		u32 *x = w + 1328 + k;		/* b + 5312 + 4k */
+
+		sa += x[0];
+		sb += x[24];
+		x[1136] = x[48];		/* + 4544 */
+		x[1160] = x[72];		/* + 4640 */
+		x[1088] = (u32)((int)x[0] / d);	/* + 4352 */
+		x[1112] = (u32)((int)x[24] / d);	/* + 4448 */
+	}
+	w[2512] = (u32)((int)sa / n);
+	w[2513] = (u32)((int)sb / n);
+	for (k = 0; k < 512; k++) {
+		c += (int)w[k];
+		if (!(c < n))
+			c = n;
+		w[1424 + k] = (u32)((int)(((u32)((int)((u32)c << 8) / (n >> 8))) * 10000U) / 65536);
+	}
+	for (j = 0; j < 24; j++) {
+		const u32 *r = w + 512 + 20 * j;	/* b + 2048 + 80 j */
+		u32 *o = w + 992 + 14 * j;		/* b + 3968 + 56 j */
+		static const u8 pair[14] = { 0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0 };
+		u32 i, m = 0;
+
+		for (i = 0; i < 14; i++) {
+			u32 v = r[m];
+
+			if (pair[i])
+				v += r[m + 1];
+			m += 1 + pair[i];
+			o[i] = (u32)((int)(v * 10000U) / d);
 		}
 	}
 }
