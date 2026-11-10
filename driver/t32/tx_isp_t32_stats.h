@@ -2301,4 +2301,79 @@ static inline void t32_aea_long_process(const struct t32_aea_ctx *c)
 	t32_aea_cpy(c->hist + T32_AEA_LP_BINS, c->lum + T32_AEA_LP_BINS, T32_AEA_LP_BIN_BYTES);
 }
 
+/*
+ * AWB face position (vendor tisp_awb_face_pos 0x3ee64, called by
+ * tisp_awb_api_set_face), checked by t32_awbad_oracle.  The face box
+ * (x0 = a2, x1 = a3, y0 = a4, y1 = a5, u16) is made ordered (x0 = min(x0, x1),
+ * y0 = min(y0, y1)), raised to at least 2, and shrunk up to twice: each step
+ * moves the lower edge up by a sixth of the span and the upper edge to
+ * lower + 5/6 of the new span, while a quarter of the area is still not below
+ * an eighth of the picture area (u16 at sec + 28690 * u16 at sec + 28692).
+ * flag == 1: bumps the counter word at sec + 119940 (wraps at 255) and writes
+ * the box to the AWB window registers (y1 << 16 | y0 at 0x160e0, x1 << 16 | x0
+ * at 0x160e4), then raises the trigger and sets sec + 28706 = 1,
+ * sec + 28707 = 0; any other flag writes 0x20002 to both registers, triggers
+ * and clears sec + 28706.  The section flag byte (sec + 0x1a44c) is set last.
+ * The vendor's shadow-register variant (data d03a0 != 0, indices 1923 / 1924)
+ * is not ported: always direct addresses, as in the other register writers.
+ */
+#define T32_AWB_SEC_FACE_W	28690U
+#define T32_AWB_SEC_FACE_H	28692U
+#define T32_AWB_SEC_FACE_EN	28706U
+#define T32_AWB_SEC_FACE_EN2	28707U
+#define T32_AWB_SEC_FACE_CNT	119940U
+#define T32_AWB_FACE_REG_Y	90336U
+#define T32_AWB_FACE_REG_X	90340U
+#define T32_AWB_FACE_OFF	0x20002U
+#define T32_AWB_FACE_CNT_WRAP	255U
+
+typedef void (*t32_awb_wr_fn)(void *priv, u32 reg, u32 val);
+typedef void (*t32_awb_trig_fn)(void *priv, u32 kind, u32 arg);
+
+static inline void t32_awb_face_pos(const struct t32_awb_ctx *c, u32 flag, u32 a2, u32 a3, u32 a4, u32 a5,
+				    t32_awb_wr_fn wr, t32_awb_trig_fn trig, void *priv)
+{
+	u32 x0 = a2 & 0xffff, x1 = a3 & 0xffff, y0 = a4 & 0xffff, y1 = a5 & 0xffff;
+	u32 thr = (t32_st16(c->sec, T32_AWB_SEC_FACE_W) * t32_st16(c->sec, T32_AWB_SEC_FACE_H)) >> 3;
+	u32 n, cnt;
+
+	if (x1 < x0)
+		x0 = x1;
+	if (x0 < 2)
+		x0 = 2;
+	if (x1 < 2)
+		x1 = 2;
+	if (y1 < y0)
+		y0 = y1;
+	if (y0 < 2)
+		y0 = 2;
+	if (y1 < 2)
+		y1 = 2;
+	for (n = 2; n; n--) {
+		x0 = (x0 + (u32)((int)(x1 - x0) / 6)) & 0xffff;
+		x1 = (x0 + (u32)((int)((x1 - x0) * 5) / 6)) & 0xffff;
+		y0 = (y0 + (u32)((int)(y1 - y0) / 6)) & 0xffff;
+		y1 = (y0 + (u32)((int)((y1 - y0) * 5) / 6)) & 0xffff;
+		if ((u32)((int)((x1 - x0) * (y1 - y0)) / 4) < thr)
+			break;
+	}
+	if ((flag & 0xff) == 1) {
+		cnt = t32_ld32(c->sec, T32_AWB_SEC_FACE_CNT) + 1;
+		if (cnt == T32_AWB_FACE_CNT_WRAP)
+			cnt = 0;
+		t32_wr32(c->sec, T32_AWB_SEC_FACE_CNT, cnt);
+		wr(priv, T32_AWB_FACE_REG_Y, y1 << 16 | y0);
+		wr(priv, T32_AWB_FACE_REG_X, x1 << 16 | x0);
+		trig(priv, 1, 0);
+		c->sec[T32_AWB_SEC_FACE_EN] = 1;
+		c->sec[T32_AWB_SEC_FACE_EN2] = 0;
+	} else {
+		wr(priv, T32_AWB_FACE_REG_Y, T32_AWB_FACE_OFF);
+		wr(priv, T32_AWB_FACE_REG_X, T32_AWB_FACE_OFF);
+		trig(priv, 1, 0);
+		c->sec[T32_AWB_SEC_FACE_EN] = 0;
+	}
+	c->sec[T32_AWB_SEC_FLAG] = 1;
+}
+
 #endif /* TX_ISP_T32_STATS_H */
