@@ -35,7 +35,7 @@
 #define T32_LDC_CHANS		2
 #define T32_LDC_PARAM_BYTES	1076U
 #define T32_LDC_TAB_N		255U
-#define T32_LDC_GFP		0x2400c0U
+#define T32_LDC_GFP		0x24000c0U
 
 /* LDC block registers (block relative) */
 #define T32_LDC_REG_ENABLE	0x04U
@@ -107,6 +107,7 @@ struct t32_ldc_ops {
 	void (*kfree)(void *p);
 	void (*dma_cfg)(u32 w0, u32 h0, u32 buf, u32 w);	/* tisp_func_ldc_dma_cfg */
 	void (*dma_stride)(u32 w);				/* tisp_func_ldc_dma_stride */
+	u32 (*reg_read)(u32 reg);				/* system_reg_ldc_read */
 };
 
 struct t32_ldc_dev {
@@ -311,10 +312,12 @@ static inline int t32_ldc_reg_all_reflash(struct t32_ldc_dev *dev, u32 ch,
 	return t32_ldc_dma_cfg(dev, ch);
 }
 
-/* lib_tisp_ldc_intp_handle: status = the value read from T32_LDC_REG_STATUS */
-static inline u32 t32_ldc_intp_handle(struct t32_ldc_dev *dev, u32 status,
+/* lib_tisp_ldc_intp_handle: reads T32_LDC_REG_STATUS through ops->reg_read */
+static inline u32 t32_ldc_intp_handle(struct t32_ldc_dev *dev,
 				      struct t32_front_write *w, unsigned int *n)
 {
+	u32 status = dev->ops->reg_read(T32_LDC_REG_STATUS);
+
 	dev->last_status = status;
 	T32_FWR(w, *n, T32_LDC_REG_ACK, status);
 	dev->irq_count++;

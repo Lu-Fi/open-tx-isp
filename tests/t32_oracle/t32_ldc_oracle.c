@@ -30,7 +30,7 @@
 #define BUFB	1076u
 #define FR	64u
 #define CAN	0xc5
-#define MAXW	1024
+#define MAXW	2048
 
 _Static_assert(sizeof(struct t32_ldc_ctx) == CTXB, "ctx");
 _Static_assert(sizeof(struct t32_ldc_mem) == MEMB, "mem");
@@ -47,7 +47,7 @@ WEAK u8 t32_data_ca6b0[64];
 WEAK u8 t32_data_c2af8[64];
 
 struct glog {
-	u32 wn, rdn, rdreg, dcn, dsn, kmbad, kfbad;
+	u32 wn, rdn, rdreg, dcn, dsn, kmbad, kmn, kms, kmf, kfn, kfi, kfp;
 	u32 w[MAXW][2];
 	u32 dc[4][4];
 	u32 ds[4];
@@ -91,12 +91,17 @@ WEAK u64 tisp_func_ldc_dma_stride(u32 a0, u32 a1, u32 a2, u32 a3)
 }
 WEAK u64 private_kmalloc(u32 size, u32 flags, u32 a2, u32 a3)
 {
-	(void)flags; (void)a2; (void)a3;
+	(void)a2; (void)a3;
+	G.kms = size;
+	G.kmf = flags;
+	G.kmn++;
 	return T32O_PTR(t32o_alloc(size));
 }
 WEAK u64 private_kfree(u32 p, u32 a1, u32 a2, u32 a3)
 {
-	(void)p; (void)a1; (void)a2; (void)a3;
+	(void)a1; (void)a2; (void)a3;
+	G.kfn++;
+	G.kfp = p;
 	return 0;
 }
 WEAK u64 isp_printf(u32 a0, u32 a1, u32 a2, u32 a3)
@@ -287,6 +292,13 @@ static void run_vendor(int f, u32 ch, u32 x0, u32 x1, const struct img *im)
 	g_rdval = im->rdval;
 	memset(&G, 0, sizeof(G));
 	ret = callv(f, ch, x0, x1, &w);
+	if (G.kfn) {
+		G.kfi = 99;
+		for (i = 0; i < NSL; i++)
+			if (G.kfp == T32O_PTR(w.ctxf[i] + FR))
+				G.kfi = i;
+	}
+	G.kfp = 0;
 
 	memset(&RV, 0, sizeof(RV));
 	RV.g = G;
@@ -313,20 +325,28 @@ static void run_vendor(int f, u32 ch, u32 x0, u32 x1, const struct img *im)
 
 /* ---- our side ---- */
 static struct t32_ldc_dev dev;
-static u32 o_newidx, o_kfn;
-static const void *o_expect;
+static u32 o_newidx;
 
 static void *o_kmalloc(u32 size, u32 flags)
 {
-	if (size != 3240U || flags != 0x2400c0U)
-		G.kmbad = 1;
+	G.kms = size;
+	G.kmf = flags;
+	G.kmn++;
 	return ournew[o_newidx];
 }
 static void o_kfree(void *p)
 {
-	o_kfn++;
-	if (p != o_expect)
-		G.kfbad = 1;
+	unsigned int i;
+
+	G.kfn++;
+	G.kfi = 99;
+	for (i = 0; i < NSL; i++)
+		if ((u8 *)p == octx[i] + FR)
+			G.kfi = i;
+}
+static u32 o_read(u32 reg)
+{
+	return (u32)system_reg_ldc_read(reg, 0, 0, 0);
 }
 static void o_dma_cfg(u32 a0, u32 a1, u32 a2, u32 a3)
 {
@@ -341,7 +361,7 @@ static void o_dma_stride(u32 w)
 {
 	tisp_func_ldc_dma_stride(w, 0, 0, 0);
 }
-static const struct t32_ldc_ops o_ops = { o_kmalloc, o_kfree, o_dma_cfg_real, o_dma_stride };
+static const struct t32_ldc_ops o_ops = { o_kmalloc, o_kfree, o_dma_cfg_real, o_dma_stride, o_read };
 
 static void run_ours(int f, u32 ch, u32 x0, u32 x1, const struct img *im)
 {
@@ -350,7 +370,6 @@ static void run_ours(int f, u32 ch, u32 x0, u32 x1, const struct img *im)
 	unsigned int n = 0, i;
 	u64 ret = 0;
 	const struct t32_ldc_cfg *cfg;
-	int en;
 
 	(void)o_dma_cfg;
 	for (i = 0; i < NSL; i++) {
@@ -375,9 +394,6 @@ static void run_ours(int f, u32 ch, u32 x0, u32 x1, const struct img *im)
 	g_rdval = im->rdval;
 	cfg = (const struct t32_ldc_cfg *)(ocfg + FR);
 	o_newidx = ch & 0xff;
-	o_kfn = 0;
-	o_expect = o_newidx < NSL ? (const void *)dev.ctx[o_newidx] : NULL;
-	en = o_newidx < T32_LDC_CHANS ? dev.chan[o_newidx].enable == 1U : 0;
 
 	switch (f) {
 	case F_MEMSZ: ret = t32_ldc_get_mem_size(&dev, x0, x1); break;
@@ -386,8 +402,6 @@ static void run_ours(int f, u32 ch, u32 x0, u32 x1, const struct img *im)
 	case F_INIT: ret = (u32)t32_ldc_init(&dev, ch, cfg); break;
 	case F_DEINIT:
 		t32_ldc_deinit(&dev, ch, ow, &n);
-		if (o_kfn != (u32)(en && o_expect))
-			G.kfbad = 1;
 		break;
 	case F_DMACFG: ret = (u32)t32_ldc_dma_cfg(&dev, ch); break;
 	case F_DMASTR: ret = (u32)t32_ldc_dma_stride(&dev, ch); break;
@@ -395,9 +409,7 @@ static void run_ours(int f, u32 ch, u32 x0, u32 x1, const struct img *im)
 	case F_REFLASH: ret = (u32)t32_ldc_reg_reflash(&dev, ch, ow, &n); break;
 	case F_ALLREFLASH: ret = (u32)t32_ldc_reg_all_reflash(&dev, ch, ow, &n); break;
 	case F_INTP:
-		ret = t32_ldc_intp_handle(&dev, g_rdval, ow, &n);
-		G.rdn = 1;
-		G.rdreg = 0x68;
+		ret = t32_ldc_intp_handle(&dev, ow, &n);
 		break;
 	case F_GET: ret = (u32)t32_ldc_param_array_get(&dev, ch, odst + FR, olen + 1); break;
 	case F_SET: ret = (u32)t32_ldc_param_array_set(&dev, ch, osrc + FR, ow, &n); break;
@@ -447,8 +459,13 @@ static const char *diff(void)
 	if (a->g.rdn != b->g.rdn || a->g.rdreg != b->g.rdreg) return "register read";
 	if (a->g.dcn != b->g.dcn || memcmp(a->g.dc, b->g.dc, sizeof(a->g.dc))) return "dma_cfg call";
 	if (a->g.dsn != b->g.dsn || memcmp(a->g.ds, b->g.ds, sizeof(a->g.ds))) return "dma_stride call";
-	if (a->g.kmbad != b->g.kmbad) return "kmalloc args";
-	if (a->g.kfbad != b->g.kfbad) return "kfree";
+	if (a->g.kms != b->g.kms || a->g.kmf != b->g.kmf) {
+		printf("  kmalloc vendor size %u flags %x ours size %u flags %x\n", a->g.kms,
+		       a->g.kmf, b->g.kms, b->g.kmf);
+		return "kmalloc args";
+	}
+	if (a->g.kmn != b->g.kmn) return "kmalloc count";
+	if (a->g.kfn != b->g.kfn || a->g.kfi != b->g.kfi) return "kfree";
 	if (memcmp(a->slot, b->slot, sizeof(a->slot))) return "ctx slot";
 	if (memcmp(a->ctxf, b->ctxf, sizeof(a->ctxf))) return "ctx frames";
 	if (memcmp(a->newc, b->newc, sizeof(a->newc))) return "new ctx";
@@ -480,12 +497,14 @@ static u32 interesting(u32 ref)
 }
 static u32 pickst(void)
 {
-	switch (rnd() % 6) {
+	switch (rnd() % 8) {
 	case 0: return 0;
 	case 1: return 1;
 	case 2: return 2;
 	case 3: return 3;
 	case 4: return rnd();
+	case 5: return 0x7fffffffu;
+	case 6: return 0x80000000u;
 	default: return 0xffffffffu;
 	}
 }
