@@ -372,7 +372,13 @@ u8 t32_data_e1db8[4 * 36] __attribute__((aligned(4)));	/* per channel buffer set
 void tisp_lce_interrupt_static(void) {}
 void tisp_lsf_interrupt_static(void) {}
 void tisp_lce_par(void) {}
-u64 private_dma_cache_sync(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+u32 t32o_dma_n, t32o_dma_a[4];	/* private_dma_cache_sync: call count and the last arguments */
+u64 private_dma_cache_sync(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	t32o_dma_n++;
+	t32o_dma_a[0] = a0; t32o_dma_a[1] = a1; t32o_dma_a[2] = a2; t32o_dma_a[3] = a3;
+	return 0;
+}
 
 /* ---- heap pool for private_vmalloc and the oracle's own buffers ---- */
 static u8 pool[8u << 20] __attribute__((aligned(64)));

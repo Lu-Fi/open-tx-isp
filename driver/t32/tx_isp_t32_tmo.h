@@ -12,6 +12,7 @@
  *  phase 2a (t32_tmo2_oracle): tmo_dark_ctr_interp, tmo_detail_ev_interp, tmo_satcurve_ev_interp.
  *  phase 2b (t32_tmo2b_oracle): tmo_dark_protect, adr_stat_calc.
  *  phase 3a (t32_tmo3a_oracle): tmo_ev_interp, drc_ctrl, adr_gamma_refresh, adr_params_refresh.
+ *  phase 3b (t32_tmo3b_oracle): modechange_stat_refresh, tmo_params_hard_refresh.
  *
  * The vendor addresses the per channel TMO state as t32_data_e35e0[ch] -> a
  * channel record {ctx, stat, ..., geom at +12}; the port takes the members it
@@ -664,6 +665,9 @@ struct t32_tmo_rec {
 	u32 ev0, ev1, ev1m;
 	u32 drc_on, strength;
 	const u16 *dflt, *d89a0, *c0544;
+	u8 *tbuf;			/* record +20: 10 x 750 byte tone buffer */
+	const u16 *c0430;		/* vendor t32_data_c0430: 10 u16 fill values */
+	void (*dma_sync)(u8 *buf, u32 len);	/* private_dma_cache_sync (0, buf, len, 0) */
 };
 
 /*
@@ -760,6 +764,64 @@ static inline void t32_tmo_adr_gamma_refresh(u8 *ctx, const u8 *gamma32)
 static inline void t32_tmo_adr_params_refresh(u8 *ctx, const u8 *gamma32)
 {
 	t32_tmo_adr_gamma_refresh(ctx, gamma32);
+}
+
+/*
+ * tisp_tmo_modechange_stat_refresh: the ten 750 byte blocks of the tone buffer (record +20) are filled with the u16
+ * c0430[blk] (375 entries each), the buffer is cache synced (7520 bytes, as the vendor: 20 more than the fill),
+ * the out curve gets the d89a0 curve (201 u16) and tmo_ev_interp runs (a tail call).
+ */
+static inline void t32_tmo_modechange_stat_refresh(struct t32_tmo_rec *r)
+{
+	u32 b, k;
+
+	for (b = 0; b < 10; b++)
+		for (k = 0; k < 375; k++)
+			*(u16 *)(r->tbuf + 750 * b + 2 * k) = r->c0430[b];
+	r->dma_sync(r->tbuf, 7520);
+	for (k = 0; k < 201; k++)
+		r->out[k] = r->d89a0[k];
+	t32_tmo_ev_interp(r);
+}
+
+/*
+ * tisp_tmo_tmo_params_hard_refresh: the hardware parameters from ctx to the stat record st (record +4): plain copies,
+ * the seven log2 of neighbouring u16 pairs st16[324 + 2i] / [326 + 2i] into st[356 + i], six ctx u16 (3370 .. 3380)
+ * zeroed before their 24 byte block is copied, two products ctx16[3384 / 3386] * (st16[48] * st16[50] & 0xffff),
+ * rounded by 128, divided by 256.
+ */
+static inline void t32_tmo_params_hard_refresh(u8 *ctx, u8 *st)
+{
+	static const u16 cp[][3] = {	/* stat offset, ctx offset, length */
+		{ 250, 1636, 8 }, { 258, 1644, 8 }, { 318, 2492, 6 }, { 324, 2498, 16 }, { 340, 2514, 16 },
+	};
+	static const u16 cq[][3] = {
+		{ 371, 10032, 6 }, { 385, 10042, 4 }, { 104, 3308, 50 },
+	};
+	u32 i, k, a;
+
+	for (i = 0; i < 5; i++)
+		for (k = 0; k < cp[i][2]; k++)
+			st[cp[i][0] + k] = ctx[cp[i][1] + k];
+	for (i = 0; i < 7; i++)
+		st[356 + i] = (u8)t32_tmo_log2(t32_tmo_ld16(st, 324 + 2 * i), t32_tmo_ld16(st, 326 + 2 * i));
+	for (i = 0; i < 3; i++)
+		for (k = 0; k < cq[i][2]; k++)
+			st[cq[i][0] + k] = ctx[cq[i][1] + k];
+	for (i = 0; i < 6; i++)
+		*(u16 *)(ctx + 3370 + 2 * i) = 0;
+	for (k = 0; k < 24; k++)
+		st[390 + k] = ctx[3358 + k];
+	a = (t32_tmo_ld16(st, 48) * t32_tmo_ld16(st, 50)) & 0xffffU;
+	*(u16 *)(st + 414) = (u16)((int)(t32_tmo_ld16(ctx, 3384) * a + 128U) / 256);
+	*(u16 *)(st + 416) = (u16)((int)(t32_tmo_ld16(ctx, 3386) * a + 128U) / 256);
+	for (k = 0; k < 375; k++)
+		st[418 + k] = ctx[10141 + k];
+	for (k = 0; k < 375; k++)
+		st[793 + k] = ctx[10516 + k];
+	st[266] = ctx[10040];
+	for (k = 0; k < 8; k++)
+		st[1168 + k] = ctx[8258 + k];
 }
 
 #endif /* TX_ISP_T32_TMO_H */
