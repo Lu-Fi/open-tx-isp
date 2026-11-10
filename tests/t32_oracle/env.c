@@ -469,7 +469,7 @@ __attribute__((weak)) u64 private_vmalloc(u32 a0, u32 a1, u32 a2, u32 a3)
 }
 
 /* kernel allocators: vmalloc(0) and kmalloc(0) return NULL as in the kernel's callers expect an error */
-u64 private_kmalloc(u32 a0, u32 a1, u32 a2, u32 a3)
+u64 __attribute__((weak)) private_kmalloc(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a1; (void)a2; (void)a3;
 	return a0 ? (u32)(uintptr_t)t32o_alloc(a0) : 0;
@@ -487,7 +487,7 @@ __attribute__((weak)) u64 private_vfree(u32 a0, u32 a1, u32 a2, u32 a3)
 	return 0;
 }
 
-u64 private_spin_lock_init(u32 a0, u32 a1, u32 a2, u32 a3)
+u64 __attribute__((weak)) private_spin_lock_init(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a0; (void)a1; (void)a2; (void)a3;
 	return 0;
