@@ -2013,6 +2013,86 @@ static inline void t32_awb_sleep(struct t32_awb_sleep_state *s, u32 (*rd)(u32 re
 	s->e1630[1] = rd(0x6044);
 	s->e1630[2] = sys_rd(0x2a040);
 	s->e1630[3] = sys_rd(0x2a044);
+ * AE statistics block and special area (vendor tisp_ae_get_ae_statis /
+ * tisp_ae_sepc_area), checked by t32_aeae_oracle.  The vendor takes the T32
+ * spin lock around get_ae_statis; that is left to the caller.  get_ae_statis
+ * output: 5 little-endian u16 from hist + 1024 + 4 * i at out + 0, the
+ * 1024-byte hist block at out + 10, the y-zone block at out + 1034.
+ * sepc_area input words: [0] = enable-like value stored to st + 1520,
+ * [1..4] = x0 / y0 / x1 / y1 in pixels, [5] = strength (clamped to 10..200,
+ * written back to the input block).  The ROI is handed to tisp_ae_roi_point
+ * through the hook; ax0 / ay0 / ax1 / ay1 are the per-channel byte slots
+ * (e151c / e1524 / e1518 / e1520 + ch).  A zero divisor yields ~0 as in the
+ * recovered reference.
+ */
+#define T32_AEA_HIST_STAT	1024U
+#define T32_AEA_BUF_W		8548U
+#define T32_AEA_BUF_H		8550U
+#define T32_AEA_ST_SEPC		1520U
+#define T32_AEA_ST_SEPC_OFF	2182U
+#define T32_AEA_ST_SEPC_STR	1296U
+#define T32_AEA_ST_SEPC_IN	1500U
+#define T32_AEA_SEPC_GRID	15U
+
+static inline void t32_aea_get_ae_statis(const struct t32_aea_ctx *c, u8 *out)
+{
+	u32 i, v;
+
+	t32_aea_cpy(out + 10, c->hist, 1024);
+	for (i = 0; i < 5; i++) {
+		v = t32_st16(c->hist, T32_AEA_HIST_STAT + 4 * i);
+		out[2 * i] = (u8)v;
+		out[2 * i + 1] = (u8)(v >> 8);
+	}
+	t32_aea_cpy(out + 1034, c->buf + T32_AEA_BUF_YZONE, T32_AEA_YZONE_BYTES);
+}
+
+static inline u32 t32_aea_div(u32 n, u32 d)
+{
+	return d ? n / d : ~0U;
+}
+
+typedef void (*t32_aea_roi_fn)(void *priv, u32 ch, u32 x0, u32 y0, u32 x1, u32 y1);
+
+static inline void t32_aea_sepc_area(const struct t32_aea_ctx *c, u32 ch, u8 *in, u8 *ax0, u8 *ay0,
+				     u8 *ax1, u8 *ay1, t32_aea_roi_fn roi, void *priv)
+{
+	u32 w, h, x0, y0, x1, y1, s;
+
+	if (t32_ld32(c->st, T32_AEA_ST_SEPC) != t32_ld32(in, 0))
+		t32_wr32(c->st, T32_AEA_ST_SEPC, t32_ld32(in, 0));
+	if (t32_ld32(in, 4) || t32_ld32(in, 8) || t32_ld32(in, 12) || t32_ld32(in, 16))
+		c->st[T32_AEA_ST_SEPC_OFF] = 0;
+	else
+		c->st[T32_AEA_ST_SEPC_OFF] = 1;
+	w = t32_aea_div(t32_st16(c->buf, T32_AEA_BUF_W), T32_AEA_SEPC_GRID);
+	h = t32_aea_div(t32_st16(c->buf, T32_AEA_BUF_H), T32_AEA_SEPC_GRID);
+	x0 = t32_aea_div(t32_ld32(in, 4), w) & 0xff;
+	x1 = (t32_aea_div(t32_ld32(in, 12), w) + 1) & 0xff;
+	y0 = t32_aea_div(t32_ld32(in, 8), h) & 0xff;
+	y1 = (t32_aea_div(t32_ld32(in, 16), h) + 1) & 0xff;
+	*ax0 = (u8)x0;
+	*ax1 = (u8)x1;
+	*ay0 = (u8)y0;
+	*ay1 = (u8)y1;
+	if (x0 >= 15)
+		*ax0 = 14;
+	if (y0 >= 15)
+		*ay0 = 14;
+	if (x1 >= 15)
+		*ax1 = 15;
+	if (y1 >= 15)
+		*ay1 = 15;
+	roi(priv, ch & 0xff, t32_ld32(in, 4) & 0xffff, t32_ld32(in, 8) & 0xffff,
+	    t32_ld32(in, 12) & 0xffff, t32_ld32(in, 16) & 0xffff);
+	s = t32_ld32(in, 20);
+	if (s >= 201)
+		t32_wr32(in, 20, 200);
+	else if (s < 10)
+		t32_wr32(in, 20, 10);
+	c->st[T32_AEA_ST_SEPC_STR] = (u8)t32_ld32(in, 20);
+	for (s = 0; s < 5; s++)
+		t32_wr32(c->st, T32_AEA_ST_SEPC_IN + 4 * s, t32_ld32(in, 4 + 4 * s));
 }
 
 #endif /* TX_ISP_T32_STATS_H */
