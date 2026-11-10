@@ -352,6 +352,9 @@ static inline int t32_gamma_start(struct t32_gamma *st, u8 *sec, u8 *lut, u32 lu
  * (T32_GAMMA_IMG_WORDS); otherwise the new curve is left pending for the
  * frame done.  Neither path writes a register directly (they return 0).
  */
+/* vendor transport flag (1 = shadow image), defined by the driver / host env */
+extern u8 t32_data_d03a0[4];
+
 static inline int t32_gamma_dn_params_refresh(struct t32_gamma *st, u8 ch,
 					      u8 *tuning_base, u32 *img)
 {

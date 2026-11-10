@@ -22,6 +22,8 @@
 #include "../driver/t32/tx_isp_t32_iq.h"
 #include "t32_trace.h"
 
+u8 t32_data_d03a0[4];
+
 static int bad;
 #define CHECK(c) do { if (!(c)) { bad++; printf("FAIL line %d: %s\n", __LINE__, #c); } } while (0)
 
