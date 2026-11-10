@@ -2014,6 +2014,9 @@ static inline void t32_awb_sleep(struct t32_awb_sleep_state *s, u32 (*rd)(u32 re
 	s->e1630[1] = rd(0x6044);
 	s->e1630[2] = sys_rd(0x2a040);
 	s->e1630[3] = sys_rd(0x2a044);
+}
+
+/*
  * AE statistics block and special area (vendor tisp_ae_get_ae_statis /
  * tisp_ae_sepc_area), checked by t32_aeae_oracle.  The vendor takes the T32
  * spin lock around get_ae_statis; that is left to the caller.  get_ae_statis
