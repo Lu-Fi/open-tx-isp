@@ -1040,6 +1040,7 @@ struct t32_aea_ctx {
 	u8 *wsel;	/* e1570 + ch * 2 */
 	u8 *base;	/* dd0a4[ch] */
 	u8 *comp;	/* d2a30 + ch * 1028 */
+	u8 *lum;	/* d19c0 + ch * 1052 */
 };
 
 static inline u32 t32_aea_get_tgain(const struct t32_aea_ctx *c)
@@ -2225,6 +2226,79 @@ static inline void t32_awb_param_array_set(const struct t32_awb_ctx *c, u8 *hw, 
 	if (!c->sec[T32_AWB_SEC_FRZ])
 		set_hw(priv, ch);
 	show(priv, ch);
+}
+
+/*
+ * AE day/night parameter refresh and the long luma-histogram process (vendor
+ * api_ae_dn_par_refresh / api_ae_long_process), checked by t32_aeah_oracle.
+ * dn_par_refresh: hardware parameter hook, deflicker config hook, the riscv
+ * hook only when the channel's f0900 byte is 1, then st + 1285 = 1.
+ * long_process (the vendor takes the T32 spin lock around the copies; left to
+ * the caller): copies the first 1024 buf bytes to the comp and lum blocks and
+ * the 4 hist_bin bytes hist + 1044 to lum + 1044, sums the 256 buf words into
+ * five bins bounded by those four bytes (lum + 1024 + 4 * k), scales bins 1..4
+ * to a total of 0xffff (x * 0xffff / total, the vendor's fix_point_mult2 /
+ * fix_point_div with shift 0, done in 64 bit here) and sets bin 0 to 0xffff -
+ * the others (all zero with bin 0 = 0xffff when the total is 0).  The result is
+ * copied to the hist block, hist words 1..255 are multiplied by 4 and
+ * width * height - their sum is stored in hist word 0.
+ */
+#define T32_AEA_LP_BYTES	1024U
+#define T32_AEA_LP_BINS		1024U
+#define T32_AEA_LP_BIN_BYTES	20U
+#define T32_AEA_LP_WORDS	256U
+#define T32_AEA_LP_FULL		0xffffU
+#define T32_AEA_ST_DN		1285U
+
+typedef void (*t32_aea_ch_fn)(void *priv, u32 ch);
+
+static inline void t32_aea_dn_par_refresh(const struct t32_aea_ctx *c, u32 ch, u8 f0900,
+					  t32_aea_ch_fn set_hw, t32_aea_ch_fn deflicker,
+					  t32_aea_ch_fn riscv, void *priv)
+{
+	set_hw(priv, ch & 0xff);
+	deflicker(priv, ch);
+	if (f0900 == 1)
+		riscv(priv, ch & 0xff);
+	c->st[T32_AEA_ST_DN] = 1;
+}
+
+static inline void t32_aea_long_process(const struct t32_aea_ctx *c)
+{
+	u32 b[6], sum[5], total, i, k, acc;
+
+	t32_aea_cpy(c->comp, c->buf, T32_AEA_LP_BYTES);
+	t32_aea_cpy(c->lum, c->buf, T32_AEA_LP_BYTES);
+	t32_aea_cpy(c->lum + T32_AEA_HIST_BIN, c->hist + T32_AEA_HIST_BIN, 4);
+	b[0] = 0;
+	for (k = 0; k < 4; k++)
+		b[k + 1] = c->lum[T32_AEA_HIST_BIN + k];
+	b[5] = T32_AEA_LP_WORDS;
+	total = 0;
+	for (k = 0; k < 5; k++) {
+		sum[k] = 0;
+		for (i = b[k]; i < b[k + 1]; i++)
+			sum[k] += t32_ld32(c->buf, 4 * i);
+		total += sum[k];
+	}
+	if (total == 0) {
+		sum[0] = T32_AEA_LP_FULL;
+		sum[1] = sum[2] = sum[3] = sum[4] = 0;
+	} else {
+		for (k = 1; k < 5; k++)
+			sum[k] = (u32)((t32_u64)sum[k] * T32_AEA_LP_FULL / total);
+		sum[0] = T32_AEA_LP_FULL - sum[4] - sum[1] - sum[2] - sum[3];
+	}
+	for (k = 0; k < 5; k++)
+		t32_wr32(c->lum, T32_AEA_LP_BINS + 4 * k, sum[k]);
+	t32_aea_cpy(c->hist, c->lum, T32_AEA_LP_BYTES);
+	acc = 0;
+	for (i = 1; i < T32_AEA_LP_WORDS; i++) {
+		t32_wr32(c->hist, 4 * i, t32_ld32(c->hist, 4 * i) << 2);
+		acc += t32_ld32(c->hist, 4 * i);
+	}
+	t32_wr32(c->hist, 0, t32_st16(c->buf, T32_AEA_BUF_W) * t32_st16(c->buf, T32_AEA_BUF_H) - acc);
+	t32_aea_cpy(c->hist + T32_AEA_LP_BINS, c->lum + T32_AEA_LP_BINS, T32_AEA_LP_BIN_BYTES);
 }
 
 #endif /* TX_ISP_T32_STATS_H */
