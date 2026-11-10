@@ -13,6 +13,7 @@
  *    sleep, malloc_cfg.
  *  phase 4 (t32_wdr4_oracle): default_reg_refresh, direct_reg_refresh,
  *    api_set_output_mode, param_array_set.
+ *  phase 5 (t32_wdr5_oracle): process_init, process_deinit, init, deinit.
  *
  * The vendor reaches the per channel WDR parameter block (the tuning values
  * of the IQ bin plus the working state) as t32_data_e3b40[ch] -> record,
@@ -77,8 +78,12 @@ struct t32_wdr_rec {
 struct t32_wdr_ops {
 	void (*reg_write)(u32 reg, u32 val);	/* system_reg_write */
 	u32 (*reg_read)(u32 reg);		/* system_reg_read */
-	u8 *(*kmalloc)(u32 size);		/* private_kmalloc(size, GFP 0x2400c0) */
+	u8 *(*kmalloc)(u32 size);		/* private_kmalloc(size, GFP 0x24000c0) */
 	u32 (*virt_to_phys)(const u8 *p);	/* vendor: p + 0x80000000 (KSEG0) */
+	void (*kfree)(void *p);			/* private_kfree */
+	void (*error)(u32 line);		/* isp_printf(2, ...) */
+	void (*irq_func_set)(u32 ch, u32 irq);	/* system_irq_func_set: hooks tisp_wdr_interrupt_static */
+	void (*event_set_cb)(u32 ch, u32 ev);	/* tisp_event_set_cb: hooks tisp_wdr_process */
 };
 
 /* vendor .bss of the block */
@@ -87,6 +92,12 @@ struct t32_wdr_st {
 	struct t32_wdr_rec *rec[4];	/* t32_data_e3b40 */
 	u32 dma_save[5];	/* t32_data_e3a84: 0x28010 .. 0x2801c, 0x28030 kept over sleep */
 	u8 fusion_on;		/* t32_data_e3a98: par + 1831 at the last register refresh */
+	u32 tune[4];		/* t32_data_dd0a4: tuning base of the channel (address) */
+	u8 *proc[8];		/* t32_data_e3ad4 .. e3af0: process work buffers */
+	u8 *lut[6];		/* t32_data_e3af4 .. e3b08: 1024 byte buffers */
+	u16 grid[5];		/* t32_data_e3b30: block counts / sizes of the statistics grid */
+	u8 nbuf;		/* t32_data_e3b10 */
+	u8 inited;		/* t32_data_e3a80 */
 	u64 short_tgain;	/* t32_data_e3aa0 (low word) / e3aa4 (high word) */
 	u64 short_ev[2];	/* t32_data_e3ab0 */
 	u64 long_ev[2];		/* t32_data_e3ac0 */
@@ -565,6 +576,152 @@ static inline int t32_wdr_param_array_set(struct t32_wdr_st *st, u32 ch, const u
 	t32_wdr_ev_interp(st, st->long_ev[ch], ch);
 	t32_wdr_params_hard_refresh(st, ch);
 	t32_wdr_direct_reg_refresh(st, ch);
+	return 0;
+}
+
+/* ---- phase 5: init / deinit ---- */
+
+#define T32_WDR_TUNE_PAR	10132	/* the parameter block in the channel's tuning data */
+#define T32_WDR_HW_SZ		1036
+#define T32_WDR_WORK_SZ		10200
+#define T32_WDR_LUT_SZ		1024
+#define T32_WDR_REG_CTRL	0x28000
+
+/* sizes of the process buffers proc[0..7] (e3ad4 .. e3af0) */
+static const u16 t32_wdr_proc_sz[8] = { 640, 900, 900, 8, 16, 8, 16, 1800 };
+
+/* tisp_wdr_process_init: allocates the process buffers still missing (e3af0 first) */
+static inline void t32_wdr_process_init(struct t32_wdr_st *st)
+{
+	int i;
+
+	for (i = 7; i >= 0; i--)
+		if (!st->proc[i])
+			st->proc[i] = st->ops->kmalloc(t32_wdr_proc_sz[i]);
+}
+
+/* tisp_wdr_process_deinit: frees the process buffers (e3af0 first) */
+static inline void t32_wdr_process_deinit(struct t32_wdr_st *st)
+{
+	int i;
+
+	for (i = 7; i >= 0; i--)
+		if (st->proc[i]) {
+			st->ops->kfree(st->proc[i]);
+			st->proc[i] = 0;
+		}
+}
+
+static inline u8 *t32_wdr_zalloc(const struct t32_wdr_ops *o, u32 size)
+{
+	u8 *p = o->kmalloc(size);
+	u32 i;
+
+	for (i = 0; i < size; i++)
+		p[i] = 0;
+	return p;
+}
+
+/*
+ * tisp_wdr_init (ch, size): size[0] = width, size[1] = height.  Record, statistics buffers,
+ * parameter block in the tuning data, extension / hardware image / work area (zeroed),
+ * process and LUT buffers, the 15 pixel statistics grid (counts, last block, block areas,
+ * megapixels rounded), hardware image and registers, then the irq (14) and event (13)
+ * callbacks and the WDR control word.  Vendor: no allocation is checked (a failed record
+ * allocation is reported, line 3403, and then written through, as in the vendor).
+ */
+static inline int t32_wdr_init(struct t32_wdr_st *st, u32 ch, const u32 *size)
+{
+	const struct t32_wdr_ops *o = st->ops;
+	u32 w = size[0], h = size[1], nx, ny, lx, ly;
+	struct t32_wdr_rec *r;
+	int i;
+
+	r = (struct t32_wdr_rec *)o->kmalloc(sizeof(*r));
+	st->rec[ch] = r;
+	if (!r)
+		o->error(3403);
+	r->nbuf = 0;
+	r->buf = 0;
+	r->buf_phys = 0;
+	r->par = 0;
+	r->ext = 0;
+	r->hw = 0;
+	r->work = 0;
+	t32_wdr_malloc_cfg(st, ch);
+	r->par = (u8 *)(uintptr_t)(st->tune[ch] + T32_WDR_TUNE_PAR);
+	r->ext = t32_wdr_zalloc(o, T32_WDR_EXT_SZ);
+	r->hw = t32_wdr_zalloc(o, T32_WDR_HW_SZ);
+	r->work = t32_wdr_zalloc(o, T32_WDR_WORK_SZ);
+	t32_wdr_process_init(st);
+	for (i = 5; i >= 0; i--)
+		st->lut[i] = o->kmalloc(T32_WDR_LUT_SZ);
+
+	ny = ((u32)t32_wdr_sdiv((int)h - 1, 15) + 1) & 0xffff;	/* 15 pixel blocks, the last one shorter */
+	nx = ((u32)t32_wdr_sdiv((int)w - 1, 15) + 1) & 0xffff;
+	ly = (h - ny * 14) & 0xffff;
+	lx = (w - nx * 14) & 0xffff;
+	t32_wdr_w16(r->par, 314, ny);
+	t32_wdr_w16(r->par, 316, nx);
+	st->grid[0] = (u16)(ny * lx);
+	st->grid[1] = (u16)(nx * ly);
+	st->grid[2] = (u16)(ly * lx);
+	st->grid[3] = (u16)(ny * nx);
+	st->grid[4] = (u16)t32_wdr_sdiv((int)(w * h + 5000), 10000);
+	st->nbuf = 3;
+
+	t32_wdr_params_hard_refresh(st, ch);
+	r->hw[1031] = 0;
+	t32_wdr_w16(r->hw, 790, 3);
+	t32_wdr_default_reg_refresh(st, ch);
+	t32_wdr_direct_reg_refresh(st, ch);
+	st->inited = 1;
+	o->irq_func_set(ch & 0xff, 14);
+	o->event_set_cb(ch, 13);
+	o->reg_write(T32_WDR_REG_CTRL, 0x134da11);
+	return 0;
+}
+
+/*
+ * tisp_wdr_deinit (ch): frees the channel's extension, hardware image, work area, statistics
+ * buffer and record; when no channel is left the process and LUT buffers.
+ */
+static inline int t32_wdr_deinit(struct t32_wdr_st *st, u32 ch)
+{
+	const struct t32_wdr_ops *o = st->ops;
+	struct t32_wdr_rec *r = st->rec[ch];
+	int i;
+
+	if (r) {
+		if (r->ext) {
+			o->kfree(r->ext);
+			r->ext = 0;
+		}
+		if (r->hw) {
+			o->kfree(r->hw);
+			r->hw = 0;
+		}
+		if (r->work) {
+			o->kfree(r->work);
+			r->work = 0;
+		}
+		if (r->buf) {
+			o->kfree(r->buf);
+			r->buf = 0;
+			r->buf_phys = 0;
+		}
+		o->kfree(r);
+		st->rec[ch] = 0;
+	}
+	for (i = 0; i < 4; i++)
+		if (st->rec[i])
+			return 0;
+	t32_wdr_process_deinit(st);
+	for (i = 5; i >= 0; i--)
+		if (st->lut[i]) {
+			o->kfree(st->lut[i]);
+			st->lut[i] = 0;
+		}
 	return 0;
 }
 
