@@ -517,6 +517,7 @@ struct t32_dpc_ctx {
 	u32 gain;		/* fixed point gain index of the long exposure tables (+12) */
 	u32 gain1;		/* the same for the short exposure tables (+16) */
 	u32 arg;		/* stored by tisp_dpc_write_reg (+20) */
+	u8 wdr;			/* WDR enable byte, tisp_dpc_wdr_en (+8) */
 	u8 tbl[88];		/* four 11 point u16 tables read by tisp_dpc_gain_interp (+24) */
 };
 
@@ -597,6 +598,61 @@ static inline int t32_dpc_wake_up(struct t32_dpc_ctx *ctx, u8 ch,
 	(void)ch;
 	t32_dpc_long(ctx->sec, ctx->o, w, &n);
 	t32_dpc_short(ctx->sec, ctx->o, w, &n);
+	t32_dpc_other(ctx->sec, 0, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_dpc_l_gain_update: store the gain in the long exposure slot, interpolate
+ * the long exposure tables and write the long register set.
+ */
+static inline int t32_dpc_l_gain_update(struct t32_dpc_ctx *ctx, u8 ch, u32 gain,
+					struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	ctx->gain = gain;
+	t32_dpc_gain_interp(ctx, 0);
+	t32_dpc_long(ctx->sec, ctx->o, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_dpc_s_gain_update: store the gain in the short exposure slot,
+ * interpolate the short exposure tables and write the short register set.
+ */
+static inline int t32_dpc_s_gain_update(struct t32_dpc_ctx *ctx, u8 ch, u32 gain,
+					struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	ctx->gain1 = gain;
+	t32_dpc_gain_interp(ctx, 1);
+	t32_dpc_short(ctx->sec, ctx->o, w, &n);
+	return (int)n;
+}
+
+/*
+ * tisp_dpc_wdr_en: store the WDR enable byte, interpolate the long exposure
+ * tables and write the long register set; when the enable is 1 also
+ * interpolate the short exposure tables and write the short register set;
+ * then the "other" register set (without the extra wide words).
+ */
+static inline int t32_dpc_wdr_en(struct t32_dpc_ctx *ctx, u8 ch, u8 en,
+				 struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	ctx->wdr = en;
+	t32_dpc_gain_interp(ctx, 0);
+	t32_dpc_long(ctx->sec, ctx->o, w, &n);
+	if (en == 1) {
+		t32_dpc_gain_interp(ctx, 1);
+		t32_dpc_short(ctx->sec, ctx->o, w, &n);
+	}
 	t32_dpc_other(ctx->sec, 0, w, &n);
 	return (int)n;
 }
