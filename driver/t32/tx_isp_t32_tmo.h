@@ -15,6 +15,7 @@
  *  phase 3b (t32_tmo3b_oracle): modechange_stat_refresh, tmo_params_hard_refresh.
  *  phase 3c (t32_tmo3c_oracle): timeratio_curve_adjust, adr_hardpars_ctl.
  *  phase 4 (t32_tmo4_oracle): adr_5x5_init, adr_base_pars, adr_gauss_local, adr_local_info.
+ *  phase 5a (t32_tmo5a_oracle): adr_map_y_filter, adr_map_y_filter_sp.
  *
  * The vendor addresses the per channel TMO state as t32_data_e35e0[ch] -> a
  * channel record {ctx, stat, ..., geom at +12}; the port takes the members it
@@ -31,6 +32,7 @@
 
 #include "tx_isp_t32_tp.h"
 #include "tx_isp_t32_awbct.h"	/* t32_awb_fixmul / t32_awb_fixdiv = fix_point_mult2_32 / div_32 */
+#include "tx_isp_t32_awblong.h"	/* t32_awb_fixdiv64 = fix_point_div */
 
 /* signed 32 bit division, INT_MIN / -1 = INT_MIN (see above) */
 static inline int t32_tmo_sdiv(int n, int d)
@@ -1140,6 +1142,122 @@ static inline int t32_tmo_adr_local_info(u32 p0, u32 p1, u32 p2, u32 p3, u32 p4,
 		a1 = ((int)(s2 - r) >> 16) + (int)p0;
 	a1 = a1 < 10001 ? a1 : 10000;
 	return ((int)t32_awb_fixdiv(10, (u32)a1 << 10, 0x19000U) + 512) >> 10;
+}
+
+/*
+ * ---- phase 5a: adr_map_y_filter, adr_map_y_filter_sp ----
+ *
+ * The slope s[i] = (dy * 10000 + dx / 2) / dx of the curve piece (x, y) -> (x', y'), dx == 0 reads as t32_tmo_sdiv0 (vendor UB).  The
+ * vendor's running sums are kept as 64 bit values (low / high register pairs there).  The filter pass replaces s[1 .. n - 2] in
+ * place by (s[i - 1] + s[i] + s[i + 1] + 1) / 3 (the already replaced left neighbour), sum = their total; the curve is
+ * then (re)built from the slopes of the stretched sum: s[i] = (s[i] * total + sum / 2) / sum (64 bit, the unsigned fix_point_div, total
+ * the sum of the original slopes), y' = y + (dx * s[i] + 5000) / 10000.
+ */
+static inline u32 t32_tmo_slope(int dy, int dx)
+{
+	return (u32)t32_tmo_sdiv0((int)((u32)t32_tmo_sdiv(dx, 2) + (u32)dy * 10000U), dx);
+}
+
+/*
+ * tisp_tmo_adr_map_y_filter (xs = 16 s16 x positions, xs[15] is set to 4095; b = 14 u32 y values in and out; iters / idx the s16
+ * arguments): Y[0] = 0, Y[1 .. 14] = b[0 .. 13], Y[15] = 4095, 15 slopes; iters passes of the filter; per pass the curve is rebuilt:
+ * for k <= idx from the filtered slopes, beyond idx as the line to (4095, 4095) from the point Y[k - 1] (clamped to 4095).  b[0 .. 13] = Y[1 .. 14].
+ */
+static inline void t32_tmo_adr_map_y_filter(s16 *xs, u32 *b, int iters, int idx)
+{
+	u32 Y[16], S[15];
+	long long tot = 0, sum;
+	int k, it, j;
+
+	iters = (s16)iters;
+	idx = (s16)idx;
+	xs[15] = 4095;
+	Y[0] = 0;
+	Y[15] = 4095;
+	for (k = 1; k <= 15; k++) {
+		if (k != 15)
+			Y[k] = b[k - 1];
+		S[k - 1] = t32_tmo_slope((int)(Y[k] - Y[k - 1]), xs[k] - xs[k - 1]);
+		tot += (int)S[k - 1];
+	}
+	for (it = 0; it < iters; it++) {
+		u64 half;
+
+		sum = (int)S[0];
+		for (j = 1; j <= 13; j++) {
+			S[j] = (u32)t32_tmo_sdiv((int)(S[j - 1] + S[j] + S[j + 1] + 1U), 3);
+			sum += (int)S[j];
+		}
+		sum += (int)S[14];
+		half = (u64)sum >> 1;
+		for (k = 1; k <= 15; k++) {
+			u32 y;
+			int dx = xs[k] - xs[k - 1];
+
+			if (idx < k) {
+				int d = 4095 - xs[k - 1];
+
+				S[k - 1] = (u32)t32_tmo_sdiv0((int)((u32)t32_tmo_sdiv(d, 2) + (4095U - Y[k - 1]) * 10000U), d);
+			} else {
+				u64 n = (u64)(long long)(int)S[k - 1] * (u64)tot + half;
+
+				S[k - 1] = (u32)t32_awb_fixdiv64(0, n, (u64)sum);
+			}
+			y = (u32)t32_tmo_sdiv((int)((u32)dx * S[k - 1] + 5000U), 10000) + Y[k - 1];
+			Y[k] = (int)y < 4096 ? y : 4095U;
+		}
+	}
+	for (k = 0; k < 14; k++)
+		b[k] = Y[k + 1];
+}
+
+/*
+ * tisp_tmo_adr_map_y_filter_sp: the same on the curve resampled to 33 points: c0444 = vendor t32_data_c0444 (33 s16 positions);
+ * Y = interp1_short (xs, ys, c0444) with ys = (0, b[0 .. 13], 4095); 32 slopes; iters passes (smoothing s[1 .. 30], sum with s[0] and
+ * s[31]; every slope rebuilt from the stretched sum, no line to 4095 here), Y' = low 16 bits of the rebuilt value or 4095 when its
+ * s16 value is >= 4096; finally the 16 positions xs are interpolated back (interp1_short (c0444, Y, xs)) into ys and
+ * b[0 .. 13] = sign extended ys[1 .. 14].
+ */
+static inline void t32_tmo_adr_map_y_filter_sp(s16 *xs, u32 *b, int iters, const s16 *c0444)
+{
+	s16 in[33], ys[16], out[33];
+	u32 S[32];
+	long long tot = 0, sum;
+	int k, it, j;
+
+	iters = (s16)iters;
+	memcpy(in, c0444, sizeof(in));
+	ys[15] = 4095;
+	xs[15] = 4095;
+	ys[0] = 0;
+	for (k = 1; k < 15; k++)
+		ys[k] = (s16)b[k - 1];
+	t32_tmo_adr_interp1_short(xs, ys, in, out, 16, 33);
+	for (k = 0; k < 32; k++) {
+		S[k] = t32_tmo_slope(out[k + 1] - out[k], in[k + 1] - in[k]);
+		tot += (int)S[k];
+	}
+	for (it = 0; it < iters; it++) {
+		u64 half;
+
+		sum = (int)S[0];
+		for (j = 1; j <= 30; j++) {
+			S[j] = (u32)t32_tmo_sdiv((int)(S[j - 1] + S[j] + S[j + 1] + 1U), 3);
+			sum += (int)S[j];
+		}
+		sum += (int)S[31];
+		half = (u64)sum >> 1;
+		for (k = 0; k < 32; k++) {
+			u32 v;
+
+			S[k] = (u32)t32_awb_fixdiv64(0, (u64)(long long)(int)S[k] * (u64)tot + half, (u64)sum);
+			v = (u32)t32_tmo_sdiv((int)((u32)(in[k + 1] - in[k]) * S[k] + 5000U), 10000) + (u32)(u16)out[k];
+			out[k + 1] = (s16)v < 4096 ? (s16)v : 4095;
+		}
+	}
+	t32_tmo_adr_interp1_short(in, out, xs, ys, 33, 16);
+	for (k = 0; k < 14; k++)
+		b[k] = (u32)(int)ys[k + 1];
 }
 
 #endif /* TX_ISP_T32_TMO_H */
