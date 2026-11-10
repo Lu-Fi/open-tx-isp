@@ -84,7 +84,7 @@ static int ev_cases(const u8 *sec, const u8 *osec, const u8 *lut)
 }
 
 /* one case; returns 0 equal, 1 mismatch */
-static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes)
+static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes, u8 dsm)
 {
 	struct t32_front_write ow[T32_CCM_MAX_WRITES];
 	u8 osec[SECB], *base, *vlut, *info;
@@ -94,7 +94,7 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 	memcpy(osec, sec, SECB);
 	on = t32_ccm_init(osec, lut, lutbytes, ow);
 	if (on < 0) {
-		refused++;
+		refused += !dsm;
 		return 0;
 	}
 
@@ -107,13 +107,14 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 	put32(info + 24, T32O_PTR(vlut));
 	t32_data_dd0a4[0] = T32O_PTR(base);
 	t32_data_dc274[0] = T32O_PTR(info);
+	t32_data_d03a0[0] = dsm;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
 	t32o_call((t32o_fn)(void (*)(void))tisp_ccm_init, 0, 0, 0, 0, 0);
 
-	compared++;
+	compared += !dsm;
 	if (t32o_log.n != (unsigned int)on)
 		goto bad;
 	for (i = 0; i < t32o_log.n; i++)
-		if (t32o_log.w[i].reg != ow[i].reg || t32o_log.w[i].val != ow[i].val)
+		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
 	if (memcmp(base + SEC_OFF, osec, SECB))
 		goto bad;
@@ -125,7 +126,7 @@ bad:
 		printf("MISMATCH %s: writes vendor %u ours %d, knots %u hyst %u\n", what, t32o_log.n, on,
 		       sec[0x364], sec[0x365]);
 		for (i = 0; i < t32o_log.n || (int)i < on; i++) {
-			int d = i >= t32o_log.n || (int)i >= on || t32o_log.w[i].reg != ow[i].reg ||
+			int d = i >= t32o_log.n || (int)i >= on || !t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) ||
 				t32o_log.w[i].val != ow[i].val;
 
 			if (d)
@@ -138,6 +139,15 @@ bad:
 				printf("  sec+0x%x vendor %02x ours %02x\n", i, base[SEC_OFF + i], osec[i]);
 	}
 	return 1;
+}
+
+static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes)
+{
+	int bad = run_case_mode(what, sec, lut, lutbytes, 0);
+
+	bad += run_case_mode(what, sec, lut, lutbytes, 1);	/* d03a0 = 1: only the write addresses may differ */
+	t32_data_d03a0[0] = 0;
+	return bad;
 }
 
 static int coef(int mode)

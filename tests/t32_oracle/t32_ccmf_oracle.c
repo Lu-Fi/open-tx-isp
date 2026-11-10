@@ -71,7 +71,7 @@ static int cmp_state(const char *what, unsigned int on, u32 rv_o, u32 rv_v)
 		bad = "write count";
 	else {
 		for (i = 0; i < on; i++)
-			if (t32o_log.w[i].reg != ow[i].reg || t32o_log.w[i].val != ow[i].val) {
+			if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val) {
 				bad = "write";
 				idx = (int)i;
 				break;
@@ -284,7 +284,7 @@ static int one_step(const char *what, unsigned int k)
 }
 
 /* the sequence: init on both sides, then random steps */
-static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes, unsigned int nsteps)
+static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes, unsigned int nsteps, u8 dsm)
 {
 	u8 *base, *vlut, *info, *vst;
 	unsigned int on, k;
@@ -292,7 +292,7 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 	memcpy(osec, sec, SECB);
 	on = (unsigned)t32_ccm_start(&st, osec, lut, lutbytes, ow);
 	if ((int)on < 0) {
-		refused++;
+		refused += !dsm;
 		return 0;
 	}
 	cases++;
@@ -305,6 +305,7 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 	put32(info + 24, T32O_PTR(vlut));
 	t32_data_dd0a4[0] = T32O_PTR(base);
 	t32_data_dc274[0] = T32O_PTR(info);
+	t32_data_d03a0[0] = dsm;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
 	t32o_call((t32o_fn)(void (*)(void))tisp_ccm_init, 0, 0, 0, 0, 0);
 	vst = T32O_HOST(t32_data_e28f0[0]);
 	vsec = T32O_HOST(get32(vst));
@@ -321,6 +322,15 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 bad:
 	failed++;
 	return 1;
+}
+
+static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes, unsigned int nsteps)
+{
+	int bad = run_case_mode(what, sec, lut, lutbytes, nsteps, 0);
+
+	bad += run_case_mode(what, sec, lut, lutbytes, nsteps, 1);	/* d03a0 = 1: only the write addresses may differ */
+	t32_data_d03a0[0] = 0;
+	return bad;
 }
 
 static int coef(void)

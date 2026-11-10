@@ -86,7 +86,7 @@ static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lut
 		static const u32 ports[3][2] = { { 0x32040, 0x32044 }, { 0x32080, 0x32084 }, { 0x32060, 0x32064 } };
 		static const u32 ctl[3] = { 2038, 2171, 2304 };
 
-		if (t32o_lut_shadow_check(ow, on, 3, ports, ctl, 131, shimg, T32_GAMMA_IMG_WORDS))
+		if (t32o_lut_shadow_check(ow, on, 3, ports, ctl, 131, shimg, T32_GAMMA_IMG_WORDS, NULL))
 			goto bad;
 		return 0;
 	}
