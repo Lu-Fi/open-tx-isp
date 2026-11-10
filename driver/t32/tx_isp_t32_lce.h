@@ -1072,4 +1072,246 @@ static inline void t32_lce_t41_blk1(const u8 *par, u8 *w, u32 mode, const struct
 	memcpy(tgt, cur, 20);
 }
 
+/* the vendor's scratch .bss (e18a4 .. e1d74), in its layout; one LCE call's worth of it, zero at the start */
+struct t32_lce_t41_scr {
+	u8 tmp[16];		/* e18a4: staging of the last four result bytes (not mirrored) */
+	u8 rows[8][20];		/* e18b4: the eight tiles' cdf rows after the self light correction */
+	u8 cdf[8][20];		/* e1954: the eight tiles' cdf rows */
+	u32 b[32];		/* e19f4: ramp b */
+	u8 stage[16];		/* e1a74: vector constant staging (not mirrored) */
+	u32 a[32];		/* e1a84: ramp a (limit curve) */
+	u16 m[32];		/* e1b04: limited bins, 16 bit */
+	u16 thr[8];		/* e1b44: threshold byte of each tile (low byte written by the judge) */
+	u16 out[8][32];		/* e1b54: the eight tiles' new bins */
+	u16 flag[8];		/* e1d54: tile is the one selected by par[110] / par[111] */
+	u16 tid[8];		/* e1d64: tile index */
+};
+
+struct t32_lce_t41_st {
+	const u8 *par;
+	u8 *w;
+	u32 mode;
+	const struct t32_lce_t41_ops *ops;
+	u32 a[20];		/* cdf * par[112] (stack words 472 .. 567 of the vendor) */
+	struct t32_lce_t41_scr s;
+};
+
+#define T32_LCE_T41_OUT	76032U	/* per tile result rows (20 bytes each) */
+#define T32_LCE_T41_PREV	87552U	/* per tile previous rows (20 bytes each) */
+#define T32_LCE_T41_THR	(T32_LCE_T41_A - 1155U)	/* per tile threshold byte */
+
+/* blk2: the global cdf (blk1 result) scaled by the blend weight par[112], as u32 words */
+static inline void t32_lce_t41_blk2(struct t32_lce_t41_st *st)
+{
+	const u8 *cur = st->w + T32_LCE_T41_A + 553;
+	u32 k = st->par[112], i;
+
+	for (i = 0; i < 20; i++)
+		st->a[i] = cur[i] * k;
+}
+
+/*
+ * blk3: the eight tiles of one group (columns grp .. grp + 7 of tile row row): per tile, gain table entry idx
+ * (0 / 1 before / after column par[13], +2 from row par[12] on), bins = (bin * gain) >> 9 (arithmetic), and the
+ * 0x8000 total restored (rem = 0x8000 - sum when below: rem % 32 bins + 1, all bins + rem / 32).
+ */
+static inline void t32_lce_t41_blk3(struct t32_lce_t41_st *st, u32 row, u32 grp)
+{
+	const u8 *par = st->par;
+	u32 idx0 = row < par[12] ? 0 : 2, j, i;
+
+	for (j = 0; j < 8; j++) {
+		u32 col = grp + j, tile = (row * 32 + col) & 0xffff, idx = col < par[13] ? idx0 : idx0 + 1;
+		u32 gain = t32_lce_t41_rd32(par + 68 + 4 * idx), sum = 0;
+		u16 bins[32];
+
+		st->s.tid[j] = (u16)tile;
+		st->s.flag[j] = par[110] == row ? par[111] == col : 0;
+		memcpy(bins, st->w + tile * 64, 64);
+		for (i = 0; i < 32; i++) {
+			u32 y = (u32)((int)(bins[i] * gain) >> 9);
+
+			sum += y;
+			bins[i] = (u16)y;
+		}
+		if ((int)sum < 0x8000) {
+			u32 rem = 0x8000U - sum;
+
+			for (i = 0; i < (rem & 31); i++)
+				bins[i]++;
+			for (i = 0; i < 32; i++)
+				bins[i] = (u16)(bins[i] + ((int)rem >> 5));
+		}
+		memcpy(st->w + tile * 64, bins, 64);
+	}
+}
+
+/*
+ * blk4: per tile of the group: threshold (judge, or par[230] when par[229] == 1), stored per tile index; the two
+ * tent curves a (par[234] * 8 ... par[235] * 8 at the threshold) and b (par[236] ... par[237]) around it, slopes
+ * from 1024 / thr; the bins limited by a: m = min(a, ((bin - 1024) * par[238] >> 7) + 1024) (unsigned min),
+ * and then renormalised to 0x8000: too much -> scaled by (1 << d6c67) / ((sum << 5 >> 14) + 1) >> (d6c67 - 6), too little
+ * -> the rest spread in proportion to b; the last 0x8000 residual spread as in blk3 (rem % 32 on bin 31).
+ * The threshold is used modulo 32 (the vendor's 32 entry arrays overflow above 31; it is at most 31 on every real path).
+ */
+static inline void t32_lce_t41_blk4(struct t32_lce_t41_st *st)
+{
+	const u8 *par = st->par;
+	struct t32_lce_t41_scr *s = &st->s;
+	u32 j, i;
+
+	for (j = 0; j < 8; j++) {
+		u32 tile = s->tid[j], thr, ra, rb, sb = 0, sm = 0, tot = 0, rem, h, outv[32];
+		u16 bins[32];
+
+		memcpy(bins, st->w + tile * 64, 64);
+		st->ops->hfj16(bins, (u8 *)&s->thr[j]);
+		if (par[229] == 1)
+			s->thr[j] = par[230];
+		st->w[T32_LCE_T41_THR + tile] = (u8)s->thr[j];
+		thr = (u8)s->thr[j] & 31;
+		ra = (u32)((int)(par[235] * 8 * t32_lce_hm_recip[thr]) >> 10);
+		rb = (u32)((int)(par[237] * t32_lce_hm_recip[thr]) >> 10);
+		for (i = 0; i < 32; i++) {
+			u32 d = i < thr ? i : (i > thr ? 31 - i : 0);
+
+			if (i == thr) {
+				s->a[i] = (par[234] + par[235]) << 3;
+				s->b[i] = par[236] + par[237];
+			} else {
+				s->a[i] = ra * d + (par[234] << 3);
+				s->b[i] = rb * d + par[236];
+			}
+			sb += s->b[i];
+		}
+		for (i = 0; i < 32; i++) {
+			u32 y = (u32)((int)((bins[i] - 1024U) * par[238]) >> 7) + 1024U;
+
+			s->m[i] = (u16)(s->a[i] < y ? s->a[i] : y);
+			sm += s->a[i] < y ? s->a[i] : y;
+		}
+		if ((int)(0x8000U - sm) < 0) {
+			u32 q = t32_lce_sdiv(1U << (st->ops->shift_byte & 31), (u32)((int)(sm << 5) >> 14) + 1);
+
+			for (i = 0; i < 32; i++) {
+				outv[i] = (u32)((int)(q * s->m[i]) >> ((u8)(st->ops->shift_byte - 6) & 31));
+				tot += outv[i];
+			}
+		} else {
+			rem = 0x8000U - sm;
+			for (i = 0; i < 32; i++) {
+				outv[i] = s->m[i] + (sb ? s->b[i] * rem / sb : ~0U);
+				tot += outv[i];
+			}
+		}
+		rem = 0x8000U - tot;
+		h = (u32)((int)(rem << 5) >> 10);
+		for (i = 0; i < 32; i++)
+			s->out[j][i] = (u16)(outv[i] + h);
+		s->out[j][31] = (u16)(s->out[j][31] + (int)rem % 32);
+	}
+}
+
+/* blk5: the cdf (20 bytes) of each of the eight new tile bin sets (lce_pdf_to_cdf_raw on the u16 bins widened to u32) */
+static inline void t32_lce_t41_blk5(struct t32_lce_t41_st *st)
+{
+	u32 j, i, pdf[32];
+
+	for (j = 0; j < 8; j++) {
+		for (i = 0; i < 32; i++)
+			pdf[i] = st->s.out[j][i];
+		t32_lce_pdf_to_cdf_raw(pdf, st->s.cdf[j]);
+	}
+}
+
+/*
+ * blk6: the eight cdf rows through the 8 x 20 self light correction (par[239] != 0; enable par[242], up par + 244,
+ * down par + 264) or copied.
+ */
+static inline void t32_lce_t41_blk6(struct t32_lce_t41_st *st)
+{
+	const u8 *par = st->par;
+
+	if (par[239])
+		st->ops->slc_simd_test(&st->s.cdf[0][0], &st->s.rows[0][0], par[242], par + 244, par + 264);
+	else
+		memcpy(st->s.rows, st->s.cdf, sizeof(st->s.rows));
+}
+
+/* one element of the temporal limiter (16 bit lanes, signed compares): c = new, p = previous, k gain, lo dead zone / minimum step, hi maximum step */
+static inline u8 t32_lce_t41_limit(u32 c, u32 p, s16 k, s16 lo, s16 hi)
+{
+	u16 d = (u16)(c > p ? c - p : p - c), prod = (u16)(d * (u16)k);
+	s16 v = (s16)((s16)prod >> 7), s;
+
+	v = (s16)(v + ((prod >> 6) & 1));
+	s = (s16)(v < lo ? lo : (hi < v ? hi : v));
+	if ((s16)(u16)(c + lo) < (s16)p)
+		return (u8)(p - s);
+	if ((s16)(u16)(p + lo) < (s16)c)
+		return (u8)(p + s);
+	return (u8)c;
+}
+
+/*
+ * blk7: per tile of the group: the tile selected by par[110] / par[111] is copied out for inspection (bins, cdf,
+ * corrected row at LCE_A + 637 / 701 / 721); except in mode 4 the corrected row is limited against the tile's previous
+ * row (gain par[119], dead zone par[120], maximum par[121], all signed bytes), becomes the previous row, and the
+ * result row is the blend (a + (128 - par[112]) * row) >> 7 with a = cdf * par[112] from blk2 (the last four bytes with rounding).
+ */
+static inline void t32_lce_t41_blk7(struct t32_lce_t41_st *st)
+{
+	const u8 *par = st->par;
+	u8 *w = st->w;
+	u32 j, i;
+
+	for (j = 0; j < 8; j++) {
+		u8 *row = st->s.rows[j], *prev = w + T32_LCE_T41_PREV + st->s.tid[j] * 20U, *res = w + T32_LCE_T41_OUT + st->s.tid[j] * 20U;
+		u32 k = par[112];
+
+		if (st->s.flag[j]) {
+			memcpy(w + T32_LCE_T41_A + 637, st->s.out[j], 64);
+			memcpy(w + T32_LCE_T41_A + 701, st->s.cdf[j], 20);
+			memcpy(w + T32_LCE_T41_A + 721, row, 20);
+		}
+		if (st->mode != 4)
+			for (i = 0; i < 20; i++)
+				row[i] = t32_lce_t41_limit(row[i], prev[i], (s8)par[119], (s8)par[120], (s8)par[121]);
+		memcpy(prev, row, 20);
+		for (i = 0; i < 20; i++) {
+			u32 x = st->a[i] + (128 - k) * row[i];
+
+			res[i] = (u8)((int)x >> 7);
+			if (i >= 16)
+				res[i] = (u8)(res[i] + ((x >> 6) & 1));
+		}
+	}
+}
+
+/*
+ * Tisp_lce_soft_t41_simd: scratch = the vendor's scratch .bss (zeroed here), the blocks in order, the 18 rows x
+ * 4 groups of 8 tile columns.
+ */
+static inline void t32_lce_t41(const u8 *par, u8 *w, u32 mode, const struct t32_lce_t41_ops *ops)
+{
+	struct t32_lce_t41_st st;
+	u32 row, grp;
+
+	memset(&st, 0, sizeof(st));
+	st.par = par;
+	st.w = w;
+	st.mode = mode;
+	st.ops = ops;
+	t32_lce_t41_blk1(par, w, mode, ops);
+	t32_lce_t41_blk2(&st);
+	for (row = 0; row < 18; row++)
+		for (grp = 0; grp < 32; grp += 8) {
+			t32_lce_t41_blk3(&st, row, grp);
+			t32_lce_t41_blk4(&st);
+			t32_lce_t41_blk5(&st);
+			t32_lce_t41_blk6(&st);
+			t32_lce_t41_blk7(&st);
+		}
+}
+
 #endif /* TX_ISP_T32_LCE_H */

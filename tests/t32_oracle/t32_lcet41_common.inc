@@ -25,14 +25,17 @@ u8 oc_d6c66 __asm__("t32_data_d6c66") __attribute__((weak)) = 20;
 u8 oc_d6c67 __asm__("t32_data_d6c67") __attribute__((weak)) = 20;
 /* the vendor's scratch .bss objects e18a4 .. e1d74 (one blob so the arrays that run into the next symbol keep their layout) */
 u8 oc_bss[0x4d0] __attribute__((aligned(16)));
-__asm__(".globl t32_data_e18a4, t32_data_e18b4, t32_data_e1954, t32_data_e19f4, t32_data_e1a14, t32_data_e1a34, t32_data_e1a54, t32_data_e1a74, t32_data_e1a84, t32_data_e1aa4, t32_data_e1ac4, t32_data_e1ae4, t32_data_e1b04, t32_data_e1b14, t32_data_e1b24, t32_data_e1b34, t32_data_e1b44, t32_data_e1b54, t32_data_e1d54, t32_data_e1d64, t32_data_ce210\n"
+__asm__(".globl t32_data_e18a4, t32_data_e18b4, t32_data_e1954, t32_data_e19f4, t32_data_e1a14, t32_data_e1a34, t32_data_e1a54, t32_data_e1a74, t32_data_e1a84, t32_data_e1aa4, t32_data_e1ac4, t32_data_e1ae4, t32_data_e1b04, t32_data_e1b14, t32_data_e1b24, t32_data_e1b34, t32_data_e1b44, t32_data_e1b54, t32_data_e1d54, t32_data_e1d64\n"
 	".set t32_data_e18a4, oc_bss+0x0\n.set t32_data_e18b4, oc_bss+0x10\n.set t32_data_e1954, oc_bss+0xb0\n.set t32_data_e19f4, oc_bss+0x150\n"
 	".set t32_data_e1a14, oc_bss+0x170\n.set t32_data_e1a34, oc_bss+0x190\n.set t32_data_e1a54, oc_bss+0x1b0\n.set t32_data_e1a74, oc_bss+0x1d0\n"
 	".set t32_data_e1a84, oc_bss+0x1e0\n.set t32_data_e1aa4, oc_bss+0x200\n.set t32_data_e1ac4, oc_bss+0x220\n.set t32_data_e1ae4, oc_bss+0x240\n"
 	".set t32_data_e1b04, oc_bss+0x260\n.set t32_data_e1b14, oc_bss+0x270\n.set t32_data_e1b24, oc_bss+0x280\n.set t32_data_e1b34, oc_bss+0x290\n"
 	".set t32_data_e1b44, oc_bss+0x2a0\n.set t32_data_e1b54, oc_bss+0x2b0\n.set t32_data_e1d54, oc_bss+0x4b0\n.set t32_data_e1d64, oc_bss+0x4c0\n"
-	".set t32_data_ce210, t32_data_ce130+224\n");
+ );
 
+/* data.c:16887 + 0xe0 (ce210): the u32 lane -> byte pack selector */
+u8 oc_ce210[16] __asm__("t32_data_ce210") = { 0, 8, 16, 24, 1, 9, 17, 25, 2, 2, 2, 2, 2, 2, 2, 2 };
+u32 t32o_t41_stack[236];
 extern u64 Tisp_lce_soft_t41_simd(u32 a0, u32 a1, u32 a2, u32 a3);
 extern u64 lce_hist_filter_and_judge(u32, u32, u32, u32);
 
@@ -60,14 +63,12 @@ static struct t32_lce_t41_ops ops = { h_hfj, h_hm, h_cdf, h_slc, h_conv, h_hfj16
 static unsigned int compared;
 
 /* one case; returns 1 on mismatch */
-static void port_phase(const u8 *par, u8 *w, u32 mode, const struct t32_lce_t41_ops *ops);
-static u32 port_bss_len(void);
-static u32 port_bss_off(void);
-static const u8 *port_bss(void);
+static void port_phase(struct t32_lce_t41_st *st);
 static void gen_extra(u8 *par, u8 *w);
 static int one(u8 *par, u8 *w, u32 mode)
 {
 	u8 *wo = malloc(WSZ), *po = malloc(PSZ), *wr, *pr;
+	static struct t32_lce_t41_st st;
 	int bad = 0;
 	unsigned int i;
 
@@ -80,7 +81,9 @@ static int one(u8 *par, u8 *w, u32 mode)
 	memcpy(pr, par, PSZ);
 	memset(oc_bss, 0, sizeof(oc_bss));
 	t32o_call((t32o_fn)(void (*)(void))Tisp_lce_soft_t41_simd, 0, T32O_PTR(pr), T32O_PTR(wr), mode, 0);
-	port_phase(po, wo, mode, &ops);
+	memset(&st, 0, sizeof(st));
+	st.par = po; st.w = wo; st.mode = mode; st.ops = &ops;
+	port_phase(&st);
 	compared++;
 	if (memcmp(pr, par, PSZ))
 		bad = printf("MISMATCH vendor changed par\n");
@@ -89,19 +92,59 @@ static int one(u8 *par, u8 *w, u32 mode)
 	for (i = 0; i < WSZ && !bad; i++)
 		if (wr[i] != wo[i])
 			bad = printf("MISMATCH w+0x%x vendor %02x port %02x (mode %u)\n", i, wr[i], wo[i], mode);
-	for (i = 0; i < port_bss_len() && !bad; i++)
-		if (oc_bss[port_bss_off() + i] != port_bss()[i])
-			bad = printf("MISMATCH bss+0x%x vendor %02x port %02x (mode %u)\n", port_bss_off() + i,
-				     oc_bss[port_bss_off() + i], port_bss()[i], mode);
+#if PHASE >= 2
+	/* the scratch .bss (vendor object vs port scratch; e18a4 and e1a74 are staging areas, not mirrored) */
+	for (i = 0; i < sizeof(oc_bss) && !bad; i++)
+		if (i >= 0x10 && (i < 0x1d0 || i >= 0x1e0) && oc_bss[i] != ((u8 *)&st.s)[i])
+			bad = printf("MISMATCH bss+0x%x vendor %02x port %02x (mode %u)\n", i, oc_bss[i], ((u8 *)&st.s)[i], mode);
+	/* the cdf * par[112] words kept on the vendor's stack (frame words 472.., 488.., 504.., 536.., 552..) */
+	{
+		static const unsigned int so[5] = { 472, 488, 504, 536, 552 };
+		unsigned int q;
+
+		for (q = 0; q < 20 && !bad; q++)
+			if (t32o_t41_stack[(so[q / 4] + 4 * (q % 4)) / 4] != st.a[q])
+				bad = printf("MISMATCH a[%u] vendor %x port %x\n", q, t32o_t41_stack[(so[q / 4] + 4 * (q % 4)) / 4], st.a[q]);
+	}
+#endif
 	free(wo); free(po);
 	return bad;
+}
+
+
+static void gen_extra(u8 *par, u8 *w)
+{
+	unsigned int i;
+
+	(void)w;
+	for (i = 0; i < 4; i++) {
+		u32 gain = (rnd() % 3) ? 256 + rnd() % 600 : rnd() % 2048;
+
+		memcpy(par + 68 + 4 * i, &gain, 4);
+	}
+	par[110] = (u8)(rnd() % 18);
+	par[111] = (u8)(rnd() % 32);
+	if (!(rnd() % 4))
+		par[110] = (u8)rnd();
+	par[12] = (u8)(rnd() % 20);
+	par[13] = (u8)(rnd() % 34);
+	par[229] = (rnd() % 3) ? 1 : (u8)rnd();
+	par[230] = (u8)(rnd() % 32);
+	par[234] = (rnd() % 2) ? (u8)rnd() : (u8)(rnd() % 8);
+	par[235] = (u8)(rnd() % 16);
+	par[236] = (u8)(rnd() % 8);
+	par[237] = (u8)(rnd() % 16);
+	par[239] = (rnd() % 3) ? (u8)(1 + rnd() % 255) : 0;
+	if (!(rnd() % 6))
+		par[236] = par[237] = 0;
+	par[238] = (rnd() % 3) ? 128 + (u8)(rnd() % 100) : (u8)rnd();
 }
 
 /* random inputs: a parameter block and a working buffer whose tile bins give totals on both sides of 0x8000 */
 static int gen_and_run(void)
 {
 	static u8 par[PSZ], w[WSZ];
-	unsigned int i, sc = 1u << (rnd() % 9);
+	unsigned int i, sc = 1u << (rnd() % 13);
 	u32 mode;
 
 	for (i = 0; i < PSZ; i++)
@@ -114,7 +157,15 @@ static int gen_and_run(void)
 		w[i] = (u8)v; w[i + 1] = (u8)(v >> 8);
 	}
 	{
-		u32 mult = 1 + rnd() % 300, sh = rnd() % 20;
+		/* scale so that the total lands near 0x8000 (both sides, sometimes far off) */
+		u64 sb = 1;
+		u32 mult, sh = rnd() % 20, tgt = (rnd() % 4) ? 0x7000 + rnd() % 0x6000 : rnd() % 0x20000;
+
+		for (i = 0; i < 0x9000; i += 2)
+			sb += w[i] | w[i + 1] << 8;
+		mult = (u32)(((u64)tgt << sh) / sb);
+		if (!mult || !(rnd() % 8))
+			mult = 1 + rnd() % 300;
 
 		memcpy(par + 4, &mult, 4);
 		memcpy(par + 8, &sh, 4);
