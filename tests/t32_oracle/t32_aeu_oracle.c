@@ -150,6 +150,20 @@ static const struct t32_ae_ops AEOPS = { h_div32, h_mult2_32, h_mult3_32, NULL, 
 static const struct t32_aev_ops EVOPS = { h_div32, h_mult2_32, h_div64, h_mult2_64, h_mult3_64, h_set_fps, h_max_exp };
 static const struct t32_aeu_ops OPS = { &AEOPS, &EVOPS };
 
+/* probe ops: the same maths, remembering whether a mult2_64 result equals pr_one */
+static t32_u64 pr_one;
+static int pr_hit;
+static t32_u64 p_mult2_64(u32 sh, t32_u64 a, t32_u64 b)
+{
+	t32_u64 r = h_mult2_64(sh, a, b);
+
+	if (r == pr_one)
+		pr_hit = 1;
+	return r;
+}
+static const struct t32_aev_ops PEVOPS = { h_div32, h_mult2_32, h_div64, p_mult2_64, h_mult3_64, h_set_fps, h_max_exp };
+static const struct t32_aeu_ops POPS = { &AEOPS, &PEVOPS };
+
 struct par { u32 ch, total, dcw, junk; };
 static u8 img[ARENA];
 static u8 *base_a;
@@ -179,6 +193,8 @@ static void gen(struct par *p)
 	for (i = 0; i < ARENA; i++)
 		img[i] = sel ? (u8)rnd() : (u8)(rnd() & 7);
 	sh = rnd() % 5 ? 4 + rnd() % 10 : rnd() % 17;
+	if (rnd() % 5 == 0)
+		sh = 1 + rnd() % 3;
 	if (rnd() % 30 == 0)
 		sh = 31;
 	if (rnd() % 60 == 0)
@@ -274,6 +290,11 @@ static void gen(struct par *p)
 		tot = cur + (rnd() % 2 ? ld(T + 2868) : (u32)-(int)ld(T + 2866)) + (u32)((int)(rnd() % 3) - 1);
 	if (rnd() % 3 == 0 && !(tot & 0xffff))
 		tot = rnd() % 5 ? tot | 1 : tot;
+	if (img[R + 1297] && rnd() % 6 == 0) {	/* total equal to the clamped R[1296] target */
+		u32 v = img[R + 1296];
+
+		tot = v < 10 ? 10 : v < 201 ? v : 200;
+	}
 	p->total = tot;
 	/* window of the stored target: c2862 > q > c2864 hit or miss at both edges */
 	q = h_div32(sh, (cur & 0xffff) << sx, (tot ? tot : 1) << sx);
@@ -315,6 +336,29 @@ static void gen(struct par *p)
 		put32(img + OFF_PW + 8, 40 + rnd() % 3);
 	if (rnd() % 8 == 0)
 		put32(img + OFF_PW + 12, 40 + rnd() % 3);
+	/* the step with e == one (!up, formula e): search h198 / total on the vendor maths with a probe run */
+	if (sh >= 1 && sh <= 3 && rnd() % 2) {
+		static u8 sv[ARENA];
+		u8 d;
+		u32 t;
+
+		put16(img + B + 8566, 1);
+		put16(img + B + 8568, 0);
+		img[R + 1285] = 1;
+		img[R + 1297] = 1;
+		put16(img + T + 2860, 1);
+		for (t = 0; t < 60 && !pr_hit; t++) {
+			img[R + 1296] = 10 + rnd() % 12;
+			p->total = img[R + 1296] + 1 + rnd() % 80;
+			put16(img + T + 2852, rnd() % 40);
+			put16(img + T + 2854, rnd() % 40);
+			memcpy(sv, img, ARENA);
+			pr_hit = 0;
+			pr_one = (t32_u64)1 << (2 * sh);
+			t32_ae_tune(sv + T, sv + B, sv + R, &d, p->dcw, p->ch, p->total, sv + OFF_PW, sv + OFF_PW + 8, &POPS);
+		}
+		pr_hit = 0;
+	}
 }
 
 struct snap {
