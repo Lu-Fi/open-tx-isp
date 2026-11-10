@@ -951,6 +951,71 @@ static inline void t32_awb_set_statis_localtion(const struct t32_awb_ctx *c, con
 }
 
 /*
+ * AWB API accessors (vendor tisp_awb_api_set_face / get_face /
+ * set_ct_trend_offset / get_ct_trend_offset / get_awb_stable), checked by
+ * t32_awbaa_oracle.  Same ctx as above.  The face block is five words at
+ * sec + 0x1d470 (in[1], in[2], in[3], in[4], then in[0] at +0x1d480); the
+ * vendor's set_face first calls tisp_awb_face_pos(ch, byte in[0], u16 +8,
+ * u16 +16, u16 +4, u16 +12), a hook here.  The ct trend offset is six words at
+ * tune + 3064 plus two u16 at tune + 3088 / 3092, and setting it raises the
+ * flag byte at sec + 0x1a44c.
+ */
+#define T32_AWB_SEC_FACE	0x1d470U
+#define T32_AWB_T_CTTR		3064U
+#define T32_AWB_T_CTTR_A	3088U
+
+typedef void (*t32_awb_facepos_fn)(void *priv, u32 ch, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5);
+
+/* in: byte 0 / u16 4,8,12,16 plus words 1..4 (20 bytes, vendor reads them as u8/u16/u32) */
+static inline void t32_awb_api_set_face(const struct t32_awb_ctx *c, u32 ch, const u8 *in,
+					t32_awb_facepos_fn pos, void *priv)
+{
+	u32 k;
+
+	pos(priv, ch, in[0], t32_st16(in, 8), t32_st16(in, 16), t32_st16(in, 4), t32_st16(in, 12));
+	for (k = 1; k < 5; k++)
+		t32_wr32(c->sec, T32_AWB_SEC_FACE + 4 * (k - 1), t32_ld32(in, 4 * k));
+	t32_wr32(c->sec, T32_AWB_SEC_FACE + 16, t32_ld32(in, 0));
+}
+
+static inline void t32_awb_api_get_face(const struct t32_awb_ctx *c, u8 *out)
+{
+	u32 k;
+
+	for (k = 1; k < 5; k++)
+		t32_wr32(out, 4 * k, t32_ld32(c->sec, T32_AWB_SEC_FACE + 4 * (k - 1)));
+	t32_wr32(out, 0, t32_ld32(c->sec, T32_AWB_SEC_FACE + 16));
+}
+
+/* in: u16 offsets at 0 / 2, six words at 4..24 */
+static inline void t32_awb_api_set_ct_trend_offset(const struct t32_awb_ctx *c, const u8 *in)
+{
+	u32 k;
+
+	for (k = 0; k < 6; k++)
+		t32_wr32(c->tune, T32_AWB_T_CTTR + 4 * k, t32_ld32(in, 4 + 4 * k));
+	t32_wr32(c->tune, T32_AWB_T_CTTR_A, t32_st16(in, 0));
+	t32_wr32(c->tune, T32_AWB_T_CTTR_A + 4, t32_st16(in, 2));
+	c->sec[T32_AWB_SEC_FLAG] = 1;
+}
+
+static inline void t32_awb_api_get_ct_trend_offset(const struct t32_awb_ctx *c, u8 *out)
+{
+	u32 k;
+
+	for (k = 0; k < 6; k++)
+		t32_wr32(out, 4 + 4 * k, t32_ld32(c->tune, T32_AWB_T_CTTR + 4 * k));
+	t32_wr16(out, 0, t32_ld32(c->tune, T32_AWB_T_CTTR_A));
+	t32_wr16(out, 2, t32_ld32(c->tune, T32_AWB_T_CTTR_A + 4));
+}
+
+/* the vendor reads the word at tune + 8 */
+static inline u32 t32_awb_api_get_awb_stable(const struct t32_awb_ctx *c)
+{
+	return t32_ld32(c->tune, 8);
+}
+
+/*
  * Per-frame AE exposure allocation (vendor tisp_ae_short_expt,
  * tisp_ae_short_ev_alloc, tisp_ae_long_ev_alloc; Matt Davis' recovered C),
  * checked by tests/t32_oracle (t32_aee_oracle).  Register writes go to w[]
