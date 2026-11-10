@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T32 port, other helpers / glue (planned, host only, not device-tested)
+
+- `t32_misc_oracle` (planned, host only): new `tx_isp_t32_misc.h` (tisp_max/min, tisp_simple_intp(_uint32), dfg_array_cmp, isStringAssigned, lsc_exchange_data/_line, u3bw, 8 constant vendor hooks; 17 reference functions): 20000 random rounds with ties, idx 9..11, n <= 0, overlapping rows, 0 mismatches, 23/23 mutations detected. Vendor quirk kept: u3bw's fourth word carries the top byte of the source address (single lwr).
+
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
 - T32 is planned work (prio long-term, not a release gate). New `tests/t32_oracle/`: selected functions of Matt Davis' all-C recovery of the vendor T32 module (opensensor/open-tx-isp PR #15, our branch `t32/recovered-baseline` 2e2e06bc) are copied unchanged into `tests/t32_oracle/ref/` (provenance header, author credit) and built for the host as the reference: fake environment `env.c` (o32-shaped stubs for vmalloc/register write/printf/irq, OEM data objects with the values of `data.c`, a stack and heap below 4 GiB because the recovered C casts pointers through u32; non-PIE link). Runner `run.sh` + one `.conf` per oracle (reference files, our header, mutation list).
