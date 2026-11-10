@@ -785,3 +785,5 @@ u32 t32_data_e3f30[1] __attribute__((weak)), t32_data_e3f2c[1] __attribute__((we
 u32 t32_data_e1500[4] __attribute__((weak)), t32_data_e14f0[4] __attribute__((weak));
 /* lib_tisp_api_s_runningMode: t32_data_dc2b0 is byte 44 of the channel state t32_data_dc284 */
 __asm__(".globl t32_data_dc2b0\n.set t32_data_dc2b0, t32_data_dc284 + 44");
+/* lib_tisp_set_isp_memory_space: "memory configured" byte (.bss dd674) */
+u8 t32_data_dd674[4] __attribute__((weak));
