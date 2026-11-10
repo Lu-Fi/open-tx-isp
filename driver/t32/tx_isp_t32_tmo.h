@@ -17,6 +17,7 @@
  *  phase 4 (t32_tmo4_oracle): adr_5x5_init, adr_base_pars, adr_gauss_local, adr_local_info.
  *  phase 5a (t32_tmo5a_oracle): adr_map_y_filter, adr_map_y_filter_sp.
  *  phase 5b (t32_tmo5b_oracle): adr_map_curve1.
+ *  phase 5c (t32_tmo5c_oracle): adr_ev_func.
  *
  * The vendor addresses the per channel TMO state as t32_data_e35e0[ch] -> a
  * channel record {ctx, stat, ..., geom at +12}; the port takes the members it
@@ -1313,6 +1314,96 @@ static inline void t32_tmo_adr_map_curve1(u32 *out, int a1, int a2, const int *d
 	out[5] = (u32)t32_tmo_sdiv((int)((Q[1] + Q[2]) * 4095U), 131070);
 	for (i = 0; i < 8; i++)
 		out[6 + i] = (u32)t32_tmo_sdiv((int)(Q[qi[i]] * 4095U), 65535);
+}
+
+/*
+ * tisp_tmo_adr_ev_func (phase 5c): evaluate the context's ev dependent curves at the current ev point.
+ * seed[] is t32_data_e3530 (u64 per channel; the first two entries are set to 2000 here, the vendor does it on every
+ * call), cur[] t32_data_e3550, pend[] t32_data_e3528 (s16 per channel), ev the block at e35b0[ch] + 4 (+0x18 ..: eight
+ * rows of 11 s16, 22 bytes apart).  Channel ch: cur[ch] = seed[ch]; only a pending flag of 1 goes on (and clears it).
+ * The 64 bit point x = cur[ch] is looked up (adr_ispint_adr_64, 11 points, x axis ctx + 800) on 11 point y tables of the
+ * context and the u16 results stored.  Selector s16 ctx[9574]: 2 = the eight rows of ev are filled from ctx and looked
+ * up into ctx[8826..8840] (plus the four of selector 0), 0 = four lookups into ctx[8314..8320], else those four copied
+ * from ctx[9576..9582].  ctx[9846] (0: two lookups into ctx[8322 / 8324], else copied from ctx[9848 / 9850]);
+ * ctx[9896] (0: 13 lookups into ctx[8336..8356, 8328, 8330], else copied from ctx[9866..9890]); ctx[8332 / 8334] are
+ * cleared; ctx[9268] (0: 14 lookups into ctx[8798..8824], else copied from ctx[9240..9266]).  The return value is only
+ * leftover registers in the vendor code (not reproduced); the vendor's delay slot load of ctx[9576] on the
+ * selector 0 path is dead.
+ */
+static inline void t32_tmo_adr_ev_func(int ch, u8 *c, u8 *ev, u64 *seed, u64 *cur, s16 *pend)
+{
+#define EV_S16(o) (*(s16 *)(c + (o)))
+#define EV_U16(o) (*(u16 *)(c + (o)))
+#define EV_LK(ys) ((u16)t32_tmo_adr_ispint_64((long long)cur[ch], (const long long *)(c + 800), (const s16 *)(c + (ys)), 11))
+	int i;
+
+	seed[0] = 2000;
+	seed[1] = 2000;
+	cur[ch] = seed[ch];
+	if (pend[ch] != 1)
+		return;
+	pend[ch] = 0;
+	for (i = 0; i < 8; i++)
+		EV_U16(8826 + 2 * i) = 0;
+	if (EV_S16(9574) == 2) {
+		for (i = 0; i < 11; i++) {
+			*(u16 *)(ev + 24 + 2 * i) = (u16)EV_S16(8266 + 2 * i);
+			*(u16 *)(ev + 46 + 2 * i) = (u16)EV_S16(8290 + 2 * i);
+			*(u16 *)(ev + 68 + 2 * i) = (u16)EV_S16(8776 + 2 * i);
+			*(u16 *)(ev + 90 + 2 * i) = (u16)EV_S16(9194 + 2 * i);
+			*(u16 *)(ev + 112 + 2 * i) = (u16)EV_S16(9216 + 2 * i);
+			*(u16 *)(ev + 134 + 2 * i) = (u16)EV_S16(9530 + 2 * i);
+			*(u16 *)(ev + 156 + 2 * i) = (u16)EV_S16(9552 + 2 * i);
+			*(u16 *)(ev + 178 + 2 * i) = (u16)EV_S16(9678 + 2 * i);
+		}
+		EV_U16(8314) = EV_LK(8358);
+		EV_U16(8316) = EV_LK(8380);
+		EV_U16(8318) = EV_LK(8402);
+		EV_U16(8320) = EV_LK(8424);
+		for (i = 0; i < 8; i++)
+			EV_U16(8826 + 2 * i) = (u16)t32_tmo_adr_ispint_64((long long)cur[ch], (const long long *)(c + 800),
+									   (const s16 *)(ev + 24 + 22 * i), 11);
+	} else if (EV_S16(9574) != 0) {
+		EV_U16(8314) = EV_U16(9576);
+		EV_U16(8316) = EV_U16(9578);
+		EV_U16(8318) = EV_U16(9580);
+		EV_U16(8320) = EV_U16(9582);
+	} else {
+		EV_U16(8314) = EV_LK(8358);
+		EV_U16(8316) = EV_LK(8380);
+		EV_U16(8318) = EV_LK(8402);
+		EV_U16(8320) = EV_LK(8424);
+	}
+	if (EV_S16(9846) != 0) {
+		EV_U16(8322) = EV_U16(9848);
+		EV_U16(8324) = EV_U16(9850);
+	} else {
+		EV_U16(8322) = EV_LK(9150);
+		EV_U16(8324) = EV_LK(9172);
+	}
+	if (EV_S16(9896) != 0) {
+		for (i = 0; i < 11; i++)
+			EV_U16(8336 + 2 * i) = EV_U16(9866 + 2 * i);
+		EV_U16(8328) = EV_U16(9888);
+		EV_U16(8330) = EV_U16(9890);
+	} else {
+		for (i = 0; i < 11; i++)
+			EV_U16(8336 + 2 * i) = EV_LK(8446 + 22 * i);
+		EV_U16(8328) = EV_LK(8688);
+		EV_U16(8330) = EV_LK(8710);
+	}
+	EV_U16(8332) = 0;
+	EV_U16(8334) = 0;
+	if (EV_S16(9268) != 0) {
+		for (i = 0; i < 14; i++)
+			EV_U16(8798 + 2 * i) = EV_U16(9240 + 2 * i);
+	} else {
+		for (i = 0; i < 14; i++)
+			EV_U16(8798 + 2 * i) = EV_LK(8842 + 22 * i);
+	}
+#undef EV_S16
+#undef EV_U16
+#undef EV_LK
 }
 
 #endif /* TX_ISP_T32_TMO_H */
