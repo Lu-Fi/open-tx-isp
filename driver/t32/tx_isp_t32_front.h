@@ -236,6 +236,226 @@ static inline unsigned int t32_top_init(const u8 *sec, u32 width, u32 height, u3
 	return n;
 }
 
+/*
+ * CSCCR per-frame paths (tisp_csccr_switch_params_write_reg, _sync_api_para,
+ * _deinit, _set_uv_clip, _param_array_get/_set, _api_set/_get, _wake_up,
+ * _dn_params_refresh).  The vendor context t32_data_e3120[ch] holds three
+ * pointers: +0 the 20 byte parameter section (mode byte 4, ranges 5..12,
+ * flags 14 source, 15 / 16 sync gates), +4 the derived register block and
+ * +8 the 12 byte API block (u32 mode, 8 range bytes).  Aux layout used here:
+ * u16 +0 Y gain, +2 Y in min, u16 +4 Y out range, +6 Y out min, u16 +8 C gain,
+ * +10 / +11 C out min / max.
+ * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
+ * by tests/t32_oracle (t32_csccrx_oracle).
+ */
+struct t32_csccr_ctx {
+	u8 *param;
+	u8 *aux;
+	u8 *api;
+};
+
+static inline u32 t32_csccr_le16(const u8 *p)
+{
+	return p[0] | (u32)p[1] << 8;
+}
+
+/* tisp_csccr_para_refresh_by_mode: the range table of the mode, modes above 2 leave the ranges alone */
+static inline void t32_csccr_para_refresh_by_mode(u32 mode, u8 *ranges)
+{
+	if (mode <= 2)
+		memcpy(ranges, t32_csccr_modes[mode], 8);
+}
+
+/*
+ * tisp_csccr_update_para: derived block from the ranges of the parameter
+ * section.  Open item: when the API block is not synced (gate byte 15 != 1)
+ * the vendor may take the API ranges instead (seen with byte 16 = 0); the
+ * selector is not built here, the oracle keeps both copies equal.
+ */
+static inline int t32_csccr_update_para(struct t32_csccr_ctx *ctx)
+{
+	const u8 *m = ctx->param + 5;
+	u8 *a = ctx->aux;
+	u32 y_in, y_out, c_in, c_out, ky, kc;
+
+	if (m[1] < m[0] || m[3] < m[2] || m[5] < m[4] || m[7] < m[6] || m[1] == m[0] || m[5] == m[4])
+		return -1;
+	y_in = m[1] - m[0];
+	y_out = m[3] - m[2];
+	c_in = m[5] - m[4];
+	c_out = m[7] - m[6];
+	ky = (y_out * 0x400 + y_in / 2) / y_in;
+	kc = (c_out * 0x400 + c_in / 2) / c_in;
+	if (ky > 0x7ff)
+		ky = 0x7ff;
+	if (kc > 0x7ff)
+		kc = 0x7ff;
+	a[0] = ky & 0xff;
+	a[1] = ky >> 8;
+	a[2] = m[0];
+	a[4] = y_out & 0xff;
+	a[5] = y_out >> 8;
+	a[6] = m[2];
+	a[8] = kc & 0xff;
+	a[9] = kc >> 8;
+	a[10] = m[6];
+	a[11] = m[7];
+	return 0;
+}
+
+/* the three Y registers shared by tisp_csccr_write_reg and the switch variant */
+static inline void t32_csccr_write_yc(const u8 *a, struct t32_front_write *w, unsigned int *n)
+{
+	T32_FW(w, *n, 0x14040, t32_csccr_le16(a) & 0x7ff);
+	T32_FW(w, *n, 0x14044, ((t32_csccr_le16(a + 4) << 8) & 0xffff) | (u32)a[6] << 16 | a[2]);
+	T32_FW(w, *n, 0x14050, t32_csccr_le16(a + 8) & 0x7ff);
+}
+
+/* tisp_csccr_write_reg (also tisp_csccr_wake_up) */
+static inline void t32_csccr_write_reg(const struct t32_csccr_ctx *ctx, struct t32_front_write *w,
+				       unsigned int *n)
+{
+	const u8 *a = ctx->aux;
+
+	t32_csccr_write_yc(a, w, n);
+	T32_FW(w, *n, 0x14054, ((u32)(a[11] - 0x80) & 0x1ff) << 16 | ((u32)(a[10] - 0x80) & 0x1ff));
+	T32_FW(w, *n, 0x14010, 0xffffffff);
+}
+
+/* tisp_csccr_switch_params_write_reg: no UV clip register */
+static inline int t32_csccr_switch_params_write_reg(const struct t32_csccr_ctx *ctx, u8 ch,
+						    struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	t32_csccr_write_yc(ctx->aux, w, &n);
+	T32_FW(w, n, 0x14010, 0xffffffff);
+	return (int)n;
+}
+
+/* tisp_csccr_sync_api_para: dir 1 = parameters to API (gate byte 15), else API to parameters (gate byte 16) */
+static inline void t32_csccr_sync_api_para(struct t32_csccr_ctx *ctx, u32 dir)
+{
+	u8 *p = ctx->param;
+	u8 *a = ctx->api;
+
+	if (dir == 1) {
+		if (p[15] != 1)
+			return;
+		a[0] = p[4];
+		a[1] = a[2] = a[3] = 0;
+		memcpy(a + 4, p + 5, 8);
+	} else {
+		if (p[16] != 1)
+			return;
+		p[4] = a[0];
+		memcpy(p + 5, a + 4, 8);
+	}
+}
+
+/* tisp_csccr_set_uv_clip: dn = tisp_day_or_night_g_ctrl (0 day, 1 night, else error without effect) */
+static inline void t32_csccr_set_uv_clip(u32 dn, u32 *uv, struct t32_front_write *w, unsigned int *n)
+{
+	if (dn == 0) {
+		T32_FW(w, *n, 0x14054, 0x7fff80);
+		T32_FW(w, *n, 0x14010, 0xffffffff);
+		*uv = 0x7fff80;
+	} else if (dn == 1) {
+		T32_FW(w, *n, 0x14054, 0);
+		T32_FW(w, *n, 0x14010, 0xffffffff);
+		*uv = 0;
+	}
+}
+
+/* tisp_csccr_param_array_get */
+static inline int t32_csccr_param_array_get(const struct t32_csccr_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->param, T32_CSCCR_BYTES);
+	*len = T32_CSCCR_BYTES;
+	return 0;
+}
+
+/* tisp_csccr_param_array_set */
+static inline int t32_csccr_param_array_set(struct t32_csccr_ctx *ctx, const u8 *buf, u32 dn,
+					    u32 *uv, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	memcpy(ctx->param, buf, T32_CSCCR_BYTES);
+	ctx->param[14] = 1;
+	t32_csccr_para_refresh_by_mode(ctx->param[4], ctx->param + 5);
+	t32_csccr_sync_api_para(ctx, 1);
+	t32_csccr_update_para(ctx);
+	t32_csccr_write_reg(ctx, w, &n);
+	t32_csccr_set_uv_clip(dn, uv, w, &n);
+	return (int)n;
+}
+
+/* tisp_csccr_api_set: buf = 12 byte API block */
+static inline int t32_csccr_api_set(struct t32_csccr_ctx *ctx, const u8 *buf, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	ctx->param[14] = 2;
+	memcpy(ctx->api, buf, 12);
+	t32_csccr_para_refresh_by_mode(t32_front_le32(buf), ctx->api + 4);
+	t32_csccr_sync_api_para(ctx, 0);
+	t32_csccr_update_para(ctx);
+	t32_csccr_write_reg(ctx, w, &n);
+	return (int)n;
+}
+
+/* tisp_csccr_api_get: -1 without a context */
+static inline int t32_csccr_api_get(const struct t32_csccr_ctx *ctx, u8 *buf)
+{
+	if (!ctx)
+		return -1;
+	memcpy(buf, ctx->api, 12);
+	return 0;
+}
+
+/* tisp_csccr_wake_up */
+static inline int t32_csccr_wake_up(const struct t32_csccr_ctx *ctx, struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_csccr_write_reg(ctx, w, &n);
+	return (int)n;
+}
+
+/* tisp_csccr_dn_params_refresh: the section is used in place from the tuning base */
+static inline int t32_csccr_dn_params_refresh(struct t32_csccr_ctx *ctx, u8 ch, u8 *tuning_base,
+					      struct t32_front_write *w)
+{
+	ctx->param = tuning_base + 27592;
+	ctx->param[14] = 1;
+	t32_csccr_para_refresh_by_mode(ctx->param[4], ctx->param + 5);
+	t32_csccr_sync_api_para(ctx, 1);
+	t32_csccr_update_para(ctx);
+	return t32_csccr_switch_params_write_reg(ctx, ch, w);
+}
+
+/* tisp_csccr_deinit: frees the aux and API blocks and the context, clears the slot */
+static inline int t32_csccr_deinit(struct t32_csccr_ctx **slot, void (*vfree)(void *p))
+{
+	struct t32_csccr_ctx *ctx = *slot;
+
+	if (!ctx)
+		return 0;
+	if (ctx->aux) {
+		vfree(ctx->aux);
+		ctx->aux = NULL;
+	}
+	if (ctx->api) {
+		vfree(ctx->api);
+		ctx->api = NULL;
+	}
+	vfree(ctx);
+	*slot = NULL;
+	return 0;
+}
+
 #undef T32_FW
 
 #endif /* TX_ISP_T32_FRONT_H */
