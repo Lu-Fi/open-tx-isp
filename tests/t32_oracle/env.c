@@ -831,3 +831,5 @@ u32 t32_data_f336c[1] __attribute__((weak));
 u32 t32_data_c351c[1] __attribute__((weak)), t32_data_ccbb8[1] __attribute__((weak)), t32_data_ccbdc[1] __attribute__((weak));
 u32 t32_data_ccbfc[1] __attribute__((weak)), t32_data_ccc18[1] __attribute__((weak)), t32_data_bd778[1] __attribute__((weak));
 u32 t32_data_c3aa4[1] __attribute__((weak));
+/* isp_i2c_new_subdev_board: isp_printf format / function name, address only */
+u32 t32_data_bdaac[1] __attribute__((weak)), t32_data_c44e0[1] __attribute__((weak));
