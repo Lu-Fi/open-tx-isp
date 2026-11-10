@@ -24,6 +24,9 @@ struct t32o_log {
 	struct { u32 reg, val; } w[T32O_MAX_WRITES];
 };
 extern struct t32o_log t32o_log;
+/* vendor write address vs ours: equal, or (d03a0 = 1 shadow run, ref/oa_reg_write.c) a shadow
+ * index tagged with bit 31 that maps one to one to our register address (learnt over all calls) */
+int t32o_reg_eq(u32 vendor, u32 ours);
 
 extern u32 t32_data_e28f0[4], t32_data_dd0a4[4], t32_data_dc274[4], t32_data_da844[0x100];
 extern u8 t32_data_d03a0[4];

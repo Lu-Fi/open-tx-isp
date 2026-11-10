@@ -703,3 +703,22 @@ char t32_data_ca154[4] __attribute__((weak)) = "f";
 char t32_data_bfe44[4] __attribute__((weak)) = "f";
 u8 t32_data_f3258[512] __attribute__((weak));	/* per channel mask block attribute (32 B each) */
 u8 t32_data_e275c[8] __attribute__((weak));	/* per channel refresh flag */
+
+/* shadow index <-> register map of the d03a0 = 1 runs (see t32o_reg_eq): must stay one to one */
+int t32o_reg_eq(u32 vendor, u32 ours)
+{
+	static u32 idx2reg[1u << 16], reg2idx[1u << 20];	/* value + 1; 0 = not seen */
+	u32 idx = vendor & 0xffffffu;
+
+	if (vendor == ours)
+		return 1;
+	if (!(vendor & 0x80000000u) || idx >= (1u << 16) || ours >= (1u << 20))
+		return 0;
+	if (idx2reg[idx] && idx2reg[idx] != ours + 1)
+		return 0;
+	if (reg2idx[ours] && reg2idx[ours] != idx + 1)
+		return 0;
+	idx2reg[idx] = ours + 1;
+	reg2idx[ours] = idx + 1;
+	return 1;
+}
