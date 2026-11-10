@@ -123,21 +123,27 @@ static inline u32 t32_gsm_norm(const struct t32_gsm_ctx *ctx, u32 x)
 	return (lo >> 15) | (hi << 17);
 }
 
-/* tisp_gsm_process */
-static inline int t32_gsm_process(struct t32_gsm_ctx *ctx, const struct t32_gsm_ram *ram)
+/*
+ * tisp_gsm_process; *sum (optional) is the checksum the vendor compares with
+ * ctx->pixels (mismatch -> three isp_printf, not ported).
+ */
+static inline int t32_gsm_process_sum(struct t32_gsm_ctx *ctx, const struct t32_gsm_ram *ram,
+				      u32 *sum)
 {
 	u32 b0 = ctx->api.bound[0], b1 = ctx->api.bound[1];
 	u32 b2 = ctx->api.bound[2], b3 = ctx->api.bound[3];
-	u32 z1, z2, z3, z4, n1, n2, n3, n4;
+	u32 z0, z1, z2, z3, z4, n1, n2, n3, n4;
 
 	memcpy(ctx->a, ram->ram_a, sizeof(ctx->a));
 	memcpy(ctx->b, ram->ram_b, sizeof(ctx->b));
 	memset(ctx->c, 0, sizeof(ctx->c));
-	t32_gsm_seg(ctx, 0, b0);
+	z0 = t32_gsm_seg(ctx, 0, b0);
 	z1 = t32_gsm_seg(ctx, b0, b1);
 	z2 = t32_gsm_seg(ctx, b1, b2);
 	z3 = t32_gsm_seg(ctx, b2, b3);
 	z4 = t32_gsm_seg(ctx, b3, T32_GSM_WORDS);
+	if (sum)
+		*sum = z0 + z1 + z2 + z3 + z4;
 	n1 = t32_gsm_norm(ctx, z1);
 	n2 = t32_gsm_norm(ctx, z2);
 	n3 = t32_gsm_norm(ctx, z3);
@@ -149,6 +155,11 @@ static inline int t32_gsm_process(struct t32_gsm_ctx *ctx, const struct t32_gsm_
 	ctx->api.zone[3] = n3;
 	ctx->api.zone[4] = n4;
 	return 0;
+}
+
+static inline int t32_gsm_process(struct t32_gsm_ctx *ctx, const struct t32_gsm_ram *ram)
+{
+	return t32_gsm_process_sum(ctx, ram, NULL);
 }
 
 /* tisp_gsm_interrupt_hist */

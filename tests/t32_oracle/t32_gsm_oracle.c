@@ -143,6 +143,8 @@ static struct { u32 reg, val; } rw[MAXW];
 static unsigned int rn, rrn;
 static u32 rrl[RDMAX], ev0, ref_evn, ref_evch, ref_evw[3];
 static int extra_bad;
+static int exp_pf = -1;
+static unsigned int pf0, ref_pf;
 
 static void state_random(int mode)
 {
@@ -168,6 +170,7 @@ static void state_random(int mode)
 	rd_seed = rnd();
 	rd_status = 1;
 	extra_bad = 0;
+	exp_pf = -1;
 }
 
 static void state_commit(void)
@@ -182,6 +185,7 @@ static void ref_prepare(void)
 	rd_rs = rd_seed;
 	rd_n = 0;
 	ev0 = t32o_ev_n;
+	pf0 = t32o_log.printfs;
 }
 
 static u64 ref_call(void (*fn)(void), u32 a0, u32 a1, u32 a2, u32 a3, u32 a4)
@@ -189,6 +193,7 @@ static u64 ref_call(void (*fn)(void), u32 a0, u32 a1, u32 a2, u32 a3, u32 a4)
 	u64 r = t32o_call((t32o_fn)fn, a0, a1, a2, a3, a4);
 
 	rn = t32o_log.n;
+	ref_pf = t32o_log.printfs - pf0;
 	if (rn > MAXW) {
 		printf("t32_gsm_oracle: too many ref writes %u\n", rn);
 		exit(1);
@@ -245,6 +250,8 @@ static void verify(const char *op, int retok, u64 rr, u32 orv, unsigned int on,
 		why = "event";
 	if (!why && extra_bad)
 		why = "buffer";
+	if (!why && exp_pf >= 0 && ref_pf != (unsigned)exp_pf)
+		why = "printf count";
 	if (why) {
 		printf("MISMATCH %s: %s (writes ref %u ours %u, ref ret %08x ours %08x)\n",
 		       op, why, rn, on, (u32)rr, orv);
@@ -264,6 +271,7 @@ static void case_irq(void)
 	state_random(0);
 	state_commit();
 	ref_prepare();
+	exp_pf = 0;
 	rr = ref_call((void (*)(void))tisp_gsm_irq_frmae_done, ch, 0, 0, 0, 0);
 	our_begin();
 	r = t32_gsm_irq_frame_done(&oa.ram, (u8)ch);
@@ -272,7 +280,7 @@ static void case_irq(void)
 
 static void case_process(unsigned int c)
 {
-	struct t32_front_write ow[MAXW];
+	struct t32_front_write ow[MAXW] = { { 0, 0 } };
 	u8 *bd;
 	u64 rr;
 	u32 r, a, b, d, k;
@@ -300,6 +308,15 @@ static void case_process(unsigned int c)
 		oa.ctx.scale_hi = 0;
 	}
 	(void)i;
+	{
+		struct t32_gsm_ctx tmp = oa.ctx;
+		u32 sum = 0;
+
+		t32_gsm_process_sum(&tmp, &oa.ram, &sum);
+		if (c % 2 == 0)
+			oa.ctx.pixels = sum;
+		exp_pf = (sum != oa.ctx.pixels) ? 3 : 0;
+	}
 	state_commit();
 	ref_prepare();
 	rr = ref_call((void (*)(void))tisp_gsm_process, 0, 0, 0, 0, 0);
@@ -325,14 +342,14 @@ static void case_read_ram(void)
 
 static void case_hist(unsigned int c)
 {
-	static const u32 st[4] = { 1, 0, 2, 0xffffffffu };
+	static const u32 st[5] = { 1, 0, 2, 0xffffffffu, 1 };
 	struct t32_front_write ow[MAXW];
 	unsigned int n = 0;
 	u32 ch = rnd() & 3, r;
 	u64 rr;
 
 	state_random(0);
-	rd_status = (c & 1) ? 1 : st[c & 3];
+	rd_status = st[c % 5];
 	state_commit();
 	ref_prepare();
 	rr = ref_call((void (*)(void))tisp_gsm_interrupt_hist, ch, 0, 0, 0, 0);
@@ -421,6 +438,11 @@ static void case_api_get(void)
 	ref_prepare();
 	rb = t32o_alloc(sizeof(oo));
 	memset(rb, 0x5a, sizeof(oo));
+	if (rnd() & 1) {
+		/* api_get after a real process call, both sides */
+		rr = ref_call((void (*)(void))tisp_gsm_process, 0, 0, 0, 0, 0);
+		t32_gsm_process(&oa.ctx, &oa.ram);
+	}
 	rr = ref_call((void (*)(void))tisp_gsm_api_get, 0, T32O_PTR(rb + 64), 0, 0, 0);
 	our_begin();
 	r = (u32)t32_gsm_api_get(&oa.ctx, &oo.a);
