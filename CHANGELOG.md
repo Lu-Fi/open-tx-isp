@@ -7,6 +7,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 ## 2026-11-11: T32 block leftovers (op11; planned, host only, not device-tested)
 
 - New `driver/t32/tx_isp_t32_wrap.h`: 8 empty vendor stubs, 10 one-call wrappers (face get/set, ev_alloc_calc, ae/awb_algo_deinit, api_ae_get_reg_state, msca_channel_start / irq_frame_done; callees through `struct t32_wrap_ops`) and 5 accessors (AE/AWB deinit_internal run flags, day_or_night_g_ctrl, single_lsc_reg_read / _lut_read). `t32_wrap_oracle`: 460000 calls against Matt Davis' recovered C, return values, callee order/arguments and state bit-exact, 31/31 mutations. Recovered C defect named: tisp_api_ev_alloc_calc lost the a1..a3 pass-through of its tail call (build-time fix `fix_op11_proto.sh`).
+- New `driver/t32/tx_isp_t32_tstp.h`: the TSTP block (0x33000 .. 0x330a8; init, deinit, reg_cfg, mark1/mark2, param_array_get/set, wake_up) on the vendor's 154 B parameter block. `t32_tstp_oracle`: 240000 calls (random blocks, table lengths 0..16, missing block), 4.1 M register writes, block bytes, buffers and allocator calls bit-exact, 29/29 mutations. Vendor UB named, refused by ours: mark1 with a table length > 16 overruns the block in a loop that does not end; init does not check the vmalloc result.
 
 ## 2026-11-11: T32 API getters, 69 functions (planned, host only, not device-tested)
 
