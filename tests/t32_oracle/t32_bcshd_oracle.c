@@ -56,9 +56,9 @@ enum {
 	CASE_WAKE
 };
 
-static int run_case(const char *what, int which, u32 ch, const u8 *sec, const u8 *lut,
+static int run_case_mode(const char *what, int which, u32 ch, const u8 *sec, const u8 *lut,
 		    u32 lutbytes, const u8 *csc, u32 ev_lo, u32 ev_hi, u32 ct, u32 ct_code,
-		    u32 ctr_ev, u32 ctr_ct, u32 pend, u32 b19)
+		    u32 ctr_ev, u32 ctr_ct, u32 pend, u32 b19, u8 dsm)
 {
 	static struct t32_front_write refw[MAXW], ow[MAXW];
 	u8 *base_ref, *base_our, *outer_ref, *caches_ref, *lut_ref, *info_ref;
@@ -135,7 +135,8 @@ static int run_case(const char *what, int which, u32 ch, const u8 *sec, const u8
 
 	switch (which) {
 	case CASE_DN:
-		t32o_call((t32o_fn)(void (*)(void))tisp_bcsh_dn_params_refresh, ch, 0, 0, 0, 0);
+		t32_data_d03a0[0] = dsm;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
+	t32o_call((t32o_fn)(void (*)(void))tisp_bcsh_dn_params_refresh, ch, 0, 0, 0, 0);
 		break;
 	case CASE_WDR:
 		t32o_call((t32o_fn)(void (*)(void))tisp_bcsh_wdr_en, ch, 0, 0, 0, 0);
@@ -201,12 +202,12 @@ static int run_case(const char *what, int which, u32 ch, const u8 *sec, const u8
 		break;
 	}
 
-	compared++;
+	compared += !dsm;
 	if (which == CASE_WAKE) {
 		if (our_n < 0 || (unsigned int)our_n != ref_n)
 			goto bad;
 		for (i = 0; i < ref_n; i++)
-			if (refw[i].reg != ow[i].reg || refw[i].val != ow[i].val)
+			if (!t32o_reg_eq(refw[i].reg, ow[i].reg) || refw[i].val != ow[i].val)
 				goto bad;
 	} else {
 		if (ref_n != 0)
@@ -261,7 +262,7 @@ bad:
 		printf("MISMATCH %s: writes ref %u ours %d\n", what, ref_n, our_n);
 		for (i = 0; i < ref_n || (int)i < our_n; i++)
 			if (i >= ref_n || (int)i >= our_n ||
-			    refw[i].reg != ow[i].reg || refw[i].val != ow[i].val) {
+			    !t32o_reg_eq(refw[i].reg, ow[i].reg) || refw[i].val != ow[i].val) {
 				printf("  #%u vendor %05x=%08x ours %05x=%08x\n", i,
 				       i < ref_n ? refw[i].reg : 0, i < ref_n ? refw[i].val : 0,
 				       (int)i < our_n ? ow[i].reg : 0, (int)i < our_n ? ow[i].val : 0);
@@ -272,6 +273,17 @@ bad:
 		       pend_ref, our->pend, ct_ref, our->ct);
 	}
 	return 1;
+}
+
+static int run_case(const char *what, int which, u32 ch, const u8 *sec, const u8 *lut,
+		    u32 lutbytes, const u8 *csc, u32 ev_lo, u32 ev_hi, u32 ct, u32 ct_code,
+		    u32 ctr_ev, u32 ctr_ct, u32 pend, u32 b19)
+{
+	int bad = run_case_mode(what, which, ch, sec, lut, lutbytes, csc, ev_lo, ev_hi, ct, ct_code, ctr_ev, ctr_ct, pend, b19, 0);
+
+	bad += run_case_mode(what, which, ch, sec, lut, lutbytes, csc, ev_lo, ev_hi, ct, ct_code, ctr_ev, ctr_ct, pend, b19, 1);	/* d03a0 = 1: only the write addresses may differ */
+	t32_data_d03a0[0] = 0;
+	return bad;
 }
 
 static void gen_random_section(u8 *sec)
