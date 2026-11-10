@@ -19,8 +19,18 @@
  * tisp_lce_lut_write_curve 0x57250, tisp_dma_param_array_get/_set 0x90170/0x90178, tisp_func_get_dma_addr
  * 0x90180.  ldc_cmd_set 0xfd2c returns its third argument (the store size).
  *
+ * Group 2 (state helpers):
+ *   t32_lib_dma_cache_32           lib_tisp_dma_cache_32 0x1d170: x + 32 - (x & 31) (next 32-byte boundary,
+ *                                  an aligned x moves by a full 32)
+ *   t32_lib_set_running_mode       lib_tisp_api_s_runningMode 0xb346c: byte 44 of channel 0 state (t32_data_dc2b0)
+ *   t32_lib_vic_get_par            lib_tisp_vic_get_par 0xae69c: the two VIC parameter words lib_tisp_vic_set_par
+ *                                  stores (t32_data_e3f30, t32_data_e3f2c); returns the second
+ *   t32_lib_get_3a_info            lib_tisp_api_get_3a_info 0xb334c: despite the name it sets the per-channel AE
+ *                                  debug trace (t32_data_e1500[ch] = n != 0, t32_data_e14f0[ch] = n), returns 0;
+ *                                  no channel check (ch & 0xff >= 4 writes past the 4-word arrays, not compared)
+ *
  * Hooks: struct t32_lib_hooks (the callees).  Checked bit-exact against the vendor flow (Matt Davis' recovered C,
- * PR #15) by tests/t32_oracle (t32_libwrap_oracle).
+ * PR #15) by tests/t32_oracle (t32_libwrap_oracle, t32_libst_oracle).
  */
 #ifndef TX_ISP_T32_LIBWRAP_H
 #define TX_ISP_T32_LIBWRAP_H
@@ -105,6 +115,40 @@ static inline u32 t32_ldc_cmd_set(u32 a0, u32 a1, u32 size)
 {
 	(void)a0; (void)a1;
 	return size;
+}
+
+/* ---- group 2: state helpers ---- */
+
+static inline u32 t32_lib_dma_cache_32(u32 x)
+{
+	return x + 32 - (x & 0x1f);
+}
+
+/* state = t32_data_dc284 (dc2b0 = dc284 + 44) */
+static inline void t32_lib_set_running_mode(unsigned char *state, u32 mode)
+{
+	state[T32_CH_STATE_RUNMODE] = (unsigned char)mode;
+}
+
+struct t32_vic_par {
+	u32 par0;	/* t32_data_e3f30 */
+	u32 par1;	/* t32_data_e3f2c */
+};
+
+static inline u32 t32_lib_vic_get_par(const struct t32_vic_par *vp, u32 *par0, u32 *par1)
+{
+	*par0 = vp->par0;
+	*par1 = vp->par1;
+	return vp->par1;
+}
+
+/* ae_dbg_on = t32_data_e1500, ae_dbg_max = t32_data_e14f0 */
+static inline u32 t32_lib_get_3a_info(u32 *ae_dbg_on, u32 *ae_dbg_max, u32 ch, u32 n)
+{
+	ch &= 0xff;
+	ae_dbg_on[ch] = n != 0;
+	ae_dbg_max[ch] = n;
+	return 0;
 }
 
 #endif

@@ -779,3 +779,9 @@ int t32o_decoy_check(void)
 char t32_data_c79e8[4] = "f", t32_data_bee70[4] = "f", t32_data_c7a2c[4] = "f";
 /* tisp_api_get/set_bayer_type: function names (bf328, bf310) and format (c84c4), only handed to isp_printf */
 char t32_data_bf328[4] = "f", t32_data_bf310[4] = "f", t32_data_c84c4[4] = "f";
+/* lib_tisp_vic_get_par: VIC parameter words (.bss e3f30, e3f2c); lib_tisp_api_get_3a_info: AE debug trace
+ * on / max per channel (.bss e1500, e14f0, 4 words each).  Weak: other oracles may define them too. */
+u32 t32_data_e3f30[1] __attribute__((weak)), t32_data_e3f2c[1] __attribute__((weak));
+u32 t32_data_e1500[4] __attribute__((weak)), t32_data_e14f0[4] __attribute__((weak));
+/* lib_tisp_api_s_runningMode: t32_data_dc2b0 is byte 44 of the channel state t32_data_dc284 */
+__asm__(".globl t32_data_dc2b0\n.set t32_data_dc2b0, t32_data_dc284 + 44");
