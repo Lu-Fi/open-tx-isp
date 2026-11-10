@@ -772,3 +772,7 @@ int t32o_decoy_check(void)
 				return 1;
 	return 0;
 }
+
+/* ---- op5-ispcore (ISP core glue): weak data / stubs ---- */
+/* .bss f3310: the ISP core device pointer (tx_isp core subdev), set by the oracle per case */
+u32 t32_data_f3310[1] __attribute__((weak, aligned(4)));
