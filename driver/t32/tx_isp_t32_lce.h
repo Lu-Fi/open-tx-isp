@@ -289,6 +289,33 @@ static inline void t32_lce_16bit_data_converge_simd(u32 gain, u32 lo, u32 hi, co
 	}
 }
 
+/*
+ * lce_16bit_data_converge_16bit_simd (0x541b0): the 16 bit lane MXU2 variant of the converge above.  All 20 elements
+ * (16 + 4 in a second pass) run as 16 bit lanes: gain, lo and hi are sign extended from 8 bits (not masked), the
+ * product |cur - target| * gain wraps to 16 bits, d = signed (p >> 7) rounded by bit 6, all compares are signed
+ * 16 bit.  The clamp order is the same for every element: d < lo gives lo, else hi < d gives hi.  Not bit-exact
+ * with t32_lce_16bit_data_converge (8 bit masks) nor with the 32 bit _simd variant above (sign extension, wrap, order).
+ */
+static inline void t32_lce_16bit_data_converge_16bit_simd(u32 gain, u32 lo, u32 hi, const u8 *target, u8 *cur)
+{
+	unsigned int i;
+	u32 g = (u16)(s8)gain;
+	int l = (s8)lo, h = (s8)hi;
+
+	for (i = 0; i < 20; i++) {
+		int t = target[i], c = cur[i], d, r;
+		u32 p = (u32)(c > t ? c - t : t - c) * g;
+
+		d = (int)(s16)p >> 7;
+		d += (p >> 6) & 1;
+		r = d < l ? l : (h < d ? h : d);
+		if (c + l < t)		/* the lanes select this last: it wins when lo < 0 makes both tests true */
+			cur[i] = (u8)(t - r);
+		else if (t + l < c)
+			cur[i] = (u8)(t + r);
+	}
+}
+
 static inline u32 t32_lce_cdf_val(u32 v, const struct t32_lce_tab *tab)
 {
 	return ((v >> (tab->pdf_rnd & 31)) & 1) + (v >> (tab->pdf_sh & 31));
