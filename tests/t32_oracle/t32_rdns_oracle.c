@@ -151,6 +151,12 @@ static struct {
 } ci[NCH];
 static u8 inbuf_init[SECB];
 
+/* row selector: half the time small, otherwise any of the 256 rows of c0ac0 */
+static u8 rsel(void)
+{
+	return (u8)((rnd() & 1) ? rnd() % 256 : rnd() % 8);
+}
+
 static void gen_sec(u8 *s, int style)
 {
 	unsigned int i, j, t;
@@ -165,7 +171,7 @@ static void gen_sec(u8 *s, int style)
 	}
 	for (t = 0; t < 3; t++)		/* row selectors stay inside the table */
 		for (j = 0; j < 11; j++)
-			s[1460 + 11 * t + j] = (u8)(rnd() % 8);
+			s[1460 + 11 * t + j] = rsel();
 }
 
 static void gen_state(void)
@@ -182,7 +188,7 @@ static void gen_state(void)
 		for (i = 0; i < PARB; i++)
 			ci[c].par[i] = (u8)rnd();
 		for (i = 0; i < 3; i++)
-			ci[c].par[i] = (u8)(rnd() % 8);
+			ci[c].par[i] = rsel();
 		ci[c].gain = rnd();
 		ci[c].rsvd = rnd();
 		ci[c].secmode = (int)(rnd() & 1);
@@ -350,6 +356,12 @@ static void *o_alloc(unsigned long sz)
 
 	memset(p, 0xEE, sz);
 	return p;
+}
+
+static void *o_null(unsigned long sz)
+{
+	(void)sz;
+	return NULL;
 }
 
 static void die(const char *what, const char *field, unsigned int i)
@@ -547,6 +559,19 @@ int main(void)
 				run_case(OP_ALL, ch, gain, 0);
 				run_case(OP_INTPREG, ch, gain, 0);
 			}
+	/* init failure paths (the vendor allocator stubs cannot fail): port-only self-check */
+	{
+		static struct t32_front_write fw[4];
+		struct t32_rdns_ctx *slot = (struct t32_rdns_ctx *)1;
+		u8 tb[BASEB];
+
+		if (t32_rdns_init(&slot, o_null, o_alloc, tb, t32_data_c0ac0, fw) != -1 || slot)
+			die("init", "ctx alloc failure", 0);
+		pooln = 0;
+		if (t32_rdns_init(&slot, o_alloc, o_null, tb, t32_data_c0ac0, fw) != -1 || !slot)
+			die("init", "param alloc failure", 0);
+		compared += 2;
+	}
 	printf("t32_rdns_oracle: %u compared, 0 mismatches (14 functions, 4 channels, canary frames)\n",
 	       compared);
 	return 0;
