@@ -389,6 +389,38 @@ static inline void t32_lce_hist_filter_and_judge_16bit_simd(const u16 *hist, con
 	}
 }
 
+/* lce_self_light_correct_local_simd_test column offsets (rodata d6b50, 20 bytes) */
+static const u8 t32_lce_slc_ofs[20] = {
+	0x00, 0x08, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x50,
+	0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf0,
+};
+
+/*
+ * lce_self_light_correct_local_simd_test (0x54bd0): 8 rows x 20 bytes (in[r * 20 + j] -> out[r * 20 + j]).
+ * With enable (byte 8 of the vendor's a2 structure) non-zero, the value's deviation from the column offset,
+ * d = in - ofs[j], is scaled: d > 0 uses up[j], d < 0 uses down[j], d = (d * k) >> 7 (arithmetic, floor);
+ * out = low byte of (d + ofs[j]).  The vendor does this in 16 bit lanes (wrap of the product at 16 bit), which
+ * only changes d by multiples of 512 and so never the output byte.  With enable == 0 the
+ * result is in unchanged.  Not related to any scalar function of this header.
+ */
+static inline void t32_lce_self_light_correct_local_simd_test(const u8 *in, u8 *out, u32 enable, const u8 *up,
+							      const u8 *down)
+{
+	unsigned int r, j;
+
+	for (r = 0; r < 8; r++) {
+		for (j = 0; j < 20; j++) {
+			int d = in[r * 20 + j] - t32_lce_slc_ofs[j];
+
+			if (enable && d > 0)
+				d = d * up[j] >> 7;
+			else if (enable && d < 0)
+				d = d * down[j] >> 7;
+			out[r * 20 + j] = (u8)(d + t32_lce_slc_ofs[j]);
+		}
+	}
+}
+
 static inline u32 t32_lce_w(const struct t32_lce_tab *tab, u32 idx, int *bad)
 {
 	if (idx > 31) {
