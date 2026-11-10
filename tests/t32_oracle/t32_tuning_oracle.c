@@ -38,12 +38,12 @@ u32 t32_data_f0904, t32_data_dada0;	/* tisp_tattr, proc entry (.bss) */
 u8 t32_data_e401c[4];			/* isSwitchbin (.bss) */
 u32 t32_data_ce22c[1];			/* data.c:16952: &__this_module (set per run) */
 u32 t32_data_d0810[4];			/* proc file operations, +0 owner */
-char t32_data_c77c4[] = T32_FASTPARA_FMT;		/* data.c */
-char t32_data_c77ec[] = T32_FASTPARA_FAIL_FMT;
-char t32_data_c7cfc[] = T32_TISP_PROC_NAME;
-char t32_data_c7d04[] = T32_TISP_PROC_FAIL_FMT;
+char t32_data_c77c4[] = "AE Para ADDR = 0x%x HEAD:%x SENSOR:%x\n";	/* data.c strings */
+char t32_data_c77ec[] = "riscv param ioremap failed\n";
+char t32_data_c7cfc[] = "tisp";
+char t32_data_c7d04[] = "[ISP][%s, %d]: proc create error !!! \n";
 char t32_data_bf0b8[] = "tisp_core_tuning_init";
-char t32_data_cb6b0[] = T32_TATTR_FAIL_FMT;
+char t32_data_cb6b0[] = "[ %s:%d ] Failed to allocate TISP TUNING DATA!!!\n";
 char t32_data_c3000[] = "tisp_enable_tuning";
 u64 tisp_top_frame_count(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
 

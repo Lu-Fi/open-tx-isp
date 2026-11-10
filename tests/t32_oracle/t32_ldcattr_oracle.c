@@ -29,7 +29,7 @@ u8 t32_data_e3624[1120] __attribute__((aligned(4)));
 __asm__(".globl t32_data_e3638\n.set t32_data_e3638, t32_data_e3624 + 0x14");
 char t32_data_c2adc[] = "tisp_online_ldc_set_attr";
 char t32_data_c2ac0[] = "tisp_offline_ldc_set_attr";
-char t32_data_ca6c8[] = T32_LDC_COPY_FAIL_FMT;
+char t32_data_ca6c8[] = "[ %s:%d ] copy from user error\n";	/* data.c */
 
 static u32 cfu_fail;
 static u8 *user_v, *user_o;	/* the same user block, at two addresses */
