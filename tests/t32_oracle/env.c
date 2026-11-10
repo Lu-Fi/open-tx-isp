@@ -833,3 +833,10 @@ u32 t32_data_ccbfc[1] __attribute__((weak)), t32_data_ccc18[1] __attribute__((we
 u32 t32_data_c3aa4[1] __attribute__((weak));
 /* isp_i2c_new_subdev_board: isp_printf format / function name, address only */
 u32 t32_data_bdaac[1] __attribute__((weak)), t32_data_c44e0[1] __attribute__((weak));
+/* ispcore_set_clk_parent.isra.13: data.c:16949..16951 (ce220) = pointers to the parent names
+ * data.c:6638..6643 (c3724 "sclka", c372c "mpll", c3734 "vpll"); isp_printf formats by address only */
+u32 t32_data_c3724[2] __attribute__((weak)) = { 0x6b6c6373, 0x00000061 };
+u32 t32_data_c372c[2] __attribute__((weak)) = { 0x6c6c706d, 0x00000000 };
+u32 t32_data_c3734[2] __attribute__((weak)) = { 0x6c6c7076, 0x00000000 };
+__asm__(".section .data\n.weak t32_data_ce220\n.balign 4\nt32_data_ce220:\n.long t32_data_c3724, t32_data_c372c, t32_data_c3734\n.previous");
+u32 t32_data_ccd34[1] __attribute__((weak)), t32_data_ccd44[1] __attribute__((weak)), t32_data_ccd5c[1] __attribute__((weak));

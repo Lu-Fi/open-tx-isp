@@ -17,6 +17,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `t32_ispsync_oracle` (planned, host only): `tx_isp_t32_ispsync.h` (`ispcore_sync_sensor_attr`: per-channel attribute copies, the 124 B tisp sensor block) against the vendor function: 30000 random worlds, return value, the block handed to `lib_tisp_sync_sensor_attr` and the world equal; 15/15 mutations detected.
 - `t32_ispprep_oracle` (planned, host only): `tx_isp_t32_ispprep.h` (`ispcore_prepare_module`: wait for the firmware and event queues; `isp_vic_set_dma_enable`: VIC DMA buffer programming) against the vendor functions: 30000 random worlds with scripted queue states and set_par results, return value, call log, busy counter and world equal; 16/16 mutations detected.
 - `t32_ispi2c_oracle` (planned, host only): `tx_isp_t32_ispi2c.h` (`isp_i2c_new_subdev_board`: request module, new i2c client, sensor subdev from the client data) against the vendor function: 20000 random cases with scripted module / client results, return value, call log and world equal; 12/12 mutations detected.
+- `t32_ispclkp_oracle` (planned, host only): `tx_isp_t32_ispclkp.h` (`ispcore_set_clk_parent.isra.13`: parent sclka / mpll / vpll, set_parent of the device clock) against the vendor function: 20000 cases (known, near-miss and random parent names, scripted clock errors), call log and world equal; 12/12 mutations detected.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
