@@ -29,8 +29,17 @@
  *                                  debug trace (t32_data_e1500[ch] = n != 0, t32_data_e14f0[ch] = n), returns 0;
  *                                  no channel check (ch & 0xff >= 4 writes past the 4-word arrays, not compared)
  *
+ * Group 3 (register triggers):
+ *   t32_lib_trig                   lib_tisp_trig 0x25bec: system_reg_write(0x1040, 1)
+ *   t32_lib_vic_ctrl               lib_tisp_vic_ctrl 0xaf168: VIC (ch & 0xff) register 0x1a8 = val
+ *   t32_lib_vic_stop_byindex       lib_tisp_vic_stop_byindex 0xad0b0: VIC idx register 0x10 = 0 for idx 0 / 1,
+ *                                  else nothing (returns 0)
+ *   t32_lib_tmo_strength_ctrl      lib_tisp_api_tmo_strength_ctrl 0xb3458 -> tisp_tmo_api_strength_ctrl(ch & 0xff,
+ *                                  strength & 0xffff)
+ *   VIC n registers are at (0x80 + n) << 12 in the system register space.
+ *
  * Hooks: struct t32_lib_hooks (the callees).  Checked bit-exact against the vendor flow (Matt Davis' recovered C,
- * PR #15) by tests/t32_oracle (t32_libwrap_oracle, t32_libst_oracle).
+ * PR #15) by tests/t32_oracle (t32_libwrap_oracle, t32_libst_oracle, t32_libtr_oracle).
  */
 #ifndef TX_ISP_T32_LIBWRAP_H
 #define TX_ISP_T32_LIBWRAP_H
@@ -56,6 +65,8 @@ struct t32_lib_hooks {
 	u32 (*ae_ev_alloc_calc)(void *ctx, u32 ch);			/* tisp_ae_api_ev_alloc_calc */
 	u32 (*lce_correct_local)(void *ctx, u32 a0, u32 a1, u32 a2, u32 a3, u32 a4); /* lce_self_light_correct_local */
 	u32 (*sys_read)(void *ctx, u32 reg);				/* system_reg_read */
+	u32 (*sys_write)(void *ctx, u32 reg, u32 val);			/* system_reg_write */
+	u32 (*tmo_strength)(void *ctx, u32 ch, u32 strength);		/* tisp_tmo_api_strength_ctrl */
 };
 
 static inline u32 t32_lib_remove(const struct t32_lib_hooks *h)
@@ -149,6 +160,35 @@ static inline u32 t32_lib_get_3a_info(u32 *ae_dbg_on, u32 *ae_dbg_max, u32 ch, u
 	ae_dbg_on[ch] = n != 0;
 	ae_dbg_max[ch] = n;
 	return 0;
+}
+
+/* ---- group 3: register triggers ---- */
+
+#define T32_ISP_TRIG_REG	0x1040U
+#define T32_VIC_BASE(n)		((0x80U + (n)) << 12)
+#define T32_VIC_CTRL		0x1a8U
+#define T32_VIC_STOP		0x10U
+
+static inline u32 t32_lib_trig(const struct t32_lib_hooks *h)
+{
+	return h->sys_write(h->ctx, T32_ISP_TRIG_REG, 1);
+}
+
+static inline u32 t32_lib_vic_ctrl(const struct t32_lib_hooks *h, u32 ch, u32 val)
+{
+	return h->sys_write(h->ctx, T32_VIC_BASE(ch & 0xff) + T32_VIC_CTRL, val);
+}
+
+static inline u32 t32_lib_vic_stop_byindex(const struct t32_lib_hooks *h, u32 idx)
+{
+	if (idx >= 2)
+		return 0;
+	return h->sys_write(h->ctx, T32_VIC_BASE(idx) + T32_VIC_STOP, 0);
+}
+
+static inline u32 t32_lib_tmo_strength_ctrl(const struct t32_lib_hooks *h, u32 ch, u32 strength)
+{
+	return h->tmo_strength(h->ctx, ch & 0xff, strength & 0xffff);
 }
 
 #endif
