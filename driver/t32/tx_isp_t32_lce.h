@@ -368,6 +368,27 @@ static inline void t32_lce_pdf_to_cdf_16bit_simd(const u16 *pdf, u8 *out)
 	}
 }
 
+/*
+ * lce_hist_filter_and_judge_16bit_simd (0x54318): for 8 selected histogram rows (hist[idx[k] * 32 + bin], 32 u16 bins
+ * per row) the index of the first bin that is not zero (0 for an empty row; the vendor keeps a saturating running
+ * sum per lane and latches the bin index where it first becomes > 0).  out[k] is a u16.
+ * Not related to any scalar function of this header.
+ */
+static inline void t32_lce_hist_filter_and_judge_16bit_simd(const u16 *hist, const u16 *idx, u16 *out)
+{
+	unsigned int k, i;
+
+	for (k = 0; k < 8; k++) {
+		out[k] = 0;
+		for (i = 0; i < 32; i++) {
+			if (hist[idx[k] * 32 + i]) {
+				out[k] = (u16)i;
+				break;
+			}
+		}
+	}
+}
+
 static inline u32 t32_lce_w(const struct t32_lce_tab *tab, u32 idx, int *bad)
 {
 	if (idx > 31) {
