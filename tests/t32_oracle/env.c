@@ -821,3 +821,6 @@ u32 t32_data_c3580[1] __attribute__((weak)), t32_data_cc83c[1] __attribute__((we
 u32 t32_data_cc87c[1] __attribute__((weak)), t32_data_c354c[1] __attribute__((weak)), t32_data_cc89c[1] __attribute__((weak));
 u32 t32_data_cc8c4[1] __attribute__((weak)), t32_data_c3534[1] __attribute__((weak)), t32_data_cc8e4[1] __attribute__((weak));
 u32 t32_data_cc908[1] __attribute__((weak)), t32_data_cc928[1] __attribute__((weak));
+/* subdev clocks (isp_subdev_init_clks): isp_printf formats / function name, address only */
+u32 t32_data_be6c4[1] __attribute__((weak)), t32_data_c6b7c[1] __attribute__((weak));
+u32 t32_data_c6ba8[1] __attribute__((weak)), t32_data_c6bd4[1] __attribute__((weak));
