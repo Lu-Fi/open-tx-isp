@@ -780,3 +780,5 @@ u32 t32_data_f0904[4] __attribute__((weak, aligned(16)));
 u8 t32_data_cb770[4] __attribute__((weak)), t32_data_cb840[4] __attribute__((weak)), t32_data_cb864[4] __attribute__((weak));
 u8 t32_data_cb8a4[4] __attribute__((weak));
 u8 t32_data_ca048[4] __attribute__((weak)), t32_data_ca06c[4] __attribute__((weak));
+u32 t32_data_e2130[4] __attribute__((weak));	/* defog context per channel */
+u32 t32_data_dd0b4[24] __attribute__((weak));	/* per channel 6 bank tuning pointers */
