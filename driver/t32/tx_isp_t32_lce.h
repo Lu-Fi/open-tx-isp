@@ -471,6 +471,44 @@ static inline void t32_lce_thres_search(const u16 *hist, const u16 *thr, u8 *out
 	out[2] = (u8)i;
 }
 
+/*
+ * tisp_lce_thres_search_simd_v4: thres_search for 16 histograms at once.  hist[16][32] (u16, hist k at byte
+ * 64 * k), thr[0..2] (the vendor loads 8 halfwords from the thr pointer and uses the first three).
+ * Per histogram the running sum saturates at 65535 (the scalar version wraps).  out0 / out1 / out2 get, per
+ * histogram, the bin where the sum reaches thr[0] / thr[1] / thr[2], independent of each other, defaulting
+ * to 8 / 16 / 24.  The vendor lanes latch a found threshold by replacing it with 0xffff, so a sum that
+ * saturates at 65535 reaches it again and moves the result to every later bin.
+ */
+static inline void t32_lce_thres_search_simd(const u16 hist[16][32], const u16 *thr, u8 *out0, u8 *out1, u8 *out2)
+{
+	unsigned int k, i;
+
+	for (k = 0; k < 16; k++) {
+		u32 sum = 0, t0 = thr[0], t1 = thr[1], t2 = thr[2];
+
+		out0[k] = 8;
+		out1[k] = 16;
+		out2[k] = 24;
+		for (i = 0; i < 32; i++) {
+			sum += hist[k][i];
+			if (sum > 0xffff)
+				sum = 0xffff;
+			if (t0 <= sum) {
+				out0[k] = (u8)i;
+				t0 = 0xffff;
+			}
+			if (t1 <= sum) {
+				out1[k] = (u8)i;
+				t1 = 0xffff;
+			}
+			if (t2 <= sum) {
+				out2[k] = (u8)i;
+				t2 = 0xffff;
+			}
+		}
+	}
+}
+
 /* tisp_lce_std_hist_transform: scale the 32 bins, then bring their sum to 0x8000 (or report the excess in *over) */
 static inline void t32_lce_std_hist_transform(u16 *h, u32 mult, u32 shift, u16 *over)
 {
