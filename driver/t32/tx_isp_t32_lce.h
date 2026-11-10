@@ -341,6 +341,33 @@ static inline int t32_lce_pdf_to_cdf(const u16 *pdf, u8 *out, const struct t32_l
 	return 0;
 }
 
+/*
+ * lce_pdf_to_cdf_16bit_simd (0x54984): 8 pdf rows of 32 u16 bins (pdf[r * 32 + k]) -> 8 cdf rows of 20 bytes
+ * (out[r * 20 + j]).  Unlike t32_lce_pdf_to_cdf there is no normalisation by the total.  Per row a running 32 bit
+ * sum: output j is the sum of the bins before it, clamped to 32767 when it reaches 32768, divided by 128 (floor,
+ * low byte).  Outputs 0..7 step one bin, outputs 8..19 two bins (bins 8 + 2 (j - 8) and 9 + 2 (j - 8)).
+ * The clamp is applied to the sum before each output only, so the sum can run past 32767 inside a two bin step.
+ */
+static inline void t32_lce_pdf_to_cdf_16bit_simd(const u16 *pdf, u8 *out)
+{
+	unsigned int r, j;
+
+	for (r = 0; r < 8; r++) {
+		const u16 *p = pdf + r * 32;
+		u32 sum = 0;
+
+		for (j = 0; j < 20; j++) {
+			if (sum > 32767)
+				sum = 32767;
+			out[r * 20 + j] = (u8)(sum >> 7);
+			if (j < 8)
+				sum += p[j];
+			else
+				sum += p[2 * j - 8] + p[2 * j - 7];
+		}
+	}
+}
+
 static inline u32 t32_lce_w(const struct t32_lce_tab *tab, u32 idx, int *bad)
 {
 	if (idx > 31) {
