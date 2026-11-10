@@ -43,16 +43,17 @@ static void put32(u8 *p, u32 v)
 
 static unsigned int compared, refused, failed;
 
-static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes)
+static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes, u8 mode)
 {
 	static struct t32_front_write ow[T32_GAMMA_MAX_WRITES];
 	u8 *base, *info, *vlut;
+	u32 *shimg = 0, exp[T32_GAMMA_IMG_WORDS], nv = 0;
 	int on;
 	unsigned int i;
 
 	on = t32_gamma_init(sec, lut, lutbytes, ow);
 	if (on < 0) {
-		refused++;
+		refused += !mode;
 		/* ours refuses only a payload too short for its form or a curve count of 0 */
 		if (t32_front_le32(sec) < 0x134ff91U && sec[0x5a] >= 1 && lutbytes >= T32_GAMMA_CURVE_BYTES) {
 			if (failed++ < 5)
@@ -71,20 +72,71 @@ static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes
 	t32_data_dd0a4[0] = T32O_PTR(base);
 	t32_data_dc274[0] = T32O_PTR(info);
 	t32_data_e1820[0] = 258;	/* payload bytes of the single curve form */
+	t32_data_d03a0[0] = mode;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
+	if (mode) {	/* the LUT goes into the shadow image of channel 0: da844[0] -> block, block + 200 -> image */
+		u8 *shblk = t32o_alloc(4 * 256 + 64);
+
+		shimg = t32o_alloc(T32_GAMMA_IMG_WORDS * 4);
+		for (i = 0; i < T32_GAMMA_IMG_WORDS; i++)
+			shimg[i] = 0xa5a50000u ^ i;
+		put32(shblk + 200, T32O_PTR(shimg));
+		t32_data_da844[0] = T32O_PTR(shblk);
+	}
 	t32o_call((t32o_fn)(void (*)(void))tisp_gamma_init, 0, 0, 0, 0, 0);
 
-	compared++;
+	compared += !mode;
+	if (mode) {
+		/* d03a0 = 1: the 128 LUT pairs of each port become image words (ctl 2038 / 2171 / 2304, pair i at ctl + 2 + i);
+		 * the control and end words and every other write stay (tagged) writes, in order; no other image word changes */
+		static const u32 ports[3][2] = { { 0x32040, 0x32044 }, { 0x32080, 0x32084 }, { 0x32060, 0x32064 } };
+		static const u32 ctl[3] = { 2038, 2171, 2304 };
+		unsigned int p, cnt[3][2] = { { 0 } };
+		int k;
+
+		for (i = 0; i < T32_GAMMA_IMG_WORDS; i++)
+			exp[i] = 0xa5a50000u ^ i;
+		for (k = 0; k < on; k++) {
+			for (p = 0; p < 3; p++)
+				if (ow[k].reg == ports[p][1])
+					break;
+			if (p == 3) {
+				unsigned int q;
+
+				for (q = 0; q < 3; q++)
+					if (ow[k].reg == ports[q][0])
+						break;
+				if (q < 3) {	/* control word at the image slot ctl, end word at ctl + 131 (two slots of one register) */
+					u32 want = 0x80000000u | (ctl[q] + (cnt[q][0]++ ? 131 : 0));
+
+					if (nv >= t32o_log.n || (t32o_log.w[nv].reg & 0x80ffffffu) != want ||
+					    t32o_log.w[nv].val != ow[k].val)
+						goto bad;
+					nv++;
+					continue;
+				}
+				if (nv >= t32o_log.n || !t32o_reg_eq(t32o_log.w[nv].reg, ow[k].reg) ||
+				    t32o_log.w[nv].val != ow[k].val)
+					goto bad;
+				nv++;
+			} else {
+				exp[ctl[p] + 2 + cnt[p][1]++] = ow[k].val;
+			}
+		}
+		if (nv != t32o_log.n || memcmp(shimg, exp, sizeof(exp)))
+			goto bad;
+		return 0;
+	}
 	if (t32o_log.n != (unsigned int)on)
 		goto bad;
 	for (i = 0; i < t32o_log.n; i++)
-		if (t32o_log.w[i].reg != ow[i].reg || t32o_log.w[i].val != ow[i].val)
+		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
 	return 0;
 bad:
 	if (failed++ < 5) {
 		printf("MISMATCH %s: writes vendor %u ours %d\n", what, t32o_log.n, on);
 		for (i = 0; i < t32o_log.n || (int)i < on; i++)
-			if (i >= t32o_log.n || (int)i >= on || t32o_log.w[i].reg != ow[i].reg ||
+			if (i >= t32o_log.n || (int)i >= on || !t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) ||
 			    t32o_log.w[i].val != ow[i].val) {
 				printf("  #%u vendor %05x=%08x ours %05x=%08x\n", i,
 				       i < t32o_log.n ? t32o_log.w[i].reg : 0, i < t32o_log.n ? t32o_log.w[i].val : 0,
@@ -94,6 +146,15 @@ bad:
 			}
 	}
 	return 1;
+}
+
+static int run_case(const char *what, const u8 *sec, const u8 *lut, u32 lutbytes)
+{
+	int bad = run_case_mode(what, sec, lut, lutbytes, 0);
+
+	bad += run_case_mode(what, sec, lut, lutbytes, 1);	/* d03a0 = 1: only the write addresses may differ */
+	t32_data_d03a0[0] = 0;
+	return bad;
 }
 
 static int bin_cases(const char *dir)

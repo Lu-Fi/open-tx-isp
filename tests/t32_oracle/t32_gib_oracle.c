@@ -43,7 +43,7 @@ static void put32(u8 *p, u32 v)
 
 static unsigned int compared, refused, failed;
 
-static int run_case(const char *what, const u8 *sec, u32 bayer)
+static int run_case_mode(const char *what, const u8 *sec, u32 bayer, u8 mode)
 {
 	struct t32_front_write ow[T32_GIB_MAX_WRITES];
 	u8 osec[SECB], *base, *info;
@@ -53,7 +53,7 @@ static int run_case(const char *what, const u8 *sec, u32 bayer)
 	memcpy(osec, sec, SECB);
 	on = t32_gib_init(osec, bayer, ow);
 	if (on < 0) {
-		refused++;
+		refused += !mode;
 		return 0;
 	}
 	t32o_reset();
@@ -62,13 +62,14 @@ static int run_case(const char *what, const u8 *sec, u32 bayer)
 	memcpy(base + SEC_OFF, sec, SECB);
 	put32(info + 8, bayer);
 	t32_data_dd0a4[0] = T32O_PTR(base);
+	t32_data_d03a0[0] = mode;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
 	t32o_call((t32o_fn)(void (*)(void))tisp_gib_init, 0, T32O_PTR(info), 0, 0, 0);
 
-	compared++;
+	compared += !mode;
 	if (t32o_log.n != (unsigned int)on)
 		goto bad;
 	for (i = 0; i < t32o_log.n; i++)
-		if (t32o_log.w[i].reg != ow[i].reg || t32o_log.w[i].val != ow[i].val)
+		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
 	if (memcmp(base + SEC_OFF, osec, SECB))
 		goto bad;
@@ -77,7 +78,7 @@ bad:
 	if (failed++ < 5) {
 		printf("MISMATCH %s: bayer %u writes vendor %u ours %d\n", what, bayer, t32o_log.n, on);
 		for (i = 0; i < t32o_log.n || (int)i < on; i++)
-			if (i >= t32o_log.n || (int)i >= on || t32o_log.w[i].reg != ow[i].reg ||
+			if (i >= t32o_log.n || (int)i >= on || !t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) ||
 			    t32o_log.w[i].val != ow[i].val) {
 				printf("  #%u vendor %04x=%08x ours %04x=%08x\n", i,
 				       i < t32o_log.n ? t32o_log.w[i].reg : 0, i < t32o_log.n ? t32o_log.w[i].val : 0,
@@ -92,6 +93,15 @@ bad:
 			}
 	}
 	return 1;
+}
+
+static int run_case(const char *what, const u8 *sec, u32 bayer)
+{
+	int bad = run_case_mode(what, sec, bayer, 0);
+
+	bad += run_case_mode(what, sec, bayer, 1);	/* d03a0 = 1: only the write addresses may differ */
+	t32_data_d03a0[0] = 0;
+	return bad;
 }
 
 static int bin_cases(const char *dir)
