@@ -493,13 +493,13 @@ u64 __attribute__((weak)) private_spin_lock_init(u32 a0, u32 a1, u32 a2, u32 a3)
 	return 0;
 }
 
-u64 __private_spin_lock_irqsave(u32 a0, u32 a1, u32 a2, u32 a3)
+u64 __attribute__((weak)) __private_spin_lock_irqsave(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a0; (void)a1; (void)a2; (void)a3;
 	return 0;	/* saved flags */
 }
 
-u64 private_spin_unlock_irqrestore(u32 a0, u32 a1, u32 a2, u32 a3)
+u64 __attribute__((weak)) private_spin_unlock_irqrestore(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a0; (void)a1; (void)a2; (void)a3;
 	return 0;
