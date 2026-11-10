@@ -20,6 +20,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `tx_isp_t32_bayer.h` + `t32_dnst_oracle` (planned, host only): lib_tisp_csccr_dn_status (CSCCR day/night word via tisp_reg_read, shadow word 777 or register 0x14054; returns 1 on a change to 0, stores the last value): 20000 calls in modes 0/1/2, return, last values and shadow images bit-exact, 12/12 mutations detected.
 - `tx_isp_t32_libwrap.h` + `t32_libvic_oracle` (planned, host only): lib_tisp_vic_stream_on / _stop (VIC 0 and 1 register 0x10), lib_tisp_vic_intp_enable / _disable (VIC mask registers 0x1e8 / 0x1ec = 0 / all ones) and lib_tisp_get_ipc_cache_data (sum of the upper halves of 0x1370 / 0x1374): 100000 calls, return, writes and reads bit-exact, 13/13 mutations detected.
 - `tx_isp_t32_ldcops.h` + `t32_ldcops_oracle` (planned, host only): ldc_video_s_stream (ready <-> streaming) and ldc_core_ops_init (-EINVAL for NULL / error pointers, enable = ready, disable stops a streaming LDC and goes idle): 19257 calls with NULL and error pointers, return and private block bit-exact, 15/15 mutations detected.
+- `tx_isp_t32_libwrap.h` + `t32_libsa_oracle` (planned, host only): lib_tisp_sync_sensor_attr (20 run-time fields of the sensor attributes into the 232-byte channel copy, then the AE sensor trigger) and lib_tisp_is_file_exist (kern_path + path_put): 40000 calls, return, copies, callee arguments bit-exact, 13/13 mutations detected.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 

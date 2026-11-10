@@ -49,10 +49,17 @@
  *   t32_lib_vic_intp_enable / _disable  lib_tisp_vic_intp_enable 0xadee8 / _disable 0xadf38: VIC (ch & 0xff)
  *                                  mask registers 0x1e8, 0x1ec = 0 / 0xffffffff
  *   t32_lib_get_ipc_cache_data     lib_tisp_get_ipc_cache_data 0x2a1a8: (reg 0x1370 >> 16) + (reg 0x1374 >> 16)
+ * Group 6 (sensor attributes, file check):
+ *   t32_lib_sync_sensor_attr       lib_tisp_sync_sensor_attr 0x27f70: copies the run-time fields of the sensor
+ *                                  attribute block (u16 at 0 / 2, words 36 40 56 60 64 68 72 88 92 96 100, bytes
+ *                                  116..121 and 123) into the channel's 232-byte copy (t32_data_dd2d4), then
+ *                                  tail-jumps to tisp_ae_par_sensor_trig(ch & 0xff)
+ *   t32_lib_is_file_exist          lib_tisp_is_file_exist 0x1d070: kern_path(name, LOOKUP_FOLLOW, &path) == 0
+ *                                  -> path_put(&path), 1; else 0
  *   VIC n registers are at (0x80 + n) << 12 in the system register space.
  *
  * Hooks: struct t32_lib_hooks (the callees).  Checked bit-exact against the vendor flow (Matt Davis' recovered C,
- * PR #15) by tests/t32_oracle (t32_libwrap_oracle, t32_libst_oracle, t32_libtr_oracle, t32_libms_oracle, t32_libvic_oracle).
+ * PR #15) by tests/t32_oracle (t32_libwrap_oracle, t32_libst_oracle, t32_libtr_oracle, t32_libms_oracle, t32_libvic_oracle, t32_libsa_oracle).
  */
 #ifndef TX_ISP_T32_LIBWRAP_H
 #define TX_ISP_T32_LIBWRAP_H
@@ -83,6 +90,9 @@ struct t32_lib_hooks {
 	u32 (*tmo_strength)(void *ctx, u32 ch, u32 strength);		/* tisp_tmo_api_strength_ctrl */
 	u32 (*mdns_set_mem_cfg)(void *ctx, u32 ch, u32 a1, u32 a2, u32 a3);	/* tisp_mdns_set_mem_cfg */
 	u32 (*mdns_get_mem_size)(void *ctx, u32 ch, u32 w, u32 h, u32 mode, u32 b43); /* tisp_mdns_get_mem_size */
+	u32 (*ae_sensor_trig)(void *ctx, u32 ch);			/* tisp_ae_par_sensor_trig */
+	int (*kern_path)(void *ctx, const char *name, u32 flags, void *path);	/* kern_path */
+	void (*path_put)(void *ctx, void *path);			/* path_put */
 };
 
 static inline u32 t32_lib_remove(const struct t32_lib_hooks *h)
@@ -283,6 +293,43 @@ static inline u32 t32_lib_get_ipc_cache_data(const struct t32_lib_hooks *h)
 	u32 a = h->sys_read(h->ctx, T32_IPC_CACHE_REG0) >> 16;
 
 	return a + (h->sys_read(h->ctx, T32_IPC_CACHE_REG1) >> 16);
+}
+
+/* ---- group 6: sensor attributes, file check ---- */
+
+#define T32_SENSOR_ATTR_COPY	232U	/* t32_data_dd2d4 channel block */
+#define T32_LOOKUP_FOLLOW	1U
+
+/* fields lib_tisp_sync_sensor_attr copies (offset, size), vendor order */
+static const unsigned char t32_sensor_attr_sync[][2] = {
+	{ 36, 4 }, { 40, 4 }, { 116, 1 }, { 117, 1 }, { 118, 1 }, { 68, 4 }, { 72, 4 }, { 88, 4 }, { 92, 4 },
+	{ 96, 4 }, { 100, 4 }, { 119, 1 }, { 120, 1 }, { 121, 1 }, { 0, 2 }, { 2, 2 }, { 56, 4 }, { 60, 4 },
+	{ 64, 4 }, { 123, 1 },
+};
+
+/* copy = t32_data_dd2d4 */
+static inline u32 t32_lib_sync_sensor_attr(const struct t32_lib_hooks *h, unsigned char *copy, u32 ch,
+					   const unsigned char *attr)
+{
+	unsigned char *dst;
+	unsigned int i, k;
+
+	ch &= 0xff;
+	dst = copy + ch * T32_SENSOR_ATTR_COPY;
+	for (i = 0; i < sizeof(t32_sensor_attr_sync) / sizeof(t32_sensor_attr_sync[0]); i++)
+		for (k = 0; k < t32_sensor_attr_sync[i][1]; k++)
+			dst[t32_sensor_attr_sync[i][0] + k] = attr[t32_sensor_attr_sync[i][0] + k];
+	return h->ae_sensor_trig(h->ctx, ch);
+}
+
+static inline u32 t32_lib_is_file_exist(const struct t32_lib_hooks *h, const char *name)
+{
+	void *path[2];	/* struct path: mnt, dentry */
+
+	if (h->kern_path(h->ctx, name, T32_LOOKUP_FOLLOW, path))
+		return 0;
+	h->path_put(h->ctx, path);
+	return 1;
 }
 
 #endif
