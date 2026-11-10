@@ -727,31 +727,69 @@ static inline u32 t32_lce_sdiv(u32 n, u32 d)
 }
 
 /*
+ * lce_hist_method reads its 1024 / n table (rodata bf9a8) unchecked: for n >= 32 it reads the rodata that follows
+ * the 32 entry table (data.c:2701; n <= 46 is all the vendor's frame survives, see below).
+ */
+static const u16 t32_lce_hm_recip[47] = {
+	0x400, 0x400, 0x200, 0x155, 0x100, 0x0cd, 0x0ab, 0x092, 0x080, 0x072, 0x066, 0x05d, 0x055, 0x04f,
+	0x049, 0x044, 0x040, 0x03c, 0x039, 0x036, 0x033, 0x031, 0x02f, 0x02d, 0x02b, 0x029, 0x027, 0x026,
+	0x025, 0x023, 0x022, 0x021, 0x020, 0x000, 0x7fff, 0x2aab, 0x1555, 0x0ccd, 0x0889, 0x0618, 0x0492, 0x038e,
+	0x02d8, 0x0254, 0x01f0, 0x01a4, 0x0168,
+};
+
+/*
  * lce_hist_method (0x53690): 32 u32 bins in, 32 u32 bins out, parameters in the same block as
  * t32_lce_hm16_par (n +4, c3 +20, b +24, k8 +28, c1 +32, a +36, e1 +40, e2 +44, sh +48).
  * Tent ramps a / b as in the 16 bit variant, m = signed min(a, ((h - 1024) * k8 >> 7) + 1024).
  * rem = 0x8000 - sum(m): rem >= 0 adds rem * b * q >> sh_b with q = (1 << sh_b) / sum(b) (sh_b = rodata d6c66);
  * rem < 0 scales every bin by (1 << sh_a) / v >> p->sh, v = (sum << 5 >> 14) + 1 (sh_a = rodata d6c67).
- * The rest of the 0x8000 total is spread over the bins, rem % 32 on bin 31.  Only n <= 31 (the vendor reads
- * its 1024 / n table unchecked).
+ * The rest of the 0x8000 total is spread over the bins, rem % 32 on bin 31.
+ *
+ * n is the low byte of p->n.  The vendor's frame keeps the ramps a, b as two 32 word arrays back to back, and
+ * its first loop runs for i < n without a bound: for n >= 32 the a values spill over into b (b[i - 32] = a[i])
+ * and no mirrored second half exists, sum(b) covers n values; the centre value e1 goes to b[n - 32] (e2 only
+ * into sum(b)).  The port reproduces that.  The vendor itself corrupts its saved registers from n = 36, its
+ * return address from n = 45 and the saved output pointer (frame word 147) from n = 47, so only n <= 31 can
+ * occur on hardware without a crash; the host oracle's C reference is well defined up to n = 46.  n above 46
+ * is clamped.
  */
 static inline void t32_lce_hist_method32(const u32 *hist, u32 *out, const struct t32_lce_hm16_par *p,
 					 u32 sh_b, u32 sh_a)
 {
 	u32 n = p->n & 0xff, c1 = p->c1 & 0xffff, c3 = p->c3 & 0xff, k8 = p->k8 & 0xff;
-	u32 ra = (p->a & 0xffff) * t32_lce_hm16_recip[n & 31];
-	u32 rb = (p->b & 0xff) * t32_lce_hm16_recip[n & 31];
-	u32 sa = (u32)((int)ra >> 10), sb = (u32)((int)rb >> 10);
+	u32 ra, rb, sa, sb;
 	u32 a[32], b[32], m[32], buf[32], bsum = 0, sum = 0, tot = 0, rem, i;
 	int h;
 
-	for (i = 0; i < 32; i++) {
-		u32 x = i < n ? i : 31 - i;
+	if (n > 46)
+		n = 46;
+	ra = (p->a & 0xffff) * t32_lce_hm_recip[n];
+	rb = (p->b & 0xff) * t32_lce_hm_recip[n];
+	sa = (u32)((int)ra >> 10);
+	sb = (u32)((int)rb >> 10);
+	for (i = 0; i < n; i++) {
+		u32 av = c1 + sa * i, bv = c3 + sb * i;
 
-		a[i] = i == n ? p->e1 & 0xffff : c1 + sa * x;
-		b[i] = i == n ? p->e2 & 0xffff : c3 + sb * x;
-		bsum += b[i];
+		bsum += bv;
+		if (i < 32) {
+			a[i] = av;
+			b[i] = bv;
+		} else {
+			b[i - 32] = av;
+		}
 	}
+	if (n < 32) {
+		a[n] = p->e1 & 0xffff;
+		b[n] = p->e2 & 0xffff;
+		for (i = n + 1; i < 32; i++) {
+			a[i] = c1 + sa * (31 - i);
+			b[i] = c3 + sb * (31 - i);
+			bsum += b[i];
+		}
+	} else {
+		b[n - 32] = p->e1 & 0xffff;
+	}
+	bsum += p->e2 & 0xffff;
 	for (i = 0; i < 32; i++) {
 		u32 g = (u32)((int)((hist[i] - 1024U) * k8) >> 7) + 1024U;
 
