@@ -7,6 +7,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 ## 2026-11-11: T32 ISP core glue ported from Matt Davis' recovered C (planned, host only, not device-tested)
 
 - `t32_ispcore_oracle` (planned, host only): `tx_isp_t32_ispcore.h` (irq dispatch `isp_irq_handle` / `isp_irq_thread_handle`, the sensor ops walks `ispcore_sensor_ops_release_all_sensor` / `ispcore_sensor_ops_ioctl`, `ispcore_update_fs_work`, `isp_core_tuning_clear` / `_deinit` and three empty vendor functions) against the vendor functions: 20000 random worlds (subdev/ops tables, recorder callees with scripted returns), return values, every indirect call and kfree and every byte of the world block equal; 18/18 mutations detected.
+- `t32_isptun_oracle` (planned, host only): `tx_isp_t32_isptun.h`, the core tuning device (`isp_core_tuning_init` / `_event`, `isp_core_tunning_open` / `_release` / `_default_ioctl` / `_unlocked_ioctl` / `_unlocked_ioctl_fast`, `isp_tunning_poll` / `_read` / `_write`, `isp_frame_done_wakeup` / `_wait`) against the vendor functions: 8000 random worlds per function with scripted copy faults, ctrl results, wait results and wakeups; return values, the kernel call log, the world and the vendor globals equal; 23/23 mutations detected. `isp_tunning_read` runs with a build-time ABI model of `__copy_user` (bytes left in a2) and of `current_thread_info()`.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 

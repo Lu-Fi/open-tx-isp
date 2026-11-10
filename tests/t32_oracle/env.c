@@ -776,3 +776,25 @@ int t32o_decoy_check(void)
 /* ---- op5-ispcore (ISP core glue): weak data / stubs ---- */
 /* .bss f3310: the ISP core device pointer (tx_isp core subdev), set by the oracle per case */
 u32 t32_data_f3310[1] __attribute__((weak, aligned(4)));
+/* tuning device (isp_tunning_read/poll): bss dad90 = read flag byte, dad94 = its wait queue; one weak block */
+u8 t32o_op5_dad[0x40] __attribute__((weak, aligned(16)));
+__asm__(".weak t32_data_dad90\n.set t32_data_dad90, t32o_op5_dad\n.weak t32_data_dad94\n.set t32_data_dad94, t32o_op5_dad + 4");
+/* frame done (isp_frame_done_wait/wakeup): bss d9690 flag ch != 0, d9694 flag ch 0, d9698 3 x u64 counters */
+u32 t32o_op5_fd[8] __attribute__((weak, aligned(16)));
+__asm__(".weak t32_data_d9690\n.set t32_data_d9690, t32o_op5_fd\n.weak t32_data_d9694\n.set t32_data_d9694, t32o_op5_fd + 4");
+__asm__(".weak t32_data_d9698\n.set t32_data_d9698, t32o_op5_fd + 8\n.weak t32_data_d969c\n.set t32_data_d969c, t32o_op5_fd + 12");
+/* .data objects only used by address: cf12c / cf134 frame-done wait queues, cf0c0 tuning file ops;
+ * printk / isp_printf format strings c51e0, c7a74, c4ac0 and function names bf0d0, bdb40 */
+u32 t32_data_cf12c[2] __attribute__((weak)), t32_data_cf134[3] __attribute__((weak)), t32_data_cf0c0[1] __attribute__((weak));
+u32 t32_data_c51e0[1] __attribute__((weak)), t32_data_c7a74[1] __attribute__((weak)), t32_data_c4ac0[1] __attribute__((weak));
+u32 t32_data_bf0d0[1] __attribute__((weak)), t32_data_bdb40[1] __attribute__((weak));
+u32 t32_data_c520c[1] __attribute__((weak));	/* mutex name string, address only */
+/* core event queue (isp_core_event_*), bss d9d30 .. d9e78 + 4 channels in one weak block (vendor layout:
+ * d9d30 process drops, d9d34 push drops, d9d38 callbacks 80 words per channel, d9e78 2268 B queue per channel) */
+u8 t32o_op5_evq[0x2500] __attribute__((weak, aligned(16)));
+__asm__(".weak t32_data_d9d30\n.set t32_data_d9d30, t32o_op5_evq\n.weak t32_data_d9d34\n.set t32_data_d9d34, t32o_op5_evq + 4");
+__asm__(".weak t32_data_d9d38\n.set t32_data_d9d38, t32o_op5_evq + 8\n.weak t32_data_d9e78\n.set t32_data_d9e78, t32o_op5_evq + 0x148");
+/* event queue strings (wait queue name, isp_printf formats, function name), address only */
+u32 t32_data_c69b0[1] __attribute__((weak)), t32_data_c69bc[1] __attribute__((weak)), t32_data_c69cc[1] __attribute__((weak));
+u32 t32_data_be598[1] __attribute__((weak)), t32_data_be580[1] __attribute__((weak)), t32_data_c69f8[1] __attribute__((weak));
+u32 t32_data_c6a14[1] __attribute__((weak)), t32_data_c6a3c[1] __attribute__((weak)), t32_data_c6a74[1] __attribute__((weak));
