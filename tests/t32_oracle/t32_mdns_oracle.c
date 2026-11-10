@@ -57,6 +57,7 @@ static int run_case_mode(const char *what, const u8 *sec, u32 w_, u32 h_, unsign
 	info[0] = (u8)w_; info[1] = (u8)(w_ >> 8); info[4] = (u8)h_; info[5] = (u8)(h_ >> 8); info[42] = (u8)cmpb;
 	memcpy(base + SEC_OFF, sec, SECB);
 	t32_data_dd0a4[0] = T32O_PTR(base);
+	t32o_decoy_arm();
 	t32_data_d03a0[0] = dsm;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
 	t32o_call((t32o_fn)(void (*)(void))tisp_mdns_init, 0, T32O_PTR(info), 0, 0, 0);
 
@@ -67,6 +68,8 @@ static int run_case_mode(const char *what, const u8 *sec, u32 w_, u32 h_, unsign
 		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
 	if (memcmp(base + SEC_OFF, osec, SECB))
+		goto bad;
+	if (t32o_decoy_check())	/* the other channels' section bases must stay untouched */
 		goto bad;
 	return 0;
 bad:

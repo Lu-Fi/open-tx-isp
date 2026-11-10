@@ -58,6 +58,7 @@ static int run_mode(const char *what, const u8 *sec, u8 mode)
 	base = t32o_alloc(SEC_OFF + SECB + 64);
 	memcpy(base + SEC_OFF, sec, SECB);
 	t32_data_dd0a4[0] = T32O_PTR(base);
+	t32o_decoy_arm();
 	t32_data_d03a0[0] = mode;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
 	t32o_call((t32o_fn)(void (*)(void))tisp_ysp_init, 0, 0, 0, 0, 0);
 
@@ -68,6 +69,8 @@ static int run_mode(const char *what, const u8 *sec, u8 mode)
 		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
 	if (memcmp(base + SEC_OFF, osec, SECB))
+		goto bad;
+	if (t32o_decoy_check())	/* the other channels' section bases must stay untouched */
 		goto bad;
 	return 0;
 bad:

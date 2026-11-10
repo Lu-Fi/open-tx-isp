@@ -744,3 +744,31 @@ u32 *t32o_shadow_arm(u32 words)
 	t32_data_da844[0] = T32O_PTR(blk);
 	return img;
 }
+
+/* decoy channels 1..3: section bases (dd0a4[1..3]) with patterned blobs that no call for channel 0 may touch */
+static u8 *decoy_blob[3];
+static u8 decoy_byte(unsigned int k, unsigned int i)
+{
+	return (u8)((i * 2654435761u >> 13) ^ (k * 0x5b) ^ (i >> 9));
+}
+void t32o_decoy_arm(void)
+{
+	unsigned int k, i;
+
+	for (k = 0; k < 3; k++) {
+		decoy_blob[k] = t32o_alloc(0x10000);
+		for (i = 0; i < 0x10000; i++)
+			decoy_blob[k][i] = decoy_byte(k, i);
+		t32_data_dd0a4[k + 1] = T32O_PTR(decoy_blob[k]);
+	}
+}
+int t32o_decoy_check(void)
+{
+	unsigned int k, i;
+
+	for (k = 0; k < 3; k++)
+		for (i = 0; i < 0x10000; i++)
+			if (decoy_blob[k][i] != decoy_byte(k, i))
+				return 1;
+	return 0;
+}

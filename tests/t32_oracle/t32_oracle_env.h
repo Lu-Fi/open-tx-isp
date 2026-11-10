@@ -29,6 +29,9 @@ extern struct t32o_log t32o_log;
 int t32o_reg_eq(u32 vendor, u32 ours);
 /* arm the register shadow of d03a0 = 1 (call after t32o_reset): channel 0 image of words words, pattern 0xa5a50000 ^ index */
 u32 *t32o_shadow_arm(u32 words);
+/* decoy channels 1..3 (section bases dd0a4[1..3]): arm after t32o_reset, check after the call (1 = a decoy changed) */
+void t32o_decoy_arm(void);
+int t32o_decoy_check(void);
 
 extern u32 t32_data_e28f0[4], t32_data_dd0a4[4], t32_data_dc274[4], t32_data_da844[0x100];
 extern u8 t32_data_d03a0[4];

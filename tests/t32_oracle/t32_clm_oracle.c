@@ -81,6 +81,7 @@ static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lut
 		memcpy(info + 40, &p2, 4);
 	}
 	t32_data_dd0a4[0] = T32O_PTR(base);
+	t32o_decoy_arm();
 	t32_data_dc274[0] = T32O_PTR(info);
 	if (dsm)
 		shimg = t32o_shadow_arm(0x8000);
@@ -105,6 +106,8 @@ static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lut
 		if (!t32o_reg_eq(t32o_log.w[i].reg, ow[i].reg) || t32o_log.w[i].val != ow[i].val)
 			goto bad;
 	if (memcmp(base + SEC_OFF, sec, SECB))	/* ours takes the section const: the vendor must leave it unchanged */
+		goto bad;
+	if (t32o_decoy_check())	/* the other channels' section bases must stay untouched */
 		goto bad;
 	return 0;
 bad:

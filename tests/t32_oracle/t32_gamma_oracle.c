@@ -71,6 +71,7 @@ static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lut
 	memcpy(vlut, lut, lutbytes);
 	put32(info + 32, T32O_PTR(vlut));
 	t32_data_dd0a4[0] = T32O_PTR(base);
+	t32o_decoy_arm();
 	t32_data_dc274[0] = T32O_PTR(info);
 	t32_data_e1820[0] = 258;	/* payload bytes of the single curve form */
 	t32_data_d03a0[0] = mode;	/* 1: tisp_reg_write queues into the register shadow (logged tagged, same values) */
@@ -103,6 +104,8 @@ static int run_case_mode(const char *what, const u8 *sec, const u8 *lut, u32 lut
 		if (memcmp(base + SEC_OFF, e, SECB))
 			goto bad;
 	}
+	if (t32o_decoy_check())	/* the other channels' section bases must stay untouched */
+		goto bad;
 	return 0;
 bad:
 	if (failed++ < 5) {
