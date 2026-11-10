@@ -475,7 +475,7 @@ u64 private_kmalloc(u32 a0, u32 a1, u32 a2, u32 a3)
 	return a0 ? (u32)(uintptr_t)t32o_alloc(a0) : 0;
 }
 
-u64 private_kfree(u32 a0, u32 a1, u32 a2, u32 a3)
+u64 __attribute__((weak)) private_kfree(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a0; (void)a1; (void)a2; (void)a3;
 	return 0;
@@ -550,7 +550,7 @@ u64 isp_printf(u32 a0, u32 a1, u32 a2, u32 a3)
 	return 0;
 }
 
-u64 system_irq_func_set(u32 a0, u32 a1, u32 a2, u32 a3)
+u64 __attribute__((weak)) system_irq_func_set(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a0; (void)a2; (void)a3;
 	t32o_log.irq = a1;
