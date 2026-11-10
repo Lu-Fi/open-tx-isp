@@ -5,6 +5,11 @@ Newest first, grouped by date. Everything listed was device-tested on the SoC na
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
 
+## 2026-11-10: kernel 7 T31 bridge: sensor register access, sensor test pattern works (openimp #263; Wuuk Y0510 T31X sc4336p, kernel 7.3.3, runtime insmod)
+
+- The V4L2 sensor bridge (`driver/t31/tx_isp_v4l2_sensor.c`) now implements the core `g_register`/`s_register` ops behind the stock sensor register ioctl (`IMP_ISP_Get/SetSensorRegister`). A mainline sensor driver has no such ops, so the call ended in -ENOIOCTLCMD and OpenIMP refused the sensor test pattern. The bridge talks to the chip on its I2C client like the vendor sensor drivers: 16-bit register address and 8-bit value, 8-bit address for gc2053/gc2063/gc2093; CAP_SYS_ADMIN only.
+- Device: rmmod/insmod of the rebuilt tx-isp-t31.ko while streaming, sensor test pattern on (chip id read, 0x4501 bit 3 set: `[TESTPAT] test pattern mode 4 (sensor)`, ramp in the stream) and off again (normal picture back). 8-bit-address path not device-tested.
+
 ## 2026-11-10: T20/T10 colour matrix follows the manual / preset white balance like the OEM (openimp #262; Wyze Cam v2 T20X jxf23, light box 3000 K, runtime insmod)
 
 - With a manual WB or a WB preset (awb_mode, stab[12] != 0) the compact AWB wrote the gains and kept the colour matrix of the last AUTO light source. The OEM (awb_calc_avg_weighted_gr_gb_mesh in MANUAL) takes the colour temperature of the manual gains from the CT mesh (1e6 / AWB_mesh(0xffff/R, 0xffff/B), LUTs 226/251/214) and runs awb_detect_light_source / awb_process_light_source on it. The manual branch now does the same (shared helper with the AUTO path).

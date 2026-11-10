@@ -396,10 +396,100 @@ static int tx_v4l2_sensor_ioctl(struct tx_isp_subdev *sd, unsigned int cmd,
 	}
 }
 
+/*
+ * Raw sensor register access for the stock sensor register ioctl
+ * (TX_ISP_EVENT_SENSOR_G/S_REGISTER, libimp IMP_ISP_Get/SetSensorRegister).
+ * The vendor sensor drivers implement g_register/s_register themselves; a
+ * mainline sensor has none (no CONFIG_VIDEO_ADV_DEBUG ops either), so the
+ * bridge talks to the chip on its I2C client, the same way the vendor
+ * drivers do: 16-bit register address, 8-bit value (SmartSens, GalaxyCore
+ * gc4653/gc4023, OmniVision), 8-bit address for the gc2053 family.  The
+ * adapter lock serialises this with the sensor driver's own transfers.
+ */
+static bool tx_v4l2_sensor_reg8(const struct tx_isp_v4l2_sensor *s)
+{
+	return !strncmp(s->name, "gc2053", 6) || !strncmp(s->name, "gc2063", 6) ||
+	       !strncmp(s->name, "gc2093", 6);
+}
+
+static int tx_v4l2_sensor_reg_xfer(struct tx_isp_v4l2_sensor *s, u16 reg,
+				   u8 *val, bool write)
+{
+	u8 buf[3];
+	int alen = tx_v4l2_sensor_reg8(s) ? 1 : 2;
+	struct i2c_msg msg[2];
+	int ret;
+
+	if (!s->client)
+		return -ENODEV;
+	if (alen == 2) {
+		buf[0] = reg >> 8;
+		buf[1] = reg & 0xff;
+	} else {
+		if (reg > 0xff)
+			return -EINVAL;
+		buf[0] = reg;
+	}
+	if (write) {
+		buf[alen] = *val;
+		msg[0].addr = s->client->addr;
+		msg[0].flags = 0;
+		msg[0].len = alen + 1;
+		msg[0].buf = buf;
+		ret = i2c_transfer(s->client->adapter, msg, 1);
+		return ret == 1 ? 0 : ret < 0 ? ret : -EIO;
+	}
+	msg[0].addr = s->client->addr;
+	msg[0].flags = 0;
+	msg[0].len = alen;
+	msg[0].buf = buf;
+	msg[1].addr = s->client->addr;
+	msg[1].flags = I2C_M_RD;
+	msg[1].len = 1;
+	msg[1].buf = val;
+	ret = i2c_transfer(s->client->adapter, msg, 2);
+	return ret == 2 ? 0 : ret < 0 ? ret : -EIO;
+}
+
+static int tx_v4l2_sensor_g_register(struct tx_isp_subdev *sd,
+				     struct tx_isp_dbg_register *reg)
+{
+	struct tx_isp_v4l2_sensor *s = sd_to_v4l2_sensor(sd);
+	u8 val = 0;
+	int ret;
+
+	if (!s || !reg)
+		return -EINVAL;
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+	ret = tx_v4l2_sensor_reg_xfer(s, reg->reg & 0xffff, &val, false);
+	if (ret)
+		return ret;
+	reg->val = val;
+	reg->size = tx_v4l2_sensor_reg8(s) ? 1 : 2;
+	return 0;
+}
+
+static int tx_v4l2_sensor_s_register(struct tx_isp_subdev *sd,
+				     const struct tx_isp_dbg_register *reg)
+{
+	struct tx_isp_v4l2_sensor *s = sd_to_v4l2_sensor(sd);
+	u8 val;
+
+	if (!s || !reg)
+		return -EINVAL;
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+	val = reg->val & 0xff;
+	return tx_v4l2_sensor_reg_xfer(s, reg->reg & 0xffff, &val, true);
+}
+
 static struct tx_isp_subdev_core_ops tx_v4l2_sensor_core_ops = {
 	.g_chip_ident = tx_v4l2_sensor_g_chip_ident,
 	.init = tx_v4l2_sensor_init,
 	.reset = tx_v4l2_sensor_reset,
+	.g_register = tx_v4l2_sensor_g_register,
+	.s_register = tx_v4l2_sensor_s_register,
 };
 
 static struct tx_isp_subdev_video_ops tx_v4l2_sensor_video_ops = {
