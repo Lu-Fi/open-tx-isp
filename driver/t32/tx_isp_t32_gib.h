@@ -18,7 +18,7 @@
  * and the normal black level path).
  *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
- * by tests/t32_oracle (t32_gib_oracle, t32_gibf_oracle).
+ * by tests/t32_oracle (t32_gib_oracle, t32_gibf_oracle, t32_gibx_oracle).
  */
 #ifndef TX_ISP_T32_GIB_H
 #define TX_ISP_T32_GIB_H
@@ -126,8 +126,14 @@ static inline u32 t32_gib_gain(const u8 *p)
 #pragma GCC diagnostic ignored "-Wparentheses"
 #endif
 
-/* tisp_gib_write_reg(0): the black level words, then the section words */
-static inline void t32_gib_write_reg(const u8 *sec, const u8 *cp, const u8 *pt, int ip10, struct t32_front_write *w, unsigned int *np)
+/*
+ * tisp_gib_write_reg(ch, mode): the black level words, then the section
+ * words.  mode 1 stops after 0x3068 with the 0x3010 trigger (gain update
+ * only).  ip10: the WDR flag (gain block byte 16, tisp_gib_wdr_en); when set
+ * the normal black level path (0x318c..0x3198, 0x3188, 0x319c) is skipped.
+ */
+static inline void t32_gib_write_reg_mode(const u8 *sec, const u8 *cp, const u8 *pt, u32 mode, int ip10,
+					  struct t32_front_write *w, unsigned int *np)
 {
 	unsigned int n = *np;
 
@@ -144,6 +150,11 @@ static inline void t32_gib_write_reg(const u8 *sec, const u8 *cp, const u8 *pt, 
 		T32_FWR(w, n, 0x3198, (T32_GIB_GP(7) & 0xfff) << 0x10 | T32_GIB_GP(6) & 0xfff);
 	}
 	T32_FWR(w, n, 0x3068, cp[0x80]);
+	if (mode == 1) {
+		T32_FWR(w, n, 0x3010, 3);
+		*np = n;
+		return;
+	}
 	T32_FWR(w, n, 0x3040,sec[0x202] & 1);
 	T32_FWR(w, n, 0x304c,sec[0x203] & 1);
 	if (!ip10) {
@@ -250,20 +261,40 @@ static inline void t32_gib_write_reg(const u8 *sec, const u8 *cp, const u8 *pt, 
 	*np = n;
 }
 
-/* tisp_gib_write_blc_s_reg (the normal black level path) */
-static inline void t32_gib_write_blc_s(const u8 *sec, const u8 *cp, const u8 *pt, struct t32_front_write *w, unsigned int *np)
+/* tisp_gib_write_reg(0) with the WDR flag ip10 (init / refresh / wake-up paths) */
+static inline void t32_gib_write_reg(const u8 *sec, const u8 *cp, const u8 *pt, int ip10, struct t32_front_write *w, unsigned int *np)
+{
+	t32_gib_write_reg_mode(sec, cp, pt, 0, ip10, w, np);
+}
+
+/*
+ * tisp_gib_write_blc_s_reg (the normal black level path); wdr: the WDR flag
+ * (gain block byte 16, tisp_gib_wdr_en); with WDR mode 1 the vendor writes
+ * the short-frame enables (section bytes 0x204 / 0x205) and levels.
+ */
+static inline void t32_gib_write_blc_s_wdr(const u8 *sec, const u8 *cp, const u8 *pt, u32 wdr,
+					   struct t32_front_write *w, unsigned int *np)
 {
 	unsigned int n = *np;
+	/* WDR mode 1: the short-frame levels (pointer entries 8..15, gain at +0x56) */
+	unsigned int b = wdr == 1 ? 8 : 0;
+	u32 go = wdr == 1 ? 0x56 : 0x4a;
 
-	T32_FWR(w, n, 0x3188,sec[0x202] & 1);
-	T32_FWR(w, n, 0x319c,sec[0x203] & 1);
-	T32_FWR(w, n, 0x318c, (T32_GIB_GP(1) & 0xfff) << 0x10 | T32_GIB_GP(0) & 0xfff);
-	T32_FWR(w, n, 0x3190, (T32_GIB_GP(3) & 0xfff) << 0x10 | T32_GIB_GP(2) & 0xfff);
-	T32_FWR(w, n, 0x3200,t32_tp_le16(cp + 0x4a) & 0x1fff);
-	T32_FWR(w, n, 0x3194, (T32_GIB_GP(5) & 0xfff) << 0x10 | T32_GIB_GP(4) & 0xfff);
-	T32_FWR(w, n, 0x3198, (T32_GIB_GP(7) & 0xfff) << 0x10 | T32_GIB_GP(6) & 0xfff);
+	T32_FWR(w, n, 0x3188, sec[wdr == 1 ? 0x204 : 0x202] & 1);
+	T32_FWR(w, n, 0x319c, sec[wdr == 1 ? 0x205 : 0x203] & 1);
+	T32_FWR(w, n, 0x318c, (T32_GIB_GP(b + 1) & 0xfff) << 0x10 | T32_GIB_GP(b + 0) & 0xfff);
+	T32_FWR(w, n, 0x3190, (T32_GIB_GP(b + 3) & 0xfff) << 0x10 | T32_GIB_GP(b + 2) & 0xfff);
+	T32_FWR(w, n, 0x3200,t32_tp_le16(cp + go) & 0x1fff);
+	T32_FWR(w, n, 0x3194, (T32_GIB_GP(b + 5) & 0xfff) << 0x10 | T32_GIB_GP(b + 4) & 0xfff);
+	T32_FWR(w, n, 0x3198, (T32_GIB_GP(b + 7) & 0xfff) << 0x10 | T32_GIB_GP(b + 6) & 0xfff);
 	T32_FWR(w, n, 0x3010, 3);
 	*np = n;
+}
+
+/* tisp_gib_write_blc_s_reg with WDR off (init / refresh / wake-up paths) */
+static inline void t32_gib_write_blc_s(const u8 *sec, const u8 *cp, const u8 *pt, struct t32_front_write *w, unsigned int *np)
+{
+	t32_gib_write_blc_s_wdr(sec, cp, pt, 0, w, np);
 }
 
 #if defined(__GNUC__)
@@ -337,6 +368,7 @@ struct t32_gib_ctx {
 	u8 *sec;		/* IQ bin section 8 */
 	u8 *cp;			/* 0x84-byte working block */
 	u8 *gw;			/* two gain words */
+	u8 *ptrow;		/* heap copy of the Bayer pointer-table row */
 	u8 *hold;		/* T32_GIB_HOLD_BYTES: flag + held black levels */
 };
 
@@ -440,6 +472,142 @@ static inline int t32_gib_wake_up(struct t32_gib_ctx *ctx, u8 ch, u32 bayer,
 	t32_gib_write_reg(ctx->sec, ctx->cp, pt, 0, w, &n);
 	t32_gib_write_blc_s(ctx->sec, ctx->cp, pt, w, &n);
 	return (int)n;
+}
+
+/*
+ * Per-frame / API paths: tisp_gib_again_update, tisp_gib_again_s_update,
+ * tisp_gib_param_array_get / _set, tisp_gib_api_set_blc / _get_blc,
+ * tisp_gib_wdr_en and tisp_gib_deinit.  The vendor reaches the context
+ * through t32_data_e17c0[ch]; the port takes the context directly.  The
+ * context layout is the vendor's: +0 section pointer, +4 gain block pointer
+ * (two gain words), +8 working block pointer, +16 held black levels.
+ */
+
+/* little-endian store of a gain word into the gain block */
+static inline void t32_gib_put32(u8 *p, u32 v)
+{
+	p[0] = (u8)v;
+	p[1] = (u8)(v >> 8);
+	p[2] = (u8)(v >> 16);
+	p[3] = (u8)(v >> 24);
+}
+
+/* tisp_gib_again_update: store the gain word, interpolate set 0, write */
+static inline int t32_gib_again_update(struct t32_gib_ctx *ctx, u8 ch, u32 gain,
+				       struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	t32_gib_interp_set(ctx, gain, 0);
+	t32_gib_put32(ctx->gw, gain);
+	t32_gib_write_reg_mode(ctx->sec, ctx->cp, ctx->ptrow, 1, ctx->gw[16], w, &n);
+	return (int)n;
+}
+
+/* tisp_gib_again_s_update: store the gain word, interpolate set 1, write blc_s */
+static inline int t32_gib_again_s_update(struct t32_gib_ctx *ctx, u8 ch, u32 gain,
+					 struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	t32_gib_put32(ctx->gw + 4, gain);
+	t32_gib_interp_set(ctx, t32_front_le32(ctx->gw + 4), 1);
+	t32_gib_write_blc_s_wdr(ctx->sec, ctx->cp, ctx->ptrow, ctx->gw[16], w, &n);
+	return (int)n;
+}
+
+/* tisp_gib_param_array_get: the section is copied out whole */
+static inline int t32_gib_param_array_get(const struct t32_gib_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->sec, T32_GIB_SEC_BYTES);
+	*len = T32_GIB_SEC_BYTES;
+	return 0;
+}
+
+/* tisp_gib_param_array_set: replace the section, then the refresh path */
+static inline int t32_gib_param_array_set(struct t32_gib_ctx *ctx, u8 ch, const u8 *buf,
+					  struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	memcpy(ctx->sec, buf, T32_GIB_SEC_BYTES);
+	ctx->sec[0x221] = 1;
+	t32_gib_interp_set(ctx, t32_front_le32(ctx->gw), 0);
+	t32_gib_slope_update(ctx);
+	t32_gib_write_reg_mode(ctx->sec, ctx->cp, ctx->ptrow, 0, ctx->gw[16], w, &n);
+	t32_gib_interp_set(ctx, t32_front_le32(ctx->gw + 4), 1);
+	t32_gib_write_blc_s_wdr(ctx->sec, ctx->cp, ctx->ptrow, ctx->gw[16], w, &n);
+	return (int)n;
+}
+
+/* tisp_gib_api_set_blc: copy the held levels in, mode 2, write both paths */
+static inline int t32_gib_api_set_blc(struct t32_gib_ctx *ctx, u8 ch, const u8 *blc,
+				      struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	if (!ctx)
+		return -1;
+	memcpy(ctx->hold, blc, T32_GIB_HOLD_BYTES);
+	ctx->sec[0x221] = 2;
+	t32_gib_interp_set(ctx, t32_front_le32(ctx->gw), 0);
+	t32_gib_write_reg_mode(ctx->sec, ctx->cp, ctx->ptrow, 1, ctx->gw[16], w, &n);
+	t32_gib_interp_set(ctx, t32_front_le32(ctx->gw + 4), 1);
+	t32_gib_write_blc_s_wdr(ctx->sec, ctx->cp, ctx->ptrow, ctx->gw[16], w, &n);
+	return (int)n;
+}
+
+/* tisp_gib_api_get_blc: copy the held levels out */
+static inline int t32_gib_api_get_blc(const struct t32_gib_ctx *ctx, u8 *blc)
+{
+	if (!ctx)
+		return -1;
+	memcpy(blc, ctx->hold, T32_GIB_HOLD_BYTES);
+	return 0;
+}
+
+/* tisp_gib_wdr_en: store the flag in the gain block, write the blc_s path */
+static inline int t32_gib_wdr_en(struct t32_gib_ctx *ctx, u8 ch, u8 en,
+				 struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	(void)ch;
+	ctx->gw[16] = en;
+	t32_gib_write_blc_s_wdr(ctx->sec, ctx->cp, ctx->ptrow, ctx->gw[16], w, &n);
+	return (int)n;
+}
+
+/* tisp_gib_deinit: free the gain block, working block, held levels and context */
+static inline int t32_gib_deinit(void (*vfree)(void *p), struct t32_gib_ctx **slot)
+{
+	struct t32_gib_ctx *ctx = *slot;
+
+	if (ctx) {
+		if (ctx->gw) {
+			vfree(ctx->gw);
+			ctx->gw = NULL;
+		}
+		if (ctx->cp) {
+			vfree(ctx->cp);
+			ctx->cp = NULL;
+		}
+		if (ctx->ptrow) {
+			vfree(ctx->ptrow);
+			ctx->ptrow = NULL;
+		}
+		if (ctx->hold) {
+			vfree(ctx->hold);
+			ctx->hold = NULL;
+		}
+		vfree(*slot);
+		*slot = NULL;
+	}
+	return 0;
 }
 
 #undef T32_GIB_GP
