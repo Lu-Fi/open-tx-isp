@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T32 fixed point / log2 helpers bit-exact (planned, host only, not device-tested)
+
+- `tx_isp_t32_fixp.h` + `t32_fixp_oracle` (planned, host only): fix_point_add/_sub/_add_64/_sub_64/_add_32/_sub_32, fix_point_mult3 (with mult2), fix_point_intp, tisp_ae_lib_div_64 and tisp_ae_lib_bilinear_intp against Matt Davis' recovered C: 215171 random calls (all pointpos, equal/adjacent operands), return values and error prints bit-exact, 18/18 mutations detected. Vendor quirks named, not fixed: fix_point_intp divides the constant 0 (also in the 2.2.0 firmware object), so it returns y0 for y0 == y1 and 0 otherwise, and never ends for pointpos >= 256; tisp_ae_lib_div_64 divides by the low word only (divisor low word 0, high word not: vendor divide by zero, refused).
+- `tx_isp_t32_log2.h` + `t32_log2_oracle` (planned, host only): tisp_log2_int_to_fixed / _fixed_to_fixed / _int_to_fixed_64 / _fixed_to_fixed_64: 150579 calls (powers of two +-1, all widths, fp/out bytes with high garbage), bit-exact, 17/17 mutations detected; the _64 form with out > 15 (libgcc shift by a negative count) is refused.
+
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
 - T32 is planned work (prio long-term, not a release gate). New `tests/t32_oracle/`: selected functions of Matt Davis' all-C recovery of the vendor T32 module (opensensor/open-tx-isp PR #15, our branch `t32/recovered-baseline` 2e2e06bc) are copied unchanged into `tests/t32_oracle/ref/` (provenance header, author credit) and built for the host as the reference: fake environment `env.c` (o32-shaped stubs for vmalloc/register write/printf/irq, OEM data objects with the values of `data.c`, a stack and heap below 4 GiB because the recovered C casts pointers through u32; non-PIE link). Runner `run.sh` + one `.conf` per oracle (reference files, our header, mutation list).

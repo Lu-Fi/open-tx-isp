@@ -772,3 +772,8 @@ int t32o_decoy_check(void)
 				return 1;
 	return 0;
 }
+
+/* ---- op7-lib-rest (fix_point_*, log2, ae_lib, block leftovers) ---- */
+/* printk format strings of fix_point_sub / _sub_32 / _sub_64 (c79e8) and fix_point_intp (bee70 function name,
+ * c7a2c format): only handed to isp_printf */
+char t32_data_c79e8[4] = "f", t32_data_bee70[4] = "f", t32_data_c7a2c[4] = "f";
