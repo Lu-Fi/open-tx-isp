@@ -776,3 +776,5 @@ int t32o_decoy_check(void)
 /* ---- op1-setters (tisp_s_* / tisp_set_* setters, tx_isp_t32_api_set*.h) ---- */
 /* .bss f0904: pointer to the AE attribute blocks (220 B per channel); set by the oracle per case */
 u32 t32_data_f0904[4] __attribute__((weak, aligned(16)));
+/* printk format strings of the setters, only handed to isp_printf */
+u8 t32_data_cb770[4] __attribute__((weak)), t32_data_cb840[4] __attribute__((weak)), t32_data_cb864[4] __attribute__((weak));
