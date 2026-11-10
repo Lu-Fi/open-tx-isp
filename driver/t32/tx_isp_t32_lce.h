@@ -534,4 +534,56 @@ static inline void t32_lce_std_hist_transform(u16 *h, u32 mult, u32 shift, u16 *
 	}
 }
 
+/*
+ * tisp_lce_std_hist_transform_simd: std_hist_transform with signed arithmetic.  v = (int)(h * mult) >> (shift & 31)
+ * (product wrapped to 32 bit, arithmetic shift), h[] keeps the low 16 bits, sum is the 32 bit sum of the full v.
+ * sum < 0x8000 (signed): add (0x8000 - sum) >> 5 (arithmetic, low 16 bits) to every bin and 1 more to the first
+ * (0x8000 - sum) & 31 bins; sum > 0x8000 (signed): *over = sum - 0x8000; sum == 0x8000: nothing.
+ * Unlike t32_lce_std_hist_transform the product is not treated as unsigned.
+ */
+static inline void t32_lce_std_hist_transform_simd(u16 *h, u32 mult, u32 shift, u16 *over)
+{
+	u32 sum = 0, i;
+
+	for (i = 0; i < 32; i++) {
+		u32 v = (u32)((int)((u32)h[i] * mult) >> (shift & 31));
+
+		h[i] = (u16)v;
+		sum += v;
+	}
+	if ((int)sum < 0x8000) {
+		u32 d = 0x8000 - sum;
+		u32 add = d >> 5;	/* only the low 16 bits are used, so the arithmetic shift of the vendor makes no difference */
+		u32 rem = d & 0x1f;
+
+		for (i = 0; i < rem; i++)
+			h[i] = (u16)(h[i] + 1);
+		for (i = 0; i < 32; i++)
+			h[i] = (u16)(h[i] + add);
+	} else if (sum != 0x8000) {
+		*over = (u16)(sum - 0x8000);
+	}
+}
+
+/* lce_std_hist_transform_simd: the same on 32 bit bins, no excess output (the vendor does nothing for sum > 0x8000) */
+static inline void t32_lce_std_hist_transform_simd32(u32 *h, u32 mult, u32 shift)
+{
+	u32 sum = 0, i;
+
+	for (i = 0; i < 32; i++) {
+		h[i] = (u32)((int)(h[i] * mult) >> (shift & 31));
+		sum += h[i];
+	}
+	if ((int)sum < 0x8000) {
+		u32 d = 0x8000 - sum;
+		u32 add = (u32)((int)d >> 5);
+		u32 rem = d & 0x1f;
+
+		for (i = 0; i < rem; i++)
+			h[i]++;
+		for (i = 0; i < 32; i++)
+			h[i] += add;
+	}
+}
+
 #endif /* TX_ISP_T32_LCE_H */
