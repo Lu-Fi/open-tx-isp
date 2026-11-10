@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * T32 host oracle: the empty stubs, one-call wrappers and small accessors of
+ * T32 host oracle: the empty stub, one-call wrappers and small accessors of
  * tx_isp_t32_wrap.h against the vendor functions (Matt Davis' recovered C,
  * PR #15 @ 2e2e06bc).  The wrapped block functions are recording stubs here
  * (callee id, the four argument registers, a random result), the ours side
@@ -18,11 +18,7 @@
 u32 t32_data_e15b8[4] __attribute__((aligned(16), weak));	/* .bss: AE "algorithm running" word per channel */
 extern u8 t32_data_e16c4[];					/* env.c: AWB 16 B per channel */
 
-extern int tisp_ae_ir_update(void), tisp_long_again_update(void), tisp_lce_lut_write_curve(void),
-	   tisp_dma_param_array_get(void), tisp_dma_param_array_set(void), tisp_func_get_dma_addr(void),
-	   tisp_msca_state(void);
 extern u64 tisp_msca_Shd_ctrl(u32, u32, u32, u32);
-extern int tisp_api_ev_alloc_calc(u32, u32, u32, u32);
 extern u64 tisp_ae_algo_deinit(u32, u32, u32, u32), tisp_awb_algo_deinit(u32, u32, u32, u32),
 	   tisp_api_ae_get_reg_state(u32, u32, u32, u32), tisp_ae_face_get(u32, u32, u32, u32),
 	   tisp_ae_face_set(u32, u32, u32, u32), tisp_awb_face_get(u32, u32, u32, u32),
@@ -53,7 +49,6 @@ static u64 rec(struct clog *l, u32 id, u32 a0, u32 a1, u32 a2, u32 a3)
 }
 
 /* vendor callees */
-int tisp_ae_api_ev_alloc_calc(u32 a0, u32 a1, u32 a2, u32 a3) { return (int)rec(&vlog, 1, a0, a1, a2, a3); }
 u64 tisp_ae_get_reg_state(u32 a0, u32 a1, u32 a2, u32 a3) { return rec(&vlog, 4, a0, a1, a2, a3); }
 u64 tisp_ae_api_get_faceae(u32 a0, u32 a1, u32 a2, u32 a3) { return rec(&vlog, 5, a0, a1, a2, a3); }
 u64 tisp_ae_sepc_area(u32 a0, u32 a1, u32 a2, u32 a3) { return rec(&vlog, 6, a0, a1, a2, a3); }
@@ -64,7 +59,6 @@ u64 tisp_msca_cfg_shd(u32 a0, u32 a1, u32 a2, u32 a3) { return rec(&vlog, 10, a0
 
 /* ours: hooks; the deinit hooks run our accessor on the ours copy of the flags */
 static u32 o_ae[4], o_awb[16];
-static u64 h_ev(u32 a0, u32 a1, u32 a2, u32 a3) { return rec(&olog, 1, a0, a1, a2, a3); }
 static u64 h_aed(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a1; (void)a2; (void)a3;
@@ -84,17 +78,15 @@ static u64 h_cl(u32 a0, u32 a1, u32 a2, u32 a3) { return rec(&olog, 9, a0, a1, a
 static u64 h_sh(u32 a0, u32 a1, u32 a2, u32 a3) { return rec(&olog, 10, a0, a1, a2, a3); }
 
 static const struct t32_wrap_ops ops = {
-	.ae_api_ev_alloc_calc = h_ev, .ae_algo_deinit_internal = h_aed, .awb_algo_deinit_internal = h_awbd,
+	.ae_algo_deinit_internal = h_aed, .awb_algo_deinit_internal = h_awbd,
 	.ae_get_reg_state = h_rs, .ae_api_get_faceae = h_fg, .ae_sepc_area = h_fs,
 	.awb_api_get_face = h_wg, .awb_api_set_face = h_ws, .msca_chx_cfg_load = h_cl, .msca_cfg_shd = h_sh,
 };
 
-#define NF 23
+#define NF 15
 static const char *const names[NF] = {
-	"ae_ir_update", "long_again_update", "lce_lut_write_curve", "dma_param_array_get",
-	"dma_param_array_set", "func_get_dma_addr", "msca_state", "msca_Shd_ctrl", "api_ev_alloc_calc",
-	"ae_algo_deinit", "awb_algo_deinit", "api_ae_get_reg_state", "ae_face_get", "ae_face_set",
-	"awb_face_get", "awb_face_set", "msca_channel_start", "msca_irq_frame_done",
+	"msca_Shd_ctrl", "ae_algo_deinit", "awb_algo_deinit", "api_ae_get_reg_state", "ae_face_get",
+	"ae_face_set", "awb_face_get", "awb_face_set", "msca_channel_start", "msca_irq_frame_done",
 	"ae_algo_deinit_internal", "awb_algo_deinit_internal", "day_or_night_g_ctrl",
 	"single_lsc_reg_read", "single_lsc_reg_lut_read"
 };
@@ -133,7 +125,7 @@ int main(void)
 				awb_v[i] = o_awb[i] = (i & 3) ? rnd() : flag();
 			for (i = 0; i < sizeof(t32_data_dc284); i++)
 				t32_data_dc284[i] = (u8)rnd();
-			if (k >= 21) {	/* LSC shadow: root with 4 x 256 B, image of 1024 words per channel */
+			if (k >= 13) {	/* LSC shadow: root with 4 x 256 B, image of 1024 words per channel */
 				root = t32o_alloc(4 * 256);
 				for (i = 0; i < 4; i++) {
 					unsigned int j;
@@ -149,55 +141,44 @@ int main(void)
 				a2 &= 0x1ff;
 			}
 			switch (k) {
-			case 0: rv = (u32)tisp_ae_ir_update(); ro = (u32)t32_ae_ir_update(); break;
-			case 1: rv = (u32)tisp_long_again_update(); ro = (u32)t32_long_again_update(); break;
-			case 2: rv = (u32)tisp_lce_lut_write_curve(); ro = (u32)t32_lce_lut_write_curve(); break;
-			case 3: rv = (u32)tisp_dma_param_array_get(); ro = (u32)t32_dma_param_array_get(); break;
-			case 4: rv = (u32)tisp_dma_param_array_set(); ro = (u32)t32_dma_param_array_set(); break;
-			case 5: rv = (u32)tisp_func_get_dma_addr(); ro = (u32)t32_func_get_dma_addr(); break;
-			case 6: rv = (u32)tisp_msca_state(); ro = (u32)t32_msca_state(); break;
-			case 7: rv = (u32)CALL(tisp_msca_Shd_ctrl, a0, a1, a2, a3); ro = (u32)t32_msca_shd_ctrl(); break;
-			case 8:
-				rv = (u32)tisp_api_ev_alloc_calc(a0, a1, a2, a3);
-				ro = (u32)t32_api_ev_alloc_calc(&ops, a0, a1, a2, a3);
-				break;
-			case 9:
+			case 0: rv = (u32)CALL(tisp_msca_Shd_ctrl, a0, a1, a2, a3); ro = (u32)t32_msca_shd_ctrl(); break;
+			case 1:
 				a0 &= 3;
 				rv = (u32)CALL(tisp_ae_algo_deinit, a0, a1, a2, a3);
 				ro = (u32)t32_ae_algo_deinit(&ops, a0, a1, a2, a3);
 				break;
-			case 10:
+			case 2:
 				a0 &= 3;
 				rv = (u32)CALL(tisp_awb_algo_deinit, a0, a1, a2, a3);
 				ro = (u32)t32_awb_algo_deinit(&ops, a0, a1, a2, a3);
 				break;
-			case 11:
+			case 3:
 				rv = (u32)CALL(tisp_api_ae_get_reg_state, a0, a1, a2, a3);
 				ro = (u32)t32_api_ae_get_reg_state(&ops, a0, a1, a2, a3);
 				break;
-			case 12: rv = (u32)CALL(tisp_ae_face_get, a0, a1, a2, a3); ro = (u32)t32_ae_face_get(&ops, a0, a1, a2, a3); break;
-			case 13: rv = (u32)CALL(tisp_ae_face_set, a0, a1, a2, a3); ro = (u32)t32_ae_face_set(&ops, a0, a1, a2, a3); break;
-			case 14: rv = (u32)CALL(tisp_awb_face_get, a0, a1, a2, a3); ro = (u32)t32_awb_face_get(&ops, a0, a1, a2, a3); break;
-			case 15: rv = (u32)CALL(tisp_awb_face_set, a0, a1, a2, a3); ro = (u32)t32_awb_face_set(&ops, a0, a1, a2, a3); break;
-			case 16:
+			case 4: rv = (u32)CALL(tisp_ae_face_get, a0, a1, a2, a3); ro = (u32)t32_ae_face_get(&ops, a0, a1, a2, a3); break;
+			case 5: rv = (u32)CALL(tisp_ae_face_set, a0, a1, a2, a3); ro = (u32)t32_ae_face_set(&ops, a0, a1, a2, a3); break;
+			case 6: rv = (u32)CALL(tisp_awb_face_get, a0, a1, a2, a3); ro = (u32)t32_awb_face_get(&ops, a0, a1, a2, a3); break;
+			case 7: rv = (u32)CALL(tisp_awb_face_set, a0, a1, a2, a3); ro = (u32)t32_awb_face_set(&ops, a0, a1, a2, a3); break;
+			case 8:
 				rv = (u32)CALL(tisp_msca_channel_start, a0, a1, a2, a3);
 				ro = (u32)t32_msca_channel_start(&ops, a0, a2, a3);
 				break;
-			case 17:
+			case 9:
 				rv = (u32)CALL(tisp_msca_irq_frame_done, a0, a1, a2, a3);
 				ro = (u32)t32_msca_irq_frame_done(&ops, a0, a2, a3);
 				break;
-			case 18:
+			case 10:
 				a0 &= 3;
 				rv = (u32)CALL(tisp_ae_algo_deinit_internal, a0, a1, a2, a3);
 				ro = (u32)t32_ae_algo_deinit_internal(o_ae, a0);
 				break;
-			case 19:
+			case 11:
 				a0 &= 3;
 				rv = (u32)CALL(tisp_awb_algo_deinit_internal, a0, a1, a2, a3);
 				ro = (u32)t32_awb_algo_deinit_internal(o_awb, a0);
 				break;
-			case 20:
+			case 12:
 				if (c & 2)
 					a0 = (a0 & ~0xffu) | (a0 & 1);	/* channels 0/1 of the 2 x 904 B image, high bits set */
 				else
@@ -205,7 +186,7 @@ int main(void)
 				rv = (u32)CALL(tisp_day_or_night_g_ctrl, a0, a1, a2, a3);
 				ro = t32_day_or_night_g_ctrl(t32_data_dc284, a0);
 				break;
-			case 21:
+			case 13:
 				rv = (u32)CALL(tisp_single_lsc_reg_read, a0, a1, a2, a3);
 				ro = t32_single_lsc_reg_read((const u8 *)root, a0, a1);
 				break;

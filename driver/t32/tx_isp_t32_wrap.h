@@ -4,9 +4,8 @@
  * libimp-facing API and the tiny state accessors of the T32 tx-isp module that
  * belong to no larger block port.
  *
- *  - Empty stubs: the vendor function only returns 0 (its T32 build left the
- *    body out).  Ported as such, so that the ops tables of the driver can name
- *    them.
+ *  - Empty stub: tisp_msca_Shd_ctrl only returns 0 (its T32 build left the
+ *    body out).
  *  - Wrappers: the vendor function masks its arguments and calls (or tail
  *    calls) one block function.  The block function is reached through a
  *    hook (struct t32_wrap_ops): the driver fills it with the ported block
@@ -36,21 +35,13 @@ typedef uint16_t u16;
 typedef uint64_t u64;
 #endif
 
-/* ---- 1. empty stubs (vendor body: return 0) ---- */
-static inline int t32_ae_ir_update(void) { return 0; }		/* 0x24580 */
-static inline int t32_long_again_update(void) { return 0; }	/* 0x24e94 */
-static inline int t32_lce_lut_write_curve(void) { return 0; }	/* 0x57250 */
-static inline int t32_dma_param_array_get(void) { return 0; }	/* 0x90170 */
-static inline int t32_dma_param_array_set(void) { return 0; }	/* 0x90178 */
-static inline int t32_func_get_dma_addr(void) { return 0; }	/* 0x90180 */
-static inline int t32_msca_state(void) { return 0; }		/* 0xb16a0 */
+/* ---- 1. empty stub (vendor body: return 0); the other empty stubs are in op7b's header ---- */
 static inline int t32_msca_shd_ctrl(void) { return 0; }		/* 0xb1864 */
 
 /* ---- 2. one-call wrappers ---- */
 typedef u64 (*t32_wrap_fn)(u32 a0, u32 a1, u32 a2, u32 a3);
 
 struct t32_wrap_ops {
-	t32_wrap_fn ae_api_ev_alloc_calc;	/* tisp_ae_api_ev_alloc_calc */
 	t32_wrap_fn ae_algo_deinit_internal;	/* tisp_ae_algo_deinit_internal */
 	t32_wrap_fn awb_algo_deinit_internal;	/* tisp_awb_algo_deinit_internal */
 	t32_wrap_fn ae_get_reg_state;		/* tisp_ae_get_reg_state */
@@ -61,12 +52,6 @@ struct t32_wrap_ops {
 	t32_wrap_fn msca_chx_cfg_load;		/* tisp_msca_chx_cfg_load */
 	t32_wrap_fn msca_cfg_shd;		/* tisp_msca_cfg_shd */
 };
-
-/* tisp_api_ev_alloc_calc (0xb1994): tail call with the channel masked to 8 bits */
-static inline u64 t32_api_ev_alloc_calc(const struct t32_wrap_ops *o, u32 ch, u32 a1, u32 a2, u32 a3)
-{
-	return o->ae_api_ev_alloc_calc(ch & 0xff, a1, a2, a3);
-}
 
 /* tisp_ae_algo_deinit / tisp_awb_algo_deinit (0xb230c / 0xb231c): plain tail calls */
 static inline u64 t32_ae_algo_deinit(const struct t32_wrap_ops *o, u32 a0, u32 a1, u32 a2, u32 a3)
