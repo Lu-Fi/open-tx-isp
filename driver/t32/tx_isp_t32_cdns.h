@@ -158,5 +158,48 @@ static inline int t32_cdns_wake_up(struct t32_cdns_ctx *ctx, u8 ch,
 	return (int)n;
 }
 
+/*
+ * Parameter accessors (tisp_cdns_param_array_get / _set / _deinit /
+ * _all_reg_refresh).  The vendor indexes the context array t32_data_e23d0 by
+ * channel; the port takes the context (or its slot) directly.
+ */
+#define T32_CDNS_PARAM_BYTES	436U
+
+/* tisp_cdns_param_array_get: the section is copied out whole */
+static inline int t32_cdns_param_array_get(const struct t32_cdns_ctx *ctx, u8 *buf, u32 *len)
+{
+	memcpy(buf, ctx->sec, T32_CDNS_PARAM_BYTES);
+	*len = T32_CDNS_PARAM_BYTES;
+	return 0;
+}
+
+/* tisp_cdns_all_reg_refresh: the interpolate + write path of the refresh */
+static inline int t32_cdns_all_reg_refresh(struct t32_cdns_ctx *ctx, u8 ch, u32 gain,
+					   struct t32_front_write *w)
+{
+	unsigned int n = 0;
+
+	t32_cdns_intp_reg_refresh(ctx, ch, gain, w, &n);
+	return (int)n;
+}
+
+/* tisp_cdns_param_array_set: replace the section, then refresh at the stored gain */
+static inline int t32_cdns_param_array_set(struct t32_cdns_ctx *ctx, u8 ch, const u8 *buf,
+					   struct t32_front_write *w)
+{
+	memcpy(ctx->sec, buf, T32_CDNS_PARAM_BYTES);
+	return t32_cdns_all_reg_refresh(ctx, ch, ctx->gain, w);
+}
+
+/* tisp_cdns_deinit: free the context of the channel and clear its slot */
+static inline int t32_cdns_deinit(void (*kfree)(void *p), struct t32_cdns_ctx **slot)
+{
+	if (*slot) {
+		kfree(*slot);
+		*slot = NULL;
+	}
+	return 0;
+}
+
 #endif /* TX_ISP_T32_CDNS_H */
 
