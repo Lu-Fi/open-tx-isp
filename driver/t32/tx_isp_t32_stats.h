@@ -2095,4 +2095,49 @@ static inline void t32_aea_sepc_area(const struct t32_aea_ctx *c, u32 ch, u8 *in
 		t32_wr32(c->st, T32_AEA_ST_SEPC_IN + 4 * s, t32_ld32(in, 4 + 4 * s));
 }
 
+/*
+ * AE / AWB info blocks (vendor tisp_set_ae_info, tisp_get_awb_info,
+ * tisp_set_awb_info), checked by t32_aeaf_oracle.  Layout of the info block:
+ * word at +4 = payload size, payload at +27 (unaligned).  tisp_set_ae_info
+ * only stores the size 164 and prints the 41 payload words (print hook);
+ * tisp_get_ae_info is "return 0" in the vendor and not ported.  The awb pair
+ * moves the 28 byte tisp_awb_get_mode / tisp_awb_set_mode block (7 words);
+ * set_info copies only the first 3 words, the only ones tisp_awb_set_mode reads.
+ */
+#define T32_AEA_INFO_PAYLOAD	27U
+#define T32_AEA_INFO_AE_BYTES	164U
+#define T32_AWB_INFO_BYTES	28U
+
+typedef void (*t32_aea_info_print_fn)(void *priv, const u32 *w);
+
+static inline void t32_aea_set_ae_info(u8 *blk, t32_aea_info_print_fn print, void *priv)
+{
+	u32 w[T32_AEA_INFO_AE_BYTES / 4], i;
+
+	t32_wr32(blk, 4, T32_AEA_INFO_AE_BYTES);
+	for (i = 0; i < T32_AEA_INFO_AE_BYTES / 4; i++)
+		w[i] = t32_ld32(blk, T32_AEA_INFO_PAYLOAD + 4 * i);
+	print(priv, w);
+}
+
+static inline void t32_awb_api_get_info(const struct t32_awb_ctx *c, u8 *blk)
+{
+	u32 m[7], i;
+
+	t32_awb_get_mode(c, m);
+	t32_wr32(blk, 4, T32_AWB_INFO_BYTES);
+	for (i = 0; i < 7; i++)
+		t32_wr32(blk, T32_AEA_INFO_PAYLOAD + 4 * i, m[i]);
+}
+
+static inline void t32_awb_api_set_info(const struct t32_awb_ctx *c, u8 *blk)
+{
+	u32 m[3], i;
+
+	t32_wr32(blk, 4, T32_AWB_INFO_BYTES);
+	for (i = 0; i < 3; i++)
+		m[i] = t32_ld32(blk, T32_AEA_INFO_PAYLOAD + 4 * i);
+	t32_awb_set_mode(c, m);
+}
+
 #endif /* TX_ISP_T32_STATS_H */
