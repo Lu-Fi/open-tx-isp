@@ -20,6 +20,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `t32_txlink_oracle`: `tx_isp_t32_txlink.h` (tx_isp_video_link_destroy (.isra), tx_isp_release; 2 functions), 30000 random devices / link modes, 23 mutations detected. The 12 link sets (vendor bed7c) are provided by the driver glue.
 - `t32_txmisc_oracle`: `tx_isp_t32_txmisc.h` (tx_isp_subdev_deinit, tx_isp_core_shvflip; 2 functions), 30000 random cases, 20 mutations detected; subdev_deinit's free_irq / module_deinit run the vendor functions against our ports. Vendor: shvflip tests f3310 for NULL after using it.
 - `t32_txprobe_oracle`: `tx_isp_t32_txprobe.h` (tx_isp_vic/vin/csi/ldc_probe; 4 functions), 30000 random cases (allocation, subdev init, region, misc results, PM on/off), 39 mutations detected. Vendor quirks kept: ldc_probe returns 0 when misc_register fails and leaks the device when the misc allocation fails; vic/csi probes initialise one lock word both as spin lock and as mutex.
+- `t32_txinit_oracle`: `tx_isp_t32_txinit.h` (tx_isp_init), 20000 random flag / result sets, 14 mutations detected. Vendor: a failed platform driver register still creates the /proc entries.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
