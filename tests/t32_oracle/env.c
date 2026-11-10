@@ -843,3 +843,6 @@ u32 t32_data_ccd34[1] __attribute__((weak)), t32_data_ccd44[1] __attribute__((we
 /* ispcore_frame_channel_streamoff: bss f334c (current MSCA pipe, u8) and d9004 (no-wait flag); formats by address only */
 u32 t32_data_f334c[1] __attribute__((weak)), t32_data_d9004[1] __attribute__((weak));
 u32 t32_data_cc960[1] __attribute__((weak)), t32_data_cc97c[1] __attribute__((weak));
+/* ispcore_slake_module: isp_printf formats / function name, address only */
+u32 t32_data_c36c4[1] __attribute__((weak)), t32_data_cd340[1] __attribute__((weak));
+u32 t32_data_cd364[1] __attribute__((weak)), t32_data_cd390[1] __attribute__((weak));
