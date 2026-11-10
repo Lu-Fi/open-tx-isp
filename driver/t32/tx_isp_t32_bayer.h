@@ -22,10 +22,14 @@
  * half of top register 0x90, always accessed directly (system_reg_read/_write, no shadow, no channel).
  * lib_tisp_get_wdr_enable(ch) is bit 0 of byte 36 of the 904-byte channel state t32_data_dc284[ch & 0xff];
  * the vendor does not check ch, ch >= 2 reads past the two channel blocks (not compared by the oracle).
+ * lib_tisp_csccr_dn_status(ch) 0x8fbb0 (t32_lib_csccr_dn_status): reads the CSCCR day/night word (shadow
+ * word 777 when the mode byte is non-zero, else register 0x14054) through tisp_reg_read, stores it as the
+ * channel's last value (t32_data_e3130[ch]) and returns 1 only when it is 0 and the previous value was not
+ * (a change to "night"), else 0.
  *
  * Hooks: struct t32_regio (system register access, the shadow image, tisp_reg_write, the error print).
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15) by tests/t32_oracle
- * (t32_bayer_oracle, t32_regapi_oracle).
+ * (t32_bayer_oracle, t32_regapi_oracle, t32_dnst_oracle).
  */
 #ifndef TX_ISP_T32_BAYER_H
 #define TX_ISP_T32_BAYER_H
@@ -120,6 +124,23 @@ static inline u32 t32_api_set_line_space(const struct t32_regio *io, u32 space)
 static inline u32 t32_get_wdr_enable(const unsigned char *state, u32 ch)
 {
 	return state[(ch & 0xff) * T32_CH_STATE_SIZE + T32_CH_STATE_WDR] & 1;
+}
+
+/* ---- op7-lib-rest group 3: CSCCR day/night status ---- */
+
+#define T32_CSCCR_DN_REG	0x14054U
+#define T32_CSCCR_DN_SHADOW	777U
+
+/* lib_tisp_csccr_dn_status(ch); last = t32_data_e3130 */
+static inline u32 t32_lib_csccr_dn_status(const struct t32_regio *io, u32 *last, u32 ch)
+{
+	u32 v, ret;
+
+	ch &= 0xff;
+	v = t32_tisp_reg_read(io, ch, io->mode ? T32_CSCCR_DN_SHADOW : T32_CSCCR_DN_REG);
+	ret = v == 0 && last[ch] != 0;
+	last[ch] = v;
+	return ret;
 }
 
 #endif
