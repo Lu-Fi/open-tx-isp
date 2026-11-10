@@ -798,3 +798,10 @@ __asm__(".weak t32_data_d9d38\n.set t32_data_d9d38, t32o_op5_evq + 8\n.weak t32_
 u32 t32_data_c69b0[1] __attribute__((weak)), t32_data_c69bc[1] __attribute__((weak)), t32_data_c69cc[1] __attribute__((weak));
 u32 t32_data_be598[1] __attribute__((weak)), t32_data_be580[1] __attribute__((weak)), t32_data_c69f8[1] __attribute__((weak));
 u32 t32_data_c6a14[1] __attribute__((weak)), t32_data_c6a3c[1] __attribute__((weak)), t32_data_c6a74[1] __attribute__((weak));
+/* reserved-memory allocator (isp_mem_init / isp_malloc_buffer / isp_free_buffer): bss d96b0 pool block
+ * (+0 base, +4 size = d96b4, 20 descriptor slots, +412 list head), d9850 mutex; strings by address only */
+u8 t32o_op5_mem[0x1a0] __attribute__((weak, aligned(16)));
+__asm__(".weak t32_data_d96b0\n.set t32_data_d96b0, t32o_op5_mem\n.weak t32_data_d96b4\n.set t32_data_d96b4, t32o_op5_mem + 4");
+u32 t32_data_d9850[8] __attribute__((weak));
+u32 t32_data_be330[1] __attribute__((weak)), t32_data_c521c[1] __attribute__((weak));
+u32 t32_data_c522c[1] __attribute__((weak)), t32_data_c525c[1] __attribute__((weak));
