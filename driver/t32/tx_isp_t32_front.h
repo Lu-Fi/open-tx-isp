@@ -245,7 +245,7 @@ static inline unsigned int t32_top_init(const u8 *sec, u32 width, u32 height, u3
  * flags 14 source, 15 / 16 sync gates), +4 the derived register block and
  * +8 the 12 byte API block (u32 mode, 8 range bytes).  Aux layout used here:
  * u16 +0 Y gain, +2 Y in min, u16 +4 Y out range, +6 Y out min, u16 +8 C gain,
- * +10 / +11 C out min / max.
+ * s16 +10 / +12 C out min / max minus 0x80 (as the vendor stores them).
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
  * by tests/t32_oracle (t32_csccrx_oracle).
  */
@@ -279,17 +279,19 @@ static inline int t32_csccr_update_para(struct t32_csccr_ctx *ctx)
 	u8 *a = ctx->aux;
 	u32 y_in, y_out, c_in, c_out, ky, kc;
 
-	if (m[1] < m[0] || m[3] < m[2] || m[5] < m[4] || m[7] < m[6] || m[1] == m[0] || m[5] == m[4])
+	/* vendor: only reversed ranges fail; a zero input range divides by zero (-1, not
+	 * clamped: the vendor compare is signed), the register masks it with 0x7ff */
+	if (m[1] < m[0] || m[3] < m[2] || m[5] < m[4] || m[7] < m[6])
 		return -1;
 	y_in = m[1] - m[0];
 	y_out = m[3] - m[2];
 	c_in = m[5] - m[4];
 	c_out = m[7] - m[6];
-	ky = (y_out * 0x400 + y_in / 2) / y_in;
-	kc = (c_out * 0x400 + c_in / 2) / c_in;
-	if (ky > 0x7ff)
+	ky = y_in ? (y_out * 0x400 + y_in / 2) / y_in : 0xffffffffU;
+	kc = c_in ? (c_out * 0x400 + c_in / 2) / c_in : 0xffffffffU;
+	if ((int)ky > 0x7ff)
 		ky = 0x7ff;
-	if (kc > 0x7ff)
+	if ((int)kc > 0x7ff)
 		kc = 0x7ff;
 	a[0] = ky & 0xff;
 	a[1] = ky >> 8;
@@ -299,8 +301,10 @@ static inline int t32_csccr_update_para(struct t32_csccr_ctx *ctx)
 	a[6] = m[2];
 	a[8] = kc & 0xff;
 	a[9] = kc >> 8;
-	a[10] = m[6];
-	a[11] = m[7];
+	a[10] = (m[6] - 0x80) & 0xff;
+	a[11] = ((m[6] - 0x80) >> 8) & 0xff;
+	a[12] = (m[7] - 0x80) & 0xff;
+	a[13] = ((m[7] - 0x80) >> 8) & 0xff;
 	return 0;
 }
 
@@ -319,7 +323,7 @@ static inline void t32_csccr_write_reg(const struct t32_csccr_ctx *ctx, struct t
 	const u8 *a = ctx->aux;
 
 	t32_csccr_write_yc(a, w, n);
-	T32_FW(w, *n, 0x14054, ((u32)(a[11] - 0x80) & 0x1ff) << 16 | ((u32)(a[10] - 0x80) & 0x1ff));
+	T32_FW(w, *n, 0x14054, (t32_csccr_le16(a + 12) & 0x1ff) << 16 | (t32_csccr_le16(a + 10) & 0x1ff));
 	T32_FW(w, *n, 0x14010, 0xffffffff);
 }
 

@@ -86,11 +86,14 @@ static u32 rnd(void)
 
 enum {
 	CASE_SWITCH, CASE_SYNC, CASE_DEINIT, CASE_UV, CASE_PGET,
-	CASE_PSET, CASE_ASET, CASE_AGET, CASE_WAKE, CASE_DN, CASE_N
+	CASE_PSET, CASE_ASET, CASE_AGET, CASE_WAKE, CASE_DN, CASE_UPD, CASE_N
 };
 static const char *const names[CASE_N] = {
-	"switch", "sync", "deinit", "uv", "pget", "pset", "aset", "aget", "wake", "dn"
+	"switch", "sync", "deinit", "uv", "pget", "pset", "aset", "aget", "wake", "dn", "upd"
 };
+
+/* 8 range bytes: random, with forced equal / reversed pairs and clamping (tiny input, big output) */
+static void wide_ranges(u8 *r);
 
 struct in {
 	u8 sec[SECB], buf[SECB], api0[12], aux0[16];
@@ -99,6 +102,29 @@ struct in {
 
 static unsigned int compared, vf_active;
 static u8 base_o[SEC_OFF + 64];
+
+static void wide_ranges(u8 *r)
+{
+	unsigned int i;
+
+	for (i = 0; i < 8; i++)
+		r[i] = (u8)rnd();
+	switch (rnd() % 8) {
+	case 0: r[1] = r[0]; break;
+	case 1: r[5] = r[4]; break;
+	case 2: r[3] = r[2]; break;
+	case 3: r[7] = r[6]; break;
+	case 4:
+		r[0] = (u8)(rnd() % 50); r[1] = (u8)(r[0] + 1 + rnd() % 3);
+		r[2] = 0; r[3] = (u8)(200 + rnd() % 56);
+		break;
+	case 5:
+		r[4] = (u8)(rnd() % 50); r[5] = (u8)(r[4] + 1 + rnd() % 3);
+		r[6] = 0; r[7] = (u8)(200 + rnd() % 56);
+		break;
+	default: break;
+	}
+}
 
 static void gen(struct in *in, int which)
 {
@@ -120,22 +146,50 @@ static void gen(struct in *in, int which)
 	}
 	if (which != CASE_SYNC) {
 		/* update_para source (param[14]: 1 section, 2 api) unseen: keep both consistent */
-		memcpy(in->sec + 5, t32_csccr_modes[in->sec[4]], 8);
+		if (which == CASE_UPD) {
+			wide_ranges(in->sec + 5);
+			if (rnd() & 1)
+				in->sec[4] = (u8)(3 + rnd() % 250);
+		} else if (which == CASE_DN && !(rnd() & 3)) {
+			in->sec[4] = (u8)(3 + rnd() % 250);
+			wide_ranges(in->sec + 5);
+		} else {
+			memcpy(in->sec + 5, t32_csccr_modes[in->sec[4] % 3], 8);
+		}
 		in->sec[14] = (u8)(1 + rnd() % 2);
 		memset(in->api0, 0, 4);
 		in->api0[0] = in->sec[4];
-		memcpy(in->api0 + 4, t32_csccr_modes[in->sec[4]], 8);
+		memcpy(in->api0 + 4, in->sec + 5, 8);
 	}
 	if (which == CASE_PSET) {
-		/* update_para source selection is open: API block = the ranges pset loads */
+		/* update_para source selection is open: API block = the ranges pset ends with */
+		const u8 *fin;
+
+		if (!(rnd() & 3)) {
+			in->buf[4] = (u8)(3 + rnd() % 250);
+			wide_ranges(in->buf + 5);
+			fin = in->buf + 5;
+		} else {
+			fin = t32_csccr_modes[in->buf[4] % 3];
+		}
 		memset(in->api0, 0, 4);
 		in->api0[0] = in->buf[4];
-		memcpy(in->api0 + 4, t32_csccr_modes[in->buf[4]], 8);
+		memcpy(in->api0 + 4, fin, 8);
 	}
 	if (which == CASE_ASET) {
+		const u8 *fin;
+
 		in->buf[0] = (u8)(rnd() % 3);
 		in->buf[1] = in->buf[2] = in->buf[3] = 0;
+		if (!(rnd() & 3)) {
+			in->buf[0] = (u8)(3 + rnd() % 250);
+			wide_ranges(in->buf + 4);
+			fin = in->buf + 4;
+		} else {
+			fin = t32_csccr_modes[in->buf[0]];
+		}
 		in->sec[16] = 1;
+		memcpy(in->sec + 5, fin, 8);
 	}
 	in->dir = rnd() % 3;
 }
@@ -179,6 +233,8 @@ static void run_case(int which, u32 ch, const struct in *in, int nullctx, int nu
 		bad(what, "alloc");
 	memset(base_r, 0, SEC_OFF + 64);
 	memcpy(base_r + SEC_OFF, in->sec, SECB);
+	memset(par_r, 0, 32);
+	memset(api_r, 0, 16);
 	memcpy(par_r, in->sec, SECB);
 	memcpy(aux_r, in->aux0, 16);
 	memcpy(api_r, in->api0, 12);
@@ -226,6 +282,9 @@ static void run_case(int which, u32 ch, const struct in *in, int nullctx, int nu
 	case CASE_DN:
 		t32o_call((t32o_fn)(void (*)(void))tisp_csccr_dn_params_refresh, ch, 0, 0, 0, 0);
 		break;
+	case CASE_UPD:
+		ref_ret = (int)(u32)t32o_call((t32o_fn)(void (*)(void))tisp_csccr_update_para, ch, 0, 0, 0, 0);
+		break;
 	}
 	ref_n = t32o_log.n;
 	if (ref_n > MAXW)
@@ -236,6 +295,8 @@ static void run_case(int which, u32 ch, const struct in *in, int nullctx, int nu
 	of_n = 0;
 	memset(base_o, 0, sizeof(base_o));
 	memcpy(base_o + SEC_OFF, in->sec, SECB);
+	memset(par_o, 0, sizeof(par_o));
+	memset(api_o, 0, sizeof(api_o));
 	memcpy(par_o, in->sec, SECB);
 	memcpy(aux_o, in->aux0, 16);
 	memcpy(api_o, in->api0, 12);
@@ -285,6 +346,9 @@ static void run_case(int which, u32 ch, const struct in *in, int nullctx, int nu
 	case CASE_DN:
 		our_n = t32_csccr_dn_params_refresh(&our_ctx, (u8)ch, base_o, ow);
 		break;
+	case CASE_UPD:
+		our_ret = t32_csccr_update_para(&our_ctx);
+		break;
 	}
 
 	compared++;
@@ -333,6 +397,17 @@ static void run_case(int which, u32 ch, const struct in *in, int nullctx, int nu
 			bad(what, "length/output");
 		return;
 	}
+	if (which == CASE_UPD) {
+		const u8 *m = in->sec + 5;
+		int valid = !(m[1] < m[0] || m[3] < m[2] || m[5] < m[4] || m[7] < m[6]);
+
+		if (valid && ref_ret != our_ret) {
+			printf("  update_para ret vendor %d ours %d\n", ref_ret, our_ret);
+			bad(what, "update_para return value");
+		}
+		if (!valid && our_ret != -1)
+			bad(what, "our update_para failure return");
+	}
 	if (our_n < 0 || (unsigned int)our_n != ref_n) {
 		printf("MISMATCH %s: writes ref %u ours %d\n", what, ref_n, our_n);
 		exit(1);
@@ -366,10 +441,30 @@ static void run_case(int which, u32 ch, const struct in *in, int nullctx, int nu
 		if ((u32)(rp - base_r) != SEC_OFF || (u32)(our_ctx.param - base_o) != SEC_OFF)
 			bad(what, "param pointer");
 	}
-	if (memcmp(rp, our_ctx.param, SECB))
+	if (memcmp(rp, our_ctx.param, 32))
 		bad(what, "parameter section");
-	if (memcmp(T32O_HOST(*(u32 *)(ctx_r + 8)), our_ctx.api, 12))
+	if (memcmp(T32O_HOST(*(u32 *)(ctx_r + 8)), our_ctx.api, 16))
 		bad(what, "api block");
+	{
+		/* aux: only compared on the success path, and not bytes 3 / 7 (vendor
+		 * layout of those and of a failed update_para is not provable here) */
+		const u8 *m = rp + 5;
+		static const unsigned int ab[12] = { 0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13 };
+		int valid = !(m[1] < m[0] || m[3] < m[2] || m[5] < m[4] || m[7] < m[6]);
+
+		for (i = 0; valid && i < 12; i++)
+			if (aux_r[ab[i]] != aux_o[ab[i]]) {
+				printf("  aux[%u] vendor %02x ours %02x\n", ab[i], aux_r[ab[i]],
+				       aux_o[ab[i]]);
+				bad(what, "derived aux block");
+			}
+		if (!valid)
+			for (i = 0; i < 16; i++)
+				if (aux_o[i] != in->aux0[i])
+					bad(what, "our aux changed on failure");
+	}
+	if (memcmp(base_r, base_o, sizeof(base_o)))
+		bad(what, "tuning base buffer");
 	if (t32_data_e3130[ch] != uv_o)
 		bad(what, "uv clip word");
 }
