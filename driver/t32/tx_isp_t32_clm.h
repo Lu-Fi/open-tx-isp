@@ -170,12 +170,90 @@ static inline s16 t32_clm_s16(const u8 *p)
  *    4096 * (ct - lo) / (hi - lo), and for a larger ct the tables stay unchanged
  *    (zero at init).
  */
-static inline int t32_clm_ct(const u8 *sec, const u8 *lut, u32 lutbytes, int ct, s16 *tab, u8 *tb)
+/*
+ * The tables of tisp_clm_ct_interp at the colour temperature ct from the
+ * zone array za (count x 2102 bytes) and the byte tables zb (count x 1050).
+ * The vendor leaves the output tables as they are when no branch writes them
+ * (a colour temperature above the blend range), so they are not cleared here.
+ */
+static inline void t32_clm_ct_tables(const u8 *sec, const u8 *za, const u8 *zb, int ct, s16 *tab, u8 *tb)
 {
 	unsigned int count = sec[0x23], hyst = sec[0x24], v, i, z0 = 0, z1 = 0;
-	const u8 *bytes;
 	u32 w = 0;
 	u32 uct = (u32)ct;
+
+	if (count == 1 || !((u32)(int)t32_clm_s16(za) < uct)) {
+		z0 = z1 = 0;
+	} else if (!(uct < (u32)(int)t32_clm_s16(za + (count - 1) * T32_CLM_ZONE_BYTES))) {
+		z0 = z1 = count - 1;
+	} else {
+		for (v = 1; v < count && (u32)(int)t32_clm_s16(za + v * T32_CLM_ZONE_BYTES) < uct; v++)
+			;
+		if (v >= count)
+			return;
+		z0 = v - 1;
+		z1 = v;
+		{
+			u32 lo = (u32)(int)t32_clm_s16(za + z0 * T32_CLM_ZONE_BYTES) + hyst;
+
+			if (!(lo < uct)) {
+				z1 = z0;
+			} else if (!(uct < (u32)((int)(signed char)zb[v * T32_CLM_TABLE] - (int)hyst))) {
+				z0 = z1;
+			} else {
+				u32 hi = (u32)(int)t32_clm_s16(za + z1 * T32_CLM_ZONE_BYTES) - hyst;
+
+				if (!(uct < hi))
+					return;
+				/* lo < ct < hi here, so the divisor is not zero */
+				w = ((uct - lo) << 12) / (hi - lo);
+			}
+		}
+	}
+	for (i = 0; i < T32_CLM_TABLE; i++) {
+		int a = t32_clm_s16(za + z0 * T32_CLM_ZONE_BYTES + 2 + 2 * i);
+		int b = t32_clm_s16(za + z1 * T32_CLM_ZONE_BYTES + 2 + 2 * i);
+		int ba = (signed char)zb[z0 * T32_CLM_TABLE + i];
+		int bb = (signed char)zb[z1 * T32_CLM_TABLE + i];
+
+		tab[i] = (s16)(z0 == z1 ? a : t32_clm_itp(a, b, (int)w));
+		tb[i] = (u8)(z0 == z1 ? ba : t32_clm_itp(ba, bb, (int)w));
+	}
+}
+
+/*
+ * The zone code tisp_clm_ct_interp keeps in the block state (+0xcbc) next to
+ * the colour temperature (+0x60): 0 at or below the first zone (plus the
+ * hysteresis), the zone count at or above the last one (minus the hysteresis),
+ * else 2 * k + 1 between zones k and k + 1 and 2 * k within the hysteresis of
+ * zone k.  Unsigned compares of the sign-extended colour temperatures, as in
+ * the vendor.
+ */
+static inline u8 t32_clm_zone_code(const u8 *sec, const u8 *za, u32 ct)
+{
+	unsigned int count = sec[0x23], hyst = sec[0x24], k;
+
+	if (!((u32)((int)t32_clm_s16(za) + (int)hyst) < ct))
+		return 0;
+	if (!(ct < (u32)((int)t32_clm_s16(za + (count - 1) * T32_CLM_ZONE_BYTES) - (int)hyst)))
+		return (u8)count;
+	for (k = 1; k < count; k++) {
+		const u8 *z = za + (k - 1) * T32_CLM_ZONE_BYTES;
+		u32 zk = (u32)((int)t32_clm_s16(z + T32_CLM_ZONE_BYTES));
+
+		if (ct < zk - hyst) {
+			if ((u32)((int)t32_clm_s16(z) + (int)hyst) < ct)
+				return (u8)((k - 1) * 2 + 1);
+		} else if (!(zk + hyst < ct)) {
+			return (u8)(k * 2);
+		}
+	}
+	return (u8)count;
+}
+
+static inline int t32_clm_ct(const u8 *sec, const u8 *lut, u32 lutbytes, int ct, s16 *tab, u8 *tb)
+{
+	unsigned int count = sec[0x23], i;
 
 	if (count < 1 || lutbytes < count * (T32_CLM_ZONE_BYTES + T32_CLM_TABLE))
 		return -1;
@@ -183,44 +261,7 @@ static inline int t32_clm_ct(const u8 *sec, const u8 *lut, u32 lutbytes, int ct,
 		tab[i] = 0;
 		tb[i] = 0;
 	}
-	bytes = lut + count * T32_CLM_ZONE_BYTES;
-	if (count == 1 || !((u32)(int)t32_clm_s16(lut) < uct)) {
-		z0 = z1 = 0;
-	} else if (!(uct < (u32)(int)t32_clm_s16(lut + (count - 1) * T32_CLM_ZONE_BYTES))) {
-		z0 = z1 = count - 1;
-	} else {
-		for (v = 1; v < count && (u32)(int)t32_clm_s16(lut + v * T32_CLM_ZONE_BYTES) < uct; v++)
-			;
-		if (v >= count)
-			return 0;
-		z0 = v - 1;
-		z1 = v;
-		{
-			u32 lo = (u32)(int)t32_clm_s16(lut + z0 * T32_CLM_ZONE_BYTES) + hyst;
-
-			if (!(lo < uct)) {
-				z1 = z0;
-			} else if (!(uct < (u32)((int)(signed char)bytes[v * T32_CLM_TABLE] - (int)hyst))) {
-				z0 = z1;
-			} else {
-				u32 hi = (u32)(int)t32_clm_s16(lut + z1 * T32_CLM_ZONE_BYTES) - hyst;
-
-				if (!(uct < hi))
-					return 0;
-				/* lo < ct < hi here, so the divisor is not zero */
-				w = ((uct - lo) << 12) / (hi - lo);
-			}
-		}
-	}
-	for (i = 0; i < T32_CLM_TABLE; i++) {
-		int a = t32_clm_s16(lut + z0 * T32_CLM_ZONE_BYTES + 2 + 2 * i);
-		int b = t32_clm_s16(lut + z1 * T32_CLM_ZONE_BYTES + 2 + 2 * i);
-		int ba = (signed char)bytes[z0 * T32_CLM_TABLE + i];
-		int bb = (signed char)bytes[z1 * T32_CLM_TABLE + i];
-
-		tab[i] = (s16)(z0 == z1 ? a : t32_clm_itp(a, b, (int)w));
-		tb[i] = (u8)(z0 == z1 ? ba : t32_clm_itp(ba, bb, (int)w));
-	}
+	t32_clm_ct_tables(sec, lut, lut + count * T32_CLM_ZONE_BYTES, ct, tab, tb);
 	return 0;
 }
 
@@ -324,6 +365,8 @@ struct t32_clm_ctx {
 	u32 ratio[2], shift[2];		/* tisp_clm_calc_para_refresh */
 	s16 tab[T32_CLM_TABLE];		/* tisp_clm_ct_interp: 2 x 420 words */
 	u8 tb[T32_CLM_TABLE];
+	u32 ct;				/* colour temperature of the tables (+0x60) */
+	u8 zone;			/* zone code of tisp_clm_ct_interp (+0xcbc) */
 };
 
 /* tisp_clm_write_csc_para: matrix, trigger and the saturation range of the mode */
@@ -448,6 +491,100 @@ static inline int t32_clm_wake_up(struct t32_clm_ctx *ctx, u8 ch, const int m1[9
 	t32_clm_regs(ctx, m1, w, &n);
 	t32_clm_lut(ctx, w, &n);
 	return (int)n;
+}
+
+/*
+ * The per-channel zone data behind t32_data_dc274[ch]: the zone array A
+ * (zones x { s16 colour temperature, 1050 s16 }, +36), the byte tables B
+ * (zones x 1050 bytes, +40), the sizes of the last parameter set (+10 / +12,
+ * 16 bits like the vendor's) and the allocation sizes the buffers were last
+ * grown to (t32_data_dc1a4[ch * 28 + 20 / + 24]).
+ */
+struct t32_clm_info {
+	u8 *a, *b;
+	u16 asz, bsz;
+	u32 a_cap, b_cap;
+};
+
+#define T32_CLM_A_BYTES		2102U		/* one zone of A */
+
+/*
+ * tisp_clm_param_array_get: the 40 byte section header, then A and B of every
+ * zone; *len = 40 + zones * 3152.
+ */
+static inline int t32_clm_param_array_get(const struct t32_clm_ctx *ctx, const struct t32_clm_info *info,
+					  u8 *buf, u32 *len)
+{
+	unsigned int n = ctx->sec[0x23];
+
+	memcpy(buf, ctx->sec, T32_CLM_SEC_BYTES);
+	if (n) {
+		memcpy(buf + T32_CLM_SEC_BYTES, info->a, n * T32_CLM_A_BYTES);
+		memcpy(buf + T32_CLM_SEC_BYTES + n * T32_CLM_A_BYTES, info->b, n * T32_CLM_TABLE);
+	}
+	*len = T32_CLM_SEC_BYTES + n * (T32_CLM_A_BYTES + T32_CLM_TABLE);
+	return 0;
+}
+
+/*
+ * tisp_clm_param_array_set: header into the section, grow A / B when the new
+ * zone count needs more (free, allocate; the contents are not kept), copy A and
+ * B (the vendor's 16 bit sizes), refresh the tables at the stored colour
+ * temperature, write them, the range ratios and the register set.  glob is
+ * t32_data_da850 + 242 / + 244.  Returns the number of register writes, -1 for
+ * a zero zone count (the vendor then reads before its zone array).
+ */
+static inline int t32_clm_param_array_set(struct t32_clm_ctx *ctx, struct t32_clm_info *info, u16 glob[2],
+					  const u8 *buf, void *(*valloc)(unsigned long),
+					  void (*vfree)(void *), const int m1[9], struct t32_front_write *w)
+{
+	unsigned int n, bneed, aneed;
+	unsigned int cnt = 0;
+
+	memcpy(ctx->sec, buf, T32_CLM_SEC_BYTES);
+	n = ctx->sec[0x23];
+	bneed = n * T32_CLM_TABLE;
+	aneed = n * T32_CLM_A_BYTES;
+	if (info->b_cap < bneed) {
+		if (info->b)
+			vfree(info->b);
+		info->b = valloc(bneed);
+		info->b_cap = bneed;
+	}
+	if (info->a_cap < aneed) {
+		if (info->a)
+			vfree(info->a);
+		info->a = valloc(aneed);
+		info->a_cap = aneed;
+	}
+	info->asz = (u16)aneed;
+	info->bsz = (u16)bneed;
+	memcpy(info->a, buf + T32_CLM_SEC_BYTES, info->asz);
+	memcpy(info->b, buf + T32_CLM_SEC_BYTES + info->asz, info->bsz);
+	if (!n)
+		return -1;
+	/* tisp_clm_ct_interp at the stored colour temperature, forced */
+	ctx->zone = t32_clm_zone_code(ctx->sec, info->a, ctx->ct);
+	t32_clm_ct_tables(ctx->sec, info->a, info->b, (int)ctx->ct, ctx->tab, ctx->tb);
+	t32_clm_lut(ctx, w, &cnt);
+	t32_clm_ratio((int)t32_tp_le16(ctx->sec + 0x1c) - (int)t32_tp_le16(ctx->sec + 0x1a),
+		      &ctx->ratio[0], &ctx->shift[0]);
+	t32_clm_ratio((int)t32_tp_le16(ctx->sec + 0x20) - (int)t32_tp_le16(ctx->sec + 0x1e),
+		      &ctx->ratio[1], &ctx->shift[1]);
+	t32_clm_regs(ctx, m1, w, &cnt);
+	glob[0] = info->asz;
+	glob[1] = info->bsz;
+	return (int)cnt;
+}
+
+/* tisp_clm_deinit: free the block state of the channel and clear its slot */
+static inline int t32_clm_deinit(void (*vfree)(void *), struct t32_clm_ctx **slot)
+{
+	if (*slot) {
+		vfree(*slot);
+		*slot = NULL;
+	}
+	return 0;
 }
 
 #endif /* TX_ISP_T32_CLM_H */

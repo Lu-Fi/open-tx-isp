@@ -35,7 +35,7 @@ u8 t32_data_dc284[1808] __attribute__((aligned(4)));	/* 2 x 904 B channel state,
 /* IQ bin parser (tisp_bin_data_parse), per-channel state, all .bss */
 u8 t32_data_da850[704] __attribute__((aligned(4)));	/* 336 B per channel, +224 channel count, +232 14 B copy */
 u8 t32_data_dd114[224] __attribute__((aligned(4)));	/* 112 B per channel: copy of the bin's section table */
-u8 t32_data_dc1a4[56] __attribute__((aligned(4)));	/* 28 B per channel: largest payload sizes seen */
+u8 t32_data_dc1a4[112] __attribute__((aligned(4)));	/* 28 B per channel: largest payload sizes seen */
 u32 t32_data_e1820[4];					/* gamma payload size per channel */
 
 /* CSC / CSCCR working state (.bss) */

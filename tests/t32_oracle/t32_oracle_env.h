@@ -27,7 +27,7 @@ extern struct t32o_log t32o_log;
 
 extern u32 t32_data_e28f0[4], t32_data_dd0a4[4], t32_data_dc274[4], t32_data_da844[0x100];
 extern u8 t32_data_d03a0[4];
-extern u8 t32_data_da850[704], t32_data_dd114[224], t32_data_dc1a4[56];
+extern u8 t32_data_da850[704], t32_data_dd114[224], t32_data_dc1a4[112];
 extern u32 t32_data_e1820[4];
 extern u32 t32_data_e17c0[4], t32_data_e2450[4];
 extern u8 t32_data_e1460[8], t32_data_dc284[1808];
