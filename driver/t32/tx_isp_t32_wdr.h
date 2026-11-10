@@ -14,6 +14,8 @@
  *  phase 4 (t32_wdr4_oracle): default_reg_refresh, direct_reg_refresh,
  *    api_set_output_mode, param_array_set.
  *  phase 5 (t32_wdr5_oracle): process_init, process_deinit, init, deinit.
+ *  phase 6 (t32_wdr6_oracle): softout_reg_refresh, hardware_reg_refresh,
+ *    dn_params_refresh, wake_up.
  *
  * The vendor reaches the per channel WDR parameter block (the tuning values
  * of the IQ bin plus the working state) as t32_data_e3b40[ch] -> record,
@@ -98,6 +100,8 @@ struct t32_wdr_st {
 	u16 grid[5];		/* t32_data_e3b30: block counts / sizes of the statistics grid */
 	u8 nbuf;		/* t32_data_e3b10 */
 	u8 inited;		/* t32_data_e3a80 */
+	u32 soft_y;		/* t32_data_d8b40: blend level of the soft output (softout_reg_refresh) */
+	u32 wdr_en[4];		/* t32_data_f0918: WDR on per channel (ISP core) */
 	u64 short_tgain;	/* t32_data_e3aa0 (low word) / e3aa4 (high word) */
 	u64 short_ev[2];	/* t32_data_e3ab0 */
 	u64 long_ev[2];		/* t32_data_e3ac0 */
@@ -723,6 +727,117 @@ static inline int t32_wdr_deinit(struct t32_wdr_st *st, u32 ch)
 			st->lut[i] = 0;
 		}
 	return 0;
+}
+
+/* ---- phase 6: soft output refresh, the refresh groups, wake up ---- */
+
+/* n knots of u16 at hw + off as (n - 1) / 2 register pairs from reg on and the last one alone */
+static inline void t32_wdr_wr_curve(const struct t32_wdr_ops *o, const u8 *hw, u32 reg, u32 off, u32 n, u32 m)
+{
+	u32 i;
+
+	for (i = 0; i + 1 < n; i += 2)
+		o->reg_write(reg + 2 * i, t32_wdr_pair(hw, off + 2 * i, off + 2 * i + 2, m));
+	o->reg_write(reg + 2 * i, t32_wdr_r16(hw, off + 2 * i) & m);
+}
+
+/*
+ * tisp_wdr_softout_reg_refresh (ch): the soft output level (soft_y: the 256 complement of the
+ * mean of the 5 luma values par + 1516.. times 16, at most 4095, blended with par + 256 by
+ * par + 288 / 256); with fusion on the knot shifts, the 27 gains (par + 1823 << 14 over the
+ * knot steps hw + 700.., 1.0 = 0x10000 for a zero step) and the fusion curves 0x28060 ..
+ * 0x28378; always the deghost / soft output registers 0x28380 .. 0x28460.
+ */
+static inline int t32_wdr_softout_reg_refresh(struct t32_wdr_st *st, u32 ch)
+{
+	const struct t32_wdr_ops *o = st->ops;
+	const u8 *par = st->rec[ch]->par;
+	u8 *hw = st->rec[ch]->hw;
+	u32 i, sum = 0, t0 = t32_wdr_r16(par, 288), lvl;
+
+	st->fusion_on = par[1831];
+	for (i = 0; i < 5; i++)
+		sum += t32_wdr_r16(par, 1516 + 2 * i);
+	lvl = (u32)(256 - t32_wdr_sdiv((int)sum, 5)) << 4;
+	if (!((int)lvl < 4096))
+		lvl = 4095;
+	st->soft_y = (u32)t32_wdr_sdiv((int)(lvl * t0 + (256 - t0) * t32_wdr_r16(par, 256)), 256);
+
+	if (st->fusion_on == 1) {
+		for (i = 0; i < 4; i++)
+			hw[1022 + i] = (u8)t32_wdr_log2((int)(t32_wdr_r16(hw, 756 + 2 * i) - t32_wdr_r16(hw, 754 + 2 * i)));
+		for (i = 0; i < 27; i++) {
+			u32 step = t32_wdr_r16(hw, 700 + 2 * i);
+
+			t32_wdr_w32(hw, 28 + 4 * i, step ? (u32)t32_wdr_sdiv((int)(((u32)par[1823] << 14) + (step >> 1)), (int)step)
+						: 0x10000);
+		}
+		t32_wdr_wr_curve(o, hw, 0x28060, 160, 81, 0xfff);
+		t32_wdr_wr_curve(o, hw, 0x28104, 484, 81, 0xfff);
+		t32_wdr_wr_curve(o, hw, 0x281a8, 322, 81, 0xfff);
+		t32_wdr_wr_curve(o, hw, 0x2824c, T32_WDR_HW_DEF_X, 27, 0xfff);
+		for (i = 0; i < 13; i++)
+			o->reg_write(0x28284 + 4 * i, t32_wdr_pair8(hw, T32_WDR_HW_DEF_S + 2 * i, 0xf));
+		t32_wdr_wr_curve(o, hw, 0x282b8, 700, 27, 0xfff);
+		for (i = 0; i < 27; i++)
+			o->reg_write(0x282f0 + 4 * i, t32_wdr_r32(hw, 28 + 4 * i) & 0x1ffff);
+		t32_wdr_wr_curve(o, hw, 0x2835c, 754, 5, 0xfff);
+		o->reg_write(0x28368, t32_wdr_pair8(hw, 1022, 0xf));
+		o->reg_write(0x2836c, t32_wdr_pair8(hw, 1024, 0xf));
+		o->reg_write(0x28370, t32_wdr_pair8(hw, 1026, 0x1f));
+		o->reg_write(0x28374, t32_wdr_pair8(hw, 1028, 0x1f));
+		o->reg_write(0x28378, hw[1030] & 0x1f);
+	}
+	t32_wdr_wr_curve(o, hw, 0x28380, 830, 25, 0xfff);
+	t32_wdr_wr_curve(o, hw, 0x283b4, 880, 25, 0xfff);
+	t32_wdr_wr_curve(o, hw, 0x283e8, 930, 33, 0x1ff);
+	t32_wdr_wr_curve(o, hw, 0x2842c, 792, 5, 0x1ff);
+	o->reg_write(0x28438, t32_wdr_pair(hw, 764, 766, 0xfff));
+	o->reg_write(0x2843c, (t32_wdr_r16(hw, 768) & 0x1fff) << 16);
+	o->reg_write(0x28440, t32_wdr_pair(hw, 770, 772, 0x1fff));
+	o->reg_write(0x28444, t32_wdr_r16(hw, 774) & 0xf);
+	o->reg_write(0x28448, t32_wdr_r16(hw, 776));
+	o->reg_write(0x2844c, t32_wdr_r16(hw, 778) & 0xfff);
+	o->reg_write(0x28450, (t32_wdr_r32(hw, 4) & 0xfff) << 16 | (t32_wdr_r32(hw, 0) & 0xfff));
+	o->reg_write(0x28454, (t32_wdr_r32(hw, 12) & 0x1fff) << 16 | (t32_wdr_r32(hw, 8) & 0x1fff));
+	o->reg_write(0x28458, t32_wdr_r32(hw, 16) & 0xffffff);
+	o->reg_write(0x2845c, t32_wdr_r32(hw, 20) & 0x1ffffff);
+	o->reg_write(0x28460, t32_wdr_r32(hw, 24) & 0x1ff);
+	return 0;
+}
+
+/* tisp_wdr_hardware_reg_refresh (ch): all three register groups */
+static inline int t32_wdr_hardware_reg_refresh(struct t32_wdr_st *st, u32 ch)
+{
+	t32_wdr_default_reg_refresh(st, ch);
+	t32_wdr_direct_reg_refresh(st, ch);
+	t32_wdr_softout_reg_refresh(st, ch);
+	return 0;
+}
+
+/* tisp_wdr_dn_params_refresh (ch): day / night switch: hardware image, then all register groups */
+static inline void t32_wdr_dn_params_refresh(struct t32_wdr_st *st, u32 ch)
+{
+	t32_wdr_params_hard_refresh(st, ch);
+	t32_wdr_default_reg_refresh(st, ch);
+	t32_wdr_direct_reg_refresh(st, ch);
+	t32_wdr_softout_reg_refresh(st, ch);
+}
+
+/* tisp_wdr_wake_up (ch): the register groups when WDR is on, then the buffer addresses / DMA word kept by sleep */
+static inline void t32_wdr_wake_up(struct t32_wdr_st *st, u32 ch)
+{
+	const struct t32_wdr_ops *o = st->ops;
+	u32 i;
+
+	if (st->wdr_en[ch]) {
+		t32_wdr_default_reg_refresh(st, ch);
+		t32_wdr_direct_reg_refresh(st, ch);
+		t32_wdr_softout_reg_refresh(st, ch);
+	}
+	for (i = 0; i < 4; i++)
+		o->reg_write(T32_WDR_REG_DMA0 + 4 * i, st->dma_save[i]);
+	o->reg_write(T32_WDR_REG_DMA_CTL, st->dma_save[4]);
 }
 
 #endif
