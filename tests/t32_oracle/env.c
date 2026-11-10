@@ -543,7 +543,7 @@ u64 system_reg_read(u32 a0, u32 a1, u32 a2, u32 a3)
 	return 0x5a000000u | a0;	/* only the second pipeline reads back */
 }
 
-u64 isp_printf(u32 a0, u32 a1, u32 a2, u32 a3)
+u64 __attribute__((weak)) isp_printf(u32 a0, u32 a1, u32 a2, u32 a3)
 {
 	(void)a0; (void)a1; (void)a2; (void)a3;
 	t32o_log.printfs++;
