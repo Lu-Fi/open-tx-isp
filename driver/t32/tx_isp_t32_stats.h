@@ -2376,4 +2376,253 @@ static inline void t32_awb_face_pos(const struct t32_awb_ctx *c, u32 flag, u32 a
 	c->sec[T32_AWB_SEC_FLAG] = 1;
 }
 
+/*
+ * AE exposure info attribute (vendor api_ae_get_exprinfo_attr 0x33498 /
+ * api_ae_set_exprinfo_attr 0x338e0), checked by t32_aeai_oracle.  Layout of the
+ * attribute block (words): [0] scale flag, [1] enable, [2..5] unit flags, [6..9]
+ * unit values, [10..17] tune enables with the values [18..25], [27..30] flags,
+ * [31..34] values, [35..42] tune enables with the values [43..50]; get also
+ * reports [51] (word 204) .. [54] (word 216).  The ae gain / time values that
+ * carry the scale flag are multiplied by q on get and divided by it on set,
+ * with q = (fps word & 0xffff) * 1000000 / ((fps word >> 16) * u16 fps + 2),
+ * from the per-channel dd2d4 block (c->fps).  get first waits (10 ms steps,
+ * 50 at most) until the state byte st + 1285 is clear and returns the number of
+ * steps, 50 on timeout (nothing written); the vendor's set stores 1 in
+ * tune + 1259 / + 1260 when the enable of words [36] / [37] is not 1 (the
+ * disabled flag byte is 1 there, 0 everywhere else).  Disabled tune entries
+ * fall back to dd2d4 words (68, 72, 88, 92), 1024, or tisp_math_exp2 of dd2d4
+ * words 36 / 40 (hook).
+ */
+typedef void (*t32_aea_msleep_fn)(void *priv, u32 ms);
+typedef u32 (*t32_aea_math_fn)(void *priv, u32 a0, u32 a1, u32 a2);
+
+static inline u32 t32_aea_expi_q(const u8 *dd)
+{
+	u32 w = t32_ld32(dd, 56);
+
+	return t32_aea_div((w & 0xffff) * 1000000U, (w >> 16) * t32_st16(dd, 2));
+}
+
+static inline u32 t32_aea_get_exprinfo_attr(const struct t32_aea_ctx *c, u8 *out, t32_aea_msleep_fn msleep,
+					    t32_aea_math_fn log2, void *priv)
+{
+	const u8 *tune = c->tune, *buf = c->buf;
+	u32 n = 0, q, f, k, b;
+
+	q = t32_aea_expi_q(c->fps);
+	while (c->st[1285]) {
+		msleep(priv, 10);
+		n = (n + 1) & 0xff;
+		if (n == 50)
+			return 50;
+	}
+	t32_aea_cpy(c->buf + 12833, c->st + 1276, 9);
+	t32_aea_cpy(c->buf + 8608, c->st + 576, 32);
+	b = buf[12841];
+	t32_wr32(out, 4, b == 1 ? 1 : 0);
+	for (k = 0; k < 4; k++)
+		t32_wr32(out, 8 + 4 * k, buf[12833 + k]);
+	f = t32_ld32(out, 0);
+	t32_wr32(out, 24, f ? q * t32_ld32(buf, 8608) : t32_ld32(buf, 8608));
+	t32_wr32(out, 28, t32_ld32(buf, 8612));
+	t32_wr32(out, 32, t32_ld32(buf, 8616));
+	t32_wr32(out, 36, t32_ld32(buf, 8620));
+	for (k = 0; k < 8; k++)
+		t32_wr32(out, 40 + 4 * k, tune[1250 + k]);
+	t32_wr32(out, 72, f ? q * t32_ld32(tune, 448) : t32_ld32(tune, 448));
+	t32_wr32(out, 76, t32_ld32(tune, 452));
+	t32_wr32(out, 80, t32_ld32(tune, 456));
+	t32_wr32(out, 84, t32_ld32(tune, 460));
+	t32_wr32(out, 88, f ? q * t32_ld32(tune, 464) : t32_ld32(tune, 464));
+	t32_wr32(out, 92, t32_ld32(tune, 468));
+	t32_wr32(out, 96, t32_ld32(tune, 472));
+	t32_wr32(out, 100, t32_ld32(tune, 476));
+	t32_wr32(out, 104, (t32_ld32(buf, 12836) & 0xffffff00U) == 0x01010100U && buf[12840] == 1 ? 1 : 0);
+	for (k = 0; k < 4; k++)
+		t32_wr32(out, 108 + 4 * k, buf[12837 + k]);
+	t32_wr32(out, 124, f ? q * t32_ld32(buf, 8624) : t32_ld32(buf, 8624));
+	t32_wr32(out, 128, t32_ld32(buf, 8628));
+	t32_wr32(out, 132, t32_ld32(buf, 8632));
+	t32_wr32(out, 136, t32_ld32(buf, 8636));
+	for (k = 0; k < 8; k++)
+		t32_wr32(out, 140 + 4 * k, tune[1258 + k]);
+	t32_wr32(out, 172, f ? q * t32_ld32(tune, 480) : t32_ld32(tune, 480));
+	t32_wr32(out, 176, t32_ld32(tune, 484));
+	t32_wr32(out, 180, t32_ld32(tune, 488));
+	t32_wr32(out, 184, t32_ld32(tune, 492));
+	t32_wr32(out, 188, f ? q * t32_ld32(tune, 496) : t32_ld32(tune, 496));
+	t32_wr32(out, 192, t32_ld32(tune, 500));
+	t32_wr32(out, 196, t32_ld32(tune, 504));
+	t32_wr32(out, 200, t32_ld32(tune, 508));
+	t32_wr32(out, 204, t32_ld32(buf, 7480));
+	t32_wr32(out, 208, t32_ld32(buf, 7512));
+	t32_wr32(out, 212, t32_ld32(buf, 7476) << 22 | t32_ld32(buf, 7472) >> 10);
+	t32_wr32(out, 216, log2(priv, t32_ld32(buf, 7472), 10, 16));
+	return n;
+}
+
+/* a scaled word of the block: divided by q when the scale flag is set */
+static inline u32 t32_aea_expi_val(const u8 *in, u32 f, u32 q, u32 word)
+{
+	return f ? t32_aea_div(t32_ld32(in, 4 * word), q) : t32_ld32(in, 4 * word);
+}
+
+static inline void t32_aea_set_exprinfo_attr(const struct t32_aea_ctx *c, const u8 *in, t32_aea_math_fn exp2, void *priv)
+{
+	u8 *tune = c->tune, *buf = c->buf;
+	const u8 *dd = c->fps;
+	u32 q = t32_aea_expi_q(dd), f = t32_ld32(in, 0);
+
+	if (t32_ld32(in, 4) == 1) {
+		buf[12841] = 1;
+		t32_wr32(buf, 8608, t32_aea_expi_val(in, f, q, 6));
+		t32_wr32(buf, 8612, t32_ld32(in, 28));
+		t32_wr32(buf, 8616, t32_ld32(in, 32));
+		t32_wr32(buf, 8620, t32_ld32(in, 36));
+		t32_wr32(buf, 8624, t32_aea_expi_val(in, f, q, 31));
+		t32_wr32(buf, 8628, t32_ld32(in, 128));
+		t32_wr32(buf, 8632, t32_ld32(in, 132));
+		t32_wr32(buf, 8636, t32_ld32(in, 136));
+	} else {
+		buf[12841] = 0;
+		buf[12833] = (u8)t32_ld32(in, 8);
+		if (t32_ld32(in, 8) == 1)
+			t32_wr32(buf, 8608, t32_aea_expi_val(in, f, q, 6));
+		buf[12834] = (u8)t32_ld32(in, 12);
+		if (t32_ld32(in, 12) == 1)
+			t32_wr32(buf, 8612, t32_ld32(in, 28));
+		buf[12836] = (u8)t32_ld32(in, 20);
+		if (t32_ld32(in, 20) == 1)
+			t32_wr32(buf, 8620, t32_ld32(in, 36));
+		buf[12835] = (u8)t32_ld32(in, 16);
+		if (t32_ld32(in, 16) == 1)
+			t32_wr32(buf, 8616, t32_ld32(in, 32));
+		buf[12837] = (u8)t32_ld32(in, 108);
+		if (t32_ld32(in, 108) == 1)
+			t32_wr32(buf, 8624, t32_aea_expi_val(in, f, q, 31));
+		buf[12838] = (u8)t32_ld32(in, 112);
+		if (t32_ld32(in, 112) == 1)
+			t32_wr32(buf, 8628, t32_ld32(in, 128));
+		buf[12840] = (u8)t32_ld32(in, 120);
+		if (t32_ld32(in, 120) == 1)
+			t32_wr32(buf, 8636, t32_ld32(in, 136));
+		buf[12839] = (u8)t32_ld32(in, 116);
+		if (t32_ld32(in, 116) == 1)
+			t32_wr32(buf, 8632, t32_ld32(in, 132));
+	}
+	/* tune entries 1250..1257: enable word [10 + k], value word [18 + k] */
+	if (t32_ld32(in, 40) == 1) {
+		tune[1250] = 1;
+		t32_wr32(tune, 448, t32_aea_expi_val(in, f, q, 18));
+	} else {
+		tune[1250] = 0;
+		t32_wr32(tune, 448, t32_ld32(dd, 68));
+	}
+	if (t32_ld32(in, 44) == 1) {
+		tune[1251] = 1;
+		t32_wr32(tune, 452, t32_ld32(in, 76));
+	} else {
+		tune[1251] = 0;
+		t32_wr32(tune, 452, 1024);
+	}
+	if (t32_ld32(in, 48) == 1) {
+		tune[1252] = 1;
+		t32_wr32(tune, 456, t32_ld32(in, 80));
+	} else {
+		tune[1252] = 0;
+		t32_wr32(tune, 456, 1024);
+	}
+	if (t32_ld32(in, 52) == 1) {
+		tune[1253] = 1;
+		t32_wr32(tune, 460, t32_ld32(in, 84));
+	} else {
+		tune[1253] = 0;
+		t32_wr32(tune, 460, 1024);
+	}
+	if (t32_ld32(in, 56) == 1) {
+		tune[1254] = 1;
+		t32_wr32(tune, 464, t32_aea_expi_val(in, f, q, 22));
+	} else {
+		tune[1254] = 0;
+		t32_wr32(tune, 464, t32_ld32(dd, 72));
+	}
+	if (t32_ld32(in, 60) == 1) {
+		tune[1255] = 1;
+		t32_wr32(tune, 468, t32_ld32(in, 92));
+	} else {
+		tune[1255] = 0;
+		t32_wr32(tune, 468, exp2(priv, t32_ld32(dd, 36), 16, 10));
+	}
+	if (t32_ld32(in, 64) == 1) {
+		tune[1256] = 1;
+		t32_wr32(tune, 472, t32_ld32(in, 96));
+	} else {
+		tune[1256] = 0;
+		t32_wr32(tune, 472, exp2(priv, t32_ld32(dd, 40), 16, 10));
+	}
+	if (t32_ld32(in, 68) == 1) {
+		tune[1257] = 1;
+		t32_wr32(tune, 476, t32_ld32(in, 100));
+	} else {
+		tune[1257] = 0;
+	}
+	/* tune entries 1258..1265: enable word [35 + k], value word [43 + k] */
+	if (t32_ld32(in, 140) == 1) {
+		tune[1258] = 1;
+		t32_wr32(tune, 480, t32_aea_expi_val(in, f, q, 43));
+	} else {
+		tune[1258] = 0;
+		t32_wr32(tune, 480, t32_ld32(dd, 88));
+	}
+	if (t32_ld32(in, 144) == 1) {
+		tune[1259] = (u8)t32_ld32(in, 144);
+		t32_wr32(tune, 484, t32_ld32(in, 176));
+	} else {
+		tune[1259] = 1;
+		t32_wr32(tune, 484, 1024);
+	}
+	if (t32_ld32(in, 148) == 1) {
+		tune[1260] = (u8)t32_ld32(in, 148);
+		t32_wr32(tune, 488, t32_ld32(in, 180));
+	} else {
+		tune[1260] = 1;
+		t32_wr32(tune, 488, 1024);
+	}
+	if (t32_ld32(in, 152) == 1) {
+		tune[1261] = 1;
+		t32_wr32(tune, 492, t32_ld32(in, 184));
+	} else {
+		tune[1261] = 0;
+		t32_wr32(tune, 492, 1024);
+	}
+	if (t32_ld32(in, 156) == 1) {
+		tune[1262] = 1;
+		t32_wr32(tune, 496, t32_aea_expi_val(in, f, q, 47));
+	} else {
+		tune[1262] = 0;
+		t32_wr32(tune, 496, t32_ld32(dd, 92));
+	}
+	if (t32_ld32(in, 160) == 1) {
+		tune[1263] = 1;
+		t32_wr32(tune, 500, t32_ld32(in, 192));
+	} else {
+		tune[1263] = 0;
+		t32_wr32(tune, 500, exp2(priv, t32_ld32(dd, 36), 16, 10));
+	}
+	if (t32_ld32(in, 164) == 1) {
+		tune[1264] = 1;
+		t32_wr32(tune, 504, t32_ld32(in, 196));
+	} else {
+		tune[1264] = 0;
+		t32_wr32(tune, 504, exp2(priv, t32_ld32(dd, 40), 16, 10));
+	}
+	if (t32_ld32(in, 168) == 1) {
+		tune[1265] = 1;
+		t32_wr32(tune, 508, t32_ld32(in, 200));
+	} else {
+		tune[1265] = 0;
+	}
+	c->st[1285] = 1;
+}
+
 #endif /* TX_ISP_T32_STATS_H */
