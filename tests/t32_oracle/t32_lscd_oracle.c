@@ -14,7 +14,7 @@
  * Vendor context (t32_data_e17e0 of env.c): ctx = e17e0[ch], ctx+0 = section pointer,
  * ctx+4 -> values (+8 ct, +20 tgain, +24 tgain_s, +28 wdr).  The context is read back
  * after tisp_lsc_init (which may allocate it).  The direct-register mode
- * (t32_data_d03a0 == 1) is not compared: d03a0 stays 0.
+ * (t32_data_d03a0 == 1) is compared per step (d03a0 and ours direct drawn at random).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,6 +30,8 @@ extern u64 tisp_lsc_wake_up(u32 a0, u32 a1, u32 a2, u32 a3);
 
 static unsigned int ref_trig_n, ref_trig_a0, our_trig_n, our_trig_ch;
 static int trig_live, probed;
+static u32 spre[20], opre[20];
+static unsigned int d1_steps;	/* wake_up steps run with d03a0 = 1 */
 static unsigned int trig_logs;	/* direct writes an env.c cfg_trig adds */
 
 /* weak: an env.c definition wins */
@@ -126,6 +128,11 @@ static void gen_blk(u8 *blk, unsigned int c)
 	}
 	for (i = 0; i < 24; i++)
 		blk[77 + i] = (u8)(rnd() % 5 ? rnd() % 256 : 255);
+	/* corner of the guard: a zero grid size (a table count of 0 or above 3 makes the vendor read its own stack: undefined) */
+	if (rnd() % 16 == 0)
+		blk[66] = 0;
+	if (rnd() % 16 == 0)
+		blk[67] = 0;
 }
 
 static int run_case(const u8 *blk, u32 w_, u32 h_, u32 bayer)
@@ -237,6 +244,11 @@ static int run_case(const u8 *blk, u32 w_, u32 h_, u32 bayer)
 		t32o_log.n = 0;
 		ref_trig_n = our_trig_n = 0;
 		oc.ndlog = 0;
+		/* d03a0 = 1 (vendor) / direct = 1 (ours): wake_up writes four registers (2763, 2764, 2756, 2751) directly */
+		oc.direct = t32_data_d03a0[0] = (u8)(rnd() & 1);
+		memcpy(spre, sh, sizeof(spre));
+		memcpy(opre, oimg, sizeof(opre));
+		d1_steps += oc.direct && op == 2;
 		if (op == 0) {
 			what = "dn_params_refresh";
 			t32o_call((t32o_fn)(void (*)(void))tisp_lsc_dn_params_refresh, 0, 0, 0, 0, 0);
@@ -263,6 +275,44 @@ static int run_case(const u8 *blk, u32 w_, u32 h_, u32 bayer)
 			       *(u32 *)(xh + 28), ocur.wdr);
 			bad = 1;
 		}
+		if (oc.direct == 1) {
+			/*
+			 * d03a0 = 1: the vendor sends the control words (image words 2..16) to tisp_reg_write with the shadow
+			 * index 2749 + word (logged tagged by oa_reg_write.c); ours writes them to its image, and the four
+			 * wake_up words to its direct log with the same absolute index.  Applied to the image before the call
+			 * both must give the same words 2..17; the mesh words and the port select (18..) stay image words.
+			 */
+			u32 v[20], e[20];
+
+			if (oc.ndlog != (op == 2 ? 4u : 0u)) {
+				printf("MISMATCH %s: ours made %u direct writes (op %u)\n", what, oc.ndlog, op);
+				bad = 1;
+			}
+			memcpy(v, spre, sizeof(v));
+			memcpy(e, opre, sizeof(e));
+			for (i = 2; i < 18; i++)
+				e[i] = oimg[i];
+			for (i = 0; i < oc.ndlog; i++)
+				if (odlog[i].reg >= 2751 && odlog[i].reg < 2767)
+					e[odlog[i].reg - 2749] = odlog[i].val;
+			for (i = 0; i < t32o_log.n; i++) {
+				u32 idx = t32o_log.w[i].reg;
+
+				if (!(idx & 0x80000000u) || (idx & 0xffffffu) < 2751 || (idx & 0xffffffu) >= 2767) {
+					printf("MISMATCH %s: shadow write #%u at %08x\n", what, i, idx);
+					bad = 1;
+					break;
+				}
+				v[(idx & 0xffffffu) - 2749] = t32o_log.w[i].val;
+			}
+			for (i = 2; i < 18 && !bad; i++)
+				if (v[i] != e[i]) {
+					printf("MISMATCH %s: shadow word %u ref %08x ours %08x (op %u)\n", what, i, v[i], e[i], op);
+					bad = 1;
+				}
+			memcpy(oimg, e, 18 * 4);	/* the generic image compare below only keeps words 18.. */
+			memcpy(sh, e, 18 * 4);
+		} else {
 		exp_n = oc.ndlog + (op == 2 && !trig_live ? trig_logs : 0);
 		if (t32o_log.n != exp_n) {
 			printf("MISMATCH %s: direct writes ref %u ours %u\n", what, t32o_log.n, oc.ndlog);
@@ -273,6 +323,7 @@ static int run_case(const u8 *blk, u32 w_, u32 h_, u32 bayer)
 					printf("MISMATCH %s: direct write #%u\n", what, i);
 					bad = 1;
 				}
+		}
 		}
 		if (trig_live && (ref_trig_n != our_trig_n || ref_trig_n != (op == 2) ||
 				  (ref_trig_n && ref_trig_a0 != our_trig_ch))) {
@@ -301,6 +352,8 @@ static int run_case(const u8 *blk, u32 w_, u32 h_, u32 bayer)
 				break;
 			}
 	}
+	if (bad)
+		printf("  block: tables %u grid %ux%u p65 %u\n", blk[116], blk[66], blk[67], blk[65]);
 	/* leave env.c's context table as we found it (no pointers into the reset pool) */
 	if (own_x)
 		*(u32 *)(ctxh + 4) = 0;
