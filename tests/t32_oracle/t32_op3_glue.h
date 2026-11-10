@@ -163,7 +163,10 @@ static void op3_printv(u32 level, const char *fmt, const u32 *arg)
 		if (t[i] == 's' && ns < 4) {
 			const char *s = T32O_HOST(arg[i]);
 
-			snprintf(e->s[ns++], sizeof(e->s[0]), "%s", s ? s : "(null)");
+			if (arg[i] < 0x10000u || arg[i] >= 0x80000000u)	/* not a host string (vendor bug or KSEG): the value */
+				snprintf(e->s[ns++], sizeof(e->s[0]), "<ptr %08x>", arg[i]);
+			else
+				snprintf(e->s[ns++], sizeof(e->s[0]), "%s", s);
 		} else {
 			e->a[i] = arg[i];
 		}
