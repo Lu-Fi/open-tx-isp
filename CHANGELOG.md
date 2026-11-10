@@ -7,6 +7,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 ## 2026-11-11: T32 kernel-glue ports from Matt Davis' recovered C (op6 sensor/frame list; planned, host only, not device-tested)
 
 - `t32_sysreg_oracle`: our `tx_isp_t32_sysreg.h` (system_reg_write/_read, system_reg_ldc_write/_read through the subdev register bases, system_irq_func_set into the 96 entry callback table) against the vendor functions: 20000 random cases, every byte of both subdevs, both register blocks, the table and the return values equal; 13/13 mutations detected.
+- `t32_sensop_oracle`: our `tx_isp_t32_sensor_ops.h` (the sensor control ops table of the ISP core: sensor_init, sensor_early_init and the 28 ops it installs: alloc/set of gains and integration times, fps, chip id, mode, sensor register access through the core notify, the empty ops) against the vendor functions: 60000 random cases over 3 channels, every byte of core/attributes/value/control blocks, every alloc callback, notify and isp_printf call and the return values equal; the ops table compared by function identity; 31/31 mutations detected; every line covered except the dead NULL-core return of set/get_register.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
