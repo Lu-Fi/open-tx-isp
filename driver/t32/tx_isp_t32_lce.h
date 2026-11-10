@@ -751,7 +751,8 @@ static const u16 t32_lce_hm_recip[47] = {
  * into sum(b)).  The port reproduces that.  The vendor itself corrupts its saved registers from n = 36, its
  * return address from n = 45 and the saved output pointer (frame word 147) from n = 47, so only n <= 31 can
  * occur on hardware without a crash; the host oracle's C reference is well defined up to n = 46.  n above 46
- * is clamped.
+ * is clamped: BEYOND VENDOR (openimp #260, user OK 2026-11-10, docs/BEYOND_VENDOR.md), the vendor overwrites
+ * its own stack there.
  */
 static inline void t32_lce_hist_method32(const u32 *hist, u32 *out, const struct t32_lce_hm16_par *p,
 					 u32 sh_b, u32 sh_a)
