@@ -2625,4 +2625,106 @@ static inline void t32_aea_set_exprinfo_attr(const struct t32_aea_ctx *c, const 
 	c->st[1285] = 1;
 }
 
+/*
+ * ioctl attribute glue of the AE / AWB blocks (vendor tx_isp_awb_weight_s_attr /
+ * _g_attr, tx_isp_ae_explist_s_attr / _g_attr, tx_isp_ae_scence_g_attr, the
+ * *_attr_isra_N functions), checked by t32_aeaj_oracle.  buf is the caller's
+ * zeroed scratch block (the vendor's stack), user the user pointer (for the get
+ * functions the vendor reads it from the first word of the argument block, the
+ * caller does that), the ops are the kernel copy helpers, isp_printf (the
+ * level only: 1 = call failed, 2 = copy failed) and the tisp_[sg]_* call.
+ * set (copy in, then call): awb_weight_s stops after a failed copy and returns
+ * its error; explist_s prints the error but still calls the setter, then
+ * prints again and returns the copy result.  The setters' results are never
+ * used.  get (call, then copy out): awb_weight_g / explist_g stop at a failed
+ * getter (level 1, return its result); scence_g prints and still copies out;
+ * all return the copy result (level 2 when it failed).
+ */
+struct t32_isra_ops {
+	int (*copy_from_user)(void *priv, u8 *dst, u32 user, u32 n);
+	int (*copy_to_user)(void *priv, u32 user, const u8 *src, u32 n);
+	void (*printk)(void *priv, u32 level);
+	int (*call)(void *priv, u32 ch, u8 *buf);	/* tisp_[sg]_xxx(ch, buf) of the function */
+	void *priv;
+};
+
+#define T32_ISRA_AWB_WEIGHT	1024U
+#define T32_ISRA_AE_EXPLIST	324U
+#define T32_ISRA_AE_SCENCE	40U
+
+static inline int t32_isra_set_stop(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *buf, u32 n)
+{
+	int r = o->copy_from_user(o->priv, buf, user, n);
+
+	if (r) {
+		o->printk(o->priv, 2);
+		return r;
+	}
+	o->call(o->priv, ch, buf);
+	return 0;
+}
+
+static inline int t32_isra_set_go_on(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *buf, u32 n)
+{
+	int r = o->copy_from_user(o->priv, buf, user, n);
+
+	if (r)
+		o->printk(o->priv, 2);
+	o->call(o->priv, ch, buf);
+	if (r)
+		o->printk(o->priv, 1);
+	return r;
+}
+
+static inline int t32_isra_get_stop(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *buf, u32 n)
+{
+	int r = o->call(o->priv, ch, buf);
+
+	if (r) {
+		o->printk(o->priv, 1);
+		return r;
+	}
+	r = o->copy_to_user(o->priv, user, buf, n);
+	if (r)
+		o->printk(o->priv, 2);
+	return r;
+}
+
+static inline int t32_isra_get_go_on(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *buf, u32 n)
+{
+	int r = o->call(o->priv, ch, buf);
+
+	if (r)
+		o->printk(o->priv, 1);
+	r = o->copy_to_user(o->priv, user, buf, n);
+	if (r)
+		o->printk(o->priv, 2);
+	return r;
+}
+
+static inline int t32_isra_awb_weight_s(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *buf)
+{
+	return t32_isra_set_stop(o, ch, user, buf, T32_ISRA_AWB_WEIGHT);
+}
+
+static inline int t32_isra_awb_weight_g(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *buf)
+{
+	return t32_isra_get_stop(o, ch, user, buf, T32_ISRA_AWB_WEIGHT);
+}
+
+static inline int t32_isra_ae_explist_s(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *buf)
+{
+	return t32_isra_set_go_on(o, ch, user, buf, T32_ISRA_AE_EXPLIST);
+}
+
+static inline int t32_isra_ae_explist_g(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *buf)
+{
+	return t32_isra_get_stop(o, ch, user, buf, T32_ISRA_AE_EXPLIST);
+}
+
+static inline int t32_isra_ae_scence_g(const struct t32_isra_ops *o, u32 ch, u32 user, u8 *buf)
+{
+	return t32_isra_get_go_on(o, ch, user, buf, T32_ISRA_AE_SCENCE);
+}
+
 #endif /* TX_ISP_T32_STATS_H */
