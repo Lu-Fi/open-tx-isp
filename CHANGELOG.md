@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T32 block leftovers (op11; planned, host only, not device-tested)
+
+- New `driver/t32/tx_isp_t32_wrap.h`: 8 empty vendor stubs, 10 one-call wrappers (face get/set, ev_alloc_calc, ae/awb_algo_deinit, api_ae_get_reg_state, msca_channel_start / irq_frame_done; callees through `struct t32_wrap_ops`) and 5 accessors (AE/AWB deinit_internal run flags, day_or_night_g_ctrl, single_lsc_reg_read / _lut_read). `t32_wrap_oracle`: 460000 calls against Matt Davis' recovered C, return values, callee order/arguments and state bit-exact, 31/31 mutations. Recovered C defect named: tisp_api_ev_alloc_calc lost the a1..a3 pass-through of its tail call (build-time fix `fix_op11_proto.sh`).
+
 ## 2026-11-11: T32 API getters, 69 functions (planned, host only, not device-tested)
 
 - New `driver/t32/tx_isp_t32_api_get.h`: readable C of the vendor's 69 getter functions (get_clk*/get_isp_* module parameters, tisp_get_* / tisp_g_* tuning API front ends, register getters tisp_g_module_control / tisp_g_ccm_attr / tisp_get_frame_drop, get_sensor_* stubs), every one checked against the disassembly of tx-isp-t32.ko and against Matt Davis' recovered C (PR #15 @ 2e2e06bc). Block getters are reached through `struct t32_get_ops`.
