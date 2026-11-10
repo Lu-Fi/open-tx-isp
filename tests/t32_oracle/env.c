@@ -692,3 +692,5 @@ char t32_data_ca0f0[4] __attribute__((weak)) = "f";
 char t32_data_ca10c[4] __attribute__((weak)) = "f";
 char t32_data_ca154[4] __attribute__((weak)) = "f";
 char t32_data_bfe44[4] __attribute__((weak)) = "f";
+u8 t32_data_f3258[512] __attribute__((weak));	/* per channel mask block attribute (32 B each) */
+u8 t32_data_e275c[8] __attribute__((weak));	/* per channel refresh flag */
