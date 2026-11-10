@@ -442,6 +442,13 @@ static void bld_v(u32 k, const struct img *im, int isinit)
 		wr32(p2 + 68 + 4 * i, T32O_PTR(sec) + rd32(im->p2 + 68 + 4 * i));
 	buf = cmem(BUFN);
 	memcpy(buf, im->buf, BUFN);
+	/* deinit cases: absent sub-objects are NULL pointers in the context */
+	if (!im->f[FI_HPAR])
+		par = NULL;
+	if (!im->f[FI_HP2])
+		p2 = NULL;
+	if (!im->f[FI_HBUF])
+		buf = NULL;
 	c = cmem(56);
 	memset(c, 0, 56);
 	wr32(c, im->f[FI_NBUF]);
@@ -458,7 +465,7 @@ static void bld_v(u32 k, const struct img *im, int isinit)
 	wr32(c + 44, im->f[FI_IRQC]);
 	c[48] = (u8)im->f[FI_GAIN];
 	wr32(c + 52, im->f[FI_STR]);
-	t32_data_e2130[k] = T32O_PTR(c);
+	t32_data_e2130[k] = im->f[FI_HCTX] ? T32O_PTR(c) : 0;
 	if (im->f[FI_VBUF]) {
 		u8 *v = cmem(im->f[FI_VSIZE]);
 
@@ -503,8 +510,10 @@ static void bld_o(u32 k, const struct img *im, int isinit)
 	memcpy(p2->tbl, im->p2 + 84, 32);
 	x->buf = cmem(BUFN);
 	memcpy(x->buf, im->buf, BUFN);
-	x->par = par;
-	x->p2 = p2;
+	x->par = im->f[FI_HPAR] ? par : NULL;
+	x->p2 = im->f[FI_HP2] ? p2 : NULL;
+	if (!im->f[FI_HBUF])
+		x->buf = NULL;
 	x->nbuf = im->f[FI_NBUF];
 	x->buf_phys = im->f[FI_PHYS];
 	x->ev = im->f[FI_EV];
@@ -515,7 +524,7 @@ static void bld_o(u32 k, const struct img *im, int isinit)
 	x->irq_cnt = im->f[FI_IRQC];
 	x->gain_mode = (u8)im->f[FI_GAIN];
 	x->strength = im->f[FI_STR];
-	c->ctx = x;
+	c->ctx = im->f[FI_HCTX] ? x : NULL;
 	if (im->f[FI_VBUF]) {
 		c->vbuf = cmem(im->f[FI_VSIZE]);
 		memset(c->vbuf, 0x5a, im->f[FI_VSIZE]);
@@ -1074,6 +1083,19 @@ int main(void)
 			case F_DN:
 				a[0] = rnd();
 				break;
+			case F_DEINIT: {
+				u32 r = rnd() % 10;
+
+				if (r < 4) {
+					ini[ch].f[FI_HBUF] = rnd() & 1;
+					ini[ch].f[FI_HPAR] = rnd() & 1;
+					ini[ch].f[FI_HP2] = rnd() & 1;
+				}
+				if (r == 9)
+					ini[ch].f[FI_HCTX] = 0;
+				ini[ch].f[FI_VBUF] = (rnd() % 4) != 0;
+				break;
+			}
 			}
 			run_one(fn, ch, mode, a);
 		}
