@@ -19,6 +19,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - New `driver/t32/tx_isp_t32_regmap.h`: tisp_reg_map_get / _set (tuning raw register access, direct and shadow mode, MDNS wrap on bit 11 of 0x40). `t32_regmap_oracle`: 20000 cases with d03a0 = 0 / 1 / other, writes, hook calls, message bytes bit-exact, 16/16 mutations.
 - New `driver/t32/tx_isp_t32_blkglue.h`: tisp_clm_ct_update, tisp_clm_refresh_by_csc, tisp_lce_remove, tisp_ae_get_info (callees as hooks). `t32_blkglue_oracle`: 20000 cases, calls, pointer tables, AE tuning block and reply bytes bit-exact, 24/24 mutations.
 - New `driver/t32/tx_isp_t32_vicdev.h`: tisp_vic_ctrl_release and tisp_vic_mmap (raw-capture buffer state t32_data_d941c, lib calls and remap as hooks). `t32_vicdev_oracle`: 10000 cases, calls, prints and raw state bit-exact, 16/16 mutations.
+- `tx_isp_t32_vicdev.h` + tisp_vic_ctrl_ioctl (raw buffer GET / SET with the inlined tisp_vic_cmd_process). `t32_vicdev_oracle` now 30000 cases (20000 ioctl: commands, sensor pointer NULL / error / valid, access check, partial copies, SET states), 34/34 mutations. The ioctl reference copy is built with `fix_op11_vicioctl.sh` (fake thread_info for gp, `__copy_user` result in a2 as in the MIPS kernel).
 
 ## 2026-11-11: T32 API getters, 69 functions (planned, host only, not device-tested)
 
