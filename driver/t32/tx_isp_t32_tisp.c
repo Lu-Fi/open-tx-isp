@@ -88,7 +88,12 @@ bool t32_pp_on(enum t32_pp blk)
 	return (v >> (1 + blk)) & 1;
 }
 
-#define T32_PF_MAX_WRITES	1024
+/*
+ * The per-frame write list: the largest block run, MDNS (T32_MDNS_MAX_WRITES = 1281: the
+ * compare part and both 621-word register sets), must fit (openimp #362: 1024 let a full MDNS
+ * refresh run past the list and dropped it).
+ */
+#define T32_PF_MAX_WRITES	1536
 #define T32_PF_PARAM_SMALL	64	/* >= the 55 / 39 / 22 values of SDNS / CDNS / YDNS */
 
 static struct {
@@ -316,6 +321,7 @@ void t32_pf_reset(void)
 	cancel_work_sync(&pf_work);
 	mutex_lock(&pf_lock);
 	pf_free_locked();
+	BUILD_BUG_ON(T32_MDNS_MAX_WRITES > T32_PF_MAX_WRITES);
 	if (!pf_w)
 		pf_w = kmalloc_array(T32_PF_MAX_WRITES, sizeof(*pf_w), GFP_KERNEL);
 	mutex_unlock(&pf_lock);

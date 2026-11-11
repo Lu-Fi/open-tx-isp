@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-12: T32 QEMU smoke fixes (openimp #234, #360, #361, #362; QEMU only, not device-tested)
+
+- Per-frame write list of `tx_isp_t32_tisp.c` 1024 -> 1536 entries with `BUILD_BUG_ON(T32_MDNS_MAX_WRITES > T32_PF_MAX_WRITES)`: one MDNS refresh is up to 1281 writes, so a full refresh ran past the kmalloc'd list and was then dropped (`per-frame write list overflow (1243)` in dmesg) (#362).
+
 ## 2026-11-11: T32 /proc show routines (openimp #234; planned, host only, not device-tested)
 
 - New `driver/t32/tx_isp_t32_info.h`: the /proc/jz/isp/isp-m0 printers `isp_info_show` (frame, debug request + completion wait, item dispatch through `isp_debug_info`), `isp_info_system`, `isp_info_base`, `isp_info_sensor` (media bus code names as the vendor's switch), `isp_info_ae`, `isp_info_awb`, `isp_info_gib`, `isp_info_bin`, `isp_info_err`; new `driver/t32/tx_isp_t32_pshow.h`: `sinfo_show` (the 15 sensor info files) and `isp_vic_frd_show` (VIC error counters and sums). Vendor format strings and argument order; OS and tisp getters are hooks.
