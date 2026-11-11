@@ -11,6 +11,7 @@
  * - tisp_lce_interrupt_static: LCE statistics bank, histogram rearm, curve roll.
  * - tisp_api_param_array_get: ISP API parameter read by id.
  * - tisp_day_or_night_par_refresh: day / night refresh of every block, waiter wake-up.
+ * - tisp_day_or_night_s_ctrl: day / night switch (tuning bin, register pair, refresh).
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -653,6 +654,87 @@ static inline u32 t32_day_or_night_par_refresh(struct t32_dnr *d, u32 ch, u32 dn
 	d->count[ch] = 0;
 	d->ev[2] = dn;
 	return d->ops->wake_up(d->wq);
+}
+
+/* ---- tisp_day_or_night_s_ctrl (vendor 0xb0144), oracle t32_dnctl_oracle ---- */
+
+#define T32_DNC_BINS		6	/* t32_data_dd0b4: tuning bin per channel and index */
+#define T32_DNC_TUNING_LEN	0xf238	/* copied into the working tuning t32_data_dd0a4[ch] */
+#define T32_DNC_TUN_BYTE	22	/* tuning byte cleared for night */
+#define T32_DNC_ST_STRIDE	336	/* t32_data_da850 per channel */
+#define T32_DNC_ST_IDX		296
+#define T32_DNC_ST_CUR		300
+#define T32_DNC_ST_TAB		304	/* one word per index */
+#define T32_DNC_PIPE_STRIDE	904	/* t32_data_dc284 */
+#define T32_DNC_PIPE_NIGHT	37
+#define T32_DNC_PIPE_SET	4	/* + (index + 1) * 128: 128 B set copied to da850[ch] */
+#define T32_DNC_SET_LEN		128
+#define T32_DNC_R_A		0x14054	/* night: 0 (shadow index 777) */
+#define T32_DNC_S_A		777
+#define T32_DNC_R_B		0x14010	/* night: 0xffffffff (shadow index 771) */
+#define T32_DNC_S_B		771
+#define T32_DNC_SEQ_MASK	0xffffff
+
+struct t32_dnc_ops {
+	void (*lut_params_copy)(u32 ch, u32 idx);		/* tisp_lut_params_copy */
+	void (*reg_write)(u32 ch, u32 reg, u32 val);		/* tisp_reg_write */
+	void (*par_refresh)(u32 ch, u32 dn);			/* tisp_day_or_night_par_refresh */
+	void (*no_bin)(u32 idx);				/* isp_printf (missing bin) */
+	void (*bad_mode)(void);					/* isp_printf (mode not 0 / 1) */
+};
+
+struct t32_dnc {
+	const struct t32_dnc_ops *ops;
+	const u32 *bins;	/* t32_data_dd0b4[ch * 6 + idx] */
+	const u32 *tuning;	/* t32_data_dd0a4[ch] */
+	u8 *st;			/* t32_data_da850 */
+	u8 *pipe;		/* t32_data_dc284 */
+	u8 *keep;		/* t32_data_e401c: 1 = keep da850's set once */
+	const u8 *shadow;	/* t32_data_d03a0 */
+	const u32 *seq;		/* t32_data_f32d8[ch] */
+	u32 *seq1, *seq2;	/* t32_data_f32f8[ch] / f32e8[ch]: seq + 1 / + 2 (24 bit) */
+};
+
+/* tisp_day_or_night_s_ctrl: switch channel ch & 0xff to day (mode 0) or night (1) with bin idx & 0xff; 0 */
+static inline int t32_day_or_night_s_ctrl(struct t32_dnc *d, u32 ch, u32 mode, u32 idx)
+{
+	u8 *st, *pipe;
+	u32 bin;
+
+	ch &= 0xff;
+	idx &= 0xff;
+	bin = d->bins[ch * T32_DNC_BINS + idx];
+	if (!bin) {
+		d->ops->no_bin(idx);
+		return 0;
+	}
+	memcpy(t32_br_ptr(d->tuning[ch]), t32_br_ptr(bin), T32_DNC_TUNING_LEN);
+	d->ops->lut_params_copy(ch, idx);
+	st = d->st + T32_DNC_ST_STRIDE * ch;
+	t32_br_wr32(st + T32_DNC_ST_IDX, idx);
+	t32_br_wr32(st + T32_DNC_ST_CUR, t32_br_rd32(st + T32_DNC_ST_TAB + 4 * idx));
+	pipe = d->pipe + T32_DNC_PIPE_STRIDE * ch;
+	if (mode == 0) {
+		pipe[T32_DNC_PIPE_NIGHT] = 0;
+		if (!*d->keep)
+			memcpy(st, pipe + T32_DNC_PIPE_SET + (idx + 1) * T32_DNC_SET_LEN, T32_DNC_SET_LEN);
+		*d->keep = 0;
+		d->ops->par_refresh(ch, 0);
+		d->seq1[ch] = (d->seq[ch] + 1) & T32_DNC_SEQ_MASK;
+		d->seq2[ch] = (d->seq[ch] + 2) & T32_DNC_SEQ_MASK;
+	} else if (mode == 1) {
+		pipe[T32_DNC_PIPE_NIGHT] = 1;
+		d->ops->reg_write(ch, *d->shadow ? T32_DNC_S_A : T32_DNC_R_A, 0);
+		d->ops->reg_write(ch, *d->shadow ? T32_DNC_S_B : T32_DNC_R_B, 0xffffffffu);
+		if (!*d->keep)
+			memcpy(st, pipe + T32_DNC_PIPE_SET + (idx + 1) * T32_DNC_SET_LEN, T32_DNC_SET_LEN);
+		t32_br_ptr(d->tuning[ch])[T32_DNC_TUN_BYTE] = 0;
+		*d->keep = 0;
+		d->ops->par_refresh(ch, 1);
+	} else {
+		d->ops->bad_mode();
+	}
+	return 0;
 }
 
 #endif /* TX_ISP_T32_BLKREST_H */
