@@ -30,6 +30,11 @@ int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr);
 u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg);
 int t32_core_sensor_set_fps(u32 fps);
 
+/* tx_isp_t32_tunctl.c: isp-m0 tuning controls, AE start EV */
+long t32_tunctl_ctrl(u32 *w, unsigned long arg);
+long t32_tunctl_ae_start(unsigned int cmd, unsigned long arg);
+void t32_tunctl_frame_done(u32 ch);
+
 /* tx_isp_t32_hw.c */
 struct t32_hw_stats {
 	u32 isp_irqs, vic_irqs, frame_ends, stream_ons;

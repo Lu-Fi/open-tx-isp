@@ -115,8 +115,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	isp_wr(T32_INT4_CLR, s4);
 	isp_wr(T32_RDMA_IRQ_CLR, 0);
 	t32_hw_stats.isp_irqs++;
-	if (sta & 1)
+	if (sta & 1) {
 		t32_hw_stats.frame_ends++;
+		t32_tunctl_frame_done(0);	/* isp_frame_done_wakeup (tuning id 0x08000091) */
+	}
 	if (sta & T32_INT_AWB)
 		t32_hw_stats.awb_irqs++;
 	if (sta & T32_INT_AE) {

@@ -42,7 +42,9 @@
 #define T32_IOC_DEFAULT_BIN		0xc00454c9U	/* arg: 880 B buffer, see core */
 
 /* ---- /dev/isp-m0 ---------------------------------------------------------- */
-#define T32_IOC_TUNING_DEFAULT		0xc0105467U	/* RW {dir, ?, cmd id, ptr/value} */
+#define T32_IOC_TUNING_DEFAULT		0xc0105467U	/* RW {vi, dir, cmd id, ptr/value} */
+#define T32_IOC_SET_AE_START_EV		0xc0045436U	/* {u8 vi, ev[2]} -> AE scene words 6, 7 */
+#define T32_IOC_GET_AE_START_EV		0xc0045437U
 #define T32_TUNING_DIR_SET		0
 #define T32_TUNING_DIR_GET		1
 #define T32_TUNING_ID_SENSOR_FPS	0x08000070U	/* value fps_num << 16 | fps_den; libimp GETs it

@@ -7,7 +7,8 @@ tx-isp-t32-objs := tx_isp_t32_sinfo.o \
 		   tx_isp_t32_hw.o \
 		   tx_isp_t32_fs.o \
 		   tx_isp_t32_tisp.o \
-		   tx_isp_t32_ae.o
+		   tx_isp_t32_ae.o \
+		   tx_isp_t32_tunctl.o
 obj-m += tx-isp-t32.o
 
 ccflags-y += -I$(src)/../include -std=gnu99
