@@ -510,20 +510,20 @@ static inline void t32_lce_hist_method_16bit_simd(const u16 *hist, u16 *out, con
 	out[31] = (u16)(out[31] + (int)rem % 32);
 }
 
-static inline u32 t32_lce_w(const struct t32_lce_tab *tab, u32 idx, int *bad)
+/*
+ * Ramp weight 1024 / n of bf9ec.  With lo / mid / hi <= 32 the index is -1 .. 31; -1 (the halfword before the
+ * table) comes only with an empty ramp (lo or mid 0, mid or hi 32), whose weight the vendor reads but never
+ * stores: 0 here (openimp #277).
+ */
+static inline u32 t32_lce_w(const struct t32_lce_tab *tab, u32 idx)
 {
-	if (idx > 31) {
-		*bad = 1;
-		return 0;
-	}
-	return tab->w[idx];
+	return idx > 31 ? 0 : tab->w[idx];
 }
 
 /*
  * tisp_lce_hist_method: clip the 32 bin histogram at thr[0], spread the clipped
  * mass with ramps; par = { lo, mid, hi }.  Returns -1 (hist untouched) where the
- * vendor would overflow its stack (a parameter above 32) or read before the
- * weight table (negative index).
+ * vendor would overflow its stack (a parameter above 32).
  */
 static inline int t32_lce_hist_method(u16 *hist, const u8 *thr, const u8 *par,
 				      const struct t32_lce_tab *tab)
@@ -533,7 +533,7 @@ static inline int t32_lce_hist_method(u16 *hist, const u8 *thr, const u8 *par,
 	u8 b[32];
 	u32 lo = par[0], mid = par[1], hi = par[2];
 	u32 exc = 0, half = 0, quart = 0, quart2 = 0, rem = 0, rest = 0, x, i;
-	int narrow, ramp, bad = 0;
+	int narrow, ramp;
 
 	if (lo > 32 || mid > 32 || hi > 32)
 		return -1;
@@ -571,9 +571,7 @@ static inline int t32_lce_hist_method(u16 *hist, const u8 *thr, const u8 *par,
 			hi = 1;
 			mid = 1;
 		}
-		x = t32_lce_w(tab, mid - 1, &bad) * half;
-		if (bad)
-			return -1;
+		x = t32_lce_w(tab, mid - 1) * half;
 		for (i = 0; i < mid; i++) {
 			w[i] = x;
 			b[i] = (u8)tab->up[i];
@@ -584,16 +582,12 @@ static inline int t32_lce_hist_method(u16 *hist, const u8 *thr, const u8 *par,
 			mid = 1;
 			lo = 1;
 		}
-		x = t32_lce_w(tab, lo - 1, &bad) * quart;
-		if (bad)
-			return -1;
+		x = t32_lce_w(tab, lo - 1) * quart;
 		for (i = 0; i < lo; i++) {
 			w[i] = x;
 			b[i] = (u8)tab->down[32 - lo + i];
 		}
-		x = t32_lce_w(tab, mid - lo - 1, &bad) * quart;
-		if (bad)
-			return -1;
+		x = t32_lce_w(tab, mid - lo - 1) * quart;
 		for (i = lo; i < mid; i++) {
 			w[i] = x;
 			b[i] = (u8)tab->up[i - lo];
@@ -601,24 +595,18 @@ static inline int t32_lce_hist_method(u16 *hist, const u8 *thr, const u8 *par,
 	}
 
 	if (!ramp) {
-		x = t32_lce_w(tab, 31 - mid, &bad) * rem;
-		if (bad)
-			return -1;
+		x = t32_lce_w(tab, 31 - mid) * rem;
 		for (i = mid; i < 32; i++) {
 			w[i] = x;
 			b[i] = (u8)tab->down[i];
 		}
 	} else {
-		x = t32_lce_w(tab, hi - mid - 1, &bad) * quart2;
-		if (bad)
-			return -1;
+		x = t32_lce_w(tab, hi - mid - 1) * quart2;
 		for (i = mid; i < hi; i++) {
 			w[i] = x;
 			b[i] = (u8)tab->down[32 - hi + i];
 		}
-		x = t32_lce_w(tab, 31 - hi, &bad) * rest;
-		if (bad)
-			return -1;
+		x = t32_lce_w(tab, 31 - hi) * rest;
 		for (i = hi; i < 32; i++) {
 			w[i] = x;
 			b[i] = (u8)tab->up[i - hi];
@@ -1338,10 +1326,10 @@ static inline void t32_lce_t41(const u8 *par, u8 *w, u32 mode, const struct t32_
  * hands to tisp_lce_hist_method, which overwrites / ignores both; the vendor's printk when a scalar tile's cdf
  * total is 0 (the row is then left as it was, as in the vendor).
  * Refused (-1): par[12] > 18 or par[13] > 32 (nothing written; the vendor then runs past the 576 tiles, above 32 its
- * column loop does not end), and a scalar tile whose tisp_lce_hist_method our port refuses (an index before the
- * weight table; the tiles before it are then already written).
- * The weight table index is -1 (the halfword before bf9ec, 0 in data.c:2717) only for an empty ramp (mid or lo at bin 0),
- * so its value is never used; t32_lce_hist_method refuses those cases all the same (scalar tiles, see above).
+ * column loop does not end), and a scalar tile whose tisp_lce_hist_method refuses (a threshold above 32, which the
+ * thresholds of tisp_lce_thres_search never give; the tiles before it are then already written).
+ * The weight table index is -1 (the halfword before bf9ec, 0 in data.c:2717) only for an empty ramp, so its value is
+ * never used; t32_lce_hist_method handles it like the vendor (openimp #277).
  * A 16 tile group with a cdf total of 0 divides by 0 (the MIPS result is undefined; this port takes the value of
  * the mechanical C, t32_lce_sdiv).
  * Checked by tests/t32_oracle (t32_lcev4_1 .. _5_oracle per block, t32_lcev4_oracle end to end).
