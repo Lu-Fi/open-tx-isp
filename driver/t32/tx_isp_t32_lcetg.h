@@ -252,4 +252,112 @@ static inline void t32_lce_write_curve(const u8 *st, u8 *curve)
 	memcpy(curve + T32_LCETG_CURVE_BYTES, st + T32_LCETG_CURVE, T32_LCETG_CURVE_BYTES);
 }
 
+/*
+ * ---- tisp_lce_par_to_used (0x580f4) and the state as tisp_lce_init (0x58a80) leaves it,
+ * oracle t32_lceinit_oracle ----
+ */
+
+/* tisp_lce_par_to_used: the strengths, then section parts into the state's parameter block */
+static inline void t32_lce_par_to_used(u8 *st, u8 *sec)
+{
+	static const u16 cp[14][3] = {	/* state block offset, section offset, bytes */
+		{ 104, 213, 4 }, { 108, 144, 5 }, { 119, 424, 3 }, { 152, 433, 2 }, { 224, 508, 5 },
+		{ 229, 513, 5 }, { 239, 573, 5 }, { 244, 149, 20 }, { 264, 181, 20 }, { 284, 578, 5 },
+		{ 294, 638, 5 }, { 299, 643, 20 }, { 319, 675, 20 }, { 339, 707, 3 },
+	};
+	u8 *g = st + T32_LCETG_GPAR;
+	unsigned int k;
+
+	t32_lce_tgain_interp_strength(st, sec);
+	for (k = 0; k < 14; k++)
+		memcpy(g + cp[k][0], sec + cp[k][1], cp[k][2]);
+}
+
+static inline void t32_lcetg_wr32(u8 *p, u32 v)
+{
+	p[0] = (u8)v;
+	p[1] = (u8)(v >> 8);
+	p[2] = (u8)(v >> 16);
+	p[3] = (u8)(v >> 24);
+}
+
+/*
+ * The block grid of tisp_lce_size_para_calc (0x4c430) as tisp_lce_init keeps it: grid[4] =
+ * rest rows, rest columns, block rows, block columns (as t32_lce_init's registers), cnt[4]
+ * the pixel blocks of the four zone kinds, inv[4] = 2^25 / cnt rounded.  1920 x 1080 takes
+ * the vendor's constant tables instead (rodata t32_data_bf920 / bf924 / bf95c, data.c:2667,
+ * 2668..2671, 2682..2685: the same values).  A count of 0 (frame narrower than 64 or lower
+ * than 36) is a vendor divide by zero; the recovered C models the MIPS divu as ~0.
+ */
+static inline void t32_lce_grid(u32 width, u32 height, u8 grid[4], u32 cnt[4], u32 inv[4])
+{
+	u32 q = height >> 1, r = q % 18, c5 = ((q / 18) << 1) & 0xff, v = (width >> 1) & 31, c2 = (width >> 5) & 0xfe;
+	u32 full = c5 * c2, k;
+
+	grid[0] = (u8)r;
+	grid[1] = (u8)v;
+	grid[2] = (u8)c5;
+	grid[3] = (u8)c2;
+	if (!(r | v)) {
+		cnt[0] = cnt[1] = cnt[2] = full;
+	} else if (!r) {
+		cnt[0] = cnt[2] = (c2 + 2) * c5;
+		cnt[1] = full;
+	} else if (v) {
+		cnt[0] = (c5 + 2) * (c2 + 2);
+		cnt[1] = (c5 + 2) * c2;
+		cnt[2] = c5 * (c2 + 2);
+	} else {
+		cnt[0] = cnt[1] = (c5 + 2) * c2;
+		cnt[2] = full;
+	}
+	cnt[3] = full;
+	for (k = 0; k < 4; k++)
+		inv[k] = cnt[k] ? ((cnt[k] >> 1) + 0x2000000U) / cnt[k] : ~0U;
+}
+
+/*
+ * The LCE state (0x22850 bytes, st) after tisp_lce_init for the section sec (712 bytes, a
+ * copy the state works on: the vendor edits its tuning block in place) and the frame
+ * size: zeroed, strengths and parameter block (t32_lce_par_to_used at gain 0), the
+ * size block (+0x226cc: pixels, 2^26 / (pixels / 4), 12, the grid, the counts twice, the
+ * reciprocals), the per-kind strength bytes +0x22795 (sec[433] * cnt / 64 rounded;
+ * 1920 x 1080: the constant 0x38 bytes of rodata bf96c, data.c:2686) and both default curves
+ * (+0x1c2a4, +0x1efa4) plus the first curve row at +0x223e7 (tisp_lce_curve_init_default).
+ * The first word (the vendor's section pointer) stays 0: ours passes sec separately.
+ */
+static inline void t32_lce_state_init(u8 *st, u8 *sec, u32 width, u32 height)
+{
+	u8 *g = st + T32_LCETG_GPAR, grid[4];
+	u32 cnt[4], inv[4], k, px = width * height;
+
+	memset(st, 0, T32_LCETG_STATE_BYTES);
+	t32_lce_par_to_used(st, sec);
+	if (width == 1920 && height == 1080) {
+		grid[0] = grid[1] = 0;
+		grid[2] = grid[3] = 0x3c;
+		for (k = 0; k < 4; k++) {
+			cnt[k] = 0xe10;
+			inv[k] = 0x2469;
+			st[0x22795 + k] = 0x38;
+		}
+	} else {
+		t32_lce_grid(width, height, grid, cnt, inv);
+		for (k = 0; k < 4; k++)
+			st[0x22795 + k] = (u8)((g[152] * cnt[k] + 32) >> 6);
+	}
+	t32_lcetg_wr32(g, px);
+	t32_lcetg_wr32(g + 4, (px >> 2) ? 0x4000000U / (px >> 2) : ~0U);
+	t32_lcetg_wr32(g + 8, 12);
+	memcpy(g + 12, grid, 4);
+	for (k = 0; k < 4; k++) {
+		t32_lcetg_wr32(g + 16 + 4 * k, cnt[k]);
+		t32_lcetg_wr32(g + 32 + 4 * k, cnt[k]);
+		t32_lcetg_wr32(g + 68 + 4 * k, inv[k]);
+	}
+	t32_lce_curve(st + T32_LCETG_CURVE);
+	t32_lce_curve(st + 0x1efa4);
+	memcpy(st + 0x223e7, st + 0x1efa4, 20);
+}
+
 #endif /* TX_ISP_T32_LCETG_H */
