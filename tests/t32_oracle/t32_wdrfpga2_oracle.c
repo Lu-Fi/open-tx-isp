@@ -11,10 +11,15 @@
  * around the 3 exposure knot pairs, ascending knot tables, sort length up to
  * 255).  Compared: the arena byte for byte, the fusion globals, every kmalloc
  * (size, flags, 512 bytes of contents: the vendor clears 510 bytes of the
- * first 450 byte buffer and paixu / the sums read past 450 for n > 225), every
+ * first 450 byte buffer and the sums read past 450 for n > 225), every
  * kfree and every hook call in order.  Not fed (vendor divide by zero):
  * ext[0] = 0, a zero block size, sort length 0, par + 8 == par + 4, a tone
  * knot step below 1/128 with different neighbours.  Exit 0 = all equal.
+ * One intended difference (#279, beyond vendor): the port allocates the two
+ * statistics buffers with 510 instead of 450 bytes and clears both fully.  Both
+ * sides fill the requested bytes with 0xe7 and the slab slack up to 512 with 0
+ * (the vendor's stale tail of the second buffer is modelled as the zeros the
+ * port now guarantees); kmalloc sizes compare with vendor 450 == ours 510.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,8 +104,10 @@ u64 private_kmalloc(u32 a0, u32 a1, u32 a2, u32 a3)
 	u8 *p = t32o_alloc(a0 > KSZ ? a0 : KSZ);
 
 	(void)a2; (void)a3;
-	if (p)
-		memset(p, 0xe7, a0 > KSZ ? a0 : KSZ);
+	if (p) {
+		memset(p, 0, a0 > KSZ ? a0 : KSZ);
+		memset(p, 0xe7, a0);
+	}
 	if (NVK < NEV) { VK[NVK][0] = a0; VK[NVK][1] = a1; VAL[NVK] = p; }
 	NVK++;
 	return T32O_PTR(p);
@@ -125,7 +132,8 @@ static u8 *o_kmalloc(u32 size, u32 gfp)
 	ohu = (ohu + 63u) & ~63u;
 	p = OH + ohu;
 	ohu += size > KSZ ? size : KSZ;
-	memset(p, 0xe7, size > KSZ ? size : KSZ);
+	memset(p, 0, size > KSZ ? size : KSZ);
+	memset(p, 0xe7, size);
 	if (NOK < NEV) { OK[NOK][0] = size; OK[NOK][1] = gfp; OAL[NOK] = p; }
 	NOK++;
 	return p;
@@ -388,7 +396,7 @@ int main(int argc, char **argv)
 		else if (NVT != 1 || NOT != 1 || memcmp(VT, OT, sizeof(VT)))
 			d = 7;
 		for (i = 0; !d && i < NVK; i++)
-			if (VK[i][0] != OK[i][0] || VK[i][1] != OK[i][1] || memcmp(VAL[i], OAL[i], KSZ))
+			if ((VK[i][0] != OK[i][0] && !(i < 2 && VK[i][0] == 450 && OK[i][0] == 510)) || VK[i][1] != OK[i][1] || memcmp(VAL[i], OAL[i], KSZ))
 				d = 4;
 		for (i = 0; !d && i < NVF; i++)
 			if (VF[i] != (u32)OF[i])
