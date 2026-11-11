@@ -232,7 +232,21 @@ int t32_tx_os_tisp_get_csc_attr(u32 ch, void *buf) { return t32_tc_put(buf, t32_
 int t32_tx_os_tisp_s_ccm_attr(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].ccm, buf, 40); }
 int t32_tx_os_tisp_awb_face_set(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].face_awb, buf, 24); }
 int t32_tx_os_tisp_awb_face_get(u32 ch, void *buf) { return t32_tc_put(buf, t32_tc[ch].face_awb, 24); }
-int t32_tx_os_tisp_ae_face_set(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].face_ae, buf, 24); }
+/*
+ * tisp_ae_face_set -> tisp_ae_sepc_area: { enable, x0, y0, x1, y1, target }; the target is
+ * clamped to 10..200 (0 kept), tisp_ae_api_get_faceae returns the six words.  Not here yet:
+ * the face ROI zone bytes (e1518 .. e1524) and tisp_ae_roi_point (AE state).
+ */
+int t32_tx_os_tisp_ae_face_set(u32 ch, void *buf)
+{
+	u32 *w = buf;
+
+	if (w[5] > 200)
+		w[5] = 200;
+	else if (w[5] && w[5] < 10)
+		w[5] = 10;
+	return t32_tc_put(t32_tc[ch].face_ae, buf, 24);
+}
 int t32_tx_os_tisp_ae_face_get(u32 ch, void *buf) { return t32_tc_put(buf, t32_tc[ch].face_ae, 24); }
 int t32_tx_os_tisp_s_tmo_faceae(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].tmo_faceae, buf, 56); }
 int t32_tx_os_tisp_set_scaler_level_control(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].scaler, buf, 12); }
