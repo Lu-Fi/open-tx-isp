@@ -64,9 +64,9 @@ T=$(( ($(date +%s) - t0) * 2 + 20 ))	# a mutant that needs more than twice the t
 [ $rc -eq 0 ] || exit $rc
 # mutation check: the mutants are independent, T32O_JOBS (default: all CPUs) of them build and run at a time
 rm -rf "$M"; mkdir -p "$M"
-J=${T32O_JOBS:-$(nproc 2>/dev/null || echo 4)}
+J=${T32O_JOBS:-4}   # several agents share the host; raise with T32O_JOBS=N
 nm=$(echo "$MUTATIONS" | grep -c .)
 export objs T
-seq 1 "$nm" | xargs -P "$J" -I{} sh "$H/run.sh" --mut "$NAME" {}
+seq 1 "$nm" | nice -n 19 xargs -P "$J" -I{} sh "$H/run.sh" --mut "$NAME" {}
 if ls "$M"/*.msg >/dev/null 2>&1; then cat "$M"/*.msg | head -n 1; exit 1; fi
 echo "$NAME: PASS, $nm/$nm mutations of $HDR detected"

@@ -23,13 +23,16 @@
  * temporary buffers from kmalloc are not checked.  Vendor UB not fed by the
  * oracle: deghost mode 0 divides by ext[0] (the long exposure) unchecked.
  *
- * fusion_fpga vendor quirks kept: the first of the two 450 byte statistics buffers is
- * cleared with 510 bytes (T32_WDRF_BUF_CLR: 60 bytes past the kmalloc size; harmless in
- * practice as kmalloc(450) is a 512 byte slab object), and the sort length par + 0x2f4
- * (low byte, up to 255) is not limited to the 225 entries, so tisp_wdr_paixu and the two
- * sums read up to 255 entries (the second buffer's entries past 225 are uninitialised
- * kmalloc memory).  Vendor divide by zero not fed by the oracle: ext[0] = 0, a zero block
- * size (t32_data_e3b30), sort length 0, a mean that wraps to 0, a zero scale sc (lim*32 /
+ * fusion_fpga beyond vendor (#279, user OK 2026-11-11): the vendor allocates the two
+ * statistics buffers with 450 bytes (225 entries) but clears the first with 510 bytes
+ * (60 bytes past the kmalloc size) and its sort length par + 0x2f4 (low byte, up to 255)
+ * is not limited to 225, so the two sums read up to 255 entries (the second buffer's
+ * entries past 225 are uninitialised slab memory; tisp_wdr_paixu itself stays below 225).
+ * The port allocates and clears both buffers with 510 bytes (255 entries): the first
+ * buffer and every output for sort lengths <= 225 are bit-exact with the vendor; for
+ * 226..255 the second sum reads zeros where the vendor reads stale heap bytes.
+ * Vendor divide by zero not fed by the oracle: ext[0] = 0, a zero block size
+ * (t32_data_e3b30), sort length 0, a mean that wraps to 0, a zero scale sc (lim*32 /
  * gain wrapping to a multiple of 65536), par + 8 == par + 4, two tone knots (par + 0x5e0)
  * that differ but round to the same 1/128 step.  The "return 0" fallbacks of the knot
  * searches are the vendor's; they are unreachable (the value lies below the last knot).
@@ -205,8 +208,7 @@ struct t32_wdrf_st {
 	void (*tmo_timeratio_curve_adjust)(u32 ch, u32 ratio, u32 mode, u32 a, u32 b, u32 c, u32 d, u32 e);
 };
 
-#define T32_WDRF_BUF_SZ		450	/* the two 225 entry statistics buffers */
-#define T32_WDRF_BUF_CLR	510	/* vendor memset of the first one (sic, 60 bytes past the 450 byte kmalloc) */
+#define T32_WDRF_BUF_SZ		510	/* the two statistics buffers: 255 entries (sort length up to 255; vendor kmalloc 450, #279) */
 #define T32_WDRF_CURVE_SZ	50	/* 25 u16 fusion curve */
 
 /* t32_data_c2c50: default fusion curve */
@@ -376,7 +378,7 @@ static inline void t32_wdr_fusion_fpga(struct t32_wdr_st *st, struct t32_wdrf_st
 	t90 = (u16 *)o->kmalloc(T32_WDRF_CURVE_SZ, T32_WDR_GFP_ATOMIC);
 	t32_wdr_zero((u8 *)tb, T32_WDRF_CURVE_SZ);
 	t32_wdr_cpy((u8 *)t90, (const u8 *)defc, T32_WDRF_CURVE_SZ);
-	t32_wdr_zero((u8 *)a8, T32_WDRF_BUF_CLR);
+	t32_wdr_zero((u8 *)a8, T32_WDRF_BUF_SZ);
 	t32_wdr_zero((u8 *)a4, T32_WDRF_BUF_SZ);
 	t32_wdr_zero((u8 *)s, T32_WDRF_CURVE_SZ);
 	t32_wdr_zero((u8 *)s00, T32_WDRF_CURVE_SZ);

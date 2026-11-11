@@ -962,3 +962,9 @@ u32 t32_data_ccdf8[1] __attribute__((weak)), t32_data_cce1c[1] __attribute__((we
 u32 t32_data_ccebc[1] __attribute__((weak)), t32_data_ccfa4[1] __attribute__((weak)), t32_data_ccf18[1] __attribute__((weak));
 u32 t32_data_ccf38[1] __attribute__((weak)), t32_data_ccf64[1] __attribute__((weak)), t32_data_ccf7c[1] __attribute__((weak));
 u32 t32_data_c3370[1] __attribute__((weak)), t32_data_c3354[1] __attribute__((weak)), t32_data_c3338[1] __attribute__((weak));
+/* ---- op20-rest (tisp_intp_static_clear, ...): .bss interrupt statistics snapshot of lib_tisp_debug_info
+ * (e3cf0 / e3d70 / e3df8 / e3e78 128 B, e3df0 8 B, e3ef8 count), only touched by the oracles that use them ---- */
+u8 t32_data_e3cf0[128] __attribute__((weak)), t32_data_e3d70[128] __attribute__((weak));
+u8 t32_data_e3df0[8] __attribute__((weak)), t32_data_e3df8[128] __attribute__((weak));
+u8 t32_data_e3e78[128] __attribute__((weak));
+u32 t32_data_e3ef8[1] __attribute__((weak));
