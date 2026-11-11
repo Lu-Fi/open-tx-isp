@@ -949,6 +949,9 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_blk_stats.ev_full);
 	seq_printf(m, "tmo: attaches %u, irqs tmo %u fbf %u, tgain updates %u\n",
 		   t32_tmo_stats.attaches, t32_tmo_stats.tmo_irqs, t32_tmo_stats.fbf_irqs, t32_tmo_stats.tgains);
+	seq_printf(m, "af / gsm: attaches %u / %u, irqs %u / %u, events %u / %u (queue full %u)\n",
+		   t32_afg_stats.af_attaches, t32_afg_stats.gsm_attaches, t32_afg_stats.af_irqs, t32_afg_stats.gsm_irqs,
+		   t32_afg_stats.af_events, t32_afg_stats.gsm_events, t32_afg_stats.ev_full);
 	seq_printf(m, "vendor AE: frames %u events %u writes %u expo %u fps %u; mean %u target %u it %u again %u dgain %u tgain %#x\n",
 		   t32_aec_stats.frames, t32_aec_stats.events, t32_aec_stats.writes, t32_aec_stats.expo_sets,
 		   t32_aec_stats.fps_sets, t32_aec_stats.mean, t32_aec_stats.target, t32_aec_stats.it,

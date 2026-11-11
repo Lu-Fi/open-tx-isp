@@ -297,7 +297,14 @@ generation-shared come from the shared code instead:
   the TMO path runs; the ADR path needs `tisp_tmo_param_array_set` (not wired). `tisp_tmo_ev_update` is ported
   in the header but not called (the driver does not run `tisp_long_ev_update`). Proc: "tmo:" line. MSCA has no per-frame gain hook in the vendor (`tisp_long_tgain_update`
   does not call it; `tisp_msca_params_update` runs only from day/night, `param_array_set` and
-  `cfg_shd`). AWB, AF hooks of the dispatcher: not wired. The total gain is `tisp_tgain`
+  `cfg_shd`). AF and GSM (`t32_ported_paths` bits 17 / 18, `tx_isp_t32_afgsm.h` / `tx_isp_t32_afgsm.c`,
+  oracle `t32_afgsm_oracle`): at stream-on `tisp_af_init` on IQ bin section 24 (800 B, the vendor's tuning
+  base + 0xec30; statistics DMA buffer kmalloc 16 KiB, slots 0x18108 .., register image 0x18010 ..) and
+  `tisp_gsm_init` (0x1904c), both from the vendor's module .data (AF attribute records d5c60, gain tables
+  d5c90 / d6014, GSM context d6e00 .. d7e28); bit 6 = `tisp_af_interrupt_static` (event 15:
+  `tisp_af_calc_process`, the focus metrics), bit 7 = `tisp_gsm_interrupt_hist` (event 16: `tisp_gsm_process`,
+  zone weights), bit 63 (0x300a8 bit 31) = `tisp_gsm_irq_frmae_done`; `tisp_af_tgain_update` from the long
+  tgain update. Proc: "af / gsm:" line. The total gain is `tisp_tgain`
   (default 0x10000, the vendor init gain) until the vendor AE runs in the
   driver, so with the default the first run rewrites the stream-on values and
   later runs write nothing. `t32_ported_paths` switches each wired block back
@@ -335,8 +342,10 @@ API and `t32_aea_*` / `t32_awb_*` block API, so a Set is read by the next AE /
 AWB frame and a Get answers the live statistics and exposure state). AWB runs
 live; the AE context is dropped at stream-on (openimp #350), so the AE ids answer
 the no-context fallback (zeroed blocks, scene kept as set) for now. The other
-attributes are still kept per channel and returned (not applied yet). No AF and
-no GSM block in the driver. Sensor fps (`0x08000070`) stays in
+attributes are still kept per channel and returned (not applied yet). The AF part
+of the statistics config, AF weight, AF statistics and AF metrics run on the live
+AF block, the statistics config's GSM zone bounds go to the live GSM block
+(`tx_isp_t32_afgsm.c`). Sensor fps (`0x08000070`) stays in
 `tx_isp_t32_core.c`, OSD / mask / draw in `tx_isp_t32_isposd.c`. QEMU vs the
 vendor module: see CHANGELOG.
 
@@ -371,5 +380,5 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `lsc_ct` | 5000 | colour temperature for the LSC mesh at stream-on |
 | `bringup_ae` | 0 | 1 = bring-up exposure controller (not the vendor AE) |
 | `bringup_target` | 64 | its target mean histogram bin (0..255) |
-| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS, 9 AE, 10 LSC, 11 LCE (with the block interrupts 8 / 30), 12 TMO (with the block interrupts 9 / 31); RDNS off = not programmed at all, as before) |
+| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS, 9 AE, 10 LSC, 11 LCE (with the block interrupts 8 / 30), 12 TMO (with the block interrupts 9 / 31), 13 AWB, 16 AF (bit 17, interrupt 6), 17 GSM (bit 18, interrupts 7 / 63); RDNS off = not programmed at all, as before) |
 | `tisp_tgain` | 0x10000 | total gain for the per-frame refresh until the vendor AE runs (test aid) |

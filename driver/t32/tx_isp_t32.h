@@ -100,7 +100,8 @@ void t32_awbc_api_set_gain(void);
 
 /* tx_isp_t32_tisp.c: per-frame tisp paths (ported blocks), switch t32_ported_paths */
 enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T32_PP_MDNS, T32_PP_DPC, T32_PP_GIB,
-	     T32_PP_RDNS, T32_PP_AE, T32_PP_LSC, T32_PP_LCE, T32_PP_TMO, T32_PP_AWB, T32_PP_COUNT };
+	     T32_PP_RDNS, T32_PP_AE, T32_PP_LSC, T32_PP_LCE, T32_PP_TMO, T32_PP_AWB,
+	     T32_PP_AF = 16, T32_PP_GSM, T32_PP_COUNT };	/* 14 / 15: CT / EV (claude/t32-ct) */
 struct t32_pf_stats {
 	u32 runs, writes;
 };
@@ -145,6 +146,26 @@ extern struct t32_tmo_drv_stats t32_tmo_stats;
 void t32_tmo_attach(const u8 *bin, u32 bytes, u32 width, u32 height);
 void t32_tmo_detach(void);
 void t32_tmo_tgain(u32 ch, u64 gain);
+
+/* tx_isp_t32_afgsm.c: the vendor AF / GSM blocks (tisp_af_init, tisp_gsm_init, bits 6 / 7 / 63, events 15 / 16),
+ * behind T32_PP_AF / T32_PP_GSM */
+struct t32_afg_drv_stats {
+	u32 af_attaches, gsm_attaches, af_irqs, gsm_irqs, af_events, gsm_events, ev_full;
+};
+extern struct t32_afg_drv_stats t32_afg_stats;
+void t32_afgsm_attach_af(const u8 *bin, u32 bytes, u32 width, u32 height);
+void t32_afgsm_attach_gsm(u32 width, u32 height);
+void t32_afgsm_detach(void);
+void t32_afgsm_exit(void);
+void t32_afgsm_irq(u32 sta, u32 sta3);
+void t32_afgsm_tgain(u32 ch, u32 gain);
+bool t32_afgsm_af_get_attr(u32 ch, u8 *out);
+bool t32_afgsm_af_set_attr(u32 ch, const u8 *in);
+bool t32_afgsm_af_set_weight(u32 ch, const u8 *buf);
+bool t32_afgsm_af_get_weight(u32 ch, u8 *buf);
+bool t32_afgsm_af_get_statis(u32 ch, u8 *buf);
+bool t32_afgsm_af_get_metric(u32 ch, u8 *buf);
+bool t32_afgsm_gsm_api_set(u32 ch, const u8 *scratch);
 
 /* tx_isp_t32_fs.c */
 struct seq_file;

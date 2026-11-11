@@ -73,7 +73,7 @@ module_param(t32_ported_paths, uint, 0644);
 MODULE_PARM_DESC(t32_ported_paths,
 		 "1 (default): every wired per-frame block on its ported path; 0: all on the old path; "
 		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib, 8 rdns, 9 ae, "
-		 "10 lsc, 11 lce, 12 tmo, 13 awb (bit 14)");
+		 "10 lsc, 11 lce, 12 tmo, 13 awb (bit 14), 16 af (bit 17), 17 gsm (bit 18)");
 
 static unsigned int tisp_tgain = 0x10000;
 module_param(tisp_tgain, uint, 0644);
@@ -225,7 +225,10 @@ static void pf_refresh(enum t32_ltg_ref blk, u32 ch, u32 gain)
 		if (pf.have[T32_PP_RDNS] && t32_pp_on(T32_PP_RDNS))
 			n = t32_rdns_refresh(&pf.rdns, gain, pf_w);
 		break;
-	default:	/* AF: not wired yet */
+	case T32_LTG_AF:	/* tisp_af_tgain_update(ch, gain low word) (tx_isp_t32_afgsm.c) */
+		t32_afgsm_tgain(ch, gain);
+		return;
+	default:
 		return;
 	}
 	pf_flush(n);

@@ -33,10 +33,11 @@
  *    context that t32_stats_init built just before, so after a stream-on the
  *    AE ids take this path; keeping the context lets the per-frame AE run
  *    and the full QEMU tuning run then oopses (open, see CHANGELOG).
- *  - There is no AF block in the driver: the AF part of the statistics config
- *    keeps the tattr words (the vendor overlays the AF window attribute), the
- *    AF set is not forwarded; the GSM hist bins of the statistics config are
- *    not forwarded either (no GSM block).
+ *  - The AF part of the statistics config is the live AF block's window
+ *    attribute (tisp_af_api_get_attr / _set_attr) and its GSM zone bounds go
+ *    to the live GSM block (tisp_gsm_api_set), tx_isp_t32_afgsm.c; before
+ *    the AF / GSM attach (or with their t32_ported_paths bit off) the AF
+ *    words come from tattr and the sets are dropped.
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -374,12 +375,14 @@ static int tb_ae_set_hist_bin(u32 ch, const u8 *bins)
 	return 0;
 }
 
-/* no AF block: the AF window attribute as the statistics config holds it (tattr + 1572 + 72 ch) */
+/* tisp_af_api_get_attr on the live AF block; before it: the attribute as the statistics config holds it */
 static int tb_af_get_attr(u32 ch, void *buf)
 {
 	const u8 *a = tb_tattr() + ch * 72 + T32_STAT_ATTR;
 	u8 *af = buf;
 
+	if (t32_afgsm_af_get_attr(ch, af))
+		return 0;
 	memset(af, 0, 24);
 	af[8] = a[44];
 	af[9] = a[60];
@@ -392,7 +395,8 @@ static int tb_af_get_attr(u32 ch, void *buf)
 	return 0;
 }
 
-static int tb_none_set(u32 ch, const u8 *p) { return 0; }
+static int tb_af_set_attr(u32 ch, const u8 *af) { t32_afgsm_af_set_attr(ch, af); return 0; }
+static int tb_gsm_api_set(u32 ch, const u8 *scratch) { t32_afgsm_gsm_api_set(ch, scratch); return 0; }
 static void *tb_vmalloc(u32 n) { return vzalloc(n); }
 static void tb_vfree(void *p) { vfree(p); }
 
@@ -438,8 +442,8 @@ static const struct t32_api_attr_ops tb_attr = {
 
 static const struct t32_api_stat_ops tb_stat = {
 	.vmalloc = tb_vmalloc, .vfree = tb_vfree, .ae_set_hist_bin = tb_ae_set_hist_bin,
-	.gsm_api_set = tb_none_set, .awb_set_statis_location = tb_awb_set_statis_location,
-	.af_api_set_attr = tb_none_set,
+	.gsm_api_set = tb_gsm_api_set, .awb_set_statis_location = tb_awb_set_statis_location,
+	.af_api_set_attr = tb_af_set_attr,
 };
 
 /* ---- the tisp_[sg]_* entry points (vendor names) ---- */

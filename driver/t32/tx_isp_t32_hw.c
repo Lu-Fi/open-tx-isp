@@ -133,6 +133,7 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t32_pf_kick();
 	}
 	t32_blk_irq(sta);		/* block bits 8 / 30 (LCE): lib_tisp_intp_process, tx_isp_t32_blkirq.c */
+	t32_afgsm_irq(sta, msca);	/* AF bit 6, GSM bits 7 / 63 (tx_isp_t32_afgsm.c) */
 	if (done)
 		t32_fs_done_irq(done);
 	if (msca & 2)			/* MSCA frame done: tisp_msca_irq_frame_done (ISP OSD, #336) */
@@ -463,8 +464,10 @@ static void t32_tisp_init(void)
 		t32_tisp_flush("lce", t32_lce_build(bin + off, width, height));
 		t32_pf_attach_lce(bin + off, width, height);	/* per-frame state (tisp_lce_init) */
 	}
-	if (!t32_core_sensor_size(&width, &height))
+	if (!t32_core_sensor_size(&width, &height)) {
+		t32_afgsm_attach_af(bin, bytes, width, height);	/* tisp_af_init, bit 6 (tx_isp_t32_afgsm.c) */
 		t32_tmo_attach(bin, bytes, width, height);	/* tisp_tmo_init, bits 9 / 31 (tx_isp_t32_tmo.c) */
+	}	/* tisp_tmo_init, bits 9 / 31 (tx_isp_t32_tmo.c) */
 	off = t32_iq_section(bin, bytes, T32_SEC_SDNS, &len);
 	if (off && len >= T32_SDNS_SEC_BYTES) {
 		t32_tisp_flush("sdns", t32_sdns_init(bin + off, tisp_w));
@@ -495,6 +498,8 @@ static void t32_tisp_init(void)
 		t32_tisp_flush("clm", t32_clm_init(bin + off, bin + off + len, bytes - off - len, mode,
 						   t32_csc_modes[mode].m, tisp_w));
 	}
+	if (!t32_core_sensor_size(&width, &height))
+		t32_afgsm_attach_gsm(width, height);	/* tisp_gsm_init, bits 7 / 63 (tx_isp_t32_afgsm.c) */
 	off = t32_iq_section(bin, bytes, T32_SEC_RDNS, &len);
 	if (off && len >= T32_RDNS_SEC_BYTES && t32_pp_on(T32_PP_RDNS))
 		t32_tisp_flush("rdns", t32_pf_attach_rdns(kmemdup(bin + off, len, GFP_KERNEL), tisp_w));
@@ -958,6 +963,7 @@ void t32_hw_exit(void)
 	for (i = 0; i < T32_MSCA_CHANNELS; i++)
 		t32_hw_msca_stop(i);
 	t32_awbc_detach();	/* the per-frame AWB reads the AWB buffers */
+	t32_afgsm_exit();	/* tisp_af_deinit */
 	t32_stats_off();	/* no statistics DMA into the buffers freed below */
 	if (irqs_requested) {
 		free_irq(vic_irq, &csi_base);

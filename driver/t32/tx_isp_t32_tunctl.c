@@ -170,7 +170,6 @@ T32_TC_PAIR(antiflick, antiflick)
 T32_TC_PAIR(coefft_wb, coefft_wb)
 T32_TC_PAIR(mscaler_mask_block_attr, mask)
 T32_TC_PAIR(module_ratio, ratio)
-T32_TC_PAIR(af_weight, af_weight)
 T32_TC_PAIR(osd_attr, osd)
 T32_TC_PAIR(osd_block_attr, osd_block)
 T32_TC_PAIR(draw_block_attr, draw)
@@ -325,8 +324,41 @@ static int t32_tc_zero(void *buf, u32 n)
 	return 0;
 }
 
-int t32_tx_os_tisp_g_af_statis_attr(u32 ch, void *buf) { return t32_tc_zero(buf, 5400); }
-int t32_tx_os_tisp_g_af_metric_attr(u32 ch, void *buf) { return t32_tc_zero(buf, 12); }
+/*
+ * AF (tx_isp_t32_afgsm.c): tisp_s/g_af_weight_attr, tisp_g_af_statis_attr and tisp_g_af_metric_attr on the
+ * live AF block; before its attach (or with T32_PP_AF off) the stored weight and zeros.
+ */
+int t32_tx_os_tisp_s_af_weight(u32 ch, void *buf)
+{
+	t32_tc_put(t32_tc[ch].af_weight, buf, T32_ATTR_AF_WEIGHT);
+	t32_afgsm_af_set_weight(ch, buf);
+	return 0;
+}
+
+int t32_tx_os_tisp_g_af_weight(u32 ch, void *buf)
+{
+	if (!t32_afgsm_af_get_weight(ch, buf))
+		t32_tc_put(buf, t32_tc[ch].af_weight, T32_ATTR_AF_WEIGHT);
+	return 0;
+}
+
+int t32_tx_os_tisp_g_af_statis_attr(u32 ch, void *buf)
+{
+	if (!t32_afgsm_af_get_statis(ch, buf))
+		t32_tc_zero(buf, 5400);
+	return 0;
+}
+
+/*
+ * tisp_af_api_get_metric writes bytes 0 .. 8; bytes 9 .. 11 of the 12 copied out are the caller's stack in the
+ * vendor (0 in the vendor QEMU run): zeroed here, so no kernel stack reaches the user.
+ */
+int t32_tx_os_tisp_g_af_metric_attr(u32 ch, void *buf)
+{
+	t32_tc_zero(buf, 12);
+	t32_afgsm_af_get_metric(ch, buf);
+	return 0;
+}
 
 /* ---- tiziano_isp_ccm_attr_g_ctrl (the AE / AWB .isra wrappers are in tx_isp_t32_tunblk.c) ---- */
 

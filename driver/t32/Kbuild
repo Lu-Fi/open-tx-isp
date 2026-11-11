@@ -10,6 +10,7 @@ tx-isp-t32-objs := tx_isp_t32_sinfo.o \
 		   tx_isp_t32_ae.o \
 		   tx_isp_t32_blkirq.o \
 		   tx_isp_t32_tmo.o \
+		   tx_isp_t32_afgsm.o \
 		   tx_isp_t32_awbc.o \
 		   tx_isp_t32_isposd.o \
 		   tx_isp_t32_tunctl.o \
