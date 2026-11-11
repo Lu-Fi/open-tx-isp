@@ -28,7 +28,8 @@
 extern u64 tisp_lce_wdr_en(u32, u32, u32, u32), tisp_lce_top_change_state(u32, u32, u32, u32),
 	   tisp_lce_dn_params_refresh(u32, u32, u32, u32), tisp_lce_get_hist_data(u32, u32, u32, u32),
 	   tisp_lce_get_sum_data(u32, u32, u32, u32), tisp_lce_get_show_data(u32, u32, u32, u32),
-	   tisp_lce_param_array_get(u32, u32, u32, u32), tisp_lce_param_array_set(u32, u32, u32, u32);
+	   tisp_lce_param_array_get(u32, u32, u32, u32), tisp_lce_param_array_set(u32, u32, u32, u32),
+	   tisp_lce_tgain_update(u32, u32, u32, u32);
 u8 t32_data_e20d8[4] __attribute__((weak));	/* .bss: LCE WDR flag */
 
 static u32 rs = 0x9e3779b9u;
@@ -75,6 +76,8 @@ static void o_part1(const u8 *s, u8 *d) { c_part1((uintptr_t)s, (uintptr_t)d); }
 static void o_comp(u32 n, const u8 *s, u8 *d) { c_comp(n, (uintptr_t)s, (uintptr_t)d); }
 static void o_gauss(u32 ch, const u8 *s, u8 *d, u32 n) { c_gauss(ch, (uintptr_t)s, (uintptr_t)d, n); }
 static void o_wcr(u32 ch) { hrec(6, ch); }
+u64 tisp_lce_tgain_interp_strength(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; hrec(7, a0); return 0; }
+static void o_istr(u32 ch) { hrec(7, ch); }
 
 u64 tisp_lce_par_to_used(u32 a0, u32 a1, u32 a2, u32 a3)
 {
@@ -90,12 +93,12 @@ u64 tisp_lce_curve_init_default(u32 a0, u32 a1, u32 a2, u32 a3)
 }
 static void o_par(u32 ch) { hrec(1, ch); }
 static u32 o_curve(u32 ch) { hrec(2, ch); return 0x2222; }
-static const struct t32_lcem_ops ops = { o_par, o_curve, o_part1, o_comp, o_gauss, o_wcr };
+static const struct t32_lcem_ops ops = { o_par, o_curve, o_part1, o_comp, o_gauss, o_wcr, o_istr };
 
 int main(void)
 {
 	u8 *vs[4], *os[4], *stats = t32o_alloc(STATB), *par = t32o_alloc(PARB), *opar = t32o_alloc(PARB);
-	unsigned long n, N = 6000, per[8] = { 0 };
+	unsigned long n, N = 6000, per[9] = { 0 };
 	u8 *vout = t32o_alloc(1500), *oout = t32o_alloc(1500), *in = t32o_alloc(712);
 	u32 *vlen = t32o_alloc(4), *olen = t32o_alloc(4);
 	u32 ch, i;
@@ -106,13 +109,15 @@ int main(void)
 	}
 	for (n = 0; n < N; n++) {
 		struct t32_lcem l;
-		int fn = (int)(rnd() % 8);
+		int fn = (int)(rnd() % 9);
+		u32 glo = rnd(), ghi = (rnd() & 3) ? 0 : rnd(), elo = rnd(), ehi = (rnd() & 3) ? 0 : rnd();
 		u8 wflag = (rnd() % 3 == 0) ? 0 : ((rnd() & 1) ? 1 : rnd()), oflag;
 		u32 c = rnd() & 3, en = rnd(), rv = 0, ro = 0;
 		u32 tun[4];
 
 		for (i = 0; i < STATB; i += 4) { u32 r = rnd(); memcpy(stats + i, &r, 4); }
 		for (i = 0; i < PARB; i++) par[i] = rnd();
+		par[T32_LCEM_PAR_MODE] = rnd() % 3;
 		par[T32_LCEM_PAR_TOP] = (n % 3 == 0) ? 1 : (n % 3 == 1 ? 0 : par[T32_LCEM_PAR_TOP]);
 		for (ch = 0; ch < 4; ch++) {
 			if (n < 4 || (rnd() & 15) == 0)
@@ -126,6 +131,13 @@ int main(void)
 			if (rnd() & 1) vs[ch][T32_LCEM_SHOW_MODE] = 0;
 			if (rnd() & 1) vs[ch][T32_LCEM_DAYNIGHT] = 0;
 			{ u32 r = rnd() % 3; vs[ch][T32_LCEM_WDR] = r == 0 ? wflag : (r == 1 ? 0 : rnd()); }
+			{	/* last gain / EV near the new values */
+				u32 r = rnd() % 4, lg = r == 0 ? glo : r == 1 ? glo + (rnd() % 400) - 200 : rnd();
+				u32 le = r == 0 ? elo : r == 2 ? elo + (rnd() % 3) - 1 : rnd();
+
+				t32_lcem_wr32(vs[ch] + T32_LCEM_LAST_GAIN, lg);
+				t32_lcem_wr32(vs[ch] + T32_LCEM_LAST_EV, le);
+			}
 			memcpy(os[ch], vs[ch], STB);
 			t32_lcem_wr32(os[ch], T32O_PTR(opar));	/* our own copy of the parameter section */
 		}
@@ -150,7 +162,8 @@ int main(void)
 		case 4: t32_lce_get_sum_data(&l, c, stats); break;
 		case 5: t32_lce_get_show_data(&l, c); break;
 		case 6: ro = t32_lce_param_array_get(&l, c, oout, olen); break;
-		default: ro = t32_lce_param_array_set(&l, c, in); break;
+		case 7: ro = t32_lce_param_array_set(&l, c, in); break;
+		default: ro = t32_lce_tgain_update(&l, c, glo, ghi, elo, ehi); break;
 		}
 
 		t32o_reset();
@@ -169,7 +182,9 @@ int main(void)
 		case 4: t32o_call((t32o_fn)(void (*)(void))tisp_lce_get_sum_data, c, T32O_PTR(stats), rnd(), rnd(), 0); break;
 		case 5: t32o_call((t32o_fn)(void (*)(void))tisp_lce_get_show_data, c, rnd(), rnd(), rnd(), 0); break;
 		case 6: rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_lce_param_array_get, c, T32O_PTR(vout), T32O_PTR(vlen), rnd(), 0); break;
-		default: rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_lce_param_array_set, c, T32O_PTR(in), rnd(), rnd(), 0); break;
+		case 7: rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_lce_param_array_set, c, T32O_PTR(in), rnd(), rnd(), 0); break;
+		default: t32o_arg5 = ehi;
+			rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_lce_tgain_update, c, rnd(), glo, ghi, elo); break;
 		}
 
 		if (rv != ro || vl.n != ol.n || memcmp(vl.e, ol.e, sizeof(vl.e)) || memcmp(vout, oout, 1500) ||
@@ -194,7 +209,7 @@ int main(void)
 			}
 		per[fn]++;
 	}
-	printf("t32_lcem_oracle: PASS %lu cases (wdr_en %lu, top_change_state %lu, dn_params_refresh %lu, get_hist_data %lu, get_sum_data %lu, get_show_data %lu, param_array_get %lu, param_array_set %lu)\n",
-	       N, per[0], per[1], per[2], per[3], per[4], per[5], per[6], per[7]);
+	printf("t32_lcem_oracle: PASS %lu cases (wdr_en %lu, top_change_state %lu, dn_params_refresh %lu, get_hist_data %lu, get_sum_data %lu, get_show_data %lu, param_array_get %lu, param_array_set %lu, tgain_update %lu)\n",
+	       N, per[0], per[1], per[2], per[3], per[4], per[5], per[6], per[7], per[8]);
 	return 0;
 }

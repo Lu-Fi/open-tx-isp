@@ -22,6 +22,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `tx_isp_t32_vicdev.h` + tisp_vic_ctrl_ioctl (raw buffer GET / SET with the inlined tisp_vic_cmd_process). `t32_vicdev_oracle` now 30000 cases (20000 ioctl: commands, sensor pointer NULL / error / valid, access check, partial copies, SET states), 34/34 mutations. The ioctl reference copy is built with `fix_op11_vicioctl.sh` (fake thread_info for gp, `__copy_user` result in a2 as in the MIPS kernel).
 - New `driver/t32/tx_isp_t32_aeinfo.h`: tisp_ae_max_exp_calc_fps and tisp_ae_algo_getinfo (fix-point callees, lock and exposure info as hooks). `t32_aeinfo_oracle`: 6000 cases, calls and all AE context bytes bit-exact, 21/21 mutations.
 - `tx_isp_t32_lcem.h` + tisp_lce_get_show_data, tisp_lce_param_array_get / _set (show data from the day block or the selected zone, API copy, WDR flag t32_data_e20d8 with curve and Gauss reload). `t32_lcem_oracle` now 6000 cases over 8 functions, 49/49 mutations.
+- `tx_isp_t32_lcem.h` + tisp_lce_tgain_update (strength redo on a gain step >= 128 or an EV change, 64-bit inputs as the vendor compares them). `t32_lcem_oracle`: 9 functions, 59/59 mutations.
 
 ## 2026-11-11: T32 API getters, 69 functions (planned, host only, not device-tested)
 

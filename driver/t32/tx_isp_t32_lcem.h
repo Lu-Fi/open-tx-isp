@@ -76,6 +76,7 @@ struct t32_lcem_ops {
 	void (*compress)(u32 n, const u8 *src, u8 *dst);		/* lce_compress_data */
 	void (*gauss_wgt)(u32 ch, const u8 *src, u8 *dst, u32 n);	/* tisp_lce_gauss_wgt */
 	void (*write_ctrl_reg)(u32 ch);					/* tisp_lce_write_ctrl_reg */
+	void (*interp_strength)(u32 ch);				/* tisp_lce_tgain_interp_strength */
 };
 
 struct t32_lcem {
@@ -269,6 +270,35 @@ static inline u32 t32_lce_param_array_set(struct t32_lcem *l, u32 ch, const u8 *
 		}
 	}
 	st[T32_LCEM_MODE] = st[T32_LCEM_DAYNIGHT] ? 2 : 4;
+	return 0;
+}
+
+#define T32_LCEM_LAST_GAIN	0x22838
+#define T32_LCEM_LAST_EV	0x2283c
+#define T32_LCEM_PAR_MODE	507		/* 0 = follow the gain, 1 = follow the EV */
+
+/* |v - last| as the vendor computes it from a 64-bit value (lo, hi): a set high word counts as "above" */
+static inline u32 t32_lcem_delta(u32 lo, u32 hi, u32 last)
+{
+	return (hi || lo >= last) ? lo - last : last - lo;
+}
+
+/* tisp_lce_tgain_update: redo the strength when the gain (>> 7) or the EV moved */
+static inline u32 t32_lce_tgain_update(struct t32_lcem *l, u32 ch, u32 gain_lo, u32 gain_hi, u32 ev_lo, u32 ev_hi)
+{
+	u8 *st = l->st[ch];
+	u32 mode = t32_lcem_par(st)[T32_LCEM_PAR_MODE];
+	int dg = (int)t32_lcem_delta(gain_lo, gain_hi, t32_lcem_rd32(st + T32_LCEM_LAST_GAIN)) >> 7;
+	int de = (int)t32_lcem_delta(ev_lo, ev_hi, t32_lcem_rd32(st + T32_LCEM_LAST_EV));
+
+	if (dg > 0 && mode == 0) {
+		t32_lcem_wr32(st + T32_LCEM_LAST_GAIN, gain_lo);
+	} else {
+		if (de <= 0 || mode != 1)
+			return 0;
+		t32_lcem_wr32(st + T32_LCEM_LAST_EV, ev_lo);
+	}
+	l->ops->interp_strength(ch);
 	return 0;
 }
 
