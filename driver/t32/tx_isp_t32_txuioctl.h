@@ -18,7 +18,9 @@
  *            register: the sensor ioctl (ops +12, +8) of every subdevice;
  *   memory   ISP memory space set / get, WDR buffer set / get;
  *   links    video link setup (vendor tx_isp_video_link_setup with
- *            subdev_video_setup_link inlined) and destroy.
+ *            subdev_video_setup_link inlined) and destroy;
+ *   algo     AE algorithm close, AWB algorithm open / close and core
+ *            command 0x100001b over the core ioctl broadcast.
  */
 #ifndef TX_ISP_T32_TXUIOCTL_H
 #define TX_ISP_T32_TXUIOCTL_H
@@ -59,12 +61,21 @@
 #define T32_UIO_WDR_GET_BUF	0x800c5412U
 #define T32_UIO_LINK_SETUP	0x80085409U
 #define T32_UIO_LINK_DESTROY	0x8008540aU
+#define T32_UIO_AE_CLOSE	0xc004541eU
+#define T32_UIO_CORE_1B		0xc0045424U
+#define T32_UIO_AWB_OPEN	0xc0045425U
+#define T32_UIO_AWB_CLOSE	0xc0045426U
 
 /* core ioctl command words the broadcasts hand on */
 #define T32_CORE_CMD_16		0x1000016U
 #define T32_CORE_CMD_17		0x1000017U
 #define T32_CORE_CMD_1A		0x100001aU
 #define T32_CORE_CMD_SUM	0x5000005U
+#define T32_CORE_AE_CLOSE	0x1000015U
+#define T32_CORE_AWB_OPEN	0x1000018U
+#define T32_CORE_AWB_CLOSE	0x1000019U
+#define T32_CORE_CMD_1B		0x100001bU
+#define T32_AWB_ALGO_BUF	28U
 
 /* sensor ioctl command words */
 #define T32_SENS_ENUM_INPUT	0x2000002U
@@ -448,6 +459,46 @@ static inline int t32_uio_link_destroy(u32 isp, u32 user)
 	return t32_tx_video_link_destroy(isp, b[1]);
 }
 
+/* tx_isp_set_{ae,awb}_algo_close: an 8-byte user block to the core ioctl of every subdevice */
+static inline int t32_uio_algo_close(u32 isp, u32 user, u32 cmd, const char *fn, u32 line)
+{
+	u32 b[2];
+
+	if (t32_tx_os_copy_from_user(b, user, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, fn, line);
+		return -(int)T32_EFAULT;
+	}
+	return t32_uio_core_last(isp, cmd, T32_TX_A(b));
+}
+
+/*
+ * tx_isp_set_awb_algo_open: { version, ... } in (8 bytes), the core ioctls
+ * fill the 28-byte block, which goes back.  Vendor: bytes 8..27 are stale
+ * stack unless a subdevice fills them (zero here).
+ */
+static inline int t32_uio_awb_algo_open(u32 isp, u32 user)
+{
+	u32 b[T32_AWB_ALGO_BUF / 4] = { 0 };
+	int r;
+
+	if (t32_tx_os_copy_from_user(b, user, 8)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_set_awb_algo_open", 1581);
+		return -(int)T32_EFAULT;
+	}
+	if (b[0] != T32_AE_ALGO_VERSION) {
+		t32_tx_os_isp_printf(2, "[ %s:%d ] Ae Algo Function register version error\n", "tx_isp_set_awb_algo_open", 1586);
+		return -1;
+	}
+	r = t32_uio_core_last(isp, T32_CORE_AWB_OPEN, T32_TX_A(b));
+	if (r && r != -(int)T32_ENOIOCTLCMD)
+		return r;
+	if (t32_tx_os_copy_to_user(user, b, T32_AWB_ALGO_BUF)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CTU_ERR, "tx_isp_set_awb_algo_open", 1600);
+		return -(int)T32_EFAULT;
+	}
+	return r;
+}
+
 /* tx_isp_unlocked_ioctl(file, cmd, arg) */
 static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 {
@@ -491,6 +542,12 @@ static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 	case T32_UIO_WDR_GET_BUF:	return t32_uio_wdr_get_buf(isp, arg);
 	case T32_UIO_LINK_SETUP:	return t32_uio_link_setup(isp, arg);
 	case T32_UIO_LINK_DESTROY:	return t32_uio_link_destroy(isp, arg);
+	case T32_UIO_AE_CLOSE:
+		return t32_uio_algo_close(isp, arg, T32_CORE_AE_CLOSE, "tx_isp_set_ae_algo_close", 1503);
+	case T32_UIO_AWB_CLOSE:
+		return t32_uio_algo_close(isp, arg, T32_CORE_AWB_CLOSE, "tx_isp_set_awb_algo_close", 1616);
+	case T32_UIO_CORE_1B:		return t32_uio_core_last(isp, T32_CORE_CMD_1B, arg);
+	case T32_UIO_AWB_OPEN:		return t32_uio_awb_algo_open(isp, arg);
 	}
 	return 0;
 }

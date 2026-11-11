@@ -67,7 +67,23 @@ static u32 sd_index(u32 sd)
 	return NSD;
 }
 static u32 core_tab[NSD + 1];
-static u32 cb_core(u32 sd, u32 cmd, u32 arg) { op3_call("core_ioctl", 3, sd, cmd, arg, 0); return core_tab[sd_index(sd)]; }
+static int cb_filled;
+static u32 cb_core(u32 sd, u32 cmd, u32 arg)
+{
+	u32 *b = T32O_HOST(arg), k;
+
+	if (arg == A(O_USER)) {
+		op3_call("core_ioctl", 3, sd, cmd, arg, 0);
+	} else {	/* a kernel block: its content */
+		op3_call("core_ioctl", 4, sd, cmd, b[0], b[1]);
+		if (cmd == T32_CORE_AWB_OPEN) {
+			for (k = 2; k < T32_AWB_ALGO_BUF / 4; k++)
+				b[k] = sd * 31 + k;
+			cb_filled = 1;
+		}
+	}
+	return core_tab[sd_index(sd)];
+}
 static u32 fnvb(const u8 *p, u32 n)
 {
 	u32 h = 2166136261u, i;
@@ -93,7 +109,14 @@ static u32 cb_notify(u32 sd, u32 ev, u32 msg) { op3_call("sd_notify", 4, sd, ev,
 /* user copies */
 static u32 cfu_ret, ctu_ret;
 static u32 cfu_rec(void *d, u32 u, u32 n) { op3_call("private_copy_from_user", 2, u, n, 0, 0); memcpy(d, T32O_HOST(u), n); return cfu_ret; }
-static u32 ctu_rec(u32 u, const void *s, u32 n) { op3_call("private_copy_to_user", 3, u, n, fnvb(s, n), 0); memcpy(T32O_HOST(u), s, n); return ctu_ret; }
+static u32 ctu_rec(u32 u, const void *s, u32 n)
+{
+	u32 c = (n == T32_AWB_ALGO_BUF && !cb_filled) ? 8 : n;	/* AWB algo open without a callback: stale stack bytes */
+
+	op3_call("private_copy_to_user", 3, u, n, fnvb(s, c), 0);
+	memcpy(T32O_HOST(u), s, c);
+	return ctu_ret;
+}
 u64 op3_private_copy_from_user(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return cfu_rec(T32O_HOST(a0), a1, a2); }
 u64 op3_private_copy_to_user(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return ctu_rec(a0, T32O_HOST(a1), a2); }
 u64 op3_memcpy(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; memcpy(T32O_HOST(a0), T32O_HOST(a1), a2); return a0; }
@@ -196,6 +219,8 @@ static const u32 cmds[] = {
 	T32_UIO_SET_ISP_MEM, T32_UIO_GET_ISP_MEM, T32_UIO_WDR_SET_BUF, T32_UIO_WDR_GET_BUF,
 	/* links */
 	T32_UIO_LINK_SETUP, T32_UIO_LINK_DESTROY,
+	/* algo */
+	T32_UIO_AE_CLOSE, T32_UIO_AWB_CLOSE, T32_UIO_CORE_1B, T32_UIO_AWB_OPEN,
 	/* default neighbours inside the vendor ranges */
 	0xc0045427, 0xc0045428, 0xc0045429, 0
 };
@@ -295,6 +320,7 @@ static void setup(void)
 	memcpy(arena, tmpl, ARENA);
 	n_r = 0;
 	n_unlink = 0;
+	cb_filled = 0;
 }
 
 static u64 ours(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4) { (void)a3; (void)a4; return (u32)t32_tx_isp_unlocked_ioctl(a0, a1, a2); }
@@ -327,6 +353,8 @@ int main(void)
 		build(base);
 		if (cmd == T32_UIO_SET_ISP_MEM || cmd == T32_UIO_GET_ISP_MEM)
 			sw(O_USER, op3_rnd());	/* the selector is the low byte */
+		if (cmd == T32_UIO_AWB_OPEN && (op3_rnd() & 3))
+			sw(O_USER, T32_AE_ALGO_VERSION);
 		if (cmd == T32_UIO_WDR_SET_BUF && (op3_rnd() & 1)) {	/* size at the tsize boundary */
 			u32 in = O_CORE + T32_CORE_IN_BYTES * *(u32 *)(tmpl + O_USER);
 
