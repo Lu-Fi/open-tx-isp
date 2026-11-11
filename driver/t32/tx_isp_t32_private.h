@@ -20,7 +20,8 @@
  *    vendor relies on it for kernel buffers;
  *  - t32_private_kthread_run: the name is handed over as the format (0xa30);
  *  - t32_private_seq_printf / t32_private_misc_deregister: the vendor returns
- *    whatever the void kernel call left in v0 (undefined); ours returns 0.
+ *    whatever the void kernel call left in v0 (undefined); ours returns 0
+ *    (BEYOND VENDOR, #281: a defined value instead of the undefined v0).
  *  - t32_private_spin_lock_init is empty on the vendor's UP kernel (0x518),
  *    here it is spin_lock_init(), which is the same there.
  */
