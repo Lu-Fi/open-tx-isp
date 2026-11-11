@@ -147,6 +147,15 @@ generation-shared come from the shared code instead:
   through the sensor's EXPO event (0x02000017). No AWB, no tuning. QEMU run
   s4h: 13 histogram interrupts, 5 steps, the sensor ioctl accepted each; proc
   shows steps, last mean and integration time.
+- **Vendor AE chain, in progress (openimp #234)**: the AE context init
+  (`tx_isp_t32_aeinit.h`, `t32_ae_ctx_init` = state part of `tisp_ae_init`,
+  oracle `t32_aeinit_oracle`) and the fixed point maths
+  (`tx_isp_t32_aemath.h`, oracle `t32_aemath_oracle`) are ported and proven on
+  the host. The driver builds the context at stream-on (`t32_pf_attach_ae`,
+  `t32_ported_paths` bit 10, sensor block via `lib_tisp_sync_sensor_attr`)
+  and writes the init tail registers; it is not run per frame yet. Next: per-frame wiring of
+  `tisp_ae_interrupt_static` / `tisp_ae_long_ev_alloc` (tgain event to
+  `t32_long_tgain_update`) and `tisp_ae_calc_process`, then AWB.
 
 - **Front end: CSC, CSCCR, ISP top** (`tx_isp_t32_front.h`, flow of the vendor
   `tisp_csc_init`, `tisp_csccr_init`, `tisp_top_init`, `tisp_top_reg_cfg`),
@@ -291,5 +300,5 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `lsc_ct` | 5000 | colour temperature for the LSC mesh at stream-on |
 | `bringup_ae` | 0 | 1 = bring-up exposure controller (not the vendor AE) |
 | `bringup_target` | 64 | its target mean histogram bin (0..255) |
-| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS, 9 LSC, 10 LCE, 11 TMO (not wired); RDNS off = not programmed at all, as before) |
+| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS, 9 AE, 10 LSC, 11 LCE, 12 TMO (not wired); RDNS off = not programmed at all, as before) |
 | `tisp_tgain` | 0x10000 | total gain for the per-frame refresh until the vendor AE runs (test aid) |
