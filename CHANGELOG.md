@@ -24,6 +24,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `tx_isp_t32_lcem.h` + tisp_lce_get_show_data, tisp_lce_param_array_get / _set (show data from the day block or the selected zone, API copy, WDR flag t32_data_e20d8 with curve and Gauss reload). `t32_lcem_oracle` now 6000 cases over 8 functions, 49/49 mutations.
 - `tx_isp_t32_lcem.h` + tisp_lce_tgain_update (strength redo on a gain step >= 128 or an EV change, 64-bit inputs as the vendor compares them). `t32_lcem_oracle`: 9 functions, 59/59 mutations.
 - `tx_isp_t32_lcem.h` + tisp_lce_deinit (default sizes, table clear, buffer / state free). `t32_lcem_oracle`: 10 functions, 68/68 mutations; the deinit reference copy is built with `fix_op11_lcedeinit.sh` (t32_data_d6c66 = d6c64 + 2).
+- New `driver/t32/tx_isp_t32_blkrest.h`: tisp_awb_deinit (frees the AWB zone buffer, work block with its 4 buffers, state block with its buffer; vendor order). `t32_awbdein_oracle`: 20000 cases, every free call in order, all tables and blocks, 17/17 mutations.
 
 ## 2026-11-11: T32 API getters, 69 functions (planned, host only, not device-tested)
 
