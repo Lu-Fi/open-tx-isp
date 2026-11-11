@@ -2081,6 +2081,20 @@ module_param(t41_isr_framedown, bool, 0644);
 MODULE_PARM_DESC(t41_isr_framedown, "call the OEM LSC/BCSH frame-down callbacks (irq_func_cb[36]/[52]) from the ISR (default 1)");
 static unsigned int t41_isr_counts[96];
 module_param_array(t41_isr_counts, uint, NULL, 0444);
+/* RAW ring (#320): the hard-wired dispatch of OEM slots 68/69 (WDMA/RDMA
+ * frame done) and a bring-up trace of the ring controls. */
+static bool t41_raw_irq = true;
+module_param(t41_raw_irq, bool, 0644);
+MODULE_PARM_DESC(t41_raw_irq, "call the RAW WDMA/RDMA frame-done callbacks (irq_func_cb[68]/[69]) from the ISR (default 1)");
+static int t41_raw_trace;
+static int t41_raw_sync = 1;
+static unsigned int t41_raw_diag;	/* bring-up only: 1 no RDMA start, 2 no requeue, 4 ISR log */
+module_param(t41_raw_diag, uint, 0644);
+static unsigned int t41_raw_isr_log;
+module_param(t41_raw_sync, int, 0644);
+MODULE_PARM_DESC(t41_raw_sync, "RAW ring: write back the frame from the CPU cache before the RDMA reads it (default 1)");
+module_param(t41_raw_trace, int, 0644);
+MODULE_PARM_DESC(t41_raw_trace, "log the first N RAW ring control/get/set calls (default 0)");
 MODULE_PARM_DESC(t41_isr_counts, "per-index irq_func_cb call counters (hard-wired ISR list)");
 
 /*
@@ -2379,8 +2393,14 @@ static int32_t ae_kthread_num;
 static uint32_t ae_process_end_flag;
 static unsigned char fs_work_comp_storage[16] __attribute__((aligned(4)));
 #define fs_work_comp (*(uint32_t *)(void *)fs_work_comp_storage)
-static unsigned char globe_wait_attr_storage[20] __attribute__((aligned(4)));
-#define globe_wait_attr (*(uint32_t *)(void *)globe_wait_attr_storage)
+/* OEM struct vicdonecb_wait_attr (20 bytes): enable word, then the completion.
+ * The OEM passes &globe_wait_attr + 4 to init/wait/complete (tx-isp-t41.ko
+ * 0x386c, 0x127d8, 0x13f28); the recovered calls had lost the +4 so the
+ * enable word aliased completion.done (openimp #320). */
+static struct {
+    uint32_t vic_completion;
+    struct completion comp;
+} globe_wait_attr;
 static unsigned char __attribute__((aligned(4))) main_fs_work[28] = {
     0xe0, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -12286,6 +12306,10 @@ int64_t isp_vic_interrupt_service_routine(uintptr_t a0, uint32_t a1, uint32_t a2
         }
         if (active0 & 0x01) {
             ++*(uint32_t *)(vic + 0x1d0);
+            /* IMP_ISP_SetVicDoneCbFunc (#320): OEM 0x3840 completes the
+             * VIC-done wait on every frame done while armed. */
+            if (READ_ONCE(globe_wait_attr.vic_completion) == 1)
+                complete(&globe_wait_attr.comp);
             if (frame_trace_count < 8)
                 t41_trace_printk(KERN_WARNING
                        "t41: VIC frame done irq=%u active=%#x/%#x count=%u\n",
@@ -12417,7 +12441,7 @@ isp_vic_interrupt_service_routine0x1c:
     v0 = v0 + 1;
     *(uint32_t *)((char *)s0 + 464) = v0;
     v0 = (unsigned int *)&globe_wait_attr;
-    v1 = *(uint32_t *)((char *)((char *)&globe_wait_attr));
+    v1 = READ_ONCE(globe_wait_attr.vic_completion);
     v0 = 1;
 
     /* fragment 14: Branch */
@@ -12426,7 +12450,7 @@ isp_vic_interrupt_service_routine0x1c:
     if (_bc_v1_14) { goto isp_vic_interrupt_service_routine0x100; }
 
     /* fragment 15: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_complete)(&globe_wait_attr); /* jalr target resolved by relocation */
+    complete(&globe_wait_attr.comp); /* OEM 0x386c: &globe_wait_attr + 4, hard IRQ, complete() only */
 
 isp_vic_interrupt_service_routine0x100:
     /* fragment 16: MemoryAccess */
@@ -22258,6 +22282,47 @@ static int t41_tuning_draw_block(unsigned int vinum, unsigned int is_get,
 static int t41_tuning_csccr(unsigned int vinum, unsigned int is_get,
                             uintptr_t user_ptr);
 
+/*
+ * RAW ring controls of IMP_ISP_RAW_RwControl (openimp #320), as the OEM
+ * tx_isp_core_ops_s_ctrl / g_ctrl (tx-isp-t41.ko 1.2.5 0x9270, 0x9340,
+ * 0xa41c):
+ *   0x80000a7 set: 28 bytes {mode, dtype, mtype, paddr[4]} -> start/stop
+ *                  the WDMA -> DDR -> RDMA ring (tisp_s_raw_rw_control);
+ *   0x80000a8 get: sleep until the WDMA wrote a frame, hand its address;
+ *   0x80000a8 set: the frame (maybe edited) goes back into the ISP (RDMA).
+ * As stock the control result is not returned (0 after a good copy), and
+ * a get interrupted by a signal still answers 0 with the last address.
+ * The get runs without the tuning mutex (it sleeps one frame).
+ */
+#define T41_TUNING_RAW_RW_CONTROL 0x080000a7U
+#define T41_TUNING_RAW_RW_HANDLER 0x080000a8U
+
+static int t41_tuning_raw_rw(const struct tx_isp_tuning_t41_control *request)
+{
+    void __user *user = (void __user *)(uintptr_t)request->value_or_ptr;
+    uint32_t words[7];
+
+    if (request->is_get > 1 || !user)
+        return -EINVAL;
+    if (request->id == T41_TUNING_RAW_RW_CONTROL) {
+        if (request->is_get)
+            return -EPERM;	/* stock g_ctrl has no 0x80000a7 */
+        if (private_copy_from_user(words, user, 28))
+            return -EFAULT;
+        tisp_s_raw_rw_control(0, (uintptr_t)words);
+        return 0;
+    }
+    if (request->is_get) {
+        words[0] = 0;
+        tisp_g_raw_rw_handler(0, (uintptr_t)words);
+        return private_copy_to_user(user, words, 4) ? -EFAULT : 0;
+    }
+    if (private_copy_from_user(words, user, 4))
+        return -EFAULT;
+    tisp_s_raw_rw_handler(0, (uintptr_t)words);
+    return 0;
+}
+
 int64_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
     struct t41_switch_bin_post post;
@@ -22267,9 +22332,19 @@ int64_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
     /* WaitFrameDone sleeps up to its timeout: never under the tuning mutex. */
     if (a1 == 0xc0105435U &&
         !private_copy_from_user(&request, (void __user *)(uintptr_t)a2,
-                                sizeof(request)) &&
-        request.id == TX_ISP_TUNING_CMD_T41_WAIT_FRAME_DONE)
-        return t41_tuning_wait_frame_done(&request);
+                                sizeof(request))) {
+        if (request.id == TX_ISP_TUNING_CMD_T41_WAIT_FRAME_DONE)
+            return t41_tuning_wait_frame_done(&request);
+        if (request.id == T41_TUNING_RAW_RW_HANDLER && request.is_get == 1)
+            return t41_tuning_raw_rw(&request);
+        if (request.id == T41_TUNING_RAW_RW_CONTROL ||
+            request.id == T41_TUNING_RAW_RW_HANDLER) {
+            mutex_lock(&t41_tuning_mutex);
+            ret = t41_tuning_raw_rw(&request);
+            mutex_unlock(&t41_tuning_mutex);
+            return ret;
+        }
+    }
 
     mutex_lock(&t41_tuning_mutex);
     ret = isp_core_tunning_unlocked_ioctl_body(a0, a1, a2);
@@ -37599,6 +37674,43 @@ static int t41_ioctl_internal_chn(uintptr_t file, bool set, uint32_t user_arg)
 static int t41_ioctl_ae_algo(uintptr_t file, uint32_t cmd, uint32_t user_arg);   /* custom AE library (#76), tx_isp_t41_vae.h */
 static int t41_ioctl_awb_algo(uintptr_t file, uint32_t cmd, uint32_t user_arg);  /* custom AWB library (#195), tx_isp_t41_awb_algo.h */
 
+/*
+ * IMP_ISP_SetVicDoneCbFunc (openimp #320), OEM tx_isp_unlocked_ioctl
+ * (tx-isp-t41.ko 1.2.5):
+ *   0xc0045431 (OEM 0x13f0c): int from user, != 0 arms the VIC frame-done
+ *              completion (init + enable word 1), 0 disarms it; returns 0.
+ *   0xc0045432 (OEM 0x127d0): sleeps until isp_vic_interrupt_service_routine
+ *              completes the next VIC frame done; hands 1 to user space, or
+ *              the negative wait result on a signal; returns 0.
+ * The recovered copies of both (dead code below the dispatch gate) had
+ * lost the +4 of &globe_wait_attr (enable word aliased completion.done)
+ * and returned 1 from the enable path.  OEM copy faults answer -12.
+ */
+static int t41_ioctl_vic_done(uint32_t cmd, uint32_t user_arg)
+{
+    void __user *user = (void __user *)(uintptr_t)user_arg;
+    int32_t v = 0;
+
+    if (cmd == 0xc0045431U) {
+        if (private_copy_from_user(&v, user, sizeof(v)))
+            return -12;
+        if (v) {
+            init_completion(&globe_wait_attr.comp);
+            smp_wmb();
+            WRITE_ONCE(globe_wait_attr.vic_completion, 1);
+        } else {
+            WRITE_ONCE(globe_wait_attr.vic_completion, 0);
+        }
+        return 0;
+    }
+    {
+        long r = wait_for_completion_interruptible(&globe_wait_attr.comp);
+
+        v = r < 0 ? (int32_t)r : 1;
+    }
+    return private_copy_to_user(user, &v, sizeof(v)) ? -12 : 0;
+}
+
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000014474 origin=fragment_seed original=tx_isp_unlocked_ioctl */
 int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
 {
@@ -37772,6 +37884,8 @@ int64_t tx_isp_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         /* LDC and GPIO: no handler in the stock module, it answers 0 */
         return 0;
     }
+    if (a1 == 0xc0045431U || a1 == 0xc0045432U)
+        return t41_ioctl_vic_done(a1, a2);
     if (a1 == 0xc004542eU)
         return t41_ioctl_start_night(a0, a2);
     if (a1 == 0xc004548dU)
@@ -40618,11 +40732,11 @@ tx_isp_unlocked_ioctl0x1b2c:
     v0 = local_20;
 
     /* fragment 626: Branch */
-    s1 = (uint32_t *)&globe_wait_attr;
+    s1 = (uint32_t *)&globe_wait_attr.vic_completion;
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x1b58; }
 
     /* fragment 627: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_init_completion)(&globe_wait_attr); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_init_completion)(&globe_wait_attr.comp); /* jalr target resolved by relocation */
 
     /* fragment 628: Arithmetic */
     v0 = 1;
@@ -40639,7 +40753,7 @@ tx_isp_unlocked_ioctl0x1b58:
 tx_isp_unlocked_ioctl0x1b60:
     /* fragment 631: CallSetup */
     local_20 = 0;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_wait_for_completion_interruptible)(&globe_wait_attr); /* jalr target resolved by relocation */
+    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_wait_for_completion_interruptible)(&globe_wait_attr.comp); /* jalr target resolved by relocation */
 
     /* fragment 632: Branch */
     if (v0 >= 0) { goto tx_isp_unlocked_ioctl0x1bc0; }
@@ -156060,8 +156174,11 @@ tisp_raw_rdma_fd_interrupt0x58:
 
     /* fragment 9: CallSetup */
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(s1 + 4124); /* jalr target resolved by relocation */
+    if ((t41_raw_diag & 4) && t41_raw_isr_log++ < 12)
+        printk(KERN_WARNING "t41: raw rdma isr requeue 0x%08x wdma20=0x%08x\n", (uint32_t)v0, system_reg_read(0x20020));
 
     /* fragment 10: CallSetup */
+    if (!(t41_raw_diag & 2))
     v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 24, v0); /* jalr target resolved by relocation */
 
     /* fragment 11: CallSetup */
@@ -156575,271 +156692,142 @@ tisp_isp_to_ddr_raw0x80:
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000006b510 origin=fragment_seed original=tisp_raw_get_rw_handler */
+/*
+ * RAW ring (IMP_ISP_RAW_RwControl, openimp #320), written out from the OEM
+ * tx-isp-t41.ko 1.2.5 (tisp_raw_get_rw_handler 0x69180,
+ * tisp_raw_set_rw_handler 0x691f4, tisp_raw_set_rw_control 0x69264,
+ * tisp_s_raw_rw_control 0x6bd90).  The recovered copies had lost register
+ * arguments (0x21008, the 0x20018 address loop, the WDR mux write), wrote
+ * 0x2001c to 0x20034, passed scattered stack locals as the 64-byte control
+ * block, returned 0 instead of the wait result and called dma_cache_sync()
+ * without arguments.
+ *
+ * rpars (48 bytes, vmalloc in tisp_raw_init): [1] ring on, [2] RDMA on,
+ * [3] WDMA on, +16 RDMA frame-done completion, +32 WDMA frame-done
+ * completion.  tisp_raw_info (32 bytes): [5] set calls, [6] get calls,
+ * [7] last address handed back.
+ */
+struct t41_raw_rw_ctl {			/* OEM internal control block, 64 bytes */
+    uint32_t mode;			/*  0: 1 on, 0 off */
+    uint32_t width, height, wdr;	/*  1..3: tisp_par_info[0], [1], [30] */
+    uint32_t r4;
+    uint32_t rdma_en, rdma_dtype, rdma_fmt, r8;	/*  5..8 */
+    uint32_t wdma_en, wdma_dtype, wdma_fmt;	/*  9..11 */
+    uint32_t paddr[4];			/* 12..15 */
+};
+
+#define T41_RAW_RP(i) (((uint32_t *)(uintptr_t)rpars)[i])
+#define T41_RAW_RDMA_DONE ((struct completion *)((char *)(uintptr_t)rpars + 16))
+#define T41_RAW_WDMA_DONE ((struct completion *)((char *)(uintptr_t)rpars + 32))
+#define T41_RAW_INFO(i) (((uint32_t *)(void *)tisp_raw_info_storage)[i])
+
+/* Ring geometry of the last enable, for the cache write-back of a frame
+ * handed back by user space (the OEM syncs 1 MiB at a kernel stack address). */
+static uint32_t t41_raw_ring_base, t41_raw_ring_bytes, t41_raw_frame_bytes;
+
+static int t41_raw_ready(void)
+{
+    if (rpars)
+        return 0;
+    tisp_raw_init(0);	/* the init-list entry may not have run (rawinject.c) */
+    return rpars ? 0 : -ENODEV;
+}
+
 int32_t tisp_raw_get_rw_handler(uint32_t a0, uintptr_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    long ret;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s1 = a1;
-    *(uint32_t *)((char *)((char *)&tisp_raw_info + 0x18)) = ((*(uint32_t *)((char *)((char *)&tisp_raw_info + 0x18))) + 1);
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)private_wait_for_completion_interruptible)((*(uint32_t *)((char *)((char *)&rpars))) + 32); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    s0 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_read)(131072 + 32); /* jalr target resolved by relocation */
-
-    /* fragment 3: MemoryAccess */
-    *(uint32_t *)((char *)s1 + 0) = v0;
-    ra = local_1c;
-    v0 = s0;
-    s1 = local_18;
-    s0 = local_14;
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    (void)a0;
+    if (t41_raw_ready())
+        return -ENODEV;
+    T41_RAW_INFO(6)++;
+    ret = wait_for_completion_interruptible(T41_RAW_WDMA_DONE);
+    *(uint32_t *)a1 = system_reg_read(0x20020);	/* WDMA: last written frame */
+    if (t41_raw_trace > 0) {
+        t41_raw_trace--;
+        printk(KERN_WARNING "t41: raw get #%u ret=%ld paddr=0x%08x isr68=%u isr69=%u\n",
+               T41_RAW_INFO(6), ret, *(uint32_t *)a1, t41_isr_counts[68], t41_isr_counts[69]);
+    }
+    return (int32_t)ret;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000006b584 origin=fragment_seed original=tisp_raw_set_rw_handler */
 int32_t tisp_raw_set_rw_handler(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    uint32_t paddr = *(uint32_t *)a1;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a1;
-    *(uint32_t *)((char *)((char *)&tisp_raw_info + 0x14)) = ((*(uint32_t *)((char *)((char *)&tisp_raw_info + 0x14))) + 1);
-    *(uint32_t *)((char *)((char *)&tisp_raw_info + 0x1c)) = (*(uint32_t *)((char *)(a1) + 0));
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_dma_cache_sync)(0); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(131072 + 4108, *(uint32_t *)((char *)(s0) + 0)); /* jalr target resolved by relocation */
-
-    /* fragment 3: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 4: Arithmetic */
-    v0 = 0;
-
-    /* fragment 5: Epilogue */
-    /* function epilogue: restore registers and return */
-
+    (void)a0;
+    if (t41_raw_ready())
+        return -ENODEV;
+    T41_RAW_INFO(5)++;
+    T41_RAW_INFO(7) = paddr;
+    /* The callback may have written the frame through a cached mapping:
+     * write it back before the RDMA reads it (KSEG0 alias, physically
+     * tagged caches); only addresses of the enabled ring are synced. */
+    if (t41_raw_sync && t41_raw_frame_bytes && paddr >= t41_raw_ring_base &&
+        paddr - t41_raw_ring_base < t41_raw_ring_bytes &&
+        paddr + t41_raw_frame_bytes <= 0x20000000U)
+        dma_cache_sync(NULL, phys_to_virt(paddr), t41_raw_frame_bytes,
+                       DMA_BIDIRECTIONAL);
+    if (!(t41_raw_diag & 1))
+        system_reg_write(0x2100c, paddr);	/* RDMA: start this frame */
+    if (t41_raw_trace > 0) {
+        t41_raw_trace--;
+        printk(KERN_WARNING "t41: raw set #%u paddr=0x%08x sync=%u\n",
+               T41_RAW_INFO(5), paddr, t41_raw_frame_bytes);
+    }
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000006b5f4 origin=fragment_seed original=tisp_raw_set_rw_control */
 int64_t tisp_raw_set_rw_control(uint32_t a0, uintptr_t a1)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t *local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t *local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *s2 = 0;
-    uint32_t s3 = 0;
-    uintptr_t *s4 = 0;
-    uint32_t s5 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    const struct t41_raw_rw_ctl *c = (const struct t41_raw_rw_ctl *)a1;
+    int32_t ret;
+    int i;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s4 = (unsigned int *)&rpars;
-
-    /* fragment 2: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&rpars));
-    local_18 = s1;
-    local_2c = ra;
-    local_28 = s5;
-    local_20 = s3;
-    local_1c = s2;
-    local_14 = s0;
-    v1 = *(uint32_t *)((char *)a1 + 0);
-    v0 = *(uint32_t *)((char *)a0 + 4);
-
-    /* fragment 3: Branch */
-    s1 = -1;
-    if (v1 == v0) { goto tisp_raw_set_rw_control0x180; }
-
-    /* fragment 4: MemoryAccess */
-    a3 = *(uint32_t *)((char *)a1 + 20);
-    a2 = *(uint32_t *)((char *)a0 + 8);
-
-    /* fragment 5: Branch */
-    if (a3 == a2) { goto tisp_raw_set_rw_control0x180; }
-
-    /* fragment 6: MemoryAccess */
-    a3 = *(uint32_t *)((char *)a1 + 36);
-    a2 = *(uint32_t *)((char *)a0 + 12);
-
-    /* fragment 7: Branch */
-    s0 = a1;
-    if (a3 == a2) { goto tisp_raw_set_rw_control0x180; }
-
-    /* fragment 8: Arithmetic */
-    s3 = (uintptr_t)&system_reg_write;
-    a1 = 1;
-
-    /* fragment 9: Branch */
-    s3 = (uintptr_t)&system_reg_write;
-    if (v1 != a1) { goto tisp_raw_set_rw_control0x1a8; }
-
-    /* fragment 10: Branch */
-    if (v0 != 0) { goto tisp_raw_set_rw_control0xac; }
-
-    /* fragment 11: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(524288 + 424, 17476); /* jalr target resolved by relocation */
-
-    /* fragment 12: CallSetup */
-    s1 = 131072;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_msleep)(1000); /* jalr target resolved by relocation */
-
-    /* fragment 13: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 4100, 1); /* jalr target resolved by relocation */
-
-    /* fragment 14: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s1 + 4, 1); /* jalr target resolved by relocation */
-
-tisp_raw_set_rw_control0xac:
-    /* fragment 15: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(131072 + 4132, *(uint32_t *)((char *)(s0) + 28)); /* jalr target resolved by relocation */
-
-    /* fragment 16: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 12);
-
-    /* fragment 17: Branch */
-    a1 = *(uint32_t *)((char *)(s0) + 24);
-    if (v0 == 0) { goto tisp_raw_set_rw_control0xcc; }
-
-    /* fragment 18: CallSetup */
-    a1 = a1 + 6;
-
-tisp_raw_set_rw_control0xcc:
-    /* fragment 19: CallSetup */
-    s1 = 131072;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(131072 + 4104); /* jalr target resolved by relocation */
-
-    /* fragment 20: CallSetup */
-    s2 = s0 + 48;
-    s5 = s0 + 64;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 4116, ((*(uint32_t *)((char *)((uintptr_t)s0) + 24)) + 1) * (*(uint32_t *)((char *)((uintptr_t)s0) + 4))); /* jalr target resolved by relocation */
-
-    /* fragment 21: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 20, ((*(uint32_t *)((char *)((uintptr_t)s0) + 40)) << 16) | (*(uint32_t *)((char *)((uintptr_t)s0) + 44))); /* jalr target resolved by relocation */
-
-    /* fragment 22: CallSetup */
-    s1 = s1 + 24;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s1 + 28, ((*(uint32_t *)((char *)((uintptr_t)s0) + 40)) + 1) * (*(uint32_t *)((char *)((uintptr_t)s0) + 4))); /* jalr target resolved by relocation */
-
-tisp_raw_set_rw_control0x12c:
-    /* fragment 23: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s2 + 0);
-
-    /* fragment 24: Branch */
-    a0 = s1;
-    if (a1 == 0) { goto tisp_raw_set_rw_control0x148; }
-
-    /* fragment 25: CallSetup */
-    s2 = s2 + 4;
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 26: Branch */
-    if (s2 != s5) { goto tisp_raw_set_rw_control0x12c; }
-
-tisp_raw_set_rw_control0x148:
-    /* fragment 27: CallSetup */
-    s1 = 0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(524288 + 424, 17412); /* jalr target resolved by relocation */
-
-tisp_raw_set_rw_control0x15c:
-    /* fragment 28: MemoryAccess */
-    v1 = *(uint32_t *)((char *)s0 + 0);
-
-tisp_raw_set_rw_control0x160:
-    /* fragment 29: MemoryAccess */
-    v0 = *(uint32_t *)((char *)((char *)&rpars));
-    *(uint32_t *)((char *)v0 + 4) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 20);
-    *(uint32_t *)((char *)v0 + 8) = v1;
-    v1 = *(uint32_t *)((char *)s0 + 36);
-    *(uint32_t *)((char *)v0 + 12) = v1;
-    v0 = (unsigned int *)&tisp_raw_info;
-    *(uint32_t *)((char *)((char *)&tisp_raw_info + 0x1c)) = 0;
-
-tisp_raw_set_rw_control0x180:
-    /* fragment 30: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 31: Arithmetic */
-    v0 = s1;
-
-    /* fragment 32: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_raw_set_rw_control0x1a8:
-    /* fragment 33: CallSetup */
-    s2 = 524288;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)private_wait_for_completion_interruptible)(a0 + 16); /* jalr target resolved by relocation */
-
-    /* fragment 34: CallSetup */
-    s1 = v0;
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(s2 + 424, 17476); /* jalr target resolved by relocation */
-
-    /* fragment 35: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_msleep)(100); /* jalr target resolved by relocation */
-
-    /* fragment 36: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)(131072 + 4132, 0); /* jalr target resolved by relocation */
-
-    /* fragment 37: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s2 | 424, 17412); /* jalr target resolved by relocation */
-
-    /* fragment 38: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 12);
-
-    /* fragment 39: Branch */
-    a1 = 17424;
-    if (v0 == 0) { goto tisp_raw_set_rw_control0x15c; }
-
-    /* fragment 40: CallSetup */
-    v0 = (uintptr_t)((uintptr_t (*)(uintptr_t))(uintptr_t)system_reg_write)((uintptr_t)s2 | 424); /* jalr target resolved by relocation */
-
-    /* fragment 41: Branch */
-    v1 = *(uint32_t *)((char *)(s0) + 0);
-    goto tisp_raw_set_rw_control0x160;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    (void)a0;
+    if (t41_raw_ready())
+        return -ENODEV;
+    if (c->mode == T41_RAW_RP(1) || c->rdma_en == T41_RAW_RP(2) ||
+        c->wdma_en == T41_RAW_RP(3))
+        return -1;
+    if (c->mode == 1) {
+        if (T41_RAW_RP(1) == 0) {
+            system_reg_write(0x801a8, 0x4444);	/* front end input mux: hold */
+            msleep(1000);
+            system_reg_write(0x21004, 1);	/* RDMA enable */
+            system_reg_write(0x20004, 1);	/* WDMA enable */
+        }
+        system_reg_write(0x21024, c->rdma_fmt);
+        system_reg_write(0x21008, c->rdma_dtype + (c->wdr ? 6 : 0));
+        system_reg_write(0x21014, (c->rdma_dtype + 1) * c->width);
+        system_reg_write(0x20014, c->wdma_dtype << 16 | c->wdma_fmt);
+        system_reg_write(0x2001c, (c->wdma_dtype + 1) * c->width);
+        for (i = 0; i < 4 && c->paddr[i]; i++)
+            system_reg_write(0x20018, c->paddr[i]);	/* WDMA address queue */
+        system_reg_write(0x801a8, 0x4404);	/* run */
+        t41_raw_frame_bytes = (c->wdma_dtype + 1) * c->width * c->height;
+        t41_raw_ring_base = c->paddr[0];
+        t41_raw_ring_bytes = t41_raw_frame_bytes * i;
+        ret = 0;
+    } else {
+        ret = wait_for_completion_interruptible(T41_RAW_RDMA_DONE);
+        system_reg_write(0x801a8, 0x4444);
+        msleep(100);
+        system_reg_write(0x21024, 0);
+        system_reg_write(0x801a8, 0x4404);
+        if (c->wdr)
+            system_reg_write(0x801a8, 0x4410);
+        t41_raw_frame_bytes = 0;
+    }
+    T41_RAW_RP(1) = c->mode;
+    T41_RAW_RP(2) = c->rdma_en;
+    T41_RAW_RP(3) = c->wdma_en;
+    T41_RAW_INFO(7) = 0;
+    if (t41_raw_trace > 0)
+        printk(KERN_WARNING "t41: raw control mode=%u %ux%u wdr=%u dtype=%u fmt=0x%x/0x%x paddr=%08x %08x %08x %08x ret=%d mux=0x%x\n",
+               c->mode, c->width, c->height, c->wdr, c->rdma_dtype, c->rdma_fmt, c->wdma_fmt,
+               c->paddr[0], c->paddr[1], c->paddr[2], c->paddr[3], ret, system_reg_read(0x801a8));
+    return ret;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006b808 origin=fragment_seed original=tisp_raw_set_row_control */
@@ -161056,140 +161044,34 @@ int32_t tisp_g_ae_explist(uint32_t a0, uintptr_t a1)
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000006e300 origin=fragment_seed original=tisp_s_raw_rw_control */
+/* Control 0x80000a7 payload (28 bytes, libimp IMP_ISP_RAW_RwControl):
+ * {mode, dtype, mtype, paddr[4]} -> OEM 64-byte control block. */
 int64_t tisp_s_raw_rw_control(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_24 = 0;
-    uint32_t *local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_34 = 0;
-    uint32_t local_38 = 0;
-    uint32_t *local_3c = 0;
-    uint32_t local_40 = 0;
-    uint32_t local_54 = 0;
-    uint32_t local_58 = 0;
-    uint32_t local_5c = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t *v1 = 0;
+    const uint32_t *u = (const uint32_t *)a1;
+    struct t41_raw_rw_ctl c;
+    const uint32_t *par = (const uint32_t *)(void *)tisp_par_info_storage;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a1;
-    s1 = a0;
-    v0 = (unsigned int *)memset((void *)(uintptr_t)&local_10, 0, 64); /* jalr target resolved by relocation */
-
-    /* fragment 2: Arithmetic */
-    v0 = (unsigned int *)&tisp_par_info;
-
-    /* fragment 3: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&tisp_par_info));
-    v0 = v0;
-    v1 = *(uint32_t *)((char *)s0 + 0);
-    local_14 = a0;
-    a0 = *(uint32_t *)((char *)v0 + 4);
-    v0 = *(uint32_t *)((char *)v0 + 120);
-    a2 = 16;
-    local_18 = a0;
-    local_1c = v0;
-    v0 = *(uint32_t *)((char *)s0 + 8);
-    a0 = *(uint32_t *)((char *)s0 + 4);
-    a1 = s0 + 12;
-    local_2c = v0;
-    local_3c = v0;
-    v0 = (unsigned int *)&memcpy;
-    local_28 = a0;
-    local_38 = a0;
-    v0 = v0;
-    a0 = (unsigned int *)&local_40;
-    local_10 = v1;
-    local_24 = v1;
-
-    /* fragment 4: CallSetup */
-    local_34 = v1;
-    v0 = (unsigned int *)memcpy((void *)(uintptr_t)a0, (void *)(uintptr_t)a1, a2); /* jalr target resolved by relocation */
-
-    /* fragment 5: StackAccess */
-    v0 = local_2c;
-
-    /* fragment 6: Branch */
-    v1 = 1;
-    if (v0 != 0) { goto tisp_s_raw_rw_control0xe0; }
-
-    /* fragment 7: Arithmetic */
-    v0 = 42;
-
-tisp_s_raw_rw_control0xa0:
-    /* fragment 8: StackAccess */
-    local_2c = v0;
-    v0 = local_3c;
-
-tisp_s_raw_rw_control0xa8:
-    /* fragment 9: Branch */
-    v1 = 1;
-    if (v0 != 0) { goto tisp_s_raw_rw_control0x118; }
-
-    /* fragment 10: CallSetup */
-    v0 = 32;
-
-tisp_s_raw_rw_control0xb4:
-    /* fragment 11: CallSetup */
-    local_3c = v0;
-    v0 = (unsigned int *)&tisp_raw_set_rw_control;
-
-tisp_s_raw_rw_control0xbc:
-    /* fragment 12: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)tisp_raw_set_rw_control)(s1, &local_10); /* jalr target resolved by relocation */
-
-    /* fragment 13: Epilogue */
-    /* function epilogue: restore registers and return */
-    return (int64_t)v0;
-
-tisp_s_raw_rw_control0xe0:
-    /* fragment 14: Branch */
-    a2 = (uintptr_t)&__pow2_lut;
-    if (v0 != v1) { goto tisp_s_raw_rw_control0xf0; }
-
-    /* fragment 15: Branch */
-    v0 = 36;
-    goto tisp_s_raw_rw_control0xa0;
-
-tisp_s_raw_rw_control0xf0:
-    /* fragment 16: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC10, &__pow2_lut, 1694); /* jalr target resolved by relocation */
-
-    /* fragment 17: Branch */
-    v0 = local_3c;
-    goto tisp_s_raw_rw_control0xa8;
-
-tisp_s_raw_rw_control0x118:
-    /* fragment 18: Branch */
-    a2 = (uintptr_t)&__pow2_lut;
-    if (v0 != v1) { goto tisp_s_raw_rw_control0x128; }
-
-    /* fragment 19: Branch */
-    v0 = 34;
-    goto tisp_s_raw_rw_control0xb4;
-
-tisp_s_raw_rw_control0x128:
-    /* fragment 20: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)isp_printf)(2, &LC10, &__pow2_lut, 1702); /* jalr target resolved by relocation */
-
-    /* fragment 21: Branch */
-    v0 = (unsigned int *)&tisp_raw_set_rw_control;
-    goto tisp_s_raw_rw_control0xbc;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    memset(&c, 0, sizeof(c));
+    BUILD_BUG_ON(sizeof(c) != 64);
+    c.mode = u[0];
+    c.width = par[0];
+    c.height = par[1];
+    c.wdr = par[30];
+    c.rdma_en = c.wdma_en = u[0];
+    c.rdma_dtype = c.wdma_dtype = u[1];
+    memcpy(c.paddr, &u[3], sizeof(c.paddr));
+    if (u[2] == 0) {
+        c.rdma_fmt = 0x2a;
+        c.wdma_fmt = 0x20;
+    } else if (u[2] == 1) {
+        c.rdma_fmt = 0x24;
+        c.wdma_fmt = 0x22;
+    } else {
+        c.rdma_fmt = c.wdma_fmt = u[2];
+        isp_printf(2, "[%s %d] This module is not supported!!!", "tisp_s_raw_rw_control", 1712);
+    }
+    return tisp_raw_set_rw_control(a0, (uintptr_t)&c);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006e450 origin=fragment_seed original=tisp_s_raw_rw_control_internal */
@@ -161273,42 +161155,15 @@ tisp_s_raw_rw_control_internal0xc4:
     return 0;
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000006e51c origin=fragment_seed original=tisp_g_raw_rw_handler */
+/* OEM 0x6bfdc / 0x6bfec: tail calls (the recovered thunks had lost them). */
 int32_t tisp_g_raw_rw_handler(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: Unknown */
-    /* unmatched fragment 1 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6e524:	03200408 	jr.hb	t9 */
-
-    /* fragment 2: Unknown */
-    /* unmatched fragment 2 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6e528:	00000000 	nop */
-
-    return 0;
+    return tisp_raw_get_rw_handler(a0, a1);
 }
 
-/* WHOLE_DRIVER_CANDIDATE fn_000000000006e52c origin=fragment_seed original=tisp_s_raw_rw_handler */
 int32_t tisp_s_raw_rw_handler(uint32_t a0, uintptr_t a1)
 {
-    uint32_t *t9 = 0;
-
-    /* fragment 0: ConstantLoad */
-    t9 = 0x0;
-
-    /* fragment 1: Unknown */
-    /* unmatched fragment 1 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6e534:	03200408 	jr.hb	t9 */
-
-    /* fragment 2: Unknown */
-    /* unmatched fragment 2 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 6e538:	00000000 	nop */
-
-    return 0;
+    return tisp_raw_set_rw_handler(a0, a1);
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006e53c origin=fragment_seed original=tisp_s_raw_row_control */
@@ -171935,6 +171790,26 @@ int64_t ispcore_interrupt_service_routine(uintptr_t a0)
         /* Bit 9 was previously acknowledged without dispatch while ADR
          * was disabled. Only the native, owned-page reader is now armed. */
         if (status2 & (BIT(4) | BIT(20))) t41_work_end(T41_WT_ISR_FDN, t41_isr_t0);
+        /* RAW ring (IMP_ISP_RAW_RwControl, openimp #320): OEM slots 68/69 =
+         * status 0x400b8 bits 4/5, tisp_raw_wdma/rdma_fd_interrupt (registered
+         * by tisp_raw_init).  The OEM table loop calls them; the hard-wired
+         * dispatch (t41_isr_dispatch=0) did not, so the ring never woke up.
+         * Both callbacks only complete() and requeue one DMA address. */
+        if (t41_isr_dispatch == 0 && t41_raw_irq && (status3 & (BIT(4) | BIT(5)))) {
+            int k;
+
+            for (k = 4; k <= 5; k++) {
+                int32_t callback;
+
+                if (!(status3 & BIT(k)))
+                    continue;
+                callback = READ_ONCE(irq_func_cb[64 + k]);
+                if (!t41_kernel_data_ptr((void *)(uintptr_t)(uint32_t)callback))
+                    continue;
+                t41_isr_counts[64 + k]++;
+                ((int32_t (*)(uint32_t))(uintptr_t)(uint32_t)callback)(0);
+            }
+        }
         t41_isr_t0 = t41_work_begin();
         if ((status0 & BIT(9)) && t41_stock_adr_profile <= 0)
             t41_native_adr_interrupt();
