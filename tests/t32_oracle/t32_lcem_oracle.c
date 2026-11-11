@@ -9,7 +9,12 @@
  * Compared: every byte of all four channel states, the hook calls
  * (tisp_lce_par_to_used / tisp_lce_curve_init_default, stubbed here: they
  * are checked by t32_lce_oracle) in order with the channel, and the return
- * value of the functions that have one.  Exit 1 on the first mismatch.
+ * value of the functions that have one.  get_show_data / param_array_get /
+ * param_array_set: show mode 0 / not, zone row < 18 / column < 32, WDR
+ * byte equal / different to the t32_data_e20d8 flag (0 / 1 / other), the
+ * compress / Gauss / write_ctrl_reg callees stubbed (pointer arguments
+ * as state offsets, the Gauss source bytes at the call), output buffer and
+ * length compared.  Exit 1 on the first mismatch.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,9 +24,12 @@
 
 #define STB 0x22850
 #define STATB 40960
+#define PARB 720
 extern u64 tisp_lce_wdr_en(u32, u32, u32, u32), tisp_lce_top_change_state(u32, u32, u32, u32),
 	   tisp_lce_dn_params_refresh(u32, u32, u32, u32), tisp_lce_get_hist_data(u32, u32, u32, u32),
-	   tisp_lce_get_sum_data(u32, u32, u32, u32);
+	   tisp_lce_get_sum_data(u32, u32, u32, u32), tisp_lce_get_show_data(u32, u32, u32, u32),
+	   tisp_lce_param_array_get(u32, u32, u32, u32), tisp_lce_param_array_set(u32, u32, u32, u32);
+u8 t32_data_e20d8[4] __attribute__((weak));	/* .bss: LCE WDR flag */
 
 static u32 rs = 0x9e3779b9u;
 static u32 rnd(void)
@@ -31,13 +39,42 @@ static u32 rnd(void)
 }
 
 #define LOGN 8
-struct hlog { unsigned int n; u32 e[LOGN][2]; };
+struct hlog { unsigned int n; u32 e[LOGN][6]; };
 static struct hlog vl, ol, *cur;
-static void hrec(u32 kind, u32 ch)
+static uintptr_t side_st, side_par;
+static void hrec5(u32 kind, u32 a, u32 b, u32 c, u32 d)
 {
-	if (cur->n < LOGN) { cur->e[cur->n][0] = kind; cur->e[cur->n][1] = ch; }
+	if (cur->n < LOGN) {
+		cur->e[cur->n][0] = kind; cur->e[cur->n][1] = a; cur->e[cur->n][2] = b;
+		cur->e[cur->n][3] = c; cur->e[cur->n][4] = d; cur->e[cur->n][5] = 0;
+	}
 	cur->n++;
 }
+static void hrec(u32 kind, u32 ch) { hrec5(kind, ch, 0, 0, 0); }
+static u32 off(uintptr_t p)	/* a state pointer as offset, the parameter section tagged */
+{
+	if (p >= side_st && p < side_st + 0x22850) return (u32)(p - side_st);
+	if (p >= side_par && p < side_par + PARB) return 0x80000000u | (u32)(p - side_par);
+	return 0xdead0000u;
+}
+static void c_part1(uintptr_t s, uintptr_t d) { hrec5(3, off(s), off(d), 0, 0); }
+static void c_comp(u32 n, uintptr_t s, uintptr_t d) { hrec5(4, n, off(s), off(d), 0); }
+static void c_gauss(u32 ch, uintptr_t s, uintptr_t d, u32 n)
+{
+	u32 b = 0;
+
+	memcpy(&b, (const void *)s, 3);
+	hrec5(5, ch, off(s), off(d), n);
+	if (cur->n <= LOGN) cur->e[cur->n - 1][5] = b;
+}
+u64 lce_compress_data_part_1(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; c_part1(a0, a1); return 0; }
+u64 lce_compress_data(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; c_comp(a0, a1, a2); return 0; }
+u64 tisp_lce_gauss_wgt(u32 a0, u32 a1, u32 a2, u32 a3) { c_gauss(a0, a1, a2, a3); return 0; }
+u64 tisp_lce_write_ctrl_reg(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; hrec(6, a0); return 0; }
+static void o_part1(const u8 *s, u8 *d) { c_part1((uintptr_t)s, (uintptr_t)d); }
+static void o_comp(u32 n, const u8 *s, u8 *d) { c_comp(n, (uintptr_t)s, (uintptr_t)d); }
+static void o_gauss(u32 ch, const u8 *s, u8 *d, u32 n) { c_gauss(ch, (uintptr_t)s, (uintptr_t)d, n); }
+static void o_wcr(u32 ch) { hrec(6, ch); }
 
 u64 tisp_lce_par_to_used(u32 a0, u32 a1, u32 a2, u32 a3)
 {
@@ -53,12 +90,14 @@ u64 tisp_lce_curve_init_default(u32 a0, u32 a1, u32 a2, u32 a3)
 }
 static void o_par(u32 ch) { hrec(1, ch); }
 static u32 o_curve(u32 ch) { hrec(2, ch); return 0x2222; }
-static const struct t32_lcem_ops ops = { o_par, o_curve };
+static const struct t32_lcem_ops ops = { o_par, o_curve, o_part1, o_comp, o_gauss, o_wcr };
 
 int main(void)
 {
-	u8 *vs[4], *os[4], *stats = t32o_alloc(STATB), *par = t32o_alloc(512);
-	unsigned long n, N = 3000, per[5] = { 0 };
+	u8 *vs[4], *os[4], *stats = t32o_alloc(STATB), *par = t32o_alloc(PARB), *opar = t32o_alloc(PARB);
+	unsigned long n, N = 6000, per[8] = { 0 };
+	u8 *vout = t32o_alloc(1500), *oout = t32o_alloc(1500), *in = t32o_alloc(712);
+	u32 *vlen = t32o_alloc(4), *olen = t32o_alloc(4);
 	u32 ch, i;
 
 	for (ch = 0; ch < 4; ch++) {
@@ -67,12 +106,13 @@ int main(void)
 	}
 	for (n = 0; n < N; n++) {
 		struct t32_lcem l;
-		int fn = (int)(rnd() % 5);
+		int fn = (int)(rnd() % 8);
+		u8 wflag = (rnd() % 3 == 0) ? 0 : ((rnd() & 1) ? 1 : rnd()), oflag;
 		u32 c = rnd() & 3, en = rnd(), rv = 0, ro = 0;
 		u32 tun[4];
 
 		for (i = 0; i < STATB; i += 4) { u32 r = rnd(); memcpy(stats + i, &r, 4); }
-		for (i = 0; i < 512; i++) par[i] = rnd();
+		for (i = 0; i < PARB; i++) par[i] = rnd();
 		par[T32_LCEM_PAR_TOP] = (n % 3 == 0) ? 1 : (n % 3 == 1 ? 0 : par[T32_LCEM_PAR_TOP]);
 		for (ch = 0; ch < 4; ch++) {
 			if (n < 4 || (rnd() & 15) == 0)
@@ -81,24 +121,42 @@ int main(void)
 				for (i = 0; i < 64; i++) vs[ch][rnd() % STB] = rnd();
 			t32_lcem_wr32(vs[ch], T32O_PTR(par));
 			tun[ch] = rnd();
+			vs[ch][T32_LCEM_SHOW_ROW] = rnd() % 18;
+			vs[ch][T32_LCEM_SHOW_COL] = rnd() % 32;
+			if (rnd() & 1) vs[ch][T32_LCEM_SHOW_MODE] = 0;
+			if (rnd() & 1) vs[ch][T32_LCEM_DAYNIGHT] = 0;
+			{ u32 r = rnd() % 3; vs[ch][T32_LCEM_WDR] = r == 0 ? wflag : (r == 1 ? 0 : rnd()); }
 			memcpy(os[ch], vs[ch], STB);
+			t32_lcem_wr32(os[ch], T32O_PTR(opar));	/* our own copy of the parameter section */
 		}
+		memcpy(opar, par, PARB);
+		for (i = 0; i < 712; i++) in[i] = rnd();
+		for (i = 0; i < 1500; i++) vout[i] = oout[i] = rnd();
+		*vlen = *olen = rnd();
+		oflag = wflag;
 
 		t32o_reset();
 		memset(&ol, 0, sizeof(ol)); cur = &ol;
 		l.ops = &ops;
 		for (ch = 0; ch < 4; ch++) l.st[ch] = os[ch];
 		l.tuning = tun;
+		l.wdr_flag = &oflag;
+		side_st = (uintptr_t)os[c]; side_par = (uintptr_t)opar;
 		switch (fn) {
 		case 0: ro = t32_lce_wdr_en(&l, c, en & 0xff); break;
 		case 1: t32_lce_top_change_state(&l, c); break;
 		case 2: ro = t32_lce_dn_params_refresh(&l, c); break;
 		case 3: t32_lce_get_hist_data(&l, c, stats); break;
-		default: t32_lce_get_sum_data(&l, c, stats); break;
+		case 4: t32_lce_get_sum_data(&l, c, stats); break;
+		case 5: t32_lce_get_show_data(&l, c); break;
+		case 6: ro = t32_lce_param_array_get(&l, c, oout, olen); break;
+		default: ro = t32_lce_param_array_set(&l, c, in); break;
 		}
 
 		t32o_reset();
 		memset(&vl, 0, sizeof(vl)); cur = &vl;
+		t32_data_e20d8[0] = wflag;
+		side_st = (uintptr_t)vs[c]; side_par = (uintptr_t)par;
 		for (ch = 0; ch < 4; ch++) {
 			t32_data_e1da8[ch] = T32O_PTR(vs[ch]);
 			t32_data_dd0a4[ch] = tun[ch];
@@ -108,13 +166,24 @@ int main(void)
 		case 1: t32o_call((t32o_fn)(void (*)(void))tisp_lce_top_change_state, c, rnd(), rnd(), rnd(), 0); break;
 		case 2: rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_lce_dn_params_refresh, c, rnd(), rnd(), rnd(), 0); break;
 		case 3: t32o_call((t32o_fn)(void (*)(void))tisp_lce_get_hist_data, c, T32O_PTR(stats), rnd(), rnd(), 0); break;
-		default: t32o_call((t32o_fn)(void (*)(void))tisp_lce_get_sum_data, c, T32O_PTR(stats), rnd(), rnd(), 0); break;
+		case 4: t32o_call((t32o_fn)(void (*)(void))tisp_lce_get_sum_data, c, T32O_PTR(stats), rnd(), rnd(), 0); break;
+		case 5: t32o_call((t32o_fn)(void (*)(void))tisp_lce_get_show_data, c, rnd(), rnd(), rnd(), 0); break;
+		case 6: rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_lce_param_array_get, c, T32O_PTR(vout), T32O_PTR(vlen), rnd(), 0); break;
+		default: rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_lce_param_array_set, c, T32O_PTR(in), rnd(), rnd(), 0); break;
 		}
 
-		if (rv != ro || vl.n != ol.n || memcmp(vl.e, ol.e, sizeof(vl.e))) {
+		if (rv != ro || vl.n != ol.n || memcmp(vl.e, ol.e, sizeof(vl.e)) || memcmp(vout, oout, 1500) ||
+		    *vlen != *olen || t32_data_e20d8[0] != oflag) {
 			printf("t32_lcem_oracle: FAIL case %lu fn %d ch %u: ret %#x/%#x hooks %u/%u\n", n, fn, c, rv, ro, vl.n, ol.n);
 			return 1;
 		}
+		if (memcmp(par, opar, PARB)) {
+			printf("t32_lcem_oracle: FAIL case %lu fn %d: parameter section differs\n", n, fn);
+			return 1;
+		}
+		for (ch = 0; ch < 4; ch++)
+			if (t32_lcem_rd32(os[ch]) == T32O_PTR(opar))
+				t32_lcem_wr32(os[ch], T32O_PTR(par));
 		for (ch = 0; ch < 4; ch++)
 			if (memcmp(vs[ch], os[ch], STB)) {
 				for (i = 0; i < STB && vs[ch][i] == os[ch][i]; i++)
@@ -125,7 +194,7 @@ int main(void)
 			}
 		per[fn]++;
 	}
-	printf("t32_lcem_oracle: PASS %lu cases (wdr_en %lu, top_change_state %lu, dn_params_refresh %lu, get_hist_data %lu, get_sum_data %lu)\n",
-	       N, per[0], per[1], per[2], per[3], per[4]);
+	printf("t32_lcem_oracle: PASS %lu cases (wdr_en %lu, top_change_state %lu, dn_params_refresh %lu, get_hist_data %lu, get_sum_data %lu, get_show_data %lu, param_array_get %lu, param_array_set %lu)\n",
+	       N, per[0], per[1], per[2], per[3], per[4], per[5], per[6], per[7]);
 	return 0;
 }

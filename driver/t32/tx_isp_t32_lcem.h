@@ -11,6 +11,18 @@
  * 3 = full refresh, 4 = top state without curve reload) and the WDR enable
  * byte (+0x2284c).  Parameter byte +214 is the "top" state.
  *
+ * tisp_lce_get_show_data, tisp_lce_param_array_get and
+ * tisp_lce_param_array_set (appended): the API view of the state.  The
+ * show data (state +4 .. +35, two compressed curves at +36 / +100) come
+ * from the day block (+0x22736 == 0: curves at +0x224fc / +0x2257c) or the
+ * selected zone (+0x2273a row, +0x2273b column, 64-byte curves from
+ * +0x99a4).  get returns 1451 bytes: 712 parameter bytes, 160 state bytes
+ * (+4), 576 bytes (+0x21f64) and 3 bytes (+0x223e4).  set takes 712
+ * parameter bytes, and on a change of the WDR byte (+0x22737, kept as a
+ * flag in t32_data_e20d8) reloads the curve and the Gauss weights.
+ * lce_compress_data(_part_1), tisp_lce_gauss_wgt and
+ * tisp_lce_write_ctrl_reg are hooks as well.
+ *
  * tisp_lce_par_to_used and tisp_lce_curve_init_default (ported in
  * tx_isp_t32_lce.h, checked by t32_lce_oracle) are hooks here.  The vendor
  * functions without a result (top_change_state, get_hist_data,
@@ -60,12 +72,17 @@ typedef uint16_t u16;
 struct t32_lcem_ops {
 	void (*par_to_used)(u32 ch);		/* tisp_lce_par_to_used */
 	u32 (*curve_init_default)(u32 ch);	/* tisp_lce_curve_init_default */
+	void (*compress_part1)(const u8 *src, u8 *dst);			/* lce_compress_data_part_1 */
+	void (*compress)(u32 n, const u8 *src, u8 *dst);		/* lce_compress_data */
+	void (*gauss_wgt)(u32 ch, const u8 *src, u8 *dst, u32 n);	/* tisp_lce_gauss_wgt */
+	void (*write_ctrl_reg)(u32 ch);					/* tisp_lce_write_ctrl_reg */
 };
 
 struct t32_lcem {
 	const struct t32_lcem_ops *ops;
 	u8 *st[4];				/* t32_data_e1da8 */
 	u32 *tuning;				/* t32_data_dd0a4 */
+	u8 *wdr_flag;				/* t32_data_e20d8 */
 };
 
 static inline u32 t32_lcem_rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
@@ -150,6 +167,109 @@ static inline void t32_lce_get_sum_data(struct t32_lcem *l, u32 ch, const u8 *st
 			t32_lcem_wr32(st + T32_LCEM_SUM + 128 * row + 4 * col,
 				      t32_lcem_rd32(stats + T32_LCEM_SUM_SRC + T32_LCEM_SUM_STRIDE * row + 4 * col)
 				      & 0xffffff);
+}
+
+#define T32_LCEM_PAR_BYTES	712
+#define T32_LCEM_API_BYTES	1451
+#define T32_LCEM_SHOW_MODE	0x22736
+#define T32_LCEM_SHOW_ROW	0x2273a
+#define T32_LCEM_SHOW_COL	0x2273b
+#define T32_LCEM_WDR		0x22737
+#define T32_LCEM_DAY_SRC	0x22604		/* 12 + 12 show bytes, day */
+#define T32_LCEM_DAY_PAIR	0x225fc		/* 4 + 4 show bytes, day (2-byte stride) */
+#define T32_LCEM_NIGHT_SRC	0x226ac
+#define T32_LCEM_NIGHT_PAIR	0x226a4
+#define T32_LCEM_DAY_CURVE	0x224fc		/* two 128-byte curves */
+#define T32_LCEM_ZONE_CURVES	0x99a4		/* 64 bytes per zone, 32 zones per row */
+#define T32_LCEM_ZONE_CUR	0x22624		/* the selected zone's two curves */
+#define T32_LCEM_GAUSS		0x226cc		/* Gauss parameter block (state + 0x20000 + 9932) */
+#define T32_LCEM_LIGHT		0x22822		/* 12 light bytes from parameter u16 +48 .. +70 */
+#define T32_LCEM_DAYNIGHT	0x22734
+
+/* the 4 pair bytes and 12 + 12 bytes of the show data (state +4 .. +35) */
+static inline void t32_lcem_show_bytes(u8 *st, u32 pair, u32 src)
+{
+	u32 i;
+
+	for (i = 0; i < 4; i++) {
+		st[4 + i] = st[pair + 2 * i];
+		st[20 + i] = st[pair + 2 * i + 20];
+	}
+	for (i = 0; i < 12; i++) {
+		st[8 + i] = st[src + i];
+		st[24 + i] = st[src + i + 20];
+	}
+}
+
+/* tisp_lce_get_show_data */
+static inline void t32_lce_get_show_data(struct t32_lcem *l, u32 ch)
+{
+	u8 *st = l->st[ch];
+
+	if (!st[T32_LCEM_SHOW_MODE]) {
+		t32_lcem_show_bytes(st, T32_LCEM_DAY_PAIR, T32_LCEM_DAY_SRC);
+		l->ops->compress_part1(st + T32_LCEM_DAY_CURVE, st + 36);
+		l->ops->compress_part1(st + T32_LCEM_DAY_CURVE + 128, st + 100);
+	} else {
+		u32 zone = (st[T32_LCEM_SHOW_ROW] << 5) + st[T32_LCEM_SHOW_COL];
+
+		t32_lcem_show_bytes(st, T32_LCEM_NIGHT_PAIR, T32_LCEM_NIGHT_SRC);
+		memcpy(st + T32_LCEM_ZONE_CUR, st + T32_LCEM_ZONE_CURVES + (zone << 6), 64);
+		l->ops->compress(2, st + T32_LCEM_ZONE_CUR, st + 36);
+		l->ops->compress(2, st + T32_LCEM_ZONE_CUR + 64, st + 100);
+	}
+}
+
+/* tisp_lce_param_array_get */
+static inline u32 t32_lce_param_array_get(struct t32_lcem *l, u32 ch, u8 *out, u32 *len)
+{
+	u8 *st = l->st[ch];
+
+	memcpy(out, t32_lcem_par(st), T32_LCEM_PAR_BYTES);
+	memcpy(out + 712, st + 4, 160);
+	t32_lce_get_show_data(l, ch);
+	memcpy(out + 872, st + 0x21f64, 576);
+	memcpy(out + 1448, st + 0x223e4, 3);
+	*len = T32_LCEM_API_BYTES;
+	return 0;
+}
+
+/* tisp_lce_param_array_set */
+static inline u32 t32_lce_param_array_set(struct t32_lcem *l, u32 ch, const u8 *in)
+{
+	u8 *st = l->st[ch];
+	u8 *par = (u8 *)t32_lcem_par(st);
+	u8 *g = st + T32_LCEM_GAUSS;
+	u8 wdr;
+
+	memcpy(par, in, T32_LCEM_PAR_BYTES);
+	l->ops->par_to_used(ch);
+	wdr = st[T32_LCEM_WDR];
+	if (*l->wdr_flag == wdr) {
+		l->ops->write_ctrl_reg(ch);
+	} else {
+		*l->wdr_flag = wdr != 0;
+		l->ops->curve_init_default(ch);
+		if (*l->wdr_flag) {
+			static const struct { u16 n, dst, mode; } gw[4] = {
+				{ 3, 299, 3 }, { 3, 319, 4 }, { 3, 244, 1 }, { 3, 264, 2 },
+			};
+			u32 i, k;
+
+			for (i = 0; i < 4; i++) {
+				for (k = 0; k < gw[i].n; k++)
+					st[T32_LCEM_LIGHT + 3 * i + k] = t32_lcem_rd16(par + 48 + 2 * (3 * i + k));
+				l->ops->gauss_wgt(ch, g + 342 + 3 * i, g + gw[i].dst, gw[i].mode);
+			}
+		} else {
+			l->ops->gauss_wgt(ch, par + 435, g + 161, 1);
+			memcpy(g + 155, par + 435, 3);
+			l->ops->gauss_wgt(ch, par + 438, g + 181, 2);
+			memcpy(g + 158, par + 438, 3);
+		}
+	}
+	st[T32_LCEM_MODE] = st[T32_LCEM_DAYNIGHT] ? 2 : 4;
+	return 0;
 }
 
 #endif
