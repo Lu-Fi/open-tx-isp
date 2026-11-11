@@ -119,8 +119,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t32_hw_stats.frame_ends++;
 	if (sta & T32_INT_AWB)
 		t32_hw_stats.awb_irqs++;
-	if (sta & T32_INT_AE)
+	if (sta & T32_INT_AE) {
 		t32_hw_stats.ae_irqs++;
+		t32_aec_kick();		/* the vendor AE frame (system irq 4: tisp_ae_interrupt_static) */
+	}
 	if (sta & T32_INT_AE_HIST) {
 		t32_hw_stats.ae_hist_irqs++;
 		t32_bringup_ae_kick();
@@ -180,6 +182,18 @@ static struct t32_lsc_work lsc_work;
 #define T32_AE_BUF_ORDER	3	/* 32 KiB >= 0x6000 */
 #define T32_AWB_BUF_ORDER	5	/* 128 KiB >= 0x1c000 */
 static unsigned long ae_buf, awb_buf;
+
+/* the four AE zone buffers (4 KiB each, at the start of the AE statistics buffer), uncached */
+const u8 *t32_hw_ae_zones(void)
+{
+	if (!ae_buf)
+		return NULL;
+#ifdef CONFIG_MIPS
+	return (const u8 *)CKSEG1ADDR(virt_to_phys((void *)ae_buf));
+#else
+	return (const u8 *)ae_buf;
+#endif
+}
 
 static void t32_stats_off(void)
 {

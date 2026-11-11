@@ -250,8 +250,12 @@ static void pf_work_fn(struct work_struct *w)
 	(void)w;
 	mutex_lock(&pf_lock);
 	if (pf_w && pf.ready && pf_any_filter()) {
-		t32_long_tgain_update(&pf_ltg_ops, t32_data_d03a0, pf.last_tgain, 0,
-				      READ_ONCE(tisp_tgain), 0, 0, 0, 0);
+		u32 g;
+
+		/* the vendor AE's long total gain (event 4) once it runs, else tisp_tgain */
+		if (!(t32_pp_on(T32_PP_AE) && t32_aec_tgain(&g)))
+			g = READ_ONCE(tisp_tgain);
+		t32_long_tgain_update(&pf_ltg_ops, t32_data_d03a0, pf.last_tgain, 0, g, 0, 0, 0, 0);
 		t32_pf_stats.runs++;
 	}
 	mutex_unlock(&pf_lock);
@@ -595,6 +599,7 @@ static struct {
 
 static void ae_free(void)
 {
+	t32_aec_detach();	/* the per-frame AE stops using the blocks first */
 	kfree(ae.b.ctx); kfree(ae.b.T); kfree(ae.b.B); kfree(ae.b.R); kfree(ae.b.D); kfree(ae.b.C);
 	memset(&ae, 0, sizeof(ae));
 }
@@ -678,6 +683,8 @@ int t32_pf_attach_ae(const u8 *sec, u32 width, u32 height)
 	for (i = 0; i < n; i++)
 		t32_hw_wr(w[i].reg, w[i].val);
 	ae.ready = true;
+	if (t32_aec_attach(&ae.b, ae.S, t32_hw_ae_zones()))	/* per-frame AE: tx_isp_t32_ae.c */
+		isp_printf(2, "tx-isp-t32: vendor AE per-frame chain not started\n");
 	mutex_unlock(&pf_lock);
 	return 0;
 }

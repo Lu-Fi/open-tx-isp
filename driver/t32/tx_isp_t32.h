@@ -27,6 +27,8 @@ int t32_core_sensor_mbus(u32 *code);
 int t32_core_sensor_expo(u32 packed);
 u32 t32_core_sensor_vts(void);
 int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr);
+u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg);
+int t32_core_sensor_set_fps(u32 fps);
 
 /* tx_isp_t32_hw.c */
 struct t32_hw_stats {
@@ -49,6 +51,19 @@ int t32_hw_msca_pop_done(int ch, u32 *y, u32 *uv);
 
 u32 t32_hw_rd(u32 off);
 void t32_hw_wr(u32 off, u32 v);
+
+/* tx_isp_t32_ae.c: the per-frame vendor AE chain (tx_isp_t32_aechain.h), behind T32_PP_AE */
+struct t32_ae_blk;
+struct t32_aec_drv_stats {
+	u32 frames, events, writes, expo_sets, fps_sets;
+	u32 mean, target, it, again, dgain, tgain;	/* the last frame */
+};
+extern struct t32_aec_drv_stats t32_aec_stats;
+int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones);
+void t32_aec_detach(void);
+void t32_aec_kick(void);
+bool t32_aec_tgain(u32 *g);
+const u8 *t32_hw_ae_zones(void);
 
 /* tx_isp_t32_tisp.c: per-frame tisp paths (ported blocks), switch t32_ported_paths */
 enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T32_PP_MDNS, T32_PP_DPC, T32_PP_GIB,
