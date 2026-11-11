@@ -76,6 +76,29 @@ int main(void)
 			fail = 1;
 		}
 	}
-	printf("t32_lces9_oracle: %u compared, %u mismatches\n", compared, fail ? 1u : 0u);
+	/* BEYOND VENDOR (#281): n 32..255 (vendor: stack overflow) must give the n = 31 result; ours only */
+	for (c = 0; c < 2000 && !fail; c++) {
+		struct t32_lce_hm16_par par, p31;
+		u16 hist[32], o1[32], o2[32];
+		u32 i;
+
+		for (i = 0; i < 32; i++)
+			hist[i] = (u16)(rnd() % 3 ? 700 + rnd() % 700 : rnd());
+		memset(&par, 0, sizeof(par));
+		par.n = (rnd() & 0xff00u) | (32 + rnd() % 224);
+		par.k8 = 88 + rnd() % 80;
+		par.c1 = rnd() % 2500; par.a = rnd() % 4000; par.e1 = 1000 + rnd() % 2500;
+		par.c3 = rnd() % 40; par.b = rnd() % 100; par.e2 = rnd() % 400; par.sh = rnd() % 6;
+		p31 = par;
+		p31.n = (par.n & ~0xffu) | 31;
+		t32_lce_hist_method_16bit_simd(hist, o1, &par);
+		t32_lce_hist_method_16bit_simd(hist, o2, &p31);
+		if (memcmp(o1, o2, sizeof(o1))) {
+			printf("MISMATCH n clamp (beyond vendor) case %u n %u\n", c, par.n & 0xff);
+			fail = 1;
+		}
+	}
+	printf("t32_lces9_oracle: %u compared, 2000 n >= 32 clamp checks (beyond vendor), %u mismatches\n", compared,
+	       fail ? 1u : 0u);
 	return fail ? 1 : 0;
 }
