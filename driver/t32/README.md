@@ -153,9 +153,21 @@ generation-shared come from the shared code instead:
   (`tx_isp_t32_aemath.h`, oracle `t32_aemath_oracle`) are ported and proven on
   the host. The driver builds the context at stream-on (`t32_pf_attach_ae`,
   `t32_ported_paths` bit 10, sensor block via `lib_tisp_sync_sensor_attr`)
-  and writes the init tail registers; it is not run per frame yet. Next: per-frame wiring of
-  `tisp_ae_interrupt_static` / `tisp_ae_long_ev_alloc` (tgain event to
-  `t32_long_tgain_update`) and `tisp_ae_calc_process`, then AWB.
+  and writes the init tail registers. Since 2026-11-11 (part 3) the vendor AE
+  runs per frame (`tx_isp_t32_ae.c` on `tx_isp_t32_aechain.h`, oracle
+  `t32_aechain_oracle`, all 67 bins, 23k frames bit-exact against the whole
+  vendor chain): every AE zone interrupt runs `tisp_ae_interrupt_static` (+
+  `tisp_ae_long_ev_alloc` once the tune ran) and `tisp_ae_calc_process`
+  (par_update_trig, algorithm = weight_mean + flicker + tune, long_process);
+  sensor exposure as packed it | again << 16 (TX_ISP_EVENT_SENSOR_EXPO),
+  event 4 (long total gain) feeds `t32_long_tgain_update` instead of
+  `tisp_tgain`. The dd2d4 sensor block is `t32_ae_sensor_blk`
+  (`tx_isp_t32_aesns.h`, oracle `t32_aesns_oracle`). Stats in
+  /proc/jz/isp/isp-m0 ("vendor AE"). Open: about 1 % of the oracle cases
+  differ at the very first AE frame in exposure-list mode; not QEMU / device
+  tested (the #288 QEMU rootfs has no EnableTuning, so no IQ bin and no AE
+  statistics; the QEMU cv8001 model has no exposure registers). Next: AWB
+  (`tisp_awb_init` port, `tisp_awb_interrupt_static` / `tisp_awb_process`).
 
 - **Front end: CSC, CSCCR, ISP top** (`tx_isp_t32_front.h`, flow of the vendor
   `tisp_csc_init`, `tisp_csccr_init`, `tisp_top_init`, `tisp_top_reg_cfg`),

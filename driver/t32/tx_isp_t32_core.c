@@ -930,6 +930,10 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_hw_stats.bringup_steps, t32_hw_stats.bringup_mean16, t32_hw_stats.bringup_it);
 	seq_printf(m, "per-frame ported paths: runs %u, writes %u\n",
 		   t32_pf_stats.runs, t32_pf_stats.writes);
+	seq_printf(m, "vendor AE: frames %u events %u writes %u expo %u fps %u; mean %u target %u it %u again %u dgain %u tgain %#x\n",
+		   t32_aec_stats.frames, t32_aec_stats.events, t32_aec_stats.writes, t32_aec_stats.expo_sets,
+		   t32_aec_stats.fps_sets, t32_aec_stats.mean, t32_aec_stats.target, t32_aec_stats.it,
+		   t32_aec_stats.again, t32_aec_stats.dgain, t32_aec_stats.tgain);
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
 	t32_fs_show(m);

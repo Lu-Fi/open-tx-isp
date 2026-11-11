@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T32 vendor AE chain, part 3: the AE runs per frame (openimp #234; planned, host only, not device-tested)
+
+- New `driver/t32/tx_isp_t32_aechain.h`: one vendor AE frame from the ported functions (tisp_ae_interrupt_static with tisp_ae_long_ev_alloc, tisp_ae_calc_process with par_update_trig / algorithm / long_process), plus tisp_ae_sort_H2L; tisp_ae_algorithm composed as the vendor does it (the weight_mean sums reach tisp_ae_tune). Oracle `t32_aechain_oracle`: 67 bins, 536 cases, 23224 frames, 0 mismatches, 21/21 mutations; open: ~1 % of the cases differ at the first AE frame in exposure-list mode.
+- New `driver/t32/tx_isp_t32_ae.c`: the chain runs on every AE zone interrupt (`t32_ported_paths` bit 10), sensor exposure via TX_ISP_EVENT_SENSOR_EXPO, event 4 total gain into `t32_long_tgain_update` (tisp_tgain only as fallback). Stats line "vendor AE" in /proc/jz/isp/isp-m0.
+- New `driver/t32/tx_isp_t32_aesns.h`: the dd2d4 sensor block mapping (oracle `t32_aesns_oracle`, 30000 cases, 12/12 mutations).
+
 ## 2026-11-11: T32 LSC / LCE per-frame blocks (openimp #234; planned, host only, not device-tested)
 
 - `driver/t32/tx_isp_t32_lsc.h` (appended): `t32_lsc_tgain_update` (vendor tisp_lsc_tgain_update: gain into the current values, strength for the gain, only 0x5050 written; d03a0 = 1: shadow words 2757 / 2751) and `t32_lsc_cur_init` (current values as tisp_lsc_init leaves them). `t32_lscx_oracle`: new tgain_update case for d03a0 = 0 and 1 plus the driver's context (current values, info block) against the vendor's after tisp_lsc_init; 44/44 mutations.
