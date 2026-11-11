@@ -33,6 +33,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `tx_isp_t32_libstream.h` + `t32_libstream_oracle` (planned, host only): lib_tisp_stream_on (rcfg trigger per sensor count, 20000-read busy poll, stream start): 1000 runs incl. the poll boundaries, callee / register order and return bit-exact, 16/16 mutations detected.
 - `tx_isp_t32_libaov.h` + `t32_libaov_oracle` (planned, host only): lib_tisp_aov_sleep and lib_tisp_aov_wake_up (AOV block sleep / wake-up sequences, top re-init, stream start): 20000 calls, block call order / arguments, traces, register writes and return bit-exact, 22/22 mutations detected.
 - `tx_isp_t32_librcfg.h` + `t32_librcfg_oracle` (planned, host only): lib_tisp_rcfg_switch_interrupt (previous channel rcfg control + register image copy, DMA kicks): 20000 calls, register / tisp_reg_write order and return bit-exact, d03a0 = 0 and 1, 16/16 mutations detected.
+- `tx_isp_t32_libvicp.h` + `t32_libvicp_oracle` (planned, host only): lib_tisp_vic_set_par and lib_tisp_vic_save_raw (raw stride / frame / buffer size, raw buffer from kmalloc / ISP buffer / MDNS buffer / caller, snapshot file names): 30000 calls, callee / trace / register order, .bss block, cleared buffer and return bit-exact, 24/24 mutations detected.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
