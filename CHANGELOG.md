@@ -11,6 +11,10 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 ## 2026-11-11: T20/T30 kernel review low findings (openimp #251; cross-build + host tests, not on a camera)
 
 - T20 `tx-isp-core.c`: a `frame_buffer_manager_create()` failure (ERR_PTR) is now detected with `IS_ERR_OR_NULL` (was `!vbm`; the frame channel dereferenced the error pointer). T30 `ispcore_slake_module`: NULL/IS_ERR guards for the core callback device and the child ops pointer; T30 AWB preset guard also requires 2 table columns. No other behaviour change. (L1 Temper trace is pr_debug since 6544a6de.)
+## 2026-11-11: T23 AWB runs on every AWB statistics interrupt like stock (openimp #233; device-tested on the T23 Jooan A6M, runtime swap)
+
+- Stock `awb_interrupt_static` (tx-isp-t23.ko 1.3.0) pushes event 9 (`JZ_Isp_Awb`, registered by `tiziano_awb_init`) on every AWB statistics interrupt, with no frame counter; the open driver ran the HLIL AWB only on every 4th snapshot (`source_awb_hlil_interval` = 4). Default now 1, and the parameter is a normal module parameter (it was bring-up only) so the old cadence stays selectable for A/B.
+- Device A/B (same module, `source_awb_hlil_interval` 4 vs 1, two runs each, 77 s stream, IR scene step): AWB runs per interrupt 0.25 -> 0.98 (the rest are interrupts that arrive while the previous run is still pending); first convergence after stream start 0.59 / 0.59 s -> 0.35 / 0.35 s (11 -> 8-9 interrupts); re-convergence after the IR-cut step 1.13 / 1.06 s -> 0.98 / 0.95 s; same final gains, no gain change in steady state; CPU busy 18.5 % -> 18.7 %; 0 oops.
 
 ## 2026-11-11: T41 VIC frame-done callback and RAW ring controls (openimp #320; VIC device-tested, RAW ring crashes the board: not usable yet)
 
