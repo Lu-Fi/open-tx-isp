@@ -4,6 +4,7 @@
  *
  * - tisp_awb_deinit: free the per channel AWB buffers.
  * - tisp_vic_mdma_enable: VIC memory DMA size, strides, buffer addresses, enable.
+ * - tisp_ae_algo_init: fill the AE algorithm init block from tuning / parameters.
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -176,6 +177,79 @@ static inline u32 t32_vic_mdma_enable(const struct t32_vmd_sensor *sen, u32 stri
 		break;
 	}
 	return 0;
+}
+
+/* ---- tisp_ae_algo_init (vendor 0x3597c), oracle t32_aealgo_oracle ---- */
+
+#define T32_AEA_CTX_DONE	2008	/* completion in the AE context */
+#define T32_AEA_TUN_A		8608	/* 4 tuning words -> info +12 */
+#define T32_AEA_TUN_B		8624	/* 4 tuning words -> info +60 */
+#define T32_AEA_PAR_A		448	/* 8 parameter words -> info +28 */
+#define T32_AEA_PAR_B		480	/* 8 parameter words -> info +76 */
+#define T32_AEA_REG_EXP		12376	/* read when tuning +8620 is 0 (shadow index 491) */
+#define T32_AEA_REG_EXP_SH	491
+#define T32_AEA_REG_GAIN	12808	/* read when tuning +8636 is 0 (shadow index 572) */
+#define T32_AEA_REG_GAIN_SH	572
+#define T32_AEA_ZONE_STRIDE	1052	/* t32_data_d0950 per channel */
+#define T32_AEA_ZONE_WORD	1044
+
+struct t32_aea_info {		/* argument a2, the algorithm's init block */
+	u32 rsvd0[2];
+	u32 zero;		/* +8 */
+	u32 tun_a[4];		/* +12: tuning +8608 .. +8620 */
+	u32 par_a[8];		/* +28: parameters +448 .. +476 */
+	u32 tun_b[4];		/* +60: tuning +8624 .. +8636 */
+	u32 par_b[8];		/* +76: parameters +480 .. +508 */
+	u32 rsvd1;		/* +108 */
+	u32 one[3];		/* +112 */
+	u8 w0, w1;		/* +124, +125: 15 */
+	u8 undef[6];		/* +126: vendor stack left-over, 0 here */
+	u8 zone[4];		/* +132: t32_data_d0950[ch] +1044 */
+};
+
+struct t32_aea_ops {
+	void (*init_completion)(void *c);
+	u32 (*reg_read)(u32 ch, u32 reg);
+};
+
+struct t32_aea {
+	const struct t32_aea_ops *ops;
+	u32 *enable;		/* t32_data_e15b8[4] */
+	const u32 *ctx;		/* t32_data_e15a8[4]: AE context, +0 parameter block, +4 tuning block */
+	const u8 *shadow;	/* t32_data_d03a0 */
+	const u8 *zone;		/* t32_data_d0950 */
+};
+
+/* tisp_ae_algo_init: the vendor's result is a left-over register (none here) */
+static inline void t32_ae_algo_init(struct t32_aea *a, u32 ch, u32 enable, struct t32_aea_info *info)
+{
+	u8 *ctx = t32_br_ptr(a->ctx[ch]);
+	const u8 *par, *tun;
+	u32 i;
+
+	a->enable[ch] = enable;
+	if (enable != 1)
+		return;
+	a->ops->init_completion(ctx + T32_AEA_CTX_DONE);
+	par = t32_br_ptr(t32_br_rd32(ctx));
+	tun = t32_br_ptr(t32_br_rd32(ctx + 4));
+	info->zero = 0;
+	for (i = 0; i < 4; i++) {
+		info->tun_a[i] = t32_br_rd32(tun + T32_AEA_TUN_A + 4 * i);
+		info->tun_b[i] = t32_br_rd32(tun + T32_AEA_TUN_B + 4 * i);
+	}
+	for (i = 0; i < 8; i++) {
+		info->par_a[i] = t32_br_rd32(par + T32_AEA_PAR_A + 4 * i);
+		info->par_b[i] = t32_br_rd32(par + T32_AEA_PAR_B + 4 * i);
+	}
+	if (!info->tun_a[3])
+		info->tun_a[3] = a->ops->reg_read(ch, *a->shadow ? T32_AEA_REG_EXP_SH : T32_AEA_REG_EXP);
+	if (!info->tun_b[3])
+		info->tun_b[3] = a->ops->reg_read(ch, *a->shadow ? T32_AEA_REG_GAIN_SH : T32_AEA_REG_GAIN);
+	info->one[0] = info->one[1] = info->one[2] = 1;
+	info->w0 = info->w1 = 15;
+	memset(info->undef, 0, sizeof(info->undef));
+	memcpy(info->zone, a->zone + T32_AEA_ZONE_STRIDE * ch + T32_AEA_ZONE_WORD, 4);
 }
 
 #endif /* TX_ISP_T32_BLKREST_H */
