@@ -915,12 +915,14 @@ static void regtrace_t23_source_awb_hlil_capture(const uint32_t *words,
     unsigned long flags;
     unsigned int zone;
     unsigned int populated = 0;
+    /* one read: the parameter is writable (0644) and a 0 between a test
+     * and the modulo would divide by zero in hard IRQ (review 2026-11-11 F7) */
+    uint32_t interval = TX_ISP_READ_ONCE(regtrace_t23_source_awb_hlil_interval);
 
     if (!regtrace_t23_source_awb_hlil)
         return;
     /* the first snapshot after a stream start is used at once */
-    if (regtrace_t23_source_awb_hlil_interval && snapshot != 1U &&
-        snapshot % regtrace_t23_source_awb_hlil_interval)
+    if (interval && snapshot != 1U && snapshot % interval)
         return;
 
     spin_lock_irqsave(&regtrace_t23_awb_hlil_lock, flags);

@@ -2088,12 +2088,20 @@ module_param(t41_raw_irq, bool, 0644);
 MODULE_PARM_DESC(t41_raw_irq, "call the RAW WDMA/RDMA frame-done callbacks (irq_func_cb[68]/[69]) from the ISR (default 1)");
 static int t41_raw_trace;
 static int t41_raw_sync = 1;
-/* Off until the board reset after the first RDMA start is understood
- * (#320): the controls answer EPERM ("not implemented") as before. */
+/* On since 1fcf7a73 (#320, the board reset after the first RDMA start was
+ * the RDMA frame-done completion at a wrong offset); 0 answers EPERM
+ * ("not implemented") as before. */
 static bool t41_raw_ring = true;
 module_param(t41_raw_ring, bool, 0644);
 MODULE_PARM_DESC(t41_raw_ring, "serve the RAW ring controls 0x80000a7/0x80000a8 of IMP_ISP_RAW_RwControl (default 1; 0 answers -EPERM)");
 static unsigned int t41_raw_diag;	/* bring-up only: 1 no RDMA start, 2 no requeue, 4 ISR log */
+/* Beyond vendor (review 2026-11-11 F2, same class as the fd-release stop the
+ * user approved for #320): the RAW disable waits at most this long for an
+ * RDMA frame done (it runs under the tuning mutex; with no frame handed back
+ * the OEM wait never ends).  0 = OEM: wait without a limit. */
+static unsigned int t41_raw_disable_ms = 1000;
+module_param(t41_raw_disable_ms, uint, 0644);
+MODULE_PARM_DESC(t41_raw_disable_ms, "RAW ring disable: max wait for an RDMA frame done in ms (default 1000; 0 = vendor, no limit)");
 module_param(t41_raw_diag, uint, 0644);
 static unsigned int t41_raw_isr_log;
 module_param(t41_raw_sync, int, 0644);
@@ -2405,7 +2413,11 @@ static unsigned char fs_work_comp_storage[16] __attribute__((aligned(4)));
 static struct {
     uint32_t vic_completion;
     struct completion comp;
-} globe_wait_attr;
+} globe_wait_attr = {
+    /* review 2026-11-11 F4: a 0xc0045432 before any arm must not sleep on a
+     * zeroed wait list (NULL head); the OEM leaves it to the first arm. */
+    .comp = COMPLETION_INITIALIZER(globe_wait_attr.comp),
+};
 static unsigned char __attribute__((aligned(4))) main_fs_work[28] = {
     0xe0, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -22309,6 +22321,7 @@ static int t41_tuning_csccr(unsigned int vinum, unsigned int is_get,
 
 static void t41_raw_note_owner(uintptr_t file);
 static void t41_raw_release(uintptr_t file);
+static int t41_raw_check_paddr(const uint32_t *u);
 
 static int t41_tuning_raw_rw(uintptr_t file, const struct tx_isp_tuning_t41_control *request)
 {
@@ -22327,13 +22340,18 @@ static int t41_tuning_raw_rw(uintptr_t file, const struct tx_isp_tuning_t41_cont
             return -EPERM;	/* stock g_ctrl has no 0x80000a7 */
         if (private_copy_from_user(words, user, 28))
             return -EFAULT;
+        if (words[0] == 1 && t41_raw_check_paddr(words))
+            return -EINVAL;	/* review 2026-11-11 F6, beyond vendor */
         tisp_s_raw_rw_control(0, (uintptr_t)words);
         t41_raw_note_owner(file);
         return 0;
     }
     if (request->is_get) {
         words[0] = 0;
-        tisp_g_raw_rw_handler(0, (uintptr_t)words);
+        /* the ISP was torn down under the sleeper (review 2026-11-11 F1):
+         * no frame address, the caller must not hand one back */
+        if (tisp_g_raw_rw_handler(0, (uintptr_t)words) == -ENODEV)
+            return -ENODEV;
         return private_copy_to_user(user, words, 4) ? -EFAULT : 0;
     }
     if (private_copy_from_user(words, user, 4))
@@ -156325,45 +156343,11 @@ int32_t tisp_raw_init(uint32_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006b280 origin=fragment_seed original=tisp_raw_deinit */
+static int32_t t41_raw_teardown(void);
+
 int32_t tisp_raw_deinit(void)
 {
-    t41_heapwatch_mark("tisp_raw_deinit");
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a0 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    s0 = (unsigned int *)&rpars;
-
-    /* fragment 2: MemoryAccess */
-    a0 = *(uint32_t *)((char *)((char *)&rpars));
-
-    /* fragment 3: Branch */
-    if (a0 == 0) { goto tisp_raw_deinit0x2c; }
-
-    /* fragment 4: CallSetup */
-    v0 = (unsigned int *)((uintptr_t (*)(uintptr_t))(uintptr_t)private_vfree)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 5: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&rpars)) = 0;
-
-tisp_raw_deinit0x2c:
-    /* fragment 6: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 7: Arithmetic */
-    v0 = 0;
-
-    /* fragment 8: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return 0;
+    return t41_raw_teardown();	/* review 2026-11-11 F1, see below */
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006b2c0 origin=fragment_seed original=tisp_ddr_to_isp_raw */
@@ -156611,6 +156595,56 @@ static int t41_raw_ready(void)
     return rpars ? 0 : -ENODEV;
 }
 
+/*
+ * Review 2026-11-11 F1: tisp_deinit frees rpars, and the completions live in
+ * it.  Every sleeper is counted; the teardown unpublishes rpars, completes
+ * both completions for all, waits until the count is 0 and only then frees
+ * the block.  A sleeper woken by the teardown gets -ENODEV.
+ */
+static DEFINE_SPINLOCK(t41_raw_lock);
+static atomic_t t41_raw_waiters = ATOMIC_INIT(0);
+
+/* off: 16 RDMA done, 32 WDMA done; timeout_ms 0 = no limit */
+static long t41_raw_wait(unsigned int off, unsigned int timeout_ms)
+{
+    unsigned long flags;
+    uint32_t rp;
+    long ret;
+
+    spin_lock_irqsave(&t41_raw_lock, flags);
+    rp = rpars;
+    if (rp)
+        atomic_inc(&t41_raw_waiters);
+    spin_unlock_irqrestore(&t41_raw_lock, flags);
+    if (!rp)
+        return -ENODEV;
+    if (timeout_ms) {
+        ret = wait_for_completion_interruptible_timeout(
+            (struct completion *)((char *)(uintptr_t)rp + off),
+            msecs_to_jiffies(timeout_ms));
+        ret = ret > 0 ? 0 : ret == 0 ? -ETIMEDOUT : ret;
+    } else {
+        ret = wait_for_completion_interruptible(
+            (struct completion *)((char *)(uintptr_t)rp + off));
+    }
+    if (READ_ONCE(rpars) != rp)
+        ret = -ENODEV;		/* torn down meanwhile */
+    smp_mb__before_atomic();
+    atomic_dec(&t41_raw_waiters);
+    return ret;
+}
+
+/* OEM disable / release register sequence: front end back on the sensor */
+static void t41_raw_stop_regs(uint32_t wdr)
+{
+    system_reg_write(0x801a8, 0x4444);
+    msleep(100);
+    system_reg_write(0x21024, 0);
+    system_reg_write(0x801a8, 0x4404);
+    if (wdr)
+        system_reg_write(0x801a8, 0x4410);
+}
+
 int32_t tisp_raw_get_rw_handler(uint32_t a0, uintptr_t a1)
 {
     long ret;
@@ -156619,7 +156653,9 @@ int32_t tisp_raw_get_rw_handler(uint32_t a0, uintptr_t a1)
     if (t41_raw_ready())
         return -ENODEV;
     T41_RAW_INFO(6)++;
-    ret = wait_for_completion_interruptible(T41_RAW_WDMA_DONE);
+    ret = t41_raw_wait(32, 0);	/* WDMA done */
+    if (ret == -ENODEV)
+        return -ENODEV;
     *(uint32_t *)a1 = system_reg_read(0x20020);	/* WDMA: last written frame */
     if (t41_raw_trace > 0) {
         t41_raw_trace--;
@@ -156688,13 +156724,13 @@ int64_t tisp_raw_set_rw_control(uint32_t a0, uintptr_t a1)
         t41_raw_ring_bytes = t41_raw_frame_bytes * i;
         ret = 0;
     } else {
-        ret = wait_for_completion_interruptible(T41_RAW_RDMA_DONE);
-        system_reg_write(0x801a8, 0x4444);
-        msleep(100);
-        system_reg_write(0x21024, 0);
-        system_reg_write(0x801a8, 0x4404);
-        if (c->wdr)
-            system_reg_write(0x801a8, 0x4410);
+        ret = t41_raw_wait(16, READ_ONCE(t41_raw_disable_ms));	/* RDMA done */
+        if (ret == -ENODEV)
+            return -ENODEV;
+        if (ret == -ETIMEDOUT)
+            printk(KERN_WARNING "t41: RAW disable: no RDMA frame done within %u ms, ring stopped anyway\n",
+                   t41_raw_disable_ms);
+        t41_raw_stop_regs(c->wdr);
         t41_raw_frame_bytes = 0;
     }
     T41_RAW_RP(1) = c->mode;
@@ -161066,15 +161102,75 @@ static void t41_raw_release(uintptr_t file)
     t41_raw_owner = 0;
     if (!rpars || T41_RAW_RP(1) != 1)
         return;
-    system_reg_write(0x801a8, 0x4444);
-    msleep(100);
-    system_reg_write(0x21024, 0);
-    system_reg_write(0x801a8, 0x4404);
-    if (((const uint32_t *)(void *)tisp_par_info_storage)[30])
-        system_reg_write(0x801a8, 0x4410);
+    t41_raw_stop_regs(((const uint32_t *)(void *)tisp_par_info_storage)[30]);
     T41_RAW_RP(1) = T41_RAW_RP(2) = T41_RAW_RP(3) = 0;
     t41_raw_frame_bytes = 0;
     printk(KERN_WARNING "t41: RAW ring stopped: owner closed the tuning node without a disable\n");
+}
+
+/*
+ * Beyond vendor (review 2026-11-11 F6): the WDMA writes RAW frames to the
+ * user addresses of the enable; the OEM queues them unchecked.  Every
+ * address must hold one frame inside rmem (tx_isp_guard.h, as the QBUF
+ * guard); no rmem window known: accepted as before.
+ */
+static int t41_raw_check_paddr(const uint32_t *u)
+{
+    const uint32_t *par = (const uint32_t *)(void *)tisp_par_info_storage;
+    uint32_t frame = (u[1] + 1) * par[0] * par[1];
+    int i;
+
+    for (i = 0; i < 4 && u[3 + i]; i++)
+        if (!frame || tx_isp_qbuf_phys_check(u[3 + i], frame)) {
+            printk_ratelimited(KERN_WARNING "t41: RAW enable: buffer %d 0x%08x+%u outside rmem, refused\n",
+                               i, u[3 + i], frame);
+            return -EINVAL;
+        }
+    return 0;
+}
+
+/*
+ * tisp_deinit -> tisp_raw_deinit (OEM 0x6b280 only vfrees rpars).  Review
+ * 2026-11-11 F1 (beyond vendor): a ring still on is stopped first, the
+ * sleepers in the RAW get / disable are woken and drained, then the block
+ * is freed.  A sleeper that does not leave within 2 s keeps the block
+ * (leaked, logged) instead of a use after free.
+ */
+static int32_t t41_raw_teardown(void)
+{
+    unsigned long flags;
+    uint32_t rp;
+    int i;
+
+    t41_heapwatch_mark("tisp_raw_deinit");
+    spin_lock_irqsave(&t41_raw_lock, flags);
+    rp = rpars;
+    rpars = 0;
+    spin_unlock_irqrestore(&t41_raw_lock, flags);
+    if (!rp)
+        return 0;
+    if (((uint32_t *)(uintptr_t)rp)[1] == 1) {
+        t41_raw_stop_regs(((const uint32_t *)(void *)tisp_par_info_storage)[30]);
+        printk(KERN_WARNING "t41: RAW ring still on at ISP teardown: stopped\n");
+    }
+    t41_raw_owner = 0;
+    t41_raw_frame_bytes = 0;
+    complete_all((struct completion *)((char *)(uintptr_t)rp + 16));
+    complete_all((struct completion *)((char *)(uintptr_t)rp + 32));
+    /* also lets an ISR that loaded the old pointer finish its complete() */
+    for (i = 0; i < 100; i++) {
+        msleep(20);
+        if (!atomic_read(&t41_raw_waiters))
+            break;
+    }
+    smp_mb__after_atomic();
+    if (atomic_read(&t41_raw_waiters)) {
+        printk(KERN_WARNING "t41: RAW teardown: %d sleeper(s) left, block kept\n",
+               atomic_read(&t41_raw_waiters));
+        return 0;
+    }
+    private_vfree((void *)(uintptr_t)rp);
+    return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006e53c origin=fragment_seed original=tisp_s_raw_row_control */
