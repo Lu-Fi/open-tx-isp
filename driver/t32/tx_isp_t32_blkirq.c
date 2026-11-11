@@ -19,7 +19,8 @@
  *    Tisp_lce_soft_t41_simd / _simd_v4 and tisp_lce_write_curve; the next
  *    bit 8 hands the new curve to the hardware.
  * Behind t32_ported_paths bit 12 (T32_PP_LCE).  Direct register mode.
- * TMO (bits 9 / 31) is not wired yet (README).
+ * The TMO bits 9 / 31 (tx_isp_t32_tmo.c, behind bit 13) share the table and
+ * the dispatch (t32_blk_tmo_set), so all block bits run in the vendor's order.
  */
 #include "tx_isp_t32_blkirq.h"	/* first: blkrest.h has a member named wake_up */
 
@@ -41,7 +42,7 @@ struct t32_blk_drv_stats t32_blk_stats;
 static DEFINE_SPINLOCK(blk_lock);	/* dispatch against attach / detach */
 static DEFINE_SPINLOCK(blk_par_lock);	/* the lock of tisp_lce_par */
 static DEFINE_SPINLOCK(blk_ev_lock);	/* the event queue lock (vendor t32_small_bss) */
-static bool blk_lce_on;
+static bool blk_lce_on, blk_tmo_on;
 static t32_intp_fn blk_irq[T32_INTP_BITS];	/* vendor t32_data_e3b50 (system_irq_func_set) */
 static struct t32_intp_glob blk_g;
 static struct t32_event_q *blk_q;
@@ -111,17 +112,22 @@ static void blk_ev_work_fn(struct work_struct *w)
 void t32_blk_irq(u32 sta)
 {
 	unsigned long f;
+	u32 on = 0;
 
 	if (!(sta & T32_BLK_IRQ_MASK))
 		return;
 	spin_lock_irqsave(&blk_lock, f);
 	if (blk_lce_on && t32_pp_on(T32_PP_LCE)) {
+		on |= T32_BLK_IRQ_LCE_BITS;
 		if (sta & (1U << T32_BLK_IRQ_LCE))
 			t32_blk_stats.lce_irqs++;
 		if (sta & (1U << T32_BLK_IRQ_LSF))
 			t32_blk_stats.lsf_irqs++;
-		t32_blk_dispatch(&blk_g, blk_irq, sta, 0);
 	}
+	if (blk_tmo_on && t32_pp_on(T32_PP_TMO))
+		on |= T32_BLK_IRQ_TMO_BITS;
+	if (sta & on)
+		t32_blk_dispatch(&blk_g, blk_irq, sta & on, 0);
 	spin_unlock_irqrestore(&blk_lock, f);
 }
 
@@ -140,7 +146,8 @@ void t32_blk_lce_detach(void)
 
 	spin_lock_irqsave(&blk_lock, f);
 	blk_lce_on = false;
-	memset(blk_irq, 0, sizeof(blk_irq));
+	blk_irq[T32_BLK_IRQ_LCE] = NULL;
+	blk_irq[T32_BLK_IRQ_LSF] = NULL;
 	spin_unlock_irqrestore(&blk_lock, f);
 	cancel_work_sync(&blk_ev_work);
 	if (blk_q)
@@ -175,6 +182,18 @@ void t32_blk_lce_attach(u8 *st, u32 width, u32 height)
 	blk_lce_on = true;
 	spin_unlock_irqrestore(&blk_lock, f);
 	t32_blk_stats.attaches++;
+}
+
+/* tx_isp_t32_tmo.c: the TMO handlers of bits 9 / 31 (system_irq_func_set of tisp_tmo_init), NULL = off */
+void t32_blk_tmo_set(u32 (*tmo)(u32 ch), u32 (*fbf)(u32 ch))
+{
+	unsigned long f;
+
+	spin_lock_irqsave(&blk_lock, f);
+	blk_irq[T32_BLK_IRQ_TMO] = tmo;
+	blk_irq[T32_BLK_IRQ_FBF] = fbf;
+	blk_tmo_on = tmo || fbf;
+	spin_unlock_irqrestore(&blk_lock, f);
 }
 
 void t32_blk_exit(void)
