@@ -80,7 +80,7 @@ static u32 hash(const u8 *p, u32 n)
 static u32 hstr(const char *s) { return hash((const u8 *)s, (u32)strlen(s)); }
 
 /* scripted answers */
-static u32 r_in, r_hnd, r_mod, r_mod_on, r_ntf, r_nval, r_init[2], r_reg[2], ninit, nreg;
+static u32 r_bus, r_bidx, r_in, r_hnd, r_mod, r_mod_on, r_ntf, r_nval, r_init[2], r_reg[2], ninit, nreg;
 
 /* both sides: image pointers are below 4 GiB, host stack buffers of ours are not */
 static u64 c_hnd(u32 s, u32 cmd, u32 arg, u32 a3)
@@ -110,11 +110,24 @@ static u64 c_ntf(unsigned long sd, unsigned long e, unsigned long p, unsigned lo
 		*v = r_nval;
 	return r_ntf;
 }
+/* the I2C registration may rewrite the bus type / index of the info (re-read by the vendor) */
+static u32 c_reg(u8 *info)
+{
+	u32 r;
+
+	ev(4, T32O_PTR(info), hash(info, 116), 0);
+	r = r_reg[nreg++ % 2];
+	if (r_bus && nreg == 1)
+		t32_g_wr32(info, T32_SSIO_I_BUS, r_bus - 1);
+	if (r_bidx && nreg == 1)
+		t32_g_wr16(info, T32_SSIO_I_INDEX, (u16)(r_bidx - 1));
+	return r;
+}
 /* ours */
 static int h_enum(u8 *sd, u8 *arg) { ev(1, T32O_PTR(sd), T32O_PTR(arg), 0); return (int)r_in; }
 static int h_set(u8 *sd, u8 *arg) { ev(2, T32O_PTR(sd), T32O_PTR(arg), 0); return (int)r_in; }
 static int h_stream(u8 *sd, u32 *v) { ev(3, T32O_PTR(sd), v[0], v[1]); return (int)r_in; }
-static u8 *h_reg(u8 *info) { ev(4, T32O_PTR(info), hash(info, 116), 0); return T32O_HOST(r_reg[nreg++ % 2]); }
+static u8 *h_reg(u8 *info) { return T32O_HOST(c_reg(info)); }
 static void h_lock(u8 *m) { ev(5, T32O_PTR(m), 0, 0); }
 static void h_unlock(u8 *m) { ev(6, T32O_PTR(m), 0, 0); }
 static void h_put(u32 a) { ev(7, a, 0, 0); }
@@ -128,7 +141,7 @@ static const struct t32_ssio_os os = { h_enum, h_set, h_stream, h_reg, h_lock, h
 V0(subdev_sensor_ops_enum_input, ev(1, a0, a1, 0); return (u64)r_in)
 V0(subdev_sensor_ops_set_input, ev(2, a0, a1, 0); return (u64)r_in)
 V0(vin_s_stream, ev(3, a0, t32_g_rd32(T32O_HOST(a1), 0), t32_g_rd32(T32O_HOST(a1), 4)); return (u64)r_in)
-V0(subdev_sensor_register_i2c_device, ev(4, a0, hash(T32O_HOST(a0), 116), 0); return r_reg[nreg++ % 2])
+V0(subdev_sensor_register_i2c_device, return c_reg(T32O_HOST(a0)))
 V0(t32o_mutex_lock, ev(5, a0, 0, 0); return 0)
 V0(t32o_mutex_unlock, ev(6, a0, 0, 0); return rnd())
 V0(private_i2c_put_adapter, ev(7, a0, 0, 0); return 0)
@@ -294,6 +307,8 @@ int main(void)
 		}
 		t32_data_d9008 = rnd() % 2 ? 0 : rnd() % 2 ? 1 : rnd();
 		/* hooks */
+		r_bus = rnd() % 6 ? 0 : 1 + rnd() % 4;
+		r_bidx = rnd() % 6 ? 0 : 1 + rnd() % 6;
 		r_in = pick_ret();
 		r_hnd = pick_ret();
 		r_mod_on = rnd() % 4 ? 0 : 1 + rnd() % 2;
@@ -306,7 +321,7 @@ int main(void)
 			r_reg[i] = k < 5 ? W(O_S(k % 2)) : k == 5 ? 0 : (u32)-1 - rnd() % 4095;
 		}
 		/* NULL subdev / arg only where the vendor checks them or only passes them on */
-		if (rnd() % 16 == 0 && (cmd - T32_SSIO_CMD_BASE == 0 || cmd - T32_SSIO_CMD_BASE == 2 ||
+		if (rnd() % 16 == 0 && (cmd - T32_SSIO_CMD_BASE < 3 ||
 					 cmd - T32_SSIO_CMD_BASE == 3 || cmd - T32_SSIO_CMD_BASE == 4 ||
 					 cmd - T32_SSIO_CMD_BASE == 32))
 			sdw = 0;
