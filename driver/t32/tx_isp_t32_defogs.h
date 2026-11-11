@@ -19,11 +19,11 @@
  * transmission grid; optional (+2424 == 1) the 5 x 5 filter (+2390) smooths the
  * strength grids (with +2416 the first one is copied to the other two).
  *
+ * BEYOND VENDOR (#281): channel values are clipped to 0 below (vendor: only above, a
+ * negative value, product low word >= 2^31 or a negative gain, indexes the curve, cache
+ * and flag tables before their start); values 0..255 are bit-exact.
  * Vendor behaviour kept (not fixed, a change needs the user's OK): the rounding bit
- * comes from the gain, not from the product; channel values are only clipped above, a
- * negative value (product low word >= 2^31, a negative gain) indexes the curve, cache
- * and flag tables before their start (the oracle keeps the statistics in range); the
- * window "variance" of the activity mask is the squared deviation of the window's last
+ * comes from the gain, not from the product; the window "variance" of the activity mask is the squared deviation of the window's last
  * cell only; the cache flags are byte counters (+1 / +16) that can carry into each
  * other; the signed divides by a zero threshold (+2421 = 0, +2422 * 4 = +2423 * 64)
  * give the MIPS model's -1 / 1.
@@ -184,7 +184,7 @@ static inline void t32_defog_soft(struct t32_defog_par *par)
 				s64 p = (s64)(u32)t32_dfs_rd32(b + T32_DFS_STAT + 720 * k + 4 * i) * g;
 				s32 v = (s32)((u32)(p >> ((31 - sh) & 63)) + rnd);
 
-				ch[k] = v < 256 ? v : 255;
+				ch[k] = v < 0 ? 0 : v < 256 ? v : 255;	/* BEYOND VENDOR (#281): vendor no lower clip */
 			}
 			y = (38 * ch[1] + 19 * ch[0] + 7 * ch[2]) >> 6;
 			if (!(y < 256))
