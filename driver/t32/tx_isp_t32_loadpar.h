@@ -24,11 +24,12 @@
  * block takes the sizes, the bin index and the bin's info word.
  * File, allocator, LUT copy and print calls go through struct t32_loadpar_ops.
  *
- * Vendor behaviour kept (not fixed, a change needs the user's OK): when the
- * night bin does not exist the channel state flag +127 is set to 1 (the info
- * flag to 0; every other missing bin clears both); the LUT info allocation
- * and the last five table allocations are not checked (NULL is stored and
- * used later); the table buffers of an earlier call are not freed (leak per
+ * BEYOND VENDOR (#281): a missing night bin clears the channel state flag
+ * +127 like every other missing bin (vendor: sets it to 1, "night loaded");
+ * a failed LUT info allocation or a failed allocation of one of the last five
+ * tables returns -1 (vendor: NULL stored and used later; the first two tables
+ * are checked by the vendor itself).  All other outputs are vendor-equal.
+ * Vendor behaviour kept: the table buffers of an earlier call are not freed (leak per
  * call); the selected bin index is not range checked (flags and info words
  * past the 4 bins are read).  The 128 byte path copies take the whole
  * snprintf buffer: behind the text are the tails of the earlier (longer)
@@ -133,7 +134,7 @@ static inline int t32_load_parameters(const struct t32_loadpar_glb *g, const str
 			snprintf(path, sizeof(path), t32_lp_fmt[i], (const char *)info + T32_LP_NAME);
 			if (!o->file_exist(path)) {
 				info[T32_LP_FLAG + i] = 0;
-				g->chs[ch * T32_LP_CHS_SIZE + T32_LP_FLAG + i] = i == 1;
+				g->chs[ch * T32_LP_CHS_SIZE + T32_LP_FLAG + i] = 0;	/* BEYOND VENDOR (#281): vendor i == 1 */
 				continue;
 			}
 			if (o->read_bin(ch, path, i))
@@ -164,6 +165,8 @@ static inline int t32_load_parameters(const struct t32_loadpar_glb *g, const str
 	memcpy(t32_lut_ptr(g->tuning[ch]), t32_lut_ptr(g->bins[idx]), T32_LP_BIN_SIZE);
 	if (!g->lut[ch])
 		g->lut[ch] = (u32)(uintptr_t)o->vmalloc(sizeof(struct t32_lut_info));
+	if (!g->lut[ch])
+		return -1;	/* BEYOND VENDOR (#281): vendor uses the NULL LUT info */
 	lut = t32_lut_ptr(g->lut[ch]);
 	for (i = 0; i < 7; i++) {
 		lut->tab[tab_of[i]] = (u32)(uintptr_t)o->vmalloc(g->lut_size[ch * 7 + i]);
@@ -171,6 +174,8 @@ static inline int t32_load_parameters(const struct t32_loadpar_glb *g, const str
 			o->isp_printf(2, "[%s %d]: vmalloc error !!!\n", "tisp_load_parameters", i ? 1423 : 1418);
 			return -1;
 		}
+		if (!lut->tab[tab_of[i]])
+			return -1;	/* BEYOND VENDOR (#281): vendor keeps the NULL table */
 	}
 	o->lut_copy(ch, info[T32_LP_SEL]);
 	memcpy(g->com + ch * T32_LP_COM_SIZE + T32_LP_COM_SIZES, lut, 14);
