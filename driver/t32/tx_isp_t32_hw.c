@@ -248,12 +248,8 @@ static void t32_stats_init(void)
 	n = t32_ae_stats_init(bin, width, height, virt_to_phys((void *)ae_buf), w);
 	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
 		isp_wr(w[i].reg, w[i].val);
-	if (t32_pp_on(T32_PP_AE)) {	/* the vendor AE context (tisp_ae_init state part, openimp #234) */
-		int r = t32_pf_attach_ae(bin + T32_AE_PARAM, width, height);
-
-		if (r)
-			isp_printf(2, "tx-isp-t32: vendor AE context not built (%d)\n", r);
-	}
+	if (t32_pp_on(T32_PP_AE))	/* the vendor AE context (tisp_ae_init state part, openimp #234) */
+		t32_pf_attach_ae(bin + T32_AE_PARAM, width, height);
 	n = t32_awb_stats_init(bin, width, height, virt_to_phys((void *)awb_buf), T32_AWB_INIT_EV, w);
 	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
 		isp_wr(w[i].reg, w[i].val);
@@ -396,6 +392,7 @@ static void t32_tisp_init(void)
 	u32 bytes, off, len, coff, width, height, code;
 	unsigned int mode;
 
+	t32_pf_reset();
 	if (t32_core_iq_bin(&bin, &bytes))
 		return;
 	if (!tisp_w)
@@ -720,7 +717,6 @@ void t32_hw_stream_on(void)
 	isp_wr(T32_INT3_EN, 0xffffffff);
 	isp_wr(T32_INT4_EN, 0xffffffff);
 	t32_front_init();
-	t32_pf_reset();		/* before the statistics init: it builds the AE context (t32_pf_attach_ae) */
 	t32_stats_init();
 	t32_tisp_init();
 	t32_pf_start();

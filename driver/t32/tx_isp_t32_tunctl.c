@@ -12,19 +12,19 @@
  *  - the vendor ISP device / core subdevice words the dispatchers read (BCSH
  *    bytes, mirror / flip, WDR flag, autozoom cache, sensor geometry) in
  *    vendor-shaped blocks, refreshed from the driver state before each call;
- *  - the tisp_s_* / tisp_g_* hooks of the other blocks: per channel the
- *    attribute the vendor block API keeps (what tisp_g_* returns after a
- *    tisp_s_*), with the vendor conversions (gamma presets, module control
- *    mask, face AE clamp, autozoom crop words).
+ *  - the tisp_s_* / tisp_g_* attribute pairs the dispatchers end in: per
+ *    channel the attribute the vendor block API keeps (what tisp_g_* returns
+ *    after a tisp_s_*), the AE scene block of the AE start EV, and the
+ *    tx_isp_*_attr .isra wrappers of AE / AWB (copy sizes of the vendor
+ *    wrappers: AWB attr 60, AWB weight 1024, AE weight 232, AE expo info 204,
+ *    AE target 264, AE exposure list 324, AE only-read 48, AWB only-read 4).
  *
- * The AE / AWB / statistics ids (attributes, weights, exposure info / list,
- * target, scene, only-read, statistics, statis config, face AE luma / weight,
- * CT trend offset; AE start EV) run on the live AE / AWB blocks in
- * tx_isp_t32_tunblk.c.  Still kept here, not applied to the image blocks:
- * anti-flicker, CSC, CCM, BCSH, mirror / flip, module ratio, face AE / AWB
- * areas, TMO face AE, WDR mode, scaler level; AF statistics answer zeros (no
- * AF block in the driver).  The sensor frame rate (0x08000070) stays in
- * tx_isp_t32_core.c.
+ * Stage 1 (#296, WIP): the attributes are kept and returned; they are not
+ * yet applied to the image blocks, and several vendor getters transform the
+ * value (gamma, statis config, AE / AWB attributes, autozoom, OSD: see
+ * docs in audit STATE) - not matched yet.  The sensor frame rate
+ * (0x08000070) stays in tx_isp_t32_core.c.  Statistics getters answer
+ * zeroed blocks until the statistics are wired.
  * Not served here: 0x71 day/night, 0x78 max fps, 0xa5 switch bin (#289); the ISP OSD ids
  * 0x74 / 0xa0 / 0xa1 / 0xa2 go to tx_isp_t32_isposd.c (#336, the ported MSCA OSD path).
  * Beyond vendor (safety): a VI number >= 3 is refused with -EINVAL (the vendor
