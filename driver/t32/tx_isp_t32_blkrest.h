@@ -12,6 +12,7 @@
  * - tisp_api_param_array_get: ISP API parameter read by id.
  * - tisp_day_or_night_par_refresh: day / night refresh of every block, waiter wake-up.
  * - tisp_day_or_night_s_ctrl: day / night switch (tuning bin, register pair, refresh).
+ * - tisp_long_ev_update: long-frame EV to the blocks (forced / on change, bypass bits).
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -734,6 +735,75 @@ static inline int t32_day_or_night_s_ctrl(struct t32_dnc *d, u32 ch, u32 mode, u
 	} else {
 		d->ops->bad_mode();
 	}
+	return 0;
+}
+
+/* ---- tisp_long_ev_update (vendor 0x249ec), oracle t32_longev_oracle ---- */
+
+#define T32_LEV_R_BYPASS	64	/* block bypass bits (shadow index 2) */
+#define T32_LEV_S_BYPASS	2
+#define T32_LEV_BYP_CCM		0x40
+#define T32_LEV_BYP_GAMMA	0x80
+#define T32_LEV_BYP_DEFOG	0x100
+#define T32_LEV_BYP_BCSH	0x2000
+#define T32_LEV_BYP_TMO		0x10
+#define T32_LEV_BYP_WDR_SHIFT	22	/* bit 22: no WDR long-frame update */
+#define T32_LEV_PIPE_STRIDE	904	/* t32_data_dc284 */
+#define T32_LEV_PIPE_WDR	36
+
+enum t32_lev_blk { T32_LEV_AWB, T32_LEV_GAMMA, T32_LEV_CCM, T32_LEV_DEFOG, T32_LEV_BCSH, T32_LEV_TMO, T32_LEV_WDR };
+
+struct t32_lev_ops {
+	u32 (*reg_read)(u32 ch, u32 reg);	/* tisp_reg_read */
+	/* tisp_<blk>_ev_update(ch, ev): AWB, gamma, CCM and WDR get only the EV; defog, BCSH, TMO also
+	 * x (5th argument) and, for defog / BCSH on the forced path, y (6th; elsewhere the vendor
+	 * leaves a stale stack word there, 0 here) */
+	void (*ev_update)(enum t32_lev_blk blk, u32 ch, u64 ev, u32 x, u32 y);
+};
+
+/*
+ * tisp_long_ev_update: hand the new long-frame EV to the blocks.  force == 1
+ * with !keep updates every block unconditionally (WDR when the pipe's WDR
+ * byte is 1); otherwise only on an EV change and for blocks not bypassed
+ * (gamma / CCM / BCSH also without a change).  The last EV (t32_data_dd678)
+ * is stored except when it did not change on the normal path.  Always 0.
+ */
+static inline int t32_long_ev_update(const struct t32_lev_ops *ops, const u8 *shadow, u64 *last,
+				     const u8 *pipe, u32 ch, u64 ev, u32 x, u32 y, u32 force, u32 keep)
+{
+	u32 byp = ops->reg_read(ch, *shadow ? T32_LEV_S_BYPASS : T32_LEV_R_BYPASS);
+	int changed;
+
+	if (force == 1 && !keep) {
+		ops->ev_update(T32_LEV_AWB, ch, ev, 0, 0);
+		ops->ev_update(T32_LEV_GAMMA, ch, ev, 0, 0);
+		ops->ev_update(T32_LEV_CCM, ch, ev, 0, 0);
+		ops->ev_update(T32_LEV_DEFOG, ch, ev, x, y);
+		ops->ev_update(T32_LEV_BCSH, ch, ev, x, y);
+		ops->ev_update(T32_LEV_TMO, ch, ev, x, 0);
+		if (pipe[T32_LEV_PIPE_STRIDE * ch + T32_LEV_PIPE_WDR] == force)
+			ops->ev_update(T32_LEV_WDR, ch, ev, 0, 0);
+		last[ch] = ev;
+		return 0;
+	}
+	changed = last[ch] != ev;
+	if (changed)
+		ops->ev_update(T32_LEV_AWB, ch, ev, 0, 0);
+	if (!(byp & T32_LEV_BYP_GAMMA))
+		ops->ev_update(T32_LEV_GAMMA, ch, ev, 0, 0);
+	if (!(byp & T32_LEV_BYP_CCM))
+		ops->ev_update(T32_LEV_CCM, ch, ev, 0, 0);
+	if (changed && !(byp & T32_LEV_BYP_DEFOG))
+		ops->ev_update(T32_LEV_DEFOG, ch, ev, x, 0);
+	if (!(byp & T32_LEV_BYP_BCSH))
+		ops->ev_update(T32_LEV_BCSH, ch, ev, x, 0);
+	if (!changed)
+		return 0;
+	if (!(byp & T32_LEV_BYP_TMO))
+		ops->ev_update(T32_LEV_TMO, ch, ev, x, 0);
+	if (!((byp >> T32_LEV_BYP_WDR_SHIFT) & 1))
+		ops->ev_update(T32_LEV_WDR, ch, ev, 0, 0);
+	last[ch] = ev;
 	return 0;
 }
 
