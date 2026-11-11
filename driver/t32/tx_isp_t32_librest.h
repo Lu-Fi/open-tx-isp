@@ -5,6 +5,7 @@
  * - tisp_ae_deinit: free the per channel AE buffers.
  * - tisp_intp_static_clear: clear the interrupt statistics snapshot of lib_tisp_debug_info.
  * - lib_tisp_save_specified_frame_raw: arm the VIC raw frame capture (stride, size, DMA buffer).
+ * - tisp_s_wdr_en: switch a channel between linear and WDR (tuning bank, top masks, blocks).
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -242,6 +243,197 @@ static inline u32 t32_lib_save_frame_raw(const struct t32_sfr_hooks *h, struct t
 	if (par[T32_VIC_PAR_INDEX] == 1 && t32_lr_rd32(g->cfg[ch] + T32_VIC_CFG_BUSY) == 0)
 		return h->mdma_enable(h->ctx, par, g->mdma_a1, 1, g->raw_dma);
 	par[T32_VIC_PAR_PENDING] = 1;
+	return 0;
+}
+
+/* ---- tisp_s_wdr_en (vendor 0xb0fb8), oracle t32_swdr_oracle ---- */
+
+#define T32_SWDR_BANKS		6U		/* tuning banks per channel (t32_data_dd0b4[ch * 6 + bank]) */
+#define T32_SWDR_TUNE_SIZE	0xf238U		/* tuning block copied from the bank to dd0a4[ch] */
+/* top control registers: direct address / shadow index (d03a0 != 0) */
+#define T32_SWDR_TOP_RST	0x200U		/* system register: bit 0 starts the top reset */
+#define T32_SWDR_TOP_RST_DONE	0x204U		/* bit 0: reset done (polled without limit) */
+#define T32_SWDR_TOP_CLK	0x24U		/* bit 2 pulsed */
+#define T32_SWDR_TOP_CLK_PULSE	0x4U
+#define T32_SWDR_BYPASS		64U		/* tisp_reg: block bypass bits */
+#define T32_SWDR_BYPASS_SH	2U
+#define T32_SWDR_MASK2		108U		/* tisp_reg: second block mask */
+#define T32_SWDR_MASK2_SH	6U
+#define T32_SWDR_MASK3		96U		/* tisp_reg: third block mask */
+#define T32_SWDR_MASK3_SH	4U
+#define T32_SWDR_MASK3_DEIR	0x4U		/* set when the DE-IR flag of channel 0 is 1 */
+#define T32_SWDR_BYPASS_BIT3	0x8U		/* cleared when WDR is switched on */
+#define T32_SWDR_TOP		0x88U		/* system register: WDR mode (bits 0..4), enable bit 16 */
+#define T32_SWDR_TOP_SH		0x4000U
+#define T32_SWDR_TOP_EN		0x10000U
+#define T32_SWDR_TOP_KEEP_ON	0x300U		/* (config >> 8): config bits 16..17 kept on enable */
+#define T32_SWDR_TOP_KEEP_OFF	0x200U		/* (top >> 8): top bit 17 kept on disable */
+#define T32_SWDR_REG20		0x20U
+#define T32_SWDR_REG20_VAL	0xc7ff1000U
+#define T32_SWDR_MODE_MAX	20U		/* channel config modes 4 .. 19 are written as mode + 4 */
+/* tuning block bytes (dd0a4[ch]): +4 .. +35 bypass bits, +36 .. +67 mask 2 bits; +68 .. +99 mask 3 bits
+ * (the vendor reads the mask 3 bits from channel 0's tuning block for every channel) */
+#define T32_SWDR_TUNE_BYPASS	4U
+#define T32_SWDR_TUNE_MASK2	36U
+#define T32_SWDR_TUNE_MASK3	68U
+/* per channel top block (t32_data_da850 + 336 * ch) */
+#define T32_SWDR_TOP_SIZE	336U
+#define T32_SWDR_TOP_BANK	296U		/* u32 selected bank */
+#define T32_SWDR_TOP_BANKW	300U		/* u32 copy of the bank word */
+#define T32_SWDR_TOP_BANKWS	304U		/* u32[] per bank word */
+#define T32_SWDR_TOP_COPY	128U		/* bytes from the channel state bank table to +0 */
+/* per channel state (t32_data_dc284 + 904 * ch) */
+#define T32_SWDR_ST_SIZE	904U
+#define T32_SWDR_ST_BANKTAB	4U		/* 128 B per bank, the first at +4 + 128 */
+#define T32_SWDR_ST_CFG		8U		/* u32: bits 0..4 WDR mode, bits 16..17 kept on enable */
+#define T32_SWDR_ST_WDR		36U		/* u8: WDR on */
+
+struct t32_swdr_hooks {
+	void *ctx;
+	u32 (*sys_read)(void *ctx, u32 reg);					/* system_reg_read */
+	void (*sys_write)(void *ctx, u32 reg, u32 val);				/* system_reg_write */
+	u32 (*reg_read)(void *ctx, u32 ch, u32 reg);				/* tisp_reg_read */
+	void (*reg_write)(void *ctx, u32 ch, u32 reg, u32 val);			/* tisp_reg_write */
+	void (*copy)(void *ctx, void *dst, const void *src, u32 n);		/* memcpy */
+	void (*lut_params_copy)(void *ctx, u32 ch, u32 bank);			/* tisp_lut_params_copy */
+	/* tisp_{lsc,gib,ccm,bcsh,gamma,mdns,lce,defog,dpc}_wdr_en */
+	void (*lsc)(void *ctx, u32 ch, u32 en);
+	void (*gib)(void *ctx, u32 ch, u32 en);
+	void (*ccm)(void *ctx, u32 ch, u32 en);
+	void (*bcsh)(void *ctx, u32 ch, u32 en);
+	void (*gamma)(void *ctx, u32 ch, u32 en);
+	void (*mdns)(void *ctx, u32 ch, u32 en);
+	void (*lce)(void *ctx, u32 ch, u32 en);
+	void (*defog)(void *ctx, u32 ch, u32 en);
+	void (*dpc)(void *ctx, u32 ch, u32 en);
+	/* isp_printf(level, source line, values of the message) */
+	void (*log)(void *ctx, u32 level, u32 line, u32 a, u32 b, u32 c);
+};
+
+struct t32_swdr_data {
+	const u8 *shadow;	/* t32_data_d03a0 */
+	const u32 *banks;	/* t32_data_dd0b4[4 * 6]: tuning bank blocks */
+	const u32 *tune;	/* t32_data_dd0a4[4]: current tuning block per channel */
+	u8 *top;		/* t32_data_da850 */
+	u8 *state;		/* t32_data_dc284 */
+	u32 *deir;		/* t32_data_e1474[4] */
+	u32 *wdr_on;		/* t32_data_f0918[4] */
+};
+
+/*
+ * The 32 bytes at p as bits 0..31, bit i = byte i & 1.  The vendor builds
+ * it bit by bit on top of an old value, v = (v & ~(1 << i)) + (byte << i);
+ * later steps only touch bits >= i + 1, so the old value and the upper
+ * byte bits all drop out.
+ */
+static inline u32 t32_swdr_bits(const u8 *p)
+{
+	u32 i, v = 0;
+
+	for (i = 0; i < 32; i++)
+		v |= (u32)(p[i] & 1) << i;
+	return v;
+}
+
+/* mask 3: the 32 bytes ORed in at bit i (whole bytes: a byte > 1 also sets bits above i) */
+static inline u32 t32_swdr_or_bits(const u8 *p)
+{
+	u32 i, v = 0;
+
+	for (i = 0; i < 32; i++)
+		v |= (u32)p[i] << i;
+	return v;
+}
+
+/*
+ * tisp_s_wdr_en(ch, en, bank): always 0.  en 1 = WDR, 0 = linear, other: no
+ * bank table copy (logged), the rest as linear except the WDR byte and
+ * the top register as for 0.  Vendor UB, kept: no range check of ch / bank
+ * (the bank table holds 6 per channel), the top reset done bit is polled
+ * without a limit.
+ */
+static inline u32 t32_s_wdr_en(const struct t32_swdr_hooks *h, const struct t32_swdr_data *d, u32 ch, u32 en,
+			       u32 bank)
+{
+	u32 src, ctl, mask2, mask3, cfg, mode, top, v;
+	u8 *tb, *st;
+	int sh;
+
+	bank &= 0xff;
+	src = d->banks[ch * T32_SWDR_BANKS + bank];
+	if (!src) {
+		h->log(h->ctx, 2, 640, bank, 0, 0);
+		return 0;
+	}
+	v = h->sys_read(h->ctx, T32_SWDR_TOP_RST);
+	h->sys_write(h->ctx, T32_SWDR_TOP_RST, v | 1);
+	while (!(h->sys_read(h->ctx, T32_SWDR_TOP_RST_DONE) & 1))
+		;
+	v = h->sys_read(h->ctx, T32_SWDR_TOP_CLK);
+	h->sys_write(h->ctx, T32_SWDR_TOP_CLK, v | T32_SWDR_TOP_CLK_PULSE);
+	h->sys_write(h->ctx, T32_SWDR_TOP_CLK, v & ~T32_SWDR_TOP_CLK_PULSE);
+
+	sh = *d->shadow != 0;
+	ctl = h->reg_read(h->ctx, ch, sh ? T32_SWDR_BYPASS_SH : T32_SWDR_BYPASS);
+	h->log(h->ctx, 0, 656, ch, en, ctl);
+
+	tb = d->top + T32_SWDR_TOP_SIZE * ch;
+	st = d->state + T32_SWDR_ST_SIZE * ch;
+	t32_lr_wr32(tb + T32_SWDR_TOP_BANKW, t32_lr_rd32(tb + T32_SWDR_TOP_BANKWS + 4 * bank));
+	h->copy(h->ctx, t32_lr_ptr(d->tune[ch]), t32_lr_ptr(src), T32_SWDR_TUNE_SIZE);
+	h->lut_params_copy(h->ctx, ch & 0xff, bank);
+	t32_lr_wr32(tb + T32_SWDR_TOP_BANK, bank);
+	if (en == 1 || en == 0)
+		h->copy(h->ctx, tb, st + T32_SWDR_ST_BANKTAB + (bank + 1) * T32_SWDR_TOP_COPY, T32_SWDR_TOP_COPY);
+	else
+		h->log(h->ctx, 2, 671, 0, 0, 0);
+
+	/* the bypass register value read above is only printed: every bit is replaced */
+	ctl = t32_swdr_bits(t32_lr_ptr(d->tune[ch]) + T32_SWDR_TUNE_BYPASS);
+	mask2 = t32_swdr_bits(t32_lr_ptr(d->tune[ch]) + T32_SWDR_TUNE_MASK2);
+	mask3 = t32_swdr_or_bits(t32_lr_ptr(d->tune[0]) + T32_SWDR_TUNE_MASK3);
+	if (d->deir[0] == 1)
+		mask3 |= T32_SWDR_MASK3_DEIR;
+
+	top = sh ? T32_SWDR_TOP_SH : T32_SWDR_TOP;
+	cfg = t32_lr_rd32(st + T32_SWDR_ST_CFG);
+	mode = cfg & 0x1f;
+	if (mode <= 3) {
+		h->sys_write(h->ctx, top, mode);
+		d->deir[ch] = 0;
+	} else if (mode < T32_SWDR_MODE_MAX) {
+		h->sys_write(h->ctx, top, mode + 4);
+		d->deir[ch] = 1;
+	} else {
+		h->log(h->ctx, 2, 706, 0, 0, 0);
+	}
+
+	if (en == 1) {
+		ctl &= ~T32_SWDR_BYPASS_BIT3;
+		st[T32_SWDR_ST_WDR] = 1;
+		v = (cfg >> 8 & T32_SWDR_TOP_KEEP_ON) | T32_SWDR_TOP_EN | h->sys_read(h->ctx, top);
+	} else {
+		st[T32_SWDR_ST_WDR] = 0;
+		v = h->sys_read(h->ctx, top) >> 8 & T32_SWDR_TOP_KEEP_OFF;
+		v |= h->sys_read(h->ctx, top);
+	}
+	h->sys_write(h->ctx, top, v);
+	h->reg_write(h->ctx, ch, sh ? T32_SWDR_BYPASS_SH : T32_SWDR_BYPASS, ctl);
+	h->reg_write(h->ctx, ch, sh ? T32_SWDR_MASK2_SH : T32_SWDR_MASK2, mask2);
+	h->reg_write(h->ctx, ch, sh ? T32_SWDR_MASK3_SH : T32_SWDR_MASK3, mask3);
+
+	h->lsc(h->ctx, ch, en);
+	h->gib(h->ctx, ch, en);
+	h->ccm(h->ctx, ch, en);
+	h->bcsh(h->ctx, ch, en);
+	h->gamma(h->ctx, ch, en);
+	h->mdns(h->ctx, ch, en);
+	h->lce(h->ctx, ch, en);
+	h->defog(h->ctx, ch, en);
+	h->sys_write(h->ctx, sh ? T32_SWDR_TOP_SH : T32_SWDR_REG20, T32_SWDR_REG20_VAL);
+	h->dpc(h->ctx, ch, en);
+	d->wdr_on[ch] = en;
+	h->log(h->ctx, 0, 748, en, ctl, 0);
 	return 0;
 }
 
