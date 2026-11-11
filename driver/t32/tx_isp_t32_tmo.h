@@ -1661,3 +1661,111 @@ static inline void t32_tmo_adr_soft_process(void (*hook)(void *, int, int), void
 }
 
 #endif /* TX_ISP_T32_TMO_H */
+
+/* ---- phase 9a: param_array_set, api_set_curve, wake_up (unported callees are hooks) ---- */
+
+/*
+ * Environment of the shared refresh tail of tisp_tmo_param_array_set / tisp_tmo_api_set_curve.  The register refresh
+ * callees that are not ported yet and tisp_lcac_no_refresh are hooks, ids: 0 tmoadr_default_reg_refresh, 1 lcac_no_refresh,
+ * 2 tmo_default_reg_refresh, 3 ramY_vi1_reg_refresh, 4 ramY_vi0_reg_refresh, 5 adr_reg_write_sometimes (all take the channel).
+ */
+struct t32_tmo_set_env {
+	struct t32_tmo_rec *r;		/* the channel record: ctx, st, ev, ... (t32_data_e35e0[ch]) */
+	u16 *rec50;			/* record +50 (u16) */
+	u8 *rec52;			/* record +52 (u8) */
+	u16 *pend;			/* t32_data_e3528[ch] */
+	u16 *e3520;			/* t32_data_e3520[ch] */
+	u16 *e3518;			/* t32_data_e3518[ch] (adr_hardpars_ctl flag) */
+	const u8 *hard_tab;		/* t32_data_bff90 (adr_hardpars_ctl tables) */
+	int *gauss_out;			/* t32_data_e31b0 (24 int) */
+	s16 *gauss_cache;		/* t32_data_e3210 */
+	const int *gauss_tab;		/* t32_data_c00bc */
+	t32_tmo_exp2_fn exp2;
+	u8 d03a0;
+	void (*hook)(void *cb, int id, int ch);
+	void *cb;
+};
+
+/*
+ * The refresh the two setters end with: s4 = ctx byte 10042 (read first); tmo_params_hard_refresh, dark_ctr_interp (st + 238),
+ * satcurve_ev_interp, the adr default register refresh and lcac_no_refresh.  s4 == 1: ev_interp, tmo default register
+ * refresh, the ramY refresh (vi1 when d03a0 == 1, else vi0), and a record byte 52 == 0 clears the u16 at +50.  s4 == 0:
+ * the channel's pending flag and e3520 = 1, adr_hardpars_ctl, adr_reg_write_sometimes, adr_gauss_local (e31b0).  Other
+ * s4: nothing.  At the end record byte 52 = stat byte 385.  Dropped: the vendor's isp_printf (s4 == 0 only).
+ */
+static inline void t32_tmo_set_refresh(struct t32_tmo_set_env *e, int ch)
+{
+	struct t32_tmo_rec *r = e->r;
+	u8 s4 = r->ctx[10042];
+
+	t32_tmo_params_hard_refresh(r->ctx, r->st);
+	t32_tmo_dark_ctr_interp(r->ctx, (struct t32_tmo_dark_out *)(r->st + 238), r->ev0, r->ev1, r->ev1m);
+	t32_tmo_satcurve_ev_interp(r->ctx, r->st, r->ev0, r->ev1, r->ev1m);
+	e->hook(e->cb, 0, ch);
+	e->hook(e->cb, 1, ch);
+	if (s4 == 1) {
+		t32_tmo_ev_interp(r);
+		e->hook(e->cb, 2, ch);
+		e->hook(e->cb, e->d03a0 != s4 ? 4 : 3, ch);
+		if (*e->rec52 == 0)
+			*e->rec50 = 0;
+	} else if (s4 == 0) {
+		*e->pend = 1;
+		*e->e3520 = 1;
+		t32_tmo_adr_hardpars_ctl(r->ctx, e->hard_tab, e->e3518);
+		e->hook(e->cb, 5, ch);
+		t32_tmo_adr_gauss_local(e->gauss_out, r->ctx, e->gauss_cache, e->gauss_tab, e->exp2);
+	}
+	*e->rec52 = r->st[385];
+}
+
+/* tisp_tmo_param_array_set (ch, src): the 11000 byte context is replaced by src, then the refresh above. */
+static inline void t32_tmo_param_array_set(struct t32_tmo_set_env *e, const u8 *src, int ch)
+{
+	memcpy(e->r->ctx, src, 11000);
+	t32_tmo_set_refresh(e, ch);
+}
+
+/*
+ * tisp_tmo_api_set_curve (ch & 0xff, idx = a1 & 0xff, src): idx < 10: the 402 byte curve idx of the context is replaced by
+ * src (jump table t32_data_c04f0, driver/t32/data_relocations.json .rodata 0x30d0: labels 0x9ea50 + .. in the order
+ * ctx + 7398, + 7800, then + 4182 + 402 (idx - 2)); idx >= 10 copies nothing.  Then the same refresh.
+ */
+static inline void t32_tmo_api_set_curve(struct t32_tmo_set_env *e, u32 idx, const u8 *src, int ch)
+{
+	idx &= 0xffU;
+	if (idx < 10)
+		memcpy(e->r->ctx + (idx == 0 ? 7398 : idx == 1 ? 7800 : 4182 + 402 * (idx - 2)), src, 402);
+	t32_tmo_set_refresh(e, ch & 0xff);
+}
+
+/*
+ * tisp_tmo_wake_up (ch): five system register writes (d03a0 != 0 selects the second register set: the first value
+ * is the base word reg = record +8 of t32_data_e35d0[ch] (a u32 read there), reg + 0x4000, reg + 0x8000, reg + 0xc000, 3 to
+ * 7786..7790 (d03a0 != 0) or 28928 + 4 i (else)), hooks 0 / 1 (adr default refresh, lcac_no_refresh), when the context
+ * byte 10042 is 1 the hooks 2 tmo2fbf_process, 3 tmo_default_reg_refresh, 4 tmo_soft_process; byte != 0: end.  Else the hooks
+ * 5 adr_reg_write_one, 6 adr_reg_write_5x5, 7 adr_reg_write_sometimes and 8 adr_reg_write_every (a tail call).
+ */
+static inline void t32_tmo_wake_up(const u8 *ctx, u32 reg, u8 d03a0, void (*regw)(void *, u32, u32), void (*hook)(void *, int, int),
+				   void *cb, int ch)
+{
+	static const u16 a1[5] = { 7786, 7787, 7788, 7789, 7790 }, a0[5] = { 28928, 28932, 28936, 28940, 28944 };
+	u32 val[5] = { reg, reg + 16384, reg + 0x8000, reg + 0xc000, 3 };
+	int i;
+
+	for (i = 0; i < 5; i++)
+		regw(cb, d03a0 != 0 ? a1[i] : a0[i], val[i]);
+	hook(cb, 0, ch);
+	hook(cb, 1, ch);
+	if (ctx[10042] == 1) {
+		hook(cb, 2, ch);
+		hook(cb, 3, ch);
+		hook(cb, 4, ch);
+	}
+	if (ctx[10042] != 0)
+		return;
+	hook(cb, 5, ch);
+	hook(cb, 6, ch);
+	hook(cb, 7, ch);
+	hook(cb, 8, ch);
+}
