@@ -509,9 +509,11 @@ static void t32_rcfg_stream_on_fill(struct t32_rcfg_list *l)
 		return;
 	}
 	isp_wr(T32_LSC_ID_REG, T32_LSC_ID);
-	if (t32_lsc_fill_list(p, &s, &lsc_work, l, lsc_scratch, (u32)bayer) == 0)
+	if (t32_lsc_fill_list(p, &s, &lsc_work, l, lsc_scratch, (u32)bayer) == 0) {
 		isp_printf(0, "tx-isp-t32: LSC %ux%u cells %u table %u/%u at %u K\n",
 			   s.cols, s.rows, s.cells, s.table_lo, s.table_hi, lsc_ct);
+		t32_pf_attach_lsc(p, &s, w, h, (u32)bayer, lsc_ct);	/* per-frame strength (tisp_lsc_tgain_update) */
+	}
 }
 
 void t32_hw_rcfg_run_stream_on(void)

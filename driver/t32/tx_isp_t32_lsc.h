@@ -863,4 +863,50 @@ static inline void t32_lsc_exchange_data(u8 *plane, u32 a, u32 b)
 
 static const struct t32_lsc_xops t32_lsc_xops_default = { t32_lsc_exchange_line, t32_lsc_exchange_data };
 
+/*
+ * ---- tisp_lsc_tgain_update (vendor 0x44e28, oracle t32_lscx_oracle) ----
+ * The per-frame LSC hook of tisp_long_tgain_update (a0 = channel, a2 = total gain low
+ * word): tisp_lsc_interp_by_tgain stores the gain in cur + 20 and the strength (info + 10)
+ * for it (byte p[4..7] set: p[112], else p[101 + i] over the log2 gain), then
+ * tisp_lsc_write_all_reg(ch, 1, 1, 0) writes only the strength register 0x5050 (wdr 1:
+ * wdr strength << 16 | strength, else strength in both halves): direct mode reg 2757 and
+ * the enable 2751, else the hardware register 0x5050 (logged when a log is attached) and
+ * shadow image 8.  The wdr strength is not touched.
+ */
+static inline int t32_lsc_tgain_update(struct t32_lsc_ctx *ctx, u8 ch, u32 gain)
+{
+	struct t32_lsc t = ctx->s;
+	u32 val;
+
+	ctx->cur->tgain = gain;		/* the vendor stores it in cur + 20 */
+	t32_lsc_gain(ctx->sec, &t, gain);
+	ctx->s.strength = t.strength;
+	val = ctx->cur->wdr == 1 ? (u32)ctx->s.strength_wdr << 16 | ctx->s.strength :
+				   (u32)ctx->s.strength << 16 | ctx->s.strength;
+	if (ctx->direct == 1) {
+		t32_lsc_reg_write(ctx, ch, 2757, val);
+		t32_lsc_reg_write(ctx, ch, 2751, 1);
+	} else {
+		if (ctx->dlog)
+			t32_lsc_reg_write(ctx, ch, T32_LSC_CTRL0 + 0x10, val);
+		t32_lsc_img_write(ctx, ch, 8, val);
+	}
+	return 0;
+}
+
+/*
+ * The current values as tisp_lsc_init leaves them (vendor ctx + 4, 32 bytes, checked
+ * against the vendor's by t32_lscx_oracle): height, width, colour temperature 5000 (ct
+ * here), 255, Bayer pattern & 0x1f >= 4, both gains 0, wdr 0.
+ */
+static inline void t32_lsc_cur_init(struct t32_lsc_cur *cur, u32 width, u32 height, u32 bayer, u32 ct)
+{
+	memset(cur, 0, sizeof(*cur));
+	cur->rsvd0[0] = height;
+	cur->rsvd0[1] = width;
+	cur->ct = ct;
+	cur->rsvd1[0] = 255;
+	cur->rsvd1[1] = (bayer & 0x1f) >= 4;
+}
+
 #endif /* TX_ISP_T32_LSC_H */

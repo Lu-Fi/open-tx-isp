@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * T32 host oracle: LSC per-frame paths.  Runs the unmodified vendor functions
- * (Matt Davis' recovered C, PR #15 @ 2e2e06bc: tisp_lsc_itp, _tgain_update_s, _deinit,
+ * (Matt Davis' recovered C, PR #15 @ 2e2e06bc: tisp_lsc_itp, _tgain_update, _tgain_update_s, _deinit,
  * _param_array_get, _param_array_set) and our readable ports from
  * driver/t32/tx_isp_t32_lsc.h from the same state and compares everything.
  *
@@ -53,6 +53,7 @@ unsigned char t32_data_bf4e8[64];	/* likewise: the format string of that isp_pri
 
 extern u64 tisp_lsc_itp(u32 a0, u32 a1, u32 a2, u32 a3);
 extern u64 tisp_lsc_tgain_update_s(u32 a0, u32 a1, u32 a2, u32 a3);
+extern u64 tisp_lsc_tgain_update(u32 a0, u32 a1, u32 a2, u32 a3);
 extern u64 tisp_lsc_deinit(u32 a0, u32 a1, u32 a2, u32 a3);
 extern u64 tisp_lsc_param_array_get(u32 a0, u32 a1, u32 a2, u32 a3);
 extern u64 tisp_lsc_param_array_set(u32 a0, u32 a1, u32 a2, u32 a3);
@@ -326,6 +327,92 @@ static void case_tgain_s(const u8 *blk, u32 gain, u32 w, u32 h, u32 bayer)
 	cmp_image("tgain_s");
 	cmp_info("tgain_s");
 	cmp_cur("tgain_s");
+}
+
+
+/*
+ * ---- tisp_lsc_tgain_update (vendor: a0 = channel, a2 = gain), d03a0 = 0 and 1 ----
+ * Also the driver's context (tx_isp_t32_tisp.c, t32_pf_attach_lsc): the current values
+ * as t32_lsc_cur_init builds them must equal the vendor's after tisp_lsc_init, and the
+ * info block of t32_lsc_setup the vendor's (cmp_info before the call).
+ */
+static unsigned int tg_direct, tg_writes;
+static void case_tgain(const u8 *blk, u32 gain, u32 w, u32 h, u32 bayer)
+{
+	u32 cap[2] = { N1, N2 }, wd = wds[rnd() % 4];
+	struct t32_lsc_cur dc;
+	u8 d = rnd() & 1;
+
+	if (setup(blk, w, h, bayer, cap, N1, N2))
+		return;
+	t32_lsc_cur_init(&dc, w, h, bayer, 5000);
+	{
+		unsigned int i;
+
+		for (i = 0; i < 8; i++)
+			if (t32_le32(V.cur + 4 * i) != ((const u32 *)&dc)[i])
+				FAIL("tgain driver cur init word %u: vendor %08x ours %08x", i,
+				     t32_le32(V.cur + 4 * i), ((const u32 *)&dc)[i]);
+	}
+	cmp_info("tgain init");
+	if (rnd() & 1) {
+		put32(V.cur + 28, wd);
+		ocur.wdr = wd;
+	}
+	t32_data_d03a0[0] = d;
+	oc.direct = d;
+	tg_direct += d;
+	g_idx = 1001;
+	g_old65 = blk[65];
+	g_ct = ocur.ct;
+	{
+		static struct t32_lsc_dwr dl[8];
+		unsigned int n0 = t32o_log.n, i;
+		u32 *sh2 = NULL;
+
+		if (d) {	/* d03a0 = 1: tisp_reg_write stores into the image at da844[0] + 200 */
+			sh2 = t32o_alloc(NIMG * 4);
+			if (!sh2) {
+				fprintf(stderr, "t32_lscx_oracle: pool exhausted\n");
+				exit(2);
+			}
+			for (i = 0; i < NIMG; i++)
+				sh2[i] = 0x5a5a0000u ^ i;
+			put32((u8 *)T32O_HOST(t32_data_da844[0]) + 200, T32O_PTR(sh2));
+		}
+		oc.dlog = dl;
+		oc.ndlog = 0;
+		t32o_call((t32o_fn)(void (*)(void))tisp_lsc_tgain_update, 0, 0, gain, 0, 0);
+		t32_lsc_tgain_update(&oc, 0, gain);
+		compared++;
+		if (d) {
+			/* the vendor's shadow writes: every word ours logs, nothing else, no system write */
+			if (t32o_log.n != n0 || oc.ndlog != 2)
+				FAIL("tgain d03a0 = 1: vendor %u system writes, ours %u writes", t32o_log.n - n0, oc.ndlog);
+			for (i = 0; i < oc.ndlog; i++) {
+				if (dl[i].reg >= NIMG)
+					FAIL("tgain d03a0 = 1: our index %u out of the image", dl[i].reg);
+				if (sh2[dl[i].reg] != dl[i].val)
+					FAIL("tgain d03a0 = 1: shadow[%u] vendor %08x ours %08x", dl[i].reg, sh2[dl[i].reg], dl[i].val);
+				sh2[dl[i].reg] = 0x5a5a0000u ^ dl[i].reg;
+			}
+			for (i = 0; i < NIMG; i++)
+				if (sh2[i] != (0x5a5a0000u ^ i))
+					FAIL("tgain d03a0 = 1: vendor wrote shadow[%u] = %08x, ours did not", i, sh2[i]);
+		} else {
+			if (t32o_log.n - n0 != oc.ndlog)
+				FAIL("tgain register write count vendor %u ours %u", t32o_log.n - n0, oc.ndlog);
+			for (i = 0; i < oc.ndlog; i++)
+				if (t32o_log.w[n0 + i].reg != dl[i].reg || t32o_log.w[n0 + i].val != dl[i].val)
+					FAIL("tgain register write %u vendor %x=%08x ours %x=%08x", i,
+					     t32o_log.w[n0 + i].reg, t32o_log.w[n0 + i].val, dl[i].reg, dl[i].val);
+		}
+		tg_writes += oc.ndlog;
+	}
+	t32_data_d03a0[0] = 0;
+	cmp_image("tgain");
+	cmp_info("tgain");
+	cmp_cur("tgain");
 }
 
 /* ---- tisp_lsc_param_array_set ---- */
@@ -678,6 +765,7 @@ int main(void)
 
 		case_itp();
 		case_tgain_s(blk, gain, sz[zi][0], sz[zi][1], bayer);
+		case_tgain(blk, gain, sz[zi][0], sz[zi][1], bayer);
 		case_get(blk, tail);
 		case_set(blk, buf, idx, sz[zi][0], sz[zi][1], bayer, rnd() % 3 == 0);
 		/* the table of the section's own count, so that the refresh path runs */
@@ -691,6 +779,7 @@ int main(void)
 	case_deinit(1, 0, 1, 0);
 	case_deinit(1, 0, 0, 1);
 
+	printf("t32_lscx_oracle: tgain_update %u in d03a0 = 1, %u register writes compared\n", tg_direct, tg_writes);
 	printf("t32_lscx_oracle: random %u compared (%u refused, %u pool-skipped), %u big-idx, %u alloc, %u vmalloc-fail, 0 mismatches\n",
 	       compared, refused, pool_skip, big_cases, alloc_cases, fail_cases);
 	return 0;

@@ -7,7 +7,8 @@
  * them on every AE run through tisp_long_tgain_update.
  *
  * Block 1, gain-interpolated filters: DMSC, YSP, CDNS, YDNS, SDNS; block 2 MDNS; block 3 DPC (long-frame gain);
- * block 4 GIB (black level, tisp_gib_again_update); block 5 RDNS (raw denoise, tisp_rdns_refresh, openimp #234).
+ * block 4 GIB (black level, tisp_gib_again_update); block 5 RDNS (raw denoise, tisp_rdns_refresh, openimp #234);
+ * block 6 LSC strength (tisp_lsc_tgain_update).
  *  - At stream-on the init path hands each block its IQ bin section (the copy
  *    the init function already edited, as the vendor keeps tparams) and the
  *    context is built the way the vendor's tisp_<blk>_init leaves it: zeroed
@@ -49,6 +50,7 @@
 #include "tx_isp_t32_gib.h"
 #include "tx_isp_t32_rdns.h"
 #include "tx_isp_t32_rdnstab.h"
+#include "tx_isp_t32_lsc.h"
 
 /*
  * Vendor t32_data_d03a0: 1 = registers go into the shadow image / register
@@ -61,7 +63,8 @@ static unsigned int t32_ported_paths = 1;
 module_param(t32_ported_paths, uint, 0644);
 MODULE_PARM_DESC(t32_ported_paths,
 		 "1 (default): every wired per-frame block on its ported path; 0: all on the old path; "
-		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib, 8 rdns)");
+		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib, 8 rdns, 9 lsc, "
+		 "10 lce, 11 tmo)");
 
 static unsigned int tisp_tgain = 0x10000;
 module_param(tisp_tgain, uint, 0644);
@@ -89,6 +92,10 @@ static struct {
 	struct t32_dpc_ctx dpc;
 	struct t32_gib_ctx gib;
 	struct t32_rdns_ctx rdns;
+	struct t32_lsc_ctx lsc;		/* only sec, s, cur, img, dlog are used (tgain_update) */
+	struct t32_lsc_cur lsc_cur;
+	u32 lsc_img[T32_LSC_IMG_MESH];
+	struct t32_lsc_dwr lsc_dlog[2];
 	bool have[T32_PP_COUNT];
 	bool ready;		/* every block of this stream attached */
 	u32 last_tgain[1];	/* vendor t32_data_dd... last low gain word, per channel */
@@ -121,9 +128,24 @@ static u32 pf_reg_read(u32 ch, u32 reg)
 	return t32_hw_rd(reg);
 }
 
+/* tisp_lsc_tgain_update (a2 = gain low word): direct mode, the strength register 0x5050 */
+static int pf_lsc(u32 ch, u32 gain)
+{
+	unsigned int i;
+
+	pf.lsc.ndlog = 0;
+	t32_lsc_tgain_update(&pf.lsc, (u8)ch, gain);
+	for (i = 0; i < pf.lsc.ndlog; i++) {
+		pf_w[i].reg = pf.lsc.dlog[i].reg;
+		pf_w[i].val = pf.lsc.dlog[i].val;
+	}
+	return pf.lsc.ndlog;
+}
+
 /*
  * The 64-bit gain hooks.  DPC: tisp_dpc_l_gain_update reads the low word (a2
- * of the o32 a2:a3 pair).  LSC / LCE / TMO / AWB: not wired yet (old path).
+ * of the o32 a2:a3 pair); LSC: tisp_lsc_tgain_update likewise.  LCE / TMO /
+ * AWB: see below.
  */
 static void pf_gain(enum t32_ltg_gain blk, u32 ch, u64 gain, u32 x, u32 y)
 {
@@ -132,6 +154,8 @@ static void pf_gain(enum t32_ltg_gain blk, u32 ch, u64 gain, u32 x, u32 y)
 	(void)x; (void)y;
 	if (blk == T32_LTG_DPC && pf.have[T32_PP_DPC] && t32_pp_on(T32_PP_DPC))
 		n = t32_dpc_l_gain_update(&pf.dpc, (u8)ch, (u32)gain, pf_w);
+	else if (blk == T32_LTG_LSC && pf.have[T32_PP_LSC] && t32_pp_on(T32_PP_LSC))
+		n = pf_lsc(ch, (u32)gain);
 	pf_flush(n);
 }
 
@@ -237,6 +261,7 @@ static void pf_free_locked(void)
 	kfree(pf.gib.hold);
 	kfree(pf.rdns.sec);
 	kfree(pf.rdns.param);
+	kfree(pf.lsc.sec);
 	memset(&pf, 0, sizeof(pf));
 }
 
@@ -445,6 +470,39 @@ int t32_pf_attach_rdns(u8 *sec, struct t32_front_write *w)
 	pf.have[T32_PP_RDNS] = true;
 	mutex_unlock(&pf_lock);
 	return n;
+}
+
+/*
+ * LSC (stream-on list, t32_rcfg_stream_on_fill): the 120 section bytes, the
+ * info block of t32_lsc_setup (geometry, strengths at gain 0: the vendor's
+ * after tisp_lsc_init) and the current values as tisp_lsc_init leaves them
+ * (t32_lsc_cur_init; both checked by t32_lscx_oracle).  Direct register mode
+ * (t32_data_d03a0 = 0): tisp_lsc_tgain_update writes 0x5050.
+ */
+void t32_pf_attach_lsc(const u8 *sec, const struct t32_lsc *s, u32 width, u32 height, u32 bayer, u32 ct)
+{
+	u8 *cp;
+
+	if (!t32_pp_on(T32_PP_LSC))
+		return;
+	cp = kmemdup(sec, T32_LSC_RING_TABLES, GFP_KERNEL);
+	if (!cp)
+		return;
+	mutex_lock(&pf_lock);
+	kfree(pf.lsc.sec);
+	memset(&pf.lsc, 0, sizeof(pf.lsc));
+	pf.lsc.sec = cp;
+	pf.lsc.s = *s;
+	t32_lsc_cur_init(&pf.lsc_cur, width, height, bayer, ct);
+	pf.lsc.cur = &pf.lsc_cur;
+	pf.lsc.img = pf.lsc_img;
+	pf.lsc.dlog = pf.lsc_dlog;
+	pf.lsc.width = width;
+	pf.lsc.height = height;
+	pf.lsc.bayer = bayer;
+	pf.lsc.direct = t32_data_d03a0[0];
+	pf.have[T32_PP_LSC] = true;
+	mutex_unlock(&pf_lock);
 }
 
 /* end of the stream-on init: the per-frame runs may start */
