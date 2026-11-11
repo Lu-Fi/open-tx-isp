@@ -11,7 +11,7 @@
 #include <string.h>
 #include "t32_oracle_env.h"
 
-#define T32O8_CALLS 1024
+#define T32O8_CALLS 65536
 struct t32o8_call { u32 fn, a[6]; char data[128]; };
 struct t32o8_log { unsigned int n; struct t32o8_call c[T32O8_CALLS]; };
 static struct t32o8_log t32o8_v, t32o8_o;	/* vendor, ours */
@@ -25,10 +25,10 @@ static struct t32o8_call *t32o8_rec(struct t32o8_log *l, u32 fn, u32 a0, u32 a1,
 	return c;
 }
 
-static void t32o8_clear(void)
+static void t32o8_clear(void)	/* entries are cleared when they are recorded */
 {
-	memset(&t32o8_v, 0, sizeof(t32o8_v));
-	memset(&t32o8_o, 0, sizeof(t32o8_o));
+	t32o8_v.n = 0;
+	t32o8_o.n = 0;
 }
 
 /* 0 = both logs equal; else prints the first difference (when verbose) */
