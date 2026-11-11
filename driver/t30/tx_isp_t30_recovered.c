@@ -41141,111 +41141,36 @@ int32_t ae_initialize(int32_t *arg1)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031e78 origin=fragment_seed original=ae_read_full_histogram_data */
+/*
+ * OEM ae_read_full_histogram_data (libt30-firmware ae_balanced_func.c.o 0xe8).  arg = AE
+ * context.  256 bins at ISP 0x10000 + 4 i, 4-bit exponent / 12-bit mantissa float, into
+ * +0x30..+0x42c, sum into +0x430; with the request byte +0x438 set it is cleared and the
+ * histogram is copied to the API buffer (1024 bytes).  No defined return value in the OEM.
+ * (#283: the earlier lift scaled the copy offset by the pointer size.)
+ */
 uint32_t ae_read_full_histogram_data(uintptr_t a0)
 {
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a1 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uint32_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uint32_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	uint32_t *ae = (uint32_t *)a0;
+	uint32_t *buf = (uint32_t *)(uintptr_t)get_apical_api_buffer();
+	uint32_t i, v, m, e, sum = 0;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: CallSetup */
-    s0 = a0;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)get_apical_api_buffer)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 2: CallSetup */
-    s4 = v0;
-    s2 = 0;
-    s1 = 0;
-    s6 = 65536;
-    s7 = (uintptr_t)&APICAL_READ_32;
-    s5 = 256;
-
-ae_read_full_histogram_data0x50:
-    /* fragment 3: CallSetup */
-    s3 = (uintptr_t)s1 << 2;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(((uintptr_t)s1 << 2) + s6); /* jalr target resolved by relocation */
-
-    /* fragment 4: Arithmetic */
-    a0 = (uintptr_t)v0 >> 12;
-    a0 = a0 & 15;
-
-    /* fragment 5: Branch */
-    v1 = (uintptr_t)v0 & 4095;
-    if (a0 == 0) { goto ae_read_full_histogram_data0x7c; }
-
-    /* fragment 6: Arithmetic */
-    v1 = v1 | 4096;
-    a0 = a0 - 1;
-    v1 = v1 << a0;
-
-ae_read_full_histogram_data0x7c:
-    /* fragment 7: Arithmetic */
-    s3 = (uintptr_t)s0 + (uintptr_t)s3;
-    s1 = s1 + 1;
-
-    /* fragment 8: MemoryAccess */
-    *(uint32_t *)((char *)s3 + 48) = v1;
-
-    /* fragment 9: Branch */
-    s2 = s2 + v1;
-    if (s1 != s5) { goto ae_read_full_histogram_data0x50; }
-
-    /* fragment 10: MemoryAccess */
-    v0 = *(uint8_t *)((char *)s0 + 1080);
-
-    /* fragment 11: Branch */
-    *(uint32_t *)((char *)s0 + 1072) = s2;
-    if (v0 == 0) { goto ae_read_full_histogram_data0xc8; }
-
-    /* fragment 12: MemoryAccess */
-    *(uint8_t *)((char *)s0 + 1080) = 0;
-    v1 = 0;
-    v0 = 1024;
-
-ae_read_full_histogram_data0xa8:
-    /* fragment 13: Arithmetic */
-    a0 = s0 + v1;
-
-    /* fragment 14: MemoryAccess */
-    a1 = *(uint32_t *)((char *)a0 + 48);
-    a0 = s4 + v1;
-    v1 = v1 + 4;
-
-    /* fragment 15: Branch */
-    *(uint32_t *)((char *)a0 + 0) = a1;
-    if (v1 != v0) { goto ae_read_full_histogram_data0xa8; }
-
-    /* fragment 16: Arithmetic */
-    v0 = (uintptr_t *)&apical_api_buffer_data_size;
-
-    /* fragment 17: MemoryAccess */
-    *(uint32_t *)((char *)((char *)&apical_api_buffer_data_size)) = v1;
-
-ae_read_full_histogram_data0xc8:
-    /* fragment 18: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return (uint32_t)v0;
+	for (i = 0; i < 256; i++) {
+		v = (uint32_t)APICAL_READ_32(0x10000 + (i << 2));
+		e = (v >> 12) & 0xf;
+		m = v & 0xfff;
+		if (e)
+			m = (m | 0x1000) << (e - 1);
+		ae[0x30 / 4 + i] = m;
+		sum += m;
+	}
+	ae[0x430 / 4] = sum;
+	if (*(uint8_t *)(a0 + 0x438)) {
+		*(uint8_t *)(a0 + 0x438) = 0;
+		for (i = 0; i < 256; i++)
+			buf[i] = ae[0x30 / 4 + i];
+		apical_api_buffer_data_size = 1024;
+	}
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031f6c origin=model_output original=AE_fsm_process_interrupt */
@@ -41810,468 +41735,187 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000031fc0 origin=model_output original=ae_calculate_exposure_ratio */
+/*
+ * OEM ae_calculate_exposure_ratio (ae_balanced_func.c.o 0x230).  arg = AE context: [0] ISP
+ * context (HDR mode byte +5412), +0x30..+0x42c 256-bin histogram, +0x430 total, +0x2c filter.
+ * Ratio = min(item 23 << 6, max(64, 0x7f80 / (2 * bin + 1))) where bin is the first bin from the
+ * top whose cumulative count exceeds total * table146[3] >> 8 (squared >> 6 in HDR modes 1/2);
+ * manual (item byte 2): item 22 << 3.  Smoothed over table146[4] frames, auto value -> item 22.
+ * (#283: the earlier lift read the HDR mode at AE ctx +0x1524 instead of ISP ctx +0x1524.)
+ */
 uint32_t ae_calculate_exposure_ratio(int32_t *arg1)
 {
-	uint32_t hdr_val;
-	uint32_t hdr_idx;
-	uint32_t *lut_ptr;
-	uint32_t flag;
-	uint32_t base_val;
-	uint32_t *result;
-	uint32_t result_1;
-	uint32_t val_430;
-	uint32_t val_12;
-	uint32_t idx;
-	uint32_t acc;
-	uint32_t val_42c;
-	uint32_t div_val;
-	uint32_t val_1524;
-	uint32_t val_10;
-	uint32_t val_2c;
-	uint32_t new_val;
-	uint32_t ret;
+	uintptr_t ctx = (uintptr_t)arg1[0];
+	uint32_t *lut = (uint32_t *)(uintptr_t)_GET_UINT_PTR(
+		_GET_HDR_TABLE_INDEX(0x92, *(uint8_t *)(ctx + 0x1524)));
+	uint8_t manual = stab[2];
+	uint32_t result = (uint32_t)stab[23] << 6;
+	uint32_t r;
 
-	hdr_val = *(uint8_t *)((char *)arg1 + 0x1524);
-	hdr_idx = _GET_HDR_TABLE_INDEX(0x92, hdr_val);
-	lut_ptr = (int32_t *)_GET_UINT_PTR(hdr_idx);
-	flag = *(uint8_t *)(((char *)&stab + 0x2));
-	base_val = *(uint8_t *)(((char *)&stab + 0x17));
-	result = base_val << 6;
+	if (!manual) {
+		uint64_t prod = (uint64_t)lut[3] * (uint32_t)arg1[0x430 / 4];
+		uint32_t thr = (uint32_t)(prod >> 32) << 24 | (uint32_t)prod >> 8;
+		uint32_t idx = 255;
+		uint32_t cum = (uint32_t)arg1[0x42c / 4];
 
-	if (flag == 0) {
-		val_430 = *(uint32_t *)((char *)arg1 + 0x430);
-		val_12 = *(uint32_t *)((char *)lut_ptr + 0xc);
-		idx = 0xff;
-		{
-			uint64_t prod = (uint64_t)val_12 * (uint64_t)val_430;
-			acc = (uint32_t)(prod >> 32) << 24 | (uint32_t)prod >> 8;
+		while (thr >= cum) {
+			idx--;
+			cum += (uint32_t)arg1[0x30 / 4 + idx];
 		}
-		val_42c = *(uint32_t *)((char *)arg1 + 0x42c);
-		while (acc >= val_42c) {
-			idx -= 1;
-			val_42c += *(uint32_t *)((char *)arg1 + (idx << 2) + 0x30);
-		}
-		div_val = (idx << 1) + 1;
-		result_1 = 0x7f80 / div_val;
-		val_1524 = *(uint8_t *)((char *)arg1 + 0x1524);
-		if (val_1524 - 1 < 2)
-			result_1 = (result_1 * result_1) >> 6;
+		r = 0x7f80 / (idx * 2 + 1);
+		if ((uint32_t)(*(uint8_t *)((uintptr_t)arg1[0] + 0x1524) - 1) < 2)
+			r = (r * r) >> 6;
 	} else {
-		result_1 = *(uint8_t *)(((char *)&stab + 0x16)) << 3;
+		r = (uint32_t)stab[22] << 3;
 	}
+	if (r < 0x40)
+		r = 0x40;
+	if (result >= r)
+		result = r;
+	if (lut[4]) {
+		uint32_t f = (uint32_t)arg1[0x2c / 4];
 
-	if (result_1 < 0x40)
-		result_1 = 0x40;
-
-	if (result >= result_1)
-		result = result_1;
-
-	val_10 = *(uint32_t *)((char *)lut_ptr + 0x10);
-	if (val_10 != 0) {
-		val_2c = *(uint32_t *)((char *)arg1 + 0x2c);
-		new_val = (val_2c - val_2c / val_10) + (uintptr_t)result;
-		*(uint32_t *)((char *)arg1 + 0x2c) = new_val;
-		result = new_val / val_10;
+		f = f - f / lut[4] + result;
+		arg1[0x2c / 4] = (int32_t)f;
+		result = f / lut[4];
 	}
-
-	if (flag == 0)
-		*(uint8_t *)(((char *)&stab + 0x16)) = (uint8_t)((uintptr_t)result >> 3);
-
+	if (!manual)
+		stab[22] = (uint8_t)(result >> 3);
 	return result;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000003210c origin=model_output original=ae_calculate_target */
+/*
+ * OEM ae_calculate_target (libt30-firmware ae_balanced_func.c.o 0x37c).  arg = AE context:
+ * [0] ISP context, +0x30..+0x42c 256-bin histogram, +0x430 total, +20 exposure (Q16 log2),
+ * +16 output step.  Mean: bins below 256 - table146[2] weigh (2i+1), the top bins also
+ * (table146[2] - 254 + i) / 2; HDR modes 1/2 use the squared weights and a square root.
+ * Step = log2(table146[1]) - log2(mean) + (item 53 - 128) << 11 + (offset(exposure) - 128) << 11,
+ * offset interpolated from HDR table 41 (u8) over table 206 (exposure points).
+ * (#283: the earlier lift indexed int32_t pointers in bytes, divided by 1 and left the
+ * non-HDR mean undivided.)  No defined return value in the OEM; the caller discards it.
+ */
 void *ae_calculate_target(int32_t *arg1)
 {
-	int32_t *ptr = *(int32_t **)arg1;
-	uint8_t idx = *(uint8_t *)((char *)ptr + 0x1524);
-	int32_t hdr_idx = _GET_HDR_TABLE_INDEX(0x92, idx);
-	int32_t lut_ptr = _GET_UINT_PTR(hdr_idx);
-	int32_t field_430 = *(int32_t *)((char *)arg1 + 0x430);
-	uint8_t stab_val = *(uint8_t *)(((char *)&stab + 0x35));
-	int32_t t4;
-	int32_t sum_lo;
-	int32_t sum_hi;
-	int32_t s5_val;
-	int32_t s1_val;
-	int32_t s4_shifted;
-	int32_t log_diff;
-	uint32_t exp2_val;
-	uint8_t *uchar_ptr;
-	int32_t *uint_ptr_arr;
-	int32_t len;
-	int32_t i;
-	int32_t *result;
-	int32_t v0 = 1;
-	int32_t v1 = 0;
-	int32_t count = 0;
-	int32_t limit;
-	int32_t t2 = 0;
-	uint64_t div_result = 0;
+	uintptr_t ctx = (uintptr_t)arg1[0];
+	uint8_t mode = *(uint8_t *)(ctx + 0x1524);
+	const uint32_t *lut = (const uint32_t *)(uintptr_t)_GET_UINT_PTR(
+		_GET_HDR_TABLE_INDEX(0x92, mode));
+	const uint32_t *hist = (const uint32_t *)&arg1[0x30 / 4];
+	uint32_t total = (uint32_t)arg1[0x430 / 4];
+	uint8_t comp = stab[53];
+	uint32_t split, i, t2, w, mean, exposure, len;
+	const uint32_t *pts;
+	const uint8_t *offs;
+	uint64_t sum = 0;
+	int32_t step;
+	uint8_t off;
 
-	if (field_430 != 0) {
+	if (!total)
+		return NULL;
+	split = 256 - lut[2];
+	if ((uint32_t)(mode - 1) < 2) {
+		for (i = 0; i < split; i++) {
+			uint64_t odd = 2 * (uint64_t)i + 1;
 
-	t4 = *(int32_t *)(lut_ptr + 8);
-	sum_lo = 0;
-	sum_hi = 0;
-
-	if ((uint32_t)(idx - 1) < 2) {
-		v0 = 1;
-		v1 = 0;
-		count = 0;
-		limit = 0x100 - t4;
-
-		while (count < limit) {
-			uint64_t sq = (uint64_t)(uintptr_t)v0 * (uint64_t)(uintptr_t)v0;
-			int32_t lo_sq = (int32_t)sq;
-			int32_t hi_sq = (int32_t)(sq >> 32);
-			int32_t cross = v1 * (uintptr_t)v0;
-			int32_t cross_shifted = (cross << 1) + hi_sq;
-			int32_t coeff = *(int32_t *)(arg1 + ((uintptr_t)v0 << 1) + 0x2e);
-			uint64_t prod = (uint64_t)lo_sq * (uint64_t)coeff;
-			int32_t lo_prod = (int32_t)prod;
-			int32_t hi_prod = (int32_t)(prod >> 32);
-			int32_t new_lo = sum_lo + lo_prod;
-			int32_t carry = (uint32_t)new_lo < (uint32_t)sum_lo ? 1 : 0;
-			int32_t cross_mul = coeff * cross_shifted;
-			int32_t new_hi = sum_hi + carry + cross_mul + hi_prod;
-			sum_lo = new_lo;
-			sum_hi = new_hi;
-			int32_t next_v0 = v0 + 2;
-			int32_t v0_carry = (uint32_t)next_v0 < (uint32_t)v0 ? 1 : 0;
-			v1 = v1 + v0_carry;
-			v0 = next_v0;
-			count++;
+			sum += odd * odd * hist[i];
 		}
+		for (i = split, t2 = split << 1; i < 256; i++, t2 += 2) {
+			uint64_t odd = (uint64_t)t2 + 1;
 
-		t2 = limit << 1;
-		for (i = limit; i < 0x100; i++) {
-			int32_t t2_plus1 = t2 + 1;
-			uint64_t sq2 = (uint64_t)t2_plus1 * (uint64_t)t2_plus1;
-			int32_t lo_sq2 = (int32_t)sq2;
-			int32_t hi_sq2 = (int32_t)(sq2 >> 32);
-			int32_t t2_carry = (uint32_t)t2_plus1 < (uint32_t)t2 ? 1 : 0;
-			int32_t v1_2 = (t2_carry * t2_plus1) << 1;
-			int32_t *v1_3 = v1_2 + hi_sq2;
-			int32_t coeff2 = *(int32_t *)(arg1 + (uintptr_t)i + 0xc);
-			t2 += 2;
-			uint64_t prod2 = (uint64_t)lo_sq2 * (uint64_t)coeff2;
-			int32_t lo_prod2 = (int32_t)prod2;
-			int32_t hi_prod2 = (int32_t)(prod2 >> 32);
-			uint32_t t3 = (uint32_t)(t4 - 0xfe + (uintptr_t)i) >> 1;
-			uint64_t prod3 = (uint64_t)lo_prod2 * (uint64_t)t3;
-			int32_t lo_prod3 = (int32_t)prod3;
-			int32_t hi_prod3 = (int32_t)(prod3 >> 32);
-			int32_t cross2 = coeff2 * (uintptr_t)v1_3;
-			int32_t new_lo = sum_lo + lo_prod3;
-			int32_t carry2 = (uint32_t)new_lo < (uint32_t)sum_lo ? 1 : 0;
-			int32_t cross3 = t3 * (cross2 + hi_prod2);
-			int32_t new_hi = sum_hi + carry2 + cross3 + hi_prod3;
-			sum_lo = new_lo;
-			sum_hi = new_hi;
+			w = (lut[2] - 254 + i) >> 1;
+			sum += odd * odd * hist[i] * w;
 		}
-
-		div_result = div64_u64((uint64_t)sum_hi << 32 | (uint32_t)sum_lo, 1);
-		s5_val = sqrt32((int32_t)(div_result >> 1));
+		mean = ((uint32_t)sqrt32((int32_t)(uint32_t)div64_u64(sum, total)) >> 1) & 0xffff;
 	} else {
-
-		while (count < limit) {
-			int32_t coeff = *(int32_t *)(arg1 + ((uintptr_t)v0 << 1) + 0x2e);
-			uint64_t prod = (uint64_t)coeff * (uint64_t)(uintptr_t)v0;
-			int32_t lo_prod = (int32_t)prod;
-			int32_t hi_prod = (int32_t)(prod >> 32);
-			int32_t new_lo = sum_lo + lo_prod;
-			int32_t carry = (uint32_t)new_lo < (uint32_t)sum_lo ? 1 : 0;
-			int32_t cross = coeff * v1;
-			int32_t new_hi = sum_hi + carry + cross + hi_prod;
-			sum_lo = new_lo;
-			sum_hi = new_hi;
-			int32_t next_v0 = v0 + 2;
-			int32_t v0_carry = (uint32_t)next_v0 < (uint32_t)v0 ? 1 : 0;
-			v1 = v1 + v0_carry;
-			v0 = next_v0;
-			count++;
+		for (i = 0; i < split; i++)
+			sum += (uint64_t)hist[i] * (2 * (uint64_t)i + 1);
+		for (i = split, t2 = split << 1; i < 256; i++, t2 += 2) {
+			w = (lut[2] - 254 + i) >> 1;
+			sum += (uint64_t)hist[i] * ((uint64_t)t2 + 1) * w;
 		}
-
-		for (i = limit; i < 0x100; i++) {
-			int32_t coeff = *(int32_t *)(arg1 + (uintptr_t)i + 0xc);
-			int32_t t2_plus1 = t2 + 1;
-			uint64_t prod = (uint64_t)coeff * (uint64_t)t2_plus1;
-			int32_t lo_prod = (int32_t)prod;
-			int32_t hi_prod = (int32_t)(prod >> 32);
-			int32_t t2_carry = (uint32_t)t2_plus1 < (uint32_t)t2 ? 1 : 0;
-			int32_t cross = t2_carry * coeff;
-			int32_t v1_2 = cross + hi_prod;
-			t2 += 2;
-			uint32_t t3 = (uint32_t)(t4 - 0xfe + (uintptr_t)i) >> 1;
-			uint64_t prod2 = (uint64_t)lo_prod * (uint64_t)t3;
-			int32_t lo_prod2 = (int32_t)prod2;
-			int32_t hi_prod2 = (int32_t)(prod2 >> 32);
-			int32_t cross2 = t3 * v1_2;
-			int32_t new_lo = sum_lo + lo_prod2;
-			int32_t carry2 = (uint32_t)new_lo < (uint32_t)sum_lo ? 1 : 0;
-			int32_t new_hi = sum_hi + carry2 + cross2 + hi_prod2;
-			sum_lo = new_lo;
-			sum_hi = new_hi;
-		}
-
-		s5_val = (int32_t)div_result;
+		mean = (uint32_t)div64_u64(sum, (uint32_t)(total << 1));
 	}
-
-	log_diff = log2_fixed_to_fixed(*(uint32_t *)(lut_ptr + 4), 0, 0x10) - log2_fixed_to_fixed((uint32_t)s5_val, 0, 0x10);
-	exp2_val = math_exp2(*(int32_t *)(arg1 + 5), 0x10, 6);
-	uchar_ptr = (uint8_t *)_GET_UCHAR_PTR(_GET_HDR_TABLE_INDEX(0x29, idx));
-	uint_ptr_arr = (int32_t *)_GET_UINT_PTR(0xce);
-	len = _GET_LEN(0xce);
-
-	if ((uint32_t)uint_ptr_arr[0] < exp2_val) {
-		int32_t *s2 = 1;
-		int32_t found = 0;
-
-		while (s2 < len) {
-			int32_t offset = (uintptr_t)s2 << 2;
-			if (exp2_val < (uint32_t)uint_ptr_arr[offset / 4]) {
-				int32_t prev_val = uint_ptr_arr[((uintptr_t)s2 - 1) << 2 / 4];
-				int32_t cur_val = uint_ptr_arr[offset / 4];
-				s1_val = uchar_ptr[(uintptr_t)s2 - 1];
-				if (cur_val != prev_val) {
-					int32_t diff = cur_val - prev_val;
-					int32_t num = (uchar_ptr[(uintptr_t)s2] - s1_val) * (exp2_val - prev_val);
-					s1_val = (uint8_t)(num / diff + s1_val);
-				}
-				found = 1;
+	step = log2_fixed_to_fixed(lut[1], 0, 16) - log2_fixed_to_fixed(mean, 0, 16) +
+	       ((int32_t)comp - 128) * 2048;
+	exposure = math_exp2(arg1[5], 16, 6);
+	offs = (const uint8_t *)(uintptr_t)_GET_UCHAR_PTR(_GET_HDR_TABLE_INDEX(41, mode));
+	pts = (const uint32_t *)(uintptr_t)_GET_UINT_PTR(206);
+	if (pts[0] >= exposure) {
+		off = offs[0];
+	} else {
+		len = (uint32_t)_GET_LEN(206);
+		if (exposure >= pts[len - 1]) {
+			off = offs[len - 1];
+		} else {
+			off = 0;
+			for (i = 1; i < (uint32_t)_GET_LEN(206); i++) {
+				if (exposure >= pts[i])
+					continue;
+				off = offs[i - 1];
+				if (pts[i] != pts[i - 1])
+					off = (uint8_t)((int32_t)((offs[i] - offs[i - 1]) *
+							(int32_t)(exposure - pts[i - 1])) /
+							(int32_t)(pts[i] - pts[i - 1]) + offs[i - 1]);
 				break;
 			}
-			s2++;
 		}
-
-		if (!found) {
-			s1_val = uchar_ptr[len - 1];
-		}
-	} else {
-		s1_val = uchar_ptr[0];
 	}
-
-	}
-
-	s4_shifted = (stab_val - 0x80) << 0xb;
-	int32_t s1_shifted = (s1_val - 0x80) << 0xb;
-	*(int32_t *)(arg1 + 4) = log_diff + s4_shifted + s1_shifted;
-
-	/* #202 symval: the OEM function has no defined return value (SDK ko 0x31cc8: jr ra with a leftover v0); the lift turned that register into
-	 * &isp_kfifo_in + 0x8dc. The only caller (AE_fsm_switch_state) discards it. */
+	arg1[4] = step + ((int32_t)off - 128) * 2048;
 	return NULL;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_00000000000325bc origin=fragment_seed original=ae_calculate_exposure */
+/*
+ * OEM ae_calculate_exposure (libt30-firmware ae_balanced_func.c.o 0x82c, 145 insns; the OEM ko
+ * has the same body).  arg = AE context: [0] ISP context, +16 exposure step (Q16 log2, signed),
+ * +20 exposure (Q16 log2), +24/28 s64 accumulator, +32/36 s64 pending value, +40 ratio.
+ * Manual exposure (system item byte 1): the exposure is item 16 (Q6 lines).  Automatic: the
+ * accumulator follows the step, limited to k * (log2 frame-sync + ctx+100 + ctx+104 + ctx+740),
+ * k = HDR table 146 word 0; exposure = (step + accumulator) / k, published into item 16.
+ * (#283: the earlier lift used uninitialised registers and a wrong div64_s64 call.)
+ */
 int32_t ae_calculate_exposure(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *local_18 = 0;
-    uint32_t local_1c = 0;
-    uint32_t local_20 = 0;
-    uint32_t local_24 = 0;
-    uint32_t local_28 = 0;
-    uint32_t local_2c = 0;
-    uint32_t local_30 = 0;
-    uint32_t local_34 = 0;
-    uint32_t *a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t *a3 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uint32_t *s3 = 0;
-    uintptr_t s4 = 0;
-    uint32_t s5 = 0;
-    uint32_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t s8 = 0;
-    uint32_t t0 = 0;
-    uint32_t t1 = 0;
-    uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	int32_t *ae = (int32_t *)a0;
+	uintptr_t ctx = (uintptr_t)ae[0];
+	int32_t exposure, ratio;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
+	if (stab[1]) {
+		exposure = log2_fixed_to_fixed(T30_STAB32(16), 6, 16);
+		if (exposure < 0)
+			exposure = 0;
+	} else {
+		int32_t k = *(int32_t *)(uintptr_t)_GET_UINT_PTR(
+			_GET_HDR_TABLE_INDEX(146, *(uint8_t *)(ctx + 5412)));
+		uint32_t sum = (uint32_t)*(int32_t *)(ctx + 100) + (uint32_t)*(int32_t *)(ctx + 104) +
+			       (uint32_t)*(int32_t *)(ctx + 740);
+		int64_t *acc = (int64_t *)&ae[6];
+		int64_t *pending = (int64_t *)&ae[8];
 
-    /* fragment 1: Arithmetic */
-    s4 = (uintptr_t)&stab;
+		sum += (uint32_t)log2_fixed_to_fixed((uint32_t)APICAL_READ_32(0x40114) >> 16, 0, 16);
+		if (*pending) {
+			*acc = *pending;
+			*pending = 0;
+		} else {
+			/* multu k,sum + (k >> 31) * sum: s64 k times the unsigned 32-bit sum */
+			int64_t limit = (int64_t)((uint64_t)(int64_t)k * (uint64_t)sum);
+			int64_t cand = *acc + (int64_t)ae[4];
 
-    /* fragment 2: StackAccess */
-    local_28 = s6;
-    local_1c = s3;
-    local_14 = s1;
-    local_10 = s0;
-    local_34 = ra;
-    local_30 = s8;
-    local_2c = s7;
-    local_24 = s5;
-    local_18 = s2;
-    v0 = s4;
-    s1 = *(uint32_t *)((char *)a0 + 0);
-    v1 = *(uint8_t *)((char *)v0 + 1);
-    s0 = a0;
-    s3 = s1 + 256;
-
-    /* fragment 3: Branch */
-    s6 = (uintptr_t)&log2_fixed_to_fixed;
-    if (v1 == 0) { goto ae_calculate_exposure0x70; }
-
-    /* fragment 4: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)log2_fixed_to_fixed)(*(uint32_t *)((char *)(v0) + 16), 6, 16); /* jalr target resolved by relocation */
-
-    /* fragment 5: Arithmetic */
-    s1 = v0 < 0;
-    if (s1 != 0) { v0 = 0; }
-
-    /* fragment 6: Branch */
-    s1 = v0;
-    goto ae_calculate_exposure0x1e8;
-
-ae_calculate_exposure0x70:
-    /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)_GET_HDR_TABLE_INDEX)(146, *(uint8_t *)((char *)(s1) + 5412)); /* jalr target resolved by relocation */
-
-    /* fragment 8: CallSetup */
-    s6 = (uintptr_t)&log2_fixed_to_fixed;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)_GET_UINT_PTR)(v0); /* jalr target resolved by relocation */
-
-    /* fragment 9: CallSetup */
-    s2 = *(uint32_t *)((char *)(v0) + 0);
-    s8 = *(uint32_t *)((char *)(s1) + 100);
-    s7 = *(uint32_t *)((char *)(s1) + 104);
-    s1 = *(uint32_t *)((char *)(s1) + 740);
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)APICAL_READ_32)(262144 + 276); /* jalr target resolved by relocation */
-
-    /* fragment 10: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)log2_fixed_to_fixed)((uintptr_t)v0 >> 16, 0, 16); /* jalr target resolved by relocation */
-
-    /* fragment 11: MemoryAccess */
-    a0 = *(uint32_t *)((char *)s0 + 32);
-    v1 = *(uint32_t *)((char *)s0 + 36);
-    a1 = a0 | v1;
-
-    /* fragment 12: Branch */
-    s5 = (int32_t)s2 >> 31;
-    if (a1 == 0) { goto ae_calculate_exposure0xfc; }
-
-    /* fragment 13: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 28) = v1;
-    v0 = 0;
-    v1 = 0;
-    *(uint32_t *)((char *)s0 + 24) = a0;
-    *(uint32_t *)((char *)s0 + 32) = v0;
-
-    /* fragment 14: Branch */
-    *(uint32_t *)((char *)s0 + 36) = v1;
-    goto ae_calculate_exposure0x170;
-
-ae_calculate_exposure0xfc:
-    /* fragment 15: Arithmetic */
-    s7 = s8 + s7;
-    s1 = s7 + (uintptr_t)s1;
-    v0 = (uintptr_t)(uintptr_t)v0 + (uintptr_t)s1;
-
-    /* fragment 16: MemoryAccess */
-    a1 = *(uint32_t *)((char *)s0 + 16);
-    v1 = s5 * (uintptr_t)v0;
-    a0 = *(uint32_t *)((char *)s0 + 24);
-    v0 = v1 + t1;
-    v1 = *(uint32_t *)((char *)s0 + 28);
-    a2 = (int32_t)a1 >> 31;
-    a0 = a1 + a0;
-    a1 = a0 < a1;
-    v1 = a2 + v1;
-    v1 = a1 + v1;
-    a1 = v0 < v1;
-
-    /* fragment 17: Branch */
-    t1 = v0;
-    if (a1 != 0) { goto ae_calculate_exposure0x168; }
-
-    /* fragment 18: Unknown */
-    /* unmatched fragment 18 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 32704:	54620005 	bnel	v1,v0,3271c <ae_calculate_exposure+0x160> */
-
-    /* fragment 19: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 24) = a0;
-    v0 = t0 < a0;
-
-    /* fragment 20: Unknown */
-    /* unmatched fragment 20 (Unknown): no deterministic matcher for Unknown */
-    /* asm: 32710:	54400005 	bnezl	v0,32728 <ae_calculate_exposure+0x16c> */
-
-    /* fragment 21: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 24) = t0;
-    *(uint32_t *)((char *)s0 + 24) = a0;
-
-    /* fragment 22: Branch */
-    *(uint32_t *)((char *)s0 + 28) = v1;
-    goto ae_calculate_exposure0x170;
-
-ae_calculate_exposure0x168:
-    /* fragment 23: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 24) = t0;
-    *(uint32_t *)((char *)s0 + 28) = t1;
-
-ae_calculate_exposure0x170:
-    /* fragment 24: MemoryAccess */
-    v0 = *(uint32_t *)((char *)s0 + 28);
-
-    /* fragment 25: Branch */
-    int _bc_v0_25 = v0 >= 0;
-    v0 = 0;
-    if (_bc_v0_25) { goto ae_calculate_exposure0x188; }
-
-    /* fragment 26: CallSetup */
-    v1 = 0;
-    *(uint32_t *)((char *)s0 + 24) = v0;
-    *(uint32_t *)((char *)s0 + 28) = v1;
-
-ae_calculate_exposure0x188:
-    /* fragment 27: CallSetup */
-    v0 = (uintptr_t)div64_s64((*(uint32_t *)((char *)((uintptr_t)s0) + 16)) + (*(uint32_t *)((char *)((uintptr_t)s0) + 24)), (*(uint32_t *)((char *)((uintptr_t)s0) + 16)) + (*(uint32_t *)((char *)((uintptr_t)s0) + 24)) < (*(uint32_t *)((char *)((uintptr_t)s0) + 16)) + ((*(uint32_t *)((char *)((uintptr_t)s0) + 16)) >> 31) + (*(uint32_t *)((char *)((uintptr_t)s0) + 28))); /* jalr target resolved by relocation */
-
-    /* fragment 28: CallSetup */
-    s1 = v0 < 0;
-    s1 = v0;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(int32_t *)math_exp2)(v0, 16, 6); /* jalr target resolved by relocation */
-
-    /* fragment 29: CallSetup */
-    s4 = s4;
-    *(uint32_t *)((char *)s4 + 16) = v0;
-
-ae_calculate_exposure0x1e8:
-    /* fragment 30: CallSetup */
-    *(uint32_t *)((char *)s0 + 20) = s1;
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)ae_calculate_exposure_ratio)(s0); /* jalr target resolved by relocation */
-
-    /* fragment 31: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 40) = v0;
-    ra = local_34;
-    s8 = local_30;
-    s7 = local_2c;
-    s6 = local_28;
-    s5 = local_24;
-    s4 = local_20;
-    s2 = local_18;
-    s0 = local_10;
-    a0 = s3;
-    a1 = s1;
-    s3 = local_1c;
-    s1 = local_14;
-    t9 = (uintptr_t)&cmos_set_exposure_target;
-    a2 = v0;
-    t9 = t9;
-
-    /* fragment 32: IndirectTailCall */
-    return ((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t))cmos_set_exposure_target)((uintptr_t)(a0), (uintptr_t)(a1), (uintptr_t)(a2), (uintptr_t)(a3));
-
-    return 0;
+			*acc = cand > limit ? limit : cand;
+		}
+		if (*acc < 0)
+			*acc = 0;
+		exposure = (int32_t)div64_s64((int64_t)ae[4] + *acc, (int64_t)k);
+		if (exposure < 0)
+			exposure = 0;
+		T30_STAB32(16) = math_exp2(exposure, 16, 6);
+	}
+	ae[5] = exposure;
+	ratio = (int32_t)ae_calculate_exposure_ratio(ae);
+	ae[10] = ratio;
+	cmos_set_exposure_target((int32_t *)(ctx + 256), exposure, ratio);
+	return 0;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032800 origin=model_output original=ae_exposure_correction */
