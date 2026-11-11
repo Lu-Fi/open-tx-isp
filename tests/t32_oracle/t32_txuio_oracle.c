@@ -105,14 +105,23 @@ static u32 cb_sens(u32 sd, u32 cmd, u32 buf)
 		b[k] = (u8)(sd * 7 + k + cmd);
 	return sens_tab[sd_index(sd)];
 }
-static u32 cb_notify(u32 sd, u32 ev, u32 msg) { op3_call("sd_notify", 4, sd, ev, ((u32 *)T32O_HOST(msg))[0], ((u32 *)T32O_HOST(msg))[1]); return notify_ret; }
+static u32 cb_notify(u32 sd, u32 ev, u32 msg)
+{
+	u32 n = ev == T32_NOTIFY_GPIO ? 24 : ev == T32_NOTIFY_TIZIANO ? 20 : 8;
+
+	op3_call("sd_notify", 4, sd, ev, ((u32 *)T32O_HOST(msg))[0], fnvb(T32O_HOST(msg), n));
+	return notify_ret;
+}
 
 /* user copies */
-static u32 cfu_ret, ctu_ret;
+static u32 cfu_ret, ctu_ret, ctu_lim;
 static u32 cfu_rec(void *d, u32 u, u32 n) { op3_call("private_copy_from_user", 2, u, n, 0, 0); memcpy(d, T32O_HOST(u), n); return cfu_ret; }
 static u32 ctu_rec(u32 u, const void *s, u32 n)
 {
 	u32 c = (n == T32_AWB_ALGO_BUF && !cb_filled) ? 8 : n;	/* AWB algo open without a callback: stale stack bytes */
+
+	if (c > ctu_lim)	/* get_pm_control: stale stack bytes */
+		c = ctu_lim;
 
 	op3_call("private_copy_to_user", 3, u, n, fnvb(s, c), 0);
 	memcpy(T32O_HOST(u), s, c);
@@ -241,6 +250,9 @@ static const u32 cmds[] = {
 	T32_UIO_AE_CLOSE, T32_UIO_AWB_CLOSE, T32_UIO_CORE_1B, T32_UIO_AWB_OPEN,
 	/* frame drop */
 	T32_UIO_SET_FDROP, T32_UIO_GET_FDROP, T32_UIO_SET_FDROP1, T32_UIO_GET_FDROP1,
+	/* misc */
+	T32_UIO_NIGHT_MODE, T32_UIO_GET_PM_CTRL, T32_UIO_PM_ALL_DONE, T32_UIO_GPIO_SWITCH, T32_UIO_GPIO_TRIGGER,
+	T32_UIO_TIZIANO_PAR, T32_UIO_RUN_MODE,
 	/* default neighbours inside the vendor ranges */
 	0xc0045427, 0xc0045428, 0xc0045429, 0
 };
@@ -317,6 +329,7 @@ static void build(u32 base)
 		sw(O_ISP + T32_LK_SENSOR(k), (op3_rnd() & 1) ? 0 : op3_rnd());
 	memopt = op3_rnd();
 	sw(O_CORE + T32_CORE_FD_TAB, base + O_FD);
+	sw(O_CORE + T32_CORE_PM_CTRL, (op3_rnd() & 1) ? op3_rnd() % 3 : op3_rnd());
 	sw(O_CORE + T32_CORE_FD_TISP, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
 	for (k = 0; k < 4; k++)
 		fd_tab[k] = (op3_rnd() & 1) ? 0 : op3_rnd();
@@ -383,6 +396,15 @@ int main(void)
 				sw(O_USER + 4 + 12 * k, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
 				sw(O_USER + 8 + 12 * k, ((op3_rnd() & 7) ? op3_rnd() % 33 : op3_rnd() % 256) | (op3_rnd() & 0xff00));
 			}
+		if ((cmd == T32_UIO_PM_ALL_DONE || cmd == T32_UIO_GPIO_SWITCH || cmd == T32_UIO_GPIO_TRIGGER ||
+		     cmd == T32_UIO_TIZIANO_PAR) && !(op3_rnd() & 3))
+			sw(O_ISP + T32_DEV_SD, 0);	/* no subdevice 0 (commands that check it) */
+		ctu_lim = ~0u;
+		if (cmd == T32_UIO_GET_PM_CTRL) {
+			u32 v = *(u32 *)(tmpl + O_CORE + T32_CORE_PM_CTRL);
+
+			ctu_lim = v <= 1 ? 4 : 0;
+		}
 		if (cmd == T32_UIO_AWB_OPEN && (op3_rnd() & 3))
 			sw(O_USER, T32_AE_ALGO_VERSION);
 		if (cmd == T32_UIO_WDR_SET_BUF && (op3_rnd() & 1)) {	/* size at the tsize boundary */

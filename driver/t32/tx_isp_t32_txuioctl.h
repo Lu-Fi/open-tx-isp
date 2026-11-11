@@ -23,7 +23,10 @@
  *            command 0x100001b over the core ioctl broadcast;
  *   drop     frame drop set / get and set / get once (core device +1132
  *            channel table, 3 channels per input; the tisp frame drop
- *            functions when core +1196 is 1).
+ *            functions when core +1196 is 1);
+ *   misc     night mode start, PM control / all done, GPIO state switch
+ *            (+ trigger), tiziano parameters (subdevice 0 notify), running
+ *            mode read.
  */
 #ifndef TX_ISP_T32_TXUIOCTL_H
 #define TX_ISP_T32_TXUIOCTL_H
@@ -72,6 +75,24 @@
 #define T32_UIO_GET_FDROP	0xc004542dU
 #define T32_UIO_SET_FDROP1	0xc00454cdU
 #define T32_UIO_GET_FDROP1	0xc00454ceU
+#define T32_UIO_NIGHT_MODE	0xc004542eU
+#define T32_UIO_GET_PM_CTRL	0xc0045432U
+#define T32_UIO_PM_ALL_DONE	0xc0045433U
+#define T32_UIO_GPIO_SWITCH	0xc004548eU
+#define T32_UIO_GPIO_TRIGGER	0xc004548fU
+#define T32_UIO_RUN_MODE	0xc004543dU
+#define T32_UIO_TIZIANO_PAR	0xc00454c8U
+
+#define T32_NOTIFY_PM_DONE	0x1000005U
+#define T32_NOTIFY_GPIO		0x100000aU
+#define T32_NOTIFY_GPIO_TRIG	0x100000bU
+#define T32_NOTIFY_TIZIANO	0x100001eU
+#define T32_CORE_NIGHT		1164U	/* core +1164 + 4 input: night mode request (vendor 4 * (input + 290) + 4) */
+#define T32_NIGHT_START		10U
+#define T32_CORE_PM_CTRL	4020U
+#define T32_ISP_RUN_MODE	64U
+#define T32_ENOENT		2U
+#define T32_ENOMEM		12U
 
 /* core ioctl command words the broadcasts hand on */
 #define T32_CORE_CMD_16		0x1000016U
@@ -645,6 +666,97 @@ static inline int t32_uio_get_frame_drop(u32 isp, u32 user, int once, const char
 	return r;
 }
 
+/* tx_isp_start_night_mode: { input } */
+static inline int t32_uio_night_mode(u32 isp, u32 arg)
+{
+	u32 core = t32_tx_ld(t32_tx_ld(isp, T32_DEV_SD), T32_SD_PRIV_CORE), in = 0;
+
+	if (t32_tx_arg_in(isp, &in, arg, 4)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_start_night_mode", 1892);
+		return -(int)T32_EFAULT;
+	}
+	t32_tx_st(core, T32_CORE_NIGHT + 4 * in, T32_NIGHT_START);
+	return 0;
+}
+
+/*
+ * tx_isp_get_pm_control: { 1 if core +4020 is 1, 0 if it is 0 } to user.
+ * Vendor: other values and the second word leave stale stack (zero here).
+ */
+static inline int t32_uio_get_pm_control(u32 isp, u32 user)
+{
+	u32 core = t32_tx_ld(t32_tx_ld(isp, T32_DEV_SD), T32_SD_PRIV_CORE), b[2] = { 0 };
+
+	if (t32_tx_ld(core, T32_CORE_PM_CTRL) == 1)
+		b[0] = 1;
+	if (t32_tx_os_copy_to_user(user, b, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CTU_ERR, "tx_isp_get_pm_control", 1918);
+		return -(int)T32_EFAULT;
+	}
+	return 0;
+}
+
+/* a user block to subdevice 0's notify; nosd / nofn: results without a subdevice 0 / notify, res: pass its result */
+static inline int t32_uio_notify_block(u32 isp, u32 user, u32 n, u32 ev, int nosd, int nofn, int res)
+{
+	u32 sd = t32_tx_ld(isp, T32_DEV_SD), b[6], fn;
+	int r;
+
+	if (t32_tx_os_copy_from_user(b, user, n)) {
+		t32_tx_os_isp_printf(2, "Failed to copy from user\n");
+		return -(int)T32_ENOMEM;
+	}
+	if (!sd)
+		return nosd;
+	fn = t32_tx_ld(sd, T32_SD_NOTIFY);
+	if (!fn)
+		return nofn;
+	r = ((t32_uio_notify_fn)T32_TX_P(fn))(sd, ev, b);
+	return res ? r : 0;
+}
+
+/* tx_isp_get_pm_all_done: an 8-byte user block to subdevice 0's notify, its result */
+static inline int t32_uio_pm_all_done(u32 isp, u32 user)
+{
+	u32 sd = t32_tx_ld(isp, T32_DEV_SD), b[2], fn;
+
+	if (t32_tx_os_copy_from_user(b, user, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_get_pm_all_done", 1990);
+		return -(int)T32_EFAULT;
+	}
+	if (!sd)
+		return -(int)T32_ENOENT;
+	fn = t32_tx_ld(sd, T32_SD_NOTIFY);
+	if (!fn)
+		return -(int)T32_ENOIOCTLCMD;
+	return ((t32_uio_notify_fn)T32_TX_P(fn))(sd, T32_NOTIFY_PM_DONE, b);
+}
+
+/* tx_isp_set_tiziano_par: a 20-byte block (kernel or user) to subdevice 0's notify */
+static inline int t32_uio_tiziano_par(u32 isp, u32 arg)
+{
+	u32 sd, b[5], fn;
+
+	if (t32_tx_arg_in(isp, b, arg, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_set_tiziano_par", 1229);
+		return -(int)T32_EFAULT;
+	}
+	sd = t32_tx_ld(isp, T32_DEV_SD);
+	if (sd && (fn = t32_tx_ld(sd, T32_SD_NOTIFY)))
+		((t32_uio_notify_fn)T32_TX_P(fn))(sd, T32_NOTIFY_TIZIANO, b);
+	return 0;
+}
+
+/* the running mode word (+64) to user; a failed copy returns the copy result */
+static inline int t32_uio_run_mode(u32 isp, u32 user)
+{
+	u32 r = t32_tx_os_copy_to_user(user, T32_TX_P(isp + T32_ISP_RUN_MODE), 4);
+
+	if (r)
+		t32_tx_os_isp_printf(2, "Get isp driver running mode failed\n");
+	return (int)r;
+}
+
 /* tx_isp_unlocked_ioctl(file, cmd, arg) */
 static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 {
@@ -698,6 +810,14 @@ static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 	case T32_UIO_SET_FDROP1:	return t32_uio_set_frame_drop_once(isp, arg);
 	case T32_UIO_GET_FDROP:		return t32_uio_get_frame_drop(isp, arg, 0, "tx_isp_get_frame_drop", 1775, 1790);
 	case T32_UIO_GET_FDROP1:	return t32_uio_get_frame_drop(isp, arg, 1, "tx_isp_get_frame_drop_once", 1866, 1876);
+	case T32_UIO_NIGHT_MODE:	return t32_uio_night_mode(isp, arg);
+	case T32_UIO_GET_PM_CTRL:	return t32_uio_get_pm_control(isp, arg);
+	case T32_UIO_PM_ALL_DONE:	return t32_uio_pm_all_done(isp, arg);
+	case T32_UIO_GPIO_SWITCH:
+		return t32_uio_notify_block(isp, arg, 24, T32_NOTIFY_GPIO, -(int)T32_ENOENT, -(int)T32_ENOIOCTLCMD, 1);
+	case T32_UIO_GPIO_TRIGGER:	return t32_uio_notify_block(isp, arg, 8, T32_NOTIFY_GPIO_TRIG, 0, 0, 0);
+	case T32_UIO_TIZIANO_PAR:	return t32_uio_tiziano_par(isp, arg);
+	case T32_UIO_RUN_MODE:		return t32_uio_run_mode(isp, arg);
 	}
 	return 0;
 }
