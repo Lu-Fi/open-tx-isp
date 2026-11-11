@@ -10,6 +10,7 @@
  * - tisp_lce_par: per-frame LCE calculation (locked statistics copy, soft path, curve).
  * - tisp_lce_interrupt_static: LCE statistics bank, histogram rearm, curve roll.
  * - tisp_api_param_array_get: ISP API parameter read by id.
+ * - tisp_day_or_night_par_refresh: day / night refresh of every block, waiter wake-up.
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -601,6 +602,57 @@ static inline u32 t32_api_param_array_get(struct t32_apig *g, u32 ch, u8 *out, u
 	}
 	*len = n;
 	return n;
+}
+
+/* ---- tisp_day_or_night_par_refresh (vendor 0xafefc), oracle t32_dnref_oracle ---- */
+
+enum t32_dn_blk {		/* the vendor's refresh order */
+	T32_DN_TOP, T32_DN_DPC, T32_DN_GIB, T32_DN_AE, T32_DN_AWB, T32_DN_LSC, T32_DN_TMO, T32_DN_DMSC,
+	T32_DN_GAMMA, T32_DN_CCM, T32_DN_CLM, T32_DN_BCSH, T32_DN_YSP, T32_DN_MDNS, T32_DN_YDNS,
+	T32_DN_SDNS, T32_DN_CDNS, T32_DN_DEFOG, T32_DN_LCE, T32_DN_RDNS, T32_DN_DECMP, T32_DN_CSCCR,
+	T32_DN_BLKS,
+};
+
+#define T32_DN_PIPE_STRIDE	904	/* t32_data_dc284: defog gets the first two words */
+
+struct t32_dnr_ops {
+	/* tisp_<blk>_dn_params_refresh(ch, dn); AE and SDNS take the channel only (dn is passed as 0
+	 * here); DEFOG also gets w0 / w1 of the channel state */
+	void (*refresh)(enum t32_dn_blk blk, u32 ch, u32 dn, u32 w0, u32 w1);
+	u32 (*wake_up)(void *wq);		/* __wake_up(wq, 1, 1, 0) */
+};
+
+struct t32_dnr {
+	const struct t32_dnr_ops *ops;
+	const u8 *pipe;		/* t32_data_dc284 */
+	u8 *done;		/* t32_data_e2764[ch] */
+	u32 *count;		/* t32_data_f0908[ch] */
+	u8 *ev;			/* t32_data_dad90: +0 flag, +2 day / night */
+	void *wq;		/* t32_data_dad94 */
+};
+
+/* tisp_day_or_night_par_refresh: every block's day / night refresh, then signal the waiter */
+static inline u32 t32_day_or_night_par_refresh(struct t32_dnr *d, u32 ch, u32 dn)
+{
+	const u8 *pipe;
+	u32 b;
+
+	ch &= 0xff;
+	for (b = T32_DN_TOP; b < T32_DN_BLKS; b++) {
+		if (b == T32_DN_AE || b == T32_DN_SDNS) {
+			d->ops->refresh(b, ch, 0, 0, 0);
+		} else if (b == T32_DN_DEFOG) {
+			pipe = d->pipe + T32_DN_PIPE_STRIDE * ch;
+			d->ops->refresh(b, ch, dn, t32_br_rd32(pipe), t32_br_rd32(pipe + 4));
+		} else {
+			d->ops->refresh(b, ch, dn, 0, 0);
+		}
+	}
+	d->done[ch] = 1;
+	d->ev[0] = 1;
+	d->count[ch] = 0;
+	d->ev[2] = dn;
+	return d->ops->wake_up(d->wq);
 }
 
 #endif /* TX_ISP_T32_BLKREST_H */
