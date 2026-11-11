@@ -2289,7 +2289,7 @@ static inline void t32_aea_long_process(const struct t32_aea_ctx *c)
 		sum[1] = sum[2] = sum[3] = sum[4] = 0;
 	} else {
 		for (k = 1; k < 5; k++)
-			sum[k] = (u32)((t32_u64)sum[k] * T32_AEA_LP_FULL / total);
+			sum[k] = (u32)div_u64((t32_u64)sum[k] * T32_AEA_LP_FULL, total);
 		sum[0] = T32_AEA_LP_FULL - sum[4] - sum[1] - sum[2] - sum[3];
 	}
 	for (k = 0; k < 5; k++)
