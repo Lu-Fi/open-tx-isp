@@ -2088,6 +2088,11 @@ module_param(t41_raw_irq, bool, 0644);
 MODULE_PARM_DESC(t41_raw_irq, "call the RAW WDMA/RDMA frame-done callbacks (irq_func_cb[68]/[69]) from the ISR (default 1)");
 static int t41_raw_trace;
 static int t41_raw_sync = 1;
+/* Off until the board reset after the first RDMA start is understood
+ * (#320): the controls answer EPERM ("not implemented") as before. */
+static bool t41_raw_ring;
+module_param(t41_raw_ring, bool, 0644);
+MODULE_PARM_DESC(t41_raw_ring, "serve the RAW ring controls 0x80000a7/0x80000a8 (bring-up, resets the board on the Vanhua T41; default 0)");
 static unsigned int t41_raw_diag;	/* bring-up only: 1 no RDMA start, 2 no requeue, 4 ISR log */
 module_param(t41_raw_diag, uint, 0644);
 static unsigned int t41_raw_isr_log;
@@ -22302,6 +22307,11 @@ static int t41_tuning_raw_rw(const struct tx_isp_tuning_t41_control *request)
     void __user *user = (void __user *)(uintptr_t)request->value_or_ptr;
     uint32_t words[7];
 
+    if (!READ_ONCE(t41_raw_ring)) {
+        pr_warn_ratelimited("tuning control 0x%x %s not implemented\n",
+                            request->id, request->is_get ? "get" : "set");
+        return -EPERM;
+    }
     if (request->is_get > 1 || !user)
         return -EINVAL;
     if (request->id == T41_TUNING_RAW_RW_CONTROL) {
