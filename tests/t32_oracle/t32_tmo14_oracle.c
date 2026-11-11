@@ -8,6 +8,8 @@
  * (c0488, c04a4, d8320, d8120, e31b0, d8914, d88a4 / d88d4 / d88f4 (adjacent, d88d4 written by the y filters), d87a0, d8324, c0444, e3500, faceae tables) are
  * generated at random, the same values on both sides.  Not covered: the vendor's printk every 1000th call (dropped in the port, the oracle env only
  * counts it).  Not generated (vendor UB): division by zero (d8320 0, W == V, thr < 0 with a zero deviation, 4095 - d88d4[k] == 0).
+ * After the random cases T32O_NREAL (default 1000) more cases run with the REAL vendor tables of tx_isp_t32_tmotab.h (data.c values, openimp
+ * #280) on both sides: ours gets them through t32_tmo_fpga_env_tables, d88d4 starts from t32_tmo_fpga_d88d4_init; the rest stays random.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +17,7 @@
 #include <stdint.h>
 #include "t32_oracle_env.h"
 #include "tx_isp_t32_tmo.h"
+#include "tx_isp_t32_tmotab.h"
 
 #define WEAK __attribute__((weak))
 #define FR	64u
@@ -110,6 +113,22 @@ static void asc(s16 *d, u32 n, u32 lo, u32 hi, int strict)
 		if (v > hi - (strict ? (n - 1 - k) : 0))
 			v = hi - (strict ? (n - 1 - k) : 0);
 	}
+}
+
+/* the real tables (tx_isp_t32_tmotab.h) into the generated ones, which settables() hands to the vendor symbols */
+static void realtab(void)
+{
+	memcpy(c0488, t32_tmo_tab_c0488, sizeof(t32_tmo_tab_c0488));
+	memcpy(c04a4, t32_tmo_tab_c04a4, sizeof(t32_tmo_tab_c04a4));
+	memcpy(d8914, t32_tmo_tab_d8914, sizeof(t32_tmo_tab_d8914));
+	memcpy(d87a0, t32_tmo_tab_d87a0, sizeof(t32_tmo_tab_d87a0));
+	memcpy(d88a4, t32_tmo_tab_d88a4, sizeof(t32_tmo_tab_d88a4));
+	memcpy(d88f4, t32_tmo_tab_d88f4, sizeof(t32_tmo_tab_d88f4));
+	memcpy(d8120, t32_tmo_tab_d8120, sizeof(t32_tmo_tab_d8120));
+	memcpy(d8324, t32_tmo_tab_d8324, sizeof(t32_tmo_tab_d8324));
+	memcpy(c0444, t32_tmo_tab_c0444, sizeof(t32_tmo_tab_c0444));
+	d8320 = T32_TMO_TAB_D8320;
+	t32_tmo_fpga_d88d4_init(d88d4);
 }
 
 static void gen(void)
@@ -333,9 +352,10 @@ static u32 vexp2(u32 v, u32 a, u32 b) { return (u32)t32o_call(FN(tisp_math_exp2)
 int main(void)
 {
 	unsigned int n = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 3000;
-	unsigned int c, compared = 0, i;
+	unsigned int nr = getenv("T32O_NREAL") ? (unsigned)atoi(getenv("T32O_NREAL")) : 1000;
+	unsigned int c, compared = 0, real = 0, i;
 
-	for (c = 0; c < n; c++) {
+	for (c = 0; c < n + nr; c++) {
 		struct t32_tmo_fpga_env env;
 		u32 *rec, *q;
 		const char *bad = NULL;
@@ -343,6 +363,8 @@ int main(void)
 		t32o_reset();
 		VA = t32o_alloc(ARN);
 		gen();
+		if (c >= n)
+			realtab();
 		memcpy(VA, IMG, TOT);
 		memcpy(OA, IMG, TOT);
 		rec = t32o_alloc(4 * 16);
@@ -359,6 +381,10 @@ int main(void)
 		env.d8914 = d8914; env.d88d4 = d88d4; env.d88a4 = d88a4; env.d88f4 = d88f4; env.d87a0 = d87a0;
 		env.e3160 = e60; env.e3518 = &e3518; env.e3500 = e3500; env.d8324 = d8324; env.c0444 = c0444; env.exp2 = vexp2;
 		env.e3244 = &e3244; env.e34e8 = e34e8; env.e3248 = e3248;
+		if (c >= n) {	/* the real tables: ours straight from the header */
+			t32_tmo_fpga_env_tables(&env, d88d4);
+			real++;
+		}
 		if (rb(2)) {
 			near_prev(&env);
 			memcpy(VA, IMG, TOT);
@@ -407,6 +433,6 @@ int main(void)
 			return 1;
 		}
 	}
-	printf("%s: %u cases compared (adr_fpga %s), 0 mismatches\n", T32O_NAME, compared, NBLK ? "blocks 1 .. N against the cut vendor function" : "end to end");
+	printf("%s: %u cases compared (%u with the real data.c tables, adr_fpga %s), 0 mismatches\n", T32O_NAME, compared, real, NBLK ? "blocks 1 .. N against the cut vendor function" : "end to end");
 	return 0;
 }
