@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T32 vendor-bug guards (openimp #281; beyond vendor, user OK; planned, host only, not device-tested)
+
+- Guards for vendor bugs the T32 port found (`BEYOND VENDOR (#281)` in the code, rows in [docs/BEYOND_VENDOR.md](docs/BEYOND_VENDOR.md)): sensor register refuses SPI (bus type 2, vendor NULL sensor) with -22; `tisp_g_riscv_info` refuses channel >= 4; ISP-core ioctl treats an error-pointer subdev like NULL; new `t32_lib_intp_static_clear` zeroes the interrupt counters (vendor: memcpy from address 0); `tisp_load_parameters` clears the night flag of a missing night bin and returns -1 on a failed LUT info / table allocation; LCE 16 bit hist methods clamp the centre bin to 31; defog_soft clips negative channel values to 0; WDR interplate x1 == x0 gives y0, WDR malloc_cfg / init / get_map check their allocations, the WDR statistics interrupt needs record 0; `tisp_api_param_array_set` bounds the block / channel selectors. Valid inputs stay bit-exact; the affected oracles (ssior, getd, ispioctl, libintp, loadpar, lce41l, lces9, defogs, wdr1/3/5/7/8, apiparset) check the guarded cases ours only, all mutations detected.
+
 ## 2026-11-11: T32 block leftovers (op11; planned, host only, not device-tested)
 
 - New `driver/t32/tx_isp_t32_wrap.h`: the empty stub tisp_msca_Shd_ctrl, 9 one-call wrappers (face get/set, ae/awb_algo_deinit, api_ae_get_reg_state, msca_channel_start / irq_frame_done; callees through `struct t32_wrap_ops`) and 5 accessors (AE/AWB deinit_internal run flags, day_or_night_g_ctrl, single_lsc_reg_read / _lut_read). `t32_wrap_oracle`: 300000 calls against Matt Davis' recovered C, return values, callee order/arguments and state bit-exact, 23/23 mutations.
