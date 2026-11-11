@@ -846,3 +846,8 @@ u32 t32_data_cc960[1] __attribute__((weak)), t32_data_cc97c[1] __attribute__((we
 /* ispcore_slake_module: isp_printf formats / function name, address only */
 u32 t32_data_c36c4[1] __attribute__((weak)), t32_data_cd340[1] __attribute__((weak));
 u32 t32_data_cd364[1] __attribute__((weak)), t32_data_cd390[1] __attribute__((weak));
+/* ispcore_video_s_stream: bss d9008 (start from channel 0 only), f3314 (pipeline table pointer), f3354;
+ * d8e6c / d8e78 / d8e84 / f3360 pipeline tables and the isp_printf strings by address only */
+u32 t32_data_d9008[1] __attribute__((weak)), t32_data_f3314[1] __attribute__((weak)), t32_data_f3354[1] __attribute__((weak));
+u32 t32_data_d8e6c[3] __attribute__((weak)), t32_data_d8e78[3] __attribute__((weak)), t32_data_d8e84[3] __attribute__((weak));
+u32 t32_data_f3360[3] __attribute__((weak)), t32_data_c3660[1] __attribute__((weak)), t32_data_cd04c[1] __attribute__((weak));
