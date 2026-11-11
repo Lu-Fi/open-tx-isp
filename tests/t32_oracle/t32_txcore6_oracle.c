@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * T32 host oracle: our tx-isp core glue (driver/t32/tx_isp_t32_txcore.h)
+ * T32 host oracle: our tx-isp core glue (driver/t32/tx_isp_t32_txcore6.h)
  * against the unmodified vendor sensor_event_{prepare,suspend,resume,complete,
  * streamoff}_process and subdev_video_destroy_link (Matt Davis' recovered C,
  * PR #15 @ 2e2e06bc).  A random image (subdev, links, pads, decoy bytes)
@@ -13,7 +13,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include "t32_oracle_env.h"
-#include "tx_isp_t32_txcore.h"
+#include "tx_isp_t32_txcore6.h"
 
 #define WEAK __attribute__((weak))
 #define R(f)	((t32o_fn)(void (*)(void))(f))
@@ -76,7 +76,7 @@ static u8 *img, save0[IMGSZ], save1[IMGSZ];
 
 static int fail(const char *what, unsigned int c, unsigned int op)
 {
-	printf("t32_txcore_oracle: FAIL case %u op %u: %s\n", c, op, what);
+	printf("t32_txcore6_oracle: FAIL case %u op %u: %s\n", c, op, what);
 	return 1;
 }
 
@@ -138,7 +138,7 @@ int main(void)
 		if (EV[0].n || memcmp(img, save0, IMGSZ))
 			eff[op]++;
 	}
-	printf("t32_txcore_oracle: %u cases, 0 mismatches; cases with an effect per op: %u %u %u %u %u %u\n", n,
+	printf("t32_txcore6_oracle: %u cases, 0 mismatches; cases with an effect per op: %u %u %u %u %u %u\n", n,
 	       eff[0], eff[1], eff[2], eff[3], eff[4], eff[5]);
 	return 0;
 }

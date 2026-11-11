@@ -18,10 +18,10 @@
  * state 2 (the source pad unchecked, as the vendor).
  *
  * Checked bit-exact against the vendor flow by tests/t32_oracle
- * (t32_txcore_oracle).
+ * (t32_txcore6_oracle).
  */
-#ifndef TX_ISP_T32_TXCORE_H
-#define TX_ISP_T32_TXCORE_H
+#ifndef TX_ISP_T32_TXCORE6_H
+#define TX_ISP_T32_TXCORE6_H
 
 #include "tx_isp_t32_glue.h"
 
