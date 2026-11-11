@@ -329,11 +329,16 @@ anti-flicker, mirror / flip, module control, module ratio, CSC, CCM, gamma
 (presets), statistics config, AE / AWB / AF attributes and weights, face AE /
 AWB, WDR output mode, scaler level, CT trend offset, CSC-CR, HB line space,
 sensor attributes, autozoom, frame-done wait; AE start EV on `/dev/tx-isp`
-`0xc0045436/7`. Stage 1: the attributes are kept per channel and returned as
-the vendor does where its getter only reads back; they do not reach the image
-blocks yet, statistics getters answer zeros. Sensor fps (`0x08000070`) stays in
+`0xc0045436/7`. The AE / AWB / statistics ids are bound to the per-frame AE
+and AWB blocks (`tx_isp_t32_tunblk.c`: the ported `.isra` wrappers, `tisp_[sg]_*`
+API and `t32_aea_*` / `t32_awb_*` block API, so a Set is read by the next AE /
+AWB frame and a Get answers the live statistics and exposure state). AWB runs
+live; the AE context is dropped at stream-on (openimp #350), so the AE ids answer
+the no-context fallback (zeroed blocks, scene kept as set) for now. The other
+attributes are still kept per channel and returned (not applied yet). No AF and
+no GSM block in the driver. Sensor fps (`0x08000070`) stays in
 `tx_isp_t32_core.c`, OSD / mask / draw in `tx_isp_t32_isposd.c`. QEMU vs the
-vendor module: 66 of 86 steps identical (CHANGELOG has the open list).
+vendor module: see CHANGELOG.
 
 ## Not yet (S4+)
 

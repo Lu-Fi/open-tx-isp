@@ -75,6 +75,12 @@ int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones);
 void t32_aec_detach(void);
 void t32_aec_kick(void);
 bool t32_aec_tgain(u32 *g);
+struct t32_aea_ctx;
+bool t32_aec_api_get(struct t32_aea_ctx *c);
+void t32_aec_api_put(void);
+void t32_aec_api_sleep(u32 ms);
+u32 t32_aec_api_bv(void);
+u32 t32_aec_api_dcw(void);
 const u8 *t32_hw_ae_zones(void);
 
 /* tx_isp_t32_awbc.c: the per-frame vendor AWB (tisp_awb_init state, tisp_awb_process), behind T32_PP_AWB */
@@ -87,6 +93,10 @@ int t32_awbc_attach(const u8 *sec, u32 width, u32 height, const u8 *bufs);
 void t32_awbc_detach(void);
 void t32_awbc_kick(void);
 bool t32_awbc_ct(u32 *ct);
+struct t32_awb_ctx;
+bool t32_awbc_api_get(struct t32_awb_ctx *c);
+void t32_awbc_api_put(void);
+void t32_awbc_api_set_gain(void);
 
 /* tx_isp_t32_tisp.c: per-frame tisp paths (ported blocks), switch t32_ported_paths */
 enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T32_PP_MDNS, T32_PP_DPC, T32_PP_GIB,
