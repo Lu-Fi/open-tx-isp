@@ -8841,11 +8841,14 @@ static int apical_isp_core_ops_g_ctrl(struct tx_isp_dev *dev, struct isp_core_ct
                 break;
 
             case 0x8000085:  // Temper Strength
-                ctrl->value = tuning->temper_strength;
+                /* The live 3DNS ratio (default 0x80 before any set, also
+                 * after a module reload): the cached field read 0 until the
+                 * first set, so a save/restore turned temporal NR off (#331). */
+                ctrl->value = data_9ab00;
                 break;
 
             case 0x8000086:  // Sinter Strength
-                ctrl->value = tuning->sinter_strength;
+                ctrl->value = data_9a9c0;
                 break;
 
             case 0x800002d:  /* GetAeWeight: 225 bytes */
@@ -25344,6 +25347,17 @@ static int tiziano_mdns_params_refresh(void)
 
 #undef TP
 
+	/* Stock: the five ratio-scaled Y tables are the live tables, so this
+	 * copy makes the new bank active at once, and a non-neutral temper
+	 * strength is reapplied to it (if (mdns_ratio != 0x80)
+	 * tisp_s_mdns_ratio()).  Here the live tables are separate copies:
+	 * refresh them from the new bank, or a day/night or custom-mode switch
+	 * keeps the old bank's thresholds until the next SetTemperStrength
+	 * (#323). */
+	tisp_mdns_select_now_tables(mdns_wdr_en != 0);
+	if (data_9ab00 != 0x80)
+		tisp_s_mdns_ratio(data_9ab00);
+
 	return 0;
 }
 
@@ -35566,8 +35580,8 @@ void *isp_core_tuning_init(void *arg1)
     tuning_data->defog_strength = 0;
     tuning_data->dpc_strength = 0;
     tuning_data->drc_strength = 0;
-    tuning_data->temper_strength = 0;
-    tuning_data->sinter_strength = 0;
+    tuning_data->temper_strength = 0x80;
+    tuning_data->sinter_strength = 0x80;
     tuning_data->running_mode = 0;
     tuning_data->custom_mode = 0;
     tuning_data->fps_num = 25;
