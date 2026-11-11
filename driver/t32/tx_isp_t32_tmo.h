@@ -2142,3 +2142,101 @@ static inline void t32_tmo_adr_reg_write_5x5(const u8 *ctx, u8 d03a0, t32_tmo_re
 		regw(cb, ch, s ? 8040 : 29956U + 4U * (u32)j, t32_tmo_ld16(ctx, 574 + 4 * (u32)j) | t32_tmo_ld16(ctx, 576 + 4 * (u32)j) << 16);
 	regw(cb, ch, s ? 8055 : 30016, t32_tmo_ld16(ctx, 634));
 }
+
+/* ---- phase 11b: ramV_vi0_reg_refresh, ramV_vi1_reg_refresh, ramY_vi0_reg_refresh ---- */
+
+/*
+ * Register access of the ram refresh functions: sysw = system_reg_write (reg, val), regw = tisp_reg_write (ch, reg, val), lutw =
+ * tisp_reg_lut_write (ch, reg, val, index), rd = system_reg_read (reg), dma = private_dma_cache_sync (0, buf, len, 0).
+ */
+struct t32_tmo_ramio {
+	void *cb;
+	void (*sysw)(void *cb, u32 reg, u32 val);
+	void (*regw)(void *cb, int ch, u32 reg, u32 val);
+	void (*lutw)(void *cb, int ch, u32 reg, u32 val, u32 idx);
+	u32 (*rd)(void *cb, u32 reg);
+	void (*dma)(void *cb, u8 *buf, u32 len);
+	u8 d03a0;
+};
+
+/* the two words written for the 10 byte element p (five u16 a0 .. a4) of the tone buffer by ramV_vi0 / ramV_vi1 */
+static inline void t32_tmo_ramv_words(const u8 *p, u32 *w1, u32 *w2)
+{
+	u32 a0 = t32_tmo_ld16(p, 0), a1 = t32_tmo_ld16(p, 2), a2 = t32_tmo_ld16(p, 4), a3 = t32_tmo_ld16(p, 6), a4 = t32_tmo_ld16(p, 8);
+
+	*w1 = (a0 & 0xfffU) | (a2 << 24) | ((a1 & 0xfffU) << 12);
+	*w2 = ((a2 >> 8) & 0xfU) | ((a3 << 4) & 0xffffU) | ((a4 & 0xfffU) << 16);
+}
+
+/* the final pair of writes common to the three refreshes: the clear-on-read mask word at the interrupt register (28960 / shadow 7793) and 28688 / 7739 = -1 */
+static inline void t32_tmo_ram_tail(const struct t32_tmo_ramio *io, int ch)
+{
+	u32 v = io->rd(io->cb, 28960);
+
+	io->regw(io->cb, ch, io->d03a0 == 0 ? 28960U : 7793U, ~v);
+	io->regw(io->cb, ch, io->d03a0 != 0 ? 7739U : 28688U, 0xffffffffU);
+}
+
+/*
+ * tisp_tmo_ramV_vi0_reg_refresh (ch): tb = the record's tone buffer (record +20): 750 elements of 10 bytes.  Writes (system_reg_write)
+ * 0x32260 = 257, then per element two writes to 0x32264 (ramv_words), 0x32260 = 0x10102, then the tail.
+ */
+static inline void t32_tmo_ramV_vi0_reg_refresh(const u8 *tb, int ch, const struct t32_tmo_ramio *io)
+{
+	u32 e, w1, w2;
+
+	io->sysw(io->cb, 0x32260U, 257);
+	for (e = 0; e < 750; e++) {
+		t32_tmo_ramv_words(tb + 10 * e, &w1, &w2);
+		io->sysw(io->cb, 0x32264U, w1);
+		io->sysw(io->cb, 0x32264U, w2);
+	}
+	io->sysw(io->cb, 0x32260U, 0x10102U);
+	t32_tmo_ram_tail(io, ch);
+}
+
+/*
+ * tisp_tmo_ramV_vi1_reg_refresh (ch): the tone buffer is synced (7520 bytes), then tisp_reg_write: base = (d03a0 != 0 ? 6234 : 0x32260) = 257;
+ * per element e (750) tisp_reg_lut_write (ch, lut = (d03a0 != 0 ? 6236 : 0x32264), w1, 2 e) and (.., w2, 2 e + 1) (the index
+ * advances 2 per element: 4 per 20 byte block); then tisp_reg_write (base + 1503, 0x10102), then the second tail write only
+ * (28688 / 7739 = -1; no interrupt mask read).
+ */
+static inline void t32_tmo_ramV_vi1_reg_refresh(u8 *tb, int ch, const struct t32_tmo_ramio *io)
+{
+	u32 base = io->d03a0 != 0 ? 6234U : 0x32260U, lut = io->d03a0 != 0 ? 6236U : 0x32264U, e, w1, w2;
+
+	io->dma(io->cb, tb, 7520);
+	io->regw(io->cb, ch, base, 257);
+	for (e = 0; e < 750; e++) {
+		t32_tmo_ramv_words(tb + 10 * e, &w1, &w2);
+		io->lutw(io->cb, ch, lut, w1, 2 * e);
+		io->lutw(io->cb, ch, lut, w2, 2 * e + 1);
+	}
+	io->regw(io->cb, ch, base + 1503U, 0x10102U);
+	io->regw(io->cb, ch, io->d03a0 != 0 ? 7739U : 28688U, 0xffffffffU);
+}
+
+/*
+ * tisp_tmo_ramY_vi0_reg_refresh (ch): drc_ctrl first (a call on the record r, ported), then with out = the record's 201 u16 curve:
+ * system_reg_write 0x32300 = 257; 100 times 0x32304 = (out[2 i + 1] & 0x1fff) << 16 | (out[2 i] & 0x1fff); 0x32304 = v << 16 | v with
+ * v = out[200] & 0x1fff; 0x32300 = 0x10102; tisp_reg_write (d03a0 == 0: 0x32400 / 0x32404 / 0x32408 else 16383 for all three):
+ * 612, 0x650000, 1; then the tail.
+ */
+static inline void t32_tmo_ramY_vi0_reg_refresh(struct t32_tmo_rec *r, int ch, const struct t32_tmo_ramio *io)
+{
+	const u16 *out;
+	u32 i, v;
+
+	t32_tmo_drc_ctrl(r);
+	out = r->out;
+	io->sysw(io->cb, 0x32300U, 257);
+	for (i = 0; i < 100; i++)
+		io->sysw(io->cb, 0x32304U, ((out[2 * i + 1] & 0x1fffU) << 16) | (out[2 * i] & 0x1fffU));
+	v = out[200] & 0x1fffU;
+	io->sysw(io->cb, 0x32304U, (v << 16) | v);
+	io->sysw(io->cb, 0x32300U, 0x10102U);
+	io->regw(io->cb, ch, io->d03a0 == 0 ? 0x32400U : 16383U, 612);
+	io->regw(io->cb, ch, io->d03a0 == 0 ? 0x32404U : 16383U, 0x650000U);
+	io->regw(io->cb, ch, io->d03a0 != 0 ? 16383U : 0x32408U, 1);
+	t32_tmo_ram_tail(io, ch);
+}
