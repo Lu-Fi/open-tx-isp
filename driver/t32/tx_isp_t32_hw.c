@@ -363,8 +363,13 @@ static void t32_tisp_init(void)
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block stores into its section */
 
 		if (cp) {
-			t32_tisp_flush("gib", t32_gib_init(cp, (u32)t32_mbus_to_bayer(code), tisp_w));
-			kfree(cp);
+			int n = t32_gib_init(cp, (u32)t32_mbus_to_bayer(code), tisp_w);
+
+			t32_tisp_flush("gib", n);
+			if (n > 0)	/* the per-frame context keeps the edited copy */
+				t32_pf_attach_gib(cp, (u32)t32_mbus_to_bayer(code));
+			else
+				kfree(cp);
 		}
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_DPC, &len);

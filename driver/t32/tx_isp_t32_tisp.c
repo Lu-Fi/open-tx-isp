@@ -6,7 +6,8 @@
  * (t32_tisp_init in tx_isp_t32_hw.c) and never again; the vendor refreshes
  * them on every AE run through tisp_long_tgain_update.
  *
- * Block 1, gain-interpolated filters: DMSC, YSP, CDNS, YDNS, SDNS; block 2 MDNS; block 3 DPC (long-frame gain).
+ * Block 1, gain-interpolated filters: DMSC, YSP, CDNS, YDNS, SDNS; block 2 MDNS; block 3 DPC (long-frame gain);
+ * block 4 GIB (black level, tisp_gib_again_update).
  *  - At stream-on the init path hands each block its IQ bin section (the copy
  *    the init function already edited, as the vendor keeps tparams) and the
  *    context is built the way the vendor's tisp_<blk>_init leaves it: zeroed
@@ -45,6 +46,7 @@
 #include "tx_isp_t32_sdns.h"
 #include "tx_isp_t32_mdns.h"
 #include "tx_isp_t32_dpc.h"
+#include "tx_isp_t32_gib.h"
 
 /*
  * Vendor t32_data_d03a0: 1 = registers go into the shadow image / register
@@ -57,7 +59,7 @@ static unsigned int t32_ported_paths = 1;
 module_param(t32_ported_paths, uint, 0644);
 MODULE_PARM_DESC(t32_ported_paths,
 		 "1 (default): every wired per-frame block on its ported path; 0: all on the old path; "
-		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc)");
+		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib)");
 
 static unsigned int tisp_tgain = 0x10000;
 module_param(tisp_tgain, uint, 0644);
@@ -83,6 +85,7 @@ static struct {
 	struct t32_sdns_ctx sdns;
 	struct t32_mdns_ctx mdns;
 	struct t32_dpc_ctx dpc;
+	struct t32_gib_ctx gib;
 	bool have[T32_PP_COUNT];
 	bool ready;		/* every block of this stream attached */
 	u32 last_tgain[1];	/* vendor t32_data_dd... last low gain word, per channel */
@@ -158,7 +161,11 @@ static void pf_refresh(enum t32_ltg_ref blk, u32 ch, u32 gain)
 		if (pf.have[T32_PP_MDNS] && t32_pp_on(T32_PP_MDNS))
 			n = t32_mdns_refresh(&pf.mdns, gain, pf_w);
 		break;
-	default:	/* GIB, RDNS, AF: not wired yet */
+	case T32_LTG_GIB:	/* tisp_gib_again_update(ch, gain low word) */
+		if (pf.have[T32_PP_GIB] && t32_pp_on(T32_PP_GIB))
+			n = t32_gib_again_update(&pf.gib, (u8)ch, gain, pf_w);
+		break;
+	default:	/* RDNS, AF: not wired yet */
 		return;
 	}
 	pf_flush(n);
@@ -216,6 +223,11 @@ static void pf_free_locked(void)
 	kfree(pf.mdns.val);
 	kfree(pf.dpc.sec);
 	kfree(pf.dpc.o);
+	kfree(pf.gib.sec);
+	kfree(pf.gib.cp);
+	kfree(pf.gib.gw);
+	kfree(pf.gib.ptrow);
+	kfree(pf.gib.hold);
 	memset(&pf, 0, sizeof(pf));
 }
 
@@ -343,6 +355,51 @@ void t32_pf_attach_mdns(u8 *sec, u8 *val, u32 width, u32 height, u32 memopt)
 	pf.mdns.memopt = memopt;
 	pf.have[T32_PP_MDNS] = true;
 	mutex_unlock(&pf_lock);
+}
+
+/*
+ * GIB: the section copy t32_gib_init edited (kmalloc'd) and the Bayer
+ * pattern it ran with.  The context is left as the vendor's tisp_gib_init
+ * leaves it (recovered C): gain block = the vendor template (0x400, 0x400)
+ * with +8 the pattern, +12 pattern >= 4, WDR byte +16 = 0; held levels
+ * zeroed, flag 0; the working block from tisp_gib_interp_by_again,
+ * tisp_gib_slope_update and tisp_gib_interp_by_again_s at gain word 0x400.
+ * Rerunning them on the section the init already edited gives the same
+ * working block and section (host check: wake-up writes = init writes).
+ */
+void t32_pf_attach_gib(u8 *sec, u32 bayer)
+{
+	struct t32_gib_ctx c = { .sec = sec };
+	int row = t32_gib_ptr_row(bayer);
+
+	if (!sec)
+		return;
+	if (row < 0)
+		goto fail;
+	c.cp = kzalloc(T32_GIB_VALUES, GFP_KERNEL);
+	c.gw = kzalloc(24, GFP_KERNEL);
+	c.ptrow = kmemdup(t32_gib_ptr_tab[row], sizeof(t32_gib_ptr_tab[row]), GFP_KERNEL);
+	c.hold = kzalloc(T32_GIB_HOLD_BYTES, GFP_KERNEL);
+	if (!c.cp || !c.gw || !c.ptrow || !c.hold)
+		goto fail;
+	t32_gib_put32(c.gw, 0x400);
+	t32_gib_put32(c.gw + 4, 0x400);
+	t32_gib_put32(c.gw + 8, bayer & 0x1f);
+	t32_gib_put32(c.gw + 12, (bayer & 0x1f) >= 4);
+	t32_gib_interp_set(&c, 0x400, 0);
+	t32_gib_slope_update(&c);
+	t32_gib_interp_set(&c, 0x400, 1);
+	mutex_lock(&pf_lock);
+	pf.gib = c;
+	pf.have[T32_PP_GIB] = true;
+	mutex_unlock(&pf_lock);
+	return;
+fail:
+	kfree(c.cp);
+	kfree(c.gw);
+	kfree(c.ptrow);
+	kfree(c.hold);
+	kfree(sec);
 }
 
 /* end of the stream-on init: the per-frame runs may start */
