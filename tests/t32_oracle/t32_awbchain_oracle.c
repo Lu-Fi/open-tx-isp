@@ -224,6 +224,34 @@ static int run_case(const char *tag, const u8 *sec, u32 w_, u32 h_)
 	return 0;
 }
 
+/*
+ * Synthetic AWB sections, independent of T32_IQ_DIR (openimp #355: without bins no chain case ran, so
+ * e.g. the mutant st->zt2[i] = 2 passed in a checkout without them; same fix as #333 for the AE chain).
+ * Fixed seed, fixed count (T32O_NSYNTH, default 48); the first mismatch ends the run.  A zero section
+ * with random tables from +3200 and zone grid / divisors like t32_awbinit_oracle (sane for
+ * params_refresh), the gray world / spec switches of the bin variants, in every second case a random
+ * run of the section below the grid fields.
+ */
+static void synth_cases(unsigned int n)
+{
+	static u8 sec[SECB];
+	unsigned int c, k;
+
+	for (c = 0; c < n && !failed; c++) {
+		memset(sec, 0, sizeof(sec));
+		for (k = 0; k < SECB; k++)
+			sec[k] = (u8)rnd();
+		t32_wr16(sec, 3184, rnd() % 64);
+		t32_wr16(sec, 3186, 1 + rnd() % 40);
+		t32_wr16(sec, 3188, rnd() % 64);
+		t32_wr16(sec, 3190, 1 + rnd() % 40);
+		t32_wr16(sec, 3448, rnd() % 3);
+		t32_wr16(sec, 3450, rnd() % 3);
+		sec[5704] = (u8)(rnd() % 3);
+		run_case("synthetic", sec, c & 1 ? 2560 : 1920, c & 1 ? 1440 : 1080);
+	}
+}
+
 int main(void)
 {
 	const char *dir = getenv("T32_IQ_DIR");
@@ -233,8 +261,9 @@ int main(void)
 	struct dirent **ents;
 	int ne, ie;
 
-	ne = scandir(dir ? dir : "../external/ingenic-sdk/sensor-iq/t32", &ents, NULL, alphasort);
-	for (ie = 0; ie < ne; ie++) {
+	synth_cases(getenv("T32O_NSYNTH") ? (unsigned)atoi(getenv("T32O_NSYNTH")) : 48);
+	ne = failed || !dir ? 0 : scandir(dir, &ents, NULL, alphasort);
+	for (ie = 0; ie < ne && !failed; ie++) {
 		char path[1024];
 		size_t l = strlen(ents[ie]->d_name), bytes;
 		u32 off, len = 0;
@@ -263,6 +292,8 @@ int main(void)
 		}
 		free(ents[ie]);
 	}
+	for (; ie < ne; ie++)
+		free(ents[ie]);
 	if (ne > 0)
 		free(ents);
 	printf("t32_awbchain_oracle: IQ bins %u, %u cases, %u frames, %u writes, %u frames with ct, %u refused (ours), %u mismatches\n",
@@ -270,7 +301,7 @@ int main(void)
 	if (failed)
 		return 1;
 	if (!nbins) {
-		printf("t32_awbchain_oracle: SKIP (set T32_IQ_DIR to a directory of T32 *.bin)\n");
+		printf("t32_awbchain_oracle: IQ-bin part: SKIP (set T32_IQ_DIR to a directory of T32 *.bin)\n");
 		return strict ? 2 : 0;
 	}
 	return 0;
