@@ -9429,6 +9429,13 @@ static uint t40_ae_split_legacy T40C2;
 module_param_named(t40_ae_split_legacy, t40_ae_split_legacy, uint, 0644);
 static uint t40_ae_split_moves T40C2;          /* exposure-neutral OEM re-splits done (diagnostic) */
 module_param_named(t40_ae_split_moves, t40_ae_split_moves, uint, 0444);
+/* #239: OEM fine convergence on the linear luma (t40_ae_oem_fine_trim); 0 = off (A/B), trims = moves done */
+static uint t40_ae_fine_trim = 1;
+module_param_named(t40_ae_fine_trim, t40_ae_fine_trim, uint, 0644);
+static uint t40_ae_fine_trims T40C2;
+module_param_named(t40_ae_fine_trims, t40_ae_fine_trims, uint, 0444);
+static bool t40_ae_oem_stable T40C2;
+static uint32_t t40_ae_oem_stable_comp T40C2;
 
 static uint32_t regtrace_t40_ae_max_it(void);
 static uint32_t regtrace_t40_lines_to_us(uint32_t lines);
@@ -77589,6 +77596,26 @@ static void regtrace_frame_3a_sample(int channel, uint32_t y_phys, uint32_t uv_p
                 break;
             }
         }
+        }
+        /*
+         * #239: the coarse stages left the exposure where it is: converge on the linear luma like the OEM
+         * (tisp_ae_long_tune2 tolerance pstMainAeOri[0x4a]) with the ISP dgain, where IT cannot take the rest
+         * (at its ceiling, manual, or quantised to flicker rungs).  The split below moves it into the analog
+         * gain once it covers an index.
+         */
+        if (!READ_ONCE(t40_ae_oem_live) || ex.freeze || dg_fixed ||
+            t40_ae_oem_stable_comp != READ_ONCE(t40_ae_sc.comp)) {
+            /* OEM: a new target (SetAeComp etc. set the refresh flag pstMainAeOri[0x29]) recomputes once */
+            t40_ae_oem_stable = false;
+            t40_ae_oem_stable_comp = READ_ONCE(t40_ae_sc.comp);
+        }
+        if (READ_ONCE(t40_ae_oem_live) && !ex.freeze && !dg_fixed &&
+            READ_ONCE(t40_ae_fine_trim) && !changed && !dgain_changed && !protect_highlights &&
+            (it >= it_cap || it_fixed || af_step) &&
+            t40_ae_oem_fine_trim(t40_ae_oem_diag[1], t40_ae_oem_diag[3], f3a_bank.stab,
+                                 &t40_ae_oem_stable, &dgain, dgain_max)) {
+            dgain_changed = true;
+            WRITE_ONCE(t40_ae_fine_trims, t40_ae_fine_trims + 1U);
         }
         /*
          * #84: OEM split of the exposure the step above produced (tisp_ae_long_tune2: IT = highest rung, analog

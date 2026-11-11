@@ -39,6 +39,7 @@
 
 #define T40_AET_OUTER		0x80U	/* tparams + 0x80 = OEM stMainAeOuter */
 #define T40_AET_ZONE		0x000U	/* u16: [0] y0 [1] rows [2] x0 [3] cols [4..18] col w [19..33] row h [34] lo [35] hi */
+#define T40_AET_STAB		0x2a8U	/* u16[4]: stable exit hi / lo (Q10 target/luma), tolerance lo / hi (#239) */
 #define T40_AET_MP48		0x288U	/* u16[11] (word 9: Pweight enable) */
 #define T40_AET_AF		0x314U	/* u16[3]: antiflicker enable, mode NORMAL (1) / AUTO (0), - */
 #define T40_AET_AFREQ		0x320U	/* u16: antiflicker frequency */
@@ -63,6 +64,7 @@ struct t40_aet_bank {
 	uint16_t scw[T40_AET_N];
 	uint8_t w[T40_AET_ZN * T40_AET_ZN];
 	uint16_t af[2], afreq;
+	uint16_t stab[4];
 };
 
 static inline uint32_t t40_aet_ld32(const uint8_t *b, uint32_t off)
@@ -99,6 +101,8 @@ static inline int t40_aet_parse(const uint8_t *bank, struct t40_aet_bank *p)
 	p->af[0] = t40_aet_ld16(o, T40_AET_AF);
 	p->af[1] = t40_aet_ld16(o, T40_AET_AF + 2U);
 	p->afreq = t40_aet_ld16(o, T40_AET_AFREQ);
+	for (i = 0; i < 4U; i++)
+		p->stab[i] = t40_aet_ld16(o, T40_AET_STAB + 2U * i);
 	for (i = 1; i < T40_AET_N; i++)
 		if (p->ev[i] < p->ev[i - 1U])
 			return -1;

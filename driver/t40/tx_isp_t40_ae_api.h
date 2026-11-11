@@ -648,6 +648,61 @@ static inline bool t40_ae_oem_split(u32 *it, u32 *again, u32 *dgain,
 	return true;
 }
 
+/*
+ * #239: OEM fine convergence in the linear statistics domain (vendor tx-isp-t40.ko tisp_ae_long_tune2 0x35b58,
+ * pstMainAeOri[0x4a] = stMainAeOuter + 0x2a8, u16[4] = {exit_hi, exit_lo, tol_lo, tol_hi}, sc830ai bin day and night
+ * {1150, 950, 1, 1}).  Not stable: the OEM recomputes the exposure from target / luma until
+ * target - tol_lo <= luma <= target + tol_hi, then marks the AE stable; stable: it holds until target / luma (Q10)
+ * leaves (exit_lo, exit_hi).  The open frame AE steps its gains against bands on the gamma-domain luma (analog 9 %,
+ * ISP dgain 5 %), which at the integration ceiling left it ~6 % below the OEM aim (Eufy T40 comp 200: luma 135 vs
+ * target 142, EV 4479 vs aim 4777).  This trims the ISP digital gain (continuous like the OEM gains) toward
+ * target / luma when the coarse stages did not move, at most one dgain step (1.08x) per sample, clamped to
+ * [1024, dgain_max].  *stable keeps the OEM state.  Returns true when *dgain changed.
+ */
+#define T40_AE_STAB_EXIT_HI	1150U
+#define T40_AE_STAB_EXIT_LO	950U
+
+static inline bool t40_ae_oem_fine_trim(u32 lum, u32 tl, const u16 *tol, bool *stable,
+					u32 *dgain, u32 dgain_max)
+{
+	u32 hi = tol && tol[0] ? tol[0] : T40_AE_STAB_EXIT_HI;
+	u32 lo = tol && tol[1] ? tol[1] : T40_AE_STAB_EXIT_LO;
+	u32 tlo = tol ? tol[2] : 1U, thi = tol ? tol[3] : 1U;
+	u32 d = *dgain, nd, ratio;
+	u64 w;
+
+	if (!tl)
+		return false;
+	if (!lum)
+		lum = 1U;
+	if (dgain_max < 1024U)
+		dgain_max = 1024U;
+	ratio = (u32)t40_ae_div64((u64)tl << 10, lum);
+	if (*stable) {
+		if (ratio > lo && ratio < hi)
+			return false;
+		*stable = false;
+	}
+	if (lum + tlo >= tl && lum <= tl + thi) {
+		*stable = true;
+		return false;
+	}
+	w = t40_ae_div64((u64)d * tl, lum);
+	nd = w > 0xffffffffULL ? 0xffffffffU : (u32)w;
+	if (nd > d + d / 12U)
+		nd = d + d / 12U;
+	if (nd + nd / 12U < d)
+		nd = d - d / 13U;
+	if (nd < 1024U)
+		nd = 1024U;
+	if (nd > dgain_max)
+		nd = dgain_max;
+	if (nd == d)
+		return false;
+	*dgain = nd;
+	return true;
+}
+
 /* ---------------- IMPISPAEExprInfo ---------------- */
 
 struct t40_ae_expr {
