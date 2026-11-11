@@ -65,6 +65,8 @@ struct t32_front_write;
 int t32_pf_attach_rdns(u8 *sec, struct t32_front_write *w);
 struct t32_lsc;
 void t32_pf_attach_lsc(const u8 *sec, const struct t32_lsc *s, u32 width, u32 height, u32 bayer, u32 ct);
+void t32_pf_attach_lce(const u8 *sec, u32 width, u32 height);
+void t32_pf_stop(void);
 void t32_pf_start(void);
 void t32_pf_kick(void);
 void t32_pf_exit(void);

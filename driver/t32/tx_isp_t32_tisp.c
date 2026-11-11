@@ -8,7 +8,8 @@
  *
  * Block 1, gain-interpolated filters: DMSC, YSP, CDNS, YDNS, SDNS; block 2 MDNS; block 3 DPC (long-frame gain);
  * block 4 GIB (black level, tisp_gib_again_update); block 5 RDNS (raw denoise, tisp_rdns_refresh, openimp #234);
- * block 6 LSC strength (tisp_lsc_tgain_update).
+ * block 6 LSC strength (tisp_lsc_tgain_update); block 7 LCE state and strengths (tisp_lce_init state,
+ * tisp_lce_tgain_update; tisp_lce_par is not wired, see driver/t32/README.md).
  *  - At stream-on the init path hands each block its IQ bin section (the copy
  *    the init function already edited, as the vendor keeps tparams) and the
  *    context is built the way the vendor's tisp_<blk>_init leaves it: zeroed
@@ -37,6 +38,7 @@
 #include <linux/slab.h>
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
+#include <linux/vmalloc.h>
 
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_tp.h"
@@ -51,6 +53,8 @@
 #include "tx_isp_t32_rdns.h"
 #include "tx_isp_t32_rdnstab.h"
 #include "tx_isp_t32_lsc.h"
+#include "tx_isp_t32_lcetg.h"
+#include "tx_isp_t32_lcem.h"
 
 /*
  * Vendor t32_data_d03a0: 1 = registers go into the shadow image / register
@@ -96,6 +100,8 @@ static struct {
 	struct t32_lsc_cur lsc_cur;
 	u32 lsc_img[T32_LSC_IMG_MESH];
 	struct t32_lsc_dwr lsc_dlog[2];
+	u8 *lce_st;		/* vendor t32_data_e1da8[0]: 0x22850 B, vmalloc */
+	u8 *lce_sec;		/* the section copy the state works on (state word 0) */
 	bool have[T32_PP_COUNT];
 	bool ready;		/* every block of this stream attached */
 	u32 last_tgain[1];	/* vendor t32_data_dd... last low gain word, per channel */
@@ -142,10 +148,22 @@ static int pf_lsc(u32 ch, u32 gain)
 	return pf.lsc.ndlog;
 }
 
+/* tisp_lce_tgain_update's strength hook: tisp_lce_tgain_interp_strength on the channel's state */
+static void pf_lce_strength(u32 ch)
+{
+	(void)ch;
+	t32_lce_tgain_interp_strength(pf.lce_st, pf.lce_sec);
+}
+
+static const struct t32_lcem_ops pf_lcem_ops = {
+	.interp_strength = pf_lce_strength,
+};
+
 /*
  * The 64-bit gain hooks.  DPC: tisp_dpc_l_gain_update reads the low word (a2
- * of the o32 a2:a3 pair); LSC: tisp_lsc_tgain_update likewise.  LCE / TMO /
- * AWB: see below.
+ * of the o32 a2:a3 pair); LSC: tisp_lsc_tgain_update likewise; LCE:
+ * tisp_lce_tgain_update(ch, gain, EV) on the state (no register write: the
+ * strengths feed tisp_lce_par).  TMO / AWB: see below.
  */
 static void pf_gain(enum t32_ltg_gain blk, u32 ch, u64 gain, u32 x, u32 y)
 {
@@ -156,6 +174,11 @@ static void pf_gain(enum t32_ltg_gain blk, u32 ch, u64 gain, u32 x, u32 y)
 		n = t32_dpc_l_gain_update(&pf.dpc, (u8)ch, (u32)gain, pf_w);
 	else if (blk == T32_LTG_LSC && pf.have[T32_PP_LSC] && t32_pp_on(T32_PP_LSC))
 		n = pf_lsc(ch, (u32)gain);
+	else if (blk == T32_LTG_LCE && pf.have[T32_PP_LCE] && t32_pp_on(T32_PP_LCE)) {
+		struct t32_lcem l = { .ops = &pf_lcem_ops, .st = { pf.lce_st } };
+
+		t32_lce_tgain_update(&l, 0, (u32)gain, (u32)(gain >> 32), x, y);
+	}
 	pf_flush(n);
 }
 
@@ -262,6 +285,8 @@ static void pf_free_locked(void)
 	kfree(pf.rdns.sec);
 	kfree(pf.rdns.param);
 	kfree(pf.lsc.sec);
+	vfree(pf.lce_st);
+	kfree(pf.lce_sec);
 	memset(&pf, 0, sizeof(pf));
 }
 
@@ -505,11 +530,51 @@ void t32_pf_attach_lsc(const u8 *sec, const struct t32_lsc *s, u32 width, u32 he
 	mutex_unlock(&pf_lock);
 }
 
+/*
+ * LCE (after its stream-on registers, t32_lce_build): the state the vendor's
+ * tisp_lce_init leaves (t32_lce_state_init, host check t32_lceinit_oracle)
+ * on a copy of the section (the vendor edits its tuning block, the state's
+ * first word points to it).  vmalloc'd like the vendor's, freed at
+ * stream-off (t32_pf_stop) or the next stream-on.
+ */
+void t32_pf_attach_lce(const u8 *sec, u32 width, u32 height)
+{
+	u8 *cp, *st;
+
+	if (!t32_pp_on(T32_PP_LCE) || width < 64 || height < 36)	/* size_para_calc divides by the zone count */
+		return;
+	cp = kmemdup(sec, T32_LCE_SEC_BYTES, GFP_KERNEL);
+	st = vmalloc(T32_LCETG_STATE_BYTES);
+	if (!cp || !st) {
+		kfree(cp);
+		vfree(st);
+		return;
+	}
+	t32_lce_state_init(st, cp, width, height);
+	t32_lcetg_wr32(st, (u32)(uintptr_t)cp);
+	mutex_lock(&pf_lock);
+	vfree(pf.lce_st);
+	kfree(pf.lce_sec);
+	pf.lce_st = st;
+	pf.lce_sec = cp;
+	pf.have[T32_PP_LCE] = true;
+	mutex_unlock(&pf_lock);
+}
+
 /* end of the stream-on init: the per-frame runs may start */
 void t32_pf_start(void)
 {
 	mutex_lock(&pf_lock);
 	pf.ready = true;
+	mutex_unlock(&pf_lock);
+}
+
+/* stream-off: no more per-frame runs, the contexts (LCE state included) are freed */
+void t32_pf_stop(void)
+{
+	cancel_work_sync(&pf_work);
+	mutex_lock(&pf_lock);
+	pf_free_locked();
 	mutex_unlock(&pf_lock);
 }
 

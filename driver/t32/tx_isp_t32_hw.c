@@ -404,8 +404,10 @@ static void t32_tisp_init(void)
 		kfree(cp);
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_LCE, &len);
-	if (off && len >= T32_LCE_SEC_BYTES && !t32_core_sensor_size(&width, &height))
+	if (off && len >= T32_LCE_SEC_BYTES && !t32_core_sensor_size(&width, &height)) {
 		t32_tisp_flush("lce", t32_lce_build(bin + off, width, height));
+		t32_pf_attach_lce(bin + off, width, height);	/* per-frame state (tisp_lce_init) */
+	}
 	off = t32_iq_section(bin, bytes, T32_SEC_SDNS, &len);
 	if (off && len >= T32_SDNS_SEC_BYTES) {
 		t32_tisp_flush("sdns", t32_sdns_init(bin + off, tisp_w));
@@ -699,6 +701,7 @@ void t32_hw_stream_off(void)
 	isp_wr(T32_MSCADONE_CLR, isp_rd(T32_MSCADONE_STA));
 	t32_vic_wr(0, T32_VIC_INT_CLR, readl(isp_base + T32_VIC_BASE(0) + T32_VIC_INT_STA));
 	t32_vic_wr(0, T32_VIC_INT_CLR2, readl(isp_base + T32_VIC_BASE(0) + T32_VIC_INT_STA2));
+	t32_pf_stop();		/* per-frame contexts (the vmalloc'd LCE state) end with the stream */
 }
 
 /* ------------------------------------------------------------------ */
