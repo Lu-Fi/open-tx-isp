@@ -185,10 +185,18 @@ generation-shared come from the shared code instead:
   (`t32_ct_update`, oracle `t32_dispatch_oracle`, force / keep 0) on the CCM
   and BCSH states kept from stream-on (`t32_ccm_start` / `t32_bcsh_start`;
   `t32_ccm_ct_update`, `t32_bcsh_ct_update`, oracles `t32_ccmf_oracle` /
-  `t32_bcshf_oracle`) in `tx_isp_t32_ctup.c`. Not wired: LSC (the mesh is
-  loaded once by the stream-on list), CLM (no state-keeping port yet), the
-  AE EV into CCM / BCSH. Stats "ct fan-out" in /proc/jz/isp/isp-m0. Host
-  only.
+  `t32_bcshf_oracle`) and the CLM block state as `tisp_clm_init` leaves it
+  (`tx_isp_t32_clmct.h`: `tisp_clm_ct_update` / `tisp_clm_ct_interp` on the
+  kept state, oracle `t32_clmct_oracle`) in `tx_isp_t32_ctup.c`. LSC is not
+  wired: `tisp_lsc_ct_update` needs the vendor `tisp_lsc_write_all_reg` (LUT
+  port writes with a completion wait), which is not ported; the mesh is
+  loaded once by the stream-on list. Stats "ct fan-out" in
+  /proc/jz/isp/isp-m0. Host only.
+- **EV fan-out (openimp #234, `t32_ported_paths` bit 16)**: the AE event 6
+  runs `tisp_long_ev_update` (`t32_long_ev_update`, oracle
+  `t32_longev_oracle`): the AWB part (bit 14), `t32_ccm_ev_update` and
+  `t32_bcsh_ev_update` (x = the AE brightness word) on the CCM / BCSH states
+  of bit 15. Gamma, defog, TMO and WDR EV updates are not wired. Host only.
 
 - **Front end: CSC, CSCCR, ISP top** (`tx_isp_t32_front.h`, flow of the vendor
   `tisp_csc_init`, `tisp_csccr_init`, `tisp_top_init`, `tisp_top_reg_cfg`),

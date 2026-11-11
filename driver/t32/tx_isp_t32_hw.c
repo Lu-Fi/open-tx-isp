@@ -497,6 +497,8 @@ static void t32_tisp_init(void)
 		mode = bin[coff + 0x5b];
 		t32_tisp_flush("clm", t32_clm_init(bin + off, bin + off + len, bytes - off - len, mode,
 						   t32_csc_modes[mode].m, tisp_w));
+		if (t32_pp_on(T32_PP_CT) && t32_ctup_attach_clm(bin + off, len, bytes - off - len))
+			isp_printf(2, "tx-isp-t32: CLM state for the ct fan-out refused\n");
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_RDNS, &len);
 	if (off && len >= T32_RDNS_SEC_BYTES && t32_pp_on(T32_PP_RDNS))
