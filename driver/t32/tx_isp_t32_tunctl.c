@@ -43,6 +43,7 @@
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_txsctrl.h"
 #include "tx_isp_t32_txgctrl.h"
+#include "tx_isp_t32_tunpre.h"
 
 #define T32_TC_CH		3
 #define T32_TC_ID_FIRST		0x08000000U
@@ -168,7 +169,6 @@ int t32_tx_os_tisp_g_##name(u32 ch, void *buf)						\
 T32_TC_PAIR(antiflick, antiflick)
 T32_TC_PAIR(coefft_wb, coefft_wb)
 T32_TC_PAIR(mscaler_mask_block_attr, mask)
-T32_TC_PAIR(gamma, gamma)
 T32_TC_PAIR(statis_config, statis)
 T32_TC_PAIR(module_ratio, ratio)
 T32_TC_PAIR(af_weight, af_weight)
@@ -179,6 +179,33 @@ T32_TC_PAIR(awb_ct_trend_offset, ct_trend)
 T32_TC_PAIR(face_ae_weiget, face_ae_w)
 T32_TC_PAIR(csccr_mode, csccr)
 T32_TC_PAIR(ae_scence_attr, scene)
+
+/*
+ * tisp_s_Gamma -> tisp_gamma_api_set (tx_isp_t32_gamma.h t32_gamma_api_set): the API block
+ * { u32 mode, u8 curve[258] } takes the mode; 1..3 the preset curves, 4 the caller's curve,
+ * > 4 returns -1 after storing the mode.  Mode 0 (back to the tuned curve) keeps the last
+ * curve here: the gamma block state is not kept after the init yet.
+ */
+int t32_tx_os_tisp_s_gamma(u32 ch, void *buf)
+{
+	static const u32 *const preset[3] = { t32_tun_gamma_bf754, t32_tun_gamma_bf650, t32_tun_gamma_bf54c };
+	u8 *b = t32_tc[ch].gamma;
+	u32 v = *(u32 *)buf;
+
+	*(u32 *)b = v;
+	if (v >= 1 && v <= 3)
+		memcpy(b + 4, preset[v - 1], 258);
+	else if (v == 4)
+		memcpy(b + 4, (u8 *)buf + 4, 258);
+	else if (v > 4)
+		return -1;
+	return 0;
+}
+
+int t32_tx_os_tisp_g_gamma(u32 ch, void *buf)
+{
+	return t32_tc_put(buf, t32_tc[ch].gamma, 264);
+}
 
 int t32_tx_os_tisp_g_autozoom(u32 ch, void *buf) { return t32_tc_put(buf, t32_tc[ch].autozoom, 60); }
 int t32_tx_os_tisp_s_autozoom_control(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].autozoom, buf, 60); }
