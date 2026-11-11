@@ -45,8 +45,10 @@ static void sr_put(u32 kind, u32 a, u32 b, u32 c, const char *t)
 	e->t[l] = 0;
 }
 
-/* render fmt with 32-bit word arguments (flags, width, precision, h / hh / l length; d i u x X o c s p) */
-static int sr_vfmt(char *o, size_t on, const char *f, va_list ap)
+/* render fmt with 32-bit word arguments (flags, width, precision, h / hh / l / ll length; d i u x X o c s p).
+ * slot = o32 argument slot of the first variadic word: the reference's "ll" takes an even-aligned pair of
+ * words (lo, hi), ours one 64-bit argument */
+static int sr_vfmt(char *o, size_t on, const char *f, va_list ap, unsigned int slot)
 {
 	size_t k = 0;
 	char sub[32], tmp[512];
@@ -54,9 +56,10 @@ static int sr_vfmt(char *o, size_t on, const char *f, va_list ap)
 	while (*f) {
 		const char *s = f;
 		size_t sl = 0;
-		int h = 0, n = 0;
+		int h = 0, l = 0, n = 0;
 		char c;
 		u32 v;
+		unsigned long long ll = 0;
 
 		if (*f != '%' || f[1] == '%') {
 			if (k + 1 < on)
@@ -78,6 +81,8 @@ static int sr_vfmt(char *o, size_t on, const char *f, va_list ap)
 		while (*f == 'h' || *f == 'l' || *f == 'z') {
 			if (*f == 'h')
 				h++;
+			if (*f == 'l')
+				l++;
 			f++;
 		}
 		c = *f;
@@ -88,7 +93,28 @@ static int sr_vfmt(char *o, size_t on, const char *f, va_list ap)
 		f++;
 		memcpy(sub, s, sl);
 		sub[sl] = c; sub[sl + 1] = 0;
+		if (l >= 2) {
+			if (sr_side == 0) {
+				if (slot & 1) {
+					(void)va_arg(ap, u32);
+					slot++;
+				}
+				ll = va_arg(ap, u32);
+				ll |= (unsigned long long)va_arg(ap, u32) << 32;
+				slot += 2;
+			} else {
+				ll = va_arg(ap, unsigned long long);
+			}
+			if (sl + 4 > sizeof(sub) || (c != 'd' && c != 'u' && c != 'x')) {
+				fprintf(stderr, "sr_vfmt: ll format \"%s\"\n", s);
+				exit(3);
+			}
+			sub[sl] = 'l'; sub[sl + 1] = 'l'; sub[sl + 2] = c; sub[sl + 3] = 0;
+			n = c == 'd' ? snprintf(tmp, sizeof(tmp), sub, (long long)ll) : snprintf(tmp, sizeof(tmp), sub, ll);
+			goto out;
+		}
 		v = va_arg(ap, u32);
+		slot++;
 		switch (c) {
 		case 'd': case 'i':
 			n = snprintf(tmp, sizeof(tmp), sub, h == 2 ? (int)(signed char)v : h == 1 ? (int)(short)v : (int)v);
@@ -109,6 +135,7 @@ static int sr_vfmt(char *o, size_t on, const char *f, va_list ap)
 			fprintf(stderr, "sr_vfmt: conversion %%%c\n", c);
 			exit(3);
 		}
+out:
 		if (n < 0)
 			n = 0;
 		if ((size_t)n >= sizeof(tmp))
@@ -125,7 +152,7 @@ static int sr_vfmt(char *o, size_t on, const char *f, va_list ap)
 static int sr_vlog(u32 kind, u32 a, u32 fmt, va_list ap)
 {
 	char b[1024];
-	int n = sr_vfmt(b, sizeof(b), (const char *)T32O_HOST(fmt), ap);
+	int n = sr_vfmt(b, sizeof(b), (const char *)T32O_HOST(fmt), ap, kind == SR_PRINTK ? 1 : 2);
 
 	sr_put(kind, a, fmt ? 1 : 0, (u32)n, b);
 	return n;
