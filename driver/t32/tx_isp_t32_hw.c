@@ -130,6 +130,7 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t32_bringup_ae_kick();
 		t32_pf_kick();
 	}
+	t32_blk_irq(sta);		/* block bits 8 / 30 (LCE): lib_tisp_intp_process, tx_isp_t32_blkirq.c */
 	if (done)
 		t32_fs_done_irq(done);
 	return IRQ_HANDLED;
@@ -304,10 +305,14 @@ static void t32_front_init(void)
 #define T32_TISP_MAX_WRITES	T32_MDNS_MAX_WRITES
 static struct t32_front_write *tisp_w;
 
-/* LCE DMA buffers (work 0x26400 bytes, default curve 0x5a00 bytes), kept until the module is removed */
+/*
+ * LCE DMA buffers of tisp_lce_malloc_cfg (statistics banks 0x26400 bytes, curve 0x5a00 bytes, histogram
+ * 0x9000 bytes of which tisp_lsf_interrupt_static syncs 0x9900), kept until the module is removed
+ */
 #define T32_LCE_WORK_ORDER	6	/* 256 KiB >= 0x26400 */
 #define T32_LCE_CURVE_ORDER	3	/* 32 KiB >= 0x5a00 */
-static unsigned long lce_work, lce_curve;
+#define T32_LCE_HIST_ORDER	4	/* 64 KiB >= 0x9900 */
+static unsigned long lce_work, lce_curve, lce_hist;
 
 static void *t32_uncached(unsigned long buf)
 {
@@ -326,11 +331,24 @@ static int t32_lce_build(const u8 *sec, u32 width, u32 height)
 		lce_work = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_LCE_WORK_ORDER);
 	if (!lce_curve)
 		lce_curve = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_LCE_CURVE_ORDER);
-	if (!lce_work || !lce_curve)
+	if (!lce_hist)
+		lce_hist = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_LCE_HIST_ORDER);
+	if (!lce_work || !lce_curve || !lce_hist)
 		return -ENOMEM;
+#ifdef CONFIG_MIPS
+	/*
+	 * The zeroing above went through the data cache; write it back before the uncached curve writes (a
+	 * later eviction of those lines would overwrite them) and before the per-frame path (tx_isp_t32_blkirq.c)
+	 * reads and writes the buffers through the cache with the vendor's cache syncs.
+	 */
+	dma_cache_wback_inv(lce_work, PAGE_SIZE << T32_LCE_WORK_ORDER);
+	dma_cache_wback_inv(lce_curve, PAGE_SIZE << T32_LCE_CURVE_ORDER);
+	dma_cache_wback_inv(lce_hist, PAGE_SIZE << T32_LCE_HIST_ORDER);
+#endif
 	t32_lce_curve(t32_uncached(lce_curve));			/* both halves hold the default curve */
 	t32_lce_curve((u8 *)t32_uncached(lce_curve) + 0x2d00);
 	wmb();
+	t32_blk_lce_bufs((void *)lce_curve, (void *)lce_work, (void *)lce_hist);
 	return t32_lce_init(sec, width, height, virt_to_phys((void *)lce_work),
 			    virt_to_phys((void *)lce_curve), tisp_w);
 }
@@ -937,6 +955,7 @@ void t32_hw_exit(void)
 	}
 	cancel_work_sync(&t32_bringup_ae_w);	/* it reads registers and the AE buffer */
 	t32_pf_exit();				/* the per-frame work writes registers */
+	t32_blk_exit();				/* block event work (after the LCE state is gone) */
 	writel(0, csi_base + 0x0c);		/* CSI host back into reset */
 	csi_reset_done = 0;
 	iounmap(dphy_base);
@@ -952,7 +971,10 @@ void t32_hw_exit(void)
 		free_pages(lce_work, T32_LCE_WORK_ORDER);
 	if (lce_curve)
 		free_pages(lce_curve, T32_LCE_CURVE_ORDER);
-	lce_work = lce_curve = 0;
+	if (lce_hist)
+		free_pages(lce_hist, T32_LCE_HIST_ORDER);
+	lce_work = lce_curve = lce_hist = 0;
+	t32_blk_lce_bufs(NULL, NULL, NULL);
 	kfree(tisp_w);
 	tisp_w = NULL;
 	free_pages(rcfg_pages, get_order((T32_RCFG_TABLE_WORDS + T32_RCFG_LIST_WORDS) * 4));
