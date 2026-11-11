@@ -117,8 +117,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	t32_hw_stats.isp_irqs++;
 	if (sta & 1)
 		t32_hw_stats.frame_ends++;
-	if (sta & T32_INT_AWB)
+	if (sta & T32_INT_AWB) {
 		t32_hw_stats.awb_irqs++;
+		t32_awbc_kick();	/* the vendor AWB frame (system irq 3: tisp_awb_interrupt_static) */
+	}
 	if (sta & T32_INT_AE) {
 		t32_hw_stats.ae_irqs++;
 		t32_aec_kick();		/* the vendor AE frame (system irq 4: tisp_ae_interrupt_static) */
@@ -195,6 +197,18 @@ const u8 *t32_hw_ae_zones(void)
 #endif
 }
 
+/* the four AWB statistics buffers (0x7000 each), uncached */
+static const u8 *t32_hw_awb_bufs(void)
+{
+	if (!awb_buf)
+		return NULL;
+#ifdef CONFIG_MIPS
+	return (const u8 *)CKSEG1ADDR(virt_to_phys((void *)awb_buf));
+#else
+	return (const u8 *)awb_buf;
+#endif
+}
+
 static void t32_stats_off(void)
 {
 	isp_wr(T32_AE_TRIG, 0);
@@ -234,6 +248,9 @@ static void t32_stats_init(void)
 	n = t32_awb_stats_init(bin, width, height, virt_to_phys((void *)awb_buf), T32_AWB_INIT_EV, w);
 	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
 		isp_wr(w[i].reg, w[i].val);
+	if (t32_pp_on(T32_PP_AWB) &&	/* the vendor AWB context (tisp_awb_init state part, openimp #234) */
+	    t32_awbc_attach(bin + T32_AWB_PARAM, width, height, t32_hw_awb_bufs()))
+		isp_printf(2, "tx-isp-t32: vendor AWB per-frame chain not started\n");
 	t32_hw_stats.stats_inits++;
 }
 
@@ -911,6 +928,7 @@ void t32_hw_exit(void)
 	t32_hw_stream_off();
 	for (i = 0; i < T32_MSCA_CHANNELS; i++)
 		t32_hw_msca_stop(i);
+	t32_awbc_detach();	/* the per-frame AWB reads the AWB buffers */
 	t32_stats_off();	/* no statistics DMA into the buffers freed below */
 	if (irqs_requested) {
 		free_irq(vic_irq, &csi_base);
