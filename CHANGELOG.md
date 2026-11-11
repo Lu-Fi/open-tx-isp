@@ -4,6 +4,12 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T32 WDR fpga software bit-exact (planned, host only, not device-tested)
+
+- New `driver/t32/tx_isp_t32_wdrfpga.h`: readable C of the two per frame WDR software functions of the vendor T32 module that `tisp_wdr_process` calls, `Tiziano_wdr_deghost_fpga` and `Tiziano_wdr_fusion_fpga` (exposure ratio and offsets, 15 x 15 block statistics, maximum value and its limit, tone curve knots, output mode switch, fusion and tone curves), based on Matt Davis' recovered C. `tisp_tmo_timeratio_curve_adjust` (TMO block) is a hook.
+- Host oracles `t32_wdrfpga1_oracle` (deghost) and `t32_wdrfpga2_oracle` (fusion, end to end): arenas with canary frames, globals, every kmalloc/kfree and hook call compared against the unmodified vendor functions; 0 mismatches, 25 + 42 mutations detected, full line coverage except the vendor's unreachable knot search fallbacks. Vendor quirks kept and named: the fusion clears 510 bytes of a 450 byte kmalloc buffer, its sort length is not limited to the 225 statistics entries; vendor divide by zero inputs are not fed.
+- `tests/Makefile`: `t32_wdr1_oracle` .. `t32_wdr8_oracle` are now registered (they were not run by `make check`).
+
 ## 2026-11-11: T32 WDR block bit-exact (planned, host only, not device-tested)
 
 - New `driver/t32/tx_isp_t32_wdr.h`: readable C of all 38 `tisp_wdr_*` functions of the vendor T32 module (helpers, EV curve, statistics helpers, parameter image and register refresh, soft output, init/deinit, statistics unpack, interrupt, per frame process, histogram matching maps), based on Matt Davis' recovered C (PR #15 @ 2e2e06bc). OS calls and the two Tiziano fusion/deghost functions (not part of the block) are hooks in `struct t32_wdr_ops`; the header is not yet used by the module.
