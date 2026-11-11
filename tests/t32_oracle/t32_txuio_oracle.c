@@ -26,6 +26,7 @@
 #define O_SENS	0x3000u		/* 8 sensor objects, 0x100 apart */
 #define O_LINKS	0x3800u		/* 12 link sets of up to 6 descriptors */
 #define O_PADS	0x4000u		/* 16 pads, 0x20 apart */
+#define O_KMEM	0x6c00u		/* the kmalloc block (never touched) */
 #define O_FD	0x5000u		/* frame drop channel table: 8 inputs x 3 x 284 bytes */
 
 static u8 *arena;
@@ -110,9 +111,11 @@ static u32 cb_sens(u32 sd, u32 cmd, u32 buf)
 }
 static u32 cb_notify(u32 sd, u32 ev, u32 msg)
 {
-	u32 n = ev == T32_NOTIFY_0A ? 24 : ev == T32_NOTIFY_TIZIANO ? 20 : 8;
+	u32 n = ev == T32_NOTIFY_0A ? 24 : ev == T32_NOTIFY_TIZIANO ? 20 : ev == T32_NOTIFY_IPC ? 4 : 8;
 
 	op3_call("sd_notify", 4, sd, ev, ((u32 *)T32O_HOST(msg))[0], fnvb(T32O_HOST(msg), n));
+	if (ev == T32_NOTIFY_IPC)
+		*(u32 *)T32O_HOST(msg) = notify_ret * 7;
 	return notify_ret;
 }
 
@@ -198,12 +201,32 @@ u64 op3_tisp_s_ae_scence_attr(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)
 int t32_tx_os_tisp_g_ae_scence_attr(u32 ch, void *b) { return (int)gsc_rec(ch, b); }
 int t32_tx_os_tisp_s_ae_scence_attr(u32 ch, void *b) { return (int)ssc_rec(ch, b); }
 
+/* IPC memory, managed memory */
+static u32 cache_line, ipc_ret, kmalloc_ok;
+static u32 cl_rec(void) { op3_call("get_isp_cache_line", 0, 0, 0, 0, 0); return cache_line; }
+static void ipcset_rec(u32 sel, u32 v) { op3_call("lib_tisp_set_isp_ipc_memory_space", 2, sel, v, 0, 0); }
+static u32 ipcget_rec(u32 sel, const u8 *o) { op3_call("lib_tisp_get_isp_ipc_memory_space", 2, sel, *(const u32 *)o, 0, 0); return ipc_ret; }
+static u32 kmalloc_rec(u32 n, u32 f) { op3_call("private_kmalloc", 2, n, f, 0, 0); return kmalloc_ok ? A(O_KMEM) : 0; }
+static void kfree_rec(u32 p) { op3_call("private_kfree", 1, p, 0, 0, 0); }
+u64 op3_get_isp_cache_line(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return cl_rec(); }
+u64 op3_lib_tisp_set_isp_ipc_memory_space(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; ipcset_rec(a0, a1); return 0; }
+u64 op3_lib_tisp_get_isp_ipc_memory_space(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return ipcget_rec(a0, T32O_HOST(a1)); }
+u64 op3_private_kmalloc(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return kmalloc_rec(a0, a1); }
+u64 op3_private_kfree(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; kfree_rec(a0); return 0; }
+u64 op3_memset(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; memset(T32O_HOST(a0), (int)a1, a2); return a0; }
+u32 t32_tx_os_get_isp_cache_line(void) { return cl_rec(); }
+void t32_tx_os_lib_tisp_set_isp_ipc_memory_space(u32 sel, u32 v) { ipcset_rec(sel, v); }
+u32 t32_tx_os_lib_tisp_get_isp_ipc_memory_space(u32 sel, void *o) { return ipcget_rec(sel, o); }
+u32 t32_tx_os_kmalloc(u32 n, u32 f) { return kmalloc_rec(n, f); }
+void t32_tx_os_kfree(u32 p) { kfree_rec(p); }
+void t32_tx_os_memset(u32 a, u32 c, u32 n) { memset(T32O_HOST(a), (int)c, n); }
+
 /* not yet exercised externals */
-OP3_STUB(finish_wait, 2) OP3_STUB(get_isp_cache_line, 0)
-OP3_STUB(lib_tisp_api_s_runningMode, 1) OP3_STUB(lib_tisp_get_isp_ipc_memory_space, 1)
-OP3_STUB(lib_tisp_set_isp_ipc_memory_space, 2) OP3_STUB(memset, 3) OP3_STUB(prepare_to_wait_event, 3)
+OP3_STUB(finish_wait, 2)
+OP3_STUB(lib_tisp_api_s_runningMode, 1)
+OP3_STUB(prepare_to_wait_event, 3)
 OP3_STUB(private_init_completion, 1)
-OP3_STUB(private_kfree, 1) OP3_STUB(private_kmalloc, 2) OP3_STUB(private_wait_for_completion_timeout, 2)
+OP3_STUB(private_wait_for_completion_timeout, 2)
 OP3_STUB(schedule_timeout, 1) 
 
 OP3_STUB(tx_isp_vic_save_raw, 2)
@@ -278,6 +301,8 @@ static const u32 cmds[] = {
 	/* AE start EV, GPIO, default bin, WDR enable */
 	T32_UIO_SET_AE_EV, T32_UIO_GET_AE_EV, T32_UIO_GPIO_SWITCH, T32_UIO_GPIO_TRIGGER, T32_UIO_DEFAULT_BIN,
 	T32_UIO_WDR_ENABLE,
+	/* IPC memory, managed memory */
+	T32_UIO_SET_IPC_MEM, T32_UIO_GET_IPC_MEM, T32_UIO_MEM_MALLOC, T32_UIO_MEM_FREE,
 	/* default neighbours inside the vendor ranges */
 	0xc0045427, 0xc0045428, 0xc0045429, 0
 };
@@ -361,6 +386,18 @@ static void build(u32 base)
 		sc_tab[k] = (op3_rnd() & 3) ? 0 : op3_rnd();
 	}
 	sc_seed = op3_rnd();
+	cache_line = (op3_rnd() & 1) ? 0 : op3_rnd();
+	ipc_ret = op3_rnd();
+	kmalloc_ok = (op3_rnd() & 7) != 0;
+	sw(O_CORE + T32_CORE_IPC_FIX, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
+	sw(O_CORE + T32_CORE_WDR_MODE, (op3_rnd() & 1) ? T32_WDR_MODE_ON : op3_rnd() % 20);
+	for (k = 0; k < 8; k++)
+		sw(O_CORE + T32_CORE_IN_BYTES * k + T32_CORE_IN_W, (op3_rnd() & 7) ? op3_rnd() % 64 : 0);
+	for (k = 0; k < T32_ISP_MEM_SLOTS; k++)	/* managed slots: some free, some holding the user's pointer */
+		sw(O_ISP + T32_ISP_MEM_SLOT + T32_MEM_SLOT_BYTES * k, (op3_rnd() & 3) == 0 ? 0 :
+		   (op3_rnd() & 7) == 0 ? 0x1234u : op3_rnd());
+	if (op3_rnd() & 1)
+		sw(O_ISP + T32_ISP_MEM_SLOT + T32_MEM_SLOT_BYTES * (op3_rnd() % 16), 0);
 	memget_ret = op3_rnd();
 	sw(O_USER + 4, (op3_rnd() & 3) ? op3_rnd() % 6 : op3_rnd() % 512);	/* bypass / link input (vendor: unchecked index) */
 	for (i = 0; i <= NSD; i++) {
@@ -434,6 +471,11 @@ int main(void)
 
 			ctu_lim = v <= 1 ? 4 : 0;
 		}
+		if (cmd == T32_UIO_MEM_FREE)
+			sw(O_USER, (op3_rnd() & 3) ? 0x1234u : (op3_rnd() & 1) ? 0 : op3_rnd());
+		if (cmd == T32_UIO_MEM_MALLOC && (op3_rnd() & 1))
+			for (k = 0; k < T32_ISP_MEM_SLOTS; k++)
+				sw(O_ISP + T32_ISP_MEM_SLOT + T32_MEM_SLOT_BYTES * k, 1 + k);
 		if (cmd == T32_UIO_WDR_ENABLE) {	/* { mode, u8 sensor } */
 			sw(O_USER, (op3_rnd() & 1) ? 2 : op3_rnd() % 4);
 			sw(O_USER + 4, (op3_rnd() & 1) ? op3_rnd() & 0xff00 : op3_rnd());

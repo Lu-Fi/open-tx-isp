@@ -28,7 +28,9 @@
  *            0x100000b and tiziano parameters (subdevice 0 notify), running
  *            mode read;
  *   ae / gpio AE start EV set / get (AE scene attribute), GPIO state switch
- *            (+ trigger) via subdevice 0's core ioctl, default bin, WDR enable.
+ *            (+ trigger) via subdevice 0's core ioctl, default bin, WDR enable;
+ *   ipc / mem ISP IPC memory space set / get, managed memory malloc / free
+ *            (16 slots { ptr, phys, size } at +372).
  */
 #ifndef TX_ISP_T32_TXUIOCTL_H
 #define TX_ISP_T32_TXUIOCTL_H
@@ -91,6 +93,25 @@
 #define T32_UIO_GPIO_TRIGGER	0xc00454ccU
 #define T32_UIO_DEFAULT_BIN	0xc00454c9U
 #define T32_UIO_WDR_ENABLE	0xc00454caU
+#define T32_UIO_SET_IPC_MEM	0x800c5438U
+#define T32_UIO_GET_IPC_MEM	0x800c5439U
+#define T32_UIO_MEM_MALLOC	0x800c543aU
+#define T32_UIO_MEM_FREE	0x800c543bU
+
+#define T32_NOTIFY_IPC		0x5000007U
+#define T32_CORE_IPC_FIX	1200U	/* core +1200 == 1: +1204 is the IPC line count */
+#define T32_CORE_IPC_LINES	1204U
+#define T32_SENSOR_IPC_VAL	316U
+#define T32_ISP_MEM_SLOT	372U
+#define T32_ISP_MEM_SLOTS	16U
+#define T32_MEM_SLOT_BYTES	12U
+#define T32_GFP_MEM		0x24000c0U
+#define T32_PHYS_OFF		0x80000000U
+
+u32 t32_tx_os_get_isp_cache_line(void);
+void t32_tx_os_lib_tisp_set_isp_ipc_memory_space(u32 sel, u32 v);
+u32 t32_tx_os_lib_tisp_get_isp_ipc_memory_space(u32 sel, void *opt);
+u32 t32_tx_os_kmalloc(u32 n, u32 flags);
 
 #define T32_CORE_GPIO		0x100000cU
 #define T32_CORE_GPIO_TRIG	0x100000dU
@@ -864,6 +885,123 @@ static inline int t32_uio_wdr_enable(u32 isp, u32 arg)
 	return 0;
 }
 
+/* tx_isp_set_isp_ipc_mem: { u8 sel, value, - } */
+static inline int t32_uio_set_ipc_mem(u32 isp, u32 arg)
+{
+	u32 b[3];
+
+	if (t32_tx_arg_in(isp, b, arg, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_set_isp_ipc_mem", 1004);
+		return -(int)T32_EFAULT;
+	}
+	t32_tx_os_lib_tisp_set_isp_ipc_memory_space((u8)b[0], b[1]);
+	return 0;
+}
+
+/*
+ * tx_isp_get_isp_ipc_mem: { u8 sel, -, size out }.  Option block { u16
+ * lines, u8 notify value, 0 }: lines = core +1204 if +1200 is 1, replaced
+ * by cache line + (sensor +316 / 2) / width when WDR mode +1180 is 16
+ * (which clears it), when that sum is not 0.  Vendor: a zero width is
+ * divided by (the recovered C gives ~0); the input indexes unchecked; a
+ * failed copy back prints the copy-from-user message.
+ */
+static inline int t32_uio_get_ipc_mem(u32 isp, u32 arg)
+{
+	u32 cl = t32_tx_os_get_isp_cache_line(), sd = t32_tx_ld(isp, T32_DEV_SD), core = t32_tx_ld(sd, T32_SD_PRIV_CORE);
+	u32 b[3], w = 0, fn, lines = cl;
+	u8 opt[4];
+
+	if (t32_tx_arg_in(isp, b, arg, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_get_isp_ipc_mem", 1071);
+		return -(int)T32_EFAULT;
+	}
+	if ((fn = t32_tx_ld(sd, T32_SD_NOTIFY)))	/* vendor's sd != 0 test: dead after the core load */
+		((t32_uio_notify_fn)T32_TX_P(fn))(sd, T32_NOTIFY_IPC, &w);
+	opt[0] = opt[1] = opt[3] = 0;
+	opt[2] = (u8)w;
+	if (t32_tx_ld(core, T32_CORE_IPC_FIX) == 1)
+		t32_tx_wh(T32_TX_A(opt), (u16)t32_tx_ld(core, T32_CORE_IPC_LINES));
+	if (t32_tx_ld(core, T32_CORE_WDR_MODE) == T32_WDR_MODE_ON) {
+		u32 in = core + T32_CORE_IN_BYTES * b[0], v, wd;
+
+		v = t32_tx_ld(t32_tx_ld(in, T32_CORE_IN), T32_SENSOR_IPC_VAL) >> 1;
+		wd = t32_tx_ld(in, T32_CORE_IN_W);
+		t32_tx_st(core, T32_CORE_WDR_MODE, 0);
+		lines += wd ? v / wd : ~0u;
+	}
+	if (lines)
+		t32_tx_wh(T32_TX_A(opt), (u16)lines);
+	b[2] = t32_tx_os_lib_tisp_get_isp_ipc_memory_space((u8)b[0], opt);
+	if (t32_uio_arg_out(isp, arg, b, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_get_isp_ipc_mem", 1097);
+		return -(int)T32_EFAULT;
+	}
+	return 0;
+}
+
+/*
+ * tx_isp_memory_malloc: { -, -, size } in, { ptr, phys, size } into a free
+ * slot and back.  Vendor: a failed copy back frees the memory but leaves
+ * the slot filled.
+ */
+static inline int t32_uio_memory_malloc(u32 isp, u32 user)
+{
+	u32 b[3], k, p;
+
+	if (t32_tx_os_copy_from_user(b, user, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_memory_malloc", 2219);
+		return -(int)T32_EFAULT;
+	}
+	for (k = 0; k < T32_ISP_MEM_SLOTS; k++)
+		if (!t32_tx_ld(isp, T32_ISP_MEM_SLOT + T32_MEM_SLOT_BYTES * k))
+			break;
+	if (k == T32_ISP_MEM_SLOTS) {
+		t32_tx_os_isp_printf(1, "[ %s:%d ] Unable to apply for manageable memory\n", "tx_isp_memory_malloc", 2229);
+		return -(int)T32_ENOMEM;
+	}
+	p = t32_tx_os_kmalloc(b[2], T32_GFP_MEM);
+	b[0] = p;
+	if (!p) {
+		t32_tx_os_isp_printf(1, "[ %s:%d ] Failed to allocate memory\n", "tx_isp_memory_malloc", 2235);
+		return -(int)T32_ENOMEM;
+	}
+	b[1] = p + T32_PHYS_OFF;
+	memcpy(T32_TX_P(isp + T32_ISP_MEM_SLOT + T32_MEM_SLOT_BYTES * k), b, sizeof(b));
+	if (t32_tx_os_copy_to_user(user, b, sizeof(b))) {
+		t32_tx_os_kfree(b[0]);
+		t32_tx_os_isp_printf(2, T32_UIO_CTU_ERR, "tx_isp_memory_malloc", 2243);
+		return -(int)T32_EFAULT;
+	}
+	return 0;
+}
+
+/* tx_isp_memory_free: { ptr, -, - }: free a managed block and clear its slot */
+static inline int t32_uio_memory_free(u32 isp, u32 user)
+{
+	u32 b[3], k;
+
+	if (t32_tx_os_copy_from_user(b, user, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_memory_free", 2258);
+		return -(int)T32_EFAULT;
+	}
+	if (!b[0]) {
+		t32_tx_os_isp_printf(2, "[ %s:%d ] The memory cannot be empty\n", "tx_isp_memory_free", 2263);
+		return -(int)T32_ENOMEM;
+	}
+	for (k = 0; k < T32_ISP_MEM_SLOTS; k++) {
+		u32 slot = isp + T32_ISP_MEM_SLOT + T32_MEM_SLOT_BYTES * k;
+
+		if (t32_tx_ld(slot, 0) == b[0]) {
+			t32_tx_os_kfree(b[0]);
+			t32_tx_os_memset(slot, 0, T32_MEM_SLOT_BYTES);
+			return 0;
+		}
+	}
+	t32_tx_os_isp_printf(1, "[ %s:%d ] Unmanageable memory\n", "tx_isp_memory_free", 2273);
+	return -(int)T32_ENOMEM;
+}
+
 /* tx_isp_unlocked_ioctl(file, cmd, arg) */
 static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 {
@@ -935,6 +1073,10 @@ static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 				    "[ %s:%d ] set gpio state switch trigger failed!!!\n", 2204);
 	case T32_UIO_DEFAULT_BIN:	return t32_tx_default_bin(isp + T32_DEV_SD, arg);
 	case T32_UIO_WDR_ENABLE:	return t32_uio_wdr_enable(isp, arg);
+	case T32_UIO_SET_IPC_MEM:	return t32_uio_set_ipc_mem(isp, arg);
+	case T32_UIO_GET_IPC_MEM:	return t32_uio_get_ipc_mem(isp, arg);
+	case T32_UIO_MEM_MALLOC:	return t32_uio_memory_malloc(isp, arg);
+	case T32_UIO_MEM_FREE:		return t32_uio_memory_free(isp, arg);
 	}
 	return 0;
 }
