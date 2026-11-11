@@ -17695,13 +17695,14 @@ static u8 t20_ae_exposure_correction(u8 wdr_mode, u32 exposure_q6)
 
 /*
  * #267: optional guard against a one-LSB flip of the AE correction curve
- * (t20_ae_curve_hysteresis(), tx_isp_t20_ae_max.h).  Not OEM behaviour,
- * default off; for measurements only until decided.
+ * (t20_ae_curve_hysteresis(), tx_isp_t20_ae_max.h).  Not OEM behaviour:
+ * BEYOND VENDOR, default on by user decision 2026-11-11 (docs/BEYOND_VENDOR.md);
+ * t20_ae_flip_guard=0 restores the vendor behaviour.
  */
-static bool t20_ae_flip_guard;
+static bool t20_ae_flip_guard = true;
 module_param(t20_ae_flip_guard, bool, 0644);
 MODULE_PARM_DESC(t20_ae_flip_guard,
-	"hold a one-step AE correction-curve change until the exposure moved 1/16 stop (beyond vendor, default off)");
+	"hold a one-step AE correction-curve change until the exposure moved 1/16 stop (beyond vendor, default on; 0 = vendor)");
 static struct t20_ae_curve_hold t20_ae_curve_held;
 
 static u32 t20_ae_corrected_target(u32 target, s32 exposure_log2,

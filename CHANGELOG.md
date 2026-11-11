@@ -5,6 +5,10 @@ Newest first, grouped by date. Everything listed was device-tested on the SoC na
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
 
+## 2026-11-11: T10/T20 AE correction-curve flip guard on by default (beyond vendor, openimp #267, user OK)
+
+- `t20_ae_flip_guard` now defaults to 1: a one-step flip of the IQ AE-correction curve is held until the exposure moved 1/16 stop, so the picture no longer cycles the ISP digital gain at such a brightness (T10 light box 60 s: 0.65 -> 0.28 Y p-p). `t20_ae_flip_guard=0` restores the vendor behaviour. Documented in docs/BEYOND_VENDOR.md. The default-on build itself is host-tested only.
+
 ## 2026-11-11: T20/T10 compact AE keeps the sensor analog gain like the OEM (openimp #267; Secuplug SP1 T10 jxh42, light box 5000 K, runtime insmod)
 
 - The compact AE re-floored the analog gain to the sensor table on every update, so an AE step of 0.5-1 % next to a table entry toggled the jxh42 gain (3.5x <-> 3.625x) and the ISP digital gain took over with a visible step: picture brightness hunting of ~1.3 Y (frame p-p) on the T10 whenever the scene sat at a one-LSB step of the IQ AE-correction curve. The gain allocation now follows the OEM `cmos_analog_gain_update()` (hysteresis 0x1f144-0x1f178): the request is 1/16 stop (0x1000) lower, the ISP digital gain carries the rest, and a request within +-0xfff of the gain applied last time keeps that gain (`t20_ae_again_*()` in `tx_isp_t20_ae_max.h`, used in `tx_isp_t20_simple_ae_apply()`; only while the ISP digital gain can carry 0x2000 and no manual analog/ISP gain is set). The isp-m0 "MAX SENSOR analog gain" plateau readout (#238) takes the reserve into account (jxh42: 142 -> 140).
