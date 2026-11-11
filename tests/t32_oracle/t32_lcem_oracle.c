@@ -29,7 +29,11 @@ extern u64 tisp_lce_wdr_en(u32, u32, u32, u32), tisp_lce_top_change_state(u32, u
 	   tisp_lce_dn_params_refresh(u32, u32, u32, u32), tisp_lce_get_hist_data(u32, u32, u32, u32),
 	   tisp_lce_get_sum_data(u32, u32, u32, u32), tisp_lce_get_show_data(u32, u32, u32, u32),
 	   tisp_lce_param_array_get(u32, u32, u32, u32), tisp_lce_param_array_set(u32, u32, u32, u32),
-	   tisp_lce_tgain_update(u32, u32, u32, u32);
+	   tisp_lce_tgain_update(u32, u32, u32, u32), tisp_lce_deinit(u32, u32, u32, u32);
+u8 t32_data_e1850[20] __attribute__((weak)), t32_data_e1864[20] __attribute__((weak)),
+   t32_data_e1878[20] __attribute__((weak));		/* .bss: LCE tables */
+extern u8 t32_data_e188c[64];
+extern u32 t32_data_d6c64[4];
 u8 t32_data_e20d8[4] __attribute__((weak));	/* .bss: LCE WDR flag */
 
 static u32 rs = 0x9e3779b9u;
@@ -78,6 +82,10 @@ static void o_gauss(u32 ch, const u8 *s, u8 *d, u32 n) { c_gauss(ch, (uintptr_t)
 static void o_wcr(u32 ch) { hrec(6, ch); }
 u64 tisp_lce_tgain_interp_strength(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; hrec(7, a0); return 0; }
 static void o_istr(u32 ch) { hrec(7, ch); }
+u64 private_kfree(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; hrec(8, a0); return 0; }
+u64 private_vfree(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; hrec5(9, off(a0), 0, 0, 0); return 0; }
+static void o_kfree(void *p) { hrec(8, T32O_PTR(p)); }
+static void o_vfree(void *p) { hrec5(9, off((uintptr_t)p), 0, 0, 0); }
 
 u64 tisp_lce_par_to_used(u32 a0, u32 a1, u32 a2, u32 a3)
 {
@@ -93,12 +101,12 @@ u64 tisp_lce_curve_init_default(u32 a0, u32 a1, u32 a2, u32 a3)
 }
 static void o_par(u32 ch) { hrec(1, ch); }
 static u32 o_curve(u32 ch) { hrec(2, ch); return 0x2222; }
-static const struct t32_lcem_ops ops = { o_par, o_curve, o_part1, o_comp, o_gauss, o_wcr, o_istr };
+static const struct t32_lcem_ops ops = { o_par, o_curve, o_part1, o_comp, o_gauss, o_wcr, o_istr, o_kfree, o_vfree };
 
 int main(void)
 {
 	u8 *vs[4], *os[4], *stats = t32o_alloc(STATB), *par = t32o_alloc(PARB), *opar = t32o_alloc(PARB);
-	unsigned long n, N = 6000, per[9] = { 0 };
+	unsigned long n, N = 6000, per[10] = { 0 };
 	u8 *vout = t32o_alloc(1500), *oout = t32o_alloc(1500), *in = t32o_alloc(712);
 	u32 *vlen = t32o_alloc(4), *olen = t32o_alloc(4);
 	u32 ch, i;
@@ -109,7 +117,10 @@ int main(void)
 	}
 	for (n = 0; n < N; n++) {
 		struct t32_lcem l;
-		int fn = (int)(rnd() % 9);
+		int fn = (int)(rnd() % 10);
+		u8 bufs0[144], obufs[144], tabs0[4][24], otabs[4][24], sz0[4], osz[4];
+		u8 *vtabs[4] = { t32_data_e188c, t32_data_e1878, t32_data_e1864, t32_data_e1850 };
+		u32 vst0 = 0;
 		u32 glo = rnd(), ghi = (rnd() & 3) ? 0 : rnd(), elo = rnd(), ehi = (rnd() & 3) ? 0 : rnd();
 		u8 wflag = (rnd() % 3 == 0) ? 0 : ((rnd() & 1) ? 1 : rnd()), oflag;
 		u32 c = rnd() & 3, en = rnd(), rv = 0, ro = 0;
@@ -143,6 +154,12 @@ int main(void)
 		}
 		memcpy(opar, par, PARB);
 		for (i = 0; i < 712; i++) in[i] = rnd();
+		for (i = 0; i < 144; i++) bufs0[i] = rnd();
+		for (i = 12; i < 144; i += 4) if (rnd() & 1) memset(bufs0 + i, 0, 4);
+		memcpy(obufs, bufs0, 144);
+		for (i = 0; i < 4 * 24; i++) tabs0[i / 24][i % 24] = rnd();
+		memcpy(otabs, tabs0, sizeof(otabs));
+		for (i = 0; i < 4; i++) sz0[i] = osz[i] = rnd();
 		for (i = 0; i < 1500; i++) vout[i] = oout[i] = rnd();
 		*vlen = *olen = rnd();
 		oflag = wflag;
@@ -153,6 +170,9 @@ int main(void)
 		for (ch = 0; ch < 4; ch++) l.st[ch] = os[ch];
 		l.tuning = tun;
 		l.wdr_flag = &oflag;
+		l.bufs = obufs; l.size_par = osz;
+		for (i = 0; i < 4; i++) l.tabs[i] = otabs[i];
+		if (fn == 9 && (rnd() & 3) == 0) l.st[c] = NULL, vst0 = 1;
 		side_st = (uintptr_t)os[c]; side_par = (uintptr_t)opar;
 		switch (fn) {
 		case 0: ro = t32_lce_wdr_en(&l, c, en & 0xff); break;
@@ -163,12 +183,16 @@ int main(void)
 		case 5: t32_lce_get_show_data(&l, c); break;
 		case 6: ro = t32_lce_param_array_get(&l, c, oout, olen); break;
 		case 7: ro = t32_lce_param_array_set(&l, c, in); break;
-		default: ro = t32_lce_tgain_update(&l, c, glo, ghi, elo, ehi); break;
+		case 8: ro = t32_lce_tgain_update(&l, c, glo, ghi, elo, ehi); break;
+		default: ro = t32_lce_deinit(&l, c); break;
 		}
 
 		t32o_reset();
 		memset(&vl, 0, sizeof(vl)); cur = &vl;
 		t32_data_e20d8[0] = wflag;
+		memcpy(t32_data_e1db8, bufs0, 144);
+		memcpy(t32_data_d6c64, sz0, 4);
+		for (i = 0; i < 4; i++) memcpy(vtabs[i], tabs0[i], i ? 20 : 24);
 		side_st = (uintptr_t)vs[c]; side_par = (uintptr_t)par;
 		for (ch = 0; ch < 4; ch++) {
 			t32_data_e1da8[ch] = T32O_PTR(vs[ch]);
@@ -183,14 +207,30 @@ int main(void)
 		case 5: t32o_call((t32o_fn)(void (*)(void))tisp_lce_get_show_data, c, rnd(), rnd(), rnd(), 0); break;
 		case 6: rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_lce_param_array_get, c, T32O_PTR(vout), T32O_PTR(vlen), rnd(), 0); break;
 		case 7: rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_lce_param_array_set, c, T32O_PTR(in), rnd(), rnd(), 0); break;
-		default: t32o_arg5 = ehi;
+		case 8: t32o_arg5 = ehi;
 			rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_lce_tgain_update, c, rnd(), glo, ghi, elo); break;
+		default: if (vst0) t32_data_e1da8[c] = 0;
+			rv = (u32)t32o_call((t32o_fn)(void (*)(void))tisp_lce_deinit, c, rnd(), rnd(), rnd(), 0); break;
 		}
 
 		if (rv != ro || vl.n != ol.n || memcmp(vl.e, ol.e, sizeof(vl.e)) || memcmp(vout, oout, 1500) ||
 		    *vlen != *olen || t32_data_e20d8[0] != oflag) {
 			printf("t32_lcem_oracle: FAIL case %lu fn %d ch %u: ret %#x/%#x hooks %u/%u\n", n, fn, c, rv, ro, vl.n, ol.n);
 			return 1;
+		}
+		if (fn == 9) {	/* the state pointer table and the freed objects */
+			for (i = 0; i < 4; i++)
+				if ((t32_data_e1da8[i] == 0) != (l.st[i] == NULL) ||
+				    memcmp(vtabs[i], otabs[i], i ? 20 : 24)) {
+					printf("t32_lcem_oracle: FAIL case %lu deinit: table / state %u\n", n, i);
+					return 1;
+				}
+			if (memcmp(t32_data_e1db8, obufs, 144) || memcmp(t32_data_d6c64, osz, 4)) {
+				printf("t32_lcem_oracle: FAIL case %lu deinit: buffers / sizes\n", n);
+				return 1;
+			}
+			per[fn]++;
+			continue;
 		}
 		if (memcmp(par, opar, PARB)) {
 			printf("t32_lcem_oracle: FAIL case %lu fn %d: parameter section differs\n", n, fn);
@@ -209,7 +249,7 @@ int main(void)
 			}
 		per[fn]++;
 	}
-	printf("t32_lcem_oracle: PASS %lu cases (wdr_en %lu, top_change_state %lu, dn_params_refresh %lu, get_hist_data %lu, get_sum_data %lu, get_show_data %lu, param_array_get %lu, param_array_set %lu, tgain_update %lu)\n",
-	       N, per[0], per[1], per[2], per[3], per[4], per[5], per[6], per[7], per[8]);
+	printf("t32_lcem_oracle: PASS %lu cases (wdr_en %lu, top_change_state %lu, dn_params_refresh %lu, get_hist_data %lu, get_sum_data %lu, get_show_data %lu, param_array_get %lu, param_array_set %lu, tgain_update %lu, deinit %lu)\n",
+	       N, per[0], per[1], per[2], per[3], per[4], per[5], per[6], per[7], per[8], per[9]);
 	return 0;
 }

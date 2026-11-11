@@ -20,6 +20,7 @@
  * (+4), 576 bytes (+0x21f64) and 3 bytes (+0x223e4).  set takes 712
  * parameter bytes, and on a change of the WDR byte (+0x22737, kept as a
  * flag in t32_data_e20d8) reloads the curve and the Gauss weights.
+ * tisp_lce_deinit (appended) frees the buffers and the state.
  * lce_compress_data(_part_1), tisp_lce_gauss_wgt and
  * tisp_lce_write_ctrl_reg are hooks as well.
  *
@@ -77,6 +78,8 @@ struct t32_lcem_ops {
 	void (*gauss_wgt)(u32 ch, const u8 *src, u8 *dst, u32 n);	/* tisp_lce_gauss_wgt */
 	void (*write_ctrl_reg)(u32 ch);					/* tisp_lce_write_ctrl_reg */
 	void (*interp_strength)(u32 ch);				/* tisp_lce_tgain_interp_strength */
+	void (*kfree)(void *p);
+	void (*vfree)(void *p);
 };
 
 struct t32_lcem {
@@ -84,6 +87,9 @@ struct t32_lcem {
 	u8 *st[4];				/* t32_data_e1da8 */
 	u32 *tuning;				/* t32_data_dd0a4 */
 	u8 *wdr_flag;				/* t32_data_e20d8 */
+	u8 *bufs;				/* t32_data_e1db8: 36 B per channel */
+	u8 *size_par;				/* t32_data_d6c64: 4 size bytes */
+	u8 *tabs[4];				/* t32_data_e188c (24 B), e1878, e1864, e1850 (20 B) */
 };
 
 static inline u32 t32_lcem_rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
@@ -299,6 +305,40 @@ static inline u32 t32_lce_tgain_update(struct t32_lcem *l, u32 ch, u32 gain_lo, 
 		t32_lcem_wr32(st + T32_LCEM_LAST_EV, ev_lo);
 	}
 	l->ops->interp_strength(ch);
+	return 0;
+}
+
+#define T32_LCEM_BUF_STRIDE	36
+#define T32_LCEM_BUF0		12	/* three buffers, sizes at +24 */
+
+/* tisp_lce_deinit: default sizes, clear the tables, free the buffers and the state */
+static inline u32 t32_lce_deinit(struct t32_lcem *l, u32 ch)
+{
+	static const u8 size_def[4] = { 11, 12, 20, 20 };
+	static const u8 tab_len[4] = { 24, 20, 20, 20 };
+	u8 *b = l->bufs + T32_LCEM_BUF_STRIDE * ch;
+	u32 i;
+
+	*l->wdr_flag = 0;
+	l->size_par[3] = size_def[3];
+	l->size_par[2] = size_def[2];
+	l->size_par[1] = size_def[1];
+	l->size_par[0] = size_def[0];
+	for (i = 0; i < 4; i++)
+		memset(l->tabs[i], 0, tab_len[i]);
+	for (i = 0; i < 3; i++) {
+		u32 p = t32_lcem_rd32(b + T32_LCEM_BUF0 + 4 * i);
+
+		if (p) {
+			l->ops->kfree((void *)(uintptr_t)p);
+			t32_lcem_wr32(b + T32_LCEM_BUF0 + 4 * i, 0);
+			t32_lcem_wr32(b + T32_LCEM_BUF0 + 12 + 4 * i, 0);
+		}
+	}
+	if (l->st[ch]) {
+		l->ops->vfree(l->st[ch]);
+		l->st[ch] = NULL;
+	}
 	return 0;
 }
 
