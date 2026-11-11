@@ -17,6 +17,11 @@
 #include "tx_isp_t32_txos.h"
 #include "tx_isp_t32_txattr.h"
 #include "tx_isp_t32_txbin.h"
+#ifdef __KERNEL__
+#include <linux/errno.h>
+#else
+#include <errno.h>
+#endif
 
 #define T32_SC_BASE		0x8000000U
 #define T32_SC_COPY_ERR		"[ %s:%d ] copy error!!!\n"
@@ -116,6 +121,24 @@ static inline int t32_tx_sc_set_copyres(u32 ch, u32 ctrl, t32_tx_sc_set_fn set, 
 	if (r)
 		t32_tx_os_isp_printf(1, fail, fn, fline);
 	return r;
+}
+
+/*
+ * 0x2a SetFaceAeWeiget: as t32_tx_sc_set_copyres (the vendor returns the copy
+ * result and ignores the setter's), but a window length the setter refuses
+ * (-EINVAL, openimp #350, beyond vendor, user-approved 2026-11-11) reaches the
+ * caller. In-range values: the setter returns 0, so the vendor's return code.
+ */
+static inline int t32_tx_sc_set_face_ae(u32 ch, u32 ctrl, t32_tx_sc_set_fn set, u32 n, const char *fn, int line,
+					const char *fail, int fline)
+{
+	u32 buf[24];
+	int r = t32_tx_sc_in(buf, ctrl, n, fn, line);
+	int s = set(ch, buf);
+
+	if (r)
+		t32_tx_os_isp_printf(1, fail, fn, fline);
+	return r ? r : (s == -EINVAL ? s : 0);
 }
 
 /* one BCSH byte: copy, setter, the byte into the ISP device */
@@ -291,7 +314,7 @@ static inline int t32_tx_core_ops_s_ctrl(u32 ch, u32 isp, u32 ctrl)
 				     "[ %s:%d ] set control failed!!!\n", 594);
 	case 0x27: return t32_tx_os_ae_explist_s_attr(ch, user);
 	case 0x2a:
-		return t32_tx_sc_set_copyres(ch, ctrl, t32_tx_os_tisp_s_face_ae_weiget, 12, "tx_isp_face_ae_weiget_s_attr",
+		return t32_tx_sc_set_face_ae(ch, ctrl, t32_tx_os_tisp_s_face_ae_weiget, 12, "tx_isp_face_ae_weiget_s_attr",
 					     1510, "[ %s:%d ] set face ae weight failed!!!\n", 1515);
 	case 0x2d: return t32_tx_os_ae_target_s_attr(ch, user);
 	case 0x2e: return t32_tx_sc_hlc_blc(ch, ctrl);

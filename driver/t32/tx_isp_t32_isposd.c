@@ -34,7 +34,7 @@
  * (op 2) and every transfer; the commit's flag pair keeps the low half the register
  * holds (the vendor's channel word +302, the same curve word: 0x5a0155 in QEMU).
  *
- * Not the vendor's (needs the user's OK to differ, see the commit):
+ * Not the vendor's (beyond vendor, user-approved 2026-11-11, openimp #336):
  *  - an index the vendor uses unchecked (OSD window >= 8, line >= 20, mask set >= 3 /
  *    block >= 4, a VI other than 0) is refused with -EINVAL instead of writing outside
  *    the parameter block;
