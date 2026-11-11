@@ -49,6 +49,10 @@
 #include "tx_isp_t32_gib.h"
 #include "tx_isp_t32_rdns.h"
 #include "tx_isp_t32_rdnstab.h"
+#include "tx_isp_t32_aeinit.h"
+#include "tx_isp_t32_aemath.h"
+#include "tx_isp_t32_fixp.h"
+#include "tx_isp_t32_libwrap.h"
 
 /*
  * Vendor t32_data_d03a0: 1 = registers go into the shadow image / register
@@ -61,7 +65,7 @@ static unsigned int t32_ported_paths = 1;
 module_param(t32_ported_paths, uint, 0644);
 MODULE_PARM_DESC(t32_ported_paths,
 		 "1 (default): every wired per-frame block on its ported path; 0: all on the old path; "
-		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib, 8 rdns)");
+		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib, 8 rdns, 9 ae)");
 
 static unsigned int tisp_tgain = 0x10000;
 module_param(tisp_tgain, uint, 0644);
@@ -214,6 +218,8 @@ void t32_pf_kick(void)
 		schedule_work(&pf_work);
 }
 
+static void ae_free(void);
+
 static void pf_free_locked(void)
 {
 	kfree(pf.dmsc.sec);
@@ -238,6 +244,7 @@ static void pf_free_locked(void)
 	kfree(pf.rdns.sec);
 	kfree(pf.rdns.param);
 	memset(&pf, 0, sizeof(pf));
+	ae_free();
 }
 
 /* stream-on, before the init blocks: drop the contexts of the last stream */
@@ -445,6 +452,120 @@ int t32_pf_attach_rdns(u8 *sec, struct t32_front_write *w)
 	pf.have[T32_PP_RDNS] = true;
 	mutex_unlock(&pf_lock);
 	return n;
+}
+
+/* ---- vendor AE context (openimp #234): tisp_ae_init state part, not yet run per frame ---- */
+
+static u32 ae_div32(u32 sh, u32 a, u32 b) { return t32_aem_div32(sh, a, b); }
+static u32 ae_mult2_32(u32 sh, u32 a, u32 b) { return t32_aem_mult2_32(sh, a, b); }
+static u32 ae_mult3_32(u32 sh, u32 a, u32 b, u32 c) { return t32_aem_mult3_32(sh, a, b, c); }
+static t32_u64 ae_mult2(u32 sh, t32_u64 a, t32_u64 b) { return t32_fixp_mult2(sh, a, b); }
+static t32_u64 ae_mult3_64(u32 sh, t32_u64 a, t32_u64 b, t32_u64 c) { return t32_aem_mult3_64(sh, a, b, c); }
+static u32 ae_exp2(u32 v, u32 iq, u32 oq) { return t32_aem_exp2(v, iq, oq); }
+static void ae_warn(u32 line)
+{
+	isp_printf(2, "tx-isp-t32: AE sensor ratio word without integer part, vendor default (line %u)\n", line);
+}
+static const struct t32_ae_init_ops pf_ae_ops = {
+	ae_div32, ae_mult2_32, ae_mult3_32, ae_mult2, ae_mult3_64, ae_exp2, ae_warn,
+};
+
+/* tisp_ae_par_sensor_trig: the trigger flag (e1514[ch]) is 0 until tisp_ae_init, nothing to mark yet */
+static u32 ae_sensor_trig(void *ctx, u32 ch) { (void)ctx; (void)ch; return 0; }
+
+static struct {
+	struct t32_ae_blk b;
+	u8 S[T32_SENSOR_ATTR_COPY];	/* the channel's t32_data_dd2d4 block */
+	bool ready;
+} ae;
+
+static void ae_free(void)
+{
+	kfree(ae.b.ctx); kfree(ae.b.T); kfree(ae.b.B); kfree(ae.b.R); kfree(ae.b.D); kfree(ae.b.C);
+	memset(&ae, 0, sizeof(ae));
+}
+
+/*
+ * The dd2d4 sensor block as the vendor builds it: ispcore_sync_sensor_attr
+ * (tx_isp_t32_ispsync.h, the 124 B block from the sensor's attribute block
+ * and its struct tx_isp_video_in), then lib_tisp_sync_sensor_attr
+ * (t32_lib_sync_sensor_attr) copies its fields into the 232 B copy.
+ */
+static int ae_sensor_block(u8 *S)
+{
+	struct t32_lib_hooks h = { .ae_sensor_trig = ae_sensor_trig };
+	const u8 *vin, *si;
+	u8 blk[124] = { 0 };
+
+	if (t32_core_sensor_ae_src(&vin, &si))
+		return -ENODEV;
+	memcpy(blk + 0, si + 276, 2);	/* total width */
+	memcpy(blk + 2, si + 278, 2);	/* total height */
+	memcpy(blk + 36, si + 160, 4);
+	memcpy(blk + 40, si + 192, 4);
+	memcpy(blk + 56, vin + 68, 12);
+	memcpy(blk + 68, si + 220, 4);
+	memcpy(blk + 72, si + 224, 4);
+	memcpy(blk + 80, si + 224, 4);
+	memcpy(blk + 84, si + 280, 4);
+	memcpy(blk + 88, si + 236, 4);
+	memcpy(blk + 92, si + 240, 4);
+	memcpy(blk + 96, si + 176, 4);
+	memcpy(blk + 108, si + 152, 4);
+	memcpy(blk + 112, si + 216, 4);
+	blk[116] = si[228];		/* low byte of the u16 */
+	blk[117] = si[164];
+	blk[123] = si[196] ? si[196] : 1;
+	memset(S, 0, T32_SENSOR_ATTR_COPY);
+	t32_lib_sync_sensor_attr(&h, S, 0, blk);
+	return 0;
+}
+
+/*
+ * Stream-on, after the AE statistics init: the AE context as tisp_ae_init
+ * leaves it (t32_ae_ctx_init, oracle t32_aeinit_oracle) from a copy of the
+ * IQ bin AE section (vendor tparams + 0x68) and the sensor block, plus the
+ * vendor's eight AE register writes of its tail.  The per-frame AE
+ * (tisp_ae_interrupt_static / calc_process) does not run on it yet.
+ */
+int t32_pf_attach_ae(const u8 *sec, u32 width, u32 height)
+{
+	struct t32_stats_write w[8];
+	u8 info[64] = { 0 };
+	int n, i;
+
+	mutex_lock(&pf_lock);
+	ae_free();
+	if (ae_sensor_block(ae.S)) {
+		mutex_unlock(&pf_lock);
+		return -ENODEV;
+	}
+	ae.b.T = kmemdup(sec, T32_AEI_T_BYTES, GFP_KERNEL);
+	ae.b.ctx = kzalloc(T32_AEI_CTX_BYTES, GFP_KERNEL);
+	ae.b.B = kzalloc(T32_AEI_B_BYTES, GFP_KERNEL);
+	ae.b.R = kzalloc(T32_AEI_R_BYTES, GFP_KERNEL);
+	ae.b.D = kzalloc(T32_AEI_D_BYTES, GFP_KERNEL);
+	ae.b.C = kzalloc(T32_AEI_C_BYTES, GFP_KERNEL);
+	if (!ae.b.T || !ae.b.ctx || !ae.b.B || !ae.b.R || !ae.b.D || !ae.b.C) {
+		ae_free();
+		mutex_unlock(&pf_lock);
+		return -ENOMEM;
+	}
+	t32_ae_state_tmpl(ae.b.R);
+	t32_wr32(info, 0, width);
+	t32_wr32(info, 4, height);
+	t32_wr32(info, 12, t32_core_sensor_fps());
+	n = t32_ae_ctx_init(0, &ae.b, ae.S, info, 1, &pf_ae_ops, w);
+	if (n < 0) {
+		ae_free();
+		mutex_unlock(&pf_lock);
+		return n;
+	}
+	for (i = 0; i < n; i++)
+		t32_hw_wr(w[i].reg, w[i].val);
+	ae.ready = true;
+	mutex_unlock(&pf_lock);
+	return 0;
 }
 
 /* end of the stream-on init: the per-frame runs may start */

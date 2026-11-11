@@ -26,6 +26,7 @@ int t32_core_iq_bin(const u8 **bin, u32 *bytes);
 int t32_core_sensor_mbus(u32 *code);
 int t32_core_sensor_expo(u32 packed);
 u32 t32_core_sensor_vts(void);
+int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr);
 
 /* tx_isp_t32_hw.c */
 struct t32_hw_stats {
@@ -51,7 +52,7 @@ void t32_hw_wr(u32 off, u32 v);
 
 /* tx_isp_t32_tisp.c: per-frame tisp paths (ported blocks), switch t32_ported_paths */
 enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T32_PP_MDNS, T32_PP_DPC, T32_PP_GIB,
-	     T32_PP_RDNS, T32_PP_COUNT };
+	     T32_PP_RDNS, T32_PP_AE, T32_PP_COUNT };
 struct t32_pf_stats {
 	u32 runs, writes;
 };
@@ -63,6 +64,7 @@ void t32_pf_attach_mdns(u8 *sec, u8 *val, u32 width, u32 height, u32 memopt);
 void t32_pf_attach_gib(u8 *sec, u32 bayer);
 struct t32_front_write;
 int t32_pf_attach_rdns(u8 *sec, struct t32_front_write *w);
+int t32_pf_attach_ae(const u8 *sec, u32 width, u32 height);
 void t32_pf_start(void);
 void t32_pf_kick(void);
 void t32_pf_exit(void);
