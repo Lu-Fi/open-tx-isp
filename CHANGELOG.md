@@ -13,7 +13,7 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 ## 2026-11-11: T41 mdns_ref_hold for test pattern mode 5 (openimp #103; T41 device-tested)
 
 - T41: new module parameter `mdns_ref_hold` (0644, default 0 = unchanged). With bit 0 set, the MDNS register writer (`t41_mdns_write_checked`, called on nearly every gain update through `tisp_mdns_refresh`) sets the channel-0 reference fields to 0xff whenever it programs them: per-pixel gate `0xf120` (bytes 0/2), weight limits `0xf150` (bytes 0/1) and `0xf234`, weights by block age `0xf154..0xf16c`, difference and output ramps `0xf174/0xf178`, `0xf180..0xf190`, `0xf264/0xf26c`, block motion limits `0xf198` (bytes 0..2), `0xf210`, `0xf278`. OpenIMP test pattern mode 5 sets it while it runs; without it each gain-step rewrite let live picture into the injected reference for a frame. Helper `t41_mdns_hold_value` in `tx_isp_t41_mdns.h`, host test in `tests/tx_isp_t41_mdns_test.c`.
-- Device (Vanhua T55A gc5603, test module by rmmod/insmod, OpenIMP `claude/tp5-103c`): mode 5 night Y SSIM 0.924 (reference share 0.90), 3 on/off cycles, parameter back to 0 on mode 0, stock module reloaded after, 0 oops.
+- Device (Vanhua T55A gc5603, test module by rmmod/insmod, OpenIMP next): mode 5 night Y SSIM 0.924 (reference share 0.90), 3 on/off cycles, parameter back to 0 on mode 0, stock module reloaded after, 0 oops.
 
 ## 2026-11-11: T23 mdns_ref_hold holds b_min too (openimp #103; T23 device-tested)
 

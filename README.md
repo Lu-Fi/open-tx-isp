@@ -70,6 +70,7 @@ Defaults of `tx-isp-t23.ko` in the release candidate. The switches are `0644` mo
 | `qbuf_cache_inv` | 1 | QBUF invalidates the buffer's cache lines before its addresses reach the FIFO (as stock); 0 = off (debug) |
 | `source_af` | 1 (read-only) | AF statistics chain of the stock module: AF block, AF interrupt and the AF getters/setters. 0 = AF off and the controls unrouted. No measurable CPU or interrupt cost |
 | `source_ae_oem` | 1 (read-only) | Lifted vendor AE (default since 2026-10-03) |
+| `mdns_ref_hold` | 0 | Bit 0 holds the temporal-NR (MDNS) reference weights and gates at their maximum and writes `b_min` as 0xffffffff, so a picture an application wrote into the reference stays visible (OpenIMP test pattern mode 5 sets it while it runs). The same parameter exists on T41 (bit 0, same meaning) |
 | `crumbs` | 0 | Hang step markers in a reserved page (1 = rmem page after the MDNS buffer, 2 = page at `crumb_addr`); only for hang analysis |
 | `t23_runtime_trace` | 0 | 1 enables informational driver logging |
 | `fcrop_upscale_pct` | 0 | Percentage by which the front-crop geometry check tolerates an MSCA upscale (0 = no upscaling allowed). Measured on T23: upscaling up to 2.0 works, at 2.2 the MSCA stalled briefly and the crop was dropped without a reboot. The same parameter exists in `tx-isp-t31.ko` (writable under `/sys/module/tx_isp_t31/parameters/`), where the default is 100 (2.0x) since 2026-10-24 |
