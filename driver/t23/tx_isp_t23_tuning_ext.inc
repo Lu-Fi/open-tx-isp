@@ -340,7 +340,7 @@ static long t23x_ae_control(bool get, uint32_t id, uint32_t *value)
 #define T23X_CID_AWB_ZONE_WEIGHT 0x08000010U
 
 /* GetAwbZone from the last statistics snapshot of the HLIL AWB (every
- * source_awb_hlil_interval-th statistics frame, default 4) */
+ * source_awb_hlil_interval-th statistics frame, default 1 = every one) */
 static long t23x_awb_zone_get(uint32_t uptr)
 {
 	struct regtrace_t23_awb_hlil_snapshot *snap;

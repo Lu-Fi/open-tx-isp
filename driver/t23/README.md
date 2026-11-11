@@ -88,7 +88,7 @@ as follows:
 |---|---|---|
 | AE0: bit 26/27 `ae0_interrupt_*`, event 1 `tisp_ae0_process` | lifted stock code, ISR + work item (`tx_isp_t23_ae_oem_glue.inc`, `source_ae_oem=1`) | - |
 | ADR / defog: bit 18 / 20 `tiziano_*_interrupt_static`, events 2 / 3 `tisp_adr_process` / `tisp_defog_process` | lifted stock code, ISR + work item (`tx_isp_t23_adr_oem_glue.inc`, `source_adr_oem=1`) | `adr_oem_runs` (adr irq, adr process, defog irq, defog process) |
-| AWB: bit 30 `awb_interrupt_static` (statistics, `tiziano_awb_set_lum_th_freq`), event 9 `JZ_Isp_Awb`, event 8 `tisp_ct_update` | statistics snapshot + `t23x_awb_set_lum_th_freq` in the ISR, HLIL AWB work (every `source_awb_hlil_interval`-th interrupt, default 4) calling the CT updates directly | `awb_lum_th_runs`, `awb_lum_th_last` (0444) |
+| AWB: bit 30 `awb_interrupt_static` (statistics, `tiziano_awb_set_lum_th_freq`), event 9 `JZ_Isp_Awb`, event 8 `tisp_ct_update` | statistics snapshot + `t23x_awb_set_lum_th_freq` in the ISR, HLIL AWB work (every `source_awb_hlil_interval`-th interrupt, default 1 = every interrupt like stock, openimp #233) calling the CT updates directly | `awb_lum_th_runs`, `awb_lum_th_last` (0444) |
 
 `t23x_awb_set_lum_th_freq` writes 0xb038 on every AWB interrupt like stock:
 `par[176] << 16 | par[172] << 8 | max(1, min(wmean, par[168]) * _ae_reg[8] >> 10)`

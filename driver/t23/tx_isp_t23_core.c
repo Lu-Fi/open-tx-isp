@@ -10400,7 +10400,9 @@ static bool regtrace_t23_source_awb_hlil = true;
 static bool regtrace_t23_source_awb_hlil_tuning_loaded;
 static uint regtrace_t23_source_awb_profile_rbias = 1024;
 static uint regtrace_t23_source_awb_profile_bbias = 1024;
-static uint regtrace_t23_source_awb_hlil_interval = 4;
+/* stock awb_interrupt_static pushes event 9 (JZ_Isp_Awb) on every AWB
+ * statistics interrupt: interval 1 = every interrupt (openimp #233) */
+static uint regtrace_t23_source_awb_hlil_interval = 1;
 static uint regtrace_t23_source_awb_hlil_min_pixels = 1;
 static uint regtrace_t23_source_awb_bootstrap_rgain = 0x400;
 static uint regtrace_t23_source_awb_bootstrap_bgain = 0x400;
@@ -10757,8 +10759,10 @@ t23_bringup_param_named(source_awb_profile_rbias,
                    regtrace_t23_source_awb_profile_rbias, uint, 0444);
 t23_bringup_param_named(source_awb_profile_bbias,
                    regtrace_t23_source_awb_profile_bbias, uint, 0444);
-t23_bringup_param_named(source_awb_hlil_interval,
+module_param_named(source_awb_hlil_interval,
                    regtrace_t23_source_awb_hlil_interval, uint, 0644);
+MODULE_PARM_DESC(source_awb_hlil_interval,
+                 "run the AWB on every Nth AWB statistics interrupt (default 1 = every one, like stock; 0 = every one)");
 t23_bringup_param_named(source_awb_hlil_min_pixels,
                    regtrace_t23_source_awb_hlil_min_pixels, uint, 0644);
 t23_bringup_param_named(source_awb_bootstrap_rgain,
@@ -13947,8 +13951,8 @@ static void regtrace_t23_source_ae_stats_irq(uint32_t status,
  * whether the HLIL capture gets the bank.  When the capture would return at
  * once (HLIL off, or not an interval snapshot) and no log line is due, the
  * 4 KiB cache invalidate, the 225-zone pass and the two divisions are
- * skipped; the counter still advances.  Default interval 4: three of four
- * AWB interrupts.
+ * skipped; the counter still advances.  Default interval 1 (stock): every
+ * AWB interrupt is used.
  */
 static bool regtrace_t23_awb_snapshot_unused(uint32_t snapshot)
 {
