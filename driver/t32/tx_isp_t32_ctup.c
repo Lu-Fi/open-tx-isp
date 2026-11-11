@@ -121,6 +121,7 @@ int t32_ctup_attach_ccm(const u8 *sec, u32 len, u32 avail)
 	ccm_on = false;
 	kfree(ccm_mem);
 	ccm_mem = len > 0x364 ? ct_copy(sec, len, (u32)sec[0x364] * 40U, avail) : NULL;
+	memset(&ccm, 0, sizeof(ccm));	/* the vendor state is .bss */
 	if (ccm_mem)
 		n = t32_ccm_start(&ccm, ccm_mem, ccm_mem + len, (u32)sec[0x364] * 40U, ct_w);
 	if (n > 0) {
