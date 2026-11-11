@@ -21,11 +21,15 @@
  *    21: tisp_ae_algo_deinit(arg[1]); 24 / 25: tisp_awb_algo_init(arg[1], 1, arg + 8) /
  *    (arg[1], 0, 0); 23 / 27: AE / AWB user block (t32_io_algo; -14 copy fault, magic
  *    0x13501f4 else -1 (AE) / -22 (AWB), both printed twice; AWB handled only when word 2 = 1).
+ *  idx 3: stream on (t32_io_stream_on; no private block: -22; any pipe state < 2: nothing);
+ *    5: down_timeout(priv + 4032, 1000) (-145 printed, other errors like idx 0);
+ *    6: arg 0 = u8 priv + 4288 = 1, 2 = tisp_core_reset(priv, 1), else reset(priv, 0) + tick;
+ *    14 / 15: all format table users off / on under the lock priv + 288.
  *
- * Phased port: only the commands above are ported so far (idx 0, 1, 9, 16, 21, 23..25, 27 and
+ * Phased port: only the commands above are ported so far (idx 0, 1, 3, 5, 6, 9, 14..16, 21, 23..25, 27 and
  * every idx that the vendor table sends straight to the broadcast: 2, 4, 7, 8, 10, 12, 13,
- * 17..19, 28, 29 and every cmd outside 0x1000000..0x100001e).  The other commands (idx 3, 5,
- * 6, 11, 14, 15, 20, 22, 26, 30) and sd NULL with any other idx (vendor: NULL / table-entry paths, partly a NULL
+ * 17..19, 28, 29 and every cmd outside 0x1000000..0x100001e).  The other commands (idx 11,
+ * 20, 22, 26, 30) and sd NULL with any other idx (vendor: NULL / table-entry paths, partly a NULL
  * dereference) return T32_IO_UNPORTED; an error pointer sd (vendor: dereferenced) is not
  * handled either.
  *
@@ -50,6 +54,12 @@
 #define T32_IO_INVAL		0xffffffeaU	/* -22, -EINVAL */
 #define T32_IO_A(p)		((u32)(uintptr_t)(p))
 #define T32_CI_PIPE_ON		372		/* + 104 * pipe: 1 = bayer order to be written */
+#define T32_CI_STREAMING	4012
+#define T32_CI_SEM		4032
+#define T32_CI_USERS_ON		4284
+#define T32_CI_RESET_REQ	4288		/* u8 */
+#define T32_CI_USER_ON		276		/* in a 284 B user entry */
+#define T32_IO_TIMEDOUT		0xffffff6fU	/* -145, -ETIMEDOUT */
 
 struct t32_io_ops {
 	void (*print)(u32 level, u32 fmt, u32 func, u32 line);		/* isp_printf */
@@ -64,6 +74,15 @@ struct t32_io_ops {
 	void (*awb_init)(u32 h, u32 on, u32 p);				/* tisp_awb_algo_init */
 	void (*awb_handle)(u32 h, u32 buf);				/* tisp_awb_algo_handle */
 	u32 fmt_copy, fmt_magic, fmt_inval, func_ae, func_awb;		/* cd550 cd570 cd604, c342c c33ec */
+	/* phase 3: stream on, wait, reset, user enable */
+	void (*lock)(u32 lock, u32 *flags);				/* __private_spin_lock_irqsave */
+	void (*unlock)(u32 lock, u32 flags);				/* private_spin_unlock_irqrestore */
+	void (*aov_wake_up)(u32 pipe);					/* lib_tisp_aov_wake_up */
+	void (*stream_on)(void);					/* lib_tisp_stream_on */
+	u32 (*down_timeout)(u32 sem, u32 ms);
+	void (*core_reset)(u32 priv, u32 on);				/* tisp_core_reset */
+	u32 *npipe;							/* f3354 */
+	u32 fmt_nodev, fmt_on, fmt_timeout, func_on, func_wait;		/* cd4ec cd504 cd524, c3488 c346c */
 };
 
 /* fn of the subdev ops block ops[blk], word w; 0 when the block or the function is missing */
@@ -152,6 +171,70 @@ static inline u32 t32_io_algo(const struct t32_io_ops *ops, u32 arg, int awb)
 	return 0;
 }
 
+/* a usable core private block: sd + 280 not NULL and no error pointer */
+static inline u32 t32_io_priv(u32 sd)
+{
+	u32 priv = t32_ic_r32(sd, T32_IS_PRIV);
+
+	return priv && !T32_CI_ERR(priv) ? priv : 0;
+}
+
+/* idx 3: stream on once every pipe state is >= 2; 1 = go on with the broadcast, else the error */
+static inline u32 t32_io_stream_on(const struct t32_io_ops *ops, u32 sd)
+{
+	u32 priv = t32_io_priv(sd), i;
+
+	if (!priv) {
+		ops->print(2, ops->fmt_nodev, ops->func_on, 2081);
+		return t32_io_err(ops, T32_IO_INVAL);
+	}
+	for (i = 0; i < 4; i++)
+		if ((int)t32_ic_r32(priv, T32_CI_STATE + 4 * i) < 2)
+			return 0;
+	for (i = 0; i < t32_ic_r32(priv, T32_CI_SATTR); i++)
+		ops->aov_wake_up(i & 0xff);
+	if (!t32_ic_r32(priv, T32_CI_STREAMING)) {
+		*ops->npipe = 0;
+		ops->stream_on();
+		t32_ic_w32(priv, T32_CI_STREAMING, 1);
+	}
+	ops->print(1, ops->fmt_on, ops->func_on, 2100);
+	return 0;
+}
+
+/* idx 5: wait (1 s) for the core semaphore priv + 4032 */
+static inline u32 t32_io_wait(const struct t32_io_ops *ops, u32 sd, u32 *ret)
+{
+	u32 priv = t32_io_priv(sd);
+
+	if (!priv) {
+		ops->print(2, ops->fmt_nodev, ops->func_wait, 2171);
+		return t32_io_err(ops, T32_IO_INVAL);
+	}
+	*ret = ops->down_timeout(priv + T32_CI_SEM, 1000);
+	if (*ret == T32_IO_TIMEDOUT) {
+		ops->print(2, ops->fmt_timeout, ops->func_wait, 2181);
+		return t32_io_err(ops, *ret);
+	}
+	if (*ret != 0 && *ret != T32_IO_NOCMD)
+		return t32_io_err(ops, *ret);
+	return 0;
+}
+
+/* idx 14 / 15: all format table users off / on (priv + 4284 = current state), under priv + 288 */
+static inline void t32_io_users(const struct t32_io_ops *ops, u32 sd, u32 on)
+{
+	u32 priv = t32_ic_r32(sd, T32_IS_PRIV), flags = 0, i;
+
+	ops->lock(priv + T32_CI_LOCK, &flags);
+	if (on ? t32_ic_r32(priv, T32_CI_USERS_ON) != 1 : t32_ic_r32(priv, T32_CI_USERS_ON) != 0) {
+		t32_ic_w32(priv, T32_CI_USERS_ON, on);
+		for (i = 0; i < t32_ic_r32(priv, T32_CI_NUSERS); i++)
+			t32_ic_w32(t32_ic_r32(priv, T32_CI_USERS) + T32_CI_USER_SIZE * i, T32_CI_USER_ON, on);
+	}
+	ops->unlock(priv + T32_CI_LOCK, flags);
+}
+
 static inline u32 t32_ispcore_core_ops_ioctl(const struct t32_io_ops *ops, u32 sd, u32 cmd, u32 arg)
 {
 	u32 idx = cmd - T32_IO_CMD0, ret = 0, fn;
@@ -175,6 +258,29 @@ static inline u32 t32_ispcore_core_ops_ioctl(const struct t32_io_ops *ops, u32 s
 			ops->print(2, ops->fmt_err, ops->func, T32_IO_LINE);
 			return ret;
 		}
+		break;
+	case 3:
+		ret = t32_io_stream_on(ops, sd);
+		if (ret)
+			return ret;
+		break;
+	case 5:
+		fn = t32_io_wait(ops, sd, &ret);
+		if (fn)
+			return fn;
+		break;
+	case 6:	/* arg is a value: 0 = reset request flag, 2 = core reset on, else off + tick */
+		if (!arg) {
+			*T32_IC_P(t32_ic_r32(sd, T32_IS_PRIV) + T32_CI_RESET_REQ) = 1;
+			break;
+		}
+		ops->core_reset(t32_ic_r32(sd, T32_IS_PRIV), arg == 2);
+		if (arg != 2)
+			ops->tick(sd);
+		break;
+	case 14:
+	case 15:
+		t32_io_users(ops, sd, idx == 15);
 		break;
 	case 9:
 		t32_io_bayer(ops, sd);
