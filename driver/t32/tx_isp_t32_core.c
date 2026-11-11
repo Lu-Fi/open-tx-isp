@@ -960,6 +960,10 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_awbc_stats.tgain_updates);
 	seq_printf(m, "ct fan-out (CCM, BCSH, CLM): runs %u writes %u last ct %u; ev fan-out runs %u\n",
 		   t32_ctup_stats.runs, t32_ctup_stats.writes, t32_ctup_stats.ct, t32_ctup_stats.ev_runs);
+	seq_printf(m, "LSC ct path: attaches %u ct calls %u mesh writes %u last ct %u tgains %u; frame done %u list runs %u; waits %u timeouts %u\n",
+		   t32_lsc_drv_stats.attaches, t32_lsc_drv_stats.ct_calls, t32_lsc_drv_stats.mesh_writes,
+		   t32_lsc_drv_stats.ct, t32_lsc_drv_stats.tgains, t32_lsc_drv_stats.frames,
+		   t32_lsc_drv_stats.list_runs, t32_lsc_drv_stats.waits, t32_lsc_drv_stats.timeouts);
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
 	t32_fs_show(m);

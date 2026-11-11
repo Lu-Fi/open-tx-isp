@@ -20,10 +20,11 @@
  *   - CLM: the state as tisp_clm_init leaves it (tables at 5000 K, zone code,
  *     threshold 1) built next to the one-shot t32_clm_init, then
  *     t32_clm_ct_update_st (tx_isp_t32_clmct.h, oracle t32_clmct_oracle);
- *   - LSC: not wired.  tisp_lsc_ct_update is interp_by_ct + the vendor's
- *     tisp_lsc_write_all_reg (979 recovered lines: LUT port writes with a
- *     completion wait), not ported; the driver loads the mesh once through
- *     the stream-on register list at lsc_ct.
+ *   - LSC: tisp_lsc_ct_update (t32_lscct_ct_update, tx_isp_t32_lscct.h,
+ *     oracle t32_lscct_oracle) on the LSC state and list of
+ *     tx_isp_t32_lscct.c (also behind bit 19, T32_PP_LSCCT): a changed mesh
+ *     goes into the LSC register list, which runs at the next LSC frame
+ *     done interrupt.
  *
  * The AE EV (event 6) runs tisp_long_ev_update (t32_long_ev_update,
  * tx_isp_t32_blkrest.h, oracle t32_longev_oracle) here: the AWB part
@@ -108,6 +109,11 @@ static void ct_clm(u32 ch, u64 ct)
 		ct_flush(t32_clm_ct_update_st(&clm, T32_CLMCT_THR, (u32)ct, ct_w));
 }
 
+static void ct_lsc(u32 ch, u64 ct)
+{
+	t32_lsc_drv_ct(ch, (u32)ct);
+}
+
 static void ct_none(u32 ch, u64 v) { (void)ch; (void)v; }
 static void ct_none32(u32 ch, u32 v) { (void)ch; (void)v; }
 
@@ -115,7 +121,7 @@ static const struct t32_dispatch_ops ct_ops = {
 	.reg_read = ct_rd,
 	.reg_write = ct_wr,
 	.ccm_ct_update = ct_ccm,
-	.lsc_ct_update = ct_none,	/* not wired: see above */
+	.lsc_ct_update = ct_lsc,
 	.bcsh_ct_update = ct_bcsh,
 	.clm_ct_update = ct_clm,
 	.gib_again_s_update = ct_none32,
@@ -220,7 +226,7 @@ void t32_ctup_run(u32 ct)
 	if (!t32_pp_on(T32_PP_CT))
 		return;
 	mutex_lock(&ctup_lock);
-	if (ccm_on || bcsh_on || clm_on) {
+	if (ccm_on || bcsh_on || clm_on || t32_lsc_drv_on()) {
 		t32_ct_update(&ct_ops, 0, ct, 0, 0);
 		t32_ctup_stats.runs++;
 		t32_ctup_stats.ct = ct;

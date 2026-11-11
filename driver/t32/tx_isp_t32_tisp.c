@@ -73,7 +73,7 @@ module_param(t32_ported_paths, uint, 0644);
 MODULE_PARM_DESC(t32_ported_paths,
 		 "1 (default): every wired per-frame block on its ported path; 0: all on the old path; "
 		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib, 8 rdns, 9 ae, "
-		 "10 lsc, 11 lce, 12 tmo, 13 awb, 14 ct fan-out, 15 ev into ccm / bcsh, 16 af, 17 gsm (bit 18)");
+		 "10 lsc, 11 lce, 12 tmo, 13 awb, 14 ct fan-out, 15 ev into ccm / bcsh, 16 af, 17 gsm, 18 lsc ct mesh (bit 19)");
 
 static unsigned int tisp_tgain = 0x10000;
 module_param(tisp_tgain, uint, 0644);
@@ -144,6 +144,8 @@ static int pf_lsc(u32 ch, u32 gain)
 {
 	unsigned int i;
 
+	if (t32_lsc_drv_tgain(ch, gain))	/* bit 19: the vendor path on the shared LSC list (tx_isp_t32_lscct.c) */
+		return 0;
 	pf.lsc.ndlog = 0;
 	t32_lsc_tgain_update(&pf.lsc, (u8)ch, gain);
 	for (i = 0; i < pf.lsc.ndlog; i++) {

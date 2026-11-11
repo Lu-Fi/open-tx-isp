@@ -49,6 +49,7 @@
 #define T32_MSCADONE_EN			0x300a0
 #define T32_MSCADONE_CLR		0x300a4
 #define T32_MSCADONE_STA		0x300a8	/* bit 1: MSCA frame done (OSD load point) */
+#define T32_MSCADONE_LSC		(1U << 4)	/* LSC frame done (interrupt bit 36) */
 #define T32_INT3_EN			0x300b0
 #define T32_INT3_CLR			0x300b4
 #define T32_INT3_STA			0x300b8

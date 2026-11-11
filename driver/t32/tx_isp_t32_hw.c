@@ -138,6 +138,8 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t32_fs_done_irq(done);
 	if (msca & 2)			/* MSCA frame done: tisp_msca_irq_frame_done (ISP OSD, #336) */
 		t32_isposd_frame_done();
+	if (msca & T32_MSCADONE_LSC)	/* interrupt bit 36: tisp_lsc_irq_frame_done (tx_isp_t32_lscct.c) */
+		t32_lsc_drv_frame_done();
 	return IRQ_HANDLED;
 }
 
@@ -589,6 +591,7 @@ static void t32_rcfg_stream_on_fill(struct t32_rcfg_list *l)
 		isp_printf(0, "tx-isp-t32: LSC %ux%u cells %u table %u/%u at %u K\n",
 			   s.cols, s.rows, s.cells, s.table_lo, s.table_hi, lsc_ct);
 		t32_pf_attach_lsc(p, &s, w, h, (u32)bayer, lsc_ct);	/* per-frame strength (tisp_lsc_tgain_update) */
+		t32_lsc_drv_attach(p, &s, &lsc_work, w, h, (u32)bayer, lsc_ct);	/* ct path (tisp_lsc_ct_update) */
 	}
 }
 
@@ -623,6 +626,27 @@ void t32_hw_rcfg_run_stream_on(void)
 	}
 	t32_rcfg_runs++;
 	t32_rcfg_last_len = list[0];
+}
+
+/*
+ * tisp_single_lsc_rcfg_cfg_trig for the LSC list of tx_isp_t32_lscct.c (uncached, so
+ * nothing to flush): table word 49 and word 0, the table, bit 17 in 0x22014 / 0x2201c,
+ * then 0x2c = 2.  Not waited for: the next writer checks 0x22014 (vendor).  Any context.
+ */
+void t32_hw_rcfg_lsc_trig(u32 list_pa)
+{
+	u32 *table;
+
+	if (!rcfg_pages)
+		return;
+	table = (u32 *)CKSEG1ADDR(rcfg_pa);
+	table[T32_RCFG_STREAM_ON_LIST] = list_pa;
+	table[0] = list_pa;
+	wmb();
+	isp_wr(T32_RDMA_TABLE, rcfg_pa);
+	isp_wr(T32_RDMA_TRIG, T32_RCFG_STREAM_ON_BIT);
+	isp_wr(T32_RDMA_TRIG2, T32_RCFG_STREAM_ON_BIT);
+	isp_wr(0x002c, 2);
 }
 
 static struct t32_csi_cfg csi_cfg;
@@ -776,6 +800,7 @@ void t32_hw_stream_off(void)
 	isp_wr(T32_MSCADONE_CLR, isp_rd(T32_MSCADONE_STA));
 	t32_vic_wr(0, T32_VIC_INT_CLR, readl(isp_base + T32_VIC_BASE(0) + T32_VIC_INT_STA));
 	t32_vic_wr(0, T32_VIC_INT_CLR2, readl(isp_base + T32_VIC_BASE(0) + T32_VIC_INT_STA2));
+	t32_lsc_drv_detach();	/* no more LSC list runs */
 	t32_pf_stop();		/* per-frame contexts (the vmalloc'd LCE state) end with the stream */
 }
 
@@ -986,6 +1011,7 @@ void t32_hw_exit(void)
 	}
 	cancel_work_sync(&t32_bringup_ae_w);	/* it reads registers and the AE buffer */
 	t32_pf_exit();				/* the per-frame work writes registers */
+	t32_lsc_drv_exit();			/* after the interrupts and the ct / per-frame work */
 	t32_blk_exit();				/* block event work (after the LCE state is gone) */
 	writel(0, csi_base + 0x0c);		/* CSI host back into reset */
 	csi_reset_done = 0;

@@ -46,6 +46,7 @@ int t32_hw_init(void);
 void t32_hw_exit(void);
 int t32_hw_input_setup(const void *attr, u32 w, u32 h);
 void t32_hw_rcfg_run_stream_on(void);
+void t32_hw_rcfg_lsc_trig(u32 list_pa);
 extern u32 t32_rcfg_runs, t32_rcfg_timeouts, t32_rcfg_last_len;
 void t32_hw_stream_on(void);
 void t32_hw_stream_off(void);
@@ -117,7 +118,7 @@ void t32_awbc_api_set_gain(void);
 /* tx_isp_t32_tisp.c: per-frame tisp paths (ported blocks), switch t32_ported_paths */
 enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T32_PP_MDNS, T32_PP_DPC, T32_PP_GIB,
 	     T32_PP_RDNS, T32_PP_AE, T32_PP_LSC, T32_PP_LCE, T32_PP_TMO, T32_PP_AWB, T32_PP_CT, T32_PP_EV,
-	     T32_PP_AF, T32_PP_GSM, T32_PP_COUNT };
+	     T32_PP_AF, T32_PP_GSM, T32_PP_LSCCT, T32_PP_COUNT };
 struct t32_pf_stats {
 	u32 runs, writes;
 };
@@ -133,6 +134,22 @@ int t32_pf_attach_ae(const u8 *sec, u32 width, u32 height);
 struct t32_lsc;
 void t32_pf_attach_lsc(const u8 *sec, const struct t32_lsc *s, u32 width, u32 height, u32 bayer, u32 ct);
 void t32_pf_attach_lce(const u8 *sec, u32 width, u32 height);
+
+/* tx_isp_t32_lscct.c: the LSC colour temperature path (tisp_lsc_ct_update, list run at the LSC frame done),
+ * behind T32_PP_LSCCT (with T32_PP_LSC, T32_PP_CT) */
+struct t32_lsc_drv_stats {
+	u32 attaches, ct_calls, mesh_writes, ct, tgains, frames, list_runs, waits, timeouts;
+};
+extern struct t32_lsc_drv_stats t32_lsc_drv_stats;
+struct t32_lsc_work;
+void t32_lsc_drv_attach(const u8 *blk, const struct t32_lsc *s, const struct t32_lsc_work *wk,
+			u32 width, u32 height, u32 bayer, u32 ct);
+void t32_lsc_drv_detach(void);
+void t32_lsc_drv_exit(void);
+bool t32_lsc_drv_on(void);
+void t32_lsc_drv_ct(u32 ch, u32 ct);
+bool t32_lsc_drv_tgain(u32 ch, u32 gain);
+void t32_lsc_drv_frame_done(void);
 void t32_pf_stop(void);
 void t32_pf_start(void);
 void t32_pf_kick(void);

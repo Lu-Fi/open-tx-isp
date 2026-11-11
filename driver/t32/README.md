@@ -187,11 +187,25 @@ generation-shared come from the shared code instead:
   `t32_ccm_ct_update`, `t32_bcsh_ct_update`, oracles `t32_ccmf_oracle` /
   `t32_bcshf_oracle`) and the CLM block state as `tisp_clm_init` leaves it
   (`tx_isp_t32_clmct.h`: `tisp_clm_ct_update` / `tisp_clm_ct_interp` on the
-  kept state, oracle `t32_clmct_oracle`) in `tx_isp_t32_ctup.c`. LSC is not
-  wired: `tisp_lsc_ct_update` needs the vendor `tisp_lsc_write_all_reg` (LUT
-  port writes with a completion wait), which is not ported; the mesh is
-  loaded once by the stream-on list. Stats "ct fan-out" in
-  /proc/jz/isp/isp-m0. Host only.
+  kept state, oracle `t32_clmct_oracle`) in `tx_isp_t32_ctup.c`. LSC: see
+  the next entry. Stats "ct fan-out" in /proc/jz/isp/isp-m0. Host only.
+- **LSC colour temperature path (openimp #234, `t32_ported_paths` bit 19,
+  with bits 11 and 15)**: `tx_isp_t32_lscct.h` ports the whole vendor
+  `tisp_lsc_write_all_reg` (all modes: the completion wait for a running
+  register list at 0x22014, the mesh through the LUT port: one sensor into
+  the LSC register list image, else 0x32020 / 0x32024 or the shadow indices
+  2767 / 2769; the registers as shadow indices or list words; the list
+  trigger flag), `tisp_lsc_interp_by_ct` with its lock pattern,
+  `tisp_lsc_ct_update`, `tisp_lsc_tgain_update` and
+  `tisp_lsc_irq_frame_done`; oracle `t32_lscct_oracle` (d03a0 0 / 1 / 2,
+  1 or 2 sensors, busy / idle, the image `tisp_lsc_init` leaves, 50/50
+  mutations). `tx_isp_t32_lscct.c` keeps the LSC state and a vendor-layout
+  LSC list (16 KiB, uncached) from stream-on; the ct fan-out runs
+  `tisp_lsc_ct_update` on it, the long tgain update runs
+  `tisp_lsc_tgain_update` on the same list (strength 0x5050 + list word 8),
+  and the LSC frame done interrupt (0x300a8 bit 4 = bit 36) runs the armed
+  list through table word 49 / bit 17 (`t32_hw_rcfg_lsc_trig`). Stats "LSC
+  ct path" in /proc/jz/isp/isp-m0. Host + QEMU build only.
 - **EV fan-out (openimp #234, `t32_ported_paths` bit 16)**: the AE event 6
   runs `tisp_long_ev_update` (`t32_long_ev_update`, oracle
   `t32_longev_oracle`): the AWB part (bit 14), `t32_ccm_ev_update` and
@@ -425,5 +439,5 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `lsc_ct` | 5000 | colour temperature for the LSC mesh at stream-on |
 | `bringup_ae` | 0 | 1 = bring-up exposure controller (not the vendor AE) |
 | `bringup_target` | 64 | its target mean histogram bin (0..255) |
-| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS, 9 AE, 10 LSC, 11 LCE (with the block interrupts 8 / 30), 12 TMO (with the block interrupts 9 / 31), 13 AWB, 16 AF (bit 17, interrupt 6), 17 GSM (bit 18, interrupts 7 / 63); RDNS off = not programmed at all, as before) |
+| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS, 9 AE, 10 LSC, 11 LCE (with the block interrupts 8 / 30), 12 TMO (with the block interrupts 9 / 31), 13 AWB, 16 AF (bit 17, interrupt 6), 17 GSM (bit 18, interrupts 7 / 63), 18 LSC ct mesh (bit 19, interrupt 36, with 10 and 14); RDNS off = not programmed at all, as before) |
 | `tisp_tgain` | 0x10000 | total gain for the per-frame refresh until the vendor AE runs (test aid) |
