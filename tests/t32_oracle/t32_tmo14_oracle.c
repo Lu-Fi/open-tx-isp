@@ -351,9 +351,10 @@ static u32 vexp2(u32 v, u32 a, u32 b) { return (u32)t32o_call(FN(tisp_math_exp2)
 
 int main(void)
 {
-	unsigned int n = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 3000;
+	unsigned int n = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 10000;
 	unsigned int nr = getenv("T32O_NREAL") ? (unsigned)atoi(getenv("T32O_NREAL")) : 1000;
 	unsigned int c, compared = 0, real = 0, i;
+	/* #282 F3: the whole arena (ARN bytes, not only the laid out part) is initialised and compared after the last phase */
 
 	for (c = 0; c < n + nr; c++) {
 		struct t32_tmo_fpga_env env;
@@ -365,8 +366,8 @@ int main(void)
 		gen();
 		if (c >= n)
 			realtab();
-		memcpy(VA, IMG, TOT);
-		memcpy(OA, IMG, TOT);
+		memcpy(VA, IMG, ARN);
+		memcpy(OA, IMG, ARN);
 		rec = t32o_alloc(4 * 16);
 		q = t32o_alloc(4 * 16);
 		for (i = 0; i < 4; i++) {
@@ -387,8 +388,8 @@ int main(void)
 		}
 		if (rb(2)) {
 			near_prev(&env);
-			memcpy(VA, IMG, TOT);
-			memcpy(OA, IMG, TOT);
+			memcpy(VA, IMG, ARN);
+			memcpy(OA, IMG, ARN);
 		}
 		settables();
 		t32o_arg5 = t32o_arg6 = t32o_arg7 = t32o_arg8 = t32o_arg9 = 0;
@@ -410,13 +411,13 @@ int main(void)
 		} else
 		t32_tmo_adr_fpga(OA + OC[CH], OA + OS[CH], OA + OB[CH], OA + OK[CH], &env);
 		compared++;
-		if (memcmp(VA, OA, TOT)) {
-			for (i = 0; i < TOT && VA[i] == OA[i]; i++)
+		if (memcmp(VA, OA, ARN)) {
+			for (i = 0; i < ARN && VA[i] == OA[i]; i++)
 				;
 			bad = "arena";
 			if (!getenv("T32O_CONT")) { u32 o = OC[CH]; int j; printf("fm %d sel %d P %d Rr %d T %d A %d D %d E %d mode %d m100 %d e3500 %d\n", *(s16*)(OA+o+9864), *(s16*)(OA+o+9916), *(s16*)(OA+o+9926), *(s16*)(OA+o+9638), *(s16*)(OA+o+9934), *(s16*)(OA+o+9906), *(s16*)(OA+o+9844), *(s16*)(OA+o+9822), *(s16*)(OA+o+9574), *(s16*)(OA+o+100), e3500);
 			  for (j = 0; j < 14; j++) { printf(" %d/%d", ((s16*)(VA+OS[CH]+128))[j], ((s16*)(OA+OS[CH]+128))[j]); } printf("\n"); }
-			else { u32 o = OC[CH]; for (i = 0; i < TOT && VA[i] == OA[i]; i++) ; { int j; for (j = 0; j < 14; j++) printf(" %d/%d/%d", ((s16*)(VA+OS[CH]+128))[j], ((s16*)(OA+OS[CH]+128))[j], d88d4[1+j]); printf("\n"); } printf("e60eq %d d88d4eq %d\n", !memcmp(t32_e60, e60, sizeof(e60)), !memcmp(t32_dblk + 48, d88d4, 32)); printf("Y ctx%d s0%d B%d C%d\n", (int)i - (int)OC[CH], (int)i - (int)OS[CH], (int)i - (int)OB[CH], (int)i - (int)OK[CH]); printf("X fm %d sel %d P %d Rr %d T %d A %d D %d E %d mode %d m100 %d e3500 %d e3518 %d\n", *(s16*)(OA+o+9864), *(s16*)(OA+o+9916), *(s16*)(OA+o+9926), *(s16*)(OA+o+9638), *(s16*)(OA+o+9934), *(s16*)(OA+o+9906), *(s16*)(OA+o+9844), *(s16*)(OA+o+9822), *(s16*)(OA+o+9574), *(s16*)(OA+o+100), e3500, e3518); }
+			else { u32 o = OC[CH]; for (i = 0; i < ARN && VA[i] == OA[i]; i++) ; { int j; for (j = 0; j < 14; j++) printf(" %d/%d/%d", ((s16*)(VA+OS[CH]+128))[j], ((s16*)(OA+OS[CH]+128))[j], d88d4[1+j]); printf("\n"); } printf("e60eq %d d88d4eq %d\n", !memcmp(t32_e60, e60, sizeof(e60)), !memcmp(t32_dblk + 48, d88d4, 32)); printf("Y ctx%d s0%d B%d C%d\n", (int)i - (int)OC[CH], (int)i - (int)OS[CH], (int)i - (int)OB[CH], (int)i - (int)OK[CH]); printf("X fm %d sel %d P %d Rr %d T %d A %d D %d E %d mode %d m100 %d e3500 %d e3518 %d\n", *(s16*)(OA+o+9864), *(s16*)(OA+o+9916), *(s16*)(OA+o+9926), *(s16*)(OA+o+9638), *(s16*)(OA+o+9934), *(s16*)(OA+o+9906), *(s16*)(OA+o+9844), *(s16*)(OA+o+9822), *(s16*)(OA+o+9574), *(s16*)(OA+o+100), e3500, e3518); }
 			printf("MISMATCH case %u ch %u: arena byte %u (blocks: ctx %u s0 %u B %u C %u) vendor %02x ours %02x\n", c, CH, i, OC[CH], OS[CH], OB[CH], OK[CH], VA[i], OA[i]);
 		} else if (memcmp(t32_dblk + 48, d88d4, 32)) {
 			bad = "d88d4";

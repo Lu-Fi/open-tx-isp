@@ -24,6 +24,28 @@
 #include "t32_oracle_env.h"
 #include "tx_isp_t32_sensor_ops.h"
 
+/*
+ * #282 F5: a mutated port that follows a wrong table offset into unmapped memory used to die with SIGSEGV
+ * (rc 139), which run.sh could only count as "detected" by crash.  The reference never faults on these inputs
+ * (the unmutated oracle passes), so a fault is the port's: report it as a mismatch with exit 1 instead.
+ */
+#include <signal.h>
+#include <unistd.h>
+static void t32o_segv(int sig)
+{
+	static const char m[] = "MISMATCH: the port faulted (wild guest access, wrong table offset); the vendor did not\n";
+
+	(void)sig;
+	if (write(2, m, sizeof(m) - 1) < 0)
+		_exit(2);
+	_exit(1);
+}
+static void __attribute__((constructor)) t32o_segv_install(void)
+{
+	signal(SIGSEGV, t32o_segv);
+	signal(SIGBUS, t32o_segv);
+}
+
 #define WEAK __attribute__((weak))
 #define R(f)	((t32o_fn)(void (*)(void))(f))
 
