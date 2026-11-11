@@ -796,3 +796,127 @@ u32 t32_data_e1500[4] __attribute__((weak)), t32_data_e14f0[4] __attribute__((we
 __asm__(".globl t32_data_dc2b0\n.set t32_data_dc2b0, t32_data_dc284 + 44");
 /* lib_tisp_set_isp_memory_space: "memory configured" byte (.bss dd674) */
 u8 t32_data_dd674[4] __attribute__((weak));
+/* ---- op5-ispcore (ISP core glue): weak data / stubs ---- */
+/* .bss f3310: the ISP core device pointer (tx_isp core subdev), set by the oracle per case */
+u32 t32_data_f3310[1] __attribute__((weak, aligned(4)));
+/* tuning device (isp_tunning_read/poll): bss dad90 = read flag byte, dad94 = its wait queue; one weak block */
+u8 t32o_op5_dad[0x40] __attribute__((weak, aligned(16)));
+__asm__(".weak t32_data_dad90\n.set t32_data_dad90, t32o_op5_dad\n.weak t32_data_dad94\n.set t32_data_dad94, t32o_op5_dad + 4");
+/* frame done (isp_frame_done_wait/wakeup): bss d9690 flag ch != 0, d9694 flag ch 0, d9698 3 x u64 counters */
+u32 t32o_op5_fd[8] __attribute__((weak, aligned(16)));
+__asm__(".weak t32_data_d9690\n.set t32_data_d9690, t32o_op5_fd\n.weak t32_data_d9694\n.set t32_data_d9694, t32o_op5_fd + 4");
+__asm__(".weak t32_data_d9698\n.set t32_data_d9698, t32o_op5_fd + 8\n.weak t32_data_d969c\n.set t32_data_d969c, t32o_op5_fd + 12");
+/* .data objects only used by address: cf12c / cf134 frame-done wait queues, cf0c0 tuning file ops;
+ * printk / isp_printf format strings c51e0, c7a74, c4ac0 and function names bf0d0, bdb40 */
+u32 t32_data_cf12c[2] __attribute__((weak)), t32_data_cf134[3] __attribute__((weak)), t32_data_cf0c0[1] __attribute__((weak));
+u32 t32_data_c51e0[1] __attribute__((weak)), t32_data_c7a74[1] __attribute__((weak)), t32_data_c4ac0[1] __attribute__((weak));
+u32 t32_data_bf0d0[1] __attribute__((weak)), t32_data_bdb40[1] __attribute__((weak));
+u32 t32_data_c520c[1] __attribute__((weak));	/* mutex name string, address only */
+/* core event queue (isp_core_event_*), bss d9d30 .. d9e78 + 4 channels in one weak block (vendor layout:
+ * d9d30 process drops, d9d34 push drops, d9d38 callbacks 80 words per channel, d9e78 2268 B queue per channel) */
+u8 t32o_op5_evq[0x2500] __attribute__((weak, aligned(16)));
+__asm__(".weak t32_data_d9d30\n.set t32_data_d9d30, t32o_op5_evq\n.weak t32_data_d9d34\n.set t32_data_d9d34, t32o_op5_evq + 4");
+__asm__(".weak t32_data_d9d38\n.set t32_data_d9d38, t32o_op5_evq + 8\n.weak t32_data_d9e78\n.set t32_data_d9e78, t32o_op5_evq + 0x148");
+/* event queue strings (wait queue name, isp_printf formats, function name), address only */
+u32 t32_data_c69b0[1] __attribute__((weak)), t32_data_c69bc[1] __attribute__((weak)), t32_data_c69cc[1] __attribute__((weak));
+u32 t32_data_be598[1] __attribute__((weak)), t32_data_be580[1] __attribute__((weak)), t32_data_c69f8[1] __attribute__((weak));
+u32 t32_data_c6a14[1] __attribute__((weak)), t32_data_c6a3c[1] __attribute__((weak)), t32_data_c6a74[1] __attribute__((weak));
+/* reserved-memory allocator (isp_mem_init / isp_malloc_buffer / isp_free_buffer): bss d96b0 pool block
+ * (+0 base, +4 size = d96b4, 20 descriptor slots, +412 list head), d9850 mutex; strings by address only */
+u8 t32o_op5_mem[0x1a0] __attribute__((weak, aligned(16)));
+__asm__(".weak t32_data_d96b0\n.set t32_data_d96b0, t32o_op5_mem\n.weak t32_data_d96b4\n.set t32_data_d96b4, t32o_op5_mem + 4");
+u32 t32_data_d9850[8] __attribute__((weak));
+u32 t32_data_be330[1] __attribute__((weak)), t32_data_c521c[1] __attribute__((weak));
+u32 t32_data_c522c[1] __attribute__((weak)), t32_data_c525c[1] __attribute__((weak));
+/* frame-done / frame-start work (ispcore_irq_fd_work0..3, ispcore_irq_fs_work0..3), rodata:
+ * data.c:6219..6249 (c30a0 / c30c8 / c30e4 / c3100): the jump tables of the fd works (OEM code addresses)
+ * data.c:6361..6384 (c32d8 / c3308): the sensor command per frame-start work index (-1 = none) */
+u32 t32_data_c30a0[10] __attribute__((weak)) = { 0xb50ec, 0xb5144, 0xb5088, 0xb5150, 0xb5094, 0xb50c4, 0xb50a0, 0xb50ac, 0xb50d8, 0xb50b8 };
+u32 t32_data_c30c8[7] __attribute__((weak)) = { 0xb528c, 0xb52e8, 0xb5240, 0xb52f4, 0xb524c, 0xb5264, 0xb5258 };
+u32 t32_data_c30e4[7] __attribute__((weak)) = { 0xb5430, 0xb548c, 0xb53e4, 0xb5498, 0xb53f0, 0xb5408, 0xb53fc };
+u32 t32_data_c3100[7] __attribute__((weak)) = { 0xb55d4, 0xb5630, 0xb5588, 0xb563c, 0xb5594, 0xb55ac, 0xb55a0 };
+u32 t32_data_c32d8[12] __attribute__((weak)) = { 0x02000007, 0x02000008, 0x02000009, 0x02000005, 0x02000006, 0xffffffff,
+	0x02000017, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0x02000020 };
+u32 t32_data_c3308[12] __attribute__((weak)) = { 0x02000007, 0x02000008, 0x02000009, 0x02000005, 0x02000006, 0xffffffff,
+	0x02000017, 0x02000018, 0xffffffff, 0x0200000a, 0xffffffff, 0x02000020 };
+/* core pm callbacks (ispcore_suspend/resume_early/complete_module): isp_printf formats / function names, address only */
+u32 t32_data_c3580[1] __attribute__((weak)), t32_data_cc83c[1] __attribute__((weak)), t32_data_cc858[1] __attribute__((weak));
+u32 t32_data_cc87c[1] __attribute__((weak)), t32_data_c354c[1] __attribute__((weak)), t32_data_cc89c[1] __attribute__((weak));
+u32 t32_data_cc8c4[1] __attribute__((weak)), t32_data_c3534[1] __attribute__((weak)), t32_data_cc8e4[1] __attribute__((weak));
+u32 t32_data_cc908[1] __attribute__((weak)), t32_data_cc928[1] __attribute__((weak));
+/* subdev clocks (isp_subdev_init_clks): isp_printf formats / function name, address only */
+u32 t32_data_be6c4[1] __attribute__((weak)), t32_data_c6b7c[1] __attribute__((weak));
+u32 t32_data_c6ba8[1] __attribute__((weak)), t32_data_c6bd4[1] __attribute__((weak));
+/* ispcore_sync_sensor_attr: isp_printf format / function name, address only */
+u32 t32_data_c3500[1] __attribute__((weak)), t32_data_ccc38[1] __attribute__((weak));
+/* ispcore_prepare_module / isp_vic_set_dma_enable: bss f336c (busy event queue counter), isp_printf formats, address only */
+u32 t32_data_f336c[1] __attribute__((weak));
+u32 t32_data_c351c[1] __attribute__((weak)), t32_data_ccbb8[1] __attribute__((weak)), t32_data_ccbdc[1] __attribute__((weak));
+u32 t32_data_ccbfc[1] __attribute__((weak)), t32_data_ccc18[1] __attribute__((weak)), t32_data_bd778[1] __attribute__((weak));
+u32 t32_data_c3aa4[1] __attribute__((weak));
+/* isp_i2c_new_subdev_board: isp_printf format / function name, address only */
+u32 t32_data_bdaac[1] __attribute__((weak)), t32_data_c44e0[1] __attribute__((weak));
+/* ispcore_set_clk_parent.isra.13: data.c:16949..16951 (ce220) = pointers to the parent names
+ * data.c:6638..6643 (c3724 "sclka", c372c "mpll", c3734 "vpll"); isp_printf formats by address only */
+u32 t32_data_c3724[2] __attribute__((weak)) = { 0x6b6c6373, 0x00000061 };
+u32 t32_data_c372c[2] __attribute__((weak)) = { 0x6c6c706d, 0x00000000 };
+u32 t32_data_c3734[2] __attribute__((weak)) = { 0x6c6c7076, 0x00000000 };
+__asm__(".section .data\n.weak t32_data_ce220\n.balign 4\nt32_data_ce220:\n.long t32_data_c3724, t32_data_c372c, t32_data_c3734\n.previous");
+u32 t32_data_ccd34[1] __attribute__((weak)), t32_data_ccd44[1] __attribute__((weak)), t32_data_ccd5c[1] __attribute__((weak));
+/* ispcore_frame_channel_streamoff: bss f334c (current MSCA pipe, u8) and d9004 (no-wait flag); formats by address only */
+u32 t32_data_f334c[1] __attribute__((weak)), t32_data_d9004[1] __attribute__((weak));
+u32 t32_data_cc960[1] __attribute__((weak)), t32_data_cc97c[1] __attribute__((weak));
+/* ispcore_slake_module: isp_printf formats / function name, address only */
+u32 t32_data_c36c4[1] __attribute__((weak)), t32_data_cd340[1] __attribute__((weak));
+u32 t32_data_cd364[1] __attribute__((weak)), t32_data_cd390[1] __attribute__((weak));
+/* ispcore_video_s_stream: bss d9008 (start from channel 0 only), f3314 (pipeline table pointer), f3354;
+ * d8e6c / d8e78 / d8e84 / f3360 pipeline tables and the isp_printf strings by address only */
+u32 t32_data_d9008[1] __attribute__((weak)), t32_data_f3314[1] __attribute__((weak)), t32_data_f3354[1] __attribute__((weak));
+u32 t32_data_d8e6c[3] __attribute__((weak)), t32_data_d8e78[3] __attribute__((weak)), t32_data_d8e84[3] __attribute__((weak));
+u32 t32_data_f3360[3] __attribute__((weak)), t32_data_c3660[1] __attribute__((weak)), t32_data_cd04c[1] __attribute__((weak));
+/* ispcore_activate_module: data.c:16408..16414 (ccfcc "mux_isp", ccfd4 "mux_isps", ccfe0 "mux_ldc"), formats by address only */
+u32 t32_data_ccfcc[2] __attribute__((weak)) = { 0x5f78756d, 0x00707369 };
+u32 t32_data_ccfd4[3] __attribute__((weak)) = { 0x5f78756d, 0x73707369, 0x00000000 };
+u32 t32_data_ccfe0[2] __attribute__((weak)) = { 0x5f78756d, 0x0063646c };
+u32 t32_data_c3648[1] __attribute__((weak)), t32_data_ccfe8[1] __attribute__((weak)), t32_data_cd028[1] __attribute__((weak));
+/* ispcore_channel_framedone_process.isra.16: bss d9014 (frame drop pattern), f3348 (dropped buffer count); printk strings by address only */
+u32 t32_data_d9014[1] __attribute__((weak)), t32_data_f3348[1] __attribute__((weak));
+u32 t32_data_c34b8[1] __attribute__((weak)), t32_data_ccd80[1] __attribute__((weak));
+/* ispcore_resume_module: isp_printf formats / function name, address only */
+u32 t32_data_c3568[1] __attribute__((weak)), t32_data_ccb50[1] __attribute__((weak));
+u32 t32_data_ccb74[1] __attribute__((weak)), t32_data_ccb94[1] __attribute__((weak));
+/* isp_csi_cmd_set / isp_save_cmd_set: bss d9660 (33 B text buffer); data.c:7757 c48a0 "reset", ccb04 "get_vb",
+ * ccb0c "isp_reg_reset", ccb1c "w", ccb20 " ", ccb24 "0x", ccb28 "0X", c311c the key names ccb2c "dbgmode",
+ * ccb34 "items", ccb3c "interval", ccb48 "vinum"; seq_printf / isp_printf formats by address only */
+u8 t32_data_d9660[64] __attribute__((weak, aligned(4)));
+char t32_data_c48a0[8] __attribute__((weak)) = "reset", t32_data_ccb04[8] __attribute__((weak)) = "get_vb";
+char t32_data_ccb0c[16] __attribute__((weak)) = "isp_reg_reset", t32_data_ccb1c[4] __attribute__((weak)) = "w";
+char t32_data_ccb20[4] __attribute__((weak)) = " ", t32_data_ccb24[4] __attribute__((weak)) = "0x", t32_data_ccb28[4] __attribute__((weak)) = "0X";
+char t32_data_ccb2c[8] __attribute__((weak)) = "dbgmode", t32_data_ccb34[8] __attribute__((weak)) = "items";
+char t32_data_ccb3c[12] __attribute__((weak)) = "interval", t32_data_ccb48[8] __attribute__((weak)) = "vinum";
+__asm__(".section .data\n.weak t32_data_c311c\n.balign 4\nt32_data_c311c:\n.long t32_data_ccb2c, t32_data_ccb34, t32_data_ccb3c, t32_data_ccb48\n.previous");
+u32 t32_data_c4888[1] __attribute__((weak)), t32_data_c48a8[1] __attribute__((weak)), t32_data_c48c0[1] __attribute__((weak));
+u32 t32_data_ccae8[1] __attribute__((weak));
+/* isp_vic_cmd_set: bss d9328 (33 B text buffer), data ced78 (raw mode, 2 at load), the DMA ops pointer;
+ * c3ae4 "snapraw", c3bb0 "mode", c3bf8 "help"; seq_printf / isp_printf formats by address only */
+u8 t32_data_d9328[64] __attribute__((weak, aligned(4)));
+u32 t32_data_ced78[1] __attribute__((weak)) = { 2 };
+u32 mips_dma_map_ops __attribute__((weak));
+char t32_data_c3ae4[8] __attribute__((weak)) = "snapraw", t32_data_c3bb0[8] __attribute__((weak)) = "mode";
+char t32_data_c3bf8[8] __attribute__((weak)) = "help";
+u32 t32_data_c3acc[1] __attribute__((weak)), t32_data_c3aec[1] __attribute__((weak)), t32_data_bd81c[1] __attribute__((weak));
+u32 t32_data_c3b00[1] __attribute__((weak)), t32_data_c3b20[1] __attribute__((weak)), t32_data_c3b7c[1] __attribute__((weak));
+u32 t32_data_c3b9c[1] __attribute__((weak)), t32_data_c3bb8[1] __attribute__((weak)), t32_data_c3be0[1] __attribute__((weak));
+u32 t32_data_c3c00[1] __attribute__((weak)), t32_data_c3c04[1] __attribute__((weak)), t32_data_c3c0c[1] __attribute__((weak));
+u32 t32_data_c3c14[1] __attribute__((weak)), t32_data_c3c20[1] __attribute__((weak)), t32_data_c3c5c[1] __attribute__((weak));
+u32 t32_data_c3ca8[1] __attribute__((weak)), t32_data_c3cc4[1] __attribute__((weak)), t32_data_c3cf8[1] __attribute__((weak));
+u32 t32_data_c3d04[1] __attribute__((weak)), t32_data_c3d50[1] __attribute__((weak));
+/* isp_vic_interrupt_service_routine: bss d9320 (frame start print count per channel), d931c (start budget mask, u8),
+ * d934c (13 error counters per channel), f3838 (frame-done hook), system_wq; works cedf4 / cee04 / cee14 / cee24,
+ * data.c c40c0 the frame-start text "VIC:%d  Frame %d Start" (sprintf), isp_printf format / function name by address only */
+u32 t32_data_d9320[2] __attribute__((weak)), t32_data_d931c[1] __attribute__((weak)), t32_data_d934c[26] __attribute__((weak));
+u32 t32_data_f3838[1] __attribute__((weak)), system_wq __attribute__((weak));
+u32 t32_data_cedf4[4] __attribute__((weak)), t32_data_cee04[4] __attribute__((weak)), t32_data_cee14[4] __attribute__((weak));
+u32 t32_data_cee24[4] __attribute__((weak));
+char t32_data_c40c0[24] __attribute__((weak)) = "VIC:%d  Frame %d Start";
+u32 t32_data_c40d8[1] __attribute__((weak)), t32_data_bd790[1] __attribute__((weak));
