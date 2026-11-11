@@ -888,3 +888,12 @@ u32 t32_data_c3c00[1] __attribute__((weak)), t32_data_c3c04[1] __attribute__((we
 u32 t32_data_c3c14[1] __attribute__((weak)), t32_data_c3c20[1] __attribute__((weak)), t32_data_c3c5c[1] __attribute__((weak));
 u32 t32_data_c3ca8[1] __attribute__((weak)), t32_data_c3cc4[1] __attribute__((weak)), t32_data_c3cf8[1] __attribute__((weak));
 u32 t32_data_c3d04[1] __attribute__((weak)), t32_data_c3d50[1] __attribute__((weak));
+/* isp_vic_interrupt_service_routine: bss d9320 (frame start print count per channel), d931c (start budget mask, u8),
+ * d934c (13 error counters per channel), f3838 (frame-done hook), system_wq; works cedf4 / cee04 / cee14 / cee24,
+ * data.c c40c0 the frame-start text "VIC:%d  Frame %d Start" (sprintf), isp_printf format / function name by address only */
+u32 t32_data_d9320[2] __attribute__((weak)), t32_data_d931c[1] __attribute__((weak)), t32_data_d934c[26] __attribute__((weak));
+u32 t32_data_f3838[1] __attribute__((weak)), system_wq __attribute__((weak));
+u32 t32_data_cedf4[4] __attribute__((weak)), t32_data_cee04[4] __attribute__((weak)), t32_data_cee14[4] __attribute__((weak));
+u32 t32_data_cee24[4] __attribute__((weak));
+char t32_data_c40c0[24] __attribute__((weak)) = "VIC:%d  Frame %d Start";
+u32 t32_data_c40d8[1] __attribute__((weak)), t32_data_bd790[1] __attribute__((weak));
