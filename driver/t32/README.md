@@ -147,6 +147,13 @@ generation-shared come from the shared code instead:
   through the sensor's EXPO event (0x02000017). No AWB, no tuning. QEMU run
   s4h: 13 histogram interrupts, 5 steps, the sensor ioctl accepted each; proc
   shows steps, last mean and integration time.
+- **Vendor AE chain, in progress (openimp #234)**: the AE context init
+  (`tx_isp_t32_aeinit.h`, `t32_ae_ctx_init` = state part of `tisp_ae_init`,
+  oracle `t32_aeinit_oracle`) and the fixed point maths
+  (`tx_isp_t32_aemath.h`, oracle `t32_aemath_oracle`) are ported and proven on
+  the host; not yet called by the driver. Next: per-frame wiring of
+  `tisp_ae_interrupt_static` / `tisp_ae_long_ev_alloc` (tgain event to
+  `t32_long_tgain_update`) and `tisp_ae_calc_process`, then AWB.
 
 - **Front end: CSC, CSCCR, ISP top** (`tx_isp_t32_front.h`, flow of the vendor
   `tisp_csc_init`, `tisp_csccr_init`, `tisp_top_init`, `tisp_top_reg_cfg`),
