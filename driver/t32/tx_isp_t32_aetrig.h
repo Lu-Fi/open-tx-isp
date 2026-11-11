@@ -66,8 +66,9 @@ typedef uint16_t u16;
 
 struct t32_aetrig_ops {
 	u32 (*wait_done)(void *completion, u32 timeout);
-	void (*weight_mean)(u32 ch, u32 *mean, u32 *sum, u32 win_w, u32 win_h);	/* tisp_ae_weight_mean */
-	u32 (*tune)(u32 ch, u32 mean, u32 *sum, u32 *out);			/* tisp_ae_tune */
+	/* tisp_ae_weight_mean: mean, the two zone ratios (sum) and the two weighted sums (wsum) */
+	void (*weight_mean)(u32 ch, u32 *mean, u32 *sum, u32 win_w, u32 win_h, u32 *wsum);
+	u32 (*tune)(u32 ch, u32 mean, u32 *sum, u32 *wsum);			/* tisp_ae_tune */
 	u32 (*s_awb_attr)(u32 a0, u32 *attr);					/* tisp_s_awb_attr */
 };
 
@@ -124,13 +125,17 @@ static inline int t32_ae_algo_waitdone(struct t32_aetrig_dev *d, u32 ch)
 	return d->ops->wait_done(t32_aet_ptr(d->ctx[ch]) + T32_AET_DONE, T32_AET_DONE_TIMEOUT) ? 0 : T32_AET_ETIME;
 }
 
-/* tisp_ae_algorithm: weighted mean of the zones, then the AE tune step */
+/*
+ * tisp_ae_algorithm: weighted mean of the zones, then the AE tune step.  The
+ * weighted sums weight_mean writes (its 6th argument, vendor sp + 32) go to
+ * tisp_ae_tune as its 4th argument (openimp #333).
+ */
 static inline u32 t32_ae_algorithm(struct t32_aetrig_dev *d, u32 ch)
 {
 	const u8 *ctx = t32_aet_ptr(d->ctx[ch & 0xff]);
 	const u8 *st = t32_aet_ptr(t32_aet_rd32(ctx));
 	const u8 *tun = t32_aet_ptr(t32_aet_rd32(ctx + 4));
-	u32 mean = 0, sum[2] = { 0, 0 }, out[2] = { 0, 0 }, win_w = 1, win_h = 1;
+	u32 mean = 0, sum[2] = { 0, 0 }, wsum[2] = { 0, 0 }, win_w = 1, win_h = 1;
 	u32 val = t32_aet_rd16(tun + T32_AET_TUN_VAL);
 
 	ch &= 0xff;
@@ -139,8 +144,8 @@ static inline u32 t32_ae_algorithm(struct t32_aetrig_dev *d, u32 ch)
 		win_w = t32_aet_rd16(st + T32_AET_ST_WIN_W);
 		win_h = t32_aet_rd16(st + T32_AET_ST_WIN_H);
 	}
-	d->ops->weight_mean(ch, &mean, sum, win_w, win_h);
-	return d->ops->tune(ch, mean, sum, out);
+	d->ops->weight_mean(ch, &mean, sum, win_w, win_h, wsum);
+	return d->ops->tune(ch, mean, sum, wsum);
 }
 
 /* tisp_awb_algo_handle: pass a custom AWB result (message words 3 .. 5) as attribute mode 1 */

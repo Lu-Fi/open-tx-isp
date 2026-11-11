@@ -22,12 +22,12 @@
  * api_ae_long_process blocks (d0950 / d2a30 / d19c0, channel 0), e1510,
  * e1578.  T32O_TRACE=1 prints the per-frame AE of the first bin case.
  *
- * Open (counted, not compared further): in about 1 % of the cases the very
- * first AE process (frame 0, before any exposure was allocated) in
- * exposure-list mode (dc284 +900 == 1 and T +1740 == 1, night bins) gives a
- * different R +576 / +580 than the vendor (tisp_ae_tune ->
- * tisp_ae_ev_list_alloc_calc on the init state); every later frame and every
- * other case is bit-exact.  Its FAIL lines are printed, then not counted.  The attribute trigger is not
+ * The vendor R block is moved into four zeroed channel blocks after
+ * tisp_ae_init: the exposure list mode reads st +1696 + 4 * k up to k = 255,
+ * past channel 0's 2184 B into channel 1's (zero with one pipeline; the 1 %
+ * first-frame mismatch of openimp #333 read env.c globals there).  The IQ
+ * bins run in name order (the random stream must not depend on readdir
+ * order: openimp #333, a mutant was missed in another checkout).  The attribute trigger is not
  * applied before frame 1 (a trigger before the first tune step divides by
  * the zero exposure clamps).
  */
@@ -144,7 +144,7 @@ static u64 ours(u32 a0, u32 a1, u32 a2, u32 a3)
 	return 0;
 }
 
-static unsigned int compared, frames, failed, open_first;
+static unsigned int compared, frames, failed;
 
 static int cmpb(const char *what, const u8 *v, const u8 *o, u32 n, const char *tag, u32 f)
 {
@@ -252,7 +252,6 @@ static int run_case(const char *tag, const u8 *sec, int c, int trace)
 	u32 flick = rnd() & 1 ? 0 : 1 + rnd() % 31;
 	int bad = 0;
 	u32 dcw, trig_f = 1 + rnd() % 24;
-	unsigned int failed0 = failed;
 
 	for (i = 0; i < sizeof(S); i++)
 		S[i] = (u8)rnd();
@@ -290,6 +289,14 @@ static int run_case(const char *tag, const u8 *sec, int c, int trace)
 	dcw = rnd() % 4 ? 1 : rnd() % 3;	/* dc284 + 900: the pipeline count (1 = one sensor) */
 	t32_wr32(t32_data_dc284, 900, dcw);
 	t32o_call((t32o_fn)(void (*)(void))tisp_ae_init, 0, T32O_PTR(info), 0, 0, 0);
+	{	/* the vendor's four channel blocks d3a40 + ch * 2184 (env.c has a 2400 B window): channel 0 in front of
+		 * zeroed channel blocks, as in the vendor .data (data.c:23135..) with one pipeline */
+		u8 *r4 = t32o_alloc(4 * T32_AEI_R_BYTES);
+
+		memset(r4, 0, 4 * T32_AEI_R_BYTES);
+		memcpy(r4, T32O_HOST(t32_data_e1588[0]), T32_AEI_R_BYTES);
+		t32_data_e1588[0] = T32O_PTR(r4);
+	}
 	vctx = T32O_HOST(t32_data_e15a8[0]);
 	vT = base + T32_AEI_T_OFF;
 	vB = T32O_HOST(t32_ld32(vctx, 4));
@@ -399,13 +406,6 @@ static int run_case(const char *tag, const u8 *sec, int c, int trace)
 			       f, lum, t32_st16(A.b.B, 12366), t32_st16(A.b.B, 8570), t32_ld32(A.b.R, 576),
 			       t32_ld32(A.b.R, 580), t32_ld32(A.b.R, 588));
 		frames++;
-		if (bad && f == 0 && dcw == 1 && t32_ld32(vT, T32_AET_MODE) == 1 &&
-		    t32_ld32(T32O_HOST(t32_data_e1588[0]), 576) != t32_ld32(A.b.R, 576)) {
-			/* open (openimp #234): the first tune step in exposure-list mode (see the header) */
-			failed = failed0;
-			open_first++;
-			return 0;
-		}
 		if (bad)
 			return 1;
 	}
@@ -461,18 +461,20 @@ static void vary(u8 *sec)
 
 static int bin_cases(const char *dir, int trace, unsigned int nvar)
 {
-	DIR *d = opendir(dir);
-	struct dirent *e;
-	int nbins = 0;
+	struct dirent **ents, *e;
+	int nbins = 0, ne = scandir(dir, &ents, NULL, alphasort), ie;
 
-	if (!d)
+	if (ne < 0)
 		return 0;
-	while ((e = readdir(d))) {
+	for (ie = 0; ie < ne; ie++) {
 		char path[1024];
 		static u8 b[1u << 20], sec[T32_AEI_T_BYTES];
 		FILE *fp;
-		size_t bytes, l = strlen(e->d_name);
+		size_t bytes, l;
 		u32 off, len = 0, r, k;
+
+		e = ents[ie];
+		l = strlen(e->d_name);
 
 		if (l < 4 || strcmp(e->d_name + l - 4, ".bin"))
 			continue;
@@ -495,7 +497,9 @@ static int bin_cases(const char *dir, int trace, unsigned int nvar)
 			run_case(e->d_name, sec, (int)r, trace && nbins == 1 && r == 0);
 		}
 	}
-	closedir(d);
+	for (ie = 0; ie < ne; ie++)
+		free(ents[ie]);
+	free(ents);
 	return nbins;
 }
 
@@ -510,8 +514,7 @@ int main(void)
 	t32o_rd_hook = rd_model;
 	failed += sort_cases(20000);
 	nbins = bin_cases(dir ? dir : "../external/ingenic-sdk/sensor-iq/t32", trace, nvar);
-	printf("t32_aechain_oracle: IQ bins %d, %u cases, %u frames, %u mismatches, %u open first-frame list cases\n",
-	       nbins, compared, frames, failed, open_first);
+	printf("t32_aechain_oracle: IQ bins %d, %u cases, %u frames, %u mismatches\n", nbins, compared, frames, failed);
 	if (failed)
 		return 1;
 	if (!nbins) {
