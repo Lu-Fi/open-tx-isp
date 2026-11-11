@@ -24,9 +24,11 @@
  *   drop     frame drop set / get and set / get once (core device +1132
  *            channel table, 3 channels per input; the tisp frame drop
  *            functions when core +1196 is 1);
- *   misc     night mode start, PM control / all done, GPIO state switch
- *            (+ trigger), tiziano parameters (subdevice 0 notify), running
- *            mode read.
+ *   misc     night mode start, PM control / all done, events 0x100000a /
+ *            0x100000b and tiziano parameters (subdevice 0 notify), running
+ *            mode read;
+ *   ae / gpio AE start EV set / get (AE scene attribute), GPIO state switch
+ *            (+ trigger) via subdevice 0's core ioctl, default bin, WDR enable.
  */
 #ifndef TX_ISP_T32_TXUIOCTL_H
 #define TX_ISP_T32_TXUIOCTL_H
@@ -35,6 +37,7 @@
 #include "tx_isp_t32_txcore.h"
 #include "tx_isp_t32_txioctl.h"
 #include "tx_isp_t32_txlink.h"
+#include "tx_isp_t32_txbin.h"
 
 #define T32_FILE_PRIV		120U	/* file->private_data: ISP device + 12 */
 #define T32_FILE_PRIV_ADJ	12U
@@ -78,14 +81,31 @@
 #define T32_UIO_NIGHT_MODE	0xc004542eU
 #define T32_UIO_GET_PM_CTRL	0xc0045432U
 #define T32_UIO_PM_ALL_DONE	0xc0045433U
-#define T32_UIO_GPIO_SWITCH	0xc004548eU
-#define T32_UIO_GPIO_TRIGGER	0xc004548fU
+#define T32_UIO_SD_EV_0A	0xc004548eU
+#define T32_UIO_SD_EV_0B	0xc004548fU
 #define T32_UIO_RUN_MODE	0xc004543dU
 #define T32_UIO_TIZIANO_PAR	0xc00454c8U
+#define T32_UIO_SET_AE_EV	0xc0045436U
+#define T32_UIO_GET_AE_EV	0xc0045437U
+#define T32_UIO_GPIO_SWITCH	0xc00454cbU
+#define T32_UIO_GPIO_TRIGGER	0xc00454ccU
+#define T32_UIO_DEFAULT_BIN	0xc00454c9U
+#define T32_UIO_WDR_ENABLE	0xc00454caU
+
+#define T32_CORE_GPIO		0x100000cU
+#define T32_CORE_GPIO_TRIG	0x100000dU
+#define T32_ENODEV		19U
+#define T32_AE_SCENE_BYTES	80U
+#define T32_AE_SCENE_EV		6U	/* scene words 6, 7: start EV */
+#define T32_CORE_WDR_MODE	1180U
+#define T32_WDR_MODE_ON		16U
+
+int t32_tx_os_tisp_g_ae_scence_attr(u32 ch, void *b);
+int t32_tx_os_tisp_s_ae_scence_attr(u32 ch, void *b);
 
 #define T32_NOTIFY_PM_DONE	0x1000005U
-#define T32_NOTIFY_GPIO		0x100000aU
-#define T32_NOTIFY_GPIO_TRIG	0x100000bU
+#define T32_NOTIFY_0A		0x100000aU
+#define T32_NOTIFY_0B		0x100000bU
 #define T32_NOTIFY_TIZIANO	0x100001eU
 #define T32_CORE_NIGHT		1164U	/* core +1164 + 4 input: night mode request (vendor 4 * (input + 290) + 4) */
 #define T32_NIGHT_START		10U
@@ -757,6 +777,93 @@ static inline int t32_uio_run_mode(u32 isp, u32 user)
 	return (int)r;
 }
 
+/* tx_isp_set_ae_start_ev: { u8 ch, ev[2] } into the AE scene attribute */
+static inline int t32_uio_set_ae_start_ev(u32 user)
+{
+	u32 u[3], sc[T32_AE_SCENE_BYTES / 4];
+	int r;
+
+	if (t32_tx_os_copy_from_user(u, user, sizeof(u))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_set_ae_start_ev", 2080);
+		return -(int)T32_EFAULT;
+	}
+	r = t32_tx_os_tisp_g_ae_scence_attr((u8)u[0], sc);
+	if (r) {
+		t32_tx_os_isp_printf(1, "[ %s:%d ] get ae scence failed!!!\n", "tx_isp_set_ae_start_ev", 2086);
+		return r;
+	}
+	sc[T32_AE_SCENE_EV] = u[1];
+	sc[T32_AE_SCENE_EV + 1] = u[2];
+	r = t32_tx_os_tisp_s_ae_scence_attr((u8)u[0], sc);
+	if (r) {
+		t32_tx_os_isp_printf(1, "[ %s:%d ] set ae start ev failed!!!\n", "tx_isp_set_ae_start_ev", 2094);
+		return r;
+	}
+	return 0;
+}
+
+/* tx_isp_get_ae_start_ev */
+static inline int t32_uio_get_ae_start_ev(u32 user)
+{
+	u32 u[3], sc[T32_AE_SCENE_BYTES / 4];
+	int r;
+
+	if (t32_tx_os_copy_from_user(u, user, sizeof(u))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_get_ae_start_ev", 2110);
+		return -(int)T32_EFAULT;
+	}
+	r = t32_tx_os_tisp_g_ae_scence_attr((u8)u[0], sc);
+	if (r) {
+		t32_tx_os_isp_printf(1, "[ %s:%d ] get ae scence failed!!!\n", "tx_isp_get_ae_start_ev", 2116);
+		return r;
+	}
+	u[1] = sc[T32_AE_SCENE_EV];
+	u[2] = sc[T32_AE_SCENE_EV + 1];
+	if (t32_tx_os_copy_to_user(user, u, sizeof(u))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CTU_ERR, "tx_isp_get_ae_start_ev", 2123);
+		return -(int)T32_EFAULT;
+	}
+	return 0;
+}
+
+/* tx_isp_gpio_state_switch{,_trige}: a user block to subdevice 0's core ioctl */
+static inline int t32_uio_gpio(u32 isp, u32 user, u32 n, u32 cmd, const char *fn, u32 lin, const char *err, u32 lerr)
+{
+	u32 sd = t32_tx_ld(isp, T32_DEV_SD), b[4], core, f;
+	int r;
+
+	if (t32_tx_os_copy_from_user(b, user, n)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, fn, lin);
+		return -(int)T32_EFAULT;
+	}
+	if (!sd)
+		r = -(int)T32_ENODEV;
+	else if (!(core = t32_tx_ld(t32_tx_ld(sd, T32_SD_OPS), T32_OPS_CORE)) || !(f = t32_tx_ld(core, T32_CORE_IOCTL)))
+		r = -(int)T32_ENOIOCTLCMD;
+	else if (!(r = ((t32_uio_core_fn)T32_TX_P(f))(sd, cmd, T32_TX_A(b))))
+		return 0;
+	t32_tx_os_isp_printf(1, err, fn, lerr);
+	return r;
+}
+
+/* tx_isp_set_wdr_enable: { mode, u8 sensor } - mode 2 on a single sensor sets core +1180 to 16 */
+static inline int t32_uio_wdr_enable(u32 isp, u32 arg)
+{
+	u32 core = t32_tx_ld(t32_tx_ld(isp, T32_DEV_SD), T32_SD_PRIV_CORE), b[2];
+
+	if (t32_tx_arg_in(isp, b, arg, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_set_wdr_enable", 1313);
+		return -(int)T32_EFAULT;
+	}
+	if (b[0] != 2)
+		t32_tx_os_isp_printf(1, "[ISP] Mode(%d) don't support WDR mode !!!\n", b[0]);
+	else if ((u8)b[1])
+		t32_tx_os_isp_printf(1, "[ISP] sensor id = %d, Multi-sensors don't support WDR mode !!!\n", (u8)b[1]);
+	else
+		t32_tx_st(core, T32_CORE_WDR_MODE, T32_WDR_MODE_ON);
+	return 0;
+}
+
 /* tx_isp_unlocked_ioctl(file, cmd, arg) */
 static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 {
@@ -813,11 +920,21 @@ static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 	case T32_UIO_NIGHT_MODE:	return t32_uio_night_mode(isp, arg);
 	case T32_UIO_GET_PM_CTRL:	return t32_uio_get_pm_control(isp, arg);
 	case T32_UIO_PM_ALL_DONE:	return t32_uio_pm_all_done(isp, arg);
-	case T32_UIO_GPIO_SWITCH:
-		return t32_uio_notify_block(isp, arg, 24, T32_NOTIFY_GPIO, -(int)T32_ENOENT, -(int)T32_ENOIOCTLCMD, 1);
-	case T32_UIO_GPIO_TRIGGER:	return t32_uio_notify_block(isp, arg, 8, T32_NOTIFY_GPIO_TRIG, 0, 0, 0);
+	case T32_UIO_SD_EV_0A:
+		return t32_uio_notify_block(isp, arg, 24, T32_NOTIFY_0A, -(int)T32_ENOENT, -(int)T32_ENOIOCTLCMD, 1);
+	case T32_UIO_SD_EV_0B:	return t32_uio_notify_block(isp, arg, 8, T32_NOTIFY_0B, 0, 0, 0);
 	case T32_UIO_TIZIANO_PAR:	return t32_uio_tiziano_par(isp, arg);
 	case T32_UIO_RUN_MODE:		return t32_uio_run_mode(isp, arg);
+	case T32_UIO_SET_AE_EV:		return t32_uio_set_ae_start_ev(arg);
+	case T32_UIO_GET_AE_EV:		return t32_uio_get_ae_start_ev(arg);
+	case T32_UIO_GPIO_SWITCH:
+		return t32_uio_gpio(isp, arg, 16, T32_CORE_GPIO, "tx_isp_gpio_state_switch", 2176,
+				    "[ %s:%d ] set gpio state switch failed!!!\n", 2183);
+	case T32_UIO_GPIO_TRIGGER:
+		return t32_uio_gpio(isp, arg, 8, T32_CORE_GPIO_TRIG, "tx_isp_gpio_state_switch_trige", 2197,
+				    "[ %s:%d ] set gpio state switch trigger failed!!!\n", 2204);
+	case T32_UIO_DEFAULT_BIN:	return t32_tx_default_bin(isp + T32_DEV_SD, arg);
+	case T32_UIO_WDR_ENABLE:	return t32_uio_wdr_enable(isp, arg);
 	}
 	return 0;
 }

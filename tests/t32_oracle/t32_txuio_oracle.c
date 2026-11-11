@@ -47,6 +47,8 @@ static u32 hrec(const char *name, u32 a0, u32 a1) { op3_call(name, 2, a0, a1, 0,
 #define t32_tx_get_default_bin_path(i, a)	((int)hrec("tx_isp_get_default_bin_path_isra_17", i, a))
 #include "tx_isp_t32_txlink.h"
 #define t32_tx_video_link_destroy(i, a)	((int)hrec("tx_isp_video_link_destroy_isra_4", i, a))
+#include "tx_isp_t32_txbin.h"
+#define t32_tx_default_bin(i, a)		((int)hrec("tx_isp_default_bin_isra_23", i, a))
 #include "tx_isp_t32_txuioctl.h"
 
 #define HV(n) u64 op3_##n(u32 a0, u32 a1, u32 a2, u32 a3); \
@@ -56,6 +58,7 @@ u64 op3_tx_isp_driver_version_isra_11(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1
 HV(tx_isp_sensor_register_sensor) HV(tx_isp_sensor_release_sensor) HV(tx_isp_video_s_stream) HV(tx_isp_video_link_stream)
 HV(tx_isp_multisensor_mode) HV(tx_isp_set_ae_algo_open) HV(tx_isp_set_default_bin_path_isra_14)
 HV(tx_isp_get_default_bin_path_isra_17) HV(tx_isp_video_link_destroy_isra_4)
+HV(tx_isp_default_bin_isra_23)
 
 /* the subdevices' core ioctl */
 static u32 sd_index(u32 sd)
@@ -107,7 +110,7 @@ static u32 cb_sens(u32 sd, u32 cmd, u32 buf)
 }
 static u32 cb_notify(u32 sd, u32 ev, u32 msg)
 {
-	u32 n = ev == T32_NOTIFY_GPIO ? 24 : ev == T32_NOTIFY_TIZIANO ? 20 : 8;
+	u32 n = ev == T32_NOTIFY_0A ? 24 : ev == T32_NOTIFY_TIZIANO ? 20 : 8;
 
 	op3_call("sd_notify", 4, sd, ev, ((u32 *)T32O_HOST(msg))[0], fnvb(T32O_HOST(msg), n));
 	return notify_ret;
@@ -176,15 +179,34 @@ u64 op3_tisp_get_frame_drop(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return f
 int t32_tx_os_tisp_set_frame_drop(u32 in, u32 k, void *e) { return (int)fdset_rec(in, k, e); }
 int t32_tx_os_tisp_get_frame_drop(u32 in, u32 k, void *e) { return (int)fdget_rec(in, k, e); }
 
+/* AE scene attribute */
+static u32 sc_tab[4], n_sc, sc_seed;
+static u32 gsc_rec(u32 ch, u8 *b)
+{
+	u32 i, x = sc_seed;
+
+	op3_call("tisp_g_ae_scence_attr", 1, ch, 0, 0, 0);
+	for (i = 0; i < T32_AE_SCENE_BYTES; i++) {
+		x = x * 1103515245u + 12345u;
+		b[i] = (u8)(x >> 16);
+	}
+	return sc_tab[n_sc++ & 3];
+}
+static u32 ssc_rec(u32 ch, const u8 *b) { op3_call("tisp_s_ae_scence_attr", 2, ch, fnvb(b, T32_AE_SCENE_BYTES), 0, 0); return sc_tab[n_sc++ & 3]; }
+u64 op3_tisp_g_ae_scence_attr(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return gsc_rec(a0, T32O_HOST(a1)); }
+u64 op3_tisp_s_ae_scence_attr(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return ssc_rec(a0, T32O_HOST(a1)); }
+int t32_tx_os_tisp_g_ae_scence_attr(u32 ch, void *b) { return (int)gsc_rec(ch, b); }
+int t32_tx_os_tisp_s_ae_scence_attr(u32 ch, void *b) { return (int)ssc_rec(ch, b); }
+
 /* not yet exercised externals */
 OP3_STUB(finish_wait, 2) OP3_STUB(get_isp_cache_line, 0)
 OP3_STUB(lib_tisp_api_s_runningMode, 1) OP3_STUB(lib_tisp_get_isp_ipc_memory_space, 1)
 OP3_STUB(lib_tisp_set_isp_ipc_memory_space, 2) OP3_STUB(memset, 3) OP3_STUB(prepare_to_wait_event, 3)
 OP3_STUB(private_init_completion, 1)
 OP3_STUB(private_kfree, 1) OP3_STUB(private_kmalloc, 2) OP3_STUB(private_wait_for_completion_timeout, 2)
-OP3_STUB(schedule_timeout, 1) OP3_STUB(tisp_g_ae_scence_attr, 2)
-OP3_STUB(tisp_s_ae_scence_attr, 2) 
-OP3_STUB(tx_isp_default_bin_isra_23, 2) OP3_STUB(tx_isp_vic_save_raw, 2)
+OP3_STUB(schedule_timeout, 1) 
+
+OP3_STUB(tx_isp_vic_save_raw, 2)
 u8 op3_mips_dma_map_ops[64];
 u32 op3_t32_data_d9014, op3_t32_data_da784, t32_tx_isp_dev;
 #define S(n, v) char op3_t32_data_##n[] = v;
@@ -251,8 +273,11 @@ static const u32 cmds[] = {
 	/* frame drop */
 	T32_UIO_SET_FDROP, T32_UIO_GET_FDROP, T32_UIO_SET_FDROP1, T32_UIO_GET_FDROP1,
 	/* misc */
-	T32_UIO_NIGHT_MODE, T32_UIO_GET_PM_CTRL, T32_UIO_PM_ALL_DONE, T32_UIO_GPIO_SWITCH, T32_UIO_GPIO_TRIGGER,
+	T32_UIO_NIGHT_MODE, T32_UIO_GET_PM_CTRL, T32_UIO_PM_ALL_DONE, T32_UIO_SD_EV_0A, T32_UIO_SD_EV_0B,
 	T32_UIO_TIZIANO_PAR, T32_UIO_RUN_MODE,
+	/* AE start EV, GPIO, default bin, WDR enable */
+	T32_UIO_SET_AE_EV, T32_UIO_GET_AE_EV, T32_UIO_GPIO_SWITCH, T32_UIO_GPIO_TRIGGER, T32_UIO_DEFAULT_BIN,
+	T32_UIO_WDR_ENABLE,
 	/* default neighbours inside the vendor ranges */
 	0xc0045427, 0xc0045428, 0xc0045429, 0
 };
@@ -331,8 +356,11 @@ static void build(u32 base)
 	sw(O_CORE + T32_CORE_FD_TAB, base + O_FD);
 	sw(O_CORE + T32_CORE_PM_CTRL, (op3_rnd() & 1) ? op3_rnd() % 3 : op3_rnd());
 	sw(O_CORE + T32_CORE_FD_TISP, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
-	for (k = 0; k < 4; k++)
+	for (k = 0; k < 4; k++) {
 		fd_tab[k] = (op3_rnd() & 1) ? 0 : op3_rnd();
+		sc_tab[k] = (op3_rnd() & 3) ? 0 : op3_rnd();
+	}
+	sc_seed = op3_rnd();
 	memget_ret = op3_rnd();
 	sw(O_USER + 4, (op3_rnd() & 3) ? op3_rnd() % 6 : op3_rnd() % 512);	/* bypass / link input (vendor: unchecked index) */
 	for (i = 0; i <= NSD; i++) {
@@ -359,6 +387,7 @@ static void setup(void)
 	n_unlink = 0;
 	cb_filled = 0;
 	n_fd = 0;
+	n_sc = 0;
 }
 
 static u64 ours(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4) { (void)a3; (void)a4; return (u32)t32_tx_isp_unlocked_ioctl(a0, a1, a2); }
@@ -389,21 +418,25 @@ int main(void)
 		file = (m & 0x10) ? base + O_FILE : 0;
 		arg = base + O_USER;
 		build(base);
-		if (cmd == T32_UIO_SET_ISP_MEM || cmd == T32_UIO_GET_ISP_MEM)
+		if (cmd == T32_UIO_SET_ISP_MEM || cmd == T32_UIO_GET_ISP_MEM || cmd == T32_UIO_SET_AE_EV || cmd == T32_UIO_GET_AE_EV)
 			sw(O_USER, op3_rnd());	/* the selector is the low byte */
 		if (cmd == T32_UIO_SET_FDROP || cmd == T32_UIO_SET_FDROP1)	/* { en, lsize, fmark } x 3 */
 			for (k = 0; k < T32_FD_CHN; k++) {
 				sw(O_USER + 4 + 12 * k, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
 				sw(O_USER + 8 + 12 * k, ((op3_rnd() & 7) ? op3_rnd() % 33 : op3_rnd() % 256) | (op3_rnd() & 0xff00));
 			}
-		if ((cmd == T32_UIO_PM_ALL_DONE || cmd == T32_UIO_GPIO_SWITCH || cmd == T32_UIO_GPIO_TRIGGER ||
-		     cmd == T32_UIO_TIZIANO_PAR) && !(op3_rnd() & 3))
+		if ((cmd == T32_UIO_PM_ALL_DONE || cmd == T32_UIO_SD_EV_0A || cmd == T32_UIO_SD_EV_0B ||
+		     cmd == T32_UIO_TIZIANO_PAR || cmd == T32_UIO_GPIO_SWITCH || cmd == T32_UIO_GPIO_TRIGGER) && !(op3_rnd() & 3))
 			sw(O_ISP + T32_DEV_SD, 0);	/* no subdevice 0 (commands that check it) */
 		ctu_lim = ~0u;
 		if (cmd == T32_UIO_GET_PM_CTRL) {
 			u32 v = *(u32 *)(tmpl + O_CORE + T32_CORE_PM_CTRL);
 
 			ctu_lim = v <= 1 ? 4 : 0;
+		}
+		if (cmd == T32_UIO_WDR_ENABLE) {	/* { mode, u8 sensor } */
+			sw(O_USER, (op3_rnd() & 1) ? 2 : op3_rnd() % 4);
+			sw(O_USER + 4, (op3_rnd() & 1) ? op3_rnd() & 0xff00 : op3_rnd());
 		}
 		if (cmd == T32_UIO_AWB_OPEN && (op3_rnd() & 3))
 			sw(O_USER, T32_AE_ALGO_VERSION);
