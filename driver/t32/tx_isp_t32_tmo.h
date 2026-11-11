@@ -1936,3 +1936,106 @@ static inline int t32_tmo_interrupt_static(u16 *e3516, u32 *e350c, u32 (*rdreg)(
 	*e3504 = (u32)ch;
 	return 1;
 }
+
+/* ---- phase 10a: tmoadr_get_statistics, tmo2fbf_process ---- */
+
+static inline u32 t32_tmo_rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
+static inline void t32_tmo_wr32(u8 *p, u32 v) { memcpy(p, &v, 4); }
+
+/* the 11 / 5 bit field repack of tmoadr_get_statistics: words w0 (at +0) and w1 (+4) of an 8 byte source entry -> three u32 at d (12 bytes) */
+static inline void t32_tmo_stat_unpack_b(const u8 *s, u8 *d)
+{
+	u32 w0 = t32_tmo_rd32(s), w1 = t32_tmo_rd32(s + 4);
+
+	t32_tmo_wr32(d, (w0 & 0xffffU) + (((w0 >> 16) & 0x1fU) << 16));
+	t32_tmo_wr32(d + 4, (w0 >> 21) + ((w1 & 0x3ffU) << 11));
+	t32_tmo_wr32(d + 8, ((w1 >> 10) & 0x3fU) + (((w1 >> 16) & 0x7fffU) << 6));
+}
+
+/* the variant of the first table (24 groups of 6 entries): 1 / 5 / 9 bit fields */
+static inline void t32_tmo_stat_unpack_a(const u8 *s, u8 *d)
+{
+	u32 w0 = t32_tmo_rd32(s), w1 = t32_tmo_rd32(s + 4);
+
+	t32_tmo_wr32(d, (w0 & 0xffffU) + (((w0 >> 16) & 1U) << 16));
+	t32_tmo_wr32(d + 4, (w0 >> 20) + ((w1 & 0x1fU) << 12));
+	t32_tmo_wr32(d + 8, ((w1 >> 8) & 0xffU) + (((w1 >> 16) & 0x1ffU) << 8));
+}
+
+/*
+ * tisp_tmo_tmoadr_get_statistics (stat byte st385, src = the 16 KB statistics buffer): the hardware statistics are unpacked;
+ *  st385 == 0: into the block blk (e35b0[ch] word +8): 24 groups k of 64 source bytes (src + 64 k): six entries (8 source bytes, unpack_a) to
+ *  blk + 80 k + 2048 + 12 j, then the entry at src_k + 48 gives blk + 80 k + 2120 / 2124 (words 0, 1 of unpack_a) , blk + 5504 + 4 k (bits
+ *  8 .. 15 of word 1 + bits 16 .. 19 << 8) and blk + 5600 + 4 k (bits 20 .. 31 of word 1), blk + 5312 + 4 k / blk + 5408 + 4 k = the
+ *  29 bit words at src_k + 56 / + 60; then 170 entries (unpack_b) of src + 1536 + 8 i to blk + 12 i, and the entry at src + 2896 gives the two words
+ *  blk + 2040 / + 2044 (unpack_b words 0, 1).
+ *  st385 == 1: into the big block (record word +16): big[4 i] = src[4 i] & 0xffff, big[15000 + 4 i] = bits 16 .. 30, i < 3750; 170 entries
+ *  of src + 15000 + 8 i (unpack_b) to big + 30000 + 12 i and the entry at src + 16360 -> big + 32040 / + 32044.
+ *  Other values: nothing.  The vendor's return value is leftover registers.
+ */
+static inline void t32_tmo_adr_get_statistics(u32 st385, const u8 *src, u8 *blk, u8 *big)
+{
+	u32 i, j, k;
+	u8 t[12];
+
+	if (st385 == 0) {
+		for (k = 0; k < 24; k++) {
+			const u8 *sk = src + 64 * k;
+			u8 *dk = blk + 80 * k;
+			u32 w1 = t32_tmo_rd32(sk + 52);
+
+			for (j = 0; j < 6; j++)
+				t32_tmo_stat_unpack_a(sk + 8 * j, dk + 2048 + 12 * j);
+			t32_tmo_stat_unpack_a(sk + 48, t);
+			memcpy(dk + 2120, t, 8);
+			t32_tmo_wr32(blk + 5504 + 4 * k, ((w1 >> 8) & 0xffU) + (((w1 >> 16) & 0xfU) << 8));
+			t32_tmo_wr32(blk + 5600 + 4 * k, (w1 >> 16) >> 4);
+			t32_tmo_wr32(blk + 5312 + 4 * k, t32_tmo_rd32(sk + 56) & 0x1fffffffU);
+			t32_tmo_wr32(blk + 5408 + 4 * k, t32_tmo_rd32(sk + 60) & 0x1fffffffU);
+		}
+		for (i = 0; i < 170; i++)
+			t32_tmo_stat_unpack_b(src + 1536 + 8 * i, blk + 12 * i);
+		t32_tmo_stat_unpack_b(src + 2896, t);
+		memcpy(blk + 2040, t, 8);
+	} else if (st385 == 1) {
+		for (i = 0; i < 3750; i++) {
+			u32 w = t32_tmo_rd32(src + 4 * i);
+
+			t32_tmo_wr32(big + 4 * i, w & 0xffffU);
+			t32_tmo_wr32(big + 15000 + 4 * i, (w >> 16) & 0x7fffU);
+		}
+		for (i = 0; i < 170; i++)
+			t32_tmo_stat_unpack_b(src + 15000 + 8 * i, big + 30000 + 12 * i);
+		t32_tmo_stat_unpack_b(src + 16360, t);
+		memcpy(big + 32040, t, 8);
+	}
+}
+
+/*
+ * tisp_tmo_tmo_tmo2fbf_process (st = the stat record, fbf = the channel's fbf block (e35c0[ch]: words +8 and +16)): system registers
+ * (regw (reg, value), rd (reg) = system_reg_read) 0x32290 = 257; then 93 times 0x32294 = a packed word of the 4 byte group at st + 418 + 4 n:
+ * bytes g0 g1 g2 g3 and g[375 .. 378] -> g[375] << 4 | g1 << 8 | g0 | g[376] << 12 | g2 << 16 | g[377] << 20 | g3 << 24 | g[378] << 28;
+ * then 0x32294 = st[1165] << 4 | st[791] << 8 | st[790] | st[1166] << 12 | st[792] << 16 | st[1167] << 20;
+ * 0x32290 = 258 + 0x10000; 0x24020 = st16[414] << 16 | st16[416]; 0x24018 = fbf word +8 + ((rd (28952) & 3) << 14); 0x2401c = fbf word +16;
+ * 0x24014 = 0; 0x24010 = 1 (a tail call).
+ */
+static inline void t32_tmo_tmo2fbf_process(const u8 *st, const u8 *fbf, u32 (*rd)(void *, u32), void (*regw)(void *, u32, u32), void *cb)
+{
+	u32 s1 = st[414] | (u32)st[415] << 8, s3 = st[416] | (u32)st[417] << 8, n, v;
+	const u8 *g;
+
+	regw(cb, 0x32290U, 257);
+	for (n = 0; n < 93; n++) {
+		g = st + 418 + 4 * n;
+		regw(cb, 0x32294U, (u32)g[375] << 4 | (u32)g[1] << 8 | g[0] | (u32)g[376] << 12 | (u32)g[2] << 16 | (u32)g[377] << 20 |
+		     (u32)g[3] << 24 | (u32)g[378] << 28);
+	}
+	regw(cb, 0x32294U, (u32)st[1165] << 4 | (u32)st[791] << 8 | st[790] | (u32)st[1166] << 12 | (u32)st[792] << 16 | (u32)st[1167] << 20);
+	regw(cb, 0x32290U, 0x10102U);
+	regw(cb, 0x24020U, (s1 << 16) | s3);
+	v = rd(cb, 28952);
+	regw(cb, 0x24018U, ((v & 3U) << 14) + t32_tmo_rd32(fbf + 8));
+	regw(cb, 0x2401cU, t32_tmo_rd32(fbf + 16));
+	regw(cb, 0x24014U, 0);
+	regw(cb, 0x24010U, 1);
+}
