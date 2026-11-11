@@ -44,6 +44,8 @@
 #include "tx_isp_t32_ccm.h"
 #include "tx_isp_t32_bcsh.h"
 #include "tx_isp_t32_lce.h"
+#include "tx_isp_t32_rdns.h"
+#include "tx_isp_t32_rdnstab.h"
 
 static void t32_bringup_ae_kick(void);
 
@@ -261,7 +263,8 @@ static void t32_front_init(void)
 
 /*
  * Remaining tisp init blocks of the vendor's AddSensor that are derived from
- * the IQ bin (S4 steps 5 and 6), in the vendor's order: DMSC, gamma, CDNS, GIB, DPC, YDNS, CCM, LCE, SDNS, YSP, MDNS, CLM.
+ * the IQ bin (S4 steps 5 and 6), in the vendor's order: DMSC, gamma, CDNS, GIB, DPC, YDNS, CCM, LCE, SDNS, YSP, MDNS, CLM,
+ * RDNS (only on its ported path, t32_ported_paths bit 9: the old path never programmed RDNS).
  * Each block is one write list; a block whose section is missing or does
  * not have the expected size is skipped (the hardware keeps its reset state).
  */
@@ -433,6 +436,9 @@ static void t32_tisp_init(void)
 		t32_tisp_flush("clm", t32_clm_init(bin + off, bin + off + len, bytes - off - len, mode,
 						   t32_csc_modes[mode].m, tisp_w));
 	}
+	off = t32_iq_section(bin, bytes, T32_SEC_RDNS, &len);
+	if (off && len >= T32_RDNS_SEC_BYTES && t32_pp_on(T32_PP_RDNS))
+		t32_tisp_flush("rdns", t32_pf_attach_rdns(kmemdup(bin + off, len, GFP_KERNEL), tisp_w));
 }
 
 /*
