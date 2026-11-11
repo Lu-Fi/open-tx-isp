@@ -28,7 +28,11 @@
  * Differences (driver state that the vendor has and we do not):
  *  - Before the per-frame AE / AWB is attached (stream-on) or with its
  *    t32_ported_paths bit off, the block calls have no state: getters answer
- *    zeroed blocks, setters are dropped.
+ *    zeroed blocks, setters are dropped (the AE scene block is kept as set).
+ *    Note: tx_isp_t32_tisp.c t32_tisp_init (t32_pf_reset) frees the AE
+ *    context that t32_stats_init built just before, so after a stream-on the
+ *    AE ids take this path; keeping the context lets the per-frame AE run
+ *    and the full QEMU tuning run then oopses (open, see CHANGELOG).
  *  - There is no AF block in the driver: the AF part of the statistics config
  *    keeps the tattr words (the vendor overlays the AF window attribute), the
  *    AF set is not forwarded; the GSM hist bins of the statistics config are
@@ -237,9 +241,12 @@ static int tb_ae_set_exprinfo(u32 ch, const void *buf)
 	return 0;
 }
 
+/* without the AE context the scene block is kept as set (AE start EV words 6 / 7 read back) */
+static u8 tb_scene[3][40];
+
 static int tb_ae_get_scene(u32 ch, void *buf)
 {
-	TB_AE(c, return tb_zero(buf, 40))
+	TB_AE(c, memcpy(buf, tb_scene[ch % 3], 40); return 0)
 	t32_aea_get_scene_par(&c, buf, &tb_ae_ops);
 	t32_aec_api_put();
 	return 0;
@@ -247,7 +254,7 @@ static int tb_ae_get_scene(u32 ch, void *buf)
 
 static int tb_ae_set_scene(u32 ch, const void *buf)
 {
-	TB_AE(c, return 0)
+	TB_AE(c, memcpy(tb_scene[ch % 3], buf, 40); return 0)
 	t32_aea_set_scene_par(&c, buf);
 	t32_aec_api_put();
 	return 0;
