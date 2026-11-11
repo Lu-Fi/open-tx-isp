@@ -72,6 +72,16 @@ static inline void isp_wr(u32 off, u32 v)
 	writel(v, isp_base + off);
 }
 
+u32 t32_hw_rd(u32 off)
+{
+	return isp_rd(off);
+}
+
+void t32_hw_wr(u32 off, u32 v)
+{
+	isp_wr(off, v);
+}
+
 static int t32_wait_clear(u32 off, u32 mask, int us)
 {
 	while (us-- > 0) {
@@ -112,6 +122,7 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	if (sta & T32_INT_AE_HIST) {
 		t32_hw_stats.ae_hist_irqs++;
 		t32_bringup_ae_kick();
+		t32_pf_kick();
 	}
 	if (done)
 		t32_fs_done_irq(done);
@@ -319,6 +330,7 @@ static void t32_tisp_init(void)
 	u32 bytes, off, len, coff, width, height, code;
 	unsigned int mode;
 
+	t32_pf_reset();
 	if (t32_core_iq_bin(&bin, &bytes))
 		return;
 	if (!tisp_w)
@@ -331,15 +343,17 @@ static void t32_tisp_init(void)
 
 		if (cp) {
 			t32_tisp_flush("dmsc", t32_dmsc_init(cp, tisp_w));
-			kfree(cp);
+			t32_pf_attach(T32_PP_DMSC, cp);	/* the per-frame context keeps the edited copy */
 		}
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_GAMMA, &len);
 	if (off && len >= T32_GAMMA_SEC_BYTES)
 		t32_tisp_flush("gamma", t32_gamma_init(bin + off, bin + off + len, bytes - off - len, tisp_w));
 	off = t32_iq_section(bin, bytes, T32_SEC_CDNS, &len);
-	if (off && len >= T32_CDNS_SEC_BYTES)
+	if (off && len >= T32_CDNS_SEC_BYTES) {
 		t32_tisp_flush("cdns", t32_cdns_init(bin + off, tisp_w));
+		t32_pf_attach(T32_PP_CDNS, kmemdup(bin + off, len, GFP_KERNEL));
+	}
 	off = t32_iq_section(bin, bytes, T32_SEC_GIB, &len);
 	if (off && len >= T32_GIB_SEC_BYTES && !t32_core_sensor_mbus(&code) && t32_mbus_to_bayer(code) >= 0) {
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block stores into its section */
@@ -353,8 +367,10 @@ static void t32_tisp_init(void)
 	if (off && len >= T32_DPC_SEC_BYTES)
 		t32_tisp_flush("dpc", t32_dpc_init(bin + off, 0, tisp_w));	/* wide: ISP reg 0x88 & 0x1f > 4, never with this front end */
 	off = t32_iq_section(bin, bytes, T32_SEC_YDNS, &len);
-	if (off && len >= T32_YDNS_SEC_BYTES)
+	if (off && len >= T32_YDNS_SEC_BYTES) {
 		t32_tisp_flush("ydns", t32_ydns_init(bin + off, tisp_w));
+		t32_pf_attach(T32_PP_YDNS, kmemdup(bin + off, len, GFP_KERNEL));
+	}
 	off = t32_iq_section(bin, bytes, T32_SEC_CCM, &len);
 	if (off && len >= T32_CCM_SEC_BYTES) {
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block clears two bytes of its section */
@@ -377,15 +393,17 @@ static void t32_tisp_init(void)
 	if (off && len >= T32_LCE_SEC_BYTES && !t32_core_sensor_size(&width, &height))
 		t32_tisp_flush("lce", t32_lce_build(bin + off, width, height));
 	off = t32_iq_section(bin, bytes, T32_SEC_SDNS, &len);
-	if (off && len >= T32_SDNS_SEC_BYTES)
+	if (off && len >= T32_SDNS_SEC_BYTES) {
 		t32_tisp_flush("sdns", t32_sdns_init(bin + off, tisp_w));
+		t32_pf_attach(T32_PP_SDNS, kmemdup(bin + off, len, GFP_KERNEL));
+	}
 	off = t32_iq_section(bin, bytes, T32_SEC_YSP, &len);
 	if (off && len >= T32_YSP_SEC_BYTES) {
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);
 
 		if (cp) {
 			t32_tisp_flush("ysp", t32_ysp_init(cp, tisp_w));
-			kfree(cp);
+			t32_pf_attach(T32_PP_YSP, cp);
 		}
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_MDNS, &len);
@@ -861,6 +879,7 @@ void t32_hw_exit(void)
 		irqs_requested = 0;
 	}
 	cancel_work_sync(&t32_bringup_ae_w);	/* it reads registers and the AE buffer */
+	t32_pf_exit();				/* the per-frame work writes registers */
 	writel(0, csi_base + 0x0c);		/* CSI host back into reset */
 	csi_reset_done = 0;
 	iounmap(dphy_base);
