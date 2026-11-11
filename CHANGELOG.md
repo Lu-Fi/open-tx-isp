@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T32 show / print routines (openimp #234; planned, host only, not device-tested)
+
+- New `driver/t32/tx_isp_t32_show.h`: `isp_csi_show` (0x7540) and `tisp_module_version_debug` (0x287f8) as readable C with the vendor format strings and argument order; oracle `t32_sh1_oracle` (3000 random states, print stream with seq_file / level and rendered text, result, seq_file bytes; 18 mutations). Vendor behaviour named, not changed: `isp_csi_show` returns the sum of the seq_file counts read after each print; the module version loop counts channels in a u8.
+- Shared recorder `tests/t32_oracle/t32_show_rec.h` (seq_printf / private_seq_printf / isp_printf / printk rendered from 32-bit word arguments, readable error-pointer pages) and the vendor strings `t32_show_str.inc` (data_str.py).
+
 ## 2026-11-11: T32 debug-print helpers and counter names (openimp #234; planned, host only, not device-tested)
 
 - New `driver/t32/tx_isp_t32_dbg.h` / `tx_isp_t32_dbgp.h`: the vendor `isp_printf` (print level compare unsigned, one printk of the `%pV`, stack dump from level 2), `dump_vic_reg`, `dump_csi_reg`, one pass of the endless `check_vic_error` / `check_csi_error` loops, `ISPWARNING` (array printer), `print_array_awb_8/16/32`, the five /proc open wrappers (`dump_isp_vic_frd_open`, `dump_isp_csi_open`, `dump_ldc_frd_open`, `dump_isp_framesource_open`, `dump_isp_info_open`) and the debug stubs that are empty in the vendor build (`tisp_*_print_para`, `tisp_clm_print_struct`, `tmo_params_print`, `tisp_ldc_debug`, `dump_msca_regs`).
