@@ -46,6 +46,14 @@ __asm__(".weak t32_data_d88a4\n.set t32_data_d88a4, t32_dblk\n.weak t32_data_d88
 	".weak t32_data_d88f0\n.set t32_data_d88f0, t32_dblk+76\n.weak t32_data_d88f4\n.set t32_data_d88f4, t32_dblk+80\n"
 	".weak t32_data_e3160\n.set t32_data_e3160, t32_e60\n.weak t32_data_e3188\n.set t32_data_e3188, t32_e60+40\n");
 
+#ifdef T32O_NB	/* sub-block oracle (t32_tmo14a..e): the first T32O_NB blocks against the vendor function cut by trunc_fpga.sh */
+#define NBLK T32O_NB
+#else
+#define NBLK (getenv("T32O_BLK") ? atoi(getenv("T32O_BLK")) : 0)
+#endif
+#ifndef T32O_NAME
+#define T32O_NAME "t32_tmo14_oracle"
+#endif
 u64 tisp_tmo_adr_fpga(u32, u32, u32, u32);
 u64 tisp_math_exp2(u32, u32, u32, u32);
 #define FN(x) ((t32o_fn)(void (*)(void))(x))
@@ -221,6 +229,8 @@ static void gen(void)
 		R = rb(3) == 0 ? 9 : rb(12);
 		p16(o + 9930, (int)R);
 		p16(o + 9928, rb(5) ? (int)rb(700) : rb(2) ? 512 : 513);
+		if (R != 9 && rb(8) == 0)
+			p16(o + 9928, rb(2) ? 0 : -(int)rb(300));
 		p16(o + 9638, rb(3) ? 1 : 0);
 		for (k = 0; k < 14; k++)
 			p16(o + 9640 + 2 * k, rb(4) ? (int)rb(300) : pick16());
@@ -286,6 +296,38 @@ static void settables(void)
 	memcpy(t32_data_e3248, e3248, sizeof(e3248));
 }
 
+/*
+ * make the previous curves of block 5 (B + 200) close to what blocks 1 .. 4 produce (a dry run of our port on a copy of the arena and of the written tables):
+ * the vendor's "deviation <= threshold" branch needs it, random previous curves never get there.
+ */
+static void near_prev(struct t32_tmo_fpga_env *env0)
+{
+	static u8 TA[ARN] __attribute__((aligned(16)));
+	struct t32_tmo_fpga_env e = *env0;
+	s16 d4[16];
+	u32 e6[12], k, c;
+	u16 e35 = e3518;
+	int w[24], mn, mx;
+	s16 *d = (s16 *)(TA + OS[CH] + 128);
+
+	memcpy(TA, IMG, TOT);
+	memcpy(d4, d88d4, 32);
+	memcpy(e6, e60, sizeof(e6));
+	e.d88d4 = d4;
+	e.e3160 = e6;
+	e.e3518 = &e35;
+	t32_tmo_adr_fpga_blk1(TA + OS[CH], TA + OK[CH], &e);
+	t32_tmo_adr_fpga_blk2(TA + OS[CH], TA + OC[CH], TA + OK[CH], &e, w, &mn, &mx);
+	t32_tmo_adr_fpga_blk3(TA + OS[CH], TA + OC[CH], TA + OB[CH], TA + OK[CH], &e, mn, mx);
+	t32_tmo_adr_fpga_blk4(TA + OS[CH], TA + OC[CH], TA + OK[CH], &e, w);
+	c = rb(3);
+	for (k = 0; k < 336; k++) {
+		int v = d[k] + (c == 0 ? 0 : c == 1 ? (int)rb(5) - 2 : (int)rb(60) - 30);
+
+		p16(OB[CH] + 200 + 2 * k, rb(40) == 0 ? (int)rnd() : v);
+	}
+}
+
 static u32 vexp2(u32 v, u32 a, u32 b) { return (u32)t32o_call(FN(tisp_math_exp2), v, a, b, 0, 0); }
 
 int main(void)
@@ -313,15 +355,20 @@ int main(void)
 			t32_data_e35e0[i] = T32O_PTR(&rec[i * 4]);
 			t32_data_e35b0[i] = T32O_PTR(&q[i * 4]);
 		}
-		settables();
-		t32o_arg5 = t32o_arg6 = t32o_arg7 = t32o_arg8 = t32o_arg9 = 0;
-		t32o_call(FN(tisp_tmo_adr_fpga), CH, 0, 0, 0, 0);
 		env.c0488 = c0488; env.c04a4 = c04a4; env.d8120 = d8120; env.e31b0 = e31b0; env.d8320 = d8320;
 		env.d8914 = d8914; env.d88d4 = d88d4; env.d88a4 = d88a4; env.d88f4 = d88f4; env.d87a0 = d87a0;
 		env.e3160 = e60; env.e3518 = &e3518; env.e3500 = e3500; env.d8324 = d8324; env.c0444 = c0444; env.exp2 = vexp2;
 		env.e3244 = &e3244; env.e34e8 = e34e8; env.e3248 = e3248;
-		if (getenv("T32O_BLK")) {	/* truncated run (trunc_fpga.sh): the first N blocks only */
-			int nb = atoi(getenv("T32O_BLK")), w[24], mn, mx;
+		if (rb(2)) {
+			near_prev(&env);
+			memcpy(VA, IMG, TOT);
+			memcpy(OA, IMG, TOT);
+		}
+		settables();
+		t32o_arg5 = t32o_arg6 = t32o_arg7 = t32o_arg8 = t32o_arg9 = 0;
+		t32o_call(FN(tisp_tmo_adr_fpga), CH, 0, 0, 0, 0);
+		if (NBLK) {	/* truncated run (trunc_fpga.sh): the first N blocks only */
+			int nb = NBLK, w[24], mn, mx;
 
 			t32_tmo_adr_fpga_blk1(OA + OS[CH], OA + OK[CH], &env);
 			if (nb > 1)
@@ -360,6 +407,6 @@ int main(void)
 			return 1;
 		}
 	}
-	printf("t32_tmo14_oracle: %u cases compared (adr_fpga end to end), 0 mismatches\n", compared);
+	printf("%s: %u cases compared (adr_fpga %s), 0 mismatches\n", T32O_NAME, compared, NBLK ? "blocks 1 .. N against the cut vendor function" : "end to end");
 	return 0;
 }
