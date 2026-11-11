@@ -78,9 +78,10 @@ struct t32_buf_info {			/* ISP/IPC mem info, MALLOC, FREE */
 };
 
 /*
- * Kernel copy of the sensor registration (116 bytes).  libimp converts the
- * public 100-byte IMPSensorInfo into this and puts the VI number into
- * sensor_id.  Offsets match struct tx_isp_sensor_register_info of the SDK.
+ * Kernel copy of the sensor registration (116 bytes).  The public 2.x
+ * IMPSensorInfo is the same 116 bytes: vendor libimp 2.2.0 IMP_ISP_AddSensor
+ * writes the VI number at 0x5c (sensor_id) and passes the caller's struct
+ * unchanged (openimp #286).  Offsets match struct tx_isp_sensor_register_info.
  */
 struct t32_sensor_reginfo {
 	char name[32];			/* 0x00 */
