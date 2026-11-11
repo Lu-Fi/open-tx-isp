@@ -5,7 +5,8 @@
  * built for the host with env.c).  Phase 1: the ported commands (idx 0, 1, the broadcast-only
  * idx of table c31e0 and random commands outside 0x1000000..0x100001e) on random worlds: core
  * ops present / missing, 16 subdev words NULL / set, ops blocks and functions NULL / set, op
- * results 0 / -515 / random; sd NULL with idx 0 / 1.  Compared: return value, the ordered call
+ * results 0 / -515 / random; sd NULL with idx 0 / 1.  Phase 2: idx 9 (pipe count 0..5, marks
+ * 0 / 1 / random), 16, 21, 23..25, 27 (copy fault, magic right / wrong, AWB word 2).  Compared: return value, the ordered call
  * log (printf, every op with its arguments) and every byte of the world.  Exit 0 = all equal.
  */
 #include <stdio.h>
@@ -37,7 +38,7 @@ u32 t32_data_cd6fc[1], t32_data_cd71c[1];
 struct lg { unsigned int n; u32 e[MAXL][4]; };
 static struct lg lg, lg_ours;
 static u8 *world, snap[WSZ];
-static u32 W, SD, CMD, ARG, rv[8];
+static u32 W, SD, CMD, ARG, PRIV, rv[8], cf_fail;
 static unsigned int nrv;
 static u32 rs = 0x6d2b79f5u;
 static u32 rnd(void)
@@ -60,6 +61,31 @@ u64 isp_printf(u32 a0, u32 a1, u32 a2, u32 a3) { L(1, a0, a1, a2 ^ a3 * 3); retu
 static u64 op_core(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; L(2, a0, a1, 0); return rv[nrv++ % 8]; }
 static u64 op_video(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; L(3, a0, a1, 0); return rv[nrv++ % 8]; }
 static u64 op_ioctl(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; L(4, a0, a1, a2); return rv[nrv++ % 8]; }
+static u32 hash(u32 a, u32 n)
+{
+	const u8 *p = T32O_HOST(a);
+	u32 i, h = 2166136261u;
+
+	for (i = 0; i < n; i++)
+		h = (h ^ p[i]) * 16777619u;
+	return h;
+}
+/* phase 2 callees */
+u64 private_copy_from_user(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a3;
+	L(5, a1, a2, 0);
+	if (cf_fail)
+		return cf_fail;
+	memcpy(T32O_HOST(a0), T32O_HOST(a1), a2);
+	return 0;
+}
+u64 mbus_to_bayer_write(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; L(6, a0, a1, 0); return rnd(); }
+u64 tx_isp_core_oneshot_tick_isra_18(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(7, a0, 0, 0); return rv[nrv++ % 8]; }
+u64 tisp_ae_algo_deinit(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(8, a0, 0, 0); return rnd(); }
+u64 tisp_ae_algo_handle(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; L(9, a0, hash(a1, 64), 0); return rnd(); }
+u64 tisp_awb_algo_init(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; L(10, a0, a1, a2); return rnd(); }
+u64 tisp_awb_algo_handle(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; L(11, a0, hash(a1, 24), 0); return rnd(); }
 /* callees of the command groups not ported yet: never reached in phase 1 */
 #define NOT(f) u64 f(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(99, a0, 0, 0); return 0; }
 NOT(down_timeout)
@@ -73,32 +99,32 @@ NOT(lib_tisp_set_csccr)
 NOT(lib_tisp_set_wdr_setting)
 NOT(lib_tisp_stream_on)
 NOT(lib_tisp_vic_ctrl)
-NOT(mbus_to_bayer_write)
-NOT(private_copy_from_user)
 NOT(private_copy_to_user)
 NOT(private_msleep)
-NOT(tisp_ae_algo_deinit)
 NOT(tisp_ae_algo_getinfo)
-NOT(tisp_ae_algo_handle)
 NOT(tisp_ae_algo_init)
 NOT(tisp_ae_algo_waitdone)
 NOT(tisp_awb_algo_getinfo)
-NOT(tisp_awb_algo_handle)
-NOT(tisp_awb_algo_init)
 NOT(tisp_awb_algo_waitdone)
 NOT(tisp_core_reset)
 NOT(tisp_math_exp2)
 NOT(tisp_msca_addr_fifo_clear_all)
 NOT(tisp_msca_addr_fifo_write)
 NOT(tisp_msca_chx_en)
-NOT(tx_isp_core_oneshot_tick_isra_18)
 
 static void o_pr(u32 l, u32 f, u32 fn, u32 line) { isp_printf(l, f, fn, line); }
 static u32 o_call(u32 fn, u32 a0, u32 a1, u32 a2)
 {
 	return (u32)((u64 (*)(u32, u32, u32, u32))(uintptr_t)fn)(a0, a1, a2, 0);
 }
-static struct t32_io_ops ops = { o_pr, o_call, 0, 0 };
+static u32 o_cf(u32 to, u32 from, u32 n) { return (u32)private_copy_from_user(to, from, n, 0); }
+static void o_by(u32 p, u32 c) { mbus_to_bayer_write(p, c, 0, 0); }
+static u32 o_tk(u32 sd) { return (u32)tx_isp_core_oneshot_tick_isra_18(sd, 0, 0, 0); }
+static void o_aed(u32 h) { tisp_ae_algo_deinit(h, 0, 0, 0); }
+static void o_aeh(u32 h, u32 b) { tisp_ae_algo_handle(h, b, 0, 0); }
+static void o_awi(u32 h, u32 on, u32 p) { tisp_awb_algo_init(h, on, p, 0); }
+static void o_awh(u32 h, u32 b) { tisp_awb_algo_handle(h, b, 0, 0); }
+static struct t32_io_ops ops = { o_pr, o_call, 0, 0, o_cf, o_by, o_tk, o_aed, o_aeh, o_awi, o_awh, 0, 0, 0, 0, 0 };
 
 static u32 res(void)
 {
@@ -117,7 +143,7 @@ static void opsblk(u32 a, u32 blk)
 }
 static void build(u32 seed)
 {
-	static const u8 bc[] = { 0, 1, 2, 4, 7, 8, 10, 12, 13, 17, 18, 19, 28, 29 };
+	static const u8 bc[] = { 0, 1, 2, 4, 7, 8, 10, 12, 13, 17, 18, 19, 28, 29, 9, 9, 16, 16, 21, 23, 23, 23, 24, 25, 27, 27, 27 };
 	u32 save = rs, i, s, dense;
 
 	t32o_reset();
@@ -132,9 +158,22 @@ static void build(u32 seed)
 	CMD = i < 6 ? T32_IO_CMD0 + bc[pick(sizeof(bc))] : i == 6 ? T32_IO_CMD0 + 31 + pick(4) : rnd();
 	if (!SD)
 		CMD = T32_IO_CMD0 + pick(2);
+	i = CMD - T32_IO_CMD0;
+	if (i == 21 || (i >= 23 && i <= 27))	/* arg is dereferenced */
+		ARG = W + 0x40;
 	for (i = 0; i < 8; i++)
 		rv[i] = res();
 	nrv = 0;
+	cf_fail = pick(6) ? 0 : 1 + pick(64);
+	if (ARG == W + 0x40) {
+		P32(ARG, pick(4) ? T32_IO_MAGIC : rnd() | 1);
+		P32(ARG + 8, pick(2) ? 1 : pick(3));
+	}
+	PRIV = W + 0x2000;
+	P32(W + 0x100 + T32_IS_PRIV, PRIV);
+	P32(PRIV + T32_CI_SATTR, pick(6));
+	for (i = 0; i < 5; i++)
+		P32(PRIV + T32_CI_PIPE_ON + T32_CI_PIPE_SIZE * i, pick(3) ? pick(2) : rnd());
 	P32(W + 0x100 + T32_IO_SD_OPS, W + 0x600);
 	opsblk(W + 0x600, W + 0x700);
 	dense = pick(4);
@@ -159,6 +198,11 @@ int main(void)
 
 	ops.fmt_err = T32O_PTR(t32_data_cd71c);
 	ops.func = T32O_PTR(t32_data_c34a0);
+	ops.fmt_copy = T32O_PTR(t32_data_cd550);
+	ops.fmt_magic = T32O_PTR(t32_data_cd570);
+	ops.fmt_inval = T32O_PTR(t32_data_cd604);
+	ops.func_ae = T32O_PTR(t32_data_c342c);
+	ops.func_awb = T32O_PTR(t32_data_c33ec);
 
 	for (it = 0; it < 40000; it++) {
 		u32 seed = rnd(), r, rr;
