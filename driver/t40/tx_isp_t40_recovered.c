@@ -80618,6 +80618,18 @@ int64_t tisp_gib_ae_write_dgain(uint32_t s, uint32_t g0, uint32_t g1, uint32_t g
  */
 struct t40_writer_context;
 static struct t40_writer_context *t40_writer_lsc_get(unsigned int sensor);
+static uint8_t *t40_writer_lsc_real_of(struct t40_writer_context *p);
+/* OEM tisp_lsc_real_write_lut loads its table base from the pointer statics
+   lsc_{seco,main}_real_para (.bss), which tisp_lsc_init fills with the 27656 B
+   "real" buffer (count u16 at +13828, words from +13832).  This module keeps that
+   buffer in the writer context (t40_writer_lsc_para[sensor], part[REAL]); the
+   lifted statics are never written, so reading them gave a NULL base (#337).
+   Sensor 1 -> lsc_seco_real_para, sensor 0 -> lsc_main_real_para. */
+static uintptr_t t40_lsc_real_base(unsigned int sensor)
+{
+    struct t40_writer_context *p = t40_writer_lsc_get(sensor);
+    return p ? (uintptr_t)t40_writer_lsc_real_of(p) : 0;
+}
 static int t40_writer_lsc_tool_to_awdr(struct t40_writer_context *p,
                                        unsigned int sensor);
 static int t40_writer_lsc_write_reg(struct t40_writer_context *p,
@@ -80705,7 +80717,8 @@ tisp_lsc_real_write_lut0x44:
 
     /* fragment 7: CallSetup */
     v0 = (uintptr_t *)&isp_memopt;
-    s0 = *(uint32_t *)((char *)((char *)&lsc_seco_real_para));
+    s0 = t40_lsc_real_base(1U); /* OEM lw s0,.bss+lsc_seco_real_para; see t40_lsc_real_base() */
+    if (!s0) { return -EAGAIN; }
 
 tisp_lsc_real_write_lut0x58:
     /* fragment 8: CallSetup */
@@ -80770,7 +80783,8 @@ tisp_lsc_real_write_lut0x120:
     v0 = (uintptr_t *)&isp_memopt;
 
     /* fragment 20: Branch */
-    s0 = *(uint32_t *)((char *)((char *)&lsc_main_real_para));
+    s0 = t40_lsc_real_base(0U); /* OEM lw s0,.bss+lsc_main_real_para; see t40_lsc_real_base() */
+    if (!s0) { return -EAGAIN; }
     goto tisp_lsc_real_write_lut0x58;
 
 tisp_lsc_real_write_lut0x12c:

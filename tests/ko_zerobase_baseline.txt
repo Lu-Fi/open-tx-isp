@@ -1,2 +1,0 @@
-# tisp_lsc_real_write_lut: lifted twin reads lsc_{main,seco}_real_para, which nothing in the module writes (the live LSC path keeps its own state); gcc folds them to 0 -> lhu 13828(zero). See the follow-up issue; remove once the twin is aligned with the OEM/live path.
-<tisp_lsc_real_write_lut>:
