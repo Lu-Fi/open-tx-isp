@@ -242,7 +242,19 @@ generation-shared come from the shared code instead:
   the init-edited section copy, zeroed value block, last gain -1, YDNS
   hysteresis -1, DMSC sharpness 0x80; MDNS keeps the value block and frame size of its init), GIB, RDNS (openimp #234: context as
   `tisp_rdns_init` leaves it, vendor row table `t32_data_c0ac0` in `tx_isp_t32_rdnstab.h`; programmed at
-  stream-on only on its ported path). Not wired yet: LSC, LCE, TMO, AWB, AF hooks of the dispatcher. The total gain is `tisp_tgain`
+  stream-on only on its ported path), LSC strength (`tisp_lsc_tgain_update`: register 0x5050, context
+  from the stream-on list, current values as `tisp_lsc_init` leaves them, `t32_lscx_oracle`), LCE state and
+  strengths (the 0x22850-byte state `tisp_lce_init` leaves, vmalloc'd, freed at stream-off;
+  `tisp_lce_tgain_update` with `tisp_lce_tgain_interp_strength`, `tx_isp_t32_lcetg.h`, oracles
+  `t32_lcetg_oracle` / `t32_lceinit_oracle`; no register effect yet, see below). Not wired yet:
+  `tisp_lce_par` (per-frame LCE curve) and TMO (`tisp_tmo_init`, per-frame process; `tisp_tmo_tgain_update`
+  only stores the gain): both run from the vendor's block interrupts (LCE bit 8 / LSF bit 30,
+  TMO bit 9 / FBF bit 31 of the ISP status words) with their own DMA buffers, which the driver's
+  interrupt handler does not dispatch yet; the ports exist (`tx_isp_t32_blkrest.h` t32_lce_par /
+  t32_lce_interrupt_static, `tx_isp_t32_lsf.h`, `tx_isp_t32_tmo.h` t32_tmo_init /
+  t32_tmo_interrupt_static). MSCA has no per-frame gain hook in the vendor (`tisp_long_tgain_update`
+  does not call it; `tisp_msca_params_update` runs only from day/night, `param_array_set` and
+  `cfg_shd`). AWB, AF hooks of the dispatcher: not wired. The total gain is `tisp_tgain`
   (default 0x10000, the vendor init gain) until the vendor AE runs in the
   driver, so with the default the first run rewrites the stream-on values and
   later runs write nothing. `t32_ported_paths` switches each wired block back
@@ -279,5 +291,5 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `lsc_ct` | 5000 | colour temperature for the LSC mesh at stream-on |
 | `bringup_ae` | 0 | 1 = bring-up exposure controller (not the vendor AE) |
 | `bringup_target` | 64 | its target mean histogram bin (0..255) |
-| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS; RDNS off = not programmed at all, as before) |
+| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS, 9 LSC, 10 LCE, 11 TMO (not wired); RDNS off = not programmed at all, as before) |
 | `tisp_tgain` | 0x10000 | total gain for the per-frame refresh until the vendor AE runs (test aid) |

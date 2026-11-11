@@ -68,7 +68,7 @@ module_param(t32_ported_paths, uint, 0644);
 MODULE_PARM_DESC(t32_ported_paths,
 		 "1 (default): every wired per-frame block on its ported path; 0: all on the old path; "
 		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib, 8 rdns, 9 lsc, "
-		 "10 lce, 11 tmo)");
+		 "10 lce, 11 tmo (not wired))");
 
 static unsigned int tisp_tgain = 0x10000;
 module_param(tisp_tgain, uint, 0644);
