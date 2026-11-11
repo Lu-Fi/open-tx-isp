@@ -2039,3 +2039,50 @@ static inline void t32_tmo_tmo2fbf_process(const u8 *st, const u8 *fbf, u32 (*rd
 	regw(cb, 0x24014U, 0);
 	regw(cb, 0x24010U, 1);
 }
+
+/* ---- phase 10b: tmo_stat_limit ---- */
+
+/*
+ * tisp_tmo_tmo_stat_limit: tb = the record's 15040 byte tone buffer (record +20): the current set (3750 u16 = 375 groups of 10, 7520 byte
+ * window) at tb and the previous set at tb + 7520; ctx16[3382] (mode), ctx16[3366] (blend on) and ctx16[3368] (weight w), rec53 = record byte 53
+ * (the previous set is valid).  mode 1: private_dma_cache_sync (tb, 7520), then each group's 10 values are clamped to their bands
+ * [0, 410], [410, 819], [819, 1229], [1229, 1638], [1638, 2048], [2048, 2457], [2457, 2867], [2867, 3276], [3276, 3686], [3686, 4095]
+ * (unsigned); mode 2: sync, then values 1 .. 9 of each group are raised to at least 410 .. 3686 (the first band edges, value 0 untouched);
+ * other modes: nothing.  ctx16[3366] == 1 and rec53 == 1: sync again and every u16 becomes (prev * w + cur * ((16 - w) & 0xff)) >> 4
+ * (32 bit wrapping sum, arithmetic shift, low 16 bits).  Finally the current set is copied over the previous one (7520 bytes) and rec53 = 1.
+ */
+static inline void t32_tmo_stat_limit(u8 *tb, const u8 *ctx, u8 *rec53, void (*dma)(u8 *, u32))
+{
+	static const u16 edge[10] = { 410, 819, 1229, 1638, 2048, 2457, 2867, 3276, 3686, 4095 };
+	u32 mode = t32_tmo_ld16(ctx, 3382), blend = t32_tmo_ld16(ctx, 3366), w = t32_tmo_ld16(ctx, 3368), g, i, wc = (16U - w) & 0xffU;
+	u16 *cur = (u16 *)tb, *prev = (u16 *)(tb + 7520);
+
+	if (mode == 1) {
+		dma(tb, 7520);
+		for (g = 0; g < 375; g++) {
+			u16 *p = cur + 10 * g;
+
+			if (p[0] > 410)
+				p[0] = 410;
+			for (i = 1; i < 10; i++) {
+				if (p[i] >= edge[i] + 1U)
+					p[i] = edge[i];
+				else if (p[i] < edge[i - 1])
+					p[i] = edge[i - 1];
+			}
+		}
+	} else if (mode == 2) {
+		dma(tb, 7520);
+		for (g = 0; g < 375; g++)
+			for (i = 1; i < 10; i++)
+				if (cur[10 * g + i] < edge[i - 1])
+					cur[10 * g + i] = edge[i - 1];
+	}
+	if (blend == 1 && *rec53 == 1) {
+		dma(tb, 7520);
+		for (i = 0; i < 3750; i++)
+			cur[i] = (u16)((u32)((int)((u32)prev[i] * w + (u32)cur[i] * wc) >> 4));
+	}
+	memcpy(tb + 7520, tb, 7520);
+	*rec53 = 1;
+}
