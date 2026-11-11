@@ -90,6 +90,15 @@ int main(void)
 		assert(t41_mdns_pack_enable(p+1,T41_MDNS_PARAM_BYTES,f&1,f%16,words+1,128)==2);
 	}
 	temper_end_to_end();
-	puts("t41 MDNS ramps, strength, interpolation, geometry, unaligned buffers and zero-divisor guards, temper end to end: ok");
+	/* mdns_ref_hold: off = unchanged; on = the held bits set, other bits and words unchanged */
+	assert(t41_mdns_hold_value(0xf150,0xa000d208,0)==0xa000d208);
+	assert(t41_mdns_hold_value(0xf150,0xa000d208,1)==0xa000ffff);
+	assert(t41_mdns_hold_value(0xf120,0x0080000a,1)==0x00ff00ff);
+	assert(t41_mdns_hold_value(0xf198,0x021818ff,1)==0x02ffffff);
+	assert(t41_mdns_hold_value(0xf174,0x666f7880,1)==0xffffffff);
+	assert(t41_mdns_hold_value(0xf114,0x1089ff06,1)==0x1089ff06);
+	assert(t41_mdns_hold_value(0xf950,0xa000d208,1)==0xa000d208);
+	assert(t41_mdns_hold_value(0xf150,0xa000d208,2)==0xa000d208);
+	puts("t41 MDNS ramps, strength, interpolation, geometry, unaligned buffers and zero-divisor guards, temper end to end, reference hold: ok");
 	return 0;
 }

@@ -2088,6 +2088,10 @@ module_param(t41_raw_irq, bool, 0644);
 MODULE_PARM_DESC(t41_raw_irq, "call the RAW WDMA/RDMA frame-done callbacks (irq_func_cb[68]/[69]) from the ISR (default 1)");
 static int t41_raw_trace;
 static int t41_raw_sync = 1;
+/* OpenIMP test pattern mode 5 (openimp #103): bit 0 keeps the MDNS reference (t41_mdns_hold_value). */
+static unsigned int t41_mdns_ref_hold;
+module_param_named(mdns_ref_hold, t41_mdns_ref_hold, uint, 0644);
+MODULE_PARM_DESC(mdns_ref_hold, "bit 0: the MDNS writer keeps the reference fields at 0xff (OpenIMP test pattern mode 5; default 0)");
 /* On since 1fcf7a73 (#320, the board reset after the first RDMA start was
  * the RDMA frame-done completion at a wrong offset); 0 answers EPERM
  * ("not implemented") as before. */
@@ -126970,7 +126974,8 @@ static int t41_mdns_write_checked(uint32_t channel, int enable)
     if (count < 0)
         return -EINVAL;
     for (i = 0; i < count; ++i)
-        system_reg_write(words[i].address, words[i].value);
+        system_reg_write(words[i].address,
+                         t41_mdns_hold_value(words[i].address, words[i].value, READ_ONCE(t41_mdns_ref_hold)));
     return 0;
 }
 

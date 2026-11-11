@@ -16711,7 +16711,9 @@ int get_dynamic_calibrations(void *arg1)
 	*(void **)((char *)arg1 + 0x94) = &calibration_iridix_ev_lim_no_str_fs_hdr;
 	*(void **)((char *)arg1 + 0xa4) = &calibration_ae_correction_linear;
 	*(void **)((char *)arg1 + 0xa8) = &calibration_ae_correction_fs_hdr;
-	*(void **)((char *)arg1 + 0x338) = &ae_exposure_correction;
+	/* OEM .data 0x3204: the exposure-correction LUT (calibration 206, read by
+	 * ae_calculate_target), not the function ae_exposure_correction (#338) */
+	*(void **)((char *)arg1 + 0x338) = &calibration_ae_exposure_correction;
 	*(void **)((char *)arg1 + 0xb8) = &calibration_sinter_strength_linear;
 	*(void **)((char *)arg1 + 0xbc) = &calibration_sinter_strength_fs_hdr;
 	*(void **)((char *)arg1 + 0xcc) = &calibration_sinter_strength1_linear;
@@ -37266,12 +37268,14 @@ int32_t adjust_exposure(void *arg1, int32_t arg2)
 {
 	int32_t *base = (int32_t *)((uintptr_t)arg1 + 0x118);
 	int32_t *corr = (int32_t *)((uintptr_t)arg1 + 0x320);
-	int32_t *i;
+	int32_t i;
 	int32_t v;
 
+	/* OEM 0x29250: the eight frame exposure sets move by arg2, not below 0 (#338: the lift
+	 * dropped the return value and dereferenced NULL) */
 	for (i = 0; i != 8; i++) {
-		cmos_get_frame_exposure_set(base, i);
-		int32_t *p = 0;
+		int32_t *p = (int32_t *)cmos_get_frame_exposure_set(base, i);
+
 		v = arg2 + *p;
 		if (v < 0)
 			v = 0;
@@ -39190,70 +39194,35 @@ int32_t sensor_fsm_process_event(int32_t *fsm, int32_t event)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e0f0 origin=fragment_seed original=cmos_fsm_clear */
+/*
+ * OEM cmos_fsm_clear (cmos_fsm.c, SDK ko 0x2d810).  +484 (FSM manager +740) is the ISP digital
+ * gain limit that ae_calculate_exposure adds to the AE exposure limit:
+ * log2_fixed_to_fixed(4095, 12, 16) + 0x40000 = 262112.  (#338: the lift passed only the first
+ * argument, so the result depended on stale a1/a2 and the AE exposure limit came out far too
+ * high; rewritten from the register-level fragments.)
+ */
 void* cmos_fsm_clear(uintptr_t a0)
 {
-    uint32_t *local_10 = 0;
-    uint32_t local_14 = 0;
-    uint32_t *a1 = 0;
-    uint32_t a2 = 0;
-    uint32_t ra = 0;
-    uintptr_t *s0 = 0;
-    uintptr_t *v0 = 0;
-    uint32_t v1 = 0;
+	uint8_t *c = (uint8_t *)a0;
+	int32_t v;
 
-    /* fragment 0: Prologue */
-    /* function prologue: stack frame and callee-saved register setup */
-
-    /* fragment 1: Arithmetic */
-    v0 = 1;
-
-    /* fragment 2: StackAccess */
-    local_14 = ra;
-    local_10 = s0;
-    *(uint32_t *)((char *)a0 + 20) = v0;
-    v0 = 256;
-    *(uint32_t *)((char *)a0 + 24) = v0;
-    v0 = 131072;
-    *(uint32_t *)((char *)a0 + 28) = v0;
-    v0 = 41;
-    *(uint32_t *)((char *)a0 + 72) = v0;
-    v0 = -1;
-    *(uint32_t *)((char *)a0 + 420) = v0;
-    v0 = 12800;
-    *(uint16_t *)((char *)a0 + 436) = v0;
-    v0 = 64;
-    *(uint32_t *)((char *)a0 + 444) = v0;
-    *(uint16_t *)((char *)a0 + 458) = v0;
-    v0 = (uintptr_t *)&log2_fixed_to_fixed;
-    s0 = a0;
-    *(uint8_t *)((char *)a0 + 16) = 0;
-    *(uint16_t *)((char *)a0 + 452) = 0;
-    *(uint16_t *)((char *)a0 + 454) = 0;
-    *(uint16_t *)((char *)a0 + 456) = 0;
-    *(uint32_t *)((char *)a0 + 468) = 0;
-    *(uint32_t *)((char *)a0 + 472) = 0;
-    a1 = 12;
-    a0 = 4095;
-    v0 = v0;
-
-    /* fragment 3: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(int32_t *))(uintptr_t)log2_fixed_to_fixed)(a0); /* jalr target resolved by relocation */
-
-    /* fragment 4: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    /* fragment 5: Arithmetic */
-    v1 = 262144;
-    v0 = v0 + v1;
-
-    /* fragment 6: MemoryAccess */
-    *(uint32_t *)((char *)s0 + 484) = v0;
-    s0 = local_10;
-
-    /* fragment 7: Epilogue */
-    /* function epilogue: restore registers and return */
-
-    return (void*)v0;
+	*(uint32_t *)(c + 20) = 1;
+	*(uint32_t *)(c + 24) = 256;
+	*(uint32_t *)(c + 28) = 0x20000;
+	*(uint32_t *)(c + 72) = 41;
+	*(int32_t *)(c + 420) = -1;
+	*(uint16_t *)(c + 436) = 12800;
+	*(uint32_t *)(c + 444) = 64;
+	*(uint16_t *)(c + 458) = 64;
+	c[16] = 0;
+	*(uint16_t *)(c + 452) = 0;
+	*(uint16_t *)(c + 454) = 0;
+	*(uint16_t *)(c + 456) = 0;
+	*(uint32_t *)(c + 468) = 0;
+	*(uint32_t *)(c + 472) = 0;
+	v = log2_fixed_to_fixed(4095, 12, 16) + 0x40000;
+	*(int32_t *)(c + 484) = v;
+	return (void *)(uintptr_t)v;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e188 origin=model_output original=cmos_request_interrupt */
@@ -39489,22 +39458,27 @@ call_process:
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e760 origin=model_output original=AE_fsm_clear */
+/*
+ * OEM AE_fsm_clear (ae_balanced_fsm.c, SDK ko 0x2de80): +16 step, +20 exposure, +24/+28 s64
+ * accumulator and +32/+36 s64 pending value zero, +40 ratio and +44 0x40, +1076 0x4040c0c0,
+ * request byte +1080 zero; nothing else.  (#338: the lift wrote 0x40 into the pending value,
+ * which the first ae_calculate_exposure took as the accumulator 0x40_00000040, and zeroed
+ * +48..+60 instead of +16/+20.)
+ */
 int32_t AE_fsm_clear(void *arg1)
 {
-	uint32_t *p = (uint32_t *)arg1;
+	int32_t *p = (int32_t *)arg1;
 
-	((void **)p)[6] = 0;
-	((void **)p)[7] = 0;
-	((void **)p)[8] = 0x40;
-	((void **)p)[9] = 0x40;
-	((void **)p)[10] = 0x40;
-	((void **)p)[11] = 0x40;
-	((void **)p)[12] = 0;
-	((void **)p)[13] = 0;
-	((void **)p)[14] = 0;
-	((void **)p)[15] = 0;
-	((void **)(uintptr_t)p)[0x434 / 4] = 0x4040c0c0;
-	*(uint8_t *)(arg1 + 0x438) = 0;
+	p[4] = 0;
+	p[5] = 0;
+	p[6] = 0;
+	p[7] = 0;
+	p[8] = 0;
+	p[9] = 0;
+	p[10] = 0x40;
+	p[11] = 0x40;
+	p[1076 / 4] = 0x4040c0c0;
+	*((uint8_t *)arg1 + 1080) = 0;
 	return 0x4040c0c0;
 }
 
@@ -41919,20 +41893,22 @@ int32_t ae_calculate_exposure(uintptr_t a0)
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032800 origin=model_output original=ae_exposure_correction */
+/*
+ * OEM ae_exposure_correction (ae_balanced_func.c, SDK ko 0x31f20): the AE accumulator (+24/+28,
+ * s64) grows by arg2 * k (32-bit product, k = HDR table 146 word 0), the carry out of the low
+ * word unsigned.  (#338: the lift compared signed and stored through void ** slots.)
+ */
 int32_t ae_exposure_correction(int32_t *arg1, int32_t arg2)
 {
-	int32_t *hdr = *(int32_t **)arg1;
-	uint8_t idx = *(uint8_t *)((uintptr_t)hdr + 0x1524);
-	int32_t table_idx = _GET_HDR_TABLE_INDEX(0x92, idx);
-	int32_t *val_ptr = _GET_UINT_PTR(table_idx);
-	int32_t val = *val_ptr;
-	int32_t old = arg1[6];
-	int32_t new_val = arg2 * val + old;
-	int32_t carry = (new_val < old) ? 1 : 0;
-	int32_t result = carry + arg1[7];
-	((void **)arg1)[6] = new_val;
-	((void **)arg1)[7] = result;
-	return result;
+	uintptr_t mgr = (uintptr_t)(uint32_t)arg1[0];
+	uint32_t k = *(uint32_t *)(uintptr_t)_GET_UINT_PTR(
+		_GET_HDR_TABLE_INDEX(0x92, *(uint8_t *)(mgr + 0x1524)));
+	uint32_t old = (uint32_t)arg1[6];
+	uint32_t new_val = (uint32_t)arg2 * k + old;
+
+	arg1[6] = (int32_t)new_val;
+	arg1[7] = (int32_t)((uint32_t)arg1[7] + (new_val < old));
+	return arg1[7];
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_0000000000032880 origin=model_output original=luts_fetch */
