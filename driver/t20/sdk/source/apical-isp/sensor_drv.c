@@ -160,6 +160,8 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	int32_t isp_dgain_cap;
 	int32_t isp_dgain;
 	uint32_t i;
+	/* #267: analog gain applied by the last call, -1 = none (new stream) */
+	static int32_t prev_again = -1;
 
 	if (!ispcore || !total_exposure_log2)
 		return -ENODEV;
@@ -193,6 +195,7 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 		isp_dgain_hw_max);
 	max_exposure_log2 += isp_dgain_cap;
 	if (*total_exposure_log2 < 0) {
+		prev_again = -1;
 		integration = attr->integration_time;
 		if (integration < min_integration || integration > max_integration)
 			integration = min_integration;
@@ -303,8 +306,32 @@ allocate_gain:
 	 */
 	requested_again = clamp_t(int32_t, requested_again, 0,
 		(int32_t)stab.global_max_sensor_analog_gain << 11);
-	applied_again = attr->sensor_ctrl.alloc_again(requested_again,
-		LOG2_GAIN_SHIFT, &again_code);
+	/*
+	 * #267: OEM cmos_analog_gain_update(): request 1/16 stop less and keep
+	 * the previous gain for a request within +-0xfff of it; the ISP
+	 * digital gain below carries the rest (t20_ae_again_*()).
+	 */
+	if (!stab.global_manual_sensor_analog_gain &&
+	    t20_ae_again_reserve_ok(stab.global_manual_isp_digital_gain,
+				    isp_dgain_cap)) {
+		requested_again = t20_ae_again_request(requested_again);
+		applied_again = attr->sensor_ctrl.alloc_again(requested_again,
+			LOG2_GAIN_SHIFT, &again_code);
+		/* the OEM allocator caps the re-allocation like any request */
+		if (t20_ae_again_keep(requested_again, applied_again,
+				      prev_again))
+			applied_again = attr->sensor_ctrl.alloc_again(
+				min_t(int32_t, prev_again, min_t(int32_t,
+					attr->max_again,
+					(int32_t)stab.global_max_sensor_analog_gain
+						<< 11)),
+				LOG2_GAIN_SHIFT, &again_code);
+		prev_again = applied_again;
+	} else {
+		prev_again = -1;
+		applied_again = attr->sensor_ctrl.alloc_again(requested_again,
+			LOG2_GAIN_SHIFT, &again_code);
+	}
 	/*
 	 * #246: OEM cmos_digital_gain_update(): the remainder the floored
 	 * analog gain and the quantised integration time leave goes to the ISP

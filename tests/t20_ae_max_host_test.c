@@ -266,6 +266,54 @@ int main(void)
 		bad += t20_ae_log2_correction(lg(68) - lg(0), 10) !=
 			T20_AE_LOG2_STEP_MAX;
 	}
+	/*
+	 * #267: OEM cmos_analog_gain_update() reserve + hysteresis.  jxh42-like
+	 * table step 1/16 stop (0x1000).  Request 0x1c000 + 0x1000 (reserve)
+	 * gives 0x1c000; a new request within +-0xfff of the previous gain
+	 * keeps it, one further away is taken.
+	 */
+	{
+		int b0 = bad;
+
+		bad += !t20_ae_again_reserve_ok(0, 0x2000);
+		bad += t20_ae_again_reserve_ok(0, 0x1fff);	/* cap too small */
+		bad += t20_ae_again_reserve_ok(1, 0x40000);	/* manual dgain */
+		bad += t20_ae_again_reserve_ok(0, 0);
+		bad += t20_ae_again_request(0x1d000) != 0x1c000;
+		bad += t20_ae_again_request(0x800) != 0;	/* no negative */
+		/* previous 0x1c000, request floors to 0x1d000: kept */
+		bad += !t20_ae_again_keep(0x1d000 - 0x100, 0x1d000, 0x1c000);
+		bad += !t20_ae_again_keep(0x1c000 - 0xfff, 0x1b000, 0x1c000);
+		bad += !t20_ae_again_keep(0x1c000 + 0xfff, 0x1c000 + 0x1000,
+					  0x1c000);
+		/* outside +-0xfff: the new gain is taken */
+		bad += t20_ae_again_keep(0x1c000 + 0x1000, 0x1d000, 0x1c000);
+		bad += t20_ae_again_keep(0x1c000 - 0x1000, 0x1b000, 0x1c000);
+		/* no previous gain / same gain: nothing to do */
+		bad += t20_ae_again_keep(0x1c100, 0x1c000, -1);
+		bad += t20_ae_again_keep(0x1c100, 0x1c000, 0x1c000);
+		printf("  again reserve/hysteresis: %s\n", bad == b0 ? "ok" : "BAD");
+	}
+	/* #267 optional flip guard (t20_ae_flip_guard) */
+	{
+		struct t20_ae_curve_hold h = { 0 };
+		int b0 = bad;
+
+		bad += t20_ae_curve_hysteresis(&h, 133, 634000) != 133;
+		/* 1-LSB flip inside 1/16 stop: held */
+		bad += t20_ae_curve_hysteresis(&h, 132, 634000 + 1000) != 133;
+		bad += t20_ae_curve_hysteresis(&h, 132, 634000 - 4095) != 133;
+		/* 1-LSB flip after the exposure moved 1/16 stop: taken */
+		bad += t20_ae_curve_hysteresis(&h, 132, 634000 + 4096) != 132;
+		bad += h.curve != 132 || h.exposure_log2 != 634000 + 4096;
+		/* a 2-LSB change passes at once */
+		bad += t20_ae_curve_hysteresis(&h, 130, 638100 + 10) != 130;
+		bad += t20_ae_curve_hysteresis(&h, 131, 638100) != 130;
+		/* same value: anchor stays */
+		bad += t20_ae_curve_hysteresis(&h, 130, 700000) != 130;
+		bad += h.exposure_log2 != 638110;
+		printf("  curve flip guard: %s\n", bad == b0 ? "ok" : "BAD");
+	}
 	printf("t20_ae_max_host_test: %s (%d bad)\n", bad ? "FAIL" : "PASS", bad);
 	return bad != 0;
 }

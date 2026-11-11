@@ -89,6 +89,41 @@ static inline int32_t t20_ae_isp_dgain_fill(int32_t total_log2,
 }
 
 /*
+ * #267: analog gain allocation like the OEM 3.12.0 cmos_analog_gain_update()
+ * (tx_isp_t20_firmware.c, OEM hysteresis 0x1f144-0x1f178): 1/16 stop of the
+ * request (0x1000) is left to the ISP digital gain, and a request within
+ * +-0xfff of the gain applied last time re-allocates that gain.  Without it
+ * the compact AE re-floored the gain to the sensor table on every update, so
+ * a 0.5 % AE step next to a table entry toggled the sensor gain (jxh42 3.5x
+ * <-> 3.625x) and the picture by ~1 Y.  Used only while the ISP digital gain
+ * can carry the remainder (up to 0x1fff): cap >= 0x2000 and no manual ISP
+ * digital gain.  All values log2 <<16; prev_applied < 0 = no previous gain.
+ */
+#define T20_AE_AGAIN_RESERVE	0x1000
+#define T20_AE_AGAIN_HYST	0xfff
+
+static inline int t20_ae_again_reserve_ok(uint8_t manual_isp_dgain,
+					  int32_t isp_dgain_cap_log2)
+{
+	return !manual_isp_dgain &&
+	       isp_dgain_cap_log2 >= T20_AE_AGAIN_RESERVE + T20_AE_AGAIN_HYST + 1;
+}
+
+static inline int32_t t20_ae_again_request(int32_t request_log2)
+{
+	request_log2 -= T20_AE_AGAIN_RESERVE;
+	return request_log2 < 0 ? 0 : request_log2;
+}
+
+static inline int t20_ae_again_keep(int32_t request_log2, int32_t applied_log2,
+				    int32_t prev_applied)
+{
+	return prev_applied >= 0 && applied_log2 != prev_applied &&
+	       request_log2 >= prev_applied - T20_AE_AGAIN_HYST &&
+	       request_log2 <= prev_applied + T20_AE_AGAIN_HYST;
+}
+
+/*
  * Manual integration time (SetIntegrationTime MODE_MANUAL / SetExpr manual:
  * stab.global_manual_integration_time = stab[3], lines in
  * stab.global_integration_time = stab+0x18).  The OEM 3.12.0
@@ -172,6 +207,41 @@ static inline int32_t t20_ae_log2_correction(int32_t err_log2,
 	if (c < -T20_AE_LOG2_STEP_MAX)
 		c = -T20_AE_LOG2_STEP_MAX;
 	return c;
+}
+
+/*
+ * #267, optional (module parameter t20_ae_flip_guard, default off = vendor
+ * behaviour): the AE correction curve is a u8 in 1/32-stop steps.  Where its
+ * interpolated value changes by one, the compact AE (block step err*3/K)
+ * can cycle across that exposure for ever.  With the guard a one-step
+ * change is taken over only once the exposure has moved 1/16 stop away from
+ * where the current value was adopted; larger changes pass at once.  The
+ * OEM has no such guard (its per-frame PI moves 0.03-0.06 % per frame).
+ */
+#define T20_AE_CURVE_HOLD_LOG2	4096
+
+struct t20_ae_curve_hold {
+	int valid;
+	uint8_t curve;
+	int32_t exposure_log2;
+};
+
+static inline uint8_t t20_ae_curve_hysteresis(struct t20_ae_curve_hold *h,
+					      uint8_t curve,
+					      int32_t exposure_log2)
+{
+	int32_t d = exposure_log2 - h->exposure_log2;
+	int step = (int)curve - (int)h->curve;
+
+	if (h->valid && (step == 1 || step == -1) &&
+	    d > -T20_AE_CURVE_HOLD_LOG2 && d < T20_AE_CURVE_HOLD_LOG2)
+		return h->curve;
+	if (!h->valid || step) {
+		h->valid = 1;
+		h->curve = curve;
+		h->exposure_log2 = exposure_log2;
+	}
+	return curve;
 }
 
 #endif

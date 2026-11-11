@@ -17693,6 +17693,17 @@ static u8 t20_ae_exposure_correction(u8 wdr_mode, u32 exposure_q6)
 	return correction[exposure_len - 1];
 }
 
+/*
+ * #267: optional guard against a one-LSB flip of the AE correction curve
+ * (t20_ae_curve_hysteresis(), tx_isp_t20_ae_max.h).  Not OEM behaviour,
+ * default off; for measurements only until decided.
+ */
+static bool t20_ae_flip_guard;
+module_param(t20_ae_flip_guard, bool, 0644);
+MODULE_PARM_DESC(t20_ae_flip_guard,
+	"hold a one-step AE correction-curve change until the exposure moved 1/16 stop (beyond vendor, default off)");
+static struct t20_ae_curve_hold t20_ae_curve_held;
+
 static u32 t20_ae_corrected_target(u32 target, s32 exposure_log2,
 				   u8 wdr_mode, u8 *curve_value)
 {
@@ -17700,6 +17711,11 @@ static u32 t20_ae_corrected_target(u32 target, s32 exposure_log2,
 	u8 curve = t20_ae_exposure_correction(wdr_mode, exposure_q6);
 	s32 target_log2;
 
+	if (t20_ae_flip_guard)
+		curve = t20_ae_curve_hysteresis(&t20_ae_curve_held, curve,
+						exposure_log2);
+	else
+		t20_ae_curve_held.valid = 0;
 	if (curve_value)
 		*curve_value = curve;
 	/* Both signed offsets are IQ/system-table values in 1/32-stop units. */
@@ -17729,6 +17745,7 @@ static void t20_compact_ae_reset(void)
 {
 	ae_irq_trace_count = 0;
 	simple_exposure_log2 = -1;
+	t20_ae_curve_held.valid = 0;
 	simple_cooldown = 0;
 	simple_updates = 0;
 	simple_nr_initialized = false;
