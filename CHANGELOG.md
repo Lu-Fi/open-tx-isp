@@ -24,6 +24,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `t32_txbin_oracle`: `tx_isp_t32_txbin.h` (tx_isp_switch_bin, tx_isp_default_bin (.isra); 2 functions), 30000 random cases, 27 mutations detected. Vendor bugs named: switch_bin uses the stored bin path as sprintf format and does not bound the slot; default_bin does not bound the section count against its 880 byte block.
 - `t32_txtick_oracle`: `tx_isp_t32_txtick.h` (tx_isp_core_oneshot_tick (.isra)), 30000 random channel / buffer-list worlds, 19 mutations detected. Vendor: the sensor loop counter is a u8 (more than 255 sensors never ends); a queue head with a NULL next is treated as empty and appended to through its prev. tx_isp_ivdc_show is a seq_printf dump and is skipped (brief).
 - `t32_txgraph_oracle`: `tx_isp_t32_txgraph.h` (tx_isp_create_graph_and_nodes), 30000 random module sets, 20 mutations detected. Vendor bugs named: the "can't find" print passes a stale stack word as module number (not compared), the later walks do not test the drvdata for NULL, a child without parent only ends the second walk.
+- `t32_txframe_oracle`: `tx_isp_t32_txframe.h` (tx_isp_frame_chan_misc_register), 30000 random cases, 14 mutations detected.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
