@@ -772,3 +772,17 @@ int t32o_decoy_check(void)
 				return 1;
 	return 0;
 }
+
+/* ---- op10-lce-v4 (Tisp_lce_soft_simd_v4, t32_lcev4_*_oracle) ---- */
+/* memcpy_simd (the vendor's MXU2 block copy): a plain copy for the host */
+u64 memcpy_simd(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a3;
+	memmove((void *)(uintptr_t)a0, (const void *)(uintptr_t)a1, a2);
+	return a0;
+}
+/* ce200 (data.c:16887 section base ce130 + 0xd0): 8 x u16 1; d6b60 = d6b50 + 16 (data.c:25733); e1892 / e1898 / e189e:
+ * the band rows 1..3 of the e188c table (4 x 3 u16) */
+__asm__(".globl t32_data_ce200, t32_data_d6b60, t32_data_e1892, t32_data_e1898, t32_data_e189e\n"
+	".set t32_data_ce200, t32_data_ce130+208\n.set t32_data_d6b60, t32_data_d6b50+16\n"
+	".set t32_data_e1892, t32_data_e188c+6\n.set t32_data_e1898, t32_data_e188c+12\n.set t32_data_e189e, t32_data_e188c+18\n");
