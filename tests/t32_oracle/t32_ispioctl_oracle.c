@@ -5,7 +5,7 @@
  * built for the host with env.c).  Phase 1: the ported commands (idx 0, 1, the broadcast-only
  * idx of table c31e0 and random commands outside 0x1000000..0x100001e) on random worlds: core
  * ops present / missing, 16 subdev words NULL / set, ops blocks and functions NULL / set, op
- * results 0 / -515 / random; sd NULL with idx 0 / 1.  Phase 2: idx 9 (pipe count 0..5, marks
+ * results 0 / -515 / random; sd NULL with idx 0 / 1.  Phases 2-4: idx 3, 5, 6, 14, 15, 20, 22, 26, 9 (pipe count 0..5, marks
  * 0 / 1 / random), 16, 21, 23..25, 27 (copy fault, magic right / wrong, AWB word 2).  Compared: return value, the ordered call
  * log (printf, every op with its arguments) and every byte of the world.  Exit 0 = all equal.
  */
@@ -33,12 +33,13 @@ u32 t32_data_cd504[1], t32_data_cd524[1], t32_data_cd550[1], t32_data_cd570[1], 
 u32 t32_data_cd5c4[1], t32_data_cd5e4[1], t32_data_cd604[1], t32_data_cd638[1], t32_data_cd6a8[1];
 u32 t32_data_cd6fc[1], t32_data_cd71c[1];
 
-#define WSZ	0x8000u
+#define WSZ	0x10000u
 #define MAXL	48
 struct lg { unsigned int n; u32 e[MAXL][4]; };
 static struct lg lg, lg_ours;
 static u8 *world, snap[WSZ];
-static u32 W, SD, CMD, ARG, PRIV, rv[8], cf_fail, r_dt;
+static u32 W, SD, CMD, ARG, PRIV, rv[8], cf_fail, r_dt, r_wd, r_gi, ct_fail[2];
+static unsigned int nct;
 extern u32 t32_data_f3354[];
 static unsigned int nrv;
 static u32 rs = 0x6d2b79f5u;
@@ -63,7 +64,14 @@ static void L(u32 id, u32 a, u32 b, u32 c)
 }
 static void P32(u32 a, u32 v) { memcpy(T32O_HOST(a), &v, 4); }
 
-u64 isp_printf(u32 a0, u32 a1, u32 a2, u32 a3) { L(1, a0, a1, a2 ^ a3 * 3); return 0; }
+u64 isp_printf(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	/* the waitdone prints: a2 / a3 are leftovers */
+	if (a1 == T32O_PTR(t32_data_cd5a4) || a1 == T32O_PTR(t32_data_cd5e4))
+		a2 = a3 = 0;
+	L(1, a0, a1, a2 ^ a3 * 3);
+	return 0;
+}
 /* the subdev ops: ops[0] + 4 (sd, arg), ops[3] + 4 (sd, arg), ops[0] + 32 (sd, cmd, arg) */
 static u64 op_core(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; L(2, a0, a1, 0); return rv[nrv++ % 8]; }
 static u64 op_video(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; L(3, a0, a1, 0); return rv[nrv++ % 8]; }
@@ -100,6 +108,21 @@ u64 lib_tisp_aov_wake_up(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (
 u64 lib_tisp_stream_on(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; L(15, t32_data_f3354[0], 0, 0); return srnd(); }
 u64 down_timeout(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; L(16, a0, a1, 0); return r_dt; }
 u64 tisp_core_reset(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; L(17, a0, a1, 0); return srnd(); }
+/* phase 4 callees */
+u64 tisp_ae_algo_init(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; L(19, a0, a1, hash(a2, 112)); return srnd(); }
+u64 tisp_math_exp2(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; L(20, a0, a1, a2); return hash(T32O_PTR(&a0), 4) ^ a1 ^ a2 * 7; }
+u64 tisp_ae_algo_waitdone(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(21, a0, 0, 0); return r_wd; }
+u64 tisp_ae_algo_getinfo(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(22, a0, 0, 0); return W + 0x5000; }
+u64 tisp_awb_algo_waitdone(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(23, a0, 0, 0); return r_wd; }
+u64 tisp_awb_algo_getinfo(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	(void)a1; (void)a2; (void)a3;
+	L(24, hash(a0, 36), 0, 0);
+	P32(a0 + 8, srnd());
+	P32(a0 + 32, srnd());
+	return r_gi;
+}
+u64 private_copy_to_user(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; L(25, a0, hash(a1, a2), a2); return ct_fail[nct++ % 2]; }
 /* callees of the command groups not ported yet: never reached in phase 1 */
 #define NOT(f) u64 f(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(99, a0, 0, 0); return 0; }
 NOT(lib_tisp_get_ipc_output_pos)
@@ -110,14 +133,7 @@ NOT(lib_tisp_restart)
 NOT(lib_tisp_set_csccr)
 NOT(lib_tisp_set_wdr_setting)
 NOT(lib_tisp_vic_ctrl)
-NOT(private_copy_to_user)
 NOT(private_msleep)
-NOT(tisp_ae_algo_getinfo)
-NOT(tisp_ae_algo_init)
-NOT(tisp_ae_algo_waitdone)
-NOT(tisp_awb_algo_getinfo)
-NOT(tisp_awb_algo_waitdone)
-NOT(tisp_math_exp2)
 NOT(tisp_msca_addr_fifo_clear_all)
 NOT(tisp_msca_addr_fifo_write)
 NOT(tisp_msca_chx_en)
@@ -140,8 +156,16 @@ static void o_aov(u32 p) { lib_tisp_aov_wake_up(p, 0, 0, 0); }
 static void o_son(void) { lib_tisp_stream_on(0, 0, 0, 0); }
 static u32 o_dt(u32 s, u32 ms) { return (u32)down_timeout(s, ms, 0, 0); }
 static void o_cr(u32 p, u32 on) { tisp_core_reset(p, on, 0, 0); }
+static void o_aei(u32 p, u32 on, u32 a) { tisp_ae_algo_init(p, on, a, 0); }
+static u32 o_ex(u32 v, u32 i, u32 o) { return (u32)tisp_math_exp2(v, i, o, 0); }
+static u32 o_aew(u32 p) { return (u32)tisp_ae_algo_waitdone(p, 0, 0, 0); }
+static u32 o_aeg(u32 p) { return (u32)tisp_ae_algo_getinfo(p, 0, 0, 0); }
+static u32 o_aww(u32 h) { return (u32)tisp_awb_algo_waitdone(h, 0, 0, 0); }
+static u32 o_awg(u32 b) { return (u32)tisp_awb_algo_getinfo(b, 0, 0, 0); }
+static u32 o_ct(u32 t, u32 f, u32 n) { return (u32)private_copy_to_user(t, f, n, 0); }
 static struct t32_io_ops ops = { o_pr, o_call, 0, 0, o_cf, o_by, o_tk, o_aed, o_aeh, o_awi, o_awh, 0, 0, 0, 0, 0,
-				 o_lk, o_ul, o_aov, o_son, o_dt, o_cr, t32_data_f3354, 0, 0, 0, 0, 0 };
+				 o_lk, o_ul, o_aov, o_son, o_dt, o_cr, t32_data_f3354, 0, 0, 0, 0, 0,
+				 o_aei, o_ex, o_aew, o_aeg, o_aww, o_awg, o_ct, 0, 0, 0, 0, 0 };
 
 static u32 res(void)
 {
@@ -160,7 +184,7 @@ static void opsblk(u32 a, u32 blk)
 }
 static void build(u32 seed)
 {
-	static const u8 bc[] = { 0, 1, 2, 4, 7, 8, 10, 12, 13, 17, 18, 19, 28, 29, 9, 9, 16, 16, 3, 3, 3, 5, 5, 6, 6, 6, 14, 14, 15, 15, 21, 23, 23, 23, 24, 25, 27, 27, 27 };
+	static const u8 bc[] = { 0, 1, 2, 4, 7, 8, 10, 12, 13, 17, 18, 19, 28, 29, 9, 9, 16, 16, 3, 3, 3, 5, 5, 6, 6, 6, 14, 14, 15, 15, 20, 20, 22, 22, 22, 26, 26, 26, 21, 23, 23, 23, 24, 25, 27, 27, 27 };
 	u32 save = rs, i, s, dense;
 
 	t32o_reset();
@@ -176,7 +200,7 @@ static void build(u32 seed)
 	if (!SD)
 		CMD = T32_IO_CMD0 + pick(2);
 	i = CMD - T32_IO_CMD0;
-	if (i == 21 || (i >= 23 && i <= 27))	/* arg is dereferenced */
+	if (i >= 20 && i <= 27)	/* arg is dereferenced */
 		ARG = W + 0x40;
 	for (i = 0; i < 8; i++)
 		rv[i] = res();
@@ -205,6 +229,16 @@ static void build(u32 seed)
 		P32(W + 0x100 + T32_IS_PRIV, pick(2) ? 0 : 0xfffff001u + pick(4095));
 	if (i == 6)
 		ARG = pick(3) ? pick(4) : rnd();
+	if (i == 20 || i == 22)	/* pipe 0..3 */
+		P32(ARG + 4, pick(4));
+	for (i = 0; i < 4; i++)
+		P32(PRIV + T32_CI_SENSOR + T32_CI_PIPE_SIZE * i, W + 0x7000 + 0x100 * i);
+	i = pick(6);
+	r_wd = i < 3 ? 0 : i == 3 ? T32_IO_NOCMD : rnd();
+	r_gi = pick(5) ? W + 0x6000 : 0;
+	ct_fail[0] = pick(5) ? 0 : 1 + pick(36);
+	ct_fail[1] = pick(5) ? 0 : 1 + pick(36);
+	nct = 0;
 	P32(W + 0x100 + T32_IO_SD_OPS, W + 0x600);
 	opsblk(W + 0x600, W + 0x700);
 	dense = pick(4);
@@ -240,6 +274,11 @@ int main(void)
 	ops.fmt_timeout = T32O_PTR(t32_data_cd524);
 	ops.func_on = T32O_PTR(t32_data_c3488);
 	ops.func_wait = T32O_PTR(t32_data_c346c);
+	ops.fmt_ae_wait = T32O_PTR(t32_data_cd5a4);
+	ops.fmt_awb_wait = T32O_PTR(t32_data_cd5e4);
+	ops.fmt_copy_to = T32O_PTR(t32_data_cd5c4);
+	ops.func_aeinfo = T32O_PTR(t32_data_c344c);
+	ops.func_awbinfo = T32O_PTR(t32_data_c340c);
 
 	for (it = 0; it < 40000; it++) {
 		u32 seed = rnd(), r, rr;
