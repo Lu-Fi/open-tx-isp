@@ -2491,3 +2491,119 @@ static inline void t32_tmo_adr_algorithm(u8 *ctx, const s16 *c04b8, const s16 *d
 	*(u16 *)(ctx + 8770) = (u16)(t32_tmo_ld16(ctx, 8758) + t32_tmo_ld16(ctx, 8760));
 	fpga(cb, ch);
 }
+
+/* ---- phase 13b: tmo_init ---- */
+
+/*
+ * Environment of tisp_tmo_init.  The callees that are cross-checked elsewhere (malloc_cfg, size_update, fbf_malloc_cfg, dark_ctr_interp,
+ * detail_ev_interp, satcurve_ev_interp, the default register refreshes, modechange_stat_refresh, the ramY / ramV refreshes, adr_gamma_refresh,
+ * system_irq_func_set) are hooks, ids:  0 malloc_cfg, 1 size_update (ch, param), 2 fbf_malloc_cfg, 3 dark_ctr_interp, 4 detail_ev_interp,
+ * 5 satcurve_ev_interp, 6 tmoadr_default_reg_refresh, 7 lcac_no_refresh, 8 tmo_default_reg_refresh, 9 modechange_stat_refresh,
+ * 10 ramY_vi1, 11 ramV_vi1, 12 ramY_vi0, 13 ramV_vi0, 14 adr_gamma_refresh (0), 15 irq 9 = interrupt_static, 16 irq 31 = fbf_interrupt_calc.
+ * tmo_params_hard_refresh is called as the port.  Addresses in the records are 32 bit (host pointers cast).
+ */
+struct t32_tmo_init_env {
+	void *(*vmalloc)(void *cb, u32 size);
+	void *(*kmalloc)(void *cb, u32 size, u32 flags);
+	void (*hook)(void *cb, int id, int ch);
+	void (*regw)(void *cb, int ch, u32 reg, u32 val);
+	void *cb;
+	u32 *e35e0, *e35b0;		/* the channel's slots */
+	u32 ctx;			/* t32_data_dd0a4[ch] + 11976: the new context (32 bit address) */
+	u32 *e3580, *e3570;
+	u16 *e3518;			/* t32_data_e3518[0] */
+	const u8 *d88d6;		/* the 28 byte vendor table */
+	const u32 *param;		/* the init parameter block (words 0 / 1, byte 36) */
+	u8 d03a0;
+};
+
+/*
+ * tisp_tmo_init (ch, param): malloc_cfg (ch) first, then the channel record rec (vmalloc 64, zeroed) in the e35e0 slot: st = vmalloc 1176 (+4), big = vmalloc 0x8530
+ * (+16) (zeroed), tbuf = kmalloc (15040, 0x24000c0) (+20, not cleared), ctx = the new context (+0), out = vmalloc 402 (+8, zeroed), geom = vmalloc 20 (+12,
+ * zeroed); size_update; st + 377 = 2 bytes of ctx + 10038; ctx byte 10042 = 1; rec + 40 = param byte 36 (as u32); fbf_malloc_cfg, params_hard_refresh
+ * (port), dark_ctr_interp, detail_ev_interp, satcurve_ev_interp, tmoadr_default_reg_refresh, lcac_no_refresh; rec u16 +56 = 128; (ctx byte 10042 read
+ * back is 1: the else branch of the vendor is dead) st u16 [340 .. 354] = 256 (8 entries), tmo_default_reg_refresh; rec byte 52 = st byte 385;
+ * st byte 385 == 1: modechange_stat_refresh and the ramY / ramV refresh (vi1 when d03a0 == 1, else vi0).  Then the e35b0 record
+ * (kmalloc 20): +0 = kmalloc 800, +4 = kmalloc 1140, +8 = kmalloc 10056 (all zeroed), +12 = param byte 36; e3580 = param[0], e3570 = param[1], *e3518 = 1;
+ * 24 copies of the 28 byte table d88d6 into the 1140 block at +200 + 28 k, one into the 800 block at +100 and 24 at +128 + 28 k;
+ * adr_gamma_refresh (0); tisp_reg_write (ch, d03a0 != 0 ? 7793 : 28960, 1); system_irq_func_set (ch & 0xff, 9 / 31, ...).  Dropped: the vendor's isp_printf
+ * after a failed allocation (a NULL vmalloc result is then a NULL dereference in the vendor).
+ */
+static inline void t32_tmo_init(struct t32_tmo_init_env *e, int ch)
+{
+	u32 *rec, *b;
+	u8 *st, *ctx;
+	u32 k;
+	u8 s1;
+#define VM(sz) ((u32 *)e->vmalloc(e->cb, (sz)))
+#define ADDR(p) ((u32)(uintptr_t)(p))
+#define PTR(a) ((u8 *)(uintptr_t)(a))
+
+	e->hook(e->cb, 0, ch);
+	rec = VM(64);
+	*e->e35e0 = ADDR(rec);
+	memset(rec, 0, 64);
+	rec[1] = ADDR(VM(1176));
+	memset(PTR(rec[1]), 0, 1176);
+	rec[4] = ADDR(VM(0x8530));
+	memset(PTR(rec[4]), 0, 0x8530);
+	rec[5] = ADDR(e->kmalloc(e->cb, 15040, 0x24000c0));
+	rec[0] = e->ctx;
+	rec[2] = ADDR(VM(402));
+	memset(PTR(rec[2]), 0, 402);
+	rec[3] = ADDR(VM(20));
+	memset(PTR(rec[3]), 0, 20);
+	e->hook(e->cb, 1, ch);
+	st = PTR(rec[1]);
+	ctx = PTR(rec[0]);
+	memcpy(st + 377, ctx + 10038, 2);
+	ctx[10042] = 1;
+	rec[10] = e->param[9] & 0xffU;	/* byte 36 of the parameter block (little endian word 9) */
+	e->hook(e->cb, 2, ch);
+	t32_tmo_params_hard_refresh(ctx, st);
+	e->hook(e->cb, 3, ch);
+	e->hook(e->cb, 4, ch);
+	e->hook(e->cb, 5, ch);
+	e->hook(e->cb, 6, ch);
+	e->hook(e->cb, 7, ch);
+	*(u16 *)((u8 *)rec + 56) = 128;
+	for (k = 0; k < 8; k++)
+		*(u16 *)(st + 340 + 2 * k) = 256;
+	e->hook(e->cb, 8, ch);
+	*((u8 *)rec + 52) = st[385];
+	s1 = st[385];
+	if (s1 == 1) {
+		e->hook(e->cb, 9, ch);
+		if (e->d03a0 == s1) {
+			e->hook(e->cb, 10, ch);
+			e->hook(e->cb, 11, ch);
+		} else {
+			e->hook(e->cb, 12, ch);
+			e->hook(e->cb, 13, ch);
+		}
+	}
+	b = (u32 *)e->kmalloc(e->cb, 20, 0x24000c0);
+	*e->e35b0 = ADDR(b);
+	b[0] = ADDR(e->kmalloc(e->cb, 800, 0x24000c0));
+	memset(PTR(b[0]), 0, 800);
+	b[1] = ADDR(e->kmalloc(e->cb, 1140, 0x24000c0));
+	memset(PTR(b[1]), 0, 1140);
+	b[2] = ADDR(e->kmalloc(e->cb, 10056, 0x24000c0));
+	memset(PTR(b[2]), 0, 10056);
+	b[3] = e->param[9] & 0xffU;
+	*e->e3580 = e->param[0];
+	*e->e3570 = e->param[1];
+	*e->e3518 = 1;
+	for (k = 0; k < 24; k++)
+		memcpy(PTR(b[1]) + 200 + 28 * k, e->d88d6, 28);
+	e->hook(e->cb, 14, 0);
+	memcpy(PTR(b[0]) + 100, e->d88d6, 28);
+	for (k = 0; k < 24; k++)
+		memcpy(PTR(b[0]) + 128 + 28 * k, e->d88d6, 28);
+	e->regw(e->cb, ch, e->d03a0 != 0 ? 7793U : 28960U, 1);
+	e->hook(e->cb, 15, ch & 0xff);
+	e->hook(e->cb, 16, ch & 0xff);
+#undef VM
+#undef ADDR
+#undef PTR
+}
