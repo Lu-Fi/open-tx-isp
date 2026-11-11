@@ -24,12 +24,14 @@
 #define BIGN	41000u
 
 WEAK u32 t32_data_e35e0[4];
+WEAK u32 t32_data_e35b0[4];
 WEAK u8 t32_data_c0430[20];
 extern u32 t32o_dma_n, t32o_dma_a[4];
 WEAK u8 t32_data_c029c[402];
 WEAK u8 t32_data_d89a0[402];
 WEAK u8 t32_data_c0544[402];
 WEAK u8 t32_data_d03a0[4];
+WEAK u8 t32_data_ca3bc[64];
 u8 t32_evblk[16] __attribute__((aligned(16)));
 __asm__(".weak t32_data_e3528\n.set t32_data_e3528, t32_evblk\n");
 
@@ -37,16 +39,17 @@ u64 tisp_tmo_ramV_vi0_reg_refresh(u32, u32, u32, u32);
 u64 tisp_tmo_ramV_vi1_reg_refresh(u32, u32, u32, u32);
 u64 tisp_tmo_ramY_vi0_reg_refresh(u32, u32, u32, u32);
 u64 tisp_tmo_ramY_vi1_reg_refresh(u32, u32, u32, u32);
+u64 tisp_tmo_adr_reg_write_every(u32, u32, u32, u32);
 #define FN(x) ((t32o_fn)(void (*)(void))(x))
 
-enum { F_V0, F_V1, F_Y0, F_Y1, F_N };
-static const char *const fname[F_N] = { "ramV_vi0_reg_refresh", "ramV_vi1_reg_refresh", "ramY_vi0_reg_refresh", "ramY_vi1_reg_refresh" };
+enum { F_V0, F_V1, F_Y0, F_Y1, F_EV, F_N };
+static const char *const fname[F_N] = { "ramV_vi0_reg_refresh", "ramV_vi1_reg_refresh", "ramY_vi0_reg_refresh", "ramY_vi1_reg_refresh", "adr_reg_write_every" };
 
 static u32 rs = 0x9a17e3u;
 static u32 rnd(void) { rs ^= rs << 13; rs ^= rs >> 17; rs ^= rs << 5; return rs; }
 static u32 rb(u32 n) { return rnd() % n; }
 
-static u32 CH, EV0, EV1, EV1M, DRC, STR, OC[4], OS[4], OO[4], OG[4], OB[4], OT[4], OD[4], TOT, cur, RDV;
+static u32 OBLK[4], RDV2, CH, EV0, EV1, EV1M, DRC, STR, OC[4], OS[4], OO[4], OG[4], OB[4], OT[4], OD[4], TOT, cur, RDV;
 static u8 D03;
 static u8 IMG[ARN];
 static u8 *VA;
@@ -154,6 +157,7 @@ static void gen(int f)
 		OG[i] = lay(8);
 		OB[i] = lay(BIGN);
 		OT[i] = lay(7520 + 16);
+		OBLK[i] = lay(1000);
 		fillctx(OC[i]);
 		p16(OG[i], rb(3) ? 1 + rb(300) : rnd());
 		p16(OG[i] + 2, rb(3) ? 1 + rb(200) : rnd());
@@ -172,6 +176,7 @@ static void gen(int f)
 	if (f == F_V1 && D03 == 1)
 		CH = 0;		/* the shadow image is armed for channel 0 */
 	RDV = rnd();
+	RDV2 = rb(4) ? 0 : rnd();
 	{ u32 o = OC[CH]; EV0 = near_entry(o + 888); EV1M = near_entry(o + 1008); }
 	EV1 = rb(6) == 0 ? rnd() : 0;
 	{ static const u32 dv[] = { 0, 2, 0x100, 0x101, 0xffff, 0x10001 }; DRC = rb(8) ? 1 : dv[rb(6)]; }
@@ -203,18 +208,21 @@ static void o_lutw(void *c, int ch, u32 reg, u32 val, u32 idx)
 		o_sysw(0, reg, val);
 	}
 }
-static u32 o_rd(void *c, u32 reg) { (void)c; if (reg != 28960) SHN += 1000; return RDV; }
+static u32 o_rd(void *c, u32 reg) { (void)c; if (reg != 28960 && reg != 0x3240cU) SHN += 1000; return reg == 0x3240cU ? RDV2 : RDV; }
 static void o_dma(void *c, u8 *b, u32 n) { (void)c; ODN += n == 7520 ? 1 : 100; ODA = (u32)(b - OA); }
-static u32 rdhook(u32 reg) { return reg == 28960 ? RDV : 0x5a000000u | reg; }
+static u32 rdhook(u32 reg) { return reg == 28960 ? RDV : reg == 0x3240cU ? RDV2 : 0x5a000000u | reg; }
 
 static u32 *VIMG;
 static void run_vendor(int f)
 {
 	u8 *b = VA;
-	u32 *rec = t32o_alloc(4 * 64), i;
+	u32 *rec = t32o_alloc(4 * 64), *bb = t32o_alloc(4 * 16), i;
 
 	for (i = 0; i < 4; i++) {
 		u32 *r = &rec[i * 16];
+
+		bb[i * 4] = T32O_PTR(b + OBLK[i]);
+		t32_data_e35b0[i] = T32O_PTR(&bb[i * 4]);
 
 		r[0] = T32O_PTR(b + OC[i]);
 		r[1] = T32O_PTR(b + OS[i]);
@@ -238,8 +246,9 @@ static void run_vendor(int f)
 	t32o_dma_n = 0;
 	t32o_rd_hook = rdhook;
 	t32o_log.n = 0;
+	t32o_log.printfs = 0;
 	VIMG = D03 == 1 ? t32o_shadow_arm(8192) : 0;
-	t32o_call(FN(f == F_V0 ? tisp_tmo_ramV_vi0_reg_refresh : f == F_V1 ? tisp_tmo_ramV_vi1_reg_refresh : f == F_Y0 ? tisp_tmo_ramY_vi0_reg_refresh : tisp_tmo_ramY_vi1_reg_refresh), CH, 0, 0, 0, 0);
+	t32o_call(FN(f == F_V0 ? tisp_tmo_ramV_vi0_reg_refresh : f == F_V1 ? tisp_tmo_ramV_vi1_reg_refresh : f == F_Y0 ? tisp_tmo_ramY_vi0_reg_refresh : f == F_Y1 ? tisp_tmo_ramY_vi1_reg_refresh : tisp_tmo_adr_reg_write_every), CH, 0, 0, 0, 0);
 }
 
 static void run_ours(int f)
@@ -269,7 +278,8 @@ static void run_ours(int f)
 	if (f == F_V0) t32_tmo_ramV_vi0_reg_refresh(OA + OT[CH], (int)CH, &io);
 	else if (f == F_V1) t32_tmo_ramV_vi1_reg_refresh(OA + OT[CH], (int)CH, &io);
 	else if (f == F_Y0) t32_tmo_ramY_vi0_reg_refresh(&r, (int)CH, &io);
-	else t32_tmo_ramY_vi1_reg_refresh(&r, (int)CH, &io);
+	else if (f == F_Y1) t32_tmo_ramY_vi1_reg_refresh(&r, (int)CH, &io);
+	else t32_tmo_adr_reg_write_every(OA + OBLK[CH], OA + OC[CH], (int)CH, &io);
 }
 
 int main(void)
@@ -293,6 +303,8 @@ int main(void)
 			if (f == F_V1 && D03 == 1) want = 3;
 			if (f == F_Y0) want = 1 + 100 + 1 + 1 + 3 + 2;
 			if (f == F_Y1) want = 101;
+			if (f == F_EV) want = RDV2 ? 0 : 199;
+			if (f == F_EV && t32o_log.printfs != (RDV2 != 0)) { printf("MISMATCH adr_reg_write_every printf count %u (RDV2 %x)\n", t32o_log.printfs, RDV2); return 1; }
 			if (t32o_log.n != OWN || OWN != want || SHN) { printf("MISMATCH %s case %u (d03a0 %u): write count %u / %u (want %u) shn %u\n", fname[f], c, D03, t32o_log.n, OWN, want, SHN); return 1; }
 			for (i = 0; i < OWN; i++)
 				if (t32o_log.w[i].reg != OW[i][0] || t32o_log.w[i].val != OW[i][1]) {
@@ -315,6 +327,6 @@ int main(void)
 				return 1;
 			}
 		}
-	printf("t32_tmo11b_oracle: %u cases compared (4 functions), 0 mismatches\n", compared);
+	printf("t32_tmo11b_oracle: %u cases compared (5 functions), 0 mismatches\n", compared);
 	return 0;
 }

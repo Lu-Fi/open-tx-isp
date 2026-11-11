@@ -2425,3 +2425,44 @@ static inline void t32_tmo_ramY_vi1_reg_refresh(struct t32_tmo_rec *r, int ch, c
 	v = out[200] & 0x1fffU;
 	io->regw(io->cb, ch, io->d03a0 != 0 ? 7972U : 29684U, (v << 16) | v);
 }
+
+/* ---- phase 12c: adr_reg_write_every ---- */
+
+/*
+ * tisp_tmo_adr_reg_write_every (ch): blk = *(t32_data_e35b0[ch]) (the 800 byte adr block), ctx = the channel's context.  r = system_reg_read (0x3240c);
+ * r != 0: only an isp_printf (dropped) and nothing else.  Else: tisp_reg_write (d03a0 == 0 ? 0x32400 / 0x32404 : 16383 for both) = 612, 0x650000;
+ * system_reg_write 0x32300 = 257; 14 x 7 times 0x32304 = pair (u16 at +2, +0, 12 bit) of blk + 128 + 28 j + 4 i; three more 0x32304 pairs
+ * of blk + 520, + 524, + 528; 0x32300 = 0x10102; tisp_reg_write 0x32408 = 1 (always the direct number, vendor quirk); then tisp_reg_write
+ * of 12 bit pairs (shadow 7846 + n / direct 29180 + 4 n): n = 0 .. 7: blk + 68 + 4 n; n = 8 .. 17: ctx + 376 + 4 (n - 8); n = 18: ctx16 [416] alone
+ * (12 bit); n = 19 .. 25 (7865 + .. / 29256 + ..): blk + 100 + 4 (n - 19); then 67 pairs (7973 + k / 29688 + 4 k) of blk + 532 + 4 k.
+ */
+static inline void t32_tmo_adr_reg_write_every(const u8 *blk, const u8 *ctx, int ch, const struct t32_tmo_ramio *io)
+{
+	int s = io->d03a0 != 0;
+	u32 j, i, k;
+#define PAIR(b, o) (((t32_tmo_ld16((b), (o) + 2) & 0xfffU) << 16) | (t32_tmo_ld16((b), (o)) & 0xfffU))
+
+	if (io->rd(io->cb, 0x3240cU) != 0)
+		return;
+	io->regw(io->cb, ch, s ? 16383U : 0x32400U, 612);
+	io->regw(io->cb, ch, s ? 16383U : 0x32404U, 0x650000U);
+	io->sysw(io->cb, 0x32300U, 257);
+	for (j = 0; j < 14; j++)
+		for (i = 0; i < 7; i++)
+			io->sysw(io->cb, 0x32304U, PAIR(blk, 128 + 28 * j + 4 * i));
+	io->sysw(io->cb, 0x32304U, PAIR(blk, 520));
+	io->sysw(io->cb, 0x32304U, PAIR(blk, 524));
+	io->sysw(io->cb, 0x32304U, PAIR(blk, 528));
+	io->sysw(io->cb, 0x32300U, 0x10102U);
+	io->regw(io->cb, ch, 0x32408U, 1);
+	for (k = 0; k < 8; k++)
+		io->regw(io->cb, ch, s ? 7846U + k : 29180U + 4U * k, PAIR(blk, 68 + 4 * k));
+	for (k = 0; k < 10; k++)
+		io->regw(io->cb, ch, s ? 7854U + k : 29212U + 4U * k, PAIR(ctx, 376 + 4 * k));
+	io->regw(io->cb, ch, s ? 7864U : 29252U, t32_tmo_ld16(ctx, 416) & 0xfffU);
+	for (k = 0; k < 7; k++)
+		io->regw(io->cb, ch, s ? 7865U + k : 29256U + 4U * k, PAIR(blk, 100 + 4 * k));
+	for (k = 0; k < 67; k++)
+		io->regw(io->cb, ch, s ? 7973U + k : 29688U + 4U * k, PAIR(blk, 532 + 4 * k));
+#undef PAIR
+}
