@@ -332,9 +332,12 @@ sensor attributes, autozoom, frame-done wait; AE start EV on `/dev/tx-isp`
 `0xc0045436/7`. The AE / AWB / statistics ids are bound to the per-frame AE
 and AWB blocks (`tx_isp_t32_tunblk.c`: the ported `.isra` wrappers, `tisp_[sg]_*`
 API and `t32_aea_*` / `t32_awb_*` block API, so a Set is read by the next AE /
-AWB frame and a Get answers the live statistics and exposure state). AWB runs
-live; the AE context is dropped at stream-on (openimp #350), so the AE ids answer
-the no-context fallback (zeroed blocks, scene kept as set) for now. The other
+AWB frame and a Get answers the live statistics and exposure state). AE and AWB
+run live from stream-on (openimp #350: the AE context built by the statistics
+init is no longer freed by the tisp init). Vendor UB kept: the face AE weight
+id (0x2a, `IMP_ISP_Tuning_SetFaceAeWeiget`; third word = AE smoothing window length) is not
+bounded by the vendor; a value above 221 makes the next AE frame write past the
+AE state block (kernel memory corruption, the vendor module hangs as well). The other
 attributes are still kept per channel and returned (not applied yet). No AF and
 no GSM block in the driver. Sensor fps (`0x08000070`) stays in
 `tx_isp_t32_core.c`, OSD / mask / draw in `tx_isp_t32_isposd.c`. QEMU vs the
