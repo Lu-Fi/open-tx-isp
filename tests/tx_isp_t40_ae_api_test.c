@@ -941,6 +941,47 @@ static void test_oem_split(void)
 	}
 }
 
+/* #239: OEM fine convergence (tisp_ae_long_tune2 tolerance {1150, 950, 1, 1}, sc830ai bin) */
+static void test_fine_trim(void)
+{
+	static const u16 tol[4] = { 1150, 950, 1, 1 };
+	bool st = false;
+	u32 d = 1024, n, lum;
+	double scene = 135.0 / 1024.0;	/* Eufy comp 200: luma 135 at dgain 1x, target 142 */
+
+	for (n = 0; n < 10; n++) {
+		lum = (u32)(scene * d + 0.5);
+		if (!t40_ae_oem_fine_trim(lum, 142, tol, &st, &d, 8192))
+			break;
+	}
+	lum = (u32)(scene * d + 0.5);
+	assert(st && lum + 1 >= 142 && lum <= 143);
+	assert(d > 1024 && d < 1110);
+	/* stable holds inside (950, 1150)/1024 of the target, as the OEM */
+	assert(!t40_ae_oem_fine_trim(132, 142, tol, &st, &d, 8192) && st);
+	assert(!t40_ae_oem_fine_trim(150, 142, tol, &st, &d, 8192) && st);
+	/* outside the exit band: unstable, one dgain step (<= 1.08x) */
+	n = d;
+	assert(t40_ae_oem_fine_trim(100, 142, tol, &st, &d, 8192) && !st);
+	assert(d == n + n / 12U);
+	/* too bright: steps down, never below 1x */
+	d = 2000;
+	st = false;
+	assert(t40_ae_oem_fine_trim(160, 142, tol, &st, &d, 8192) && d == 2000 - 2000 / 13U);
+	d = 1100;
+	assert(t40_ae_oem_fine_trim(160, 142, tol, &st, &d, 8192) && d == 1024);
+	d = 1024;
+	assert(!t40_ae_oem_fine_trim(160, 142, tol, &st, &d, 8192) && d == 1024);
+	/* dgain_max clamps, zero words fall back to the OEM defaults, luma 0 does not divide by zero */
+	d = 1024;
+	st = false;
+	assert(!t40_ae_oem_fine_trim(100, 142, tol, &st, &d, 1024) && d == 1024);
+	d = 1024;
+	assert(t40_ae_oem_fine_trim(0, 142, NULL, &st, &d, 8192) && d == 1024 + 1024 / 12U);
+	assert(!t40_ae_oem_fine_trim(10, 0, tol, &st, &d, 8192));
+	puts("fine_trim ok");
+}
+
 int main(void)
 {
 	test_comp();
@@ -952,6 +993,7 @@ int main(void)
 	test_af_trade();
 	test_gain_cache();
 	test_oem_split();
+	test_fine_trim();
 	puts("tx_isp_t40_ae_api tests passed");
 	return 0;
 }
