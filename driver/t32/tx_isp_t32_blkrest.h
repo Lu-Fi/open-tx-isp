@@ -14,6 +14,7 @@
  * - tisp_day_or_night_s_ctrl: day / night switch (tuning bin, register pair, refresh).
  * - tisp_long_ev_update: long-frame EV to the blocks (forced / on change, bypass bits).
  * - tisp_lce_wake_up: LCE buffer addresses and geometry after a wake-up.
+ * - tisp_long_tgain_update: long-frame total gain to the blocks (forced / on change, bypass bits).
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -872,6 +873,96 @@ static inline u32 t32_lce_wake_up(struct t32_lcw *w, u32 ch)
 	t32_lcw_wr(w, ch, 0xc0a0, 2019, T32_LCW_CURVE_LEN);
 	w->ops->write_curve(ch);
 	return w->ops->write_ctrl_reg(ch);
+}
+
+/* ---- tisp_long_tgain_update (vendor 0x24588), oracle t32_longtg_oracle ---- */
+
+/* bypass bits (register 64 / shadow index 2, as in tisp_long_ev_update): set = skip the block */
+#define T32_LTG_BYP_DPC		0x1
+#define T32_LTG_BYP_GIB		0x2
+#define T32_LTG_BYP_LSC		0x4
+#define T32_LTG_BYP_TMO		0x10
+#define T32_LTG_BYP_DMSC	0x20
+#define T32_LTG_BYP_LCE		0x400
+#define T32_LTG_BYP_MDNS	0x800
+#define T32_LTG_BYP_YDNS	0x1000
+#define T32_LTG_BYP_YSP		0x8000
+#define T32_LTG_BYP_SDNS	0x10000
+#define T32_LTG_BYP_CDNS	0x20000
+#define T32_LTG_BYP_RDNS	0x80000
+
+/* gain updates that take the 64-bit gain (5th / 6th words for LCE) */
+enum t32_ltg_gain { T32_LTG_DPC, T32_LTG_LSC, T32_LTG_LCE, T32_LTG_TMO, T32_LTG_AWB };
+/* refreshes that take the low gain word only */
+enum t32_ltg_ref { T32_LTG_GIB, T32_LTG_DMSC, T32_LTG_MDNS, T32_LTG_YSP, T32_LTG_CDNS, T32_LTG_YDNS, T32_LTG_SDNS,
+		   T32_LTG_RDNS, T32_LTG_AF };
+
+struct t32_ltg_ops {
+	u32 (*reg_read)(u32 ch, u32 reg);	/* tisp_reg_read */
+	/* tisp_dpc_l_gain_update / lsc / lce / tmo / awb _tgain_update(ch, gain[, x, y]); y is the
+	 * vendor's stale stack word outside the forced path (0 here) */
+	void (*gain)(enum t32_ltg_gain blk, u32 ch, u64 gain, u32 x, u32 y);
+	/* tisp_gib_again_update, tisp_<blk>_refresh, tisp_af_tgain_update (ch, gain low word) */
+	void (*refresh)(enum t32_ltg_ref blk, u32 ch, u32 gain);
+};
+
+/*
+ * tisp_long_tgain_update: hand the new long-frame total gain to the blocks:
+ * every block when force == 1 and !keep, else (when the gain changed: low word
+ * against the last one, or a non-zero high word) the blocks whose bypass bit
+ * is clear; AWB and AF always.  The last low gain word is stored.  Always 0.
+ */
+static inline int t32_long_tgain_update(const struct t32_ltg_ops *ops, const u8 *shadow, u32 *last, u32 ch,
+					u64 gain, u32 x, u32 y, u32 force, u32 keep)
+{
+	u32 lo = (u32)gain, byp;
+
+	if (force == 1 && !keep) {
+		ops->gain(T32_LTG_DPC, ch, gain, 0, 0);
+		ops->refresh(T32_LTG_GIB, ch, lo);
+		ops->gain(T32_LTG_LSC, ch, gain, 0, 0);
+		ops->refresh(T32_LTG_DMSC, ch, lo);
+		ops->refresh(T32_LTG_MDNS, ch, lo);
+		ops->refresh(T32_LTG_YSP, ch, lo);
+		ops->refresh(T32_LTG_CDNS, ch, lo);
+		ops->refresh(T32_LTG_YDNS, ch, lo);
+		ops->refresh(T32_LTG_SDNS, ch, lo);
+		ops->gain(T32_LTG_LCE, ch, gain, x, y);
+		ops->gain(T32_LTG_TMO, ch, gain, 0, 0);
+		ops->refresh(T32_LTG_RDNS, ch, lo);
+	} else {
+		if (lo == last[ch] && !(gain >> 32))
+			return 0;
+		byp = ops->reg_read(ch, *shadow ? T32_LEV_S_BYPASS : T32_LEV_R_BYPASS);
+		if (!(byp & T32_LTG_BYP_DPC))
+			ops->gain(T32_LTG_DPC, ch, gain, 0, 0);
+		if (!(byp & T32_LTG_BYP_GIB))
+			ops->refresh(T32_LTG_GIB, ch, lo);
+		if (!(byp & T32_LTG_BYP_LSC))
+			ops->gain(T32_LTG_LSC, ch, gain, 0, 0);
+		if (!(byp & T32_LTG_BYP_DMSC))
+			ops->refresh(T32_LTG_DMSC, ch, lo);
+		if (!(byp & T32_LTG_BYP_MDNS))
+			ops->refresh(T32_LTG_MDNS, ch, lo);
+		if (!(byp & T32_LTG_BYP_YSP))
+			ops->refresh(T32_LTG_YSP, ch, lo);
+		if (!(byp & T32_LTG_BYP_CDNS))
+			ops->refresh(T32_LTG_CDNS, ch, lo);
+		if (!(byp & T32_LTG_BYP_YDNS))
+			ops->refresh(T32_LTG_YDNS, ch, lo);
+		if (!(byp & T32_LTG_BYP_SDNS))
+			ops->refresh(T32_LTG_SDNS, ch, lo);
+		if (!(byp & T32_LTG_BYP_LCE))
+			ops->gain(T32_LTG_LCE, ch, gain, x, 0);
+		if (!(byp & T32_LTG_BYP_TMO))
+			ops->gain(T32_LTG_TMO, ch, gain, 0, 0);
+		if (!(byp & T32_LTG_BYP_RDNS))
+			ops->refresh(T32_LTG_RDNS, ch, lo);
+	}
+	ops->gain(T32_LTG_AWB, ch, gain, 0, 0);
+	ops->refresh(T32_LTG_AF, ch, lo);
+	last[ch] = lo;
+	return 0;
 }
 
 #endif /* TX_ISP_T32_BLKREST_H */
