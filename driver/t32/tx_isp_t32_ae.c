@@ -18,9 +18,9 @@
  * total gain, log2 Q16) is kept for the per-frame block refresh
  * (t32_long_tgain_update in tx_isp_t32_tisp.c), which used the fixed
  * tisp_tgain before; on a change it also goes to the AWB (tisp_awb_tgain_update,
- * t32_awbc_tgain).  Event 6 (the long EV) goes to the AWB on a change
- * (tisp_awb_ev_update, t32_awbc_ev); its other users (gamma / CCM / defog /
- * BCSH / TMO / WDR) and event 5 (again) are not wired yet.
+ * t32_awbc_tgain).  Event 6 (the long EV) runs tisp_long_ev_update
+ * (t32_ctup_ev: AWB, CCM, BCSH; gamma / defog / TMO / WDR not wired); event 5
+ * (again) is not wired yet.
  *
  * The vendor runs the interrupt part in the IRQ and the process in its event
  * thread; here both run in one work item (the sensor calls sleep on I2C).
