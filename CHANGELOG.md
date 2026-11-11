@@ -28,6 +28,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `tx_isp_t32_ldcioctl.h` + `t32_ldcioctl_oracle` (planned, host only): ldc_offline_unlocked_ioctl (offline LDC frame: copy attributes, set, wait 1000 ms) and ldc_core_ops_ioctl (online enable / attributes / done flag / core op): 20000 calls, callee order and arguments, private block, user buffer and return bit-exact, 29/29 mutations detected.
 - `tx_isp_t32_libset.h` + `t32_libset_oracle` (planned, host only): lib_tisp_set_csccr (CSCCR range switch per running channel, start mode otherwise) and lib_tisp_set_wdr_setting (WDR on / off in the top control): 20000 calls, register reads / writes / tisp_reg_write order, channel state and return bit-exact, d03a0 = 0 and 1, 28/28 mutations detected.
 - `tx_isp_t32_libreset.h` + `t32_libreset_oracle` (planned, host only): lib_tisp_all_reset (interrupt clear, reset request / acknowledge poll, core control poll, logs): 1000 runs incl. the 10000-poll boundaries, every register access in order, logs and return bit-exact, 15/15 mutations detected.
+- `tx_isp_t32_libfile.h` + `t32_libfile_oracle` (planned, host only): lib_tisp_save_file (filp_open, set_fs, vfs_write at f_pos, filp_close): 20000 calls, OS call order / arguments and return bit-exact, 12/12 mutations detected.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
