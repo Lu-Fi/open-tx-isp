@@ -2216,7 +2216,7 @@ static inline int32_t muls_dp_d(int32_t a, int32_t b) {
     int64_t result = (int64_t)a * (int64_t)b;
     return (int32_t)(result >> 32);
 }
-static uint32_t adr_gauss_local;
+static uint32_t adr_gauss_local[24]; /* OEM adr_gauss_local table (24 words, t40_adr_gauss_w) */
 static unsigned char __attribute__((aligned(4))) adr_kneepoint_x[32] = {
     0x00, 0x00, 0x08, 0x00, 0x10, 0x00, 0x20, 0x00, 0x40, 0x00, 0x80, 0x00, 0xc0, 0x00, 0x00, 0x01, 
     0x80, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x06, 0x00, 0x08, 0x00, 0x0c, 0x00, 0x10, 
@@ -110825,7 +110825,7 @@ int32_t tisp_adr_linear_switch(uint32_t a0, uint32_t a1)
         }
     }
 
-    func_gauss_local(&adr_gauss_local, a0);
+    func_gauss_local(adr_gauss_local, a0);
     func_adr_reg_write_every(a0);
     func_adr_reg_write_sometimes(a0);
     return 0;
@@ -110938,7 +110938,7 @@ tisp_adr_linear_switch0x1b0:
 
 tisp_adr_linear_switch0x1b8:
     /* fragment 25: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(&adr_gauss_local, s2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(adr_gauss_local, s2); /* jalr target resolved by relocation */
 
     /* fragment 26: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)func_adr_reg_write_every)(s2); /* jalr target resolved by relocation */
@@ -111209,7 +111209,7 @@ static int regtrace_tisp_adr_main_init_direct(uint32_t width, uint32_t height)
     if (regtrace_adr_main_init_stage_limit == 3)
         goto out;
 
-    ret = func_gauss_local((int32_t *)&adr_gauss_local, 0);
+    ret = func_gauss_local((int32_t *)adr_gauss_local, 0);
     if (ret)
         goto out;
 
@@ -111630,7 +111630,7 @@ tisp_adr_main_init0x588:
     v0 = (uintptr_t *)memcpy((void *)(uintptr_t)(*(uint32_t *)((char *)((char *)&adr_w_5x5_dis_main))), (void *)(uintptr_t)(*(uint32_t *)((char *)(*(uint32_t *)((char *)((char *)&adr_main_hard_base))) + 28)), 62); /* jalr target resolved by relocation */
 
     /* fragment 79: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(&adr_gauss_local, 0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(adr_gauss_local, 0); /* jalr target resolved by relocation */
 
     /* fragment 80: CallSetup */
     if (regtrace_enable_adr_reg_writes) {
@@ -111823,7 +111823,7 @@ int32_t tisp_adr_sec_init(uint32_t arg1, uint32_t arg2)
     memcpy(data_a88bc, *(void **)((char *)data_a8914 + 4), 0xe);
     memcpy(data_a88c8, *(void **)((char *)data_a8914 + 0x1c), 0x3e);
     
-    func_gauss_local(&adr_gauss_local, 1);
+    func_gauss_local(adr_gauss_local, 1);
     func_adr_reg_write_one(1);
     func_adr_reg_write_5x5(1);
     func_adr_reg_write_sometimes(1);
@@ -111958,7 +111958,7 @@ tisp_adr_dn_params_refresh0x184:
 
 tisp_adr_dn_params_refresh0x18c:
     /* fragment 25: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(&adr_gauss_local, s2); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(adr_gauss_local, s2); /* jalr target resolved by relocation */
 
     /* fragment 26: CallSetup */
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)func_adr_reg_write_one)(s2); /* jalr target resolved by relocation */
@@ -114275,13 +114275,13 @@ int64_t Tiziano_adr_fpga(uintptr_t a0, uint32_t a1)
     uint32_t local_1c = 0;
     uint32_t *local_20 = 0;
     uint32_t local_28 = 0;
-    uint32_t local_88 = 0;
-    uint32_t local_c0 = 0;
-    uint32_t local_f8 = 0;
-    uint32_t local_130 = 0;
-    uint32_t local_168 = 0;
-    uint32_t local_1a0 = 0;
-    uint32_t local_1d8 = 0;
+    uint32_t local_88[14] = {0}; /* vendor: 56-byte slot, stride-4 loops */
+    uint32_t local_c0[14] = {0}; /* vendor: 56-byte slot, stride-4 loops */
+    uint32_t local_f8[14] = {0}; /* vendor: 56-byte slot, stride-4 loops */
+    uint32_t local_130[14] = {0}; /* vendor: 56-byte slot, stride-4 loops */
+    uint32_t local_168[14] = {0}; /* vendor sp+360: 56-byte slot, 14 words written by the loop at 0x904 */
+    uint32_t local_1a0[14] = {0}; /* vendor: 56-byte slot, stride-4 loops */
+    uint32_t local_1d8[14] = {0}; /* vendor: 56-byte slot, stride-4 loops */
     char local_1da[32];
     char local_1fc[32];
     uint32_t local_21c = 0;
@@ -114357,30 +114357,30 @@ int64_t Tiziano_adr_fpga(uintptr_t a0, uint32_t a1)
     uint32_t local_3dc = 0;
     uint32_t local_3e0 = 0;
     uint32_t local_3e4 = 0;
-    uintptr_t *a2 = 0;
-    uintptr_t *a3 = 0;
+    uintptr_t a2 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t a3 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
     uint32_t ra = 0;
-    uint32_t *s0 = 0;
-    uintptr_t *s1 = 0;
-    uint32_t *s2 = 0;
-    uintptr_t *s3 = 0;
-    uintptr_t *s4 = 0;
+    uintptr_t s0 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t s1 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t s2 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t s3 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t s4 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
     uint32_t s5 = 0;
     uint32_t s6 = 0;
     uint32_t s7 = 0;
     uintptr_t s8 = 0;
     uintptr_t t0 = 0;
-    uintptr_t *t1 = 0;
-    uintptr_t *t2 = 0;
-    uintptr_t *t3 = 0;
-    uintptr_t *t4 = 0;
-    uintptr_t *t5 = 0;
-    uintptr_t *t6 = 0;
+    uintptr_t t1 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t t2 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t t3 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t t4 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t t5 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t t6 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
     uintptr_t t7 = 0;
-    uint32_t *t8 = 0;
+    uintptr_t t8 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
     uint32_t t9 = 0;
-    uintptr_t *v0 = 0;
-    uintptr_t *v1 = 0;
+    uintptr_t v0 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
+    uintptr_t v1 = 0; /* byte arithmetic like the vendor asm (was a typed pointer: += n scaled by sizeof) */
 
     /* fragment 0: Prologue */
     /* function prologue: stack frame and callee-saved register setup */
@@ -114517,7 +114517,7 @@ int64_t Tiziano_adr_fpga(uintptr_t a0, uint32_t a1)
     v0 = 10;
 
     /* fragment 11: StackAccess */
-    local_1d8 = v0;
+    local_1d8[0] = v0;
     v0 = *(uint16_t *)((char *)s8 + 2);
     t2 = *(uint16_t *)((char *)s8 + 0);
     a1 = local_2f8;
@@ -114662,7 +114662,8 @@ Tiziano_adr_fpga0x364:
     if (a2 != a0) { goto Tiziano_adr_fpga0x1018; }
 
     /* fragment 34: ConstantLoad */
-    a0 = 0x0;
+    a0 = (uintptr_t)adr_gauss_local; /* vendor 5b8b0: lui/addiu adr_gauss_local, 5b8b8: addu a0,a0,a1 (a1 = idx << 2) */
+    a0 = a0 + a1;
 
     /* fragment 35: MemoryAccess */
     a0 = *(uint32_t *)((char *)a0 + 0);
@@ -114710,7 +114711,8 @@ Tiziano_adr_fpga0x3a4:
     if (a0 != a2) { goto Tiziano_adr_fpga0x3e8; }
 
     /* fragment 46: ConstantLoad */
-    v0 = 0x0;
+    v0 = (uintptr_t)adr_gauss_local; /* vendor 5b910: adr_gauss_local, 5b918: addu v0,v0,a1 */
+    v0 = v0 + a1;
 
     /* fragment 47: MemoryAccess */
     v0 = *(uint32_t *)((char *)v0 + 0);
@@ -115181,7 +115183,8 @@ Tiziano_adr_fpga0x888:
     *(uint16_t *)((char *)s1 + 16) = ((*(uint16_t *)((char *)(s1) + 4)) + (*(uint16_t *)((char *)(s1) + 6)));
     local_14 = 16;
     local_10 = 8;
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)func_interp1_short)(a0); /* jalr target resolved by relocation */
+    /* vendor 5bde4..5be24: a3 = &local_1fc (addiu a3,sp,508), a2 = s2 in the jalr delay slot, a0/a1 as set up in fragments 112/115; the lift passed only a0 */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t, uintptr_t))(uintptr_t)func_interp1_short)(a0, a1, s2, (uintptr_t)local_1fc, 8, 16); /* jalr target resolved by relocation */
 
     /* fragment 137: Arithmetic */
     v1 = (int32_t *)&local_168;
@@ -115297,7 +115300,7 @@ Tiziano_adr_fpga0x9e0:
     if (v1 != 0) { goto Tiziano_adr_fpga0x1244; }
 
     /* fragment 160: StackAccess */
-    local_130 = v0;
+    local_130[0] = v0;
 
 Tiziano_adr_fpga0x9ec:
     /* fragment 161: MemoryAccess */
@@ -117274,7 +117277,7 @@ tisp_adr_param_array_set0x1c:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t))(uintptr_t)func_adr_reg_write_sometimes)(s0); /* jalr target resolved by relocation */
 
     /* fragment 7: CallSetup */
-    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(&adr_gauss_local, s0); /* jalr target resolved by relocation */
+    v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t))(uintptr_t)func_gauss_local)(adr_gauss_local, s0); /* jalr target resolved by relocation */
 
     /* fragment 8: Epilogue */
     /* function epilogue: restore registers and return */
