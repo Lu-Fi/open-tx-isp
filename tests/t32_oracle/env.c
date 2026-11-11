@@ -874,3 +874,17 @@ char t32_data_ccb3c[12] __attribute__((weak)) = "interval", t32_data_ccb48[8] __
 __asm__(".section .data\n.weak t32_data_c311c\n.balign 4\nt32_data_c311c:\n.long t32_data_ccb2c, t32_data_ccb34, t32_data_ccb3c, t32_data_ccb48\n.previous");
 u32 t32_data_c4888[1] __attribute__((weak)), t32_data_c48a8[1] __attribute__((weak)), t32_data_c48c0[1] __attribute__((weak));
 u32 t32_data_ccae8[1] __attribute__((weak));
+/* isp_vic_cmd_set: bss d9328 (33 B text buffer), data ced78 (raw mode, 2 at load), the DMA ops pointer;
+ * c3ae4 "snapraw", c3bb0 "mode", c3bf8 "help"; seq_printf / isp_printf formats by address only */
+u8 t32_data_d9328[64] __attribute__((weak, aligned(4)));
+u32 t32_data_ced78[1] __attribute__((weak)) = { 2 };
+u32 mips_dma_map_ops __attribute__((weak));
+char t32_data_c3ae4[8] __attribute__((weak)) = "snapraw", t32_data_c3bb0[8] __attribute__((weak)) = "mode";
+char t32_data_c3bf8[8] __attribute__((weak)) = "help";
+u32 t32_data_c3acc[1] __attribute__((weak)), t32_data_c3aec[1] __attribute__((weak)), t32_data_bd81c[1] __attribute__((weak));
+u32 t32_data_c3b00[1] __attribute__((weak)), t32_data_c3b20[1] __attribute__((weak)), t32_data_c3b7c[1] __attribute__((weak));
+u32 t32_data_c3b9c[1] __attribute__((weak)), t32_data_c3bb8[1] __attribute__((weak)), t32_data_c3be0[1] __attribute__((weak));
+u32 t32_data_c3c00[1] __attribute__((weak)), t32_data_c3c04[1] __attribute__((weak)), t32_data_c3c0c[1] __attribute__((weak));
+u32 t32_data_c3c14[1] __attribute__((weak)), t32_data_c3c20[1] __attribute__((weak)), t32_data_c3c5c[1] __attribute__((weak));
+u32 t32_data_c3ca8[1] __attribute__((weak)), t32_data_c3cc4[1] __attribute__((weak)), t32_data_c3cf8[1] __attribute__((weak));
+u32 t32_data_c3d04[1] __attribute__((weak)), t32_data_c3d50[1] __attribute__((weak));
