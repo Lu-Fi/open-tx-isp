@@ -5,6 +5,7 @@
  * - tisp_awb_deinit: free the per channel AWB buffers.
  * - tisp_vic_mdma_enable: VIC memory DMA size, strides, buffer addresses, enable.
  * - tisp_ae_algo_init: fill the AE algorithm init block from tuning / parameters.
+ * - tisp_ae_ai_interrupt_static: AE statistics latch, window area, ROI point.
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -37,6 +38,7 @@ typedef uint16_t u16;
 static inline u8 *t32_br_ptr(u32 addr) { return (u8 *)(uintptr_t)addr; }
 static inline u32 t32_br_rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
 static inline void t32_br_wr32(u8 *p, u32 v) { memcpy(p, &v, 4); }
+static inline u16 t32_br_rd16(const u8 *p) { u16 v; memcpy(&v, p, 2); return v; }
 
 /* ---- tisp_awb_deinit (vendor 0x3b89c), oracle t32_awbdein_oracle ---- */
 
@@ -250,6 +252,69 @@ static inline void t32_ae_algo_init(struct t32_aea *a, u32 ch, u32 enable, struc
 	info->w0 = info->w1 = 15;
 	memset(info->undef, 0, sizeof(info->undef));
 	memcpy(info->zone, a->zone + T32_AEA_ZONE_STRIDE * ch + T32_AEA_ZONE_WORD, 4);
+}
+
+/* ---- tisp_ae_ai_interrupt_static (vendor 0x30df0), oracle t32_aeirq_oracle ---- */
+
+#define T32_AEI_R_STAT0		0x1709c	/* 3 statistics words, compared with tuning +7448 */
+#define T32_AEI_R_STAT3		0x170a8	/* 3 more words, stored at tuning +7460 */
+#define T32_AEI_R_WIN_X		0x17090	/* window start (lo) / end (hi) */
+#define T32_AEI_R_WIN_Y		0x17094
+#define T32_AEI_TUN_LAST	7448	/* last 3 statistics words */
+#define T32_AEI_TUN_NEXT	7460
+#define T32_AEI_PAR_AREA	1288	/* window area / 4 */
+#define T32_AEI_PAR_ROI		1500	/* 4 u16 roi words, 4 bytes apart */
+
+struct t32_aeirq_ops {
+	u32 (*reg_read)(u32 reg);
+	void (*roi_point)(u32 ch, u32 r0, u32 r1, u32 r2, u32 r3);	/* tisp_ae_roi_point */
+};
+
+struct t32_aeirq {
+	const struct t32_aeirq_ops *ops;
+	const u32 *par;		/* t32_data_e1588[4]: AE parameter block */
+	const u32 *ctx;		/* t32_data_e15a8[4]: AE context, +4 tuning block */
+};
+
+static inline u8 *t32_aeirq_tun(const struct t32_aeirq *a, u32 ch)
+{
+	return t32_br_ptr(t32_br_rd32(t32_br_ptr(a->ctx[ch]) + 4));
+}
+
+/*
+ * tisp_ae_ai_interrupt_static: latch the 6 statistics words; when the first
+ * three changed, store them and redo the window area (each window register
+ * is read twice, as in the vendor); then the ROI point.  Always 1.
+ */
+static inline int t32_ae_ai_interrupt_static(struct t32_aeirq *a, u32 ch)
+{
+	u8 *par = t32_br_ptr(a->par[ch]), *tun;
+	u32 st[3], i, xs, xe, ys, ye;
+
+	for (i = 0; i < 3; i++)
+		st[i] = a->ops->reg_read(T32_AEI_R_STAT0 + 4 * i);
+	for (i = 0; i < 3; i++) {
+		u32 v = a->ops->reg_read(T32_AEI_R_STAT3 + 4 * i);
+
+		t32_br_wr32(t32_aeirq_tun(a, ch) + T32_AEI_TUN_NEXT + 4 * i, v);
+	}
+	tun = t32_aeirq_tun(a, ch);
+	if (st[0] != t32_br_rd32(tun + T32_AEI_TUN_LAST) || st[1] != t32_br_rd32(tun + T32_AEI_TUN_LAST + 4) ||
+	    st[2] != t32_br_rd32(tun + T32_AEI_TUN_LAST + 8)) {
+		for (i = 0; i < 3; i++)
+			t32_br_wr32(tun + T32_AEI_TUN_LAST + 4 * i, st[i]);
+		xs = a->ops->reg_read(T32_AEI_R_WIN_X) & 0xffff;
+		xe = a->ops->reg_read(T32_AEI_R_WIN_X) >> 16;
+		ys = a->ops->reg_read(T32_AEI_R_WIN_Y) & 0xffff;
+		ye = a->ops->reg_read(T32_AEI_R_WIN_Y) >> 16;
+		t32_br_wr32(par + T32_AEI_PAR_AREA, (xe - xs) * (ye - ys) >> 2);
+	}
+	par = t32_br_ptr(a->par[ch]);
+	a->ops->roi_point(ch & 0xff, t32_br_rd16(par + T32_AEI_PAR_ROI),
+			  t32_br_rd16(par + T32_AEI_PAR_ROI + 4),
+			  t32_br_rd16(par + T32_AEI_PAR_ROI + 8),
+			  t32_br_rd16(par + T32_AEI_PAR_ROI + 12));
+	return 1;
 }
 
 #endif /* TX_ISP_T32_BLKREST_H */
