@@ -853,6 +853,8 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_hw_stats.awb_irqs);
 	seq_printf(m, "bring-up controller (not the vendor AE): steps %u, mean %u/16, it %u lines\n",
 		   t32_hw_stats.bringup_steps, t32_hw_stats.bringup_mean16, t32_hw_stats.bringup_it);
+	seq_printf(m, "per-frame ported paths: runs %u, writes %u\n",
+		   t32_pf_stats.runs, t32_pf_stats.writes);
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
 	t32_fs_show(m);
