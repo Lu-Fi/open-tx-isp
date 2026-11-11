@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T32 rest (op20; planned, host only, not device-tested)
+
+- New `driver/t32/tx_isp_t32_librest.h`: tisp_ae_deinit (frees AE state blocks P / Q, statistics block with its buffer, context with its tuning block; vendor order and the vendor clears of the statistics words +16 / +20) and tisp_intp_static_clear (debug snapshot clear; vendor UB kept and documented: memcpy from NULL, no caller). `t32_aedein_oracle`: 20000 cases, every kfree in order, all tables and blocks, 15/15 mutations; `t32_intpclr_oracle`: 4000 cases, calls, objects with canaries, return, 12/12 mutations.
+
 ## 2026-11-11: T32 block leftovers (op11; planned, host only, not device-tested)
 
 - New `driver/t32/tx_isp_t32_wrap.h`: the empty stub tisp_msca_Shd_ctrl, 9 one-call wrappers (face get/set, ae/awb_algo_deinit, api_ae_get_reg_state, msca_channel_start / irq_frame_done; callees through `struct t32_wrap_ops`) and 5 accessors (AE/AWB deinit_internal run flags, day_or_night_g_ctrl, single_lsc_reg_read / _lut_read). `t32_wrap_oracle`: 300000 calls against Matt Davis' recovered C, return values, callee order/arguments and state bit-exact, 23/23 mutations.
