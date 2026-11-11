@@ -36,6 +36,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `tx_isp_t32_libvicp.h` + `t32_libvicp_oracle` (planned, host only): lib_tisp_vic_set_par and lib_tisp_vic_save_raw (raw stride / frame / buffer size, raw buffer from kmalloc / ISP buffer / MDNS buffer / caller, snapshot file names): 30000 calls, callee / trace / register order, .bss block, cleared buffer and return bit-exact, 24/24 mutations detected.
 - `tx_isp_t32_libcore.h` + `t32_libcore_oracle` (planned, host only): lib_tisp_core_reset (single-camera frame-drop check or per MSCA channel re-arm from the done list / free list with list_move_tail, LDC reflash, rcfg trigger): 30000 calls, callee order / arguments, every list link, .bss flags and return bit-exact, 22/22 mutations detected.
 - `tx_isp_t32_librefresh.h` + `t32_librefresh_oracle` (planned, host only): lib_tisp_refresh_para (IQ bin re-parse, day-night refresh of all blocks in vendor order, refresh state and wake-up): 20000 calls, callee order / arguments, tuning bytes, state bytes and return bit-exact, 16/16 mutations detected.
+- `tx_isp_t32_libvici.h` + `t32_libvici_oracle` (planned, host only): lib_tisp_vic_intp_handle (per VIC status / DMA status counters, raw re-arm, frame status bytes, error log, acknowledge, raw frame completion): 30000 calls, register reads / writes / callee order, .bss block, both VIC configs and the result bit-exact, 31/31 mutations detected.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 

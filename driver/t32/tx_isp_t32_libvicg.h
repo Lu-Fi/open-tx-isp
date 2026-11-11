@@ -76,7 +76,8 @@ struct t32_vic_glob {
 	u32 raw_dma;		/* e3f2c: raw buffer DMA address */
 	void *raw_buf;		/* e3f30: raw buffer */
 	u8 par[20];		/* e3f34 */
-	u8 b48;			/* e3f48 */
+	u8 b48;			/* e3f48: raw frames left to capture */
+	u8 b49;			/* e3f49: raw frames captured (lib_tisp_vic_intp_handle) */
 	u32 frame_cnt;		/* e3f4c */
 	u8 wq[16];		/* e3f50: frame wait queue */
 };
