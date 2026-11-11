@@ -73,7 +73,7 @@ module_param(t32_ported_paths, uint, 0644);
 MODULE_PARM_DESC(t32_ported_paths,
 		 "1 (default): every wired per-frame block on its ported path; 0: all on the old path; "
 		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib, 8 rdns, 9 ae, "
-		 "10 lsc, 11 lce, 12 tmo (not wired))");
+		 "10 lsc, 11 lce, 12 tmo)");
 
 static unsigned int tisp_tgain = 0x10000;
 module_param(tisp_tgain, uint, 0644);
@@ -183,7 +183,8 @@ static void pf_gain(enum t32_ltg_gain blk, u32 ch, u64 gain, u32 x, u32 y)
 		struct t32_lcem l = { .ops = &pf_lcem_ops, .st = { pf.lce_st } };
 
 		t32_lce_tgain_update(&l, 0, (u32)gain, (u32)(gain >> 32), x, y);
-	}
+	} else if (blk == T32_LTG_TMO)
+		t32_tmo_tgain(ch, gain);	/* tisp_tmo_tgain_update (tx_isp_t32_tmo.c) */
 	pf_flush(n);
 }
 
@@ -297,6 +298,7 @@ static void pf_free_locked(void)
 	kfree(pf.rdns.param);
 	kfree(pf.lsc.sec);
 	t32_blk_lce_detach();	/* the block interrupts stop using the state first */
+	t32_tmo_detach();	/* tisp_tmo_deinit (tx_isp_t32_tmo.c) */
 	vfree(pf.lce_st);
 	kfree(pf.lce_sec);
 	memset(&pf, 0, sizeof(pf));
