@@ -484,12 +484,14 @@ long t32_tunctl_ctrl(u32 *w, unsigned long arg)
 	u32 ch = w[0];
 	int r;
 
+	mutex_lock(&t32_tc_lock);
+	t32_tc_refresh(ch);	/* also on the first (fps) request: the setup snapshot */
+	mutex_unlock(&t32_tc_lock);
 	if (!t32_tc_served(w[2]))
 		return -ENOIOCTLCMD;
 	if (ch >= T32_TC_CH)
 		return -EINVAL;
 	mutex_lock(&t32_tc_lock);
-	t32_tc_refresh(ch);
 	if (!w[1]) {
 		r = t32_tx_core_ops_s_ctrl(ch, T32_TX_A(t32_tc_isp), T32_TX_A(&w[2]));
 	} else {
