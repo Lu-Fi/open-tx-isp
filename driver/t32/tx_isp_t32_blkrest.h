@@ -15,6 +15,7 @@
  * - tisp_long_ev_update: long-frame EV to the blocks (forced / on change, bypass bits).
  * - tisp_lce_wake_up: LCE buffer addresses and geometry after a wake-up.
  * - tisp_long_tgain_update: long-frame total gain to the blocks (forced / on change, bypass bits).
+ * - tisp_api_param_array_set: ISP API parameter write by id (copy in, then the block setter).
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -963,6 +964,168 @@ static inline int t32_long_tgain_update(const struct t32_ltg_ops *ops, const u8 
 	ops->refresh(T32_LTG_AF, ch, lo);
 	last[ch] = lo;
 	return 0;
+}
+
+/* ---- tisp_api_param_array_set (vendor 0xb2c38), oracle t32_apiset_oracle ---- */
+
+/* the MSCA parameter block (T32_API_MSCA_PAR_LEN bytes per channel), fields used here */
+#define T32_APS_CHN_SEL		12	/* u8: output channel for mirror / flip and crop */
+#define T32_APS_BLK_SEL		13	/* u8: mask / OSD block for the block attribute */
+#define T32_APS_CHN_STRIDE	872	/* per output channel: */
+#define T32_APS_CHN_CROP	38	/*   five u16 crop words */
+#define T32_APS_CHN_CROP_LEN	10
+#define T32_APS_CHN_MF		48	/*   u32 mirror / flip bits (low 6 used) */
+#define T32_APS_MASK_BLK	116	/* mask blocks, 28 B each */
+#define T32_APS_MASK_STRIDE	28
+#define T32_APS_MASK_EN		676	/* u8 */
+#define T32_APS_OSD_BLK		680	/* OSD blocks, 20 B each */
+#define T32_APS_OSD_STRIDE	20
+#define T32_APS_OSD_FIRST	840	/* u8 */
+#define T32_APS_OSD_W0		844	/* u8 per layer: words 0 .. 2 at 844 / 842 / 846 + layer */
+#define T32_APS_OSD_W1		842
+#define T32_APS_OSD_W2		846
+#define T32_APS_OSD_DATA	848	/* 16 B per layer */
+#define T32_APS_OSD_DATA_LEN	16
+
+#define T32_APS_DRAW_LEN	34	/* tisp_s_draw_block_attr argument */
+#define T32_APS_OSD_LEN		30	/* tisp_s_osd_attr argument (one layer), reused for the block */
+
+enum t32_aps_bcsh { T32_APS_BRIGHT, T32_APS_CONTRAST, T32_APS_SATURATION, T32_APS_HUE };
+
+struct t32_apis_ops {
+	u32 (*dn_s_ctrl)(u32 ch, u32 dn, u32 dn8);		/* tisp_day_or_night_s_ctrl */
+	u32 (*mask_out_cfg)(u32 ch, u8 *cfg);			/* tisp_msca_api_set_mask_out_cfg */
+	u32 (*draw_block)(u32 ch, u8 *attr);			/* tisp_s_draw_block_attr */
+	u32 (*osd_attr)(u32 ch, u8 *attr);			/* tisp_s_osd_attr */
+	u32 (*osd_block)(u32 ch, u8 *attr);			/* tisp_s_osd_block_attr */
+	u32 (*mirr_flip)(u32 ch, u8 *mf);			/* tisp_msca_set_mirr_flip */
+	u32 (*fcrop)(u32 ch, u32 w0, u32 w1, u32 w2, u32 w3, u32 w4);	/* tisp_s_fcrop_control */
+	u32 (*crop)(u32 ch, u32 sel, u8 *rect);			/* tisp_msca_api_crop */
+	u32 (*bcsh)(enum t32_aps_bcsh what, u32 ch, u8 *v);	/* tisp_bcsh_api_set_<what> */
+	u32 (*sharpness)(u32 ch, u32 v);			/* tisp_set_sharpness */
+	u32 (*autozoom)(u32 ch, u8 *buf);			/* tisp_msca_api_set_autozoom */
+};
+
+struct t32_apis {
+	const struct t32_apis_ops *ops;
+	u8 *mask_attr;		/* t32_data_f3258 */
+	u8 *mask_out;		/* t32_data_e4000 */
+	u8 *msca_par;		/* t32_data_f0928 */
+};
+
+static inline void t32_aps_put32(u8 *p, u32 v) { memcpy(p, &v, 4); }
+static inline u32 t32_aps_get32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
+
+/* id 3: the selected mask block as the draw-block attribute */
+static inline u32 t32_aps_draw_block(struct t32_apis *a, u32 ch, const u8 *par)
+{
+	u8 attr[T32_APS_DRAW_LEN];
+	u32 sel = par[T32_APS_BLK_SEL], w;
+	const u8 *e = par + T32_APS_MASK_BLK + T32_APS_MASK_STRIDE * sel;
+
+	memset(attr, 0, sizeof(attr));
+	attr[0] = sel;
+	attr[1] = par[T32_APS_MASK_EN];
+	t32_aps_put32(attr + 4, e[0]);
+	attr[12] = e[4];
+	memcpy(attr + 14, e + 6, 8);		/* four u16 */
+	w = t32_aps_get32(e + 16);		/* colour, stored byte-reversed */
+	attr[25] = w >> 16;
+	attr[26] = w >> 8;
+	attr[27] = w;
+	attr[28] = e[20];
+	attr[29] = e[21];
+	memcpy(attr + 30, e + 22, 2);
+	attr[32] = e[24];
+	return a->ops->draw_block(ch, attr);
+}
+
+/* id 4: both OSD layers, then the selected OSD block (in layer 1's buffer) */
+static inline u32 t32_aps_osd(struct t32_apis *a, u32 ch, const u8 *par)
+{
+	u8 lay[2][T32_APS_OSD_LEN];
+	u32 k, sel = par[T32_APS_BLK_SEL];
+	const u8 *e = par + T32_APS_OSD_BLK + T32_APS_OSD_STRIDE * sel;
+	u8 *b = lay[1];
+
+	for (k = 0; k < 2; k++) {
+		t32_aps_put32(lay[k] + 0, par[T32_APS_OSD_W0 + k]);
+		t32_aps_put32(lay[k] + 4, par[T32_APS_OSD_W1 + k]);
+		t32_aps_put32(lay[k] + 8, par[T32_APS_OSD_W2 + k]);
+		memcpy(lay[k] + 12, par + T32_APS_OSD_DATA + T32_APS_OSD_DATA_LEN * k, T32_APS_OSD_DATA_LEN);
+		lay[k][28] = par[T32_APS_OSD_FIRST];
+		lay[k][29] = k;
+	}
+	a->ops->osd_attr(ch, lay[0]);
+	a->ops->osd_attr(ch, lay[1]);
+	b[0] = sel;
+	b[1] = e[0];
+	memcpy(b + 2, e + 2, 8);		/* four u16 */
+	memcpy(b + 12, e + 12, 4);
+	memcpy(b + 16, e + 16, 2);
+	return a->ops->osd_block(ch, b);
+}
+
+/*
+ * tisp_api_param_array_set: copy parameter id (third argument & 0xffff) of
+ * channel ch & 0xff from in to its store and call the block setter; the
+ * setter's result is returned.  Ids 0, 15 and 16 only copy (0 to the mask
+ * attributes, 15 / 16 nowhere), 6 and unknown ids are rejected with a debug
+ * print; those return 0 here (the vendor returns a left-over register).
+ */
+static inline u32 t32_api_param_array_set(struct t32_apis *a, u32 ch, const u8 *in, u32 id)
+{
+	u8 buf[T32_API_AUTOZOOM_LEN], *par, v;
+	u32 w[5], sel;
+
+	ch &= 0xff;
+	id &= 0xffff;
+	par = a->msca_par + T32_API_MSCA_PAR_LEN * ch;
+	switch (id) {
+	case 0:
+		memcpy(a->mask_attr + T32_API_MASK_ATTR_LEN * ch, in, T32_API_MASK_ATTR_LEN);
+		return 0;
+	case 1:
+		memcpy(w, in, 4);
+		return a->ops->dn_s_ctrl(ch, w[0], w[0] & 0xff);
+	case 2:
+		memcpy(a->mask_out, in, T32_API_MASK_OUT_LEN);
+		return a->ops->mask_out_cfg(ch, a->mask_out);
+	case 3:
+		memcpy(par, in, T32_API_MSCA_PAR_LEN);
+		return t32_aps_draw_block(a, ch, par);
+	case 4:
+		memcpy(par, in, T32_API_MSCA_PAR_LEN);
+		return t32_aps_osd(a, ch, par);
+	case 5:
+		memcpy(par, in, T32_API_MSCA_PAR_LEN);
+		sel = par[T32_APS_CHN_SEL];
+		memset(buf, 0, sizeof(buf));
+		buf[0] = (sel & 3) | (t32_aps_get32(par + T32_APS_CHN_MF + T32_APS_CHN_STRIDE * sel) & 0x3f) << 2;
+		return a->ops->mirr_flip(ch, buf);
+	case 7:
+		memcpy(w, in, T32_API_FCROP_LEN);
+		return a->ops->fcrop(ch, w[0], w[1], w[2], w[3], w[4]);
+	case 8:
+		memcpy(par, in, T32_API_MSCA_PAR_LEN);
+		sel = par[T32_APS_CHN_SEL];
+		memset(buf, 0, sizeof(buf));
+		memcpy(buf, par + T32_APS_CHN_CROP + T32_APS_CHN_STRIDE * sel, T32_APS_CHN_CROP_LEN);
+		return a->ops->crop(ch, sel, buf);
+	case 9:
+		memcpy(buf, in, T32_API_AUTOZOOM_LEN);
+		return a->ops->autozoom(ch, buf);
+	case 10: case 11: case 12: case 14:
+		v = in[0];
+		return a->ops->bcsh(id == 10 ? T32_APS_BRIGHT : id == 11 ? T32_APS_CONTRAST :
+				    id == 12 ? T32_APS_SATURATION : T32_APS_HUE, ch, &v);
+	case 13:
+		return a->ops->sharpness(ch, in[0]);
+	case 15: case 16:
+		return 0;		/* copied to a stack word only */
+	default:
+		return 0;		/* 6 and >= T32_API_IDS: debug print */
+	}
 }
 
 #endif /* TX_ISP_T32_BLKREST_H */
