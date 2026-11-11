@@ -131,6 +131,8 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	t32_blk_irq(sta);		/* block bits 8 / 30 (LCE): lib_tisp_intp_process, tx_isp_t32_blkirq.c */
 	if (done)
 		t32_fs_done_irq(done);
+	if (msca & 2)			/* MSCA frame done: tisp_msca_irq_frame_done (ISP OSD, #336) */
+		t32_isposd_frame_done();
 	return IRQ_HANDLED;
 }
 
@@ -817,17 +819,22 @@ static void t32_hw_msca_load_curves(void)
 void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 {
 	u32 size = t32_msca_size_word(w, h);
+	unsigned long fl;
 
 	curve_geom[ch].in_w = in_w;
 	curve_geom[ch].in_h = in_h;
 	curve_geom[ch].w = w;
 	curve_geom[ch].h = h;
 	curve_geom[ch].on = true;
+	if (ch == 0)
+		t32_isposd_msca_start(in_w, in_h);	/* ISP OSD picture size, RAM flag (#336) */
 	ch_wr(ch, T32_MSCA_Y_STRIDE, stride);
 	ch_wr(ch, T32_MSCA_UV_STRIDE, stride);
 	isp_wr(T32_MSCA_CH_EN2, 0);
 	isp_wr(T32_MSCA_UPDATE, 1);
+	fl = t32_isposd_ram_lock();	/* the shadow-RAM port is shared with the OSD commit */
 	t32_hw_msca_load_curves();
+	t32_isposd_ram_unlock(fl);
 	ch_wr(ch, T32_MSCA_CTRL, 0);
 	ch_wr(ch, T32_MSCA_SCL_SIZE, size);
 	ch_wr(ch, T32_MSCA_PARAM2, T32_MSCA_PARAM2_DEFAULT);
