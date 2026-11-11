@@ -3,7 +3,7 @@
  * T32 frame channel (/dev/framechanN) file operations from the vendor module
  * (Matt Davis' recovered C, PR #15): frame_channel_vb2_streamoff (0x13b44),
  * frame_channel_vidioc_get_fmt (0x108dc) and frame_channel_open_fast
- * (0x1444c).
+ * (0x1444c), frame_channel_release (0x12190).
  *
  * Channel (816 bytes, see tx_isp_t32_fs_pm.h): vb2 queue +0x2c, queue memory
  * +0x214, current format +0x248 (116 bytes), remote subdev +0x2cc, channel
@@ -17,7 +17,10 @@
  * reports 4 / 8 in the words +16 / +28 of the format; open_fast indexes the
  * channel table with the minor unchecked (an out-of-range read for a bad
  * minor) and initialises the completion inline when d9008 is set and d9004
- * is clear.  Ours zeroes the format buffer before the event (the vendor
+ * is clear; release indexes its module tables (f37d4, f37a4, f3774, d9954)
+ * with the channel index unchecked, and its second stream-off (the channel
+ * read again from the file, i.e. the same channel, already out of state 4)
+ * can never run.  Ours zeroes the format buffer before the event (the vendor
  * leaves the bytes the event does not fill as stack contents).
  *
  * Checked bit-exact against the vendor flow by tests/t32_oracle
@@ -53,6 +56,7 @@ struct t32_fch_os {
 	void (*init_completion)(u8 *c);
 	void (*queue_free)(u8 *q, u32 mem);			/* __vb2_queue_free */
 	const u32 *d9008, *d9004;				/* module flags of the completion init */
+	void (*kfree)(u32 p);					/* private_kfree */
 };
 
 static inline int t32_frame_channel_vb2_streamoff(const struct t32_fch_os *os, u8 *ch, u32 arg)
@@ -124,6 +128,39 @@ static inline int t32_frame_channel_open_fast(const struct t32_fch_os *os, const
 	}
 	os->queue_free(ch + T32_FCH_VBQ, t32_g_rd32(ch, T32_FCH_QMEM));
 	t32_g_wr32(ch, T32_FCH_STATE, T32_FCH_ST_OPEN);
+	return 0;
+}
+
+/* module tables of frame_channel_release, indexed by the channel index */
+struct t32_fch_tabs {
+	const u32 *f37d4, *f37a4, *f3774;	/* all three set: the channel stream is stopped again */
+	u32 *d9954;				/* per-channel buffer freed when d9004 is set */
+};
+
+static inline void t32_fch_stop_stream(const struct t32_fch_os *os, u8 *ch)
+{
+	if (t32_g_rd32(ch, T32_FCH_STATE) != T32_FCH_ST_STREAM)
+		return;
+	os->streamoff(ch, t32_g_rd32(ch, T32_FCH_VBQ));
+	os->queue_free(ch + T32_FCH_VBQ, t32_g_rd32(ch, T32_FCH_QMEM));
+	t32_g_wr32(ch, T32_FCH_STATE, T32_FS_ST_ACTIVE);
+}
+
+static inline int t32_frame_channel_release(const struct t32_fch_os *os, const struct t32_fch_tabs *tb, u8 *file)
+{
+	u8 *ch = T32_PTR(t32_g_rd32(file, 120));	/* file->private_data */
+	u32 idx;
+
+	if (!t32_fs_valid(ch))
+		return -22;
+	t32_fch_stop_stream(os, ch);
+	idx = t32_g_rd32(ch, T32_FCH_INDEX);
+	if (*os->d9008 && tb->f37d4[idx] && tb->f37a4[idx] && tb->f3774[idx])
+		t32_fch_stop_stream(os, ch);
+	if (*os->d9004 && tb->d9954[idx]) {
+		os->kfree(tb->d9954[idx]);
+		tb->d9954[idx] = 0;
+	}
 	return 0;
 }
 
