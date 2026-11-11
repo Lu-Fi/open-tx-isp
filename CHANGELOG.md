@@ -7,6 +7,11 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 ## 2026-11-11: T23 mdns_ref_hold holds b_min too (openimp #103; T23 device-tested)
 
 - Bit 0 of `mdns_ref_hold` now writes `0x799c` / `0x7a6c` = `0xffffffff` (before `0x00ffffff`, `b_min` 0). With `b_min` 0 the chroma reference weight stayed below 1, so the injected test picture's chroma (OpenIMP test pattern mode 5) reached only U/V SSIM 0.87/0.89. With the register value set by hand on the installed driver it reaches 0.96. Test module on the T23 (sc1a4t): the hold words read back `0xffffffff`, luma 0.963, 3 on/off cycles restore the computed words. Host test `tx_isp_t23_mdns_hold_test` updated. In colour day mode bit 0 alone still leaves about 30 % live chroma (U/V 0.90, same on the installed driver, openimp #340); OpenIMP mode 5 on T23 therefore sets `mdns_ref_hold=7` (bits 1/2 also hold 0x7a68/0x7a70): U/V 0.97 day and night.
+## 2026-11-11: T41 RAW ring no longer resets the board; IMP_ISP_RAW_RwControl served by default (openimp #320; T41 gc5603)
+
+- Root cause of the watchdog reset right after the first RDMA start: the lifted `tisp_raw_rdma_fd_interrupt` (irq slot 69) kept `rpars` in a `uint32_t *` and called `complete(a0 + 16)`, i.e. `rpars + 64`, 16 bytes past the 48-byte state block (the OEM completes `rpars + 0x10`). The first RDMA frame-done ran `complete()` on that garbage in hard-IRQ context and hung the board. Both RAW DMA frame-done handlers (slots 68/69) are now written out from the OEM (0x78c68, 0x78d6c); the register sequence of the enable/start path was already vendor-equal (compared with the vendor module).
+- `t41_raw_ring` now defaults to 1 (vendor serves the controls always).
+- Device (T41, gc5603, runtime module swap): RAW8 x1 ring 2880x1620, callback 12.7/s (one buffer: WDMA and RDMA alternate), read-back proof (callback blackens the RAW top half -> ISP output top third luma 102 -> 16 -> 110 after), 5/5 enable/disable cycles, RAW16 x2 -4094 as vendor (rmem), kill -9 during the ring -> ring stopped on fd release, 0 oops.
 
 ## 2026-11-11: T31 IPU ahb1 clk_put under its #ifdef, sensor s_register documented (openimp #341; k7 cross-build, not on a camera)
 
