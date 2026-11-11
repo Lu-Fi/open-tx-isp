@@ -22,6 +22,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `t32_ispslake_oracle` (planned, host only): `tx_isp_t32_ispslake.h` (`ispcore_slake_module`: per-channel core deinit, frame channel and tuning state, firmware thread stop, sensor slake ops, clock disable) against the vendor function: 20000 random worlds with scripted thread / sensor results, return value, call log and world equal; 16/16 mutations detected.
 - `t32_ispss_oracle` (planned, host only): `tx_isp_t32_ispss.h` (`ispcore_video_s_stream`: channel state check, interrupts, stream start of the last prepared channel, frame channel stop on disable, sensor s_stream walk) against the vendor function: 20000 random worlds, return value, call log, globals and world equal; 17/17 mutations detected.
 - `t32_ispact_oracle` (planned, host only): `tx_isp_t32_ispact.h` (`ispcore_activate_module`: clock rates / parents / enable, frame channels 1 to 2, tuning event, sensor activate walk, channel states) against the vendor function: 20000 random worlds, return value, call log and world equal; 19/19 mutations detected.
+- `t32_ispfd_oracle` (planned, host only): `tx_isp_t32_ispfd.h` (`ispcore_channel_framedone_process.isra.16`: frame counter, MSCA FIFO read, drop pattern, buffer list moves, frame-done event block) against the vendor function: 20000 random worlds, return value, call log, bss words and world equal; 21/21 mutations detected.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 

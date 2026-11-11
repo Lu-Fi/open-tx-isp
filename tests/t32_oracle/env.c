@@ -856,3 +856,6 @@ u32 t32_data_ccfcc[2] __attribute__((weak)) = { 0x5f78756d, 0x00707369 };
 u32 t32_data_ccfd4[3] __attribute__((weak)) = { 0x5f78756d, 0x73707369, 0x00000000 };
 u32 t32_data_ccfe0[2] __attribute__((weak)) = { 0x5f78756d, 0x0063646c };
 u32 t32_data_c3648[1] __attribute__((weak)), t32_data_ccfe8[1] __attribute__((weak)), t32_data_cd028[1] __attribute__((weak));
+/* ispcore_channel_framedone_process.isra.16: bss d9014 (frame drop pattern), f3348 (dropped buffer count); printk strings by address only */
+u32 t32_data_d9014[1] __attribute__((weak)), t32_data_f3348[1] __attribute__((weak));
+u32 t32_data_c34b8[1] __attribute__((weak)), t32_data_ccd80[1] __attribute__((weak));
