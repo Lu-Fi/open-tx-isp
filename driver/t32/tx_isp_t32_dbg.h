@@ -154,6 +154,29 @@ static inline int t32_dump_open(const struct t32_dbg_os *os, void *inode, void *
 #define T32_DUMP_FRAMESOURCE_SIZE	2048U	/* dump_isp_framesource_open -> isp_framesource_show */
 #define T32_DUMP_INFO_SIZE		8192U	/* dump_isp_info_open -> isp_info_show */
 
+/* ---- /proc info dispatch ---- */
+/*
+ * isp_debug_info (0xb4d18): the vendor's table t32_data_c3020 (16 words, rodata 0x5c00) holds the isp_info_*
+ * show routines by section number (system, sensor, base, tisp, -, -, -, err, bin, ae, awb, lsc, gib, -, -, -);
+ * a non-zero entry is tail-called as fn(a1, a2, a2, a3) (the vendor keeps a2 / a3 in their registers) and its
+ * result returned, an empty entry gives 0.
+ */
+static inline int t32_isp_debug_info(const u32 *table, u32 idx, u32 a1, u32 a2, u32 a3)
+{
+	u32 fn = table[idx];
+
+	if (fn)
+		return (int)((u32 (*)(u32, u32, u32, u32))T32_PTR(fn))(a1, a2, a2, a3);
+	return 0;
+}
+
+/* isp_info_tisp (0xb4768): the "tisp" section is lib_tisp_debug_info, handed the same arguments; result 0 */
+static inline int t32_isp_info_tisp(u32 (*lib_tisp_debug_info)(u32, u32, u32, u32), u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	lib_tisp_debug_info(a0, a1, a2, a3);
+	return 0;
+}
+
 /* ---- debug stubs the vendor build leaves empty ---- */
 static inline int t32_tisp_print_para_stub(void)	/* tisp_{gib,lsc,gamma,ccm,bcsh,csc,csccr}_print_para, tmo_params_print, tisp_ldc_debug, dump_msca_regs */
 {
