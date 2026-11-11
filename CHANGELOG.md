@@ -4,6 +4,13 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T32 LCE block interrupts: tisp_lce_par per frame (openimp #234; planned, host only, not device-tested)
+
+- New `driver/t32/tx_isp_t32_blkirq.h` / `.c`: the vendor's LCE block-interrupt path. At stream-on the buffer set of `tisp_lce_malloc_cfg` (new 0x9000 B histogram buffer), the band table and the size shift bytes d6c64 .. d6c67 of `tisp_lce_init` / `tisp_lce_size_para_calc` (not constants: 21 .. 24 by zone count, 1920 x 1080 keeps the last values as the vendor), ISP status bit 8 (`tisp_lce_interrupt_static`) and bit 30 (`tisp_lsf_interrupt_static`) dispatched in the hard interrupt by the ported `lib_tisp_intp_process`, event 14 through the ported event queue to a work item running `tisp_lce_par` with both soft paths and `tisp_lce_write_curve`. Behind `t32_ported_paths` bit 12 (LCE); counters in `/proc`.
+- Oracle `t32_blkirq_oracle`: after `tisp_lce_init` buffer set, band table, shift bytes, registered bits / event, default curve and state equal; then 1 .. 4 frames per case (random statistics, bank, mode, status incl. decoy bits) through the vendor's `tisp_lce_interrupt_static` / `tisp_lsf_interrupt_static` / `tisp_lce_par` and our dispatch: register writes, state, curve / statistics / histogram buffers, events, cache syncs equal. 175 cases (67 SDK IQ bins), 437 frames (261 v4 / 176 t41), 0 mismatches, 29/29 mutations.
+- `tx_isp_t32_hw.c`: the LCE buffers are written back from the data cache after allocation (the zeroing went through the cache; a later eviction could overwrite the uncached default curve).
+- Not done: TMO (`tisp_tmo_init` + per-frame process, bits 9 / 31) and a QEMU smoke run of this path.
+
 ## 2026-11-11: T32 vendor AE chain, part 3: the AE runs per frame (openimp #234; planned, host only, not device-tested)
 
 - New `driver/t32/tx_isp_t32_aechain.h`: one vendor AE frame from the ported functions (tisp_ae_interrupt_static with tisp_ae_long_ev_alloc, tisp_ae_calc_process with par_update_trig / algorithm / long_process), plus tisp_ae_sort_H2L; tisp_ae_algorithm composed as the vendor does it (the weight_mean sums reach tisp_ae_tune). Oracle `t32_aechain_oracle`: 67 bins, 536 cases, 23224 frames, 0 mismatches, 21/21 mutations; open: ~1 % of the cases differ at the first AE frame in exposure-list mode.

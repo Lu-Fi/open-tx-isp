@@ -88,6 +88,18 @@ void t32_pf_start(void);
 void t32_pf_kick(void);
 void t32_pf_exit(void);
 
+/* tx_isp_t32_blkirq.c: block interrupt paths (vendor LCE bits 8 / 30, event 14), behind T32_PP_LCE */
+#define T32_BLK_IRQ_MASK	((1U << 8) | (1U << 30))
+struct t32_blk_drv_stats {
+	u32 attaches, lce_irqs, lsf_irqs, events, ev_full;
+};
+extern struct t32_blk_drv_stats t32_blk_stats;
+void t32_blk_irq(u32 sta);
+void t32_blk_lce_bufs(void *curve, void *stat, void *hist);
+void t32_blk_lce_attach(u8 *st, u32 width, u32 height);
+void t32_blk_lce_detach(void);
+void t32_blk_exit(void);
+
 /* tx_isp_t32_fs.c */
 struct seq_file;
 int t32_fs_init(void);
