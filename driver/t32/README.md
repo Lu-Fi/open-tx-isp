@@ -320,6 +320,21 @@ uses unchecked (window >= 8, line >= 20, mask set >= 3 / block >= 4, VI != 0) ar
 refused with -EINVAL, getters start from a zeroed block (vendor: stack garbage).
 `t32_isposd_trace=1` logs requests and commits.
 
+## ISP tuning controls (openimp #296)
+
+`tx_isp_t32_tunctl.c` answers the libimp 2.2.0 `IMP_ISP_Tuning_*` requests on
+`/dev/isp-m0` (`0xc0105467`, `{vi, dir, id, value}`) through the ported vendor
+dispatchers (`tx_isp_t32_txsctrl.h` / `tx_isp_t32_txgctrl.h`): BCSH bytes,
+anti-flicker, mirror / flip, module control, module ratio, CSC, CCM, gamma
+(presets), statistics config, AE / AWB / AF attributes and weights, face AE /
+AWB, WDR output mode, scaler level, CT trend offset, CSC-CR, HB line space,
+sensor attributes, autozoom, frame-done wait; AE start EV on `/dev/tx-isp`
+`0xc0045436/7`. Stage 1: the attributes are kept per channel and returned as
+the vendor does where its getter only reads back; they do not reach the image
+blocks yet, statistics getters answer zeros. Sensor fps (`0x08000070`) stays in
+`tx_isp_t32_core.c`, OSD / mask / draw in `tx_isp_t32_isposd.c`. QEMU vs the
+vendor module: 66 of 86 steps identical (CHANGELOG has the open list).
+
 ## Not yet (S4+)
 
 No tisp/3A, no IQ bin parsing (the bin's physical address is kept), no
