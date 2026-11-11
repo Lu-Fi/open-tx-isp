@@ -29,6 +29,9 @@
 #define TX_ISP_T32_GAMMA_H
 
 #include "tx_isp_t32_tp.h"
+#ifdef __KERNEL__
+#include <linux/slab.h>	/* kmalloc/kfree in t32_gamma_init */
+#endif
 
 #define T32_SEC_GAMMA		13
 #define T32_GAMMA_SEC_BYTES	92U

@@ -1295,7 +1295,8 @@ static inline void t32_lce_t41_blk7(struct t32_lce_t41_st *st)
  */
 static inline void t32_lce_t41(const u8 *par, u8 *w, u32 mode, const struct t32_lce_t41_ops *ops)
 {
-	struct t32_lce_t41_st st;
+	/* about 1.7 KB: static scratch like the vendor's .bss (not reentrant, as there), not on the kernel stack */
+	static struct t32_lce_t41_st st;
 	u32 row, grp;
 
 	memset(&st, 0, sizeof(st));

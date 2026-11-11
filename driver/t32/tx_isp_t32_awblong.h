@@ -24,6 +24,14 @@
 
 #include "tx_isp_t32_awbdet.h"
 
+/* u64 / u64: div64_u64 in the kernel (no __udivdi3 on 32-bit MIPS), plain C on the host */
+#ifdef __KERNEL__
+#include <linux/math64.h>
+#define t32_awb_div64(a, b)	div64_u64((a), (b))
+#else
+#define t32_awb_div64(a, b)	((a) / (b))
+#endif
+
 /* The locals of the vendor function that outlive a phase (vendor stack slot in the comment) */
 struct t32_awb_lg {
 	u32 fp;			/* s3: par fp_shift */
@@ -63,7 +71,7 @@ static inline u32 t32_awb_sdiv(u32 x, u32 y)
  */
 static inline u64 t32_awb_fixdiv64(u32 s, u64 num, u64 den)
 {
-	u64 q = den ? num / den : 0;
+	u64 q = den ? t32_awb_div64(num, den) : 0;
 	u64 r = num - den * q, frac = 0, qs = q << (s & 63);
 	u32 i = 0;
 
