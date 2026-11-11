@@ -4662,6 +4662,8 @@ int32_t aisp_save_cmd_set(uint32_t a0, uint32_t a1, uint32_t a2);
 int32_t dump_aisp_info_open(uint32_t a0, uint32_t a1);
 int32_t aisp_core_debug_show(void *arg1);
 int32_t isp_core_tunning_release(uint32_t a0, uintptr_t a1);
+static struct mutex t41_tuning_mutex;	/* DEFINE_MUTEX below */
+static void t41_raw_release(uintptr_t file);
 int32_t isp_core_tunning_open(uint32_t a0, uintptr_t a1);
 #ifndef REGTRACE_KERNEL_TREE_BUILD
 int32_t tx_isp_gamma_s_attr_isra_9(uint32_t a0, uint32_t a1) __asm__("tx_isp_gamma_s_attr.isra.9");
@@ -16511,6 +16513,9 @@ int32_t isp_core_tunning_release(uint32_t a0, uintptr_t a1)
 	char *tun = t41_tuning_core_state(a1);
 
 	(void)a0;
+	mutex_lock(&t41_tuning_mutex);
+	t41_raw_release(a1);	/* beyond vendor, #320 */
+	mutex_unlock(&t41_tuning_mutex);
 	mutex_lock(&t41_tuning_open_mutex);
 	/* vendor 0x8384: state 3 -> tisp_disable_tuning(), state = 2 */
 	if (t41_tuning_release_decide(tun ? *(uint32_t *)(void *)(tun + 148) : 0,
@@ -22302,7 +22307,10 @@ static int t41_tuning_csccr(unsigned int vinum, unsigned int is_get,
 #define T41_TUNING_RAW_RW_CONTROL 0x080000a7U
 #define T41_TUNING_RAW_RW_HANDLER 0x080000a8U
 
-static int t41_tuning_raw_rw(const struct tx_isp_tuning_t41_control *request)
+static void t41_raw_note_owner(uintptr_t file);
+static void t41_raw_release(uintptr_t file);
+
+static int t41_tuning_raw_rw(uintptr_t file, const struct tx_isp_tuning_t41_control *request)
 {
     void __user *user = (void __user *)(uintptr_t)request->value_or_ptr;
     uint32_t words[7];
@@ -22320,6 +22328,7 @@ static int t41_tuning_raw_rw(const struct tx_isp_tuning_t41_control *request)
         if (private_copy_from_user(words, user, 28))
             return -EFAULT;
         tisp_s_raw_rw_control(0, (uintptr_t)words);
+        t41_raw_note_owner(file);
         return 0;
     }
     if (request->is_get) {
@@ -22346,11 +22355,11 @@ int64_t isp_core_tunning_unlocked_ioctl(uintptr_t a0, uint32_t a1, uint32_t a2)
         if (request.id == TX_ISP_TUNING_CMD_T41_WAIT_FRAME_DONE)
             return t41_tuning_wait_frame_done(&request);
         if (request.id == T41_TUNING_RAW_RW_HANDLER && request.is_get == 1)
-            return t41_tuning_raw_rw(&request);
+            return t41_tuning_raw_rw(a0, &request);
         if (request.id == T41_TUNING_RAW_RW_CONTROL ||
             request.id == T41_TUNING_RAW_RW_HANDLER) {
             mutex_lock(&t41_tuning_mutex);
-            ret = t41_tuning_raw_rw(&request);
+            ret = t41_tuning_raw_rw(a0, &request);
             mutex_unlock(&t41_tuning_mutex);
             return ret;
         }
@@ -161174,6 +161183,39 @@ int32_t tisp_g_raw_rw_handler(uint32_t a0, uintptr_t a1)
 int32_t tisp_s_raw_rw_handler(uint32_t a0, uintptr_t a1)
 {
     return tisp_raw_set_rw_handler(a0, a1);
+}
+
+/*
+ * Beyond vendor (user OK 2026-11-11, #320): the tuning fd that enabled the
+ * ring owns it.  When that file is released (close or process death)
+ * without a disable, the ring is stopped here; the OEM leaves the ISP
+ * front end on RDMA (picture frozen) and the WDMA writing into rmem the
+ * dead process no longer owns.  No wait for an RDMA frame done (the OEM
+ * disable waits for one, which never comes once the user thread is gone).
+ */
+static uintptr_t t41_raw_owner;
+
+static void t41_raw_note_owner(uintptr_t file)
+{
+    t41_raw_owner = rpars && T41_RAW_RP(1) == 1 ? file : 0;
+}
+
+static void t41_raw_release(uintptr_t file)
+{
+    if (!file || file != t41_raw_owner)
+        return;
+    t41_raw_owner = 0;
+    if (!rpars || T41_RAW_RP(1) != 1)
+        return;
+    system_reg_write(0x801a8, 0x4444);
+    msleep(100);
+    system_reg_write(0x21024, 0);
+    system_reg_write(0x801a8, 0x4404);
+    if (((const uint32_t *)(void *)tisp_par_info_storage)[30])
+        system_reg_write(0x801a8, 0x4410);
+    T41_RAW_RP(1) = T41_RAW_RP(2) = T41_RAW_RP(3) = 0;
+    t41_raw_frame_bytes = 0;
+    printk(KERN_WARNING "t41: RAW ring stopped: owner closed the tuning node without a disable\n");
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000006e53c origin=fragment_seed original=tisp_s_raw_row_control */
