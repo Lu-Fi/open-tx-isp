@@ -20,8 +20,8 @@ int main(void)
 	CHECK(t23_mdns_hold_word(0, 0x7a68, 0x00112200u) == 0x00112200u);
 	CHECK(t23_mdns_hold_word(0, 0x7a70, 0x00331122u) == 0x00331122u);
 	/* bit 0: luma and chroma weight words at maximum, others untouched */
-	CHECK(t23_mdns_hold_word(1, 0x799c, 0x14ff14e6u) == 0x00ffffffu);
-	CHECK(t23_mdns_hold_word(1, 0x7a6c, 0x00b414b4u) == 0x00ffffffu);
+	CHECK(t23_mdns_hold_word(1, 0x799c, 0x14ff14e6u) == 0xffffffffu);
+	CHECK(t23_mdns_hold_word(1, 0x7a6c, 0x00b414b4u) == 0xffffffffu);
 	CHECK(t23_mdns_hold_word(1, 0x7a68, 0x00112200u) == 0x00112200u);
 	CHECK(t23_mdns_hold_word(1, 0x79a0, 0x00331122u) == 0x00331122u);
 	/* bit 1: fake and mv at 0xff, fs_opt nibbles (byte 0) and top byte kept */
