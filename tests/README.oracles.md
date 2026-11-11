@@ -58,6 +58,7 @@ reference objects are built with `CCACHE_DISABLE=1`: the truncation variants of 
 path, so a concurrent run or ccache handed out the object of another variant (openimp #278). Mutants live in `out/mut/<oracle>/`, so
 different oracles may run at the same time in one worktree.
 
+- `t32_tmotab_check` (openimp #280): the vendor tables of `driver/t32/tx_isp_t32_tmotab.h` (tisp_tmo_adr_fpga & co) are compiled, dumped and compared with `data.c` @ 2e2e06bc (offsets from `data-aliases.lds`); `t32_tmo14*_oracle` add 1000 cases (`T32O_NREAL`) with these real tables on both sides.
 - `t32_bcshf_oracle`: BCSH per-frame (ev/ct update, raw-exposure mode, frame-done write, calc modes) vs the vendor functions; uses REFFIX (a build-time fix of one reference copy, see fix_bcsh_adjust_hue.sh); same IQ-bin rule as above.
 - `t32_gammaf_oracle`: gamma per-frame (ev_update, frame done, single + multi-curve, API curve) vs the vendor functions; same IQ-bin rule as above.
 - `t32_ccmf_oracle`: CCM per-frame (ct_update / ev_update, cache, API override) vs the vendor functions; same IQ-bin rule as above.
