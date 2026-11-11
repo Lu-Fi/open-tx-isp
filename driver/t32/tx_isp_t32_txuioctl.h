@@ -13,7 +13,9 @@
  *            release, multi-sensor mode, AE algorithm open, video s_stream /
  *            link stream (tx_isp_t32_txioctl.h);
  *   core     core ioctl (subdevice ops +0, +32) broadcast to the 16
- *            subdevices +84 .. +144 in three vendor flavours.
+ *            subdevices +84 .. +144 in three vendor flavours;
+ *   sensor   bypass all, sensor enum / get / set input, sensor s / g
+ *            register: the sensor ioctl (ops +12, +8) of every subdevice.
  */
 #ifndef TX_ISP_T32_TXUIOCTL_H
 #define TX_ISP_T32_TXUIOCTL_H
@@ -41,6 +43,12 @@
 #define T32_UIO_SET_BINPATH	0xc004542aU
 #define T32_UIO_GET_BINPATH	0xc004542bU
 #define T32_UIO_CORE_SUM	0xc00454b8U
+#define T32_UIO_BYPASS		0x80085418U
+#define T32_UIO_ENUM_INPUT	0xc0045402U
+#define T32_UIO_GET_INPUT	0x80085403U
+#define T32_UIO_SET_INPUT	0xc0085404U
+#define T32_UIO_S_REGISTER	0xc040540dU
+#define T32_UIO_G_REGISTER	0x8040540eU
 
 /* core ioctl command words the broadcasts hand on */
 #define T32_CORE_CMD_16		0x1000016U
@@ -48,7 +56,23 @@
 #define T32_CORE_CMD_1A		0x100001aU
 #define T32_CORE_CMD_SUM	0x5000005U
 
+/* sensor ioctl command words */
+#define T32_SENS_ENUM_INPUT	0x2000002U
+#define T32_SENS_GET_INPUT	0x2000003U
+#define T32_SENS_SET_INPUT	0x2000004U
+#define T32_SENS_S_REGISTER	0x2000011U
+#define T32_SENS_G_REGISTER	0x2000012U
+#define T32_NOTIFY_BYPASS	0x200001dU
+
+#define T32_CORE_BYPASS		1148U	/* core device +1148 + 4 input: bypass flag (vendor 4 * (input + 286) + 4) */
+#define T32_UIO_REG_BUF		64U
+#define T32_UIO_ENUM_BUF	80U
+
+#define T32_UIO_CFU_ERR		"[ %s:%d ] copy from user error\n"
+#define T32_UIO_CTU_ERR		"[ %s:%d ] copy to user error\n"
+
 typedef int (*t32_uio_core_fn)(u32 sd, u32 cmd, u32 arg);
+typedef int (*t32_uio_notify_fn)(u32 sd, u32 ev, void *msg);
 
 /* subdevice k's core ioctl (0 = none); the ops table itself is not checked (vendor) */
 static inline u32 t32_uio_core_ioctl(u32 sd)
@@ -115,6 +139,77 @@ static inline int t32_uio_core_sum(u32 isp, u32 cmd, u32 arg)
 	return (int)sum;
 }
 
+/* tx_isp_bypass_all: { enable, input } into the core device, then the sensor notify of subdevice 0 */
+static inline int t32_uio_bypass_all(u32 isp, u32 user)
+{
+	u32 sd = t32_tx_ld(isp, T32_DEV_SD), core = t32_tx_ld(sd, T32_SD_PRIV_CORE), b[2], fn;
+
+	if (t32_tx_os_copy_from_user(b, user, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_bypass_all", 1395);
+		return -(int)T32_EFAULT;
+	}
+	t32_tx_st(core, T32_CORE_BYPASS + 4 * b[1], b[0]);
+	if ((fn = t32_tx_ld(sd, T32_SD_NOTIFY)))	/* vendor's sd != 0 test: dead after the core load above */
+		((t32_uio_notify_fn)T32_TX_P(fn))(sd, T32_NOTIFY_BYPASS, b);
+	return 0;
+}
+
+/* tx_isp_sensor_{enum,get,set}_input: block in, sensor ioctl on every subdevice, block back */
+static inline int t32_uio_sensor_input(u32 isp, u32 arg, u32 n, u32 cmd, const char *fn, u32 lin, u32 lout)
+{
+	u32 b[T32_UIO_ENUM_BUF / 4];
+	int r;
+
+	if (t32_tx_arg_in(isp, b, arg, n)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, fn, lin);
+		return -(int)T32_EFAULT;
+	}
+	r = t32_tx_sensor_cmd_all(isp, cmd, b, 1);
+	if (r)
+		return r;
+	if (t32_tx_ld(isp, T32_ISP_KCALL)) {
+		memcpy(T32_TX_P(arg), b, n);
+		return 0;
+	}
+	if (t32_tx_os_copy_to_user(arg, b, n)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CTU_ERR, fn, lout);
+		return -(int)T32_EFAULT;
+	}
+	return 0;
+}
+
+/* tx_isp_sensor_s_register: always a user block */
+static inline int t32_uio_s_register(u32 isp, u32 user)
+{
+	u32 b[T32_UIO_REG_BUF / 4];
+
+	if (t32_tx_os_copy_from_user(b, user, T32_UIO_REG_BUF)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_sensor_s_register", 926);
+		return -(int)T32_EFAULT;
+	}
+	return t32_tx_sensor_cmd_all(isp, T32_SENS_S_REGISTER, b, 1);
+}
+
+/* tx_isp_sensor_g_register.  Vendor: the copy-back failure prints the copy-from-user message */
+static inline int t32_uio_g_register(u32 isp, u32 user)
+{
+	u32 b[T32_UIO_REG_BUF / 4];
+	int r;
+
+	if (t32_tx_os_copy_from_user(b, user, T32_UIO_REG_BUF)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_sensor_g_register", 953);
+		return -(int)T32_EFAULT;
+	}
+	r = t32_tx_sensor_cmd_all(isp, T32_SENS_G_REGISTER, b, 1);
+	if (r)
+		return r;
+	if (t32_tx_os_copy_to_user(user, b, T32_UIO_REG_BUF)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_sensor_g_register", 967);
+		return -(int)T32_EFAULT;
+	}
+	return 0;
+}
+
 /* tx_isp_unlocked_ioctl(file, cmd, arg) */
 static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 {
@@ -143,6 +238,15 @@ static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 	case T32_UIO_CORE_17:		return t32_uio_core_each(isp, T32_CORE_CMD_17, arg);
 	case T32_UIO_CORE_1A:		return t32_uio_core_last(isp, T32_CORE_CMD_1A, arg);
 	case T32_UIO_CORE_SUM:		return t32_uio_core_sum(isp, T32_CORE_CMD_SUM, arg);
+	case T32_UIO_BYPASS:		return t32_uio_bypass_all(isp, arg);
+	case T32_UIO_ENUM_INPUT:
+		return t32_uio_sensor_input(isp, arg, T32_UIO_ENUM_BUF, T32_SENS_ENUM_INPUT, "tx_isp_sensor_enum_input", 671, 689);
+	case T32_UIO_GET_INPUT:
+		return t32_uio_sensor_input(isp, arg, 8, T32_SENS_GET_INPUT, "tx_isp_sensor_get_input", 709, 726);
+	case T32_UIO_SET_INPUT:
+		return t32_uio_sensor_input(isp, arg, 8, T32_SENS_SET_INPUT, "tx_isp_sensor_set_input", 746, 763);
+	case T32_UIO_S_REGISTER:	return t32_uio_s_register(isp, arg);
+	case T32_UIO_G_REGISTER:	return t32_uio_g_register(isp, arg);
 	}
 	return 0;
 }

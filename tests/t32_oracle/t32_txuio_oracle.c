@@ -22,6 +22,7 @@
 #define NSD	6
 #define O_SD(i)	(0x0400u + 0x200u * (i))
 #define O_USER	0x1400u
+#define O_CORE	0x2000u
 
 static u8 *arena;
 static u32 A(u32 off) { return T32O_PTR(arena) + off; }
@@ -62,13 +63,44 @@ static u32 sd_index(u32 sd)
 }
 static u32 core_tab[NSD + 1];
 static u32 cb_core(u32 sd, u32 cmd, u32 arg) { op3_call("core_ioctl", 3, sd, cmd, arg, 0); return core_tab[sd_index(sd)]; }
+static u32 fnvb(const u8 *p, u32 n)
+{
+	u32 h = 2166136261u, i;
+
+	for (i = 0; i < n; i++)
+		h = (h ^ p[i]) * 16777619u;
+	return h;
+}
+static u32 sens_tab[NSD + 1], notify_ret;
+static u32 sens_len(u32 cmd) { return cmd == T32_SENS_ENUM_INPUT ? 80 : cmd == T32_SENS_S_REGISTER || cmd == T32_SENS_G_REGISTER ? 64 : 8; }
+static u32 cb_sens(u32 sd, u32 cmd, u32 buf)
+{
+	u8 *b = T32O_HOST(buf);
+	u32 n = sens_len(cmd), k;
+
+	op3_call("sensor_ioctl", 3, sd, cmd, fnvb(b, n), 0);
+	for (k = 0; k < n; k++)
+		b[k] = (u8)(sd * 7 + k + cmd);
+	return sens_tab[sd_index(sd)];
+}
+static u32 cb_notify(u32 sd, u32 ev, u32 msg) { op3_call("sd_notify", 4, sd, ev, ((u32 *)T32O_HOST(msg))[0], ((u32 *)T32O_HOST(msg))[1]); return notify_ret; }
+
+/* user copies */
+static u32 cfu_ret, ctu_ret;
+static u32 cfu_rec(void *d, u32 u, u32 n) { op3_call("private_copy_from_user", 2, u, n, 0, 0); memcpy(d, T32O_HOST(u), n); return cfu_ret; }
+static u32 ctu_rec(u32 u, const void *s, u32 n) { op3_call("private_copy_to_user", 3, u, n, fnvb(s, n), 0); memcpy(T32O_HOST(u), s, n); return ctu_ret; }
+u64 op3_private_copy_from_user(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return cfu_rec(T32O_HOST(a0), a1, a2); }
+u64 op3_private_copy_to_user(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return ctu_rec(a0, T32O_HOST(a1), a2); }
+u64 op3_memcpy(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; memcpy(T32O_HOST(a0), T32O_HOST(a1), a2); return a0; }
+u32 t32_tx_os_copy_from_user(void *d, u32 u, u32 n) { return cfu_rec(d, u, n); }
+u32 t32_tx_os_copy_to_user(u32 u, const void *s, u32 n) { return ctu_rec(u, s, n); }
 
 /* not yet exercised externals */
 OP3_STUB(find_subdev_link_pad, 2) OP3_STUB(finish_wait, 2) OP3_STUB(get_isp_cache_line, 0) OP3_STUB(get_isp_memopt, 0)
 OP3_STUB(lib_tisp_api_s_runningMode, 1) OP3_STUB(lib_tisp_get_isp_ipc_memory_space, 1)
 OP3_STUB(lib_tisp_get_isp_memory_space, 1) OP3_STUB(lib_tisp_set_isp_ipc_memory_space, 2)
-OP3_STUB(lib_tisp_set_isp_memory_space, 2) OP3_STUB(memcpy, 3) OP3_STUB(memset, 3) OP3_STUB(prepare_to_wait_event, 3)
-OP3_STUB(private_copy_from_user, 3) OP3_STUB(private_copy_to_user, 3) OP3_STUB(private_init_completion, 1)
+OP3_STUB(lib_tisp_set_isp_memory_space, 2) OP3_STUB(memset, 3) OP3_STUB(prepare_to_wait_event, 3)
+OP3_STUB(private_init_completion, 1)
 OP3_STUB(private_kfree, 1) OP3_STUB(private_kmalloc, 2) OP3_STUB(private_wait_for_completion_timeout, 2)
 OP3_STUB(schedule_timeout, 1) OP3_STUB(subdev_video_destroy_link, 1) OP3_STUB(tisp_g_ae_scence_attr, 2)
 OP3_STUB(tisp_get_frame_drop, 3) OP3_STUB(tisp_s_ae_scence_attr, 2) OP3_STUB(tisp_set_frame_drop, 3)
@@ -129,6 +161,8 @@ static const u32 cmds[] = {
 	T32_UIO_GET_BINPATH,
 	/* core broadcasts */
 	T32_UIO_CORE_16, T32_UIO_CORE_17, T32_UIO_CORE_1A, T32_UIO_CORE_SUM,
+	/* sensor */
+	T32_UIO_BYPASS, T32_UIO_ENUM_INPUT, T32_UIO_GET_INPUT, T32_UIO_SET_INPUT, T32_UIO_S_REGISTER, T32_UIO_G_REGISTER,
 	/* default neighbours inside the vendor ranges */
 	0xc0045427, 0xc0045428, 0xc0045429, 0
 };
@@ -163,12 +197,24 @@ static void build(u32 base)
 		sw(s + T32_SD_OPS, base + s + 0x110);
 		sw(s + 0x110 + T32_OPS_CORE, (r & 3) ? base + s + 0x130 : 0);
 		sw(s + 0x130 + T32_CORE_IOCTL, (r & 4) ? T32O_PTR(cb_core) : 0);
+		sw(s + 0x110 + T32_OPS_SENSOR, (r & 0x18) ? base + s + 0x150 : 0);
+		sw(s + 0x150 + T32_SENSOR_IOCTL, (r & 0x20) ? T32O_PTR(cb_sens) : 0);
+		sw(s + T32_SD_NOTIFY, (r & 0xc0) ? T32O_PTR(cb_notify) : 0);
+		sw(s + T32_SD_PRIV_CORE, base + O_CORE);
 	}
+	if (!*(u32 *)(tmpl + O_ISP + T32_DEV_SD))	/* the vendor reads subdevice 0 unchecked */
+		sw(O_ISP + T32_DEV_SD, base + O_SD(0));
+	sw(O_USER + 4, (op3_rnd() & 3) ? op3_rnd() % 4 : op3_rnd() % 512);	/* bypass input (vendor: unchecked index) */
 	for (i = 0; i <= NSD; i++) {
 		u32 r = op3_rnd() & 7;
 
 		core_tab[i] = r < 4 ? 0 : r < 6 ? (u32)-T32_ENOIOCTLCMD : op3_rnd();
+		r = op3_rnd() & 7;
+		sens_tab[i] = r < 4 ? 0 : r < 6 ? (u32)-T32_ENOIOCTLCMD : op3_rnd();
 	}
+	cfu_ret = (op3_rnd() & 7) ? 0 : op3_rnd();
+	ctu_ret = (op3_rnd() & 7) ? 0 : op3_rnd();
+	notify_ret = op3_rnd();
 	for (k = 0; k < 8; k++)
 		rtab[k] = (op3_rnd() & 3) ? 0 : op3_rnd();
 }
@@ -208,7 +254,7 @@ int main(void)
 			while (handled(cmd));
 		}
 		file = (m & 0x10) ? base + O_FILE : 0;
-		arg = (m & 0x20) ? base + O_USER : op3_rnd();
+		arg = base + O_USER;
 		build(base);
 
 		setup();
