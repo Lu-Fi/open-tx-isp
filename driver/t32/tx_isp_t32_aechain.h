@@ -37,10 +37,10 @@
  * Three pieces are composed here instead of using the existing port:
  *  - tisp_ae_algorithm: the vendor hands the same stack buffer (sp + 32) to
  *    tisp_ae_weight_mean (6th argument, the weighted sums) and to
- *    tisp_ae_tune (4th argument); t32_ae_algorithm (tx_isp_t32_aetrig.h)
- *    hook shape has no 6th argument and gives tune a zero buffer.
- *    t32_aec_algorithm follows the vendor (proven by t32_aechain_oracle,
- *    the zeroed buffer is one of its detected mutations).
+ *    tisp_ae_tune (4th argument); t32_aec_algorithm calls the ported
+ *    functions directly (t32_ae_algorithm in tx_isp_t32_aetrig.h is the
+ *    hook-shaped flow of the same, t32_aetrig_oracle; the zeroed buffer is
+ *    one of the detected mutations of both oracles).
  *  - tisp_ae_par_update_trig: t32_aec_par_update_trig, the flow of
  *    t32_ae_par_update_trig (tx_isp_t32_blkrest.h names a second
  *    struct t32_aeu_ops, so the two headers cannot share a unit).

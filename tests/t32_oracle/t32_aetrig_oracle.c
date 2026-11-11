@@ -51,19 +51,20 @@ static u32 mix(u32 a, u32 b) { return (a * 0x9e3779b1u) ^ (b + 0x7f4a7c15u) ^ (a
 
 /* shared callee bodies (vendor stubs and our hooks use the same) */
 static u32 c_wait(u32 comp, u32 to) { u32 v[2] = { comp, to }; hrec(1, v, 2); return wait_ret; }
-static void c_mean(u32 ch, u32 *mean, u32 *sum, u32 w, u32 h)
+static void c_mean(u32 ch, u32 *mean, u32 *sum, u32 w, u32 h, u32 *wsum)
 {
-	u32 v[6] = { ch, w, h, *mean, sum[0], sum[1] };
+	u32 v[8] = { ch, w, h, *mean, sum[0], sum[1], wsum[0], wsum[1] };
 
-	hrec(2, v, 6);
+	hrec(2, v, 8);
 	*mean = mix(ch, w); sum[0] = mix(w, h); sum[1] = mix(h, ch);
+	wsum[0] = mix(sum[0], 3); wsum[1] = mix(ch, sum[1]);
 }
 static u32 c_tune(u32 ch, u32 mean, u32 *sum, u32 *out)
 {
 	u32 v[6] = { ch, mean, sum[0], sum[1], out[0], out[1] };
 
 	hrec(3, v, 6);
-	return mix(mean, sum[1]);
+	return mix(mean, sum[1]) ^ out[0];
 }
 static u32 c_awb(u32 a0, const u32 *attr)
 {
@@ -75,9 +76,9 @@ static u32 c_awb(u32 a0, const u32 *attr)
 static u32 c_sns(u32 kind, u32 t, const u32 *info) { u32 v[2] = { t, info[2] }; hrec(kind, v, 2); return mix(t, kind); }
 
 u64 private_wait_for_completion_timeout(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return c_wait(a0, a1); }
-u64 tisp_ae_weight_mean(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4)
+u64 tisp_ae_weight_mean(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5)
 {
-	c_mean(a0, T32O_HOST(a1), T32O_HOST(a2), a3, a4);
+	c_mean(a0, T32O_HOST(a1), T32O_HOST(a2), a3, a4, T32O_HOST(a5));
 	return 0;
 }
 u64 tisp_ae_tune(u32 a0, u32 a1, u32 a2, u32 a3) { return c_tune(a0, a1, T32O_HOST(a2), T32O_HOST(a3)); }

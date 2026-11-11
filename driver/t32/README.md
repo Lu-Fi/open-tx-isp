@@ -163,11 +163,21 @@ generation-shared come from the shared code instead:
   event 4 (long total gain) feeds `t32_long_tgain_update` instead of
   `tisp_tgain`. The dd2d4 sensor block is `t32_ae_sensor_blk`
   (`tx_isp_t32_aesns.h`, oracle `t32_aesns_oracle`). Stats in
-  /proc/jz/isp/isp-m0 ("vendor AE"). Open: about 1 % of the oracle cases
-  differ at the very first AE frame in exposure-list mode; not QEMU / device
-  tested (the #288 QEMU rootfs has no EnableTuning, so no IQ bin and no AE
-  statistics; the QEMU cv8001 model has no exposure registers). Next: AWB
-  (`tisp_awb_init` port, `tisp_awb_interrupt_static` / `tisp_awb_process`).
+  /proc/jz/isp/isp-m0 ("vendor AE"). The exposure-list first-frame
+  mismatch is gone (openimp #333: the vendor reads past the 2184 B state into
+  the zero next-channel block; ours reads 0 there). Not QEMU / device tested
+  (the #288 QEMU rootfs has no EnableTuning, so no IQ bin and no AE
+  statistics; the QEMU cv8001 model has no exposure registers).
+- **Vendor AWB per frame (openimp #234, `t32_ported_paths` bit 14)**: the
+  state part of `tisp_awb_init` (`tx_isp_t32_awbinit.h`, oracle
+  `t32_awbinit_oracle`) builds the AWB context at stream-on after the AWB
+  statistics init (`tx_isp_t32_awbc.c`), and every AWB statistics interrupt
+  (status bit 3) runs `tisp_awb_interrupt_static` + `tisp_awb_process`
+  (`t32_awb_frame`; oracle `t32_awbchain_oracle`: init + 7990 frames through
+  the whole vendor chain, bit-exact). The event 11 colour temperature is kept
+  (`t32_awbc_ct`) for the ct fan-out, which is not wired yet; the AE ev /
+  total gain into the AWB keep their init values. Stats "vendor AWB" in
+  /proc/jz/isp/isp-m0. Host only.
 
 - **Front end: CSC, CSCCR, ISP top** (`tx_isp_t32_front.h`, flow of the vendor
   `tisp_csc_init`, `tisp_csccr_init`, `tisp_top_init`, `tisp_top_reg_cfg`),

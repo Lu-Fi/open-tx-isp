@@ -371,6 +371,22 @@ static inline void t32_aev_ev_alloc_calc(const u8 *tune, u8 *buf, u8 *st, u32 a2
 	}
 }
 
+/*
+ * Entry k (0 .. 255) of the st +1696 table of tisp_ae_ev_list_alloc_calc's
+ * mode 1.  The channel state block is 2184 B (d3a40 + ch * 2184); for k > 121
+ * the vendor reads past it into the next channel's block, which stays zero:
+ * the exposure list runs only with one pipeline (dc284 +900 == 1), so no
+ * other channel is initialised.  Vendor-equal, without the out-of-range
+ * read (openimp #333).
+ */
+#define T32_AEV_ST_BYTES	2184U
+static inline u32 t32_aev_st_tab(const u8 *st, u32 k)
+{
+	u32 off = 1696 + 4 * k;
+
+	return off + 4 <= T32_AEV_ST_BYTES ? t32_ld32(st, off) : 0;
+}
+
 /* frame rate state shared by the cases of tisp_ae_ev_list_alloc_calc */
 struct t32_aev_fps {
 	u32 nv, t1, t2, t3, t4, ch;
@@ -700,7 +716,7 @@ static inline void t32_aev_list_alloc_calc(const u8 *ctune, u8 *buf, u8 *st, u32
 				th = t32_ld32(st, 1700) << sx;
 				if (!(s7 < th)) {
 					r = ops->div32(sh, (20U << sx) + s7, th);
-					r = t32_ld32(st, 1696 + 4 * ((r >> sx) & 0xff)) << sx;
+					r = t32_aev_st_tab(st, (r >> sx) & 0xff) << sx;
 					th = t32_ld32(L, 16 * (s5 + 1) + 4) << sx;
 					th = th < r ? th : r;
 					go1 = 1;
