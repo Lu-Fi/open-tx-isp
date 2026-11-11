@@ -30,7 +30,6 @@
 #include <linux/workqueue.h>
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_awbinit.h"
-#include "tx_isp_t32_awbproc.h"
 
 int isp_printf(unsigned int level, const char *fmt, ...);
 
@@ -83,7 +82,6 @@ static void awbc_free(void)
 static void awbc_work_fn(struct work_struct *w)
 {
 	unsigned int i;
-	u32 ev;
 
 	(void)w;
 	mutex_lock(&awbc_lock);
@@ -91,9 +89,7 @@ static void awbc_work_fn(struct work_struct *w)
 		mutex_unlock(&awbc_lock);
 		return;
 	}
-	t32_awb_interrupt_static(&ai.a, drv_rd, NULL, stat_bufs, &ev);
-	memset(&proc, 0, sizeof(proc));
-	if (t32_awb_process(&ai.a, ctd, drv_rd, NULL, ai.proc_flag, &counter, &proc)) {
+	if (t32_awb_frame(&ai, ctd, drv_rd, NULL, stat_bufs, &counter, &proc)) {
 		t32_awbc_stats.refused++;	/* the vendor would read past one of its tables */
 		mutex_unlock(&awbc_lock);
 		return;

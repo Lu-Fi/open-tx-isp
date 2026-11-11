@@ -31,7 +31,7 @@
 #ifndef TX_ISP_T32_AWBINIT_H
 #define TX_ISP_T32_AWBINIT_H
 
-#include "tx_isp_t32_awb.h"
+#include "tx_isp_t32_awbproc.h"
 
 #define T32_AWBI_TBL_BYTES	192U
 #define T32_AWBI_CTX_BYTES	32U
@@ -209,6 +209,22 @@ static inline int t32_awb_init(struct t32_awb_init *ai, u32 ch, u8 *par, u32 wid
 	o->event_set(o->priv, ch, T32_AWBI_EVENT);
 	o->print(o->priv, 1);
 	return (int)n;
+}
+
+/*
+ * One AWB frame of the driver: tisp_awb_interrupt_static (system irq 3: the
+ * filled statistics buffer into the run state; the vendor's dma sync and
+ * event 12 are the caller's) and tisp_awb_process (event 12).  Returns -1
+ * when the long algorithm refuses (t32_awb_process); p gets the writes and
+ * the event 11 (ct).  Checked with the init by t32_awbchain_oracle.
+ */
+static inline int t32_awb_frame(struct t32_awb_init *ai, struct t32_awb_ctd *d, u32 (*rd)(void *, u32), void *rdp,
+				const u8 *bufs, u16 *counter, struct t32_awb_proc *p)
+{
+	u32 ev;
+
+	t32_awb_interrupt_static(&ai->a, rd, rdp, bufs, &ev);
+	return t32_awb_process(&ai->a, d, rd, rdp, ai->proc_flag, counter, p);
 }
 
 #endif /* TX_ISP_T32_AWBINIT_H */
