@@ -8,6 +8,7 @@
  * - tisp_ae_ai_interrupt_static: AE statistics latch, window area, ROI point.
  * - tisp_ae_par_update_trig: AE parameter refresh from tuning / sensor attributes.
  * - tisp_lce_par: per-frame LCE calculation (locked statistics copy, soft path, curve).
+ * - tisp_lce_interrupt_static: LCE statistics bank, histogram rearm, curve roll.
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -424,6 +425,83 @@ static inline int t32_lce_par(const struct t32_lcep_ops *ops, const u32 *lce_st,
 	n = t32_br_rd32(st + T32_LCP_COUNT) + 1;
 	t32_br_wr32(st + T32_LCP_COUNT, n < T32_LCP_COUNT_WRAP ? n : T32_LCP_COUNT_RESTART);
 	return 0;
+}
+
+/* ---- tisp_lce_interrupt_static (vendor 0x583fc), oracle t32_lceirq_oracle ---- */
+
+#define T32_LCI_R_BANK		0xc088	/* low 2 bits: statistics bank the hardware filled */
+#define T32_LCI_BANK_LEN	0x9900
+#define T32_LCI_HIST_LEN	0x9000
+#define T32_LCI_CURVE_LEN	11520	/* curve buffer: next half copied over the first */
+/* register (direct) / shadow index pairs */
+#define T32_LCI_R_STAT_ADDR	0x2504c
+#define T32_LCI_S_STAT_ADDR	2025
+#define T32_LCI_R_HIST_ADDR	0x25050
+#define T32_LCI_S_HIST_ADDR	2026
+#define T32_LCI_R_CLR		0x25048
+#define T32_LCI_S_CLR		2024
+#define T32_LCI_R_START		0x25040
+#define T32_LCI_S_START		2022
+#define T32_LCI_R_CURVE_ADDR	0xc0a4
+#define T32_LCI_S_CURVE_ADDR	2020
+
+struct t32_lci_buf {		/* t32_data_e1db8[ch], 36 B */
+	u32 rsvd[3];
+	u32 curve;		/* +12: curve buffer (virtual) */
+	u32 stat;		/* +16: statistics banks (virtual) */
+	u32 hist;		/* +20: histogram buffer (virtual) */
+	u32 curve_phys;		/* +24 */
+	u32 stat_phys;		/* +28 */
+	u32 hist_phys;		/* +32 */
+};
+
+struct t32_lci_ops {
+	u32 (*reg_read)(u32 reg);				/* system_reg_read */
+	void (*reg_write)(u32 ch, u32 reg, u32 val);		/* tisp_reg_write */
+	void (*cache_sync)(void *p, u32 len);			/* private_dma_cache_sync(0, p, len, 0) */
+	void (*get_sum_data)(u32 ch, u8 *stat);			/* tisp_lce_get_sum_data */
+};
+
+struct t32_lci {
+	const struct t32_lci_ops *ops;
+	const struct t32_lci_buf *buf;	/* t32_data_e1db8 */
+	const u8 *shadow;		/* t32_data_d03a0 */
+	u32 *bank;			/* t32_data_e1d7c */
+	u8 *last_ch;			/* t32_data_e1d78 */
+};
+
+static inline void t32_lci_wr(struct t32_lci *l, u32 ch, u32 reg, u32 sidx, u32 val)
+{
+	l->ops->reg_write(ch, *l->shadow ? sidx : reg, val);
+}
+
+/*
+ * tisp_lce_interrupt_static: take the filled statistics bank, summarise it,
+ * point the hardware at it again, rearm the histogram, roll the curve
+ * buffer and hand its address to the hardware.  Always 1.
+ */
+static inline int t32_lce_interrupt_static(struct t32_lci *l, u32 ch)
+{
+	const struct t32_lci_buf *b = &l->buf[ch];
+	u32 off, bank = l->ops->reg_read(T32_LCI_R_BANK) & 3;
+	u8 *stat;
+
+	*l->bank = bank;
+	off = bank * T32_LCI_BANK_LEN;
+	stat = t32_br_ptr(b->stat + off);
+	l->ops->cache_sync(stat, T32_LCI_BANK_LEN);
+	l->ops->get_sum_data(ch, stat);
+	l->ops->cache_sync(stat, T32_LCI_BANK_LEN);
+	t32_lci_wr(l, ch, T32_LCI_R_STAT_ADDR, T32_LCI_S_STAT_ADDR, off + b->stat_phys);
+	l->ops->cache_sync(t32_br_ptr(b->hist), T32_LCI_HIST_LEN);
+	t32_lci_wr(l, ch, T32_LCI_R_HIST_ADDR, T32_LCI_S_HIST_ADDR, b->hist_phys);
+	t32_lci_wr(l, ch, T32_LCI_R_CLR, T32_LCI_S_CLR, 0);
+	t32_lci_wr(l, ch, T32_LCI_R_START, T32_LCI_S_START, 1);
+	memcpy(t32_br_ptr(b->curve), t32_br_ptr(b->curve) + T32_LCI_CURVE_LEN, T32_LCI_CURVE_LEN);
+	l->ops->cache_sync(t32_br_ptr(b->curve), T32_LCI_CURVE_LEN);
+	t32_lci_wr(l, ch, T32_LCI_R_CURVE_ADDR, T32_LCI_S_CURVE_ADDR, b->curve_phys);
+	*l->last_ch = ch;
+	return 1;
 }
 
 #endif /* TX_ISP_T32_BLKREST_H */
