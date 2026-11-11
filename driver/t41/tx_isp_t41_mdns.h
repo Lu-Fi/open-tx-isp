@@ -204,4 +204,29 @@ static inline int t41_mdns_pack(const unsigned char *p, unsigned int bytes,
 #undef E
 	return n;
 }
+
+/* Test pattern hold (module parameter mdns_ref_hold, OpenIMP test pattern mode 5, openimp #103).  With bit 0
+ * set, the channel-0 words below get these bits set whenever the writer programs them: the per-pixel gate,
+ * the weight limits and weights by block age, the difference and output ramps and the block motion limits of
+ * luma and chroma, all at 0xff, so the block keeps a picture written into its reference instead of the
+ * gain-interpolated tuning values (which drop it in one frame).  Other words and channels pass unchanged. */
+static inline unsigned int t41_mdns_hold_value(unsigned int address, unsigned int value, unsigned int hold)
+{
+	static const struct { unsigned short address; unsigned int mask; } bits[] = {
+		{0xf120,0x00ff00ff},{0xf150,0x0000ffff},{0xf154,0xffffffff},{0xf158,0xffffffff},{0xf15c,0xffffffff},
+		{0xf160,0xffffffff},{0xf164,0xffffffff},{0xf168,0xffffffff},{0xf16c,0xffffffff},{0xf174,0xffffffff},
+		{0xf178,0xffffffff},{0xf180,0xffffffff},{0xf184,0xffffffff},{0xf18c,0xffffffff},{0xf190,0xffffffff},
+		{0xf198,0x00ffffff},{0xf210,0x0000ffff},{0xf234,0x0000ffff},{0xf264,0xffffffff},{0xf26c,0xffffffff},
+		{0xf278,0x0000ffff},
+	};
+	unsigned int i;
+
+	if (!(hold & 1))
+		return value;
+	for (i = 0; i < sizeof(bits) / sizeof(bits[0]); ++i)
+		if (bits[i].address == address)
+			return value | bits[i].mask;
+	return value;
+}
+
 #endif
