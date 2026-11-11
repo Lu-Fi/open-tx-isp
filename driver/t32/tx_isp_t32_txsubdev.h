@@ -50,26 +50,6 @@ u32 t32_tx_os_kmalloc(u32 n, u32 flags);
 void t32_tx_os_kfree(u32 p);
 void t32_tx_os_memset(u32 a, u32 c, u32 n);
 
-static inline u8 t32_tx_b(u32 a)
-{
-	return *(volatile u8 *)T32_TX_P(a);
-}
-
-static inline void t32_tx_wb(u32 a, u8 v)
-{
-	*(volatile u8 *)T32_TX_P(a) = v;
-}
-
-static inline u16 t32_tx_h(u32 a)
-{
-	return *(volatile u16 *)T32_TX_P(a);
-}
-
-static inline void t32_tx_wh(u32 a, u16 v)
-{
-	*(volatile u16 *)T32_TX_P(a) = v;
-}
-
 /* the pads of one direction (2 = out, 1 = in); the in pads are marked 2 as well */
 static inline void t32_tx_subdev_fill_pads(u32 sd, u32 pd, u32 pads, u32 dir)
 {

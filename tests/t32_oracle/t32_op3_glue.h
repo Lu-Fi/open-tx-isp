@@ -149,8 +149,8 @@ static unsigned int op3_nconv(const char *f, char *types)
 }
 
 /* a print argument the vendor takes from a stale register / stack word: not compared (set by the oracle) */
-static const char *op3_mask_fmt;
-static u32 op3_mask_args;
+static const char *op3_mask_fmt, *op3_mask_fmt2;
+static u32 op3_mask_args, op3_mask_args2;
 
 static void op3_printv(u32 level, const char *fmt, const u32 *arg)
 {
@@ -179,6 +179,14 @@ static void op3_printv(u32 level, const char *fmt, const u32 *arg)
 		for (i = 0; i < OP3_MAXARG - 1; i++)
 			if (op3_mask_args & (1u << i))
 				e->a[i] = 0;
+	if (op3_mask_fmt2 && !strcmp(op3_mask_fmt2, fmt)) {
+		for (i = 0; i < OP3_MAXARG - 1; i++)
+			if (op3_mask_args2 & (1u << i))
+				e->a[i] = 0;
+		for (i = 0; i < 4; i++)		/* a masked %s: bit 16 + string index */
+			if (op3_mask_args2 & (0x10000u << i))
+				e->s[i][0] = 0;
+	}
 }
 
 /* vendor isp_printf(level, fmt, ...) / printk(fmt, ...): up to 8 arguments after the format */

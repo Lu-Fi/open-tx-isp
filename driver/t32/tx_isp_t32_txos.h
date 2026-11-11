@@ -49,6 +49,27 @@ static inline void t32_tx_st(u32 a, u32 off, u32 v)
 	*(volatile u32 *)T32_TX_P(a + off) = v;
 }
 
+/* byte / halfword access to a vendor object */
+static inline u8 t32_tx_b(u32 a)
+{
+	return *(volatile u8 *)T32_TX_P(a);
+}
+
+static inline void t32_tx_wb(u32 a, u8 v)
+{
+	*(volatile u8 *)T32_TX_P(a) = v;
+}
+
+static inline u16 t32_tx_h(u32 a)
+{
+	return *(volatile u16 *)T32_TX_P(a);
+}
+
+static inline void t32_tx_wh(u32 a, u16 v)
+{
+	*(volatile u16 *)T32_TX_P(a) = v;
+}
+
 /* hardware register in a KSEG1 window (fixed address, as the vendor accesses it) */
 static inline u32 t32_tx_rd(u32 a)
 {
