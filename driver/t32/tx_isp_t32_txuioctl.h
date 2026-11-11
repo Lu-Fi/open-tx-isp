@@ -15,7 +15,8 @@
  *   core     core ioctl (subdevice ops +0, +32) broadcast to the 16
  *            subdevices +84 .. +144 in three vendor flavours;
  *   sensor   bypass all, sensor enum / get / set input, sensor s / g
- *            register: the sensor ioctl (ops +12, +8) of every subdevice.
+ *            register: the sensor ioctl (ops +12, +8) of every subdevice;
+ *   memory   ISP memory space set / get, WDR buffer set / get.
  */
 #ifndef TX_ISP_T32_TXUIOCTL_H
 #define TX_ISP_T32_TXUIOCTL_H
@@ -49,6 +50,10 @@
 #define T32_UIO_SET_INPUT	0xc0085404U
 #define T32_UIO_S_REGISTER	0xc040540dU
 #define T32_UIO_G_REGISTER	0x8040540eU
+#define T32_UIO_SET_ISP_MEM	0x800c540fU
+#define T32_UIO_GET_ISP_MEM	0x800c5410U
+#define T32_UIO_WDR_SET_BUF	0x800c5411U
+#define T32_UIO_WDR_GET_BUF	0x800c5412U
 
 /* core ioctl command words the broadcasts hand on */
 #define T32_CORE_CMD_16		0x1000016U
@@ -70,6 +75,20 @@
 
 #define T32_UIO_CFU_ERR		"[ %s:%d ] copy from user error\n"
 #define T32_UIO_CTU_ERR		"[ %s:%d ] copy to user error\n"
+
+/* core device + 104 * input: +376 sensor (+148 WDR mode), +384 / +388 width / height */
+#define T32_CORE_IN		376U
+#define T32_CORE_IN_BYTES	104U
+#define T32_CORE_IN_W		384U
+#define T32_CORE_IN_H		388U
+#define T32_SENSOR_WDR_MODE	148U
+#define T32_CORE_WDR_BUF	1180U	/* +1176 + 4 input: WDR buffer ok (vendor 4 * (input + 294) + 4) */
+
+/* provided by the driver glue (kernel) or by the oracle (host) */
+void t32_tx_os_lib_tisp_set_isp_memory_space(u32 sel, u32 v);
+u32 t32_tx_os_lib_tisp_get_isp_memory_space(u32 sel, void *opt);
+u32 t32_tx_os_get_isp_memopt(void);
+void t32_tx_os_tisp_s_wdr_en(u32 in, u32 en, u32 why);
 
 typedef int (*t32_uio_core_fn)(u32 sd, u32 cmd, u32 arg);
 typedef int (*t32_uio_notify_fn)(u32 sd, u32 ev, void *msg);
@@ -210,6 +229,119 @@ static inline int t32_uio_g_register(u32 isp, u32 user)
 	return 0;
 }
 
+/* user or kernel block out (+60) */
+static inline u32 t32_uio_arg_out(u32 isp, u32 arg, const void *src, u32 n)
+{
+	if (t32_tx_ld(isp, T32_ISP_KCALL)) {
+		memcpy(T32_TX_P(arg), src, n);
+		return 0;
+	}
+	return t32_tx_os_copy_to_user(arg, src, n);
+}
+
+/* tx_isp_set_isp_mem: { u8 sel, u32 value, ... } */
+static inline int t32_uio_set_isp_mem(u32 isp, u32 arg)
+{
+	u32 b[3];
+
+	if (t32_tx_arg_in(isp, b, arg, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_set_isp_mem", 986);
+		return -(int)T32_EFAULT;
+	}
+	t32_tx_os_lib_tisp_set_isp_memory_space((u8)b[0], b[1]);
+	return 0;
+}
+
+/*
+ * tx_isp_get_isp_mem: { u8 sel, -, size out }.  The option block handed to
+ * the lib holds the memory option nibble at +4; the vendor leaves its other
+ * bytes as stale stack (zero here).  A failed copy back prints the
+ * copy-from-user message (vendor).
+ */
+static inline int t32_uio_get_isp_mem(u32 isp, u32 arg)
+{
+	u32 m = t32_tx_os_get_isp_memopt(), b[3];
+	u8 opt[8] = { 0 };
+
+	if (t32_tx_arg_in(isp, b, arg, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_get_isp_mem", 1032);
+		return -(int)T32_EFAULT;
+	}
+	opt[4] = (m >> 4) & 15;
+	b[2] = t32_tx_os_lib_tisp_get_isp_memory_space((u8)b[0], opt);
+	if (t32_uio_arg_out(isp, arg, b, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_get_isp_mem", 1044);
+		return -(int)T32_EFAULT;
+	}
+	return 0;
+}
+
+/* the input's WDR mode is 1 or 2; *tsize = width * height * 4 */
+static inline int t32_uio_wdr_size(u32 in, u32 *tsize)
+{
+	u32 mode = t32_tx_ld(t32_tx_ld(in, T32_CORE_IN), T32_SENSOR_WDR_MODE);
+
+	if (mode != 1 && mode != 2)
+		return 0;
+	*tsize = t32_tx_ld(in, T32_CORE_IN_W) * t32_tx_ld(in, T32_CORE_IN_H) << 2;
+	return 1;
+}
+
+/*
+ * tx_isp_wdr_set_buf: { input, paddr, size }.  The vendor copies the block
+ * in twice and keeps the input of the first copy; the input is not checked.
+ */
+static inline int t32_uio_wdr_set_buf(u32 isp, u32 arg)
+{
+	u32 core = t32_tx_ld(t32_tx_ld(isp, T32_DEV_SD), T32_SD_PRIV_CORE), b[3], ch, tsize;
+
+	if (t32_tx_arg_in(isp, b, arg, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_wdr_set_buf", 1121);
+		return -(int)T32_EFAULT;
+	}
+	ch = b[0];
+	if (t32_tx_arg_in(isp, b, arg, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_wdr_set_buf", 1137);
+		return -(int)T32_EFAULT;
+	}
+	if (!t32_uio_wdr_size(core + T32_CORE_IN_BYTES * ch, &tsize)) {
+		t32_tx_os_isp_printf(2, "[ %s:%d ] Not the wdr mode, do not need to alloc buf!!!\n", "tx_isp_wdr_set_buf", 1147);
+		return -1;
+	}
+	t32_tx_os_isp_printf(0, "[ %s:%d ] tsize is %d, buf info size is %d, paddr is 0x%x\n", "tx_isp_wdr_set_buf", 1151,
+			     tsize, b[2], b[1]);
+	if (b[2] < tsize) {
+		t32_tx_os_isp_printf(0, "[ %s:%d ] buf size too small\n", "tx_isp_wdr_set_buf", 1154);
+		t32_tx_st(core, T32_CORE_WDR_BUF + 4 * ch, 0);
+		t32_tx_os_tisp_s_wdr_en(ch, 0, 2);
+		return -(int)T32_EFAULT;
+	}
+	t32_tx_st(core, T32_CORE_WDR_BUF + 4 * ch, 1);
+	return 0;
+}
+
+/* tx_isp_wdr_get_buf: { input, 0, tsize } back.  A failed copy back prints the copy-from-user message (vendor) */
+static inline int t32_uio_wdr_get_buf(u32 isp, u32 arg)
+{
+	u32 b[3], in;
+
+	if (t32_tx_arg_in(isp, b, arg, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_wdr_get_buf", 1179);
+		return -(int)T32_EFAULT;
+	}
+	in = t32_tx_ld(t32_tx_ld(isp, T32_DEV_SD), T32_SD_PRIV_CORE) + T32_CORE_IN_BYTES * b[0];
+	b[1] = 0;
+	b[2] = 0;
+	if (!t32_uio_wdr_size(in, &b[2]))
+		t32_tx_os_isp_printf(1, "[ %s:%d ] Not the wdr mode, do not need to alloc buf!!!\n", "tx_isp_wdr_get_buf", 1199);
+	t32_tx_os_isp_printf(0, "[ %s:%d ] tsize is %d\n", "tx_isp_wdr_get_buf", 1202, b[2]);
+	if (t32_uio_arg_out(isp, arg, b, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_wdr_get_buf", 1207);
+		return -(int)T32_EFAULT;
+	}
+	return 0;
+}
+
 /* tx_isp_unlocked_ioctl(file, cmd, arg) */
 static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 {
@@ -247,6 +379,10 @@ static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 		return t32_uio_sensor_input(isp, arg, 8, T32_SENS_SET_INPUT, "tx_isp_sensor_set_input", 746, 763);
 	case T32_UIO_S_REGISTER:	return t32_uio_s_register(isp, arg);
 	case T32_UIO_G_REGISTER:	return t32_uio_g_register(isp, arg);
+	case T32_UIO_SET_ISP_MEM:	return t32_uio_set_isp_mem(isp, arg);
+	case T32_UIO_GET_ISP_MEM:	return t32_uio_get_isp_mem(isp, arg);
+	case T32_UIO_WDR_SET_BUF:	return t32_uio_wdr_set_buf(isp, arg);
+	case T32_UIO_WDR_GET_BUF:	return t32_uio_wdr_get_buf(isp, arg);
 	}
 	return 0;
 }
