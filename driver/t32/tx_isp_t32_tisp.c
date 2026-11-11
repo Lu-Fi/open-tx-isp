@@ -9,7 +9,7 @@
  * Block 1, gain-interpolated filters: DMSC, YSP, CDNS, YDNS, SDNS; block 2 MDNS; block 3 DPC (long-frame gain);
  * block 4 GIB (black level, tisp_gib_again_update); block 5 RDNS (raw denoise, tisp_rdns_refresh, openimp #234);
  * block 6 LSC strength (tisp_lsc_tgain_update); block 7 LCE state and strengths (tisp_lce_init state,
- * tisp_lce_tgain_update; tisp_lce_par is not wired, see driver/t32/README.md).
+ * tisp_lce_tgain_update; tisp_lce_par runs from the block interrupts, tx_isp_t32_blkirq.c).
  *  - At stream-on the init path hands each block its IQ bin section (the copy
  *    the init function already edited, as the vendor keeps tparams) and the
  *    context is built the way the vendor's tisp_<blk>_init leaves it: zeroed
@@ -73,7 +73,7 @@ module_param(t32_ported_paths, uint, 0644);
 MODULE_PARM_DESC(t32_ported_paths,
 		 "1 (default): every wired per-frame block on its ported path; 0: all on the old path; "
 		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib, 8 rdns, 9 ae, "
-		 "10 lsc, 11 lce, 12 tmo (not wired))");
+		 "10 lsc, 11 lce, 12 tmo, 13 awb (bit 14)");
 
 static unsigned int tisp_tgain = 0x10000;
 module_param(tisp_tgain, uint, 0644);
@@ -183,7 +183,8 @@ static void pf_gain(enum t32_ltg_gain blk, u32 ch, u64 gain, u32 x, u32 y)
 		struct t32_lcem l = { .ops = &pf_lcem_ops, .st = { pf.lce_st } };
 
 		t32_lce_tgain_update(&l, 0, (u32)gain, (u32)(gain >> 32), x, y);
-	}
+	} else if (blk == T32_LTG_TMO)
+		t32_tmo_tgain(ch, gain);	/* tisp_tmo_tgain_update (tx_isp_t32_tmo.c) */
 	pf_flush(n);
 }
 
@@ -296,6 +297,8 @@ static void pf_free_locked(void)
 	kfree(pf.rdns.sec);
 	kfree(pf.rdns.param);
 	kfree(pf.lsc.sec);
+	t32_blk_lce_detach();	/* the block interrupts stop using the state first */
+	t32_tmo_detach();	/* tisp_tmo_deinit (tx_isp_t32_tmo.c) */
 	vfree(pf.lce_st);
 	kfree(pf.lce_sec);
 	memset(&pf, 0, sizeof(pf));
@@ -565,11 +568,13 @@ void t32_pf_attach_lce(const u8 *sec, u32 width, u32 height)
 	t32_lce_state_init(st, cp, width, height);
 	t32_lcetg_wr32(st, (u32)(uintptr_t)cp);
 	mutex_lock(&pf_lock);
+	t32_blk_lce_detach();
 	vfree(pf.lce_st);
 	kfree(pf.lce_sec);
 	pf.lce_st = st;
 	pf.lce_sec = cp;
 	pf.have[T32_PP_LCE] = true;
+	t32_blk_lce_attach(st, width, height);	/* bits 8 / 30, event 14: tisp_lce_par (tx_isp_t32_blkirq.c) */
 	mutex_unlock(&pf_lock);
 }
 

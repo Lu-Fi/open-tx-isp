@@ -119,8 +119,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t32_hw_stats.frame_ends++;
 		t32_tunctl_frame_done(0);	/* isp_frame_done_wakeup (tuning id 0x08000091) */
 	}
-	if (sta & T32_INT_AWB)
+	if (sta & T32_INT_AWB) {
 		t32_hw_stats.awb_irqs++;
+		t32_awbc_kick();	/* the vendor AWB frame (system irq 3: tisp_awb_interrupt_static) */
+	}
 	if (sta & T32_INT_AE) {
 		t32_hw_stats.ae_irqs++;
 		t32_aec_kick();		/* the vendor AE frame (system irq 4: tisp_ae_interrupt_static) */
@@ -130,8 +132,11 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 		t32_bringup_ae_kick();
 		t32_pf_kick();
 	}
+	t32_blk_irq(sta);		/* block bits 8 / 30 (LCE): lib_tisp_intp_process, tx_isp_t32_blkirq.c */
 	if (done)
 		t32_fs_done_irq(done);
+	if (msca & 2)			/* MSCA frame done: tisp_msca_irq_frame_done (ISP OSD, #336) */
+		t32_isposd_frame_done();
 	return IRQ_HANDLED;
 }
 
@@ -197,6 +202,18 @@ const u8 *t32_hw_ae_zones(void)
 #endif
 }
 
+/* the four AWB statistics buffers (0x7000 each), uncached */
+static const u8 *t32_hw_awb_bufs(void)
+{
+	if (!awb_buf)
+		return NULL;
+#ifdef CONFIG_MIPS
+	return (const u8 *)CKSEG1ADDR(virt_to_phys((void *)awb_buf));
+#else
+	return (const u8 *)awb_buf;
+#endif
+}
+
 static void t32_stats_off(void)
 {
 	isp_wr(T32_AE_TRIG, 0);
@@ -236,6 +253,9 @@ static void t32_stats_init(void)
 	n = t32_awb_stats_init(bin, width, height, virt_to_phys((void *)awb_buf), T32_AWB_INIT_EV, w);
 	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
 		isp_wr(w[i].reg, w[i].val);
+	if (t32_pp_on(T32_PP_AWB) &&	/* the vendor AWB context (tisp_awb_init state part, openimp #234) */
+	    t32_awbc_attach(bin + T32_AWB_PARAM, width, height, t32_hw_awb_bufs()))
+		isp_printf(2, "tx-isp-t32: vendor AWB per-frame chain not started\n");
 	t32_hw_stats.stats_inits++;
 }
 
@@ -289,10 +309,14 @@ static void t32_front_init(void)
 #define T32_TISP_MAX_WRITES	T32_MDNS_MAX_WRITES
 static struct t32_front_write *tisp_w;
 
-/* LCE DMA buffers (work 0x26400 bytes, default curve 0x5a00 bytes), kept until the module is removed */
+/*
+ * LCE DMA buffers of tisp_lce_malloc_cfg (statistics banks 0x26400 bytes, curve 0x5a00 bytes, histogram
+ * 0x9000 bytes of which tisp_lsf_interrupt_static syncs 0x9900), kept until the module is removed
+ */
 #define T32_LCE_WORK_ORDER	6	/* 256 KiB >= 0x26400 */
 #define T32_LCE_CURVE_ORDER	3	/* 32 KiB >= 0x5a00 */
-static unsigned long lce_work, lce_curve;
+#define T32_LCE_HIST_ORDER	4	/* 64 KiB >= 0x9900 */
+static unsigned long lce_work, lce_curve, lce_hist;
 
 static void *t32_uncached(unsigned long buf)
 {
@@ -311,11 +335,24 @@ static int t32_lce_build(const u8 *sec, u32 width, u32 height)
 		lce_work = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_LCE_WORK_ORDER);
 	if (!lce_curve)
 		lce_curve = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_LCE_CURVE_ORDER);
-	if (!lce_work || !lce_curve)
+	if (!lce_hist)
+		lce_hist = __get_free_pages(GFP_KERNEL | __GFP_ZERO, T32_LCE_HIST_ORDER);
+	if (!lce_work || !lce_curve || !lce_hist)
 		return -ENOMEM;
+#ifdef CONFIG_MIPS
+	/*
+	 * The zeroing above went through the data cache; write it back before the uncached curve writes (a
+	 * later eviction of those lines would overwrite them) and before the per-frame path (tx_isp_t32_blkirq.c)
+	 * reads and writes the buffers through the cache with the vendor's cache syncs.
+	 */
+	dma_cache_wback_inv(lce_work, PAGE_SIZE << T32_LCE_WORK_ORDER);
+	dma_cache_wback_inv(lce_curve, PAGE_SIZE << T32_LCE_CURVE_ORDER);
+	dma_cache_wback_inv(lce_hist, PAGE_SIZE << T32_LCE_HIST_ORDER);
+#endif
 	t32_lce_curve(t32_uncached(lce_curve));			/* both halves hold the default curve */
 	t32_lce_curve((u8 *)t32_uncached(lce_curve) + 0x2d00);
 	wmb();
+	t32_blk_lce_bufs((void *)lce_curve, (void *)lce_work, (void *)lce_hist);
 	return t32_lce_init(sec, width, height, virt_to_phys((void *)lce_work),
 			    virt_to_phys((void *)lce_curve), tisp_w);
 }
@@ -426,6 +463,8 @@ static void t32_tisp_init(void)
 		t32_tisp_flush("lce", t32_lce_build(bin + off, width, height));
 		t32_pf_attach_lce(bin + off, width, height);	/* per-frame state (tisp_lce_init) */
 	}
+	if (!t32_core_sensor_size(&width, &height))
+		t32_tmo_attach(bin, bytes, width, height);	/* tisp_tmo_init, bits 9 / 31 (tx_isp_t32_tmo.c) */
 	off = t32_iq_section(bin, bytes, T32_SEC_SDNS, &len);
 	if (off && len >= T32_SDNS_SEC_BYTES) {
 		t32_tisp_flush("sdns", t32_sdns_init(bin + off, tisp_w));
@@ -801,17 +840,22 @@ static void t32_hw_msca_load_curves(void)
 void t32_hw_msca_start(int ch, u32 w, u32 h, u32 stride, u32 in_w, u32 in_h)
 {
 	u32 size = t32_msca_size_word(w, h);
+	unsigned long fl;
 
 	curve_geom[ch].in_w = in_w;
 	curve_geom[ch].in_h = in_h;
 	curve_geom[ch].w = w;
 	curve_geom[ch].h = h;
 	curve_geom[ch].on = true;
+	if (ch == 0)
+		t32_isposd_msca_start(in_w, in_h);	/* ISP OSD picture size, RAM flag (#336) */
 	ch_wr(ch, T32_MSCA_Y_STRIDE, stride);
 	ch_wr(ch, T32_MSCA_UV_STRIDE, stride);
 	isp_wr(T32_MSCA_CH_EN2, 0);
 	isp_wr(T32_MSCA_UPDATE, 1);
+	fl = t32_isposd_ram_lock();	/* the shadow-RAM port is shared with the OSD commit */
 	t32_hw_msca_load_curves();
+	t32_isposd_ram_unlock(fl);
 	ch_wr(ch, T32_MSCA_CTRL, 0);
 	ch_wr(ch, T32_MSCA_SCL_SIZE, size);
 	ch_wr(ch, T32_MSCA_PARAM2, T32_MSCA_PARAM2_DEFAULT);
@@ -913,6 +957,7 @@ void t32_hw_exit(void)
 	t32_hw_stream_off();
 	for (i = 0; i < T32_MSCA_CHANNELS; i++)
 		t32_hw_msca_stop(i);
+	t32_awbc_detach();	/* the per-frame AWB reads the AWB buffers */
 	t32_stats_off();	/* no statistics DMA into the buffers freed below */
 	if (irqs_requested) {
 		free_irq(vic_irq, &csi_base);
@@ -921,6 +966,7 @@ void t32_hw_exit(void)
 	}
 	cancel_work_sync(&t32_bringup_ae_w);	/* it reads registers and the AE buffer */
 	t32_pf_exit();				/* the per-frame work writes registers */
+	t32_blk_exit();				/* block event work (after the LCE state is gone) */
 	writel(0, csi_base + 0x0c);		/* CSI host back into reset */
 	csi_reset_done = 0;
 	iounmap(dphy_base);
@@ -936,7 +982,10 @@ void t32_hw_exit(void)
 		free_pages(lce_work, T32_LCE_WORK_ORDER);
 	if (lce_curve)
 		free_pages(lce_curve, T32_LCE_CURVE_ORDER);
-	lce_work = lce_curve = 0;
+	if (lce_hist)
+		free_pages(lce_hist, T32_LCE_HIST_ORDER);
+	lce_work = lce_curve = lce_hist = 0;
+	t32_blk_lce_bufs(NULL, NULL, NULL);
 	kfree(tisp_w);
 	tisp_w = NULL;
 	free_pages(rcfg_pages, get_order((T32_RCFG_TABLE_WORDS + T32_RCFG_LIST_WORDS) * 4));

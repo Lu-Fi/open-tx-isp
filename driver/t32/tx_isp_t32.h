@@ -55,6 +55,13 @@ void t32_hw_msca_stop(int ch);
 int t32_hw_msca_pop_done(int ch, u32 *y, u32 *uv);
 
 u32 t32_hw_rd(u32 off);
+/* ISP-drawn OSD (tx_isp_t32_isposd.c, #336) */
+long t32_isposd_ctrl(u32 vi, u32 get, u32 id, u32 uptr);
+void t32_isposd_frame_done(void);
+void t32_isposd_msca_start(u32 in_w, u32 in_h);
+void t32_isposd_status(u32 *pending, u32 *refused, u32 *fixes);
+unsigned long t32_isposd_ram_lock(void);
+void t32_isposd_ram_unlock(unsigned long flags);
 void t32_hw_wr(u32 off, u32 v);
 
 /* tx_isp_t32_ae.c: the per-frame vendor AE chain (tx_isp_t32_aechain.h), behind T32_PP_AE */
@@ -70,9 +77,20 @@ void t32_aec_kick(void);
 bool t32_aec_tgain(u32 *g);
 const u8 *t32_hw_ae_zones(void);
 
+/* tx_isp_t32_awbc.c: the per-frame vendor AWB (tisp_awb_init state, tisp_awb_process), behind T32_PP_AWB */
+struct t32_awbc_drv_stats {
+	u32 frames, writes, refused;
+	u32 ct, gain_r, gain_b;		/* the last frame */
+};
+extern struct t32_awbc_drv_stats t32_awbc_stats;
+int t32_awbc_attach(const u8 *sec, u32 width, u32 height, const u8 *bufs);
+void t32_awbc_detach(void);
+void t32_awbc_kick(void);
+bool t32_awbc_ct(u32 *ct);
+
 /* tx_isp_t32_tisp.c: per-frame tisp paths (ported blocks), switch t32_ported_paths */
 enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T32_PP_MDNS, T32_PP_DPC, T32_PP_GIB,
-	     T32_PP_RDNS, T32_PP_AE, T32_PP_LSC, T32_PP_LCE, T32_PP_TMO, T32_PP_COUNT };
+	     T32_PP_RDNS, T32_PP_AE, T32_PP_LSC, T32_PP_LCE, T32_PP_TMO, T32_PP_AWB, T32_PP_COUNT };
 struct t32_pf_stats {
 	u32 runs, writes;
 };
@@ -92,6 +110,31 @@ void t32_pf_stop(void);
 void t32_pf_start(void);
 void t32_pf_kick(void);
 void t32_pf_exit(void);
+
+/* tx_isp_t32_blkirq.c: block interrupt paths (vendor LCE bits 8 / 30, event 14, behind T32_PP_LCE;
+ * TMO bits 9 / 31, behind T32_PP_TMO) */
+#define T32_BLK_IRQ_LCE_BITS	((1U << 8) | (1U << 30))
+#define T32_BLK_IRQ_TMO_BITS	((1U << 9) | (1U << 31))
+#define T32_BLK_IRQ_MASK	(T32_BLK_IRQ_LCE_BITS | T32_BLK_IRQ_TMO_BITS)
+struct t32_blk_drv_stats {
+	u32 attaches, lce_irqs, lsf_irqs, events, ev_full;
+};
+extern struct t32_blk_drv_stats t32_blk_stats;
+void t32_blk_irq(u32 sta);
+void t32_blk_lce_bufs(void *curve, void *stat, void *hist);
+void t32_blk_lce_attach(u8 *st, u32 width, u32 height);
+void t32_blk_lce_detach(void);
+void t32_blk_exit(void);
+void t32_blk_tmo_set(u32 (*tmo)(u32 ch), u32 (*fbf)(u32 ch));
+
+/* tx_isp_t32_tmo.c: the vendor TMO / ADR block (tisp_tmo_init, bits 9 / 31), behind T32_PP_TMO */
+struct t32_tmo_drv_stats {
+	u32 attaches, tmo_irqs, fbf_irqs, tgains;
+};
+extern struct t32_tmo_drv_stats t32_tmo_stats;
+void t32_tmo_attach(const u8 *bin, u32 bytes, u32 width, u32 height);
+void t32_tmo_detach(void);
+void t32_tmo_tgain(u32 ch, u64 gain);
 
 /* tx_isp_t32_fs.c */
 struct seq_file;

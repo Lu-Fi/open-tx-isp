@@ -264,6 +264,8 @@ static void gen(struct par *p)
 
 	for (i = 0; i < ARENA; i++)
 		img[i] = sel ? (u8)rnd() : (u8)(rnd() & 7);
+	/* the next channel's state block behind st (d3a40 + 2184 * (ch + 1)): zero with one pipeline */
+	memset(img + OFF_ST + T32_AEV_ST_BYTES, 0, OFF_TUNE - OFF_ST - T32_AEV_ST_BYTES);
 	sh = rnd() % 5 ? 4 + rnd() % 9 : rnd() % 17;
 	if (rnd() % 40 == 0)
 		sh = 31;
