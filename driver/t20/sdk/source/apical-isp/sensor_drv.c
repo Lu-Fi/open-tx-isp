@@ -152,9 +152,10 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	int32_t integration_log2;
 	int32_t partition_integration_log2 = 0;
 	int32_t partition_again_log2 = 0;
-	int32_t max_exposure_log2;
-	int reserve;
 	int32_t applied_again;
+	int32_t manual_again;
+	int32_t gain_lo;
+	int32_t gain_hi;
 	int32_t remaining_exposure;
 	int32_t isp_dgain_hw_max;
 	int32_t isp_dgain_cap;
@@ -181,8 +182,8 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	 * ceiling): the gain is clamped to that below, so the PI loop must not
 	 * wind up beyond it (#238).
 	 */
-	max_exposure_log2 = integration_log2 + (int32_t)t20_ae_request_log2_16(
-		attr->max_again, stab.global_max_sensor_analog_gain);
+	gain_hi = (int32_t)t20_ae_request_log2_16(attr->max_again,
+		stab.global_max_sensor_analog_gain);
 	/*
 	 * #246: the OEM AE also plans with the ISP digital gain
 	 * (cmos_update_exposure_partitioning_lut: again + dgain + isp dgain
@@ -193,7 +194,6 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 		(4 << LOG2_GAIN_SHIFT);
 	isp_dgain_cap = t20_ae_isp_dgain_cap(stab.global_max_isp_digital_gain,
 		isp_dgain_hw_max);
-	max_exposure_log2 += isp_dgain_cap;
 	if (*total_exposure_log2 < 0) {
 		prev_again = -1;
 		integration = attr->integration_time;
@@ -203,8 +203,23 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 						       LOG2_GAIN_SHIFT) +
 			((int32_t)stab.global_sensor_analog_gain << 11);
 	}
-	*total_exposure_log2 = clamp_t(int32_t, *total_exposure_log2,
-					 min_log2, max_exposure_log2);
+	/*
+	 * openimp #285: manual analog gain (stab[4] + stab[28], set through the
+	 * system table) as the OEM cmos_get_manual_again_log2(): the gain is
+	 * pinned to stab[28] (capped by stab[29], floored to the sensor table)
+	 * and the AE steers only time and ISP digital gain around it.  Before,
+	 * the compact AE ignored stab[4] and overwrote stab[28] every frame.
+	 */
+	manual_again = t20_ae_again_manual(
+		stab.global_manual_sensor_analog_gain,
+		stab.global_sensor_analog_gain, attr->max_again,
+		stab.global_max_sensor_analog_gain, &prev_again,
+		attr->sensor_ctrl.alloc_again, LOG2_GAIN_SHIFT, &again_code);
+	gain_lo = 0;
+	if (manual_again >= 0)
+		gain_lo = gain_hi = manual_again;
+	*total_exposure_log2 = t20_ae_total_clamp(*total_exposure_log2,
+		min_log2, integration_log2, gain_lo, gain_hi, isp_dgain_cap);
 
 	/*
 	 * Manual integration time (#128): the OEM AE takes the time from
@@ -219,9 +234,8 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 		integration_log2 = log2_fixed_to_fixed(integration, 0,
 			LOG2_GAIN_SHIFT);
 		*total_exposure_log2 = t20_ae_manual_total(*total_exposure_log2,
-			integration_log2, (int32_t)t20_ae_request_log2_16(
-				attr->max_again, stab.global_max_sensor_analog_gain) +
-			isp_dgain_cap);
+			integration_log2 + gain_lo,
+			gain_hi - gain_lo + isp_dgain_cap);
 		goto allocate_gain;
 	}
 
@@ -231,7 +245,8 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	 * sensor gain.  Integration limits are milliseconds; gain limits are
 	 * linear multipliers.  A zero limit selects that owner's sensor maximum.
 	 */
-	remaining_exposure = *total_exposure_log2;
+	/* OEM cmos_calc_target_inttime(): target -= manual analog gain */
+	remaining_exposure = *total_exposure_log2 - gain_lo;
 	lines_per_second = 0;
 	if ((ispcore->vin.fps & 0xffff) != 0)
 		lines_per_second = (uint32_t)div_u64(
@@ -306,13 +321,15 @@ allocate_gain:
 	 * which the OEM applies unconditionally: 0 means 1x, not "no cap"
 	 * (#238).  See t20_ae_again_alloc() (tx_isp_t20_ae_max.h).
 	 */
-	reserve = !stab.global_manual_sensor_analog_gain &&
-		t20_ae_again_reserve_ok(stab.global_manual_isp_digital_gain,
-					isp_dgain_cap);
-	applied_again = t20_ae_again_alloc(
-		*total_exposure_log2 - integration_log2, attr->max_again,
-		stab.global_max_sensor_analog_gain, reserve, &prev_again,
-		attr->sensor_ctrl.alloc_again, LOG2_GAIN_SHIFT, &again_code);
+	if (manual_again >= 0) {
+		applied_again = manual_again;	/* #285, code set above */
+	} else {
+		applied_again = t20_ae_again_alloc(
+			*total_exposure_log2 - integration_log2,
+			attr->max_again, stab.global_max_sensor_analog_gain,
+			1, &prev_again, attr->sensor_ctrl.alloc_again,
+			LOG2_GAIN_SHIFT, &again_code);
+	}
 	/*
 	 * #246: OEM cmos_digital_gain_update(): the remainder the floored
 	 * analog gain and the quantised integration time leave goes to the ISP

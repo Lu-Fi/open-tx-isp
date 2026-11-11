@@ -17742,6 +17742,17 @@ static bool simple_iridix_initialized;
 static unsigned int simple_trace_count;
 static unsigned int iq_trace_count;
 
+/*
+ * openimp #284 L5: a day/night IQ swap loads a new correction curve; the
+ * held value of the old curve must not survive it (the hold would keep the
+ * old one-LSB value until the exposure moves 1/16 stop, at night with the
+ * exposure at its cap possibly for good).  Called after the swap.
+ */
+void tx_isp_t20_ae_curve_hold_reset(void)
+{
+	t20_ae_curve_held.valid = 0;
+}
+
 static void t20_compact_ae_reset(void)
 {
 	ae_irq_trace_count = 0;
@@ -17868,9 +17879,15 @@ int32_t AE_fsm_process_interrupt(int32_t *arg1, char arg2)
 				(void *)((u8 *)arg1 + (0xff0 - 0x308));
 			int32_t *sharpening = (void *)(isp + 0x1014);
 
-			*(uint16_t *)&stab[24] = (uint16_t)integration;
-			stab[28] = (uint8_t)clamp_t(int32_t,
-				again_log2 >> 11, 0, 255);
+			/* openimp #285: like the OEM cmos_update_exposure_
+			 * history(), a manual time (stab[3]) / analog gain
+			 * (stab[4]) keeps the value the user set in stab[24] /
+			 * stab[28]. */
+			if (!stab[3])
+				*(uint16_t *)&stab[24] = (uint16_t)integration;
+			if (!stab[4])
+				stab[28] = (uint8_t)clamp_t(int32_t,
+					again_log2 >> 11, 0, 255);
 			*(int32_t *)(isp + 0xf4) = again_code;
 			*(int32_t *)(isp + 0xf8) = again_log2 >> 12;
 			owner->exposure_log2 = simple_exposure_log2;

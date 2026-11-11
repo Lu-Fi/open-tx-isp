@@ -305,10 +305,6 @@ int main(void)
 	{
 		int b0 = bad;
 
-		bad += !t20_ae_again_reserve_ok(0, 0x2000);
-		bad += t20_ae_again_reserve_ok(0, 0x1fff);	/* cap too small */
-		bad += t20_ae_again_reserve_ok(1, 0x40000);	/* manual dgain */
-		bad += t20_ae_again_reserve_ok(0, 0);
 		bad += t20_ae_again_request(0x1d000) != 0x1c000;
 		bad += t20_ae_again_request(0x800) != 0;	/* no negative */
 		/* previous 0x1c000, request floors to 0x1d000: kept */
@@ -396,6 +392,73 @@ int main(void)
 		}
 		bad += jxh42_calls == 0;
 		printf("  again reserve before cap (jxh42): %s\n",
+		       bad == b0 ? "ok" : "BAD");
+	}
+	/*
+	 * openimp #285: manual analog gain (stab[4] + stab[28]) as the OEM
+	 * cmos_get_manual_again_log2(): capped by stab[29], floored to the
+	 * table, no reserve, no keep, stored as the previous gain.
+	 */
+	{
+		int b0 = bad;
+		int32_t prev = 12345;
+		unsigned int code = 0, c2 = 0;
+		int32_t hw = (int32_t)(lg(0xfff) - (12 << 16)) + (4 << 16);
+		int32_t it_min = lg(2), it_max = lg(1125), m;
+
+		/* AUTO: -1, prev and code untouched */
+		bad += t20_ae_again_manual(0, 100, JXH42_MAX, 144, &prev,
+			jxh42_alloc, 16, &code) != -1 || prev != 12345 || code;
+		/* manual 100 (log2 <<5 = 8.7x): the table step at or below */
+		m = t20_ae_again_manual(1, 100, JXH42_MAX, 144, &prev,
+			jxh42_alloc, 16, &code);
+		bad += m != (int32_t)jxh42_alloc(100 << 11, 16, &c2) ||
+		       code != c2 || prev != m || m > (100 << 11);
+		/* no 0x1000 reserve: exact table entry stays (0x46 = 292253) */
+		bad += t20_ae_again_manual(1, 292253 >> 11, JXH42_MAX, 144, &prev,
+			jxh42_alloc, 16, &code) != (int32_t)jxh42_alloc(
+			(292253 >> 11) << 11, 16, &c2);
+		/* above the SetMaxAgain ceiling 144: the ceiling's step 0x46 */
+		bad += t20_ae_again_manual(1, 200, JXH42_MAX, 144, &prev,
+			jxh42_alloc, 16, &code) != 292253 || code != 0x46;
+		/* above the sensor maximum: the top entry */
+		bad += t20_ae_again_manual(1, 255, JXH42_MAX, 255, &prev,
+			jxh42_alloc, 16, &code) !=
+		       (int32_t)jxh42_alloc(JXH42_MAX, 16, &c2);
+		/* manual 0 = 1x; ceiling 0 = 1x as well */
+		bad += t20_ae_again_manual(1, 0, JXH42_MAX, 144, &prev,
+			jxh42_alloc, 16, &code) != 0 || prev != 0;
+		bad += t20_ae_again_manual(1, 100, JXH42_MAX, 0, &prev,
+			jxh42_alloc, 16, &code) != 0;
+		/* AUTO after manual: keep compares against the manual gain */
+		prev = 292253;
+		bad += t20_ae_again_alloc(292253 + 0x1000 - 0x800, JXH42_MAX, 144,
+			1, &prev, jxh42_alloc, 16, &code) != 292253;
+		/* total window: auto = [it_min, it_max + cap + isp cap] */
+		bad += t20_ae_total_clamp(0, it_min, it_max, 0, 144 << 11, hw) !=
+		       it_min;
+		bad += t20_ae_total_clamp(0x7fffffff / 2, it_min, it_max, 0,
+			144 << 11, hw) != it_max + (144 << 11) + hw;
+		bad += t20_ae_total_clamp(it_max, it_min, it_max, 0, 144 << 11,
+			hw) != it_max;
+		/* manual gain m: [it_min + m, it_max + m + isp cap] */
+		m = 292253;
+		bad += t20_ae_total_clamp(it_min, it_min, it_max, m, m, hw) !=
+		       it_min + m;
+		bad += t20_ae_total_clamp(it_max + (158 << 11) + hw, it_min,
+			it_max, m, m, hw) != it_max + m + hw;
+		/* at the top the ISP digital gain carries exactly its cap and
+		 * the analog gain stays manual: no request beyond reach */
+		bad += t20_ae_isp_dgain_fill(it_max + m + hw, it_max, m, 0, 0,
+			255, hw) != hw;
+		bad += t20_ae_isp_dgain_fill(it_min + m, it_min, m, 0, 0, 255,
+			hw) != 0;
+		/* manual time + manual gain: only the ISP digital gain is free */
+		bad += t20_ae_manual_total(0, lg(500) + m, m - m + hw) !=
+		       lg(500) + m;
+		bad += t20_ae_manual_total(0x7fffffff / 2, lg(500) + m, hw) !=
+		       lg(500) + m + hw;
+		printf("  manual analog gain (#285): %s\n",
 		       bad == b0 ? "ok" : "BAD");
 	}
 	/* #267 optional flip guard (t20_ae_flip_guard) */

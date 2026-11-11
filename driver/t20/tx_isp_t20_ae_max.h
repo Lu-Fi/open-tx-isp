@@ -95,19 +95,15 @@ static inline int32_t t20_ae_isp_dgain_fill(int32_t total_log2,
  * +-0xfff of the gain applied last time re-allocates that gain.  Without it
  * the compact AE re-floored the gain to the sensor table on every update, so
  * a 0.5 % AE step next to a table entry toggled the sensor gain (jxh42 3.5x
- * <-> 3.625x) and the picture by ~1 Y.  Used only while the ISP digital gain
- * can carry the remainder (up to 0x1fff): cap >= 0x2000 and no manual ISP
- * digital gain.  All values log2 <<16; prev_applied < 0 = no previous gain.
+ * <-> 3.625x) and the picture by ~1 Y.  Like the OEM it applies whenever
+ * the AE owns the analog gain (openimp #284 L2: the former gate on a small
+ * SetMaxDgain cap / manual ISP digital gain had no OEM equivalent; a part
+ * of the request the capped ISP digital gain cannot carry is closed by the
+ * AE loop, as on the vendor stack).  All values log2 <<16; prev_applied < 0
+ * = no previous gain.
  */
 #define T20_AE_AGAIN_RESERVE	0x1000
 #define T20_AE_AGAIN_HYST	0xfff
-
-static inline int t20_ae_again_reserve_ok(uint8_t manual_isp_dgain,
-					  int32_t isp_dgain_cap_log2)
-{
-	return !manual_isp_dgain &&
-	       isp_dgain_cap_log2 >= T20_AE_AGAIN_RESERVE + T20_AE_AGAIN_HYST + 1;
-}
 
 static inline int32_t t20_ae_again_request(int32_t request_log2)
 {
@@ -130,7 +126,7 @@ static inline int t20_ae_again_keep(int32_t request_log2, int32_t applied_log2,
  * off that, and only cmos_alloc_sensor_analog_gain() caps the result to
  * min(sensor max, stab[29] << 11).  Reserving after the cap put the night
  * plateau one table step low (jxh42 ceiling 144: 140 instead of 142).
- * raw_log2: total - IT (log2 <<16); reserve: t20_ae_again_reserve_ok().
+ * raw_log2: total - IT (log2 <<16); reserve: 1 while the AE owns the gain.
  */
 static inline int32_t t20_ae_again_target(int32_t raw_log2,
 					  uint32_t sensor_max_log2_16,
@@ -156,7 +152,7 @@ typedef unsigned int (*t20_ae_alloc_again_fn)(unsigned int isp_gain,
  * (reserve, then caps), allocation, and the +-0xfff keep, whose
  * re-allocation is capped like any request (a lowered SetMaxAgain wins over
  * the kept gain).  *prev: gain applied last call, -1 = none; it is reset
- * while the reserve is off.
+ * when called with reserve 0 (no OEM path does that; host tests only).
  */
 static inline int32_t t20_ae_again_alloc(int32_t raw_log2,
 					 uint32_t sensor_max_log2_16,
@@ -181,6 +177,58 @@ static inline int32_t t20_ae_again_alloc(int32_t raw_log2,
 			(unsigned int)(*prev < cap ? *prev : cap), shift, code);
 	*prev = applied;
 	return applied;
+}
+
+/*
+ * openimp #285: manual analog gain (system table
+ * global_manual_sensor_analog_gain = stab[4], value global_sensor_analog_gain
+ * = stab[28], log2 <<5).  OEM 3.12.0 cmos_get_manual_again_log2(): -1 while
+ * the AE owns the gain, else cmos_alloc_sensor_analog_gain(stab[28] << 11),
+ * i.e. the value capped by the SetMaxAgain ceiling stab[29] and floored to
+ * the sensor table.  cmos_analog_gain_update() then applies it as is: no
+ * 0x1000 reserve, no +-0xfff keep, but it still stores the result as the
+ * "previous" gain (s0[0x1cc]) the keep compares against once AUTO resumes.
+ * Returns the applied gain (log2 <<16) and sets *code, or -1 = AE owns it.
+ */
+static inline int32_t t20_ae_again_manual(uint8_t manual, uint8_t again_q5,
+					  uint32_t sensor_max_log2_16,
+					  uint32_t user_max, int32_t *prev,
+					  t20_ae_alloc_again_fn alloc,
+					  unsigned char shift,
+					  unsigned int *code)
+{
+	int32_t applied;
+
+	if (!manual)
+		return -1;
+	applied = (int32_t)alloc((unsigned int)t20_ae_again_target(
+			(int32_t)again_q5 << 11, sensor_max_log2_16, user_max, 0),
+		shift, code);
+	*prev = applied;
+	return applied;
+}
+
+/*
+ * The total exposure window (log2 <<16) the compact AE may steer in:
+ * [time_min + gain_lo, time_max + gain_hi + isp_dgain_cap].  With a manual
+ * analog gain the gain is pinned (gain_lo = gain_hi = applied manual gain)
+ * and the OEM partitioner sees total - manual gain
+ * (cmos_calc_target_inttime: target -= cmos_get_manual_again_log2()), so the
+ * PI loop must neither wind up above what time + ISP digital gain can add
+ * nor below the fixed gain.
+ */
+static inline int32_t t20_ae_total_clamp(int32_t total, int32_t time_min,
+					 int32_t time_max, int32_t gain_lo,
+					 int32_t gain_hi, int32_t isp_dgain_cap)
+{
+	int32_t lo = time_min + gain_lo;
+	int32_t hi = time_max + gain_hi + isp_dgain_cap;
+
+	if (total < lo)
+		return lo;
+	if (total > hi)
+		return hi;
+	return total;
 }
 
 /*

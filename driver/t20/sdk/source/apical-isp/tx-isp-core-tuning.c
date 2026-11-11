@@ -1405,6 +1405,7 @@ static inline int apical_isp_day_or_night_g_ctrl(struct tx_isp_core_device *core
 #include "../../../../common/tx_isp_csc.h"
 
 extern int t20_fw_context_ready(void);
+extern void tx_isp_t20_ae_curve_hold_reset(void);
 
 static DEFINE_MUTEX(t2x_csc_mutex);
 static int t2x_csc_active;
@@ -2111,6 +2112,8 @@ int apical_isp_day_or_night_s_ctrl_internal(struct tx_isp_core_device *core)
 		}
 		ctrls->daynight = dn;
 		t2x_csc_reapply(core);
+		/* #284 L5: the flip guard holds a value of the old curve */
+		tx_isp_t20_ae_curve_hold_reset();
 	}
 	return ret;
 }
