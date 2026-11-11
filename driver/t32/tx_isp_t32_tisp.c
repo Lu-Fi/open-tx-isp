@@ -7,7 +7,7 @@
  * them on every AE run through tisp_long_tgain_update.
  *
  * Block 1, gain-interpolated filters: DMSC, YSP, CDNS, YDNS, SDNS; block 2 MDNS; block 3 DPC (long-frame gain);
- * block 4 GIB (black level, tisp_gib_again_update).
+ * block 4 GIB (black level, tisp_gib_again_update); block 5 RDNS (raw denoise, tisp_rdns_refresh, openimp #234).
  *  - At stream-on the init path hands each block its IQ bin section (the copy
  *    the init function already edited, as the vendor keeps tparams) and the
  *    context is built the way the vendor's tisp_<blk>_init leaves it: zeroed
@@ -47,6 +47,8 @@
 #include "tx_isp_t32_mdns.h"
 #include "tx_isp_t32_dpc.h"
 #include "tx_isp_t32_gib.h"
+#include "tx_isp_t32_rdns.h"
+#include "tx_isp_t32_rdnstab.h"
 
 /*
  * Vendor t32_data_d03a0: 1 = registers go into the shadow image / register
@@ -59,7 +61,7 @@ static unsigned int t32_ported_paths = 1;
 module_param(t32_ported_paths, uint, 0644);
 MODULE_PARM_DESC(t32_ported_paths,
 		 "1 (default): every wired per-frame block on its ported path; 0: all on the old path; "
-		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib)");
+		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc, 7 gib, 8 rdns)");
 
 static unsigned int tisp_tgain = 0x10000;
 module_param(tisp_tgain, uint, 0644);
@@ -86,6 +88,7 @@ static struct {
 	struct t32_mdns_ctx mdns;
 	struct t32_dpc_ctx dpc;
 	struct t32_gib_ctx gib;
+	struct t32_rdns_ctx rdns;
 	bool have[T32_PP_COUNT];
 	bool ready;		/* every block of this stream attached */
 	u32 last_tgain[1];	/* vendor t32_data_dd... last low gain word, per channel */
@@ -165,7 +168,11 @@ static void pf_refresh(enum t32_ltg_ref blk, u32 ch, u32 gain)
 		if (pf.have[T32_PP_GIB] && t32_pp_on(T32_PP_GIB))
 			n = t32_gib_again_update(&pf.gib, (u8)ch, gain, pf_w);
 		break;
-	default:	/* RDNS, AF: not wired yet */
+	case T32_LTG_RDNS:	/* tisp_rdns_refresh(gain low word), threshold 256 */
+		if (pf.have[T32_PP_RDNS] && t32_pp_on(T32_PP_RDNS))
+			n = t32_rdns_refresh(&pf.rdns, gain, pf_w);
+		break;
+	default:	/* AF: not wired yet */
 		return;
 	}
 	pf_flush(n);
@@ -228,6 +235,8 @@ static void pf_free_locked(void)
 	kfree(pf.gib.gw);
 	kfree(pf.gib.ptrow);
 	kfree(pf.gib.hold);
+	kfree(pf.rdns.sec);
+	kfree(pf.rdns.param);
 	memset(&pf, 0, sizeof(pf));
 }
 
@@ -400,6 +409,42 @@ fail:
 	kfree(c.ptrow);
 	kfree(c.hold);
 	kfree(sec);
+}
+
+/*
+ * RDNS (the vendor has no stream-on RDNS programming outside tisp_rdns_init,
+ * which lib_tisp_init calls after GSM): take over the section copy sec
+ * (kmalloc'd, freed when not taken), build the context as tisp_rdns_init
+ * leaves it (t32_rdns_ctx_init: parameter block from the unity-gain
+ * interpolation, gain 0x10000, the vendor row table) and return its writes in
+ * w (all RDNS registers, trigger, block id), <= 0 when not taken.  Taken only
+ * when every row selector of the section stays inside the 128-row vendor
+ * table (true for all 67 SDK bins); the vendor would read past it otherwise.
+ */
+int t32_pf_attach_rdns(u8 *sec, struct t32_front_write *w)
+{
+	struct t32_rdns_ctx c;
+	u8 *param;
+	int n;
+
+	if (!sec)
+		return -ENOMEM;
+	if (!t32_rdns_rows_ok(sec)) {
+		isp_printf(2, "tx-isp-t32: RDNS row selector outside the vendor table, RDNS not programmed\n");
+		kfree(sec);
+		return -EINVAL;
+	}
+	param = kzalloc(T32_RDNS_PARAM_BYTES, GFP_KERNEL);
+	if (!param) {
+		kfree(sec);
+		return -ENOMEM;
+	}
+	n = t32_rdns_ctx_init(&c, sec, param, w);
+	mutex_lock(&pf_lock);
+	pf.rdns = c;
+	pf.have[T32_PP_RDNS] = true;
+	mutex_unlock(&pf_lock);
+	return n;
 }
 
 /* end of the stream-on init: the per-frame runs may start */

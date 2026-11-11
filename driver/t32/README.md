@@ -240,8 +240,9 @@ generation-shared come from the shared code instead:
   in order (direct register mode, `t32_data_d03a0` = 0). Wired: DMSC, YSP, MDNS, DPC (long-frame gain),
   CDNS, YDNS, SDNS (contexts as the vendor's `tisp_<blk>_init` leaves them:
   the init-edited section copy, zeroed value block, last gain -1, YDNS
-  hysteresis -1, DMSC sharpness 0x80; MDNS keeps the value block and frame size of its init). Not wired yet: GIB, LSC, LCE, TMO,
-  RDNS, AWB, AF hooks of the dispatcher. The total gain is `tisp_tgain`
+  hysteresis -1, DMSC sharpness 0x80; MDNS keeps the value block and frame size of its init), GIB, RDNS (openimp #234: context as
+  `tisp_rdns_init` leaves it, vendor row table `t32_data_c0ac0` in `tx_isp_t32_rdnstab.h`; programmed at
+  stream-on only on its ported path). Not wired yet: LSC, LCE, TMO, AWB, AF hooks of the dispatcher. The total gain is `tisp_tgain`
   (default 0x10000, the vendor init gain) until the vendor AE runs in the
   driver, so with the default the first run rewrites the stream-on values and
   later runs write nothing. `t32_ported_paths` switches each wired block back
@@ -278,5 +279,5 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `lsc_ct` | 5000 | colour temperature for the LSC mesh at stream-on |
 | `bringup_ae` | 0 | 1 = bring-up exposure controller (not the vendor AE) |
 | `bringup_target` | 64 | its target mean histogram bin (0..255) |
-| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC) |
+| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS; RDNS off = not programmed at all, as before) |
 | `tisp_tgain` | 0x10000 | total gain for the per-frame refresh until the vendor AE runs (test aid) |

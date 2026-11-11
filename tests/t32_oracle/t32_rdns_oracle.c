@@ -8,6 +8,11 @@
  * parameter block, the tuning base buffer, the separate section buffer and
  * the get/set buffers, all inside canary frames.
  *
+ * After the random cases T32O_NREAL (default 1000) more cases per function run
+ * with the REAL vendor row table of tx_isp_t32_rdnstab.h (data.c values,
+ * openimp #234) in t32_data_c0ac0 on both sides; their row selectors stay
+ * inside its 128 rows (the vendor reads past the table for selectors >= 128).
+ *
  * Needs from env.c: t32_data_e3600 (context array), t32_data_c0ac0 (64-byte
  * rows), private_kmalloc/vmalloc/vfree/kfree, isp_printf.  Weak fallbacks
  * below are used only if env.c does not define them.
@@ -18,6 +23,7 @@
 #include <stdint.h>
 #include "t32_oracle_env.h"
 #include "tx_isp_t32_rdns.h"
+#include "tx_isp_t32_rdnstab.h"
 
 #define NCH	4
 #define SECB	1540u
@@ -151,10 +157,11 @@ static struct {
 } ci[NCH];
 static u8 inbuf_init[SECB];
 
-/* row selector: half the time small, otherwise any of the 256 rows of c0ac0 */
+/* row selector: half the time small, otherwise any of the 256 rows of c0ac0 (128 real rows in the real-table phase) */
+static unsigned int nrows = 256;
 static u8 rsel(void)
 {
-	return (u8)((rnd() & 1) ? rnd() % 256 : rnd() % 8);
+	return (u8)((rnd() & 1) ? rnd() % nrows : rnd() % 8);
 }
 
 static void gen_sec(u8 *s, int style)
@@ -520,7 +527,8 @@ static void run_case(int op, unsigned int ch, u32 gain, u32 thr)
 int main(void)
 {
 	const unsigned int n = getenv("T32O_NRAND") ? (unsigned int)atoi(getenv("T32O_NRAND")) : 1500;
-	unsigned int c, i, op, ch, idx, f, zero = 1;
+	const unsigned int nr = getenv("T32O_NREAL") ? (unsigned int)atoi(getenv("T32O_NREAL")) : 1000;
+	unsigned int c, i, op, ch, idx, f, zero = 1, phase;
 	u32 gain, thr;
 	static const u32 fr[] = { 0, 1, 0x7fff, 0x8000, 0xffff };
 
@@ -531,21 +539,28 @@ int main(void)
 		for (i = 0; i < sizeof(t32_data_c0ac0); i++)
 			t32_data_c0ac0[i] = (u8)rnd();
 
-	for (op = 0; op < NOPS; op++) {
-		for (c = 0; c < n; c++) {
-			gen_state();
-			ch = rnd() & 3;
-			gain = gen_gain();
-			thr = rnd() % 3 ? (rnd() & 0x3ff) : rnd();
-			if (op == OP_PAR || op == OP_REFRESH)
-				gen_hyst((int)op, ch, &gain, &thr);
-			if (op == OP_INIT)
-				ci[ch].have = 0;
-			if (op == OP_DEINIT) {
-				ci[ch].have = (rnd() % 4) != 0;
-				ci[ch].pnull = (int)(rnd() & 1);
+	for (phase = 0; phase < 2; phase++) {
+		if (phase) {		/* the real vendor table (driver copy), rows past it never selected */
+			memset(t32_data_c0ac0, 0xee, sizeof(t32_data_c0ac0));
+			memcpy(t32_data_c0ac0, t32_rdns_tab_c0ac0, sizeof(t32_rdns_tab_c0ac0));
+			nrows = T32_RDNS_TAB_ROWS;
+		}
+		for (op = 0; op < NOPS; op++) {
+			for (c = 0; c < (phase ? nr : n); c++) {
+				gen_state();
+				ch = rnd() & 3;
+				gain = gen_gain();
+				thr = rnd() % 3 ? (rnd() & 0x3ff) : rnd();
+				if (op == OP_PAR || op == OP_REFRESH)
+					gen_hyst((int)op, ch, &gain, &thr);
+				if (op == OP_INIT)
+					ci[ch].have = 0;
+				if (op == OP_DEINIT) {
+					ci[ch].have = (rnd() % 4) != 0;
+					ci[ch].pnull = (int)(rnd() & 1);
+				}
+				run_case((int)op, ch, gain, thr);
 			}
-			run_case((int)op, ch, gain, thr);
 		}
 	}
 	/* interpolation sweep: every table index and fraction edge */
@@ -572,7 +587,7 @@ int main(void)
 			die("init", "param alloc failure", 0);
 		compared += 2;
 	}
-	printf("t32_rdns_oracle: %u compared, 0 mismatches (14 functions, 4 channels, canary frames)\n",
-	       compared);
+	printf("t32_rdns_oracle: %u compared, 0 mismatches (14 functions, 4 channels, canary frames, %u x 14 real-table cases)\n",
+	       compared, nr);
 	return 0;
 }
