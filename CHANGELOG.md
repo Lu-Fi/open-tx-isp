@@ -7,6 +7,7 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 ## 2026-11-11 (night): T20 AWB with more than two calibrated light sources (openimp #353; QEMU T20X jxf22, Wyze T20X jxf23 unchanged)
 
 - The T20 AWB (`tx_isp_t20_simple_awb_update`) asked for `CALIBRATION_LIGHT_SRC` as exactly 2x2 and returned without it. The table has one (R/G, B/G) row per known light source; the jxf23 bin has 2 rows, the jxf22 bin 4, so on jxf22 the AWB never ran and the WB stayed at the static gains (388/491, 5000 K) whatever the scene. Now as OEM `awb_calc_avg_weighted_gr_gb_mesh`: any number of 2-column rows, every source weighed per zone, and the accepted box spans the mesh axes and all sources. jxf23 (both sources inside the axes) is unchanged.
+- Affected IQ bins (rows != 2, parsed from every shipped T10/T20 bin): jxf22 (4 rows), sc2235 and ps5250 (3 rows) of the T20X/T20L boards, and further SDK bins (for example ar0130, imx291, ov2735, sc1035, sc2135, sc5235) that no board config ships; unaffected: jxf23, jxh42, jxh62 (2 rows). T21, T23 and T30 have no such condition; no second bug of this kind found in the AWB tables. Same code for T10.
 - QEMU 0.7.14 T20X jxf22 scene test, warm-to-cool tint: before 0 accepted zones, gains fixed; after red 289 -> 401, blue 225 -> 174 (Q8), colour temperature 5586 -> 8771 K as the scene cools.
 
 ## 2026-11-11 (night): fleet review fixes: T41 RAW ring teardown, T40 slot 4 checked, T23 AWB interval (openimp #345, #346, #347; T41 gc5603 device-tested)
