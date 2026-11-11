@@ -22,6 +22,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `tx_isp_t32_ldcops.h` + `t32_ldcops_oracle` (planned, host only): ldc_video_s_stream (ready <-> streaming) and ldc_core_ops_init (-EINVAL for NULL / error pointers, enable = ready, disable stops a streaming LDC and goes idle): 19257 calls with NULL and error pointers, return and private block bit-exact, 15/15 mutations detected.
 - `tx_isp_t32_libwrap.h` + `t32_libsa_oracle` (planned, host only): lib_tisp_sync_sensor_attr (20 run-time fields of the sensor attributes into the 232-byte channel copy, then the AE sensor trigger) and lib_tisp_is_file_exist (kern_path + path_put): 40000 calls, return, copies, callee arguments bit-exact, 13/13 mutations detected.
 - `tx_isp_t32_ldcirq.h` + `t32_ldcirq_oracle` (planned, host only): ldc_offline_open (init frame-done completion, enable LDC irq), ldc_offline_release (disable irq, complete) and ldc_interrupt_service_routine (complete on intp_handle bit 0, returns IRQ_HANDLED): 20000 calls, hook order/arguments and return bit-exact, 13/13 mutations detected.
+- `tx_isp_t32_libmisc.h` + `t32_libmisc_oracle` (planned, host only): lib_tisp_intp_enable/_disable/_clear (ISP core interrupt enable / status words), lib_tisp_get_bin_info (version tag + project name) and lib_tisp_get_bin_path (channel bin path block): 20003 calls, register writes, blocks, snprintf call and return bit-exact, 19/19 mutations detected.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
