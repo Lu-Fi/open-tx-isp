@@ -20,7 +20,10 @@
  *   links    video link setup (vendor tx_isp_video_link_setup with
  *            subdev_video_setup_link inlined) and destroy;
  *   algo     AE algorithm close, AWB algorithm open / close and core
- *            command 0x100001b over the core ioctl broadcast.
+ *            command 0x100001b over the core ioctl broadcast;
+ *   drop     frame drop set / get and set / get once (core device +1132
+ *            channel table, 3 channels per input; the tisp frame drop
+ *            functions when core +1196 is 1).
  */
 #ifndef TX_ISP_T32_TXUIOCTL_H
 #define TX_ISP_T32_TXUIOCTL_H
@@ -65,6 +68,10 @@
 #define T32_UIO_CORE_1B		0xc0045424U
 #define T32_UIO_AWB_OPEN	0xc0045425U
 #define T32_UIO_AWB_CLOSE	0xc0045426U
+#define T32_UIO_SET_FDROP	0xc004542cU
+#define T32_UIO_GET_FDROP	0xc004542dU
+#define T32_UIO_SET_FDROP1	0xc00454cdU
+#define T32_UIO_GET_FDROP1	0xc00454ceU
 
 /* core ioctl command words the broadcasts hand on */
 #define T32_CORE_CMD_16		0x1000016U
@@ -110,7 +117,29 @@
 #define T32_PAD_STREAMING	4U
 #define T32_LINK_FLAGS		16U	/* link descriptor +16: type mask / flags */
 
+/*
+ * Frame drop: user block { u8 input, 3 x { en, u8 lsize, fmark } } (40
+ * bytes); core device +1132 channel table (284 bytes per channel, channel
+ * input * 3 + k): +256 once, +260 enable, +264 lsize, +268 fmark, +272 count.
+ */
+#define T32_FD_BUF		40U
+#define T32_FD_CHN		3U
+#define T32_CORE_FD_TAB		1132U
+#define T32_CORE_FD_TISP	1196U
+#define T32_FD_BYTES		284U
+#define T32_FD_ONCE		256U
+#define T32_FD_EN		260U
+#define T32_FD_LSIZE		264U
+#define T32_FD_FMARK		268U
+#define T32_FD_COUNT		272U
+#define T32_FD_LSIZE_MAX	32U
+#define T32_FD_FPS_ERR		"FPS over 32 in the numerator or denominator!!! Setup failed!!!\n"
+#define T32_FD_SET_MSG		"set frame drop chn:%d lsize:%d fmark:0x%x\n"
+#define T32_FD_OFF_MSG		"set frame drop chn:%d disable\n"
+
 /* provided by the driver glue (kernel) or by the oracle (host) */
+int t32_tx_os_tisp_set_frame_drop(u32 in, u32 k, void *e);
+int t32_tx_os_tisp_get_frame_drop(u32 in, u32 k, void *e);
 void t32_tx_os_lib_tisp_set_isp_memory_space(u32 sel, u32 v);
 u32 t32_tx_os_lib_tisp_get_isp_memory_space(u32 sel, void *opt);
 u32 t32_tx_os_get_isp_memopt(void);
@@ -499,6 +528,123 @@ static inline int t32_uio_awb_algo_open(u32 isp, u32 user)
 	return r;
 }
 
+/* the vendor reloads the table pointer for every store */
+static inline void t32_uio_fd_st(u32 core, u32 chn, u32 off, u32 v)
+{
+	t32_tx_st(t32_tx_ld(core, T32_CORE_FD_TAB) + T32_FD_BYTES * chn, off, v);
+}
+
+static inline void t32_uio_fd_off(u32 core, u32 chn, u32 en)
+{
+	t32_tx_os_isp_printf(0, T32_FD_OFF_MSG, chn);
+	t32_uio_fd_st(core, chn, T32_FD_EN, en);
+	t32_uio_fd_st(core, chn, T32_FD_LSIZE, 0);
+	t32_uio_fd_st(core, chn, T32_FD_FMARK, (u32)-1);
+	t32_uio_fd_st(core, chn, T32_FD_COUNT, 0);
+}
+
+/* tx_isp_set_frame_drop */
+static inline int t32_uio_set_frame_drop(u32 isp, u32 arg)
+{
+	u32 core = t32_tx_ld(t32_tx_ld(isp, T32_DEV_SD), T32_SD_PRIV_CORE), b[T32_FD_BUF / 4], k;
+	u8 *b8 = (u8 *)b;
+	int r = 0;
+
+	if (t32_tx_arg_in(isp, b, arg, T32_FD_BUF)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_set_frame_drop", 1726);
+		return -(int)T32_EFAULT;
+	}
+	if (t32_tx_ld(core, T32_CORE_FD_TISP) == 1) {
+		for (k = 0; k < T32_FD_CHN; k++)
+			r = t32_tx_os_tisp_set_frame_drop(b8[0], k, &b[1 + 3 * k]);
+		return r;
+	}
+	for (k = 0; k < T32_FD_CHN; k++) {
+		u32 *e = &b[1 + 3 * k], chn = b8[0] * T32_FD_CHN + k, ls = (u8)e[1];
+
+		if (e[0] != 1) {
+			t32_uio_fd_off(core, chn, e[0]);
+			continue;
+		}
+		if (ls >= T32_FD_LSIZE_MAX) {
+			t32_tx_os_isp_printf(1, T32_FD_FPS_ERR);
+			return -1;
+		}
+		t32_uio_fd_st(core, chn, T32_FD_EN, e[0]);
+		t32_uio_fd_st(core, chn, T32_FD_LSIZE, ls);
+		t32_uio_fd_st(core, chn, T32_FD_FMARK, e[2]);
+		t32_uio_fd_st(core, chn, T32_FD_COUNT, 0);
+		t32_uio_fd_st(core, chn, T32_FD_ONCE, 0);
+		t32_tx_os_isp_printf(0, T32_FD_SET_MSG, chn, ls, e[2]);
+	}
+	return 0;
+}
+
+/* tx_isp_set_frame_drop_once: lsize 31 and the frames above lsize marked; then the tisp setter if core +1196 is 1 */
+static inline int t32_uio_set_frame_drop_once(u32 isp, u32 arg)
+{
+	u32 core = t32_tx_ld(t32_tx_ld(isp, T32_DEV_SD), T32_SD_PRIV_CORE), b[T32_FD_BUF / 4], k;
+	u8 *b8 = (u8 *)b;
+	int r = 0;
+
+	if (t32_tx_arg_in(isp, b, arg, T32_FD_BUF)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_set_frame_drop_once", 1815);
+		return -(int)T32_EFAULT;
+	}
+	for (k = 0; k < T32_FD_CHN; k++) {
+		u32 *e = &b[1 + 3 * k], chn = b8[0] * T32_FD_CHN + k, ls = (u8)e[1], mask = 0, i;
+
+		if (e[0] != 1) {
+			t32_uio_fd_off(core, chn, e[0]);
+		} else {
+			if (ls >= T32_FD_LSIZE_MAX) {
+				t32_tx_os_isp_printf(1, T32_FD_FPS_ERR);
+				return -1;
+			}
+			for (i = ls + 1; i < 32; i++)
+				mask |= 1u << i;
+			t32_uio_fd_st(core, chn, T32_FD_EN, 1);
+			t32_uio_fd_st(core, chn, T32_FD_LSIZE, 31);
+			t32_uio_fd_st(core, chn, T32_FD_FMARK, mask | e[2]);
+			t32_uio_fd_st(core, chn, T32_FD_COUNT, 0);
+			t32_uio_fd_st(core, chn, T32_FD_ONCE, 1);
+			t32_tx_os_isp_printf(0, T32_FD_SET_MSG, chn, ls, e[2]);
+		}
+		if (t32_tx_ld(core, T32_CORE_FD_TISP) == 1)
+			r = t32_tx_os_tisp_set_frame_drop(b8[0], k, e);
+	}
+	return r;
+}
+
+/* tx_isp_get_frame_drop{,_once}: lsize / fmark of the input's 3 channels back (the tisp getters for get, core +1196 1) */
+static inline int t32_uio_get_frame_drop(u32 isp, u32 user, int once, const char *fn, u32 lin, u32 lout)
+{
+	u32 core = t32_tx_ld(t32_tx_ld(isp, T32_DEV_SD), T32_SD_PRIV_CORE), b[T32_FD_BUF / 4], k;
+	u8 *b8 = (u8 *)b;
+	int r = 0;
+
+	if (t32_tx_os_copy_from_user(b, user, T32_FD_BUF)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, fn, lin);
+		return -(int)T32_EFAULT;
+	}
+	if (!once && t32_tx_ld(core, T32_CORE_FD_TISP) == 1) {
+		for (k = 0; k < T32_FD_CHN; k++)
+			r = t32_tx_os_tisp_get_frame_drop(b8[0], k, &b[1 + 3 * k]);
+	} else {
+		u32 p = t32_tx_ld(core, T32_CORE_FD_TAB) + T32_FD_BYTES * T32_FD_CHN * b8[0];
+
+		for (k = 0; k < T32_FD_CHN; k++, p += T32_FD_BYTES) {
+			b8[8 + 12 * k] = (u8)t32_tx_ld(p, T32_FD_LSIZE);
+			b[3 + 3 * k] = t32_tx_ld(p, T32_FD_FMARK);
+		}
+	}
+	if (t32_tx_os_copy_to_user(user, b, T32_FD_BUF)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CTU_ERR, fn, lout);
+		return -(int)T32_EFAULT;
+	}
+	return r;
+}
+
 /* tx_isp_unlocked_ioctl(file, cmd, arg) */
 static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 {
@@ -548,6 +694,10 @@ static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 		return t32_uio_algo_close(isp, arg, T32_CORE_AWB_CLOSE, "tx_isp_set_awb_algo_close", 1616);
 	case T32_UIO_CORE_1B:		return t32_uio_core_last(isp, T32_CORE_CMD_1B, arg);
 	case T32_UIO_AWB_OPEN:		return t32_uio_awb_algo_open(isp, arg);
+	case T32_UIO_SET_FDROP:		return t32_uio_set_frame_drop(isp, arg);
+	case T32_UIO_SET_FDROP1:	return t32_uio_set_frame_drop_once(isp, arg);
+	case T32_UIO_GET_FDROP:		return t32_uio_get_frame_drop(isp, arg, 0, "tx_isp_get_frame_drop", 1775, 1790);
+	case T32_UIO_GET_FDROP1:	return t32_uio_get_frame_drop(isp, arg, 1, "tx_isp_get_frame_drop_once", 1866, 1876);
 	}
 	return 0;
 }

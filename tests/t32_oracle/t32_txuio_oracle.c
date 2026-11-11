@@ -16,7 +16,7 @@
 #include "tx_isp_t32_txioctl.h"
 
 #define NCASE	60000
-#define ARENA	0x5000u
+#define ARENA	0x7000u
 #define O_FILE	0x0000u
 #define O_ISP	0x0100u
 #define NSD	6
@@ -26,6 +26,7 @@
 #define O_SENS	0x3000u		/* 8 sensor objects, 0x100 apart */
 #define O_LINKS	0x3800u		/* 12 link sets of up to 6 descriptors */
 #define O_PADS	0x4000u		/* 16 pads, 0x20 apart */
+#define O_FD	0x5000u		/* frame drop channel table: 8 inputs x 3 x 284 bytes */
 
 static u8 *arena;
 static u32 A(u32 off) { return T32O_PTR(arena) + off; }
@@ -149,6 +150,23 @@ int t32_tx_os_subdev_video_destroy_link(u32 link) { return (int)unlink_rec(link)
 struct t32_tx_link_set t32_tx_link_sets[T32_LINK_SETS];
 u32 op3_t32_data_bed7c[2 * T32_LINK_SETS], t32_tx_link_mode;
 
+/* frame drop */
+static u32 fd_tab[4], n_fd;
+static u32 fdset_rec(u32 in, u32 k, const u8 *e) { op3_call("tisp_set_frame_drop", 3, in, k, fnvb(e, 12), 0); return fd_tab[n_fd++ & 3]; }
+static u32 fdget_rec(u32 in, u32 k, u8 *e)
+{
+	u32 i;
+
+	op3_call("tisp_get_frame_drop", 3, in, k, fnvb(e, 12), 0);
+	for (i = 0; i < 12; i++)
+		e[i] = (u8)(in * 13 + k * 5 + i);
+	return fd_tab[n_fd++ & 3];
+}
+u64 op3_tisp_set_frame_drop(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return fdset_rec(a0, a1, T32O_HOST(a2)); }
+u64 op3_tisp_get_frame_drop(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return fdget_rec(a0, a1, T32O_HOST(a2)); }
+int t32_tx_os_tisp_set_frame_drop(u32 in, u32 k, void *e) { return (int)fdset_rec(in, k, e); }
+int t32_tx_os_tisp_get_frame_drop(u32 in, u32 k, void *e) { return (int)fdget_rec(in, k, e); }
+
 /* not yet exercised externals */
 OP3_STUB(finish_wait, 2) OP3_STUB(get_isp_cache_line, 0)
 OP3_STUB(lib_tisp_api_s_runningMode, 1) OP3_STUB(lib_tisp_get_isp_ipc_memory_space, 1)
@@ -156,7 +174,7 @@ OP3_STUB(lib_tisp_set_isp_ipc_memory_space, 2) OP3_STUB(memset, 3) OP3_STUB(prep
 OP3_STUB(private_init_completion, 1)
 OP3_STUB(private_kfree, 1) OP3_STUB(private_kmalloc, 2) OP3_STUB(private_wait_for_completion_timeout, 2)
 OP3_STUB(schedule_timeout, 1) OP3_STUB(tisp_g_ae_scence_attr, 2)
-OP3_STUB(tisp_get_frame_drop, 3) OP3_STUB(tisp_s_ae_scence_attr, 2) OP3_STUB(tisp_set_frame_drop, 3)
+OP3_STUB(tisp_s_ae_scence_attr, 2) 
 OP3_STUB(tx_isp_default_bin_isra_23, 2) OP3_STUB(tx_isp_vic_save_raw, 2)
 u8 op3_mips_dma_map_ops[64];
 u32 op3_t32_data_d9014, op3_t32_data_da784, t32_tx_isp_dev;
@@ -221,6 +239,8 @@ static const u32 cmds[] = {
 	T32_UIO_LINK_SETUP, T32_UIO_LINK_DESTROY,
 	/* algo */
 	T32_UIO_AE_CLOSE, T32_UIO_AWB_CLOSE, T32_UIO_CORE_1B, T32_UIO_AWB_OPEN,
+	/* frame drop */
+	T32_UIO_SET_FDROP, T32_UIO_GET_FDROP, T32_UIO_SET_FDROP1, T32_UIO_GET_FDROP1,
 	/* default neighbours inside the vendor ranges */
 	0xc0045427, 0xc0045428, 0xc0045429, 0
 };
@@ -296,6 +316,10 @@ static void build(u32 base)
 	for (k = 0; k < 4; k++)
 		sw(O_ISP + T32_LK_SENSOR(k), (op3_rnd() & 1) ? 0 : op3_rnd());
 	memopt = op3_rnd();
+	sw(O_CORE + T32_CORE_FD_TAB, base + O_FD);
+	sw(O_CORE + T32_CORE_FD_TISP, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
+	for (k = 0; k < 4; k++)
+		fd_tab[k] = (op3_rnd() & 1) ? 0 : op3_rnd();
 	memget_ret = op3_rnd();
 	sw(O_USER + 4, (op3_rnd() & 3) ? op3_rnd() % 6 : op3_rnd() % 512);	/* bypass / link input (vendor: unchecked index) */
 	for (i = 0; i <= NSD; i++) {
@@ -321,6 +345,7 @@ static void setup(void)
 	n_r = 0;
 	n_unlink = 0;
 	cb_filled = 0;
+	n_fd = 0;
 }
 
 static u64 ours(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4) { (void)a3; (void)a4; return (u32)t32_tx_isp_unlocked_ioctl(a0, a1, a2); }
@@ -334,7 +359,7 @@ static struct snap sv, so;
 
 int main(void)
 {
-	unsigned int i;
+	unsigned int i, k;
 	u32 base;
 
 	setup();
@@ -353,6 +378,11 @@ int main(void)
 		build(base);
 		if (cmd == T32_UIO_SET_ISP_MEM || cmd == T32_UIO_GET_ISP_MEM)
 			sw(O_USER, op3_rnd());	/* the selector is the low byte */
+		if (cmd == T32_UIO_SET_FDROP || cmd == T32_UIO_SET_FDROP1)	/* { en, lsize, fmark } x 3 */
+			for (k = 0; k < T32_FD_CHN; k++) {
+				sw(O_USER + 4 + 12 * k, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
+				sw(O_USER + 8 + 12 * k, ((op3_rnd() & 7) ? op3_rnd() % 33 : op3_rnd() % 256) | (op3_rnd() & 0xff00));
+			}
 		if (cmd == T32_UIO_AWB_OPEN && (op3_rnd() & 3))
 			sw(O_USER, T32_AE_ALGO_VERSION);
 		if (cmd == T32_UIO_WDR_SET_BUF && (op3_rnd() & 1)) {	/* size at the tsize boundary */
