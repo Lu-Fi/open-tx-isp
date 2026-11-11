@@ -18,6 +18,8 @@ aliases, lines = show('data-aliases.lds'), show('data.c').split('\n')
 TABS = [('c0444', 's16', 33), ('c0488', 's16', 13), ('c04a4', 's16', 9), ('d8120', 'int', 128), ('d8320', 'int', 1),
         ('d8324', 'int', 256), ('d87a0', 's16', 129), ('d88a4', 's16', 24), ('d88d4', 's16', 16), ('d88f4', 's16', 16),
         ('d8914', 's16', 17)]
+# the tables of the init / interrupt chain (tx_isp_t32_tmoblk.h): not in the fpga env
+TABS2 = [('c04b8', 's16', 7), ('c029c', 'u16', 201), ('d89a0', 'u16', 201), ('c0544', 'u16', 201), ('c0430', 'u16', 10)]
 
 
 def vendor(sym, typ, n):
@@ -28,7 +30,7 @@ def vendor(sym, typ, n):
     if sec == '_bss':
         sys.exit('t32_data_%s is .bss' % sym)
     s = next(i for i, l in enumerate(lines) if l.startswith('union t32_word t32_section_%s[' % sec))
-    sz = 2 if typ == 's16' else 4
+    sz = 4 if typ == 'int' else 2
     raw = b''
     for k in range(off // 4, (off + n * sz + 3) // 4):
         w = re.search(r'\.value = 0x([0-9a-f]{8})U', lines[s + 1 + k])
@@ -36,7 +38,7 @@ def vendor(sym, typ, n):
             sys.exit('t32_data_%s: data.c:%d is not a plain value: %s' % (sym, s + 2 + k, lines[s + 1 + k].strip()))
         raw += int(w.group(1), 16).to_bytes(4, 'little')
     raw = raw[off % 4:off % 4 + n * sz]
-    return [int.from_bytes(raw[i:i + sz], 'little', signed=True) for i in range(0, len(raw), sz)]
+    return [int.from_bytes(raw[i:i + sz], 'little', signed=typ != 'u16') for i in range(0, len(raw), sz)]
 
 
 def name(sym):
@@ -48,7 +50,7 @@ src = ['#include <stdio.h>', '#include <string.h>', '#include <stdint.h>',
        'typedef uint64_t u64; typedef int64_t s64;', '#include "tx_isp_t32_tmo.h"', '#include "%s"' % hdr, 'int main(void)', '{', '\tunsigned i;',
        '\tstruct t32_tmo_fpga_env e; s16 d4[16];', '\tmemset(&e, 0, sizeof(e));', '\tt32_tmo_fpga_env_tables(&e, d4);',
        '\tmemset(d4, 0x5a, sizeof(d4));', '\tt32_tmo_fpga_d88d4_init(d4);']
-for sym, typ, n in TABS:
+for sym, typ, n in TABS + TABS2:
     if sym == 'd8320':
         src.append('\tprintf("d8320 0 %%d\\n", (int)%s);' % name(sym))
         src.append('\tprintf("env d8320 %d\\n", e.d8320 == T32_TMO_TAB_D8320);')
@@ -56,6 +58,8 @@ for sym, typ, n in TABS:
     src.append('\tprintf("size %s %%u\\n", (unsigned)(sizeof(%s) / sizeof(%s[0])));' % (sym, name(sym), name(sym)))
     src.append('\tfor (i = 0; i < sizeof(%s) / sizeof(%s[0]); i++) printf("%s %%u %%d\\n", i, (int)%s[i]);'
                % (name(sym), name(sym), sym, name(sym)))
+    if (sym, typ, n) in TABS2:
+        continue
     if sym == 'd88d4':
         src.append('\tprintf("env d88d4 %d\\n", e.d88d4 == d4 && !memcmp(d4, t32_tmo_tab_d88d4, sizeof(d4)));')
     else:
@@ -80,7 +84,7 @@ for l in out:
     elif len(f) == 3:
         got.setdefault(f[0], {})[int(f[1])] = int(f[2])
 nval = 0
-for sym, typ, n in TABS:
+for sym, typ, n in TABS + TABS2:
     v = vendor(sym, typ, n)
     h = got.get(sym, {})
     if sym != 'd8320' and h.get('size') != n:
@@ -92,4 +96,4 @@ for sym, typ, n in TABS:
 if bad:
     print('tmotab_check: FAIL, %d differences, first: %s' % (len(bad), bad[0]))
     sys.exit(1)
-print('tmotab_check: PASS, %d values of %d tables equal data.c @ 2e2e06bc' % (nval, len(TABS)))
+print('tmotab_check: PASS, %d values of %d tables equal data.c @ 2e2e06bc' % (nval, len(TABS + TABS2)))

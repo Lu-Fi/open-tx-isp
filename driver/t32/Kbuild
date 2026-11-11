@@ -9,6 +9,8 @@ tx-isp-t32-objs := tx_isp_t32_sinfo.o \
 		   tx_isp_t32_tisp.o \
 		   tx_isp_t32_ae.o \
 		   tx_isp_t32_blkirq.o \
+		   tx_isp_t32_tmo.o \
+		   tx_isp_t32_awbc.o \
 		   tx_isp_t32_isposd.o
 obj-m += tx-isp-t32.o
 

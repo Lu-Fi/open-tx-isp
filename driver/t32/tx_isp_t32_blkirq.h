@@ -8,8 +8,8 @@
  *   LCE (tisp_lce_init):  system_irq_func_set (ch, 8, tisp_lce_interrupt_static),
  *                         system_irq_func_set (ch, 30, tisp_lsf_interrupt_static),
  *                         tisp_event_set_cb (ch, 14, tisp_lce_par)
- *   TMO (tisp_tmo_init):  bits 9 (tisp_tmo_interrupt_static) and 31 (tisp_tmo_fbf_interrupt_calc);
- *                         not wired yet (T32_BLK_IRQ_TMO / _FBF only name the bits).
+ *   TMO (tisp_tmo_init):  bits 9 (tisp_tmo_interrupt_static) and 31 (tisp_tmo_fbf_interrupt_calc):
+ *                         tx_isp_t32_tmoblk.h, set into the same table by tx_isp_t32_tmo.c.
  *
  * The vendor globals of these paths are one object here (struct t32_blk, one
  * instance t32_blk per translation unit, as the vendor's .bss):
@@ -49,9 +49,9 @@
 
 /* interrupt bits (system_irq_func_set index) and the event of the block paths */
 #define T32_BLK_IRQ_LCE		8	/* tisp_lce_interrupt_static */
-#define T32_BLK_IRQ_TMO		9	/* tisp_tmo_interrupt_static (not wired) */
+#define T32_BLK_IRQ_TMO		9	/* tisp_tmo_interrupt_static (tx_isp_t32_tmo.c) */
 #define T32_BLK_IRQ_LSF		30	/* tisp_lsf_interrupt_static */
-#define T32_BLK_IRQ_FBF		31	/* tisp_tmo_fbf_interrupt_calc (not wired) */
+#define T32_BLK_IRQ_FBF		31	/* tisp_tmo_fbf_interrupt_calc (tx_isp_t32_tmo.c) */
 #define T32_BLK_EV_LCE_PAR	14	/* tisp_lce_par */
 
 /* tisp_lce_malloc_cfg: private_kmalloc sizes of the three buffers */
