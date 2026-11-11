@@ -4,7 +4,8 @@
  * (Matt Davis' recovered C, PR #15): frame_channel_vb2_streamoff (0x13b44),
  * frame_channel_vidioc_get_fmt (0x108dc) and frame_channel_open_fast
  * (0x1444c), frame_channel_release (0x12190), frame_channel_vidioc_set_fmt
- * (0x106b4), frame_channel_open (0x12398).
+ * (0x106b4), frame_channel_open (0x12398), frame_channel_vb2_streamon
+ * (0x11b64).
  *
  * Channel (816 bytes, see tx_isp_t32_fs_pm.h): vb2 queue +0x2c, queue memory
  * +0x214, current format +0x248 (116 bytes), remote subdev +0x2cc, channel
@@ -24,7 +25,10 @@
  * can never run; set_fmt counts its calls per channel in d9b74 when d9008
  * and f3774[index] are set and skips the second one (returns 0); open, with
  * d9008 and all three tables set, skips its first call (counter d9ab4) and
- * returns 0, and with d9004 allocates the 12 KiB save buffer d9954[index].
+ * returns 0, and with d9004 allocates the 12 KiB save buffer d9954[index];
+ * streamon reads the channel index before its NULL check (an oops for a NULL /
+ * ERR_PTR channel, never exercised) and skips its second call (counter d9b14)
+ * like set_fmt.
  * Ours zeroes the format buffer before the event (the vendor
  * leaves the bytes the event does not fill as stack contents).
  *
@@ -63,6 +67,8 @@ struct t32_fch_os {
 	const u32 *d9008, *d9004;				/* module flags of the completion init */
 	void (*kfree)(u32 p);					/* private_kfree */
 	u32 (*kmalloc)(u32 size, u32 flags);			/* private_kmalloc */
+	void (*enqueue)(u8 *vb);				/* __enqueue_in_driver */
+	void (*queue_cancel)(u8 *q);				/* __vb2_queue_cancel */
 };
 
 static inline int t32_frame_channel_vb2_streamoff(const struct t32_fch_os *os, u8 *ch, u32 arg)
@@ -148,6 +154,7 @@ struct t32_fch_tabs {
 	const u32 *f37d4, *f37a4, *f3774;	/* all three set: the channel stream is stopped again */
 	u32 *d9954;				/* per-channel buffer freed when d9004 is set */
 	u32 *d9ab4;				/* open counter (frame_channel_open) */
+	u32 *d9b14;				/* stream-on counter (frame_channel_vb2_streamon) */
 };
 
 static inline void t32_fch_stop_stream(const struct t32_fch_os *os, u8 *ch)
@@ -261,6 +268,63 @@ static inline int t32_frame_channel_open(const struct t32_fch_os *os, const stru
 			return 0;
 	}
 	return t32_fch_open_channel(os, ch);
+}
+
+
+#define T32_FCH_VBQ_FLAGS	0x244U	/* bit 0: streaming */
+#define T32_FCH_QUEUED		0x218U	/* list of queued vb2 buffers, node at vb + 124 */
+#define T32_VB_QUEUED_NODE	124U
+#define T32_EV_STREAMON		0x3000003U
+
+static inline int t32_frame_channel_vb2_streamon(const struct t32_fch_os *os, const struct t32_fch_tabs *tb,
+						 u8 *ch, u32 arg)
+{
+	u32 idx, st, type;
+	u8 *head, *vb;
+	int r;
+
+	if (!t32_fs_valid(ch))
+		return -22;
+	idx = t32_g_rd32(ch, T32_FCH_INDEX);
+	if (*os->d9008 && tb->f37d4[idx] && tb->f37a4[idx] && tb->f3774[idx] && ++tb->d9b14[idx] == 2)
+		return 0;
+	st = t32_g_rd32(ch, T32_FCH_STATE);
+	if (st != T32_FCH_ST_OPEN) {
+		isp_printf(2, "The state of frame channel%d is invalid(%d)!\n", idx, st);
+		return -1;
+	}
+	if (!t32_fs_valid(T32_PTR(arg))) {
+		isp_printf(2, "The parameter from user is invalid!\n");
+		return -22;
+	}
+	if (t32_g_rd32(ch, T32_FCH_KARG)) {
+		memcpy(&type, T32_PTR(arg), 4);
+	} else if (os->copy_from_user((u8 *)&type, arg, 4)) {
+		isp_printf(2, "Failed to copy from user\n");
+		return -12;
+	}
+	if (t32_g_rd32(ch, T32_FCH_VBQ) != type) {
+		isp_printf(2, "streamon: invalid stream type\n");
+		return -22;
+	}
+	if (ch[T32_FCH_VBQ_FLAGS] & 1) {
+		isp_printf(2, "streamon: already streaming\n");
+		return -16;
+	}
+	head = ch + T32_FCH_QUEUED;
+	for (vb = T32_PTR(t32_g_rd32(head, 0) - T32_VB_QUEUED_NODE); vb + T32_VB_QUEUED_NODE != head;
+	     vb = T32_PTR(t32_g_rd32(vb, T32_VB_QUEUED_NODE) - T32_VB_QUEUED_NODE))
+		os->enqueue(vb);
+	r = os->send_event(t32_g_rd32(ch, T32_FCH_REMOTE), T32_EV_STREAMON, 0);
+	if (r && r != T32_ENOIOCTLCMD) {
+		isp_printf(2, "streamon: driver refused to start streaming\n");
+		os->queue_cancel(ch + T32_FCH_VBQ);
+		return r;
+	}
+	ch[T32_FCH_VBQ_FLAGS] |= 1;
+	t32_g_wr32(ch, T32_FCH_STATE, T32_FCH_ST_STREAM);
+	isp_printf(0, "Streamon successful\n");
+	return 0;
 }
 
 #endif
