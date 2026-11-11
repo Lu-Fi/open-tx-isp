@@ -11,9 +11,12 @@
  * The vendor tables (t32_data_d6b50, d6c64/65/67, bf9ec, d6be4, d6b64) and the printk
  * error path data (bf994, c9660, printk) are not provided by env.c; they are defined
  * here as weak symbols with random per-case content (the code is table agnostic),
- * ours gets the same bytes through struct t32_lce_tab.  Cases ours refuses on purpose
- * (t32_lce_hist_method: parameter > 32 or negative weight index, where the vendor
- * overflows its stack / reads before the table) are counted, not compared.
+ * ours gets the same bytes through struct t32_lce_tab.  bf9ec sits in a padded blob so
+ * that the halfword before it (weight index -1, read by the vendor for an empty ramp:
+ * lo or mid 0, mid or hi 32; openimp #277) is defined and random.  t32_lce_hist_method
+ * refuses only a parameter > 32 (the vendor overflows its stack): those cases are
+ * checked to be refused with the histogram untouched, not run on the vendor; a refusal
+ * of any other case is a mismatch.
  *
  * Exit 0 = equal; 1 = first mismatch.
  */
@@ -27,7 +30,9 @@ __attribute__((weak)) u8 t32_data_d6b50[20];
 __attribute__((weak)) u8 t32_data_d6c64[4];
 __attribute__((weak)) u8 t32_data_d6c65[4];
 __attribute__((weak)) u8 t32_data_d6c67[4];
-__attribute__((weak)) u16 t32_data_bf9ec[32];
+u16 oc_lceh_bf9ea[33] __attribute__((aligned(4)));	/* [0] = index -1, [1..32] = bf9ec */
+__asm__(".globl t32_data_bf9ec\n.set t32_data_bf9ec, oc_lceh_bf9ea+2\n");
+extern u16 t32_data_bf9ec[32];
 __attribute__((weak)) u32 t32_data_d6be4[32];
 __attribute__((weak)) u32 t32_data_d6b64[32];
 __attribute__((weak)) u8 t32_data_bf994[64];
@@ -55,7 +60,7 @@ static u32 rnd(void)
 	return rs;
 }
 
-static unsigned int compared, refused;
+static unsigned int compared, refused, empty_ramp;
 
 static void fill_tab(struct t32_lce_tab *t)
 {
@@ -66,6 +71,7 @@ static void fill_tab(struct t32_lce_tab *t)
 	t32_data_d6c64[0] = (u8)rnd();
 	t32_data_d6c65[0] = (u8)rnd();
 	t32_data_d6c67[0] = (u8)rnd();
+	oc_lceh_bf9ea[0] = (u16)rnd();
 	for (i = 0; i < 32; i++) {
 		t32_data_bf9ec[i] = (u16)rnd();
 		t32_data_d6be4[i] = rnd();
@@ -187,21 +193,22 @@ static int case_method(void)
 	u8 thr[4], par[4], *vt, *vq;
 	u32 lo, mid, hi, m = rnd() % 3;
 	unsigned int i;
+	int r, big;
 
 	fill_tab(&t);
 	for (i = 0; i < 32; i++)
 		h[i] = (m == 0) ? (u16)(rnd() % 40) : (m == 1) ? (u16)(rnd() & 0xff) : (u16)rnd();
 	thr[0] = (rnd() & 1) ? (u8)(rnd() % 64) : (u8)rnd();
-	lo = rnd() % 33;
+	lo = (rnd() % 4) ? rnd() % 33 : 0;
 	if (rnd() & 1) {
-		mid = rnd() % 33;
+		mid = (rnd() % 4) ? rnd() % 33 : (rnd() & 1) ? 0 : 32;
 	} else {
 		mid = lo + rnd() % 7;
 		if (mid > 32)
 			mid = 32;
 	}
 	if (rnd() & 1) {
-		hi = rnd() % 33;
+		hi = (rnd() % 4) ? rnd() % 33 : 32;
 	} else {
 		hi = mid + rnd() % 7;
 		if (hi > 32)
@@ -209,11 +216,33 @@ static int case_method(void)
 	}
 	if (rnd() % 8 == 0)
 		hi = 0;
+	big = rnd() % 32 == 0;
+	if (big) {	/* a parameter above 32: refused by ours (the vendor overflows its stack) */
+		u32 k = rnd() % 3, v = (rnd() & 1) ? 33 : 33 + rnd() % 223;
+
+		if (k == 0)
+			lo = v;
+		else if (k == 1)
+			mid = v;
+		else
+			hi = v;
+	}
 	par[0] = (u8)lo; par[1] = (u8)mid; par[2] = (u8)hi; par[3] = 0;
 	memcpy(oh, h, 64);
-	if (t32_lce_hist_method(oh, thr, par, &t) < 0) {
+	r = t32_lce_hist_method(oh, thr, par, &t);
+	if (big) {
 		refused++;
+		if (r != -1 || memcmp(oh, h, 64))
+			return bad("hist_method: parameter > 32 not refused / hist changed");
 		return 0;
+	}
+	if (r != 0)
+		return bad("hist_method: refused a case with all parameters <= 32");
+	if (hi) {	/* the vendor reads weight index -1 (an empty ramp) */
+		int nar = (int)(mid - lo) < 3, rmp = (int)(hi - mid) >= 3;
+
+		if ((nar && !mid) || (!nar && !lo) || (!rmp && mid == 32) || (rmp && hi == 32))
+			empty_ramp++;
 	}
 	t32o_reset();
 	vh = t32o_alloc(80); vt = t32o_alloc(8); vq = t32o_alloc(8);
@@ -316,7 +345,8 @@ int main(void)
 		if (!fail) fail = case_thres();
 		if (!fail) fail = case_std();
 	}
-	printf("t32_lceh_oracle: %u compared (%u hist_method refused by ours), %u mismatches\n",
-	       compared, refused, fail ? 1u : 0u);
+	printf("t32_lceh_oracle: %u compared (%u hist_method with an empty ramp / weight index -1), "
+	       "%u hist_method parameter > 32 refused as expected, %u mismatches\n",
+	       compared, empty_ramp, refused, fail ? 1u : 0u);
 	return fail ? 1 : 0;
 }

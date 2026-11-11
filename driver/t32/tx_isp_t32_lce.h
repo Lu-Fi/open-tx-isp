@@ -510,20 +510,20 @@ static inline void t32_lce_hist_method_16bit_simd(const u16 *hist, u16 *out, con
 	out[31] = (u16)(out[31] + (int)rem % 32);
 }
 
-static inline u32 t32_lce_w(const struct t32_lce_tab *tab, u32 idx, int *bad)
+/*
+ * Ramp weight 1024 / n of bf9ec.  With lo / mid / hi <= 32 the index is -1 .. 31; -1 (the halfword before the
+ * table) comes only with an empty ramp (lo or mid 0, mid or hi 32), whose weight the vendor reads but never
+ * stores: 0 here (openimp #277).
+ */
+static inline u32 t32_lce_w(const struct t32_lce_tab *tab, u32 idx)
 {
-	if (idx > 31) {
-		*bad = 1;
-		return 0;
-	}
-	return tab->w[idx];
+	return idx > 31 ? 0 : tab->w[idx];
 }
 
 /*
  * tisp_lce_hist_method: clip the 32 bin histogram at thr[0], spread the clipped
  * mass with ramps; par = { lo, mid, hi }.  Returns -1 (hist untouched) where the
- * vendor would overflow its stack (a parameter above 32) or read before the
- * weight table (negative index).
+ * vendor would overflow its stack (a parameter above 32).
  */
 static inline int t32_lce_hist_method(u16 *hist, const u8 *thr, const u8 *par,
 				      const struct t32_lce_tab *tab)
@@ -533,7 +533,7 @@ static inline int t32_lce_hist_method(u16 *hist, const u8 *thr, const u8 *par,
 	u8 b[32];
 	u32 lo = par[0], mid = par[1], hi = par[2];
 	u32 exc = 0, half = 0, quart = 0, quart2 = 0, rem = 0, rest = 0, x, i;
-	int narrow, ramp, bad = 0;
+	int narrow, ramp;
 
 	if (lo > 32 || mid > 32 || hi > 32)
 		return -1;
@@ -571,9 +571,7 @@ static inline int t32_lce_hist_method(u16 *hist, const u8 *thr, const u8 *par,
 			hi = 1;
 			mid = 1;
 		}
-		x = t32_lce_w(tab, mid - 1, &bad) * half;
-		if (bad)
-			return -1;
+		x = t32_lce_w(tab, mid - 1) * half;
 		for (i = 0; i < mid; i++) {
 			w[i] = x;
 			b[i] = (u8)tab->up[i];
@@ -584,16 +582,12 @@ static inline int t32_lce_hist_method(u16 *hist, const u8 *thr, const u8 *par,
 			mid = 1;
 			lo = 1;
 		}
-		x = t32_lce_w(tab, lo - 1, &bad) * quart;
-		if (bad)
-			return -1;
+		x = t32_lce_w(tab, lo - 1) * quart;
 		for (i = 0; i < lo; i++) {
 			w[i] = x;
 			b[i] = (u8)tab->down[32 - lo + i];
 		}
-		x = t32_lce_w(tab, mid - lo - 1, &bad) * quart;
-		if (bad)
-			return -1;
+		x = t32_lce_w(tab, mid - lo - 1) * quart;
 		for (i = lo; i < mid; i++) {
 			w[i] = x;
 			b[i] = (u8)tab->up[i - lo];
@@ -601,24 +595,18 @@ static inline int t32_lce_hist_method(u16 *hist, const u8 *thr, const u8 *par,
 	}
 
 	if (!ramp) {
-		x = t32_lce_w(tab, 31 - mid, &bad) * rem;
-		if (bad)
-			return -1;
+		x = t32_lce_w(tab, 31 - mid) * rem;
 		for (i = mid; i < 32; i++) {
 			w[i] = x;
 			b[i] = (u8)tab->down[i];
 		}
 	} else {
-		x = t32_lce_w(tab, hi - mid - 1, &bad) * quart2;
-		if (bad)
-			return -1;
+		x = t32_lce_w(tab, hi - mid - 1) * quart2;
 		for (i = mid; i < hi; i++) {
 			w[i] = x;
 			b[i] = (u8)tab->down[32 - hi + i];
 		}
-		x = t32_lce_w(tab, 31 - hi, &bad) * rest;
-		if (bad)
-			return -1;
+		x = t32_lce_w(tab, 31 - hi) * rest;
 		for (i = hi; i < 32; i++) {
 			w[i] = x;
 			b[i] = (u8)tab->up[i - hi];
@@ -1314,6 +1302,337 @@ static inline void t32_lce_t41(const u8 *par, u8 *w, u32 mode, const struct t32_
 			t32_lce_t41_blk6(&st);
 			t32_lce_t41_blk7(&st);
 		}
+}
+
+/*
+ * Tisp_lce_soft_simd_v4 (vendor 0x4db64): the other per frame LCE path.  tisp_lce_par takes it when the byte at
+ * ctx + 10039 is 0, which tisp_tmo_tmo_size_update writes only when the tile count product overflows 16 bits
+ * (openimp #234); the normal path is Tisp_lce_soft_t41_simd above.  Arguments: par = the parameter block
+ * (ctx + 9932), w = the working buffer, mode = ctx + 10288 (low byte); band = the four 3 x u16 threshold rows
+ * of the vendor's .bss e188c (written by tisp_lce_init), one per quadrant.
+ *
+ * The 18 x 32 tiles are split into four quadrants by row par[12] and column par[13] (q = 0 / 1 above the row,
+ * 2 / 3 from it on; odd q from the column on).  Per quadrant the vendor runs groups of 16 tiles through its own
+ * MXU2 code (the hist_method / cdf / hist_adjust steps inlined as 16 or 4 lane vectors, with saturating 16 bit
+ * lanes) and the remaining tiles one by one through the scalar leaves.  Per tile: the histogram (w + 64 * tile,
+ * 32 x u16) is saved at w + 0x9900 + 64 * tile, clipped at par[201 + q] and the clipped mass spread back by the
+ * thresholds of band row q; its cdf, normalised to 1 << d6c67, gives the 20 byte row (bins 0..7, 9, 11 .. 31) at
+ * w + 76032 + 20 * tile, which is moved towards the base curve d6b50 (up par + 161, down par + 181), then
+ * (except in mode 4) limited against the previous row at w + 87552 + 20 * tile (par[119] gain, par[120] /
+ * par[121] minimum / maximum step) and stored as the new previous row.
+ * The scalar tiles are skipped when par[108] is set in mode 0 and their histogram moved by at most par[109]
+ * (get_distance_1dim against the saved one); the 16 tile groups are never skipped.
+ *
+ * Dropped: the per column bytes (w + 0x9000 words * par[68 + 4q] >> 24) and the par + 32 + 4q word the vendor
+ * hands to tisp_lce_hist_method, which overwrites / ignores both; the vendor's printk when a scalar tile's cdf
+ * total is 0 (the row is then left as it was, as in the vendor).
+ * Refused (-1): par[12] > 18 or par[13] > 32 (nothing written; the vendor then runs past the 576 tiles, above 32 its
+ * column loop does not end), and a scalar tile whose tisp_lce_hist_method refuses (a threshold above 32, which the
+ * thresholds of tisp_lce_thres_search never give; the tiles before it are then already written).
+ * The weight table index is -1 (the halfword before bf9ec, 0 in data.c:2717) only for an empty ramp, so its value is
+ * never used; t32_lce_hist_method handles it like the vendor (openimp #277).
+ * A 16 tile group with a cdf total of 0 divides by 0 (the MIPS result is undefined; this port takes the value of
+ * the mechanical C, t32_lce_sdiv).
+ * Checked by tests/t32_oracle (t32_lcev4_1 .. _5_oracle per block, t32_lcev4_oracle end to end).
+ */
+#define T32_LCE_V4_SAVE		0x9900U	/* saved tile histograms */
+#define T32_LCE_V4_OUT		76032U	/* per tile result rows (20 bytes each) */
+#define T32_LCE_V4_PREV		87552U	/* per tile previous rows (20 bytes each) */
+
+struct t32_lce_v4_ops {
+	void (*thres_simd)(const u16 hist[16][32], const u16 *thr, u8 *lo, u8 *mid, u8 *hi);
+	void (*thres)(const u16 *hist, const u16 *thr, u8 *out);
+	int (*hist_method)(u16 *hist, const u8 *thr, const u8 *lmh);
+	void (*hist_adjust)(u8 *cur, const u8 *up, const u8 *down);
+	void (*converge)(u32 gain, u32 lo, u32 hi, const u8 *target, u8 *cur);
+	void (*converge_simd)(u32 gain, u32 lo, u32 hi, const u8 *target, u8 *cur);
+	const struct t32_lce_tab *tab;	/* bf9ec, d6be4, d6b64, d6b50, d6c64 / 65 / 67 */
+};
+
+/* the vendor's scratch .bss e1e48 .. e20d8 of the 16 tile groups, in its layout (u16 / u8 per tile of the group) */
+struct t32_lce_v4_scr {
+	u16 exc[16];		/* e1e48: clipped mass */
+	u16 narrow[16];		/* e1e68: 1 = mid - lo <= 2 (one ramp below mid) */
+	u16 half[16];		/* e1e88: (exc + 1) / 2 when narrow */
+	u16 quart_lo[16];	/* e1ea8: (exc + 2) / 4 when not narrow (below lo) */
+	u16 quart_mid[16];	/* e1ec8: the same value (lo .. mid) */
+	u16 flat[16];		/* e1ee8: 1 = hi - mid <= 2 (one ramp above mid) */
+	u16 rem[16];		/* e1f08: the rest above mid when flat */
+	u16 quart_hi[16];	/* e1f28: (exc + 2) / 4 when not flat (mid .. hi) */
+	u16 rest[16];		/* e1f48: the rest above hi when not flat */
+	u8 lo[16], mid[16], hi[16];	/* e1f68 / e1f78 / e1f88: thresholds (all 1 when hi is 0) */
+	u32 w[32];		/* e1f98: spread amount per bin (last tile) */
+	u32 b[32];		/* e2018: ramp weight per bin (last tile) */
+	u16 cdf[32];		/* e2098: cdf (0..7) and normalised cdf (8..31) of the last tile */
+};
+
+struct t32_lce_v4_st {
+	const u8 *par;
+	u8 *w;
+	u32 mode;
+	const u16 *band;
+	const struct t32_lce_v4_ops *ops;
+	struct t32_lce_v4_scr s;
+	u16 h[16][32];		/* work copy of a group's histograms (kept off the kernel stack) */
+};
+
+static inline u32 t32_lce_v4_addus16(u32 a, u32 b)
+{
+	return a + b > 0xffff ? 0xffff : a + b;
+}
+
+static inline u32 t32_lce_v4_subus(u32 a, u32 b)
+{
+	return a > b ? a - b : 0;
+}
+
+/* the 1024 / n weight table bf9ec at index i (-1 .. 31; -1 only for an empty ramp, where the value is not used) */
+static inline u32 t32_lce_v4_w(const struct t32_lce_tab *tab, int i)
+{
+	return i < 0 ? 0 : tab->w[i];
+}
+
+/* the MXU2 rounding right shift (by s & 31, + the last bit shifted out) */
+static inline u32 t32_lce_v4_rshr(u32 v, u32 s)
+{
+	s &= 31;
+	return (v >> s) + (s ? (v >> (s - 1)) & 1 : 0);
+}
+
+/* get_distance_1dim (0x4c3f4): sum of |a - b| (each 16 bit) over the 32 bins, / 4 */
+static inline u32 t32_lce_get_distance_1dim(const u8 *a, const u8 *b)
+{
+	u32 sum = 0, i;
+
+	for (i = 0; i < 32; i++) {
+		u32 x = a[2 * i] | a[2 * i + 1] << 8, y = b[2 * i] | b[2 * i + 1] << 8;
+
+		sum += (x < y ? y - x : x - y) & 0xffff;
+	}
+	return sum >> 2;
+}
+
+/*
+ * blk1: one 16 tile group (tiles tile0 .. tile0 + 15, quadrant q): save the histograms, the three thresholds per
+ * tile (tisp_lce_thres_search_simd_v4 with band row q), clip at par[201 + q] (the clipped mass summed in saturating
+ * 16 bit lanes: bins i, i + 8, i + 16, i + 24 pairwise, then the 8 lanes wrapping), and the split of the clipped
+ * mass (saturating 16 bit arithmetic) into the ramp amounts of tisp_lce_hist_method.
+ */
+static inline void t32_lce_v4_blk1(struct t32_lce_v4_st *st, u32 tile0, u32 q)
+{
+	struct t32_lce_v4_scr *s = &st->s;
+	u32 clip = st->par[201 + q], j, i;
+	u8 lo[16], mid[16], hi[16];
+	u16 (*h)[32] = st->h;
+
+	for (j = 0; j < 16; j++)
+		memcpy(st->w + T32_LCE_V4_SAVE + (tile0 + j) * 64, st->w + (tile0 + j) * 64, 64);
+	memcpy(h, st->w + tile0 * 64, sizeof(st->h));
+	st->ops->thres_simd((const u16 (*)[32])h, st->band + 3 * q, lo, mid, hi);
+	for (j = 0; j < 16; j++) {
+		u32 e[32], exc = 0, quart, a, b;
+
+		for (i = 0; i < 32; i++) {
+			e[i] = t32_lce_v4_subus(h[j][i], clip);
+			if (clip < h[j][i])
+				h[j][i] = (u16)clip;
+		}
+		for (i = 0; i < 8; i++) {
+			u32 p = t32_lce_v4_addus16(e[i], e[i + 8]), r = t32_lce_v4_addus16(e[i + 16], e[i + 24]);
+
+			exc += t32_lce_v4_addus16(p, r);
+		}
+		s->exc[j] = (u16)exc;
+		exc &= 0xffff;
+		a = (int)mid[j] - (int)lo[j] > 2;
+		b = t32_lce_v4_subus(hi[j], mid[j]) > 2;
+		quart = t32_lce_v4_addus16(exc, 2) >> 2;
+		s->narrow[j] = !a;
+		s->half[j] = a ? 0 : (u16)(t32_lce_v4_addus16(exc, 1) >> 1);
+		s->quart_lo[j] = s->quart_mid[j] = a ? (u16)quart : 0;
+		s->flat[j] = !b;
+		s->quart_hi[j] = b ? (u16)quart : 0;
+		if (a)
+			exc = t32_lce_v4_subus(t32_lce_v4_subus(exc, quart), quart);
+		else
+			exc = t32_lce_v4_subus(exc, s->half[j]);
+		s->rem[j] = b ? 0 : (u16)exc;
+		s->rest[j] = b ? (u16)t32_lce_v4_subus(exc, quart) : 0;
+		if (hi[j] == 0)
+			lo[j] = mid[j] = hi[j] = 1;
+		s->lo[j] = lo[j];
+		s->mid[j] = mid[j];
+		s->hi[j] = hi[j];
+	}
+	memcpy(st->w + tile0 * 64, h, sizeof(st->h));
+}
+
+/* the spread amount x on bins from .. to - 1 with the ramp weights tab[k + i - from] (k = first table index) */
+static inline void t32_lce_v4_ramp(struct t32_lce_v4_scr *s, u32 from, u32 to, u32 x, const u32 *tab, int k)
+{
+	u32 i;
+
+	for (i = from; i < to; i++) {
+		s->w[i] = x;
+		s->b[i] = tab[k + (int)(i - from)];
+	}
+}
+
+/*
+ * blk2: tile j of the group (tile index tile): the ramps of tisp_lce_hist_method from the blk1 amounts (bf9ec weight
+ * times amount per bin, d6be4 rising / d6b64 falling shape), the new histogram (clipped bins + the rounded
+ * (w * b) >> 15, 16 bit wrap) back into w, its cdf (16 bit wrap) and the cdf normalised to 1 << d6c67 (signed divide by
+ * the total, products and rounding shifts by d6c65 in 32 bit lanes): row bytes 0..7 = bins 0..7, 8..19 = bins 9, 11 .. 31.
+ */
+static inline void t32_lce_v4_blk2(struct t32_lce_v4_st *st, u32 j, u32 tile)
+{
+	const struct t32_lce_tab *tab = st->ops->tab;
+	struct t32_lce_v4_scr *s = &st->s;
+	u32 lo = s->lo[j], mid = s->mid[j], hi = s->hi[j], i, c = 0, qt;
+	u8 *out = st->w + T32_LCE_V4_OUT + tile * 20;
+	u16 h[32];
+
+	if (s->narrow[j] == 1) {
+		t32_lce_v4_ramp(s, 0, mid, t32_lce_v4_w(tab, (int)mid - 1) * s->half[j], tab->up, 0);
+	} else {
+		t32_lce_v4_ramp(s, 0, lo, t32_lce_v4_w(tab, (int)lo - 1) * s->quart_lo[j], tab->down, 32 - (int)lo);
+		t32_lce_v4_ramp(s, lo, mid, t32_lce_v4_w(tab, (int)(mid - lo) - 1) * s->quart_mid[j], tab->up, 0);
+	}
+	if (s->flat[j] == 1) {
+		t32_lce_v4_ramp(s, mid, 32, t32_lce_v4_w(tab, 31 - (int)mid) * s->rem[j], tab->down, (int)mid);
+	} else {
+		t32_lce_v4_ramp(s, mid, hi, t32_lce_v4_w(tab, (int)(hi - mid) - 1) * s->quart_hi[j], tab->down, 32 - (int)hi + (int)mid);
+		t32_lce_v4_ramp(s, hi, 32, t32_lce_v4_w(tab, 31 - (int)hi) * s->rest[j], tab->up, 0);
+	}
+	memcpy(h, st->w + tile * 64, 64);
+	for (i = 0; i < 32; i++) {
+		u32 v = s->w[i] * s->b[i];
+
+		h[i] = (u16)(h[i] + ((v >> 15) + ((v >> 14) & 1)));
+		s->cdf[i] = (u16)c;
+		c = (c + h[i]) & 0xffff;
+	}
+	memcpy(st->w + tile * 64, h, 64);
+	qt = t32_lce_sdiv(1U << (tab->pdf_shift & 31), c);
+	for (i = 0; i < 8; i++)
+		out[i] = (u8)t32_lce_v4_rshr(s->cdf[i] * qt, tab->pdf_sh);
+	for (i = 8; i < 32; i++)
+		s->cdf[i] = (u16)t32_lce_v4_rshr(s->cdf[i] * qt, tab->pdf_sh);
+	for (i = 0; i < 12; i++)
+		out[8 + i] = (u8)s->cdf[9 + 2 * i];
+}
+
+/*
+ * blk3: the row of tile j moved towards the base curve d6b50 (the inlined tisp_lce_hist_adjust in 32 bit lanes:
+ * no 16 bit wrap of the step, unlike the scalar leaf), then, except in mode 4, limited against the previous row
+ * (tisp_lce_16bit_data_converge_simd, inlined by the vendor).
+ */
+static inline void t32_lce_v4_blk3(struct t32_lce_v4_st *st, u32 tile)
+{
+	const u8 *par = st->par;
+	u8 *out = st->w + T32_LCE_V4_OUT + tile * 20;
+	u32 i;
+
+	for (i = 0; i < 20; i++) {
+		int base = st->ops->tab->adj_base[i], d = out[i] - base;
+
+		out[i] = (u8)((u32)(base * 256 + d * (d < 0 ? par[181 + i] : par[161 + i]) + 128) >> 8);
+	}
+	if (st->mode != 4)
+		st->ops->converge_simd(par[119], par[120], par[121], st->w + T32_LCE_V4_PREV + tile * 20, out);
+}
+
+/* one 16 tile group: blk1, then per tile blk2, blk3 and the row as the new previous row */
+static inline void t32_lce_v4_grp(struct t32_lce_v4_st *st, u32 tile0, u32 q)
+{
+	u32 j;
+
+	t32_lce_v4_blk1(st, tile0, q);
+	for (j = 0; j < 16; j++) {
+		u32 tile = (tile0 + j) & 0xffff;
+
+		t32_lce_v4_blk2(st, j, tile);
+		t32_lce_v4_blk3(st, tile);
+		memcpy(st->w + T32_LCE_V4_PREV + tile * 20, st->w + T32_LCE_V4_OUT + tile * 20, 20);
+	}
+}
+
+/*
+ * blk4: one tile through the scalar leaves (quadrant q): skipped in mode 0 with par[108] set when its histogram moved
+ * by at most par[109]; else saved, thresholds (tisp_lce_thres_search), reshaped (tisp_lce_hist_method), cdf, the row
+ * normalised as in blk2 but rounded by bit d6c64 (not d6c65 - 1) and left as it was for a cdf total of 0,
+ * tisp_lce_hist_adjust, tisp_lce_16bit_data_converge (not in mode 4), new previous row.  -1: hist_method refused.
+ */
+static inline int t32_lce_v4_blk4(struct t32_lce_v4_st *st, u32 tile, u32 q)
+{
+	const struct t32_lce_tab *tab = st->ops->tab;
+	const u8 *par = st->par;
+	u8 *w = st->w, *cur = w + tile * 64, *save = w + T32_LCE_V4_SAVE + tile * 64;
+	u8 *out = w + T32_LCE_V4_OUT + tile * 20, *prev = w + T32_LCE_V4_PREV + tile * 20;
+	u8 lmh[3], clip = par[201 + q];
+	u16 h[32], cdf[32];
+	u32 i, c = 0, qt;
+
+	if (par[108] && !st->mode && t32_lce_get_distance_1dim(save, cur) <= par[109])
+		return 0;
+	memcpy(save, cur, 64);
+	memcpy(h, cur, 64);
+	st->ops->thres(h, st->band + 3 * q, lmh);
+	if (st->ops->hist_method(h, &clip, lmh) < 0)
+		return -1;
+	memcpy(cur, h, 64);
+	for (i = 0; i < 32; i++) {
+		cdf[i] = (u16)c;
+		c = (c + h[i]) & 0xffff;
+	}
+	if (c) {
+		qt = t32_lce_sdiv(1U << (tab->pdf_shift & 31), c);
+		for (i = 0; i < 20; i++) {
+			u32 v = cdf[i < 8 ? i : 2 * i - 7] * qt;
+
+			out[i] = (u8)((v >> (tab->pdf_sh & 31)) + ((v >> (tab->pdf_rnd & 31)) & 1));
+		}
+	}
+	st->ops->hist_adjust(out, par + 161, par + 181);
+	if (st->mode != 4)
+		st->ops->converge(par[119], par[120], par[121], prev, out);
+	memcpy(prev, out, 20);
+	return 0;
+}
+
+/* the tiles of quadrant q in tile row row, columns from .. to - 1: 16 tile groups while 16 columns are left, then one by one */
+static inline int t32_lce_v4_quad(struct t32_lce_v4_st *st, u32 row, u32 from, u32 to, u32 q)
+{
+	u32 col = from;
+
+	for (; col + 16 <= to; col += 16)
+		t32_lce_v4_grp(st, (row * 32 + col) & 0xffff, q);
+	for (; col < to; col++)
+		if (t32_lce_v4_blk4(st, (row * 32 + col) & 0xffff, q) < 0)
+			return -1;
+	return 0;
+}
+
+/* Tisp_lce_soft_simd_v4: rows 0 .. par[12] - 1 with quadrants 0 / 1, the rest of the 18 rows with 2 / 3 */
+static inline int t32_lce_v4(const u8 *par, u8 *w, u32 mode, const u16 *band, const struct t32_lce_v4_ops *ops,
+			     struct t32_lce_v4_st *st)
+{
+	u32 row, rq;
+
+	if (par[12] > 18 || par[13] > 32)
+		return -1;
+	memset(st, 0, sizeof(*st));
+	st->par = par;
+	st->w = w;
+	st->mode = mode & 0xff;
+	st->band = band;
+	st->ops = ops;
+	for (row = 0; row < 18; row++) {
+		rq = row < par[12] ? 0 : 2;
+		if (t32_lce_v4_quad(st, row, 0, par[13], rq) < 0 || t32_lce_v4_quad(st, row, par[13], 32, rq + 1) < 0)
+			return -1;
+	}
+	return 0;
 }
 
 #endif /* TX_ISP_T32_LCE_H */
