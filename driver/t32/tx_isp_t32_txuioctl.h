@@ -7,8 +7,9 @@
  * (kernel caller flag) is set to 1; else the device is file +120 (private
  * data) - 12 and +60 is cleared.  Unknown commands return 0.
  *
- * Command groups (each proven by tests/t32_oracle/t32_txuio_oracle against
- * the vendor flow, Matt Davis' recovered C, PR #15):
+ * All 56 vendor commands, proven by tests/t32_oracle/t32_txuio_oracle
+ * against the vendor flow (Matt Davis' recovered C, PR #15) with full line
+ * and branch coverage of this header.  Command groups:
  *   helpers  driver version, default bin path set / get, sensor register /
  *            release, multi-sensor mode, AE algorithm open, video s_stream /
  *            link stream (tx_isp_t32_txioctl.h);
@@ -30,7 +31,11 @@
  *   ae / gpio AE start EV set / get (AE scene attribute), GPIO state switch
  *            (+ trigger) via subdevice 0's core ioctl, default bin, WDR enable;
  *   ipc / mem ISP IPC memory space set / get, managed memory malloc / free
- *            (16 slots { ptr, phys, size } at +372).
+ *            (16 slots { ptr, phys, size } at +372);
+ *   modes    running mode switch (core ioctls 0x100000e..0x1000012 with the
+ *            +72 completion), PM control set (AOV / normal with the vendor's
+ *            inlined wait_event_interruptible_timeout), raw snapshot
+ *            control, core command 0x5000006 summed.
  */
 #ifndef TX_ISP_T32_TXUIOCTL_H
 #define TX_ISP_T32_TXUIOCTL_H
@@ -97,6 +102,44 @@
 #define T32_UIO_GET_IPC_MEM	0x800c5439U
 #define T32_UIO_MEM_MALLOC	0x800c543aU
 #define T32_UIO_MEM_FREE	0x800c543bU
+#define T32_UIO_RUN_SWITCH	0xc004543cU
+#define T32_UIO_SET_PM_CTRL	0xc0045431U
+#define T32_UIO_RAW_CONTROL	0xc0045434U
+#define T32_UIO_CORE_SUM6	0xc00454baU
+
+#define T32_CORE_CMD_SUM6	0x5000006U
+#define T32_CORE_RUN_NORMAL	0x100000eU
+#define T32_CORE_RUN_AOV	0x100000fU
+#define T32_CORE_RUN_SWITCH	0x1000010U
+#define T32_CORE_RUN_TIMEOUT	0x1000012U
+#define T32_EBUSY		16U
+#define T32_EINVAL		22U
+#define T32_ETIME		62U
+#define T32_RUN_WAIT_TICKS	200U
+
+/* core device PM block: +4020 AOV mode, +4024 switch count (atomic), +4028 wait queue, +4032, +4036 list */
+#define T32_CORE_PM_COUNT	4024U
+#define T32_CORE_PM_WQ		4028U
+#define T32_CORE_PM_4032	4032U
+#define T32_CORE_PM_LIST	4036U
+#define T32_PM_WAIT_TICKS	500U
+#define T32_NOTIFY_PM_SWITCH	0x1000003U
+
+/* raw snapshot: core +324 / +328 per input width / height; subdevice 0 +88: VIC subdevice (+280 device, +872 busy) */
+#define T32_CORE_RAW_W		324U
+#define T32_CORE_RAW_H		328U
+#define T32_SD_VIC		88U
+#define T32_VIC_RAW_BUSY	872U
+#define T32_RAW_W_MAX		3840U
+
+void t32_tx_os_init_completion(u32 c);
+int t32_tx_os_prepare_to_wait_event(u32 wq, void *e, u32 state);
+void t32_tx_os_finish_wait(u32 wq, void *e);
+int t32_tx_os_schedule_timeout(int t);
+void t32_tx_os_atomic_dec(u32 a);
+void t32_tx_os_lib_tisp_api_s_running_mode(u32 mode);
+void t32_tx_os_dma_sync_for_cpu(u32 addr, u32 n);
+void t32_tx_os_vic_save_raw(u32 in, u32 a, u32 b, u32 mode);
 
 #define T32_NOTIFY_IPC		0x5000007U
 #define T32_CORE_IPC_FIX	1200U	/* core +1200 == 1: +1204 is the IPC line count */
@@ -236,10 +279,10 @@ static inline int t32_uio_core_each(u32 isp, u32 cmd, u32 arg)
 	return 0;
 }
 
-/* broadcast: like _each, but returns the last subdevice's result (-ENOIOCTLCMD for no ioctl) */
-static inline int t32_uio_core_last(u32 isp, u32 cmd, u32 arg)
+/* broadcast: like _each, but returns the last subdevice's result (-ENOIOCTLCMD for no ioctl), r0 without any */
+static inline int t32_uio_core_last_from(u32 isp, u32 cmd, u32 arg, int r0)
 {
-	int r = 0;
+	int r = r0;
 	u32 k;
 
 	for (k = 0; k < T32_DEV_SD_N; k++) {
@@ -258,6 +301,11 @@ static inline int t32_uio_core_last(u32 isp, u32 cmd, u32 arg)
 			return r;
 	}
 	return r;
+}
+
+static inline int t32_uio_core_last(u32 isp, u32 cmd, u32 arg)
+{
+	return t32_uio_core_last_from(isp, cmd, arg, 0);
 }
 
 /* broadcast: the sum of all results (-ENOIOCTLCMD for no ioctl) */
@@ -1002,6 +1050,167 @@ static inline int t32_uio_memory_free(u32 isp, u32 user)
 	return -(int)T32_ENOMEM;
 }
 
+/*
+ * Running mode switch, mode = the argument value: 0 normal, 1 AOV, 2 switch
+ * and wait for the +72 completion (on timeout the core timeout command, its
+ * last result or -ETIME), 3 switch without waiting; 2 / 3 need running mode
+ * +64 == 1.  +68 is the "switch pending" flag (-EBUSY while set).
+ */
+static inline int t32_uio_run_switch(u32 isp, u32 mode)
+{
+	u32 cmd;
+	int r;
+
+	if (t32_tx_ld(isp, T32_DEV_DONE_WAIT))
+		return -(int)T32_EBUSY;
+	if (mode == 0) {
+		cmd = T32_CORE_RUN_NORMAL;
+	} else if (mode == 1) {
+		cmd = T32_CORE_RUN_AOV;
+	} else if (mode == 2 || mode == 3) {
+		if (mode == 2)
+			t32_tx_st(isp, T32_DEV_DONE_WAIT, 1);
+		if (t32_tx_ld(isp, T32_ISP_RUN_MODE) != 1) {
+			t32_tx_st(isp, T32_DEV_DONE_WAIT, 0);
+			return -(int)T32_EINVAL;
+		}
+		if (t32_tx_ld(isp, T32_DEV_DONE_WAIT))
+			t32_tx_os_init_completion(isp + T32_DEV_DONE);
+		cmd = T32_CORE_RUN_SWITCH;
+	} else {
+		return -(int)T32_EINVAL;
+	}
+	r = t32_uio_core_each(isp, cmd, 0);
+	if (r)
+		return r;
+	if (mode < 2) {
+		t32_tx_st(isp, T32_ISP_RUN_MODE, mode);
+		return 0;
+	}
+	if (mode == 3 || t32_tx_os_wait_for_completion_timeout(isp + T32_DEV_DONE, T32_RUN_WAIT_TICKS))
+		return 0;
+	t32_tx_st(isp, T32_DEV_DONE_WAIT, 0);
+	return t32_uio_core_last_from(isp, T32_CORE_RUN_TIMEOUT, 0, -(int)T32_ETIME);
+}
+
+/*
+ * The vendor's inlined wait_event_interruptible_timeout(core +4028,
+ * core +4024 > 0, 500): 1 = the count came up, 0 = timeout or signal.
+ * The wait entry is the vendor's stack layout { flags, private, func,
+ * list next, list prev } with only flags and the list set (vendor).
+ */
+static inline int t32_uio_pm_wait(u32 core)
+{
+	u32 e[5];
+	int t = T32_PM_WAIT_TICKS;
+
+	e[3] = e[4] = T32_TX_A(&e[3]);
+	e[0] = 0;
+	for (;;) {
+		int r = t32_tx_os_prepare_to_wait_event(t32_tx_ld(core, T32_CORE_PM_WQ), e, 1);
+
+		if ((int)t32_tx_ld(core, T32_CORE_PM_COUNT) > 0)
+			break;
+		if (t && r)
+			t = r;
+		if (!t || r) {
+			t32_tx_os_finish_wait(t32_tx_ld(core, T32_CORE_PM_WQ), e);
+			return t > 0;
+		}
+		t = t32_tx_os_schedule_timeout(t);
+	}
+	t32_tx_os_finish_wait(t32_tx_ld(core, T32_CORE_PM_WQ), e);
+	return 1;
+}
+
+/* tx_isp_set_pm_control: { mode } - 1 = AOV, 0 = back to normal after the pending switch count */
+static inline int t32_uio_set_pm_control(u32 isp, u32 user)
+{
+	u32 sd = t32_tx_ld(isp, T32_DEV_SD), core = t32_tx_ld(sd, T32_SD_PRIV_CORE), u[2], m[3], fn;
+	int r;
+
+	if (t32_tx_os_copy_from_user(u, user, sizeof(u))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_set_pm_control", 1936);
+		return -(int)T32_EFAULT;
+	}
+	t32_tx_os_isp_printf(1, "[%s %d] aov_mode is %d\n", "tx_isp_set_pm_control", 1941, u[0]);
+	if (u[0]) {
+		if (t32_tx_ld(core, T32_CORE_PM_CTRL) == 1) {
+			t32_tx_os_isp_printf(1, "\n[%s %d]isp already is aov mode !!!\n", "tx_isp_set_pm_control", 1971);
+			return 0;
+		}
+		t32_tx_st(core, T32_CORE_PM_CTRL, 1);
+		t32_tx_os_lib_tisp_api_s_running_mode((u8)u[0]);
+		return 0;
+	}
+	if (!t32_tx_ld(core, T32_CORE_PM_CTRL)) {
+		t32_tx_os_isp_printf(1, "\n[%s %d]isp already is normal mode !!!\n", "tx_isp_set_pm_control", 1946);
+		return 0;
+	}
+	t32_tx_os_isp_printf(1, "[%s %d] switch is normal\n", "tx_isp_set_pm_control", 1950);
+	if ((int)t32_tx_ld(core, T32_CORE_PM_COUNT) <= 0 && !t32_uio_pm_wait(core)) {
+		t32_tx_os_isp_printf(1, "Wait switch mode failed\n");
+		return -(int)T32_EFAULT;
+	}
+	t32_tx_os_atomic_dec(core + T32_CORE_PM_COUNT);
+	t32_tx_st(core, T32_CORE_PM_LIST, core + T32_CORE_PM_LIST);
+	t32_tx_st(core, T32_CORE_PM_LIST + 4, core + T32_CORE_PM_LIST);
+	t32_tx_st(core, T32_CORE_PM_CTRL, 0);
+	t32_tx_st(core, T32_CORE_PM_4032, 0);
+	m[0] = 0;
+	m[1] = 4;
+	m[2] = 0;
+	if (!(fn = t32_tx_ld(sd, T32_SD_NOTIFY)))	/* vendor's sd == 0 -> -ENOENT: dead after the core load */
+		r = -(int)T32_ENOIOCTLCMD;
+	else
+		r = ((t32_uio_notify_fn)T32_TX_P(fn))(sd, T32_NOTIFY_PM_SWITCH, m);
+	t32_tx_os_lib_tisp_api_s_running_mode((u8)u[0]);
+	return r;
+}
+
+/*
+ * tx_isp_get_raw_control: { u8 input, u8 raw mode, u8 snap num, u8 wdr mode }:
+ * DMA sync of the snapshot buffer, then tx_isp_vic_save_raw (twice for wdr
+ * mode 3).  Vendor: the VIC device of subdevice 0 +88 is used unchecked
+ * (an error / NULL pointer is dereferenced), the input indexes unchecked.
+ */
+static inline int t32_uio_raw_control(u32 isp, u32 arg)
+{
+	u32 sd = t32_tx_ld(isp, T32_DEV_SD), core = t32_tx_ld(sd, T32_SD_PRIV_CORE), x = t32_tx_ld(sd, T32_SD_VIC), vic = 0;
+	u32 b, w, h, sz, tot, in;
+	u8 *b8 = (u8 *)&b;
+
+	if (x && x < (u32)-4095)
+		vic = t32_tx_ld(x, T32_SD_PRIV_CORE);
+	if (t32_tx_arg_in(isp, &b, arg, 4)) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_get_raw_control", 2030);
+		return -(int)T32_EFAULT;
+	}
+	in = core + T32_CORE_IN_BYTES * b8[0];
+	w = t32_tx_ld(in, T32_CORE_RAW_W);
+	h = t32_tx_ld(in, T32_CORE_RAW_H);
+	sz = w * h << 1;
+	tot = b8[2] * sz;
+	t32_tx_os_dma_sync_for_cpu(t32_tx_ld(vic, T32_VIC_RAW_BUSY), tot);
+	t32_tx_os_isp_printf(1, "\nvinum is %d, width is %d, height is %d, imagesize is %d\n, snap num is %d, buf size is %d, wdrmode %d, snaprawmode %d\n",
+			     b8[0], w, h, sz, b8[2], tot, b8[3], b8[1]);
+	if (w > T32_RAW_W_MAX) {
+		t32_tx_os_isp_printf(1, "\n [%s %d] Can't output the width(%d)!\n", "tx_isp_get_raw_control", 2047, w);
+		return 0;
+	}
+	if (t32_tx_ld(vic, T32_VIC_RAW_BUSY)) {
+		t32_tx_os_isp_printf(1, "\n[%s %d] The node is busy!\n", "tx_isp_get_raw_control", 2052);
+		return 0;
+	}
+	if (b8[3] == 3) {
+		t32_tx_os_vic_save_raw(b8[0], b8[1], b8[2], 0);
+		t32_tx_os_vic_save_raw(b8[0], b8[1], b8[2], 1);
+	} else {
+		t32_tx_os_vic_save_raw(b8[0], b8[1], b8[2], b8[3]);
+	}
+	return 0;
+}
+
 /* tx_isp_unlocked_ioctl(file, cmd, arg) */
 static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 {
@@ -1077,6 +1286,10 @@ static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 	case T32_UIO_GET_IPC_MEM:	return t32_uio_get_ipc_mem(isp, arg);
 	case T32_UIO_MEM_MALLOC:	return t32_uio_memory_malloc(isp, arg);
 	case T32_UIO_MEM_FREE:		return t32_uio_memory_free(isp, arg);
+	case T32_UIO_RUN_SWITCH:	return t32_uio_run_switch(isp, arg);
+	case T32_UIO_SET_PM_CTRL:	return t32_uio_set_pm_control(isp, arg);
+	case T32_UIO_RAW_CONTROL:	return t32_uio_raw_control(isp, arg);
+	case T32_UIO_CORE_SUM6:		return t32_uio_core_sum(isp, T32_CORE_CMD_SUM6, arg);
 	}
 	return 0;
 }
