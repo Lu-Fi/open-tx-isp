@@ -13158,7 +13158,6 @@ static unsigned char regtrace_framechan_file_shadow[4][0x100] __attribute__((ali
 static int regtrace_framechan_context_ready[4];
 static void *regtrace_vic_subdev;
 static void *regtrace_core_subdev;
-static void *regtrace_fs_subdev;
 /* /proc/jz/isp + isp-m0 created by the core subdev init; removed again in the core remove
  * (a stale entry kept the unloaded module's fops and blocked the mkdir on the next load) */
 static struct proc_dir_entry *t40_isp_proc_dir_rm T40C2;   /* own section: keeps the lifted .bss layout */
@@ -14275,10 +14274,17 @@ static int regtrace_framechan_index(struct file *file)
 /* #154: slot0 = ispcore subdev (OEM), sensor in the spare slot.  The first T40 workspace put the sensor in slot0,
  * so every lifted ioctl that reads slot0 as the core (WDR switch 0x5413/0x5414: *(slot0+232)+0x40000 error mask,
  * AE/AWB algo open, ...) ran on the sensor subdev: no register window -> NULL+0x40060 oops on the Eufy T40XP. */
+/* #322: OEM tx_isp_create_graph_and_nodes also puts the frame source (isp-fs, pdata 01 02 00 14 -> slot 4) into the
+ * graph; tx_isp_unlocked_ioctl 0xc0045430 SET_PREDQTIME (OEM 0x14ed0: lw v0,64(priv); lw s0,268(v0); sw 288(s0))
+ * reads it.  The controlled registration left slot 4 NULL -> oops at BadVA 0x10c. */
+#define REGTRACE_TX_ISP_SUBDEV_SLOT_FS (REGTRACE_TX_ISP_SUBDEV_SLOT0 + 4 * 4)
+static void *regtrace_fs_subdev;
 static void regtrace_sync_tx_isp_slots(void)
 {
     *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT0) =
         (uint32_t)(uintptr_t)regtrace_core_subdev;
+    *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT_FS) =
+        (uint32_t)(uintptr_t)regtrace_fs_subdev;
     *(uint32_t *)(regtrace_tx_isp_context + REGTRACE_TX_ISP_SUBDEV_SLOT_SENSOR) =
         (uint32_t)(uintptr_t)regtrace_sensor_subdev;
 }
@@ -14411,8 +14417,10 @@ static void regtrace_subdev_cleanup_internal(unsigned char *sd)
         regtrace_core_subdev = NULL;
         regtrace_sync_tx_isp_slots();
     }
-    if (regtrace_fs_subdev == (void *)sd)
+    if (regtrace_fs_subdev == (void *)sd) {
         regtrace_fs_subdev = NULL;
+        regtrace_sync_tx_isp_slots();
+    }
     if (ispcore_sd == (uint32_t)(uintptr_t)sd)
         ispcore_sd = 0;
 }
@@ -14619,6 +14627,7 @@ static int regtrace_subdev_init_internal(uintptr_t pdev_addr, uintptr_t sd_addr,
         regtrace_t40_core_activate_direct(1);
     } else if (!strcmp(pdev->name, "isp-fs")) {
         regtrace_fs_subdev = sd;
+        regtrace_sync_tx_isp_slots();
     }
     regtrace_ensure_oem_links();
     return 0;
@@ -57573,7 +57582,7 @@ tx_isp_unlocked_ioctl0x2df8:
     v0 = (uintptr_t *)((uintptr_t (*)(uintptr_t, uintptr_t, uintptr_t))(uintptr_t)private_copy_from_user)(__p_20, s1, 8); /* jalr target resolved by relocation */
 
     /* fragment 762: Branch */
-    v1 = (*__p_20);
+    v1 = (uintptr_t *)(uintptr_t)*(uint8_t *)__p_20;   /* #324: OEM 0x151ac lbu v1,32(sp) (sensor number byte) */
     if (v0 == 0) { goto tx_isp_unlocked_ioctl0x2e54; }
 
     /* fragment 763: CallSetup */
@@ -57605,13 +57614,15 @@ tx_isp_unlocked_ioctl0x2e54:
     goto tx_isp_unlocked_ioctl0x834;
 
 tx_isp_unlocked_ioctl0x2e98:
-    /* fragment 769: MemoryAccess */
+    /* fragment 769: MemoryAccess - #324 IMP_ISP_WDR_OPEN LINEAR (0xc0045432): OEM 0x15230..0x15244
+     * core_priv[1564 + sensor] = (u8)imode, then b 0x834 with s0 = 0.  The lift ended the function here and
+     * returned the address as the result (userspace saw -1); ispcore_core_ops_init reads the byte. */
     v0 = *(uint32_t *)((char *)s2 + 48);
     s0 = 0;
     v0 = *(uint32_t *)((char *)v0 + 268);
     v0 = (uintptr_t)v0 + (uintptr_t)v1;
-
-    return ((int64_t)(uint32_t)v1 << 32) | (uint32_t)v0;
+    *(uint8_t *)((char *)v0 + 1564) = (uint8_t)(uintptr_t)a0;   /* OEM 0x15244 sb a0,1564(v0) (delay slot) */
+    goto tx_isp_unlocked_ioctl0x834;
 
 }
 
@@ -139610,6 +139621,13 @@ ispcore_core_ops_init0x270:
     v0 = (uintptr_t)s0 + (uintptr_t)v0;
     v1 = *(uint8_t *)((char *)v1 + 1564);
     a0 = *(uint32_t *)((char *)v0 + 732);
+    /* #324: OEM 0x7a4a8 movz s3,zero,v1 / 0x7a4b0 movn s3,1,a0 / 0x7a4c0 sw s3,156(sp) (bne delay slot):
+     * tisp init WDR field = sensor WDR ? 1 : (WDR_OPEN byte ? state (2) : 0).  The lift dropped all three. */
+    if (v1 == 0)
+        s3 = 0;
+    if (a0 != 0)
+        s3 = 1;
+    (*__p_9c) = s3;
     v1 = 1;
     a0 = *(uint32_t *)((char *)v0 + 720);
     v0 = 10;
