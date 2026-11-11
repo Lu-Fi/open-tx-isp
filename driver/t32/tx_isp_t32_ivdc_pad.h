@@ -23,7 +23,7 @@
  *  6  0;
  *  7  reqbufs: IVDC buffer size and address (-12 without memory), forward;
  *  8  forward without argument.
- * A forward returns the remote result, events 3 / 4 map -515 to 0.
+ * A forward returns the remote result, events 1 / 3 / 4 map -515 to 0.
  *
  * Vendor quirks kept: the stream-off idle setup writes +96 / +92 twice in
  * modes >= 2; mode 0 / 1 / >= 2 size formulas as in the vendor (32-bit).
