@@ -179,4 +179,120 @@ static inline void t32_lce_hist_method_16bit(const u16 *hist, u16 *out, const st
 	memcpy(out, buf, sizeof(buf));
 }
 
+/*
+ * Tisp_lce_soft_t41 (0x563a0): the scalar form of Tisp_lce_soft_t41_simd (t32_lce_t41 of tx_isp_t32_lce.h),
+ * same working buffer layout (w, T32_LCE_T41_*), par = the parameter block, mode = the LCE mode byte.
+ * Global part: the 576 tile histograms are added onto the u32 histogram at A + 277 (not cleared first),
+ * lce_std_hist_transform (unsigned, par +4 / +8), judge (par[284] == 1: par[285]), lce_hist_method ->
+ * pdf -> cdf, optional self light correction (par[294] == 1), converge towards the target (not in mode 4),
+ * new target.  Per tile (18 rows x 32): tisp_lce_std_hist_transform with the quadrant gain (par +68,
+ * quadrant by par[12] / par[13]) and shift 9, 16 bit judge (par[229] == 1: par[230]), threshold byte at
+ * T32_LCE_T41_THR, lce_hist_method_16bit, lce_pdf_to_cdf_16bit, optional local test correction (par[239]),
+ * the selected tile (par[110] / par[111]) is copied to A + 637 / + 701 / + 721, converge_16bit against the
+ * tile's previous row (not in mode 4), new previous row, and the result row is the blend
+ * round7((128 - par[112]) (16 bit) * row + par[112] * global cdf) clipped to 255.
+ * The vendor presets the judge byte to 15; both judges always overwrite it (the preset is dropped).
+ * The rodata shifts d6c66 / d6c67 are both 20.  Supported: thresholds (par[285], par[230]) 0..31 (the vendor
+ * overflows the stack arrays of the hist methods above, see the header).  The vendor's 64 byte stack clear
+ * and 72 byte parameter block clear are kept as local zeroing.
+ */
+#define T32_LCE41_SH	20U	/* rodata d6c66 and d6c67 */
+
+static inline void t32_lce_soft_t41(const u8 *par, u8 *w, u32 mode)
+{
+	u8 *tgt = w + T32_LCE_T41_A, *histb = w + T32_LCE_T41_A + 277, *pdfb = w + T32_LCE_T41_A + 405;
+	u8 *cdf = w + T32_LCE_T41_A + 533, *cur = w + T32_LCE_T41_A + 553;
+	u32 hist[32], pdf[32], hm[18], row, t, g, i;
+	u16 h16[32], over = 0;
+	u8 thr, c16[20], r16[20];
+
+	mode &= 0xff;
+	memset(hm, 0, sizeof(hm));
+	memset(w + T32_LCE_T41_A + 21, 0, 128);
+	memset(w + T32_LCE_T41_A + 149, 0, 128);
+	memcpy(hist, histb, 128);
+	for (g = 0; g < 18; g++)
+		for (t = 0; t < 32; t++)
+			for (i = 0; i < 32; i++)
+				hist[i] += (u32)w[g * 2048 + t * 64 + 2 * i] | (u32)w[g * 2048 + t * 64 + 2 * i + 1] << 8;
+	t32_lce_std_hist_transform32(hist, t32_lce_t41_rd32(par + 4), t32_lce_t41_rd32(par + 8));
+	memcpy(histb, hist, 128);
+	t32_lce_hist_filter_and_judge(hist, &thr);
+	if (par[284] == 1)
+		thr = par[285];
+	w[T32_LCE_T41_A - 2] = thr;
+	hm[1] = thr;
+	hm[3] = par[289];
+	hm[4] = par[290];
+	hm[5] = par[291];
+	hm[6] = par[292];
+	hm[7] = par[293];
+	hm[8] = par[289] << 3;
+	hm[9] = par[290] << 3;
+	hm[10] = (par[289] + par[290]) << 3;
+	hm[11] = par[291] + par[292];
+	hm[12] = T32_LCE41_SH - 6;
+	t32_lce_hist_method32(hist, pdf, (const struct t32_lce_hm16_par *)hm, T32_LCE41_SH, T32_LCE41_SH);
+	memcpy(pdfb, pdf, 128);
+	t32_lce_pdf_to_cdf_raw(pdf, cdf);
+	if (par[294] == 1) {
+		hm[2] = par[297];
+		hm[3] = par[298];
+		t32_lce_self_light_correct_local(cdf, cur, (const u8 *)hm, par + 299, par + 319);
+	}
+	if (mode != 4)
+		t32_lce_16bit_data_converge(par[339], par[340], par[341], tgt, cur);
+	memcpy(tgt, cur, 20);
+
+	for (row = 0; row < 18; row++) {
+		for (t = 0; t < 32; t++) {
+			u32 tile = (row * 32 + t) & 0xffff, quad = (row < par[12] ? 0 : 2) + (t < par[13] ? 0 : 1);
+			u32 a = (u32)(128 - par[112]) & 0xffff, b = par[112];
+			u16 *th = (u16 *)(w + tile * 64);
+			u8 *prev = w + T32_LCE_T41_PREV + 20 * tile, *out = w + T32_LCE_T41_OUT + 20 * tile;
+
+			memcpy(h16, th, 64);
+			t32_lce_std_hist_transform(h16, t32_lce_t41_rd32(par + 68 + 4 * quad), 9, &over);
+			memcpy(th, h16, 64);
+			t32_lce_hist_filter_and_judge_16bit(h16, &thr);
+			if (par[229] == 1)
+				thr = par[230];
+			w[T32_LCE_T41_THR + tile] = thr;
+			hm[1] = thr;
+			hm[3] = par[234];
+			hm[4] = par[235];
+			hm[5] = par[236];
+			hm[6] = par[237];
+			hm[7] = par[238];
+			hm[8] = par[234] << 3;
+			hm[9] = par[235] << 3;
+			hm[10] = (par[234] + par[235]) << 3;
+			hm[11] = par[236] + par[237];
+			hm[12] = T32_LCE41_SH - 6;
+			t32_lce_hist_method_16bit(h16, h16, (const struct t32_lce_hm16_par *)hm);
+			t32_lce_pdf_to_cdf_16bit(h16, c16);
+			if (par[239]) {
+				hm[2] = par[242];
+				hm[3] = par[243];
+				t32_lce_self_light_correct_local_test(c16, r16, (const u8 *)hm, par + 244, par + 264);
+			} else {
+				memcpy(r16, c16, 20);
+			}
+			if (par[110] == row && par[111] == t) {
+				memcpy(w + T32_LCE_T41_A + 637, h16, 64);
+				memcpy(w + T32_LCE_T41_A + 701, c16, 20);
+				memcpy(w + T32_LCE_T41_A + 721, r16, 20);
+			}
+			if (mode != 4)
+				t32_lce_16bit_data_converge_16bit(par[119], par[120], par[121], prev, r16);
+			memcpy(prev, r16, 20);
+			for (i = 0; i < 20; i++) {
+				u32 v = t32_lce_round7((a * r16[i] + b * cur[i]) & 0xffff);
+
+				out[i] = (u8)(v < 256 ? v : 255);
+			}
+		}
+	}
+}
+
 #endif /* TX_ISP_T32_LCE41_H */
