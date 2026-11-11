@@ -372,7 +372,13 @@ u8 t32_data_e1db8[4 * 36] __attribute__((aligned(4)));	/* per channel buffer set
 void tisp_lce_interrupt_static(void) {}
 void tisp_lsf_interrupt_static(void) {}
 void tisp_lce_par(void) {}
-u64 private_dma_cache_sync(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; return 0; }
+u32 t32o_dma_n, t32o_dma_a[4];	/* private_dma_cache_sync: call count and the last arguments */
+u64 private_dma_cache_sync(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	t32o_dma_n++;
+	t32o_dma_a[0] = a0; t32o_dma_a[1] = a1; t32o_dma_a[2] = a2; t32o_dma_a[3] = a3;
+	return 0;
+}
 
 /* ---- heap pool for private_vmalloc and the oracle's own buffers ---- */
 static u8 pool[8u << 20] __attribute__((aligned(64)));
@@ -592,16 +598,17 @@ u64 t32o_memcpy(u32 a0, u32 a1, u32 a2, u32 a3)
 static u8 stack_lo[1u << 20] __attribute__((aligned(64)));
 static ucontext_t ctx_main, ctx_ref;
 static t32o_fn call_fn;
-typedef u64 (*t32o_fn7)(u32, u32, u32, u32, u32, u32, u32, u32);
+typedef u64 (*t32o_fn7)(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32);
 static u32 call_a[5];
 u32 t32o_arg6;		/* seventh argument (a function with 7 arguments) */
 u32 t32o_arg7;		/* eighth argument (a function with 8 arguments, default 0) */
+u32 t32o_arg8, t32o_arg9;	/* ninth / tenth argument (a function with 10 arguments, default 0) */
 u32 t32o_arg5;		/* sixth argument of the next t32o_call (a function with 6 arguments) */
 static u64 call_ret;
 
 static void trampoline(void)
 {
-	call_ret = ((t32o_fn7)(uintptr_t)call_fn)(call_a[0], call_a[1], call_a[2], call_a[3], call_a[4], t32o_arg5, t32o_arg6, t32o_arg7);
+	call_ret = ((t32o_fn7)(uintptr_t)call_fn)(call_a[0], call_a[1], call_a[2], call_a[3], call_a[4], t32o_arg5, t32o_arg6, t32o_arg7, t32o_arg8, t32o_arg9);
 }
 
 u64 t32o_call(t32o_fn fn, u32 a0, u32 a1, u32 a2, u32 a3, u32 a4)

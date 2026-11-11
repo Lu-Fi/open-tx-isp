@@ -1,0 +1,3131 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * T32 tone mapping / adaptive dynamic range (TMO, "tisp_tmo_*") from the
+ * vendor module (Matt Davis' recovered C, PR #15).  The block is ported in
+ * phases, each proven bit-exact against the vendor functions by a host oracle
+ * (tests/t32_oracle/t32_tmo<n>_oracle):
+ *
+ *  phase 1 (t32_tmo1_oracle): tisp_tmo_log2, tmo_interplate, tmo_interplate1,
+ *    tmo_absfun, ramY_reg_read, tmo_reg_read, adr_5x5_out, adr_interp1_short,
+ *    adr_ispint_adr_16 / _32 / _64, adr_subsection_map, tmo_size_update,
+ *    adr_tgain_func.
+ *  phase 2a (t32_tmo2_oracle): tmo_dark_ctr_interp, tmo_detail_ev_interp, tmo_satcurve_ev_interp.
+ *  phase 2b (t32_tmo2b_oracle): tmo_dark_protect, adr_stat_calc.
+ *  phase 3a (t32_tmo3a_oracle): tmo_ev_interp, drc_ctrl, adr_gamma_refresh, adr_params_refresh.
+ *  phase 3b (t32_tmo3b_oracle): modechange_stat_refresh, tmo_params_hard_refresh.
+ *  phase 3c (t32_tmo3c_oracle): timeratio_curve_adjust, adr_hardpars_ctl.
+ *  phase 4 (t32_tmo4_oracle): adr_5x5_init, adr_base_pars, adr_gauss_local, adr_local_info.
+ *  phase 5a (t32_tmo5a_oracle): adr_map_y_filter, adr_map_y_filter_sp.
+ *  phase 5b (t32_tmo5b_oracle): adr_map_curve1.
+ *  phase 5c (t32_tmo5c_oracle): adr_ev_func.
+ *  phase 6a (t32_tmo6a_oracle): adr_subsection_up, tisp_adr_faceae_curve_adjust (callee of adr_fpga).
+ *  phase 7a (t32_tmo7a_oracle): tgain_update, api_strength_ctrl, param_array_get, api_get_curve, ev_update.
+ *  phase 8a (t32_tmo8a_oracle): adr_faceae_refresh, fbf_interrupt_calc, tmo_soft_process, adr_soft_process.
+ *
+ * The vendor addresses the per channel TMO state as t32_data_e35e0[ch] -> a
+ * channel record {ctx, stat, ..., geom at +12}; the port takes the members it
+ * needs as pointers.  Signed divisions: INT_MIN / -1 is INT_MIN as in the
+ * vendor's reference emulation (MIPS div leaves HI/LO undefined there; vendor
+ * UB, kept so the port never traps).  A zero divisor cannot occur in any call
+ * of this phase and is not handled.  Dropped dead code (the vendor tests are
+ * unreachable: the table entry found has x0 < x <= x1, so x1 != x0): the
+ * "x1 == x0 -> ys[i]" returns of adr_ispint_adr_16 / _32 / _64.  Return values that are only leftover registers in the
+ * vendor code (the high word, ramY_reg_read / tmo_reg_read) are not reproduced.
+ */
+#ifndef TX_ISP_T32_TMO_H
+#define TX_ISP_T32_TMO_H
+
+#include "tx_isp_t32_tp.h"
+#include "tx_isp_t32_awbct.h"	/* t32_awb_fixmul / t32_awb_fixdiv = fix_point_mult2_32 / div_32 */
+#include "tx_isp_t32_awblong.h"	/* t32_awb_fixdiv64 = fix_point_div */
+
+/* signed 32 bit division, INT_MIN / -1 = INT_MIN (see above) */
+static inline int t32_tmo_sdiv(int n, int d)
+{
+	if (n == (int)0x80000000U && d == -1)
+		return n;
+	return n / d;
+}
+
+/* tisp_tmo_log2: number of doublings of 2 (at most 17) until a0 + step reaches a1, 0 when a0 >= a1 (both 16 bit) */
+static inline u32 t32_tmo_log2(u32 a0, u32 a1)
+{
+	u32 step = 2, n = 0;
+
+	a0 &= 0xffffU;
+	a1 &= 0xffffU;
+	if (a0 >= a1)
+		return 0;
+	for (;;) {
+		step &= 0xffffU;
+		n = (n + 1) & 0xffU;
+		if (((a0 + step) & 0xffffU) >= a1 || n == 17U)
+			return n;
+		step <<= 1;
+	}
+}
+
+/* tisp_tmo_tmo_interplate (x0, x1, y0, y1, x): y at x on the line (x0,y0)-(x1,y1), rounded; x1 == x0 is read as x0 + 1 */
+static inline int t32_tmo_interplate(int x0, int x1, int y0, int y1, int x)
+{
+	u32 span = (u32)x1 + (u32)(x1 == x0) - (u32)x0;
+	u32 num = (u32)y0 * span + (u32)(y1 - y0) * (u32)(x - x0);
+
+	return t32_tmo_sdiv((int)(num + (u32)((int)span >> 1)), (int)span);
+}
+
+/* tisp_tmo_tmo_interplate1 (x1, x0, y0, y1, x): as above, weighted from the other end (x1 - x towards y1) */
+static inline int t32_tmo_interplate1(int x1, int x0, int y0, int y1, int x)
+{
+	u32 hi = (u32)x1 + (u32)(x1 == x0);
+	u32 span = hi - (u32)x0;
+	u32 num = (u32)y0 * span + (u32)(y1 - y0) * (hi - (u32)x);
+
+	return t32_tmo_sdiv((int)(num + (u32)((int)span >> 1)), (int)span);
+}
+
+/* tisp_tmo_tmo_absfun: |a - b| */
+static inline u32 t32_tmo_absfun(u32 a, u32 b)
+{
+	return a < b ? b - a : a - b;
+}
+
+/* tisp_tmo_ramY_reg_read / tisp_tmo_tmo_reg_read: empty in the vendor, return 0 */
+static inline u32 t32_tmo_ramy_reg_read(void)
+{
+	return 0;
+}
+static inline u32 t32_tmo_reg_read(void)
+{
+	return 0;
+}
+
+/*
+ * tisp_tmo_adr_5x5_out: squared distance of (x1, y1) from (x0, y0) in 1/8 units
+ * (each difference divided by 8, truncated) searched in the 31 entry s16 table tbl
+ * from the top: the index (1 .. 31) after the first entry (from 30 down) that is not
+ * below the distance, 0 when all are.
+ */
+static inline u32 t32_tmo_adr_5x5_out(int x0, int y0, int x1, int y1, const s16 *tbl)
+{
+	int dx = ((x1 < x0) ? (int)((u32)x0 - (u32)x1) : (int)((u32)x1 - (u32)x0)) / 8;
+	int dy = ((y1 < y0) ? (int)((u32)y0 - (u32)y1) : (int)((u32)y1 - (u32)y0)) / 8;
+	int d2 = (int)((u32)dy * (u32)dy + (u32)dx * (u32)dx);
+	int i;
+
+	for (i = 30; i >= 0; i--)
+		if (!((int)tbl[i] < d2))
+			return (u32)i + 1U;
+	return 0;
+}
+
+/*
+ * tisp_tmo_adr_interp1_short: for each of cnt inputs in[] the piecewise linear
+ * value of the curve (xs[], ys[], n points) into out[]; below the first point ys[0],
+ * above the last ys[n - 1], inside a segment the rounded line value capped at the
+ * upper point.  n, cnt are s16 arguments of the vendor (n < 1 writes nothing).
+ */
+static inline void t32_tmo_adr_interp1_short(const s16 *xs, const s16 *ys, const s16 *in, s16 *out, int n, int cnt)
+{
+	int i, k;
+
+	n = (s16)n;
+	cnt = (s16)cnt;
+	for (i = 0; i < cnt; i++) {
+		int x = in[i];
+
+		for (k = 1; k < n; k++) {
+			int dx, v;
+
+			if (!(xs[0] < x)) {
+				out[i] = ys[0];
+				break;
+			}
+			if (!(x < xs[k]))
+				continue;
+			dx = (s16)((u32)xs[k] - (u32)xs[k - 1]);
+			v = t32_tmo_sdiv(t32_tmo_sdiv(dx, 2) +
+					 (s16)((u32)ys[k] - (u32)ys[k - 1]) * (s16)((u32)x - (u32)xs[k - 1]), dx);
+			v = (s16)((u32)v + (u32)ys[k - 1]);
+			out[i] = (s16)v;
+			if (ys[k] < v)
+				out[i] = ys[k];
+			break;
+		}
+		if (k == n)
+			out[i] = ys[n - 1];
+	}
+}
+
+/* tisp_tmo_adr_ispint_adr_16: y of the 16 bit x on the curve (xs[], ys[], n >= 1 points), rounded; ys[n - 1] above the last */
+static inline int t32_tmo_adr_ispint_16(int x, const s16 *xs, const s16 *ys, int n)
+{
+	int i;
+
+	x = (s16)x;
+	for (i = 0; i < n; i++) {
+		int xi = xs[i], x0, d;
+
+		if (xi < x)
+			continue;
+		if (i == 0)
+			return ys[0];
+		x0 = xs[i - 1];
+		d = xi - x0;
+		return (s16)(t32_tmo_sdiv((int)((u32)(ys[i] - ys[i - 1]) * (u32)(x - x0) + (u32)(d >> 1)), d) + ys[i - 1]);
+	}
+	return ys[n - 1];
+}
+
+/* tisp_tmo_adr_ispint_adr_32: the same with a 32 bit x axis and an unreduced result */
+static inline int t32_tmo_adr_ispint_32(int x, const int *xs, const s16 *ys, int n)
+{
+	int i;
+
+	for (i = 0; i < n; i++) {
+		int xi = xs[i], x0, d;
+
+		if (xi < x)
+			continue;
+		if (i == 0)
+			return ys[0];
+		x0 = xs[i - 1];
+		d = (int)((u32)xi - (u32)x0);
+		return (int)((u32)t32_tmo_sdiv((int)((u32)(ys[i] - ys[i - 1]) * ((u32)x - (u32)x0) + (u32)(d >> 1)), d) + (u32)ys[i - 1]);
+	}
+	return ys[n - 1];
+}
+
+/*
+ * tisp_tmo_adr_ispint_adr_64: the same with a 64 bit x axis.  The rounded offset
+ * |dy * (x - x0) + d / 2| / |d| (d = x1 - x0, 64 bit, fix_point_div with 0 fraction
+ * bits) is added to ys[i - 1] when numerator and d have the same sign, else subtracted.
+ */
+static inline int t32_tmo_adr_ispint_64(long long x, const long long *xs, const s16 *ys, int n)
+{
+	int i;
+
+	for (i = 0; i < n; i++) {
+		long long d;
+		unsigned long long num, an, ad;
+		u32 q;
+
+		if (xs[i] < x)
+			continue;
+		if (i == 0)
+			return ys[0];
+		d = (long long)((unsigned long long)xs[i] - (unsigned long long)xs[i - 1]);
+		num = (unsigned long long)(x - xs[i - 1]) * (unsigned long long)(long long)(ys[i] - ys[i - 1]) +
+		      (unsigned long long)(d >> 1);
+		an = (long long)num < 0 ? 0ULL - num : num;
+		ad = d < 0 ? 0ULL - (unsigned long long)d : (unsigned long long)d;
+		q = (u32)t32_tp_div64(an, ad);
+		return (int)((((long long)num < 0) == (d < 0)) ? (u32)ys[i - 1] + q : (u32)ys[i - 1] - q);
+	}
+	return ys[n - 1];
+}
+
+/*
+ * tisp_tmo_adr_subsection_map: find the entry of the 512 word table tab[] nearest to
+ * pos (all entries of the minimum distance count, their mean index in sh0 fraction
+ * bits rounded), scale by mul, look it up in the 129 point curve (a[] -> b[],
+ * a[-1] / b[-1] are read for a hit on the first point) with sh0 fraction bits, then
+ * mix the result s5 with the scale and divide by 100 in sh2 fraction bits.
+ */
+static inline int t32_tmo_adr_subsection_map(int pos, int s5, int s1, const s16 *a, const s16 *b, const int *tab,
+					     int mul, u32 sh2, u32 sh0, u32 mode)
+{
+	int best = 10000, cnt = 0, sum = 0, k, v, half, t, r;
+
+	for (k = 0; k < 512; k++) {
+		int dist = pos < tab[k] ? (int)((u32)tab[k] - (u32)pos) : (int)((u32)pos - (u32)tab[k]);
+
+		if (dist < best) {
+			cnt = 0;
+			sum = 0;
+		} else if (dist != best) {
+			continue;
+		}
+		sum += k;
+		cnt++;
+		best = dist;
+	}
+	if (!(cnt > 0))
+		cnt = 1;
+	if (!(sum > 0))
+		sum = 1;
+	/* the shifts use the low 5 bits (MIPS sll / sra), the fix_point_* callees get the full count */
+	half = t32_tmo_sdiv((int)(1U << (sh0 & 31U)), 2);
+	t = (int)(t32_awb_fixdiv(sh0, (u32)sum << (sh0 & 31U), (u32)cnt << (sh0 & 31U)) + (u32)half) >> (sh0 & 31U);
+	t = (int)((u32)t * (u32)mul) - 1;
+	r = b[128];
+	for (k = 0; k < 129; k++) {
+		if (t < a[k]) {
+			u32 slope = t32_awb_fixdiv(sh0, (u32)(b[k] - b[k - 1]) << (sh0 & 31U),
+						   (u32)(a[k] - a[k - 1]) << (sh0 & 31U));
+			u32 m = t32_awb_fixmul(sh0, slope, (u32)(a[k] - t) << (sh0 & 31U));
+
+			r = b[k] - ((int)(m + (u32)half) >> (sh0 & 31U));
+			break;
+		}
+	}
+	if (mode == 1 || !(s5 < r))
+		v = (int)((u32)s5 * 100U + (u32)(r - s5) * (u32)s1);
+	else
+		v = (int)((u32)s5 * 100U);
+	t = (int)t32_awb_fixdiv(sh2, (u32)v << (sh2 & 31U), 100U << (sh2 & 31U));
+	return (int)((u32)t32_tmo_sdiv((int)(1U << (sh2 & 31U)), 2) + (u32)t) >> (sh2 & 31U);
+}
+
+/* tisp_tmo_tmo_size_update: geometry record (+12 of the channel record), 20 bytes */
+struct t32_tmo_geom {
+	u16 w, h;		/* +0, +2 */
+	u8 bw, bh, ov, four;	/* +4 15, +5 25, +6 10, +7 4 */
+	u8 two;			/* +8 2 */
+	u8 gw, gh, gs;		/* +9 (bw + 2 four), +10 (bh + 2 four), +11 (2 two + ov) */
+	u8 iw, ih;		/* +12 gw - four, +13 gh - four */
+	u16 cells;		/* +14 bw * bh */
+	u16 gcells;		/* +16 gw * gh */
+	u8 shift;		/* +18, ratio class 0..9 (kept when the grid is 0x8000 cells or more) */
+	u8 pad;
+};
+struct t32_tmo_stat {		/* record at channel record +4: only +48 .. +53 are written */
+	u8 pad[48];
+	u16 gw, gh, ratio;
+};
+struct t32_tmo_ctx {		/* big per channel context (channel record +0): only +10039 is written */
+	u8 pad[10039];
+	u8 lce_sel;
+};
+
+/*
+ * w, h: 16 bit picture size (high bits ignored).  The statistics grid is
+ * ((w + 7) / 15, (h + 12) / 25) cells; the ratio (2^k + cells / 2) / cells and the LCE
+ * selector (13 .. 25 for cells < 0x8000, 13 + class) follow from the cell count; from
+ * 0x8000 cells on the vendor writes ratio 0, selector 0 and keeps geom->shift.
+ */
+static inline void t32_tmo_size_update(struct t32_tmo_ctx *ctx, struct t32_tmo_stat *st, struct t32_tmo_geom *g,
+				       u32 w, u32 h)
+{
+	u32 gw = (((w & 0xffffU) + 7U) / 15U) & 0xffffU;
+	u32 gh = (((h & 0xffffU) + 12U) / 25U) & 0xffffU;
+	u32 cells = (gw * gh) & 0xffffU, ratio = 0, k = 0;
+	u8 sel = 0;
+
+	g->bw = 15;
+	g->bh = 25;
+	g->w = (u16)w;
+	g->ov = 10;
+	g->h = (u16)h;
+	g->four = 4;
+	g->two = 2;
+	if (cells < 0x8000U) {
+		while (cells >= (8U << k))
+			k++;			/* k = 0 for < 8, 1 for < 16 ... 12 for < 0x8000 */
+		sel = (u8)(13U + k);
+		ratio = cells ? ((0x2000U << k) + (cells >> 1)) / cells : 0xffffU;
+		ratio &= 0xffffU;
+		g->shift = k < 4 ? 0 : (u8)(k - 3);
+	}
+	st->gw = (u16)gw;
+	st->gh = (u16)gh;
+	st->ratio = (u16)ratio;
+	ctx->lce_sel = sel;
+	g->gw = (u8)(g->bw + 2U * g->four);
+	g->gh = (u8)(g->bh + 2U * g->four);
+	g->gs = (u8)(2U * g->two + g->ov);
+	g->iw = (u8)(g->gw - g->four);
+	g->ih = (u8)(g->gh - g->four);
+	g->cells = (u16)(g->bw * g->bh);
+	g->gcells = (u16)(g->gw * g->gh);
+}
+
+/* tisp_tmo_adr_tgain_func: the two tgain pairs reset to 100, the flag of channel ch cleared when it is 1 */
+struct t32_tmo_tgain {
+	u32 a[2];		/* t32_data_e35a0 */
+	u32 b[2];		/* t32_data_e3590 */
+	s16 *flag;		/* t32_data_e3520 */
+};
+static inline void t32_tmo_adr_tgain_func(struct t32_tmo_tgain *t, u32 ch)
+{
+	t->a[0] = t->a[1] = 100;
+	t->b[0] = t->b[1] = 100;
+	if (t->flag[ch] == 1)
+		t->flag[ch] = 0;
+}
+
+/*
+ * ---- phase 2a: ev interpolation (tmo_dark_ctr_interp, tmo_detail_ev_interp, tmo_satcurve_ev_interp) ----
+ *
+ * All three read the big context (ctx, channel record +0) and an "exposure" value: ev0 / ev1 are the record words
+ * +24 / +28 (a 64 bit value, ev1 != 0 means "too large", mode 0) and ev1m the record word +32 (mode 1).  The
+ * context byte ctx[10931] selects the mode: 0 = ascending u32 table (the match is tbl[i] <= ev < tbl[i + 1]),
+ * otherwise descending (tbl[i] >= ev > tbl[i + 1]).  The search runs over 9 intervals, i = 9 means no match.
+ * The vendor's recovered code has v1 (the stat pointer) clobbered by the leaf call returns in dark_ctr_interp; the
+ * hardware leaf leaves v1 alone, so the oracle removes that artifact from the reference copy (REFFIX).
+ */
+#define T32_TMO_CTX_MODE 10931U
+static inline u32 t32_tmo_ld8(const u8 *b, u32 o) { return b[o]; }
+static inline int t32_tmo_lds8(const u8 *b, u32 o) { return (s8)b[o]; }
+static inline u32 t32_tmo_ld16(const u8 *b, u32 o) { return *(const u16 *)(b + o); }
+static inline u32 t32_tmo_ld32(const u8 *b, u32 o) { return *(const u32 *)(b + o); }
+
+/* the interval search shared by the three functions; w = ((end - ev) << 8) / span for the match (16 bit), else 0 */
+static inline u32 t32_tmo_ev_find(const u32 *tbl, u32 mode, u32 ev0, u32 ev1, u32 ev1m, u32 *w)
+{
+	u32 i;
+
+	*w = 0;
+	for (i = 0; i < 9; i++) {
+		u32 a = tbl[i], b = tbl[i + 1];
+
+		if (mode == 0) {
+			if (ev1 != 0 || ev0 < a || !(ev0 < b))
+				continue;
+			*w = (((b - ev0) << 8) / (b - a)) & 0xffffU;
+		} else {
+			if (a < ev1m || !(b < ev1m))
+				continue;
+			*w = (((a - ev1m) << 8) / (a - b)) & 0xffffU;
+		}
+		return i;
+	}
+	return 9;
+}
+
+/* "ev above the last table entry" (or too large) / "ev below the first one" of the vendor's range clamps */
+static inline int t32_tmo_ev_hi(const u32 *tbl, u32 mode, u32 ev0, u32 ev1, u32 ev1m)
+{
+	return mode == 0 ? (ev1 != 0 || !(ev0 < tbl[9])) : !(tbl[9] < ev1m);
+}
+static inline int t32_tmo_ev_lo(const u32 *tbl, u32 mode, u32 ev0, u32 ev1, u32 ev1m)
+{
+	return mode == 0 ? (ev1 == 0 && ev0 < tbl[0]) : (tbl[0] < ev1m);
+}
+
+/* the u16 outputs of tmo_dark_ctr_interp (stat record + 238 ..) */
+struct t32_tmo_dark_out {
+	u16 a238, a240, a242, a244, a246, a248;
+};
+
+/* tisp_tmo_tmo_dark_ctr_interp: six interpolations over the matching interval, clamps, the derived 240 / 248 / 244 */
+static inline void t32_tmo_dark_ctr_interp(const u8 *ctx, struct t32_tmo_dark_out *o, u32 ev0, u32 ev1, u32 ev1m)
+{
+	u32 mode = t32_tmo_ld8(ctx, T32_TMO_CTX_MODE) != 0, w, t2 = 0, t4 = 0, i;
+	const u32 *tbl = (const u32 *)(ctx + (mode ? 1008 : 888));
+	u32 v;
+
+	i = t32_tmo_ev_find(tbl, mode, ev0, ev1, ev1m, &w);
+	if (i < 9) {
+		u32 x = mode ? ev1m : ev0;
+		int (*ip)(int, int, int, int, int) = mode ? t32_tmo_interplate1 : t32_tmo_interplate;
+		int a = (int)tbl[i], b = (int)tbl[i + 1];
+
+		o->a246 = (u16)ip(a, b, t32_tmo_ld16(ctx, 2798 + 2 * i), t32_tmo_ld16(ctx, 2800 + 2 * i), (int)x);
+		t2 = ip(a, b, t32_tmo_ld16(ctx, 2820 + 2 * i), t32_tmo_ld16(ctx, 2822 + 2 * i), (int)x) & 0xffffU;
+		o->a238 = (u16)ip(a, b, t32_tmo_ld16(ctx, 2710 + 2 * i), t32_tmo_ld16(ctx, 2712 + 2 * i), (int)x);
+		t4 = ip(a, b, t32_tmo_ld16(ctx, 2732 + 2 * i), t32_tmo_ld16(ctx, 2734 + 2 * i), (int)x) & 0xffffU;
+		o->a242 = (u16)ip(a, b, t32_tmo_ld16(ctx, 2754 + 2 * i), t32_tmo_ld16(ctx, 2756 + 2 * i), (int)x);
+		o->a244 = (u16)ip(a, b, t32_tmo_ld16(ctx, 2776 + 2 * i), t32_tmo_ld16(ctx, 2778 + 2 * i), (int)x);
+	}
+	if (t32_tmo_ev_hi(tbl, mode, ev0, ev1, ev1m)) {
+		o->a246 = (u16)t32_tmo_ld16(ctx, 2816);
+		o->a238 = (u16)t32_tmo_ld16(ctx, 2728);
+		t2 = t32_tmo_ld16(ctx, 2838);
+		o->a242 = (u16)t32_tmo_ld16(ctx, 2772);
+		t4 = t32_tmo_ld16(ctx, 2750);
+		o->a244 = (u16)t32_tmo_ld16(ctx, 2794);
+	}
+	if (t32_tmo_ev_lo(tbl, mode, ev0, ev1, ev1m)) {
+		o->a246 = (u16)t32_tmo_ld16(ctx, 2798);
+		o->a238 = (u16)t32_tmo_ld16(ctx, 2710);
+		t2 = t32_tmo_ld16(ctx, 2820);
+		o->a242 = (u16)t32_tmo_ld16(ctx, 2754);
+		t4 = t32_tmo_ld16(ctx, 2732);
+		o->a244 = (u16)t32_tmo_ld16(ctx, 2776);
+	}
+	if (o->a238 < 128)
+		o->a238 = 128;
+	v = (1U << (t2 & 31)) & 0xffffU;
+	o->a248 = (u16)(v + o->a246);
+	o->a240 = (u16)((1U << (t4 & 31)) + o->a238);
+	if (o->a248 >= 4096) {
+		o->a248 = 4095;
+		o->a246 = (u16)(4095U - v);
+	}
+	if ((int)o->a240 - 128 < (int)o->a244)
+		o->a244 = (u16)(o->a240 - 128U);
+}
+
+/* tisp_tmo_tmo_detail_ev_interp: blend of the context's tables at weight w / 256 into the stat record (ctx tables +2530.. u16, +10932.. bytes) */
+static inline int t32_tmo_blend(int next, int cur, u32 w)
+{
+	return (int)((u32)next * (256U - w) + (u32)cur * w) / 256;
+}
+static inline void t32_tmo_detail_ev_interp(const u8 *ctx, u8 *st, u32 ev0, u32 ev1, u32 ev1m)
+{
+	static const u16 b8[14][3] = {	/* ctx offset, stat offset, signed */
+		{ 10932, 363, 1 }, { 10943, 364, 1 }, { 10954, 365, 1 }, { 10965, 366, 1 }, { 10053, 367, 0 },
+		{ 10064, 368, 0 }, { 10976, 369, 1 }, { 10987, 370, 1 }, { 10075, 379, 0 }, { 10086, 380, 0 },
+		{ 10097, 381, 0 }, { 10108, 382, 0 }, { 10119, 383, 0 }, { 10130, 384, 0 }
+	};
+	static const u16 b16[8][2] = {	/* ctx offset, stat offset */
+		{ 2530, 56 }, { 2552, 60 }, { 2574, 64 }, { 2596, 68 }, { 2618, 76 }, { 2640, 80 }, { 2662, 84 }, { 2684, 88 }
+	};
+	u32 mode = t32_tmo_ld8(ctx, T32_TMO_CTX_MODE) != 0, w, i, k, d, dv;
+	const u32 *tbl = (const u32 *)(ctx + (mode ? 1008 : 888));
+	u32 r[8];
+
+	i = t32_tmo_ev_find(tbl, mode, ev0, ev1, ev1m, &w);
+	if (t32_tmo_ev_hi(tbl, mode, ev0, ev1, ev1m)) {
+		w = 256;
+		i = 9;
+	}
+	if (t32_tmo_ev_lo(tbl, mode, ev0, ev1, ev1m)) {
+		w = 256;
+		i = 0;
+	}
+	for (k = 0; k < 14; k++) {
+		int c = b8[k][2] ? t32_tmo_lds8(ctx, b8[k][0] + i) : (int)t32_tmo_ld8(ctx, b8[k][0] + i);
+		int n = b8[k][2] ? t32_tmo_lds8(ctx, b8[k][0] + i + 1) : (int)t32_tmo_ld8(ctx, b8[k][0] + i + 1);
+
+		st[b8[k][1]] = (u8)t32_tmo_blend(n, c, w);
+	}
+	for (k = 0; k < 8; k++) {
+		r[k] = (u32)t32_tmo_blend((int)t32_tmo_ld16(ctx, b16[k][0] + 2 * i + 2), (int)t32_tmo_ld16(ctx, b16[k][0] + 2 * i), w);
+		*(u32 *)(st + b16[k][1]) = r[k];
+	}
+	d = r[2] - r[3];
+	dv = r[1] - r[0];
+	*(u32 *)(st + 72) = r[0] != r[1] ? ((d << 10) + (dv >> 1)) / dv : d << 10;
+	d = r[7] - r[6];
+	dv = r[5] - r[4];
+	*(u32 *)(st + 92) = r[4] != r[5] ? ((d << 7) + (dv >> 1)) / dv : d << 7;
+	*(u32 *)(st + 96) = t32_tmo_ld16(ctx, 2706);
+	*(u32 *)(st + 100) = t32_tmo_ld16(ctx, 2708);
+}
+
+/*
+ * tisp_tmo_tmo_satcurve_ev_interp: the first search (tables +888 / +1008) picks a pair of 25 entry u16 curves
+ * (ctx + 1136 + 50 * min(i, 8), next at +50) blended into stat + 268; the second one (tables +968 / +1048,
+ * range 0 on a miss instead of 256) picks 14 entry curve triples (+1652 / +1932 / +2212 + 28 * min(i, 8)) blended into
+ * stat + 154 / + 182 / + 210.  An ev below the first entry uses weight 256 and pair 0.
+ */
+static inline void t32_tmo_satcurve_ev_interp(const u8 *ctx, u8 *st, u32 ev0, u32 ev1, u32 ev1m)
+{
+	u32 mode = t32_tmo_ld8(ctx, T32_TMO_CTX_MODE) != 0, w, i, k, s;
+
+	for (s = 0; s < 2; s++) {
+		const u32 *tbl = (const u32 *)(ctx + (mode ? 1008 + 40 * s : 888 + 80 * s));
+		u32 m;
+
+		i = t32_tmo_ev_find(tbl, mode, ev0, ev1, ev1m, &w);
+		if (t32_tmo_ev_hi(tbl, mode, ev0, ev1, ev1m)) {
+			w = 0;
+			i = 9;
+		}
+		if (t32_tmo_ev_lo(tbl, mode, ev0, ev1, ev1m)) {
+			w = 256;
+			i = 0;
+		}
+		m = i > 8 ? 8 : i;
+		if (s == 0) {
+			for (k = 0; k < 25; k++)
+				*(u16 *)(st + 268 + 2 * k) = (u16)t32_tmo_blend((int)t32_tmo_ld16(ctx, 1186 + 50 * m + 2 * k),
+										(int)t32_tmo_ld16(ctx, 1136 + 50 * m + 2 * k), w);
+		} else {
+			static const u16 o[3][2] = { { 1652, 154 }, { 1932, 182 }, { 2212, 210 } };
+
+			for (k = 0; k < 14; k++) {
+				u32 j;
+
+				for (j = 0; j < 3; j++)
+					*(u16 *)(st + o[j][1] + 2 * k) = (u16)t32_tmo_blend(
+						(int)t32_tmo_ld16(ctx, o[j][0] + 28 + 28 * m + 2 * k),
+						(int)t32_tmo_ld16(ctx, o[j][0] + 28 * m + 2 * k), w);
+			}
+		}
+	}
+}
+
+/*
+ * ---- phase 2b: tmo_dark_protect, adr_stat_calc ----
+ */
+
+/* signed division as the vendor emulation reads it: a zero divisor (MIPS leaves HI / LO undefined) gives 1 / ~0 */
+static inline int t32_tmo_sdiv0(int n, int d)
+{
+	if (d == 0)
+		return n < 0 ? 1 : -1;
+	return t32_tmo_sdiv(n, d);
+}
+
+/*
+ * tisp_tmo_tmo_dark_protect: a 201 entry u16 curve (out, record +8) is pulled back to the default curve dflt
+ * (vendor t32_data_c029c, 402 bytes) the more the dark statistic exceeds a limit.
+ *   geom (record +12): u16 w, h; the cumulative histogram big + 30000 (512 u32, record +16) is clamped to
+ *   (w * h) / 4, scaled to 0 .. 10000 into big + 32048 (512 u32).  ctx[2842] != 1: nothing more.  Else
+ *   x = (u16)big32048[ctx16[2848]] (the index is not range checked by the vendor): below lo = ctx16[2844] nothing,
+ *   above hi = ctx16[2846] the default curve replaces out, in between out -= (out - dflt) * (x - lo) / (hi - lo)
+ *   (16 bit signed intermediates).  hi == lo with x == lo divides by zero: vendor UB, read as in t32_tmo_sdiv0.
+ */
+static inline void t32_tmo_dark_protect(const u8 *ctx, const u16 *geom, u8 *big, u16 *out, const u16 *dflt)
+{
+	u32 area = (u32)geom[0] * geom[1], k, acc = 0, lim, scale;
+	u32 lo = t32_tmo_ld16(ctx, 2844), hi = t32_tmo_ld16(ctx, 2846), x;
+	const u32 *hist = (const u32 *)(big + 30000);
+	u32 *cum = (u32 *)(big + 32048);
+	int w, span;
+
+	lim = (u32)t32_tmo_sdiv((int)area, 4);
+	scale = lim >> 8;
+	for (k = 0; k < 512; k++) {
+		acc += hist[k];
+		if (!(acc < lim))
+			acc = lim;
+		cum[k] = ((scale ? (acc << 8) / scale : ~0U) * 10000U) >> 16;
+	}
+	if (t32_tmo_ld8(ctx, 2842) != 1)
+		return;
+	x = (u16)cum[t32_tmo_ld16(ctx, 2848)];
+	if (x < lo)
+		return;
+	if (hi < x) {
+		for (k = 0; k < 201; k++)
+			out[k] = dflt[k];
+		return;
+	}
+	w = (s16)(x - lo);
+	span = (s16)(hi - lo);
+	for (k = 0; k < 201; k++) {
+		u32 o = out[k];
+		int d = (s16)(o - dflt[k]);
+
+		out[k] = (u16)(o - (u32)t32_tmo_sdiv0(d * w, span));
+	}
+}
+
+/*
+ * tisp_tmo_adr_stat_calc: statistics normalisation of the stat buffer b (record +8) with p, q = the per channel
+ * scalars t32_data_e3580 / e3570: N = max(p * q / 4, 5120), D = N / 24.
+ *   24 entries of the four u32 rows b + 5312 + 96 * r: rows 2 / 3 copied to b + 9856 / 9952, rows 0 / 1 / D to
+ *   b + 9664 / 9760; the sums of rows 0 / 1 / N to b + 10048 / 10052.
+ *   512 entry cumulative sum of b[0..511] clamped to N, (c << 8) / (N >> 8) * 10000 / 65536 to b + 5696.
+ *   24 groups of 20 u32 at b + 2048 + 80 j (some pairs summed) * 10000 / D to 14 u32 at b + 3968 + 56 j.
+ */
+static inline void t32_tmo_adr_stat_calc(u8 *b, u32 p, u32 q)
+{
+	u32 *w = (u32 *)b;
+	int n = t32_tmo_sdiv((int)(p * q), 4), d, k, j, c = 0;
+
+	u32 sa = 0, sb = 0;
+
+	if (n < 5120)
+		n = 5120;
+	d = n / 24;
+	for (k = 0; k < 24; k++) {
+		u32 *x = w + 1328 + k;		/* b + 5312 + 4k */
+
+		sa += x[0];
+		sb += x[24];
+		x[1136] = x[48];		/* + 4544 */
+		x[1160] = x[72];		/* + 4640 */
+		x[1088] = (u32)((int)x[0] / d);	/* + 4352 */
+		x[1112] = (u32)((int)x[24] / d);	/* + 4448 */
+	}
+	w[2512] = (u32)((int)sa / n);
+	w[2513] = (u32)((int)sb / n);
+	for (k = 0; k < 512; k++) {
+		c += (int)w[k];
+		if (!(c < n))
+			c = n;
+		w[1424 + k] = (u32)((int)(((u32)((int)((u32)c << 8) / (n >> 8))) * 10000U) / 65536);
+	}
+	for (j = 0; j < 24; j++) {
+		const u32 *r = w + 512 + 20 * j;	/* b + 2048 + 80 j */
+		u32 *o = w + 992 + 14 * j;		/* b + 3968 + 56 j */
+		static const u8 pair[14] = { 0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0 };
+		u32 i, m = 0;
+
+		for (i = 0; i < 14; i++) {
+			u32 v = r[m];
+
+			if (pair[i])
+				v += r[m + 1];
+			m += 1 + pair[i];
+			o[i] = (u32)((int)(v * 10000U) / d);
+		}
+	}
+}
+
+/*
+ * ---- phase 3a: tmo_ev_interp, drc_ctrl, adr_gamma_refresh, adr_params_refresh ----
+ *
+ * The channel record (t32_data_e35e0[ch]) as host pointers: +0 ctx, +4 stat, +8 out (201 u16 curve), +12 geom (u16 w, h),
+ * +16 big block, +24 / +28 / +32 the ev words, u16 at +54 "drc on" and at +56 the strength; dflt = vendor
+ * t32_data_c029c (the default curve), d89a0 / c0544 = the vendor strength curves (all 201 u16).
+ */
+struct t32_tmo_rec {
+	u8 *ctx;
+	u8 *st;
+	u16 *out;
+	u16 *geom;
+	u8 *big;
+	u32 ev0, ev1, ev1m;
+	u32 drc_on, strength;
+	const u16 *dflt, *d89a0, *c0544;
+	u8 *tbuf;			/* record +20: 10 x 750 byte tone buffer */
+	const u16 *c0430;		/* vendor t32_data_c0430: 10 u16 fill values */
+	void (*dma_sync)(u8 *buf, u32 len);	/* private_dma_cache_sync (0, buf, len, 0) */
+	u8 *e3501;			/* vendor t32_data_e3501: "curve refresh pending" byte (timeratio_curve_adjust) */
+	const u16 *c090c, *c07a4, *c06d8;	/* vendor constant tables of timeratio_curve_adjust (179 / 179 / 256 entries) */
+	const u8 *c06f0;		/* 178 index bytes into c06d8 */
+};
+
+/*
+ * tisp_tmo_tmo_ev_interp: ctx16[4138] == 0: out = blend of two neighbouring curves of the 10 curve set
+ * (ctx + 7398, + 7800, then + 4182 + 402 n; the pair of interval i is (C[i], C[i + 1]), i <= 8) at weight w / 256 from the
+ * ev search (a miss above the table is w = 0 / i = 9, below it w = 256 / i = 0);
+ * == 1: out = (ctx curve + 7398 * w + dflt * (256 - w)) / 256 with w interpolated linearly (unsigned arithmetic, as the vendor's divu) in the 10 entry u16 table (ctx16[4138] is the selector)
+ * ctx + 4118 (a miss: entry 0 / 9); other values leave out alone.  Then tmo_detail_ev_interp and tmo_dark_protect run
+ * (the latter a tail call).
+ */
+static inline u32 t32_tmo_ev_interp_w1(const u8 *ctx, const u32 *tbl, u32 mode, u32 ev0, u32 ev1, u32 ev1m)
+{
+	u32 i, w = 0;
+
+	for (i = 0; i < 9; i++) {
+		u32 a = tbl[i], b = tbl[i + 1];
+		u32 cur = t32_tmo_ld16(ctx, 4118 + 2 * i), nxt = t32_tmo_ld16(ctx, 4120 + 2 * i);
+
+		if (mode == 0) {
+			if (ev1 != 0 || ev0 < a || !(ev0 < b))
+				continue;
+			w = (cur - (cur - nxt) * (ev0 - a) / (b - a)) & 0xffffU;
+		} else {
+			if (a < ev1m || !(b < ev1m))
+				continue;
+			w = (cur - (cur - nxt) * (a - ev1m) / (a - b)) & 0xffffU;
+		}
+		break;
+	}
+	if (t32_tmo_ev_hi(tbl, mode, ev0, ev1, ev1m))
+		w = t32_tmo_ld16(ctx, 4136);
+	if (t32_tmo_ev_lo(tbl, mode, ev0, ev1, ev1m))
+		w = t32_tmo_ld16(ctx, 4118);
+	return w;
+}
+static inline void t32_tmo_ev_interp(struct t32_tmo_rec *r)
+{
+	const u8 *ctx = r->ctx;
+	u32 sel = t32_tmo_ld16(ctx, 4138), mode = t32_tmo_ld8(ctx, T32_TMO_CTX_MODE) != 0, w, i, k;
+	const u32 *tbl = (const u32 *)(ctx + (mode ? 1008 : 888));
+
+	if (sel == 0) {
+		u32 ca, cb;
+
+		i = t32_tmo_ev_find(tbl, mode, r->ev0, r->ev1, r->ev1m, &w);
+		if (t32_tmo_ev_hi(tbl, mode, r->ev0, r->ev1, r->ev1m)) {
+			w = 0;
+			i = 9;
+		}
+		if (t32_tmo_ev_lo(tbl, mode, r->ev0, r->ev1, r->ev1m)) {
+			w = 256;
+			i = 0;
+		}
+		if (i > 8)
+			i = 8;
+		ca = i == 0 ? 7398 : i == 1 ? 7800 : 4182 + 402 * (i - 2);
+		cb = i == 0 ? 7800 : 4182 + 402 * (i - 1);
+		for (k = 0; k < 201; k++)
+			r->out[k] = (u16)t32_tmo_blend((int)t32_tmo_ld16(ctx, cb + 2 * k), (int)t32_tmo_ld16(ctx, ca + 2 * k), w);
+	} else if (sel == 1) {
+		w = t32_tmo_ev_interp_w1(ctx, tbl, mode, r->ev0, r->ev1, r->ev1m);
+		for (k = 0; k < 201; k++)
+			r->out[k] = (u16)t32_tmo_blend((int)r->dflt[k], (int)t32_tmo_ld16(ctx, 7398 + 2 * k), w);
+	}
+	t32_tmo_detail_ev_interp(ctx, r->st, r->ev0, r->ev1, r->ev1m);
+	t32_tmo_dark_protect(ctx, r->geom, r->big, r->out, r->dflt);
+}
+
+/* tisp_tmo_drc_ctrl: drc on (rec u16 +54 == 1) and ctx[10042] == 1: ev_interp, then the curve is moved towards d89a0 (strength < 128) or c0544 (> 128) */
+static inline void t32_tmo_drc_ctrl(struct t32_tmo_rec *r)
+{
+	u32 k, s = r->strength & 0xffffU;
+
+	if ((r->drc_on & 0xffffU) != 1 || t32_tmo_ld8(r->ctx, 10042) != 1)
+		return;
+	t32_tmo_ev_interp(r);
+	if (s < 128) {
+		for (k = 0; k < 201; k++)
+			r->out[k] = (u16)(((int)((u32)r->out[k] * s + (u32)r->d89a0[k] * (128U - s))) / 128);
+	} else if (s != 128) {
+		for (k = 0; k < 201; k++)
+			r->out[k] = (u16)(((int)((s - 128U) * r->c0544[k] + (256U - s) * (u32)r->out[k])) / 128);
+	}
+}
+
+/* tisp_tmo_adr_gamma_refresh: 258 bytes of the per channel gamma block (t32_data_dc274[ch] + 32) into ctx + 9272; adr_params_refresh is the same call */
+static inline void t32_tmo_adr_gamma_refresh(u8 *ctx, const u8 *gamma32)
+{
+	u32 k;
+
+	for (k = 0; k < 258; k++)
+		ctx[9272 + k] = gamma32[k];
+}
+static inline void t32_tmo_adr_params_refresh(u8 *ctx, const u8 *gamma32)
+{
+	t32_tmo_adr_gamma_refresh(ctx, gamma32);
+}
+
+/*
+ * tisp_tmo_modechange_stat_refresh: the ten 750 byte blocks of the tone buffer (record +20) are filled with the u16
+ * c0430[blk] (375 entries each), the buffer is cache synced (7520 bytes, as the vendor: 20 more than the fill),
+ * the out curve gets the d89a0 curve (201 u16) and tmo_ev_interp runs (a tail call).
+ */
+static inline void t32_tmo_modechange_stat_refresh(struct t32_tmo_rec *r)
+{
+	u32 b, k;
+
+	for (b = 0; b < 10; b++)
+		for (k = 0; k < 375; k++)
+			*(u16 *)(r->tbuf + 750 * b + 2 * k) = r->c0430[b];
+	r->dma_sync(r->tbuf, 7520);
+	for (k = 0; k < 201; k++)
+		r->out[k] = r->d89a0[k];
+	t32_tmo_ev_interp(r);
+}
+
+/*
+ * tisp_tmo_tmo_params_hard_refresh: the hardware parameters from ctx to the stat record st (record +4): plain copies,
+ * the seven log2 of neighbouring u16 pairs st16[324 + 2i] / [326 + 2i] into st[356 + i], six ctx u16 (3370 .. 3380)
+ * zeroed before their 24 byte block is copied, two products ctx16[3384 / 3386] * (st16[48] * st16[50] & 0xffff),
+ * rounded by 128, divided by 256.
+ */
+static inline void t32_tmo_params_hard_refresh(u8 *ctx, u8 *st)
+{
+	static const u16 cp[][3] = {	/* stat offset, ctx offset, length */
+		{ 250, 1636, 8 }, { 258, 1644, 8 }, { 318, 2492, 6 }, { 324, 2498, 16 }, { 340, 2514, 16 },
+	};
+	static const u16 cq[][3] = {
+		{ 371, 10032, 6 }, { 385, 10042, 4 }, { 104, 3308, 50 },
+	};
+	u32 i, k, a;
+
+	for (i = 0; i < 5; i++)
+		for (k = 0; k < cp[i][2]; k++)
+			st[cp[i][0] + k] = ctx[cp[i][1] + k];
+	for (i = 0; i < 7; i++)
+		st[356 + i] = (u8)t32_tmo_log2(t32_tmo_ld16(st, 324 + 2 * i), t32_tmo_ld16(st, 326 + 2 * i));
+	for (i = 0; i < 3; i++)
+		for (k = 0; k < cq[i][2]; k++)
+			st[cq[i][0] + k] = ctx[cq[i][1] + k];
+	for (i = 0; i < 6; i++)
+		*(u16 *)(ctx + 3370 + 2 * i) = 0;
+	for (k = 0; k < 24; k++)
+		st[390 + k] = ctx[3358 + k];
+	a = (t32_tmo_ld16(st, 48) * t32_tmo_ld16(st, 50)) & 0xffffU;
+	*(u16 *)(st + 414) = (u16)((int)(t32_tmo_ld16(ctx, 3384) * a + 128U) / 256);
+	*(u16 *)(st + 416) = (u16)((int)(t32_tmo_ld16(ctx, 3386) * a + 128U) / 256);
+	for (k = 0; k < 375; k++)
+		st[418 + k] = ctx[10141 + k];
+	for (k = 0; k < 375; k++)
+		st[793 + k] = ctx[10516 + k];
+	st[266] = ctx[10040];
+	for (k = 0; k < 8; k++)
+		st[1168 + k] = ctx[8258 + k];
+}
+
+static inline int t32_tmo_lds16(const u8 *b, u32 o) { return *(const s16 *)(b + o); }
+
+/*
+ * ---- phase 3c: timeratio_curve_adjust, adr_hardpars_ctl ----
+ *
+ * tisp_tmo_timeratio_curve_adjust (ch = the record r; x = u16, mode / sel / a4 / a5 / a6 = u8, a7 = u16, high bits of the
+ * arguments ignored as in the vendor).  base = 2000 + 140 x / 256 (x < 1281), 3400 - 140 x / 256 (x < 2561), else 2500;
+ * a6 == 1 replaces it by a7.  Only for sel == 1, mode == 3 and a4 * 32 >= x: t = x * base / 256 (u16); t >= 2: the first
+ * interval (c090c[i] < t <= c090c[i + 1], i < 178) gives s = (interpolation of c07a4 over it) / c06d8[c06f0[i]], else s = 0
+ * (a zero divisor in the vendor tables is not handled: they are constants; the vendor emulation would give -1 / 1).
+ * Then (a6 == 1: ev_interp first) out[k] = 8191 for every k with d89a0[k] >= s; V = 1 + first k < 200 with d89a0[k] < s <=
+ * d89a0[k + 1] (0: none); V < 3: e3501 = 1 and done; else m = min(a5, V < 6 ? 1 : V <= 12 ? (V - 2) / 2 : 10) and the m entries out[V - m ..
+ * V - 1] are pulled linearly towards 8191 from out[V - m - 1]; e3501 = 1.  Every other path (sel / mode / a4 not
+ * matching): ev_interp if e3501 == 1, then e3501 = 0.  Return value (leftover registers) not reproduced.
+ */
+static inline void t32_tmo_timeratio_curve_adjust(struct t32_tmo_rec *r, u32 x, u32 mode, u32 sel, u32 a4, u32 a5, u32 a6, u32 a7)
+{
+	u32 base, t, s = 0, i, V = 0, m, a, k;
+	u16 *out = r->out;
+
+	x &= 0xffffU; mode &= 0xffU; sel &= 0xffU; a4 &= 0xffU; a5 &= 0xffU; a6 &= 0xffU; a7 &= 0xffffU;
+	if (x < 1281)
+		base = ((x * 140U) >> 8) + 2000U;
+	else if (x < 2561)
+		base = 3400U - ((x * 140U) >> 8);
+	else
+		base = 2500U;
+	if (a6 == 1)
+		base = a7;
+	if (sel != 1 || mode != 3 || (a4 << 5) < x) {
+		if (*r->e3501 == 1)
+			t32_tmo_ev_interp(r);
+		*r->e3501 = 0;
+		return;
+	}
+	t = ((x * base) >> 8) & 0xffffU;
+	if (t >= 2) {
+		for (i = 0; i != 178; i++) {
+			u32 lo = r->c090c[i], hi = r->c090c[i + 1], s0;
+
+			if (!(lo < t) || hi < t)
+				continue;
+			s0 = r->c07a4[i];
+			s = (u32)t32_tmo_sdiv((int)((hi - lo) * s0 + (r->c07a4[i + 1] - s0) * (t - lo)), (int)r->c06d8[r->c06f0[i]]) & 0xffffU;
+			break;
+		}
+	}
+	if (a6 == 1)
+		t32_tmo_ev_interp(r);
+	for (k = 0; k < 201; k++)
+		if (!(r->d89a0[k] < s))
+			out[k] = 8191;
+	for (k = 0; k < 200; k++)
+		if (r->d89a0[k] < s && !(r->d89a0[k + 1] < s)) {
+			V = k + 1;
+			break;
+		}
+	if (V >= 3) {
+		m = V < 6 ? 1 : V <= 12 ? ((V - 2) >> 1) & 0xffffU : 10;
+		if (a5 < m)
+			m = a5;
+		for (a = 1; a < m + 1; a++) {
+			int t1 = out[V - m - 1];
+
+			out[V - a] = (u16)(t1 + t32_tmo_sdiv((8191 - t1) * (int)(m + 1 - a), (int)(m + 1)));
+		}
+	}
+	*r->e3501 = 1;
+}
+
+/*
+ * tisp_tmo_adr_hardpars_ctl: tab = the 300 byte vendor table block at t32_data_bff90 (three 12 byte tables, then eleven 24 byte
+ * tables).  ctx s16 [9992] == 2 / 1 / other selects (12 byte table, five 24 byte tables) = (2: P2, Q0 Q2 Q5 Q8 Q10;
+ * 1: P1, Q1 Q3 Q5 Q7 Q9; else P0, Q2 Q4 Q5 Q6 Q8): the 12 bytes go to ctx + 300, the 24 byte tables to ctx + 418 + 24 j.
+ * The two strengths ctx s16 [9984] / [9986] are clamped to 0 .. 128 (and copied to ctx + 312 / 314), ctx [9988] / [9990]
+ * to ctx + 316 / 318.  ctx s16 [9994] != 1: 18 u16 at ctx + 538 = 1024.  == 1: the 18 entries ctx16[538 + 2 i] are a
+ * piecewise linear running sum (breakpoints s16 [9996] .. [10002], values u16 [10004] .. [10010]) with the vendor's
+ * remainder rounding; *flag (t32_data_e3518[ch]) = 1.
+ */
+static inline void t32_tmo_adr_hardpars_ctl(u8 *ctx, const u8 *tab, u16 *flag)
+{
+	static const u8 qs[3][5] = { { 2, 4, 5, 6, 8 }, { 1, 3, 5, 7, 9 }, { 0, 2, 5, 8, 10 } };
+	int sel = t32_tmo_lds16(ctx, 9992), c0, c1, t0, bp[3], i, j;
+	u32 k;
+	const u8 *q = qs[sel == 2 ? 2 : sel == 1 ? 1 : 0];
+
+	*flag = 1;
+	for (k = 0; k < 12; k++)
+		ctx[300 + k] = tab[(sel == 2 ? 24 : sel == 1 ? 12 : 0) + k];
+	for (j = 0; j < 5; j++)
+		for (k = 0; k < 24; k++)
+			ctx[418 + 24 * j + k] = tab[36 + 24 * q[j] + k];
+	c0 = t32_tmo_lds16(ctx, 9984);
+	c0 = c0 < 0 ? 0 : c0 < 129 ? c0 : 128;
+	*(u16 *)(ctx + 9984) = (u16)c0;
+	c1 = t32_tmo_lds16(ctx, 9986);
+	c1 = c1 < 0 ? 0 : c1 < 129 ? c1 : 128;
+	*(u16 *)(ctx + 9986) = (u16)c1;
+	*(u16 *)(ctx + 314) = (u16)c1;
+	*(u16 *)(ctx + 312) = (u16)c0;
+	*(u16 *)(ctx + 316) = (u16)t32_tmo_ld16(ctx, 9988);
+	*(u16 *)(ctx + 318) = (u16)t32_tmo_ld16(ctx, 9990);
+	if (t32_tmo_lds16(ctx, 9994) != 1) {
+		for (i = 0; i < 18; i++)
+			*(u16 *)(ctx + 538 + 2 * i) = 1024;
+		return;
+	}
+	t0 = t32_tmo_lds16(ctx, 9996);
+	bp[0] = t32_tmo_lds16(ctx, 9998);
+	bp[1] = t32_tmo_lds16(ctx, 10000);
+	bp[2] = t32_tmo_lds16(ctx, 10002);
+	for (i = 0; i < 18; i++) {
+		u16 *o = (u16 *)(ctx + 538 + 2 * i);
+		int num, den, hi, lo, lim, qt, rem, z;
+
+		if (!(t0 < i)) {
+			*o = (u16)t32_tmo_lds16(ctx, 10004);
+			continue;
+		}
+		if (!(bp[0] < i)) {
+			num = (s16)(i - (t0 & 0xffff));
+			den = (s16)(bp[0] - (t0 & 0xffff));
+			lo = 10004; hi = 10006;
+		} else if (!(bp[1] < i)) {
+			num = (s16)(i - (bp[0] & 0xffff));
+			den = (s16)(bp[1] - (bp[0] & 0xffff));
+			lo = 10006; hi = 10008;
+		} else if (!(bp[2] < i)) {
+			num = (s16)(i - (bp[1] & 0xffff));
+			den = (s16)(bp[2] - (bp[1] & 0xffff));
+			lo = 10008; hi = 10010;
+		} else {
+			*o = o[-1];
+			continue;
+		}
+		lim = (s16)(t32_tmo_ld16(ctx, hi) - t32_tmo_ld16(ctx, lo));
+		qt = den ? (s16)(lim / den) : 0;
+		qt &= 0xffff;
+		rem = (s16)(lim - (int)((u32)qt * (u32)den));
+		z = o[-1] + (rem < num ? 0 : 1);
+		*o = (u16)(qt + z);
+	}
+}
+
+/*
+ * ---- phase 4: adr_5x5_init, adr_base_pars, adr_gauss_local, adr_local_info ----
+ *
+ * tisp_math_exp2 (the shared fixed point math, not part of the TMO block) is taken as a function pointer.
+ */
+typedef u32 (*t32_tmo_exp2_fn)(u32 v, u32 in_frac, u32 out_frac);
+
+/*
+ * tisp_tmo_adr_5x5_init (w, h, tbl = the 31 s16 distance table, ctx): two (2P .. 3P) x (2Q .. 3Q) point loops, P = (w + 3) / 6,
+ * Q = (h + 2) / 4, histogram the 5x5 distance index of eight sample points (adr_5x5_out): three counters / sums pairs
+ * (cnt A with sums B, C, D; cnt E with sum F; cnt G with sum H), each 32 u32.  Every index i (0 .. 31) gives the rounded mean
+ * (cnt / 2 + sum) / cnt as a u8 (cnt == 0: the previous entry, entry 0: 0); the five 32 byte results go to ctx + 640 (G / H),
+ * 672 (E / F), 704 (A / B), 736 (A / C), 768 (A / D).  The vendor takes the eight 128 byte buffers from private_vmalloc (unchecked)
+ * and frees them again: a local array here (1 KiB of stack).
+ */
+static inline void t32_tmo_adr_5x5_init(u32 w, u32 h, const s16 *tbl, u8 *ctx)
+{
+	u32 cnt[3][32], sum[5][32];	/* cnt A / E / G; sum B, C, D (cnt A), F (cnt E), H (cnt G) */
+	u8 res[5][32];
+	int P = t32_tmo_sdiv((int)(w + 3U), 6), Q = t32_tmo_sdiv((int)(h + 2U), 4);
+	int hp = t32_tmo_sdiv(P + 1, 2), hq = t32_tmo_sdiv(Q + 1, 2);
+	int x0 = 2 * P, y0 = 2 * Q, xe = 3 * P, ye = 3 * Q, y, x, i, k;
+	int px[3] = { P + hp, hp, 2 * P + hp }, py[3] = { Q + hq, hq, 2 * Q + hq };
+
+	memset(cnt, 0, sizeof(cnt));
+	memset(sum, 0, sizeof(sum));
+	for (y = y0; y <= ye; y++)
+		for (x = x0; x <= xe; x++) {
+			u32 i1 = t32_tmo_adr_5x5_out(y, x, py[0], px[0], tbl), i5;
+			u32 i7;
+
+			cnt[0][i1]++;
+			sum[0][i1] += t32_tmo_adr_5x5_out(y, x, py[1], px[1], tbl);	/* (t4, t9) */
+			sum[1][i1] += t32_tmo_adr_5x5_out(y, x, py[0], px[1], tbl);	/* (t7, t9) */
+			sum[2][i1] += t32_tmo_adr_5x5_out(y, x, py[1], px[0], tbl);	/* (t4, t8) */
+			i5 = t32_tmo_adr_5x5_out(y, x, py[2], px[0], tbl);		/* (t0, t8) */
+			cnt[1][i5]++;
+			sum[3][i5] += t32_tmo_adr_5x5_out(y, x, py[2], px[1], tbl);	/* (t0, t9) */
+			i7 = t32_tmo_adr_5x5_out(y, x, py[0], px[2], tbl);		/* (t7, t3) */
+			cnt[2][i7]++;
+			sum[4][i7] += t32_tmo_adr_5x5_out(y, x, py[1], px[2], tbl);	/* (t4, t3) */
+		}
+	for (k = 0; k < 5; k++) {
+		static const u8 cs[5] = { 2, 1, 0, 0, 0 };	/* counter of result k (ctx 640, 672, 704, 736, 768): G, E, A, A, A */
+		static const u8 ss[5] = { 4, 3, 1, 0, 2 };	/* its sum */
+		const u32 *c = cnt[cs[k]], *sm = sum[ss[k]];
+
+		for (i = 0; i < 32; i++)
+			res[k][i] = c[i] ? (u8)t32_tmo_sdiv((int)(c[i] / 2 + sm[i]), (int)c[i]) : i ? res[k][i - 1] : 0;
+	}
+	for (k = 0; k < 5; k++)
+		memcpy(ctx + 640 + 32 * k, res[k], 32);
+}
+
+/*
+ * tisp_tmo_adr_base_pars (w, h, ctx, d8724 = the vendor table of 31 int factors): ctx + 320: five u16 (0, h4, 2 h4, 3 h4, h), h4 = h / 4 made
+ * even; ctx + 330: seven u16 (0, k w6 for k = 1 .. 5, w), w6 = w / 6 made even (all masked to 16 bit).  A table of 31 u16
+ * at ctx + 574: (m * m * d8724[i] + 0x20000) >> 18 (64 bit, wrapping), m = (3 * min((w6 + 1) / 2, (h4 + 1) / 2) + 1) / 2 (the vendor
+ * takes the smaller one: h4 < w6 -> the h one).  Then adr_5x5_init (w, h, that table, ctx).
+ */
+static inline void t32_tmo_adr_base_pars(u32 w, u32 h, u8 *ctx, const int *d8724)
+{
+	int w6 = t32_tmo_sdiv((int)w, 6), h4 = t32_tmo_sdiv((int)h, 4), mm, i;
+	u32 w16, h16;
+	u16 a[5], b[7], t[31];
+	u64 d;
+
+	h4 -= h4 & 1;
+	w6 -= w6 & 1;
+	h16 = (u32)h4 & 0xffffU;
+	w16 = (u32)w6 & 0xffffU;
+	a[0] = 0; a[1] = (u16)h4; a[2] = (u16)(2 * h16); a[3] = (u16)(3 * h16); a[4] = (u16)h;
+	b[0] = 0; b[1] = (u16)w6; b[2] = (u16)(2 * w16); b[3] = (u16)(3 * w16); b[4] = (u16)(4 * w16); b[5] = (u16)(5 * w16); b[6] = (u16)w;
+	memcpy(ctx + 320, a, 10);
+	memcpy(ctx + 330, b, 14);
+	w6 = t32_tmo_sdiv(w6 + 1, 2);
+	h4 = t32_tmo_sdiv(h4 + 1, 2);
+	mm = h4 < w6 ? 3 * h4 : 3 * w6;
+	mm = t32_tmo_sdiv(mm + 1, 2);
+	d = (u64)((long long)mm * mm);
+	for (i = 0; i < 31; i++)
+		t[i] = (u16)((d * (u64)(long long)d8724[i] + 0x20000ULL) >> 18);
+	memcpy(ctx + 574, t, 62);
+	t32_tmo_adr_5x5_init(w, h, (const s16 *)t, ctx);
+}
+
+/*
+ * tisp_tmo_adr_gauss_local (out = 24 int, ctx, cache = t32_data_e3210 (4 s16), tab = the 5 x 24 int vendor tables at t32_data_c00bc): the
+ * parameters V = ctx s16 [9898] + 80 limited to 80 .. 1104, t = [9900] to 0 .. 200, s = [9902] to 0 .. 320, k = [9904] to 0 .. 5; unchanged
+ * from the cache: nothing.  Else the 24 values exp(-((T0[i] - t + 100)^2 + (Tk[i] - s + off)^2) / (2 V^2)) * 10000 (fixed point: fixdiv,
+ * fixmul by 1 / ln 2, exp2) with Tk, off = (T1, 100), (T2, 120), (T3, 140), (T4, 160) for k = 0 .. 3 and (T2, 120) for 4, 5, then
+ * normalised to the maximum of entries 9 .. 12 (at least 0) * 10000 / max (max == 0: vendor UB, the emulation's 1 / -1 as in sdiv0).
+ */
+static inline void t32_tmo_adr_gauss_local(int *out, const u8 *ctx, s16 *cache, const int *tab, t32_tmo_exp2_fn exp2)
+{
+	u32 K = t32_awb_fixdiv(16, 0x385b0000U, 0x27100000U), den;
+	int V = t32_tmo_lds16(ctx, 9898) + 80, t = t32_tmo_lds16(ctx, 9900), s = t32_tmo_lds16(ctx, 9902), k = t32_tmo_lds16(ctx, 9904);
+	int i, mx;
+	const int *T;
+	int off;
+
+	V = V < 80 ? 80 : V;
+	V = V < 1105 ? V : 1104;
+	t = t < 0 ? 0 : t;
+	t = t < 201 ? t : 200;
+	s = s < 0 ? 0 : s;
+	s = s < 321 ? s : 320;
+	k = k < 0 ? 0 : k;
+	k = k < 6 ? k : 5;
+	if (cache[0] == V && cache[1] == t && cache[2] == s && cache[3] == k)
+		return;
+	cache[0] = (s16)V; cache[1] = (s16)t; cache[2] = (s16)s; cache[3] = (s16)k;
+	den = (u32)(2 * V) * (u32)V << 10;
+	switch (k) {
+	case 0: T = tab + 24; off = 100; break;
+	case 2: T = tab + 72; off = 140; break;
+	case 3: T = tab + 96; off = 160; break;
+	default: T = tab + 48; off = 120; break;	/* 1, 4, 5 */
+	}
+	for (i = 0; i < 24; i++) {
+		u32 a0 = (u32)tab[i] - (u32)(t - 100), w = (u32)T[i] - (u32)(s - off), d = w * w + a0 * a0, m, e, r;
+
+		d = (int)d < 500001 ? d : 500000U;
+		m = t32_awb_fixmul(16, t32_awb_fixdiv(10, d << 10, den) << 6, K);
+		m = (int)m < 0xf0000 ? m : 0xeffffU;
+		e = exp2(m, 16, 16);
+		r = t32_awb_fixdiv(16, 0x27100000U, e);
+		out[i] = (int)r >> 16;
+	}
+	mx = out[9] < out[10] ? out[10] : out[9];
+	mx = mx < 0 ? 0 : mx;
+	mx = out[11] < mx ? mx : out[11];
+	mx = mx < out[12] ? out[12] : mx;
+	for (i = 0; i < 24; i++)
+		out[i] = t32_tmo_sdiv0((int)(10000U * (u32)out[i]), mx);
+}
+
+/*
+ * tisp_tmo_adr_local_info (p0, p1, p2, p3, p4): a 10000 scaled value of a gaussian in the difference d = p1 - s, s = max(p4, 1) (p3 for
+ * p1 < s, p2 for p1 >= s as the sigma, e = exp(-d^2 / (2 sigma^2)) in the fixed point steps of gauss_local), centre p0:
+ * p1 < s: p0 * 65536 / e >> 16; else (p0 * 65536 - p0 * 65536 / e >> 16) + p0, limited to 10000, then * 1024 / 0x19000 (rounded, >> 10).
+ * A zero sigma / exp2 result is a vendor division by zero (not handled; the call sites never pass one).
+ */
+static inline int t32_tmo_adr_local_info(u32 p0, u32 p1, u32 p2, u32 p3, u32 p4, t32_tmo_exp2_fn exp2)
+{
+	u32 K = t32_awb_fixdiv(16, 0x385b0000U, 0x27100000U), s = (int)p4 > 0 ? p4 : 1U, s2 = p0 << 16, d, sg, m, e, r;
+	int a1;
+
+	if ((int)p1 < (int)s) {
+		d = s - p1;
+		sg = p3;
+	} else {
+		d = p1 - s;
+		sg = p2;
+	}
+	d = d * d;
+	d = (int)d < 0x3ffffd ? d : 0x3ffffcU;
+	m = t32_awb_fixmul(16, t32_awb_fixdiv(10, d << 10, (2U * sg * sg) << 10) << 6, K);
+	m = (int)m < 0xf0000 ? m : 0xeffffU;
+	e = exp2(m, 16, 16);
+	r = t32_awb_fixdiv(16, s2, e);
+	if ((int)p1 < (int)s)
+		a1 = (int)r >> 16;
+	else
+		a1 = ((int)(s2 - r) >> 16) + (int)p0;
+	a1 = a1 < 10001 ? a1 : 10000;
+	return ((int)t32_awb_fixdiv(10, (u32)a1 << 10, 0x19000U) + 512) >> 10;
+}
+
+/*
+ * ---- phase 5a: adr_map_y_filter, adr_map_y_filter_sp ----
+ *
+ * The slope s[i] = (dy * 10000 + dx / 2) / dx of the curve piece (x, y) -> (x', y'), dx == 0 reads as t32_tmo_sdiv0 (vendor UB).  The
+ * vendor's running sums are kept as 64 bit values (low / high register pairs there).  The filter pass replaces s[1 .. n - 2] in
+ * place by (s[i - 1] + s[i] + s[i + 1] + 1) / 3 (the already replaced left neighbour), sum = their total; the curve is
+ * then (re)built from the slopes of the stretched sum: s[i] = (s[i] * total + sum / 2) / sum (64 bit, the unsigned fix_point_div, total
+ * the sum of the original slopes), y' = y + (dx * s[i] + 5000) / 10000.
+ */
+static inline u32 t32_tmo_slope(int dy, int dx)
+{
+	return (u32)t32_tmo_sdiv0((int)((u32)t32_tmo_sdiv(dx, 2) + (u32)dy * 10000U), dx);
+}
+
+/*
+ * tisp_tmo_adr_map_y_filter (xs = 16 s16 x positions, xs[15] is set to 4095; b = 14 u32 y values in and out; iters / idx the s16
+ * arguments): Y[0] = 0, Y[1 .. 14] = b[0 .. 13], Y[15] = 4095, 15 slopes; iters passes of the filter; per pass the curve is rebuilt:
+ * for k <= idx from the filtered slopes, beyond idx as the line to (4095, 4095) from the point Y[k - 1] (clamped to 4095).  b[0 .. 13] = Y[1 .. 14].
+ */
+static inline void t32_tmo_adr_map_y_filter(s16 *xs, u32 *b, int iters, int idx)
+{
+	u32 Y[16], S[15];
+	long long tot = 0, sum;
+	int k, it, j;
+
+	iters = (s16)iters;
+	idx = (s16)idx;
+	xs[15] = 4095;
+	Y[0] = 0;
+	Y[15] = 4095;
+	for (k = 1; k <= 15; k++) {
+		if (k != 15)
+			Y[k] = b[k - 1];
+		S[k - 1] = t32_tmo_slope((int)(Y[k] - Y[k - 1]), xs[k] - xs[k - 1]);
+		tot += (int)S[k - 1];
+	}
+	for (it = 0; it < iters; it++) {
+		u64 half;
+
+		sum = (int)S[0];
+		for (j = 1; j <= 13; j++) {
+			S[j] = (u32)t32_tmo_sdiv((int)(S[j - 1] + S[j] + S[j + 1] + 1U), 3);
+			sum += (int)S[j];
+		}
+		sum += (int)S[14];
+		half = (u64)sum >> 1;
+		for (k = 1; k <= 15; k++) {
+			u32 y;
+			int dx = xs[k] - xs[k - 1];
+
+			if (idx < k) {
+				int d = 4095 - xs[k - 1];
+
+				S[k - 1] = (u32)t32_tmo_sdiv0((int)((u32)t32_tmo_sdiv(d, 2) + (4095U - Y[k - 1]) * 10000U), d);
+			} else {
+				u64 n = (u64)(long long)(int)S[k - 1] * (u64)tot + half;
+
+				S[k - 1] = (u32)t32_awb_fixdiv64(0, n, (u64)sum);
+			}
+			y = (u32)t32_tmo_sdiv((int)((u32)dx * S[k - 1] + 5000U), 10000) + Y[k - 1];
+			Y[k] = (int)y < 4096 ? y : 4095U;
+		}
+	}
+	for (k = 0; k < 14; k++)
+		b[k] = Y[k + 1];
+}
+
+/*
+ * tisp_tmo_adr_map_y_filter_sp: the same on the curve resampled to 33 points: c0444 = vendor t32_data_c0444 (33 s16 positions);
+ * Y = interp1_short (xs, ys, c0444) with ys = (0, b[0 .. 13], 4095); 32 slopes; iters passes (smoothing s[1 .. 30], sum with s[0] and
+ * s[31]; every slope rebuilt from the stretched sum, no line to 4095 here), Y' = low 16 bits of the rebuilt value or 4095 when its
+ * s16 value is >= 4096; finally the 16 positions xs are interpolated back (interp1_short (c0444, Y, xs)) into ys and
+ * b[0 .. 13] = sign extended ys[1 .. 14].
+ */
+static inline void t32_tmo_adr_map_y_filter_sp(s16 *xs, u32 *b, int iters, const s16 *c0444)
+{
+	s16 in[33], ys[16], out[33];
+	u32 S[32];
+	long long tot = 0, sum;
+	int k, it, j;
+
+	iters = (s16)iters;
+	memcpy(in, c0444, sizeof(in));
+	ys[15] = 4095;
+	xs[15] = 4095;
+	ys[0] = 0;
+	for (k = 1; k < 15; k++)
+		ys[k] = (s16)b[k - 1];
+	t32_tmo_adr_interp1_short(xs, ys, in, out, 16, 33);
+	for (k = 0; k < 32; k++) {
+		S[k] = t32_tmo_slope(out[k + 1] - out[k], in[k + 1] - in[k]);
+		tot += (int)S[k];
+	}
+	for (it = 0; it < iters; it++) {
+		u64 half;
+
+		sum = (int)S[0];
+		for (j = 1; j <= 30; j++) {
+			S[j] = (u32)t32_tmo_sdiv((int)(S[j - 1] + S[j] + S[j + 1] + 1U), 3);
+			sum += (int)S[j];
+		}
+		sum += (int)S[31];
+		half = (u64)sum >> 1;
+		for (k = 0; k < 32; k++) {
+			u32 v;
+
+			S[k] = (u32)t32_awb_fixdiv64(0, (u64)(long long)(int)S[k] * (u64)tot + half, (u64)sum);
+			v = (u32)t32_tmo_sdiv((int)((u32)(in[k + 1] - in[k]) * S[k] + 5000U), 10000) + (u32)(u16)out[k];
+			out[k + 1] = (s16)v < 4096 ? (s16)v : 4095;
+		}
+	}
+	t32_tmo_adr_interp1_short(in, out, xs, ys, 33, 16);
+	for (k = 0; k < 14; k++)
+		b[k] = (u32)(int)ys[k + 1];
+}
+
+/*
+ * ---- phase 5b: adr_map_curve1 ----
+ *
+ * tisp_tmo_adr_map_curve1 (out = 14 u32, a1 / a2 limited to 0 .. 255 (curve index / position m), d8324 = the vendor table
+ * t32_data_d8324 of 256 s32): k = d8324[a1]; for i = 0 .. 32 the 33 samples Q[i] = x = 8 i (k >= 0) or 8 (32 - i) (k < 0),
+ * a = 256 - m - x, W = a^3 (256 - m) + m^4, N = W * v1, D = v0 * m^3, with (v1, v0) = ((k + 256) x, k + x) for k >= 0 or ((256 - k) x, x - k)
+ * for k < 0 (64 bit wrapping products as the vendor's register pairs), q = N / D by the unsigned fix_point_div (D == 0: 0, see
+ * fixdiv64), clamped to 0x10000 (a high word or a low word above 0x10000), for k < 0 mirrored (0x10000 - q).  out[0 .. 5] are
+ * the first 3 samples blended ((15 Q0 + Q1) / 1048560, (7 Q0 + Q1) / 524280, (3 Q0 + Q1) / 262140, (Q0 + Q1) / 131070,
+ * Q1 / 65535, (Q1 + Q2) / 131070, all * 4095), out[6 .. 13] = Q[2, 3, 4, 6, 8, 12, 16, 24] * 4095 / 65535.
+ */
+static inline void t32_tmo_adr_map_curve1(u32 *out, int a1, int a2, const int *d8324)
+{
+	static const u8 qi[8] = { 2, 3, 4, 6, 8, 12, 16, 24 };
+	u32 Q[33], m, s8, s5, s6;
+	int k, i;
+
+	a1 = a1 < 0 ? 0 : a1 < 256 ? a1 : 255;
+	a2 = a2 < 0 ? 0 : a2 < 256 ? a2 : 255;
+	m = (u32)a2;
+	s5 = m * m;
+	s6 = m * s5;
+	s8 = 256U - m;
+	k = d8324[a1];
+	for (i = 0; i < 33; i++) {
+		u32 x = (u32)(k >= 0 ? i : 32 - i) << 3, a3 = 256U - (m + x), v0, v1, lo;
+		u64 W, N, q;
+
+		if (k >= 0) {
+			v1 = (u32)(k + 256) * x;
+			v0 = (u32)k + x;
+		} else {
+			v1 = (u32)(256 - k) * x;
+			v0 = x - (u32)k;
+		}
+		W = (u64)((long long)(int)a3 * (int)a3);
+		W *= (u64)(long long)(int)s8;
+		W *= (u64)(long long)(int)a3;
+		W += (u64)((long long)(int)s5 * (int)s5);
+		N = W * (u64)(long long)(int)v1;
+		q = t32_awb_fixdiv64(0, N, (u64)((long long)(int)v0 * (int)s6));
+		lo = (q >> 32) || (u32)q > 0x10000U ? 0x10000U : (u32)q;
+		Q[i] = k >= 0 ? lo : 0x10000U - lo;
+	}
+	out[0] = (u32)t32_tmo_sdiv((int)((15U * Q[0] + Q[1]) * 4095U), 1048560);
+	out[1] = (u32)t32_tmo_sdiv((int)((7U * Q[0] + Q[1]) * 4095U), 524280);
+	out[2] = (u32)t32_tmo_sdiv((int)((3U * Q[0] + Q[1]) * 4095U), 262140);
+	out[3] = (u32)t32_tmo_sdiv((int)((Q[0] + Q[1]) * 4095U), 131070);
+	out[4] = (u32)t32_tmo_sdiv((int)(Q[1] * 4095U), 65535);
+	out[5] = (u32)t32_tmo_sdiv((int)((Q[1] + Q[2]) * 4095U), 131070);
+	for (i = 0; i < 8; i++)
+		out[6 + i] = (u32)t32_tmo_sdiv((int)(Q[qi[i]] * 4095U), 65535);
+}
+
+/*
+ * tisp_tmo_adr_ev_func (phase 5c): evaluate the context's ev dependent curves at the current ev point.
+ * seed[] is t32_data_e3530 (u64 per channel; the first two entries are set to 2000 here, the vendor does it on every
+ * call), cur[] t32_data_e3550, pend[] t32_data_e3528 (s16 per channel), ev the block at e35b0[ch] + 4 (+0x18 ..: eight
+ * rows of 11 s16, 22 bytes apart).  Channel ch: cur[ch] = seed[ch]; only a pending flag of 1 goes on (and clears it).
+ * The 64 bit point x = cur[ch] is looked up (adr_ispint_adr_64, 11 points, x axis ctx + 800) on 11 point y tables of the
+ * context and the u16 results stored.  Selector s16 ctx[9574]: 2 = the eight rows of ev are filled from ctx and looked
+ * up into ctx[8826..8840] (plus the four of selector 0), 0 = four lookups into ctx[8314..8320], else those four copied
+ * from ctx[9576..9582].  ctx[9846] (0: two lookups into ctx[8322 / 8324], else copied from ctx[9848 / 9850]);
+ * ctx[9896] (0: 13 lookups into ctx[8336..8356, 8328, 8330], else copied from ctx[9866..9890]); ctx[8332 / 8334] are
+ * cleared; ctx[9268] (0: 14 lookups into ctx[8798..8824], else copied from ctx[9240..9266]).  The return value is only
+ * leftover registers in the vendor code (not reproduced); the vendor's delay slot load of ctx[9576] on the
+ * selector 0 path is dead.
+ */
+static inline void t32_tmo_adr_ev_func(int ch, u8 *c, u8 *ev, u64 *seed, u64 *cur, s16 *pend)
+{
+#define EV_S16(o) (*(s16 *)(c + (o)))
+#define EV_U16(o) (*(u16 *)(c + (o)))
+#define EV_LK(ys) ((u16)t32_tmo_adr_ispint_64((long long)cur[ch], (const long long *)(c + 800), (const s16 *)(c + (ys)), 11))
+	int i;
+
+	seed[0] = 2000;
+	seed[1] = 2000;
+	cur[ch] = seed[ch];
+	if (pend[ch] != 1)
+		return;
+	pend[ch] = 0;
+	for (i = 0; i < 8; i++)
+		EV_U16(8826 + 2 * i) = 0;
+	if (EV_S16(9574) == 2) {
+		for (i = 0; i < 11; i++) {
+			*(u16 *)(ev + 24 + 2 * i) = (u16)EV_S16(8266 + 2 * i);
+			*(u16 *)(ev + 46 + 2 * i) = (u16)EV_S16(8290 + 2 * i);
+			*(u16 *)(ev + 68 + 2 * i) = (u16)EV_S16(8776 + 2 * i);
+			*(u16 *)(ev + 90 + 2 * i) = (u16)EV_S16(9194 + 2 * i);
+			*(u16 *)(ev + 112 + 2 * i) = (u16)EV_S16(9216 + 2 * i);
+			*(u16 *)(ev + 134 + 2 * i) = (u16)EV_S16(9530 + 2 * i);
+			*(u16 *)(ev + 156 + 2 * i) = (u16)EV_S16(9552 + 2 * i);
+			*(u16 *)(ev + 178 + 2 * i) = (u16)EV_S16(9678 + 2 * i);
+		}
+		EV_U16(8314) = EV_LK(8358);
+		EV_U16(8316) = EV_LK(8380);
+		EV_U16(8318) = EV_LK(8402);
+		EV_U16(8320) = EV_LK(8424);
+		for (i = 0; i < 8; i++)
+			EV_U16(8826 + 2 * i) = (u16)t32_tmo_adr_ispint_64((long long)cur[ch], (const long long *)(c + 800),
+									   (const s16 *)(ev + 24 + 22 * i), 11);
+	} else if (EV_S16(9574) != 0) {
+		EV_U16(8314) = EV_U16(9576);
+		EV_U16(8316) = EV_U16(9578);
+		EV_U16(8318) = EV_U16(9580);
+		EV_U16(8320) = EV_U16(9582);
+	} else {
+		EV_U16(8314) = EV_LK(8358);
+		EV_U16(8316) = EV_LK(8380);
+		EV_U16(8318) = EV_LK(8402);
+		EV_U16(8320) = EV_LK(8424);
+	}
+	if (EV_S16(9846) != 0) {
+		EV_U16(8322) = EV_U16(9848);
+		EV_U16(8324) = EV_U16(9850);
+	} else {
+		EV_U16(8322) = EV_LK(9150);
+		EV_U16(8324) = EV_LK(9172);
+	}
+	if (EV_S16(9896) != 0) {
+		for (i = 0; i < 11; i++)
+			EV_U16(8336 + 2 * i) = EV_U16(9866 + 2 * i);
+		EV_U16(8328) = EV_U16(9888);
+		EV_U16(8330) = EV_U16(9890);
+	} else {
+		for (i = 0; i < 11; i++)
+			EV_U16(8336 + 2 * i) = EV_LK(8446 + 22 * i);
+		EV_U16(8328) = EV_LK(8688);
+		EV_U16(8330) = EV_LK(8710);
+	}
+	EV_U16(8332) = 0;
+	EV_U16(8334) = 0;
+	if (EV_S16(9268) != 0) {
+		for (i = 0; i < 14; i++)
+			EV_U16(8798 + 2 * i) = EV_U16(9240 + 2 * i);
+	} else {
+		for (i = 0; i < 14; i++)
+			EV_U16(8798 + 2 * i) = EV_LK(8842 + 22 * i);
+	}
+#undef EV_S16
+#undef EV_U16
+#undef EV_LK
+}
+
+/*
+ * tisp_adr_faceae_curve_adjust (phase 6a): the face ae curve table.  blk = *(e35b0[ch] + 0); the 24 rows of 14 s16 at
+ * blk + 128 are raised to the s16 maximum with row i of tab[] (t32_data_e3248) when en[i] (t32_data_e34e8) is 1.
+ * *cnt (t32_data_e3244) counts the calls and wraps to 0 at 100001.  The vendor return value is leftover registers.
+ */
+static inline void t32_adr_faceae_curve_adjust(u8 *blk, u32 *cnt, const u8 *en, const s16 *tab)
+{
+	u32 n = *cnt + 1U;
+	int i, j;
+
+	*cnt = n < 100001U ? n : 0U;
+	for (i = 0; i < 24; i++) {
+		s16 *row = (s16 *)(blk + 128) + 14 * i;
+
+		if (en[i] != 1)
+			continue;
+		for (j = 0; j < 14; j++)
+			if (!(tab[14 * i + j] < row[j]))
+				row[j] = tab[14 * i + j];
+	}
+}
+
+/*
+ * tisp_tmo_adr_subsection_up (phase 6a): the 11 u32 curve points out[] of the subsection.  Fixed point with sh fraction
+ * bits (the shifts use the low 5 bits, fixdiv / fixmul get the full count), R(v) = (v + 512) >> sh (the vendor's constant
+ * rounding), y = x -> y lookup of the 129 point curve (x[] -> y[], an interpolation from the point above v, the point
+ * below it is read at k - 1: x[-1] / y[-1] for a hit on the first point, vendor read before the table; y[128] above the
+ * last).  tab[] is the 512 word table of adr_subsection_map (also read at R(..) of the ratios out / mul, any index);
+ * mul is the divisor scale (a zero mul divides by zero in fix_point_div_32: the vendor gets 0xffffffff, so do we).
+ * The chain: out[6] = lookup(map(5000, R(4095 / 2))), then out[4], out[2], out[5], out[1], out[3] from maps of the half
+ * sums of tab[] at the previous outputs; out[7..9] = out[6] + 1..3 (all four set to 4091..4094 when out[6] + 3 >= 4095).
+ * Dropped dead code: the vendor limit "out[10] >= 4096 -> 4095" (out[10] = 4095 here).  The vendor return value is
+ * leftover registers.  The vendor's s5 / s6 / s8 temporaries are named below as in its call order.
+ */
+static inline int t32_tmo_up_lookup(int v, const s16 *x, const s16 *y, u32 sh)
+{
+	int k;
+
+	for (k = 0; k < 129; k++) {
+		if (v < x[k]) {
+			u32 slope = t32_awb_fixdiv(sh, (u32)(y[k] - y[k - 1]) << (sh & 31U), (u32)(x[k] - x[k - 1]) << (sh & 31U));
+			u32 m = t32_awb_fixmul(sh, slope, (u32)(x[k] - v) << (sh & 31U));
+
+			return y[k] - ((int)(m + 512U) >> (sh & 31U));
+		}
+	}
+	return y[128];
+}
+
+static inline void t32_tmo_adr_subsection_up(u32 *out, int s1, const s16 *y, const s16 *x, const int *tab, int mul, u32 sh,
+					     u32 sh0, u32 mode)
+{
+#define UP_R(v) ((int)((u32)(v) + 512U) >> (sh & 31U))
+#define UP_SM(pos, s5) t32_tmo_adr_subsection_map((pos), (s5), s1, y, x, tab, mul, sh, sh0, mode)
+#define UP_LK(v) t32_tmo_up_lookup((v), x, y, sh)
+#define UP_HALF(i) t32_tmo_sdiv(tab[i], 2)
+	u32 two = 2U << (sh & 31U), s6;
+	int s8, s5, o6, o4, o2, o5, o1, o3, e, ia, ib, t;
+
+	out[10] = 4095;
+	out[0] = 0;
+	s8 = UP_SM(5000, UP_R(t32_awb_fixdiv(sh, 4095U << (sh & 31U), two)));
+	o6 = UP_LK(s8);
+	out[6] = (u32)o6;
+	s6 = (u32)mul << (sh & 31U);
+	t = UP_HALF(UP_R(t32_awb_fixdiv(sh, (u32)o6 << (sh & 31U), s6)));
+	s5 = UP_SM(t, UP_R(t32_awb_fixdiv(sh, (u32)s8 << (sh & 31U), two)));
+	o4 = UP_LK(s5);
+	out[4] = (u32)o4;
+	t = UP_HALF(UP_R(t32_awb_fixdiv(sh, (u32)o4 << (sh & 31U), s6)));
+	e = UP_SM(t, UP_R(t32_awb_fixdiv(sh, (u32)s5 << (sh & 31U), two)));
+	o2 = UP_LK(e);
+	out[2] = (u32)o2;
+	ia = UP_R(t32_awb_fixdiv(sh, (u32)o4 << (sh & 31U), s6));
+	ib = UP_R(t32_awb_fixdiv(sh, (u32)o6 << (sh & 31U), s6));
+	t = t32_tmo_sdiv((int)((u32)tab[ib] + (u32)tab[ia]), 2);
+	o5 = UP_LK(UP_SM(t, UP_R(t32_awb_fixdiv(sh, (u32)(s8 + s5) << (sh & 31U), two))));
+	out[5] = (u32)o5;
+	t = UP_HALF(UP_R(t32_awb_fixdiv(sh, (u32)o2 << (sh & 31U), s6)));
+	o1 = UP_LK(UP_SM(t, UP_R(t32_awb_fixdiv(sh, (u32)e << (sh & 31U), two))));
+	out[1] = (u32)o1;
+	ia = UP_R(t32_awb_fixdiv(sh, (u32)o2 << (sh & 31U), s6));
+	ib = UP_R(t32_awb_fixdiv(sh, (u32)o4 << (sh & 31U), s6));
+	t = t32_tmo_sdiv((int)((u32)tab[ib] + (u32)tab[ia]), 2);
+	o3 = UP_LK(UP_SM(t, UP_R(t32_awb_fixdiv(sh, (u32)(s5 + e) << (sh & 31U), two))));
+	out[3] = (u32)o3;
+	out[7] = (u32)o6 + 1U;
+	out[8] = (u32)o6 + 2U;
+	out[9] = (u32)o6 + 3U;
+	if (!((int)out[9] < 4095)) {
+		out[6] = 4091;
+		out[7] = 4092;
+		out[8] = 4093;
+		out[9] = 4094;
+	}
+#undef UP_R
+#undef UP_SM
+#undef UP_LK
+#undef UP_HALF
+}
+
+/* ---- phase 7a: the small api / update functions ---- */
+
+/*
+ * tisp_tmo_tgain_update (a0 = channel, a1 unused, a2, a3): rec36 = rec + 36 gets a2, the channel's flag (t32_data_e3520[ch])
+ * is set to 1, t32_data_e3590[ch] = a3 << 16 | a2 >> 16, t32_data_e35a0[ch] = a2 & 0xffff.
+ */
+static inline void t32_tmo_tgain_update(u32 *rec36, u16 *e3520, u32 *e3590, u32 *e35a0, u32 a2, u32 a3)
+{
+	*rec36 = a2;
+	*e3520 = 1;
+	*e3590 = (a3 << 16) | (a2 >> 16);
+	*e35a0 = a2 & 0xffffU;
+}
+
+/*
+ * tisp_tmo_api_strength_ctrl: record +54 (u16) = 1, +56 (u16) = strength; when the context's byte 10042 is 1 the
+ * register refresh of the ramY set (vi1 when the global byte t32_data_d03a0 is 1, else vi0) runs for the channel (a tail
+ * call in the vendor: refresh(ch) is the hook; the vendor's return value is only leftover registers).
+ */
+static inline void t32_tmo_api_strength_ctrl(u16 *rec54, const u8 *ctx, u8 d03a0, u32 strength, void (*vi1)(void *, int),
+					     void (*vi0)(void *, int), void *cb, int ch)
+{
+	rec54[0] = 1;
+	rec54[1] = (u16)strength;
+	if (ctx[10042] != 1)
+		return;
+	if (d03a0 == 1)
+		vi1(cb, ch);
+	else
+		vi0(cb, ch);
+}
+
+/*
+ * tisp_tmo_param_array_get: the whole parameter set of a channel into buf: the 11000 byte context, the 402 byte out
+ * curve (record +8) at +11000 and the 800 bytes at e35b0[ch]->+0 at +11402; *size = 12202.  Returns 0.
+ */
+static inline int t32_tmo_param_array_get(u8 *buf, const u8 *ctx, const u8 *out, const u8 *blk, u32 *size)
+{
+	memcpy(buf, ctx, 11000);
+	memcpy(buf + 11000, out, 402);
+	memcpy(buf + 11402, blk, 800);
+	*size = 12202;
+	return 0;
+}
+
+/*
+ * tisp_tmo_api_get_curve: the 402 byte curve idx (< 10) of the channel's context is copied to dst.  The vendor selects it
+ * through the jump table t32_data_c04c8 (driver/t32/data_relocations.json, .rodata 0x30a8: labels 0x9e948 + 16 * idx):
+ * idx 0 -> ctx + 7398, idx 1 -> ctx + 7800, idx 2..9 -> ctx + 4182 + 402 * (idx - 2), i.e. the same curve order as
+ * t32_tmo_ev_interp (C[0] = +7398, C[1] = +7800, C[i] = +4182 + 402 (i - 2)).  The return value of the vendor is the
+ * memcpy result (dst) or leftover registers.
+ */
+static inline void t32_tmo_api_get_curve(u8 *dst, const u8 *ctx, u32 idx)
+{
+	if (idx < 10)
+		memcpy(dst, ctx + (idx == 0 ? 7398 : idx == 1 ? 7800 : 4182 + 402 * (idx - 2)), 402);
+}
+
+/*
+ * tisp_tmo_ev_update (ch, a2, a3, arg4): the record's ev values (rec +24 = low word of the 64 bit ev point a3:a2 >> 10 ...,
+ * +28 = a3 >> 10, +32 = arg4), then ev_interp, dark_ctr_interp (st + 238), satcurve_ev_interp, the adr default register
+ * refresh and, when the stat byte 385 is 1, the tmo default register refresh (hooks); finally the channel's pending flag
+ * (e3528[ch]) is set and seed[ch] (e3530) = { a2 >> 10 | a3 << 22, a3 >> 10 }.  Return value: leftover registers.
+ */
+static inline void t32_tmo_ev_update(struct t32_tmo_rec *r, u32 a2, u32 a3, u32 arg4, s16 *pend, u32 *seed,
+				     void (*adr_refresh)(void *, int), void (*tmo_refresh)(void *, int), void *cb, int ch)
+{
+	u32 lo = a2 >> 10, hi = a3 >> 10, flag = r->st[385];
+
+	r->ev1 = hi;
+	r->ev1m = arg4;
+	lo |= a3 << 22;
+	r->ev0 = lo;
+	t32_tmo_ev_interp(r);
+	t32_tmo_dark_ctr_interp(r->ctx, (struct t32_tmo_dark_out *)(r->st + 238), r->ev0, r->ev1, r->ev1m);
+	t32_tmo_satcurve_ev_interp(r->ctx, r->st, r->ev0, r->ev1, r->ev1m);
+	adr_refresh(cb, ch);
+	if (flag == 1)
+		tmo_refresh(cb, ch);
+	*pend = 1;
+	seed[0] = lo;
+	seed[1] = hi;
+}
+
+/* ---- phase 8a: glue functions (callees of the register refresh set are hooks) ---- */
+
+/* tisp_adr_faceae_refresh: e3500 = flag, the 24 enable bytes (e34e8) and the 336 s16 table (e3248) are replaced.  The vendor returns the memcpy result. */
+static inline void t32_adr_faceae_refresh(u8 *e3500, u32 flag, u8 *e34e8, const u8 *en, s16 *e3248, const s16 *tab)
+{
+	*e3500 = (u8)flag;
+	memcpy(e34e8, en, 24);
+	memcpy(e3248, tab, 672);
+}
+
+/*
+ * tisp_tmo_fbf_interrupt_calc (ch): with the stat byte 385 of channel ch set to 1, tmo_soft_process of the current
+ * channel cur (t32_data_e3504) runs first.  Then, always, the record of cur: u16 +46 =
+ * (+46 + 1) & 0xffff, or 1 when that is 2 or more, u16 +44 = u16 +50 = 0, t32_data_d8b34 = 1, returns 1.
+ */
+static inline int t32_tmo_fbf_interrupt_calc(const u8 *st_ch, u8 *rec_cur, u32 *d8b34, void (*soft)(void *, u32), void *cb, u32 cur)
+{
+	u32 n;
+
+	if (st_ch[385] == 1)
+		soft(cb, cur);
+	n = ((u32)*(u16 *)(rec_cur + 46) + 1U) & 0xffffU;
+	if (!(n < 2U))
+		n = 1;
+	*(u16 *)(rec_cur + 46) = (u16)n;
+	*(u16 *)(rec_cur + 44) = 0;
+	*(u16 *)(rec_cur + 50) = 0;
+	*d8b34 = 1;
+	return 1;
+}
+
+/*
+ * tisp_tmo_tmo_soft_process (ch): the first time (flag byte t32_data_e3510[ch] 0) the 16 bytes ctx + 2514 are copied to
+ * st + 340, tmo_default_reg_refresh runs and the flag is set.  Then tmo_stat_limit and the register refreshes ramY / ramV
+ * of the set selected by the byte t32_data_d03a0 (1: vi1, else vi0) (hooks: ids 0 default, 1 stat_limit, 2 / 3 ramY / ramV vi1,
+ * 4 / 5 ramY / ramV vi0).
+ */
+static inline void t32_tmo_tmo_soft_process(u8 *flag, const u8 *ctx, u8 *st, u8 d03a0, void (*hook)(void *, int, int), void *cb, int ch)
+{
+	if (*flag == 0) {
+		memcpy(st + 340, ctx + 2514, 16);
+		hook(cb, 0, ch);
+		*flag = 1;
+	}
+	hook(cb, 1, ch);
+	if (d03a0 == 1) {
+		hook(cb, 2, ch);
+		hook(cb, 3, ch);
+	} else {
+		hook(cb, 4, ch);
+		hook(cb, 5, ch);
+	}
+}
+
+/*
+ * tisp_tmo_adr_soft_process (ch): adr_stat_calc, adr_ev_func, adr_tgain_func, adr_algorithm, adr_reg_write_every in this order
+ * (hook ids 0 .. 4).  Dropped: the vendor's isp_printf every 1000th call (counter t32_data_e3516, a u16 only read here).
+ */
+static inline void t32_tmo_adr_soft_process(void (*hook)(void *, int, int), void *cb, int ch)
+{
+	int i;
+
+	for (i = 0; i < 5; i++)
+		hook(cb, i, ch);
+}
+
+#endif /* TX_ISP_T32_TMO_H */
+
+/* ---- phase 9a: param_array_set, api_set_curve, wake_up (unported callees are hooks) ---- */
+
+/*
+ * Environment of the shared refresh tail of tisp_tmo_param_array_set / tisp_tmo_api_set_curve.  The register refresh
+ * callees that are not ported yet and tisp_lcac_no_refresh are hooks, ids: 0 tmoadr_default_reg_refresh, 1 lcac_no_refresh,
+ * 2 tmo_default_reg_refresh, 3 ramY_vi1_reg_refresh, 4 ramY_vi0_reg_refresh, 5 adr_reg_write_sometimes (all take the channel).
+ */
+struct t32_tmo_set_env {
+	struct t32_tmo_rec *r;		/* the channel record: ctx, st, ev, ... (t32_data_e35e0[ch]) */
+	u16 *rec50;			/* record +50 (u16) */
+	u8 *rec52;			/* record +52 (u8) */
+	u16 *pend;			/* t32_data_e3528[ch] */
+	u16 *e3520;			/* t32_data_e3520[ch] */
+	u16 *e3518;			/* t32_data_e3518[ch] (adr_hardpars_ctl flag) */
+	const u8 *hard_tab;		/* t32_data_bff90 (adr_hardpars_ctl tables) */
+	int *gauss_out;			/* t32_data_e31b0 (24 int) */
+	s16 *gauss_cache;		/* t32_data_e3210 */
+	const int *gauss_tab;		/* t32_data_c00bc */
+	t32_tmo_exp2_fn exp2;
+	u8 d03a0;
+	void (*hook)(void *cb, int id, int ch);
+	void *cb;
+};
+
+/*
+ * The refresh the two setters end with: s4 = ctx byte 10042 (read first); tmo_params_hard_refresh, dark_ctr_interp (st + 238),
+ * satcurve_ev_interp, the adr default register refresh and lcac_no_refresh.  s4 == 1: ev_interp, tmo default register
+ * refresh, the ramY refresh (vi1 when d03a0 == 1, else vi0), and a record byte 52 == 0 clears the u16 at +50.  s4 == 0:
+ * the channel's pending flag and e3520 = 1, adr_hardpars_ctl, adr_reg_write_sometimes, adr_gauss_local (e31b0).  Other
+ * s4: nothing.  At the end record byte 52 = stat byte 385.  Dropped: the vendor's isp_printf (s4 == 0 only).
+ */
+static inline void t32_tmo_set_refresh(struct t32_tmo_set_env *e, int ch)
+{
+	struct t32_tmo_rec *r = e->r;
+	u8 s4 = r->ctx[10042];
+
+	t32_tmo_params_hard_refresh(r->ctx, r->st);
+	t32_tmo_dark_ctr_interp(r->ctx, (struct t32_tmo_dark_out *)(r->st + 238), r->ev0, r->ev1, r->ev1m);
+	t32_tmo_satcurve_ev_interp(r->ctx, r->st, r->ev0, r->ev1, r->ev1m);
+	e->hook(e->cb, 0, ch);
+	e->hook(e->cb, 1, ch);
+	if (s4 == 1) {
+		t32_tmo_ev_interp(r);
+		e->hook(e->cb, 2, ch);
+		e->hook(e->cb, e->d03a0 != s4 ? 4 : 3, ch);
+		if (*e->rec52 == 0)
+			*e->rec50 = 0;
+	} else if (s4 == 0) {
+		*e->pend = 1;
+		*e->e3520 = 1;
+		t32_tmo_adr_hardpars_ctl(r->ctx, e->hard_tab, e->e3518);
+		e->hook(e->cb, 5, ch);
+		t32_tmo_adr_gauss_local(e->gauss_out, r->ctx, e->gauss_cache, e->gauss_tab, e->exp2);
+	}
+	*e->rec52 = r->st[385];
+}
+
+/* tisp_tmo_param_array_set (ch, src): the 11000 byte context is replaced by src, then the refresh above. */
+static inline void t32_tmo_param_array_set(struct t32_tmo_set_env *e, const u8 *src, int ch)
+{
+	memcpy(e->r->ctx, src, 11000);
+	t32_tmo_set_refresh(e, ch);
+}
+
+/*
+ * tisp_tmo_api_set_curve (ch & 0xff, idx = a1 & 0xff, src): idx < 10: the 402 byte curve idx of the context is replaced by
+ * src (jump table t32_data_c04f0, driver/t32/data_relocations.json .rodata 0x30d0: labels 0x9ea50 + .. in the order
+ * ctx + 7398, + 7800, then + 4182 + 402 (idx - 2)); idx >= 10 copies nothing.  Then the same refresh.
+ */
+static inline void t32_tmo_api_set_curve(struct t32_tmo_set_env *e, u32 idx, const u8 *src, int ch)
+{
+	idx &= 0xffU;
+	if (idx < 10)
+		memcpy(e->r->ctx + (idx == 0 ? 7398 : idx == 1 ? 7800 : 4182 + 402 * (idx - 2)), src, 402);
+	t32_tmo_set_refresh(e, ch & 0xff);
+}
+
+/*
+ * tisp_tmo_wake_up (ch): five system register writes (d03a0 != 0 selects the second register set: the first value
+ * is the base word reg = record +8 of t32_data_e35d0[ch] (a u32 read there), reg + 0x4000, reg + 0x8000, reg + 0xc000, 3 to
+ * 7786..7790 (d03a0 != 0) or 28928 + 4 i (else)), hooks 0 / 1 (adr default refresh, lcac_no_refresh), when the context
+ * byte 10042 is 1 the hooks 2 tmo2fbf_process, 3 tmo_default_reg_refresh, 4 tmo_soft_process; byte != 0: end.  Else the hooks
+ * 5 adr_reg_write_one, 6 adr_reg_write_5x5, 7 adr_reg_write_sometimes and 8 adr_reg_write_every (a tail call).
+ */
+static inline void t32_tmo_wake_up(const u8 *ctx, u32 reg, u8 d03a0, void (*regw)(void *, u32, u32), void (*hook)(void *, int, int),
+				   void *cb, int ch)
+{
+	static const u16 a1[5] = { 7786, 7787, 7788, 7789, 7790 }, a0[5] = { 28928, 28932, 28936, 28940, 28944 };
+	u32 val[5] = { reg, reg + 16384, reg + 0x8000, reg + 0xc000, 3 };
+	int i;
+
+	for (i = 0; i < 5; i++)
+		regw(cb, d03a0 != 0 ? a1[i] : a0[i], val[i]);
+	hook(cb, 0, ch);
+	hook(cb, 1, ch);
+	if (ctx[10042] == 1) {
+		hook(cb, 2, ch);
+		hook(cb, 3, ch);
+		hook(cb, 4, ch);
+	}
+	if (ctx[10042] != 0)
+		return;
+	hook(cb, 5, ch);
+	hook(cb, 6, ch);
+	hook(cb, 7, ch);
+	hook(cb, 8, ch);
+}
+
+/* ---- phase 9b: malloc_cfg, fbf_malloc_cfg, faceae_refresh (allocators and the register write are callbacks) ---- */
+
+/*
+ * tisp_tmo_malloc_cfg (ch): rec = private_vmalloc (12) is stored in the channel slot (t32_data_e35d0[ch], a 32 bit address); buf =
+ * private_kmalloc (0x10000, 0x24000c0); the registers (second set when d03a0 != 0: 7786 + i, else 28928 + 4 i) get tisp_reg_write
+ * (ch, reg, value) = phys 0x80000000 + buf, + 0x4000, + 0x8000, + 0xc000, in this order; rec = { 4, buf, buf + 0x80000000 };
+ * finally register 7790 / 28944 = 3 (a tail call in the vendor).  Dropped: the vendor's isp_printf when an allocation failed;
+ * a NULL vmalloc result is a NULL dereference in the vendor (not tested, unchanged here); a NULL kmalloc result goes on with buf = 0.
+ */
+static inline void t32_tmo_malloc_cfg(u32 *slot, int ch, void *(*vmalloc)(void *, u32), void *(*kmalloc)(void *, u32, u32),
+				      void (*regw)(void *, int, u32, u32), u8 d03a0, void *cb)
+{
+	u32 *rec = vmalloc(cb, 12);
+	u32 buf, phys;
+	int s = d03a0 != 0;
+
+	*slot = (u32)(uintptr_t)rec;
+	buf = (u32)(uintptr_t)kmalloc(cb, 0x10000, 0x24000c0);
+	phys = buf + 0x80000000U;
+	regw(cb, ch, s ? 7786 : 28928, phys);
+	regw(cb, ch, s ? 7787 : 28932, buf + 0x80004000U);
+	regw(cb, ch, s ? 7788 : 28936, buf + 0x80008000U);
+	regw(cb, ch, s ? 7789 : 28940, buf + 0x8000c000U);
+	rec[0] = 4;
+	rec[1] = buf;
+	rec[2] = phys;
+	regw(cb, ch, s ? 7790 : 28944, 3);
+}
+
+/*
+ * tisp_tmo_fbf_malloc_cfg: blk = private_vmalloc (20) is stored in the slot (t32_data_e35c0[ch]); blk = { 1, cfg[1], cfg[2],
+ * tbuf, tbuf + 0x80000000 } with cfg = the malloc_cfg record (t32_data_e35d0[ch]) and tbuf = the channel record's word +20.
+ * Dropped: isp_printf (vmalloc failed / tbuf == 0).  A NULL vmalloc result is a NULL dereference in the vendor.
+ */
+static inline void t32_tmo_fbf_malloc_cfg(u32 *slot, const u32 *cfg, u32 tbuf, void *(*vmalloc)(void *, u32), void *cb)
+{
+	u32 *blk = vmalloc(cb, 20);
+
+	*slot = (u32)(uintptr_t)blk;
+	blk[0] = 1;
+	blk[1] = cfg[1];
+	blk[2] = cfg[2];
+	blk[3] = tbuf;
+	blk[4] = tbuf + 0x80000000U;
+}
+
+/*
+ * tisp_tmo_faceae_refresh (ch, flag, a, b, c = arg4, d = arg5, e = arg6) on the stat record st: st[377] = flag; 12 bytes a -> st + 0, b -> st + 12,
+ * c -> st + 24, e... (arg6) 6 bytes -> st + 371, d (arg5) 12 bytes -> st + 36; then tisp_tmo_faceae_reg_refresh (ch) (a tail call, hook).
+ */
+static inline void t32_tmo_faceae_refresh(u8 *st, u32 flag, const u8 *a, const u8 *b, const u8 *c, const u8 *d, const u8 *e,
+					  void (*hook)(void *, int), void *cb, int ch)
+{
+	st[377] = (u8)flag;
+	memcpy(st, a, 12);
+	memcpy(st + 12, b, 12);
+	memcpy(st + 24, c, 12);
+	memcpy(st + 371, e, 6);
+	memcpy(st + 36, d, 12);
+	hook(cb, ch);
+}
+
+/* ---- phase 9c: deinit, dn_params_refresh, interrupt_static ---- */
+
+/*
+ * tisp_tmo_deinit (ch): the channel's four allocation records are released in this order (all pointers are 32 bit addresses
+ * stored in the slots; each member is freed only when non-zero and cleared afterwards):
+ *  e35d0 slot P: P[1] kfree'd, then P itself vfree'd and the slot cleared; e35c0 slot: vfree'd and cleared;
+ *  e35e0 slot R: R[3] (+12) vfree, R[1] (+4) vfree, R[4] (+16) vfree, R[5] (+20) kfree, R[2] (+8) vfree, then R vfree'd and the slot
+ *  cleared; e35b0 slot B: B[0], B[1], B[2] kfree'd, then B kfree'd and the slot cleared.  A slot that is 0 is skipped (for e35d0
+ * and e35e0 / e35b0 with all their members; the e35c0 slot is tested on its own).  Return value 0.
+ */
+static inline void t32_tmo_deinit(u32 *e35d0, u32 *e35c0, u32 *e35e0, u32 *e35b0, void (*vfree)(void *, u32), void (*kfree)(void *, u32),
+				  void *cb)
+{
+	u32 *p;
+	static const u8 vo[3] = { 3, 1, 4 };
+	int i;
+
+	if (*e35d0) {
+		p = (u32 *)(uintptr_t)*e35d0;
+		if (p[1]) {
+			kfree(cb, p[1]);
+			p[1] = 0;
+		}
+		vfree(cb, *e35d0);
+		*e35d0 = 0;
+	}
+	if (*e35c0) {
+		vfree(cb, *e35c0);
+		*e35c0 = 0;
+	}
+	if (*e35e0) {
+		p = (u32 *)(uintptr_t)*e35e0;
+		for (i = 0; i < 3; i++)
+			if (p[vo[i]]) {
+				vfree(cb, p[vo[i]]);
+				p[vo[i]] = 0;
+			}
+		if (p[5]) {
+			kfree(cb, p[5]);
+			p[5] = 0;
+		}
+		if (p[2]) {
+			vfree(cb, p[2]);
+			p[2] = 0;
+		}
+		vfree(cb, *e35e0);
+		*e35e0 = 0;
+	}
+	if (*e35b0) {
+		p = (u32 *)(uintptr_t)*e35b0;
+		for (i = 0; i < 3; i++)
+			if (p[i]) {
+				kfree(cb, p[i]);
+				p[i] = 0;
+			}
+		kfree(cb, *e35b0);
+		*e35b0 = 0;
+	}
+}
+
+/*
+ * tisp_tmo_dn_params_refresh (ch): 258 bytes (the gamma block of dc274[ch]) are copied to the OLD context + 9272, then the
+ * record's context pointer is replaced by new_ctx (dd0a4[ch] + 11976) and the same refresh as the setters runs (new context).
+ */
+static inline void t32_tmo_dn_params_refresh(struct t32_tmo_set_env *e, u8 *new_ctx, const u8 *gamma, int ch)
+{
+	memcpy(e->r->ctx + 9272, gamma, 258);
+	e->r->ctx = new_ctx;
+	t32_tmo_set_refresh(e, ch);
+}
+
+/*
+ * tisp_tmo_interrupt_static (ch): the counters e3516 (u16, +1, back to 0 at 201) and e350c (u32, +1, back to 0 at 601) advance;
+ * reg = system_reg_read (28952); the 16 KB half (reg & 3) << 14 of the buffer buf (e35d0 record word 1) is synced
+ * (private_dma_cache_sync (0, buf + off, 16384, 0)) and passed to tmoadr_get_statistics (hook 0, arg = buf + off); stat byte 385 == 1:
+ * tmo2fbf_input_prep (hook 1), tmo2fbf_process (hook 2); == 0: adr_soft_process (hook 3); other: nothing.  Then record +44 (u16) = +1, or 1
+ * when that is >= 2, +50 = 1, +46 = 0, *e3504 = ch.  Returns 1.  hook(cb, id, ch, arg).
+ */
+static inline int t32_tmo_interrupt_static(u16 *e3516, u32 *e350c, u32 (*rdreg)(void *, u32), void (*dma)(void *, u32, u32),
+					   u32 buf, const u8 *st, u16 *rec44, u16 *rec46, u16 *rec50, u32 *e3504,
+					   void (*hook)(void *, int, int, u32), void *cb, int ch)
+{
+	u32 s4 = st[385], v, s2;
+
+	v = (u32)(u16)(*e3516 + 1U);
+	*e3516 = v < 201 ? (u16)v : 0;
+	v = *e350c + 1U;
+	*e350c = (int)v < 601 ? v : 0;
+	s2 = buf + ((rdreg(cb, 28952) & 3U) << 14);
+	dma(cb, s2, 16384);
+	hook(cb, 0, ch, s2);
+	if (s4 == 1) {
+		hook(cb, 1, ch, 0);
+		hook(cb, 2, ch, 0);
+	} else if (s4 == 0) {
+		hook(cb, 3, ch, 0);
+	}
+	v = (u32)(u16)(*rec44 + 1U);
+	*rec44 = v < 2 ? (u16)v : 1;
+	*rec50 = 1;
+	*rec46 = 0;
+	*e3504 = (u32)ch;
+	return 1;
+}
+
+/* ---- phase 10a: tmoadr_get_statistics, tmo2fbf_process ---- */
+
+static inline u32 t32_tmo_rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
+static inline void t32_tmo_wr32(u8 *p, u32 v) { memcpy(p, &v, 4); }
+
+/* the 11 / 5 bit field repack of tmoadr_get_statistics: words w0 (at +0) and w1 (+4) of an 8 byte source entry -> three u32 at d (12 bytes) */
+static inline void t32_tmo_stat_unpack_b(const u8 *s, u8 *d)
+{
+	u32 w0 = t32_tmo_rd32(s), w1 = t32_tmo_rd32(s + 4);
+
+	t32_tmo_wr32(d, (w0 & 0xffffU) + (((w0 >> 16) & 0x1fU) << 16));
+	t32_tmo_wr32(d + 4, (w0 >> 21) + ((w1 & 0x3ffU) << 11));
+	t32_tmo_wr32(d + 8, ((w1 >> 10) & 0x3fU) + (((w1 >> 16) & 0x7fffU) << 6));
+}
+
+/* the variant of the first table (24 groups of 6 entries): 1 / 5 / 9 bit fields */
+static inline void t32_tmo_stat_unpack_a(const u8 *s, u8 *d)
+{
+	u32 w0 = t32_tmo_rd32(s), w1 = t32_tmo_rd32(s + 4);
+
+	t32_tmo_wr32(d, (w0 & 0xffffU) + (((w0 >> 16) & 1U) << 16));
+	t32_tmo_wr32(d + 4, (w0 >> 20) + ((w1 & 0x1fU) << 12));
+	t32_tmo_wr32(d + 8, ((w1 >> 8) & 0xffU) + (((w1 >> 16) & 0x1ffU) << 8));
+}
+
+/*
+ * tisp_tmo_tmoadr_get_statistics (stat byte st385, src = the 16 KB statistics buffer): the hardware statistics are unpacked;
+ *  st385 == 0: into the block blk (e35b0[ch] word +8): 24 groups k of 64 source bytes (src + 64 k): six entries (8 source bytes, unpack_a) to
+ *  blk + 80 k + 2048 + 12 j, then the entry at src_k + 48 gives blk + 80 k + 2120 / 2124 (words 0, 1 of unpack_a) , blk + 5504 + 4 k (bits
+ *  8 .. 15 of word 1 + bits 16 .. 19 << 8) and blk + 5600 + 4 k (bits 20 .. 31 of word 1), blk + 5312 + 4 k / blk + 5408 + 4 k = the
+ *  29 bit words at src_k + 56 / + 60; then 170 entries (unpack_b) of src + 1536 + 8 i to blk + 12 i, and the entry at src + 2896 gives the two words
+ *  blk + 2040 / + 2044 (unpack_b words 0, 1).
+ *  st385 == 1: into the big block (record word +16): big[4 i] = src[4 i] & 0xffff, big[15000 + 4 i] = bits 16 .. 30, i < 3750; 170 entries
+ *  of src + 15000 + 8 i (unpack_b) to big + 30000 + 12 i and the entry at src + 16360 -> big + 32040 / + 32044.
+ *  Other values: nothing.  The vendor's return value is leftover registers.
+ */
+static inline void t32_tmo_adr_get_statistics(u32 st385, const u8 *src, u8 *blk, u8 *big)
+{
+	u32 i, j, k;
+	u8 t[12];
+
+	if (st385 == 0) {
+		for (k = 0; k < 24; k++) {
+			const u8 *sk = src + 64 * k;
+			u8 *dk = blk + 80 * k;
+			u32 w1 = t32_tmo_rd32(sk + 52);
+
+			for (j = 0; j < 6; j++)
+				t32_tmo_stat_unpack_a(sk + 8 * j, dk + 2048 + 12 * j);
+			t32_tmo_stat_unpack_a(sk + 48, t);
+			memcpy(dk + 2120, t, 8);
+			t32_tmo_wr32(blk + 5504 + 4 * k, ((w1 >> 8) & 0xffU) + (((w1 >> 16) & 0xfU) << 8));
+			t32_tmo_wr32(blk + 5600 + 4 * k, (w1 >> 16) >> 4);
+			t32_tmo_wr32(blk + 5312 + 4 * k, t32_tmo_rd32(sk + 56) & 0x1fffffffU);
+			t32_tmo_wr32(blk + 5408 + 4 * k, t32_tmo_rd32(sk + 60) & 0x1fffffffU);
+		}
+		for (i = 0; i < 170; i++)
+			t32_tmo_stat_unpack_b(src + 1536 + 8 * i, blk + 12 * i);
+		t32_tmo_stat_unpack_b(src + 2896, t);
+		memcpy(blk + 2040, t, 8);
+	} else if (st385 == 1) {
+		for (i = 0; i < 3750; i++) {
+			u32 w = t32_tmo_rd32(src + 4 * i);
+
+			t32_tmo_wr32(big + 4 * i, w & 0xffffU);
+			t32_tmo_wr32(big + 15000 + 4 * i, (w >> 16) & 0x7fffU);
+		}
+		for (i = 0; i < 170; i++)
+			t32_tmo_stat_unpack_b(src + 15000 + 8 * i, big + 30000 + 12 * i);
+		t32_tmo_stat_unpack_b(src + 16360, t);
+		memcpy(big + 32040, t, 8);
+	}
+}
+
+/*
+ * tisp_tmo_tmo_tmo2fbf_process (st = the stat record, fbf = the channel's fbf block (e35c0[ch]: words +8 and +16)): system registers
+ * (regw (reg, value), rd (reg) = system_reg_read) 0x32290 = 257; then 93 times 0x32294 = a packed word of the 4 byte group at st + 418 + 4 n:
+ * bytes g0 g1 g2 g3 and g[375 .. 378] -> g[375] << 4 | g1 << 8 | g0 | g[376] << 12 | g2 << 16 | g[377] << 20 | g3 << 24 | g[378] << 28;
+ * then 0x32294 = st[1165] << 4 | st[791] << 8 | st[790] | st[1166] << 12 | st[792] << 16 | st[1167] << 20;
+ * 0x32290 = 258 + 0x10000; 0x24020 = st16[414] << 16 | st16[416]; 0x24018 = fbf word +8 + ((rd (28952) & 3) << 14); 0x2401c = fbf word +16;
+ * 0x24014 = 0; 0x24010 = 1 (a tail call).
+ */
+static inline void t32_tmo_tmo2fbf_process(const u8 *st, const u8 *fbf, u32 (*rd)(void *, u32), void (*regw)(void *, u32, u32), void *cb)
+{
+	u32 s1 = st[414] | (u32)st[415] << 8, s3 = st[416] | (u32)st[417] << 8, n, v;
+	const u8 *g;
+
+	regw(cb, 0x32290U, 257);
+	for (n = 0; n < 93; n++) {
+		g = st + 418 + 4 * n;
+		regw(cb, 0x32294U, (u32)g[375] << 4 | (u32)g[1] << 8 | g[0] | (u32)g[376] << 12 | (u32)g[2] << 16 | (u32)g[377] << 20 |
+		     (u32)g[3] << 24 | (u32)g[378] << 28);
+	}
+	regw(cb, 0x32294U, (u32)st[1165] << 4 | (u32)st[791] << 8 | st[790] | (u32)st[1166] << 12 | (u32)st[792] << 16 | (u32)st[1167] << 20);
+	regw(cb, 0x32290U, 0x10102U);
+	regw(cb, 0x24020U, (s1 << 16) | s3);
+	v = rd(cb, 28952);
+	regw(cb, 0x24018U, ((v & 3U) << 14) + t32_tmo_rd32(fbf + 8));
+	regw(cb, 0x2401cU, t32_tmo_rd32(fbf + 16));
+	regw(cb, 0x24014U, 0);
+	regw(cb, 0x24010U, 1);
+}
+
+/* ---- phase 10b: tmo_stat_limit ---- */
+
+/*
+ * tisp_tmo_tmo_stat_limit: tb = the record's 15040 byte tone buffer (record +20): the current set (3750 u16 = 375 groups of 10, 7520 byte
+ * window) at tb and the previous set at tb + 7520; ctx16[3382] (mode), ctx16[3366] (blend on) and ctx16[3368] (weight w), rec53 = record byte 53
+ * (the previous set is valid).  mode 1: private_dma_cache_sync (tb, 7520), then each group's 10 values are clamped to their bands
+ * [0, 410], [410, 819], [819, 1229], [1229, 1638], [1638, 2048], [2048, 2457], [2457, 2867], [2867, 3276], [3276, 3686], [3686, 4095]
+ * (unsigned); mode 2: sync, then values 1 .. 9 of each group are raised to at least 410 .. 3686 (the first band edges, value 0 untouched);
+ * other modes: nothing.  ctx16[3366] == 1 and rec53 == 1: sync again and every u16 becomes (prev * w + cur * ((16 - w) & 0xff)) >> 4
+ * (32 bit wrapping sum, arithmetic shift, low 16 bits).  Finally the current set is copied over the previous one (7520 bytes) and rec53 = 1.
+ */
+static inline void t32_tmo_stat_limit(u8 *tb, const u8 *ctx, u8 *rec53, void (*dma)(u8 *, u32))
+{
+	static const u16 edge[10] = { 410, 819, 1229, 1638, 2048, 2457, 2867, 3276, 3686, 4095 };
+	u32 mode = t32_tmo_ld16(ctx, 3382), blend = t32_tmo_ld16(ctx, 3366), w = t32_tmo_ld16(ctx, 3368), g, i, wc = (16U - w) & 0xffU;
+	u16 *cur = (u16 *)tb, *prev = (u16 *)(tb + 7520);
+
+	if (mode == 1) {
+		dma(tb, 7520);
+		for (g = 0; g < 375; g++) {
+			u16 *p = cur + 10 * g;
+
+			if (p[0] > 410)
+				p[0] = 410;
+			for (i = 1; i < 10; i++) {
+				if (p[i] >= edge[i] + 1U)
+					p[i] = edge[i];
+				else if (p[i] < edge[i - 1])
+					p[i] = edge[i - 1];
+			}
+		}
+	} else if (mode == 2) {
+		dma(tb, 7520);
+		for (g = 0; g < 375; g++)
+			for (i = 1; i < 10; i++)
+				if (cur[10 * g + i] < edge[i - 1])
+					cur[10 * g + i] = edge[i - 1];
+	}
+	if (blend == 1 && *rec53 == 1) {
+		dma(tb, 7520);
+		for (i = 0; i < 3750; i++)
+			cur[i] = (u16)((u32)((int)((u32)prev[i] * w + (u32)cur[i] * wc) >> 4));
+	}
+	memcpy(tb + 7520, tb, 7520);
+	*rec53 = 1;
+}
+
+/* ---- phase 11a: adr_reg_write_sometimes, adr_reg_write_one, adr_reg_write_5x5 (tisp_reg_write (ch, reg, value) = regw) ---- */
+
+/*
+ * The vendor selects the register number with the global byte d03a0: != 0 the second numbering (the shadow numbers below), else the direct
+ * numbers.  Vendor quirk kept: in adr_reg_write_5x5 the shadow number is one constant per group of 8 / 15 writes (7806, 7814, 7822, 7830,
+ * 7838, 8040), it does not advance with the write.
+ */
+typedef void (*t32_tmo_regw_fn)(void *cb, int ch, u32 reg, u32 val);
+
+/* tisp_tmo_adr_reg_write_sometimes (ch): ctx = the channel's context; three register writes */
+static inline void t32_tmo_adr_reg_write_sometimes(const u8 *ctx, u8 d03a0, t32_tmo_regw_fn regw, void *cb, int ch)
+{
+	int s = d03a0 != 0;
+
+	regw(cb, ch, s ? 7795 : 28976, (u32)(ctx[637] & 1) << 4 | (u32)(ctx[638] & 1) << 8 | (u32)(ctx[636] & 1) | (u32)(ctx[639] & 1) << 12);
+	regw(cb, ch, s ? 7796 : 28980, (t32_tmo_ld16(ctx, 9954) & 1U) << 1 | (t32_tmo_ld16(ctx, 9952) & 1U));
+	regw(cb, ch, s ? 7797 : 28984, (t32_tmo_ld16(ctx, 9958) & 0xfffU) << 16 | (t32_tmo_ld16(ctx, 9956) & 0xfffU));
+}
+
+/* tisp_tmo_adr_reg_write_one (ch): seven register writes of 13 bit fields of the context u16 at 320 .. 342 */
+static inline void t32_tmo_adr_reg_write_one(const u8 *ctx, u8 d03a0, t32_tmo_regw_fn regw, void *cb, int ch)
+{
+	static const u16 lo[7] = { 320, 324, 328, 330, 334, 338, 342 };	/* low field offsets; the high field is lo + 2 (none for 328 and 342) */
+	int s = d03a0 != 0, i;
+
+	for (i = 0; i < 7; i++) {
+		u32 v = t32_tmo_ld16(ctx, lo[i]) & 0x1fffU;
+
+		if (i != 2 && i != 6)
+			v |= (t32_tmo_ld16(ctx, lo[i] + 2U) & 0x1fffU) << 16;
+		regw(cb, ch, s ? 7799U + (u32)i : 28992U + 4U * (u32)i, v);
+	}
+}
+
+/*
+ * tisp_tmo_adr_reg_write_5x5 (ch): five groups g of 8 writes (direct registers 29020 + 4 n, n = 8 g + j, shadow 7806 + 8 g constant per group):
+ * value = bytes b0 .. b3 of the context word ctx + 640 + 32 g + 4 j: (b0 & 31) | (b1 & 31) << 8 | (b2 & 31) << 16 | (b3 & 31) << 24;
+ * then 15 writes (direct 29956 + 4 j, shadow 8040) of the context word ctx + 574 + 4 j (two u16, low | high << 16);
+ * finally the u16 at ctx + 634 to 8055 / 30016.
+ */
+static inline void t32_tmo_adr_reg_write_5x5(const u8 *ctx, u8 d03a0, t32_tmo_regw_fn regw, void *cb, int ch)
+{
+	int s = d03a0 != 0, g, j;
+
+	for (g = 0; g < 5; g++)
+		for (j = 0; j < 8; j++) {
+			const u8 *b = ctx + 640 + 32 * g + 4 * j;
+
+			regw(cb, ch, s ? 7806U + 8U * (u32)g : 29020U + 4U * (u32)(8 * g + j),
+			     (u32)(b[0] & 31) | (u32)(b[1] & 31) << 8 | (u32)(b[2] & 31) << 16 | (u32)(b[3] & 31) << 24);
+		}
+	for (j = 0; j < 15; j++)
+		regw(cb, ch, s ? 8040 : 29956U + 4U * (u32)j, t32_tmo_ld16(ctx, 574 + 4 * (u32)j) | t32_tmo_ld16(ctx, 576 + 4 * (u32)j) << 16);
+	regw(cb, ch, s ? 8055 : 30016, t32_tmo_ld16(ctx, 634));
+}
+
+/* ---- phase 11b: ramV_vi0_reg_refresh, ramV_vi1_reg_refresh, ramY_vi0_reg_refresh ---- */
+
+/*
+ * Register access of the ram refresh functions: sysw = system_reg_write (reg, val), regw = tisp_reg_write (ch, reg, val), lutw =
+ * tisp_reg_lut_write (ch, reg, val, index), rd = system_reg_read (reg), dma = private_dma_cache_sync (0, buf, len, 0).
+ */
+struct t32_tmo_ramio {
+	void *cb;
+	void (*sysw)(void *cb, u32 reg, u32 val);
+	void (*regw)(void *cb, int ch, u32 reg, u32 val);
+	void (*lutw)(void *cb, int ch, u32 reg, u32 val, u32 idx);
+	u32 (*rd)(void *cb, u32 reg);
+	void (*dma)(void *cb, u8 *buf, u32 len);
+	u8 d03a0;
+};
+
+/* the two words written for the 10 byte element p (five u16 a0 .. a4) of the tone buffer by ramV_vi0 / ramV_vi1 */
+static inline void t32_tmo_ramv_words(const u8 *p, u32 *w1, u32 *w2)
+{
+	u32 a0 = t32_tmo_ld16(p, 0), a1 = t32_tmo_ld16(p, 2), a2 = t32_tmo_ld16(p, 4), a3 = t32_tmo_ld16(p, 6), a4 = t32_tmo_ld16(p, 8);
+
+	*w1 = (a0 & 0xfffU) | (a2 << 24) | ((a1 & 0xfffU) << 12);
+	*w2 = ((a2 >> 8) & 0xfU) | ((a3 << 4) & 0xffffU) | ((a4 & 0xfffU) << 16);
+}
+
+/* the final pair of writes common to the three refreshes: the clear-on-read mask word at the interrupt register (28960 / shadow 7793) and 28688 / 7739 = -1 */
+static inline void t32_tmo_ram_tail(const struct t32_tmo_ramio *io, int ch)
+{
+	u32 v = io->rd(io->cb, 28960);
+
+	io->regw(io->cb, ch, io->d03a0 == 0 ? 28960U : 7793U, ~v);
+	io->regw(io->cb, ch, io->d03a0 != 0 ? 7739U : 28688U, 0xffffffffU);
+}
+
+/*
+ * tisp_tmo_ramV_vi0_reg_refresh (ch): tb = the record's tone buffer (record +20): 750 elements of 10 bytes.  Writes (system_reg_write)
+ * 0x32260 = 257, then per element two writes to 0x32264 (ramv_words), 0x32260 = 0x10102, then the tail.
+ */
+static inline void t32_tmo_ramV_vi0_reg_refresh(const u8 *tb, int ch, const struct t32_tmo_ramio *io)
+{
+	u32 e, w1, w2;
+
+	io->sysw(io->cb, 0x32260U, 257);
+	for (e = 0; e < 750; e++) {
+		t32_tmo_ramv_words(tb + 10 * e, &w1, &w2);
+		io->sysw(io->cb, 0x32264U, w1);
+		io->sysw(io->cb, 0x32264U, w2);
+	}
+	io->sysw(io->cb, 0x32260U, 0x10102U);
+	t32_tmo_ram_tail(io, ch);
+}
+
+/*
+ * tisp_tmo_ramV_vi1_reg_refresh (ch): the tone buffer is synced (7520 bytes), then tisp_reg_write: base = (d03a0 != 0 ? 6234 : 0x32260) = 257;
+ * per element e (750) tisp_reg_lut_write (ch, lut = (d03a0 != 0 ? 6236 : 0x32264), w1, 2 e) and (.., w2, 2 e + 1) (the index
+ * advances 2 per element: 4 per 20 byte block); then tisp_reg_write (base + 1503, 0x10102), then the second tail write only
+ * (28688 / 7739 = -1; no interrupt mask read).
+ */
+static inline void t32_tmo_ramV_vi1_reg_refresh(u8 *tb, int ch, const struct t32_tmo_ramio *io)
+{
+	u32 base = io->d03a0 != 0 ? 6234U : 0x32260U, lut = io->d03a0 != 0 ? 6236U : 0x32264U, e, w1, w2;
+
+	io->dma(io->cb, tb, 7520);
+	io->regw(io->cb, ch, base, 257);
+	for (e = 0; e < 750; e++) {
+		t32_tmo_ramv_words(tb + 10 * e, &w1, &w2);
+		io->lutw(io->cb, ch, lut, w1, 2 * e);
+		io->lutw(io->cb, ch, lut, w2, 2 * e + 1);
+	}
+	io->regw(io->cb, ch, base + 1503U, 0x10102U);
+	io->regw(io->cb, ch, io->d03a0 != 0 ? 7739U : 28688U, 0xffffffffU);
+}
+
+/*
+ * tisp_tmo_ramY_vi0_reg_refresh (ch): drc_ctrl first (a call on the record r, ported), then with out = the record's 201 u16 curve:
+ * system_reg_write 0x32300 = 257; 100 times 0x32304 = (out[2 i + 1] & 0x1fff) << 16 | (out[2 i] & 0x1fff); 0x32304 = v << 16 | v with
+ * v = out[200] & 0x1fff; 0x32300 = 0x10102; tisp_reg_write (d03a0 == 0: 0x32400 / 0x32404 / 0x32408 else 16383 for all three):
+ * 612, 0x650000, 1; then the tail.
+ */
+static inline void t32_tmo_ramY_vi0_reg_refresh(struct t32_tmo_rec *r, int ch, const struct t32_tmo_ramio *io)
+{
+	const u16 *out;
+	u32 i, v;
+
+	t32_tmo_drc_ctrl(r);
+	out = r->out;
+	io->sysw(io->cb, 0x32300U, 257);
+	for (i = 0; i < 100; i++)
+		io->sysw(io->cb, 0x32304U, ((out[2 * i + 1] & 0x1fffU) << 16) | (out[2 * i] & 0x1fffU));
+	v = out[200] & 0x1fffU;
+	io->sysw(io->cb, 0x32304U, (v << 16) | v);
+	io->sysw(io->cb, 0x32300U, 0x10102U);
+	io->regw(io->cb, ch, io->d03a0 == 0 ? 0x32400U : 16383U, 612);
+	io->regw(io->cb, ch, io->d03a0 == 0 ? 0x32404U : 16383U, 0x650000U);
+	io->regw(io->cb, ch, io->d03a0 != 0 ? 16383U : 0x32408U, 1);
+	t32_tmo_ram_tail(io, ch);
+}
+
+/* ---- phase 12a: tmoadr_default_reg_refresh, tmo_default_reg_refresh, faceae_reg_refresh (tisp_reg_write sequences) ---- */
+
+/*
+ * The three register refresh functions are straight sequences of tisp_reg_write (ch, reg, value) calls; the vendor's register number depends
+ * on the global byte d03a0 (!= 0: the shadow numbering, else the direct one); the order, registers and values below are those of the vendor
+ * functions (expanded from the recovered code by a symbolic evaluation, then cross-checked by t32_tmo12a_oracle).  The last write is a tail
+ * call in the vendor.  st = the channel's stat record (record +4), rec40 = the u32 at record +40.
+ */
+#define T32_TMO_LD16(b, o) t32_tmo_ld16((b), (o))
+#define T32_TMO_LD32(b, o) t32_tmo_rd32((b) + (o))
+#define RW(r, v) regw(cb, ch, (r), (v))
+#define ld16 T32_TMO_LD16
+#define ld32 T32_TMO_LD32
+
+/* tisp_tmo_tmoadr_default_reg_refresh (ch): 61 writes */
+static inline void t32_tmo_tmoadr_default_reg_refresh(const u8 *st, u32 rec40, u8 d03a0, t32_tmo_regw_fn regw, void *cb, int ch)
+{
+	int s = d03a0 != 0;
+
+	RW(s ? 7741 : 28736, ld32(st, 238));
+	RW(s ? 7742 : 28740, ld32(st, 242));
+	RW(s ? 7743 : 28744, (((ld16(st, 248) & 4095) << 16) | (ld16(st, 246) & 4095)));
+	RW(s ? 7744 : 28748, ld32(st, 250));
+	RW(s ? 7745 : 28752, ld32(st, 254));
+	RW(s ? 7746 : 28756, (((ld16(st, 260) & 4095) << 16) | (ld16(st, 258) & 4095)));
+	RW(s ? 7747 : 28760, (((ld16(st, 264) & 4095) << 16) | (ld16(st, 262) & 4095)));
+	RW(s ? 7750 : 28772, ((((((rec40 & 1) << 16) | (st[386] & 3)) | ((st[388] & 1) << 4)) | ((st[387] & 1) << 8)) | ((st[385] & 1) << 12)));
+	RW(s ? 7748 : 28764, (((ld16(st, 320) & 4095) << 16) | (ld16(st, 318) & 4095)));
+	RW(s ? 7749 : 28768, (ld16(st, 322) & 4095));
+	RW(s ? 7751 : 28776, (((ld16(st, 106) & 4095) << 16) | (ld16(st, 104) & 4095)));
+	RW(s ? 7752 : 28780, (((ld16(st, 110) & 4095) << 16) | (ld16(st, 108) & 4095)));
+	RW(s ? 7753 : 28784, (((ld16(st, 114) & 4095) << 16) | (ld16(st, 112) & 4095)));
+	RW(s ? 7754 : 28788, (((ld16(st, 118) & 4095) << 16) | (ld16(st, 116) & 4095)));
+	RW(s ? 7755 : 28792, (((ld16(st, 122) & 4095) << 16) | (ld16(st, 120) & 4095)));
+	RW(s ? 7756 : 28796, (((ld16(st, 126) & 4095) << 16) | (ld16(st, 124) & 4095)));
+	RW(s ? 7757 : 28800, (((ld16(st, 130) & 4095) << 16) | (ld16(st, 128) & 4095)));
+	RW(s ? 7758 : 28804, (((ld16(st, 134) & 4095) << 16) | (ld16(st, 132) & 4095)));
+	RW(s ? 7759 : 28808, (((ld16(st, 138) & 4095) << 16) | (ld16(st, 136) & 4095)));
+	RW(s ? 7760 : 28812, (((ld16(st, 142) & 4095) << 16) | (ld16(st, 140) & 4095)));
+	RW(s ? 7761 : 28816, (((ld16(st, 146) & 4095) << 16) | (ld16(st, 144) & 4095)));
+	RW(s ? 7762 : 28820, (((ld16(st, 150) & 4095) << 16) | (ld16(st, 148) & 4095)));
+	RW(s ? 7763 : 28824, (ld16(st, 152) & 4095));
+	RW(s ? 7764 : 28828, (((ld16(st, 156) & 511) << 16) | (ld16(st, 154) & 511)));
+	RW(s ? 7765 : 28832, (((ld16(st, 160) & 511) << 16) | (ld16(st, 158) & 511)));
+	RW(s ? 7766 : 28836, (((ld16(st, 164) & 511) << 16) | (ld16(st, 162) & 511)));
+	RW(s ? 7767 : 28840, (((ld16(st, 168) & 511) << 16) | (ld16(st, 166) & 511)));
+	RW(s ? 7768 : 28844, (((ld16(st, 172) & 511) << 16) | (ld16(st, 170) & 511)));
+	RW(s ? 7769 : 28848, (((ld16(st, 176) & 511) << 16) | (ld16(st, 174) & 511)));
+	RW(s ? 7770 : 28852, (((ld16(st, 180) & 511) << 16) | (ld16(st, 178) & 511)));
+	RW(s ? 7771 : 28856, (((ld16(st, 184) & 511) << 16) | (ld16(st, 182) & 511)));
+	RW(s ? 7772 : 28860, (((ld16(st, 188) & 511) << 16) | (ld16(st, 186) & 511)));
+	RW(s ? 7773 : 28864, (((ld16(st, 192) & 511) << 16) | (ld16(st, 190) & 511)));
+	RW(s ? 7774 : 28868, (((ld16(st, 196) & 511) << 16) | (ld16(st, 194) & 511)));
+	RW(s ? 7775 : 28872, (((ld16(st, 200) & 511) << 16) | (ld16(st, 198) & 511)));
+	RW(s ? 7776 : 28876, (((ld16(st, 204) & 511) << 16) | (ld16(st, 202) & 511)));
+	RW(s ? 7777 : 28880, (((ld16(st, 208) & 511) << 16) | (ld16(st, 206) & 511)));
+	RW(s ? 7778 : 28884, (((ld16(st, 212) & 511) << 16) | (ld16(st, 210) & 511)));
+	RW(s ? 7779 : 28888, (((ld16(st, 216) & 511) << 16) | (ld16(st, 214) & 511)));
+	RW(s ? 7780 : 28892, (((ld16(st, 220) & 511) << 16) | (ld16(st, 218) & 511)));
+	RW(s ? 7781 : 28896, (((ld16(st, 224) & 511) << 16) | (ld16(st, 222) & 511)));
+	RW(s ? 7782 : 28900, (((ld16(st, 228) & 511) << 16) | (ld16(st, 226) & 511)));
+	RW(s ? 7783 : 28904, (((ld16(st, 232) & 511) << 16) | (ld16(st, 230) & 511)));
+	RW(s ? 7784 : 28908, (((ld16(st, 236) & 511) << 16) | (ld16(st, 234) & 511)));
+	RW(s ? 8056 : 30020, (st[266] & 31));
+	RW(s ? 8057 : 30024, (((ld16(st, 270) & 2047) << 16) | (ld16(st, 268) & 2047)));
+	RW(s ? 8058 : 30028, (((ld16(st, 274) & 2047) << 16) | (ld16(st, 272) & 2047)));
+	RW(s ? 8059 : 30032, (((ld16(st, 278) & 2047) << 16) | (ld16(st, 276) & 2047)));
+	RW(s ? 8060 : 30036, (((ld16(st, 282) & 2047) << 16) | (ld16(st, 280) & 2047)));
+	RW(s ? 8061 : 30040, (((ld16(st, 286) & 2047) << 16) | (ld16(st, 284) & 2047)));
+	RW(s ? 8062 : 30044, (((ld16(st, 290) & 2047) << 16) | (ld16(st, 288) & 2047)));
+	RW(s ? 8063 : 30048, (((ld16(st, 294) & 2047) << 16) | (ld16(st, 292) & 2047)));
+	RW(s ? 8064 : 30052, (((ld16(st, 298) & 2047) << 16) | (ld16(st, 296) & 2047)));
+	RW(s ? 8065 : 30056, (((ld16(st, 302) & 2047) << 16) | (ld16(st, 300) & 2047)));
+	RW(s ? 8066 : 30060, (((ld16(st, 306) & 2047) << 16) | (ld16(st, 304) & 2047)));
+	RW(s ? 8067 : 30064, (((ld16(st, 310) & 2047) << 16) | (ld16(st, 308) & 2047)));
+	RW(s ? 8068 : 30068, (((ld16(st, 314) & 2047) << 16) | (ld16(st, 312) & 2047)));
+	RW(s ? 8069 : 30072, (ld16(st, 316) & 2047));
+	RW(s ? 8076 : 30100, (((ld16(st, 1170) & 4095) << 16) | (ld16(st, 1168) & 4095)));
+	RW(s ? 8077 : 30104, (((ld16(st, 1174) & 1023) << 8) | (ld16(st, 1172) & 3)));
+	RW(s ? 7739 : 28688, 4294967295);
+}
+
+/* tisp_tmo_tmo_default_reg_refresh (ch): 49 writes */
+static inline void t32_tmo_tmo_default_reg_refresh(const u8 *st, u8 d03a0, t32_tmo_regw_fn regw, void *cb, int ch)
+{
+	int s = d03a0 != 0;
+
+	RW(s ? 7973 : 29688, (((ld16(st, 326) & 8191) << 16) | (ld16(st, 324) & 8191)));
+	RW(s ? 7974 : 29692, (((ld16(st, 330) & 8191) << 16) | (ld16(st, 328) & 8191)));
+	RW(s ? 7975 : 29696, (((ld16(st, 334) & 8191) << 16) | (ld16(st, 332) & 8191)));
+	RW(s ? 7976 : 29700, (((ld16(st, 338) & 8191) << 16) | (ld16(st, 336) & 8191)));
+	RW(s ? 7977 : 29704, (((ld16(st, 342) & 511) << 16) | (ld16(st, 340) & 511)));
+	RW(s ? 7978 : 29708, (((ld16(st, 346) & 511) << 16) | (ld16(st, 344) & 511)));
+	RW(s ? 7979 : 29712, (((ld16(st, 350) & 511) << 16) | (ld16(st, 348) & 511)));
+	RW(s ? 7980 : 29716, (((ld16(st, 354) & 511) << 16) | (ld16(st, 352) & 511)));
+	RW(s ? 7981 : 29720, (((ld32(st, 100) & 8191) << 16) | (ld32(st, 96) & 8191)));
+	RW(s ? 7982 : 29724, (((ld16(st, 2) & 4095) << 16) | (ld16(st, 0) & 4095)));
+	RW(s ? 7983 : 29728, (((ld16(st, 6) & 4095) << 16) | (ld16(st, 4) & 4095)));
+	RW(s ? 7984 : 29732, (((ld16(st, 10) & 4095) << 16) | (ld16(st, 8) & 4095)));
+	RW(s ? 7985 : 29736, (((ld16(st, 14) & 4095) << 16) | (ld16(st, 12) & 4095)));
+	RW(s ? 7986 : 29740, (((ld16(st, 18) & 4095) << 16) | (ld16(st, 16) & 4095)));
+	RW(s ? 7987 : 29744, (((ld16(st, 22) & 4095) << 16) | (ld16(st, 20) & 4095)));
+	RW(s ? 7988 : 29748, (((ld32(st, 60) & 1023) << 16) | (ld32(st, 56) & 1023)));
+	RW(s ? 7989 : 29752, (((ld32(st, 68) & 2047) << 16) | (ld32(st, 64) & 2047)));
+	RW(s ? 7990 : 29756, ((st[80] << 16) | st[76]));
+	RW(s ? 7991 : 29760, (((ld32(st, 88) & 511) << 16) | (ld32(st, 84) & 511)));
+	RW(s ? 7992 : 29764, ((st[50] << 16) | st[48]));
+	RW(s ? 7993 : 29768, (((st[378] & 31) << 16) | (ld16(st, 52) & 4095)));
+	RW(s ? 7994 : 29772, (((st[357] & 15) << 16) | (st[356] & 15)));
+	RW(s ? 7995 : 29776, (((st[359] & 15) << 16) | (st[358] & 15)));
+	RW(s ? 7996 : 29780, (((st[361] & 15) << 16) | (st[360] & 15)));
+	RW(s ? 7997 : 29784, (((st[377] & 7) << 16) | (st[362] & 15)));
+	RW(s ? 7998 : 29788, (((ld16(st, 26) & 1023) << 16) | (ld16(st, 24) & 1023)));
+	RW(s ? 7999 : 29792, (((ld16(st, 30) & 1023) << 16) | (ld16(st, 28) & 1023)));
+	RW(s ? 8000 : 29796, (((ld16(st, 34) & 1023) << 16) | (ld16(st, 32) & 1023)));
+	RW(s ? 8001 : 29800, (((st[372] & 127) << 16) | (st[371] & 127)));
+	RW(s ? 8002 : 29804, (((st[374] & 127) << 16) | (st[373] & 127)));
+	RW(s ? 8003 : 29808, (((st[376] & 127) << 16) | (st[375] & 127)));
+	RW(s ? 8004 : 29812, (((ld16(st, 38) & 1023) << 16) | (ld16(st, 36) & 1023)));
+	RW(s ? 8005 : 29816, (((ld16(st, 42) & 1023) << 16) | (ld16(st, 40) & 1023)));
+	RW(s ? 8006 : 29820, (((ld16(st, 46) & 1023) << 16) | (ld16(st, 44) & 1023)));
+	RW(s ? 8007 : 29824, (((st[364] & 127) << 16) | (st[363] & 127)));
+	RW(s ? 8008 : 29828, (((st[366] & 127) << 16) | (st[365] & 127)));
+	RW(s ? 8009 : 29832, ((st[368] << 16) | st[367]));
+	RW(s ? 8010 : 29836, (((st[370] & 127) << 16) | (st[369] & 127)));
+	RW(s ? 8011 : 29840, (((st[380] & 127) << 16) | (st[379] & 127)));
+	RW(s ? 8012 : 29844, ((st[382] << 16) | st[381]));
+	RW(s ? 8013 : 29848, ((st[384] << 16) | st[383]));
+	RW(s ? 8014 : 29852, (((ld16(st, 392) & 4095) << 16) | (ld16(st, 390) & 4095)));
+	RW(s ? 8015 : 29856, (((ld16(st, 396) & 4095) << 16) | (ld16(st, 394) & 4095)));
+	RW(s ? 8016 : 29860, (((ld16(st, 400) & 4095) << 16) | (ld16(st, 398) & 4095)));
+	RW(s ? 8017 : 29864, (((ld16(st, 404) & 4095) << 16) | (ld16(st, 402) & 4095)));
+	RW(s ? 8018 : 29868, (((ld16(st, 408) & 4095) << 16) | (ld16(st, 406) & 4095)));
+	RW(s ? 8019 : 29872, (((ld16(st, 412) & 4095) << 16) | (ld16(st, 410) & 4095)));
+	RW(s ? 7864 : 29252, ((ld32(st, 72) >> 0) & 1048575));
+	RW(s ? 7797 : 28984, (ld32(st, 92) & 32767));
+}
+
+/* tisp_tmo_faceae_reg_refresh (ch): 16 writes */
+static inline void t32_tmo_faceae_reg_refresh(const u8 *st, u8 d03a0, t32_tmo_regw_fn regw, void *cb, int ch)
+{
+	int s = d03a0 != 0;
+
+	RW(s ? 7982 : 29724, (((ld16(st, 2) & 4095) << 16) | (ld16(st, 0) & 4095)));
+	RW(s ? 7983 : 29728, (((ld16(st, 6) & 4095) << 16) | (ld16(st, 4) & 4095)));
+	RW(s ? 7984 : 29732, (((ld16(st, 10) & 4095) << 16) | (ld16(st, 8) & 4095)));
+	RW(s ? 7985 : 29736, (((ld16(st, 14) & 4095) << 16) | (ld16(st, 12) & 4095)));
+	RW(s ? 7986 : 29740, (((ld16(st, 18) & 4095) << 16) | (ld16(st, 16) & 4095)));
+	RW(s ? 7987 : 29744, (((ld16(st, 22) & 4095) << 16) | (ld16(st, 20) & 4095)));
+	RW(s ? 7998 : 29788, (((ld16(st, 26) & 1023) << 16) | (ld16(st, 24) & 1023)));
+	RW(s ? 7999 : 29792, (((ld16(st, 30) & 1023) << 16) | (ld16(st, 28) & 1023)));
+	RW(s ? 8000 : 29796, (((ld16(st, 34) & 1023) << 16) | (ld16(st, 32) & 1023)));
+	RW(s ? 8001 : 29800, (((st[372] & 127) << 16) | (st[371] & 127)));
+	RW(s ? 8002 : 29804, (((st[374] & 127) << 16) | (st[373] & 127)));
+	RW(s ? 8003 : 29808, (((st[376] & 127) << 16) | (st[375] & 127)));
+	RW(s ? 8004 : 29812, (((ld16(st, 38) & 1023) << 16) | (ld16(st, 36) & 1023)));
+	RW(s ? 8005 : 29816, (((ld16(st, 42) & 1023) << 16) | (ld16(st, 40) & 1023)));
+	RW(s ? 8006 : 29820, (((ld16(st, 46) & 1023) << 16) | (ld16(st, 44) & 1023)));
+	RW(s ? 7997 : 29784, (((st[377] & 7) << 16) | (st[362] & 15)));
+}
+
+#undef RW
+#undef ld16
+#undef ld32
+
+/* ---- phase 12b: ramY_vi1_reg_refresh ---- */
+
+/*
+ * tisp_tmo_ramY_vi1_reg_refresh (ch): drc_ctrl first (ported, on the record r), then 101 tisp_reg_write calls: register (d03a0 != 0 ? 7872 + k : 29284 + 4 k) for k = 0 .. 99
+ * = (out[2 k + 1] & 0x1fff) << 16 | (out[2 k] & 0x1fff), and k = 100 = (v << 16) | v with v = out[200] & 0x1fff (the vendor reads out + 400 twice); the last
+ * write is a tail call.  Unlike ramY_vi0 no stream registers (0x32300) and no interrupt mask are written.
+ */
+static inline void t32_tmo_ramY_vi1_reg_refresh(struct t32_tmo_rec *r, int ch, const struct t32_tmo_ramio *io)
+{
+	const u16 *out;
+	u32 k, v;
+
+	t32_tmo_drc_ctrl(r);
+	out = r->out;
+	for (k = 0; k < 100; k++)
+		io->regw(io->cb, ch, io->d03a0 != 0 ? 7872U + k : 29284U + 4U * k, ((out[2 * k + 1] & 0x1fffU) << 16) | (out[2 * k] & 0x1fffU));
+	v = out[200] & 0x1fffU;
+	io->regw(io->cb, ch, io->d03a0 != 0 ? 7972U : 29684U, (v << 16) | v);
+}
+
+/* ---- phase 12c: adr_reg_write_every ---- */
+
+/*
+ * tisp_tmo_adr_reg_write_every (ch): blk = *(t32_data_e35b0[ch]) (the 800 byte adr block), ctx = the channel's context.  r = system_reg_read (0x3240c);
+ * r != 0: only an isp_printf (dropped) and nothing else.  Else: tisp_reg_write (d03a0 == 0 ? 0x32400 / 0x32404 : 16383 for both) = 612, 0x650000;
+ * system_reg_write 0x32300 = 257; 14 x 7 times 0x32304 = pair (u16 at +2, +0, 12 bit) of blk + 128 + 28 j + 4 i; three more 0x32304 pairs
+ * of blk + 520, + 524, + 528; 0x32300 = 0x10102; tisp_reg_write 0x32408 = 1 (always the direct number, vendor quirk); then tisp_reg_write
+ * of 12 bit pairs (shadow 7846 + n / direct 29180 + 4 n): n = 0 .. 7: blk + 68 + 4 n; n = 8 .. 17: ctx + 376 + 4 (n - 8); n = 18: ctx16 [416] alone
+ * (12 bit); n = 19 .. 25 (7865 + .. / 29256 + ..): blk + 100 + 4 (n - 19); then 67 pairs (7973 + k / 29688 + 4 k) of blk + 532 + 4 k.
+ */
+static inline void t32_tmo_adr_reg_write_every(const u8 *blk, const u8 *ctx, int ch, const struct t32_tmo_ramio *io)
+{
+	int s = io->d03a0 != 0;
+	u32 j, i, k;
+#define PAIR(b, o) (((t32_tmo_ld16((b), (o) + 2) & 0xfffU) << 16) | (t32_tmo_ld16((b), (o)) & 0xfffU))
+
+	if (io->rd(io->cb, 0x3240cU) != 0)
+		return;
+	io->regw(io->cb, ch, s ? 16383U : 0x32400U, 612);
+	io->regw(io->cb, ch, s ? 16383U : 0x32404U, 0x650000U);
+	io->sysw(io->cb, 0x32300U, 257);
+	for (j = 0; j < 14; j++)
+		for (i = 0; i < 7; i++)
+			io->sysw(io->cb, 0x32304U, PAIR(blk, 128 + 28 * j + 4 * i));
+	io->sysw(io->cb, 0x32304U, PAIR(blk, 520));
+	io->sysw(io->cb, 0x32304U, PAIR(blk, 524));
+	io->sysw(io->cb, 0x32304U, PAIR(blk, 528));
+	io->sysw(io->cb, 0x32300U, 0x10102U);
+	io->regw(io->cb, ch, 0x32408U, 1);
+	for (k = 0; k < 8; k++)
+		io->regw(io->cb, ch, s ? 7846U + k : 29180U + 4U * k, PAIR(blk, 68 + 4 * k));
+	for (k = 0; k < 10; k++)
+		io->regw(io->cb, ch, s ? 7854U + k : 29212U + 4U * k, PAIR(ctx, 376 + 4 * k));
+	io->regw(io->cb, ch, s ? 7864U : 29252U, t32_tmo_ld16(ctx, 416) & 0xfffU);
+	for (k = 0; k < 7; k++)
+		io->regw(io->cb, ch, s ? 7865U + k : 29256U + 4U * k, PAIR(blk, 100 + 4 * k));
+	for (k = 0; k < 67; k++)
+		io->regw(io->cb, ch, s ? 7973U + k : 29688U + 4U * k, PAIR(blk, 532 + 4 * k));
+#undef PAIR
+}
+
+/* ---- phase 13a: adr_algorithm ---- */
+
+/*
+ * tisp_tmo_adr_algorithm (ch): ctx = the channel's context.  tmp = the 7 u16 of t32_data_c04b8 (copied: memcpy 14 bytes); tisp_tmo_adr_interp1_short
+ * (xs = ctx + 9272 (129 s16), ys = t32_data_d87a0 (129 s16), in = tmp, out, 129, 7) gives 7 values o[0..6]; ctx u16 [8754 + 2 p] = o[p + 1] - o[p]
+ * for p = 0 .. 5; then ctx16[8772] = ctx16[8762], ctx16[8774] = ctx16[8764], ctx16[8768] = ctx16[8754] + ctx16[8756], ctx16[8770] =
+ * ctx16[8758] + ctx16[8760] (u16 arithmetic, offsets in bytes); then tisp_tmo_adr_fpga (ch) (hook), return 0.  Dropped: the vendor's printk
+ * every 1000th call (t32_data_e3516 % 1000 == 0; e3516 is a counter u16 only read here).
+ */
+static inline void t32_tmo_adr_algorithm(u8 *ctx, const s16 *c04b8, const s16 *d87a0, void (*fpga)(void *, int), void *cb, int ch)
+{
+	s16 tmp[7], o[7];
+	int p;
+
+	memcpy(tmp, c04b8, 14);
+	t32_tmo_adr_interp1_short((const s16 *)(ctx + 9272), d87a0, tmp, o, 129, 7);
+	for (p = 0; p < 6; p++)
+		*(u16 *)(ctx + 8754 + 2 * p) = (u16)(o[p + 1] - o[p]);
+	*(u16 *)(ctx + 8772) = t32_tmo_ld16(ctx, 8762);
+	*(u16 *)(ctx + 8774) = t32_tmo_ld16(ctx, 8764);
+	*(u16 *)(ctx + 8768) = (u16)(t32_tmo_ld16(ctx, 8754) + t32_tmo_ld16(ctx, 8756));
+	*(u16 *)(ctx + 8770) = (u16)(t32_tmo_ld16(ctx, 8758) + t32_tmo_ld16(ctx, 8760));
+	fpga(cb, ch);
+}
+
+/* ---- phase 13b: tmo_init ---- */
+
+/*
+ * Environment of tisp_tmo_init.  The callees that are cross-checked elsewhere (malloc_cfg, size_update, fbf_malloc_cfg, dark_ctr_interp,
+ * detail_ev_interp, satcurve_ev_interp, the default register refreshes, modechange_stat_refresh, the ramY / ramV refreshes, adr_gamma_refresh,
+ * system_irq_func_set) are hooks, ids:  0 malloc_cfg, 1 size_update (ch, param), 2 fbf_malloc_cfg, 3 dark_ctr_interp, 4 detail_ev_interp,
+ * 5 satcurve_ev_interp, 6 tmoadr_default_reg_refresh, 7 lcac_no_refresh, 8 tmo_default_reg_refresh, 9 modechange_stat_refresh,
+ * 10 ramY_vi1, 11 ramV_vi1, 12 ramY_vi0, 13 ramV_vi0, 14 adr_gamma_refresh (0), 15 irq 9 = interrupt_static, 16 irq 31 = fbf_interrupt_calc.
+ * tmo_params_hard_refresh is called as the port.  Addresses in the records are 32 bit (host pointers cast).
+ */
+struct t32_tmo_init_env {
+	void *(*vmalloc)(void *cb, u32 size);
+	void *(*kmalloc)(void *cb, u32 size, u32 flags);
+	void (*hook)(void *cb, int id, int ch);
+	void (*regw)(void *cb, int ch, u32 reg, u32 val);
+	void *cb;
+	u32 *e35e0, *e35b0;		/* the channel's slots */
+	u32 ctx;			/* t32_data_dd0a4[ch] + 11976: the new context (32 bit address) */
+	u32 *e3580, *e3570;
+	u16 *e3518;			/* t32_data_e3518[0] */
+	const u8 *d88d6;		/* the 28 byte vendor table */
+	const u32 *param;		/* the init parameter block (words 0 / 1, byte 36) */
+	u8 d03a0;
+};
+
+/*
+ * tisp_tmo_init (ch, param): malloc_cfg (ch) first, then the channel record rec (vmalloc 64, zeroed) in the e35e0 slot: st = vmalloc 1176 (+4), big = vmalloc 0x8530
+ * (+16) (zeroed), tbuf = kmalloc (15040, 0x24000c0) (+20, not cleared), ctx = the new context (+0), out = vmalloc 402 (+8, zeroed), geom = vmalloc 20 (+12,
+ * zeroed); size_update; st + 377 = 2 bytes of ctx + 10038; ctx byte 10042 = 1; rec + 40 = param byte 36 (as u32); fbf_malloc_cfg, params_hard_refresh
+ * (port), dark_ctr_interp, detail_ev_interp, satcurve_ev_interp, tmoadr_default_reg_refresh, lcac_no_refresh; rec u16 +56 = 128; (ctx byte 10042 read
+ * back is 1: the else branch of the vendor is dead) st u16 [340 .. 354] = 256 (8 entries), tmo_default_reg_refresh; rec byte 52 = st byte 385;
+ * st byte 385 == 1: modechange_stat_refresh and the ramY / ramV refresh (vi1 when d03a0 == 1, else vi0).  Then the e35b0 record
+ * (kmalloc 20): +0 = kmalloc 800, +4 = kmalloc 1140, +8 = kmalloc 10056 (all zeroed), +12 = param byte 36; e3580 = param[0], e3570 = param[1], *e3518 = 1;
+ * 24 copies of the 28 byte table d88d6 into the 1140 block at +200 + 28 k, one into the 800 block at +100 and 24 at +128 + 28 k;
+ * adr_gamma_refresh (0); tisp_reg_write (ch, d03a0 != 0 ? 7793 : 28960, 1); system_irq_func_set (ch & 0xff, 9 / 31, ...).  Dropped: the vendor's isp_printf
+ * after a failed allocation (a NULL vmalloc result is then a NULL dereference in the vendor).
+ */
+static inline void t32_tmo_init(struct t32_tmo_init_env *e, int ch)
+{
+	u32 *rec, *b;
+	u8 *st, *ctx;
+	u32 k;
+	u8 s1;
+#define VM(sz) ((u32 *)e->vmalloc(e->cb, (sz)))
+#define ADDR(p) ((u32)(uintptr_t)(p))
+#define PTR(a) ((u8 *)(uintptr_t)(a))
+
+	e->hook(e->cb, 0, ch);
+	rec = VM(64);
+	*e->e35e0 = ADDR(rec);
+	memset(rec, 0, 64);
+	rec[1] = ADDR(VM(1176));
+	memset(PTR(rec[1]), 0, 1176);
+	rec[4] = ADDR(VM(0x8530));
+	memset(PTR(rec[4]), 0, 0x8530);
+	rec[5] = ADDR(e->kmalloc(e->cb, 15040, 0x24000c0));
+	rec[0] = e->ctx;
+	rec[2] = ADDR(VM(402));
+	memset(PTR(rec[2]), 0, 402);
+	rec[3] = ADDR(VM(20));
+	memset(PTR(rec[3]), 0, 20);
+	e->hook(e->cb, 1, ch);
+	st = PTR(rec[1]);
+	ctx = PTR(rec[0]);
+	memcpy(st + 377, ctx + 10038, 2);
+	ctx[10042] = 1;
+	rec[10] = e->param[9] & 0xffU;	/* byte 36 of the parameter block (little endian word 9) */
+	e->hook(e->cb, 2, ch);
+	t32_tmo_params_hard_refresh(ctx, st);
+	e->hook(e->cb, 3, ch);
+	e->hook(e->cb, 4, ch);
+	e->hook(e->cb, 5, ch);
+	e->hook(e->cb, 6, ch);
+	e->hook(e->cb, 7, ch);
+	*(u16 *)((u8 *)rec + 56) = 128;
+	for (k = 0; k < 8; k++)
+		*(u16 *)(st + 340 + 2 * k) = 256;
+	e->hook(e->cb, 8, ch);
+	*((u8 *)rec + 52) = st[385];
+	s1 = st[385];
+	if (s1 == 1) {
+		e->hook(e->cb, 9, ch);
+		if (e->d03a0 == s1) {
+			e->hook(e->cb, 10, ch);
+			e->hook(e->cb, 11, ch);
+		} else {
+			e->hook(e->cb, 12, ch);
+			e->hook(e->cb, 13, ch);
+		}
+	}
+	b = (u32 *)e->kmalloc(e->cb, 20, 0x24000c0);
+	*e->e35b0 = ADDR(b);
+	b[0] = ADDR(e->kmalloc(e->cb, 800, 0x24000c0));
+	memset(PTR(b[0]), 0, 800);
+	b[1] = ADDR(e->kmalloc(e->cb, 1140, 0x24000c0));
+	memset(PTR(b[1]), 0, 1140);
+	b[2] = ADDR(e->kmalloc(e->cb, 10056, 0x24000c0));
+	memset(PTR(b[2]), 0, 10056);
+	b[3] = e->param[9] & 0xffU;
+	*e->e3580 = e->param[0];
+	*e->e3570 = e->param[1];
+	*e->e3518 = 1;
+	for (k = 0; k < 24; k++)
+		memcpy(PTR(b[1]) + 200 + 28 * k, e->d88d6, 28);
+	e->hook(e->cb, 14, 0);
+	memcpy(PTR(b[0]) + 100, e->d88d6, 28);
+	for (k = 0; k < 24; k++)
+		memcpy(PTR(b[0]) + 128 + 28 * k, e->d88d6, 28);
+	e->regw(e->cb, ch, e->d03a0 != 0 ? 7793U : 28960U, 1);
+	e->hook(e->cb, 15, ch & 0xff);
+	e->hook(e->cb, 16, ch & 0xff);
+#undef VM
+#undef ADDR
+#undef PTR
+}
+
+/* ---- phase 13c: tmo_tmo2fbf_input_prep ---- */
+
+/*
+ * tisp_tmo_tmo_tmo2fbf_input_prep (ch): st = the stat record, ctx = the context, big = the record's big block (record +16), sh = byte 18 of the geometry
+ * (record +12).  ctx byte 10928 == 1: st + 418 and st + 793 (375 bytes each) are filled with ctx bytes 10930 / 10929 and nothing else happens;
+ * != 2: nothing.  == 2: two 25 x 15 byte maps at st + 418 and st + 793 (the border rows / columns replicated at the end) are built; the interior (13 rows i
+ * of 23 columns j) at st + 444 + 25 i + j and st + 819 + 25 i + j.  For the position p = 250 i + 10 j and each k = 0 .. 9 (idx = (p + 260 + k) & 0xffff):
+ * w2 = u32 big[15000 + 4 idx], w3 = u32 big[4 idx]; loc[k] = w2 & 0xffff; acc += (w2 * 819 k + (w3 << 9)) >> sh; cnt += loc[k] >= 151; sad += the u16 absolute
+ * differences of loc[k] and the nine u16 (low halves of the words at big + 15000 + 4 ((idx - 260 + 250 m + 10 n) & 0xffff), m, n = 0..2).  Then
+ *  S7 = sum loc[0..6], T = sum loc[0..9] (u16), A = (100 S7 / T) & 255, B = (100 (loc8 + loc9) / T) & 255 (signed division, T == 0 the emulation's -1 -> 255;
+ *  the sums are u16);  p = sad >> 6;  pwl3 (x, th0, th1, th2, v0, v1, v2) = the three segment piecewise linear map through t32_tmo_interplate
+ *  (ctx bytes: A: th 10894..10896, v 10900..10902; B: th 10897..10899, v 10903..10905; cnt: 10906..10908, 10914..10916; acc >> 12: 10922..10924, 10925..10927);
+ *  mixed = (A' + B' + 8) >> 4;  out2 = (ctx[10892] cnt' + ctx[10891] mixed + ctx[10893] D + 8) >> 4 (signed products, low byte stored);
+ *  out1 = the u16 table map of p (thresholds ctx16[8202 .. 8216], values ctx16[8218 .. 8232]: below the first / above the last threshold the end value
+ *  >> 6 (low 8 bits), else the interpolation (+ 32) / 64 (low 8 bits)).  When no segment matches (unordered thresholds) the previous value of cnt' / out1
+ *  is kept (vendor registers carry over the whole function, initially 0).
+ */
+static inline u8 t32_tmo_i3(int x, const u8 *th, const u8 *v, int strict_hi)
+{
+	/* A, B: x < th0 -> v0; x < th1 -> ip(th0, th1, v0, v1); x < th2 -> ip(th1, th2, v1, v2); else v2 (strict_hi == 0) ;
+	 * acc: !(th0 < x) -> v0; !(th1 < x) -> ip (th0, th1, v0, v1); th2 < x -> v2; else ip (th1, th2, v1, v2) (strict_hi == 1) */
+	if (!strict_hi) {
+		if (x < th[0])
+			return v[0];
+		if (x < th[1])
+			return (u8)t32_tmo_interplate(th[0], th[1], v[0], v[1], x);
+		if (x < th[2])
+			return (u8)t32_tmo_interplate(th[1], th[2], v[1], v[2], x);
+		return v[2];
+	}
+	if (!(th[0] < x))
+		return v[0];
+	if (!(th[1] < x))
+		return (u8)t32_tmo_interplate(th[0], th[1], v[0], v[1], x);
+	if (th[2] < x)
+		return v[2];
+	return (u8)t32_tmo_interplate(th[1], th[2], v[1], v[2], x);
+}
+
+static inline void t32_tmo_tmo2fbf_input_prep(u8 *st, const u8 *ctx, const u8 *big, u32 geom18)
+{
+	u32 mode = ctx[10928], sh = geom18 & 31U, oi, ii, k, m, n, r;
+	u32 t0 = 0, t9 = 0;
+
+	if (mode == 1) {
+		memset(st + 418, ctx[10930], 375);
+		memset(st + 793, ctx[10929], 375);
+		return;
+	}
+	if (mode != 2)
+		return;
+	for (oi = 0; oi < 13; oi++)
+		for (ii = 0; ii < 23; ii++) {
+			u32 p = 250 * oi + 10 * ii, acc = 0, sad = 0, cnt = 0, loc[10], S7 = 0, T, a, b, mixed, d, s1, t1;
+			int A, B;
+
+			for (k = 0; k < 10; k++) {
+				u32 idx = (p + 260 + k) & 0xffffU, w2 = t32_tmo_rd32(big + 15000 + 4 * idx), w3 = t32_tmo_rd32(big + 4 * idx);
+
+				loc[k] = w2 & 0xffffU;
+				acc += (w2 * (819U * k) + (w3 << 9)) >> sh;
+				if (loc[k] >= 151)
+					cnt = (cnt + 1U) & 0xffU;
+				for (m = 0; m < 3; m++)
+					for (n = 0; n < 3; n++) {
+						u32 v = t32_tmo_rd32(big + 15000 + 4 * ((idx - 260U + 250U * m + 10U * n) & 0xffffU)) & 0xffffU;
+
+						sad += (v < loc[k] ? loc[k] - v : v - loc[k]) & 0xffffU;
+					}
+			}
+			s1 = sad >> 6;
+			for (k = 0; k < 7; k++)
+				S7 += loc[k];
+			S7 &= 0xffffU;
+			T = (S7 + ((loc[8] + loc[9]) & 0xffffU) + loc[7]) & 0xffffU;
+			A = t32_tmo_sdiv0((int)(S7 * 100U), (int)T) & 0xff;
+			B = t32_tmo_sdiv0((int)(((loc[8] + loc[9]) & 0xffffU) * 100U), (int)T) & 0xff;
+			a = t32_tmo_i3(A, ctx + 10894, ctx + 10900, 0);
+			b = t32_tmo_i3(B, ctx + 10897, ctx + 10903, 0);
+			mixed = (u32)((int)(a + b + 8U) >> 4);
+			t1 = cnt;
+			if (t1 < ctx[10906]) {
+				t9 = ctx[10914];
+			} else if (!(t1 < ctx[10908])) {
+				t9 = ctx[10916];
+			} else {
+				for (k = 0; k < 2; k++)
+					if (!(t1 < ctx[10906 + k]) && t1 < ctx[10907 + k])
+						t9 = (u32)t32_tmo_interplate(ctx[10906 + k], ctx[10907 + k], ctx[10914 + k], ctx[10915 + k], (int)t1) & 0xffU;
+			}
+			d = t32_tmo_i3((int)(acc >> 12), ctx + 10922, ctx + 10925, 1);
+			if (s1 < t32_tmo_ld16(ctx, 8202)) {
+				t0 = (t32_tmo_ld16(ctx, 8218) >> 6) & 0xffU;
+			} else if (!(s1 < t32_tmo_ld16(ctx, 8216))) {
+				t0 = (t32_tmo_ld16(ctx, 8232) >> 6) & 0xffU;
+			} else {
+				for (k = 0; k < 7; k++) {
+					u32 a0 = t32_tmo_ld16(ctx, 8202 + 2 * k), a1 = t32_tmo_ld16(ctx, 8204 + 2 * k);
+
+					if (s1 < a0 || !(s1 < a1))
+						continue;
+					r = (u32)t32_tmo_interplate((int)a0, (int)a1, (int)t32_tmo_ld16(ctx, 8218 + 2 * k), (int)t32_tmo_ld16(ctx, 8220 + 2 * k), (int)s1);
+					t0 = (u32)(((int)r + 32) / 64) & 0xffU;
+				}
+			}
+			st[444 + 25 * oi + ii] = (u8)t0;
+			st[819 + 25 * oi + ii] = (u8)((int)(ctx[10892] * t9 + ctx[10891] * mixed + ctx[10893] * d + 8U) >> 4);
+		}
+	for (k = 0; k < 25; k++) {
+		st[418 + k] = st[443 + k];
+		st[793 + k] = st[818 + k];
+		st[768 + k] = st[743 + k];
+		st[1143 + k] = st[1118 + k];
+	}
+	for (k = 0; k < 15; k++) {
+		st[418 + 25 * k] = st[419 + 25 * k];
+		st[793 + 25 * k] = st[794 + 25 * k];
+		st[442 + 25 * k] = st[441 + 25 * k];
+		st[817 + 25 * k] = st[816 + 25 * k];
+	}
+}
+
+/* ---- phase 14: tisp_tmo_adr_fpga ---- */
+
+/*
+ * tisp_tmo_adr_fpga (ch): the TMO ADR curve builder.  ctx = *e35e0[ch] (the channel's context, byte offsets below), q = e35b0[ch]: s0 = q[0] (800 byte
+ * block: 24 column words at +0, sums at +48 .. +56, +68 .. +100 / +100 .. +128 u16 curves, +128 + 28 col 14 s16 per column), B = q[1] (1140 bytes) and
+ * C = q[2] (10056 bytes: words 3968 + 56 col + 4 k, cum[] at 5696, 9664 / 9760 24 words, 10048 / 10052).  The vendor tables are passed in the env (the
+ * oracle fills them randomly and compares the written ones: d88d4 (xs of the y filters, written by them), e3160 (11 word scratch of subsection_up),
+ * e3518 (flag, cleared)).  Dropped: the vendor's printk every 1000th call (u16 e3516 % 1000 == 0, e3516 is only read here), the zero-filled locals arr472 / arr508 (always overwritten before use), the k < 11 split of the column
+ * loop of block 4 (both arms read the same ctx half word, t3 == t4).  Vendor UB (not generated by the oracle): every division by zero (d8320, the
+ * unsigned t9 = 4095 - d88d4[k], W - V in block 5).
+ */
+struct t32_tmo_fpga_env {
+	const s16 *c0488, *c04a4;	/* 13 / 9 s16 */
+	const int *d8120, *e31b0;	/* 128 / 24 words */
+	int d8320;			/* the divisor word */
+	const s16 *d8914;		/* 17 s16 (x axis) */
+	s16 *d88d4;			/* 16 s16 (written by the y filters) */
+	const s16 *d88a4, *d88f4, *d87a0;	/* 22 / 14 / 129 s16 */
+	u32 *e3160;			/* 11 words */
+	u16 *e3518;
+	u8 e3500;
+	const int *d8324;		/* map_curve1 table */
+	const s16 *c0444;		/* map_y_filter_sp table */
+	t32_tmo_exp2_fn exp2;
+	u32 *e3244;			/* faceae block 4: counter, enables, table */
+	const u8 *e34e8;
+	const s16 *e3248;
+};
+
+static inline int t32_tmo_ls16(const u8 *b, u32 o) { return *(const s16 *)(b + o); }
+static inline void t32_tmo_st16(u8 *b, u32 o, int v) { *(u16 *)(b + o) = (u16)v; }
+
+/*
+ * block 1 (9ace0 .. 9afd4): v = sum of (cum[k] - cum[k - 1]) * d8120[k] (cum[-1] = 0), k = 0 .. 127; s0 u16 [25] / [26] / [27] / [28] = v / d8320 after
+ * k = 16 / 32 / 64 / 96 (inclusive), [24] = v / d8320 at the end.
+ */
+static inline void t32_tmo_adr_fpga_blk1(u8 *s0, const u8 *C, const struct t32_tmo_fpga_env *e)
+{
+	const int *cum = (const int *)(C + 5696);
+	u32 v = 0;
+	int k;
+
+	for (k = 0; k < 128; k++) {
+		u32 t = k ? (u32)cum[k] - (u32)cum[k - 1] : (u32)cum[0];
+
+		v += t * (u32)e->d8120[k];
+		if (k == 16)
+			t32_tmo_st16(s0, 50, t32_tmo_sdiv((int)v, e->d8320));
+		else if (k == 32)
+			t32_tmo_st16(s0, 52, t32_tmo_sdiv((int)v, e->d8320));
+		else if (k == 64)
+			t32_tmo_st16(s0, 54, t32_tmo_sdiv((int)v, e->d8320));
+		else if (k == 96)
+			t32_tmo_st16(s0, 56, t32_tmo_sdiv((int)v, e->d8320));
+	}
+	t32_tmo_st16(s0, 48, t32_tmo_sdiv((int)v, e->d8320));
+}
+
+/*
+ * block 2 (9afd4 .. 9b1b8): 24 columns j: x = C word 9664 + 4 j (mn / mx = signed min (start 4095) / max (start 0) of all x), y = C word 9760 + 4 j;
+ * mode = ctx s16 [9574]: 3: ctx s16 [9584 + 2 ((j & 3) 6 + (j >> 2))] * g / 51200; 2: ispint_16 (x, d8914, a, 17) * g / 51200 with a[i] the clamp to
+ * 0 .. 1024 of ctx s16 [8316 + 2 i] (i < 3), ctx s16 [8820 + 2 i] (3 <= i < 11), 0 (i >= 11); else local_info (g, s16 [8316], [8318], [8320], x); g = s16 [8314].
+ * w[j] = r * e31b0[j] / 10000 when s16 [9270] == 1, else r.  s0 u16 [j] by the ctx s16 [100] mode: 2: r (the unscaled value), 3: x, 4: y, 5: e31b0[j], else 0.
+ */
+static inline void t32_tmo_adr_fpga_blk2(u8 *s0, const u8 *ctx, const u8 *C, const struct t32_tmo_fpga_env *e, int *w, int *mn, int *mx)
+{
+	const int *cx = (const int *)(C + 9664), *cy = (const int *)(C + 9760);
+	int g = t32_tmo_ls16(ctx, 8314), mode = t32_tmo_ls16(ctx, 9574), j, i;
+
+	*mn = 4095;
+	*mx = 0;
+	for (j = 0; j < 24; j++) {
+		int x = cx[j], r, m100;
+
+		if (*mx < x)
+			*mx = x;
+		if (x < *mn)
+			*mn = x;
+		if (mode == 3) {
+			r = t32_tmo_sdiv((int)((u32)t32_tmo_ls16(ctx, 9574 + 2 * (6 * (j & 3) + (j >> 2) + 5)) * (u32)g), 0xc800);
+		} else if (mode == 2) {
+			s16 a[17];
+
+			for (i = 0; i < 17; i++) {
+				int v = i < 3 ? t32_tmo_ls16(ctx, 8316 + 2 * i) : i < 11 ? t32_tmo_ls16(ctx, 8820 + 2 * i) : 0;
+
+				a[i] = (s16)(v < 0 ? 0 : v > 1024 ? 1024 : v);
+			}
+			r = t32_tmo_sdiv((int)((u32)t32_tmo_adr_ispint_16((s16)x, e->d8914, a, 17) * (u32)g), 0xc800);
+		} else {
+			r = t32_tmo_adr_local_info((u32)g, (u32)t32_tmo_ls16(ctx, 8316), (u32)t32_tmo_ls16(ctx, 8318),
+						   (u32)t32_tmo_ls16(ctx, 8320), (u32)x, e->exp2);
+		}
+		w[j] = t32_tmo_ls16(ctx, 9270) == 1 ? t32_tmo_sdiv((int)((u32)r * (u32)e->e31b0[j]), 10000) : r;
+		m100 = t32_tmo_ls16(ctx, 100);
+		t32_tmo_st16(s0, 2 * j, m100 == 2 ? r : m100 == 3 ? x : m100 == 4 ? cy[j] : m100 == 5 ? e->e31b0[j] : 0);
+	}
+}
+
+/*
+ * block 3 (9b1b8 .. 9b4a4): s0 u16 [0] / [1] = low halves of C words 10048 / 10052 (ctx s16 [100] == 0) or mn / mx (== 1).  Curve u16 s0 [100 + 2 k]
+ * (k < 14): A = ctx s16 [9906] == 1: (d88d4[1 + k] 100 + (c[k] - d88d4[1 + k]) s4 + 50) / 100 with c = map_curve1 (30, min (max (B + 155, 155), 255))
+ * and s4 = clamp (ctx s16 [9908], 0, 100) (B = s16 [9910]), else d88d4[1 + k].  s0 u16 [34 + k] (k < 16) = ispint_16 (d88d4[k], c04a4, o, 9) with o[i] =
+ * clamp (ctx s16 [9824 + 2 i], 0, 800) 1024 / 100 when s16 [9844] == 1, else 1024.  Then, if *e3518 == 1: *e3518 = 0 and the 13 point axis
+ * {0, ctx s16 [9784 + 2 i] (11), 4095} is mapped: (i) interp1_short (d87a0, ctx 9272, c0488 copy) -> p; (ii) (c0488 copy, axis, p) -> p2; (iii) (ctx 9272,
+ * d87a0, p2) -> p3; (iv) (c0488 copy, p3, d88a4, 13, 23) -> B + 872 (23 s16); ctx u16 byte 376 + 2 k = B s16 byte 874 + 2 k (k < 21) when s16 [9822] == 1, else
+ * ctx u16 byte 376 + 2 k = d88a4[1 + k] (k < 21); with *e3518 != 1 nothing of this runs (the s16 [9822] value is read only inside).
+ */
+static inline void t32_tmo_adr_fpga_blk3(u8 *s0, u8 *ctx, u8 *B, const u8 *C, const struct t32_tmo_fpga_env *e, int mn, int mx)
+{
+	int m100 = t32_tmo_ls16(ctx, 100), k;
+	s16 *d4 = e->d88d4;
+
+	if (m100 == 0) {
+		t32_tmo_st16(s0, 0, (int)t32_tmo_ld32(C, 10048));
+		t32_tmo_st16(s0, 2, (int)t32_tmo_ld32(C, 10052));
+	}
+	if (m100 == 1) {
+		t32_tmo_st16(s0, 0, mn);
+		t32_tmo_st16(s0, 2, mx);
+	}
+	if (t32_tmo_ls16(ctx, 9906) == 1) {
+		int b155 = t32_tmo_ls16(ctx, 9910) + 155, s4 = t32_tmo_ls16(ctx, 9908), p = b155 < 155 ? 155 : b155;
+		u32 c[14];
+
+		if (s4 < 0)
+			s4 = 0;
+		if (!(s4 < 101))
+			s4 = 100;
+		t32_tmo_adr_map_curve1(c, 30, p < 256 ? p : 255, e->d8324);
+		for (k = 0; k < 14; k++)
+			t32_tmo_st16(s0, 100 + 2 * k, t32_tmo_sdiv((int)((u32)d4[1 + k] * 100U + (c[k] - (u32)d4[1 + k]) * (u32)s4 + 50U), 100));
+	} else {
+		for (k = 0; k < 14; k++)
+			t32_tmo_st16(s0, 100 + 2 * k, d4[1 + k]);
+	}
+	if (t32_tmo_ls16(ctx, 9844) == 1) {
+		s16 o[9];
+
+		for (k = 0; k < 9; k++) {
+			int v = t32_tmo_ls16(ctx, 9824 + 2 * k);
+
+			if (v < 0)
+				v = 0;
+			if (!(v < 801))
+				v = 800;
+			o[k] = (s16)t32_tmo_sdiv((int)((u32)v << 10), 100);
+		}
+		for (k = 0; k < 16; k++)
+			t32_tmo_st16(s0, 68 + 2 * k, t32_tmo_adr_ispint_16(d4[k], e->c04a4, o, 9));
+	} else {
+		for (k = 0; k < 16; k++)
+			t32_tmo_st16(s0, 68 + 2 * k, 1024);
+	}
+	if (*e->e3518 == 1) {
+		s16 ax[13], p1[13], p2[13], p3[14], cc[13];
+
+		*e->e3518 = 0;
+		memcpy(cc, e->c0488, 26);
+		ax[0] = 0;
+		for (k = 0; k < 11; k++)
+			ax[1 + k] = (s16)t32_tmo_ls16(ctx, 9784 + 2 * k);
+		ax[12] = 4095;
+		if (t32_tmo_ls16(ctx, 9822) == 1) {
+			t32_tmo_adr_interp1_short(e->d87a0, (const s16 *)(ctx + 9272), cc, p1, 129, 13);
+			t32_tmo_adr_interp1_short(cc, ax, p1, p2, 13, 13);
+			t32_tmo_adr_interp1_short((const s16 *)(ctx + 9272), e->d87a0, p2, p3, 129, 13);
+			t32_tmo_adr_interp1_short(cc, p3, e->d88a4, (s16 *)(B + 872), 13, 23);
+			for (k = 0; k < 21; k++)
+				t32_tmo_st16(ctx, 376 + 2 * k, t32_tmo_ls16(B, 874 + 2 * k));
+		} else {
+			for (k = 0; k < 21; k++)
+				t32_tmo_st16(ctx, 376 + 2 * k, e->d88a4[1 + k]);
+		}
+	}
+}
+
+/*
+ * block 4 (9b4a4 .. 9bb08, one pass per column col = 0 .. 23, s5 = w[col]): subsection_up (e3160, s5, d87a0, ctx 9272, C 5696, 8, 10, 16, 1); e3160[0] =
+ * max (e3160[0], 1) (as 0 < e3160[0] ? : 1); e3160[k + 1] = e3160[k] + 1 where e3160[k] >= e3160[k + 1] (k < 10).  Axis x7[i] = e3160[i] (7, u16),
+ * x7[7] = e3160[10]; y7[0] = 0, y7[7] = 4095; for p < 6: ctx u16 [8336 + 2 p] = a = (s16) < 251 ? it : 250, t = (ctx s16 [8754 + 2 p] a + 50) / 100,
+ * y7[p + 1] = y7[p] + t, but y7[p] + d when t < (s16) d, d = (u16) (x7[p + 1] - x7[p]); ctx u16 [8732 + 2 p] = t.  ctx u16 [8750] = [8740], [8752] = [8742],
+ * [8746] = [8732] + [8734], [8748] = [8736] + [8738].  f = interp1_short (x7, y7, d88d4, 8, 16) [1 .. 14] (words); s = per k < 14: z = C word 3968 + 56 col + 4 k
+ * (z 4095 + 5000) / 10000 = thr, v = (ctx s16 [8798 + 2 k] d88f4[k] + 32) / 64: v < thr: v; else thr >= d88f4[k]: thr; else ((4095 - s[k - 1] (4095 for k = 0)) (d88d4[k + 1] - d88d4[k])) / (4095 - d88d4[k]); s[k] = (k ? s[k - 1] : 0) + that, 4095 when >= 4096.  Two blends with the
+ * weight s5: s[k] = (d (100 - s5) + s5 max (s[k], d) + 50) / 100, d = d88d4[1 + k] (s), and the same for t = map_curve1 (ctx s16 [8322], ctx s16 [8324]); u[k] =
+ * (g788 s[k] + g784 f[k] + g792 t[k]) / s7, s7 = max (g784 + g788 + g792, 1); y[k] = f / s / t / u / d88d4[1 + k] by the ctx s16 [9916] sel (0 .. 4); the y filter by the ctx s16 [9864] fm:
+ * 1: map_y_filter_sp (d88d4, y, 3), 2: _sp (.., ctx s16 [9862]), 3: map_y_filter (.., ctx s16 [9862], ctx s16 [9860]); s0 u16 [64 + 14 col + k] = y[k].
+ */
+static inline void t32_tmo_adr_fpga_blk4(u8 *s0, u8 *ctx, const u8 *C, const struct t32_tmo_fpga_env *e, const int *w)
+{
+	s16 *d4 = e->d88d4;
+	u32 *e60 = e->e3160;
+	int sel = t32_tmo_ls16(ctx, 9916), fm = t32_tmo_ls16(ctx, 9864), g784 = t32_tmo_ls16(ctx, 9918), g788 = t32_tmo_ls16(ctx, 9920);
+	int g792 = t32_tmo_ls16(ctx, 9922), col, k, p, s7 = g784 + g788 + g792;
+
+	if (!(0 < s7))
+		s7 = 1;
+	for (col = 0; col < 24; col++) {
+		int s5 = w[col];
+		u16 x7[8], y7[8];
+		s16 o508[16];
+		u32 f[14], s[14], t[14], u[14], y[14];
+
+		t32_tmo_adr_subsection_up(e60, s5, e->d87a0, (const s16 *)(ctx + 9272), (const int *)(C + 5696), 8, 10, 16, 1);
+		e60[0] = 0 < (int)e60[0] ? e60[0] : 1U;
+		for (k = 0; k < 10; k++)
+			if (!((int)e60[k] < (int)e60[k + 1]))
+				e60[k + 1] = e60[k] + 1U;
+		for (k = 0; k < 7; k++)
+			x7[k] = (u16)e60[k];
+		x7[7] = (u16)e60[10];
+		y7[0] = 0;
+		y7[7] = 4095;
+		for (p = 0; p < 6; p++) {
+			int a = (s16)t32_tmo_ld16(ctx, 8336 + 2 * p), t4, dl;
+			u32 tt;
+
+			if (!(a < 251))
+				a = 250;
+			t32_tmo_st16(ctx, 8336 + 2 * p, a);
+			tt = (u32)t32_tmo_sdiv((int)((u32)t32_tmo_ls16(ctx, 8754 + 2 * p) * (u32)(int)(s16)a + 50U), 100);
+			t4 = (s16)tt;
+			y7[p + 1] = (u16)(y7[p] + tt);
+			dl = (u16)(x7[p + 1] - x7[p]);
+			if (t4 < (s16)dl)
+				y7[p + 1] = (u16)(y7[p] + (u32)dl);
+			t32_tmo_st16(ctx, 8732 + 2 * p, t4);
+		}
+		t32_tmo_st16(ctx, 8750, (int)t32_tmo_ld16(ctx, 8740));
+		t32_tmo_st16(ctx, 8752, (int)t32_tmo_ld16(ctx, 8742));
+		t32_tmo_st16(ctx, 8746, (int)(t32_tmo_ld16(ctx, 8732) + t32_tmo_ld16(ctx, 8734)));
+		t32_tmo_st16(ctx, 8748, (int)(t32_tmo_ld16(ctx, 8736) + t32_tmo_ld16(ctx, 8738)));
+		t32_tmo_adr_interp1_short((const s16 *)x7, (const s16 *)y7, d4, o508, 8, 16);
+		for (k = 0; k < 14; k++)
+			f[k] = (u32)(int)o508[1 + k];
+		for (k = 0; k < 14; k++) {
+			int thr = t32_tmo_sdiv((int)((t32_tmo_ld32(C, 3968 + 56 * col + 4 * k) << 12) - t32_tmo_ld32(C, 3968 + 56 * col + 4 * k) + 5000U), 10000);
+			int v = t32_tmo_sdiv((int)((u32)t32_tmo_ls16(ctx, 8798 + 2 * k) * (u32)(int)e->d88f4[k] + 32U), 64), r;
+
+			if (v < thr) {
+				r = v;
+			} else if (!(thr < e->d88f4[k])) {
+				r = thr;
+			} else {
+				int base = k ? 4095 - (int)s[k - 1] : 4095;
+
+				r = t32_tmo_sdiv((int)((u32)base * (u32)(d4[k + 1] - d4[k])), 4095 - d4[k]);
+			}
+			s[k] = k ? s[k - 1] + (u32)r : (u32)r;
+			if (!((int)s[k] < 4096))
+				s[k] = 4095;
+		}
+		for (k = 0; k < 14; k++) {
+			int d = d4[1 + k];
+
+			if ((int)s[k] < d)
+				s[k] = (u32)d;
+			s[k] = (u32)t32_tmo_sdiv((int)((u32)d * (u32)(100 - s5) + (u32)s5 * s[k] + 50U), 100);
+		}
+		t32_tmo_adr_map_curve1(t, t32_tmo_ls16(ctx, 8322), t32_tmo_ls16(ctx, 8324), e->d8324);
+		for (k = 0; k < 14; k++) {
+			int d = d4[1 + k];
+
+			if ((int)t[k] < d)
+				t[k] = (u32)d;
+			t[k] = (u32)t32_tmo_sdiv((int)((u32)(100 - s5) * (u32)d + (u32)s5 * t[k] + 50U), 100);
+		}
+		for (k = 0; k < 14; k++) {
+			u[k] = (u32)t32_tmo_sdiv((int)((u32)g788 * s[k] + (u32)g784 * f[k] + (u32)g792 * t[k]), s7);
+			y[k] = sel == 0 ? f[k] : sel == 1 ? s[k] : sel == 2 ? t[k] : sel == 3 ? u[k] : (u32)(int)d4[1 + k];
+		}
+		if (fm == 1)
+			t32_tmo_adr_map_y_filter_sp(d4, y, 3, e->c0444);
+		else if (fm == 2)
+			t32_tmo_adr_map_y_filter_sp(d4, y, t32_tmo_ls16(ctx, 9862), e->c0444);
+		else if (fm == 3)
+			t32_tmo_adr_map_y_filter(d4, y, t32_tmo_ls16(ctx, 9862), t32_tmo_ls16(ctx, 9860));
+		for (k = 0; k < 14; k++)
+			t32_tmo_st16(s0, 128 + 28 * col + 2 * k, (int)y[k]);
+	}
+}
+
+/*
+ * block 5 (9bb08 .. 9be84): dst = s0 + 128 (24 columns of 14 s16), prev = B + 200 (the same shape).  ctx s16 [9926] == 1: thr = min (s16 [9928], 512), then
+ * unless s16 [9930] == 9 thr = max (thr, 1); per column mx = max |dst[k] - prev[k]|; mx <= thr: dst[k] = prev[k] = min (dst[k], 4082 + k); else
+ * q = (thr << 21) / mx and dst[k] = prev[k] = min (s16 (p +- ((|c - p| q + 2^20) >> 21)), 4082 + k) toward the previous value p (c = dst[k]);
+ * other s16 [9926]: prev = dst.  ctx s16 [9638] == 1: dst[col][k] = min (dst[col][k], running sum of (ctx s16 [9640 + 2 k] (d88d4[k + 1] - d88d4[k]
+ * or 1 when equal) + 50) / 100), the running sum kept as s16.  ctx s16 [9934] == 1: idx = clamp (s16 [9940], 0, 511), cu = s16 low half of C word 5696 + 4 idx, V = s16 [9936],
+ * W = s16 [9938]: cu < V: nothing; W < cu: dst[col][k] = d88d4[1 + k]; else dst[col][k] -= (dst[col][k] - d88d4[1 + k]) (cu - V) / (W - V).  Finally
+ * faceae_curve_adjust when e3500 == 1 (the block of q[0], i.e. the untouched s0).
+ */
+static inline void t32_tmo_adr_fpga_blk5(u8 *s0, const u8 *ctx, u8 *B, const u8 *C, const struct t32_tmo_fpga_env *e)
+{
+	s16 *dst = (s16 *)(s0 + 128), *prev = (s16 *)(B + 200), *d4 = e->d88d4;
+	int col, k, r;
+
+	if (t32_tmo_ls16(ctx, 9926) == 1) {
+		int thr = t32_tmo_ls16(ctx, 9928);
+
+		if (!(thr < 513))
+			thr = 512;
+		if (t32_tmo_ls16(ctx, 9930) != 9 && !(0 < thr))
+			thr = t32_tmo_ls16(ctx, 9926);
+		for (col = 0; col < 24; col++) {
+			s16 *c = dst + 14 * col, *p = prev + 14 * col;
+			int mx = 0;
+
+			for (k = 0; k < 14; k++) {
+				int df = p[k] < c[k] ? c[k] - p[k] : p[k] - c[k];
+
+				if (mx < df)
+					mx = df;
+			}
+			if (!(thr < mx)) {
+				for (k = 0; k < 14; k++) {
+					int v = c[k];
+
+					if (4082 + k < v)
+						v = 4082 + k;
+					c[k] = p[k] = (s16)v;
+				}
+			} else {
+				int q = t32_tmo_sdiv((int)((u32)thr << 21), mx);
+
+				for (k = 0; k < 14; k++) {
+					int cv = c[k], pv = p[k], v;
+
+					if (pv < cv)
+						v = pv + ((int)((u32)(cv - pv) * (u32)q + 0x100000U) >> 21);
+					else
+						v = pv - ((int)((u32)(pv - cv) * (u32)q + 0x100000U) >> 21);
+					c[k] = (s16)v;
+					v = c[k];
+					if (4082 + k < v)
+						v = 4082 + k;
+					c[k] = p[k] = (s16)v;
+				}
+			}
+		}
+	} else {
+		for (k = 0; k < 24 * 14; k++)
+			prev[k] = dst[k];
+	}
+	if (t32_tmo_ls16(ctx, 9638) == 1) {
+		for (col = 0; col < 24; col++) {
+			s16 *c = dst + 14 * col;
+			int v = 0;
+
+			for (k = 0; k < 14; k++) {
+				int a0 = d4[k + 1] - d4[k];
+
+				if (a0 == 0)
+					a0 = 1;
+				v += t32_tmo_sdiv((int)((u32)t32_tmo_ls16(ctx, 9640 + 2 * k) * (u32)a0 + 50U), 100);
+				if (c[k] < v)
+					v = c[k];
+				v = (s16)v;
+				c[k] = (s16)v;
+			}
+		}
+	}
+	if (t32_tmo_ls16(ctx, 9934) == 1) {
+		int u = t32_tmo_ls16(ctx, 9940), cu, V = t32_tmo_ls16(ctx, 9936), W = t32_tmo_ls16(ctx, 9938);
+
+		if (u < 0)
+			u = 0;
+		if (!(u < 512))
+			u = 511;
+		cu = t32_tmo_ls16(C, 5696 + 4 * u);
+		if (!(cu < V)) {
+			if (W < cu) {
+				for (k = 0; k < 24 * 14; k++)
+					dst[k] = d4[1 + k % 14];
+			} else {
+				for (col = 0; col < 24; col++)
+					for (k = 0; k < 14; k++) {
+						int c = dst[14 * col + k];
+
+						r = t32_tmo_sdiv((int)((u32)(c - d4[1 + k]) * (u32)(cu - V)), W - V);
+						dst[14 * col + k] = (s16)(c - r);
+					}
+			}
+		}
+	}
+	if (e->e3500 == 1)
+		t32_adr_faceae_curve_adjust(s0, e->e3244, e->e34e8, e->e3248);
+}
+
+/* tisp_tmo_adr_fpga (ch): q0 / B / C = e35b0[ch] words 0 / 1 / 2, ctx = e35e0[ch]'s context; hook-free, all callees are ports. */
+static inline void t32_tmo_adr_fpga(u8 *ctx, u8 *s0, u8 *B, const u8 *C, const struct t32_tmo_fpga_env *e)
+{
+	int w[24], mn, mx;
+
+	t32_tmo_adr_fpga_blk1(s0, C, e);
+	t32_tmo_adr_fpga_blk2(s0, ctx, C, e, w, &mn, &mx);
+	t32_tmo_adr_fpga_blk3(s0, ctx, B, C, e, mn, mx);
+	t32_tmo_adr_fpga_blk4(s0, ctx, C, e, w);
+	t32_tmo_adr_fpga_blk5(s0, ctx, B, C, e);
+}
