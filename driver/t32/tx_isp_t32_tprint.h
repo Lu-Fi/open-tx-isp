@@ -305,4 +305,63 @@ static inline void t32_tisp_params_print_detect(const u32 *det, u32 ch)
 	}
 }
 
+/* ---- tisp_defog_print_struct (0x59b40): the defog parameters of a channel ---- */
+static const struct { u8 line, n, bits; u16 off; const char *name; } t32_defog_pr_tab[] __maybe_unused = {
+	{ 51, 17,  8, 200, "p->defog_mean_trs_airl" },
+	{ 52,  9,  8, 217, "p->defog_move_filter_h" },
+	{ 53, 25,  8, 226, "p->defog_airl_filter_h" },
+	{ 54,  1, 32,   4, "p->defog_trans_flag" },
+	{ 55,  5,  8, 251, "p->defog_trans_x" },
+	{ 56,  5,  8, 256, "p->defog_trans_y" },
+	{ 59, 32,  8, 263, "p->defog_lc_sat" },
+	{ 60, 32,  8, 295, "p->defog_lc_val" },
+	{ 62, 32,  8, 328, "p->defog_ssj_diff" },
+	{ 64, 32,  8, 361, "p->defog_defog_db" },
+	{ 66, 17,  8, 394, "p->defog_k_adjust_up" },
+	{ 68, 17,  8, 412, "p->defog_k_adjust_dn" },
+	{ 70, 24, 16,  80, "p->defog_weight3" },
+	{ 71, 31, 16, 128, "p->defog_weight5" },
+	{ 72, 32,  8, 430, "p->defog_weighta" },
+	{ 73, 32,  8, 462, "p->defog_weightb1" },
+	{ 74, 32,  8, 494, "p->defog_weightb2" },
+	{ 75, 32,  8, 526, "p->defog_weightc1" },
+	{ 76, 32,  8, 558, "p->defog_weightc2" },
+	{ 77, 20,  8, 590, "p->defog_preserved_params" },
+	{ 78,  9, 32,   8, "p->defog_flaglist" },
+	{ 79,  9,  8, 610, "p->defog_klist0" },
+	{ 80,  9,  8, 619, "p->defog_klist1" },
+	{ 81,  9,  8, 628, "p->defog_klist2" },
+	{ 82,  9,  8, 637, "p->defog_klist3" },
+	{ 83,  9,  8, 646, "p->defog_klist4" },
+};
+
+/* ctx = t32_data_e2130 (per channel the defog context, +12 its parameter block); mode >= 2: nothing, 0 */
+static inline int t32_tisp_defog_print_struct(const u32 *ctx, u32 ch, u32 mode)
+{
+	const u8 *p;
+	u32 t, i, v;
+	int ret = 0;
+
+	if (mode >= 2)
+		return 0;
+	p = T32_PTR(t32_g_rd32(T32_PTR(ctx[ch]), 12));
+	for (t = 0; t < sizeof(t32_defog_pr_tab) / sizeof(t32_defog_pr_tab[0]); t++) {
+		const u8 *a = p + t32_defog_pr_tab[t].off;
+
+		isp_printf(1, "\n < (%23s %5d)%18s[%2d] > : \n        ", "tisp_defog_print_struct",
+			   t32_defog_pr_tab[t].line, t32_defog_pr_tab[t].name, t32_defog_pr_tab[t].n);
+		for (i = 0; i < t32_defog_pr_tab[t].n; i++) {
+			if (t32_defog_pr_tab[t].bits == 32)
+				v = t32_g_rd32(a, 4 * i);
+			else if (t32_defog_pr_tab[t].bits == 16)
+				v = t32_g_rd16(a, 2 * i);
+			else
+				v = a[i];
+			isp_printf(1, " %7d", v);
+		}
+		ret = isp_printf(1, "\n");
+	}
+	return ret;
+}
+
 #endif
