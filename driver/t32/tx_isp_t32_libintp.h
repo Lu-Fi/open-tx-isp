@@ -9,7 +9,6 @@
  *   t32_lib_intp_process   lib_tisp_intp_process 0xac538: for the 96 interrupt bits (st[0], st[3], st[4]) call
  *                          the registered handler of each set bit with (ch & 0xff); bits 0..31 also count in
  *                          cnt0[]; returns 1, or the last handler result that is not 1
- *   t32_lib_intp_static_clear  tisp_intp_static_clear 0xacd50: clear the counters (beyond vendor, #281)
  *
  * The vendor .bss block t32_data_e3cd0 .. e3efc is struct t32_intp_glob; the handler table t32_data_e3b50
  * (96 entries, set through system_irq_func_set) is a separate array here.
@@ -107,22 +106,6 @@ static inline u32 t32_lib_intp_process(struct t32_intp_glob *g, t32_intp_fn cons
 			ret = r;
 	}
 	return ret;
-}
-
-/*
- * t32_lib_intp_static_clear  tisp_intp_static_clear 0xacd50: n2 = 0, then the counters cnt2, cnt5,
- * cnt_b0, cnt1 and cnt0 (in this order) are cleared.  BEYOND VENDOR (#281): the vendor "clears" them
- * with memcpy(dst, NULL, len), a read from address 0 (oops); ours zeroes the same bytes (memset).
- * cnt_st4 and st stay unchanged, as in the vendor.
- */
-static inline void t32_lib_intp_static_clear(struct t32_intp_glob *g)
-{
-	g->n2 = 0;
-	memset(g->cnt2, 0, sizeof(g->cnt2));
-	memset(g->cnt5, 0, sizeof(g->cnt5));
-	memset(g->cnt_b0, 0, sizeof(g->cnt_b0));
-	memset(g->cnt1, 0, sizeof(g->cnt1));
-	memset(g->cnt0, 0, sizeof(g->cnt0));
 }
 
 #endif

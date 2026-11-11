@@ -18,22 +18,6 @@
 
 u64 lib_tisp_intp_handler(u32, u32, u32, u32);
 u64 lib_tisp_intp_process(u32, u32, u32, u32);
-u64 tisp_intp_static_clear(u32, u32, u32, u32);
-
-/* recorder of the vendor's memcpy(dst, NULL, len) in tisp_intp_static_clear (fix_281_intpclr.sh) */
-static u32 mc[8][3];
-static unsigned int mcn;
-u64 t32o281_memcpy(u32 a0, u32 a1, u32 a2, u32 a3)
-{
-	(void)a3;
-	if (mcn < 8) {
-		mc[mcn][0] = a0;
-		mc[mcn][1] = a1;
-		mc[mcn][2] = a2;
-	}
-	mcn++;
-	return a0;
-}
 
 #define F(fn)	((t32o_fn)(void (*)(void))(fn))
 #define BLK	0x22c
@@ -152,35 +136,6 @@ int main(void)
 			printf("MISMATCH %s case %u: ret %x/%x events %u/%u writes %u/%u\n", c & 1 ? "handler" : "process",
 			       c, r, o, vn, on, t32o_log.n, o_nw);
 	}
-	/*
-	 * BEYOND VENDOR (#281) tisp_intp_static_clear: the vendor must store n2 = 0 and call
-	 * memcpy(dst, NULL, len) exactly for the five counter arrays ours zeroes (recorded, not run);
-	 * every other byte of the block is unchanged on both sides.
-	 */
-	for (c = 0; c < 2000; c++) {
-		static const u32 off[5] = { 0x1a8, 0x128, 0x120, 0xa0, 0x20 }, len[5] = { 128, 128, 8, 128, 128 };
-		u8 vb[BLK];
-		u32 bad = 0;
-
-		t32o_reset();
-		for (i = 0; i < BLK; i++)
-			t32o_intpblk[i] = (u8)rnd();
-		memcpy(&og, t32o_intpblk, sizeof(og));
-		mcn = 0;
-		t32o_call(F(tisp_intp_static_clear), 0, 0, 0, 0, 0);
-		t32_lib_intp_static_clear(&og);
-		memcpy(vb, t32o_intpblk, BLK);
-		bad |= mcn != 5 || t32o_log.n != 0;
-		for (i = 0; i < 5 && i < mcn; i++) {
-			bad |= mc[i][0] != T32O_PTR(t32o_intpblk + off[i]) || mc[i][1] != 0 || mc[i][2] != len[i];
-			memset(vb + off[i], 0, len[i]);		/* the one named difference: ours zeroes, the vendor reads 0 */
-		}
-		bad |= memcmp(vb, &og, sizeof(og)) != 0;
-		compared++;
-		if (bad && failed++ < 10)
-			printf("MISMATCH static_clear case %u: memcpy calls %u\n", c, mcn);
-	}
-	printf("t32_libintp_oracle: %u compared (2000 static_clear, vendor memcpy from NULL recorded), %u mismatches\n",
-	       compared, failed);
+	printf("t32_libintp_oracle: %u compared, %u mismatches\n", compared, failed);
 	return failed ? 1 : 0;
 }
