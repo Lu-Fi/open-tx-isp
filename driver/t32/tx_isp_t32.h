@@ -99,8 +99,11 @@ void t32_pf_start(void);
 void t32_pf_kick(void);
 void t32_pf_exit(void);
 
-/* tx_isp_t32_blkirq.c: block interrupt paths (vendor LCE bits 8 / 30, event 14), behind T32_PP_LCE */
-#define T32_BLK_IRQ_MASK	((1U << 8) | (1U << 30))
+/* tx_isp_t32_blkirq.c: block interrupt paths (vendor LCE bits 8 / 30, event 14, behind T32_PP_LCE;
+ * TMO bits 9 / 31, behind T32_PP_TMO) */
+#define T32_BLK_IRQ_LCE_BITS	((1U << 8) | (1U << 30))
+#define T32_BLK_IRQ_TMO_BITS	((1U << 9) | (1U << 31))
+#define T32_BLK_IRQ_MASK	(T32_BLK_IRQ_LCE_BITS | T32_BLK_IRQ_TMO_BITS)
 struct t32_blk_drv_stats {
 	u32 attaches, lce_irqs, lsf_irqs, events, ev_full;
 };
@@ -110,6 +113,16 @@ void t32_blk_lce_bufs(void *curve, void *stat, void *hist);
 void t32_blk_lce_attach(u8 *st, u32 width, u32 height);
 void t32_blk_lce_detach(void);
 void t32_blk_exit(void);
+void t32_blk_tmo_set(u32 (*tmo)(u32 ch), u32 (*fbf)(u32 ch));
+
+/* tx_isp_t32_tmo.c: the vendor TMO / ADR block (tisp_tmo_init, bits 9 / 31), behind T32_PP_TMO */
+struct t32_tmo_drv_stats {
+	u32 attaches, tmo_irqs, fbf_irqs, tgains;
+};
+extern struct t32_tmo_drv_stats t32_tmo_stats;
+void t32_tmo_attach(const u8 *bin, u32 bytes, u32 width, u32 height);
+void t32_tmo_detach(void);
+void t32_tmo_tgain(u32 ch, u64 gain);
 
 /* tx_isp_t32_fs.c */
 struct seq_file;

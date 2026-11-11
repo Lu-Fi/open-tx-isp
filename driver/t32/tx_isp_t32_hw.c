@@ -459,6 +459,8 @@ static void t32_tisp_init(void)
 		t32_tisp_flush("lce", t32_lce_build(bin + off, width, height));
 		t32_pf_attach_lce(bin + off, width, height);	/* per-frame state (tisp_lce_init) */
 	}
+	if (!t32_core_sensor_size(&width, &height))
+		t32_tmo_attach(bin, bytes, width, height);	/* tisp_tmo_init, bits 9 / 31 (tx_isp_t32_tmo.c) */
 	off = t32_iq_section(bin, bytes, T32_SEC_SDNS, &len);
 	if (off && len >= T32_SDNS_SEC_BYTES) {
 		t32_tisp_flush("sdns", t32_sdns_init(bin + off, tisp_w));

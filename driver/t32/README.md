@@ -284,10 +284,18 @@ generation-shared come from the shared code instead:
   bit 8 = `tisp_lce_interrupt_static` and bit 30 = `tisp_lsf_interrupt_static` in the hard interrupt through
   the ported `lib_tisp_intp_process`, event 14 through the ported event queue to a work item that runs
   `tisp_lce_par` (`Tisp_lce_soft_t41_simd` or `_simd_v4`, `tisp_lce_write_curve`); the next bit 8 hands the
-  curve to the hardware (0xc0a4). The driver's proc info counts attaches, bits 8 / 30 and events. Not wired
-  yet: TMO (`tisp_tmo_init`, per-frame process; `tisp_tmo_tgain_update` only stores the gain), status bits
-  9 / 31 with its own buffers (`tisp_tmo_malloc_cfg` / `fbf_malloc_cfg`); the ports exist
-  (`tx_isp_t32_tmo.h` t32_tmo_init / t32_tmo_interrupt_static / t32_tmo_fbf_interrupt_calc). MSCA has no per-frame gain hook in the vendor (`tisp_long_tgain_update`
+  curve to the hardware (0xc0a4). The driver's proc info counts attaches, bits 8 / 30 and events.
+  TMO / ADR (`t32_ported_paths` bit 13, `tx_isp_t32_tmoblk.h` / `tx_isp_t32_tmo.c`, oracle
+  `t32_tmoblk_oracle`): at stream-on `tisp_tmo_init` runs on a copy of IQ bin section 4 (11000 B, the vendor's
+  tuning base + 11976) with the first gamma record: statistics DMA buffer (kmalloc 0x10000, registers
+  0x7100 ..), channel record, tone buffer, adr block set, the default register refreshes and the ramY / ramV
+  tables; bit 9 = `tisp_tmo_interrupt_static` (statistics, then the TMO path `tmo2fbf_input_prep` /
+  `tmo2fbf_process`, or with stat byte 385 = 0 the ADR soft process up to `adr_fpga` and
+  `adr_reg_write_every`), bit 31 = `tisp_tmo_fbf_interrupt_calc` (`tmo_soft_process`: stat_limit, ramY /
+  ramV), both in the same block table and dispatch as LCE; `tisp_tmo_tgain_update` from the long tgain
+  update; `tisp_tmo_deinit` at stream-off. `tisp_tmo_init` sets context byte 10042 (stat byte 385) to 1, so
+  the TMO path runs; the ADR path needs `tisp_tmo_param_array_set` (not wired). `tisp_tmo_ev_update` is ported
+  in the header but not called (the driver does not run `tisp_long_ev_update`). Proc: "tmo:" line. MSCA has no per-frame gain hook in the vendor (`tisp_long_tgain_update`
   does not call it; `tisp_msca_params_update` runs only from day/night, `param_array_set` and
   `cfg_shd`). AWB, AF hooks of the dispatcher: not wired. The total gain is `tisp_tgain`
   (default 0x10000, the vendor init gain) until the vendor AE runs in the
@@ -326,5 +334,5 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `lsc_ct` | 5000 | colour temperature for the LSC mesh at stream-on |
 | `bringup_ae` | 0 | 1 = bring-up exposure controller (not the vendor AE) |
 | `bringup_target` | 64 | its target mean histogram bin (0..255) |
-| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS, 9 AE, 10 LSC, 11 LCE (with the block interrupts 8 / 30), 12 TMO (not wired); RDNS off = not programmed at all, as before) |
+| `t32_ported_paths` | 1 | 1 every wired per-frame block on its ported path, 0 all on the old path, else mask: bit 1+n = block n (0 DMSC, 1 YSP, 2 CDNS, 3 YDNS, 4 SDNS, 5 MDNS, 6 DPC, 7 GIB, 8 RDNS, 9 AE, 10 LSC, 11 LCE (with the block interrupts 8 / 30), 12 TMO (with the block interrupts 9 / 31); RDNS off = not programmed at all, as before) |
 | `tisp_tgain` | 0x10000 | total gain for the per-frame refresh until the vendor AE runs (test aid) |
