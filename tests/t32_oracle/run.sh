@@ -10,7 +10,6 @@ H=$(cd "$(dirname "$0")" && pwd)
 D=$H/../../driver/t32
 O=${T32O_OUT:-$H/out}
 CC=${HOSTCC:-cc}
-M=$O/mut
 link() {	# $1 = header dir in front of driver/t32, $2 = output
 	$CC -O1 -fno-pie -Wall -Wextra -Werror -Wno-unused-function -I"$1" -I"$D" -I"$H" \
 		"$H/$NAME.c" "$O/env.o" $objs -no-pie -o "$2"
@@ -26,12 +25,12 @@ one() {	# $1 = index, $2 = sed expression; writes $M/$1.msg on failure
 	fi
 }
 if [ "$1" = --mut ]; then	# worker of the mutation check below: run.sh --mut <oracle> <index>, objs / T from the environment
-	NAME=$2
+	NAME=$2; M=$O/mut/$NAME
 	. "$H/$NAME.conf"
 	one "$3" "$(echo "$MUTATIONS" | grep . | sed -n "$3p")"
 	exit 0
 fi
-NAME=$1
+NAME=$1; M=$O/mut/$NAME	# per oracle: different oracles may run at the same time in one worktree
 . "$H/$NAME.conf"		# REFS="fn_..c ...", HDR=tx_isp_t32_xxx.h, MUTATIONS (one sed expression per line)
 mkdir -p "$O/ref"
 RF="-O1 -fno-pie -fwrapv -fno-strict-aliasing -w"
@@ -42,20 +41,28 @@ for f in $REFS; do
 	case " $REFFIX " in	# REFFIX="file=script ..." : a build-time fix of one reference copy
 	*" $f="*)
 		fix=${REFFIX#*"$f="}; fix=${fix%% *}
+		# The fixed copy is content-addressed (openimp #278): the variants of one reference (trunc_t41.sh etc.
+		# with another T32O_STOP) have the same size and used to share out/refp/$f, so a concurrent run or
+		# ccache keying a rewritten file handed out the object of another variant.  Now every content has its
+		# own directory, files appear only by rename, and reference objects are built without ccache.
 		mkdir -p "$O/refp"
-		sh "$H/$fix" < "$H/ref/$f" > "$O/refp/$f"
-		src=$O/refp/$f
-		o=$O/refp/${f%.c}.o	# a fixed / truncated build never shares its object with the plain one
-		rm -f "$o"
+		sh "$H/$fix" < "$H/ref/$f" > "$O/refp/.$f.$$"
+		pd=$O/refp/$(cksum < "$O/refp/.$f.$$" | tr ' ' _)
+		mkdir -p "$pd"
+		src=$pd/$f
+		if cmp -s "$O/refp/.$f.$$" "$src"; then rm -f "$O/refp/.$f.$$"; else mv -f "$O/refp/.$f.$$" "$src"; fi
+		o=$pd/${f%.c}.o	# a fixed / truncated build never shares its object with the plain one
 		;;
 	esac
-	if [ ! -f "$o" ] || [ "$H/ref/$f" -nt "$o" ]; then
-		$CC $RF -I"$H/ref" -c "$src" -o "$o"
-		objcopy --redefine-sym memcpy=t32o_memcpy --redefine-sym __ashrdi3=t32o___ashrdi3 --redefine-sym __ashldi3=t32o___ashldi3 --redefine-sym __lshrdi3=t32o___lshrdi3 "$o"
+	if [ ! -f "$o" ] || [ "$H/ref/$f" -nt "$o" ] || [ "$src" -nt "$o" ]; then
+		CCACHE_DISABLE=1 $CC $RF -I"$H/ref" -c "$src" -o "$o.$$"
+		objcopy --redefine-sym memcpy=t32o_memcpy --redefine-sym __ashrdi3=t32o___ashrdi3 --redefine-sym __ashldi3=t32o___ashldi3 --redefine-sym __lshrdi3=t32o___lshrdi3 "$o.$$"
+		mv -f "$o.$$" "$o"
 	fi
 	objs="$objs $o"
 done
-$CC -O1 -fno-pie -Wall -Wextra -Werror -c "$H/env.c" -o "$O/env.o"
+$CC -O1 -fno-pie -Wall -Wextra -Werror -c "$H/env.c" -o "$O/env.o.$$"
+mv -f "$O/env.o.$$" "$O/env.o"
 link "$D" "$O/$NAME"
 t0=$(date +%s)
 "$O/$NAME"

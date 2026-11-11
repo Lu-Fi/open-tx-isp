@@ -53,6 +53,10 @@ and __ashrdi3 renamed by objcopy). `t32_oracle/run.sh <name>` builds `<name>.c` 
 every register write and memory output with our `driver/t32` header, then requires every listed one-token mutation of HDR to be detected.
 The mutants are independent and run in parallel (`T32O_JOBS`, default all CPUs); one that needs more than twice the time of the unmutated
 oracle plus 20 s is cut off and counts as detected (it no longer ends, the original does). Each oracle runs once in `make check`.
+A REFFIX copy (build-time fix or truncation, e.g. trunc_t41.sh with `T32O_STOP`) is content-addressed under `out/refp/<cksum>/` and
+reference objects are built with `CCACHE_DISABLE=1`: the truncation variants of one reference have the same size and once shared one
+path, so a concurrent run or ccache handed out the object of another variant (openimp #278). Mutants live in `out/mut/<oracle>/`, so
+different oracles may run at the same time in one worktree.
 
 - `t32_bcshf_oracle`: BCSH per-frame (ev/ct update, raw-exposure mode, frame-done write, calc modes) vs the vendor functions; uses REFFIX (a build-time fix of one reference copy, see fix_bcsh_adjust_hue.sh); same IQ-bin rule as above.
 - `t32_gammaf_oracle`: gamma per-frame (ev_update, frame done, single + multi-curve, API curve) vs the vendor functions; same IQ-bin rule as above.
