@@ -153,7 +153,7 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	int32_t partition_integration_log2 = 0;
 	int32_t partition_again_log2 = 0;
 	int32_t max_exposure_log2;
-	int32_t requested_again;
+	int reserve;
 	int32_t applied_again;
 	int32_t remaining_exposure;
 	int32_t isp_dgain_hw_max;
@@ -294,44 +294,25 @@ int tx_isp_t20_simple_ae_apply(int32_t *total_exposure_log2,
 	integration_log2 = log2_fixed_to_fixed(integration, 0,
 		LOG2_GAIN_SHIFT);
 allocate_gain:
-	requested_again = clamp_t(int32_t,
-		*total_exposure_log2 - integration_log2, 0, attr->max_again);
-	/*
-	 * stab.global_max_sensor_analog_gain (stab[29]) is the user ceiling
-	 * set through SetMaxAgain (init_stab() seeds 117, the customer block
-	 * 128), an 8-bit gain log2 <<5, i.e. <<11 of LOG2_GAIN_SHIFT=16.
-	 * The OEM 3.12.0 cmos_alloc_sensor_analog_gain()
-	 * (tx_isp_t20_firmware.c) applies it unconditionally as
-	 * min(stab[29] << 11, request): 0 means 1x, not "no cap" (#238).
-	 */
-	requested_again = clamp_t(int32_t, requested_again, 0,
-		(int32_t)stab.global_max_sensor_analog_gain << 11);
 	/*
 	 * #267: OEM cmos_analog_gain_update(): request 1/16 stop less and keep
 	 * the previous gain for a request within +-0xfff of it; the ISP
-	 * digital gain below carries the rest (t20_ae_again_*()).
+	 * digital gain below carries the rest.  #284: the reserve comes off
+	 * total - IT BEFORE the caps, as cmos_calc_target_gain() ->
+	 * cmos_analog_gain_update() -> cmos_alloc_sensor_analog_gain()
+	 * (tx_isp_t20_firmware.c).  The caps are attr->max_again and the
+	 * SetMaxAgain ceiling stab.global_max_sensor_analog_gain (stab[29],
+	 * log2 <<5, i.e. <<11; init_stab() seeds 117, the customer block 128),
+	 * which the OEM applies unconditionally: 0 means 1x, not "no cap"
+	 * (#238).  See t20_ae_again_alloc() (tx_isp_t20_ae_max.h).
 	 */
-	if (!stab.global_manual_sensor_analog_gain &&
-	    t20_ae_again_reserve_ok(stab.global_manual_isp_digital_gain,
-				    isp_dgain_cap)) {
-		requested_again = t20_ae_again_request(requested_again);
-		applied_again = attr->sensor_ctrl.alloc_again(requested_again,
-			LOG2_GAIN_SHIFT, &again_code);
-		/* the OEM allocator caps the re-allocation like any request */
-		if (t20_ae_again_keep(requested_again, applied_again,
-				      prev_again))
-			applied_again = attr->sensor_ctrl.alloc_again(
-				min_t(int32_t, prev_again, min_t(int32_t,
-					attr->max_again,
-					(int32_t)stab.global_max_sensor_analog_gain
-						<< 11)),
-				LOG2_GAIN_SHIFT, &again_code);
-		prev_again = applied_again;
-	} else {
-		prev_again = -1;
-		applied_again = attr->sensor_ctrl.alloc_again(requested_again,
-			LOG2_GAIN_SHIFT, &again_code);
-	}
+	reserve = !stab.global_manual_sensor_analog_gain &&
+		t20_ae_again_reserve_ok(stab.global_manual_isp_digital_gain,
+					isp_dgain_cap);
+	applied_again = t20_ae_again_alloc(
+		*total_exposure_log2 - integration_log2, attr->max_again,
+		stab.global_max_sensor_analog_gain, reserve, &prev_again,
+		attr->sensor_ctrl.alloc_again, LOG2_GAIN_SHIFT, &again_code);
 	/*
 	 * #246: OEM cmos_digital_gain_update(): the remainder the floored
 	 * analog gain and the quantised integration time leave goes to the ISP

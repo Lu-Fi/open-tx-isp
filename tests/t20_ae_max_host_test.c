@@ -108,6 +108,36 @@ static int32_t compact_request(int32_t want, uint32_t sensor_max,
 	return r;
 }
 
+/* jxh42 (T10/T20 SDK sensor_again_lut[], log2 <<16 per code 0x00-0x4f,
+ * max_again 324678): the sensor allocator floors the request to the last
+ * entry <= it, as the SDK jxh42_alloc_again(). */
+static const uint32_t jxh42_lut[] = {
+	0, 5731, 11136, 16248, 21097, 25710, 30109, 34312, 38336, 42195,
+	45904, 49472, 52910, 56228, 59433, 62534, 65536, 71267, 76672, 81784,
+	86633, 91246, 95645, 99848, 103872, 107731, 111440, 115008, 118446,
+	121764, 124969, 128070, 131072, 136803, 142208, 147320, 152169, 156782,
+	161181, 165384, 169408, 173267, 176976, 180544, 183982, 187300, 190505,
+	193606, 196608, 202339, 207744, 212856, 217705, 222318, 226717, 230920,
+	234944, 238803, 242512, 246080, 249518, 252836, 256041, 259142, 262144,
+	267875, 273280, 278392, 283241, 287854, 292253, 296456, 300480, 304339,
+	308048, 311616, 315054, 318372, 321577, 324678,
+};
+#define JXH42_MAX 324678u
+static int jxh42_calls;
+
+static unsigned int jxh42_alloc(unsigned int gain, unsigned char shift,
+				unsigned int *code)
+{
+	unsigned int i, n = sizeof(jxh42_lut) / sizeof(jxh42_lut[0]);
+
+	(void)shift;
+	jxh42_calls++;
+	for (i = 0; i + 1 < n && jxh42_lut[i + 1] <= gain; i++)
+		;
+	*code = i;
+	return jxh42_lut[i];
+}
+
 int main(void)
 {
 	int bad = 0;
@@ -293,6 +323,80 @@ int main(void)
 		bad += t20_ae_again_keep(0x1c100, 0x1c000, -1);
 		bad += t20_ae_again_keep(0x1c100, 0x1c000, 0x1c000);
 		printf("  again reserve/hysteresis: %s\n", bad == b0 ? "ok" : "BAD");
+	}
+	/*
+	 * #284: reserve BEFORE the caps (OEM cmos_calc_target_gain ->
+	 * cmos_analog_gain_update -> cmos_alloc_sensor_analog_gain), the whole
+	 * tx_isp_t20_simple_ae_apply() gain step on the jxh42 table.
+	 */
+	{
+		int b0 = bad;
+		int32_t prev = -1;
+		unsigned int code = 0;
+		const int32_t c144 = 144 << 11;	/* 294912 */
+
+		/* order: a dark scene asks far above the cap -> cap, not cap-0x1000 */
+		bad += t20_ae_again_target(c144 + 0x1000 + 100, JXH42_MAX, 144, 1)
+			!= c144;
+		bad += t20_ae_again_target(c144 + 0x1000, JXH42_MAX, 144, 1) != c144;
+		bad += t20_ae_again_target(c144, JXH42_MAX, 144, 1) != c144 - 0x1000;
+		bad += t20_ae_again_target(c144 + 0x1000 + 100, JXH42_MAX, 144, 0)
+			!= c144;
+		bad += t20_ae_again_target(0x800, JXH42_MAX, 144, 1) != 0;
+		bad += t20_ae_again_target(-5, JXH42_MAX, 144, 0) != 0;
+		bad += t20_ae_again_target(0x7fffffff - 1, JXH42_MAX, 200, 1) !=
+			(int32_t)JXH42_MAX;
+		/* jxh42 night plateau at ceiling 144: 0x46 = 142 like the OEM
+		 * (the old cap-then-reserve order gave 0x45 = 140) */
+		bad += t20_ae_again_alloc(c144 + 0x40000, JXH42_MAX, 144, 1, &prev,
+			jxh42_alloc, 16, &code) != 292253;
+		bad += code != 0x46 || prev != 292253;
+		bad += (292253 >> 11) != 142;
+		bad += (jxh42_alloc(c144 - 0x1000, 16, &code) >> 11) != 140;
+		/* steady at the cap: same gain, kept */
+		bad += t20_ae_again_alloc(c144 + 0x2000, JXH42_MAX, 144, 1, &prev,
+			jxh42_alloc, 16, &code) != 292253;
+		/* request 1253 below the kept gain floors to 0x45: kept at 0x46 */
+		bad += t20_ae_again_alloc(291000 + 0x1000, JXH42_MAX, 144, 1, &prev,
+			jxh42_alloc, 16, &code) != 292253 || code != 0x46;
+		/* SetMaxAgain lowered to 142 while kept: the cap wins (0x45) */
+		bad += t20_ae_again_alloc(c144 + 0x40000, JXH42_MAX, 142, 1, &prev,
+			jxh42_alloc, 16, &code) != 287854 || prev != 287854;
+		/* reserve off (manual gain / small dgain cap): prev is reset */
+		bad += t20_ae_again_alloc(200000, JXH42_MAX, 144, 0, &prev,
+			jxh42_alloc, 16, &code) != 196608 || prev != -1;
+		/* ceiling <= 2 (<= 4096) is below the first step 5731: 1x */
+		prev = -1;
+		bad += t20_ae_again_alloc(c144, JXH42_MAX, 2, 1, &prev,
+			jxh42_alloc, 16, &code) != 0;
+		bad += t20_ae_again_alloc(c144, JXH42_MAX, 1, 1, &prev,
+			jxh42_alloc, 16, &code) != 0;
+		bad += t20_ae_again_alloc(c144, JXH42_MAX, 0, 1, &prev,
+			jxh42_alloc, 16, &code) != 0;
+		/* isp-m0 "MAX SENSOR analog gain" = the AE plateau */
+		bad += t20_ae_m0_max_again_log2_5(JXH42_MAX, 144, jxh42_alloc) != 142;
+		bad += t20_ae_m0_max_again_log2_5(JXH42_MAX, 128, jxh42_alloc) != 128;
+		bad += t20_ae_m0_max_again_log2_5(JXH42_MAX, 200, jxh42_alloc) != 158;
+		bad += t20_ae_m0_max_again_log2_5(JXH42_MAX, 2, jxh42_alloc) != 0;
+		bad += t20_ae_m0_max_again_log2_5(JXH42_MAX, 1, jxh42_alloc) != 0;
+		bad += t20_ae_m0_max_again_log2_5(JXH42_MAX, 0, jxh42_alloc) != 0;
+		bad += t20_ae_m0_max_again_log2_5(JXH42_MAX, 144, NULL) != 144;
+		/* m0 readout and AE plateau agree for every ceiling */
+		{
+			uint32_t u;
+
+			for (u = 0; u <= 255; u++) {
+				prev = -1;
+				bad += (uint32_t)(t20_ae_again_alloc(0x7ffff000,
+					JXH42_MAX, u, 1, &prev, jxh42_alloc, 16,
+					&code) >> 11) !=
+				       t20_ae_m0_max_again_log2_5(JXH42_MAX, u,
+					jxh42_alloc);
+			}
+		}
+		bad += jxh42_calls == 0;
+		printf("  again reserve before cap (jxh42): %s\n",
+		       bad == b0 ? "ok" : "BAD");
 	}
 	/* #267 optional flip guard (t20_ae_flip_guard) */
 	{

@@ -124,6 +124,88 @@ static inline int t20_ae_again_keep(int32_t request_log2, int32_t applied_log2,
 }
 
 /*
+ * openimp #284: the analog gain the compact AE hands to the sensor
+ * allocator, in the OEM order.  cmos_calc_target_gain() leaves
+ * total - IT unclamped, cmos_analog_gain_update() takes the 0x1000 reserve
+ * off that, and only cmos_alloc_sensor_analog_gain() caps the result to
+ * min(sensor max, stab[29] << 11).  Reserving after the cap put the night
+ * plateau one table step low (jxh42 ceiling 144: 140 instead of 142).
+ * raw_log2: total - IT (log2 <<16); reserve: t20_ae_again_reserve_ok().
+ */
+static inline int32_t t20_ae_again_target(int32_t raw_log2,
+					  uint32_t sensor_max_log2_16,
+					  uint32_t user_max, int reserve)
+{
+	int32_t cap = (int32_t)t20_ae_request_log2_16(sensor_max_log2_16,
+						      user_max);
+
+	if (reserve)
+		raw_log2 = t20_ae_again_request(raw_log2);
+	if (raw_log2 < 0)
+		raw_log2 = 0;
+	return raw_log2 < cap ? raw_log2 : cap;
+}
+
+/* attr->sensor_ctrl.alloc_again(): floors the request to the sensor table */
+typedef unsigned int (*t20_ae_alloc_again_fn)(unsigned int isp_gain,
+					      unsigned char shift,
+					      unsigned int *sensor_again);
+
+/*
+ * The whole analog gain step of tx_isp_t20_simple_ae_apply(): target
+ * (reserve, then caps), allocation, and the +-0xfff keep, whose
+ * re-allocation is capped like any request (a lowered SetMaxAgain wins over
+ * the kept gain).  *prev: gain applied last call, -1 = none; it is reset
+ * while the reserve is off.
+ */
+static inline int32_t t20_ae_again_alloc(int32_t raw_log2,
+					 uint32_t sensor_max_log2_16,
+					 uint32_t user_max, int reserve,
+					 int32_t *prev,
+					 t20_ae_alloc_again_fn alloc,
+					 unsigned char shift,
+					 unsigned int *code)
+{
+	int32_t cap = (int32_t)t20_ae_request_log2_16(sensor_max_log2_16,
+						      user_max);
+	int32_t request = t20_ae_again_target(raw_log2, sensor_max_log2_16,
+					      user_max, reserve);
+	int32_t applied = (int32_t)alloc((unsigned int)request, shift, code);
+
+	if (!reserve) {
+		*prev = -1;
+		return applied;
+	}
+	if (t20_ae_again_keep(request, applied, *prev))
+		applied = (int32_t)alloc(
+			(unsigned int)(*prev < cap ? *prev : cap), shift, code);
+	*prev = applied;
+	return applied;
+}
+
+/*
+ * isp-m0 "MAX SENSOR analog gain" (log2 <<5) on the compact AE: the table
+ * step the allocator gives for the cap itself.  At the cap the OEM request
+ * (total - IT - 0x1000) is still >= the cap, so no reserve here (#284).  An
+ * allocator result of 0 (ceiling below the first table step) is a real 1x
+ * plateau, not "unknown" (review #267 finding 4).
+ */
+static inline uint32_t t20_ae_m0_max_again_log2_5(uint32_t sensor_max_log2_16,
+						  uint32_t user_max,
+						  t20_ae_alloc_again_fn alloc)
+{
+	uint32_t cap = t20_ae_max_again_log2_5(sensor_max_log2_16, user_max);
+	unsigned int code = 0;
+	uint32_t a;
+
+	if (!alloc)
+		return cap;
+	a = alloc(t20_ae_request_log2_16(sensor_max_log2_16, user_max), 16,
+		  &code) >> 11;
+	return a < cap ? a : cap;
+}
+
+/*
  * Manual integration time (SetIntegrationTime MODE_MANUAL / SetExpr manual:
  * stab.global_manual_integration_time = stab[3], lines in
  * stab.global_integration_time = stab+0x18).  The OEM 3.12.0

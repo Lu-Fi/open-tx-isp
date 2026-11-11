@@ -2868,30 +2868,13 @@ static int isp_m0_show(struct seq_file *m, void *v)
 	isp_dgain = isp_m0_get(TSYSTEM, SYSTEM_ISP_DIGITAL_GAIN);
 	if (compact) {
 		max_it = tx_isp_t20_ae_max_integration_time();
-		/* the lower of sensor max and SetMaxAgain ceiling, as the
-		 * compact AE clamps in sensor_drv.c */
-		max_again = t20_ae_max_again_log2_5(attr->max_again,
-				stab.global_max_sensor_analog_gain);
-		/* the sensor table is stepped: the AE sits on the step the
-		 * sensor allocator rounds the cap down to */
-		if (attr->sensor_ctrl.alloc_again) {
-			unsigned int code = 0;
-			int32_t req = t20_ae_request_log2_16(attr->max_again,
-				stab.global_max_sensor_analog_gain);
-
-			/* #267: with the OEM 1/16-stop reserve the AE asks
-			 * for 0x1000 less at the cap (sensor_drv.c) */
-			if (!stab.global_manual_sensor_analog_gain &&
-			    t20_ae_again_reserve_ok(
-				stab.global_manual_isp_digital_gain,
-				t20_ae_isp_dgain_cap(
-					stab.global_max_isp_digital_gain,
-					log2_fixed_to_fixed(0xfff, 12, 16) +
-						(4 << 16))))
-				req = t20_ae_again_request(req);
-			max_again = t20_ae_plateau_log2_5(max_again,
-				attr->sensor_ctrl.alloc_again(req, 16, &code));
-		}
+		/* the lower of sensor max and SetMaxAgain ceiling, on the
+		 * table step the sensor allocator rounds it down to (jxh42
+		 * ceiling 144: 142).  The 1/16-stop reserve is taken before
+		 * the cap (#284), so the OEM plateau is unchanged. */
+		max_again = t20_ae_m0_max_again_log2_5(attr->max_again,
+				stab.global_max_sensor_analog_gain,
+				attr->sensor_ctrl.alloc_again);
 		max_dgain = 0;
 		/* #246: the compact AE fills ISP digital gain up to
 		 * SetMaxDgain (stab[33]) and the 4.8 register maximum
