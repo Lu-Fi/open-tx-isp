@@ -207,7 +207,25 @@ int t32_tx_os_tisp_g_gamma(u32 ch, void *buf)
 	return t32_tc_put(buf, t32_tc[ch].gamma, 264);
 }
 
-int t32_tx_os_tisp_g_autozoom(u32 ch, void *buf) { return t32_tc_put(buf, t32_tc[ch].autozoom, 60); }
+/*
+ * tisp_g_autozoom_control -> tisp_msca_api_get_autozoom: the five crop words of the three
+ * MSCA output sets (start x, y, ..., width, height at +6 / +8 of each set), here the
+ * sensor input size as the MSCA state holds it before an autozoom frame applies the request
+ * (QEMU vendor reference: 0, 0, 0, 3840, 2160 for each set).
+ */
+static u32 t32_tc_sw, t32_tc_sh;
+
+int t32_tx_os_tisp_g_autozoom(u32 ch, void *buf)
+{
+	u32 *w = buf, k;
+
+	memset(buf, 0, 60);
+	for (k = 0; k < 3; k++) {
+		w[9 + k] = t32_tc_sw;
+		w[12 + k] = t32_tc_sh;
+	}
+	return 0;
+}
 int t32_tx_os_tisp_s_autozoom_control(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].autozoom, buf, 60); }
 int t32_tx_os_tisp_set_csc_attr(u32 ch, void *buf) { return t32_tc_put(t32_tc[ch].csc, buf, 92); }
 int t32_tx_os_tisp_get_csc_attr(u32 ch, void *buf) { return t32_tc_put(buf, t32_tc[ch].csc, 92); }
@@ -409,6 +427,15 @@ static u32 t32_tc_sd[128];			/* +280 core */
 static u32 t32_tc_core[T32_TC_CORE_BYTES / 4];	/* +376 + 104 ch input, +1180 + 4 ch WDR, +4044 + 60 ch autozoom */
 static u8 t32_tc_sattr[0x190];			/* sensor attribute copy for 0x33 */
 
+/*
+ * The vendor core keeps per input (+376 + 104 ch) the sensor attribute pointer, the size and
+ * the frame rate as synced at sensor setup (ispcore_sync_sensor_attr): a later frame rate
+ * change does not update them (0x33 answers the setup HTS / VTS / fps in the vendor run).
+ * Here: a snapshot of the attribute block, size and fps at the first call with the sensor
+ * up, taken again when the attribute block moves (new sensor).
+ */
+static const u8 *t32_tc_snap_src;
+
 static void t32_tc_refresh(u32 ch)
 {
 	u32 core = T32_TX_A(t32_tc_core), in = core + 376 + 104 * ch, w = 0, h = 0;
@@ -416,15 +443,22 @@ static void t32_tc_refresh(u32 ch)
 
 	t32_tc_isp[0] = T32_TX_A(t32_tc_sd);
 	t32_tc_sd[280 / 4] = core;
-	memset(t32_tc_sattr, 0, sizeof(t32_tc_sattr));
-	if (!ch && !t32_core_sensor_ae_src(&video_in, &attr)) {
+	if (t32_core_sensor_ae_src(&video_in, &attr)) {
+		t32_tc_snap_src = NULL;
+		memset(t32_tc_sattr, 0, sizeof(t32_tc_sattr));
+		t32_tc_sw = t32_tc_sh = 0;
+	} else if (attr != t32_tc_snap_src) {
+		t32_tc_snap_src = attr;
 		memcpy(t32_tc_sattr, attr, sizeof(t32_tc_sattr));
 		t32_core_sensor_size(&w, &h);
-		t32_tx_st(in, 8, w);
-		t32_tx_st(in, 12, h);
-		t32_tx_st(in, 16, t32_core_sensor_fps());
+		t32_tc_sw = w;
+		t32_tc_sh = h;
+		t32_tx_st(core + 376, 8, w);
+		t32_tx_st(core + 376, 12, h);
+		t32_tx_st(core + 376, 16, t32_core_sensor_fps());
 	}
-	t32_tx_st(in, 0, T32_TX_A(t32_tc_sattr));
+	t32_tx_st(core + 376, 0, T32_TX_A(t32_tc_sattr));
+	(void)in;
 }
 
 static bool t32_tc_served(u32 id)
