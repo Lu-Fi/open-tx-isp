@@ -154,6 +154,19 @@ int main(void)
 				  T32O_PTR(v + 300), 0, 0);
 			t32_lce_hist_method_16bit((const u16 *)o, (u16 *)(o + 100), (const struct t32_lce_hm16_par *)(o + 300));
 			chk("hist_method_16bit", c, v, o, 512);
+			if (c % 4 == 0) {	/* BEYOND VENDOR (#281): n 32..255 gives the n = 31 result; ours only */
+				u8 o2[512];
+
+				memcpy(o2, ref, 512);
+				memcpy(o, ref, 512);
+				w[1] = (w[1] & ~0xffu) | (32 + rnd() % 224);
+				memcpy(o + 300, w, sizeof(w));
+				w[1] = (w[1] & ~0xffu) | 31;
+				memcpy(o2 + 300, w, sizeof(w));
+				t32_lce_hist_method_16bit((const u16 *)o, (u16 *)(o + 100), (const struct t32_lce_hm16_par *)(o + 300));
+				t32_lce_hist_method_16bit((const u16 *)o2, (u16 *)(o2 + 100), (const struct t32_lce_hm16_par *)(o2 + 300));
+				chk("hist_method_16bit n clamp (beyond vendor)", c, o + 100, o2 + 100, 64);
+			}
 			{
 				u32 s = 0;	/* which branch: sum of min(a, g) against 0x8000, from the port's view */
 				for (i = 0; i < 32; i++)

@@ -112,7 +112,6 @@ static inline void t32_ae_deinit(const struct t32_aed *a, u32 ch)
 #define T32_IPS_PAIR_SIZE	8
 
 struct t32_ips {
-	void *(*memcpy)(void *dst, const void *src, size_t n);
 	u32 *count;	/* t32_data_e3ef8 */
 	u8 *blk_e78;	/* t32_data_e3e78[128] */
 	u8 *blk_df8;	/* t32_data_e3df8[128] */
@@ -122,19 +121,20 @@ struct t32_ips {
 };
 
 /*
- * tisp_intp_static_clear.  Vendor UB, kept: the clears are memcpy calls
- * with a NULL source (memset was meant), so on the device the first copy
- * reads address 0 and oopses; the vendor has no caller of this function.
- * Returns what the last memcpy returns (the vendor tail call).
+ * tisp_intp_static_clear.  BEYOND VENDOR (#281): the vendor clears with
+ * memcpy calls from a NULL source (memset was meant), so on the device the
+ * first copy reads address 0 and oopses; ours zeroes the same five objects
+ * in the same order (memset) and returns the last one, as a memcpy would.
+ * The vendor has no caller of this function.
  */
 static inline void *t32_intp_static_clear(const struct t32_ips *s)
 {
 	*s->count = 0;
-	s->memcpy(s->blk_e78, NULL, T32_IPS_BLK_SIZE);
-	s->memcpy(s->blk_df8, NULL, T32_IPS_BLK_SIZE);
-	s->memcpy(s->pair_df0, NULL, T32_IPS_PAIR_SIZE);
-	s->memcpy(s->blk_d70, NULL, T32_IPS_BLK_SIZE);
-	return s->memcpy(s->blk_cf0, NULL, T32_IPS_BLK_SIZE);
+	memset(s->blk_e78, 0, T32_IPS_BLK_SIZE);
+	memset(s->blk_df8, 0, T32_IPS_BLK_SIZE);
+	memset(s->pair_df0, 0, T32_IPS_PAIR_SIZE);
+	memset(s->blk_d70, 0, T32_IPS_BLK_SIZE);
+	return memset(s->blk_cf0, 0, T32_IPS_BLK_SIZE);
 }
 
 /* ---- lib_tisp_save_specified_frame_raw (vendor 0xaf184), oracle t32_sfraw_oracle ---- */

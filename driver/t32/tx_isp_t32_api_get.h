@@ -133,6 +133,7 @@ static inline int t32_get_sensor_setting_len(void) { return 0; }
 /*
  * get_sensor_setting_md5: the vendor body is "jr ra; nop", so its return
  * value is whatever v0 held (undefined); Matt's C and ours return 0.
+ * BEYOND VENDOR (#281): the defined 0 instead of the undefined v0.
  */
 static inline int t32_get_sensor_setting_md5(void) { return 0; }
 
@@ -140,11 +141,15 @@ static inline int t32_get_sensor_setting_md5(void) { return 0; }
  * tisp_g_riscv_info(ch, en, src): despite the name a store: the RISC-V
  * enable byte of the channel (riscvEnable[ch]) = (u8)en; for en == 1 the
  * 12800 byte parameter block src is copied to stRiscvPara + ch * 12800.
- * Returns 0.  The channel is not masked (vendor: ch >= 4 lands on the
- * neighbouring .bss words).
+ * Returns 0.  BEYOND VENDOR (#281): a channel >= 4 returns -22 and stores
+ * nothing (vendor: not masked, riscvEnable is 4 bytes and stRiscvPara
+ * 4 x 12800, so ch >= 4 writes the neighbouring .bss).
  */
+#define T32_RISCV_NCH		4	/* riscvEnable[4], stRiscvPara[4][12800] (vendor .bss sizes) */
 static inline int t32_g_riscv_info(u32 ch, u32 en, const void *src, u8 *riscv_en, u8 *riscv_para)
 {
+	if (ch >= T32_RISCV_NCH)
+		return -22;
 	riscv_en[ch] = (u8)en;
 	if ((u8)en == 1)
 		memcpy(riscv_para + ch * T32_RISCV_PARA_SZ, src, T32_RISCV_PARA_SZ);

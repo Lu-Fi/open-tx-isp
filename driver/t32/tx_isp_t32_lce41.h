@@ -9,10 +9,9 @@
  * lce_self_light_correct_local, lce_16bit_data_converge, tisp_lce_std_hist_transform) are the ones
  * of tx_isp_t32_lce.h.
  *
- * Vendor behaviour kept (not fixed, a change needs the user's OK): lce_hist_method_16bit takes
- * its centre bin n from 8 bits and writes its 32 entry stack arrays up to index n (n >= 32
- * overflows them; ours supports n <= 31 only and refuses nothing, the caller must keep the
- * range) and reads 1024 / n from a 32 entry table; its divides are signed (a ramp sum of 0
+ * BEYOND VENDOR (#281): lce_hist_method_16bit takes its centre bin n from 8 bits and writes its
+ * 32 entry stack arrays up to index n (n >= 32 overflows them) and reads 1024 / n from a 32 entry
+ * table; ours clamps n to 31 (n <= 31 bit-exact).  Vendor behaviour kept: its divides are signed (a ramp sum of 0
  * gives the vendor's divide-by-zero result: -1 or 1 by the sign of the numerator).
  *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15) by
@@ -135,7 +134,7 @@ static inline void t32_lce_std_hist_transform32(u32 *h, u32 mult, u32 shift)
  */
 static inline void t32_lce_hist_method_16bit(const u16 *hist, u16 *out, const struct t32_lce_hm16_par *p)
 {
-	u32 n = p->n & 0xff, recip = t32_lce_hm16_recip[n & 31];
+	u32 n = (p->n & 0xff) > 31 ? 31 : p->n & 0xff, recip = t32_lce_hm16_recip[n];	/* BEYOND VENDOR (#281): n clamped */
 	s32 sa = (s32)((p->a & 0xffff) * recip) >> 10, sb = (s32)((p->b & 0xff) * recip) >> 10;
 	u32 a[32], b[32], bsum = 0, sum = 0, tot = 0, i;
 	s32 rem, q, r;
@@ -193,7 +192,7 @@ static inline void t32_lce_hist_method_16bit(const u16 *hist, u16 *out, const st
  * round7((128 - par[112]) (16 bit) * row + par[112] * global cdf) clipped to 255.
  * The vendor presets the judge byte to 15; both judges always overwrite it (the preset is dropped).
  * The rodata shifts d6c66 / d6c67 are both 20.  Supported: thresholds (par[285], par[230]) 0..31 (the vendor
- * overflows the stack arrays of the hist methods above, see the header).  The vendor's 64 byte stack clear
+ * overflows the stack arrays of the hist methods above; ours clamps, beyond vendor #260 / #281).  The vendor's 64 byte stack clear
  * and 72 byte parameter block clear are kept as local zeroing.
  */
 #define T32_LCE41_SH	20U	/* rodata d6c66 and d6c67 */

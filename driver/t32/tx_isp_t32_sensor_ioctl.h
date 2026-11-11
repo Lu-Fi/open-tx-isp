@@ -30,8 +30,9 @@
  * same name returns 0 at once; locks are released with the index read
  * again after the callee (arg / info may change it); the unknown-bus error of the retry path
  * returns with the per-index lock held; stream passes { arg[1], arg[0] }.
- * Vendor UB (crashes, not reachable from a registered subdev): bus type 2 (SPI)
- * reads the private pointer of a NULL sensor; the forwarded commands and
+ * BEYOND VENDOR (#281): register with bus type 2 (SPI) returns -22 (vendor: reads the
+ * private pointer of a NULL sensor).  Vendor UB kept (crashes, not reachable from a
+ * registered subdev): the forwarded commands and
  * 28 read through a NULL subdev / arg; indexes are not range checked.
  *
  * Checked bit-exact against the vendor flow by tests/t32_oracle
@@ -261,10 +262,12 @@ static inline int t32_ssio_register(const struct t32_ssio_os *os, u8 *sd, u8 *in
 		if (!t32_ssio_core_init(s))
 			goto ok;
 	} else if (bus == 2) {
-		os->lock(sd + T32_SSIO_LOCK(idx));
-		s = NULL;			/* vendor: no SPI device, NULL private read (UB) */
-		priv = t32_ssio_copy_info(s, info);
-		t32_g_wr32(priv, 300, 0);
+		/*
+		 * BEYOND VENDOR (#281): the vendor takes the per-index lock and copies the info
+		 * into the private block of a NULL sensor (it has no SPI device): NULL dereference.
+		 * Ours refuses SPI with -22 before the lock; the I2C and unknown-bus paths are unchanged.
+		 */
+		return -22;	/* SPI: no device */
 	} else {
 		isp_printf(1, t32_ssio_no_bus, fn, 162);
 		return -22;

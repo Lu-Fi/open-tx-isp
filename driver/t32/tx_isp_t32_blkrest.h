@@ -986,6 +986,10 @@ static inline int t32_long_tgain_update(const struct t32_ltg_ops *ops, const u8 
 #define T32_APS_OSD_W2		846
 #define T32_APS_OSD_DATA	848	/* 16 B per layer */
 #define T32_APS_OSD_DATA_LEN	16
+#define T32_APS_NCHN		3	/* output channels in the 2636 B block (beyond vendor bound, #281) */
+#define T32_APS_NMASK		20	/* mask blocks 116 .. 675 */
+#define T32_APS_NOSD		8	/* OSD blocks 680 .. 839 */
+#define T32_APS_BADSEL		0xffffffeaU	/* -22: selector out of range (beyond vendor, #281) */
 
 #define T32_APS_DRAW_LEN	34	/* tisp_s_draw_block_attr argument */
 #define T32_APS_OSD_LEN		30	/* tisp_s_osd_attr argument (one layer), reused for the block */
@@ -1072,6 +1076,11 @@ static inline u32 t32_aps_osd(struct t32_apis *a, u32 ch, const u8 *par)
  * setter's result is returned.  Ids 0, 15 and 16 only copy (0 to the mask
  * attributes, 15 / 16 nowhere), 6 and unknown ids are rejected with a debug
  * print; those return 0 here (the vendor returns a left-over register).
+ * BEYOND VENDOR (#281): a channel selector >= 3 (ids 5, 8), a mask block
+ * selector >= 20 (id 3) or an OSD block selector >= 8 (id 4) returns -22
+ * after the store copy and calls no setter (vendor: not bounded, reads the
+ * wrong block or past the channel's 2636 B parameter block).  The bytes the
+ * vendor leaves as stack garbage are 0 here (also beyond vendor, #281).
  */
 static inline u32 t32_api_param_array_set(struct t32_apis *a, u32 ch, const u8 *in, u32 id)
 {
@@ -1093,13 +1102,19 @@ static inline u32 t32_api_param_array_set(struct t32_apis *a, u32 ch, const u8 *
 		return a->ops->mask_out_cfg(ch, a->mask_out);
 	case 3:
 		memcpy(par, in, T32_API_MSCA_PAR_LEN);
+		if (par[T32_APS_BLK_SEL] >= T32_APS_NMASK)
+			return T32_APS_BADSEL;	/* BEYOND VENDOR (#281) */
 		return t32_aps_draw_block(a, ch, par);
 	case 4:
 		memcpy(par, in, T32_API_MSCA_PAR_LEN);
+		if (par[T32_APS_BLK_SEL] >= T32_APS_NOSD)
+			return T32_APS_BADSEL;	/* BEYOND VENDOR (#281) */
 		return t32_aps_osd(a, ch, par);
 	case 5:
 		memcpy(par, in, T32_API_MSCA_PAR_LEN);
 		sel = par[T32_APS_CHN_SEL];
+		if (sel >= T32_APS_NCHN)
+			return T32_APS_BADSEL;	/* BEYOND VENDOR (#281) */
 		memset(buf, 0, sizeof(buf));
 		buf[0] = (sel & 3) | (t32_aps_get32(par + T32_APS_CHN_MF + T32_APS_CHN_STRIDE * sel) & 0x3f) << 2;
 		return a->ops->mirr_flip(ch, buf);
@@ -1109,6 +1124,8 @@ static inline u32 t32_api_param_array_set(struct t32_apis *a, u32 ch, const u8 *
 	case 8:
 		memcpy(par, in, T32_API_MSCA_PAR_LEN);
 		sel = par[T32_APS_CHN_SEL];
+		if (sel >= T32_APS_NCHN)
+			return T32_APS_BADSEL;	/* BEYOND VENDOR (#281) */
 		memset(buf, 0, sizeof(buf));
 		memcpy(buf, par + T32_APS_CHN_CROP + T32_APS_CHN_STRIDE * sel, T32_APS_CHN_CROP_LEN);
 		return a->ops->crop(ch, sel, buf);

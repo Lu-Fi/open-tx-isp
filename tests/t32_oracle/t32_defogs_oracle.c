@@ -128,7 +128,46 @@ int main(void)
 				failed = printf("MISMATCH tables changed\n");
 		}
 	}
-	printf("t32_defogs_oracle: %u calls compared (mask %u, smooth %u, luma mode %u cases, %u clipped cells), %u mismatches\n",
+	/*
+	 * BEYOND VENDOR (#281): negative channel values (vendor: index before the curve / cache / flag tables)
+	 * are clipped to 0.  Ours only: every gain negative and every statistic nonzero gives channel 0 in
+	 * every cell, so every strength byte is the curve at 0 and every transmission byte the curve at 0.
+	 */
+	for (c = 0; c < 500 && !failed; c++) {
+		static struct t32_defog_par pn, pr;
+		u8 tav[5], tbv[5], s0, t0;
+
+		for (i = 0; i < PN; i++)
+			pn.b[i] = (u8)rnd();
+		for (k = 0; k < 4; k++) {
+			u32 gk = 0x80000000u | rnd();
+
+			memcpy(pn.b + T32_DFS_GAIN + 4 * k, &gk, 4);
+		}
+		for (i = 0; i < 540; i++) {
+			u32 x = 1 + rnd() % 0x7ffffffeu;	/* shift 31: product >> 31 in -2^31 .. -1 */
+
+			memcpy(pn.b + 4 * i, &x, 4);
+		}
+		pn.b[T32_DFS_SHIFT] = 0;
+		pn.b[T32_DFS_NOSTR] = 0;
+		pn.b[T32_DFS_MASK] = 0;
+		pn.b[T32_DFS_SMOOTH] = 0;
+		pn.b[T32_DFS_LUMAMODE] = (u8)(rnd() & 1);
+		for (k = 0; k < 5; k++)
+			tav[k] = (u8)rnd(), tbv[k] = (u8)rnd();
+		pn.tbl_a = tav; pn.tbl_b = tbv;
+		pr = pn;
+		s0 = t32_dfs_strength(pr.b, 0);
+		t0 = t32_dfs_trans(pr.b, tav, tbv, 0);
+		t32_defog_soft(&pn);
+		for (i = 0; i < 180 && !failed; i++)
+			if (pn.b[T32_DFS_STR + i] != s0 || pn.b[T32_DFS_STR + 180 + i] != s0 ||
+			    pn.b[T32_DFS_STR + 360 + i] != s0 || pn.b[T32_DFS_TRANS + i] != t0 || pn.b[T32_DFS_LUMA + i])
+				failed = 1, printf("MISMATCH negative channel clip (beyond vendor) case %u cell %u\n", c, i);
+	}
+	printf("t32_defogs_oracle: %u calls compared (mask %u, smooth %u, luma mode %u cases, %u clipped cells),"
+	       " 500 negative-channel blocks (beyond vendor, ours only), %u mismatches\n",
 	       compared, nmask, nsmooth, nluma, nclip, failed);
 	return failed ? 1 : 0;
 }

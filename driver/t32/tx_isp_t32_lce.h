@@ -453,14 +453,15 @@ struct t32_lce_hm16_par {
  * from the same four inputs); else m[i] + b[i] * (0x8000 - S) / sum(b) (unsigned, ~0 for sum 0).  Finally the
  * remaining 0x8000 - total is spread: h = (rem << 5) >> 10 on every bin and rem % 32 on bin 31.
  * v = (sum << 5 >> 14) + 1 is at least 65 there (and sum < 2^26 for every parameter), so the vendor's divide-by-zero
- * handling is never reached.  Only n <= 31 is supported (the vendor overflows its stack arrays above).  The vendor's memcpy of a 64 byte
+ * handling is never reached.  BEYOND VENDOR (#281): n above 31 is clamped to 31 (the vendor overflows its stack
+ * arrays there); n <= 31 is bit-exact.  The vendor's memcpy of a 64 byte
  * table into its scratch buffer (bf860) is overwritten completely before it is read and is not ported.
  * Not related to t32_lce_hist_method (different algorithm).
  */
 static inline void t32_lce_hist_method_16bit_simd(const u16 *hist, u16 *out, const struct t32_lce_hm16_par *p)
 {
-	u32 n = p->n & 0xff, c1 = p->c1 & 0xffff, c3 = p->c3 & 0xff, k8 = p->k8 & 0xff;
-	u32 ra = (p->a & 0xffff) * t32_lce_hm16_recip[n & 31], rb = (p->b & 0xff) * t32_lce_hm16_recip[n & 31];
+	u32 n = (p->n & 0xff) > 31 ? 31 : p->n & 0xff, c1 = p->c1 & 0xffff, c3 = p->c3 & 0xff, k8 = p->k8 & 0xff;	/* BEYOND VENDOR (#281) */
+	u32 ra = (p->a & 0xffff) * t32_lce_hm16_recip[n], rb = (p->b & 0xff) * t32_lce_hm16_recip[n];
 	u32 sa = (u32)((int)ra >> 10), sb = (u32)((int)rb >> 10);
 	u32 a[32], b[32], bsum = 0, sum = 0, tot = 0, rem, i;
 	u16 m[32];

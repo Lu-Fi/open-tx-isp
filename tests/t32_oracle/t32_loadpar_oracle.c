@@ -122,10 +122,17 @@ u64 isp_printf(u32 a0, u32 a1, u32 a2, u32 a3)
 	return 0;
 }
 
+/* BEYOND VENDOR (#281) bookkeeping of our side: night bin missing in mode 0, a guarded NULL allocation */
+static u32 cur_mode, night_miss, guard_hit, null44, otab;
 static int o_exist(const char *p)
 {
+	int r;
+
 	add(&lo, 1, 0, 0, 0, p);
-	return exist_bits >> (so.nex++ & 31) & 1;
+	r = exist_bits >> (so.nex++ & 31) & 1;
+	if (!r && !cur_mode && strstr(p, "-PRJ007-night.bin"))
+		night_miss = 1;
+	return r;
 }
 
 static int o_read(u32 ch, const char *p, u32 i)
@@ -141,8 +148,18 @@ static void o_lut(u32 ch, u32 sel)
 
 static void *o_vmalloc(u32 n)
 {
+	void *p;
+
 	add(&lo, 4, n, 0, 0, NULL);
-	return alloc_pat(&so, n);
+	if (n == 44 && null44) {	/* LUT info allocation fails (ours only: the vendor would use NULL) */
+		so.nal++;
+		guard_hit = 1;
+		return NULL;
+	}
+	p = alloc_pat(&so, n);
+	if (n != 44 && otab++ >= 2 && !p)
+		guard_hit = 1;		/* one of the last five tables */
+	return p;
 }
 
 static unsigned int o_printk_n;
@@ -193,7 +210,7 @@ static int cmp_lut(u32 vv, u32 ov)
 int main(void)
 {
 	unsigned int c, n = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 6000, failed = 0, calls = 0;
-	unsigned int ok = 0, nm[3] = { 0, 0, 0 };
+	unsigned int ok = 0, nm[3] = { 0, 0, 0 }, nguard = 0, nnight = 0;
 
 	for (c = 0; c < n && !failed; c++) {
 		u8 *iv = NULL, io[INFON];
@@ -272,9 +289,40 @@ int main(void)
 
 			lv.n = lo.n = 0;
 			o_printk_n = 0;
+			memcpy(&cur_mode, io + 48, 4);
+			night_miss = guard_hit = otab = 0;
+			null44 = !lut_o[ch & 0xff] && rnd() % 8 == 0;
 			rv = (int)(u32)t32o_call((t32o_fn)(void (*)(void))tisp_load_parameters, ch, T32O_PTR(iv), 0, 0, 0);
 			ro = t32_load_parameters(&g, &ops, ch, io);
 			calls++;
+			if (guard_hit) {
+				/*
+				 * BEYOND VENDOR (#281): ours stops with -1 at the failed allocation; up to it the
+				 * call log equals the vendor's (prefix), the vendor goes on with the NULL.  The
+				 * case ends here (later calls would start from different LUT tables).
+				 */
+				if (ro != -1 || lo.n > lv.n || memcmp(lv.e, lo.e, lo.n * sizeof(lo.e[0])) ||
+				    lo.e[lo.n - 1].k != 4) {
+					printf("MISMATCH case %u call %u: allocation guard (beyond vendor) ret %d/%d logs %u/%u\n",
+					       c, j, rv, ro, lv.n, lo.n);
+					failed++;
+				}
+				nguard++;
+				break;
+			}
+			if (night_miss) {
+				/* BEYOND VENDOR (#281): the vendor marks the missing night bin as loaded, ours clears it */
+				u32 off = (ch & 0xff) * 904 + 127;
+
+				if (t32_data_dc284[off] != 1 || chs_o[off] != 0) {
+					printf("MISMATCH case %u call %u: night flag (beyond vendor) %u/%u\n", c, j,
+					       t32_data_dc284[off], chs_o[off]);
+					failed++;
+					break;
+				}
+				t32_data_dc284[off] = 0;
+				nnight++;
+			}
 			if (rv == 0)
 				ok++;
 			if (rv != ro) bad |= 1;
@@ -304,7 +352,10 @@ int main(void)
 			}
 		}
 	}
-	printf("t32_loadpar_oracle: %u cases (mode 0/1/other %u/%u/%u), %u calls (%u loaded) compared, %u mismatches\n",
-	       c, nm[0], nm[1], nm[2], calls, ok, failed);
+	printf("t32_loadpar_oracle: %u cases (mode 0/1/other %u/%u/%u), %u calls (%u loaded) compared, %u mismatches;"
+	       " beyond vendor (#281): %u allocation guards, %u night flags\n",
+	       c, nm[0], nm[1], nm[2], calls, ok, failed, nguard, nnight);
+	if (!nguard || !nnight)
+		return 1;
 	return failed ? 1 : 0;
 }

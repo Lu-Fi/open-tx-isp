@@ -5,9 +5,13 @@
  * renamed to a recorder by fix_op20_ipsclr.sh, the vendor copies from NULL).
  * Per case the snapshot objects and the count hold random bytes, the recorder
  * fills each destination with a per call pattern and returns a random token.
- * Compared: every memcpy call in order (dst, src, n), the count, every byte
- * of the five objects (with 16-byte canaries in front and behind) and the
- * return value.  Exit 1 on the first mismatch.
+ * BEYOND VENDOR (#281): ours zeroes the objects instead of copying from NULL.
+ * Compared: the vendor's memcpy calls must be exactly (object k, NULL, size k)
+ * in order (the one named difference: ours writes zeros there, the recorder a
+ * pattern), the count, every byte of the five objects outside that (16-byte
+ * canaries in front and behind), and the return value (ours: the last object,
+ * what memcpy returns; vendor: the recorder's token of the last call).
+ * Exit 1 on the first mismatch.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,7 +47,6 @@ static u32 rec(u32 dst, u32 src, u32 n)
 	return k < LOGN ? tok[k] : 0;
 }
 u64 op20_ips_memcpy(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return rec(a0, a1, a2); }
-static void *o_memcpy(void *d, const void *s, size_t n) { return (void *)(uintptr_t)rec(T32O_PTR(d), T32O_PTR(s), (u32)n); }
 
 #define CAN 16
 static u8 *mk(u32 size) { return (u8 *)t32o_alloc(size + 2 * CAN) + CAN; }
@@ -75,7 +78,7 @@ int main(void)
 
 		t32o_reset();
 		memset(&ol, 0, sizeof(ol)); cur = &ol;
-		s.memcpy = o_memcpy; s.count = cnt;
+		s.count = cnt;
 		s.blk_e78 = oo[0]; s.blk_df8 = oo[1]; s.pair_df0 = oo[2]; s.blk_d70 = oo[3]; s.blk_cf0 = oo[4];
 		ro = T32O_PTR(t32_intp_static_clear(&s));
 
@@ -88,9 +91,11 @@ int main(void)
 		for (i = 0; i < vl.n && i < LOGN; i++)
 			for (k = 0; k < 5; k++)
 				if (vl.e[i][0] == T32O_PTR(mapv[k])) vl.e[i][0] = T32O_PTR(mapo[k]);
-		int bad = rv != ro || vl.n != ol.n || memcmp(vl.e, ol.e, sizeof(vl.e)) || t32_data_e3ef8[0] != *cnt;
+		int bad = rv != tok[4] || ro != T32O_PTR(oo[4]) || vl.n != 5 || ol.n || t32_data_e3ef8[0] != *cnt;
 		for (k = 0; k < 5 && !bad; k++) {
-			bad = memcmp(vo[k], oo[k], sz[k]) != 0;
+			bad = vl.e[k][0] != T32O_PTR(oo[k]) || vl.e[k][1] != 0 || vl.e[k][2] != sz[k];
+			for (i = 0; i < sz[k] && !bad; i++)
+				bad = oo[k][i] != 0 || vo[k][i] != (u8)(0x30 + k);	/* ours 0, the vendor's recorder pattern */
 			for (i = 0; i < CAN && !bad; i++)
 				bad = oo[k][-1 - (int)i] != 0xee || oo[k][sz[k] + i] != 0xee;
 		}

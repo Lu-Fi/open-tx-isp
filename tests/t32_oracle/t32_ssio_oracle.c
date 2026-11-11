@@ -235,7 +235,7 @@ static void build_list(void)
 
 int main(void)
 {
-	unsigned int c, i, n = 60000, hit[4] = { 0 };
+	unsigned int c, i, n = 60000, hit[4] = { 0 }, nspi = 0, spi;
 
 	img = t32o_alloc(IMGSZ);
 	for (c = 0; c < n; c++) {
@@ -291,7 +291,7 @@ int main(void)
 		t32_g_wr32(arg, 0, rnd() % 6);
 		t32_g_wr32(arg, 4, rnd() % 6);
 		t32_g_wr32(arg, 32, rnd() % 4 ? (rnd() % 5 ? 1 : rnd() % 6) : rnd() % 6);
-		if (t32_g_rd32(arg, 32) == 2)	/* SPI: vendor NULL read (UB) */
+		if (t32_g_rd32(arg, 32) == 2 && (cmd != T32_SSIO_CMD_BASE || rnd() % 3))	/* SPI: vendor NULL read (UB) */
 			t32_g_wr32(arg, 32, 3);
 		if (cmd == T32_SSIO_CMD_BASE + 17 || cmd == T32_SSIO_CMD_BASE + 18 || cmd == T32_SSIO_CMD_BASE + 1)
 			t32_g_wr32(arg, 32, rnd() % 6);
@@ -331,6 +331,28 @@ int main(void)
 			argw = rnd() % 2 ? argw : 0;
 		memcpy(save0, img, IMGSZ);
 		memcpy(g0, t32_data_d9450, sizeof(g0));
+		/*
+		 * BEYOND VENDOR (#281): register with bus type 2 (SPI) that gets past the
+		 * duplicate and state checks: the vendor dereferences a NULL sensor, ours returns
+		 * -22 without a lock or any write.  Ours only, counted, not compared.
+		 */
+		spi = cmd == T32_SSIO_CMD_BASE && sdw && argw && t32_g_rd32(arg, 32) == 2;
+		if (spi) {
+			k = t32_ssio_index(arg);
+			if ((t32_data_d9008 && t32_data_d9450[k] + 1 == 2 && !strcmp((const char *)arg, t32_data_f384c + 40 * k)) ||
+			    t32_g_rd32(sd, T32_SSIO_STATE(k)) == 1)
+				spi = 0;
+		}
+		if (spi) {
+			EV[0].n = 0;
+			ninit = nreg = 0;
+			ro = (u32)t32_subdev_sensor_ops_ioctl(&os, T32O_HOST(sdw), cmd, T32O_HOST(argw));
+			dbg[0] = cmd; dbg[1] = ro; dbg[2] = 0; dbg[3] = sdw;
+			if (ro != (u32)-22 || memcmp(img, save0, IMGSZ) || EV[0].n)
+				return fail("SPI register guard (beyond vendor)", c);
+			nspi++;
+			continue;
+		}
 		for (side = 0; side < 2; side++) {
 			memcpy(img, save0, IMGSZ);
 			memcpy(t32_data_d9450, g0, sizeof(g0));
@@ -356,7 +378,10 @@ int main(void)
 			return fail("hook call log", c);
 		hit[ro == 0 ? (EV[0].n ? 0 : 1) : ro == (u32)-22 || ro == (u32)-19 || ro == (u32)-1 ? 2 : 3]++;
 	}
-	printf("%s: %u cases, 0 mismatches; 0 with hooks / 0 without / -22, -19 or -1 / other: %u %u %u %u\n",
-	       SSIO_NAME, n, hit[0], hit[1], hit[2], hit[3]);
+	printf("%s: %u cases, 0 mismatches; 0 with hooks / 0 without / -22, -19 or -1 / other: %u %u %u %u;"
+	       " %u SPI registers (beyond vendor, ours only)\n",
+	       SSIO_NAME, n - nspi, hit[0], hit[1], hit[2], hit[3], nspi);
+	if (SSIO_PHASE == 2 && !nspi)
+		return 1;
 	return 0;
 }

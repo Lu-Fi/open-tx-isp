@@ -36,8 +36,9 @@
  *  0x1000000..0x100001e.
  *
  * Not handled: sd NULL with idx >= 2 (vendor: table c325c entries, then a NULL dereference on
- * most paths) returns T32_IO_UNPORTED; an error pointer sd (vendor: dereferenced) is not
- * handled either.  Vendor behaviour kept: sd + 280 is used without a NULL check by every
+ * most paths) returns T32_IO_UNPORTED (beyond vendor, #260); BEYOND VENDOR (#281): an error
+ * pointer sd (vendor: dereferenced) takes the same path as NULL (idx 0 / 1: the NULL message and
+ * -19, else T32_IO_UNPORTED).  Vendor behaviour kept: sd + 280 is used without a NULL check by every
  * command but 3 / 5, the pipe / user indices from arg are not range checked.
  *
  * Checked against the vendor function (Matt Davis' recovered C, PR #15) by
@@ -545,7 +546,7 @@ static inline u32 t32_ispcore_core_ops_ioctl(const struct t32_io_ops *ops, u32 s
 {
 	u32 idx = cmd - T32_IO_CMD0, ret = 0, fn;
 
-	if (!sd) {
+	if (!sd || T32_CI_ERR(sd)) {	/* BEYOND VENDOR (#281): an error pointer sd is handled like NULL */
 		if (idx > 1)
 			return T32_IO_UNPORTED;
 		ops->print(2, ops->fmt_err, ops->func, T32_IO_LINE);

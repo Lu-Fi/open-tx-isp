@@ -142,6 +142,18 @@ int main(void)
 					printf("t32_getd_oracle: case %u %s: source changed\n", c, names[k]);
 					return 1;
 				}
+				/* BEYOND VENDOR (#281): channel >= 4 (vendor: unmasked .bss write) -> -22, nothing stored; ours only */
+				if (c % 8 == 1) {
+					u8 en2[16], para2[sizeof(riscv_para)];
+
+					memcpy(en2, riscv_en, 16);
+					memcpy(para2, riscv_para, sizeof(riscv_para));
+					if (t32_g_riscv_info(4 + rnd() % 64 + (rnd() % 4 ? 0 : rnd()), 1, src, riscv_en, riscv_para) != -22 ||
+					    memcmp(en2, riscv_en, 16) || memcmp(para2, riscv_para, sizeof(riscv_para))) {
+						printf("t32_getd_oracle: case %u: RISC-V channel >= 4 guard (beyond vendor) failed\n", c);
+						return 1;
+					}
+				}
 				break;
 			}
 			}

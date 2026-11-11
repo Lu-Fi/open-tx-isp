@@ -21,9 +21,9 @@
  * store when none is), 5 index planes are derived from them and five
  * defog_wei_interpcot calls build the weight curves.
  *
- * Vendor behaviour kept (not fixed, a change needs the user's OK): when the
- * vmalloc fails the vendor prints and then memsets NULL (a crash); the port
- * returns -1 there instead of crashing (no output written).  All grid
+ * BEYOND VENDOR (#281): when the vmalloc fails the vendor prints and then
+ * memsets NULL (a crash); the port returns -1 there instead of crashing (no
+ * output written).  Vendor behaviour kept: all grid
  * arithmetic is 32 bit with wrap, the distance compare is unsigned.
  *
  * Checked bit-exact against the vendor flow (Matt Davis' recovered C, PR #15)
@@ -108,7 +108,7 @@ static inline int t32_defog_count_weight35abc(u32 ch, u32 a, u32 b, u32 gain, u1
 		ops->vfree(vbuf[ch]);
 		vbuf[ch] = ops->vmalloc(vsize[ch]);
 		if (!vbuf[ch])
-			return -1;	/* vendor: isp_printf, then memset(NULL) */
+			return -1;	/* BEYOND VENDOR (#281); vendor: isp_printf, then memset(NULL) */
 	}
 	memset(vbuf[ch], 0, vsize[ch]);
 	for (i = 0; i < 13; i++)
