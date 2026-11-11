@@ -30,6 +30,11 @@ int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr);
 u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg);
 int t32_core_sensor_set_fps(u32 fps);
 
+/* tx_isp_t32_tunctl.c: isp-m0 tuning controls, AE start EV */
+long t32_tunctl_ctrl(u32 *w, unsigned long arg);
+long t32_tunctl_ae_start(unsigned int cmd, unsigned long arg);
+void t32_tunctl_frame_done(u32 ch);
+
 /* tx_isp_t32_hw.c */
 struct t32_hw_stats {
 	u32 isp_irqs, vic_irqs, frame_ends, stream_ons;
@@ -70,6 +75,12 @@ int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones);
 void t32_aec_detach(void);
 void t32_aec_kick(void);
 bool t32_aec_tgain(u32 *g);
+struct t32_aea_ctx;
+bool t32_aec_api_get(struct t32_aea_ctx *c);
+void t32_aec_api_put(void);
+void t32_aec_api_sleep(u32 ms);
+u32 t32_aec_api_bv(void);
+u32 t32_aec_api_dcw(void);
 const u8 *t32_hw_ae_zones(void);
 
 /* tx_isp_t32_awbc.c: the per-frame vendor AWB (tisp_awb_init state, tisp_awb_process), behind T32_PP_AWB */
@@ -98,6 +109,10 @@ int t32_ctup_attach_clm(const u8 *sec, u32 len, u32 avail);
 void t32_ctup_detach(void);
 void t32_ctup_ev(u32 lo, u32 hi, u32 x, u32 y);
 void t32_ctup_run(u32 ct);
+struct t32_awb_ctx;
+bool t32_awbc_api_get(struct t32_awb_ctx *c);
+void t32_awbc_api_put(void);
+void t32_awbc_api_set_gain(void);
 
 /* tx_isp_t32_tisp.c: per-frame tisp paths (ported blocks), switch t32_ported_paths */
 enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T32_PP_MDNS, T32_PP_DPC, T32_PP_GIB,
@@ -154,6 +169,18 @@ void t32_fs_exit(void);
 void t32_fs_stop_all(void);
 void t32_fs_done_irq(u32 done);
 void t32_fs_show(struct seq_file *m);
+int t32_fs_ivdc_frame(u32 ch);
+
+/* tx_isp_t32_ivdcdrv.c: IVDC direct mode (#349) */
+int t32_ivdc_init(void);
+void t32_ivdc_exit(void);
+int t32_ivdc_direct(int ch);
+long t32_ivdc_misc_ioctl(unsigned int cmd, unsigned long arg);
+void t32_ivdc_stream(int on);
+int t32_ivdc_set_fmt(u8 *fmt);
+int t32_ivdc_reqbufs(u32 count);
+int t32_ivdc_fs_stream(int on);
+void t32_ivdc_show(struct seq_file *m);
 
 /* tx_isp_t32_sinfo.c (shared registry, driver/common/tx_isp_sinfo.c) */
 int tx_isp_sinfo_init(void);

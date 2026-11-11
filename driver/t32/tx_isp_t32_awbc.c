@@ -204,3 +204,40 @@ void t32_awbc_tgain(u32 gain)
 	}
 	mutex_unlock(&awbc_lock);
 }
+
+/*
+ * The tuning controls (tx_isp_t32_tunblk.c) on the live AWB blocks, as the
+ * vendor AWB API sees them: e16b4[ch] words 0 / 1 / 2 = par (the IQ bin
+ * section copy), run state, mode block; dd0a4[ch] = par - 3392 (the API
+ * reaches the tuning copy only at +3408 .. +3420, i.e. par + 16 .. + 28).
+ * t32_awbc_api_get takes the AWB lock (false and unlocked when the per-frame
+ * AWB is not attached).
+ */
+bool t32_awbc_api_get(struct t32_awb_ctx *c)
+{
+	mutex_lock(&awbc_lock);
+	if (!ready) {
+		mutex_unlock(&awbc_lock);
+		return false;
+	}
+	c->tune = (u8 *)ai.a.par;
+	c->sec = ai.a.st->raw;
+	c->mode = (u32 *)ai.mode;
+	c->base = (u8 *)ai.a.par - T32_AWBI_PAR_OFF;
+	return true;
+}
+
+void t32_awbc_api_put(void)
+{
+	mutex_unlock(&awbc_lock);
+}
+
+/* tisp_awb_set_start's tail call tisp_awb_set_gain (lock held): the gains from the new start values */
+void t32_awbc_api_set_gain(void)
+{
+	struct t32_stats_write w[T32_AWB_MAX_WRITES];
+	unsigned int i, n = t32_awb_set_gain(&ai.a, w);
+
+	for (i = 0; i < n; i++)
+		t32_hw_wr(w[i].reg, w[i].val);
+}

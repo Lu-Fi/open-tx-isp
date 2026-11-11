@@ -30,6 +30,9 @@
 #include <linux/slab.h>
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
+#include <linux/sched.h>
+#include <linux/wait.h>
+#include <linux/delay.h>
 
 #include "tx_isp_t32.h"
 #include "tx_isp_t32_aechain.h"
@@ -45,6 +48,9 @@ static u32 aec_it, aec_ag, aec_sent;
 static u32 aec_tgain;
 static bool aec_tgain_valid;
 static u32 aec_last_tg;		/* vendor tisp_long_tgain_update's last low gain word */
+static u8 aec_wsel[2];			/* vendor e1570[ch]: the two AE weight selectors */
+static unsigned int aec_api_busy;	/* tuning API calls on the blocks (t32_aec_api_get .. _put) */
+static DECLARE_WAIT_QUEUE_HEAD(aec_api_wq);
 
 static u32 drv_rd(u32 ch, u32 reg) { (void)ch; return t32_hw_rd(reg); }
 static u32 drv_sys(u32 reg) { return t32_hw_rd(reg); }
@@ -167,6 +173,7 @@ int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones)
 	aec.comp = kzalloc(T32_AEC_COMP_BYTES, GFP_KERNEL);
 	aec.lum = kzalloc(T32_AEC_HIST_BYTES, GFP_KERNEL);
 	aec_it = aec_ag = 0;
+	aec_wsel[0] = aec_wsel[1] = 0;
 	aec_sent = ~0U;
 	aec_tgain_valid = false;
 	aec_last_tg = 0;
@@ -182,6 +189,7 @@ void t32_aec_detach(void)
 {
 	WRITE_ONCE(aec_ready, false);
 	cancel_work_sync(&aec_work);
+	wait_event(aec_api_wq, !READ_ONCE(aec_api_busy));	/* a tuning call may be in t32_aec_api_sleep */
 	mutex_lock(&aec_lock);
 	kfree(aec.hist); kfree(aec.comp); kfree(aec.lum);
 	memset(&aec, 0, sizeof(aec));
@@ -200,4 +208,59 @@ bool t32_aec_tgain(u32 *g)
 		*g = aec_tgain;
 	mutex_unlock(&aec_lock);
 	return v;
+}
+
+/*
+ * The tuning controls (tx_isp_t32_tunblk.c) on the live AE blocks, as the
+ * vendor AE API sees them: e15a8[ch] = { T, B }, e1588[ch] = R, dd2d4 = S,
+ * d0950 / d2a30 / d19c0 = the hist / comp / lum blocks, e1570 = the weight
+ * selectors.  t32_aec_api_get takes the AE lock (false and unlocked when the
+ * per-frame AE is not attached); the AE frames wait until t32_aec_api_put.
+ */
+bool t32_aec_api_get(struct t32_aea_ctx *c)
+{
+	mutex_lock(&aec_lock);
+	if (!aec_ready) {
+		mutex_unlock(&aec_lock);
+		return false;
+	}
+	aec_api_busy++;
+	memset(c, 0, sizeof(*c));
+	c->tune = aec.b.T;
+	c->buf = aec.b.B;
+	c->st = aec.b.R;
+	c->fps = aec.S;
+	c->hist = aec.hist;
+	c->wsel = aec_wsel;
+	c->comp = aec.comp;
+	c->lum = aec.lum;
+	return true;
+}
+
+void t32_aec_api_put(void)
+{
+	aec_api_busy--;
+	mutex_unlock(&aec_lock);
+	wake_up(&aec_api_wq);
+}
+
+/* the msleep of api_ae_get_exprinfo_attr: the AE frames run meanwhile (they clear R + 1285) */
+void t32_aec_api_sleep(u32 ms)
+{
+	mutex_unlock(&aec_lock);
+	msleep(ms);
+	mutex_lock(&aec_lock);
+}
+
+/* tisp_g_bv -> tisp_ae_get_bv on the live blocks (lock held) */
+u32 t32_aec_api_bv(void)
+{
+	t32_aec_bind(&aec);
+	return t32_aec_bv(0);
+}
+
+/* tisp_ae_api_set_exp_list: the pipeline word dc284 + 900 */
+u32 t32_aec_api_dcw(void)
+{
+	return aec.dcw;
 }

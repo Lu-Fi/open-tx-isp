@@ -115,8 +115,10 @@ static irqreturn_t t32_isp_irq(int irq, void *dev)
 	isp_wr(T32_INT4_CLR, s4);
 	isp_wr(T32_RDMA_IRQ_CLR, 0);
 	t32_hw_stats.isp_irqs++;
-	if (sta & 1)
+	if (sta & 1) {
 		t32_hw_stats.frame_ends++;
+		t32_tunctl_frame_done(0);	/* isp_frame_done_wakeup (tuning id 0x08000091) */
+	}
 	if (sta & T32_INT_AWB) {
 		t32_hw_stats.awb_irqs++;
 		t32_awbc_kick();	/* the vendor AWB frame (system irq 3: tisp_awb_interrupt_static) */
@@ -246,8 +248,12 @@ static void t32_stats_init(void)
 	n = t32_ae_stats_init(bin, width, height, virt_to_phys((void *)ae_buf), w);
 	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
 		isp_wr(w[i].reg, w[i].val);
-	if (t32_pp_on(T32_PP_AE))	/* the vendor AE context (tisp_ae_init state part, openimp #234) */
-		t32_pf_attach_ae(bin + T32_AE_PARAM, width, height);
+	if (t32_pp_on(T32_PP_AE)) {	/* the vendor AE context (tisp_ae_init state part, openimp #234) */
+		int r = t32_pf_attach_ae(bin + T32_AE_PARAM, width, height);
+
+		if (r)
+			isp_printf(2, "tx-isp-t32: vendor AE context not built (%d)\n", r);
+	}
 	n = t32_awb_stats_init(bin, width, height, virt_to_phys((void *)awb_buf), T32_AWB_INIT_EV, w);
 	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
 		isp_wr(w[i].reg, w[i].val);
@@ -390,7 +396,6 @@ static void t32_tisp_init(void)
 	u32 bytes, off, len, coff, width, height, code;
 	unsigned int mode;
 
-	t32_pf_reset();
 	if (t32_core_iq_bin(&bin, &bytes))
 		return;
 	if (!tisp_w)
@@ -724,6 +729,7 @@ void t32_hw_stream_on(void)
 	isp_wr(T32_INT3_EN, 0xffffffff);
 	isp_wr(T32_INT4_EN, 0xffffffff);
 	t32_front_init();
+	t32_pf_reset();		/* before the statistics init: it builds the AE context (t32_pf_attach_ae) */
 	t32_stats_init();
 	t32_tisp_init();
 	t32_pf_start();

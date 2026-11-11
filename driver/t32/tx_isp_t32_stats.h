@@ -1093,11 +1093,28 @@ static inline void t32_aea_get_face_ae_tune_params(const struct t32_aea_ctx *c, 
 	*o3 = t32_ld32(c->st, T32_AEA_ST_TUNE + 8);
 }
 
+/*
+ * Beyond vendor (openimp #350, user-approved 2026-11-11): *p3 is the length of
+ * the AE smoothing window at st + 1300, which holds 20 words (the next array
+ * starts at st + 1380; default 15). The vendor does not bound it, so a value
+ * above 20 makes the per-frame AE (tx_isp_t32_aefu.h, nR) shift over the next
+ * arrays and above 221 write past the 2184-byte AE state (kernel oops). The
+ * port refuses *p3 > 20 with -EINVAL and writes nothing.
+ */
+#define T32_AEA_TUNE_NR_MAX	20U
+#ifdef __KERNEL__
+#include <linux/errno.h>
+#else
+#include <errno.h>
+#endif
+
 /* a zero *p3 is replaced by 1 (written back to the caller) after a warning (hook) */
-static inline void t32_aea_set_face_ae_tune_params(const struct t32_aea_ctx *c, const u32 *p1,
-						   const u32 *p2, u32 *p3, void (*warn)(void *priv),
-						   void *priv)
+static inline int t32_aea_set_face_ae_tune_params(const struct t32_aea_ctx *c, const u32 *p1,
+						  const u32 *p2, u32 *p3, void (*warn)(void *priv),
+						  void *priv)
 {
+	if (*p3 > T32_AEA_TUNE_NR_MAX)
+		return -EINVAL;
 	t32_wr32(c->st, T32_AEA_ST_TUNE, *p1);
 	t32_wr32(c->st, T32_AEA_ST_TUNE + 4, *p2);
 	if (!*p3) {
@@ -1106,6 +1123,7 @@ static inline void t32_aea_set_face_ae_tune_params(const struct t32_aea_ctx *c, 
 	}
 	t32_wr32(c->st, T32_AEA_ST_TUNE + 8, *p3);
 	c->st[1285] = 1;
+	return 0;
 }
 
 static inline u32 t32_aea_get_fps(const struct t32_aea_ctx *c)
