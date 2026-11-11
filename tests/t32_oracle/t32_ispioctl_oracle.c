@@ -38,7 +38,7 @@ u32 t32_data_cd6fc[1], t32_data_cd71c[1];
 struct lg { unsigned int n; u32 e[MAXL][4]; };
 static struct lg lg, lg_ours;
 static u8 *world, snap[WSZ];
-static u32 W, SD, CMD, ARG, PRIV, rv[8], cf_fail, r_dt, r_wd, r_gi, ct_fail[2];
+static u32 W, SD, CMD, ARG, PRIV, rv[8], cf_fail, r_dt, r_wd, r_gi, ct_fail[2], k_pos;
 static unsigned int nct;
 extern u32 t32_data_f3354[];
 static unsigned int nrv;
@@ -64,12 +64,14 @@ static void L(u32 id, u32 a, u32 b, u32 c)
 }
 static void P32(u32 a, u32 v) { memcpy(T32O_HOST(a), &v, 4); }
 
-u64 isp_printf(u32 a0, u32 a1, u32 a2, u32 a3)
+u64 isp_printf(u32 a0, u32 a1, u32 a2, u32 a3, u32 s16)
 {
-	/* the waitdone prints: a2 / a3 are leftovers */
-	if (a1 == T32O_PTR(t32_data_cd5a4) || a1 == T32O_PTR(t32_data_cd5e4))
+	/* the waitdone / mode prints: a2 / a3 are leftovers; only the no-sensor print has a stack word */
+	if (a1 == T32O_PTR(t32_data_cd5a4) || a1 == T32O_PTR(t32_data_cd5e4) || a1 == T32O_PTR(t32_data_cd638))
 		a2 = a3 = 0;
-	L(1, a0, a1, a2 ^ a3 * 3);
+	if (a1 != T32O_PTR(t32_data_cd6a8))
+		s16 = 0;
+	L(1, a0, a1, a2 ^ a3 * 3 ^ s16 * 5);
 	return 0;
 }
 /* the subdev ops: ops[0] + 4 (sd, arg), ops[3] + 4 (sd, arg), ops[0] + 32 (sd, cmd, arg) */
@@ -129,17 +131,33 @@ u64 tisp_msca_addr_fifo_write(u32 a0, u32 a1, u32 a2, u32 a3) { L(27, a0, a1, a2
 u64 tisp_msca_chx_en(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; L(28, a0, a1, a2); return srnd(); }
 u64 lib_tisp_msca_chx_stream_on(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(29, a0, 0, 0); return srnd(); }
 u64 lib_tisp_msca_chx_stream_off(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(30, a0, 0, 0); return srnd(); }
-/* callees of the command groups not ported yet: never reached in phase 1 */
-#define NOT(f) u64 f(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(99, a0, 0, 0); return 0; }
-NOT(lib_tisp_get_ipc_output_pos)
-NOT(lib_tisp_refresh_para)
-NOT(lib_tisp_restart)
-NOT(lib_tisp_set_csccr)
-NOT(lib_tisp_set_wdr_setting)
-NOT(lib_tisp_vic_ctrl)
-NOT(private_msleep)
+/* phase 6 callees */
+static u64 op_video8(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	u32 *m = T32O_HOST(a2);
 
-static void o_pr(u32 l, u32 f, u32 fn, u32 line) { isp_printf(l, f, fn, line); }
+	(void)a3;
+	L(31, a0, a1, m[0] ^ ((u32 *)T32O_HOST(m[1]))[1] * 3 ^ m[2] * 5 ^ m[3] * 7);
+	return srnd();
+}
+static u64 sen_ioctl(u32 a0, u32 a1, u32 a2, u32 a3)
+{
+	u32 *m = T32O_HOST(a2);
+
+	(void)a3;
+	L(32, a0, a1, m[0] ^ m[1] * 3);
+	return srnd();
+}
+u64 lib_tisp_restart(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; L(33, 0, 0, 0); return srnd(); }
+u64 lib_tisp_refresh_para(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(34, hash(a0, 20), 0, 0); return srnd(); }
+u64 lib_tisp_set_csccr(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; L(35, a0, a1, 0); return srnd(); }
+u64 lib_tisp_set_wdr_setting(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(36, hash(a0, 20), 0, 0); return srnd(); }
+u64 lib_tisp_vic_ctrl(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; L(37, a0, a1, 0); return srnd(); }
+u64 lib_tisp_get_ipc_output_pos(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a0; (void)a1; (void)a2; (void)a3; L(38, 0, 0, 0); return k_pos ? k_pos-- : 0; }
+u64 private_msleep(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; L(39, a0, 0, 0); return 0; }
+
+static void o_pr(u32 l, u32 f, u32 fn, u32 line) { isp_printf(l, f, fn, line, 0); }
+static void o_pr5(u32 l, u32 f, u32 fn, u32 line, u32 a) { isp_printf(l, f, fn, line, a); }
 static u32 o_call(u32 fn, u32 a0, u32 a1, u32 a2)
 {
 	return (u32)((u64 (*)(u32, u32, u32, u32))(uintptr_t)fn)(a0, a1, a2, 0);
@@ -169,10 +187,18 @@ static void o_fw(u32 c, u32 s, u32 a, u32 b) { tisp_msca_addr_fifo_write(c, s, a
 static void o_ce(u32 c, u32 s, u32 on) { tisp_msca_chx_en(c, s, on, 0); }
 static void o_son2(u32 u) { lib_tisp_msca_chx_stream_on(u, 0, 0, 0); }
 static void o_sof(u32 u) { lib_tisp_msca_chx_stream_off(u, 0, 0, 0); }
+static void o_rs(void) { lib_tisp_restart(0, 0, 0, 0); }
+static void o_rp(u32 b) { lib_tisp_refresh_para(b, 0, 0, 0); }
+static void o_cc(u32 p, u32 v) { lib_tisp_set_csccr(p, v, 0, 0); }
+static void o_wd(u32 b) { lib_tisp_set_wdr_setting(b, 0, 0, 0); }
+static void o_vc(u32 v, u32 x) { lib_tisp_vic_ctrl(v, x, 0, 0); }
+static u32 o_ip(void) { return (u32)lib_tisp_get_ipc_output_pos(0, 0, 0, 0); }
+static void o_ms(u32 ms) { private_msleep(ms, 0, 0, 0); }
 static struct t32_io_ops ops = { o_pr, o_call, 0, 0, o_cf, o_by, o_tk, o_aed, o_aeh, o_awi, o_awh, 0, 0, 0, 0, 0,
 				 o_lk, o_ul, o_aov, o_son, o_dt, o_cr, t32_data_f3354, 0, 0, 0, 0, 0,
 				 o_aei, o_ex, o_aew, o_aeg, o_aww, o_awg, o_ct, 0, 0, 0, 0, 0,
-				 o_fc, o_fw, o_ce, o_son2, o_sof };
+				 o_fc, o_fw, o_ce, o_son2, o_sof,
+				 o_pr5, o_rs, o_rp, o_cc, o_wd, o_vc, o_ip, o_ms, 0, 0, 0, 0, 0 };
 
 static u32 res(void)
 {
@@ -188,10 +214,11 @@ static void opsblk(u32 a, u32 blk)
 	P32(blk + 4, pick(5) ? T32O_PTR(op_core) : 0);
 	P32(blk + 32, pick(5) ? T32O_PTR(op_ioctl) : 0);
 	P32(blk + 64 + 4, pick(5) ? T32O_PTR(op_video) : 0);
+	P32(blk + 64 + 8, pick(5) ? T32O_PTR(op_video8) : 0);
 }
 static void build(u32 seed)
 {
-	static const u8 bc[] = { 0, 1, 2, 4, 7, 8, 10, 12, 13, 17, 18, 19, 28, 29, 9, 9, 16, 16, 3, 3, 3, 5, 5, 6, 6, 6, 14, 14, 15, 15, 20, 20, 22, 22, 22, 26, 26, 26, 11, 11, 11, 11, 21, 23, 23, 23, 24, 25, 27, 27, 27 };
+	static const u8 bc[] = { 0, 1, 2, 4, 7, 8, 10, 12, 13, 17, 18, 19, 28, 29, 9, 9, 16, 16, 3, 3, 3, 5, 5, 6, 6, 6, 14, 14, 15, 15, 20, 20, 22, 22, 22, 26, 26, 26, 11, 11, 11, 11, 30, 30, 30, 30, 30, 30, 30, 30, 21, 23, 23, 23, 24, 25, 27, 27, 27 };
 	u32 save = rs, i, s, dense;
 
 	t32o_reset();
@@ -207,7 +234,7 @@ static void build(u32 seed)
 	if (!SD)
 		CMD = T32_IO_CMD0 + pick(2);
 	i = CMD - T32_IO_CMD0;
-	if (i == 11 || (i >= 20 && i <= 27))	/* arg is dereferenced */
+	if (i == 11 || i >= 20)	/* arg is dereferenced */
 		ARG = W + 0x40;
 	for (i = 0; i < 8; i++)
 		rv[i] = res();
@@ -253,7 +280,7 @@ static void build(u32 seed)
 		for (h = 0; h < 2; h++) {
 			u32 head = u + (h ? T32_CU_PEND : T32_CU_ACT);
 
-			n = pick(4);
+			n = h ? pick(4) : pick(8);
 			prev = head;
 			for (k = 0; k < n; k++) {
 				nd = W + 0x9000 + 0x100 * i + 0x80 * h + 16 * k;
@@ -266,6 +293,20 @@ static void build(u32 seed)
 			if (h && !pick(8))
 				P32(head, 0);
 		}
+	}
+	P32(W + 0x100 + T32_IO_SD_SENSOR, pick(4) ? T32O_PTR(sen_ioctl) : 0);
+	k_pos = pick(3) ? pick(4) : 1000;
+	if (CMD == T32_IO_CMD0 + 30) {
+		u32 pipe = pick(4), mode;
+
+		P32(ARG + 8, pick(3) ? pick(2) : rnd());
+		mode = *(u32 *)T32O_HOST(ARG + 8) == 1;
+		P32(ARG + 12, pick(3) ? pick(2) : rnd());
+		P32(ARG + 16, (pick(2) ? 0 : pick(256)) | pipe << 8 | (rnd() & 0xffff0000u));
+		P32(PRIV + T32_CI_BUS + 4 * pipe, pick(2) ? mode : pick(2) ? !mode : pick(3) ? T32_IO_WDR : rnd());
+		P32(PRIV + T32_CI_SATTR, pick(3) ? 1 : pick(6));
+		if (!pick(5))
+			P32(PRIV + T32_CI_SENSOR + T32_CI_PIPE_SIZE * pipe, 0);
 	}
 	if (CMD == T32_IO_CMD0 + 11)
 		P32(ARG + 4, pick(3) ? 1 : pick(3));
@@ -309,6 +350,11 @@ int main(void)
 	ops.fmt_copy_to = T32O_PTR(t32_data_cd5c4);
 	ops.func_aeinfo = T32O_PTR(t32_data_c344c);
 	ops.func_awbinfo = T32O_PTR(t32_data_c340c);
+	ops.fmt_mode = T32O_PTR(t32_data_cd638);
+	ops.fmt_nosensor = T32O_PTR(t32_data_cd6a8);
+	ops.fmt_ipc = T32O_PTR(t32_data_cd6fc);
+	ops.func_mode = T32O_PTR(t32_data_c33b0);
+	ops.func_ipc = T32O_PTR(t32_data_c33d0);
 
 	for (it = 0; it < 40000; it++) {
 		u32 seed = rnd(), r, rr;

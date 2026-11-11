@@ -30,13 +30,15 @@
  *    handled like idx 0; AWB: copy-to faults are only printed, the result stays 0).
  *
  *  idx 11: MSCA channel streams on (arg[1] = 1, t32_io_msca_on) / off.
+ *  idx 30: WDR / linear mode switch (t32_io_mode; a new mode while the sensor attribute word
+ *    priv + 1196 is not 1: -22, printed with vendor leftovers in a2 / a3 (ours 0)).
  *  Broadcast only: idx 2, 4, 7, 8, 10, 12, 13, 17..19, 28, 29 and every cmd outside
  *  0x1000000..0x100001e.
  *
- * Phased port: every command except idx 30 is ported so far.  That one and sd NULL
- * with idx >= 2 (vendor: table c325c entries, then a NULL dereference on most paths) return
- * T32_IO_UNPORTED; an error pointer sd (vendor: dereferenced) is not
- * handled either.
+ * Not handled: sd NULL with idx >= 2 (vendor: table c325c entries, then a NULL dereference on
+ * most paths) returns T32_IO_UNPORTED; an error pointer sd (vendor: dereferenced) is not
+ * handled either.  Vendor behaviour kept: sd + 280 is used without a NULL check by every
+ * command but 3 / 5, the pipe / user indices from arg are not range checked.
  *
  * Checked against the vendor function (Matt Davis' recovered C, PR #15) by
  * tests/t32_oracle (t32_ispioctl_oracle).
@@ -49,7 +51,7 @@
 #define T32_IO_CMD0		0x01000000U
 #define T32_IO_NOCMD		0xfffffdfdU	/* -515, -ENOIOCTLCMD */
 #define T32_IO_NODEV		0xffffffedU	/* -19, -ENODEV */
-#define T32_IO_UNPORTED		0x7fff0000U	/* not a vendor value: command group not ported yet */
+#define T32_IO_UNPORTED		0x7fff0000U	/* not a vendor value: sd NULL with a command that dereferences it */
 #define T32_IO_SD_SUBDEV	84		/* 16 subdev words */
 #define T32_IO_NSUBDEV		16
 #define T32_IO_SD_OPS		264		/* ops[0] core, ops[3] video */
@@ -70,6 +72,13 @@
 #define T32_IO_AEINFO		1972		/* AE info: bus, sensor u16 + 276 / + 278, pipe + 392 / 384 / 388 */
 #define T32_IO_AEINFO_SIZE	1996
 #define T32_IO_AWBINFO_SIZE	12288
+#define T32_IO_SUB_MODE		0x02000013U	/* subdev video op + 8: the mode is about to change */
+#define T32_IO_SUB_ON		0x0200000cU	/* subdev video op + 8: stream on again */
+#define T32_IO_SEN_MODE		0x0100001dU	/* sensor ioctl sd + 152 { 1, cmd } */
+#define T32_IO_SEN_CMD		0x01000007U
+#define T32_IO_SD_SENSOR	152
+#define T32_IO_WDR		16		/* priv + 1180 + 4 * pipe: no switch in this state */
+#define T32_IO_VIC_CTRL		17476
 #define T32_CU_LOCK		168		/* format table user (284 B): lock */
 #define T32_CU_ON		208		/* enabled */
 #define T32_CU_PEND		212		/* list of queued buffers { next, prev, a, b } */
@@ -112,6 +121,16 @@ struct t32_io_ops {
 	void (*chx_en)(u32 ch, u32 sub, u32 on);			/* tisp_msca_chx_en */
 	void (*chx_stream_on)(u32 user);				/* lib_tisp_msca_chx_stream_on */
 	void (*chx_stream_off)(u32 user);				/* lib_tisp_msca_chx_stream_off */
+	/* phase 6: WDR / linear mode switch */
+	void (*print5)(u32 level, u32 fmt, u32 func, u32 line, u32 a);	/* isp_printf, one stack word */
+	void (*restart)(void);						/* lib_tisp_restart */
+	void (*refresh_para)(u32 buf);					/* lib_tisp_refresh_para */
+	void (*set_csccr)(u32 pipe, u32 v);				/* lib_tisp_set_csccr */
+	void (*set_wdr)(u32 buf);					/* lib_tisp_set_wdr_setting */
+	void (*vic_ctrl)(u32 vic, u32 v);				/* lib_tisp_vic_ctrl */
+	u32 (*ipc_pos)(void);						/* lib_tisp_get_ipc_output_pos */
+	void (*msleep)(u32 ms);						/* private_msleep */
+	u32 fmt_mode, fmt_nosensor, fmt_ipc, func_mode, func_ipc;	/* cd638 cd6a8 cd6fc, c33b0 c33d0 */
 };
 
 /* fn of the subdev ops block ops[blk], word w; 0 when the block or the function is missing */
@@ -404,6 +423,124 @@ static inline void t32_io_msca_off(const struct t32_io_ops *ops, u32 priv)
 			ops->chx_stream_off(i & 0xff);
 }
 
+/* idx 30 request: 20 B { .., mode (+ 8, 1 = WDR), csc (+ 12), csc on (u8 + 16), pipe (u8 + 17) } */
+struct t32_io_mode_req {
+	u32 w[5];
+};
+
+/* the vendor stack block handed on: sub = &pipe ({ pipe, &blk, 1, cmd }), sensor = &one */
+struct t32_io_mode_blk {
+	u32 r0, mode, r8, pipe, blk, one, cmd;
+};
+
+/* the csc / parameter refresh without a switch: csc word 0 = refresh then csc 0, 1 = csc 1 then refresh */
+static inline void t32_io_mode_csc(const struct t32_io_ops *ops, struct t32_io_mode_req *r, u32 pipe)
+{
+	u8 *b = (u8 *)r->w;
+
+	if (r->w[3] == 0) {
+		ops->refresh_para(T32_IO_A(r->w));
+		if (b[16])
+			ops->set_csccr(pipe, 0);	/* vendor: u8 + 12, the low byte of the csc word 0 */
+	} else if (r->w[3] == 1) {
+		if (b[16])
+			ops->set_csccr(pipe, 1);
+		ops->refresh_para(T32_IO_A(r->w));
+	}
+}
+
+/* each subdev's video op + 8 (cmd, &blk->pipe), in vendor order (rev: sd + 144 down to + 84) */
+static inline void t32_io_mode_subs(const struct t32_io_ops *ops, u32 sd, u32 cmd, struct t32_io_mode_blk *m, int rev)
+{
+	u32 i, s, fn;
+
+	for (i = 0; i < T32_IO_NSUBDEV; i++) {
+		s = t32_ic_r32(sd, T32_IO_SD_SUBDEV + 4 * (rev ? T32_IO_NSUBDEV - 1 - i : i));
+		if (!s)
+			continue;
+		fn = t32_io_fn(s, 3, 8);
+		if (fn)
+			ops->call(fn, s, cmd, T32_IO_A(&m->pipe));
+	}
+}
+
+/* idx 30: switch pipe r.pipe to mode (1 = WDR) or, when already there, refresh */
+static inline u32 t32_io_mode(const struct t32_io_ops *ops, u32 sd, u32 arg)
+{
+	struct t32_io_mode_req r;
+	struct t32_io_mode_blk m = { 0, 0, 0, 0, 0, 1, T32_IO_SEN_MODE };
+	u32 priv = t32_ic_r32(sd, T32_IS_PRIV), pipe, mode, st, sen, i, u, n, k, fn;
+
+	memcpy(r.w, T32_IC_P(arg), sizeof(r.w));
+	pipe = ((u8 *)r.w)[17];
+	mode = r.w[2] == 1;
+	st = priv + T32_CI_BUS + 4 * pipe;
+	if (t32_ic_r32(st, 0) == mode) {
+		if (t32_ic_r32(priv, T32_CI_SATTR) != 1) {
+			t32_io_mode_csc(ops, &r, pipe);
+			return 0;
+		}
+		ops->vic_ctrl(0, T32_IO_VIC_CTRL);
+		ops->vic_ctrl(1, T32_IO_VIC_CTRL);
+		if (t32_ic_r32(priv, T32_CI_STREAMING)) {
+			for (k = 101; ops->ipc_pos(); ) {
+				ops->msleep(2);
+				if (!--k) {
+					ops->print(1, ops->fmt_ipc, ops->func_ipc, 2673);
+					break;
+				}
+			}
+		}
+		t32_io_mode_csc(ops, &r, pipe);
+		if (!t32_ic_r32(priv, T32_CI_STREAMING))
+			return 0;
+		fn = t32_ic_r32(sd, T32_IO_SD_SENSOR);
+		if (fn)
+			ops->call(fn, sd, T32_IO_SEN_CMD, T32_IO_A(&m.one));
+		return 0;
+	}
+	if (t32_ic_r32(priv, T32_CI_SATTR) != 1) {
+		ops->print(2, ops->fmt_mode, 0, 0);
+		return t32_io_err(ops, T32_IO_INVAL);
+	}
+	m.mode = mode;
+	m.blk = T32_IO_A(&m);
+	m.pipe = pipe;
+	if (t32_ic_r32(st, 0) != T32_IO_WDR) {
+		t32_io_mode_subs(ops, sd, T32_IO_SUB_MODE, &m, 1);
+		if (t32_ic_r32(priv, T32_CI_STREAMING))
+			ops->restart();
+	}
+	ops->refresh_para(T32_IO_A(r.w));
+	if (((u8 *)r.w)[16])
+		ops->set_csccr(pipe, ((u8 *)r.w)[12]);
+	ops->set_wdr(T32_IO_A(r.w));
+	if (t32_ic_r32(st, 0) == T32_IO_WDR)
+		return 0;
+	t32_ic_w32(st, 0, mode);
+	sen = t32_ic_r32(priv + T32_CI_PIPE_SIZE * pipe, T32_CI_SENSOR);
+	if (sen) {
+		t32_ic_w32(sen, 216, 0);
+		t32_ic_w32(sen, 232, 0);
+		t32_ic_w32(sen, 152, 0);
+		t32_ic_w32(sen, 168, 0);
+		t32_ic_w32(sen, 184, 0);
+	} else {
+		ops->print5(2, ops->fmt_nosensor, ops->func_mode, 2585, pipe);
+	}
+	/* rewrite up to 5 active buffers of the first 3 users into the pipe's address FIFO */
+	for (i = 0; i < 3; i++) {
+		u = t32_ic_r32(priv, T32_CI_USERS) + T32_CI_USER_SIZE * i;
+		for (n = t32_ic_r32(u, T32_CU_ACT), k = 6; n != u + T32_CU_ACT && --k && n; n = t32_ic_r32(n, 0))
+			ops->fifo_write(pipe, i, t32_ic_r32(n, 8), t32_ic_r32(n, 12));
+	}
+	if (!t32_ic_r32(priv, T32_CI_STREAMING))
+		return 0;
+	ops->stream_on();
+	t32_io_mode_subs(ops, sd, T32_IO_SUB_ON, &m, 0);
+	return 0;
+}
+
 static inline u32 t32_ispcore_core_ops_ioctl(const struct t32_io_ops *ops, u32 sd, u32 cmd, u32 arg)
 {
 	u32 idx = cmd - T32_IO_CMD0, ret = 0, fn;
@@ -457,6 +594,11 @@ static inline u32 t32_ispcore_core_ops_ioctl(const struct t32_io_ops *ops, u32 s
 		else
 			t32_io_msca_off(ops, t32_ic_r32(sd, T32_IS_PRIV));
 		break;
+	case 30:
+		ret = t32_io_mode(ops, sd, arg);
+		if (ret)
+			return ret;
+		break;
 	case 20:
 		t32_io_ae_init(ops, sd, arg);
 		break;
@@ -492,9 +634,7 @@ static inline u32 t32_ispcore_core_ops_ioctl(const struct t32_io_ops *ops, u32 s
 	case 2: case 4: case 7: case 8: case 10: case 12: case 13: case 17: case 18: case 19:
 	case 28: case 29:
 		break;
-	default:
-		if (idx < 31)
-			return T32_IO_UNPORTED;
+	default:	/* every cmd outside 0x1000000..0x100001e */
 		break;
 	}
 	return t32_io_bcast(ops, sd, cmd, arg, ret);
