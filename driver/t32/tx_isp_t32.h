@@ -50,6 +50,13 @@ void t32_hw_msca_stop(int ch);
 int t32_hw_msca_pop_done(int ch, u32 *y, u32 *uv);
 
 u32 t32_hw_rd(u32 off);
+/* ISP-drawn OSD (tx_isp_t32_isposd.c, #336) */
+long t32_isposd_ctrl(u32 vi, u32 get, u32 id, u32 uptr);
+void t32_isposd_frame_done(void);
+void t32_isposd_msca_start(u32 in_w, u32 in_h);
+void t32_isposd_status(u32 *pending, u32 *refused, u32 *fixes);
+unsigned long t32_isposd_ram_lock(void);
+void t32_isposd_ram_unlock(unsigned long flags);
 void t32_hw_wr(u32 off, u32 v);
 
 /* tx_isp_t32_ae.c: the per-frame vendor AE chain (tx_isp_t32_aechain.h), behind T32_PP_AE */

@@ -303,13 +303,30 @@ generation-shared come from the shared code instead:
   later runs write nothing. `t32_ported_paths` switches each wired block back
   to the old path (stream-on programming only) for device A/B tests.
 
+## ISP OSD (openimp #336)
+
+`tx_isp_t32_isposd.c`: libimp's ISP-drawn OSD reaches the MSCA. The isp-m0 tuning
+controls 0x08000074 (mask block, 24 B), 0x080000a0 (draw block, 36 B), 0x080000a1
+(OSD attribute, 32 B) and 0x080000a2 (OSD block, 20 B), set and get, call the ported
+vendor setters / getters (`tx_isp_t32_msca_api.h`, `_set.h`, `_arr.h`) on the MSCA
+parameter block of VI 0; the MSCA frame-done interrupt (status 0x300a8 bit 1, vendor
+system irq 33) runs `tisp_msca_irq_frame_done` (`tx_isp_t32_msca_irq.h`, oracle
+`t32_mscafd_oracle`) = `tisp_msca_cfg_shd(0, 0)`, which sends the pending windows,
+masks and lines through the shadow-RAM port. The channel-start curve load and this
+commit share the port under one lock. QEMU (openimp `tools/t32` isposd run, vendor
+libimp 2.2.0 and OpenIMP): the OSD / mask / line pairs equal the vendor module's;
+the QEMU model draws the pictures and masks. Not the vendor's: indexes the vendor
+uses unchecked (window >= 8, line >= 20, mask set >= 3 / block >= 4, VI != 0) are
+refused with -EINVAL, getters start from a zeroed block (vendor: stack garbage).
+`t32_isposd_trace=1` logs requests and commits.
+
 ## Not yet (S4+)
 
 No tisp/3A, no IQ bin parsing (the bin's physical address is kept), no
 image-pipeline register programming (the QEMU model does not process pixels,
 so this needs a camera); the stream-on list carries the LSC block only. The channel parameter words
 are the vendor's cv8001/PRJ007 values until the bin parser provides them.
-Day/night, WDR, LDC, OSD, IVDC direct mode, AOV/RISC-V hand-over: off.
+Day/night, WDR, LDC, IVDC direct mode, AOV/RISC-V hand-over: off (ISP OSD: above).
 
 ## Build
 
