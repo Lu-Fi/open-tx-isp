@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branch, the same tag in open-tx-isp and OpenIMP: RC1 `v2026.10.11-rc1`, RC2 `v2026.10.25-rc2`, RC3 `v2026.11.07-rc3` (2026-11-07). Gate SoCs of RC3 and Release 1: T10, T20, T21, T23, T30, T31, T40, T41 (T32/T33 planned, QEMU only); release notes: [docs/releases/ in OpenIMP](https://github.com/Lu-Fi/openimp/blob/next/docs/releases/README.md). Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T20/T30 kernel review low findings (openimp #251; cross-build + host tests, not on a camera)
+
+- T20 `tx-isp-core.c`: a `frame_buffer_manager_create()` failure (ERR_PTR) is now detected with `IS_ERR_OR_NULL` (was `!vbm`; the frame channel dereferenced the error pointer). T30 `ispcore_slake_module`: NULL/IS_ERR guards for the core callback device and the child ops pointer; T30 AWB preset guard also requires 2 table columns. No other behaviour change. (L1 Temper trace is pr_debug since 6544a6de.)
+
 ## 2026-11-11: T41 VIC frame-done callback and RAW ring controls (openimp #320; VIC device-tested, RAW ring crashes the board: not usable yet)
 
 - IMP_ISP_SetVicDoneCbFunc path: `globe_wait_attr` is the OEM 20-byte `{enable word, struct completion}`; the recovered code passed the struct address where the OEM passes +4 (tx-isp-t41.ko 1.2.5 0x386c / 0x127d8 / 0x13f28), so the enable word aliased `completion.done`. New typed handler `t41_ioctl_vic_done()` for 0xc0045431 (arm/disarm, returns 0: the recovered enable path returned 1) and 0xc0045432 (sleeps until the next VIC frame done, 1 or the negative wait result to user space), routed before the dispatch gate; the live VIC ISR completes it on every frame done while armed. T41 Vanhua: 250 callbacks in 10.00 s at 25 fps, close after DisableSensor stops them.

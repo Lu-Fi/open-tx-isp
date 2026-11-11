@@ -16460,7 +16460,8 @@ int32_t ispcore_slake_module(void *arg1)
 	for (i = 0; i < count; i++)
 		*(int32_t *)(*(char **)(core + 0x154) + i * 0xa0 + 0x50) = 1;
 	dev = *(char **)(core + 0x1a0);
-	(*(void (**)(void *, uint32_t, uint32_t))(dev + 0x40d4))(dev, 0x4000001, 0);
+	if (dev != NULL && !IS_ERR(dev))
+		(*(void (**)(void *, uint32_t, uint32_t))(dev + 0x40d4))(dev, 0x4000001, 0);
 	*(int32_t *)(core + 0xe8) = 1;
 
 	child = (void **)(core + 0x38);
@@ -16475,6 +16476,8 @@ int32_t ispcore_slake_module(void *arg1)
 			continue;
 		ops = *(char **)(c + 0xc4);
 		*(int32_t *)(c + 0x80) = 0;
+		if (ops == NULL || IS_ERR(ops))
+			continue;
 		internal = *(char **)(ops + 0x10);
 		if (internal == NULL)
 			continue;
@@ -32885,7 +32888,8 @@ int32_t awb_mode(void *arg1, int32_t arg2, char arg3, int32_t *arg4)
          * two u16 per row (byte offset idx << 2), >> 1 into stab[0x31]/[0x32].
          * Row guard against a short bin table 255 (no-op for the 7-row table). */
         lut = (const uint16_t *)(uintptr_t)_GET_MOD_ENTRY16_PTR(0xff);
-        if (!lut || t30_get_awb_idx(arg2) >= _GET_ROWS(0xff))
+        if (!lut || _GET_COLS(0xff) < 2 ||
+		    t30_get_awb_idx(arg2) >= _GET_ROWS(0xff))
             return 2;
         t30_awb_preset_gains(lut, arg2, &red, &blue);
         *(volatile uint8_t *)((char *)arg1 + 0x75a) = 0;
