@@ -862,3 +862,15 @@ u32 t32_data_c34b8[1] __attribute__((weak)), t32_data_ccd80[1] __attribute__((we
 /* ispcore_resume_module: isp_printf formats / function name, address only */
 u32 t32_data_c3568[1] __attribute__((weak)), t32_data_ccb50[1] __attribute__((weak));
 u32 t32_data_ccb74[1] __attribute__((weak)), t32_data_ccb94[1] __attribute__((weak));
+/* isp_csi_cmd_set / isp_save_cmd_set: bss d9660 (33 B text buffer); data.c:7757 c48a0 "reset", ccb04 "get_vb",
+ * ccb0c "isp_reg_reset", ccb1c "w", ccb20 " ", ccb24 "0x", ccb28 "0X", c311c the key names ccb2c "dbgmode",
+ * ccb34 "items", ccb3c "interval", ccb48 "vinum"; seq_printf / isp_printf formats by address only */
+u8 t32_data_d9660[64] __attribute__((weak, aligned(4)));
+char t32_data_c48a0[8] __attribute__((weak)) = "reset", t32_data_ccb04[8] __attribute__((weak)) = "get_vb";
+char t32_data_ccb0c[16] __attribute__((weak)) = "isp_reg_reset", t32_data_ccb1c[4] __attribute__((weak)) = "w";
+char t32_data_ccb20[4] __attribute__((weak)) = " ", t32_data_ccb24[4] __attribute__((weak)) = "0x", t32_data_ccb28[4] __attribute__((weak)) = "0X";
+char t32_data_ccb2c[8] __attribute__((weak)) = "dbgmode", t32_data_ccb34[8] __attribute__((weak)) = "items";
+char t32_data_ccb3c[12] __attribute__((weak)) = "interval", t32_data_ccb48[8] __attribute__((weak)) = "vinum";
+__asm__(".section .data\n.weak t32_data_c311c\n.balign 4\nt32_data_c311c:\n.long t32_data_ccb2c, t32_data_ccb34, t32_data_ccb3c, t32_data_ccb48\n.previous");
+u32 t32_data_c4888[1] __attribute__((weak)), t32_data_c48a8[1] __attribute__((weak)), t32_data_c48c0[1] __attribute__((weak));
+u32 t32_data_ccae8[1] __attribute__((weak));

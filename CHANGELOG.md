@@ -24,6 +24,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `t32_ispact_oracle` (planned, host only): `tx_isp_t32_ispact.h` (`ispcore_activate_module`: clock rates / parents / enable, frame channels 1 to 2, tuning event, sensor activate walk, channel states) against the vendor function: 20000 random worlds, return value, call log and world equal; 19/19 mutations detected.
 - `t32_ispfd_oracle` (planned, host only): `tx_isp_t32_ispfd.h` (`ispcore_channel_framedone_process.isra.16`: frame counter, MSCA FIFO read, drop pattern, buffer list moves, frame-done event block) against the vendor function: 20000 random worlds, return value, call log, bss words and world equal; 21/21 mutations detected.
 - `t32_ispres_oracle` (planned, host only): `tx_isp_t32_ispres.h` (`ispcore_resume_module`: channel state check, AOV bookkeeping, FIFO clear / refill, pipe wake-up, autozoom restore, channel restart, stream on, sensor resume walk) against the vendor function: 20000 random worlds, return value, call log, bss word and world equal; 20/20 mutations detected.
+- `t32_ispcmd_oracle` (planned, host only): `tx_isp_t32_ispcmd.h` (proc write handlers `isp_csi_cmd_set` "reset" and `isp_save_cmd_set` "get_vb" / "isp_reg_reset" / "w key value") against the vendor functions: 20000 random worlds, return value, call log, static buffer and world equal; 22/22 mutations detected.
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
