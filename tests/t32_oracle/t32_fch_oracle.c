@@ -3,7 +3,7 @@
  * T32 host oracle: our frame channel file operations (driver/t32/tx_isp_t32_fch.h)
  * against the unmodified vendor frame_channel_vb2_streamoff,
  * frame_channel_vidioc_get_fmt, frame_channel_open_fast and
- * frame_channel_release (Matt Davis'
+ * frame_channel_release, frame_channel_vidioc_set_fmt (Matt Davis'
  * recovered C, PR #15 @ 2e2e06bc).  A random image (2 channels of 816 bytes,
  * a kernel argument word) runs through ours, is restored and runs through the
  * vendor; compared: every byte, the return values and the ordered log of the
@@ -20,13 +20,15 @@
 #define WEAK __attribute__((weak))
 #define R(f)	((t32o_fn)(void (*)(void))(f))
 WEAK char t32_data_c5fcc[4], t32_data_c5f08[4], t32_data_c5f74[4], t32_data_c5f98[4], t32_data_c63c4[4];
+WEAK char t32_data_c5f24[4], t32_data_c5f40[4], t32_data_c5f58[4];
 u32 t32_data_f3370[8], t32_data_d9008, t32_data_d9004;
-u32 t32_data_f37d4[8], t32_data_f37a4[8], t32_data_f3774[8], t32_data_d9954[8];
+u32 t32_data_f37d4[8], t32_data_f37a4[8], t32_data_f3774[8], t32_data_d9954[8], t32_data_d9b74[8];
 
 u64 frame_channel_vb2_streamoff(u32, u32, u32, u32);
 u64 frame_channel_vidioc_get_fmt(u32, u32, u32, u32);
 u64 frame_channel_open_fast(u32, u32, u32, u32);
 u64 frame_channel_release(u32, u32, u32, u32);
+u64 frame_channel_vidioc_set_fmt(u32, u32, u32, u32);
 
 static u32 rng = 0x6b8b4567u;
 static u32 rnd(void)
@@ -39,6 +41,7 @@ static u32 rnd(void)
 static struct { unsigned int n; u32 e[MAXE][4]; } EV[2];
 static int side;
 static u32 r_cfu, r_ctu, r_ev, r_soff, cfu_val, ev_fill, ev_seed;
+static u8 fmt_in[116];
 static void ev(u32 a, u32 b, u32 c, u32 d)
 {
 	unsigned int n = EV[side].n++;
@@ -55,13 +58,22 @@ static u32 hash(const u8 *p, u32 n)
 		h = (h ^ p[i]) * 16777619u;
 	return h;
 }
-static u32 h_cfu(u8 *dst, u32 user, u32 n) { ev(1, user, n, 0); memcpy(dst, &cfu_val, 4); return r_cfu; }
+static u32 hash(const u8 *p, u32 n);
+static u32 h_cfu(u8 *dst, u32 user, u32 n)
+{
+	ev(1, user, n, 0);
+	if (n == 116)
+		memcpy(dst, fmt_in, 116);
+	else
+		memcpy(dst, &cfu_val, 4);
+	return r_cfu;
+}
 static u32 h_ctu(u32 user, const u8 *src, u32 n) { ev(2, user, n, hash(src, n)); return r_ctu; }
 static int h_ev(u32 sd, u32 cmd, u8 *data)
 {
 	u32 i, s = ev_seed;
 
-	ev(3, sd, cmd, 0);
+	ev(3, sd, cmd, hash(data, 116));
 	for (i = 0; i < ev_fill; i++) {
 		s = s * 1103515245u + 12345u;
 		data[i] = (u8)(s >> 16);
@@ -90,14 +102,16 @@ u64 private_kfree(u32 p, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3;
 
 static const char *const fmts[] = { "The parameter from user is invalid!\n", "Failed to copy from user\n",
 	"Failed to set fmt to frame chan%d!\n", "Failed to copy to user\n",
-	"Frame channel%d is slake now, Please activate it firstly!\n" };
+	"Frame channel%d is slake now, Please activate it firstly!\n", "The frame type is invalid!\n",
+	"The field is invalid!\n", "The colorspace is invalid!\n" };
 int isp_printf(unsigned int level, const char *fmt, ...)
 {
-	const char *vend[] = { t32_data_c5fcc, t32_data_c5f08, t32_data_c5f74, t32_data_c5f98, t32_data_c63c4 };
+	const char *vend[] = { t32_data_c5fcc, t32_data_c5f08, t32_data_c5f74, t32_data_c5f98, t32_data_c63c4,
+			       t32_data_c5f24, t32_data_c5f40, t32_data_c5f58 };
 	va_list ap;
 	u32 id = 99, a2;
 
-	for (a2 = 0; a2 < 5; a2++)
+	for (a2 = 0; a2 < 8; a2++)
 		if (side ? fmt == vend[a2] : !strcmp(fmt, fmts[a2]))
 			id = a2;
 	va_start(ap, fmt);
@@ -112,7 +126,7 @@ int isp_printf(unsigned int level, const char *fmt, ...)
 #define O_FILE	0x0700u
 #define IMGSZ	0x0780u
 static u8 *img, save0[IMGSZ], save1[IMGSZ];
-static u32 ours_tab[8];
+static u32 ours_tab[8], ours_cnt[8];
 
 static int fail(const char *what, unsigned int c, unsigned int op)
 {
@@ -132,17 +146,17 @@ static u32 pick_ret(void)
 
 int main(void)
 {
-	unsigned int c, i, n = 40000, eff[4] = { 0 }, freed = 0;
-	u32 tsave[8];
+	unsigned int c, i, n = 40000, eff[5] = { 0 }, freed = 0;
+	u32 tsave[8], csave[8];
 
 	img = t32o_alloc(IMGSZ);
 	for (c = 0; c < n; c++) {
-		unsigned int op = c % 4;
+		unsigned int op = c % 5;
 		u32 chw, arg, ro = 0, rr = 0, minor = rnd() % 8;
 
 		for (i = 0; i < IMGSZ; i++)
 			img[i] = (u8)rnd();
-		r_cfu = rnd() % 3 ? 0 : rnd() % 2 ? 4 : rnd();
+		r_cfu = rnd() % 3 ? 0 : rnd() % 3 == 0 ? 1 : rnd() % 2 ? 4 : rnd();
 		r_ctu = rnd() % 3 ? 0 : rnd() % 2 ? 116 : rnd();
 		r_ev = pick_ret();
 		r_soff = rnd();
@@ -182,16 +196,34 @@ int main(void)
 			t32_data_f3774[i] = rnd() % 4 ? rnd() : 0;
 			t32_data_d9954[i] = rnd() % 3 ? rnd() : 0;
 		}
-		if (op == 3) {		/* the vendor indexes its tables unchecked: keep the index in range */
+		for (i = 0; i < 8; i++)
+			t32_data_d9b74[i] = rnd() % 3;
+		for (i = 0; i < 116; i++)
+			fmt_in[i] = (u8)rnd();
+		t32_g_wr32(fmt_in, 0, rnd() % 6 ? 1 : rnd() % 2 ? 0 : rnd());
+		t32_g_wr32(fmt_in, 16, rnd() % 3 == 0 ? 0 : rnd() % 6 ? 4 : rnd() % 3 == 0 ? 1 : rnd() % 2 ? 5 : rnd());
+		t32_g_wr32(fmt_in, 28, rnd() % 6 ? 8 : rnd() % 2 ? 9 : rnd());
+		memcpy(img + O_KARG, fmt_in, 116);
+		if (op == 4) {		/* a kernel argument must be a real address (the vendor copies from it) */
+			arg = T32O_PTR(img + O_KARG);
+			if (rnd() % 3 == 0) {
+				arg = rnd();
+				t32_g_wr32(img + O_CH, T32_FCH_KARG, 0);
+				t32_g_wr32(img + O_CH + 816, T32_FCH_KARG, 0);
+			}
+		}
+		if (op >= 3) {		/* the vendor indexes its tables unchecked: keep the index in range */
 			for (i = 0; i < 2; i++)
 				t32_g_wr32(img + O_CH + i * 816, T32_FCH_INDEX, rnd() % 8);
 			t32_g_wr32(img + O_FILE, 120, chw);
 		}
 		memcpy(tsave, t32_data_d9954, sizeof(tsave));
+		memcpy(csave, t32_data_d9b74, sizeof(csave));
 		memcpy(save0, img, IMGSZ);
 		for (side = 0; side < 2; side++) {
 			memcpy(img, save0, IMGSZ);
 			memcpy(t32_data_d9954, tsave, sizeof(tsave));
+			memcpy(t32_data_d9b74, csave, sizeof(csave));
 			EV[side].n = 0;
 			memset(EV[side].e, 0, sizeof(EV[side].e));
 			if (!side) {
@@ -199,16 +231,19 @@ int main(void)
 				case 0: ro = (u32)t32_frame_channel_vb2_streamoff(&os, T32O_HOST(chw), arg); break;
 				case 1: ro = (u32)t32_frame_channel_vidioc_get_fmt(&os, T32O_HOST(chw), arg); break;
 				case 2: ro = (u32)t32_frame_channel_open_fast(&os, t32_data_f3370, minor); break;
-				default: ro = (u32)t32_frame_channel_release(&os, &tabs, img + O_FILE); break;
+				case 3: ro = (u32)t32_frame_channel_release(&os, &tabs, img + O_FILE); break;
+				default: ro = (u32)t32_frame_channel_vidioc_set_fmt(&os, t32_data_f3774, t32_data_d9b74, T32O_HOST(chw), arg); break;
 				}
 				memcpy(save1, img, IMGSZ);
 				memcpy(ours_tab, t32_data_d9954, sizeof(ours_tab));
+				memcpy(ours_cnt, t32_data_d9b74, sizeof(ours_cnt));
 			} else {
 				switch (op) {
 				case 0: rr = (u32)t32o_call(R(frame_channel_vb2_streamoff), chw, arg, 0, 0, 0); break;
 				case 1: rr = (u32)t32o_call(R(frame_channel_vidioc_get_fmt), chw, arg, 0, 0, 0); break;
 				case 2: rr = (u32)t32o_call(R(frame_channel_open_fast), minor, 0, 0, 0, 0); break;
-				default: rr = (u32)t32o_call(R(frame_channel_release), 0, T32O_PTR(img + O_FILE), 0, 0, 0); break;
+				case 3: rr = (u32)t32o_call(R(frame_channel_release), 0, T32O_PTR(img + O_FILE), 0, 0, 0); break;
+				default: rr = (u32)t32o_call(R(frame_channel_vidioc_set_fmt), chw, arg, 0, 0, 0); break;
 				}
 			}
 		}
@@ -218,6 +253,8 @@ int main(void)
 			return fail("memory image", c, op);
 		if (memcmp(ours_tab, t32_data_d9954, sizeof(ours_tab)))
 			return fail("d9954 table", c, op);
+		if (memcmp(ours_cnt, t32_data_d9b74, sizeof(ours_cnt)))
+			return fail("d9b74 table", c, op);
 		if (memcmp(tsave, t32_data_d9954, sizeof(tsave)))
 			freed++;
 		if (EV[0].n != EV[1].n || memcmp(EV[0].e, EV[1].e, sizeof(EV[0].e)))
@@ -225,7 +262,7 @@ int main(void)
 		if (memcmp(img, save0, IMGSZ))
 			eff[op]++;
 	}
-	printf("t32_fch_oracle: %u cases, 0 mismatches; cases that change memory per op: %u %u %u %u; d9954 freed %u\n", n,
-	       eff[0], eff[1], eff[2], eff[3], freed);
+	printf("t32_fch_oracle: %u cases, 0 mismatches; cases that change memory per op: %u %u %u %u %u; d9954 freed %u\n", n,
+	       eff[0], eff[1], eff[2], eff[3], eff[4], freed);
 	return 0;
 }

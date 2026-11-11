@@ -3,7 +3,8 @@
  * T32 frame channel (/dev/framechanN) file operations from the vendor module
  * (Matt Davis' recovered C, PR #15): frame_channel_vb2_streamoff (0x13b44),
  * frame_channel_vidioc_get_fmt (0x108dc) and frame_channel_open_fast
- * (0x1444c), frame_channel_release (0x12190).
+ * (0x1444c), frame_channel_release (0x12190), frame_channel_vidioc_set_fmt
+ * (0x106b4).
  *
  * Channel (816 bytes, see tx_isp_t32_fs_pm.h): vb2 queue +0x2c, queue memory
  * +0x214, current format +0x248 (116 bytes), remote subdev +0x2cc, channel
@@ -20,7 +21,8 @@
  * is clear; release indexes its module tables (f37d4, f37a4, f3774, d9954)
  * with the channel index unchecked, and its second stream-off (the channel
  * read again from the file, i.e. the same channel, already out of state 4)
- * can never run.  Ours zeroes the format buffer before the event (the vendor
+ * can never run; set_fmt counts its calls per channel in d9b74 when d9008
+ * and f3774[index] are set and skips the second one (returns 0).  Ours zeroes the format buffer before the event (the vendor
  * leaves the bytes the event does not fill as stack contents).
  *
  * Checked bit-exact against the vendor flow by tests/t32_oracle
@@ -161,6 +163,64 @@ static inline int t32_frame_channel_release(const struct t32_fch_os *os, const s
 		os->kfree(tb->d9954[idx]);
 		tb->d9954[idx] = 0;
 	}
+	return 0;
+}
+
+
+#define T32_EV_SET_FMT		0x3000002U
+#define T32_FMT_TYPE_CAPTURE	1U
+#define T32_FMT_FIELD		16U	/* 0 is taken as 4 */
+#define T32_FMT_FIELD_NONE	4U
+#define T32_FMT_COLORSPACE	28U
+#define T32_FMT_CS_DEFAULT	8U
+
+static inline int t32_frame_channel_vidioc_set_fmt(const struct t32_fch_os *os, const u32 *f3774, u32 *d9b74,
+						   u8 *ch, u32 arg)
+{
+	u8 fmt[T32_FCH_FMT_BYTES];
+	u32 idx, field;
+	int r;
+
+	if (!t32_fs_valid(ch))
+		return -22;
+	if (*os->d9008) {
+		idx = t32_g_rd32(ch, T32_FCH_INDEX);
+		if (f3774[idx] && ++d9b74[idx] == 2)
+			return 0;
+	}
+	if (t32_g_rd32(ch, T32_FCH_KARG)) {
+		memcpy(fmt, T32_PTR(arg), sizeof(fmt));
+	} else if (os->copy_from_user(fmt, arg, sizeof(fmt))) {
+		isp_printf(2, "Failed to copy from user\n");
+		return -12;
+	}
+	if (t32_g_rd32(fmt, 0) != T32_FMT_TYPE_CAPTURE) {
+		isp_printf(2, "The frame type is invalid!\n");
+		return -22;
+	}
+	field = t32_g_rd32(fmt, T32_FMT_FIELD);
+	if (!field) {
+		t32_g_wr32(fmt, T32_FMT_FIELD, T32_FMT_FIELD_NONE);
+	} else if (field != T32_FMT_FIELD_NONE) {
+		isp_printf(2, "The field is invalid!\n");
+		return -22;
+	}
+	if (t32_g_rd32(fmt, T32_FMT_COLORSPACE) != T32_FMT_CS_DEFAULT) {
+		isp_printf(2, "The colorspace is invalid!\n");
+		return -22;
+	}
+	r = os->send_event(t32_g_rd32(ch, T32_FCH_REMOTE), T32_EV_SET_FMT, fmt);
+	if (r && r != T32_ENOIOCTLCMD) {
+		isp_printf(2, "Failed to set fmt to frame chan%d!\n", t32_g_rd32(ch, T32_FCH_INDEX));
+		return r;
+	}
+	if (t32_g_rd32(ch, T32_FCH_KARG)) {
+		memcpy(T32_PTR(arg), fmt, sizeof(fmt));
+	} else if (os->copy_to_user(arg, fmt, sizeof(fmt))) {
+		isp_printf(2, "Failed to copy to user\n");
+		return -12;
+	}
+	memcpy(ch + T32_FCH_FMT, fmt, sizeof(fmt));
 	return 0;
 }
 
