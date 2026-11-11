@@ -897,3 +897,12 @@ u32 t32_data_cedf4[4] __attribute__((weak)), t32_data_cee04[4] __attribute__((we
 u32 t32_data_cee24[4] __attribute__((weak));
 char t32_data_c40c0[24] __attribute__((weak)) = "VIC:%d  Frame %d Start";
 u32 t32_data_c40d8[1] __attribute__((weak)), t32_data_bd790[1] __attribute__((weak));
+/* ispcore_interrupt_service_routine: bss f335f (reset pending), f335e (reset waiter), f335d (switch waiter), f335c (pipe done),
+ * f3344 (pipe sequence start), f3350 (stream-off request count), f3358 (pipe done flags [4]), f331c (completion);
+ * pipe works d8ca0..d8cd0; isp_printf formats / function name by address only */
+u8 t32_data_f335f[1] __attribute__((weak)), t32_data_f335e[1] __attribute__((weak));
+u8 t32_data_f335d[1] __attribute__((weak)), t32_data_f335c[1] __attribute__((weak));
+u32 t32_data_f3344[1] __attribute__((weak)), t32_data_f3350[1] __attribute__((weak)), t32_data_f3358[1] __attribute__((weak));
+u32 t32_data_f331c[4] __attribute__((weak)), t32_data_d8ca0[4] __attribute__((weak)), t32_data_d8cb0[4] __attribute__((weak));
+u32 t32_data_d8cc0[4] __attribute__((weak)), t32_data_d8cd0[4] __attribute__((weak));
+u32 t32_data_c34dc[1] __attribute__((weak)), t32_data_ccda0[1] __attribute__((weak)), t32_data_ccdd8[1] __attribute__((weak));
