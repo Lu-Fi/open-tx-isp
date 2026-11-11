@@ -8,6 +8,9 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 
 - `tiziano_mdns_params_refresh` now refreshes the five ratio-scaled MDNS Y tables from the newly loaded bank and reapplies a non-neutral SetTemperStrength, like stock (`if (mdns_ratio != 0x80) tisp_s_mdns_ratio()`). Before, a day/night or custom-mode switch kept the previous bank's thresholds until the next set: night base 0x787c=ff0800c4 / 0x799c b_min 9 against the vendor's ff060104 / 0; now identical. The ratio mapping itself was already vendor-equal: 0x787c/0x7944/0x799c match the vendor module at strengths 0/64/128/255 in day and night (the different detail step in #323 is the exposure operating point; at a similar luma +9.9 % vs the vendor's +10.7 % at 0).
 - GET 0x8000085 / 0x8000086 return the live 3DNS/2DNS ratio; the cached field read 0 until the first set, so a Get/Set/restore left temporal NR at 0 after a module reload (#331).
+## 2026-11-11: T20/T30 kernel review low findings (openimp #251; cross-build + host tests, not on a camera)
+
+- T20 `tx-isp-core.c`: a `frame_buffer_manager_create()` failure (ERR_PTR) is now detected with `IS_ERR_OR_NULL` (was `!vbm`; the frame channel dereferenced the error pointer). T30 `ispcore_slake_module`: NULL/IS_ERR guards for the core callback device and the child ops pointer; T30 AWB preset guard also requires 2 table columns. No other behaviour change. (L1 Temper trace is pr_debug since 6544a6de.)
 
 ## 2026-11-11: T41 VIC frame-done callback and RAW ring controls (openimp #320; VIC device-tested, RAW ring crashes the board: not usable yet)
 

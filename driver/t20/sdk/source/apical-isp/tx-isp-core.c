@@ -3394,7 +3394,8 @@ int register_tx_isp_core_device(struct platform_device *pdev, struct v4l2_device
 
 	/* the frame buffer manager */
 	core_dev->vbm = frame_buffer_manager_create(core_dev->dev);
-	if (!core_dev->vbm) {
+	if (IS_ERR_OR_NULL(core_dev->vbm)) {
+		core_dev->vbm = NULL;
 		v4l2_err(v4l2_dev, "Failed to create the manager of frame buffer!\n");
 		ret = -ISP_ERROR;
 		goto failed_to_frame_buffer;
