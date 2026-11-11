@@ -4,6 +4,11 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T32 DEFAULT_BIN reports the running mode (openimp #303; planned, QEMU only, not device-tested)
+
+- `driver/t32/tx_isp_t32_core.c`: `SET_TIZIANO_PAR` now reads the whole 20-byte block (`{pa, size, wdr, night, update_csccr, vinum}`, before only the pa) and keeps WDR and night per VI; `DEFAULT_BIN` returns the caller's buffer with word 852 (WDR), word 856 (day 0 / night 1) of the VI in byte 862, byte 860 (fast-boot first bin, 0) and the version/SoC strings, as the vendor `tx_isp_default_bin`. Before, word 856 stayed 0, so `IMP_ISP_Tuning_GetISPRunningMode` answered day after a night switch.
+- QEMU `-M ingenic-t32`, cv8001, `t32_trace_sample bin 2` (openimp `tools/t32`, first cycle ends at night, second asks before and after a night switch): vendor `tx-isp-t32.ko` and ours give the same DEFAULT_BIN/SET_TIZIANO_PAR words (856: 0 at the first AddSensor, 1 at the next AddSensor after a night session, 0 after the day bin, 1 after the night switch); running mode 1 after the night switch with vendor libimp 2.2.0 and with OpenIMP. `.ko` builds with the same warnings as before.
+
 ## 2026-11-11: T32 rest (op20; planned, host only, not device-tested)
 
 - New `driver/t32/tx_isp_t32_librest.h`: tisp_ae_deinit (frees AE state blocks P / Q, statistics block with its buffer, context with its tuning block; vendor order and the vendor clears of the statistics words +16 / +20) and tisp_intp_static_clear (debug snapshot clear; vendor UB kept and documented: memcpy from NULL, no caller). `t32_aedein_oracle`: 20000 cases, every kfree in order, all tables and blocks, 15/15 mutations; `t32_intpclr_oracle`: 4000 cases, calls, objects with canaries, return, 12/12 mutations.
