@@ -30655,15 +30655,21 @@ int apical_isp_hvflip_update(void *arg1, int arg2)
 	if (sensor && sensor->video.shvflip == 1) {
 		int ret;
 
-		tisp_lsc_set_sensor_flip(sensor->video.vi_max_width,
-					 sensor->video.vi_max_height,
-					 (u8)(arg2 & 3));
 		ret = tx_isp_sensor_hvflip_control(arg2);
-		if (ret)
-			pr_warn("hvflip: sensor flip 0x%x failed: %d\n", arg2, ret);
-		else
+		if (ret) {
+			/* Beyond the OEM (which drops V from the MSCA mask either
+			 * way): a sensor that cannot flip (-ENOTSUPP from the 7.x
+			 * V4L2 bridge without flip controls) leaves both axes
+			 * to the MSCA and the LSC mesh unflipped. */
+			pr_warn("hvflip: sensor flip 0x%x failed: %d, flipping in the ISP\n",
+				arg2, ret);
+		} else {
+			tisp_lsc_set_sensor_flip(sensor->video.vi_max_width,
+						 sensor->video.vi_max_height,
+						 (u8)(arg2 & 3));
 			state = (u32)(arg2 & 3);
-		flip_mask = (u8)(arg2 & 0xfd);
+			flip_mask = (u8)(arg2 & 0xfd);
+		}
 	}
 
 	tisp_s_mscaler_hvflip_mask(flip_mask);

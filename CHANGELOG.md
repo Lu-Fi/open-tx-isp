@@ -38,6 +38,10 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - #344 `adjust_exposure` no longer writes through NULL and runs over all 8 frame exposure sets. `ae_exposure_correction` takes the carry unsigned. Default calibration 206 points at the exposure-correction LUT, not at the function.
 - New `make -C tests t30_ae_init_check` (`tools/ko_emu/diff_t30_ae_init.py`) runs our code against the vendor ko in Unicorn. It checks every byte of the cleared AE and CMOS contexts and 200 `adjust_exposure` cases: 202/202 equal, and the old behaviour fails. The default `simple_3a=1` does not use this path.
 
+## 2026-11-11: T31 sensor flip without sensor support stays in the ISP (openimp #251 L5; k7 cross-build, not on a camera yet)
+
+- Kernel-7 V4L2 sensor bridge: a flip request to a sensor driver with neither a hflip nor a vflip control returns -ENOTSUPP instead of 0. `apical_isp_hvflip_update` (shvflip == 1 only) then keeps both axes in the MSCA mask and leaves the LSC mesh unflipped, instead of dropping V from the MSCA as if the sensor had flipped. Beyond vendor (user decision), see docs/BEYOND_VENDOR.md. The default path (shvflip 0, the bridge never sets it) flips in the MSCA as before.
+
 ## 2026-11-11: T31 IPU ahb1 clk_put under its #ifdef, sensor s_register documented (openimp #341; k7 cross-build, not on a camera)
 
 - `t31_ipu`: the probe error path and `remove` now put the ahb1 gate only under `IPU_T31_AHB1`, the same guard as its `clk_get` (no behaviour change, the macro is 1).

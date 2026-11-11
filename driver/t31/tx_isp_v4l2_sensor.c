@@ -350,7 +350,14 @@ static int tx_v4l2_sensor_set_vflip(struct tx_isp_subdev *sd, int enable)
 	if (!s)
 		return -ENODEV;
 
-	/* The flip controls are optional (some mainline sensors have none). */
+	/*
+	 * The flip controls are optional (some mainline sensors have none).
+	 * Without either control nothing is flipped in the sensor: say so
+	 * instead of reporting success, so the core keeps the flip in the ISP.
+	 */
+	if (!s->hflip && !s->vflip)
+		return -ENOTSUPP;
+
 	if (s->hflip) {
 		ret = v4l2_ctrl_s_ctrl(s->hflip, !!(enable & 0x1));
 		if (ret)
