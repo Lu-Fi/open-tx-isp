@@ -22,6 +22,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `t32_txprobe_oracle`: `tx_isp_t32_txprobe.h` (tx_isp_vic/vin/csi/ldc_probe; 4 functions), 30000 random cases (allocation, subdev init, region, misc results, PM on/off), 39 mutations detected. Vendor quirks kept: ldc_probe returns 0 when misc_register fails and leaks the device when the misc allocation fails; vic/csi probes initialise one lock word both as spin lock and as mutex.
 - `t32_txinit_oracle`: `tx_isp_t32_txinit.h` (tx_isp_init), 20000 random flag / result sets, 14 mutations detected. Vendor: a failed platform driver register still creates the /proc entries.
 - `t32_txbin_oracle`: `tx_isp_t32_txbin.h` (tx_isp_switch_bin, tx_isp_default_bin (.isra); 2 functions), 30000 random cases, 27 mutations detected. Vendor bugs named: switch_bin uses the stored bin path as sprintf format and does not bound the slot; default_bin does not bound the section count against its 880 byte block.
+- `t32_txtick_oracle`: `tx_isp_t32_txtick.h` (tx_isp_core_oneshot_tick (.isra)), 30000 random channel / buffer-list worlds, 19 mutations detected. Vendor: the sensor loop counter is a u8 (more than 255 sensors never ends); a queue head with a NULL next is treated as empty and appended to through its prev. tx_isp_ivdc_show is a seq_printf dump and is skipped (brief).
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
