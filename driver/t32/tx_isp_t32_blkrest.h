@@ -13,6 +13,7 @@
  * - tisp_day_or_night_par_refresh: day / night refresh of every block, waiter wake-up.
  * - tisp_day_or_night_s_ctrl: day / night switch (tuning bin, register pair, refresh).
  * - tisp_long_ev_update: long-frame EV to the blocks (forced / on change, bypass bits).
+ * - tisp_lce_wake_up: LCE buffer addresses and geometry after a wake-up.
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -805,6 +806,72 @@ static inline int t32_long_ev_update(const struct t32_lev_ops *ops, const u8 *sh
 		ops->ev_update(T32_LEV_WDR, ch, ev, 0, 0);
 	last[ch] = ev;
 	return 0;
+}
+
+/* ---- tisp_lce_wake_up (vendor 0x596b4), oracle t32_lcewake_oracle ---- */
+
+#define T32_LCW_ST_BASE		0x20000	/* LCE state (t32_data_e1da8[ch]) + 0x20000 + ... */
+#define T32_LCW_ST_BLK_X	9944	/* u8, & 0x1f */
+#define T32_LCW_ST_BLK_Y	9945	/* u8, & 0x3f */
+#define T32_LCW_ST_SIZE_HI	9946	/* u8, << 16 */
+#define T32_LCW_ST_SIZE_LO	9947
+#define T32_LCW_STAT_BANKS	4	/* the hardware's 4 statistics bank addresses */
+#define T32_LCW_BANK1		0x9900
+#define T32_LCW_BANK2		0x13200
+#define T32_LCW_BANK3		0x1cb00
+#define T32_LCW_GEOM_MASK	0x1fff
+#define T32_LCW_MODE		3
+#define T32_LCW_CURVE_LEN	640
+
+struct t32_lcw_ops {
+	void (*reg_write)(u32 ch, u32 reg, u32 val);	/* tisp_reg_write */
+	void (*write_curve)(u32 ch);			/* tisp_lce_write_curve */
+	u32 (*write_ctrl_reg)(u32 ch);			/* tisp_lce_write_ctrl_reg */
+};
+
+struct t32_lcw {
+	const struct t32_lcw_ops *ops;
+	const struct t32_lci_buf *buf;	/* t32_data_e1db8 */
+	const u32 *lce_st;		/* t32_data_e1da8 */
+	const u8 *shadow;		/* t32_data_d03a0 */
+	const u32 *bank;		/* t32_data_e1d7c */
+	const u32 *geom;		/* t32_data_e1d80: 10 words of block geometry */
+};
+
+static inline void t32_lcw_wr(struct t32_lcw *w, u32 ch, u32 reg, u32 sidx, u32 val)
+{
+	w->ops->reg_write(ch, *w->shadow ? sidx : reg, val);
+}
+
+/* tisp_lce_wake_up: reprogram the LCE buffers and geometry after a wake-up; returns write_ctrl_reg's result */
+static inline u32 t32_lce_wake_up(struct t32_lcw *w, u32 ch)
+{
+	const struct t32_lci_buf *b = &w->buf[ch];
+	const u8 *st = t32_br_ptr(w->lce_st[ch]) + T32_LCW_ST_BASE;
+	const u32 *g = w->geom;
+	u32 m = T32_LCW_GEOM_MASK;
+
+	t32_lcw_wr(w, ch, T32_LCI_R_CURVE_ADDR, T32_LCI_S_CURVE_ADDR, b->curve_phys);
+	t32_lcw_wr(w, ch, T32_LCI_R_STAT_ADDR, T32_LCI_S_STAT_ADDR, T32_LCI_BANK_LEN * *w->bank + b->stat_phys);
+	t32_lcw_wr(w, ch, T32_LCI_R_HIST_ADDR, T32_LCI_S_HIST_ADDR, b->hist_phys);
+	t32_lcw_wr(w, ch, 0xc090, 2015, b->stat_phys);
+	t32_lcw_wr(w, ch, 0xc094, 2016, b->stat_phys + T32_LCW_BANK1);
+	t32_lcw_wr(w, ch, 0xc098, 2017, b->stat_phys + T32_LCW_BANK2);
+	t32_lcw_wr(w, ch, 0xc09c, 2018, b->stat_phys + T32_LCW_BANK3);
+	t32_lcw_wr(w, ch, 0xc080, 2012, T32_LCW_MODE);
+	t32_lcw_wr(w, ch, T32_LCI_R_START, T32_LCI_S_START, 1);
+	t32_lcw_wr(w, ch, 0xc040, 1996, (u32)st[T32_LCW_ST_SIZE_HI] << 16 | st[T32_LCW_ST_SIZE_LO]);
+	t32_lcw_wr(w, ch, 0xc044, 1997, (g[9] & 0xf) << 20 | (st[T32_LCW_ST_BLK_Y] & 0x3f) |
+					(st[T32_LCW_ST_BLK_X] & 0x1f) << 8);
+	t32_lcw_wr(w, ch, 0xc048, 1998, (g[1] & m) << 16 | (g[0] & m));
+	t32_lcw_wr(w, ch, 0xc04c, 1999, g[2] & m);
+	t32_lcw_wr(w, ch, 0xc050, 2000, (g[4] & m) << 16 | (g[3] & m));
+	t32_lcw_wr(w, ch, 0xc054, 2001, g[5] & m);
+	t32_lcw_wr(w, ch, 0xc058, 2002, (g[7] & m) << 16 | (g[6] & m));
+	t32_lcw_wr(w, ch, 0xc05c, 2003, g[8] & m);
+	t32_lcw_wr(w, ch, 0xc0a0, 2019, T32_LCW_CURVE_LEN);
+	w->ops->write_curve(ch);
+	return w->ops->write_ctrl_reg(ch);
 }
 
 #endif /* TX_ISP_T32_BLKREST_H */

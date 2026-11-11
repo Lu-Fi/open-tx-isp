@@ -35,6 +35,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `tx_isp_t32_blkrest.h` + tisp_day_or_night_par_refresh (22 block day / night refreshes in vendor order, defog with the channel state words, done / event flags, waiter wake-up). `t32_dnref_oracle`: 20000 cases, 14/14 mutations.
 - `tx_isp_t32_blkrest.h` + tisp_day_or_night_s_ctrl (tuning bin copy into the working tuning, LUT copy, state index / current word, day: set copy + refresh + sequence words; night: register pair, set copy, tuning byte 22 cleared, refresh; debug print for a missing bin or bad mode). `t32_dnctl_oracle`: 6000 cases, 22/22 mutations.
 - `tx_isp_t32_blkrest.h` + tisp_long_ev_update (forced update of AWB / gamma / CCM / defog / BCSH / TMO / WDR, or on EV change and per bypass bit; last EV kept per channel). Vendor UB named: on the normal path the 6th argument of defog / BCSH / TMO is a stale stack word (0 here). `t32_longev_oracle`: 30000 cases, 18/18 mutations.
+- `tx_isp_t32_blkrest.h` + tisp_lce_wake_up (18 register writes: curve / statistics / histogram addresses, 4 bank addresses, mode, start, size and block geometry; then curve and control register write). `t32_lcewake_oracle`: 20000 cases, 20/20 mutations.
 
 ## 2026-11-11: T32 API getters, 69 functions (planned, host only, not device-tested)
 
