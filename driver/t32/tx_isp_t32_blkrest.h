@@ -7,6 +7,7 @@
  * - tisp_ae_algo_init: fill the AE algorithm init block from tuning / parameters.
  * - tisp_ae_ai_interrupt_static: AE statistics latch, window area, ROI point.
  * - tisp_ae_par_update_trig: AE parameter refresh from tuning / sensor attributes.
+ * - tisp_lce_par: per-frame LCE calculation (locked statistics copy, soft path, curve).
  *
  * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
  * words (MIPS32 kernel), read and cleared in place.
@@ -372,6 +373,57 @@ static inline u32 t32_ae_par_update_trig(struct t32_aeu *a, u32 ch)
 	if (shadow)
 		return shadow;
 	return a->ops->set_sensor_fps(ch & 0xff);
+}
+
+/* ---- tisp_lce_par (vendor 0x5709c), oracle t32_lcepar_oracle ---- */
+
+/* t32_data_e1da8[ch]: LCE state (offsets as in tx_isp_t32_lcem.h) */
+#define T32_LCP_IN		164	/* statistics written by the interrupt */
+#define T32_LCP_IN_LEN		0x9000
+#define T32_LCP_IN2		0x90a4	/* directly after: 2304 bytes more */
+#define T32_LCP_IN2_LEN		2304
+#define T32_LCP_WORK		0x99a4	/* work copy of both parts */
+#define T32_LCP_WORK2		0x129a4
+#define T32_LCP_PARAMS		0x226cc	/* LCE parameters */
+#define T32_LCP_SEL		0x22737	/* u8: 0 = v4 path, else T41 path */
+#define T32_LCP_UPDATE		0x22830	/* u8 flag handed to the soft path, cleared after */
+#define T32_LCP_COUNT		0x22834	/* frame counter, wraps to 15 at 1 << 29 */
+#define T32_LCP_LOCK		0x2284d
+#define T32_LCP_COUNT_WRAP	0x20000000u
+#define T32_LCP_COUNT_RESTART	15
+
+struct t32_lcep_ops {
+	u32 (*lock)(void *lock);			/* __private_spin_lock_irqsave, returns flags */
+	void (*unlock)(void *lock, u32 flags);		/* private_spin_unlock_irqrestore */
+	void (*mxu_begin)(u32 zero);			/* kernel_mxu_begin_partial */
+	void (*mxu_end)(void);				/* kernel_mxu_end */
+	void (*soft_v4)(u32 ch, u8 *params, u8 *work, u32 update);	/* Tisp_lce_soft_simd_v4 */
+	void (*soft_t41)(u32 ch, u8 *params, u8 *work, u32 update);	/* Tisp_lce_soft_t41_simd */
+	void (*write_curve)(u32 ch);			/* tisp_lce_write_curve */
+};
+
+/* tisp_lce_par: per-frame LCE calculation on a locked copy of the statistics; always 0 */
+static inline int t32_lce_par(const struct t32_lcep_ops *ops, const u32 *lce_st, u32 ch)
+{
+	u8 *st = t32_br_ptr(lce_st[ch]);
+	u32 flags, n;
+
+	flags = ops->lock(st + T32_LCP_LOCK);
+	memcpy(st + T32_LCP_WORK, st + T32_LCP_IN, T32_LCP_IN_LEN);
+	memcpy(st + T32_LCP_WORK2, st + T32_LCP_IN2, T32_LCP_IN2_LEN);
+	ops->unlock(st + T32_LCP_LOCK, flags);
+	ops->mxu_begin(0);
+	if (!st[T32_LCP_SEL])
+		ops->soft_v4(ch, st + T32_LCP_PARAMS, st + T32_LCP_WORK, st[T32_LCP_UPDATE]);
+	else
+		ops->soft_t41(ch, st + T32_LCP_PARAMS, st + T32_LCP_WORK, st[T32_LCP_UPDATE]);
+	ops->mxu_end();
+	st = t32_br_ptr(lce_st[ch]);
+	st[T32_LCP_UPDATE] = 0;
+	ops->write_curve(ch);
+	n = t32_br_rd32(st + T32_LCP_COUNT) + 1;
+	t32_br_wr32(st + T32_LCP_COUNT, n < T32_LCP_COUNT_WRAP ? n : T32_LCP_COUNT_RESTART);
+	return 0;
 }
 
 #endif /* TX_ISP_T32_BLKREST_H */
