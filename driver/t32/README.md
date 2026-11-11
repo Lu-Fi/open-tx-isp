@@ -174,10 +174,29 @@ generation-shared come from the shared code instead:
   statistics init (`tx_isp_t32_awbc.c`), and every AWB statistics interrupt
   (status bit 3) runs `tisp_awb_interrupt_static` + `tisp_awb_process`
   (`t32_awb_frame`; oracle `t32_awbchain_oracle`: init + 7990 frames through
-  the whole vendor chain, bit-exact). The event 11 colour temperature is kept
-  (`t32_awbc_ct`) for the ct fan-out, which is not wired yet; the AE ev /
-  total gain into the AWB keep their init values. Stats "vendor AWB" in
+  the whole vendor chain, bit-exact). The AE feeds the AWB as in the vendor's
+  event thread: AE event 6 (long EV) -> `tisp_awb_ev_update` on an EV change,
+  AE event 4 (long total gain) -> `tisp_awb_tgain_update` on a gain change,
+  which re-interpolates and writes the regional / luma thresholds
+  (`tx_isp_t32_awbtg.h`, oracle `t32_awbtg_oracle`). Stats "vendor AWB" in
   /proc/jz/isp/isp-m0. Host only.
+- **Colour temperature fan-out (openimp #234, `t32_ported_paths` bit 15)**:
+  after each AWB frame its event 11 colour temperature runs `tisp_ct_update`
+  (`t32_ct_update`, oracle `t32_dispatch_oracle`, force / keep 0) on the CCM
+  and BCSH states kept from stream-on (`t32_ccm_start` / `t32_bcsh_start`;
+  `t32_ccm_ct_update`, `t32_bcsh_ct_update`, oracles `t32_ccmf_oracle` /
+  `t32_bcshf_oracle`) and the CLM block state as `tisp_clm_init` leaves it
+  (`tx_isp_t32_clmct.h`: `tisp_clm_ct_update` / `tisp_clm_ct_interp` on the
+  kept state, oracle `t32_clmct_oracle`) in `tx_isp_t32_ctup.c`. LSC is not
+  wired: `tisp_lsc_ct_update` needs the vendor `tisp_lsc_write_all_reg` (LUT
+  port writes with a completion wait), which is not ported; the mesh is
+  loaded once by the stream-on list. Stats "ct fan-out" in
+  /proc/jz/isp/isp-m0. Host only.
+- **EV fan-out (openimp #234, `t32_ported_paths` bit 16)**: the AE event 6
+  runs `tisp_long_ev_update` (`t32_long_ev_update`, oracle
+  `t32_longev_oracle`): the AWB part (bit 14), `t32_ccm_ev_update` and
+  `t32_bcsh_ev_update` (x = the AE brightness word) on the CCM / BCSH states
+  of bit 15. Gamma, defog, TMO and WDR EV updates are not wired. Host only.
 
 - **Front end: CSC, CSCCR, ISP top** (`tx_isp_t32_front.h`, flow of the vendor
   `tisp_csc_init`, `tisp_csccr_init`, `tisp_top_init`, `tisp_top_reg_cfg`),
@@ -339,9 +358,12 @@ sensor attributes, autozoom, frame-done wait; AE start EV on `/dev/tx-isp`
 `0xc0045436/7`. The AE / AWB / statistics ids are bound to the per-frame AE
 and AWB blocks (`tx_isp_t32_tunblk.c`: the ported `.isra` wrappers, `tisp_[sg]_*`
 API and `t32_aea_*` / `t32_awb_*` block API, so a Set is read by the next AE /
-AWB frame and a Get answers the live statistics and exposure state). AWB runs
-live; the AE context is dropped at stream-on (openimp #350), so the AE ids answer
-the no-context fallback (zeroed blocks, scene kept as set) for now. The other
+AWB frame and a Get answers the live statistics and exposure state). AE and AWB
+run live from stream-on (openimp #350: the AE context built by the statistics
+init is no longer freed by the tisp init). Vendor UB kept: the face AE weight
+id (0x2a, `IMP_ISP_Tuning_SetFaceAeWeiget`; third word = AE smoothing window length) is not
+bounded by the vendor; a value above 221 makes the next AE frame write past the
+AE state block (kernel memory corruption, the vendor module hangs as well). The other
 attributes are still kept per channel and returned (not applied yet). The AF part
 of the statistics config, AF weight, AF statistics and AF metrics run on the live
 AF block, the statistics config's GSM zone bounds go to the live GSM block
@@ -349,13 +371,33 @@ AF block, the statistics config's GSM zone bounds go to the live GSM block
 `tx_isp_t32_core.c`, OSD / mask / draw in `tx_isp_t32_isposd.c`. QEMU vs the
 vendor module: see CHANGELOG.
 
+## IVDC direct mode (openimp #349)
+
+`direct_mode=1` sends the sensor's frame channel 0 to the encoder over the
+IVDC (ISP -> encoder line buffer, 0x13100000, INTC 57) instead of memory, as
+the vendor module. `tx_isp_t32_ivdcdrv.c` runs the oracle-proven ports of the
+vendor IVDC code on vendor-layout subdev / private objects:
+`ivdc_core_ops_init` at the ISP stream-on (reset, mode word 0x5c),
+`ivdc_misc_unlocked_ioctl` on `/dev/misc-ivdc` (GET/SET_DIRECT, SET_PADDR,
+MEM_LINE, MAX_STRIDE, SET_MEM_LINE), `ivdc_pad_event_handle` for frame
+channel 0 (SET_FRAME_FORMAT: geometry; REQBUFS: DDR ring 0x30 / 0x34 / 0x38;
+FRAME_STREAMON / OFF: irq mask, enable) and
+`ivdc_core_interrupt_service_routine` (frame start 0x44 bit 17 completes
+channel 0's next buffer). The MSCA writes channel 0 to the IVDC addresses
+(Y 0x80000000, UV 0x81000000, 4096-byte lines), pushed for each queued buffer
+and again at each channel-0 done; DQBUF keeps the buffer queued (libimp
+queues them once). The ISP vertical flip is refused in direct mode (ported
+`tx_isp_core_ops_s_ctrl`, d9014). GET / SET_FRAME_FORMAT copy the vendor's
+116-byte format on every channel (ported `frame_channel_vidioc_get_fmt` /
+`set_fmt`). Direct modes 2..4 (several sensors) are refused at load (mode 0).
+
 ## Not yet (S4+)
 
 No tisp/3A, no IQ bin parsing (the bin's physical address is kept), no
 image-pipeline register programming (the QEMU model does not process pixels,
 so this needs a camera); the stream-on list carries the LSC block only. The channel parameter words
 are the vendor's cv8001/PRJ007 values until the bin parser provides them.
-Day/night, WDR, LDC, IVDC direct mode, AOV/RISC-V hand-over: off (ISP OSD: above).
+Day/night, WDR, LDC, AOV/RISC-V hand-over: off (ISP OSD, IVDC direct mode: above).
 
 ## Build
 
@@ -377,6 +419,9 @@ against a thingino T32 kernel 4.4.94 tree. Host tests:
 | `t32_trace` | 1 | log every ioctl (bring-up) |
 | `isp_irq`, `vic_irq` | 37, 38 | Linux IRQs of INTC 29/30 (XBURST_SOC_IRQ_BASE 8) |
 | `listen_timeout_ms` | 2000 | `LISTEN_BUF` wait limit |
+| `direct_mode` | 0 | 1 = frame channel 0 over the IVDC to the encoder (2..4 refused) |
+| `ivdc_mem_line`, `ivdc_mem_stride`, `ivdc_threshold_line` | 0, 3840, 0 | IVDC DDR ring lines (0: half the picture), ring stride (modes >= 2), threshold line (0: half) |
+| `ivdc_irq` | 65 | Linux IRQ of the IVDC (INTC 57) |
 | `lsc_ct` | 5000 | colour temperature for the LSC mesh at stream-on |
 | `bringup_ae` | 0 | 1 = bring-up exposure controller (not the vendor AE) |
 | `bringup_target` | 64 | its target mean histogram bin (0..255) |

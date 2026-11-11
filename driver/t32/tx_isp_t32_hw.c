@@ -249,8 +249,12 @@ static void t32_stats_init(void)
 	n = t32_ae_stats_init(bin, width, height, virt_to_phys((void *)ae_buf), w);
 	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
 		isp_wr(w[i].reg, w[i].val);
-	if (t32_pp_on(T32_PP_AE))	/* the vendor AE context (tisp_ae_init state part, openimp #234) */
-		t32_pf_attach_ae(bin + T32_AE_PARAM, width, height);
+	if (t32_pp_on(T32_PP_AE)) {	/* the vendor AE context (tisp_ae_init state part, openimp #234) */
+		int r = t32_pf_attach_ae(bin + T32_AE_PARAM, width, height);
+
+		if (r)
+			isp_printf(2, "tx-isp-t32: vendor AE context not built (%d)\n", r);
+	}
 	n = t32_awb_stats_init(bin, width, height, virt_to_phys((void *)awb_buf), T32_AWB_INIT_EV, w);
 	for (i = 0; i < n && i < T32_STATS_MAX_WRITES; i++)
 		isp_wr(w[i].reg, w[i].val);
@@ -393,7 +397,6 @@ static void t32_tisp_init(void)
 	u32 bytes, off, len, coff, width, height, code;
 	unsigned int mode;
 
-	t32_pf_reset();
 	if (t32_core_iq_bin(&bin, &bytes))
 		return;
 	if (!tisp_w)
@@ -442,7 +445,11 @@ static void t32_tisp_init(void)
 		t32_pf_attach(T32_PP_YDNS, kmemdup(bin + off, len, GFP_KERNEL));
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_CCM, &len);
-	if (off && len >= T32_CCM_SEC_BYTES) {
+	if (off && len >= T32_CCM_SEC_BYTES && t32_pp_on(T32_PP_CT)) {
+		/* the state kept for the ct fan-out (tisp_ct_update after each AWB frame, openimp #234) */
+		if (t32_ctup_attach_ccm(bin + off, len, bytes - off - len))
+			isp_printf(2, "tx-isp-t32: CCM section refused\n");
+	} else if (off && len >= T32_CCM_SEC_BYTES) {
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block clears two bytes of its section */
 
 		if (cp) {
@@ -455,7 +462,10 @@ static void t32_tisp_init(void)
 		u32 clen = 0, coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block clears ten bytes of its section */
 
-		if (cp && coff && clen >= T32_BCSH_CSC_BYTES)
+		if (cp && coff && clen >= T32_BCSH_CSC_BYTES && t32_pp_on(T32_PP_CT)) {
+			if (t32_ctup_attach_bcsh(bin + off, len, bytes - off - len, bin + coff))
+				isp_printf(2, "tx-isp-t32: BCSH section refused\n");
+		} else if (cp && coff && clen >= T32_BCSH_CSC_BYTES)
 			t32_tisp_flush("bcsh", t32_bcsh_init(cp, bin + off + len, bytes - off - len, bin + coff, tisp_w));
 		kfree(cp);
 	}
@@ -497,6 +507,8 @@ static void t32_tisp_init(void)
 		mode = bin[coff + 0x5b];
 		t32_tisp_flush("clm", t32_clm_init(bin + off, bin + off + len, bytes - off - len, mode,
 						   t32_csc_modes[mode].m, tisp_w));
+		if (t32_pp_on(T32_PP_CT) && t32_ctup_attach_clm(bin + off, len, bytes - off - len))
+			isp_printf(2, "tx-isp-t32: CLM state for the ct fan-out refused\n");
 	}
 	if (!t32_core_sensor_size(&width, &height))
 		t32_afgsm_attach_gsm(width, height);	/* tisp_gsm_init, bits 7 / 63 (tx_isp_t32_afgsm.c) */
@@ -722,6 +734,7 @@ void t32_hw_stream_on(void)
 	isp_wr(T32_INT3_EN, 0xffffffff);
 	isp_wr(T32_INT4_EN, 0xffffffff);
 	t32_front_init();
+	t32_pf_reset();		/* before the statistics init: it builds the AE context (t32_pf_attach_ae) */
 	t32_stats_init();
 	t32_tisp_init();
 	t32_pf_start();
@@ -963,6 +976,7 @@ void t32_hw_exit(void)
 	for (i = 0; i < T32_MSCA_CHANNELS; i++)
 		t32_hw_msca_stop(i);
 	t32_awbc_detach();	/* the per-frame AWB reads the AWB buffers */
+	t32_ctup_detach();	/* after the AWB: its work runs the ct fan-out */
 	t32_afgsm_exit();	/* tisp_af_deinit */
 	t32_stats_off();	/* no statistics DMA into the buffers freed below */
 	if (irqs_requested) {

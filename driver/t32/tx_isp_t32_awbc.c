@@ -15,12 +15,17 @@
  * from event 12: long_par_update, spec_calculate, long_alogrithm, set_gain
  * (tx_isp_t32_awbproc.h, oracles t32_awbpr1..3).  Its register writes go
  * out in order (direct mode).  The colour temperature of the vendor's
- * event 11 is kept for the ct fan-out (tisp_ct_update: CCM / LSC / BCSH /
- * CLM ..., tx_isp_t32_dispatch.h), which is not wired yet: t32_awbc_ct().
+ * event 11 goes to the ct fan-out (tisp_ct_update, tx_isp_t32_ctup.c,
+ * behind bit 15) after the frame, and stays readable: t32_awbc_ct().
  *
- * Not wired yet (vendor inputs that keep their init values here): the AE
- * exposure (tisp_awb_ev_update, st ev = 400) and total gain
- * (tisp_awb_tgain_update, st tgain = 1024); the RISC-V AWB (f0900 = 0).
+ * The AE inputs (vendor event thread): t32_awbc_ev (AE event 6 ->
+ * tisp_long_ev_update -> tisp_awb_ev_update: st ev = EV >> 10) and
+ * t32_awbc_tgain (AE event 4 -> tisp_long_tgain_update ->
+ * tisp_awb_tgain_update: st tgain and the regional / luma thresholds,
+ * tx_isp_t32_awbtg.h, oracle t32_awbtg_oracle), called by the AE work
+ * (tx_isp_t32_ae.c) on a change, as the vendor dispatchers do.  Until the
+ * first AE frame they keep their init values (ev 400, tgain 1024).
+ * Not wired: the RISC-V AWB (f0900 = 0).
  */
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -29,7 +34,7 @@
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
 #include "tx_isp_t32.h"
-#include "tx_isp_t32_awbinit.h"
+#include "tx_isp_t32_awbtg.h"
 
 int isp_printf(unsigned int level, const char *fmt, ...);
 
@@ -39,6 +44,7 @@ static struct t32_awb_init ai;
 static struct t32_awb_ctd *ctd;
 static struct t32_awb_proc proc;
 static u8 *par_copy;
+static struct t32_awb_lumov lumov;	/* the vendor e16c4 words (word 0 = ai.proc_flag) */
 static const u8 *stat_bufs;
 static u16 counter;
 static u32 last_ct;
@@ -104,6 +110,7 @@ static void awbc_work_fn(struct work_struct *w)
 	t32_awbc_stats.gain_r = ai.a.hw->gain_r;
 	t32_awbc_stats.gain_b = ai.a.hw->gain_b;
 	mutex_unlock(&awbc_lock);
+	t32_ctup_run(proc.ev.ct);	/* event 11: tisp_ct_update */
 }
 static DECLARE_WORK(awbc_work, awbc_work_fn);
 
@@ -124,6 +131,7 @@ int t32_awbc_attach(const u8 *sec, u32 width, u32 height, const u8 *bufs)
 	mutex_lock(&awbc_lock);
 	memset(&t32_awbc_stats, 0, sizeof(t32_awbc_stats));
 	counter = 0;
+	memset(&lumov, 0, sizeof(lumov));
 	par_copy = kmemdup(sec, sizeof(struct t32_awb_par), GFP_KERNEL);
 	ctd = vzalloc(sizeof(*ctd));
 	if (!par_copy || !ctd || !bufs) {
@@ -166,6 +174,35 @@ bool t32_awbc_ct(u32 *ct)
 		*ct = last_ct;
 	mutex_unlock(&awbc_lock);
 	return v;
+}
+
+/* AE event 6 (tisp_long_ev_update -> tisp_awb_ev_update): the low EV word */
+void t32_awbc_ev(u32 ev)
+{
+	mutex_lock(&awbc_lock);
+	if (ready && t32_pp_on(T32_PP_AWB)) {
+		t32_awb_ev_update(&ai.a, ev);
+		t32_awbc_stats.ev_updates++;
+	}
+	mutex_unlock(&awbc_lock);
+}
+
+/* AE event 4 (tisp_long_tgain_update -> tisp_awb_tgain_update): the low gain word, log2 Q16 */
+void t32_awbc_tgain(u32 gain)
+{
+	struct t32_stats_write w[T32_AWBTG_MAX_WRITES];
+	unsigned int n, i;
+
+	mutex_lock(&awbc_lock);
+	if (ready && t32_pp_on(T32_PP_AWB)) {
+		lumov.w[0] = ai.proc_flag;
+		n = t32_awb_tgain_apply(&ai.a, &lumov, gain, w);
+		for (i = 0; i < n; i++)
+			t32_hw_wr(w[i].reg, w[i].val);
+		t32_awbc_stats.tgain_updates++;
+		t32_awbc_stats.writes += n;
+	}
+	mutex_unlock(&awbc_lock);
 }
 
 /*

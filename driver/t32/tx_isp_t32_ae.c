@@ -17,8 +17,10 @@
  * once per change after the frame; +212 the frame rate.  Event 4 (the long
  * total gain, log2 Q16) is kept for the per-frame block refresh
  * (t32_long_tgain_update in tx_isp_t32_tisp.c), which used the fixed
- * tisp_tgain before.  Events 5 / 6 (again / ev for WDR / defog) are counted,
- * not used yet.
+ * tisp_tgain before; on a change it also goes to the AWB (tisp_awb_tgain_update,
+ * t32_awbc_tgain).  Event 6 (the long EV) runs tisp_long_ev_update
+ * (t32_ctup_ev: AWB, CCM, BCSH; gamma / defog / TMO / WDR not wired); event 5
+ * (again) is not wired yet.
  *
  * The vendor runs the interrupt part in the IRQ and the process in its event
  * thread; here both run in one work item (the sensor calls sleep on I2C).
@@ -45,6 +47,7 @@ static bool aec_ready;
 static u32 aec_it, aec_ag, aec_sent;
 static u32 aec_tgain;
 static bool aec_tgain_valid;
+static u32 aec_last_tg;		/* vendor tisp_long_tgain_update's last low gain word */
 static u8 aec_wsel[2];			/* vendor e1570[ch]: the two AE weight selectors */
 static unsigned int aec_api_busy;	/* tuning API calls on the blocks (t32_aec_api_get .. _put) */
 static DECLARE_WAIT_QUEUE_HEAD(aec_api_wq);
@@ -74,13 +77,25 @@ static u32 drv_sensor(u32 off, u32 arg, u8 *info)
 	return 0;
 }
 
+/*
+ * The AE events as the vendor's event thread dispatches them (handler words:
+ * 64-bit value = ev[4] | ev[5] << 32, then ev[6], ev[7]): event 6 ->
+ * tisp_long_ev_update (t32_ctup_ev); event 4 -> tisp_long_tgain_update, whose
+ * AWB part runs when the low gain word changed or the high one is set.
+ */
 static void drv_event(u32 ch, const u32 *ev)
 {
 	(void)ch;
 	t32_aec_stats.events++;
+	if (ev[2] == 6)		/* tisp_long_ev_update: AWB / CCM / BCSH (tx_isp_t32_ctup.c) */
+		t32_ctup_ev(ev[4], ev[5], ev[6], ev[7]);
 	if (ev[2] == 4) {
 		aec_tgain = ev[4];
 		aec_tgain_valid = true;
+		if (ev[4] != aec_last_tg || ev[5]) {
+			aec_last_tg = ev[4];
+			t32_awbc_tgain(ev[4]);	/* tisp_awb_tgain_update */
+		}
 	}
 }
 
@@ -161,6 +176,7 @@ int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones)
 	aec_wsel[0] = aec_wsel[1] = 0;
 	aec_sent = ~0U;
 	aec_tgain_valid = false;
+	aec_last_tg = 0;
 	memset(&t32_aec_stats, 0, sizeof(t32_aec_stats));
 	if (!zones || !aec.hist || !aec.comp || !aec.lum)
 		ret = -ENOMEM;

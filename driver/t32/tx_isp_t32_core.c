@@ -308,10 +308,13 @@ static int t32_sensor_stream(struct t32_vi *vi, int on)
 			ret = init(vi->sd, &arg);
 		if (!ret && stream)
 			ret = stream(vi->sd, &arg);
-		if (!ret)
+		if (!ret) {
+			t32_ivdc_stream(1);
 			t32_hw_stream_on();
+		}
 	} else {
 		t32_hw_stream_off();
+		t32_ivdc_stream(0);
 		if (stream)
 			ret = stream(vi->sd, &arg);
 		if (init)
@@ -899,12 +902,7 @@ static struct miscdevice t32_m0_misc = {
 
 static long t32_ivdc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	u32 v = 0;
-
-	if (cmd == T32_IOC_IVDC_GET_DIRECT)
-		return copy_to_user((void __user *)arg, &v, sizeof(v)) ? -EFAULT : 0;
-	isp_printf(1, "tx-isp-t32: misc-ivdc ioctl %#x not handled\n", cmd);
-	return -ENOTTY;
+	return t32_ivdc_misc_ioctl(cmd, arg);	/* tx_isp_t32_ivdcdrv.c (#349) */
 }
 
 static const struct file_operations t32_ivdc_fops = {
@@ -956,12 +954,16 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_aec_stats.frames, t32_aec_stats.events, t32_aec_stats.writes, t32_aec_stats.expo_sets,
 		   t32_aec_stats.fps_sets, t32_aec_stats.mean, t32_aec_stats.target, t32_aec_stats.it,
 		   t32_aec_stats.again, t32_aec_stats.dgain, t32_aec_stats.tgain);
-	seq_printf(m, "vendor AWB: frames %u writes %u refused %u; ct %u gain r %u b %u\n",
+	seq_printf(m, "vendor AWB: frames %u writes %u refused %u; ct %u gain r %u b %u; ev %u tgain %u updates\n",
 		   t32_awbc_stats.frames, t32_awbc_stats.writes, t32_awbc_stats.refused, t32_awbc_stats.ct,
-		   t32_awbc_stats.gain_r, t32_awbc_stats.gain_b);
+		   t32_awbc_stats.gain_r, t32_awbc_stats.gain_b, t32_awbc_stats.ev_updates,
+		   t32_awbc_stats.tgain_updates);
+	seq_printf(m, "ct fan-out (CCM, BCSH, CLM): runs %u writes %u last ct %u; ev fan-out runs %u\n",
+		   t32_ctup_stats.runs, t32_ctup_stats.writes, t32_ctup_stats.ct, t32_ctup_stats.ev_runs);
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
 	t32_fs_show(m);
+	t32_ivdc_show(m);
 	return 0;
 }
 
@@ -1060,6 +1062,11 @@ int tx_isp_t32_core_init(void)
 	ret = t32_hw_init();
 	if (ret)
 		goto err_hw;
+	ret = t32_ivdc_init();
+	if (ret) {
+		t32_hw_exit();
+		goto err_hw;
+	}
 	core.proc = jz_proc_mkdir("isp");
 	if (core.proc) {
 		proc_create("isp-m0", 0444, core.proc, &t32_proc_fops);
@@ -1098,6 +1105,7 @@ void tx_isp_t32_core_exit(void)
 		remove_proc_entry("isp-w02", core.proc);
 		proc_remove(core.proc);
 	}
+	t32_ivdc_exit();
 	t32_hw_exit();
 	t32_fs_exit();
 	misc_deregister(&t32_ivdc_misc);

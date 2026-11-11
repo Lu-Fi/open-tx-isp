@@ -87,12 +87,28 @@ const u8 *t32_hw_ae_zones(void);
 struct t32_awbc_drv_stats {
 	u32 frames, writes, refused;
 	u32 ct, gain_r, gain_b;		/* the last frame */
+	u32 ev_updates, tgain_updates;	/* AE inputs (events 6 / 4) */
 };
 extern struct t32_awbc_drv_stats t32_awbc_stats;
 int t32_awbc_attach(const u8 *sec, u32 width, u32 height, const u8 *bufs);
 void t32_awbc_detach(void);
 void t32_awbc_kick(void);
 bool t32_awbc_ct(u32 *ct);
+void t32_awbc_ev(u32 ev);
+void t32_awbc_tgain(u32 gain);
+
+/* tx_isp_t32_ctup.c: the colour temperature fan-out (tisp_ct_update) after each AWB frame, behind T32_PP_CT */
+#define T32_CTUP_MAX_WRITES	1024	/* the CLM LUT: 2 x 422 + 2 */
+struct t32_ctup_drv_stats {
+	u32 runs, writes, ct, ev_runs;
+};
+extern struct t32_ctup_drv_stats t32_ctup_stats;
+int t32_ctup_attach_ccm(const u8 *sec, u32 len, u32 avail);
+int t32_ctup_attach_bcsh(const u8 *sec, u32 len, u32 avail, const u8 *csc);
+int t32_ctup_attach_clm(const u8 *sec, u32 len, u32 avail);
+void t32_ctup_detach(void);
+void t32_ctup_ev(u32 lo, u32 hi, u32 x, u32 y);
+void t32_ctup_run(u32 ct);
 struct t32_awb_ctx;
 bool t32_awbc_api_get(struct t32_awb_ctx *c);
 void t32_awbc_api_put(void);
@@ -100,8 +116,8 @@ void t32_awbc_api_set_gain(void);
 
 /* tx_isp_t32_tisp.c: per-frame tisp paths (ported blocks), switch t32_ported_paths */
 enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T32_PP_MDNS, T32_PP_DPC, T32_PP_GIB,
-	     T32_PP_RDNS, T32_PP_AE, T32_PP_LSC, T32_PP_LCE, T32_PP_TMO, T32_PP_AWB,
-	     T32_PP_AF = 16, T32_PP_GSM, T32_PP_COUNT };	/* 14 / 15: CT / EV (claude/t32-ct) */
+	     T32_PP_RDNS, T32_PP_AE, T32_PP_LSC, T32_PP_LCE, T32_PP_TMO, T32_PP_AWB, T32_PP_CT, T32_PP_EV,
+	     T32_PP_AF, T32_PP_GSM, T32_PP_COUNT };
 struct t32_pf_stats {
 	u32 runs, writes;
 };
@@ -174,6 +190,18 @@ void t32_fs_exit(void);
 void t32_fs_stop_all(void);
 void t32_fs_done_irq(u32 done);
 void t32_fs_show(struct seq_file *m);
+int t32_fs_ivdc_frame(u32 ch);
+
+/* tx_isp_t32_ivdcdrv.c: IVDC direct mode (#349) */
+int t32_ivdc_init(void);
+void t32_ivdc_exit(void);
+int t32_ivdc_direct(int ch);
+long t32_ivdc_misc_ioctl(unsigned int cmd, unsigned long arg);
+void t32_ivdc_stream(int on);
+int t32_ivdc_set_fmt(u8 *fmt);
+int t32_ivdc_reqbufs(u32 count);
+int t32_ivdc_fs_stream(int on);
+void t32_ivdc_show(struct seq_file *m);
 
 /* tx_isp_t32_sinfo.c (shared registry, driver/common/tx_isp_sinfo.c) */
 int tx_isp_sinfo_init(void);

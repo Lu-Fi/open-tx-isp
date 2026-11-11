@@ -29,10 +29,9 @@
  *  - Before the per-frame AE / AWB is attached (stream-on) or with its
  *    t32_ported_paths bit off, the block calls have no state: getters answer
  *    zeroed blocks, setters are dropped (the AE scene block is kept as set).
- *    Note: tx_isp_t32_tisp.c t32_tisp_init (t32_pf_reset) frees the AE
- *    context that t32_stats_init built just before, so after a stream-on the
- *    AE ids take this path; keeping the context lets the per-frame AE run
- *    and the full QEMU tuning run then oopses (open, see CHANGELOG).
+ *    The AE context built at stream-on stays attached (t32_pf_reset runs
+ *    before t32_stats_init, openimp #350), so after a stream-on the AE ids
+ *    work on the live blocks.
  *  - The AF part of the statistics config is the live AF block's window
  *    attribute (tisp_af_api_get_attr / _set_attr) and its GSM zone bounds go
  *    to the live GSM block (tisp_gsm_api_set), tx_isp_t32_afgsm.c; before
@@ -359,12 +358,22 @@ static int tb_ae_get_face_tune(u32 ch, void *o1, void *o2, void *o3)
 	return 0;
 }
 
+/*
+ * openimp #350 (beyond vendor, user-approved 2026-11-11): the third word
+ * (R + 1540) is the length of the AE smoothing window at R + 1300 (20 words
+ * before R + 1380; default 15). The vendor bounds it nowhere; a value above
+ * 221 makes the next AE frame (tx_isp_t32_aefu.h, nR) write past the 2184 B
+ * state block (kernel oops). t32_aea_set_face_ae_tune_params refuses > 20
+ * with -EINVAL; 0..20 behave like the vendor (0 -> 1, return 0).
+ */
 static int tb_ae_set_face_tune(u32 ch, const void *p0, const void *p1, const void *p2)
 {
+	int rc;
+
 	TB_AE(c, return 0)
-	t32_aea_set_face_ae_tune_params(&c, p0, p1, (u32 *)p2, tb_warn, NULL);	/* the vendor writes 1 back */
+	rc = t32_aea_set_face_ae_tune_params(&c, p0, p1, (u32 *)p2, tb_warn, NULL);	/* the vendor writes 1 back */
 	t32_aec_api_put();
-	return 0;
+	return rc;
 }
 
 static int tb_ae_set_hist_bin(u32 ch, const u8 *bins)
