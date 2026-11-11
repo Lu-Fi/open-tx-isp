@@ -1,0 +1,1131 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * T32 block glue, remaining functions (one block per vendor group).
+ *
+ * - tisp_awb_deinit: free the per channel AWB buffers.
+ * - tisp_vic_mdma_enable: VIC memory DMA size, strides, buffer addresses, enable.
+ * - tisp_ae_algo_init: fill the AE algorithm init block from tuning / parameters.
+ * - tisp_ae_ai_interrupt_static: AE statistics latch, window area, ROI point.
+ * - tisp_ae_par_update_trig: AE parameter refresh from tuning / sensor attributes.
+ * - tisp_lce_par: per-frame LCE calculation (locked statistics copy, soft path, curve).
+ * - tisp_lce_interrupt_static: LCE statistics bank, histogram rearm, curve roll.
+ * - tisp_api_param_array_get: ISP API parameter read by id.
+ * - tisp_day_or_night_par_refresh: day / night refresh of every block, waiter wake-up.
+ * - tisp_day_or_night_s_ctrl: day / night switch (tuning bin, register pair, refresh).
+ * - tisp_long_ev_update: long-frame EV to the blocks (forced / on change, bypass bits).
+ * - tisp_lce_wake_up: LCE buffer addresses and geometry after a wake-up.
+ * - tisp_long_tgain_update: long-frame total gain to the blocks (forced / on change, bypass bits).
+ * - tisp_api_param_array_set: ISP API parameter write by id (copy in, then the block setter).
+ *
+ * OS calls are hooks.  Pointers the vendor keeps in its tables are 32-bit
+ * words (MIPS32 kernel), read and cleared in place.
+ * Checked against Matt Davis' recovered C (PR #15 @ 2e2e06bc) by
+ * tests/t32_oracle (one oracle per block, named at each block).
+ */
+#ifndef TX_ISP_T32_BLKREST_H
+#define TX_ISP_T32_BLKREST_H
+
+#ifdef __KERNEL__
+#include <linux/types.h>
+#include <linux/string.h>
+#else
+#include <stdint.h>
+#include <string.h>
+#ifndef T32_HOST_U32
+#define T32_HOST_U32
+typedef uint32_t u32;
+#endif
+#ifndef T32_HOST_U8
+#define T32_HOST_U8
+typedef uint8_t u8;
+#endif
+#ifndef T32_HOST_U16
+#define T32_HOST_U16
+typedef uint16_t u16;
+#endif
+#endif
+
+static inline u8 *t32_br_ptr(u32 addr) { return (u8 *)(uintptr_t)addr; }
+static inline u32 t32_br_rd32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
+static inline void t32_br_wr32(u8 *p, u32 v) { memcpy(p, &v, 4); }
+static inline u16 t32_br_rd16(const u8 *p) { u16 v; memcpy(&v, p, 2); return v; }
+
+/* ---- tisp_awb_deinit (vendor 0x3b89c), oracle t32_awbdein_oracle ---- */
+
+/* t32_data_e16b4[ch]: AWB work block (kmalloc) */
+#define T32_AWBD_WK_BUF1	4	/* kmalloc */
+#define T32_AWBD_WK_BUF2	8	/* kmalloc */
+#define T32_AWBD_WK_BUF3	12	/* kmalloc */
+#define T32_AWBD_WK_VBUF	28	/* vmalloc */
+/* t32_data_e1694[ch]: AWB state (vmalloc) */
+#define T32_AWBD_ST_BUF		4	/* kmalloc */
+
+struct t32_awbd_ops {
+	void (*kfree)(void *p);
+	void (*vfree)(void *p);
+};
+
+struct t32_awbd {
+	const struct t32_awbd_ops *ops;
+	u32 *zone;	/* t32_data_e16a4[4]: zone buffer (kmalloc) */
+	u32 *work;	/* t32_data_e16b4[4] */
+	u32 *state;	/* t32_data_e1694[4] */
+};
+
+/* free *slot through fn when it is set, then clear it */
+static inline void t32_awbd_free(u8 *slot, void (*fn)(void *p))
+{
+	u32 p = t32_br_rd32(slot);
+
+	if (p) {
+		fn(t32_br_ptr(p));
+		t32_br_wr32(slot, 0);
+	}
+}
+
+/* tisp_awb_deinit: always 0 */
+static inline int t32_awb_deinit(struct t32_awbd *a, u32 ch)
+{
+	if (a->zone[ch]) {
+		a->ops->kfree(t32_br_ptr(a->zone[ch]));
+		a->zone[ch] = 0;
+	}
+	if (a->work[ch]) {
+		u8 *w = t32_br_ptr(a->work[ch]);
+
+		t32_awbd_free(w + T32_AWBD_WK_VBUF, a->ops->vfree);
+		t32_awbd_free(w + T32_AWBD_WK_BUF1, a->ops->kfree);
+		t32_awbd_free(w + T32_AWBD_WK_BUF2, a->ops->kfree);
+		t32_awbd_free(w + T32_AWBD_WK_BUF3, a->ops->kfree);
+		a->ops->kfree(w);
+		a->work[ch] = 0;
+	}
+	if (a->state[ch]) {
+		u8 *s = t32_br_ptr(a->state[ch]);
+
+		t32_awbd_free(s + T32_AWBD_ST_BUF, a->ops->kfree);
+		a->ops->vfree(s);
+		a->state[ch] = 0;
+	}
+	return 0;
+}
+
+/* ---- tisp_vic_mdma_enable (vendor 0xacde0), oracle t32_vicmdma_oracle ---- */
+
+#define T32_VMD_BASE(vi)	(((vi) + 128) << 12)	/* VIC n register page */
+#define T32_VMD_CTRL		768
+#define T32_VMD_SIZE		772	/* width << 16 | height */
+#define T32_VMD_STRIDE0		784
+#define T32_VMD_STRIDE1		788
+#define T32_VMD_ADDR_Y		800	/* + 4 per buffer (vendor writes only +0) */
+#define T32_VMD_ADDR_UV		816
+#define T32_VMD_ADDR_RAW	832
+#define T32_VMD_MAX_BUFS	4
+#define T32_VMD_CTRL_EN		0x80010000u
+#define T32_VMD_CTRL_MODE0	0x80010001u
+#define T32_VMD_CTRL_MODE2	0x80010008u
+
+struct t32_vmd_sensor {		/* argument a0 */
+	u32 mode;		/* +0: 0, 1 (no enable write), 2, other */
+	u8 rsvd[2];
+	u8 vic;			/* +6 */
+};
+
+struct t32_vmd_dim {		/* t32_data_e3f00[vic]: 16 B per VIC */
+	u32 width, height;
+	u32 rsvd[2];
+};
+
+struct t32_vmd_fmt {		/* t32_data_e3f34 */
+	u32 rsvd0;
+	u8 out;			/* +4: 1 = YUV output */
+	u8 rsvd1[3];
+	u8 planes;		/* +8: 1 = UV plane only, 2 = Y + UV (NV12) */
+};
+
+/*
+ * tisp_vic_mdma_enable: program the VIC memory DMA for n (<= 4) buffers at
+ * base, each width x height x stride bytes (NV12: twice that, Y then UV).
+ * Mode 1 returns 1 without the enable write; the other modes end with the
+ * enable write and return its result (0).
+ */
+static inline u32 t32_vic_mdma_enable(const struct t32_vmd_sensor *sen, u32 stride, u32 n, u32 base,
+				      const struct t32_vmd_dim *dim, const struct t32_vmd_fmt *fmt,
+				      void (*reg_write)(u32 reg, u32 val))
+{
+	const struct t32_vmd_dim *d = &dim[sen->vic];
+	u32 page = T32_VMD_BASE(sen->vic), frame = d->height * stride;
+	u8 i;
+
+	reg_write(page + T32_VMD_SIZE, d->width << 16 | d->height);
+	reg_write(page + T32_VMD_STRIDE0, stride);
+	reg_write(page + T32_VMD_STRIDE1, stride);
+	if (n > T32_VMD_MAX_BUFS)
+		n = T32_VMD_MAX_BUFS;
+	for (i = 0; i < n; i++) {
+		if (fmt->out != 1) {
+			reg_write(page + T32_VMD_ADDR_Y, frame * i + base);
+			reg_write(page + T32_VMD_ADDR_RAW, frame * i + base);
+		} else if (fmt->planes == 2) {
+			reg_write(page + T32_VMD_ADDR_Y, i * (frame * 2) + base);
+			reg_write(page + T32_VMD_ADDR_UV, (2 * i + 1) * frame + base);
+		} else if (fmt->planes == 1) {
+			reg_write(page + T32_VMD_ADDR_UV, frame * i + base);
+		} else {
+			reg_write(page + T32_VMD_ADDR_Y, frame * i + base);
+		}
+	}
+	switch (sen->mode) {
+	case 1:
+		return 1;
+	case 0:
+		reg_write(page + T32_VMD_CTRL, T32_VMD_CTRL_MODE0);
+		break;
+	case 2:
+		reg_write(page + T32_VMD_CTRL, T32_VMD_CTRL_MODE2);
+		break;
+	default:
+		reg_write(page + T32_VMD_CTRL, T32_VMD_CTRL_EN);
+		break;
+	}
+	return 0;
+}
+
+/* ---- tisp_ae_algo_init (vendor 0x3597c), oracle t32_aealgo_oracle ---- */
+
+#define T32_AEA_CTX_DONE	2008	/* completion in the AE context */
+#define T32_AEA_TUN_A		8608	/* 4 tuning words -> info +12 */
+#define T32_AEA_TUN_B		8624	/* 4 tuning words -> info +60 */
+#define T32_AEA_PAR_A		448	/* 8 parameter words -> info +28 */
+#define T32_AEA_PAR_B		480	/* 8 parameter words -> info +76 */
+#define T32_AEA_REG_EXP		12376	/* read when tuning +8620 is 0 (shadow index 491) */
+#define T32_AEA_REG_EXP_SH	491
+#define T32_AEA_REG_GAIN	12808	/* read when tuning +8636 is 0 (shadow index 572) */
+#define T32_AEA_REG_GAIN_SH	572
+#define T32_AEA_ZONE_STRIDE	1052	/* t32_data_d0950 per channel */
+#define T32_AEA_ZONE_WORD	1044
+
+struct t32_aea_info {		/* argument a2, the algorithm's init block */
+	u32 rsvd0[2];
+	u32 zero;		/* +8 */
+	u32 tun_a[4];		/* +12: tuning +8608 .. +8620 */
+	u32 par_a[8];		/* +28: parameters +448 .. +476 */
+	u32 tun_b[4];		/* +60: tuning +8624 .. +8636 */
+	u32 par_b[8];		/* +76: parameters +480 .. +508 */
+	u32 rsvd1;		/* +108 */
+	u32 one[3];		/* +112 */
+	u8 w0, w1;		/* +124, +125: 15 */
+	u8 undef[6];		/* +126: vendor stack left-over, 0 here */
+	u8 zone[4];		/* +132: t32_data_d0950[ch] +1044 */
+};
+
+struct t32_aea_ops {
+	void (*init_completion)(void *c);
+	u32 (*reg_read)(u32 ch, u32 reg);
+};
+
+struct t32_aea {
+	const struct t32_aea_ops *ops;
+	u32 *enable;		/* t32_data_e15b8[4] */
+	const u32 *ctx;		/* t32_data_e15a8[4]: AE context, +0 parameter block, +4 tuning block */
+	const u8 *shadow;	/* t32_data_d03a0 */
+	const u8 *zone;		/* t32_data_d0950 */
+};
+
+/* tisp_ae_algo_init: the vendor's result is a left-over register (none here) */
+static inline void t32_ae_algo_init(struct t32_aea *a, u32 ch, u32 enable, struct t32_aea_info *info)
+{
+	u8 *ctx = t32_br_ptr(a->ctx[ch]);
+	const u8 *par, *tun;
+	u32 i;
+
+	a->enable[ch] = enable;
+	if (enable != 1)
+		return;
+	a->ops->init_completion(ctx + T32_AEA_CTX_DONE);
+	par = t32_br_ptr(t32_br_rd32(ctx));
+	tun = t32_br_ptr(t32_br_rd32(ctx + 4));
+	info->zero = 0;
+	for (i = 0; i < 4; i++) {
+		info->tun_a[i] = t32_br_rd32(tun + T32_AEA_TUN_A + 4 * i);
+		info->tun_b[i] = t32_br_rd32(tun + T32_AEA_TUN_B + 4 * i);
+	}
+	for (i = 0; i < 8; i++) {
+		info->par_a[i] = t32_br_rd32(par + T32_AEA_PAR_A + 4 * i);
+		info->par_b[i] = t32_br_rd32(par + T32_AEA_PAR_B + 4 * i);
+	}
+	if (!info->tun_a[3])
+		info->tun_a[3] = a->ops->reg_read(ch, *a->shadow ? T32_AEA_REG_EXP_SH : T32_AEA_REG_EXP);
+	if (!info->tun_b[3])
+		info->tun_b[3] = a->ops->reg_read(ch, *a->shadow ? T32_AEA_REG_GAIN_SH : T32_AEA_REG_GAIN);
+	info->one[0] = info->one[1] = info->one[2] = 1;
+	info->w0 = info->w1 = 15;
+	memset(info->undef, 0, sizeof(info->undef));
+	memcpy(info->zone, a->zone + T32_AEA_ZONE_STRIDE * ch + T32_AEA_ZONE_WORD, 4);
+}
+
+/* ---- tisp_ae_ai_interrupt_static (vendor 0x30df0), oracle t32_aeirq_oracle ---- */
+
+#define T32_AEI_R_STAT0		0x1709c	/* 3 statistics words, compared with tuning +7448 */
+#define T32_AEI_R_STAT3		0x170a8	/* 3 more words, stored at tuning +7460 */
+#define T32_AEI_R_WIN_X		0x17090	/* window start (lo) / end (hi) */
+#define T32_AEI_R_WIN_Y		0x17094
+#define T32_AEI_TUN_LAST	7448	/* last 3 statistics words */
+#define T32_AEI_TUN_NEXT	7460
+#define T32_AEI_PAR_AREA	1288	/* window area / 4 */
+#define T32_AEI_PAR_ROI		1500	/* 4 u16 roi words, 4 bytes apart */
+
+struct t32_aeirq_ops {
+	u32 (*reg_read)(u32 reg);
+	void (*roi_point)(u32 ch, u32 r0, u32 r1, u32 r2, u32 r3);	/* tisp_ae_roi_point */
+};
+
+struct t32_aeirq {
+	const struct t32_aeirq_ops *ops;
+	const u32 *par;		/* t32_data_e1588[4]: AE parameter block */
+	const u32 *ctx;		/* t32_data_e15a8[4]: AE context, +4 tuning block */
+};
+
+static inline u8 *t32_aeirq_tun(const struct t32_aeirq *a, u32 ch)
+{
+	return t32_br_ptr(t32_br_rd32(t32_br_ptr(a->ctx[ch]) + 4));
+}
+
+/*
+ * tisp_ae_ai_interrupt_static: latch the 6 statistics words; when the first
+ * three changed, store them and redo the window area (each window register
+ * is read twice, as in the vendor); then the ROI point.  Always 1.
+ */
+static inline int t32_ae_ai_interrupt_static(struct t32_aeirq *a, u32 ch)
+{
+	u8 *par = t32_br_ptr(a->par[ch]), *tun;
+	u32 st[3], i, xs, xe, ys, ye;
+
+	for (i = 0; i < 3; i++)
+		st[i] = a->ops->reg_read(T32_AEI_R_STAT0 + 4 * i);
+	for (i = 0; i < 3; i++) {
+		u32 v = a->ops->reg_read(T32_AEI_R_STAT3 + 4 * i);
+
+		t32_br_wr32(t32_aeirq_tun(a, ch) + T32_AEI_TUN_NEXT + 4 * i, v);
+	}
+	tun = t32_aeirq_tun(a, ch);
+	if (st[0] != t32_br_rd32(tun + T32_AEI_TUN_LAST) || st[1] != t32_br_rd32(tun + T32_AEI_TUN_LAST + 4) ||
+	    st[2] != t32_br_rd32(tun + T32_AEI_TUN_LAST + 8)) {
+		for (i = 0; i < 3; i++)
+			t32_br_wr32(tun + T32_AEI_TUN_LAST + 4 * i, st[i]);
+		xs = a->ops->reg_read(T32_AEI_R_WIN_X) & 0xffff;
+		xe = a->ops->reg_read(T32_AEI_R_WIN_X) >> 16;
+		ys = a->ops->reg_read(T32_AEI_R_WIN_Y) & 0xffff;
+		ye = a->ops->reg_read(T32_AEI_R_WIN_Y) >> 16;
+		t32_br_wr32(par + T32_AEI_PAR_AREA, (xe - xs) * (ye - ys) >> 2);
+	}
+	par = t32_br_ptr(a->par[ch]);
+	a->ops->roi_point(ch & 0xff, t32_br_rd16(par + T32_AEI_PAR_ROI),
+			  t32_br_rd16(par + T32_AEI_PAR_ROI + 4),
+			  t32_br_rd16(par + T32_AEI_PAR_ROI + 8),
+			  t32_br_rd16(par + T32_AEI_PAR_ROI + 12));
+	return 1;
+}
+
+/* ---- tisp_ae_par_update_trig (vendor 0x30a8c), oracle t32_aeupd_oracle ---- */
+
+#define T32_AEU_TUN_SRC		12833	/* 9 bytes tuning -> parameter +1276 */
+#define T32_AEU_PAR_DST		1276
+#define T32_AEU_COPY		9
+#define T32_AEU_CTX_WDR		8	/* AE context word: 1 = WDR (short frame too) */
+#define T32_AEU_BLK_SRC		908	/* 256 bytes of the context's first block -> parameter +928 */
+#define T32_AEU_PAR_SHORT	928
+#define T32_AEU_SHORT_COPY	256
+#define T32_AEU_SENSOR_STRIDE	232	/* t32_data_dd2d4: sensor attributes per channel, passed by value */
+
+struct t32_aeu_ops {
+	void (*sensor_update)(u32 ch, const u8 *attr);		/* tisp_ae_sensor_par_ctrls_update */
+	void (*short_sensor_update)(u32 ch, const u8 *attr);	/* tisp_ae_short_sensor_par_ctrls_update */
+	void (*par_calc)(u32 ch);				/* tisp_ae_par_calc */
+	void (*deflicker_cfg)(u32 ch);				/* tisp_ae_clac_deflicker_cfg */
+	u32 (*set_sensor_fps)(u32 ch);				/* tisp_set_ae_sensor_fps */
+};
+
+struct t32_aeu {
+	const struct t32_aeu_ops *ops;
+	const u32 *ctx;		/* t32_data_e15a8[4]: +0 block, +4 tuning block, +8 WDR word */
+	const u32 *par;		/* t32_data_e1588[4]: AE parameter block */
+	const u8 *sensor;	/* t32_data_dd2d4 */
+	const u8 *shadow;	/* t32_data_d03a0 */
+};
+
+/*
+ * tisp_ae_par_update_trig: refresh the AE parameters from the tuning and
+ * sensor attributes, recalculate, then (direct register mode only) the
+ * sensor fps.  Returns the fps result, or in shadow mode the shadow byte
+ * (vendor left-over register).
+ */
+static inline u32 t32_ae_par_update_trig(struct t32_aeu *a, u32 ch)
+{
+	const u8 *ctx = t32_br_ptr(a->ctx[ch]);
+	const u8 *attr = a->sensor + T32_AEU_SENSOR_STRIDE * ch;
+	u8 shadow;
+
+	memcpy(t32_br_ptr(a->par[ch]) + T32_AEU_PAR_DST, t32_br_ptr(t32_br_rd32(ctx + 4)) + T32_AEU_TUN_SRC,
+	       T32_AEU_COPY);
+	a->ops->sensor_update(ch & 0xff, attr);
+	ctx = t32_br_ptr(a->ctx[ch]);
+	if (t32_br_rd32(ctx + T32_AEU_CTX_WDR) == 1) {
+		memcpy(t32_br_ptr(a->par[ch]) + T32_AEU_PAR_SHORT, t32_br_ptr(t32_br_rd32(ctx)) + T32_AEU_BLK_SRC,
+		       T32_AEU_SHORT_COPY);
+		a->ops->short_sensor_update(ch & 0xff, attr);
+	}
+	a->ops->par_calc(ch);
+	a->ops->deflicker_cfg(ch);
+	shadow = *a->shadow;
+	if (shadow)
+		return shadow;
+	return a->ops->set_sensor_fps(ch & 0xff);
+}
+
+/* ---- tisp_lce_par (vendor 0x5709c), oracle t32_lcepar_oracle ---- */
+
+/* t32_data_e1da8[ch]: LCE state (offsets as in tx_isp_t32_lcem.h) */
+#define T32_LCP_IN		164	/* statistics written by the interrupt */
+#define T32_LCP_IN_LEN		0x9000
+#define T32_LCP_IN2		0x90a4	/* directly after: 2304 bytes more */
+#define T32_LCP_IN2_LEN		2304
+#define T32_LCP_WORK		0x99a4	/* work copy of both parts */
+#define T32_LCP_WORK2		0x129a4
+#define T32_LCP_PARAMS		0x226cc	/* LCE parameters */
+#define T32_LCP_SEL		0x22737	/* u8: 0 = v4 path, else T41 path */
+#define T32_LCP_UPDATE		0x22830	/* u8 flag handed to the soft path, cleared after */
+#define T32_LCP_COUNT		0x22834	/* frame counter, wraps to 15 at 1 << 29 */
+#define T32_LCP_LOCK		0x2284d
+#define T32_LCP_COUNT_WRAP	0x20000000u
+#define T32_LCP_COUNT_RESTART	15
+
+struct t32_lcep_ops {
+	u32 (*lock)(void *lock);			/* __private_spin_lock_irqsave, returns flags */
+	void (*unlock)(void *lock, u32 flags);		/* private_spin_unlock_irqrestore */
+	void (*mxu_begin)(u32 zero);			/* kernel_mxu_begin_partial */
+	void (*mxu_end)(void);				/* kernel_mxu_end */
+	void (*soft_v4)(u32 ch, u8 *params, u8 *work, u32 update);	/* Tisp_lce_soft_simd_v4 */
+	void (*soft_t41)(u32 ch, u8 *params, u8 *work, u32 update);	/* Tisp_lce_soft_t41_simd */
+	void (*write_curve)(u32 ch);			/* tisp_lce_write_curve */
+};
+
+/* tisp_lce_par: per-frame LCE calculation on a locked copy of the statistics; always 0 */
+static inline int t32_lce_par(const struct t32_lcep_ops *ops, const u32 *lce_st, u32 ch)
+{
+	u8 *st = t32_br_ptr(lce_st[ch]);
+	u32 flags, n;
+
+	flags = ops->lock(st + T32_LCP_LOCK);
+	memcpy(st + T32_LCP_WORK, st + T32_LCP_IN, T32_LCP_IN_LEN);
+	memcpy(st + T32_LCP_WORK2, st + T32_LCP_IN2, T32_LCP_IN2_LEN);
+	ops->unlock(st + T32_LCP_LOCK, flags);
+	ops->mxu_begin(0);
+	if (!st[T32_LCP_SEL])
+		ops->soft_v4(ch, st + T32_LCP_PARAMS, st + T32_LCP_WORK, st[T32_LCP_UPDATE]);
+	else
+		ops->soft_t41(ch, st + T32_LCP_PARAMS, st + T32_LCP_WORK, st[T32_LCP_UPDATE]);
+	ops->mxu_end();
+	st = t32_br_ptr(lce_st[ch]);
+	st[T32_LCP_UPDATE] = 0;
+	ops->write_curve(ch);
+	n = t32_br_rd32(st + T32_LCP_COUNT) + 1;
+	t32_br_wr32(st + T32_LCP_COUNT, n < T32_LCP_COUNT_WRAP ? n : T32_LCP_COUNT_RESTART);
+	return 0;
+}
+
+/* ---- tisp_lce_interrupt_static (vendor 0x583fc), oracle t32_lceirq_oracle ---- */
+
+#define T32_LCI_R_BANK		0xc088	/* low 2 bits: statistics bank the hardware filled */
+#define T32_LCI_BANK_LEN	0x9900
+#define T32_LCI_HIST_LEN	0x9000
+#define T32_LCI_CURVE_LEN	11520	/* curve buffer: next half copied over the first */
+/* register (direct) / shadow index pairs */
+#define T32_LCI_R_STAT_ADDR	0x2504c
+#define T32_LCI_S_STAT_ADDR	2025
+#define T32_LCI_R_HIST_ADDR	0x25050
+#define T32_LCI_S_HIST_ADDR	2026
+#define T32_LCI_R_CLR		0x25048
+#define T32_LCI_S_CLR		2024
+#define T32_LCI_R_START		0x25040
+#define T32_LCI_S_START		2022
+#define T32_LCI_R_CURVE_ADDR	0xc0a4
+#define T32_LCI_S_CURVE_ADDR	2020
+
+struct t32_lci_buf {		/* t32_data_e1db8[ch], 36 B */
+	u32 rsvd[3];
+	u32 curve;		/* +12: curve buffer (virtual) */
+	u32 stat;		/* +16: statistics banks (virtual) */
+	u32 hist;		/* +20: histogram buffer (virtual) */
+	u32 curve_phys;		/* +24 */
+	u32 stat_phys;		/* +28 */
+	u32 hist_phys;		/* +32 */
+};
+
+struct t32_lci_ops {
+	u32 (*reg_read)(u32 reg);				/* system_reg_read */
+	void (*reg_write)(u32 ch, u32 reg, u32 val);		/* tisp_reg_write */
+	void (*cache_sync)(void *p, u32 len);			/* private_dma_cache_sync(0, p, len, 0) */
+	void (*get_sum_data)(u32 ch, u8 *stat);			/* tisp_lce_get_sum_data */
+};
+
+struct t32_lci {
+	const struct t32_lci_ops *ops;
+	const struct t32_lci_buf *buf;	/* t32_data_e1db8 */
+	const u8 *shadow;		/* t32_data_d03a0 */
+	u32 *bank;			/* t32_data_e1d7c */
+	u8 *last_ch;			/* t32_data_e1d78 */
+};
+
+static inline void t32_lci_wr(struct t32_lci *l, u32 ch, u32 reg, u32 sidx, u32 val)
+{
+	l->ops->reg_write(ch, *l->shadow ? sidx : reg, val);
+}
+
+/*
+ * tisp_lce_interrupt_static: take the filled statistics bank, summarise it,
+ * point the hardware at it again, rearm the histogram, roll the curve
+ * buffer and hand its address to the hardware.  Always 1.
+ */
+static inline int t32_lce_interrupt_static(struct t32_lci *l, u32 ch)
+{
+	const struct t32_lci_buf *b = &l->buf[ch];
+	u32 off, bank = l->ops->reg_read(T32_LCI_R_BANK) & 3;
+	u8 *stat;
+
+	*l->bank = bank;
+	off = bank * T32_LCI_BANK_LEN;
+	stat = t32_br_ptr(b->stat + off);
+	l->ops->cache_sync(stat, T32_LCI_BANK_LEN);
+	l->ops->get_sum_data(ch, stat);
+	l->ops->cache_sync(stat, T32_LCI_BANK_LEN);
+	t32_lci_wr(l, ch, T32_LCI_R_STAT_ADDR, T32_LCI_S_STAT_ADDR, off + b->stat_phys);
+	l->ops->cache_sync(t32_br_ptr(b->hist), T32_LCI_HIST_LEN);
+	t32_lci_wr(l, ch, T32_LCI_R_HIST_ADDR, T32_LCI_S_HIST_ADDR, b->hist_phys);
+	t32_lci_wr(l, ch, T32_LCI_R_CLR, T32_LCI_S_CLR, 0);
+	t32_lci_wr(l, ch, T32_LCI_R_START, T32_LCI_S_START, 1);
+	memcpy(t32_br_ptr(b->curve), t32_br_ptr(b->curve) + T32_LCI_CURVE_LEN, T32_LCI_CURVE_LEN);
+	l->ops->cache_sync(t32_br_ptr(b->curve), T32_LCI_CURVE_LEN);
+	t32_lci_wr(l, ch, T32_LCI_R_CURVE_ADDR, T32_LCI_S_CURVE_ADDR, b->curve_phys);
+	*l->last_ch = ch;
+	return 1;
+}
+
+/* ---- tisp_api_param_array_get (vendor 0xb2a54), oracle t32_apiget_oracle ---- */
+
+enum t32_api_par_id {		/* jump table t32_data_c2f00, 17 entries */
+	T32_API_MASK_ATTR = 0,	/* 32 B per channel, t32_data_f3258 */
+	T32_API_PIPE_EN = 1,	/* channel state (t32_data_dc284, 904 B) byte +37, as a u32 */
+	T32_API_MASK_OUT = 2,	/* 24 B via tisp_msca_api_get_mask_out_cfg */
+	T32_API_MSCA_PAR3 = 3,	/* 3 .. 6 and 8: the 2636 B MSCA parameters */
+	T32_API_FCROP = 7,	/* 20 B via tisp_g_fcrop_control */
+	T32_API_AUTOZOOM = 9,	/* 60 B via tisp_msca_api_get_autozoom */
+	T32_API_BRIGHT = 10,	/* 1 B via tisp_bcsh_api_get_brightness */
+	T32_API_ZERO11 = 11,	/* 11 .. 16: one 0 byte */
+	T32_API_IDS = 17,
+};
+
+#define T32_API_MASK_ATTR_LEN	32
+#define T32_API_PIPE_STRIDE	904
+#define T32_API_PIPE_BYTE	37
+#define T32_API_MASK_OUT_LEN	24
+#define T32_API_MSCA_PAR_LEN	2636
+#define T32_API_FCROP_LEN	20
+#define T32_API_AUTOZOOM_LEN	60
+
+struct t32_apig_ops {
+	void (*mask_out_cfg)(u32 ch, u8 *cfg);		/* tisp_msca_api_get_mask_out_cfg */
+	void (*fcrop)(u32 ch, u8 *buf);			/* tisp_g_fcrop_control */
+	void (*msca_par)(u32 ch, u8 *par);		/* tisp_msca_api_get_par */
+	void (*brightness)(u32 ch, u8 *b);		/* tisp_bcsh_api_get_brightness */
+	void (*autozoom)(u32 ch, u8 *buf);		/* tisp_msca_api_get_autozoom */
+};
+
+struct t32_apig {
+	const struct t32_apig_ops *ops;
+	const u8 *mask_attr;	/* t32_data_f3258 */
+	const u8 *pipe;		/* t32_data_dc284 */
+	u8 *mask_out;		/* t32_data_e4000 (one 24 B block for all channels) */
+	u8 *msca_par;		/* t32_data_f0928, 2636 B per channel */
+};
+
+/*
+ * tisp_api_param_array_get: copy parameter id of channel ch & 0xff into out
+ * and its length into *len.  The vendor's result is a left-over register:
+ * the length, except for the MSCA parameters (the out pointer) and an
+ * unknown id (no copy, no length, debug print); 0 is returned for those.
+ */
+static inline u32 t32_api_param_array_get(struct t32_apig *g, u32 ch, u8 *out, u32 *len, u32 id)
+{
+	u8 buf[T32_API_AUTOZOOM_LEN];
+	u32 n, w;
+
+	ch &= 0xff;
+	id &= 0xffff;
+	memset(buf, 0, sizeof(buf));
+	switch (id) {
+	case T32_API_MASK_ATTR:
+		n = T32_API_MASK_ATTR_LEN;
+		memcpy(out, g->mask_attr + T32_API_MASK_ATTR_LEN * ch, n);
+		break;
+	case T32_API_PIPE_EN:
+		n = 4;
+		w = g->pipe[T32_API_PIPE_STRIDE * ch + T32_API_PIPE_BYTE];
+		memcpy(out, &w, n);
+		break;
+	case T32_API_MASK_OUT:
+		n = T32_API_MASK_OUT_LEN;
+		g->ops->mask_out_cfg(ch, g->mask_out);
+		memcpy(out, g->mask_out, n);
+		break;
+	case T32_API_MSCA_PAR3: case 4: case 5: case 6: case 8:
+		g->ops->msca_par(ch, g->msca_par + T32_API_MSCA_PAR_LEN * ch);
+		memcpy(out, g->msca_par + T32_API_MSCA_PAR_LEN * ch, T32_API_MSCA_PAR_LEN);
+		*len = T32_API_MSCA_PAR_LEN;
+		return 0;
+	case T32_API_FCROP:
+		n = T32_API_FCROP_LEN;
+		g->ops->fcrop(ch, buf);
+		memcpy(out, buf, n);
+		break;
+	case T32_API_AUTOZOOM:
+		n = T32_API_AUTOZOOM_LEN;
+		g->ops->autozoom(ch, buf);
+		memcpy(out, buf, n);
+		break;
+	case T32_API_BRIGHT:
+		n = 1;
+		g->ops->brightness(ch, buf);
+		memcpy(out, buf, n);
+		break;
+	default:
+		if (id >= T32_API_IDS)
+			return 0;
+		n = 1;			/* 11 .. 16 */
+		memcpy(out, buf, n);
+		break;
+	}
+	*len = n;
+	return n;
+}
+
+/* ---- tisp_day_or_night_par_refresh (vendor 0xafefc), oracle t32_dnref_oracle ---- */
+
+enum t32_dn_blk {		/* the vendor's refresh order */
+	T32_DN_TOP, T32_DN_DPC, T32_DN_GIB, T32_DN_AE, T32_DN_AWB, T32_DN_LSC, T32_DN_TMO, T32_DN_DMSC,
+	T32_DN_GAMMA, T32_DN_CCM, T32_DN_CLM, T32_DN_BCSH, T32_DN_YSP, T32_DN_MDNS, T32_DN_YDNS,
+	T32_DN_SDNS, T32_DN_CDNS, T32_DN_DEFOG, T32_DN_LCE, T32_DN_RDNS, T32_DN_DECMP, T32_DN_CSCCR,
+	T32_DN_BLKS,
+};
+
+#define T32_DN_PIPE_STRIDE	904	/* t32_data_dc284: defog gets the first two words */
+
+struct t32_dnr_ops {
+	/* tisp_<blk>_dn_params_refresh(ch, dn); AE and SDNS take the channel only (dn is passed as 0
+	 * here); DEFOG also gets w0 / w1 of the channel state */
+	void (*refresh)(enum t32_dn_blk blk, u32 ch, u32 dn, u32 w0, u32 w1);
+	u32 (*wake_up)(void *wq);		/* __wake_up(wq, 1, 1, 0) */
+};
+
+struct t32_dnr {
+	const struct t32_dnr_ops *ops;
+	const u8 *pipe;		/* t32_data_dc284 */
+	u8 *done;		/* t32_data_e2764[ch] */
+	u32 *count;		/* t32_data_f0908[ch] */
+	u8 *ev;			/* t32_data_dad90: +0 flag, +2 day / night */
+	void *wq;		/* t32_data_dad94 */
+};
+
+/* tisp_day_or_night_par_refresh: every block's day / night refresh, then signal the waiter */
+static inline u32 t32_day_or_night_par_refresh(struct t32_dnr *d, u32 ch, u32 dn)
+{
+	const u8 *pipe;
+	u32 b;
+
+	ch &= 0xff;
+	for (b = T32_DN_TOP; b < T32_DN_BLKS; b++) {
+		if (b == T32_DN_AE || b == T32_DN_SDNS) {
+			d->ops->refresh(b, ch, 0, 0, 0);
+		} else if (b == T32_DN_DEFOG) {
+			pipe = d->pipe + T32_DN_PIPE_STRIDE * ch;
+			d->ops->refresh(b, ch, dn, t32_br_rd32(pipe), t32_br_rd32(pipe + 4));
+		} else {
+			d->ops->refresh(b, ch, dn, 0, 0);
+		}
+	}
+	d->done[ch] = 1;
+	d->ev[0] = 1;
+	d->count[ch] = 0;
+	d->ev[2] = dn;
+	return d->ops->wake_up(d->wq);
+}
+
+/* ---- tisp_day_or_night_s_ctrl (vendor 0xb0144), oracle t32_dnctl_oracle ---- */
+
+#define T32_DNC_BINS		6	/* t32_data_dd0b4: tuning bin per channel and index */
+#define T32_DNC_TUNING_LEN	0xf238	/* copied into the working tuning t32_data_dd0a4[ch] */
+#define T32_DNC_TUN_BYTE	22	/* tuning byte cleared for night */
+#define T32_DNC_ST_STRIDE	336	/* t32_data_da850 per channel */
+#define T32_DNC_ST_IDX		296
+#define T32_DNC_ST_CUR		300
+#define T32_DNC_ST_TAB		304	/* one word per index */
+#define T32_DNC_PIPE_STRIDE	904	/* t32_data_dc284 */
+#define T32_DNC_PIPE_NIGHT	37
+#define T32_DNC_PIPE_SET	4	/* + (index + 1) * 128: 128 B set copied to da850[ch] */
+#define T32_DNC_SET_LEN		128
+#define T32_DNC_R_A		0x14054	/* night: 0 (shadow index 777) */
+#define T32_DNC_S_A		777
+#define T32_DNC_R_B		0x14010	/* night: 0xffffffff (shadow index 771) */
+#define T32_DNC_S_B		771
+#define T32_DNC_SEQ_MASK	0xffffff
+
+struct t32_dnc_ops {
+	void (*lut_params_copy)(u32 ch, u32 idx);		/* tisp_lut_params_copy */
+	void (*reg_write)(u32 ch, u32 reg, u32 val);		/* tisp_reg_write */
+	void (*par_refresh)(u32 ch, u32 dn);			/* tisp_day_or_night_par_refresh */
+	void (*no_bin)(u32 idx);				/* isp_printf (missing bin) */
+	void (*bad_mode)(void);					/* isp_printf (mode not 0 / 1) */
+};
+
+struct t32_dnc {
+	const struct t32_dnc_ops *ops;
+	const u32 *bins;	/* t32_data_dd0b4[ch * 6 + idx] */
+	const u32 *tuning;	/* t32_data_dd0a4[ch] */
+	u8 *st;			/* t32_data_da850 */
+	u8 *pipe;		/* t32_data_dc284 */
+	u8 *keep;		/* t32_data_e401c: 1 = keep da850's set once */
+	const u8 *shadow;	/* t32_data_d03a0 */
+	const u32 *seq;		/* t32_data_f32d8[ch] */
+	u32 *seq1, *seq2;	/* t32_data_f32f8[ch] / f32e8[ch]: seq + 1 / + 2 (24 bit) */
+};
+
+/* tisp_day_or_night_s_ctrl: switch channel ch & 0xff to day (mode 0) or night (1) with bin idx & 0xff; 0 */
+static inline int t32_day_or_night_s_ctrl(struct t32_dnc *d, u32 ch, u32 mode, u32 idx)
+{
+	u8 *st, *pipe;
+	u32 bin;
+
+	ch &= 0xff;
+	idx &= 0xff;
+	bin = d->bins[ch * T32_DNC_BINS + idx];
+	if (!bin) {
+		d->ops->no_bin(idx);
+		return 0;
+	}
+	memcpy(t32_br_ptr(d->tuning[ch]), t32_br_ptr(bin), T32_DNC_TUNING_LEN);
+	d->ops->lut_params_copy(ch, idx);
+	st = d->st + T32_DNC_ST_STRIDE * ch;
+	t32_br_wr32(st + T32_DNC_ST_IDX, idx);
+	t32_br_wr32(st + T32_DNC_ST_CUR, t32_br_rd32(st + T32_DNC_ST_TAB + 4 * idx));
+	pipe = d->pipe + T32_DNC_PIPE_STRIDE * ch;
+	if (mode == 0) {
+		pipe[T32_DNC_PIPE_NIGHT] = 0;
+		if (!*d->keep)
+			memcpy(st, pipe + T32_DNC_PIPE_SET + (idx + 1) * T32_DNC_SET_LEN, T32_DNC_SET_LEN);
+		*d->keep = 0;
+		d->ops->par_refresh(ch, 0);
+		d->seq1[ch] = (d->seq[ch] + 1) & T32_DNC_SEQ_MASK;
+		d->seq2[ch] = (d->seq[ch] + 2) & T32_DNC_SEQ_MASK;
+	} else if (mode == 1) {
+		pipe[T32_DNC_PIPE_NIGHT] = 1;
+		d->ops->reg_write(ch, *d->shadow ? T32_DNC_S_A : T32_DNC_R_A, 0);
+		d->ops->reg_write(ch, *d->shadow ? T32_DNC_S_B : T32_DNC_R_B, 0xffffffffu);
+		if (!*d->keep)
+			memcpy(st, pipe + T32_DNC_PIPE_SET + (idx + 1) * T32_DNC_SET_LEN, T32_DNC_SET_LEN);
+		t32_br_ptr(d->tuning[ch])[T32_DNC_TUN_BYTE] = 0;
+		*d->keep = 0;
+		d->ops->par_refresh(ch, 1);
+	} else {
+		d->ops->bad_mode();
+	}
+	return 0;
+}
+
+/* ---- tisp_long_ev_update (vendor 0x249ec), oracle t32_longev_oracle ---- */
+
+#define T32_LEV_R_BYPASS	64	/* block bypass bits (shadow index 2) */
+#define T32_LEV_S_BYPASS	2
+#define T32_LEV_BYP_CCM		0x40
+#define T32_LEV_BYP_GAMMA	0x80
+#define T32_LEV_BYP_DEFOG	0x100
+#define T32_LEV_BYP_BCSH	0x2000
+#define T32_LEV_BYP_TMO		0x10
+#define T32_LEV_BYP_WDR_SHIFT	22	/* bit 22: no WDR long-frame update */
+#define T32_LEV_PIPE_STRIDE	904	/* t32_data_dc284 */
+#define T32_LEV_PIPE_WDR	36
+
+enum t32_lev_blk { T32_LEV_AWB, T32_LEV_GAMMA, T32_LEV_CCM, T32_LEV_DEFOG, T32_LEV_BCSH, T32_LEV_TMO, T32_LEV_WDR };
+
+struct t32_lev_ops {
+	u32 (*reg_read)(u32 ch, u32 reg);	/* tisp_reg_read */
+	/* tisp_<blk>_ev_update(ch, ev): AWB, gamma, CCM and WDR get only the EV; defog, BCSH, TMO also
+	 * x (5th argument) and, for defog / BCSH on the forced path, y (6th; elsewhere the vendor
+	 * leaves a stale stack word there, 0 here) */
+	void (*ev_update)(enum t32_lev_blk blk, u32 ch, u64 ev, u32 x, u32 y);
+};
+
+/*
+ * tisp_long_ev_update: hand the new long-frame EV to the blocks.  force == 1
+ * with !keep updates every block unconditionally (WDR when the pipe's WDR
+ * byte is 1); otherwise only on an EV change and for blocks not bypassed
+ * (gamma / CCM / BCSH also without a change).  The last EV (t32_data_dd678)
+ * is stored except when it did not change on the normal path.  Always 0.
+ */
+static inline int t32_long_ev_update(const struct t32_lev_ops *ops, const u8 *shadow, u64 *last,
+				     const u8 *pipe, u32 ch, u64 ev, u32 x, u32 y, u32 force, u32 keep)
+{
+	u32 byp = ops->reg_read(ch, *shadow ? T32_LEV_S_BYPASS : T32_LEV_R_BYPASS);
+	int changed;
+
+	if (force == 1 && !keep) {
+		ops->ev_update(T32_LEV_AWB, ch, ev, 0, 0);
+		ops->ev_update(T32_LEV_GAMMA, ch, ev, 0, 0);
+		ops->ev_update(T32_LEV_CCM, ch, ev, 0, 0);
+		ops->ev_update(T32_LEV_DEFOG, ch, ev, x, y);
+		ops->ev_update(T32_LEV_BCSH, ch, ev, x, y);
+		ops->ev_update(T32_LEV_TMO, ch, ev, x, 0);
+		if (pipe[T32_LEV_PIPE_STRIDE * ch + T32_LEV_PIPE_WDR] == force)
+			ops->ev_update(T32_LEV_WDR, ch, ev, 0, 0);
+		last[ch] = ev;
+		return 0;
+	}
+	changed = last[ch] != ev;
+	if (changed)
+		ops->ev_update(T32_LEV_AWB, ch, ev, 0, 0);
+	if (!(byp & T32_LEV_BYP_GAMMA))
+		ops->ev_update(T32_LEV_GAMMA, ch, ev, 0, 0);
+	if (!(byp & T32_LEV_BYP_CCM))
+		ops->ev_update(T32_LEV_CCM, ch, ev, 0, 0);
+	if (changed && !(byp & T32_LEV_BYP_DEFOG))
+		ops->ev_update(T32_LEV_DEFOG, ch, ev, x, 0);
+	if (!(byp & T32_LEV_BYP_BCSH))
+		ops->ev_update(T32_LEV_BCSH, ch, ev, x, 0);
+	if (!changed)
+		return 0;
+	if (!(byp & T32_LEV_BYP_TMO))
+		ops->ev_update(T32_LEV_TMO, ch, ev, x, 0);
+	if (!((byp >> T32_LEV_BYP_WDR_SHIFT) & 1))
+		ops->ev_update(T32_LEV_WDR, ch, ev, 0, 0);
+	last[ch] = ev;
+	return 0;
+}
+
+/* ---- tisp_lce_wake_up (vendor 0x596b4), oracle t32_lcewake_oracle ---- */
+
+#define T32_LCW_ST_BASE		0x20000	/* LCE state (t32_data_e1da8[ch]) + 0x20000 + ... */
+#define T32_LCW_ST_BLK_X	9944	/* u8, & 0x1f */
+#define T32_LCW_ST_BLK_Y	9945	/* u8, & 0x3f */
+#define T32_LCW_ST_SIZE_HI	9946	/* u8, << 16 */
+#define T32_LCW_ST_SIZE_LO	9947
+#define T32_LCW_STAT_BANKS	4	/* the hardware's 4 statistics bank addresses */
+#define T32_LCW_BANK1		0x9900
+#define T32_LCW_BANK2		0x13200
+#define T32_LCW_BANK3		0x1cb00
+#define T32_LCW_GEOM_MASK	0x1fff
+#define T32_LCW_MODE		3
+#define T32_LCW_CURVE_LEN	640
+
+struct t32_lcw_ops {
+	void (*reg_write)(u32 ch, u32 reg, u32 val);	/* tisp_reg_write */
+	void (*write_curve)(u32 ch);			/* tisp_lce_write_curve */
+	u32 (*write_ctrl_reg)(u32 ch);			/* tisp_lce_write_ctrl_reg */
+};
+
+struct t32_lcw {
+	const struct t32_lcw_ops *ops;
+	const struct t32_lci_buf *buf;	/* t32_data_e1db8 */
+	const u32 *lce_st;		/* t32_data_e1da8 */
+	const u8 *shadow;		/* t32_data_d03a0 */
+	const u32 *bank;		/* t32_data_e1d7c */
+	const u32 *geom;		/* t32_data_e1d80: 10 words of block geometry */
+};
+
+static inline void t32_lcw_wr(struct t32_lcw *w, u32 ch, u32 reg, u32 sidx, u32 val)
+{
+	w->ops->reg_write(ch, *w->shadow ? sidx : reg, val);
+}
+
+/* tisp_lce_wake_up: reprogram the LCE buffers and geometry after a wake-up; returns write_ctrl_reg's result */
+static inline u32 t32_lce_wake_up(struct t32_lcw *w, u32 ch)
+{
+	const struct t32_lci_buf *b = &w->buf[ch];
+	const u8 *st = t32_br_ptr(w->lce_st[ch]) + T32_LCW_ST_BASE;
+	const u32 *g = w->geom;
+	u32 m = T32_LCW_GEOM_MASK;
+
+	t32_lcw_wr(w, ch, T32_LCI_R_CURVE_ADDR, T32_LCI_S_CURVE_ADDR, b->curve_phys);
+	t32_lcw_wr(w, ch, T32_LCI_R_STAT_ADDR, T32_LCI_S_STAT_ADDR, T32_LCI_BANK_LEN * *w->bank + b->stat_phys);
+	t32_lcw_wr(w, ch, T32_LCI_R_HIST_ADDR, T32_LCI_S_HIST_ADDR, b->hist_phys);
+	t32_lcw_wr(w, ch, 0xc090, 2015, b->stat_phys);
+	t32_lcw_wr(w, ch, 0xc094, 2016, b->stat_phys + T32_LCW_BANK1);
+	t32_lcw_wr(w, ch, 0xc098, 2017, b->stat_phys + T32_LCW_BANK2);
+	t32_lcw_wr(w, ch, 0xc09c, 2018, b->stat_phys + T32_LCW_BANK3);
+	t32_lcw_wr(w, ch, 0xc080, 2012, T32_LCW_MODE);
+	t32_lcw_wr(w, ch, T32_LCI_R_START, T32_LCI_S_START, 1);
+	t32_lcw_wr(w, ch, 0xc040, 1996, (u32)st[T32_LCW_ST_SIZE_HI] << 16 | st[T32_LCW_ST_SIZE_LO]);
+	t32_lcw_wr(w, ch, 0xc044, 1997, (g[9] & 0xf) << 20 | (st[T32_LCW_ST_BLK_Y] & 0x3f) |
+					(st[T32_LCW_ST_BLK_X] & 0x1f) << 8);
+	t32_lcw_wr(w, ch, 0xc048, 1998, (g[1] & m) << 16 | (g[0] & m));
+	t32_lcw_wr(w, ch, 0xc04c, 1999, g[2] & m);
+	t32_lcw_wr(w, ch, 0xc050, 2000, (g[4] & m) << 16 | (g[3] & m));
+	t32_lcw_wr(w, ch, 0xc054, 2001, g[5] & m);
+	t32_lcw_wr(w, ch, 0xc058, 2002, (g[7] & m) << 16 | (g[6] & m));
+	t32_lcw_wr(w, ch, 0xc05c, 2003, g[8] & m);
+	t32_lcw_wr(w, ch, 0xc0a0, 2019, T32_LCW_CURVE_LEN);
+	w->ops->write_curve(ch);
+	return w->ops->write_ctrl_reg(ch);
+}
+
+/* ---- tisp_long_tgain_update (vendor 0x24588), oracle t32_longtg_oracle ---- */
+
+/* bypass bits (register 64 / shadow index 2, as in tisp_long_ev_update): set = skip the block */
+#define T32_LTG_BYP_DPC		0x1
+#define T32_LTG_BYP_GIB		0x2
+#define T32_LTG_BYP_LSC		0x4
+#define T32_LTG_BYP_TMO		0x10
+#define T32_LTG_BYP_DMSC	0x20
+#define T32_LTG_BYP_LCE		0x400
+#define T32_LTG_BYP_MDNS	0x800
+#define T32_LTG_BYP_YDNS	0x1000
+#define T32_LTG_BYP_YSP		0x8000
+#define T32_LTG_BYP_SDNS	0x10000
+#define T32_LTG_BYP_CDNS	0x20000
+#define T32_LTG_BYP_RDNS	0x80000
+
+/* gain updates that take the 64-bit gain (5th / 6th words for LCE) */
+enum t32_ltg_gain { T32_LTG_DPC, T32_LTG_LSC, T32_LTG_LCE, T32_LTG_TMO, T32_LTG_AWB };
+/* refreshes that take the low gain word only */
+enum t32_ltg_ref { T32_LTG_GIB, T32_LTG_DMSC, T32_LTG_MDNS, T32_LTG_YSP, T32_LTG_CDNS, T32_LTG_YDNS, T32_LTG_SDNS,
+		   T32_LTG_RDNS, T32_LTG_AF };
+
+struct t32_ltg_ops {
+	u32 (*reg_read)(u32 ch, u32 reg);	/* tisp_reg_read */
+	/* tisp_dpc_l_gain_update / lsc / lce / tmo / awb _tgain_update(ch, gain[, x, y]); y is the
+	 * vendor's stale stack word outside the forced path (0 here) */
+	void (*gain)(enum t32_ltg_gain blk, u32 ch, u64 gain, u32 x, u32 y);
+	/* tisp_gib_again_update, tisp_<blk>_refresh, tisp_af_tgain_update (ch, gain low word) */
+	void (*refresh)(enum t32_ltg_ref blk, u32 ch, u32 gain);
+};
+
+/*
+ * tisp_long_tgain_update: hand the new long-frame total gain to the blocks:
+ * every block when force == 1 and !keep, else (when the gain changed: low word
+ * against the last one, or a non-zero high word) the blocks whose bypass bit
+ * is clear; AWB and AF always.  The last low gain word is stored.  Always 0.
+ */
+static inline int t32_long_tgain_update(const struct t32_ltg_ops *ops, const u8 *shadow, u32 *last, u32 ch,
+					u64 gain, u32 x, u32 y, u32 force, u32 keep)
+{
+	u32 lo = (u32)gain, byp;
+
+	if (force == 1 && !keep) {
+		ops->gain(T32_LTG_DPC, ch, gain, 0, 0);
+		ops->refresh(T32_LTG_GIB, ch, lo);
+		ops->gain(T32_LTG_LSC, ch, gain, 0, 0);
+		ops->refresh(T32_LTG_DMSC, ch, lo);
+		ops->refresh(T32_LTG_MDNS, ch, lo);
+		ops->refresh(T32_LTG_YSP, ch, lo);
+		ops->refresh(T32_LTG_CDNS, ch, lo);
+		ops->refresh(T32_LTG_YDNS, ch, lo);
+		ops->refresh(T32_LTG_SDNS, ch, lo);
+		ops->gain(T32_LTG_LCE, ch, gain, x, y);
+		ops->gain(T32_LTG_TMO, ch, gain, 0, 0);
+		ops->refresh(T32_LTG_RDNS, ch, lo);
+	} else {
+		if (lo == last[ch] && !(gain >> 32))
+			return 0;
+		byp = ops->reg_read(ch, *shadow ? T32_LEV_S_BYPASS : T32_LEV_R_BYPASS);
+		if (!(byp & T32_LTG_BYP_DPC))
+			ops->gain(T32_LTG_DPC, ch, gain, 0, 0);
+		if (!(byp & T32_LTG_BYP_GIB))
+			ops->refresh(T32_LTG_GIB, ch, lo);
+		if (!(byp & T32_LTG_BYP_LSC))
+			ops->gain(T32_LTG_LSC, ch, gain, 0, 0);
+		if (!(byp & T32_LTG_BYP_DMSC))
+			ops->refresh(T32_LTG_DMSC, ch, lo);
+		if (!(byp & T32_LTG_BYP_MDNS))
+			ops->refresh(T32_LTG_MDNS, ch, lo);
+		if (!(byp & T32_LTG_BYP_YSP))
+			ops->refresh(T32_LTG_YSP, ch, lo);
+		if (!(byp & T32_LTG_BYP_CDNS))
+			ops->refresh(T32_LTG_CDNS, ch, lo);
+		if (!(byp & T32_LTG_BYP_YDNS))
+			ops->refresh(T32_LTG_YDNS, ch, lo);
+		if (!(byp & T32_LTG_BYP_SDNS))
+			ops->refresh(T32_LTG_SDNS, ch, lo);
+		if (!(byp & T32_LTG_BYP_LCE))
+			ops->gain(T32_LTG_LCE, ch, gain, x, 0);
+		if (!(byp & T32_LTG_BYP_TMO))
+			ops->gain(T32_LTG_TMO, ch, gain, 0, 0);
+		if (!(byp & T32_LTG_BYP_RDNS))
+			ops->refresh(T32_LTG_RDNS, ch, lo);
+	}
+	ops->gain(T32_LTG_AWB, ch, gain, 0, 0);
+	ops->refresh(T32_LTG_AF, ch, lo);
+	last[ch] = lo;
+	return 0;
+}
+
+/* ---- tisp_api_param_array_set (vendor 0xb2c38), oracle t32_apiset_oracle ---- */
+
+/* the MSCA parameter block (T32_API_MSCA_PAR_LEN bytes per channel), fields used here */
+#define T32_APS_CHN_SEL		12	/* u8: output channel for mirror / flip and crop */
+#define T32_APS_BLK_SEL		13	/* u8: mask / OSD block for the block attribute */
+#define T32_APS_CHN_STRIDE	872	/* per output channel: */
+#define T32_APS_CHN_CROP	38	/*   five u16 crop words */
+#define T32_APS_CHN_CROP_LEN	10
+#define T32_APS_CHN_MF		48	/*   u32 mirror / flip bits (low 6 used) */
+#define T32_APS_MASK_BLK	116	/* mask blocks, 28 B each */
+#define T32_APS_MASK_STRIDE	28
+#define T32_APS_MASK_EN		676	/* u8 */
+#define T32_APS_OSD_BLK		680	/* OSD blocks, 20 B each */
+#define T32_APS_OSD_STRIDE	20
+#define T32_APS_OSD_FIRST	840	/* u8 */
+#define T32_APS_OSD_W0		844	/* u8 per layer: words 0 .. 2 at 844 / 842 / 846 + layer */
+#define T32_APS_OSD_W1		842
+#define T32_APS_OSD_W2		846
+#define T32_APS_OSD_DATA	848	/* 16 B per layer */
+#define T32_APS_OSD_DATA_LEN	16
+
+#define T32_APS_DRAW_LEN	34	/* tisp_s_draw_block_attr argument */
+#define T32_APS_OSD_LEN		30	/* tisp_s_osd_attr argument (one layer), reused for the block */
+
+enum t32_aps_bcsh { T32_APS_BRIGHT, T32_APS_CONTRAST, T32_APS_SATURATION, T32_APS_HUE };
+
+struct t32_apis_ops {
+	u32 (*dn_s_ctrl)(u32 ch, u32 dn, u32 dn8);		/* tisp_day_or_night_s_ctrl */
+	u32 (*mask_out_cfg)(u32 ch, u8 *cfg);			/* tisp_msca_api_set_mask_out_cfg */
+	u32 (*draw_block)(u32 ch, u8 *attr);			/* tisp_s_draw_block_attr */
+	u32 (*osd_attr)(u32 ch, u8 *attr);			/* tisp_s_osd_attr */
+	u32 (*osd_block)(u32 ch, u8 *attr);			/* tisp_s_osd_block_attr */
+	u32 (*mirr_flip)(u32 ch, u8 *mf);			/* tisp_msca_set_mirr_flip */
+	u32 (*fcrop)(u32 ch, u32 w0, u32 w1, u32 w2, u32 w3, u32 w4);	/* tisp_s_fcrop_control */
+	u32 (*crop)(u32 ch, u32 sel, u8 *rect);			/* tisp_msca_api_crop */
+	u32 (*bcsh)(enum t32_aps_bcsh what, u32 ch, u8 *v);	/* tisp_bcsh_api_set_<what> */
+	u32 (*sharpness)(u32 ch, u32 v);			/* tisp_set_sharpness */
+	u32 (*autozoom)(u32 ch, u8 *buf);			/* tisp_msca_api_set_autozoom */
+};
+
+struct t32_apis {
+	const struct t32_apis_ops *ops;
+	u8 *mask_attr;		/* t32_data_f3258 */
+	u8 *mask_out;		/* t32_data_e4000 */
+	u8 *msca_par;		/* t32_data_f0928 */
+};
+
+static inline void t32_aps_put32(u8 *p, u32 v) { memcpy(p, &v, 4); }
+static inline u32 t32_aps_get32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
+
+/* id 3: the selected mask block as the draw-block attribute */
+static inline u32 t32_aps_draw_block(struct t32_apis *a, u32 ch, const u8 *par)
+{
+	u8 attr[T32_APS_DRAW_LEN];
+	u32 sel = par[T32_APS_BLK_SEL], w;
+	const u8 *e = par + T32_APS_MASK_BLK + T32_APS_MASK_STRIDE * sel;
+
+	memset(attr, 0, sizeof(attr));
+	attr[0] = sel;
+	attr[1] = par[T32_APS_MASK_EN];
+	t32_aps_put32(attr + 4, e[0]);
+	attr[12] = e[4];
+	memcpy(attr + 14, e + 6, 8);		/* four u16 */
+	w = t32_aps_get32(e + 16);		/* colour, stored byte-reversed */
+	attr[25] = w >> 16;
+	attr[26] = w >> 8;
+	attr[27] = w;
+	attr[28] = e[20];
+	attr[29] = e[21];
+	memcpy(attr + 30, e + 22, 2);
+	attr[32] = e[24];
+	return a->ops->draw_block(ch, attr);
+}
+
+/* id 4: both OSD layers, then the selected OSD block (in layer 1's buffer) */
+static inline u32 t32_aps_osd(struct t32_apis *a, u32 ch, const u8 *par)
+{
+	u8 lay[2][T32_APS_OSD_LEN];
+	u32 k, sel = par[T32_APS_BLK_SEL];
+	const u8 *e = par + T32_APS_OSD_BLK + T32_APS_OSD_STRIDE * sel;
+	u8 *b = lay[1];
+
+	for (k = 0; k < 2; k++) {
+		t32_aps_put32(lay[k] + 0, par[T32_APS_OSD_W0 + k]);
+		t32_aps_put32(lay[k] + 4, par[T32_APS_OSD_W1 + k]);
+		t32_aps_put32(lay[k] + 8, par[T32_APS_OSD_W2 + k]);
+		memcpy(lay[k] + 12, par + T32_APS_OSD_DATA + T32_APS_OSD_DATA_LEN * k, T32_APS_OSD_DATA_LEN);
+		lay[k][28] = par[T32_APS_OSD_FIRST];
+		lay[k][29] = k;
+	}
+	a->ops->osd_attr(ch, lay[0]);
+	a->ops->osd_attr(ch, lay[1]);
+	b[0] = sel;
+	b[1] = e[0];
+	memcpy(b + 2, e + 2, 8);		/* four u16 */
+	memcpy(b + 12, e + 12, 4);
+	memcpy(b + 16, e + 16, 2);
+	return a->ops->osd_block(ch, b);
+}
+
+/*
+ * tisp_api_param_array_set: copy parameter id (third argument & 0xffff) of
+ * channel ch & 0xff from in to its store and call the block setter; the
+ * setter's result is returned.  Ids 0, 15 and 16 only copy (0 to the mask
+ * attributes, 15 / 16 nowhere), 6 and unknown ids are rejected with a debug
+ * print; those return 0 here (the vendor returns a left-over register).
+ */
+static inline u32 t32_api_param_array_set(struct t32_apis *a, u32 ch, const u8 *in, u32 id)
+{
+	u8 buf[T32_API_AUTOZOOM_LEN], *par, v;
+	u32 w[5], sel;
+
+	ch &= 0xff;
+	id &= 0xffff;
+	par = a->msca_par + T32_API_MSCA_PAR_LEN * ch;
+	switch (id) {
+	case 0:
+		memcpy(a->mask_attr + T32_API_MASK_ATTR_LEN * ch, in, T32_API_MASK_ATTR_LEN);
+		return 0;
+	case 1:
+		memcpy(w, in, 4);
+		return a->ops->dn_s_ctrl(ch, w[0], w[0] & 0xff);
+	case 2:
+		memcpy(a->mask_out, in, T32_API_MASK_OUT_LEN);
+		return a->ops->mask_out_cfg(ch, a->mask_out);
+	case 3:
+		memcpy(par, in, T32_API_MSCA_PAR_LEN);
+		return t32_aps_draw_block(a, ch, par);
+	case 4:
+		memcpy(par, in, T32_API_MSCA_PAR_LEN);
+		return t32_aps_osd(a, ch, par);
+	case 5:
+		memcpy(par, in, T32_API_MSCA_PAR_LEN);
+		sel = par[T32_APS_CHN_SEL];
+		memset(buf, 0, sizeof(buf));
+		buf[0] = (sel & 3) | (t32_aps_get32(par + T32_APS_CHN_MF + T32_APS_CHN_STRIDE * sel) & 0x3f) << 2;
+		return a->ops->mirr_flip(ch, buf);
+	case 7:
+		memcpy(w, in, T32_API_FCROP_LEN);
+		return a->ops->fcrop(ch, w[0], w[1], w[2], w[3], w[4]);
+	case 8:
+		memcpy(par, in, T32_API_MSCA_PAR_LEN);
+		sel = par[T32_APS_CHN_SEL];
+		memset(buf, 0, sizeof(buf));
+		memcpy(buf, par + T32_APS_CHN_CROP + T32_APS_CHN_STRIDE * sel, T32_APS_CHN_CROP_LEN);
+		return a->ops->crop(ch, sel, buf);
+	case 9:
+		memcpy(buf, in, T32_API_AUTOZOOM_LEN);
+		return a->ops->autozoom(ch, buf);
+	case 10: case 11: case 12: case 14:
+		v = in[0];
+		return a->ops->bcsh(id == 10 ? T32_APS_BRIGHT : id == 11 ? T32_APS_CONTRAST :
+				    id == 12 ? T32_APS_SATURATION : T32_APS_HUE, ch, &v);
+	case 13:
+		return a->ops->sharpness(ch, in[0]);
+	case 15: case 16:
+		return 0;		/* copied to a stack word only */
+	default:
+		return 0;		/* 6 and >= T32_API_IDS: debug print */
+	}
+}
+
+#endif /* TX_ISP_T32_BLKREST_H */

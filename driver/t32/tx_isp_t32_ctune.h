@@ -3,7 +3,7 @@
  * T32 tuning character device glue: readable C of the vendor's
  * tisp_code_create_tuning_node, tisp_code_destroy_tuning_node,
  * tisp_code_tuning_open, tisp_code_tuning_release, tisp_code_tuning_mmap and
- * tisp_code_tuning_poll_init.
+ * tisp_code_tuning_poll_init and tisp_code_tuning_ioctl.
  *
  * The node is "tisp" (one minor); a non-zero module parameter
  * (t32_data_d9008) fixes the major to 253, else it is allocated.  open
@@ -166,6 +166,207 @@ static inline void t32_code_tuning_poll_init(struct t32_ctune *t)
 {
 	t->poll_ready = 0;
 	t->ops->init_waitqueue_head(t->dump_wq, "&dumpQueue", t->lock_key);
+}
+
+/* ---- tisp_code_tuning_ioctl (vendor 0x1f10c), oracle t32_ctio_oracle ---- */
+
+#define T32_CTIO_MAGIC		't'
+#define T32_CTIO_NR_LIMIT	51		/* _IOC_NR checked against this first */
+#define T32_CTIO_CMD0		0x20007400u	/* _IO('t', 0): the nine commands below */
+#define T32_CTIO_EINVAL		(-22)
+/* the 20508 B exchange buffer (t32_data_dada8) */
+#define T32_CTIO_ID		0		/* u32 block id */
+#define T32_CTIO_LEN		4		/* u32 length (out) */
+#define T32_CTIO_SUB		8		/* u32 / u16 sub id */
+#define T32_CTIO_CH		26		/* u8 channel */
+#define T32_CTIO_DATA		27		/* parameter bytes */
+#define T32_CTIO_GET_IDS	45
+#define T32_CTIO_SET_IDS	44
+#define T32_CTIO_AE_INFO_LEN	164
+#define T32_CTIO_VER		"V-20241122"		/* rodata 0xc7ca8 */
+#define T32_CTIO_ISP_VER	"V-ISP-20241122"	/* rodata 0xc7cb4 */
+
+enum t32_ctio_cmd {
+	T32_CTIO_GET, T32_CTIO_SET, T32_CTIO_GET_VER, T32_CTIO_GET_ISP_VER, T32_CTIO_GET_AE_INFO,
+	T32_CTIO_SET_AE_INFO, T32_CTIO_SET_AE_MINMAX, T32_CTIO_GET_AWB_INFO, T32_CTIO_SET_AWB_INFO,
+	T32_CTIO_CMDS,
+};
+
+/* block ids with their own argument forms (the others: (ch, data, len) / (ch, data)) */
+enum t32_ctio_id {
+	T32_CTIO_LSC = 3, T32_CTIO_MDNS = 14, T32_CTIO_TSTP = 25, T32_CTIO_REGMAP = 28,
+	T32_CTIO_FIXED4 = 36,	/* get: length 4 only; set: debug print */
+	T32_CTIO_COMN = 37,	/* set: nothing */
+	T32_CTIO_NONE = 38,	/* get / set: nothing */
+	T32_CTIO_API = 42,	/* u16 sub id */
+};
+
+enum t32_ctio_info { T32_CTIO_I_SET_AE, T32_CTIO_I_SET_AE_MINMAX, T32_CTIO_I_GET_AWB, T32_CTIO_I_SET_AWB };
+
+struct t32_ctio_ops {
+	u32 (*addr_limit)(void);				/* current_thread_info()->addr_limit */
+	u32 (*copy_from_user)(void *dst, u32 usr, u32 n);	/* __copy_user: bytes not copied */
+	u32 (*copy_to_user)(u32 usr, const void *src, u32 n);
+	/* tisp_<block>_param_array_get(ch[, sub], data, len); tstp without ch (0 here),
+	 * reg_map with the buffer start as data */
+	void (*get)(u32 id, u32 ch, u32 sub, u8 *data, u8 *len);
+	/* tisp_<block>_param_array_set(ch[, sub], data); tstp without ch, reg_map with the buffer start */
+	void (*set)(u32 id, u32 ch, u32 sub, u8 *data);
+	void (*info)(enum t32_ctio_info what, u8 *buf);	/* tisp_set_ae_info / _set_ae_minmax / _get_awb_info / _set_awb_info */
+};
+
+/* the ids without a block (debug print on get / set) */
+static inline int t32_ctio_unknown(u32 id)
+{
+	return id == 2 || id == 8 || id == 27 || (id >= 29 && id <= 35);
+}
+
+static inline void t32_ctio_put32(u8 *p, u32 v) { memcpy(p, &v, 4); }
+static inline u32 t32_ctio_get32(const u8 *p) { u32 v; memcpy(&v, p, 4); return v; }
+static inline u32 t32_ctio_get16(const u8 *p) { return p[0] | p[1] << 8; }	/* little endian */
+
+static inline int t32_ctio_bad(const struct t32_ctio_ops *o, u32 arg)
+{
+	return ((arg + T32_CTUNE_BUF_SIZE) | arg) & o->addr_limit();
+}
+
+/* copy the user buffer in; a refused address clears the kernel buffer */
+static inline int t32_ctio_in(struct t32_ctune *t, const struct t32_ctio_ops *o, u32 arg)
+{
+	if (t32_ctio_bad(o, arg)) {
+		memset(t->buf, 0, T32_CTUNE_BUF_SIZE);
+		return T32_CTUNE_EFAULT;
+	}
+	if (o->copy_from_user(t->buf, arg, T32_CTUNE_BUF_SIZE))
+		return T32_CTUNE_EFAULT;
+	return 0;
+}
+
+static inline int t32_ctio_out(struct t32_ctune *t, const struct t32_ctio_ops *o, u32 arg)
+{
+	if (t32_ctio_bad(o, arg) || o->copy_to_user(arg, t->buf, T32_CTUNE_BUF_SIZE))
+		return T32_CTUNE_EFAULT;
+	return 0;
+}
+
+static inline void t32_ctio_get_par(const struct t32_ctio_ops *o, u8 *b)
+{
+	u32 id = t32_ctio_get32(b + T32_CTIO_ID), ch = b[T32_CTIO_CH];
+	u8 *d = b + T32_CTIO_DATA, *len = b + T32_CTIO_LEN;
+
+	if (id - 1 >= T32_CTIO_GET_IDS || t32_ctio_unknown(id))
+		return;					/* debug print */
+	switch (id) {
+	case T32_CTIO_MDNS:
+		o->get(id, ch, t32_ctio_get32(b + T32_CTIO_SUB), d, len);
+		break;
+	case T32_CTIO_TSTP:
+		o->get(id, 0, 0, d, len);
+		break;
+	case T32_CTIO_REGMAP:
+		o->get(id, ch, t32_ctio_get32(b + T32_CTIO_SUB), b, len);
+		break;
+	case T32_CTIO_API:
+		o->get(id, ch, t32_ctio_get16(b + T32_CTIO_SUB), d, len);
+		break;
+	case T32_CTIO_FIXED4:
+		t32_ctio_put32(len, 4);
+		break;
+	case T32_CTIO_NONE:
+		break;
+	default:
+		o->get(id, ch, 0, d, len);
+		break;
+	}
+}
+
+static inline void t32_ctio_set_par(const struct t32_ctio_ops *o, u8 *b)
+{
+	u32 id = t32_ctio_get32(b + T32_CTIO_ID), ch = b[T32_CTIO_CH];
+	u8 *d = b + T32_CTIO_DATA;
+
+	if (id - 1 >= T32_CTIO_SET_IDS || t32_ctio_unknown(id))
+		return;					/* debug print */
+	switch (id) {
+	case T32_CTIO_LSC: case T32_CTIO_MDNS:
+		o->set(id, ch, t32_ctio_get32(b + T32_CTIO_SUB), d);
+		break;
+	case T32_CTIO_TSTP:
+		o->set(id, 0, 0, d);
+		break;
+	case T32_CTIO_REGMAP:
+		o->set(id, ch, 0, b);
+		break;
+	case T32_CTIO_API:
+		o->set(id, ch, t32_ctio_get16(b + T32_CTIO_SUB), d);
+		break;
+	case T32_CTIO_FIXED4: case T32_CTIO_COMN: case T32_CTIO_NONE:
+		break;					/* 36: debug print */
+	default:
+		o->set(id, ch, 0, d);
+		break;
+	}
+}
+
+/*
+ * tisp_code_tuning_ioctl: the tuning device's commands _IO('t', 0 .. 8) on the
+ * 20508 B buffer at arg (get / set a block's parameters, version strings, AE / AWB
+ * info).  -22 for a foreign command, -14 for a refused or short user copy, else 0;
+ * the block functions' results are ignored.  The vendor's debug prints are left out.
+ */
+static inline int t32_code_tuning_ioctl(struct t32_ctune *t, const struct t32_ctio_ops *o, u32 cmd, u32 arg)
+{
+	static const char ver[] = T32_CTIO_VER, isp_ver[] = T32_CTIO_ISP_VER;
+	u8 *b = t->buf;
+	u32 nr = cmd - T32_CTIO_CMD0;
+	int r;
+
+	if (((cmd >> 8) & 0xff) != T32_CTIO_MAGIC || (cmd & 0xff) >= T32_CTIO_NR_LIMIT)
+		return T32_CTIO_EINVAL;			/* debug print */
+	if (nr >= T32_CTIO_CMDS)
+		return T32_CTIO_EINVAL;
+	switch (nr) {
+	case T32_CTIO_GET:
+		r = t32_ctio_in(t, o, arg);
+		if (r)
+			return r;
+		t->mem_sel = b[T32_CTIO_CH];
+		t32_ctio_get_par(o, b);
+		break;
+	case T32_CTIO_SET:
+		r = t32_ctio_in(t, o, arg);
+		if (r)
+			return r;
+		t->mem_sel = b[T32_CTIO_CH];
+		t32_ctio_set_par(o, b);
+		return 0;
+	case T32_CTIO_GET_VER: case T32_CTIO_GET_ISP_VER:
+		r = t32_ctio_in(t, o, arg);
+		if (r)
+			return r;
+		if (nr == T32_CTIO_GET_VER) {
+			t32_ctio_put32(b + T32_CTIO_LEN, sizeof(ver));
+			memcpy(b + T32_CTIO_DATA, ver, sizeof(ver));
+		} else {
+			t32_ctio_put32(b + T32_CTIO_LEN, sizeof(isp_ver));
+			memcpy(b + T32_CTIO_DATA, isp_ver, sizeof(isp_ver));
+		}
+		break;
+	case T32_CTIO_GET_AE_INFO:
+		t32_ctio_put32(b + T32_CTIO_LEN, T32_CTIO_AE_INFO_LEN);	/* nothing filled in */
+		break;
+	case T32_CTIO_GET_AWB_INFO:
+		o->info(T32_CTIO_I_GET_AWB, b);
+		break;
+	default:					/* the three info setters */
+		r = t32_ctio_in(t, o, arg);
+		if (r)
+			return r;
+		o->info(nr == T32_CTIO_SET_AE_INFO ? T32_CTIO_I_SET_AE :
+			nr == T32_CTIO_SET_AE_MINMAX ? T32_CTIO_I_SET_AE_MINMAX : T32_CTIO_I_SET_AWB, b);
+		return 0;
+	}
+	return t32_ctio_out(t, o, arg);
 }
 
 #endif

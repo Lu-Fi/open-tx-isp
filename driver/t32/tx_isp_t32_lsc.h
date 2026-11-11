@@ -772,10 +772,32 @@ struct t32_lsc_xops {
 };
 
 /*
+ * tisp_lsc_write_all_reg(ch, 2, 0, 1), the mode tisp_lsc_mirror_flip uses: the mesh
+ * (port open, cells, port close) and only the grid / zone registers and the enable.
+ */
+static inline void t32_lsc_write_flip_reg(struct t32_lsc_ctx *ctx, u8 ch)
+{
+	unsigned int i, j, cells = t32_lsc_cell_count(ctx->sec, &ctx->s, ctx->bayer);
+	u32 w[3];
+
+	t32_lsc_registers(ctx->sec, &ctx->s, ctx->cur->wdr == 1);
+	t32_lsc_img_write(ctx, ch, 18, 0x101);
+	for (i = 0; i < cells; i++) {
+		t32_lsc_cell(ctx->sec, &ctx->wk, i, w);
+		for (j = 0; j < 3; j++)
+			t32_lsc_img_write(ctx, ch, 20 + 3 * i + j, w[j]);
+	}
+	t32_lsc_img_write(ctx, ch, 3608, (cells - 1) << 16 | 0x102);
+	t32_lsc_img_write(ctx, ch, 4 + 1, ctx->s.regs[1]);
+	t32_lsc_img_write(ctx, ch, 4 + 7, ctx->s.regs[7]);
+	t32_lsc_img_write(ctx, ch, 2, 1);
+}
+
+/*
  * tisp_lsc_mirror_flip: a3 == 1 exchanges the mesh lines of every table and plane, arg4 == 1
  * exchanges the mesh elements; then the work planes are rebuilt (interp_by_ct forced with
  * the current colour temperature) and written.  The vendor's spin lock around the
- * exchange is left to the caller.  Not covered by the oracle (the helpers are not in env.c).
+ * exchange is left to the caller.  Oracle t32_lscm_oracle.
  */
 static inline int t32_lsc_mirror_flip(struct t32_lsc_ctx *ctx, u8 ch, u32 a3, u32 arg4,
 				      const struct t32_lsc_xops *ops)
@@ -806,7 +828,7 @@ static inline int t32_lsc_mirror_flip(struct t32_lsc_ctx *ctx, u8 ch, u32 a3, u3
 	}
 	ctx->cur->rsvd1[0] = 5;
 	t32_lsc_update(ctx->sec, &ctx->s, &ctx->wk, ctx->cur->ct, 1);
-	t32_lsc_write_all_reg(ctx, ch);
+	t32_lsc_write_flip_reg(ctx, ch);
 	return 0;
 }
 
@@ -817,5 +839,28 @@ static inline int t32_lsc_hvflip(struct t32_lsc_ctx *ctx, u8 ch, u32 a3, u32 arg
 	t32_lsc_mirror_flip(ctx, ch, a3, arg4, ops);
 	return 0;
 }
+
+/* ---- lsc_exchange_line / lsc_exchange_data (vendor 0x45ae4 / 0x45ac0), oracle t32_lscm_oracle ---- */
+
+/* lsc_exchange_line: swap n bytes at u16 index a and b of plane (buf = scratch, n bytes) */
+static inline void t32_lsc_exchange_line(u8 *plane, u8 *buf, u32 a, u32 b, u32 n)
+{
+	memcpy(buf, plane + 2 * a, n);
+	memmove(plane + 2 * a, plane + 2 * b, n);
+	memcpy(plane + 2 * b, buf, n);
+}
+
+/* lsc_exchange_data: swap the u16 elements a and b of plane */
+static inline void t32_lsc_exchange_data(u8 *plane, u32 a, u32 b)
+{
+	u16 x, y;
+
+	memcpy(&x, plane + 2 * a, 2);
+	memcpy(&y, plane + 2 * b, 2);
+	memcpy(plane + 2 * a, &y, 2);
+	memcpy(plane + 2 * b, &x, 2);
+}
+
+static const struct t32_lsc_xops t32_lsc_xops_default = { t32_lsc_exchange_line, t32_lsc_exchange_data };
 
 #endif /* TX_ISP_T32_LSC_H */
