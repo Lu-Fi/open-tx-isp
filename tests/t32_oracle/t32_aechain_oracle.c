@@ -27,7 +27,9 @@
  * past channel 0's 2184 B into channel 1's (zero with one pipeline; the 1 %
  * first-frame mismatch of openimp #333 read env.c globals there).  The IQ
  * bins run in name order (the random stream must not depend on readdir
- * order: openimp #333, a mutant was missed in another checkout).  The attribute trigger is not
+ * order: openimp #333, a mutant was missed in another checkout).  Before the bins, 400 synthetic
+ * sections run (synth_cases), so the oracle and its mutation check do not depend on T32_IQ_DIR
+ * (#333 reopened: without bins no chain case ran).  The attribute trigger is not
  * applied before frame 1 (a trigger before the first tune step divides by
  * the zero exposure clamps).
  */
@@ -38,6 +40,8 @@
 #include "t32_oracle_env.h"
 #include "tx_isp_t32_iq.h"
 #include "tx_isp_t32_aechain.h"
+
+
 
 #define WEAKD __attribute__((weak))
 extern u32 t32_data_d3a40[600], t32_data_e15a8[4], t32_data_e15c8[4], t32_data_e15d8[4], t32_data_e1588[4];
@@ -459,6 +463,44 @@ static void vary(u8 *sec)
 	t32_wr32(sec, 1692, rnd() % 4000);
 }
 
+/*
+ * Synthetic AE sections, independent of T32_IQ_DIR and of the IQ-bin directory
+ * contents (openimp #333 reopened: without bins no chain case ran, so every
+ * chain mutant, e.g. T32_AEC_B_VAL + 2, passed in a checkout without them).
+ * Zero section, random weights / tuning tables from +2900 (random bytes from
+ * +2776 make the vendor chain run for minutes), the vary() fields, zone window
+ * w / h, the convergence factors +1644 / +1648 (else the zone ratios are not
+ * used), an exposure list in every second case.  Fixed seed, fixed count
+ * (T32O_NSYNTH, default 400, ~0.2 s).
+ */
+#define SYNTH_FROM	2900U
+static unsigned int synth_cases(unsigned int n)
+{
+	static u8 sec[T32_AEI_T_BYTES];
+	unsigned int c, k;
+
+	for (c = 0; c < n; c++) {
+		memset(sec, 0, sizeof(sec));
+		for (k = SYNTH_FROM; k < sizeof(sec); k++)	/* weights / tuning tables */
+			sec[k] = (u8)rnd();
+		vary(sec);
+		t32_wr16(sec, 2940, 1 + rnd() % 64);	/* zone window w / h (window mode 1) */
+		t32_wr16(sec, 2942, 1 + rnd() % 64);
+		t32_wr16(sec, 2944, 1 + rnd() % 64);
+		t32_wr16(sec, 1644, 1 + rnd() % 256);	/* convergence speed factors (use the zone ratios) */
+		t32_wr16(sec, 1648, 1 + rnd() % 256);
+		if (c & 1)	/* an exposure list (list mode reads it): rising time / again */
+			for (k = 0; k < 16; k++) {
+				t32_wr32(sec, T32_AET_EXPLIST + 4 + 16 * k, 2 + 64 * k + rnd() % 64);
+				t32_wr32(sec, T32_AET_EXPLIST + 8 + 16 * k, 1024 + 256 * k);
+				t32_wr32(sec, T32_AET_EXPLIST + 12 + 16 * k, 1024);
+			}
+		if (run_case("synthetic", sec, (int)c, 0))
+			break;	/* the first mismatch ends the run (a diverged mutant may not end) */
+	}
+	return n;
+}
+
 static int bin_cases(const char *dir, int trace, unsigned int nvar)
 {
 	struct dirent **ents, *e;
@@ -494,9 +536,11 @@ static int bin_cases(const char *dir, int trace, unsigned int nvar)
 				vary(sec);
 			for (k = 0; k < (r == 5 ? 4u : 0u); k++)	/* a few bytes of the tuning tables */
 				sec[2960 + rnd() % 300] = (u8)rnd();
-			run_case(e->d_name, sec, (int)r, trace && nbins == 1 && r == 0);
+			if (run_case(e->d_name, sec, (int)r, trace && nbins == 1 && r == 0))
+				goto out;	/* the first mismatch ends the run */
 		}
 	}
+out:
 	for (ie = 0; ie < ne; ie++)
 		free(ents[ie]);
 	free(ents);
@@ -513,7 +557,9 @@ int main(void)
 
 	t32o_rd_hook = rd_model;
 	failed += sort_cases(20000);
-	nbins = bin_cases(dir ? dir : "../external/ingenic-sdk/sensor-iq/t32", trace, nvar);
+	if (!failed)
+		synth_cases(getenv("T32O_NSYNTH") ? (unsigned)atoi(getenv("T32O_NSYNTH")) : 400);
+	nbins = failed ? 0 : bin_cases(dir ? dir : "../external/ingenic-sdk/sensor-iq/t32", trace, nvar);
 	printf("t32_aechain_oracle: IQ bins %d, %u cases, %u frames, %u mismatches\n", nbins, compared, frames, failed);
 	if (failed)
 		return 1;
