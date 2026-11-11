@@ -231,7 +231,7 @@ static int gen_and_run(void)
 
 int main(void)
 {
-	unsigned int c, n = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 300;
+	unsigned int c, n = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 10000;
 	int fail = 0;
 
 	for (c = 0; c < n && !fail; c++)

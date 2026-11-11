@@ -20,8 +20,12 @@ one() {	# $1 = index, $2 = sed expression; writes $M/$1.msg on failure
 	if cmp -s "$d/$HDR" "$D/$HDR"; then echo "$NAME: mutation did not apply: $2" > "$M/$1.msg"; return; fi
 	if ! link "$d" "$d/$NAME.mut" 2>/dev/null; then echo "$NAME: mutation does not build: $2" > "$M/$1.msg"; return; fi
 	# exit 0 = not detected; a non-zero exit or the time limit (rc 124: it no longer ends, the original does) = detected
-	if T32_IQ_DIR="${T32_IQ_DIR:-}" T40_ORACLE_STRICT=0 timeout "$T" "$d/$NAME.mut" >/dev/null 2>&1; then
+	# rc 124 / >= 128 (timeout, signal) = died without a compare mismatch: counted, but listed as crash-only below (#282 F5)
+	T32_IQ_DIR="${T32_IQ_DIR:-}" T40_ORACLE_STRICT=0 timeout "$T" "$d/$NAME.mut" >/dev/null 2>&1 && mrc=0 || mrc=$?
+	if [ "$mrc" -eq 0 ]; then
 		echo "$NAME: mutation NOT detected: $2" > "$M/$1.msg"
+	elif [ "$mrc" -eq 124 ] || [ "$mrc" -ge 128 ]; then
+		echo "$NAME: mutant $1 detected only by a crash/timeout (rc $mrc): $2" > "$M/$1.crash"
 	fi
 }
 if [ "$1" = --mut ]; then	# worker of the mutation check below: run.sh --mut <oracle> <index>, objs / T from the environment
@@ -76,4 +80,6 @@ nm=$(echo "$MUTATIONS" | grep -c .)
 export objs T
 seq 1 "$nm" | nice -n 19 xargs -P "$J" -I{} sh "$H/run.sh" --mut "$NAME" {}
 if ls "$M"/*.msg >/dev/null 2>&1; then cat "$M"/*.msg | head -n 1; exit 1; fi
+nc=$(ls "$M"/*.crash 2>/dev/null | wc -l)
+[ "$nc" -eq 0 ] || { cat "$M"/*.crash; echo "$NAME: $nc crash-only mutants (T32O_NOCRASH=1 makes this an error)"; [ -z "$T32O_NOCRASH" ] || exit 1; }
 echo "$NAME: PASS, $nm/$nm mutations of $HDR detected"

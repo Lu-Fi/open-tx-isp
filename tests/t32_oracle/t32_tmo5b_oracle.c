@@ -70,7 +70,7 @@ static void gen(void)
 
 int main(void)
 {
-	unsigned int n = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 6000;
+	unsigned int n = getenv("T32O_NRAND") ? (unsigned)atoi(getenv("T32O_NRAND")) : 10000;
 	unsigned int c, compared = 0;
 
 	for (c = 0; c < n; c++) {
