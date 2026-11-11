@@ -7,6 +7,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 ## 2026-11-11: T32 rest (op20; planned, host only, not device-tested)
 
 - New `driver/t32/tx_isp_t32_librest.h`: tisp_ae_deinit (frees AE state blocks P / Q, statistics block with its buffer, context with its tuning block; vendor order and the vendor clears of the statistics words +16 / +20) and tisp_intp_static_clear (debug snapshot clear; vendor UB kept and documented: memcpy from NULL, no caller). `t32_aedein_oracle`: 20000 cases, every kfree in order, all tables and blocks, 15/15 mutations; `t32_intpclr_oracle`: 4000 cases, calls, objects with canaries, return, 12/12 mutations.
+- `tx_isp_t32_librest.h` + lib_tisp_save_specified_frame_raw (raw capture arm: request checks with the vendor messages, VIC parameter bytes, stride per output mode, frame size, buffer address, DMA control write to VIC 0, DMA start through tisp_vic_mdma_enable when frame index 1 and the VIC DMA is free, else the pending flag). `t32_sfraw_oracle`: 40000 cases, every call (printk with its values, isp_printf, register writes, mdma_enable) in order, .bss block, VIC configs and returns, 31/31 mutations.
 
 ## 2026-11-11: T32 block leftovers (op11; planned, host only, not device-tested)
 
