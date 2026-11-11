@@ -139,7 +139,10 @@ static int t32o8_va_words(const char *fmt, va_list ap, u32 *w, int max)
 			w[k++] = (u32)(v >> 32);
 			continue;
 		}
-		w[k++] = *p == 's' ? T32O_PTR(va_arg(ap, const char *)) : va_arg(ap, u32);
+		if (*p == 's' || *p == 'p')
+			w[k++] = T32O_PTR(va_arg(ap, const void *));
+		else
+			w[k++] = va_arg(ap, u32);
 	}
 	return k;
 }
