@@ -56,6 +56,7 @@
 #include "tx_isp_t32_aemath.h"
 #include "tx_isp_t32_fixp.h"
 #include "tx_isp_t32_libwrap.h"
+#include "tx_isp_t32_aesns.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_lcetg.h"
 #include "tx_isp_t32_lcem.h"
@@ -614,27 +615,11 @@ static int ae_sensor_block(u8 *S)
 {
 	struct t32_lib_hooks h = { .ae_sensor_trig = ae_sensor_trig };
 	const u8 *vin, *si;
-	u8 blk[124] = { 0 };
+	u8 blk[T32_AESNS_BLK];
 
 	if (t32_core_sensor_ae_src(&vin, &si))
 		return -ENODEV;
-	memcpy(blk + 0, si + 276, 2);	/* total width */
-	memcpy(blk + 2, si + 278, 2);	/* total height */
-	memcpy(blk + 36, si + 160, 4);
-	memcpy(blk + 40, si + 192, 4);
-	memcpy(blk + 56, vin + 68, 12);
-	memcpy(blk + 68, si + 220, 4);
-	memcpy(blk + 72, si + 224, 4);
-	memcpy(blk + 80, si + 224, 4);
-	memcpy(blk + 84, si + 280, 4);
-	memcpy(blk + 88, si + 236, 4);
-	memcpy(blk + 92, si + 240, 4);
-	memcpy(blk + 96, si + 176, 4);
-	memcpy(blk + 108, si + 152, 4);
-	memcpy(blk + 112, si + 216, 4);
-	blk[116] = si[228];		/* low byte of the u16 */
-	blk[117] = si[164];
-	blk[123] = si[196] ? si[196] : 1;
+	t32_ae_sensor_blk(blk, vin, si);	/* oracle t32_aesns_oracle */
 	memset(S, 0, T32_SENSOR_ATTR_COPY);
 	t32_lib_sync_sensor_attr(&h, S, 0, blk);
 	return 0;
