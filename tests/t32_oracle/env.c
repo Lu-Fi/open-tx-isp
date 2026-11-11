@@ -906,3 +906,16 @@ u32 t32_data_f3344[1] __attribute__((weak)), t32_data_f3350[1] __attribute__((we
 u32 t32_data_f331c[4] __attribute__((weak)), t32_data_d8ca0[4] __attribute__((weak)), t32_data_d8cb0[4] __attribute__((weak));
 u32 t32_data_d8cc0[4] __attribute__((weak)), t32_data_d8cd0[4] __attribute__((weak));
 u32 t32_data_c34dc[1] __attribute__((weak)), t32_data_ccda0[1] __attribute__((weak)), t32_data_ccdd8[1] __attribute__((weak));
+/* ispcore_pad_event_handle: data.c:6254..6261 (c312c) the MIPS jump table of events 0x3000001..8 (OEM code addresses);
+ * bss f3340 / f333c (pre-buffer counts of slot 0 / 1), f3774 / f3778 (needed counts), f3750 / f374c (buffer sizes),
+ * f3808 / f3804 (buffer numbers), f3810 / f380c (buffer bases); d8ce0 the pixel format table (8 x 44 B);
+ * isp_printf formats / function names by address only */
+u32 t32_data_c312c[8] __attribute__((weak)) = { 0xb86dc, 0xb8744, 0xb89b8, 0xb8c34, 0xb8c4c, 0xb873c, 0xb9228, 0xb932c };
+u32 t32_data_f3340[1] __attribute__((weak)), t32_data_f333c[1] __attribute__((weak)), t32_data_f3774[1] __attribute__((weak));
+u32 t32_data_f3778[1] __attribute__((weak)), t32_data_f3750[1] __attribute__((weak)), t32_data_f374c[1] __attribute__((weak));
+u32 t32_data_f3808[1] __attribute__((weak)), t32_data_f3804[1] __attribute__((weak)), t32_data_f3810[1] __attribute__((weak));
+u32 t32_data_f380c[1] __attribute__((weak)), t32_data_d8ce0[88] __attribute__((weak));
+u32 t32_data_ccdf8[1] __attribute__((weak)), t32_data_cce1c[1] __attribute__((weak)), t32_data_cce64[1] __attribute__((weak));
+u32 t32_data_ccebc[1] __attribute__((weak)), t32_data_ccfa4[1] __attribute__((weak)), t32_data_ccf18[1] __attribute__((weak));
+u32 t32_data_ccf38[1] __attribute__((weak)), t32_data_ccf64[1] __attribute__((weak)), t32_data_ccf7c[1] __attribute__((weak));
+u32 t32_data_c3370[1] __attribute__((weak)), t32_data_c3354[1] __attribute__((weak)), t32_data_c3338[1] __attribute__((weak));
