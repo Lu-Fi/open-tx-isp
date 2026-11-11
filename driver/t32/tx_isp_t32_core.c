@@ -599,6 +599,10 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		if (!ret && vi->streaming)
 			ret = t32_sensor_stream(vi, 0);
 		break;
+	case T32_IOC_SET_AE_START_EV:
+	case T32_IOC_GET_AE_START_EV:
+		ret = t32_tunctl_ae_start(cmd, arg);
+		break;
 	default:
 		ret = -ENOTTY;
 		break;
@@ -851,6 +855,10 @@ static long t32_m0_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	if (cmd == T32_IOC_TUNING_DEFAULT) {
 		if (copy_from_user(w, (void __user *)arg, sizeof(w)))
 			return -EFAULT;
+		ret = t32_tunctl_ctrl(w, arg);	/* the vendor tuning controls (tx_isp_t32_tunctl.c) */
+		if (ret != -ENOIOCTLCMD)
+			goto out;
+		ret = -ENOTTY;
 		mutex_lock(&core.lock);
 		if (w[2] == T32_TUNING_ID_SENSOR_FPS && w[1] == T32_TUNING_DIR_GET) {
 			if (vi->registered && vi->sd) {
@@ -868,6 +876,7 @@ static long t32_m0_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				ret = -ENOTTY;
 		}
 		mutex_unlock(&core.lock);
+out:
 		if (t32_trace || ret)
 			isp_printf(ret ? 1 : 0, "tx-isp-t32: isp-m0 tuning %s id %#x %#x -> %ld\n",
 				   w[1] ? "get" : "set", w[2], w[3], ret);
