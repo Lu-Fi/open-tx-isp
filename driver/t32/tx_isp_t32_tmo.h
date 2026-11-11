@@ -2607,3 +2607,125 @@ static inline void t32_tmo_init(struct t32_tmo_init_env *e, int ch)
 #undef ADDR
 #undef PTR
 }
+
+/* ---- phase 13c: tmo_tmo2fbf_input_prep ---- */
+
+/*
+ * tisp_tmo_tmo_tmo2fbf_input_prep (ch): st = the stat record, ctx = the context, big = the record's big block (record +16), sh = byte 18 of the geometry
+ * (record +12).  ctx byte 10928 == 1: st + 418 and st + 793 (375 bytes each) are filled with ctx bytes 10930 / 10929 and nothing else happens;
+ * != 2: nothing.  == 2: two 25 x 15 byte maps at st + 418 and st + 793 (the border rows / columns replicated at the end) are built; the interior (13 rows i
+ * of 23 columns j) at st + 444 + 25 i + j and st + 819 + 25 i + j.  For the position p = 250 i + 10 j and each k = 0 .. 9 (idx = (p + 260 + k) & 0xffff):
+ * w2 = u32 big[15000 + 4 idx], w3 = u32 big[4 idx]; loc[k] = w2 & 0xffff; acc += (w2 * 819 k + (w3 << 9)) >> sh; cnt += loc[k] >= 151; sad += the u16 absolute
+ * differences of loc[k] and the nine u16 (low halves of the words at big + 15000 + 4 ((idx - 260 + 250 m + 10 n) & 0xffff), m, n = 0..2).  Then
+ *  S7 = sum loc[0..6], T = sum loc[0..9] (u16), A = (100 S7 / T) & 255, B = (100 (loc8 + loc9) / T) & 255 (signed division, T == 0 the emulation's -1 -> 255;
+ *  the sums are u16);  p = sad >> 6;  pwl3 (x, th0, th1, th2, v0, v1, v2) = the three segment piecewise linear map through t32_tmo_interplate
+ *  (ctx bytes: A: th 10894..10896, v 10900..10902; B: th 10897..10899, v 10903..10905; cnt: 10906..10908, 10914..10916; acc >> 12: 10922..10924, 10925..10927);
+ *  mixed = (A' + B' + 8) >> 4;  out2 = (ctx[10892] cnt' + ctx[10891] mixed + ctx[10893] D + 8) >> 4 (signed products, low byte stored);
+ *  out1 = the u16 table map of p (thresholds ctx16[8202 .. 8216], values ctx16[8218 .. 8232]: below the first / above the last threshold the end value
+ *  >> 6 (low 8 bits), else the interpolation (+ 32) / 64 (low 8 bits)).  When no segment matches (unordered thresholds) the previous value of cnt' / out1
+ *  is kept (vendor registers carry over the whole function, initially 0).
+ */
+static inline u8 t32_tmo_i3(int x, const u8 *th, const u8 *v, int strict_hi)
+{
+	/* A, B: x < th0 -> v0; x < th1 -> ip(th0, th1, v0, v1); x < th2 -> ip(th1, th2, v1, v2); else v2 (strict_hi == 0) ;
+	 * acc: !(th0 < x) -> v0; !(th1 < x) -> ip (th0, th1, v0, v1); th2 < x -> v2; else ip (th1, th2, v1, v2) (strict_hi == 1) */
+	if (!strict_hi) {
+		if (x < th[0])
+			return v[0];
+		if (x < th[1])
+			return (u8)t32_tmo_interplate(th[0], th[1], v[0], v[1], x);
+		if (x < th[2])
+			return (u8)t32_tmo_interplate(th[1], th[2], v[1], v[2], x);
+		return v[2];
+	}
+	if (!(th[0] < x))
+		return v[0];
+	if (!(th[1] < x))
+		return (u8)t32_tmo_interplate(th[0], th[1], v[0], v[1], x);
+	if (th[2] < x)
+		return v[2];
+	return (u8)t32_tmo_interplate(th[1], th[2], v[1], v[2], x);
+}
+
+static inline void t32_tmo_tmo2fbf_input_prep(u8 *st, const u8 *ctx, const u8 *big, u32 geom18)
+{
+	u32 mode = ctx[10928], sh = geom18 & 31U, oi, ii, k, m, n, r;
+	u32 t0 = 0, t9 = 0;
+
+	if (mode == 1) {
+		memset(st + 418, ctx[10930], 375);
+		memset(st + 793, ctx[10929], 375);
+		return;
+	}
+	if (mode != 2)
+		return;
+	for (oi = 0; oi < 13; oi++)
+		for (ii = 0; ii < 23; ii++) {
+			u32 p = 250 * oi + 10 * ii, acc = 0, sad = 0, cnt = 0, loc[10], S7 = 0, T, a, b, mixed, d, s1, t1;
+			int A, B;
+
+			for (k = 0; k < 10; k++) {
+				u32 idx = (p + 260 + k) & 0xffffU, w2 = t32_tmo_rd32(big + 15000 + 4 * idx), w3 = t32_tmo_rd32(big + 4 * idx);
+
+				loc[k] = w2 & 0xffffU;
+				acc += (w2 * (819U * k) + (w3 << 9)) >> sh;
+				if (loc[k] >= 151)
+					cnt = (cnt + 1U) & 0xffU;
+				for (m = 0; m < 3; m++)
+					for (n = 0; n < 3; n++) {
+						u32 v = t32_tmo_rd32(big + 15000 + 4 * ((idx - 260U + 250U * m + 10U * n) & 0xffffU)) & 0xffffU;
+
+						sad += (v < loc[k] ? loc[k] - v : v - loc[k]) & 0xffffU;
+					}
+			}
+			s1 = sad >> 6;
+			for (k = 0; k < 7; k++)
+				S7 += loc[k];
+			S7 &= 0xffffU;
+			T = (S7 + ((loc[8] + loc[9]) & 0xffffU) + loc[7]) & 0xffffU;
+			A = t32_tmo_sdiv0((int)(S7 * 100U), (int)T) & 0xff;
+			B = t32_tmo_sdiv0((int)(((loc[8] + loc[9]) & 0xffffU) * 100U), (int)T) & 0xff;
+			a = t32_tmo_i3(A, ctx + 10894, ctx + 10900, 0);
+			b = t32_tmo_i3(B, ctx + 10897, ctx + 10903, 0);
+			mixed = (u32)((int)(a + b + 8U) >> 4);
+			t1 = cnt;
+			if (t1 < ctx[10906]) {
+				t9 = ctx[10914];
+			} else if (!(t1 < ctx[10908])) {
+				t9 = ctx[10916];
+			} else {
+				for (k = 0; k < 2; k++)
+					if (!(t1 < ctx[10906 + k]) && t1 < ctx[10907 + k])
+						t9 = (u32)t32_tmo_interplate(ctx[10906 + k], ctx[10907 + k], ctx[10914 + k], ctx[10915 + k], (int)t1) & 0xffU;
+			}
+			d = t32_tmo_i3((int)(acc >> 12), ctx + 10922, ctx + 10925, 1);
+			if (s1 < t32_tmo_ld16(ctx, 8202)) {
+				t0 = (t32_tmo_ld16(ctx, 8218) >> 6) & 0xffU;
+			} else if (!(s1 < t32_tmo_ld16(ctx, 8216))) {
+				t0 = (t32_tmo_ld16(ctx, 8232) >> 6) & 0xffU;
+			} else {
+				for (k = 0; k < 7; k++) {
+					u32 a0 = t32_tmo_ld16(ctx, 8202 + 2 * k), a1 = t32_tmo_ld16(ctx, 8204 + 2 * k);
+
+					if (s1 < a0 || !(s1 < a1))
+						continue;
+					r = (u32)t32_tmo_interplate((int)a0, (int)a1, (int)t32_tmo_ld16(ctx, 8218 + 2 * k), (int)t32_tmo_ld16(ctx, 8220 + 2 * k), (int)s1);
+					t0 = (u32)(((int)r + 32) / 64) & 0xffU;
+				}
+			}
+			st[444 + 25 * oi + ii] = (u8)t0;
+			st[819 + 25 * oi + ii] = (u8)((int)(ctx[10892] * t9 + ctx[10891] * mixed + ctx[10893] * d + 8U) >> 4);
+		}
+	for (k = 0; k < 25; k++) {
+		st[418 + k] = st[443 + k];
+		st[793 + k] = st[818 + k];
+		st[768 + k] = st[743 + k];
+		st[1143 + k] = st[1118 + k];
+	}
+	for (k = 0; k < 15; k++) {
+		st[418 + 25 * k] = st[419 + 25 * k];
+		st[793 + 25 * k] = st[794 + 25 * k];
+		st[442 + 25 * k] = st[441 + 25 * k];
+		st[817 + 25 * k] = st[816 + 25 * k];
+	}
+}
