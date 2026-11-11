@@ -16,7 +16,9 @@
  *            subdevices +84 .. +144 in three vendor flavours;
  *   sensor   bypass all, sensor enum / get / set input, sensor s / g
  *            register: the sensor ioctl (ops +12, +8) of every subdevice;
- *   memory   ISP memory space set / get, WDR buffer set / get.
+ *   memory   ISP memory space set / get, WDR buffer set / get;
+ *   links    video link setup (vendor tx_isp_video_link_setup with
+ *            subdev_video_setup_link inlined) and destroy.
  */
 #ifndef TX_ISP_T32_TXUIOCTL_H
 #define TX_ISP_T32_TXUIOCTL_H
@@ -24,6 +26,7 @@
 #include "tx_isp_t32_txos.h"
 #include "tx_isp_t32_txcore.h"
 #include "tx_isp_t32_txioctl.h"
+#include "tx_isp_t32_txlink.h"
 
 #define T32_FILE_PRIV		120U	/* file->private_data: ISP device + 12 */
 #define T32_FILE_PRIV_ADJ	12U
@@ -54,6 +57,8 @@
 #define T32_UIO_GET_ISP_MEM	0x800c5410U
 #define T32_UIO_WDR_SET_BUF	0x800c5411U
 #define T32_UIO_WDR_GET_BUF	0x800c5412U
+#define T32_UIO_LINK_SETUP	0x80085409U
+#define T32_UIO_LINK_DESTROY	0x8008540aU
 
 /* core ioctl command words the broadcasts hand on */
 #define T32_CORE_CMD_16		0x1000016U
@@ -83,6 +88,16 @@
 #define T32_CORE_IN_H		388U
 #define T32_SENSOR_WDR_MODE	148U
 #define T32_CORE_WDR_BUF	1180U	/* +1176 + 4 input: WDR buffer ok (vendor 4 * (input + 294) + 4) */
+
+/* pad (find_subdev_link_pad): +6 type mask, +7 state, +8 link { self, peer pad, peer link, flags } */
+#define T32_PAD_TYPE		6U
+#define T32_PAD_STATE		7U
+#define T32_PAD_PEER		12U
+#define T32_PAD_PEER_LINK	16U
+#define T32_PAD_FLAGS		20U
+#define T32_PAD_LINKED		3U
+#define T32_PAD_STREAMING	4U
+#define T32_LINK_FLAGS		16U	/* link descriptor +16: type mask / flags */
 
 /* provided by the driver glue (kernel) or by the oracle (host) */
 void t32_tx_os_lib_tisp_set_isp_memory_space(u32 sel, u32 v);
@@ -342,6 +357,97 @@ static inline int t32_uio_wdr_get_buf(u32 isp, u32 arg)
 	return 0;
 }
 
+/* link set of an input: +8 with a sensor, +4 in the multi-sensor modes (as tx_isp_video_link_destroy) */
+static inline u32 t32_uio_link_set(u32 isp, u32 in)
+{
+	u32 m = t32_tx_link_mode;
+
+	if ((m == 1 && in == 0) || (m == 2 && in < 2) || (m == 3 && in < 3) || (m == 4 && in < 4))
+		return in + 4;
+	return t32_tx_ld(isp, T32_LK_SENSOR(in)) ? in + 8 : in;
+}
+
+/* a pad already linked to another pad drops that link first; 1 = go on, 0 = skip this link, else error */
+static inline int t32_uio_unlink_other(u32 pad, u32 peer, int *r)
+{
+	if (t32_tx_b(pad + T32_PAD_STATE) != T32_PAD_LINKED || t32_tx_ld(pad, T32_PAD_PEER) == peer)
+		return 1;
+	*r = t32_tx_os_subdev_video_destroy_link(pad + T32_PAD_LINK);
+	return !*r;
+}
+
+static inline void t32_uio_link_pad(u32 pad, u32 peer, u32 flags)
+{
+	t32_tx_st(pad, T32_PAD_LINK, pad);
+	t32_tx_st(pad, T32_PAD_PEER, peer);
+	t32_tx_st(pad, T32_PAD_PEER_LINK, peer + T32_PAD_LINK);
+	t32_tx_st(pad, T32_PAD_FLAGS, flags);
+	t32_tx_wb(pad + T32_PAD_STATE, T32_PAD_LINKED);
+}
+
+/* subdev_video_setup_link (inlined): 0 = linked or skipped, else the error */
+static inline int t32_uio_setup_link(u32 isp, u32 d)
+{
+	u32 src = t32_tx_os_find_subdev_link_pad(isp, d), snk = t32_tx_os_find_subdev_link_pad(isp, d + T32_LINK_SINK);
+	u32 flags = t32_tx_ld(d, T32_LINK_FLAGS);
+	int r = 0;
+
+	if (!src || !snk)
+		return 0;
+	if (!(t32_tx_b(src + T32_PAD_TYPE) & t32_tx_b(snk + T32_PAD_TYPE) & flags)) {
+		t32_tx_os_isp_printf(2, "[ %s:%d ] The link type is mismatch!\n", "subdev_video_setup_link", 513);
+		return -1;
+	}
+	if (t32_tx_b(src + T32_PAD_STATE) == T32_PAD_STREAMING || t32_tx_b(snk + T32_PAD_STATE) == T32_PAD_STREAMING) {
+		t32_tx_os_isp_printf(2, "[ %s:%d ] Please stop active links firstly!\n", "subdev_video_setup_link", 519);
+		return -1;
+	}
+	if (!t32_uio_unlink_other(src, snk, &r) || !t32_uio_unlink_other(snk, src, &r))
+		return r == -(int)T32_ENOIOCTLCMD ? 0 : r;
+	t32_uio_link_pad(src, snk, flags | 1);
+	t32_uio_link_pad(snk, src, flags | 1);
+	return 0;
+}
+
+/* tx_isp_video_link_setup: { -, input } */
+static inline int t32_uio_link_setup(u32 isp, u32 arg)
+{
+	u32 b[2], set, d, k;
+
+	if (t32_tx_arg_in(isp, b, arg, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_video_link_setup", 570);
+		return -(int)T32_EFAULT;
+	}
+	set = t32_uio_link_set(isp, b[1]);
+	if (set >= T32_LINK_SETS) {
+		t32_tx_os_isp_printf(2, "[ %s:%d ] link(%d) is invalid!\n", "tx_isp_video_link_setup", 589, set);
+		return -22;
+	}
+	if (t32_tx_ld(isp, T32_LK_COUNT(set)))
+		return 0;
+	d = t32_tx_link_sets[set].links;
+	for (k = 0; (int)k < (int)t32_tx_link_sets[set].n; k++, d += T32_LINK_BYTES) {
+		int r = t32_uio_setup_link(isp, d);
+
+		if (r)
+			return r;
+	}
+	t32_tx_st(isp, T32_LK_COUNT(set), 1);
+	return 0;
+}
+
+/* link destroy: { -, input }, always a user block */
+static inline int t32_uio_link_destroy(u32 isp, u32 user)
+{
+	u32 b[2];
+
+	if (t32_tx_os_copy_from_user(b, user, sizeof(b))) {
+		t32_tx_os_isp_printf(2, T32_UIO_CFU_ERR, "tx_isp_unlocked_ioctl", 2487);
+		return -(int)T32_EFAULT;
+	}
+	return t32_tx_video_link_destroy(isp, b[1]);
+}
+
 /* tx_isp_unlocked_ioctl(file, cmd, arg) */
 static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 {
@@ -383,6 +489,8 @@ static inline int t32_tx_isp_unlocked_ioctl(u32 file, u32 cmd, u32 arg)
 	case T32_UIO_GET_ISP_MEM:	return t32_uio_get_isp_mem(isp, arg);
 	case T32_UIO_WDR_SET_BUF:	return t32_uio_wdr_set_buf(isp, arg);
 	case T32_UIO_WDR_GET_BUF:	return t32_uio_wdr_get_buf(isp, arg);
+	case T32_UIO_LINK_SETUP:	return t32_uio_link_setup(isp, arg);
+	case T32_UIO_LINK_DESTROY:	return t32_uio_link_destroy(isp, arg);
 	}
 	return 0;
 }
