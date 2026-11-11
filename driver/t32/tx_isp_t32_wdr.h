@@ -26,9 +26,14 @@
  * t32_wdr_st and addresses the block members by the vendor offsets below.  The block is little endian kernel memory: the accessors
  * read and write it in place.
  *
- * Vendor UB that the port does not reproduce (the oracle never feeds it):
- * tisp_wdr_interplate with x1 == x0 divides by zero (the MIPS div result is
- * undefined).  Channels of the 64 bit per channel EV words (e3ab0 / e3ac0,
+ * BEYOND VENDOR (#281): tisp_wdr_interplate with x1 == x0 divides by zero in
+ * the vendor (the MIPS div result is undefined); ours returns y0.  Failed
+ * allocations are checked (malloc_cfg, init, get_map: -1 / no output instead
+ * of writing through NULL), and the statistics interrupt does nothing while
+ * record 0 or its buffer is missing.  Valid inputs are bit-exact.
+ * Vendor behaviour kept: the statistics interrupt reads record 0's buffers
+ * and process uses channel 0's EV flag / words for every channel (the WDR
+ * statistics DMA 0x28010.. is one register set for all channels).  Channels of the 64 bit per channel EV words (e3ab0 / e3ac0,
  * 2 entries each in the vendor .bss) are 0 and 1 only; the vendor writes
  * channel 2 and 3 over the next object.  Return values that are only
  * leftover registers in the vendor code (the high word of every return,
@@ -135,12 +140,14 @@ static inline u32 t32_wdr_absfun(u32 a, u32 b)
 	return b < a ? a - b : b - a;
 }
 
-/* tisp_wdr_interplate (x0, x1, y0, y1, x): y at x on the line (x0,y0)-(x1,y1), rounded; x1 != x0 (see above) */
+/* tisp_wdr_interplate (x0, x1, y0, y1, x): y at x on the line (x0,y0)-(x1,y1), rounded; x1 == x0: y0 (see above) */
 static inline int t32_wdr_interplate(int x0, int x1, int y0, int y1, int x)
 {
 	u32 span = (u32)x1 - (u32)x0;
 	u32 num = ((u32)y1 - (u32)y0) * ((u32)x - (u32)x0) + (u32)((int)span >> 1);
 
+	if (!span)
+		return y0;	/* BEYOND VENDOR (#281): vendor divides by zero */
 	return (int)((u32)t32_wdr_sdiv((int)num, (int)span) + (u32)y0);
 }
 
@@ -462,15 +469,18 @@ static inline void t32_wdr_sleep(struct t32_wdr_st *st)
 /*
  * tisp_wdr_malloc_cfg (ch): one 24576 byte buffer for the 4 statistics buffers, their bus
  * addresses into 0x28010 .. 0x2801c, DMA control 3, recorded in the channel's record.
- * The vendor's 10 debug prints are dropped.  Vendor: no check of the allocation (a failed
- * kmalloc programs the bus addresses of NULL), kept.
+ * The vendor's 10 debug prints are dropped.  BEYOND VENDOR (#281): a failed kmalloc returns
+ * -1 before any register write (vendor: programs the bus addresses of NULL).
  */
 static inline int t32_wdr_malloc_cfg(struct t32_wdr_st *st, u32 ch)
 {
 	struct t32_wdr_rec *r;
 	u8 *buf = st->ops->kmalloc(4 * T32_WDR_BUF_SZ, T32_WDR_GFP_KERNEL);
-	u32 phys = st->ops->virt_to_phys(buf), i;
+	u32 phys, i;
 
+	if (!buf)
+		return -1;	/* BEYOND VENDOR (#281) */
+	phys = st->ops->virt_to_phys(buf);
 	for (i = 0; i < 4; i++)
 		st->ops->reg_write(T32_WDR_REG_DMA0 + 4 * i, phys + i * T32_WDR_BUF_SZ);
 	st->ops->reg_write(T32_WDR_REG_DMA_CTL, 3);
@@ -634,7 +644,7 @@ static inline u8 *t32_wdr_zalloc(const struct t32_wdr_ops *o, u32 size)
 	u8 *p = o->kmalloc(size, T32_WDR_GFP_KERNEL);
 	u32 i;
 
-	for (i = 0; i < size; i++)
+	for (i = 0; p && i < size; i++)	/* BEYOND VENDOR (#281): vendor zeroes NULL */
 		p[i] = 0;
 	return p;
 }
@@ -644,8 +654,11 @@ static inline u8 *t32_wdr_zalloc(const struct t32_wdr_ops *o, u32 size)
  * parameter block in the tuning data, extension / hardware image / work area (zeroed),
  * process and LUT buffers, the 15 pixel statistics grid (counts, last block, block areas,
  * megapixels rounded), hardware image and registers, then the irq (14) and event (13)
- * callbacks and the WDR control word.  Vendor: no allocation is checked (a failed record
- * allocation is reported, line 3403, and then written through, as in the vendor).
+ * callbacks and the WDR control word.  BEYOND VENDOR (#281): a failed record allocation is
+ * reported (line 3403) and returns -1, a failed statistics buffer returns -1, and a failed
+ * extension / hardware image / work area / process / LUT buffer returns -1 after the same
+ * allocation sequence (vendor: nothing checked, written through NULL; irq and event
+ * callbacks are not set then).
  */
 static inline int t32_wdr_init(struct t32_wdr_st *st, u32 ch, const u32 *size)
 {
@@ -656,8 +669,10 @@ static inline int t32_wdr_init(struct t32_wdr_st *st, u32 ch, const u32 *size)
 
 	r = (struct t32_wdr_rec *)o->kmalloc(sizeof(*r), T32_WDR_GFP_KERNEL);
 	st->rec[ch] = r;
-	if (!r)
+	if (!r) {
 		o->error(3403);
+		return -1;	/* BEYOND VENDOR (#281): vendor writes through NULL */
+	}
 	r->nbuf = 0;
 	r->buf = 0;
 	r->buf_phys = 0;
@@ -665,7 +680,8 @@ static inline int t32_wdr_init(struct t32_wdr_st *st, u32 ch, const u32 *size)
 	r->ext = 0;
 	r->hw = 0;
 	r->work = 0;
-	t32_wdr_malloc_cfg(st, ch);
+	if (t32_wdr_malloc_cfg(st, ch))
+		return -1;	/* BEYOND VENDOR (#281) */
 	r->par = (u8 *)(uintptr_t)(st->tune[ch] + T32_WDR_TUNE_PAR);
 	r->ext = t32_wdr_zalloc(o, T32_WDR_EXT_SZ);
 	r->hw = t32_wdr_zalloc(o, T32_WDR_HW_SZ);
@@ -673,6 +689,11 @@ static inline int t32_wdr_init(struct t32_wdr_st *st, u32 ch, const u32 *size)
 	t32_wdr_process_init(st);
 	for (i = 5; i >= 0; i--)
 		st->lut[i] = o->kmalloc(T32_WDR_LUT_SZ, T32_WDR_GFP_KERNEL);
+	if (!r->ext || !r->hw || !r->work)
+		return -1;	/* BEYOND VENDOR (#281) */
+	for (i = 0; i < 8; i++)
+		if (!st->proc[i] || (i < 6 && !st->lut[i]))
+			return -1;	/* BEYOND VENDOR (#281) */
 
 	ny = ((u32)t32_wdr_sdiv((int)h - 1, 15) + 1) & 0xffff;	/* 15 pixel blocks, the last one shorter */
 	nx = ((u32)t32_wdr_sdiv((int)w - 1, 15) + 1) & 0xffff;
@@ -941,8 +962,11 @@ static inline int t32_wdr_interrupt_static(struct t32_wdr_st *st, u32 ch)
 {
 	const struct t32_wdr_ops *o = st->ops;
 	u32 ev[8] = { 0, 0, 13, 0, 0, 0, 0, 0 };
-	const u8 *b = st->rec[0]->buf + o->reg_read(T32_WDR_REG_DMA_CTL) * T32_WDR_BUF_SZ;
+	const u8 *b;
 
+	if (!st->rec[0] || !st->rec[0]->buf)
+		return 1;	/* BEYOND VENDOR (#281): vendor dereferences the missing record / buffer */
+	b = st->rec[0]->buf + o->reg_read(T32_WDR_REG_DMA_CTL) * T32_WDR_BUF_SZ;
 	o->dma_sync(b, T32_WDR_BUF_SZ);
 	t32_wdr_get_data(st, ch, b);
 	o->event_push(ch, ev);
@@ -1067,7 +1091,8 @@ static inline void t32_wdr_map_pick(u16 *dst, const u16 *map)
  * 256 bin histograms (cumulated): h3 onto h0 (indices i9, curve c6), h5 onto h2 (i11, c8),
  * h4 onto h1 (i10, c7); the curves as 80 knots (c[1..80], c[0] untouched).  Returns the
  * rounded sum of the first 4 bins of h4 / 2048.  9 temporary buffers from kmalloc(atomic),
- * freed at the end; vendor: not checked (a failed allocation is written through).
+ * freed at the end.  BEYOND VENDOR (#281): when one allocation failed all nine are freed
+ * and 0 is returned, the curves are not touched (vendor: written through NULL).
  */
 static inline u32 t32_wdr_get_map(const struct t32_wdr_ops *o, const u32 *const h[6], u16 *c6, u16 *c7, u16 *c8,
 				  u16 *i9, u16 *i10, u16 *i11)
@@ -1081,6 +1106,13 @@ static inline u32 t32_wdr_get_map(const struct t32_wdr_ops *o, const u32 *const 
 		cum[i] = (u32 *)o->kmalloc(1024, T32_WDR_GFP_ATOMIC);
 	for (i = 0; i < 3; i++)
 		map[i] = (u16 *)o->kmalloc(512, T32_WDR_GFP_ATOMIC);
+	if (!cum[0] || !cum[1] || !cum[2] || !cum[3] || !cum[4] || !cum[5] || !map[0] || !map[1] || !map[2]) {
+		for (i = 0; i < 6; i++)		/* BEYOND VENDOR (#281) */
+			o->kfree(cum[i]);
+		for (i = 0; i < 3; i++)
+			o->kfree(map[i]);
+		return 0;
+	}
 	for (i = 0; i < 6; i++)
 		t32_wdr_zero((u8 *)cum[i], 1024);
 	for (i = 0; i < 3; i++)

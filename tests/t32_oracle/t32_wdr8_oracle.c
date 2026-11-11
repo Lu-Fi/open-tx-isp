@@ -68,9 +68,16 @@ static u8 OH[1u << 14] __attribute__((aligned(64)));
 static u32 ohu, OK[NEV][2], NOK, NOF;
 static u8 *OAL[NEV];
 static uintptr_t OF[NEV];
+static u32 OFAIL = ~0u;	/* BEYOND VENDOR (#281) runs: our allocation number OFAIL fails */
 static u8 *o_kmalloc(u32 size, u32 gfp)
 {
 	u8 *p;
+
+	if (NOK == OFAIL) {
+		if (NOK < NEV) { OK[NOK][0] = size; OK[NOK][1] = gfp; OAL[NOK] = 0; }
+		NOK++;
+		return 0;
+	}
 
 	ohu = (ohu + 63u) & ~63u;
 	p = OH + ohu;
@@ -179,6 +186,35 @@ int main(void)
 		if (d && bad++ < 5)
 			fprintf(stderr, "t32_wdr8_oracle: case %u differs (%d; ret %08x / %08x)\n", n, d, (u32)rv, (u32)ro);
 	}
-	printf("t32_wdr8_oracle: %u cases, %u mismatches\n", cases, bad);
+	/*
+	 * BEYOND VENDOR (#281): one of the nine allocations fails (vendor: written through NULL).  Ours
+	 * only: 0 returned, all nine allocations made and freed (NULL included), the curves untouched.
+	 */
+	for (n = 0; n < 900; n++) {
+		const u32 *h[6];
+		u32 ro;
+
+		lay_begin();
+		for (i = 0; i < 6; i++) {
+			OFF[i] = lay(1024);
+			hist(OFF[i], rb(6));
+		}
+		for (i = 6; i < 12; i++)
+			OFF[i] = lay(512);
+		memcpy(OA, IMG, TOT);
+		NVK = NVF = NOK = NOF = ohu = 0;
+		OFAIL = n % 9;
+		for (i = 0; i < 6; i++)
+			h[i] = (const u32 *)(OA + OFF[i]);
+		ro = t32_wdr_get_map(&OPS, h, (u16 *)(OA + OFF[6]), (u16 *)(OA + OFF[7]), (u16 *)(OA + OFF[8]),
+				     (u16 *)(OA + OFF[9]), (u16 *)(OA + OFF[10]), (u16 *)(OA + OFF[11]));
+		if (ro || NOK != 9 || NOF != 9 || memcmp(OA, IMG, TOT))
+			bad++;
+		for (i = 0; i < 9; i++)
+			if (OF[i] != (uintptr_t)OAL[i])
+				bad++;
+	}
+	OFAIL = ~0u;
+	printf("t32_wdr8_oracle: %u cases, 900 failed allocations (beyond vendor, ours only), %u mismatches\n", cases, bad);
 	return bad ? 1 : 0;
 }

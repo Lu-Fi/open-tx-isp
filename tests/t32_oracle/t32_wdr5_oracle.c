@@ -114,9 +114,17 @@ u64 tisp_event_set_cb(u32 a0, u32 a1, u32 a2, u32 a3)
 static u8 OH[1u << 17] __attribute__((aligned(64)));
 static u32 ohu, NOA;
 static struct { u8 *p; u32 n; } OAL[NEV];
+static u32 OFAIL = ~0u;	/* BEYOND VENDOR (#281) runs: our allocation number OFAIL fails */
 static u8 *o_kmalloc(u32 size, u32 gfp)
 {
 	u8 *p;
+
+	if (NOA == OFAIL) {
+		if (NOA < NEV) { OAL[NOA].p = 0; OAL[NOA].n = size; }
+		NOA++;
+		olog('K', size == sizeof(struct t32_wdr_rec) ? 28 : size, gfp, 0);
+		return 0;
+	}
 
 	ohu = (ohu + 63u) & ~63u;
 	p = OH + ohu;
@@ -337,6 +345,41 @@ int main(void)
 		if (d && bad++ < 5)
 			fprintf(stderr, "t32_wdr5_oracle: %s case %u differs (%d; events %u / %u, writes %u / %u)\n", fname[F], n, d,
 				NVE, NOE, t32o_log.n, NW);
+	}
+	/*
+	 * BEYOND VENDOR (#281): init with allocation number OFAIL failing (vendor: written through NULL).
+	 * Ours only: -1 when an allocation failed (none of the irq / event callbacks, no control word),
+	 * otherwise the normal 0; no crash either way.
+	 */
+	{
+		u32 nfail = 0;
+
+		for (n = 0; n < 4000; n++) {
+			u32 j, cb = 0, ctrl = 0;
+
+			F = F_INI;
+			gen();
+			t32o_reset();
+			VA = t32o_alloc(ARN);
+			memcpy(OA, IMG, TOT);
+			setup();
+			OFAIL = rb(20);
+			ro = (u32)t32_wdr_init(&ST, CH, (const u32 *)(OA + SOFF));
+			for (j = 0; j < NOE && j < NEV; j++)
+				cb += OE[j].t == 'I' || OE[j].t == 'E';
+			for (j = 0; j < NW && j < 256; j++)
+				ctrl += W[j].reg == T32_WDR_REG_CTRL;
+			if (NOA > OFAIL ? (u32)ro != (u32)-1 || cb || ctrl || (OFAIL == 0 && OE[1].t != 'P') : (u32)ro != 0) {
+				if (bad++ < 5)
+					fprintf(stderr, "t32_wdr5_oracle: init with allocation %u failing: ret %d (beyond vendor)\n",
+						OFAIL, (int)ro);
+			}
+			nfail += NOA > OFAIL;
+		}
+		OFAIL = ~0u;
+		if (!nfail)
+			bad++;
+		printf("t32_wdr5_oracle: %u inits with a failed allocation (beyond vendor, ours only)\n", nfail);
 	}
 	for (n = 0; n < F_N; n++)
 		if (!hit[n])

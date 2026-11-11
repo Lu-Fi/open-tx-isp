@@ -279,10 +279,33 @@ int main(void)
 			fprintf(stderr, "t32_wdr7_oracle: %s case %u differs (%d; writes %u / %u)\n", fname[f], n, d,
 				t32o_log.n, NW);
 	}
+	/*
+	 * BEYOND VENDOR (#281): the statistics interrupt with record 0 missing or without its buffer
+	 * (vendor: dereferenced) returns 1 and does nothing; ours only.
+	 */
+	for (n = 0; n < 200; n++) {
+		u64 ro;
+
+		gen(F_IRQ);
+		t32o_reset();
+		VA = t32o_alloc(ARN);
+		memcpy(VA, IMG, TOT);
+		memcpy(OA, IMG, TOT);
+		setup();
+		if (n & 1)
+			ST.rec[0] = 0;
+		else
+			ST.rec[0]->buf = 0;
+		NW = EVN = SYNC_N = 0;
+		ro = (u32)t32_wdr_interrupt_static(&ST, CH);
+		if ((u32)ro != 1 || NW || EVN || SYNC_N || memcmp(OA, IMG, TOT))
+			bad++;
+	}
 	t32o_rd_hook = 0;
 	for (f = 0; f < F_N; f++)
 		if (!hit[f])
 			bad++;
-	printf("t32_wdr7_oracle: %u cases, %u mismatches\n", cases, bad);
+	printf("t32_wdr7_oracle: %u cases, 200 interrupts without record 0 / buffer (beyond vendor, ours only), %u mismatches\n",
+	       cases, bad);
 	return bad ? 1 : 0;
 }

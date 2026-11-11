@@ -11,7 +11,7 @@
  * WDR globals are compared after the call (outputs, inputs unchanged, the
  * frames, the other channels' blocks as decoys), plus the return value (low
  * word, for the functions that return one).  Refused on purpose (counted):
- * interplate with x1 == x0 (vendor division by zero).  Exit 0 = all equal.
+ * interplate with x1 == x0 (vendor division by zero; ours returns y0, beyond vendor #281, checked ours only).  Exit 0 = all equal.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -300,7 +300,9 @@ int main(void)
 
 		f = (int)(n % F_N);
 		gen(f);
-		if (f == F_INTERP && A[1] == A[0]) {
+		if (f == F_INTERP && A[1] == A[0]) {	/* BEYOND VENDOR (#281): vendor divides by zero, ours y0 */
+			if ((u32)t32_wdr_interplate((int)A[0], (int)A[1], (int)A[2], (int)A[3], (int)A[4]) != A[2])
+				bad++;
 			refused++;
 			continue;
 		}
@@ -323,6 +325,9 @@ int main(void)
 	for (f = 0; f < F_N; f++)
 		if (!hit[f])
 			bad++;
-	printf("t32_wdr1_oracle: %u cases, %u refused (interplate x1 == x0), %u mismatches\n", cases, refused, bad);
+	if (!refused)
+		bad++;
+	printf("t32_wdr1_oracle: %u cases, %u interplate x1 == x0 (beyond vendor: y0, ours only), %u mismatches\n", cases,
+	       refused, bad);
 	return bad ? 1 : 0;
 }

@@ -188,7 +188,7 @@ static u64 run_ours(int f)
 int main(void)
 {
 	static u32 hit[F_N];
-	u32 n, cases = 0, bad = 0, i;
+	u32 n, cases = 0, bad = 0, i, nnull = 0;
 	int f;
 
 	for (n = 0; n < 20000; n++) {
@@ -202,6 +202,21 @@ int main(void)
 		memcpy(VA, IMG, TOT);
 		memcpy(OA, IMG, TOT);
 		setup();
+		if (f == F_MAL && KNULL) {
+			/*
+			 * BEYOND VENDOR (#281): a failed kmalloc returns -1 before any register write and
+			 * leaves the record alone (vendor: programs the bus addresses of NULL); ours only.
+			 */
+			struct t32_wdr_rec keep = *ST.rec[CH];
+
+			kbuf = 0;
+			ro = run_ours(f);
+			if ((u32)ro != (u32)-1 || NW || memcmp(&keep, ST.rec[CH], sizeof(keep)) || memcmp(OA, IMG, TOT))
+				bad++;
+			nnull++;
+			hit[f]++;
+			continue;
+		}
 		rv = run_vendor(f);
 		ro = run_ours(f);
 		cases++;
@@ -218,6 +233,9 @@ int main(void)
 	for (f = 0; f < F_N; f++)
 		if (!hit[f])
 			bad++;
-	printf("t32_wdr3_oracle: %u cases, %u mismatches\n", cases, bad);
+	if (!nnull)
+		bad++;
+	printf("t32_wdr3_oracle: %u cases, %u failed malloc_cfg allocations (beyond vendor, ours only), %u mismatches\n",
+	       cases, nnull, bad);
 	return bad ? 1 : 0;
 }
