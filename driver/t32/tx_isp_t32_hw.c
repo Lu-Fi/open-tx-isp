@@ -437,7 +437,11 @@ static void t32_tisp_init(void)
 		t32_pf_attach(T32_PP_YDNS, kmemdup(bin + off, len, GFP_KERNEL));
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_CCM, &len);
-	if (off && len >= T32_CCM_SEC_BYTES) {
+	if (off && len >= T32_CCM_SEC_BYTES && t32_pp_on(T32_PP_CT)) {
+		/* the state kept for the ct fan-out (tisp_ct_update after each AWB frame, openimp #234) */
+		if (t32_ctup_attach_ccm(bin + off, len, bytes - off - len))
+			isp_printf(2, "tx-isp-t32: CCM section refused\n");
+	} else if (off && len >= T32_CCM_SEC_BYTES) {
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block clears two bytes of its section */
 
 		if (cp) {
@@ -450,7 +454,10 @@ static void t32_tisp_init(void)
 		u32 clen = 0, coff = t32_iq_section(bin, bytes, T32_IQ_SEC_CSC, &clen);
 		u8 *cp = kmemdup(bin + off, len, GFP_KERNEL);	/* the block clears ten bytes of its section */
 
-		if (cp && coff && clen >= T32_BCSH_CSC_BYTES)
+		if (cp && coff && clen >= T32_BCSH_CSC_BYTES && t32_pp_on(T32_PP_CT)) {
+			if (t32_ctup_attach_bcsh(bin + off, len, bytes - off - len, bin + coff))
+				isp_printf(2, "tx-isp-t32: BCSH section refused\n");
+		} else if (cp && coff && clen >= T32_BCSH_CSC_BYTES)
 			t32_tisp_flush("bcsh", t32_bcsh_init(cp, bin + off + len, bytes - off - len, bin + coff, tisp_w));
 		kfree(cp);
 	}
@@ -947,6 +954,7 @@ void t32_hw_exit(void)
 	for (i = 0; i < T32_MSCA_CHANNELS; i++)
 		t32_hw_msca_stop(i);
 	t32_awbc_detach();	/* the per-frame AWB reads the AWB buffers */
+	t32_ctup_detach();	/* after the AWB: its work runs the ct fan-out */
 	t32_stats_off();	/* no statistics DMA into the buffers freed below */
 	if (irqs_requested) {
 		free_irq(vic_irq, &csi_base);

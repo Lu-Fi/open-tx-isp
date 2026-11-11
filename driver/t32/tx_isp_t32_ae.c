@@ -17,8 +17,10 @@
  * once per change after the frame; +212 the frame rate.  Event 4 (the long
  * total gain, log2 Q16) is kept for the per-frame block refresh
  * (t32_long_tgain_update in tx_isp_t32_tisp.c), which used the fixed
- * tisp_tgain before.  Events 5 / 6 (again / ev for WDR / defog) are counted,
- * not used yet.
+ * tisp_tgain before; on a change it also goes to the AWB (tisp_awb_tgain_update,
+ * t32_awbc_tgain).  Event 6 (the long EV) goes to the AWB on a change
+ * (tisp_awb_ev_update, t32_awbc_ev); its other users (gamma / CCM / defog /
+ * BCSH / TMO / WDR) and event 5 (again) are not wired yet.
  *
  * The vendor runs the interrupt part in the IRQ and the process in its event
  * thread; here both run in one work item (the sensor calls sleep on I2C).
@@ -42,6 +44,8 @@ static bool aec_ready;
 static u32 aec_it, aec_ag, aec_sent;
 static u32 aec_tgain;
 static bool aec_tgain_valid;
+static u64 aec_last_ev;		/* vendor tisp_long_ev_update's last EV (dd678) */
+static u32 aec_last_tg;		/* vendor tisp_long_tgain_update's last low gain word */
 
 static u32 drv_rd(u32 ch, u32 reg) { (void)ch; return t32_hw_rd(reg); }
 static u32 drv_sys(u32 reg) { return t32_hw_rd(reg); }
@@ -68,13 +72,29 @@ static u32 drv_sensor(u32 off, u32 arg, u8 *info)
 	return 0;
 }
 
+/*
+ * The AE events as the vendor's event thread dispatches them (handler words:
+ * 64-bit value = ev[4] | ev[5] << 32): event 6 -> tisp_long_ev_update, whose
+ * AWB part runs on an EV change; event 4 -> tisp_long_tgain_update, whose
+ * AWB part runs when the low gain word changed or the high one is set.
+ */
 static void drv_event(u32 ch, const u32 *ev)
 {
+	u64 v = ev[4] | (u64)ev[5] << 32;
+
 	(void)ch;
 	t32_aec_stats.events++;
+	if (ev[2] == 6 && v != aec_last_ev) {
+		aec_last_ev = v;
+		t32_awbc_ev(ev[4]);	/* tisp_awb_ev_update */
+	}
 	if (ev[2] == 4) {
 		aec_tgain = ev[4];
 		aec_tgain_valid = true;
+		if (ev[4] != aec_last_tg || ev[5]) {
+			aec_last_tg = ev[4];
+			t32_awbc_tgain(ev[4]);	/* tisp_awb_tgain_update */
+		}
 	}
 }
 
@@ -154,6 +174,8 @@ int t32_aec_attach(const struct t32_ae_blk *b, u8 *S, const u8 *zones)
 	aec_it = aec_ag = 0;
 	aec_sent = ~0U;
 	aec_tgain_valid = false;
+	aec_last_ev = 0;
+	aec_last_tg = 0;
 	memset(&t32_aec_stats, 0, sizeof(t32_aec_stats));
 	if (!zones || !aec.hist || !aec.comp || !aec.lum)
 		ret = -ENOMEM;

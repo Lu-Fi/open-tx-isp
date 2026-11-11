@@ -174,10 +174,21 @@ generation-shared come from the shared code instead:
   statistics init (`tx_isp_t32_awbc.c`), and every AWB statistics interrupt
   (status bit 3) runs `tisp_awb_interrupt_static` + `tisp_awb_process`
   (`t32_awb_frame`; oracle `t32_awbchain_oracle`: init + 7990 frames through
-  the whole vendor chain, bit-exact). The event 11 colour temperature is kept
-  (`t32_awbc_ct`) for the ct fan-out, which is not wired yet; the AE ev /
-  total gain into the AWB keep their init values. Stats "vendor AWB" in
+  the whole vendor chain, bit-exact). The AE feeds the AWB as in the vendor's
+  event thread: AE event 6 (long EV) -> `tisp_awb_ev_update` on an EV change,
+  AE event 4 (long total gain) -> `tisp_awb_tgain_update` on a gain change,
+  which re-interpolates and writes the regional / luma thresholds
+  (`tx_isp_t32_awbtg.h`, oracle `t32_awbtg_oracle`). Stats "vendor AWB" in
   /proc/jz/isp/isp-m0. Host only.
+- **Colour temperature fan-out (openimp #234, `t32_ported_paths` bit 15)**:
+  after each AWB frame its event 11 colour temperature runs `tisp_ct_update`
+  (`t32_ct_update`, oracle `t32_dispatch_oracle`, force / keep 0) on the CCM
+  and BCSH states kept from stream-on (`t32_ccm_start` / `t32_bcsh_start`;
+  `t32_ccm_ct_update`, `t32_bcsh_ct_update`, oracles `t32_ccmf_oracle` /
+  `t32_bcshf_oracle`) in `tx_isp_t32_ctup.c`. Not wired: LSC (the mesh is
+  loaded once by the stream-on list), CLM (no state-keeping port yet), the
+  AE EV into CCM / BCSH. Stats "ct fan-out" in /proc/jz/isp/isp-m0. Host
+  only.
 
 - **Front end: CSC, CSCCR, ISP top** (`tx_isp_t32_front.h`, flow of the vendor
   `tisp_csc_init`, `tisp_csccr_init`, `tisp_top_init`, `tisp_top_reg_cfg`),

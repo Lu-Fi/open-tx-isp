@@ -937,9 +937,12 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_aec_stats.frames, t32_aec_stats.events, t32_aec_stats.writes, t32_aec_stats.expo_sets,
 		   t32_aec_stats.fps_sets, t32_aec_stats.mean, t32_aec_stats.target, t32_aec_stats.it,
 		   t32_aec_stats.again, t32_aec_stats.dgain, t32_aec_stats.tgain);
-	seq_printf(m, "vendor AWB: frames %u writes %u refused %u; ct %u gain r %u b %u\n",
+	seq_printf(m, "vendor AWB: frames %u writes %u refused %u; ct %u gain r %u b %u; ev %u tgain %u updates\n",
 		   t32_awbc_stats.frames, t32_awbc_stats.writes, t32_awbc_stats.refused, t32_awbc_stats.ct,
-		   t32_awbc_stats.gain_r, t32_awbc_stats.gain_b);
+		   t32_awbc_stats.gain_r, t32_awbc_stats.gain_b, t32_awbc_stats.ev_updates,
+		   t32_awbc_stats.tgain_updates);
+	seq_printf(m, "ct fan-out (CCM, BCSH): runs %u writes %u last ct %u\n",
+		   t32_ctup_stats.runs, t32_ctup_stats.writes, t32_ctup_stats.ct);
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
 	t32_fs_show(m);

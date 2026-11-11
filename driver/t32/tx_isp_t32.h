@@ -69,16 +69,30 @@ const u8 *t32_hw_ae_zones(void);
 struct t32_awbc_drv_stats {
 	u32 frames, writes, refused;
 	u32 ct, gain_r, gain_b;		/* the last frame */
+	u32 ev_updates, tgain_updates;	/* AE inputs (events 6 / 4) */
 };
 extern struct t32_awbc_drv_stats t32_awbc_stats;
 int t32_awbc_attach(const u8 *sec, u32 width, u32 height, const u8 *bufs);
 void t32_awbc_detach(void);
 void t32_awbc_kick(void);
 bool t32_awbc_ct(u32 *ct);
+void t32_awbc_ev(u32 ev);
+void t32_awbc_tgain(u32 gain);
+
+/* tx_isp_t32_ctup.c: the colour temperature fan-out (tisp_ct_update) after each AWB frame, behind T32_PP_CT */
+#define T32_CTUP_MAX_WRITES	64
+struct t32_ctup_drv_stats {
+	u32 runs, writes, ct;
+};
+extern struct t32_ctup_drv_stats t32_ctup_stats;
+int t32_ctup_attach_ccm(const u8 *sec, u32 len, u32 avail);
+int t32_ctup_attach_bcsh(const u8 *sec, u32 len, u32 avail, const u8 *csc);
+void t32_ctup_detach(void);
+void t32_ctup_run(u32 ct);
 
 /* tx_isp_t32_tisp.c: per-frame tisp paths (ported blocks), switch t32_ported_paths */
 enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T32_PP_MDNS, T32_PP_DPC, T32_PP_GIB,
-	     T32_PP_RDNS, T32_PP_AE, T32_PP_LSC, T32_PP_LCE, T32_PP_TMO, T32_PP_AWB, T32_PP_COUNT };
+	     T32_PP_RDNS, T32_PP_AE, T32_PP_LSC, T32_PP_LCE, T32_PP_TMO, T32_PP_AWB, T32_PP_CT, T32_PP_COUNT };
 struct t32_pf_stats {
 	u32 runs, writes;
 };
