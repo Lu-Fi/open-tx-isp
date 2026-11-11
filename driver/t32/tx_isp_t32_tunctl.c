@@ -139,11 +139,10 @@ void t32_tx_os_sprintf(char *dst, const char *src) { strcpy(dst, src); }
 /* ---- the tisp attribute store (what the vendor block APIs keep per channel) ---- */
 
 struct t32_tc_attr {
-	u8 antiflick[8], coefft_wb[8], mask[24], csc[92], ccm[40], gamma[264], statis[72];
-	u8 ratio[128], af_weight[228], awb_weight[1024], ae_weight[232], awb_attr[60];
-	u8 expinfo[204], ae_target[264], explist[324], scene[T32_AE_SCENE_BYTES_TC];
-	u8 autozoom[60], osd[32], osd_block[20], draw[36], scaler[12], ct_trend[28];
-	u8 face_ae[24], face_ae_w[12], face_awb[24], tmo_faceae[56], csccr[12];
+	u8 antiflick[8], coefft_wb[8], mask[24], csc[92], ccm[40], gamma[264];
+	u8 ratio[128], af_weight[228];
+	u8 autozoom[60], osd[32], osd_block[20], draw[36], scaler[12];
+	u8 face_ae[24], face_awb[24], tmo_faceae[56], csccr[12];
 	u32 module_ctl, wdr_mode, flip[3];
 };
 
@@ -170,16 +169,12 @@ int t32_tx_os_tisp_g_##name(u32 ch, void *buf)						\
 T32_TC_PAIR(antiflick, antiflick)
 T32_TC_PAIR(coefft_wb, coefft_wb)
 T32_TC_PAIR(mscaler_mask_block_attr, mask)
-T32_TC_PAIR(statis_config, statis)
 T32_TC_PAIR(module_ratio, ratio)
 T32_TC_PAIR(af_weight, af_weight)
 T32_TC_PAIR(osd_attr, osd)
 T32_TC_PAIR(osd_block_attr, osd_block)
 T32_TC_PAIR(draw_block_attr, draw)
-T32_TC_PAIR(awb_ct_trend_offset, ct_trend)
-T32_TC_PAIR(face_ae_weiget, face_ae_w)
 T32_TC_PAIR(csccr_mode, csccr)
-T32_TC_PAIR(ae_scence_attr, scene)
 
 /*
  * tisp_s_Gamma -> tisp_gamma_api_set (tx_isp_t32_gamma.h t32_gamma_api_set): the API block
@@ -330,23 +325,10 @@ static int t32_tc_zero(void *buf, u32 n)
 	return 0;
 }
 
-int t32_tx_os_tisp_g_awb_statis_attr(u32 ch, void *buf) { return t32_tc_zero(buf, 12288); }
-int t32_tx_os_tisp_g_awb_global_statis_attr(u32 ch, void *buf) { return t32_tc_zero(buf, 16); }
-int t32_tx_os_tisp_g_ae_statis_attr(u32 ch, void *buf) { return t32_tc_zero(buf, 1934); }
 int t32_tx_os_tisp_g_af_statis_attr(u32 ch, void *buf) { return t32_tc_zero(buf, 5400); }
 int t32_tx_os_tisp_g_af_metric_attr(u32 ch, void *buf) { return t32_tc_zero(buf, 12); }
-int t32_tx_os_tisp_g_ae_flicker_flag(u32 ch, void *buf) { return t32_tc_zero(buf, 8); }
-int t32_tx_os_tisp_g_face_ae_luma(u32 ch, void *buf) { return t32_tc_zero(buf, 8); }
 
-/* ---- tx_isp_*_attr .isra wrappers of AE / AWB (copy sizes of the vendor wrappers) ---- */
-
-static int t32_tc_in(u8 *dst, u32 user, u32 n, const char *fn)
-{
-	if (!t32_tx_os_copy_from_user(dst, user, n))
-		return 0;
-	t32_tx_os_isp_printf(2, "[ %s:%d ] copy error!!!\n", fn, 0);
-	return -EFAULT;
-}
+/* ---- tiziano_isp_ccm_attr_g_ctrl (the AE / AWB .isra wrappers are in tx_isp_t32_tunblk.c) ---- */
 
 static int t32_tc_out(u32 arg, const u8 *src, u32 n, const char *fn)
 {
@@ -354,55 +336,6 @@ static int t32_tc_out(u32 arg, const u8 *src, u32 n, const char *fn)
 		return 0;
 	t32_tx_os_isp_printf(2, "[ %s:%d ] copy error!!!\n", fn, 0);
 	return -EFAULT;
-}
-
-#define T32_TC_ISRA(name, field, n)						\
-int t32_tx_os_##name##_s_attr(u32 ch, u32 user)					\
-{ return t32_tc_in(t32_tc[ch].field, user, n, "tx_isp_" #name "_s_attr"); }	\
-int t32_tx_os_##name##_g_attr(u32 ch, u32 arg)					\
-{ return t32_tc_out(arg, t32_tc[ch].field, n, "tx_isp_" #name "_g_attr"); }
-
-T32_TC_ISRA(awb_attr, awb_attr, 60)
-T32_TC_ISRA(awb_weight, awb_weight, 1024)
-T32_TC_ISRA(ae_weight, ae_weight, 232)
-T32_TC_ISRA(ae_expoinfo, expinfo, 204)
-T32_TC_ISRA(ae_explist, explist, 324)
-T32_TC_ISRA(ae_target, ae_target, 264)
-
-int t32_tx_os_ae_scence_g_attr(u32 ch, u32 arg)
-{
-	return t32_tc_out(arg, t32_tc[ch].scene, 40, "tx_isp_ae_scence_g_attr");
-}
-
-/* tx_isp_ae_hlc_or_blc_g_attr: { mode, strength } from the AE scene words 0, 2 and bytes 4, 12 */
-int t32_tx_os_ae_hlc_or_blc_g_attr(u32 ch, u32 arg)
-{
-	const u32 *s = (const u32 *)t32_tc[ch].scene;
-	const u8 *s8 = t32_tc[ch].scene;
-	u32 m[2] = { 0, 0 };
-
-	if (s[0] == 3 && s[2] == 1) {
-		m[0] = 1;
-		m[1] = s8[4];
-	} else if (s[0] == 1 && s[2] == 3) {
-		m[0] = 2;
-		m[1] = s8[12];
-	}
-	return t32_tc_out(arg, (const u8 *)m, 8, "tx_isp_ae_hlc_or_blc_g_attr");
-}
-
-int t32_tx_os_ae_only_read_g_attr(u32 ch, u32 arg)
-{
-	u8 z[48] = { 0 };
-
-	return t32_tc_out(arg, z, 48, "tx_isp_ae_only_read_g_attr");
-}
-
-int t32_tx_os_awb_only_read_attr(u32 ch, u32 arg)
-{
-	u8 z[4] = { 0 };
-
-	return t32_tc_out(arg, z, 4, "tx_isp_awb_only_read_attr");
 }
 
 int t32_tx_os_ccm_attr_g_ctrl(u32 ch, u32 arg)
@@ -518,11 +451,15 @@ long t32_tunctl_ctrl(u32 *w, unsigned long arg)
 	return r;
 }
 
-/* /dev/tx-isp 0xc0045436 / 0xc0045437: AE start EV { u8 vi, ev[2] } in the AE scene words 6, 7 */
+/*
+ * /dev/tx-isp 0xc0045436 / 0xc0045437 (tx_isp_set_ae_start_ev / tx_isp_get_ae_start_ev):
+ * { u8 vi, ev[2] } in the AE scene attribute words 6, 7, read and written with
+ * tisp_g_ae_scence_attr / tisp_s_ae_scence_attr (tx_isp_t32_tunblk.c, the live AE).
+ */
 long t32_tunctl_ae_start(unsigned int cmd, unsigned long arg)
 {
-	u32 u[3];
-	u32 *sc;
+	u32 u[3], sc[T32_AE_SCENE_BYTES_TC / 4];
+	int r;
 
 	if (copy_from_user(u, (const void __user *)arg, sizeof(u))) {
 		isp_printf(2, "[ %s:%d ] copy error!!!\n", "tx_isp_set_ae_start_ev", 2080);
@@ -530,16 +467,20 @@ long t32_tunctl_ae_start(unsigned int cmd, unsigned long arg)
 	}
 	if ((u8)u[0] >= T32_TC_CH)
 		return -EINVAL;
+	memset(sc, 0, sizeof(sc));
 	mutex_lock(&t32_tc_lock);
-	sc = (u32 *)t32_tc[(u8)u[0]].scene;
-	if (cmd == 0xc0045436U) {
+	r = t32_tx_os_tisp_g_ae_scence_attr((u8)u[0], sc);
+	if (!r && cmd == 0xc0045436U) {
 		sc[6] = u[1];
 		sc[7] = u[2];
-	} else {
+		r = t32_tx_os_tisp_s_ae_scence_attr((u8)u[0], sc);
+	} else if (!r) {
 		u[1] = sc[6];
 		u[2] = sc[7];
 	}
 	mutex_unlock(&t32_tc_lock);
+	if (r)
+		return r;
 	if (cmd == 0xc0045437U && copy_to_user((void __user *)arg, u, sizeof(u)))
 		return -EFAULT;
 	return 0;
