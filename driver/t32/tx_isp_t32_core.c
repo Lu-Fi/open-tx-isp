@@ -806,6 +806,18 @@ u32 t32_core_sensor_vts(void)
 	return attr ? T32_AT(attr, T32_ATTR_TOTAL_HEIGHT, u16) : 0;
 }
 
+/* the sensor's struct tx_isp_video_in (104 B) and its attribute block, the inputs of ispcore_sync_sensor_attr */
+int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr)
+{
+	struct t32_vi *vi = &core.vi[0];
+
+	if (!vi->registered || !vi->sd)
+		return -ENODEV;
+	*video_in = (const u8 *)vi->sd + T32_SENSOR_VIDEO;
+	*attr = T32_AT(vi->sd, T32_SENSOR_VIDEO + T32_VIDEO_ATTR, const u8 *);
+	return *attr ? 0 : -ENODEV;
+}
+
 static long t32_m0_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct t32_vi *vi = &core.vi[0];

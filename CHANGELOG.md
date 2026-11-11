@@ -4,6 +4,10 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11: T32 vendor AE chain, part 2: AE context built at stream-on (openimp #234; planned, build-tested only)
+
+- Driver: after the AE statistics init the vendor AE context is built (`t32_pf_attach_ae`, `tx_isp_t32_tisp.c`): the sensor block `dd2d4` as `ispcore_sync_sensor_attr` + the ported `lib_tisp_sync_sensor_attr` build it from the sensor's attribute block and `tx_isp_video_in`, then `t32_ae_ctx_init` (oracle `t32_aeinit_oracle`) with the real fixed point maths of `tx_isp_t32_aemath.h`, and the eight AE register writes of the `tisp_ae_init` tail. Switch: `t32_ported_paths` bit 10 (block 9, ae). The per-frame AE does not run on it yet: `tisp_tgain` still feeds `t32_long_tgain_update`. .ko builds clean (82 symbols resolved); not QEMU / device tested.
+
 ## 2026-11-11: T32 vendor AE chain, part 1: AE context init + fixed point maths (openimp #234; planned, host only, not wired yet)
 
 - New `driver/t32/tx_isp_t32_aeinit.h`: `t32_ae_ctx_init` builds the AE blocks the per-frame AE ports work on (context `e15a8`, tuning section T, buffer B, state R from the `d3a40` .data template, `e15d8`, `e15c8`) exactly as the vendor `tisp_ae_init` leaves them, with ported `tisp_ae_sensor_par_ctrls_update`, `tisp_ae_init_par_calc`, `tisp_ae_par_calc`, `tisp_ae_fps_calc_max_exp`, `tisp_ae_clac_deflicker_cfg` and the register tail. Oracle `t32_aeinit_oracle`: the whole vendor `tisp_ae_init` chain against ours, every byte of the blocks, 12000 random + 67 IQ bins x 20, 0 mismatches, 23/23 mutations. WDR refused (no WDR in this front end).

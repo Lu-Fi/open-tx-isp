@@ -151,7 +151,9 @@ generation-shared come from the shared code instead:
   (`tx_isp_t32_aeinit.h`, `t32_ae_ctx_init` = state part of `tisp_ae_init`,
   oracle `t32_aeinit_oracle`) and the fixed point maths
   (`tx_isp_t32_aemath.h`, oracle `t32_aemath_oracle`) are ported and proven on
-  the host; not yet called by the driver. Next: per-frame wiring of
+  the host. The driver builds the context at stream-on (`t32_pf_attach_ae`,
+  `t32_ported_paths` bit 10, sensor block via `lib_tisp_sync_sensor_attr`)
+  and writes the init tail registers; it is not run per frame yet. Next: per-frame wiring of
   `tisp_ae_interrupt_static` / `tisp_ae_long_ev_alloc` (tgain event to
   `t32_long_tgain_update`) and `tisp_ae_calc_process`, then AWB.
 
