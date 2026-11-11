@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * T32 host oracle, TMO phase 11b: our readable port (driver/t32/tx_isp_t32_tmo.h) against the unmodified vendor functions
- * (Matt Davis' recovered C, PR #15 @ 2e2e06bc): tisp_tmo_ramV_vi0_reg_refresh, ramV_vi1_reg_refresh and ramY_vi0_reg_refresh (which
- * calls drc_ctrl: the vendor ref + its callees on the vendor side, the ports on ours).  Four channels, canary framed arena, random contexts and
+ * (Matt Davis' recovered C, PR #15 @ 2e2e06bc): tisp_tmo_ramV_vi0_reg_refresh, ramV_vi1_reg_refresh and ramY_vi0_reg_refresh / ramY_vi1_reg_refresh (which
+ * call drc_ctrl: the vendor ref + its callees on the vendor side, the ports on ours).  Four channels, canary framed arena, random contexts and
  * tone buffers / curves, d03a0 = 0 / 2 / random (direct registers) and d03a0 = 1 (shadow: tisp_reg_write is the oracle's ref/oa_reg_write.c
  * (tagged log), tisp_reg_lut_write the vendor ref writing the shadow image, armed with t32o_shadow_arm, channel 0)).  system_reg_write /
  * tisp_reg_write register and value, in order, and the shadow image are compared; system_reg_read (28960) is scripted; private_dma_cache_sync
@@ -36,10 +36,11 @@ __asm__(".weak t32_data_e3528\n.set t32_data_e3528, t32_evblk\n");
 u64 tisp_tmo_ramV_vi0_reg_refresh(u32, u32, u32, u32);
 u64 tisp_tmo_ramV_vi1_reg_refresh(u32, u32, u32, u32);
 u64 tisp_tmo_ramY_vi0_reg_refresh(u32, u32, u32, u32);
+u64 tisp_tmo_ramY_vi1_reg_refresh(u32, u32, u32, u32);
 #define FN(x) ((t32o_fn)(void (*)(void))(x))
 
-enum { F_V0, F_V1, F_Y0, F_N };
-static const char *const fname[F_N] = { "ramV_vi0_reg_refresh", "ramV_vi1_reg_refresh", "ramY_vi0_reg_refresh" };
+enum { F_V0, F_V1, F_Y0, F_Y1, F_N };
+static const char *const fname[F_N] = { "ramV_vi0_reg_refresh", "ramV_vi1_reg_refresh", "ramY_vi0_reg_refresh", "ramY_vi1_reg_refresh" };
 
 static u32 rs = 0x9a17e3u;
 static u32 rnd(void) { rs ^= rs << 13; rs ^= rs >> 17; rs ^= rs << 5; return rs; }
@@ -238,7 +239,7 @@ static void run_vendor(int f)
 	t32o_rd_hook = rdhook;
 	t32o_log.n = 0;
 	VIMG = D03 == 1 ? t32o_shadow_arm(8192) : 0;
-	t32o_call(FN(f == F_V0 ? tisp_tmo_ramV_vi0_reg_refresh : f == F_V1 ? tisp_tmo_ramV_vi1_reg_refresh : tisp_tmo_ramY_vi0_reg_refresh), CH, 0, 0, 0, 0);
+	t32o_call(FN(f == F_V0 ? tisp_tmo_ramV_vi0_reg_refresh : f == F_V1 ? tisp_tmo_ramV_vi1_reg_refresh : f == F_Y0 ? tisp_tmo_ramY_vi0_reg_refresh : tisp_tmo_ramY_vi1_reg_refresh), CH, 0, 0, 0, 0);
 }
 
 static void run_ours(int f)
@@ -267,7 +268,8 @@ static void run_ours(int f)
 		SHADOW[i] = 0xa5a50000u ^ i;
 	if (f == F_V0) t32_tmo_ramV_vi0_reg_refresh(OA + OT[CH], (int)CH, &io);
 	else if (f == F_V1) t32_tmo_ramV_vi1_reg_refresh(OA + OT[CH], (int)CH, &io);
-	else t32_tmo_ramY_vi0_reg_refresh(&r, (int)CH, &io);
+	else if (f == F_Y0) t32_tmo_ramY_vi0_reg_refresh(&r, (int)CH, &io);
+	else t32_tmo_ramY_vi1_reg_refresh(&r, (int)CH, &io);
 }
 
 int main(void)
@@ -290,6 +292,7 @@ int main(void)
 			want = f == F_Y0 ? 100 + 1 + 1 + 1 + 3 + 2 + 1 : f == F_V0 ? 1 + 1500 + 1 + 2 : (D03 == 1 ? 0 : 1500) + 3;
 			if (f == F_V1 && D03 == 1) want = 3;
 			if (f == F_Y0) want = 1 + 100 + 1 + 1 + 3 + 2;
+			if (f == F_Y1) want = 101;
 			if (t32o_log.n != OWN || OWN != want || SHN) { printf("MISMATCH %s case %u (d03a0 %u): write count %u / %u (want %u) shn %u\n", fname[f], c, D03, t32o_log.n, OWN, want, SHN); return 1; }
 			for (i = 0; i < OWN; i++)
 				if (t32o_log.w[i].reg != OW[i][0] || t32o_log.w[i].val != OW[i][1]) {
@@ -312,6 +315,6 @@ int main(void)
 				return 1;
 			}
 		}
-	printf("t32_tmo11b_oracle: %u cases compared (3 functions), 0 mismatches\n", compared);
+	printf("t32_tmo11b_oracle: %u cases compared (4 functions), 0 mismatches\n", compared);
 	return 0;
 }

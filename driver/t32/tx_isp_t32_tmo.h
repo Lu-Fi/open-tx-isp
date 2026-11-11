@@ -2405,3 +2405,23 @@ static inline void t32_tmo_faceae_reg_refresh(const u8 *st, u8 d03a0, t32_tmo_re
 #undef RW
 #undef ld16
 #undef ld32
+
+/* ---- phase 12b: ramY_vi1_reg_refresh ---- */
+
+/*
+ * tisp_tmo_ramY_vi1_reg_refresh (ch): drc_ctrl first (ported, on the record r), then 101 tisp_reg_write calls: register (d03a0 != 0 ? 7872 + k : 29284 + 4 k) for k = 0 .. 99
+ * = (out[2 k + 1] & 0x1fff) << 16 | (out[2 k] & 0x1fff), and k = 100 = (v << 16) | v with v = out[200] & 0x1fff (the vendor reads out + 400 twice); the last
+ * write is a tail call.  Unlike ramY_vi0 no stream registers (0x32300) and no interrupt mask are written.
+ */
+static inline void t32_tmo_ramY_vi1_reg_refresh(struct t32_tmo_rec *r, int ch, const struct t32_tmo_ramio *io)
+{
+	const u16 *out;
+	u32 k, v;
+
+	t32_tmo_drc_ctrl(r);
+	out = r->out;
+	for (k = 0; k < 100; k++)
+		io->regw(io->cb, ch, io->d03a0 != 0 ? 7872U + k : 29284U + 4U * k, ((out[2 * k + 1] & 0x1fffU) << 16) | (out[2 * k] & 0x1fffU));
+	v = out[200] & 0x1fffU;
+	io->regw(io->cb, ch, io->d03a0 != 0 ? 7972U : 29684U, (v << 16) | v);
+}
