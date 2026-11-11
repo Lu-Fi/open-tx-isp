@@ -320,7 +320,11 @@ static int t32_mdns_build(u8 *sec, u32 width, u32 height)
 	if (!o)
 		return -ENOMEM;
 	n = t32_mdns_init(sec, width, height, t32_core_memopt(), o, tisp_w);
-	kfree(o);
+	if (n > 0)	/* the per-frame context keeps the section and the value block */
+		t32_pf_attach_mdns(kmemdup(sec, T32_MDNS_SEC_BYTES, GFP_KERNEL), o, width, height,
+				   t32_core_memopt());
+	else
+		kfree(o);
 	return n;
 }
 

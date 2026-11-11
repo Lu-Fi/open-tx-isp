@@ -6,7 +6,7 @@
  * (t32_tisp_init in tx_isp_t32_hw.c) and never again; the vendor refreshes
  * them on every AE run through tisp_long_tgain_update.
  *
- * Block 1, gain-interpolated filters: DMSC, YSP, CDNS, YDNS, SDNS.
+ * Block 1, gain-interpolated filters: DMSC, YSP, CDNS, YDNS, SDNS; block 2 MDNS.
  *  - At stream-on the init path hands each block its IQ bin section (the copy
  *    the init function already edited, as the vendor keeps tparams) and the
  *    context is built the way the vendor's tisp_<blk>_init leaves it: zeroed
@@ -43,6 +43,7 @@
 #include "tx_isp_t32_cdns.h"
 #include "tx_isp_t32_ydns.h"
 #include "tx_isp_t32_sdns.h"
+#include "tx_isp_t32_mdns.h"
 
 /*
  * Vendor t32_data_d03a0: 1 = registers go into the shadow image / register
@@ -55,7 +56,7 @@ static unsigned int t32_ported_paths = 1;
 module_param(t32_ported_paths, uint, 0644);
 MODULE_PARM_DESC(t32_ported_paths,
 		 "1 (default): every wired per-frame block on its ported path; 0: all on the old path; "
-		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns)");
+		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns)");
 
 static unsigned int tisp_tgain = 0x10000;
 module_param(tisp_tgain, uint, 0644);
@@ -79,6 +80,7 @@ static struct {
 	struct t32_cdns_ctx cdns;
 	struct t32_ydns_ctx ydns;
 	struct t32_sdns_ctx sdns;
+	struct t32_mdns_ctx mdns;
 	bool have[T32_PP_COUNT];
 	u32 last_tgain[1];	/* vendor t32_data_dd... last low gain word, per channel */
 } pf;
@@ -141,7 +143,11 @@ static void pf_refresh(enum t32_ltg_ref blk, u32 ch, u32 gain)
 		if (pf.have[T32_PP_SDNS] && t32_pp_on(T32_PP_SDNS))
 			n = t32_sdns_refresh(&pf.sdns, (u8)ch, gain, pf_w);
 		break;
-	default:	/* GIB, MDNS, RDNS, AF: not wired yet */
+	case T32_LTG_MDNS:
+		if (pf.have[T32_PP_MDNS] && t32_pp_on(T32_PP_MDNS))
+			n = t32_mdns_refresh(&pf.mdns, gain, pf_w);
+		break;
+	default:	/* GIB, RDNS, AF: not wired yet */
 		return;
 	}
 	pf_flush(n);
@@ -157,7 +163,7 @@ static bool pf_any_filter(void)
 {
 	int b;
 
-	for (b = T32_PP_DMSC; b <= T32_PP_SDNS; b++)
+	for (b = 0; b < T32_PP_COUNT; b++)
 		if (pf.have[b] && t32_pp_on(b))
 			return true;
 	return false;
@@ -195,6 +201,8 @@ static void pf_free_locked(void)
 	kfree(pf.ydns.param);
 	kfree(pf.sdns.sec);
 	kfree(pf.sdns.param);
+	kfree(pf.mdns.sec);
+	kfree(pf.mdns.val);
 	memset(&pf, 0, sizeof(pf));
 }
 
@@ -275,6 +283,30 @@ void t32_pf_attach(enum t32_pp blk, u8 *sec)
 		break;
 	}
 	pf.have[blk] = true;
+	mutex_unlock(&pf_lock);
+}
+
+/*
+ * MDNS: the section copy and the value block of t32_mdns_init (both
+ * kmalloc'd) with the frame size and compression setting it ran with; the
+ * vendor's tisp_mdns_init leaves the context gain at -1, the hold flags
+ * (t32_data_f0900, t32_data_e2150) are 0 outside AOV.
+ */
+void t32_pf_attach_mdns(u8 *sec, u8 *val, u32 width, u32 height, u32 memopt)
+{
+	if (!sec || !val) {
+		kfree(sec);
+		kfree(val);
+		return;
+	}
+	mutex_lock(&pf_lock);
+	pf.mdns.sec = sec;
+	pf.mdns.val = val;
+	pf.mdns.gain = (u32)-1;
+	pf.mdns.width = width;
+	pf.mdns.height = height;
+	pf.mdns.memopt = memopt;
+	pf.have[T32_PP_MDNS] = true;
 	mutex_unlock(&pf_lock);
 }
 

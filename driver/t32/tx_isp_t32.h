@@ -50,7 +50,7 @@ u32 t32_hw_rd(u32 off);
 void t32_hw_wr(u32 off, u32 v);
 
 /* tx_isp_t32_tisp.c: per-frame tisp paths (ported blocks), switch t32_ported_paths */
-enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T32_PP_COUNT };
+enum t32_pp { T32_PP_DMSC, T32_PP_YSP, T32_PP_CDNS, T32_PP_YDNS, T32_PP_SDNS, T32_PP_MDNS, T32_PP_COUNT };
 struct t32_pf_stats {
 	u32 runs, writes;
 };
@@ -58,6 +58,7 @@ extern struct t32_pf_stats t32_pf_stats;
 bool t32_pp_on(enum t32_pp blk);
 void t32_pf_reset(void);
 void t32_pf_attach(enum t32_pp blk, u8 *sec);
+void t32_pf_attach_mdns(u8 *sec, u8 *val, u32 width, u32 height, u32 memopt);
 void t32_pf_kick(void);
 void t32_pf_exit(void);
 
