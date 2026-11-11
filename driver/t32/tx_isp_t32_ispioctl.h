@@ -29,10 +29,11 @@
  *    a failed waitdone is printed with level 1 (vendor a2 / a3 are leftovers, ours 0) and
  *    handled like idx 0; AWB: copy-to faults are only printed, the result stays 0).
  *
+ *  idx 11: MSCA channel streams on (arg[1] = 1, t32_io_msca_on) / off.
  *  Broadcast only: idx 2, 4, 7, 8, 10, 12, 13, 17..19, 28, 29 and every cmd outside
  *  0x1000000..0x100001e.
  *
- * Phased port: every command except idx 11 and 30 is ported so far.  Those two and sd NULL
+ * Phased port: every command except idx 30 is ported so far.  That one and sd NULL
  * with idx >= 2 (vendor: table c325c entries, then a NULL dereference on most paths) return
  * T32_IO_UNPORTED; an error pointer sd (vendor: dereferenced) is not
  * handled either.
@@ -69,6 +70,10 @@
 #define T32_IO_AEINFO		1972		/* AE info: bus, sensor u16 + 276 / + 278, pipe + 392 / 384 / 388 */
 #define T32_IO_AEINFO_SIZE	1996
 #define T32_IO_AWBINFO_SIZE	12288
+#define T32_CU_LOCK		168		/* format table user (284 B): lock */
+#define T32_CU_ON		208		/* enabled */
+#define T32_CU_PEND		212		/* list of queued buffers { next, prev, a, b } */
+#define T32_CU_ACT		220		/* list of buffers in the address FIFO */
 
 struct t32_io_ops {
 	void (*print)(u32 level, u32 fmt, u32 func, u32 line);		/* isp_printf */
@@ -101,6 +106,12 @@ struct t32_io_ops {
 	u32 (*awb_getinfo)(u32 buf);					/* tisp_awb_algo_getinfo */
 	u32 (*copy_to_user)(u32 to, u32 from, u32 n);			/* private_copy_to_user */
 	u32 fmt_ae_wait, fmt_awb_wait, fmt_copy_to, func_aeinfo, func_awbinfo;	/* cd5a4 cd5e4 cd5c4, c344c c340c */
+	/* phase 5: MSCA channel streams */
+	void (*fifo_clear_all)(void);					/* tisp_msca_addr_fifo_clear_all */
+	void (*fifo_write)(u32 ch, u32 sub, u32 a, u32 b);		/* tisp_msca_addr_fifo_write */
+	void (*chx_en)(u32 ch, u32 sub, u32 on);			/* tisp_msca_chx_en */
+	void (*chx_stream_on)(u32 user);				/* lib_tisp_msca_chx_stream_on */
+	void (*chx_stream_off)(u32 user);				/* lib_tisp_msca_chx_stream_off */
 };
 
 /* fn of the subdev ops block ops[blk], word w; 0 when the block or the function is missing */
@@ -342,6 +353,57 @@ static inline u32 t32_io_awb_info(const struct t32_io_ops *ops, u32 sd, u32 arg,
 	return 0;
 }
 
+/* idx 11, arg[1] = 1: per enabled user (channel user / 3, sub user % 3, under the user lock):
+ * refill the FIFO from the active list, move every queued buffer to the active list tail
+ * (list_del with the kernel poison values, then list_add_tail) and write it, stream on */
+static inline void t32_io_msca_on(const struct t32_io_ops *ops, u32 priv)
+{
+	u32 flags = 0, i, u, act, pend, n, next, prev, tail, ch, sub;
+
+	ops->fifo_clear_all();
+	for (i = 0; i < t32_ic_r32(priv, T32_CI_NUSERS); i++) {
+		u = t32_ic_r32(priv, T32_CI_USERS) + T32_CI_USER_SIZE * i;
+		if (!t32_ic_r32(u, T32_CU_ON))
+			continue;
+		ops->lock(u + T32_CU_LOCK, &flags);
+		ch = (u32)((int)i / 3) & 0xff;
+		sub = (u32)((int)i % 3);
+		act = u + T32_CU_ACT;
+		pend = u + T32_CU_PEND;
+		for (n = t32_ic_r32(act, 0); n != act; n = t32_ic_r32(n, 0)) {
+			ops->fifo_write(ch, sub, t32_ic_r32(n, 8), t32_ic_r32(n, 12));
+			ops->chx_en(ch, sub, 1);
+		}
+		for (n = t32_ic_r32(pend, 0); n != pend && n; n = t32_ic_r32(pend, 0)) {
+			next = t32_ic_r32(n, 0);
+			prev = t32_ic_r32(n, 4);
+			t32_ic_w32(next, 4, prev);
+			t32_ic_w32(prev, 0, next);
+			t32_ic_w32(n, 0, 0x100);
+			t32_ic_w32(n, 4, 0x200);
+			tail = t32_ic_r32(act, 4);
+			t32_ic_w32(act, 4, n);
+			t32_ic_w32(n, 0, act);
+			t32_ic_w32(n, 4, tail);
+			t32_ic_w32(tail, 0, n);
+			ops->chx_en(ch, sub, 1);
+			ops->fifo_write(ch, sub, t32_ic_r32(n, 8), t32_ic_r32(n, 12));
+		}
+		ops->unlock(u + T32_CU_LOCK, flags);
+		ops->chx_stream_on(i & 0xff);
+	}
+}
+
+/* idx 11, arg[1] != 1: stream off every enabled user */
+static inline void t32_io_msca_off(const struct t32_io_ops *ops, u32 priv)
+{
+	u32 i;
+
+	for (i = 0; i < t32_ic_r32(priv, T32_CI_NUSERS); i++)
+		if (t32_ic_r32(t32_ic_r32(priv, T32_CI_USERS) + T32_CI_USER_SIZE * i, T32_CU_ON))
+			ops->chx_stream_off(i & 0xff);
+}
+
 static inline u32 t32_ispcore_core_ops_ioctl(const struct t32_io_ops *ops, u32 sd, u32 cmd, u32 arg)
 {
 	u32 idx = cmd - T32_IO_CMD0, ret = 0, fn;
@@ -388,6 +450,12 @@ static inline u32 t32_ispcore_core_ops_ioctl(const struct t32_io_ops *ops, u32 s
 	case 14:
 	case 15:
 		t32_io_users(ops, sd, idx == 15);
+		break;
+	case 11:
+		if (t32_ic_r32(arg, 4) == 1)
+			t32_io_msca_on(ops, t32_ic_r32(sd, T32_IS_PRIV));
+		else
+			t32_io_msca_off(ops, t32_ic_r32(sd, T32_IS_PRIV));
 		break;
 	case 20:
 		t32_io_ae_init(ops, sd, arg);
