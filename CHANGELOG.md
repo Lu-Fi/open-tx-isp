@@ -4,6 +4,14 @@ Condensed from the open-stack campaign changelog; only open-tx-isp (kernel drive
 Newest first, grouped by date. Everything listed was device-tested on the SoC named unless
 marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned (the first one after the long soak of the release candidate); until then dates are the reference. Branch names are historic: the topic branches were merged into `next` and deleted.
 
+## 2026-11-11 (evening): T32 SetFaceAeWeiget window length bounded (openimp #350; beyond vendor, user-approved 2026-11-11; planned, host + QEMU only, not device-tested)
+
+- `t32_aea_set_face_ae_tune_params` (`driver/t32/tx_isp_t32_stats.h`, tuning id 0x2a `IMP_ISP_Tuning_SetFaceAeWeiget`) refuses a third word (AE state + 1540, the length of the 20-word AE smoothing window at state + 1300, default 15) above 20 with -EINVAL and writes nothing; 0..20 are unchanged (0 becomes 1 with a warning, return 0, like the vendor). The vendor stores any value, and the next AE frame (`tx_isp_t32_aefu.h`, `nR`) shifts the window over the following arrays (above 20) and past the 2184 B AE state (above 221: kernel oops).
+- The isp-m0 tuning set of id 0x2a (`t32_tx_sc_set_face_ae`, `tx_isp_t32_txsctrl.h`) returns that -EINVAL to the caller (OpenIMP: `IMP_ISP_Tuning_SetFaceAeWeiget` rc -4090); in-range values keep the vendor return code (the copy result). `t32_txsctrl_oracle` 41/41 mutations.
+- QEMU (`-M ingenic-t32`, cv8001, the former oopsing call alone with its pattern word 0xa27d5833, then 30 s streaming; audit run-bv-face): refused, 907 vendor AE frames after it, 0 oops (before: oops in `aec_work_fn` 0.2 s after the call).
+- `t32_aeaa_oracle`: in-range calls bit-exact with the vendor C; out-of-range calls are the named difference (counted, our side checked for -EINVAL and unchanged state / no side effect); 32/32 mutations detected.
+- The ISP-OSD index guards of #336 are user-approved too (same date).
+
 ## 2026-11-11: T32 vendor AE chain runs after stream-on; face AE weight overflow found (openimp #350; planned, QEMU only, not device-tested)
 
 - `t32_hw_stream_on` now runs `t32_pf_reset` once before `t32_stats_init`; `t32_tisp_init` no longer starts with it, so the AE context `t32_pf_attach_ae` builds stays attached and the per-frame vendor AE chain (`tx_isp_t32_ae.c`) runs from the first frame (QEMU: 9032 AE frames in a 5-minute run, 4 events per frame).
@@ -43,7 +51,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 
 - New `driver/t32/tx_isp_t32_isposd.c`: isp-m0 tuning ids 0x08000074 (mask), 0x080000a0 (draw), 0x080000a1 (OSD attribute), 0x080000a2 (OSD block), set and get, call the ported MSCA setters / getters on the VI 0 parameter block; the MSCA frame-done interrupt (0x300a8 bit 1, vendor irq 33) runs the new `tx_isp_t32_msca_irq.h` (`tisp_msca_irq_frame_done` = `tisp_msca_cfg_shd(0, 0)`, oracle `t32_mscafd_oracle`: 3000 cases, 0 mismatches, 7/7 mutations). Channel-start curve load and the commit share the shadow-RAM port under one lock; the RAM flag pair keeps the register's low half (vendor 0x5a0155).
 - QEMU (vendor libimp 2.2.0 and OpenIMP): MSCA OSD / mask / line register pairs equal to the vendor module's (final state identical), pictures and masks drawn by the QEMU model.
-- Beyond vendor, kept pending the user's decision: out-of-range indexes (OSD window >= 8, line >= 20, mask set >= 3 / block >= 4, VI != 0) are refused with -EINVAL (vendor writes outside its parameter block); getters start from a zeroed block (vendor: uninitialised stack, so the index read back is undefined).
+- Beyond vendor, user-approved 2026-11-11: out-of-range indexes (OSD window >= 8, line >= 20, mask set >= 3 / block >= 4, VI != 0) are refused with -EINVAL (vendor writes outside its parameter block); getters start from a zeroed block (vendor: uninitialised stack, so the index read back is undefined).
 
 ## 2026-11-11: T32 LCE block interrupts: tisp_lce_par per frame (openimp #234; planned, host only, not device-tested)
 

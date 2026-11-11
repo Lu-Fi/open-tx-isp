@@ -24,6 +24,7 @@
 #define STB	0x800u
 #define OUTB	64u
 #define INB	64u
+#define NR_BOUND	20u	/* #350: 20-word window at st + 1300 (fixed here, not taken from the header) */
 
 extern u32 t32_data_e15a8[4], t32_data_e1588[4];
 extern u8 t32_data_dd2d4[0x400];
@@ -103,6 +104,7 @@ struct snap {
 	struct fpsrec fr;
 };
 static struct snap sr;
+static unsigned int n_refused, n_inrange;
 
 static int setup(struct env *e, u32 ch)
 {
@@ -217,16 +219,41 @@ static int run_case(unsigned int which, u32 ch)
 	case C_FLICK: out[0] = t32_aea_get_flicker_flag(&c); break;
 	case C_ROI: t32_aea_get_gobal_roi_luma(&c, &out[0], &out[2]); break;
 	case C_GFACE: t32_aea_get_face_ae_tune_params(&c, &out[0], &out[2], &out[4]); break;
-	case C_SFACE: t32_aea_set_face_ae_tune_params(&c, &in[0], &in[2], &in[4], warn_hook, NULL); break;
+	case C_SFACE: so.ret = (u32)t32_aea_set_face_ae_tune_params(&c, &in[0], &in[2], &in[4], warn_hook, NULL); break;
 	case C_GFPS: out[0] = t32_aea_get_fps(&c); break;
 	case C_SFPS: so.ret = (u32)t32_aea_set_fps(&c, ch, in[0], fps_hook, warn_hook, NULL); break;
 	case C_FACEAE: t32_aea_get_faceae(&c, out); break;
 	case C_REGST: t32_aea_set_reg_state(&c, in[0]); break;
 	}
 	if (has_ret[which])
-		so.ret = which == C_SFPS ? so.ret : 0;
+		so.ret = which == C_SFPS || which == C_SFACE ? so.ret : 0;
 	take(&so, &e);
 	so.printfs = our_warn;
+	/*
+	 * #350 (beyond vendor, user-approved): a window length > 20 is refused
+	 * with -EINVAL and nothing is written; the vendor stores it (named
+	 * difference, counted, our side checked against the unchanged inputs).
+	 */
+	if (which == C_SFACE && in[4] > NR_BOUND) {
+		n_refused++;
+		if ((u32)so.ret != (u32)-EINVAL)
+			what = "refused: return value";
+		else if (so.logn || so.evn || so.printfs || so.fr.n)
+			what = "refused: side effect";
+		for (k = 0; !what && k < 2; k++)
+			if (memcmp(so.tune[k], d_tune[k], TUNEB) || memcmp(so.buf[k], d_buf[k], BUFB) ||
+			    memcmp(so.st[k], d_st[k], STB))
+				what = "refused: state written";
+		if (!what && (memcmp(so.in, d_in, INB) || memcmp(so.dd, sr.dd, sizeof(so.dd))))
+			what = "refused: input / dd2d4 changed";
+		if (what) {
+			printf("MISMATCH %s ch %u: %s\n", names[which], ch, what);
+			return 1;
+		}
+		return 0;
+	}
+	if (which == C_SFACE)
+		n_inrange++;
 	if (so.logn != sr.logn || so.evn != sr.evn || memcmp(so.evlog, sr.evlog, sizeof(so.evlog)))
 		what = "register / event log";
 	if (!what && so.printfs != sr.printfs)
@@ -285,12 +312,18 @@ int main(void)
 			memcpy(d_in, d_dd + ch * 232 + 56, 4);
 		if (!(rnd() & 3))
 			memset(d_in + 16, 0, 4);	/* p3 == 0 of set_face_ae_tune_params */
+		else if (rnd() & 1) {
+			u32 w = rnd() % 26;	/* #350: window length around the bound 20 */
+
+			memcpy(d_in + 16, &w, 4);
+		}
 		rc = run_case(which, ch);
 		if (rc) {
 			printf("t32_aeaa_oracle: FAILED at case %u\n", c);
 			return rc;
 		}
 	}
-	printf("t32_aeaa_oracle: random %u compared, 0 mismatches\n", n);
+	printf("t32_aeaa_oracle: random %u compared, 0 mismatches (set_face_ae_tune_params: %u in range bit-exact, %u refused > %u, #350 named difference)\n",
+	       n, n_inrange, n_refused, NR_BOUND);
 	return 0;
 }
