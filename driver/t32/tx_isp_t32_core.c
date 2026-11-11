@@ -806,6 +806,30 @@ u32 t32_core_sensor_vts(void)
 	return attr ? T32_AT(attr, T32_ATTR_TOTAL_HEIGHT, u16) : 0;
 }
 
+/*
+ * The sensor's alloc_again callback (attribute +0x11c, u32 (*)(u32 isp_gain,
+ * u8 shift, u32 *sensor_again)) as the vendor sensor_alloc_analog_gain calls
+ * it: log2 gain Q16 in, the sensor's rounded log2 gain back, its register
+ * value in *reg.  Without a callback the gain stays 1x (0).
+ */
+u32 t32_core_sensor_alloc_again(u32 log2_q16, u32 *reg)
+{
+	u32 (*cb)(u32 v, u32 shift, u32 *out);
+	const u8 *vin, *attr;
+
+	*reg = 0;
+	if (t32_core_sensor_ae_src(&vin, &attr))
+		return 0;
+	cb = T32_AT(attr, 0x11c, void *);
+	return cb ? cb(log2_q16, 16, reg) : 0;
+}
+
+/* tisp_set_ae_sensor_fps -> the sensor entry +212 (TX_ISP_EVENT_SENSOR_FPS) */
+int t32_core_sensor_set_fps(u32 fps)
+{
+	return (int)t32_sensor_fps_set(&core.vi[0], fps);
+}
+
 /* the sensor's struct tx_isp_video_in (104 B) and its attribute block, the inputs of ispcore_sync_sensor_attr */
 int t32_core_sensor_ae_src(const u8 **video_in, const u8 **attr)
 {
@@ -906,6 +930,10 @@ static int t32_proc_show(struct seq_file *m, void *v)
 		   t32_hw_stats.bringup_steps, t32_hw_stats.bringup_mean16, t32_hw_stats.bringup_it);
 	seq_printf(m, "per-frame ported paths: runs %u, writes %u\n",
 		   t32_pf_stats.runs, t32_pf_stats.writes);
+	seq_printf(m, "vendor AE: frames %u events %u writes %u expo %u fps %u; mean %u target %u it %u again %u dgain %u tgain %#x\n",
+		   t32_aec_stats.frames, t32_aec_stats.events, t32_aec_stats.writes, t32_aec_stats.expo_sets,
+		   t32_aec_stats.fps_sets, t32_aec_stats.mean, t32_aec_stats.target, t32_aec_stats.it,
+		   t32_aec_stats.again, t32_aec_stats.dgain, t32_aec_stats.tgain);
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
 	t32_fs_show(m);

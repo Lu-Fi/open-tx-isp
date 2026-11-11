@@ -56,6 +56,7 @@
 #include "tx_isp_t32_aemath.h"
 #include "tx_isp_t32_fixp.h"
 #include "tx_isp_t32_libwrap.h"
+#include "tx_isp_t32_aesns.h"
 #include "tx_isp_t32_lsc.h"
 #include "tx_isp_t32_lcetg.h"
 #include "tx_isp_t32_lcem.h"
@@ -250,8 +251,12 @@ static void pf_work_fn(struct work_struct *w)
 	(void)w;
 	mutex_lock(&pf_lock);
 	if (pf_w && pf.ready && pf_any_filter()) {
-		t32_long_tgain_update(&pf_ltg_ops, t32_data_d03a0, pf.last_tgain, 0,
-				      READ_ONCE(tisp_tgain), 0, 0, 0, 0);
+		u32 g;
+
+		/* the vendor AE's long total gain (event 4) once it runs, else tisp_tgain */
+		if (!(t32_pp_on(T32_PP_AE) && t32_aec_tgain(&g)))
+			g = READ_ONCE(tisp_tgain);
+		t32_long_tgain_update(&pf_ltg_ops, t32_data_d03a0, pf.last_tgain, 0, g, 0, 0, 0, 0);
 		t32_pf_stats.runs++;
 	}
 	mutex_unlock(&pf_lock);
@@ -595,6 +600,7 @@ static struct {
 
 static void ae_free(void)
 {
+	t32_aec_detach();	/* the per-frame AE stops using the blocks first */
 	kfree(ae.b.ctx); kfree(ae.b.T); kfree(ae.b.B); kfree(ae.b.R); kfree(ae.b.D); kfree(ae.b.C);
 	memset(&ae, 0, sizeof(ae));
 }
@@ -609,27 +615,11 @@ static int ae_sensor_block(u8 *S)
 {
 	struct t32_lib_hooks h = { .ae_sensor_trig = ae_sensor_trig };
 	const u8 *vin, *si;
-	u8 blk[124] = { 0 };
+	u8 blk[T32_AESNS_BLK];
 
 	if (t32_core_sensor_ae_src(&vin, &si))
 		return -ENODEV;
-	memcpy(blk + 0, si + 276, 2);	/* total width */
-	memcpy(blk + 2, si + 278, 2);	/* total height */
-	memcpy(blk + 36, si + 160, 4);
-	memcpy(blk + 40, si + 192, 4);
-	memcpy(blk + 56, vin + 68, 12);
-	memcpy(blk + 68, si + 220, 4);
-	memcpy(blk + 72, si + 224, 4);
-	memcpy(blk + 80, si + 224, 4);
-	memcpy(blk + 84, si + 280, 4);
-	memcpy(blk + 88, si + 236, 4);
-	memcpy(blk + 92, si + 240, 4);
-	memcpy(blk + 96, si + 176, 4);
-	memcpy(blk + 108, si + 152, 4);
-	memcpy(blk + 112, si + 216, 4);
-	blk[116] = si[228];		/* low byte of the u16 */
-	blk[117] = si[164];
-	blk[123] = si[196] ? si[196] : 1;
+	t32_ae_sensor_blk(blk, vin, si);	/* oracle t32_aesns_oracle */
 	memset(S, 0, T32_SENSOR_ATTR_COPY);
 	t32_lib_sync_sensor_attr(&h, S, 0, blk);
 	return 0;
@@ -678,6 +668,8 @@ int t32_pf_attach_ae(const u8 *sec, u32 width, u32 height)
 	for (i = 0; i < n; i++)
 		t32_hw_wr(w[i].reg, w[i].val);
 	ae.ready = true;
+	if (t32_aec_attach(&ae.b, ae.S, t32_hw_ae_zones()))	/* per-frame AE: tx_isp_t32_ae.c */
+		isp_printf(2, "tx-isp-t32: vendor AE per-frame chain not started\n");
 	mutex_unlock(&pf_lock);
 	return 0;
 }
