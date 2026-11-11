@@ -308,10 +308,13 @@ static int t32_sensor_stream(struct t32_vi *vi, int on)
 			ret = init(vi->sd, &arg);
 		if (!ret && stream)
 			ret = stream(vi->sd, &arg);
-		if (!ret)
+		if (!ret) {
+			t32_ivdc_stream(1);
 			t32_hw_stream_on();
+		}
 	} else {
 		t32_hw_stream_off();
+		t32_ivdc_stream(0);
 		if (stream)
 			ret = stream(vi->sd, &arg);
 		if (init)
@@ -899,12 +902,7 @@ static struct miscdevice t32_m0_misc = {
 
 static long t32_ivdc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	u32 v = 0;
-
-	if (cmd == T32_IOC_IVDC_GET_DIRECT)
-		return copy_to_user((void __user *)arg, &v, sizeof(v)) ? -EFAULT : 0;
-	isp_printf(1, "tx-isp-t32: misc-ivdc ioctl %#x not handled\n", cmd);
-	return -ENOTTY;
+	return t32_ivdc_misc_ioctl(cmd, arg);	/* tx_isp_t32_ivdcdrv.c (#349) */
 }
 
 static const struct file_operations t32_ivdc_fops = {
@@ -959,6 +957,7 @@ static int t32_proc_show(struct seq_file *m, void *v)
 	seq_printf(m, "sensor fps %#x, stream-on list runs %u (last %u words) timeouts %u\n",
 		   t32_core_sensor_fps(), t32_rcfg_runs, t32_rcfg_last_len, t32_rcfg_timeouts);
 	t32_fs_show(m);
+	t32_ivdc_show(m);
 	return 0;
 }
 
@@ -1057,6 +1056,11 @@ int tx_isp_t32_core_init(void)
 	ret = t32_hw_init();
 	if (ret)
 		goto err_hw;
+	ret = t32_ivdc_init();
+	if (ret) {
+		t32_hw_exit();
+		goto err_hw;
+	}
 	core.proc = jz_proc_mkdir("isp");
 	if (core.proc) {
 		proc_create("isp-m0", 0444, core.proc, &t32_proc_fops);
@@ -1095,6 +1099,7 @@ void tx_isp_t32_core_exit(void)
 		remove_proc_entry("isp-w02", core.proc);
 		proc_remove(core.proc);
 	}
+	t32_ivdc_exit();
 	t32_hw_exit();
 	t32_fs_exit();
 	misc_deregister(&t32_ivdc_misc);
