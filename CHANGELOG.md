@@ -26,6 +26,7 @@ marked otherwise. Release tags `vYYYY.MM.DD` on the `aperto` branch are planned 
 - `t32_txgraph_oracle`: `tx_isp_t32_txgraph.h` (tx_isp_create_graph_and_nodes), 30000 random module sets, 20 mutations detected. Vendor bugs named: the "can't find" print passes a stale stack word as module number (not compared), the later walks do not test the drvdata for NULL, a child without parent only ends the second walk.
 - `t32_txframe_oracle`: `tx_isp_t32_txframe.h` (tx_isp_frame_chan_misc_register), 30000 random cases, 14 mutations detected.
 - `t32_txivdc_oracle`: `tx_isp_t32_txivdc.h` (tx_isp_ivdc_probe), 30000 random cases, 22 mutations detected. Vendor: a failed buffer allocation or misc_register leaves the device allocated.
+- `t32_txfs_oracle`: `tx_isp_t32_txfs.h` (tx_isp_fs_probe), 20000 random cases (0..4 pads), 25 mutations detected. Vendor bugs named: the channel array allocation is not tested; the rollback for a NULL / ERR_PTR channel or pad never ends for pad 0 and skips channel 0 (unreachable with a valid array; ours returns -EINVAL there, not compared).
 
 ## 2026-11-07: T32 host oracle from Matt Davis' recovered C, CCM init bit-exact (planned, host only, not device-tested)
 
