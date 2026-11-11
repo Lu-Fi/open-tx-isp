@@ -21,6 +21,9 @@ marked otherwise. Release tags `vYYYY.MM.DD[-rcN]` are set on the `aperto` branc
 - `t31_ipu`: the probe error path and `remove` now put the ahb1 gate only under `IPU_T31_AHB1`, the same guard as its `clk_get` (no behaviour change, the macro is 1).
 - `tx_isp_v4l2_sensor`: the raw `s_register` path is documented as a debug/tuning write that bypasses the sensor driver, like the vendor ioctl. The Thingino 7.x sensor drivers use the v4l2-cci regmap, which has no cache, so nothing desyncs; a driver may overwrite the value on its next stream start, mode set or control update.
 
+## 2026-11-11: T40 module builds again, lifted Tiziano_adr_fpga corrected (openimp #335; cross-build + host tests, not on a camera)
+
+- The lifted `Tiziano_adr_fpga` held its registers as typed pointers, so `v0 += 2` advanced by `sizeof` and wrote past the 32-byte local; gcc then emitted a compiler-proved self loop (`b .`) and the self-loop build check stopped the T40 module build. Registers are now `uintptr_t` (byte arithmetic as in the OEM asm), `func_interp1_short` gets its full 6 arguments (a3 = local table, 8, 16), the 56-byte slot locals are arrays and `adr_gauss_local[24]` is indexed as the OEM does (two NULL-based loads gone). The check is unchanged; the T40 build passes.
 ## 2026-11-11: T40 tisp_lsc_real_write_lut gets a real table base (openimp #337; cross-build + host tests, not on a camera)
 
 - The lifted `tisp_lsc_real_write_lut` loaded its LUT base from `lsc_{main,seco}_real_para`, statics nothing in the module writes (gcc folded them to `lhu 13828(zero)`). The OEM reads the same pointer statics, filled by `tisp_lsc_init`; here the table lives in the LSC writer context, so the twin now takes the base from there (NULL context -> -EAGAIN). The `tests/ko_zerobase_baseline.txt` entry is gone. The twin is only reachable through `tisp_hardware_reg_refresh` (module parameter `isr_oem_hw_refresh`), where it delegates to the writer anyway, so LSC output is unchanged.
