@@ -20,8 +20,8 @@
 #include <sys/mman.h>
 #include "t32_oracle_env.h"
 
-#define SR_MAXE	8192
-#define SR_TXT	1024
+#define SR_MAXE	16384
+#define SR_TXT	256
 enum { SR_SEQ = 1, SR_PSEQ, SR_ISP, SR_PRINTK, SR_HOOK };
 struct sr_ev { u32 kind, a, b, c; char t[SR_TXT]; };
 static struct sr_ev sr_ev[2][SR_MAXE];
