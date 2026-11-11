@@ -26,6 +26,8 @@
 #define O_SENS	0x3000u		/* 8 sensor objects, 0x100 apart */
 #define O_LINKS	0x3800u		/* 12 link sets of up to 6 descriptors */
 #define O_PADS	0x4000u		/* 16 pads, 0x20 apart */
+#define O_XSD	0x1000u		/* subdevice 0 +88: the VIC subdevice */
+#define O_VIC	0x6000u		/* its device (+872 raw busy) */
 #define O_KMEM	0x6c00u		/* the kmalloc block (never touched) */
 #define O_FD	0x5000u		/* frame drop channel table: 8 inputs x 3 x 284 bytes */
 
@@ -77,7 +79,7 @@ static u32 cb_core(u32 sd, u32 cmd, u32 arg)
 {
 	u32 *b = T32O_HOST(arg), k;
 
-	if (arg == A(O_USER)) {
+	if (arg == A(O_USER) || !arg) {
 		op3_call("core_ioctl", 3, sd, cmd, arg, 0);
 	} else {	/* a kernel block: its content */
 		op3_call("core_ioctl", 4, sd, cmd, b[0], b[1]);
@@ -121,7 +123,13 @@ static u32 cb_notify(u32 sd, u32 ev, u32 msg)
 
 /* user copies */
 static u32 cfu_ret, ctu_ret, ctu_lim;
-static u32 cfu_rec(void *d, u32 u, u32 n) { op3_call("private_copy_from_user", 2, u, n, 0, 0); memcpy(d, T32O_HOST(u), n); return cfu_ret; }
+static u32 cfu_ret2, n_cfu;
+static u32 cfu_rec(void *d, u32 u, u32 n)
+{
+	op3_call("private_copy_from_user", 2, u, n, 0, 0);
+	memcpy(d, T32O_HOST(u), n);
+	return n_cfu++ ? cfu_ret2 : cfu_ret;	/* a second copy (wdr_set_buf) may fail on its own */
+}
 static u32 ctu_rec(u32 u, const void *s, u32 n)
 {
 	u32 c = (n == T32_AWB_ALGO_BUF && !cb_filled) ? 8 : n;	/* AWB algo open without a callback: stale stack bytes */
@@ -221,16 +229,58 @@ u32 t32_tx_os_kmalloc(u32 n, u32 f) { return kmalloc_rec(n, f); }
 void t32_tx_os_kfree(u32 p) { kfree_rec(p); }
 void t32_tx_os_memset(u32 a, u32 c, u32 n) { memset(T32O_HOST(a), (int)c, n); }
 
-/* not yet exercised externals */
-OP3_STUB(finish_wait, 2)
-OP3_STUB(lib_tisp_api_s_runningMode, 1)
-OP3_STUB(prepare_to_wait_event, 3)
-OP3_STUB(private_init_completion, 1)
-OP3_STUB(private_wait_for_completion_timeout, 2)
-OP3_STUB(schedule_timeout, 1) 
+/* running mode switch, PM control, raw control */
+static u32 wfc_ret, prep_tab[4], n_prep, prep_up, sched_tab[4], n_sched, dma_on, pmcore;
+static u32 dma_tab[16];
+static u32 lst_ok(const u32 *e) { return e[3] == T32O_PTR(&e[3]) && e[4] == T32O_PTR(&e[3]); }
+static void initc_rec(u32 c) { op3_call("private_init_completion", 1, c, 0, 0, 0); }
+static u32 wfc_rec(u32 c, u32 t) { op3_call("private_wait_for_completion_timeout", 2, c, t, 0, 0); return wfc_ret; }
+static u32 prep_rec(u32 wq, const u32 *e, u32 st)
+{
+	op3_call("prepare_to_wait_event", 4, wq, e[0], lst_ok(e), st);
+	if (++n_prep == prep_up)	/* the switch count comes up */
+		*(u32 *)T32O_HOST(pmcore + T32_CORE_PM_COUNT) = 1;
+	return prep_tab[n_prep & 3];
+}
+static void fin_rec(u32 wq, const u32 *e) { op3_call("finish_wait", 3, wq, e[0], lst_ok(e), 0); }
+static u32 sched_rec(u32 t) { op3_call("schedule_timeout", 1, t, 0, 0, 0); return t ? sched_tab[n_sched++ & 3] % t : 0; }
+static void runm_rec(u32 m) { op3_call("lib_tisp_api_s_runningMode", 1, m, 0, 0, 0); }
+static u32 dma_cb(u32 dev, u32 a, u32 n, u32 dir) { op3_call("dma_sync_single_for_cpu", 4, dev, a, n, dir); return 0; }
+static void raw_rec(u32 a0, u32 a1, u32 a2, u32 a3) { op3_call("tx_isp_vic_save_raw", 4, a0, a1, a2, a3); }
+u64 op3_private_init_completion(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; initc_rec(a0); return 0; }
+u64 op3_private_wait_for_completion_timeout(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; return wfc_rec(a0, a1); }
+u64 op3_prepare_to_wait_event(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a3; return prep_rec(a0, T32O_HOST(a1), a2); }
+u64 op3_finish_wait(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a2; (void)a3; fin_rec(a0, T32O_HOST(a1)); return 0; }
+u64 op3_schedule_timeout(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; return sched_rec(a0); }
+u64 op3_lib_tisp_api_s_runningMode(u32 a0, u32 a1, u32 a2, u32 a3) { (void)a1; (void)a2; (void)a3; runm_rec(a0); return 0; }
+u64 op3_tx_isp_vic_save_raw(u32 a0, u32 a1, u32 a2, u32 a3) { raw_rec(a0, a1, a2, a3); return 0; }
+u32 op3_mips_dma_map_ops[16];
+void t32_tx_os_init_completion(u32 c) { initc_rec(c); }
+int t32_tx_os_wait_for_completion_timeout(u32 c, u32 t) { return (int)wfc_rec(c, t); }
+int t32_tx_os_prepare_to_wait_event(u32 wq, void *e, u32 st) { return (int)prep_rec(wq, e, st); }
+void t32_tx_os_finish_wait(u32 wq, void *e) { fin_rec(wq, e); }
+int t32_tx_os_schedule_timeout(int t) { return (int)sched_rec((u32)t); }
+void t32_tx_os_atomic_dec(u32 a) { (*(u32 *)T32O_HOST(a))--; }
+void t32_tx_os_lib_tisp_api_s_running_mode(u32 m) { runm_rec(m); }
+void t32_tx_os_dma_sync_for_cpu(u32 a, u32 n)
+{
+	u32 *ops = T32O_HOST(op3_mips_dma_map_ops[0]);
 
-OP3_STUB(tx_isp_vic_save_raw, 2)
-u8 op3_mips_dma_map_ops[64];
+	if (ops[9])
+		dma_cb(0, a, n, 2);
+}
+void t32_tx_os_vic_save_raw(u32 in, u32 a, u32 b, u32 m) { raw_rec(in, a, b, m); }
+
+/* not yet exercised externals */
+
+
+
+
+
+
+
+
+
 u32 op3_t32_data_d9014, op3_t32_data_da784, t32_tx_isp_dev;
 #define S(n, v) char op3_t32_data_##n[] = v;
 S(be720, "tx_isp_memory_free") S(be734, "tx_isp_memory_malloc") S(be74c, "tx_isp_set_wdr_enable")
@@ -303,6 +353,8 @@ static const u32 cmds[] = {
 	T32_UIO_WDR_ENABLE,
 	/* IPC memory, managed memory */
 	T32_UIO_SET_IPC_MEM, T32_UIO_GET_IPC_MEM, T32_UIO_MEM_MALLOC, T32_UIO_MEM_FREE,
+	/* modes */
+	T32_UIO_RUN_SWITCH, T32_UIO_SET_PM_CTRL, T32_UIO_RAW_CONTROL, T32_UIO_CORE_SUM6,
 	/* default neighbours inside the vendor ranges */
 	0xc0045427, 0xc0045428, 0xc0045429, 0
 };
@@ -389,6 +441,25 @@ static void build(u32 base)
 	cache_line = (op3_rnd() & 1) ? 0 : op3_rnd();
 	ipc_ret = op3_rnd();
 	kmalloc_ok = (op3_rnd() & 7) != 0;
+	wfc_ret = (op3_rnd() & 1) ? 0 : op3_rnd();
+	for (k = 0; k < 4; k++) {
+		prep_tab[k] = (op3_rnd() & 3) ? 0 : (op3_rnd() & 1) ? (u32)-512 : op3_rnd() % 3;
+		sched_tab[k] = (op3_rnd() & 3) ? op3_rnd() : 0;
+	}
+	prep_up = op3_rnd() % 6;
+	pmcore = base + O_CORE;
+	sw(O_CORE + T32_CORE_PM_COUNT, (op3_rnd() & 1) ? op3_rnd() % 3 : (u32)-(int)(op3_rnd() % 3));
+	sw(O_ISP + T32_ISP_RUN_MODE, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
+	sw(O_ISP + T32_DEV_DONE_WAIT, (op3_rnd() & 3) ? 0 : op3_rnd());
+	for (k = 0; k < NSD; k++)
+		sw(O_SD(k) + T32_SD_VIC, base + O_XSD);
+	sw(O_XSD + T32_SD_PRIV_CORE, base + O_VIC);
+	sw(O_VIC + T32_VIC_RAW_BUSY, (op3_rnd() & 1) ? 0 : op3_rnd());
+	for (k = 0; k < 8; k++) {
+		sw(O_CORE + T32_CORE_IN_BYTES * k + T32_CORE_RAW_W, (op3_rnd() & 1) ? 3839 + op3_rnd() % 4 : op3_rnd() % 5000);
+		sw(O_CORE + T32_CORE_IN_BYTES * k + T32_CORE_RAW_H, op3_rnd() % 3000);
+	}
+	dma_on = op3_rnd() & 1;
 	sw(O_CORE + T32_CORE_IPC_FIX, (op3_rnd() & 1) ? 1 : op3_rnd() % 3);
 	sw(O_CORE + T32_CORE_WDR_MODE, (op3_rnd() & 1) ? T32_WDR_MODE_ON : op3_rnd() % 20);
 	for (k = 0; k < 8; k++)
@@ -409,6 +480,7 @@ static void build(u32 base)
 	}
 	cfu_ret = (op3_rnd() & 7) ? 0 : op3_rnd();
 	ctu_ret = (op3_rnd() & 7) ? 0 : op3_rnd();
+	cfu_ret2 = (op3_rnd() & 7) ? 0 : op3_rnd();
 	notify_ret = op3_rnd();
 	for (k = 0; k < 8; k++)
 		rtab[k] = (op3_rnd() & 3) ? 0 : op3_rnd();
@@ -425,6 +497,7 @@ static void setup(void)
 	cb_filled = 0;
 	n_fd = 0;
 	n_sc = 0;
+	n_prep = n_sched = n_cfu = 0;
 }
 
 static u64 ours(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4) { (void)a3; (void)a4; return (u32)t32_tx_isp_unlocked_ioctl(a0, a1, a2); }
@@ -471,6 +544,18 @@ int main(void)
 
 			ctu_lim = v <= 1 ? 4 : 0;
 		}
+		if (cmd == T32_UIO_RUN_SWITCH) {
+			arg = (op3_rnd() & 7) ? op3_rnd() % 5 : op3_rnd();
+			if (!(op3_rnd() & 3))	/* no subdevices at all */
+				for (k = 0; k < T32_DEV_SD_N; k++)
+					sw(O_ISP + T32_DEV_SD + 4 * k, 0);
+		}
+		if (cmd == T32_UIO_SET_PM_CTRL)
+			sw(O_USER, (op3_rnd() & 1) ? 0 : (op3_rnd() & 1) ? 1 : op3_rnd());
+		if (cmd == T32_UIO_RAW_CONTROL)
+			sw(O_USER, op3_rnd() % 8 | (op3_rnd() & 0xffff00) | (op3_rnd() & 1 ? 3u << 24 : op3_rnd() & 0xff000000));
+		op3_mips_dma_map_ops[0] = T32O_PTR(dma_tab);
+		dma_tab[9] = dma_on ? T32O_PTR(dma_cb) : 0;
 		if (cmd == T32_UIO_MEM_FREE)
 			sw(O_USER, (op3_rnd() & 3) ? 0x1234u : (op3_rnd() & 1) ? 0 : op3_rnd());
 		if (cmd == T32_UIO_MEM_MALLOC && (op3_rnd() & 1))
