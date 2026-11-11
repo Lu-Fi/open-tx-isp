@@ -382,6 +382,29 @@ int main(void)
 			}
 		}
 	}
-	printf("t32_ispioctl_oracle: %u cases compared, %u mismatches\n", compared, failed);
+	/*
+	 * BEYOND VENDOR (#281): an error pointer sd (vendor: dereferenced) must give what the vendor
+	 * gives for NULL with idx 0 / 1 (message + -19, compared against the vendor run with sd 0) and
+	 * T32_IO_UNPORTED for every other command; ours only for the error pointers.
+	 */
+	for (it = 0; it < 4000; it++) {
+		u32 seed = rnd(), r, rr, ep = 0xfffff001u + rnd() % 4095, cmd;
+
+		build(seed);
+		cmd = it % 3 ? T32_IO_CMD0 + it % 2 : rnd();
+		r = (u32)t32o_call((t32o_fn)(void (*)(void))ours, ep, cmd, ARG, 0, 0);
+		lg_ours = lg;
+		memcpy(snap, world, WSZ);
+		build(seed);
+		if (cmd - T32_IO_CMD0 <= 1)
+			rr = (u32)t32o_call((t32o_fn)(void (*)(void))ispcore_core_ops_ioctl, 0, cmd, ARG, 0, 0);
+		else
+			rr = T32_IO_UNPORTED;
+		if (r != rr || memcmp(&lg, &lg_ours, sizeof(lg)) || memcmp(snap, world, WSZ)) {
+			if (failed++ < 5)
+				printf("t32_ispioctl_oracle: error pointer sd %x cmd %x: %x/%x (beyond vendor guard)\n", ep, cmd, r, rr);
+		}
+	}
+	printf("t32_ispioctl_oracle: %u cases compared, 4000 error-pointer sd (beyond vendor), %u mismatches\n", compared, failed);
 	return failed ? 1 : 0;
 }
