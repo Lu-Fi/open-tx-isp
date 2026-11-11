@@ -39518,35 +39518,29 @@ int32_t AE_request_interrupt(int32_t *arg1, int32_t arg2)
 int32_t AE_fsm_switch_state(int32_t *arg1, int32_t arg2)
 {
 	int32_t cur = arg1[1];
-	int32_t *result = cur - 3;
 
-	if (arg2 != cur) {
-		((void **)arg1)[1] = arg2;
+	/* OEM ae_balanced_fsm.c AE_fsm_switch_state (ko 0x2e824): no state change, no action;
+	 * the return value is the old state - 3 (no caller uses it) */
+	if (arg2 == cur)
+		return cur - 3;
 
-		if (result >= 3)
-			goto label_2e878;
+	arg1[1] = arg2;
+	/* leaving the 3..5 (calculate) states raises event 8 (OEM sltiu: unsigned compares;
+	 * the lifted signed arg2 - 3 >= 3 never raised it for states 0..2, #283) */
+	if ((uint32_t)(cur - 3) < 3 && (uint32_t)(arg2 - 3) >= 3)
+		apical_isp_raise_event((void *)(uintptr_t)*arg1, 8);
 
-		if (arg2 - 3 >= 3)
-			apical_isp_raise_event(*arg1, 8);
-	}
-
-label_2e878:
 	if (arg2 == 0)
 		return ae_initialize(arg1);
-
 	if (arg2 == 2)
 		return AE_request_interrupt(arg1, 8);
-
-	result = 5;
-
+	/* #283: the lifted baseline returned 0 here for every state, so state 5 never ran
+	 * ae_calculate_exposure; the OEM tail-calls both */
 	if (arg2 == 4)
-		ae_calculate_target(arg1);
-		return 0;
-
+		return (int32_t)(uintptr_t)ae_calculate_target(arg1);
 	if (arg2 == 5)
-		return ae_calculate_exposure(arg1);
-
-	return result;
+		return ae_calculate_exposure((uintptr_t)arg1);
+	return 5;
 }
 
 /* WHOLE_DRIVER_CANDIDATE fn_000000000002e910 origin=model_output original=AE_fsm_process_state */
