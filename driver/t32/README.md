@@ -34,7 +34,11 @@ generation-shared come from the shared code instead:
   - `DRIVER_VERSION` fills a 64-byte buffer: SoC name and driver version,
     which libimp compares with its own (`driver_soc`, `driver_version`).
   - `DEFAULT_BIN` fills an 880-byte buffer with the IQ bin format version and
-    SoC that libimp checks the bin against (`bin_version`).
+    SoC that libimp checks the bin against (`bin_version`), and, as the vendor
+    driver, the WDR (word 852) and day/night (word 856) flags of the bin last
+    set with `SET_TIZIANO_PAR` (20 bytes) for the VI in byte 862; libimp's
+    `GetISPRunningMode` reads word 856. The flags survive `RELEASE_SENSOR`
+    like the vendor module's (#303).
   - `ENUMINPUT` returns `{index, name[32]}`; libimp finds its sensor by name.
   - `MEMORY_MALLOC`/`FREE`: page-contiguous buffers returned as `{kva, pa}`;
     libimp maps them through `/dev/mem` and loads the IQ bins into them.

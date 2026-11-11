@@ -54,12 +54,32 @@ MODULE_PARM_DESC(driver_version, "ISP driver version answered to DRIVER_VERSION 
  * DEFAULT_BIN: libimp passes an 880-byte buffer (zeroed) and checks two
  * strings the driver puts into it against the IQ bin it is about to load:
  * the bin format version at 863 (bin bytes 0-7, "1.00") and the SoC at 871
- * (bin bytes 152.., "PRJ007").  The rest of the buffer is left zero, as far
- * as libimp 2.2.0 is concerned (S1).
+ * (bin bytes 152.., "PRJ007").  Like the vendor (tx_isp_default_bin) the
+ * buffer comes back as libimp sent it with these fields filled: WDR (word
+ * 852) and day / night (word 856) of the bin last set with SET_TIZIANO_PAR
+ * for the VI in byte 862 (IMP_ISP_Tuning_GetISPRunningMode reads 856), the
+ * fast-boot "first bin" flag at 860 (0: no kernel fast-boot bins).  The
+ * mode is kept over RELEASE_SENSOR, as the vendor module does (#303).
  */
 #define T32_DEFAULT_BIN_SIZE	880
+#define T32_DEFAULT_BIN_WDR	852
+#define T32_DEFAULT_BIN_DN	856
+#define T32_DEFAULT_BIN_FIRST	860
+#define T32_DEFAULT_BIN_VI	862
 #define T32_DEFAULT_BIN_VER	863
 #define T32_DEFAULT_BIN_SOC	871
+#define T32_BIN_VIS		4	/* VI numbers whose bin mode is kept */
+
+/* SET_TIZIANO_PAR: 20 bytes (the request's size field says 4) */
+struct t32_tiziano_par {
+	u32 pa;
+	u32 size;
+	u32 wdr;
+	u32 night;
+	u8 update_csccr;
+	u8 vinum;
+	u8 pad[2];
+};
 static char *bin_version = "1.00";
 module_param(bin_version, charp, 0444);
 MODULE_PARM_DESC(bin_version, "IQ bin format version the driver accepts");
@@ -98,6 +118,7 @@ static struct t32_core {
 	void *pending_sd;		/* set by tx_isp_subdev_init during probe */
 	u32 tiziano_pa;
 	u32 default_bin;
+	u32 bin_wdr[T32_BIN_VIS], bin_night[T32_BIN_VIS];	/* last SET_TIZIANO_PAR */
 	unsigned int ioctls;
 	struct proc_dir_entry *proc;
 } core;
@@ -376,14 +397,19 @@ static void t32_free_all(void)
 	core.tiziano_pa = 0;
 }
 
-static int t32_set_tiziano_par(u32 pa)
+static int t32_set_tiziano_par(const struct t32_tiziano_par *par)
 {
+	u32 pa = par->pa;
 	struct t32_alloc *a = t32_alloc_find_pa(pa);
 	const u32 *w;
 
 	if (!a)
 		return -EINVAL;
 	core.tiziano_pa = pa;
+	if (par->vinum < T32_BIN_VIS) {
+		core.bin_wdr[par->vinum] = par->wdr;
+		core.bin_night[par->vinum] = par->night;
+	}
 	/* libimp wrote the bin through an uncached /dev/mem mapping */
 	w = (const u32 *)CKSEG1ADDR(pa);
 	isp_printf(0, "tx-isp-t32: IQ parameters at pa %#x: %08x %08x %08x %08x \n",
@@ -432,11 +458,21 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		break;
 	case T32_IOC_DEFAULT_BIN: {
 		char *buf = kzalloc(T32_DEFAULT_BIN_SIZE, GFP_KERNEL);
+		u8 n;
 
 		if (!buf) {
 			ret = -ENOMEM;
 			break;
 		}
+		if (copy_from_user(buf, (void __user *)arg, T32_DEFAULT_BIN_SIZE)) {
+			kfree(buf);
+			ret = -EFAULT;
+			break;
+		}
+		n = buf[T32_DEFAULT_BIN_VI];
+		buf[T32_DEFAULT_BIN_FIRST] = 0;
+		*(u32 *)(buf + T32_DEFAULT_BIN_WDR) = n < T32_BIN_VIS ? core.bin_wdr[n] : 0;
+		*(u32 *)(buf + T32_DEFAULT_BIN_DN) = n < T32_BIN_VIS ? core.bin_night[n] : 0;
 		strlcpy(buf + T32_DEFAULT_BIN_VER, bin_version,
 			T32_DEFAULT_BIN_SOC - T32_DEFAULT_BIN_VER);
 		strlcpy(buf + T32_DEFAULT_BIN_SOC, driver_soc,
@@ -458,11 +494,14 @@ static long t32_isp_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		if (!ret)
 			ret = t32_free(&bi);
 		break;
-	case T32_IOC_SET_TIZIANO_PAR:
-		ret = T32_GET(arg, v);
+	case T32_IOC_SET_TIZIANO_PAR: {
+		struct t32_tiziano_par par;
+
+		ret = T32_GET(arg, par);
 		if (!ret)
-			ret = t32_set_tiziano_par(v);
+			ret = t32_set_tiziano_par(&par);
 		break;
+	}
 	case T32_IOC_ENUMINPUT: {
 		/* {index, name[32]}: libimp walks the inputs and matches the name */
 		struct { u32 index; char name[32]; } in;
