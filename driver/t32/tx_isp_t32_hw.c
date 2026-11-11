@@ -368,8 +368,10 @@ static void t32_tisp_init(void)
 		}
 	}
 	off = t32_iq_section(bin, bytes, T32_SEC_DPC, &len);
-	if (off && len >= T32_DPC_SEC_BYTES)
+	if (off && len >= T32_DPC_SEC_BYTES) {
 		t32_tisp_flush("dpc", t32_dpc_init(bin + off, 0, tisp_w));	/* wide: ISP reg 0x88 & 0x1f > 4, never with this front end */
+		t32_pf_attach(T32_PP_DPC, kmemdup(bin + off, len, GFP_KERNEL));
+	}
 	off = t32_iq_section(bin, bytes, T32_SEC_YDNS, &len);
 	if (off && len >= T32_YDNS_SEC_BYTES) {
 		t32_tisp_flush("ydns", t32_ydns_init(bin + off, tisp_w));
@@ -645,6 +647,7 @@ void t32_hw_stream_on(void)
 	t32_front_init();
 	t32_stats_init();
 	t32_tisp_init();
+	t32_pf_start();
 	t32_hw_rcfg_run_stream_on();
 	isp_wr(0x002c, 2);
 	isp_wr(0x1040, 1);

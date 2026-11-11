@@ -6,7 +6,7 @@
  * (t32_tisp_init in tx_isp_t32_hw.c) and never again; the vendor refreshes
  * them on every AE run through tisp_long_tgain_update.
  *
- * Block 1, gain-interpolated filters: DMSC, YSP, CDNS, YDNS, SDNS; block 2 MDNS.
+ * Block 1, gain-interpolated filters: DMSC, YSP, CDNS, YDNS, SDNS; block 2 MDNS; block 3 DPC (long-frame gain).
  *  - At stream-on the init path hands each block its IQ bin section (the copy
  *    the init function already edited, as the vendor keeps tparams) and the
  *    context is built the way the vendor's tisp_<blk>_init leaves it: zeroed
@@ -44,6 +44,7 @@
 #include "tx_isp_t32_ydns.h"
 #include "tx_isp_t32_sdns.h"
 #include "tx_isp_t32_mdns.h"
+#include "tx_isp_t32_dpc.h"
 
 /*
  * Vendor t32_data_d03a0: 1 = registers go into the shadow image / register
@@ -56,7 +57,7 @@ static unsigned int t32_ported_paths = 1;
 module_param(t32_ported_paths, uint, 0644);
 MODULE_PARM_DESC(t32_ported_paths,
 		 "1 (default): every wired per-frame block on its ported path; 0: all on the old path; "
-		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns)");
+		 "else bit mask, bit 1+n = block n (0 dmsc, 1 ysp, 2 cdns, 3 ydns, 4 sdns, 5 mdns, 6 dpc)");
 
 static unsigned int tisp_tgain = 0x10000;
 module_param(tisp_tgain, uint, 0644);
@@ -81,7 +82,9 @@ static struct {
 	struct t32_ydns_ctx ydns;
 	struct t32_sdns_ctx sdns;
 	struct t32_mdns_ctx mdns;
+	struct t32_dpc_ctx dpc;
 	bool have[T32_PP_COUNT];
+	bool ready;		/* every block of this stream attached */
 	u32 last_tgain[1];	/* vendor t32_data_dd... last low gain word, per channel */
 } pf;
 
@@ -112,10 +115,18 @@ static u32 pf_reg_read(u32 ch, u32 reg)
 	return t32_hw_rd(reg);
 }
 
-/* DPC / LSC / LCE / TMO / AWB gain updates: not wired yet (old path) */
+/*
+ * The 64-bit gain hooks.  DPC: tisp_dpc_l_gain_update reads the low word (a2
+ * of the o32 a2:a3 pair).  LSC / LCE / TMO / AWB: not wired yet (old path).
+ */
 static void pf_gain(enum t32_ltg_gain blk, u32 ch, u64 gain, u32 x, u32 y)
 {
-	(void)blk; (void)ch; (void)gain; (void)x; (void)y;
+	int n = 0;
+
+	(void)x; (void)y;
+	if (blk == T32_LTG_DPC && pf.have[T32_PP_DPC] && t32_pp_on(T32_PP_DPC))
+		n = t32_dpc_l_gain_update(&pf.dpc, (u8)ch, (u32)gain, pf_w);
+	pf_flush(n);
 }
 
 static void pf_refresh(enum t32_ltg_ref blk, u32 ch, u32 gain)
@@ -173,7 +184,7 @@ static void pf_work_fn(struct work_struct *w)
 {
 	(void)w;
 	mutex_lock(&pf_lock);
-	if (pf_w && pf_any_filter()) {
+	if (pf_w && pf.ready && pf_any_filter()) {
 		t32_long_tgain_update(&pf_ltg_ops, t32_data_d03a0, pf.last_tgain, 0,
 				      READ_ONCE(tisp_tgain), 0, 0, 0, 0);
 		t32_pf_stats.runs++;
@@ -203,6 +214,8 @@ static void pf_free_locked(void)
 	kfree(pf.sdns.param);
 	kfree(pf.mdns.sec);
 	kfree(pf.mdns.val);
+	kfree(pf.dpc.sec);
+	kfree(pf.dpc.o);
 	memset(&pf, 0, sizeof(pf));
 }
 
@@ -240,6 +253,9 @@ void t32_pf_attach(enum t32_pp blk, u8 *sec)
 	case T32_PP_YDNS:
 	case T32_PP_SDNS:
 		vals = T32_PF_PARAM_SMALL;
+		break;
+	case T32_PP_DPC:
+		vals = T32_DPC_VALUES;
 		break;
 	default:
 		kfree(sec);
@@ -279,6 +295,25 @@ void t32_pf_attach(enum t32_pp blk, u8 *sec)
 		pf.sdns.param = param;
 		pf.sdns.gain = (u32)-1;
 		break;
+	case T32_PP_DPC:
+		/*
+		 * tisp_dpc_init (recovered C): the four 11-point tables from the
+		 * section, WDR byte 0, wide byte (0 with this front end), both gains
+		 * 0, zeroed value block, then the gain interpolation of both sets.
+		 */
+		pf.dpc.sec = sec;
+		pf.dpc.o = param;
+		memcpy(pf.dpc.tbl, sec + 6, 22);
+		memcpy(pf.dpc.tbl + 22, sec + 270, 22);
+		memcpy(pf.dpc.tbl + 44, sec + 28, 22);
+		memcpy(pf.dpc.tbl + 66, sec + 292, 22);
+		pf.dpc.wdr = 0;
+		pf.dpc.wide = 0;
+		pf.dpc.gain = 0;
+		pf.dpc.gain1 = 0;
+		t32_dpc_gain_interp(&pf.dpc, 0);
+		t32_dpc_gain_interp(&pf.dpc, 1);
+		break;
 	default:
 		break;
 	}
@@ -307,6 +342,14 @@ void t32_pf_attach_mdns(u8 *sec, u8 *val, u32 width, u32 height, u32 memopt)
 	pf.mdns.height = height;
 	pf.mdns.memopt = memopt;
 	pf.have[T32_PP_MDNS] = true;
+	mutex_unlock(&pf_lock);
+}
+
+/* end of the stream-on init: the per-frame runs may start */
+void t32_pf_start(void)
+{
+	mutex_lock(&pf_lock);
+	pf.ready = true;
 	mutex_unlock(&pf_lock);
 }
 
