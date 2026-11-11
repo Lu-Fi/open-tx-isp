@@ -2466,3 +2466,28 @@ static inline void t32_tmo_adr_reg_write_every(const u8 *blk, const u8 *ctx, int
 		io->regw(io->cb, ch, s ? 7973U + k : 29688U + 4U * k, PAIR(blk, 532 + 4 * k));
 #undef PAIR
 }
+
+/* ---- phase 13a: adr_algorithm ---- */
+
+/*
+ * tisp_tmo_adr_algorithm (ch): ctx = the channel's context.  tmp = the 7 u16 of t32_data_c04b8 (copied: memcpy 14 bytes); tisp_tmo_adr_interp1_short
+ * (xs = ctx + 9272 (129 s16), ys = t32_data_d87a0 (129 s16), in = tmp, out, 129, 7) gives 7 values o[0..6]; ctx u16 [8754 + 2 p] = o[p + 1] - o[p]
+ * for p = 0 .. 5; then ctx16[8772] = ctx16[8762], ctx16[8774] = ctx16[8764], ctx16[8768] = ctx16[8754] + ctx16[8756], ctx16[8770] =
+ * ctx16[8758] + ctx16[8760] (u16 arithmetic, offsets in bytes); then tisp_tmo_adr_fpga (ch) (hook), return 0.  Dropped: the vendor's printk
+ * every 1000th call (t32_data_e3516 % 1000 == 0; e3516 is a counter u16 only read here).
+ */
+static inline void t32_tmo_adr_algorithm(u8 *ctx, const s16 *c04b8, const s16 *d87a0, void (*fpga)(void *, int), void *cb, int ch)
+{
+	s16 tmp[7], o[7];
+	int p;
+
+	memcpy(tmp, c04b8, 14);
+	t32_tmo_adr_interp1_short((const s16 *)(ctx + 9272), d87a0, tmp, o, 129, 7);
+	for (p = 0; p < 6; p++)
+		*(u16 *)(ctx + 8754 + 2 * p) = (u16)(o[p + 1] - o[p]);
+	*(u16 *)(ctx + 8772) = t32_tmo_ld16(ctx, 8762);
+	*(u16 *)(ctx + 8774) = t32_tmo_ld16(ctx, 8764);
+	*(u16 *)(ctx + 8768) = (u16)(t32_tmo_ld16(ctx, 8754) + t32_tmo_ld16(ctx, 8756));
+	*(u16 *)(ctx + 8770) = (u16)(t32_tmo_ld16(ctx, 8758) + t32_tmo_ld16(ctx, 8760));
+	fpga(cb, ch);
+}
